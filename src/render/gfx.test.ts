@@ -1,4 +1,4 @@
-// Графика устройства (`render/gfx.ts`): запись выбора, адрес стенда, память сторожа.
+// Графика устройства (`render/gfx.ts`): запись выбора, адрес стенда, память сторожа; вид у игры один — город.
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -28,46 +28,70 @@ beforeEach(() => {
 });
 afterEach(() => setGfxStorage({ read: () => null, write: () => undefined }));
 
-describe('выбор игрока', () => {
-  it('по умолчанию — новый вид, прежний доступен в настройках', () => {
-    // Ничего не выбрано — новый вид и уровень по устройству (телефон сам выше среднего не встаёт — `quality.test.ts`).
-    expect(mem.size, 'область: записи нет').toBe(0);
-    expect(gfx()).toEqual({ look: 'next', quality: 'auto' });
-    expect(GFX_DEFAULT).toEqual({ look: 'next', quality: 'auto' });
-    // Прежний вид — строка «Простой вид» в настройках: включённая пишет `now`, выключенная возвращает `next`;
-    // строка уровня при простом виде спрятана — у прежнего вида уровень ничего не меняет.
-    const src = readFileSync(path.resolve(__dirname, '../ui/parts/Settings.tsx'), 'utf8');
-    expect(src, 'строка прежнего вида в настройках').toMatch(/<span className="name">\s*Простой вид\s*<em/);
-    expect(src, 'простой вид — это прежний').toContain("const simple = look.look === 'now';");
-    expect(src, 'выключатель пишет прежний вид и снимает его').toContain(
-      "onClick={() => setGfx({ look: simple ? 'next' : 'now' })} aria-pressed={simple}",
-    );
-    expect(src, 'уровень — только у нового вида').toMatch(/\{!simple && \(\s*<div className="set-row pick">/);
-    setGfx({ look: 'now' });
-    expect(gfx()).toEqual({ look: 'now', quality: 'auto' });
-    setGfx({ look: 'next' });
-    expect(gfx()).toEqual({ look: 'next', quality: 'auto' });
-  });
+const strip = (src: string): string => src.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/.*$/gm, '$1');
+const read = (rel: string): string => readFileSync(path.resolve(__dirname, '..', rel), 'utf8');
 
-  it('прежний вид, выбранный раньше, остаётся: смена умолчания выбора не отнимает', () => {
-    // Запись прошлой сборки: игрок выключил «Новый вид» — выключатель писал `look: 'now'` и уровень как был.
-    mem.set(GFX_KEY, JSON.stringify({ look: 'now', quality: 'auto' }));
-    expect(gfx()).toEqual({ look: 'now', quality: 'auto' });
+describe('вид один — город', () => {
+  it('по умолчанию и всегда — город: вида нет ни в выборе, ни в адресе, ни в настройках, а игра собирает только его', () => {
+    // Ничего не выбрано — уровень по устройству (телефон сам выше среднего не встаёт — `quality.test.ts`).
+    expect(mem.size, 'область: записи нет').toBe(0);
+    expect(gfx()).toEqual({ quality: 'auto' });
+    expect(GFX_DEFAULT).toEqual({ quality: 'auto' });
+    // Адрес вида прошлых сборок ничего не меняет: сцена та же — город.
+    for (const search of ['', '?look=now', '?look=next', '?look=city']) {
+      expect(sceneGfx(gfx(), search), search || 'без адреса').toEqual({ quality: null, asked: false });
+    }
+    // Настройки выбирают только уровень: строки прежнего вида нет, строка уровня — всегда (её место для слабых
+    // устройств — «Низкая»).
+    const settings = strip(read('ui/parts/Settings.tsx'));
+    expect(settings, 'строки прежнего вида нет').not.toMatch(/Простой вид|Новый вид|\blook\b/);
+    expect(settings, 'строка уровня есть').toMatch(/<div className="set-row pick">/);
+    expect(settings, 'и она без условия').not.toMatch(/&& \(\s*<div className="set-row pick">/);
+    // Игра собирает сцену города и только её: кусок едет до игры без условий, холст берёт его класс.
+    const main = strip(read('main.tsx'));
+    expect(main, 'кусок города — до игры, всегда').toMatch(/void import\('\.\/render\/city\/scene'\)\.then\(start, start\);/);
+    expect(main, 'без выбора по виду').not.toMatch(/look/);
+    const canvas = strip(read('ui/GameCanvas.tsx'));
+    expect(canvas, 'класс сцены — город').toMatch(/const City = SCENES\.game;/);
+    expect(canvas, 'и только он').toMatch(/new City\(canvas, null, sceneGfx\(gfx\(\), window\.location\.search\)\)/);
+    expect(canvas, 'ни вида, ни другой сцены').not.toMatch(/\.look\b|new TribeScene|SCENES\[/);
+  });
+});
+
+describe('старый сохранённый выбор вида', () => {
+  it('ничего не ломает: прежний вид — город на «Авто», уровень нового вида — выбор игрока, и он остаётся', () => {
+    // Записи прошлых сборок. «Простой вид» (до 01.10.2026 — выключенный «Новый вид») писал `look: 'now'` и уровень,
+    // который при нём был спрятан, — решение владельца: такому игроку город на «Авто».
+    for (const quality of ['auto', 'low', 'medium', 'high']) {
+      mem.set(GFX_KEY, JSON.stringify({ look: 'now', quality }));
+      expect(gfx(), `прежний вид, уровень ${quality}`).toEqual({ quality: 'auto' });
+      expect(sceneGfx(gfx(), '')).toEqual({ quality: null, asked: false });
+    }
+    mem.set(GFX_KEY, JSON.stringify({ look: 'now' }));
+    expect(gfx(), 'прежний вид без уровня').toEqual({ quality: 'auto' });
+    // Новый вид с уровнем — уровень выбирал игрок, и городу он тот же.
+    for (const quality of ['low', 'medium', 'high'] as const) {
+      mem.set(GFX_KEY, JSON.stringify({ look: 'next', quality }));
+      expect(gfx(), `новый вид, уровень ${quality}`).toEqual({ quality });
+      expect(sceneGfx(gfx(), '')).toEqual({ quality, asked: true });
+    }
+    mem.set(GFX_KEY, JSON.stringify({ look: 'next', quality: 'auto' }));
+    expect(gfx()).toEqual({ quality: 'auto' });
+    // Первая запись после обновления — без поля вида, и выбор прежнего вида из неё не воскресает.
     mem.set(GFX_KEY, JSON.stringify({ look: 'now', quality: 'low' }));
-    expect(gfx()).toEqual({ look: 'now', quality: 'low' });
-    expect(sceneGfx(gfx(), '').look).toBe('now');
-    // Выбравший новый вид — на нём же.
-    mem.set(GFX_KEY, JSON.stringify({ look: 'next', quality: 'medium' }));
-    expect(gfx()).toEqual({ look: 'next', quality: 'medium' });
+    setGfx({ quality: 'medium' });
+    expect(JSON.parse(mem.get(GFX_KEY)!)).toEqual({ quality: 'medium' });
+    expect(gfx()).toEqual({ quality: 'medium' });
   });
 
   it('битая и чужая запись — умолчание, поле за полем', () => {
     expect(gfxOf('{')).toEqual(GFX_DEFAULT);
     expect(gfxOf('"next"')).toEqual(GFX_DEFAULT);
-    expect(gfxOf(JSON.stringify({ look: 'next', quality: 'ultra' }))).toEqual({ look: 'next', quality: 'auto' });
-    // Вид, которого нет, и запись без вида — не выбор прежнего: умолчание.
-    expect(gfxOf(JSON.stringify({ look: 'wow', quality: 'low' }))).toEqual({ look: 'next', quality: 'low' });
-    expect(gfxOf(JSON.stringify({ quality: 'high' }))).toEqual({ look: 'next', quality: 'high' });
+    expect(gfxOf('null')).toEqual(GFX_DEFAULT);
+    expect(gfxOf(JSON.stringify({ look: 'next', quality: 'ultra' }))).toEqual({ quality: 'auto' });
+    // Вид, которого не было, и запись без вида — уровень из записи.
+    expect(gfxOf(JSON.stringify({ look: 'wow', quality: 'low' }))).toEqual({ quality: 'low' });
+    expect(gfxOf(JSON.stringify({ quality: 'high' }))).toEqual({ quality: 'high' });
   });
 
   it('запись будит подписчиков, чтение отдаёт тот же объект, пока запись та же', () => {
@@ -75,40 +99,36 @@ describe('выбор игрока', () => {
     const off = subscribeGfx(() => calls++);
     const a = gfx();
     expect(gfx()).toBe(a);
-    setGfx({ look: 'now' });
+    setGfx({ quality: 'high' });
     expect(calls).toBe(1);
-    expect(gfx()).toEqual({ look: 'now', quality: 'auto' });
-    setGfx({ look: 'next' });
+    expect(gfx()).toEqual({ quality: 'high' });
     setGfx({ quality: 'low' });
-    expect(calls).toBe(3);
-    expect(gfx()).toEqual({ look: 'next', quality: 'low' });
-    expect(JSON.parse(mem.get(GFX_KEY)!)).toEqual({ look: 'next', quality: 'low' });
+    expect(calls).toBe(2);
+    expect(gfx()).toEqual({ quality: 'low' });
+    expect(JSON.parse(mem.get(GFX_KEY)!)).toEqual({ quality: 'low' });
     off();
   });
 });
 
 describe('что рисовать', () => {
   it('адрес сильнее записи и в запись не пишется', () => {
-    const g = { look: 'now', quality: 'medium' } as const;
-    expect(sceneGfx(g, '')).toEqual({ look: 'now', quality: 'medium', asked: true });
-    expect(sceneGfx(g, '?look=next&quality=low')).toEqual({ look: 'next', quality: 'low', asked: true });
-    expect(sceneGfx(g, '?quality=auto')).toEqual({ look: 'now', quality: null, asked: false });
-    // Ступени предыстории (`?look=lite`) — не вид посёлка.
-    expect(sceneGfx(g, '?look=lite').look).toBe('now');
-    // Простой вид адресом — при новом виде в записи.
-    expect(sceneGfx({ look: 'next', quality: 'auto' }, '?look=now')).toEqual({ look: 'now', quality: null, asked: false });
+    const g = { quality: 'medium' } as const;
+    expect(sceneGfx(g, '')).toEqual({ quality: 'medium', asked: true });
+    expect(sceneGfx(g, '?quality=low')).toEqual({ quality: 'low', asked: true });
+    expect(sceneGfx(g, '?quality=auto')).toEqual({ quality: null, asked: false });
+    // Чужое слово — не уровень: остаётся выбор игрока.
+    expect(sceneGfx(g, '?quality=ultra')).toEqual({ quality: 'medium', asked: true });
     expect(mem.size).toBe(0);
   });
 });
 
 describe('когда пересобирать сцену', () => {
-  it('ключ меняется со сменой вида и уровня нового вида, а уровень прежнего вида — не повод', () => {
-    expect(gfxKey({ look: 'now', quality: 'auto' }, '')).toBe('now');
-    expect(gfxKey({ look: 'now', quality: 'high' }, '')).toBe('now');
-    expect(gfxKey({ look: 'next', quality: 'auto' }, '')).toBe('next:auto');
-    expect(gfxKey({ look: 'next', quality: 'low' }, '')).toBe('next:low');
-    // Адрес сильнее записи: при ?look=next запись вида ключа не меняет.
-    expect(gfxKey({ look: 'now', quality: 'auto' }, '?look=next')).toBe('next:auto');
+  it('ключ — уровень: сменился выбор или адрес — новый ключ', () => {
+    expect(gfxKey({ quality: 'auto' }, '')).toBe('auto');
+    expect(gfxKey({ quality: 'low' }, '')).toBe('low');
+    expect(gfxKey({ quality: 'high' }, '?quality=medium')).toBe('medium');
+    // Адрес вида прошлых сборок ключа не меняет.
+    expect(gfxKey({ quality: 'low' }, '?look=now')).toBe('low');
   });
 
   it('кнопки уровня — все уровни и «авто», по разу', () => {

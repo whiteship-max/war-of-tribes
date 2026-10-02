@@ -1,12 +1,16 @@
 // Вид «город» (docs/city.md): бюджет по уровням против границ владельца, раскладка (дома внутри
 // стены, не на улицах и не друг на друге), лес вне стены и гласиса, слои текстур — от зерна и
 // без шва по краю плитки.
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { cityPlan, distPoly, insidePoly, type House } from './layout';
-import { cityCounts, CITY_BUDGET } from './budget';
+import { cityCounts, CITY_BUDGET, type CityCounts } from './budget';
 import { forestAt, placeTrees } from './nature';
 import { LAYERS, paintLayer, TILE_M } from './tex';
-import { QUALITIES } from '../quality';
+import { LIFE_CAP } from './spec';
+import { QUALITIES, type Quality } from '../quality';
+import { sceneGfx } from '../gfx';
 
 const plan = cityPlan();
 
@@ -21,10 +25,18 @@ const corners = (h: House): { x: number; z: number }[] => {
   ].map(([a, c]) => ({ x: h.x + rx * (h.w / 2) * a + h.fx * (h.d / 2) * c, z: h.z + rz * (h.w / 2) * a + h.fz * (h.d / 2) * c }));
 };
 
+/** Счёт каждого уровня — один раз на файл: город собирается целиком, это секунды. */
+const counted = new Map<Quality, CityCounts>();
+const countsOf = (q: Quality): CityCounts => {
+  let c = counted.get(q);
+  if (!c) counted.set(q, (c = cityCounts(q, plan)));
+  return c;
+};
+
 describe('город: бюджет по уровням', () => {
   for (const q of QUALITIES) {
     it(`${q}: вызовы, треугольники с теневым проходом и память текстур — в границах владельца`, () => {
-      const c = cityCounts(q, plan);
+      const c = countsOf(q);
       const lim = CITY_BUDGET[q];
       expect(c.calls, 'вызовов').toBeLessThanOrEqual(lim.calls);
       expect(c.triangles, 'треугольников').toBeLessThanOrEqual(lim.triangles);
@@ -34,6 +46,25 @@ describe('город: бюджет по уровням', () => {
       expect(c.trees).toBeGreaterThan(20_000);
     });
   }
+
+  it('уровни качества работают: выбор игрока доходит до сцены города, и низкий дешевле среднего, средний — высокого', () => {
+    // Выбор → сцена: уровень из записи (и адреса) идёт в сцену как есть, «Авто» — по устройству (`null`).
+    for (const q of QUALITIES) expect(sceneGfx({ quality: q }, ''), q).toEqual({ quality: q, asked: true });
+    expect(sceneGfx({ quality: 'auto' }, '')).toEqual({ quality: null, asked: false });
+    // Сцена → город: мир, тени и жизнь собираются по уровню сцены, а не по своему числу.
+    const scene = readFileSync(join(__dirname, 'scene.ts'), 'utf8');
+    expect(scene, 'мир').toMatch(/buildCity\(this\.quality\)/);
+    expect(scene, 'тени').toMatch(/CITY_SPEC\[this\.quality\]/);
+    expect(scene, 'жизнь').toMatch(/new CityLife\(\{[^}]*quality: this\.quality/);
+    // Уровни разные на деле: каждый следующий дешевле предыдущего — треугольниками и памятью текстур.
+    const [high, medium, low] = (['high', 'medium', 'low'] as const).map(countsOf);
+    expect(low.triangles, 'треугольники: низкий < средний').toBeLessThan(medium.triangles);
+    expect(medium.triangles, 'треугольники: средний < высокий').toBeLessThan(high.triangles);
+    expect(low.textureMb, 'текстуры: низкий < средний').toBeLessThan(medium.textureMb);
+    expect(medium.textureMb, 'текстуры: средний < высокий').toBeLessThan(high.textureMb);
+    expect(LIFE_CAP.low.people, 'жизнь: низкий < средний').toBeLessThan(LIFE_CAP.medium.people);
+    expect(LIFE_CAP.medium.people, 'жизнь: средний < высокий').toBeLessThan(LIFE_CAP.high.people);
+  });
 });
 
 describe('город: раскладка', () => {

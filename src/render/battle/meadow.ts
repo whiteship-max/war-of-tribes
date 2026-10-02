@@ -9,8 +9,8 @@
 // Цена — вызов на траву, вызов на цветы и по два на породу деревьев (сам меш и его тень).
 import * as THREE from 'three';
 import type { Ground } from '@/battle/replay';
-import { envShared, vegMaterial, type EnvShared } from '../env/materials';
-import { flowerModel, treeModel, tuftModel } from '../env/models';
+import { envShared, vegMaterial, type EnvShared } from './veg';
+import { flowerModel, treeModel, tuftModel } from './flora';
 import { PALETTE, seasonColor, type PaletteKey } from '../palette';
 import { hash, meadowAt, woodsSpots, groundHeight } from './ground';
 
@@ -130,7 +130,7 @@ export function buildMeadow(g: Ground): MeadowView {
       { a: color('trunk'), b: color(species), sway: species === 'spruce' ? 0.9 : 0.7, flat: true, snowy: true },
       shared,
     );
-    const trees = instanced(treeModel(species, 'near'), mat, list.length, `meadow-${species}`);
+    const trees = instanced(treeModel(species), mat, list.length, `meadow-${species}`);
     trees.castShadow = true;
     list.forEach((t, i) => {
       place(trees, i, t.x, t.y, t.z, hash(Math.round(t.x * 31 + t.z * 17)) * Math.PI * 2, t.scale * TREE_SCALE);

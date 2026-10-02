@@ -1,18 +1,17 @@
-// Сцена вида «город» в игре (docs/city.md): `?look=city`. Наследник сцены посёлка: всё, что у сцены
-// выстрадано — потеря контекста и её лечение, возвращение из фона, сторож кадров, дверь кадра, общий
-// судья пальца, панорама и щипок, одалживание холста ролику о бое, — то же самое, одним кодом. Своё у
-// города — мир (план, модели, земля, лес), камера в метрах, свет на весь мыс, касание по коробкам мест
-// и подсветка выбранного.
+// Сцена игры — город (docs/city.md), единственный вид с 02.10.2026. Наследник общей оболочки сцены
+// (`render/Scene.ts`): всё, что у сцены выстрадано, — потеря контекста и её лечение, возвращение из фона,
+// сторож кадров и плавности, дверь кадра, общий судья пальца, панорама и щипок, одалживание холста ролику
+// о бое, — там, одним кодом. Своё у города — мир (план, модели, земля, лес, вода), камера в метрах, свет на
+// весь мыс, касание по коробкам мест и подсветка выбранного.
 //
-// Ленивый кусок: едет до игры только при `?look=city` (`main.tsx`) и кладёт свой класс в `SCENES`.
+// Ленивый кусок: едет до игры (`main.tsx`) и кладёт свой класс в `SCENES`.
 import * as THREE from 'three';
 import type { BuildingTypeId, GameState } from '@/game/types';
-import { armySize, buildingAttention, dayFraction, population, seasonOf, solarPhase, type Attention } from '@/game/derived';
+import { armySize, buildingAttention, population, type Attention } from '@/game/derived';
 import type { SmokeSource } from '../weather';
 import { WORK_SIGN, workBusy } from '../worksigns';
 import type { V3 } from './geom';
 import { CityLife } from './life';
-import { gameSeconds } from '@/game/pace';
 import { TAP_TARGET } from '@/gestures';
 import { SCENES, TribeScene, type BuildingView, type SceneLook } from '../Scene';
 import { RIG, applyDayNight, fitShadow, windowNight } from '../lighting';
@@ -34,20 +33,15 @@ export class CityScene extends TribeScene {
   /** Коробки 24 построек — с моделей, приходят вместе с городом. */
   private sites: Site[] = [];
   /** Город встал в сцену на полных слоях — стенду, чтобы снимать. */
-  readonly built: Promise<void>;
+  readonly ready: Promise<void>;
+  protected stepMax = CITY_STEP_MAX;
   /** Люди, стража, дым, флаги, птицы, скот — встают вместе с городом. */
   private folk: CityLife | null = null;
   /** Сколько народу на улицах и стражи на стене и какие дворы работают — из партии (`sync`). */
   private crowd: { people: number; guards: number; busy: BuildingTypeId[] } = { people: 40, guards: 6, busy: [] };
 
   constructor(canvas: HTMLCanvasElement, pixelRatio: number | null = null, opts: SceneLook = {}) {
-    super(canvas, pixelRatio, { ...opts, look: 'city' });
-    this.stepMax = CITY_STEP_MAX;
-    // Посёлок своим миром не нужен: земля, костёр-лампа, дым и фигурки — в масштабе посёлка.
-    // Точечную лампу костра — вон из сцены: она удорожала бы каждый пиксель города.
-    this.scene.remove(this.terrain, this.fireLight, this.figures.group, this.snowfall.points, this.smoke.points, this.chimneys.points, this.signs.group);
-    disposeGeometries(this.terrain);
-    this.terrain = new THREE.Group();
+    super(canvas, pixelRatio, opts);
     const spec = CITY_SPEC[this.quality];
     const sun = this.rig.sun;
     sun.shadow.mapSize.set(spec.shadowMap, spec.shadowMap);
@@ -60,8 +54,8 @@ export class CityScene extends TribeScene {
     const ring = this.selection.material as THREE.MeshBasicMaterial;
     ring.polygonOffset = true;
     ring.polygonOffsetFactor = -4;
-    // Город встаёт на слоях 256², `built` — когда пришли и полные (стенду — снимать на них).
-    this.built = buildCity(this.quality).then((c) => {
+    // Город встаёт на слоях 256², `ready` — когда пришли и полные (стенду — снимать на них).
+    this.ready = buildCity(this.quality).then((c) => {
       this.mount(c);
       return c.full;
     });
@@ -76,7 +70,6 @@ export class CityScene extends TribeScene {
     }
     this.town = c;
     this.sites = c.sites;
-    this.terrain = c.group;
     this.scene.add(c.group);
     this.folk = new CityLife({ plan: c.plan, chimneys: c.chimneys, flagTops: c.flagTops, quality: this.quality });
     this.scene.add(this.folk.group);
@@ -149,7 +142,6 @@ export class CityScene extends TribeScene {
   // ---------- Свет ----------
 
   protected override applyDayNight(solar: number): void {
-    if (this.silhouette) return;
     this.light = applyDayNight(this.rig, this.scene, solar, this.seasonVis, CITY_KEY, RIG.next);
     // Риг посёлка ставит лампу в сорока единицах от середины: городу — над целью камеры, далеко,
     // чтобы коробка теней шла за кадром.
@@ -168,19 +160,8 @@ export class CityScene extends TribeScene {
     return this.town !== null;
   }
 
-  protected override frame(): void {
-    this.drawn++;
-    const now = performance.now();
-    const gap = now - this.lastFrame;
-    this.lastFrame = now;
-    if (this.needSize || this.drawn % 60 === 0) this.checkSize();
-    const dt = Math.min(0.1, this.clock.getDelta());
-    if (this.lent) return;
-    this.watch(gap);
-    const t = this.clock.elapsedTime;
-    const gameNow = this.gameTime + gameSeconds((now - this.gameTimeAt) / 1000);
-    this.seasonVis.update(this.season, dt);
-    this.applyDayNight(solarPhase(dayFraction(gameNow), this.season));
+  /** Шейдер города за кадром (ночь, снег, осень, солнце, подсветка выбранного), огни, жизнь и значки. */
+  protected override animate(dt: number, t: number): void {
     const c = this.town;
     if (c) {
       const u = c.uniforms;
@@ -202,32 +183,15 @@ export class CityScene extends TribeScene {
       }
       this.folk?.update(dt, t, night, this.seasonVis.snow);
     }
+    // Значки покачиваются — взгляд цепляется без лишних цветов.
     for (const view of this.buildings.values()) {
       if (view.marker) view.marker.position.y = view.markerY + Math.sin(t * 2.2 + view.markerY) * 0.6;
     }
-    if (this.selection.visible) (this.selection.material as THREE.MeshBasicMaterial).opacity = 0.55 + Math.sin(t * 3) * 0.25;
-    // Автоповорот стенда (`spin`) идёт и у города: им меряют кадр на телефоне.
-    if (this.spinRate !== 0) {
-      this.spinTurn += this.spinRate * dt;
-      this.place();
-    }
-    this.renderer.info.reset();
-    this.renderer.shadowMap.needsUpdate = (this.frameNo++ & 1) === 0;
-    this.beforeRender?.();
-    this.renderer.render(this.scene, this.camera);
-    this.afterRender?.();
   }
 
   // ---------- Постройки ----------
 
-  override sync(s: GameState): void {
-    this.gameTime = s.time;
-    this.gameTimeAt = performance.now();
-    this.season = seasonOf(s.time);
-    if (!this.synced) {
-      this.synced = true;
-      this.seasonVis.jump(this.season);
-    }
+  protected override syncWorld(s: GameState): void {
     // Модели у города свои и одни навсегда (docs/city.md, раздел 5): уровни игры их не меняют. Здание
     // игры здесь — пустая группа на главном месте постройки: к ней цепляется значок, по её типу —
     // касание и подсветка.
@@ -238,7 +202,7 @@ export class CityScene extends TribeScene {
       if (!view) {
         const group = new THREE.Group();
         this.scene.add(group);
-        view = { group, tier: 0, type: b.type, box: new THREE.Box3(), scaffold: null, glow: null, marker: null, markerKind: null, markerY: 0 };
+        view = { group, type: b.type, marker: null, markerKind: null, markerY: 0 };
         this.buildings.set(b.id, view);
         this.place3(view);
       }
@@ -314,11 +278,6 @@ export class CityScene extends TribeScene {
     return cityPick(this.pickables(), this.camera, this.canvas.getBoundingClientRect(), clientX, clientY);
   }
 
-  /** Стена — такие же коробки, как всё: её ловит луч в `pickAt`. */
-  protected override pickWall(): number | null {
-    return null;
-  }
-
   /** Область главного места на экране — подсветке обучения; мелкое раздувается до пальца. */
   protected override hitBoxOf(id: number): HitBox | null {
     const view = this.buildings.get(id);
@@ -342,19 +301,6 @@ export class CityScene extends TribeScene {
     return s * s * 8 + (this.town?.textureBytes ?? 0);
   }
 
-  /**
-   * Сторож плавности города опускает плотность пикселей на этот заход, но **не пишет память устройства**
-   * (`gfx.rememberAutoCap`): она общая с посёлком, и тяжёлый кадр города на неделю опустил бы обычный вид
-   * игрока (находка проверки, docs/city.md, 11.9). Решение по уровню города — до следующего захода.
-   */
-  protected override watch(gap: number): void {
-    if (!this.steady || !this.settled()) return;
-    const next = this.steady.feed(gap);
-    if (!next) return;
-    this.dprLevel = next;
-    this.needSize = true;
-  }
-
   override dispose(): void {
     this.folk?.dispose();
     this.folk = null;
@@ -364,5 +310,5 @@ export class CityScene extends TribeScene {
   }
 }
 
-// Своё место в реестре сцен (`Scene.SCENES`): игра берёт класс оттуда по виду из адреса.
-Object.assign(SCENES, { city: CityScene });
+// Своё место в реестре сцен (`Scene.SCENES`): игра берёт класс сцены оттуда — другой сцены у неё нет.
+Object.assign(SCENES, { game: CityScene });

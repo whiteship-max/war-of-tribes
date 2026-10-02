@@ -3,19 +3,8 @@
 // Сами цвета живут в palette.ts (SEASON_OVERRIDES); здесь только движение к ним.
 import * as THREE from 'three';
 import type { Season } from '@/game/types';
-import { DECAL, KIT, LEGACY, type DecalKey, type MatKey } from './materials';
-import {
-  PALETTE,
-  SEASONAL_KEYS,
-  SEASON_BLOOM,
-  SEASON_CROP,
-  SEASON_SNOW,
-  SEASON_SUN_ARC,
-  SEASON_SWARD,
-  SEASON_TURN,
-  seasonColor,
-  type PaletteKey,
-} from './palette';
+import { KIT, LEGACY, type MatKey } from './materials';
+import { PALETTE, SEASONAL_KEYS, SEASON_SNOW, SEASON_SUN_ARC, SEASON_TURN, seasonColor } from './palette';
 
 /** Переиспользуемый цвет: lerp вызывается по разу на материал каждый кадр. */
 const TMP = new THREE.Color();
@@ -25,7 +14,6 @@ const TAU = 0.85;
 
 /** Что переливать: сезонные ключи палитры, у которых есть материал. */
 const TARGETS = SEASONAL_KEYS.filter((k): k is MatKey => k in LEGACY);
-const DECAL_TARGETS = SEASONAL_KEYS.filter((k): k is DecalKey => k in DECAL);
 
 /**
  * Держит текущее состояние палитры и подтягивает его к сезону каждый кадр.
@@ -42,32 +30,9 @@ export class SeasonVisuals {
   sunArc = 1;
   /** 0 — снега нет, 1 — полная зима. Гонит частицы, дым и длину ночи. */
   snow = 0;
-  /** Доля травы над снегом и доля цветущих цветов (`SEASON_SWARD`, `SEASON_BLOOM`). */
-  sward = 1;
-  bloom = 1;
-  /** Доля всходов на пашне (`SEASON_CROP`). */
-  crop = 1;
   /** Доля деревьев со второй осенней листвой (`SEASON_TURN`). */
   turn = 0;
   private started = false;
-  /** Сезон, к которому идёт перелив: по нему встаёт цвет, спрошенный впервые. */
-  private target: Season = 'spring';
-  /**
-   * Цвета палитры без материала в общих наборах — их берёт окружение пробы
-   * (`render/env`): у него свои материалы, и сезон доходит до них только так.
-   * Переливаются тем же шагом, что наборы, и заводятся по первому спросу.
-   */
-  private loose = new Map<PaletteKey, THREE.Color>();
-
-  /** Цвет ключа палитры в нынешнем переливе сезона. Объект живой: его и держат материалы. */
-  color(key: PaletteKey): THREE.Color {
-    let c = this.loose.get(key);
-    if (!c) {
-      c = new THREE.Color().setHex(seasonColor(this.target, key));
-      this.loose.set(key, c);
-    }
-    return c;
-  }
 
   /**
    * Поставить сезон мгновенно, без перелива. Сцена зовёт это при первой
@@ -83,22 +48,16 @@ export class SeasonVisuals {
     // Первый кадр ставим палитру мгновенно: иначе партия начинается с перелива.
     const k = this.started ? 1 - Math.exp(-dt / TAU) : 1;
     this.started = true;
-    this.target = season;
-    for (const [key, c] of this.loose) c.lerp(TMP.setHex(seasonColor(season, key)), k);
     for (const key of TARGETS) {
       TMP.setHex(seasonColor(season, key));
       KIT[key].color.lerp(TMP, k);
       LEGACY[key].color.lerp(TMP, k);
     }
-    for (const key of DECAL_TARGETS) DECAL[key].color.lerp(TMP.setHex(seasonColor(season, key)), k);
     this.sky.lerp(TMP.setHex(seasonColor(season, 'sky')), k);
     this.fog.lerp(TMP.setHex(seasonColor(season, 'fog')), k);
     this.sun.lerp(TMP.setHex(seasonColor(season, 'sunDay')), k);
     this.sunArc += (SEASON_SUN_ARC[season] - this.sunArc) * k;
     this.snow += (SEASON_SNOW[season] - this.snow) * k;
-    this.sward += (SEASON_SWARD[season] - this.sward) * k;
-    this.bloom += (SEASON_BLOOM[season] - this.bloom) * k;
-    this.crop += (SEASON_CROP[season] - this.crop) * k;
     this.turn += (SEASON_TURN[season] - this.turn) * k;
   }
 }

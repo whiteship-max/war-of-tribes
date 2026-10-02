@@ -8,6 +8,7 @@ import { cityPlan, type CityPlan } from './layout';
 import { buildStatic } from './budget';
 import { groundGrid, groundMap } from './ground';
 import { landMap, placeTrees, type Species, type TreeInst } from './nature';
+import { groundWet, shoreItems, type Reed, type Stone } from './banks';
 import type { Site } from './sites';
 import { CITY_SPEC } from './spec';
 
@@ -42,7 +43,11 @@ export interface CityWorld {
   map: Uint8Array;
   land: Uint8Array;
   grid: { positions: Float32Array; normals: Float32Array; index: Uint32Array };
+  /** Сырость земли у воды в каждой вершине сетки (`banks.groundWet`): ил, сырая земля, влажная трава. */
+  wet: Float32Array;
   trees: Record<Species, TreeInst[]>;
+  /** Камыш у кромки и камни на берегу (`banks.shoreItems`). */
+  shore: { reeds: Reed[]; stones: Stone[] };
   /** Сколько стоила каждая часть, мс — подписи стенда и таблице бюджета. */
   ms: { plan: number; build: number; ground: number; trees: number };
 }
@@ -57,6 +62,9 @@ export function buildWorld(q: Quality): CityWorld {
   const map = groundMap(plan, spec.map);
   const land = landMap(plan, spec.land);
   const grid = groundGrid(spec.groundCells, spec.groundCell, { x: 0, z: -20 }, 1400);
+  const wet = new Float32Array(grid.positions.length / 3);
+  for (let k = 0; k < wet.length; k++) wet[k] = groundWet(grid.positions[k * 3], grid.positions[k * 3 + 2]);
+  const shore = shoreItems(plan, q);
   const t3 = performance.now();
   const trees = placeTrees(plan, spec.treeNear, spec.nearStep, spec.farStep, spec.treeReach);
   const t4 = performance.now();
@@ -72,7 +80,9 @@ export function buildWorld(q: Quality): CityWorld {
     map,
     land,
     grid: { positions: grid.positions, normals: grid.normals, index: grid.index },
+    wet,
     trees,
+    shore,
     ms: { plan: t1 - t0, build: t2 - t1, ground: t3 - t2, trees: t4 - t3 },
   };
 }
@@ -80,5 +90,5 @@ export function buildWorld(q: Quality): CityWorld {
 /** Буферы, которые поток передаёт, а не копирует. */
 export function transferables(w: CityWorld): ArrayBuffer[] {
   const b = w.buildings;
-  return [b.pos, b.nor, b.uv, b.col, b.cfg, b.idx, w.map, w.land, w.grid.positions, w.grid.normals, w.grid.index].map((a) => a.buffer as ArrayBuffer);
+  return [b.pos, b.nor, b.uv, b.col, b.cfg, b.idx, w.map, w.land, w.grid.positions, w.grid.normals, w.grid.index, w.wet].map((a) => a.buffer as ArrayBuffer);
 }

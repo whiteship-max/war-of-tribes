@@ -1,6 +1,6 @@
 import { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import { useGame } from '@/game/store';
-import { SCENES, TribeScene } from '@/render/Scene';
+import { SCENES, type TribeScene } from '@/render/Scene';
 import { bootDone, bootStage } from '@/boot/stage';
 import { afterPaint } from '@/boot/paint';
 import { probe } from '@/debug';
@@ -44,10 +44,16 @@ export function GameCanvas() {
    * экран поломки. Поймано стендом (`npm run revive:report`, случай 2).
    */
   const rebuiltAt = useRef(Number.NEGATIVE_INFINITY);
+  /**
+   * Номер первой сборки, на которой сцена встала. Стадия загрузки и её снятие бывают раз за
+   * партию, и первая сборка — не всегда номер ноль: класс сцены мог не приехать к ней (ниже).
+   * Номер, а не флаг: в StrictMode эффект первой сборки заходит дважды, и оба захода — первые.
+   */
+  const bootGen = useRef<number | null>(null);
 
   /**
-   * Графика сменилась в настройках — сцена пересобирается на новой канве с новым видом:
-   * сменить вид на живой сцене нельзя (docs/handbook/scene.md). Это не лечение, поэтому
+   * Графика сменилась в настройках — сцена пересобирается на новой канве с новым уровнем:
+   * сменить уровень на живой сцене нельзя (docs/handbook/scene.md). Это не лечение, поэтому
    * отметки «только что пересобирали» нет — потеря контекста следом лечится как обычно.
    */
   useLayoutEffect(() => {
@@ -75,6 +81,29 @@ export function GameCanvas() {
     const wrap = wrapRef.current;
     if (!wrap) return;
     /*
+     * Сцена у игры одна — город (docs/city.md, «Город — единственный вид»), и её класс едет
+     * своим куском: `main.tsx` везёт его до игры. Не приехал (сеть, страница старой сборки
+     * после выкладки) — просим ещё раз и собираем, когда придёт; не пришёл и так — экран
+     * восстановления: его кнопка зовёт эту же сборку, а с ней и новую просьбу.
+     */
+    const City = SCENES.game;
+    if (!City) {
+      let gone = false;
+      void import('@/render/city/scene').then(
+        () => {
+          if (!gone) setGen((n) => n + 1);
+        },
+        () => {
+          if (!gone) setTrouble('gone');
+        },
+      );
+      return () => {
+        gone = true;
+      };
+    }
+    if (bootGen.current === null) bootGen.current = gen;
+    const first = gen === bootGen.current;
+    /*
      * Канву заводит эффект, а не разметка, и это не вкусовщина.
      *
      * `dispose` отдаёт контекст WebGL насильно (`forceContextLoss`) — иначе
@@ -93,13 +122,11 @@ export function GameCanvas() {
     wrap.appendChild(canvas);
     // Стадия загрузки и её снятие бывают раз за партию: пересборка диораму
     // меняет, а экран загрузки давно ушёл, и звать его обратно незачем.
-    if (gen === 0) bootStage('scene');
-    // Вид и уровень — выбор игрока (пункт «Графика»), адрес сильнее записи. Вид со своей
-    // сценой (`?look=city`) берёт её класс — его кусок привёз `main.tsx`; нет — посёлок.
-    const look = sceneGfx(gfx(), window.location.search);
-    const scene = new (SCENES[look.look] ?? TribeScene)(canvas, null, look);
+    if (first) bootStage('scene');
+    // Уровень — выбор игрока (пункт «Графика»), адрес сильнее записи.
+    const scene = new City(canvas, null, sceneGfx(gfx(), window.location.search));
     sceneRef.current = scene;
-    sceneLog.mark(gen === 0 ? 'scene' : 'rebuild', `сборка №${gen + 1}`);
+    sceneLog.mark(first ? 'scene' : 'rebuild', `сборка №${gen + 1}`);
     // Тап по зданию открывает его панель; тап по пустому месту закрывает открытую.
     scene.onPick = (id) => useGame.getState().openBuilding(id);
     // Замер: сцену надо достать из консоли, в собранном бандле её неоткуда взять.
@@ -118,7 +145,7 @@ export function GameCanvas() {
     if (g0.mapOpen) scene.pause();
     // Экран загрузки уходит не по «сцена создана», а по первому её кадру:
     // между конструктором и картинкой лежит компиляция шейдеров.
-    if (gen === 0) void afterPaint(bootDone);
+    if (first) void afterPaint(bootDone);
     // Прибор подключается к живой сцене: без этого он честно говорит «не знаю».
     const wired = { vitals: () => scene.vitals(), revive: rebuild };
     sceneLog.attach(wired);

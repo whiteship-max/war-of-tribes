@@ -55,6 +55,15 @@ function taken(files: string[]): Set<string> {
  */
 const POST_NAMES = ['DepthTexture', 'ShaderMaterial', 'WebGLRenderTarget'];
 
+/**
+ * Имя, которое предыстория берёт одна с тех пор, как ушёл посёлок (docs/city.md, «Город — единственный вид»):
+ * точечная лампа костра. Прежде её брала и деревня — огонь костра посёлка, — и в общем чанке three она лежала и
+ * так; с уходом посёлка чанк three не вырос (опись `npm run build`: three — 125.0 КБ gzip до и после). Решение
+ * вслух, как велит правило выше: город точечных ламп не держит (огни ночи — пятнами в шейдере, docs/city.md,
+ * раздел 6), а у костра поляны лампа — свет всей сцены.
+ */
+const KEPT_NAMES = ['PointLight'];
+
 describe('первая загрузка', () => {
   it('константы конвейера — те самые константы three, а не похожие числа', () => {
     expect(HALF_FLOAT).toBe(THREE.HalfFloatType);
@@ -62,13 +71,13 @@ describe('первая загрузка', () => {
     expect(ACES).toBe(THREE.ACESFilmicToneMapping);
   });
 
-  it('у three предыстория берёт по имени только то, что берёт деревня, и три класса конвейера', () => {
+  it('у three предыстория берёт по имени только то, что берёт игра, три класса конвейера и лампу костра', () => {
     const all = walk(SRC);
     const norm = (f: string): string => f.split('\\').join('/');
     const lazy = all.filter((f) => norm(f).includes('/src/prologue/') || norm(f).endsWith('/src/sound/howl.ts'));
     const game = taken(all.filter((f) => !lazy.includes(f)));
     const extra = [...taken(lazy)].filter((n) => !game.has(n)).sort();
-    expect(extra).toEqual(POST_NAMES);
+    expect(extra).toEqual([...POST_NAMES, ...KEPT_NAMES].sort());
   });
 });
 

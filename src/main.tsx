@@ -28,8 +28,8 @@ if (params.has('replay')) {
         <App />
       </React.StrictMode>,
     );
-  // Вид «город» (docs/city.md) — своя сцена своим куском: он едет до игры, иначе первым кадром
-  // встал бы посёлок. Не приехал — игра идёт посёлком.
-  if (params.get('look') === 'city') void import('./render/city/scene').then(start, start);
-  else start();
+  // Сцена игры — город (docs/city.md, «Город — единственный вид»), своим куском: он едет до игры,
+  // чтобы первый кадр был городом. Не приехал — игра всё равно встаёт, а холст просит кусок ещё раз
+  // (`ui/GameCanvas`).
+  void import('./render/city/scene').then(start, start);
 }

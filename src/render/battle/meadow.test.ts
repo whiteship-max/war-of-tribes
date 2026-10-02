@@ -1,5 +1,7 @@
-// Луг и опушка ролика в виде `next` (docs/graphics_world.md, 11.5): трава и цветы — только на сухом лугу и от сида,
-// зимой их нет; деревья окружения — на местах прежней опушки, конусов у `next` нет; у прежнего вида — всё как было.
+// Луг и опушка ролика (docs/graphics_world.md, 11.5): трава и цветы — только на сухом лугу и от сида, зимой их нет;
+// деревья окружения — на местах опушки, конусов на земле нет. Сцена ролика одна — нынешняя: прежний вариант (гранёная
+// плита, конусы, свет прежнего вида) убран вместе с посёлком (docs/city.md, «Город — единственный вид»), и его
+// проверки сняты по имени.
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -34,7 +36,7 @@ const vertsOf = (g: THREE.Group): number =>
 
 const stripComments = (code: string): string => code.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
 
-describe('луг ролика в виде next', () => {
+describe('луг ролика', () => {
   it('трава и цветы — на сухом лугу, на земле и в круге; у воды и на тракте их нет', () => {
     // Граница области: на клетке есть земля, которой у луга нет, — правило спрашивается.
     expect(meadowAt(RICH, 0, 5), 'тракт').toBe(false);
@@ -79,7 +81,7 @@ describe('луг ролика в виде next', () => {
     mv.dispose();
   });
 
-  it('опушка: у next — деревья окружения на местах прежней опушки, конусов нет; у прежнего — конусы', () => {
+  it('опушка: деревья окружения на местах опушки, конусов на земле нет', () => {
     const spots = woodsSpots(RICH);
     // Граница области: опушка есть, и в ней оба рода мест — высокие и низкие.
     expect(spots.length).toBeGreaterThan(40);
@@ -97,16 +99,15 @@ describe('луг ролика в виде next', () => {
       expect(placed.some((p) => Math.abs(p.x - t.x) < 1e-3 && Math.abs(p.z - t.z) < 1e-3 && Math.abs(p.y - t.y) < 1e-3), `дерево у ${t.x.toFixed(1)}, ${t.z.toFixed(1)}`).toBe(true);
     }
     mv.dispose();
-    // Конусы опушки: у прежнего вида земля с опушкой тяжелее земли без неё, у `next` — нет.
+    // Конусов опушки на земле нет: земля с опушкой весит ровно столько же, сколько без неё.
     const bare = ground({ river: true, road: true });
-    const verts = (g: Ground, look: 'now' | 'next'): number => {
-      const v = buildGround(g, look);
+    const verts = (g: Ground): number => {
+      const v = buildGround(g);
       const n = vertsOf(v.group);
       v.dispose();
       return n;
     };
-    expect(verts(RICH, 'now')).toBeGreaterThan(verts(bare, 'now'));
-    expect(verts(RICH, 'next')).toBe(verts(bare, 'next'));
+    expect(verts(RICH), 'земля с опушкой — без конусов').toBe(verts(bare));
   });
 
   it('ветер — от времени ролика: тот же момент — тот же ветер, и он не стихает', () => {
@@ -126,29 +127,30 @@ describe('луг ролика в виде next', () => {
   });
 });
 
-describe('сцена ролика: луг — только у вида next', () => {
+describe('сцена ролика одна — нынешняя', () => {
   const cast = (): ReturnType<typeof buildCast> => {
     const result = simulateBattle({ seed: 7, attacker: deploySetup({ infantry: 40 }), defender: deploySetup({ infantry: 40 }) });
     return buildCast(result, 'attacker', undefined, { ...RICH, seed: result.seed });
   };
 
-  it('у прежнего вида луга нет и плита гранёная; у next — луг есть и плита гладкая', () => {
-    const now = new BattleStage(cast(), 'now');
-    const next = new BattleStage(cast(), 'next');
-    expect(now.scene.getObjectByName('meadow')).toBeUndefined();
-    expect(next.scene.getObjectByName('meadow')).toBeDefined();
+  it('у сцены ролика луг и гладкая плита, а зимой — снег на гранёной плите', () => {
+    const stage = new BattleStage(cast());
+    expect(stage.scene.getObjectByName('meadow'), 'луг').toBeDefined();
     const plate = (st: BattleStage): THREE.MeshLambertMaterial =>
       ((st.scene.getObjectByName('ground') as THREE.Group).children[0] as THREE.Mesh).material as THREE.MeshLambertMaterial;
-    expect(plate(now).flatShading).toBe(true);
-    expect(plate(next).flatShading).toBe(false);
-    now.dispose();
-    next.dispose();
+    expect(plate(stage).flatShading, 'плита гладкая').toBe(false);
+    stage.dispose();
+    const winter = new BattleStage({ ...cast(), ground: { ...cast().ground, winter: true } });
+    expect(plate(winter).flatShading, 'зимой плита гранёная').toBe(true);
+    winter.dispose();
   });
 
-  it('ролик в игре берёт вид сцены посёлка; луг не трогает материалов посёлка', () => {
-    const replay = readFileSync(join(process.cwd(), 'src/ui/battle/BattleReplay.tsx'), 'utf8');
-    // Вид «город» (docs/city.md) своего поля боя не имеет — его ролик идёт в виде `next`.
-    expect(replay).toMatch(/look: sceneGfx\(gfx\(\), window\.location\.search\)\.look === 'now' \? 'now' : 'next',/);
+  it('выбора вида у ролика нет — ни в игре, ни в проигрывателе; луг не трогает общих материалов', () => {
+    const code = (rel: string): string => stripComments(readFileSync(join(process.cwd(), rel), 'utf8'));
+    expect(code('src/ui/battle/BattleReplay.tsx'), 'игра не выбирает вид ролика').not.toMatch(/\blook\b|sceneGfx/);
+    expect(code('src/render/battle/player.ts'), 'проигрыватель вида не принимает').not.toMatch(/\blook\b/);
+    expect(code('src/render/battle/stage.ts'), 'сцена вида не принимает').not.toMatch(/\blook\b/);
+    expect(code('src/render/battle/field.ts'), 'свет — числа города').toMatch(/RIG\.next/);
     const src = stripComments(readFileSync(join(__dirname, 'meadow.ts'), 'utf8'));
     // Свои материалы и свои числа кадра: общие наборы посёлка переливает его сезон.
     expect(src).not.toMatch(/\bKIT\b|\bLEGACY\b|SeasonVisuals/);

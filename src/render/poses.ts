@@ -172,5 +172,4 @@ export function poseFigure(f: Figure, action: Action, t: number): void {
     f.kneeL = 0.7;
     f.kneeR = 0.7;
   }
-  f.capeSwing = Math.sin(u * 2.2) * 0.025 + Math.abs(f.legSwing) * 0.18 + Math.max(0, f.torsoTilt) * 0.25;
 }

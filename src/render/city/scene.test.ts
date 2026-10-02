@@ -22,10 +22,19 @@ describe('город: сцена', () => {
     expect(src).toMatch(/citySunAt\(this\.target, sun\.position\)/);
   });
 
-  it('сторож плавности города не пишет память устройства — она общая с посёлком', () => {
-    const src = strip(readFileSync(join(__dirname, 'scene.ts'), 'utf8'));
-    // Своё суждение сторожа у города есть, и в нём нет записи в общую память (`gfx.rememberAutoCap`).
-    expect(src).toMatch(/protected override watch\(gap: number\): void \{/);
-    expect(src).not.toMatch(/rememberAutoCap/);
+  it('сторож плавности города — общий сторож сцены: судит встающий город, опускает плотность и помнит уровень неделю', () => {
+    // Прежде город своим суждением не писал память устройства: она была общей с посёлком (docs/city.md, 11.9). Посёлка
+    // нет — память теперь города, и сторож у него общий (docs/city.md, «Город — единственный вид», решение 12).
+    const city = strip(readFileSync(join(__dirname, 'scene.ts'), 'utf8'));
+    expect(city, 'своего сторожа у города нет').not.toMatch(/\bwatch\(/);
+    const shell = strip(readFileSync(join(__dirname, '../Scene.ts'), 'utf8'));
+    const from = shell.indexOf('protected watch(gap: number): void {');
+    expect(from, 'общий сторож есть').toBeGreaterThan(0);
+    const watch = shell.slice(from, shell.indexOf('\n  }\n', from));
+    expect(watch, 'судит, когда город встал').toMatch(/if \(!this\.steady \|\| !this\.settled\(\)\) return;/);
+    expect(watch, 'плотность — сразу').toMatch(/this\.dprLevel = next;/);
+    expect(watch, 'уровень — в память устройства').toMatch(/rememberAutoCap\(next, serverNow\(\)\)/);
+    // И читает её, когда собирается: уровень по устройству — не выше памяти сторожа.
+    expect(shell, 'память читается при сборке').toMatch(/capQuality\(autoQuality\(readCaps\(this\.renderer\.getContext\(\)\)\), autoCap\(serverNow\(\)\)\)/);
   });
 });

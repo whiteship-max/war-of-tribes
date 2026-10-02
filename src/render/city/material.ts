@@ -102,6 +102,15 @@ varying float vOwner;
 varying float vSeed;
 `;
 
+/** Цветокоррекция города: чуть глуше насыщенность и тёплый подъём теней — «осадная карта», а не игрушка. */
+export const GRADE_GLSL = /* glsl */ `
+vec3 cGrade(vec3 c) {
+  float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
+  c = mix(vec3(l), c, 0.82);
+  return c * vec3(1.02, 1.0, 0.96);
+}
+`;
+
 const COMMON_FRAG = /* glsl */ `
 uniform highp sampler2DArray cityTex;
 uniform float cNight;
@@ -132,19 +141,14 @@ float cTorch(vec3 p) {
   return min(acc, 1.5);
 }
 float cHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
-// Цветокоррекция города: чуть глуше насыщенность и тёплый подъём теней — «осадная карта», а не игрушка.
-vec3 cGrade(vec3 c) {
-  float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
-  c = mix(vec3(l), c, 0.82);
-  return c * vec3(1.02, 1.0, 0.96);
-}
+${GRADE_GLSL}
 float cMacro(vec2 p) {
   return sin(p.x * 0.13 + sin(p.y * 0.071) * 2.0) * sin(p.y * 0.11 + sin(p.x * 0.053) * 2.0) * 0.5 + 0.5;
 }
 `;
 
-/** Цветокоррекция перед выходом: та же для всех материалов города. */
-const graded = (src: string): string => src.replace('#include <opaque_fragment>', 'outgoingLight = cGrade(outgoingLight);\n#include <opaque_fragment>');
+/** Цветокоррекция перед выходом: та же для всех материалов города (и воды, камыша и камней — `water.ts`, `shore.ts`). */
+export const graded = (src: string): string => src.replace('#include <opaque_fragment>', 'outgoingLight = cGrade(outgoingLight);\n#include <opaque_fragment>');
 
 /** Вершинная часть: свои атрибуты, мировое положение и вертикальность нормали (для снега). */
 function patchVertex(shader: { vertexShader: string }): void {
@@ -238,12 +242,15 @@ export function groundMaterial(u: CityUniforms, map: THREE.Texture, at: GroundMa
   m.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, u, extra);
     patchVertex(shader);
+    // Сырость берега — в вершинах земли (`banks.groundWet`: по высоте над водой); между вершинами — плавно.
+    shader.vertexShader = 'attribute float cwet;\nvarying float vWet;\n' + shader.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n    vWet = cwet;');
     const T = (n: (typeof LAYERS)[number]): string => `vec2(${(1 / TILE_M[n][0]).toFixed(5)}, ${(1 / TILE_M[n][1]).toFixed(5)})`;
     shader.fragmentShader =
       /* glsl */ `uniform sampler2D cityMap;
       uniform vec3 cMapAt;
       uniform sampler2D cityLand;
       uniform vec3 cLandAt;
+      varying float vWet;
       ` +
       COMMON_FRAG +
       shader.fragmentShader.replace(
@@ -289,6 +296,11 @@ export function groundMaterial(u: CityUniforms, map: THREE.Texture, at: GroundMa
         vec4 cp2 = texture(cityTex, vec3(wp.yx / 61.0 + 0.4, ${L.foliage}.0));
         vec3 canopy = mix(cp1.rgb, cp2.rgb, 0.35) * vec3(0.55, 0.62, 0.55) * (0.75 + 0.35 * macro);
         col = mix(col, canopy, smoothstep(0.08, 0.4, land.r) * (1.0 - wr * 0.5));
+        // Берег воды: под водой и у кромки — тёмный ил, выше — сырая земля, ещё выше — влажная трава (banks.groundWet).
+        float silt = smoothstep(0.62, 0.9, vWet);
+        float damp = smoothstep(0.0, 0.62, vWet) * (1.0 - silt);
+        col = mix(col, col * vec3(0.62, 0.66, 0.56), damp);
+        col = mix(col, vec3(0.15, 0.13, 0.09) * (0.82 + 0.36 * td.a), silt);
         // Осень и зима: трава желтеет, на горизонталях снег.
         col = mix(col, col * vec3(1.15, 0.95, 0.6), cAutumn * bw.w);
         float cUp = smoothstep(0.6, 0.9, vCNy) * cSnow;

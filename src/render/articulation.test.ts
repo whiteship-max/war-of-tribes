@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 import { Figure, PARTS, forEachPart } from './figures';
-import { dressHero, dressSoldier, humanRig } from './units';
+import { dressSoldier, humanRig } from './units';
 import { ACTIONS, poseFigure } from './poses';
 
 describe('сочленённые фигуры', () => {
@@ -56,24 +56,6 @@ describe('сочленённые фигуры', () => {
     dressSoldier(f, 'legionary');
     expect(f.slots.filter((s) => s.part === 'plate' && s.joint === 'handR')).toHaveLength(2);
     expect(f.slots.filter((s) => s.part === 'plate' && s.joint.startsWith('knee'))).toHaveLength(2);
-  });
-
-  it('подол плаща движется относительно плеч и снимается при переодевании', () => {
-    const f = new Figure();
-    dressHero(f, 'swordsman');
-    f.phase = 0;
-    const hem = (t: number): THREE.Vector3 => {
-      poseFigure(f, 'walk', t);
-      let point = new THREE.Vector3();
-      forEachPart(f, (slot, matrix) => {
-        if (slot.joint === 'capeHem') point = new THREE.Vector3(0, 1, 0).applyMatrix4(matrix);
-      });
-      return point;
-    };
-    expect(hem(0).distanceTo(hem(0.2))).toBeGreaterThan(0.01);
-    dressSoldier(f, 'swordsman');
-    expect(f.hasCape).toBe(false);
-    expect(f.slots.some((s) => s.joint.startsWith('cape'))).toBe(false);
   });
 
   it('пять голов, прежние семь примитивов и цвет стороны', () => {

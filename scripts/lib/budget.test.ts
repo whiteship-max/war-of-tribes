@@ -177,13 +177,13 @@ describe('браузер', () => {
     expect(gpuRest(null, end), 'стенд не шёл — не ждать').toBe(0);
     // Часы ушли назад (отметка из будущего) — ждать не больше минуты, а не вечно.
     expect(gpuRest(end + 10 * GPU_COOL_MS, end)).toBe(GPU_COOL_MS);
-    // Стенд посёлка держит правило сам: пауза перед заходом и между проходами, проходов не больше трёх, повтор вида в
-    // одном проходе — запрещён (это второй проход без паузы).
+    // Стенд сцены игры (`village:shots`, город) держит правило сам: пауза перед заходом и между проходами, проходов не
+    // больше трёх, повтор уровня в одном проходе — запрещён (это второй проход без паузы).
     const shots = strip(readFileSync(join(ROOT, 'scripts', 'village-shots.ts'), 'utf8'));
     expect(shots).toMatch(/await gpuCoolDown\(/);
     expect(shots).toMatch(/gpuStamp\(\)/);
     expect(shots).toMatch(/BENCH_PASSES_MAX/);
-    expect(shots).toMatch(/new Set\(LOOKS\)\.size !== LOOKS\.length/);
+    expect(shots).toMatch(/new Set\(QUALITIES\)\.size !== QUALITIES\.length/);
     // Стенд ролика (`replay:shots`) — тот же порядок: отказ рядом с чужим, пауза перед заходом, отметка конца, срок захода.
     const replay = strip(readFileSync(join(ROOT, 'scripts', 'replay-shots.ts'), 'utf8'));
     expect(replay).toMatch(/refuseIfBusy\(/);

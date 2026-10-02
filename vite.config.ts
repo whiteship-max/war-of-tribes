@@ -120,14 +120,9 @@ const LAZY_DOORS: { name: string; door: RegExp; owns: RegExp[] }[] = [
     owns: [/\/src\/prologue\//, /\/src\/sound\/howl\.ts$/],
   },
   {
-    // Проба окружения посёлка (docs/graphics_world.md): земля, трава, лес и мелочь едут
-    // своим куском после первого кадра — в первую загрузку не входят ни байтом.
-    name: 'окружение посёлка',
-    door: /\/src\/render\/env\/index\.ts$/,
-    owns: [/\/src\/render\/env\//],
-  },
-  {
-    // Вид «город» (docs/city.md): стенд и сцена игры при `?look=city` — своим куском.
+    // Сцена игры — город (docs/city.md, «Город — единственный вид»): `main.tsx` везёт его кусок до игры,
+    // в первую загрузку он не входит; стенд города — тем же куском. Окружение посёлка (`render/env`) ушло с
+    // посёлком; луг ролика взял своё в `render/battle/` — кусок ролика.
     name: 'город: стенд',
     door: /\/src\/render\/city\/stand\.ts$/,
     owns: [/\/src\/render\/city\//],

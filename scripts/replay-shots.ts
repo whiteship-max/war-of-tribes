@@ -37,7 +37,7 @@ const MEN = 'replay=1&men=40&foe=30&seed=7';
 /** Сцена ролика: опушка и тракт — клетка, где видны и земля, и лес; вид `now` против `next` (docs/graphics_world.md, 11.5). */
 const FIELD = 'replay=1&men=60&foe=60&seed=7&place=woods,road';
 /** Ряд витрины: волк, собака и копейщик для роста; низкая камера — как крупный план ролика, кадр в одну фазу. */
-const ROW = 'showcase=units&units=wolf,dog,spearman&spacing=1.4&polar=1.3&time=1.3';
+const ROW = 'showcase=units&units=wolf,spearman&spacing=1.4&polar=1.3&time=1.3';
 
 interface Shot {
   name: string;
@@ -52,13 +52,10 @@ const SHOTS: Shot[] = [
   { name: 'wolves-rout', query: `${PACK}&at=rout`, why: 'бегство: стая уходит рысью спиной к строю' },
   { name: 'wolves-last', query: `${PACK}&at=last`, why: 'поле после боя: у наших брошенные щиты, после стаи — только павшие волки' },
   { name: 'men-clash', query: `${MEN}&at=clash`, why: 'тот же размер боя людьми — для сравнения' },
-  { name: 'scene-noon-now', query: `${FIELD}&hour=12&at=field`, why: 'сцена ролика в полдень, прежний вид' },
-  { name: 'scene-noon-next', query: `${FIELD}&hour=12&at=field&look=next`, why: 'сцена ролика в полдень, вид next' },
-  { name: 'scene-dusk-now', query: `${FIELD}&hour=19&at=field`, why: 'сцена ролика вечером, прежний вид' },
-  { name: 'scene-dusk-next', query: `${FIELD}&hour=19&at=field&look=next`, why: 'сцена ролика вечером, вид next' },
-  { name: 'scene-close-next', query: `${FIELD}&hour=9&at=clash&look=next`, why: 'сшибка утром вблизи, вид next' },
-  { name: 'scene-winter-now', query: `${FIELD}&hour=12&winter=1&at=field`, why: 'зимний бой, прежний вид' },
-  { name: 'scene-winter-next', query: `${FIELD}&hour=12&winter=1&at=field&look=next`, why: 'зимний бой, вид next: деревья окружения в снегу, травы нет' },
+  { name: 'scene-noon', query: `${FIELD}&hour=12&at=field`, why: 'сцена ролика в полдень: луг, опушка, свет города' },
+  { name: 'scene-dusk', query: `${FIELD}&hour=19&at=field`, why: 'сцена ролика вечером: золотой час' },
+  { name: 'scene-close', query: `${FIELD}&hour=9&at=clash`, why: 'сшибка утром вблизи' },
+  { name: 'scene-winter', query: `${FIELD}&hour=12&winter=1&at=field`, why: 'зимний бой: деревья окружения в снегу, травы нет' },
   { name: 'beast-stand', query: `${ROW}&action=stand`, why: 'вблизи, анфас: стойка' },
   { name: 'beast-walk', query: `${ROW}&action=walk`, why: 'вблизи, анфас: подход и бегство — рысь' },
   { name: 'beast-guard', query: `${ROW}&action=guard`, why: 'вблизи, анфас: перед сшибкой — припал' },

@@ -42,3 +42,23 @@ export const LIFE_CAP: Record<Quality, { people: number; guards: number; birds: 
  * числа с ними сходятся, держит тест (`life.test.ts`).
  */
 export const LIFE_TRIS = { person: 36, guard: 72, beast: 36, bird: 2, flag: 44 } as const;
+
+/**
+ * Вода и берег по уровню (docs/city.md, 12.3). `cols` — колонны ленты реки поперёк, метры от середины: за плоским
+ * дном (9 м) они ложатся по кромке строки (`banks.ribbon`), лента доходит до неё, и глубина в вершинах красит
+ * мелководье и глубь — чем колонн больше, тем точнее кромка. `step` — шаг мест камыша и камней вдоль реки, метры
+ * (гуще — больше куртин); `reeds` и `stones` — камыш у кромки и камни на берегу, самое большее; `reedBlades` — листьев
+ * в куртине. Шейдер воды берёт `CITY_SPEC.detail`: 0 — одна рябь, без отблесков огней; 1 — две ряби и отблески огней
+ * у воды; 2 — три ряби и искры солнца. На низком всё проще, а река та же.
+ */
+export const SHORE_CAP: Record<Quality, { cols: readonly number[]; step: number; reeds: number; stones: number; reedBlades: number }> = {
+  low: { cols: [-16, -12, -9, 0, 9, 12, 16], step: 1.6, reeds: 240, stones: 70, reedBlades: 5 },
+  medium: { cols: [-16, -13.5, -11.5, -10, -8, -4, 0, 4, 8, 10, 11.5, 13.5, 16], step: 0.8, reeds: 900, stones: 220, reedBlades: 9 },
+  high: { cols: [-16, -13.5, -11.5, -10, -8, -4, 0, 4, 8, 10, 11.5, 13.5, 16], step: 0.55, reeds: 1500, stones: 360, reedBlades: 9 },
+};
+
+/**
+ * Треугольников у куртины камыша (листья — по треугольнику, метёлок две, по два треугольника) и у камня
+ * (икосаэдр) — счёту бюджета; что числа сходятся с моделями (`shore.ts`), держит тест (`water.test.ts`).
+ */
+export const shoreTris = (reedBlades: number): { reed: number; stone: number } => ({ reed: reedBlades + 4, stone: 20 });
