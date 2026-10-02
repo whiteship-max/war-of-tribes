@@ -1,4 +1,4 @@
-// Снимки посёлка и цена его кадра: нынешний вид против пробы окружения.
+// Снимки сцены игры — города — и цена её кадра по уровням качества.
 //
 // Это **стенд, а не отчёт**, как `map:shots`: он ничем не падает и ничего не утверждает.
 // Вид судят глазами по снимкам, а цену кадра — по числам одного прогона: абсолютные
@@ -6,35 +6,35 @@
 // кадров плавает), сравнивать можно только строки одного вывода.
 //
 // Что делает. Поднимает dev-сервер и настоящий Chrome (ANGLE), ставит экран телефона
-// 390×844 @2 и открывает стенд-витрину посёлка (`?showcase=village`, src/render/showcase.ts)
-// с потолком кадров стенда. Дальше одно из двух:
+// 390×844 @2 и открывает стенд сцены игры (`?showcase=village`, src/render/showcase.ts: настоящая
+// сцена города на синтетической партии) с потолком кадров стенда. Дальше одно из двух:
 //
-//   снимки  — кадры «вид × ракурс» в snaps/village/<TAG>-<вид>-<ракурс>.png;
-//   BENCH=1 — цена кадра по видам подряд, в одном прогоне: вызовы и треугольники кадра
+//   снимки  — кадры «уровень × ракурс» в snaps/village/<TAG>-<уровень>-<ракурс>.png;
+//   BENCH=1 — цена кадра по уровням подряд, в одном прогоне: вызовы и треугольники кадра
 //             (с теневым проходом), время кадра на процессоре и на видеокарте (медиана и
 //             p95, `EXT_disjoint_timer_query_webgl2`), буферы вершин и память текстур.
 //
-// Виды: `now` — нынешний (его видит игрок), `next:<уровень>` — проба окружения
-// (docs/graphics_world.md) на уровне качества high | medium | low.
+// Уровни — `low`, `medium`, `high` (город, docs/city.md); имя стенда прежнее — `village:shots`:
+// посёлок игрока теперь рисуется городом. Прежние виды `now` и `next` убраны (docs/city.md,
+// «Город — единственный вид»).
 //
 // Бюджет железа (CLAUDE.md, раздел ⛔): стенд, а не приёмка — один заход не дольше
 // `BROWSER_MAX_MS`, потолок кадров стенда, рядом с чужой тяжёлой работой не запускается.
-// Несколько видов или ракурсов — отдельными короткими заходами с паузой между ними. Замер цены
+// Несколько уровней или ракурсов — отдельными короткими заходами с паузой между ними. Замер цены
 // кадра — не больше трёх проходов (`PASSES`, `BENCH_PASSES_MAX`), и перед каждым проходом и
 // заходом видеокарта остывает минуту от конца прошлого (`gpuCoolDown`; решение владельца,
-// 01.10.2026). Вид в `LOOKS` не повторяют: повтор — это второй проход без паузы.
+// 01.10.2026). Уровень в `QUALITY` не повторяют: повтор — это второй проход без паузы.
 //
 // Запуск: npm run village:shots
-// Переменные: LOOKS=now,next:high,next:low  SHOTS=day-wide,night-wide,day-close,night-close (и dusk-wide, dawn-wide)
+// Переменные: QUALITY=low,medium,high  SHOTS=day-wide,night-wide,square-close,river-close (и другие ниже)
 //             SEASON=summer  LEVELS=10  BENCH=1  PASSES=1..3  SECONDS=5  TAG=probe  PORT=4196  CDP_PORT=9339  HEAD=1
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath, URL } from 'node:url';
 import { createServer as createVite } from 'vite';
 import { launchChrome, sleep, Tab } from './lib/chrome';
-import type { BuildingTypeId } from '../src/game/types';
-import { placeOf } from '../src/render/plan';
-import { PASTURE, gardenSpots } from '../src/render/env/rules';
+import { qualityOf } from '../src/render/quality';
+import { RACE, riverX } from '../src/render/city/layout';
 import { BENCH_PASSES_MAX, BROWSER_MAX_MS, GPU_COOL_MS, REPORT_FPS, gpuCoolDown, gpuStamp, refuseIfBusy } from './lib/budget';
 
 const OUT = fileURLToPath(new URL('../snaps/village', import.meta.url));
@@ -48,15 +48,14 @@ const SECONDS = Number(process.env.SECONDS ?? 5);
 /** Проходов замера цены кадра: один, если не сказано; не больше `BENCH_PASSES_MAX` (бюджет железа). */
 const PASSES = Number(process.env.PASSES ?? 1);
 const list = (v: string | undefined, all: string[]): string[] => (v ? v.split(',').map((s) => s.trim()).filter(Boolean) : all);
-const LOOKS = list(process.env.LOOKS, ['now', 'next:high', 'next:low']);
+const QUALITIES = list(process.env.QUALITY, ['low', 'medium', 'high']);
 
 /** Экран телефона: тот, с которого владелец присылал снимки (390×844), плотность 2. */
 const SCREEN = { width: 390, height: 844, deviceScaleFactor: 2, mobile: true };
 
 /**
- * Ракурсы. Общий план — кадр, с которого игра открывается; ближний — участок за
- * частоколом на пустом лугу между воротами и фермой (угол 95°, радиус 21: там нет
- * дворов — видна земля, трава, опушка и полоса вырубки), на полу приближения.
+ * Ракурсы. Общий план — кадр, с которого игра открывается; ближние — камера игры над точкой земли
+ * города (метры) на полу приближения: тот же наклон и азимут, что у игрока, просто ближе.
  */
 interface Shot {
   name: string;
@@ -66,39 +65,28 @@ interface Shot {
   why: string;
 }
 
-const CLOSE: [number, number] = [Math.cos((95 * Math.PI) / 180) * 21, Math.sin((95 * Math.PI) / 180) * 21];
-
-/** Камера над местом здания по плану (`plan.placeOf`). */
-const near = (type: BuildingTypeId): [number, number] => {
-  const p = placeOf(type);
-  return [p.x, p.z];
-};
+/** Река у города: середина русла на высоте площади по долготе. */
+const RIVER: [number, number] = [riverX(10), 10];
+/** Мельничный ручей у лесопилки: середина отвода. */
+const MILL: [number, number] = [RACE[3].x, RACE[3].z];
 
 const SHOTS: Shot[] = [
   { name: 'day-wide', solar: 0.2, why: 'день, общий план — кадр, с которого открывается игра' },
   { name: 'night-wide', solar: 0.75, why: 'глубокая ночь, общий план' },
-  { name: 'day-close', solar: 0.2, at: CLOSE, why: 'день, участок за частоколом на полу приближения' },
-  { name: 'night-close', solar: 0.75, at: CLOSE, why: 'ночь, тот же участок' },
-  // Только по имени (`SHOTS=dusk-wide`): в заход по умолчанию не входят — стенд короче двух минут.
-  { name: 'dusk-wide', solar: 0.47, why: 'золотой час перед закатом, общий план (вид next, 9.9)' },
+  { name: 'dusk-wide', solar: 0.47, why: 'золотой час перед закатом, общий план' },
   { name: 'dawn-wide', solar: 0.03, why: 'рассвет, общий план' },
-  // Постройки вблизи (этап 2, пункт 2: фактура) — место здания из плана, пол приближения.
-  { name: 'houses-close', solar: 0.2, at: near('houses'), why: 'жилища вблизи, день: черепица, штукатурка, брус' },
-  { name: 'hall-close', solar: 0.2, at: near('town_hall'), why: 'ратуша вблизи, день: камень, кровля' },
-  { name: 'church-close', solar: 0.2, at: near('church'), why: 'церковь вблизи, день' },
-  { name: 'houses-night', solar: 0.75, at: near('houses'), why: 'жилища вблизи, ночь: окна и фактура под луной' },
-  // Люди и звери (этап 2, пункт 3): площадь у костра, огород с курами, выгон с овцами.
-  { name: 'plaza-close', solar: 0.2, at: [0, 0], why: 'площадь у костра, день: покрои, позы, собака' },
-  { name: 'plaza-night', solar: 0.75, at: [0, 0], why: 'площадь у костра, ночь: греют руки' },
-  { name: 'hens-close', solar: 0.2, at: [gardenSpots()[0].x, gardenSpots()[0].z], why: 'огород с курами, день' },
-  { name: 'sheep-close', solar: 0.2, at: [PASTURE.x, PASTURE.z], why: 'выгон с овцами, день: пасутся' },
+  { name: 'square-close', solar: 0.2, at: [0, -2], why: 'площадь вблизи, день: рынок, колодец, ратуша, храм' },
+  { name: 'street-close', solar: 0.2, at: [4, 70], why: 'Главная улица у южных ворот, день' },
+  { name: 'gate-close', solar: 0.2, at: [0, 118], why: 'главные ворота, день' },
+  { name: 'river-close', solar: 0.2, at: RIVER, why: 'река у города, день: вода, берега, камыш' },
+  { name: 'river-night', solar: 0.75, at: RIVER, why: 'река у города, ночь: луна и огни в воде' },
+  { name: 'mill-close', solar: 0.2, at: MILL, why: 'мельничный ручей у лесопилки, день' },
 ];
 
-/** Ракурсы захода по умолчанию — прежние четыре. */
-const DEFAULT_SHOTS = ['day-wide', 'night-wide', 'day-close', 'night-close'];
+/** Ракурсы захода по умолчанию — общий план днём и ночью и два ближних. */
+const DEFAULT_SHOTS = ['day-wide', 'night-wide', 'square-close', 'river-close'];
 
-function pageUrl(look: string, solar: number, at?: [number, number]): string {
-  const [kind, quality] = look.split(':');
+function pageUrl(quality: string, solar: number, at?: [number, number]): string {
   const q = new URLSearchParams({
     showcase: 'village',
     levels: String(LEVELS),
@@ -107,9 +95,8 @@ function pageUrl(look: string, solar: number, at?: [number, number]): string {
     clean: '1',
     dpr: String(SCREEN.deviceScaleFactor),
     fpscap: String(REPORT_FPS),
+    quality,
   });
-  if (kind === 'next') q.set('look', 'next');
-  if (quality) q.set('quality', quality);
   if (at) {
     q.set('at', `${at[0].toFixed(2)},${at[1].toFixed(2)}`);
     q.set('dist', 'min');
@@ -117,17 +104,17 @@ function pageUrl(look: string, solar: number, at?: [number, number]): string {
   return `http://127.0.0.1:${PORT}/?${q.toString()}`;
 }
 
-/** Открыть страницу на экране телефона и дождаться, пока сцена скажет «готова». */
+/** Открыть страницу на экране телефона и дождаться, пока сцена скажет «готова» (город встал на полных слоях). */
 async function open(url: string): Promise<Tab> {
   const tab = await Tab.open(DEBUG_PORT, 'about:blank');
   await tab.send('Emulation.setDeviceMetricsOverride', SCREEN);
   await tab.send('Page.navigate', { url });
-  for (let i = 0; i < 120; i++) {
+  for (let i = 0; i < 240; i++) {
     await sleep(250);
     const ready = await tab.eval<string>(`JSON.stringify(document.body?.dataset.ready ?? '')`).catch(() => '');
     if (ready === '1') break;
   }
-  // Сезон и тени устаиваются за несколько кадров; окружение стоит.
+  // Сезон и тени устаиваются за несколько кадров.
   await sleep(1500);
   return tab;
 }
@@ -142,25 +129,25 @@ async function close(tab: Tab): Promise<void> {
 async function shots(began: number): Promise<void> {
   await mkdir(OUT, { recursive: true });
   const wanted = list(process.env.SHOTS, DEFAULT_SHOTS);
-  for (const look of LOOKS) {
+  for (const quality of QUALITIES) {
     for (const shot of SHOTS.filter((s) => wanted.includes(s.name))) {
       if (Date.now() - began > BROWSER_MAX_MS) {
         console.log(`\nСрок стенда (${BROWSER_MAX_MS / 1000} с) вышел — остальное отдельным заходом.`);
         return;
       }
-      const tab = await open(pageUrl(look, shot.solar, shot.at));
+      const tab = await open(pageUrl(quality, shot.solar, shot.at));
       try {
         const png = await tab.send<{ data: string }>('Page.captureScreenshot', { format: 'png' });
-        const name = `${TAG}-${look.replace(':', '-')}-${shot.name}.png`;
+        const name = `${TAG}-${quality}-${shot.name}.png`;
         await writeFile(join(OUT, name), Buffer.from(png.data, 'base64'));
-        console.log(`  ${look.padEnd(12)} ${shot.name.padEnd(12)} → snaps/village/${name}`);
+        console.log(`  ${quality.padEnd(8)} ${shot.name.padEnd(13)} → snaps/village/${name}`);
       } finally {
         await close(tab);
       }
     }
   }
   console.log('\nЧто чем отвечает:');
-  for (const s of SHOTS) console.log(`  ${s.name.padEnd(12)} ${s.why}`);
+  for (const s of SHOTS) console.log(`  ${s.name.padEnd(13)} ${s.why}`);
 }
 
 // ---------- Цена кадра ----------
@@ -230,7 +217,6 @@ const PROBE = (ms: number): string => `
     texMb: s.textureBytes() / 1048576,
     programs: mem.programs,
     buffer: [gl.drawingBufferWidth, gl.drawingBufferHeight],
-    env: s.env ? s.env.counts() : null,
     gpuName: dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER),
   });
 })()
@@ -240,7 +226,7 @@ interface Bench {
   frames: number;
   cpu: [number, number];
   gpu: [number, number] | null;
-  /** Кадр до конца видеокарты: от начала кадра до `gl.finish` после отрисовки, медиана и p95. */
+  /** Кадр до конца видеокарты: от начала кадра до чтения пикселя после отрисовки, медиана и p95. */
   sync: [number, number];
   calls: number;
   tris: number;
@@ -248,59 +234,41 @@ interface Bench {
   texMb: number;
   programs: number;
   buffer: [number, number];
-  env: {
-    trees: Record<string, number>;
-    props: Record<string, number>;
-    grass: number;
-    flowers: number;
-    crops: number;
-    blobs: number;
-    hay: number;
-    fences: number;
-    sheep: number;
-    fields: number;
-    gardens: number;
-    map: number;
-    buildMs: number;
-    /** Сборка кусками между кадрами (`env/index.startEnv`): всего, сколько кусков, самый долгий. */
-    build: { ms: number; slices: number; longest: number; step: number; stepIn: string };
-  } | null;
   gpuName: string;
 }
 
-type Row = { look: string; b: Bench };
+type Row = { quality: string; b: Bench };
 
 /**
- * Прогрев перед замером прохода, секунды: самый тяжёлый вид (`next:high`, если он в `LOOKS`) без замера.
- * Без прогрева вид, мерянный первым после запуска браузера, выходил впятеро дешевле тех же чисел позже в
+ * Прогрев перед замером прохода, секунды: самый тяжёлый уровень (`high`, если он в `QUALITY`) без замера.
+ * Без прогрева уровень, мерянный первым после запуска браузера, выходил впятеро дешевле тех же чисел позже в
  * проходе (замер 01.10.2026, docs/graphics_world.md, 11.0). Прогрев убирает этот рывок, но не прыжки
- * частоты: один и тот же вид в соседних проходах выходит то 1.8, то 6.8 мс, и разницу меньше десятков
- * процентов способ не различает (11.0, 11.2).
+ * частоты: разницу меньше десятков процентов способ не различает (11.0, 11.2).
  */
 const WARMUP = Number(process.env.WARMUP ?? 8);
 
 /**
- * Один проход замера: каждый вид по разу. Порядок сдвигается от прохода к проходу (`pass`): остаток дрейфа
- * частоты ложится на разные виды и гасится медианой сводки, а не копится на первом.
+ * Один проход замера: каждый уровень по разу. Порядок сдвигается от прохода к проходу (`pass`): остаток дрейфа
+ * частоты ложится на разные уровни и гасится медианой сводки, а не копится на первом.
  */
 async function benchPass(began: number, pass: number): Promise<Row[]> {
-  const shift = pass % LOOKS.length;
-  const order = LOOKS.slice(shift).concat(LOOKS.slice(0, shift));
-  const warm = await open(pageUrl(LOOKS.includes('next:high') ? 'next:high' : order[0], 0.2));
+  const shift = pass % QUALITIES.length;
+  const order = QUALITIES.slice(shift).concat(QUALITIES.slice(0, shift));
+  const warm = await open(pageUrl(QUALITIES.includes('high') ? 'high' : order[0], 0.2));
   try {
     await sleep(WARMUP * 1000);
   } finally {
     await close(warm);
   }
   const rows: Row[] = [];
-  for (const look of order) {
+  for (const quality of order) {
     if (Date.now() - began > BROWSER_MAX_MS) {
       console.log(`\nСрок прохода (${BROWSER_MAX_MS / 1000} с) вышел — остальное отдельным заходом.`);
       break;
     }
-    const tab = await open(pageUrl(look, 0.2));
+    const tab = await open(pageUrl(quality, 0.2));
     try {
-      rows.push({ look, b: await tab.eval<Bench>(PROBE(SECONDS * 1000)) });
+      rows.push({ quality, b: await tab.eval<Bench>(PROBE(SECONDS * 1000)) });
     } finally {
       await close(tab);
     }
@@ -317,78 +285,72 @@ const median = (a: number[]): number | null => {
 };
 
 /**
- * Таблица каждого прохода, состав окружения и — если проходов больше одного — сводка: время видеокарты
- * медианой по проходам и отношение к прежнему виду (`now`) **внутри прохода**, медианой. Частота видеокарты
- * под потолком кадров гуляет от прохода к проходу, и миллисекунды разных проходов не сравнимы, а отношение
- * к `now` того же прохода — сравнимо: `now` в нём и мерка, и контроль.
+ * Таблица каждого прохода и — если проходов больше одного — сводка: время кадра медианой по проходам и
+ * отношение к среднему уровню **внутри прохода**, медианой. Частота видеокарты под потолком кадров гуляет от
+ * прохода к проходу, и миллисекунды разных проходов не сравнимы, а отношение к среднему того же прохода —
+ * сравнимо: средний в нём и мерка, и контроль (телефонный уровень).
  */
 function printBench(passes: Row[][]): void {
   const first = passes.find((p) => p.length > 0);
   if (!first) return;
   console.log(
     `\nВидеокарта: ${first[0].b.gpuName}. Экран ${SCREEN.width}×${SCREEN.height} @${SCREEN.deviceScaleFactor}, потолок ${REPORT_FPS} кадров, ` +
-      `${SECONDS} с на вид, прогрев ${WARMUP} с; проходов ${passes.length}, порядок видов сдвигается от прохода к проходу, между ними видеокарта остывает ${GPU_COOL_MS / 1000} с.`,
+      `${SECONDS} с на уровень, прогрев ${WARMUP} с; проходов ${passes.length}, порядок уровней сдвигается от прохода к проходу, между ними видеокарта остывает ${GPU_COOL_MS / 1000} с.`,
   );
   passes.forEach((rows, i) => {
     console.log(`\n${passes.length > 1 ? `проход ${i + 1}` : ''}`);
     console.log(
-      `${'вид'.padEnd(12)} ${'буфер'.padEnd(10)} ${'вызовов'.padStart(8)} ${'треуг.'.padStart(8)} ${'кадров'.padStart(7)} ` +
+      `${'уровень'.padEnd(8)} ${'буфер'.padEnd(10)} ${'вызовов'.padStart(8)} ${'треуг.'.padStart(8)} ${'кадров'.padStart(7)} ` +
         `${'ЦП мед'.padStart(7)} ${'ЦП p95'.padStart(7)} ${'ВК мед'.padStart(7)} ${'ВК p95'.padStart(7)} ${'кадр мед'.padStart(8)} ${'кадр p95'.padStart(8)} ${'верш. МБ'.padStart(9)} ${'текст. МБ'.padStart(9)}`,
     );
-    for (const { look, b } of rows) {
+    for (const { quality, b } of rows) {
       console.log(
-        `${look.padEnd(12)} ${`${b.buffer[0]}×${b.buffer[1]}`.padEnd(10)} ${String(b.calls).padStart(8)} ${String(b.tris).padStart(8)} ${String(b.frames).padStart(7)} ` +
+        `${quality.padEnd(8)} ${`${b.buffer[0]}×${b.buffer[1]}`.padEnd(10)} ${String(b.calls).padStart(8)} ${String(b.tris).padStart(8)} ${String(b.frames).padStart(7)} ` +
           `${f(b.cpu[0]).padStart(7)} ${f(b.cpu[1]).padStart(7)} ${f(b.gpu?.[0]).padStart(7)} ${f(b.gpu?.[1]).padStart(7)} ${f(b.sync[0]).padStart(8)} ${f(b.sync[1]).padStart(8)} ${f(b.geoMb).padStart(9)} ${f(b.texMb).padStart(9)}`,
       );
     }
   });
-  for (const { look, b } of first) {
-    if (!b.env) continue;
-    const e = b.env;
-    const builds = passes.map((p) => p.find((r) => r.look === look)?.b.env?.build).filter((x) => !!x);
-    console.log(
-      `\n${look}: деревьев ${Object.entries(e.trees).map(([k, v]) => `${k} ${v}`).join(', ')}; мелочи ${Object.entries(e.props).map(([k, v]) => `${k} ${v}`).join(', ')};` +
-        ` травы ${e.grass}, цветов ${e.flowers}, всходов ${e.crops}, пятен ${e.blobs}; угодья: полос ${e.fields}, огородов ${e.gardens}, стогов ${e.hay},` +
-        ` звеньев изгороди ${e.fences}, овец ${e.sheep}; карта земли ${e.map}²; сборка ` +
-        builds.map((x) => `${f(x!.ms, 0)} мс за ${x!.slices} кусков, самый долгий ${f(x!.longest, 1)} мс`).join(' / '),
-    );
-  }
   if (passes.length > 1) {
-    console.log('\nСводка: медиана по проходам; к now — отношение внутри прохода, медиана (по проходам — через «/»).');
+    console.log('\nСводка: медиана по проходам; к среднему — отношение внутри прохода, медиана (по проходам — через «/»).');
     const pick = (b: Bench, what: 'gpu' | 'sync'): number | null | undefined => (what === 'gpu' ? b.gpu?.[0] : b.sync[0]);
     for (const what of ['sync', 'gpu'] as const) {
       console.log(what === 'sync' ? 'кадр до конца видеокарты:' : 'таймер видеокарты:');
-      for (const look of LOOKS) {
+      for (const quality of QUALITIES) {
         const ms: number[] = [];
         const ratio: number[] = [];
         for (const rows of passes) {
-          const row = rows.find((x) => x.look === look);
-          const ref = rows.find((x) => x.look === 'now');
+          const row = rows.find((x) => x.quality === quality);
+          const ref = rows.find((x) => x.quality === 'medium');
           const r = row && pick(row.b, what);
           const n = ref && pick(ref.b, what);
           if (r === undefined || r === null) continue;
           ms.push(r);
           if (n) ratio.push(r / n);
         }
-        console.log(`  ${look.padEnd(12)} мед ${f(median(ms)).padStart(6)}   к now ${f(median(ratio)).padStart(5)}   (${ratio.map((x) => f(x)).join(' / ')})`);
+        console.log(`  ${quality.padEnd(8)} мед ${f(median(ms)).padStart(6)}   к среднему ${f(median(ratio)).padStart(5)}   (${ratio.map((x) => f(x)).join(' / ')})`);
       }
     }
   }
-  console.log('\nМиллисекунды сравнимы внутри прохода; между проходами — только отношением к now (шапка файла).');
+  console.log('\nМиллисекунды сравнимы внутри прохода; между проходами — только отношением к среднему (шапка файла).');
 }
 
 async function main(): Promise<void> {
   // Бюджет железа (решение владельца, 01.10.2026): замер цены кадра — не больше трёх проходов, и между ними
-  // видеокарта остывает. Повтор вида в одном проходе — это второй проход без паузы.
-  if (new Set(LOOKS).size !== LOOKS.length) {
-    console.error(`\nВид повторён в LOOKS — это второй проход без паузы. Проходы — PASSES=2 или 3: между ними видеокарта остывает ${GPU_COOL_MS / 1000} с.`);
+  // видеокарта остывает. Повтор уровня в одном проходе — это второй проход без паузы.
+  if (new Set(QUALITIES).size !== QUALITIES.length) {
+    console.error(`\nУровень повторён в QUALITY — это второй проход без паузы. Проходы — PASSES=2 или 3: между ними видеокарта остывает ${GPU_COOL_MS / 1000} с.`);
+    process.exit(2);
+  }
+  const bad = QUALITIES.filter((q) => qualityOf(q) === null);
+  if (bad.length > 0) {
+    console.error(`\nQUALITY=${process.env.QUALITY}: уровни — low, medium, high (не уровень: ${bad.join(', ')}).`);
     process.exit(2);
   }
   if (!Number.isInteger(PASSES) || PASSES < 1 || PASSES > BENCH_PASSES_MAX) {
     console.error(`\nPASSES=${process.env.PASSES}: проходов замера — от 1 до ${BENCH_PASSES_MAX} (бюджет железа).`);
     process.exit(2);
   }
-  refuseIfBusy('Снимки посёлка');
+  refuseIfBusy('Снимки города');
   const vite = await createVite({
     configFile: fileURLToPath(new URL('../vite.config.ts', import.meta.url)),
     server: { port: PORT, strictPort: true, host: '127.0.0.1' },
@@ -397,10 +359,10 @@ async function main(): Promise<void> {
   await vite.listen();
   const passes: Row[][] = [];
   try {
-    console.log(`\n=== посёлок: ${BENCH ? 'цена кадра' : 'снимки'} (${LOOKS.join(', ')}; ${SEASON}, уровень ${LEVELS}) ===\n`);
+    console.log(`\n=== город: ${BENCH ? 'цена кадра' : 'снимки'} (${QUALITIES.join(', ')}; ${SEASON}, уровень построек ${LEVELS}) ===\n`);
     for (let pass = 1; pass <= (BENCH ? PASSES : 1); pass++) {
       // Видеокарта остывает минуту после прошлого захода стенда и между проходами; браузер на это время закрыт.
-      await gpuCoolDown(pass === 1 ? 'стендом посёлка' : `проходом ${pass}`);
+      await gpuCoolDown(pass === 1 ? 'стендом города' : `проходом ${pass}`);
       const chrome = await launchChrome(DEBUG_PORT, ['--use-gl=angle', '--window-size=500,900', '--force-device-scale-factor=1']);
       try {
         const began = Date.now();

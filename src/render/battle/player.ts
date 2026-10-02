@@ -9,7 +9,6 @@ import { buildCast, frameAt, type Cast, type Frame } from '@/battle/replay';
 import type { BattleResult, Side } from '@/battle/types';
 import { BattleStage } from './stage';
 import { FrameLoop } from '../loop';
-import type { Look } from '../lighting';
 
 export interface PlayerOptions {
   /** Кадр отдаётся наружу: по нему интерфейс рисует подпись и кнопки. */
@@ -18,11 +17,6 @@ export interface PlayerOptions {
   onEnd?: () => void;
   /** Во сколько раз быстрее реального времени — для стенда и отладки. */
   speed?: number;
-  /**
-   * Вид сцены — тот же, что у посёлка (`gfx.sceneGfx`): у вида `next` свет и луг окружения
-   * (docs/graphics_world.md, 11.5); без него — прежний ролик, кадр в кадр.
-   */
-  look?: Look;
 }
 
 export class ReplayPlayer {
@@ -41,7 +35,7 @@ export class ReplayPlayer {
     private opts: PlayerOptions = {},
   ) {
     this.cast = cast;
-    this.stage = new BattleStage(cast, opts.look ?? 'now');
+    this.stage = new BattleStage(cast);
     this.beat.block('idle', true);
     this.fit();
     this.draw();

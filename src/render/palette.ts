@@ -260,8 +260,9 @@ export const JOB_TINT: Record<JobId, number> = {
 };
 
 /**
- * Герой на площади. Отдельные три цвета, а не запись в TROOP_TINT: герой не вид
- * бойца, он один, и узнаваться должен сразу — по плащу, шлему и щиту.
+ * Герой: плащ, шлем и щит. Отдельные три цвета, а не запись в TROOP_TINT: герой не вид
+ * бойца, он один. Фигуры героя у статуи больше нет (ушла с посёлком, docs/city.md, «Город —
+ * единственный вид»), а цвета остались в палитре значков (`scripts/build-icons.ts`).
  */
 export const HERO_TINT = {
   cloak: 0x9a2f3a,
@@ -425,21 +426,6 @@ export const SEASON_SNOW: Record<Season, number> = { spring: 0, summer: 0, autum
 /** Доля деревьев, чья листва осенью ушла во второй цвет (`oakRust`, `birchLate`): только осень. */
 export const SEASON_TURN: Record<Season, number> = { spring: 0, summer: 0, autumn: 1, winter: 0 };
 
-/**
- * Доля травы, что торчит из земли, по сезону: зимой пучки прячет снег (окружение
- * пробы, `render/env`). Не цвет, но сезонное число — живёт рядом со снегом.
- */
-export const SEASON_SWARD: Record<Season, number> = { spring: 0.9, summer: 1, autumn: 0.85, winter: 0.3 };
-
-/**
- * Доля всходов на пашне по сезону: весной всходят, летом колос, осенью стерня после жатвы,
- * зимой пашня под снегом.
- */
-export const SEASON_CROP: Record<Season, number> = { spring: 0.7, summer: 1, autumn: 0.35, winter: 0 };
-
-/** Доля цветущих цветов по сезону: летом все, осенью редкие, зимой ни одного. */
-export const SEASON_BLOOM: Record<Season, number> = { spring: 0.75, summer: 1, autumn: 0.2, winter: 0 };
-
 /** Высота солнечной дуги по сезону: осенью и зимой солнце ниже, тени длиннее. */
 export const SEASON_SUN_ARC: Record<Season, number> = { spring: 1, summer: 1.05, autumn: 0.9, winter: 0.8 };
 
@@ -462,18 +448,10 @@ export const isSeasonal = (key: PaletteKey): boolean => SEASONAL_KEYS.includes(k
 
 export type Mul = readonly [number, number, number];
 
-/** Низ цоколя: самое сильное контактное затемнение. */
-export const AO_BASE: Mul = [0.62, 0.63, 0.72];
-/** Низ стены: мягче, только нижняя половина. */
+/** Низ стены: мягче, только нижняя половина (`kit.GROUND_AO` — модели поляны предыстории). */
 export const AO_WALL: Mul = [0.86, 0.87, 0.92];
-/** Основание столба. */
-export const AO_POST: Mul = [0.78, 0.79, 0.86];
 
-/** Фактура вида `next` (`render/env/facade.ts`): затенение углов грани и полосы под свесом — холодное, как все затемнения. */
-export const FACADE_SHADE: Mul = [0.74, 0.76, 0.86];
-/** Мох и сырость у земли на камне вида `next` — множитель к цвету камня, зеленее и темнее. */
-export const FACADE_MOSS: Mul = [0.8, 0.9, 0.7];
-/** Пятно под зданием на земле (умножающая декаль). */
+/** Пятно под постройкой на земле (умножающая декаль поляны предыстории). */
 export const GROUND_SHADE: Mul = [0.68, 0.7, 0.8];
 /**
  * Пятна травы: от сырой низины (темнее, чуть синее) до выгоревшего бугра (светлее,
@@ -482,10 +460,3 @@ export const GROUND_SHADE: Mul = [0.68, 0.7, 0.8];
  */
 export const GRASS_DARK_MUL: Mul = [0.82, 0.86, 0.86];
 export const GRASS_LIGHT_MUL: Mul = [1.1, 1.07, 1.0];
-/** Трава внутри стены вытоптана: темнее и самую малость теплее. */
-export const WALL_TRAMPLE_MUL: Mul = [0.94, 0.92, 0.88];
-/**
- * Пятно тени под деревом и мелочью окружения пробы (`env/materials.shadeMaterial`):
- * гуще пятна под зданием — дерево стоит в тени целиком, — и тоже холодное.
- */
-export const BLOB_SHADE: Mul = [0.6, 0.64, 0.77];

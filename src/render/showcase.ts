@@ -1,29 +1,27 @@
 // Стенд-витрина. Открывается по ?showcase=… и заменяет собой игру:
 //
-//   ?showcase=building&type=hut&tiers=0,1,2
-//     одно здание в ряд: столбцы — визуальные ступени. Свет, земля и масштаб —
-//     те же, что в игре.
+//   ?showcase=village&levels=10
+//     сцена игры — город (docs/city.md) — на синтетической партии, через настоящую сцену игры
+//     (`SCENES.game`, тот же кусок, что везёт игра): постройки, значки, люди на улицах и стража
+//     на стене — как в партии. levels — уровень всех построек разом (1 — как на старте партии,
+//     `MAX_BUILDING_LEVEL` — потолок); buildings=houses:10,smithy:3 правит отдельные. workers=none
+//     оставляет всех жителей свободными: дыма работы у кузницы нет. По умолчанию посёлок
+//     укомплектован — по местам, а не по населению. Имя режима — прежнее: стенды снимков
+//     (`npm run village:shots`) и замер на телефоне (`perf=8`) зовут его так.
 //   ?showcase=units&action=stand
-//     ряд фигур: покрои горожан (`FOLK_KINDS`), все виды бойцов (`TROOPS`), конь, волк ролика
-//     и собака посёлка отдельно (звери стоят в позе зверя для того же действия, `beasts.CANINE_OF`).
+//     ряд фигур ролика о бое: покрои горожан (`FOLK_KINDS`), все виды бойцов (`TROOPS`), конь и волк
+//     (зверь стоит в позе зверя для того же действия, `beasts.CANINE_OF`).
 //     units=spearman,swordsman показывает только названных; action=stand|walk|
 //     guard|strike|hit|fall — что они делают; count=40 вместо ряда ставит строй
 //     из сорока бойцов — по нему и меряется бюджет.
-//   ?showcase=village&levels=10
-//     целый посёлок из синтетического состояния, через настоящую TribeScene:
-//     дороги, стена, жители и бойцы — как в партии. levels — уровень всех
-//     построек разом (1 — как на старте партии, `MAX_BUILDING_LEVEL` — потолок); buildings=hut:10,smithy:3
-//     правит отдельные. workers=none оставляет всех жителей свободными: у костра
-//     толпа, признаков работы у зданий нет. По умолчанию посёлок укомплектован —
-//     по местам, а не по населению: иначе кузнецов на кузницу не хватает.
+//   ?showcase=city
+//     стенд города без игры: ракурсы, ночь, сезоны, уровни (`city/stand.ts`).
 //
-// Общие параметры: silhouette=1 (постройки чёрным на белом), season=winter,
-// solar=0.25 (0 — рассвет, 0.25 — полдень, 0.5 — закат), clean=1 (без подписи).
-// У посёлка ещё: look=next — проба окружения (docs/graphics_world.md), quality=high|
-// medium|low — её уровень качества (без него — по устройству); at=x,z — камера над
-// точкой земли, dist=N — на таком расстоянии (dist=min — пол приближения). Стенду
-// снимков (`npm run village:shots`) сцена видна как window.__stand, готовность —
-// document.body.dataset.ready.
+// Общие параметры: season=winter, solar=0.25 (0 — рассвет, 0.25 — полдень, 0.5 — закат),
+// clean=1 (без подписи). У сцены игры ещё: quality=high|medium|low — уровень качества (без него —
+// по устройству); at=x,z — камера над точкой земли (метры города), dist=N — на таком расстоянии
+// (dist=min — пол приближения). Стенду снимков (`npm run village:shots`) сцена видна как
+// window.__stand, готовность — document.body.dataset.ready. У ряда фигур — silhouette=1 (чёрным на белом).
 // perf=8 — замер частоты кадров: камера крутится восемь секунд, стенд считает
 // кадры и шлёт итог на dev-сервер (POST /__perf → snaps/perf.jsonl). Так стенд
 // открывают на телефоне в локальной сети, а число остаётся в репозитории у разработчика.
@@ -39,29 +37,20 @@ import { createInitialState } from '@/game/state';
 import { BUILDINGS } from '@/game/data/buildings';
 import { SEASON_DAYLIGHT, SEASON_DAYS } from '@/game/data/seasons';
 import { DAY_LENGTH, MAX_BUILDING_LEVEL } from '@/game/constants';
-import { createBuildingGroup, footprintOf, levelScale, type Tier } from './buildings';
 import { TROOPS } from '@/game/data/troops';
 import { Figure, FigurePool, PARTS, type PartName } from './figures';
 import { ACTIONS, poseFigure, type Action } from './poses';
-import { FOLK_KINDS, dressHero, dressMount, dressSoldier, dressVillager } from './units';
-import { CANINE_OF, DOG, dressCanine, poseCanine, wolfLook } from './beasts';
+import { FOLK_KINDS, dressMount, dressSoldier, dressVillager } from './units';
+import { CANINE_OF, dressCanine, poseCanine, wolfLook } from './beasts';
 import { PALETTE } from './palette';
-import { HERO_SCALE } from './hero';
-import { PLAN_SCALE } from './plan';
-import { AZIMUTH } from './camera';
-import { buildGround } from './terrain';
-import { groundDecals, type DecalSpot } from './village';
+import { KIT } from './materials';
 import { SeasonVisuals } from './season';
-import { TribeScene } from './Scene';
-import { lookOf } from './lighting';
+import { SCENES, type TribeScene } from './Scene';
 import { qualityOf } from './quality';
-import { applyDayNight, configureRenderer, configureSky, createLightRig, fitShadow } from './lighting';
+import { CAMERA_AZIMUTH, applyDayNight, configureRenderer, configureSky, createLightRig, fitShadow } from './lighting';
 import { FrameLoop, deviceRatio, pixelRatio } from './loop';
 
 const SEASON_ORDER: Season[] = ['spring', 'summer', 'autumn', 'winter'];
-
-/** Верхний уровень каждой ступени: сетка показывает здание в самом крупном виде ступени. */
-const TIER_TOP: [number, number, number] = [3, 7, 10];
 
 interface Common {
   season: Season;
@@ -177,119 +166,11 @@ class Snapper {
   }
 }
 
-// ---------- Одно здание сеткой ----------
-
-function mountBuilding(root: HTMLElement, p: URLSearchParams, c: Common): void {
-  const type = (p.get('type') ?? 'hut') as BuildingTypeId;
-  const tiers = (p.get('tiers') ?? '0,1,2').split(',').map(Number) as Tier[];
-  const spacing = Number(p.get('spacing') ?? 4.4);
-  /** Запас кадра вокруг сетки; меньше — крупнее здания. */
-  const margin = Number(p.get('margin') ?? 0.55);
-
-  const canvas = makeCanvas(root);
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
-  renderer.setPixelRatio(pixelRatio(c.dpr));
-  configureRenderer(renderer);
-  // Считаем вызовы честно, вместе с теневым проходом (см. Scene).
-  renderer.info.autoReset = false;
-  const scene = new THREE.Scene();
-  configureSky(scene);
-  const rig = createLightRig(scene, Number(p.get('shadow') ?? 1024));
-  const ground = buildGround();
-  scene.add(ground);
-  const seasonVis = new SeasonVisuals();
-  seasonVis.update(c.season, 10);
-
-  // Ряд раскладывается в системе камеры: столбцы — вправо.
-  const right = new THREE.Vector3(Math.cos(AZIMUTH), 0, -Math.sin(AZIMUTH));
-  const cols = tiers.length;
-  const spots: DecalSpot[] = [];
-  tiers.forEach((tier, ci) => {
-    const g = createBuildingGroup(type, tier);
-    const scale = levelScale(TIER_TOP[tier]) * PLAN_SCALE;
-    g.scale.setScalar(scale);
-    g.position.copy(right).multiplyScalar((ci - (cols - 1) / 2) * spacing);
-    // Фасадом (+z модели) в камеру — как здание первого кольца смотрит на площадь.
-    g.rotation.y = AZIMUTH;
-    scene.add(g);
-    const [w, d] = footprintOf(type, tier);
-    spots.push({ x: g.position.x, z: g.position.z, radius: (Math.max(w, d) / 2) * scale });
-  });
-  // Под каждым зданием — те же декали, что кладёт посёлок: вытоптанная земля и пятно тени.
-  const decals = groundDecals(spots);
-  scene.add(decals);
-
-  // Сетка вписывается по ширине: в портрете именно она ограничивает кадр.
-  const fitRadius = ((cols - 1) * spacing) / 2 + 2.2 + margin;
-  fitShadow(rig, fitRadius + 3);
-
-  const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 120);
-  const controls = new OrbitControls(camera, canvas);
-  controls.enableDamping = true;
-  controls.enablePan = false;
-  const target = new THREE.Vector3(0, 0.8, 0);
-  controls.target.copy(target);
-
-  const resize = (): void => {
-    const w = canvas.clientWidth || window.innerWidth;
-    const h = canvas.clientHeight || window.innerHeight;
-    renderer.setSize(w, h, false);
-    const aspect = w / h;
-    camera.aspect = aspect;
-    // То же кадрирование, что в Scene.applyFraming: в портрете выше и шире.
-    const narrow = THREE.MathUtils.clamp((0.75 - aspect) / 0.15, 0, 1);
-    // polar=… и zoom=… позволяют посмотреть ниже и ближе, чем стартовый кадр игры.
-    const polar = Number(p.get('polar') ?? THREE.MathUtils.lerp(0.95, 0.62, narrow));
-    const fov = THREE.MathUtils.lerp(42, 48, narrow);
-    camera.fov = fov;
-    const halfH = Math.atan(Math.tan((fov * Math.PI) / 360) * aspect);
-    const dist = (fitRadius / Math.tan(halfH)) / Number(p.get('zoom') ?? 1);
-    camera.position.setFromSpherical(new THREE.Spherical(dist, polar, AZIMUTH)).add(target);
-    camera.lookAt(target);
-    camera.updateProjectionMatrix();
-    const fog = scene.fog as THREE.Fog | null;
-    if (fog) {
-      fog.near = dist * 1.6;
-      fog.far = dist * 2.6;
-    }
-  };
-  resize();
-  window.addEventListener('resize', resize);
-
-  if (c.silhouette) {
-    scene.overrideMaterial = new THREE.MeshBasicMaterial({ color: 0x000000 });
-    (scene.background as THREE.Color).setHex(0xffffff);
-    scene.fog = null;
-    ground.visible = false;
-    decals.visible = false;
-  }
-
-  const caption = makeCaption(root, c.clean);
-  const head =
-    `${type}\nстолбцы: ступени ${tiers.map((t) => ['1–3', '4–7', '8–10'][t]).join(' / ')}` +
-    ` · ${c.season} · solar ${c.solar}${c.silhouette ? ' · силуэт' : ''}`;
-  let text = head;
-  const render = (): void => {
-    if (!c.silhouette) applyDayNight(rig, scene, c.solar, seasonVis);
-    controls.update();
-    renderer.info.reset();
-    renderer.render(scene, camera);
-    const info = renderer.info;
-    const stats = { calls: info.render.calls, triangles: info.render.triangles };
-    text = `${head}\ncalls ${stats.calls} · tris ${stats.triangles}`;
-    publish(caption, text, { mode: 'building', ...stats });
-  };
-  // Кадры — через дверь кадра (`render/loop.ts`): стенд держит тот же потолок, что игра.
-  render();
-  FrameLoop.run(render);
-  new Snapper(c.snap).schedule(canvas, render, () => text);
-}
-
-// ---------- Целый посёлок ----------
+// ---------- Сцена игры: город на синтетической партии ----------
 
 /**
  * Дружина на стенде: крупному посёлку — полная дружина, стартовому — пара
- * копейщиков. Уровень 8 — порог третьей визуальной ступени (`VISUAL_TIERS`).
+ * копейщиков. От неё — стража на стене города (`CityScene.syncWorld`).
  */
 const ARMY_FOR = (levels: number): Partial<Record<TroopId, number>> =>
   levels >= 8
@@ -419,68 +300,69 @@ function runPerf(scene: PerfTarget, seconds: number, name: string, done: (line: 
 }
 
 function mountVillage(root: HTMLElement, p: URLSearchParams, c: Common): void {
-  const level = Math.max(1, Math.min(MAX_BUILDING_LEVEL, Number(p.get('levels') ?? 1)));
-  const s = synthState(level, c.season, c.solar, p.get('buildings'), p.get('workers') !== 'none');
+  // Сцена игры едет своим куском — тем же, что везёт игра (`main.tsx`): стенд меряет и снимает ровно её.
+  void import('./city/scene').then(() => {
+    const City = SCENES.game;
+    if (!City) throw new Error('кусок города приехал, а класса сцены в `SCENES` нет');
+    const level = Math.max(1, Math.min(MAX_BUILDING_LEVEL, Number(p.get('levels') ?? 1)));
+    const s = synthState(level, c.season, c.solar, p.get('buildings'), p.get('workers') !== 'none');
 
-  const canvas = makeCanvas(root);
-  const look = lookOf(p.get('look'));
-  const scene = new TribeScene(canvas, c.dpr, { look, quality: qualityOf(p.get('quality')) });
-  scene.sync(s);
-  if (c.silhouette) scene.setSilhouette(true);
-  window.addEventListener('resize', () => scene.resize());
-  // Камера над точкой земли и на расстоянии — ближний план для снимков пробы.
-  const aim = (): void => {
-    const at = (p.get('at') ?? '').split(',').map(Number);
-    const dist = p.get('dist');
-    if (at.length !== 2 || !at.every(Number.isFinite)) return;
-    scene.standView(at[0], at[1], dist === 'min' ? 0 : dist ? Number(dist) : null);
-  };
-  aim();
-  window.addEventListener('resize', aim);
-  (window as unknown as { __stand?: TribeScene }).__stand = scene;
-  void scene.ready.then(() => {
-    document.body.dataset.ready = '1';
-  });
-
-  const caption = makeCaption(root, c.clean);
-  const head =
-    `посёлок · уровень ${level}\n${c.season} · solar ${c.solar}` +
-    `${c.silhouette ? ' · силуэт' : ''}${look === 'next' ? ` · проба, ${scene.quality}` : ''}`;
-  let text = head;
-  let perfLine = '';
-  const tick = (): void => {
-    const st = scene.stats();
-    text = `${head}\ncalls ${st.calls} · tris ${st.triangles}${perfLine ? `\n${perfLine}` : ''}`;
-    publish(caption, text, { mode: 'village', ...st });
-  };
-  const perf = Number(p.get('perf') ?? 0);
-  if (perf > 0) {
-    perfLine = 'замер…';
-    runPerf(scene, perf, `village_l${level}`, (line, copy) => {
-      perfLine = copy ? `${line}\nтап по подписи — скопировать отчёт` : line;
-      if (copy) enableCopy(caption);
-      tick();
+    const canvas = makeCanvas(root);
+    const scene = new City(canvas, c.dpr, { quality: qualityOf(p.get('quality')) });
+    scene.sync(s);
+    window.addEventListener('resize', () => scene.resize());
+    // Камера над точкой земли и на расстоянии — ближний план для снимков.
+    const aim = (): void => {
+      const at = (p.get('at') ?? '').split(',').map(Number);
+      const dist = p.get('dist');
+      if (at.length !== 2 || !at.every(Number.isFinite)) return;
+      scene.standView(at[0], at[1], dist === 'min' ? 0 : dist ? Number(dist) : null);
+    };
+    aim();
+    window.addEventListener('resize', aim);
+    (window as unknown as { __stand?: TribeScene }).__stand = scene;
+    void scene.ready.then(() => {
+      document.body.dataset.ready = '1';
     });
-  }
-  tick();
-  setInterval(tick, 500);
-  const bench = Number(p.get('bench') ?? 0);
-  if (bench > 0) {
-    benchmark(`village_l${level}`, () => scene.renderOnce(), bench, () => scene.stats());
-  }
-  new Snapper(c.snap).schedule(
-    canvas,
-    () => {
-      scene.renderOnce();
-      tick();
-    },
-    () => text,
-  );
+
+    const caption = makeCaption(root, c.clean);
+    const head = `город · уровень ${level} · ${scene.quality}\n${c.season} · solar ${c.solar}`;
+    let text = head;
+    let perfLine = '';
+    const tick = (): void => {
+      const st = scene.stats();
+      text = `${head}\ncalls ${st.calls} · tris ${st.triangles}${perfLine ? `\n${perfLine}` : ''}`;
+      publish(caption, text, { mode: 'village', ...st });
+    };
+    const perf = Number(p.get('perf') ?? 0);
+    if (perf > 0) {
+      perfLine = 'замер…';
+      runPerf(scene, perf, `city_l${level}_${scene.quality}`, (line, copy) => {
+        perfLine = copy ? `${line}\nтап по подписи — скопировать отчёт` : line;
+        if (copy) enableCopy(caption);
+        tick();
+      });
+    }
+    tick();
+    setInterval(tick, 500);
+    const bench = Number(p.get('bench') ?? 0);
+    if (bench > 0) {
+      benchmark(`city_l${level}_${scene.quality}`, () => scene.renderOnce(), bench, () => scene.stats());
+    }
+    new Snapper(c.snap).schedule(
+      canvas,
+      () => {
+        scene.renderOnce();
+        tick();
+      },
+      () => text,
+    );
+  });
 }
 
 // ---------- Фигуры ----------
 
-/** Что стенд умеет показать: покрои горожан, виды бойцов, конь и герой. */
+/** Что стенд умеет показать: покрои горожан, виды бойцов, конь и волк — фигуры ролика о бое. */
 interface UnitSpec {
   id: string;
   label: string;
@@ -489,12 +371,7 @@ interface UnitSpec {
   beast?: boolean;
 }
 
-/**
- * Герой в каталоге стоит отдельной строкой, но своей одёжки у него нет: он
- * одевается тем же `dressHero` по виду бойца (`hero=<вид>`), что и у статуи.
- * Второй правды о том, как выглядит герой, стенд заводить не должен.
- */
-function unitCatalog(heroTroop: TroopId): UnitSpec[] {
+function unitCatalog(): UnitSpec[] {
   const folk: UnitSpec[] = [];
   for (let k = 0; k < FOLK_KINDS; k++) {
     folk.push({ id: `folk${k}`, label: `горожанин ${k + 1}`, dress: (f: Figure) => dressVillager(f, k) });
@@ -504,18 +381,9 @@ function unitCatalog(heroTroop: TroopId): UnitSpec[] {
     label: t.one,
     dress: (f: Figure) => dressSoldier(f, t.id),
   }));
-  const hero: UnitSpec = {
-    id: 'hero',
-    label: `герой (${TROOPS.find((t) => t.id === heroTroop)?.one ?? heroTroop})`,
-    dress: (f: Figure) => {
-      dressHero(f, heroTroop);
-      f.scale = HERO_SCALE;
-    },
-  };
   // Волк — в чужом цвете, как в ролике боя: стая всегда приходит чужой (`game/battle/beasts`).
   const wolf: UnitSpec = { id: 'wolf', label: 'волк', dress: (f: Figure) => dressCanine(f, wolfLook(PALETTE.paintRed)), beast: true };
-  const dog: UnitSpec = { id: 'dog', label: 'собака', dress: (f: Figure) => dressCanine(f, DOG), beast: true };
-  return [...folk, ...troops, { id: 'horse', label: 'конь', dress: dressMount }, wolf, dog, hero];
+  return [...folk, ...troops, { id: 'horse', label: 'конь', dress: dressMount }, wolf];
 }
 
 /**
@@ -529,8 +397,7 @@ function mountUnits(root: HTMLElement, p: URLSearchParams, c: Common): void {
   const asked = p.get('action') as Action | null;
   const action: Action = asked && ACTIONS.includes(asked) ? asked : 'stand';
   const count = Math.max(0, Number(p.get('count') ?? 0));
-  const heroTroop = (TROOPS.find((t) => t.id === p.get('hero'))?.id ?? 'swordsman') as TroopId;
-  const catalog = unitCatalog(heroTroop);
+  const catalog = unitCatalog();
   const want = p.get('units');
   const picked = want && want !== 'all'
     ? want.split(',').map((id) => catalog.find((u) => u.id === id)).filter((u): u is UnitSpec => !!u)
@@ -548,15 +415,17 @@ function mountUnits(root: HTMLElement, p: URLSearchParams, c: Common): void {
   const scene = new THREE.Scene();
   configureSky(scene);
   const rig = createLightRig(scene, Number(p.get('shadow') ?? 1024));
-  const ground = buildGround();
+  // Земля стенда — травяной круг: фигурам нужна тень на земле, а не мир вокруг.
+  const ground = new THREE.Mesh(new THREE.CircleGeometry(30, 48).rotateX(-Math.PI / 2), KIT.grass);
+  ground.receiveShadow = true;
   scene.add(ground);
   const seasonVis = new SeasonVisuals();
   seasonVis.update(c.season, 10);
 
   const pool = new FigurePool();
   scene.add(pool.group);
-  // Ряд раскладывается в системе камеры: столбцы — вправо, как у зданий.
-  const right = new THREE.Vector3(Math.cos(AZIMUTH), 0, -Math.sin(AZIMUTH));
+  // Ряд раскладывается в системе камеры: столбцы — вправо.
+  const right = new THREE.Vector3(Math.cos(CAMERA_AZIMUTH), 0, -Math.sin(CAMERA_AZIMUTH));
   const figures: Figure[] = [];
   const beasts = new Set<Figure>();
   let fitRadius: number;
@@ -574,7 +443,7 @@ function mountUnits(root: HTMLElement, p: URLSearchParams, c: Common): void {
       const col = i % cols;
       const row = Math.floor(i / cols);
       f.position.set((col - (cols - 1) / 2) * step, 0, (row - Math.floor(count / cols) / 2) * step);
-      f.rotationY = AZIMUTH + turn;
+      f.rotationY = CAMERA_AZIMUTH + turn;
       pool.add(f);
       figures.push(f);
     }
@@ -586,7 +455,7 @@ function mountUnits(root: HTMLElement, p: URLSearchParams, c: Common): void {
       spec.dress(f);
       if (spec.beast) beasts.add(f);
       f.position.copy(right).multiplyScalar((i - (picked.length - 1) / 2) * spacing);
-      f.rotationY = AZIMUTH + turn;
+      f.rotationY = CAMERA_AZIMUTH + turn;
       pool.add(f);
       figures.push(f);
     });
@@ -615,7 +484,7 @@ function mountUnits(root: HTMLElement, p: URLSearchParams, c: Common): void {
     camera.fov = fov;
     const halfH = Math.atan(Math.tan((fov * Math.PI) / 360) * aspect);
     const dist = (fitRadius / Math.tan(halfH)) / Number(p.get('zoom') ?? 1);
-    camera.position.setFromSpherical(new THREE.Spherical(dist, polar, AZIMUTH)).add(target);
+    camera.position.setFromSpherical(new THREE.Spherical(dist, polar, CAMERA_AZIMUTH)).add(target);
     camera.lookAt(target);
     camera.updateProjectionMatrix();
     const fog = scene.fog as THREE.Fog | null;
@@ -742,9 +611,8 @@ export function mountShowcase(p: URLSearchParams): void {
   document.title = 'TRIBE · стенд';
   const c = common(p);
   const mode = p.get('showcase');
-  // Вид «город» (docs/city.md) — свой ленивый кусок: стенд без города его не качает.
+  // Стенд города (docs/city.md) — свой ленивый кусок: стенд фигур его не качает.
   if (mode === 'city') void import('./city/stand').then((m) => m.mountCity(root, p));
-  else if (mode === 'village') mountVillage(root, p, c);
   else if (mode === 'units') mountUnits(root, p, c);
-  else mountBuilding(root, p, c);
+  else mountVillage(root, p, c);
 }

@@ -1,58 +1,31 @@
-// Набор деталей. Зданий — весь список `BUILDINGS`, ступеней три — по отдельной модели на
-// каждую комбинацию не построить и не поддержать. Поэтому здание собирается из
-// общих деталей: стена, скат крыши, столб, цоколь, балки фахверка, крыльцо,
-// труба, ограда. Материалы (ROLES) и состав набора (FEATURES в buildings.ts)
-// заданы один раз для всего посёлка — стиль позднего средневековья.
+// Набор деталей — им собирает свои модели поляна предыстории (`prologue/models.ts`): шалаш, утварь, частокол
+// поляны. Прежде он собирал и здания посёлка (стены, кровли, фахверк, крыльца, трубы, ограды); посёлок убран
+// вместе с видами `now` и `next` (docs/city.md, «Город — единственный вид»), и остались примитивы, склейка и
+// уборка геометрии.
 //
 // Деталь — это геометрия, уже поставленная на место, и «краска» (Paint): либо
 // настоящий материал (кровля, пашня — то, что перекрашивает сезон), либо цвет
 // палитры, запечённый в вершины на общем белом материале KIT.body — так все
-// несезонные части здания уходят в одну группу. Готовое здание склеивается в
+// несезонные части уходят в одну группу. Готовая модель склеивается в
 // ОДИН меш (assemble): группы по материалу, один вызов отрисовки на материал
 // вместо одного на каждую доску.
 //
 // Перед склейкой в вершины запекается цвет: краска × контактное затемнение
-// (низ цоколя, стены и столбов темнее и синее — иначе постройка парит над травой).
+// (низ стен и столбов темнее и синее — иначе постройка парит над травой).
 // Затемнение — множитель, поэтому сезонный перелив material.color его не трогает.
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { KIT, MATERIAL_KEYS, type MatKey } from './materials';
-import { AO_BASE, AO_POST, AO_WALL, EMISSIVE_KEYS, PALETTE, isSeasonal, type Mul } from './palette';
+import { AO_WALL, EMISSIVE_KEYS, PALETTE, isSeasonal, type Mul } from './palette';
 
 /** Чем красить деталь: сезонным материалом или цветом вершин на общем «теле». */
 export interface Paint {
   mat: THREE.Material;
   /** Линейный цвет для вершин; отсутствует, если цвет несёт сам материал. */
   tint: THREE.Color | null;
-  /** Ключ палитры краски — по нему фактура вида `next` узнаёт поверхность (`SURFACE`). */
-  key?: MatKey;
-  /**
-   * Окно: деталь светится ночью тёплым (`render/glow.ts`). Цвет тот же — днём окно тёмное,
-   * как было; признак едет в атрибуте вершин `glow`, а не в материале: окна и стены — одна
-   * группа «тела», и лишнего вызова отрисовки у дома нет.
-   */
-  glow?: boolean;
 }
 
 const paints = new Map<MatKey, Paint>();
-
-let glass: Paint | null = null;
-
-/** Окно: краска `dark` со светом ночью — днём неотличима от прежней. */
-export function pane(): Paint {
-  glass ??= { ...paintOf('dark'), glow: true };
-  return glass;
-}
-
-/**
- * Сколько света у окна: каждое своё, чуть ярче или тусклее, а каждое седьмое — тёмное (там
- * спят). Хешем от номера детали в модели — тот же дом горит так же при каждой сборке.
- */
-export function windowLight(i: number): number {
-  const h = Math.sin(i * 12.9898 + 78.233) * 43758.5453;
-  const k = h - Math.floor(h);
-  return k < 1 / 7 ? 0 : 0.6 + 0.4 * ((k * 7) % 1);
-}
 
 /**
  * Краска по имени цвета палитры. Сезонные цвета (кровли, пашня) — настоящие
@@ -63,8 +36,8 @@ export function paintOf(key: MatKey): Paint {
   let p = paints.get(key);
   if (!p) {
     p = isSeasonal(key)
-      ? { mat: KIT[key], tint: null, key }
-      : { mat: KIT.body, tint: new THREE.Color().setHex(PALETTE[key]), key };
+      ? { mat: KIT[key], tint: null }
+      : { mat: KIT.body, tint: new THREE.Color().setHex(PALETTE[key]) };
     paints.set(key, p);
   }
   return p;
@@ -188,397 +161,6 @@ export function gablePrism(w: number, h: number, d: number, rise: number, paint:
   return place(geo, paint, x, 0, z, rot, ao);
 }
 
-// ---------- Стены и цоколь (основание — в y0) ----------
-
-/** Полукруглая арка с прямыми пятами; border=0 — вставка в тот же проём.
- * Восемь граней свода, без фасок: портал, окно, аркада или ворота стены.
- * Возвращает обычную деталь assemble, своего материала/вызова не создаёт. */
-export function arch(w: number, spring: number, border: number, depth: number, paint: Paint,
-  x = 0, y = 0, z = 0, rot?: Rot): Part {
-  const r = w / 2;
-  const inner = border > 0 ? Math.max(0.01, r - border) : 0;
-  const pos: number[] = [];
-  type V = [number, number, number];
-  const tri = (a: V, b: V, c: V): void => { pos.push(...a, ...b, ...c); };
-  const quad = (a: V, b: V, c: V, d: V): void => { tri(a, b, c); tri(a, c, d); };
-  const point = (rad: number, angle: number, z: number): V => [Math.cos(angle) * rad, spring + Math.sin(angle) * rad, z];
-  const front = depth / 2;
-  // Свод строится сразу гранями: не подтягиваем ExtrudeGeometry и её триангулятор.
-  for (let i = 0; i < 8; i++) {
-    const a = i * Math.PI / 8;
-    const b = (i + 1) * Math.PI / 8;
-    const af = point(r, a, front), bf = point(r, b, front);
-    const ab = point(r, a, -front), bb = point(r, b, -front);
-    quad(af, ab, bb, bf);
-    if (inner > 0) {
-      const cf = point(inner, b, front), df = point(inner, a, front);
-      const cb = point(inner, b, -front), db = point(inner, a, -front);
-      quad(af, bf, cf, df);
-      quad(ab, db, cb, bb);
-      quad(df, cf, cb, db);
-    } else {
-      tri([0, spring, front], af, bf);
-      tri([0, spring, -front], bb, ab);
-    }
-  }
-  const leg = (width: number, cx: number): void => {
-    const box = new THREE.BoxGeometry(width, spring, depth);
-    const flat = box.toNonIndexed();
-    flat.translate(cx, spring / 2, 0);
-    pos.push(...Array.from(flat.attributes.position.array));
-    box.dispose(); flat.dispose();
-  };
-  if (inner > 0) {
-    leg(r - inner, -(r + inner) / 2);
-    leg(r - inner, (r + inner) / 2);
-  } else leg(w, 0);
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  geo.computeVertexNormals();
-  return place(geo, paint, x, y, z, rot);
-}
-
-/** Затемнение стены: нижняя половина, не выше 0.55. */
-const wallAo = (y0: number, h: number): Ao => ({ base: AO_WALL, y0, y1: y0 + Math.min(0.55, h / 2) });
-
-/**
- * Стены собираются с двумя рядами по высоте: средний ряд вершин держит
- * контактный градиент внизу — без него цвет тянулся бы по Гуро на всю стену.
- */
-
-/** Круглая стена: чуть шире у земли. */
-export const wallRound = (r: number, h: number, paint: Paint, seg = 10, x = 0, z = 0, y0 = 0): Part =>
-  place(new THREE.CylinderGeometry(r, r * 1.04, h, seg, 2), paint, x, y0 + h / 2, z, undefined, wallAo(y0, h));
-
-/** Прямоугольная стена. */
-export const wallBox = (w: number, h: number, d: number, paint: Paint, x = 0, z = 0, y0 = 0, rot?: Rot): Part =>
-  place(new THREE.BoxGeometry(w, h, d, 1, 2, 1), paint, x, y0 + h / 2, z, rot, wallAo(y0, h));
-
-/** Стена с фронтонами — под двускатную крышу. Основание в y0. */
-export function wallGable(w: number, h: number, d: number, rise: number, paint: Paint, x = 0, z = 0, rot?: Rot, y0 = 0): Part {
-  const p = gablePrism(w, h, d, rise, paint, x, z, rot, wallAo(y0, h));
-  if (y0 !== 0) p.geo.translate(0, y0, 0);
-  return p;
-}
-
-/** Высота цоколя и на сколько он уходит под землю: линия стыка с грунтом чистая. */
-export const PLINTH_H = 0.22;
-export const PLINTH_SINK = 0.03;
-const plinthAo: Ao = { base: AO_BASE, y0: -PLINTH_SINK, y1: PLINTH_H - PLINTH_SINK };
-
-/** Каменный цоколь под прямоугольной стеной: на 0.08 шире неё с каждой стороны. */
-export const plinth = (w: number, d: number, paint: Paint, x = 0, z = 0, rot?: Rot): Part =>
-  box(w + 0.16, PLINTH_H, d + 0.16, paint, x, PLINTH_H / 2 - PLINTH_SINK, z, rot, plinthAo);
-
-/** Цоколь под круглой стеной. */
-export const plinthRound = (r: number, paint: Paint, seg = 10, x = 0, z = 0): Part =>
-  cyl(r + 0.08, r + 0.1, PLINTH_H, paint, seg, x, PLINTH_H / 2 - PLINTH_SINK, z, undefined, plinthAo);
-
-/** Столб: чуть шире у земли, пятигранник. Основание в y0. */
-export const post = (r: number, h: number, paint: Paint, x = 0, z = 0, y0 = 0): Part =>
-  cyl(r, r * 1.15, h, paint, 5, x, y0 + h / 2, z, undefined, { base: AO_POST, y0, y1: y0 + 0.35 });
-
-// ---------- Кровли ----------
-
-/** Толщина кромки: солома толстая, дранка и черепица — тонкий лист. */
-export type RoofKind = 'hide' | 'thatch' | 'shingle' | 'tile';
-
-export interface RoofPaint {
-  kind: RoofKind;
-  roof: Paint;
-  roofDark: Paint;
-  /** Колпак/конёк: металл у дранки, брус у соломы. */
-  trim: Paint;
-}
-
-/**
- * Коническая кровля. База конуса на y (на 0.12 ниже верха стены — кровля надета,
- * щели нет). У соломы под главным конусом широкий тёмный свес и шапка на вершине —
- * ступенька в силуэте читается «солома»; у дранки один чистый конус с колпаком.
- */
-export function roofCone(r: number, h: number, y: number, rp: RoofPaint, seg = 10, x = 0, z = 0): Part[] {
-  const out: Part[] = [];
-  if (rp.kind === 'thatch' || rp.kind === 'hide') {
-    // Свес: усечённый конус той же крутизны, на 0.12 шире.
-    const eave = 0.42;
-    const rTop = r + 0.12 - (eave * (r + 0.12)) / h;
-    out.push(cyl(Math.max(0.1, rTop), r + 0.12, eave, rp.roofDark, seg, x, y + eave / 2, z));
-    out.push(cone(r, h, rp.roof, seg, x, y + h / 2, z));
-    if (rp.kind === 'thatch') out.push(cyl(0.12, 0.16, 0.2, rp.roofDark, 6, x, y + h - 0.02, z));
-  } else {
-    out.push(cone(r, h, rp.roof, seg, x, y + h / 2, z));
-    out.push(cyl(0.05, 0.11, 0.22, rp.trim, 6, x, y + h + 0.06, z));
-  }
-  return out;
-}
-
-/**
- * Двускатная кровля: две плиты сходятся на коньке, конёк накрыт брусом. Плиты
- * выступают за стену на overhang по всем сторонам. Кромка (нижний край ската)
- * на высоте y, конёк на y + rise. Ось конька — z (в местных осях до поворота rot).
- * У соломы кромка толстая и по ней идёт тёмный свес.
- */
-export function roofGable(
-  w: number,
-  d: number,
-  rise: number,
-  y: number,
-  rp: RoofPaint,
-  overhang = 0.3,
-  x = 0,
-  z = 0,
-  rot?: Rot,
-): Part[] {
-  const thick = rp.kind === 'thatch' || rp.kind === 'hide' ? 0.2 : 0.11;
-  const hw = w / 2 + overhang;
-  // Кромка опускается ниже стены пропорционально выносу: скат продолжается.
-  const drop = (rise * overhang) / (w / 2);
-  const rise2 = rise + drop;
-  const len = Math.hypot(hw, rise2) + thick * 0.4;
-  const ang = Math.atan2(rise2, hw);
-  const dd = d + overhang * 2;
-  const ry = rot?.y ?? 0;
-  const cosR = Math.cos(ry);
-  const sinR = Math.sin(ry);
-  // Локальный сдвиг (lx, lz) → мировой с учётом поворота вокруг y.
-  const at = (lx: number, lz: number): [number, number] => [x + lx * cosR + lz * sinR, z - lx * sinR + lz * cosR];
-  const out: Part[] = [];
-  for (const s of [-1, 1]) {
-    const mx = (s * hw) / 2;
-    const my = y - drop + rise2 / 2;
-    const nx = s * Math.sin(ang);
-    const ny = Math.cos(ang);
-    const [px, pz] = at(mx + (nx * thick) / 2, 0);
-    out.push(box(len, thick, dd, rp.roof, px, my + (ny * thick) / 2, pz, { y: ry, z: -s * ang }));
-    if (rp.kind === 'thatch') {
-      // Тёмный свес вдоль кромки.
-      const [ex, ez] = at(s * (hw - 0.05), 0);
-      out.push(box(0.3, thick * 1.5, dd + 0.02, rp.roofDark, ex, y - drop + thick * 0.25, ez, { y: ry, z: -s * ang }));
-    }
-  }
-  // Брус конька — ромбом, чтобы закрыть стык плит.
-  const [cx, cz] = at(0, 0);
-  const rt = rp.kind === 'thatch' ? 0.16 : 0.13;
-  out.push(box(rt, rt, dd + 0.04, rp.trim, cx, y + rise + thick * 0.45, cz, { y: ry, z: Math.PI / 4 }));
-  return out;
-}
-
-/** Односкатный навес: плита с наклоном, кромка выше у стены (z0) и ниже на выносе. */
-export const roofLean = (w: number, d: number, y: number, paint: Paint, z0: number, x = 0, drop = 0.28): Part => {
-  const len = Math.hypot(d, drop);
-  return box(w, 0.1, len, paint, x, y - drop / 2, z0 + d / 2, { x: Math.atan2(drop, d) });
-};
-
-// ---------- Мелкие детали ----------
-
-/** Труба: короб с широкой шапкой (без неё в силуэте — палка). Основание в y. */
-export function chimney(s: number, h: number, paint: Paint, cap: Paint, x: number, y: number, z: number): Part[] {
-  return [box(s, h, s, paint, x, y + h / 2, z), box(s * 1.35, s * 0.3, s * 1.35, cap, x, y + h + s * 0.15, z)];
-}
-
-/**
- * Дымник каменного века: колпак на четырёх столбиках над вершиной — та же
- * «шишка» в силуэте, что и труба, но без трубы, которой ещё нет.
- */
-export function smokeHood(r: number, paint: Paint, postPaint: Paint, x: number, y: number, z: number): Part[] {
-  const out: Part[] = [];
-  for (let i = 0; i < 4; i++) {
-    const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
-    out.push(cyl(0.05, 0.05, 0.3, postPaint, 4, x + Math.cos(a) * r * 0.5, y + 0.15, z + Math.sin(a) * r * 0.5));
-  }
-  out.push(cone(r, 0.36, paint, 6, x, y + 0.3 + 0.18, z));
-  return out;
-}
-
-/** Дверной проём с перемычкой: тёмная плита чуть выступает из стены (фасад +z). */
-export function door(w: number, h: number, ink: Paint, lintel: Paint, x: number, z: number, rot?: Rot): Part[] {
-  return [box(w, h, 0.08, ink, x, h / 2 + 0.01, z, rot), box(w + 0.18, 0.1, 0.12, lintel, x, h + 0.05, z, rot)];
-}
-
-/** Окно: маленькая тёмная плита; только на стенах, где оно не превращается в шум. */
-export const window_ = (s: number, ink: Paint, x: number, y: number, z: number, rot?: Rot): Part =>
-  box(s, s, 0.06, ink, x, y, z, rot);
-
-/**
- * Крыльцо перед фасадом (+z): два столба, односкатный навес от стены и настил.
- * z0 — плоскость стены, d — вынос, h — высота столбов.
- */
-export function porch(w: number, d: number, h: number, postPaint: Paint, roofPaint: Paint, floorPaint: Paint, z0: number, x = 0): Part[] {
-  const out: Part[] = [];
-  for (const sx of [-1, 1]) out.push(post(0.08, h - 0.08, postPaint, x + (sx * w) / 2, z0 + d - 0.14));
-  out.push(roofLean(w + 0.36, d + 0.2, h + 0.1, roofPaint, z0 - 0.05, x));
-  out.push(box(w + 0.2, 0.08, d, floorPaint, x, 0.1, z0 + d / 2));
-  return out;
-}
-
-/** Балки фахверка на четырёх стенах короба: угловые стойки, обвязка, диагонали. */
-export function halfTimber(w: number, h: number, d: number, paint: Paint, t = 0.1, y0 = 0, x = 0, z = 0): Part[] {
-  const out: Part[] = [];
-  const hw = w / 2;
-  const hd = d / 2;
-  const o = t * 0.4;
-  for (const sx of [-1, 1]) for (const sz of [-1, 1]) out.push(box(t, h, t, paint, x + sx * hw, y0 + h / 2, z + sz * hd));
-  for (const yy of [y0 + t / 2 + 0.02, y0 + h - t / 2]) {
-    for (const sz of [-1, 1]) out.push(box(w, t, t, paint, x, yy, z + sz * (hd + o)));
-    for (const sx of [-1, 1]) out.push(box(t, t, d, paint, x + sx * (hw + o), yy, z));
-  }
-  // Одна диагональ на длинную грань.
-  const diag = Math.hypot(w * 0.45, h * 0.7);
-  for (const sz of [-1, 1]) out.push(box(diag, t, t * 0.9, paint, x, y0 + h / 2, z + sz * (hd + o), { z: sz * Math.atan2(h * 0.7, w * 0.45) }));
-  return out;
-}
-
-/** Ограда отрезком от (x0, z0) до (x1, z1): столбики и две жерди. */
-export function fenceRun(x0: number, z0: number, x1: number, z1: number, h: number, postPaint: Paint, railPaint: Paint): Part[] {
-  const out: Part[] = [];
-  const len = Math.hypot(x1 - x0, z1 - z0);
-  const ang = Math.atan2(x1 - x0, z1 - z0);
-  const n = Math.max(1, Math.round(len / 0.6));
-  for (let i = 0; i <= n; i++) {
-    const k = i / n;
-    out.push(post(0.05, h, postPaint, x0 + (x1 - x0) * k, z0 + (z1 - z0) * k));
-  }
-  for (const yy of [h * 0.45, h * 0.85]) {
-    out.push(box(0.06, 0.06, len, railPaint, (x0 + x1) / 2, yy, (z0 + z1) / 2, { y: ang }));
-  }
-  return out;
-}
-
-/** Плита перед дверью: дешёвая «посадка» входа. */
-export const stepStone = (w: number, paint: Paint, x: number, z: number): Part =>
-  box(w, 0.08, 0.4, paint, x, 0.04, z + 0.2, undefined, { base: AO_POST, y0: 0, y1: 0.08 });
-
-/** Поленница у стены. */
-export function woodpile(paint: Paint, x: number, z: number, rot = 0): Part[] {
-  const out: Part[] = [];
-  for (let row = 0; row < 3; row++) {
-    for (let i = 0; i < 3 - (row === 2 ? 1 : 0); i++) {
-      const lx = -0.19 + i * 0.19 + (row % 2) * 0.05;
-      out.push(
-        cyl(0.09, 0.09, 0.85, paint, 5, x + lx * Math.cos(rot), 0.09 + row * 0.17, z - lx * Math.sin(rot), {
-          y: rot,
-          z: Math.PI / 2,
-        }),
-      );
-    }
-  }
-  return out;
-}
-
-// ---------- Фактура вида `next` (этап 2, пункт 2) ----------
-
-/**
- * Поверхность детали для фактуры вида `next` (`render/env/facade.ts`): штукатурка, брус и доска, камень.
- * Номер едет в вершинах (`fac`, третий байт), и шейдер тела рисует по нему узор — без текстур и без новых
- * вызовов: тело у всех частей здания одно. Чего нет в таблице — без узора (0). Кровли (черепица,
- * солома, дранка) — сезонные материалы, у них узор свой (`facade.FACADE_ROOFS`).
- */
-export const SURFACE: Partial<Record<MatKey, number>> = {
-  plaster: 1,
-  wood: 2,
-  woodDark: 2,
-  plank: 2,
-  timber: 2,
-  stake: 2,
-  stone: 3,
-  stoneDark: 3,
-  stoneLight: 3,
-};
-
-let facade = 0;
-
-/**
- * Собрать модели с признаками фактуры: внутри `build` склейка (`assemble`) пишет в вершины признаки
- * фактуры одним атрибутом `fac` — место на грани, номер поверхности и свет окна (`facadeTags`). Снаружи —
- * не пишет: прежний вид, дороги, декор и предыстория собираются как прежде, байт в байт.
- */
-export function withFacade<T>(build: () => T): T {
-  facade++;
-  try {
-    return build();
-  } finally {
-    facade--;
-  }
-}
-
-/** Грань уже этого — столб, брус, грань круглой стены: края у неё нет, и углы она не затеняет. */
-const FACE_MIN = 0.9;
-
-const _a = new THREE.Vector3();
-const _b = new THREE.Vector3();
-const _c = new THREE.Vector3();
-const _n = new THREE.Vector3();
-const _t = new THREE.Vector3();
-const _u = new THREE.Vector3();
-const UP = new THREE.Vector3(0, 1, 0);
-
-/**
- * Признаки фактуры вершин — один атрибут `fac` по байту на признак (нормированный, 0..1), четыре байта на
- * вершину: место на грани по ширине и по высоте, номер поверхности (`SURFACE`, целым в байте) и свет
- * окна (`windowLight`, доля). Место на грани — для затенения углов и полосы под свесом (`facade`): грань
- * — треугольники детали с одной нормалью, у коробки — сторона, у призмы фронтона — весь пятиугольник.
- * Ширина — по горизонтали грани, высота — вверх по ней; у узкой грани ширины нет (0.5), у плоской —
- * высоты (0.5).
- */
-function facadeTags(g: THREE.BufferGeometry, surf: number, glow: number): Uint8Array {
-  const pos = g.attributes.position;
-  const out = new Uint8Array(pos.count * 4);
-  const byte = (v: number): number => Math.round(Math.min(1, Math.max(0, v)) * 255);
-  for (let i = 0; i < pos.count; i++) {
-    out[i * 4] = byte(0.5);
-    out[i * 4 + 1] = byte(0.5);
-    out[i * 4 + 2] = surf;
-    out[i * 4 + 3] = byte(glow);
-  }
-  const groups = new Map<string, number[]>();
-  for (let i = 0; i + 2 < pos.count; i += 3) {
-    _a.fromBufferAttribute(pos, i);
-    _b.fromBufferAttribute(pos, i + 1);
-    _c.fromBufferAttribute(pos, i + 2);
-    _n.subVectors(_b, _a).cross(_u.subVectors(_c, _a));
-    if (_n.lengthSq() < 1e-12) continue;
-    _n.normalize();
-    const key = `${Math.round(_n.x * 20)},${Math.round(_n.y * 20)},${Math.round(_n.z * 20)}`;
-    let list = groups.get(key);
-    if (!list) groups.set(key, (list = []));
-    list.push(i);
-  }
-  for (const [key, tris] of groups) {
-    const [nx, ny, nz] = key.split(',').map((v) => Number(v) / 20);
-    _n.set(nx, ny, nz).normalize();
-    // Вертикальная грань: ширина — по горизонтали, высота — вверх. Наклонная — вверх по скату.
-    if (Math.abs(_n.y) > 0.92) _t.set(1, 0, 0);
-    else _t.crossVectors(UP, _n).normalize();
-    _u.crossVectors(_n, _t).normalize();
-    if (_u.y < 0) _u.negate();
-    let u0 = Infinity;
-    let u1 = -Infinity;
-    let v0 = Infinity;
-    let v1 = -Infinity;
-    for (const i of tris) {
-      for (let k = 0; k < 3; k++) {
-        _a.fromBufferAttribute(pos, i + k);
-        const u = _a.dot(_t);
-        const v = _a.dot(_u);
-        u0 = Math.min(u0, u);
-        u1 = Math.max(u1, u);
-        v0 = Math.min(v0, v);
-        v1 = Math.max(v1, v);
-      }
-    }
-    const wide = u1 - u0 >= FACE_MIN;
-    const tall = v1 - v0 >= 0.3 && Math.abs(_n.y) < 0.92;
-    for (const i of tris) {
-      for (let k = 0; k < 3; k++) {
-        _a.fromBufferAttribute(pos, i + k);
-        out[(i + k) * 4] = byte(wide ? (_a.dot(_t) - u0) / (u1 - u0) : 0.5);
-        out[(i + k) * 4 + 1] = byte(tall ? (_a.dot(_u) - v0) / (v1 - v0) : 0.5);
-      }
-    }
-  }
-  return out;
-}
-
 // ---------- Сборка ----------
 
 const smooth = (t: number): number => {
@@ -590,7 +172,7 @@ const smooth = (t: number): number => {
  * Запекает цвет вершин: краска × контактное затемнение. Затемнение — от ao.base
  * у ao.y0 до единицы у ao.y1; без ao вершины получают чистую краску.
  */
-export function bakeColors(geo: THREE.BufferGeometry, tint: THREE.Color | null, ao?: Ao): void {
+function bakeColors(geo: THREE.BufferGeometry, tint: THREE.Color | null, ao?: Ao): void {
   const pos = geo.attributes.position;
   const col = new Float32Array(pos.count * 3);
   const r = tint?.r ?? 1;
@@ -619,21 +201,12 @@ export function bakeColors(geo: THREE.BufferGeometry, tint: THREE.Color | null, 
  */
 export function assemble(parts: Part[]): THREE.Mesh {
   const byMat = new Map<THREE.Material, THREE.BufferGeometry[]>();
-  // Есть окна — атрибут `glow` у каждой детали: склейка требует одного набора атрибутов.
-  const lit = parts.some((p) => p.paint.glow);
-  let window = 0;
   for (const p of parts) {
     const g = p.geo.index ? p.geo.toNonIndexed() : p.geo;
     if (g !== p.geo) p.geo.dispose();
     // Текстур нет: uv только мешает склейке разных примитивов.
     g.deleteAttribute('uv');
     bakeColors(g, p.paint.tint, p.ao);
-    const glow = lit && p.paint.glow ? windowLight(window++) : 0;
-    if (facade > 0) {
-      g.setAttribute('fac', new THREE.BufferAttribute(facadeTags(g, (p.paint.key && SURFACE[p.paint.key]) || 0, glow), 4, true));
-    } else if (lit) {
-      g.setAttribute('glow', new THREE.BufferAttribute(new Float32Array(g.attributes.position.count).fill(glow), 1));
-    }
     let list = byMat.get(p.paint.mat);
     if (!list) byMat.set(p.paint.mat, (list = []));
     list.push(g);

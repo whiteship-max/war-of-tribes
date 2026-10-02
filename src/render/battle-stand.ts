@@ -18,7 +18,6 @@
 //   &at=volley|clash|charge|rout — моменты действия, найденные в журнале
 //   &snap=имя отправить кадр на dev-сервер (POST /__snap → snaps/имя.png)
 //   &dpr=2    плотность пикселей снимка;  &speed=2 быстрее реального времени
-//   &look=next  вид сцены: свет и луг окружения посёлка (docs/graphics_world.md, 11.5)
 //   &beasts=1 к воротам пришла стая: `foe` волков (лёгкая конница ядра, как `LocalWorld.gateParty`)
 //             нападает, `men` наших защищаются; волки одеты псовыми (docs/graphics_world.md, 11.4)
 //
@@ -35,7 +34,7 @@ import { DAY_LENGTH } from '@/game/constants';
 import { type TroopStack } from '@/game/battle/kinds';
 import { kindsOf } from '@/game/battle/price';
 import type { BattleResult, Side, Stack } from '@/battle/types';
-import { configureRenderer, lookOf, type Look } from './lighting';
+import { configureRenderer } from './lighting';
 import { ReplayPlayer } from './battle/player';
 import { nextFrame, pixelRatio } from './loop';
 
@@ -181,7 +180,7 @@ export function mountReplayStand(p: URLSearchParams): void {
 
   // onFrame ставится после сборки: конструктор рисует первый кадр сам, а подпись
   // читает `player`, которого в этот момент ещё нет.
-  const opts = { speed: Number(p.get('speed') ?? 1), look: lookOf(p.get('look')) } as { speed: number; look: Look; onFrame?: () => void };
+  const opts = { speed: Number(p.get('speed') ?? 1) } as { speed: number; onFrame?: () => void };
   const player = new ReplayPlayer(renderer, cast, opts);
   opts.onFrame = () => publish();
 

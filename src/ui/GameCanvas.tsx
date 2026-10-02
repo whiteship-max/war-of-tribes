@@ -86,7 +86,7 @@ export function GameCanvas() {
      * после выкладки) — просим ещё раз и собираем, когда придёт; не пришёл и так — экран
      * восстановления: его кнопка зовёт эту же сборку, а с ней и новую просьбу.
      */
-    const City = SCENES.city;
+    const City = SCENES.game;
     if (!City) {
       let gone = false;
       void import('@/render/city/scene').then(

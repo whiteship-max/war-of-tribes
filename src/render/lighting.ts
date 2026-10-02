@@ -23,21 +23,10 @@ export interface LightRig {
 }
 
 /**
- * Вид сцены: `next` — новый (docs/graphics_world.md): свет ночи, земля, трава, лес; его
- * игрок видит по умолчанию с 01.10.2026 (`gfx.GFX_DEFAULT`, раздел 12). `now` — прежний,
- * в настройках он «Простой вид»: для слабых устройств и на случай проблем. Стенд по
- * адресу без `look` рисует `now` (`lookOf`), `?showcase=village&look=next` — новый:
- * строки стендов (`village:shots`, `replay:shots`) на это опираются. Второго выключателя
- * нет — сцена спрашивает этот. `city` — вид «город» (docs/city.md): только адресом
- * (`?look=city`), своя сцена своим куском (`Scene.SCENES`), свет — числа `next`.
- */
-export type Look = 'now' | 'next' | 'city';
-
-export const lookOf = (s: string | null | undefined): Look => (s === 'next' ? 'next' : 'now');
-
-/**
- * Числа света по виду. Днём оба вида одинаковы: палитра подобрана под полуденный риг
- * (см. `createLightRig`), и переписывать её пробе незачем. Расходятся они ночью.
+ * Два набора чисел света. Имена — от прежних видов посёлка (`now` и `next`; посёлок убран, docs/city.md,
+ * «Город — единственный вид»): `now` светит поляне предыстории (её `applyDayNight` — по умолчанию), `next` —
+ * городу и ролику о бое. Днём оба одинаковы: палитра подобрана под полуденный риг (см. `createLightRig`).
+ * Расходятся они ночью.
  *
  * `now` — ночь «физическая»: луна втрое слабее солнца и синяя, полусфера тёмная. На
  * экране телефона это тёмно-синяя каша, где читаются только костёр и крыши (снимки
@@ -89,7 +78,7 @@ export interface RigLook {
   smoothDay: boolean;
 }
 
-export const RIG: Record<Exclude<Look, 'city'>, RigLook> = {
+export const RIG: Record<'now' | 'next', RigLook> = {
   now: {
     sun: { day: 3.2, night: 1.0 },
     hemi: { day: 1.1, night: 0.6 },
@@ -322,12 +311,3 @@ export function applyDayNight(
  */
 export const windowNight = (l: DayLight): number => smooth((1 - l.daylight) * 1.5);
 
-/** Костёр: днём почти не виден, ночью — тёплая лужа на холодном лунном фоне. */
-export const fireIntensity = (night: boolean, t: number): number => (night ? 8 : 0.6) * (1 + Math.sin(t * 17) * 0.12);
-
-/**
- * Костёр вида `next`: сила идёт за ночью плавно, а не ступенькой. У `fireIntensity` ночь —
- * флаг сцены, и на его пороге огонь прыгал с 0.6 до 8 за один кадр; здесь та же пара чисел
- * (чуть ярче ночью — вокруг костра стало светлее само) ведётся долей ночи из рига.
- */
-export const fireGlow = (nightK: number, t: number): number => (0.6 + 8.4 * nightK) * (1 + Math.sin(t * 17) * 0.12);

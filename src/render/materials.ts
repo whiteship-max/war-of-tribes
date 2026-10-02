@@ -7,11 +7,12 @@
 //   Особый член набора — `body`: белый множитель, в вершинах которого запечён
 //   цвет палитры. Им красится всё, что сезон не трогает (стены, столбы, цоколь,
 //   балки), — одна группа вместо пяти, вдвое меньше вызовов отрисовки;
-// - LEGACY — для старых моделей без цвета вершин. Материал с vertexColors, получив
-//   геометрию без атрибута color, красит её чёрным, так что смешивать наборы нельзя.
-//   Когда все модели переедут на набор деталей, LEGACY исчезнет;
-// - DECAL — плоские наложения на землю: вытоптанная земля (сезонная, с альфой
-//   вершин) и умножающее пятно тени под зданием.
+// - LEGACY — для старых моделей без цвета вершин (модели поляны предыстории). Материал с
+//   vertexColors, получив геометрию без атрибута color, красит её чёрным, так что смешивать
+//   наборы нельзя;
+// - INSTANCED и SHADE — фигуры и пятна тени ролика о бое.
+// Декали посёлка (вытоптанная земля под домами) ушли вместе с ним (docs/city.md, «Город —
+// единственный вид»).
 import * as THREE from 'three';
 import { EMISSIVE_KEYS, PALETTE, type PaletteKey } from './palette';
 
@@ -58,23 +59,6 @@ export const KIT: Record<MatKey, ColorMaterial> & { body: THREE.MeshLambertMater
  */
 export const INSTANCED = new THREE.MeshLambertMaterial({ color: 0xffffff, flatShading: true });
 INSTANCED.name = 'instanced';
-
-/** Ключ материала-декали: только то, что кладётся на землю. */
-export type DecalKey = 'trample';
-
-export const DECAL: Record<DecalKey, ColorMaterial> = {
-  trample: new THREE.MeshLambertMaterial({
-    color: PALETTE.trample,
-    flatShading: true,
-    vertexColors: true,
-    transparent: true,
-    depthWrite: false,
-    polygonOffset: true,
-    polygonOffsetFactor: -1,
-    polygonOffsetUnits: -1,
-  }),
-};
-DECAL.trample.name = 'trample';
 
 /**
  * Пятно тени под зданием: честное умножение того, что уже нарисовано (трава,

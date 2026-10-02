@@ -1,71 +1,12 @@
-// Погода: снег над поселением и дым от костра и труб. Обе системы — точки, без новой
-// геометрии зданий: дым над работающей кузницей идёт теми же клубами, что над очагом.
+// Дым и ветер: клубы над костром поляны предыстории и над трубами города — точки, одна система на облако,
+// без новой геометрии. Снегопад и дым работы и очагов посёлка ушли вместе с посёлком (docs/city.md, «Город —
+// единственный вид»); снос дыма очагов остался — это ветер мира (`HEARTH_LOOK`, `city/life.CITY_WIND`).
 import * as THREE from 'three';
-import { WORLD_RADIUS, groundHeight } from './terrain';
 import { PALETTE } from './palette';
 
-const SNOW_COUNT = 420;
-const SNOW_TOP = 12;
-
-/** Снегопад: точки падают и закручиваются, при snow = 0 система выключена целиком. */
-export class Snowfall {
-  readonly points: THREE.Points;
-  private velocity: Float32Array;
-  private material: THREE.PointsMaterial;
-
-  constructor() {
-    const positions = new Float32Array(SNOW_COUNT * 3);
-    this.velocity = new Float32Array(SNOW_COUNT);
-    for (let i = 0; i < SNOW_COUNT; i++) {
-      this.reset(positions, i, Math.random() * SNOW_TOP);
-      this.velocity[i] = 0.7 + Math.random() * 0.9;
-    }
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    this.material = new THREE.PointsMaterial({
-      color: PALETTE.snowflake,
-      size: 0.13,
-      transparent: true,
-      opacity: 0,
-      depthWrite: false,
-      fog: false,
-      toneMapped: false,
-    });
-    this.points = new THREE.Points(geo, this.material);
-    this.points.frustumCulled = false;
-    this.points.visible = false;
-  }
-
-  private reset(pos: Float32Array, i: number, y: number): void {
-    const a = Math.random() * Math.PI * 2;
-    const r = Math.sqrt(Math.random()) * (WORLD_RADIUS + 2);
-    pos[i * 3] = Math.cos(a) * r;
-    pos[i * 3 + 1] = y;
-    pos[i * 3 + 2] = Math.sin(a) * r;
-  }
-
-  update(dt: number, t: number, snow: number): void {
-    this.material.opacity = snow * 0.85;
-    this.points.visible = snow > 0.02;
-    if (!this.points.visible) return;
-    const attr = this.points.geometry.attributes.position as THREE.BufferAttribute;
-    const pos = attr.array as Float32Array;
-    for (let i = 0; i < SNOW_COUNT; i++) {
-      pos[i * 3 + 1] -= this.velocity[i] * dt;
-      // Лёгкий боковой снос, чтобы снег не падал строго вертикально.
-      pos[i * 3] += Math.sin(t * 0.7 + i) * dt * 0.35;
-      // За стеной земля с рельефом: снежинка должна дойти до неё, а не пропасть под холмом.
-      if (pos[i * 3 + 1] < groundHeight(pos[i * 3], pos[i * 3 + 2])) this.reset(pos, i, SNOW_TOP);
-    }
-    attr.needsUpdate = true;
-  }
-}
-
-/** Клубов над костром и над одной трубой. Костру больше: он в центре кадра. */
+/** Клубов над костром и высота их подъёма. */
 const FIRE_PUFFS = 26;
-const CHIMNEY_PUFFS = 9;
 const FIRE_TOP = 5.5;
-const CHIMNEY_TOP = 3.2;
 
 /** Труба: откуда идёт дым и насколько высоко. Костёр — такой же источник. */
 export interface SmokeSource {
@@ -95,24 +36,11 @@ export interface SmokeLook {
 }
 
 export const FIRE_LOOK: SmokeLook = { size: 0.3, opacity: 0.12 };
-export const CHIMNEY_LOOK: SmokeLook = { size: 0.5, opacity: 0.3 };
 /**
- * Дым очагов над трубами домов (вид `next`): живой посёлок, а не признак работы. Реже,
- * тоньше и прозрачнее дыма работы (`CHIMNEY_LOOK`) — тот остаётся знаком, что двор
- * работает, и спутать их нельзя. Сносится ветром.
+ * Дым очагов посёлка вида `next` — посёлка нет, а его снос остался ветром мира: по нему вьются флаги и идёт
+ * дым труб города (`city/life.CITY_WIND`, тест «по одному ветру»). Размер и плотность — прежние числа клуба.
  */
 export const HEARTH_LOOK: SmokeLook = { size: 0.34, opacity: 0.16, drift: { x: 0.42, z: -0.18 } };
-
-/** Дым очага: над трубой дома, невысокий. */
-export const hearthSmoke = (x: number, y: number, z: number): SmokeSource => ({ x, y, z, puffs: 5, top: 1.8 });
-
-export const chimneySmoke = (x: number, y: number, z: number): SmokeSource => ({
-  x,
-  y,
-  z,
-  puffs: CHIMNEY_PUFFS,
-  top: CHIMNEY_TOP,
-});
 
 /**
  * Дым: над костром и над трубами работающих зданий. Все клубы — одна система

@@ -8,7 +8,6 @@ import type { Side } from '@/battle/types';
 import { FigurePool } from '../figures';
 import type { Action } from '../poses';
 import { buildSky, setupFieldScene } from './field';
-import type { Look } from '../lighting';
 import { buildGround, type GroundView } from './ground';
 import { buildMeadow, type MeadowView } from './meadow';
 import { Aftermath } from './aftermath';
@@ -47,23 +46,21 @@ export class BattleStage {
   private wreck: Aftermath;
   /** Земля клетки, на которой случился бой, и купол неба над ней. */
   private ground: GroundView;
-  /** Луг и опушка окружения — только у вида `next` (docs/graphics_world.md, 11.5). */
-  private meadow: MeadowView | null = null;
+  /** Луг и опушка окружения (docs/graphics_world.md, 11.5). */
+  private meadow: MeadowView;
   private sky: THREE.Mesh;
   private us: Side;
 
-  constructor(cast: Cast, look: Look = 'now') {
+  constructor(cast: Cast) {
     this.us = cast.us;
     // Свет и земля — из раскадровки, то есть из записи боя. Ни настоящих часов,
-    // ни карты мира: повтор через неделю обязан дать тот же кадр. Вид `next` — свет
-    // окружения посёлка (docs/graphics_world.md, 11.5).
-    setupFieldScene(this.scene, cast.ground, look);
-    this.ground = buildGround(cast.ground, look);
+    // ни карты мира: повтор через неделю обязан дать тот же кадр. Сцена одна — прежний
+    // вариант ролика убран вместе с посёлком (docs/city.md, «Город — единственный вид»).
+    setupFieldScene(this.scene, cast.ground);
+    this.ground = buildGround(cast.ground);
     this.scene.add(this.ground.group);
-    if (look === 'next') {
-      this.meadow = buildMeadow(cast.ground);
-      this.scene.add(this.meadow.group);
-    }
+    this.meadow = buildMeadow(cast.ground);
+    this.scene.add(this.meadow.group);
     // Купол собирается после света: цвета он берёт у самой сцены.
     this.sky = buildSky(this.scene, cast.ground);
     this.scene.add(this.sky);

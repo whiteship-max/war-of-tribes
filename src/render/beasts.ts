@@ -1,16 +1,15 @@
 /**
- * Звери из деталей фигур: собака у костра (вид `next`, этап 2, пункт 3) и волк ролика боя (пункт 4) —
- * docs/graphics_world.md, 11.3–11.4. Скелет — конский (`figures.MountRig`: спина, бочка, четыре ноги со
- * сгибами, шея с наклоном, хвост), детали — те же семь примитивов пула: ни меша, ни материала, ни вызова
- * на зверя не прибавляется (docs/figures.md, «Чего делать нельзя»). Цвет собаки — из палитры; волк ролика —
- * боец, и он весь в цвете своей стороны (`wolfLook`; docs/battle-replay.md, «Цвет — это сторона»).
+ * Звери из деталей фигур: волк ролика боя — docs/graphics_world.md, 11.4. Скелет — конский
+ * (`figures.MountRig`: спина, бочка, четыре ноги со сгибами, шея с наклоном, хвост), детали — те же семь
+ * примитивов пула: ни меша, ни материала, ни вызова на зверя не прибавляется (docs/figures.md, «Чего делать
+ * нельзя»). Волк ролика — боец, и он весь в цвете своей стороны (`wolfLook`; docs/battle-replay.md, «Цвет —
+ * это сторона»). Собака у костра посёлка ушла вместе с посёлком (docs/city.md, «Город — единственный вид»).
  *
- * Модуль берут только ленивые куски — окружение посёлка и ролик боя: в первую загрузку он не входит.
+ * Модуль берут только ленивые куски — ролик боя и витрина фигур: в первую загрузку он не входит.
  */
 import { addSlot, type Figure, type MountRig } from './figures';
 import type { Action } from './poses';
 import { humanRig } from './units';
-import { PALETTE } from './palette';
 
 /** Какой зверь: высота в холке, масть, хвост. */
 export interface CanineLook {
@@ -25,10 +24,7 @@ export interface CanineLook {
   bushy: boolean;
 }
 
-/** Собака у костра — по колено человеку. */
-export const DOG: CanineLook = { size: 0.42, coat: PALETTE.dogCoat, dark: PALETTE.dogDark, bushy: false };
-
-/** Высота волка в холке: крупнее собаки и по пояс человеку — на дальнем плане он ещё виден пятном. */
+/** Высота волка в холке: по пояс человеку — на дальнем плане он ещё виден пятном. */
 export const WOLF_SIZE = 0.56;
 
 /** Насколько темнее основного тона спина, лапы, уши и хвост волка: тот же цвет стороны, только в тени. */
@@ -125,7 +121,7 @@ export function dressCanine(f: Figure, look: CanineLook): void {
 }
 
 /** Что делает псовый. `crouch` — волк ролика перед броском: припал, голова вперёд и вниз, хвост не ходит. */
-export type CanineAction = 'stand' | 'walk' | 'trot' | 'lie' | 'sniff' | 'crouch' | 'lunge' | 'fall';
+export type CanineAction = 'stand' | 'trot' | 'crouch' | 'lunge' | 'fall';
 
 /**
  * Поза людей — позой зверя: что делает волк, когда строй делает это (ролик боя, `battle/troops.ts`, и витрина фигур).
@@ -160,28 +156,12 @@ export function poseCanine(f: Figure, action: CanineAction, t: number, down = 0)
       f.phase = w + t * 2.5;
       m.neckPitch = CANINE_NECK + 0.08 * Math.sin(t * 0.7 + w);
       return 0;
-    case 'walk':
-      f.gait = Math.sin(t * 8 + w) * 0.42;
-      f.phase = w + t * 6;
-      m.neckPitch = CANINE_NECK + 0.05 * Math.sin(t * 16 + w);
-      return 0;
     case 'trot':
       f.gait = Math.sin(t * 13 + w) * 0.7;
       f.phase = w + t * 3;
       f.pitch = 0.05 * Math.sin(t * 26 + w);
       m.neckPitch = CANINE_NECK + 0.25;
       return 0;
-    case 'sniff':
-      f.gait = 0;
-      f.phase = w + t * 9;
-      m.neckPitch = CANINE_NECK + 0.85 + 0.08 * Math.sin(t * 9 + w);
-      return 0;
-    case 'lie':
-      // Лапы вперёд и назад, корпус на земле.
-      f.gait = 1.25;
-      f.phase = w + t * 0.8;
-      m.neckPitch = CANINE_NECK + 0.35 + 0.05 * Math.sin(t * 0.5 + w);
-      return m.legLen * 0.66;
     case 'crouch':
       // Припал: ноги согнуты, корпус ниже, голова тянется вперёд к земле, хвост вытянут и почти не ходит.
       f.gait = 0.35;

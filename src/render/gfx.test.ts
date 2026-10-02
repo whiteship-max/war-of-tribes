@@ -52,7 +52,7 @@ describe('вид один — город', () => {
     expect(main, 'кусок города — до игры, всегда').toMatch(/void import\('\.\/render\/city\/scene'\)\.then\(start, start\);/);
     expect(main, 'без выбора по виду').not.toMatch(/look/);
     const canvas = strip(read('ui/GameCanvas.tsx'));
-    expect(canvas, 'класс сцены — город').toMatch(/const City = SCENES\.city;/);
+    expect(canvas, 'класс сцены — город').toMatch(/const City = SCENES\.game;/);
     expect(canvas, 'и только он').toMatch(/new City\(canvas, null, sceneGfx\(gfx\(\), window\.location\.search\)\)/);
     expect(canvas, 'ни вида, ни другой сцены').not.toMatch(/\.look\b|new TribeScene|SCENES\[/);
   });

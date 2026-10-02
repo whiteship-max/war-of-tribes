@@ -17,7 +17,7 @@ import type { TroopId } from '@/game/types';
 import { TROOP_BY_ID } from '@/game/data/troops';
 import { gearOfTroop, hasArmor, hasShield, weaponOf } from '@/game/battle/kinds';
 import { Figure, addSlot, gripFrame, type MountRig, type Rig } from './figures';
-import { FOLK_TINT, HERO_TINT, PALETTE } from './palette';
+import { FOLK_TINT, PALETTE } from './palette';
 
 /** Рост взрослой фигуры в метрах сцены — тот же, что был у прежних фигурок. */
 export const MAN_HEIGHT = 1.05;
@@ -383,23 +383,6 @@ export function dressSoldier(f: Figure, troop: TroopId, cloth: number = PALETTE.
   }
   attachHands(f, heldStart, rig.armLen);
   armorUp(f, b, tier);
-}
-
-/**
- * Герой племени. Одевается тем же `dressSoldier` и по тому же виду бойца, что и
- * дружина: второго набора правил о том, как выглядит боец, в игре быть не должно.
- * Своего у героя ровно две вещи — рост и плащ за спиной, и обе не про снаряжение.
- * Сменил род в Статуе — сменился и силуэт на площади.
- */
-export function dressHero(f: Figure, troop: TroopId): void {
-  dressSoldier(f, troop);
-  const { height: tall, build } = SIZE[troop];
-  const b = bodyOf(humanRig(MAN_HEIGHT * tall, build), build);
-  // Две сплюснутые шестигранные массы дают складки и расширяющийся подол.
-  // Подол отклоняется отдельно от плеч; скиннинга и отдельного материала нет.
-  f.hasCape = true;
-  addSlot(f, 'body', 'cape', HERO_TINT.cloak, [0, 0.02, 0], [b.chestW * 1.1, b.torsoH * 0.6, b.chestW * 0.24], [Math.PI, 0, 0]);
-  addSlot(f, 'body', 'capeHem', HERO_TINT.cloak, [0, 0.015, 0], [b.chestW * 1.5, b.torsoH * 0.95, b.chestW * 0.32], [Math.PI, 0, 0]);
 }
 
 // ---------- Конь ----------

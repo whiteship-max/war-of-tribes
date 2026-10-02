@@ -77,8 +77,6 @@ export function BattleReplay({ rec, onDone }: { rec: BattleRecord; onDone: () =>
     // возврат после боя не стоит ни одной загрузки.
     villageMusic.duck(true);
     const player = new ReplayPlayer(renderer, cast, {
-      // Сцена ролика одна — нынешняя: свет и луг окружения (docs/city.md, «Город — единственный вид»).
-      look: 'next',
       onFrame: (f) => {
         // Слой музыки идёт из кадра, как и всё остальное: звук ничего не решает.
         battleMusic.set(f.music);
