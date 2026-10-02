@@ -133,13 +133,26 @@ describe('ролик TW: строй и место', () => {
 });
 
 describe('ролик TW: гибель и время', () => {
-  it('павших фигур к концу столько, сколько бойцов потерял отряд, в долях k', () => {
+  it('павших фигур к концу столько, сколько бойцов потерял каждый род отряда, в долях k', () => {
     const p = planOf('replay=tw&men=500&foe=500&seed=6');
+    let checked = 0;
     for (const u of p.units) {
       if (u.men <= 0) continue;
-      const dead = u.figures - aliveFigures(p, u, p.seconds + 1);
-      expect(dead).toBe(Math.min(u.figures, Math.round((u.figures * (u.men - u.finalMen)) / u.men)));
+      for (const pt of u.parts) {
+        let figs = 0;
+        let dead = 0;
+        for (let i = u.first; i < u.first + u.figures; i++) {
+          if (p.faceIds[p.faceOf[i]].kind !== pt.kind) continue;
+          figs++;
+          if (p.deathAt[i] <= p.seconds) dead++;
+        }
+        expect(figs).toBe(pt.figures);
+        expect(dead).toBe(Math.min(figs, Math.round((figs * (pt.men - pt.finalMen)) / pt.men)));
+        if (pt.men > pt.finalMen) checked++;
+      }
     }
+    // Точки внутри области правила: в бою есть рода, которые теряли людей (правило 11).
+    expect(checked).toBeGreaterThan(3);
   });
 
   it('павших только прибывает: живых фигур со временем не больше, чем было', () => {

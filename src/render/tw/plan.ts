@@ -11,6 +11,9 @@
 import { lossProgress, sectorLost, type Cast, type Face } from '@/battle/replay';
 import { SECTORS, UNIT_KINDS, type BattleResult, type Lane, type Sector, type Side, type UnitKind } from '@/battle/types';
 import { BEAST, MILITIA } from '@/game/battle/faces';
+import { gearOfTroop } from '@/game/battle/kinds';
+import { TROOP_BY_ID } from '@/game/data/troops';
+import type { TroopId } from '@/game/types';
 import type { Quality } from '../quality';
 import { TW_SPEC } from './spec';
 import { hash, heightAt, inWater, type TwField } from './terrain';
@@ -68,12 +71,12 @@ export interface FormSpec {
 }
 
 export const FORM: Record<Form, FormSpec> = {
-  foot: { file: 0.66, rank: 0.82, aspect: 4, minRanks: 2, maxRanks: 6, cap: 120, jitter: 0.07, outer: 0 },
-  folk: { file: 0.7, rank: 0.9, aspect: 4, minRanks: 2, maxRanks: 6, cap: 120, jitter: 0.18, outer: 0 },
-  bow: { file: 0.9, rank: 1.05, aspect: 8, minRanks: 2, maxRanks: 4, cap: 90, jitter: 0.12, outer: 1 },
-  horse: { file: 1.2, rank: 2.3, aspect: 6, minRanks: 1, maxRanks: 3, cap: 50, jitter: 0.08, outer: 3 },
-  heavy: { file: 1.3, rank: 2.5, aspect: 6, minRanks: 1, maxRanks: 3, cap: 40, jitter: 0.06, outer: 2 },
-  pack: { file: 1.1, rank: 1.2, aspect: 3, minRanks: 2, maxRanks: 6, cap: 60, jitter: 0.55, outer: 0 },
+  foot: { file: 0.6, rank: 0.74, aspect: 2.6, minRanks: 2, maxRanks: 8, cap: 160, jitter: 0.06, outer: 0 },
+  folk: { file: 0.66, rank: 0.8, aspect: 2.6, minRanks: 2, maxRanks: 8, cap: 160, jitter: 0.16, outer: 0 },
+  bow: { file: 0.8, rank: 0.95, aspect: 3.5, minRanks: 2, maxRanks: 5, cap: 120, jitter: 0.1, outer: 1 },
+  horse: { file: 1.05, rank: 2.1, aspect: 3, minRanks: 1, maxRanks: 4, cap: 60, jitter: 0.07, outer: 3 },
+  heavy: { file: 1.15, rank: 2.3, aspect: 3, minRanks: 1, maxRanks: 4, cap: 50, jitter: 0.05, outer: 2 },
+  pack: { file: 1.0, rank: 1.1, aspect: 2.5, minRanks: 2, maxRanks: 8, cap: 80, jitter: 0.5, outer: 0 },
 };
 
 export function formOf(kind: UnitKind, face: string): Form {
@@ -84,6 +87,9 @@ export function formOf(kind: UnitKind, face: string): Form {
   if (face === MILITIA) return 'folk';
   return 'foot';
 }
+
+/** Сколько железа на виде: тяжёлые встают в середину отряда. Ополчение и зверь — без снаряжения. */
+const gearOf = (id: string): number => (id in TROOP_BY_ID ? gearOfTroop(id as TroopId) : -1);
 
 /** Шеренг у отряда в столько фигур. */
 export function ranksOf(form: Form, figures: number): number {
@@ -96,15 +102,15 @@ export function ranksOf(form: Form, figures: number): number {
 // ---------- Поле ----------
 
 /** Передние шеренги стоят здесь от линии соприкосновения на построении. */
-export const DEPLOY_HALF = 18;
+export const DEPLOY_HALF = 15;
 /** Полузазор линии соприкосновения: передние шеренги сторон стоят на столько от неё в сече. */
 export const CONTACT_HALF = 0.42;
 /** Вторая линия за первой и резерв за второй — зазор от последней шеренги. */
 export const REAR_GAP = 3.5;
 export const RESERVE_GAP = 6;
 /** Зазор между полосами и между отрядами одного ряда. */
-export const LANE_GAP = 2.6;
-export const UNIT_GAP = 1.4;
+export const LANE_GAP = 1.8;
+export const UNIT_GAP = 1.0;
 /** Холм и переправа: обороняющийся ждёт у гребня или берега на столько от линии. */
 export const HOLD_HALF = 3;
 
@@ -205,8 +211,13 @@ export interface TwUnit {
   lane: Lane | null;
   row: Row;
   kind: UnitKind;
-  /** Метка вида: что одевать (`game/battle/faces.wearOf`). */
+  /** Вид, которого в отряде больше всех, — лицо отряда (строй, знак на знамени). */
   face: string;
+  /**
+   * Рода отряда: у пеших сектора копья и пехота стоят одним строем полосами (одно знамя на сектор пеших), у
+   * остальных — один род. У каждого рода свои бойцы, свои потери (`SideResult.sectors[s].final` по роду) и виды.
+   */
+  parts: UnitPart[];
   form: Form;
   /** Бойцов ядра на старте и к концу боя. */
   men: number;
@@ -233,6 +244,19 @@ export interface TwUnit {
   /** Залпы отряда лучников: секунды срыва стрел. */
   volleys: number[];
 }
+
+/** Род внутри отряда: бойцы на старте и к концу, виды племени и сколько фигур ему досталось. */
+export interface UnitPart {
+  kind: UnitKind;
+  men: number;
+  finalMen: number;
+  faces: { id: string; men: number }[];
+  figures: number;
+}
+
+/** Род отряда на поле: пешие сектора — один строй; лучники, лёгкая и латная конница — каждые своим. */
+type Arm = 'foot' | 'archer' | 'cavalry' | 'heavy';
+const armOf = (k: UnitKind): Arm => (k === 'spear' || k === 'infantry' ? 'foot' : k);
 
 /** Залп в небе: кто, куда, когда сорвался и сколько стрел. */
 export interface TwVolley {
@@ -272,6 +296,9 @@ export interface TwPlan {
   lz: Float32Array;
   /** Шеренга фигуры, 0 — передняя. */
   rank: Int16Array;
+  /** Вид фигуры — номер в `faceIds`: метка вида и род, в котором он стоит (ополчение бывает и пехотой, и лучником). */
+  faceOf: Int16Array;
+  faceIds: { id: string; kind: UnitKind }[];
   scale: Float32Array;
   tone: Float32Array;
   /** Своя фаза клипа: иначе отряд машет ногами в такт. */
@@ -335,36 +362,34 @@ export function buildPlan(input: PlanInput): TwPlan {
   const k = ratioOf(result.sides.attacker.total.initial, result.sides.defender.total.initial, spec.perSide);
   const seed = cast.seed | 0;
 
-  // ---- отряды: сектор × вид, фигуры по `k` ----
+  // ---- отряды: сектор × род — ровно группа ядра; виды внутри — в армейской пропорции; фигуры по `k` ----
   interface Draft {
     side: Side;
     sector: Sector;
-    kind: UnitKind;
-    face: string;
+    parts: UnitPart[];
     men: number;
-    finalMen: number;
   }
   const drafts: Draft[] = [];
   for (const side of SIDES2) {
     const res = result.sides[side];
     for (const sector of SECTORS) {
       const cell = res.sectors[sector];
+      const byArm = new Map<Arm, Draft>();
       for (const kind of UNIT_KINDS) {
         const men = Math.round(cell.initial[kind] ?? 0);
         if (men <= 0) continue;
         const fin = Math.max(0, Math.min(men, Math.round(cell.final[kind] ?? 0)));
         const mine = faces[side].filter((f) => f.kind === kind && f.men > 0);
-        if (mine.length === 0) {
-          drafts.push({ side, sector, kind, face: kind, men, finalMen: fin });
-          continue;
-        }
         // Внутри рода сектор делится между видами в армейской пропорции — посекторной нет ни у кого.
-        const split = spreadBy(mine.map((f) => f.men), men);
-        const finSplit = spreadBy(split, fin);
-        mine.forEach((f, i) => {
-          if (split[i] > 0) drafts.push({ side, sector, kind, face: f.id, men: split[i], finalMen: Math.min(split[i], finSplit[i]) });
-        });
+        const split = mine.length ? spreadBy(mine.map((f) => f.men), men) : [men];
+        const list = mine.length ? mine.map((f, i) => ({ id: f.id, men: split[i] })).filter((f) => f.men > 0) : [{ id: kind, men }];
+        const arm = armOf(kind);
+        const d = byArm.get(arm) ?? { side, sector, parts: [], men: 0 };
+        d.parts.push({ kind, men, finalMen: fin, faces: list, figures: 0 });
+        d.men += men;
+        byArm.set(arm, d);
       }
+      drafts.push(...byArm.values());
     }
   }
   const sideFigures = { attacker: 0, defender: 0 } as Record<Side, number>;
@@ -392,16 +417,36 @@ export function buildPlan(input: PlanInput): TwPlan {
   drafts.forEach((d, i) => {
     const figures = draftFigures[i];
     if (figures <= 0) return;
-    const form = formOf(d.kind, d.face);
-    const parts = Math.ceil(figures / FORM[form].cap);
-    const figSplit = spreadBy(new Array(parts).fill(1), figures);
-    const menSplit = spreadBy(figSplit, d.men);
-    const finSplit = spreadBy(menSplit, d.finalMen);
-    for (let p = 0; p < parts; p++) {
+    // Лицо отряда — род и вид, которых в нём больше всех: по ним строй (ополчение рыхлее, стая — не строй) и знак.
+    const main = [...d.parts].sort((a, b) => b.men - a.men || UNIT_KINDS.indexOf(a.kind) - UNIT_KINDS.indexOf(b.kind))[0];
+    const face = [...main.faces].sort((a, b) => b.men - a.men || (a.id < b.id ? -1 : 1))[0].id;
+    const form = formOf(main.kind, face);
+    const count = Math.ceil(figures / FORM[form].cap);
+    const figSplit = spreadBy(new Array(count).fill(1), figures);
+    // Каждый род делится между частями отряда в доле их фигур — люди, потери и виды.
+    const kindMen = d.parts.map((pt) => spreadBy(figSplit, pt.men));
+    const kindFin = d.parts.map((pt, j) => spreadBy(kindMen[j], pt.finalMen));
+    for (let p = 0; p < count; p++) {
       const n = figSplit[p];
       const ranks = ranksOf(form, n);
       const files = Math.max(1, Math.ceil(n / ranks));
       const f = FORM[form];
+      const partMen = d.parts.map((_, j) => kindMen[j][p]);
+      const partFigs = spreadBy(partMen, n);
+      const parts: UnitPart[] = d.parts
+        .map((pt, j) => {
+          const fs = spreadBy(pt.faces.map((x) => x.men), partMen[j]);
+          return {
+            kind: pt.kind,
+            men: partMen[j],
+            finalMen: Math.min(partMen[j], kindFin[j][p]),
+            faces: pt.faces.map((x, q) => ({ id: x.id, men: fs[q] })).filter((x) => x.men > 0),
+            figures: partFigs[j],
+          };
+        })
+        .filter((pt) => pt.men > 0 && pt.figures > 0);
+      if (parts.length === 0) continue;
+      const men = parts.reduce((a, pt) => a + pt.men, 0);
       units.push({
         id: units.length,
         side: d.side,
@@ -409,11 +454,12 @@ export function buildPlan(input: PlanInput): TwPlan {
         sector: d.sector,
         lane: laneOfSector(d.sector),
         row: rowOfSector(d.sector),
-        kind: d.kind,
-        face: d.face,
+        kind: main.kind,
+        face,
+        parts,
         form,
-        men: menSplit[p],
-        finalMen: Math.min(menSplit[p], finSplit[p]),
+        men,
+        finalMen: parts.reduce((a, pt) => a + pt.finalMen, 0),
         figures: n,
         ranks,
         files,
@@ -493,6 +539,7 @@ export function buildPlan(input: PlanInput): TwPlan {
         row: 'general',
         kind: 'heavy',
         face: 'knight',
+        parts: [{ kind: 'heavy', men: 0, finalMen: 0, faces: [{ id: 'knight', men: 1 }], figures: 1 }],
         form: 'heavy',
         men: 0,
         finalMen: 0,
@@ -595,6 +642,13 @@ export function buildPlan(input: PlanInput): TwPlan {
   const lx = new Float32Array(figures);
   const lz = new Float32Array(figures);
   const rank = new Int16Array(figures);
+  const faceOf = new Int16Array(figures);
+  const faceIds: { id: string; kind: UnitKind }[] = [];
+  const faceIndex = (id: string, kind: UnitKind): number => {
+    let i = faceIds.findIndex((x) => x.id === id && x.kind === kind);
+    if (i < 0) i = faceIds.push({ id, kind }) - 1;
+    return i;
+  };
   const scale = new Float32Array(figures);
   const tone = new Float32Array(figures);
   const phase = new Float32Array(figures);
@@ -622,7 +676,23 @@ export function buildPlan(input: PlanInput): TwPlan {
       order.push({ i: j, key: r + hash(seed, u.id * 4099 + i, 6) * 1.5 });
     }
     order.sort((a, b) => a.key - b.key || a.i - b.i);
-    deathTimes(u, cast, timing, order.map((o) => o.i), deathAt);
+    // Виды отряда — полосами от середины: тяжёлые в середине строя, лёгкие к краям, как стоят полки одного рода.
+    const stripes = u.parts
+      .flatMap((pt) => {
+        const counts = spreadBy(pt.faces.map((x) => x.men), pt.figures);
+        return pt.faces.map((x, i) => ({ id: x.id, kind: pt.kind, n: counts[i], w: gearOf(x.id) }));
+      })
+      .sort((a, b) => b.w - a.w || UNIT_KINDS.indexOf(a.kind) - UNIT_KINDS.indexOf(b.kind) || (a.id < b.id ? -1 : 1));
+    const byCenter: number[] = [];
+    for (let i = 0; i < u.figures; i++) byCenter.push(at + i);
+    byCenter.sort((a, b) => Math.abs(lx[a]) - Math.abs(lx[b]) || lz[b] - lz[a] || a - b);
+    let pos = 0;
+    for (const f of stripes) for (let n = 0; n < f.n && pos < byCenter.length; n++) faceOf[byCenter[pos++]] = faceIndex(f.id, f.kind);
+    // Гибель — по роду: у каждого рода свои потери в итоге боя, а темп — сектора.
+    for (const pt of u.parts) {
+      const mine = order.map((o) => o.i).filter((i) => faceIds[faceOf[i]].kind === pt.kind);
+      deathTimes(u, pt, cast, timing, mine, deathAt);
+    }
     at += u.figures;
   }
 
@@ -647,6 +717,8 @@ export function buildPlan(input: PlanInput): TwPlan {
     lx,
     lz,
     rank,
+    faceOf,
+    faceIds,
     scale,
     tone,
     phase,
@@ -714,11 +786,11 @@ function lineUp(list: TwUnit[], cx: number, outward: number, z: number): void {
  * (`sectorLost`), а не своя мерка; без потерь по секторам (старая запись) — общий ход потерь стороны. Отряд
  * несёт долю потерь сектора по своим людям, фигура падает, когда выбитых бойцов на ней набралось на `k`.
  */
-function deathTimes(u: TwUnit, cast: Cast, tm: TwTiming, order: number[], out: Float32Array): void {
-  if (u.row === 'general' || u.men <= 0) return;
-  const dead = u.men - u.finalMen;
+function deathTimes(u: TwUnit, pt: UnitPart, cast: Cast, tm: TwTiming, order: number[], out: Float32Array): void {
+  if (u.row === 'general' || pt.men <= 0) return;
+  const dead = pt.men - pt.finalMen;
   if (dead <= 0) return;
-  const figsDead = Math.min(u.figures, Math.round((u.figures * dead) / u.men));
+  const figsDead = Math.min(order.length, Math.round((order.length * dead) / pt.men));
   if (figsDead <= 0) return;
   const lostAll = cast.detailed ? sectorLost(cast.spans, u.side, u.sector, Infinity) : 0;
   const share = (c: number): number =>
