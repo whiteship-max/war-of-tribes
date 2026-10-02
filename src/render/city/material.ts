@@ -315,32 +315,53 @@ export function foliageMaterial(u: CityUniforms, ragged = false): THREE.MeshLamb
   m.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, u);
     patchVertex(shader);
+    // Тон экземпляра (зелень породы) — отдельно: зиме и снегу он не указ, а `color_fragment` умножает на него всё.
+    shader.vertexShader = 'varying vec3 vInst;\n' + shader.vertexShader.replace(
+      '#include <color_vertex>',
+      /* glsl */ `#include <color_vertex>
+      #ifdef USE_INSTANCING_COLOR
+        vInst = instanceColor.rgb;
+      #else
+        vInst = vec3(1.0);
+      #endif`,
+    );
     if (ragged) {
       shader.fragmentShader = shader.fragmentShader.replace(
         '#include <normal_fragment_maps>',
         /* glsl */ `#include <normal_fragment_maps>
         // Край кроны: чем ближе грань к ребру взгляда, тем выше порог листвы — между пучками видно небо.
         float cRim = 1.0 - abs(dot(normalize(normal), normalize(vViewPosition)));
-        if (cTex.a < smoothstep(0.5, 0.92, cRim) * 0.85) discard;`,
+        // Зимой голая крона сквозная: просветы между пучками вырезаны по всей кроне, не только по краю.
+        if (cTex.a < max(smoothstep(0.5, 0.92, cRim) * 0.85, 0.55 * cSnow * vGrime)) discard;`,
       );
     }
-    shader.fragmentShader = COMMON_FRAG + shader.fragmentShader.replace(
-      '#include <map_fragment>',
-      /* glsl */ `
+    shader.fragmentShader = 'varying vec3 vInst;\n' + COMMON_FRAG + shader.fragmentShader
+      .replace(
+        '#include <map_fragment>',
+        /* glsl */ `
         vec4 cTex = texture(cityTex, vec3(vCUv, vLayer));
         vec3 leaf = cTex.rgb;
         // Лиственные (слой листвы) осенью — вразнобой: золото, рыжее, ржавое, у кого-то ещё зелень.
         vec3 fall = vSeed < 0.38 ? vec3(1.55, 1.2, 0.32) : vSeed < 0.7 ? vec3(1.65, 0.86, 0.3) : vSeed < 0.88 ? vec3(1.35, 0.55, 0.28) : vec3(1.1, 1.05, 0.55);
         leaf = mix(leaf, leaf * fall, cAutumn * vGrime);
-        vec3 summer = diffuseColor.rgb * leaf;
-        // Зимой лиственные голые: сеть ветвей серо-бурая, в просветах — светлее (небо и снег сквозь
-        // ветви). Тон экземпляра (зелень породы) зиме не указ — иначе голая крона выходила серо-зелёной.
-        float twig = dot(cTex.rgb, vec3(0.3, 0.59, 0.11));
-        vec3 bare = mix(vec3(0.15, 0.125, 0.105), vec3(0.4, 0.38, 0.36), smoothstep(0.2, 0.5, twig));
-        diffuseColor.rgb = mix(summer, bare, cSnow * vGrime * 0.92);
-        float cUp = smoothstep(0.35, 0.85, vCNy) * cSnow;
-        diffuseColor.rgb = mix(diffuseColor.rgb, cSnowCol * 0.9, cUp * 0.8);`,
-    );
+        diffuseColor.rgb *= leaf;`,
+      )
+      .replace(
+        '#include <color_fragment>',
+        /* glsl */ `#include <color_fragment>
+        // Тон вершины без тона экземпляра: затенение кома снизу и светлая листва модели.
+        vec3 cShade = vColor.rgb / max(vInst, vec3(0.02));
+        // Зимой лиственные голые: на месте пучков листвы (альфа слоя — высота) — тёмная сеть ветвей, в
+        // просветах между пучками — светлое небо сквозь крону. Яркость листвы — не мерка: в дальнем мипе она
+        // ровная, и крона выходила сплошным оливковым комом.
+        // Высота листвы: просветы — у нуля (треть слоя), пучки — от 0.4 до 0.9.
+        float twig = smoothstep(0.15, 0.4, cTex.a);
+        vec3 bare = mix(vec3(0.34, 0.35, 0.38), vec3(0.055, 0.045, 0.04), twig) * cShade;
+        diffuseColor.rgb = mix(diffuseColor.rgb, bare, cSnow * vGrime * 0.92);
+        // Снег сверху; на голых ветвях он почти не лежит — шапка в 2.5 раза тоньше, чем на хвое.
+        float cUp = smoothstep(0.35, 0.85, vCNy) * cSnow * (1.0 - 0.6 * vGrime);
+        diffuseColor.rgb = mix(diffuseColor.rgb, cSnowCol * 0.9 * cShade, cUp * 0.8);`,
+      );
     shader.fragmentShader = graded(shader.fragmentShader);
   };
   m.customProgramCacheKey = () => (ragged ? 'city-foliage-ragged' : 'city-foliage');
