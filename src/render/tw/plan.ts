@@ -799,7 +799,8 @@ export function buildPlan(input: PlanInput): TwPlan {
     figurePose(plan, i, deathAt[i], null, q);
     plan.deadX[i] = q.x;
     plan.deadZ[i] = q.z;
-    plan.deadYaw[i] = q.yaw;
+    // Павшие падают не строем: каждый — со своим поворотом тела, от сида и номера.
+    plan.deadYaw[i] = q.yaw + (hash(seed, i, 24) - 0.5) * 1.8;
   }
   return plan;
 }

@@ -7,6 +7,7 @@ import type { TwSpec } from './spec';
 import { Arrows } from './arrows';
 import { Banners } from './banners';
 import { Crowd, SHADOW_LAYER } from './crowd';
+import { Dust } from './dust';
 import { buildField, fogFor, type FieldView } from './field';
 import { OVERVIEW_PITCH, overview, type CamBounds, type CamState, type TacticalCamera } from './camera';
 import { figureFrame, poseFigures, unitPose, type FigureFrame, type TwPlan } from './plan';
@@ -25,6 +26,7 @@ export class TwStage {
   readonly field: FieldView;
   private banners: Banners;
   private arrows: Arrows;
+  private dust: Dust;
   private sky: THREE.Mesh;
   private rig: LightRig;
   private sunDir = new THREE.Vector3();
@@ -52,6 +54,9 @@ export class TwStage {
     this.scene.add(this.banners.group);
     this.arrows = new Arrows(plan, spec.arrows);
     this.scene.add(this.arrows.mesh);
+    this.scene.add(this.arrows.stuck);
+    this.dust = new Dust(plan);
+    this.scene.add(this.dust.mesh);
     this.frame = figureFrame(plan.figures);
   }
 
@@ -61,6 +66,7 @@ export class TwStage {
     this.crowd.update(this.frame);
     this.banners.update(this.frame, t, cam.camera, cam.now.dist);
     this.arrows.update(t);
+    this.dust.update(t, cam.camera);
     this.field.update(t);
     // Небо идёт за камерой, туман — от её расстояния, коробка теней — вокруг её цели.
     this.sky.position.copy(cam.camera.position);
@@ -118,6 +124,7 @@ export class TwStage {
     this.crowd.dispose();
     this.banners.dispose();
     this.arrows.dispose();
+    this.dust.dispose();
     this.field.dispose();
     this.sky.geometry.dispose();
     (this.sky.material as THREE.Material).dispose();

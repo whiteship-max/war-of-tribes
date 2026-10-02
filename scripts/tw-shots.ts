@@ -65,6 +65,7 @@ const SHOTS: Shot[] = [
   { name: 'ford-clash', query: `${FORD}&at=clash&cam=low`, why: 'переправа: бьются у берега обороны, нападающий в воде' },
   { name: 'hills', query: `${HILLS}&at=advance`, why: 'холмы: оборона на гребне, лес по флангам' },
   { name: 'pack', query: `${PACK}&at=clash&cam=low`, why: 'стая у ворот: волки в цвете стороны, без знамён' },
+  { name: 'last', query: `${FIELD}&at=last`, why: 'итог: поле с павшими, знамёна победителя стоят' },
   { name: 'big', query: `${BIG}&at=deploy`, why: 'большое войско: k > 1, потолок фигур уровня' },
   { name: 'top', query: `${FIELD}&at=deploy&cam=top`, why: 'сверху: строй по полосам' },
 ];
