@@ -16,7 +16,7 @@ import { LABEL_FROM, PALETTE } from '../const';
 import { type Camera, type Viewport, detailAlpha, toScreen, viewRect } from '../grid';
 import { drawGrid, drawGround, markersOf, settlementsIn } from '../detail';
 import { drawOverview, drawPaper, drawSpot } from '../frame';
-import { drawZones } from '../zones';
+import { drawTwZones, dropTwZones } from './zones';
 import { drawTwFog, prepareTwFog } from './fog';
 import { drawAgent } from '../agent';
 import type { MarkerKind } from '../village';
@@ -383,7 +383,8 @@ export function drawTwFrame(ctx: CanvasRenderingContext2D, cam: Camera, vp: View
   drawOverview(ctx, cam, vp, rect);
   midLayer?.(ctx, cam, vp, rect);
   if (near > 0 && seed) drawGround(ctx, cam, vp, seed, frame, near);
-  drawZones(ctx, cam, vp, now);
+  // Владения — тоньше прежних, с чертой границы по краю (`tw/zones.ts`); под туманом, как и прежде.
+  drawTwZones(ctx, cam, vp, now);
   // Сетка координат — только вблизи и тоньше прежней: по ней прыгают к «541|822», а издали она — решётка
   // поверх карты кампании.
   drawGrid(ctx, cam, vp, near * 0.6, TOP_INSET);
@@ -413,4 +414,5 @@ export function drawTwFrame(ctx: CanvasRenderingContext2D, cam: Camera, vp: View
 export function dropFrame(): void {
   fitted.clear();
   dropNight();
+  dropTwZones();
 }
