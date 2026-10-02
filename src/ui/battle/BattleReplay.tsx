@@ -28,7 +28,7 @@ import { frameAt, type Frame } from '@/battle/replay';
 import { castOfRecord } from '@/game/battle/cast';
 import { beastWords } from '@/game/battle/beasts';
 import { battleMusic, villageMusic } from '@/sound/web';
-import type { BattleRecord } from '@/world/types';
+import type { BattleRecord, Report } from '@/world/types';
 import { battleLook } from './look';
 import { TwReplay } from './TwReplay';
 
@@ -36,9 +36,10 @@ import { TwReplay } from './TwReplay';
  * Ролик боя: прежний по умолчанию, в стиле Total War — за переключателем устройства (`?battle=tw`, `look.ts`;
  * docs/battle_tw.md). Выбор — один раз на показ: переключатель не меняется посреди ролика.
  */
-export function BattleReplay({ rec, onDone }: { rec: BattleRecord; onDone: () => void }) {
+export function BattleReplay({ rec, report, onDone }: { rec: BattleRecord; report?: Report; onDone: () => void }) {
   const [look] = useState(battleLook);
-  return look === 'tw' ? <TwReplay rec={rec} onDone={onDone} /> : <ClassicReplay rec={rec} onDone={onDone} />;
+  // Отчёт нужен только ролику TW — его карточке итога (добыча и пленные); прежний ролик кончается отчётом сам.
+  return look === 'tw' ? <TwReplay rec={rec} report={report} onDone={onDone} /> : <ClassicReplay rec={rec} onDone={onDone} />;
 }
 
 function ClassicReplay({ rec, onDone }: { rec: BattleRecord; onDone: () => void }) {

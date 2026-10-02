@@ -1594,6 +1594,7 @@ export class LocalWorld implements WorldApi {
       enemyLost: null,
       loot: spoils,
       hidden: took.hiddenTotal,
+      ...(gain.bonded ? { led: gain.bonded } : {}),
       intel: this.snapshot(s, at),
       battle: null,
       text: `В ${s.name} кончился хлеб. Гарнизон разошёлся.${gainText(took)}${
@@ -3684,6 +3685,7 @@ export class LocalWorld implements WorldApi {
       enemyLost,
       loot: spoils,
       hidden: took?.hiddenTotal ?? 0,
+      ...(gain?.bonded ? { led: gain.bonded } : {}),
       intel,
       battle: record,
       text: burned
@@ -4116,6 +4118,9 @@ export class LocalWorld implements WorldApi {
     const record = this.gateRecord(wall, troopsOfKinds(party.kinds, party.gear));
     const attackerLeft = stackAfter(m.units, stackLosses(m.units, outcome.attackerLoss));
     const { warriors, warriorsLost, troopsLost } = this.gateLosses(wall);
+    // Пленные: часть тех, кого племя посчитало убитыми, на самом деле уведена (ниже, `captives`). Число — до отчёта:
+    // его называет и отчёт, и карточка итога ролика боя (`Report.held`).
+    const held = outcome.won && warriorsLost > 0 ? Math.max(1, Math.round(warriorsLost * RANSOM_SHARE)) : 0;
     // Прорвались — город взят, и его участь решает та же дверь, какой мы делим
     // чужие дворы и какой голод делит наш город (`spoils.fate`), — той ступенью,
     // что отряд объявил: склад и казна до тайника, сколько поднимет отряд, люди и
@@ -4126,6 +4131,8 @@ export class LocalWorld implements WorldApi {
       ? this.fateHome(profile, haul.carry, haul.escort, at, declared)
       : null;
     const loss = spoils ? homeLoss(spoils) : null;
+    // Скольких наших увели невольниками — то же число, что достаётся победителю (`winnerGain`).
+    const led = spoils ? (winnerGain(spoils).bonded ?? 0) : 0;
     if (spoils && FATES[declared].chain) this.save.burnImmune[HOME_ID] = burnImmuneUntil(at);
     if (spoils) this.markFall(HOME_ID, declared, at);
     // Окно после падения — одно на оба пути: прорыв ставит его так же, как голод
@@ -4145,6 +4152,8 @@ export class LocalWorld implements WorldApi {
       enemyLost: Math.round(m.power * outcome.attackerLoss),
       loot: spoils && loss && spoils.lostTotal > 0 ? loss.resources : null,
       hidden: spoils?.hiddenTotal ?? 0,
+      ...(led ? { led } : {}),
+      ...(held > 0 ? { held } : {}),
       intel: null,
       battle: record,
       ...(loss?.fallen ? { fallen: loss.fallen } : {}),
@@ -4159,10 +4168,7 @@ export class LocalWorld implements WorldApi {
     // Поэтому выкуп потом только возвращает и ничего не отнимает, а письмо о
     // нём остаётся тем, чем должно быть: потерянной возможностью, если его не
     // открыть.
-    if (outcome.won && warriorsLost > 0) {
-      const held = Math.max(1, Math.round(warriorsLost * RANSOM_SHARE));
-      this.save.captives[m.fromId] = (this.save.captives[m.fromId] ?? 0) + held;
-    }
+    if (held > 0) this.save.captives[m.fromId] = (this.save.captives[m.fromId] ?? 0) + held;
 
     this.addEffect({
       id: `${m.id}-defense`,

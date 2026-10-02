@@ -19,29 +19,15 @@ import {
 import { setBattleWatch } from '@/game/battle/actions';
 import { beastSummary, beastWords } from '@/game/battle/beasts';
 import { battleMusic } from '@/sound/web';
-import { RESOURCE_IDS, RESOURCE_META } from '@/game/constants';
 import { fallenText } from '@/game/sim/expedition';
-import { UNITS } from '@/world/data/units';
 import { formatCoord } from '@/world/geo';
-import type { BattleRecord, Loot, Report, UnitStack } from '@/world/types';
+import type { BattleRecord, Report } from '@/world/types';
+import { lootText, unitsText } from '@/ui/parts/reportWords';
 import { Icon } from '@/ui/icons/Icon';
 
 /** Силы несопоставимы — смотреть нечего: мгновенный итог по умолчанию. */
 export const LOPSIDED = 3;
 
-const unitsText = (units: UnitStack): string =>
-  UNITS.filter((u) => (units[u.id] ?? 0) > 0)
-    .map((u) => `${u.icon} ${units[u.id]}`)
-    .join(' · ') || '—';
-
-const lootText = (loot: Loot | null): string => {
-  if (!loot) return '';
-  const parts = RESOURCE_IDS.filter((r) => loot[r]).map(
-    (r) => `${RESOURCE_META[r].icon} ${Math.abs(loot[r] as number)}`,
-  );
-  if (loot.gold) parts.push(`💰 ${Math.abs(loot.gold)}`);
-  return parts.join(' · ');
-};
 
 /** Насколько силы были несопоставимы: отношение большей стороны к меньшей. */
 export function lopsidedness(rec: BattleRecord): number {
@@ -53,7 +39,7 @@ export function lopsidedness(rec: BattleRecord): number {
 
 const other = (side: Side): Side => (side === 'attacker' ? 'defender' : 'attacker');
 
-type ReplayProps = { rec: BattleRecord; onDone: () => void };
+type ReplayProps = { rec: BattleRecord; report?: Report; onDone: () => void };
 
 /**
  * Ролик о бое едет отдельным куском и только по «Смотреть бой».
@@ -74,7 +60,7 @@ type ReplayProps = { rec: BattleRecord; onDone: () => void };
  */
 const loadReplay = () => import('@/ui/battle/BattleReplay');
 
-function Replay({ rec, onDone }: ReplayProps) {
+function Replay({ rec, report, onDone }: ReplayProps) {
   const [play, setPlay] = useState<ComponentType<ReplayProps> | 'wait' | 'lost'>('wait');
   useEffect(() => {
     let live = true;
@@ -88,7 +74,7 @@ function Replay({ rec, onDone }: ReplayProps) {
   }, []);
   if (typeof play !== 'string') {
     const Play = play;
-    return <Play rec={rec} onDone={onDone} />;
+    return <Play rec={rec} report={report} onDone={onDone} />;
   }
   return createPortal(
     <div className="replay">
@@ -217,7 +203,7 @@ export function ReportPanel({ id }: { id: string }) {
             </button>
           </div>
           {playing && (
-            <Replay key={report.id} rec={rec} onDone={() => setPlaying(false)} />
+            <Replay key={report.id} rec={rec} report={report} onDone={() => setPlaying(false)} />
           )}
           {lopsided && !watch && (
             <p className="note">

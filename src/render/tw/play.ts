@@ -10,6 +10,8 @@ import { TW_SPEC } from './spec';
 import { twPlanOfRecord } from './record';
 import { TwPlayer, type TwPlayerOptions } from './player';
 
+export { hudAt, type TwHud } from './hud';
+
 export interface TwRecord {
   result: BattleResult;
   us: Side;

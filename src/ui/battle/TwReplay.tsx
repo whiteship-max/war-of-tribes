@@ -1,9 +1,11 @@
 // Ролик боя в стиле Total War поверх сцены (docs/battle_tw.md) — за переключателем `?battle=tw` (`look.ts`);
 // без него «Смотреть бой» играет прежний ролик (`BattleReplay`).
 //
-// Компонент ничего не решает, как и прежний: заводит проигрыватель на одолженной канве и рисует подпись. Подпись,
-// фаза, счёт и музыка — у прежней раскадровки (`frameAt`) на той же секунде боя: время у роликов одно (решение 5),
-// и строка журнала одна. Кнопки приходят данными (`TW_CONTROLS`), а не разметкой — правило прежнего ролика.
+// Компонент ничего не решает, как и прежний: заводит проигрыватель на одолженной канве и раскладывает то, что пришло.
+// Подпись, люди и музыка — у прежней раскадровки (`frameAt`) на той же секунде боя: время у роликов одно (решение 5), и
+// строка журнала одна. Полоса сверху — как у боя EU4: знамёна сторон, люди, мораль армий и фаза с кругом (`hudAt` куска
+// ролика TW, мораль — из журнала). Карточка итога в конце — числа итога боя и отчёта, своей арифметики у неё нет
+// (CLAUDE.md, правило 18). Кнопки приходят данными (`TW_CONTROLS`, `SPEEDS`), а не разметкой — правило прежнего ролика.
 //
 // Камерой правит игрок: ввод — на слое ролика, а не на холсте, где сидит ввод сцены города.
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -12,27 +14,47 @@ import * as THREE from 'three';
 import { activeScene } from '@/render/Scene';
 import { configureRenderer } from '@/render/lighting';
 import { pixelRatio } from '@/render/loop';
-import { PHASE_NAME } from '@/battle/log';
+import { PALETTE } from '@/render/palette';
+import { PHASE_NAME, summarize, type Side } from '@/battle';
 import { SKIP, frameAt, type Frame } from '@/battle/replay';
 import { castOfRecord } from '@/game/battle/cast';
-import { beastWords } from '@/game/battle/beasts';
+import { beastSummary, beastWords } from '@/game/battle/beasts';
 import { battleMusic, villageMusic } from '@/sound/web';
-import type { BattleRecord } from '@/world/types';
+import { lootText, unitsText } from '@/ui/parts/reportWords';
+import type { BattleRecord, Report } from '@/world/types';
+import type { TwHud } from '@/render/tw/hud';
+import type { TwPlayer } from '@/render/tw/player';
 
 /** Кнопки ролика TW: «Пропустить», как у прежнего, и «Общий вид» — вернуть камеру режиссуре. */
 const OVERVIEW = { id: 'overview', label: 'Общий вид' } as const;
 const TW_CONTROLS = [OVERVIEW, SKIP] as const;
+/** Скорость хода на полосе: как у Total War — обычная, вдвое и вчетверо. */
+const SPEEDS = [1, 2, 4] as const;
+/** Кнопки карточки итога: пересмотреть или в отчёт. */
+const AGAIN = { id: 'again', label: 'Смотреть снова' } as const;
+const TO_REPORT = { id: 'report', label: 'К отчёту' } as const;
+const CARD_CONTROLS = [AGAIN, TO_REPORT] as const;
 
-export function TwReplay({ rec, onDone }: { rec: BattleRecord; onDone: () => void }) {
+const css = (hex: number): string => `#${hex.toString(16).padStart(6, '0')}`;
+/** Знамя стороны на полосе — цвет стороны в бою: наши в синем, чужие в красном (правило ролика). */
+const FLAG = { ours: css(PALETTE.paintBlue), theirs: css(PALETTE.paintRed) };
+
+const other = (s: Side): Side => (s === 'attacker' ? 'defender' : 'attacker');
+
+export function TwReplay({ rec, report, onDone }: { rec: BattleRecord; report?: Report; onDone: () => void }) {
   const us = rec.us;
+  const them = other(us);
   const cast = useMemo(() => castOfRecord(rec.result, rec.us, rec.troops, rec.militia, rec.place, rec.beasts), [rec]);
   const [frame, setFrame] = useState<Frame>(() => frameAt(cast, 0));
+  const [hud, setHud] = useState<TwHud | null>(null);
   const [loaded, setLoaded] = useState<'wait' | 'ok' | 'fail'>('wait');
+  const [speed, setSpeed] = useState<number>(1);
+  const [ended, setEnded] = useState(false);
   const shown = useRef('');
   const done = useRef(onDone);
   done.current = onDone;
   const layer = useRef<HTMLDivElement>(null);
-  const release = useRef<() => void>(() => undefined);
+  const player = useRef<TwPlayer | null>(null);
 
   useEffect(() => {
     const scene = activeScene();
@@ -63,7 +85,7 @@ export function TwReplay({ rec, onDone }: { rec: BattleRecord; onDone: () => voi
       .then((m) => {
         if (!alive || !layer.current) return;
         const quality = scene?.quality ?? 'medium';
-        const player = m.playTw(
+        const p = m.playTw(
           renderer,
           { result: rec.result, us: rec.us, troops: rec.troops, militia: rec.militia, place: rec.place, beasts: rec.beasts },
           quality,
@@ -72,20 +94,23 @@ export function TwReplay({ rec, onDone }: { rec: BattleRecord; onDone: () => voi
             onFrame: (_t, castT) => {
               const f = frameAt(cast, castT);
               battleMusic.set(f.music);
-              const key = `${f.act}|${f.caption ?? ''}|${f.phase}|${f.side.attacker.men}|${f.side.defender.men}`;
+              const h = m.hudAt(cast, rec.result, castT);
+              const mor = (v: number | null): string => (v === null ? '-' : v.toFixed(2));
+              const key = `${f.caption ?? ''}|${h.phase}|${h.round}|${f.side.attacker.men}|${f.side.defender.men}|${mor(h.morale.attacker)}|${mor(h.morale.defender)}`;
               if (key === shown.current) return;
               shown.current = key;
               setFrame(f);
+              setHud(h);
             },
-            onEnd: () => done.current(),
+            onEnd: () => setEnded(true),
           },
         );
-        player.fit();
-        player.start();
-        release.current = () => player.cam.release();
-        onResize = () => player.fit();
+        player.current = p;
+        p.fit();
+        p.start();
+        onResize = () => p.fit();
         window.addEventListener('resize', onResize);
-        dispose = () => player.dispose();
+        dispose = () => p.dispose();
         setLoaded('ok');
       })
       .catch((e: unknown) => {
@@ -95,6 +120,7 @@ export function TwReplay({ rec, onDone }: { rec: BattleRecord; onDone: () => voi
       });
     return () => {
       alive = false;
+      player.current = null;
       window.removeEventListener('resize', onResize);
       dispose();
       battleMusic.stop();
@@ -116,25 +142,140 @@ export function TwReplay({ rec, onDone }: { rec: BattleRecord; onDone: () => voi
     };
   }, [cast, rec]);
 
-  const them = us === 'attacker' ? 'defender' : 'attacker';
+  const pick = (id: string): void => {
+    if (id === 'skip' || id === 'report') done.current();
+    else if (id === 'overview') player.current?.cam.release();
+    else if (id === 'again') {
+      setEnded(false);
+      player.current?.seek(0);
+      player.current?.start();
+    }
+  };
+  const go = (n: number): void => {
+    setSpeed(n);
+    if (player.current) player.current.speed = n;
+  };
+
+  const sideName = { [us]: 'Наши', [them]: rec.beasts === them ? 'Волки' : 'Противник' } as Record<Side, string>;
+  const bar = (side: Side) => {
+    const m = hud?.morale[side] ?? null;
+    return (
+      <div className={`tw-side${side === us ? '' : ' them'}`}>
+        <span className="tw-flag" style={{ background: side === us ? FLAG.ours : FLAG.theirs }} />
+        <span className="tw-name">{sideName[side]}</span>
+        <span className="tw-men">{frame.side[side].men}</span>
+        {m !== null && (
+          <span className="tw-morale" title="Мораль армии">
+            <i style={{ width: `${Math.round(m * 100)}%` }} />
+          </span>
+        )}
+      </div>
+    );
+  };
+
   return createPortal(
     <div className="replay replay-tw" ref={layer}>
-      <div className="replay-top">
-        <span className="replay-phase">{PHASE_NAME[frame.phase]}</span>
-        <span className="replay-count">
-          {frame.side[us].men} · {frame.side[them].men}
-        </span>
+      <div className="tw-top">
+        <div className="tw-bar">
+          {bar(us)}
+          <div className="tw-phase">
+            <b>{PHASE_NAME[hud?.phase ?? frame.phase]}</b>
+            {(hud?.round ?? 1) > 1 && <small>круг {hud!.round}</small>}
+          </div>
+          {bar(them)}
+        </div>
+        <div className="tw-speed">
+          {SPEEDS.map((n) => (
+            <button className={`btn${speed === n ? '' : ' ghost'}`} key={n} onClick={() => go(n)}>
+              ×{n}
+            </button>
+          ))}
+        </div>
       </div>
       {loaded === 'fail' && <div className="replay-caption">Ролик не загрузился — итог боя в отчёте.</div>}
-      {loaded !== 'fail' && frame.caption && <div className="replay-caption">{beastWords(frame.caption, rec.beasts, us)}</div>}
+      {loaded !== 'fail' && !ended && frame.caption && <div className="replay-caption">{beastWords(frame.caption, rec.beasts, us)}</div>}
+      {ended && <ResultCard rec={rec} report={report} onPick={pick} />}
+      {!ended && (
+        <div className="replay-controls">
+          {TW_CONTROLS.map((c) => (
+            <button className="btn" key={c.id} onClick={() => pick(c.id)}>
+              {c.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>,
+    document.body,
+  );
+}
+
+/**
+ * Карточка итога: исход словами итога боя (`summarize`), силы и размен — итог боя, кто не вернулся, добыча и пленные —
+ * отчёт (`Report.lost`, `loot`, `led`, `held`) теми же словами, что в нём (`reportWords`). Отчёта нет (стенд) — только итог
+ * боя.
+ */
+function ResultCard({ rec, report, onPick }: { rec: BattleRecord; report?: Report; onPick: (id: string) => void }) {
+  const us = rec.us;
+  const sum = beastSummary(summarize(rec.result, us), rec.beasts, us);
+  const ours = rec.result.sides[us].total;
+  const foes = rec.result.sides[other(us)].total;
+  const loot = report ? lootText(report.loot) : '';
+  const won = report ? report.won : sum.verdict === 'victory' || sum.verdict === 'pyrrhic';
+  return (
+    <div className="tw-card">
+      <h3>{sum.title}</h3>
+      <p className={`note${sum.verdict === 'defeat' || sum.verdict === 'pyrrhic' ? ' bad' : ''}`}>{sum.reason}</p>
+      <div className="mod-list">
+        <div className="mod">
+          <span className="name">Наши силы</span>
+          <span className="val">
+            {ours.initial} → {ours.final}
+          </span>
+        </div>
+        <div className="mod">
+          <span className="name">{rec.beasts === other(us) ? 'Стая' : 'Противник'}</span>
+          <span className="val">
+            {foes.initial} → {foes.final}
+          </span>
+        </div>
+        <div className="mod total">
+          <span className="name">Потери</span>
+          <span className={`val ${foes.losses >= ours.losses ? '' : 'neg'}`}>
+            {ours.losses} за {foes.losses}
+          </span>
+        </div>
+        {report && Object.keys(report.lost).length > 0 && (
+          <div className="mod">
+            <span className="name">Не вернулись</span>
+            <span className="val">{unitsText(report.lost)}</span>
+          </div>
+        )}
+        {loot && (
+          <div className="mod">
+            <span className="name">{won ? 'Добыча' : 'Унесли'}</span>
+            <span className="val">{loot}</span>
+          </div>
+        )}
+        {report?.led !== undefined && report.led > 0 && (
+          <div className="mod">
+            <span className="name">{won ? 'Увели невольниками' : 'Увели наших'}</span>
+            <span className="val">{report.led}</span>
+          </div>
+        )}
+        {report?.held !== undefined && report.held > 0 && (
+          <div className="mod">
+            <span className="name">Наши в плену, ждут выкупа</span>
+            <span className="val">{report.held}</span>
+          </div>
+        )}
+      </div>
       <div className="replay-controls">
-        {TW_CONTROLS.map((c) => (
-          <button className="btn" key={c.id} onClick={() => (c.id === 'skip' ? done.current() : release.current())}>
+        {CARD_CONTROLS.map((c) => (
+          <button className="btn" key={c.id} onClick={() => onPick(c.id)}>
             {c.label}
           </button>
         ))}
       </div>
-    </div>,
-    document.body,
+    </div>
   );
 }

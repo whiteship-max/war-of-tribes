@@ -24,6 +24,8 @@ export class TwPlayer {
   private running = false;
   private disposed = false;
   private aspect = 1;
+  /** Скорость хода: ×1, ×2, ×4 — у игрока на полосе; кадр — функция времени, поэтому скорость его не меняет. */
+  speed: number;
 
   constructor(
     private renderer: THREE.WebGLRenderer,
@@ -31,6 +33,7 @@ export class TwPlayer {
     spec: TwSpec,
     private opts: TwPlayerOptions = {},
   ) {
+    this.speed = opts.speed ?? 1;
     this.stage = new TwStage(plan, spec);
     // Жёсткая тень — `BasicShadowMap` (0) числом, как у уровней сцены (`Scene`): имени в куске three первой загрузки нет.
     renderer.shadowMap.type = spec.shadowSoft ? THREE.PCFShadowMap : (0 as THREE.ShadowMapType);
@@ -94,7 +97,7 @@ export class TwPlayer {
   private loop = (): void => {
     if (this.disposed) return;
     const dt = Math.min(0.1, this.clock.getDelta());
-    if (this.running) this.t = Math.min(this.plan.seconds, this.t + dt * (this.opts.speed ?? 1));
+    if (this.running) this.t = Math.min(this.plan.seconds, this.t + dt * this.speed);
     this.draw(dt);
     if (this.running && this.t >= this.plan.seconds) {
       this.stop();
