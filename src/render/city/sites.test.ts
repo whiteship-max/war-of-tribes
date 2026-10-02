@@ -1,14 +1,16 @@
 // Места 24 построек в городе и касание по ним (docs/city.md, раздел 5): все постройки игры стоят в своих
-// зданиях, дворы `outside` — за стеной, а палец попадает в каждую на ракурсе игры. Мерка пальца — порог
-// владельца: цель не меньше 33 px (квадрат 33 × 33 px открывает постройку целиком), сама цель касания
-// раздувается до `TAP_TARGET` (44 px). Время пальца (`TAP_MS`) судит общий разбор жеста — своего у
-// города нет.
+// зданиях, дворы `outside` — за стеной, а палец попадает в каждую на ракурсе игры. Пороги владельца «33 px и
+// 780 мс»: цель не меньше 33 px (квадрат 33 × 33 px открывает постройку целиком; сама цель касания раздувается
+// до `TAP_TARGET`, 44 px), а время и сход пальца судит общий разбор жеста — своего у города нет: палец,
+// пролежавший 780 мс или сошедший на 33 px, — уже не тап (граничные столбец и строка стенда `tap:report`).
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 import type { BuildingTypeId } from '@/game/types';
 import { BUILDINGS } from '@/game/data/buildings';
 import { isOutsideWall } from '@/game/derived';
-import { TAP_TARGET } from '@/gestures';
+import { Gesture, TAP_TARGET } from '@/gestures';
 import { cityPlan, insidePoly } from './layout';
 import { buildStatic } from './budget';
 import { CITY_OWNERS, mainSite, type Site } from './sites';
@@ -124,12 +126,39 @@ describe('город: касание по раскладке', () => {
     expect(seen.length).toBeGreaterThanOrEqual(15);
   });
 
-  it('панорамой к любой постройке: её открывает палец в 33 px', () => {
+  it('все 24 постройки: панорамой к любой её открывает палец в 33 px', () => {
+    let checked = 0;
     for (const t of CITY_OWNERS) {
       const m = main(t);
       const cam = camera({ x: m.x, z: m.z });
       expect(fingerSomewhere(cam, t), `${t}: квадрат ${FINGER} px открывает постройку`).toBe(true);
+      checked++;
     }
+    // Граница области: проверены все постройки игры — двадцать четыре, а не часть.
+    expect(checked).toBe(BUILDINGS.length);
+    expect(checked).toBe(24);
+  });
+
+  it('время и сход пальца — общий судья жеста: 620 мс и 31 px — тап, 780 мс и 33 px — уже не тап', () => {
+    /** Одно касание: лежит `ms`, а на `at`-й миллисекунде сходит на `slip` px (как след стенда `tap:report`). */
+    const tap = (ms: number, slip = 0, at = 0): boolean => {
+      const g = new Gesture();
+      g.down(1, 100, 100, 0);
+      if (slip > 0) g.move(1, 100 + slip * 0.78, 100 + slip * 0.62, at);
+      return g.up(1, ms);
+    };
+    expect(tap(200), '200 мс — тап').toBe(true);
+    expect(tap(620), '620 мс — тап').toBe(true);
+    expect(tap(780), '780 мс — уже не тап').toBe(false);
+    // Сход — сразу (палец садится), посередине (повёл и встал) и перед снятием: правило одно.
+    for (const at of [80, 220, 360]) {
+      expect(tap(380, 31, at), `31 px на ${at} мс — тап`).toBe(true);
+      expect(tap(380, 33, at), `33 px на ${at} мс — уже не тап`).toBe(false);
+    }
+    // Своего судьи у города нет: касание ведёт оболочка сцены (`Scene.ts`), город отвечает только «что под пальцем».
+    const city = readFileSync(join(__dirname, 'scene.ts'), 'utf8');
+    expect(city, 'у города нет своего разбора жеста').not.toMatch(/onPointer|addEventListener\('pointer|new Gesture/);
+    expect(city, 'город отвечает, что под пальцем').toMatch(/protected override pickAt\(/);
   });
 
   it('мелкая постройка раздувается до цели пальца, крупная — нет', () => {

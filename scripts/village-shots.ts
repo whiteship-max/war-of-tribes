@@ -60,8 +60,10 @@ const SCREEN = { width: 390, height: 844, deviceScaleFactor: 2, mobile: true };
 interface Shot {
   name: string;
   solar: number;
-  /** Камера над точкой земли на полу приближения; без него — кадровая. */
+  /** Камера над точкой земли; без него — кадровая. */
   at?: [number, number];
+  /** На полу приближения (по умолчанию) или на расстоянии кадра игры — `far`. */
+  far?: boolean;
   why: string;
 }
 
@@ -78,15 +80,17 @@ const SHOTS: Shot[] = [
   { name: 'square-close', solar: 0.2, at: [0, -2], why: 'площадь вблизи, день: рынок, колодец, ратуша, храм' },
   { name: 'street-close', solar: 0.2, at: [4, 70], why: 'Главная улица у южных ворот, день' },
   { name: 'gate-close', solar: 0.2, at: [0, 118], why: 'главные ворота, день' },
+  { name: 'river-wide', solar: 0.2, at: RIVER, far: true, why: 'река с дистанции игры, день: читается водой, а не дорогой' },
   { name: 'river-close', solar: 0.2, at: RIVER, why: 'река у города, день: вода, берега, камыш' },
-  { name: 'river-night', solar: 0.75, at: RIVER, why: 'река у города, ночь: луна и огни в воде' },
+  { name: 'river-night', solar: 0.75, at: RIVER, far: true, why: 'река у города с дистанции игры, ночь: лунный свет на ряби' },
   { name: 'mill-close', solar: 0.2, at: MILL, why: 'мельничный ручей у лесопилки, день' },
+  { name: 'mill-night', solar: 0.75, at: MILL, why: 'мельница ночью: огни мельницы в воде' },
 ];
 
 /** Ракурсы захода по умолчанию — общий план днём и ночью и два ближних. */
 const DEFAULT_SHOTS = ['day-wide', 'night-wide', 'square-close', 'river-close'];
 
-function pageUrl(quality: string, solar: number, at?: [number, number]): string {
+function pageUrl(quality: string, solar: number, at?: [number, number], far = false): string {
   const q = new URLSearchParams({
     showcase: 'village',
     levels: String(LEVELS),
@@ -99,7 +103,7 @@ function pageUrl(quality: string, solar: number, at?: [number, number]): string 
   });
   if (at) {
     q.set('at', `${at[0].toFixed(2)},${at[1].toFixed(2)}`);
-    q.set('dist', 'min');
+    if (!far) q.set('dist', 'min');
   }
   return `http://127.0.0.1:${PORT}/?${q.toString()}`;
 }
@@ -135,7 +139,7 @@ async function shots(began: number): Promise<void> {
         console.log(`\nСрок стенда (${BROWSER_MAX_MS / 1000} с) вышел — остальное отдельным заходом.`);
         return;
       }
-      const tab = await open(pageUrl(quality, shot.solar, shot.at));
+      const tab = await open(pageUrl(quality, shot.solar, shot.at, shot.far));
       try {
         const png = await tab.send<{ data: string }>('Page.captureScreenshot', { format: 'png' });
         const name = `${TAG}-${quality}-${shot.name}.png`;

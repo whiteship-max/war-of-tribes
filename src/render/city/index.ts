@@ -12,9 +12,11 @@ import { CITY } from './palette';
 import { MAP_AT } from './ground';
 import { LAND_AT, treeModel, type Species } from './nature';
 import type { Quality } from '../quality';
-import { CITY_SPEC } from './spec';
+import { CITY_SPEC, SHORE_CAP } from './spec';
 import type { Site } from './sites';
 import { buildWater } from './water';
+import { buildShore } from './shore';
+import { waterLights } from './banks';
 export { CITY_SPEC, type CitySpec } from './spec';
 
 /** Слои текстур в потоке: кадр не ждёт генерации. Нет потока — считаем здесь же. */
@@ -147,7 +149,7 @@ export async function buildCity(q: Quality): Promise<CityBuild> {
   const layersP = paintLayers(progressive ? FIRST : spec.tex);
   const w = await worldOf(q);
   const tWorld = performance.now();
-  const { plan, lights, chimneys, flagTops, marks, sites, map, land, grid, trees } = w;
+  const { plan, lights, chimneys, flagTops, marks, sites, map, land, grid, trees, wet, shore } = w;
   const u = cityUniforms();
   const group = new THREE.Group();
   group.name = 'city';
@@ -175,15 +177,19 @@ export async function buildCity(q: Quality): Promise<CityBuild> {
   gg.setAttribute('color', new THREE.BufferAttribute(new Float32Array(nv * 3).fill(1), 3));
   gg.setAttribute('cuv', new THREE.BufferAttribute(new Float32Array(nv * 2), 2));
   gg.setAttribute('cfg', new THREE.BufferAttribute(new Uint8Array(nv * 4), 4));
+  gg.setAttribute('cwet', new THREE.BufferAttribute(wet, 1));
   gg.setIndex(new THREE.BufferAttribute(grid.index, 1));
   gg.computeBoundingSphere();
   const gMesh = new THREE.Mesh(gg, groundMaterial(u, mapTex, MAP_AT, landTex, LAND_AT));
   gMesh.name = 'city-ground';
   gMesh.receiveShadow = true;
   group.add(gMesh);
-  // Вода: река и мельничный ручей — одна лента.
-  const water = buildWater(u);
+  // Вода: река и мельничный ручей — одна лента до кромки; огни у воды отражаются в ней ночью. Берег — камыш и камни.
+  const cap = SHORE_CAP[q];
+  const water = buildWater(u, cap.cols, spec.detail, waterLights(lights));
   group.add(water);
+  const shoreGroup = buildShore(u, shore.reeds, shore.stones, cap.reedBlades);
+  group.add(shoreGroup);
 
   // Деревья: экземплярами по видам; ближние отбрасывают тень, дальние — нет.
   const fMat = foliageMaterial(u, spec.detail === 2);
@@ -242,6 +248,8 @@ export async function buildCity(q: Quality): Promise<CityBuild> {
     uniforms: u,
     plan,
     counts: {
+      reeds: shore.reeds.length,
+      stones: shore.stones.length,
       houses: plan.houses.length,
       suburb: plan.suburb.length,
       houseTris: marks.houses,
@@ -269,7 +277,8 @@ export async function buildCity(q: Quality): Promise<CityBuild> {
     lights,
     sites,
     dispose(): void {
-      for (const m of [bMat, fMat, gMesh.material as THREE.Material, water.material as THREE.Material, (group.getObjectByName('city-flames') as THREE.Points).material as THREE.PointsMaterial]) {
+      const shoreMats = shoreGroup.children.map((c) => (c as THREE.Mesh).material as THREE.Material);
+      for (const m of [bMat, fMat, gMesh.material as THREE.Material, water.material as THREE.Material, ...shoreMats, (group.getObjectByName('city-flames') as THREE.Points).material as THREE.PointsMaterial]) {
         const map = (m as THREE.PointsMaterial).map;
         map?.dispose();
         m.dispose();

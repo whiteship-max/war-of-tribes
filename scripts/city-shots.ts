@@ -240,7 +240,7 @@ async function main(): Promise<void> {
       const lim = CITY_BUDGET[q];
       console.log(
         `  ${q.padEnd(6)} вызовов ${c.calls} (≤ ${lim.calls}), треугольников ${c.triangles} (≤ ${lim.triangles}; здания ${c.buildings}, ` +
-          `земля ${c.ground}, деревья ${c.trees}), текстуры ${c.textureMb.toFixed(1)} МБ (≤ ${lim.textureMb})`,
+          `земля ${c.ground}, деревья ${c.trees}, жизнь ${c.life}, вода и берег ${c.shore}), текстуры ${c.textureMb.toFixed(1)} МБ (≤ ${lim.textureMb})`,
       );
     }
     return;

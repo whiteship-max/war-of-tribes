@@ -57,12 +57,9 @@ export function groundMap(plan: CityPlan, size: number): Uint8Array {
     const g = sstep(0.5, 0.78, fbm(x / 14 + 3, z / 14 + 3, 1e6, 4, 33)) * 0.55;
     if (g > d[k]) d[k] = g;
   }
-  // Берег реки и ручья — сырая земля полосой с рваным краем: вода ложится на отмель, а не на траву.
-  each(-256, MAP_AT.z0, -100, MAP_AT.z0 + MAP_AT.size, (x, z, i) => {
-    const rd = Math.abs(x - riverX(z)) + (vnoise(x / 6, z / 6, 1e6, 37) - 0.5) * 3;
-    const w = (1 - sstep(RIVER_HALF + 1, RIVER_HALF + 6, rd)) * 0.85;
-    if (w > d[i]) d[i] = w;
-  });
+  // Берег реки красит не карта, а сырость по высоте над водой (`banks.groundWet` в вершинах земли): ил у кромки,
+  // сырая земля, влажная трава. Прежняя полоса земли вдоль реки вместе с тёмной лентой воды читалась дорогой
+  // (docs/city.md, 12.3). Канава мельничного ручья — работа людей: её берега — земля.
   stampLine(smoothPath(RACE, 2), RACE_HALF + 1.6, d, 1.4);
   // Дороги и тропы за стеной — земля; дворы — вытоптанная поляна пятнами.
   for (const r of plan.roads) stampLine(r.pts, r.half, d, 1.2);
