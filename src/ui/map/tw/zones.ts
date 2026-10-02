@@ -20,8 +20,11 @@ import { type Segment, contour, soften } from './border';
 const TINT = 0.2;
 const MARGIN = 6;
 const REBAKE_MS = 1000;
-/** Холст черты не больше этого по стороне: на дальнем масштабе экран с запасом — сотни клеток. */
-const LINES_MAX_PX = 2048;
+/**
+ * Холст черты не больше этого по стороне: на дальнем масштабе экран с запасом — сотни клеток. 1024² — 4 МБ
+ * в худшем случае; черта в 2.2 px от этого чуть мягче вблизи, и это дешевле памяти телефона.
+ */
+const LINES_MAX_PX = 1024;
 
 const rgb = (hex: string): [number, number, number] => [parseInt(hex.slice(1, 3), 16), parseInt(hex.slice(3, 5), 16), parseInt(hex.slice(5, 7), 16)];
 const colors = TRIBE_COLORS.map(rgb);

@@ -14,6 +14,7 @@
 //   &season=winter  &night=1              сезон выпечки и ночь поверх кадра
 //   &old=1                                прежняя карта на том же участке — «до»
 //   &clean=1                              без подписи стенда
+//   &bench=1                              замер этапа 2: тайл среднего масштаба, лист старой карты, миниатюры
 //
 // Готовность — `document.body.dataset.ready = '1'`; числа — `document.body.dataset.showcase` (JSON):
 // сколько тайлов испечено и медиана выпечки, по частям. Снимает `npm run map-tw:shots`.
@@ -29,7 +30,8 @@ import { type Camera, type Viewport, detailAlpha, tileQuad, tileRequest, toScree
 import { TILE_SRC, prepareTiles, tileAt, tileBakes } from '../ground';
 import { chunkBitmap, overviewSrc } from '../tiles';
 import { grainTile, makeCanvas, vignette } from '../paint';
-import { OVERVIEW_PX, bakeChunk, bakeStats, bakeTile, chunkStats, setTwLook } from './bake';
+import { MID_CELLS, OVERVIEW_PX, bakeChunk, bakeMid, bakeStats, bakeTile, chunkStats, setTwLook } from './bake';
+import { SHEET_PX } from './fog';
 import {
   BADGE_PX,
   PIN_PX,
@@ -42,6 +44,7 @@ import {
   type PlaceLook,
   badgeSprite,
   drawMini,
+  dropMinis,
   fellSprite,
   flagSprite,
   hostBody,
@@ -758,6 +761,54 @@ function drawGallery(ctx: CanvasRenderingContext2D, vp: Viewport, px: number, dp
   return { w: Math.ceil(maxW), h: Math.ceil(y + PAD) };
 }
 
+function bench(cam: Camera, dpr: number, stats: Stats): void {
+  const time = (f: () => unknown): number => {
+    const t0 = performance.now();
+    f();
+    return performance.now() - t0;
+  };
+  const mtx = Math.floor((cam.cx - WORLD_ORIGIN.x) / MID_CELLS);
+  const mty = Math.floor((cam.cy - WORLD_ORIGIN.y) / MID_CELLS);
+  const mids: [number, number][] = [];
+  for (let j = -1; j <= 0; j++) for (let i = -1; i <= 1; i++) mids.push([mtx + i, mty + j]);
+  const sheetArea = (i: number): { x: number; y: number; w: number; h: number } => ({
+    x: Math.floor(cam.cx) - 18 + i * 32,
+    y: Math.floor(cam.cy) - 18,
+    w: 36,
+    h: 36,
+  });
+  const known = (x: number, y: number): number => {
+    const d = Math.hypot(x - SCENE.home.x - 0.5, y - SCENE.home.y - 0.5);
+    return d < KNOWN_R - 1 ? 1 : d > KNOWN_R + 1 ? 0 : (KNOWN_R + 1 - d) / 2;
+  };
+  const looks: [string, () => unknown][] = [
+    ['mini.city', () => placeSprite({ kind: 'city', stage: 'town', color: OWN, own: true, variant: 1, sacked: false }, 44, dpr)],
+    ['mini.castle', () => placeSprite({ kind: 'castle', stage: 'town', color: RELATION_META.neutral.color, own: false, variant: 0, sacked: false }, 44, dpr)],
+    ['mini.lair', () => placeSprite({ kind: 'lair', stage: 'town', color: RELATION_META.barbarian.color, own: false, variant: 2, sacked: false }, 44, dpr)],
+    ['mini.host', () => hostSprite({ color: OWN, size: 4, west: false, camp: false }, 44, dpr)],
+  ];
+  for (let pass = 0; pass < 2; pass++) {
+    const keep = pass === 1;
+    for (const [tx, ty] of mids) {
+      let baked: HTMLCanvasElement | null = null;
+      const ms = time(() => (baked = bakeMid(SEED, tx, ty)));
+      // Не испёкся (нет округи) — это не цена выпечки, а отказ: в замер не идёт.
+      if (keep && baked) (stats.parts.mid ??= []).push(ms);
+    }
+    for (let i = 0; i < 3; i++) {
+      const ms = time(() => bakeParchment(SEED, sheetArea(i), (x, y) => geoTerrain(SEED, x, y), known, SHEET_PX));
+      if (keep) (stats.parts.sheet ??= []).push(ms);
+    }
+    for (const [name, make] of looks) {
+      for (let i = 0; i < 3; i++) {
+        dropMinis();
+        const ms = time(make);
+        if (keep) (stats.parts[name] ??= []).push(ms);
+      }
+    }
+  }
+}
+
 export function mountMapTw(root: HTMLElement, p: URLSearchParams): void {
   document.title = 'TRIBE · стенд карты';
   const view = VIEWS[p.get('view') ?? 'start'] ?? VIEWS.start;
@@ -818,6 +869,11 @@ export function mountMapTw(root: HTMLElement, p: URLSearchParams): void {
   drawRoute(ctx, cam, vp);
   drawArmy(ctx, cam, vp, dpr, old);
   drawNames(ctx, cam, vp, old);
+
+  // Замер этапа 2 (`bench=1`, docs/map_tw.md, раздел 8): тайл среднего масштаба, лист старой карты и
+  // спрайты миниатюр — то, что печётся в игре по одному за кадр. Два прохода, меряется второй (первый —
+  // прогрев JIT), медиана по шести тайлам, трём листам и трём выпечкам каждого вида миниатюры.
+  if (!old && p.get('bench') === '1') bench(cam, dpr, stats);
 
   const parts: Record<string, number> = {};
   for (const [k, v] of Object.entries(stats.parts)) parts[k] = Math.round(median(v) * 100) / 100;
