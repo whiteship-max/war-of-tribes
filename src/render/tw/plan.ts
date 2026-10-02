@@ -110,6 +110,8 @@ export const CONTACT_HALF = 0.42;
 /** Вторая линия за первой и резерв за второй — зазор от последней шеренги. */
 export const REAR_GAP = 3.5;
 export const RESERVE_GAP = 6;
+/** Отряд резерва встаёт в бой, когда журнал ввёл в полосы столько от его людей. */
+export const RESERVE_SHARE = 0.25;
 /** Зазор между полосами и между отрядами одного ряда. */
 export const LANE_GAP = 1.8;
 export const UNIT_GAP = 1.0;
@@ -636,14 +638,23 @@ export function buildPlan(input: PlanInput): TwPlan {
     for (const m of cast.marks) {
       if (m.id !== 'reserve-committed' || m.side !== side || m.lane === null) continue;
       owed += m.amount;
-      while (given < pool.length && pool[given].men <= owed + 0.5) {
+      // Отряд резерва трогается, когда в полосы вошла четверть его людей: ядро вводит резерв понемногу, а отряд на
+      // поле — целым блоком (огромный резерв большой армии иначе не тронулся бы никогда).
+      while (given < pool.length && pool[given].men * RESERVE_SHARE <= owed + 0.5) {
         const u = pool[given];
         owed -= u.men;
         given++;
         const slot = slotOf(u.ours, m.lane);
         const sideFront = units.filter((x) => x.side === side && x.row === 'front');
         const frontDepth = Math.max(0, ...sideFront.map((x) => x.depth));
-        u.commit = { at: castToTw(timing, m.t), x: slotX[slot], z: contactZ[side] + sign(side) * (frontDepth + 1.5) };
+        // Резерв встаёт в дыру в любой тик фазы, а метка пишется в её последний тик (`reserve-committed`): трогается
+        // он с начала фазы, где вошёл, — иначе дыра в строю стояла бы пустой всю фазу.
+        const span = cast.spans.find((sp) => m.t >= sp.t0 && m.t <= sp.t1);
+        const at = castToTw(timing, span ? span.t0 : m.t);
+        // Первая линия этой полосы уже бежит — резерв встаёт на её место, на линию соприкосновения; ещё стоит —
+        // за ней.
+        const gone = units.some((x) => x.side === side && x.row === 'front' && x.lane === m.lane && x.fleeAt !== null && x.fleeAt <= at + 5);
+        u.commit = { at, x: slotX[slot], z: contactZ[side] + (gone ? 0 : sign(side) * (frontDepth + 1.5)) };
       }
     }
   }
@@ -877,6 +888,8 @@ export interface UnitPose {
   flee: number;
   /** Строй рыхлее во столько раз: в воде и на бегу. */
   loose: number;
+  /** Отряд в сече на линии соприкосновения: передние шеренги рубятся. */
+  fighting: boolean;
 }
 
 /**
@@ -953,6 +966,7 @@ export function unitPose(plan: TwPlan, u: TwUnit, t: number): UnitPose {
   let clip: ClipId = 'idle';
   let rate = 1;
   let loose = 1;
+  let fighting = false;
   const fire = u.form === 'bow' && u.volleys.some((v) => t >= v - SHOOT_PERIOD * SHOOT_RELEASE - 0.2 && t <= v + 0.6);
 
   const walking = u.row !== 'front';
@@ -960,8 +974,10 @@ export function unitPose(plan: TwPlan, u: TwUnit, t: number): UnitPose {
     const adv = advanceOf(plan, u.side, t, walking);
     z += fwd * adv.dist;
     if (u.row === 'front' && t > plan.clashAt) {
-      z -= fwd * separationOf(plan, t);
+      const sep = separationOf(plan, t);
+      z -= fwd * sep;
       clip = 'guard';
+      fighting = sep < 0.3;
     }
     if (adv.speed > 0) {
       clip = adv.running && u.row === 'front' ? 'run' : 'march';
@@ -970,21 +986,25 @@ export function unitPose(plan: TwPlan, u: TwUnit, t: number): UnitPose {
     }
     if (inWater(plan.field, x, z)) loose = 2;
   } else if (u.row === 'reserve' && u.commit && t > u.commit.at) {
-    // Резерв идёт в свою полосу шагом и встаёт за первой линией — от того места, куда дошёл со всей армией.
+    // Резерв идёт в свою полосу и встаёт за первой линией — от того места, куда дошёл со всей армией.
     const from = u.z - s * advanceOf(plan, u.side, u.commit.at, true).dist;
     z = from;
     const dx = u.commit.x - u.x;
     const dz = u.commit.z - from;
     const len = Math.hypot(dx, dz);
-    const go = Math.min(len, (t - u.commit.at) * WALK_SPEED * 1.4);
+    // В дыру строя — бегом: ядро ставит резерв на место павших в тот же тик.
+    const go = Math.min(len, (t - u.commit.at) * RUN_SPEED);
     if (len > 0) {
       x += (dx / len) * go;
       z += (dz / len) * go;
     }
     if (go < len) {
-      clip = 'march';
-      rate = 1.4;
-    } else clip = 'guard';
+      clip = 'run';
+      rate = 1;
+    } else {
+      clip = 'guard';
+      fighting = Math.abs(u.commit.z - plan.contactZ[u.side]) < 0.5 && separationOf(plan, t) < 0.3;
+    }
   }
   if (fire && clip !== 'march' && clip !== 'run') clip = 'shoot';
 
@@ -999,7 +1019,7 @@ export function unitPose(plan: TwPlan, u: TwUnit, t: number): UnitPose {
     clip = 'run';
     rate = 1;
     loose = 1.8;
-    return { x, z, yaw: u.yaw + Math.PI * ease(dt / TURN_SECONDS), clip, rate, flee, loose };
+    return { x, z, yaw: u.yaw + Math.PI * ease(dt / TURN_SECONDS), clip, rate, flee, loose, fighting: false };
   }
   // Погоня: победитель после слома противника идёт следом шагом и останавливается.
   const foeBroke = plan.brokenAt[other(u.side)];
@@ -1010,8 +1030,9 @@ export function unitPose(plan: TwPlan, u: TwUnit, t: number): UnitPose {
       clip = 'march';
       rate = 1;
     } else clip = 'idle';
+    fighting = false;
   }
-  return { x, z, yaw: u.yaw, clip, rate, flee, loose };
+  return { x, z, yaw: u.yaw, clip, rate, flee, loose, fighting };
 }
 
 /** Кадр фигур: место, разворот, клип и время клипа — плоскими массивами, без мусора. */
@@ -1079,7 +1100,7 @@ export function poseFigures(plan: TwPlan, t: number, out: FigureFrame): void {
       out.shown[i] = 1;
       let clip = q.clip;
       // В сече рубятся две передние шеренги, остальные в упоре.
-      if (clip === 'guard' && u.row === 'front' && plan.rank[i] < 2 && t > plan.clashAt && separationOf(plan, t) < 0.3) clip = 'strike';
+      if (clip === 'guard' && q.fighting && plan.rank[i] < 2) clip = 'strike';
       out.clip[i] = CLIP_INDEX[clip];
       out.time[i] = clip === 'shoot' ? shootTime(plan, u, t, i) : t * q.rate + plan.phase[i];
     }
