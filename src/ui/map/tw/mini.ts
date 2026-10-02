@@ -5,6 +5,7 @@
 // Пути и градиенты — только здесь, при выпечке спрайта (закон кадра, docs/world-map.md): спрайт
 // печётся один раз на вид и размер, в кадре — одно копирование. Единица рисования — клетка: холст
 // масштабируется на пиксели клетки, и формы не зависят от размера.
+import type { Fate, Stage } from '@/world/types';
 import { makeCanvas } from '../paint';
 
 type C = CanvasRenderingContext2D;
@@ -710,14 +711,38 @@ function bakeMini(span: { w: number; h: number; ax: number; ay: number }, cell: 
   return { canvas, ax: span.ax * cell, ay: span.ay * cell, w, h };
 }
 
+/**
+ * Память спрайтов — по байтам, а не по штукам: город на корзине 80 при плотности 2 весит больше
+ * мегабайта, бейдж — килобайт. Вытесняется давно не нужный (свежий — в конец).
+ */
+const CACHE_BYTES = 16 * 1024 * 1024;
+let cacheBytes = 0;
+const bytesOf = (m: Mini): number => m.canvas.width * m.canvas.height * 4;
+
 function cached(key: string, make: () => Mini): Mini {
   const have = cache.get(key);
-  if (have) return have;
+  if (have) {
+    cache.delete(key);
+    cache.set(key, have);
+    return have;
+  }
   const m = make();
   cache.set(key, m);
-  if (cache.size > 48) cache.delete(cache.keys().next().value as string);
+  cacheBytes += bytesOf(m);
+  while (cacheBytes > CACHE_BYTES && cache.size > 1) {
+    const first = cache.keys().next().value as string;
+    const gone = cache.get(first);
+    cache.delete(first);
+    if (gone) {
+      cacheBytes -= bytesOf(gone);
+      gone.canvas.width = 0;
+    }
+  }
   return m;
 }
+
+/** Сколько байт держат спрайты миниатюр — бюджету (`docs/map_tw.md`, раздел 8). */
+export const miniBytes = (): number => cacheBytes;
 
 export function citySprite(look: CityLook, cellPx: number, dpr: number): Mini {
   const b = bucketOf(cellPx);
@@ -743,6 +768,183 @@ export function drawMini(ctx: C, m: Mini, cellPx: number, bucket: number, sx: nu
 export const miniBucket = bucketOf;
 
 export function dropMinis(): void {
+  for (const m of cache.values()) m.canvas.width = 0;
   cache.clear();
+  cacheBytes = 0;
 }
 
+
+// ---------- Объекты игры (этап 2): договор кадра и касания ----------
+//
+// Кадр игры (`tw/frame.ts`) и касание (`tw/tap.ts`) зовут только то, что ниже: вид объекта — из полей
+// мира (`SettlementView`, `MarchView`), спрайт — один раз на вид и корзину, в кадре — копирование. Ключ
+// спрайта называет **каждое** поле, меняющее картинку (тест `tw/mini.test.ts`, как у `village.spriteKey`).
+
+/** Что за место: город или двор игрока, замок, логово, пепелище. */
+export type PlaceKind = 'city' | 'castle' | 'lair' | 'ruin';
+
+export interface PlaceLook {
+  kind: PlaceKind;
+  /** Размер места: лагерь, деревня, крепость, город (`world/data/meta.stageOf`). */
+  stage: Stage;
+  /** Знамя владельца — цвет стороны (`RELATION_META`). */
+  color: string;
+  /** Своё поселение: знамя выше, картуш подписи. */
+  own: boolean;
+  /** Раскладка 0..2 (`village.variantOf` по id): соседние места одного размера не близнецы. */
+  variant: number;
+  /** Разорено: копоть и дым над крышами. */
+  sacked: boolean;
+}
+
+export function placeKey(l: PlaceLook, bucket: number, dpr: number): string {
+  return `place:${l.kind}:${l.stage}:${l.color}:${l.own ? 1 : 0}:${l.variant}:${l.sacked ? 1 : 0}:${bucket}:${dpr}`;
+}
+
+/** Тело миниатюры в клетках от точки места: стены и дома, без полей и тени. По нему — цель касания. */
+export interface Body {
+  /** Полуширина. */
+  rx: number;
+  /** Сколько тело поднимается над точкой места (крыши, башни, знамя). */
+  up: number;
+  /** Сколько уходит ниже точки места. */
+  down: number;
+}
+
+export function placeBody(l: PlaceLook): Body {
+  if (l.kind === 'ruin') return { rx: 0.55, up: 0.45, down: 0.35 };
+  if (l.kind === 'lair') return { rx: 0.75, up: 1.05, down: 0.5 };
+  return { rx: 0.95, up: 1.2, down: 0.62 };
+}
+
+export function placeSprite(l: PlaceLook, cellPx: number, dpr: number): Mini {
+  const b = bucketOf(cellPx);
+  return cached(placeKey(l, b, dpr), () =>
+    l.kind === 'lair' || l.kind === 'ruin'
+      ? bakeMini(LAIR_SPAN, b, dpr, (ctx) => lair(ctx, l.variant))
+      : bakeMini(CITY_SPAN, b, dpr, (ctx) => city(ctx, { color: l.color, own: l.own, variant: l.variant })),
+  );
+}
+
+/**
+ * Войско на карте. `size`: 0 — слух (пыль без фигур: сколько их, неизвестно, `world/sight`), 1 — горстка,
+ * 2 — отряд, 3 — войско, 4 — орда. `camp` — стоит лагерем у цели (осада, подмога): шатры и знамя.
+ */
+export interface HostLook {
+  color: string;
+  size: 0 | 1 | 2 | 3 | 4;
+  west: boolean;
+  camp: boolean;
+}
+
+export function hostKey(l: HostLook, bucket: number, dpr: number): string {
+  return `host:${l.color}:${l.size}:${l.camp ? 'camp' : l.west ? 'w' : 'e'}:${bucket}:${dpr}`;
+}
+
+export function hostBody(l: HostLook): Body {
+  return l.camp ? { rx: 0.7, up: 1.0, down: 0.35 } : { rx: 0.5, up: 1.35, down: 0.3 };
+}
+
+export function hostSprite(l: HostLook, cellPx: number, dpr: number): Mini {
+  const b = bucketOf(cellPx);
+  const size = (Math.min(3, Math.max(1, l.size)) as ArmySize);
+  return cached(hostKey(l, b, dpr), () => bakeMini(ARMY_SPAN, b, dpr, (ctx) => army(ctx, { color: l.color, size, west: l.west })));
+}
+
+/** Осадные работы вокруг города: ров и два ряда рогаток (`siegemark.worksStep`: 0..8 на сторону). */
+export type WorksHalf = 'back' | 'front';
+
+export function worksKey(front: number, rear: number, half: WorksHalf, bucket: number, dpr: number): string {
+  return `works:${front}:${rear}:${half}:${bucket}:${dpr}`;
+}
+
+export function worksSprite(front: number, rear: number, half: WorksHalf, cellPx: number, dpr: number): Mini {
+  const b = bucketOf(cellPx);
+  return cached(worksKey(front, rear, half, b, dpr), () =>
+    bakeMini({ w: 3.2, h: 2.4, ax: 1.6, ay: 1.3 }, b, dpr, (ctx) => {
+      ctx.strokeStyle = 'rgba(60, 44, 28, 0.6)';
+      ctx.lineWidth = 0.05;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 1.2, 1.2 * SQUASH, 0, half === 'back' ? Math.PI : 0, half === 'back' ? TAU : Math.PI);
+      ctx.stroke();
+      void front;
+      void rear;
+    }),
+  );
+}
+
+// ---------- Значки постоянного размера ----------
+//
+// Дальний масштаб и бейджи: размер в пикселях экрана, а не в клетках — на 4 px на клетку миниатюра в
+// клетку не видна, а значок обязан читаться. `ax`, `ay` — точка места на значке.
+
+/** Значок места на дальнем масштабе: башня, шатёр или пепел на щитке цвета стороны. */
+export interface PinLook {
+  kind: PlaceKind;
+  color: string;
+  own: boolean;
+}
+
+export const PIN_PX = 18;
+
+export function pinKey(l: PinLook, dpr: number): string {
+  return `pin:${l.kind}:${l.color}:${l.own ? 1 : 0}:${dpr}`;
+}
+
+export function pinSprite(l: PinLook, dpr: number): Mini {
+  return cached(pinKey(l, dpr), () =>
+    bakeMini({ w: 1, h: 1.2, ax: 0.5, ay: 1.0 }, PIN_PX, dpr, (ctx) => {
+      ctx.fillStyle = l.color;
+      ctx.beginPath();
+      ctx.arc(0, -0.45, 0.32, 0, TAU);
+      ctx.fill();
+      ctx.strokeStyle = M.ink;
+      ctx.lineWidth = 0.08;
+      ctx.stroke();
+    }),
+  );
+}
+
+/** Значок войска на дальнем масштабе: стяг стороны на древке. `size` — как у `HostLook`. */
+export interface FlagLook {
+  color: string;
+  size: 0 | 1 | 2 | 3 | 4;
+  camp: boolean;
+}
+
+export function flagKey(l: FlagLook, dpr: number): string {
+  return `flag:${l.color}:${l.size}:${l.camp ? 1 : 0}:${dpr}`;
+}
+
+export function flagSprite(l: FlagLook, dpr: number): Mini {
+  return cached(flagKey(l, dpr), () =>
+    bakeMini({ w: 1, h: 1.3, ax: 0.35, ay: 1.15 }, PIN_PX, dpr, (ctx) => banner(ctx, 0, 0, 1.0, 0.5, l.color, l.size >= 3)),
+  );
+}
+
+/** Бейдж над местом: под ударом (идёт набег), свои войска стоят, в осаде (дальний масштаб). */
+export type BadgeKind = 'attack' | 'troops' | 'siege';
+
+export const BADGE_PX = 16;
+
+export function badgeSprite(kind: BadgeKind, dpr: number): Mini {
+  return cached(`badge:${kind}:${dpr}`, () =>
+    bakeMini({ w: 1, h: 1, ax: 0.5, ay: 0.5 }, BADGE_PX, dpr, (ctx) => {
+      ctx.fillStyle = kind === 'attack' ? '#e06b5a' : kind === 'troops' ? '#e8a43c' : '#8a6c42';
+      ctx.beginPath();
+      ctx.arc(0, 0, 0.4, 0, TAU);
+      ctx.fill();
+    }),
+  );
+}
+
+/** Знак участи павшего города: плашка пергамента со знаком и словом (`siegemark.FELL_WORDS`). */
+export function fellSprite(fate: Fate, text: string, dpr: number): Mini {
+  return cached(`fell:${fate}:${text}:${dpr}`, () => {
+    const w = 8 + text.length * 6.5 + 18;
+    return bakeMini({ w: w / 16, h: 1, ax: w / 32, ay: 0 }, 16, dpr, (ctx) => {
+      ctx.fillStyle = '#e6d4a6';
+      ctx.fillRect(-w / 32, 0, w / 16, 1);
+    });
+  });
+}
