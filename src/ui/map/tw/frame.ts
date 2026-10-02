@@ -9,18 +9,19 @@ import { sightDiscs, useWorld, worldNow } from '@/world/store';
 import { secondsLeft } from '@/world/geo';
 import { sideWorks } from '@/world/works';
 import { realLeft } from '@/ui/parts/wait';
-import type { Coord, Rect, SettlementView } from '@/world/types';
+import type { Coord, Rect } from '@/world/types';
 import { LABEL_FROM, PALETTE } from '../const';
 import { type Camera, type Viewport, detailAlpha, toScreen, viewRect } from '../grid';
 import { drawGrid, drawGround, markersOf, settlementsIn } from '../detail';
 import { drawOverview, drawPaper, drawSpot } from '../frame';
 import { drawZones } from '../zones';
-import { drawTwFog } from './fog';
+import { drawTwFog, prepareTwFog } from './fog';
 import { drawAgent } from '../agent';
 import type { MarkerKind } from '../village';
 import { FELL_WORDS, LABEL_MAX_PX, fellShown, fitLabel, worksStand, worksStep } from '../siegemark';
 import { type Mini, badgeSprite, drawMini, fellSprite, flagSprite, hostSprite, miniBucket, pinSprite, placeSprite, worksSprite } from './mini';
-import { labelFont, labelSprite } from './labels';
+import { labelFont, labelSprite, regionSprite } from './labels';
+import { REGION_CELLS, onWater, regionAlpha, regionSize } from './regions';
 import { type Box, type FigureItem, type HostItem, type PlaceItem, figureItems, hostItems, miniAlpha, placeItems } from './scene';
 
 /** Отступ сверху под шапку карты — тот же, что у прежнего кадра. */
@@ -39,12 +40,16 @@ function blit(ctx: CanvasRenderingContext2D, m: Mini, x: number, y: number): voi
 
 // ---------- Места ----------
 
-/** Подписи: какие места называются на каком масштабе. Своё — всегда; замки соседей — издали; логова — вблизи. */
+/**
+ * Подписи: какие места называются на каком масштабе. Своё — всегда; замки живых соседей — издали: это и
+ * есть карта держав; остальное — логова, пепелища и места, которых ещё не видел никто (мир отдаёт их
+ * нейтральными, `LocalWorld.view`), — вблизи, с того же масштаба, что у прежней карты.
+ */
 const NAME_CASTLE_FROM = 7;
 
-function namedAt(s: SettlementView, scale: number): boolean {
-  if (s.mine) return true;
-  if (s.relation !== 'barbarian' && !s.ruin) return scale >= NAME_CASTLE_FROM;
+function namedAt(it: PlaceItem, scale: number): boolean {
+  if (it.s.mine) return true;
+  if (it.look.kind === 'castle') return scale >= NAME_CASTLE_FROM;
   return scale >= LABEL_FROM;
 }
 
@@ -267,7 +272,7 @@ function fitName(name: string, own: boolean): string {
   return out;
 }
 
-function drawLabels(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport, items: PlaceItem[], dpr: number, now: number): void {
+function drawLabels(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport, items: PlaceItem[], dpr: number, now: number): Box[] {
   const taken: Box[] = [];
   // Своё — первым: его имя важнее чужих и не уступает места соседу.
   const order = [...items].sort((a, b) => Number(b.s.mine) - Number(a.s.mine));
@@ -275,7 +280,7 @@ function drawLabels(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport, it
     const { s, sx, body } = it;
     if (sx < -40 || sx > vp.w + 40 || body.y1 < -20 || body.y1 > vp.h + 20) continue;
     let top = body.y1 + 3;
-    if (namedAt(s, cam.scale)) {
+    if (namedAt(it, cam.scale)) {
       const l = labelSprite(fitName(s.name, s.mine), s.mine, dpr);
       const box: Box = { x0: sx - l.w / 2, y0: top, x1: sx + l.w / 2, y1: top + l.h };
       if (s.mine || !overlaps(box, taken)) {
@@ -292,6 +297,28 @@ function drawLabels(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport, it
       ctx.drawImage(p.canvas, box.x0, box.y0, p.w, p.h);
     }
   }
+  return taken;
+}
+
+/**
+ * Имена морей, гор и островов издали (`tw/regions.ts`): по ним карта узнаётся без легенды. Имена мест важнее
+ * — крупное имя, легшее на подпись поселения, уступает. Вблизи гаснут: там их место занимает сама земля.
+ */
+function drawRegions(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport, dpr: number, taken: Box[]): void {
+  const a = regionAlpha(cam.scale);
+  if (a <= 0) return;
+  ctx.save();
+  ctx.globalAlpha = a;
+  for (const r of REGION_CELLS) {
+    const [x, y] = toScreen(cam, vp, r.x, r.y);
+    if (x < -200 || y < -40 || x > vp.w + 200 || y > vp.h + 40) continue;
+    const l = regionSprite(r.name, regionSize(r.kind, cam.scale), onWater(r.kind), dpr);
+    const box: Box = { x0: x - l.w / 2, y0: y - l.h / 2, x1: x + l.w / 2, y1: y + l.h / 2 };
+    if (box.x1 < 0 || box.x0 > vp.w || box.y0 < TOP_INSET || box.y1 > vp.h || overlaps(box, taken)) continue;
+    taken.push(box);
+    ctx.drawImage(l.canvas, box.x0, box.y0, l.w, l.h);
+  }
+  ctx.restore();
 }
 
 // ---------- Выбор ----------
@@ -331,6 +358,8 @@ export function drawTwFrame(ctx: CanvasRenderingContext2D, cam: Camera, vp: View
   const seed = state.info?.seed ?? 0;
   const now = worldNow();
 
+  // Общая очередь выпечки (`gate.ts`): лист над незнанием — первым.
+  prepareTwFog(cam, vp);
   ctx.fillStyle = PALETTE.void;
   ctx.fillRect(0, 0, vp.w, vp.h);
   drawOverview(ctx, cam, vp, rect);
@@ -354,7 +383,7 @@ export function drawTwFrame(ctx: CanvasRenderingContext2D, cam: Camera, vp: View
   drawHosts(ctx, cam, hostItems(cam, vp, state.marches, discs, now, dpr), dpr, now);
   drawFigures(ctx, cam, vp, figureItems(cam, vp, state.figures, now, dpr), state.picked, dpr, now);
 
-  drawLabels(ctx, cam, vp, places, dpr, now);
+  drawRegions(ctx, cam, vp, dpr, drawLabels(ctx, cam, vp, places, dpr, now));
 
   if (state.spotlight) drawSpot(ctx, cam, vp, state.spotlight, now);
   if (state.selected) drawSelected(ctx, cam, vp, state.selected);

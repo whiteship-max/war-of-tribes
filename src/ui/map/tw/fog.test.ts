@@ -7,7 +7,7 @@ import { CHUNK, WORLD_ORIGIN } from '@/world/data/tuning';
 import type { RegionChunk } from '@/world/types';
 import { fakeCanvasEnv } from '../fakecanvas';
 import type { Camera } from '../grid';
-import { drawTwFog, dropTwFog, sheetBytes } from './fog';
+import { drawTwFog, dropTwFog, prepareTwFog, sheetBytes } from './fog';
 
 const START = 1_800_000_000_000;
 const MID = { cx: 12, cy: 12 };
@@ -57,6 +57,7 @@ function frames(cam: Camera, n: number): number {
   const c0 = env.created();
   for (let f = 0; f < n; f++) {
     clock += 20;
+    prepareTwFog(cam, VP);
     drawTwFog(c, cam, VP);
   }
   return env.created() - c0;

@@ -330,9 +330,9 @@ function drawGroves(
   toPx: (x: number, y: number) => [number, number],
   px: number,
   clearings: Clearing[],
+  per = spec().groves,
 ): number {
   const { cells, warp } = area;
-  const per = spec().groves;
   const items: { x: number; y: number; c: HTMLCanvasElement }[] = [];
   for (let y = rect.y; y < rect.y + rect.h; y++) {
     for (let x = rect.x; x < rect.x + rect.w; x++) {
@@ -635,14 +635,21 @@ export const chunkReady = (chunk: CachedChunk): boolean => ready(chunkNeed(chunk
 
 export function bakeChunk(seed: number, chunk: CachedChunk): HTMLCanvasElement | null {
   const nodes = OVERVIEW_PX;
-  const sp = spec();
   const bleed = OVERVIEW_BLEED / nodes;
-  const x = chunk.rect.x - bleed;
-  const y = chunk.rect.y - bleed;
-  const w = chunk.rect.w + bleed * 2;
   if (!chunkReady(chunk)) return null;
+  return bakePicture(seed, chunk.rect.x - bleed, chunk.rect.y - bleed, chunk.rect.w + bleed * 2, nodes, chunk.rect, false);
+}
+
+/**
+ * Картина участка решёткой в узел на пиксель: тот же свет, цвет, снег и берег, что у тайла, лес — тёмной
+ * массой с крапом, реки — линией поверх. Кусок обзора и тайл среднего масштаба печётся ею обоими; `x`, `y`,
+ * `side` — окно с вылетом, `rivers` — клетки, чьи реки рисовать, `ribbon` — река лентой с берегом (средний
+ * масштаб) или одной линией (обзор).
+ */
+function bakePicture(seed: number, x: number, y: number, side: number, nodes: number, rivers: Rect, ribbon: boolean): HTMLCanvasElement {
+  const sp = spec();
   const c0 = performance.now();
-  const area = areaFor(seed, x, y, w, nodes, sp.castShadow);
+  const area = areaFor(seed, x, y, side, nodes, sp.castShadow);
   const c1 = performance.now();
   const n = area.n;
   const landPx = new Uint8ClampedArray(n * n * 4);
@@ -663,7 +670,7 @@ export function bakeChunk(seed: number, chunk: CachedChunk): HTMLCanvasElement |
       const ci = Math.floor(grid.qx[k]) - cells.x0;
       const cj = Math.floor(grid.qy[k]) - cells.y0;
       const fw = cells.forest[cj * cells.w + ci] ?? 0;
-      const speck = fw > 0.2 ? 0.86 + 0.24 * hash(seed, x * nodes + i, y * nodes + j, 16001) * fw : 1;
+      const speck = fw > 0.2 ? 0.86 + 0.24 * hash(seed, Math.round(x * nodes) + i, Math.round(y * nodes) + j, 16001) * fw : 1;
       const wa = l < 0.42 ? 1 : l > 0.58 ? 0 : (0.58 - l) / 0.16;
       const beach = l >= 0.5 && l < 0.62 ? (1 - (l - 0.5) / 0.12) * 0.5 : 0;
       for (let c = 0; c < 3; c++) {
@@ -679,17 +686,84 @@ export function bakeChunk(seed: number, chunk: CachedChunk): HTMLCanvasElement |
   chunkStats.area = c1 - c0;
   chunkStats.light = c2 - c1;
   chunkStats.mix = c3 - c2;
-  const toPx = (wx: number, wy: number): [number, number] => [(wx - x) * nodes, (wy - y) * nodes];
   const water: Flag = (cx, cy) => {
     const t = sample(cx, cy);
     return t === null || t === 'water';
   };
-  if (linePath(ctx, chunk.rect, isRiver, area.warp, toPx, water) > 0) {
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    ctx.strokeStyle = TW.river;
-    ctx.lineWidth = 0.32 * nodes;
-    ctx.stroke();
+  if (!ribbon) {
+    const toPx = (wx: number, wy: number): [number, number] => [(wx - x) * nodes, (wy - y) * nodes];
+    if (linePath(ctx, rivers, isRiver, area.warp, toPx, water) > 0) {
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.strokeStyle = TW.river;
+      ctx.lineWidth = 0.32 * nodes;
+      ctx.stroke();
+    }
+    return canvas;
   }
+  // Средний масштаб: свет и цвет — решёткой узлов, растянутой вдвое со сглаживанием (дорого — счёт, а не
+  // пиксели); купы, река и броды — уже в полном разрешении: купа в 6 px читалась квадратным крапом.
+  const up = makeCanvas(n * MID_UP, n * MID_UP);
+  const uctx = ctxOf(up);
+  uctx.imageSmoothingEnabled = true;
+  uctx.drawImage(canvas, 0, 0, n * MID_UP, n * MID_UP);
+  canvas.width = 0;
+  const px = nodes * MID_UP;
+  const toPx = (wx: number, wy: number): [number, number] => [(wx - x) * px, (wy - y) * px];
+  // Купы — с запасом в клетку, как у тайла: крона соседа заходит внутрь, и по стыку тайлов не идёт срез.
+  const around: Rect = { x: rivers.x - 1, y: rivers.y - 1, w: rivers.w + 2, h: rivers.h + 2 };
+  drawGroves(uctx, seed, area, around, toPx, px, clearingsIn(around), MID_GROVES);
+  if (linePath(uctx, rivers, isRiver, area.warp, toPx, water) > 0) strokeRiver(uctx, px);
+  drawCrossings(uctx, rivers, area.warp, toPx, px);
+  return up;
+}
+
+// ---------- Средний масштаб ----------
+
+/** Куп на клетку сплошного леса у среднего масштаба: реже, чем вблизи, — купа там в 12 px, и гуще — каша. */
+const MID_GROVES = 4;
+/** Во сколько раз картина среднего масштаба крупнее своей решётки: решётка — 8 узлов, холст — 16 px на клетку. */
+const MID_UP = 2;
+
+/** Тайл среднего масштаба: клеток на сторону и пикселей на клетку (docs/map_tw.md, раздел 5). */
+export const MID_CELLS = 8;
+/** Узлов решётки света на клетку среднего масштаба; пикселей холста на клетку — `MID_PX`. */
+export const MID_NODES = 8;
+export const MID_PX = MID_NODES * 2;
+/** Вылет тайла среднего масштаба за свой край, в пикселях холста: тот же приём, что у куска обзора. */
+export const MID_BLEED = 4;
+
+/** Окно данных тайла среднего масштаба (`tx`, `ty` — индекс тайла от начала мира). */
+export function midNeed(tx: number, ty: number): Rect {
+  const bleed = MID_BLEED / MID_PX;
+  const x0 = WORLD_ORIGIN.x + tx * MID_CELLS;
+  const y0 = WORLD_ORIGIN.y + ty * MID_CELLS;
+  const need = needFor(x0 - bleed, y0 - bleed, MID_CELLS + bleed * 2, MID_NODES);
+  return {
+    x: Math.max(WORLD_ORIGIN.x, need.x),
+    y: Math.max(WORLD_ORIGIN.y, need.y),
+    w: Math.min(WORLD_ORIGIN.x + WORLD_SIZE, need.x + need.w) - Math.max(WORLD_ORIGIN.x, need.x),
+    h: Math.min(WORLD_ORIGIN.y + WORLD_SIZE, need.y + need.h) - Math.max(WORLD_ORIGIN.y, need.y),
+  };
+}
+
+export const midReady = (tx: number, ty: number): boolean => ready(midNeed(tx, ty));
+
+/** Последняя выпечка тайла среднего масштаба — стенду и бюджету. */
+export const midStats = { ms: 0 };
+
+/**
+ * Тайл среднего масштаба: свет решёткой 8 узлов на клетку (вдвое чаще куска обзора), холст 16 px на клетку
+ * с купами леса, рекой лентой и бродами. Null — данных под округой ещё нет. Кадр рисует тайл без вылета.
+ */
+export function bakeMid(seed: number, tx: number, ty: number): HTMLCanvasElement | null {
+  if (!midReady(tx, ty)) return null;
+  const t0 = performance.now();
+  const bleed = MID_BLEED / MID_PX;
+  const x0 = WORLD_ORIGIN.x + tx * MID_CELLS;
+  const y0 = WORLD_ORIGIN.y + ty * MID_CELLS;
+  const rect: Rect = { x: x0, y: y0, w: MID_CELLS, h: MID_CELLS };
+  const canvas = bakePicture(seed, x0 - bleed, y0 - bleed, MID_CELLS + bleed * 2, MID_NODES, rect, true);
+  midStats.ms = performance.now() - t0;
   return canvas;
 }

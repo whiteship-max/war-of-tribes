@@ -4,7 +4,10 @@
 //   SHOTS=start,coast,mountains QUALITY=high,medium TAG=r2 npm run map-tw:shots
 //   OLD=1 SHOTS=start npm run map-tw:shots                 — тот же участок прежней картой («до»)
 //   EXTRA="season=winter&night=1" npm run map-tw:shots     — свои параметры поверх ракурса
-//   GAME=1 SHOTS=44,24,7 npm run map-tw:shots              — сама игра с `?map=tw` (и `OLD=1` — без него):
+//   SHOTS=objects EXTRA="scale=22" npm run map-tw:shots    — галерея миниатюр (места, войска, работы, значки);
+//                                                            экран подгоняется под галерею (`dataset.need`)
+//   GAME=1 SHOTS=44,24,7 npm run map-tw:shots              — сама игра с `?map=tw` (и `OLD=1` — без него;
+//                                                            `FOG=1` — с туманом, как у игрока):
 //                                                            закреплённый мир с домом в Генуе, кадр карты
 //                                                            на масштабах из SHOTS
 //
@@ -51,19 +54,41 @@ interface Shown {
   chunkMedianMs: number;
 }
 
+/** Ждёт `dataset.ready` страницы стенда; не встала за минуту — `false`. */
+async function ready(tab: Tab): Promise<boolean> {
+  for (let i = 0; i < 240; i++) {
+    await sleep(250);
+    const r = await tab.eval<string>(`JSON.stringify(document.body?.dataset.ready ?? '')`).catch(() => '');
+    if (r === '1') return true;
+  }
+  return false;
+}
+
+/** Галерея миниатюр не помещается в телефон: экран — по её мере, в пределах разумного. */
+const GALLERY_MAX = { width: 1400, height: 4200 };
+
 async function shot(view: string, quality: string, old: boolean): Promise<void> {
   const tab = await Tab.open(DEBUG_PORT, 'about:blank');
   try {
-    await tab.send('Emulation.setDeviceMetricsOverride', SCREEN);
+    const gallery = view.startsWith('objects');
+    let screen = gallery ? { ...SCREEN, width: 640, height: 900 } : SCREEN;
+    await tab.send('Emulation.setDeviceMetricsOverride', screen);
     await tab.send('Page.navigate', { url: pageUrl(view, quality, old) });
-    let ok = false;
-    for (let i = 0; i < 240; i++) {
-      await sleep(250);
-      const ready = await tab.eval<string>(`JSON.stringify(document.body?.dataset.ready ?? '')`).catch(() => '');
-      if (ready === '1') {
-        ok = true;
-        break;
-      }
+    let ok = await ready(tab);
+    // Галерея пишет, сколько места ей нужно; экран подгоняется и страница печётся заново (раскладка
+    // зависит от ширины — второй круг выравнивает высоту под новую ширину).
+    for (let round = 0; gallery && ok && round < 3; round++) {
+      const need = await tab.eval<string>(`JSON.stringify(document.body.dataset.need ?? '')`).catch(() => '');
+      const [w, h] = need.split(',').map(Number);
+      if (!(w > 0 && h > 0)) break;
+      const next = { ...SCREEN, width: Math.min(GALLERY_MAX.width, Math.max(360, w)), height: Math.min(GALLERY_MAX.height, Math.max(400, h)) };
+      if (next.width === screen.width && next.height === screen.height) break;
+      screen = next;
+      // Старая готовность не должна сойти за новую: флаг снимается до перехода.
+      await tab.eval<string>(`(() => { delete document.body.dataset.ready; return JSON.stringify('ok'); })()`).catch(() => '');
+      await tab.send('Emulation.setDeviceMetricsOverride', screen);
+      await tab.send('Page.navigate', { url: pageUrl(view, quality, old) });
+      ok = await ready(tab);
     }
     const label = `${old ? 'old' : quality} ${view}`;
     if (!ok) {
@@ -73,8 +98,13 @@ async function shot(view: string, quality: string, old: boolean): Promise<void> 
     await sleep(300);
     const s = await tab.eval<Shown>(`document.body.dataset.showcase`);
     const png = await tab.send<{ data: string }>('Page.captureScreenshot', { format: 'png' });
-    const name = `${TAG}-${old ? 'old' : quality}-${view}.png`;
+    const scale = new URLSearchParams(EXTRA).get('scale');
+    const name = `${TAG}-${old ? 'old' : quality}-${view}${gallery && scale ? `-${scale}` : ''}.png`;
     await writeFile(join(OUT, name), Buffer.from(png.data, 'base64'));
+    if (gallery) {
+      console.log(`  ${label.padEnd(16)} экран ${screen.width}×${screen.height} → .map-shots/${name}`);
+      return;
+    }
     const parts = Object.entries(s.parts ?? {})
       .map(([k, v]) => `${k} ${v}`)
       .join(', ');
@@ -94,7 +124,9 @@ async function shot(view: string, quality: string, old: boolean): Promise<void> 
  * испечётся экран.
  */
 async function gameShot(look: 'tw' | 'old'): Promise<void> {
-  const q = new URLSearchParams({ probe: '1', worldview: 'open', fpscap: String(REPORT_FPS) });
+  // Обзор мира открыт целиком — видно всю землю; `FOG=1` — как у игрока: туман и край старой карты.
+  const q = new URLSearchParams({ probe: '1', fpscap: String(REPORT_FPS) });
+  if (process.env.FOG !== '1') q.set('worldview', 'open');
   if (look === 'tw') q.set('map', 'tw');
   if (QUALITIES[0]) q.set('quality', QUALITIES[0]);
   const tab = await Tab.open(DEBUG_PORT, 'about:blank');

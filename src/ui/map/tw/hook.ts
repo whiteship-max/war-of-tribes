@@ -8,12 +8,14 @@ import { seasonOf } from '@/game/derived';
 import { subscribeGfx } from '@/render/gfx';
 import { bakeChunk, chunkNeed, chunkReady, setTwLook } from './bake';
 import { twQuality } from './spec';
+import { baked, mayBake } from './gate';
 import { pixelRatio } from '@/render/loop';
 import { sightDiscs, worldNow } from '@/world/store';
 import { setTwSlot } from '../twslot';
 import { viewRect } from '../grid';
 import { settlementsIn } from '../detail';
-import { drawTwFrame, dropFrame } from './frame';
+import { drawTwFrame, dropFrame, setMidLayer } from './frame';
+import { drawMid, dropMid } from './mid';
 import { dropMinis } from './mini';
 import { dropLabels } from './labels';
 import { dropTwFog } from './fog';
@@ -23,6 +25,7 @@ import { aimAt, aimsOf } from './tap';
 export { bakeTile } from './bake';
 
 // Кадр и палец нового вида — в ячейку прежнего кадра (`twslot.ts`): кусок приехал, и карта рисуется им.
+setMidLayer(drawMid);
 setTwSlot({
   frame: drawTwFrame,
   tap(cam, vp, x, y, hand) {
@@ -55,9 +58,6 @@ subscribeGfx(() => {
 /** Кусков обзора нового вида в памяти: экран дальнего масштаба с запасом, по 69 КБ на кусок. */
 const CHUNKS_MAX = 120;
 const chunks = new Map<string, HTMLCanvasElement>();
-/** Не больше одной выпечки куска за кадр: кадр карты — 60 в секунду, отсчёт — по часам кадра. */
-let lastBake = -Infinity;
-const BAKE_GAP_MS = 14;
 /** Когда кусок последний раз заказывал свою округу. */
 const askedAt = new Map<string, number>();
 
@@ -78,9 +78,11 @@ export function syncLook(): boolean {
 /** Под какой сид испечены куски обзора. */
 let chunksSeed = 0;
 
+/** Испечённое обзором и средним слоем — под прежний вид: сменился сезон, уровень или мир. */
 function dropChunks(): void {
   for (const c of chunks.values()) c.width = 0;
   chunks.clear();
+  dropMid();
 }
 
 /** Кусок обзора нового вида или null — тогда кадр рисует прежний растр, пока этот не испечётся. */
@@ -99,7 +101,8 @@ export function overviewChunk(chunk: CachedChunk): HTMLCanvasElement | null {
     return have;
   }
   const now = performance.now();
-  if (now - lastBake < BAKE_GAP_MS) return null;
+  // Не больше одной выпечки нового вида за кадр — общей очередью с листами и средним слоем (`gate.ts`).
+  if (!mayBake(now)) return null;
   const world = useWorld.getState();
   const seed = seedNow;
   if (!seed) return null;
@@ -114,15 +117,15 @@ export function overviewChunk(chunk: CachedChunk): HTMLCanvasElement | null {
     }
     return null;
   }
-  const baked = bakeChunk(seed, chunk);
-  if (!baked) return null;
-  lastBake = now;
-  chunks.set(chunk.key, baked);
+  const picture = bakeChunk(seed, chunk);
+  if (!picture) return null;
+  baked(now);
+  chunks.set(chunk.key, picture);
   while (chunks.size > CHUNKS_MAX) {
     const first = chunks.keys().next().value as string;
     const gone = chunks.get(first);
     if (gone) gone.width = 0;
     chunks.delete(first);
   }
-  return baked;
+  return picture;
 }

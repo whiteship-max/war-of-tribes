@@ -17,12 +17,17 @@ export interface TwSpec {
   ripples: boolean;
   /** Узлов решётки обзора на клетку (кусок карты, дальний масштаб). */
   overviewNodes: number;
+  /**
+   * Слой среднего масштаба (`tw/mid.ts`, 8 px на клетку): без него между обзором и тайлами — растянутый
+   * кусок обзора. На низком уровне его нет: выпечка там дороже всего, а мыло среднего масштаба — терпимо.
+   */
+  mid: boolean;
 }
 
 export const TW_SPEC: Record<Quality, TwSpec> = {
-  low: { nodes: 8, castShadow: false, groves: 5, ripples: false, overviewNodes: 3 },
-  medium: { nodes: 12, castShadow: true, groves: 8, ripples: true, overviewNodes: 4 },
-  high: { nodes: 16, castShadow: true, groves: 11, ripples: true, overviewNodes: 4 },
+  low: { nodes: 8, castShadow: false, groves: 5, ripples: false, overviewNodes: 3, mid: false },
+  medium: { nodes: 12, castShadow: true, groves: 8, ripples: true, overviewNodes: 4, mid: true },
+  high: { nodes: 16, castShadow: true, groves: 11, ripples: true, overviewNodes: 4, mid: true },
 };
 
 /**

@@ -14,8 +14,9 @@ import { type Camera, type Viewport, toScreen } from '../grid';
 import { variantOf } from '../village';
 import { type PartySize, lookOf as partyLook } from '../party';
 import { type Spot, spotsOf } from '../figures';
-import { ANCHOR_X, ANCHOR_Y, SPAN_H, SPAN_W } from '../agent';
-import { type HostLook, type PlaceKind, type PlaceLook, flagSprite, hostBody, pinSprite, placeBody } from './mini';
+import { ANCHOR_X, ANCHOR_Y, FAN_STEP, SPAN_H, SPAN_W } from '../agent';
+import { settlementAt } from '@/world/cache';
+import { type HostLook, type PlaceKind, type PlaceLook, PIN_PX, flagSprite, hostBody, pinSprite, placeBody } from './mini';
 
 // ---------- Масштаб: миниатюра или значок ----------
 
@@ -182,9 +183,34 @@ export interface FigureItem {
   cell: Coord;
 }
 
+/**
+ * Агенты, стоящие на клетке места, — у его ворот, справа от тела, а не поверх крыш: четверо дома иначе
+ * закрывали бы собственный город на любом масштабе (снимки игры этапа 2, круг 1). Клетка у них прежняя — и
+ * тап, и смысл решает клетка (`store.figuresOn`); сдвигается только картинка. Идущие не сдвигаются: город на
+ * пути дёргал бы фигуру вбок.
+ */
+function atGate(cam: Camera, spots: Spot[], now: number): Spot[] {
+  const count = new Map<string, number>();
+  const cells = spots.map((sp) => cellOfFigure(sp.f, now));
+  for (const c of cells) count.set(`${c.x}|${c.y}`, (count.get(`${c.x}|${c.y}`) ?? 0) + 1);
+  const mini = asMini(cam.scale);
+  return spots.map((sp, i) => {
+    if (sp.f.phase === 'moving') return sp;
+    const c = cells[i];
+    const s = settlementAt(c.x, c.y);
+    if (!s) return sp;
+    const half = mini ? placeBody(placeLookOf(s)).rx * cam.scale : PIN_PX / 2;
+    const n = count.get(`${c.x}|${c.y}`) ?? 1;
+    const fan = ((n - 1) / 2) * FAN_STEP * sp.unit + ANCHOR_X * sp.unit;
+    const dx = half + fan + 4;
+    const dy = 0.15 * cam.scale;
+    return { ...sp, px: sp.px + dx, ax: sp.ax + dx, py: sp.py + dy };
+  });
+}
+
 export function figureItems(cam: Camera, vp: Viewport, figures: FigureView[], now: number, dpr: number): FigureItem[] {
   const mini = asMini(cam.scale);
-  return spotsOf(cam, vp, figures, now).map((spot) => {
+  return atGate(cam, spotsOf(cam, vp, figures, now), now).map((spot) => {
     const { f, px, ax, py, unit, men, standing, west } = spot;
     const body: Box = {
       x0: ax - ANCHOR_X * unit,

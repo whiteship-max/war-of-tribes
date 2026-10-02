@@ -17,6 +17,7 @@ import { cellInSight, sightDiscs, useWorld, worldNow } from '@/world/store';
 import type { SightDisc } from '@/world/fog';
 import { type Camera, type Viewport, toScreen, viewRect } from '../grid';
 import { bakeParchment } from './parchment';
+import { baked, mayBake } from './gate';
 import { C } from './palette';
 
 // ---------- Полутень и глубокое незнание ----------
@@ -119,7 +120,6 @@ export const SHEET_PX = 4;
 export const SHEET_PAD = 2;
 /** Листов в памяти: по 128 × 128 видимых пикселей (с запасом 144²) — 80 КБ, всего до 5 МБ. */
 const SHEETS_MAX = 64;
-const BAKE_GAP_MS = 14;
 
 /** Подпись разведанности куска: сколько открыто и чем — меняется только тогда, когда открылось новое. */
 const signs = new Map<string, { at: number; sign: number; open: number }>();
@@ -145,7 +145,6 @@ interface Sheet {
 }
 
 const sheets = new Map<string, Sheet>();
-let lastBake = -Infinity;
 let sheetsSeed = 0;
 
 /**
@@ -187,7 +186,8 @@ function knownAt(wx: number, wy: number): number {
   return (a + (b - a) * tx) * (1 - ty) + (c + (d - c) * tx) * ty;
 }
 
-function sheetFor(seed: number, cx: number, cy: number, now: number): HTMLCanvasElement | null {
+/** Лист куска: испечённый — сразу; устаревший или новый печётся только при `bake` и открытой очереди. */
+function sheetFor(seed: number, cx: number, cy: number, now: number, bake: boolean): HTMLCanvasElement | null {
   const key = chunkKey(cx, cy);
   // Кусок ещё не приехал — земли под листом не знает и сам лист: его клетки закрыты подложкой растра.
   if (!cachedChunk(key)) return null;
@@ -199,10 +199,10 @@ function sheetFor(seed: number, cx: number, cy: number, now: number): HTMLCanvas
     sheets.set(key, have);
     return have.canvas;
   }
-  // Новый лист — не чаще одного за кадр; пока не испечён, под ним лежит подложка растра (глубокое незнание)
-  // или прежний лист.
-  if (now - lastBake < BAKE_GAP_MS) return have?.canvas ?? null;
-  lastBake = now;
+  // Новый лист — общей очередью выпечки (`gate.ts`); пока не испечён, под ним лежит подложка растра
+  // (глубокое незнание) или прежний лист.
+  if (!bake || !mayBake(now)) return have?.canvas ?? null;
+  baked(now);
   const r = chunkRect(cx, cy);
   const area = { x: r.x - SHEET_PAD, y: r.y - SHEET_PAD, w: r.w + SHEET_PAD * 2, h: r.h + SHEET_PAD * 2 };
   const canvas = bakeParchment(seed, area, terrainAt, knownAt, SHEET_PX);
@@ -217,20 +217,40 @@ function sheetFor(seed: number, cx: number, cy: number, now: number): HTMLCanvas
   return canvas;
 }
 
-function drawSheets(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport): void {
+function seedNow(): number {
   const seed = useWorld.getState().info?.seed ?? 0;
-  if (!seed) return;
-  if (seed !== sheetsSeed) {
+  if (seed && seed !== sheetsSeed) {
     dropTwFog();
     sheetsSeed = seed;
   }
+  return seed;
+}
+
+/**
+ * Выпечка листа — в начале кадра, раньше обзора и среднего слоя: лист закрывает землю, которую игрок не
+ * открыл, и в общей очереди (`gate.ts`) он первый. Печётся не больше одного.
+ */
+export function prepareTwFog(cam: Camera, vp: Viewport): void {
+  const seed = seedNow();
+  if (!seed) return;
+  const now = performance.now();
+  if (!mayBake(now)) return;
+  for (const { cx, cy } of chunkKeysIn(viewRect(cam, vp))) {
+    sheetFor(seed, cx, cy, now, true);
+    if (!mayBake(now)) return;
+  }
+}
+
+function drawSheets(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport): void {
+  const seed = seedNow();
+  if (!seed) return;
   const now = performance.now();
   const pad = SHEET_PAD * SHEET_PX;
   ctx.save();
   ctx.imageSmoothingEnabled = true;
   for (const { cx, cy } of chunkKeysIn(viewRect(cam, vp))) {
     const r = chunkRect(cx, cy);
-    const sheet = sheetFor(seed, cx, cy, now);
+    const sheet = sheetFor(seed, cx, cy, now, false);
     if (!sheet) continue;
     const [sx, sy] = toScreen(cam, vp, r.x, r.y);
     ctx.drawImage(sheet, pad, pad, r.w * SHEET_PX, r.h * SHEET_PX, sx, sy, r.w * cam.scale, r.h * cam.scale);
