@@ -25,7 +25,16 @@ function colorOf(bits: number, terrain: number): string {
   return TERRAIN_META[TERRAIN_ORDER[terrain] ?? 'plain'].color;
 }
 
+/** Кусок обзора нового вида (docs/map_tw.md): заводит `ground.ts`, когда кусок нового вида приехал. */
+let twChunk: ((chunk: CachedChunk) => HTMLCanvasElement | null) | null = null;
+export const setChunkBake = (bake: (chunk: CachedChunk) => HTMLCanvasElement | null): void => {
+  twChunk = bake;
+};
+
 export function chunkBitmap(chunk: CachedChunk): HTMLCanvasElement {
+  // Новый вид печёт кусок не сразу, а по одному за кадр: пока не испёк — виден прежний растр.
+  const tw = twChunk?.(chunk);
+  if (tw) return tw;
   const have = bitmaps.get(chunk.key);
   // Ландшафт не меняется, поэтому перерисовывать при повторной загрузке куска незачем.
   if (have) return have;
@@ -44,6 +53,16 @@ export function chunkBitmap(chunk: CachedChunk): HTMLCanvasElement {
   }
   bitmaps.set(chunk.key, c);
   return c;
+}
+
+/**
+ * Какая часть картинки куска ложится на экран: прежний растр — целиком (клетка в пиксель), кусок
+ * нового вида (docs/map_tw.md) — без вылета в два пикселя по краю.
+ */
+export function overviewSrc(bmp: HTMLCanvasElement, cells: number): [number, number, number, number] {
+  if (bmp.width === cells) return [0, 0, cells, cells];
+  const inner = bmp.width - 4;
+  return [2, 2, inner, inner];
 }
 
 export function dropBitmaps(): void {

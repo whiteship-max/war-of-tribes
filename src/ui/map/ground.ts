@@ -41,9 +41,24 @@ import { lattice as latticeOf, shadePixels } from './relief';
 import { grassPatch, makeCanvas, softDisc, treeShadow, treeSize, treeSprite } from './paint';
 import { TileCache } from './tilecache';
 import { bakeCost, probe } from '@/debug';
+import { MAP_TW } from './look';
+import { setChunkBake } from './tiles';
 
 /** Замер выпечки включён только флагом адреса — в игре это одна проверка булева. */
 const PROBE = probe();
+
+/**
+ * Новый вид карты (docs/map_tw.md) — своим куском и только по флагу: тайлы и обзор печёт он, а сетка,
+ * кэш и правило «стоя не печётся» остаются здешними. Приехал — испечённое прежним видом выбрасывается.
+ */
+let tw: typeof import('./tw/hook') | null = null;
+if (MAP_TW) {
+  void import('./tw/hook').then((m) => {
+    tw = m;
+    setChunkBake(m.overviewChunk);
+    dropTiles();
+  });
+}
 
 /** Отселённые холсты переиспользуются: иначе при броске карты дёргается аллокатор. */
 const pool: HTMLCanvasElement[] = [];
@@ -426,12 +441,14 @@ export function tileAt(tx: number, ty: number): HTMLCanvasElement | null {
  * а правило вытеснения — из `tilecache.ts`.
  */
 export function prepareTiles(seed: number, want: TileId[], frame: number, capacity: number): void {
+  // Новый вид сменил уровень или сезон — испечённое устарело целиком (раз в сезон, не в кадр).
+  if (tw?.syncLook()) dropTiles();
   tiles.frame(want, frame, capacity, TILE_BAKES_PER_FRAME, (tx, ty) => {
     // Цена выпечки — своё число, а не доля кадра: в медиану кадра она не попадает
     // вовсе (тайл печётся раз на десятки кадров), а чувствуется именно рывком.
     // Под `?probe=1` её снимает `npm run map:report`; в игре остаётся проверка булева.
     const t0 = PROBE ? performance.now() : 0;
-    const baked = bake(seed, tx, ty);
+    const baked = tw ? tw.bakeTile(seed, tx, ty, takeCanvas) : bake(seed, tx, ty);
     // Считается только состоявшаяся выпечка. Отказ по неприехавшим кускам стоит
     // обхода сетки и возврата, и в среднем такие отказы утопили бы настоящее
     // число: их за бросок набирается больше, чем самих тайлов.
