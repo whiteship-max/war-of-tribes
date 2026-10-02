@@ -33,12 +33,14 @@ export interface TwSpec {
   /** Место боя (docs/battle_tw.md, раздел 13): домов города за стеной и шатров лагеря, не больше. */
   houses: number;
   tents: number;
+  /** Пучков камыша по берегам реки, не больше. */
+  reeds: number;
 }
 
 export const TW_SPEC: Record<Quality, TwSpec> = {
-  low: { perSide: 150, shadow: 'none', shadowMap: 1024, shadowSoft: false, bakeFps: 12, trees: 90, grid: 72, arrows: 240, houses: 18, tents: 16 },
-  medium: { perSide: 360, shadow: 'proxy', shadowMap: 2048, shadowSoft: true, bakeFps: 16, trees: 200, grid: 96, arrows: 480, houses: 34, tents: 28 },
-  high: { perSide: 720, shadow: 'proxy', shadowMap: 2048, shadowSoft: true, bakeFps: 20, trees: 360, grid: 128, arrows: 900, houses: 56, tents: 44 },
+  low: { perSide: 150, shadow: 'none', shadowMap: 1024, shadowSoft: false, bakeFps: 12, trees: 90, grid: 72, arrows: 240, houses: 18, tents: 16, reeds: 120 },
+  medium: { perSide: 360, shadow: 'proxy', shadowMap: 2048, shadowSoft: true, bakeFps: 16, trees: 200, grid: 96, arrows: 480, houses: 34, tents: 28, reeds: 260 },
+  high: { perSide: 720, shadow: 'proxy', shadowMap: 2048, shadowSoft: true, bakeFps: 20, trees: 360, grid: 128, arrows: 900, houses: 56, tents: 44, reeds: 420 },
 };
 
 /** Бюджет кадра по уровням — слово владельца (docs/battle_tw.md, раздел 7): вызовы, треугольники, текстуры. */

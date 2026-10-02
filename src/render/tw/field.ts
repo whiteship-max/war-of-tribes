@@ -272,6 +272,24 @@ function treeSpots(f: TwField, plan: TwPlan, cap: number): TreeSpot[] {
     if (siteBlocks(plan.site, x, z)) continue;
     out.push({ x, z, s: 2.2 + hash(f.seed, i, 34) * 1.4, rot: hash(f.seed, i, 35) * Math.PI * 2, tall: clump > 0.5 });
   }
+  // Штраф за лес: нападающий стоит в лесу — деревья за его строем, между отрядами и по флангам, не на людях.
+  const fo = f.forest;
+  if (fo) {
+    const want = Math.round(cap * 0.5);
+    const rects = plan.units.map((u) => {
+      const back = u.ours ? -1 : 1;
+      return { x0: u.x - u.width / 2 - 2.6, x1: u.x + u.width / 2 + 2.6, z0: Math.min(u.z, u.z + back * u.depth) - 2.6, z1: Math.max(u.z, u.z + back * u.depth) + 2.6 };
+    });
+    for (let i = 0, n = 0; n < want && i < want * 12; i++) {
+      const x = (hash(f.seed, i, 96) * 2 - 1) * (f.halfX + 10);
+      const z = fo.from + fo.side * hash(f.seed, i, 97) * 70;
+      if (rects.some((r) => x > r.x0 && x < r.x1 && z > r.z0 && z < r.z1)) continue;
+      // Опушка — реже у строя, гуще в глубине леса.
+      if (hash(f.seed, i, 98) > 0.35 + 0.65 * smoothstep(0, 18, (z - fo.from) * fo.side)) continue;
+      n++;
+      out.push({ x, z, s: 2.3 + hash(f.seed, i, 99) * 1.5, rot: hash(f.seed, i, 100) * Math.PI * 2, tall: hash(f.seed, i, 101) < 0.55 });
+    }
+  }
   // Логово — в лесу: чаща кольцом за частоколом и по бокам, к полю — опушка (docs/battle_tw.md, раздел 13).
   const c = plan.site?.kind === 'lair' ? plan.site.camp : null;
   if (c) {
@@ -324,6 +342,61 @@ export function buildField(f: TwField, spec: TwSpec, plan: TwPlan): FieldView {
     m.renderOrder = 2;
   }
 
+  // Камыш по берегам реки: пучки тонких листьев, цвет в вершинах, без тени; у брода — нет (там переходят).
+  let reedTris = 0;
+  const extra: THREE.InstancedMesh[] = [];
+  if (f.river) {
+    const r = f.river;
+    const blades: number[] = [];
+    const bc: number[] = [];
+    const leaf = new THREE.Color(f.winter ? 0xa89a78 : 0x6f7a3a);
+    const tip = new THREE.Color(f.winter ? 0xcfc4a4 : 0xa59a52);
+    for (let k = 0; k < 5; k++) {
+      const a = (k / 5) * Math.PI * 2;
+      const lean = 0.18 + 0.1 * (k % 2);
+      const x0 = Math.cos(a) * 0.05;
+      const z0 = Math.sin(a) * 0.05;
+      blades.push(x0 - 0.03, 0, z0, x0 + 0.03, 0, z0, x0 + Math.cos(a) * lean, 1.15 + 0.25 * (k % 3), z0 + Math.sin(a) * lean);
+      for (const c of [leaf, leaf, tip]) bc.push(c.r, c.g, c.b);
+    }
+    const rg = new THREE.BufferGeometry();
+    rg.setAttribute('position', new THREE.Float32BufferAttribute(blades, 3));
+    rg.setAttribute('color', new THREE.Float32BufferAttribute(bc, 3));
+    rg.computeVertexNormals();
+    const reedMat = new THREE.MeshLambertMaterial({ color: 0xffffff, vertexColors: true, side: THREE.DoubleSide });
+    reedMat.name = 'tw-reeds';
+    const spotsR: { x: number; z: number; s: number; rot: number }[] = [];
+    for (let i = 0; spotsR.length < spec.reeds && i < spec.reeds * 6; i++) {
+      const x = (hash(f.seed, i, 111) * 2 - 1) * (f.halfX + 30);
+      if (r.ford && Math.abs(x - r.fordX) < r.fordHalf + 1.5) continue;
+      if (vnoise(x / 9, r.z, f.seed + 113) < 0.38) continue;
+      const bank = hash(f.seed, i, 112) < 0.5 ? -1 : 1;
+      const zc = r.z - Math.sin(x / 17 + f.seed) * 0.6;
+      const z = zc + bank * (r.half - 0.2 + hash(f.seed, i, 114) * 1.3);
+      spotsR.push({ x, z, s: 0.7 + hash(f.seed, i, 115) * 0.6, rot: hash(f.seed, i, 116) * Math.PI * 2 });
+    }
+    if (spotsR.length) {
+      const reeds = new THREE.InstancedMesh(rg, reedMat, spotsR.length);
+      reeds.name = 'tw-reeds';
+      reeds.receiveShadow = true;
+      const m4 = new THREE.Matrix4();
+      const q = new THREE.Quaternion();
+      const v = new THREE.Vector3();
+      const sc = new THREE.Vector3();
+      spotsR.forEach((p, i) => {
+        q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), p.rot);
+        v.set(p.x, Math.max(heightAt(f, p.x, p.z), WATER_Y - 0.1), p.z);
+        sc.setScalar(p.s);
+        reeds.setMatrixAt(i, m4.compose(v, q, sc));
+      });
+      reeds.computeBoundingSphere();
+      group.add(reeds);
+      // Камыш снимается вместе с деревьями: свой материал, своя геометрия, инстансы.
+      extra.push(reeds);
+      reedTris = 5 * spotsR.length;
+    }
+  }
+
   // Деревья — модели прежнего ролика (`battle/flora.ts`) и его материал листвы (ветер, снег), инстансами.
   const shared: EnvShared = envShared();
   shared.snow.value = f.winter ? 1 : 0;
@@ -365,14 +438,14 @@ export function buildField(f: TwField, spec: TwSpec, plan: TwPlan): FieldView {
   }, 0);
   return {
     group,
-    triangles: tris + treeTris,
+    triangles: tris + treeTris + reedTris,
     update(t: number): void {
       shared.time.value = t;
       shared.wind.value = 0.05 * (0.75 + 0.25 * Math.sin(t * 0.37) * Math.sin(t * 0.13 + 1));
     },
     dispose(): void {
       for (const m of meshes) m.geometry.dispose();
-      for (const m of trees) {
+      for (const m of [...trees, ...extra]) {
         m.geometry.dispose();
         (m.material as THREE.Material).dispose();
         m.dispose();

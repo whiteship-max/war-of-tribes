@@ -693,10 +693,17 @@ export function buildPlan(input: PlanInput): TwPlan {
     ridge: null,
     winter: cast.ground.winter,
     calm: null,
+    forest: null,
   };
   const defender: Side = 'defender';
   const sD = sign(defender);
-  if (uphill || cast.ground.land === 'hills') {
+  // Штраф земли на лесной равнине — это лес, а не гора: нападающий выходит из чащи (сессия 3, хвост сессии 2).
+  const forestPenalty = uphill !== null && cast.ground.woods && cast.ground.land !== 'hills' && !site;
+  if (forestPenalty) {
+    const sP = sign(uphill!);
+    const front = Math.min(...units.filter((u) => u.side === uphill).map((u) => Math.abs(u.z)));
+    field.forest = { side: sP as 1 | -1, from: sP * (front + 1.5) };
+  } else if (uphill || cast.ground.land === 'hills') {
     const high = uphill ? other(uphill) : defender;
     field.hill = { h: 2.4, side: sign(high) as 1 | -1, from: -4, to: HOLD_HALF + 10 };
     // Стена на штурме стоит на гребне: склон — перед ней, к стене идут в гору.
