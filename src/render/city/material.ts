@@ -305,12 +305,25 @@ export function groundMaterial(u: CityUniforms, map: THREE.Texture, at: GroundMa
   return m;
 }
 
-/** Кроны и полог леса: листва слоя × тон; осенью к охре, зимой — снег сверху. */
-export function foliageMaterial(u: CityUniforms): THREE.MeshLambertMaterial {
+/**
+ * Кроны и полог леса: листва слоя × тон; осенью к охре, зимой — снег сверху. `ragged` (высокий уровень) рвёт
+ * край кроны: на силуэте низкие места листвы (альфа слоя — высота) отбрасываются, и шар становится кружевом.
+ * Только на высоком: `discard` в шейдере снимает раннюю проверку глубины, телефону это дорого.
+ */
+export function foliageMaterial(u: CityUniforms, ragged = false): THREE.MeshLambertMaterial {
   const m = new THREE.MeshLambertMaterial({ vertexColors: true });
   m.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, u);
     patchVertex(shader);
+    if (ragged) {
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <normal_fragment_maps>',
+        /* glsl */ `#include <normal_fragment_maps>
+        // Край кроны: чем ближе грань к ребру взгляда, тем выше порог листвы — между пучками видно небо.
+        float cRim = 1.0 - abs(dot(normalize(normal), normalize(vViewPosition)));
+        if (cTex.a < smoothstep(0.5, 0.92, cRim) * 0.85) discard;`,
+      );
+    }
     shader.fragmentShader = COMMON_FRAG + shader.fragmentShader.replace(
       '#include <map_fragment>',
       /* glsl */ `
@@ -330,6 +343,6 @@ export function foliageMaterial(u: CityUniforms): THREE.MeshLambertMaterial {
     );
     shader.fragmentShader = graded(shader.fragmentShader);
   };
-  m.customProgramCacheKey = () => 'city-foliage';
+  m.customProgramCacheKey = () => (ragged ? 'city-foliage-ragged' : 'city-foliage');
   return m;
 }

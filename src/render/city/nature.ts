@@ -76,7 +76,8 @@ function blob(b: Builder, cx: number, cy: number, cz: number, r: number, seg: nu
       const dx = Math.sin(phi) * Math.cos(th2);
       const dy = Math.cos(phi);
       const dz = Math.sin(phi) * Math.sin(th2);
-      const n = i === seg ? 0 : rnd(i + 31 * j, seed, 5) - 0.5;
+      // Шов кольца — та же точка, что и начало: иначе ком расходится щелью по меридиану.
+      const n = rnd((i % seg) + 31 * j, seed, 5) - 0.5;
       const k = r * (1 + n * 0.28) * (dy < 0 ? 0.82 : 1);
       row.push([cx + dx * k, cy + dy * k * 0.92, cz + dz * k]);
     }
@@ -96,7 +97,31 @@ function blob(b: Builder, cx: number, cy: number, cz: number, r: number, seg: nu
       const v1 = ((rings - j) / rings) * ((Math.PI * r) / th);
       // Обход снаружи: по убыванию угла по нижнему кольцу, затем вверх.
       b.quad(bb, a, d, c, [u1, v0, u0, v0, u0, v1, u1, v1], L.foliage, t, [ao(bb[1]), ao(a[1]), ao(d[1]), ao(c[1])], 0, deciduous ? [1, 1, 1, 1] : [0, 0, 0, 0]);
+      roundNormals(b, cx, cy, cz);
     }
+  }
+}
+
+/**
+ * Нормали последних четырёх вершин — к центру кома на три четверти (у полюсов — целиком): ком освещён
+ * круглым, а грани едва видны (комок листвы, а не многогранник). Край кроны на высоком рвётся по этим
+ * нормалям ровно по силуэту (`material.foliageMaterial`, `ragged`).
+ */
+function roundNormals(b: Builder, cx: number, cy: number, cz: number): void {
+  for (let k = b.nor.length - 12; k < b.nor.length; k += 3) {
+    const rx = b.pos[k] - cx;
+    const ry = (b.pos[k + 1] - cy) / 0.92;
+    const rz = b.pos[k + 2] - cz;
+    const rl = Math.hypot(rx, ry, rz) || 1;
+    // У полюса грани сходятся веером и плоские нормали расходятся вкруговую — там нормаль чисто к центру.
+    const f = 0.25 * (Math.hypot(rx, rz) / rl);
+    const x = b.nor[k] * f + (rx / rl) * (1 - f);
+    const y = b.nor[k + 1] * f + (ry / rl) * (1 - f);
+    const z = b.nor[k + 2] * f + (rz / rl) * (1 - f);
+    const l = Math.hypot(x, y, z) || 1;
+    b.nor[k] = x / l;
+    b.nor[k + 1] = y / l;
+    b.nor[k + 2] = z / l;
   }
 }
 

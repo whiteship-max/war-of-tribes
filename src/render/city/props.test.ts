@@ -57,3 +57,51 @@ describe('город: желоб и мелочь рынка', () => {
     }
   });
 });
+
+describe('город: кроны', () => {
+  it('ком листвы освещён круглым: излом нормалей между соседними гранями — меньше 25°, у граней — больше 40°', async () => {
+    const { treeModel } = await import('./nature');
+    const { L } = await import('./tex');
+    const angle = (a: number[], c: number[]): number => (Math.acos(Math.min(1, a[0] * c[0] + a[1] * c[1] + a[2] * c[2])) * 180) / Math.PI;
+    for (const sp of ['broad', 'fruit', 'broadFar'] as const) {
+      const b = treeModel(sp, 2);
+      const P = (k: number): number[] => [b.pos[k * 3], b.pos[k * 3 + 1], b.pos[k * 3 + 2]];
+      // Плоская нормаль грани — из её углов (у этих пород одни четырёхугольники, по четыре вершины подряд).
+      const flat = (k: number): number[] => {
+        const q = k - (k % 4);
+        const [a, e, d] = [P(q), P(q + 1), P(q + 3)];
+        const u = [e[0] - a[0], e[1] - a[1], e[2] - a[2]];
+        const v = [d[0] - a[0], d[1] - a[1], d[2] - a[2]];
+        const n = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
+        const l = Math.hypot(n[0], n[1], n[2]) || 1;
+        return [n[0] / l, n[1] / l, n[2] / l];
+      };
+      const N = (k: number): number[] => [b.nor[k * 3], b.nor[k * 3 + 1], b.nor[k * 3 + 2]];
+      const at = new Map<string, number[]>();
+      for (let k = 0; k < b.pos.length / 3; k++) {
+        if (b.cfg[k * 4] !== L.foliage) continue;
+        // Ключ точки — в стотысячных; «−0» и «0» — одна точка.
+        const key = P(k).map((x) => Math.round(x * 1e5) || 0).join(',');
+        at.set(key, [...(at.get(key) ?? []), k]);
+      }
+      let pairs = 0;
+      let flatWorst = 0;
+      let roundWorst = 0;
+      for (const ks of at.values()) {
+        for (let i = 1; i < ks.length; i++) {
+          flatWorst = Math.max(flatWorst, angle(flat(ks[0]), flat(ks[i])));
+          roundWorst = Math.max(roundWorst, angle(N(ks[0]), N(ks[i])));
+          pairs++;
+        }
+      }
+      // Ком замкнут: у каждой вершины листвы есть соседняя грань в той же точке — щели по шву кольца нет.
+      const lone = [...at.values()].filter((ks) => ks.length < 2).length;
+      expect(lone, `${sp}: вершины без соседней грани (щель)`).toBe(0);
+      // Граница области: общих вершин у соседних граней много, и сами грани кома изломаны — иначе мерить нечего.
+      expect(pairs, sp).toBeGreaterThan(20);
+      expect(flatWorst, `${sp}: излом граней, °`).toBeGreaterThan(40);
+      // Плоской нормали в круглой не больше четверти (у полюсов — ноль): излом — не больше четверти прямого угла и шума.
+      expect(roundWorst, `${sp}: излом нормалей при изломе граней ${flatWorst.toFixed(0)}°`).toBeLessThan(25);
+    }
+  });
+});

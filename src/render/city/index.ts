@@ -186,7 +186,7 @@ export async function buildCity(q: Quality): Promise<CityBuild> {
   group.add(water);
 
   // Деревья: экземплярами по видам; ближние отбрасывают тень, дальние — нет.
-  const fMat = foliageMaterial(u);
+  const fMat = foliageMaterial(u, spec.detail === 2);
   const m4 = new THREE.Matrix4();
   const q4 = new THREE.Quaternion();
   const up = new THREE.Vector3(0, 1, 0);
