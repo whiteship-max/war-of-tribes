@@ -110,7 +110,7 @@ export function setupFieldScene(scene: THREE.Scene, ground: Ground, look: Look =
       sunArc: SUN_ARC * (ground.winter ? 0.8 : 1),
     },
     SUN_AZIMUTH,
-    RIG[look],
+    RIG[look === 'now' ? 'now' : 'next'],
   );
   lowSun(rig, scene, ground);
   return rig;

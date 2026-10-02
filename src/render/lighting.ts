@@ -28,9 +28,10 @@ export interface LightRig {
  * в настройках он «Простой вид»: для слабых устройств и на случай проблем. Стенд по
  * адресу без `look` рисует `now` (`lookOf`), `?showcase=village&look=next` — новый:
  * строки стендов (`village:shots`, `replay:shots`) на это опираются. Второго выключателя
- * нет — сцена спрашивает этот.
+ * нет — сцена спрашивает этот. `city` — вид «город» (docs/city.md): только адресом
+ * (`?look=city`), своя сцена своим куском (`Scene.SCENES`), свет — числа `next`.
  */
-export type Look = 'now' | 'next';
+export type Look = 'now' | 'next' | 'city';
 
 export const lookOf = (s: string | null | undefined): Look => (s === 'next' ? 'next' : 'now');
 
@@ -88,7 +89,7 @@ export interface RigLook {
   smoothDay: boolean;
 }
 
-export const RIG: Record<Look, RigLook> = {
+export const RIG: Record<Exclude<Look, 'city'>, RigLook> = {
   now: {
     sun: { day: 3.2, night: 1.0 },
     hemi: { day: 1.1, night: 0.6 },

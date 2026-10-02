@@ -41,6 +41,7 @@
     "world:build": "node scripts/build-world.mjs",
     "map:shots": "vite-node scripts/map-shots.ts",
     "village:shots": "vite-node scripts/village-shots.ts",
+    "city:shots": "vite-node scripts/city-shots.ts",
     "replay:shots": "vite-node scripts/replay-shots.ts"
   },
   "dependencies": {

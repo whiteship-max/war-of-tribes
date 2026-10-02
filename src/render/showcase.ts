@@ -742,7 +742,9 @@ export function mountShowcase(p: URLSearchParams): void {
   document.title = 'TRIBE · стенд';
   const c = common(p);
   const mode = p.get('showcase');
-  if (mode === 'village') mountVillage(root, p, c);
+  // Вид «город» (docs/city.md) — свой ленивый кусок: стенд без города его не качает.
+  if (mode === 'city') void import('./city/stand').then((m) => m.mountCity(root, p));
+  else if (mode === 'village') mountVillage(root, p, c);
   else if (mode === 'units') mountUnits(root, p, c);
   else mountBuilding(root, p, c);
 }

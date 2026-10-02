@@ -22,9 +22,14 @@ if (params.has('replay')) {
   });
 } else {
   initTelegram();
-  createRoot(document.getElementById('root')!).render(
-    <React.StrictMode>
-      <App />
-    </React.StrictMode>,
-  );
+  const start = (): void =>
+    createRoot(document.getElementById('root')!).render(
+      <React.StrictMode>
+        <App />
+      </React.StrictMode>,
+    );
+  // Вид «город» (docs/city.md) — своя сцена своим куском: он едет до игры, иначе первым кадром
+  // встал бы посёлок. Не приехал — игра идёт посёлком.
+  if (params.get('look') === 'city') void import('./render/city/scene').then(start, start);
+  else start();
 }

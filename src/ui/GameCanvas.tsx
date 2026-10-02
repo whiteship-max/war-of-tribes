@@ -1,6 +1,6 @@
 import { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import { useGame } from '@/game/store';
-import { TribeScene } from '@/render/Scene';
+import { SCENES, TribeScene } from '@/render/Scene';
 import { bootDone, bootStage } from '@/boot/stage';
 import { afterPaint } from '@/boot/paint';
 import { probe } from '@/debug';
@@ -94,8 +94,10 @@ export function GameCanvas() {
     // Стадия загрузки и её снятие бывают раз за партию: пересборка диораму
     // меняет, а экран загрузки давно ушёл, и звать его обратно незачем.
     if (gen === 0) bootStage('scene');
-    // Вид и уровень — выбор игрока (пункт «Графика»), адрес сильнее записи.
-    const scene = new TribeScene(canvas, null, sceneGfx(gfx(), window.location.search));
+    // Вид и уровень — выбор игрока (пункт «Графика»), адрес сильнее записи. Вид со своей
+    // сценой (`?look=city`) берёт её класс — его кусок привёз `main.tsx`; нет — посёлок.
+    const look = sceneGfx(gfx(), window.location.search);
+    const scene = new (SCENES[look.look] ?? TribeScene)(canvas, null, look);
     sceneRef.current = scene;
     sceneLog.mark(gen === 0 ? 'scene' : 'rebuild', `сборка №${gen + 1}`);
     // Тап по зданию открывает его панель; тап по пустому месту закрывает открытую.

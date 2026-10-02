@@ -32,9 +32,10 @@ export const LOPSIDED = 3;
 
 /**
  * Фигура волка в сцене боя есть только в виде `next` (docs/graphics_world.md, 11.4 и 12), а он — умолчание: там стая
- * смотрится роликом. В «Простом виде» волка нет. Вид — тот же, что у сцены: адрес сильнее выбора игрока (`sceneGfx`).
+ * смотрится роликом; у вида «город» ролик тоже в виде `next`. В «Простом виде» волка нет. Вид — тот же, что у сцены:
+ * адрес сильнее выбора игрока (`sceneGfx`).
  */
-const wolfDrawn = (): boolean => sceneGfx(gfx(), window.location.search).look === 'next';
+const wolfDrawn = (): boolean => sceneGfx(gfx(), window.location.search).look !== 'now';
 
 const unitsText = (units: UnitStack): string =>
   UNITS.filter((u) => (units[u.id] ?? 0) > 0)
