@@ -155,11 +155,7 @@ export class Crowd {
       b.geometry.setAttribute('aPlace', place);
       b.geometry.setAttribute('aAnim', anim);
       b.geometry.setAttribute('aTint', tint);
-      for (let j = 0; j < n; j++) {
-        const i = figures[j];
-        const u = plan.units[plan.unitOf[i]];
-        tint.setXY(j, u.ours ? 0 : 1, plan.tone[i]);
-      }
+      tint.setUsage(THREE.DynamicDrawUsage);
       let proxy: THREE.InstancedMesh | null = null;
       if (this.proxyMaterial) {
         proxy = new THREE.InstancedMesh(proxyGeometry(b.look.body), this.proxyMaterial, n);
@@ -179,9 +175,10 @@ export class Crowd {
   /** Разложить кадр фигур по инстансам. */
   update(frame: FigureFrame): void {
     for (const g of this.groups) {
-      const { place, anim, figures, proxy } = g;
+      const { place, anim, tint, figures, proxy } = g;
       const pa = place.array as Float32Array;
       const aa = anim.array as Float32Array;
+      const ta = tint.array as Float32Array;
       let shown = 0;
       for (let j = 0; j < figures.length; j++) {
         const i = figures[j];
@@ -196,6 +193,9 @@ export class Crowd {
         aa[k * 4 + 1] = this.rows.b;
         aa[k * 4 + 2] = this.rows.w;
         aa[k * 4 + 3] = this.plan.scale[i];
+        // Сторона и тон — по месту инстанса в кадре, а не по номеру фигуры: погасший бежавший сдвигает всех за ним.
+        ta[k * 2] = this.plan.units[this.plan.unitOf[i]].ours ? 0 : 1;
+        ta[k * 2 + 1] = this.plan.tone[i];
         if (proxy) {
           // Павший кладёт тень плашмя: столбик ложится вдоль земли.
           const down = CLIPS[frame.clip[i]] === 'fall';
@@ -208,6 +208,7 @@ export class Crowd {
       g.mesh.count = shown;
       place.needsUpdate = true;
       anim.needsUpdate = true;
+      tint.needsUpdate = true;
       if (proxy) {
         proxy.count = shown;
         proxy.instanceMatrix.needsUpdate = true;

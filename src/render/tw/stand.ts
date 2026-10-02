@@ -4,7 +4,7 @@
 //
 //   ?replay=tw&men=300&foe=300                 бой, ролик идёт сам, камера — общий вид
 //   &quality=low|medium|high                   уровень (по умолчанию средний)
-//   &t=12.5 | &at=deploy|volley|advance|charge|clash|melee|rout|last   кадр стоит
+//   &t=12.5 | &at=deploy|volley|advance|charge|clash|melee|reserve|flank|waver|rout|pursuit|last   кадр стоит
 //   &cam=auto|near|side|top|low                положение камеры для снимка
 //   &place=… &hour=… &winter=1 &beasts=1 &seed=… &clean=1 &dpr=2 &speed=2
 //
@@ -40,6 +40,21 @@ function moment(plan: TwPlan, at: string): number {
       return plan.timing.melee[0] + (plan.timing.melee[1] - plan.timing.melee[0]) * 0.5;
     case 'rout':
       return Number.isFinite(broke) ? broke + 2.5 : plan.timing.rout[0] + 2;
+    case 'waver':
+      return Number.isFinite(broke) ? broke - 0.5 : plan.timing.rout[0];
+    case 'reserve': {
+      const go = Math.min(...plan.units.map((u) => (u.row === 'reserve' && u.commit ? u.commit.at : Infinity)));
+      return Number.isFinite(go) ? go + 1.8 : plan.timing.melee[0] + 4;
+    }
+    case 'flank': {
+      let go = Infinity;
+      for (let i = 0; i < plan.figures; i++) if (plan.goKind[i] === 2) go = Math.min(go, plan.goAt[i]);
+      return Number.isFinite(go) ? go + 1.6 : plan.timing.melee[0] + 4;
+    }
+    case 'pursuit': {
+      const b = Math.min(plan.brokenAt.attacker ?? Infinity, plan.brokenAt.defender ?? Infinity);
+      return Number.isFinite(b) ? b + 3 : plan.timing.rout[0] + 3;
+    }
     case 'last':
       return plan.seconds;
     default:

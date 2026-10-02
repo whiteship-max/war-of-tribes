@@ -196,7 +196,8 @@ export class Banners {
       const yaw = Math.atan2(camera.position.x - x, camera.position.z - z);
       this.e.set(fallen > 0 ? 0 : -flee, yaw, fallen, 'YXZ');
       this.q.setFromEuler(this.e);
-      const big = (u.banner === 'standard' ? STANDARD : 1) * grow;
+      // Знаменосец убежал за край поля и погас — знамя уходит с ним.
+      const big = frame.shown[i] ? (u.banner === 'standard' ? STANDARD : 1) * grow : 0;
       this.s.setScalar(big);
       // Древко в руке знаменосца — чуть в стороне от его оси.
       this.v.set(x + 0.22 * Math.cos(frame.yaw[i]), y, z - 0.22 * Math.sin(frame.yaw[i]));

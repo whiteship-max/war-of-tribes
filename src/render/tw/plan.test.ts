@@ -8,11 +8,14 @@ import { STAND_GROUND, standBattle } from '../battle-stand';
 import { GROUND_CROSSING, GROUND_LAND, GROUND_RIDGE } from '@/world/place';
 import { twPlanOfRecord } from './record';
 import { TW_SPEC } from './spec';
+import { UNIT_STATS } from '@/battle/config';
 import {
   CONTACT_HALF,
   FORM,
   MAX_SECONDS,
+  WAVER_SECONDS,
   advanceOf,
+  pushOf,
   aliveFigures,
   figureFrame,
   poseFigures,
@@ -248,3 +251,103 @@ describe('ролик TW: показ не считает бой', () => {
     }
   });
 });
+
+describe('ролик TW: хореография по журналу', () => {
+  // Большой бой: у обеих армий резерв, и ядро вводит его понемногу, фаза за фазой.
+  const big = planOf('replay=tw&men=3000&foe=2600&seed=9&place=road&hour=13');
+  // Неровный бой: меньший ломается, и у большего есть кому гнать.
+  const uneven = planOf('replay=tw&men=900&foe=400&seed=4');
+
+  it('резерв входит понемногу: фигур в полосы уходит не больше, чем людей ввёл журнал, и не разом', () => {
+    for (const side of ['attacker', 'defender'] as const) {
+      const pool = big.units.filter((u) => u.side === side && u.row === 'reserve');
+      const entered = big.cast.marks.filter((m) => m.id === 'reserve-committed' && m.side === side).reduce((n, m) => n + m.amount, 0);
+      // Граница области: резерв у стороны есть, и журнал его вводил.
+      expect(pool.length, `${side}: резерв`).toBeGreaterThan(0);
+      expect(entered, `${side}: журнал вводил резерв`).toBeGreaterThan(big.k * 4);
+      const left: number[] = [];
+      for (const u of pool) for (let i = u.first; i < u.first + u.figures; i++) if (big.goKind[i] === 1) left.push(big.goAt[i]);
+      expect(left.length, `${side}: резерв ушёл`).toBeGreaterThan(0);
+      expect(left.length, `${side}: ушло не больше введённого`).toBeLessThanOrEqual(Math.ceil(entered / big.k) + pool.length);
+      // Не блоком: секунды ухода разные, и струя длится, а не срывается в один миг.
+      expect(new Set(left.map((t) => t.toFixed(2))).size, `${side}: уходят в разные секунды`).toBeGreaterThan(left.length / 4);
+      expect(Math.max(...left) - Math.min(...left), `${side}: струя длится`).toBeGreaterThan(2);
+    }
+  });
+
+  it('в обход уходят те, кого записал ход ядра, и встают у чужого фланга; без ходов обхода нет', () => {
+    const b = standBattle(new URLSearchParams('replay=tw&men=600&foe=560&seed=7&place=woods,road&hour=10'));
+    // Граница области: ходы в обход у этого боя есть.
+    expect(b.result.moves?.length ?? 0).toBeGreaterThan(0);
+    const p = twPlanOfRecord(b.result, b.us, b.troops, 'medium', undefined, b.place, b.beastSide);
+    expect(p.flankers).toBeGreaterThan(0);
+    const owed = b.result.moves!.reduce((n, m) => n + Object.values(m.men).reduce((a, v) => a + Math.round((v ?? 0) / p.k), 0), 0);
+    expect(p.flankers, 'ушло не больше, чем записали ходы').toBeLessThanOrEqual(owed);
+    for (let i = 0; i < p.figures; i++) {
+      if (p.goKind[i] !== 2) continue;
+      const u = p.units[p.unitOf[i]];
+      const slot = u.ours ? p.goLane[i] : 2 - p.goLane[i];
+      const x1 = p.path[i * 8 + 4];
+      // Встают за краем строя полосы обхода — у фланга, а не в чужом строю.
+      expect(Math.abs(x1 - p.slotX[slot]), `фигура ${i}`).toBeGreaterThanOrEqual(p.slotW[slot] / 2);
+    }
+    // Запись без ходов (старая или из сохранения мира): показ не угадывает, кто ушёл.
+    const { moves: _moves, ...old } = b.result;
+    const q = twPlanOfRecord(old, b.us, b.troops, 'medium', undefined, b.place, b.beastSide);
+    expect(q.flankers).toBe(0);
+  });
+
+  it('гонит только тот, кто быстрее бегущего (скорость рода ядра)', () => {
+    const chasers = [big, uneven].flatMap((p) => p.units.filter((u) => u.chase).map((u) => ({ u, e: p.units[u.chase!.target] })));
+    // Граница области: погоня в этих боях есть.
+    expect(chasers.length).toBeGreaterThan(0);
+    for (const { u, e } of chasers) expect(UNIT_STATS[u.kind].speed, `${u.kind} гонит ${e.kind}`).toBeGreaterThan(UNIT_STATS[e.kind].speed);
+    // И никто медленный не гонит того, кто его быстрее или вровень.
+    for (const p of [big, uneven]) {
+      for (const u of p.units) {
+        if (u.chase || u.fleeAt !== null || u.row === 'reserve' || u.row === 'rear') continue;
+        const foe = p.brokenAt[u.side === 'attacker' ? 'defender' : 'attacker'];
+        if (foe === null) continue;
+        const catchable = p.units.some((e) => e.side !== u.side && e.fleeAt !== null && e.row !== 'general' && UNIT_STATS[e.kind].speed < UNIT_STATS[u.kind].speed);
+        expect(catchable, `${u.kind} мог гнать, но не гонит`).toBe(false);
+      }
+    }
+  });
+
+  it('перед бегством отряд дрожит: рыхлеет и пятится, а раньше дрожи — стоит', () => {
+    const fled = big.units.filter((u) => u.fleeAt !== null && u.row !== 'general' && u.fleeAt > WAVER_SECONDS + 1);
+    expect(fled.length).toBeGreaterThan(0);
+    for (const u of fled) {
+      const at = unitPose(big, u, u.fleeAt! - 0.2);
+      expect(at.waver, `отряд ${u.id}`).toBeGreaterThan(0.5);
+      expect(at.loose).toBeGreaterThan(1.3);
+      expect(unitPose(big, u, u.fleeAt! - WAVER_SECONDS - 0.05).waver).toBe(0);
+    }
+  });
+
+  it('линия полосы уходит к тому, кто в ней теряет больше', () => {
+    let checked = 0;
+    for (const p of [big, uneven]) {
+      for (let slot = 0; slot < 3; slot++) {
+        for (let t = p.clashAt + 0.5; t < p.timing.melee[1]; t += 1) {
+          const v = pushOf(p, slot, t);
+          if (Math.abs(v) < 0.05) continue;
+          // Знак давления — знак разницы долей потерь передних секторов полосы: чужие теряют больше — к чужим.
+          const ours = p.units.filter((u) => u.row === 'front' && u.ours && u.lane === slot);
+          const theirs = p.units.filter((u) => u.row === 'front' && !u.ours && u.lane === 2 - slot);
+          const lostShare = (list: typeof ours): number => {
+            const men = list.reduce((n, u) => n + u.men, 0);
+            const down = list.reduce((n, u) => n + (u.figures - aliveFigures(p, u, t)) * p.k, 0);
+            return men > 0 ? down / men : 0;
+          };
+          if (Math.abs(lostShare(theirs) - lostShare(ours)) < 0.05) continue;
+          expect(Math.sign(v), `слот ${slot}, t ${t.toFixed(1)}`).toBe(Math.sign(lostShare(theirs) - lostShare(ours)));
+          checked += 1;
+        }
+      }
+    }
+    // Граница области: давление было, и разница потерь — заметная.
+    expect(checked).toBeGreaterThan(3);
+  });
+});
+

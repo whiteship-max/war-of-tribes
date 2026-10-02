@@ -36,6 +36,8 @@ const FORD = 'replay=tw&men=500&foe=500&seed=5&place=river,ford&hour=16';
 const HILLS = 'replay=tw&men=500&foe=420&seed=3&place=hills,woods&hour=8';
 const PACK = 'replay=tw&beasts=1&men=60&foe=45&seed=7';
 const BIG = 'replay=tw&men=3000&foe=2600&seed=9&place=road&hour=13';
+/** Неровный бой: меньший ломается, конница большего гонит бегущих (правило погони ядра). */
+const CHASE = 'replay=tw&men=900&foe=400&seed=4&hour=11';
 
 interface Shot {
   name: string;
@@ -53,6 +55,12 @@ const SHOTS: Shot[] = [
   { name: 'clash-side', query: `${FIELD}&at=clash&cam=side`, why: 'сшибка сбоку: камера повёрнута' },
   { name: 'melee', query: `${FIELD}&at=melee`, why: 'сеча: павшие лежат, передние рубятся' },
   { name: 'rout', query: `${FIELD}&at=rout`, why: 'бегство: сектор развернулся и бежит, знамя кренится' },
+  { name: 'waver', query: `${FIELD}&at=waver&cam=low`, why: 'дрогнул: строй рыхлеет и пятится, задние оглядываются' },
+  { name: 'reserve', query: `${FIELD}&at=reserve`, why: 'резерв струйкой уходит в дыру своей полосы' },
+  { name: 'flank', query: `${FIELD}&at=flank`, why: 'обход по ходам ядра: часть сектора по дуге во фланг соседней полосы' },
+  { name: 'melee-near', query: `${FIELD}&at=melee&cam=near`, why: 'свалка вблизи: передние шеренги ходят, линия пятится к проигрывающему' },
+  { name: 'flank-low', query: `${FIELD}&at=flank&cam=low`, why: 'обход ниже общего вида: дуга во фланг' },
+  { name: 'pursuit', query: `${CHASE}&at=pursuit&cam=low`, why: 'погоня: быстрые гонят бегущих, медленные встают' },
   { name: 'ford-advance', query: `${FORD}&at=advance&cam=low`, why: 'переправа: нападающий входит в воду, строй рыхлеет' },
   { name: 'ford-clash', query: `${FORD}&at=clash&cam=low`, why: 'переправа: бьются у берега обороны, нападающий в воде' },
   { name: 'hills', query: `${HILLS}&at=advance`, why: 'холмы: оборона на гребне, лес по флангам' },

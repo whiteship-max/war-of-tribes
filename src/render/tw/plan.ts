@@ -9,7 +9,8 @@
 // Тот же журнал — тот же ролик до фигуры: разброс места, роста, тона и фазы шага — от сида боя и номера фигуры
 // (`terrain.hash`), без `Math.random`.
 import { lossProgress, sectorLost, type Cast, type Face } from '@/battle/replay';
-import { SECTORS, UNIT_KINDS, type BattleResult, type Lane, type Sector, type Side, type UnitKind } from '@/battle/types';
+import { UNIT_STATS } from '@/battle/config';
+import { FRONT, SECTORS, UNIT_KINDS, type BattleResult, type Lane, type Sector, type Side, type UnitKind } from '@/battle/types';
 import { wearOf } from '@/game/battle/faces';
 import { gearOfTroop } from '@/game/battle/kinds';
 import { TROOP_BY_ID } from '@/game/data/troops';
@@ -148,6 +149,27 @@ export const TURN_SECONDS = 0.6;
 export const SHOOT_PERIOD = 3;
 export const SHOOT_RELEASE = 0.62;
 export const ARROW_FLIGHT = 1.7;
+/** Удар строя о строй на первой сшибке: передние шеренги влетают в чужой строй и отскакивают — секунды и метры. */
+export const IMPACT_SECONDS = 0.9;
+export const IMPACT_LURCH = { foot: 0.45, horse: 1.1 };
+/** Свалка: передние шеренги ходят вперёд-назад на столько метров, строй у линии рыхлее во столько раз. */
+export const SCRUM_SWAY = 0.22;
+export const SCRUM_LOOSE = 1.3;
+/** Линия соприкосновения полосы уходит к тому, кто теряет больше, — не дальше стольких метров; входит за столько секунд. */
+export const PUSH_MAX = 1.4;
+export const PUSH_IN = 2;
+/** Перед бегством отряд дрожит столько секунд: рыхлеет, пятится, задние оглядываются. */
+export const WAVER_SECONDS = 1.4;
+/** Галоп конницы в обходе и в погоне, метры в секунду. */
+export const GALLOP_SPEED = 7;
+/** Резерв уходит в дыру струйкой, растянутой на фазу метки: не короче `STREAM_GAP` и не дольше `STREAM_MAX` секунд. */
+export const STREAM_GAP = 0.05;
+export const STREAM_MAX = 2.5;
+/** Погоня: сколько секунд гонят, прежде чем встать; на сколько метров держатся за спиной бегущих. */
+export const CHASE_SECONDS = 7;
+export const CHASE_GAP = 1.6;
+/** Полководец въезжает в сечу через столько секунд после сшибки и за столько секунд. */
+export const GENERAL_IN = { after: 1, seconds: 3 };
 
 export interface TwTiming {
   /** Конец вступления в секундах ролика TW и раскадровки. */
@@ -248,6 +270,11 @@ export interface TwUnit {
   commit: { at: number; x: number; z: number } | null;
   /** Залпы отряда лучников: секунды срыва стрел. */
   volleys: number[];
+  /**
+   * Погоня (`chaseTargets`): кого гонит отряд победителя и с какой секунды. Гонит только тот, кто быстрее бегущего
+   * (`UNIT_STATS.speed`, правило погони ядра); остальные проходят шаг за бегущими и встают. null — не гонит.
+   */
+  chase: { target: number; from: number } | null;
 }
 
 /** Род внутри отряда: бойцы на старте и к концу, виды племени и сколько фигур ему досталось. */
@@ -316,7 +343,29 @@ export interface TwPlan {
   deadYaw: Float32Array;
   /** Окна огня кругов в секундах ролика TW (`fireWindows`) — считаются один раз. */
   fire: [number, number][];
+  /** Середина и ширина слотов полос на поле (слот 0 — наш левый фланг, у +X). */
+  slotX: number[];
+  slotW: number[];
+  /** Порядок гибели фигур отряда: с `u.first` по `u.first + u.figures` — номера фигур в том порядке, в каком падают. */
+  fallOrder: Int32Array;
+  /**
+   * Свой путь фигуры: резерв уходит в дыру понемногу (`reserve-committed` журнала), часть отряда — в обход (`moves`
+   * итога боя). С секунды `goAt` фигура идёт своим путём — по дуге от места в строю к месту в полосе — и там стоит или
+   * рубится. Infinity — фигура весь бой в строю своего отряда.
+   */
+  goAt: Float32Array;
+  /** Путь: откуда (x, z), перегиб дуги (x, z), куда (x, z), разворот там, сколько идти — по `PATH` чисел на фигуру. */
+  path: Float32Array;
+  /** Каким путём: 1 — резерв в полосу, 2 — обход; в какую полосу пришла (своя нумерация стороны); рубится ли там. */
+  goKind: Uint8Array;
+  goLane: Int8Array;
+  goFight: Uint8Array;
+  /** Сколько фигур ушло в обход по ходам итога боя: ноль — ходов нет (запись старая или из сохранения) или не было. */
+  flankers: number;
 }
+
+/** Чисел на путь фигуры в `TwPlan.path`. */
+const PATH = 8;
 
 export interface PlanInput {
   cast: Cast;
@@ -478,6 +527,7 @@ export function buildPlan(input: PlanInput): TwPlan {
         first: 0,
         commit: null,
         volleys: [],
+        chase: null,
       });
     }
   });
@@ -570,6 +620,7 @@ export function buildPlan(input: PlanInput): TwPlan {
         first: 0,
         commit: null,
         volleys: [],
+        chase: null,
       });
     }
   }
@@ -629,36 +680,6 @@ export function buildPlan(input: PlanInput): TwPlan {
   const clash = cast.spans.find((s) => s.phase === 'clash');
   const clashAt = castToTw(timing, clash ? clash.t0 : timing.castIntro);
 
-  // Резерв входит в полосу: метки журнала `reserve-committed` (людей и полоса) съедают резерв по очереди.
-  for (const side of SIDES2) {
-    const pool = units.filter((u) => u.side === side && u.row === 'reserve').sort((a, b) => a.id - b.id);
-    if (pool.length === 0) continue;
-    let given = 0;
-    let owed = 0;
-    for (const m of cast.marks) {
-      if (m.id !== 'reserve-committed' || m.side !== side || m.lane === null) continue;
-      owed += m.amount;
-      // Отряд резерва трогается, когда в полосы вошла четверть его людей: ядро вводит резерв понемногу, а отряд на
-      // поле — целым блоком (огромный резерв большой армии иначе не тронулся бы никогда).
-      while (given < pool.length && pool[given].men * RESERVE_SHARE <= owed + 0.5) {
-        const u = pool[given];
-        owed -= u.men;
-        given++;
-        const slot = slotOf(u.ours, m.lane);
-        const sideFront = units.filter((x) => x.side === side && x.row === 'front');
-        const frontDepth = Math.max(0, ...sideFront.map((x) => x.depth));
-        // Резерв встаёт в дыру в любой тик фазы, а метка пишется в её последний тик (`reserve-committed`): трогается
-        // он с начала фазы, где вошёл, — иначе дыра в строю стояла бы пустой всю фазу.
-        const span = cast.spans.find((sp) => m.t >= sp.t0 && m.t <= sp.t1);
-        const at = castToTw(timing, span ? span.t0 : m.t);
-        // Первая линия этой полосы уже бежит — резерв встаёт на её место, на линию соприкосновения; ещё стоит —
-        // за ней.
-        const gone = units.some((x) => x.side === side && x.row === 'front' && x.lane === m.lane && x.fleeAt !== null && x.fleeAt <= at + 5);
-        u.commit = { at, x: slotX[slot], z: contactZ[side] + (gone ? 0 : sign(side) * (frontDepth + 1.5)) };
-      }
-    }
-  }
-
   // ---- фигуры ----
   const figures = units.reduce((n, u) => n + u.figures, 0);
   const unitOf = new Int32Array(figures);
@@ -676,6 +697,7 @@ export function buildPlan(input: PlanInput): TwPlan {
   const tone = new Float32Array(figures);
   const phase = new Float32Array(figures);
   const deathAt = new Float32Array(figures).fill(Infinity);
+  const fallOrder = new Int32Array(figures);
   let at = 0;
   for (const u of units) {
     u.first = at;
@@ -699,6 +721,9 @@ export function buildPlan(input: PlanInput): TwPlan {
       order.push({ i: j, key: r + hash(seed, u.id * 4099 + i, 6) * 1.5 });
     }
     order.sort((a, b) => a.key - b.key || a.i - b.i);
+    order.forEach((o, k) => {
+      fallOrder[at + k] = o.i;
+    });
     // Виды отряда — полосами от середины: тяжёлые в середине строя, лёгкие к краям, как стоят полки одного рода.
     const stripes = u.parts
       .flatMap((pt) => {
@@ -750,19 +775,31 @@ export function buildPlan(input: PlanInput): TwPlan {
     deadZ: new Float32Array(figures),
     deadYaw: new Float32Array(figures),
     fire: [],
+    slotX,
+    slotW,
+    fallOrder,
+    goAt: new Float32Array(figures).fill(Infinity),
+    path: new Float32Array(figures * PATH),
+    goKind: new Uint8Array(figures),
+    goLane: new Int8Array(figures).fill(-1),
+    goFight: new Uint8Array(figures),
+    flankers: 0,
   };
   plan.fire = fireWindows(plan);
+  // Пути фигур — до залпов: резерв-лучник стреляет, когда вошёл (`commit`), а лучники в обход не ходят.
+  trickleReserve(plan);
+  plan.flankers = flankMoves(plan, result);
+  chaseTargets(plan);
   for (const u of units) if (u.form === 'bow') u.volleys = volleyTimes(plan, u);
-  for (const u of units) {
-    for (let i = u.first; i < u.first + u.figures; i++) {
-      if (!Number.isFinite(deathAt[i])) continue;
-      const q = unitPose(plan, u, deathAt[i]);
-      const c = Math.cos(q.yaw);
-      const sn = Math.sin(q.yaw);
-      plan.deadX[i] = q.x + lx[i] * c + lz[i] * sn;
-      plan.deadZ[i] = q.z - lx[i] * sn + lz[i] * c;
-      plan.deadYaw[i] = q.yaw;
-    }
+  arrowDeaths(plan);
+  // Где лежит павший: место фигуры в мгновение гибели — в строю, на своём пути или на бегу.
+  const q = figureState();
+  for (let i = 0; i < figures; i++) {
+    if (!Number.isFinite(deathAt[i])) continue;
+    figurePose(plan, i, deathAt[i], null, q);
+    plan.deadX[i] = q.x;
+    plan.deadZ[i] = q.z;
+    plan.deadYaw[i] = q.yaw;
   }
   return plan;
 }
@@ -863,6 +900,209 @@ function volleyTimes(plan: TwPlan, u: TwUnit): number[] {
   return out;
 }
 
+// ---------- Свой путь фигуры: резерв понемногу, обход, погоня ----------
+
+/**
+ * Пустить фигуру своим путём с секунды `at`: от того места, где она в этот миг (строй отряда или прежний путь), по дуге
+ * через `bend` к месту `x1, z1`, со скоростью `speed`; там она смотрит по `yaw1`. `bend` — null: дуга прямая.
+ */
+function detour(plan: TwPlan, i: number, at: number, x1: number, z1: number, yaw1: number, speed: number, bend: [number, number] | null): void {
+  const q = figurePose(plan, i, at, null, figureState());
+  const cx = bend ? bend[0] : (q.x + x1) / 2;
+  const cz = bend ? bend[1] : (q.z + z1) / 2;
+  // Длина дуги — ломаной в восемь звеньев: точнее не нужно, по ней только время в пути.
+  let len = 0;
+  let px = q.x;
+  let pz = q.z;
+  for (let k = 1; k <= 8; k++) {
+    const u = k / 8;
+    const x = (1 - u) * (1 - u) * q.x + 2 * (1 - u) * u * cx + u * u * x1;
+    const z = (1 - u) * (1 - u) * q.z + 2 * (1 - u) * u * cz + u * u * z1;
+    len += Math.hypot(x - px, z - pz);
+    px = x;
+    pz = z;
+  }
+  const o = i * PATH;
+  plan.path.set([q.x, q.z, cx, cz, x1, z1, yaw1, Math.max(0.2, len / speed)], o);
+  plan.goAt[i] = at;
+}
+
+/** Глубина первой линии стороны — до последней шеренги самого глубокого отряда. */
+const frontDepthOf = (plan: TwPlan, side: Side): number =>
+  Math.max(0, ...plan.units.filter((x) => x.side === side && x.row === 'front').map((x) => x.depth));
+
+/**
+ * Резерв входит в дыры понемногу, как пишет ядро (`reserve-committed`: людей и полоса за фазу). Отряд резерва не
+ * трогается целым блоком: в полосу уходит ровно столько его фигур, сколько людей журнал туда ввёл (в долях `k`), — из
+ * всех отрядов резерва в их доле, как ядро снимает резерв по родам (`setup.reinforceInto`), струйкой с начала фазы. Уходят
+ * первыми те, кто первыми и падёт (`fallOrder`): павший резерва лежит у линии, а не в строю позади неё. Лучники встают во
+ * вторую линию, пешие и конные — за первой; полосу, где первая линия уже бежала, резерв занимает на линии и рубится.
+ */
+function trickleReserve(plan: TwPlan): void {
+  const { cast, timing } = plan;
+  for (const side of SIDES2) {
+    const pool = plan.units.filter((u) => u.side === side && u.row === 'reserve').sort((a, b) => a.id - b.id);
+    if (pool.length === 0) continue;
+    const ours = side === plan.us;
+    const s = ours ? -1 : 1;
+    const frontDepth = frontDepthOf(plan, side);
+    // Очередь — все отряды резерва вперемешку в их доле: фигура k отряда из n стоит в очереди на (k + ½) / n.
+    const queue = pool
+      .flatMap((u) => Array.from({ length: u.figures }, (_, k) => ({ u, i: plan.fallOrder[u.first + k], key: (k + 0.5) / u.figures })))
+      .sort((a, b) => a.key - b.key || a.u.id - b.u.id);
+    let next = 0;
+    let owed = 0;
+    const placed = new Map<string, number>();
+    for (const m of cast.marks) {
+      if (m.id !== 'reserve-committed' || m.side !== side || m.lane === null) continue;
+      owed += m.amount;
+      // Ядро вводит резерв в любой тик фазы, а метку пишет в её последний (`reserve-committed`): струя растянута на
+      // фазу. До сшибки строй ещё идёт, и встать за ним некуда — резерв, введённый в огне первого круга (на место
+      // выбитых стрелами), трогается с разбегом первой линии.
+      const span = cast.spans.find((sp) => m.t >= sp.t0 && m.t <= sp.t1);
+      const at0 = Math.max(castToTw(timing, span ? span.t0 : m.t), plan.clashAt - RUN_LAST);
+      const at1 = Math.max(at0 + STREAM_GAP, Math.min(castToTw(timing, m.t), at0 + STREAM_MAX));
+      const goes: (typeof queue)[number][] = [];
+      while (next < queue.length && queue[next].u.men / queue[next].u.figures <= owed + 1e-6) {
+        const e = queue[next++];
+        owed -= e.u.men / e.u.figures;
+        if (e.u.fleeAt !== null && e.u.fleeAt <= at0) continue;
+        goes.push(e);
+      }
+      const slot = slotOf(ours, m.lane);
+      // Первая линия этой полосы уже бежит — резерв встаёт на её место, на линию соприкосновения; ещё стоит — за ней.
+      const gone = plan.units.some((x) => x.side === side && x.row === 'front' && x.lane === m.lane && x.fleeAt !== null && x.fleeAt <= at0 + 5);
+      goes.forEach((e, n) => {
+        const bow = e.u.form === 'bow';
+        const f = FORM[e.u.form];
+        const key = `${slot}:${bow ? 'rear' : 'front'}`;
+        const c = placed.get(key) ?? 0;
+        placed.set(key, c + 1);
+        const files = Math.max(4, Math.floor(plan.slotW[slot] / f.file));
+        const file = c % files;
+        const rank = Math.floor(c / files);
+        const base = bow
+          ? plan.contactZ[side] + s * (frontDepth + REAR_GAP + 1.5)
+          : plan.contactZ[side] + (gone ? 0 : s * (frontDepth + 1.5));
+        const x1 = plan.slotX[slot] + (file - (files - 1) / 2) * f.file + (hash(cast.seed, e.i, 19) - 0.5) * f.file * 0.3;
+        const z1 = base + s * rank * f.rank;
+        const at = at0 + ((n + 0.5) / goes.length) * (at1 - at0);
+        detour(plan, e.i, at, x1, z1, e.u.yaw, mounted(e.u) ? GALLOP_SPEED * 0.7 : RUN_SPEED, null);
+        plan.goKind[e.i] = 1;
+        plan.goLane[e.i] = m.lane!;
+        plan.goFight[e.i] = !bow && gone && rank < 2 ? 1 : 0;
+        if (!e.u.commit || at < e.u.commit.at) e.u.commit = { at, x: x1, z: z1 };
+      });
+    }
+  }
+}
+
+/**
+ * Обход по ходам ядра (`BattleResult.moves`): часть сектора — те рода, сколько ушло, в долях `k` — уходит из своей полосы
+ * по дуге к флангу чужого строя в соседней полосе и рубится там лицом во фланг. Уходят ближние к полосе обхода; конница —
+ * галопом, пешие — бегом. Ходов нет (запись старая или из сохранения) — обхода не видно, как и было: показ не угадывает,
+ * кто ушёл. Отдаёт, сколько фигур ушло.
+ */
+function flankMoves(plan: TwPlan, result: BattleResult): number {
+  const moves = result.moves;
+  if (!moves || moves.length === 0) return 0;
+  let gone = 0;
+  const q = figureState();
+  for (const m of moves) {
+    const at = castToTw(plan.timing, castTimeOfTick(plan.cast, m.tick));
+    if (at >= plan.seconds) continue;
+    const ours = m.side === plan.us;
+    const enemy = other(m.side);
+    const sE = enemy === plan.us ? -1 : 1;
+    const fromSlot = slotOf(ours, m.from);
+    const toSlot = slotOf(ours, m.to);
+    // С какой стороны заходят: со стороны своей прежней полосы.
+    const dir = Math.sign(plan.slotX[fromSlot] - plan.slotX[toSlot]) || 1;
+    const edge = plan.slotX[toSlot] + dir * (plan.slotW[toSlot] / 2 + 1.2);
+    // Где он сейчас: в строю своего отряда — в полосе отряда, пришедший резервом или прежним обходом — в полосе пути.
+    const laneNow = (u: TwUnit, i: number): number => (plan.goAt[i] <= at ? plan.goLane[i] : u.lane === null ? -1 : u.lane);
+    let c = 0;
+    for (const kind of UNIT_KINDS) {
+      const men = m.men[kind] ?? 0;
+      const need = Math.round(men / plan.k);
+      if (need <= 0) continue;
+      const cands: { i: number; d: number; u: TwUnit }[] = [];
+      for (const u of plan.units) {
+        if (u.side !== m.side || u.sector !== m.sector || u.row === 'general') continue;
+        if (u.fleeAt !== null && u.fleeAt <= at) continue;
+        for (let i = u.first; i < u.first + u.figures; i++) {
+          if (plan.faceIds[plan.faceOf[i]].kind !== kind || plan.deathAt[i] <= at || laneNow(u, i) !== m.from) continue;
+          figurePose(plan, i, at, null, q);
+          cands.push({ i, d: Math.abs(q.x - edge), u });
+        }
+      }
+      cands.sort((a, b) => a.d - b.d || a.i - b.i);
+      for (const e of cands.slice(0, need)) {
+        const f = FORM[e.u.form];
+        // Колонной в три ряда вдоль чужого фланга: у края строя, лицом к нему.
+        const x1 = edge + dir * (c % 3) * f.file;
+        const z1 = plan.contactZ[enemy] + sE * (0.8 + Math.floor(c / 3) * f.file);
+        figurePose(plan, e.i, at, null, q);
+        // Дуга обхода: сперва вперёд, к чужой линии, потом внутрь, во фланг.
+        const bend: [number, number] = [q.x + dir * 2.5, z1 - sE * 1.5];
+        detour(plan, e.i, at + hash(plan.cast.seed, e.i, 20) * 0.6, x1, z1, -dir * (Math.PI / 2), mounted(e.u) ? GALLOP_SPEED : RUN_SPEED, bend);
+        plan.goKind[e.i] = 2;
+        plan.goLane[e.i] = m.to;
+        plan.goFight[e.i] = 1;
+        c += 1;
+        gone += 1;
+      }
+    }
+  }
+  return gone;
+}
+
+/**
+ * Кого гонит победитель (правило погони ядра, docs/handbook/battle.md, «Мораль»): догоняет только тот, кто быстрее
+ * (`UNIT_STATS.speed`) — лёгкая конница всех, кроме всадников; пехота, лучники и латные — одни копья; всадников не
+ * догоняет никто. Отряд гонит ближний по фронту бежавший отряд, которого догоняет.
+ */
+function chaseTargets(plan: TwPlan): void {
+  for (const side of SIDES2) {
+    const from = plan.brokenAt[other(side)];
+    if (from === null) continue;
+    const fled = plan.units.filter((e) => e.side !== side && e.fleeAt !== null && e.row !== 'general');
+    for (const u of plan.units) {
+      if (u.side !== side || u.row === 'reserve' || u.row === 'rear' || u.fleeAt !== null) continue;
+      const speed = UNIT_STATS[u.kind].speed;
+      let best: TwUnit | null = null;
+      for (const e of fled) {
+        if (UNIT_STATS[e.kind].speed >= speed) continue;
+        if (!best || Math.abs(e.x - u.x) < Math.abs(best.x - u.x)) best = e;
+      }
+      if (best) u.chase = { target: best.id, from };
+    }
+  }
+}
+
+/**
+ * Гибель под стрелами — в миг, когда залп ложится: в фазах огня рукопашной нет, и все потери окна огня — стрелы. Фигура
+ * цели, которой журнал велит пасть в ближайший период залпа, падает, когда туча до неё долетела, а не ровной струйкой
+ * между залпами. Сколько павших за окно — то же, что у журнала: время сдвигается только внутри окна.
+ */
+function arrowDeaths(plan: TwPlan): void {
+  for (const u of plan.units) {
+    if (u.form !== 'bow') continue;
+    for (const v of u.volleys) {
+      const win = plan.fire.find(([a, b]) => v >= a && v <= b);
+      const land = v + ARROW_FLIGHT;
+      if (!win || land > win[1]) continue;
+      const e = targetOf(plan, u, v);
+      if (!e) continue;
+      const until = Math.min(win[1], land + SHOOT_PERIOD);
+      for (let i = e.first; i < e.first + e.figures; i++) {
+        const d = plan.deathAt[i];
+        if (d > land && d <= until) plan.deathAt[i] = land + hash(plan.cast.seed, i, 16) * 0.35;
+      }
+    }
+  }
+}
+
 /** Сколько фигур отряда на ногах в секунду `t`. */
 export function aliveFigures(plan: TwPlan, u: TwUnit, t: number): number {
   let n = 0;
@@ -886,10 +1126,14 @@ export interface UnitPose {
   rate: number;
   /** 0..1 — насколько отряд уже убежал. */
   flee: number;
-  /** Строй рыхлее во столько раз: в воде и на бегу. */
+  /** Сколько метров пробежал бегущий отряд: по ним поток бегущих растягивается (`figurePose`). */
+  fleeRun: number;
+  /** Строй рыхлее во столько раз: в воде, на бегу, в свалке. */
   loose: number;
   /** Отряд в сече на линии соприкосновения: передние шеренги рубятся. */
   fighting: boolean;
+  /** 0..1 — отряд дрожит перед бегством (`WAVER_SECONDS`): рыхлеет, пятится, задние оглядываются. */
+  waver: number;
 }
 
 /**
@@ -957,10 +1201,59 @@ export function separationOf(plan: TwPlan, t: number): number {
   return 0;
 }
 
-/** Положение отряда на секунде `t`. Всё — из журнала через раскадровку: сшибка, круги, слом, резерв. */
+/** Верхом или стая: удар с разбега у них глубже, обход и погоня — галопом. */
+const mounted = (u: TwUnit): boolean => u.form === 'horse' || u.form === 'heavy' || u.form === 'pack';
+
+/**
+ * Давление полосы: линия соприкосновения уходит к тому, кто в этой полосе теряет больше, — метры по оси Z мира (плюс —
+ * к чужим). Доли потерь — передних секторов полосы по журналу (`sectorLost`), той же мерой, что гибель фигур: линия
+ * пятится там, где фигуры и падают. Своего числа исхода у давления нет — только куда сдвинуть уже посчитанное.
+ */
+export function pushOf(plan: TwPlan, slot: number, t: number): number {
+  if (t <= plan.clashAt) return 0;
+  const c = twToCast(plan.timing, t);
+  const share = (side: Side): number => {
+    const lane = (side === plan.us ? slot : 2 - slot) as Lane;
+    const sector = FRONT[lane];
+    const cell = plan.cast.sectors.find((x) => x.side === side && x.sector === sector);
+    if (!cell || cell.men <= 0) return 0;
+    const lost = plan.cast.detailed
+      ? sectorLost(plan.cast.spans, side, sector, c)
+      : lossProgress(plan.cast.spans, side, c) * (cell.men - cell.finalMen);
+    return lost / cell.men;
+  };
+  const d = share(other(plan.us)) - share(plan.us);
+  return PUSH_MAX * Math.tanh(3 * d) * clamp01((t - plan.clashAt) / PUSH_IN);
+}
+
+/** Сколько метров пробежал бегущий за `dt` секунд с мига слома: разворот, разгон, бег. */
+const fleeDistance = (dt: number): number => {
+  const run = Math.max(0, dt - TURN_SECONDS * 0.5);
+  return FLEE_SPEED * run * (0.6 + 0.4 * clamp01(run / 2));
+};
+
+/** Положение отряда на секунде `t`. Всё — из журнала через раскадровку: сшибка, круги, давление, слом, погоня. */
 export function unitPose(plan: TwPlan, u: TwUnit, t: number): UnitPose {
   const s = u.ours ? -1 : 1;
   const fwd = -s;
+  // Бегство: разворот и бег от противника — от того места, где отряд был в миг слома (сеча, обход, въезд полководца).
+  if (u.fleeAt !== null && t > u.fleeAt) {
+    const base = unitPose(plan, u, u.fleeAt);
+    const dt = t - u.fleeAt;
+    const run = fleeDistance(dt);
+    return {
+      x: base.x + Math.sign(u.x || 1) * Math.max(0, dt - TURN_SECONDS * 0.5) * 0.35,
+      z: base.z + s * run,
+      yaw: u.yaw + Math.PI * ease(dt / TURN_SECONDS),
+      clip: 'run',
+      rate: 1,
+      flee: clamp01(dt / 8),
+      fleeRun: run,
+      loose: 1.8,
+      fighting: false,
+      waver: 0,
+    };
+  }
   let x = u.x;
   let z = u.z;
   let clip: ClipId = 'idle';
@@ -969,70 +1262,78 @@ export function unitPose(plan: TwPlan, u: TwUnit, t: number): UnitPose {
   let fighting = false;
   const fire = u.form === 'bow' && u.volleys.some((v) => t >= v - SHOOT_PERIOD * SHOOT_RELEASE - 0.2 && t <= v + 0.6);
 
-  const walking = u.row !== 'front';
-  if (u.row === 'front' || u.row === 'rear' || u.row === 'general' || (u.row === 'reserve' && !(u.commit && t > u.commit.at))) {
-    const adv = advanceOf(plan, u.side, t, walking);
-    z += fwd * adv.dist;
-    if (u.row === 'front' && t > plan.clashAt) {
-      const sep = separationOf(plan, t);
-      z -= fwd * sep;
-      clip = 'guard';
+  // Сближение: первая линия — шагом и последние секунды бегом; вторая линия, резерв и полководец — шагом.
+  const adv = advanceOf(plan, u.side, t, u.row !== 'front');
+  z += fwd * adv.dist;
+  if (adv.speed > 0) {
+    const running = adv.running && u.row === 'front';
+    clip = running ? 'run' : 'march';
+    rate = running ? adv.speed / RUN_SPEED : adv.speed / WALK_SPEED;
+    if (running) loose = 1.25;
+  }
+  if (u.row === 'front' && t > plan.clashAt) {
+    const sep = separationOf(plan, t);
+    z -= fwd * sep;
+    clip = 'guard';
+    fighting = sep < 0.3;
+    // Удар строя о строй: передние шеренги влетают в чужой строй и отскакивают; у конницы удар глубже.
+    const k = (t - plan.clashAt) / IMPACT_SECONDS;
+    if (k < 1) z += fwd * (mounted(u) ? IMPACT_LURCH.horse : IMPACT_LURCH.foot) * Math.sin(Math.PI * k);
+    // Давление: линия полосы уходит к тому, кто теряет больше, — обе стороны вместе, строи не расходятся.
+    if (u.lane !== null) z += pushOf(plan, slotOf(u.ours, u.lane), t);
+    if (fighting) loose = SCRUM_LOOSE;
+  }
+  if (u.row === 'general' && t > plan.clashAt + GENERAL_IN.after) {
+    // Полководец в сече: въезжает за середину первой линии и рубится там, пока его армия держится.
+    const k = ease(clamp01((t - plan.clashAt - GENERAL_IN.after) / GENERAL_IN.seconds));
+    const sep = separationOf(plan, t);
+    const tz = plan.contactZ[u.side] - fwd * (1.1 + sep) + pushOf(plan, 1, t);
+    x += (0 - x) * k;
+    z += (tz - z) * k;
+    if (k < 1) {
+      clip = 'march';
+      rate = 1.6;
+    } else {
+      clip = sep < 0.3 ? 'strike' : 'guard';
       fighting = sep < 0.3;
     }
-    if (adv.speed > 0) {
-      clip = adv.running && u.row === 'front' ? 'run' : 'march';
-      rate = adv.running && u.row === 'front' ? adv.speed / RUN_SPEED : adv.speed / WALK_SPEED;
-      if (adv.running && u.row === 'front') loose = 1.25;
-    }
-    if (inWater(plan.field, x, z)) loose = 2;
-  } else if (u.row === 'reserve' && u.commit && t > u.commit.at) {
-    // Резерв идёт в свою полосу и встаёт за первой линией — от того места, куда дошёл со всей армией.
-    const from = u.z - s * advanceOf(plan, u.side, u.commit.at, true).dist;
-    z = from;
-    const dx = u.commit.x - u.x;
-    const dz = u.commit.z - from;
-    const len = Math.hypot(dx, dz);
-    // В дыру строя — бегом: ядро ставит резерв на место павших в тот же тик.
-    const go = Math.min(len, (t - u.commit.at) * RUN_SPEED);
-    if (len > 0) {
-      x += (dx / len) * go;
-      z += (dz / len) * go;
-    }
-    if (go < len) {
-      clip = 'run';
-      rate = 1;
-    } else {
-      clip = 'guard';
-      fighting = Math.abs(u.commit.z - plan.contactZ[u.side]) < 0.5 && separationOf(plan, t) < 0.3;
-    }
   }
+  if (inWater(plan.field, x, z)) loose = 2;
   if (fire && clip !== 'march' && clip !== 'run') clip = 'shoot';
 
-  // Бегство: разворот и бег от противника, у каждого отряда со своего мгновения слома.
-  let flee = 0;
-  if (u.fleeAt !== null && t > u.fleeAt) {
-    const dt = t - u.fleeAt;
-    flee = clamp01(dt / 8);
-    const run = Math.max(0, dt - TURN_SECONDS * 0.5);
-    z += s * FLEE_SPEED * run * (0.6 + 0.4 * clamp01(run / 2));
-    x += Math.sign(u.x || 1) * run * 0.35;
-    clip = 'run';
-    rate = 1;
-    loose = 1.8;
-    return { x, z, yaw: u.yaw + Math.PI * ease(dt / TURN_SECONDS), clip, rate, flee, loose, fighting: false };
+  // Дрожь перед бегством: мораль сектора на исходе — строй рыхлеет и пятится, задние оглядываются (`figurePose`).
+  let waver = 0;
+  if (u.fleeAt !== null && u.row !== 'general' && t > u.fleeAt - WAVER_SECONDS) {
+    waver = clamp01((t - (u.fleeAt - WAVER_SECONDS)) / WAVER_SECONDS);
+    z -= fwd * 0.6 * waver;
+    loose = Math.max(loose, 1 + 0.7 * waver);
+    if (waver > 0.5) fighting = false;
   }
-  // Погоня: победитель после слома противника идёт следом шагом и останавливается.
+
+  // Погоня: противник сломан. Кто быстрее бегущих, гонит их (`chaseTargets`); остальные идут следом шагом и встают.
   const foeBroke = plan.brokenAt[other(u.side)];
-  if (foeBroke !== null && t > foeBroke && (u.row === 'front' || u.row === 'general')) {
-    const go = Math.min(6, (t - foeBroke) * WALK_SPEED);
-    z += fwd * go;
-    if (go < 6) {
-      clip = 'march';
+  if (foeBroke !== null && t > foeBroke && u.row !== 'reserve') {
+    if (u.chase) {
+      const target = plan.units[u.chase.target];
+      const dt = Math.min(t, u.chase.from + CHASE_SECONDS) - u.chase.from;
+      const tp = unitPose(plan, target, u.chase.from + dt);
+      const sT = target.ours ? -1 : 1;
+      const k = ease(clamp01(dt / 2.5));
+      x += (tp.x - x) * k;
+      z += (tp.z - sT * CHASE_GAP - z) * k;
+      const running = t < u.chase.from + CHASE_SECONDS;
+      return { x, z, yaw: u.yaw, clip: running ? 'run' : 'idle', rate: 1, flee: 0, fleeRun: 0, loose: running ? 1.6 : 1.2, fighting: false, waver: 0 };
+    }
+    if (u.row === 'front' || u.row === 'general') {
+      const go = Math.min(6, (t - foeBroke) * WALK_SPEED);
+      z += fwd * go;
+      clip = go < 6 ? 'march' : 'idle';
       rate = 1;
-    } else clip = 'idle';
-    fighting = false;
+      fighting = false;
+      loose = 1;
+    }
   }
-  return { x, z, yaw: u.yaw, clip, rate, flee, loose, fighting };
+  return { x, z, yaw: u.yaw, clip, rate, flee: 0, fleeRun: 0, loose, fighting, waver };
 }
 
 /** Кадр фигур: место, разворот, клип и время клипа — плоскими массивами, без мусора. */
@@ -1043,7 +1344,7 @@ export interface FigureFrame {
   yaw: Float32Array;
   clip: Uint8Array;
   time: Float32Array;
-  /** Фигура видна: бежавшие за краем поля и упавшие давно — тоже видны (лежат). */
+  /** Фигура видна: павшие лежат и видны; бежавшие за край поля гаснут. */
   shown: Uint8Array;
 }
 
@@ -1061,9 +1362,125 @@ export function figureFrame(n: number): FigureFrame {
 
 const CLIP_INDEX: Record<ClipId, number> = { idle: 0, march: 1, run: 2, guard: 3, strike: 4, shoot: 5, fall: 6 };
 
+/** Положение одной фигуры — для кадра и для места павшего. */
+export interface FigureState {
+  x: number;
+  z: number;
+  yaw: number;
+  clip: ClipId;
+  /** Время клипа: своя фаза, разгон шага, миг срыва стрелы. */
+  time: number;
+  shown: boolean;
+}
+
+export const figureState = (): FigureState => ({ x: 0, z: 0, yaw: 0, clip: 'idle', time: 0, shown: true });
+
+/** Бежавший за краем поля гаснет: дальше смотреть не на что, а инстанс — лишний. */
+const offField = (plan: TwPlan, x: number, z: number): boolean => {
+  const f = plan.field;
+  return z < f.minZ + 4 || z > f.maxZ - 4 || Math.abs(x) > f.halfX - 4;
+};
+
+/** Место на своём пути (квадратичная дуга) на секунде `t`: фигура в пути бежит, пришедшая — стоит или рубится. */
+function pathPose(plan: TwPlan, i: number, t: number, out: FigureState): boolean {
+  const o = i * PATH;
+  const p = plan.path;
+  const k = clamp01((t - plan.goAt[i]) / Math.max(1e-3, p[o + 7]));
+  const a = (1 - k) * (1 - k);
+  const b = 2 * (1 - k) * k;
+  const c = k * k;
+  out.x = a * p[o] + b * p[o + 2] + c * p[o + 4];
+  out.z = a * p[o + 1] + b * p[o + 3] + c * p[o + 5];
+  if (k < 1) {
+    const dx = 2 * (1 - k) * (p[o + 2] - p[o]) + 2 * k * (p[o + 4] - p[o + 2]);
+    const dz = 2 * (1 - k) * (p[o + 3] - p[o + 1]) + 2 * k * (p[o + 5] - p[o + 3]);
+    out.yaw = Math.atan2(dx, dz);
+    out.clip = 'run';
+    return false;
+  }
+  out.yaw = p[o + 6];
+  out.clip = 'guard';
+  return true;
+}
+
 /**
- * Разложить кадр по фигурам. Павший лежит там, где упал: его место — место отряда в мгновение гибели, а не
- * нынешнее (иначе тела уезжали бы вместе с бегущими).
+ * Положение фигуры на секунде `t`: место в строю отряда (или свой путь), разброс рыхлого строя, свалка у линии, дрожь
+ * перед бегством, поток бегущих. `pose` — положение её отряда, если уже посчитано (кадр считает его раз на отряд).
+ */
+export function figurePose(plan: TwPlan, i: number, t: number, pose: UnitPose | null, out: FigureState): FigureState {
+  const u = plan.units[plan.unitOf[i]];
+  const seed = plan.cast.seed;
+  const s = u.ours ? -1 : 1;
+  const phase = plan.phase[i];
+  out.shown = true;
+  const go = plan.goAt[i];
+  if (go < t) {
+    // Свой путь: резерв в дыру, отряд в обход. Побежал отряд — фигура бежит от того места, где была в миг слома.
+    const fled = u.fleeAt !== null && t > u.fleeAt;
+    const arrived = pathPose(plan, i, fled ? Math.max(go, u.fleeAt!) : t, out);
+    if (fled) {
+      const dt = t - u.fleeAt!;
+      const run = fleeDistance(dt) * (0.85 + 0.3 * hash(seed, i, 14));
+      out.z += s * run;
+      out.x += (hash(seed, i, 15) - 0.5) * 0.5 * run;
+      out.yaw = u.yaw + Math.PI * ease(dt / TURN_SECONDS);
+      out.clip = 'run';
+      out.time = t + phase;
+      out.shown = !offField(plan, out.x, out.z);
+      return out;
+    }
+    if (arrived) {
+      const enemy = other(u.side);
+      const foeBroke = plan.brokenAt[enemy];
+      const contact = t > plan.clashAt && separationOf(plan, t) < 0.3 && (foeBroke === null || t < foeBroke);
+      if (plan.goFight[i] && contact) {
+        // В свалке: вперёд-назад по своему развороту, как передние шеренги отряда.
+        const sway = SCRUM_SWAY * Math.sin(2.3 * t + phase * 1.7);
+        out.x += Math.sin(out.yaw) * sway;
+        out.z += Math.cos(out.yaw) * sway;
+        out.clip = 'strike';
+      } else if (foeBroke !== null && t > foeBroke) out.clip = 'idle';
+    }
+    out.time = t + phase;
+    return out;
+  }
+  const q = pose ?? unitPose(plan, u, t);
+  const c = Math.cos(q.yaw);
+  const sn = Math.sin(q.yaw);
+  let ox = plan.lx[i];
+  let oz = plan.lz[i];
+  // Рыхлость строя — разброс от своего места, а не от середины: шеренги остаются шеренгами, только кривыми.
+  if (q.loose > 1) {
+    ox += (hash(seed, i, 11) - 0.5) * (q.loose - 1) * 0.9;
+    oz += (hash(seed, i, 12) - 0.5) * (q.loose - 1) * 0.9;
+  }
+  const rank = plan.rank[i];
+  // Свалка: передние шеренги ходят вперёд-назад каждая в своём такте — линия не стоит стеной.
+  if (q.fighting && rank < 3) oz += SCRUM_SWAY * (rank === 0 ? 1 : 0.6) * Math.sin(2.3 * t + phase * 1.7);
+  out.x = q.x + ox * c + oz * sn;
+  out.z = q.z - ox * sn + oz * c;
+  out.yaw = q.yaw;
+  let clip = q.clip;
+  // Дрожь: задние оглядываются через плечо — каждый в свою сторону.
+  if (q.waver > 0 && hash(seed, i, 17) < 0.45) out.yaw += (hash(seed, i, 18) - 0.5) * 2.4 * q.waver;
+  if (q.fleeRun > 0) {
+    // Поток бегущих: кто резвее, кто отстал — блок рассыпается в толпу.
+    out.z += s * q.fleeRun * (hash(seed, i, 14) * 0.3 - 0.15);
+    out.x += (hash(seed, i, 15) - 0.5) * 0.12 * q.fleeRun;
+    out.shown = !offField(plan, out.x, out.z);
+  }
+  // В сече рубятся две передние шеренги, остальные в упоре.
+  if (clip === 'guard' && q.fighting && rank < 2) clip = 'strike';
+  out.clip = clip;
+  out.time = clip === 'shoot' ? shootTime(plan, u, t, i) : t * q.rate + phase;
+  return out;
+}
+
+const scratch = figureState();
+
+/**
+ * Разложить кадр по фигурам. Павший лежит там, где упал: его место — место фигуры в мгновение гибели, а не нынешнее
+ * (иначе тела уезжали бы вместе с бегущими).
  */
 export function poseFigures(plan: TwPlan, t: number, out: FigureFrame): void {
   const poses = plan.units.map((u) => unitPose(plan, u, t));
@@ -1080,29 +1497,14 @@ export function poseFigures(plan: TwPlan, t: number, out: FigureFrame): void {
         out.time[i] = t - plan.deathAt[i];
         continue;
       }
-      const q = p;
-      const c = Math.cos(q.yaw);
-      const sn = Math.sin(q.yaw);
-      const loose = q.loose;
-      const ox = plan.lx[i];
-      const oz = plan.lz[i];
-      // Рыхлость строя — разброс от своего места, а не от середины: шеренги остаются шеренгами, только кривыми.
-      const jx = loose > 1 ? (hash(plan.cast.seed, i, 11) - 0.5) * (loose - 1) * 0.9 : 0;
-      const jz = loose > 1 ? (hash(plan.cast.seed, i, 12) - 0.5) * (loose - 1) * 0.9 : 0;
-      const lxw = ox + jx;
-      const lzw = oz + jz;
-      const x = q.x + lxw * c + lzw * sn;
-      const z = q.z - lxw * sn + lzw * c;
-      out.x[i] = x;
-      out.z[i] = z;
-      out.y[i] = heightAt(plan.field, x, z);
+      const q = figurePose(plan, i, t, p, scratch);
+      out.x[i] = q.x;
+      out.z[i] = q.z;
+      out.y[i] = heightAt(plan.field, q.x, q.z);
       out.yaw[i] = q.yaw;
-      out.shown[i] = 1;
-      let clip = q.clip;
-      // В сече рубятся две передние шеренги, остальные в упоре.
-      if (clip === 'guard' && q.fighting && plan.rank[i] < 2) clip = 'strike';
-      out.clip[i] = CLIP_INDEX[clip];
-      out.time[i] = clip === 'shoot' ? shootTime(plan, u, t, i) : t * q.rate + plan.phase[i];
+      out.shown[i] = q.shown ? 1 : 0;
+      out.clip[i] = CLIP_INDEX[q.clip];
+      out.time[i] = q.time;
     }
   }
 }
