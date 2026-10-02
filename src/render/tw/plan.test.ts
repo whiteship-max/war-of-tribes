@@ -4,7 +4,8 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { QUALITIES, type Quality } from '../quality';
-import { standBattle } from '../battle-stand';
+import { STAND_GROUND, standBattle } from '../battle-stand';
+import { GROUND_CROSSING, GROUND_LAND, GROUND_RIDGE } from '@/world/place';
 import { twPlanOfRecord } from './record';
 import { TW_SPEC } from './spec';
 import {
@@ -193,6 +194,46 @@ describe('ролик TW: гибель и время', () => {
       if (u.face === 'wolf') expect(u.banner).toBeNull();
       else expect(u.banner).not.toBeNull();
     }
+  });
+});
+
+describe('ролик TW: переправа', () => {
+  it('стенд штрафует место нападающему числами мира: лес и холмы, гребень, переправа', () => {
+    expect(STAND_GROUND.land).toBe(GROUND_LAND.hills);
+    expect(STAND_GROUND.land).toBe(GROUND_LAND.forest);
+    expect(STAND_GROUND.ridge).toBe(GROUND_RIDGE);
+    expect(STAND_GROUND.crossing).toBe(GROUND_CROSSING);
+  });
+
+  it('штраф переправы ядра — река между линиями, нападающий её переходит и бьётся из воды', () => {
+    const p = planOf('replay=tw&men=400&foe=400&seed=5&place=river,ford&hour=12');
+    expect(p.crossing).toBe('attacker');
+    const r = p.field.river!;
+    expect(r.between).toBe(true);
+    // Река — между построениями сторон, у линии соприкосновения со стороны нападающего.
+    const a = p.deployZ.attacker;
+    const d = p.deployZ.defender;
+    expect((r.z - a) * (d - a)).toBeGreaterThan(0);
+    expect(Math.abs(r.z)).toBeLessThan(Math.abs(a));
+    // На сближении нападающий в воде идёт медленнее, чем по суше.
+    let wet = 0;
+    let dry = 0;
+    for (let t = 3; t < p.clashAt; t += 0.05) {
+      const adv = advanceOf(p, 'attacker', t);
+      const z = a + Math.sign(d - a) * adv.dist;
+      if (Math.abs(z - r.z) < r.half - 0.2) wet = Math.max(wet, adv.speed);
+      else dry = Math.max(dry, adv.speed);
+    }
+    expect(wet).toBeGreaterThan(0);
+    expect(wet).toBeLessThan(dry);
+    // Через реку не разбегаются: бега у нападающего нет.
+    for (let t = 3; t < p.clashAt; t += 0.1) expect(advanceOf(p, 'attacker', t).running).toBe(false);
+  });
+
+  it('без штрафа (манёвр снял или стенд без него) — река не между линиями', () => {
+    const p = planOf('replay=tw&men=400&foe=400&seed=5&place=river,ford&hour=12&ground=0');
+    expect(p.crossing).toBeNull();
+    expect(p.field.river?.between).toBe(false);
   });
 });
 

@@ -18,6 +18,7 @@
 //   &at=volley|clash|charge|rout — моменты действия, найденные в журнале
 //   &snap=имя отправить кадр на dev-сервер (POST /__snap → snaps/имя.png)
 //   &dpr=2    плотность пикселей снимка;  &speed=2 быстрее реального времени
+//   &ground=0 бой без штрафа места (по умолчанию нападающему — как у мира: лес, холмы, гребень, переправа)
 //   &beasts=1 к воротам пришла стая: `foe` волков (лёгкая конница ядра, как `LocalWorld.gateParty`)
 //             нападает, `men` наших защищаются; волки одеты псовыми (docs/graphics_world.md, 11.4)
 //
@@ -33,7 +34,7 @@ import { groundName, hourName, type BattleLand, type BattlePlace } from '@/game/
 import { DAY_LENGTH } from '@/game/constants';
 import { type TroopStack } from '@/game/battle/kinds';
 import { kindsOf } from '@/game/battle/price';
-import type { BattleResult, Side, Stack } from '@/battle/types';
+import type { BattleResult, GroundPenalty, Side, Stack } from '@/battle/types';
 import { configureRenderer } from './lighting';
 import { ReplayPlayer } from './battle/player';
 import { nextFrame, pixelRatio } from './loop';
@@ -79,9 +80,28 @@ function placeOf(p: URLSearchParams): BattlePlace | undefined {
   return place;
 }
 
-function fight(a: Stack, d: Stack, seed: number): BattleResult {
-  // Обе стороны встают по правилу развёртывания — как в игре: пресетов больше нет (docs/battle_eu4.md, 14.5).
-  return simulateBattle({ seed, attacker: deploySetup(a), defender: deploySetup(d) });
+/**
+ * Штраф места нападающему — как его кладёт мир (`world/place.groundAt`, таблица EU4): лес и холмы −1, гребень −2,
+ * переправа −1. Числа здесь, а не импортом: таблица мира живёт в куске первой загрузки, и ленивый стенд вытянул бы
+ * её наружу лишним именем; что они те же, сверяет тест (`tw/plan.test.ts`). `&ground=0` — бой без штрафа.
+ */
+export const STAND_GROUND = { land: 1, ridge: 2, crossing: 1 } as const;
+
+export function standGround(place: BattlePlace | undefined): GroundPenalty | undefined {
+  if (!place) return undefined;
+  let land = place.land === 'hills' || place.woods ? STAND_GROUND.land : 0;
+  if (place.ridge) land = Math.max(land, STAND_GROUND.ridge);
+  const crossing = place.river ? STAND_GROUND.crossing : 0;
+  const out: GroundPenalty = {};
+  if (land > 0) out.land = land;
+  if (crossing > 0) out.crossing = crossing;
+  return land > 0 || crossing > 0 ? out : undefined;
+}
+
+function fight(a: Stack, d: Stack, seed: number, ground?: GroundPenalty): BattleResult {
+  // Обе стороны встают по правилу развёртывания — как в игре: пресетов больше нет (docs/battle_eu4.md, 14.5). Штраф
+  // места — только нападающему, как у мира (`world/battle.resolveField`).
+  return simulateBattle({ seed, attacker: { ...deploySetup(a), ...(ground ? { ground } : {}) }, defender: deploySetup(d) });
 }
 
 /** Именованные моменты ролика: по ним снимают кадры приёмки. */
@@ -152,13 +172,14 @@ export function standBattle(p: URLSearchParams): StandBattle {
   const mine = armyOf(men);
   const theirs = p.get('foeKinds') === '1' ? null : armyOf(foe);
   const place = placeOf(p);
+  const ground = p.get('ground') === '0' ? undefined : standGround(place);
   if (beasts) {
     // Стая у ворот — как в игре: волки нападают лёгкой конницей без снаряжения, состава племени у них нет, и
     // запись боя несёт только их сторону (`BattleRecord.beasts`).
-    const result = fight({ ...emptyStack(), cavalry: foe }, kindsOf(mine), seed);
+    const result = fight({ ...emptyStack(), cavalry: foe }, kindsOf(mine), seed, ground);
     return { men, foe, seed, beasts, us, result, troops: { attacker: {}, defender: mine }, place, beastSide: 'attacker' };
   }
-  const result = fight(kindsOf(mine), theirs ? kindsOf(theirs) : { ...emptyStack(), infantry: foe }, seed);
+  const result = fight(kindsOf(mine), theirs ? kindsOf(theirs) : { ...emptyStack(), infantry: foe }, seed, ground);
   // Чужой состав — как в игре: из родов и ступени снаряжения (`foeKinds=1` показывает именно этот путь, а не поимённый).
   const foeTroops = theirs ?? troopsOfKinds(result.sides.defender.initial, { infantry: 3 });
   return { men, foe, seed, beasts, us, result, troops: { attacker: mine, defender: foeTroops }, place, beastSide: undefined };

@@ -54,9 +54,28 @@ float twN = twNoise(vTwWorld.xz * 0.55) * 0.55 + twNoise(vTwWorld.xz * 2.3) * 0.
 diffuseColor.rgb *= mix(0.88, 1.1, twN);
 `;
 
-/** Подстилка за полем: земля до горизонта, грубой сеткой; под полем она опущена и не видна. */
+/** Подстилка за полем: земля до горизонта, грубой сеткой; под плитой она опущена и не видна. */
 const SKIRT_HALF = 700;
 const SKIRT_CELLS = 56;
+const SKIRT_CELL = (SKIRT_HALF * 2) / SKIRT_CELLS;
+/**
+ * Плита шире поля на столько: её край уходит в дымку, а мелкая пестрота земли к краю гаснет до той же гладкой
+ * окраски, что у подстилки, — шва между ними не видно (самопроверка, круг 4: шов читался линией горизонта).
+ */
+const PLATE_MARGIN = 45;
+const EDGE_FADE = 32;
+
+interface Rect {
+  halfX: number;
+  minZ: number;
+  maxZ: number;
+}
+
+const plateRect = (f: TwField): Rect => ({ halfX: f.halfX + PLATE_MARGIN, minZ: f.minZ - PLATE_MARGIN, maxZ: f.maxZ + PLATE_MARGIN });
+
+/** Насколько точка внутри плиты: 0 — на её краю и снаружи, 1 — дальше `EDGE_FADE` от края. */
+const inside = (r: Rect, x: number, z: number): number =>
+  smoothstep(0, EDGE_FADE, Math.min(r.halfX - Math.abs(x), z - r.minZ, r.maxZ - z));
 
 export interface FieldView {
   group: THREE.Group;
@@ -70,19 +89,21 @@ const C = new THREE.Color();
 const C2 = new THREE.Color();
 
 /** Цвет земли в точке: трава пятнами, вытоптанное там, где стоят и сходятся строи, ил у воды, снег зимой. */
-function groundColor(f: TwField, plan: TwPlan, x: number, z: number, y: number, out: THREE.Color): THREE.Color {
+function groundColor(f: TwField, plan: TwPlan, x: number, z: number, y: number, out: THREE.Color, detail = 1): THREE.Color {
   const n1 = vnoise(x / 9, z / 9, f.seed + 21);
-  const n2 = vnoise(x / 3.1, z / 3.1, f.seed + 22);
+  // Мелкая пестрота гаснет к краю плиты: подстилка её не держит, и на шве они сходятся одной гладкой окраской.
+  const n2 = 0.5 + (vnoise(x / 3.1, z / 3.1, f.seed + 22) - 0.5) * detail;
   out.set(TONE.grass);
   out.lerp(C2.set(TONE.grassDry), smoothstep(0.45, 0.8, n1) * 0.75);
   out.lerp(C2.set(TONE.grassDark), smoothstep(0.55, 0.15, n1) * 0.5);
   out.lerp(C2.set(TONE.clover), smoothstep(0.7, 0.95, n2) * 0.35);
-  // Вытоптанное: полоса сшибки и полосы построения — там стояли и шли тысячи ног.
-  const contact = smoothstep(7, 1.5, Math.abs(z)) * (0.55 + 0.45 * n2);
+  // Вытоптанное — слегка: бой ещё не начался, а земля между строями — та, по которой пойдут. Сильнее — читалось
+  // грязной полосой поперёк поля (самопроверка, круг 4).
+  const contact = smoothstep(6, 1.5, Math.abs(z)) * (0.2 + 0.15 * n2);
   let deploy = 0;
-  for (const side of ['attacker', 'defender'] as const) deploy = Math.max(deploy, smoothstep(4.5, 1, Math.abs(z - plan.deployZ[side])) * 0.35);
+  for (const side of ['attacker', 'defender'] as const) deploy = Math.max(deploy, smoothstep(4.5, 1, Math.abs(z - plan.deployZ[side])) * 0.15);
   const across = smoothstep(plan.field.halfX - 20, plan.field.halfX - 40, Math.abs(x));
-  const tramp = Math.max(contact, deploy) * across * smoothstep(0.25, 0.6, n1 + n2 * 0.4);
+  const tramp = Math.max(contact, deploy) * across * smoothstep(0.25, 0.6, n1 + n2 * 0.4) * detail;
   out.lerp(C2.set(TONE.dirt), tramp * 0.7);
   if (f.road) {
     const rx = 7 + Math.sin(z / 30 + f.seed) * 5;
@@ -113,13 +134,14 @@ function groundColor(f: TwField, plan: TwPlan, x: number, z: number, y: number, 
 
 /** Плита поля: сетка высот с цветом в вершинах. */
 function plate(f: TwField, plan: TwPlan, cells: number): THREE.BufferGeometry {
-  const w = f.halfX * 2;
-  const d = f.maxZ - f.minZ;
+  const r = plateRect(f);
+  const w = r.halfX * 2;
+  const d = r.maxZ - r.minZ;
   const nx = cells;
   const nz = Math.max(8, Math.round((cells * d) / w));
   const geo = new THREE.PlaneGeometry(w, d, nx, nz);
   geo.rotateX(-Math.PI / 2);
-  geo.translate(0, 0, (f.minZ + f.maxZ) / 2);
+  geo.translate(0, 0, (r.minZ + r.maxZ) / 2);
   const pos = geo.attributes.position;
   const col = new Float32Array(pos.count * 3);
   for (let i = 0; i < pos.count; i++) {
@@ -127,7 +149,7 @@ function plate(f: TwField, plan: TwPlan, cells: number): THREE.BufferGeometry {
     const z = pos.getZ(i);
     const y = heightAt(f, x, z);
     pos.setY(i, y);
-    groundColor(f, plan, x, z, y, C);
+    groundColor(f, plan, x, z, y, C, inside(r, x, z));
     col[i * 3] = C.r;
     col[i * 3 + 1] = C.g;
     col[i * 3 + 2] = C.b;
@@ -147,12 +169,14 @@ function skirt(f: TwField, plan: TwPlan): THREE.BufferGeometry {
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i);
     const z = pos.getZ(i);
-    const inside = Math.abs(x) < f.halfX - 1 && z > f.minZ + 1 && z < f.maxZ - 1;
+    // Под плитой (с запасом в клетку подстилки) подстилка опущена: её грубые треугольники не протыкают плиту.
+    const r = plateRect(f);
+    const under = Math.abs(x) < r.halfX - SKIRT_CELL && z > r.minZ + SKIRT_CELL && z < r.maxZ - SKIRT_CELL;
     // Дальние холмы: подстилка поднимается к горизонту, чтобы край земли не читался диском.
-    const far = Math.max(Math.abs(x) - f.halfX, z - f.maxZ, f.minZ - z, 0);
-    const y = inside ? heightAt(f, x, z) - 2.5 : heightAt(f, x, z) + smoothstep(40, 400, far) * (vnoise(x / 90, z / 90, f.seed + 5) * 26);
+    const far = Math.max(Math.abs(x) - r.halfX, z - r.maxZ, r.minZ - z, 0);
+    const y = under ? heightAt(f, x, z) - 2.5 : heightAt(f, x, z) - 0.12 + smoothstep(40, 400, far) * (vnoise(x / 90, z / 90, f.seed + 5) * 26);
     pos.setY(i, y);
-    groundColor(f, plan, x, z, y, C);
+    groundColor(f, plan, x, z, y, C, 0);
     C.lerp(C2.set(f.winter ? TONE.snowShade : TONE.grassDark), smoothstep(60, 500, far) * 0.4);
     col[i * 3] = C.r;
     col[i * 3 + 1] = C.g;

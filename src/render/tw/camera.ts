@@ -82,7 +82,9 @@ export function overview(box: { minX: number; maxX: number; minZ: number; maxZ: 
   const d = box.maxZ - box.minZ;
   const across = Math.abs(Math.cos(yaw)) * w + Math.abs(Math.sin(yaw)) * d;
   const along = Math.abs(Math.sin(yaw)) * w + Math.abs(Math.cos(yaw)) * d;
-  const byW = (across / 2) / Math.tan(hHalf);
+  // Ближний край прямоугольника ближе цели, и перспектива делает его шире: ширина меряется на нём, а не на цели
+  // (тест «общий вид влезает в портрет» поймал вылет ближних углов за край экрана).
+  const byW = (across / 2) / Math.tan(hHalf) + (along / 2) * Math.cos(pitch);
   // Глубина, видимая под наклоном, сжата синусом; запас — на дальний край, который перспектива уменьшает.
   const byD = ((along / 2) * Math.sin(pitch)) / Math.tan(vHalf) + (along / 2) * Math.cos(pitch);
   return { tx: (box.minX + box.maxX) / 2, tz: (box.minZ + box.maxZ) / 2, dist: Math.max(byW, byD) * 1.08, yaw, pitch };
@@ -348,6 +350,12 @@ export class TacticalCamera {
       if (turned > TWIST_LOCK) two.mode = 'twist';
       else if (pinched > PINCH_LOCK) two.mode = 'pinch';
       else if (tilted > TILT_LOCK && pinched < PINCH_LOCK / 2) two.mode = 'tilt';
+      // Защёлкнулись — жест засчитывается с начала, а не с порога: иначе поворот на 45° давал бы 35°.
+      if (two.mode !== 'free') {
+        two.span = two.startSpan;
+        two.angle = two.startAngle;
+        two.midY = two.startMidY;
+      }
     }
     if (two.mode !== 'free') this.take();
     if (two.mode === 'pinch' || two.mode === 'twist') {
@@ -355,7 +363,8 @@ export class TacticalCamera {
       this.panScreen(el, two.midX, two.midY, midX, midY, performance.now());
       this.zoomAt(el, midX, midY, two.span / span);
     }
-    if (two.mode === 'twist') this.goal.yaw -= wrap(angle - two.angle);
+    // Поле крутится за пальцами: повернули пальцы по часовой — по часовой повернулась и земля под ними.
+    if (two.mode === 'twist') this.goal.yaw += wrap(angle - two.angle);
     if (two.mode === 'tilt') this.goal.pitch = clamp(this.goal.pitch + (midY - two.midY) * TILT_PER_PX, PITCH_MIN, PITCH_MAX);
     two.span = span;
     two.angle = angle;

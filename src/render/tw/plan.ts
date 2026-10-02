@@ -122,8 +122,9 @@ export const HOLD_HALF = 3;
 export const INTRO_SECONDS = 12;
 /** Потолок ролика — прежний (docs/battle_tw.md, раздел 7). */
 export const MAX_SECONDS = 70;
-/** С какой секунды линии идут навстречу: до этого видно построение. */
+/** С какой секунды линии идут навстречу: до этого видно построение. Кому идти дальше — раньше. */
 export const ADVANCE_FROM = 2.5;
+export const ADVANCE_EARLY = 1;
 /** Сколько секунд перед сшибкой идут бегом, и во сколько раз бег быстрее шага. */
 export const RUN_LAST = 2.2;
 export const RUN_FACTOR = 2.4;
@@ -489,7 +490,7 @@ export function buildPlan(input: PlanInput): TwPlan {
   const contactZ = {} as Record<Side, number>;
   for (const side of SIDES2) {
     contactZ[side] = sign(side) * CONTACT_HALF;
-    const d = holds === null ? DEPLOY_HALF : side === holds ? HOLD_HALF : DEPLOY_HALF * 2 - HOLD_HALF;
+    const d = holds === null ? DEPLOY_HALF : side === holds ? HOLD_HALF : DEPLOY_HALF + HOLD_HALF;
     deployZ[side] = sign(side) * d;
   }
 
@@ -875,9 +876,12 @@ export interface UnitPose {
  */
 export function advanceOf(plan: TwPlan, side: Side, t: number, walkOnly = false): { dist: number; speed: number; running: boolean } {
   const total = Math.abs(plan.deployZ[side] - plan.contactZ[side]);
-  const t0 = ADVANCE_FROM;
+  const water = waterSpan(plan, side);
+  // Кому идти дальше (к гребню или через реку), тот трогается раньше: шаг не должен срываться в бег.
+  const t0 = total > DEPLOY_HALF + 1 ? ADVANCE_EARLY : ADVANCE_FROM;
   const t1 = Math.max(t0 + 0.5, plan.clashAt);
-  const run = Math.min(RUN_LAST, (t1 - t0) * 0.4);
+  // Через реку не разбегаются: нападающий переходит её шагом и бьётся у берега из воды — это и есть штраф переправы.
+  const run = water ? 0 : Math.min(RUN_LAST, (t1 - t0) * 0.4);
   // Вторая линия, резерв и полководец бегом не идут: в бег срывается только первая, и разрыв растёт.
   if (walkOnly && t > t1 - run) {
     const a = advanceOf(plan, side, t1 - run);
@@ -892,7 +896,6 @@ export function advanceOf(plan: TwPlan, side: Side, t: number, walkOnly = false)
     return Math.max(0, walk) + ran * RUN_FACTOR;
   };
   const full = effort(t1);
-  const water = waterSpan(plan, side);
   // Путь, пересчитанный водой: метр воды стоит 1/WATER_SLOW метров суши.
   const cost = total + (water ? water[1] - water[0] : 0) * (1 / WATER_SLOW - 1);
   const e = (effort(t) / full) * cost;
