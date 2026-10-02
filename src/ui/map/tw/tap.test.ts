@@ -66,7 +66,7 @@ const march = (o: Partial<MarchView>): MarchView =>
     own: false,
     hostile: true,
     phase: 'out',
-    units: { spearman: 30 },
+    units: { warrior: 30 },
     from: { x: AT.x - 6, y: AT.y },
     to: { x: AT.x + 6, y: AT.y },
     // На минуте проверки отряд прошёл 47/120 пути: положение дробное (−1.3 клетки от середины), и клетка
@@ -204,7 +204,7 @@ describe('цель пальца: каждый объект открываетс�
         expect(aimAt(aimsOf([], hosts, []), p[0], p[1], false), `отряд ×${scale}`).toEqual(want);
       }
       // Лагерь у цели стоит сбоку от неё, а тап по нему — тап по цели.
-      const camp = march({ phase: 'stay', units: { spearman: 30 }, to: { x: AT.x, y: AT.y } });
+      const camp = march({ phase: 'stay', units: { warrior: 30 }, to: { x: AT.x, y: AT.y } });
       const ch = hostItems(cam, VP, [camp], discs, START, DPR);
       const cb = ch[0].body;
       for (const p of fingerPoints((cb.x0 + cb.x1) / 2, (cb.y0 + cb.y1) / 2)) {
@@ -318,7 +318,7 @@ describe('размер чужого отряда — только в живом 
 
   it('неувиденный чужой отряд — слух без фигур, увиденный — с ними', () => {
     const cam = camAt(AT.x, AT.y, SCALE_START);
-    const m = march({ units: { spearman: 40 } });
+    const m = march({ units: { warrior: 40 } });
     expect(hostItems(cam, VP, [m], [], START, DPR)[0].look.size).toBe(0);
     expect(hostItems(cam, VP, [m], [{ x: AT.x, y: AT.y, r: 30 }], START, DPR)[0].look.size).toBeGreaterThan(0);
   });

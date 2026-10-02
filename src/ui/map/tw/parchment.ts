@@ -1,6 +1,6 @@
 // Край старой карты (docs/map_tw.md, раздел 4, «Края»): неразведанное — не тёмное пятно, а пергамент с
-// чернильным берегом и штрихами гор, край знания — неровный, словно обгоревший. Это проба вида для
-// стенда (этап 1): в игре туман рисует `fog.ts`, и заменять его — решение этапа 2.
+// чернильным берегом и штрихами гор, край знания — неровный, словно обгоревший. В игре нового вида он
+// заменяет тёмную дымку прежнего тумана (`tw/fog.ts`, этап 2): печётся по кускам карты, в кадре — копирование.
 //
 // Печётся один раз на область холстом «клетка — несколько пикселей»: в кадре — копирование.
 import type { Terrain } from '@/world/types';
@@ -17,15 +17,21 @@ export interface ParchmentArea {
   h: number;
 }
 
-/** Пикселей на клетку холста пергамента. */
-const PX = 6;
+/** Пикселей на клетку холста пергамента: стенд — 6; игра печёт по кускам карты мельче (`tw/fog.ts`). */
+export const PARCHMENT_PX = 6;
 
 /**
  * Пергамент над областью: `known(x, y)` — разведана ли точка мира (дробные координаты), `sample` —
  * класс клетки. Берег и горы на пергаменте — из того же атласа: старая карта знает землю, но не знает,
  * что на ней.
  */
-export function bakeParchment(seed: number, area: ParchmentArea, sample: (x: number, y: number) => Terrain | null, known: (x: number, y: number) => number): HTMLCanvasElement {
+export function bakeParchment(
+  seed: number,
+  area: ParchmentArea,
+  sample: (x: number, y: number) => Terrain | null,
+  known: (x: number, y: number) => number,
+  PX = PARCHMENT_PX,
+): HTMLCanvasElement {
   const W = area.w * PX;
   const H = area.h * PX;
   const canvas = makeCanvas(W, H);
@@ -133,4 +139,3 @@ export function bakeParchment(seed: number, area: ParchmentArea, sample: (x: num
   return canvas;
 }
 
-export const PARCHMENT_PX = PX;

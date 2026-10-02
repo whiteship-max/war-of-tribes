@@ -15,7 +15,7 @@ import { type Camera, type Viewport, detailAlpha, toScreen, viewRect } from '../
 import { drawGrid, drawGround, markersOf, settlementsIn } from '../detail';
 import { drawOverview, drawPaper, drawSpot } from '../frame';
 import { drawZones } from '../zones';
-import { drawFog } from '../fog';
+import { drawTwFog } from './fog';
 import { drawAgent } from '../agent';
 import type { MarkerKind } from '../village';
 import { FELL_WORDS, LABEL_MAX_PX, fellShown, fitLabel, worksStand, worksStep } from '../siegemark';
@@ -344,7 +344,9 @@ export function drawTwFrame(ctx: CanvasRenderingContext2D, cam: Camera, vp: View
   const places = placeItems(cam, vp, settlementsIn(rect), dpr);
   drawPlaces(ctx, cam, places, dpr, now, markersOf(state.marches));
 
-  drawFog(ctx, cam, vp);
+  // Неразведанное — лист старой карты, разведанное вне обзора — сепия (`tw/fog.ts`): поверх мест, под всем,
+  // что движется, — как прежний туман.
+  drawTwFog(ctx, cam, vp);
   drawPaper(ctx, vp);
 
   // Живой обзор — один раз на кадр, тем же модулем, что у мира (`world/sight` через `sightDiscs`).

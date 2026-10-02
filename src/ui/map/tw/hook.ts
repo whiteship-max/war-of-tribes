@@ -16,6 +16,7 @@ import { settlementsIn } from '../detail';
 import { drawTwFrame, dropFrame } from './frame';
 import { dropMinis } from './mini';
 import { dropLabels } from './labels';
+import { dropTwFog } from './fog';
 import { figureItems, hostItems, placeItems } from './scene';
 import { aimAt, aimsOf } from './tap';
 
@@ -38,6 +39,7 @@ setTwSlot({
     dropMinis();
     dropLabels();
     dropFrame();
+    dropTwFog();
     dropChunks();
   },
 });
