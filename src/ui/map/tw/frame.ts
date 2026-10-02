@@ -5,20 +5,29 @@
 // Закон кадра тот же, что у прежнего (docs/world-map.md): в кадре ничего не печётся — земля, места,
 // войска, значки и подписи — копирование испечённого; путями остаются только линии походов (концы у них
 // едут каждый кадр) и наконечники хода. Что где стоит — одна правда на кадр и палец (`tw/scene.ts`).
+//
+// Карта по регионам (docs/map_tw.md, раздел 13): земля региона испечена заранее (`prebake.ts`, рабочий поток), и
+// кадр её только копирует (`layers.ts`) — в движении печь нечего. За границей региона — лист старой карты
+// (`fog.ts`): чужая земля игроку незнакома, как неразведанная. Объекты вне региона в кадр не попадают
+// (`scene.ts`).
 import { sightDiscs, useWorld, worldNow } from '@/world/store';
 import { useGame } from '@/game/store';
 import { drawNight, dropNight, nightAt } from './night';
 import { secondsLeft } from '@/world/geo';
 import { sideWorks } from '@/world/works';
 import { realLeft } from '@/ui/parts/wait';
-import type { Coord, Rect } from '@/world/types';
-import { LABEL_FROM, PALETTE } from '../const';
+import type { Coord } from '@/world/types';
+import { LABEL_FROM } from '../const';
 import { type Camera, type Viewport, detailAlpha, toScreen, viewRect } from '../grid';
-import { drawGrid, drawGround, markersOf, settlementsIn } from '../detail';
-import { drawOverview, drawPaper, drawSpot } from '../frame';
+import { drawGrid, markersOf, settlementsIn } from '../detail';
+import { drawPaper, drawSpot } from '../frame';
+import { probe, shownGaps } from '@/debug';
 import { drawTwZones, dropTwZones } from './zones';
-import { drawTwFog, prepareTwFog } from './fog';
-import { startFrame } from './gate';
+import { drawTwFog } from './fog';
+import { drawGround } from './layers';
+import { moving, prebakeFrame, prebakeIdle, prebaked } from './prebake';
+import { TW } from './palette';
+import { withinActive } from './theatre/theatre';
 import { drawAgent } from '../agent';
 import type { MarkerKind } from '../village';
 import { FELL_WORDS, LABEL_MAX_PX, fellShown, fitLabel, worksStand, worksStep } from '../siegemark';
@@ -33,6 +42,9 @@ const TOP_INSET = 52;
 const OWN = '#e8a43c';
 const INK = 'rgba(40, 28, 18, 0.85)';
 const SERIF = "Georgia, 'Times New Roman', 'Noto Serif', serif";
+
+/** Счёт недопечённого на экране — только под `?probe=1` (`npm run map:report`, «кадров с обзором»). */
+const PROBE = probe();
 
 // ---------- Испечённое: копирование ----------
 
@@ -326,6 +338,8 @@ function drawRegions(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport, d
   ctx.save();
   ctx.globalAlpha = a;
   for (const r of REGION_CELLS) {
+    // Имена морей и гор — своего региона: имя за границей легло бы на лист старой карты.
+    if (!withinActive(Math.floor(r.x), Math.floor(r.y))) continue;
     const [x, y] = toScreen(cam, vp, r.x, r.y);
     if (x < -200 || y < -40 || x > vp.w + 200 || y > vp.h + 40) continue;
     const l = regionSprite(r.name, regionSize(r.kind, cam.scale), onWater(r.kind), dpr);
@@ -373,33 +387,28 @@ function nightNow(): number {
   return s ? nightAt(s.time) : 0;
 }
 
-/** Слой земли среднего масштаба (`tw/mid.ts`) — заводит дверь вида, когда он есть. */
-let midLayer: ((ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport, rect: Rect) => void) | null = null;
-export const setMidLayer = (f: typeof midLayer): void => {
-  midLayer = f;
-};
-
 /**
- * Один кадр нового вида. Снизу вверх: пустота → обзор кусками → средний слой → тайлы → владения → сетка
- * (вблизи) → места → туман → бумага → походы → агенты → подписи → метка лупы → выбранная клетка.
+ * Один кадр нового вида. Снизу вверх: пергамент → земля региона (грубый растр, обзор, средний слой, тайлы) →
+ * владения → сетка (вблизи) → места → туман и лист за границей → бумага → походы → агенты → подписи → метка лупы →
+ * выбранная клетка. Выпечки в кадре нет: работы уходят рабочему потоку (`prebakeFrame`), а без потока страница
+ * печёт свою долю после кадра и только стоя (`prebakeIdle`).
  */
 export function drawTwFrame(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport, dpr: number, frame: number): void {
   const rect = viewRect(cam, vp);
   const near = detailAlpha(cam.scale);
   const state = useWorld.getState();
-  const seed = state.info?.seed ?? 0;
   const now = worldNow();
 
-  // Общая очередь выпечки (`gate.ts`): одна на кадр, лист над незнанием — первым.
-  startFrame(frame, near);
-  prepareTwFog(cam, vp);
-  ctx.fillStyle = PALETTE.void;
+  prebakeFrame(cam, vp, frame);
+  const ground = prebaked();
+  // Под всем — пергамент: за краем испечённого не пустота, а лист старой карты.
+  ctx.fillStyle = TW.parchment;
   ctx.fillRect(0, 0, vp.w, vp.h);
-  drawOverview(ctx, cam, vp, rect);
-  midLayer?.(ctx, cam, vp, rect);
-  if (near > 0 && seed) drawGround(ctx, cam, vp, seed, frame, near);
-  // Владения — тоньше прежних, с чертой границы по краю (`tw/zones.ts`); под туманом, как и прежде.
-  drawTwZones(ctx, cam, vp, now);
+  const gaps = ground ? drawGround(ctx, cam, vp, rect, ground) : 0;
+  if (PROBE) shownGaps(gaps);
+  // Владения — тоньше прежних, с чертой границы по краю (`tw/zones.ts`); под туманом, как и прежде. Растр — над
+  // рамкой региона и заново только при новых данных и стоя.
+  drawTwZones(ctx, cam, vp, now, ground ? { rect: ground.plan.reach, stamp: ground.dataGen, may: !moving() } : undefined);
   // Сетка координат — только вблизи и тоньше прежней: по ней прыгают к «541|822», а издали она — решётка
   // поверх карты кампании.
   drawGrid(ctx, cam, vp, near * 0.6, TOP_INSET);
@@ -408,9 +417,9 @@ export function drawTwFrame(ctx: CanvasRenderingContext2D, cam: Camera, vp: View
   const places = placeItems(cam, vp, settlementsIn(placesRect(rect)), dpr);
   drawPlaces(ctx, cam, places, dpr, now, markersOf(state.marches));
 
-  // Неразведанное — лист старой карты, разведанное вне обзора — сепия (`tw/fog.ts`): поверх мест, под всем,
-  // что движется, — как прежний туман.
-  drawTwFog(ctx, cam, vp);
+  // Незнакомое — лист старой карты (своё неразведанное и чужой регион), разведанное вне обзора — сепия
+  // (`tw/fog.ts`): поверх мест, под всем, что движется, — как прежний туман.
+  drawTwFog(ctx, cam, vp, ground);
   drawPaper(ctx, vp);
 
   // Живой обзор — один раз на кадр, тем же модулем, что у мира (`world/sight` через `sightDiscs`).
@@ -425,8 +434,12 @@ export function drawTwFrame(ctx: CanvasRenderingContext2D, cam: Camera, vp: View
 
   drawRegions(ctx, cam, vp, dpr, drawLabels(ctx, cam, vp, places, dpr, now));
 
-  if (state.spotlight) drawSpot(ctx, cam, vp, state.spotlight, now);
-  if (state.selected) drawSelected(ctx, cam, vp, state.selected);
+  // Метка лупы и выбранная клетка — только в своём регионе: за его границей лист, и метки там нечему держать.
+  if (state.spotlight && withinActive(state.spotlight.x, state.spotlight.y)) drawSpot(ctx, cam, vp, state.spotlight, now);
+  if (state.selected && withinActive(state.selected.x, state.selected.y)) drawSelected(ctx, cam, vp, state.selected);
+
+  // Страница без рабочего потока печёт свою долю — после кадра и только стоя.
+  prebakeIdle();
 }
 
 export function dropFrame(): void {

@@ -28,9 +28,12 @@ import { pixelRatio } from '@/render/loop';
 import { LABEL_FROM, PALETTE, SCALE_START } from '../const';
 import { type Camera, type Viewport, detailAlpha, tileQuad, tileRequest, toScreen, viewRect } from '../grid';
 import { TILE_SRC, prepareTiles, tileAt, tileBakes } from '../ground';
-import { chunkBitmap, overviewSrc } from '../tiles';
+import { chunkBitmap } from '../tiles';
 import { grainTile, makeCanvas, vignette } from '../paint';
-import { MID_CELLS, OVERVIEW_PX, bakeChunk, bakeMid, bakeStats, bakeTile, chunkStats, setTwLook } from './bake';
+import { MID_CELLS, OVERVIEW_BLEED, OVERVIEW_PX, bakeChunk, bakeMid, bakeStats, bakeTile, chunkStats, setTwLook } from './bake';
+import type { Canvas } from './canvas';
+import { setLand } from './land';
+import { cacheLand } from './landcache';
 import {
   BADGE_PX,
   PIN_PX,
@@ -212,7 +215,7 @@ function drawTiles(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport, old
   const alpha = detailAlpha(cam.scale);
   if (alpha <= 0) return;
   const shown = req.shown;
-  const tiles = new Map<string, HTMLCanvasElement>();
+  const tiles = new Map<string, CanvasImageSource>();
   if (old) {
     // Прежняя выпечка — своей дверью: кадр за кадром, по тайлу, пока экран не испечётся целиком.
     for (let frame = 1; frame < 400; frame++) {
@@ -257,7 +260,7 @@ function drawOverview(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport, 
   for (const { key, cx, cy } of chunkKeysIn(rect)) {
     void key;
     const r = chunkRect(cx, cy);
-    let bmp: HTMLCanvasElement | null = null;
+    let bmp: Canvas | null = null;
     if (!old) {
       const t0 = performance.now();
       const chunk = regionChunkCached(cx, cy);
@@ -271,7 +274,8 @@ function drawOverview(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport, 
     const fallback = bmp ?? chunkBitmapOf(cx, cy);
     if (!fallback) continue;
     const [sx, sy] = toScreen(cam, vp, r.x, r.y);
-    const src = overviewSrc(fallback, r.w);
+    // Кусок нового вида — картина без вылета по краю, прежний растр — клетка в пиксель целиком.
+    const src: [number, number, number, number] = bmp ? [OVERVIEW_BLEED, OVERVIEW_BLEED, r.w * OVERVIEW_PX, r.h * OVERVIEW_PX] : [0, 0, r.w, r.h];
     ctx.imageSmoothingEnabled = src[2] > r.w;
     ctx.drawImage(fallback, src[0], src[1], src[2], src[3], Math.round(sx), Math.round(sy), Math.ceil(r.w * cam.scale), Math.ceil(r.h * cam.scale));
   }
@@ -789,7 +793,7 @@ function bench(cam: Camera, dpr: number, stats: Stats): void {
   for (let pass = 0; pass < 2; pass++) {
     const keep = pass === 1;
     for (const [tx, ty] of mids) {
-      let baked: HTMLCanvasElement | null = null;
+      let baked: Canvas | null = null;
       const ms = time(() => (baked = bakeMid(SEED, tx, ty)));
       // Не испёкся (нет округи) — это не цена выпечки, а отказ: в замер не идёт.
       if (keep && baked) (stats.parts.mid ??= []).push(ms);
@@ -819,6 +823,8 @@ export function mountMapTw(root: HTMLElement, p: URLSearchParams): void {
   };
   const old = p.get('old') === '1';
   setTwLook({ quality: qualityOf(p.get('quality')) ?? 'high', season: p.get('season') === 'winter' ? 1 : 0 });
+  // Стенд кладёт куски Европы в кэш мира сам и печёт прямо по нему (docs/map_tw.md, раздел 13.4).
+  setLand(cacheLand);
 
   const { ctx, vp, dpr } = setupCanvas(root);
   const rect = viewRect(cam, vp);

@@ -31,6 +31,8 @@ export interface TheatrePlan {
   mids: { tx: number; ty: number }[];
   /** Куски, над которыми может лечь лист: всё, куда пускают камеру. */
   sheets: { cx: number; cy: number }[];
+  /** Клетка — у видимого с каймой (своё и открытое море): здесь земля нужна, дальше её целиком закрывает лист. */
+  fringe(x: number, y: number): boolean;
 }
 
 /** Байт на картинку слоя: у холста 2D подложка ровно ширина × высота × 4. */
@@ -48,17 +50,28 @@ const clipToWorld = (r: Rect): Rect => {
 
 const water = (x: number, y: number): boolean => (atlasCell(x - WORLD_ORIGIN.x, y - WORLD_ORIGIN.y) & ATLAS_CLASS) === ATLAS_WATER;
 
+/**
+ * Видит ли игрок региона `t` землю клетки (docs/map_tw.md, раздел 13.5): своя клетка — да; открытое море (ничья
+ * вода) — да: море есть море, и между своими берегами не встаёт лист; чужой край с его прибрежной водой, песчаное
+ * море и дальние острова — нет, там лист старой карты.
+ */
+export function visibleTo(t: Theatre, x: number, y: number): boolean {
+  const k = theatreIndexAt(x, y);
+  return k === t.index || (k === 0 && water(x, y));
+}
+
 const plans = new Map<number, TheatrePlan>();
 
 export function theatrePlan(t: Theatre): TheatrePlan {
   const have = plans.get(t.index);
   if (have) return have;
   const reach = clipToWorld(reachOf(t.box));
-  // Регион с каймой: клетка, у которой своя клетка региона не дальше каймы (квадратом).
+  // Регион с каймой: клетка, у которой видимая клетка не дальше каймы (квадратом). Видимо своё и открытое море
+  // (`visibleTo`): чужой край, его прибрежная вода и песчаное море — под листом.
   const F = THEATRE_FRINGE;
   const { x: rx, y: ry, w: rw, h: rh } = reach;
   const own = new Uint8Array(rw * rh);
-  for (let j = 0; j < rh; j++) for (let i = 0; i < rw; i++) own[j * rw + i] = theatreIndexAt(rx + i, ry + j) === t.index ? 1 : 0;
+  for (let j = 0; j < rh; j++) for (let i = 0; i < rw; i++) own[j * rw + i] = visibleTo(t, rx + i, ry + j) ? 1 : 0;
   const rows = new Uint8Array(rw * rh);
   for (let j = 0; j < rh; j++) {
     for (let i = 0; i < rw; i++) {
@@ -118,7 +131,12 @@ export function theatrePlan(t: Theatre): TheatrePlan {
       if (anyIn(x, y, MID_CELLS, MID_CELLS) && landNear(x, y, MID_CELLS, MID_CELLS, 2)) mids.push({ tx, ty });
     }
   }
-  const plan = { reach, chunks, mids, sheets };
+  const fringeAt = (x: number, y: number): boolean => {
+    const i = x - rx;
+    const j = y - ry;
+    return i >= 0 && j >= 0 && i < rw && j < rh && fringe[j * rw + i] === 1;
+  };
+  const plan = { reach, chunks, mids, sheets, fringe: fringeAt };
   plans.set(t.index, plan);
   return plan;
 }

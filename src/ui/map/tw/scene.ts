@@ -5,6 +5,9 @@
 //
 // Смысл объектов — прежний и прежними правилами: вид места — из полей мира, размер чужого отряда — только
 // в живом обзоре (`world/sight` через `sightDiscs`), точки агентов — `figures.spotsOf`.
+//
+// Карта по регионам (docs/map_tw.md, раздел 13.5): объект вне региона игрока в сцену не попадает — значит, не
+// рисуется и пальцу не цель. Одна мерка на все три списка — `theatre.withinActive` по клетке объекта.
 import type { Coord, FigureView, MarchView, Rect, SettlementView } from '@/world/types';
 import { inSight, type SightDisc } from '@/world/fog';
 import { marchPosition } from '@/world/geo';
@@ -17,6 +20,7 @@ import { type Spot, spotsOf } from '../figures';
 import { ANCHOR_X, ANCHOR_Y, FAN_STEP, SPAN_H, SPAN_W } from '../agent';
 import { settlementAt } from '@/world/cache';
 import { type HostLook, type PlaceKind, type PlaceLook, PIN_PX, flagSprite, hostBody, pinSprite, placeBody } from './mini';
+import { withinActive } from './theatre/theatre';
 
 // ---------- Масштаб: миниатюра или значок ----------
 
@@ -96,6 +100,7 @@ export function placeItems(cam: Camera, vp: Viewport, list: SettlementView[], dp
   const mini = asMini(px);
   const out: PlaceItem[] = [];
   for (const s of list) {
+    if (!withinActive(s.x, s.y)) continue;
     const [sx, sy] = toScreen(cam, vp, s.x + 0.5, s.y + 0.5);
     // Миниатюра шире клетки (город — до трёх с половиной): запас, чтобы крыши не выскакивали у края.
     const pad = Math.max(48, px * 2.2);
@@ -155,6 +160,8 @@ export function hostItems(cam: Camera, vp: Viewport, marches: MarchView[], discs
   for (const m of marches) {
     const standing = m.phase === 'stay';
     const pos = standing ? m.to : marchPosition(m, now);
+    const cell = standing ? { x: m.to.x, y: m.to.y } : { x: Math.round(pos.x), y: Math.round(pos.y) };
+    if (!withinActive(cell.x, cell.y)) continue;
     const [fx, fy] = toScreen(cam, vp, m.from.x + 0.5, m.from.y + 0.5);
     const [tx, ty] = toScreen(cam, vp, m.to.x + 0.5, m.to.y + 0.5);
     let [sx, sy] = toScreen(cam, vp, pos.x + 0.5, pos.y + 0.5);
@@ -183,7 +190,6 @@ export function hostItems(cam: Camera, vp: Viewport, marches: MarchView[], discs
       const f = flagSprite({ color, size: look.size, camp: look.camp }, dpr);
       body = { x0: sx - f.ax, y0: sy - f.ay, x1: sx - f.ax + f.w, y1: sy - f.ay + f.h };
     }
-    const cell = standing ? { x: m.to.x, y: m.to.y } : { x: Math.round(pos.x), y: Math.round(pos.y) };
     out.push({ m, look, pos, standing, sx, sy, fx, fy, tx, ty, angle, body, cell, target: !m.own && m.phase === 'out' });
   }
   return out;
@@ -232,7 +238,10 @@ function atGate(cam: Camera, spots: Spot[], now: number): Spot[] {
 
 export function figureItems(cam: Camera, vp: Viewport, figures: FigureView[], now: number, dpr: number): FigureItem[] {
   const mini = asMini(cam.scale);
-  const raw = spotsOf(cam, vp, figures, now);
+  const raw = spotsOf(cam, vp, figures, now).filter((sp) => {
+    const c = cellOfFigure(sp.f, now);
+    return withinActive(c.x, c.y);
+  });
   return atGate(cam, raw, now).map((spot, i) => {
     const { f, px, ax, py, unit, men, standing, west } = spot;
     const body: Box = {

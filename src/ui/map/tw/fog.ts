@@ -1,66 +1,71 @@
-// Край старой карты вместо тумана (docs/map_tw.md, раздел 4, «Края»; этап 2). Слоя два, как у прежнего
-// тумана (`fog.ts`), и сводить их к одному нельзя (docs/handbook/world.md, «Туман войны — два слоя»):
+// Край старой карты вместо тумана (docs/map_tw.md, раздел 4, «Края»; этап 2; регион — раздел 13.5). Слоя два, как
+// у прежнего тумана (`fog.ts`), и сводить их к одному нельзя (docs/handbook/world.md, «Туман войны — два слоя»):
 //
-// - **неразведанное — пергамент**: лист с чернильным берегом и значками гор, край знания — неровный, словно
-//   обгоревший. Старая карта знает землю (атлас один на всех), но не знает, что на ней: ни поселений, ни
-//   владений мир в туман не кладёт, и рисовать их здесь нечем;
-// - **разведанное, но не в живом обзоре — лёгкая сепия**: местность видна как есть, живые данные под ней
+// - **незнакомое — пергамент**: лист с чернильным берегом и значками гор, край знания — неровный, словно
+//   обгоревший. Незнакомо и неразведанное, и **чужой регион**: старая карта знает землю (атлас один на всех), но
+//   не знает, что на ней, — и за границей своего края игрок видит лист, а не пустоту и не обрыв;
+// - **разведанное в регионе, но не в живом обзоре — лёгкая сепия**: местность видна как есть, живые данные под ней
 //   устарели (карточка клетки скажет насколько). В живом обзоре — ничего.
 //
-// Цена. Полутень — растр клетка-в-пиксель над экраном с запасом, как у прежнего тумана, раз в четверть
-// секунды. Пергамент — по куску карты (32×32 клетки), раз за жизнь куска в кэше и не больше одного за кадр;
-// печётся заново, только если сменилась разведанность куска или соседей (подпись разведанности, а не
-// время приезда: куски перезапрашиваются каждые 45 с, и печь от этого заново незачем). Куска, у которого и
-// сам он, и соседи разведаны целиком, нет вовсе. В кадре — копирование.
-import { type CachedChunk, cachedChunk, chunkKey, chunkKeysIn, chunkRect, exploredAt, terrainAt } from '@/world/cache';
-import { cellInSight, sightDiscs, useWorld, worldNow } from '@/world/store';
+// Цена. Листы — из заранее испечённого региона (`prebake.ts`): печёт их рабочий поток, кадр только копирует.
+// Полутень — растр клетка-в-пиксель над всем, куда пускают камеру (рамка региона с краем), а не над экраном:
+// движение камеры его не старит. Печётся он заново, только когда сменилось знание или живой обзор, — и только
+// стоя, не чаще раза в четверть секунды; в движении кадр рисует прежний.
+import type { Rect } from '@/world/types';
 import type { SightDisc } from '@/world/fog';
+import { cellInSight, sightDiscs, worldNow } from '@/world/store';
+import { CHUNK, WORLD_ORIGIN } from '@/world/data/tuning';
 import { type Camera, type Viewport, toScreen, viewRect } from '../grid';
-import { SHEET_PAD, SHEET_PX, bakeParchment } from './parchment';
-import { baked, mayBake } from './gate';
+import { type Canvas, ctxOf, makeCanvas } from './canvas';
+import type { Knowledge } from './knowledge';
 import { C } from './palette';
+import { SHEET_PAD, SHEET_PX } from './parchment';
+import { type Ground, moving } from './prebake';
 
 // ---------- Полутень и глубокое незнание ----------
 
 /** Полутень разведанного: тёплая сепия, а не серая дымка — карта старая, а не выключенный свет. */
 const SHROUD: readonly [number, number, number, number] = [58, 44, 28, Math.round(0.24 * 255)];
-const MARGIN = 6;
 const REBAKE_MS = 250;
 
 interface Raster {
-  canvas: HTMLCanvasElement;
-  x: number;
-  y: number;
-  w: number;
-  h: number;
+  canvas: Canvas;
+  rect: Rect;
+  /** Под какое знание и какой живой обзор испечён. */
+  gen: number;
+  discs: string;
   at: number;
 }
 
 let raster: Raster | null = null;
 
+const discsKey = (d: SightDisc[]): string => d.map((v) => `${v.x},${v.y},${v.r}`).join(';');
+
 /**
- * Растр полутени. Неразведанная клетка, у которой все восемь соседей тоже неразведаны, — **глубокое
- * незнание**: её закрывает лист пергамента и здесь, сплошь. Это подложка под кусок пергамента, пока тот не
- * испечён (не больше одного за кадр): без неё на мгновение было бы видно землю под листом. Кромку знания
- * рисует только кусок пергамента — двух кромок, мягкой и рваной, рядом не бывает.
+ * Растр полутени над рамкой. Незнакомая клетка, у которой все восемь соседей тоже незнакомы, — **глубокое
+ * незнание**: её закрывает лист пергамента и здесь, сплошь. Это подложка под лист, пока тот не испечён: без неё
+ * на мгновение было бы видно землю под листом, а за границей региона — чужую землю. Кромку знания рисует только
+ * лист — двух кромок, мягкой и рваной, рядом не бывает.
  */
-function bakeRaster(x0: number, y0: number, w: number, h: number, discs: SightDisc[], at: number): Raster | null {
-  const canvas = raster?.canvas ?? document.createElement('canvas');
-  canvas.width = w;
-  canvas.height = h;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return null;
+function bakeRaster(rect: Rect, k: Knowledge, discs: SightDisc[], gen: number, key: string, at: number): Raster {
+  const { x: x0, y: y0, w, h } = rect;
+  const canvas = raster && raster.rect === rect ? raster.canvas : makeCanvas(w, h);
+  const ctx = ctxOf(canvas);
   const img = ctx.createImageData(w, h);
   const d = img.data;
-  const known = new Uint8Array(w * h);
-  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) known[y * w + x] = exploredAt(x0 + x, y0 + y) ? 1 : 0;
+  const known = (x: number, y: number): number => {
+    const i = x - k.rect.x;
+    const j = y - k.rect.y;
+    return i < 0 || j < 0 || i >= k.rect.w || j >= k.rect.h ? 0 : k.known[j * k.rect.w + i];
+  };
   const [pr, pg, pb] = C.parchment;
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
-      const k = y * w + x;
-      const i = k * 4;
-      if (cellInSight(discs, x0 + x, y0 + y)) continue;
-      if (known[k]) {
+      const wx = x0 + x;
+      const wy = y0 + y;
+      const i = (y * w + x) * 4;
+      if (known(wx, wy)) {
+        if (cellInSight(discs, wx, wy)) continue;
         d[i] = SHROUD[0];
         d[i + 1] = SHROUD[1];
         d[i + 2] = SHROUD[2];
@@ -70,10 +75,7 @@ function bakeRaster(x0: number, y0: number, w: number, h: number, discs: SightDi
       let deep = true;
       for (let dy = -1; dy <= 1 && deep; dy++) {
         for (let dx = -1; dx <= 1; dx++) {
-          const xx = x + dx;
-          const yy = y + dy;
-          if (xx < 0 || yy < 0 || xx >= w || yy >= h) continue;
-          if (known[yy * w + xx]) {
+          if (known(wx + dx, wy + dy)) {
             deep = false;
             break;
           }
@@ -87,205 +89,62 @@ function bakeRaster(x0: number, y0: number, w: number, h: number, discs: SightDi
     }
   }
   ctx.putImageData(img, 0, 0);
-  return { canvas, x: x0, y: y0, w, h, at };
+  return { canvas, rect, gen, discs: key, at };
 }
 
-function drawRaster(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport): void {
-  const rect = viewRect(cam, vp);
-  const x0 = Math.floor(rect.x) - MARGIN;
-  const y0 = Math.floor(rect.y) - MARGIN;
-  const w = Math.ceil(rect.w) + MARGIN * 2 + 2;
-  const h = Math.ceil(rect.h) + MARGIN * 2 + 2;
+function drawRaster(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport, g: Ground, k: Knowledge): void {
   const now = worldNow();
-  const stale =
-    !raster || now - raster.at > REBAKE_MS || x0 < raster.x || y0 < raster.y || x0 + w > raster.x + raster.w || y0 + h > raster.y + raster.h;
-  if (stale) raster = bakeRaster(x0, y0, w, h, sightDiscs(now), now) ?? raster;
+  const discs = sightDiscs(now);
+  const key = discsKey(discs);
+  const rect = g.plan.reach;
+  const t = performance.now();
+  // Первая полутень региона печётся сразу (иначе за границей на мгновение была бы видна чужая земля); дальше —
+  // только при новом знании или обзоре и только стоя.
+  const prev = raster && raster.rect === rect ? raster : null;
+  const stale = !prev || prev.gen !== g.knowledgeGen || prev.discs !== key;
+  if (!prev || (stale && !moving() && t - prev.at > REBAKE_MS)) raster = bakeRaster(rect, k, discs, g.knowledgeGen, key, t);
   if (!raster) return;
-  const [sx, sy] = toScreen(cam, vp, raster.x, raster.y);
-  const [ex, ey] = toScreen(cam, vp, raster.x + raster.w, raster.y + raster.h);
+  const [sx, sy] = toScreen(cam, vp, raster.rect.x, raster.rect.y);
+  const [ex, ey] = toScreen(cam, vp, raster.rect.x + raster.rect.w, raster.rect.y + raster.rect.h);
   ctx.save();
   ctx.imageSmoothingEnabled = true;
   ctx.drawImage(raster.canvas, Math.round(sx), Math.round(sy), Math.round(ex - sx), Math.round(ey - sy));
   ctx.restore();
 }
 
-// ---------- Пергамент по кускам ----------
+// ---------- Листы ----------
 
-/**
- * Листов в памяти: не меньше 64 (по 144² px — 83 КБ, всего 5.3 МБ) и не меньше видимых кусков с запасом: на
- * большом экране листов на виду больше, и при постоянном потолке кэш вытеснял бы видимые (как средний слой).
- */
-const SHEETS_MIN = 64;
-let sheetsMax = SHEETS_MIN;
-
-/** Подпись разведанности куска: сколько открыто и чем — меняется только тогда, когда открылось новое. */
-const signs = new Map<string, { at: number; sign: number; open: number }>();
-
-function signOf(c: CachedChunk): { sign: number; open: number } {
-  const have = signs.get(c.key);
-  if (have && have.at === c.fetchedAt) return have;
-  let h = 2166136261;
-  let open = 0;
-  for (let i = 0; i < c.explored.length; i++) {
-    const v = c.explored[i];
-    open += v;
-    h = Math.imul(h ^ (v + i * 3), 16777619);
-  }
-  const out = { at: c.fetchedAt, sign: h >>> 0, open };
-  signs.set(c.key, out);
-  return out;
-}
-
-interface Sheet {
-  canvas: HTMLCanvasElement | null;
-  version: number;
-}
-
-const sheets = new Map<string, Sheet>();
-let sheetsSeed = 0;
-
-/**
- * Версия листа: подписи куска и восьми соседей (кромка заходит к соседу на клетку), свёрнутые в число —
- * версию спрашивают у каждого видимого куска в каждом кадре, и строка на кусок была бы мусором для сборщика.
- * Куска, которого ещё нет, — свой знак; лист с таким соседом всё равно печётся: край мира и ещё не
- * приехавшие соседи — незнание. Null — листа не нужно: кусок и все соседи разведаны целиком.
- */
-function versionOf(cx: number, cy: number): number | null {
-  let h = 2166136261;
-  let unknown = false;
-  for (let dy = -1; dy <= 1; dy++) {
-    for (let dx = -1; dx <= 1; dx++) {
-      const c = cachedChunk(chunkKey(cx + dx, cy + dy));
-      let v = 0x9e3779b9;
-      if (!c) unknown = true;
-      else {
-        const s = signOf(c);
-        if (s.open < c.explored.length) unknown = true;
-        v = s.sign;
-      }
-      h = Math.imul(h ^ v, 16777619) >>> 0;
-    }
-  }
-  return unknown ? h : null;
-}
-
-/** Разведанность в мировой точке: билинейно между серединами клеток — кромка без ступенек сетки. */
-function knownAt(wx: number, wy: number): number {
-  const fx = wx - 0.5;
-  const fy = wy - 0.5;
-  const x = Math.floor(fx);
-  const y = Math.floor(fy);
-  const tx = fx - x;
-  const ty = fy - y;
-  const a = exploredAt(x, y) ? 1 : 0;
-  const b = exploredAt(x + 1, y) ? 1 : 0;
-  const c = exploredAt(x, y + 1) ? 1 : 0;
-  const d = exploredAt(x + 1, y + 1) ? 1 : 0;
-  return (a + (b - a) * tx) * (1 - ty) + (c + (d - c) * tx) * ty;
-}
-
-/**
- * Сверка листа куска с разведанностью: лист есть и свеж — ничего; разведано всё вокруг — лист выбрасывается;
- * иначе печётся новый, если очередь открыта (`gate.ts`). Вернёт true, если кусок ещё ждёт выпечки.
- */
-function settle(seed: number, cx: number, cy: number): boolean {
-  const key = chunkKey(cx, cy);
-  // Кусок ещё не приехал — земли под листом не знает и сам лист: его клетки закрыты подложкой растра.
-  if (!cachedChunk(key)) return false;
-  const version = versionOf(cx, cy);
-  const have = sheets.get(key);
-  if (version === null) {
-    if (have) {
-      if (have.canvas) have.canvas.width = 0;
-      sheets.delete(key);
-    }
-    return false;
-  }
-  if (have && have.version === version) return false;
-  // Пока новый не испечён, под ним лежит подложка растра (глубокое незнание) или прежний лист.
-  if (!mayBake()) return true;
-  baked();
-  const r = chunkRect(cx, cy);
-  const area = { x: r.x - SHEET_PAD, y: r.y - SHEET_PAD, w: r.w + SHEET_PAD * 2, h: r.h + SHEET_PAD * 2 };
-  const canvas = bakeParchment(seed, area, terrainAt, knownAt, SHEET_PX);
-  if (have?.canvas) have.canvas.width = 0;
-  sheets.delete(key);
-  sheets.set(key, { canvas, version });
-  while (sheets.size > sheetsMax) {
-    const first = sheets.keys().next().value as string;
-    const gone = sheets.get(first);
-    if (gone?.canvas) gone.canvas.width = 0;
-    sheets.delete(first);
-  }
-  return true;
-}
-
-function seedNow(): number {
-  const seed = useWorld.getState().info?.seed ?? 0;
-  if (seed && seed !== sheetsSeed) {
-    dropTwFog();
-    sheetsSeed = seed;
-  }
-  return seed;
-}
-
-/**
- * Сверка листов — в начале кадра, раньше обзора и среднего слоя: лист закрывает землю, которую игрок не
- * открыл, и в общей очереди (`gate.ts`) он первый; печётся не больше одного. Сверка спрашивает подписи
- * девяти кусков на каждый видимый, поэтому идёт не каждый кадр, а раз в четверть секунды (как растр
- * полутени), — и каждый кадр, пока есть что печь: открытое за четверть секунды не уходит из глаз.
- */
-const SETTLE_MS = 250;
-let settledAt = -Infinity;
-let pending = true;
-
-export function prepareTwFog(cam: Camera, vp: Viewport): void {
-  const seed = seedNow();
-  if (!seed) return;
-  const now = performance.now();
-  if (!pending && now - settledAt < SETTLE_MS) return;
-  settledAt = now;
-  pending = false;
-  const seen = chunkKeysIn(viewRect(cam, vp));
-  sheetsMax = Math.max(SHEETS_MIN, seen.length + 8);
-  for (const { cx, cy } of seen) {
-    if (settle(seed, cx, cy)) pending = true;
-  }
-}
-
-/** Листы видимых кусков — копированием: сверяет их `prepareTwFog`, кадр только рисует. */
-function drawSheets(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport): void {
-  if (!seedNow()) return;
+/** Листы видимых кусков — копированием испечённого (`prebake.ts`), без запаса по краю. */
+function drawSheets(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport, g: Ground): void {
   const pad = SHEET_PAD * SHEET_PX;
+  const rect = viewRect(cam, vp);
+  const cx0 = Math.floor((rect.x - WORLD_ORIGIN.x) / CHUNK);
+  const cy0 = Math.floor((rect.y - WORLD_ORIGIN.y) / CHUNK);
+  const cx1 = Math.floor((rect.x + rect.w - WORLD_ORIGIN.x) / CHUNK);
+  const cy1 = Math.floor((rect.y + rect.h - WORLD_ORIGIN.y) / CHUNK);
   ctx.save();
   ctx.imageSmoothingEnabled = true;
-  for (const { key, cx, cy } of chunkKeysIn(viewRect(cam, vp))) {
-    const sheet = sheets.get(key)?.canvas;
-    if (!sheet) continue;
-    const r = chunkRect(cx, cy);
-    const [sx, sy] = toScreen(cam, vp, r.x, r.y);
-    ctx.drawImage(sheet, pad, pad, r.w * SHEET_PX, r.h * SHEET_PX, sx, sy, r.w * cam.scale, r.h * cam.scale);
+  for (let cy = cy0; cy <= cy1; cy++) {
+    for (let cx = cx0; cx <= cx1; cx++) {
+      const sheet = g.sheet(cx, cy);
+      if (!sheet) continue;
+      const [sx, sy] = toScreen(cam, vp, WORLD_ORIGIN.x + cx * CHUNK, WORLD_ORIGIN.y + cy * CHUNK);
+      ctx.drawImage(sheet, pad, pad, CHUNK * SHEET_PX, CHUNK * SHEET_PX, sx, sy, CHUNK * cam.scale, CHUNK * cam.scale);
+    }
   }
   ctx.restore();
 }
 
-/** Туман нового вида: полутень разведанного и лист над неразведанным. */
-export function drawTwFog(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport): void {
-  drawRaster(ctx, cam, vp);
-  drawSheets(ctx, cam, vp);
+/** Туман нового вида: полутень разведанного и лист над незнакомым — своим неразведанным и чужим регионом. */
+export function drawTwFog(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport, g: Ground | null): void {
+  if (!g?.knowledge) return;
+  drawRaster(ctx, cam, vp, g, g.knowledge);
+  drawSheets(ctx, cam, vp, g);
 }
 
-/** Сколько байт держат листы — бюджету (`docs/map_tw.md`, раздел 8). */
-export function sheetBytes(): number {
-  let n = 0;
-  for (const s of sheets.values()) if (s.canvas) n += s.canvas.width * s.canvas.height * 4;
-  return n;
-}
+/** Сколько байт держит полутень — бюджету. */
+export const shroudBytes = (): number => (raster ? raster.canvas.width * raster.canvas.height * 4 : 0);
 
 export function dropTwFog(): void {
-  for (const s of sheets.values()) if (s.canvas) s.canvas.width = 0;
-  sheets.clear();
-  signs.clear();
   raster = null;
-  pending = true;
 }

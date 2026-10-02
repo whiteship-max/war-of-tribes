@@ -1,6 +1,7 @@
 // Кисти нового вида: кроны, тень кроны, рябь моря. Печётся один раз на запуск, в выпечке тайла — только
-// копирование (закон кадра, docs/world-map.md). Пути и градиенты живут здесь, а не в тайле.
-import { makeCanvas } from '../paint';
+// копирование (закон кадра, docs/world-map.md). Пути и градиенты живут здесь, а не в тайле. Холсты — из
+// `canvas.ts`: кисти пекутся там же, где выпечка, — в странице или в рабочем потоке.
+import { type Canvas, type Ctx, ctxOf, makeCanvas } from './canvas';
 import { TW } from './palette';
 
 /** Сторона спрайта кроны: рисуется крупно и уменьшается при выпечке — край выходит мягким. */
@@ -8,15 +9,9 @@ const CROWN_PX = 40;
 /** Видов на породу: одинаковые кроны читаются узором, а не лесом. */
 export const CROWN_KINDS = 6;
 
-const crowns: (HTMLCanvasElement | null)[] = Array(CROWN_KINDS * 2).fill(null);
-let shadowSprite: HTMLCanvasElement | null = null;
-let ripple: HTMLCanvasElement | null = null;
-
-function ctxOf(c: HTMLCanvasElement): CanvasRenderingContext2D {
-  const ctx = c.getContext('2d');
-  if (!ctx) throw new Error('Карта: 2D-контекст недоступен.');
-  return ctx;
-}
+const crowns: (Canvas | null)[] = Array(CROWN_KINDS * 2).fill(null);
+let shadowSprite: Canvas | null = null;
+let ripple: Canvas | null = null;
 
 /** Детерминированный шум кисти: спрайт одинаков на каждом запуске. */
 function rng(seed: number): () => number {
@@ -33,7 +28,7 @@ function rng(seed: number): () => number {
  * Лиственная крона: несколько клубов листвы, тёмный низ справа, свет слева-сверху — как у рельефа.
  * Заполняет квадрат спрайта; ствола не видно — сверху его закрывает крона.
  */
-function broadleaf(ctx: CanvasRenderingContext2D, kind: number): void {
+function broadleaf(ctx: Ctx, kind: number): void {
   const s = CROWN_PX;
   const rnd = rng(9001 + kind * 31);
   const dark = TW.broadleaf[kind];
@@ -63,7 +58,7 @@ function broadleaf(ctx: CanvasRenderingContext2D, kind: number): void {
 }
 
 /** Хвоя: узкий ярус за ярусом, левый бок на свету. */
-function conifer(ctx: CanvasRenderingContext2D, kind: number): void {
+function conifer(ctx: Ctx, kind: number): void {
   const s = CROWN_PX;
   const dark = TW.conifer[kind];
   const lit = TW.coniferLit[kind];
@@ -90,7 +85,7 @@ function conifer(ctx: CanvasRenderingContext2D, kind: number): void {
 }
 
 /** Крона: `kind` — номер вида, `isConifer` — порода. */
-export function crown(kind: number, isConifer: boolean): HTMLCanvasElement {
+export function crown(kind: number, isConifer: boolean): Canvas {
   const i = (isConifer ? CROWN_KINDS : 0) + kind;
   const have = crowns[i];
   if (have) return have;
@@ -113,9 +108,9 @@ export const GROVE_PX = 100;
 export const GROVE_CELLS = 0.775;
 export const GROVE_MAX = 5;
 export const GROVE_VARIANTS = 3;
-const groves = new Map<number, HTMLCanvasElement>();
+const groves = new Map<number, Canvas>();
 
-export function grove(count: number, variant: number, isConifer: boolean): HTMLCanvasElement {
+export function grove(count: number, variant: number, isConifer: boolean): Canvas {
   const key = (isConifer ? 1000 : 0) + count * 10 + variant;
   const have = groves.get(key);
   if (have) return have;
@@ -147,7 +142,7 @@ export function grove(count: number, variant: number, isConifer: boolean): HTMLC
 }
 
 /** Тень кроны: мягкий эллипс; ложится вправо-вниз — свет слева-сверху. */
-export function crownShadow(): HTMLCanvasElement {
+export function crownShadow(): Canvas {
   if (shadowSprite) return shadowSprite;
   const s = 32;
   const c = makeCanvas(s, s);
@@ -169,7 +164,7 @@ export const RIPPLE_PX = 256;
  * Рябь моря: короткие светлые дужки вразброс — так море читается водой, а не синей заливкой. Узор
  * бесшовный: дужка у края повторяется у противоположного края.
  */
-export function ripplePattern(): HTMLCanvasElement {
+export function ripplePattern(): Canvas {
   if (ripple) return ripple;
   const s = RIPPLE_PX;
   const c = makeCanvas(s, s);

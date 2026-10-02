@@ -2,10 +2,12 @@
 // чернильным берегом и штрихами гор, край знания — неровный, словно обгоревший. В игре нового вида он
 // заменяет тёмную дымку прежнего тумана (`tw/fog.ts`, этап 2): печётся по кускам карты, в кадре — копирование.
 //
-// Печётся один раз на область холстом «клетка — несколько пикселей»: в кадре — копирование.
+// Печётся один раз на область холстом «клетка — несколько пикселей»: в кадре — копирование. Печётся шагами,
+// как и земля (`bake.ts`): полосами строк — в рабочем потоке подряд, в странице без потока — по кадрам стоя.
 import type { Terrain } from '@/world/types';
 import { hash } from '../scatter';
-import { makeCanvas } from '../paint';
+import { type Canvas, ctxOf, makeCanvas } from './canvas';
+import { type Steps, drain } from './bake';
 import { contour, soften } from './border';
 import { at, octave } from './noise';
 import { TW } from './palette';
@@ -32,18 +34,17 @@ export const SHEET_PAD = 2;
  * класс клетки. Берег и горы на пергаменте — из того же атласа: старая карта знает землю, но не знает,
  * что на ней.
  */
-export function bakeParchment(
+export function* parchmentSteps(
   seed: number,
   area: ParchmentArea,
   sample: (x: number, y: number) => Terrain | null,
   known: (x: number, y: number) => number,
   PX = PARCHMENT_PX,
-): HTMLCanvasElement {
+): Steps<Canvas> {
   const W = area.w * PX;
   const H = area.h * PX;
   const canvas = makeCanvas(W, H);
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return canvas;
+  const ctx = ctxOf(canvas);
   const img = ctx.createImageData(W, H);
   const d = img.data;
   const rag = octave(seed, area.x - 1, area.y - 1, area.w + 2, area.h + 2, 1.7, 17011);
@@ -81,8 +82,10 @@ export function bakeParchment(
       d[p + 2] = b;
       d[p + 3] = Math.min(1, u * 1.6) * 255;
     }
+    if (j % 24 === 23) yield;
   }
   ctx.putImageData(img, 0, 0);
+  yield;
 
   // Чернила — только по пергаменту: `source-atop`.
   ctx.globalCompositeOperation = 'source-atop';
@@ -146,3 +149,11 @@ export function bakeParchment(
   return canvas;
 }
 
+/** Пергамент целиком, разом: стенд и проверки. */
+export const bakeParchment = (
+  seed: number,
+  area: ParchmentArea,
+  sample: (x: number, y: number) => Terrain | null,
+  known: (x: number, y: number) => number,
+  PX = PARCHMENT_PX,
+): Canvas => drain(parchmentSteps(seed, area, sample, known, PX));

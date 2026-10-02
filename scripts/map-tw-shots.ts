@@ -168,6 +168,7 @@ async function gameShot(look: 'tw' | 'old'): Promise<void> {
     await sleep(2500);
     await openPinnedMap(tab, { home: GAME_HOME, onLog: (m) => console.log(m) });
     if (MARCHES) await tab.eval<string>(MARCHES_JS);
+    if (look === 'tw') await prebakeReport(tab);
     for (const scale of SHOTS.map(Number).filter((v) => v > 0)) {
       await tab.eval<string>(`(() => { window.__mapCam(${GAME_HOME.x}, ${GAME_HOME.y - 2}, ${scale}); return JSON.stringify('ok'); })()`);
       await sleep(5000);
@@ -181,6 +182,44 @@ async function gameShot(look: 'tw' | 'old'): Promise<void> {
     tab.close();
     await fetch(`http://127.0.0.1:${DEBUG_PORT}/json/close/${tab.target}`).catch(() => undefined);
   }
+}
+
+/**
+ * Регион нового вида печётся заранее (docs/map_tw.md, раздел 13.4): снимок ждёт, пока регион прибудет (обзор
+ * целиком, не дольше 30 с), и печатает, чем пёкся, сколько и почём — числа раздела 13.6 смотрят здесь глазами,
+ * а мерит их `map:report` (`MOTION=1`).
+ */
+async function prebakeReport(tab: Tab): Promise<void> {
+  type St = {
+    exec: string | null;
+    ready: boolean;
+    plan: { chunks: number; mids: number; sheets: number } | null;
+    have: Record<string, number>;
+    inFlight: number;
+    spent: Record<string, Record<string, number[]>>;
+    memory: Record<string, number>;
+  };
+  const t0 = Date.now();
+  let st: St | null = null;
+  while (Date.now() - t0 < 30_000) {
+    await sleep(500);
+    st = await tab.eval<St>('JSON.stringify(window.__twPrebake ? window.__twPrebake() : null)').catch(() => null);
+    if (st?.plan && st.have.chunk >= st.plan.chunks && (st.have.mid >= st.plan.mids || st.have.mid === 0) && st.inFlight === 0) break;
+  }
+  if (!st) {
+    console.log('  регион: службы нет (`__twPrebake`)');
+    return;
+  }
+  const med = (a: number[]): string => (a.length ? [...a].sort((x, y) => x - y)[a.length >> 1].toFixed(1) : '—');
+  const MB = (b: number): string => (b / 1048576).toFixed(1);
+  console.log(`  регион за ${((Date.now() - t0) / 1000).toFixed(1)} с: печёт ${st.exec}; план ${JSON.stringify(st.plan)}, есть ${JSON.stringify(st.have)}`);
+  for (const where of ['worker', 'page']) {
+    const parts = Object.entries(st.spent[where] ?? {})
+      .filter(([, v]) => v.length)
+      .map(([k, v]) => `${k} ${v.length} × ${med(v)} мс`);
+    if (parts.length) console.log(`  ${where === 'worker' ? 'поток' : 'страница'}: ${parts.join(', ')}`);
+  }
+  console.log(`  память, МБ: ${Object.entries(st.memory).map(([k, v]) => `${k} ${MB(v)}`).join(', ')}`);
 }
 
 async function main(): Promise<void> {

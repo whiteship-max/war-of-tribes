@@ -31,6 +31,7 @@ import { awayOf, homeOf } from '@/world/muster';
 import { awayTroops } from '@/world/bridge';
 import { troopTotal } from '@/game/battle/kinds';
 import { Icon } from '@/ui/icons/Icon';
+import { beyondText, reachable } from '@/ui/map/twslot';
 
 const fmt = (n: number): string => (Math.abs(n) >= 100 ? String(Math.round(n)) : (Math.round(n * 10) / 10).toString());
 
@@ -133,6 +134,19 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
       })}
     </div>
   );
+
+  // Карта по регионам (docs/map_tw.md, раздел 13.5): за краем региона игрока целей нет — карточка говорит, что это
+  // за место, и ни одного приказа не предлагает. Прежняя карта рамки не знает, и для неё всё по-прежнему.
+  if (!reachable(here)) {
+    return (
+      <div className="panel">
+        <h2>
+          {card?.name ?? 'Чужой край'} <small>{formatCoord(here)}</small>
+        </h2>
+        <div className="desc">{beyondText()}</div>
+      </div>
+    );
+  }
 
   if (!card) {
     const standing = figuresOn(x, y, worldNow()).map((f) => f.id);

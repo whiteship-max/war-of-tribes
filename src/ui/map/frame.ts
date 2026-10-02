@@ -14,7 +14,7 @@ import { marchPosition, secondsLeft } from '@/world/geo';
 import { realLeft } from '@/ui/parts/wait';
 import { RELATION_META } from '@/world/data/meta';
 import type { Coord, MarchView, Rect, SettlementView } from '@/world/types';
-import { chunkBitmap, overviewSrc } from './tiles';
+import { chunkBitmap } from './tiles';
 import { grainTile, vignette } from './paint';
 import { LABEL_FROM, PALETTE } from './const';
 import { type Camera, type Viewport, detailAlpha, toScreen, viewRect } from './grid';
@@ -45,21 +45,13 @@ const TOP_INSET = 52;
  * даже когда сверху рисуется ближний, — сквозь ещё не испечённый тайл виден
  * именно он, и дырки на экране не бывает никогда.
  */
-export function drawOverview(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport, rect: Rect): void {
+function drawOverview(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport, rect: Rect): void {
   ctx.save();
   ctx.imageSmoothingEnabled = false;
   for (const chunk of loadedIn(rect)) {
     const [sx, sy] = toScreen(cam, vp, chunk.rect.x, chunk.rect.y);
-    const bmp = chunkBitmap(chunk);
-    // Кусок нового вида (docs/map_tw.md) — картина, а не растр: сглаживание и без вылета по краю.
-    const [ox, oy, ow, oh] = overviewSrc(bmp, chunk.rect.w);
-    ctx.imageSmoothingEnabled = ow > chunk.rect.w;
     ctx.drawImage(
-      bmp,
-      ox,
-      oy,
-      ow,
-      oh,
+      chunkBitmap(chunk),
       Math.round(sx),
       Math.round(sy),
       Math.ceil(chunk.rect.w * cam.scale),

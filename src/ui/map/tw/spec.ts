@@ -3,8 +3,10 @@
 //
 // Холст тайла (`TILE_BAKE`, 64 px на клетку) на всех уровнях один: от него выведена память кэша
 // (`grid.cacheFor`, `tileMemory`). Уровень меняет только то, сколько счёта уходит в выпечку.
-import { autoQuality, qualityOf, type DeviceCaps, type Quality } from '@/render/quality';
-import { gfx } from '@/render/gfx';
+//
+// Модуль чистый — его читает и рабочий поток выпечки (`bake.worker.ts`); уровень устройства и настроек
+// решает `quality.ts`.
+import type { Quality } from '@/render/quality';
 
 export interface TwSpec {
   /** Узлов решётки света на клетку. Свет считается по ней и растягивается на тайл сглаживанием. */
@@ -29,26 +31,3 @@ export const TW_SPEC: Record<Quality, TwSpec> = {
   medium: { nodes: 12, castShadow: true, groves: 8, ripples: true, overviewNodes: 4, mid: true },
   high: { nodes: 16, castShadow: true, groves: 11, ripples: true, overviewNodes: 4, mid: true },
 };
-
-/**
- * Возможности устройства без видеокарты: у 2D-карты WebGL нет, и спрашивать его ради уровня незачем.
- * Без имени видеокарты `autoQuality` решает по указателю и памяти: телефон — средний, настольный —
- * высокий (`render/quality.ts`).
- */
-function caps(): DeviceCaps {
-  const nav = (typeof navigator === 'undefined' ? {} : navigator) as { deviceMemory?: number; hardwareConcurrency?: number };
-  return {
-    coarse: typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches,
-    memory: typeof nav.deviceMemory === 'number' ? nav.deviceMemory : null,
-    cores: typeof nav.hardwareConcurrency === 'number' ? nav.hardwareConcurrency : null,
-    gpu: null,
-  };
-}
-
-/** Уровень карты: адрес (`?quality=`) сильнее выбора игрока, «Авто» — по устройству. */
-export function twQuality(search = typeof location === 'undefined' ? '' : location.search): Quality {
-  const asked = qualityOf(new URLSearchParams(search).get('quality'));
-  if (asked) return asked;
-  const chosen = gfx().quality;
-  return chosen === 'auto' ? autoQuality(caps()) : chosen;
-}

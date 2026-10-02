@@ -66,11 +66,13 @@ interface Baked {
   px: number;
   at: number;
   scale: number;
+  /** Подпись данных, под которую испечён (карта по регионам); 0 — по времени, как прежде. */
+  stamp: number;
 }
 
 let baked: Baked | null = null;
 
-function bake(x0: number, y0: number, w: number, h: number, scale: number, at: number): Baked | null {
+function bake(x0: number, y0: number, w: number, h: number, scale: number, at: number, stamp = 0): Baked | null {
   const tint = baked?.tint ?? document.createElement('canvas');
   tint.width = w;
   tint.height = h;
@@ -95,7 +97,7 @@ function bake(x0: number, y0: number, w: number, h: number, scale: number, at: n
   }
   ctx.putImageData(img, 0, 0);
   if (baked?.lines) baked.lines.width = 0;
-  if (!any) return { tint, lines: null, x: x0, y: y0, w, h, px: 1, at, scale };
+  if (!any) return { tint, lines: null, x: x0, y: y0, w, h, px: 1, at, scale, stamp };
   const px = Math.max(1, Math.min(scale, LINES_MAX_PX / Math.max(w, h)));
   const lines = document.createElement('canvas');
   lines.width = Math.ceil(w * px);
@@ -121,25 +123,54 @@ function bake(x0: number, y0: number, w: number, h: number, scale: number, at: n
       lc.stroke();
     }
   }
-  return { tint, lines, x: x0, y: y0, w, h, px, at, scale };
+  return { tint, lines, x: x0, y: y0, w, h, px, at, scale, stamp };
 }
 
-export function drawTwZones(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport, now: number): void {
-  const rect = viewRect(cam, vp);
-  const x0 = Math.floor(rect.x) - MARGIN;
-  const y0 = Math.floor(rect.y) - MARGIN;
-  const w = Math.ceil(rect.w) + MARGIN * 2 + 2;
-  const h = Math.ceil(rect.h) + MARGIN * 2 + 2;
-  const stale =
-    !baked ||
-    now - baked.at > REBAKE_MS ||
-    x0 < baked.x ||
-    y0 < baked.y ||
-    x0 + w > baked.x + baked.w ||
-    y0 + h > baked.y + baked.h ||
-    // Масштаб важен только черте (холст в пикселях экрана); заливка — клетка в пиксель, и щипок её не старит.
-    (baked.lines !== null && Math.abs(cam.scale / baked.scale - 1) > 0.2);
-  if (stale) baked = bake(x0, y0, w, h, cam.scale, now) ?? baked;
+/**
+ * Рамка региона (docs/map_tw.md, раздел 13.4): растр — над ней целиком, и движение камеры его не старит. Печётся
+ * заново, только когда сменились данные (`stamp` — когда приезжали куски под рамкой) или масштаб у черты, и только
+ * если можно печь (`may` — камера стоит); первый — сразу.
+ */
+export interface ZonesArea {
+  rect: Rect;
+  stamp: number;
+  may: boolean;
+}
+
+export function drawTwZones(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport, now: number, area?: ZonesArea): void {
+  let x0: number;
+  let y0: number;
+  let w: number;
+  let h: number;
+  let stale: boolean;
+  if (area) {
+    x0 = Math.floor(area.rect.x);
+    y0 = Math.floor(area.rect.y);
+    w = Math.ceil(area.rect.w);
+    h = Math.ceil(area.rect.h);
+    const same = baked !== null && baked.x === x0 && baked.y === y0 && baked.w === w && baked.h === h;
+    stale =
+      !same ||
+      baked!.stamp !== area.stamp ||
+      (baked!.lines !== null && Math.abs(cam.scale / baked!.scale - 1) > 0.2);
+    if (stale && (!same || area.may)) baked = bake(x0, y0, w, h, cam.scale, now, area.stamp) ?? baked;
+  } else {
+    const rect = viewRect(cam, vp);
+    x0 = Math.floor(rect.x) - MARGIN;
+    y0 = Math.floor(rect.y) - MARGIN;
+    w = Math.ceil(rect.w) + MARGIN * 2 + 2;
+    h = Math.ceil(rect.h) + MARGIN * 2 + 2;
+    stale =
+      !baked ||
+      now - baked.at > REBAKE_MS ||
+      x0 < baked.x ||
+      y0 < baked.y ||
+      x0 + w > baked.x + baked.w ||
+      y0 + h > baked.y + baked.h ||
+      // Масштаб важен только черте (холст в пикселях экрана); заливка — клетка в пиксель, и щипок её не старит.
+      (baked.lines !== null && Math.abs(cam.scale / baked.scale - 1) > 0.2);
+    if (stale) baked = bake(x0, y0, w, h, cam.scale, now) ?? baked;
+  }
   if (!baked) return;
   const [sx, sy] = toScreen(cam, vp, baked.x, baked.y);
   const [ex, ey] = toScreen(cam, vp, baked.x + baked.w, baked.y + baked.h);

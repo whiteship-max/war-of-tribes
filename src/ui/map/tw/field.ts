@@ -480,12 +480,24 @@ function heightWarped(cells: Cells, folds: Folds, sx: number, sy: number): numbe
 }
 
 export function heightGrid(seed: number, cells: Cells, wp: Warp, x0: number, y0: number, nx: number, ny: number, stepCells: number): Grid {
-  const folds = foldsFor(seed, x0, y0, Math.max(nx, ny) * stepCells);
-  const h = new Float32Array(nx * ny);
-  const qx = new Float32Array(nx * ny);
-  const qy = new Float32Array(nx * ny);
-  let top = -Infinity;
-  for (let j = 0; j < ny; j++) {
+  const grid = emptyGrid(x0, y0, nx, ny, stepCells);
+  heightRows(cells, wp, foldsFor(seed, x0, y0, Math.max(nx, ny) * stepCells), grid, 0, ny);
+  return grid;
+}
+
+/** Решётка без высот: строки заполняет `heightRows` — целиком или полосами (выпечка частями, `tw/bake.ts`). */
+export function emptyGrid(x0: number, y0: number, nx: number, ny: number, stepCells: number): Grid {
+  return { nx, ny, x0, y0, step: stepCells, h: new Float32Array(nx * ny), qx: new Float32Array(nx * ny), qy: new Float32Array(nx * ny), top: -Infinity };
+}
+
+/**
+ * Строки решётки [j0, j1): высота и искривлённая точка каждого узла, высшая точка — в `grid.top`. Полоса за
+ * полосой даёт ту же решётку, что и целиком: узел зависит только от своей точки.
+ */
+export function heightRows(cells: Cells, wp: Warp, folds: Folds, grid: Grid, j0: number, j1: number): void {
+  const { nx, x0, y0, step: stepCells, h, qx, qy } = grid;
+  let top = grid.top;
+  for (let j = j0; j < j1; j++) {
     const py = y0 + j * stepCells;
     for (let i = 0; i < nx; i++) {
       const px = x0 + i * stepCells;
@@ -499,7 +511,7 @@ export function heightGrid(seed: number, cells: Cells, wp: Warp, x0: number, y0:
       if (hh > top) top = hh;
     }
   }
-  return { nx, ny, x0, y0, step: stepCells, h, qx, qy, top };
+  grid.top = top;
 }
 
 // ---------- Свет и цвет ----------

@@ -1,27 +1,29 @@
-// Выпечка нового вида (docs/map_tw.md, раздел 4): тайл ближнего масштаба и кусок обзора.
+// Выпечка нового вида (docs/map_tw.md, разделы 4 и 13.4): тайл ближнего масштаба, кусок обзора и тайл
+// среднего масштаба.
 //
-// Сетка тайлов, кэш, запас и правило «стоя не печётся» — прежние (`ground.ts`, `grid.ts`,
-// `tilecache.ts`): этот модуль подменяет только то, **что** печётся в тайл, и печёт его так же —
-// один раз за жизнь тайла в кэше. Перевыпечки нет: двор поселения рисует его спрайт, а не тайл.
+// Выпечка — **шагами** (`Steps`, генераторы): рабочий поток прогоняет шаги подряд (`drain`), а страница без потока
+// — по нескольку за кадр, пока камера стоит (`prebake.ts`), и ни один шаг не длиннее полосы в дюжину строк
+// решётки. Картинка от этого не меняется: шаги — те же циклы, разрезанные по строкам, а узел решётки зависит
+// только от своей точки.
 //
-// Землю модуль берёт из кэша мира — тем же путём, что и прежняя выпечка: стенд кладёт туда куски
-// карты сам (`stand.ts`), игра — через `worldApi`.
+// Земля — из `land.ts` (кэш мира у стенда, снимок региона массивами у игры и потока), холсты — из `canvas.ts`
+// (`<canvas>` в странице, `OffscreenCanvas` в потоке). Мира, кэша и документа модуль не знает: он едет в поток.
 import type { Rect } from '@/world/types';
-import { type CachedChunk, cachedChunk, chunkKeysIn, featuresAt as cachedFeatures, loadedIn, terrainAt as cachedTerrain } from '@/world/cache';
-import { FEATURE } from '@/world/geography';
 import { WORLD_ORIGIN, WORLD_SIZE } from '@/world/data/tuning';
 import type { Quality } from '@/render/quality';
 import { GLADE_BELOW, TILE_BAKE, TILE_BLEED, TILE_CELLS, TILE_PX, TREE_FREE_R } from '../const';
 import { tileOrigin } from '../grid';
-import { makeCanvas } from '../paint';
 import { type Clearing, type Flag, groveAt, hash } from '../scatter';
 import {
   type Cells,
   CELL_PAD,
+  type Grid,
   type Land,
   WARP_REACH,
   cellsFor,
-  heightGrid,
+  emptyGrid,
+  foldsFor,
+  heightRows,
   landAt,
   shade,
   shadowMargin,
@@ -30,22 +32,42 @@ import {
   warpY,
   type Warp,
 } from './field';
+import { type Canvas, type Ctx, ctxOf, makeCanvas } from './canvas';
+import { land } from './land';
 import { TW } from './palette';
 import { GROVE_CELLS, GROVE_MAX, GROVE_VARIANTS, RIPPLE_PX, grove, ripplePattern } from './sprites';
-import { TW_SPEC, type TwSpec, twQuality } from './spec';
+import { TW_SPEC, type TwSpec } from './spec';
+
+// ---------- Шаги ----------
+
+/** Выпечка шагами: между шагами её можно отложить до следующего кадра. */
+export type Steps<T> = Generator<void, T, void>;
+
+/** Пройти шаги подряд — так печёт рабочий поток и стенд. */
+export function drain<T>(steps: Steps<T>): T {
+  for (;;) {
+    const r = steps.next();
+    if (r.done) return r.value;
+  }
+}
+
+/** Строк решётки на шаг: полоса в дюжину строк — около миллисекунды на ПК и нескольких на телефоне. */
+const ROWS = 12;
+/** Куп на шаг рисования леса. */
+const GROVE_BATCH = 64;
 
 // ---------- Что печётся ----------
 
 /** Вид выпечки: уровень и сезон. Сменился — испечённое устарело целиком (`setTwLook`). */
-interface TwLook {
+export interface TwLook {
   quality: Quality;
   /** 0 летом, 1 в разгар зимы. */
   season: number;
 }
 
-let look: TwLook = { quality: twQuality(), season: 0 };
+let look: TwLook = { quality: 'medium', season: 0 };
 
-/** Новый уровень или сезон. Вернёт true, если вид сменился, — тогда кэши тайлов и обзора сбрасывают. */
+/** Новый уровень или сезон. Вернёт true, если вид сменился, — тогда испечённое под прежний сбрасывают. */
 export function setTwLook(next: Partial<TwLook>): boolean {
   const merged = { ...look, ...next };
   if (merged.quality === look.quality && merged.season === look.season) return false;
@@ -56,31 +78,21 @@ export function setTwLook(next: Partial<TwLook>): boolean {
 export const twLook = (): Readonly<TwLook> => look;
 const spec = (): TwSpec => TW_SPEC[look.quality];
 
-// ---------- Земля из кэша ----------
+// ---------- Земля ----------
 
-const sample = (x: number, y: number) => cachedTerrain(x, y);
-const has = (bits: number): Flag => (x, y) => (cachedFeatures(x, y) & bits) !== 0;
-const LAND: Land = { sample, river: has(FEATURE.river), ridge: has(FEATURE.ridge) };
-const isRiver = has(FEATURE.river);
-const isRoad = has(FEATURE.road | FEATURE.track);
-const isFord = has(FEATURE.ford);
-const isBridge = has(FEATURE.bridge);
+const LAND: Land = {
+  sample: (x, y) => land().sample(x, y),
+  river: (x, y) => land().river(x, y),
+  ridge: (x, y) => land().ridge(x, y),
+};
+const isRiver: Flag = (x, y) => land().river(x, y);
+const isRoad: Flag = (x, y) => land().road(x, y);
+const water: Flag = (x, y) => {
+  const t = land().sample(x, y);
+  return t === null || t === 'water';
+};
 
-/** Все ли куски карты под областью приехали: печь по неполным данным — шов на границе знания. */
-function ready(rect: Rect): boolean {
-  for (const { key } of chunkKeysIn(rect)) if (!cachedChunk(key)) return false;
-  return true;
-}
-
-function clearingsIn(rect: Rect): Clearing[] {
-  const out: Clearing[] = [];
-  for (const chunk of loadedIn(rect)) {
-    for (const s of chunk.settlements) {
-      if (s.x >= rect.x && s.y >= rect.y && s.x < rect.x + rect.w && s.y < rect.y + rect.h) out.push({ x: s.x, y: s.y, r: TREE_FREE_R });
-    }
-  }
-  return out;
-}
+const clearingsIn = (rect: Rect): Clearing[] => land().homes(rect).map((h) => ({ x: h.x, y: h.y, r: TREE_FREE_R }));
 
 const inClearing = (px: number, py: number, list: Clearing[]): boolean =>
   list.some((c) => {
@@ -89,50 +101,44 @@ const inClearing = (px: number, py: number, list: Clearing[]): boolean =>
     return dx * dx + dy * dy < c.r * c.r;
   });
 
-// ---------- Холсты ----------
+// ---------- Черновики ----------
 
-function ctxOf(c: HTMLCanvasElement): CanvasRenderingContext2D {
-  const ctx = c.getContext('2d');
-  if (!ctx) throw new Error('Карта: 2D-контекст недоступен.');
-  return ctx;
-}
-
-/** Черновики выпечки: печётся по тайлу за кадр, и один набор на все тайлы. */
-let small: { land: HTMLCanvasElement; water: HTMLCanvasElement; n: number; landImg: ImageData; waterImg: ImageData } | null = null;
-let full: { canvas: HTMLCanvasElement; img: ImageData; band: ImageData; water: HTMLCanvasElement } | null = null;
+/** Черновики выпечки тайла: один набор на все тайлы — и в странице, и в потоке. */
+let small: { land: Canvas; water: Canvas; n: number; landImg: ImageData; waterImg: ImageData } | null = null;
+let full: { canvas: Canvas; img: ImageData; band: ImageData; water: Canvas } | null = null;
 
 function smallOf(n: number): NonNullable<typeof small> {
   if (small && small.n === n) return small;
-  const land = makeCanvas(n, n);
-  const water = makeCanvas(n, n);
-  small = { land, water, n, landImg: ctxOf(land).createImageData(n, n), waterImg: ctxOf(water).createImageData(n, n) };
+  const landC = makeCanvas(n, n);
+  const waterC = makeCanvas(n, n);
+  small = { land: landC, water: waterC, n, landImg: ctxOf(landC).createImageData(n, n), waterImg: ctxOf(waterC).createImageData(n, n) };
   return small;
 }
 
 function fullOf(): NonNullable<typeof full> {
   if (full) return full;
   const canvas = makeCanvas(TILE_PX, TILE_PX);
-  const water = makeCanvas(TILE_PX, TILE_PX);
+  const waterC = makeCanvas(TILE_PX, TILE_PX);
   const ctx = ctxOf(canvas);
-  full = { canvas, water, img: ctx.createImageData(TILE_PX, TILE_PX), band: ctx.createImageData(TILE_PX, TILE_PX) };
+  full = { canvas, water: waterC, img: ctx.createImageData(TILE_PX, TILE_PX), band: ctx.createImageData(TILE_PX, TILE_PX) };
   return full;
 }
 
 // ---------- Область выпечки ----------
 
 /**
- * Поле клеток, искривление и решётка над окном `win` в клетках: `x`, `y` — левый верхний угол окна,
- * `cells` — сторона, `nodes` — узлов на клетку. Узел окна (i, j) стоит в середине своего пикселя.
+ * Поле клеток, искривление и решётка над окном в клетках: `x`, `y` — левый верхний угол окна, `side` — сторона,
+ * `nodes` — узлов на клетку. Узел окна (i, j) стоит в середине своего пикселя.
  */
 interface Area {
   cells: Cells;
   warp: Warp;
-  grid: ReturnType<typeof heightGrid>;
+  grid: Grid;
   n: number;
   ml: number;
 }
 
-function areaFor(seed: number, x: number, y: number, side: number, nodes: number, castShadow: boolean): Area {
+function* areaSteps(seed: number, x: number, y: number, side: number, nodes: number, castShadow: boolean): Steps<Area> {
   const stepC = 1 / nodes;
   const n = Math.round(side * nodes);
   const ml = (castShadow ? shadowMargin(nodes) : 0) + 1;
@@ -144,9 +150,27 @@ function areaFor(seed: number, x: number, y: number, side: number, nodes: number
   const cw = Math.ceil(gx0 + nx * stepC) + CELL_PAD - cx0;
   const ch = Math.ceil(gy0 + nx * stepC) + CELL_PAD - cy0;
   const cells = cellsFor(seed, LAND, cx0, cy0, cw, ch, look.season);
+  yield;
   const warp = warpFor(seed, cx0, cy0, cw, ch);
-  const grid = heightGrid(seed, cells, warp, gx0, gy0, nx, nx, stepC);
+  const grid = emptyGrid(gx0, gy0, nx, nx, stepC);
+  const folds = foldsFor(seed, gx0, gy0, nx * stepC);
+  yield;
+  for (let j = 0; j < nx; j += ROWS) {
+    heightRows(cells, warp, folds, grid, j, Math.min(nx, j + ROWS));
+    yield;
+  }
   return { cells, warp, grid, n, ml };
+}
+
+/** Свет и цвет окна решётки — полосами строк в два RGBA (суша и вода). */
+function* shadeSteps(seed: number, area: Area, landOut: Uint8ClampedArray, waterOut: Uint8ClampedArray): Steps<void> {
+  const { cells, grid, n, ml } = area;
+  const sl = { season: look.season, castShadow: spec().castShadow };
+  for (let j = 0; j < n; j += ROWS) {
+    const h = Math.min(ROWS, n - j);
+    shade(seed, cells, grid, { i0: ml, j0: ml + j, w: n, h }, sl, landOut.subarray(j * n * 4), waterOut.subarray(j * n * 4));
+    yield;
+  }
 }
 
 /** Область данных, нужных выпечке окна: решётка, тень, сплайн, искривление и размытия. */
@@ -154,6 +178,19 @@ function needFor(x: number, y: number, side: number, nodes: number): Rect {
   const reach = (shadowMargin(nodes) + 2) / nodes + CELL_PAD + WARP_REACH;
   return { x: Math.floor(x - reach), y: Math.floor(y - reach), w: Math.ceil(side + reach * 2) + 1, h: Math.ceil(side + reach * 2) + 1 };
 }
+
+/** Окно данных по миру: за краем мира — открытое море, и данных там не ждут. */
+function inWorld(need: Rect): Rect {
+  return {
+    x: Math.max(WORLD_ORIGIN.x, need.x),
+    y: Math.max(WORLD_ORIGIN.y, need.y),
+    w: Math.min(WORLD_ORIGIN.x + WORLD_SIZE, need.x + need.w) - Math.max(WORLD_ORIGIN.x, need.x),
+    h: Math.min(WORLD_ORIGIN.y + WORLD_SIZE, need.y + need.h) - Math.max(WORLD_ORIGIN.y, need.y),
+  };
+}
+
+/** Самый дальний запас данных вокруг окна выпечки, в клетках (у самой густой решётки): так широко снимает землю регион. */
+export const BAKE_REACH = Math.ceil((shadowMargin(16) + 2) / 16 + CELL_PAD + WARP_REACH) + 2;
 
 // ---------- Линии: реки и дороги ----------
 
@@ -165,7 +202,7 @@ function needFor(x: number, y: number, side: number, nodes: number): Rect {
  * долине, а не поперёк складок. Диагональ берётся, только если её не замыкают две прямые соседки —
  * иначе на повороте вышел бы треугольник.
  */
-function linePath(ctx: CanvasRenderingContext2D, rect: Rect, on: Flag, wp: Warp, toPx: (x: number, y: number) => [number, number], mouth?: Flag): number {
+function linePath(ctx: Ctx, rect: Rect, on: Flag, wp: Warp, toPx: (x: number, y: number) => [number, number], mouth?: Flag): number {
   ctx.beginPath();
   let pieces = 0;
   const raw = (x: number, y: number): [number, number] => {
@@ -263,7 +300,7 @@ const DIAG: readonly [number, number][] = [
   [1, 1],
 ];
 
-function strokeRiver(ctx: CanvasRenderingContext2D, px: number): void {
+function strokeRiver(ctx: Ctx, px: number): void {
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
   ctx.globalAlpha = 0.5;
@@ -279,7 +316,7 @@ function strokeRiver(ctx: CanvasRenderingContext2D, px: number): void {
   ctx.stroke();
 }
 
-function strokeRoad(ctx: CanvasRenderingContext2D, px: number): void {
+function strokeRoad(ctx: Ctx, px: number): void {
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
   ctx.globalAlpha = 0.5;
@@ -294,11 +331,12 @@ function strokeRoad(ctx: CanvasRenderingContext2D, px: number): void {
 }
 
 /** Брод — светлые камни поперёк, мост — настил. Метки в середине клетки, как и у прежней карты. */
-function drawCrossings(ctx: CanvasRenderingContext2D, rect: Rect, wp: Warp, toPx: (x: number, y: number) => [number, number], px: number): void {
+function drawCrossings(ctx: Ctx, rect: Rect, wp: Warp, toPx: (x: number, y: number) => [number, number], px: number): void {
+  const L = land();
   for (let y = rect.y - 1; y <= rect.y + rect.h; y++) {
     for (let x = rect.x - 1; x <= rect.x + rect.w; x++) {
-      const ford = isFord(x, y);
-      const bridge = isBridge(x, y);
+      const ford = L.ford(x, y);
+      const bridge = L.bridge(x, y);
       if (!ford && !bridge) continue;
       const cx = x + 0.5;
       const cy = y + 0.5;
@@ -322,8 +360,9 @@ function drawCrossings(ctx: CanvasRenderingContext2D, rect: Rect, wp: Warp, toPx
 
 // ---------- Лес ----------
 
-function drawGroves(
-  ctx: CanvasRenderingContext2D,
+/** Купы леса над прямоугольником: сначала где и какие (счёт), потом — копирование спрайтов частями. */
+function* groveSteps(
+  ctx: Ctx,
   seed: number,
   area: Area,
   rect: Rect,
@@ -331,9 +370,9 @@ function drawGroves(
   px: number,
   clearings: Clearing[],
   per = spec().groves,
-): number {
+): Steps<number> {
   const { cells, warp } = area;
-  const items: { x: number; y: number; c: HTMLCanvasElement }[] = [];
+  const items: { x: number; y: number; c: Canvas }[] = [];
   for (let y = rect.y; y < rect.y + rect.h; y++) {
     for (let x = rect.x; x < rect.x + rect.w; x++) {
       for (let i = 0; i < per; i++) {
@@ -369,10 +408,13 @@ function drawGroves(
     }
   }
   items.sort((a, b) => a.y - b.y);
+  yield;
   const w = GROVE_CELLS * px;
-  for (const it of items) {
+  for (let i = 0; i < items.length; i++) {
+    const it = items[i];
     const [sx, sy] = toPx(it.x, it.y);
     ctx.drawImage(it.c, sx - w / 2, sy - w / 2, w, w);
+    if (i % GROVE_BATCH === GROVE_BATCH - 1) yield;
   }
   return items.length;
 }
@@ -389,7 +431,7 @@ const HOME_LAND = 0.85;
  * Суша — `landAt` по искривлённым координатам узлов (одна мерка на тайл, обзор и деревья). Между
  * узлами — билинейно, порог — половина. Полосы: светлый песок на суше у самого уреза, пена по воде.
  */
-function shoreMasks(area: Area, img: ImageData, band: ImageData, homes: Clearing[]): { water: boolean; land: boolean } {
+function* shoreSteps(area: Area, img: ImageData, band: ImageData, homes: Clearing[]): Steps<{ water: boolean; land: boolean }> {
   const { grid, n, ml } = area;
   const L = new Float32Array(n * n);
   let anyW = false;
@@ -413,6 +455,7 @@ function shoreMasks(area: Area, img: ImageData, band: ImageData, homes: Clearing
       if (v < 0.5) anyW = true;
       else anyL = true;
     }
+    if (j % ROWS === ROWS - 1) yield;
   }
   if (!anyW) return { water: false, land: true };
   const m = img.data;
@@ -477,6 +520,7 @@ function shoreMasks(area: Area, img: ImageData, band: ImageData, homes: Clearing
         }
       }
     }
+    if (j % ROWS === ROWS - 1) yield;
   }
   return { water: true, land: anyL };
 }
@@ -485,22 +529,29 @@ function shoreMasks(area: Area, img: ImageData, band: ImageData, homes: Clearing
 
 /** Весь ли тайл с запасом данных — открытое море: тогда печётся заливкой и рябью. */
 function openSea(rect: Rect): boolean {
+  const L = land();
   for (let y = rect.y; y < rect.y + rect.h; y++) {
     for (let x = rect.x; x < rect.x + rect.w; x++) {
-      const t = sample(x, y);
+      const t = L.sample(x, y);
       if (t !== null && t !== 'water') return false;
     }
   }
   return true;
 }
 
-function paintRipples(ctx: CanvasRenderingContext2D, ox: number, oy: number, alpha: number): void {
+/** Сдвиг узора ряби: у `DOMMatrix` в старом потоке Safari может не быть — тогда узор без сдвига (шов в рябь). */
+function shiftPattern(pat: CanvasPattern, dx: number, dy: number): void {
+  if (typeof DOMMatrix === 'undefined') return;
+  pat.setTransform(new DOMMatrix([1, 0, 0, 1, dx, dy]));
+}
+
+function paintRipples(ctx: Ctx, ox: number, oy: number, alpha: number): void {
   if (!spec().ripples) return;
   const pat = ctx.createPattern(ripplePattern(), 'repeat');
   if (!pat) return;
   // Узор привязан к миру, а не к тайлу: у соседей он продолжается, а не начинается заново.
   const shift = (v: number): number => -(((v * TILE_BAKE) % RIPPLE_PX) + RIPPLE_PX) % RIPPLE_PX;
-  pat.setTransform(new DOMMatrix([1, 0, 0, 1, shift(ox), shift(oy)]));
+  shiftPattern(pat, shift(ox), shift(oy));
   ctx.globalAlpha = alpha;
   ctx.fillStyle = pat;
   ctx.fillRect(0, 0, TILE_PX, TILE_PX);
@@ -510,18 +561,24 @@ function paintRipples(ctx: CanvasRenderingContext2D, ox: number, oy: number, alp
 /** Последняя выпечка по частям — стенду (`?showcase=map-tw`): что сколько стоит. */
 export const bakeStats = { cells: 0, light: 0, shore: 0, lines: 0, trees: 0, groves: 0 };
 
+/** Окно данных тайла ближнего масштаба. */
+export function tileNeed(tx: number, ty: number): Rect {
+  const o = tileOrigin(tx, ty);
+  return needFor(o.x - TILE_BLEED, o.y - TILE_BLEED, TILE_CELLS + TILE_BLEED * 2, spec().nodes);
+}
+
 /**
- * Тайл нового вида или null, если кусков карты под ним ещё нет. `take` даёт холст тайла (из пула
- * прежней выпечки), и зовут его только тогда, когда печь уже точно будут.
+ * Тайл нового вида шагами; null — земли под ним нет. `take` даёт холст тайла, и зовут его только тогда, когда
+ * печь уже точно будут.
  */
-export function bakeTile(seed: number, tx: number, ty: number, take: () => HTMLCanvasElement): HTMLCanvasElement | null {
+export function* tileSteps(seed: number, tx: number, ty: number, take: () => Canvas): Steps<Canvas | null> {
   const o = tileOrigin(tx, ty);
   const sp = spec();
   const side = TILE_CELLS + TILE_BLEED * 2;
   const x = o.x - TILE_BLEED;
   const y = o.y - TILE_BLEED;
   const need = needFor(x, y, side, sp.nodes);
-  if (!ready(need)) return null;
+  if (!land().ready(need)) return null;
 
   const canvas = take();
   const ctx = ctxOf(canvas);
@@ -534,37 +591,40 @@ export function bakeTile(seed: number, tx: number, ty: number, take: () => HTMLC
   // Открытое море: до земли дальше, чем дотягивается любое поле, — тон глубины и рябь, ничего больше.
   // Шва с прибрежным соседом нет: у того на этой кромке глубина та же (`shade`, «пятнистость гаснет в
   // глубине»).
-  const inner: Rect = { x: Math.floor(need.x), y: Math.floor(need.y), w: need.w, h: need.h };
-  if (openSea(inner)) {
+  if (openSea(need)) {
     ctx.fillStyle = TW.deep;
     ctx.fillRect(0, 0, TILE_PX, TILE_PX);
     paintRipples(ctx, x, y, 0.45);
     return canvas;
   }
 
-  const t0 = performance.now();
-  const area = areaFor(seed, x, y, side, sp.nodes, sp.castShadow);
-  const t1 = performance.now();
+  let t = performance.now();
+  const lap = (): number => {
+    const now = performance.now();
+    const d = now - t;
+    t = now;
+    return d;
+  };
+  const area = yield* areaSteps(seed, x, y, side, sp.nodes, sp.castShadow);
+  bakeStats.cells = lap();
   const sm = smallOf(area.n);
-  shade(seed, area.cells, area.grid, { i0: area.ml, j0: area.ml, w: area.n, h: area.n }, { season: look.season, castShadow: sp.castShadow }, sm.landImg.data, sm.waterImg.data);
+  yield* shadeSteps(seed, area, sm.landImg.data, sm.waterImg.data);
   ctxOf(sm.land).putImageData(sm.landImg, 0, 0);
   ctx.drawImage(sm.land, 0, 0, TILE_PX, TILE_PX);
-  const t2 = performance.now();
+  bakeStats.light = lap();
+  yield;
 
   // Реки и дороги лежат на земле и уходят под море.
   const tileRect: Rect = { x: Math.floor(x), y: Math.floor(y), w: Math.ceil(side) + 1, h: Math.ceil(side) + 1 };
-  const water: Flag = (cx, cy) => {
-    const t = sample(cx, cy);
-    return t === null || t === 'water';
-  };
   if (linePath(ctx, tileRect, isRiver, area.warp, toPx, water) > 0) strokeRiver(ctx, TILE_BAKE);
   if (linePath(ctx, tileRect, isRoad, area.warp, toPx) > 0) strokeRoad(ctx, TILE_BAKE);
-  const t3 = performance.now();
+  bakeStats.lines = lap();
+  yield;
 
   // Море: цвет по глубине растянут на тайл и вырезан маской берега; поверх — рябь и полосы у уреза.
   const fu = fullOf();
   const homes = clearingsIn({ x: Math.floor(x) - 1, y: Math.floor(y) - 1, w: Math.ceil(side) + 3, h: Math.ceil(side) + 3 });
-  const shore = shoreMasks(area, fu.img, fu.band, homes);
+  const shore = yield* shoreSteps(area, fu.img, fu.band, homes);
   if (shore.water) {
     ctxOf(sm.water).putImageData(sm.waterImg, 0, 0);
     const wc = ctxOf(fu.water);
@@ -582,20 +642,19 @@ export function bakeTile(seed: number, tx: number, ty: number, take: () => HTMLC
     ctx.drawImage(fu.canvas, 0, 0);
   }
   drawCrossings(ctx, tileRect, area.warp, toPx, TILE_BAKE);
-  const t4 = performance.now();
+  bakeStats.shore = lap();
+  yield;
 
   // Лес: купы с запасом в клетку — крона соседа заходит внутрь, и по кромке не идёт срез.
   const treeRect: Rect = { x: o.x - 1, y: o.y - 1, w: TILE_CELLS + 2, h: TILE_CELLS + 2 };
-  const groves = shore.land ? drawGroves(ctx, seed, area, treeRect, toPx, TILE_BAKE, clearingsIn(treeRect)) : 0;
-  const t5 = performance.now();
-  bakeStats.cells = t1 - t0;
-  bakeStats.light = t2 - t1;
-  bakeStats.lines = t3 - t2;
-  bakeStats.shore = t4 - t3;
-  bakeStats.trees = t5 - t4;
+  const groves = shore.land ? yield* groveSteps(ctx, seed, area, treeRect, toPx, TILE_BAKE, clearingsIn(treeRect)) : 0;
+  bakeStats.trees = lap();
   bakeStats.groves = groves;
   return canvas;
 }
+
+/** Тайл целиком, разом: стенд и проверки. */
+export const bakeTile = (seed: number, tx: number, ty: number, take: () => Canvas): Canvas | null => drain(tileSteps(seed, tx, ty, take));
 
 // ---------- Обзор ----------
 
@@ -610,35 +669,29 @@ export const OVERVIEW_PX = 4;
 /**
  * Вылет куска обзора за свой край, в пикселях: растянутый со сглаживанием холст берёт у края пиксель
  * соседа, и без вылета по стыкам кусков шли бы нитки (видно на первом же снимке дальнего вида).
- * Кадр рисует кусок без вылета — `tiles.overviewSrc`.
+ * Кадр рисует кусок без вылета.
  */
 export const OVERVIEW_BLEED = 2;
 
-/**
- * Кусок обзора: тот же свет, цвет, снег и берег, что у тайла, но решёткой в узел на пиксель и без
- * крон — лес читается тёмной массой с крапом. Null — соседи куска ещё не приехали: испеки его без
- * них, и по краю куска встанет шов, когда они приедут.
- */
 /** Какие клетки нужны куску обзора: он сам и округа под свет, тень, сплайн и размытия. */
-export function chunkNeed(chunk: CachedChunk): Rect {
+export function chunkNeed(rect: Rect): Rect {
   const bleed = OVERVIEW_BLEED / OVERVIEW_PX;
-  const need = needFor(chunk.rect.x - bleed, chunk.rect.y - bleed, chunk.rect.w + bleed * 2, OVERVIEW_PX);
-  return {
-    x: Math.max(WORLD_ORIGIN.x, need.x),
-    y: Math.max(WORLD_ORIGIN.y, need.y),
-    w: Math.min(WORLD_ORIGIN.x + WORLD_SIZE, need.x + need.w) - Math.max(WORLD_ORIGIN.x, need.x),
-    h: Math.min(WORLD_ORIGIN.y + WORLD_SIZE, need.y + need.h) - Math.max(WORLD_ORIGIN.y, need.y),
-  };
+  return inWorld(needFor(rect.x - bleed, rect.y - bleed, rect.w + bleed * 2, OVERVIEW_PX));
 }
 
-export const chunkReady = (chunk: CachedChunk): boolean => ready(chunkNeed(chunk));
-
-export function bakeChunk(seed: number, chunk: CachedChunk): HTMLCanvasElement | null {
-  const nodes = OVERVIEW_PX;
-  const bleed = OVERVIEW_BLEED / nodes;
-  if (!chunkReady(chunk)) return null;
-  return bakePicture(seed, chunk.rect.x - bleed, chunk.rect.y - bleed, chunk.rect.w + bleed * 2, nodes, chunk.rect, false);
+/**
+ * Кусок обзора шагами: тот же свет, цвет, снег и берег, что у тайла, но решёткой в узел на пиксель и без крон —
+ * лес читается тёмной массой с крапом. Null — земли под округой куска нет: испеки его без неё, и по краю куска
+ * встанет шов, когда она приедет.
+ */
+export function* chunkSteps(seed: number, rect: Rect): Steps<Canvas | null> {
+  if (!land().ready(chunkNeed(rect))) return null;
+  const bleed = OVERVIEW_BLEED / OVERVIEW_PX;
+  return yield* pictureSteps(seed, rect.x - bleed, rect.y - bleed, rect.w + bleed * 2, OVERVIEW_PX, rect, false);
 }
+
+/** Кусок обзора целиком, разом: стенд. */
+export const bakeChunk = (seed: number, chunk: { rect: Rect }): Canvas | null => drain(chunkSteps(seed, chunk.rect));
 
 /**
  * Картина участка решёткой в узел на пиксель: тот же свет, цвет, снег и берег, что у тайла, лес — тёмной
@@ -646,15 +699,15 @@ export function bakeChunk(seed: number, chunk: CachedChunk): HTMLCanvasElement |
  * `side` — окно с вылетом, `rivers` — клетки, чьи реки рисовать, `ribbon` — река лентой с берегом (средний
  * масштаб) или одной линией (обзор).
  */
-function bakePicture(seed: number, x: number, y: number, side: number, nodes: number, rivers: Rect, ribbon: boolean): HTMLCanvasElement {
+function* pictureSteps(seed: number, x: number, y: number, side: number, nodes: number, rivers: Rect, ribbon: boolean): Steps<Canvas> {
   const sp = spec();
   const c0 = performance.now();
-  const area = areaFor(seed, x, y, side, nodes, sp.castShadow);
+  const area = yield* areaSteps(seed, x, y, side, nodes, sp.castShadow);
   const c1 = performance.now();
   const n = area.n;
   const landPx = new Uint8ClampedArray(n * n * 4);
   const waterPx = new Uint8ClampedArray(n * n * 4);
-  shade(seed, area.cells, area.grid, { i0: area.ml, j0: area.ml, w: n, h: n }, { season: look.season, castShadow: sp.castShadow }, landPx, waterPx);
+  yield* shadeSteps(seed, area, landPx, waterPx);
   const c2 = performance.now();
   const canvas = makeCanvas(n, n);
   const ctx = ctxOf(canvas);
@@ -680,16 +733,14 @@ function bakePicture(seed: number, x: number, y: number, side: number, nodes: nu
       }
       out[p + 3] = 255;
     }
+    if (j % ROWS === ROWS - 1) yield;
   }
   ctx.putImageData(img, 0, 0);
   const c3 = performance.now();
   chunkStats.area = c1 - c0;
   chunkStats.light = c2 - c1;
   chunkStats.mix = c3 - c2;
-  const water: Flag = (cx, cy) => {
-    const t = sample(cx, cy);
-    return t === null || t === 'water';
-  };
+  yield;
   if (!ribbon) {
     const toPx = (wx: number, wy: number): [number, number] => [(wx - x) * nodes, (wy - y) * nodes];
     if (linePath(ctx, rivers, isRiver, area.warp, toPx, water) > 0) {
@@ -712,7 +763,7 @@ function bakePicture(seed: number, x: number, y: number, side: number, nodes: nu
   const toPx = (wx: number, wy: number): [number, number] => [(wx - x) * px, (wy - y) * px];
   // Купы — с запасом в клетку, как у тайла: крона соседа заходит внутрь, и по стыку тайлов не идёт срез.
   const around: Rect = { x: rivers.x - 1, y: rivers.y - 1, w: rivers.w + 2, h: rivers.h + 2 };
-  drawGroves(uctx, seed, area, around, toPx, px, clearingsIn(around), MID_GROVES);
+  yield* groveSteps(uctx, seed, area, around, toPx, px, clearingsIn(around), MID_GROVES);
   if (linePath(uctx, rivers, isRiver, area.warp, toPx, water) > 0) strokeRiver(uctx, px);
   drawCrossings(uctx, rivers, area.warp, toPx, px);
   return up;
@@ -738,32 +789,27 @@ export function midNeed(tx: number, ty: number): Rect {
   const bleed = MID_BLEED / MID_PX;
   const x0 = WORLD_ORIGIN.x + tx * MID_CELLS;
   const y0 = WORLD_ORIGIN.y + ty * MID_CELLS;
-  const need = needFor(x0 - bleed, y0 - bleed, MID_CELLS + bleed * 2, MID_NODES);
-  return {
-    x: Math.max(WORLD_ORIGIN.x, need.x),
-    y: Math.max(WORLD_ORIGIN.y, need.y),
-    w: Math.min(WORLD_ORIGIN.x + WORLD_SIZE, need.x + need.w) - Math.max(WORLD_ORIGIN.x, need.x),
-    h: Math.min(WORLD_ORIGIN.y + WORLD_SIZE, need.y + need.h) - Math.max(WORLD_ORIGIN.y, need.y),
-  };
+  return inWorld(needFor(x0 - bleed, y0 - bleed, MID_CELLS + bleed * 2, MID_NODES));
 }
-
-export const midReady = (tx: number, ty: number): boolean => ready(midNeed(tx, ty));
 
 /** Последняя выпечка тайла среднего масштаба — стенду и бюджету. */
 export const midStats = { ms: 0 };
 
 /**
- * Тайл среднего масштаба: свет решёткой 8 узлов на клетку (вдвое чаще куска обзора), холст 16 px на клетку
- * с купами леса, рекой лентой и бродами. Null — данных под округой ещё нет. Кадр рисует тайл без вылета.
+ * Тайл среднего масштаба шагами: свет решёткой 8 узлов на клетку (вдвое чаще куска обзора), холст 16 px на
+ * клетку с купами леса, рекой лентой и бродами. Null — данных под округой нет. Кадр рисует тайл без вылета.
  */
-export function bakeMid(seed: number, tx: number, ty: number): HTMLCanvasElement | null {
-  if (!midReady(tx, ty)) return null;
+export function* midSteps(seed: number, tx: number, ty: number): Steps<Canvas | null> {
+  if (!land().ready(midNeed(tx, ty))) return null;
   const t0 = performance.now();
   const bleed = MID_BLEED / MID_PX;
   const x0 = WORLD_ORIGIN.x + tx * MID_CELLS;
   const y0 = WORLD_ORIGIN.y + ty * MID_CELLS;
   const rect: Rect = { x: x0, y: y0, w: MID_CELLS, h: MID_CELLS };
-  const canvas = bakePicture(seed, x0 - bleed, y0 - bleed, MID_CELLS + bleed * 2, MID_NODES, rect, true);
+  const canvas = yield* pictureSteps(seed, x0 - bleed, y0 - bleed, MID_CELLS + bleed * 2, MID_NODES, rect, true);
   midStats.ms = performance.now() - t0;
   return canvas;
 }
+
+/** Тайл среднего масштаба целиком, разом: стенд. */
+export const bakeMid = (seed: number, tx: number, ty: number): Canvas | null => drain(midSteps(seed, tx, ty));

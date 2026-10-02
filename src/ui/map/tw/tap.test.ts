@@ -323,7 +323,7 @@ describe('находки проверки этапа 2', () => {
 
   it('сезон и уровень сверяются в каждом кадре нового вида, а не только при выпечке тайлов', () => {
     const src = readFileSync(join(process.cwd(), 'src/ui/map/tw/hook.ts'), 'utf8');
-    expect(src).toMatch(/frame\(ctx, cam, vp, dpr, frame\) \{[\s\S]*?if \(syncLook\(\)\) dropTiles\(\);[\s\S]*?drawTwFrame\(ctx, cam, vp, dpr, frame\);/);
+    expect(src).toMatch(/frame\(ctx, cam, vp, dpr, frame\) \{[\s\S]*?if \(syncLook\(\)\) prebakeLook\(\);[\s\S]*?drawTwFrame\(ctx, cam, vp, dpr, frame\);/);
   });
 });
 

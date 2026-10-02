@@ -52,7 +52,7 @@ import {
   zoomAt,
 } from './grid';
 import { dropPaper, drawFrame } from './frame';
-import { twSlot } from './twslot';
+import { beyondText, reachable, twSlot } from './twslot';
 import { dropTiles } from './ground';
 import { dropBitmaps } from './tiles';
 import { type Look, dropSprites, silhouetteUrl } from './village';
@@ -254,9 +254,10 @@ export function WorldMap() {
    * всё равно не пустят, и подпись расходилась бы с картинкой на кадр.
    */
   const hold = (c: Camera): Camera => {
-    if (FREE_CAMERA) return clampCamera(c);
-    const at = cameraAnchor(worldNow());
-    return at ? leashCamera(c, vp(), at) : clampCamera(c);
+    const at = FREE_CAMERA ? null : cameraAnchor(worldNow());
+    const held = at ? leashCamera(c, vp(), at) : clampCamera(c);
+    // Новый вид карты держит камеру ещё и в рамке региона игрока (docs/map_tw.md, раздел 13.5) — поверх поводка.
+    return twSlot()?.hold(held, vp()) ?? held;
   };
 
   /**
@@ -582,6 +583,11 @@ export function WorldMap() {
     // Тот же призрачный щелчок, что и в деревне: карточка клетки поднимает то же
     // затемнение, и закрыть её собственным касанием она не должна.
     swallowGhostClick();
+    // За краем региона игрока целей нет: ни места, ни земли под приказ (docs/map_tw.md, раздел 13.5).
+    if (!reachable(c)) {
+      showToast(beyondText());
+      return;
+    }
     openAt(c);
   };
 
@@ -667,6 +673,10 @@ export function WorldMap() {
     const c = aimed ?? { x: Math.floor(world.x), y: Math.floor(world.y) };
     if (c.x < WORLD_ORIGIN.x || c.y < WORLD_ORIGIN.y) return;
     if (c.x >= WORLD_ORIGIN.x + WORLD_SIZE || c.y >= WORLD_ORIGIN.y + WORLD_SIZE) return;
+    if (!reachable(c)) {
+      showToast(beyondText());
+      return;
+    }
     const g = useWorld.getState();
     const agent = g.picked ?? figuresOn(c.x, c.y, worldNow())[0]?.id ?? (g.anchor === 'home' ? 'diplomat' : g.anchor);
     void g.openMenu(agent, c);
