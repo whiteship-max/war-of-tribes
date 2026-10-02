@@ -1192,7 +1192,7 @@ export function placedAt(cast: Cast, side: Side, t: number): number {
 }
 
 /** Доля потерь стороны, уже случившихся к моменту `t`: из фазовых потерь итога. */
-function lossProgress(spans: Span[], side: Side, t: number): number {
+export function lossProgress(spans: Span[], side: Side, t: number): number {
   const total = spans.reduce((n, s) => n + s.losses[side], 0);
   if (total <= 0) return 0;
   let done = 0;
@@ -1213,7 +1213,7 @@ function lossProgress(spans: Span[], side: Side, t: number): number {
  * уже видна. Это и есть смысл поля: фланг, выбитый за одну фазу, тает за одну
  * фазу, а не плавно вместе со всей армией.
  */
-function sectorLost(spans: Span[], side: Side, sector: Sector, t: number): number {
+export function sectorLost(spans: Span[], side: Side, sector: Sector, t: number): number {
   let lost = 0;
   for (const s of spans) {
     const n = s.bySector?.[side]?.[sector] ?? 0;

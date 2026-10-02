@@ -43,7 +43,7 @@ import { nextFrame, pixelRatio } from './loop';
  * Виды настоящие и разные — стенд обязан показывать то же, что игра, а на
  * близком плане ровно это и проверяется: видно, кого собрал.
  */
-function armyOf(men: number): TroopStack {
+export function armyOf(men: number): TroopStack {
   const part = (k: number): number => Math.max(0, Math.round(men * k));
   return {
     spearman: part(0.25),
@@ -129,7 +129,47 @@ function moment(cast: Cast, at: string): number {
   }
 }
 
+/** Бой стенда из адреса: состав, место и час — тем же путём, что в игре. Его же берёт стенд ролика TW (`tw/stand.ts`). */
+export interface StandBattle {
+  men: number;
+  foe: number;
+  seed: number;
+  beasts: boolean;
+  us: Side;
+  result: BattleResult;
+  troops: Record<Side, TroopStack>;
+  place: BattlePlace | undefined;
+  /** Чья сторона — стая (`BattleRecord.beasts`). */
+  beastSide: Side | undefined;
+}
+
+export function standBattle(p: URLSearchParams): StandBattle {
+  const men = Number(p.get('men') ?? 200);
+  const foe = Number(p.get('foe') ?? men);
+  const seed = Number(p.get('seed') ?? 7);
+  const beasts = p.get('beasts') === '1';
+  const us = (p.get('us') as Side) ?? (beasts ? 'defender' : 'attacker');
+  const mine = armyOf(men);
+  const theirs = p.get('foeKinds') === '1' ? null : armyOf(foe);
+  const place = placeOf(p);
+  if (beasts) {
+    // Стая у ворот — как в игре: волки нападают лёгкой конницей без снаряжения, состава племени у них нет, и
+    // запись боя несёт только их сторону (`BattleRecord.beasts`).
+    const result = fight({ ...emptyStack(), cavalry: foe }, kindsOf(mine), seed);
+    return { men, foe, seed, beasts, us, result, troops: { attacker: {}, defender: mine }, place, beastSide: 'attacker' };
+  }
+  const result = fight(kindsOf(mine), theirs ? kindsOf(theirs) : { ...emptyStack(), infantry: foe }, seed);
+  // Чужой состав — как в игре: из родов и ступени снаряжения (`foeKinds=1` показывает именно этот путь, а не поимённый).
+  const foeTroops = theirs ?? troopsOfKinds(result.sides.defender.initial, { infantry: 3 });
+  return { men, foe, seed, beasts, us, result, troops: { attacker: mine, defender: foeTroops }, place, beastSide: undefined };
+}
+
 export function mountReplayStand(p: URLSearchParams): void {
+  if (p.get('replay') === 'tw') {
+    // Ролик в стиле Total War — свой кусок (docs/battle_tw.md): в прежний стенд он не едет.
+    void import('./tw/stand').then((m) => m.mountTwStand(p));
+    return;
+  }
   const root = document.getElementById('root') ?? document.body;
   root.innerHTML = '';
   const canvas = document.createElement('canvas');
@@ -143,27 +183,9 @@ export function mountReplayStand(p: URLSearchParams): void {
   if (p.get('clean') === '1') caption.style.display = 'none';
   root.appendChild(caption);
 
-  const men = Number(p.get('men') ?? 200);
-  const foe = Number(p.get('foe') ?? men);
-  const seed = Number(p.get('seed') ?? 7);
-  const beasts = p.get('beasts') === '1';
-  const us = (p.get('us') as Side) ?? (beasts ? 'defender' : 'attacker');
-  const mine = armyOf(men);
-  const theirs = p.get('foeKinds') === '1' ? null : armyOf(foe);
-  let cast: Cast;
-  let result: BattleResult;
-  if (beasts) {
-    // Стая у ворот — как в игре: волки нападают лёгкой конницей без снаряжения, состава племени у них нет, и
-    // запись боя несёт только их сторону (`BattleRecord.beasts`).
-    result = fight({ ...emptyStack(), cavalry: foe }, kindsOf(mine), seed);
-    cast = castOfRecord(result, us, { attacker: {}, defender: mine }, undefined, placeOf(p), 'attacker');
-  } else {
-    result = fight(kindsOf(mine), theirs ? kindsOf(theirs) : { ...emptyStack(), infantry: foe }, seed);
-    // Чужой состав — как в игре: из родов и ступени снаряжения (`foeKinds=1`
-    // показывает именно этот путь, а не поимённый).
-    const foeTroops = theirs ?? troopsOfKinds(result.sides.defender.initial, { infantry: 3 });
-    cast = castOfRecord(result, us, { attacker: mine, defender: foeTroops }, undefined, placeOf(p));
-  }
+  const battle = standBattle(p);
+  const { men, foe, seed, beasts, us, result } = battle;
+  const cast: Cast = castOfRecord(result, us, battle.troops, undefined, battle.place, battle.beastSide);
 
   const renderer = new THREE.WebGLRenderer({
     canvas,
