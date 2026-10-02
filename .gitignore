@@ -46,3 +46,6 @@ assets-src/world/cache/
 # из них собирается public/assets/prologue/, а откуда они, записано в src/prologue/textures.ts
 # и docs/prologue.md, раздел 21; качает их `npm run textures:build -- --fetch`
 assets-src/prologue/cache/
+
+# снимки стенда карты нового вида (?showcase=map-tw): петля самопроверки, в историю им не надо
+.map-shots/
