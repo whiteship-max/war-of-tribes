@@ -525,12 +525,21 @@ export function buildPlan(input: PlanInput): TwPlan {
         lineUp(list, slotX[slot], SLOT_SIGN[slot], rowZ[row]);
       }
     }
-    lineUp(
-      sideUnits.filter((u) => u.row === 'reserve'),
-      0,
-      0,
-      rowZ.reserve,
-    );
+    // Резерв — рядами не шире фронта: у большой армии он больше первой линии (ядро ставит в ряд полосы не больше W),
+    // и одной шеренгой отрядов он уходил бы за края поля (самопроверка, большой бой).
+    const reserve = sideUnits.filter((u) => u.row === 'reserve').sort((a, b) => FORM[a.form].outer - FORM[b.form].outer || a.id - b.id);
+    const frontWidth = Math.max(24, slotW[0] + slotW[1] + slotW[2] + 2 * LANE_GAP);
+    let rz = rowZ.reserve;
+    for (let i = 0; i < reserve.length; ) {
+      const row: TwUnit[] = [];
+      let w = 0;
+      while (i < reserve.length && (row.length === 0 || w + UNIT_GAP + reserve[i].width <= frontWidth)) {
+        w += (row.length ? UNIT_GAP : 0) + reserve[i].width;
+        row.push(reserve[i++]);
+      }
+      lineUp(row, 0, 0, rz);
+      rz += s * (Math.max(...row.map((u) => u.depth)) + REAR_GAP);
+    }
     if (hasGeneral(result, side)) {
       const z = (sideUnits.some((u) => u.row === 'rear') ? rowZ.rear + s * (rearDepth + 2.6) : rowZ.front + s * (frontDepth + 2.6));
       units.push({

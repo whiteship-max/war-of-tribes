@@ -90,7 +90,9 @@ const C2 = new THREE.Color();
 
 /** Цвет земли в точке: трава пятнами, вытоптанное там, где стоят и сходятся строи, ил у воды, снег зимой. */
 function groundColor(f: TwField, plan: TwPlan, x: number, z: number, y: number, out: THREE.Color, detail = 1): THREE.Color {
-  const n1 = vnoise(x / 9, z / 9, f.seed + 21);
+  // Вся пестрота плиты гаснет к её краю до крупных пятен, которые грубая подстилка держит так же: шва нет.
+  const far = vnoise(x / 70, z / 70, f.seed + 20);
+  const n1 = far + (vnoise(x / 9, z / 9, f.seed + 21) - far) * detail;
   // Мелкая пестрота гаснет к краю плиты: подстилка её не держит, и на шве они сходятся одной гладкой окраской.
   const n2 = 0.5 + (vnoise(x / 3.1, z / 3.1, f.seed + 22) - 0.5) * detail;
   out.set(TONE.grass);
