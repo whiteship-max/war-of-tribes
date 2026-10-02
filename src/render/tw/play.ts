@@ -9,7 +9,6 @@ import type { Quality } from '../quality';
 import { TW_SPEC } from './spec';
 import { twPlanOfRecord } from './record';
 import { TwPlayer, type TwPlayerOptions } from './player';
-import { twToCast } from './plan';
 
 export interface TwRecord {
   result: BattleResult;
@@ -30,6 +29,3 @@ export function playTw(renderer: THREE.WebGLRenderer, rec: TwRecord, quality: Qu
   player.cam.attach(touch);
   return player;
 }
-
-/** Секунда раскадровки на секунде ролика TW: подпись, фаза и музыка берутся у неё, как у прежнего ролика. */
-export const castTime = (player: TwPlayer, t: number): number => twToCast(player.plan.timing, t);

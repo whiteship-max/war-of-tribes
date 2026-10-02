@@ -69,8 +69,8 @@ export function TwReplay({ rec, onDone }: { rec: BattleRecord; onDone: () => voi
           quality,
           layer.current,
           {
-            onFrame: (t) => {
-              const f = frameAt(cast, m.castTime(player, t));
+            onFrame: (_t, castT) => {
+              const f = frameAt(cast, castT);
               battleMusic.set(f.music);
               const key = `${f.act}|${f.caption ?? ''}|${f.phase}|${f.side.attacker.men}|${f.side.defender.men}`;
               if (key === shown.current) return;
@@ -88,7 +88,11 @@ export function TwReplay({ rec, onDone }: { rec: BattleRecord; onDone: () => voi
         dispose = () => player.dispose();
         setLoaded('ok');
       })
-      .catch(() => alive && setLoaded('fail'));
+      .catch((e: unknown) => {
+        // Причина — в консоль: «не загрузился» без неё не отличить сеть от ошибки в коде ролика.
+        console.error('ролик TW:', e);
+        if (alive) setLoaded('fail');
+      });
     return () => {
       alive = false;
       window.removeEventListener('resize', onResize);

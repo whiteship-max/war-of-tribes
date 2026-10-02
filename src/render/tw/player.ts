@@ -6,10 +6,11 @@ import { FrameLoop } from '../loop';
 import type { TwSpec } from './spec';
 import { TacticalCamera } from './camera';
 import { TwStage } from './stage';
-import type { TwPlan } from './plan';
+import { twToCast, type TwPlan } from './plan';
 
 export interface TwPlayerOptions {
-  onFrame?: (t: number) => void;
+  /** Кадр нарисован: секунда ролика TW и та же секунда раскадровки (подпись, фаза и музыка берутся у неё). */
+  onFrame?: (t: number, castT: number) => void;
   onEnd?: () => void;
   speed?: number;
 }
@@ -115,7 +116,7 @@ export class TwPlayer {
     this.renderer.info.reset();
     this.renderer.shadowMap.needsUpdate = true;
     this.renderer.render(this.stage.scene, this.cam.camera);
-    this.opts.onFrame?.(this.t);
+    this.opts.onFrame?.(this.t, twToCast(this.plan.timing, this.t));
   }
 
   /** Камера двигается и без хода ролика: цикл кадров нужен и на паузе, пока её ведут. */
