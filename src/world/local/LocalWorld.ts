@@ -23,6 +23,7 @@ import type {
   AttackOrder,
   AttackResult,
   BattleRecord,
+  BattleSite,
   CampView,
   CardSack,
   CardSiege,
@@ -2056,6 +2057,7 @@ export class LocalWorld implements WorldApi {
           troops: { attacker: { ...going }, defender: troopsOfKinds(camp.kinds, camp.gear) },
           // Бой у своих ворот: место снимается там же, где стоит деревня.
           place: this.placeOf(this.save.home),
+          site: 'sortie',
         }
       : null;
 
@@ -3664,6 +3666,8 @@ export class LocalWorld implements WorldApi {
           troops: { attacker: { ...troops }, defender: troopsOfKinds(garrison.kinds, garrison.gear) },
           // Бой идёт на клетке цели: у брода, на гребне, у опушки — как там и есть.
           place: this.placeOf(target),
+          // Логово — лагерь в лесу (ролик TW); прочие цели — поле.
+          ...(isLair(target) ? { site: 'lair' as const } : {}),
         }
       : null;
 
@@ -4115,7 +4119,8 @@ export class LocalWorld implements WorldApi {
     this.remove(m);
     const { profile, party, field } = wall;
     const outcome = { won: field.won, attackerLoss: field.attackerLoss, defenderLoss: field.defenderLoss };
-    const record = this.gateRecord(wall, troopsOfKinds(party.kinds, party.gear));
+    // Набег, не севший в осаду, — штурм стены (ролик TW: лестницы и таран).
+    const record = this.gateRecord(wall, troopsOfKinds(party.kinds, party.gear), 'wall');
     const attackerLeft = stackAfter(m.units, stackLosses(m.units, outcome.attackerLoss));
     const { warriors, warriorsLost, troopsLost } = this.gateLosses(wall);
     // Пленные: часть тех, кого племя посчитало убитыми, на самом деле уведена (ниже, `captives`). Число — до отчёта:
@@ -4263,7 +4268,7 @@ export class LocalWorld implements WorldApi {
    * ролик их нарисовал. Ополчение — не бойцы: частокол, башня и жители. В строю они стоят, в казармах их нет, поэтому
    * и записаны они отдельно. Оборону держат у себя дома — там и снимается место боя.
    */
-  private gateRecord(gate: ReturnType<LocalWorld['gateField']>, attacker: TroopStack): BattleRecord | null {
+  private gateRecord(gate: ReturnType<LocalWorld['gateField']>, attacker: TroopStack, site: BattleSite): BattleRecord | null {
     const { home, militia, archers, field } = gate;
     return field.result
       ? {
@@ -4272,6 +4277,7 @@ export class LocalWorld implements WorldApi {
           troops: { attacker, defender: { ...home } },
           militia: { attacker: { men: 0, archers: 0 }, defender: { men: militia, archers } },
           place: this.placeOf(this.save.home),
+          site,
         }
       : null;
   }
@@ -4324,7 +4330,8 @@ export class LocalWorld implements WorldApi {
     const gate = this.gateField(party, call.seed, this.save.home, at);
     const { field } = gate;
     const { warriors, warriorsLost, troopsLost } = this.gateLosses(gate);
-    const record = this.gateRecord(gate, def.beasts ? {} : troopsOfKinds(party.kinds, party.gear));
+    // Вызов к воротам: разбойники и волки бьются перед воротами (ролик TW).
+    const record = this.gateRecord(gate, def.beasts ? {} : troopsOfKinds(party.kinds, party.gear), 'gate');
     // Прорвались люди — уносят со склада, сколько поднимут уцелевшие; тайник не достать.
     const units = warriorsOf(call.power);
     const left = stackAfter(units, stackLosses(units, field.attackerLoss));
@@ -4978,6 +4985,8 @@ export class LocalWorld implements WorldApi {
           result: field.result,
           troops: { attacker: plus(troops, going), defender: troopsOfKinds(camp.kinds, camp.gear) },
           place: this.placeOf(target ?? this.save.home),
+          // Лагерь под нашими стенами: ролик ставит город за лагерем; совместный удар — ворота открыты (гарнизон вышел).
+          ...(joint ? { site: 'joint' as const } : target ? {} : { site: 'camp' as const }),
         }
       : null;
 

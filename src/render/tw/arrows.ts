@@ -7,6 +7,7 @@ import * as THREE from 'three';
 import { PALETTE } from '../palette';
 import { ARROW_FLIGHT, aliveFigures, figurePose, figureState, targetOf, unitPose, volleysAt, type TwPlan } from './plan';
 import { hash, heightAt } from './terrain';
+import { standY } from './site';
 
 /** Стрела крупнее жизни: на общем виде залп должен читаться штрихами, а не пропадать. */
 const ARROW_LEN = 1.25;
@@ -71,13 +72,13 @@ export class Arrows {
           ax = this.fig.x;
           az = this.fig.z;
         }
-        const ay = heightAt(plan.field, ax, az) + 1.3;
+        const ay = standY(plan.field, plan.site, ax, az) + 1.3;
         // Куда: точка в строю цели, разброс — по его ширине и глубине.
         const ox = (hash(plan.cast.seed, k, v.to * 7 + 22) - 0.5) * (to.width + 2);
         const oz = -hash(plan.cast.seed, k, v.to * 7 + 23) * (to.depth + 2) + 1;
         const bx = b.x + ox * cb + oz * sb;
         const bz = b.z - ox * sb + oz * cb;
-        const by = heightAt(plan.field, bx, bz) + 0.3;
+        const by = standY(plan.field, plan.site, bx, bz) + 0.3;
         const dist = Math.hypot(bx - ax, bz - az);
         const h = 2 + dist * 0.32;
         const px = ax + (bx - ax) * u;

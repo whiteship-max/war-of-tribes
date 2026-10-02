@@ -161,6 +161,10 @@ export interface StandBattle {
   place: BattlePlace | undefined;
   /** Чья сторона — стая (`BattleRecord.beasts`). */
   beastSide: Side | undefined;
+  /** Место боя (`BattleRecord.site`, ролик TW): `&site=wall|gate|sortie|camp|joint|lair`. */
+  site: string | undefined;
+  /** Ополчение у своих ворот (`BattleRecord.militia`): на штурме стены и у ворот — как `gateField` мира. */
+  militia: Record<Side, { men: number; archers: number }> | undefined;
 }
 
 export function standBattle(p: URLSearchParams): StandBattle {
@@ -173,16 +177,29 @@ export function standBattle(p: URLSearchParams): StandBattle {
   const theirs = p.get('foeKinds') === '1' ? null : armyOf(foe);
   const place = placeOf(p);
   const ground = p.get('ground') === '0' ? undefined : standGround(place);
+  const site = p.get('site') ?? undefined;
+  // У своих ворот и на стене к гарнизону встаёт ополчение — жители, частокол и башня (`gateField` мира).
+  const home = site === 'wall' || site === 'gate';
+  const militiaMen = home ? Number(p.get('militia') ?? Math.round(men * 0.4)) : 0;
+  const militiaArchers = home ? Math.min(militiaMen, Number(p.get('archers') ?? Math.round(militiaMen / 3))) : 0;
+  const militia = home ? { attacker: { men: 0, archers: 0 }, defender: { men: militiaMen, archers: militiaArchers } } : undefined;
+  const withMilitia = (k: Stack): Stack => ({ ...k, infantry: k.infantry + militiaMen - militiaArchers, archer: k.archer + militiaArchers });
   if (beasts) {
     // Стая у ворот — как в игре: волки нападают лёгкой конницей без снаряжения, состава племени у них нет, и
     // запись боя несёт только их сторону (`BattleRecord.beasts`).
-    const result = fight({ ...emptyStack(), cavalry: foe }, kindsOf(mine), seed, ground);
-    return { men, foe, seed, beasts, us, result, troops: { attacker: {}, defender: mine }, place, beastSide: 'attacker' };
+    const result = fight({ ...emptyStack(), cavalry: foe }, withMilitia(kindsOf(mine)), seed, ground);
+    return { men, foe, seed, beasts, us, result, troops: { attacker: {}, defender: mine }, place, beastSide: 'attacker', site, militia };
+  }
+  if (home) {
+    // Штурм стены и бой у ворот: пришедшие нападают, мы обороняем — `men` наш гарнизон, `foe` пришедшие.
+    const raiders = theirs ?? armyOf(foe);
+    const result = fight(kindsOf(raiders), withMilitia(kindsOf(mine)), seed, ground);
+    return { men, foe, seed, beasts, us: 'defender', result, troops: { attacker: raiders, defender: mine }, place, beastSide: undefined, site, militia };
   }
   const result = fight(kindsOf(mine), theirs ? kindsOf(theirs) : { ...emptyStack(), infantry: foe }, seed, ground);
   // Чужой состав — как в игре: из родов и ступени снаряжения (`foeKinds=1` показывает именно этот путь, а не поимённый).
   const foeTroops = theirs ?? troopsOfKinds(result.sides.defender.initial, { infantry: 3 });
-  return { men, foe, seed, beasts, us, result, troops: { attacker: mine, defender: foeTroops }, place, beastSide: undefined };
+  return { men, foe, seed, beasts, us, result, troops: { attacker: mine, defender: foeTroops }, place, beastSide: undefined, site, militia: undefined };
 }
 
 export function mountReplayStand(p: URLSearchParams): void {

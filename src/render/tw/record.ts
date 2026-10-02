@@ -7,6 +7,7 @@ import { groundOf, type BattlePlace } from '@/game/battle/ground';
 import type { TroopStack } from '@/game/battle/kinds';
 import type { Quality } from '../quality';
 import { buildPlan, type TwPlan } from './plan';
+import { siteKindOf } from './site';
 
 export function twPlanOfRecord(
   result: BattleResult,
@@ -16,8 +17,9 @@ export function twPlanOfRecord(
   militia?: Record<Side, { men: number; archers: number }>,
   place?: BattlePlace,
   beasts?: Side,
+  site?: string,
 ): TwPlan {
   const faces = facesOfRecord(result, troops, militia, beasts);
   const cast = buildCast(result, us, faces, groundOf(place, result.seed));
-  return buildPlan({ cast, result, faces, quality });
+  return buildPlan({ cast, result, faces, quality, site: siteKindOf(site) });
 }

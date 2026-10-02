@@ -60,6 +60,11 @@ export interface TwField {
   /** Обрыв за строем стороны `side` по Z. */
   ridge: { side: 1 | -1; at: number } | null;
   winter: boolean;
+  /**
+   * Ровное место: город за стеной и сама стена стоят на ровном — волны земли гаснут за `z` в сторону `dir`
+   * (docs/battle_tw.md, раздел 13). null — поле.
+   */
+  calm: { z: number; dir: 1 | -1 } | null;
 }
 
 /** Вода реки стоит здесь: ниже кромки берега, выше дна. */
@@ -75,15 +80,16 @@ const BANK = 1.6;
  * русло и обрыв — по месту боя.
  */
 export function heightAt(f: TwField, x: number, z: number): number {
-  // Пологие волны: две октавы, крупная и мелкая.
-  let y = (vnoise(x / 23, z / 23, f.seed) - 0.5) * 0.9 + (vnoise(x / 7, z / 7, f.seed + 7) - 0.5) * 0.18;
+  // Пологие волны: две октавы, крупная и мелкая. Под городом и стеной — гаснут.
+  const calm = f.calm ? 1 - 0.92 * smoothstep(-6, 0, (z - f.calm.z) * f.calm.dir) : 1;
+  let y = ((vnoise(x / 23, z / 23, f.seed) - 0.5) * 0.9 + (vnoise(x / 7, z / 7, f.seed + 7) - 0.5) * 0.18) * calm;
   if (f.hill) {
     const u = smoothstep(f.hill.from, f.hill.to, z * f.hill.side);
     // Гребень не линейка: по краям поля он сходит на нет, середина выше.
     const across = 1 - 0.35 * smoothstep(f.halfX * 0.4, f.halfX * 1.1, Math.abs(x));
     y += f.hill.h * u * across;
   }
-  if (f.land === 'hills') y += (vnoise(x / 40 + 3, z / 40, f.seed + 13) - 0.5) * 3.2 * smoothstep(20, 60, Math.abs(x));
+  if (f.land === 'hills') y += (vnoise(x / 40 + 3, z / 40, f.seed + 13) - 0.5) * 3.2 * smoothstep(20, 60, Math.abs(x)) * calm;
   if (f.ridge) {
     const past = (z - f.ridge.at) * f.ridge.side;
     y -= 7 * smoothstep(0, 9, past);

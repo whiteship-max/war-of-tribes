@@ -115,7 +115,7 @@ export function mountTwStand(p: URLSearchParams): void {
   const battle = standBattle(p);
   const quality = qualityOf(p.get('quality')) ?? 'medium';
   const spec = TW_SPEC[quality];
-  const plan = twPlanOfRecord(battle.result, battle.us, battle.troops, quality, undefined, battle.place, battle.beastSide);
+  const plan = twPlanOfRecord(battle.result, battle.us, battle.troops, quality, battle.militia, battle.place, battle.beastSide, battle.site);
 
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance', preserveDrawingBuffer: true });
   renderer.setPixelRatio(pixelRatio(Number(p.get('dpr') ?? 2)));

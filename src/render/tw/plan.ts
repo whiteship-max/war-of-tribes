@@ -18,6 +18,34 @@ import type { TroopId } from '@/game/types';
 import type { Quality } from '../quality';
 import { TW_SPEC } from './spec';
 import { hash, heightAt, inWater, type TwField } from './terrain';
+import {
+  CLIMB_SPEED,
+  GATEHOUSE,
+  LADDER_FOOT,
+  LADDER_QUEUE,
+  LADDER_RUNG,
+  LADDER_STEP,
+  LANE_GAP_WALL,
+  OVER_GAP,
+  POMERIUM,
+  RAM_PERIOD,
+  SQUARE_R,
+  STREET_HALF,
+  WALL_THICK,
+  WALL_TOP,
+  GATE_HALF,
+  campOf,
+  onWalk,
+  outOf,
+  overLift,
+  standY,
+  townHouses,
+  wallTowers,
+  type Rect,
+  type TwSite,
+  type TwSiteKind,
+  type TwWall,
+} from './site';
 
 const clamp01 = (v: number): number => (v < 0 ? 0 : v > 1 ? 1 : v);
 const ease = (u: number): number => {
@@ -275,6 +303,11 @@ export interface TwUnit {
    * (`UNIT_STATS.speed`, правило погони ядра); остальные проходят шаг за бегущими и встают. null — не гонит.
    */
   chase: { target: number; from: number } | null;
+  /**
+   * Стоит на стене (docs/battle_tw.md, раздел 13): защитники на боевом ходу при штурме, стрелки на стене у ворот. Такой
+   * отряд не сходится, не отходит между кругами и не пятится от давления — стена стоит; бежит — со стены вниз и к площади.
+   */
+  perch: boolean;
 }
 
 /** Род внутри отряда: бойцы на старте и к концу, виды племени и сколько фигур ему досталось. */
@@ -362,6 +395,11 @@ export interface TwPlan {
   goFight: Uint8Array;
   /** Сколько фигур ушло в обход по ходам итога боя: ноль — ходов нет (запись старая или из сохранения) или не было. */
   flankers: number;
+  /** Место боя: стена, ворота, город, лагерь, логово (`site.ts`); null — поле. */
+  site: TwSite | null;
+  /** Лестница штурмующего (номер в `site.ladders`, −1 — не на лестнице) и место в её очереди, снизу. */
+  climb: Int16Array;
+  climbQ: Uint8Array;
 }
 
 /** Чисел на путь фигуры в `TwPlan.path`. */
@@ -372,6 +410,8 @@ export interface PlanInput {
   result: BattleResult;
   faces: Record<Side, Face[]>;
   quality: Quality;
+  /** Место боя по метке записи (`BattleRecord.site`); нет — поле. */
+  site?: TwSiteKind | null;
 }
 
 /** Мера «наружу» для полосы-слота: 0 — наша левая (у +X), 2 — правая (у −X). */
@@ -410,6 +450,10 @@ function castTimeOfTick(cast: Cast, tick: number): number {
 
 export function buildPlan(input: PlanInput): TwPlan {
   const { cast, result, faces, quality } = input;
+  const kind = input.site ?? null;
+  // Лагерь стоит за рогатками (или частоколом логова) и ждёт: сходятся у них, а не в чистом поле.
+  const camped = kind === 'sortie' || kind === 'camp' || kind === 'joint' || kind === 'lair';
+  const laneGap = kind === 'wall' ? LANE_GAP_WALL : LANE_GAP;
   const spec = TW_SPEC[quality];
   const us = cast.us;
   const timing = twTiming(cast);
@@ -528,6 +572,7 @@ export function buildPlan(input: PlanInput): TwPlan {
         commit: null,
         volleys: [],
         chase: null,
+        perch: false,
       });
     }
   });
@@ -537,12 +582,14 @@ export function buildPlan(input: PlanInput): TwPlan {
   const uphill = landPenalty(result);
   const sign = (side: Side): number => (side === us ? -1 : 1);
   // Обороняющийся ждёт у берега или на гребне: нападающему идти дальше (переправа, холм).
-  const holds: Side | null = crossing ? other(crossing) : uphill ? other(uphill) : null;
+  // У ворот гарнизон ждёт перед ними; на стене и в лагере — стоит на месте, к ним идут дальше.
+  const holds: Side | null = crossing ? other(crossing) : uphill ? other(uphill) : kind === 'gate' ? 'defender' : null;
   const deployZ = {} as Record<Side, number>;
   const contactZ = {} as Record<Side, number>;
   for (const side of SIDES2) {
     contactZ[side] = sign(side) * CONTACT_HALF;
-    const d = holds === null ? DEPLOY_HALF : side === holds ? HOLD_HALF : DEPLOY_HALF + HOLD_HALF;
+    let d = holds === null ? DEPLOY_HALF : side === holds ? HOLD_HALF : DEPLOY_HALF + HOLD_HALF;
+    if (kind === 'wall' || camped) d = side === 'defender' ? CONTACT_HALF : DEPLOY_HALF + HOLD_HALF + (kind === 'wall' ? 4 : 0);
     deployZ[side] = sign(side) * d;
   }
 
@@ -556,7 +603,7 @@ export function buildPlan(input: PlanInput): TwPlan {
     for (const side of SIDES2) for (const row of ['front', 'rear'] as Row[]) slotW[s] = Math.max(slotW[s], rowWidth(side, s, row));
     slotW[s] = Math.max(slotW[s], 6);
   }
-  const slotX = [slotW[1] / 2 + LANE_GAP + slotW[0] / 2, 0, -(slotW[1] / 2 + LANE_GAP + slotW[2] / 2)];
+  const slotX = [slotW[1] / 2 + laneGap + slotW[0] / 2, 0, -(slotW[1] / 2 + laneGap + slotW[2] / 2)];
 
   for (const side of SIDES2) {
     const s = sign(side);
@@ -580,7 +627,7 @@ export function buildPlan(input: PlanInput): TwPlan {
     // Резерв — рядами не шире фронта: у большой армии он больше первой линии (ядро ставит в ряд полосы не больше W),
     // и одной шеренгой отрядов он уходил бы за края поля (самопроверка, большой бой).
     const reserve = sideUnits.filter((u) => u.row === 'reserve').sort((a, b) => FORM[a.form].outer - FORM[b.form].outer || a.id - b.id);
-    const frontWidth = Math.max(24, slotW[0] + slotW[1] + slotW[2] + 2 * LANE_GAP);
+    const frontWidth = Math.max(24, slotW[0] + slotW[1] + slotW[2] + 2 * laneGap);
     let rz = rowZ.reserve;
     for (let i = 0; i < reserve.length; ) {
       const row: TwUnit[] = [];
@@ -621,9 +668,13 @@ export function buildPlan(input: PlanInput): TwPlan {
         commit: null,
         volleys: [],
         chase: null,
+        perch: false,
       });
     }
   }
+
+  // ---- место: стена, город, лагерь (docs/battle_tw.md, раздел 13) ----
+  const site = kind ? placeSite(kind, units, us, deployZ, contactZ, slotX, slotW, laneGap, TW_SPEC[quality], seed) : null;
 
   // ---- поле ----
   const xs = units.map((u) => Math.abs(u.x) + u.width / 2);
@@ -641,25 +692,29 @@ export function buildPlan(input: PlanInput): TwPlan {
     road: cast.ground.road,
     ridge: null,
     winter: cast.ground.winter,
+    calm: null,
   };
   const defender: Side = 'defender';
   const sD = sign(defender);
   if (uphill || cast.ground.land === 'hills') {
     const high = uphill ? other(uphill) : defender;
     field.hill = { h: 2.4, side: sign(high) as 1 | -1, from: -4, to: HOLD_HALF + 10 };
+    // Стена на штурме стоит на гребне: склон — перед ней, к стене идут в гору.
+    if (kind === 'wall' && high === defender) field.hill = { h: 2.4, side: sD as 1 | -1, from: -14, to: -2.5 };
   }
+  if (site) fitSite(site, field, units);
   if (crossing) {
     // Река между линиями, у берега обороны: нападающий переходит её на сближении и бьётся из воды.
     const sC = sign(crossing);
     const half = 2.2;
     field.river = { z: sC * (0.25 + half), half, ford: cast.ground.ford, fordX: 0, fordHalf: 5, between: true };
-  } else if (cast.ground.river) {
+  } else if (cast.ground.river && !(site?.wall && site.wall.side === 'attacker')) {
     // Переправы ядро не штрафовало (снята манёвром или не было): река за спиной нападающего.
     const sA = sign('attacker');
     const back = Math.max(...units.filter((u) => u.side === 'attacker').map((u) => Math.abs(u.z) + u.depth));
     field.river = { z: sA * (back + 9), half: 3, ford: cast.ground.ford, fordX: 0, fordHalf: 5, between: false };
   }
-  if (cast.ground.ridge) {
+  if (cast.ground.ridge && !site) {
     const back = Math.max(...units.filter((u) => u.side === defender).map((u) => Math.abs(u.z) + u.depth));
     field.ridge = { side: sD as 1 | -1, at: sD * (back + 7) };
   }
@@ -784,12 +839,18 @@ export function buildPlan(input: PlanInput): TwPlan {
     goLane: new Int8Array(figures).fill(-1),
     goFight: new Uint8Array(figures),
     flankers: 0,
+    site,
+    climb: new Int16Array(figures).fill(-1),
+    climbQ: new Uint8Array(figures),
   };
   plan.fire = fireWindows(plan);
+  // Штурм: лестницы, таран и ворота — по журналу (кто когда дрогнул); до путей фигур — лезущие стоят на лестницах.
+  if (site?.kind === 'wall') siegeWall(plan);
   // Пути фигур — до залпов: резерв-лучник стреляет, когда вошёл (`commit`), а лучники в обход не ходят.
   trickleReserve(plan);
   plan.flankers = flankMoves(plan, result);
   chaseTargets(plan);
+  if (site?.kind === 'wall') siegeStorm(plan);
   for (const u of units) if (u.form === 'bow') u.volleys = volleyTimes(plan, u);
   arrowDeaths(plan);
   // Где лежит павший: место фигуры в мгновение гибели — в строю, на своём пути или на бегу.
@@ -803,6 +864,309 @@ export function buildPlan(input: PlanInput): TwPlan {
     plan.deadYaw[i] = q.yaw + (hash(seed, i, 24) - 0.5) * 1.8;
   }
   return plan;
+}
+
+// ---------- Место боя (docs/battle_tw.md, раздел 13) ----------
+
+/** Прямоугольник строя отряда на построении: от передней шеренги назад на глубину. */
+function unitRect(u: TwUnit): Rect {
+  const back = u.ours ? -1 : 1;
+  const za = u.z;
+  const zb = u.z + back * u.depth;
+  return { x0: u.x - u.width / 2, x1: u.x + u.width / 2, z0: Math.min(za, zb), z1: Math.max(za, zb) };
+}
+
+/** Насколько далеко строй стороны уходит назад от линии соприкосновения (по своей оси). */
+function sideBack(units: readonly TwUnit[], side: Side, sgn: number): number {
+  return Math.max(DEPLOY_HALF, ...units.filter((u) => u.side === side).map((u) => sgn * u.z + u.depth));
+}
+
+/**
+ * Место боя: где стена и ворота, кто на стене, где город за ней и лагерь. Только место — время (лестницы, таран, выбитые
+ * ворота) ставит режиссура штурма по журналу (`siegeWall`), когда известны слом и потери.
+ */
+function placeSite(
+  kind: TwSiteKind,
+  units: TwUnit[],
+  us: Side,
+  deployZ: Record<Side, number>,
+  contactZ: Record<Side, number>,
+  slotX: number[],
+  slotW: number[],
+  laneGap: number,
+  spec: { houses: number; tents: number },
+  seed: number,
+): TwSite {
+  const sign = (side: Side): number => (side === us ? -1 : 1);
+  const armyHalf = Math.max(12, ...units.map((u) => Math.abs(u.x) + u.width / 2));
+  const halfX = armyHalf + 18;
+  const site: TwSite = { kind, wall: null, ladders: [], ram: null, houses: [], square: null, street: null, camp: null };
+  // Где стоит город (за чьим строем) и чей он: у удара по лагерю город наш, а стоит он за лагерем.
+  const town: Side | null = kind === 'sortie' ? 'attacker' : kind === 'lair' ? null : 'defender';
+  const owner: Side | null = kind === 'camp' || kind === 'joint' ? 'attacker' : town;
+  // Лагерь — за строем обороны: шатры, костры, рогатки по линии соприкосновения (у логова — частокол).
+  if (kind === 'sortie' || kind === 'camp' || kind === 'joint' || kind === 'lair') {
+    const sD = sign('defender');
+    site.camp = campOf(kind, armyHalf, sD * (sideBack(units, 'defender', sD) + 1), sD as 1 | -1, contactZ.defender * 0.1, spec.tents, seed);
+  }
+  if (town) {
+    const sT = sign(town);
+    let z: number;
+    if (kind === 'wall') z = 0;
+    else if (site.camp && town === 'defender') z = sT * (Math.max(Math.abs(site.camp.z0), Math.abs(site.camp.z1)) + 8);
+    else {
+      // У ворот и на вылазке стена — за строем своих: вышли из ворот и встали перед ними. Стрелки — на стене (ниже).
+      const away = units.filter((u) => u.side === town && !(kind === 'gate' && u.form === 'bow' && u.row !== 'reserve'));
+      z = sT * (sideBack(away, town, sT) + 6);
+    }
+    const between = [slotX[0] - slotW[0] / 2 - laneGap / 2, slotX[2] + slotW[2] / 2 + laneGap / 2, slotW[1] / 2 + laneGap / 2, -(slotW[1] / 2 + laneGap / 2)];
+    const wall: TwWall = {
+      z,
+      inward: sT as 1 | -1,
+      base: 0,
+      top: WALL_TOP,
+      thick: WALL_THICK,
+      halfX,
+      gateX: slotX[1],
+      gateHalf: GATE_HALF,
+      // Ворота: у ворот, на вылазке и в совместном ударе — открыты (вышли из них); на штурме — пока не выбиты.
+      gateAt: kind === 'gate' || kind === 'sortie' || kind === 'joint' ? -Infinity : null,
+      towers: wallTowers(halfX, slotX[1], kind === 'wall' ? between.slice(2) : [], seed),
+      side: owner!,
+    };
+    site.wall = wall;
+    if (kind === 'wall') {
+      // Штурм: первая линия обороны — на боевом ходу (передние шеренги наверху, задние у стены изнутри). Конница на
+      // стену не лезет: ждёт за ней, в межпорядке, — к воротам.
+      for (const u of units) {
+        if (u.side !== 'defender' || u.row !== 'front') continue;
+        u.perch = true;
+        if (mounted(u)) u.z = sT * (WALL_THICK + 1.4);
+      }
+    }
+    if (kind === 'gate') {
+      // Стрелки гарнизона — на стене над воротами: по две шеренги вдоль хода, по обе стороны надвратной.
+      const bows = units.filter((u) => u.side === 'defender' && u.form === 'bow' && u.row !== 'reserve').sort((a, b) => a.id - b.id);
+      let left = wall.gateX - GATEHOUSE / 2 - 1;
+      let right = wall.gateX + GATEHOUSE / 2 + 1;
+      bows.forEach((u, i) => {
+        u.ranks = Math.min(2, u.figures);
+        u.files = Math.max(1, Math.ceil(u.figures / u.ranks));
+        u.width = u.files * FORM.bow.file;
+        u.depth = (u.ranks - 1) * 0.7;
+        u.perch = true;
+        u.z = z + sT * (PARAPET_IN + 0.12);
+        if (i % 2 === 0) {
+          u.x = right + u.width / 2;
+          right += u.width + 1.5;
+        } else {
+          u.x = left - u.width / 2;
+          left -= u.width + 1.5;
+        }
+      });
+      wall.halfX = Math.max(halfX, right + 6, -left + 6);
+    }
+    // Город за стеной: улица от ворот, площадь, дома — не там, где стоят люди.
+    const inside = (zz: number): number => sT * zz;
+    const ownBack = kind === 'wall' ? sideBack(units, 'defender', sT) : 0;
+    const sqDist = kind === 'wall' ? ownBack + SQUARE_R + 4 : wall.thick + POMERIUM + 14;
+    const square = { x: wall.gateX, z: z + inside(sqDist), r: SQUARE_R };
+    site.square = square;
+    site.street = { x: wall.gateX, half: STREET_HALF, z0: z, z1: square.z };
+    const avoid: Rect[] = [];
+    const mine = units.filter((u) => u.side === town);
+    if (mine.length && kind === 'wall') {
+      const rs = mine.map(unitRect);
+      avoid.push({ x0: Math.min(...rs.map((r) => r.x0)) - 1.5, x1: Math.max(...rs.map((r) => r.x1)) + 1.5, z0: Math.min(...rs.map((r) => r.z0)) - 1.5, z1: Math.max(...rs.map((r) => r.z1)) + 1.5 });
+    }
+    for (const u of mine) if (u.perch) avoid.push(unitRect(u));
+    site.houses = townHouses(wall, sqDist + SQUARE_R + 8 - wall.thick - POMERIUM, avoid, square, spec.houses, seed);
+  }
+  return site;
+}
+
+/** Парапет изнутри: передняя шеренга на стене стоит сразу за ним. */
+const PARAPET_IN = 0.32;
+
+/** Поле под место: ровно под городом, лес вокруг логова, края поля — с городом и лагерем; высота подошвы стены. */
+function fitSite(site: TwSite, field: TwField, units: readonly TwUnit[]): void {
+  const w = site.wall;
+  if (site.kind === 'lair') field.woods = true;
+  if (w) {
+    field.calm = { z: w.z - w.inward * 4, dir: w.inward };
+    field.halfX = Math.max(field.halfX, w.halfX + 8);
+    const far = (site.square?.z ?? w.z) + w.inward * (SQUARE_R + 10);
+    field.minZ = Math.min(field.minZ, far - 4, w.z - 4);
+    field.maxZ = Math.max(field.maxZ, far + 4, w.z + 4);
+    w.base = heightAt(field, w.gateX, w.z + w.inward * (w.thick / 2));
+  }
+  const c = site.camp;
+  if (c) {
+    field.minZ = Math.min(field.minZ, c.z0 - 10);
+    field.maxZ = Math.max(field.maxZ, c.z1 + 10);
+  }
+  void units;
+}
+
+/** Мировое место фигуры в строю отряда на построении. */
+const deployX = (plan: TwPlan, u: TwUnit, i: number): number => u.x + plan.lx[i] * Math.cos(u.yaw) + plan.lz[i] * Math.sin(u.yaw);
+
+/**
+ * Штурм стены: лестницы и кто на них лезет, таран и когда выбиты ворота. Всё — из журнала: лестницы встают к сшибке;
+ * ворота выбиты, когда дрогнула оборона у ворот (сектор слома, `fleeAt`) или сломана вся оборона, и только если таран к
+ * тому времени ещё у ворот. Оборона устояла — ворота целы, сколько бы таран ни бил (`site.test.ts`).
+ */
+function siegeWall(plan: TwPlan): void {
+  const site = plan.site!;
+  const w = site.wall!;
+  const att: Side = w.side === 'defender' ? 'attacker' : 'defender';
+  const seed = plan.cast.seed;
+  for (const u of plan.units) {
+    if (u.side !== att || u.row !== 'front' || u.form === 'pack') continue;
+    const x0 = u.x - u.width / 2 + 0.7;
+    const x1 = u.x + u.width / 2 - 0.7;
+    if (x1 <= x0) continue;
+    const n = Math.max(1, Math.floor((x1 - x0) / LADDER_STEP) + 1);
+    const lad: number[] = [];
+    for (let k = 0; k < n; k++) {
+      const x = n === 1 ? (x0 + x1) / 2 : x0 + ((x1 - x0) * k) / (n - 1);
+      if (Math.abs(x - w.gateX) < GATEHOUSE / 2 + 0.9) continue;
+      if (w.towers.some((t) => Math.abs(x - t.x) < t.size / 2 + 0.6)) continue;
+      lad.push(site.ladders.push({ x, unit: u.id, raiseAt: plan.clashAt - 0.3 + hash(seed, u.id * 31 + k, 81) * 0.9, queue: [] }) - 1);
+    }
+    if (lad.length === 0) continue;
+    // Очередь на лестницу — ближние передних шеренг; знаменосец не лезет.
+    const bearer = bearerOf(plan, u);
+    const cands: { i: number; l: number; key: number }[] = [];
+    for (let i = u.first; i < u.first + u.figures; i++) {
+      if (i === bearer || plan.rank[i] > 2) continue;
+      const x = deployX(plan, u, i);
+      let best = -1;
+      let bd = Infinity;
+      for (const l of lad) {
+        const d = Math.abs(site.ladders[l].x - x);
+        if (d < bd) {
+          bd = d;
+          best = l;
+        }
+      }
+      if (best >= 0 && bd < LADDER_STEP / 2) cands.push({ i, l: best, key: plan.rank[i] * 10 + bd });
+    }
+    cands.sort((a, b) => a.key - b.key || a.i - b.i);
+    for (const c of cands) {
+      const l = site.ladders[c.l];
+      if (l.queue.length >= LADDER_QUEUE) continue;
+      plan.climb[c.i] = c.l;
+      plan.climbQ[c.i] = l.queue.length;
+      l.queue.push(c.i);
+    }
+  }
+  // Таран — у отряда первой линии напротив ворот.
+  const ramUnit = plan.units
+    .filter((u) => u.side === att && u.row === 'front' && u.form !== 'pack' && u.form !== 'bow' && Math.abs(u.x - w.gateX) < u.width / 2 + 1)
+    .sort((a, b) => Math.abs(a.x - w.gateX) - Math.abs(b.x - w.gateX))[0];
+  // Ворота выбиты, когда дрогнула оборона у ворот или сломана вся — и таран (или штурмующие) ещё у ворот.
+  const guards = plan.units.filter((u) => u.side === w.side && u.row === 'front' && Math.abs(u.x - w.gateX) < u.width / 2 + GATE_HALF);
+  const cands = [...guards.map((u) => u.fleeAt), plan.brokenAt[w.side]].filter((x): x is number => x !== null && x > plan.clashAt);
+  const broke = cands.length ? Math.min(...cands) : null;
+  const leave = ramUnit ? (ramUnit.fleeAt ?? plan.brokenAt[att]) : plan.brokenAt[att];
+  w.gateAt = broke !== null && broke < plan.seconds && (leave === null || broke < leave) ? broke : null;
+  if (ramUnit) {
+    const hits: number[] = [];
+    const stop = Math.min(w.gateAt ?? Infinity, leave ?? Infinity, plan.seconds);
+    for (let t = plan.clashAt + 0.6; t < stop - 0.2; t += RAM_PERIOD) hits.push(t);
+    if (w.gateAt !== null) hits.push(w.gateAt);
+    site.ram = { unit: ramUnit.id, x: w.gateX, hits };
+  }
+}
+
+/**
+ * Штурм после пролома: через выбитые ворота штурмующие идут потоком в город — по улице к площади; где на стене дрогнула
+ * оборона (сектор бежит или сломана вся), лезут через стену по своим лестницам — по одному, сколько лестница пропустит.
+ * Кто и сколько — живые этого отряда в миг пролома; падают они по журналу, как и падали бы.
+ */
+function siegeStorm(plan: TwPlan): void {
+  const site = plan.site!;
+  const w = site.wall!;
+  const att: Side = w.side === 'defender' ? 'attacker' : 'defender';
+  const seed = plan.cast.seed;
+  const q = figureState();
+  // Погони через стену нет: штурмующие снаружи остаются у стены.
+  for (const u of plan.units) if (u.side === att) u.chase = null;
+  const all = plan.brokenAt[w.side];
+  if (w.gateAt !== null && w.gateAt > 0) {
+    const gateAt = w.gateAt;
+    const deep = all !== null && all <= gateAt + 1;
+    const pour: { i: number; u: TwUnit; d: number }[] = [];
+    for (const u of plan.units) {
+      if (u.side !== att || u.row === 'reserve' || u.row === 'general' || u.form === 'bow') continue;
+      if (Math.abs(u.x - w.gateX) > plan.slotW[1] / 2 + 1.5) continue;
+      if (u.fleeAt !== null && u.fleeAt <= gateAt) continue;
+      for (let i = u.first; i < u.first + u.figures; i++) {
+        if (plan.deathAt[i] <= gateAt + 0.4 || Number.isFinite(plan.goAt[i]) || plan.climb[i] >= 0) continue;
+        figurePose(plan, i, gateAt, null, q);
+        pour.push({ i, u, d: Math.hypot(q.x - w.gateX, outOf(w, q.z)) });
+      }
+    }
+    pour.sort((a, b) => a.d - b.d || a.i - b.i);
+    pour.forEach((e, k) => {
+      const at = gateAt + 0.3 + k * 0.11;
+      if (at >= plan.seconds || (e.u.fleeAt !== null && e.u.fleeAt <= at)) return;
+      const x1 = w.gateX + (hash(seed, e.i, 82) - 0.5) * 2 * (STREET_HALF - 0.5);
+      const z1 = w.z + w.inward * (w.thick + 2 + hash(seed, e.i, 83) * (deep ? 16 : 6));
+      figurePose(plan, e.i, at, null, q);
+      // Дуга через проезд: середина пути — в воротах.
+      const gx = w.gateX + (hash(seed, e.i, 84) - 0.5) * w.gateHalf;
+      const gz = w.z + w.inward * (w.thick * 0.5);
+      const bend: [number, number] = [2 * gx - 0.5 * (q.x + x1), 2 * gz - 0.5 * (q.z + z1)];
+      detour(plan, e.i, at, x1, z1, e.u.yaw, RUN_SPEED, bend);
+      plan.goKind[e.i] = 3;
+      plan.goLane[e.i] = 1;
+      plan.goFight[e.i] = 1;
+    });
+  }
+  // Через стену — по лестницам отряда, где оборона напротив дрогнула.
+  for (const u of plan.units) {
+    if (u.side !== att) continue;
+    const mine = site.ladders.map((l, k) => ({ l, k })).filter((e) => e.l.unit === u.id);
+    if (mine.length === 0) continue;
+    const facing = plan.units.filter((d) => d.side === w.side && d.row === 'front' && Math.abs(d.x - u.x) < (d.width + u.width) / 2);
+    const times = [...facing.map((d) => d.fleeAt), all].filter((x): x is number => x !== null && x > plan.clashAt);
+    if (times.length === 0) continue;
+    const over = Math.min(...times);
+    if (over >= plan.seconds || (u.fleeAt !== null && u.fleeAt <= over)) continue;
+    const per = new Map<number, { i: number; key: number }[]>();
+    for (let i = u.first; i < u.first + u.figures; i++) {
+      if (plan.deathAt[i] <= over + 0.5 || Number.isFinite(plan.goAt[i])) continue;
+      let best = mine[0];
+      if (plan.climb[i] >= 0) best = mine.find((e) => e.k === plan.climb[i]) ?? best;
+      else {
+        const x = deployX(plan, u, i);
+        for (const e of mine) if (Math.abs(e.l.x - x) < Math.abs(best.l.x - x)) best = e;
+      }
+      const list = per.get(best.k) ?? [];
+      list.push({ i, key: plan.climb[i] >= 0 ? plan.climbQ[i] - 10 : plan.rank[i] + hash(seed, i, 85) });
+      per.set(best.k, list);
+    }
+    for (const [k, list] of per) {
+      const l = site.ladders[k];
+      // Первым — тот, кто уже на лестнице, выше всех — первый в её очереди; потом ждущие внизу, передние раньше.
+      list.sort((a, b) => a.key - b.key || a.i - b.i);
+      list.forEach((e, j) => {
+        const at = over + 0.2 + j * OVER_GAP;
+        if (at >= plan.seconds || (u.fleeAt !== null && u.fleeAt <= at)) return;
+        figurePose(plan, e.i, at, null, q);
+        const x1 = l.x + (hash(seed, e.i, 86) - 0.5) * 2.6;
+        const z1 = w.z + w.inward * (w.thick + 1.2 + (j % 5) * 0.75 + hash(seed, e.i, 87));
+        const gz = w.z - w.inward * 0.05;
+        const bend: [number, number] = [2 * l.x - 0.5 * (q.x + x1), 2 * gz - 0.5 * (q.z + z1)];
+        detour(plan, e.i, at, x1, z1, u.yaw, CLIMB_SPEED * 1.6, bend);
+        plan.goKind[e.i] = 4;
+        plan.goLane[e.i] = u.lane ?? 1;
+        plan.goFight[e.i] = 1;
+      });
+    }
+  }
 }
 
 /** Ряд отрядов слева направо в слоте: внутренние к середине армии, конница — к краю (`FormSpec.outer`). */
@@ -1181,6 +1545,8 @@ export interface UnitPose {
   fighting: boolean;
   /** 0..1 — отряд дрожит перед бегством (`WAVER_SECONDS`): рыхлеет, пятится, задние оглядываются. */
   waver: number;
+  /** 0..1 — бегущие к своим воротам или по улице сбиваются в поток: строй сжимается к проезду (место боя). */
+  funnel: number;
 }
 
 /**
@@ -1257,7 +1623,8 @@ const mounted = (u: TwUnit): boolean => u.form === 'horse' || u.form === 'heavy'
  * пятится там, где фигуры и падают. Своего числа исхода у давления нет — только куда сдвинуть уже посчитанное.
  */
 export function pushOf(plan: TwPlan, slot: number, t: number): number {
-  if (t <= plan.clashAt) return 0;
+  // На штурме линия — стена: её не сдвинуть.
+  if (t <= plan.clashAt || plan.site?.kind === 'wall') return 0;
   const c = twToCast(plan.timing, t);
   const share = (side: Side): number => {
     const lane = (side === plan.us ? slot : 2 - slot) as Lane;
@@ -1288,6 +1655,25 @@ export function unitPose(plan: TwPlan, u: TwUnit, t: number): UnitPose {
     const base = unitPose(plan, u, u.fleeAt);
     const dt = t - u.fleeAt;
     const run = fleeDistance(dt);
+    // Свои ворота за спиной (у ворот, на вылазке) или улица к площади (штурм): бегущие сбиваются к проезду.
+    const w = plan.site?.wall;
+    if (w && w.side === u.side && w.inward === (u.ours ? -1 : 1)) {
+      const reach = Math.max(2, outOf(w, base.z) + (plan.site!.kind === 'wall' ? 8 : 1));
+      const funnel = ease(clamp01(run / reach));
+      return {
+        x: base.x + (w.gateX - base.x) * funnel,
+        z: base.z + w.inward * run,
+        yaw: u.yaw + Math.PI * ease(dt / TURN_SECONDS),
+        clip: 'run',
+        rate: 1,
+        flee: clamp01(dt / 8),
+        fleeRun: run,
+        loose: 1.8,
+        fighting: false,
+        waver: base.waver * (1 - ease(dt / TURN_SECONDS)),
+        funnel,
+      };
+    }
     return {
       x: base.x + Math.sign(u.x || 1) * Math.max(0, dt - TURN_SECONDS * 0.5) * 0.35,
       z: base.z + s * run,
@@ -1300,8 +1686,10 @@ export function unitPose(plan: TwPlan, u: TwUnit, t: number): UnitPose {
       fighting: false,
       // Оглянувшиеся в дрожи не дёргаются назад в миг слома: их поворот гаснет вместе с разворотом.
       waver: base.waver * (1 - ease(dt / TURN_SECONDS)),
+      funnel: 0,
     };
   }
+  if (u.perch) return perchPose(plan, u, t);
   let x = u.x;
   let z = u.z;
   let clip: ClipId = 'idle';
@@ -1326,12 +1714,13 @@ export function unitPose(plan: TwPlan, u: TwUnit, t: number): UnitPose {
     fighting = sep < 0.3;
     // Удар строя о строй: передние шеренги влетают в чужой строй и отскакивают; у конницы удар глубже.
     const k = (t - plan.clashAt) / IMPACT_SECONDS;
-    if (k < 1) z += fwd * (mounted(u) ? IMPACT_LURCH.horse : IMPACT_LURCH.foot) * Math.sin(Math.PI * k);
+    if (k < 1 && plan.site?.kind !== 'wall') z += fwd * (mounted(u) ? IMPACT_LURCH.horse : IMPACT_LURCH.foot) * Math.sin(Math.PI * k);
     // Давление: линия полосы уходит к тому, кто теряет больше, — обе стороны вместе, строи не расходятся.
     if (u.lane !== null) z += pushOf(plan, slotOf(u.ours, u.lane), t);
     if (fighting) loose = SCRUM_LOOSE;
   }
-  if (u.row === 'general' && t > plan.clashAt + GENERAL_IN.after) {
+  // На штурме полководец не въезжает в сечу: у обороны она на стене, у штурмующих — на лестницах.
+  if (u.row === 'general' && t > plan.clashAt + GENERAL_IN.after && plan.site?.kind !== 'wall') {
     // Полководец в сече: въезжает за середину первой линии и рубится там, пока его армия держится.
     const k = ease(clamp01((t - plan.clashAt - GENERAL_IN.after) / GENERAL_IN.seconds));
     const sep = separationOf(plan, t);
@@ -1376,9 +1765,10 @@ export function unitPose(plan: TwPlan, u: TwUnit, t: number): UnitPose {
         z += (az / gap) * go;
       }
       const running = t < u.chase.from + CHASE_SECONDS;
-      return { x, z, yaw: u.yaw, clip: running ? 'run' : 'idle', rate: 1, flee: 0, fleeRun: 0, loose: running ? 1.6 : 1.2, fighting: false, waver: 0 };
+      return { x, z, yaw: u.yaw, clip: running ? 'run' : 'idle', rate: 1, flee: 0, fleeRun: 0, loose: running ? 1.6 : 1.2, fighting: false, waver: 0, funnel: 0 };
     }
-    if (u.row === 'front' || u.row === 'general') {
+    // Штурмующие под стеной стоят у неё: вперёд — только стена.
+    if ((u.row === 'front' || u.row === 'general') && !(plan.site?.kind === 'wall' && plan.site.wall!.side !== u.side)) {
       const go = Math.min(6, (t - foeBroke) * WALK_SPEED);
       z += fwd * go;
       clip = go < 6 ? 'march' : 'idle';
@@ -1387,7 +1777,25 @@ export function unitPose(plan: TwPlan, u: TwUnit, t: number): UnitPose {
       loose = 1;
     }
   }
-  return { x, z, yaw: u.yaw, clip, rate, flee: 0, fleeRun: 0, loose, fighting, waver };
+  return { x, z, yaw: u.yaw, clip, rate, flee: 0, fleeRun: 0, loose, fighting, waver, funnel: 0 };
+}
+
+/**
+ * Отряд на стене: стоит, где поставили, — не сходится, не отходит между кругами, не пятится от давления. На штурме
+ * передние рубят лезущих по лестницам (`figurePose`), стрелки бьют залпами. Дрожит — на полшага; бежит — общим путём.
+ */
+function perchPose(plan: TwPlan, u: TwUnit, t: number): UnitPose {
+  const fire = u.form === 'bow' && u.volleys.some((v) => t >= v - SHOOT_PERIOD * SHOOT_RELEASE - 0.2 && t <= v + 0.6);
+  const foeBroke = plan.brokenAt[other(u.side)];
+  const fighting = plan.site?.kind === 'wall' && u.row === 'front' && t > plan.clashAt && separationOf(plan, t) < 0.3 && (foeBroke === null || t < foeBroke);
+  let waver = 0;
+  let z = u.z;
+  if (u.fleeAt !== null && t > u.fleeAt - WAVER_SECONDS) {
+    waver = clamp01((t - (u.fleeAt - WAVER_SECONDS)) / WAVER_SECONDS);
+    z -= (u.ours ? 1 : -1) * 0.15 * waver;
+  }
+  const clip: ClipId = fire ? 'shoot' : fighting ? 'guard' : 'idle';
+  return { x: u.x, z, yaw: u.yaw, clip, rate: 1, flee: 0, fleeRun: 0, loose: fighting ? 1.15 : 1, fighting: fighting && waver < 0.5, waver, funnel: 0 };
 }
 
 /** Кадр фигур: место, разворот, клип и время клипа — плоскими массивами, без мусора. */
@@ -1425,9 +1833,11 @@ export interface FigureState {
   /** Время клипа: своя фаза, разгон шага, миг срыва стрелы. */
   time: number;
   shown: boolean;
+  /** Высота, если её задаёт путь (лестница, через стену); NaN — стоит на земле или на боевом ходу (`site.standY`). */
+  y: number;
 }
 
-export const figureState = (): FigureState => ({ x: 0, z: 0, yaw: 0, clip: 'idle', time: 0, shown: true });
+export const figureState = (): FigureState => ({ x: 0, z: 0, yaw: 0, clip: 'idle', time: 0, shown: true, y: NaN });
 
 /** Бежавший за краем поля гаснет: дальше смотреть не на что, а инстанс — лишний. */
 const offField = (plan: TwPlan, x: number, z: number): boolean => {
@@ -1467,17 +1877,39 @@ export function figurePose(plan: TwPlan, i: number, t: number, pose: UnitPose | 
   const s = u.ours ? -1 : 1;
   const phase = plan.phase[i];
   out.shown = true;
+  out.y = NaN;
   const go = plan.goAt[i];
   // Свой путь — только если фигура тронулась раньше, чем её отряд побежал; иначе она бежит с отрядом.
   if (go < t && (u.fleeAt === null || go < u.fleeAt)) {
     // Свой путь: резерв в дыру, отряд в обход. Побежал отряд — фигура бежит от того места, где была в миг слома.
     const fled = u.fleeAt !== null && t > u.fleeAt;
     const arrived = pathPose(plan, i, fled ? Math.max(go, u.fleeAt!) : t, out);
+    if (plan.goKind[i] === 4 && !fled) {
+      // Через стену по лестнице: вверх по ней, по ходу, вниз в город.
+      const w = plan.site!.wall!;
+      const lift = overLift(w, outOf(w, out.z));
+      if (lift > 0) out.y = w.base + lift;
+    }
     if (fled) {
       const dt = t - u.fleeAt!;
       const run = fleeDistance(dt) * (0.85 + 0.3 * hash(seed, i, 14));
-      out.z += s * run;
-      out.x += (hash(seed, i, 15) - 0.5) * 0.5 * run;
+      const w = plan.site?.wall;
+      if (w && (plan.goKind[i] === 3 || plan.goKind[i] === 4) && outOf(w, out.z) < 0) {
+        // Пролезшие в город и отбитые уходят назад: воротами, если выбиты, иначе по своей лестнице.
+        const inside = -outOf(w, out.z);
+        const gate = w.gateAt !== null && w.gateAt <= u.fleeAt!;
+        let toX = w.gateX;
+        if (!gate) for (const l of plan.site!.ladders) if (l.unit === u.id && Math.abs(l.x - out.x) < Math.abs(toX - out.x)) toX = l.x;
+        out.x += (toX - out.x) * ease(clamp01(run / Math.max(0.5, inside)));
+        out.z -= w.inward * run;
+        if (!gate) {
+          const lift = overLift(w, outOf(w, out.z));
+          if (lift > 0) out.y = w.base + lift;
+        }
+      } else {
+        out.z += s * run;
+        out.x += (hash(seed, i, 15) - 0.5) * 0.5 * run;
+      }
       // Разворот — от того, куда фигура смотрела в миг слома (во фланг, на бегу), к спине врагу.
       const from = out.yaw;
       const to = u.yaw + Math.PI;
@@ -1514,14 +1946,19 @@ export function figurePose(plan: TwPlan, i: number, t: number, pose: UnitPose | 
   const sn = Math.sin(q.yaw);
   let ox = plan.lx[i];
   let oz = plan.lz[i];
+  // Поток к воротам: строй сжимается к проезду.
+  if (q.funnel > 0) {
+    ox *= 1 - 0.88 * q.funnel;
+    oz *= 1 - 0.3 * q.funnel;
+  }
   // Рыхлость строя — разброс от своего места, а не от середины: шеренги остаются шеренгами, только кривыми.
   if (q.loose > 1) {
     ox += (hash(seed, i, 11) - 0.5) * (q.loose - 1) * 0.9;
     oz += (hash(seed, i, 12) - 0.5) * (q.loose - 1) * 0.9;
   }
   const rank = plan.rank[i];
-  // Свалка: передние шеренги ходят вперёд-назад каждая в своём такте — линия не стоит стеной.
-  if (q.fighting && rank < 3) oz += SCRUM_SWAY * (rank === 0 ? 1 : 0.6) * Math.sin(2.3 * t + phase * 1.7);
+  // Свалка: передние шеренги ходят вперёд-назад каждая в своём такте — линия не стоит стеной. На стене — едва.
+  if (q.fighting && rank < 3) oz += SCRUM_SWAY * (rank === 0 ? 1 : 0.6) * (u.perch ? 0.35 : 1) * Math.sin(2.3 * t + phase * 1.7);
   out.x = q.x + ox * c + oz * sn;
   out.z = q.z - ox * sn + oz * c;
   out.yaw = q.yaw;
@@ -1533,13 +1970,90 @@ export function figurePose(plan: TwPlan, i: number, t: number, pose: UnitPose | 
     out.z += s * q.fleeRun * (hash(seed, i, 14) * 0.3 - 0.15);
     out.x += (hash(seed, i, 15) - 0.5) * 0.12 * q.fleeRun;
   }
-  // За краем поля гаснут и бегущие, и гонящие их.
-  out.shown = !offField(plan, out.x, out.z);
+  // За краем поля гаснут и бегущие, и гонящие их; ушедшие в город за стеной — тоже.
+  out.shown = !offField(plan, out.x, out.z) && !(q.fleeRun > 0 && q.funnel > 0 && intoTown(plan, out.z));
   // В сече рубятся две передние шеренги, остальные в упоре.
   if (clip === 'guard' && q.fighting && rank < 2) clip = 'strike';
+  const site = plan.site;
+  if (site?.kind === 'wall' && clip === 'strike') {
+    // Штурм: под стеной рубить некого — держат щиты; на стене рубят там, где к ней встала лестница.
+    const w = site.wall!;
+    if (u.side !== w.side || !onWalk(w, out.x, out.z)) clip = 'guard';
+    else if (!site.ladders.some((l) => Math.abs(l.x - out.x) < 2.2 && t > l.raiseAt)) clip = 'guard';
+  }
   out.clip = clip;
   out.time = clip === 'shoot' ? shootTime(plan, u, t, i) : t * q.rate + phase;
+  if (plan.climb[i] >= 0) ladderPose(plan, u, i, t, out);
   return out;
+}
+
+/** Бежавший своими воротами ушёл в город: за стеной его не видно (у ворот — сразу за ней, на штурме — за площадью). */
+function intoTown(plan: TwPlan, z: number): boolean {
+  const site = plan.site;
+  const w = site?.wall;
+  if (!w) return false;
+  const deep = -outOf(w, z);
+  const far = site!.kind === 'wall' && site!.square ? Math.abs(site!.square.z - w.z) + 3 : w.thick + 6;
+  return deep > far;
+}
+
+/**
+ * Штурмующий на лестнице: со стены поднятой лестницы лезет вверх; выше — тот, кто раньше в очереди, и место его
+ * занимает следующий, когда тот пал или перелез (плавно, без скачка). Пока лестницу поднимают, идёт к её пяте.
+ */
+function ladderPose(plan: TwPlan, u: TwUnit, i: number, t: number, out: FigureState): void {
+  const fled = u.fleeAt !== null && t > u.fleeAt;
+  if (fled) {
+    // Отряд побежал: кто был на лестнице, спрыгивает с того места, где был, и бежит от стены.
+    const site = plan.site!;
+    const w = site.wall!;
+    const at = figureState();
+    ladderPose(plan, u, i, u.fleeAt!, at);
+    if (Number.isNaN(at.y)) return;
+    const dt = t - u.fleeAt!;
+    const run = fleeDistance(dt);
+    out.x = at.x;
+    out.z = at.z - w.inward * run;
+    out.y = Math.max(heightAt(plan.field, out.x, out.z), at.y - 9 * dt * dt);
+    out.yaw = u.yaw + Math.PI * ease(dt / TURN_SECONDS);
+    out.clip = 'run';
+    out.time = t + plan.phase[i];
+    return;
+  }
+  const site = plan.site!;
+  const l = site.ladders[plan.climb[i]];
+  const w = site.wall!;
+  const qn = plan.climbQ[i];
+  const approach = l.raiseAt - 0.6;
+  if (t <= approach) return;
+  const start = l.raiseAt + 0.25 + qn * 0.7;
+  const footX = l.x + (hash(plan.cast.seed, i, 88) - 0.5) * 0.14;
+  if (t < start) {
+    // К пяте лестницы: из строя — шагом.
+    const k = ease((t - approach) / (start - approach));
+    const fz = w.z - w.inward * (LADDER_FOOT + 0.18 + (LADDER_QUEUE - 1 - qn) * 0.02 + qn * 0.55);
+    out.x += (footX - out.x) * k;
+    out.z += (fz - out.z) * k;
+    out.yaw = u.yaw;
+    if (k < 1) out.clip = 'march';
+    return;
+  }
+  let slot = 0;
+  for (let j = 0; j < qn; j++) {
+    const a = l.queue[j];
+    const gone = Math.min(plan.deathAt[a], plan.goAt[a]);
+    slot += t < gone ? 1 : 1 - ease((t - gone) / 0.9);
+  }
+  const target = w.top - 0.3 - slot * LADDER_RUNG;
+  const h = Math.max(0, Math.min((t - start) * CLIMB_SPEED, target));
+  const d = LADDER_FOOT * (1 - h / w.top);
+  out.x = footX;
+  out.z = w.z - w.inward * (d + 0.18);
+  out.y = w.base + h;
+  out.yaw = u.yaw;
+  out.clip = h < target - 0.02 ? 'march' : h >= w.top - 0.7 ? 'strike' : 'guard';
+  out.time = t * 1.3 + plan.phase[i];
+  out.shown = true;
 }
 
 const scratch = figureState();
@@ -1556,7 +2070,7 @@ export function poseFigures(plan: TwPlan, t: number, out: FigureFrame): void {
       if (plan.deathAt[i] <= t) {
         out.x[i] = plan.deadX[i];
         out.z[i] = plan.deadZ[i];
-        out.y[i] = heightAt(plan.field, plan.deadX[i], plan.deadZ[i]);
+        out.y[i] = standY(plan.field, plan.site, plan.deadX[i], plan.deadZ[i]);
         out.yaw[i] = plan.deadYaw[i];
         out.shown[i] = 1;
         out.clip[i] = CLIP_INDEX.fall;
@@ -1564,9 +2078,16 @@ export function poseFigures(plan: TwPlan, t: number, out: FigureFrame): void {
         continue;
       }
       const q = figurePose(plan, i, t, p, scratch);
+      if (u.form === 'pack' && q.clip === 'strike') {
+        // Волк бросается: прыжок вперёд и вверх в такт броска, не стоит на месте.
+        const hop = Math.max(0, Math.sin(2.4 * t + plan.phase[i] * 1.3));
+        q.x += Math.sin(q.yaw) * 0.4 * hop;
+        q.z += Math.cos(q.yaw) * 0.4 * hop;
+        q.y = standY(plan.field, plan.site, q.x, q.z) + 0.3 * hop * hop;
+      }
       out.x[i] = q.x;
       out.z[i] = q.z;
-      out.y[i] = heightAt(plan.field, q.x, q.z);
+      out.y[i] = Number.isNaN(q.y) ? standY(plan.field, plan.site, q.x, q.z) : q.y;
       out.yaw[i] = q.yaw;
       out.shown[i] = q.shown ? 1 : 0;
       out.clip[i] = CLIP_INDEX[q.clip];

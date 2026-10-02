@@ -20,6 +20,8 @@ export interface TwRecord {
   militia?: Record<Side, { men: number; archers: number }>;
   place?: BattlePlace;
   beasts?: Side;
+  /** Место боя — `BattleRecord.site` (стена, ворота, вылазка, лагерь, логово); нет — поле. */
+  site?: string;
 }
 
 /**
@@ -27,7 +29,7 @@ export interface TwRecord {
  * сидит ввод сцены, и ведение пальцем в ролике двигало бы спрятанную камеру города.
  */
 export function playTw(renderer: THREE.WebGLRenderer, rec: TwRecord, quality: Quality, touch: HTMLElement, opts: TwPlayerOptions): TwPlayer {
-  const plan = twPlanOfRecord(rec.result, rec.us, rec.troops, quality, rec.militia, rec.place, rec.beasts);
+  const plan = twPlanOfRecord(rec.result, rec.us, rec.troops, quality, rec.militia, rec.place, rec.beasts, rec.site);
   const player = new TwPlayer(renderer, plan, TW_SPEC[quality], opts);
   player.cam.attach(touch);
   return player;
