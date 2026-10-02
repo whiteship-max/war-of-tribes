@@ -685,7 +685,17 @@ const WORLD_DROPPED = ['frozenDefense'] as const;
  */
 export const SECTOR_UNSAVED = ['start'] as const;
 
-/** Строка сохранения мира: всё, что мир держит, без полей записи боя, которые не пишутся (`SECTOR_UNSAVED`). */
+/**
+ * То же на итоге боя целиком. `moves` — кто уходил в обход, откуда и куда (`BattleResult.moves`): наблюдение для ролика
+ * TW, которое ядро пишет в результат боя (docs/battle_tw.md, раздел 4). Ролик берёт его из записи, пока она в памяти, а
+ * прочитанная из сохранения запись показывает обход по журналу, как записи, посчитанные раньше: десятки строк на бой в
+ * каждой из тридцати записей мира (`REPORTS_KEPT`) — цена, которую сохранение платило бы за одно украшение показа.
+ * Мораль к концу фазы (`PhaseSpan.morale`) пишется: два числа на фазу, и по ней полоса ролика ведёт мораль армий и
+ * после перезапуска.
+ */
+export const RESULT_UNSAVED = ['moves'] as const;
+
+/** Строка сохранения мира: всё, что мир держит, без полей записи боя, которые не пишутся (`SECTOR_UNSAVED`, `RESULT_UNSAVED`). */
 export function worldSaveJson(save: WorldSave): string {
   const reports = save.reports.map((r) => {
     if (!r.battle) return r;
@@ -701,7 +711,9 @@ export function worldSaveJson(save: WorldSave): string {
         return [side, { ...res, sectors }];
       }),
     );
-    return { ...r, battle: { ...r.battle, result: { ...r.battle.result, sides } } };
+    const result: Record<string, unknown> = { ...r.battle.result, sides };
+    for (const key of RESULT_UNSAVED) delete result[key];
+    return { ...r, battle: { ...r.battle, result } };
   });
   return JSON.stringify({ ...save, reports });
 }
