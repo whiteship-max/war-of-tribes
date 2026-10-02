@@ -782,10 +782,10 @@ function bench(cam: Camera, dpr: number, stats: Stats): void {
     return d < KNOWN_R - 1 ? 1 : d > KNOWN_R + 1 ? 0 : (KNOWN_R + 1 - d) / 2;
   };
   const looks: [string, () => unknown][] = [
-    ['mini.city', () => placeSprite({ kind: 'city', stage: 'town', color: OWN, own: true, variant: 1, sacked: false }, 44, dpr)],
-    ['mini.castle', () => placeSprite({ kind: 'castle', stage: 'town', color: RELATION_META.neutral.color, own: false, variant: 0, sacked: false }, 44, dpr)],
-    ['mini.lair', () => placeSprite({ kind: 'lair', stage: 'town', color: RELATION_META.barbarian.color, own: false, variant: 2, sacked: false }, 44, dpr)],
-    ['mini.host', () => hostSprite({ color: OWN, size: 4, west: false, camp: false }, 44, dpr)],
+    ['miniCity', () => placeSprite({ kind: 'city', stage: 'town', color: OWN, own: true, variant: 1, sacked: false }, 44, dpr)],
+    ['miniCastle', () => placeSprite({ kind: 'castle', stage: 'town', color: RELATION_META.neutral.color, own: false, variant: 0, sacked: false }, 44, dpr)],
+    ['miniLair', () => placeSprite({ kind: 'lair', stage: 'town', color: RELATION_META.barbarian.color, own: false, variant: 2, sacked: false }, 44, dpr)],
+    ['miniHost', () => hostSprite({ color: OWN, size: 4, west: false, camp: false }, 44, dpr)],
   ];
   for (let pass = 0; pass < 2; pass++) {
     const keep = pass === 1;
