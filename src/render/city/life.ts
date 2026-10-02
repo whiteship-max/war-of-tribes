@@ -6,7 +6,7 @@
 // пустеют, стража остаётся.
 import * as THREE from 'three';
 import type { Quality } from '../quality';
-import { Smoke, type SmokeSource } from '../weather';
+import { HEARTH_LOOK, Smoke, type SmokeLook, type SmokeSource } from '../weather';
 import type { V3 } from './geom';
 import { heightAt, insidePoly, type CityPlan, type P } from './layout';
 import { wallTops } from './forts';
@@ -199,6 +199,20 @@ interface Walker {
 
 // ---------------------------------------------------------------------------------------------
 
+/**
+ * Ветер — один на посёлок и город: направление сноса дыма очагов посёлка (`weather.HEARTH_LOOK`), с
+ * запада-юго-запада на восток-северо-восток. По нему вьются флаги и идёт дым труб города. Выводится здесь,
+ * в куске города, а не в `weather.ts`: первая загрузка не прибавляет ни байта.
+ */
+export const CITY_WIND: { readonly x: number; readonly z: number } = (() => {
+  const d = HEARTH_LOOK.drift ?? { x: 1, z: 0 };
+  const l = Math.hypot(d.x, d.z) || 1;
+  return { x: d.x / l, z: d.z / l };
+})();
+
+/** Дым труб города — в метрах: клуб 3.4 м, снос по ветру (`CITY_WIND`) на полметра за метр подъёма. */
+export const CITY_SMOKE: SmokeLook = { size: 3.4, opacity: 0.17, drift: { x: CITY_WIND.x * 0.49, z: CITY_WIND.z * 0.49 } };
+
 /** Мягкое пятно для клубов дыма: круглый край вместо квадрата точки. */
 function softDot(): THREE.CanvasTexture | null {
   if (typeof document === 'undefined') return null;
@@ -308,7 +322,7 @@ export class CityLife {
     this.seedWalkers();
     this.seedBeasts();
 
-    this.smoke = new Smoke({ size: 3.4, opacity: 0.17, drift: { x: 0.45, z: -0.2 } }, []);
+    this.smoke = new Smoke(CITY_SMOKE, []);
     const dot = softDot();
     const sm = this.smoke.points.material as THREE.PointsMaterial;
     if (dot) {
@@ -418,9 +432,9 @@ export class CityLife {
     const red = linear(0x9a2a24);
     const gold = linear(0xc8a040);
     const pole = linear(0x3a3028);
-    // Ветер — с запада на восток, чуть к югу: полотнища смотрят по ветру.
-    const wx = 0.92;
-    const wz = 0.38;
+    // Полотнища смотрят по ветру — тому же, что сносит дым (`CITY_WIND`).
+    const wx = CITY_WIND.x;
+    const wz = CITY_WIND.z;
     const NX = 6;
     const NY = 3;
     for (const [x, y, z] of tops) {

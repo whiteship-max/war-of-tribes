@@ -6,7 +6,8 @@ import { QUALITIES } from '../quality';
 import { cityPlan, distPoly, insidePoly } from './layout';
 import { buildStatic } from './budget';
 import { wallTops } from './forts';
-import { CityLife, beastGeometry, guardGeometry, personGeometry } from './life';
+import { CITY_SMOKE, CITY_WIND, CityLife, beastGeometry, guardGeometry, personGeometry } from './life';
+import { HEARTH_LOOK } from '../weather';
 import { LIFE_CAP, LIFE_TRIS } from './spec';
 
 const plan = cityPlan();
@@ -115,6 +116,37 @@ describe('город: жизнь', () => {
       expect(t.y - g.y, 'факел над плечом').toBeGreaterThan(1.6);
       expect(t.y - g.y, 'факел над плечом').toBeLessThan(2.6);
     });
+    life.dispose();
+  });
+
+  it('флаги и дым — по одному ветру, и это ветер посёлка', () => {
+    const deg = (a: { x: number; z: number }, c: { x: number; z: number }): number =>
+      (Math.acos(Math.min(1, (a.x * c.x + a.z * c.z) / (Math.hypot(a.x, a.z) * Math.hypot(c.x, c.z)))) * 180) / Math.PI;
+    const village = HEARTH_LOOK.drift!;
+    expect(deg(CITY_WIND, village), 'ветер города — снос дыма очагов посёлка').toBeLessThan(0.5);
+    expect(deg(CITY_SMOKE.drift!, village), 'дым города — по ветру посёлка').toBeLessThan(0.5);
+    const life = new CityLife({ plan, chimneys: st.chimneys, flagTops: st.flagTops, quality: 'medium' });
+    const g = (life.group.getObjectByName('city-flags') as THREE.Mesh).geometry;
+    const pos = g.attributes.position;
+    const flap = g.attributes.flap;
+    // Граница области: флаги есть, и у каждого есть дальний край полотнища (flap = 1).
+    let tips = 0;
+    for (const [x, , z] of st.flagTops) {
+      let best = -1;
+      let bd = Infinity;
+      for (let k = 0; k < pos.count; k++) {
+        if (flap.getX(k) < 0.999) continue;
+        const d = Math.hypot(pos.getX(k) - x, pos.getZ(k) - z);
+        if (d < bd) {
+          bd = d;
+          best = k;
+        }
+      }
+      expect(bd, 'дальний край полотнища у своего древка').toBeLessThan(3);
+      expect(deg({ x: pos.getX(best) - x, z: pos.getZ(best) - z }, village), 'полотнище смотрит по ветру').toBeLessThan(1);
+      tips++;
+    }
+    expect(tips).toBe(plan.towers.length);
     life.dispose();
   });
 
