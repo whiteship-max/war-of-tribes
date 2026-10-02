@@ -345,7 +345,12 @@ describe('осада в мире: лагерь, голод и падение', (
       w.advance(20_000);
       const pulse = await w.world.sync(p);
       expect(pulse.siege, 'при слабой обороне осады не бывает').toBeNull();
-      if (pulse.reports.some((r) => r.kind === 'defense' && r.battle)) return;
+      const fought = pulse.reports.find((r) => r.kind === 'defense' && r.battle);
+      if (fought) {
+        // Набег, не севший в осаду, — штурм стены: место для показа (ролик TW).
+        expect(fought.battle!.site, 'место — у стены').toBe('wall');
+        return;
+      }
     }
     throw new Error('боя так и не случилось');
   }, 60_000);
@@ -826,6 +831,7 @@ describe('осада: вылазка', () => {
       const after = await w.world.sync(p);
       const report = (await w.world.reports()).find((r) => r.id === res.reportId);
       expect(report, 'у боя есть отчёт').toBeTruthy();
+      expect(report!.battle?.site, 'место — вылазка из ворот').toBe('sortie');
       // Лагерю досталось в любом случае — это и есть смысл кнопки.
       expect(report!.enemyLost, 'лагерь недосчитался людей').toBeGreaterThan(0);
       if (res.won) {
@@ -906,6 +912,7 @@ describe('осада: лагерь как цель на карте', () => {
     const after = await w.world.sync(p);
     const hit = (await w.world.reports()).find((r) => r.id.startsWith('camp'));
     expect(hit, 'бой в минуту прихода').toBeTruthy();
+    expect(hit!.battle?.site, 'место — лагерь под нашими стенами').toBe('camp');
     expect(hit!.won, 'дружина сильнее лагеря').toBe(true);
     expect(after.siege, 'разбитый лагерь снимает осаду').toBeNull();
   }, 60_000);

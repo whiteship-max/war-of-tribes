@@ -8,7 +8,7 @@
 import { ARROW_FLIGHT, CLIPS, RUN_LAST, figurePose, figureState, targetOf, unitPose, type FigureFrame, type TwPlan, type TwUnit } from './plan';
 import { hash } from './terrain';
 
-export type CueKind = 'horn' | 'charge' | 'cry' | 'crash' | 'bows' | 'whistle' | 'thud' | 'panic' | 'victory';
+export type CueKind = 'horn' | 'charge' | 'cry' | 'crash' | 'bows' | 'whistle' | 'thud' | 'panic' | 'victory' | 'ram' | 'gate' | 'ladder' | 'wallcry';
 
 /** Звук на секунде ролика. */
 export interface Cue {
@@ -132,7 +132,38 @@ export function cuesOf(plan: TwPlan): Cue[] {
     const h = armyHorn(plan, ours);
     if (at + 1.5 < plan.seconds) out.push(cue(at + 1.5, 'victory', h.x, h.z, 1, ours, seed + 200));
   }
+  siegeCues(plan, out);
   return out.sort((a, b) => a.at - b.at || a.seed - b.seed);
+}
+
+/**
+ * Звук штурма (docs/battle_tw.md, раздел 13) — из той же режиссуры, что кадр: лестница стукнула о стену, когда её
+ * поставили; таран бьёт в такт своих ударов, последний — треск выбитых ворот; на стене кричат, когда к ней пошли, пока
+ * по лестницам лезут и когда ворота пали.
+ */
+function siegeCues(plan: TwPlan, out: Cue[]): void {
+  const site = plan.site;
+  const w = site?.wall;
+  if (!site || !w || site.kind !== 'wall') return;
+  const seed = plan.cast.seed;
+  const defOurs = w.side === plan.us;
+  site.ladders.forEach((l, k) => out.push(cue(l.raiseAt, 'ladder', l.x, w.z, 0.6, !defOurs, seed + 300 + k)));
+  const ram = site.ram;
+  if (ram) {
+    ram.hits.forEach((h, k) => {
+      const last = w.gateAt !== null && k === ram.hits.length - 1 && Math.abs(h - w.gateAt) < 1e-6;
+      out.push(cue(h, last ? 'gate' : 'ram', ram.x, w.z, 1, !defOurs, seed + 400 + k));
+    });
+  }
+  // Крики на стене: когда штурм подошёл, пока лезут — на лестницах по очереди, когда пали ворота.
+  out.push(cue(plan.clashAt - 0.4, 'wallcry', w.gateX, w.z + w.inward * w.thick, 1, defOurs, seed + 500));
+  const until = Math.min(plan.brokenAt[w.side] ?? Infinity, plan.brokenAt[w.side === 'defender' ? 'attacker' : 'defender'] ?? Infinity, plan.seconds);
+  const n = site.ladders.length;
+  for (let t = plan.clashAt + 3, k = 0; n > 0 && t < until; t += 4.5, k++) {
+    const l = site.ladders[Math.floor(hash(seed, k, 501) * n)];
+    out.push(cue(t, 'wallcry', l.x, w.z + w.inward * 0.6, 0.6, defOurs, seed + 510 + k));
+  }
+  if (w.gateAt !== null && w.gateAt > 0) out.push(cue(w.gateAt + 0.3, 'wallcry', w.gateX, w.z + w.inward * 4, 1, defOurs, seed + 590));
 }
 
 /**

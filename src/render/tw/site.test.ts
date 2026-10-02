@@ -5,6 +5,7 @@ import { standBattle } from '../battle-stand';
 import { MAN_HEIGHT } from '../units';
 import { twPlanOfRecord } from './record';
 import { figureFrame, poseFigures, type TwPlan } from './plan';
+import { cuesOf } from './cues';
 import { CITY_M, SITE_KINDS, inWallBody, outOf, siteKindOf, type TwSiteKind } from './site';
 
 const planOf = (query: string, site?: TwSiteKind | null): TwPlan => {
@@ -56,6 +57,125 @@ describe('место боя: штурм стены', () => {
       // Область правила не пуста: на стене стоят и через неё лезут.
       expect(inBody).toBeGreaterThan(0);
       void outOf;
+    }
+  });
+});
+
+/** Сколько фигур отряда пало к секунде `t`. */
+const deadBy = (p: TwPlan, id: number, t: number): number => {
+  const u = p.units[id];
+  let n = 0;
+  for (let i = u.first; i < u.first + u.figures; i++) if (p.deathAt[i] <= t) n++;
+  return n;
+};
+
+describe('место боя: показ, а не второй бой', () => {
+  it('место не меняет темпа потерь: у каждого отряда к той же секунде пало столько же, что в поле', () => {
+    // Набор: каждое место на двух сидах. Окна огня кругов — граница области: в них гибель под стрелами сдвигается к
+    // падению тучи (`arrowDeaths`), и цель залпа зависит от места строя; вне окон темп — журнальный, до фигуры.
+    let checked = 0;
+    for (const kind of SITE_KINDS) {
+      for (const seed of [3, 6]) {
+        const q = kind === 'gate' ? `replay=tw&men=220&foe=260&seed=${seed}&site=gate` : `replay=tw&men=420&foe=480&seed=${seed}&site=${kind}`;
+        const withSite = planOf(q);
+        const field = planOf(q, null);
+        expect(field.site).toBeNull();
+        expect(withSite.units.length).toBe(field.units.length);
+        const inFire = (t: number): boolean => [...withSite.fire, ...field.fire].some(([a, b]) => t >= a - 0.1 && t <= b + 2.2);
+        for (let t = 0; t <= withSite.seconds; t += 0.5) {
+          if (inFire(t)) continue;
+          for (const u of withSite.units) {
+            expect(deadBy(withSite, u.id, t), `${kind} seed ${seed} t ${t} отряд ${u.id}`).toBe(deadBy(field, u.id, t));
+            checked++;
+          }
+        }
+        // Точка внутри области: к концу ролика пало сколько-то, и сравнение шло вне окон огня.
+        expect(withSite.units.some((u) => deadBy(withSite, u.id, withSite.seconds) > 0)).toBe(true);
+      }
+    }
+    expect(checked).toBeGreaterThan(1000);
+  });
+
+  it('тот же бой — тот же ролик: место, лестницы, таран, ворота и пути фигур повторяются до числа', () => {
+    for (const kind of SITE_KINDS) {
+      const q = `replay=tw&men=420&foe=560&seed=3&site=${kind}`;
+      const a = planOf(q);
+      const b = planOf(q);
+      expect(JSON.stringify(a.site), kind).toBe(JSON.stringify(b.site));
+      expect([...a.deathAt]).toEqual([...b.deathAt]);
+      expect([...a.goAt]).toEqual([...b.goAt]);
+      expect([...a.path]).toEqual([...b.path]);
+      expect([...a.climb]).toEqual([...b.climb]);
+      const fa = figureFrame(a.figures);
+      const fb = figureFrame(b.figures);
+      for (const t of [a.clashAt + 1, a.seconds * 0.6]) {
+        poseFigures(a, t, fa);
+        poseFigures(b, t, fb);
+        expect([...fa.x]).toEqual([...fb.x]);
+        expect([...fa.y]).toEqual([...fb.y]);
+      }
+    }
+  });
+});
+
+describe('место боя: ворота — по журналу', () => {
+  // Набор: сорок штурмов — две пропорции сил на двадцати сидах. В нём есть и выбитые ворота, и устоявшие (граница
+  // области: правило спрашивается в обоих исходах — проверено счётчиками ниже).
+  const plans: TwPlan[] = [];
+  for (const [men, foe] of [
+    [420, 560],
+    [500, 400],
+  ])
+    for (let seed = 1; seed <= 20; seed++) plans.push(planOf(`replay=tw&men=${men}&foe=${foe}&seed=${seed}&site=wall`));
+
+  it('ворота выбиты в миг, когда дрогнула оборона у ворот или сломана вся, и пока таран там; иначе — целы', () => {
+    let broke = 0;
+    let held = 0;
+    for (const p of plans) {
+      const w = p.site!.wall!;
+      const guards = p.units.filter((u) => u.side === w.side && u.row === 'front' && Math.abs(u.x - w.gateX) < u.width / 2 + w.gateHalf);
+      const times = [...guards.map((u) => u.fleeAt), p.brokenAt[w.side]].filter((x): x is number => x !== null && x > p.clashAt);
+      const due = times.length ? Math.min(...times) : null;
+      const ram = p.site!.ram ? p.units[p.site!.ram.unit] : null;
+      const left = ram ? (ram.fleeAt ?? p.brokenAt.attacker) : p.brokenAt.attacker;
+      if (w.gateAt === null) {
+        held++;
+        // Устояли — журнал не дал повода: оборона у ворот не дрогнула, или таран ушёл раньше.
+        expect(due === null || due >= p.seconds || (left !== null && left <= due)).toBe(true);
+      } else {
+        broke++;
+        expect(w.gateAt).toBe(due);
+        expect(left === null || w.gateAt < left).toBe(true);
+        // Последний удар тарана — тот, что выбил ворота.
+        if (p.site!.ram) expect(p.site!.ram.hits[p.site!.ram.hits.length - 1]).toBe(w.gateAt);
+      }
+    }
+    expect(broke, 'в наборе есть выбитые ворота').toBeGreaterThan(3);
+    expect(held, 'в наборе есть устоявшие ворота').toBeGreaterThan(3);
+  });
+
+  it('через ворота идут только после пролома, и только штурмующие', () => {
+    for (const p of plans) {
+      const w = p.site!.wall!;
+      for (let i = 0; i < p.figures; i++) {
+        if (p.goKind[i] !== 3) continue;
+        expect(w.gateAt).not.toBeNull();
+        expect(p.goAt[i]).toBeGreaterThan(w.gateAt!);
+        expect(p.units[p.unitOf[i]].side).not.toBe(w.side);
+      }
+    }
+  });
+
+  it('звук штурма — из режиссуры: стук лестниц, удары тарана, треск ворот только у выбитых', () => {
+    for (const p of plans.slice(0, 12)) {
+      const site = p.site!;
+      const cues = cuesOf(p);
+      expect(cues.filter((c) => c.kind === 'ladder').length).toBe(site.ladders.length);
+      const gate = cues.filter((c) => c.kind === 'gate');
+      expect(gate.length).toBe(site.wall!.gateAt !== null && site.ram ? 1 : 0);
+      if (gate.length) expect(gate[0].at).toBe(site.wall!.gateAt);
+      const hits = cues.filter((c) => c.kind === 'ram' || c.kind === 'gate').map((c) => c.at);
+      expect(hits).toEqual(site.ram ? site.ram.hits : []);
     }
   });
 });

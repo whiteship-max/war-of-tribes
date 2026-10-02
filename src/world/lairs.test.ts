@@ -223,6 +223,8 @@ describe('логова в мире', () => {
 
     const report = (await w.world.reports()).find((r) => r.id === res.reportId);
     expect(report?.title).toContain('Логово сожжено');
+    // Место для показа (ролик TW): логово — лагерь в лесу.
+    expect(report?.battle?.site, 'место — логово').toBe('lair');
     expect(save.marches.some((m) => m.fromId === target.id), 'набеги оттуда сняты').toBe(false);
 
     // На карте вместо логова пепелище, и второй раз его не разграбить.

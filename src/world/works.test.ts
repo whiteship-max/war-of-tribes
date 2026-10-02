@@ -617,6 +617,7 @@ describe('проход через рогатки — поток, а не пор�
     await world.sync(holdout);
     const r = (await world.reports()).find((x) => x.id.startsWith('camp'))!;
     expect(r, 'удар случился').toBeTruthy();
+    expect(r.battle?.site, 'совместный удар — место для показа').toBe('joint');
     expect(r.rearThrough?.passed, 'с тыла прошло столько, сколько обещано').toBeGreaterThan(0);
     if (!r.won) {
       expect(homeWindow(world).rearGateAt, 'тыл занят своим ударом').toBeGreaterThan(g.arriveAt);

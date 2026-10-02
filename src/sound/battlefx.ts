@@ -22,7 +22,7 @@ import { openBus } from './web';
 
 /** Звук на секунде ролика — то, что раскладывает ролик (`render/tw/cues.ts`). Своего знания о бое у машинки нет. */
 export interface FxCue {
-  kind: 'horn' | 'charge' | 'cry' | 'crash' | 'bows' | 'whistle' | 'thud' | 'panic' | 'victory';
+  kind: 'horn' | 'charge' | 'cry' | 'crash' | 'bows' | 'whistle' | 'thud' | 'panic' | 'victory' | 'ram' | 'gate' | 'ladder' | 'wallcry';
   x: number;
   z: number;
   x2: number;
@@ -350,7 +350,50 @@ class FxVoice implements FxHost {
       case 'thud':
         this.thud(dest, at, g * 0.4, c.seed, 3 + Math.round(c.size * 8));
         break;
+      // Штурм: удар тарана, треск выбитых ворот, лестница о камень, крики на стене.
+      case 'ram':
+        this.ram(dest, at, g * 0.9, c.seed, false);
+        break;
+      case 'gate':
+        this.ram(dest, at, g, c.seed, true);
+        this.crash(dest, at + 0.08, g * 0.6, c.seed);
+        break;
+      case 'ladder':
+        this.thud(dest, at, g * 0.5, c.seed, 2);
+        break;
+      case 'wallcry':
+        this.cry(dest, at, g * 0.45, c.seed, 1.1, 1.3);
+        break;
     }
+  }
+
+  /**
+   * Таран: глухой удар бревна в дуб — низкий тон падает, под ним сухой треск дерева (полоса шума у 380 Гц); у выбитых
+   * ворот треск длиннее и уходит вниз — доски ломаются.
+   */
+  private ram(dest: AudioNode, at: number, gain: number, seed: number, breaks: boolean): void {
+    const ctx = this.ctx!;
+    const boom = ctx.createOscillator();
+    boom.frequency.setValueAtTime(58 + rnd(seed, 1) * 8, at);
+    boom.frequency.exponentialRampToValueAtTime(26, at + 0.5);
+    const bg = ctx.createGain();
+    this.env(bg.gain, at, gain, 0.005, 0.06, 0.55);
+    boom.connect(bg);
+    bg.connect(dest);
+    boom.start(at);
+    this.voice(boom, at + 0.8);
+    const n = this.noiseSrc(at);
+    const f = ctx.createBiquadFilter();
+    f.type = 'bandpass';
+    f.frequency.setValueAtTime(breaks ? 900 : 380, at);
+    if (breaks) f.frequency.exponentialRampToValueAtTime(220, at + 1.1);
+    f.Q.value = breaks ? 1.2 : 2.2;
+    const ng = ctx.createGain();
+    this.env(ng.gain, at, gain * (breaks ? 0.8 : 0.45), 0.004, breaks ? 0.3 : 0.04, breaks ? 1.0 : 0.25);
+    n.connect(f);
+    f.connect(ng);
+    ng.connect(dest);
+    this.voice(n, at + (breaks ? 1.6 : 0.5));
   }
 
   /** Рог: пила с квинтой под мягким фильтром, подъём высоты на вдохе, дрожь губ. */

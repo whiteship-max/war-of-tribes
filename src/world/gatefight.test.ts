@@ -159,6 +159,8 @@ describe('волки и разбойники — настоящий бой', () 
       expect(wolves.cavalry, 'стая — лёгкая конница, и только она').toBe(total(wolves));
       expect(total(kindsIn(f.input!.defender)), 'у ворот стоят люди').toBeGreaterThan(0);
       expect(f.report?.battle?.beasts, 'в записи боя — звери').toBe('attacker');
+      // Место для показа (ролик TW): бой перед воротами.
+      expect(f.report?.battle?.site, 'место — у ворот').toBe('gate');
       if (f.report!.battle!.result.sides.defender.total.losses > 0) costly++;
     }
     expect(costly, 'бой со стаей стоит людей — это бой, а не строка').toBeGreaterThan(0);
@@ -172,6 +174,7 @@ describe('волки и разбойники — настоящий бой', () 
       const band = kindsIn(f.input!.attacker);
       expect(total(band) - (band.cavalry ?? 0), 'разбойники — пешие рода людей').toBeGreaterThan(0);
       expect(f.report?.battle?.beasts, 'разбойники — не звери').toBeUndefined();
+      expect(f.report?.battle?.site, 'место — у ворот').toBe('gate');
       if (f.report!.battle!.result.sides.defender.total.losses > 0) fought++;
     }
     expect(fought, 'бой с разбойниками стоит людей').toBeGreaterThan(0);
