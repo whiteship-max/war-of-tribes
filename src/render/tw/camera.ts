@@ -234,6 +234,8 @@ export class TacticalCamera {
   attach(el: HTMLElement): void {
     const now = (): number => performance.now();
     const down = (e: PointerEvent): void => {
+      // Кнопки слоя ролика — не поле: нажатие на них камеру не ведёт.
+      if ((e.target as HTMLElement | null)?.closest?.('button')) return;
       el.setPointerCapture?.(e.pointerId);
       this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
       this.gesture.down(e.pointerId, e.clientX, e.clientY, now());

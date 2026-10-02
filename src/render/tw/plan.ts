@@ -10,7 +10,7 @@
 // (`terrain.hash`), без `Math.random`.
 import { lossProgress, sectorLost, type Cast, type Face } from '@/battle/replay';
 import { SECTORS, UNIT_KINDS, type BattleResult, type Lane, type Sector, type Side, type UnitKind } from '@/battle/types';
-import { BEAST, MILITIA } from '@/game/battle/faces';
+import { wearOf } from '@/game/battle/faces';
 import { gearOfTroop } from '@/game/battle/kinds';
 import { TROOP_BY_ID } from '@/game/data/troops';
 import type { TroopId } from '@/game/types';
@@ -80,11 +80,13 @@ export const FORM: Record<Form, FormSpec> = {
 };
 
 export function formOf(kind: UnitKind, face: string): Form {
-  if (face === BEAST) return 'pack';
+  // Кто это — спрашивается у моста (`wearOf`), своей таблицы меток у показа нет.
+  const wear = wearOf(face, kind).wear;
+  if (wear === 'beast') return 'pack';
   if (kind === 'archer') return 'bow';
   if (kind === 'cavalry') return 'horse';
   if (kind === 'heavy') return 'heavy';
-  if (face === MILITIA) return 'folk';
+  if (wear === 'folk') return 'folk';
   return 'foot';
 }
 

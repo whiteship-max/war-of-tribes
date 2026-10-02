@@ -1,0 +1,84 @@
+// Бюджет кадра ролика TW по уровням — подсчётом построенного, без браузера (docs/battle_tw.md, раздел 7; как
+// `city.test.ts` считает город). Сцена собирается целиком, как на стенде, и обходится: вызовы и треугольники главного
+// прохода и теневого, байты текстур. Бой — самый тяжёлый: обе стороны на потолке фигур уровня.
+import { describe, expect, it } from 'vitest';
+import * as THREE from 'three';
+import { QUALITIES, type Quality } from '../quality';
+import { standBattle } from '../battle-stand';
+import { twPlanOfRecord } from './record';
+import { TW_BUDGET, TW_SPEC } from './spec';
+import { TwStage } from './stage';
+import { SHADOW_LAYER } from './crowd';
+
+interface Count {
+  calls: number;
+  triangles: number;
+  figures: number;
+  bytes: number;
+}
+
+/** Что нарисует кадр: каждый видимый меш — вызов, его треугольники на число инстансов; тень — второй раз. */
+function countStage(stage: TwStage): Count {
+  let calls = 0;
+  let triangles = 0;
+  stage.scene.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (!m.isMesh || !m.visible) return;
+    const g = m.geometry;
+    const tris = (g.index ? g.index.count : g.attributes.position.count) / 3;
+    const inst = (m as THREE.InstancedMesh).isInstancedMesh ? (m as THREE.InstancedMesh).count : 1;
+    const shadowOnly = m.layers.mask === 1 << SHADOW_LAYER;
+    if (!shadowOnly) {
+      calls += 1;
+      triangles += tris * inst;
+    }
+    if (m.castShadow) {
+      calls += 1;
+      triangles += tris * inst;
+    }
+  });
+  return { calls, triangles, figures: stage.plan.figures, bytes: stage.textureBytes() };
+}
+
+/** Самый тяжёлый кадр уровня: войска больше потолка с обеих сторон, все фигуры поставлены, лес. */
+function heaviest(q: Quality): Count {
+  const b = standBattle(new URLSearchParams('replay=tw&men=4000&foe=4000&seed=7&place=woods,road,river,ford'));
+  const plan = twPlanOfRecord(b.result, b.us, b.troops, q, undefined, b.place, b.beastSide);
+  const stage = new TwStage(plan, TW_SPEC[q]);
+  // Кадр на построении: все живы и все стоят — фигур больше, чем когда-либо потом.
+  const cam = { camera: new THREE.PerspectiveCamera(), now: { tx: 0, tz: 0, dist: 120, yaw: 0, pitch: 0.8 }, groundY: 0 };
+  stage.apply(1, cam as never);
+  const c = countStage(stage);
+  stage.dispose();
+  return c;
+}
+
+describe('ролик TW: бюджет кадра по уровням', () => {
+  const counts = Object.fromEntries(QUALITIES.map((q) => [q, heaviest(q)])) as Record<Quality, Count>;
+
+  it('вызовов, треугольников и текстур не больше бюджета уровня', () => {
+    for (const q of QUALITIES) {
+      const c = counts[q];
+      const b = TW_BUDGET[q];
+      expect(c.calls, `${q}: вызовов`).toBeLessThanOrEqual(b.calls);
+      expect(c.triangles, `${q}: треугольников`).toBeLessThanOrEqual(b.triangles);
+      expect(c.bytes / 1048576, `${q}: текстуры, МБ`).toBeLessThanOrEqual(b.textureMB);
+    }
+  });
+
+  it('бой на потолке: фигур почти вдвое больше потолка стороны — замер на самом тяжёлом месте', () => {
+    // Точка внутри области правила (правило 11): обе стороны упёрлись в потолок, а не стоят малым числом.
+    for (const q of QUALITIES) expect(counts[q].figures).toBeGreaterThan(TW_SPEC[q].perSide * 1.8);
+    if (process.env.TW_BUDGET_SHOW === '1') {
+      for (const q of QUALITIES) {
+        const c = counts[q];
+        console.log(`${q}: фигур ${c.figures} · вызовов ${c.calls} · треугольников ${c.triangles} · текстуры ${(c.bytes / 1048576).toFixed(1)} МБ`);
+      }
+    }
+  });
+
+  it('низкий дешевле среднего, средний — высокого', () => {
+    expect(counts.low.triangles).toBeLessThan(counts.medium.triangles);
+    expect(counts.medium.triangles).toBeLessThan(counts.high.triangles);
+  });
+});

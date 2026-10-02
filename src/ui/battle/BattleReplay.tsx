@@ -29,8 +29,19 @@ import { castOfRecord } from '@/game/battle/cast';
 import { beastWords } from '@/game/battle/beasts';
 import { battleMusic, villageMusic } from '@/sound/web';
 import type { BattleRecord } from '@/world/types';
+import { battleLook } from './look';
+import { TwReplay } from './TwReplay';
 
+/**
+ * Ролик боя: прежний по умолчанию, в стиле Total War — за переключателем устройства (`?battle=tw`, `look.ts`;
+ * docs/battle_tw.md). Выбор — один раз на показ: переключатель не меняется посреди ролика.
+ */
 export function BattleReplay({ rec, onDone }: { rec: BattleRecord; onDone: () => void }) {
+  const [look] = useState(battleLook);
+  return look === 'tw' ? <TwReplay rec={rec} onDone={onDone} /> : <ClassicReplay rec={rec} onDone={onDone} />;
+}
+
+function ClassicReplay({ rec, onDone }: { rec: BattleRecord; onDone: () => void }) {
   const us = rec.us;
   // Стая у ворот (`rec.beasts`) получает метку зверя: ролик одевает её волками, а не всадниками рода ядра.
   const cast = useMemo(() => castOfRecord(rec.result, rec.us, rec.troops, rec.militia, rec.place, rec.beasts), [rec]);

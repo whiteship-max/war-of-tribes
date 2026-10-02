@@ -286,10 +286,13 @@ export class BoneTexture extends THREE.Texture {
   constructor(data: Float32Array, width: number, height: number) {
     super();
     this.image = { data, width, height } as unknown as HTMLImageElement;
-    this.format = THREE.RGBAFormat;
-    this.type = THREE.FloatType;
-    this.magFilter = THREE.NearestFilter;
-    this.minFilter = THREE.NearestFilter;
+    // Константы three — числами (`RGBAFormat` 1023, `FloatType` 1015, `NearestFilter` 1003), как жёсткая тень у
+    // сцены (`Scene`, `shadowMap.type = 0`): имя, нужное одному ленивому куску, тянуло бы байты в кусок three первой
+    // загрузки (docs/battle_tw.md, раздел 7).
+    this.format = 1023 as THREE.PixelFormat;
+    this.type = 1015 as THREE.TextureDataType;
+    this.magFilter = 1003 as THREE.MagnificationTextureFilter;
+    this.minFilter = 1003 as THREE.MinificationTextureFilter;
     this.generateMipmaps = false;
     this.flipY = false;
     this.unpackAlignment = 1;
