@@ -311,18 +311,16 @@ describe('детерминизм', () => {
       resetPrebake();
       const cam = held({ cx: HOME.x, cy: HOME.y, scale: 24 });
       prebakeFrame(cam, VP, 1, 0);
-      const order: string[] = [];
-      for (let f = 2; f < 400 && order.length < 6; f++) {
+      for (let f = 2; f < 200 && prebakeState().dispatched.length < 24; f++) {
         prebakeFrame(cam, VP, f, f * 16);
-        const before = prebakeState().have;
         prebakeIdle(50);
-        const after = prebakeState().have;
-        for (const k of ['chunk', 'sheet', 'mid', 'near'] as const) if (after[k] > before[k]) order.push(k);
       }
-      return order;
+      return prebakeState().dispatched.slice(0, 24);
     };
     const a = run();
-    expect(a.length).toBeGreaterThan(0);
+    expect(a.length).toBe(24);
+    // Работы разных видов: видимое — раньше, и среди первых есть и обзор, и средний слой.
+    expect(a.some((k) => k.startsWith('chunk:')) && a.some((k) => k.startsWith('mid:'))).toBe(true);
     expect(run()).toEqual(a);
   });
 });

@@ -574,6 +574,9 @@ function nextJob(s: Session): Job | null {
   return best;
 }
 
+/** Последние отданные работы — тесту «порядок работ один и тот же» и стенду. */
+const dispatched: string[] = [];
+
 function pump(s: Session): void {
   const exec = s.exec;
   if (!exec) return;
@@ -581,6 +584,8 @@ function pump(s: Session): void {
     const job = nextJob(s);
     if (!job) return;
     s.inFlight.add(jobKey(job));
+    dispatched.push(jobKey(job));
+    if (dispatched.length > 64) dispatched.shift();
     exec.give(job);
   }
 }
@@ -735,6 +740,7 @@ export function resetPrebake(): void {
   if (session) endSession(session);
   session = null;
   setActiveTheatre(null);
+  dispatched.length = 0;
   lastCam = null;
   movedAt = -Infinity;
 }
@@ -747,6 +753,7 @@ export function prebakeState(): {
   have: { chunk: number; mid: number; sheet: number; near: number };
   inFlight: number;
   pageSteps: number;
+  dispatched: string[];
   spent: typeof spent;
 } {
   const s = session;
@@ -757,6 +764,7 @@ export function prebakeState(): {
     have: { chunk: s?.overview.size ?? 0, mid: s?.mid.size ?? 0, sheet: s?.sheets.size ?? 0, near: s?.near.size ?? 0 },
     inFlight: s?.inFlight.size ?? 0,
     pageSteps,
+    dispatched: [...dispatched],
     spent,
   };
 }
