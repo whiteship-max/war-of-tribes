@@ -47,6 +47,12 @@
 // Запуск: npm run map:report   (нужен собранный dist: npm run build)
 // Переменные: PORT=4191  CDP_PORT=9334  CHROME=путь\к\chrome.exe  HEAD=1  SECONDS=3
 // MAP=tw — карта нового вида (docs/map_tw.md, `?map=tw`): те же замеры на ней; без переменной вывод прежний.
+// QUALITY=low|medium|high — уровень качества адресом (`?quality=`): его берёт новый вид (`tw/spec.twQuality`),
+// у прежней карты уровней нет; без переменной — «Авто», как у игрока.
+// MOTION=1 — только раздел «карта в движении» (docs/map_tw.md, раздел 11): цена кадра в броске, стоя, в щипке
+// от ближнего масштаба к дальнему и в броске издали, ×1 и ×4 (`lib/flight.ts`). Это замер руками, а не
+// приёмка: остальные разделы не гоняются, браузер — один заход до двух минут, перед ним видеокарта остывает
+// минуту от прошлого захода (`budget.gpuCoolDown`). Сравнивать — прогоны одного вида с разными `MAP`/`QUALITY`.
 import { createServer, type Server } from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
 import { extname, join } from 'node:path';
@@ -54,7 +60,9 @@ import { fileURLToPath, URL } from 'node:url';
 import { launchChrome, sleep, Tab } from './lib/chrome';
 import { measure as live } from './lib/measured';
 import { PINNED_HOME, PINNED_SEED } from './lib/pinned';
-import { type Flight, measureFlight, printFlight } from './lib/flight';
+import { FAR_SCALE, type Flight, LONG_FRAME, MOTION_SLOWS, PINCH, measureFlight, printFlight, printMotion } from './lib/flight';
+import { gpuCoolDown, gpuStamp } from './lib/budget';
+import { qualityOf } from '@/render/quality';
 import { TILE_CEILING, cacheFor, tileMemory, worstRequest } from '@/ui/map/grid';
 import { SPARE_CELLS, TILE_PROMISE } from '@/ui/map/const';
 import { LocalWorld } from '@/world/local/LocalWorld';
@@ -416,9 +424,24 @@ const LOOK_SIZES = [10, 14, 18, 22, 26, 30, 38, 48, 60];
 /** Вид карты под замером: прежний или новый (`MAP=tw`, docs/map_tw.md). */
 const LOOK = process.env.MAP === 'tw' ? '&map=tw' : '';
 
+/** Уровень качества адресом (`QUALITY=`); пусто — «Авто». Неизвестное слово — ошибка, а не молчаливое «Авто». */
+const QUALITY = ((): string => {
+  const asked = process.env.QUALITY;
+  if (!asked) return '';
+  const q = qualityOf(asked);
+  if (!q) throw new Error(`QUALITY=${asked}: уровни — low, medium, high`);
+  return q;
+})();
+
+/** Хвост адреса страницы: вид и уровень. Без переменных — пусто, и адреса прежние. */
+const VIEW = LOOK + (QUALITY ? `&quality=${QUALITY}` : '');
+
+/** Карта в движении (`MOTION=1`): только этот раздел. */
+const MOTION = process.env.MOTION === '1';
+
 async function measure(counts: number[]): Promise<{ shots: Shot[]; looks: Look[]; flown: Flight[] }> {
   // Без потолка кадров отчёта (`budget.REPORT_FPS`): этот отчёт меряет цену кадра карты на потолке самой игры.
-  const tab = await Tab.open(DEBUG_PORT, `http://127.0.0.1:${PORT}/?probe=1${LOOK}`);
+  const tab = await Tab.open(DEBUG_PORT, `http://127.0.0.1:${PORT}/?probe=1${VIEW}`);
   await tab.eval<string>('(() => { try { localStorage.clear(); } catch (e) {} return JSON.stringify("ok"); })()');
   await tab.send('Page.reload');
   await sleep(4000);
@@ -441,10 +464,42 @@ async function measure(counts: number[]): Promise<{ shots: Shot[]; looks: Look[]
   await fetch(`http://127.0.0.1:${DEBUG_PORT}/json/close/${tab.target}`);
   // Бросок и стоянка — своей вкладкой и общим замером (`lib/flight.ts`): им же меряют
   // сборки «до и после», и копии замера расходиться не с чем.
-  const flown = await measureFlight(DEBUG_PORT, `http://127.0.0.1:${PORT}/?probe=1&worldview=open${LOOK}`, (line) =>
+  const flown = await measureFlight(DEBUG_PORT, `http://127.0.0.1:${PORT}/?probe=1&worldview=open${VIEW}`, (line) =>
     console.log(line),
   );
   return { shots: out, looks, flown };
+}
+
+/**
+ * Карта в движении (`MOTION=1`): один заход браузера, только бросок, стоянка, щипок и бросок издали — цена
+ * кадра карты в каждом проходе. Заход руками, поэтому по правилам стенда: перед ним видеокарта остывает
+ * минуту от конца прошлого захода, после — отметка конца (`budget.gpuCoolDown`, `gpuStamp`).
+ */
+async function motionMain(): Promise<void> {
+  console.log('\n=== карта в движении ===\n');
+  console.log(`Вид: ${LOOK ? 'новый (map=tw)' : 'прежний'}; уровень качества: ${QUALITY || 'Авто'}${LOOK ? '' : ' (у прежней карты уровней нет)'}.`);
+  console.log(`Мир закреплён (дом ${PINNED_HOME.x}|${PINNED_HOME.y}, сид ${PINNED_SEED}), экран телефона 375×812 @2, потолок игры — 60 кадров.`);
+  console.log('Кадр — время drawFrame, мс: вся карта за кадр, с выпечкой, если она пришлась на этот кадр.');
+  console.log(`Бросок — спираль у дома на 44 px на клетку; стоя — дома после броска; щипок — ${PINCH.near} → ${PINCH.far} → ${PINCH.near} px`);
+  console.log(`на клетку за бросок, середина дрейфует к востоку на ${PINCH.drift} клетки в секунду; издали — та же спираль на`);
+  console.log(`${FAR_SCALE} px на клетку. Щипок и бросок издали — с карты, открытой заново: испечённое закрытая карта выбросила.`);
+  console.log(`«Длинных» — интервалов между кадрами дольше ${LONG_FRAME} мс. ×${MOTION_SLOWS.join(', ×')} — замедление процессора; растр на GPU`);
+  console.log('оно не тормозит. Выпечка тайла — ближнего масштаба, в броске.\n');
+  await gpuCoolDown('замером карты в движении');
+  const server = serveDist();
+  const chrome = await launchChrome(DEBUG_PORT, ['--window-size=1400,900', '--force-device-scale-factor=1']);
+  let flown: Flight[] = [];
+  try {
+    flown = await measureFlight(DEBUG_PORT, `http://127.0.0.1:${PORT}/?probe=1&worldview=open${VIEW}`, (line) => console.log(line), {
+      motion: true,
+    });
+  } finally {
+    chrome.kill();
+    gpuStamp();
+    server.close();
+    await sleep(300);
+  }
+  printMotion(flown);
 }
 
 // ---------- Печать ----------
@@ -560,4 +615,4 @@ async function main(): Promise<void> {
   console.log('при любом отдалении фигура остаётся своего размера, тает под ней только земля.');
 }
 
-void main();
+void (MOTION ? motionMain() : main());
