@@ -257,6 +257,36 @@ describe('цель пальца: каждый объект открываетс�
   });
 });
 
+describe('агенты у ворот своего места', () => {
+  it('четверо дома стоят справа от города, не на крышах; тап по ним — клетка дома', () => {
+    clearCache();
+    const home = place({ id: 'h', x: AT.x, y: AT.y, mine: true, relation: 'self', color: '#e8a43c' });
+    for (let cy = MID.cy - 1; cy <= MID.cy + 1; cy++) {
+      for (let cx = MID.cx - 1; cx <= MID.cx + 1; cx++) putChunk(chunkKey(cx, cy), waterChunk(cx, cy, [home]), START);
+    }
+    const four = (['scout', 'diplomat', 'general', 'spy'] as const).map((id) => figure({ id }));
+    // Масштабы, на которых город с четырьмя у ворот целиком на экране телефона (на 80 px веер уходит за край —
+    // туда камера доезжает панорамой).
+    for (const scale of [SCALE_MIN, 9, MINI_HI, 24, SCALE_START]) {
+      const cam = camAt(AT.x, AT.y, scale);
+      const places = placeItems(cam, VP, [home], DPR);
+      const body = places[0].body;
+      const figs = figureItems(cam, VP, four, START, DPR);
+      expect(figs).toHaveLength(4);
+      for (const f of figs) {
+        // Тело агента — правее тела города: ни один силуэт не лежит на крышах.
+        expect(f.body.x0, `×${scale}: агент правее города`).toBeGreaterThanOrEqual(body.x1);
+        expect(f.cell).toEqual({ x: AT.x, y: AT.y });
+        const cx = (f.body.x0 + f.body.x1) / 2;
+        const cy = (f.body.y0 + f.body.y1) / 2;
+        expect(inScreen([cx, cy])).toBe(true);
+        expect(aimAt(aimsOf(places, [], figs), cx, cy, false)).toEqual({ x: AT.x, y: AT.y });
+      }
+    }
+    clearCache();
+  });
+});
+
 describe('кадр нового вида стоя не печёт ничего', () => {
   it('места, отряды, агенты и подписи: после прогрева ни холста', () => {
     clearCache();
