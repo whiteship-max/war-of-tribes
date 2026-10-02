@@ -49,7 +49,11 @@ export const aimBox = (id: number, b: Box): HitBox => hitBox(id, b.x0, b.y0, b.x
  * — по-прежнему цель.
  */
 export function aimAt(aims: Aim[], x: number, y: number, hand: boolean): Coord | null {
-  const boxes = aims.map((a, i) => aimBox(i, a.box));
+  // С агентом в руке агенты — не цели: раздутая до пальца фигура на дальнем масштабе накрывает соседние
+  // клетки, и приказ «иди на две клетки вбок» превращался бы в меню своего же агента (проверка этапа 2).
+  // Свою клетку агент получает и так — тапом по ней, как прежде.
+  const list = hand ? aims.filter((a) => a.kind !== 'figure') : aims;
+  const boxes = list.map((a, i) => aimBox(i, a.box));
   const id = pickBox(boxes, x, y, hand ? 0 : TAP_FORGIVE);
-  return id === null ? null : aims[id].cell;
+  return id === null ? null : list[id].cell;
 }

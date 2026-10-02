@@ -18,13 +18,14 @@ import { drawGrid, drawGround, markersOf, settlementsIn } from '../detail';
 import { drawOverview, drawPaper, drawSpot } from '../frame';
 import { drawTwZones, dropTwZones } from './zones';
 import { drawTwFog, prepareTwFog } from './fog';
+import { startFrame } from './gate';
 import { drawAgent } from '../agent';
 import type { MarkerKind } from '../village';
 import { FELL_WORDS, LABEL_MAX_PX, fellShown, fitLabel, worksStand, worksStep } from '../siegemark';
 import { type Mini, badgeSprite, drawMini, fellSprite, flagSprite, hostSprite, miniBucket, pinSprite, placeSprite, worksSprite } from './mini';
 import { labelFont, labelSprite, regionSprite } from './labels';
 import { REGION_CELLS, onWater, regionAlpha, regionSize } from './regions';
-import { type Box, type FigureItem, type HostItem, type PlaceItem, figureItems, hostItems, miniAlpha, placeItems } from './scene';
+import { type Box, type FigureItem, type HostItem, type PlaceItem, figureItems, hostItems, miniAlpha, placeItems, placesRect } from './scene';
 
 /** Отступ сверху под шапку карты — тот же, что у прежнего кадра. */
 const TOP_INSET = 52;
@@ -34,6 +35,13 @@ const INK = 'rgba(40, 28, 18, 0.85)';
 const SERIF = "Georgia, 'Times New Roman', 'Noto Serif', serif";
 
 // ---------- Испечённое: копирование ----------
+
+/**
+ * Метки поверх ночи: бейджи мест и сроки походов кадр откладывает сюда и рисует после ночной заливки — ночь
+ * темнит землю и фигурки, а не то, что игрок читает (проверка этапа 2: срок набега в полночь читался чёрным
+ * по тёмному). Очередь живёт один кадр.
+ */
+const marks: (() => void)[] = [];
 
 /** Значок постоянного размера: точка привязки значка — на точке места. */
 function blit(ctx: CanvasRenderingContext2D, m: Mini, x: number, y: number): void {
@@ -66,12 +74,14 @@ function drawBadges(ctx: CanvasRenderingContext2D, it: PlaceItem, kinds: MarkerK
   const x = mini ? it.body.x0 - 2 : it.body.x1 + 6;
   let y = mini ? it.body.y0 + 10 : it.body.y0 + 6;
   for (const k of list) {
-    const b = badgeSprite(k, dpr);
-    ctx.globalAlpha = k === 'attack' ? 0.55 + 0.45 * Math.abs(Math.sin(now / 380)) : 1;
-    blit(ctx, b, x, y);
+    const at = y;
+    marks.push(() => {
+      ctx.globalAlpha = k === 'attack' ? 0.55 + 0.45 * Math.abs(Math.sin(now / 380)) : 1;
+      blit(ctx, badgeSprite(k, dpr), x, at);
+      ctx.globalAlpha = 1;
+    });
     y += step;
   }
-  ctx.globalAlpha = 1;
 }
 
 function drawPlaces(ctx: CanvasRenderingContext2D, cam: Camera, items: PlaceItem[], dpr: number, now: number, markers: Map<string, MarkerKind[]>): void {
@@ -192,7 +202,8 @@ function drawHosts(ctx: CanvasRenderingContext2D, cam: Camera, items: HostItem[]
       drawChevron(ctx, sx + Math.cos(angle) * lead, sy - 4 + Math.sin(angle) * lead, angle, Math.max(5, Math.min(9, px * 0.2)), look.color);
     }
     if (!withTimer && !m.hostile) continue;
-    drawTimer(ctx, realLeft(secondsLeft(m.arriveAt, now)), sx, body.y0 - 3, look.color);
+    const text = realLeft(secondsLeft(m.arriveAt, now));
+    marks.push(() => drawTimer(ctx, text, sx, body.y0 - 3, look.color));
   }
 }
 
@@ -204,6 +215,7 @@ function drawFigures(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport, i
   const bucket = miniBucket(px);
   for (const it of items) {
     const { f, px: hx, ax, py, tx, ty, unit, west } = it.spot;
+    const [rx, ry] = it.at;
     if (hx < -80 || py < -80 || hx > vp.w + 80 || py > vp.h + 80) continue;
     const chosen = picked === f.id;
     if (chosen) {
@@ -213,14 +225,16 @@ function drawFigures(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport, i
       ctx.lineWidth = 1.5;
       ctx.strokeStyle = 'rgba(232, 164, 60, 0.6)';
       ctx.beginPath();
-      ctx.arc(hx, py, f.sight * px, 0, Math.PI * 2);
+      // Обзор — от настоящей клетки агента, а не от точки рисунка у ворот (`scene.atGate`).
+      ctx.arc(rx, ry, f.sight * px, 0, Math.PI * 2);
       ctx.stroke();
       ctx.restore();
     }
     if (f.phase === 'moving') {
       const [fx, fy] = toScreen(cam, vp, f.from.x + 0.5, f.from.y + 0.5);
       drawRoute(ctx, fx, fy, hx, py, tx, ty, OWN, now);
-      drawTimer(ctx, realLeft(secondsLeft(f.arriveAt, now)), tx, ty - 10, OWN);
+      const text = realLeft(secondsLeft(f.arriveAt, now));
+      marks.push(() => drawTimer(ctx, text, tx, ty - 10, OWN));
     }
     if (it.host) {
       ctx.save();
@@ -376,7 +390,8 @@ export function drawTwFrame(ctx: CanvasRenderingContext2D, cam: Camera, vp: View
   const seed = state.info?.seed ?? 0;
   const now = worldNow();
 
-  // Общая очередь выпечки (`gate.ts`): лист над незнанием — первым.
+  // Общая очередь выпечки (`gate.ts`): одна на кадр, лист над незнанием — первым.
+  startFrame(frame, near);
   prepareTwFog(cam, vp);
   ctx.fillStyle = PALETTE.void;
   ctx.fillRect(0, 0, vp.w, vp.h);
@@ -389,7 +404,8 @@ export function drawTwFrame(ctx: CanvasRenderingContext2D, cam: Camera, vp: View
   // поверх карты кампании.
   drawGrid(ctx, cam, vp, near * 0.6, TOP_INSET);
 
-  const places = placeItems(cam, vp, settlementsIn(rect), dpr);
+  marks.length = 0;
+  const places = placeItems(cam, vp, settlementsIn(placesRect(rect)), dpr);
   drawPlaces(ctx, cam, places, dpr, now, markersOf(state.marches));
 
   // Неразведанное — лист старой карты, разведанное вне обзора — сепия (`tw/fog.ts`): поверх мест, под всем,
@@ -404,6 +420,8 @@ export function drawTwFrame(ctx: CanvasRenderingContext2D, cam: Camera, vp: View
 
   // Ночь — по часам партии, как у сцены города (`tw/night.ts`); подписи и сроки — поверх неё.
   drawNight(ctx, vp.w, vp.h, cam.scale, places, nightNow(), dpr);
+  for (const draw of marks) draw();
+  marks.length = 0;
 
   drawRegions(ctx, cam, vp, dpr, drawLabels(ctx, cam, vp, places, dpr, now));
 

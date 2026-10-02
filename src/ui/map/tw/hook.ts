@@ -6,9 +6,10 @@ import { useWorld } from '@/world/store';
 import { useGame } from '@/game/store';
 import { seasonOf } from '@/game/derived';
 import { subscribeGfx } from '@/render/gfx';
-import { bakeChunk, chunkNeed, chunkReady, setTwLook } from './bake';
+import { bakeChunk, bakeTile as bakeTileNow, chunkNeed, chunkReady, setTwLook } from './bake';
 import { twQuality } from './spec';
-import { baked, mayBake } from './gate';
+import { baked, farBakes, mayBake } from './gate';
+import { dropTiles } from '../ground';
 import { pixelRatio } from '@/render/loop';
 import { sightDiscs, worldNow } from '@/world/store';
 import { setTwSlot } from '../twslot';
@@ -19,21 +20,36 @@ import { drawMid, dropMid } from './mid';
 import { dropMinis } from './mini';
 import { dropLabels } from './labels';
 import { dropTwFog } from './fog';
-import { figureItems, hostItems, placeItems } from './scene';
+import { figureItems, hostItems, placeItems, placesRect } from './scene';
 import { aimAt, aimsOf } from './tap';
 
-export { bakeTile } from './bake';
+/**
+ * Тайл ближнего масштаба — той же общей очередью (`gate.ts`): прежде он пёкся мимо неё, и на 32…44 px на клетку
+ * в один кадр сходились тайл, средний слой и кусок обзора (проверка этапа 2). Очередь закрыта — тайл не
+ * печётся в этом кадре (`null`, как «округа не приехала»), кэш тайлов спросит его в следующем.
+ */
+export function bakeTile(seed: number, tx: number, ty: number, take: () => HTMLCanvasElement): HTMLCanvasElement | null {
+  if (!mayBake()) return null;
+  const tile = bakeTileNow(seed, tx, ty, take);
+  if (tile) baked();
+  return tile;
+}
 
 // Кадр и палец нового вида — в ячейку прежнего кадра (`twslot.ts`): кусок приехал, и карта рисуется им.
 setMidLayer(drawMid);
 setTwSlot({
-  frame: drawTwFrame,
+  frame(ctx, cam, vp, dpr, frame) {
+    // Сезон и уровень сверяются в каждом кадре, а не только при выпечке тайлов: вдали тайлов нет, и смена
+    // сезона или «Графики» в настройках иначе не доходила до обзора и среднего слоя (проверка этапа 2).
+    if (syncLook()) dropTiles();
+    drawTwFrame(ctx, cam, vp, dpr, frame);
+  },
   tap(cam, vp, x, y, hand) {
     const state = useWorld.getState();
     const now = worldNow();
     const dpr = pixelRatio();
     // Цели — из той же сцены, что рисует кадр, на той же камере: палец ищет нарисованное.
-    const places = placeItems(cam, vp, settlementsIn(viewRect(cam, vp)), dpr);
+    const places = placeItems(cam, vp, settlementsIn(placesRect(viewRect(cam, vp))), dpr);
     const hosts = hostItems(cam, vp, state.marches, sightDiscs(now), now, dpr);
     const figures = figureItems(cam, vp, state.figures, now, dpr);
     return aimAt(aimsOf(places, hosts, figures), x, y, hand);
@@ -102,7 +118,7 @@ export function overviewChunk(chunk: CachedChunk): HTMLCanvasElement | null {
   }
   const now = performance.now();
   // Не больше одной выпечки нового вида за кадр — общей очередью с листами и средним слоем (`gate.ts`).
-  if (!mayBake(now)) return null;
+  if (!mayBake() || !farBakes()) return null;
   const world = useWorld.getState();
   const seed = seedNow;
   if (!seed) return null;
@@ -119,7 +135,7 @@ export function overviewChunk(chunk: CachedChunk): HTMLCanvasElement | null {
   }
   const picture = bakeChunk(seed, chunk);
   if (!picture) return null;
-  baked(now);
+  baked();
   chunks.set(chunk.key, picture);
   while (chunks.size > CHUNKS_MAX) {
     const first = chunks.keys().next().value as string;

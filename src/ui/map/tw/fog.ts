@@ -118,8 +118,12 @@ export const SHEET_PX = 4;
  * запаса у края куска контур обрывался бы — по стыкам кусков шли бы швы. Кадр рисует лист без запаса.
  */
 export const SHEET_PAD = 2;
-/** Листов в памяти: по 128 × 128 видимых пикселей (с запасом 144²) — 80 КБ, всего до 5 МБ. */
-const SHEETS_MAX = 64;
+/**
+ * Листов в памяти: не меньше 64 (по 144² px — 83 КБ, всего 5.3 МБ) и не меньше видимых кусков с запасом: на
+ * большом экране листов на виду больше, и при постоянном потолке кэш вытеснял бы видимые (как средний слой).
+ */
+const SHEETS_MIN = 64;
+let sheetsMax = SHEETS_MIN;
 
 /** Подпись разведанности куска: сколько открыто и чем — меняется только тогда, когда открылось новое. */
 const signs = new Map<string, { at: number; sign: number; open: number }>();
@@ -187,35 +191,40 @@ function knownAt(wx: number, wy: number): number {
   return (a + (b - a) * tx) * (1 - ty) + (c + (d - c) * tx) * ty;
 }
 
-/** Лист куска: испечённый — сразу; устаревший или новый печётся только при `bake` и открытой очереди. */
-function sheetFor(seed: number, cx: number, cy: number, now: number, bake: boolean): HTMLCanvasElement | null {
+/**
+ * Сверка листа куска с разведанностью: лист есть и свеж — ничего; разведано всё вокруг — лист выбрасывается;
+ * иначе печётся новый, если очередь открыта (`gate.ts`). Вернёт true, если кусок ещё ждёт выпечки.
+ */
+function settle(seed: number, cx: number, cy: number): boolean {
   const key = chunkKey(cx, cy);
   // Кусок ещё не приехал — земли под листом не знает и сам лист: его клетки закрыты подложкой растра.
-  if (!cachedChunk(key)) return null;
+  if (!cachedChunk(key)) return false;
   const version = versionOf(cx, cy);
-  if (version === null) return null;
   const have = sheets.get(key);
-  if (have && have.version === version) {
-    sheets.delete(key);
-    sheets.set(key, have);
-    return have.canvas;
+  if (version === null) {
+    if (have) {
+      if (have.canvas) have.canvas.width = 0;
+      sheets.delete(key);
+    }
+    return false;
   }
-  // Новый лист — общей очередью выпечки (`gate.ts`); пока не испечён, под ним лежит подложка растра
-  // (глубокое незнание) или прежний лист.
-  if (!bake || !mayBake(now)) return have?.canvas ?? null;
-  baked(now);
+  if (have && have.version === version) return false;
+  // Пока новый не испечён, под ним лежит подложка растра (глубокое незнание) или прежний лист.
+  if (!mayBake()) return true;
+  baked();
   const r = chunkRect(cx, cy);
   const area = { x: r.x - SHEET_PAD, y: r.y - SHEET_PAD, w: r.w + SHEET_PAD * 2, h: r.h + SHEET_PAD * 2 };
   const canvas = bakeParchment(seed, area, terrainAt, knownAt, SHEET_PX);
   if (have?.canvas) have.canvas.width = 0;
+  sheets.delete(key);
   sheets.set(key, { canvas, version });
-  while (sheets.size > SHEETS_MAX) {
+  while (sheets.size > sheetsMax) {
     const first = sheets.keys().next().value as string;
     const gone = sheets.get(first);
     if (gone?.canvas) gone.canvas.width = 0;
     sheets.delete(first);
   }
-  return canvas;
+  return true;
 }
 
 function seedNow(): number {
@@ -228,31 +237,39 @@ function seedNow(): number {
 }
 
 /**
- * Выпечка листа — в начале кадра, раньше обзора и среднего слоя: лист закрывает землю, которую игрок не
- * открыл, и в общей очереди (`gate.ts`) он первый. Печётся не больше одного.
+ * Сверка листов — в начале кадра, раньше обзора и среднего слоя: лист закрывает землю, которую игрок не
+ * открыл, и в общей очереди (`gate.ts`) он первый; печётся не больше одного. Сверка спрашивает подписи
+ * девяти кусков на каждый видимый, поэтому идёт не каждый кадр, а раз в четверть секунды (как растр
+ * полутени), — и каждый кадр, пока есть что печь: открытое за четверть секунды не уходит из глаз.
  */
+const SETTLE_MS = 250;
+let settledAt = -Infinity;
+let pending = true;
+
 export function prepareTwFog(cam: Camera, vp: Viewport): void {
   const seed = seedNow();
   if (!seed) return;
   const now = performance.now();
-  if (!mayBake(now)) return;
-  for (const { cx, cy } of chunkKeysIn(viewRect(cam, vp))) {
-    sheetFor(seed, cx, cy, now, true);
-    if (!mayBake(now)) return;
+  if (!pending && now - settledAt < SETTLE_MS) return;
+  settledAt = now;
+  pending = false;
+  const seen = chunkKeysIn(viewRect(cam, vp));
+  sheetsMax = Math.max(SHEETS_MIN, seen.length + 8);
+  for (const { cx, cy } of seen) {
+    if (settle(seed, cx, cy)) pending = true;
   }
 }
 
+/** Листы видимых кусков — копированием: сверяет их `prepareTwFog`, кадр только рисует. */
 function drawSheets(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport): void {
-  const seed = seedNow();
-  if (!seed) return;
-  const now = performance.now();
+  if (!seedNow()) return;
   const pad = SHEET_PAD * SHEET_PX;
   ctx.save();
   ctx.imageSmoothingEnabled = true;
-  for (const { cx, cy } of chunkKeysIn(viewRect(cam, vp))) {
-    const r = chunkRect(cx, cy);
-    const sheet = sheetFor(seed, cx, cy, now, false);
+  for (const { key, cx, cy } of chunkKeysIn(viewRect(cam, vp))) {
+    const sheet = sheets.get(key)?.canvas;
     if (!sheet) continue;
+    const r = chunkRect(cx, cy);
     const [sx, sy] = toScreen(cam, vp, r.x, r.y);
     ctx.drawImage(sheet, pad, pad, r.w * SHEET_PX, r.h * SHEET_PX, sx, sy, r.w * cam.scale, r.h * cam.scale);
   }
@@ -277,4 +294,5 @@ export function dropTwFog(): void {
   sheets.clear();
   signs.clear();
   raster = null;
+  pending = true;
 }

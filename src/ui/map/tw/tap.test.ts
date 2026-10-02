@@ -21,7 +21,9 @@ import { fakeCanvasEnv, waterChunk } from '../fakecanvas';
 import { dropTiles, tileBakes } from '../ground';
 import { cacheFor } from '../grid';
 import { dropMinis } from './mini';
-import { figureItems, hostItems, MINI_HI, MINI_LO, placeItems, placeLookOf } from './scene';
+import { figureItems, hostItems, MINI_HI, MINI_LO, placeItems, placeLookOf, placesRect } from './scene';
+import { settlementsIn } from '../detail';
+import { viewRect } from '../grid';
 import { aimAt, aimsOf } from './tap';
 import { drawTwFrame } from './frame';
 
@@ -254,6 +256,74 @@ describe('цель пальца: каждый объект открываетс�
       const cy = (it.body.y0 + it.body.y1) / 2;
       expect(aimAt(aims, cx, cy, false)).toEqual({ x: it.s.x, y: it.s.y });
     }
+  });
+});
+
+describe('находки проверки этапа 2', () => {
+  it('с агентом в руке агенты — не цели: тап рядом с ним — клетка под пальцем (приказ идти)', () => {
+    const cam = camAt(AT.x, AT.y, 7);
+    const fi = figureItems(cam, VP, [figure({})], START, DPR);
+    const b = fi[0].body;
+    const cx = (b.x0 + b.x1) / 2;
+    const cy = (b.y0 + b.y1) / 2;
+    expect(aimAt(aimsOf([], [], fi), cx, cy, false), 'без руки — агент').toEqual({ x: AT.x, y: AT.y });
+    // Две клетки вбок на 7 px на клетку — внутри раздутой до пальца коробки агента.
+    expect(cx + 14).toBeLessThan(cx + TAP_TARGET / 2);
+    expect(aimAt(aimsOf([], [], fi), cx + 14, cy, true), 'с рукой — не агент').toBeNull();
+  });
+
+  it('круг обзора — от настоящей клетки агента, а не от точки рисунка у ворот', () => {
+    clearCache();
+    const home = place({ id: 'h', x: AT.x, y: AT.y, mine: true, relation: 'self', color: '#e8a43c' });
+    for (let cy = MID.cy - 1; cy <= MID.cy + 1; cy++) {
+      for (let cx = MID.cx - 1; cx <= MID.cx + 1; cx++) putChunk(chunkKey(cx, cy), waterChunk(cx, cy, [home]), START);
+    }
+    const cam = camAt(AT.x, AT.y, SCALE_START);
+    const [f] = figureItems(cam, VP, [figure({})], START, DPR);
+    // Точка рисунка сдвинута к воротам, настоящая — середина клетки дома (середина экрана).
+    expect(f.spot.px).toBeGreaterThan(VP.w / 2 + 20);
+    expect(f.at[0]).toBeCloseTo(VP.w / 2, 6);
+    expect(f.at[1]).toBeCloseTo(VP.h / 2, 6);
+    clearCache();
+  });
+
+  it('город из соседнего куска за краем экрана рисуется и ловит палец', () => {
+    clearCache();
+    const scale = 56;
+    // Правый край экрана — за долю клетки до начала следующего куска; город — в первом столбце того куска.
+    const nextX = WORLD_ORIGIN.x + (MID.cx + 1) * CHUNK;
+    const cam: Camera = { cx: nextX - 0.01 - VP.w / 2 / scale, cy: AT.y + 0.5, scale };
+    const town = place({ id: 't', x: nextX, y: AT.y });
+    for (let cy = MID.cy - 1; cy <= MID.cy + 1; cy++) {
+      for (let cx = MID.cx - 1; cx <= MID.cx + 2; cx++) putChunk(chunkKey(cx, cy), waterChunk(cx, cy, cx === MID.cx + 1 ? [town] : []), START);
+    }
+    const rect = viewRect(cam, VP);
+    // Точка проверки внутри области правила: город за экраном, его кусок экран не задевает.
+    expect(rect.x + rect.w).toBeLessThan(nextX);
+    expect(settlementsIn(rect)).toHaveLength(0);
+    const items = placeItems(cam, VP, settlementsIn(placesRect(rect)), DPR);
+    expect(items.map((i) => i.s.id)).toEqual(['t']);
+    // Тело города заходит на экран — и палец у края экрана его берёт.
+    expect(items[0].body.x0).toBeLessThan(VP.w);
+    expect(aimAt(aimsOf(items, [], []), VP.w - 4, items[0].sy, false)).toEqual({ x: nextX, y: AT.y });
+    clearCache();
+  });
+
+  it('ночь — до меток: бейджи и сроки кадр откладывает и рисует после ночной заливки', () => {
+    const strip = (t: string) => t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+    const src = strip(readFileSync(join(process.cwd(), 'src/ui/map/tw/frame.ts'), 'utf8'));
+    const night = src.indexOf('drawNight(ctx, vp.w');
+    const flush = src.indexOf('for (const draw of marks) draw();');
+    expect(night).toBeGreaterThan(0);
+    expect(flush).toBeGreaterThan(night);
+    // Срок и бейдж нигде не рисуются мимо очереди меток.
+    expect([...src.matchAll(/drawTimer\(ctx, /g)].length).toBe([...src.matchAll(/marks\.push\(\(\) => drawTimer\(ctx, /g)].length);
+    expect(src).toMatch(/marks\.push\(\(\) => \{\s*ctx\.globalAlpha = k === 'attack'/);
+  });
+
+  it('сезон и уровень сверяются в каждом кадре нового вида, а не только при выпечке тайлов', () => {
+    const src = readFileSync(join(process.cwd(), 'src/ui/map/tw/hook.ts'), 'utf8');
+    expect(src).toMatch(/frame\(ctx, cam, vp, dpr, frame\) \{[\s\S]*?if \(syncLook\(\)\) dropTiles\(\);[\s\S]*?drawTwFrame\(ctx, cam, vp, dpr, frame\);/);
   });
 });
 

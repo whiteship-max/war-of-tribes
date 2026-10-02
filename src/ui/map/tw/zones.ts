@@ -137,7 +137,8 @@ export function drawTwZones(ctx: CanvasRenderingContext2D, cam: Camera, vp: View
     y0 < baked.y ||
     x0 + w > baked.x + baked.w ||
     y0 + h > baked.y + baked.h ||
-    Math.abs(cam.scale / baked.scale - 1) > 0.2;
+    // Масштаб важен только черте (холст в пикселях экрана); заливка — клетка в пиксель, и щипок её не старит.
+    (baked.lines !== null && Math.abs(cam.scale / baked.scale - 1) > 0.2);
   if (stale) baked = bake(x0, y0, w, h, cam.scale, now) ?? baked;
   if (!baked) return;
   const [sx, sy] = toScreen(cam, vp, baked.x, baked.y);

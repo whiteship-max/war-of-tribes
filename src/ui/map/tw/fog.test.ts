@@ -8,6 +8,9 @@ import type { RegionChunk } from '@/world/types';
 import { fakeCanvasEnv } from '../fakecanvas';
 import type { Camera } from '../grid';
 import { drawTwFog, dropTwFog, prepareTwFog, sheetBytes } from './fog';
+import { startFrame } from './gate';
+
+let frameNo = 0;
 
 const START = 1_800_000_000_000;
 const MID = { cx: 12, cy: 12 };
@@ -57,6 +60,7 @@ function frames(cam: Camera, n: number): number {
   const c0 = env.created();
   for (let f = 0; f < n; f++) {
     clock += 20;
+    startFrame(++frameNo, 0);
     prepareTwFog(cam, VP);
     drawTwFog(c, cam, VP);
   }
@@ -88,6 +92,27 @@ describe('лист старой карты', () => {
     lay(edgeX + 6, START + 120_000);
     expect(frames(cam, 60)).toBeGreaterThan(0);
     expect(sheetBytes()).toBeGreaterThanOrEqual(bytes * 0.5);
+  });
+
+  it('очередь выпечки — одна на кадр, даже если выпечка дольше кадра', () => {
+    clearCache();
+    dropTwFog();
+    lay(edgeX, START);
+    // Часы прыгают на 30 мс при каждом вопросе — медленная выпечка: по часам второй лист прошёл бы.
+    const spy = vi.spyOn(performance, 'now').mockImplementation(() => (clock += 30));
+    try {
+      startFrame(++frameNo, 0);
+      const c0 = env.created();
+      prepareTwFog(cam, VP);
+      prepareTwFog(cam, VP);
+      prepareTwFog(cam, VP);
+      expect(env.created() - c0, 'листов за один кадр').toBe(1);
+      startFrame(++frameNo, 0);
+      prepareTwFog(cam, VP);
+      expect(env.created() - c0, 'следующий кадр — следующий лист').toBe(2);
+    } finally {
+      spy.mockImplementation(() => clock);
+    }
   });
 
   it('разведано всё вокруг — листа нет вовсе', () => {

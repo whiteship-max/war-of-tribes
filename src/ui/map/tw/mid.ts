@@ -11,7 +11,7 @@ import { useWorld } from '@/world/store';
 import { WORLD_ORIGIN, WORLD_SIZE } from '@/world/data/tuning';
 import { type Camera, type Viewport, detailAlpha, toScreen } from '../grid';
 import { MID_BLEED, MID_CELLS, MID_PX, bakeMid, midNeed, midReady, twLook } from './bake';
-import { baked, mayBake } from './gate';
+import { baked, farBakes, mayBake } from './gate';
 import { TW_SPEC } from './spec';
 
 /** С какого масштаба средний слой проступает поверх обзора и с какого он виден целиком. */
@@ -19,10 +19,13 @@ export const MID_LO = 12;
 export const MID_HI = 16;
 
 /**
- * Тайлов в памяти: экран телефона на 12 px на клетку — до 45 тайлов с запасом; тайл — 136² px (74 КБ),
- * всего до 4.4 МБ.
+ * Тайлов в памяти: не меньше 60 (экран телефона на 12 px на клетку — до 45 тайлов с запасом; тайл — 136² px,
+ * 74 КБ, всего 4.4 МБ) и не меньше, чем кадр просит сейчас, с запасом в ряд: на планшете и в окне ПК тайлов
+ * на экране больше, и при постоянном потолке кэш вытеснял бы видимые — стоящая карта пекла бы тайл каждый
+ * кадр, а тайлы мигали (проверка этапа 2, находка 2). Память тогда растёт вместе с экраном.
  */
-const MID_MAX = 60;
+const MID_MIN = 60;
+let midMax = MID_MIN;
 const LAST = Math.ceil(WORLD_SIZE / MID_CELLS) - 1;
 
 const tiles = new Map<string, HTMLCanvasElement>();
@@ -36,7 +39,7 @@ export function midAlpha(scale: number): number {
   return t * t * (3 - 2 * t);
 }
 
-function tileFor(seed: number, tx: number, ty: number, now: number): HTMLCanvasElement | null {
+function tileFor(seed: number, tx: number, ty: number, now: number, bake: boolean): HTMLCanvasElement | null {
   const key = `${tx}:${ty}`;
   const have = tiles.get(key);
   if (have) {
@@ -44,7 +47,7 @@ function tileFor(seed: number, tx: number, ty: number, now: number): HTMLCanvasE
     tiles.set(key, have);
     return have;
   }
-  if (!mayBake(now)) return null;
+  if (!bake || !mayBake()) return null;
   // Тайлу нужна округа под свет, тень и сплайн; кадр заказывает куски только под экраном с запасом, и край
   // слоя без этого вечно стоял бы куском обзора. Заказ — раз в секунду на тайл (мир знает, что уже едет).
   if (!midReady(tx, ty)) {
@@ -56,9 +59,9 @@ function tileFor(seed: number, tx: number, ty: number, now: number): HTMLCanvasE
   }
   const canvas = bakeMid(seed, tx, ty);
   if (!canvas) return null;
-  baked(now);
+  baked();
   tiles.set(key, canvas);
-  while (tiles.size > MID_MAX) {
+  while (tiles.size > midMax) {
     const first = tiles.keys().next().value as string;
     const gone = tiles.get(first);
     if (gone) gone.width = 0;
@@ -84,12 +87,15 @@ export function drawMid(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport
   const tx1 = Math.min(LAST, Math.floor((rect.x + rect.w - WORLD_ORIGIN.x) / MID_CELLS));
   const ty1 = Math.min(LAST, Math.floor((rect.y + rect.h - WORLD_ORIGIN.y) / MID_CELLS));
   const src = MID_CELLS * MID_PX;
+  midMax = Math.max(MID_MIN, (tx1 - tx0 + 1) * (ty1 - ty0 + 1) + (tx1 - tx0 + 1) + (ty1 - ty0 + 1));
+  // Вблизи средний слой не печётся — его закрывают тайлы, и очередь выпечки у них (`gate.farBakes`).
+  const bake = farBakes();
   ctx.save();
   ctx.globalAlpha = a;
   ctx.imageSmoothingEnabled = true;
   for (let ty = ty0; ty <= ty1; ty++) {
     for (let tx = tx0; tx <= tx1; tx++) {
-      const c = tileFor(seed, tx, ty, now);
+      const c = tileFor(seed, tx, ty, now, bake);
       if (!c) continue;
       const [sx, sy] = toScreen(cam, vp, WORLD_ORIGIN.x + tx * MID_CELLS, WORLD_ORIGIN.y + ty * MID_CELLS);
       const [ex, ey] = toScreen(cam, vp, WORLD_ORIGIN.x + (tx + 1) * MID_CELLS, WORLD_ORIGIN.y + (ty + 1) * MID_CELLS);

@@ -5,7 +5,7 @@
 //
 // Смысл объектов — прежний и прежними правилами: вид места — из полей мира, размер чужого отряда — только
 // в живом обзоре (`world/sight` через `sightDiscs`), точки агентов — `figures.spotsOf`.
-import type { Coord, FigureView, MarchView, SettlementView } from '@/world/types';
+import type { Coord, FigureView, MarchView, Rect, SettlementView } from '@/world/types';
 import { inSight, type SightDisc } from '@/world/fog';
 import { marchPosition } from '@/world/geo';
 import { figurePosition } from '@/world/store';
@@ -58,6 +58,14 @@ const bodyBox = (sx: number, sy: number, rx: number, up: number, down: number): 
 });
 
 // ---------- Места ----------
+
+/**
+ * Где искать места кадра: вид экрана с запасом на размах миниатюры. Город, стоящий за краем экрана, виден на
+ * нём крышами и полями (до двух с половиной клеток вверх и двух вбок), а места берутся по кускам карты,
+ * задетым областью: без запаса город из соседнего куска не рисовался и не ловил палец, пока камера не
+ * заденет его кусок (проверка этапа 2).
+ */
+export const placesRect = (r: Rect): Rect => ({ x: r.x - 3, y: r.y - 2, w: r.w + 6, h: r.h + 5 });
 
 /**
  * Вид места из полей мира. Двор живого игрока — замок, логово — логово, сожжённое — пепелище.
@@ -184,7 +192,10 @@ export function hostItems(cam: Camera, vp: Viewport, marches: MarchView[], discs
 // ---------- Агенты ----------
 
 export interface FigureItem {
+  /** Точка рисунка: у агента на клетке места — сдвинута к воротам (`atGate`). */
   spot: Spot;
+  /** Настоящая точка агента на экране — середина его клетки: от неё круг обзора и всё, что меряет мир. */
+  at: [number, number];
   /** Войско при полководце: тот же вид, что у похода. */
   host: HostLook | null;
   /** Силуэт агента и войско при нём. */
@@ -221,7 +232,8 @@ function atGate(cam: Camera, spots: Spot[], now: number): Spot[] {
 
 export function figureItems(cam: Camera, vp: Viewport, figures: FigureView[], now: number, dpr: number): FigureItem[] {
   const mini = asMini(cam.scale);
-  return atGate(cam, spotsOf(cam, vp, figures, now), now).map((spot) => {
+  const raw = spotsOf(cam, vp, figures, now);
+  return atGate(cam, raw, now).map((spot, i) => {
     const { f, px, ax, py, unit, men, standing, west } = spot;
     const body: Box = {
       x0: ax - ANCHOR_X * unit,
@@ -243,7 +255,7 @@ export function figureItems(cam: Camera, vp: Viewport, figures: FigureView[], no
         hostBox = { x0: px - fl.ax, y0: py - fl.ay, x1: px - fl.ax + fl.w, y1: py - fl.ay + fl.h };
       }
     }
-    return { spot, host, body, hostBox, cell: cellOfFigure(f, now) };
+    return { spot, at: [raw[i].px, raw[i].py], host, body, hostBox, cell: cellOfFigure(f, now) };
   });
 }
 
