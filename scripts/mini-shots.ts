@@ -3,7 +3,7 @@
 //   npm run mini:shots                  — вход из города и обе игры: верх, подсказка энергии, «Промыслы»,
 //                                         начало, середина игры у цели, итог; по каждому снимку — ступень,
 //                                         вызовы отрисовки и треугольники прошлого кадра
-//   GAMES=herd npm run mini:shots       — одна игра
+//   GAMES=herd npm run mini:shots       — одна игра; GAMES=none — только город, верхняя строка и окно двора
 //   SEASON=winter npm run mini:shots    — сезон города (снег на ветках)
 //   LOOK=lite npm run mini:shots        — ступень вида приколота (`full`, `lite`, `base`)
 //   WIDTH=375 npm run mini:shots        — ширина экрана, px (по умолчанию 390)
@@ -24,7 +24,11 @@ const OUT = fileURLToPath(new URL('../.mini-shots', import.meta.url));
 const PORT = Number(process.env.PORT ?? 4198);
 const DEBUG_PORT = Number(process.env.CDP_PORT ?? 9343);
 const SCREEN = { width: Number(process.env.WIDTH ?? 390), height: 844, deviceScaleFactor: 2, mobile: true };
-const GAMES = (process.env.GAMES ?? 'berries,herd').split(',').map((x) => x.trim()).filter(Boolean);
+/** Какие игры снимать; `GAMES=none` — только город и окно двора. */
+const GAMES = (process.env.GAMES ?? 'berries,herd')
+  .split(',')
+  .map((x) => x.trim())
+  .filter((x) => x === 'berries' || x === 'herd');
 const SEASON = process.env.SEASON ?? '';
 const TAG = process.env.TAG ?? 'probe';
 /** Ступень вида из адреса (`?look=full|lite|base`) — приколота, сторож её не трогает. */
@@ -107,6 +111,27 @@ async function game(tab: Tab, id: string, began: number): Promise<void> {
   const after = await tab.eval<{ got: number; total: number }>('JSON.stringify(window.__mini.play.tally())');
   console.log(`  тап по холсту: счёт ${before.got} → ${after.got} из ${after.total}`);
   await snap(tab, `${id}-3b-tap`, began);
+  if (id === 'herd') {
+    // Стадо целиком: овцы накормлены и легли, корова — крупно, козы — как идут.
+    const seen = await tab.eval<string>(`(() => {
+      const st = window.__mini;
+      const play = st.play;
+      const feed = play.feed;
+      const t = 30;
+      st.seek(t);
+      play.herd.beasts.forEach((b, i) => { if (b.kind === 'sheep' && !feed.sated(i)) { feed.take(); feed.feed(i, t); } });
+      const cow = play.herd.beasts.findIndex((b) => b.kind === 'cow');
+      const c = feed.at(cow, t);
+      const r = Math.hypot(c.x, c.z) || 1;
+      const k = (r - 3.2) / r;
+      const x = c.x * k, z = c.z * k;
+      st.place(x, z, Math.atan2(-(c.x - x), -(c.z - z)), -0.18);
+      return JSON.stringify('сыты: ' + play.tally().got + ' из ' + play.tally().total);
+    })()`);
+    await sleep(1500);
+    console.log(`  стадо: ${seen}`);
+    await snap(tab, 'herd-3c-herd', began);
+  }
   // Итог: время выходит — трата энергии и добыча одним вызовом двери.
   await tab.eval<string>(`(() => { window.__mini.seek(1e6); return JSON.stringify('ok'); })()`);
   await sleep(1500);
@@ -189,6 +214,12 @@ async function main(): Promise<void> {
           `JSON.stringify([...document.querySelectorAll('.nx-top > *')].map((e) => (e.getAttribute('aria-label') || e.className) + ' ' + Math.round(e.getBoundingClientRect().width)))`,
         );
         console.log(`  ячейки: ${cells.join(' · ')}`);
+        // Окно двора: строка промысла стоит у своего двора (навес собирателей — «Ягоды»).
+        await tab.eval<string>(`(() => { const g = window.__game.getState(); const b = g.s.buildings.find((x) => x.type === 'gathering'); g.openBuilding(b.id); return JSON.stringify('ok'); })()`);
+        await sleep(1500);
+        await snap(tab, 'yard', began);
+        await tab.eval<string>(`(() => { window.__game.getState().closeSheet(); return JSON.stringify('ok'); })()`);
+        await sleep(600);
         for (const id of GAMES) await game(tab, id, began);
       } finally {
         tab.close();
