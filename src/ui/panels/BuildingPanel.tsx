@@ -86,12 +86,22 @@ import { Icon } from '@/ui/icons/Icon';
 import { moodOf } from '@/ui/icons/registry';
 import { troopTotal } from '@/game/battle/kinds';
 import { asGame } from '@/game/pace';
+import { useUiNew } from '@/ui/uimode';
+import { BuildingNew } from '@/ui/next/BuildingNew';
 
 const fmt = (n: number): string => (Math.abs(n) >= 100 ? String(Math.round(n)) : n.toFixed(1));
 const fmtDelta = (n: number): string => `${n >= 0 ? '+' : '−'}${fmt(Math.abs(n))}`;
 
-/** Одинаковая для всех зданий панель: шапка, слоты рабочих, свои данные, свои действия. */
+/**
+ * Одинаковая для всех зданий панель: шапка, слоты рабочих, свои данные, свои действия. В новом интерфейсе
+ * (`ui/uimode.ts`) шапка, цена и рабочие — свой шаблон (`next/BuildingNew`), а данные здания — те же.
+ */
 export function BuildingPanel({ id }: { id: number }) {
+  const next = useUiNew();
+  return next ? <BuildingNew id={id} data={(b) => <BuildingData b={b} />} /> : <BuildingOld id={id} />;
+}
+
+function BuildingOld({ id }: { id: number }) {
   const s = useGame((g) => g.s);
   const act = useGame((g) => g.act);
   const b = buildingById(s, id);
@@ -524,6 +534,9 @@ const WALLS: Building['type'][] = ['palisade', 'tower'];
 /** Обычное здание: что оно производит и что даёт посёлку. */
 function GenericData({ b }: { b: Building }) {
   const s = useGame((g) => g.s);
+  // Новый интерфейс: число рабочих стоит в строке рабочих, множитель уровня — в подсказке; здесь — только
+  // выработка и что здание даёт городу (docs/ui_audit.md, 6.3: число не повторяется трижды).
+  const next = useUiNew();
   const def = BUILDING_BY_ID[b.type];
   const prod = buildingProduction(s, b);
   const produced = RESOURCE_IDS.filter((r) => prod[r] > 0.01);
@@ -618,7 +631,7 @@ function GenericData({ b }: { b: Building }) {
                 : 'Это здание не даёт ресурсов напрямую.'}
             </div>
           )}
-          {workers > 0 && (
+          {workers > 0 && !next && (
             <div className="mod">
               <span className="ico">
                 <Icon name={`job-${jobDef.id}`} glyph={jobDef.icon} />
@@ -628,7 +641,7 @@ function GenericData({ b }: { b: Building }) {
             </div>
           )}
           {/* Наёмный мастер работает с тем же множителем, что ремесленник: своего у него нет. */}
-          {mastersOn(s, b.id) > 0 && (
+          {mastersOn(s, b.id) > 0 && !next && (
             <div className="mod">
               <span className="ico">🔨</span>
               <span className="name">Наёмных мастеров: {mastersOn(s, b.id)}</span>
@@ -636,7 +649,7 @@ function GenericData({ b }: { b: Building }) {
             </div>
           )}
           {/* Та же выработка на ту же долю: множитель берётся тот же, а не свой. */}
-          {bonded > 0 && (
+          {bonded > 0 && !next && (
             <div className="mod">
               <span className="ico">{ORDER_TEXT.bondedIcon}</span>
               <span className="name">Невольников: {bonded}</span>
@@ -648,17 +661,19 @@ function GenericData({ b }: { b: Building }) {
           {/* Множитель уровня стоит только там, где игра им умножает. Служителя храма
               уровень не усиливает — он держит мораль и набожность головой, до потолка, —
               и «×1.40 от базы» у него было бы враньём (замер — `levelLiftsHand`). */}
-          <div className="note">
-            {lifts
-              ? `Уровень ${b.level}: каждый рабочий работает на ×${levelOutputMult(b.level).toFixed(2)} от базы.`
-              : 'Уровень здания рабочих не усиливает: каждый даёт своё по голове, до потолка.'}
-          </div>
+          {!next && (
+            <div className="note">
+              {lifts
+                ? `Уровень ${b.level}: каждый рабочий работает на ×${levelOutputMult(b.level).toFixed(2)} от базы.`
+                : 'Уровень здания рабочих не усиливает: каждый даёт своё по голове, до потолка.'}
+            </div>
+          )}
         </>
       )}
 
       {stats.length > 0 && (
         <>
-          <h3>Что даёт посёлку</h3>
+          <h3>{next ? 'Что даёт городу' : 'Что даёт посёлку'}</h3>
           {stats.map(([art, glyph, name, val], i) => (
             <div className="mod" key={i}>
               <span className="ico">

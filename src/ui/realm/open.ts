@@ -12,8 +12,11 @@ import { useWorld } from '@/world/store';
 import { letterKey } from './unread';
 import type { RealmTab } from './tabs';
 
-/** Раздел меню или страница настроек (шестерёнка в шапке меню). */
-export type RealmView = RealmTab | 'settings';
+/**
+ * Раздел меню или страница настроек (шестерёнка в шапке меню). `quests` — задания: в новом интерфейсе они
+ * раздел державы, а не место нижней навигации (docs/ui_audit.md, 6.1).
+ */
+export type RealmView = RealmTab | 'settings' | 'quests';
 
 interface RealmStore {
   open: boolean;

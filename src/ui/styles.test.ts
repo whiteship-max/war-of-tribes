@@ -10,7 +10,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const ROOT = process.cwd();
-const FILES = ['src/ui/styles.css', 'src/prologue/prologue.css'];
+const FILES = ['src/ui/styles.css', 'src/prologue/prologue.css', 'src/ui/next/next.css'];
 
 const SHIFT = /translateX\(-50%\)/;
 

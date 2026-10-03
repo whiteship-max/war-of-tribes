@@ -12,10 +12,8 @@
   --panel-3: rgba(62, 48, 34, 0.94);
 }
 
-.nx-hud button,
-.nx-nav button,
-.nx-alerts button,
-.nx-tip button {
+/* Сброс кнопок без веса: свои классы (`.nx-stat`, `.nx-cell`…) его перекрывают. */
+:where(.nx-hud, .nx-nav, .nx-alerts, .nx-tip) button {
   font: inherit;
   color: inherit;
   background: none;
@@ -66,7 +64,7 @@
   gap: 4px;
   height: 44px;
   min-width: 44px;
-  padding: 0 5px !important;
+  padding: 0 5px;
   border-radius: 10px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
@@ -137,10 +135,10 @@
   min-width: 0;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
-  border-left: 1px solid rgba(255, 220, 170, 0.06) !important;
+  border-left: 1px solid rgba(255, 220, 170, 0.06);
 }
 .nx-cell:first-child {
-  border-left: 0 !important;
+  border-left: 0;
   border-radius: 10px 0 0 10px;
 }
 .nx-cell:last-child {
@@ -225,11 +223,11 @@
 .nx-alert.pill {
   padding-right: 12px;
   background: var(--panel);
-  border: 1px solid var(--warn) !important;
+  border: 1px solid var(--warn);
   animation: nx-in 0.18s ease;
 }
 .nx-alert.pill.urgent {
-  border-color: var(--bad) !important;
+  border-color: var(--bad);
 }
 .nx-alert.pill .nx-ring {
   width: 36px;
@@ -425,4 +423,250 @@
 /* ---------- Обучение: строка под верхом нового вида ---------- */
 .ui-new .tut-bar.at-top {
   top: calc(var(--safe-top) + var(--hud-h) + 52px);
+}
+
+/* ---------- Главная кнопка: янтарь — действие (3.4) ---------- */
+.nx-go {
+  font-family: inherit;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  cursor: pointer;
+  flex: none;
+  min-width: 112px;
+  height: 44px;
+  padding: 0 16px;
+  border-radius: 10px;
+  background: linear-gradient(#f3bd5c, var(--accent));
+  color: var(--accent-text);
+  font-size: 15px;
+  font-weight: 700;
+  box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.18);
+}
+.nx-go:disabled {
+  opacity: 0.45;
+}
+.nx-go:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+/* ---------- Шторка нового вида: сцена над ней живая ---------- */
+/* Затемнения нет, и касание над шторкой достаётся городу: тап по другой крыше сразу меняет окно (3.10). */
+.ui-new .sheet-backdrop {
+  background: transparent;
+  pointer-events: none;
+}
+.ui-new .sheet {
+  border-radius: 14px 14px 0 0;
+  border-top-color: var(--line-2);
+  background: rgba(25, 19, 14, 0.97);
+}
+/* У окна постройки «закрыть» стоит в строке шапки: хэндл узкий, кнопка опущена в шапку. */
+.ui-new .sheet:has(.nx-bhead) .sheet-grab {
+  height: 16px;
+}
+.ui-new .sheet:has(.nx-bhead) .sheet-close {
+  top: 14px;
+  z-index: 2;
+}
+.ui-new .sheet-close {
+  font-size: 18px;
+}
+.ui-new .panel h3 {
+  margin: 16px 0 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.ui-new .panel h3 .muted {
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 600;
+}
+
+/* ---------- Окно постройки: общий шаблон ---------- */
+.nx-bpanel button.nx-bico,
+.nx-bpanel button.nx-wico {
+  font: inherit;
+  color: inherit;
+  padding: 0;
+  cursor: pointer;
+}
+.nx-bhead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 56px;
+  padding-right: 44px;
+}
+.nx-bico {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  font-size: 24px;
+}
+.nx-bico svg {
+  width: 28px;
+  height: 28px;
+}
+.nx-btitle {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.nx-btitle b {
+  font-size: 15px;
+  font-weight: 600;
+}
+.nx-blvl {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.nx-bbar {
+  display: block;
+  width: 48px;
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.14);
+  overflow: hidden;
+}
+.nx-bbar > i {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+.nx-bbar.wide {
+  width: 100%;
+}
+.nx-up {
+  min-width: 104px;
+  height: 48px;
+  font-size: 15px;
+}
+.nx-up small {
+  font-size: 11px;
+  font-weight: 600;
+  opacity: 0.75;
+}
+.nx-bcost {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0 0 8px;
+}
+.nx-bcost .cost {
+  margin: 0;
+  font-size: 13px;
+}
+.nx-bcost small {
+  font-size: 11px;
+  color: var(--good);
+}
+.nx-bcost small.nx-why {
+  color: var(--bad);
+}
+.nx-bsite {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 8px;
+  padding: 4px 4px 4px 12px;
+  border-radius: 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  font-size: 13px;
+}
+.nx-bsite > svg {
+  width: 20px;
+  height: 20px;
+  flex: none;
+}
+.nx-bsite-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-variant-numeric: tabular-nums;
+}
+.nx-confirm {
+  flex: none;
+  height: 44px;
+  padding: 0 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line-2);
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.nx-confirm.armed {
+  border-color: var(--bad);
+  color: var(--bad);
+}
+.nx-bwarn {
+  margin: 0 0 8px;
+  font-size: 11px;
+  color: var(--warn);
+}
+.nx-wrow {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0 0 8px;
+  padding: 4px;
+  border-radius: 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+}
+.nx-wico {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  font-size: 22px;
+}
+.nx-wico svg {
+  width: 24px;
+  height: 24px;
+}
+.nx-wcount {
+  flex: none;
+  min-width: 48px;
+  font-size: 15px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.nx-wcount i,
+.nx-wcount small {
+  font-style: normal;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.nx-wrow .stepper.wide-steps {
+  flex: 1;
+  margin: 0;
+}
+.nx-wrow .stepper .n {
+  display: none;
 }
