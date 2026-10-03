@@ -34,19 +34,19 @@ import { TROOP_BY_ID } from '@/game/data/troops';
 import { waitShort } from '../parts/wait';
 import { asGame } from '@/game/pace';
 
-const byLevels = (n: number): string => `по ${n} ${plural(n, 'уровню', 'уровня', 'уровней')}`;
-const goodsAndGold = (f: FallForecast): string => `${f.goods} добра${f.gold > 0 ? ` и ${f.gold} золота` : ''}`;
+const byLevels = (n: number): string => `до ${n} ${plural(n, 'уровня', 'уровней', 'уровней')}`;
+const goodsAndGold = (f: FallForecast): string => `${f.goods} запасов${f.gold > 0 ? ` и ${f.gold} золота` : ''}`;
 
 /** Что потеряет город, если хлеб кончится, — словами окна. Числа приходят из мира. */
 export function fallWords(fate: Fate, f: FallForecast): string[] {
   const out: string[] = [];
   if (fate === 'burn') {
-    out.push(`сгорит всё сверх тайника: ${goodsAndGold(f)}; в тайнике уцелеет ${f.hidden}.`);
+    out.push(`сгорит ${goodsAndGold(f)}, в тайнике уцелеет ${f.hidden}.`);
     if (f.scatterPop > 0) out.push(`Разойдутся ${f.scatterPop} ${townsWord(f.scatterPop)}.`);
     if (f.scatterBonded > 0) out.push(`Разбегутся ${f.scatterBonded} ${bondedWord(f.scatterBonded)}.`);
-    out.push(`Все постройки, кроме тайника, потеряют ${byLevels(f.levels)}, не ниже первого; недостроенное сгорит.`);
+    out.push(`Постройки, кроме тайника, потеряют ${byLevels(f.levels)}, начатая стройка сгорит.`);
   } else {
-    out.push(`склад и казну вычистят до тайника: уйдёт ${goodsAndGold(f)}; в тайнике уцелеет ${f.hidden}.`);
+    out.push(`унесут ${goodsAndGold(f)}, в тайнике уцелеет ${f.hidden}.`);
     const people = [
       f.ledBonded > 0 ? `${f.ledBonded} ${bondedWord(f.ledBonded)}` : '',
       f.ledPop > 0 ? `${f.ledPop} ${townsWord(f.ledPop)}` : '',
@@ -54,7 +54,7 @@ export function fallWords(fate: Fate, f: FallForecast): string[] {
     if (people.length > 0) out.push(`Уведут ${people.join(' и ')}.`);
     if (f.buildings > 0) {
       out.push(
-        `${f.buildings} ${plural(f.buildings, 'постройка потеряет', 'постройки потеряют', 'построек потеряют')} ${byLevels(f.levels)}, не ниже первого.`,
+        `${f.buildings} ${plural(f.buildings, 'постройка потеряет', 'постройки потеряют', 'построек потеряют')} ${byLevels(f.levels)}.`,
       );
     }
   }
@@ -76,7 +76,7 @@ function HireClubmen() {
   const seconds = asGame(Math.max(1, Math.ceil(TROOP_BY_ID.clubman.work / rate)));
   return (
     <>
-      <p className="note">Наймите дубинщиков: казармы учат одного за {waitShort(seconds)}, и с ними можно выйти на вылазку.</p>
+      <p className="note">Найми дубинщиков. Казармы учат одного за {waitShort(seconds)}.</p>
       <button className="btn wide" data-tut="siege-barracks" onClick={() => openBuilding(barracks.id)}>
         <Icon name="troop-clubman" glyph={TROOP_BY_ID.clubman.icon} /> В казармы
       </button>
@@ -111,7 +111,7 @@ export function SiegePanel() {
             <div className="lvl">под стенами никого</div>
           </div>
         </div>
-        <p className="note">Лагерь снят. Город снова ест.</p>
+        <p className="note">Город снова ест.</p>
       </div>
     );
   }
@@ -124,7 +124,7 @@ export function SiegePanel() {
   const all = sortieForecast(siege, kindsOf(home), now).now;
   const garrisonMen = troopTotal(home);
   const sortieBlock =
-    garrisonMen === 0 ? 'В гарнизоне никого: вылазку делают бойцами.' : refusedAtGate(all) ? gateBusyText(all.waitMs) : null;
+    garrisonMen === 0 ? 'В гарнизоне никого' : refusedAtGate(all) ? gateBusyText(all.waitMs) : null;
 
   return (
     <div className="panel">
@@ -135,7 +135,7 @@ export function SiegePanel() {
         <div className="body">
           <div className="name one-line">«{profileCity(s.profile)}» в осаде</div>
           <div className="lvl">
-            «{siege.byName}» у ворот · в лагере {siege.campMen} {plural(siege.campMen, 'боец', 'бойца', 'бойцов')} строя
+            «{siege.byName}» у ворот · в лагере {siege.campMen} {plural(siege.campMen, 'боец', 'бойца', 'бойцов')}
           </div>
         </div>
       </div>
@@ -158,7 +158,7 @@ export function SiegePanel() {
         </div>
         <div className="mod">
           <span className="ico">🍞</span>
-          <span className="name">Гарнизон {siege.garrison} — он и ест</span>
+          <span className="name">Гарнизон {siege.garrison} тоже ест</span>
           <span className="val">
             хлеб {SIEGE_FOOD_YIELD === 0 ? 'не идёт' : `×${SIEGE_FOOD_YIELD}`}, прочее −{Math.round((1 - SIEGE_YIELD) * 100)}%
           </span>
@@ -207,12 +207,12 @@ export function SiegePanel() {
         </div>
       )}
       <p className="note">
-        «Пройдут» — сколько бойцов строя проход пропустит к бою сейчас; остальные постоят у рогаток.
+        Кто не пройдёт, встанет у рогаток.
         {weak ? ` ${WEAK_HINT[weak]}` : ''}
       </p>
       {/* Мораль между боями (14.31): уставший лагерь бить лучше сейчас, уставшему гарнизону — дать отдохнуть. */}
       {siege.campRest && (
-        <p className="note">{restLine(siege.campRest, 'Лагерь дрался', now)} Бить его лучше сейчас, пока он не отдохнул.</p>
+        <p className="note">{restLine(siege.campRest, 'Лагерь дрался', now)} Бей, пока не отдохнул.</p>
       )}
       {siege.garrisonRest && (
         <p className="note warn">
@@ -222,7 +222,7 @@ export function SiegePanel() {
 
       <h3>Что делать</h3>
       <button className="btn wide" disabled={sortieBlock !== null} onClick={openSortie}>
-        ⚔️ Вылазка{garrisonMen > 0 ? ` · со стороны города пробьются ${all.passed} из ${all.went}` : ''}
+        Вылазка{garrisonMen > 0 ? ` · ${all.passed} из ${all.went}` : ''}
       </button>
       {sortieBlock && <p className="note bad">{sortieBlock}</p>}
       {garrisonMen === 0 && <HireClubmen />}

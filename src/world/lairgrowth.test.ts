@@ -323,7 +323,7 @@ describe('пустой гарнизон в осаде — не тупик', () =
     // Строка стоит ровно там, где вылазка погашена пустым гарнизоном.
     expect(panel).toMatch(/\{garrisonMen === 0 && <HireClubmen \/>\}/);
     const hint = panel.slice(panel.indexOf('function HireClubmen('), panel.indexOf('export function SiegePanel('));
-    expect(hint).toMatch(/Наймите дубинщиков/);
+    expect(hint).toMatch(/Найми дубинщиков/);
     expect(hint).toMatch(/b\.type === 'barracks'/);
     expect(hint).toMatch(/openBuilding\(barracks\.id\)/);
   });

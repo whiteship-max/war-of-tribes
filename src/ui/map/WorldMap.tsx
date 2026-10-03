@@ -35,9 +35,11 @@ import {
   COST_PASS,
   COST_RIDGE,
   COST_RIVER,
+  FALL_MARK,
   WORLD_ORIGIN,
   WORLD_SIZE,
 } from '@/world/data/tuning';
+import { realSpanText } from '@/ui/parts/wait';
 import type { Coord, Fate } from '@/world/types';
 import { PALETTE, SCALE_DETAIL, SCALE_MIN, SCALE_OVERVIEW, SCALE_START, TILE_CELLS, TILE_MARGIN } from './const';
 import {
@@ -122,8 +124,8 @@ const LEGEND_ROWS: { look: Look; name: string; note?: string }[] = [
       ruin: false,
       sacked: false,
     },
-    name: 'Замок',
-    note: 'город живого игрока, бывает при любой стадии',
+    name: 'Город соседа',
+    note: 'любого размера',
   },
   {
     look: {
@@ -135,8 +137,8 @@ const LEGEND_ROWS: { look: Look; name: string; note?: string }[] = [
       ruin: false,
       sacked: false,
     },
-    name: 'Стоянка варваров',
-    note: 'шатры и терновая дуга вместо стены',
+    name: 'Логово',
+    note: 'шатры за терновой дугой',
   },
   {
     look: {
@@ -149,7 +151,7 @@ const LEGEND_ROWS: { look: Look; name: string; note?: string }[] = [
       sacked: false,
     },
     name: 'Пепелище',
-    note: 'сожжённое логово; занять нельзя, след сойдёт сам',
+    note: 'сожжённое логово, след сойдёт сам',
   },
 ];
 
@@ -165,17 +167,20 @@ const LEGEND_ROWS: { look: Look; name: string; note?: string }[] = [
 const SHOWN_RELATIONS = RELATION_ORDER.filter((r) => r !== 'ally' && r !== 'enemy');
 const SHOWN_FATES = (Object.keys(FELL_WORDS) as Fate[]).filter((f) => f !== 'burn');
 
+/** Множитель дороги словами: дробь — запятой (docs/ui_audit.md, 4.5). */
+const frac = (x: number): string => String(x).replace('.', ',');
+
 /**
  * Местность поверх ландшафта. Числа берутся из тех же констант, что и расчёт
  * пути: легенда, в которой множитель написан руками, врёт со следующей правки
  * баланса, и игрок учится неправде.
  */
 const TERRAIN_ROWS: { color: string; name: string; note: string }[] = [
-  { color: PALETTE.river, name: 'Река', note: `вплавь ×${COST_RIVER} — преграда, а не дорогая клетка` },
-  { color: PALETTE.bridge, name: 'Мост', note: `×${COST_BRIDGE}, и таких мест немного` },
-  { color: PALETTE.ford, name: 'Брод', note: `×${COST_FORD}: ноги мокрые, зато не крюк` },
-  { color: PALETTE.ridge, name: 'Хребет', note: `×${COST_RIDGE} — в холмах через него не лезут` },
-  { color: PALETTE.pass, name: 'Перевал', note: `×${COST_PASS}: единственный проход через хребет` },
+  { color: PALETTE.river, name: 'Река', note: `вплавь ×${frac(COST_RIVER)}` },
+  { color: PALETTE.bridge, name: 'Мост', note: `×${frac(COST_BRIDGE)}, мостов мало` },
+  { color: PALETTE.ford, name: 'Брод', note: `×${frac(COST_FORD)}, зато без крюка` },
+  { color: PALETTE.ridge, name: 'Хребет', note: `×${frac(COST_RIDGE)}, лучше перевалом` },
+  { color: PALETTE.pass, name: 'Перевал', note: `×${frac(COST_PASS)}, проход через хребет` },
 ];
 
 export function WorldMap() {
@@ -663,7 +668,7 @@ export function WorldMap() {
       const f = standing[0];
       setAnchor(f.id);
       pickFigure(f.id);
-      showToast(`${f.name} выбран: тапни по клетке — пойдёт туда.`);
+      showToast(`${f.name} выбран. Нажми, куда идти.`);
       return;
     }
     void useWorld.getState().select(c);
@@ -837,13 +842,13 @@ export function WorldMap() {
               только когда есть о чём говорить. */}
           {rosterOld && (
             <div className="wm-hint stale">
-              <span>{roster.why || 'Список соседей давно не обновлялся: чужие замки показаны по памяти.'}</span>
+              <span>{roster.why || 'Соседи показаны по памяти.'}</span>
             </div>
           )}
 
           {picked && (
             <div className="wm-hint">
-              <span>Тапни по земле — {FIGURE_BY_ID[picked].name} пойдёт туда, по поселению — приказы.</span>
+              <span>{FIGURE_BY_ID[picked].name}: нажми цель</span>
               <button onClick={() => pickFigure(null)}>Отпустить</button>
             </div>
           )}
@@ -852,7 +857,7 @@ export function WorldMap() {
 
       {legendOpen && (
         <div className="wm-legend">
-          {next && rosterOld && <div className="nx-stale">{roster.why || 'Список соседей давно не обновлялся: чужие замки — по памяти.'}</div>}
+          {next && rosterOld && <div className="nx-stale">{roster.why || 'Соседи показаны по памяти.'}</div>}
           <h3>Кто на карте</h3>
           {SHOWN_RELATIONS.map((r) => (
             <div className="wm-leg-row" key={r}>
@@ -862,7 +867,7 @@ export function WorldMap() {
               <span>{RELATION_META[r].name}</span>
             </div>
           ))}
-          <h3>Поселения</h3>
+          <h3>Города и логова</h3>
           {LEGEND_ROWS.map((row) => (
             <div className="wm-leg-row wm-leg-shape" key={row.name}>
               <img src={silhouetteUrl(row.look)} alt="" />
@@ -876,20 +881,22 @@ export function WorldMap() {
           <div className="wm-leg-row wm-leg-shape">
             <img src={worksUrl(WORKS_STEPS, 0)} alt="" />
             <span>
-              Рогатки со стороны города <em>ближний ряд, колья к городу: так бьют вылазку</em>
+              Рогатки со стороны города <em>ближний ряд, против вылазки</em>
             </span>
           </div>
           <div className="wm-leg-row wm-leg-shape">
             <img src={worksUrl(0, WORKS_STEPS)} alt="" />
             <span>
-              Рогатки с тыла <em>дальний ряд, колья в поле: так встречают полководца; редкий ряд — ещё строят</em>
+              Рогатки с тыла <em>дальний ряд, против удара из поля. Редкий ряд ещё строят.</em>
             </span>
           </div>
           {SHOWN_FATES.map((fate) => (
             <div className="wm-leg-row wm-leg-fell" key={fate}>
               <img src={fellUrl(fate)} alt="" />
               <span>
-                <em>город взят и {FELL_WORDS[fate]}; знак сходит через сутки</em>
+                <em>
+                  город взят, {FELL_WORDS[fate]}. Знак сойдёт через {realSpanText(FALL_MARK / 1000)}
+                </em>
               </span>
             </div>
           ))}
@@ -903,7 +910,7 @@ export function WorldMap() {
           <div className="wm-leg-row">
             <i style={{ background: '#3a332b' }} />
             <span>
-              Вне обзора <em>местность знаем, а что там сейчас — нет</em>
+              Вне обзора <em>землю знаем, сейчас не видно</em>
             </span>
           </div>
           <div className="wm-leg-row">
@@ -918,11 +925,11 @@ export function WorldMap() {
             <div className="wm-leg-row" key={t}>
               <i style={{ background: TERRAIN_META[t].color }} />
               <span>
-                {TERRAIN_META[t].name} <em>×{TERRAIN_META[t].cost}</em>
+                {TERRAIN_META[t].name} <em>×{frac(TERRAIN_META[t].cost)}</em>
               </span>
             </div>
           ))}
-          <h3>Местность</h3>
+          <h3>Реки и хребты</h3>
           {TERRAIN_ROWS.map((row) => (
             <div className="wm-leg-row" key={row.name}>
               <i style={{ background: row.color }} />
@@ -968,7 +975,7 @@ export function WorldMap() {
             <span className="nx-ib">
               <Icon name="ui-spyglass" glyph={zoomedIn ? '🔭' : '🔍'} />
             </span>
-            {zoomedIn ? 'Отдалить' : 'Ближе'}
+            Масштаб
           </button>
           <button className={legendOpen ? 'on' : ''} onClick={() => setLegendOpen((v) => !v)}>
             <span className="nx-ib">
