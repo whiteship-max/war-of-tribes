@@ -51,9 +51,20 @@ export interface MarkerArt {
 let markerLook: MarkerLook = 'old';
 let markerArt: MarkerArt | null = null;
 
-/** Новый вид значков: какой значок листа у какой заботы и каким кольцом обведён. */
-export const MARKER_ICON: Record<Attention, string> = { idle: 'attn-idle', order: 'job-smith', slot: 'attn-slot', upgrade: 'attn-upgrade' };
-export const MARKER_RING: Record<Attention, string> = { idle: '#d0644f', order: '#d9a441', slot: '#d9a441', upgrade: '#9fb85a' };
+/**
+ * Новый вид значков: над крышей — только беда, и у каждой свой значок листа и кольцо (решение владельца
+ * 03.10.2026, docs/ui_audit.md, 12.8): никого нет на работе — красное, кузнецы без заказа — охра. «Можно улучшить»
+ * и «есть свободное место» стояли над десятком крыш с первой минуты и закрывали город; построек без рабочих —
+ * число на «Ратуше» внизу, а улучшения и места — в её списке (`ui/parts/TownBuild.tsx`). Чего здесь нет, над
+ * крышей нового вида не стоит (`onRoof`).
+ */
+export const ROOF_NEW: Partial<Record<Attention, { icon: string; ring: string }>> = {
+  idle: { icon: 'attn-idle', ring: '#d0644f' },
+  order: { icon: 'job-smith', ring: '#d9a441' },
+};
+
+/** Стоит ли забота над крышей при этом виде значков: в прежнем — любая, в новом — только беда (`ROOF_NEW`). */
+export const onRoof = (look: MarkerLook, kind: Attention): boolean => look === 'old' || ROOF_NEW[kind] !== undefined;
 
 /** Сменить вид значков. Уже стоящие перерисовывает сцена (`TribeScene.restyleMarkers`). */
 export function setMarkerLook(look: MarkerLook, art: MarkerArt | null): void {
@@ -76,11 +87,12 @@ function markerTexture(kind: Attention): THREE.Texture {
   if (tex) return tex;
   const c = document.createElement('canvas');
   const ctx = c.getContext('2d');
-  if (markerLook === 'new') {
+  const mark = markerLook === 'new' ? ROOF_NEW[kind] : undefined;
+  if (mark) {
     c.width = 64;
     c.height = 64;
     tex = new THREE.CanvasTexture(c);
-    if (ctx) plaque(ctx, kind, tex);
+    if (ctx) plaque(ctx, kind, mark, tex);
   } else {
     c.width = 128;
     c.height = 128;
@@ -108,14 +120,14 @@ function markerTexture(kind: Attention): THREE.Texture {
  * Бляха нового вида: тёмный круг, кольцо цвета заботы, в середине значок листа. Значок приезжает картинкой —
  * до неё стоит эмодзи, потом текстура перерисовывается сама.
  */
-function plaque(ctx: CanvasRenderingContext2D, kind: Attention, tex: THREE.Texture): void {
+function plaque(ctx: CanvasRenderingContext2D, kind: Attention, mark: { icon: string; ring: string }, tex: THREE.Texture): void {
   const base = (): void => {
     ctx.clearRect(0, 0, 64, 64);
     ctx.fillStyle = 'rgba(30, 22, 15, 0.9)';
     ctx.beginPath();
     ctx.arc(32, 32, 28, 0, Math.PI * 2);
     ctx.fill();
-    ctx.strokeStyle = MARKER_RING[kind];
+    ctx.strokeStyle = mark.ring;
     ctx.lineWidth = 4;
     ctx.stroke();
   };
@@ -124,7 +136,7 @@ function plaque(ctx: CanvasRenderingContext2D, kind: Attention, tex: THREE.Textu
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText(MARKER_GLYPH[kind], 32, 35);
-  const svg = markerArt?.svg(MARKER_ICON[kind]) ?? null;
+  const svg = markerArt?.svg(mark.icon) ?? null;
   if (!svg || typeof Image === 'undefined') return;
   const img = new Image();
   img.onload = (): void => {
@@ -1084,7 +1096,10 @@ export abstract class TribeScene {
 
   // ---------- Синхронизация с состоянием ----------
 
-  /** Вид значков сменился (`setMarkerLook`): стоящие значки перерисовываются тем же видом заботы. */
+  /**
+   * Вид значков сменился (`setMarkerLook`): стоящие значки перерисовываются тем же видом заботы, а забота, которой
+   * над крышей этого вида не место (`onRoof`), снимается — и встаёт снова, когда вид вернут: помнится забота, а не значок.
+   */
   restyleMarkers(): void {
     for (const view of this.buildings.values()) {
       const kind = view.markerKind;
@@ -1100,7 +1115,7 @@ export abstract class TribeScene {
       view.group.remove(view.marker);
       view.marker = null;
     }
-    if (!kind) return;
+    if (!kind || !onRoof(markerLook, kind)) return;
     const sprite = new THREE.Sprite(
       new THREE.SpriteMaterial({ map: markerTexture(kind), depthTest: false, transparent: true, toneMapped: false }),
     );
