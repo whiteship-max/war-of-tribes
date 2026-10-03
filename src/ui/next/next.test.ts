@@ -164,7 +164,11 @@ describe('числа подсказок верха — функциями игр
 
 // ---------- Стиль нового вида: цели касания ----------
 
-const CSS = readFileSync(join(__dirname, 'next.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+// Стиль нового вида — два файла: общий (`next.css`) и державы (`realm/realm-new.css`, ленивый кусок меню).
+const CSS = [join(__dirname, 'next.css'), join(__dirname, '..', 'realm', 'realm-new.css')]
+  .map((f) => readFileSync(f, 'utf8'))
+  .join('\n')
+  .replace(/\/\*[\s\S]*?\*\//g, '');
 const VARS: Record<string, number> = { '--tap': TAP_TARGET, '--nav-h': Number(CSS.match(/--nav-h:\s*(\d+)px/)![1]) };
 
 /** Число свойства правила: px или переменная из `VARS`. */
@@ -194,6 +198,29 @@ describe('цели касания нового вида — не меньше п
       ['.nx-tip .nx-tip-go', 'height'],
       ['.ui-new .nx-top .coat-btn', 'height'],
       ['.ui-new .nx-top .coat-btn', 'width'],
+      // Окно постройки: значок здания, значок рабочих, «Улучшить», отмена двумя касаниями.
+      ['.nx-bico', 'height'],
+      ['.nx-bico', 'width'],
+      ['.nx-wico', 'height'],
+      ['.nx-wico', 'width'],
+      ['.nx-up', 'height'],
+      ['.nx-confirm', 'height'],
+      // Кузница: строка вещи, «Изучить ›», шаг заказа, «Заказать».
+      ['.nx-grow-row', 'min-height'],
+      ['.nx-link', 'height'],
+      ['.nx-ostep > button:not(.nx-go)', 'height'],
+      ['.nx-ostep > button:not(.nx-go)', 'width'],
+      ['.nx-ostep .nx-go', 'height'],
+      // Карта: кнопки таблички и полосы руки.
+      ['.nx-mbtn', 'height'],
+      ['.nx-mbtn', 'width'],
+      // Держава: значки шапки, ячейки очков, вкладки, ступени технологий, «Изучить».
+      ['.nx-ibtn', 'height'],
+      ['.nx-ibtn', 'width'],
+      ['.nx-pcell', 'height'],
+      ['.nx-rtabs button', 'height'],
+      ['.nx-tcell', 'height'],
+      ['.nx-go', 'height'],
     ];
     for (const [sel, prop] of targets) {
       const v = px(sel, prop);
@@ -251,5 +278,29 @@ describe('подсказка рабочих окна постройки — чи
       }
     }
     expect(checked, 'здания, где уровень прибавляет места, есть').toBeGreaterThan(2);
+  });
+});
+
+describe('кузница нового вида: выбор вещи и шаг заказа', () => {
+  it('выбрана последняя заказанная, если изучена; иначе первая изученная; ничего не изучено — первая', async () => {
+    const { firstPick } = await import('./SmithyNew');
+    const { EQUIPMENT } = await import('@/game/data/equipment');
+    const ids = EQUIPMENT.map((e) => e.id);
+    // Область: все вещи и последний заказ каждой из них.
+    expect(ids.length).toBeGreaterThan(3);
+    for (const last of ids) expect(firstPick(last, () => true)).toBe(last);
+    const onlyThird = (id: string): boolean => id === ids[2];
+    expect(firstPick(ids[0], onlyThird), 'заказанная закрыта — первая изученная').toBe(ids[2]);
+    expect(firstPick(null, onlyThird)).toBe(ids[2]);
+    expect(firstPick(null, () => false), 'ничего не изучено — первая, в ней и скажут почему').toBe(ids[0]);
+  });
+
+  it('число заказа — от одного до девяноста девяти', async () => {
+    const { clampCount } = await import('./SmithyNew');
+    expect(clampCount(0)).toBe(1);
+    expect(clampCount(-9)).toBe(1);
+    expect(clampCount(1)).toBe(1);
+    expect(clampCount(99)).toBe(99);
+    expect(clampCount(109)).toBe(99);
   });
 });

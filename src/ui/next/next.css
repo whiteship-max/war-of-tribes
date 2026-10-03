@@ -775,3 +775,195 @@
   color: var(--warn);
   font-size: 13px;
 }
+
+/* ---------- Кузница: очередь строками, заказ строками и закреплённая полоса ---------- */
+.nx-bwarn.bad {
+  color: var(--bad);
+  font-size: 13px;
+  font-weight: 600;
+}
+.nx-qrow {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 52px;
+  margin: 0 0 8px;
+  padding: 4px;
+  border-radius: 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+}
+.nx-qbody {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.nx-qbody small {
+  margin-left: 8px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.nx-grow-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 56px;
+  margin: 0 0 8px;
+  padding: 4px 4px 4px 12px;
+  border-radius: 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  cursor: pointer;
+}
+.nx-grow-row.on {
+  border-color: var(--accent);
+  background: rgba(232, 164, 60, 0.12);
+}
+.nx-grow-row.lock {
+  cursor: default;
+}
+.nx-grow-row.lock .nx-gico,
+.nx-grow-row.lock .nx-gname {
+  opacity: 0.55;
+}
+.nx-gico {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  font-size: 20px;
+}
+.nx-gico svg {
+  width: 24px;
+  height: 24px;
+}
+.nx-gname {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.nx-gname b {
+  font-size: 13px;
+  font-weight: 600;
+}
+.nx-gname small {
+  font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.nx-gcost {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 4px 8px;
+  padding-right: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.nx-gcost span {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.nx-gcost svg {
+  width: 16px;
+  height: 16px;
+}
+.nx-gcost small {
+  flex-basis: 100%;
+  text-align: right;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--muted);
+}
+.nx-glock {
+  display: flex;
+  align-items: center;
+}
+.nx-link {
+  height: 44px;
+  padding: 0 8px;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.nx-obar {
+  position: sticky;
+  bottom: calc(var(--nav-h) + var(--safe-bottom));
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 8px -12px 0;
+  padding: 8px 12px;
+  background: rgba(25, 19, 14, 0.98);
+  border-top: 1px solid var(--line-2);
+  box-shadow: 0 -6px 14px rgba(0, 0, 0, 0.35);
+}
+.nx-ocost {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+.nx-ocost b {
+  flex: none;
+  font-size: 13px;
+  font-weight: 600;
+}
+.nx-ocost .cost {
+  margin: 0;
+  font-size: 13px;
+}
+.nx-ostep {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.nx-ostep > button:not(.nx-go) {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--text);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.nx-ostep > button:disabled {
+  opacity: 0.45;
+}
+.nx-ostep > b {
+  min-width: 28px;
+  text-align: center;
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+}
+.nx-ostep .nx-go {
+  flex: 1;
+  min-width: 0;
+  height: 48px;
+}
+.nx-ostep .nx-go small {
+  font-size: 11px;
+  font-weight: 600;
+  opacity: 0.75;
+}
+.nx-obar .nx-why {
+  font-size: 11px;
+  color: var(--bad);
+}

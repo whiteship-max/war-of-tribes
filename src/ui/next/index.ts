@@ -7,3 +7,4 @@ export { Alerts } from './Alerts';
 export { Nav } from './Nav';
 export { TipLayer } from './Tip';
 export { BuildingNew } from './BuildingNew';
+export { SmithyNew } from './SmithyNew';

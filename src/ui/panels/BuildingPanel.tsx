@@ -89,8 +89,9 @@ import { asGame } from '@/game/pace';
 import { lazy, Suspense } from 'react';
 import { useUiNew } from '@/ui/uimode';
 
-/** Шаблон окна нового интерфейса — в куске нового вида (`ui/next/index.ts`). */
+/** Шаблон окна нового интерфейса и заказ кузницы — в куске нового вида (`ui/next/index.ts`). */
 const BuildingNew = lazy(() => import('@/ui/next').then((m) => ({ default: m.BuildingNew })));
+const SmithyNew = lazy(() => import('@/ui/next').then((m) => ({ default: m.SmithyNew })));
 
 const fmt = (n: number): string => (Math.abs(n) >= 100 ? String(Math.round(n)) : n.toFixed(1));
 const fmtDelta = (n: number): string => `${n >= 0 ? '+' : '−'}${fmt(Math.abs(n))}`;
@@ -312,6 +313,7 @@ function WorkerSlots({ b, gains }: { b: Building; gains: UpgradeGain[] | null })
 // ---------- Данные конкретного здания ----------
 
 function BuildingData({ b }: { b: Building }) {
+  const next = useUiNew();
   switch (b.type) {
     case 'campfire':
       return <CampfireData />;
@@ -330,7 +332,13 @@ function BuildingData({ b }: { b: Building }) {
       return (
         <>
           <GenericData b={b} />
-          <Smithy b={b} />
+          {next ? (
+            <Suspense fallback={null}>
+              <SmithyNew b={b} />
+            </Suspense>
+          ) : (
+            <Smithy b={b} />
+          )}
         </>
       );
     case 'barracks':
