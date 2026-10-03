@@ -306,3 +306,20 @@ describe('кузница нового вида: выбор вещи и шаг з
     expect(clampCount(109)).toBe(99);
   });
 });
+
+describe('найм нового вида: какой вид выбран', () => {
+  it('шаг обучения сильнее всего; затем последний нанятый, если открыт; затем первый открытый', async () => {
+    const { firstTroop, tutorialTroop } = await import('./RecruitNew');
+    const here = ['clubman', 'spearman', 'archer'] as const;
+    const all = (): boolean => true;
+    expect(tutorialTroop('[data-tut="recruit-spearman"]')).toBe('spearman');
+    expect(tutorialTroop('[data-tut="nav-map"]')).toBeNull();
+    expect(tutorialTroop(null)).toBeNull();
+    expect(firstTroop([...here], 'spearman', 'archer', all), 'шаг обучения').toBe('spearman');
+    expect(firstTroop([...here], null, 'archer', all), 'последний нанятый').toBe('archer');
+    expect(firstTroop([...here], null, 'archer', (id) => id !== 'archer'), 'последний закрыт — первый открытый').toBe('clubman');
+    expect(firstTroop([...here], null, null, (id) => id === 'archer')).toBe('archer');
+    // Вид обучения не из этого здания (конница в казармах) — не выбирается.
+    expect(firstTroop([...here], 'knight' as never, null, all)).toBe('clubman');
+  });
+});

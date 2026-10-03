@@ -8,3 +8,4 @@ export { Nav } from './Nav';
 export { TipLayer } from './Tip';
 export { BuildingNew } from './BuildingNew';
 export { SmithyNew } from './SmithyNew';
+export { RecruitNew } from './RecruitNew';

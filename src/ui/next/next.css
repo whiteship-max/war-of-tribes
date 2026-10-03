@@ -1011,3 +1011,9 @@
 .ui-new .am {
   padding-bottom: calc(var(--nav-h) + var(--safe-bottom) + 12px);
 }
+.nx-gpick {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  margin-right: 8px;
+}
