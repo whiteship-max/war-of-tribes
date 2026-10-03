@@ -83,7 +83,7 @@ describe('время берут в одну дверь', () => {
         else if (/\.tsx?$/.test(name) && !/\.test\.tsx?$/.test(name)) files.push(p);
       }
     };
-    for (const dir of ['game', 'world', 'ui', 'profile', 'battle', 'prologue']) walk(join(root, dir));
+    for (const dir of ['game', 'world', 'ui', 'profile', 'battle', 'prologue', 'minigames']) walk(join(root, dir));
     expect(files.length).toBeGreaterThan(50);
 
     const guilty: string[] = [];
@@ -122,6 +122,7 @@ describe('«сейчас» партии — одни часы на племя и
   const PLAYER_CLOCK: Record<string, [number, string]> = {
     'ui/parts/daily/DailyPage.tsx': [2, 'ежедневка — календарный день UTC, один на всех игроков'],
     'world/store.ts': [2, 'срок куска карты — инструмент, цена пересчёта настоящая'],
+    'ui/trades.ts': [1, 'энергия промыслов — сутки игрока, как ежедневка; скорость проверки её не ускоряет (docs/minigames.md, 1)'],
   };
 
   it('в племени, мире, интерфейсе и профиле настоящие часы читают только названные', () => {
@@ -139,6 +140,13 @@ describe('«сейчас» партии — одни часы на племя и
     expect(party, 'кто живёт часами партии').toEqual(
       expect.arrayContaining(['game/save.ts', 'game/state.ts', 'game/store.ts', 'world/local/LocalWorld.ts', 'world/store.ts']),
     );
+  });
+
+  it('промыслы часов партии не читают: их время — секунды сцены и сутки игрока', () => {
+    const files = walk(join(root, 'minigames'));
+    expect(files.length, 'точка внутри области: файлы найдены').toBeGreaterThan(5);
+    const linked = files.filter((f) => /\b(partyNow|leadNow|leadAt)\b/.test(strip(readFileSync(f, 'utf8')))).map(rel);
+    expect(linked).toEqual([]);
   });
 
   it('предыстория — своя игра: часов партии деревни она не читает', () => {

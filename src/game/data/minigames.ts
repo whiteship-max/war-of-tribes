@@ -21,6 +21,8 @@ export interface MinigameDef {
   yard: BuildingTypeId;
   /** Цель одной строкой — карточка начала. */
   goal: string;
+  /** Кнопка входа: куда идти, а не «играть» — игра говорит о деле, а не о себе (docs/ui_audit.md, 4.1). */
+  go: string;
   /** Запасной знак, пока в листе нет значка (`ui/icons/Icon.tsx`). Emoji 12.0. */
   glyph: string;
 }
@@ -45,8 +47,8 @@ export const MINIGAME_COST = 25;
 export const MINIGAME_SHARE = 1 / 12;
 
 export const MINIGAMES: readonly MinigameDef[] = [
-  { id: 'berries', name: 'Ягоды', yard: 'gathering', goal: 'Собери спелые ягоды', glyph: '🍓' },
-  { id: 'herd', name: 'Скот', yard: 'pen', goal: 'Накорми всех в загоне', glyph: '🐑' },
+  { id: 'berries', name: 'Ягоды', yard: 'gathering', goal: 'Собери спелые ягоды', go: 'В лес', glyph: '🍓' },
+  { id: 'herd', name: 'Скот', yard: 'pen', goal: 'Накорми всех в загоне', go: 'В загон', glyph: '🐑' },
 ];
 
 export const MINIGAME_BY_ID: Record<MinigameId, MinigameDef> = Object.fromEntries(MINIGAMES.map((g) => [g.id, g])) as Record<

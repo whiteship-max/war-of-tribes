@@ -14,3 +14,4 @@ export { CityNaming } from './CityNaming';
 export { MarchesNew } from './MarchesNew';
 export { WorldNew } from './WorldNew';
 export { ReportBodyNew } from './ReportNew';
+export { Trades, TradeLine } from './Trades';
