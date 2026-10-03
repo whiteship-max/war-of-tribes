@@ -80,6 +80,17 @@ function moment(plan: TwPlan, at: string): number {
       for (let i = 0; i < plan.figures; i++) if (plan.goKind[i] === 4) go = Math.min(go, plan.goAt[i]);
       return Number.isFinite(go) ? go + 2 : plan.timing.melee[1];
     }
+    // Совместный удар: гарнизон идёт из ворот через лагерь (путь 5) — середина потока.
+    case 'sally': {
+      let a = Infinity;
+      let b = -Infinity;
+      for (let i = 0; i < plan.figures; i++) {
+        if (plan.goKind[i] !== 5) continue;
+        a = Math.min(a, plan.goAt[i]);
+        b = Math.max(b, plan.goAt[i]);
+      }
+      return Number.isFinite(a) ? (a + b) / 2 + 1 : 2;
+    }
     default:
       return 0;
   }

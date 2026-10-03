@@ -43,6 +43,11 @@ export interface FieldSide {
    * одна дверь — `world/rest`; нет поля — полная.
    */
   rest?: number;
+  /**
+   * Какая часть стороны — гарнизон, вышедший из ворот в совместный удар, по родам (`ArmySetup.garrison`): ядро только
+   * раскладывает её по секторам в итог, чтобы ролик вывел гарнизон из ворот, а дружину с поля. Исход от поля не зависит.
+   */
+  garrison?: Partial<Stack>;
   // Поля своей раскладки у стороны нет, и заводить его нельзя: обе стороны встают по правилу развёртывания
   // (`setup.deploySetup`), одной дверью. Последней раскладкой руками была оборона деревни — она ушла поставкой 2
   // (docs/battle_eu4.md, 14.27), и держит это тест по исходнику (`world/muster.test.ts`).
@@ -91,7 +96,14 @@ export function resolveField(input: FieldInput): FieldOutcome {
 
   const result = simulateBattle({
     seed: input.seed,
-    attacker: { ...attacker, resolve: input.attacker.resolve ?? 0, pips: input.attacker.pips ?? {}, ground: input.ground, ...rested(input.attacker.rest) },
+    attacker: {
+      ...attacker,
+      resolve: input.attacker.resolve ?? 0,
+      pips: input.attacker.pips ?? {},
+      ground: input.ground,
+      ...rested(input.attacker.rest),
+      ...(input.attacker.garrison ? { garrison: input.attacker.garrison } : {}),
+    },
     defender: { ...defender, resolve: input.defender.resolve ?? 0, pips: input.defender.pips ?? {}, ...rested(input.defender.rest) },
   });
 

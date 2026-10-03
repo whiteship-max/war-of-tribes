@@ -26,7 +26,7 @@
 // инструмент проверки, которому сама канва недоступна.
 import * as THREE from 'three';
 import { simulateBattle } from '@/battle/sim';
-import { deploySetup, emptyStack } from '@/battle/setup';
+import { deploySetup, emptyStack, stackTotal } from '@/battle/setup';
 import type { Act, Cast } from '@/battle/replay';
 import { castOfRecord } from '@/game/battle/cast';
 import { troopsOfKinds } from '@/game/battle/faces';
@@ -98,10 +98,14 @@ export function standGround(place: BattlePlace | undefined): GroundPenalty | und
   return land > 0 || crossing > 0 ? out : undefined;
 }
 
-function fight(a: Stack, d: Stack, seed: number, ground?: GroundPenalty): BattleResult {
+function fight(a: Stack, d: Stack, seed: number, ground?: GroundPenalty, garrison?: Stack): BattleResult {
   // Обе стороны встают по правилу развёртывания — как в игре: пресетов больше нет (docs/battle_eu4.md, 14.5). Штраф
-  // места — только нападающему, как у мира (`world/battle.resolveField`).
-  return simulateBattle({ seed, attacker: { ...deploySetup(a), ...(ground ? { ground } : {}) }, defender: deploySetup(d) });
+  // места — только нападающему, как у мира (`world/battle.resolveField`). Кто из ворот (совместный удар) — наблюдение ядра.
+  return simulateBattle({
+    seed,
+    attacker: { ...deploySetup(a), ...(ground ? { ground } : {}), ...(garrison ? { garrison } : {}) },
+    defender: deploySetup(d),
+  });
 }
 
 /** Именованные моменты ролика: по ним снимают кадры приёмки. */
@@ -196,7 +200,12 @@ export function standBattle(p: URLSearchParams): StandBattle {
     const result = fight(kindsOf(raiders), withMilitia(kindsOf(mine)), seed, ground);
     return { men, foe, seed, beasts, us: 'defender', result, troops: { attacker: raiders, defender: mine }, place, beastSide: undefined, site, militia };
   }
-  const result = fight(kindsOf(mine), theirs ? kindsOf(theirs) : { ...emptyStack(), infantry: foe }, seed, ground);
+  // Совместный удар: часть наших вышла из ворот — `&garrison=` бойцов (по умолчанию 40 %), в той же доле каждого рода, как
+  // мир отдаёт ядру прошедший гарнизон (`LocalWorld.campBattle`).
+  const ours = kindsOf(mine);
+  const share = site === 'joint' ? Math.max(0, Math.min(1, Number(p.get('garrison') ?? Math.round(men * 0.4)) / Math.max(1, stackTotal(ours)))) : 0;
+  const garrison = share > 0 ? (Object.fromEntries(Object.entries(ours).map(([k, n]) => [k, Math.round(n * share)])) as Stack) : undefined;
+  const result = fight(ours, theirs ? kindsOf(theirs) : { ...emptyStack(), infantry: foe }, seed, ground, garrison);
   // Чужой состав — как в игре: из родов и ступени снаряжения (`foeKinds=1` показывает именно этот путь, а не поимённый).
   const foeTroops = theirs ?? troopsOfKinds(result.sides.defender.initial, { infantry: 3 });
   return { men, foe, seed, beasts, us, result, troops: { attacker: mine, defender: foeTroops }, place, beastSide: undefined, site, militia: undefined };

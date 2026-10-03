@@ -1244,6 +1244,9 @@ export class LocalWorld implements WorldApi {
     const fought = parts.reduce((n, x) => n + x.t.passed, 0);
     const all = parts.reduce((n, x) => n + x.t.went, 0);
     const own = parts.some((x) => 'own' in x.part);
+    // Совместный удар — с обеих сторон: со стороны города вышел гарнизон. Кто из ворот, ядро только разложит по секторам
+    // для ролика (`FieldSide.garrison`, решение владельца 03.10.2026, вариант А) — бой один, исход от этого не зависит.
+    const garrison = attack.front && attack.rear && front && rear ? front.kinds : undefined;
     // Лагерь стоит под городом: место боя — клетка города.
     const cell = id === HOME_ID ? this.save.home : this.byId.get(id);
     const field = resolveField({
@@ -1256,6 +1259,7 @@ export class LocalWorld implements WorldApi {
         // Встают те, кто прошёл, по правилу развёртывания: расстановки у удара по лагерю нет.
         // Мораль между боями (14.31): у каждой части своя, вместе — по прошедшим.
         rest: mixRest(parts.map(({ part, t }) => ({ rest: part.rest ?? 1, men: t.passed }))),
+        ...(garrison ? { garrison } : {}),
       },
       // Стойкость и отметки лагеря: у нашего — обряд и отметки полководца, у чужого
       // её нет. Прежде `campArmy` её считал, а сюда она не доходила вовсе.

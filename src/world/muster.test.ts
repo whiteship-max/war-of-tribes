@@ -134,12 +134,15 @@ describe('где стоит боец — одно правило', () => {
     // Поставка 4 (14.31) дописала долю морали между боями (`rest`): это свойство войска, как стойкость, а не раскладка.
     // Пересмотр баланса (14.35) убрал ступень снаряжения (`gear`) и вещи стороны (`kit`): путь П2 — вещи пришли в бой весом,
     // людьми строя (`price.kindsOf`), и второй раз их в сторону не кладут.
+    // Совместный удар (03.10.2026, вариант А, docs/battle_tw.md, раздел 13) дописал `garrison` — кто из состава вышел из
+    // ворот: часть `kinds`, а не раскладка и не люди сверх; ядро только кладёт её по секторам в итог для ролика, и исход от
+    // неё не зависит (`world/battle.test.ts`, «происхождение бойцов не меняет исход»).
     const src = readFileSync(new URL('./battle.ts', import.meta.url), 'utf8')
       .replace(/\/\*[\s\S]*?\*\//g, '')
       .replace(/(^|[^:])\/\/.*$/gm, '$1');
     const body = src.slice(src.indexOf('export interface FieldSide {'), src.indexOf('}', src.indexOf('export interface FieldSide {')));
     const fields = [...body.matchAll(/^\s+(\w+)\??\s*:/gm)].map((m) => m[1]);
-    expect(fields, 'поля стороны боя').toEqual(['kinds', 'resolve', 'pips', 'rest']);
+    expect(fields, 'поля стороны боя').toEqual(['kinds', 'resolve', 'pips', 'rest', 'garrison']);
     expect(src, 'обе стороны — правилом').toMatch(/const attacker = deploySetup\(input\.attacker\.kinds\);/);
     expect(src, 'обе стороны — правилом').toMatch(/const defender = deploySetup\(input\.defender\.kinds\);/);
   });

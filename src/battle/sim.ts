@@ -34,7 +34,7 @@ import {
   roundsCap,
 } from './config';
 import { seededRng, type Rng } from './rng';
-import { emptyStack, reinforceInto, stackTotal, validateSetup } from './setup';
+import { emptyStack, garrisonShare, reinforceInto, stackTotal, validateSetup } from './setup';
 import {
   FRONT,
   HORSE_KINDS,
@@ -389,8 +389,9 @@ class Battle {
   winner: Winner | null = null;
   reason: ResultReason = 'draw';
   /**
-   * Наблюдение для показа: кто уходил в обход (`BattleResult.moves`) и мораль сторон к концу фазы (`PhaseSpan.morale`).
-   * Ядро его не читает — только пишет; `observe` выключает запись ради теста «наблюдение не меняет исход».
+   * Наблюдение для показа: кто уходил в обход (`BattleResult.moves`), мораль сторон к концу фазы (`PhaseSpan.morale`) и кто
+   * из ворот (`SideResult.sectors[].garrison`). Ядро его не читает — только пишет; `observe` выключает запись ради теста
+   * «наблюдение не меняет исход».
    */
   private moved = new Map<string, GroupMove>();
 
@@ -1485,6 +1486,8 @@ class Battle {
   sideResult(side: Side): SideResult {
     const s = this.sides[side];
     const sectors = {} as SideResult['sectors'];
+    // Кто из ворот (совместный удар): наблюдение для показа, раскладка входа по секторам — бой его не читает.
+    const garrison = this.observe && s.setup.garrison ? garrisonShare(s.setup.sectors, s.setup.garrison) : null;
     const initial = emptyStack();
     const final = emptyStack();
     for (const sector of SECTORS) {
@@ -1503,7 +1506,14 @@ class Battle {
       const morale = men > 0 ? own.reduce((n, g) => n + g.morale * stackTotal(g.stack), 0) / men : 0;
       const broken = own.length > 0 && own.every((g) => g.fled || !alive(g));
       const start = Math.round((s.start[sector] ?? 0) * 100) / 100;
-      sectors[sector] = { initial: init, final: fin, morale: Math.round(Math.max(0, Math.min(MORALE.max, morale))), broken, start };
+      sectors[sector] = {
+        initial: init,
+        final: fin,
+        morale: Math.round(Math.max(0, Math.min(MORALE.max, morale))),
+        broken,
+        start,
+        ...(garrison ? { garrison: garrison[sector] } : {}),
+      };
     }
     const losses = emptyStack();
     for (const k of UNIT_KINDS) losses[k] = initial[k] - final[k];
@@ -1535,7 +1545,8 @@ class Battle {
 
 /**
  * Единственная дверь: бой целиком, детерминированно по сиду. `observe: false` — без наблюдения для показа
- * (`BattleResult.moves`, `PhaseSpan.morale`): только для теста «наблюдение не меняет исход», игра его не выключает.
+ * (`BattleResult.moves`, `PhaseSpan.morale`, `SideResult.sectors[].garrison`): только для теста «наблюдение не меняет
+ * исход», игра его не выключает.
  */
 export function simulateBattle(input: BattleInput, opts: { observe?: boolean } = {}): BattleResult {
   for (const side of SIDES) {

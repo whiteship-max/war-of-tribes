@@ -31,6 +31,7 @@ import {
   type WoodPlan,
 } from './works';
 import { STRIKE_FROM_TOWN } from './siege';
+import { worldSaveJson, type WorldSave } from './local/state';
 import type { PlayerProfile, WorldPulse } from './types';
 import { shieldVillagers } from './lairs';
 
@@ -900,6 +901,19 @@ describe('две стороны лагеря: древесина и проход
       expect(r.rearThrough, label).toEqual(plan.rear);
       expect(r.through, label).toEqual(plan.front);
       expect(r.battle!.result.sides.attacker.total.initial, `${label}: в бою не те, кто прошёл`).toBe(plan.rear.passed + plan.front!.passed);
+      // Кто из ворот (вариант А, docs/battle_tw.md, раздел 13): ядро разложило по секторам нападающего ровно гарнизон,
+      // прошедший со стороны города, — не больше, чем стоит в секторе; у лагеря поля нет. В сохранение мира оно не пишется.
+      const sectors = Object.values(r.battle!.result.sides.attacker.sectors);
+      expect(sectors.every((c) => c.garrison !== undefined), `${label}: у каждого сектора нападающего`).toBe(true);
+      const laid = sectors.reduce((n, c) => n + stackTotal(c.garrison!), 0);
+      expect(laid, `${label}: из ворот — прошедший гарнизон`).toBe(plan.front!.passed);
+      // Граница области: в бою и гарнизон, и дружина — отряды делятся надвое.
+      expect(laid, label).toBeGreaterThan(0);
+      expect(laid, label).toBeLessThan(r.battle!.result.sides.attacker.total.initial);
+      for (const c of sectors) for (const k of UNIT_KINDS) expect(c.garrison![k], `${label}, ${k}`).toBeLessThanOrEqual(c.initial[k]);
+      expect(Object.values(r.battle!.result.sides.defender.sectors).every((c) => !('garrison' in c)), `${label}: у лагеря`).toBe(true);
+      const kept = (JSON.parse(worldSaveJson({ reports: [r] } as unknown as WorldSave)) as WorldSave).reports[0];
+      expect(Object.values(kept.battle!.result.sides.attacker.sectors).some((c) => 'garrison' in c), `${label}: записано в сохранение`).toBe(false);
       // Никто дважды: павшие — не больше, чем стояло в городе и при полководце, и
       // доля дружины снята с дружины, остальное — с гарнизона.
       const effect = pulse.effects.find((e) => e.id === `${r.id}-eff`)!;

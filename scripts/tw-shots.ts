@@ -91,7 +91,10 @@ const SHOTS: Shot[] = [
   { name: 'wolves-last', query: `${WOLVES}&at=last&cam=foe`, why: 'стая: павшие волки лежат на боку' },
   { name: 'sortie', query: `${SORTIE}&at=advance`, why: 'вылазка: из ворот на лагерь осаждающих, рогатки, шатры' },
   { name: 'camp', query: `${CAMP}&at=clash`, why: 'удар по лагерю под стенами: лагерь, за ним город' },
-  { name: 'joint', query: `${JOINT}&at=deploy`, why: 'совместный удар: ворота города за лагерем открыты' },
+  { name: 'joint', query: `${JOINT}&at=deploy`, why: 'совместный удар: гарнизон идёт из открытых ворот, дружина — с поля' },
+  { name: 'joint-sally', query: `${JOINT}&at=sally&cam=gate`, why: 'совместный удар у ворот: поток гарнизона через проезд и лагерь' },
+  { name: 'joint-clash', query: `${JOINT}&at=clash`, why: 'совместный удар: дружина бьёт лагерь с поля, гарнизон — со стороны города' },
+  { name: 'joint-melee', query: `${JOINT}&at=melee&cam=top`, why: 'совместный удар сверху: лагерь зажат между дружиной и гарнизоном' },
   { name: 'lair', query: `${LAIR}&at=deploy`, why: 'логово: лагерь в лесу, частокол, шалаши, костры' },
   { name: 'lair-clash', query: `${LAIR}&at=clash&cam=low`, why: 'набег на логово: сшибка у частокола' },
 ];

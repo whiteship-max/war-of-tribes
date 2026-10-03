@@ -317,6 +317,11 @@ export interface UnitPart {
   finalMen: number;
   faces: { id: string; men: number }[];
   figures: number;
+  /**
+   * Сколько из бойцов рода вышли из ворот города — гарнизон совместного удара (`SideResult.sectors[].garrison` ядра,
+   * docs/battle_tw.md, раздел 13); остальные — дружина с поля. Ноль — все с поля (полевой бой, старая запись, из сохранения).
+   */
+  gate: number;
 }
 
 /** Род отряда на поле: пешие сектора — один строй; лучники, лёгкая и латная конница — каждые своим. */
@@ -389,7 +394,10 @@ export interface TwPlan {
   goAt: Float32Array;
   /** Путь: откуда (x, z), перегиб дуги (x, z), куда (x, z), разворот там, сколько идти — по `PATH` чисел на фигуру. */
   path: Float32Array;
-  /** Каким путём: 1 — резерв в полосу, 2 — обход; в какую полосу пришла (своя нумерация стороны); рубится ли там. */
+  /**
+   * Каким путём: 1 — резерв в полосу, 2 — обход, 3 — в проезд выбитых ворот, 4 — через стену по лестнице, 5 — из своих
+   * ворот на лагерь (совместный удар); в какую полосу пришла (своя нумерация стороны); рубится ли там.
+   */
   goKind: Uint8Array;
   goLane: Int8Array;
   goFight: Uint8Array;
@@ -400,6 +408,14 @@ export interface TwPlan {
   /** Лестница штурмующего (номер в `site.ladders`, −1 — не на лестнице) и место в её очереди, снизу. */
   climb: Int16Array;
   climbQ: Uint8Array;
+  /**
+   * Совместный удар (`site.kind === 'joint'`, docs/battle_tw.md, раздел 13): 1 — фигура из гарнизона, вышедшего из ворот
+   * (наблюдение ядра `SideResult.sectors[].garrison`); идёт своим путём 5 — из ворот через лагерь, бьёт его с городской
+   * стороны, побежит — назад воротами. 0 — с поля, в строю своего отряда.
+   */
+  fromGate: Uint8Array;
+  /** Где передняя шеренга вышедших из ворот (Z, ближняя к лагерю из полос): дальше неё бегущий лагерь не бежит. */
+  sallyZ: number | null;
 }
 
 /** Чисел на путь фигуры в `TwPlan.path`. */
@@ -483,7 +499,9 @@ export function buildPlan(input: PlanInput): TwPlan {
         const list = mine.length ? mine.map((f, i) => ({ id: f.id, men: split[i] })).filter((f) => f.men > 0) : [{ id: kind, men }];
         const arm = armOf(kind);
         const d = byArm.get(arm) ?? { side, sector, parts: [], men: 0 };
-        d.parts.push({ kind, men, finalMen: fin, faces: list, figures: 0 });
+        // Кто из ворот — наблюдение ядра (совместный удар); его нет — все с поля.
+        const gate = Math.max(0, Math.min(men, Math.round(cell.garrison?.[kind] ?? 0)));
+        d.parts.push({ kind, men, finalMen: fin, faces: list, figures: 0, gate });
         d.men += men;
         byArm.set(arm, d);
       }
@@ -524,6 +542,7 @@ export function buildPlan(input: PlanInput): TwPlan {
     // Каждый род делится между частями отряда в доле их фигур — люди, потери и виды.
     const kindMen = d.parts.map((pt) => spreadBy(figSplit, pt.men));
     const kindFin = d.parts.map((pt, j) => spreadBy(kindMen[j], pt.finalMen));
+    const kindGate = d.parts.map((pt, j) => spreadBy(kindMen[j], pt.gate));
     for (let p = 0; p < count; p++) {
       const n = figSplit[p];
       const ranks = ranksOf(form, n);
@@ -540,6 +559,7 @@ export function buildPlan(input: PlanInput): TwPlan {
             finalMen: Math.min(partMen[j], kindFin[j][p]),
             faces: pt.faces.map((x, q) => ({ id: x.id, men: fs[q] })).filter((x) => x.men > 0),
             figures: partFigs[j],
+            gate: Math.min(partMen[j], kindGate[j][p]),
           };
         })
         .filter((pt) => pt.men > 0 && pt.figures > 0);
@@ -650,7 +670,7 @@ export function buildPlan(input: PlanInput): TwPlan {
         row: 'general',
         kind: 'heavy',
         face: 'knight',
-        parts: [{ kind: 'heavy', men: 0, finalMen: 0, faces: [{ id: 'knight', men: 1 }], figures: 1 }],
+        parts: [{ kind: 'heavy', men: 0, finalMen: 0, faces: [{ id: 'knight', men: 1 }], figures: 1, gate: 0 }],
         form: 'heavy',
         men: 0,
         finalMen: 0,
@@ -760,6 +780,9 @@ export function buildPlan(input: PlanInput): TwPlan {
   const phase = new Float32Array(figures);
   const deathAt = new Float32Array(figures).fill(Infinity);
   const fallOrder = new Int32Array(figures);
+  // Совместный удар (решение владельца 03.10.2026, вариант А): кто из каждого отряда вышел из ворот — по наблюдению ядра.
+  const fromGate = new Uint8Array(figures);
+  const sally = kind === 'joint';
   let at = 0;
   for (const u of units) {
     u.first = at;
@@ -801,8 +824,12 @@ export function buildPlan(input: PlanInput): TwPlan {
     let pos = 0;
     for (const f of stripes) for (let n = 0; n < f.n && pos < byCenter.length; n++) faceOf[byCenter[pos++]] = faceIndex(f.id, f.kind);
     // Гибель — по роду: у каждого рода свои потери в итоге боя, а темп — сектора.
+    const bearer = bearerAt(lx, lz, u);
     for (const pt of u.parts) {
-      const mine = order.map((o) => o.i).filter((i) => faceIds[faceOf[i]].kind === pt.kind);
+      let mine = order.map((o) => o.i).filter((i) => faceIds[faceOf[i]].kind === pt.kind);
+      // Совместный удар: доля рода из ворот — задние шеренги отряда (дружина встаёт передними), и гибнут обе части
+      // вперемешку, каждая в доле своих людей, — как мир делит потери между гарнизоном и дружиной (`works.splitLosses`).
+      if (sally && pt.gate > 0) mine = gateOrder(mine, Math.round((mine.length * pt.gate) / pt.men), bearer, rank, lx, fromGate);
       deathTimes(u, pt, cast, timing, mine, deathAt);
     }
     at += u.figures;
@@ -851,8 +878,12 @@ export function buildPlan(input: PlanInput): TwPlan {
     site,
     climb: new Int16Array(figures).fill(-1),
     climbQ: new Uint8Array(figures),
+    fromGate,
+    sallyZ: null,
   };
   plan.fire = fireWindows(plan);
+  // Из ворот — до прочих путей: вышедшие из ворот бьются с городской стороны и в резерв и обход не уходят.
+  if (sally) sallyFromGate(plan);
   // Штурм: лестницы, таран и ворота — по журналу (кто когда дрогнул); до путей фигур — лезущие стоят на лестницах.
   if (site?.kind === 'wall') siegeWall(plan);
   // Пути фигур — до залпов: резерв-лучник стреляет, когда вошёл (`commit`), а лучники в обход не ходят.
@@ -1287,11 +1318,16 @@ function volleyTimes(plan: TwPlan, u: TwUnit): number[] {
  * (`banners.ts`) стоит над ним, а резерв и обход уводят его последним — знамя уходит с отрядом, а не с одиночкой.
  */
 export function bearerOf(plan: TwPlan, u: TwUnit): number {
+  return bearerAt(plan.lx, plan.lz, u);
+}
+
+/** Знаменосец по местам в строю — до того, как собран план (кто из ворот, выбирается мимо него). */
+function bearerAt(lx: Float32Array, lz: Float32Array, u: TwUnit): number {
   const want = -Math.min(1, u.ranks - 1) * (u.depth / Math.max(1, u.ranks - 1));
   let best = u.first;
   let bestD = Infinity;
   for (let i = u.first; i < u.first + u.figures; i++) {
-    const d = Math.abs(plan.lx[i]) + Math.abs(plan.lz[i] - want);
+    const d = Math.abs(lx[i]) + Math.abs(lz[i] - want);
     if (d < bestD) {
       bestD = d;
       best = i;
@@ -1352,7 +1388,7 @@ function trickleReserve(plan: TwPlan): void {
         return Array.from({ length: u.figures }, (_, k) => {
           const i = plan.fallOrder[u.first + k];
           return { u, i, key: i === bearer ? 2 : (k + 0.5) / u.figures };
-        });
+        }).filter((e) => !plan.fromGate[e.i]);
       })
       .sort((a, b) => a.key - b.key || a.u.id - b.u.id);
     let next = 0;
@@ -1458,7 +1494,8 @@ function flankMoves(plan: TwPlan, result: BattleResult): number {
         if (u.fleeAt !== null && u.fleeAt <= at + 0.6) continue;
         const bearer = bearerOf(plan, u);
         for (let i = u.first; i < u.first + u.figures; i++) {
-          if (i === bearer) continue;
+          // Вышедшие из ворот бьются с городской стороны лагеря: в обход с поля их не увести.
+          if (i === bearer || plan.fromGate[i]) continue;
           if (plan.faceIds[plan.faceOf[i]].kind !== kind || plan.deathAt[i] <= at || laneNow(u, i) !== m.from) continue;
           figurePose(plan, i, at, null, q);
           cands.push({ i, d: Math.abs(q.x - edge), u });
@@ -1483,6 +1520,164 @@ function flankMoves(plan: TwPlan, result: BattleResult): number {
     }
   }
   return gone;
+}
+
+// ---------- Из ворот: совместный удар (docs/battle_tw.md, раздел 13; решение владельца 03.10.2026, вариант А) ----------
+
+/** Секунда, с которой гарнизон идёт из ворот, и сколько длится поток через проезд — весь, как бы велик он ни был. */
+export const SALLY_START = 0.3;
+export const SALLY_STREAM = 3;
+/** Насколько за спиной строя лагеря встаёт передняя шеренга вышедших из ворот. */
+export const SALLY_BACK = 1.2;
+/** Проезд: из города — от этой глубины за внутренней гранью стены, наружу — до этой дали от наружной грани. */
+export const SALLY_IN = 2.5;
+export const SALLY_OUT = 1.5;
+/** За сколько до своей шеренги колонна из ворот сворачивает вдоль спины строя противника. */
+export const SALLY_TURN = 5;
+
+/**
+ * Кто из рода отряда вышел из ворот: `n` фигур задних шеренг (дружина встаёт передними, знаменосец — с ней), и порядок
+ * гибели рода, в котором обе части перемешаны в доле своих фигур — накопленным округлением: к каждой павшей фигуре из
+ * ворот пало столько же своей доли дружины. Так мир делит потери (`works.splitLosses`), и так их показывает ролик.
+ */
+function gateOrder(order: number[], n: number, bearer: number, rank: Int16Array, lx: Float32Array, mark: Uint8Array): number[] {
+  const pick = order
+    .filter((i) => i !== bearer)
+    .sort((a, b) => rank[b] - rank[a] || Math.abs(lx[b]) - Math.abs(lx[a]) || b - a)
+    .slice(0, Math.max(0, n));
+  for (const i of pick) mark[i] = 1;
+  const gate = order.filter((i) => mark[i]);
+  const field = order.filter((i) => !mark[i]);
+  const out: number[] = [];
+  let g = 0;
+  for (let k = 0; k < order.length; k++) {
+    const want = Math.round(((k + 1) * gate.length) / order.length);
+    out.push(g < want ? gate[g++] : field[k - g]);
+  }
+  return out;
+}
+
+/** Сколько идти проездом: изнутри города до точки перед воротами. */
+const sallyGateSeconds = (w: TwWall, speed: number): number => (w.thick + SALLY_IN + SALLY_OUT) / speed;
+
+/**
+ * Гарнизон совместного удара выходит из ворот (`fromGate`): потоком через открытый проезд — с `SALLY_START`, за
+ * `SALLY_STREAM` секунд весь, — по дуге через лагерь к его спине, со стороны города, и встаёт там строем в полосе своего
+ * отряда, лицом к лагерю; когда линии сошлись, рубится (`goFight`). Дружина идёт с поля, как шла. Бой один (ядро бьёт их
+ * одним строем — вариант А): кто из ворот, меняет, **где** стоят и **как** идут, но не **кто** и **когда** падает — темп
+ * потерь отряда тот же, и павшие делятся по долям (`gateOrder`). Павший из ворот, кому журнал велел пасть раньше, чем он
+ * дошёл, меняется секундой гибели с павшим из дружины того же рода, павшим позже его прихода: счёт павших отряда к любой
+ * секунде тот же, и в проезде никто не лежит. Шатры, что стоят на их пути, лагерь не ставит — гарнизон прошёл сквозь
+ * лагерь.
+ */
+function sallyFromGate(plan: TwPlan): void {
+  const site = plan.site;
+  const w = site?.wall;
+  if (!site || !w || site.kind !== 'joint') return;
+  const side = w.side;
+  const enemy = other(side);
+  const sE = enemy === plan.us ? -1 : 1;
+  const ours = side === plan.us;
+  // Спина лагеря в полосе: дальний от поля край строя противника над слотом.
+  const backOf = (slot: number): number => {
+    const x0 = plan.slotX[slot] - plan.slotW[slot] / 2;
+    const x1 = plan.slotX[slot] + plan.slotW[slot] / 2;
+    let back = CONTACT_HALF;
+    for (const e of plan.units) {
+      if (e.side !== enemy || e.x + e.width / 2 < x0 || e.x - e.width / 2 > x1) continue;
+      back = Math.max(back, sE * e.z + e.depth);
+    }
+    return back;
+  };
+  const list: { i: number; u: TwUnit; slot: number }[] = [];
+  let spread = 0;
+  for (const u of plan.units) {
+    if (u.side !== side) continue;
+    for (let i = u.first; i < u.first + u.figures; i++) {
+      if (!plan.fromGate[i]) continue;
+      // Резерв полосы не имеет: вышедшие из ворот встают в полосы по очереди, от середины.
+      const slot = u.lane !== null ? slotOf(ours, u.lane) : [1, 0, 2][spread++ % 3];
+      list.push({ i, u, slot });
+    }
+  }
+  if (list.length === 0) return;
+  const lineZ = [0, 1, 2].map((s) => sE * (backOf(s) + SALLY_BACK));
+  const placed = new Map<string, number>();
+  const gap = Math.min(0.05, SALLY_STREAM / list.length);
+  const seed = plan.cast.seed;
+  const arrive = new Float32Array(plan.figures);
+  list.forEach(({ i, u, slot }, q) => {
+    const f = FORM[u.form];
+    const bow = u.form === 'bow';
+    const key = `${slot}:${bow ? 'rear' : 'front'}`;
+    const c = placed.get(key) ?? 0;
+    placed.set(key, c + 1);
+    const files = Math.max(4, Math.floor(plan.slotW[slot] / f.file));
+    const file = c % files;
+    const row = Math.floor(c / files) + (bow ? 3 : 0);
+    const x1 = plan.slotX[slot] + (file - (files - 1) / 2) * f.file + (hash(seed, i, 25) - 0.5) * f.file * 0.3;
+    const z1 = lineZ[slot] + sE * row * f.rank;
+    const speed = mounted(u) ? GALLOP_SPEED * 0.7 : RUN_SPEED;
+    // Проезд: изнутри города прямо наружу (`gatePose`), потом дугой — колонной сквозь лагерь, против ворот, и только у
+    // спины строя противника — вдоль неё, в свою полосу: лагерь остаётся стоять, сквозь него лишь проход.
+    const x0 = w.gateX + (hash(seed, i, 26) - 0.5) * w.gateHalf * 1.2;
+    const z0 = w.z - w.inward * SALLY_OUT;
+    const out = SALLY_START + q * gap + sallyGateSeconds(w, speed);
+    const cz = z1 + sE * Math.min(SALLY_TURN, Math.max(0, sE * (z0 - z1) - 2));
+    let len = 0;
+    let px = x0;
+    let pz = z0;
+    for (let k = 1; k <= 8; k++) {
+      const s = k / 8;
+      const x = (1 - s) * (1 - s) * x0 + 2 * (1 - s) * s * x0 + s * s * x1;
+      const z = (1 - s) * (1 - s) * z0 + 2 * (1 - s) * s * cz + s * s * z1;
+      len += Math.hypot(x - px, z - pz);
+      px = x;
+      pz = z;
+    }
+    const o = i * PATH;
+    const dur = Math.max(0.2, len / speed);
+    plan.path.set([x0, z0, x0, cz, x1, z1, sE > 0 ? Math.PI : 0, dur], o);
+    plan.goAt[i] = out;
+    plan.goKind[i] = 5;
+    plan.goLane[i] = u.ours ? slot : 2 - slot;
+    plan.goFight[i] = bow ? 0 : 1;
+    arrive[i] = out + dur;
+  });
+  plan.sallyZ = sE > 0 ? Math.min(...lineZ) : Math.max(...lineZ);
+  // Павший раньше прихода — меняется секундой гибели с павшим позже из дружины того же рода и отряда.
+  for (const { i, u } of list) {
+    if (!(plan.deathAt[i] < arrive[i])) continue;
+    const kind = plan.faceIds[plan.faceOf[i]].kind;
+    let best = -1;
+    for (let j = u.first; j < u.first + u.figures; j++) {
+      if (plan.fromGate[j] || plan.faceIds[plan.faceOf[j]].kind !== kind) continue;
+      const d = plan.deathAt[j];
+      if (Number.isFinite(d) && d >= arrive[i] && (best < 0 || d < plan.deathAt[best])) best = j;
+    }
+    if (best < 0) continue;
+    const t = plan.deathAt[i];
+    plan.deathAt[i] = plan.deathAt[best];
+    plan.deathAt[best] = t;
+  }
+  // Шатры и костры на пути из ворот лагерь не ставит: гарнизон прошёл сквозь него.
+  const camp = site.camp;
+  if (camp) {
+    const near = (x: number, z: number, r: number): boolean =>
+      list.some(({ i }) => {
+        const p = plan.path;
+        const o = i * PATH;
+        for (let k = 0; k <= 12; k++) {
+          const s = k / 12;
+          const px = (1 - s) * (1 - s) * p[o] + 2 * (1 - s) * s * p[o + 2] + s * s * p[o + 4];
+          const pz = (1 - s) * (1 - s) * p[o + 1] + 2 * (1 - s) * s * p[o + 3] + s * s * p[o + 5];
+          if (Math.hypot(px - x, pz - z) < r) return true;
+        }
+        return false;
+      });
+    camp.tents = camp.tents.filter((t) => !near(t.x, t.z, t.size * 0.6 + 0.6));
+    camp.fires = camp.fires.filter((f) => !near(f.x, f.z, 1));
+  }
 }
 
 /**
@@ -1527,6 +1722,8 @@ function arrowDeaths(plan: TwPlan): void {
       if (!e) continue;
       const until = Math.min(win[1], land + SHOOT_PERIOD);
       for (let i = e.first; i < e.first + e.figures; i++) {
+        // Туча падает на строй отряда; вышедшие из ворот стоят по ту сторону лагеря.
+        if (plan.fromGate[i]) continue;
         const d = plan.deathAt[i];
         if (d > land && d <= until) plan.deathAt[i] = land + hash(plan.cast.seed, i, 16) * 0.35;
       }
@@ -1698,7 +1895,9 @@ export function unitPose(plan: TwPlan, u: TwUnit, t: number): UnitPose {
     let zRun = run;
     let along = 0;
     if (w && w.inward === s) {
-      const room = Math.max(0, outOf(w, base.z) - 1.5);
+      let room = Math.max(0, outOf(w, base.z) - 1.5);
+      // Совместный удар: у спины лагеря стоят вышедшие из ворот — бегущие встают у них и бегут вдоль, а не сквозь.
+      if (plan.sallyZ !== null) room = Math.min(room, Math.max(0, s * (plan.sallyZ - base.z) - 1.5));
       if (run > room) {
         zRun = room;
         along = run - room;
@@ -1900,6 +2099,26 @@ function pathPose(plan: TwPlan, i: number, t: number, out: FigureState): boolean
 }
 
 /**
+ * Вышедший из ворот до своего пути (`sallyFromGate`): в городе — не виден; за `sallyGateSeconds` до выхода — в проезде,
+ * бегом прямо наружу, от глубины `SALLY_IN` за стеной до `SALLY_OUT` перед ней. Отряд побежал раньше, чем он вышел, — он
+ * остался в городе: его не видно вовсе.
+ */
+function gatePose(plan: TwPlan, u: TwUnit, i: number, t: number, out: FigureState): FigureState {
+  const w = plan.site!.wall!;
+  const go = plan.goAt[i];
+  const speed = mounted(u) ? GALLOP_SPEED * 0.7 : RUN_SPEED;
+  const o = i * PATH;
+  out.x = plan.path[o];
+  out.z = plan.path[o + 1] + w.inward * Math.max(0, go - t) * speed;
+  out.y = NaN;
+  out.yaw = w.inward > 0 ? Math.PI : 0;
+  out.clip = 'run';
+  out.time = t + plan.phase[i];
+  out.shown = t >= go - sallyGateSeconds(w, speed) && !(u.fleeAt !== null && u.fleeAt <= go);
+  return out;
+}
+
+/**
  * Положение фигуры на секунде `t`: место в строю отряда (или свой путь), разброс рыхлого строя, свалка у линии, дрожь
  * перед бегством, поток бегущих. `pose` — положение её отряда, если уже посчитано (кадр считает его раз на отряд).
  */
@@ -1911,6 +2130,8 @@ export function figurePose(plan: TwPlan, i: number, t: number, pose: UnitPose | 
   out.shown = true;
   out.y = NaN;
   const go = plan.goAt[i];
+  // Из ворот (совместный удар): до выхода — в городе или в проезде; отряд побежал раньше, чем она вышла, — осталась дома.
+  if (plan.goKind[i] === 5 && (t <= go || (u.fleeAt !== null && u.fleeAt <= go))) return gatePose(plan, u, i, t, out);
   // Свой путь — только если фигура тронулась раньше, чем её отряд побежал; иначе она бежит с отрядом.
   if (go < t && (u.fleeAt === null || go < u.fleeAt)) {
     // Свой путь: резерв в дыру, отряд в обход. Побежал отряд — фигура бежит от того места, где была в миг слома.
@@ -1941,6 +2162,12 @@ export function figurePose(plan: TwPlan, i: number, t: number, pose: UnitPose | 
           const lift = overLift(w, outOf(w, out.z));
           if (lift > 0) out.y = w.base + lift;
         }
+      } else if (w && plan.goKind[i] === 5) {
+        // Вышедшие из ворот — назад воротами: к проезду (до него — за `SALLY_OUT` от стены) и в город, там гаснут.
+        const k = ease(clamp01(run / Math.max(0.5, outOf(w, out.z) - SALLY_OUT)));
+        out.x += (w.gateX - out.x) * k;
+        out.z += w.inward * run;
+        if (intoTown(plan, out.z)) out.shown = false;
       } else if (w && w.side === u.side && w.inward === s) {
         // Свои ворота за спиной: ушедший своим путём бежит к проезду, как его отряд (`funnel`), и в городе гаснет.
         const k = ease(clamp01(run / Math.max(0.5, outOf(w, out.z) + 1)));
@@ -1951,9 +2178,9 @@ export function figurePose(plan: TwPlan, i: number, t: number, pose: UnitPose | 
         out.z += s * run;
         out.x += (hash(seed, i, 15) - 0.5) * 0.5 * run;
       }
-      // Разворот — от того, куда фигура смотрела в миг слома (во фланг, на бегу), к спине врагу.
+      // Разворот — от того, куда фигура смотрела в миг слома (во фланг, на бегу), к спине врагу; вышедшие из ворот — к воротам.
       const from = out.yaw;
-      const to = u.yaw + Math.PI;
+      const to = plan.goKind[i] === 5 && w ? (w.inward > 0 ? 0 : Math.PI) : u.yaw + Math.PI;
       const turn = Math.atan2(Math.sin(to - from), Math.cos(to - from));
       out.yaw = from + turn * ease(dt / TURN_SECONDS);
       out.clip = 'run';
