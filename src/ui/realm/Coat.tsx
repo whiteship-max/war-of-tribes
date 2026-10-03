@@ -61,8 +61,7 @@ export function CoatButton({ quiet = false }: { quiet?: boolean } = {}) {
       className={`coat-btn${open ? ' active' : ''}`}
       data-tut="coat"
       onClick={() => show(coatView(useGame.getState().s, quiet, useRealm.getState().view))}
-      title="Держава: правительство, стройка, вера, армия, решения и настройки"
-      aria-label={unread > 0 && !quiet ? `Держава, новых донесений: ${unread}` : 'Держава'}
+      aria-label={unread > 0 && !quiet ? `Держава, новых вестей: ${unread}` : 'Держава'}
     >
       <CoatArt size={36} />
       {unread > 0 && !quiet && <span className="coat-badge">{unread}</span>}

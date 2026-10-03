@@ -53,7 +53,7 @@ export interface Dispatch {
   choices: DispatchChoice[];
   /** Сколько секунд ещё ждёт. null — срок ещё не поставлен. */
   left: number | null;
-  /** Чем назван срок: «гонец ждёт», «отряд у ворот через», «ответа ждут». */
+  /** Чем назван срок: «гонец ждёт ответа», «до набега», «ждёт ответа». */
   leftText: string;
   /** Что случится без ответа — словами хозяина донесения. */
   silence: string;
@@ -88,7 +88,7 @@ export function eventDispatch(s: GameState, ev: ActiveEvent, now: number): Dispa
     left: eventLeft(ev, now),
     // Срок у почты один; мятеж подписывает его своими словами — что случится без ответа.
     leftText: def.waits ?? 'Ждёт ответа',
-    silence: `Без ответа: «${quiet.label}»${quietHint ? ` — ${quietHint.toLowerCase()}` : ''}.`,
+    silence: `Без ответа: ${quiet.label.toLowerCase()}${quietHint ? `. ${quietHint}` : ''}.`,
     warning: false,
   };
 }
@@ -112,7 +112,7 @@ export function letterDispatch(l: LetterView, now: number): Dispatch {
     left: Math.max(0, (l.until - now) / 1000),
     // У решения ждёт гонец, у предупреждения идёт отряд. Одна строка на оба
     // случая врала бы в одном из них.
-    leftText: l.kind === 'raid' ? 'Отряд будет у ворот через' : 'Гонец ждёт ответа',
+    leftText: l.kind === 'raid' ? 'До набега' : 'Гонец ждёт ответа',
     silence: l.silence,
     warning: l.choices.length === 0,
   };

@@ -45,8 +45,8 @@ export function RulerTab() {
           <div className="mod" key={b}>
             <span className="ico">✦</span>
             <span className="name">
-              {SKILL_NAME[b][0].toUpperCase() + SKILL_NAME[b].slice(1)} навык
-              <em className="sub">{BRANCH_NAME[b].toLowerCase()} ветвь</em>
+              {BRANCH_NAME[b]}
+              <em className="sub">навык</em>
             </span>
             <span className="val pos">
               {circlesText(r.ruler.skills[b])} — {levelOfWord(r.ruler.skills[b])}

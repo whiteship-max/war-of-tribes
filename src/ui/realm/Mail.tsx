@@ -36,7 +36,7 @@ async function answerDispatch(d: Dispatch, choiceId: string): Promise<string | n
 
 export function Mail() {
   const s = useGame((g) => g.s);
-  // Новый интерфейс говорит своими словами (docs/ui_texts.md, пачка 14): «вести», «город», «новое» — точкой.
+  // Слова у обоих видов одни (docs/ui_texts.md, пачка 14): «вести», «город»; в новом виде «новое» — точкой.
   const next = useUiNew();
   const letters = useWorld((w) => w.letters);
   const open = useRealm((r) => r.mail);
@@ -93,7 +93,7 @@ export function Mail() {
         <h3>{done.title}</h3>
         <p className="dispatch-done">{done.text}</p>
         <button className="btn wide" onClick={() => setDone(null)}>
-          {next ? 'К вестям' : 'К донесениям'}
+          К вестям
         </button>
       </div>
     );
@@ -123,17 +123,14 @@ export function Mail() {
             <Icon name="ui-mail" glyph="✉️" />
           </div>
           <b className="nx-empty">Вестей нет</b>
-          <div className="note">Сюда приходят вести из города и от соседей. У каждой свой срок: без ответа она решится сама.</div>
+          <div className="note">Сюда приходят вести из города и от соседей. Без ответа каждая решится сама.</div>
         </div>
       );
     }
     return (
       <div className="panel dispatch-empty">
         <div className="big">✉️</div>
-        <div className="note">
-          Донесений нет. Здесь копится то, что ждёт решения вождя: вести из посёлка и письма соседей. У каждого
-          донесения свой срок, и без ответа оно решится само.
-        </div>
+        <div className="note">Вестей нет. Сюда приходят вести из города и от соседей. Без ответа каждая решится сама.</div>
       </div>
     );
   }
@@ -151,7 +148,7 @@ export function Mail() {
               <span className="txt">
                 <b>{d.title}</b>
                 <small>
-                  <i className="who">{d.from ?? (d.warning ? 'Дозор' : next ? 'Город' : 'Посёлок')}</i>
+                  <i className="who">{d.from ?? (d.warning ? 'Дозор' : 'Город')}</i>
                   {d.left !== null && <em>{leftWords(d.left)}</em>}
                 </small>
               </span>
@@ -224,17 +221,17 @@ function DispatchCard({
           <>
             <button className="opt" onClick={() => openMap()}>
               <span>На карту</span>
-              <small>Перехватить в поле, пока они идут</small>
+              <small>Перехватить в поле</small>
             </button>
             <button className="opt" disabled={!statue} onClick={() => statue && openBuilding(statue.id)}>
               <span>Дружина</span>
               {/* Успевает ли полный сбор — словами общего окна. */}
-              <small>{['Собрать к воротам в Статуе', raid?.short].filter(Boolean).join(' · ')}</small>
+              <small>{['Собрать к воротам', raid?.short].filter(Boolean).join(' · ')}</small>
             </button>
           </>
         )}
         <button className="btn ghost wide" onClick={onBack}>
-          {d.choices.length > 0 ? 'Отложить' : 'К донесениям'}
+          {d.choices.length > 0 ? 'Отложить' : 'К вестям'}
         </button>
       </div>
     </div>
@@ -320,11 +317,11 @@ function DispatchCardNew({
           <>
             <button className="nx-ans" onClick={() => openMap()}>
               <b>На карту</b>
-              <small>Перехватить в поле, пока они идут</small>
+              <small>Перехватить в поле</small>
             </button>
             <button className="nx-ans" disabled={!statue} onClick={() => statue && openBuilding(statue.id)}>
               <b>Дружина</b>
-              <small>{['Собрать к воротам в Статуе', raid?.short].filter(Boolean).join(' · ')}</small>
+              <small>{['Собрать к воротам', raid?.short].filter(Boolean).join(' · ')}</small>
             </button>
           </>
         )}
@@ -345,7 +342,7 @@ function DispatchCardNew({
  */
 function FromLine({ letter, onSpot }: { letter: LetterView; onSpot: () => void }) {
   const from = letter.from;
-  const where = from && !from.cell ? `${RHUMB_WORDS[from.rhumb]}, ${from.cells} кл. — место не разведано` : null;
+  const where = from && !from.cell ? `${RHUMB_WORDS[from.rhumb]}, ${from.cells} кл., не разведано` : null;
   return (
     <div className="letter-from">
       <span className="who">

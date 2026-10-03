@@ -167,9 +167,9 @@ describe('игровая секунда не равна настоящей мо�
   it('срок ропота и сроки в панелях показаны настоящим временем', () => {
     scaled(2);
     expect(clockText(90)).toBe('3:00');
-    expect(waitShort(asGame(40))).toBe('80 с');
+    expect(waitShort(asGame(40))).toBe('1 мин 20 с');
     scaled(30);
-    expect(waitEta(asGame(40))).toBe('~20 м');
+    expect(waitEta(asGame(40))).toBe('~20 мин');
   });
 });
 

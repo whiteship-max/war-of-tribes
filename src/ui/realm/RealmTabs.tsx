@@ -43,6 +43,7 @@ import { Icon } from '@/ui/icons/Icon';
 import { iconName } from '@/ui/icons/registry';
 import { Confirm } from '@/ui/next/Confirm';
 import { fmtInt, perDay } from '@/ui/next/hudTips';
+import { decreeLine, rationLine } from '@/ui/parts/policyWords';
 import { tipAt, type TipContent } from '@/ui/next/tip';
 import { Chronicle } from '@/ui/parts/Chronicle';
 import { Cost } from '@/ui/parts/Cost';
@@ -282,14 +283,14 @@ export function DecreesNew() {
         value={decree.id}
         onPick={(id) => act((st) => setDecree(st, id))}
         items={DECREES.map((d) => ({ id: d.id, icon: `decree-${d.id}`, glyph: d.icon, name: d.name }))}
-        note={decree.effect}
+        note={decreeLine(decree)}
       />
       <Pick
         title="Паёк"
         value={ration.id}
         onPick={(id) => act((st) => setRation(st, id))}
         items={RATIONS.map((r) => ({ id: r.id, icon: `ration-${r.id}`, glyph: r.icon, name: r.name }))}
-        note={ration.effect}
+        note={rationLine(ration)}
       />
       <Pick
         title="Налог"

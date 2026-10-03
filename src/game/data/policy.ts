@@ -30,11 +30,11 @@ export const DECREES: DecreeDef[] = [
   },
   {
     id: 'order',
-    name: 'Строгий порядок',
+    name: 'Твёрдая рука',
     icon: '⚖️',
     output: 1.1,
     moralePerDay: -0.5,
-    effect: '+10% ко всей выработке, −0.5 морали в день',
+    effect: 'Выработка выше, мораль падает',
   },
   {
     id: 'freedom',
@@ -42,7 +42,7 @@ export const DECREES: DecreeDef[] = [
     icon: '🎶',
     output: 0.95,
     moralePerDay: 0.5,
-    effect: '−5% выработки, +0.5 морали в день',
+    effect: 'Выработка ниже, мораль растёт',
   },
 ];
 
@@ -74,7 +74,7 @@ export const RATIONS: RationDef[] = [
     food: 0.7,
     moralePerDay: -0.6,
     growth: 0,
-    effect: '−30% расхода еды, мораль падает, рождений нет',
+    effect: 'Еды уходит меньше, мораль падает, рождений нет',
   },
   {
     id: 'normal',
@@ -83,7 +83,7 @@ export const RATIONS: RationDef[] = [
     food: 1,
     moralePerDay: 0,
     growth: 1,
-    effect: 'Ровно столько, сколько нужно',
+    effect: 'Все сыты',
   },
   {
     id: 'rich',
@@ -92,7 +92,7 @@ export const RATIONS: RationDef[] = [
     food: 1.4,
     moralePerDay: 0.6,
     growth: 1.5,
-    effect: '+40% расхода еды, мораль растёт, рождения чаще',
+    effect: 'Еды уходит больше, мораль растёт, рождений больше',
   },
 ];
 
@@ -144,7 +144,7 @@ export const TAXES: TaxDef[] = [
     icon: '🕊️',
     perPop: 0,
     moralePenalty: 0,
-    effect: 'Казна пуста, зато народ доволен',
+    effect: 'Сбора нет',
   },
   {
     id: 'moderate',
@@ -152,7 +152,7 @@ export const TAXES: TaxDef[] = [
     icon: '🏺',
     perPop: 0.55,
     moralePenalty: 8,
-    effect: 'Больше половины сбора, мораль −8',
+    effect: 'Часть сбора',
   },
   {
     id: 'high',
@@ -160,7 +160,7 @@ export const TAXES: TaxDef[] = [
     icon: '💰',
     perPop: 1,
     moralePenalty: 22,
-    effect: 'Полный сбор, мораль −22',
+    effect: 'Полный сбор',
   },
 ];
 

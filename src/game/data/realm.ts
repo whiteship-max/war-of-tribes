@@ -23,9 +23,9 @@ import type { Fate } from '@/world/types';
 export const REALM_BRANCHES: RealmBranch[] = ['admin', 'diplo', 'war'];
 
 export const BRANCH_NAME: Record<RealmBranch, string> = {
-  admin: 'Административная',
-  diplo: 'Дипломатическая',
-  war: 'Военная',
+  admin: 'Управление',
+  diplo: 'Дипломатия',
+  war: 'Война',
 };
 
 /**
@@ -41,21 +41,21 @@ export const BRANCH_BUILT: Record<RealmBranch, boolean> = {
 };
 
 /**
- * Название ветви в родительном падеже: «на втором уровне дипломатической ветви». Падеж
+ * Название ветви в родительном падеже: «2 уровень дипломатии». Падеж
  * тут отдельным полем, а не приклеенным окончанием: из названия его не вывести, а строка
  * отказа читается игроком чаще всех прочих слов механики.
  */
 export const BRANCH_OF: Record<RealmBranch, string> = {
-  admin: 'административной',
-  diplo: 'дипломатической',
-  war: 'военной',
+  admin: 'управления',
+  diplo: 'дипломатии',
+  war: 'войны',
 };
 
 /** Навык правителя одним словом — для карточки и для строк «откуда число». */
 export const SKILL_NAME: Record<RealmBranch, string> = {
-  admin: 'административный',
-  diplo: 'дипломатический',
-  war: 'военный',
+  admin: 'управление',
+  diplo: 'дипломатия',
+  war: 'война',
 };
 
 // ---------- Навык правителя ----------
@@ -233,7 +233,7 @@ export const isDiploRung = (v: string): v is DiploRung => (DIPLO_RUNGS as readon
  */
 export const DIPLO_RUNG_NAME: Record<DiploRung, string> = {
   spy: 'Место лазутчика',
-  letterSlot: 'Ячейка стола донесений',
+  letterSlot: 'Место для вести',
 };
 
 // ---------- Цена уровня ----------

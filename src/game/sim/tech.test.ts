@@ -184,8 +184,8 @@ describe('трата очков', () => {
     expect(techLevel(s, 'diplo'), 'уровень вырос на одну ступень').toBe(2);
     expect(pointsOf(s, 'diplo'), 'очки списаны ровно на цену').toBeCloseTo(0, 6);
     // Падеж — из `BRANCH_OF`: прежде строка брала название ветви в именительном и писала
-    // «Изучен 2 уровень дипломатическая ветви».
-    expect(s.log.some((e) => e.text.includes('Изучен 2 уровень дипломатической ветви')), 'о покупке сказано строкой').toBe(true);
+    // «Изучен 2 уровень дипломатия».
+    expect(s.log.some((e) => e.text.includes('Изучен 2 уровень дипломатии')), 'о покупке сказано строкой').toBe(true);
   });
 
   /** Без очков ступень не покупается, и уровень при отказе не двигается. */
@@ -471,7 +471,7 @@ describe('военная ветвь: лестница выводится, а н�
     const closed = party();
     put(closed, 10);
     expect(recruitCheck(closed, 'knight', 1).blocked, 'конюшня на потолке не открывает латных').toBe(troopBlock(closed, 'knight'));
-    expect(troopBlock(closed, 'knight'), 'и причина — военная ветвь').toMatch(/военной ветви/);
+    expect(troopBlock(closed, 'knight'), 'и причина — военная ветвь').toMatch(/уровень войны/);
 
     // Доспех изучен, конюшня на первом уровне — гейт молчит, и дальше дело за стойлами,
     // жителями и снаряжением, а не за уровнем здания.
@@ -523,7 +523,7 @@ describe('военная ветвь: лестница выводится, а н�
     expect(fateOpen(s, 'captives'), 'точка внутри области: вещи изучены, участь закрыта').toBe(false);
     expect(fateOpen(s, 'plunder'), '«ограбить» гейтом не закрыто: с него партия начинается').toBe(true);
     const lock = techBlock(s, 'captives');
-    expect(lock, 'причина названа словами').toMatch(/увести людей.*8 уровень военной ветви/);
+    expect(lock, 'причина названа словами').toMatch(/увести людей.*8 уровень войны/);
     expect(fateLocks(s), 'до покупки участь заперта — той же строкой').toEqual({ captives: lock });
     expect(playerProfile(s).fateLocks, 'слепок везёт замок в мир').toEqual({ captives: lock });
 

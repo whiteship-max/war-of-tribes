@@ -44,7 +44,7 @@ function Branch({ branch }: { branch: RealmBranch }) {
 
   return (
     <div className="panel">
-      <h3>{BRANCH_NAME[branch]} ветвь</h3>
+      <h3>{BRANCH_NAME[branch]}</h3>
       <div className="mod total">
         <span className="ico">◆</span>
         <span className="name">

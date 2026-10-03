@@ -32,7 +32,7 @@ describe('донесение — один вид для события и пис
       const def = EVENT_BY_ID[id];
       s.inbox = [{ defId: id, at: 1, until: NOW + EVENT_TTL }];
       const d = eventDispatch(s, s.inbox[0], NOW)!;
-      expect(d.silence, id).toContain(def.options[def.silence].label);
+      expect(d.silence, id).toContain(def.options[def.silence].label.toLowerCase());
       expect(d.choices.map((c) => c.label)).toEqual(def.options.map((o) => o.label));
     }
   });

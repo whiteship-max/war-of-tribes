@@ -9,6 +9,7 @@ import { TownBuild } from './TownBuild';
 import { Gems } from './Gems';
 import { Icon } from '@/ui/icons/Icon';
 import { signed } from './signed';
+import { decreeLine, rationLine } from './policyWords';
 
 /**
  * Ратуша — сердце города, и в ней три дела, а не одно, поэтому у неё вкладки:
@@ -100,7 +101,7 @@ export function Manage({ b }: { b: Building }) {
               <Icon name={`decree-${d.id}`} glyph={d.icon} />
             </span>
             <b>{d.name}</b>
-            <small>{d.effect}</small>
+            <small>{decreeLine(d)}</small>
           </button>
         ))}
       </div>
@@ -117,7 +118,7 @@ export function Manage({ b }: { b: Building }) {
               <Icon name={`ration-${r.id}`} glyph={r.icon} />
             </span>
             <b>{r.name}</b>
-            <small>{r.effect}</small>
+            <small>{rationLine(r)}</small>
           </button>
         ))}
       </div>
