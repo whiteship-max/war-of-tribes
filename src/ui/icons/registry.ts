@@ -116,9 +116,14 @@ export const ICON_GROUPS: readonly IconGroup[] = [
       'loot', 'person', 'hammer', 'scroll', 'book', 'pouch', 'crate', 'wagon',
       'ruler', 'eye', 'eye-off', 'pin', 'home', 'banner', 'grave', 'bandage', 'spyglass',
       'bolt', 'target', 'star',
+      // Новый интерфейс (docs/ui_audit.md, разделы 8 и 12): закрыть, сведения, вести, закрыто, изучено, правитель,
+      // технологии, вера — до него стояли эмодзи ✕ ℹ️ ✉️ 🔒 ✓ 🌳 📚 ⛪.
+      'close', 'info', 'mail', 'lock', 'check', 'crown', 'tech', 'faith',
     ],
     source: 'общий инвентарь интерфейса',
   },
+  // Очки правителя трёх ветвей — свой значок у каждой: прежде один ◆ на все три (docs/ui_audit.md, 8).
+  { prefix: 'pts', ids: ['adm', 'dip', 'mil'], source: 'очки правителя: управление, дипломатия, война' },
 ];
 
 // ---------- Ссылки: разные места игры, один значок ----------
