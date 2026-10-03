@@ -414,8 +414,15 @@ export interface TwPlan {
    * стороны, побежит — назад воротами. 0 — с поля, в строю своего отряда.
    */
   fromGate: Uint8Array;
-  /** Где передняя шеренга вышедших из ворот (Z, ближняя к лагерю из полос): дальше неё бегущий лагерь не бежит. */
+  /** Где передняя шеренга вышедших из ворот (Z, ближняя к лагерю из полос); есть — лагерь бежит вдоль, к краям. */
   sallyZ: number | null;
+  /**
+   * Блоки вышедших из ворот по полосам: от и до по X (где встали их фигуры) и передняя шеренга по Z. Бегущий лагерь держится
+   * перед ними (`sallyLimit`).
+   */
+  sallyBlocks: { x0: number; x1: number; z: number }[] | null;
+  /** Виден ли павший: павший из ворот в проезде или в городе не лежит на виду (`sallyFromGate`); прочие — всегда. */
+  deadShown: Uint8Array;
 }
 
 /** Чисел на путь фигуры в `TwPlan.path`. */
@@ -880,6 +887,8 @@ export function buildPlan(input: PlanInput): TwPlan {
     climbQ: new Uint8Array(figures),
     fromGate,
     sallyZ: null,
+    sallyBlocks: null,
+    deadShown: new Uint8Array(figures).fill(1),
   };
   plan.fire = fireWindows(plan);
   // Из ворот — до прочих путей: вышедшие из ворот бьются с городской стороны и в резерв и обход не уходят.
@@ -902,6 +911,8 @@ export function buildPlan(input: PlanInput): TwPlan {
     plan.deadZ[i] = q.z;
     // Павшие падают не строем: каждый — со своим поворотом тела, от сида и номера.
     plan.deadYaw[i] = q.yaw + (hash(seed, i, 24) - 0.5) * 1.8;
+    // Павший из ворот, не дошедший до поля (в городе, в проезде, у самых ворот), на виду не лежит.
+    if (fromGate[i] && site?.wall) plan.deadShown[i] = q.shown && outOf(site.wall, q.z) >= SALLY_OUT ? 1 : 0;
   }
   return plan;
 }
@@ -1391,6 +1402,9 @@ function trickleReserve(plan: TwPlan): void {
         }).filter((e) => !plan.fromGate[e.i]);
       })
       .sort((a, b) => a.key - b.key || a.u.id - b.u.id);
+    // Вышедшие из ворот (совместный удар) в очереди не стоят — они уже бьются у спины лагеря: журнал вводит резерв обеих
+    // частей, и струя с поля несёт только свою долю введённых.
+    const fieldShare = queue.length / Math.max(1, pool.reduce((n, u) => n + u.figures, 0));
     let next = 0;
     let owed = 0;
     const placed = new Map<string, number>();
@@ -1398,7 +1412,7 @@ function trickleReserve(plan: TwPlan): void {
     const batches: { lane: Lane; t: number; at0: number; at1: number; goes: Entry[] }[] = [];
     for (const m of cast.marks) {
       if (m.id !== 'reserve-committed' || m.side !== side || m.lane === null) continue;
-      owed += m.amount;
+      owed += m.amount * fieldShare;
       // Ядро вводит резерв в любой тик фазы, а метку пишет в её последний (`reserve-committed`): струя растянута на
       // фазу. До сшибки строй ещё идёт, и встать за ним некуда — резерв, введённый в огне первого круга (на место
       // выбитых стрелами), трогается с разбегом первой линии.
@@ -1534,6 +1548,9 @@ export const SALLY_IN = 2.5;
 export const SALLY_OUT = 1.5;
 /** За сколько до своей шеренги колонна из ворот сворачивает вдоль спины строя противника. */
 export const SALLY_TURN = 5;
+/** Насколько перед шеренгой вышедших из ворот держится бегущий лагерь и как круто обходит их блок сбоку. */
+export const SALLY_CLEAR = 0.8;
+export const SALLY_VEER = 1.5;
 
 /**
  * Кто из рода отряда вышел из ворот: `n` фигур задних шеренг (дружина встаёт передними, знаменосец — с ней), и порядок
@@ -1541,8 +1558,9 @@ export const SALLY_TURN = 5;
  * ворот пало столько же своей доли дружины. Так мир делит потери (`works.splitLosses`), и так их показывает ролик.
  */
 function gateOrder(order: number[], n: number, bearer: number, rank: Int16Array, lx: Float32Array, mark: Uint8Array): number[] {
+  // Весь род из ворот (с поля не прошёл никто) — и знаменосец с ними: знамени без отряда на поле не стоять.
   const pick = order
-    .filter((i) => i !== bearer)
+    .filter((i) => i !== bearer || n >= order.length)
     .sort((a, b) => rank[b] - rank[a] || Math.abs(lx[b]) - Math.abs(lx[a]) || b - a)
     .slice(0, Math.max(0, n));
   for (const i of pick) mark[i] = 1;
@@ -1555,6 +1573,22 @@ function gateOrder(order: number[], n: number, bearer: number, rank: Int16Array,
     out.push(g < want ? gate[g++] : field[k - g]);
   }
   return out;
+}
+
+/**
+ * Докуда может зайти бегущий лагерь над точкой `x` — глубина от поля (`side` — сторона лагеря: её знак, умноженный на Z):
+ * перед блоком вышедших из ворот — на `SALLY_CLEAR` раньше его шеренги, сбоку от блока — глубже, тем больше, чем дальше от
+ * его края (`SALLY_VEER` на единицу): глубокий отряд середины, убегая вдоль, сворачивает к полю плавно и обходит шеренгу
+ * крайней полосы, а не проходит сквозь неё. Блоков нет — без предела.
+ */
+export function sallyLimit(plan: TwPlan, x: number, side: Side): number {
+  const s = side === plan.us ? -1 : 1;
+  let limit = Infinity;
+  for (const b of plan.sallyBlocks ?? []) {
+    const off = Math.max(0, b.x0 - x, x - b.x1);
+    limit = Math.min(limit, s * b.z - SALLY_CLEAR + off * SALLY_VEER);
+  }
+  return limit;
 }
 
 /** Сколько идти проездом: изнутри города до точки перед воротами. */
@@ -1578,17 +1612,18 @@ function sallyFromGate(plan: TwPlan): void {
   const enemy = other(side);
   const sE = enemy === plan.us ? -1 : 1;
   const ours = side === plan.us;
-  // Спина лагеря в полосе: дальний от поля край строя противника над слотом.
-  const backOf = (slot: number): number => {
-    const x0 = plan.slotX[slot] - plan.slotW[slot] / 2;
-    const x1 = plan.slotX[slot] + plan.slotW[slot] / 2;
-    let back = CONTACT_HALF;
+  // Спина лагеря в полосе: дальний от поля край строя противника над слотом. Полоса, где лагерь не стоит (малый лагерь
+  // встаёт одной серединой), берёт спину всего лагеря: из ворот встают за ним, а не у своей дружины на поле.
+  const backIn = (x0: number, x1: number): number | null => {
+    let back: number | null = null;
     for (const e of plan.units) {
       if (e.side !== enemy || e.x + e.width / 2 < x0 || e.x - e.width / 2 > x1) continue;
-      back = Math.max(back, sE * e.z + e.depth);
+      back = Math.max(back ?? CONTACT_HALF, sE * e.z + e.depth);
     }
     return back;
   };
+  const whole = backIn(-Infinity, Infinity) ?? CONTACT_HALF;
+  const backOf = (slot: number): number => backIn(plan.slotX[slot] - plan.slotW[slot] / 2, plan.slotX[slot] + plan.slotW[slot] / 2) ?? whole;
   const list: { i: number; u: TwUnit; slot: number }[] = [];
   let spread = 0;
   for (const u of plan.units) {
@@ -1645,15 +1680,26 @@ function sallyFromGate(plan: TwPlan): void {
     arrive[i] = out + dur;
   });
   plan.sallyZ = sE > 0 ? Math.min(...lineZ) : Math.max(...lineZ);
-  // Павший раньше прихода — меняется секундой гибели с павшим позже из дружины того же рода и отряда.
+  const blocks: { x0: number; x1: number; z: number }[] = [];
+  for (let s = 0; s < 3; s++) {
+    const xs = list.filter((e) => e.slot === s).map((e) => plan.path[e.i * PATH + 4]);
+    if (xs.length) blocks.push({ x0: Math.min(...xs), x1: Math.max(...xs), z: lineZ[s] });
+  }
+  plan.sallyBlocks = blocks;
+  // Павший раньше прихода — меняется секундой гибели с павшим позже из дружины того же рода и отряда, а нет такого — с
+  // вышедшим из ворот, кто к той секунде уже дошёл. Нет и его — лежит, где пал; в проезде и в городе павших не видно.
   for (const { i, u } of list) {
     if (!(plan.deathAt[i] < arrive[i])) continue;
     const kind = plan.faceIds[plan.faceOf[i]].kind;
     let best = -1;
-    for (let j = u.first; j < u.first + u.figures; j++) {
-      if (plan.fromGate[j] || plan.faceIds[plan.faceOf[j]].kind !== kind) continue;
-      const d = plan.deathAt[j];
-      if (Number.isFinite(d) && d >= arrive[i] && (best < 0 || d < plan.deathAt[best])) best = j;
+    for (const gate of [false, true]) {
+      for (let j = u.first; j < u.first + u.figures; j++) {
+        if (j === i || Boolean(plan.fromGate[j]) !== gate || plan.faceIds[plan.faceOf[j]].kind !== kind) continue;
+        if (gate && arrive[j] > plan.deathAt[i]) continue;
+        const d = plan.deathAt[j];
+        if (Number.isFinite(d) && d >= arrive[i] && (best < 0 || d < plan.deathAt[best])) best = j;
+      }
+      if (best >= 0) break;
     }
     if (best < 0) continue;
     const t = plan.deathAt[i];
@@ -1895,9 +1941,9 @@ export function unitPose(plan: TwPlan, u: TwUnit, t: number): UnitPose {
     let zRun = run;
     let along = 0;
     if (w && w.inward === s) {
-      let room = Math.max(0, outOf(w, base.z) - 1.5);
-      // Совместный удар: у спины лагеря стоят вышедшие из ворот — бегущие встают у них и бегут вдоль, а не сквозь.
-      if (plan.sallyZ !== null) room = Math.min(room, Math.max(0, s * (plan.sallyZ - base.z) - 1.5));
+      // Совместный удар: за спиной лагеря стоят вышедшие из ворот — зажатый между ними и дружиной лагерь бежит вдоль, к
+      // краям, сразу, а не сквозь их строй.
+      const room = plan.sallyZ !== null ? 0 : Math.max(0, outOf(w, base.z) - 1.5);
       if (run > room) {
         zRun = room;
         along = run - room;
@@ -2174,6 +2220,12 @@ export function figurePose(plan: TwPlan, i: number, t: number, pose: UnitPose | 
         out.x += (w.gateX - out.x) * k;
         out.z += s * run;
         if (intoTown(plan, out.z)) out.shown = false;
+      } else if (w && plan.sallyBlocks !== null && w.side !== u.side) {
+        // Лагерь, зажатый вышедшими из ворот (совместный удар): ушедший своим путём бежит, как его отряд, — вдоль, к краю, и
+        // перед их блоками (`sallyLimit`).
+        out.x += Math.sign(out.x || 1) * run;
+        const limit = sallyLimit(plan, out.x, u.side);
+        if (s * out.z > limit) out.z = s * limit;
       } else {
         out.z += s * run;
         out.x += (hash(seed, i, 15) - 0.5) * 0.5 * run;
@@ -2241,8 +2293,15 @@ export function figurePose(plan: TwPlan, i: number, t: number, pose: UnitPose | 
     // Поток бегущих: кто резвее, кто отстал — блок рассыпается в толпу.
     // В потоке к воротам — не шире проезда.
     const spread = 1 - q.funnel;
-    out.z += s * q.fleeRun * (hash(seed, i, 14) * 0.3 - 0.15) * spread;
+    // Лагерь, зажатый вышедшими из ворот (совместный удар), бежит вдоль строя: вперёд-назад не рассыпается — там свои и чужие.
+    const pinned = plan.sallyBlocks !== null && plan.site?.wall?.side !== u.side;
+    out.z += s * q.fleeRun * (hash(seed, i, 14) * 0.3 - 0.15) * spread * (pinned ? 0 : 1);
     out.x += (hash(seed, i, 15) - 0.5) * 0.12 * q.fleeRun * spread;
+    if (pinned) {
+      // Перед блоками вышедших из ворот: где их шеренга ближе к полю (крайняя полоса), бегущий сворачивает к полю.
+      const limit = sallyLimit(plan, out.x, u.side);
+      if (s * out.z > limit) out.z = s * limit;
+    }
     // Чужая стена впереди (лагерь бежит к нашему городу): у её подошвы поворачивают вдоль, а не в камень.
     const w = plan.site?.wall;
     if (w && w.inward === s && w.side !== u.side) {
@@ -2355,7 +2414,7 @@ export function poseFigures(plan: TwPlan, t: number, out: FigureFrame): void {
         out.z[i] = plan.deadZ[i];
         out.y[i] = standY(plan.field, plan.site, plan.deadX[i], plan.deadZ[i]);
         out.yaw[i] = plan.deadYaw[i];
-        out.shown[i] = 1;
+        out.shown[i] = plan.deadShown[i];
         out.clip[i] = CLIP_INDEX.fall;
         out.time[i] = t - plan.deathAt[i];
         continue;

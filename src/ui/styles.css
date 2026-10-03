@@ -2431,6 +2431,15 @@ body {
   border-left-color: var(--side-foe);
 }
 
+/* «Почему так вышло» — оценка, а не сторона: хорошее для нас и плохое. */
+.bl-line.good {
+  border-left-color: var(--good);
+}
+
+.bl-line.bad {
+  border-left-color: var(--bad);
+}
+
 .bl-line.muted {
   color: var(--muted);
 }

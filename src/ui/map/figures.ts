@@ -20,6 +20,7 @@
 // ходит только с полководцем, и до сих пор сотня бойцов на карте выглядела так
 // же, как дипломат с письмом.
 import { RELATION_META } from '@/world/data/meta';
+import { sideRgba } from '@/side';
 import { secondsLeft } from '@/world/geo';
 import { realLeft } from '@/ui/parts/wait';
 import { figurePosition } from '@/world/store';
@@ -41,7 +42,7 @@ function drawSight(ctx: CanvasRenderingContext2D, sx: number, sy: number, r: num
   ctx.beginPath();
   ctx.arc(sx, sy, r, 0, Math.PI * 2);
   ctx.setLineDash([6, 6]);
-  ctx.strokeStyle = 'rgba(232, 164, 60, 0.55)';
+  ctx.strokeStyle = sideRgba(true, 0.55);
   ctx.lineWidth = 1.5;
   ctx.stroke();
   ctx.restore();

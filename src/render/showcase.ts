@@ -44,7 +44,7 @@ import { Figure, FigurePool, PARTS, type PartName } from './figures';
 import { ACTIONS, poseFigure, type Action } from './poses';
 import { FOLK_KINDS, dressMount, dressSoldier, dressVillager } from './units';
 import { CANINE_OF, dressCanine, poseCanine, wolfLook } from './beasts';
-import { PALETTE } from './palette';
+import { sidePaint } from '@/side';
 import { KIT } from './materials';
 import { SeasonVisuals } from './season';
 import { SCENES, type TribeScene } from './Scene';
@@ -384,7 +384,7 @@ function unitCatalog(): UnitSpec[] {
     dress: (f: Figure) => dressSoldier(f, t.id),
   }));
   // Волк — в чужом цвете, как в ролике боя: стая всегда приходит чужой (`game/battle/beasts`).
-  const wolf: UnitSpec = { id: 'wolf', label: 'волк', dress: (f: Figure) => dressCanine(f, wolfLook(PALETTE.paintRed)), beast: true };
+  const wolf: UnitSpec = { id: 'wolf', label: 'волк', dress: (f: Figure) => dressCanine(f, wolfLook(sidePaint(false))), beast: true };
   return [...folk, ...troops, { id: 'horse', label: 'конь', dress: dressMount }, wolf];
 }
 

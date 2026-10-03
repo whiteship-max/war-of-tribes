@@ -146,7 +146,8 @@ export class Banners {
       sh.uniforms.uSide0 = { value: new THREE.Color(SIDE_CLOTH.ours) };
       sh.uniforms.uSide1 = { value: new THREE.Color(SIDE_CLOTH.theirs) };
       sh.uniforms.uPaint = { value: new THREE.Color(0xe6dcc2) };
-      sh.uniforms.uGold = { value: new THREE.Color(0xc9a24a) };
+      // Бахрома и навершие — светлое золото: на золотом полотнище своих (`side.ts`) тёмное золото пропало бы.
+      sh.uniforms.uGold = { value: new THREE.Color(0xf0dfa8) };
       sh.vertexShader = CLOTH_VERT + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n' + CLOTH_WAVE);
       sh.fragmentShader = CLOTH_FRAG + sh.fragmentShader.replace('#include <color_fragment>', '#include <color_fragment>\n' + CLOTH_COLOR);
     };

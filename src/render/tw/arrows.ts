@@ -61,6 +61,8 @@ export class Arrows {
       for (let k = 0; k < v.arrows && n < this.cap; k++) {
         // Каждая стрела — со своей фигуры лучника и со своим мигом срыва (раскрой в треть секунды).
         const i = from.first + (k % from.figures);
+        // Лучник из ворот (совместный удар), ещё не вышедший, не стреляет со своего места в строю.
+        if (plan.fromGate[i] && plan.goAt[i] > v.at) continue;
         const lag = hash(plan.cast.seed, v.at * 100 + k, 21) * 0.35;
         const u = (t - v.at - lag) / ARROW_FLIGHT;
         if (u < 0 || u > 1) continue;

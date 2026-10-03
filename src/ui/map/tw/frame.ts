@@ -27,7 +27,7 @@ import { drawTwFog } from './fog';
 import { drawGround } from './layers';
 import { moving, prebakeFrame, prebakeIdle, prebaked } from './prebake';
 import { TW } from './palette';
-import { SIDE_COLOR, shade } from '@/side';
+import { SIDE_COLOR, shade, sideRgba } from '@/side';
 import { withinActive } from './theatre/theatre';
 import { drawAgent } from '../agent';
 import type { MarkerKind } from '../village';
@@ -238,7 +238,7 @@ function drawFigures(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport, i
       ctx.save();
       ctx.setLineDash([6, 6]);
       ctx.lineWidth = 1.5;
-      ctx.strokeStyle = 'rgba(232, 164, 60, 0.6)';
+      ctx.strokeStyle = sideRgba(true, 0.6);
       ctx.beginPath();
       // Обзор — от настоящей клетки агента, а не от точки рисунка у ворот (`scene.atGate`).
       ctx.arc(rx, ry, f.sight * px, 0, Math.PI * 2);

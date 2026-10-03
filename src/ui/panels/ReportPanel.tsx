@@ -279,7 +279,7 @@ export function ReportBody({ report }: { report: Report }) {
               <div className="bl-line muted">Ничего решающего не случилось — перемололи друг друга.</div>
             ) : (
               sum.keys.map((k, i) => (
-                <div className={`bl-line${k.good ? ' mine' : ' foe'}`} key={i}>
+                <div className={`bl-line${k.good ? ' good' : ' bad'}`} key={i}>
                   <Icon name={k.art} glyph={k.icon} /> {k.text}
                 </div>
               ))

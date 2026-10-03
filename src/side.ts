@@ -26,6 +26,9 @@ const channels = (hex: string): [number, number, number] => [
 const hexOf = (c: readonly number[]): string =>
   `#${c.map((v) => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0')).join('')}`;
 
+/** Цвет стороны с прозрачностью `a` (0..1) — для холста: свечение своего двора, круг обзора своей фигуры. */
+export const sideRgba = (ours: boolean, a: number): string => `rgba(${channels(sideColor(ours)).join(', ')}, ${a})`;
+
 /** Цвет темнее в `k` раз по каждому каналу (0..1): тень плаща, теневая половина знамени. */
 export const shade = (hex: string, k: number): string => hexOf(channels(hex).map((v) => v * k));
 

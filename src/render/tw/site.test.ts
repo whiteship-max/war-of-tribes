@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { standBattle } from '../battle-stand';
 import { MAN_HEIGHT } from '../units';
 import { twPlanOfRecord } from './record';
-import { SALLY_OUT, figureFrame, figurePose, figureState, poseFigures, type TwPlan } from './plan';
+import { SALLY_OUT, SALLY_START, bearerOf, figureFrame, figurePose, figureState, poseFigures, type TwPlan } from './plan';
 import { cuesOf } from './cues';
 import { CITY_M, SITE_KINDS, inWallBody, outOf, siteKindOf, type TwSiteKind } from './site';
 
@@ -261,9 +261,11 @@ describe('место боя: ворота — по журналу', () => {
 describe('место боя: совместный удар — гарнизон из ворот', () => {
   // Решение владельца 03.10.2026, вариант А (docs/battle_tw.md, раздел 13): ядро отдаёт, какая часть каждого отряда — гарнизон
   // (`SideResult.sectors[].garrison`), и ролик выводит гарнизон из ворот, а дружину — с поля; обе сходятся на лагере. Бой один:
-  // кто и когда падает — журнальное. Набор — восемь совместных ударов: лагерь разбит и устоял, доля гарнизона от 20 до 70 %.
-  // Граница области — бой, где у нападающего есть и гарнизон, и дружина, и лагерь стоит перед стеной (счётчики ниже).
+  // кто и когда падает — журнальное. Набор — девять совместных ударов: лагерь разбит и устоял, доля гарнизона от 20 до 70 %,
+  // малый лагерь (120 пеших встают одной серединой — у крайних полос лагеря нет). Граница области — бой, где у нападающего
+  // есть и гарнизон, и дружина, и лагерь стоит перед стеной (счётчики ниже).
   const SET: [number, number, number, number][] = [
+    [500, 120, 3, 200],
     [600, 420, 6, 240],
     [500, 460, 3, 100],
     [420, 560, 2, 300],
@@ -274,12 +276,14 @@ describe('место боя: совместный удар — гарнизон 
     [520, 380, 8, 360],
   ];
   const plans = SET.map(([men, foe, seed, garrison]) => {
-    const q = `replay=tw&men=${men}&foe=${foe}&seed=${seed}&site=joint&garrison=${garrison}`;
+    // Малый лагерь — пешие одного рода (`foeKinds=1`): 120 встают одной серединой, у крайних полос лагеря нет.
+    const q = `replay=tw&men=${men}&foe=${foe}&seed=${seed}&site=joint&garrison=${garrison}${foe < 156 ? '&foeKinds=1' : ''}`;
     return { label: `${men} на ${foe}, сид ${seed}, из ворот ${garrison}`, q, p: planOf(q) };
   });
 
   it('из ворот — доля гарнизона ядра; до выхода в городе, на сшибке — у спины лагеря; дружина — с поля', () => {
     let both = 0;
+    let empty = 0;
     for (const { label, p } of plans) {
       const w = p.site!.wall!;
       const ours = p.units.filter((u) => u.side === p.us && u.row !== 'general');
@@ -294,16 +298,30 @@ describe('место боя: совместный удар — гарнизон 
       expect(Math.abs(gate - (figs * gateMen) / men), `${label}: фигур из ворот`).toBeLessThanOrEqual(parts);
       if (gate > 0 && gate < figs) both++;
       const fr = figureFrame(p.figures);
-      // До выхода: вышедших из ворот не видно или они в городе и в проезде; дружина — по свою сторону лагеря.
-      poseFigures(p, 0, fr);
+      // Середина потока: не вышедшие ещё на дугу — в городе (не видно) или в проезде; дружина — по свою сторону лагеря.
+      poseFigures(p, SALLY_START + 1, fr);
+      let passage = 0;
       for (const u of ours) {
         for (let i = u.first; i < u.first + u.figures; i++) {
           if (!fr.shown[i]) continue;
-          if (p.fromGate[i]) expect(outOf(w, fr.z[i]), `${label}: фигура ${i} до выхода`).toBeLessThanOrEqual(SALLY_OUT + 0.01);
-          else expect(fr.z[i], `${label}: дружина ${i} с поля`).toBeLessThan(0);
+          if (p.fromGate[i] && p.goAt[i] > SALLY_START + 1) {
+            passage++;
+            expect(outOf(w, fr.z[i]), `${label}: фигура ${i} до выхода`).toBeLessThanOrEqual(SALLY_OUT + 0.01);
+            expect(Math.abs(fr.x[i] - w.gateX), `${label}: фигура ${i} в проезде`).toBeLessThan(w.gateHalf);
+          } else if (!p.fromGate[i]) expect(fr.z[i], `${label}: дружина ${i} с поля`).toBeLessThan(0);
         }
       }
-      // Сшиблись: дошедшие из ворот стоят у спины лагеря, по городскую сторону, перед стеной; дружина — по полевую.
+      expect(passage, `${label}: в проезде есть кто-то`).toBeGreaterThan(0);
+      // Сшиблись: дошедшие из ворот стоят у спины лагеря — позади всего строя противника в своей полосе (у полосы, где
+      // лагерь не стоит, — позади всего лагеря), перед стеной; дружина — по полевую сторону.
+      const foes = p.units.filter((e) => e.side !== p.us);
+      const backAll = Math.max(...foes.map((e) => e.z + e.depth));
+      const backAt = (x: number): number => {
+        const s = [0, 1, 2].reduce((a, b) => (Math.abs(p.slotX[b] - x) < Math.abs(p.slotX[a] - x) ? b : a), 0);
+        const over = foes.filter((e) => Math.abs(e.x - p.slotX[s]) < (e.width + p.slotW[s]) / 2);
+        return over.length ? Math.max(...over.map((e) => e.z + e.depth)) : backAll;
+      };
+      if (foes.every((e) => e.lane === null || e.lane === 1)) empty++;
       const t = p.clashAt + 3;
       poseFigures(p, t, fr);
       let arrived = 0;
@@ -313,20 +331,25 @@ describe('место боя: совместный удар — гарнизон 
           if (!fr.shown[i] || p.deathAt[i] <= t) continue;
           if (p.fromGate[i] && p.goAt[i] + p.path[i * 8 + 7] <= t) {
             arrived++;
-            expect(fr.z[i], `${label}: из ворот ${i} у спины лагеря`).toBeGreaterThan(p.sallyZ! - 0.5);
+            expect(fr.z[i], `${label}: из ворот ${i} у спины лагеря`).toBeGreaterThan(backAt(fr.x[i]) - 0.5);
             expect(outOf(w, fr.z[i]), `${label}: из ворот ${i} перед стеной`).toBeGreaterThan(0);
           }
-          if (!p.fromGate[i]) expect(fr.z[i], `${label}: дружина ${i} по полевую сторону`).toBeLessThan(p.sallyZ! - 2);
+          // Дружина — по полевую сторону; ушедшие в обход по ходам ядра (путь 2) бьются у фланга лагеря, а не за ним.
+          if (!p.fromGate[i] && p.goKind[i] !== 2) expect(fr.z[i], `${label}: дружина ${i} по полевую сторону`).toBeLessThan(p.sallyZ! - 2);
         }
       }
       expect(arrived, `${label}: дошедших из ворот`).toBeGreaterThan(0);
     }
     expect(both).toBe(plans.length);
+    expect(empty, 'в наборе есть лагерь без крайних полос').toBeGreaterThan(0);
   });
 
   it('павшие — в доле гарнизона и дружины, как делит мир; темп потерь отряда — журнальный; бежавшие из ворот — воротами', () => {
     let lost = 0;
     let won = 0;
+    let shown = 0;
+    let routed = 0;
+    let sideways = 0;
     for (const { label, q, p } of plans) {
       const field = planOf(q, null);
       for (const u of p.units) {
@@ -354,6 +377,13 @@ describe('место боя: совместный удар — гарнизон 
       const broke = p.brokenAt[p.us];
       const fr = figureFrame(p.figures);
       poseFigures(p, p.seconds, fr);
+      // Павшие из ворот на виду лежат в поле, а не в проезде и не в городе.
+      const w = p.site!.wall!;
+      for (let i = 0; i < p.figures; i++) {
+        if (!p.fromGate[i] || p.deathAt[i] > p.seconds || !fr.shown[i]) continue;
+        shown++;
+        expect(outOf(w, fr.z[i]), `${label}: павший из ворот ${i} у ворот или в городе`).toBeGreaterThanOrEqual(SALLY_OUT - 0.01);
+      }
       for (let i = 0; i < p.figures; i++) {
         if (!p.fromGate[i] || p.deathAt[i] <= p.seconds) continue;
         const u = p.units[p.unitOf[i]];
@@ -362,8 +392,63 @@ describe('место боя: совместный удар — гарнизон 
       }
       if (broke !== null) lost++;
       else won++;
+      // Лагерь сломан — бежит вдоль, к краям, а не сквозь вышедших из ворот: ни одна его фигура не заходит за их шеренгу.
+      const camp = p.brokenAt[p.us === 'attacker' ? 'defender' : 'attacker'];
+      if (camp !== null) {
+        routed++;
+        // Зажатый между дружиной и вышедшими из ворот, лагерь бежит вдоль, к краям: за четыре секунды бегства отряды,
+        // побежавшие с ним, уходят от середины поля, а не жмутся к шеренге из ворот.
+        const spread = (tt: number): { mean: number; n: number } => {
+          poseFigures(p, tt, fr);
+          let sum = 0;
+          let n = 0;
+          for (const e of p.units) {
+            if (e.side === p.us || e.fleeAt === null || e.fleeAt > camp || e.fleeAt < camp - 1) continue;
+            for (let i = e.first; i < e.first + e.figures; i++) {
+              if (p.deathAt[i] <= camp + 4 || p.goKind[i] !== 0) continue;
+              sum += Math.abs(fr.x[i]);
+              n++;
+            }
+          }
+          return { mean: n > 0 ? sum / n : 0, n };
+        };
+        const before = spread(camp);
+        if (before.n > 0) {
+          sideways++;
+          expect(spread(camp + 4).mean - before.mean, `${label}: лагерь бежит к краям`).toBeGreaterThan(3);
+        }
+        for (let tt = camp; tt <= Math.min(p.seconds, camp + 10); tt += 0.5) {
+          poseFigures(p, tt, fr);
+          // Над блоком вышедших из ворот (их место по X — `sallyBlocks`, у спины лагеря его держит тест выше) бегущий не
+          // заходит глубже их передней шеренги: в строй он не врезается, вдоль бежит перед ним.
+          for (const e of p.units) {
+            if (e.side === p.us || e.fleeAt === null || tt <= e.fleeAt) continue;
+            for (let i = e.first; i < e.first + e.figures; i++) {
+              if (!fr.shown[i] || p.deathAt[i] <= tt) continue;
+              for (const b of p.sallyBlocks!) {
+                if (fr.x[i] < b.x0 - 0.3 || fr.x[i] > b.x1 + 0.3) continue;
+                expect(fr.z[i], `${label}: бегущий лагерь ${i} сквозь вышедших из ворот, t ${tt.toFixed(1)}`).toBeLessThan(b.z);
+              }
+            }
+          }
+        }
+      }
     }
     expect(lost, 'в наборе есть отбитые удары').toBeGreaterThan(0);
     expect(won, 'в наборе есть удары, разбившие лагерь').toBeGreaterThan(0);
+    expect(shown, 'павших из ворот на виду').toBeGreaterThan(0);
+    expect(routed, 'в наборе есть сломанный лагерь').toBeGreaterThan(0);
+    expect(sideways, 'в наборе есть лагерь, бежавший разом').toBeGreaterThan(0);
+  });
+
+  it('весь удар из ворот (дружина у рогаток не прошла): из ворот все, и знаменосцы с ними', () => {
+    // `garrison` сверх войска — из ворот все (стенд кладёт долю каждого рода, не больше целого).
+    const p = planOf('replay=tw&men=400&foe=300&seed=9&site=joint&garrison=100000');
+    const ours = p.units.filter((u) => u.side === p.us && u.row !== 'general');
+    expect(ours.length).toBeGreaterThan(0);
+    for (const u of ours) {
+      expect(p.fromGate[bearerOf(p, u)], `знаменосец отряда ${u.id}`).toBe(1);
+      for (let i = u.first; i < u.first + u.figures; i++) expect(p.fromGate[i], `отряд ${u.id}, фигура ${i}`).toBe(1);
+    }
   });
 });

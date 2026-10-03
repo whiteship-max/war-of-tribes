@@ -119,8 +119,20 @@ describe('цвет стороны: второй правды нет', () => {
     expect(found).toEqual(NOT_SIDE);
   });
 
+  it('десятичная запись тоже — только в двери: золото и красный стороны каналами в коде не пишутся', () => {
+    // `rgba(232, 164, 60, …)` — то же золото, что `#e8a43c`, и разошлось бы с дверью так же молча (`sideRgba`). Стили — вне
+    // правила: в `styles.css` эти каналы — акцент интерфейса и «плохое число», а не сторона.
+    const triple = (c: string): string => [1, 3, 5].map((i) => parseInt(c.slice(i, i + 2), 16)).join(',\\s*');
+    const pattern = new RegExp(`\\b(${triple(SIDE_COLOR.ours)}|${triple(SIDE_COLOR.foe)})\\b`);
+    const found = sources()
+      .filter((s) => s.path !== 'side.ts' && !s.path.endsWith('.css'))
+      .filter((s) => pattern.test(s.text))
+      .map((s) => s.path);
+    expect(found).toEqual([]);
+  });
+
   it('прежний синий стороны в бою не живёт: ни ролики, ни их полоса не берут краску палитры за сторону', () => {
-    const battle = sources().filter((s) => /^(render\/battle|render\/tw|ui\/battle)\//.test(s.path) || s.path === 'render/units.ts');
+    const battle = sources().filter((s) => /^(render\/battle|render\/tw|ui\/battle)\//.test(s.path) || s.path === 'render/units.ts' || s.path === 'render/showcase.ts');
     // Область правила не пуста: оба ролика и одевание бойца на месте.
     expect(battle.length).toBeGreaterThan(20);
     for (const s of battle) expect(/paint(Blue|Red)/.test(s.text), s.path).toBe(false);
