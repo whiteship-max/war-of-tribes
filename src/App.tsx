@@ -34,10 +34,6 @@ import { probe } from './debug';
 import { CheatPanel } from './ui/CheatPanel';
 import { useRealm } from './ui/realm/open';
 import { useUiNew } from './ui/uimode';
-import { Hud } from './ui/next/Hud';
-import { Alerts } from './ui/next/Alerts';
-import { Nav } from './ui/next/Nav';
-import { TipLayer } from './ui/next/Tip';
 
 /**
  * Предыстория — отдельный чанк, и качается он по нажатию кнопки.
@@ -59,6 +55,16 @@ const Prologue = lazy(() => import('./prologue/Prologue').then((m) => ({ default
  * только сам дом меню, и платит за него тот, кто его открыл.
  */
 const RealmMenu = lazy(() => import('./ui/realm/RealmMenu').then((m) => ({ default: m.RealmMenu })));
+
+/**
+ * Новый интерфейс — тоже свой кусок (`ui/next/index.ts`): по умолчанию стоит прежний, и пока владелец не
+ * одобрил новый, игрок за него не платит. Четыре части — один кусок: `import` один и тот же.
+ */
+const nextUi = () => import('./ui/next');
+const Hud = lazy(() => nextUi().then((m) => ({ default: m.Hud })));
+const Alerts = lazy(() => nextUi().then((m) => ({ default: m.Alerts })));
+const Nav = lazy(() => nextUi().then((m) => ({ default: m.Nav })));
+const TipLayer = lazy(() => nextUi().then((m) => ({ default: m.TipLayer })));
 
 function SheetContent({ view }: { view: SheetView }) {
   if (view.kind === 'building') return <BuildingPanel id={view.id} />;
@@ -184,8 +190,8 @@ export function App() {
           сценами нельзя (подробно — в `prologue/Prologue.tsx`). */}
       {!prologue && <GameCanvas />}
       {mapOpen && <WorldMap />}
-      {!mapOpen && (next ? <Hud /> : <TopBar />)}
-      {next ? <Alerts /> : <AlertBar />}
+      {!mapOpen && (next ? <Suspense fallback={null}><Hud /></Suspense> : <TopBar />)}
+      {next ? <Suspense fallback={null}><Alerts /></Suspense> : <AlertBar />}
       {/* Осада — в правом низу деревни: её не разбирают, из-под неё выходят.
           Письма и события ждут в почте державы («Решения» за гербом). */}
       {/* Кнопка кодов — раньше осады нарочно: по этому порядку стиль и отодвигает
@@ -196,7 +202,7 @@ export function App() {
       <Sheet open={sheet !== null} onClose={closeSheet}>
         {shown && <SheetContent view={shown} />}
       </Sheet>
-      {!mapOpen && (next ? <Nav /> : <BottomNav />)}
+      {!mapOpen && (next ? <Suspense fallback={null}><Nav /></Suspense> : <BottomNav />)}
       {!mapOpen && realmOpen && (
         <Suspense fallback={null}>
           <RealmMenu />
@@ -208,7 +214,11 @@ export function App() {
       <PaceModal />
       <TutorialOverlay />
       {toast && <div className="toast">{toast}</div>}
-      {next && <TipLayer />}
+      {next && (
+        <Suspense fallback={null}>
+          <TipLayer />
+        </Suspense>
+      )}
       {/* Последним нарочно: до ответа игрока партия не сохраняется никуда, и
           этот вопрос обязан стоять поверх остальных окон. Своего слоя у него
           нет — он просто идёт после них. */}

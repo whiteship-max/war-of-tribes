@@ -86,8 +86,11 @@ import { Icon } from '@/ui/icons/Icon';
 import { moodOf } from '@/ui/icons/registry';
 import { troopTotal } from '@/game/battle/kinds';
 import { asGame } from '@/game/pace';
+import { lazy, Suspense } from 'react';
 import { useUiNew } from '@/ui/uimode';
-import { BuildingNew } from '@/ui/next/BuildingNew';
+
+/** Шаблон окна нового интерфейса — в куске нового вида (`ui/next/index.ts`). */
+const BuildingNew = lazy(() => import('@/ui/next').then((m) => ({ default: m.BuildingNew })));
 
 const fmt = (n: number): string => (Math.abs(n) >= 100 ? String(Math.round(n)) : n.toFixed(1));
 const fmtDelta = (n: number): string => `${n >= 0 ? '+' : '−'}${fmt(Math.abs(n))}`;
@@ -98,7 +101,12 @@ const fmtDelta = (n: number): string => `${n >= 0 ? '+' : '−'}${fmt(Math.abs(n
  */
 export function BuildingPanel({ id }: { id: number }) {
   const next = useUiNew();
-  return next ? <BuildingNew id={id} data={(b) => <BuildingData b={b} />} /> : <BuildingOld id={id} />;
+  if (!next) return <BuildingOld id={id} />;
+  return (
+    <Suspense fallback={null}>
+      <BuildingNew id={id} data={(b) => <BuildingData b={b} />} />
+    </Suspense>
+  );
 }
 
 function BuildingOld({ id }: { id: number }) {
@@ -553,7 +561,7 @@ function GenericData({ b }: { b: Building }) {
   const storage = buildingStat(b, 'storage');
   if (storage) stats.push(['bld-storage', '🧺', 'К вместимости склада', `+${storage}`]);
   const def_ = buildingStat(b, 'defense');
-  if (def_) stats.push(['gear-shield', '🛡️', 'К защите поселения', `+${def_}`]);
+  if (def_) stats.push(['gear-shield', '🛡️', next ? 'К обороне города' : 'К защите поселения', `+${def_}`]);
   const morale = buildingStat(b, 'morale');
   if (morale) stats.push(['mood-good', '😊', 'К морали', `+${morale}`]);
   // Службы посёлка: у каждой одно число, и лучше показать его словами игрока,
@@ -606,8 +614,8 @@ function GenericData({ b }: { b: Building }) {
   }
   if (b.type === 'workshop') stats.push(['ui-hammer', '🔨', 'К скорости улучшений', `+${crafterBuildShare(s).toFixed(1)}/с`]);
   if (b.type === 'smithy') stats.push(['hud-army', '⚔️', 'Мощь армии сейчас', armyPower(s).toFixed(0)]);
-  if (housing) stats.push(['hud-pop', '👥', 'Всего мест в посёлке', `${housingCapacity(s)} на ${s.pop} чел.`]);
-  if (def_ && !WALLS.includes(b.type)) stats.push(['hud-army', '⚔️', 'Защита посёлка', defense(s).toFixed(0)]);
+  if (housing) stats.push(['hud-pop', '👥', next ? 'Всего мест в городе' : 'Всего мест в посёлке', next ? `${housingCapacity(s)} на ${s.pop}` : `${housingCapacity(s)} на ${s.pop} чел.`]);
+  if (def_ && !WALLS.includes(b.type)) stats.push(['hud-army', '⚔️', next ? 'Оборона города' : 'Защита посёлка', defense(s).toFixed(0)]);
 
   return (
     <>
