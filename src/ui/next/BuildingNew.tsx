@@ -73,6 +73,7 @@ export function Confirm({ label, onConfirm, className = '' }: { label: string; o
 export function BuildingNew({ id, data }: { id: number; data: (b: Building) => ReactNode }) {
   const s = useGame((g) => g.s);
   const act = useGame((g) => g.act);
+  const closeSheet = useGame((g) => g.closeSheet);
   const b = buildingById(s, id);
   if (!b) {
     return (
@@ -126,6 +127,10 @@ export function BuildingNew({ id, data }: { id: number; data: (b: Building) => R
             <small>{upEta !== null ? waitSpan(upEta) : 'нет строителей'}</small>
           </button>
         )}
+        {/* «Закрыть» — в строке шапки и уезжает вместе с ней: стоя поверх прокрутки, он ложился бы на кнопки. */}
+        <button className="nx-bclose" onClick={closeSheet} aria-label="Закрыть">
+          <Icon name="ui-close" glyph="✕" />
+        </button>
       </div>
 
       {canLevel && !site && !top && (

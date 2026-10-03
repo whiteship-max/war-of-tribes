@@ -205,6 +205,8 @@ describe('цели касания нового вида — не меньше п
       ['.nx-wico', 'width'],
       ['.nx-up', 'height'],
       ['.nx-confirm', 'height'],
+      ['.nx-bclose', 'height'],
+      ['.nx-bclose', 'width'],
       // Кузница: строка вещи, «Изучить ›», шаг заказа, «Заказать».
       ['.nx-grow-row', 'min-height'],
       ['.nx-link', 'height'],

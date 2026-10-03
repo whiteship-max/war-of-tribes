@@ -48,6 +48,8 @@ export function Settings() {
   const on = useSyncExternalStore(subscribeSound, soundOn, soundOn);
   const chosen = useSyncExternalStore(subscribeGfx, gfx, gfx);
   const ui = useSyncExternalStore(subscribeUi, uiMode, uiMode);
+  // Новый интерфейс говорит своими словами (docs/ui_texts.md, пачка 11), прежний — своими.
+  const next = ui === 'new';
 
   const flip = (): void => {
     const next = !on;
@@ -73,7 +75,7 @@ export function Settings() {
           </span>
           <span className="name">
             Музыка
-            <em className="sub">в деревне и под роликом о бое</em>
+            <em className="sub">{next ? 'в городе и в бою' : 'в деревне и под роликом о бое'}</em>
           </span>
           <span className="sw">
             <i />
@@ -93,7 +95,7 @@ export function Settings() {
           </span>
           <span className="name">
             Графика
-            <em className="sub">«Авто» — по устройству; не тянет — опустится сама</em>
+            <em className="sub">{next ? 'Авто подбирает по телефону' : '«Авто» — по устройству; не тянет — опустится сама'}</em>
           </span>
           <div className="set-seg" role="group" aria-label="Уровень графики">
             {GFX_QUALITIES.map(([q, label]) => (
@@ -142,7 +144,7 @@ export function Settings() {
           </span>
           <span className="name">
             Язык
-            <em className="sub">Русский. Других пока нет</em>
+            <em className="sub">{next ? 'Русский' : 'Русский. Других пока нет'}</em>
           </span>
         </div>
       </div>

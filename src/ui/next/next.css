@@ -463,13 +463,12 @@
   border-top-color: var(--line-2);
   background: rgba(25, 19, 14, 0.97);
 }
-/* У окна постройки «закрыть» стоит в строке шапки: хэндл узкий, кнопка опущена в шапку. */
+/* У окна постройки «закрыть» — своё, в строке шапки (`BuildingNew`): хэндл узкий, кнопки шторки нет. */
 .ui-new .sheet:has(.nx-bhead) .sheet-grab {
   height: 16px;
 }
 .ui-new .sheet:has(.nx-bhead) .sheet-close {
-  top: 14px;
-  z-index: 2;
+  display: none;
 }
 .ui-new .sheet-close {
   font-size: 18px;
@@ -500,7 +499,24 @@
   align-items: center;
   gap: 8px;
   min-height: 56px;
-  padding-right: 44px;
+}
+.nx-bclose {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  margin-right: -8px;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 18px;
+  cursor: pointer;
+}
+.nx-bclose svg {
+  width: 18px;
+  height: 18px;
 }
 .nx-bico {
   flex: none;
@@ -966,4 +982,28 @@
 .nx-obar .nx-why {
   font-size: 11px;
   color: var(--bad);
+}
+
+/* ---------- Вести: «новое» — точкой 8 px у края строки (3.8) ---------- */
+.nx-new {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  margin: 0 8px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.ui-new .mail-row {
+  min-height: 56px;
+}
+.ui-new .dispatch-empty .big svg {
+  width: 40px;
+  height: 40px;
+}
+.nx-empty {
+  display: block;
+  margin: 8px 0 4px;
+  font-size: 15px;
+  font-weight: 600;
+  text-align: center;
 }

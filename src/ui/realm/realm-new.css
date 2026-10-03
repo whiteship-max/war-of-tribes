@@ -285,3 +285,7 @@
   width: 18px;
   height: 18px;
 }
+/* Обучение: его строка стоит над низом — держава встаёт выше неё, полоса «Изучить» остаётся под пальцем. */
+.ui-new.tut-on .nx-realm {
+  bottom: calc(var(--nav-h) + var(--safe-bottom) + 76px);
+}

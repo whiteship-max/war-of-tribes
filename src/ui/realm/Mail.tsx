@@ -14,6 +14,7 @@ import { buildingOfType } from '@/game/derived';
 import { RHUMB_WORDS } from '@/world/data/letters';
 import type { LetterView } from '@/world/types';
 import { Icon } from '@/ui/icons/Icon';
+import { useUiNew } from '@/ui/uimode';
 import { Cost } from '@/ui/parts/Cost';
 import { useRaidWords } from '@/ui/parts/raidWords';
 import { dispatches, leftWords, type Dispatch } from './dispatch';
@@ -35,6 +36,8 @@ async function answerDispatch(d: Dispatch, choiceId: string): Promise<string | n
 
 export function Mail() {
   const s = useGame((g) => g.s);
+  // Новый интерфейс говорит своими словами (docs/ui_texts.md, пачка 14): «вести», «город», «новое» — точкой.
+  const next = useUiNew();
   const letters = useWorld((w) => w.letters);
   const open = useRealm((r) => r.mail);
   const openMail = useRealm((r) => r.openMail);
@@ -72,7 +75,7 @@ export function Mail() {
         <h3>{done.title}</h3>
         <p className="dispatch-done">{done.text}</p>
         <button className="btn wide" onClick={() => setDone(null)}>
-          К донесениям
+          {next ? 'К вестям' : 'К донесениям'}
         </button>
       </div>
     );
@@ -94,6 +97,17 @@ export function Mail() {
   }
 
   if (list.length === 0) {
+    if (next) {
+      return (
+        <div className="panel dispatch-empty">
+          <div className="big">
+            <Icon name="ui-mail" glyph="✉️" />
+          </div>
+          <b className="nx-empty">Вестей нет</b>
+          <div className="note">Сюда приходят вести из города и от соседей. У каждой свой срок: без ответа она решится сама.</div>
+        </div>
+      );
+    }
     return (
       <div className="panel dispatch-empty">
         <div className="big">✉️</div>
@@ -118,11 +132,11 @@ export function Mail() {
               <span className="txt">
                 <b>{d.title}</b>
                 <small>
-                  <i className="who">{d.from ?? (d.warning ? 'Дозор' : 'Посёлок')}</i>
+                  <i className="who">{d.from ?? (d.warning ? 'Дозор' : next ? 'Город' : 'Посёлок')}</i>
                   {d.left !== null && <em>{leftWords(d.left)}</em>}
                 </small>
               </span>
-              {fresh && <span className="new">новое</span>}
+              {fresh && (next ? <span className="nx-new" aria-label="новое" /> : <span className="new">новое</span>)}
             </button>
           );
         })}

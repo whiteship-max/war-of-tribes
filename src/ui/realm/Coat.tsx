@@ -60,7 +60,8 @@ export function CoatButton({ quiet = false }: { quiet?: boolean } = {}) {
     <button
       className={`coat-btn${open ? ' active' : ''}`}
       data-tut="coat"
-      onClick={() => show()}
+      // В новом виде «Вести» — свой экран из низа: герб из них ведёт в разделы державы, а не обратно в вести.
+      onClick={() => show(quiet && useRealm.getState().view === 'decisions' ? 'government' : undefined)}
       title="Держава: правительство, стройка, вера, армия, решения и настройки"
       aria-label={unread > 0 && !quiet ? `Держава, новых донесений: ${unread}` : 'Держава'}
     >

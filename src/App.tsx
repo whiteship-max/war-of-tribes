@@ -34,6 +34,7 @@ import { probe } from './debug';
 import { CheatPanel } from './ui/CheatPanel';
 import { useRealm } from './ui/realm/open';
 import { useUiNew } from './ui/uimode';
+import { tutorialActive } from './game/data/tutorial';
 
 /**
  * Предыстория — отдельный чанк, и качается он по нажатию кнопки.
@@ -105,6 +106,9 @@ export function App() {
   const bootWorld = useWorld((g) => g.boot);
   // Прежний или новый интерфейс (`ui/uimode.ts`): переключение в настройках перерисовывает сразу.
   const next = useUiNew();
+  // Пока идёт обучение, его строка стоит над низом: держава нового вида встаёт выше неё (`next.css`, `tut-on`),
+  // иначе строка накрыла бы закреплённую полосу «Изучить», к которой обучение и ведёт.
+  const tut = useGame((g) => tutorialActive(g.s));
   // Содержимое шторки переживает закрытие, чтобы она не уезжала пустой.
   const [shown, setShown] = useState<SheetView | null>(null);
   /**
@@ -180,7 +184,7 @@ export function App() {
   if (!ready) return null;
 
   return (
-    <div className={`app${next ? ' ui-new' : ''}`} ref={appRef}>
+    <div className={`app${next ? ' ui-new' : ''}${next && tut ? ' tut-on' : ''}`} ref={appRef}>
       {/* Сцена остаётся в DOM и под картой: её рендер-луп встаёт, но геометрия
           жива, и переход в обе стороны мгновенный. Выгружать её на время карты
           пробовали и откатили — размен памяти на задержку оказался невыгодным,
