@@ -52,6 +52,7 @@ import {
   zoomAt,
 } from './grid';
 import { dropPaper, drawFrame } from './frame';
+import { beyondText, reachable, twSlot } from './twslot';
 import { dropTiles } from './ground';
 import { dropBitmaps } from './tiles';
 import { type Look, dropSprites, silhouetteUrl } from './village';
@@ -253,9 +254,10 @@ export function WorldMap() {
    * всё равно не пустят, и подпись расходилась бы с картинкой на кадр.
    */
   const hold = (c: Camera): Camera => {
-    if (FREE_CAMERA) return clampCamera(c);
-    const at = cameraAnchor(worldNow());
-    return at ? leashCamera(c, vp(), at) : clampCamera(c);
+    const at = FREE_CAMERA ? null : cameraAnchor(worldNow());
+    const held = at ? leashCamera(c, vp(), at) : clampCamera(c);
+    // Новый вид карты держит камеру ещё и в рамке региона игрока (docs/map_tw.md, раздел 13.5) — поверх поводка.
+    return twSlot()?.hold(held, vp()) ?? held;
   };
 
   /**
@@ -333,6 +335,7 @@ export function WorldMap() {
     dropPaper();
     dropFog();
     dropZones();
+    twSlot()?.drop();
   }, [seed]);
 
   // ---------- Отрисовка ----------
@@ -370,6 +373,7 @@ export function WorldMap() {
       if (changed) {
         dropSprites();
         dropSiegeMarks();
+        twSlot()?.drop();
       }
     };
     resize();
@@ -433,6 +437,7 @@ export function WorldMap() {
       dropParties();
       dropFigures();
       dropSiegeMarks();
+      twSlot()?.drop();
     };
     // Полотно живёт весь показ карты: данные оно берёт из стора само.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -559,7 +564,10 @@ export function WorldMap() {
     // выбирает именно последняя точка — панорама карты идёт за пальцем один к
     // одному, и в сдвинутом кадре она означает ровно то же место, что нажатие.
     const world = p && tapped ? toWorld(cam.current, vp(), p.x, p.y) : null;
-    const c = world ? { x: Math.floor(world.x), y: Math.floor(world.y) } : null;
+    // Новый вид рисует объект крупнее его клетки и мельче пальца на дальнем масштабе — клетку, в которую
+    // целились, находит он сам (цель не меньше пальца); смысл тапа по клетке — прежний `openAt`.
+    const aimed = p && tapped ? twSlot()?.tap(cam.current, vp(), p.x, p.y, useWorld.getState().picked !== null) : null;
+    const c = aimed ?? (world ? { x: Math.floor(world.x), y: Math.floor(world.y) } : null);
     const inside =
       c !== null &&
       c.x >= WORLD_ORIGIN.x &&
@@ -575,6 +583,11 @@ export function WorldMap() {
     // Тот же призрачный щелчок, что и в деревне: карточка клетки поднимает то же
     // затемнение, и закрыть её собственным касанием она не должна.
     swallowGhostClick();
+    // За краем региона игрока целей нет: ни места, ни земли под приказ (docs/map_tw.md, раздел 13.5).
+    if (!reachable(c)) {
+      showToast(beyondText());
+      return;
+    }
     openAt(c);
   };
 
@@ -656,9 +669,14 @@ export function WorldMap() {
     e.preventDefault();
     const rect = e.currentTarget.getBoundingClientRect();
     const world = toWorld(cam.current, vp(), e.clientX - rect.left, e.clientY - rect.top);
-    const c = { x: Math.floor(world.x), y: Math.floor(world.y) };
+    const aimed = twSlot()?.tap(cam.current, vp(), e.clientX - rect.left, e.clientY - rect.top, useWorld.getState().picked !== null);
+    const c = aimed ?? { x: Math.floor(world.x), y: Math.floor(world.y) };
     if (c.x < WORLD_ORIGIN.x || c.y < WORLD_ORIGIN.y) return;
     if (c.x >= WORLD_ORIGIN.x + WORLD_SIZE || c.y >= WORLD_ORIGIN.y + WORLD_SIZE) return;
+    if (!reachable(c)) {
+      showToast(beyondText());
+      return;
+    }
     const g = useWorld.getState();
     const agent = g.picked ?? figuresOn(c.x, c.y, worldNow())[0]?.id ?? (g.anchor === 'home' ? 'diplomat' : g.anchor);
     void g.openMenu(agent, c);

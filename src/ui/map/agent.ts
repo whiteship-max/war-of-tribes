@@ -116,9 +116,9 @@ export const FAN_STEP = 0.78;
  * за спиной, посох впереди и подол дипломата.
  */
 export const SPAN_W = 0.72;
-const SPAN_H = 1.02;
-const ANCHOR_X = 0.36;
-const ANCHOR_Y = 0.92;
+export const SPAN_H = 1.02;
+export const ANCHOR_X = 0.36;
+export const ANCHOR_Y = 0.92;
 
 export interface AgentSprite {
   canvas: HTMLCanvasElement;

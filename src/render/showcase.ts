@@ -16,6 +16,8 @@
 //     из сорока бойцов — по нему и меряется бюджет.
 //   ?showcase=city
 //     стенд города без игры: ракурсы, ночь, сезоны, уровни (`city/stand.ts`).
+//   ?showcase=map-tw
+//     стенд карты мира нового вида (docs/map_tw.md): кусок Европы из атласа, один кадр (`ui/map/tw/stand.ts`).
 //
 // Общие параметры: season=winter, solar=0.25 (0 — рассвет, 0.25 — полдень, 0.5 — закат),
 // clean=1 (без подписи). У сцены игры ещё: quality=high|medium|low — уровень качества (без него —
@@ -613,6 +615,8 @@ export function mountShowcase(p: URLSearchParams): void {
   const mode = p.get('showcase');
   // Стенд города (docs/city.md) — свой ленивый кусок: стенд фигур его не качает.
   if (mode === 'city') void import('./city/stand').then((m) => m.mountCity(root, p));
+  // Стенд карты нового вида (docs/map_tw.md) — тоже свой кусок: 2D-карта, сцены здесь нет.
+  else if (mode === 'map-tw') void import('@/ui/map/tw/stand').then((m) => m.mountMapTw(root, p));
   else if (mode === 'units') mountUnits(root, p, c);
   else mountVillage(root, p, c);
 }

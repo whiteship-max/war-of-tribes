@@ -100,7 +100,7 @@ function drawRoute(
 
 // ---------- Где кто стоит ----------
 
-interface Spot {
+export interface Spot {
   f: FigureView;
   /** Экранная точка, на которой стоит отряд — он же середина клетки. */
   px: number;
@@ -130,8 +130,10 @@ interface Spot {
  * видно в её карточке, а не пустым кружком в поле. Укрывшаяся в городе — тоже:
  * где агент, решает мир одним правилом (`world/shelter`), и кадр читает готовое
  * `place`, а не выводит его заново из фазы.
+ *
+ * Новый вид карты (`tw/frame.ts`, `tw/scene.ts`) берёт точки отсюда же: и кадр, и цель пальца.
  */
-function spotsOf(cam: Camera, vp: Viewport, figures: FigureView[], now: number): Spot[] {
+export function spotsOf(cam: Camera, vp: Viewport, figures: FigureView[], now: number): Spot[] {
   const live = figures.filter((f) => f.place === 'map');
   const unit = agentUnit(cam.scale);
   // Разводятся стоящие на одной клетке: четверо дома иначе рисуются друг в

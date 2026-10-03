@@ -32,6 +32,7 @@ import { Cost } from '@/ui/parts/Cost';
 import { CampStrike } from '@/ui/parts/CampStrike';
 import { FatePick } from '@/ui/parts/FatePick';
 import { REST_WHY, restLine } from '@/ui/parts/restWords';
+import { beyondText, reachable } from './twslot';
 
 /** Просит ли приказ хоть что-нибудь со склада. */
 const isPaid = (cost: Loot): boolean => RESOURCE_IDS.some((r) => (cost[r] ?? 0) > 0) || (cost.gold ?? 0) > 0;
@@ -115,23 +116,40 @@ export function ActionMenu() {
     showToast(res.error ?? res.text);
   };
 
+  const head = (
+    <div className="am-head">
+      <span className="ico">
+        <Icon name={`fig-${def.id}`} glyph={def.icon} />
+      </span>
+      <div className="body">
+        <b>
+          {def.name} → {menu.name}
+        </b>
+        <i>{formatCoord(menu.cell)}</i>
+      </div>
+      <button className="am-x" onClick={closeMenu} aria-label="Закрыть">
+        ✕
+      </button>
+    </div>
+  );
+
+  // Карта по регионам (docs/map_tw.md, раздел 13.5): цель за краем региона игрока не выбирается ни тапом, ни отсюда —
+  // меню, открытое из карточки или списка походов, говорит об этом вместо приказов.
+  if (!reachable(menu.cell)) {
+    return (
+      <div className="am-wrap" onPointerDown={(e) => e.stopPropagation()}>
+        <div className="am">
+          {head}
+          <div className="am-warn">{beyondText()}</div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="am-wrap" onPointerDown={(e) => e.stopPropagation()}>
       <div className="am">
-        <div className="am-head">
-          <span className="ico">
-            <Icon name={`fig-${def.id}`} glyph={def.icon} />
-          </span>
-          <div className="body">
-            <b>
-              {def.name} → {menu.name}
-            </b>
-            <i>{formatCoord(menu.cell)}</i>
-          </div>
-          <button className="am-x" onClick={closeMenu} aria-label="Закрыть">
-            ✕
-          </button>
-        </div>
+        {head}
 
         {vacant && (
           <div className="am-warn">

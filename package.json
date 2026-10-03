@@ -39,7 +39,9 @@
     "icons:build": "vite-node scripts/build-icons.ts",
     "emoji:build": "node scripts/build-emoji.mjs",
     "world:build": "node scripts/build-world.mjs",
+    "theatres:build": "vite-node scripts/build-theatres.ts",
     "map:shots": "vite-node scripts/map-shots.ts",
+    "map-tw:shots": "vite-node scripts/map-tw-shots.ts",
     "village:shots": "vite-node scripts/village-shots.ts",
     "city:shots": "vite-node scripts/city-shots.ts",
     "replay:shots": "vite-node scripts/replay-shots.ts"
