@@ -2634,24 +2634,24 @@ export function flagSprite(l: FlagLook, dpr: number): Mini {
 /** Бейдж над местом: под ударом (идёт набег), свои войска стоят, в осаде (дальний масштаб). */
 export type BadgeKind = 'attack' | 'troops' | 'siege';
 
-export const BADGE_PX = 16;
+export const BADGE_PX = 18;
 
-/** Диск бейджа: заливка, чернильный край и светлая кромка — читается на любой земле. */
-function badgeDisc(ctx: C, fill: string, rim: string): void {
-  ell(ctx, 0, 0, 0.45, 0.45);
-  ctx.fillStyle = M.ink;
+/**
+ * Диск бейджа — как значок тревоги нового верха (`.nx-ring`, docs/ui_audit.md, 13): тёмная середина и кольцо цвета
+ * смысла — красное у удара, золотое у своих войск, охряное у осады. Тень вниз — бейдж стоит над землёй.
+ */
+function badgeDisc(ctx: C, ring: string): void {
+  ell(ctx, 0.02, 0.04, 0.45, 0.45);
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
   ctx.fill();
-  ell(ctx, 0, 0, 0.39, 0.39);
-  ctx.fillStyle = fill;
-  ctx.fill();
-  const g = ctx.createLinearGradient(-0.4, -0.4, 0.4, 0.4);
-  g.addColorStop(0, 'rgba(250, 240, 214, 0.35)');
-  g.addColorStop(0.6, 'rgba(250, 240, 214, 0)');
-  g.addColorStop(1, 'rgba(32, 22, 14, 0.25)');
+  const g = ctx.createRadialGradient(0, -0.1, 0.02, 0, 0, 0.42);
+  g.addColorStop(0, '#3a2c1f');
+  g.addColorStop(1, '#1a140f');
+  ell(ctx, 0, 0, 0.41, 0.41);
   ctx.fillStyle = g;
   ctx.fill();
-  ctx.strokeStyle = rim;
-  ctx.lineWidth = 0.06;
+  ctx.strokeStyle = ring;
+  ctx.lineWidth = 0.08;
   ctx.stroke();
 }
 
@@ -2661,7 +2661,7 @@ export function badgeSprite(kind: BadgeKind, dpr: number): Mini {
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
       if (kind === 'attack') {
-        badgeDisc(ctx, '#c4503e', '#f0a08a');
+        badgeDisc(ctx, SIDE_COLOR.foe);
         // Скрещённые мечи: клинок светлый с чернильным краем, гарда золотом.
         for (const s of [-1, 1]) {
           ctx.save();
@@ -2689,7 +2689,7 @@ export function badgeSprite(kind: BadgeKind, dpr: number): Mini {
         return;
       }
       if (kind === 'troops') {
-        badgeDisc(ctx, '#4e3a24', M.goldLit);
+        badgeDisc(ctx, M.gold);
         ctx.strokeStyle = M.goldRim;
         ctx.lineWidth = 0.05;
         line(ctx, -0.16, 0.28, -0.16, -0.3);
@@ -2708,7 +2708,7 @@ export function badgeSprite(kind: BadgeKind, dpr: number): Mini {
         return;
       }
       // Осада: кольцо зубьев-рогаток на бронзе.
-      badgeDisc(ctx, M.bronzeMid, M.bronzeLit);
+      badgeDisc(ctx, '#d9a441');
       const teeth = 10;
       ctx.beginPath();
       for (let i = 0; i <= teeth * 2; i++) {
@@ -2732,9 +2732,11 @@ export function badgeSprite(kind: BadgeKind, dpr: number): Mini {
 
 const FELL_H = 18;
 const FELL_FONT = "600 11px Georgia, 'Times New Roman', serif";
+/** Светлые чернила знака участи на тёмной плашке. */
+const FELL_INK = '#efe3c8';
 
 /** Знак участи в квадрате 1×1 с серединой в нуле: пламя, цепь, открытый пустой сундук. */
-function fellGlyph(ctx: C, fate: Fate): void {
+function fellGlyph(ctx: C, fate: Fate, ink: string): void {
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
   if (fate === 'burn') {
@@ -2746,7 +2748,7 @@ function fellGlyph(ctx: C, fate: Fate): void {
     ctx.closePath();
     ctx.fillStyle = '#d4602c';
     ctx.fill();
-    ctx.strokeStyle = M.text;
+    ctx.strokeStyle = ink;
     ctx.lineWidth = 0.07;
     ctx.stroke();
     ctx.fillStyle = '#f2c056';
@@ -2760,7 +2762,7 @@ function fellGlyph(ctx: C, fate: Fate): void {
   }
   if (fate === 'captives') {
     // Два звена цепи: связанные, а не рядом.
-    ctx.strokeStyle = M.text;
+    ctx.strokeStyle = ink;
     ctx.lineWidth = 0.13;
     for (const [x, y] of [
       [-0.17, 0.13],
@@ -2777,7 +2779,7 @@ function fellGlyph(ctx: C, fate: Fate): void {
   ctx.fillRect(-0.4, -0.02, 0.8, 0.42);
   ctx.fillStyle = '#3e2a1a';
   ctx.fillRect(-0.32, 0.02, 0.64, 0.12);
-  ctx.strokeStyle = M.text;
+  ctx.strokeStyle = ink;
   ctx.lineWidth = 0.08;
   ctx.strokeRect(-0.4, -0.02, 0.8, 0.42);
   ctx.fillStyle = '#a06a3c';
@@ -2829,23 +2831,21 @@ export function fellSprite(fate: Fate, text: string, dpr: number): Mini {
       ctx.fill();
       ctx.restore();
       plate();
-      const g = ctx.createLinearGradient(0, 0, 0, h);
-      g.addColorStop(0, M.parchment);
-      g.addColorStop(1, '#d4bf8e');
-      ctx.fillStyle = g;
+      // Плашка нового вида — та же, что у имени места (`labels.placeLabel`): тёмная, с тёплой кромкой.
+      ctx.fillStyle = 'rgba(22, 16, 11, 0.88)';
       ctx.fill();
-      ctx.strokeStyle = M.text;
+      ctx.strokeStyle = 'rgba(255, 220, 170, 0.35)';
       ctx.lineWidth = 1;
       ctx.stroke();
       ctx.save();
       ctx.translate(pad + glyph / 2, h / 2);
       ctx.scale(glyph, glyph);
-      fellGlyph(ctx, fate);
+      fellGlyph(ctx, fate, FELL_INK);
       ctx.restore();
       ctx.font = FELL_FONT;
       ctx.textBaseline = 'middle';
       ctx.textAlign = 'left';
-      ctx.fillStyle = M.text;
+      ctx.fillStyle = FELL_INK;
       ctx.fillText(text, pad + glyph + 4, h / 2 + 0.5);
     });
   });

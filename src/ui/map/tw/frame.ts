@@ -27,13 +27,13 @@ import { drawTwFog } from './fog';
 import { drawGround } from './layers';
 import { moving, prebakeFrame, prebakeIdle, prebaked } from './prebake';
 import { TW } from './palette';
-import { SIDE_COLOR, shade, sideRgba } from '@/side';
+import { SIDE_COLOR, sideRgba } from '@/side';
 import { withinActive } from './theatre/theatre';
 import { drawAgent } from '../agent';
 import type { MarkerKind } from '../village';
 import { FELL_WORDS, LABEL_MAX_PX, fellShown, fitLabel, worksStand, worksStep } from '../siegemark';
-import { type Mini, badgeSprite, drawMini, fellSprite, flagSprite, hostSprite, miniBucket, pinSprite, placeSprite, worksSprite } from './mini';
-import { labelFont, labelSprite, regionSprite } from './labels';
+import { type Mini, BADGE_PX, badgeSprite, drawMini, fellSprite, flagSprite, hostSprite, miniBucket, pinSprite, placeSprite, worksSprite } from './mini';
+import { TIMER_FONT, labelFont, labelSprite, regionSprite, timerSprite, timerTextWidth, timerWidth } from './labels';
 import { REGION_CELLS, onWater, regionAlpha, regionSize } from './regions';
 import { type Box, type FigureItem, type HostItem, type PlaceItem, figureItems, hostItems, miniAlpha, placeItems, placesRect } from './scene';
 
@@ -43,7 +43,6 @@ const TOP_INSET = 52;
 /** Свои: путь, срок, выбор — цвет стороны (`side.ts`). */
 const OWN = SIDE_COLOR.ours;
 const INK = 'rgba(40, 28, 18, 0.85)';
-const SERIF = "Georgia, 'Times New Roman', 'Noto Serif', serif";
 
 /** Счёт недопечённого на экране — только под `?probe=1` (`npm run map:report`, «кадров с обзором»). */
 const PROBE = probe();
@@ -56,6 +55,8 @@ const PROBE = probe();
  * по тёмному). Очередь живёт один кадр.
  */
 const marks: (() => void)[] = [];
+/** Пилюли сроков, уже легшие в этот кадр: следующая ищет свободное место (`drawTimer`). */
+const timers: Box[] = [];
 
 /** Значок постоянного размера: точка привязки значка — на точке места. */
 function blit(ctx: CanvasRenderingContext2D, m: Mini, x: number, y: number): void {
@@ -84,7 +85,7 @@ function drawBadges(ctx: CanvasRenderingContext2D, it: PlaceItem, kinds: MarkerK
   // Осада на дальнем масштабе: рядов рогаток не разобрать, а «в осаде» обязано читаться издали.
   if (siege && !mini) list.push('siege');
   if (list.length === 0) return;
-  const step = 17;
+  const step = BADGE_PX + 1;
   const x = mini ? it.body.x0 - 2 : it.body.x1 + 6;
   let y = mini ? it.body.y0 + 10 : it.body.y0 + 6;
   for (const k of list) {
@@ -179,18 +180,25 @@ function drawChevron(ctx: CanvasRenderingContext2D, x: number, y: number, angle:
   ctx.restore();
 }
 
-/** Срок до прихода над отрядом: чернила с пергаментным ореолом. */
-function drawTimer(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, color: string): void {
-  ctx.font = `700 11px ${SERIF}`;
+/**
+ * Срок до прихода над отрядом — пилюлей нового вида (docs/ui_audit.md, 13): тёмная плашка с кромкой цвета стороны
+ * (чужой — красной, свой — золотой), светлые цифры. Пилюля испечена (`labels.timerSprite`), в кадре пишется только
+ * строка — как и прежде. Точка `y` — низ пилюли.
+ */
+function drawTimer(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, color: string, dpr: number): void {
+  const ours = color === OWN;
+  const p = timerSprite(timerWidth(timerTextWidth(text)), ours, dpr);
+  // Сроки соседних отрядов не ложатся друг на друга: занятое место — выше на пилюлю (не дальше трёх ступеней).
+  let top = y - p.h;
+  for (let i = 0; i < 3 && overlaps({ x0: x - p.w / 2, y0: top, x1: x + p.w / 2, y1: top + p.h }, timers); i++) top -= p.h + 1;
+  timers.push({ x0: x - p.w / 2, y0: top, x1: x + p.w / 2, y1: top + p.h });
+  ctx.drawImage(p.canvas, x - p.w / 2, top, p.w, p.h);
+  ctx.font = TIMER_FONT;
   ctx.textAlign = 'center';
-  ctx.textBaseline = 'bottom';
-  ctx.lineJoin = 'round';
-  ctx.lineWidth = 3.5;
-  ctx.strokeStyle = 'rgba(236, 222, 190, 0.9)';
-  ctx.strokeText(text, x, y);
-  // Чернила срока — цвет стороны отряда, притемнённый до чернил: читается на пергаментном ореоле.
-  ctx.fillStyle = shade(color, 0.46);
-  ctx.fillText(text, x, y);
+  ctx.textBaseline = 'middle';
+  // Цифры — светлые, с оттенком стороны: на тёмной пилюле читаются и днём, и в ночь.
+  ctx.fillStyle = ours ? '#f7e6bd' : '#ffdcd3';
+  ctx.fillText(text, x, top + p.h / 2 + 0.5);
 }
 
 function drawHosts(ctx: CanvasRenderingContext2D, cam: Camera, items: HostItem[], dpr: number, now: number): void {
@@ -218,7 +226,7 @@ function drawHosts(ctx: CanvasRenderingContext2D, cam: Camera, items: HostItem[]
     }
     if (!withTimer && !m.hostile) continue;
     const text = realLeft(secondsLeft(m.arriveAt, now));
-    marks.push(() => drawTimer(ctx, text, sx, body.y0 - 3, look.color));
+    marks.push(() => drawTimer(ctx, text, sx, body.y0 - 3, look.color, dpr));
   }
 }
 
@@ -249,7 +257,7 @@ function drawFigures(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport, i
       const [fx, fy] = toScreen(cam, vp, f.from.x + 0.5, f.from.y + 0.5);
       drawRoute(ctx, fx, fy, hx, py, tx, ty, OWN, now);
       const text = realLeft(secondsLeft(f.arriveAt, now));
-      marks.push(() => drawTimer(ctx, text, tx, ty - 10, OWN));
+      marks.push(() => drawTimer(ctx, text, tx, ty - 8, OWN, dpr));
     }
     if (it.host) {
       ctx.save();
@@ -312,7 +320,7 @@ function drawLabels(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport, it
     if (sx < -40 || sx > vp.w + 40 || body.y1 < -20 || body.y1 > vp.h + 20) continue;
     let top = body.y1 + 3;
     if (namedAt(it, cam.scale)) {
-      const l = labelSprite(fitName(s.name, s.mine), s.mine, dpr);
+      const l = labelSprite(fitName(s.name, s.mine), s.mine, dpr, it.look.color);
       const box: Box = { x0: sx - l.w / 2, y0: top, x1: sx + l.w / 2, y1: top + l.h };
       if (s.mine || !overlaps(box, taken)) {
         taken.push(box);
@@ -367,7 +375,9 @@ function drawSelected(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport, 
   ctx.ellipse(x, y, rx, rx * 0.62, 0, 0, Math.PI * 2);
   ctx.stroke();
   ctx.lineWidth = 2.2;
-  ctx.strokeStyle = '#f1e3bd';
+  // Выбранное — цветом действия нового вида (`--accent`, он же цвет своей стороны, `side.ts`), как рамка выбранной
+  // ячейки в интерфейсе (docs/ui_audit.md, 3.8).
+  ctx.strokeStyle = OWN;
   ctx.stroke();
   ctx.restore();
 }
@@ -417,6 +427,7 @@ export function drawTwFrame(ctx: CanvasRenderingContext2D, cam: Camera, vp: View
   drawGrid(ctx, cam, vp, near * 0.6, TOP_INSET);
 
   marks.length = 0;
+  timers.length = 0;
   const places = placeItems(cam, vp, settlementsIn(placesRect(rect)), dpr);
   drawPlaces(ctx, cam, places, dpr, now, markersOf(state.marches));
 
