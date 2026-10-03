@@ -328,3 +328,538 @@
 .ui-new.tut-on .nx-realm {
   bottom: calc(var(--nav-h) + var(--safe-bottom) + 76px);
 }
+
+/* ---------- Вкладки державы нового вида: Правитель, Указы, Вера, Задания (`RealmTabs.tsx`) ---------- */
+/* Сброс кнопок — только своих: кнопки прежних разделов внутри вкладки (`.nx-old`) остаются своими. */
+:where(.nx-skill, .nx-opt, .nx-lcell, .nx-tgcell, .nx-ach button, .nx-seg button, .nx-more, .nx-orow) {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+.nx-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 4px;
+}
+.nx-tab h3 {
+  margin: 8px 0 0;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.nx-tab h3 .muted {
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 600;
+}
+.nx-tnote {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--muted);
+}
+.nx-person {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 60px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+}
+.nx-pmed {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: linear-gradient(#3a2c1f, #241b13);
+  border: 1px solid var(--line-2);
+  font-size: 24px;
+}
+.nx-pmed svg {
+  width: 28px;
+  height: 28px;
+}
+.nx-pname {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.nx-pname b {
+  font-size: 15px;
+  font-weight: 600;
+}
+.nx-pname small {
+  font-size: 11px;
+  color: var(--muted);
+}
+.nx-pname small.warn {
+  color: var(--warn);
+}
+.nx-skills {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+.nx-skill {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 64px;
+  border-radius: 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+}
+.nx-skill > svg,
+.nx-skill > span:first-child {
+  width: 20px;
+  height: 20px;
+  font-size: 18px;
+  line-height: 20px;
+}
+.nx-skill small {
+  font-size: 11px;
+  color: var(--muted);
+}
+.nx-dots {
+  display: inline-flex;
+  gap: 3px;
+}
+.nx-dots i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: rgba(255, 220, 170, 0.16);
+}
+.nx-dots i.on {
+  background: var(--accent);
+}
+.nx-heir {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 12px;
+  border-radius: 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+}
+.nx-hico {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  font-size: 16px;
+}
+.nx-hico svg {
+  width: 20px;
+  height: 20px;
+}
+.nx-heir b {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+.nx-hskills {
+  display: flex;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.nx-hskills span {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.nx-hskills svg {
+  width: 14px;
+  height: 14px;
+}
+.nx-lrow,
+.nx-brow,
+.nx-quest {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 52px;
+  padding: 6px 12px;
+  border-radius: 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+}
+.nx-lico {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  font-size: 20px;
+}
+.nx-lico svg {
+  width: 24px;
+  height: 24px;
+}
+.nx-lbody {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.nx-lbody b {
+  font-size: 13px;
+  font-weight: 600;
+}
+.nx-lbody small {
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--muted);
+}
+.nx-lrow > small {
+  flex: none;
+  font-size: 11px;
+  color: var(--muted);
+}
+.nx-lrow > small.bad {
+  color: var(--bad);
+}
+.nx-more {
+  height: 44px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+/* Казна строкой чисел-справок: золото, сбор, жалованье. */
+.nx-ledger {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+.nx-lcell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 44px;
+  min-width: 0;
+  border-radius: 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  font-variant-numeric: tabular-nums;
+}
+.nx-lcell svg {
+  width: 16px;
+  height: 16px;
+}
+.nx-lcell small {
+  font-size: 11px;
+  color: var(--muted);
+}
+.nx-lcell b {
+  font-size: 15px;
+  font-weight: 600;
+}
+.nx-tab .good {
+  color: var(--good);
+}
+.nx-tab .bad {
+  color: var(--bad);
+}
+/* Выбор из трёх: ряд ячеек, что даёт выбранное — строкой под рядом. */
+.nx-pick {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.nx-opts {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+.nx-opt {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 72px;
+  min-width: 0;
+  padding: 6px 4px;
+  border-radius: 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  text-align: center;
+}
+.nx-opt b {
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+.nx-opt small {
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--good);
+}
+.nx-opt small.bad {
+  color: var(--bad);
+}
+.nx-oico {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  font-size: 20px;
+}
+.nx-oico svg {
+  width: 24px;
+  height: 24px;
+}
+.nx-opt.on {
+  background: rgba(232, 164, 60, 0.12);
+  border-color: var(--accent);
+}
+.nx-opt:active,
+.nx-skill:active,
+.nx-lcell:active,
+.nx-tgcell:active {
+  background: rgba(255, 220, 170, 0.08);
+}
+.nx-pnote {
+  margin: 0;
+  min-height: 15px;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--muted);
+}
+.nx-orow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 44px;
+  padding: 0 12px;
+  border-radius: 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  font-size: 13px;
+  font-weight: 600;
+}
+.nx-orow > svg,
+.nx-orow > span:first-child {
+  width: 20px;
+  height: 20px;
+  font-size: 16px;
+}
+.nx-obar-mini {
+  flex: 1;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+}
+.nx-obar-mini i {
+  display: block;
+  height: 100%;
+  background: var(--good);
+}
+.nx-orow.shaky .nx-obar-mini i {
+  background: var(--warn);
+}
+.nx-orow.unrest .nx-obar-mini i {
+  background: var(--bad);
+}
+.nx-chev {
+  color: var(--muted);
+}
+/* Вера: что даёт и что просит, числа наклона ячейками. */
+.nx-gift {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 8px;
+  font-size: 11px;
+  line-height: 1.35;
+}
+.nx-gift .good,
+.nx-gift .bad {
+  font-weight: 600;
+}
+.nx-tcells {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+.nx-tgcell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 2px;
+  min-height: 44px;
+  min-width: 0;
+  padding: 4px 8px;
+  border-radius: 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  text-align: left;
+}
+.nx-tgcell small {
+  max-width: 100%;
+  font-size: 11px;
+  color: var(--muted);
+}
+.nx-tgcell b {
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.nx-why-line {
+  margin: 0;
+  font-size: 11px;
+  color: var(--bad);
+}
+/* Задания: две страницы переключателем, строки заданий, значки достижений, служебное — свёрнутым. */
+.nx-seg {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 14px;
+  background: rgba(36, 27, 19, 0.8);
+  border: 1px solid var(--line);
+}
+.nx-seg button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 44px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.nx-seg button.on {
+  color: var(--text);
+  background: rgba(232, 164, 60, 0.12);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.nx-seg svg {
+  width: 18px;
+  height: 18px;
+}
+.nx-qsum {
+  margin: 0;
+  font-size: 11px;
+  color: var(--muted);
+}
+.nx-quest {
+  align-items: flex-start;
+  padding: 8px 12px;
+}
+.nx-quest .nx-lbody small {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.nx-qbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+}
+.nx-qbar .nx-bbar {
+  flex: 1;
+}
+.nx-qbar em {
+  font-style: normal;
+  font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.nx-reward {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.nx-reward span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.nx-reward svg {
+  width: 14px;
+  height: 14px;
+}
+.nx-ach {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(44px, 1fr));
+  gap: 6px;
+}
+.nx-ach button {
+  display: grid;
+  place-items: center;
+  height: 44px;
+  border-radius: 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  font-size: 22px;
+  opacity: 0.35;
+  filter: grayscale(1);
+}
+.nx-ach button.on {
+  opacity: 1;
+  filter: none;
+  border-color: rgba(232, 164, 60, 0.5);
+}
+.nx-ach svg {
+  width: 28px;
+  height: 28px;
+}
+.nx-service {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.nx-confirm.nx-danger {
+  color: var(--bad);
+}
+.nx-lskills {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-variant-numeric: tabular-nums;
+}
+.nx-lskills span {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-weight: 600;
+}
+.nx-lskills svg {
+  width: 12px;
+  height: 12px;
+}

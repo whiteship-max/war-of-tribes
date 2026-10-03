@@ -22,14 +22,11 @@ import { tipAt } from '@/ui/next/tip';
 import { CoatArt } from './Coat';
 import { useRealm, type RealmView } from './open';
 import { Section, useRealmYield } from './RealmMenu';
+import { BRANCH_ICON, BRANCH_WORD } from './branches';
+import { DecreesNew, FaithNew, QuestsNew, RulerNew } from './RealmTabs';
 
-/** Ветви словами словаря (4.4): управление · дипломатия · война. */
-export const BRANCH_WORD: Record<RealmBranch, string> = { admin: 'Управление', diplo: 'Дипломатия', war: 'Война' };
-export const BRANCH_ICON: Record<RealmBranch, { name: string; glyph: string }> = {
-  admin: { name: 'pts-adm', glyph: '📜' },
-  diplo: { name: 'pts-dip', glyph: '🕊️' },
-  war: { name: 'pts-mil', glyph: '⚔️' },
-};
+// Ветви словами словаря и их значки — общие с вкладками (`branches.ts`).
+export { BRANCH_ICON, BRANCH_WORD } from './branches';
 
 /** Вкладки нового меню: пять, значком и словом. Остальные разделы — внизу экрана или в профиле. */
 export const NEW_TABS: readonly { id: RealmView; word: string; icon: string; glyph: string }[] = [
@@ -146,10 +143,31 @@ export function RealmNew() {
         </>
       )}
       <div className="realm-body nx-rbody" ref={body}>
-        {view === 'tech' ? <TechGrid /> : <Section view={view} />}
+        <TabBody view={view} />
       </div>
     </div>
   );
+}
+
+/**
+ * Раздел нового вида: четыре вкладки и технологии — своими компонентами (`RealmTabs.tsx`), профиль и вести — те же,
+ * что у прежнего меню (`Section`).
+ */
+function TabBody({ view }: { view: RealmView }) {
+  switch (view) {
+    case 'tech':
+      return <TechGrid />;
+    case 'lineage':
+      return <RulerNew />;
+    case 'government':
+      return <DecreesNew />;
+    case 'faith':
+      return <FaithNew />;
+    case 'quests':
+      return <QuestsNew />;
+    default:
+      return <Section view={view} />;
+  }
 }
 
 /** Строка очков правителя: три ячейки-справки, тап — приток и потолок. */

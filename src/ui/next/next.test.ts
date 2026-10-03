@@ -228,6 +228,15 @@ describe('цели касания нового вида — не меньше п
       ['.nx-cname-dice', 'height'],
       ['.nx-cname-dice', 'width'],
       ['.nx-rname', 'min-height'],
+      // Вкладки державы: навыки, казна, выбор из трёх, порядок, ячейки наклона, страницы заданий, достижения, «Все».
+      ['.nx-skill', 'min-height'],
+      ['.nx-lcell', 'height'],
+      ['.nx-opt', 'min-height'],
+      ['.nx-orow', 'height'],
+      ['.nx-tgcell', 'min-height'],
+      ['.nx-seg button', 'height'],
+      ['.nx-ach button', 'height'],
+      ['.nx-more', 'height'],
     ];
     for (const [sel, prop] of targets) {
       const v = px(sel, prop);
