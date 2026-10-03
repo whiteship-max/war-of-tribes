@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=390,initial-scale=1">
+<title>После: кузница</title>
+<link rel="stylesheet" href="../assets/phone.css">
+<link rel="stylesheet" href="../assets/after.css">
+<!--
+  Кузница «после» (ui_audit.md, 6.3). Состояние — то же, что у before/building.html: кузница 3 из 10, улучшение стоит
+  1 652 дерева из 2 140 и 1 998 камня из 2 315, 1 274 с; кузнецов 3 из 12, свободных рук 6; в очереди копья 2 из 5,
+  1 140 с; на складе 7 копий и 4 лука; щиты, топоры, мечи и доспехи не изучены (военная ветвь 4, 5, 6, 7).
+  Сроки — по правилу 4.5: 1 274 с → «21 мин», 1 140 с → «19 мин», 450 с → «8 мин», 660 с → «11 мин».
+  Шторка — на той же ступени 62 %, что в «до»; затемнения нет, сцена над шторкой живая.
+  Условно: золото 240. «Племя 6» из «до» стало тревогой «Свободные руки».
+-->
+</head>
+<body class="phone"><script src="../assets/sprite.js"></script><script src="../assets/stubs.js"></script>
+<div class="sys"><span>9:41</span><span class="sys-icons"><i class="sig"></i><i class="wifi"></i><i class="bat"></i></span></div>
+<div class="tgh"><span class="tgh-left">‹ Назад</span><span class="tgh-title"><b>TRIBE</b><small>мини-приложение</small></span><span class="tgh-right"><span>···</span></span></div>
+<div class="webview"><div class="scene village"></div>
+
+  <div class="hud">
+    <div class="hud-top">
+      <div class="coat">
+        <svg class="shield" viewBox="0 0 40 40" aria-hidden="true">
+          <path d="M6 5 H34 V19 C34 28 27 33 20 36 C13 33 6 28 6 19 Z" fill="#e8a43c" stroke="#b07724" stroke-width="2.4" stroke-linejoin="round"/>
+          <path d="M13 11 H16 V13.5 H18.5 V11 H21.5 V13.5 H24 V11 H27 V17 H25.5 V28 H14.5 V17 H13 Z" fill="#241a11"/>
+          <path d="M18 28 V23.5 C18 22 22 22 22 23.5 V28 Z" fill="#e8a43c"/>
+        </svg>
+      </div>
+      <div class="stat"><svg class="ic"><use href="#i-res-gold"/></svg><b>240</b></div>
+      <div class="stat"><svg class="ic"><use href="#i-hud-pop"/></svg><b>55</b><small>/55</small></div>
+      <div class="stat"><svg class="ic"><use href="#i-mood-mid"/></svg><b>58</b></div>
+      <div class="stat"><svg class="ic"><use href="#i-hud-army"/></svg><b>0</b></div>
+      <div class="grow"></div>
+      <div class="stat season">
+        <div class="season-line"><svg class="ic i20"><use href="#i-season-sun"/></svg></div>
+        <div class="prog"><i style="width:75%"></i></div>
+      </div>
+    </div>
+    <div class="res-row">
+      <div class="res"><span class="ri"><svg class="ic"><use href="#i-res-wood"/></svg></span><b>2,1к</b></div>
+      <div class="res"><span class="ri"><svg class="ic"><use href="#i-res-stone"/></svg></span><b>2,3к</b></div>
+      <div class="res"><span class="ri"><svg class="ic"><use href="#i-res-food"/></svg></span><b>1,9к</b></div>
+      <div class="res"><span class="ri"><svg class="ic"><use href="#i-res-hides"/></svg></span><b>312</b></div>
+      <div class="res"><span class="ri"><svg class="ic"><use href="#i-res-bones"/></svg></span><b>248</b></div>
+      <div class="res"><span class="ri"><svg class="ic"><use href="#i-res-copper"/></svg></span><b>96</b></div>
+      <div class="res"><span class="ri"><svg class="ic"><use href="#i-res-iron"/></svg></span><b>41</b></div>
+    </div>
+  </div>
+
+  <div class="alerts">
+    <div class="alert warn"><div class="ring"><svg class="ic i24"><use href="#i-job-idle"/></svg></div><span class="timer">6</span></div>
+  </div>
+
+  <!-- Шторка 62 %: шапка с главным действием, цена, места, очередь, заказ; «Заказать» закреплено внизу -->
+  <div class="sheet" style="height:545px">
+    <div class="grab"><i></i></div>
+    <div class="sh-head">
+      <div class="hico"><svg class="ic i28"><use href="#i-bld-smithy"/></svg></div>
+      <div class="t"><b>Кузница</b><small><span class="num">ур. 3/10</span><span class="lvl-bar"><i style="width:30%"></i></span></small></div>
+      <button class="btn two">Улучшить<small class="num">21 мин</small></button>
+      <div class="x"><svg class="ic i20 not-in-sheet"><use href="#i-ui-close"/></svg></div>
+    </div>
+    <div class="sh-sub">
+      <div class="costs">
+        <span class="cost"><svg class="ic"><use href="#i-res-wood"/></svg><b>1 652</b><span class="have">из 2 140</span></span>
+        <span class="cost"><svg class="ic"><use href="#i-res-stone"/></svg><b>1 998</b><span class="have">из 2 315</span></span>
+      </div>
+      <span class="muted">+4 места</span>
+    </div>
+    <div class="sh-body">
+      <div class="row">
+        <svg class="ic i20"><use href="#i-job-smith"/></svg>
+        <div class="step sm"><button class="w">−10</button><button>−</button><b>3</b><button>+</button><button class="w">+10</button></div>
+        <span class="muted num">/12</span>
+        <div class="t"></div>
+        <span class="chip"><svg class="ic"><use href="#i-job-idle"/></svg>6</span>
+      </div>
+      <div class="row">
+        <svg class="ic i28"><use href="#i-gear-spear"/></svg>
+        <div class="t"><b>Копья <span class="num muted">2/5</span></b><div class="bar"><i style="width:40%"></i></div></div>
+        <span class="due num">19 мин</span>
+        <button class="btn ghost">Отменить</button>
+      </div>
+      <div class="cap">Заказ</div>
+      <div class="row on">
+        <svg class="ic i28"><use href="#i-gear-spear"/></svg>
+        <div class="t"><b>Копья</b><small>на складе 7</small></div>
+        <div class="right">
+          <span class="costs"><span class="cost"><svg class="ic"><use href="#i-res-wood"/></svg><b>4</b></span><span class="cost"><svg class="ic"><use href="#i-res-stone"/></svg><b>3</b></span></span>
+          <small class="muted num">8 мин</small>
+        </div>
+      </div>
+      <div class="row">
+        <svg class="ic i28"><use href="#i-gear-bow"/></svg>
+        <div class="t"><b>Луки</b><small>на складе 4</small></div>
+        <div class="right">
+          <span class="costs"><span class="cost"><svg class="ic"><use href="#i-res-wood"/></svg><b>6</b></span><span class="cost"><svg class="ic"><use href="#i-res-bones"/></svg><b>3</b></span></span>
+          <small class="muted num">11 мин</small>
+        </div>
+      </div>
+      <div class="row lock">
+        <svg class="ic i28"><use href="#i-gear-shield"/></svg>
+        <div class="t"><b>Щиты</b><small class="ln"><svg class="ic not-in-sheet"><use href="#i-ui-lock"/></svg>военная ур. 4</small></div>
+        <span class="link">Изучить ›</span>
+      </div>
+      <div class="row lock">
+        <svg class="ic i28"><use href="#i-gear-axe"/></svg>
+        <div class="t"><b>Топоры</b><small class="ln"><svg class="ic not-in-sheet"><use href="#i-ui-lock"/></svg>военная ур. 5</small></div>
+      </div>
+    </div>
+    <div class="sh-foot">
+      <div class="step sm"><button class="w">−10</button><button>−</button><b>1</b><button>+</button><button class="w">+10</button></div>
+      <button class="btn two" style="flex:1">Заказать<small class="num">8 мин</small></button>
+    </div>
+  </div>
+
+  <nav class="nav">
+    <button><span class="ib"><svg class="ic i28"><use href="#i-ui-hammer"/></svg></span>Стройка</button>
+    <button><span class="ib"><svg class="ic i28"><use href="#i-nav-people"/></svg></span>Племя</button>
+    <button class="main"><span class="ib"><svg class="ic i28"><use href="#i-hud-map"/></svg></span>Карта</button>
+    <button><span class="ib"><svg class="ic i28"><use href="#i-hud-army"/></svg></span>Дружина</button>
+    <button><span class="ib"><svg class="ic i28 not-in-sheet"><use href="#i-ui-mail"/></svg></span>Вести</button>
+  </nav>
+</div>
+<div class="home-ind"></div></body></html>

@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=390,initial-scale=1">
+<title>До: карта мира</title>
+<link rel="stylesheet" href="../../../src/ui/styles.css">
+<link rel="stylesheet" href="../assets/phone.css">
+<style>
+  /*
+   * Подгонка рамки. В styles.css --safe-* объявлены на :root и там же сворачивают var(--tg-*) в число;
+   * .webview задаёт --tg-top / --tg-bottom ниже по дереву, и до --safe-* они не доходят. Здесь те же
+   * выражения объявлены заново на .webview, чтобы вырезы считались от значений рамки (верх 0, низ 34),
+   * как их отдаёт Telegram на телефоне (игра кладёт --tg-* на корень, telegram/webapp.ts). Классы игры
+   * не переопределяются.
+   */
+  .webview {
+    --safe-top: max(env(safe-area-inset-top, 0px), var(--tg-top, 0px));
+    --safe-bottom: max(env(safe-area-inset-bottom, 0px), var(--tg-bottom, 0px));
+    --safe-left: max(env(safe-area-inset-left, 0px), var(--tg-left, 0px));
+    --safe-right: max(env(safe-area-inset-right, 0px), var(--tg-right, 0px));
+  }
+
+  /*
+   * Слой карты (.worldmap) непрозрачен — фон #120e0b, — и подложка .scene под ним не видна. Картинку
+   * карты в игре рисует холст внутри .worldmap; здесь холст показывает тот же снимок тем же видом,
+   * что .scene.map (cover, по центру): .worldmap и .webview — одна и та же коробка 390 × 741.
+   */
+  .worldmap > canvas {
+    background: url('../assets/map.jpg') center / cover no-repeat;
+  }
+
+  /*
+   * Подпись своего города — в игре это fillText на холсте (frame.ts, drawLabel): 11px system-ui,
+   * обводка 3px rgba(10,8,6,.85) под заливкой цвета «Своё» (#e8a43c), по центру клетки, верх строки —
+   * на 1,2 клетки ниже её середины. Середина клетки на подложке — x 195.6, y 426.5; клетка подложки —
+   * 68 px (снимок ближнего масштаба 56, растянутый cover в 1,22 раза), отсюда верх подписи 426.5 + 82.
+   * Лежит в .worldmap сразу за холстом: под шапкой, низом и тревогами, как и холст.
+   */
+  .mock-canvas-label {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 390px;
+    height: 741px;
+    pointer-events: none;
+  }
+</style>
+</head>
+<body class="phone"><script src="../assets/sprite.js"></script>
+<div class="sys"><span>9:41</span><span class="sys-icons"><i class="sig"></i><i class="wifi"></i><i class="bat"></i></span></div>
+<div class="tgh"><span class="tgh-left">Закрыть</span><span class="tgh-title"><b>TRIBE</b><small>мини-приложение</small></span><span class="tgh-right"><span>···</span></span></div>
+<div class="webview"><div class="scene map"></div>
+<div class="app">
+  <!-- GameCanvas: диорама остаётся в DOM и под картой (App.tsx), её цикл кадра стоит. -->
+  <div class="canvas-wrap"></div>
+
+  <!-- WorldMap (mapOpen): TopBar, CheatPanel, SiegeBanner, BottomNav и RealmMenu на карте не рисуются. -->
+  <div class="worldmap">
+    <canvas></canvas>
+    <!-- Подпись на полотне (canvas fillText), см. стиль .mock-canvas-label. -->
+    <svg class="mock-canvas-label" viewBox="0 0 390 741" aria-hidden="true">
+      <text x="195.6" y="508.3" text-anchor="middle" dominant-baseline="text-before-edge"
+            font-family="system-ui, sans-serif" font-size="11"
+            fill="#e8a43c" stroke="rgba(10, 8, 6, 0.85)" stroke-width="3" stroke-linejoin="miter"
+            paint-order="stroke">Безымянный город</text>
+    </svg>
+
+    <div class="wm-top">
+      <button class="wm-btn" aria-label="Закрыть карту">←</button>
+      <div class="wm-coord">
+        <b>1114|972</b>
+        <i>карта мира</i>
+      </div>
+      <!-- FREE_CAMERA и CHEATS_ON у игрока выключены: ни ⌖, ни кнопки скорости. -->
+      <button class="wm-btn" aria-label="Легенда">ℹ️</button>
+    </div>
+
+    <!-- ActionMenu: меню нет — null. -->
+
+    <div class="wm-bottom">
+      <!-- useRoster(): state 'off', why из net/roster.ts (rosterBoot без initData). -->
+      <div class="wm-hint stale">
+        <span>Игра открыта не из Telegram: чужих замков на карте нет.</span>
+      </div>
+    </div>
+
+    <div class="wm-foot">
+      <!-- anchor === 'home' по умолчанию (world/store) — «Домой» подсвечен. -->
+      <button class="wm-btn wide active">🏠 <span>Домой</span></button>
+      <button class="wm-btn wide">⚔️ <span>Походы</span><em>2</em></button>
+      <!-- zoomedIn: modeFor(SCALE_START 44) — «detail» (порог 38) — подзорная труба. -->
+      <button class="wm-btn" aria-label="Сменить масштаб">🔭</button>
+    </div>
+  </div>
+
+  <!-- AlertBar: на карте строка встаёт под шапку (.on-map). Одна тревога — набег, сбор ещё успевает. -->
+  <div class="alerts on-map">
+    <button class="alert raid">
+      <span class="ic"><svg viewBox="0 0 32 32" width="1em" height="1em" style="vertical-align:-0.15em" role="img"><use href="#i-alert-raid"/></svg></span>
+      <span class="txt">Набег: Логово разбойников · 7:10 · сбор ещё&nbsp;3:25</span>
+    </button>
+  </div>
+
+  <!-- Sheet: закрыта, уехала за нижний край (translateY(100%)); тень её всё равно видна у дна. -->
+  <div class="sheet" role="dialog" aria-hidden="true">
+    <div class="sheet-grab">
+      <span class="sheet-handle"></span>
+      <button class="sheet-close" aria-label="Закрыть">✕</button>
+    </div>
+    <div class="sheet-body"></div>
+  </div>
+</div>
+</div>
+<div class="home-ind"></div></body></html>

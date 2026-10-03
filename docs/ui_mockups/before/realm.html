@@ -1,0 +1,144 @@
+<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=390,initial-scale=1"><title>До: держава, «Решения»</title>
+<link rel="stylesheet" href="../../../src/ui/styles.css">
+<link rel="stylesheet" href="../assets/phone.css">
+<style>
+/* Подгонка рамки. В игре --safe-* = max(env(), var(--tg-*)); в рамке --tg-* стоят на .webview,
+   а :root считает --safe-* у себя, где их нет, — поэтому здесь они пересчитаны на месте. */
+.webview { --safe-top: var(--tg-top); --safe-bottom: var(--tg-bottom); }
+</style></head>
+<body class="phone"><script src="../assets/sprite.js"></script>
+<div class="sys"><span>9:41</span><span class="sys-icons"><i class="sig"></i><i class="wifi"></i><i class="bat"></i></span></div>
+<div class="tgh"><span class="tgh-left">Закрыть</span><span class="tgh-title"><b>TRIBE</b><small>мини-приложение</small></span><span class="tgh-right"><span>···</span></span></div>
+<div class="webview"><div class="scene village"></div>
+<div class="app">
+  <!-- GameCanvas — подложка .scene выше. -->
+
+  <!-- TopBar (src/ui/TopBar.tsx): день 33 = 2-й год, осень, середина сезона; невольников нет — ячейки порядка нет. -->
+  <div class="topbar">
+    <div class="hud-bar">
+      <span class="cell" title="День 33, день">
+        <span class="ic"><svg viewBox="0 0 32 32" width="1em" height="1em" style="vertical-align:-0.15em" role="img"><use href="#i-season-sun"/></svg></span>
+        <b>33</b>
+        <i>день</i>
+      </span>
+      <span class="sep"></span>
+      <button class="cell season season-autumn" title="Осень: Жатва и жирный зверь. Успей набить склады — дальше зима. Нажми, чтобы увидеть множители.">
+        <span class="ic"><svg viewBox="0 0 32 32" width="1em" height="1em" style="vertical-align:-0.15em" role="img"><use href="#i-season-autumn"/></svg></span>
+        <i>Осень</i>
+        <span class="season-bar"><span style="width: 52%"></span></span>
+      </button>
+      <span class="sep"></span>
+      <button class="cell tap" title="Население и жильё. Нажми, чтобы увидеть, как считается прирост.">
+        <span class="ic"><svg viewBox="0 0 32 32" width="1em" height="1em" style="vertical-align:-0.15em" role="img"><use href="#i-hud-pop"/></svg></span>
+        <b>74</b>
+        <i>/80</i>
+      </button>
+      <span class="sep"></span>
+      <button class="cell tap" title="Мораль племени. Нажми, чтобы увидеть, что её поднимает и что тянет вниз.">
+        <span class="ic"><svg viewBox="0 0 32 32" width="1em" height="1em" style="vertical-align:-0.15em" role="img"><use href="#i-mood-mid"/></svg></span>
+        <b>64</b>
+      </button>
+      <span class="sep"></span>
+      <button class="cell tap army" title="Дружина. Нажми, чтобы увидеть состав, показатели и карточки войск.">
+        <span class="ic"><svg viewBox="0 0 32 32" width="1em" height="1em" style="vertical-align:-0.15em" role="img"><use href="#i-hud-army"/></svg></span>
+        <b>38</b>
+        <i>дружина</i>
+      </button>
+    </div>
+
+    <!-- ResourceBar: shortNum — до тысячи целиком, дальше «1,2к». Полных складов нет. -->
+    <div class="res-bar">
+      <span class="res" title="Древесина"><svg viewBox="0 0 32 32" width="1em" height="1em" style="vertical-align:-0.15em" role="img"><use href="#i-res-wood"/></svg><b>1,2к</b></span>
+      <span class="res" title="Камень"><svg viewBox="0 0 32 32" width="1em" height="1em" style="vertical-align:-0.15em" role="img"><use href="#i-res-stone"/></svg><b>864</b></span>
+      <span class="res" title="Еда"><svg viewBox="0 0 32 32" width="1em" height="1em" style="vertical-align:-0.15em" role="img"><use href="#i-res-food"/></svg><b>2,3к</b></span>
+      <span class="res" title="Шкуры"><svg viewBox="0 0 32 32" width="1em" height="1em" style="vertical-align:-0.15em" role="img"><use href="#i-res-hides"/></svg><b>214</b></span>
+      <span class="res" title="Кости"><svg viewBox="0 0 32 32" width="1em" height="1em" style="vertical-align:-0.15em" role="img"><use href="#i-res-bones"/></svg><b>188</b></span>
+      <span class="res" title="Медь"><svg viewBox="0 0 32 32" width="1em" height="1em" style="vertical-align:-0.15em" role="img"><use href="#i-res-copper"/></svg><b>96</b></span>
+      <span class="res" title="Железо"><svg viewBox="0 0 32 32" width="1em" height="1em" style="vertical-align:-0.15em" role="img"><use href="#i-res-iron"/></svg><b>57</b></span>
+    </div>
+
+    <!-- Ряд герба и карты — под меню (слой 6 < 19), не виден. -->
+    <div class="top-row">
+      <button class="coat-btn active" data-tut="coat" title="Держава: правительство, стройка, вера, армия, решения и настройки" aria-label="Держава, новых донесений: 3">
+        <svg width="36" height="36" viewBox="0 0 40 40" aria-hidden="true"><path d="M6 5 H34 V19 C34 28 27 33 20 36 C13 33 6 28 6 19 Z" fill="#e8a43c" stroke="#b07724" stroke-width="2.4" stroke-linejoin="round"/><path d="M13 11 H16 V13.5 H18.5 V11 H21.5 V13.5 H24 V11 H27 V17 H25.5 V28 H14.5 V17 H13 Z" fill="#241a11"/><path d="M18 28 V23.5 C18 22 22 22 22 23.5 V28 Z" fill="#e8a43c"/></svg>
+        <span class="coat-badge">3</span>
+      </button>
+      <button class="map-btn" data-tut="nav-map" title="Карта мира: соседи, походы, разведка" aria-label="Карта мира"><svg viewBox="0 0 32 32" width="1em" height="1em" style="vertical-align:-0.15em" role="img"><use href="#i-hud-map"/></svg></button>
+    </div>
+  </div>
+
+  <!-- AlertBar (строка набега, слой 15) и BottomNav (слой 12) стоят под меню державы (слой 19) и не видны. -->
+
+  <!-- RealmMenu (src/ui/realm/RealmMenu.tsx): top — низ .res-bar, ставится скриптом ниже, как в useEffect меню. -->
+  <div class="realm" style="top: 76px;" role="dialog" aria-label="Держава">
+    <div class="realm-head">
+      <svg width="40" height="40" viewBox="0 0 40 40" aria-hidden="true"><path d="M6 5 H34 V19 C34 28 27 33 20 36 C13 33 6 28 6 19 Z" fill="#e8a43c" stroke="#b07724" stroke-width="2.4" stroke-linejoin="round"/><path d="M13 11 H16 V13.5 H18.5 V11 H21.5 V13.5 H24 V11 H27 V17 H25.5 V28 H14.5 V17 H13 Z" fill="#241a11"/><path d="M18 28 V23.5 C18 22 22 22 22 23.5 V28 Z" fill="#e8a43c"/></svg>
+      <div class="realm-title">
+        <b class="one-line">Старый Брод</b>
+        <i class="one-line">Максим</i>
+      </div>
+      <button class="realm-gear" aria-label="Профиль и настройки" title="Профиль и настройки: имя, город, лицо, музыка, где лежит прогресс">⚙️</button>
+      <button class="realm-close" aria-label="Закрыть">✕</button>
+    </div>
+    <div class="tabs realm-tabs">
+      <button class="">🌳 Родословная</button>
+      <button class="">🏛️ Правительство</button>
+      <button class="">🔨 Строительство</button>
+      <button class="">📚 Технологии</button>
+      <button class="active">✉️ Решения<span class="tab-count">3</span></button>
+      <button class=" closed">⚖️ Стабильность</button>
+      <button class="">⛪ Религия</button>
+      <button class="">⚔️ Армия</button>
+      <button class=" closed">👑 Сословия</button>
+    </div>
+    <div class="realm-body">
+      <!-- Mail (src/ui/realm/Mail.tsx): первым — что раньше разрешится само; срок — realDue. -->
+      <div class="panel">
+        <div class="mail-list">
+          <button class="mail-row fresh">
+            <span class="ic"><svg viewBox="0 0 32 32" width="1em" height="1em" style="vertical-align:-0.15em" role="img"><use href="#i-letter-raid"/></svg></span>
+            <span class="txt">
+              <b>На нас идут</b>
+              <small><i class="who">Логово разбойников</i><em>2 ч 47 мин</em></small>
+            </span>
+            <span class="new">новое</span>
+          </button>
+          <button class="mail-row fresh">
+            <span class="ic"><svg viewBox="0 0 32 32" width="1em" height="1em" style="vertical-align:-0.15em" role="img"><use href="#i-evt-wanderers"/></svg></span>
+            <span class="txt">
+              <b>Бродячая артель</b>
+              <small><i class="who">Посёлок</i><em>9 ч 12 мин</em></small>
+            </span>
+            <span class="new">новое</span>
+          </button>
+          <button class="mail-row fresh">
+            <span class="ic"><svg viewBox="0 0 32 32" width="1em" height="1em" style="vertical-align:-0.15em" role="img"><use href="#i-evt-refugees"/></svg></span>
+            <span class="txt">
+              <b>Беженцы у ворот</b>
+              <small><i class="who">Посёлок</i><em>21 ч 05 мин</em></small>
+            </span>
+            <span class="new">новое</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+<script>
+// То же, что делают эффекты RealmMenu при открытии: верх меню — по низу полоски ресурсов
+// (отсчёт от .app — в игре это начало окна), активная вкладка видна в ленте (inline: 'nearest').
+(function () {
+  var app = document.querySelector('.app');
+  var bar = document.querySelector('.res-bar');
+  var realm = document.querySelector('.realm');
+  realm.style.top = Math.ceil(bar.getBoundingClientRect().bottom - app.getBoundingClientRect().top) + 'px';
+  var tabs = document.querySelector('.realm-tabs');
+  var a = tabs.querySelector('.active');
+  var tr = tabs.getBoundingClientRect();
+  var ar = a.getBoundingClientRect();
+  if (ar.right > tr.right) tabs.scrollLeft += ar.right - tr.right;
+  else if (ar.left < tr.left) tabs.scrollLeft -= tr.left - ar.left;
+})();
+</script>
+<div class="home-ind"></div></body></html>
