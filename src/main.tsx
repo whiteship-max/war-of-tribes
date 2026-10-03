@@ -4,6 +4,7 @@ import { App } from './App';
 import { initTelegram } from './telegram/webapp';
 import './ui/styles.css';
 import { bootDone } from './boot/stage';
+import { bootUiMode } from './ui/uimode';
 
 const params = new URLSearchParams(location.search);
 if (params.has('replay')) {
@@ -22,6 +23,8 @@ if (params.has('replay')) {
   });
 } else {
   initTelegram();
+  // Интерфейс: адрес `?ui=new` / `?ui=old` пишет выбор устройства до первого кадра (`ui/uimode.ts`).
+  bootUiMode(location.search);
   const start = (): void =>
     createRoot(document.getElementById('root')!).render(
       <React.StrictMode>

@@ -33,6 +33,11 @@ import { villageMusic } from './sound/web';
 import { probe } from './debug';
 import { CheatPanel } from './ui/CheatPanel';
 import { useRealm } from './ui/realm/open';
+import { useUiNew } from './ui/uimode';
+import { Hud } from './ui/next/Hud';
+import { Alerts } from './ui/next/Alerts';
+import { Nav } from './ui/next/Nav';
+import { TipLayer } from './ui/next/Tip';
 
 /**
  * Предыстория — отдельный чанк, и качается он по нажатию кнопки.
@@ -92,6 +97,8 @@ export function App() {
   const mapOpen = useGame((g) => g.mapOpen);
   const realmOpen = useRealm((r) => r.open);
   const bootWorld = useWorld((g) => g.boot);
+  // Прежний или новый интерфейс (`ui/uimode.ts`): переключение в настройках перерисовывает сразу.
+  const next = useUiNew();
   // Содержимое шторки переживает закрытие, чтобы она не уезжала пустой.
   const [shown, setShown] = useState<SheetView | null>(null);
   /**
@@ -167,7 +174,7 @@ export function App() {
   if (!ready) return null;
 
   return (
-    <div className="app" ref={appRef}>
+    <div className={`app${next ? ' ui-new' : ''}`} ref={appRef}>
       {/* Сцена остаётся в DOM и под картой: её рендер-луп встаёт, но геометрия
           жива, и переход в обе стороны мгновенный. Выгружать её на время карты
           пробовали и откатили — размен памяти на задержку оказался невыгодным,
@@ -177,8 +184,8 @@ export function App() {
           сценами нельзя (подробно — в `prologue/Prologue.tsx`). */}
       {!prologue && <GameCanvas />}
       {mapOpen && <WorldMap />}
-      {!mapOpen && <TopBar />}
-      <AlertBar />
+      {!mapOpen && (next ? <Hud /> : <TopBar />)}
+      {next ? <Alerts /> : <AlertBar />}
       {/* Осада — в правом низу деревни: её не разбирают, из-под неё выходят.
           Письма и события ждут в почте державы («Решения» за гербом). */}
       {/* Кнопка кодов — раньше осады нарочно: по этому порядку стиль и отодвигает
@@ -189,7 +196,7 @@ export function App() {
       <Sheet open={sheet !== null} onClose={closeSheet}>
         {shown && <SheetContent view={shown} />}
       </Sheet>
-      {!mapOpen && <BottomNav />}
+      {!mapOpen && (next ? <Nav /> : <BottomNav />)}
       {!mapOpen && realmOpen && (
         <Suspense fallback={null}>
           <RealmMenu />
@@ -201,6 +208,7 @@ export function App() {
       <PaceModal />
       <TutorialOverlay />
       {toast && <div className="toast">{toast}</div>}
+      {next && <TipLayer />}
       {/* Последним нарочно: до ответа игрока партия не сохраняется никуда, и
           этот вопрос обязан стоять поверх остальных окон. Своего слоя у него
           нет — он просто идёт после них. */}

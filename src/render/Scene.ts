@@ -34,33 +34,105 @@ export interface BuildingView {
 }
 
 const MARKER_GLYPH: Record<Attention, string> = { idle: '💤', order: '⚒️', slot: '👤', upgrade: '⬆️' };
-const markerTextures = new Map<Attention, THREE.Texture>();
+const markerTextures = new Map<string, THREE.Texture>();
+
+/**
+ * Вид значков над крышами. Прежний — эмодзи в янтарном кольце; новый — малый значок листа на тёмной бляхе
+ * с кольцом цвета заботы (docs/ui_audit.md, «Новый интерфейс»: значки над зданиями закрывали город).
+ * Выбирает интерфейс (`ui/GameCanvas` по `ui/uimode`) и отдаёт рисунки значков: сцена про лист значков не знает.
+ */
+export type MarkerLook = 'old' | 'new';
+
+export interface MarkerArt {
+  /** Разметка SVG значка листа по имени; `null` — значка нет (лист не приехал), стоит эмодзи. */
+  svg(name: string): string | null;
+}
+
+let markerLook: MarkerLook = 'old';
+let markerArt: MarkerArt | null = null;
+
+/** Новый вид значков: какой значок листа у какой заботы и каким кольцом обведён. */
+export const MARKER_ICON: Record<Attention, string> = { idle: 'attn-idle', order: 'job-smith', slot: 'attn-slot', upgrade: 'attn-upgrade' };
+export const MARKER_RING: Record<Attention, string> = { idle: '#d0644f', order: '#d9a441', slot: '#d9a441', upgrade: '#9fb85a' };
+
+/** Сменить вид значков. Уже стоящие перерисовывает сцена (`TribeScene.restyleMarkers`). */
+export function setMarkerLook(look: MarkerLook, art: MarkerArt | null): void {
+  markerLook = look;
+  markerArt = art;
+  // Рисунки нового вида зависят от листа значков: приехал лист — бляхи рисуются заново.
+  for (const [key, tex] of markerTextures) {
+    if (!key.startsWith('new:')) continue;
+    tex.dispose();
+    markerTextures.delete(key);
+  }
+}
+
+export const markerLookNow = (): MarkerLook => markerLook;
 
 /** Значок над крышей рисуется в канву: эмодзи читается лучше любой low-poly иконки. */
 function markerTexture(kind: Attention): THREE.Texture {
-  let tex = markerTextures.get(kind);
+  const key = `${markerLook}:${kind}`;
+  let tex = markerTextures.get(key);
   if (tex) return tex;
   const c = document.createElement('canvas');
-  c.width = 128;
-  c.height = 128;
   const ctx = c.getContext('2d');
-  if (ctx) {
-    ctx.fillStyle = 'rgba(26, 20, 16, 0.85)';
-    ctx.beginPath();
-    ctx.arc(64, 64, 52, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = '#e8a43c';
-    ctx.lineWidth = 6;
-    ctx.stroke();
-    ctx.font = '62px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(MARKER_GLYPH[kind], 64, 70);
+  if (markerLook === 'new') {
+    c.width = 64;
+    c.height = 64;
+    tex = new THREE.CanvasTexture(c);
+    if (ctx) plaque(ctx, kind, tex);
+  } else {
+    c.width = 128;
+    c.height = 128;
+    if (ctx) {
+      ctx.fillStyle = 'rgba(26, 20, 16, 0.85)';
+      ctx.beginPath();
+      ctx.arc(64, 64, 52, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#e8a43c';
+      ctx.lineWidth = 6;
+      ctx.stroke();
+      ctx.font = '62px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(MARKER_GLYPH[kind], 64, 70);
+    }
+    tex = new THREE.CanvasTexture(c);
   }
-  tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
-  markerTextures.set(kind, tex);
+  markerTextures.set(key, tex);
   return tex;
+}
+
+/**
+ * Бляха нового вида: тёмный круг, кольцо цвета заботы, в середине значок листа. Значок приезжает картинкой —
+ * до неё стоит эмодзи, потом текстура перерисовывается сама.
+ */
+function plaque(ctx: CanvasRenderingContext2D, kind: Attention, tex: THREE.Texture): void {
+  const base = (): void => {
+    ctx.clearRect(0, 0, 64, 64);
+    ctx.fillStyle = 'rgba(30, 22, 15, 0.9)';
+    ctx.beginPath();
+    ctx.arc(32, 32, 28, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = MARKER_RING[kind];
+    ctx.lineWidth = 4;
+    ctx.stroke();
+  };
+  base();
+  ctx.font = '30px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(MARKER_GLYPH[kind], 32, 35);
+  const svg = markerArt?.svg(MARKER_ICON[kind]) ?? null;
+  if (!svg || typeof Image === 'undefined') return;
+  const img = new Image();
+  img.onload = (): void => {
+    base();
+    ctx.drawImage(img, 13, 13, 38, 38);
+    tex.needsUpdate = true;
+  };
+  img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 }
 
 /**
@@ -1011,6 +1083,15 @@ export abstract class TribeScene {
   abstract setSelected(id: number | null): void;
 
   // ---------- Синхронизация с состоянием ----------
+
+  /** Вид значков сменился (`setMarkerLook`): стоящие значки перерисовываются тем же видом заботы. */
+  restyleMarkers(): void {
+    for (const view of this.buildings.values()) {
+      const kind = view.markerKind;
+      view.markerKind = null;
+      this.setMarker(view, kind);
+    }
+  }
 
   protected setMarker(view: BuildingView, kind: Attention | null): void {
     if (view.markerKind === kind) return;
