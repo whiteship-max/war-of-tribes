@@ -147,7 +147,12 @@ describe('сцена ролика одна — нынешняя', () => {
 
   it('выбора вида у ролика нет — ни в игре, ни в проигрывателе; луг не трогает общих материалов', () => {
     const code = (rel: string): string => stripComments(readFileSync(join(process.cwd(), rel), 'utf8'));
-    expect(code('src/ui/battle/BattleReplay.tsx'), 'игра не выбирает вид ролика').not.toMatch(/\blook\b|sceneGfx/);
+    // Вида сцены у прежнего ролика нет: ни уровня графики (`sceneGfx`), ни прежних видов посёлка. Переключатель
+    // устройства `?battle=tw` (`ui/battle/look.ts`, docs/battle_tw.md, решение 9) выбирает не вид этой сцены, а другой
+    // ролик — и до прежнего проигрывателя он не доходит.
+    const replay = code('src/ui/battle/BattleReplay.tsx');
+    expect(replay, 'игра не выбирает вид сцены ролика').not.toMatch(/sceneGfx|\b(?:now|next)\b/);
+    expect(replay, 'вид не едет в прежний проигрыватель').not.toMatch(/new ReplayPlayer\([^)]*look/);
     expect(code('src/render/battle/player.ts'), 'проигрыватель вида не принимает').not.toMatch(/\blook\b/);
     expect(code('src/render/battle/stage.ts'), 'сцена вида не принимает').not.toMatch(/\blook\b/);
     expect(code('src/render/battle/field.ts'), 'свет — числа города').toMatch(/RIG\.next/);

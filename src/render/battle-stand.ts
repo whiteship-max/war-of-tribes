@@ -18,6 +18,7 @@
 //   &at=volley|clash|charge|rout — моменты действия, найденные в журнале
 //   &snap=имя отправить кадр на dev-сервер (POST /__snap → snaps/имя.png)
 //   &dpr=2    плотность пикселей снимка;  &speed=2 быстрее реального времени
+//   &ground=0 бой без штрафа места (по умолчанию нападающему — как у мира: лес, холмы, гребень, переправа)
 //   &beasts=1 к воротам пришла стая: `foe` волков (лёгкая конница ядра, как `LocalWorld.gateParty`)
 //             нападает, `men` наших защищаются; волки одеты псовыми (docs/graphics_world.md, 11.4)
 //
@@ -25,7 +26,7 @@
 // инструмент проверки, которому сама канва недоступна.
 import * as THREE from 'three';
 import { simulateBattle } from '@/battle/sim';
-import { deploySetup, emptyStack } from '@/battle/setup';
+import { deploySetup, emptyStack, stackTotal } from '@/battle/setup';
 import type { Act, Cast } from '@/battle/replay';
 import { castOfRecord } from '@/game/battle/cast';
 import { troopsOfKinds } from '@/game/battle/faces';
@@ -33,7 +34,7 @@ import { groundName, hourName, type BattleLand, type BattlePlace } from '@/game/
 import { DAY_LENGTH } from '@/game/constants';
 import { type TroopStack } from '@/game/battle/kinds';
 import { kindsOf } from '@/game/battle/price';
-import type { BattleResult, Side, Stack } from '@/battle/types';
+import type { BattleResult, GroundPenalty, Side, Stack } from '@/battle/types';
 import { configureRenderer } from './lighting';
 import { ReplayPlayer } from './battle/player';
 import { nextFrame, pixelRatio } from './loop';
@@ -43,7 +44,7 @@ import { nextFrame, pixelRatio } from './loop';
  * Виды настоящие и разные — стенд обязан показывать то же, что игра, а на
  * близком плане ровно это и проверяется: видно, кого собрал.
  */
-function armyOf(men: number): TroopStack {
+export function armyOf(men: number): TroopStack {
   const part = (k: number): number => Math.max(0, Math.round(men * k));
   return {
     spearman: part(0.25),
@@ -79,9 +80,32 @@ function placeOf(p: URLSearchParams): BattlePlace | undefined {
   return place;
 }
 
-function fight(a: Stack, d: Stack, seed: number): BattleResult {
-  // Обе стороны встают по правилу развёртывания — как в игре: пресетов больше нет (docs/battle_eu4.md, 14.5).
-  return simulateBattle({ seed, attacker: deploySetup(a), defender: deploySetup(d) });
+/**
+ * Штраф места нападающему — как его кладёт мир (`world/place.groundAt`, таблица EU4): лес и холмы −1, гребень −2,
+ * переправа −1. Числа здесь, а не импортом: таблица мира живёт в куске первой загрузки, и ленивый стенд вытянул бы
+ * её наружу лишним именем; что они те же, сверяет тест (`tw/plan.test.ts`). `&ground=0` — бой без штрафа.
+ */
+export const STAND_GROUND = { land: 1, ridge: 2, crossing: 1 } as const;
+
+export function standGround(place: BattlePlace | undefined): GroundPenalty | undefined {
+  if (!place) return undefined;
+  let land = place.land === 'hills' || place.woods ? STAND_GROUND.land : 0;
+  if (place.ridge) land = Math.max(land, STAND_GROUND.ridge);
+  const crossing = place.river ? STAND_GROUND.crossing : 0;
+  const out: GroundPenalty = {};
+  if (land > 0) out.land = land;
+  if (crossing > 0) out.crossing = crossing;
+  return land > 0 || crossing > 0 ? out : undefined;
+}
+
+function fight(a: Stack, d: Stack, seed: number, ground?: GroundPenalty, garrison?: Stack): BattleResult {
+  // Обе стороны встают по правилу развёртывания — как в игре: пресетов больше нет (docs/battle_eu4.md, 14.5). Штраф
+  // места — только нападающему, как у мира (`world/battle.resolveField`). Кто из ворот (совместный удар) — наблюдение ядра.
+  return simulateBattle({
+    seed,
+    attacker: { ...deploySetup(a), ...(ground ? { ground } : {}), ...(garrison ? { garrison } : {}) },
+    defender: deploySetup(d),
+  });
 }
 
 /** Именованные моменты ролика: по ним снимают кадры приёмки. */
@@ -129,7 +153,70 @@ function moment(cast: Cast, at: string): number {
   }
 }
 
+/** Бой стенда из адреса: состав, место и час — тем же путём, что в игре. Его же берёт стенд ролика TW (`tw/stand.ts`). */
+export interface StandBattle {
+  men: number;
+  foe: number;
+  seed: number;
+  beasts: boolean;
+  us: Side;
+  result: BattleResult;
+  troops: Record<Side, TroopStack>;
+  place: BattlePlace | undefined;
+  /** Чья сторона — стая (`BattleRecord.beasts`). */
+  beastSide: Side | undefined;
+  /** Место боя (`BattleRecord.site`, ролик TW): `&site=wall|gate|sortie|camp|joint|lair`. */
+  site: string | undefined;
+  /** Ополчение у своих ворот (`BattleRecord.militia`): на штурме стены и у ворот — как `gateField` мира. */
+  militia: Record<Side, { men: number; archers: number }> | undefined;
+}
+
+export function standBattle(p: URLSearchParams): StandBattle {
+  const men = Number(p.get('men') ?? 200);
+  const foe = Number(p.get('foe') ?? men);
+  const seed = Number(p.get('seed') ?? 7);
+  const beasts = p.get('beasts') === '1';
+  const us = (p.get('us') as Side) ?? (beasts ? 'defender' : 'attacker');
+  const mine = armyOf(men);
+  const theirs = p.get('foeKinds') === '1' ? null : armyOf(foe);
+  const place = placeOf(p);
+  const ground = p.get('ground') === '0' ? undefined : standGround(place);
+  const site = p.get('site') ?? undefined;
+  // У своих ворот и на стене к гарнизону встаёт ополчение — жители, частокол и башня (`gateField` мира).
+  const home = site === 'wall' || site === 'gate';
+  const militiaMen = home ? Number(p.get('militia') ?? Math.round(men * 0.4)) : 0;
+  const militiaArchers = home ? Math.min(militiaMen, Number(p.get('archers') ?? Math.round(militiaMen / 3))) : 0;
+  const militia = home ? { attacker: { men: 0, archers: 0 }, defender: { men: militiaMen, archers: militiaArchers } } : undefined;
+  const withMilitia = (k: Stack): Stack => ({ ...k, infantry: k.infantry + militiaMen - militiaArchers, archer: k.archer + militiaArchers });
+  if (beasts) {
+    // Стая у ворот — как в игре: волки нападают лёгкой конницей без снаряжения, состава племени у них нет, и
+    // запись боя несёт только их сторону (`BattleRecord.beasts`).
+    const result = fight({ ...emptyStack(), cavalry: foe }, withMilitia(kindsOf(mine)), seed, ground);
+    return { men, foe, seed, beasts, us, result, troops: { attacker: {}, defender: mine }, place, beastSide: 'attacker', site, militia };
+  }
+  if (home) {
+    // Штурм стены и бой у ворот: пришедшие нападают, мы обороняем — `men` наш гарнизон, `foe` пришедшие.
+    const raiders = theirs ?? armyOf(foe);
+    const result = fight(kindsOf(raiders), withMilitia(kindsOf(mine)), seed, ground);
+    return { men, foe, seed, beasts, us: 'defender', result, troops: { attacker: raiders, defender: mine }, place, beastSide: undefined, site, militia };
+  }
+  // Совместный удар: часть наших вышла из ворот — `&garrison=` бойцов (по умолчанию 40 %), в той же доле каждого рода, как
+  // мир отдаёт ядру прошедший гарнизон (`LocalWorld.campBattle`).
+  const ours = kindsOf(mine);
+  const share = site === 'joint' ? Math.max(0, Math.min(1, Number(p.get('garrison') ?? Math.round(men * 0.4)) / Math.max(1, stackTotal(ours)))) : 0;
+  const garrison = share > 0 ? (Object.fromEntries(Object.entries(ours).map(([k, n]) => [k, Math.round(n * share)])) as Stack) : undefined;
+  const result = fight(ours, theirs ? kindsOf(theirs) : { ...emptyStack(), infantry: foe }, seed, ground, garrison);
+  // Чужой состав — как в игре: из родов и ступени снаряжения (`foeKinds=1` показывает именно этот путь, а не поимённый).
+  const foeTroops = theirs ?? troopsOfKinds(result.sides.defender.initial, { infantry: 3 });
+  return { men, foe, seed, beasts, us, result, troops: { attacker: mine, defender: foeTroops }, place, beastSide: undefined, site, militia: undefined };
+}
+
 export function mountReplayStand(p: URLSearchParams): void {
+  if (p.get('replay') === 'tw') {
+    // Ролик в стиле Total War — свой кусок (docs/battle_tw.md): в прежний стенд он не едет.
+    void import('./tw/stand').then((m) => m.mountTwStand(p));
+    return;
+  }
   const root = document.getElementById('root') ?? document.body;
   root.innerHTML = '';
   const canvas = document.createElement('canvas');
@@ -143,27 +230,9 @@ export function mountReplayStand(p: URLSearchParams): void {
   if (p.get('clean') === '1') caption.style.display = 'none';
   root.appendChild(caption);
 
-  const men = Number(p.get('men') ?? 200);
-  const foe = Number(p.get('foe') ?? men);
-  const seed = Number(p.get('seed') ?? 7);
-  const beasts = p.get('beasts') === '1';
-  const us = (p.get('us') as Side) ?? (beasts ? 'defender' : 'attacker');
-  const mine = armyOf(men);
-  const theirs = p.get('foeKinds') === '1' ? null : armyOf(foe);
-  let cast: Cast;
-  let result: BattleResult;
-  if (beasts) {
-    // Стая у ворот — как в игре: волки нападают лёгкой конницей без снаряжения, состава племени у них нет, и
-    // запись боя несёт только их сторону (`BattleRecord.beasts`).
-    result = fight({ ...emptyStack(), cavalry: foe }, kindsOf(mine), seed);
-    cast = castOfRecord(result, us, { attacker: {}, defender: mine }, undefined, placeOf(p), 'attacker');
-  } else {
-    result = fight(kindsOf(mine), theirs ? kindsOf(theirs) : { ...emptyStack(), infantry: foe }, seed);
-    // Чужой состав — как в игре: из родов и ступени снаряжения (`foeKinds=1`
-    // показывает именно этот путь, а не поимённый).
-    const foeTroops = theirs ?? troopsOfKinds(result.sides.defender.initial, { infantry: 3 });
-    cast = castOfRecord(result, us, { attacker: mine, defender: foeTroops }, undefined, placeOf(p));
-  }
+  const battle = standBattle(p);
+  const { men, foe, seed, beasts, us, result } = battle;
+  const cast: Cast = castOfRecord(result, us, battle.troops, undefined, battle.place, battle.beastSide);
 
   const renderer = new THREE.WebGLRenderer({
     canvas,

@@ -444,6 +444,44 @@ describe('детерминированность', () => {
     expect(JSON.stringify(input)).toBe(snapshot);
   });
 
+  it('наблюдение для показа не меняет исход: бои решётки составов совпадают до бита', () => {
+    // Ход групп в обход и мораль сторон к концу фазы (`BattleResult.moves`, `PhaseSpan.morale`) — наблюдение для ролика
+    // TW (docs/battle_tw.md, раздел 4): ядро их только пишет. Бой с наблюдением и без него — один бой до бита, кроме
+    // самих полей наблюдения. Набор — решётка составов (`compositionLattice`) парами со сдвигом, на W и на 2W, по два
+    // сида: на 2W у армий есть резерв и излишек строя.
+    const armies = compositionLattice();
+    const strip = (r: BattleResult): string => {
+      const { moves: _moves, ...rest } = r;
+      return JSON.stringify({ ...rest, phases: rest.phases.map(({ morale: _m, ...p }) => p) });
+    };
+    let compared = 0;
+    let moved = 0;
+    for (const total of [ARMY_SIZE, 2 * ARMY_AT_W]) {
+      for (let i = 0; i < armies.length; i += 2) {
+        const j = (i * 7 + 3) % armies.length;
+        for (const seed of [11, 12]) {
+          const input = { seed, attacker: deploySetup(scaleArmy(armies[i], total)), defender: deploySetup(scaleArmy(armies[j], total)) };
+          const seen = simulateBattle(input);
+          const blind = simulateBattle(input, { observe: false });
+          expect('moves' in blind, 'без наблюдения ходов нет').toBe(false);
+          expect(blind.phases.some((p) => 'morale' in p), 'без наблюдения морали фаз нет').toBe(false);
+          expect(strip(seen), `${compositionName(armies[i])} против ${compositionName(armies[j])}, ${total}, сид ${seed}`).toBe(JSON.stringify(blind));
+          // Наблюдение есть и осмысленно: мораль — у каждой фазы, ход — из полосы в другую, людей у хода больше нуля.
+          expect(seen.phases.every((p) => p.morale && p.morale.attacker >= 0 && p.morale.defender <= 100)).toBe(true);
+          for (const m of seen.moves ?? []) {
+            expect(m.from, 'ход из полосы в другую').not.toBe(m.to);
+            expect(Object.values(m.men).reduce((n, v) => n + (v ?? 0), 0)).toBeGreaterThan(0);
+          }
+          compared += 1;
+          if ((seen.moves ?? []).length > 0) moved += 1;
+        }
+      }
+    }
+    // Граница области: правило проверено на боях, где группы и правда уходили в обход, — без них сравнение зелёное даром.
+    expect(compared).toBeGreaterThan(100);
+    expect(moved, 'боёв с ходом в обход').toBeGreaterThan(compared / 4);
+  }, 120_000);
+
   it('другой сид меняет ход боя, но не его форму', () => {
     const a = simulateBattle({ seed: 1, attacker: deploySetup(BALANCED_ARMY), defender: COMPOSITIONS[5].setup });
     const b = simulateBattle({ seed: 2, attacker: deploySetup(BALANCED_ARMY), defender: COMPOSITIONS[5].setup });

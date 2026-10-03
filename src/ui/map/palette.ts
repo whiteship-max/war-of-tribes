@@ -4,6 +4,7 @@
 // по путям и заливкам: чтобы город стал холоднее, правится одна таблица.
 // Цвета намеренно приглушённые и землистые: на них должен читаться флаг
 // отношения, а он берётся из RELATION_META и в эту таблицу не входит.
+import { SIDE_COLOR, sideRgba, sideShade } from '@/side';
 
 /** Площадка голой земли, на которой стоит поселение. */
 export const EARTH = {
@@ -120,11 +121,11 @@ export const SACKED = {
  * Свой посёлок подсвечен тёплым: это единственная точка, которую ищут глазами.
  * Свечение идёт **кольцом вокруг двора**, а не пятном поверх него (`village.ts`),
  * поэтому оно и плотнее прежнего: узкой полосе можно то, чего нельзя пятну в два
- * радиуса, — быть заметной, ничего собой не закрывая.
+ * радиуса, — быть заметной, ничего собой не закрывая. Тёплое — цвет своей стороны (`side.ts`).
  */
 export const OWN = {
-  glow: 'rgba(236, 172, 68, 0.34)',
-  glowOut: 'rgba(232, 164, 60, 0)',
+  glow: sideRgba(true, 0.34),
+  glowOut: sideRgba(true, 0),
   rim: 'rgba(246, 224, 178, 0.85)',
 };
 
@@ -153,8 +154,9 @@ export const GRID = {
  * ответить на это надо с одного взгляда. Поэтому сторону несут и плащ, и вымпел
  * разом; различает отряды силуэт — число фигур, знамя, шатры, — а не оттенок.
  *
- * Оба набора взяты от `RELATION_META` (`self` и `enemy`) и приглушены до
- * землистой карты: чистый цвет отношения на пашне звенит.
+ * Плащ обоих наборов — цвет стороны (`side.ts`: золото и красный, те же, что у
+ * `RELATION_META` `self` и `enemy`, в бою и в отчёте), тень плаща выведена из него
+ * же (`sideShade`); остальное приглушено до землистой карты.
  */
 export interface PartyPalette {
   /** Плащ и вымпел: самая большая плоскость бойца — она и говорит, чей он. */
@@ -187,8 +189,8 @@ export interface PartyPalette {
 }
 
 export const PARTY_OWN: PartyPalette = {
-  cloth: '#e8a43c',
-  clothDark: '#b07724',
+  cloth: SIDE_COLOR.ours,
+  clothDark: sideShade(true),
   steel: '#a99e88',
   tip: '#8a8272',
   shaft: '#5b4529',
@@ -203,8 +205,8 @@ export const PARTY_OWN: PartyPalette = {
 };
 
 export const PARTY_FOE: PartyPalette = {
-  cloth: '#e06b5a',
-  clothDark: '#a94a3c',
+  cloth: SIDE_COLOR.foe,
+  clothDark: sideShade(false),
   steel: '#a49a86',
   tip: '#867d6e',
   shaft: '#4f3a24',
@@ -247,7 +249,7 @@ export const SIEGE_WORKS = {
  */
 export const FELL_MARK = {
   plate: 'rgba(24, 16, 12, 0.88)',
-  stripe: '#e06b5a',
+  stripe: SIDE_COLOR.foe,
   glyph: '#f0dcc0',
   glyphDark: '#8a5a3c',
   flame: '#f08a3c',

@@ -6,6 +6,7 @@
 // соседа — чистая функция от отношения, характера и зерна, и её место потом
 // займёт решение живого человека. Поэтому здесь нет ни одной величины, которая
 // имела бы смысл только «потому что соседом управляем мы сами».
+import { SIDE_COLOR } from '../../side';
 import type { DiploActionId, Standing, TemperId } from '../types';
 import {
   ORDER_BUSY_GIFT,
@@ -144,7 +145,8 @@ export const STANDING_META: Record<Standing, StandingDef> = {
     name: 'Война',
     icon: '⚔️',
     note: 'Они целятся в нас, а не в других: набеги отсюда идут чаще.',
-    color: '#e06b5a',
+    // Война — это враг: цвет стороны врага (`side.ts`), тот же, что у врагов на карте и в бою.
+    color: SIDE_COLOR.foe,
   },
 };
 

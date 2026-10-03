@@ -5,10 +5,10 @@ import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 import { CANINE_NECK, WOLF_DARK, WOLF_SIZE, darker, dressCanine, poseCanine, wolfLook, type CanineAction } from './beasts';
 import { Figure, PARTS, figureBox } from './figures';
-import { PALETTE } from './palette';
+import { sidePaint } from '@/side';
 
 const ACTIONS: CanineAction[] = ['stand', 'trot', 'crouch', 'lunge', 'fall'];
-const WOLF = wolfLook(PALETTE.paintRed);
+const WOLF = wolfLook(sidePaint(false));
 
 describe('псовые', () => {
   it('волк — четвероногий из примитивов пула, хвост поленом', () => {
@@ -49,7 +49,7 @@ describe('псовые', () => {
   });
 
   it('волк ролика — весь в цвете своей стороны: шерсть — цвет стороны, тёмное — он же темнее', () => {
-    const sides = [PALETTE.paintBlue, PALETTE.paintRed];
+    const sides = [sidePaint(true), sidePaint(false)];
     for (const cloth of sides) {
       const f = new Figure();
       dressCanine(f, wolfLook(cloth));
@@ -62,7 +62,7 @@ describe('псовые', () => {
         expect((dark >> shift) & 255, `канал ${shift}`).toBe(Math.round(c * WOLF_DARK));
       }
     }
-    expect(darker(PALETTE.paintBlue, WOLF_DARK)).not.toBe(darker(PALETTE.paintRed, WOLF_DARK));
+    expect(darker(sidePaint(true), WOLF_DARK)).not.toBe(darker(sidePaint(false), WOLF_DARK));
   });
 
   it('стоит на земле: лапы у нуля, голова выше спины спереди', () => {

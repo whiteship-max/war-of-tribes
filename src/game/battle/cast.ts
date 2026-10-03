@@ -26,13 +26,27 @@ export function castOfRecord(
   place?: BattlePlace,
   beasts?: Side,
 ): Cast {
+  // Земля и свет — тем же ходом, что и состав: из записи боя чистой функцией.
+  // Места нет (старая запись) — ровное поле в полдень, но со своим сидом.
+  return buildCast(result, us, facesOfRecord(result, troops, militia, beasts), groundOf(place, result.seed));
+}
+
+/**
+ * Метки сторон из записи боя — одна дверь для обоих роликов: прежнего (`castOfRecord`) и ролика в стиле Total War
+ * (`render/tw`), которому нужны люди по видам, а не только фигуры раскадровки. Два способа сложить метки
+ * разошлись бы ровно на стае и ополчении.
+ */
+export function facesOfRecord(
+  result: BattleResult,
+  troops: Record<Side, TroopStack>,
+  militia?: Record<Side, { men: number; archers: number }>,
+  beasts?: Side,
+): Record<Side, Face[]> {
   const side = (id: Side): Face[] =>
     id === beasts
       ? beastFaces(result.sides[id].initial)
       : facesOf({ troops: troops[id] ?? {}, militia: militia?.[id]?.men, militiaArchers: militia?.[id]?.archers });
-  // Земля и свет — тем же ходом, что и состав: из записи боя чистой функцией.
-  // Места нет (старая запись) — ровное поле в полдень, но со своим сидом.
-  return buildCast(result, us, { attacker: side('attacker'), defender: side('defender') }, groundOf(place, result.seed));
+  return { attacker: side('attacker'), defender: side('defender') };
 }
 
 /** Стая по родам ядра: каждый род, что вышел, — метка зверя с тем же числом бойцов. */

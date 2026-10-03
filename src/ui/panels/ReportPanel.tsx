@@ -6,7 +6,7 @@
 // доступен повторно: раз кадры выводятся из журнала, повтор ничего не стоит и
 // обязан совпасть с первым показом до кадра. Журнал по фазам остаётся под
 // кнопками: ролик показывает, текст объясняет.
-import { useEffect, useMemo, useState, type ComponentType } from 'react';
+import { useEffect, useMemo, useState, type CSSProperties, type ComponentType } from 'react';
 import { createPortal } from 'react-dom';
 import { useGame } from '@/game/store';
 import { useWorld } from '@/world/store';
@@ -19,29 +19,16 @@ import {
 import { setBattleWatch } from '@/game/battle/actions';
 import { beastSummary, beastWords } from '@/game/battle/beasts';
 import { battleMusic } from '@/sound/web';
-import { RESOURCE_IDS, RESOURCE_META } from '@/game/constants';
 import { fallenText } from '@/game/sim/expedition';
-import { UNITS } from '@/world/data/units';
 import { formatCoord } from '@/world/geo';
-import type { BattleRecord, Loot, Report, UnitStack } from '@/world/types';
+import type { BattleRecord, Report } from '@/world/types';
+import { lootText, unitsText } from '@/ui/parts/reportWords';
 import { Icon } from '@/ui/icons/Icon';
+import { SIDE_VARS } from '@/side';
 
 /** Силы несопоставимы — смотреть нечего: мгновенный итог по умолчанию. */
 export const LOPSIDED = 3;
 
-const unitsText = (units: UnitStack): string =>
-  UNITS.filter((u) => (units[u.id] ?? 0) > 0)
-    .map((u) => `${u.icon} ${units[u.id]}`)
-    .join(' · ') || '—';
-
-const lootText = (loot: Loot | null): string => {
-  if (!loot) return '';
-  const parts = RESOURCE_IDS.filter((r) => loot[r]).map(
-    (r) => `${RESOURCE_META[r].icon} ${Math.abs(loot[r] as number)}`,
-  );
-  if (loot.gold) parts.push(`💰 ${Math.abs(loot.gold)}`);
-  return parts.join(' · ');
-};
 
 /** Насколько силы были несопоставимы: отношение большей стороны к меньшей. */
 export function lopsidedness(rec: BattleRecord): number {
@@ -53,7 +40,10 @@ export function lopsidedness(rec: BattleRecord): number {
 
 const other = (side: Side): Side => (side === 'attacker' ? 'defender' : 'attacker');
 
-type ReplayProps = { rec: BattleRecord; onDone: () => void };
+/** Журнал боя метит строки цветом стороны: наши — золотом, чужие — красным (одна дверь, `side.ts`; `.bl-line`). */
+const SIDES_STYLE = SIDE_VARS as CSSProperties;
+
+type ReplayProps = { rec: BattleRecord; report?: Report; onDone: () => void };
 
 /**
  * Ролик о бое едет отдельным куском и только по «Смотреть бой».
@@ -74,7 +64,7 @@ type ReplayProps = { rec: BattleRecord; onDone: () => void };
  */
 const loadReplay = () => import('@/ui/battle/BattleReplay');
 
-function Replay({ rec, onDone }: ReplayProps) {
+function Replay({ rec, report, onDone }: ReplayProps) {
   const [play, setPlay] = useState<ComponentType<ReplayProps> | 'wait' | 'lost'>('wait');
   useEffect(() => {
     let live = true;
@@ -88,7 +78,7 @@ function Replay({ rec, onDone }: ReplayProps) {
   }, []);
   if (typeof play !== 'string') {
     const Play = play;
-    return <Play rec={rec} onDone={onDone} />;
+    return <Play rec={rec} report={report} onDone={onDone} />;
   }
   return createPortal(
     <div className="replay">
@@ -120,7 +110,7 @@ function Journal({ rec }: { rec: BattleRecord }) {
   );
 
   return (
-    <div className="bl">
+    <div className="bl" style={SIDES_STYLE}>
       {rec.result.phases.map((span, i) => {
         const events = bySpan[i];
         const ours = Math.round(span.losses[rec.us]);
@@ -140,7 +130,7 @@ function Journal({ rec }: { rec: BattleRecord }) {
               <div className="bl-line muted">без событий</div>
             ) : (
               events.map((e, i) => (
-                <div className={`bl-line${'side' in e && e.side === rec.us ? ' mine' : ''}`} key={i}>
+                <div className={`bl-line${'side' in e ? (e.side === rec.us ? ' mine' : ' foe') : ''}`} key={i}>
                   {beastWords(describeEvent(e, rec.us), rec.beasts, rec.us)}
                 </div>
               ))
@@ -217,7 +207,7 @@ export function ReportPanel({ id }: { id: string }) {
             </button>
           </div>
           {playing && (
-            <Replay key={report.id} rec={rec} onDone={() => setPlaying(false)} />
+            <Replay key={report.id} rec={rec} report={report} onDone={() => setPlaying(false)} />
           )}
           {lopsided && !watch && (
             <p className="note">
@@ -284,12 +274,12 @@ export function ReportBody({ report }: { report: Report }) {
           </p>
 
           <h3>Почему так вышло</h3>
-          <div className="bl">
+          <div className="bl" style={SIDES_STYLE}>
             {sum.keys.length === 0 ? (
               <div className="bl-line muted">Ничего решающего не случилось — перемололи друг друга.</div>
             ) : (
               sum.keys.map((k, i) => (
-                <div className={`bl-line${k.good ? ' mine' : ' foe'}`} key={i}>
+                <div className={`bl-line${k.good ? ' good' : ' bad'}`} key={i}>
                   <Icon name={k.art} glyph={k.icon} /> {k.text}
                 </div>
               ))

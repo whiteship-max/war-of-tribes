@@ -21,6 +21,30 @@ export function armyTotal(setup: ArmySetup): Stack {
   return out;
 }
 
+/**
+ * Какая часть каждого сектора — гарнизон (`ArmySetup.garrison`): гарнизон каждого рода делится между секторами в доле
+ * того, сколько этого рода стоит в каждом, накопленным округлением в порядке секторов — у сектора не больше, чем там
+ * стоит, у рода — весь гарнизон. Гарнизона больше, чем рода в армии, не бывает: лишнее отброшено. Расстановка от этого не
+ * зависит: это наблюдение для показа (ролик выводит вышедших из ворот), а не вход боя.
+ */
+export function garrisonShare(sectors: Record<Sector, Stack>, garrison: Partial<Stack>): Record<Sector, Stack> {
+  const out = emptySectors();
+  for (const k of UNIT_KINDS) {
+    const total = SECTORS.reduce((n, id) => n + sectors[id][k], 0);
+    const g = Math.min(total, Math.max(0, Math.round(garrison[k] ?? 0)));
+    if (g <= 0) continue;
+    let cum = 0;
+    let given = 0;
+    for (const id of SECTORS) {
+      cum += sectors[id][k];
+      const upTo = Math.round((g * cum) / total);
+      out[id][k] = upTo - given;
+      given = upTo;
+    }
+  }
+  return out;
+}
+
 // ---------- Правило развёртывания ----------
 //
 // Одно на всех, кто входит в бой (docs/battle_eu4.md, 14.5; решение владельца 27.09.2026 — ответ 2 в

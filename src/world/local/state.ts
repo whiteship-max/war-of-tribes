@@ -682,10 +682,24 @@ const WORLD_DROPPED = ['frozenDefense'] as const;
  * на записи. `start` — мораль, с которой сектор встал в бой (`SideResult.sectors[].start`): она есть в результате боя
  * (по ней тест обряда видит, что прибавка одна и та же против любого состава), а читать её из сохранения некому, и
  * записи мира от неё только росли бы (слово владельца, поставка 5, docs/battle_eu4.md, 14.34).
+ * `garrison` — кто из стоявших в секторе вышел из ворот в совместный удар (`SideResult.sectors[].garrison`): наблюдение
+ * для ролика TW (docs/battle_tw.md, раздел 13), как `moves`. Ролик берёт его из записи, пока она в памяти; прочитанная из
+ * сохранения запись показывает совместный удар одной армией, как записи, посчитанные раньше (слово владельца 03.10.2026:
+ * в сохранение не писать, версию не поднимать).
  */
-export const SECTOR_UNSAVED = ['start'] as const;
+export const SECTOR_UNSAVED = ['start', 'garrison'] as const;
 
-/** Строка сохранения мира: всё, что мир держит, без полей записи боя, которые не пишутся (`SECTOR_UNSAVED`). */
+/**
+ * То же на итоге боя целиком. `moves` — кто уходил в обход, откуда и куда (`BattleResult.moves`): наблюдение для ролика
+ * TW, которое ядро пишет в результат боя (docs/battle_tw.md, раздел 4). Ролик берёт его из записи, пока она в памяти, а
+ * прочитанная из сохранения запись показывает обход по журналу, как записи, посчитанные раньше: десятки строк на бой в
+ * каждой из тридцати записей мира (`REPORTS_KEPT`) — цена, которую сохранение платило бы за одно украшение показа.
+ * Мораль к концу фазы (`PhaseSpan.morale`) пишется: два числа на фазу, и по ней полоса ролика ведёт мораль армий и
+ * после перезапуска.
+ */
+export const RESULT_UNSAVED = ['moves'] as const;
+
+/** Строка сохранения мира: всё, что мир держит, без полей записи боя, которые не пишутся (`SECTOR_UNSAVED`, `RESULT_UNSAVED`). */
 export function worldSaveJson(save: WorldSave): string {
   const reports = save.reports.map((r) => {
     if (!r.battle) return r;
@@ -701,7 +715,9 @@ export function worldSaveJson(save: WorldSave): string {
         return [side, { ...res, sectors }];
       }),
     );
-    return { ...r, battle: { ...r.battle, result: { ...r.battle.result, sides } } };
+    const result: Record<string, unknown> = { ...r.battle.result, sides };
+    for (const key of RESULT_UNSAVED) delete result[key];
+    return { ...r, battle: { ...r.battle, result } };
   });
   return JSON.stringify({ ...save, reports });
 }

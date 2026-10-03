@@ -34,7 +34,7 @@ import {
   roundsCap,
 } from './config';
 import { seededRng, type Rng } from './rng';
-import { emptyStack, reinforceInto, stackTotal, validateSetup } from './setup';
+import { emptyStack, garrisonShare, reinforceInto, stackTotal, validateSetup } from './setup';
 import {
   FRONT,
   HORSE_KINDS,
@@ -47,6 +47,7 @@ import {
   type BattleInput,
   type BattleResult,
   type EventBody,
+  type GroupMove,
   type Lane,
   type PhaseId,
   type PhaseSpan,
@@ -387,8 +388,17 @@ class Battle {
   passed: Partial<Record<PipId, number>> = {};
   winner: Winner | null = null;
   reason: ResultReason = 'draw';
+  /**
+   * Наблюдение для показа: кто уходил в обход (`BattleResult.moves`), мораль сторон к концу фазы (`PhaseSpan.morale`) и кто
+   * из ворот (`SideResult.sectors[].garrison`). Ядро его не читает — только пишет; `observe` выключает запись ради теста
+   * «наблюдение не меняет исход».
+   */
+  private moved = new Map<string, GroupMove>();
 
-  constructor(readonly input: BattleInput) {
+  constructor(
+    readonly input: BattleInput,
+    readonly observe = true,
+  ) {
     this.rng = seededRng(input.seed);
     // Своя ширина боя главнее; без неё — ширина фронта. `Infinity` — боя без ширины.
     this.width = input.width ?? FRONT_WIDTH;
@@ -589,6 +599,8 @@ class Battle {
         defender: Math.round((this.sides.defender.lostTotal - lostBefore.defender) * 10) / 10,
       },
       bySector: this.lossBySector(menBefore),
+      // Мораль армии — средняя морали групп, каждая в 0..`MORALE.max`: до целых, как `SideResult.morale`.
+      ...(this.observe ? { morale: { attacker: Math.round(this.sides.attacker.morale), defender: Math.round(this.sides.defender.morale) } } : {}),
     });
     return broke || (CIRCLE_PHASES.includes(phase) && (this.sides.attacker.broken || this.sides.defender.broken));
   }
@@ -1183,6 +1195,7 @@ class Battle {
         if (!this.enemyInLane(side, lane)) {
           if (next === null) continue;
           for (const g of [...front, ...strike]) {
+            this.noteMove(side, g.origin, lane, next, g.stack);
             g.lane = next;
             if (g.row === 'front') {
               g.row = 'strike';
@@ -1227,6 +1240,7 @@ class Battle {
       g.initial -= width;
       const men = stackTotal(moved);
       if (men <= 0) continue;
+      if (g.lane !== null) this.noteMove(side, g.origin, g.lane, to, moved);
       const into = s.groups.find((x) => x.origin === g.origin && x.lane === to && x.row === 'strike' && alive(x) && !x.fled);
       if (into) {
         const had = stackTotal(into.stack);
@@ -1239,6 +1253,18 @@ class Battle {
         s.groups.push(part);
       }
     }
+  }
+
+  /**
+   * Записать ход группы в обход (`BattleResult.moves`). Ходы одной фазы с теми же стороной, сектором и полосами
+   * складываются: излишек строя уходит понемногу, тик за тиком, а показу нужен отряд, а не сотня строк.
+   */
+  noteMove(side: Side, sector: Sector, from: Lane, to: Lane, stack: Stack): void {
+    if (!this.observe) return;
+    const key = `${this.phases.length}${side}${sector}${from}${to}`;
+    const move = this.moved.get(key) ?? { tick: this.tick, phase: this.phase, side, sector, from, to, men: {} };
+    this.moved.set(key, move);
+    for (const k of UNIT_KINDS) move.men[k] = (move.men[k] ?? 0) + stack[k];
   }
 
   // ----- Мораль -----
@@ -1453,12 +1479,15 @@ class Battle {
       phases: this.phases,
       sides,
       log: this.log,
+      ...(this.observe ? { moves: [...this.moved.values()] } : {}),
     };
   }
 
   sideResult(side: Side): SideResult {
     const s = this.sides[side];
     const sectors = {} as SideResult['sectors'];
+    // Кто из ворот (совместный удар): наблюдение для показа, раскладка входа по секторам — бой его не читает.
+    const garrison = this.observe && s.setup.garrison ? garrisonShare(s.setup.sectors, s.setup.garrison) : null;
     const initial = emptyStack();
     const final = emptyStack();
     for (const sector of SECTORS) {
@@ -1477,7 +1506,14 @@ class Battle {
       const morale = men > 0 ? own.reduce((n, g) => n + g.morale * stackTotal(g.stack), 0) / men : 0;
       const broken = own.length > 0 && own.every((g) => g.fled || !alive(g));
       const start = Math.round((s.start[sector] ?? 0) * 100) / 100;
-      sectors[sector] = { initial: init, final: fin, morale: Math.round(Math.max(0, Math.min(MORALE.max, morale))), broken, start };
+      sectors[sector] = {
+        initial: init,
+        final: fin,
+        morale: Math.round(Math.max(0, Math.min(MORALE.max, morale))),
+        broken,
+        start,
+        ...(garrison ? { garrison: garrison[sector] } : {}),
+      };
     }
     const losses = emptyStack();
     for (const k of UNIT_KINDS) losses[k] = initial[k] - final[k];
@@ -1507,13 +1543,17 @@ class Battle {
   }
 }
 
-/** Единственная дверь: бой целиком, детерминированно по сиду. */
-export function simulateBattle(input: BattleInput): BattleResult {
+/**
+ * Единственная дверь: бой целиком, детерминированно по сиду. `observe: false` — без наблюдения для показа
+ * (`BattleResult.moves`, `PhaseSpan.morale`, `SideResult.sectors[].garrison`): только для теста «наблюдение не меняет
+ * исход», игра его не выключает.
+ */
+export function simulateBattle(input: BattleInput, opts: { observe?: boolean } = {}): BattleResult {
   for (const side of SIDES) {
     const err = validateSetup(input[side]);
     if (err) throw new Error(`battle: ${side}: ${err}`);
   }
   // Ширина — положительное число; `Infinity` законна и значит «боя без ширины».
   if (input.width !== undefined && !(input.width > 0)) throw new Error(`battle: ширина фронта ${input.width}`);
-  return new Battle(input).run();
+  return new Battle(input, opts.observe ?? true).run();
 }

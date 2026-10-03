@@ -2422,11 +2422,21 @@ body {
   border-left: 2px solid var(--line);
 }
 
+/* Цвет стороны — переменные журнала из одной двери (`side.ts`, `ReportPanel`): наши в золоте, чужие в красном. */
 .bl-line.mine {
-  border-left-color: var(--good);
+  border-left-color: var(--side-ours);
 }
 
 .bl-line.foe {
+  border-left-color: var(--side-foe);
+}
+
+/* «Почему так вышло» — оценка, а не сторона: хорошее для нас и плохое. */
+.bl-line.good {
+  border-left-color: var(--good);
+}
+
+.bl-line.bad {
   border-left-color: var(--bad);
 }
 
@@ -3587,24 +3597,6 @@ body {
     calc(var(--safe-bottom) + 16px) calc(var(--safe-left) + 12px);
   /* Тап по полю ничего не делает: камерой правит режиссура, а не палец. */
   pointer-events: auto;
-}
-
-.replay-top {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: 13px;
-  color: #fff;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
-}
-
-.replay-phase {
-  text-transform: lowercase;
-}
-
-.replay-count {
-  font-variant-numeric: tabular-nums;
-  opacity: 0.9;
 }
 
 /* Подпись события — над кнопкой, чтобы не спорить с ней за низ экрана. */

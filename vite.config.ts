@@ -115,6 +115,20 @@ const LAZY_DOORS: { name: string; door: RegExp; owns: RegExp[] }[] = [
     owns: [/\/src\/ui\/battle\/BattleReplay\.tsx$/, /\/src\/battle\/replay\.ts$/, /\/src\/render\/battle\//, /\/src\/game\/battle\/(cast|ground)\.ts$/],
   },
   {
+    // Ролик боя в стиле Total War (docs/battle_tw.md): за переключателем `?battle=tw` и на стенде `?replay=tw` —
+    // свой кусок, в кусок прежнего ролика он не едет.
+    name: 'ролик TW',
+    door: /\/src\/render\/tw\/(play|stand)\.ts$/,
+    owns: [/\/src\/render\/tw\//],
+  },
+  {
+    // Звуки боя ролика TW (docs/battle_tw.md, «Звук») — своя докачка: тянет её только ролик TW после первого кадра, в
+    // кусок ролика и в первую загрузку она не едет.
+    name: 'звук боя TW',
+    door: /\/src\/sound\/battlefx\.ts$/,
+    owns: [/\/src\/sound\/battlefx\.ts$/],
+  },
+  {
     name: 'предыстория',
     door: /\/src\/prologue\/Prologue\.tsx$/,
     owns: [/\/src\/prologue\//, /\/src\/sound\/howl\.ts$/],

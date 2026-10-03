@@ -18,6 +18,7 @@ import { TROOP_BY_ID } from '@/game/data/troops';
 import { gearOfTroop, hasArmor, hasShield, weaponOf } from '@/game/battle/kinds';
 import { Figure, addSlot, gripFrame, type MountRig, type Rig } from './figures';
 import { FOLK_TINT, PALETTE } from './palette';
+import { sidePaint } from '@/side';
 
 /** Рост взрослой фигуры в метрах сцены — тот же, что был у прежних фигурок. */
 export const MAN_HEIGHT = 1.05;
@@ -229,8 +230,10 @@ const SIZE: Record<TroopId, { height: number; build: number }> = {
  * Доспех по ступени снаряжения. Кузница обязана читаться на поле, а не только
  * в цифрах на карточке, поэтому каждая ступень добавляет заметное железо:
  * 1 — шлем, 2 — кираса и наплечники, 3 — гребень на шлеме и поножи.
+ * Гребень — цвет стороны, как щит и рубаха: красный гребень на своём латнике нёс бы
+ * на шлеме цвет врага (решение владельца 03.10.2026, `side.ts`).
  */
-function armorUp(f: Figure, b: Body, tier: number): void {
+function armorUp(f: Figure, b: Body, tier: number, cloth: number): void {
   const { rig } = b;
   if (tier >= 2) {
     addSlot(f, 'plate', 'torso', PALETTE.armor, [0, b.torsoH * 0.6, b.chestW * 0.3], [b.chestW * 0.84, b.torsoH * 0.56, b.chestW * 0.3]);
@@ -244,7 +247,7 @@ function armorUp(f: Figure, b: Body, tier: number): void {
   }
   if (tier >= 3) {
     // Гребень: продольный плавник на шлеме. В силуэте он и отличает латника.
-    addSlot(f, 'plate', 'head', PALETTE.paintRed, [0, b.headCenter - rig.neckY + b.headH * 0.72, 0], [
+    addSlot(f, 'plate', 'head', cloth, [0, b.headCenter - rig.neckY + b.headH * 0.72, 0], [
       b.headH * 0.15,
       b.headH * 0.62,
       b.headH * 1.08,
@@ -291,8 +294,8 @@ function towerShield(f: Figure, b: Body, h: number, cloth: number): void {
   addSlot(f, 'plate', 'armL', PALETTE.armor, [0, -b.rig.armLen * 0.9, front + 0.022], [w * 0.22, w * 0.22, 0.03]);
 }
 
-/** Одевает бойца этого вида. Всё, что видно на поле, решается здесь. */
-export function dressSoldier(f: Figure, troop: TroopId, cloth: number = PALETTE.paintBlue): void {
+/** Одевает бойца этого вида. Всё, что видно на поле, решается здесь. Цвет стороны — свой, если не сказано иначе. */
+export function dressSoldier(f: Figure, troop: TroopId, cloth: number = sidePaint(true)): void {
   const { height: tall, build } = SIZE[troop];
   const h = MAN_HEIGHT * tall;
   const tier = gearTier(troop);
@@ -382,7 +385,7 @@ export function dressSoldier(f: Figure, troop: TroopId, cloth: number = PALETTE.
     }
   }
   attachHands(f, heldStart, rig.armLen);
-  armorUp(f, b, tier);
+  armorUp(f, b, tier, cloth);
 }
 
 // ---------- Конь ----------

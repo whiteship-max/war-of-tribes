@@ -1293,6 +1293,11 @@ describe('оборона у стены — правилом развёртыва
     for (const res of Object.values(record!.battle!.result.sides)) {
       for (const [id, c] of Object.entries(res.sectors)) expect('start' in c, `сектор ${id}: мораль на входе записана в сохранение`).toBe(false);
     }
+    // Ходы в обход (`BattleResult.moves`, наблюдение для ролика TW) — то же правило на итоге боя (`RESULT_UNSAVED`): в
+    // результате боя они есть, в сохранение не пишутся. Мораль к концу фазы пишется — её читает полоса ролика.
+    expect(Array.isArray(fought.battle!.result.moves), 'ходы в обход в результате боя').toBe(true);
+    expect('moves' in record!.battle!.result, 'ходы в обход записаны в сохранение').toBe(false);
+    expect(record!.battle!.result.phases.every((p) => p.morale !== undefined), 'мораль к концу фазы в сохранении').toBe(true);
   }, 60_000);
 
   it('людей из ниоткуда нет: в бой у стены идёт ровно гарнизон дома и ополчение', async () => {

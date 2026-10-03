@@ -23,6 +23,7 @@ import type {
   AttackOrder,
   AttackResult,
   BattleRecord,
+  BattleSite,
   CampView,
   CardSack,
   CardSiege,
@@ -1243,6 +1244,9 @@ export class LocalWorld implements WorldApi {
     const fought = parts.reduce((n, x) => n + x.t.passed, 0);
     const all = parts.reduce((n, x) => n + x.t.went, 0);
     const own = parts.some((x) => 'own' in x.part);
+    // Совместный удар — с обеих сторон: со стороны города вышел гарнизон. Кто из ворот, ядро только разложит по секторам
+    // для ролика (`FieldSide.garrison`, решение владельца 03.10.2026, вариант А) — бой один, исход от этого не зависит.
+    const garrison = attack.front && attack.rear && front && rear ? front.kinds : undefined;
     // Лагерь стоит под городом: место боя — клетка города.
     const cell = id === HOME_ID ? this.save.home : this.byId.get(id);
     const field = resolveField({
@@ -1255,6 +1259,7 @@ export class LocalWorld implements WorldApi {
         // Встают те, кто прошёл, по правилу развёртывания: расстановки у удара по лагерю нет.
         // Мораль между боями (14.31): у каждой части своя, вместе — по прошедшим.
         rest: mixRest(parts.map(({ part, t }) => ({ rest: part.rest ?? 1, men: t.passed }))),
+        ...(garrison ? { garrison } : {}),
       },
       // Стойкость и отметки лагеря: у нашего — обряд и отметки полководца, у чужого
       // её нет. Прежде `campArmy` её считал, а сюда она не доходила вовсе.
@@ -1594,6 +1599,7 @@ export class LocalWorld implements WorldApi {
       enemyLost: null,
       loot: spoils,
       hidden: took.hiddenTotal,
+      led: gain.bonded,
       intel: this.snapshot(s, at),
       battle: null,
       text: `В ${s.name} кончился хлеб. Гарнизон разошёлся.${gainText(took)}${
@@ -2055,6 +2061,7 @@ export class LocalWorld implements WorldApi {
           troops: { attacker: { ...going }, defender: troopsOfKinds(camp.kinds, camp.gear) },
           // Бой у своих ворот: место снимается там же, где стоит деревня.
           place: this.placeOf(this.save.home),
+          site: 'sortie',
         }
       : null;
 
@@ -3663,6 +3670,8 @@ export class LocalWorld implements WorldApi {
           troops: { attacker: { ...troops }, defender: troopsOfKinds(garrison.kinds, garrison.gear) },
           // Бой идёт на клетке цели: у брода, на гребне, у опушки — как там и есть.
           place: this.placeOf(target),
+          // Логово — лагерь в лесу (ролик TW); прочие цели — поле.
+          ...(isLair(target) ? { site: 'lair' as const } : {}),
         }
       : null;
 
@@ -3684,6 +3693,7 @@ export class LocalWorld implements WorldApi {
       enemyLost,
       loot: spoils,
       hidden: took?.hiddenTotal ?? 0,
+      led: gain?.bonded,
       intel,
       battle: record,
       text: burned
@@ -4113,9 +4123,13 @@ export class LocalWorld implements WorldApi {
     this.remove(m);
     const { profile, party, field } = wall;
     const outcome = { won: field.won, attackerLoss: field.attackerLoss, defenderLoss: field.defenderLoss };
-    const record = this.gateRecord(wall, troopsOfKinds(party.kinds, party.gear));
+    // Набег, не севший в осаду, — штурм стены (ролик TW: лестницы и таран).
+    const record = this.gateRecord(wall, troopsOfKinds(party.kinds, party.gear), 'wall');
     const attackerLeft = stackAfter(m.units, stackLosses(m.units, outcome.attackerLoss));
     const { warriors, warriorsLost, troopsLost } = this.gateLosses(wall);
+    // Пленные: часть тех, кого племя посчитало убитыми, на самом деле уведена (ниже, `captives`). Число — до отчёта:
+    // его называет и отчёт, и карточка итога ролика боя (`Report.held`).
+    const held = outcome.won && warriorsLost > 0 ? Math.max(1, Math.round(warriorsLost * RANSOM_SHARE)) : 0;
     // Прорвались — город взят, и его участь решает та же дверь, какой мы делим
     // чужие дворы и какой голод делит наш город (`spoils.fate`), — той ступенью,
     // что отряд объявил: склад и казна до тайника, сколько поднимет отряд, люди и
@@ -4126,6 +4140,8 @@ export class LocalWorld implements WorldApi {
       ? this.fateHome(profile, haul.carry, haul.escort, at, declared)
       : null;
     const loss = spoils ? homeLoss(spoils) : null;
+    // Скольких наших увели невольниками — то же число, что достаётся победителю (`winnerGain`).
+    const led = spoils ? (winnerGain(spoils).bonded ?? 0) : 0;
     if (spoils && FATES[declared].chain) this.save.burnImmune[HOME_ID] = burnImmuneUntil(at);
     if (spoils) this.markFall(HOME_ID, declared, at);
     // Окно после падения — одно на оба пути: прорыв ставит его так же, как голод
@@ -4145,6 +4161,8 @@ export class LocalWorld implements WorldApi {
       enemyLost: Math.round(m.power * outcome.attackerLoss),
       loot: spoils && loss && spoils.lostTotal > 0 ? loss.resources : null,
       hidden: spoils?.hiddenTotal ?? 0,
+      led: led || undefined,
+      held: held || undefined,
       intel: null,
       battle: record,
       ...(loss?.fallen ? { fallen: loss.fallen } : {}),
@@ -4159,10 +4177,7 @@ export class LocalWorld implements WorldApi {
     // Поэтому выкуп потом только возвращает и ничего не отнимает, а письмо о
     // нём остаётся тем, чем должно быть: потерянной возможностью, если его не
     // открыть.
-    if (outcome.won && warriorsLost > 0) {
-      const held = Math.max(1, Math.round(warriorsLost * RANSOM_SHARE));
-      this.save.captives[m.fromId] = (this.save.captives[m.fromId] ?? 0) + held;
-    }
+    if (held > 0) this.save.captives[m.fromId] = (this.save.captives[m.fromId] ?? 0) + held;
 
     this.addEffect({
       id: `${m.id}-defense`,
@@ -4257,7 +4272,7 @@ export class LocalWorld implements WorldApi {
    * ролик их нарисовал. Ополчение — не бойцы: частокол, башня и жители. В строю они стоят, в казармах их нет, поэтому
    * и записаны они отдельно. Оборону держат у себя дома — там и снимается место боя.
    */
-  private gateRecord(gate: ReturnType<LocalWorld['gateField']>, attacker: TroopStack): BattleRecord | null {
+  private gateRecord(gate: ReturnType<LocalWorld['gateField']>, attacker: TroopStack, site: BattleSite): BattleRecord | null {
     const { home, militia, archers, field } = gate;
     return field.result
       ? {
@@ -4266,6 +4281,7 @@ export class LocalWorld implements WorldApi {
           troops: { attacker, defender: { ...home } },
           militia: { attacker: { men: 0, archers: 0 }, defender: { men: militia, archers } },
           place: this.placeOf(this.save.home),
+          site,
         }
       : null;
   }
@@ -4318,7 +4334,8 @@ export class LocalWorld implements WorldApi {
     const gate = this.gateField(party, call.seed, this.save.home, at);
     const { field } = gate;
     const { warriors, warriorsLost, troopsLost } = this.gateLosses(gate);
-    const record = this.gateRecord(gate, def.beasts ? {} : troopsOfKinds(party.kinds, party.gear));
+    // Вызов к воротам: разбойники и волки бьются перед воротами (ролик TW).
+    const record = this.gateRecord(gate, def.beasts ? {} : troopsOfKinds(party.kinds, party.gear), 'gate');
     // Прорвались люди — уносят со склада, сколько поднимут уцелевшие; тайник не достать.
     const units = warriorsOf(call.power);
     const left = stackAfter(units, stackLosses(units, field.attackerLoss));
@@ -4972,6 +4989,8 @@ export class LocalWorld implements WorldApi {
           result: field.result,
           troops: { attacker: plus(troops, going), defender: troopsOfKinds(camp.kinds, camp.gear) },
           place: this.placeOf(target ?? this.save.home),
+          // Лагерь под нашими стенами: ролик ставит город за лагерем; совместный удар — ворота открыты (гарнизон вышел).
+          ...(joint ? { site: 'joint' as const } : target ? {} : { site: 'camp' as const }),
         }
       : null;
 
