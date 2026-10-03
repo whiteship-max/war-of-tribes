@@ -33,7 +33,9 @@ import { beyondText, reachable } from '@/ui/map/twslot';
 import { Icon } from '@/ui/icons/Icon';
 import { FatePick } from '@/ui/parts/FatePick';
 import { hungerLeft } from '@/ui/parts/hunger';
-import { realLeft, waitLeft } from '@/ui/parts/wait';
+import { count } from '@/ui/parts/plural';
+import { signed } from '@/ui/parts/signed';
+import { realLeft, waitLeft, waitShort } from '@/ui/parts/wait';
 import { OwnGarrison } from '@/ui/panels/WorldPanel';
 import { tipAt, type TipContent } from './tip';
 
@@ -151,7 +153,7 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
           const down = f?.phase === 'down';
           const vacant = f?.place === 'vacant';
           const inside = card?.mine && f?.place === 'city';
-          const state = here0 ? 'здесь' : vacant ? 'места нет' : down ? (f?.held ? 'задержан' : 'вне строя') : inside ? 'выйти' : 'вести';
+          const state = here0 ? 'здесь' : vacant ? 'нет' : down ? (f?.held ? 'задержан' : 'вне строя') : inside ? 'выйти' : 'вести';
           return (
             <button
               key={d.id}
@@ -163,7 +165,7 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
                   setBusy(true);
                   const err = inside ? await shelter(d.id, false) : await moveFigure(d.id, here);
                   setBusy(false);
-                  showToast(err ?? (inside ? `${d.name} вышел из города и встал у ворот.` : `${d.name} пошёл к ${coord}.`));
+                  showToast(err ?? (inside ? `${d.name} вышел из города.` : `${d.name} пошёл к ${coord}.`));
                 })();
               }}
             >
@@ -188,7 +190,7 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
           glyph="📍"
           title="Пустая земля"
           sub={`${land} · ${coord}`}
-          tip={{ title: land, body: 'Здесь никто не живёт, но пройти через это место можно.' }}
+          tip={{ title: land, body: 'Здесь никто не живёт. Пройти можно.' }}
         />
         <div className="nx-facts two">
           <Fact label="От города" value={`${fmt(dist)} кл.`} tip={{ title: `От города · ${fmt(dist)} кл.`, body: 'Расстояние по прямой.' }} />
@@ -206,7 +208,7 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
 
   const stage = STAGE_BY_ID[card.stage];
   const relation = RELATION_META[card.relation];
-  const kindWord = card.castle ? 'Замок' : stage.name;
+  const kindWord = card.castle ? 'Город соседа' : stage.name;
   const sub = (
     <>
       {card.ruin ? 'Пепелище' : kindWord}
@@ -225,7 +227,7 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
   if (card.ruin) {
     return (
       <div className="panel nx-bpanel nx-wcard">
-        <Head icon="stage-camp" glyph="🔥" title={<span className="one-line">{card.name}</span>} sub={sub} tip={{ title: 'Пепелище', body: card.note ?? 'Город сожжён. След сойдёт сам.' }} />
+        <Head icon="stage-camp" glyph="🔥" title={<span className="one-line">{card.name}</span>} sub={sub} tip={{ title: 'Пепелище', body: card.note ?? 'Логово сожжено. След сойдёт сам.' }} />
         <div className="nx-facts two">
           <Fact label="Расстояние" value={`${fmt(card.distance)} кл.`} tip={{ title: `Расстояние · ${fmt(card.distance)} кл.`, body: 'От своего города по прямой.' }} />
           <Fact label="След сойдёт" value={realLeft(card.ruinLeft)} tip={{ title: 'Пепелище', body: 'Когда след сойдёт, место опустеет.' }} />
@@ -262,7 +264,7 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
     setBusy(true);
     const err = await attack({ fate });
     setBusy(false);
-    showToast(err ?? 'Дружина ударила. Донесение — в походах.');
+    showToast(err ?? 'Отряд ударил. Донесение в походах.');
   };
   const doSend = async (): Promise<void> => {
     if (!mission) return;
@@ -272,7 +274,7 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
     if (err) return showToast(err);
     setMission(null);
     setPick({});
-    showToast('Отряд вышел.');
+    showToast(`Отряд вышел. В пути ${waitShort(eta)}.`);
   };
   const doDeal = async (id: (typeof DEALS)[number]['id']): Promise<void> => {
     setBusy(true);
@@ -285,24 +287,33 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
   const intelWord = card.mine
     ? 'Свои силы видны всегда.'
     : card.intel
-      ? `Сведения ${formatAge(card.intel.ageSeconds)}: ${card.intel.hearsay ? 'донесение лазутчика, числа приблизительны' : PRECISION_NOTE[card.intel.precision]}.`
-      : 'О войске здесь ничего не знаем: нужен разведчик у ворот.';
+      ? `Сведения получены ${formatAge(card.intel.ageSeconds)}, ${
+          card.intel.hearsay ? `числа лазутчика на глаз${card.intel.precision === 'vague' ? ' и устарели' : ''}` : PRECISION_NOTE[card.intel.precision]
+        }.`
+      : 'Сведений нет. Доведи разведчика к воротам.';
   const sightWord = card.mine
     ? null
     : card.visible
       ? 'В обзоре'
       : card.stale && card.seenAt
-        ? `Взгляд ${formatAge((now - card.seenAt) / 1000)}`
+        ? `Последний взгляд ${formatAge((now - card.seenAt) / 1000)}`
         : 'Не видно';
   const sightTip: TipContent = {
     title: card.visible ? 'В обзоре' : 'Живьём не видно',
     body: card.visible
       ? 'Видно, что там сейчас.'
       : card.figuresHere.includes('spy')
-        ? 'Лазутчик здесь: поставь его наблюдателем, и будет видно живьём.'
-        : 'Смотреть живьём может только лазутчик: доведи его и поставь наблюдателем.',
+        ? 'Лазутчик здесь. Прикажи ему залечь, и станет видно.'
+        : 'Живьём видно у своего города и вокруг залёгшего лазутчика. Доведи его сюда.',
   };
   const raidable = (card.can.raid || card.can.besiege) && !card.siege?.mine;
+  // Строка владельца — словами меню приказов и только то, что есть (docs/ui_audit.md, 14.1, 17). У своего города
+  // владелец — заглушка слепка («Наше племя», `bridge.playerProfile`), и строки нет, как в меню приказов.
+  const ownerLine = card.mine
+    ? ''
+    : [card.owner ? `Правитель ${card.owner}` : '', card.tribeName ? `${card.owner ? 'племя' : 'Племя'} ${card.tribeName}` : '']
+        .filter(Boolean)
+        .join(' · ');
 
   return (
     <div className="panel nx-bpanel nx-wcard">
@@ -311,31 +322,32 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
         glyph={card.castle ? CASTLE_ICON : stage.icon}
         title={<span className="one-line">{card.name}</span>}
         sub={sub}
-        tip={{ title: kindWord, body: [card.owner ? `Владелец: ${card.owner}.` : 'Ничей.', card.tribeName ? `Племя: ${card.tribeName}.` : ''].join(' ').trim() }}
+        tip={{ title: kindWord, body: ownerLine || undefined }}
       />
 
       <div className="nx-facts">
         <Fact label="Мощь" value={cellEstimate(card.power)} bad={card.power.precision === 'unknown'} tip={{ title: `Мощь · ${formatEstimate(card.power)}`, body: intelWord }} />
         <Fact label="Жители" value={cellEstimate(card.pop)} bad={card.pop.precision === 'unknown'} tip={{ title: `Жители · ${formatEstimate(card.pop)}`, body: intelWord }} />
         <Fact
-          label={card.mine ? 'На складе' : 'Можно взять'}
+          label={card.mine ? 'На складе' : 'Добыча'}
           value={cellEstimate(card.loot)}
           bad={card.loot.precision === 'unknown'}
           tip={{
-            title: `Можно взять · ${formatEstimate(card.loot)}`,
-            body:
-              card.castle && card.can.raid
-                ? 'Склад и казна, кроме тайника, сколько поднимет отряд. Гарнизон замка крепче обычного.'
-                : 'Всё со склада, кроме тайника, и не больше, чем поднимет отряд.',
+            title: `${card.mine ? 'На складе' : 'Добыча'} · ${formatEstimate(card.loot)}`,
+            body: card.mine
+              ? 'Запасы и золото сверх тайника. Враг уносит из них, сколько поднимет.'
+              : card.castle && card.can.raid
+                ? 'Победитель уносит запасы и золото сверх тайника, сколько поднимет отряд. Гарнизон здесь крепче обычного.'
+                : 'Победитель уносит всё сверх тайника, сколько поднимет отряд. Сколько в тайнике, не узнать.',
           }}
         />
         {card.mine ? (
-          <Fact label="Оборона" value={fmt(def)} tip={{ title: `Оборона · ${fmt(def)}`, body: 'Стены, башня и гарнизон дома.' }} />
+          <Fact label="Оборона" value={fmt(def)} tip={{ title: `Оборона · ${fmt(def)}`, body: 'Гарнизон, частокол, башня, казармы и жители.' }} />
         ) : (
           <Fact
             label="Дорога"
             value={scoutWalk}
-            tip={{ title: `Дорога · ${fmt(card.distance)} кл.`, body: `Разведчик дойдёт за ${scoutWalk}. Войско идёт медленнее.` }}
+            tip={{ title: `Дорога · ${fmt(card.distance)} кл.`, body: `Разведчик дойдёт за ${scoutWalk}. Отряд идёт медленнее.` }}
           />
         )}
       </div>
@@ -343,7 +355,7 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
         <button className={`nx-sight${card.visible ? ' good' : ''}`} onClick={(e) => tipAt(e.currentTarget, sightTip)}>
           <Icon name={card.visible ? 'ui-eye' : 'ui-eye-off'} glyph={card.visible ? '👁️' : '🙈'} />
           <span>{sightWord}</span>
-          {card.visible && card.marching && <b className="bad">оттуда выходит войско</b>}
+          {card.visible && card.marching && <b className="bad">оттуда выходит отряд</b>}
         </button>
       )}
 
@@ -364,7 +376,7 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
         {raidable && <FatePick options={card.fates} value={fate} onChange={setFate} />}
         {card.can.raid && !card.siege?.mine && (
           <button className="nx-go nx-cgo" disabled={busy} onClick={() => void strike()}>
-            Ударить · {generalMen} бойцов
+            Ударить · {count(generalMen, 'боец', 'бойца', 'бойцов')}
           </button>
         )}
         {card.can.besiege && (
@@ -376,7 +388,7 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
                 setBusy(true);
                 const err = await besiege(fate);
                 setBusy(false);
-                showToast(err ?? `Дружина обложила ${card.name}. ${CAMP_LEAVE}`);
+                showToast(err ?? `${card.name} в осаде.`);
               })();
             }}
           >
@@ -428,9 +440,9 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
           })}
           <div className="nx-facts two">
             <Fact
-              label="Туда и обратно"
+              label="Дорога туда"
               value={stackSize(picked) > 0 ? waitLeft(eta) : '—'}
-              tip={{ title: 'Дорога', body: stackSize(picked) > 0 ? `Туда ${waitLeft(eta)} и столько же обратно.` : 'Отряд пуст.' }}
+              tip={{ title: 'Дорога туда', body: stackSize(picked) > 0 ? 'Обратно столько же.' : 'Отряд пуст.' }}
             />
             <Fact
               label="Оборона города"
@@ -438,7 +450,7 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
               bad={defAfter < def * 0.5}
               tip={{
                 title: 'Оборона, пока отряд в пути',
-                body: picked.warrior > 0 ? 'Ушедшие воины город не защищают. Отозвать можно в любой момент.' : 'Разведчики уходят из строителей: стройка замедлится.',
+                body: picked.warrior > 0 ? 'Ушедшие бойцы город не защищают. Отозвать отряд можно в походах.' : 'Разведчиков берут из свободных рук, стройка замедлится.',
               }}
             />
           </div>
@@ -463,7 +475,7 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
           <Row
             icon="ui-target"
             glyph="⛺"
-            name={card.siege.mine ? 'Наш лагерь у стен' : `Лагерь «${card.siege.byName}»`}
+            name={card.siege.mine ? 'Наш лагерь стоит' : `Лагерь «${card.siege.byName}» стоит`}
             value={realLeft(Math.max(0, (now - card.siege.since) / 1000))}
           />
           <Row icon={`fate-${card.siege.fate}`} glyph={FATE_META[card.siege.fate].icon} name="Объявлено" value={FATE_META[card.siege.fate].name.toLowerCase()} />
@@ -479,11 +491,11 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
           {card.siege.mine || card.mine ? (
             <button className="nx-cact" onClick={card.mine ? openSiege : openCamp}>
               <Icon name="ui-target" glyph="⛺" />
-              Окно осады
+              Открыть осаду
             </button>
           ) : (
             <p className="nx-tnote">
-              Под стенами чужой лагерь: разобьёшь его — осада снята. {worksWords(card.siege, now)}
+              У стен чужой лагерь. Разобьёшь его, и осада снята. {worksWords(card.siege, now)}
             </p>
           )}
         </>
@@ -505,7 +517,7 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
           name="Разорено"
           value={card.sack.look}
           tone="bad"
-          tip={{ title: 'Разорено', body: 'Здесь уже побывали: двор не растёт, склад вычищен до тайника. Отстроится сам.' }}
+          tip={{ title: 'Разорено', body: 'Здесь уже побывали. Брать почти нечего, город отстроится сам.' }}
         />
       )}
 
@@ -513,10 +525,10 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
         <Row
           icon="ui-warning"
           glyph="🔥"
-          name={`Бунт · ещё ${realLeft(secondsLeft(card.revolt.until, now))}`}
+          name={`Бунт ещё ${realLeft(secondsLeft(card.revolt.until, now))}`}
           value={`−${Math.round(card.revolt.power * 100)}%`}
           tone="good"
-          tip={{ title: 'Бунт', body: 'Работы встали, гарнизон слабее, запасы не копятся. Время для удара.' }}
+          tip={{ title: 'Бунт', body: 'Гарнизон слабее, город не растёт и запасы не копятся. Время для удара.' }}
         />
       )}
 
@@ -527,14 +539,14 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
             icon={`state-${card.diplomacy.standing}`}
             glyph={STANDING_META[card.diplomacy.standing].icon}
             name={`${STANDING_META[card.diplomacy.standing].name} · ${card.diplomacy.mood}`}
-            value={card.diplomacy.attitude > 0 ? `+${card.diplomacy.attitude}` : String(card.diplomacy.attitude)}
+            value={signed(card.diplomacy.attitude, 0)}
             tone={card.diplomacy.attitude < 0 ? 'bad' : 'good'}
             tip={{
               title: 'Отношение',
               body:
                 card.diplomacy.attitude < 0 || card.diplomacy.standing === 'war'
-                  ? 'Само не выправляется. Поднимает его дар: доведи дипломата к воротам.'
-                  : 'Дипломат у ворот дарит, заключает пакт и мирит.',
+                  ? 'Само не выправится. Доведи дипломата к воротам и поднеси дар.'
+                  : 'Чем выше, тем охотнее соглашаются на пакт. Дар поднимает его, оскорбление роняет.',
             }}
           />
           <Row
@@ -571,7 +583,7 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
 
       {standing.includes('diplomat') && !card.mine && card.tribeId && (
         <>
-          <h3>Союзы с племенем</h3>
+          <h3>Предложить договор</h3>
           {DEALS.map((d) => (
             <div className="nx-crow" key={d.id}>
               <span className="nx-lico">
@@ -603,12 +615,12 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
                   label={`${KIND_META[k].icon} ${KIND_META[k].name}`}
                   value={e ? formatEstimate(e) : '?'}
                   bad={!e}
-                  tip={{ title: KIND_META[k].name, body: e ? 'Вилка лазутчика: точного числа он не даёт.' : 'Не разглядели.' }}
+                  tip={{ title: KIND_META[k].name, body: e ? intelWord : 'Не разглядели.' }}
                 />
               );
             })}
           </div>
-          {card.intel.style && <p className="nx-tnote">Уклад войска: {card.intel.style}.</p>}
+          {card.intel.style && <p className="nx-tnote">Уклад: {card.intel.style}.</p>}
         </>
       )}
 

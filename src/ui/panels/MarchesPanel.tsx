@@ -115,7 +115,7 @@ export function MarchesPanel() {
               ? `задержан, отпустят через ${realLeft(secondsLeft(f.downUntil, worldNow()))}`
               : `разбит, вернётся через ${realLeft(secondsLeft(f.downUntil, worldNow()))}`
             : f.held && f.busyUntil > worldNow()
-              ? `задержан у ${f.atName ?? 'чужих ворот'}, отпустят через ${realLeft(secondsLeft(f.busyUntil, worldNow()))}`
+              ? `задержан, отпустят через ${realLeft(secondsLeft(f.busyUntil, worldNow()))} · ${f.atName ?? 'у чужих ворот'}`
             : f.retiring
               ? 'дожил до покоя: идёт домой'
             : f.place === 'city'

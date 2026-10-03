@@ -25,7 +25,7 @@ import { AvatarPicker } from '../parts/AvatarPicker';
 import { Icon } from '@/ui/icons/Icon';
 import { Settings } from '../parts/Settings';
 import { SyncStatus } from '../parts/Sync';
-import { gameDaysText } from '../parts/wait';
+import { waitDays } from '../parts/wait';
 
 /** Число покрупнее словами: 12 400 вместо 12400 — на 390 px это читается. */
 const big = (n: number): string => Math.round(n).toLocaleString('ru-RU');
@@ -46,11 +46,11 @@ function PowerTrend({ days }: { days: { day: number; power: number }[] }) {
     <div className="trend">
       <div className="bars">
         {shown.map((d) => (
-          <i key={d.day} style={{ height: `${Math.max(6, (d.power / top) * 100)}%` }} title={`День ${d.day}: ${big(d.power)}`} />
+          <i key={d.day} style={{ height: `${Math.max(6, (d.power / top) * 100)}%` }} />
         ))}
       </div>
       <div className="note">
-        Мощь за {gameDaysText(Math.min(PROFILE_DAYS, last.day - first.day + 1))}:{' '}
+        Мощь за {waitDays(Math.min(PROFILE_DAYS, last.day - first.day + 1))}:{' '}
         <b className={delta >= 0 ? 'up' : 'down'}>
           {delta >= 0 ? '+' : '−'}
           {big(Math.abs(delta))}
@@ -109,7 +109,7 @@ export function ProfilePanel() {
   return (
     <div className="panel">
       <div className="profile-head">
-        <button className="pic" onClick={() => setPicking(true)} title="Сменить лицо">
+        <button className="pic" onClick={() => setPicking(true)} aria-label="Сменить лицо">
           <img
             src={cardSrc(p)}
             alt=""
@@ -149,7 +149,7 @@ export function ProfilePanel() {
               </button>
             </div>
           ) : (
-            <button className="name" onClick={startRename} title="Сменить имя">
+            <button className="name" onClick={startRename} aria-label="Сменить имя">
               {profileName(p)}{' '}
               <em>
                 <Icon name="ui-edit" glyph="✏️" />
@@ -176,7 +176,7 @@ export function ProfilePanel() {
               </button>
             </div>
           ) : (
-            <button className="name city one-line" onClick={startCity} title="Назвать город">
+            <button className="name city one-line" onClick={startCity} aria-label="Назвать город">
               {profileCity(p)}{' '}
               <em>
                 <Icon name="ui-edit" glyph="✏️" /> город
@@ -188,7 +188,7 @@ export function ProfilePanel() {
             <i>мощь</i>
           </div>
           <div className="split">
-            🏘 посёлок {big(village)} · ⚔ дружина {big(army)}
+            город {big(village)} · дружина {big(army)}
           </div>
         </div>
       </div>
@@ -219,30 +219,31 @@ export function ProfilePanel() {
       </div>
       <div className="mod">
         <span className="ico">🔥</span>
-        <span className="name">
-          Сожжено логов
-          <em className="sub">разбойничьих гнёзд, убранных с карты навсегда</em>
-        </span>
+        <span className="name">Сожжено логов</span>
         <span className={`val${(s.stats.lairs ?? 0) > 0 ? ' pos' : ''}`}>{s.stats.lairs ?? 0}</span>
       </div>
       <div className="mod">
         <span className="ico">🧺</span>
         <span className="name">
           Добыча
-          <em className="sub">привезённое из походов и взятых замков</em>
+          <em className="sub">из походов и взятых городов</em>
         </span>
         <span className="val">
-          {big(t.lootResources)} {t.lootGold > 0 ? `· ${big(t.lootGold)} 💰` : ''}
+          {big(t.lootResources)}
+          {t.lootGold > 0 && (
+            <>
+              {' '}
+              · {big(t.lootGold)} <Icon name="res-gold" glyph="💰" />
+            </>
+          )}
         </span>
       </div>
 
       <h3>Потери</h3>
       {lostTotal === 0 && t.troopsLost === 0 ? (
-        <div className="note">Пока ничего не потеряно: ни один набег до добра не дошёл.</div>
+        <div className="note">Потерь нет.</div>
       ) : (
-        <div className="note">
-          Набегов с уроном: {t.raids}. Что унесли — по припасам: итог на этот вопрос не отвечает.
-        </div>
+        <div className="note">Набегов с уроном: {t.raids}.</div>
       )}
       {lost.map((r: ResourceId) => (
         <div className="mod" key={r}>
@@ -270,14 +271,14 @@ export function ProfilePanel() {
       <h3>Производство</h3>
       <div className="mod total">
         <span className="ico">📦</span>
-        <span className="name">Добыто за партию</span>
+        <span className="name">Добыто всего</span>
         <span className="val pos">{big(t.produced)}</span>
       </div>
       <div className="mod">
         <span className="ico">🔨</span>
         <span className="name">
-          Потрачено на дело
-          <em className="sub">стройка, ковка, наём</em>
+          Потрачено
+          <em className="sub">на стройку, ковку и найм</em>
         </span>
         <span className="val">{big(t.spent)}</span>
       </div>

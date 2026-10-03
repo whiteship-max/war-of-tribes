@@ -13,14 +13,14 @@ import { postureOf } from '@/world/muster';
 import { formatCoord, secondsLeft } from '@/world/geo';
 import { CHASE_FROM_CAMP } from '@/world/siege';
 import { MISSION_BY_ID } from '@/world/data/meta';
-import { stackSize } from '@/world/data/units';
 import type { FigureId, FigureView, MarchView, Report, ReportKind } from '@/world/types';
-import { agentLevel, personName, yearsOf } from '@/game/sim/agents';
+import { agentLevel, personName, yearsOf, yearsWord } from '@/game/sim/agents';
 import { hireWhere } from '@/game/sim/hire';
 import { Icon } from '@/ui/icons/Icon';
 import { AgentCard } from '@/ui/parts/AgentCard';
 import { restLine } from '@/ui/parts/restWords';
-import { lootText } from '@/ui/parts/reportWords';
+import { count } from '@/ui/parts/plural';
+import { lootText, unitsText } from '@/ui/parts/reportWords';
 import { realLeft } from '@/ui/parts/wait';
 
 /** Значок донесения по его виду: набег, разведка, поддержка, оборона дома. */
@@ -45,7 +45,7 @@ export function whereWords(f: FigureView, now: number, hire: string): string {
   if (f.place === 'vacant') return `${f.gone === 'retired' ? 'ушёл на покой' : 'погиб'} · нанять ${hire}`;
   if (f.place === 'down')
     return f.held ? `задержан, отпустят через ${realLeft(secondsLeft(f.downUntil, now))}` : `разбит, вернётся через ${realLeft(secondsLeft(f.downUntil, now))}`;
-  if (f.held && f.busyUntil > now) return `задержан у ${f.atName ?? 'чужих ворот'}, отпустят через ${realLeft(secondsLeft(f.busyUntil, now))}`;
+  if (f.held && f.busyUntil > now) return `задержан, отпустят через ${realLeft(secondsLeft(f.busyUntil, now))} · ${f.atName ?? 'у чужих ворот'}`;
   if (f.retiring) return 'дожил до покоя: идёт домой';
   if (f.place === 'city') return 'укрылся в городе';
   if (f.phase === 'moving') return `в пути · ${realLeft(secondsLeft(f.arriveAt, now))}`;
@@ -117,7 +117,7 @@ export function MarchesNew() {
               <span className="nx-lbody">
                 <b className="one-line">{m.fromName}</b>
                 <small>
-                  {m.onCamp ? `на наш лагерь под ${m.toName}` : `от ${formatCoord(m.from)}`}
+                  {m.onCamp ? 'на наш лагерь' : `от ${formatCoord(m.from)}`}
                   {m.rest ? ` · ${restLine(m.rest, 'Отряд дрался', now)}` : ''}
                 </small>
                 {!m.onCamp && inCamp && <small className="bad">{CHASE_FROM_CAMP}</small>}
@@ -152,9 +152,9 @@ export function MarchesNew() {
                 {named ? ` ${personName(s, f.id)}` : ''}
               </b>
               <small>
-                {f.place !== 'vacant' ? `ур. ${agentLevel(s, f.id)} · ${yearsOf(s, f.id)} л. · ` : ''}
+                {f.place !== 'vacant' ? `ур. ${agentLevel(s, f.id)} · ${yearsWord(yearsOf(s, f.id))} · ` : ''}
                 {whereWords(f, now, hireWhere(s, f.id))}
-                {men > 0 ? ` · дружина ${men}${postureOf(f) === 'stands' ? ', в гарнизоне' : ''}` : ''}
+                {men > 0 ? ` · ${count(men, 'боец', 'бойца', 'бойцов')}${postureOf(f) === 'stands' ? ' · в гарнизоне' : ''}` : ''}
                 {f.watching ? ' · смотрит' : ''}
               </small>
             </button>
@@ -179,7 +179,7 @@ export function MarchesNew() {
               {f.place === 'city' && (
                 <button
                   className="nx-act"
-                  onClick={() => void shelter(f.id, false).then((err) => showToast(err ?? `${f.name} вышел из города и встал у ворот.`))}
+                  onClick={() => void shelter(f.id, false).then((err) => showToast(err ?? `${f.name} вышел из города.`))}
                 >
                   Выйти
                 </button>
@@ -190,7 +190,7 @@ export function MarchesNew() {
       })}
 
       <h3>В пути</h3>
-      {own.length === 0 && <p className="nx-tnote">Никто никуда не идёт. Цель выбирают на карте.</p>}
+      {own.length === 0 && <p className="nx-tnote">Походов нет. Выбери цель на карте.</p>}
       {own.map((m) => {
         // У возвращающегося интересно место, откуда он идёт; отозванный стоит между клетками.
         const at = m.phase === 'back' ? { x: Math.round(m.from.x), y: Math.round(m.from.y) } : { x: m.to.x, y: m.to.y };
@@ -202,7 +202,7 @@ export function MarchesNew() {
             <button className="nx-lbody nx-mtap" onClick={() => void select(at)}>
               <b className="one-line">{m.toName}</b>
               <small>
-                {PHASE[m.phase]} · бойцов {stackSize(m.units)}
+                {PHASE[m.phase]} · {unitsText(m.units)}
                 {m.loot ? ` · везут ${lootText(m.loot)}` : ''}
               </small>
             </button>

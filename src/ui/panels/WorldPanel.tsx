@@ -300,18 +300,24 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
       </div>
 
       <div className="mod-list">
-        <div className="mod">
-          <span className="ico"><Icon name="ui-person" glyph="👤" /></span>
-          <span className="name">Владелец</span>
-          <span className="val">{card.owner ?? 'ничей'}</span>
-        </div>
-        <div className="mod">
-          <span className="ico">🏳️</span>
-          <span className="name">Племя</span>
-          <span className="val" style={{ color: relation.color }}>
-            {card.tribeName ?? 'нет'}
-          </span>
-        </div>
+        {/* Строка владельца — только то, что есть, и не у своего города: там владелец — заглушка слепка («Наше племя»,
+            `bridge.playerProfile`), как и в меню приказов (docs/ui_audit.md, 14.1, 17). */}
+        {!card.mine && card.owner && (
+          <div className="mod">
+            <span className="ico"><Icon name="ui-person" glyph="👤" /></span>
+            <span className="name">Правитель</span>
+            <span className="val">{card.owner}</span>
+          </div>
+        )}
+        {!card.mine && card.tribeName && (
+          <div className="mod">
+            <span className="ico">🏳️</span>
+            <span className="name">Племя</span>
+            <span className="val" style={{ color: relation.color }}>
+              {card.tribeName}
+            </span>
+          </div>
+        )}
         <div className="mod">
           <span className="ico"><Icon name="ui-ruler" glyph="📏" /></span>
           <span className="name">Расстояние</span>
@@ -346,9 +352,9 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
           )}
           {!card.visible &&
             (card.figuresHere.includes('spy') ? (
-              <> Поставь лазутчика наблюдателем, и станет видно.</>
+              <> Прикажи лазутчику залечь, и станет видно.</>
             ) : (
-              <> Доведи лазутчика и поставь наблюдателем.</>
+              <> Доведи лазутчика и прикажи залечь.</>
             ))}
         </p>
       )}

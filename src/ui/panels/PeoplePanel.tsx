@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useGame } from '@/game/store';
-import { BONDED_OUTPUT } from '@/game/constants';
+import { BONDED_OUTPUT, GROWTH_FOOD_DAYS } from '@/game/constants';
 import { JOBS, JOB_BY_ID } from '@/game/data/jobs';
 import { BUILDING_BY_ID } from '@/game/data/buildings';
 import { ORDER_TEXT } from '@/game/data/order';
@@ -30,6 +30,9 @@ import { releaseBonded } from '@/game/sim/actions';
 import { Factor } from '../parts/Factor';
 import { Steps } from '../parts/Steps';
 import { Icon } from '@/ui/icons/Icon';
+import { count as countOf } from '../parts/plural';
+import { signed } from '../parts/signed';
+import { waitDays } from '../parts/wait';
 
 /**
  * Дружина. Бойцы — не жители с профессией «воин»: их нанимают в казармах,
@@ -42,9 +45,7 @@ function Army() {
   const barracks = buildingOfType(s, 'barracks');
   if (roster.length === 0) {
     return (
-      <div className="note">
-        Бойцов нет. Их не назначают из жителей — их учат в казармах за снаряжение.
-      </div>
+      <div className="note">Бойцов нет. Их нанимают в казармах за снаряжение.</div>
     );
   }
   return (
@@ -101,7 +102,7 @@ export function Bonded() {
         <div className="note">{ORDER_TEXT.whereFrom}</div>
         {market && (
           <button className="btn ghost wide" onClick={() => openBuilding(market.id)}>
-            🛒 Невольничий ряд — на рынке
+            <Icon name="bld-market" glyph="🛒" /> На рынок
           </button>
         )}
       </>
@@ -142,8 +143,7 @@ export function Bonded() {
                 <span className="count">{bondedCount(s, b.id)}</span>
               </div>
               <div className="desc">
-                {job ? JOB_BY_ID[job].name : ''}: вольных {workerCount(s, b.id)}, невольников{' '}
-                {bondedCount(s, b.id)} из {buildingSlots(b)} мест
+                {job ? `${JOB_BY_ID[job].name} · ` : ''}вольных {workerCount(s, b.id)} · мест {buildingSlots(b)}
               </div>
             </div>
           </button>
@@ -152,8 +152,8 @@ export function Bonded() {
       <div className="mod">
         <span className="ico">🔨</span>
         <span className="name">
-          {site ? 'Без места — на стройке' : 'Без места — стройки нет, стоят без дела'}
-          <em className="sub">на работы ставят в панели двора, вторым рядом под вольными</em>
+          {site ? 'Без места — на стройке' : 'Без места — не работают'}
+          <em className="sub">на работу ставят в окне здания</em>
         </span>
         <span className="val">{idle}</span>
       </div>
@@ -177,7 +177,7 @@ export function Bonded() {
         </>
       )}
       <button className="btn ghost wide" onClick={() => openTab('order')}>
-        {ORDER_TEXT.icon} Порядок: кто держит невольников и что будет при мятеже
+        <Icon name="hud-order" glyph={ORDER_TEXT.icon} /> Порядок
       </button>
     </>
   );
@@ -201,12 +201,9 @@ export function PeoplePanel() {
   return (
     <div className="panel">
       <h2>
-        Племя <small>{s.pop} чел. · жильё {housing} · защита {defense(s).toFixed(0)}</small>
+        Племя <small>жители {s.pop}/{housing} · оборона {defense(s).toFixed(0)}</small>
       </h2>
-      <div className="note">
-        Людей ставят на работу в панели здания — числом, а не поимённо. Свободные строят и
-        отдыхают у костра.
-      </div>
+      <div className="note">Людей ставят на работу в окне здания. Свободные руки строят и отдыхают у костра.</div>
 
       <div className="mod total">
         <span className="ico"><Icon name="ui-hammer" glyph="🔨" /></span>
@@ -216,30 +213,29 @@ export function PeoplePanel() {
       {training > 0 && (
         <div className="mod">
           <span className="ico">⚔️</span>
-          <span className="name">На учениях в казармах</span>
+          <span className="name">Новобранцы</span>
           <span className="val">{training}</span>
         </div>
       )}
 
       <h3>
         Прирост{' '}
-        <span className={`muted${growth.perDay < 0 ? ' neg' : ''}`}>
-          {growth.perDay >= 0 ? '+' : '−'}
-          {Math.abs(growth.perDay).toFixed(1)} чел. в день
-        </span>
+        <span className={`muted${growth.perDay < 0 ? ' neg' : ''}`}>{signed(growth.perDay)} в день</span>
       </h3>
-      <div className="note">
-        {growth.blocked ??
-          'Племя растёт: есть куда селить, чем кормить и за кем идти. Рацион и указы вождя двигают прирост так же, как выработку.'}
-      </div>
+      <div className="note">{growth.blocked ?? 'Племя растёт.'}</div>
       <Factor
         icon={growth.morale >= 0 ? '😊' : '😟'}
         name="Мораль"
         k={growth.morale}
-        hint={growth.morale < 0 ? 'люди уходят' : `${Math.round(s.morale)} из 100`}
+        hint={growth.morale < 0 ? 'жители уходят' : `${Math.round(s.morale)} из 100`}
       />
-      <Factor icon="🛏️" name="Свободное жильё" k={growth.housing} hint={`${Math.max(0, housing - s.pop)} мест`} />
-      <Factor icon="🍖" name="Запас еды" k={growth.food} hint="на три дня — полный ход" />
+      <Factor
+        icon="🛏️"
+        name="Свободное жильё"
+        k={growth.housing}
+        hint={countOf(Math.max(0, housing - s.pop), 'место', 'места', 'мест')}
+      />
+      <Factor icon="🍖" name="Запас еды" k={growth.food} hint={`полный ход с ${waitDays(GROWTH_FOOD_DAYS)}`} />
 
       <Army />
 
@@ -263,7 +259,7 @@ export function PeoplePanel() {
             <div className="body">
               <div className="title">
                 {job.name}
-                <span className="count">{counts[job.id]} чел.</span>
+                <span className="count">{counts[job.id]}</span>
               </div>
               <div className="desc">
                 {place ? `${buildingTitle(s, place.type)}: ${inside}` : 'без здания'}
@@ -274,7 +270,7 @@ export function PeoplePanel() {
         );
       })}
       {working.length === 0 && (
-        <div className="note">Все руки свободны. Поставь людей в здания — панель у каждого своя.</div>
+        <div className="note">Все руки свободны. Поставь людей в здания.</div>
       )}
     </div>
   );

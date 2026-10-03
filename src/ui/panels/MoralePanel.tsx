@@ -14,6 +14,7 @@ import {
   type MoraleLine,
 } from '@/game/derived';
 import { moraleGrowthFactor } from '@/game/sim/population';
+import { Icon } from '@/ui/icons/Icon';
 
 const sign = (n: number): string => `${n > 0 ? '+' : n < 0 ? '−' : ''}${Math.abs(Math.round(n * 10) / 10)}`;
 
@@ -58,7 +59,7 @@ export function MoralePanel() {
       icon: tax.icon,
       name: `Налог: ${tax.name.toLowerCase()}`,
       value: -b.tax,
-      hint: 'вычитается уже после потолка шкалы',
+      hint: 'после потолка шкалы',
     });
   }
   // Пир и обряд ложатся туда же, где вычитается налог, — после потолка шкалы. В
@@ -71,7 +72,7 @@ export function MoralePanel() {
       icon: '🕯️',
       name: 'Обряд в приходе',
       value: b.rite,
-      hint: 'прибавляется уже после потолка шкалы',
+      hint: 'после потолка шкалы',
     });
   }
   if (b.feast > 0) {
@@ -80,44 +81,36 @@ export function MoralePanel() {
       icon: '🍺',
       name: 'Пир в трактире',
       value: b.feast,
-      hint: 'прибавляется уже после потолка шкалы',
+      hint: 'после потолка шкалы',
     });
   }
 
   return (
     <div className="panel">
       <h2>
-        😊 Счастье <small>сейчас {morale} из 100</small>
+        Мораль <small>{morale} из 100</small>
       </h2>
       <div className="progress good" style={{ marginBottom: 10 }}>
         <div style={{ width: `${Math.max(0, Math.min(100, morale))}%` }} />
       </div>
-      <p className="season-hint">
-        Мораль — не украшение: она разом двигает и выработку, и прирост населения. Племя
-        подтягивается к цели {Math.round(b.target)}, а не прыгает к ней сразу.
-      </p>
+      <p className="season-hint">Мораль понемногу идёт к цели {Math.round(b.target)}.</p>
 
-      <h3>На что влияет прямо сейчас</h3>
+      <h3>На что влияет</h3>
       <div className="mod total">
         <span className="ico">⛏️</span>
-        <span className="name">
-          Выработка всех профессий
-          <em className="sub">множитель к добыче каждого рабочего</em>
-        </span>
+        <span className="name">Выработка</span>
         <span className={`val ${output >= 1 ? 'pos' : 'neg'}`}>×{output.toFixed(2)}</span>
       </div>
       <div className="mod total">
         <span className="ico">{growth >= 0 ? '📈' : '📉'}</span>
         <span className="name">
-          Прирост населения
-          <em className="sub">
-            {growth < 0 ? `ниже ${MORALE_GROWTH_ZERO} — люди уходят` : 'множитель к приросту за день'}
-          </em>
+          Прирост
+          {growth < 0 && <em className="sub">мораль ниже {MORALE_GROWTH_ZERO}, жители уходят</em>}
         </span>
         <span className={`val ${growth >= 0 ? 'pos' : 'neg'}`}>×{growth.toFixed(2)}</span>
       </div>
       <button className="btn ghost wide" onClick={() => openTab('pop')}>
-        👥 Как считается прирост
+        <Icon name="hud-pop" glyph="👥" /> Прирост
       </button>
 
       <h3>Что добавляет</h3>
@@ -129,12 +122,12 @@ export function MoralePanel() {
       <h3>Как складывается цель</h3>
       <div className="mod">
         <span className="ico">🏛️</span>
-        <span className="name">Мораль устоявшегося племени</span>
+        <span className="name">Основа</span>
         <span className="val">{b.base}</span>
       </div>
       <div className="mod">
         <span className="ico">➕</span>
-        <span className="name">Со всеми слагаемыми</span>
+        <span className="name">Сумма</span>
         <span className="val">{Math.round(b.raw)}</span>
       </div>
       {b.raw > b.clamped && (
@@ -147,31 +140,31 @@ export function MoralePanel() {
       {b.tax > 0 && (
         <div className="mod">
           <span className="ico">{tax.icon}</span>
-          <span className="name">Минус налог</span>
+          <span className="name">Налог</span>
           <span className="val neg">−{b.tax}</span>
         </div>
       )}
       {b.feast > 0 && (
         <div className="mod">
           <span className="ico">🍺</span>
-          <span className="name">Плюс пир в трактире</span>
+          <span className="name">Пир в трактире</span>
           <span className="val pos">+{b.feast}</span>
         </div>
       )}
       {b.rite > 0 && (
         <div className="mod">
           <span className="ico">🕯️</span>
-          <span className="name">Плюс обряд</span>
+          <span className="name">Обряд в приходе</span>
           <span className="val pos">+{b.rite}</span>
         </div>
       )}
       <div className="mod total">
         <span className="ico">🎯</span>
-        <span className="name">Цель, к которой идёт мораль</span>
+        <span className="name">Цель</span>
         <span className="val pos">{Math.round(b.target)}</span>
       </div>
 
-      <h3>Что двигает мораль изо дня в день</h3>
+      <h3>Сдвиг в день</h3>
       <div className="mod">
         <span className="ico">{decree.icon}</span>
         <span className="name">
@@ -185,7 +178,7 @@ export function MoralePanel() {
       <div className="mod">
         <span className="ico">{ration.icon}</span>
         <span className="name">
-          Рацион: {ration.name.toLowerCase()}
+          Паёк: {ration.name.toLowerCase()}
           <em className="sub">{ration.effect}</em>
         </span>
         <span className={`val ${ration.moralePerDay >= 0 ? 'pos' : 'neg'}`}>
@@ -194,13 +187,13 @@ export function MoralePanel() {
       </div>
       <div className="mod total">
         <span className="ico">📅</span>
-        <span className="name">Итого сдвиг за игровой день</span>
+        <span className="name">Итого в день</span>
         <span className={`val ${drift >= 0 ? 'pos' : 'neg'}`}>{sign(drift)}</span>
       </div>
       <div className="mod">
         <span className="ico">⚔️</span>
         <span className="name">
-          Бои у стен посёлка
+          Бои у ворот
           <em className="sub">
             отбитый набег +{GATE_MORALE_WON}, проигранный −{GATE_MORALE_LOST} сразу
           </em>
@@ -211,7 +204,7 @@ export function MoralePanel() {
       </div>
       {hall && (
         <button className="btn ghost wide" onClick={() => openTownHall('manage')}>
-          🏛️ В ратушу — указ, рацион и налог
+          <Icon name="bld-town_hall" glyph="🏛️" /> Указы
         </button>
       )}
     </div>

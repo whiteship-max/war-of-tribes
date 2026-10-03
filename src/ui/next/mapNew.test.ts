@@ -72,6 +72,8 @@ describe('«Походы» нового вида: где человек — те
     expect(whereWords({ ...base, phase: 'moving', arriveAt: now + 90_000 } as FigureView, now, 'в ратуше')).toBe(`в пути · ${realLeft(secondsLeft(now + 90_000, now))}`);
     expect(whereWords({ ...base, place: 'down', downUntil: now + 60_000 } as FigureView, now, '')).toBe(`разбит, вернётся через ${realLeft(secondsLeft(now + 60_000, now))}`);
     expect(whereWords({ ...base, place: 'down', held: true, downUntil: now + 60_000 } as FigureView, now, '')).toContain('задержан');
+    // Имя места не склоняется (docs/ui_audit.md, 14.1, 16): оно стоит после срока, без предлога.
+    expect(whereWords({ ...base, held: true, busyUntil: now + 60_000 } as FigureView, now, '')).toBe(`задержан, отпустят через ${realLeft(secondsLeft(now + 60_000, now))} · Белый Брод`);
     expect(whereWords({ ...base, place: 'vacant', gone: 'retired' } as FigureView, now, 'в ратуше')).toBe('ушёл на покой · нанять в ратуше');
     expect(whereWords({ ...base, place: 'city' } as FigureView, now, '')).toBe('укрылся в городе');
     expect(whereWords({ ...base, atHome: true } as FigureView, now, '')).toBe('дома');
