@@ -358,12 +358,6 @@
   letter-spacing: 0;
   font-weight: 600;
 }
-.nx-tnote {
-  margin: 0;
-  font-size: 11px;
-  line-height: 1.4;
-  color: var(--muted);
-}
 .nx-person {
   display: flex;
   align-items: center;
@@ -502,34 +496,6 @@
   border-radius: 10px;
   background: var(--panel-2);
   border: 1px solid var(--line);
-}
-.nx-lico {
-  flex: none;
-  display: grid;
-  place-items: center;
-  width: 24px;
-  height: 24px;
-  font-size: 20px;
-}
-.nx-lico svg {
-  width: 24px;
-  height: 24px;
-}
-.nx-lbody {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.nx-lbody b {
-  font-size: 13px;
-  font-weight: 600;
-}
-.nx-lbody small {
-  font-size: 11px;
-  line-height: 1.35;
-  color: var(--muted);
 }
 .nx-lrow > small {
   flex: none;
@@ -685,9 +651,6 @@
 }
 .nx-orow.unrest .nx-obar-mini i {
   background: var(--bad);
-}
-.nx-chev {
-  color: var(--muted);
 }
 /* Вера: что даёт и что просит, числа наклона ячейками. */
 .nx-gift {
@@ -862,4 +825,173 @@
 .nx-lskills svg {
   width: 12px;
   height: 12px;
+}
+
+/* ---------- Весть нового вида (`Mail.tsx`, `DispatchCardNew`) ---------- */
+:where(.nx-mail) button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+.nx-mail {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 4px;
+}
+.nx-mhead {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 56px;
+}
+.nx-mmed {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 40%, #3a2c1f, #1a140f);
+  border: 2px solid var(--warn);
+  font-size: 22px;
+}
+.nx-mmed.urgent {
+  border-color: var(--bad);
+}
+.nx-mmed svg {
+  width: 26px;
+  height: 26px;
+}
+.nx-mtitle {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.nx-mtitle b {
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+.nx-mtitle small {
+  font-size: 11px;
+  color: var(--muted);
+}
+.nx-mspot {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  font-size: 20px;
+}
+.nx-mspot svg {
+  width: 22px;
+  height: 22px;
+}
+.nx-mdue {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: rgba(217, 164, 65, 0.12);
+  border: 1px solid rgba(217, 164, 65, 0.4);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.nx-mdue.urgent {
+  background: rgba(224, 107, 90, 0.12);
+  border-color: var(--bad);
+}
+.nx-mdue svg {
+  width: 16px;
+  height: 16px;
+}
+.nx-mdue span {
+  flex: 1;
+  color: var(--muted);
+}
+.nx-mdue b {
+  font-weight: 700;
+  color: var(--warn);
+}
+.nx-mdue.urgent b {
+  color: var(--bad);
+}
+.nx-mtext {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+}
+.nx-mcost {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.nx-mcost small {
+  font-size: 11px;
+  color: var(--muted);
+}
+.nx-answers {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.nx-ans {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 2px;
+  min-height: 56px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--line-2);
+  text-align: left;
+}
+.nx-ans b {
+  font-size: 13px;
+  font-weight: 600;
+}
+.nx-ans small {
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--muted);
+}
+.nx-ans small.bad {
+  color: var(--bad);
+}
+.nx-ans .cost {
+  margin-top: 2px;
+}
+.nx-ans:active:not(:disabled) {
+  background: rgba(232, 164, 60, 0.12);
+  border-color: var(--accent);
+}
+.nx-ans:disabled {
+  opacity: 0.5;
+}
+.nx-msilence {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--muted);
+}
+.nx-mback {
+  height: 44px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
 }

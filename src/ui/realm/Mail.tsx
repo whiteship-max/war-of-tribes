@@ -70,6 +70,24 @@ export function Mail() {
   }, [shown, mark]);
 
   if (done) {
+    if (next) {
+      return (
+        <div className="nx-mail">
+          <div className="nx-mhead">
+            <span className="nx-mmed">
+              <Icon name="ui-check" glyph="✔️" />
+            </span>
+            <div className="nx-mtitle">
+              <b>{done.title}</b>
+            </div>
+          </div>
+          <p className="nx-mtext">{done.text}</p>
+          <button className="nx-mback" onClick={() => setDone(null)}>
+            К вестям
+          </button>
+        </div>
+      );
+    }
     return (
       <div className="panel dispatch">
         <h3>{done.title}</h3>
@@ -82,8 +100,9 @@ export function Mail() {
   }
 
   if (current) {
+    const Card = next ? DispatchCardNew : DispatchCard;
     return (
-      <DispatchCard
+      <Card
         d={current}
         letter={letters.find((l) => l.id === current.letterId) ?? null}
         onBack={() => openMail(null)}
@@ -218,6 +237,102 @@ function DispatchCard({
           {d.choices.length > 0 ? 'Отложить' : 'К донесениям'}
         </button>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Открытая весть нового вида (docs/ui_audit.md, 6.4 и 13): шапка — значок повода, заголовок, кто прислал (лупа — к
+ * месту на карте); срок — строкой со значком; текст; что просят — `Cost`; ответы — строками 56: что сделать, что это
+ * даст, чего стоит, почему нельзя; что будет без ответа — строкой внизу. Слова и числа — те же, что у прежней
+ * карточки: их считает хозяин вести (`dispatch.ts`), здесь только вид.
+ */
+function DispatchCardNew({
+  d,
+  letter,
+  onBack,
+  onAnswer,
+}: {
+  d: Dispatch;
+  letter: LetterView | null;
+  onBack: () => void;
+  onAnswer: (id: string) => void;
+}) {
+  const spot = useWorld((w) => w.spotLetter);
+  const openMap = useGame((g) => g.openMap);
+  const openBuilding = useGame((g) => g.openBuilding);
+  const s = useGame((g) => g.s);
+  const statue = buildingOfType(s, 'statue');
+  const raids = useRaidWords();
+  const raid = letter?.kind === 'raid' ? (raids.find((w) => w.win.march.id === letter.marchId) ?? null) : null;
+  const from = letter?.from ?? null;
+  const where = letter && from && !from.cell ? `${RHUMB_WORDS[from.rhumb]}, ${from.cells} кл., не разведано` : null;
+  const asks = Object.values(d.cost).some((n) => (n ?? 0) > 0);
+  // Набег идёт сам и сроком беды — красным; остальное ждёт ответа — охрой.
+  const urgent = letter?.kind === 'raid' || d.warning;
+
+  return (
+    <div className="nx-mail">
+      <div className="nx-mhead">
+        <span className={`nx-mmed${urgent ? ' urgent' : ''}`}>
+          <Icon name={d.iconName} glyph={d.icon} />
+        </span>
+        <div className="nx-mtitle">
+          <b>{d.title}</b>
+          <small>
+            {letter ? letter.fromName : (d.from ?? (d.warning ? 'Дозор' : 'Город'))}
+            {where ? ` · ${where}` : ''}
+          </small>
+        </div>
+        {from?.cell && (
+          <button className="nx-mspot" onClick={() => letter && spot(letter.id)} aria-label="Показать на карте">
+            <Icon name="ui-spyglass" glyph="🔍" />
+          </button>
+        )}
+      </div>
+      {d.left !== null && (
+        <div className={`nx-mdue${urgent ? ' urgent' : ''}`}>
+          <Icon name="ui-time" glyph="⏳" />
+          <span>{d.leftText}</span>
+          <b>{leftWords(d.left)}</b>
+        </div>
+      )}
+      <p className="nx-mtext">{d.text}</p>
+      {asks && (
+        <div className="nx-mcost">
+          <small>Просят</small>
+          <Cost cost={d.cost} />
+        </div>
+      )}
+      <div className="nx-answers">
+        {d.choices.map((c) => {
+          const priced = Object.values(c.cost).some((n) => (n ?? 0) > 0);
+          return (
+            <button key={c.id} className="nx-ans" disabled={c.block !== null} onClick={() => onAnswer(c.id)}>
+              <b>{c.label}</b>
+              {(c.block ?? c.hint) && <small className={c.block ? 'bad' : ''}>{c.block ?? c.hint}</small>}
+              {priced && <Cost cost={c.cost} />}
+            </button>
+          );
+        })}
+        {/* Набег решается не здесь: перехватить в поле — на карте, собрать дружину к воротам — в Статуе. */}
+        {letter?.kind === 'raid' && (
+          <>
+            <button className="nx-ans" onClick={() => openMap()}>
+              <b>На карту</b>
+              <small>Перехватить в поле, пока они идут</small>
+            </button>
+            <button className="nx-ans" disabled={!statue} onClick={() => statue && openBuilding(statue.id)}>
+              <b>Дружина</b>
+              <small>{['Собрать к воротам в Статуе', raid?.short].filter(Boolean).join(' · ')}</small>
+            </button>
+          </>
+        )}
+      </div>
+      <p className="nx-msilence">{d.silence}</p>
+      <button className="nx-mback" onClick={onBack}>
+        {d.choices.length > 0 ? 'Отложить' : 'К вестям'}
+      </button>
     </div>
   );
 }

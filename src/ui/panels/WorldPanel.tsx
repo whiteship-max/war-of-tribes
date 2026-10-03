@@ -45,6 +45,12 @@ const ALLOWED: Record<Mission, ('warrior' | 'scout')[]> = {
   support: ['warrior'],
 };
 
+/**
+ * Редактор состава дружины в карточке своего города — дверь для карточки нового вида (`next/WorldNew`): редактор один
+ * и показан в двух местах, карточке замка и Статуе (`GarrisonEditor.test.ts`).
+ */
+export const OwnGarrison = (): JSX.Element => <GarrisonEditor />;
+
 export function WorldPanel({ x, y }: { x: number; y: number }) {
   const s = useGame((g) => g.s);
   const closeMap = useGame((g) => g.closeMap);

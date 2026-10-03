@@ -237,6 +237,24 @@ describe('цели касания нового вида — не меньше п
       ['.nx-seg button', 'height'],
       ['.nx-ach button', 'height'],
       ['.nx-more', 'height'],
+      // Карточка клетки и «Походы»: ячейки-справки, действия, люди сеткой, строки, кнопки строк.
+      ['.nx-fact', 'min-height'],
+      ['.nx-cact', 'height'],
+      ['.nx-leadb', 'min-height'],
+      ['.nx-crow', 'min-height'],
+      ['.nx-act', 'height'],
+      ['.nx-mrow', 'min-height'],
+      ['.nx-mico', 'height'],
+      ['.nx-mico', 'width'],
+      ['.nx-mtap', 'min-height'],
+      ['.nx-ico44', 'height'],
+      ['.nx-ico44', 'width'],
+      // Весть: лупа, ответы, «Отложить»; донесение о бое: «итог или бой».
+      ['.nx-mspot', 'height'],
+      ['.nx-mspot', 'width'],
+      ['.nx-ans', 'min-height'],
+      ['.nx-mback', 'height'],
+      ['.nx-rbtns .btn', 'height'],
     ];
     for (const [sel, prop] of targets) {
       const v = px(sel, prop);

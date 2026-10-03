@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest';
 const UI = join(__dirname, '..');
 
 /** Файлы экранов этапа 2 — новый вид целиком своими строками. */
-export const STAGE2 = ['next/CityNaming.tsx', 'next/cityNames.ts', 'realm/RealmTabs.tsx'];
+export const STAGE2 = ['next/CityNaming.tsx', 'next/cityNames.ts', 'realm/RealmTabs.tsx', 'next/WorldNew.tsx', 'next/MarchesNew.tsx'];
 
 /** Строки игрока в исходнике: литералы и текст разметки с кириллицей; комментарии — мимо. */
 export function playerStrings(src: string): string[] {
