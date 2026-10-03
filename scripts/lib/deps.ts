@@ -20,7 +20,8 @@
  * ИНСТРУМЕНТЫ. Три правила, и каждое — свойство инструмента, а не отчёта:
  *   vite — кто запускается через vite (`vite-node`, `createServer` из `vite`, `vite build`),
  *     тот читает `vite.config.ts` и каждый `tsconfig.json` дерева; кто поднимает им сервер или сборку, тот
- *     отдаёт странице `index.html` со всем, что из него достижимо, и всю папку `public`;
+ *     отдаёт странице `index.html` со всем, что из него достижимо, и всю папку `public`; кто поднимает сервер
+ *     разработки (`createServer`), тот читает ещё и каждую страницу `.html` дерева — сканер зависимостей;
  *   сборка — кто упоминает папку вывода сборки (`dist`), тот зависит от команды `build`
  *     целиком и от всего, что она собирает;
  *   пакеты — кто запускается вообще, тот зависит от `package.json` и `package-lock.json`.
@@ -58,6 +59,8 @@ export interface FileScan {
   packages: string[];
   /** Поднимает vite сервером или сборкой: `createServer`, `build`, `preview` из `vite`. */
   serves: boolean;
+  /** Поднимает сервер разработки vite (`createServer`): его сканер зависимостей читает каждую страницу дерева. */
+  devServer: boolean;
   /** Упомянута папка вывода сборки. */
   build: boolean;
   /** Что не понято. */
@@ -117,15 +120,22 @@ const packageOf = (spec: string): string =>
  * целиком каждому отчёту. Импорт всего модуля разом — да: что из него возьмут, не видно.
  */
 const VITE_RUNS = new Set(['createServer', 'build', 'preview', 'createBuilder']);
-function servesVite(n: ts.ImportDeclaration): boolean {
+function servesVite(n: ts.ImportDeclaration, runs: ReadonlySet<string> = VITE_RUNS): boolean {
   const clause = n.importClause;
   if (!clause || clause.isTypeOnly) return false;
   if (clause.name) return true;
   const b = clause.namedBindings;
   if (!b) return false;
   if (ts.isNamespaceImport(b)) return true;
-  return b.elements.some((e) => !e.isTypeOnly && VITE_RUNS.has((e.propertyName ?? e.name).text));
+  return b.elements.some((e) => !e.isTypeOnly && runs.has((e.propertyName ?? e.name).text));
 }
+
+/**
+ * Поднимает ли импорт из `vite` сервер разработки. У сборки и `preview` вход один — `index.html`; у сервера ещё и
+ * сканер зависимостей, и он ищет точки входа по всем страницам дерева (`optimizeDeps.entries` по умолчанию).
+ */
+const DEV_RUNS: ReadonlySet<string> = new Set(['createServer']);
+const devServes = (n: ts.ImportDeclaration): boolean => servesVite(n, DEV_RUNS);
 
 /**
  * Импорт, от которого при запуске не остаётся ничего: `import type`, `export type` и импорт,
@@ -164,6 +174,17 @@ export class Scanner {
   viteReads(): string[] {
     const name = this.vite.tsconfig.split('/').pop()!;
     return [this.vite.config, ...[...this.index.files].filter((f) => f === name || f.endsWith(`/${name}`))];
+  }
+
+  /**
+   * Что сервер разработки читает сверх страницы: каждую `.html` дерева. Сканер зависимостей vite ищет точки входа по
+   * всем страницам корня (`optimizeDeps.entries` по умолчанию — все `.html`, кроме `node_modules` и папки вывода) и
+   * читает их, даже когда игре нужна одна: так `tap` и `revive` читали макеты `docs/ui_mockups/`. Выяснилось записью
+   * прочитанного, а не догадкой (docs/ui_audit.md, 12.8).
+   */
+  devServerReads(): string[] {
+    const out = `${this.vite.outDir}/`;
+    return [...this.index.files].filter((f) => f.endsWith('.html') && !f.startsWith(out) && !f.split('/').includes('node_modules'));
   }
 
   /** Спецификатор импорта в файл дерева или `null`. */
@@ -224,7 +245,7 @@ export class Scanner {
   scan(file: string): FileScan {
     let s = this.cache.get(file);
     if (!s) {
-      s = { imports: [], types: [], files: [], dirs: [], packages: [], serves: false, build: false, doubts: [] };
+      s = { imports: [], types: [], files: [], dirs: [], packages: [], serves: false, devServer: false, build: false, doubts: [] };
       if (TEXT.test(file) && !file.endsWith('.json')) {
         const text = this.index.tree.read(file);
         if (CODE.test(file)) this.scanCode(file, text, s);
@@ -262,6 +283,7 @@ export class Scanner {
         const spec = literal(n.moduleSpecifier);
         if (spec !== null) importOf(spec, n, typeOnly(n));
         if (spec === 'vite' && ts.isImportDeclaration(n) && servesVite(n)) out.serves = true;
+        if (spec === 'vite' && ts.isImportDeclaration(n) && devServes(n)) out.devServer = true;
       } else if (ts.isImportEqualsDeclaration(n) && ts.isExternalModuleReference(n.moduleReference)) {
         specs.add(n.moduleReference.expression);
         const spec = literal(n.moduleReference.expression);
@@ -362,6 +384,7 @@ export class Scanner {
         s.files.forEach(add);
         s.dirs.forEach((d) => dirs.add(d));
         if (s.serves) serve();
+        if (s.devServer) this.devServerReads().forEach(add);
         if (s.build && !built) {
           built = true;
           serve();
