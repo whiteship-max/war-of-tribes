@@ -79,30 +79,27 @@ export function GarrisonEditor() {
     setBusy(true);
     const err = await setGarrison(next);
     setBusy(false);
-    showToast(err ?? (troopTotal(next ?? {}) > 0 ? 'Дружина при полководце.' : 'Дружина вернулась в деревню.'));
+    showToast(err ?? (troopTotal(next ?? {}) > 0 ? 'Отряд отдан полководцу.' : 'Отряд идёт в гарнизон.'));
   };
 
   return (
     <>
       <h3>
-        Дружина при полководце{' '}
+        Отряд полководца{' '}
         <small>{total}</small>
       </h3>
       {gathering ? (
         <p className="note bad">
-          Идёт сбор: ещё {realLeft(secondsLeft(general.readyAt, worldNow()))}. Пока он идёт, все{' '}
-          {troopTotal(held)} не защищают деревню ни как гарнизон, ни как дружина — и в бой не годятся.
+          Сбор ещё {realLeft(secondsLeft(general.readyAt, worldNow()))}. Пока он идёт, отряд не держит оборону и в бой
+          не годится.
         </p>
       ) : posture === 'stands' ? (
-        <p className="note">
-          Собрана и дома: {troopTotal(held)} — часть гарнизона: у частокола, у амбара, на вылазке и под
-          рассеянием, если город падёт.
-        </p>
+        <p className="note">Отряд стоит дома и держит оборону с гарнизоном.</p>
       ) : posture === 'engaged' ? (
-        <p className="note bad">Дружина занята: пока полководец в пути или в поле, деревню она не защищает.</p>
+        <p className="note bad">Отряд в поле и город не защищает.</p>
       ) : null}
       {rows.length === 0 ? (
-        <div className="desc">Бойцов нет ни дома, ни при нём. Найми кого-нибудь в казармах.</div>
+        <div className="desc">Бойцов нет. Найми их в казармах.</div>
       ) : (
         rows.map((t) => {
           // Шаг вверх упирается в тех, кто дома, а не в ошибку после нажатия.
@@ -141,7 +138,7 @@ export function GarrisonEditor() {
         {moved > 0 && (
           <div className="mod">
             <span className="ico">⏳</span>
-            <span className="name">Пока идёт сбор, оборона</span>
+            <span className="name">Оборона на время сбора</span>
             <span className={`val ${during < def * 0.5 ? 'neg' : ''}`}>
               {Math.round(def)} → {Math.round(during)}
             </span>
@@ -149,28 +146,23 @@ export function GarrisonEditor() {
         )}
         <div className="mod total">
           <span className="ico"><Icon name="ui-home" glyph="🏠" /></span>
-          <span className="name">Соберётся и встанет дома — оборона</span>
+          <span className="name">Оборона после сбора</span>
           <span className="val">{Math.round(after)}</span>
         </div>
       </div>
       <div className="wm-actions">
         <button className="btn wide" disabled={busy || gathering} onClick={() => void apply(want)}>
-          🎖️ Отдать полководцу {total}
+          <Icon name="fig-general" glyph="🎖️" /> Отдать {total}
         </button>
         <button
           className="btn ghost wide"
           disabled={busy || gathering || troopTotal(held) === 0}
           onClick={() => void apply(null)}
         >
-          <Icon name="ui-home" glyph="🏠" /> Вернуть всю дружину домой
+          <Icon name="ui-home" glyph="🏠" /> Вернуть всех
         </button>
       </div>
-      <p className="note">
-        Дружина, собранная и стоящая у своих ворот, — часть гарнизона: держит стену и выходит на вылазку. Пока идёт сбор или
-        роспуск, эти люди не защищают никого, а уведёшь полководца в поле — дома останутся частокол, башня,
-        жители и те, кого он не взял. Увести можно всех: сколько войска держать, решает цена — еда и
-        жалованье, — а не Статуя.
-      </p>
+      <p className="note">Уйдёт полководец в поле, и отряд покинет гарнизон.</p>
     </>
   );
 }

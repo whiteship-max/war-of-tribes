@@ -1,6 +1,7 @@
 import type { Building } from '@/game/types';
 import { useGame } from '@/game/store';
 import { DECREES, RATIONS, TAXES } from '@/game/data/policy';
+import { BUILDING_BY_ID } from '@/game/data/buildings';
 import { buildingHousing, buildingStat, decreeOf, mastersCount, rationOf, taxIncomePerDay, taxOf, taxQuote, townHallBuildMult, wagesDue } from '@/game/derived';
 import { setDecree, setRation, setTax } from '@/game/sim/actions';
 import { gemsOf } from '@/game/sim/gems';
@@ -12,13 +13,13 @@ import { signed } from './signed';
 /**
  * Ратуша — сердце города, и в ней три дела, а не одно, поэтому у неё вкладки:
  *
- * 1. «Стройка» — главная: весь посёлок списком, уровни и очередь. Отдельного
+ * 1. «Стройка» — главная: весь город списком, уровни и очередь. Отдельного
  *    раздела «Здания» внизу нет, чтобы одно и то же не делалось в двух местах.
- * 2. «Управление» — то, чем правит вождь: указ, рацион, налог и казна.
- * 3. «Алмазы» — премиальная валюта: чем она платит за время и почему её пока
- *    нельзя купить.
+ * 2. «Указы» — то, чем правит правитель: указ, паёк, налог и золото. Слова — те же, что у
+ *    вкладки «Указы» державы нового вида (`realm/RealmTabs.DecreesNew`; словарь — docs/ui_audit.md, 4.4).
+ * 3. «Алмазы» — чем они платят за время.
  *
- * Вкладка живёт в сторе, а не здесь: на «Управление» ведёт ссылка из справки
+ * Вкладка живёт в сторе, а не здесь (ключ `manage`): на «Указы» ведёт ссылка из справки
  * о морали, и вести ей некуда, если память о вкладке умирает вместе с панелью.
  */
 export function TownHall({ b }: { b: Building }) {
@@ -34,13 +35,13 @@ export function TownHall({ b }: { b: Building }) {
           className={tab === 'build' ? 'active' : ''}
           onClick={() => setTab('build')}
         >
-          🔨 Стройка
+          Стройка
         </button>
         <button className={tab === 'manage' ? 'active' : ''} onClick={() => setTab('manage')}>
-          📜 Управление
+          Указы
         </button>
         <button className={tab === 'gems' ? 'active' : ''} onClick={() => setTab('gems')}>
-          ♦ Алмазы <i className="tab-count">{gems}</i>
+          Алмазы <i className="tab-count">{gems}</i>
         </button>
       </div>
 
@@ -52,9 +53,9 @@ export function TownHall({ b }: { b: Building }) {
 }
 
 /**
- * Управление городом: чем правит вождь.
+ * Указы: чем правит правитель.
  *
- * Указ, рацион и налог переключаются в любой момент и действуют, пока выбраны,
+ * Указ, паёк и налог переключаются в любой момент и действуют, пока выбраны,
  * поэтому последствия написаны прямо на кнопке — выбор делают, уже зная цену.
  */
 export function Manage({ b }: { b: Building }) {
@@ -71,7 +72,7 @@ export function Manage({ b }: { b: Building }) {
       <h3>Ратуша</h3>
       <div className="mod">
         <span className="ico">🔨</span>
-        <span className="name">К скорости всех строек</span>
+        <span className="name">К скорости стройки</span>
         <span className="val">×{townHallBuildMult(s).toFixed(2)}</span>
       </div>
       {morale > 0 && (
@@ -84,10 +85,10 @@ export function Manage({ b }: { b: Building }) {
       <div className="mod">
         <span className="ico">🛏️</span>
         <span className="name">Жилых мест</span>
-        <span className="val">{housing > 0 ? housing : 'с 6 уровня'}</span>
+        <span className="val">{housing > 0 ? housing : `с ур. ${BUILDING_BY_ID[b.type].since?.housing ?? 1}`}</span>
       </div>
 
-      <h3>Указ вождя</h3>
+      <h3>Указ</h3>
       <div className="choice">
         {DECREES.map((d) => (
           <button
@@ -104,7 +105,7 @@ export function Manage({ b }: { b: Building }) {
         ))}
       </div>
 
-      <h3>Рацион</h3>
+      <h3>Паёк</h3>
       <div className="choice">
         {RATIONS.map((r) => (
           <button
@@ -122,22 +123,20 @@ export function Manage({ b }: { b: Building }) {
       </div>
 
       <h3>
-        Казна <span className="muted">{signed(taxIncomePerDay(s))} в день</span>
+        Золото <span className="muted">сбор {signed(taxIncomePerDay(s))} в день</span>
       </h3>
       <div className="mod total">
         <span className="ico"><Icon name="res-gold" glyph="💰" /></span>
-        <span className="name">Золото</span>
+        <span className="name">Накоплено</span>
         <span className="val pos">{Math.floor(s.gold)}</span>
       </div>
       <div className="mod">
         <span className="ico">⚔️</span>
-        <span className="name">Жалованье войску{mastersCount(s) > 0 ? ' и наёмным мастерам' : ''}</span>
-        <span className={`val${wagesDue(s) > taxIncomePerDay(s) ? ' neg' : ''}`}>−{wagesDue(s).toFixed(1)} в день</span>
+        <span className="name">Жалованье дружине{mastersCount(s) > 0 ? ' и мастерам' : ''}</span>
+        <span className={`val${wagesDue(s) > taxIncomePerDay(s) ? ' neg' : ''}`}>{signed(-wagesDue(s))} в день</span>
       </div>
       <div className="note">
-        Сбор идёт с людей: чем больше народу в посёлке, тем полнее казна. Платит за это
-        мораль, а мораль — выработкой: на каждой кнопке ниже сбор, мораль и выработка при
-        этом налоге. Из казны же платят войску: не хватит — оно начнёт уходить.
+        Чем больше жителей, тем больше сбор. Не хватит золота на жалованье, и дружина начнёт уходить.
       </div>
 
       <h3>Налог</h3>

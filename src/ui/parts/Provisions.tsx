@@ -1,7 +1,7 @@
 // Склад перестаёт быть тупиком: тревоги голода и холода ведут сюда (`derived.alerts`,
-// `goto: 'storage'`), а решения о еде у склада нет — паёк решает вождь в ратуше.
+// `goto: 'storage'`), а решения о еде у склада нет — паёк решает правитель в ратуше.
 // Поэтому здесь два показа и одна дверь: на сколько хватит еды при нынешнем пайке,
-// прогноз зимы и ссылка прямо в «Управление».
+// прогноз зимы и ссылка прямо в «Указы».
 //
 // Ни одного числа части не считают сами: срок еды — `parts/foodLeft`, зима —
 // `winterForecast`, тот же, что в справке сезона и в окне перед зимой. `WinterForecast`
@@ -9,13 +9,13 @@
 import { useGame } from '@/game/store';
 import { rationOf, seasonOf, winterForecast } from '@/game/derived';
 import { foodLeft } from './foodLeft';
-import { gameDaysText, waitDaysBoth } from './wait';
+import { waitDays } from './wait';
 
 /**
- * «3.4 игр. дн. — 1 ч 42 мин»: срок без округления вверх — обещать лишнюю десятую дня нельзя. Оба
- * числа: паёк и зима считаются игровыми днями, а ждёт игрок своими часами.
+ * «1 ч 42 мин»: срок без округления вверх — обещать лишнюю десятую дня нельзя. Паёк и зима считаются
+ * игровыми днями, а ждёт игрок своими часами: на экране — настоящее время (docs/ui_audit.md, 4.5).
  */
-const daysText = (d: number): string => waitDaysBoth(Math.floor(d * 10) / 10);
+const daysText = (d: number): string => waitDays(Math.floor(d * 10) / 10);
 
 /** Сколько дней ещё проживём на том, что в амбаре, — и где это меняют. */
 export function FoodLeft() {
@@ -31,14 +31,14 @@ export function FoodLeft() {
         <span className="ico">{ration.icon}</span>
         <span className="name">
           {left.days === null ? 'Еда не убывает' : 'Еды хватит на'}
-          <em className="sub">при пайке «{ration.name.toLowerCase()}»</em>
+          <em className="sub">{ration.name.toLowerCase()} паёк</em>
         </span>
         <span className={`val ${left.days === null ? 'pos' : left.days < 1 ? 'neg' : ''}`}>
-          {left.days === null ? 'добывают не меньше, чем едят' : daysText(left.days)}
+          {left.days === null ? 'хватает' : daysText(left.days)}
         </span>
       </div>
       <button className="btn ghost wide" onClick={() => openTownHall('manage')}>
-        Паёк — изменить в ратуше
+        Изменить паёк
       </button>
     </>
   );
@@ -57,14 +57,14 @@ export function WinterForecast() {
           <span className="ico">🍖</span>
           <span className="name">Еда</span>
           <span className={`val ${forecast.food.ok ? 'pos' : 'neg'}`}>
-            {Math.floor(forecast.food.days * 10) / 10} из {gameDaysText(forecast.winterDays)}
+            {daysText(forecast.food.days)} из {waitDays(forecast.winterDays)}
           </span>
         </div>
         <div className="mod">
           <span className="ico">🌲</span>
           <span className="name">Дрова</span>
           <span className={`val ${forecast.wood.ok ? 'pos' : 'neg'}`}>
-            {Math.floor(forecast.wood.days * 10) / 10} из {gameDaysText(forecast.winterDays)}
+            {daysText(forecast.wood.days)} из {waitDays(forecast.winterDays)}
           </span>
         </div>
       </div>

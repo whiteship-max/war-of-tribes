@@ -4,7 +4,7 @@
 import { useGame } from '@/game/store';
 import { LINEAGE_KEEP, LINEAGE_LEVEL } from '@/game/data/traits';
 import { REALM_BRANCHES, SKILL_NAME } from '@/game/data/realm';
-import { levelOfWord, levelWord, yearsWord } from '@/game/sim/agents';
+import { yearsWord } from '@/game/sim/agents';
 import type { LineagePlace } from '@/game/types';
 import { count } from './plural';
 import { traitNames } from './traitLines';
@@ -17,13 +17,13 @@ export function Lineage({ id }: { id: LineagePlace }) {
   return (
     <>
       <h3>
-        Родословная <span className="muted">{rows.length > 0 ? `последние ${rows.length} из ${keep}` : 'пуста'}</span>
+        Родословная <span className="muted">{rows.length > 0 ? `${rows.length} из ${keep}` : 'пуста'}</span>
       </h3>
       <div className="note">
         {id === 'ruler'
-          ? 'Здесь помнят всех, кто правил: уровня у правителя нет, у него три навыка — с ними он и остаётся в памяти.'
-          : `Здесь помнят всех, кто погиб, и тех, кто ушёл на покой, дослужив хотя бы до ${levelOfWord(LINEAGE_LEVEL)} уровня.`}{' '}
-        Новые — первыми; больше {count(keep, 'имени', 'имён', 'имён')} не хранится.
+          ? 'Здесь помнят прежних правителей.'
+          : `Здесь помнят павших и тех, кто ушёл на покой на ур. ${LINEAGE_LEVEL} или выше.`}{' '}
+        Новые сверху. Хранится не больше {count(keep, 'имени', 'имён', 'имён')}.
       </div>
       {rows.map((r, i) => (
         <div key={`${r.name}-${i}`} className="mod">
@@ -34,7 +34,7 @@ export function Lineage({ id }: { id: LineagePlace }) {
               {r.from}–{yearsWord(r.to)} ·{' '}
               {r.skills
                 ? REALM_BRANCHES.map((b) => `${SKILL_NAME[b]} ${r.skills?.[b]}`).join(', ')
-                : `${levelWord(r.level)} уровень · ${count(r.deeds, 'дело', 'дела', 'дел')}`}
+                : `ур. ${r.level} · ${count(r.deeds, 'дело', 'дела', 'дел')}`}
               {r.traits.length > 0 ? ` · ${traitNames(r.traits)}` : ''}
             </em>
           </span>

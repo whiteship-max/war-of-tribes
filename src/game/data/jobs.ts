@@ -21,7 +21,7 @@ export interface JobDef {
 }
 
 export const JOBS: JobDef[] = [
-  { id: 'idle', name: 'Свободен', icon: '🔨', description: 'Свободные жители улучшают здания и отдыхают у костра.', yield: {} },
+  { id: 'idle', name: 'Свободные руки', icon: '🔨', description: 'Ведут стройку и отдыхают у костра.', yield: {} },
   // Семь дворов за стеной — одной таблицей (`data/yards.ts`): здание, профессия и сезон
   // двора описаны там одной строкой, а не здесь, в зданиях и в сезонах врозь.
   ...YARDS.map(
@@ -40,7 +40,7 @@ export const JOBS: JobDef[] = [
     id: 'crafter',
     name: 'Ремесленник',
     icon: '🛠️',
-    description: 'Работает в мастерской и ускоряет улучшения зданий: один мастер стоит полутора строителей.',
+    description: 'Работает в мастерской и ускоряет стройку.',
     yield: {},
     building: 'workshop',
   },
@@ -48,7 +48,7 @@ export const JOBS: JobDef[] = [
     id: 'smith',
     name: 'Кузнец',
     icon: '⚒️',
-    description: 'Кует снаряжение: копья, луки, топоры, щиты, мечи и доспех.',
+    description: 'Куёт снаряжение.',
     yield: {},
     building: 'smithy',
   },
@@ -60,7 +60,7 @@ export const JOBS: JobDef[] = [
     // ставят одним и тем же числом.
     name: 'Служитель',
     icon: '🕯️',
-    description: 'Служит в храме: держит набожность прихода и настроение деревни.',
+    description: 'Держит набожность прихода и мораль города.',
     yield: {},
     building: 'church',
   },

@@ -88,8 +88,8 @@ export function useAlertItems(): AlertItem[] {
       key: m.id,
       icon: win.late ? 'ui-time' : 'alert-raid',
       glyph: win.late ? '⏳' : '⚔️',
-      text: `Набег: ${m.fromName} · ${left}${short ? ` · ${short}` : ''}`,
-      title: `Набег: ${m.fromName}`,
+      text: `Набег · ${m.fromName} · ${left}${short ? ` · ${short}` : ''}`,
+      title: `Набег · ${m.fromName}`,
       body: short ? `Придёт через ${left}, ${short}.` : `Придёт через ${left}.`,
       timer: left,
       urgent: true,
@@ -113,13 +113,16 @@ export function useAlertItems(): AlertItem[] {
     const b = buildingOfType(s, type);
     const isGeneral = who.includes(FIGURE_BY_ID.general.name.toLowerCase());
     const where = hireWhere(s, FIGURE_IDS.find((id) => HIRE_AT[id] === type) ?? 'scout');
+    // «Нужен разведчик», «Нужны разведчик и лазутчик»: на одно здание найма — одно или два места.
+    const need = who.length > 1 ? `Нужны ${who.slice(0, -1).join(', ')} и ${who[who.length - 1]}` : `Нужен ${who[0]}`;
     out.push({
       key: `vacant-${type}`,
       icon: null,
       glyph: isGeneral ? '🎖️' : '👣',
-      text: `Место пустует: ${who.join(', ')} — нанять ${where}${isGeneral ? ' · армия не выходит' : ''}`,
-      title: `Место пустует: ${who.join(', ')}`,
-      body: isGeneral ? `Без полководца дружина не выходит. Нанять ${where}.` : `Нанять ${where}.`,
+      text: need,
+      sub: isGeneral ? 'Без него дружина не выходит.' : undefined,
+      title: need,
+      body: isGeneral ? `Без полководца дружина не выходит. Нанимают ${where}.` : `Нанимают ${where}.`,
       urgent: false,
       go: b ? () => openBuilding(b.id) : null,
       goWord: 'Нанять',
@@ -133,9 +136,9 @@ export function useAlertItems(): AlertItem[] {
       key: 'bare-general',
       icon: null,
       glyph: '🎖️',
-      text: 'Новый полководец без дружины — собрать в Статуе',
-      title: 'Полководец без дружины',
-      body: 'Дружину собирают в Статуе.',
+      text: 'Полководец без отряда',
+      title: 'Полководец без отряда',
+      body: 'Отряд собирают в Статуе.',
       urgent: false,
       go: statue ? () => openBuilding(statue.id) : null,
       goWord: 'К Статуе',

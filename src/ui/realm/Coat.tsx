@@ -10,7 +10,7 @@
 import { PARTY_OWN } from '@/ui/map/palette';
 import { useGame } from '@/game/store';
 import { useWorld } from '@/world/store';
-import { useRealm } from './open';
+import { coatView, useRealm } from './open';
 import { mailKeys, unreadCount, useSeen } from './unread';
 
 const P = PARTY_OWN;
@@ -60,8 +60,7 @@ export function CoatButton({ quiet = false }: { quiet?: boolean } = {}) {
     <button
       className={`coat-btn${open ? ' active' : ''}`}
       data-tut="coat"
-      // В новом виде «Вести» — свой экран из низа: герб из них ведёт в разделы державы, а не обратно в вести.
-      onClick={() => show(quiet && useRealm.getState().view === 'decisions' ? 'government' : undefined)}
+      onClick={() => show(coatView(useGame.getState().s, quiet, useRealm.getState().view))}
       title="Держава: правительство, стройка, вера, армия, решения и настройки"
       aria-label={unread > 0 && !quiet ? `Держава, новых донесений: ${unread}` : 'Держава'}
     >
