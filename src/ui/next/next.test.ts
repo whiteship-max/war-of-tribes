@@ -207,6 +207,9 @@ describe('цели касания нового вида — не меньше п
       ['.nx-confirm', 'height'],
       ['.nx-bclose', 'height'],
       ['.nx-bclose', 'width'],
+      // Промыслы (docs/minigames.md, 3): строка игры и её кнопка — «В лес», «В загон».
+      ['.nx-trade', 'min-height'],
+      ['.nx-go', 'height'],
       // Кузница: строка вещи, «Изучить ›», шаг заказа, «Заказать».
       ['.nx-grow-row', 'min-height'],
       ['.nx-link', 'height'],
