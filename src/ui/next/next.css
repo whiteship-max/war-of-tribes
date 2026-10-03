@@ -1007,3 +1007,7 @@
   font-weight: 600;
   text-align: center;
 }
+/* Меню приказов карты стоит у нижнего края — над низом нового вида, который вынесен поверх карты. */
+.ui-new .am {
+  padding-bottom: calc(var(--nav-h) + var(--safe-bottom) + 12px);
+}
