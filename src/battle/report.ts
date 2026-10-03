@@ -149,10 +149,12 @@ function keyLine(e: BattleEvent, us: Side): ReportLine | null {
     case 'flank-turned':
       return line(e, 'bat-flank', '↩️', `${own(e.side, us, 'm')} ${SECTOR_NAME[e.sector]} обойдён — удар пришёл сбоку.`, !mine);
     case 'rear-reached':
+      // Значок строки — рисунок листа `bat-rear` (стрела в стену); эмодзи стоит, только пока лист не приехал, и
+      // повторяет рисунок. Прежний ⚑ — не из Emoji 12.0 (docs/ui_audit.md, 12.8).
       return line(
         e,
         'bat-rear',
-        '⚑',
+        '➡️',
         mine
           ? `Противник дошёл до нашего тыла (${SECTOR_NAME[e.sector]}).`
           : `Мы дошли до их тыла (${SECTOR_NAME[e.sector]}).`,

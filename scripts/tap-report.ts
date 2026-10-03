@@ -64,6 +64,7 @@
  *
  * Запуск: npm run tap:report
  * Переменные: LEVEL=10 (уровень построек — у города модели одни, меняются значки),
+ *             UI=old (прежний интерфейс; без переменной — вид по умолчанию, новый),
  *             WIDTH=390 HEIGHT=844 DPR=3, HEAD=1 (видимое окно), PORT / CDP_PORT, CHROME=путь\к\chrome.exe
  */
 import { createServer as createVite, type Plugin } from 'vite';
@@ -72,6 +73,7 @@ import { launchChrome, reportPage, sleep, Tab } from './lib/chrome';
 import { TAP_FORGIVE, TAP_MOVE, TAP_MS, TAP_SLIP, TAP_TARGET, WHEEL_STEP } from '../src/gestures';
 import type { HitBox } from '../src/render/pick';
 import { BUILDINGS } from '../src/game/data/buildings';
+import { UI_DEFAULT, type UiMode } from '../src/ui/uimode';
 
 const PORT = Number(process.env.PORT ?? 4192);
 const DEBUG_PORT = Number(process.env.CDP_PORT ?? 9335);
@@ -353,6 +355,28 @@ const PROBE = `
       return JSON.stringify(sh && sh.kind === 'building' ? sh.id : null);
     },
 
+    /** Открыть окно постройки той же дверью, что и тап, — без касания: следом стенд мерит, чем оно закрывается. */
+    open: (id) => {
+      state().openBuilding(id);
+      return JSON.stringify(state().sheet ? 'ok' : 'не открылось');
+    },
+
+    /**
+     * Достанется ли касание городу или затемнению шторки — то есть закроет ли окно пустое касание. Палец — пятно
+     * радиуса r, как у «свободна ли точка»: под всем пятном канва (новый вид — у шторки нет затемнения, касание
+     * берёт город) или затемнение (прежний вид).
+     */
+    under: (x, y, r) => {
+      const c = canvasOf();
+      const at = [[0, 0], [r, 0], [-r, 0], [0, r], [0, -r]];
+      return JSON.stringify(
+        at.every((d) => {
+          const el = document.elementFromPoint(x + d[0], y + d[1]);
+          return el === c || (!!el && el.classList.contains('sheet-backdrop'));
+        }),
+      );
+    },
+
     /** Что открыл бы тап в эту точку: тот же судья, что у пальца (pickAt сцены), без касания. */
     pickAt: (x, y) => JSON.stringify(live().pickAt(x, y)),
 
@@ -468,10 +492,12 @@ async function main(): Promise<void> {
 }
 
 /**
- * Какой интерфейс мерить: `UI=new` открывает игру с `?ui=new` (docs/ui_audit.md, раздел 12) — у нового вида свой
- * верх и низ, и мёртвой полосы над низом в нём быть не должно. Без переменной — прежний вид, вывод прежний.
+ * Какой интерфейс мерить: без переменной — тот, что у игрока по умолчанию (`UI_DEFAULT`: с 03.10.2026 новый,
+ * docs/ui_audit.md, 12.8), `UI=old` — прежний, запасной из настроек. У нового вида свой верх и низ, и мёртвой полосы
+ * над низом в нём быть не должно. Адрес пишется всегда (`?ui=…`): стенд мерит названный вид, а не запись браузера.
  */
-const UI_QUERY = process.env.UI === 'new' ? '&ui=new' : '';
+const UI_WORD: UiMode = process.env.UI === 'old' || process.env.UI === 'new' ? process.env.UI : UI_DEFAULT;
+const UI_QUERY = `&ui=${UI_WORD}`;
 
 async function report(): Promise<void> {
   const tab = await Tab.open(DEBUG_PORT, reportPage(PORT, UI_QUERY));
@@ -699,6 +725,49 @@ async function report(): Promise<void> {
   const emptyPick = empty ? await tab.eval<number | null>(`window.__tap.pickAt(${empty.x}, ${empty.y})`) : null;
   const emptyHit = empty ? (await trace({ id: -1, ...empty, cam: null }, { slip: 0, when: 'сход', ms: 200 })).hit : null;
 
+  // Окно постройки открыто — касание по пустой земле его закрывает (решение владельца 03.10.2026, docs/ui_audit.md,
+  // 12.8). Точка — то же «чистое поле», но ищется, когда окно уже встало: шторка закрывает низ экрана. Касание берёт
+  // город (у шторки нового вида нет затемнения) или затемнение (прежний вид) — `under`; окно открывает та же дверь, что
+  // и тап по крыше, — постройки со стартового кадра, в которую целился первый след.
+  await tab.eval<string>('window.__tap.reset(null)');
+  const shut = points.find((p) => p.cam === null) ?? null;
+  let shutAt: { x: number; y: number } | null = null;
+  /** Чем кончилось: окно закрылось, осталось (id постройки) или замер не состоялся — словами. */
+  let shutWord = shut ? 'окно не открылось' : 'нет постройки со стартового кадра';
+  if (shut && (await tab.eval<string>(`window.__tap.open(${shut.id})`)) === 'ok') {
+    shutWord = 'нет точки: под шторкой и разметкой';
+    // Шторка выезжает анимацией: пока она едет, точка под ней ещё «свободна».
+    await sleep(CLEAR_WAIT_MS);
+    let room0 = Infinity;
+    for (let y = 8; y < view.h - 8; y += 6) {
+      for (let x = 8; x < view.w - 8; x += 6) {
+        let room = Infinity;
+        for (const b of sites) {
+          const ox = Math.max(0, Math.abs(x - b.x) - b.hw);
+          const oy = Math.max(0, Math.abs(y - b.y) - b.hh);
+          room = Math.min(room, Math.hypot(ox, oy));
+        }
+        if (room > TAP_FORGIVE + 6 && room < room0 && (await tab.eval<boolean>(`window.__tap.under(${x}, ${y}, ${FINGER_R})`))) {
+          room0 = room;
+          shutAt = { x, y };
+        }
+      }
+    }
+    if (shutAt) {
+      await send('touchStart', [shutAt]);
+      await sleep(200);
+      await send('touchEnd', []);
+      await sleep(60);
+      const left = await tab.eval<number | null>('window.__tap.sheet()');
+      shutWord =
+        left === null
+          ? 'окно закрылось'
+          : left === shut.id
+            ? 'ОКНО ОСТАЛОСЬ'
+            : `открылось: ${nameOf(boxes.find((b) => b.id === left)?.type ?? String(left))}`;
+    }
+  }
+
   await tab.eval<string>('window.__tap.reset(null)');
   const after = await tab.eval<Box[]>('window.__tap.boxes()');
   const rebuilt = await tab.eval<number>('window.__tap.rebuilds()');
@@ -793,6 +862,7 @@ async function report(): Promise<void> {
 
   console.log('\nСЛЕД ПАЛЬЦА ПО ПОСТРОЙКАМ ГОРОДА');
   console.log(`  экран ${WIDTH}×${HEIGHT}, dpr ${view.dpr}, канва ${px(view.w)}×${px(view.h)} px, уровень зданий ${LEVEL}`);
+  console.log(`  интерфейс: ${UI_WORD === 'new' ? 'новый' : 'прежний'}${UI_WORD === UI_DEFAULT ? ' (по умолчанию)' : ''}`);
   console.log(`  палец настоящий: Input.dispatchTouchEvent, тач-эмуляция, часы не подменены`);
   console.log(`  WebGL нет: контекст подделан${view.fake ? '' : ' — НО ЗАГЛУШКА НЕ ВСТАЛА'}, кадр не рисуется, снимок отсюда чёрный`);
   console.log(
@@ -861,6 +931,9 @@ async function report(): Promise<void> {
     console.log(`  ${pad(`тап в чистое поле (${px(empty.x)},${px(empty.y)})`, 52)}${padL(label(emptyHit, -1), 10)}`);
     console.log(`  ${pad('  оно же: судья пальца без касания', 52)}${padL(label(emptyPick, -1), 10)}`);
   }
+  console.log(
+    `  ${pad(`тап в чистое поле при открытом окне${shutAt ? ` (${px(shutAt.x)},${px(shutAt.y)})` : ''}`, 52)}${padL(shutWord, 10)}`,
+  );
 
   console.log(`
   МЫШЬ (ПК): Input.dispatchMouseEvent, тач-эмуляция снята`);

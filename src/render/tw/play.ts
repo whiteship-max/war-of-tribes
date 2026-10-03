@@ -1,6 +1,6 @@
 // Дверь ролика TW из игры (docs/battle_tw.md): запись боя → план → проигрыватель на одолженном рендерере. Своим куском
-// (`vite.config.ts`, `LAZY_DOORS`, «ролик TW»): по умолчанию игра его не грузит вовсе — только при `?battle=tw` и
-// только по «Смотреть бой».
+// (`vite.config.ts`, `LAZY_DOORS`, «ролик TW»): на старте игра его не грузит вовсе — только по «Смотреть бой» и только
+// при новом ролике (по умолчанию; прежний — в настройках, `ui/battle/look.ts`).
 import type * as THREE from 'three';
 import type { BattleResult, Side } from '@/battle/types';
 import type { BattlePlace } from '@/game/battle/ground';

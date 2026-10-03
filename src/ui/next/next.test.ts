@@ -248,7 +248,7 @@ describe('подсказка — касанием, долгого нажатия
       const src = readFileSync(join(DIR, f), 'utf8');
       expect(src, `${f}: удержание`).not.toMatch(/onContextMenu|onTouchStart|onMouseDown|contextmenu|longpress|long-press/i);
       // Единственный `pointerdown` — ловец под открытой подсказкой: он закрывает её, а не открывает.
-      if (/onPointerDown/.test(src)) expect(f, 'pointerdown — только у ловца подсказки').toBe('Tip.tsx');
+      if (/onPointerDown/.test(src)) expect(f, 'pointerdown — только у ловца подсказки').toBe('TipLayer.tsx');
     }
     const hud = readFileSync(join(DIR, 'Hud.tsx'), 'utf8');
     expect(hud.match(/onClick=\{tip\(/g)?.length, 'числа верха открывают подсказку касанием').toBeGreaterThanOrEqual(6);

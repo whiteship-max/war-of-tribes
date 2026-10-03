@@ -108,6 +108,15 @@ describe('выбор отчётов по замыканиям', () => {
     expect(names(run(['assets-src/icons/fire.svg']))).toEqual(['built']);
   });
 
+  it('сервер разработки тянет каждую страницу дерева — сканер зависимостей vite; читающему собранное она не нужна', () => {
+    // Макет в документах игре не нужен, а сервер его читает (так `tap` и `revive` читали `docs/ui_mockups/`):
+    // страница лежит в замыкании того, кто поднимает `createServer`, а не того, кто читает папку сборки.
+    const files = { ...FILES, 'docs/mockups/screen.html': '<div class="mock"></div>\n' };
+    const p = run(['docs/mockups/screen.html'], files);
+    expect(p.full).toBe(false);
+    expect(names(p)).toEqual(['page']);
+  });
+
   it('фраза в выводе отчёта путём не считается', () => {
     const p = run(['docs/notes.md', 'CLAUDE.md']);
     expect(p.full).toBe(false);

@@ -7,14 +7,16 @@
 // Отсюда же следует, что содержимое у обоих показов одинаковое. Соблазн
 // «на стартовом экране покажем только звук» — это и есть начало второй копии.
 //
-// Строк здесь четыре — музыка, графика, интерфейс, язык, — и это не заготовка под список.
+// Строк здесь шесть — музыка, графика, интерфейс, карта мира, ролик боя, язык, — и это не заготовка под список.
 // Свалкой раздел становится с той строки, которую добавили «раз уж всё равно
 // открыли»: игрок перестаёт читать и начинает пролистывать. Новая строка
 // появляется тогда, когда без неё что-то нельзя сделать, а не тогда, когда её
 // удобно сюда положить. Графика — такая: без неё телефону, который не тянет,
-// уровень не опустить (docs/graphics_world.md, 9.6; docs/city.md, «Город — единственный вид»). Интерфейс —
-// тоже: новый вид стоит за переключателем, пока владелец его не одобрил (`ui/uimode.ts`), и вернуться
-// к прежнему игрок обязан тем же пальцем, каким ушёл.
+// уровень не опустить (docs/graphics_world.md, 9.6; docs/city.md, «Город — единственный вид»). Интерфейс,
+// карта и ролик — тоже: с 03.10.2026 у всех трёх по умолчанию новый вид (`ui/device.ts`), прежний — запасной
+// (решение владельца, docs/ui_audit.md, 12.8), и другого пути к нему в Телеграме нет: адрес игры там не поправишь.
+// Цена кадра новых карты и ролика на настоящем телефоне не измерена (docs/map_tw.md, docs/battle_tw.md): телефону,
+// который их не потянет, вернуться к прежнему нужно тем же пальцем, каким опускают графику.
 //
 // Чего здесь нет и быть не может: ничего про алмазы. Премиальная валюта живёт в
 // ратуше, где ею платят, и настройкой не является ни в каком виде.
@@ -24,6 +26,8 @@ import { GFX_QUALITIES, gfx, setGfx, subscribeGfx } from '@/render/gfx';
 import { battleMusic, villageMusic } from '@/sound/web';
 import { Icon } from '@/ui/icons/Icon';
 import { UI_MODES, setUiMode, subscribeUi, uiMode } from '@/ui/uimode';
+import { MAP_LOOKS, mapLook, setMapLook, subscribeMap } from '@/ui/map/look';
+import { BATTLE_LOOKS, battleLook, setBattleLook, subscribeBattle } from '@/ui/battle/look';
 
 /**
  * Переключатель музыки — **единственный рычаг на весь звук игры**, и деревни, и
@@ -48,6 +52,8 @@ export function Settings() {
   const on = useSyncExternalStore(subscribeSound, soundOn, soundOn);
   const chosen = useSyncExternalStore(subscribeGfx, gfx, gfx);
   const ui = useSyncExternalStore(subscribeUi, uiMode, uiMode);
+  const map = useSyncExternalStore(subscribeMap, mapLook, mapLook);
+  const replay = useSyncExternalStore(subscribeBattle, battleLook, battleLook);
   // Новый интерфейс говорит своими словами (docs/ui_texts.md, пачка 11), прежний — своими.
   const next = ui === 'new';
 
@@ -107,8 +113,8 @@ export function Settings() {
         </div>
 
         {/*
-          Интерфейс — прежний или новый (`ui/uimode.ts`). Две кнопки, как у графики: выбор виден целиком.
-          Меняется сразу, без перезагрузки: верх, низ и окна слушают запись сами.
+          Интерфейс — новый или прежний (`ui/uimode.ts`). Две кнопки, как у графики: выбор виден целиком,
+          умолчание — первой. Меняется сразу, без перезагрузки: верх, низ и окна слушают запись сами.
         */}
         <div className="set-row pick">
           <span className="ico">
@@ -121,6 +127,47 @@ export function Settings() {
           <div className="set-seg" role="group" aria-label="Интерфейс">
             {UI_MODES.map(([m, label]) => (
               <button key={m} className={ui === m ? 'on' : ''} aria-pressed={ui === m} onClick={() => setUiMode(m)}>
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/*
+          Карта мира — новая или прежняя (`ui/map/look.ts`). Выбор читается на входе на карту: здесь, в городе или
+          на стартовом экране, карты на экране нет, и следующий вход — уже в выбранном виде, без перезагрузки.
+        */}
+        <div className="set-row pick">
+          <span className="ico">
+            <Icon name="hud-map" glyph="🗺️" />
+          </span>
+          <span className="name">
+            Карта мира
+            <em className="sub">Новая — в духе карты кампании</em>
+          </span>
+          <div className="set-seg" role="group" aria-label="Карта мира">
+            {MAP_LOOKS.map(([m, label]) => (
+              <button key={m} className={map === m ? 'on' : ''} aria-pressed={map === m} onClick={() => setMapLook(m)}>
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/*
+          Ролик боя — новый или прежний (`ui/battle/look.ts`): выбор берёт следующий «Смотреть бой».
+        */}
+        <div className="set-row pick">
+          <span className="ico">
+            <Icon name="hud-army" glyph="⚔️" />
+          </span>
+          <span className="name">
+            Ролик боя
+            <em className="sub">Новый — строи на поле, камера в руке</em>
+          </span>
+          <div className="set-seg" role="group" aria-label="Ролик боя">
+            {BATTLE_LOOKS.map(([m, label]) => (
+              <button key={m} className={replay === m ? 'on' : ''} aria-pressed={replay === m} onClick={() => setBattleLook(m)}>
                 {label}
               </button>
             ))}

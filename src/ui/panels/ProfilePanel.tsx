@@ -22,6 +22,7 @@ import { PROFILE_DAYS, setCity, setName } from '@/profile/stats';
 import { CITY_MAX } from '../../../netlify/lib/contract';
 import { buildingsPower, power, troopsPower } from '@/profile/power';
 import { AvatarPicker } from '../parts/AvatarPicker';
+import { Icon } from '@/ui/icons/Icon';
 import { Settings } from '../parts/Settings';
 import { SyncStatus } from '../parts/Sync';
 import { gameDaysText } from '../parts/wait';
@@ -149,7 +150,10 @@ export function ProfilePanel() {
             </div>
           ) : (
             <button className="name" onClick={startRename} title="Сменить имя">
-              {profileName(p)} <em>✎</em>
+              {profileName(p)}{' '}
+              <em>
+                <Icon name="ui-edit" glyph="✏️" />
+              </em>
             </button>
           )}
           {/* Имя города видят все — на карте, в отчётах, в письмах и соседи через реестр
@@ -173,7 +177,10 @@ export function ProfilePanel() {
             </div>
           ) : (
             <button className="name city one-line" onClick={startCity} title="Назвать город">
-              {profileCity(p)} <em>✎ город</em>
+              {profileCity(p)}{' '}
+              <em>
+                <Icon name="ui-edit" glyph="✏️" /> город
+              </em>
             </button>
           )}
           <div className="power">

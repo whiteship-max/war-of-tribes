@@ -6,7 +6,7 @@
 //   EXTRA="season=winter&night=1" npm run map-tw:shots     — свои параметры поверх ракурса
 //   SHOTS=objects EXTRA="scale=22" npm run map-tw:shots    — галерея миниатюр (места, войска, работы, значки);
 //                                                            экран подгоняется под галерею (`dataset.need`)
-//   GAME=1 SHOTS=44,24,7 npm run map-tw:shots              — сама игра с `?map=tw` (и `OLD=1` — без него;
+//   GAME=1 SHOTS=44,24,7 npm run map-tw:shots              — сама игра с `?map=tw` (и `OLD=1` — ещё и с `?map=old`;
 //                                                            `FOG=1` — с туманом, как у игрока; `MARCHES=1` —
 //                                                            с отрядами и лагерями у дома):
 //                                                            закреплённый мир с домом в Генуе, кадр карты
@@ -149,15 +149,15 @@ async function shot(view: string, quality: string, old: boolean): Promise<void> 
 }
 
 /**
- * Сама игра: закреплённый мир, карта открыта, камера над домом на масштабе из SHOTS. Новый вид — флагом
- * адреса (`?map=tw`), прежний — без него. Тайлы печёт игра сама, по одному за кадр, — снимок ждёт, пока
- * испечётся экран.
+ * Сама игра: закреплённый мир, карта открыта, камера над домом на масштабе из SHOTS. Вид — адресом, у обоих:
+ * `?map=tw` и `?map=old` (по умолчанию игра с 03.10.2026 открывает новый, и «без адреса» значило бы новый).
+ * Тайлы печёт игра сама, по одному за кадр, — снимок ждёт, пока испечётся экран.
  */
 async function gameShot(look: 'tw' | 'old'): Promise<void> {
   // Обзор мира открыт целиком — видно всю землю; `FOG=1` — как у игрока: туман и край старой карты.
   const q = new URLSearchParams({ probe: '1', fpscap: String(REPORT_FPS) });
   if (process.env.FOG !== '1') q.set('worldview', 'open');
-  if (look === 'tw') q.set('map', 'tw');
+  q.set('map', look);
   if (QUALITIES[0]) q.set('quality', QUALITIES[0]);
   // Свои параметры и игре: `EXTRA="night=1"` — ночь без ожидания ночи.
   for (const [k, v] of new URLSearchParams(EXTRA)) q.set(k, v);

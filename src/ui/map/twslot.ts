@@ -1,9 +1,10 @@
 // Дверь нового вида карты (docs/map_tw.md) в кадр, в касание и в камеру. В первой загрузке от него только эта
-// ячейка: сам вид едет своим куском — он подгружается здесь же по флагу `?map=tw` (`look.ts`) и кладёт сюда свой
-// кадр, свой выбор цели пальцем и рамку своего региона. Пока ячейка пуста — карта прежняя целиком.
+// ячейка: сам вид едет своим куском — он подгружается здесь же по выбору вида (`look.ts`; по умолчанию — новый) и
+// кладёт сюда свой кадр, свой выбор цели пальцем и рамку своего региона. Пока ячейка пуста или выбран прежний вид —
+// карта прежняя целиком.
 import type { Coord } from '@/world/types';
 import type { Camera, Viewport } from './grid';
-import { MAP_TW } from './look';
+import { mapLook, subscribeMap } from './look';
 
 export interface TwSlot {
   /** Кадр карты целиком — вместо прежнего `frame.drawFrame`. */
@@ -26,17 +27,29 @@ export interface TwSlot {
 
 let slot: TwSlot | null = null;
 
-export const twSlot = (): TwSlot | null => slot;
+/**
+ * Ячейка — только пока выбран новый вид. Кусок, однажды приехавший, из памяти не уходит, а игрок мог вернуть прежний
+ * в настройках: тогда ячейка молчит, и карта — прежняя целиком, с её кадром, пальцем и камерой.
+ */
+export const twSlot = (): TwSlot | null => (mapLook() === 'tw' ? slot : null);
 
 export function setTwSlot(next: TwSlot): void {
   slot = next;
 }
 
 /** Клетка доступна как цель: без нового вида — всегда (прежняя карта рамки не знает). */
-export const reachable = (c: Coord): boolean => slot?.reach(c) ?? true;
+export const reachable = (c: Coord): boolean => twSlot()?.reach(c) ?? true;
 
 /** Строка игроку о клетке за краем региона. */
-export const beyondText = (): string => `Это уже не ${slot?.realm() ?? 'ваша земля'}: за край своей земли походы пока не ходят.`;
+export const beyondText = (): string => `Это уже не ${twSlot()?.realm() ?? 'ваша земля'}: за край своей земли походы пока не ходят.`;
 
-// Новый вид — своим куском и только по флагу: приехал — сам кладёт себя в ячейку (`tw/hook.ts`).
-if (MAP_TW) void import('./tw/hook');
+// Новый вид — своим куском и только по выбору: приехал — сам кладёт себя в ячейку (`tw/hook.ts`). Выбрали его в
+// настройках — кусок едет тогда же. Первое чтение выбора — до адреса на запуске (`main.tsx` пишет его после импортов):
+// адрес, сменивший выбор, будит подписку, и кусок едет по нему.
+const want = (): void => {
+  if (mapLook() === 'tw') void import('./tw/hook');
+};
+if (typeof location !== 'undefined') {
+  want();
+  subscribeMap(want);
+}
