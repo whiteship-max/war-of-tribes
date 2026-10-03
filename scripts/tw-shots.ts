@@ -11,8 +11,16 @@
 // Бюджет железа (CLAUDE.md, раздел ⛔): один заход не дольше `BROWSER_MAX_MS`, рядом с чужой тяжёлой работой не
 // запускается, перед заходом видеокарта остывает минуту от конца прошлого захода стенда (`gpuCoolDown`).
 //
+// BENCH=1 — цена кадра вместо снимков: ролик идёт сам с момента `FROM` (по умолчанию — разбег перед сшибкой) `SECONDS`
+// секунд, и на каждый кадр меряется его время на процессоре (режиссура и вызовы отрисовки) и до конца отрисовки (чтение
+// пикселя после кадра), медиана и p95, доля кадров дольше 25 мс; ракурсы — бои из `BENCH_SHOTS` (поле и штурм), уровни —
+// `QUALITY`. Один проход: уровни подряд одним заходом, без повтора (повтор уровня — второй проход без паузы). Числа —
+// одного прогона одной машины: в облаке без видеокарты кадр рисует программная отрисовка, и миллисекунды там — цена
+// процессора, а не телефона (docs/battle_tw.md, раздел 10).
+//
 // Запуск: npm run tw:shots
 // Переменные: SHOTS=deploy,clash,…  QUALITY=low,medium,high  TAG=probe  PORT=4198  CDP_PORT=9341  HEAD=1  WAIT=ms
+//             BENCH=1  BENCH_SHOTS=field,wall  FROM=charge  SECONDS=8
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath, URL } from 'node:url';
@@ -101,6 +109,111 @@ const SHOTS: Shot[] = [
 
 const DEFAULT_SHOTS = ['deploy', 'volley', 'clash', 'clash-near', 'ford-clash'];
 
+/** Бои замера цены кадра (`BENCH=1`): полевой и штурм стены — без момента: ролик идёт сам. */
+const BENCH_BATTLES: Record<string, { query: string; why: string }> = {
+  field: { query: FIELD, why: 'полевой бой 600 на 560, опушка и тракт' },
+  wall: { query: WALL, why: 'штурм стены 420 на 560: лестницы, таран, город' },
+  joint: { query: JOINT, why: 'совместный удар 600 на 420: гарнизон из ворот' },
+};
+const BENCH = process.env.BENCH === '1';
+const BENCH_SECONDS = Number(process.env.SECONDS ?? 8);
+const FROM = process.env.FROM ?? 'charge';
+
+interface Bench {
+  frames: number;
+  /** Секунды ролика, которые прошёл замер. */
+  from: number;
+  to: number;
+  cpu: [number, number];
+  sync: [number, number];
+  /** Доля кадров дольше 25 мс до конца отрисовки. */
+  long: number;
+  calls: number;
+  triangles: number;
+  figures: number;
+  gpuName: string;
+}
+
+/**
+ * Замер на странице: ролик с момента `from` идёт сам; кадр проигрывателя (`TwPlayer.draw`) обёрнут — время режиссуры и
+ * вызовов отрисовки, и время до конца отрисовки (`readPixels` одного пикселя ждёт видеокарту или программную отрисовку).
+ */
+const PROBE = (from: string, ms: number): string => `
+(async () => {
+  const s = window.twStand;
+  const p = s.player;
+  const gl = p.renderer.getContext();
+  const px = new Uint8Array(4);
+  const cpu = [];
+  const sync = [];
+  let calls = 0;
+  let tris = 0;
+  const draw = p.draw;
+  p.stop();
+  p.seek(${from});
+  const t0 = p.time;
+  p.draw = function (dt) {
+    const a = performance.now();
+    draw.call(p, dt);
+    cpu.push(performance.now() - a);
+    gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+    sync.push(performance.now() - a);
+    const st = p.stats();
+    calls = Math.max(calls, st.calls);
+    tris = Math.max(tris, st.triangles);
+  };
+  p.start();
+  await new Promise((r) => setTimeout(r, ${ms}));
+  p.stop();
+  p.draw = draw;
+  const at = (a, k) => { const v = a.slice().sort((x, y) => x - y); return v.length ? v[Math.min(v.length - 1, Math.floor(v.length * k))] : null; };
+  const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+  return JSON.stringify({
+    frames: cpu.length,
+    from: t0,
+    to: p.time,
+    cpu: [at(cpu, 0.5), at(cpu, 0.95)],
+    sync: [at(sync, 0.5), at(sync, 0.95)],
+    long: sync.length ? sync.filter((x) => x > 25).length / sync.length : 0,
+    calls,
+    triangles: tris,
+    figures: s.plan.figures,
+    gpuName: dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER),
+  });
+})()
+`;
+
+/** Секунда начала замера на странице: по имени момента режиссуры (как `&at=` стенда) — из плана. */
+const fromExpr = (name: string): string =>
+  name === 'charge' ? 's.plan.clashAt - 1' : name === 'clash' ? 's.plan.clashAt' : name === 'deploy' ? '0' : String(Number(name) || 0);
+
+async function bench(name: string, quality: string): Promise<void> {
+  const b = BENCH_BATTLES[name];
+  const tab = await Tab.open(DEBUG_PORT, 'about:blank');
+  try {
+    await tab.send('Emulation.setDeviceMetricsOverride', SCREEN);
+    await tab.send('Page.navigate', { url: `http://127.0.0.1:${PORT}/?${b.query}&quality=${quality}&clean=1&dpr=${SCREEN.deviceScaleFactor}&fpscap=${REPORT_FPS}` });
+    let ready = false;
+    for (let i = 0; i < 240 && !ready; i++) {
+      await sleep(250);
+      ready = (await tab.eval<boolean>(`Boolean(window.twStand && document.body?.dataset.replay)`).catch(() => false)) === true;
+    }
+    if (!ready) throw new Error(`${name}: стенд не отдал кадр`);
+    const r = await tab.eval<Bench>(PROBE(fromExpr(FROM), BENCH_SECONDS * 1000));
+    const f = (v: number | null): string => (v === null ? '—' : v.toFixed(1));
+    console.log(
+      `  ${name.padEnd(6)} ${quality.padEnd(6)} ролик ${r.from.toFixed(1)}–${r.to.toFixed(1)} с · кадров ${String(r.frames).padStart(4)} · ` +
+        `ЦП мед ${f(r.cpu[0]).padStart(6)} p95 ${f(r.cpu[1]).padStart(6)} · кадр мед ${f(r.sync[0]).padStart(6)} p95 ${f(r.sync[1]).padStart(6)} мс · ` +
+        `длинных ${Math.round(r.long * 100)} % · вызовов ${r.calls} · треугольников ${r.triangles.toLocaleString('ru')} · фигур ${r.figures}`,
+    );
+    benchGpu = r.gpuName;
+  } finally {
+    tab.close();
+    await fetch(`http://127.0.0.1:${DEBUG_PORT}/json/close/${tab.target}`).catch(() => undefined);
+  }
+}
+let benchGpu = '';
+
 const pageUrl = (shot: Shot, quality: string): string =>
   `http://127.0.0.1:${PORT}/?${shot.query}&quality=${quality}&clean=1&dpr=${SCREEN.deviceScaleFactor}&fpscap=${REPORT_FPS}`;
 
@@ -149,11 +262,16 @@ async function shoot(shot: Shot, quality: string): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  const wanted = list(process.env.SHOTS, DEFAULT_SHOTS);
+  const wanted = BENCH ? list(process.env.BENCH_SHOTS, ['field']) : list(process.env.SHOTS, DEFAULT_SHOTS);
   const qualities = list(process.env.QUALITY, ['medium']);
-  const unknown = wanted.filter((w) => !SHOTS.some((s) => s.name === w));
+  if (BENCH && new Set(qualities).size !== qualities.length) {
+    console.error('\nУровень повторён в QUALITY — это второй проход без паузы (бюджет железа).');
+    process.exit(2);
+  }
+  const unknown = wanted.filter((w) => (BENCH ? !(w in BENCH_BATTLES) : !SHOTS.some((s) => s.name === w)));
   if (unknown.length) {
-    console.error(`\nНет таких ракурсов: ${unknown.join(', ')}. Есть: ${SHOTS.map((s) => s.name).join(', ')}.`);
+    const have = BENCH ? Object.keys(BENCH_BATTLES) : SHOTS.map((s) => s.name);
+    console.error(`\nНет таких ракурсов: ${unknown.join(', ')}. Есть: ${have.join(', ')}.`);
     process.exit(2);
   }
   refuseIfBusy('Снимки ролика TW');
@@ -165,7 +283,7 @@ async function main(): Promise<void> {
   });
   await vite.listen();
   try {
-    console.log(`\n=== ролик TW: снимки (${wanted.join(', ')}; ${qualities.join(', ')}) ===\n`);
+    console.log(`\n=== ролик TW: ${BENCH ? `цена кадра с «${FROM}», ${BENCH_SECONDS} с` : 'снимки'} (${wanted.join(', ')}; ${qualities.join(', ')}) ===\n`);
     await gpuCoolDown('стендом ролика TW');
     // В облачном контейнере браузер идёт от root без видеокарты: песочница там не поднимается, а WebGL даёт только
     // программная отрисовка (SwiftShader) — как у `city:shots`.
@@ -174,13 +292,27 @@ async function main(): Promise<void> {
     try {
       const began = Date.now();
       outer: for (const q of qualities) {
-        for (const shot of SHOTS.filter((s) => wanted.includes(s.name))) {
+        for (const name of BENCH ? wanted : []) {
+          if (Date.now() - began > BROWSER_MAX_MS) {
+            console.log(`\nСрок стенда (${BROWSER_MAX_MS / 1000} с) вышел — остальное отдельным заходом.`);
+            break outer;
+          }
+          await bench(name, q);
+        }
+        for (const shot of BENCH ? [] : SHOTS.filter((s) => wanted.includes(s.name))) {
           if (Date.now() - began > BROWSER_MAX_MS) {
             console.log(`\nСрок стенда (${BROWSER_MAX_MS / 1000} с) вышел — остальное отдельным заходом.`);
             break outer;
           }
           await shoot(shot, q);
         }
+      }
+      if (BENCH) {
+        console.log(
+          `\nОтрисовка: ${benchGpu}. Экран ${SCREEN.width}×${SCREEN.height} @${SCREEN.deviceScaleFactor}, потолок ${REPORT_FPS} кадров; один проход, ` +
+            'миллисекунды сравнимы только внутри этого вывода.',
+        );
+        return;
       }
     } finally {
       chrome.kill();
