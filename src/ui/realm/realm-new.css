@@ -55,6 +55,45 @@
   font-size: 11px;
   color: var(--muted);
 }
+/* Имя города в шапке — кнопка: касание открывает поле, «✓» пишет имя (docs/ui_audit.md, 13). */
+.nx-rname {
+  min-height: 44px;
+  justify-content: center;
+  text-align: left;
+}
+.nx-rcity {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.nx-rcity > svg,
+.nx-rcity > span:last-child {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  font-size: 12px;
+  line-height: 14px;
+  opacity: 0.75;
+}
+.nx-rform {
+  justify-content: center;
+}
+.nx-rin {
+  width: 100%;
+  height: 40px;
+  padding: 0 10px;
+  border-radius: 10px;
+  border: 1px solid var(--accent);
+  background: var(--panel-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 16px;
+  font-weight: 600;
+}
+.nx-rin:focus {
+  outline: none;
+}
 .nx-ibtn {
   display: grid;
   place-items: center;

@@ -67,6 +67,8 @@ const Hud = lazy(() => nextUi().then((m) => ({ default: m.Hud })));
 const Alerts = lazy(() => nextUi().then((m) => ({ default: m.Alerts })));
 const Nav = lazy(() => nextUi().then((m) => ({ default: m.Nav })));
 const TipLayer = lazy(() => nextUi().then((m) => ({ default: m.TipLayer })));
+/** Шаг «Как назовёшь город?» стартового экрана — тем же куском: сам экран ничего не грузит (`start.test.ts`). */
+const CityNaming = lazy(() => nextUi().then((m) => ({ default: m.CityNaming })));
 
 function SheetContent({ view }: { view: SheetView }) {
   if (view.kind === 'building') return <BuildingPanel id={view.id} />;
@@ -238,7 +240,21 @@ export function App() {
         снимается мгновенно — тем же движением, каким снимается экран загрузки
         под ним.
       */}
-      {!started && !prologue && <StartScreen onEnter={() => setStarted(true)} onPrologue={() => setPrologue(true)} />}
+      {!started && !prologue && (
+        <StartScreen
+          onEnter={() => setStarted(true)}
+          onPrologue={() => setPrologue(true)}
+          naming={
+            next
+              ? (done) => (
+                  <Suspense fallback={null}>
+                    <CityNaming onDone={done} />
+                  </Suspense>
+                )
+              : null
+          }
+        />
+      )}
       {/*
         Предыстория поверх всего и вместо всего: пока она открыта, диорама
         разобрана, стартовый экран не рисуется, а выход возвращает ровно туда,

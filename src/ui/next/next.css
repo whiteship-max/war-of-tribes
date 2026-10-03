@@ -1017,3 +1017,64 @@
   height: 18px;
   margin-right: 8px;
 }
+
+/* ---------- Имя города: шаг стартового экрана (`CityNaming`) ---------- */
+.nx-cname {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.nx-cname-ask {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+}
+.nx-cname-row {
+  display: flex;
+  gap: 8px;
+}
+/* Кегль поля — 18: мельче 16 iOS приближает страницу при вводе. */
+.nx-cname-in {
+  flex: 1;
+  min-width: 0;
+  height: 52px;
+  padding: 0 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line-2);
+  background: rgba(26, 20, 16, 0.86);
+  color: var(--text);
+  font: inherit;
+  font-size: 18px;
+  font-weight: 600;
+  text-align: center;
+}
+.nx-cname-in:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.nx-cname-dice {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  padding: 0;
+  border-radius: 10px;
+  border: 1px solid var(--line-2);
+  background: rgba(26, 20, 16, 0.86);
+  color: var(--text);
+  font-size: 24px;
+  cursor: pointer;
+}
+.nx-cname-dice svg {
+  width: 28px;
+  height: 28px;
+}
+.nx-cname-dice:active {
+  background: rgba(62, 48, 34, 0.94);
+}
+.nx-cname .start-go:disabled {
+  opacity: 0.45;
+}

@@ -35,6 +35,16 @@ export function startAction(hasSave: boolean): StartAction {
   return hasSave ? 'continue' : 'new';
 }
 
+/**
+ * Что делает главная кнопка: входит в партию или сперва спрашивает имя города (docs/ui_audit.md, 13). Имя
+ * спрашивается, пока его нет, — у новой партии и у старой, где город не называли, — и только там, где шаг имени
+ * есть (новый интерфейс: `next/CityNaming`). Назвал — больше не спрашивает: имя лежит в сохранении
+ * (`ProfileState.city`), своего флага у шага нет.
+ */
+export function startStep(hasNaming: boolean, named: boolean): 'enter' | 'name' {
+  return hasNaming && !named ? 'name' : 'enter';
+}
+
 /** Слово на кнопке. Второго набора слов для того же действия быть не должно. */
 export const START_LABEL: Record<StartAction, string> = {
   new: 'Начать игру',

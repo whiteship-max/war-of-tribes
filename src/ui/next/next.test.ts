@@ -223,6 +223,11 @@ describe('цели касания нового вида — не меньше п
       ['.nx-rtabs button', 'height'],
       ['.nx-tcell', 'height'],
       ['.nx-go', 'height'],
+      // Имя города: поле и кубик шага стартового экрана, имя в шапке державы.
+      ['.nx-cname-in', 'height'],
+      ['.nx-cname-dice', 'height'],
+      ['.nx-cname-dice', 'width'],
+      ['.nx-rname', 'min-height'],
     ];
     for (const [sel, prop] of targets) {
       const v = px(sel, prop);

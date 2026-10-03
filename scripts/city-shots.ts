@@ -16,7 +16,7 @@ import { join } from 'node:path';
 import { fileURLToPath, URL } from 'node:url';
 import { createServer as createVite } from 'vite';
 import sharp from 'sharp';
-import { launchChrome, reportPage, sleep, Tab } from './lib/chrome';
+import { ENTER_GAME, launchChrome, reportPage, sleep, Tab } from './lib/chrome';
 import { BROWSER_MAX_MS, REPORT_FPS, gpuCoolDown, gpuStamp, refuseIfBusy } from './lib/budget';
 import { QUALITY, qualityOf, type Quality } from '../src/render/quality';
 import { LAYERS, paintLayer } from '../src/render/city/tex';
@@ -125,7 +125,7 @@ async function gameShot(q: Quality): Promise<void> {
       console.log('  игра: сцена не поднялась за 60 с');
       return;
     }
-    await tab.eval<string>(`(() => { const go = document.querySelector('.start-go'); if (go) go.click(); return JSON.stringify(go ? 'вошли' : 'нет кнопки'); })()`);
+    await tab.eval<string>(ENTER_GAME);
     const built = await tab.eval<string>(`new Promise((ok) => {
       const s = window.__scene;
       if (!s || !s.built) return ok(JSON.stringify('не город: ' + (s && s.constructor && s.constructor.name)));

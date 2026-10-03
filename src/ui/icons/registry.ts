@@ -121,6 +121,8 @@ export const ICON_GROUPS: readonly IconGroup[] = [
       'close', 'info', 'mail', 'lock', 'check', 'crown', 'tech', 'faith',
       // Сменить имя и назвать город в профиле — перо; до него стоял ✎, не из Emoji 12.0 (docs/ui_audit.md, 12.8).
       'edit',
+      // Другое имя города на выбор — кубик (шаг имени стартового экрана, docs/ui_audit.md, 13).
+      'dice',
     ],
     source: 'общий инвентарь интерфейса',
   },
