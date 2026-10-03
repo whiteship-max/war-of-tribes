@@ -63,6 +63,7 @@ import { PARCHMENT_PX, SHEET_PX, bakeParchment } from './parchment';
 import { drawSettlement as oldSettlement, type Look as OldLook } from '../village';
 import { drawParty as oldParty, lookOf as oldPartyLook } from '../party';
 import { RELATION_META } from '@/world/data/meta';
+import { SIDE_COLOR } from '@/side';
 import type { Fate, Stage } from '@/world/types';
 import { FELL_WORDS } from '../siegemark';
 import { CAMP_DX, CAMP_DY } from './scene';
@@ -125,7 +126,9 @@ const SCENE = {
   sea: { x: 699, y: 1219, name: 'Лигурийское море' },
 };
 
-const OWN = '#e8a43c';
+/** Своё — цвет стороны (`side.ts`): владение, путь, город игрока. */
+const OWN = SIDE_COLOR.ours;
+const OWN_RGB = [1, 3, 5].map((i) => parseInt(OWN.slice(i, i + 2), 16));
 
 interface Stats {
   tiles: number;
@@ -315,9 +318,9 @@ function drawRealm(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport): vo
   if (tc) {
     const img = tc.createImageData(w, w);
     for (let k = 0; k < w * w; k++) {
-      img.data[k * 4] = 232;
-      img.data[k * 4 + 1] = 164;
-      img.data[k * 4 + 2] = 60;
+      img.data[k * 4] = OWN_RGB[0];
+      img.data[k * 4 + 1] = OWN_RGB[1];
+      img.data[k * 4 + 2] = OWN_RGB[2];
       img.data[k * 4 + 3] = soft[k] * 46;
     }
     tc.putImageData(img, 0, 0);

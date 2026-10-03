@@ -37,12 +37,18 @@
   text-align: right;
 }
 
+/* Цвет стороны — переменные корня ролика из одной двери (`side.ts`): наши в золоте, чужие в красном. */
 .tw-flag {
   grid-area: flag;
   width: 14px;
   height: 18px;
   clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 78%, 0 100%);
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35);
+  background: var(--side-ours);
+}
+
+.tw-side.them .tw-flag {
+  background: var(--side-foe);
 }
 
 .tw-name {
@@ -76,8 +82,12 @@
 .tw-morale i {
   display: block;
   height: 100%;
-  background: var(--good);
+  background: var(--side-ours);
   transition: width 0.25s linear;
+}
+
+.tw-side.them .tw-morale i {
+  background: var(--side-foe);
 }
 
 .tw-phase {
@@ -126,4 +136,19 @@
 
 .tw-card .replay-controls {
   margin-top: 10px;
+}
+
+/* Метка стороны в строке карточки итога — то же знамя, что на полосе. */
+.tw-mark {
+  display: inline-block;
+  width: 9px;
+  height: 12px;
+  margin-right: 6px;
+  vertical-align: -1px;
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 78%, 0 100%);
+  background: var(--side-ours);
+}
+
+.tw-mark.them {
+  background: var(--side-foe);
 }

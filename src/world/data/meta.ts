@@ -1,4 +1,5 @@
 // Стадии поселений, отношения и миссии: подписи, иконки и цвета в одном месте.
+import { SIDE_COLOR } from '../../side';
 import type { Mission, Relation, Stage } from '../types';
 
 export interface StageDef {
@@ -42,10 +43,11 @@ export interface RelationDef {
 }
 
 export const RELATION_META: Record<Relation, RelationDef> = {
-  self: { id: 'self', name: 'Своё', color: '#e8a43c' },
+  // Свои и враги — цвет стороны, один на игру (`side.ts`): золото и красный, как в бою и в отчёте.
+  self: { id: 'self', name: 'Своё', color: SIDE_COLOR.ours },
   ally: { id: 'ally', name: 'Союзники', color: '#6bb6e8' },
   neutral: { id: 'neutral', name: 'Нейтралы', color: '#cbbca6' },
-  enemy: { id: 'enemy', name: 'Враги', color: '#e06b5a' },
+  enemy: { id: 'enemy', name: 'Враги', color: SIDE_COLOR.foe },
   barbarian: { id: 'barbarian', name: 'Варвары', color: '#a2795a' },
 };
 

@@ -508,6 +508,8 @@ HEAD один на всех, см. правило 8). Значит развес�
   строй — правило развёртывания `setup.deploy`; слова и числа о войске — `game/battle/describe.ts` (battle).
 - **Сроки словами** — `game/span.ts` и `ui/parts/wait.ts`; голого «дн.» в игре нет (time).
 - **Значок** — `ui/icons/Icon.tsx`; эмодзи — только Emoji 12.0 (`emoji.test.ts`; graphics).
+- **Цвет стороны** — `src/side.ts`: игрок — золото, враг — красный, в обоих роликах боя, на карте и в отчёте о бое;
+  тень и краска — функцией из него, записи цвета мимо двери нет (`side.test.ts`; battle).
 - **Звук** — один `AudioContext` (`sound/web.ts`) и один рычаг — `ui/parts/Settings.tsx` (music).
 - **Экран загрузки** — целиком в `index.html`, дверь из игры одна — `boot/stage.ts` (scene).
 - **Коды проверки и зеркальное логово** — для игроков `CHEATS_ON` и `MIRROR_ON` опущены (cheats, battle).

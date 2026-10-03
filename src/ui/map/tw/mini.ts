@@ -13,6 +13,7 @@
 // миниатюра и считается её тело (`placeBody`, `hostBody`) — цель пальца. Две правды о высоте башни
 // разошлись бы ровно там, где палец промахивается.
 import type { Fate, Stage } from '@/world/types';
+import { SIDE_COLOR } from '@/side';
 import { makeCanvas } from '../paint';
 import { FRONT_R, FRONT_STAKES, REAR_R, REAR_STAKES, stakeOrder, stakesAt } from '../siegemark';
 
@@ -88,7 +89,8 @@ const M = {
   char: '#2a221d',
   charLit: '#6e6157',
   scorch: 'rgba(40, 30, 22, 0.5)',
-  gold: '#e8a43c',
+  /** Своё место и свои войска — цвет стороны (`side.ts`), а не своё золото миниатюр. */
+  gold: SIDE_COLOR.ours,
   goldLit: '#f4cf78',
   goldRim: '#f4e4b4',
   parchment: '#e6d4a8',

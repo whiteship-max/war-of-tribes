@@ -16,14 +16,15 @@ import { Figure, FigurePool } from '../figures';
 import { poseFigure, type Action } from '../poses';
 import { FOLK_KINDS, dressSoldier, dressVillager } from '../units';
 import { CANINE_OF, dressCanine, poseCanine, wolfLook } from '../beasts';
-import { PALETTE } from '../palette';
+import { sidePaint } from '@/side';
 
 /**
- * Наши в синем, чужие в красном. Цвет стороны один на всех деталях бойца,
- * включая щит (см. `dressSoldier`), и тот же цвет несут знамёна: по кадру
- * должно быть видно, где чьё войско, без единой подписи.
+ * Наши в золоте, чужие в красном. Цвет стороны один на всех деталях бойца,
+ * включая щит и гребень (см. `dressSoldier`), и тот же цвет несут знамёна: по кадру
+ * должно быть видно, где чьё войско, без единой подписи. Краска — из одной двери
+ * цвета стороны (`side.sidePaint`), той же, что у ролика TW, карты и отчёта.
  */
-const CLOTH = { ours: PALETTE.paintBlue, theirs: PALETTE.paintRed } as const;
+const CLOTH = { ours: sidePaint(true), theirs: sidePaint(false) } as const;
 
 export const CLOTH_OF = (ours: boolean): number => (ours ? CLOTH.ours : CLOTH.theirs);
 
@@ -96,7 +97,7 @@ export class SectorTroops {
         dx: (file - (files - 1) / 2) * FILE_STEP + (beast ? (placeShare(i, 29) - 0.5) * FILE_STEP * PACK_SIDE : 0),
         // Передняя шеренга стоит РОВНО на месте сектора, ряды уходят назад. Если
         // центрировать блок, глубокий строй перешагивает линию соприкосновения,
-        // и синие с красными перемешиваются — по кадру тогда не понять, где чей
+        // и наши с чужими перемешиваются — по кадру тогда не понять, где чей
         // фронт. Глубина за это платит `FIELD.rowGap`, и тест это держит.
         dz: (rank + (beast ? placeShare(i, 71) * PACK_BACK : 0)) * RANK_STEP * back,
         order: (i * 5 + 3) % Math.max(1, n),

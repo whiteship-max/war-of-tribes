@@ -6,7 +6,7 @@
 // доступен повторно: раз кадры выводятся из журнала, повтор ничего не стоит и
 // обязан совпасть с первым показом до кадра. Журнал по фазам остаётся под
 // кнопками: ролик показывает, текст объясняет.
-import { useEffect, useMemo, useState, type ComponentType } from 'react';
+import { useEffect, useMemo, useState, type CSSProperties, type ComponentType } from 'react';
 import { createPortal } from 'react-dom';
 import { useGame } from '@/game/store';
 import { useWorld } from '@/world/store';
@@ -24,6 +24,7 @@ import { formatCoord } from '@/world/geo';
 import type { BattleRecord, Report } from '@/world/types';
 import { lootText, unitsText } from '@/ui/parts/reportWords';
 import { Icon } from '@/ui/icons/Icon';
+import { SIDE_VARS } from '@/side';
 
 /** Силы несопоставимы — смотреть нечего: мгновенный итог по умолчанию. */
 export const LOPSIDED = 3;
@@ -38,6 +39,9 @@ export function lopsidedness(rec: BattleRecord): number {
 }
 
 const other = (side: Side): Side => (side === 'attacker' ? 'defender' : 'attacker');
+
+/** Журнал боя метит строки цветом стороны: наши — золотом, чужие — красным (одна дверь, `side.ts`; `.bl-line`). */
+const SIDES_STYLE = SIDE_VARS as CSSProperties;
 
 type ReplayProps = { rec: BattleRecord; report?: Report; onDone: () => void };
 
@@ -106,7 +110,7 @@ function Journal({ rec }: { rec: BattleRecord }) {
   );
 
   return (
-    <div className="bl">
+    <div className="bl" style={SIDES_STYLE}>
       {rec.result.phases.map((span, i) => {
         const events = bySpan[i];
         const ours = Math.round(span.losses[rec.us]);
@@ -126,7 +130,7 @@ function Journal({ rec }: { rec: BattleRecord }) {
               <div className="bl-line muted">без событий</div>
             ) : (
               events.map((e, i) => (
-                <div className={`bl-line${'side' in e && e.side === rec.us ? ' mine' : ''}`} key={i}>
+                <div className={`bl-line${'side' in e ? (e.side === rec.us ? ' mine' : ' foe') : ''}`} key={i}>
                   {beastWords(describeEvent(e, rec.us), rec.beasts, rec.us)}
                 </div>
               ))
@@ -270,7 +274,7 @@ export function ReportBody({ report }: { report: Report }) {
           </p>
 
           <h3>Почему так вышло</h3>
-          <div className="bl">
+          <div className="bl" style={SIDES_STYLE}>
             {sum.keys.length === 0 ? (
               <div className="bl-line muted">Ничего решающего не случилось — перемололи друг друга.</div>
             ) : (

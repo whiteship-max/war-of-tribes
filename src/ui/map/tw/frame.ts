@@ -27,6 +27,7 @@ import { drawTwFog } from './fog';
 import { drawGround } from './layers';
 import { moving, prebakeFrame, prebakeIdle, prebaked } from './prebake';
 import { TW } from './palette';
+import { SIDE_COLOR, shade } from '@/side';
 import { withinActive } from './theatre/theatre';
 import { drawAgent } from '../agent';
 import type { MarkerKind } from '../village';
@@ -39,7 +40,8 @@ import { type Box, type FigureItem, type HostItem, type PlaceItem, figureItems, 
 /** Отступ сверху под шапку карты — тот же, что у прежнего кадра. */
 const TOP_INSET = 52;
 
-const OWN = '#e8a43c';
+/** Свои: путь, срок, выбор — цвет стороны (`side.ts`). */
+const OWN = SIDE_COLOR.ours;
 const INK = 'rgba(40, 28, 18, 0.85)';
 const SERIF = "Georgia, 'Times New Roman', 'Noto Serif', serif";
 
@@ -186,7 +188,8 @@ function drawTimer(ctx: CanvasRenderingContext2D, text: string, x: number, y: nu
   ctx.lineWidth = 3.5;
   ctx.strokeStyle = 'rgba(236, 222, 190, 0.9)';
   ctx.strokeText(text, x, y);
-  ctx.fillStyle = color === OWN ? '#6a4310' : '#7a2418';
+  // Чернила срока — цвет стороны отряда, притемнённый до чернил: читается на пергаментном ореоле.
+  ctx.fillStyle = shade(color, 0.46);
   ctx.fillText(text, x, y);
 }
 

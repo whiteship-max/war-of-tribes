@@ -8,13 +8,13 @@
 // (CLAUDE.md, правило 18). Кнопки приходят данными (`TW_CONTROLS`, `SPEEDS`), а не разметкой — правило прежнего ролика.
 //
 // Камерой правит игрок: ввод — на слое ролика, а не на холсте, где сидит ввод сцены города.
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import * as THREE from 'three';
 import { activeScene } from '@/render/Scene';
 import { configureRenderer } from '@/render/lighting';
 import { pixelRatio } from '@/render/loop';
-import { PALETTE } from '@/render/palette';
+import { SIDE_VARS } from '@/side';
 import { PHASE_NAME, summarize, type Side } from '@/battle';
 import { SKIP, frameAt, type Frame } from '@/battle/replay';
 import { castOfRecord } from '@/game/battle/cast';
@@ -43,9 +43,11 @@ const CARD_CONTROLS = [AGAIN, TO_REPORT] as const;
  */
 const SOUND = { id: 'sound', on: '🔊', off: '🔇', why: 'Звук выключен в настройках' } as const;
 
-const css = (hex: number): string => `#${hex.toString(16).padStart(6, '0')}`;
-/** Знамя стороны на полосе — цвет стороны в бою: наши в синем, чужие в красном (правило ролика). */
-const FLAG = { ours: css(PALETTE.paintBlue), theirs: css(PALETTE.paintRed) };
+/**
+ * Цвет стороны — переменными на корне ролика (`side.SIDE_VARS`): знамя и мораль на полосе, метки сторон в карточке итога —
+ * наши в золоте, чужие в красном, одной дверью с фигурами, картой и отчётом (`tw.css`).
+ */
+const SIDES_STYLE = SIDE_VARS as CSSProperties;
 
 const other = (s: Side): Side => (s === 'attacker' ? 'defender' : 'attacker');
 
@@ -223,7 +225,7 @@ export function TwReplay({ rec, report, onDone }: { rec: BattleRecord; report?: 
     const m = hud?.morale[side] ?? null;
     return (
       <div className={`tw-side${side === us ? '' : ' them'}`}>
-        <span className="tw-flag" style={{ background: side === us ? FLAG.ours : FLAG.theirs }} />
+        <span className="tw-flag" />
         <span className="tw-name">{sideName[side]}</span>
         <span className="tw-men">{frame.side[side].men}</span>
         {m !== null && (
@@ -236,7 +238,7 @@ export function TwReplay({ rec, report, onDone }: { rec: BattleRecord; report?: 
   };
 
   return createPortal(
-    <div className="replay replay-tw" ref={layer}>
+    <div className="replay replay-tw" ref={layer} style={SIDES_STYLE}>
       <div className="tw-top">
         <div className="tw-bar">
           {bar(us)}
@@ -299,13 +301,19 @@ function ResultCard({ rec, report, onPick }: { rec: BattleRecord; report?: Repor
       <p className={`note${sum.verdict === 'defeat' || sum.verdict === 'pyrrhic' ? ' bad' : ''}`}>{sum.reason}</p>
       <div className="mod-list">
         <div className="mod">
-          <span className="name">Наши силы</span>
+          <span className="name">
+            <i className="tw-mark" />
+            Наши силы
+          </span>
           <span className="val">
             {ours.initial} → {ours.final}
           </span>
         </div>
         <div className="mod">
-          <span className="name">{rec.beasts === other(us) ? 'Стая' : 'Противник'}</span>
+          <span className="name">
+            <i className="tw-mark them" />
+            {rec.beasts === other(us) ? 'Стая' : 'Противник'}
+          </span>
           <span className="val">
             {foes.initial} → {foes.final}
           </span>

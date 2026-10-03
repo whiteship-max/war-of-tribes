@@ -2422,12 +2422,13 @@ body {
   border-left: 2px solid var(--line);
 }
 
+/* Цвет стороны — переменные журнала из одной двери (`side.ts`, `ReportPanel`): наши в золоте, чужие в красном. */
 .bl-line.mine {
-  border-left-color: var(--good);
+  border-left-color: var(--side-ours);
 }
 
 .bl-line.foe {
-  border-left-color: var(--bad);
+  border-left-color: var(--side-foe);
 }
 
 .bl-line.muted {

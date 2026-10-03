@@ -8,7 +8,7 @@
 // тени (слой `SHADOW_LAYER`). Своего материала глубины с костями не нужно, и поза в тени на этом расстоянии не
 // видна (решение 4).
 import * as THREE from 'three';
-import { PALETTE } from '../palette';
+import { sidePaint } from '@/side';
 import type { TwSpec } from './spec';
 import { bakeLooks, frameRows, lookOf, type BakedLook, type BoneTexture } from './bake';
 import { CLIPS, type FigureFrame, type TwPlan } from './plan';
@@ -16,8 +16,11 @@ import { CLIPS, type FigureFrame, type TwPlan } from './plan';
 /** Слой, который видит только камера тени: заместители тени бойцов. */
 export const SHADOW_LAYER = 1;
 
-/** Наши в синем, чужие в красном — цвет стороны на всех деталях, включая щит (`render/battle/troops.CLOTH`). */
-export const SIDE_COLOR = { ours: PALETTE.paintBlue, theirs: PALETTE.paintRed } as const;
+/**
+ * Наши в золоте, чужие в красном — цвет стороны на всех деталях, включая щит и гребень; краска под светом сцены из одной
+ * двери (`side.sidePaint`), той же, что у прежнего ролика (`render/battle/troops.CLOTH_OF`).
+ */
+export const SIDE_CLOTH = { ours: sidePaint(true), theirs: sidePaint(false) } as const;
 
 const VERT_HEAD = /* glsl */ `
 attribute float aJoint;
@@ -62,8 +65,8 @@ const VERT_COLOR = /* glsl */ `
 function crowdMaterial(bones: BoneTexture): THREE.MeshLambertMaterial {
   const mat = new THREE.MeshLambertMaterial({ color: 0xffffff, vertexColors: true, flatShading: true });
   mat.name = 'tw-crowd';
-  const ours = new THREE.Color(SIDE_COLOR.ours);
-  const theirs = new THREE.Color(SIDE_COLOR.theirs);
+  const ours = new THREE.Color(SIDE_CLOTH.ours);
+  const theirs = new THREE.Color(SIDE_CLOTH.theirs);
   mat.onBeforeCompile = (sh) => {
     sh.uniforms.uBones = { value: bones };
     sh.uniforms.uSide0 = { value: ours };

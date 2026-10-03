@@ -7,16 +7,16 @@
 // соседних кадра и смешивает (`crowd.ts`). Суставов — 24 на любую фигуру, поэтому текстура — килобайты на вид, а
 // не мегабайты, как у запечённых вершин.
 //
-// Цвет стороны в меш не запекается: детали, одетые «цветом стороны», помечены (`aSide`), и красит их шейдер — синим
-// или красным по фигуре. Так один меш служит обеим сторонам, и вызовов вдвое меньше.
+// Цвет стороны в меш не запекается: детали, одетые «цветом стороны», помечены (`aSide`), и красит их шейдер — золотом
+// или красным по фигуре (`side.ts`). Так один меш служит обеим сторонам, и вызовов вдвое меньше.
 import * as THREE from 'three';
 import type { UnitKind } from '@/battle/types';
 import { wearOf } from '@/game/battle/faces';
-import { Figure, JOINTS, forEachPart, partGeometry, type JointId, type PartName } from '../figures';
+import { Figure, JOINTS, forEachPart, partGeometry, type JointId } from '../figures';
 import { BEAT, poseFigure } from '../poses';
 import { FOLK_KINDS, dressSoldier, dressVillager } from '../units';
 import { CANINE_NECK, WOLF_DARK, darker, dressCanine, poseCanine, wolfLook } from '../beasts';
-import { FOLK_TINT, PALETTE } from '../palette';
+import { FOLK_TINT } from '../palette';
 import { CLIPS, type ClipId } from './plan';
 
 /** Цвет-метка «здесь цвет стороны»: его нет в палитре, и спутать его не с чем. */
@@ -80,12 +80,13 @@ function dress(f: Figure, look: Look, variant: number): void {
   else dressSoldier(f, wear.troop, SENTINEL);
 }
 
-/** Насколько деталь — цвет стороны: 0 — нет (своё дерево, железо, кожа), 1 — да, меньше — темнее него. */
-function sideOf(color: number, look: Look, part: PartName): number {
+/**
+ * Насколько деталь — цвет стороны: 0 — нет (своё дерево, железо, кожа), 1 — да, меньше — темнее него. Гребень латника —
+ * тоже цвет стороны (`units.armorUp`), отдельного правила у него нет.
+ */
+function sideOf(color: number, look: Look): number {
   if (color === SENTINEL) return 1;
   if (color === darker(SENTINEL, WOLF_DARK)) return WOLF_DARK_LINEAR;
-  // Гребень латника одет красным всегда (`units.armorUp`); в бою он — сторона, иначе синий отряд нёс бы чужой цвет.
-  if (color === PALETTE.paintRed && part === 'plate') return 1;
   // Ополчение одето жителями (`dressVillager`): рубаха — цвет стороны, иначе по кадру не видно, чьи они.
   if (wearOf(look.face, look.kind).wear === 'folk' && FOLK_TINT.includes(color)) return 1;
   return 0;
@@ -255,7 +256,7 @@ function mergeSlots(f: Figure, look: Look): THREE.BufferGeometry {
     const p = g.attributes.position;
     const n = g.attributes.normal;
     const off = pos.length / 3;
-    const s = sideOf(slot.color.getHex(), look, slot.part);
+    const s = sideOf(slot.color.getHex(), look);
     c.copy(slot.color);
     for (let i = 0; i < p.count; i++) {
       pos.push(p.getX(i), p.getY(i), p.getZ(i));

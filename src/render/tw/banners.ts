@@ -11,7 +11,7 @@
 import * as THREE from 'three';
 import type { UnitKind } from '@/battle/types';
 import { PALETTE } from '../palette';
-import { SIDE_COLOR } from './crowd';
+import { SIDE_CLOTH } from './crowd';
 import { bearerOf, type FigureFrame, type TwPlan, type TwUnit } from './plan';
 
 /** Высота древка и размер полотнища, метры сцены: выше копий (копьё — 1.4 роста, `SPEAR_LEN`). */
@@ -143,8 +143,8 @@ export class Banners {
     const time = this.time;
     clothMat.onBeforeCompile = (sh) => {
       sh.uniforms.uTime = time;
-      sh.uniforms.uSide0 = { value: new THREE.Color(SIDE_COLOR.ours) };
-      sh.uniforms.uSide1 = { value: new THREE.Color(SIDE_COLOR.theirs) };
+      sh.uniforms.uSide0 = { value: new THREE.Color(SIDE_CLOTH.ours) };
+      sh.uniforms.uSide1 = { value: new THREE.Color(SIDE_CLOTH.theirs) };
       sh.uniforms.uPaint = { value: new THREE.Color(0xe6dcc2) };
       sh.uniforms.uGold = { value: new THREE.Color(0xc9a24a) };
       sh.vertexShader = CLOTH_VERT + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n' + CLOTH_WAVE);
