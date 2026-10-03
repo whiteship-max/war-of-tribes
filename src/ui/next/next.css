@@ -670,3 +670,108 @@
 .nx-wrow .stepper .n {
   display: none;
 }
+
+/* ---------- Карта нового вида: табличка сверху, низ на пять мест ---------- */
+.nx-mtop {
+  position: absolute;
+  top: calc(var(--safe-top) + 4px);
+  left: calc(8px + var(--safe-left));
+  right: calc(8px + var(--safe-right));
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+}
+.nx-mtop > * {
+  pointer-events: auto;
+}
+.nx-mplate {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  height: 40px;
+  padding: 0 12px;
+  border-radius: 10px;
+  background: rgba(26, 20, 15, 0.88);
+  border: 1px solid var(--line-2);
+  font-size: 13px;
+  font-weight: 600;
+  pointer-events: none;
+}
+.nx-mplate b {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.nx-mbtn {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  background: rgba(26, 20, 15, 0.88);
+  border: 1px solid var(--line-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 20px;
+  cursor: pointer;
+}
+.nx-mbtn svg {
+  width: 22px;
+  height: 22px;
+}
+.nx-dot {
+  position: absolute;
+  top: -2px;
+  right: -4px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--warn);
+  box-shadow: 0 0 0 2px #1f1812;
+}
+.nx-hand {
+  position: absolute;
+  left: calc(8px + var(--safe-left));
+  right: calc(8px + var(--safe-right));
+  bottom: calc(var(--nav-h) + var(--safe-bottom) + 24px);
+  z-index: 12;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 48px;
+  padding: 0 2px 0 12px;
+  border-radius: 12px;
+  background: var(--panel);
+  border: 1px solid var(--accent);
+  font-size: 13px;
+  font-weight: 600;
+}
+.nx-hand > svg {
+  width: 22px;
+  height: 22px;
+  flex: none;
+}
+.nx-hand > span {
+  flex: 1;
+  min-width: 0;
+}
+.nx-hand .nx-mbtn {
+  border: 0;
+  background: none;
+}
+.ui-new .wm-legend {
+  bottom: calc(var(--nav-h) + var(--safe-bottom) + 24px);
+}
+.nx-stale {
+  margin-bottom: 8px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: rgba(217, 164, 65, 0.12);
+  color: var(--warn);
+  font-size: 13px;
+}

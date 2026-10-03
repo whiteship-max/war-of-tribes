@@ -15,6 +15,14 @@ import { ALERT_FRESH_MS, isFresh } from './fresh';
 export function Alerts() {
   const items = useAlertItems();
   const mapOpen = useGame((g) => g.mapOpen);
+  const closeMap = useGame((g) => g.closeMap);
+  // Дела тревог живут в городе: вести, здания, справки. С карты тревога сначала возвращает в город — иначе
+  // держава открылась бы под картой, невидимой (прежняя строка набега на карте так и молчала).
+  const act = (a: AlertItem): void => {
+    if (!a.go) return;
+    if (mapOpen) closeMap();
+    a.go();
+  };
   const [now, setNow] = useState(() => performance.now());
   const fresh = items.filter((a) => isFresh(a.key, now));
   const anyFresh = fresh.length > 0;
@@ -31,7 +39,7 @@ export function Alerts() {
     tipAt(el, {
       title: a.title,
       body: a.body,
-      link: a.go ? { label: a.goWord ?? 'К делу', go: a.go } : undefined,
+      link: a.go ? { label: a.goWord ?? 'К делу', go: () => act(a) } : undefined,
     });
 
   return (
@@ -42,7 +50,7 @@ export function Alerts() {
           <button
             key={a.key}
             className={`nx-alert ${a.urgent ? 'urgent' : 'warn'}${pill ? ' pill' : ''}`}
-            onClick={(e) => (pill && a.go ? a.go() : open(a, e.currentTarget))}
+            onClick={(e) => (pill && a.go ? act(a) : open(a, e.currentTarget))}
             aria-label={a.title}
           >
             <span className="nx-ring">{a.icon ? <Icon name={a.icon} glyph={a.glyph} /> : a.glyph}</span>
