@@ -1643,3 +1643,9 @@
 .nx-trade-go {
   min-width: 88px;
 }
+.nx-top.crowded {
+  gap: 0;
+}
+.nx-top.crowded .nx-stat {
+  padding: 0 1px;
+}

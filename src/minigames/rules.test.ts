@@ -136,10 +136,16 @@ describe('скот: ход от зерна и времени', () => {
       expect(mean('goat')).toBeGreaterThan(mean('sheep'));
       // Ни одно не быстрее человека (`glade.WALK_SPEED` 2.6 м/с): догнать можно всегда.
       for (const b of h.beasts) for (const t of steps) expect(roamSpeed(h, b, t)).toBeLessThan(2.6);
+      // Куча, а не стадо по всему загону, — и не одно тело: овцы не налезают друг на друга (две толщины овцы).
       const sheep = h.beasts.filter((b) => b.kind === 'sheep');
-      for (const t of steps.filter((_, i) => i % 50 === 0)) {
+      for (const t of steps.filter((_, i) => i % 5 === 0)) {
         const ps = sheep.map((b) => roamAt(h, b, t));
-        for (const p of ps) for (const q of ps) expect(Math.hypot(p.x - q.x, p.z - q.z)).toBeLessThan(5);
+        for (let i = 0; i < ps.length; i++)
+          for (let j = i + 1; j < ps.length; j++) {
+            const d = Math.hypot(ps[i].x - ps[j].x, ps[i].z - ps[j].z);
+            expect(d).toBeLessThan(6);
+            expect(d).toBeGreaterThan(2 * BEASTS.sheep.r);
+          }
       }
     }
   });

@@ -46,7 +46,8 @@ export function Hud() {
 
   return (
     <div className="nx-hud">
-      <div className="nx-top">
+      {/* Порядок — седьмая ячейка: строка теснее, чтобы с энергией влезть в 375 px (цель касания — та же, 44). */}
+      <div className={`nx-top${order !== null ? ' crowded' : ''}`}>
         <CoatButton quiet />
         <button className="nx-stat" onClick={tip(() => goldTip(s, go))} aria-label="Золото">
           <Icon name="res-gold" glyph="💰" />

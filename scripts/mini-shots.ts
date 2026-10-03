@@ -6,6 +6,8 @@
 //   GAMES=herd npm run mini:shots       — одна игра
 //   SEASON=winter npm run mini:shots    — сезон города (снег на ветках)
 //   LOOK=lite npm run mini:shots        — ступень вида приколота (`full`, `lite`, `base`)
+//   WIDTH=375 npm run mini:shots        — ширина экрана, px (по умолчанию 390)
+//   BONDED=12 npm run mini:shots        — невольники в городе: в верхней строке встаёт ячейка порядка
 //   BUDGET=1 npm run mini:shots         — бюджет кадра счётом по графу сцены, без браузера (`world.frameCost`)
 //
 // Снимки — в `.mini-shots/` (в репозиторий не входит). Бюджет железа (CLAUDE.md, раздел ⛔): один прогон, браузер с
@@ -21,7 +23,7 @@ import { BROWSER_MAX_MS, gpuCoolDown, gpuStamp, refuseIfBusy } from './lib/budge
 const OUT = fileURLToPath(new URL('../.mini-shots', import.meta.url));
 const PORT = Number(process.env.PORT ?? 4198);
 const DEBUG_PORT = Number(process.env.CDP_PORT ?? 9343);
-const SCREEN = { width: 390, height: 844, deviceScaleFactor: 2, mobile: true };
+const SCREEN = { width: Number(process.env.WIDTH ?? 390), height: 844, deviceScaleFactor: 2, mobile: true };
 const GAMES = (process.env.GAMES ?? 'berries,herd').split(',').map((x) => x.trim()).filter(Boolean);
 const SEASON = process.env.SEASON ?? '';
 const TAG = process.env.TAG ?? 'probe';
@@ -94,6 +96,17 @@ async function game(tab: Tab, id: string, began: number): Promise<void> {
   console.log(`  у цели: ${at}`);
   await sleep(1500);
   await snap(tab, `${id}-3-play`, began);
+  // Настоящий тап по холсту — мышью CDP: тот же путь, что у пальца (разбор жеста `prologue/controls` → `Stage.act`).
+  const before = await tab.eval<{ got: number }>('JSON.stringify(window.__mini.play.tally())');
+  const pt = { x: Math.round(SCREEN.width * 0.7), y: Math.round(SCREEN.height * 0.6), button: 'left', clickCount: 1 };
+  await tab.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...pt });
+  await tab.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...pt });
+  await sleep(80);
+  await tab.send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...pt });
+  await sleep(1200);
+  const after = await tab.eval<{ got: number; total: number }>('JSON.stringify(window.__mini.play.tally())');
+  console.log(`  тап по холсту: счёт ${before.got} → ${after.got} из ${after.total}`);
+  await snap(tab, `${id}-3b-tap`, began);
   // Итог: время выходит — трата энергии и добыча одним вызовом двери.
   await tab.eval<string>(`(() => { window.__mini.seek(1e6); return JSON.stringify('ok'); })()`);
   await sleep(1500);
@@ -161,11 +174,21 @@ async function main(): Promise<void> {
           s.winterWarning = false;
           s.nextEventAt = s.time + 1e9;
           ${SEASON in SEASON_AT ? `s.time = ${SEASON_AT[SEASON]} * 300 + 30;` : ''}
+          ${process.env.BONDED ? `s.bonded = ${Number(process.env.BONDED)};` : ''}
           window.__game.setState({ s: { ...s } });
           return JSON.stringify('ok');
         })()`);
         await sleep(3000);
         await snap(tab, 'city', began);
+        // Верх не шире экрана: ячейка энергии встала в строку, где уже золото, жители, мораль, дружина и сезон.
+        const fit = await tab.eval<{ scroll: number; client: number }>(
+          `JSON.stringify((() => { const e = document.querySelector('.nx-top'); return e ? { scroll: e.scrollWidth, client: e.clientWidth } : { scroll: -1, client: -1 }; })())`,
+        );
+        console.log(`  верхняя строка: ${fit.scroll} из ${fit.client} px${fit.scroll > fit.client ? ' — НЕ ВЛЕЗАЕТ' : ''}`);
+        const cells = await tab.eval<string[]>(
+          `JSON.stringify([...document.querySelectorAll('.nx-top > *')].map((e) => (e.getAttribute('aria-label') || e.className) + ' ' + Math.round(e.getBoundingClientRect().width)))`,
+        );
+        console.log(`  ячейки: ${cells.join(' · ')}`);
         for (const id of GAMES) await game(tab, id, began);
       } finally {
         tab.close();

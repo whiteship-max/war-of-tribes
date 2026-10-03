@@ -27,6 +27,7 @@ import { VILLAGE_STEADY } from '@/render/quality';
 import { swallowGhostClick } from '@/gestures';
 import { gestLog } from '@/gestlog';
 import { serverNow } from '@/net/clock';
+import { haptic } from '@/telegram/webapp';
 import type { Season } from '@/game/types';
 import { Keys, PITCH_LIMIT, STICK_FULL, Sticks, mergeWalk, typing, type Walk } from '@/prologue/controls';
 import { EYE, WALK_SPEED, slide, viewFov, type Blocker } from '@/prologue/glade';
@@ -67,6 +68,8 @@ export interface Play {
   readonly start: { x: number; z: number; yaw: number };
   /** Докуда от середины можно уйти. */
   readonly roam: number;
+  /** Полуширина коробки теней, м: ровно то, что занято игрой, — тень тем чётче, чем коробка уже. */
+  readonly shadowHalf: number;
   /** Положить своё в сцену: модели игры — копиями материалов поляны (`surfaces.adopt`), пятна тени — в `shade`. */
   build(scene: THREE.Scene, surfaces: Surfaces, shade: Shade, camera: THREE.Camera): void;
   /** Преграды тела в секунду `t`. */
@@ -107,9 +110,6 @@ export const DPR_OF: Record<Tier, number> = { full: 2, lite: 1.5, base: 1.25 };
 
 /** Тень стены леса и всего, что стоит, — у ступеней с конвейером; у пола теней нет вовсе. */
 const SHADOWS: Record<Tier, boolean> = { full: true, lite: true, base: false };
-
-/** Коробка теней: поляна целиком, лес за ней — нет. */
-const SHADOW_HALF = 16;
 
 /** Снег на ветках зимой — сколько, 0..1: та же мера, что у поляны в зиму (`scene.WINTER_SNOW`). */
 const WINTER_SNOW = 0.6;
@@ -212,7 +212,7 @@ export class Stage {
     this.rig = createLightRig(this.scene);
     const noonSun = this.rig.sun.intensity;
     const noonSky = this.rig.hemi.intensity * SKY_FILL * lum(_bounce.copy(this.rig.hemi.color).lerp(SKY_CLEAR, SKY_BLUE));
-    fitShadow(this.rig, SHADOW_HALF);
+    fitShadow(this.rig, play.shadowHalf);
     const tier = this.pickTier();
     this.post = new Post(this.renderer, tier);
     this.steady = new Steady<Tier>(TIERS, tier, VILLAGE_STEADY('high'));
@@ -373,6 +373,8 @@ export class Stage {
     if (said) {
       this.note = said;
       this.noteUntil = performance.now() + NOTE_MS;
+      // Отклик рукой — тот же, что у кнопок игры (`telegram/webapp.haptic`); вне Телеграма молчит.
+      haptic('light');
     }
     this.refresh(true);
   }

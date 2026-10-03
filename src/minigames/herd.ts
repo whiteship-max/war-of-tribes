@@ -79,11 +79,14 @@ export function herdOf(seed: number): Herd {
     rw: [wave(rnd, 1.0, 0.09)],
   };
   let total = 0;
+  let sheep = 0;
   const beasts = HERD.map((kind, id): Beast => {
     total += BEASTS[kind].need;
     if (kind === 'sheep') {
-      // Сдвиг от середины кучи — свой у каждой, и малый: куча, а не строй.
-      return { id, kind, a0: (rnd() - 0.5) * 0.7, r0: (rnd() - 0.5) * 1.6, drift: 0, aw: [wave(rnd, 0.08, 0.5)], rw: [wave(rnd, 0.35, 0.4)], flock: true };
+      // Место в куче — своё у каждой: по дуге через шаг и то ближе, то дальше от стога. Без мест куча слипалась в
+      // одно тело (поймано снимком стенда); качание вокруг места малое — куча, а не строй.
+      const k = sheep++;
+      return { id, kind, a0: (k - 1.5) * 0.28, r0: k % 2 ? 0.55 : -0.55, drift: 0, aw: [wave(rnd, 0.04, 0.5)], rw: [wave(rnd, 0.2, 0.4)], flock: true };
     }
     if (kind === 'goat') {
       return {

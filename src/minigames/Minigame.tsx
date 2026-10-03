@@ -152,7 +152,7 @@ export function Minigame({ game, onExit }: { game: MinigameId; onExit: () => voi
           </div>
           {view.note && <div className="mg-note">{view.note}</div>}
           <div className="mg-bottom">
-            {view.verb ? <span className="mg-chip mg-verb">Нажми — {view.verb.toLowerCase()}</span> : hint && <span className="mg-hint">Слева — идти, справа — смотреть</span>}
+            {view.verb ? <span className="mg-chip mg-verb">Нажми — {view.verb.toLowerCase()}</span> : hint && <span className="mg-hint">Слева шаг, справа взгляд</span>}
           </div>
         </>
       )}

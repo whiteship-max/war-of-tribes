@@ -48,6 +48,8 @@ export class HerdPlay implements Play {
   readonly start: { x: number; z: number; yaw: number };
   /** Изнутри к жердям ближе не подойти. */
   readonly roam = PEN_R - 0.45;
+  /** Загон с жердями. */
+  readonly shadowHalf = PEN_R + 1;
   readonly herd: Herd;
   private feed: Feed;
   private bodies: THREE.Group[] = [];

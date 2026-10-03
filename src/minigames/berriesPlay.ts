@@ -32,6 +32,8 @@ export class BerriesPlay implements Play {
   /** Середина поляны, лицом вдоль −Z. */
   readonly start = { x: 0, z: 0, yaw: 0 };
   readonly roam = 12.4;
+  /** Кусты — до одиннадцати метров от середины. */
+  readonly shadowHalf = 12;
   readonly field: Field;
   private basket = new Basket();
   private mesh: THREE.InstancedMesh | null = null;
