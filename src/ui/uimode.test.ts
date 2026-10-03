@@ -18,32 +18,35 @@ function memory(seed: Record<string, string> = {}): UiStorage & { data: Record<s
 afterEach(() => setUiStorage(memory()));
 
 describe('переключатель интерфейса', () => {
-  it('по умолчанию — прежний: пустая, битая и чужая запись не включают новый', () => {
-    for (const raw of [null, '', 'NEW', 'tw', '{"ui":"new"}', 'old']) expect(uiModeOf(raw), String(raw)).toBe('old');
-    expect(uiModeOf('new')).toBe('new');
-    setUiStorage(memory());
-    expect(uiMode()).toBe('old');
+  it('по умолчанию — новый (решение владельца 03.10.2026): пустая, битая и чужая запись — новый, прежний — только словом old', () => {
+    for (const raw of [null, '', 'NEW', 'OLD', 'tw', '{"ui":"old"}', 'old ']) expect(uiModeOf(raw), String(raw)).toBe('new');
+    expect(uiModeOf('old')).toBe('old');
+    // Область правила «по умолчанию» — устройство без записи: точка внутри неё, запись пуста.
+    const box = memory();
+    setUiStorage(box);
+    expect(box.data[UI_KEY]).toBeUndefined();
+    expect(uiMode()).toBe('new');
   });
 
-  it('две кнопки: «Прежний» первой, «Новый» второй', () => {
+  it('две кнопки: «Новый» первой — умолчание, «Прежний» второй', () => {
     expect(UI_MODES).toEqual([
-      ['old', 'Прежний'],
       ['new', 'Новый'],
+      ['old', 'Прежний'],
     ]);
   });
 
-  it('адрес ?ui=new пишет выбор, ?ui=old возвращает прежний, чужой адрес запись не трогает', () => {
+  it('адрес ?ui=old пишет выбор, ?ui=new возвращает новый, чужой адрес запись не трогает', () => {
     const box = memory();
     setUiStorage(box);
-    expect(bootUiMode('?ui=new')).toBe('new');
-    expect(box.data[UI_KEY]).toBe('new');
-    // Следующий запуск без адреса помнит выбор.
-    setUiStorage(box);
-    expect(bootUiMode('?probe=1')).toBe('new');
-    expect(bootUiMode('?ui=whatever')).toBe('new');
     expect(bootUiMode('?ui=old')).toBe('old');
     expect(box.data[UI_KEY]).toBe('old');
-    expect(askedUiMode('?map=tw&ui=new')).toBe('new');
+    // Следующий запуск без адреса помнит выбор.
+    setUiStorage(box);
+    expect(bootUiMode('?probe=1')).toBe('old');
+    expect(bootUiMode('?ui=whatever')).toBe('old');
+    expect(bootUiMode('?ui=new')).toBe('new');
+    expect(box.data[UI_KEY]).toBe('new');
+    expect(askedUiMode('?map=tw&ui=old')).toBe('old');
     expect(askedUiMode('')).toBeNull();
   });
 
@@ -52,13 +55,13 @@ describe('переключатель интерфейса', () => {
     setUiStorage(box);
     let calls = 0;
     const off = subscribeUi(() => calls++);
-    setUiMode('new');
-    expect(uiMode()).toBe('new');
+    setUiMode('old');
+    expect(uiMode()).toBe('old');
     expect(calls).toBe(1);
-    setUiMode('new');
+    setUiMode('old');
     expect(calls).toBe(1);
     expect(box.writes).toBe(1);
-    setUiMode('old');
+    setUiMode('new');
     expect(calls).toBe(2);
     off();
   });
@@ -70,8 +73,8 @@ describe('переключатель интерфейса', () => {
         // браузер не дал записать — `browserStorage` глотает ошибку так же
       },
     });
-    setUiMode('new');
-    expect(uiMode()).toBe('new');
+    setUiMode('old');
+    expect(uiMode()).toBe('old');
   });
 });
 

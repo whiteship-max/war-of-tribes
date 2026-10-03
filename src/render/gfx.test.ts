@@ -43,14 +43,18 @@ describe('вид один — город', () => {
     }
     // Настройки выбирают только уровень: строки прежнего вида нет, строка уровня — всегда (её место для слабых
     // устройств — «Низкая»).
+    // Вид графики — поле выбора (`setGfx({ look: … })`, `gfx().look`) и его значок; двери вида карты и ролика боя
+    // (`ui/map/look`, `ui/battle/look`, docs/ui_audit.md, 12.8) — не графика, их строки здесь законны.
     const settings = strip(read('ui/parts/Settings.tsx'));
-    expect(settings, 'строки прежнего вида нет').not.toMatch(/Простой вид|Новый вид|\blook\b/);
+    expect(settings, 'строки прежнего вида нет').not.toMatch(/Простой вид|Новый вид|\blook\s*:|\.look\b|ui-look/);
     expect(settings, 'строка уровня есть').toMatch(/<div className="set-row pick">/);
     expect(settings, 'и она без условия').not.toMatch(/&& \(\s*<div className="set-row pick">/);
     // Игра собирает сцену города и только её: кусок едет до игры без условий, холст берёт его класс.
     const main = strip(read('main.tsx'));
     expect(main, 'кусок города — до игры, всегда').toMatch(/void import\('\.\/render\/city\/scene'\)\.then\(start, start\);/);
-    expect(main, 'без выбора по виду').not.toMatch(/look/);
+    // Без выбора сцены по виду: адрес `?look=` не читается, кусок не выбирается по виду графики. Адрес вида карты и
+    // ролика (`bootMapLook`, `bootBattleLook`) сцены не выбирает.
+    expect(main, 'без выбора по виду').not.toMatch(/['"]look['"]|\blook\s*[=!]==|\.look\b|sceneGfx/);
     const canvas = strip(read('ui/GameCanvas.tsx'));
     expect(canvas, 'класс сцены — город').toMatch(/const City = SCENES\.game;/);
     expect(canvas, 'и только он').toMatch(/new City\(canvas, null, sceneGfx\(gfx\(\), window\.location\.search\)\)/);

@@ -257,6 +257,28 @@ describe('цель вне региона', () => {
     expect(r.x + r.w).toBeLessThanOrEqual(denmark.box.x + denmark.box.w + 6 + 1e-6);
     expect(r.y + r.h).toBeLessThanOrEqual(denmark.box.y + denmark.box.h + 6 + 1e-6);
   });
+
+  it('прежний вид, выбранный в настройках, глушит приехавший кусок: ни кадра, ни рамки, ни края региона', async () => {
+    await import('./hook');
+    const { reachable, twSlot } = await import('../twslot');
+    const { setMapLook, setMapStorage, mapLook } = await import('../look');
+    const data: Record<string, string> = {};
+    setMapStorage({ read: (k) => data[k] ?? null, write: (k, v) => (data[k] = v) });
+    try {
+      // Точки внутри области правила: кусок приехал (ячейка занята), а клетка за краем региона новым видом закрыта.
+      expect(mapLook()).toBe('tw');
+      expect(twSlot()).not.toBe(null);
+      expect(reachable(BEYOND)).toBe(false);
+      setMapLook('old');
+      expect(twSlot(), 'прежний вид ячейки не видит').toBe(null);
+      expect(reachable(BEYOND), 'прежняя карта рамки не знает').toBe(true);
+      setMapLook('tw');
+      expect(twSlot()).not.toBe(null);
+      expect(reachable(BEYOND)).toBe(false);
+    } finally {
+      setMapStorage({ read: () => null, write: () => {} });
+    }
+  });
 });
 
 describe('детерминизм', () => {

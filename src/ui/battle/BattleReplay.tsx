@@ -34,8 +34,8 @@ import { TwReplay } from './TwReplay';
 import './replay.css';
 
 /**
- * Ролик боя: прежний по умолчанию, в стиле Total War — за переключателем устройства (`?battle=tw`, `look.ts`;
- * docs/battle_tw.md). Выбор — один раз на показ: переключатель не меняется посреди ролика.
+ * Ролик боя: в стиле Total War по умолчанию, прежний — запасной, строкой «Ролик боя» в настройках или адресом
+ * `?battle=old` (`look.ts`; docs/battle_tw.md). Выбор — один раз на показ: переключатель не меняется посреди ролика.
  */
 export function BattleReplay({ rec, report, onDone }: { rec: BattleRecord; report?: Report; onDone: () => void }) {
   const [look] = useState(battleLook);

@@ -58,8 +58,9 @@ const Prologue = lazy(() => import('./prologue/Prologue').then((m) => ({ default
 const RealmMenu = lazy(() => import('./ui/realm/RealmMenu').then((m) => ({ default: m.RealmMenu })));
 
 /**
- * Новый интерфейс — тоже свой кусок (`ui/next/index.ts`): по умолчанию стоит прежний, и пока владелец не
- * одобрил новый, игрок за него не платит. Четыре части — один кусок: `import` один и тот же.
+ * Новый интерфейс — тоже свой кусок (`ui/next/index.ts`). С 03.10.2026 он по умолчанию (`ui/uimode.ts`), и кусок
+ * едет, пока стоит стартовый экран; в первой загрузке остаётся прежний — запасной вид из настроек. Четыре части —
+ * один кусок: `import` один и тот же.
  */
 const nextUi = () => import('./ui/next');
 const Hud = lazy(() => nextUi().then((m) => ({ default: m.Hud })));
