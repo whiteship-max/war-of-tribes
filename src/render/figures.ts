@@ -208,7 +208,7 @@ export class Figure {
 /** Шестигранник ставится плоской гранью вперёд: у корпуса должна быть грудь, а не киль. */
 const FLAT6 = Math.PI / 6;
 
-function geometryOf(part: PartName): THREE.BufferGeometry {
+export function partGeometry(part: PartName): THREE.BufferGeometry {
   switch (part) {
     case 'limb':
       // Висит из сустава вниз: рука от плеча, нога от таза, нога коня от корпуса.
@@ -428,7 +428,7 @@ export class FigurePool {
   constructor() {
     this.group.name = 'figures';
     for (const part of PARTS) {
-      this.geometries[part] = geometryOf(part);
+      this.geometries[part] = partGeometry(part);
       this.capacity[part] = 0;
       this.grow(part, GROW_STEP);
     }

@@ -378,6 +378,8 @@ describe('укрепления лагеря: бой, голод и то, что 
         const label = `${d} мин, отряд ${k}`;
         // Запись после боя: «пробились N из M» — то же, что панель обещала.
         expect(report.through, label).toEqual({ went: fc.now.went, passed: fc.now.passed });
+        // Место для показа (ролик TW): вылазка из своих ворот на лагерь.
+        expect(report.battle?.site, label).toBe('sortie');
         // Сам бой: дрались ровно те, кого панель назвала прошедшими, — по родам.
         const sides = report.battle!.result.sides.attacker;
         expect(sides.total.initial, label).toBe(fc.now.passed);
@@ -617,6 +619,7 @@ describe('проход через рогатки — поток, а не пор�
     await world.sync(holdout);
     const r = (await world.reports()).find((x) => x.id.startsWith('camp'))!;
     expect(r, 'удар случился').toBeTruthy();
+    expect(r.battle?.site, 'совместный удар — место для показа').toBe('joint');
     expect(r.rearThrough?.passed, 'с тыла прошло столько, сколько обещано').toBeGreaterThan(0);
     if (!r.won) {
       expect(homeWindow(world).rearGateAt, 'тыл занят своим ударом').toBeGreaterThan(g.arriveAt);

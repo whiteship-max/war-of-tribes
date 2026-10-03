@@ -22,6 +22,8 @@ coverage
 # снимки стенда-витрины (?showcase=...&snap=имя)
 snaps
 .city-shots
+# снимки самопроверки ролика боя TW (`npm run tw:shots`, docs/battle_tw.md, раздел 9)
+.battle-shots
 
 # снимки пакета передачи визуала: их пересоздаёт стенд с любого коммита,
 # в репозитории остаются только README, копии palette.ts/figures.md и замеры

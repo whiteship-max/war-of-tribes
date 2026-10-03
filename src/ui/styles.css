@@ -3589,24 +3589,6 @@ body {
   pointer-events: auto;
 }
 
-.replay-top {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: 13px;
-  color: #fff;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
-}
-
-.replay-phase {
-  text-transform: lowercase;
-}
-
-.replay-count {
-  font-variant-numeric: tabular-nums;
-  opacity: 0.9;
-}
-
 /* Подпись события — над кнопкой, чтобы не спорить с ней за низ экрана. */
 .replay-caption {
   margin: auto 0 12px;

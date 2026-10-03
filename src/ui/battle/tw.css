@@ -1,0 +1,129 @@
+/* Ролик боя в стиле Total War (docs/battle_tw.md) — своим куском: стили едут вместе с ним (`TwReplay.tsx`), в первую
+   загрузку не входят. Общий слой ролика (`.replay`, подпись, кнопки) — в `ui/styles.css`: его рисует и заглушка
+   «Ролик загружается…» до приезда куска. */
+
+/* Ролик TW: камерой правит палец (docs/battle_tw.md, раздел 5) — браузер не листает и не масштабирует страницу. */
+.replay-tw {
+  touch-action: none;
+}
+
+/* Ролик TW: полоса сверху, как полоса боя EU4 (docs/battle_tw.md, раздел 4) — знамёна сторон, люди, мораль армий и
+   фаза с кругом посередине. Наши слева, чужие справа, мораль растёт к середине. */
+.tw-bar {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: start;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 12px;
+  background: rgba(20, 15, 11, 0.62);
+  color: #fff;
+  font-size: 12px;
+  pointer-events: none;
+}
+
+.tw-side {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-areas: 'flag name' 'men men' 'morale morale';
+  column-gap: 6px;
+  row-gap: 2px;
+  min-width: 0;
+}
+
+.tw-side.them {
+  grid-template-columns: 1fr auto;
+  grid-template-areas: 'name flag' 'men men' 'morale morale';
+  text-align: right;
+}
+
+.tw-flag {
+  grid-area: flag;
+  width: 14px;
+  height: 18px;
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 78%, 0 100%);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35);
+}
+
+.tw-name {
+  grid-area: name;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+}
+
+.tw-men {
+  grid-area: men;
+  font-size: 16px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.tw-morale {
+  grid-area: morale;
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.15);
+  overflow: hidden;
+  display: flex;
+}
+
+.tw-side.them .tw-morale {
+  justify-content: flex-end;
+}
+
+.tw-morale i {
+  display: block;
+  height: 100%;
+  background: var(--good);
+  transition: width 0.25s linear;
+}
+
+.tw-phase {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: 2px;
+  text-transform: lowercase;
+  white-space: nowrap;
+}
+
+.tw-phase small {
+  color: var(--muted);
+}
+
+/* Скорость хода — под полосой справа, мелко: смотреть важнее, чем перематывать. */
+.tw-speed {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.tw-speed .btn {
+  min-height: var(--tap);
+  min-width: var(--tap);
+  padding: 0 10px;
+  font-size: 13px;
+}
+
+/* Карточка итога в конце ролика: исход, силы, размен, кто не вернулся, добыча и пленные. */
+.tw-card {
+  margin: auto 0;
+  align-self: center;
+  width: min(100%, 360px);
+  padding: 14px 14px 10px;
+  border-radius: var(--radius);
+  background: var(--panel);
+  color: var(--text);
+}
+
+.tw-card h3 {
+  margin: 0 0 6px;
+  text-transform: uppercase;
+}
+
+.tw-card .replay-controls {
+  margin-top: 10px;
+}
