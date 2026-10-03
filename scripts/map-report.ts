@@ -46,7 +46,8 @@
 //
 // Запуск: npm run map:report   (нужен собранный dist: npm run build)
 // Переменные: PORT=4191  CDP_PORT=9334  CHROME=путь\к\chrome.exe  HEAD=1  SECONDS=3
-// MAP=tw — карта нового вида (docs/map_tw.md, `?map=tw`): те же замеры на ней; без переменной вывод прежний.
+// MAP=old — прежняя карта (`?map=old`), запасная из настроек: те же замеры на ней. Без переменной — вид по умолчанию:
+// с 03.10.2026 новый (docs/map_tw.md, `?map=tw`; `MAP=tw` — то же самое, названное явно).
 // QUALITY=low|medium|high — уровень качества адресом (`?quality=`): его берёт новый вид (`tw/quality.twQuality`),
 // у прежней карты уровней нет; без переменной — «Авто», как у игрока.
 // MOTION=1 — только раздел «карта в движении» (docs/map_tw.md, раздел 11): цена кадра в броске, стоя, в щипке
@@ -70,6 +71,7 @@ import { LocalWorld } from '@/world/local/LocalWorld';
 import type { MarchView, PlayerProfile } from '@/world/types';
 import { PARTY_STEPS, partyMen, sizeOf, type PartySize } from '@/ui/map/party';
 import { AGENT_MIN } from '@/ui/map/agent';
+import { MAP_DEFAULT, type MapLook } from '@/ui/map/look';
 
 const DIST = fileURLToPath(new URL('../dist', import.meta.url));
 const PORT = Number(process.env.PORT ?? 4191);
@@ -422,8 +424,15 @@ const FEATURE_MIN = 2;
 /** Размеры, на которых меряются силуэты. Ниже пола `agentUnit` — нарочно. */
 const LOOK_SIZES = [10, 14, 18, 22, 26, 30, 38, 48, 60];
 
-/** Вид карты под замером: прежний или новый (`MAP=tw`, docs/map_tw.md). */
-const LOOK = process.env.MAP === 'tw' ? '&map=tw' : '';
+/**
+ * Вид карты под замером: без переменной — тот, что у игрока по умолчанию (`MAP_DEFAULT`: с 03.10.2026 новый, в духе
+ * карты кампании, docs/map_tw.md), `MAP=old` — прежний, запасной из настроек. Адрес пишется всегда (`?map=…`): отчёт
+ * мерит названный вид, а не то, что окажется в записи браузера.
+ */
+const LOOK_WORD: MapLook = process.env.MAP === 'old' || process.env.MAP === 'tw' ? process.env.MAP : MAP_DEFAULT;
+const LOOK = `&map=${LOOK_WORD}`;
+/** Вид словами — шапкам разделов. */
+const LOOK_NAME = `${LOOK_WORD === 'tw' ? 'новый' : 'прежний'} (map=${LOOK_WORD}${LOOK_WORD === MAP_DEFAULT ? ', по умолчанию' : ''})`;
 
 /** Уровень качества адресом (`QUALITY=`); пусто — «Авто». Неизвестное слово — ошибка, а не молчаливое «Авто». */
 const QUALITY = ((): string => {
@@ -484,7 +493,7 @@ async function measure(counts: number[]): Promise<{ shots: Shot[]; looks: Look[]
  */
 async function motionMain(): Promise<void> {
   console.log('\n=== карта в движении ===\n');
-  console.log(`Вид: ${LOOK ? 'новый (map=tw)' : 'прежний'}; уровень качества: ${QUALITY || 'Авто'}${LOOK ? '' : ' (у прежней карты уровней нет)'}${PREBAKE ? '; регион печёт страница (без потока)' : ''}.`);
+  console.log(`Вид: ${LOOK_NAME}; уровень качества: ${QUALITY || 'Авто'}${LOOK_WORD === 'tw' ? '' : ' (у прежней карты уровней нет)'}${PREBAKE ? '; регион печёт страница (без потока)' : ''}.`);
   console.log(`Мир закреплён (дом ${PINNED_HOME.x}|${PINNED_HOME.y}, сид ${PINNED_SEED}), экран телефона 375×812 @2, потолок игры — 60 кадров.`);
   console.log('Кадр — время drawFrame, мс: вся карта за кадр, с выпечкой, если она пришлась на этот кадр.');
   console.log(`Бросок — спираль у дома на 44 px на клетку; стоя — дома после броска; щипок — ${PINCH.near} → ${PINCH.far} → ${PINCH.near} px`);
@@ -538,6 +547,7 @@ async function main(): Promise<void> {
   console.log('сотни — верхняя ступень лестницы заведена под него.');
 
   console.log('\n=== кадр карты ===\n');
+  console.log(`Вид карты: ${LOOK_NAME}.`);
   const counts = [0, Math.max(10, peak + 4), 40];
   console.log(`Случаи: пусто / ${counts[1]} (худший случай мира с запасом) / 40 (заведомый перегруз).\n`);
   const server = serveDist();
