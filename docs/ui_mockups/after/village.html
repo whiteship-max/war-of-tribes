@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=390,initial-scale=1">
+<title>После: посёлок</title>
+<link rel="stylesheet" href="../assets/phone.css">
+<link rel="stylesheet" href="../assets/after.css">
+<!--
+  Посёлок «после» (ui_audit.md, 6.1). Состояние — то же, что у before/village.html: день 149, лето 77 %, жители 55/55,
+  мораль 58, дружина 0, запасы 1,2к · 860 · 4,8к (склад полон) · 140 · 95 · 60 · 38, три вести, набег из Волчьей пади
+  через 4:07 (полный сбор не успевает), кузнецы без заказа, свободных рук 32.
+  Чего в «до» на экране нет и что здесь условно: золото 240 и стрелки прироста запасов.
+  Показан тап по значку набега: подсказка с текстом и ссылкой к вести (3.7).
+-->
+</head>
+<body class="phone"><script src="../assets/sprite.js"></script><script src="../assets/stubs.js"></script>
+<div class="sys"><span>9:41</span><span class="sys-icons"><i class="sig"></i><i class="wifi"></i><i class="bat"></i></span></div>
+<div class="tgh"><span class="tgh-left">Закрыть</span><span class="tgh-title"><b>TRIBE</b><small>мини-приложение</small></span><span class="tgh-right"><span>···</span></span></div>
+<div class="webview"><div class="scene village"></div>
+
+  <!-- Верх: строка 44 (герб · золото · жители · мораль · дружина · сезон) и строка запасов 32 -->
+  <div class="hud">
+    <div class="hud-top">
+      <div class="coat">
+        <svg class="shield" viewBox="0 0 40 40" aria-hidden="true">
+          <path d="M6 5 H34 V19 C34 28 27 33 20 36 C13 33 6 28 6 19 Z" fill="#e8a43c" stroke="#b07724" stroke-width="2.4" stroke-linejoin="round"/>
+          <path d="M13 11 H16 V13.5 H18.5 V11 H21.5 V13.5 H24 V11 H27 V17 H25.5 V28 H14.5 V17 H13 Z" fill="#241a11"/>
+          <path d="M18 28 V23.5 C18 22 22 22 22 23.5 V28 Z" fill="#e8a43c"/>
+        </svg>
+      </div>
+      <div class="stat"><svg class="ic"><use href="#i-res-gold"/></svg><b>240</b></div>
+      <div class="stat"><svg class="ic"><use href="#i-hud-pop"/></svg><b>55</b><small>/55</small></div>
+      <div class="stat"><svg class="ic"><use href="#i-mood-mid"/></svg><b>58</b></div>
+      <div class="stat"><svg class="ic"><use href="#i-hud-army"/></svg><b>0</b></div>
+      <div class="grow"></div>
+      <div class="stat season">
+        <div class="season-line"><svg class="ic i20"><use href="#i-season-sun"/></svg></div>
+        <div class="prog"><i style="width:77%"></i></div>
+      </div>
+    </div>
+    <div class="res-row">
+      <div class="res"><span class="ri"><svg class="ic"><use href="#i-res-wood"/></svg><i class="tr up"></i></span><b>1,2к</b></div>
+      <div class="res"><span class="ri"><svg class="ic"><use href="#i-res-stone"/></svg><i class="tr up"></i></span><b>860</b></div>
+      <div class="res full"><span class="ri"><svg class="ic"><use href="#i-res-food"/></svg></span><b>4,8к</b></div>
+      <div class="res"><span class="ri"><svg class="ic"><use href="#i-res-hides"/></svg><i class="tr up"></i></span><b>140</b></div>
+      <div class="res"><span class="ri"><svg class="ic"><use href="#i-res-bones"/></svg></span><b>95</b></div>
+      <div class="res"><span class="ri"><svg class="ic"><use href="#i-res-copper"/></svg></span><b>60</b></div>
+      <div class="res"><span class="ri"><svg class="ic"><use href="#i-res-iron"/></svg><i class="tr down"></i></span><b>38</b></div>
+    </div>
+  </div>
+
+  <!-- Тревоги: значки 44; красный — беда по сроку, охра — заметка -->
+  <div class="alerts">
+    <div class="alert urgent"><div class="ring"><svg class="ic i24"><use href="#i-alert-raid"/></svg></div><span class="timer">4:07</span></div>
+    <div class="alert warn"><div class="ring"><svg class="ic i24"><use href="#i-job-smith"/></svg></div></div>
+    <div class="alert warn"><div class="ring"><svg class="ic i24"><use href="#i-job-idle"/></svg></div><span class="timer">32</span></div>
+  </div>
+
+  <!-- Тап по значку набега: подсказка над сценой, ссылка к вести -->
+  <div class="touch" style="left:13px; top:83px"></div>
+  <div class="tip" style="left:8px; top:138px; width:256px; --arrow:17px">
+    <b>Набег из Волчьей пади</b>
+    <p>Придёт через <span class="num">4:07</span>. Полный сбор не успеет.</p>
+    <div class="go">К вести <span>›</span></div>
+  </div>
+
+  <!-- Низ: пять мест -->
+  <nav class="nav">
+    <button><span class="ib"><svg class="ic i28"><use href="#i-ui-hammer"/></svg></span>Стройка</button>
+    <button><span class="ib"><svg class="ic i28"><use href="#i-nav-people"/></svg></span>Племя</button>
+    <button class="main"><span class="ib"><svg class="ic i28"><use href="#i-hud-map"/></svg></span>Карта</button>
+    <button><span class="ib"><svg class="ic i28"><use href="#i-hud-army"/></svg></span>Дружина</button>
+    <button><span class="ib"><svg class="ic i28 not-in-sheet"><use href="#i-ui-mail"/></svg><span class="badge urgent">3</span></span>Вести</button>
+  </nav>
+</div>
+<div class="home-ind"></div></body></html>

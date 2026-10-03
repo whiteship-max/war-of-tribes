@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { Suspense, lazy, useState } from 'react';
+import { useUiNew } from '@/ui/uimode';
 import type { TroopId } from '@/game/types';
 import { useGame } from '@/game/store';
 import { RESOURCE_IDS, RESOURCE_META } from '@/game/constants';
@@ -24,6 +25,18 @@ import { waitShort } from './wait';
  * кнопка перехода в кузницу; не хватает стойл или уровня конюшни — это говорит `recruitCheck`.
  */
 export function Recruit({ at }: { at: 'barracks' | 'stable' }) {
+  // Новый интерфейс — строки видов и закреплённая полоса «Нанять» (`ui/next/RecruitNew`, свой кусок).
+  if (!useUiNew()) return <RecruitOld at={at} />;
+  return (
+    <Suspense fallback={null}>
+      <RecruitNew at={at} />
+    </Suspense>
+  );
+}
+
+const RecruitNew = lazy(() => import('@/ui/next').then((m) => ({ default: m.RecruitNew })));
+
+function RecruitOld({ at }: { at: 'barracks' | 'stable' }) {
   const s = useGame((g) => g.s);
   const openBuilding = useGame((g) => g.openBuilding);
   const act = useGame((g) => g.act);

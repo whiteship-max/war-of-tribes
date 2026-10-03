@@ -15,7 +15,9 @@ import {
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
   type WheelEvent as ReactWheelEvent,
+  type ReactNode,
 } from 'react';
+import { createPortal } from 'react-dom';
 import { useRoster } from '@/net/roster';
 import { useGame } from '@/game/store';
 import { CHEATS_ON } from '@/cheats';
@@ -68,6 +70,7 @@ import { Gesture, WHEEL_STEP, swallowGhostClick, type Press } from '@/gestures';
 import { gestLog, type End } from '@/gestlog';
 import { FrameLoop, pixelRatio } from '@/render/loop';
 import { Icon } from '@/ui/icons/Icon';
+import { useUiNew } from '@/ui/uimode';
 
 
 /** Отладочный обзор читается один раз: адрес по ходу партии не меняется. */
@@ -243,6 +246,12 @@ export function WorldMap() {
   const closeMap = useGame((g) => g.closeMap);
   const openMarches = useGame((g) => g.openMarches);
   const showToast = useGame((g) => g.showToast);
+  // Новый интерфейс (`ui/uimode.ts`): свой верх и низ карты — табличка «регион · координата» и низ на пять мест.
+  const next = useUiNew();
+  const portal = (node: ReactNode): ReactNode => {
+    const host = document.querySelector('.app');
+    return host ? createPortal(node, host) : node;
+  };
 
   // ---------- Камера ----------
 
@@ -736,36 +745,53 @@ export function WorldMap() {
         onWheel={onWheel}
       />
 
-      <div className="wm-top">
-        <button className="wm-btn" onClick={closeMap} aria-label="Закрыть карту">
-          ←
-        </button>
-        <div className="wm-coord">
-          <b ref={coordRef}>—</b>
-          <i>{FREE_CAMERA ? `обзор мира (${WORLD_VIEW})` : 'карта мира'}</i>
+      {next ? (
+        <div className="nx-mtop">
+          {/* Верх карты нового вида — только для чтения (docs/ui_audit.md, 12): где я. Вернуться в город — серединой
+              низа, как карта открывается серединой низа города. */}
+          <div className="nx-mplate">
+            <span className="one-line">{twSlot()?.realm() ?? 'Карта мира'}</span>
+            <b ref={coordRef}>—</b>
+          </div>
+          {FREE_CAMERA && (
+            <button className={`nx-mbtn${jumpOpen ? ' on' : ''}`} onClick={() => setJumpOpen((v) => !v)} aria-label="Перейти к координатам">
+              ⌖
+            </button>
+          )}
+          {CHEATS_ON && <SpeedButton className="nx-mbtn" />}
         </div>
-        {/* Переход по координатам — часть свободного обзора: игроку он ни к чему,
-            камера всё равно не уйдёт дальше поводка своих. */}
-        {FREE_CAMERA && (
-          <button className={`wm-btn${jumpOpen ? ' active' : ''}`} onClick={() => setJumpOpen((v) => !v)} aria-label="Перейти к координатам">
-            ⌖
+      ) : (
+        <div className="wm-top">
+          <button className="wm-btn" onClick={closeMap} aria-label="Закрыть карту">
+            ←
           </button>
-        )}
-        {/* Легенда — в правом верхнем углу, единственном пустом месте карты.
-            Пустого места на 360 px не бывает про запас: внизу и так три ряда, а
-            справа сверху не стояло ничего, кроме распорки под кнопку отладки.
-            Сама легенда при этом осталась внизу — это лист, а не выпадашка, и
-            листы в этой игре выезжают снизу (`Sheet`). */}
-        {/* Скорость проверки видна и на карте: поход проверяют здесь. Только под выключателем кодов. */}
-        {CHEATS_ON && <SpeedButton className="wm-btn" />}
-        <button
-          className={`wm-btn${legendOpen ? ' active' : ''}`}
-          onClick={() => setLegendOpen((v) => !v)}
-          aria-label="Легенда"
-        >
-          ℹ️
-        </button>
-      </div>
+          <div className="wm-coord">
+            <b ref={coordRef}>—</b>
+            <i>{FREE_CAMERA ? `обзор мира (${WORLD_VIEW})` : 'карта мира'}</i>
+          </div>
+          {/* Переход по координатам — часть свободного обзора: игроку он ни к чему,
+              камера всё равно не уйдёт дальше поводка своих. */}
+          {FREE_CAMERA && (
+            <button className={`wm-btn${jumpOpen ? ' active' : ''}`} onClick={() => setJumpOpen((v) => !v)} aria-label="Перейти к координатам">
+              ⌖
+            </button>
+          )}
+          {/* Легенда — в правом верхнем углу, единственном пустом месте карты.
+              Пустого места на 360 px не бывает про запас: внизу и так три ряда, а
+              справа сверху не стояло ничего, кроме распорки под кнопку отладки.
+              Сама легенда при этом осталась внизу — это лист, а не выпадашка, и
+              листы в этой игре выезжают снизу (`Sheet`). */}
+          {/* Скорость проверки видна и на карте: поход проверяют здесь. Только под выключателем кодов. */}
+          {CHEATS_ON && <SpeedButton className="wm-btn" />}
+          <button
+            className={`wm-btn${legendOpen ? ' active' : ''}`}
+            onClick={() => setLegendOpen((v) => !v)}
+            aria-label="Легенда"
+          >
+            ℹ️
+          </button>
+        </div>
+      )}
 
       {jumpOpen && (
         <div className="wm-jump">
@@ -791,27 +817,42 @@ export function WorldMap() {
           «Походах» — вторая кнопка под то же дело была лишней. Столбик писем и
           панель осады сюда не приходят: обе живут в деревне и на карте не
           рисуются вовсе (см. `App.tsx`). */}
-      <div className="wm-bottom">
-        {/* Список соседей не приезжал давно — так и сказано. Молчать нельзя:
-            замки на карте при этом видны, и без этой строки игрок читал бы
-            вчерашнее как сегодняшнее. Одна строка на весь низ, и появляется она
-            только когда есть о чём говорить. */}
-        {rosterOld && (
-          <div className="wm-hint stale">
-            <span>{roster.why || 'Список соседей давно не обновлялся: чужие замки показаны по памяти.'}</span>
+      {next ? (
+        // Человек в руке — полоса 44 над низом: роль, что делать, «отпустить» значком 44. Строка про старый список
+        // соседей не стоит на экране всегда: точка охрой на «Легенде» и первая строка легенды (6.2).
+        picked && (
+          <div className="nx-hand">
+            <Icon name={`fig-${picked}`} glyph="🧭" />
+            <span className="one-line">{FIGURE_BY_ID[picked].name}: нажми цель</span>
+            <button className="nx-mbtn" onClick={() => pickFigure(null)} aria-label="Отпустить">
+              <Icon name="ui-close" glyph="✕" />
+            </button>
           </div>
-        )}
+        )
+      ) : (
+        <div className="wm-bottom">
+          {/* Список соседей не приезжал давно — так и сказано. Молчать нельзя:
+              замки на карте при этом видны, и без этой строки игрок читал бы
+              вчерашнее как сегодняшнее. Одна строка на весь низ, и появляется она
+              только когда есть о чём говорить. */}
+          {rosterOld && (
+            <div className="wm-hint stale">
+              <span>{roster.why || 'Список соседей давно не обновлялся: чужие замки показаны по памяти.'}</span>
+            </div>
+          )}
 
-        {picked && (
-          <div className="wm-hint">
-            <span>Тапни по земле — {FIGURE_BY_ID[picked].name} пойдёт туда, по поселению — приказы.</span>
-            <button onClick={() => pickFigure(null)}>Отпустить</button>
-          </div>
-        )}
-      </div>
+          {picked && (
+            <div className="wm-hint">
+              <span>Тапни по земле — {FIGURE_BY_ID[picked].name} пойдёт туда, по поселению — приказы.</span>
+              <button onClick={() => pickFigure(null)}>Отпустить</button>
+            </div>
+          )}
+        </div>
+      )}
 
       {legendOpen && (
         <div className="wm-legend">
+          {next && rosterOld && <div className="nx-stale">{roster.why || 'Список соседей давно не обновлялся: чужие замки — по памяти.'}</div>}
           <h3>Кто на карте</h3>
           {SHOWN_RELATIONS.map((r) => (
             <div className="wm-leg-row" key={r}>
@@ -897,21 +938,64 @@ export function WorldMap() {
         </div>
       )}
 
-      <div className="wm-foot">
-        {/* «Домой» — он же якорь камеры на своей деревне: прежний чип «деревня»
-            в ряду фигур делал ровно это, и второй кнопки под одно дело быть не
-            должно. Подсветка говорит, на чём камера стоит. */}
-        <button className={`wm-btn wide${anchor === 'home' ? ' active' : ''}`} onClick={goHome}>
-          🏠 <span>Домой</span>
-        </button>
-        <button className="wm-btn wide" onClick={openMarches}>
-          ⚔️ <span>Походы</span>
-          {(marchCount > 0 || unread > 0) && <em>{marchCount > 0 ? marchCount : unread}</em>}
-        </button>
-        <button className="wm-btn" onClick={toggleZoom} aria-label="Сменить масштаб">
-          {zoomedIn ? '🔭' : '🔍'}
-        </button>
-      </div>
+      {next ? (
+        // Низ — порталом в корень игры: как в городе, он стоит над шторкой (походы, карточка клетки), а не под
+        // ней, внутри слоя карты.
+        portal(
+        <nav className="nx-nav nx-mapnav">
+          {/* «К себе» — камера к своему городу (прежнее «Домой» только двигало камеру, а звалось как выход). Выход
+              в город — середина низа: там же, где в городе вход на карту. */}
+          <button className={anchor === 'home' ? 'on' : ''} onClick={goHome}>
+            <span className="nx-ib">
+              <Icon name="rel-self" glyph="🏠" />
+            </span>
+            К себе
+          </button>
+          <button onClick={openMarches}>
+            <span className="nx-ib">
+              <Icon name="ui-banner" glyph="⚔️" />
+              {marchCount > 0 && <em className="nx-badge">{marchCount}</em>}
+            </span>
+            Походы
+          </button>
+          <button className="nx-main" data-tut="nav-city" onClick={closeMap} aria-label="Город">
+            <span className="nx-ib">
+              <Icon name="bld-town_hall" glyph="🏰" />
+            </span>
+            Город
+          </button>
+          <button onClick={toggleZoom} aria-label={zoomedIn ? 'Отдалить' : 'Приблизить'}>
+            <span className="nx-ib">
+              <Icon name="ui-spyglass" glyph={zoomedIn ? '🔭' : '🔍'} />
+            </span>
+            {zoomedIn ? 'Отдалить' : 'Ближе'}
+          </button>
+          <button className={legendOpen ? 'on' : ''} onClick={() => setLegendOpen((v) => !v)}>
+            <span className="nx-ib">
+              <Icon name="ui-info" glyph="ℹ️" />
+              {rosterOld && <em className="nx-dot" />}
+            </span>
+            Легенда
+          </button>
+        </nav>,
+        )
+      ) : (
+        <div className="wm-foot">
+          {/* «Домой» — он же якорь камеры на своей деревне: прежний чип «деревня»
+              в ряду фигур делал ровно это, и второй кнопки под одно дело быть не
+              должно. Подсветка говорит, на чём камера стоит. */}
+          <button className={`wm-btn wide${anchor === 'home' ? ' active' : ''}`} onClick={goHome}>
+            🏠 <span>Домой</span>
+          </button>
+          <button className="wm-btn wide" onClick={openMarches}>
+            ⚔️ <span>Походы</span>
+            {(marchCount > 0 || unread > 0) && <em>{marchCount > 0 ? marchCount : unread}</em>}
+          </button>
+          <button className="wm-btn" onClick={toggleZoom} aria-label="Сменить масштаб">
+            {zoomedIn ? '🔭' : '🔍'}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

@@ -13,7 +13,7 @@ import { WORK_SIGN, workBusy } from '../worksigns';
 import type { V3 } from './geom';
 import { CityLife } from './life';
 import { TAP_TARGET } from '@/gestures';
-import { SCENES, TribeScene, type BuildingView, type SceneLook } from '../Scene';
+import { SCENES, TribeScene, markerLookNow, type BuildingView, type SceneLook } from '../Scene';
 import { RIG, applyDayNight, fitShadow, windowNight } from '../lighting';
 import { disposeGeometries } from '../kit';
 import type { HitBox } from '../pick';
@@ -25,6 +25,11 @@ import { heightAt } from './layout';
 
 /** Значок над крышей: доля высоты экрана (спрайт без перспективы — читается на любом приближении). */
 const MARKER_SCREEN = 0.028;
+/**
+ * Значок нового вида — меньше: около двадцати точек на экране телефона вместо тридцати пяти. Нажимать его не
+ * нужно (касание берёт постройка, `cityPick`), он только говорит, где забота, — и не закрывает крыши.
+ */
+const MARKER_SCREEN_NEW = 0.017;
 
 
 export class CityScene extends TribeScene {
@@ -238,7 +243,7 @@ export class CityScene extends TribeScene {
     if (!sprite || sprite.material.sizeAttenuation === false) return;
     // Значок — постоянного размера на экране: город смотрят и с полукилометра, и с улицы.
     sprite.material.sizeAttenuation = false;
-    sprite.scale.setScalar(MARKER_SCREEN);
+    sprite.scale.setScalar(markerLookNow() === 'new' ? MARKER_SCREEN_NEW : MARKER_SCREEN);
   }
 
   override setSelected(id: number | null): void {

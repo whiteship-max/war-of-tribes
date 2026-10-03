@@ -36,7 +36,11 @@ export function CoatArt({ size }: { size: number }) {
   );
 }
 
-export function CoatButton() {
+/**
+ * `quiet` — новый интерфейс: счётчик вестей там стоит на «Вестях» внизу, куда и ведёт (docs/ui_audit.md,
+ * 3.9: нажатие по кнопке со счётчиком ведёт к тому, что он считает), а герб открывает державу.
+ */
+export function CoatButton({ quiet = false }: { quiet?: boolean } = {}) {
   const open = useRealm((r) => r.open);
   const show = useRealm((r) => r.show);
   // Счётчик почты: сколько ждущего ответа ещё не открывали. Нажатие ведёт туда
@@ -56,12 +60,13 @@ export function CoatButton() {
     <button
       className={`coat-btn${open ? ' active' : ''}`}
       data-tut="coat"
-      onClick={() => show()}
+      // В новом виде «Вести» — свой экран из низа: герб из них ведёт в разделы державы, а не обратно в вести.
+      onClick={() => show(quiet && useRealm.getState().view === 'decisions' ? 'government' : undefined)}
       title="Держава: правительство, стройка, вера, армия, решения и настройки"
-      aria-label={unread > 0 ? `Держава, новых донесений: ${unread}` : 'Держава'}
+      aria-label={unread > 0 && !quiet ? `Держава, новых донесений: ${unread}` : 'Держава'}
     >
       <CoatArt size={36} />
-      {unread > 0 && <span className="coat-badge">{unread}</span>}
+      {unread > 0 && !quiet && <span className="coat-badge">{unread}</span>}
     </button>
   );
 }

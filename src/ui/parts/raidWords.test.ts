@@ -35,8 +35,8 @@ function sources(dir: string): string[] {
 
 const rel = (base: string, abs: string): string => path.relative(base, abs).split(path.sep).join('/');
 
-/** Входы к донесению о набеге. */
-const ENTRIES = ['AlertBar.tsx', 'parts/Walls.tsx'];
+/** Входы к донесению о набеге. Тревога у обоих видов интерфейса одна — `alertItems` (строки и значки рисуют по ней). */
+const ENTRIES = ['alertItems.ts', 'parts/Walls.tsx'];
 /** Кто показывает окно ответа: оба входа и само донесение. */
 const READERS = [...ENTRIES, 'realm/Mail.tsx'];
 

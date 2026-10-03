@@ -467,8 +467,14 @@ async function main(): Promise<void> {
   }
 }
 
+/**
+ * Какой интерфейс мерить: `UI=new` открывает игру с `?ui=new` (docs/ui_audit.md, раздел 12) — у нового вида свой
+ * верх и низ, и мёртвой полосы над низом в нём быть не должно. Без переменной — прежний вид, вывод прежний.
+ */
+const UI_QUERY = process.env.UI === 'new' ? '&ui=new' : '';
+
 async function report(): Promise<void> {
-  const tab = await Tab.open(DEBUG_PORT, reportPage(PORT));
+  const tab = await Tab.open(DEBUG_PORT, reportPage(PORT, UI_QUERY));
   await tab.send('Emulation.setDeviceMetricsOverride', {
     width: WIDTH,
     height: HEIGHT,

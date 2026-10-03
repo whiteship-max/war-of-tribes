@@ -1,0 +1,291 @@
+/*
+ * Меню державы нового интерфейса (`RealmNew.tsx`, docs/ui_audit.md, 6.4). Едет ленивым куском меню.
+ * Шторка между верхом и низом: верх, тревоги и низ видны и работают.
+ */
+.ui-new .nx-realm {
+  bottom: calc(var(--nav-h) + var(--safe-bottom));
+  padding: 0 calc(12px + var(--safe-right)) 0 calc(12px + var(--safe-left));
+  border-top: 1px solid var(--line-2);
+  border-radius: 14px 14px 0 0;
+  background: #19130e;
+  box-shadow: 0 -6px 18px rgba(0, 0, 0, 0.45);
+}
+/* Сброс кнопок без веса и только у своих элементов: кнопки разделов (`.btn` и прочие) остаются своими. */
+:where(.nx-rhead, .nx-points, .nx-rtabs, .nx-tech) button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+.nx-rhead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 52px;
+  flex: none;
+}
+.nx-rhead > svg {
+  flex: none;
+}
+.nx-rico {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  font-size: 24px;
+}
+.nx-rico svg {
+  width: 28px;
+  height: 28px;
+}
+.nx-rtitle {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.nx-rtitle b {
+  font-size: 15px;
+  font-weight: 600;
+}
+.nx-rtitle i {
+  font-style: normal;
+  font-size: 11px;
+  color: var(--muted);
+}
+.nx-ibtn {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  font-size: 20px;
+  color: var(--muted);
+}
+.nx-ibtn svg {
+  width: 22px;
+  height: 22px;
+}
+.nx-ibtn.on {
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.nx-points {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  flex: none;
+}
+.nx-pcell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 44px;
+  border-radius: 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.nx-pcell svg {
+  width: 20px;
+  height: 20px;
+}
+.nx-pcell small {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--muted);
+}
+.nx-pcell.full b {
+  color: var(--warn);
+}
+.nx-rtabs {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 4px;
+  margin: 8px 0;
+  padding: 4px;
+  border-radius: 14px;
+  background: rgba(36, 27, 19, 0.8);
+  border: 1px solid var(--line);
+  flex: none;
+}
+.nx-rtabs button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-width: 0;
+  height: 48px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.nx-rtabs button > svg,
+.nx-rtabs button > span:first-child {
+  width: 22px;
+  height: 22px;
+  font-size: 18px;
+  line-height: 22px;
+}
+.nx-rtabs button > span:last-child {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nx-rtabs button.on {
+  color: var(--text);
+  background: rgba(232, 164, 60, 0.12);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.nx-rbody {
+  padding-bottom: 12px;
+}
+
+/* ---------- Технологии: три столбца и полоса изучения ---------- */
+.nx-tech {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+.nx-tcols {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  padding-bottom: 8px;
+}
+.nx-tcol {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.nx-thead {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 0 2px 2px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+}
+.nx-thead small {
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.nx-tcell {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 44px;
+  padding: 0 6px;
+  border-radius: 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  font-size: 11px;
+  text-align: left;
+  min-width: 0;
+}
+.nx-tcell b {
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.nx-tico {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  flex: none;
+  font-size: 14px;
+}
+.nx-tico svg {
+  width: 18px;
+  height: 18px;
+}
+.nx-tname {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+}
+.nx-tcell.done .nx-tname {
+  color: var(--text);
+}
+.nx-tcell.lock {
+  opacity: 0.55;
+}
+.nx-tcell.next {
+  border-color: rgba(232, 164, 60, 0.5);
+}
+.nx-tcell.sel {
+  background: rgba(232, 164, 60, 0.16);
+  border-color: var(--accent);
+  opacity: 1;
+}
+.nx-tbar {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: auto;
+  padding: 10px 0 4px;
+  background: linear-gradient(to bottom, rgba(25, 19, 14, 0) 0, #19130e 10px);
+}
+.nx-tsel {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.nx-tsel b {
+  font-size: 13px;
+  font-weight: 600;
+}
+.nx-tsel small {
+  font-size: 11px;
+  color: var(--muted);
+}
+.nx-tprice {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.nx-tprice svg {
+  width: 16px;
+  height: 16px;
+}
+.nx-tprice i {
+  font-style: normal;
+  font-weight: 400;
+  font-size: 11px;
+  color: var(--muted);
+}
+.nx-tprice.no {
+  color: var(--bad);
+}
+.nx-tdone {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--good);
+  font-weight: 600;
+}
+.nx-tdone svg {
+  width: 18px;
+  height: 18px;
+}
+/* Обучение: его строка стоит над низом — держава встаёт выше неё, полоса «Изучить» остаётся под пальцем. */
+.ui-new.tut-on .nx-realm {
+  bottom: calc(var(--nav-h) + var(--safe-bottom) + 76px);
+}

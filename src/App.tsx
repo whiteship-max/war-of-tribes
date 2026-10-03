@@ -33,6 +33,8 @@ import { villageMusic } from './sound/web';
 import { probe } from './debug';
 import { CheatPanel } from './ui/CheatPanel';
 import { useRealm } from './ui/realm/open';
+import { useUiNew } from './ui/uimode';
+import { tutorialActive } from './game/data/tutorial';
 
 /**
  * Предыстория — отдельный чанк, и качается он по нажатию кнопки.
@@ -54,6 +56,16 @@ const Prologue = lazy(() => import('./prologue/Prologue').then((m) => ({ default
  * только сам дом меню, и платит за него тот, кто его открыл.
  */
 const RealmMenu = lazy(() => import('./ui/realm/RealmMenu').then((m) => ({ default: m.RealmMenu })));
+
+/**
+ * Новый интерфейс — тоже свой кусок (`ui/next/index.ts`): по умолчанию стоит прежний, и пока владелец не
+ * одобрил новый, игрок за него не платит. Четыре части — один кусок: `import` один и тот же.
+ */
+const nextUi = () => import('./ui/next');
+const Hud = lazy(() => nextUi().then((m) => ({ default: m.Hud })));
+const Alerts = lazy(() => nextUi().then((m) => ({ default: m.Alerts })));
+const Nav = lazy(() => nextUi().then((m) => ({ default: m.Nav })));
+const TipLayer = lazy(() => nextUi().then((m) => ({ default: m.TipLayer })));
 
 function SheetContent({ view }: { view: SheetView }) {
   if (view.kind === 'building') return <BuildingPanel id={view.id} />;
@@ -92,6 +104,11 @@ export function App() {
   const mapOpen = useGame((g) => g.mapOpen);
   const realmOpen = useRealm((r) => r.open);
   const bootWorld = useWorld((g) => g.boot);
+  // Прежний или новый интерфейс (`ui/uimode.ts`): переключение в настройках перерисовывает сразу.
+  const next = useUiNew();
+  // Пока идёт обучение, его строка стоит над низом: держава нового вида встаёт выше неё (`next.css`, `tut-on`),
+  // иначе строка накрыла бы закреплённую полосу «Изучить», к которой обучение и ведёт.
+  const tut = useGame((g) => tutorialActive(g.s));
   // Содержимое шторки переживает закрытие, чтобы она не уезжала пустой.
   const [shown, setShown] = useState<SheetView | null>(null);
   /**
@@ -167,7 +184,7 @@ export function App() {
   if (!ready) return null;
 
   return (
-    <div className="app" ref={appRef}>
+    <div className={`app${next ? ' ui-new' : ''}${next && tut ? ' tut-on' : ''}`} ref={appRef}>
       {/* Сцена остаётся в DOM и под картой: её рендер-луп встаёт, но геометрия
           жива, и переход в обе стороны мгновенный. Выгружать её на время карты
           пробовали и откатили — размен памяти на задержку оказался невыгодным,
@@ -177,8 +194,8 @@ export function App() {
           сценами нельзя (подробно — в `prologue/Prologue.tsx`). */}
       {!prologue && <GameCanvas />}
       {mapOpen && <WorldMap />}
-      {!mapOpen && <TopBar />}
-      <AlertBar />
+      {!mapOpen && (next ? <Suspense fallback={null}><Hud /></Suspense> : <TopBar />)}
+      {next ? <Suspense fallback={null}><Alerts /></Suspense> : <AlertBar />}
       {/* Осада — в правом низу деревни: её не разбирают, из-под неё выходят.
           Письма и события ждут в почте державы («Решения» за гербом). */}
       {/* Кнопка кодов — раньше осады нарочно: по этому порядку стиль и отодвигает
@@ -189,7 +206,7 @@ export function App() {
       <Sheet open={sheet !== null} onClose={closeSheet}>
         {shown && <SheetContent view={shown} />}
       </Sheet>
-      {!mapOpen && <BottomNav />}
+      {!mapOpen && (next ? <Suspense fallback={null}><Nav /></Suspense> : <BottomNav />)}
       {!mapOpen && realmOpen && (
         <Suspense fallback={null}>
           <RealmMenu />
@@ -201,6 +218,11 @@ export function App() {
       <PaceModal />
       <TutorialOverlay />
       {toast && <div className="toast">{toast}</div>}
+      {next && (
+        <Suspense fallback={null}>
+          <TipLayer />
+        </Suspense>
+      )}
       {/* Последним нарочно: до ответа игрока партия не сохраняется никуда, и
           этот вопрос обязан стоять поверх остальных окон. Своего слоя у него
           нет — он просто идёт после них. */}

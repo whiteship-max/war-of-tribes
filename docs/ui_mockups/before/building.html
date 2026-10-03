@@ -1,0 +1,251 @@
+<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=390,initial-scale=1"><title>До: Кузница</title>
+<link rel="stylesheet" href="../../../src/ui/styles.css">
+<link rel="stylesheet" href="../assets/phone.css">
+<style>
+/* Макет «до»: только рамка. Классы игры не переопределяются — вся вёрстка из src/ui/styles.css. */
+</style></head>
+<body class="phone"><script src="../assets/sprite.js"></script>
+<div class="sys"><span>9:41</span><span class="sys-icons"><i class="sig"></i><i class="wifi"></i><i class="bat"></i></span></div>
+<div class="tgh"><span class="tgh-left">Закрыть</span><span class="tgh-title"><b>TRIBE</b><small>мини-приложение</small></span><span class="tgh-right"><span>···</span></span></div>
+<div class="webview"><div class="scene village"></div>
+<div class="app">
+
+<!-- src/ui/TopBar.tsx -->
+<div class="topbar">
+  <div class="hud-bar">
+    <span class="cell" title="День 149, ночь"><span class="ic"><svg viewBox="0 0 32 32" width="1em" height="1em" style="vertical-align:-0.15em" role="img"><use href="#i-day-night"/></svg></span><b>149</b><i>ночь</i></span>
+    <span class="sep"></span>
+    <button class="cell season season-summer" title="Лето: Длинный день: поля, стройка и добыча на пике, но зверь разбрёлся. Нажми, чтобы увидеть множители."><span class="ic"><svg viewBox="0 0 32 32" width="1em" height="1em" style="vertical-align:-0.15em" role="img"><use href="#i-season-sun"/></svg></span><i>Лето</i><span class="season-bar"><span style="width:75%"></span></span></button>
+    <span class="sep"></span>
+    <button class="cell tap" title="Население и жильё. Нажми, чтобы увидеть, как считается прирост."><span class="ic"><svg viewBox="0 0 32 32" width="1em" height="1em" style="vertical-align:-0.15em" role="img"><use href="#i-hud-pop"/></svg></span><b>55</b><i>/55</i></button>
+    <span class="sep"></span>
+    <button class="cell tap" title="Мораль племени. Нажми, чтобы увидеть, что её поднимает и что тянет вниз."><span class="ic"><svg viewBox="0 0 32 32" width="1em" height="1em" style="vertical-align:-0.15em" role="img"><use href="#i-mood-mid"/></svg></span><b>58</b></button>
+    <span class="sep"></span>
+    <button class="cell tap army" title="Дружина. Нажми, чтобы увидеть состав, показатели и карточки войск."><span class="ic"><svg viewBox="0 0 32 32" width="1em" height="1em" style="vertical-align:-0.15em" role="img"><use href="#i-hud-army"/></svg></span><b>0</b><i>дружина</i></button>
+  </div>
+
+  <!-- src/ui/ResourceBar.tsx -->
+  <div class="res-bar">
+    <span class="res" title="Древесина"><svg viewBox="0 0 32 32" width="1em" height="1em" style="vertical-align:-0.15em" role="img"><use href="#i-res-wood"/></svg><b>2,1к</b></span>
+    <span class="res" title="Камень"><svg viewBox="0 0 32 32" width="1em" height="1em" style="vertical-align:-0.15em" role="img"><use href="#i-res-stone"/></svg><b>2,3к</b></span>
+    <span class="res" title="Еда"><svg viewBox="0 0 32 32" width="1em" height="1em" style="vertical-align:-0.15em" role="img"><use href="#i-res-food"/></svg><b>1,9к</b></span>
+    <span class="res" title="Шкуры"><svg viewBox="0 0 32 32" width="1em" height="1em" style="vertical-align:-0.15em" role="img"><use href="#i-res-hides"/></svg><b>312</b></span>
+    <span class="res" title="Кости"><svg viewBox="0 0 32 32" width="1em" height="1em" style="vertical-align:-0.15em" role="img"><use href="#i-res-bones"/></svg><b>248</b></span>
+    <span class="res" title="Медь"><svg viewBox="0 0 32 32" width="1em" height="1em" style="vertical-align:-0.15em" role="img"><use href="#i-res-copper"/></svg><b>96</b></span>
+    <span class="res" title="Железо"><svg viewBox="0 0 32 32" width="1em" height="1em" style="vertical-align:-0.15em" role="img"><use href="#i-res-iron"/></svg><b>41</b></span>
+  </div>
+
+  <div class="top-row">
+    <!-- src/ui/realm/Coat.tsx -->
+    <button class="coat-btn" data-tut="coat" title="Держава: правительство, стройка, вера, армия, решения и настройки" aria-label="Держава">
+      <svg width="36" height="36" viewBox="0 0 40 40" aria-hidden="true">
+        <path d="M6 5 H34 V19 C34 28 27 33 20 36 C13 33 6 28 6 19 Z" fill="#e8a43c" stroke="#b07724" stroke-width="2.4" stroke-linejoin="round"/>
+        <path d="M13 11 H16 V13.5 H18.5 V11 H21.5 V13.5 H24 V11 H27 V17 H25.5 V28 H14.5 V17 H13 Z" fill="#241a11"/>
+        <path d="M18 28 V23.5 C18 22 22 22 22 23.5 V28 Z" fill="#e8a43c"/>
+      </svg>
+    </button>
+    <button class="map-btn" data-tut="nav-map" title="Карта мира: соседи, походы, разведка" aria-label="Карта мира"><svg viewBox="0 0 32 32" width="1em" height="1em" style="vertical-align:-0.15em" role="img"><use href="#i-hud-map"/></svg></button>
+  </div>
+</div>
+
+<!-- src/ui/Sheet.tsx: нижняя ступень (62 %), без .full -->
+<div class="sheet-backdrop"></div>
+<div class="sheet open" role="dialog" aria-hidden="false">
+  <div class="sheet-grab">
+    <span class="sheet-handle"></span>
+    <button class="sheet-close" aria-label="Закрыть">✕</button>
+  </div>
+  <div class="sheet-body">
+
+    <!-- src/ui/panels/BuildingPanel.tsx -->
+    <div class="panel">
+      <div class="bhead">
+        <div class="ico"><svg viewBox="0 0 32 32" width="1em" height="1em" style="vertical-align:-0.15em" role="img"><use href="#i-bld-smithy"/></svg></div>
+        <div class="body">
+          <div class="name">Кузница</div>
+          <div class="lvl">Уровень 3 из 10<span class="pips"><i class="on"></i><i class="on"></i><i class="on"></i><i class=""></i><i class=""></i><i class=""></i><i class=""></i><i class=""></i><i class=""></i><i class=""></i></span></div>
+        </div>
+        <button class="btn">До 4 ур.</button>
+      </div>
+
+      <div class="desc">Горн и наковальня. Кузнецы куют снаряжение — то, чем платят за войско.</div>
+
+      <div class="upgrade">
+        <!-- src/ui/parts/Cost.tsx -->
+        <div class="cost">
+          <span class="" title="Древесина"><svg viewBox="0 0 32 32" width="1em" height="1em" style="vertical-align:-0.15em" role="img"><use href="#i-res-wood"/></svg> 1652<i class="have">из 2140</i></span>
+          <span class="" title="Камень"><svg viewBox="0 0 32 32" width="1em" height="1em" style="vertical-align:-0.15em" role="img"><use href="#i-res-stone"/></svg> 1998<i class="have">из 2315</i></span>
+          <span class="work"><svg viewBox="0 0 32 32" width="1em" height="1em" style="vertical-align:-0.15em" role="img"><use href="#i-ui-time"/></svg> ~1274 с</span>
+        </div>
+        <div class="hint">+4 рабочих места, каждый рабочий +8%</div>
+      </div>
+
+      <!-- WorkerSlots -->
+      <h3><svg viewBox="0 0 32 32" width="1em" height="1em" style="vertical-align:-0.15em" role="img"><use href="#i-job-smith"/></svg> Кузнец<span class="muted">3/12</span></h3>
+      <div class="card">
+        <div class="ico"><svg viewBox="0 0 32 32" width="1em" height="1em" style="vertical-align:-0.15em" role="img"><use href="#i-job-smith"/></svg></div>
+        <div class="body">
+          <div class="title">Рабочих в здании<span class="count">свободных: 6</span></div>
+          <div class="desc">Свободных мест: 9. Следующий уровень добавит ещё 4.</div>
+        </div>
+      </div>
+      <!-- src/ui/parts/Steps.tsx -->
+      <div class="stepper wide-steps">
+        <button aria-label="Снять 10">−10</button>
+        <button aria-label="Снять">−</button>
+        <span class="n">3</span>
+        <button data-tut="slot-add" aria-label="Поставить">+</button>
+        <button aria-label="Поставить 10">+10</button>
+      </div>
+
+      <!-- BuildingData → GenericData -->
+      <h3>Выработка</h3>
+      <div class="note">Это здание не даёт ресурсов напрямую.</div>
+      <div class="mod">
+        <span class="ico"><svg viewBox="0 0 32 32" width="1em" height="1em" style="vertical-align:-0.15em" role="img"><use href="#i-job-smith"/></svg></span>
+        <span class="name">Рабочих: 3</span>
+        <span class="val">×1.15 каждый</span>
+      </div>
+      <div class="note">Уровень 3: каждый рабочий работает на ×1.20 от базы.</div>
+      <h3>Что даёт посёлку</h3>
+      <div class="mod">
+        <span class="ico"><svg viewBox="0 0 32 32" width="1em" height="1em" style="vertical-align:-0.15em" role="img"><use href="#i-hud-army"/></svg></span>
+        <span class="name">Мощь армии сейчас</span>
+        <span class="val">0</span>
+      </div>
+
+      <!-- src/ui/parts/Smithy.tsx -->
+      <h3>Кузница <span class="muted">кузнецов: 3</span></h3>
+      <h3>Очередь заказов <span class="muted">1</span></h3>
+      <div class="card">
+        <div class="ico"><svg viewBox="0 0 32 32" width="1em" height="1em" style="vertical-align:-0.15em" role="img"><use href="#i-gear-spear"/></svg></div>
+        <div class="body">
+          <div class="title">Копья<span class="count">2/5 · ~1140 с</span></div>
+          <div class="progress"><div style="width:40%"></div></div>
+        </div>
+        <button class="btn ghost" aria-label="Отменить заказ">✕</button>
+      </div>
+      <div class="note">Отмена возвращает материалы нетронутых предметов целиком, начатого — наполовину: железо на нём уже разрублено.</div>
+
+      <h3>Заказать</h3>
+      <div class="troop">
+        <div class="ico"><svg viewBox="0 0 32 32" width="1em" height="1em" style="vertical-align:-0.15em" role="img"><use href="#i-gear-spear"/></svg></div>
+        <div class="body">
+          <div class="title">Копья<span class="count">на складе: 7</span></div>
+          <div class="desc">Древко и наконечник. Первое оружие, которое племя делает нарочно.</div>
+          <div class="cost">
+            <span class=""><svg viewBox="0 0 32 32" width="1em" height="1em" style="vertical-align:-0.15em" role="img"><use href="#i-res-wood"/></svg> 4</span>
+            <span class=""><svg viewBox="0 0 32 32" width="1em" height="1em" style="vertical-align:-0.15em" role="img"><use href="#i-res-stone"/></svg> 3</span>
+            <span>⏳ 450 с</span>
+          </div>
+        </div>
+        <div class="troop-buy">
+          <div class="stepper"><button disabled>−</button><span class="n">1</span><button>+</button></div>
+          <button class="btn" data-tut="forge-spear">Заказать</button>
+          <small class="">материалы спишутся сразу</small>
+        </div>
+      </div>
+      <div class="troop">
+        <div class="ico"><svg viewBox="0 0 32 32" width="1em" height="1em" style="vertical-align:-0.15em" role="img"><use href="#i-gear-bow"/></svg></div>
+        <div class="body">
+          <div class="title">Луки<span class="count">на складе: 4</span></div>
+          <div class="desc">Тис, жила и костяные наконечники. Бьёт дальше копья.</div>
+          <div class="cost">
+            <span class=""><svg viewBox="0 0 32 32" width="1em" height="1em" style="vertical-align:-0.15em" role="img"><use href="#i-res-wood"/></svg> 6</span>
+            <span class=""><svg viewBox="0 0 32 32" width="1em" height="1em" style="vertical-align:-0.15em" role="img"><use href="#i-res-bones"/></svg> 3</span>
+            <span>⏳ 660 с</span>
+          </div>
+        </div>
+        <div class="troop-buy">
+          <div class="stepper"><button disabled>−</button><span class="n">1</span><button>+</button></div>
+          <button class="btn" data-tut="forge-bow">Заказать</button>
+          <small class="">материалы спишутся сразу</small>
+        </div>
+      </div>
+      <div class="troop locked">
+        <div class="ico"><svg viewBox="0 0 32 32" width="1em" height="1em" style="vertical-align:-0.15em" role="img"><use href="#i-gear-axe"/></svg></div>
+        <div class="body">
+          <div class="title">Топоры<span class="count">на складе: 0</span></div>
+          <div class="desc">Боевой топор: тяжелее копья и прощает меньше промахов.</div>
+          <div class="cost">
+            <span class=""><svg viewBox="0 0 32 32" width="1em" height="1em" style="vertical-align:-0.15em" role="img"><use href="#i-res-wood"/></svg> 5</span>
+            <span class=""><svg viewBox="0 0 32 32" width="1em" height="1em" style="vertical-align:-0.15em" role="img"><use href="#i-res-copper"/></svg> 3</span>
+            <span>⏳ 990 с</span>
+          </div>
+        </div>
+        <div class="troop-buy">
+          <div class="stepper"><button disabled>−</button><span class="n">1</span><button>+</button></div>
+          <button class="btn" data-tut="forge-axe" disabled>Заказать</button>
+          <small class="no">Ещё не изучено: топоры — 5 уровень военной ветви, в «Технологиях».</small>
+          <button class="btn ghost wide">📚 В «Технологии» — изучить</button>
+        </div>
+      </div>
+      <div class="troop locked">
+        <div class="ico"><svg viewBox="0 0 32 32" width="1em" height="1em" style="vertical-align:-0.15em" role="img"><use href="#i-gear-shield"/></svg></div>
+        <div class="body">
+          <div class="title">Щиты<span class="count">на складе: 0</span></div>
+          <div class="desc">Доски и бычья кожа. С ним строй держится.</div>
+          <div class="cost">
+            <span class=""><svg viewBox="0 0 32 32" width="1em" height="1em" style="vertical-align:-0.15em" role="img"><use href="#i-res-wood"/></svg> 6</span>
+            <span class=""><svg viewBox="0 0 32 32" width="1em" height="1em" style="vertical-align:-0.15em" role="img"><use href="#i-res-hides"/></svg> 4</span>
+            <span>⏳ 870 с</span>
+          </div>
+        </div>
+        <div class="troop-buy">
+          <div class="stepper"><button disabled>−</button><span class="n">1</span><button>+</button></div>
+          <button class="btn" data-tut="forge-shield" disabled>Заказать</button>
+          <small class="no">Ещё не изучено: щиты — 4 уровень военной ветви, в «Технологиях».</small>
+          <button class="btn ghost wide">📚 В «Технологии» — изучить</button>
+        </div>
+      </div>
+      <div class="troop locked">
+        <div class="ico"><svg viewBox="0 0 32 32" width="1em" height="1em" style="vertical-align:-0.15em" role="img"><use href="#i-gear-sword"/></svg></div>
+        <div class="body">
+          <div class="title">Мечи<span class="count">на складе: 0</span></div>
+          <div class="desc">Кованый клинок. Дорог, но решает бой.</div>
+          <div class="cost">
+            <span class=""><svg viewBox="0 0 32 32" width="1em" height="1em" style="vertical-align:-0.15em" role="img"><use href="#i-res-copper"/></svg> 8</span>
+            <span class=""><svg viewBox="0 0 32 32" width="1em" height="1em" style="vertical-align:-0.15em" role="img"><use href="#i-res-iron"/></svg> 4</span>
+            <span>⏳ 1530 с</span>
+          </div>
+        </div>
+        <div class="troop-buy">
+          <div class="stepper"><button disabled>−</button><span class="n">1</span><button>+</button></div>
+          <button class="btn" data-tut="forge-sword" disabled>Заказать</button>
+          <small class="no">Ещё не изучено: мечи — 6 уровень военной ветви, в «Технологиях».</small>
+          <button class="btn ghost wide">📚 В «Технологии» — изучить</button>
+        </div>
+      </div>
+      <div class="troop locked">
+        <div class="ico"><svg viewBox="0 0 32 32" width="1em" height="1em" style="vertical-align:-0.15em" role="img"><use href="#i-gear-armor"/></svg></div>
+        <div class="body">
+          <div class="title">Доспехи<span class="count">на складе: 0</span></div>
+          <div class="desc">Пластины на кожаной основе. Латника берут не всякой стрелой.</div>
+          <div class="cost">
+            <span class=""><svg viewBox="0 0 32 32" width="1em" height="1em" style="vertical-align:-0.15em" role="img"><use href="#i-res-hides"/></svg> 6</span>
+            <span class=""><svg viewBox="0 0 32 32" width="1em" height="1em" style="vertical-align:-0.15em" role="img"><use href="#i-res-iron"/></svg> 10</span>
+            <span>⏳ 2400 с</span>
+          </div>
+        </div>
+        <div class="troop-buy">
+          <div class="stepper"><button disabled>−</button><span class="n">1</span><button>+</button></div>
+          <button class="btn" data-tut="forge-armor" disabled>Заказать</button>
+          <small class="no">Ещё не изучено: доспехи — 7 уровень военной ветви, в «Технологиях».</small>
+          <button class="btn ghost wide">📚 В «Технологии» — изучить</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- src/ui/BottomNav.tsx -->
+<nav class="bottomnav">
+  <button data-tut="nav-people" class=""><span class="ico"><svg viewBox="0 0 32 32" width="1em" height="1em" style="vertical-align:-0.15em" role="img"><use href="#i-nav-people"/></svg></span><span>Племя</span><span class="badge">6</span></button>
+  <button data-tut="nav-townhall" class=""><span class="ico"><svg viewBox="0 0 32 32" width="1em" height="1em" style="vertical-align:-0.15em" role="img"><use href="#i-bld-town_hall"/></svg></span><span>Ратуша</span></button>
+  <button data-tut="nav-quests" class=""><span class="ico"><svg viewBox="0 0 32 32" width="1em" height="1em" style="vertical-align:-0.15em" role="img"><use href="#i-nav-quests"/></svg></span><span>Задания</span><span class="badge">3</span></button>
+</nav>
+
+</div>
+</div>
+<div class="home-ind"></div></body></html>

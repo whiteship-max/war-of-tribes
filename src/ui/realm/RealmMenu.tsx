@@ -36,14 +36,38 @@ import { useRealm, type RealmView } from './open';
 import { mailKeys, unreadCount, useSeen } from './unread';
 import { useWorld } from '@/world/store';
 import { REALM_TABS, type RealmTab } from './tabs';
+import { QuestsPanel } from '../panels/QuestsPanel';
+import { useUiNew } from '../uimode';
+import { RealmNew } from './RealmNew';
 
+/** Меню державы прежнего или нового вида (`ui/uimode.ts`): разделы у них одни и те же (`Section`). */
 export function RealmMenu() {
+  return useUiNew() ? <RealmNew /> : <RealmOld />;
+}
+
+/**
+ * Кнопка внутри раздела может вести в здание, справку или на карту — туда, что живёт под меню. Ушёл туда —
+ * меню уступает место, а не закрывает собой открытое. Первое значение пропускается: с ним меню и открыли.
+ */
+export function useRealmYield(): void {
+  const hide = useRealm((r) => r.hide);
+  const sheet = useGame((g) => g.sheet);
+  const mapOpen = useGame((g) => g.mapOpen);
+  const first = useRef(true);
+  useEffect(() => {
+    if (first.current) {
+      first.current = false;
+      return;
+    }
+    if (sheet !== null || mapOpen) hide();
+  }, [sheet, mapOpen, hide]);
+}
+
+function RealmOld() {
   const view = useRealm((r) => r.view);
   const go = useRealm((r) => r.go);
   const hide = useRealm((r) => r.hide);
   const s = useGame((g) => g.s);
-  const sheet = useGame((g) => g.sheet);
-  const mapOpen = useGame((g) => g.mapOpen);
   const letters = useWorld((w) => w.letters);
   const seen = useSeen((u) => u.seen);
   // Тот же счётчик, что на гербе: сколько ждущего ответа ещё не открывали.
@@ -65,17 +89,7 @@ export function RealmMenu() {
     setTop(bar ? Math.ceil(bar.getBoundingClientRect().bottom) : 0);
   }, []);
 
-  // Кнопка внутри раздела может вести в здание, справку или на карту — туда,
-  // что живёт под меню. Ушёл туда — меню уступает место, а не закрывает собой
-  // открытое. Первое значение пропускается: с ним меню и открыли.
-  const first = useRef(true);
-  useEffect(() => {
-    if (first.current) {
-      first.current = false;
-      return;
-    }
-    if (sheet !== null || mapOpen) hide();
-  }, [sheet, mapOpen, hide]);
+  useRealmYield();
 
   // Новый раздел читается с начала, а не с того места, где листали прежний, а
   // его вкладка видна в ленте: девять вкладок на 375 px не помещаются.
@@ -123,8 +137,9 @@ export function RealmMenu() {
   );
 }
 
-function Section({ view }: { view: RealmView }) {
+export function Section({ view }: { view: RealmView }) {
   if (view === 'settings') return <ProfilePanel />;
+  if (view === 'quests') return <QuestsPanel />;
   switch (view) {
     case 'lineage':
       return <RulerTab />;

@@ -7,12 +7,14 @@
 // Отсюда же следует, что содержимое у обоих показов одинаковое. Соблазн
 // «на стартовом экране покажем только звук» — это и есть начало второй копии.
 //
-// Строк здесь три — музыка, графика, язык, — и это не заготовка под список.
+// Строк здесь четыре — музыка, графика, интерфейс, язык, — и это не заготовка под список.
 // Свалкой раздел становится с той строки, которую добавили «раз уж всё равно
 // открыли»: игрок перестаёт читать и начинает пролистывать. Новая строка
 // появляется тогда, когда без неё что-то нельзя сделать, а не тогда, когда её
 // удобно сюда положить. Графика — такая: без неё телефону, который не тянет,
-// уровень не опустить (docs/graphics_world.md, 9.6; docs/city.md, «Город — единственный вид»).
+// уровень не опустить (docs/graphics_world.md, 9.6; docs/city.md, «Город — единственный вид»). Интерфейс —
+// тоже: новый вид стоит за переключателем, пока владелец его не одобрил (`ui/uimode.ts`), и вернуться
+// к прежнему игрок обязан тем же пальцем, каким ушёл.
 //
 // Чего здесь нет и быть не может: ничего про алмазы. Премиальная валюта живёт в
 // ратуше, где ею платят, и настройкой не является ни в каком виде.
@@ -21,6 +23,7 @@ import { setSoundOn, soundOn, subscribeSound } from '@/sound/settings';
 import { GFX_QUALITIES, gfx, setGfx, subscribeGfx } from '@/render/gfx';
 import { battleMusic, villageMusic } from '@/sound/web';
 import { Icon } from '@/ui/icons/Icon';
+import { UI_MODES, setUiMode, subscribeUi, uiMode } from '@/ui/uimode';
 
 /**
  * Переключатель музыки — **единственный рычаг на весь звук игры**, и деревни, и
@@ -44,6 +47,9 @@ import { Icon } from '@/ui/icons/Icon';
 export function Settings() {
   const on = useSyncExternalStore(subscribeSound, soundOn, soundOn);
   const chosen = useSyncExternalStore(subscribeGfx, gfx, gfx);
+  const ui = useSyncExternalStore(subscribeUi, uiMode, uiMode);
+  // Новый интерфейс говорит своими словами (docs/ui_texts.md, пачка 11), прежний — своими.
+  const next = ui === 'new';
 
   const flip = (): void => {
     const next = !on;
@@ -69,7 +75,7 @@ export function Settings() {
           </span>
           <span className="name">
             Музыка
-            <em className="sub">в деревне и под роликом о бое</em>
+            <em className="sub">{next ? 'в городе и в бою' : 'в деревне и под роликом о бое'}</em>
           </span>
           <span className="sw">
             <i />
@@ -89,11 +95,32 @@ export function Settings() {
           </span>
           <span className="name">
             Графика
-            <em className="sub">«Авто» — по устройству; не тянет — опустится сама</em>
+            <em className="sub">{next ? 'Авто подбирает по телефону' : '«Авто» — по устройству; не тянет — опустится сама'}</em>
           </span>
           <div className="set-seg" role="group" aria-label="Уровень графики">
             {GFX_QUALITIES.map(([q, label]) => (
               <button key={q} className={chosen.quality === q ? 'on' : ''} aria-pressed={chosen.quality === q} onClick={() => setGfx({ quality: q })}>
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/*
+          Интерфейс — прежний или новый (`ui/uimode.ts`). Две кнопки, как у графики: выбор виден целиком.
+          Меняется сразу, без перезагрузки: верх, низ и окна слушают запись сами.
+        */}
+        <div className="set-row pick">
+          <span className="ico">
+            <Icon name="ui-scroll" glyph="📜" />
+          </span>
+          <span className="name">
+            Интерфейс
+            <em className="sub">Новый — значки и подсказки касанием</em>
+          </span>
+          <div className="set-seg" role="group" aria-label="Интерфейс">
+            {UI_MODES.map(([m, label]) => (
+              <button key={m} className={ui === m ? 'on' : ''} aria-pressed={ui === m} onClick={() => setUiMode(m)}>
                 {label}
               </button>
             ))}
@@ -117,7 +144,7 @@ export function Settings() {
           </span>
           <span className="name">
             Язык
-            <em className="sub">Русский. Других пока нет</em>
+            <em className="sub">{next ? 'Русский' : 'Русский. Других пока нет'}</em>
           </span>
         </div>
       </div>
