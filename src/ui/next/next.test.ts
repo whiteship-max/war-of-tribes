@@ -186,6 +186,24 @@ function px(sel: string, prop: string): number | null {
   return vr ? (VARS[vr[1]] ?? null) : null;
 }
 
+/**
+ * Решение владельца 04.10.2026 (docs/ui_audit.md, 14.4, вопрос 3): числа верхней строки, растущие за тысячу, —
+ * сокращённым форматом, как у запасов («4,0к»): на 375 px четырёхзначные распирали бы строку. Мораль, порядок и
+ * энергия — до ста. Проверка по исходнику: каждое число ячейки строки идёт через `shortNum` или названо ограниченным.
+ */
+describe('верхняя строка: числа за тысячу — сокращённо', () => {
+  it('золото, жители, жильё и дружина — через `shortNum`; без него — только мораль, порядок и энергия', () => {
+    const src = readFileSync(join(__dirname, 'Hud.tsx'), 'utf8');
+    const top = src.slice(src.indexOf('className={`nx-top'), src.indexOf('className="nx-res"'));
+    const nums = [...top.matchAll(/<(?:b|small)>\/?\{([^}]+)\}<\/(?:b|small)>/g)].map((m) => m[1].trim());
+    // Точка внутри области: ячейки строки найдены, и среди них есть и сокращённые, и ограниченные.
+    expect(nums.length).toBeGreaterThanOrEqual(7);
+    const bare = nums.filter((n) => !/^shortNum\(/.test(n));
+    expect(bare.sort(), 'числа без сокращения').toEqual(['energy', 'morale', 'order']);
+    expect(nums.filter((n) => /^shortNum\(/.test(n)).sort()).toEqual(['shortNum(armySize(s))', 'shortNum(housing)', 'shortNum(pop)', 'shortNum(s.gold)']);
+  });
+});
+
 describe('цели касания нового вида — не меньше порога проекта', () => {
   it('кнопки и ячейки-числа верха, тревоги, низ и ссылка подсказки — 44 и больше', () => {
     expect(TAP_TARGET).toBe(44);

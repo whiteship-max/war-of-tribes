@@ -19,6 +19,10 @@ import { armyTip, energyTip, goldTip, isFull, moraleTip, orderTip, popTip, resTi
  * порядок, дружина и сезон справа, как дата в EU4, — и строка запасов 32 с приростом цветом. Числа —
  * ячейки-справки: тап открывает подсказку с расшифровкой и ссылкой к панели (3.7), своих панелей у верха
  * нет. Над затемнением окон он стоит целиком: запасы видны, пока решаешь, отдать ли их.
+ *
+ * Числа строки, которые растут за тысячу, — золото, жители, жильё и дружина — сокращены, как у запасов («4,0к»,
+ * `shortNum`): на 375 px четырёхзначные распёрли бы строку (решение владельца 04.10.2026, docs/ui_audit.md, 14.4,
+ * вопрос 3). Мораль, порядок и энергия — до ста, им сокращать нечего.
  */
 export function Hud() {
   const s = useGame((g) => g.s);
@@ -55,8 +59,8 @@ export function Hud() {
         </button>
         <button className={`nx-stat${pop > housing ? ' warn' : ''}`} onClick={tip(() => popTip(s, go))} aria-label="Жители">
           <Icon name="hud-pop" glyph="👥" />
-          <b>{pop}</b>
-          <small>/{housing}</small>
+          <b>{shortNum(pop)}</b>
+          <small>/{shortNum(housing)}</small>
         </button>
         <button className={`nx-stat${morale < 35 ? ' warn' : ''}`} onClick={tip(() => moraleTip(s, go))} aria-label="Мораль">
           <Icon name={mood.name} glyph={mood.glyph} />
@@ -70,7 +74,7 @@ export function Hud() {
         )}
         <button className="nx-stat" onClick={tip(() => armyTip(s, go))} aria-label="Дружина">
           <Icon name="hud-army" glyph="⚔️" />
-          <b>{armySize(s)}</b>
+          <b>{shortNum(armySize(s))}</b>
         </button>
         <button className={`nx-stat nx-energy${energy < MINIGAME_COST ? ' low' : ''}`} onClick={tip(() => energyTip(s, energyNow(), showTrades))} aria-label="Энергия">
           <Icon name="ui-energy" glyph="✋" />
