@@ -61,10 +61,15 @@
 .nx-stat {
   display: flex;
   align-items: center;
-  gap: 4px;
+  justify-content: center;
+  /* Поля узкие и ячейка не ужимается: строка поздней партии («9,9к», «755/755») на 375 px с широкими полями ужимала
+     ячейки, и значки сжимались до точки (снимки стенда `FIT=1 npm run mini:shots`, 04.10.2026). Просвет между
+     ячейками дают сами 44 px цели касания. */
+  flex-shrink: 0;
+  gap: 2px;
   height: 44px;
   min-width: 44px;
-  padding: 0 5px;
+  padding: 0 1px;
   border-radius: 10px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
@@ -73,6 +78,7 @@
 .nx-stat svg,
 .nx-cell svg,
 .nx-stat > span:first-child {
+  flex-shrink: 0;
   width: 16px;
   height: 16px;
   font-size: 15px;
@@ -1646,6 +1652,11 @@
 .nx-top.crowded {
   gap: 0;
 }
-.nx-top.crowded .nx-stat {
-  padding: 0 1px;
+.ui-new .nx-top.crowded .coat-btn {
+  margin-right: 0;
+}
+/* С ячейкой порядка восемь целей по 44 px оставляют на 375 px одиннадцать пикселей сверх них, а «755/755» просит
+   двадцать: жильё уходит в подсказку жителей (там оно и так названо), переполнение — красным числом жителей. */
+.nx-top.crowded .nx-pop small {
+  display: none;
 }

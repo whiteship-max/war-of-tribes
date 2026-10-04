@@ -9,6 +9,9 @@
 //   LOOK=lite npm run mini:shots        — ступень вида приколота (`full`, `lite`, `base`)
 //   WIDTH=375 npm run mini:shots        — ширина экрана, px (по умолчанию 390)
 //   BONDED=12 npm run mini:shots        — невольники в городе: в верхней строке встаёт ячейка порядка
+//   FIT=1 npm run mini:shots            — верхняя строка на 375 и 390 px одним заходом: обычные и четырёхзначные числа,
+//                                         с ячейкой порядка и без; влезает ли строка, не переполнена ли ячейка, и снимок
+//                                         строки на каждый случай
 //   BUDGET=1 npm run mini:shots         — бюджет кадра счётом по графу сцены, без браузера (`world.frameCost`), и дуга
 //                                         стрелы «Охоты»: метки прицела, полёт и падение на их далях
 //
@@ -65,6 +68,50 @@ async function waitFor(tab: Tab, expr: string, ms: number): Promise<boolean> {
     await sleep(250);
   }
   return false;
+}
+
+/** Ячейки верхней строки: подпись, текст, ширина и переполнение — одной строкой на случай. */
+const TOP_CELLS = `JSON.stringify((() => {
+  const squeezed = (e) => [...e.querySelectorAll('svg, .nx-stat > span:first-child')].some((i) => i.getBoundingClientRect().width < 15.5);
+  const top = document.querySelector('.nx-top');
+  const cells = [...document.querySelectorAll('.nx-top > *')].filter((e) => e.getBoundingClientRect().width > 0);
+  return {
+    scroll: top ? top.scrollWidth : -1,
+    client: top ? top.clientWidth : -1,
+    cells: cells.map((e) => (e.getAttribute('aria-label') || e.className) + ' «' + e.textContent.trim() + '» ' + Math.round(e.getBoundingClientRect().width) + (e.scrollWidth > e.clientWidth + 1 ? ' ПЕРЕПОЛНЕНА ' + e.scrollWidth : '') + (squeezed(e) ? ' ЗНАЧОК СЖАТ' : '')),
+  };
+})())`;
+
+/**
+ * Верхняя строка на 375 и 390 px (решение владельца 04.10.2026: числа за тысячу — сокращённо): числа новой партии и
+ * поздней (золото «9,9к», жители и жильё 755, дружина 747), с ячейкой порядка и без. Не влезает — строка шире экрана,
+ * ячейка шире себя или значок сжат. Один заход вместо восьми — бюджет железа; снимок строки на каждый случай — в
+ * `.mini-shots/`.
+ */
+async function fitTop(tab: Tab, began: number): Promise<void> {
+  // Большие числа поздней партии: золото за тысячу, жители и жильё у потолка (`pop:report`: 755 при всех зданиях на
+  // потолке, средний уровень около десяти), дружина — все жители.
+  const BIG = `s.gold = 9949; s.pop = 755; for (const b of s.buildings) b.level = Math.max(b.level, 10); const ids = Object.keys(s.army); for (const t of ids) s.army[t] = Math.floor(755 / ids.length);`;
+  let bad = 0;
+  for (const big of [false, true]) {
+    for (const bonded of [0, 12]) {
+      await tab.eval<string>(`(() => { const g = window.__game.getState(); const s = g.s; s.bonded = ${bonded}; ${big ? BIG : ''} window.__game.setState({ s: { ...s } }); return JSON.stringify('ok'); })()`);
+      for (const width of [375, 390]) {
+        if (Date.now() - began > BROWSER_MAX_MS) throw new Error(`срок стенда (${BROWSER_MAX_MS / 1000} с) вышел`);
+        await tab.send('Emulation.setDeviceMetricsOverride', { ...SCREEN, width });
+        await sleep(700);
+        const r = await tab.eval<{ scroll: number; client: number; cells: string[] }>(TOP_CELLS);
+        const tag = `top-${width}-${big ? 'big' : 'new'}${bonded ? '-order' : ''}`;
+        const over = r.scroll > r.client || r.cells.some((c) => c.includes('ПЕРЕПОЛНЕНА') || c.includes('ЗНАЧОК СЖАТ'));
+        if (over) bad++;
+        console.log(`  ${tag.padEnd(22)} ${r.scroll} из ${r.client} px${over ? ' — НЕ ВЛЕЗАЕТ' : ''}`);
+        console.log(`    ${r.cells.join(' · ')}`);
+        const png = await tab.send<{ data: string }>('Page.captureScreenshot', { format: 'png', clip: { x: 0, y: 0, width, height: 52, scale: 1 } });
+        await writeFile(join(OUT, `${TAG}-${tag}.png`), Buffer.from(png.data, 'base64'));
+      }
+    }
+  }
+  console.log(bad ? `  переполнено случаев: ${bad} из 8` : '  все восемь случаев влезают');
 }
 
 /**
@@ -288,6 +335,10 @@ async function main(): Promise<void> {
           return JSON.stringify('ok');
         })()`);
         await sleep(3000);
+        if (process.env.FIT === '1') {
+          await fitTop(tab, began);
+          return;
+        }
         await snap(tab, 'city', began);
         // Верх не шире экрана: ячейка энергии встала в строку, где уже золото, жители, мораль, дружина и сезон.
         const fit = await tab.eval<{ scroll: number; client: number }>(

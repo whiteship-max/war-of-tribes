@@ -8,6 +8,7 @@ import { armyPower, housingCapacity, netPerDay, storageCap, upkeepInfo } from '@
 import { popGrowth } from '@/game/sim/population';
 import { TAP_TARGET } from '@/gestures';
 import { waitSpan } from '@/ui/parts/wait';
+import { shortNum } from '@/ui/ResourceBar';
 import { TIP_EDGE, TIP_GAP, TIP_MAX, TIP_W, placeTip, type Rect } from './tip';
 import { ALERT_FRESH_MS, isFresh } from './fresh';
 import {
@@ -201,6 +202,19 @@ describe('верхняя строка: числа за тысячу — сокр
     const bare = nums.filter((n) => !/^shortNum\(/.test(n));
     expect(bare.sort(), 'числа без сокращения').toEqual(['energy', 'morale', 'order']);
     expect(nums.filter((n) => /^shortNum\(/.test(n)).sort()).toEqual(['shortNum(armySize(s))', 'shortNum(housing)', 'shortNum(pop)', 'shortNum(s.gold)']);
+  });
+
+  it('сокращение: до тысячи — целиком, дальше — одна дробь запятой, и «10,0к» не бывает', () => {
+    const cases: [number, string][] = [
+      [999, '999'],
+      [1000, '1,0к'],
+      [4321, '4,3к'],
+      [9949, '9,9к'],
+      [9950, '10к'],
+      [9999, '10к'],
+      [12_345, '12к'],
+    ];
+    for (const [n, want] of cases) expect(shortNum(n), String(n)).toBe(want);
   });
 });
 

@@ -50,14 +50,15 @@ export function Hud() {
 
   return (
     <div className="nx-hud">
-      {/* Порядок — седьмая ячейка: строка теснее, чтобы с энергией влезть в 375 px (цель касания — та же, 44). */}
+      {/* Порядок — седьмая ячейка: строка теснее, чтобы с энергией влезть в 375 px (цель касания — та же, 44), а жильё
+          уходит из ячейки жителей в её подсказку (`next.css`, `.crowded .nx-pop small`). */}
       <div className={`nx-top${order !== null ? ' crowded' : ''}`}>
         <CoatButton quiet />
         <button className="nx-stat" onClick={tip(() => goldTip(s, go))} aria-label="Золото">
           <Icon name="res-gold" glyph="💰" />
           <b>{shortNum(s.gold)}</b>
         </button>
-        <button className={`nx-stat${pop > housing ? ' warn' : ''}`} onClick={tip(() => popTip(s, go))} aria-label="Жители">
+        <button className={`nx-stat nx-pop${pop > housing ? ' warn' : ''}`} onClick={tip(() => popTip(s, go))} aria-label="Жители">
           <Icon name="hud-pop" glyph="👥" />
           <b>{shortNum(pop)}</b>
           <small>/{shortNum(housing)}</small>
