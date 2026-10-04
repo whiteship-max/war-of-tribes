@@ -15,11 +15,10 @@
 //
 // Меню едет своим куском (`lazy` в `App`): игрок, ни разу его не открывший, не
 // платит за него ни байта на старте.
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { useGame } from '@/game/store';
 import { buildingOfType, woundedStacks } from '@/game/derived';
 import { troopTotal } from '@/game/battle/kinds';
-import { profileCity, profileName } from '@/profile/identity';
 import { Manage } from '../parts/TownHall';
 import { TownBuild } from '../parts/TownBuild';
 import { RealmFaith } from '../parts/Temple';
@@ -28,21 +27,17 @@ import { Bonded } from '../panels/PeoplePanel';
 import { OrderPanel } from '../panels/OrderPanel';
 import { ArmyPanel } from '../panels/ArmyPanel';
 import { ProfilePanel } from '../panels/ProfilePanel';
-import { CoatArt } from './Coat';
 import { Mail } from './Mail';
 import { RulerTab } from './Ruler';
 import { TechTab } from './Tech';
 import { useRealm, type RealmView } from './open';
-import { mailKeys, unreadCount, useSeen } from './unread';
-import { useWorld } from '@/world/store';
 import { REALM_TABS, type RealmTab } from './tabs';
 import { QuestsPanel } from '../panels/QuestsPanel';
-import { useUiNew } from '../uimode';
 import { RealmNew } from './RealmNew';
 
-/** Меню державы прежнего или нового вида (`ui/uimode.ts`): разделы у них одни и те же (`Section`). */
+/** Меню державы (`RealmNew`); прежний вид удалён вместе с прежним интерфейсом (docs/ui_audit.md, 16). */
 export function RealmMenu() {
-  return useUiNew() ? <RealmNew /> : <RealmOld />;
+  return <RealmNew />;
 }
 
 /**
@@ -63,80 +58,7 @@ export function useRealmYield(): void {
   }, [sheet, mapOpen, hide]);
 }
 
-function RealmOld() {
-  const view = useRealm((r) => r.view);
-  const go = useRealm((r) => r.go);
-  const hide = useRealm((r) => r.hide);
-  const s = useGame((g) => g.s);
-  const letters = useWorld((w) => w.letters);
-  const seen = useSeen((u) => u.seen);
-  // Тот же счётчик, что на гербе: сколько ждущего ответа ещё не открывали.
-  const unread = unreadCount(
-    mailKeys(
-      s.inbox,
-      letters.map((l) => l.id),
-    ),
-    seen,
-  );
-  const [top, setTop] = useState(0);
-  const body = useRef<HTMLDivElement>(null);
-
-  // Меню стоит под полоской ресурсов, а не поверх неё: полоску не закрывает ни
-  // одно окно (docs/handbook/ui.md, «Диегетический интерфейс»). Высота шапки у разных
-  // экранов разная, поэтому край берётся у самой полоски, а не числом.
-  useEffect(() => {
-    const bar = document.querySelector('.res-bar');
-    setTop(bar ? Math.ceil(bar.getBoundingClientRect().bottom) : 0);
-  }, []);
-
-  useRealmYield();
-
-  // Новый раздел читается с начала, а не с того места, где листали прежний, а
-  // его вкладка видна в ленте: девять вкладок на 375 px не помещаются.
-  useEffect(() => {
-    body.current?.scrollTo(0, 0);
-    document.querySelector('.realm-tabs .active')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-  }, [view]);
-
-  return (
-    <div className="realm" style={{ top }} role="dialog" aria-label="Держава">
-      <div className="realm-head">
-        <CoatArt size={40} />
-        <div className="realm-title">
-          <b className="one-line">{profileCity(s.profile)}</b>
-          <i className="one-line">{profileName(s.profile)}</i>
-        </div>
-        <button
-          className={`realm-gear${view === 'settings' ? ' active' : ''}`}
-          onClick={() => go('settings')}
-          aria-label="Профиль и настройки"
-          title="Профиль и настройки"
-        >
-          ⚙️
-        </button>
-        <button className="realm-close" onClick={hide} aria-label="Закрыть">
-          ✕
-        </button>
-      </div>
-      <div className="tabs realm-tabs">
-        {REALM_TABS.map((t) => (
-          <button
-            key={t.id}
-            className={`${view === t.id ? 'active' : ''}${t.built ? '' : ' closed'}`}
-            onClick={() => go(t.id)}
-          >
-            {t.icon} {t.name}
-            {t.id === 'decisions' && unread > 0 && <span className="tab-count">{unread}</span>}
-          </button>
-        ))}
-      </div>
-      <div className="realm-body" ref={body}>
-        <Section view={view} />
-      </div>
-    </div>
-  );
-}
-
+/** Раздел меню по виду — общий для всех входов (`RealmNew`). */
 export function Section({ view }: { view: RealmView }) {
   if (view === 'settings') return <ProfilePanel />;
   if (view === 'quests') return <QuestsPanel />;

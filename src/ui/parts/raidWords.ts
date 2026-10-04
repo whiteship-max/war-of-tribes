@@ -21,19 +21,19 @@ export interface RaidWords {
 
 /** Слова об окне по ответу `raidWindow`. Чистая функция: её сверяет тест на границе окна. */
 export function raidWords(win: RaidWindow): RaidWords {
-  if (win.muster === null) return { win, short: null, long: 'Чужой отряд в пути — идёт не на деревню.' };
+  if (win.muster === null) return { win, short: null, long: 'Чужой отряд идёт мимо.' };
   if (win.late) {
     return {
       win,
       short: 'полный сбор не успеет',
-      long: 'Полный сбор дружины к их приходу уже не успеет: у частокола их встретит тот, кто стоит у ворот.',
+      long: 'Полный сбор не успеет. У частокола их встретит гарнизон.',
     };
   }
   return {
     win,
     // Срок не отрывается от слов переносом: узкая строка тревоги рвала «ещё / 0:58».
     short: `сбор ещё\u00a0${realLeft(win.muster)}`,
-    long: `Полный сбор дружины успевает ещё ${realLeft(win.muster)} — начатый позже, он не кончится к их приходу.`,
+    long: `На полный сбор осталось ${realLeft(win.muster)}.`,
   };
 }
 

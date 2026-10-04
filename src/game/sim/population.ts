@@ -123,7 +123,7 @@ export function killPop(s: GameState, n: number, reason: string): number {
   const gone = losePop(s, Math.min(n, Math.max(0, s.pop - 1)));
   if (gone > 0) {
     s.stats.died += gone;
-    log(s, `Племя потеряло ${gone} чел.: ${reason}.`, 'bad');
+    log(s, `Жителей стало меньше на ${gone}: ${reason}.`, 'bad');
   }
   return gone;
 }
@@ -177,11 +177,11 @@ export function popGrowth(s: GameState, mods?: SeasonModifiers): GrowthInfo {
   if (morale < 0) {
     // Уходящих вера не удерживает: она прибавляет к росту, а не гасит убыль, —
     // иначе высокий храм отменял бы цену низкой морали.
-    return { perDay: base * morale, morale, housing, food, faith, blocked: 'Мораль слишком низкая — люди уходят.' };
+    return { perDay: base * morale, morale, housing, food, faith, blocked: 'Мораль слишком низкая, жители уходят.' };
   }
   const perDay = base * morale * housing * food * ration * faith;
   let blocked: string | null = null;
-  if (ration <= 0) blocked = 'На скудном пайке племя не растёт.';
+  if (ration <= 0) blocked = 'На скудном пайке город не растёт.';
   else if (housing <= 0) blocked = 'Нет свободного жилья.';
   else if (food <= 0.01) blocked = 'Нет запаса еды.';
   else if (morale <= 0.01) blocked = 'Мораль слишком низкая.';
@@ -210,6 +210,6 @@ export function growthTick(s: GameState, dt: number, mods?: SeasonModifiers): vo
 export function logPopDay(s: GameState): void {
   const delta = s.pop - s.popDay;
   s.popDay = s.pop;
-  if (delta > 0) log(s, `В племя пришло ${delta} чел. Всего ${s.pop}.`, 'good');
-  else if (delta < 0) log(s, `Племя убыло на ${-delta} чел. Осталось ${s.pop}.`, 'bad');
+  if (delta > 0) log(s, `Пришло жителей: ${delta}. Всего ${s.pop}.`, 'good');
+  else if (delta < 0) log(s, `Жителей убыло: ${-delta}. Осталось ${s.pop}.`, 'bad');
 }

@@ -1,7 +1,7 @@
 // Стенд карты нового вида: `?showcase=map-tw` (docs/map_tw.md, раздел 10). Не игра: кусок настоящей
 // Европы из атласа кладётся в кэш мира, а кадр печётся **один раз** — без цепочки кадров, без пальца.
-// Тайлы печёт та же выпечка, что у игры (`bake.ts`; `old=1` — прежняя, `ground.ts`), поэтому стенд
-// мерит её цену честно: то же место, тот же браузер, до и после.
+// Тайлы печёт та же выпечка, что у игры (`bake.ts`), поэтому стенд мерит её цену честно: то же место, тот же
+// браузер. Прежняя карта («до», `&old=1`) удалена вместе с переключателем (docs/ui_audit.md, 16).
 //
 //   ?showcase=map-tw                      Лигурийский берег: Генуя, Приморские Альпы, Апеннины
 //   &at=684,1213  &scale=44               середина кадра (клетка мира) и масштаб, px на клетку
@@ -12,7 +12,6 @@
 //                                         &boxes=1 — рамки холста (пунктир) и тела (цель пальца)
 //   &quality=low|medium|high              уровень (по умолчанию — высокий: «в полном качестве»)
 //   &season=winter  &night=1              сезон выпечки и ночь поверх кадра
-//   &old=1                                прежняя карта на том же участке — «до»
 //   &clean=1                              без подписи стенда
 //   &bench=1                              замер этапа 2: тайл среднего масштаба, лист старой карты, миниатюры
 //
@@ -25,10 +24,8 @@ import { WORLD_ORIGIN, WORLD_SIZE } from '@/world/data/tuning';
 import type { RegionChunk, SettlementView } from '@/world/types';
 import { qualityOf } from '@/render/quality';
 import { pixelRatio } from '@/render/loop';
-import { LABEL_FROM, PALETTE, SCALE_START } from '../const';
+import { LABEL_FROM, PALETTE, SCALE_START, TILE_BAKE, TILE_BLEED, TILE_CELLS } from '../const';
 import { type Camera, type Viewport, detailAlpha, tileQuad, tileRequest, toScreen, viewRect } from '../grid';
-import { TILE_SRC, prepareTiles, tileAt, tileBakes } from '../ground';
-import { chunkBitmap } from '../tiles';
 import { grainTile, makeCanvas, vignette } from '../paint';
 import { MID_CELLS, OVERVIEW_BLEED, OVERVIEW_PX, bakeChunk, bakeMid, bakeStats, bakeTile, chunkStats, setTwLook } from './bake';
 import type { Canvas } from './canvas';
@@ -60,8 +57,6 @@ import {
 import { placeLabel, regionLabel } from './labels';
 import { contour, soften } from './border';
 import { PARCHMENT_PX, SHEET_PX, bakeParchment } from './parchment';
-import { drawSettlement as oldSettlement, type Look as OldLook } from '../village';
-import { drawParty as oldParty, lookOf as oldPartyLook } from '../party';
 import { RELATION_META } from '@/world/data/meta';
 import { SIDE_COLOR } from '@/side';
 import type { Fate, Stage } from '@/world/types';
@@ -212,37 +207,24 @@ function setupCanvas(root: HTMLElement): { canvas: HTMLCanvasElement; ctx: Canva
   return { canvas, ctx, vp, dpr };
 }
 
+/** Кусок холста тайла без вылета — он и ложится на экран (как у игры, `tw/layers.ts`). */
+const TILE_SRC = { x: TILE_BLEED * TILE_BAKE, y: TILE_BLEED * TILE_BAKE, size: TILE_CELLS * TILE_BAKE };
+
 /** Тайлы экрана: печёт все сразу (стенд), а не по одному за кадр, и меряет каждую выпечку. */
-function drawTiles(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport, old: boolean, stats: Stats): void {
+function drawTiles(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport, stats: Stats): void {
   const req = tileRequest(viewRect(cam, vp));
   const alpha = detailAlpha(cam.scale);
   if (alpha <= 0) return;
   const shown = req.shown;
   const tiles = new Map<string, CanvasImageSource>();
-  if (old) {
-    // Прежняя выпечка — своей дверью: кадр за кадром, по тайлу, пока экран не испечётся целиком.
-    for (let frame = 1; frame < 400; frame++) {
-      const before = tileBakes();
-      const t0 = performance.now();
-      prepareTiles(SEED, shown, frame, shown.length + 8);
-      const ms = performance.now() - t0;
-      if (tileBakes() > before) stats.bakeMs.push(ms);
-      if (shown.every((t) => tileAt(t.tx, t.ty))) break;
-    }
-    for (const t of shown) {
-      const c = tileAt(t.tx, t.ty);
-      if (c) tiles.set(`${t.tx}:${t.ty}`, c);
-    }
-  } else {
-    for (const t of shown) {
-      const t0 = performance.now();
-      const c = bakeTile(SEED, t.tx, t.ty, () => makeCanvas(448, 448));
-      const ms = performance.now() - t0;
-      if (!c) continue;
-      stats.bakeMs.push(ms);
-      for (const [k, v] of Object.entries(bakeStats)) (stats.parts[k] ??= []).push(v);
-      tiles.set(`${t.tx}:${t.ty}`, c);
-    }
+  for (const t of shown) {
+    const t0 = performance.now();
+    const c = bakeTile(SEED, t.tx, t.ty, () => makeCanvas(448, 448));
+    const ms = performance.now() - t0;
+    if (!c) continue;
+    stats.bakeMs.push(ms);
+    for (const [k, v] of Object.entries(bakeStats)) (stats.parts[k] ??= []).push(v);
+    tiles.set(`${t.tx}:${t.ty}`, c);
   }
   stats.tiles = tiles.size;
   ctx.save();
@@ -257,30 +239,23 @@ function drawTiles(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport, old
   ctx.restore();
 }
 
-/** Обзор: кусками карты, как у игры, — прежний растр или новый вид. */
-function drawOverview(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport, old: boolean, stats: Stats): void {
+/** Обзор: кусками карты, как у игры. */
+function drawOverview(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport, stats: Stats): void {
   const rect = viewRect(cam, vp);
   for (const { key, cx, cy } of chunkKeysIn(rect)) {
     void key;
     const r = chunkRect(cx, cy);
-    let bmp: Canvas | null = null;
-    if (!old) {
-      const t0 = performance.now();
-      const chunk = regionChunkCached(cx, cy);
-      bmp = chunk ? bakeChunk(SEED, chunk) : null;
-      if (bmp) {
-        stats.chunks++;
-        stats.chunkMs.push(performance.now() - t0);
-        for (const [k, v] of Object.entries(chunkStats)) (stats.parts[`chunk.${k}`] ??= []).push(v);
-      }
-    }
-    const fallback = bmp ?? chunkBitmapOf(cx, cy);
-    if (!fallback) continue;
+    const t0 = performance.now();
+    const chunk = regionChunkCached(cx, cy);
+    const bmp: Canvas | null = chunk ? bakeChunk(SEED, chunk) : null;
+    if (!bmp) continue;
+    stats.chunks++;
+    stats.chunkMs.push(performance.now() - t0);
+    for (const [k, v] of Object.entries(chunkStats)) (stats.parts[`chunk.${k}`] ??= []).push(v);
     const [sx, sy] = toScreen(cam, vp, r.x, r.y);
-    // Кусок нового вида — картина без вылета по краю, прежний растр — клетка в пиксель целиком.
-    const src: [number, number, number, number] = bmp ? [OVERVIEW_BLEED, OVERVIEW_BLEED, r.w * OVERVIEW_PX, r.h * OVERVIEW_PX] : [0, 0, r.w, r.h];
-    ctx.imageSmoothingEnabled = src[2] > r.w;
-    ctx.drawImage(fallback, src[0], src[1], src[2], src[3], Math.round(sx), Math.round(sy), Math.ceil(r.w * cam.scale), Math.ceil(r.h * cam.scale));
+    // Кусок — картина без вылета по краю.
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(bmp, OVERVIEW_BLEED, OVERVIEW_BLEED, r.w * OVERVIEW_PX, r.h * OVERVIEW_PX, Math.round(sx), Math.round(sy), Math.ceil(r.w * cam.scale), Math.ceil(r.h * cam.scale));
   }
   ctx.imageSmoothingEnabled = true;
 }
@@ -288,10 +263,6 @@ function drawOverview(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport, 
 const cachedChunks = new Map<string, ReturnType<typeof regionChunk> & { key: string; fetchedAt: number }>();
 function regionChunkCached(cx: number, cy: number): (ReturnType<typeof regionChunk> & { key: string; fetchedAt: number }) | null {
   return cachedChunks.get(`${cx}:${cy}`) ?? null;
-}
-function chunkBitmapOf(cx: number, cy: number): HTMLCanvasElement | null {
-  const c = regionChunkCached(cx, cy);
-  return c ? chunkBitmap(c) : null;
 }
 
 
@@ -387,55 +358,27 @@ function drawRoute(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport): vo
   ctx.stroke();
 }
 
-function drawPlaces(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport, dpr: number, old: boolean): void {
+function drawPlaces(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport, dpr: number): void {
   const px = cam.scale;
   const b = miniBucket(px);
   const [cx, cy] = toScreen(cam, vp, SCENE.home.x + 0.5, SCENE.home.y + 0.5);
   const [lx, ly] = toScreen(cam, vp, SCENE.lair.x + 0.5, SCENE.lair.y + 0.5);
-  if (old) {
-    const city: OldLook = { stage: 'town', relation: 'self', mine: true, variant: 1, castle: true, ruin: false, sacked: false } as OldLook;
-    const den: OldLook = { stage: 'camp', relation: 'barbarian', mine: false, variant: 2, castle: false, ruin: false, sacked: false } as OldLook;
-    oldSettlement(ctx, den, px, dpr, lx, ly);
-    oldSettlement(ctx, city, px, dpr, cx, cy);
-    return;
-  }
   const den: PlaceLook = { kind: 'lair', stage: 'village', color: RELATION_META.barbarian.color, own: false, variant: 1, sacked: false };
   const home: PlaceLook = { kind: 'city', stage: 'town', color: OWN, own: true, variant: 1, sacked: false };
   drawMini(ctx, placeSprite(den, px, dpr), px, b, lx, ly);
   drawMini(ctx, placeSprite(home, px, dpr), px, b, cx, cy);
 }
 
-function drawArmy(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport, dpr: number, old: boolean): void {
+function drawArmy(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport, dpr: number): void {
   const m = marchPoint();
   const [ax, ay] = toScreen(cam, vp, m.x, m.y);
   const west = SCENE.lair.x < SCENE.home.x;
-  if (old) {
-    oldParty(ctx, oldPartyLook({ own: true, units: { spearman: 24, archer: 10 }, standing: false, seen: true, west }), cam.scale, dpr, ax, ay);
-    return;
-  }
   drawMini(ctx, hostSprite({ color: OWN, size: 2, west, camp: false }, cam.scale, dpr), cam.scale, miniBucket(cam.scale), ax, ay);
 }
 
-function drawNames(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport, old: boolean): void {
+function drawNames(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport): void {
   const [cx, cy] = toScreen(cam, vp, SCENE.home.x + 0.5, SCENE.home.y + 0.5);
   const [lx, ly] = toScreen(cam, vp, SCENE.lair.x + 0.5, SCENE.lair.y + 0.5);
-  if (old) {
-    ctx.font = '11px system-ui, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'top';
-    for (const [name, x, y, mine] of [
-      [SCENE.home.name, cx, cy, true],
-      [SCENE.lair.name, lx, ly, false],
-    ] as const) {
-      const top = y + Math.max(6, cam.scale * 1.2);
-      ctx.lineWidth = 3;
-      ctx.strokeStyle = 'rgba(10, 8, 6, 0.85)';
-      ctx.strokeText(name, x, top);
-      ctx.fillStyle = mine ? RELATION_META.self.color : '#e7dcc9';
-      ctx.fillText(name, x, top);
-    }
-    return;
-  }
   // Имена поселений — с того же масштаба, что у игры (`LABEL_FROM`): издали они сливаются в кашу.
   if (cam.scale >= LABEL_FROM) {
     placeLabel(ctx, SCENE.home.name, cx, cy + cam.scale * 1.05, true, SIDE_COLOR.ours);
@@ -824,7 +767,6 @@ export function mountMapTw(root: HTMLElement, p: URLSearchParams): void {
     cy: (at.length === 2 && at.every(Number.isFinite) ? at[1] : view.at[1]) + 0.5,
     scale: Number(p.get('scale') ?? view.scale),
   };
-  const old = p.get('old') === '1';
   setTwLook({ quality: qualityOf(p.get('quality')) ?? 'high', season: p.get('season') === 'winter' ? 1 : 0 });
   // Стенд кладёт куски Европы в кэш мира сам и печёт прямо по нему (docs/map_tw.md, раздел 13.4).
   setLand(cacheLand);
@@ -850,16 +792,15 @@ export function mountMapTw(root: HTMLElement, p: URLSearchParams): void {
   ctx.fillStyle = PALETTE.void;
   ctx.fillRect(0, 0, vp.w, vp.h);
   // Прогрев: первая выпечка идёт по холодному коду, и её цена — цена JIT, а не выпечки. Меряется второй
-  // проход по тем же тайлам и кускам (у прежней выпечки — свой кэш, поэтому её прогрев — соседний экран).
+  // проход по тем же тайлам и кускам.
   const warm: Stats = { tiles: 0, bakeMs: [], parts: {}, chunks: 0, chunkMs: [] };
-  const aside: Camera = { ...cam, cx: cam.cx + vp.w / cam.scale + 8 };
-  drawOverview(ctx, old ? aside : cam, vp, old, warm);
-  drawTiles(ctx, old ? aside : cam, vp, old, warm);
+  drawOverview(ctx, cam, vp, warm);
+  drawTiles(ctx, cam, vp, warm);
   ctx.fillStyle = PALETTE.void;
   ctx.fillRect(0, 0, vp.w, vp.h);
   const stats: Stats = { tiles: 0, bakeMs: [], parts: {}, chunks: 0, chunkMs: [] };
-  drawOverview(ctx, cam, vp, old, stats);
-  drawTiles(ctx, cam, vp, old, stats);
+  drawOverview(ctx, cam, vp, stats);
+  drawTiles(ctx, cam, vp, stats);
   const gallery = (p.get('view') ?? '').startsWith('objects');
   if (gallery) {
     // Галерея: только земля и миниатюры — ни владения, ни похода, ни бумаги поверх.
@@ -869,26 +810,25 @@ export function mountMapTw(root: HTMLElement, p: URLSearchParams): void {
     document.body.dataset.ready = '1';
     return;
   }
-  if (!old) drawRealm(ctx, cam, vp);
-  drawPlaces(ctx, cam, vp, dpr, old);
-  if (!old && (p.get('edge') === '1' || p.get('view') === 'edge')) drawEdge(ctx, cam, vp);
+  drawRealm(ctx, cam, vp);
+  drawPlaces(ctx, cam, vp, dpr);
+  if (p.get('edge') === '1' || p.get('view') === 'edge') drawEdge(ctx, cam, vp);
   drawPaper(ctx, vp);
   if (p.get('night') === '1') drawNight(ctx, cam, vp);
   drawRoute(ctx, cam, vp);
-  drawArmy(ctx, cam, vp, dpr, old);
-  drawNames(ctx, cam, vp, old);
+  drawArmy(ctx, cam, vp, dpr);
+  drawNames(ctx, cam, vp);
 
   // Замер этапа 2 (`bench=1`, docs/map_tw.md, раздел 8): тайл среднего масштаба, лист старой карты и
   // спрайты миниатюр — то, что печётся в игре по одному за кадр. Два прохода, меряется второй (первый —
   // прогрев JIT), медиана по шести тайлам, трём листам и трём выпечкам каждого вида миниатюры.
-  if (!old && p.get('bench') === '1') bench(cam, dpr, stats);
+  if (p.get('bench') === '1') bench(cam, dpr, stats);
 
   const parts: Record<string, number> = {};
   for (const [k, v] of Object.entries(stats.parts)) parts[k] = Math.round(median(v) * 100) / 100;
   const out = {
     view: p.get('view') ?? 'start',
-    old,
-    quality: old ? 'old' : (qualityOf(p.get('quality')) ?? 'high'),
+    quality: qualityOf(p.get('quality')) ?? 'high',
     cam,
     tiles: stats.tiles,
     bakeMedianMs: Math.round(median(stats.bakeMs) * 100) / 100,

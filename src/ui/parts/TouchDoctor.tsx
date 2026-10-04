@@ -62,7 +62,7 @@ export function TouchDoctor() {
 
       <div className="doctor-log">
         {touches.length === 0 && (
-          <div className="desc">Пусто. Потрогай деревню и карту, потом вернись сюда.</div>
+          <div className="desc">Пусто. Потрогай город и карту, потом вернись сюда.</div>
         )}
         {touches.map((t, i) => (
           <div key={i} className="doctor-line">
@@ -96,7 +96,7 @@ export function TouchDoctor() {
   async function copy(): Promise<void> {
     const ok = await copyText(gestLog.report({ Telegram: tgAbout() }));
     setCopied(ok);
-    showToast(ok ? 'Журнал скопирован.' : 'Скопировать не вышло — перепиши с экрана.');
+    showToast(ok ? 'Журнал скопирован.' : 'Не вышло. Перепиши с экрана.');
   }
 }
 

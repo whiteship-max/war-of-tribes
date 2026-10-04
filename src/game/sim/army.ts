@@ -92,13 +92,13 @@ export function recruitCheck(s: GameState, troop: TroopId, count: number): Recru
   let blocked: string | null = troopBlock(s, troop);
   if (blocked === null) {
     if (def.mounted && !buildingOfType(s, 'stable')) blocked = 'Конницу нанимают в конюшне.';
-    else if (stall < n) blocked = stall === 0 ? 'Все стойла заняты — нужен уровень конюшни.' : `Свободных стойл только ${stall}.`;
-    else if (free < n) blocked = free === 0 ? 'Нет свободных жителей.' : `Свободных жителей только ${free}.`;
+    else if (stall < n) blocked = stall === 0 ? 'Все стойла заняты. Улучши конюшню.' : `Свободных стойл только ${stall}.`;
+    else if (free < n) blocked = free === 0 ? 'Нет свободных рук.' : `Свободных рук только ${free}.`;
     else if (missing.length > 0) {
       blocked = `Не хватает: ${missing
         .map((m) => `${EQUIPMENT_BY_ID[m.id].name.toLowerCase()} ${m.need - m.have}`)
         .join(', ')}.`;
-    } else if (!canAfford(s, cost)) blocked = 'Не хватает ресурсов.';
+    } else if (!canAfford(s, cost)) blocked = 'Не хватает запасов.';
   }
 
   return {
@@ -129,14 +129,14 @@ export function startRecruit(s: GameState, troop: TroopId, count = 1): string | 
 
   const order: RecruitOrder = { id: s.nextId++, troop, count: people, done: 0, work: 0, people };
   s.recruits.push(order);
-  log(s, `${hiredAt(troop) === 'stable' ? 'Конюшня' : 'Казармы'}: набор — ${check.def.name.toLowerCase()}, ${people}.`);
+  log(s, `${hiredAt(troop) === 'stable' ? 'Конюшня' : 'Казармы'}: найм, ${check.def.name.toLowerCase()}, ${people}.`);
   return null;
 }
 
 /** Отменяет заказ. Возвращает добро и тех же людей, что ушли на учения. */
 export function cancelRecruit(s: GameState, orderId: number): string | null {
   const idx = s.recruits.findIndex((o) => o.id === orderId);
-  if (idx < 0) return 'Такого набора нет.';
+  if (idx < 0) return 'Такого найма нет.';
   const order = s.recruits[idx];
   const left = Math.max(0, order.count - order.done);
   const def = TROOP_BY_ID[order.troop];
@@ -148,7 +148,7 @@ export function cancelRecruit(s: GameState, orderId: number): string | null {
   // Недоучившиеся возвращаются к костру свободными руками.
   addPop(s, Math.min(order.people, left));
   s.recruits.splice(idx, 1);
-  log(s, `${hiredAt(order.troop) === 'stable' ? 'Конюшня' : 'Казармы'}: набор отменён — ${def.name.toLowerCase()}.`);
+  log(s, `${hiredAt(order.troop) === 'stable' ? 'Конюшня' : 'Казармы'}: найм отменён, ${def.name.toLowerCase()}.`);
   return null;
 }
 

@@ -2,12 +2,10 @@
 //
 //   npm run map-tw:shots                                   — ракурс «start», высокий уровень, лето
 //   SHOTS=start,coast,mountains QUALITY=high,medium TAG=r2 npm run map-tw:shots
-//   OLD=1 SHOTS=start npm run map-tw:shots                 — тот же участок прежней картой («до»)
 //   EXTRA="season=winter&night=1" npm run map-tw:shots     — свои параметры поверх ракурса
 //   SHOTS=objects EXTRA="scale=22" npm run map-tw:shots    — галерея миниатюр (места, войска, работы, значки);
 //                                                            экран подгоняется под галерею (`dataset.need`)
-//   GAME=1 SHOTS=44,24,7 npm run map-tw:shots              — сама игра с `?map=tw` (и `OLD=1` — ещё и с `?map=old`;
-//                                                            `FOG=1` — с туманом, как у игрока; `MARCHES=1` —
+//   GAME=1 SHOTS=44,24,7 npm run map-tw:shots              — сама игра (`FOG=1` — с туманом, как у игрока; `MARCHES=1` —
 //                                                            с отрядами и лагерями у дома):
 //                                                            закреплённый мир с домом в Генуе, кадр карты
 //                                                            на масштабах из SHOTS
@@ -34,7 +32,6 @@ const SHOTS = list(process.env.SHOTS, 'start');
 const QUALITIES = list(process.env.QUALITY, 'high');
 const TAG = process.env.TAG ?? 'probe';
 const EXTRA = process.env.EXTRA ?? '';
-const OLD = process.env.OLD === '1';
 const GAME = process.env.GAME === '1';
 /**
  * `MARCHES=1` — снимку игры отряды у дома: чужой набег на дом (бейдж «под ударом»), своё войско в походе,
@@ -68,9 +65,8 @@ const MARCHES_JS = `(() => {
 /** Дом закреплённого мира для снимков игры — Генуя, тот же берег, что у стенда. */
 const GAME_HOME = cellAt(8.95, 44.47);
 
-function pageUrl(view: string, quality: string, old: boolean): string {
+function pageUrl(view: string, quality: string): string {
   const p = new URLSearchParams({ showcase: 'map-tw', view, quality, clean: '1', fpscap: String(REPORT_FPS) });
-  if (old) p.set('old', '1');
   for (const [k, v] of new URLSearchParams(EXTRA)) p.set(k, v);
   return `http://127.0.0.1:${PORT}/?${p.toString()}`;
 }
@@ -97,13 +93,13 @@ async function ready(tab: Tab): Promise<boolean> {
 /** Галерея миниатюр не помещается в телефон: экран — по её мере, в пределах разумного. */
 const GALLERY_MAX = { width: 1400, height: 4200 };
 
-async function shot(view: string, quality: string, old: boolean): Promise<void> {
+async function shot(view: string, quality: string): Promise<void> {
   const tab = await Tab.open(DEBUG_PORT, 'about:blank');
   try {
     const gallery = view.startsWith('objects');
     let screen = gallery ? { ...SCREEN, width: 640, height: 900 } : SCREEN;
     await tab.send('Emulation.setDeviceMetricsOverride', screen);
-    await tab.send('Page.navigate', { url: pageUrl(view, quality, old) });
+    await tab.send('Page.navigate', { url: pageUrl(view, quality) });
     let ok = await ready(tab);
     // Галерея пишет, сколько места ей нужно; экран подгоняется и страница печётся заново (раскладка
     // зависит от ширины — второй круг выравнивает высоту под новую ширину).
@@ -117,10 +113,10 @@ async function shot(view: string, quality: string, old: boolean): Promise<void> 
       // Старая готовность не должна сойти за новую: флаг снимается до перехода.
       await tab.eval<string>(`(() => { delete document.body.dataset.ready; return JSON.stringify('ok'); })()`).catch(() => '');
       await tab.send('Emulation.setDeviceMetricsOverride', screen);
-      await tab.send('Page.navigate', { url: pageUrl(view, quality, old) });
+      await tab.send('Page.navigate', { url: pageUrl(view, quality) });
       ok = await ready(tab);
     }
-    const label = `${old ? 'old' : quality} ${view}`;
+    const label = `${quality} ${view}`;
     if (!ok) {
       console.log(`  ${label}: стенд не встал за 60 с`);
       return;
@@ -129,7 +125,7 @@ async function shot(view: string, quality: string, old: boolean): Promise<void> 
     const s = await tab.eval<Shown>(`document.body.dataset.showcase`);
     const png = await tab.send<{ data: string }>('Page.captureScreenshot', { format: 'png' });
     const scale = new URLSearchParams(EXTRA).get('scale');
-    const name = `${TAG}-${old ? 'old' : quality}-${view}${gallery && scale ? `-${scale}` : ''}.png`;
+    const name = `${TAG}-${quality}-${view}${gallery && scale ? `-${scale}` : ''}.png`;
     await writeFile(join(OUT, name), Buffer.from(png.data, 'base64'));
     if (gallery) {
       console.log(`  ${label.padEnd(16)} экран ${screen.width}×${screen.height} → .map-shots/${name}`);
@@ -149,15 +145,13 @@ async function shot(view: string, quality: string, old: boolean): Promise<void> 
 }
 
 /**
- * Сама игра: закреплённый мир, карта открыта, камера над домом на масштабе из SHOTS. Вид — адресом, у обоих:
- * `?map=tw` и `?map=old` (по умолчанию игра с 03.10.2026 открывает новый, и «без адреса» значило бы новый).
- * Тайлы печёт игра сама, по одному за кадр, — снимок ждёт, пока испечётся экран.
+ * Сама игра: закреплённый мир, карта открыта, камера над домом на масштабе из SHOTS. Вид карты один (прежняя удалена,
+ * docs/ui_audit.md, 16). Регион печёт игра сама, вне кадра, — снимок ждёт, пока испечётся экран.
  */
-async function gameShot(look: 'tw' | 'old'): Promise<void> {
+async function gameShot(): Promise<void> {
   // Обзор мира открыт целиком — видно всю землю; `FOG=1` — как у игрока: туман и край старой карты.
   const q = new URLSearchParams({ probe: '1', fpscap: String(REPORT_FPS) });
   if (process.env.FOG !== '1') q.set('worldview', 'open');
-  q.set('map', look);
   if (QUALITIES[0]) q.set('quality', QUALITIES[0]);
   // Свои параметры и игре: `EXTRA="night=1"` — ночь без ожидания ночи.
   for (const [k, v] of new URLSearchParams(EXTRA)) q.set(k, v);
@@ -168,15 +162,15 @@ async function gameShot(look: 'tw' | 'old'): Promise<void> {
     await sleep(2500);
     await openPinnedMap(tab, { home: GAME_HOME, onLog: (m) => console.log(m) });
     if (MARCHES) await tab.eval<string>(MARCHES_JS);
-    if (look === 'tw') await prebakeReport(tab);
+    await prebakeReport(tab);
     for (const scale of SHOTS.map(Number).filter((v) => v > 0)) {
       await tab.eval<string>(`(() => { window.__mapCam(${GAME_HOME.x}, ${GAME_HOME.y - 2}, ${scale}); return JSON.stringify('ok'); })()`);
       await sleep(5000);
       const png = await tab.send<{ data: string }>('Page.captureScreenshot', { format: 'png' });
-      const name = `${TAG}-game-${look}-${scale}.png`;
+      const name = `${TAG}-game-${scale}.png`;
       await writeFile(join(OUT, name), Buffer.from(png.data, 'base64'));
       const bakes = await tab.eval<string>('JSON.stringify(window.__mapPerf ? window.__mapPerf() : null)').catch(() => 'null');
-      console.log(`  игра ${look} ×${scale}: → .map-shots/${name}${bakes && bakes !== 'null' ? ` · ${String(bakes).slice(0, 160)}` : ''}`);
+      console.log(`  игра ×${scale}: → .map-shots/${name}${bakes && bakes !== 'null' ? ` · ${String(bakes).slice(0, 160)}` : ''}`);
     }
   } finally {
     tab.close();
@@ -232,7 +226,7 @@ async function main(): Promise<void> {
   });
   await vite.listen();
   try {
-    console.log(`\n=== карта нового вида: снимки (${SHOTS.join(', ')}; ${QUALITIES.join(', ')}${OLD ? '; и прежняя' : ''}) ===\n`);
+    console.log(`\n=== карта нового вида: снимки (${SHOTS.join(', ')}; ${QUALITIES.join(', ')}) ===\n`);
     await gpuCoolDown('стендом карты');
     // В облачном контейнере браузер идёт от root: песочница Chrome там не поднимается.
     const root = process.getuid?.() === 0 ? ['--no-sandbox'] : [];
@@ -240,17 +234,16 @@ async function main(): Promise<void> {
     try {
       const began = Date.now();
       if (GAME) {
-        await gameShot('tw');
-        if (OLD && Date.now() - began < BROWSER_MAX_MS) await gameShot('old');
+        await gameShot();
         return;
       }
       outer: for (const view of SHOTS) {
-        for (const q of OLD ? [...QUALITIES, 'old'] : QUALITIES) {
+        for (const q of QUALITIES) {
           if (Date.now() - began > BROWSER_MAX_MS) {
             console.log(`\nСрок стенда (${BROWSER_MAX_MS / 1000} с) вышел — остальное отдельным заходом.`);
             break outer;
           }
-          await shot(view, q === 'old' ? 'high' : q, q === 'old');
+          await shot(view, q);
         }
       }
     } finally {

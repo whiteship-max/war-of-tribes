@@ -12,9 +12,9 @@ const NOW = 1_700_000_000_000;
 describe('мораль между боями словами', () => {
   it('строка — доля полной вниз и срок до полной модулем сроков; у свежей армии строки нет', () => {
     const rest = { share: 0.437, fullAt: NOW + 25 * 60_000 };
-    expect(restLine(rest, 'Дружина дралась', NOW)).toBe(`Дружина дралась недавно: мораль 43 % от полной, полная — через ${realLeft(25 * 60)}.`);
+    expect(restLine(rest, 'Отряд дрался', NOW)).toBe(`Отряд дрался недавно. Мораль 43 %, полная через ${realLeft(25 * 60)}.`);
     expect(restPercent({ share: 0.996, fullAt: NOW }), 'почти полная — не полная').toBe(99);
-    expect(restLine(undefined, 'Дружина дралась', NOW)).toBeNull();
+    expect(restLine(undefined, 'Отряд дрался', NOW)).toBeNull();
     expect(REST_WHY).toMatch(/уходит с поля/);
   });
 
@@ -26,7 +26,7 @@ describe('мораль между боями словами', () => {
       'src/ui/panels/SiegePanel.tsx',
       'src/ui/panels/SortiePanel.tsx',
       'src/ui/panels/CampPanel.tsx',
-      'src/ui/panels/MarchesPanel.tsx',
+      'src/ui/next/MarchesNew.tsx',
       'src/ui/panels/ArmyPanel.tsx',
     ];
     for (const file of PLACES) expect(strip(readFileSync(path.resolve(file), 'utf8')), file).toMatch(/restLine\(/);

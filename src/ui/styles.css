@@ -105,72 +105,6 @@ body {
  * дня и ряд кнопок — ниже него. Свой z-index на шапке запер бы все три в один
  * слой, и разнести их стало бы нечем.
  */
-.topbar {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  padding-top: calc(var(--safe-top) + 6px);
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  pointer-events: none;
-}
-
-.hud-bar {
-  pointer-events: auto;
-  position: relative;
-  z-index: 6;
-  margin: 0 calc(8px + var(--safe-right)) 0 calc(8px + var(--safe-left));
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  padding: 4px 9px;
-  font-size: 12px;
-  color: var(--muted);
-}
-
-.hud-bar .cell {
-  display: flex;
-  align-items: center;
-  gap: 3px;
-  min-width: 0;
-  white-space: nowrap;
-}
-
-.hud-bar .cell .ic {
-  font-size: 13px;
-}
-
-.hud-bar .cell b {
-  color: var(--text);
-  font-weight: 600;
-  font-size: 13px;
-}
-
-.hud-bar .cell i {
-  font-style: normal;
-  font-size: 11px;
-}
-
-.hud-bar .cell.warn b {
-  color: var(--bad);
-}
-
-.hud-bar .cell.army {
-  flex: 1 1 auto;
-  justify-content: flex-end;
-  overflow: hidden;
-}
-
-.hud-bar .sep {
-  flex: 0 0 1px;
-  height: 14px;
-  background: var(--line);
-}
 
 /*
  * Полоска ресурсов. Семь ячеек на 360 px — это по сорок пикселей на ячейку,
@@ -245,60 +179,6 @@ body {
 }
 
 /* ---------- Нижняя навигация ---------- */
-
-.bottomnav {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 12;
-  display: flex;
-  background: var(--panel);
-  border-top: 1px solid var(--line);
-  padding: 0 var(--safe-right) var(--safe-bottom) var(--safe-left);
-  /* Навигация лежит поверх шторки — текст списка не должен просвечивать. */
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-}
-
-.bottomnav button {
-  flex: 1;
-  min-height: var(--nav-h);
-  background: none;
-  border: none;
-  color: var(--muted);
-  font-size: 11px;
-  padding: 7px 0 6px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 2px;
-  position: relative;
-}
-
-.bottomnav button .ico {
-  font-size: 21px;
-  line-height: 1;
-}
-
-.bottomnav button.active {
-  color: var(--accent);
-}
-
-.bottomnav button .badge {
-  position: absolute;
-  top: 5px;
-  right: calc(50% - 22px);
-  background: var(--accent-2);
-  color: #fff;
-  font-size: 10px;
-  border-radius: 999px;
-  min-width: 16px;
-  height: 16px;
-  line-height: 16px;
-  padding: 0 4px;
-}
 
 /* ---------- Нижняя шторка ---------- */
 
@@ -877,64 +757,6 @@ body {
 
 /* ---------- Сезоны: чип в HUD, шторка, предупреждение о зиме ---------- */
 
-/* Чип сезона в HUD. Полоска прогресса — подчёркиванием, чтобы не занимать ширину. */
-.hud-bar .cell.season {
-  position: relative;
-  flex: 0 1 auto;
-  min-width: 0;
-  background: none;
-  border: 0;
-  padding: 2px 2px 5px;
-  margin: 0;
-  font: inherit;
-  color: inherit;
-  cursor: pointer;
-  border-radius: 6px;
-}
-
-.hud-bar .cell.season i {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--text);
-}
-
-.hud-bar .cell.season.active {
-  background: var(--panel-2);
-}
-
-.hud-bar .cell.season .season-bar {
-  position: absolute;
-  left: 2px;
-  right: 2px;
-  bottom: 1px;
-  height: 2px;
-  border-radius: 2px;
-  background: var(--line);
-  overflow: hidden;
-}
-
-.hud-bar .cell.season .season-bar > span {
-  display: block;
-  height: 100%;
-  border-radius: 2px;
-  background: var(--season-tint, var(--accent));
-  transition: width 0.3s linear;
-}
-
-.hud-bar .cell.season-spring {
-  --season-tint: #7cc47a;
-}
-.hud-bar .cell.season-summer {
-  --season-tint: #e8c23c;
-}
-.hud-bar .cell.season-autumn {
-  --season-tint: #d8813a;
-}
-.hud-bar .cell.season-winter {
-  --season-tint: #8fc4e8;
-}
-
 /* Список множителей в шторке. */
 .season-hint {
   margin: 0 0 10px;
@@ -1098,35 +920,11 @@ body {
 
 /* ---------- Вторая строка HUD: профиль слева, карта справа ---------- */
 
-.top-row {
-  position: relative;
-  z-index: 6;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin: 0 calc(8px + var(--safe-right)) 0 calc(8px + var(--safe-left));
-  pointer-events: none;
-}
-
 /*
  * Кнопка карты — один значок, без слова. Слово ушло, цель под палец осталась:
  * квадрат в `--tap` (44 px) — ровно наш предел, и меньше он стать не может, а
  * не «примерно столько же, сколько было с подписью».
  */
-.map-btn {
-  pointer-events: auto;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-width: var(--tap);
-  min-height: var(--tap);
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  color: var(--text);
-  font-size: 20px;
-}
 
 /* ---------- Тревоги поверх всего ---------- */
 
@@ -1574,11 +1372,6 @@ body {
   font-size: 12px;
 }
 
-/* Строка обучения занимает место тревог — сдвигаем их ниже, чтобы не наложились. */
-.alerts.with-tut {
-  top: calc(var(--safe-top) + 6px + var(--tap) + 100px);
-}
-
 /*
  * На карте шапка одна — координаты и возврат, — и тревога встаёт вплотную под
  * неё. В деревне над ней стоят полоска ресурсов и две строки HUD, отсюда и
@@ -1600,7 +1393,6 @@ body {
 .alerts.on-map {
   top: calc(var(--safe-top) + 6px + var(--tap) + 2px);
 }
-
 
 /* ---------- Почта державы («Решения») ---------- */
 
@@ -1715,10 +1507,6 @@ body {
   text-align: center;
 }
 
-.dispatch .dispatch-ico {
-  font-size: 38px;
-}
-
 .dispatch h3 {
   margin: 6px 0;
   font-size: 18px;
@@ -1729,10 +1517,6 @@ body {
   color: var(--muted);
   font-size: 14px;
   line-height: 1.4;
-}
-
-.dispatch .dispatch-done {
-  color: var(--text);
 }
 
 .dispatch .options {
@@ -1830,26 +1614,11 @@ body {
   border-color: var(--accent);
 }
 
-/* Сколько ждёт — на виду: срок здесь такая же часть выбора, как цена. */
-.dispatch .dispatch-left {
-  margin: 0 0 4px;
-  font-size: 13px;
-}
-
 /*
  * Что будет, если промолчать. Отдельной рамкой нарочно: это исход наравне с
  * ответом, и прятать его в мелкий текст значило бы оставить игрока с
  * последствием, о котором нигде не сказано.
  */
-.dispatch .dispatch-silence {
-  margin: 0 0 10px;
-  padding: 6px 8px;
-  border-left: 2px solid #b4483a;
-  background: var(--panel-2);
-  border-radius: 0 8px 8px 0;
-  font-size: 12px;
-  text-align: left;
-}
 
 /* ---------- Карта мира ---------- */
 
@@ -1870,95 +1639,6 @@ body {
   width: 100%;
   height: 100%;
   touch-action: none;
-}
-
-.wm-top {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  padding: calc(var(--safe-top) + 6px) calc(8px + var(--safe-right)) 0 calc(8px + var(--safe-left));
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  pointer-events: none;
-}
-
-.wm-top > * {
-  pointer-events: auto;
-}
-
-.wm-btn {
-  position: relative;
-  min-width: var(--tap);
-  min-height: var(--tap);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  padding: 0 10px;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  color: var(--text);
-  font-size: 15px;
-}
-
-.wm-btn.wide {
-  flex: 1 1 auto;
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.wm-btn.active {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-.wm-btn em,
-.map-btn em {
-  position: absolute;
-  top: 2px;
-  right: 2px;
-  min-width: 16px;
-  padding: 0 4px;
-  background: var(--accent);
-  color: var(--accent-text);
-  border-radius: 999px;
-  font-size: 10px;
-  font-style: normal;
-  font-weight: 700;
-  line-height: 16px;
-  text-align: center;
-}
-
-.map-btn {
-  position: relative;
-}
-
-.wm-coord {
-  flex: 1 1 auto;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  min-height: var(--tap);
-  padding: 0 8px;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 12px;
-}
-
-.wm-coord b {
-  font-size: 15px;
-  font-variant-numeric: tabular-nums;
-}
-
-.wm-coord i {
-  font-size: 10px;
-  font-style: normal;
-  color: var(--muted);
 }
 
 .wm-jump {
@@ -2069,15 +1749,6 @@ body {
   background: rgba(74, 92, 58, 0.5);
 }
 
-.wm-foot {
-  position: absolute;
-  left: calc(8px + var(--safe-left));
-  right: calc(8px + var(--safe-right));
-  bottom: calc(var(--safe-bottom) + 8px);
-  display: flex;
-  gap: 8px;
-}
-
 /* ---------- Нижний ярус карты ---------- */
 
 /*
@@ -2090,55 +1761,12 @@ body {
  * писем и панель осады сюда тоже не приходят: обе живут в деревне и на карте
  * не рисуются вовсе.
  */
-.wm-bottom {
-  position: absolute;
-  left: calc(8px + var(--safe-left));
-  right: calc(8px + var(--safe-right));
-  bottom: calc(var(--safe-bottom) + 8px + var(--tap) + 8px);
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 6px;
-  pointer-events: none;
-}
-
-.wm-bottom > * {
-  pointer-events: auto;
-}
 
 /* Подсказка стоит в той же колонке и растянута на всю её ширину: отступ от дна
    держит сама колонка. */
-.wm-hint {
-  align-self: stretch;
-  padding: 6px 10px;
-  background: var(--panel);
-  border: 1px solid var(--accent);
-  border-radius: 10px;
-  font-size: 12px;
-  text-align: center;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-}
 
 /* Строка «данные старые» — та же подсказка, только тревожная и без кнопки:
    нажимать тут не на что, а прочитать надо. */
-.wm-hint.stale {
-  border-color: var(--warn, #c9a227);
-  opacity: 0.95;
-}
-
-.wm-hint button {
-  flex-shrink: 0;
-  min-height: 28px;
-  padding: 2px 10px;
-  background: var(--panel-2);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  color: var(--text);
-  font-size: 12px;
-}
 
 /* ---------- Карточка клетки и походы ---------- */
 
@@ -2155,17 +1783,6 @@ body {
 
 .wm-actions .btn.wide {
   flex-basis: 100%;
-}
-
-.wm-coord-tag {
-  flex-shrink: 0;
-  padding: 4px 8px;
-  background: var(--panel-2);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  font-size: 12px;
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
 }
 
 .card.danger {
@@ -2449,29 +2066,6 @@ body {
 
 /* ---------- Справочные экраны кнопок верхней строки ---------- */
 
-/* Ячейка HUD, которая открывает справку. Выглядит как остальные, но нажимается. */
-.hud-bar .cell.tap {
-  background: none;
-  border: 0;
-  margin: 0;
-  padding: 3px 4px;
-  font: inherit;
-  color: inherit;
-  cursor: pointer;
-  border-radius: 6px;
-  flex: 0 0 auto;
-}
-
-.hud-bar .cell.tap.army {
-  flex: 1 1 auto;
-  justify-content: flex-end;
-  overflow: hidden;
-}
-
-.hud-bar .cell.tap.active {
-  background: var(--panel-2);
-}
-
 /* Подпись под названием строки: откуда взялось число. */
 .mod .name .sub {
   display: block;
@@ -2635,18 +2229,6 @@ body {
  * Сжимать разрешено только подписи: число и значок остаются видны при любом
  * размере племени, а «дружина» при тесноте ужимается многоточием.
  */
-.hud-bar .cell.tap.army .ic,
-.hud-bar .cell.tap.army b {
-  flex: 0 0 auto;
-}
-
-.hud-bar .cell.tap.army i {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 
 /* ---------- Ратуша: строка постройки ---------- */
 /*
@@ -3154,52 +2736,6 @@ body {
   background: var(--bg);
   border-top: 1px solid var(--line);
   padding: 8px calc(10px + var(--safe-right)) 0 calc(10px + var(--safe-left));
-}
-
-.realm-head {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 8px;
-}
-
-.realm-title {
-  flex: 1 1 auto;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-}
-
-.realm-title i {
-  font-style: normal;
-  font-size: 12px;
-  color: var(--muted);
-}
-
-.realm-gear,
-.realm-close {
-  flex: 0 0 auto;
-  min-width: var(--tap);
-  min-height: var(--tap);
-  background: var(--panel-2);
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  color: var(--text);
-  font-size: 18px;
-}
-
-.realm-gear.active {
-  border-color: var(--accent);
-}
-
-.realm-tabs {
-  flex: 0 0 auto;
-}
-
-/* Закрытый раздел виден, но приглушён: это карта будущего, а не кнопка в никуда. */
-.realm-tabs button.closed {
-  opacity: 0.55;
-  border-style: dashed;
 }
 
 .realm-body {
@@ -3866,7 +3402,6 @@ body.replaying .app > *:not(.canvas-wrap) {
   color: var(--bad);
 }
 
-
 /*
  * Осада: правый низ деревни.
  *
@@ -4509,13 +4044,6 @@ body.replaying .app > *:not(.canvas-wrap) {
  * строка «чем кончится» под часами голода в осадной панели: уходить из игры
  * решают, глядя на срок, и цена обязана стоять рядом с ним.
  */
-.alert .txt .alert-sub {
-  display: block;
-  margin-top: 2px;
-  font-size: 11.5px;
-  line-height: 1.3;
-  color: var(--muted);
-}
 
 /* Шкала порядка с двумя метками — порогами тревоги и ропота. */
 .progress.order-bar {
@@ -4603,11 +4131,4 @@ body.replaying .app > *:not(.canvas-wrap) {
  * порядка стоит (а стоит она только при невольниках), промежутки ужимаются, а
  * подписи дня и дружины уходят — значок дня и число дружины их повторяют.
  */
-.hud-bar.with-order {
-  gap: 4px;
-}
 
-.hud-bar.with-order > .cell:first-child i,
-.hud-bar.with-order .cell.tap.army i {
-  display: none;
-}

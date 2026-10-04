@@ -37,7 +37,7 @@ export function AvatarPicker({ onBack }: { onBack: () => void }) {
       </button>
 
       <h2>
-        Лицо вождя <small>{AVATARS.length} на выбор</small>
+        Лицо правителя <small>{AVATARS.length} на выбор</small>
       </h2>
 
       <div className="av-grid">
@@ -59,7 +59,7 @@ export function AvatarPicker({ onBack }: { onBack: () => void }) {
       </button>
       {photo && s.profile.avatarId && (
         <button className="btn ghost wide" onClick={backToPhoto}>
-          Вернуть фото из Telegram
+          Фото из Telegram
         </button>
       )}
     </div>

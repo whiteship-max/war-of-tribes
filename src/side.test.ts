@@ -8,7 +8,6 @@ import { TROOP_IDS } from '@/game/data/troops';
 import { RELATION_META } from '@/world/data/meta';
 import { STANDING_META } from '@/world/data/diplomacy';
 import { FELL_MARK, PARTY_FOE, PARTY_OWN } from '@/ui/map/palette';
-import { CLOTH_OF } from '@/render/battle/troops';
 import { SIDE_CLOTH } from '@/render/tw/crowd';
 import { Figure } from '@/render/figures';
 import { PALETTE } from '@/render/palette';
@@ -57,9 +56,7 @@ describe('цвет стороны: читатели', () => {
     expect(STANDING_META.war.color).toBe(SIDE_COLOR.foe);
   });
 
-  it('оба ролика боя: наши — краска золота, чужие — краска красного', () => {
-    expect(CLOTH_OF(true)).toBe(sidePaint(true));
-    expect(CLOTH_OF(false)).toBe(sidePaint(false));
+  it('ролик боя: наши — краска золота, чужие — краска красного', () => {
     expect(SIDE_CLOTH.ours).toBe(sidePaint(true));
     expect(SIDE_CLOTH.theirs).toBe(sidePaint(false));
   });
@@ -101,10 +98,11 @@ function sources(): { path: string; text: string }[] {
 
 /**
  * Где записи цвета стороны законны вне двери: акцент интерфейса совпадает с золотом стороны числом, но сторону не значит —
- * кольцо выбора здания и обвод значка над ним (`render/Scene.ts`), акцент кнопок и плохое число (`--accent`, `--bad` в
- * `ui/styles.css`). Новое место сюда не дописывается: цвет стороны берут из двери.
+ * кольцо выбора здания (`render/Scene.ts`; обвод прежнего значка над ним удалён с прежним интерфейсом, docs/ui_audit.md,
+ * 16), акцент кнопок и плохое число (`--accent`, `--bad` в `ui/styles.css`). Новое место сюда не дописывается: цвет
+ * стороны берут из двери.
  */
-const NOT_SIDE: Record<string, number> = { 'render/Scene.ts': 2, 'ui/styles.css': 2 };
+const NOT_SIDE: Record<string, number> = { 'render/Scene.ts': 1, 'ui/styles.css': 2 };
 
 describe('цвет стороны: второй правды нет', () => {
   it('шестнадцатеричная запись золота и красного стороны — только в двери', () => {

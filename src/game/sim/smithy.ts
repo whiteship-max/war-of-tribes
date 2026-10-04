@@ -57,7 +57,7 @@ export function forgeCheck(s: GameState, item: EquipmentId, count: number): Forg
   // Гейт спрашивается первым: незнакомую вещь не закажешь ни за какие материалы, и
   // сказать об этом надо тем же, чем закрыто, — одной дверью (`sim/tech`).
   let blocked: string | null = gearBlock(s, item);
-  if (!blocked && !canAfford(s, cost)) blocked = 'Не хватает материалов на весь заказ.';
+  if (!blocked && !canAfford(s, cost)) blocked = 'Не хватает запасов на весь заказ.';
   return { def, count: n, cost, work, eta: rate > 0 ? asGame(Math.ceil(work / rate)) : null, blocked };
 }
 
@@ -94,7 +94,7 @@ export function cancelForge(s: GameState, orderId: number): string | null {
   const started = order.work > 0 && left > 0 ? 1 : 0;
   refund(s, def.cost, left - started + started / 2);
   s.forge.splice(i, 1);
-  log(s, `Кузница: заказ отменён — ${def.name.toLowerCase()}.`, 'info', `forge:cancel:${order.item}`);
+  log(s, `Кузница: заказ отменён, ${def.name.toLowerCase()}.`, 'info', `forge:cancel:${order.item}`);
   return null;
 }
 
@@ -130,5 +130,5 @@ export function forgeTick(s: GameState, dt: number): void {
   // ней тратится на то, чего игрок не видел сам.
   // Название и число, без склонения: «мечи, 10». Тем же складом, что и строка
   // казарм про набор, — и без второй копии русского числительного в симуляции.
-  log(s, `Кузница: заказ готов — ${def.name.toLowerCase()}, ${order.count}.`, 'good', `forge:${order.item}`);
+  log(s, `Кузница: готово, ${def.name.toLowerCase()}, ${order.count}.`, 'good', `forge:${order.item}`);
 }

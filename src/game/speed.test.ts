@@ -196,7 +196,9 @@ describe('замок: с опущенным выключателем скоро�
     expect(callers(/\bsetSpeed\s*\(/), 'pace.setSpeed зовёт одна дверь').toEqual(['src/game/pace.ts', 'src/net/clock.ts']);
     expect(callers(/\bhurry\s*\(/), 'дверь зовёт одна кнопка').toEqual(['src/ui/SpeedButton.tsx']);
     const shown = SRC.map((f) => ({ f: rel(f), src: strip(readFileSync(f, 'utf8')) })).filter((x) => /<SpeedButton\b/.test(x.src));
-    expect(shown.map((x) => x.f).sort(), 'точка внутри области: мест показа два').toEqual(['src/ui/TopBar.tsx', 'src/ui/map/WorldMap.tsx']);
+    // Место показа одно — карта: в городе кнопка стояла в верхней строке прежнего интерфейса, удалённого
+    // (docs/ui_audit.md, 16).
+    expect(shown.map((x) => x.f).sort(), 'точка внутри области: место показа есть').toEqual(['src/ui/map/WorldMap.tsx']);
     for (const { f, src } of shown) {
       const bare = src.match(/[^\n]*<SpeedButton\b[^\n]*/g)!.filter((line) => !/CHEATS_ON\s*&&\s*<SpeedButton\b/.test(line));
       expect(bare, `${f}: кнопка скорости мимо выключателя`).toEqual([]);

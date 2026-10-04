@@ -12,7 +12,7 @@
 // «нужно столько, а есть столько», и по той же нехватке гаснет кнопка рядом.
 import type { FaithId, ObservanceId } from '@/game/types';
 import { useGame } from '@/game/store';
-import { DAY_LENGTH, PIETY_HERESY, RITE_DAYS } from '@/game/constants';
+import { DAY_LENGTH, PIETY_HERESY, PIETY_RELIC, RITE_DAYS } from '@/game/constants';
 import { FAITH_BY_ID, OBSERVANCES } from '@/game/data/faiths';
 import { SEASON_META } from '@/game/data/seasons';
 import {
@@ -29,7 +29,7 @@ import {
 import { baptismInfo, baptize, holdRite, riteInfo, setObservance, strainDaysLeft } from '@/game/sim/faith';
 import { Cost } from './Cost';
 import { useRealm } from '@/ui/realm/open';
-import { waitDays, waitDaysBoth } from './wait';
+import { waitDays } from './wait';
 
 const sign = (n: number): string => `${n > 0 ? '+' : n < 0 ? '−' : ''}${Math.abs(Math.round(n * 10) / 10)}`;
 const days = (sec: number): number => Math.ceil(sec / DAY_LENGTH);
@@ -57,10 +57,7 @@ function NoFaith() {
   return (
     <>
       <h3>Вера</h3>
-      <div className="note">
-        Грамоты из округи ещё не пришли: вера у деревни та же, что у земли вокруг, а
-        где эта земля — знает карта. Загляни сюда, открыв карту мира хотя бы раз.
-      </div>
+      <div className="note">Город верит так же, как земля вокруг. Открой карту, и вера станет ясна.</div>
     </>
   );
 }
@@ -95,31 +92,24 @@ export function Temple() {
         <div className="body">
           <div className="title">
             {def.name}
-            <span className="count">{def.temple.toLowerCase()} {templeLevel(s)} ур.</span>
+            <span className="count">{def.temple.toLowerCase()} ур. {templeLevel(s)}</span>
           </div>
         </div>
       </div>
       <button className="btn ghost wide" onClick={() => showRealm('faith')}>
-        ⛪ Вера державы: наклон, устав, крещение
+        ⛪ Вера державы
       </button>
 
       <h3>
-        Набожность <span className="muted">{value} из 100</span>
+        Набожность <span className="muted">{value}</span>
       </h3>
       <div className={`progress ${heretical ? '' : 'good'}`} style={{ marginBottom: 10 }}>
         <div style={{ width: `${Math.max(0, Math.min(100, value))}%` }} />
       </div>
       {heretical ? (
-        <div className="note">
-          🔥 В приходе раскол. Ниже {PIETY_HERESY} вера трещит: люди спорят вместо работы, и
-          настроение падает тем сильнее, чем меньше в деревне веры. Помогает обряд, строгий
-          устав и уровень {def.temple.toLowerCase()}а.
-        </div>
+        <div className="note">В приходе раскол, мораль падает. Помогут обряд и строгий устав.</div>
       ) : (
-        <div className="note">
-          Пока набожность выше {PIETY_HERESY}, приход держится. Провалится ниже — начнётся
-          раскол, и он ударит по настроению всей деревни.
-        </div>
+        <div className="note">Ниже {PIETY_HERESY} начнётся раскол, и мораль упадёт.</div>
       )}
 
       <h3>Что добавляет</h3>
@@ -128,7 +118,7 @@ export function Temple() {
       <Lines lines={down} />
       {s.faith.strain > 0 && strainDaysLeft(s) > 0 && (
         <div className="note">
-          Надлом затянется за {waitDays(Math.ceil(strainDaysLeft(s)))} — сам, без нашего участия.
+          Надлом затянется сам за {waitDays(Math.ceil(strainDaysLeft(s)))}.
         </div>
       )}
 
@@ -141,7 +131,7 @@ export function Temple() {
           <div className="body">
             <div className="title">
               {rite.feast.name}
-              <span className="count">{rite.left > 0 ? `идёт ещё ${waitDays(days(rite.left))}` : 'раз в сезон'}</span>
+              <span className="count">{rite.left > 0 ? `идёт ещё ${waitDays(days(rite.left))}` : `раз в сезон, на ${waitDays(RITE_DAYS)}`}</span>
             </div>
             <div className="desc">{rite.feast.text}</div>
           </div>
@@ -149,7 +139,7 @@ export function Temple() {
       )}
       <Cost cost={{ food: rite.food, gold: rite.gold }} />
       <button className="btn wide" disabled={rite.blocked !== null} onClick={() => act((st) => holdRite(st))}>
-        Справить — набожность и настроение на {waitDaysBoth(RITE_DAYS)}
+        Справить обряд
       </button>
       {rite.blocked && <div className="hint">{rite.blocked}</div>}
 
@@ -157,27 +147,17 @@ export function Temple() {
       {s.faith.relic ? (
         <div className="mod total">
           <span className="ico">📿</span>
-          <span className="name">
-            {FAITH_BY_ID[s.faith.relic].relic}
-            <em className="sub">пока она в храме, приход крепче</em>
-          </span>
-          <span className="val pos">+8</span>
+          <span className="name">{FAITH_BY_ID[s.faith.relic].relic}</span>
+          <span className="val pos">+{PIETY_RELIC}</span>
         </div>
       ) : (
-        <div className="note">
-          Своей святыни у прихода нет. Их не покупают и не куют — они приходят сами, с
-          купцом или из похода. Уносят их тоже: прорвавшийся набег вынесет реликвию вместе
-          со складом.
-        </div>
+        <div className="note">Святыни нет. Её приносит купец или поход, уносит набег.</div>
       )}
 
       <h3>
-        {def.priests} <span className="muted">{priests} чел.</span>
+        {def.priests} <span className="muted">{priests}</span>
       </h3>
-      <div className="note">
-        Служители держат набожность и настроение разом. Ставят их сюда же, рядовым числом —
-        ряд рабочих выше.
-      </div>
+      <div className="note">Служители держат набожность и мораль. Их ставят в ряд рабочих выше.</div>
     </>
   );
 }
@@ -203,30 +183,23 @@ export function RealmFaith() {
 
   return (
     <>
-      <h3>Вера деревни</h3>
+      <h3>Вера города</h3>
       <div className="card">
         <div className="ico">{def.icon}</div>
         <div className="body">
           <div className="title">
             {def.name}
-            <span className="count">{def.temple.toLowerCase()} {level} ур.</span>
+            <span className="count">{def.temple.toLowerCase()} ур. {level}</span>
           </div>
           <div className="desc">{def.creed}</div>
         </div>
       </div>
       {s.faith.converted && (
-        <div className="note">
-          Деревня приняла крещение и живёт по новому обряду. Обратной дороги нет — так это
-          и было: решение принимали раз.
-        </div>
+        <div className="note">Город принял крещение. Обратной дороги нет.</div>
       )}
 
       <h3>Наклон веры</h3>
-      <div className="note">
-        Уровень {def.temple.toLowerCase()}а не прибавляет силы — он растит наклон целиком,
-        вместе с ценой. Сейчас {level} из 10, поэтому и дар, и цена идут в {level} десятых
-        от полного.
-      </div>
+      <div className="note">Дар и цена растут с уровнем здания.</div>
       <div className="mod">
         <span className="ico">🎁</span>
         <span className="name">
@@ -245,64 +218,56 @@ export function RealmFaith() {
         show={Math.abs(tilt.goldPerPop) > 0.001}
         icon="💰"
         name={tilt.goldPerPop > 0 ? 'Десятина в казну' : 'Закят из казны'}
-        hint={`${Math.abs(tilt.goldPerPop).toFixed(2)} с человека в день · ${population(s)} чел.`}
+        hint={`${Math.abs(tilt.goldPerPop).toFixed(2)} с жителя в день`}
         value={`${sign(tilt.goldPerPop * population(s))} в день`}
         good={tilt.goldPerPop > 0}
       />
       <TiltRow
         show={Math.abs(tilt.morale) > 0.001}
         icon="😊"
-        name="Настроение деревни"
-        hint="слагаемое целевой морали"
+        name="Мораль"
         value={sign(tilt.morale)}
         good={tilt.morale > 0}
       />
       <TiltRow
         show={Math.abs(tilt.output - 1) > 0.001}
         icon="⛏️"
-        name="Выработка всех профессий"
-        hint="служб и постов в году много"
+        name="Выработка"
         value={`×${tilt.output.toFixed(2)}`}
         good={tilt.output > 1}
       />
       <TiltRow
         show={Math.abs(tilt.steadfast) > 0.001}
         icon="🛡️"
-        name="Оборона деревни"
-        hint="община держит тех, кто на стене"
+        name="Оборона"
         value={`×${(1 + tilt.steadfast).toFixed(2)}`}
         good
       />
       <TiltRow
         show={Math.abs(tilt.learning - 1) > 0.001}
         icon="📖"
-        name="Изучение округи в Дозоре"
-        hint="медресе учит счёту и письму"
+        name="Разведка округи"
         value={`×${tilt.learning.toFixed(2)}`}
         good={tilt.learning > 1}
       />
       <TiltRow
         show={Math.abs(tilt.growth) > 0.001}
         icon="👥"
-        name="Прирост населения"
-        hint="закят держит бедных на ногах"
+        name="Прирост жителей"
         value={`×${(1 + tilt.growth).toFixed(2)}`}
         good
       />
       <TiltRow
         show={tilt.fervour > 0.001}
         icon="⚔️"
-        name="Стойкость дружины в обряд"
-        hint="к морали в начале боя; прибавка та же против кого угодно"
+        name="Стойкость дружины"
+        hint="к морали в начале боя"
         value={`+${tilt.fervour.toFixed(1)}`}
         good
       />
 
       <h3>Устав прихода</h3>
-      <div className="note">
-        Устав ничего не добавляет от себя: он множит наклон целиком — и дар, и цену. Платят
-        за строгость набожностью в другую сторону.
-      </div>
+      <div className="note">Устав множит и дар, и цену веры.</div>
       <div className="choice">
         {OBSERVANCES.map((o) => (
           <button
@@ -321,10 +286,8 @@ export function RealmFaith() {
         <>
           <h3>Крещение</h3>
           <div className="note">
-            Принять крест — решение вождя, а не обряд. Соседи иной веры перестанут смотреть
-            на нас как на чужих, и посольства пойдут проще. Цена: дары и посольство, старая
-            святыня из храма и надлом, от которого вера в деревне затрещит на несколько
-            дней. Обратной дороги нет.
+            Соседи этой веры станут ближе. Город отдаст дары и старую святыню, вера на время надломится. Обратной
+            дороги нет.
           </div>
           <Cost cost={{ gold: bapt.gold }} />
           <div className="choice">
@@ -360,7 +323,7 @@ function TiltRow({
   show: boolean;
   icon: string;
   name: string;
-  hint: string;
+  hint?: string;
   value: string;
   good?: boolean;
 }) {
@@ -370,7 +333,7 @@ function TiltRow({
       <span className="ico">{icon}</span>
       <span className="name">
         {name}
-        <em className="sub">{hint}</em>
+        {hint && <em className="sub">{hint}</em>}
       </span>
       <span className={`val ${good ? 'pos' : 'neg'}`}>{value}</span>
     </div>

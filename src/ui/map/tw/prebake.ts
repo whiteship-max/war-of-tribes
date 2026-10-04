@@ -27,7 +27,8 @@ import { type Job, type JobKind, chunkCells, jobKey, jobSteps, setKnowledge } fr
 import { C } from './palette';
 import { TW_SPEC } from './spec';
 import type { FromWorker, ToWorker } from './bake.worker';
-import { type Theatre, setActiveTheatre, theatreAt } from './theatre/theatre';
+import { type Theatre, theatreAt } from '@/world/theatre/theatre';
+import { setActiveTheatre } from './theatre/active';
 import { type TheatrePlan, theatrePlan, visibleTo } from './theatre/plan';
 
 const PROBE = probe();

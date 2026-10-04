@@ -24,7 +24,7 @@
  * амбара.
  */
 export const WAGE_HEAD = 0.5;
-import { daysBoth, daysSpan } from '../span';
+import { daysSpan } from '../span';
 import type { TroopId } from '../types';
 
 /**
@@ -102,16 +102,16 @@ export const WAGE_AMNESTY_DAYS = 10;
 export const UPKEEP_TEXT = {
   icon: '💰',
   why: {
-    pay: 'не плачено жалованье',
-    food: 'нечем кормить',
+    pay: 'нет жалованья',
+    food: 'нет еды',
   },
   /** Строка летописи на ушедшего — склеивается счётчиком по виду за сутки. */
-  deserted: (one: string, why: string): string => `Ушёл из войска ${one}: ${why}.`,
+  deserted: (one: string, why: string): string => `Ушёл из дружины ${one}: ${why}.`,
   /** Ушёл неуплатой, а в посёлке нашлась крыша: остался жителем. */
-  desertedHome: (one: string, why: string): string => `Ушёл из войска ${one}: ${why}. Остался в посёлке жителем.`,
+  desertedHome: (one: string, why: string): string => `Ушёл из дружины ${one}: ${why}. Остался в городе жителем.`,
   /** Раненый и новобранец уходят только голодом и совсем: жалованья им не положено (docs/infirmary.md). */
-  woundedStarved: (one: string): string => `Ушёл из лазарета раненый ${one}: нечем кормить.`,
-  draftStarved: (one: string): string => `Ушёл с учений новобранец, ${one}: нечем кормить.`,
+  woundedStarved: (one: string): string => `Ушёл из лазарета раненый ${one}: нет еды.`,
+  draftStarved: (one: string): string => `Ушёл с учений новобранец, ${one}: нет еды.`,
   dismissed: (one: string): string => `Распущен по домам ${one}.`,
   /** Наёмный мастер ушёл той же дверью, что войско. Жителем он не был и жителем не остаётся. */
   masterLeft: (why: string): string => `Ушёл из Мастерской наёмный мастер: ${why}.`,
@@ -120,18 +120,18 @@ export const UPKEEP_TEXT = {
    * (`sim/upkeep`), и тревога обязана назвать обоих, когда уходят оба.
    */
   whoDat: (army: boolean, masters: boolean): string =>
-    army && masters ? 'Войску и мастерам' : masters ? 'Наёмным мастерам' : 'Войску',
+    army && masters ? 'Дружине и мастерам' : masters ? 'Наёмным мастерам' : 'Дружине',
   whoGoes: (army: boolean, masters: boolean): string =>
-    army && masters ? 'Войско и мастера уходят' : masters ? 'Мастера уходят' : 'Войско уходит',
+    army && masters ? 'Дружина и мастера уходят' : masters ? 'Мастера уходят' : 'Дружина уходит',
   amnestyLog: (wages: number, income: number): string =>
-    `Войску теперь платят жалованье — ${Math.round(wages)} золота в день, казна даёт ${Math.round(income)}. ` +
-    `Первые ${daysBoth(WAGE_AMNESTY_DAYS)} платить не нужно. Не тянешь — подними налог или распусти лишних в казармах.`,
+    `Дружине теперь платят жалованье, ${Math.round(wages)} золота в день. Доход ${Math.round(income)}. ` +
+    `Первые ${daysSpan(WAGE_AMNESTY_DAYS)} платить не надо. Не хватит золота, подними налог или распусти лишних.`,
   // Сроки тревог — то, чего игрок ждёт: настоящим временем (`game/span`), а не игровыми днями.
-  amnestyAlert: (days: number): string => `Через ${daysSpan(days)} войску платить жалованье`,
-  graceAlert: (why: string, days: number, who = 'Войску'): string => `${who} ${why} — уходить начнут через ${daysSpan(days)}`,
-  leavingAlert: (why: string, perDay: number, who = 'Войско уходит'): string => `${who}: ${why}, около ${perDay} в день`,
-  treasuryAlert: (days: number): string => `Казны на жалованье хватит на ${daysSpan(days)}`,
+  amnestyAlert: (days: number): string => `Жалованье дружине через ${daysSpan(days)}`,
+  graceAlert: (why: string, days: number, who = 'Дружине'): string => `${who} ${why} · уход через ${daysSpan(days)}`,
+  leavingAlert: (why: string, perDay: number, who = 'Дружина уходит'): string => `${who}, ${why} · ${perDay} в день`,
+  treasuryAlert: (days: number): string => `Золота на жалованье хватит на ${daysSpan(days)}`,
   flowSub: (wages: number, income: number): string =>
-    `жалованье ${Math.round(wages)} в день, казна даёт ${Math.round(income)}`,
-  foodSub: 'войско ест последним: сначала посёлок',
+    `жалованье ${Math.round(wages)} в день, доход ${Math.round(income)}`,
+  foodSub: 'дружина ест после жителей',
 } as const;

@@ -79,7 +79,7 @@ describe('переход между посёлком и картой', () => {
     // Диорама теперь всегда на месте, и ветка со своим контекстом не должна
     // срабатывать в игре. Убирать её всё равно нельзя: стенд ролика (?replay=)
     // работает без диорамы, и двух контекстов разом не бывает ни там, ни здесь.
-    const replay = src('./battle/BattleReplay.tsx');
+    const replay = src('./battle/TwReplay.tsx');
     expect(replay).toMatch(/if \(scene\) \{\s*renderer = scene\.lend\(true\)/);
     expect(replay).toMatch(/own\.forceContextLoss/);
     expect(replay).toMatch(/ownWrap\?\.remove\(\)/);

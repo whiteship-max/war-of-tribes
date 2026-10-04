@@ -64,7 +64,7 @@ export function marketCheck(s: GameState, good: GoodId, count: number): MarketCh
 
   let blocked: string | null = null;
   if (!marketOffer(s).some((g) => g.id === def.id)) blocked = 'Сегодня этого на прилавке нет.';
-  else if (left <= 0) blocked = 'На сегодня всё разобрали — приходи завтра.';
+  else if (left <= 0) blocked = 'Сегодня всё разобрали.';
   else if (n > left) blocked = `Сегодня осталось только ${left}.`;
   else if (s.gold < cost) blocked = 'Не хватает золота.';
 
@@ -104,7 +104,7 @@ export function buyGoods(s: GameState, good: GoodId, count = 1): string | null {
   const text =
     def.kind === 'bonded'
       ? ORDER_TEXT.market.ordered(check.count)
-      : `Рынок: заказано ${def.name.toLowerCase()} — ${check.count}. Телега вышла за ворота.`;
+      : `Заказано: ${def.name.toLowerCase()}, ${check.count}. Телега вышла за ворота.`;
   log(s, text, 'info', `market:order:${def.id}`);
   return null;
 }
@@ -172,7 +172,7 @@ export function cancelCaravan(s: GameState, id: number): string | null {
     s,
     def?.kind === 'bonded'
       ? ORDER_TEXT.market.cancelled(c.gold)
-      : `Рынок: караван с ${(def?.name ?? 'товаром').toLowerCase()} отозван, ${c.gold} золота вернулось в казну.`,
+      : `Заказ отменён: ${(def?.name ?? 'товар').toLowerCase()}, ${c.gold} золота вернулось.`,
   );
   return null;
 }
@@ -208,7 +208,7 @@ function unload(s: GameState, c: Caravan): void {
     if (fit < c.count) {
       log(
         s,
-        `Караван привёз ${def.name.toLowerCase()} — ${c.count}, но склад полон: влезло ${fit}.`,
+        `Караван привёз ${def.name.toLowerCase()}, ${c.count}, но склад полон: влезло ${fit}.`,
         'bad',
         `market:full:${def.id}`,
       );

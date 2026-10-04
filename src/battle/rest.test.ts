@@ -102,9 +102,9 @@ describe('мораль между боями: ядро', () => {
     const weary = res.log.filter((e) => e.id === 'weary');
     expect(weary).toHaveLength(1);
     expect(weary[0]).toEqual(expect.objectContaining({ side: 'attacker', rest: 0.44, tick: 1 }));
-    expect(describeEvent(weary[0], 'attacker')).toBe('наши: вышли в бой уставшими — мораль 44% от полной');
+    expect(describeEvent(weary[0], 'attacker')).toBe('наши: вышли в бой уставшими, мораль 44% от полной');
     const line = summarize(res, 'defender').keys.find((k) => k.text.includes('уставшими'));
-    expect(line?.text).toBe('Чужие вышли в бой уставшими: мораль 44 % от полной — дрались недавно.');
+    expect(line?.text).toBe('Враги вышли в бой уставшими, мораль 44 % от полной.');
     expect(line?.good, 'усталость противника — к добру для нас').toBe(true);
   });
 });

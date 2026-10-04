@@ -47,19 +47,19 @@ function musterWhat(mult: number, own: number, warning: GameSec): string {
   const warn = warningMsOf(warning);
   return (
     `Дружина собирается и расходится ${own < 1 ? 'быстрее' : 'дольше'} на ${shift(own)}. ` +
-    `Полный сбор с ним — ${daysOf(full)}, Дозор предупреждает о набеге за ${daysOf(warn)}: ` +
-    `${full < warn ? 'сбор успевает' : 'сбор не успевает'} до прихода.`
+    `Полный сбор ${daysOf(full)}, Дозор видит набег за ${daysOf(warn)}, ` +
+    `${full < warn ? 'сбор успевает' : 'сбор не успевает'}.`
   );
 }
 
 function whatOf(def: TraitDef, mult: number, warning: GameSec): string {
   const e = def.effect;
-  if (e.won !== undefined) return `Победа в его бою поднимает дух дома ещё на +${e.won} сверх обычного.`;
-  if (e.lost !== undefined) return `Поражение в его бою роняет дух дома ещё на ${Math.abs(e.lost)} сверх обычного.`;
+  if (e.won !== undefined) return `Победа в его бою поднимает мораль дома ещё на +${e.won}.`;
+  if (e.lost !== undefined) return `Поражение в его бою роняет мораль дома ещё на ${Math.abs(e.lost)}.`;
   if (e.muster !== undefined) return musterWhat(mult, e.muster, warning);
   if (e.carry !== undefined) return `Обоз поднимает на ${shift(e.carry)} больше добычи.`;
   if (e.catch !== undefined) {
-    return `Часовые берут его в ${pct(FIGURE_SCOUT_CATCH * e.catch)} приходов вместо ${pct(FIGURE_SCOUT_CATCH)}.`;
+    return `Часовые ловят его в ${pct(FIGURE_SCOUT_CATCH * e.catch)} приходов вместо ${pct(FIGURE_SCOUT_CATCH)}.`;
   }
   if (e.busy !== undefined) {
     return `После удачного дела свободен через ${realLeft((SPY_BUSY * e.busy) / 1000)} вместо ${realLeft(SPY_BUSY / 1000)}.`;
@@ -91,17 +91,17 @@ function whyOf(def: TraitDef, t: Tally): string {
       num === 0
         ? `${least} и ни одного ${def.agent === 'general' ? 'проигранного' : bad}`
         : `${least}, ${bad} ${most ? 'не больше' : 'не меньше'} ${num} из ${den}`;
-    return `${rule[0].toUpperCase()}${rule.slice(1)}. Сейчас: ${count(n, one, few, many)}, ${bad} ${t.fail}.`;
+    return `${rule[0].toUpperCase()}${rule.slice(1)}. Сейчас ${count(n, one, few, many)}, ${bad} ${t.fail}.`;
   }
   if (def.of === 'bled') {
     return (
       `${least[0].toUpperCase()}${least.slice(1)}, павших ${most ? 'не больше' : 'не меньше'} ${num} на бой. ` +
-      `Сейчас: ${count(n, one, few, many)}, пало ${t.bled}.`
+      `Сейчас ${count(n, one, few, many)}, пало ${t.bled}.`
     );
   }
   return (
     `${least[0].toUpperCase()}${least.slice(1)}, и в ${num} из ${den} сожжено логово. ` +
-    `Сейчас: ${count(n, one, few, many)}, сожжено ${t.burned}.`
+    `Сейчас ${count(n, one, few, many)}, сожжено ${t.burned}.`
   );
 }
 

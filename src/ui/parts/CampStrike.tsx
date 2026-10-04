@@ -13,7 +13,7 @@ import type { SettlementId, StrikePlan } from '@/world/types';
  * Удар с тыла без гарнизона — одной дружиной; строка стоит рядом с кнопкой, пока галочка гарнизона снята и есть что
  * отметить (`StrikePlan.garrisonable` — лагерь под своим городом).
  */
-export const REAR_ALONE = 'С тыла бьёт одна дружина. Отметьте «Подключить гарнизон» — удар с двух сторон одним боем.';
+export const REAR_ALONE = 'С тыла бьёт один отряд. С гарнизоном удар пойдёт с двух сторон.';
 
 export function CampStrike({ target, onDone }: { target: SettlementId; onDone?: () => void }) {
   const showToast = useGame((g) => g.showToast);
@@ -39,7 +39,7 @@ export function CampStrike({ target, onDone }: { target: SettlementId; onDone?: 
     setBusy(true);
     const err = await strikeCamp(target, garrison);
     setBusy(false);
-    showToast(err ?? (plan?.seconds ? 'Полководец пошёл бить лагерь.' : 'Дружина ударила по лагерю. Отчёт в походах.'));
+    showToast(err ?? (plan?.seconds ? 'Отряд вышел к лагерю.' : 'Отряд ударил по лагерю. Донесение в походах.'));
     if (!err) onDone?.();
   };
 
@@ -48,15 +48,15 @@ export function CampStrike({ target, onDone }: { target: SettlementId; onDone?: 
       <button className={`am-row${plan?.can ? '' : ' off'}`} disabled={busy || !plan?.can} onClick={() => void go()}>
         <span className="ico">⛺</span>
         <span className="body">
-          <b>Полководцу — ударить с тыла</b>
+          <b>Ударить с тыла</b>
           <i>
             {!plan
               ? 'Считаем проход…'
               : !plan.can
                 ? plan.reason
-                : `${plan.seconds > 0 ? `Дойдёт через ${waitLeft(plan.seconds)}. ` : ''}С тыла пробьются ${plan.rear.passed} из ${plan.rear.went} бойцов строя${
-                    plan.front ? `, со стороны города — ${plan.front.passed} из ${plan.front.went}` : ''
-                  }${plan.seconds > 0 ? ' — если до прихода проход не займут' : ''}. Разобьёшь — осада снята.`}
+                : `${plan.seconds > 0 ? `В пути ${waitLeft(plan.seconds)}. ` : ''}С тыла пробьются ${plan.rear.passed} из ${plan.rear.went}${
+                    plan.front ? `, от города ${plan.front.passed} из ${plan.front.went}` : ''
+                  }. Разобьёшь лагерь, осада снята.`}
           </i>
           {plan?.can && plan.garrisonable && !garrison && (
             // Без прогноза исхода — его в игре нет нигде (docs/handbook/battle.md, «Подготовка боя и отчёт»): только кто бьёт и чем ещё
@@ -65,15 +65,14 @@ export function CampStrike({ target, onDone }: { target: SettlementId; onDone?: 
           )}
           {plan?.can && (
             // Условно и только так: шанс поражения не показывается нигде.
-            <i className="am-risk">Если дружину перебьют до последнего, полководец погибнет с шансом {perilText(plan.rout)}.</i>
+            <i className="am-risk">Риск гибели полководца {perilText(plan.rout)}, если отряд перебьют.</i>
           )}
         </span>
       </button>
       {plan?.garrisonable && (
         <label className="am-plain">
           <input type="checkbox" checked={garrison} onChange={(e) => setGarrison(e.target.checked)} /> Подключить
-          гарнизон: выйдет весь и полезет со стороны города, дружина — с тыла, бой один. Дерутся только
-          пробившиеся, остальные постоят у рогаток и вернутся за стену.
+          гарнизон. Выйдет весь и ударит от города, кто не пробьётся, вернётся за стену.
         </label>
       )}
     </>

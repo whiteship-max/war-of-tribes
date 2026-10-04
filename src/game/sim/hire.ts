@@ -73,9 +73,9 @@ export function hireInfo(s: GameState, agent: FigureId): HireInfo {
   // мест и в самой ветви (`sim/tech.techBlock`).
   const closed = placeBlock(s, agent);
   if (closed) blocked = closed;
-  else if (!p.vacant) blocked = `${FIGURE_BY_ID[agent].name} на месте: нанимают только на пустое.`;
+  else if (!p.vacant) blocked = `${FIGURE_BY_ID[agent].name} на месте.`;
   else if (hiring) blocked = 'Найм уже идёт.';
-  else if (s.gold < gold) blocked = `Не хватает золота: нужно ${gold}, в казне ${Math.floor(s.gold)}.`;
+  else if (s.gold < gold) blocked = 'Не хватает золота.';
   return {
     agent,
     building: buildingTitle(s, type),
@@ -100,7 +100,7 @@ export function hireAgent(s: GameState, agent: FigureId): string | null {
   if (info.blocked) return info.blocked;
   s.gold -= info.gold;
   s.agents[agent].hiring = { until: s.time + info.seconds, name: drawName(s), age0: info.age0 };
-  log(s, `${info.building}: наняли ${FIGURE_BY_ID[agent].one}${s.agents[agent].hiring?.name ? ` — ${s.agents[agent].hiring?.name}` : ''}. Плата — ${info.gold} золота.`);
+  log(s, `${info.building}: нанят ${FIGURE_BY_ID[agent].one}${s.agents[agent].hiring?.name ? `, ${s.agents[agent].hiring?.name}` : ''}, за ${info.gold} золота.`);
   return null;
 }
 
@@ -115,11 +115,11 @@ export function settleHires(s: GameState): boolean {
     if (!hiring || s.time < hiring.until) continue;
     seat(s, id, hiring.until, hiring.age0, hiring.name);
     const p = s.agents[id];
-    log(s, `${titled(s, id)} встал на место: ${yearsWord(Math.floor(p.age0))}, первый уровень.`, 'good');
+    log(s, `${titled(s, id)} встал на место, ${yearsWord(Math.floor(p.age0))}.`, 'good');
     // Дружина прежнего полководца осталась городу или пала с ним: новый приходит с
     // пустыми руками и в поле не выйдет, пока её не соберут. Молча это стоило бы
     // целой службы — поэтому сказано сразу, а тревога держится, пока не соберут.
-    if (id === 'general') log(s, 'Дружины при нём нет: собери её в Статуе, иначе он не выйдет в поле.', 'bad');
+    if (id === 'general') log(s, 'Отряда при нём нет. Собери его в Статуе.', 'bad');
     changed = true;
   }
   return changed;

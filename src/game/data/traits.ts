@@ -139,7 +139,7 @@ export const TRAITS: readonly TraitDef[] = [
   {
     id: 'carter',
     agent: 'general',
-    name: 'Обозный',
+    name: 'Добычливый',
     good: true,
     min: 4,
     of: 'burned',
@@ -162,7 +162,7 @@ export const TRAITS: readonly TraitDef[] = [
   {
     id: 'marked',
     agent: 'scout',
-    name: 'Примелькался',
+    name: 'Приметный',
     good: false,
     min: 4,
     of: 'fail',
@@ -185,7 +185,7 @@ export const TRAITS: readonly TraitDef[] = [
   {
     id: 'lagging',
     agent: 'spy',
-    name: 'Отлёживается',
+    name: 'Неловкий',
     good: false,
     min: 4,
     of: 'fail',

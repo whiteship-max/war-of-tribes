@@ -7,7 +7,7 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const src = readFileSync(path.join(process.cwd(), 'src/ui/panels/ReportPanel.tsx'), 'utf8');
-const replay = readFileSync(path.join(process.cwd(), 'src/ui/battle/BattleReplay.tsx'), 'utf8');
+const replay = readFileSync(path.join(process.cwd(), 'src/ui/battle/TwReplay.tsx'), 'utf8');
 
 describe('отчёт о бое со зверями: ролик и журнал, как у всякого боя', () => {
   it('ветка записи боя одна — и у людей, и у стаи: в ней «Смотреть бой» и журнал', () => {

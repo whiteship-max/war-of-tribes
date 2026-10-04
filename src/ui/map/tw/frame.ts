@@ -28,7 +28,7 @@ import { drawGround } from './layers';
 import { moving, prebakeFrame, prebakeIdle, prebaked } from './prebake';
 import { TW } from './palette';
 import { SIDE_COLOR, sideRgba } from '@/side';
-import { withinActive } from './theatre/theatre';
+import { withinActive } from './theatre/active';
 import { drawAgent } from '../agent';
 import type { MarkerKind } from '../village';
 import { FELL_WORDS, LABEL_MAX_PX, fellShown, fitLabel, worksStand, worksStep } from '../siegemark';

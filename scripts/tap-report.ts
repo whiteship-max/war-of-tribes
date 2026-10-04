@@ -64,7 +64,6 @@
  *
  * Запуск: npm run tap:report
  * Переменные: LEVEL=10 (уровень построек — у города модели одни, меняются значки),
- *             UI=old (прежний интерфейс; без переменной — вид по умолчанию, новый),
  *             WIDTH=390 HEIGHT=844 DPR=3, HEAD=1 (видимое окно), PORT / CDP_PORT, CHROME=путь\к\chrome.exe
  */
 import { createServer as createVite, type Plugin } from 'vite';
@@ -73,7 +72,6 @@ import { ENTER_GAME, launchChrome, reportPage, sleep, Tab } from './lib/chrome';
 import { TAP_FORGIVE, TAP_MOVE, TAP_MS, TAP_SLIP, TAP_TARGET, WHEEL_STEP } from '../src/gestures';
 import type { HitBox } from '../src/render/pick';
 import { BUILDINGS } from '../src/game/data/buildings';
-import { UI_DEFAULT, type UiMode } from '../src/ui/uimode';
 
 const PORT = Number(process.env.PORT ?? 4192);
 const DEBUG_PORT = Number(process.env.CDP_PORT ?? 9335);
@@ -491,16 +489,11 @@ async function main(): Promise<void> {
   }
 }
 
-/**
- * Какой интерфейс мерить: без переменной — тот, что у игрока по умолчанию (`UI_DEFAULT`: с 03.10.2026 новый,
- * docs/ui_audit.md, 12.8), `UI=old` — прежний, запасной из настроек. У нового вида свой верх и низ, и мёртвой полосы
- * над низом в нём быть не должно. Адрес пишется всегда (`?ui=…`): стенд мерит названный вид, а не запись браузера.
- */
-const UI_WORD: UiMode = process.env.UI === 'old' || process.env.UI === 'new' ? process.env.UI : UI_DEFAULT;
-const UI_QUERY = `&ui=${UI_WORD}`;
 
 async function report(): Promise<void> {
-  const tab = await Tab.open(DEBUG_PORT, reportPage(PORT, UI_QUERY));
+  // Интерфейс один (прежний и `UI=old` удалены, docs/ui_audit.md, 16): верх и низ свои, и мёртвой полосы над низом
+  // в нём быть не должно.
+  const tab = await Tab.open(DEBUG_PORT, reportPage(PORT));
   await tab.send('Emulation.setDeviceMetricsOverride', {
     width: WIDTH,
     height: HEIGHT,
@@ -857,7 +850,7 @@ async function report(): Promise<void> {
 
   console.log('\nСЛЕД ПАЛЬЦА ПО ПОСТРОЙКАМ ГОРОДА');
   console.log(`  экран ${WIDTH}×${HEIGHT}, dpr ${view.dpr}, канва ${px(view.w)}×${px(view.h)} px, уровень зданий ${LEVEL}`);
-  console.log(`  интерфейс: ${UI_WORD === 'new' ? 'новый' : 'прежний'}${UI_WORD === UI_DEFAULT ? ' (по умолчанию)' : ''}`);
+  console.log('  интерфейс: один (прежний удалён)');
   console.log(`  палец настоящий: Input.dispatchTouchEvent, тач-эмуляция, часы не подменены`);
   console.log(`  WebGL нет: контекст подделан${view.fake ? '' : ' — НО ЗАГЛУШКА НЕ ВСТАЛА'}, кадр не рисуется, снимок отсюда чёрный`);
   console.log(

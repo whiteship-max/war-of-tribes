@@ -182,7 +182,7 @@ export function RecruitNew({ at }: { at: 'barracks' | 'stable' }) {
         {check.blocked && <small className="nx-why">{check.blocked}</small>}
         {!troopBlock(s, pick) && check.missing.length > 0 && smithy && (
           <button className="nx-link" onClick={() => openBuilding(smithy.id)}>
-            В кузницу: ковать {check.missing.map((m) => EQUIPMENT_BY_ID[m.id].one).join(', ')} ›
+            Ковать {check.missing.map((m) => EQUIPMENT_BY_ID[m.id].one).join(', ')} ›
           </button>
         )}
       </div>

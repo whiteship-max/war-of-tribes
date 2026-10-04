@@ -39,16 +39,19 @@ export const VERDICT_TITLE: Record<Verdict, string> = {
 };
 
 /** Наша сторона или чужая — отчёт пишется от лица игрока, а не судьи. */
-export const ourWord = (side: Side, us: Side): string => (side === us ? 'наши' : 'чужие');
+export const ourWord = (side: Side, us: Side): string => (side === us ? 'наши' : 'враги');
 
 /**
  * Притяжательное по роду слова, к которому оно относится. Без этого выходит
- * «Чужие конница вырубила лучников»: отчёт должен читаться, а не собираться.
+ * «Вражеские конница вырубила лучников»: отчёт должен читаться, а не собираться. Сторона без слова при ней —
+ * `who`: «Наши» и «Враги» (словарь, docs/ui_audit.md, 4.4: противник в бою — враг).
  */
 type Gender = 'm' | 'f' | 'pl';
 const MINE: Record<Gender, string> = { m: 'Наш', f: 'Наша', pl: 'Наши' };
-const THEIRS: Record<Gender, string> = { m: 'Чужой', f: 'Чужая', pl: 'Чужие' };
+const THEIRS: Record<Gender, string> = { m: 'Вражеский', f: 'Вражеская', pl: 'Вражеские' };
 const own = (side: Side, us: Side, g: Gender): string => (side === us ? MINE[g] : THEIRS[g]);
+const who = (side: Side, us: Side): string => (side === us ? 'Наши' : 'Враги');
+const cap = (t: string): string => t.charAt(0).toUpperCase() + t.slice(1);
 
 /** Сколько строк ключевых событий держит отчёт: больше десятка никто не читает. */
 export const KEYS_MAX = 7;
@@ -90,17 +93,17 @@ function keyLine(e: BattleEvent, us: Side): ReportLine | null {
         'bat-dice',
         '🎲',
         gap > 0
-          ? `Удача за нами: ${PHASE_NAME[e.phase]} — кость ${ours} против ${theirs}.`
-          : `Удача против нас: ${PHASE_NAME[e.phase]} — кость ${ours} против ${theirs}.`,
+          ? `Удача за нами. ${cap(PHASE_NAME[e.phase])}, кость ${ours} против ${theirs}.`
+          : `Удача против нас. ${cap(PHASE_NAME[e.phase])}, кость ${ours} против ${theirs}.`,
         gap > 0,
       );
     }
     case 'ground': {
       // Место боя штрафует кость весь бой — это строка про удачу, и значок у неё тот же, что у кости.
-      const parts = [e.land > 0 ? `земля −${e.land}` : '', e.crossing > 0 ? `переправа −${e.crossing}${e.lifted ? ' (снята манёвром полководца)' : ''}` : '']
+      const parts = [e.land > 0 ? `земля −${e.land}` : '', e.crossing > 0 ? `переправа −${e.crossing}${e.lifted ? ', её снял манёвр полководца' : ''}` : '']
         .filter(Boolean)
         .join(', ');
-      return line(e, 'bat-dice', '⛰️', `Место боя против ${mine ? 'нас' : 'них'}: ${parts} к кости каждой фазы.`, !mine);
+      return line(e, 'bat-dice', '⛰️', `Место боя против ${mine ? 'нас' : 'них'}: ${parts}.`, !mine);
     }
     case 'weary':
       // Мораль между боями (14.31): сторона дралась недавно и ещё не отдохнула — значок тот же, что у слома морали.
@@ -108,7 +111,7 @@ function keyLine(e: BattleEvent, us: Side): ReportLine | null {
         e,
         'bat-morale',
         '💤',
-        `${own(e.side, us, 'pl')} вышли в бой уставшими: мораль ${Math.round(e.rest * 100)} % от полной — дрались недавно.`,
+        `${who(e.side, us)} вышли в бой уставшими, мораль ${Math.round(e.rest * 100)} % от полной.`,
         !mine,
       );
     case 'volley':
@@ -119,7 +122,7 @@ function keyLine(e: BattleEvent, us: Side): ReportLine | null {
         e,
         'bat-ranged-lost',
         '🎯',
-        `${own(e.side, us, 'pl')} проиграли перестрелку: потеряли ${e.losses} против ${e.enemyLosses} — в рукопашную пошли с просевшей моралью.`,
+        `${who(e.side, us)} проиграли перестрелку, ${e.losses} потерь против ${e.enemyLosses}.`,
         !mine,
       );
     case 'spears-held':
@@ -127,7 +130,7 @@ function keyLine(e: BattleEvent, us: Side): ReportLine | null {
         e,
         'bat-spears-held',
         '🔱',
-        `${own(e.side, us, 'pl')} копейщики (${SECTOR_NAME[e.sector]}) остановили кавалерийский удар: конница потеряла ${e.cavalryLost} против ${e.spearsLost}.`,
+        `${own(e.side, us, 'pl')} копейщики, ${SECTOR_NAME[e.sector]}, остановили конницу: она потеряла ${e.cavalryLost} против ${e.spearsLost}.`,
         mine,
       );
     case 'cavalry-broke-archers':
@@ -135,7 +138,7 @@ function keyLine(e: BattleEvent, us: Side): ReportLine | null {
         e,
         'bat-cavalry-broke',
         '🐎',
-        `${own(e.side, us, 'f')} конница вырубила лучников (${SECTOR_NAME[e.target]}): ${e.archersLost} потерь.`,
+        `${own(e.side, us, 'f')} конница вырубила лучников, ${SECTOR_NAME[e.target]}, потерь ${e.archersLost}.`,
         mine,
       );
     case 'cavalry-intercepted':
@@ -143,11 +146,11 @@ function keyLine(e: BattleEvent, us: Side): ReportLine | null {
         e,
         'bat-cavalry-stopped',
         '🛑',
-        `${mine ? 'Нашу' : 'Чужую'} конницу перехватили на подходе к ${SECTOR_NAME[e.target]}.`,
+        `${mine ? 'Нашу' : 'Вражескую'} конницу перехватили на подходе, ${SECTOR_NAME[e.target]}.`,
         !mine,
       );
     case 'flank-turned':
-      return line(e, 'bat-flank', '↩️', `${own(e.side, us, 'm')} ${SECTOR_NAME[e.sector]} обойдён — удар пришёл сбоку.`, !mine);
+      return line(e, 'bat-flank', '↩️', `${own(e.side, us, 'm')} ${SECTOR_NAME[e.sector]} обойдён, удар пришёл сбоку.`, !mine);
     case 'rear-reached':
       // Значок строки — рисунок листа `bat-rear` (стрела в стену); эмодзи стоит, только пока лист не приехал, и
       // повторяет рисунок. Прежний ⚑ — не из Emoji 12.0 (docs/ui_audit.md, 12.8).
@@ -156,30 +159,30 @@ function keyLine(e: BattleEvent, us: Side): ReportLine | null {
         'bat-rear',
         '➡️',
         mine
-          ? `Противник дошёл до нашего тыла (${SECTOR_NAME[e.sector]}).`
-          : `Мы дошли до их тыла (${SECTOR_NAME[e.sector]}).`,
+          ? `Враг дошёл до нашего тыла, ${SECTOR_NAME[e.sector]}.`
+          : `Мы дошли до их тыла, ${SECTOR_NAME[e.sector]}.`,
         !mine,
       );
     case 'sector-broken':
-      return line(e, 'bat-sector-broken', '💔', `${own(e.side, us, 'm')} ${SECTOR_NAME[e.sector]} сломался — бойцы побежали.`, !mine);
+      return line(e, 'bat-sector-broken', '💔', `${own(e.side, us, 'm')} ${SECTOR_NAME[e.sector]} сломался, бойцы побежали.`, !mine);
     case 'reserve-committed':
-      return line(e, 'bat-reserve', '🚩', `${own(e.side, us, 'm')} резерв (${e.men}) вошёл в ${SECTOR_NAME[e.sector]}.`, mine);
+      return line(e, 'bat-reserve', '🚩', `${own(e.side, us, 'm')} резерв, ${e.men}, вошёл в ${SECTOR_NAME[e.sector]}.`, mine);
     case 'morale-collapsed':
       return line(
         e,
         'bat-morale',
         '🏳️',
-        `${own(e.side, us, 'pl')} сломались: бегущие сектора весили ${Math.round(e.brokenShare * 100)}% армии.`,
+        `${who(e.side, us)} сломались: бегущие сектора весили ${Math.round(e.brokenShare * 100)}% строя.`,
         !mine,
       );
     case 'annihilated':
-      return line(e, 'bat-annihilated', '☠️', `${own(e.side, us, 'pl')} перебиты.`, !mine);
+      return line(e, 'bat-annihilated', '☠️', `${who(e.side, us)} перебиты.`, !mine);
     case 'outfought':
       return line(
         e,
         'bat-outfought',
         '⚖️',
-        `${own(e.side, us, 'pl')} проиграли размен: сохранили ${e.kept}% против ${e.enemyKept}%.`,
+        `${who(e.side, us)} проиграли размен, сохранили ${e.kept}% против ${e.enemyKept}%.`,
         !mine,
       );
     case 'pursuit':
@@ -205,19 +208,19 @@ export const BATTLE_ART: readonly string[] = [
 function reasonText(r: BattleResult, us: Side, verdict: Verdict): string {
   const our = r.sides[us].total;
   const foe = r.sides[us === 'attacker' ? 'defender' : 'attacker'].total;
-  const cost = `Потеряно ${our.losses} из ${our.initial}, у противника — ${foe.losses} из ${foe.initial}.`;
+  const cost = `Потеряно ${our.losses} из ${our.initial}, у врага ${foe.losses} из ${foe.initial}.`;
   // Цена стоит у всех четырёх исходов, а не у трёх. У ничьей она важна не
   // меньше: именно по ней и видно, чем кончилось перемалывание, — а «ничего
   // решающего не случилось» без чисел звучит так, будто и не было ничего.
-  if (verdict === 'draw') return `Ни одна сторона не сломала другую — разошлись. ${cost}`;
+  if (verdict === 'draw') return `Ни одна сторона не сломала другую, разошлись. ${cost}`;
   const won = verdict !== 'defeat';
   if (verdict === 'pyrrhic') return `Поле осталось за нами, но заплачено дороже, чем взято. ${cost}`;
   switch (r.reason) {
     case 'annihilated':
-      return won ? `Противник перебит на месте. ${cost}` : `Отряд перебит. ${cost}`;
+      return won ? `Враг перебит на месте. ${cost}` : `Отряд перебит. ${cost}`;
     case 'morale':
       return won
-        ? `Чужие сектора побежали один за другим, и армия рассыпалась. ${cost}`
+        ? `Вражеские сектора побежали один за другим, и строй рассыпался. ${cost}`
         : `Наши сектора побежали один за другим, и строй рассыпался. ${cost}`;
     default:
       return won ? `Размен вышел в нашу пользу. ${cost}` : `Размен вышел не в нашу пользу. ${cost}`;

@@ -75,10 +75,6 @@ const DEBT: readonly { file: string; cp: number; near: string }[] = [
   { file: 'game/data/troops.ts', cp: 0x1fa83, near: "icon: '" },
   { file: 'ui/SyncModal.tsx', cp: 0x1fa9f, near: 'className="m-ico"' },
   { file: 'ui/map/ActionMenu.tsx', cp: 0x1fae5, near: 'name="ui-eye-off"' },
-  { file: 'ui/panels/ReportPanel.tsx', cp: 0x1faa6, near: 'name="ui-grave"' },
-  { file: 'ui/parts/Tavern.tsx', cp: 0x1fa99, near: 'казна: {Math.floor(s.gold)}' },
-  { file: 'ui/parts/Tavern.tsx', cp: 0x1fa99, near: '<span className="ico">' },
-  { file: 'ui/parts/Tavern.tsx', cp: 0x1fa99, near: 'Задать пир' },
   { file: 'ui/parts/TroopCardView.tsx', cp: 0x1faa8, near: 't.mult <= 1' },
   { file: 'world/data/diplomacy.ts', cp: 0x1faa8, near: "icon: '" },
 ];

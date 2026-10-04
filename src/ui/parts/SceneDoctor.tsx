@@ -71,7 +71,7 @@ export function SceneDoctor() {
       </div>
 
       <div className="doctor-log">
-        {notes.length === 0 && <div className="desc">Ничего не случилось — журнал пуст.</div>}
+        {notes.length === 0 && <div className="desc">Журнал пуст.</div>}
         {notes.map((n, i) => (
           <div key={i} className="doctor-line">
             <b>{n.kind}</b>
@@ -88,7 +88,7 @@ export function SceneDoctor() {
         <button
           className="btn ghost"
           onClick={() => {
-            if (!sceneLog.revive()) showToast('Сцены нет — пересобирать нечего.');
+            if (!sceneLog.revive()) showToast('Сцены нет.');
           }}
         >
           Пересобрать сцену
@@ -103,7 +103,7 @@ export function SceneDoctor() {
   async function copy(): Promise<void> {
     const ok = await copyText(sceneLog.report({ Telegram: tgAbout() }));
     setCopied(ok);
-    showToast(ok ? 'Отчёт скопирован.' : 'Скопировать не вышло — перепиши с экрана.');
+    showToast(ok ? 'Отчёт скопирован.' : 'Не вышло. Перепиши с экрана.');
   }
 }
 

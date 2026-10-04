@@ -50,9 +50,9 @@ export function Quiz({ seed, onDone }: { seed: number; onDone: (won: boolean) =>
           <small>нападают</small>
         </button>
         <button className={`mg-side${cls('theirs')}`} onClick={() => answer('theirs')} disabled={picked !== null}>
-          <span className="mg-side-name">Чужие</span>
+          <span className="mg-side-name">Враг</span>
           <Stack side={q.theirs} />
-          <small>обороняются</small>
+          <small>обороняется</small>
         </button>
       </div>
 
@@ -67,8 +67,7 @@ export function Quiz({ seed, onDone }: { seed: number; onDone: (won: boolean) =>
       )}
       {!picked && (
         <div className="note">
-          Силы примерно равны — решают роды войск. Тапни по той стороне, которая, по-твоему,
-          удержит поле.
+          Силы почти равны, решают рода войск. Нажми на ту сторону, что удержит поле.
         </div>
       )}
     </>

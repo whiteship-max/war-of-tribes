@@ -50,11 +50,11 @@ export const REASON_NAME: Record<ResultReason, string> = {
 
 /**
  * Строка журнала. `us` — сторона игрока: тогда стороны называются «наши» и
- * «чужие», а не «нападающие» и «обороняющиеся». Игрок читает журнал про себя,
+ * «враги», а не «нападающие» и «обороняющиеся». Игрок читает журнал про себя,
  * а не про абстрактные стороны; тестам и отладке `us` не нужен.
  */
 export function describeEvent(e: BattleEvent, us?: Side): string {
-  const name = (side: Side): string => (us ? (side === us ? 'наши' : 'чужие') : SIDE_NAME[side]);
+  const name = (side: Side): string => (us ? (side === us ? 'наши' : 'враги') : SIDE_NAME[side]);
   const who = 'side' in e ? name(e.side) : '';
   switch (e.id) {
     case 'phase-start':
@@ -64,57 +64,57 @@ export function describeEvent(e: BattleEvent, us?: Side): string {
       return `кость: ${name(a)} ${dieText(e.rolls[a], e.pips[a], e.ground?.[a])}, ${name(b)} ${dieText(e.rolls[b], e.pips[b], e.ground?.[b])}`;
     }
     case 'ground': {
-      const parts = [e.land > 0 ? `земля −${e.land}` : '', e.crossing > 0 ? `переправа −${e.crossing}${e.lifted ? ' — снята манёвром' : ''}` : ''].filter(Boolean);
-      return `${who}: место боя против них — ${parts.join(', ')}`;
+      const parts = [e.land > 0 ? `земля −${e.land}` : '', e.crossing > 0 ? `переправа −${e.crossing}${e.lifted ? ', снята манёвром' : ''}` : ''].filter(Boolean);
+      return `${who}: место боя против них, ${parts.join(', ')}`;
     }
     case 'weary':
-      return `${who}: вышли в бой уставшими — мораль ${Math.round(e.rest * 100)}% от полной`;
+      return `${who}: вышли в бой уставшими, мораль ${Math.round(e.rest * 100)}% от полной`;
     case 'volley':
       return `${who}: лучники выбили ${e.losses} до столкновения`;
     case 'spears-held':
-      return `${who}: копейщики (${SECTOR_NAME[e.sector]}) остановили кавалерийский удар: конница потеряла ${e.cavalryLost}, копья — ${e.spearsLost}`;
+      return `${who}: копейщики, ${SECTOR_NAME[e.sector]}, остановили конницу: она потеряла ${e.cavalryLost}, копья ${e.spearsLost}`;
     case 'cavalry-broke-archers':
-      return `${who}: конница вырубила лучников (${SECTOR_NAME[e.target]}): ${e.archersLost} потерь`;
+      return `${who}: конница вырубила лучников, ${SECTOR_NAME[e.target]}, потерь ${e.archersLost}`;
     case 'cavalry-intercepted':
-      return `${who}: конницу перехватили на подходе к ${SECTOR_NAME[e.target]}`;
+      return `${who}: конницу перехватили на подходе, ${SECTOR_NAME[e.target]}`;
     case 'flank-turned':
       return `${who}: ${SECTOR_NAME[e.sector]} обойдён`;
     case 'sector-collapsed':
       return `${who}: ${SECTOR_NAME[e.sector]} смят`;
     case 'sector-broken':
-      return `${who}: ${SECTOR_NAME[e.sector]} сломался — бегут`;
+      return `${who}: ${SECTOR_NAME[e.sector]} сломался, бегут`;
     case 'panic-spread':
-      return `${who}: паника перекинулась — ${SECTOR_NAME[e.from]} → ${SECTOR_NAME[e.to]}`;
+      return `${who}: паника перекинулась, ${SECTOR_NAME[e.from]} → ${SECTOR_NAME[e.to]}`;
     case 'ranged-lost':
-      return `${who}: проиграли перестрелку — потеряли ${e.losses} против ${e.enemyLosses}`;
+      return `${who}: проиграли перестрелку, ${e.losses} потерь против ${e.enemyLosses}`;
     case 'rear-reached':
-      return `${who}: тыл вскрыт (${SECTOR_NAME[e.sector]})`;
+      return `${who}: тыл вскрыт, ${SECTOR_NAME[e.sector]}`;
     case 'reserve-committed':
-      return `${who}: резерв (${e.men}) вошёл в ${SECTOR_NAME[e.sector]}`;
+      return `${who}: резерв, ${e.men}, вошёл в ${SECTOR_NAME[e.sector]}`;
     case 'infantry-shifted':
-      return `${who}: пехота (${e.men}) сдвинулась на ${SECTOR_NAME[e.to]}`;
+      return `${who}: пехота, ${e.men}, сдвинулась на ${SECTOR_NAME[e.to]}`;
     case 'archers-kiting':
-      return `${who}: лучники (${SECTOR_NAME[e.sector]}) держат дистанцию`;
+      return `${who}: лучники, ${SECTOR_NAME[e.sector]}, держат дистанцию`;
     case 'depth':
-      return `${who}: ${e.row === 'strike' ? `обход у ${SECTOR_NAME[e.sector]}` : SECTOR_NAME[e.sector]} шире фронта — в строю ${e.width} из ${e.men}, остальные встают на место павших`;
+      return `${who}: ${e.row === 'strike' ? `обход у ${SECTOR_NAME[e.sector]}` : SECTOR_NAME[e.sector]} шире фронта, в строю ${e.width} из ${e.men}, остальные встают на место павших`;
     case 'round':
-      return `никто не дрогнул — бой идёт новым кругом, круг ${e.round}`;
+      return `никто не дрогнул, круг ${e.round}`;
     case 'rounds-out':
-      return `бой шёл ${e.rounds} кругами, и не дрогнул никто — стороны расходятся`;
+      return `бой шёл ${e.rounds} кругами, никто не дрогнул, стороны расходятся`;
     case 'morale-collapsed':
-      return `${who}: армия сломалась — бегут сектора весом ${Math.round(e.brokenShare * 100)}% (мораль ${e.morale})`;
+      return `${who}: строй сломался, бегут сектора весом ${Math.round(e.brokenShare * 100)}%, мораль ${e.morale}`;
     case 'annihilated':
       return `${who}: перебиты`;
     case 'outfought':
-      return `${who}: проиграли размен — сохранили ${e.kept}% против ${e.enemyKept}%`;
+      return `${who}: проиграли размен, сохранили ${e.kept}% против ${e.enemyKept}%`;
     case 'retreat':
       return `${who}: ${e.orderly ? 'отходят' : 'бегут'}`;
     case 'pursuit':
       return `${who}: преследование добило ${e.losses}`;
     case 'result':
-      if (e.winner === 'draw') return 'ничья: стороны разошлись';
+      if (e.winner === 'draw') return 'ничья, стороны разошлись';
       return e.pyrrhic
-        ? `победа с непомерными потерями: ${name(e.winner)} удержали поле, но потеряли больше противника (${REASON_NAME[e.reason]})`
-        : `победа: ${name(e.winner)} — ${REASON_NAME[e.reason]}`;
+        ? `победа с непомерными потерями: ${name(e.winner)} удержали поле, но потеряли больше врага, ${REASON_NAME[e.reason]}`
+        : `победа: ${name(e.winner)}, ${REASON_NAME[e.reason]}`;
   }
 }

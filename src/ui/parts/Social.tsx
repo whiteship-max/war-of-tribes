@@ -8,7 +8,7 @@ import {
   type SocialLink,
 } from '@/game/data/social';
 import { useGame } from '@/game/store';
-import { copyText, inTelegram, openTelegram, shareLink, tgUserId } from '@/telegram/webapp';
+import { copyText, openTelegram, shareLink, tgUserId } from '@/telegram/webapp';
 import { Icon } from '@/ui/icons/Icon';
 
 /**
@@ -17,18 +17,15 @@ import { Icon } from '@/ui/icons/Icon';
  * Ни за подписку, ни за приглашённого друга ничего не начисляется, и это не
  * забывчивость: проверить подписку без сервера физически нечем — это вызов
  * getChatMember от имени бота. Награда, выданная за нажатие кнопки, досталась бы
- * и тем, кто ничего не подписал. Поэтому кнопка открывает ссылку, а про награду
- * сказано прямо. Изображать выдачу нельзя, обходных путей заводить тоже.
+ * и тем, кто ничего не подписал. Поэтому кнопка открывает ссылку, а награды экран
+ * не обещает ни словом. Изображать выдачу нельзя, обходных путей заводить тоже.
  */
 export function Social() {
   return (
     <>
       <h3>Племя в сети</h3>
-      <div className="note">
-        Награды за подписку пока нет: проверить её может только сервер, а сервера у игры нет.
-        Появится он — появится и награда.
-      </div>
-      {SOCIAL_LINKS.map((link) => (
+      {/* Ссылки, которой нет, нет и в списке: невыпущенное не показывается (docs/ui_audit.md, 14.1, 3). */}
+      {SOCIAL_LINKS.filter((link) => link.url).map((link) => (
         <SocialRow key={link.id} link={link} />
       ))}
       {/*
@@ -51,17 +48,11 @@ function SocialRow({ link }: { link: SocialLink }) {
         <div className="title">{link.name}</div>
         <div className="desc">{link.note}</div>
       </div>
-      {link.url ? (
-        // Ссылка t.me открывается внутри клиента: openLink увёл бы игрока во
-        // внешний браузер, откуда в мини-аппку он уже не вернётся.
-        <button className="btn ghost" onClick={() => openTelegram(link.url as string)}>
-          Открыть
-        </button>
-      ) : (
-        <button className="btn ghost" disabled>
-          Скоро
-        </button>
-      )}
+      {/* Ссылка t.me открывается внутри клиента: openLink увёл бы игрока во
+          внешний браузер, откуда в мини-аппку он уже не вернётся. */}
+      <button className="btn ghost" onClick={() => openTelegram(link.url as string)}>
+        Открыть
+      </button>
     </div>
   );
 }
@@ -81,30 +72,20 @@ function Invite() {
   const share = async (): Promise<void> => {
     const how = await shareLink(url, INVITE_TEXT);
     if (how === 'clipboard') showToast('Ссылка скопирована.');
-    else if (how === 'none') showToast('Поделиться не вышло — скопируй ссылку вручную.');
+    else if (how === 'none') showToast('Не вышло. Скопируй ссылку сам.');
   };
 
   return (
     <>
       <h3>Позвать своих</h3>
-      <div className="note">
-        За приглашённого друга ничего не начисляется: проверить, что он пришёл, может только
-        сервер, а сервера для этого у игры нет.
-      </div>
-      {!link && (
-        <div className="note bad">
-          {inTelegram()
-            ? 'Личной ссылки пока нет: мини-аппке нужно короткое имя в @BotFather.'
-            : 'Игра открыта не из Telegram, поэтому личной ссылки нет — ниже обычный адрес игры.'}
-        </div>
-      )}
+      {!link && <div className="note bad">Личной ссылки нет. Ниже обычный адрес игры.</div>}
       {/* Ссылка видна текстом: скопировать её в буфер выходит не везде — для
           этого нужен защищённый контекст, а вебвью бывает и без него. */}
       <div className="invite-link" onClick={() => void copy()}>
         {url}
       </div>
       <button className="btn wide" onClick={() => void share()}>
-        Поделиться ссылкой
+        Поделиться
       </button>
       <button className="btn ghost wide" onClick={() => void copy()}>
         {copied ? 'Скопировано' : 'Скопировать'}
@@ -115,6 +96,6 @@ function Invite() {
   async function copy(): Promise<void> {
     const ok = await copyText(url);
     setCopied(ok);
-    showToast(ok ? 'Ссылка скопирована.' : 'Скопировать не вышло — выдели ссылку вручную.');
+    showToast(ok ? 'Ссылка скопирована.' : 'Не вышло. Выдели ссылку сам.');
   }
 }

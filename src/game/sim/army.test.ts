@@ -126,8 +126,8 @@ describe('снаряжение', () => {
     catchUp(s, 300, 0.5);
     expect(s.equipment.spear).toBe(3);
     // А новый заказ без материалов не поставить, и сказано об этом прямо.
-    expect(forgeCheck(s, 'spear', 1).blocked).toMatch(/материалов/);
-    expect(startForge(s, 'spear', 1)).toMatch(/материалов/);
+    expect(forgeCheck(s, 'spear', 1).blocked).toMatch(/Не хватает запасов/);
+    expect(startForge(s, 'spear', 1)).toMatch(/Не хватает запасов/);
   });
 });
 
@@ -177,7 +177,7 @@ describe('казармы', () => {
     const s = warband(6);
     s.equipment.spear = 20;
     const free = idleCount(s);
-    expect(recruitCheck(s, 'spearman', free + 1).blocked).toMatch(/Свободных жителей только/);
+    expect(recruitCheck(s, 'spearman', free + 1).blocked).toMatch(/Свободных рук только/);
     expect(recruitCheck(s, 'spearman', free).freeAfter).toBe(0);
   });
 

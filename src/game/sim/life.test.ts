@@ -159,7 +159,7 @@ describe('покой в шестьдесят', () => {
     expect(walked, 'пошёл домой сам').toBe(true);
     expect(retired, 'ушёл у ворот ровно один раз').toBe(1);
     expect(s.agents.scout.vacant).toBe(true);
-    expect(await world.moveFigure('scout', { x: home.x + 5, y: home.y }), 'пустому месту приказов нет').toMatch(/место пустует/);
+    expect(await world.moveFigure('scout', { x: home.x + 5, y: home.y }), 'пустому месту приказов нет').toMatch(/[Мм]есто пустует/);
   });
 });
 

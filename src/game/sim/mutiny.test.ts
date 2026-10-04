@@ -760,7 +760,8 @@ describe('тон: буднично, без одобрения и без глум
     code('src/ui/panels/OrderPanel.tsx'),
     code('src/ui/panels/PeoplePanel.tsx', 'function Bonded', 'export function PeoplePanel'),
     code('src/ui/parts/Market.tsx', 'function BondedRow', 'function GoodRow'),
-    code('src/ui/panels/BuildingPanel.tsx', 'function WorkerSlots', 'function BuildingData'),
+    // Места рабочих и невольников — окно постройки (`next/BuildingNew`; прежние места удалены, docs/ui_audit.md, 16).
+    code('src/ui/next/BuildingNew.tsx'),
     code('src/game/sim/mutiny.ts'),
     // Лестница участи говорит об уведённых и разошедшихся — тем же тоном.
     code('src/world/data/fates.ts'),

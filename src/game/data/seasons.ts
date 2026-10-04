@@ -89,9 +89,9 @@ export const COLD_DEATH = gameSec(2 * DAY_LENGTH);
 export const FREEZING_MORALE_PENALTY = 20;
 
 export const SEASON_META: Record<Season, { name: string; icon: string; hint: string }> = {
-  spring: { name: 'Весна', icon: '🌱', hint: 'Земля оттаяла: сбор и поля идут веселее.' },
-  summer: { name: 'Лето', icon: '☀️', hint: 'Длинный день: поля, стройка и добыча на пике, но зверь разбрёлся.' },
-  autumn: { name: 'Осень', icon: '🍂', hint: 'Жатва и жирный зверь. Успей набить склады — дальше зима.' },
+  spring: { name: 'Весна', icon: '🌱', hint: 'Земля оттаяла, сбор и поля идут веселее.' },
+  summer: { name: 'Лето', icon: '☀️', hint: 'Длинный день. Поля, стройка и добыча на пике, зверь разбрёлся.' },
+  autumn: { name: 'Осень', icon: '🍂', hint: 'Жатва и жирный зверь. Набей склады до зимы.' },
   winter: { name: 'Зима', icon: '❄️', hint: 'Поля мертвы, добыча просела, дрова горят. Считай запасы.' },
 };
 

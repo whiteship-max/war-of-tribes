@@ -2226,7 +2226,7 @@ export type PlaceKind = 'city' | 'castle' | 'lair' | 'ruin';
 
 export interface PlaceLook {
   kind: PlaceKind;
-  /** Размер места: лагерь, деревня, крепость, город (`world/data/meta.stageOf`). */
+  /** Размер места: стоянка, деревня, острог, крепость (`world/data/meta.stageOf`). */
   stage: Stage;
   /** Знамя владельца — цвет стороны (`RELATION_META`). */
   color: string;

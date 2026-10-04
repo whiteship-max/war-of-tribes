@@ -14,7 +14,6 @@ import { buildingOfType } from '@/game/derived';
 import { RHUMB_WORDS } from '@/world/data/letters';
 import type { LetterView } from '@/world/types';
 import { Icon } from '@/ui/icons/Icon';
-import { useUiNew } from '@/ui/uimode';
 import { Cost } from '@/ui/parts/Cost';
 import { useRaidWords } from '@/ui/parts/raidWords';
 import { dispatches, leftWords, type Dispatch } from './dispatch';
@@ -36,8 +35,7 @@ async function answerDispatch(d: Dispatch, choiceId: string): Promise<string | n
 
 export function Mail() {
   const s = useGame((g) => g.s);
-  // Слова у обоих видов одни (docs/ui_texts.md, пачка 14): «вести», «город»; в новом виде «новое» — точкой.
-  const next = useUiNew();
+  // Слова — пачки 14 (docs/ui_texts.md): «вести», «город»; «новое» — точкой.
   const letters = useWorld((w) => w.letters);
   const open = useRealm((r) => r.mail);
   const openMail = useRealm((r) => r.openMail);
@@ -70,8 +68,7 @@ export function Mail() {
   }, [shown, mark]);
 
   if (done) {
-    if (next) {
-      return (
+    return (
         <div className="nx-mail">
           <div className="nx-mhead">
             <span className="nx-mmed">
@@ -86,23 +83,12 @@ export function Mail() {
             К вестям
           </button>
         </div>
-      );
-    }
-    return (
-      <div className="panel dispatch">
-        <h3>{done.title}</h3>
-        <p className="dispatch-done">{done.text}</p>
-        <button className="btn wide" onClick={() => setDone(null)}>
-          К вестям
-        </button>
-      </div>
     );
   }
 
   if (current) {
-    const Card = next ? DispatchCardNew : DispatchCard;
     return (
-      <Card
+      <DispatchCardNew
         d={current}
         letter={letters.find((l) => l.id === current.letterId) ?? null}
         onBack={() => openMail(null)}
@@ -116,8 +102,7 @@ export function Mail() {
   }
 
   if (list.length === 0) {
-    if (next) {
-      return (
+    return (
         <div className="panel dispatch-empty">
           <div className="big">
             <Icon name="ui-mail" glyph="✉️" />
@@ -125,13 +110,6 @@ export function Mail() {
           <b className="nx-empty">Вестей нет</b>
           <div className="note">Сюда приходят вести из города и от соседей. Без ответа каждая решится сама.</div>
         </div>
-      );
-    }
-    return (
-      <div className="panel dispatch-empty">
-        <div className="big">✉️</div>
-        <div className="note">Вестей нет. Сюда приходят вести из города и от соседей. Без ответа каждая решится сама.</div>
-      </div>
     );
   }
 
@@ -152,87 +130,10 @@ export function Mail() {
                   {d.left !== null && <em>{leftWords(d.left)}</em>}
                 </small>
               </span>
-              {fresh && (next ? <span className="nx-new" aria-label="новое" /> : <span className="new">новое</span>)}
+              {fresh && <span className="nx-new" aria-label="новое" />}
             </button>
           );
         })}
-      </div>
-    </div>
-  );
-}
-
-/**
- * Открытое донесение. Показывает всегда три вещи: что предлагают, что даст
- * каждый ответ и **что будет, если промолчать**. Молчание — такой же исход, как
- * ответ, и прятать его значило бы оставить игрока с последствием, о котором
- * нигде не сказано.
- */
-function DispatchCard({
-  d,
-  letter,
-  onBack,
-  onAnswer,
-}: {
-  d: Dispatch;
-  letter: LetterView | null;
-  onBack: () => void;
-  onAnswer: (id: string) => void;
-}) {
-  const spot = useWorld((w) => w.spotLetter);
-  const openMap = useGame((g) => g.openMap);
-  const openBuilding = useGame((g) => g.openBuilding);
-  const s = useGame((g) => g.s);
-  const statue = buildingOfType(s, 'statue');
-  // Окно этого отряда — словами общего окна; письмо и отряд связаны `marchId`.
-  const raids = useRaidWords();
-  const raid = letter?.kind === 'raid' ? (raids.find((w) => w.win.march.id === letter.marchId) ?? null) : null;
-
-  return (
-    <div className="panel dispatch">
-      <div className="dispatch-ico">
-        <Icon name={d.iconName} glyph={d.icon} />
-      </div>
-      <h3>{d.title}</h3>
-      {letter && <FromLine letter={letter} onSpot={() => spot(letter.id)} />}
-      <p>{d.text}</p>
-      {/* Что просят одним числом на всё донесение — тем же `Cost`, что у стройки. */}
-      <Cost cost={d.cost} />
-      {d.left !== null && (
-        <p className="dispatch-left">
-          {d.leftText}: <b>{leftWords(d.left)}</b>
-        </p>
-      )}
-      <p className="dispatch-silence">{d.silence}</p>
-      <div className="options">
-        {d.choices.map((c) => {
-          const priced = Object.values(c.cost).some((n) => (n ?? 0) > 0);
-          return (
-            <button key={c.id} className="opt" disabled={c.block !== null} onClick={() => onAnswer(c.id)}>
-              <span>{c.label}</span>
-              {(c.block ?? c.hint) && <small>{c.block ?? c.hint}</small>}
-              {priced && <Cost cost={c.cost} />}
-            </button>
-          );
-        })}
-        {/* Предупреждение решается не здесь, и об этом сказано словами: два
-            ответа — перехватить в поле или собрать дружину к воротам. У частокола
-            строй раскладывает правило боя, и расставлять там нечего. */}
-        {letter?.kind === 'raid' && (
-          <>
-            <button className="opt" onClick={() => openMap()}>
-              <span>На карту</span>
-              <small>Перехватить в поле</small>
-            </button>
-            <button className="opt" disabled={!statue} onClick={() => statue && openBuilding(statue.id)}>
-              <span>Дружина</span>
-              {/* Успевает ли полный сбор — словами общего окна. */}
-              <small>{['Собрать к воротам', raid?.short].filter(Boolean).join(' · ')}</small>
-            </button>
-          </>
-        )}
-        <button className="btn ghost wide" onClick={onBack}>
-          {d.choices.length > 0 ? 'Отложить' : 'К вестям'}
-        </button>
       </div>
     </div>
   );
@@ -330,30 +231,6 @@ function DispatchCardNew({
       <button className="nx-mback" onClick={onBack}>
         {d.choices.length > 0 ? 'Отложить' : 'К вестям'}
       </button>
-    </div>
-  );
-}
-
-/**
- * Кто прислал письмо и где он. Имя переносится и не обрезается — длину его никто
- * не обещал. Лупа ведёт на карту и есть ровно тогда, когда есть что показать:
- * клетку мир отдаёт только разведанную; неразведанный двор назван румбом и
- * расстоянием. Уйдёшь с карты — письмо откроется здесь же (`open.ts`).
- */
-function FromLine({ letter, onSpot }: { letter: LetterView; onSpot: () => void }) {
-  const from = letter.from;
-  const where = from && !from.cell ? `${RHUMB_WORDS[from.rhumb]}, ${from.cells} кл., не разведано` : null;
-  return (
-    <div className="letter-from">
-      <span className="who">
-        {letter.fromName}
-        {where && <small>{where}</small>}
-      </span>
-      {from?.cell && (
-        <button className="spot" onClick={onSpot} aria-label="Показать на карте">
-          🔍
-        </button>
-      )}
     </div>
   );
 }

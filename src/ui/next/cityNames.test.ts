@@ -39,11 +39,9 @@ describe('имена на выбор', () => {
 });
 
 describe('шаг имени у главной кнопки', () => {
-  it('встаёт, только если шаг есть и у города нет имени', () => {
-    expect(startStep(true, false)).toBe('name');
-    expect(startStep(true, true), 'назван — входит').toBe('enter');
-    expect(startStep(false, false), 'прежний вид — без шага').toBe('enter');
-    expect(startStep(false, true)).toBe('enter');
+  it('встаёт, только если у города нет имени', () => {
+    expect(startStep(false)).toBe('name');
+    expect(startStep(true), 'назван — входит').toBe('enter');
   });
 
   it('назван ли город — по сохранению: пустое и невидимое — не имя, названное — имя', () => {
@@ -52,16 +50,16 @@ describe('шаг имени у главной кнопки', () => {
     expect(cityName(s.profile.city), 'новая партия без имени').toBeNull();
     for (const raw of ['', '   ', '​‎']) {
       setCity(s, raw);
-      expect(startStep(true, cityName(s.profile.city) !== null), JSON.stringify(raw)).toBe('name');
+      expect(startStep(cityName(s.profile.city) !== null), JSON.stringify(raw)).toBe('name');
     }
     setCity(s, suggestCity(s.seed, 0));
     expect(profileCity(s.profile)).toBe(suggestCity(s.seed, 0));
-    expect(startStep(true, cityName(s.profile.city) !== null)).toBe('enter');
+    expect(startStep(cityName(s.profile.city) !== null)).toBe('enter');
   });
 
   it('стартовый экран спрашивает шаг этой функцией и по имени из сохранения', () => {
     const src = readFileSync(join(__dirname, '..', 'StartScreen.tsx'), 'utf8');
-    expect(src).toContain("startStep(naming !== null, named) === 'name'");
+    expect(src).toContain("startStep(named) === 'name'");
     expect(src).toContain('cityName(g.s.profile.city) !== null');
     const naming = readFileSync(join(__dirname, 'CityNaming.tsx'), 'utf8');
     // Имя пишет одна дверь — `setCity` (очистка договора), и партия сохраняется сразу.

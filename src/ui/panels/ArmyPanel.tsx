@@ -14,8 +14,10 @@ import { useWorld, worldNow } from '@/world/store';
 import { postureOf } from '@/world/muster';
 import { moraleOf } from '@/game/battle/describe';
 import { WOUND_DAYS } from '@/game/constants';
-import { restLine } from '../parts/restWords';
-import { waitDaysBoth } from '../parts/wait';
+import { REST_WHY, restLine } from '../parts/restWords';
+import { waitDays } from '../parts/wait';
+import { count } from '../parts/plural';
+import { tipAt } from '@/ui/next/tip';
 import { TroopCardView } from '../parts/TroopCardView';
 import { Icon } from '@/ui/icons/Icon';
 
@@ -37,33 +39,37 @@ export function ArmyPanel() {
   return (
     <div className="panel">
       <h2>
-        ⚔️ Дружина <small>бойцов {armySize(s)} · мощь {Math.round(armyPower(s))}</small>
+        ⚔️ Дружина <small>{count(armySize(s), 'боец', 'бойца', 'бойцов')} · мощь {Math.round(armyPower(s))}</small>
       </h2>
 
-      <div className="mod total">
+      <div
+        className="mod total"
+        role="button"
+        tabIndex={0}
+        onClick={(e) =>
+          tipAt(e.currentTarget, { title: 'Оборона', body: 'Частокол, башня, жители, гарнизон и собранный дома отряд.' })
+        }
+      >
         <span className="ico">🛡️</span>
-        <span className="name">
-          Защита поселения
-          <em className="sub">частокол, башня, жители, гарнизон и дружина, собранная дома</em>
-        </span>
+        <span className="name">Оборона</span>
         <span className="val pos">{defense(s).toFixed(0)}</span>
       </div>
       <div className="mod">
         <span className="ico"><Icon name="ui-home" glyph="🏠" /></span>
-        <span className="name">Дома, в обороне</span>
+        <span className="name">Гарнизон</span>
         <span className="val">{home}</span>
       </div>
       {druzhina > 0 && (
         <div className="mod">
           <span className="ico">🎖️</span>
           <span className="name">
-            Дружина полководца
+            Отряд полководца
             <em className="sub">
               {posture === 'stands'
-                ? 'собрана и дома — в гарнизоне'
+                ? 'собран, стоит в гарнизоне'
                 : posture === 'gathering'
-                  ? 'идёт сбор — не защищает никого'
-                  : 'в пути или в поле — деревню не защищает'}
+                  ? 'идёт сбор, город не защищает'
+                  : 'в походе, город не защищает'}
             </em>
           </span>
           <span className={`val${posture === 'stands' ? '' : ' neg'}`}>{druzhina}</span>
@@ -71,30 +77,24 @@ export function ArmyPanel() {
       )}
       <div className="mod">
         <span className="ico"><Icon name="ui-banner" glyph="🚩" /></span>
-        <span className="name">Не в обороне: сбор, поле, походы</span>
+        <span className="name">Не в обороне</span>
         <span className={`val${away > 0 ? ' neg' : ''}`}>{away}</span>
       </div>
       {training > 0 && (
         <div className="mod">
           <span className="ico"><Icon name="ui-target" glyph="🎯" /></span>
-          <span className="name">На учениях</span>
+          <span className="name">Новобранцы</span>
           <span className="val">{training}</span>
         </div>
       )}
 
       <h3>Мораль между боями</h3>
       <div className="note">
-        После боя армия уставшая: мораль тех, кто уцелел, просела и возвращается к полной по прямой за срок лазарета —{' '}
-        {waitDaysBoth(WOUND_DAYS)}, в пути и стоя. Брошенная в бой сразу, армия бежит раньше: сектор, у которого
-        кончилась мораль, уходит с поля. Так же устаёт и противник — лагерь после вылазки, отряд после перехвата.
+        После боя мораль уцелевших проседает и за {waitDays(WOUND_DAYS)} возвращается к полной. {REST_WHY}
       </div>
-      {general?.rest && <div className="note warn">{restLine(general.rest, 'Дружина дралась', worldNow())}</div>}
+      {general?.rest && <div className="note warn">{restLine(general.rest, 'Отряд дрался', worldNow())}</div>}
 
-      <h3>Состав гарнизона</h3>
-      <div className="note">
-        Кто кого бьёт, решают показатели вида: нападение и защита в огне, в натиске и в морали — от рода и от того, что
-        на бойце надето. Тап по виду — карточка: его показатели, сильные и слабые стороны и что он стоит.
-      </div>
+      <h3>Состав дружины</h3>
       {TROOPS.map((def) => {
         const n = Math.max(0, s.army[def.id] ?? 0);
         const kind = KIND_OF[def.id];
@@ -124,7 +124,7 @@ export function ArmyPanel() {
 
       {barracks && (
         <button className="btn wide" onClick={() => openBuilding(barracks.id)}>
-          ⚔️ В казармы — нанять
+          ⚔️ Нанять
         </button>
       )}
     </div>

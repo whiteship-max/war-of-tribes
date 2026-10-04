@@ -29,6 +29,7 @@ import {
   SKILL_OF,
   STEALTH_PER_CIRCLE,
   SLOT_COUNT,
+  THIRD_SLOT_LEVEL,
   XP_CAP,
   levelOf,
   slotsOpen,
@@ -334,7 +335,7 @@ export function recordDeed(s: GameState, deed: Deed): number {
     const skill = SKILL_OF[deed.agent];
     log(
       s,
-      `${titled(s, deed.agent)} дошёл до ${ORDINAL[now]} уровня` +
+      `${titled(s, deed.agent)} дошёл до ур. ${now}` +
         (skill ? `: ${skill.name.toLowerCase()} ${circlesText(now)}.` : '.'),
       'good',
     );
@@ -423,8 +424,8 @@ export function recordDeath(s: GameState, fell: NonNullable<HomeEffect['fell']>,
   const why = fell.why.length > 0 ? ` ${fell.why.join(', ')}.` : '';
   log(
     s,
-    `${who} погиб ${fell.where}: ${yearsWord(years)}, ${levelWord(level)} уровень.` +
-      `${why} Перед приказом гибель стояла ${perilText(fell.peril)}. Место пустует — нанять ${where(fell.agent)}.`,
+    `${who} погиб ${fell.where}: ${yearsWord(years)}, ур. ${level}.` +
+      `${why} Риск гибели был ${perilText(fell.peril)}. Место пустует, нанять ${where(fell.agent)}.`,
     'bad',
   );
   return true;
@@ -439,8 +440,8 @@ export function recordRetire(s: GameState, retired: NonNullable<HomeEffect['reti
   if (!vacate(s, retired.agent, retired.person, 'rest')) return false;
   log(
     s,
-    `${who} ушёл на покой в ${RETIRE_AGE} лет, дослужив до ${ORDINAL[level]} уровня. ` +
-      `Место пустует — нанять ${where(retired.agent)}.`,
+    `${who} ушёл на покой в ${RETIRE_AGE} лет, дослужив до ур. ${level}. ` +
+      `Место пустует, нанять ${where(retired.agent)}.`,
     'info',
   );
   return true;
@@ -557,10 +558,10 @@ export function regearBlock(agent: FigureId, where: Placed): string | null {
   if (canRegear(where)) return null;
   const name = FIGURE_BY_ID[agent].name;
   const place = placeOf(where);
-  if (place === 'vacant') return `Места ${FIGURE_BY_ID[agent].one} некому занять: переодевать некого.`;
-  if (place === 'down') return `${name} вне строя: переодеться сможет, когда вернётся домой.`;
-  if (where.phase === 'moving') return `${name} в пути: переодеваются дома — у своих ворот или в городе.`;
-  return `${name} в поле: переодеваются дома — у своих ворот или в городе.`;
+  if (place === 'vacant') return 'Место пустует, переодевать некого.';
+  if (place === 'down') return `${name} вне строя, переодеться сможет дома.`;
+  if (where.phase === 'moving') return `${name} в пути, переодеваются дома.`;
+  return `${name} в поле, переодеваются дома.`;
 }
 
 /**
@@ -576,15 +577,15 @@ export function regear(
   owned: readonly ItemId[],
 ): string | null {
   const p = s.agents?.[agent];
-  if (!p || p.vacant) return 'Место пустует: переодевать некого.';
+  if (!p || p.vacant) return 'Место пустует, переодевать некого.';
   const blocked = regearBlock(agent, where);
   if (blocked) return blocked;
   if (!Number.isInteger(slot) || slot < 0 || slot >= SLOT_COUNT) return 'Такого места нет.';
-  if (slot >= slotsOpen(p.xp)) return 'Это место откроется с четвёртого уровня.';
+  if (slot >= slotsOpen(p.xp)) return `Это место откроется на ур. ${THIRD_SLOT_LEVEL}.`;
   if (item !== null) {
-    if (!Object.prototype.hasOwnProperty.call(ITEMS, item)) return 'Такого предмета нет.';
-    if (!owned.includes(item)) return 'Этого предмета у тебя нет.';
-    if (p.slots.some((x, i) => i !== slot && x === item)) return 'Этот предмет уже надет.';
+    if (!Object.prototype.hasOwnProperty.call(ITEMS, item)) return 'Такой вещи нет.';
+    if (!owned.includes(item)) return 'Этой вещи у тебя нет.';
+    if (p.slots.some((x, i) => i !== slot && x === item)) return 'Эта вещь уже надета.';
   }
   p.slots[slot] = item;
   return null;

@@ -72,11 +72,11 @@ export function engineInfo(s: GameState): EngineInfo {
   const options = ENGINES.map((def): EngineOption => {
     const cost = engineCost(def);
     let blocked: string | null = null;
-    if (!tower) blocked = 'Башни в посёлке нет.';
+    if (!tower) blocked = 'Башни в городе нет.';
     else if (installing) blocked = `Башня занята: ставят ${current.acc}.`;
     else if (current?.id === def.id) blocked = 'Уже стоит.';
     else if (def.level > level) blocked = `Нужна башня ${def.level} уровня — сейчас ${level}.`;
-    else if (!canAfford(s, cost)) blocked = 'Не хватает припаса.';
+    else if (!canAfford(s, cost)) blocked = 'Не хватает запасов.';
     return { def, cost, seconds: engineSeconds(def), blocked };
   });
   return {

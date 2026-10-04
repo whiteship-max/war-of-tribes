@@ -18,6 +18,7 @@ import type { TroopStack } from '@/game/battle/kinds';
 import type { Fate, FigureView, PlayerProfile, SettlementView, WorldPulse } from './types';
 import type { WorldSave } from './local/state';
 import { shieldVillagers } from './lairs';
+import { homeTheatre } from './theatre/theatre';
 
 const START = 1_700_000_000_000;
 const MIN = 60_000;
@@ -177,8 +178,8 @@ describe('осаду со стороны видно по правилу тума
     // обзора рогаток нет» проверялось бы на поселении, которого игрок и так не видит.
     const probe = thaw(fz.save, fz.at, 7, undefined, true);
     const info = await probe.world.info();
-    const list = (await probe.world.region({ x: info.home.x - 100, y: info.home.y - 100, w: 200, h: 200 })).settlements
-      .filter((s) => !s.mine && !s.ruin);
+    // Весь регион игрока: логова стоят только в нём (docs/map_tw.md, 0.−2), и дальние лежат за сотню клеток.
+    const list = (await probe.world.region(homeTheatre(info.home)!.box)).settlements.filter((s) => !s.mine && !s.ruin);
     const seen = list.find((s) => s.visible);
     const unseen = list.find((s) => !s.visible);
     expect(seen && unseen, 'в округе есть и видимый, и невидимый двор').toBeTruthy();

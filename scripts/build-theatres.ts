@@ -1,18 +1,18 @@
 // Запекание регионов карты (docs/map_tw.md, раздел 13): `npm run theatres:build`.
 //
-// Разметка выводится из атласа (`src/ui/map/tw/theatre/derive.ts`) по списку центров и цене местности
-// (`list.ts`) и ложится в `src/ui/map/tw/theatre/data.ts` — его руками не правят. Тест `theatre.test.ts`
+// Разметка выводится из атласа (`src/world/theatre/derive.ts`) по списку центров и цене местности
+// (`list.ts`) и ложится в `src/world/theatre/data.ts` — его руками не правят. Тест `theatre.test.ts`
 // сверяет запечённое с выводом: поправил список или цену и не пересобрал — красный тест.
 //
 // Печатает таблицу регионов: клетки, рамку и память заранее испечённого по уровням — это числа раздела 13.
 import { writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { atlasSize } from '@/world/atlas/atlas';
-import { deriveTheatres } from '@/ui/map/tw/theatre/derive';
-import { THEATRE_LIST } from '@/ui/map/tw/theatre/list';
-import { fnv1a, pack } from '@/ui/map/tw/theatre/pack';
+import { deriveTheatres } from '@/world/theatre/derive';
+import { THEATRE_LIST } from '@/world/theatre/list';
+import { fnv1a, pack } from '@/world/theatre/pack';
 
-const out = fileURLToPath(new URL('../src/ui/map/tw/theatre/data.ts', import.meta.url));
+const out = fileURLToPath(new URL('../src/world/theatre/data.ts', import.meta.url));
 const t0 = performance.now();
 const cells = deriveTheatres();
 const ms = performance.now() - t0;
@@ -41,7 +41,7 @@ writeFileSync(out, body, 'utf8');
 console.log(`Разметка: ${ms.toFixed(0)} мс, ${rle.length} знаков base64, подпись ${hash}. Записано: ${out}`);
 
 // Таблица — по только что записанным данным: модуль регионов читает их сам.
-const { theatres } = await import('@/ui/map/tw/theatre/theatre');
+const { theatres } = await import('@/world/theatre/theatre');
 const { PREBAKE_BUDGET, planBytes, theatrePlan } = await import('@/ui/map/tw/theatre/plan');
 const { tileMemory } = await import('@/ui/map/grid');
 const MB = (b: number): string => (b / 1048576).toFixed(1).padStart(5);
@@ -69,7 +69,7 @@ console.log(`\nХудший регион: низкая ${MB(worst.low).trim()} �
 const { fitToSettle } = await import('@/world/settle');
 const { settleable } = await import('@/world/land');
 const { AI_RANGE, LAIR_HOME_GAP, WORLD_ORIGIN, WORLD_SIZE } = await import('@/world/data/tuning');
-const { theatreIndexAt } = await import('@/ui/map/tw/theatre/theatre');
+const { theatreIndexAt } = await import('@/world/theatre/theatre');
 const STEP = 3;
 let homes = 0;
 let touched = 0;

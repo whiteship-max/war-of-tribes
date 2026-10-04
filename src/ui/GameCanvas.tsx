@@ -1,6 +1,6 @@
 import { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import { useGame } from '@/game/store';
-import { SCENES, setMarkerLook, type MarkerArt, type TribeScene } from '@/render/Scene';
+import { SCENES, setMarkerArt, type MarkerArt, type TribeScene } from '@/render/Scene';
 import { onSheet, sheetReady, symbolOf } from '@/ui/icons/sheet';
 import { bootDone, bootStage } from '@/boot/stage';
 import { afterPaint } from '@/boot/paint';
@@ -10,7 +10,6 @@ import { SceneTrouble } from './SceneTrouble';
 import { measureViewport } from '@/viewport';
 import { nextFrame } from '@/render/loop';
 import { gfx, gfxKey, sceneGfx, subscribeGfx } from '@/render/gfx';
-import { useUiNew } from '@/ui/uimode';
 
 /**
  * Как часто сторож спрашивает сцену, идут ли кадры. Две секунды: чаще незачем —
@@ -299,32 +298,30 @@ export function GameCanvas() {
     };
   }, [gen, rebuild]);
 
-  // Новый интерфейс: холст «нажимаемый» для браузера. Браузер отдаёт касание у края пятна пальца ближайшей
+  // Холст «нажимаемый» для браузера. Браузер отдаёт касание у края пятна пальца ближайшей
   // нажимаемой кнопке, а холст нажимаемым не считает — и узкая полоса над нижней панелью нажимала кнопку
   // панели, а не город (docs/city.md, 12.4). Пустой слушатель `click` делает обёртку кандидатом наравне с
   // кнопками, и касание достаётся тому, на ком лежит палец. Цена — у мелких кнопок над холстом пропадает
-  // прощение у края; в новом виде кнопок меньше 44 над холстом нет (docs/ui_audit.md, 3.6). Прежний вид не
-  // тронут: его мелкие ячейки строки состояния без прощения стали бы мимо.
-  const next = useUiNew();
+  // прощение у края; кнопок меньше 44 над холстом нет (docs/ui_audit.md, 3.6).
   useLayoutEffect(() => {
     const wrap = wrapRef.current;
-    if (!next || !wrap) return;
+    if (!wrap) return;
     const claim = (): void => {};
     wrap.addEventListener('click', claim);
     return () => wrap.removeEventListener('click', claim);
-  }, [next]);
+  }, []);
 
-  // Значки над крышами — по виду интерфейса: в новом малые, рисунком из листа значков. Лист приезжает
-  // после первого кадра — тогда бляхи перерисовываются ещё раз, уже с рисунком.
+  // Значки над крышами — малые, рисунком из листа значков. Лист приезжает после первого кадра — тогда бляхи
+  // перерисовываются ещё раз, уже с рисунком.
   useLayoutEffect(() => {
     const apply = (): void => {
-      setMarkerLook(next ? 'new' : 'old', next ? SHEET_ART : null);
+      setMarkerArt(SHEET_ART);
       sceneRef.current?.restyleMarkers();
     };
     apply();
-    if (!next || sheetReady()) return;
+    if (sheetReady()) return;
     return onSheet(apply);
-  }, [next, gen]);
+  }, [gen]);
 
   return (
     <>

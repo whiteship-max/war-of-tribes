@@ -81,11 +81,11 @@ export interface RosterStore {
 }
 
 const WORDS: Record<ApiFail, string> = {
-  offline: 'Нет связи с сервером: соседи показаны по памяти.',
-  auth: 'Игра открыта не из Telegram: чужих замков на карте нет.',
+  offline: 'Нет связи. Соседи показаны по памяти.',
+  auth: 'Игра открыта не из Telegram, соседей на карте нет.',
   conflict: 'Реестр перечитывается.',
   busy: 'Слишком часто. Список обновится через минуту.',
-  server: 'Сервер не отдал список соседей: показано то, что помним.',
+  server: 'Список соседей не пришёл. Показаны по памяти.',
 };
 
 export const useRoster = create<RosterStore>(() => ({ state: 'off', why: '', at: null, count: 0 }));
@@ -245,14 +245,14 @@ export async function rosterPull(): Promise<void> {
 export async function rosterBoot(): Promise<void> {
   // Вторая вкладка не пишет ничего — ни на диск, ни на сервер, ни в реестр.
   if (leaseHolder() === 'other') {
-    say('off', 'Игра открыта в другой вкладке: реестр ведёт она.');
+    say('off', 'Игра открыта в другой вкладке, соседей ведёт она.');
     done();
     return;
   }
   if (!tgInitData()) {
     // Вне Telegram личности нет, выдумывать её нельзя. Замок тогда стоит там,
     // куда его поставил бы мир сам, и чужих на карте нет — это не поломка.
-    say('off', 'Игра открыта не из Telegram: чужих замков на карте нет.');
+    say('off', 'Игра открыта не из Telegram, соседей на карте нет.');
     done();
     return;
   }

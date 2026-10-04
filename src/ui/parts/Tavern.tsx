@@ -2,7 +2,9 @@ import { useGame } from '@/game/store';
 import { DAY_LENGTH, FEAST_DAYS } from '@/game/constants';
 import { feastInfo } from '@/game/derived';
 import { throwFeast } from '@/game/sim/actions';
-import { waitDays, waitDaysBoth } from './wait';
+import { waitDays } from './wait';
+import { Icon } from '@/ui/icons/Icon';
+import { tipAt } from '@/ui/next/tip';
 
 /**
  * Трактир: единственный быстрый рычаг морали и второй выход у золота после
@@ -19,21 +21,33 @@ export function Tavern() {
   return (
     <>
       <h3>
-        Пир <span className="muted">казна: {Math.floor(s.gold)} 🪙</span>
+        Пир <span className="muted"><Icon name="res-gold" glyph="💰" /> {Math.floor(s.gold)}</span>
       </h3>
-      <div className="note">
-        Столы выкатывают на площадь, бочки открывают, и {FEAST_DAYS} дня племя работает
-        веселее. Прибавка ложится поверх всего остального — она отыгрывает просадку
-        от налога, голода и тесноты, а не добавляется к полной шкале.
-      </div>
-      <div className="mod">
+      <div
+        className="mod"
+        role="button"
+        tabIndex={0}
+        onClick={(e) =>
+          tipAt(e.currentTarget, {
+            title: 'Прибавка к морали',
+            body: 'Отыгрывает просадку от налога, голода и тесноты. Выше полной шкалы мораль не поднимет.',
+          })
+        }
+      >
         <span className="ico">😊</span>
         <span className="name">Прибавка к морали</span>
-        <span className="val">+{info.bonus}</span>
+        <span className="val">
+          +{info.bonus} на {waitDays(FEAST_DAYS)}
+        </span>
       </div>
-      <div className="mod">
-        <span className="ico">🪙</span>
-        <span className="name">Цена пира (по числу ртов)</span>
+      <div
+        className="mod"
+        role="button"
+        tabIndex={0}
+        onClick={(e) => tipAt(e.currentTarget, { title: 'Цена пира', body: 'Растёт с числом жителей.' })}
+      >
+        <span className="ico"><Icon name="res-gold" glyph="💰" /></span>
+        <span className="name">Цена пира</span>
         <span className="val">{info.cost}</span>
       </div>
       {info.left > 0 && (
@@ -55,7 +69,7 @@ export function Tavern() {
         disabled={info.blocked !== null}
         onClick={() => act((st) => throwFeast(st))}
       >
-        Задать пир — {info.cost} 🪙, мораль +{info.bonus} на {waitDaysBoth(FEAST_DAYS)}
+        Задать пир
       </button>
       {info.blocked && <div className="hint">{info.blocked}</div>}
     </>

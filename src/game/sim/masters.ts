@@ -67,7 +67,7 @@ export function mastersInfo(s: GameState): MastersInfo {
   if (room <= 0) {
     blocked =
       mastersBlock(s, have + 1) ??
-      (free <= 0 ? `Свободных мест в здании «${BUILDING_BY_ID[MASTERS_AT].name}» нет: подними его уровень или сними ремесленника.` : null);
+      (free <= 0 ? `В здании «${BUILDING_BY_ID[MASTERS_AT].name}» нет мест. Улучши его или сними ремесленника.` : null);
   }
   const wage = masterWage(s);
   return {
@@ -89,9 +89,9 @@ export function hireMasters(s: GameState, count: number): string | null {
   if (n < 1) return 'Сколько нанять?';
   const info = mastersInfo(s);
   if (info.blocked) return info.blocked;
-  if (n > info.room) return mastersBlock(s, info.have + n) ?? `Свободных мест в Мастерской — ${info.room}.`;
+  if (n > info.room) return mastersBlock(s, info.have + n) ?? `Свободных мест в Мастерской ${info.room}.`;
   s.masters = info.have + n;
-  log(s, `Нанято наёмных мастеров: ${n}. Жалованье — ${(info.wage * n).toFixed(2)} золота в игровой день.`, 'info', 'masters:hire');
+  log(s, `Нанято мастеров: ${n}. Жалованье ${(info.wage * n).toFixed(2)} золота в день.`, 'info', 'masters:hire');
   return null;
 }
 
@@ -121,7 +121,7 @@ export function fitMasters(s: GameState): void {
   const keep = Math.max(0, Math.min(have - over, mastersCap(s)));
   if (keep < have) {
     s.masters = keep;
-    log(s, `Мастерская стала теснее: ушло наёмных мастеров — ${have - keep}.`, 'bad', 'masters:fit');
+    log(s, `Мастерская стала теснее, ушло мастеров: ${have - keep}.`, 'bad', 'masters:fit');
   }
 }
 

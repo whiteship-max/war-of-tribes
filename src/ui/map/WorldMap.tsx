@@ -23,7 +23,7 @@ import { useGame } from '@/game/store';
 import { CHEATS_ON } from '@/cheats';
 import { SpeedButton } from '../SpeedButton';
 import { cameraAnchor, figuresOn, marchOn, useWorld, worldNow } from '@/world/store';
-import { WORLD_VIEW, freeCamera, frameCost, probe } from '@/debug';
+import { freeCamera, frameCost, probe } from '@/debug';
 import { settlementAt } from '@/world/cache';
 import { formatCoord, parseCoord } from '@/world/geo';
 import { RELATION_META, RELATION_ORDER, STAGE_BY_ID } from '@/world/data/meta';
@@ -57,12 +57,9 @@ import {
 } from './grid';
 import { dropPaper, drawFrame } from './frame';
 import { beyondText, reachable, twSlot } from './twslot';
-import { dropTiles } from './ground';
-import { dropBitmaps } from './tiles';
+import { homeTheatre } from '@/world/theatre/theatre';
 import { type Look, dropSprites, silhouetteUrl } from './village';
 import { dropPaint } from './paint';
-import { dropFog } from './fog';
-import { dropZones } from './zones';
 import { dropParties } from './party';
 import { FELL_WORDS, WORKS_STEPS, dropSiegeMarks, fellUrl, worksUrl } from './siegemark';
 import { bakeAgent } from './agent';
@@ -73,7 +70,6 @@ import { gestLog, type End } from '@/gestlog';
 import { FrameLoop, pixelRatio } from '@/render/loop';
 import { onViewport } from '@/viewport';
 import { Icon } from '@/ui/icons/Icon';
-import { useUiNew } from '@/ui/uimode';
 
 
 /** Отладочный обзор читается один раз: адрес по ходу партии не меняется. */
@@ -241,7 +237,6 @@ export function WorldMap() {
   const roster = useRoster();
   const rosterOld = roster.state === 'stale' || (roster.state === 'off' && roster.why !== '');
   const marchCount = useWorld((g) => g.marches.filter((m) => m.own).length);
-  const unread = useWorld((g) => g.unread);
   const picked = useWorld((g) => g.picked);
   const anchor = useWorld((g) => g.anchor);
   const setAnchor = useWorld((g) => g.setAnchor);
@@ -252,8 +247,7 @@ export function WorldMap() {
   const closeMap = useGame((g) => g.closeMap);
   const openMarches = useGame((g) => g.openMarches);
   const showToast = useGame((g) => g.showToast);
-  // Новый интерфейс (`ui/uimode.ts`): свой верх и низ карты — табличка «регион · координата» и низ на пять мест.
-  const next = useUiNew();
+  // Верх и низ карты — табличка «регион · координата» и низ на пять мест (прежние удалены, docs/ui_audit.md, 16).
   const portal = (node: ReactNode): ReactNode => {
     const host = document.querySelector('.app');
     return host ? createPortal(node, host) : node;
@@ -343,13 +337,9 @@ export function WorldMap() {
   // Новый мир — новая земля: испечённое держать нельзя, оно от старого сида.
   const seed = info?.seed ?? 0;
   useEffect(() => {
-    dropTiles();
-    dropBitmaps();
     dropSprites();
     dropPaint();
     dropPaper();
-    dropFog();
-    dropZones();
     twSlot()?.drop();
   }, [seed]);
 
@@ -453,8 +443,6 @@ export function WorldMap() {
       loop.stop();
       ro.disconnect();
       offViewport();
-      // Уходим с карты — холсты кэша земли в памяти держать незачем.
-      dropTiles();
       // Отряды и силуэты агентов от сида не зависят, поэтому в уборку по новому
       // миру они не входят; а вот держать их между заходами на карту незачем —
       // печутся они за доли миллисекунды.
@@ -607,8 +595,9 @@ export function WorldMap() {
     // Тот же призрачный щелчок, что и в деревне: карточка клетки поднимает то же
     // затемнение, и закрыть её собственным касанием она не должна.
     swallowGhostClick();
-    // За краем региона игрока целей нет: ни места, ни земли под приказ (docs/map_tw.md, раздел 13.5).
-    if (!reachable(c)) {
+    // За краем региона игрока целей нет: ни места, ни земли под приказ (docs/map_tw.md, раздел 13.5). Свой агент
+    // виден и там (путь между своими клетками через чужой край, 0.−2) — взять его в руку можно, вести за край — нет.
+    if (!reachable(c) && (useWorld.getState().picked !== null || figuresOn(c.x, c.y, worldNow()).length === 0)) {
       showToast(beyondText());
       return;
     }
@@ -760,12 +749,11 @@ export function WorldMap() {
         onWheel={onWheel}
       />
 
-      {next ? (
         <div className="nx-mtop">
           {/* Верх карты нового вида — только для чтения (docs/ui_audit.md, 12): где я. Вернуться в город — серединой
               низа, как карта открывается серединой низа города. */}
           <div className="nx-mplate">
-            <span className="one-line">{twSlot()?.realm() ?? 'Карта мира'}</span>
+            <span className="one-line">{(info ? homeTheatre(info.home)?.name : null) ?? 'Карта мира'}</span>
             <b ref={coordRef}>—</b>
           </div>
           {FREE_CAMERA && (
@@ -775,38 +763,6 @@ export function WorldMap() {
           )}
           {CHEATS_ON && <SpeedButton className="nx-mbtn" />}
         </div>
-      ) : (
-        <div className="wm-top">
-          <button className="wm-btn" onClick={closeMap} aria-label="Закрыть карту">
-            ←
-          </button>
-          <div className="wm-coord">
-            <b ref={coordRef}>—</b>
-            <i>{FREE_CAMERA ? `обзор мира (${WORLD_VIEW})` : 'карта мира'}</i>
-          </div>
-          {/* Переход по координатам — часть свободного обзора: игроку он ни к чему,
-              камера всё равно не уйдёт дальше поводка своих. */}
-          {FREE_CAMERA && (
-            <button className={`wm-btn${jumpOpen ? ' active' : ''}`} onClick={() => setJumpOpen((v) => !v)} aria-label="Перейти к координатам">
-              ⌖
-            </button>
-          )}
-          {/* Легенда — в правом верхнем углу, единственном пустом месте карты.
-              Пустого места на 360 px не бывает про запас: внизу и так три ряда, а
-              справа сверху не стояло ничего, кроме распорки под кнопку отладки.
-              Сама легенда при этом осталась внизу — это лист, а не выпадашка, и
-              листы в этой игре выезжают снизу (`Sheet`). */}
-          {/* Скорость проверки видна и на карте: поход проверяют здесь. Только под выключателем кодов. */}
-          {CHEATS_ON && <SpeedButton className="wm-btn" />}
-          <button
-            className={`wm-btn${legendOpen ? ' active' : ''}`}
-            onClick={() => setLegendOpen((v) => !v)}
-            aria-label="Легенда"
-          >
-            ℹ️
-          </button>
-        </div>
-      )}
 
       {jumpOpen && (
         <div className="wm-jump">
@@ -832,10 +788,9 @@ export function WorldMap() {
           «Походах» — вторая кнопка под то же дело была лишней. Столбик писем и
           панель осады сюда не приходят: обе живут в деревне и на карте не
           рисуются вовсе (см. `App.tsx`). */}
-      {next ? (
-        // Человек в руке — полоса 44 над низом: роль, что делать, «отпустить» значком 44. Строка про старый список
-        // соседей не стоит на экране всегда: точка охрой на «Легенде» и первая строка легенды (6.2).
-        picked && (
+      {/* Человек в руке — полоса 44 над низом: роль, что делать, «отпустить» значком 44. Строка про старый список
+          соседей не стоит на экране всегда: точка охрой на «Легенде» и первая строка легенды (6.2). */}
+      {picked && (
           <div className="nx-hand">
             <Icon name={`fig-${picked}`} glyph="🧭" />
             <span className="one-line">{FIGURE_BY_ID[picked].name}: нажми цель</span>
@@ -843,31 +798,11 @@ export function WorldMap() {
               <Icon name="ui-close" glyph="✕" />
             </button>
           </div>
-        )
-      ) : (
-        <div className="wm-bottom">
-          {/* Список соседей не приезжал давно — так и сказано. Молчать нельзя:
-              замки на карте при этом видны, и без этой строки игрок читал бы
-              вчерашнее как сегодняшнее. Одна строка на весь низ, и появляется она
-              только когда есть о чём говорить. */}
-          {rosterOld && (
-            <div className="wm-hint stale">
-              <span>{roster.why || 'Соседи показаны по памяти.'}</span>
-            </div>
-          )}
-
-          {picked && (
-            <div className="wm-hint">
-              <span>{FIGURE_BY_ID[picked].name}: нажми цель</span>
-              <button onClick={() => pickFigure(null)}>Отпустить</button>
-            </div>
-          )}
-        </div>
-      )}
+        )}
 
       {legendOpen && (
         <div className="wm-legend">
-          {next && rosterOld && <div className="nx-stale">{roster.why || 'Соседи показаны по памяти.'}</div>}
+          {rosterOld && <div className="nx-stale">{roster.why || 'Соседи показаны по памяти.'}</div>}
           <h3>Кто на карте</h3>
           {SHOWN_RELATIONS.map((r) => (
             <div className="wm-leg-row" key={r}>
@@ -955,10 +890,9 @@ export function WorldMap() {
         </div>
       )}
 
-      {next ? (
-        // Низ — порталом в корень игры: как в городе, он стоит над шторкой (походы, карточка клетки), а не под
-        // ней, внутри слоя карты.
-        portal(
+      {/* Низ — порталом в корень игры: как в городе, он стоит над шторкой (походы, карточка клетки), а не под
+          ней, внутри слоя карты. */}
+      {portal(
         <nav className="nx-nav nx-mapnav">
           {/* «К себе» — камера к своему городу (прежнее «Домой» только двигало камеру, а звалось как выход). Выход
               в город — середина низа: там же, где в городе вход на карту. */}
@@ -995,24 +929,7 @@ export function WorldMap() {
             Легенда
           </button>
         </nav>,
-        )
-      ) : (
-        <div className="wm-foot">
-          {/* «Домой» — он же якорь камеры на своей деревне: прежний чип «деревня»
-              в ряду фигур делал ровно это, и второй кнопки под одно дело быть не
-              должно. Подсветка говорит, на чём камера стоит. */}
-          <button className={`wm-btn wide${anchor === 'home' ? ' active' : ''}`} onClick={goHome}>
-            🏠 <span>Домой</span>
-          </button>
-          <button className="wm-btn wide" onClick={openMarches}>
-            ⚔️ <span>Походы</span>
-            {(marchCount > 0 || unread > 0) && <em>{marchCount > 0 ? marchCount : unread}</em>}
-          </button>
-          <button className="wm-btn" onClick={toggleZoom} aria-label="Сменить масштаб">
-            {zoomedIn ? '🔭' : '🔍'}
-          </button>
-        </div>
-      )}
+        )}
     </div>
   );
 }

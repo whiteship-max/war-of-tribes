@@ -20,7 +20,6 @@ import {
   STRAIN_DAYS,
 } from '../constants';
 import { FAITH_BY_ID, OBSERVANCE_BY_ID, type FeastDef } from '../data/faiths';
-import { SEASON_META } from '../data/seasons';
 import { faithOf, heresy, population, seasonIndex, seasonOf, strainNow } from '../derived';
 import { log } from './log';
 import { pay } from './pay';
@@ -49,7 +48,7 @@ export function riteInfo(s: GameState): RiteInfo {
   const food = Math.round(pop * RITE_FOOD_PER_POP);
   const gold = Math.round(pop * RITE_GOLD_PER_POP);
   const left = Math.max(0, (s.faith?.riteUntil ?? 0) - s.time);
-  if (!id) return { feast: null, food, gold, left, blocked: 'Грамоты из округи ещё не пришли.' };
+  if (!id) return { feast: null, food, gold, left, blocked: 'Вера города ещё не ясна.' };
   const feast = FAITH_BY_ID[id].feasts[seasonOf(s.time)];
 
   let blocked: string | null = null;
@@ -61,8 +60,8 @@ export function riteInfo(s: GameState): RiteInfo {
   // партии `riteAt` равен нулю — время начинается с нуля, — и проверка `> 0`
   // молча пропускала бы его. Поймал это тест, а не рассуждение.
   else if (s.faith.riteUntil > 0 && seasonIndex(s.faith.riteAt) === seasonIndex(s.time)) {
-    blocked = `${SEASON_META[seasonOf(s.time)].name}: обряд в этом сезоне уже справили.`;
-  } else if (Math.floor(s.resources.food) < food) blocked = 'Не хватает еды на общий стол.';
+    blocked = 'Обряд этого сезона уже справили.';
+  } else if (Math.floor(s.resources.food) < food) blocked = 'Не хватает еды.';
   else if (Math.floor(s.gold) < gold) blocked = 'Не хватает золота.';
   return { feast, food, gold, left, blocked };
 }
@@ -162,11 +161,11 @@ export interface BaptismInfo {
 export function baptismInfo(s: GameState): BaptismInfo {
   const id = faithOf(s);
   const gold = Math.round(population(s) * BAPTISM_GOLD_PER_POP);
-  if (id !== 'pagan') return { options: [], gold, blocked: 'Креститься может только тот, кто ещё не крещён.' };
+  if (id !== 'pagan') return { options: [], gold, blocked: 'Город уже крещён.' };
   return {
     options: ['catholic', 'orthodox'],
     gold,
-    blocked: Math.floor(s.gold) < gold ? 'Не хватает золота на дары и посольство.' : null,
+    blocked: Math.floor(s.gold) < gold ? 'Не хватает золота.' : null,
   };
 }
 
@@ -192,12 +191,12 @@ export function baptize(s: GameState, to: FaithId): string | null {
   // строгим уставом и свежим обрядом — выдерживает. Готовиться к крещению
   // можно, отделаться дёшево нельзя.
   addStrain(s, BAPTISM_STRAIN);
-  log(s, `Деревня приняла крещение: ${was.name.toLowerCase()} сменилось на ${FAITH_BY_ID[to].name.toLowerCase()}.`, 'good');
+  log(s, `Город принял крещение: ${was.name.toLowerCase()} сменилось на ${FAITH_BY_ID[to].name.toLowerCase()}.`, 'good');
   log(
     s,
     heresy(s)
-      ? 'Старики ропщут, роща стоит пустая: приход надломлен, и вера в нём трещит.'
-      : 'Старики ропщут и роща стоит пустая, но храм крепок: приход это переживёт.',
+      ? 'Старики ропщут, роща пустует. Приход надломлен.'
+      : 'Старики ропщут, роща пустует, но храм крепок. Приход переживёт.',
     'bad',
   );
   if (lost) log(s, `${lost} убрали из храма: старой вере — старое место.`, 'bad');
@@ -226,7 +225,7 @@ export function syncFaith(s: GameState, id: FaithId, pressure: number): boolean 
   if (!s.faith.id) {
     s.faith.id = id;
     const def = FAITH_BY_ID[id];
-    log(s, `Округа живёт своей верой: ${def.name.toLowerCase()}. В посёлке стоит ${def.temple.toLowerCase()}.`);
+    log(s, `Округа живёт своей верой: ${def.name.toLowerCase()}. В городе стоит ${def.temple.toLowerCase()}.`);
     changed = true;
   }
   if (Math.abs(s.faith.pressure - p) > 0.005) {

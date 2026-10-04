@@ -1,11 +1,16 @@
-// Регионы в игре (docs/map_tw.md, раздел 13): чей квадрат карты, рамка региона и регион игрока.
+// Регионы мира (docs/map_tw.md, раздел 13): чей квадрат земли, рамка региона и регион игрока. В коде регион —
+// «театр»: слово «регион» в мире уже занято куском карты (`WorldApi.region`, `RegionChunk`).
+//
+// Одна дверь на всех (docs/map_tw.md, 0.−2): мир ставит логова только в регионе игрока (`gen.ts`,
+// `LocalWorld.spawnLair`) и не пускает походы за его край (`LocalWorld`), карта рисует и выбирает по нему же
+// (`ui/map/tw/theatre/active.ts`, `ui/map/twslot.ts`). Мерка одна — `inTheatre`: второй мерки «своё ли это» нет, и
+// игрок не увидит цель, в которую мир откажет идти, или отказ там, где карта звала.
 //
 // Разметка запечена (`data.ts`, собирает `npm run theatres:build` из `derive.ts`): на устройстве она только
-// распаковывается — один раз, при первом вопросе, с проверкой подписи, как атлас. Регион игрока — по месту
-// его города; где стоят логова и чужие замки — по их клеткам. Это данные карты, а не мира: мир о регионах
-// не знает, и ни путь, ни время хода, ни сохранение от них не зависят (раздел 13, «Чего регион не трогает»).
-import type { Rect } from '@/world/types';
-import { WORLD_ORIGIN, WORLD_SIZE } from '@/world/data/tuning';
+// распаковывается — один раз, при первом вопросе, с проверкой подписи, как атлас. Регион игрока — по клетке его
+// города; где стоят логова и чужие замки — по их клеткам. В сохранении региона нет: он выводится из дома.
+import type { Coord, Rect } from '../types';
+import { WORLD_ORIGIN, WORLD_SIZE } from '../data/tuning';
 import { THEATRE_HASH, THEATRE_IDS, THEATRE_RLE, THEATRE_SIZE } from './data';
 import { THEATRE_LIST } from './list';
 import { fnv1a, unpack } from './pack';
@@ -88,19 +93,23 @@ export function theatreById(id: string): Theatre | null {
 
 // ---------- Регион игрока ----------
 
-let active: Theatre | null = null;
-
-/** Регион, который видит игрок, — по клетке его города. Нет города — нет и региона: карта без рамки. */
-export function setActiveTheatre(t: Theatre | null): void {
-  active = t;
+/**
+ * Клетка в регионе `t`? Региона нет (`null`) — да: рамки нет, и ничто не за краем. Так бывает только без дома
+ * (мир не приехал, стенд, тест): у каждой клетки, где может встать город, регион есть (`theatre.test.ts`).
+ * Единственная мерка «своё ли это» — для мира и для карты.
+ */
+export function inTheatre(t: Theatre | null, x: number, y: number): boolean {
+  return t === null || theatreIndexAt(x, y) === t.index;
 }
 
-export const activeTheatre = (): Theatre | null => active;
+/** Регион игрока — по клетке его города. */
+export const homeTheatre = (home: Coord): Theatre | null => theatreAt(home.x, home.y);
 
-/**
- * Клетка в регионе игрока? Пока региона нет (мир не приехал, стенд, тест) — да: рамки нет, и карта не прячет
- * ничего. Одна мерка на кадр, палец и меню: что не рисуется, то и не выбирается.
- */
-export function withinActive(x: number, y: number): boolean {
-  return active === null || theatreIndexAt(x, y) === active.index;
+/** Клетка в регионе игрока, чей город стоит на `home`? Логова, цели походов и приказов — только там. */
+export const inHomeTheatre = (home: Coord, at: Coord): boolean => inTheatre(homeTheatre(home), at.x, at.y);
+
+/** Отказ миром и строка карты о клетке за краем региона — одни слова. */
+export function beyondNote(home: Coord | null): string {
+  const t = home ? homeTheatre(home) : null;
+  return `Это уже не ${t?.name ?? 'твоя земля'}: за край своей земли походы не ходят.`;
 }

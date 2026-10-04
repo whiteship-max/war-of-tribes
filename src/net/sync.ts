@@ -131,11 +131,11 @@ const keepSpare = (record: SaveRecord, at: number): void =>
 
 /** Слова для игрока по причине отказа. Технических подробностей здесь нет. */
 const WORDS: Record<ApiFail, string> = {
-  offline: 'Нет связи с сервером. Играй дальше — сохраним, когда связь вернётся.',
+  offline: 'Нет связи. Играй дальше, сохраним, когда связь вернётся.',
   auth: 'Telegram не подтвердил вход. Прогресс сохраняется только на этом устройстве.',
-  conflict: 'На сервере партию продолжили с другого устройства.',
+  conflict: 'Партию продолжили на другом устройстве.',
   busy: 'Слишком часто. Следующая попытка через минуту.',
-  server: 'Сервер не принял сохранение. Играй дальше — попробуем ещё раз.',
+  server: 'Сохранение не прошло. Играй дальше, попробуем ещё раз.',
 };
 
 /**
@@ -169,7 +169,7 @@ const say = (state: SyncState, why: string): void => useSync.setState({ state, w
  */
 function adopt(record: SaveRecord, etag: string | null, spare: SaveRecord | null = null): void {
   if (!adoptSave(record.game)) {
-    say('offline', 'Сохранение с сервера не читается этой версией игры. Партия на устройстве не тронута.');
+    say('offline', 'Сохранение из облака не читается. Партия на этом устройстве не тронута.');
     return;
   }
   if (spare) keepSpare(spare, serverNow());
@@ -332,7 +332,7 @@ export async function syncBoot(hadLocal: boolean): Promise<void> {
   if (!tgInitData()) {
     // Вне Telegram личности нет, выдумывать её нельзя, и складывать прогресс
     // некуда, кроме диска. Это не поломка — так игра и работает в браузере.
-    say('off', 'Игра открыта не из Telegram: прогресс лежит только на этом устройстве.');
+    say('off', 'Игра открыта не из Telegram, партия хранится только на этом устройстве.');
     return;
   }
 

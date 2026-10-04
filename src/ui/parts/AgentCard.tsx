@@ -29,23 +29,21 @@ import {
   slotsOpen,
 } from '@/game/data/agents';
 import { itemIn } from '@/game/data/items';
-import { ageOf, agentLevel, circlesText, personName, pipLevel, pipsAt, pipsOf, regear, regearBlock, retireAt, traitsHeld, yearsOf } from '@/game/sim/agents';
+import { ageOf, agentLevel, circlesText, personName, pipLevel, pipsAt, pipsOf, regear, regearBlock, traitsHeld, yearsOf } from '@/game/sim/agents';
 import { deedsOf } from '@/game/data/traits';
 import { hireWhere } from '@/game/sim/hire';
 import { RETIRE_AGE, RETIRE_WARN } from '@/game/data/agents';
 import { ownedItems } from '@/net/owned';
 import { FIGURE_BY_ID } from '@/world/data/figures';
 import { distance, terrainFactor, travelTime } from '@/world/geo';
-import { realLeft, waitLeft } from '@/ui/parts/wait';
+import { realSpanText, waitDays, waitLeft } from '@/ui/parts/wait';
+import { tipAt } from '@/ui/next/tip';
 import { figurePosition, useWorld, worldNow } from '@/world/store';
 import type { FigureId } from '@/world/types';
 import { deathLine, pipLines, sightLine, stealthLine } from './agentLines';
 import { REST_WHY, restLine } from './restWords';
 import { count } from './plural';
 import { traitLines } from './traitLines';
-import { waitDaysBoth } from './wait';
-
-const ORDINAL = ['', 'первый', 'второй', 'третий', 'четвёртый', 'пятый'];
 
 /** Отметки полководца: какие есть, что дают замером и куда ляжет следующий кружок. */
 function GeneralPips({ level }: { level: number }) {
@@ -82,10 +80,13 @@ function Traits({ id }: { id: FigureId }) {
     <>
       <h3>Черты</h3>
       {lines.length === 0 ? (
-        <div className="note">
-          {n === 0
-            ? 'Дел за ним пока нет — и слава о нём ещё не сложилась. Черты приходят делами, хорошие и дурные.'
-            : `Засчитано ${count(n, 'дело', 'дела', 'дел')}, но ничем особым он пока не прослыл. Черты приходят делами, хорошие и дурные, и уходят, если дела меняются.`}
+        <div
+          className="note"
+          role="button"
+          tabIndex={0}
+          onClick={(e) => tipAt(e.currentTarget, { title: 'Черты', body: 'Черты приходят делами, добрые и дурные, и уходят, если дела меняются.' })}
+        >
+          {n === 0 ? 'Дел пока нет.' : `${count(n, 'дело', 'дела', 'дел')}, черт пока нет.`}
         </div>
       ) : (
         lines.map((l) => (
@@ -137,8 +138,8 @@ export function AgentCard({ id, onBack, embedded = false }: { id: FigureId; onBa
     road = `до дома ${waitLeft(seconds)}`;
   }
 
-  const block = f ? regearBlock(id, f) : 'Где агент, мир ещё не сказал.';
-  const slotWhy = block ?? (owned.length === 0 ? 'Надеть нечего: предметов у тебя пока нет.' : null);
+  const block = f ? regearBlock(id, f) : 'Где он сейчас, пока неизвестно.';
+  const slotWhy = block ?? (owned.length === 0 ? 'Надеть нечего.' : null);
 
   return (
     <div className={embedded ? undefined : 'panel'} ref={top}>
@@ -149,25 +150,34 @@ export function AgentCard({ id, onBack, embedded = false }: { id: FigureId; onBa
       )}
       {embedded ? (
         <h3>
-          {progress.name ? personName(s, id) : def.name} <span className="muted">уровень {level}</span>
+          {progress.name ? personName(s, id) : def.name} <span className="muted">ур. {level}</span>
         </h3>
       ) : (
         <h2>
           {def.name}
-          {!vacant && progress.name ? ` — ${personName(s, id)}` : ''} {!vacant && <small>уровень {level}</small>}
+          {!vacant && progress.name ? ` · ${personName(s, id)}` : ''} {!vacant && <small>ур. {level}</small>}
         </h2>
       )}
 
       {vacant ? (
         <div className="note warn">
-          Место пустует: {def.name.toLowerCase()} погиб или ушёл на покой, а новый не нанят. Нанимают{' '}
-          {hireWhere(s, id)}; новичок начинает с первого уровня.
-          {progress.hiring ? ` Найм идёт: придёт ${progress.hiring.name ?? 'новичок'}.` : ''}
+          Место пустует. Нанимают {hireWhere(s, id)}.
+          {progress.hiring ? ` Идёт найм, придёт ${progress.hiring.name ?? 'новичок'}.` : ''}
         </div>
       ) : (
         <>
           <h3>Жизнь</h3>
-          <div className="mod">
+          <div
+            className="mod"
+            role="button"
+            tabIndex={0}
+            onClick={(e) =>
+              tipAt(e.currentTarget, {
+                title: 'Возраст',
+                body: `В ${RETIRE_AGE} лет уйдёт на покой, как вернётся домой. Стареет, только пока идут часы города.`,
+              })
+            }
+          >
             <span className="ico">⌛</span>
             <span className="name">Возраст</span>
             <span className={`val${years >= RETIRE_WARN ? ' neg' : ''}`}>
@@ -175,9 +185,7 @@ export function AgentCard({ id, onBack, embedded = false }: { id: FigureId; onBa
             </span>
           </div>
           <div className="note">
-            {toRest > 0
-              ? `В ${RETIRE_AGE} лет бросит дело и уйдёт на покой, как дойдёт до своих ворот. Стареет только пока идут часы деревни: ${realLeft(Math.max(0, retireAt(s, id) - s.time))} игрового времени.`
-              : 'Дел больше не берёт: идёт домой, у своих ворот уйдёт на покой.'}{' '}
+            {toRest > 0 ? '' : 'Дел не берёт, идёт домой на покой. '}
             {deathLine(id, level)}
           </div>
         </>
@@ -188,32 +196,35 @@ export function AgentCard({ id, onBack, embedded = false }: { id: FigureId; onBa
           <div className="mod total">
             <span className="ico">✦</span>
             <span className="name">{skill.name}</span>
-            <span className="val pos">
-              {circlesText(level)} — {ORDINAL[level]} уровень
-            </span>
+            <span className="val pos">{circlesText(level)}</span>
           </div>
           {id === 'general' && <GeneralPips level={level} />}
           {id === 'scout' && <div className="note">{sightLine(level)}</div>}
           {id === 'spy' && <div className="note">{stealthLine(level)}</div>}
         </>
-      ) : (
-        <div className="note">
-          Навыка у дипломата пока нет: с логовами не разговаривают, и дело у него появится вместе с
-          отношениями. Уровень и опыт копятся по тем же правилам.
-        </div>
-      )}
+      ) : null}
 
       {id === 'general' && f?.rest && (
         // Мораль дружины между боями (docs/battle_eu4.md, 14.31): доля и срок — от мира, слова — одной частью.
         <div className="note warn">
-          {restLine(f.rest, 'Дружина дралась', worldNow())} {REST_WHY}
+          {restLine(f.rest, 'Отряд дрался', worldNow())} {REST_WHY}
         </div>
       )}
 
       <h3>Опыт</h3>
-      <div className="mod">
+      <div
+        className="mod"
+        role="button"
+        tabIndex={0}
+        onClick={(e) =>
+          tipAt(e.currentTarget, {
+            title: 'Опыт',
+            body: `Удачное дело даёт ${DEED_XP.ok} опыта, неудачное ${DEED_XP.fail}, не чаще раза в ${realSpanText(DEED_GAP / 1000)}. Опыт уходит вместе с человеком.`,
+          })
+        }
+      >
         <span className="ico">📜</span>
-        <span className="name">{next === null ? 'Пятый уровень — выше некуда' : `До уровня ${level + 1}`}</span>
+        <span className="name">{next === null ? 'Высший уровень' : `До ур. ${level + 1}`}</span>
         <span className="val">{next === null ? progress.xp : `${progress.xp} / ${next}`}</span>
       </div>
       {next !== null && (
@@ -221,36 +232,41 @@ export function AgentCard({ id, onBack, embedded = false }: { id: FigureId; onBa
           <div style={{ width: `${Math.floor(((progress.xp - floor) / (next - floor)) * 100)}%` }} />
         </div>
       )}
-      <div className="note">
-        За удачное дело {DEED_XP.ok}, за неудачное {DEED_XP.fail}, и не чаще раза в{' '}
-        {count(Math.round(DEED_GAP / 60_000), 'минуту', 'минуты', 'минут')}. Купить опыт нельзя.
-        {' Опыт — этого человека: погибнет или уйдёт на покой — уйдёт и опыт, новичок начнёт с нуля. Задержание опыта не отнимает.'}
-      </div>
 
       {!vacant && <Traits id={id} />}
 
       <h3>Скорость</h3>
-      <div className="mod">
+      <div
+        className="mod"
+        role="button"
+        tabIndex={0}
+        onClick={(e) =>
+          tipAt(e.currentTarget, { title: 'Скорость', body: 'От уровня не растёт. Время пути решают дорога и местность.' })
+        }
+      >
         <span className="ico">🥾</span>
         <span className="name">По равнине, в день</span>
         <span className="val">{count(def.speed, 'клетка', 'клетки', 'клеток')}</span>
       </div>
-      <div className="note">
-        От уровня не растёт: время пути решают дорога и местность{road ? ` — ${road}` : ''}.
-      </div>
+      {road && <div className="note">{road}</div>}
 
       {id === 'general' && !embedded && (
         <>
           <h3>Что даёт Статуя</h3>
-          <div className="mod">
+          <div
+            className="mod"
+            role="button"
+            tabIndex={0}
+            onClick={(e) =>
+              tipAt(e.currentTarget, {
+                title: 'Терпение дружины',
+                body: `Сколько дружина ждёт жалованья. Растёт с уровнем Статуи, сейчас ур. ${statue}.`,
+              })
+            }
+          >
             <span className="ico">⚔️</span>
-            <span className="name">Войско терпит неуплату — Статуя {statue} ур.</span>
-            <span className="val pos">{waitDaysBoth(payGraceDays(s))}</span>
-          </div>
-          <div className="note">
-            Полководец и герой Статуи — один человек, и смертен он так же. Сколько терпит его
-            войско, решает Статуя; отметки — его {ORDINAL[level]} уровень.
-            Уводит он сколько угодно: войско держит цена, а не здание.
+            <span className="name">Терпение дружины</span>
+            <span className="val pos">{waitDays(payGraceDays(s))}</span>
           </div>
         </>
       )}
@@ -261,19 +277,19 @@ export function AgentCard({ id, onBack, embedded = false }: { id: FigureId; onBa
           const open = i < slotsOpen(progress.xp);
           const st = itemIn(progress.slots[i] ?? null, owned);
           const label = !open
-            ? `с ${THIRD_SLOT_LEVEL}-го уровня`
+            ? `с ур. ${THIRD_SLOT_LEVEL}`
             : st.kind === 'empty'
               ? 'пусто'
               : st.kind === 'unknown'
-                ? 'неизвестный предмет'
+                ? 'неизвестная вещь'
                 : st.kind === 'unowned'
-                  ? `${st.def.name}: не подтверждён`
+                  ? `${st.def.name}, не действует`
                   : st.def.name;
           return (
             <button
               key={i}
               onClick={() => {
-                if (!open) return showToast(`Третье место откроется с ${THIRD_SLOT_LEVEL}-го уровня.`);
+                if (!open) return showToast(`Место откроется на ур. ${THIRD_SLOT_LEVEL}.`);
                 if (st.kind !== 'empty') {
                   act((g) => regear(g, id, i, null, f ?? { phase: 'down', departAt: 0 }, owned));
                   return;

@@ -6,8 +6,10 @@
 // Смысл объектов — прежний и прежними правилами: вид места — из полей мира, размер чужого отряда — только
 // в живом обзоре (`world/sight` через `sightDiscs`), точки агентов — `figures.spotsOf`.
 //
-// Карта по регионам (docs/map_tw.md, раздел 13.5): объект вне региона игрока в сцену не попадает — значит, не
-// рисуется и пальцу не цель. Одна мерка на все три списка — `theatre.withinActive` по клетке объекта.
+// Карта по регионам (docs/map_tw.md, раздел 13.5): место вне региона игрока в сцену не попадает — значит, не
+// рисуется и пальцу не цель. Мерка одна — `theatre/active.withinActive` по клетке объекта, та же, что у мира. Свои
+// отряды и агенты видны всегда (docs/map_tw.md, 0.−2): путь — прямая, и между двумя своими клетками она может
+// пройти чужим краем (залив, излом границы) — свой человек не пропадает с карты на это время.
 import type { Coord, FigureView, MarchView, Rect, SettlementView } from '@/world/types';
 import { inSight, type SightDisc } from '@/world/fog';
 import { marchPosition } from '@/world/geo';
@@ -20,7 +22,7 @@ import { type Spot, spotsOf } from '../figures';
 import { ANCHOR_X, ANCHOR_Y, FAN_STEP, SPAN_H, SPAN_W } from '../agent';
 import { settlementAt } from '@/world/cache';
 import { type HostLook, type PlaceKind, type PlaceLook, PIN_PX, flagSprite, hostBody, pinSprite, placeBody } from './mini';
-import { withinActive } from './theatre/theatre';
+import { withinActive } from './theatre/active';
 
 // ---------- Масштаб: миниатюра или значок ----------
 
@@ -161,7 +163,10 @@ export function hostItems(cam: Camera, vp: Viewport, marches: MarchView[], discs
     const standing = m.phase === 'stay';
     const pos = standing ? m.to : marchPosition(m, now);
     const cell = standing ? { x: m.to.x, y: m.to.y } : { x: Math.round(pos.x), y: Math.round(pos.y) };
-    if (!withinActive(cell.x, cell.y)) continue;
+    // Свой — всегда; чужой — пока идёт из своего региона или в него (тот же путь через чужой край), иначе — только
+    // в своём регионе.
+    const ours = m.own || withinActive(m.from.x, m.from.y) || withinActive(m.to.x, m.to.y);
+    if (!ours && !withinActive(cell.x, cell.y)) continue;
     const [fx, fy] = toScreen(cam, vp, m.from.x + 0.5, m.from.y + 0.5);
     const [tx, ty] = toScreen(cam, vp, m.to.x + 0.5, m.to.y + 0.5);
     let [sx, sy] = toScreen(cam, vp, pos.x + 0.5, pos.y + 0.5);
@@ -238,10 +243,8 @@ function atGate(cam: Camera, spots: Spot[], now: number): Spot[] {
 
 export function figureItems(cam: Camera, vp: Viewport, figures: FigureView[], now: number, dpr: number): FigureItem[] {
   const mini = asMini(cam.scale);
-  const raw = spotsOf(cam, vp, figures, now).filter((sp) => {
-    const c = cellOfFigure(sp.f, now);
-    return withinActive(c.x, c.y);
-  });
+  // Агенты — свои люди: видны всегда, и за краем региона тоже (путь между своими клетками через чужой край).
+  const raw = spotsOf(cam, vp, figures, now);
   return atGate(cam, raw, now).map((spot, i) => {
     const { f, px, ax, py, unit, men, standing, west } = spot;
     const body: Box = {

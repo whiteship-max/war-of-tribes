@@ -17,9 +17,9 @@ export interface FateMeta {
 }
 
 export const FATE_META: Record<Fate, FateMeta> = {
-  plunder: { name: 'Ограбить', icon: '💰', title: 'Деревню разграбили' },
-  captives: { name: 'Увести людей', icon: '⛓️', title: 'Деревню разграбили и увели людей' },
-  burn: { name: 'Сжечь', icon: '🔥', title: 'Деревню сожгли' },
+  plunder: { name: 'Ограбить', icon: '💰', title: 'Город разграбили' },
+  captives: { name: 'Увести людей', icon: '⛓️', title: 'Город разграбили и увели людей' },
+  burn: { name: 'Сжечь', icon: '🔥', title: 'Город сожгли' },
 };
 
 /**
@@ -36,14 +36,14 @@ export function lossText(f: Fate, r: FateResult): string {
   if (f === 'burn') {
     const pop = r.scattered.pop > 0 ? ` Разошлись ${r.scattered.pop} ${townsWord(r.scattered.pop)}.` : '';
     const bonded = r.scattered.bonded > 0 ? ` Разбежались ${r.scattered.bonded} ${bondedWord(r.scattered.bonded)}.` : '';
-    return `Сгорело ${goods} добра${gold > 0 ? ` и ${gold} золота` : ''}.${hidden}${pop}${bonded}`;
+    return `Сгорело ${goods} запасов${gold > 0 ? ` и ${gold} золота` : ''}.${hidden}${pop}${bonded}`;
   }
   const people = [
     r.ledBonded.taken > 0 ? `${r.ledBonded.taken} ${bondedWord(r.ledBonded.taken)}` : '',
     r.ledPop.taken > 0 ? `${r.ledPop.taken} ${townsWord(r.ledPop.taken)}` : '',
   ].filter(Boolean);
   const led = people.length > 0 ? ` Увели ${people.join(' и ')}.` : '';
-  return `Склад вычистили на ${goods} добра${gold > 0 ? `, казну — на ${gold} золота` : ''}.${hidden}${led}`;
+  return `Склад вычистили на ${goods} запасов${gold > 0 ? ` и ${gold} золота` : ''}.${hidden}${led}`;
 }
 
 /** Что досталось победителю — одной строкой для отчёта о взятом городе. */
@@ -52,8 +52,8 @@ export function gainText(r: FateResult): string {
   const goods = r.takenTotal - gold;
   const led = r.ledBonded.taken + r.ledPop.taken;
   return (
-    (goods > 0 ? ` Взято: ${goods} добра.` : '') +
-    (gold > 0 ? ` Казна: ${gold} золота.` : '') +
+    (goods > 0 ? ` Взято запасов ${goods}.` : '') +
+    (gold > 0 ? ` Золота ${gold}.` : '') +
     (led > 0 ? ` ${ORDER_TEXT.broughtIn(led)}` : '')
   );
 }

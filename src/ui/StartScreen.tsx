@@ -36,15 +36,15 @@ import { PROLOGUE_LABEL, PROLOGUE_NOTE, START_LABEL, startAction, startStep } fr
 export function StartScreen({
   onEnter,
   onPrologue,
-  naming = null,
+  naming,
 }: {
   onEnter: () => void;
   onPrologue: () => void;
   /**
-   * Шаг «Как назовёшь город?» — у нового интерфейса (`next/CityNaming`, свой кусок: его отдаёт `App`, сам экран
-   * ничего не грузит). Встаёт после главной кнопки, пока у города нет имени.
+   * Шаг «Как назовёшь город?» (`next/CityNaming`, свой кусок: его отдаёт `App`, сам экран ничего не грузит). Встаёт
+   * после главной кнопки, пока у города нет имени.
    */
-  naming?: ((done: () => void) => ReactNode) | null;
+  naming: (done: () => void) => ReactNode;
 }) {
   // `fresh` — сохранения на диске не было. Это и есть весь вопрос, на который
   // отвечает единственная кнопка (почему она одна — в `ui/start.ts`).
@@ -57,7 +57,7 @@ export function StartScreen({
 
   const enter = (): void => {
     haptic('medium');
-    if (startStep(naming !== null, named) === 'name') {
+    if (startStep(named) === 'name') {
       setAsk(true);
       return;
     }
@@ -77,7 +77,7 @@ export function StartScreen({
 
       <div className="start-body">
         <h1 className="start-name">TRIBE</h1>
-        {ask && naming ? (
+        {ask ? (
           naming(onEnter)
         ) : (
           <>

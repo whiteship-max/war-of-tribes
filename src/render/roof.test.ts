@@ -1,4 +1,4 @@
-// Значки над крышами нового вида — только беда (решение владельца 03.10.2026, docs/ui_audit.md, 12.8): никого нет на
+// Значки над крышами — только беда (решение владельца 03.10.2026, docs/ui_audit.md, 12.8): никого нет на
 // работе и кузнецы без заказа. «Можно улучшить» и «есть свободное место» стояли над десятком крыш с первой минуты и
 // закрывали город; число построек без рабочих — на «Ратуше» внизу, улучшения и места — в её списке.
 import { readFileSync } from 'node:fs';
@@ -21,13 +21,9 @@ describe('значки над крышами', () => {
     expect([...ALL].sort()).toEqual(['idle', 'order', 'slot', 'upgrade']);
   });
 
-  it('новый вид: над крышей только «никого нет» и «кузнецы без заказа»', () => {
-    expect(ALL.filter((k) => onRoof('new', k)).sort()).toEqual(['idle', 'order']);
+  it('над крышей только «никого нет» и «кузнецы без заказа»', () => {
+    expect(ALL.filter((k) => onRoof(k)).sort()).toEqual(['idle', 'order']);
     expect(Object.keys(ROOF_NEW).sort()).toEqual(['idle', 'order']);
-  });
-
-  it('прежний вид: любая забота, как было', () => {
-    expect(ALL.filter((k) => onRoof('old', k)).sort()).toEqual([...ALL].sort());
   });
 
   it('значок заводит одна дверь, и правило спрашивается раньше, чем рисуется значок', () => {
@@ -36,7 +32,7 @@ describe('значки над крышами', () => {
     const calls = [...scene.matchAll(/markerTexture\(kind\)/g)].map((m) => m.index!);
     expect(calls.length, 'рисунок значка просят в одном месте').toBe(1);
     const door = scene.indexOf('protected setMarker(');
-    const gate = scene.indexOf('if (!kind || !onRoof(markerLook, kind)) return;', door);
+    const gate = scene.indexOf('if (!kind || !onRoof(kind)) return;', door);
     expect(door).toBeGreaterThan(0);
     expect(gate, 'правило — в двери значка').toBeGreaterThan(door);
     expect(calls[0], 'значок рисуется после правила').toBeGreaterThan(gate);

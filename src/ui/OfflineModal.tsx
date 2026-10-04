@@ -13,10 +13,10 @@ export function OfflineModal() {
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <div className="m-ico">🌙</div>
         <h2>С возвращением</h2>
-        <p>Тебя не было {fmtDuration(offline)}. Племя продолжало работать, строить и учиться.</p>
+        <p>Тебя не было {fmtDuration(offline)}. Город жил без тебя.</p>
         <div className="options">
           <button className="btn" onClick={dismiss}>
-            Посмотреть, что изменилось
+            Посмотреть
           </button>
         </div>
       </div>

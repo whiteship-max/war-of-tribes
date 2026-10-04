@@ -18,6 +18,7 @@ import { BATTLE_MAN, troopTotal, type TroopStack } from '../battle/kinds';
 import { troopPower } from '../battle/price';
 import { bedsTaken, healShare, infirmaryBeds } from '../derived';
 import { log } from './log';
+import { daysSpan } from '../span';
 
 /**
  * `n` человек из `stack` пропорционально составу, наибольшими остатками; при равных остатках —
@@ -123,9 +124,9 @@ export function woundsOfBattle(s: GameState, lost: TroopStack, field: TroopStack
 /** Строка летописи о раненых боя — её пишет дверь последствий рядом со строкой самого боя. */
 export const woundLine = (c: Casualties): string => {
   const parts: string[] = [];
-  if (c.laid > 0) parts.push(`${c.laid} легли в лазарет на ${WOUND_DAYS} дня`);
-  if (c.carried > 0) parts.push(`${c.carried} при полководце — лягут, когда дружина вернётся`);
-  if (c.noBed > 0) parts.push(`${c.noBed} не хватило мест — не выжили`);
+  if (c.laid > 0) parts.push(`${c.laid} легли в лазарет на ${daysSpan(WOUND_DAYS)}`);
+  if (c.carried > 0) parts.push(`${c.carried} при полководце, лягут по возвращении`);
+  if (c.noBed > 0) parts.push(`${c.noBed} не выжили, не хватило мест`);
   return `Раненые: ${parts.join('; ')}.`;
 };
 
@@ -141,7 +142,7 @@ export function woundsHome(s: GameState): number {
   for (const g of carried) for (const [id, n] of Object.entries(g.troops) as [TroopId, number][]) all[id] = (all[id] ?? 0) + n;
   const { laid, lost } = layDown(s, all);
   s.stats.died += lost;
-  log(s, `Дружина привезла раненых: ${laid} легли в лазарет на ${WOUND_DAYS} дня${lost > 0 ? `, ${lost} не хватило мест — не выжили` : ''}.`, lost > 0 ? 'bad' : 'info');
+  log(s, `Отряд привёз раненых: ${laid} легли в лазарет на ${daysSpan(WOUND_DAYS)}${lost > 0 ? `, ${lost} не выжили, не хватило мест` : ''}.`, lost > 0 ? 'bad' : 'info');
   return lost;
 }
 

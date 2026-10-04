@@ -25,13 +25,13 @@ export interface RealmTabDef {
 }
 
 export const REALM_TABS: RealmTabDef[] = [
-  { id: 'lineage', icon: '🌳', name: 'Родословная', built: true },
-  { id: 'government', icon: '🏛️', name: 'Правительство', built: true },
-  { id: 'building', icon: '🔨', name: 'Строительство', built: true },
+  { id: 'lineage', icon: '🌳', name: 'Правитель', built: true },
+  { id: 'government', icon: '🏛️', name: 'Указы', built: true },
+  { id: 'building', icon: '🔨', name: 'Стройка', built: true },
   { id: 'tech', icon: '📚', name: 'Технологии', built: true },
-  { id: 'decisions', icon: '✉️', name: 'Решения', built: true },
-  { id: 'stability', icon: '⚖️', name: 'Стабильность', built: false },
-  { id: 'faith', icon: '⛪', name: 'Религия', built: true },
-  { id: 'army', icon: '⚔️', name: 'Армия', built: true },
+  { id: 'decisions', icon: '✉️', name: 'Вести', built: true },
+  { id: 'stability', icon: '⚖️', name: 'Порядок', built: false },
+  { id: 'faith', icon: '⛪', name: 'Вера', built: true },
+  { id: 'army', icon: '⚔️', name: 'Дружина', built: true },
   { id: 'estates', icon: '👑', name: 'Сословия', built: false },
 ];

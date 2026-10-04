@@ -181,7 +181,7 @@ export function levelLossText(s: GameState, lost: LevelLoss[], struck = lost.len
   const names = lost.map((l) => `${buildingTitle(s, l.type)} ${l.from} → ${l.to}`).join(', ');
   const floor = Math.max(0, struck - lost.length);
   if (floor === 0) return names;
-  const rest = `${floor} ${floor === 1 ? 'стоит' : 'стоят'} на первом уровне, ниже некуда`;
+  const rest = `${floor} ${floor === 1 ? 'стоит' : 'стоят'} на ур. 1, ниже некуда`;
   return names ? `${names}; ещё ${rest}` : `все ${rest}`;
 }
 
@@ -372,12 +372,12 @@ export function applyExpedition(s: GameState, o: ExpeditionOutcome): void {
   if (o.fell && typeof o.fell === 'object') recordDeath(s, o.fell, (a) => hireWhere(s, a));
   if (o.retired) recordRetire(s, o.retired, (a) => hireWhere(s, a));
   if (sacked.length > 0) {
-    log(s, `Разорено за стеной: ${sacked.join(', ')}. Люди разбежались по домам.`, 'bad');
+    log(s, `Разорено за стеной: ${sacked.join(', ')}. Рабочие разбежались.`, 'bad');
   }
   if (relicLost) log(s, `${relicLost} унесли из храма. Приход осиротел.`, 'bad');
   if (bondedOut > 0) log(s, ORDER_TEXT.ledAway(bondedOut), 'bad');
   if (bondedIn > 0) log(s, ORDER_TEXT.broughtIn(bondedIn), 'info');
-  if (popOut > 0) log(s, `Горожан не стало в городе: ${popOut} чел.`, 'bad');
+  if (popOut > 0) log(s, `Жителей стало меньше на ${popOut}.`, 'bad');
   if (burnedWorks.length > 0) {
     log(s, `Сгорело недостроенное: ${burnedWorks.map((t) => buildingTitle(s, t)).join(', ')}. Заплаченное не вернуть.`, 'bad');
   }
@@ -387,10 +387,10 @@ export function applyExpedition(s: GameState, o: ExpeditionOutcome): void {
   if (o.gold > 0) log(s, `В казну легло золота: ${Math.round(o.gold)}.`, 'good');
   if (o.gold < 0) log(s, `Из казны унесли золота: ${Math.round(-o.gold)}.`, 'bad');
   const armsText = Object.entries(arms)
-    .map(([id, n]) => `${EQUIPMENT_BY_ID[id as EquipmentId].name.toLowerCase()} — ${n}`)
+    .map(([id, n]) => `${EQUIPMENT_BY_ID[id as EquipmentId].name.toLowerCase()} ${n}`)
     .join(', ');
-  if (armsText) log(s, `Из логова принесли оружие: ${armsText}.`, 'good');
-  if (soldiersLost > 0) log(s, `Не вернулись из похода: бойцов — ${soldiersLost}.`, 'bad');
-  if (fallen > 0) log(s, `Не вернулись из разведки: ${fallen} чел.`, 'bad');
+  if (armsText) log(s, `Из логова принесли снаряжение: ${armsText}.`, 'good');
+  if (soldiersLost > 0) log(s, `Не вернулись из похода: ${soldiersLost} бойцов.`, 'bad');
+  if (fallen > 0) log(s, `Не вернулись из разведки: ${fallen}.`, 'bad');
   if (care.laid + care.carried + care.noBed > 0) log(s, woundLine(care), care.noBed > 0 ? 'bad' : 'info');
 }

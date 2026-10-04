@@ -35,12 +35,10 @@ export function Masters() {
         <div className="body">
           <div className="title">
             Мастера со стороны
-            <span className="count">можно взять: {m.room}</span>
+            <span className="count">ещё {m.room}</span>
           </div>
           <div className="desc">
-            Встают на места Мастерской и строят как ремесленник. Жителями не считаются: налога, жилья и
-            обороны у них нет. Платят им из той же казны, что войску, и уходят они той же дверью — если
-            нечем платить или кормить.
+            Строят как ремесленник. Жителями не считаются. Без жалованья или еды уходят, как дружина.
           </div>
         </div>
       </div>
@@ -49,15 +47,13 @@ export function Masters() {
           <Icon name="res-gold" glyph="💰" />
         </span>
         <span className="name">Жалованье мастеру</span>
-        <span className="val">{m.wage.toFixed(2)} в игровой день</span>
+        <span className="val">{m.wage.toFixed(2)} в день</span>
       </div>
       <div className="mod">
         <span className="ico">⚔️</span>
         <span className="name">
-          Мастер в жалованье
-          <em className="sub">
-            боец отнимает у стройки одни руки, мастер даёт {m.hands.toFixed(2)} — и стоит столько же бойцов
-          </em>
+          Цена мастера
+          <em className="sub">{m.hands.toFixed(2)} рук стройке, платят как бойцам</em>
         </span>
         <span className="val">
           {m.inSoldiers.toFixed(2)} × {soldier.one}
@@ -67,16 +63,16 @@ export function Masters() {
         <span className="ico">🔨</span>
         <span className="name">
           Дают стройке
-          <em className="sub">каждый — как ремесленник: +{m.each.toFixed(1)}/с</em>
+          <em className="sub">каждый +{m.each.toFixed(1)}</em>
         </span>
-        <span className="val">+{m.gain.toFixed(1)}/с</span>
+        <span className="val">+{m.gain.toFixed(1)}</span>
       </div>
       <div className="mod">
         <span className="ico">📜</span>
         <span className="name">
-          Ведомость в день — войско и мастера
+          Жалованье в день
           <em className="sub">
-            войско {up.armyWages.toFixed(1)}, мастера {up.mastersWages.toFixed(1)}, казна даёт {up.income.toFixed(1)}
+            дружина {up.armyWages.toFixed(1)}, мастера {up.mastersWages.toFixed(1)}, доход {up.income.toFixed(1)}
           </em>
         </span>
         <span className={`val${up.wages > up.income ? ' neg' : ''}`}>{up.wages.toFixed(1)}</span>

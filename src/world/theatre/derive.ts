@@ -13,9 +13,9 @@
 //     суши — ничьи: регион кончается морем и песком, а не идёт за горизонт.
 //
 // Всё детерминировано: куча сравнивает (цена, номер клетки), сложения — в Float64 одним порядком.
-import { ATLAS_CLASS, ATLAS_RIDGE, ATLAS_RIVER, ATLAS_WATER, atlasCell, atlasSize } from '@/world/atlas/atlas';
-import { ATLAS_TERRAIN } from '@/world/atlas/data';
-import { cellOf } from '@/world/atlas/project';
+import { ATLAS_CLASS, ATLAS_RIDGE, ATLAS_RIVER, ATLAS_WATER, atlasCell, atlasSize } from '../atlas/atlas';
+import { ATLAS_TERRAIN } from '../atlas/data';
+import { cellOf } from '../atlas/project';
 import { THEATRE_BAND, THEATRE_COST, THEATRE_DESERT, THEATRE_ISLAND_REACH, THEATRE_LIST, type TheatreDef } from './list';
 
 /** Двоичная куча (цена, клетка): при равной цене раньше клетка с меньшим номером — порядок постоянный. */

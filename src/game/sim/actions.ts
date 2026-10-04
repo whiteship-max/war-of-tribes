@@ -14,7 +14,7 @@ import {
 import { BUILDING_BY_ID } from '../data/buildings';
 import { log } from './log';
 import { pay, refund } from './pay';
-import { daysBoth } from '../span';
+import { daysSpan } from '../span';
 
 export { assignBonded, assignWorker, changeFreeJob, unassignBonded, unassignWorker } from './workers';
 export { cancelForge, forgeCheck, startForge } from './smithy';
@@ -35,7 +35,7 @@ export function startUpgrade(s: GameState, buildingId: number): string | null {
   pay(s, info.cost);
   b.work = 0;
   b.workRequired = info.work;
-  log(s, `Начато улучшение: ${BUILDING_BY_ID[b.type].name} до ${info.level} уровня.`);
+  log(s, `Стройка: ${BUILDING_BY_ID[b.type].name} до ур. ${info.level}.`);
   return null;
 }
 
@@ -67,7 +67,7 @@ export function throwFeast(s: GameState): string | null {
   s.gold -= info.cost;
   s.feastUntil = s.time + feastSeconds();
   s.feastAt = s.time;
-  log(s, `Трактир: пир на всё племя за ${info.cost} золота. Мораль +${info.bonus} на ${daysBoth(FEAST_DAYS)}.`, 'good');
+  log(s, `Пир для всего города за ${info.cost} золота. Мораль +${info.bonus} на ${daysSpan(FEAST_DAYS)}.`, 'good');
   return null;
 }
 
@@ -80,17 +80,17 @@ export function setDecree(s: GameState, id: DecreeId): string | null {
   if (!def) return 'Такого указа нет.';
   if (s.decree === id) return null;
   s.decree = id;
-  log(s, `Указ вождя: ${def.name.toLowerCase()}.`);
+  log(s, `Указ: ${def.name.toLowerCase()}.`);
   return null;
 }
 
 /** Рацион племени. Тоже переключается когда угодно. */
 export function setRation(s: GameState, id: RationId): string | null {
   const def = RATION_BY_ID[id];
-  if (!def) return 'Такого рациона нет.';
+  if (!def) return 'Такого пайка нет.';
   if (s.ration === id) return null;
   s.ration = id;
-  log(s, `Рацион: ${def.name.toLowerCase()}.`);
+  log(s, `Паёк: ${def.name.toLowerCase()}.`);
   return null;
 }
 

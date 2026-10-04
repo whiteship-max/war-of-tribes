@@ -1,7 +1,7 @@
 import { useGame } from '@/game/store';
 import { winterForecast, type ResourceForecast } from '@/game/derived';
 import { SEASON_DAYS } from '@/game/data/seasons';
-import { gameDaysText } from '@/ui/parts/wait';
+import { waitDays } from '@/ui/parts/wait';
 
 const n1 = (x: number): string => String(Math.round(x * 10) / 10);
 
@@ -17,7 +17,7 @@ function Stock({ icon, name, f, days }: { icon: string; name: string; f: Resourc
         <span className="ico">{icon}</span>
         <b>{name}</b>
         <span className="days">
-          {covered} из {gameDaysText(days)}
+          {waitDays(covered)} из {waitDays(days)}
         </span>
       </div>
       <div className="progress">
@@ -26,7 +26,7 @@ function Stock({ icon, name, f, days }: { icon: string; name: string; f: Resourc
       <small>
         {f.drainPerDay > 0
           ? `В запасе ${Math.floor(f.have)}, уходит ${n1(f.drainPerDay)} в день. Нужно на зиму ${Math.ceil(f.need)}.`
-          : `В запасе ${Math.floor(f.have)}, зимой племя добывает больше, чем тратит.`}
+          : `В запасе ${Math.floor(f.have)}, зимой добыча больше трат.`}
       </small>
     </div>
   );
@@ -52,8 +52,8 @@ export function WinterModal() {
         <div className="m-ico">❄️</div>
         <h2>Скоро зима</h2>
         <p>
-          Через день поля встанут, сбор просядет, а очаги начнут жечь дрова.
-          {f.first ? ' Первая зима будет мягче — но считать запасы стоит уже сейчас.' : ''}
+          Скоро поля встанут, сбор просядет, очаги начнут жечь дрова.
+          {f.first ? ' Первая зима мягче, но запасы считай уже сейчас.' : ''}
         </p>
 
         <div className="stocks">
@@ -63,7 +63,7 @@ export function WinterModal() {
 
         <p className={ready ? 'verdict ok' : 'verdict no'}>
           {ready
-            ? 'Запасов хватит на всю зиму. Можно ковать и учить бойцов — казармы и кузница зимы не боятся.'
+            ? 'Запасов хватит на всю зиму.'
             : 'Запасов не хватит до весны. Переведи людей на еду и дрова или сократи стройку.'}
         </p>
 
@@ -75,7 +75,7 @@ export function WinterModal() {
               openSeason('season');
             }}
           >
-            <span>Посмотреть множители зимы</span>
+            <span>Что меняет зима</span>
             <small>❄️</small>
           </button>
           <button className="btn" onClick={dismiss}>

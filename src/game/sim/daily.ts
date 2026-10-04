@@ -115,7 +115,7 @@ export function finishDaily(s: GameState, day: number, won: boolean): string | n
   const game = dailyGameOf(day);
   const def = DAILY_GAME_BY_ID[game];
   if (!won) {
-    log(s, `${def.icon} ${def.name}: не вышло. Следующая попытка — завтра.`);
+    log(s, `${def.icon} ${def.name}: не вышло. Новая попытка завтра.`);
     return null;
   }
 

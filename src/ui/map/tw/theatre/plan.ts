@@ -10,7 +10,7 @@ import { CHUNK, WORLD_ORIGIN, WORLD_SIZE } from '@/world/data/tuning';
 import { MID_BLEED, MID_CELLS, MID_PX, OVERVIEW_BLEED, OVERVIEW_PX } from '../bake';
 import { SHEET_PAD, SHEET_PX } from '../parchment';
 import { reachOf } from './camera';
-import { type Theatre, theatreIndexAt } from './theatre';
+import { type Theatre, theatreIndexAt } from '@/world/theatre/theatre';
 
 /** Кайма вокруг региона, где печётся земля: рваный край листа заходит за границу на две-три клетки. */
 export const THEATRE_FRINGE = 3;

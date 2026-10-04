@@ -323,7 +323,7 @@ export const refusedAtGate = (...ts: (Pick<Through, 'went' | 'passed'> | null | 
 
 /** Слова отказа — одни на вылазку, удар полководца и панели. */
 export const gateBusyText = (waitMs: number): string =>
-  `К рогаткам сейчас не пробиться — люди ещё в проходе, свободно через ${Math.max(1, Math.ceil(waitMs / 60_000))} мин.`;
+  `К рогаткам сейчас не пробиться, проход занят ещё ${Math.max(1, Math.ceil(waitMs / 60_000))} мин.`;
 
 /** Как сторона называется в строке «пробились с тыла, со стороны города». */
 const FROM: Record<CampSide, string> = { front: 'со стороны города', rear: 'с тыла' };
@@ -337,7 +337,7 @@ export function throughText(...ts: (Pick<Through, 'side' | 'went' | 'passed'> | 
   const parts = ts.filter((t): t is Pick<Through, 'side' | 'went' | 'passed'> => Boolean(t) && (t as Through).went > 0);
   if (parts.every((t) => t.passed >= t.went)) return '';
   const said = parts.map((t) => `${FROM[t.side]} ${t.passed} из ${t.went}`).join(', ');
-  return ` К рогаткам пробились бойцов строя: ${said}; остальные в бою не были.`;
+  return ` К рогаткам пробились ${said}, остальные в бою не были.`;
 }
 
 /**
@@ -481,13 +481,13 @@ export function weakSide(since: number, at: number, plan: WoodPlan = CAMP_WOOD):
 /** Подсказка обороняющемуся по слабой стороне — одни слова на окно и на карту. */
 export const WEAK_HINT: Record<CampSide, string> = {
   front: 'Со стороны города слабее: бей вылазкой сейчас.',
-  rear: 'Тыл слабее: зови полководца — он бьёт с тыла из поля.',
+  rear: 'Тыл слабее: зови полководца, он ударит из поля.',
 };
 
 /** Проход словами — хвост к строкам ниже; пусто, когда проход свободен. */
 function gateTail(gateAt: number | undefined, at: number): string {
   if (gateFree(gateAt, at) >= 1 || gateAt === undefined) return '';
-  return ` Проход занят: освободится через ${mins(gateAt - at)} мин.`;
+  return ` Проход занят ещё ${mins(gateAt - at)} мин.`;
 }
 
 /**

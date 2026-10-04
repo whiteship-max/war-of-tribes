@@ -164,7 +164,7 @@ describe('кузница: заказы', () => {
     const s = smithy();
     for (const r of Object.keys(s.resources) as (keyof typeof s.resources)[]) s.resources[r] = 1;
     const check = forgeCheck(s, 'armor', 5);
-    expect(check.blocked).toMatch(/материалов/);
+    expect(check.blocked).toMatch(/Не хватает запасов/);
     expect(startForge(s, 'armor', 5)).toBe(check.blocked);
     expect(s.forge).toHaveLength(0);
   });

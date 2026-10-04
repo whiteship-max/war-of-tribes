@@ -40,13 +40,11 @@ import {
   worstRequest,
   zoomAt,
 } from './grid';
-import { TileCache } from './tilecache';
 import {
   CONIFER_NORTH,
   CONIFER_SOUTH,
   FADE_HI,
   FADE_LO,
-  RELIEF_PER_CELL,
   SCALE_DETAIL,
   SCALE_MAX,
   SCALE_MIN,
@@ -57,7 +55,6 @@ import {
   TREE_FREE_R,
 } from './const';
 import { type Sample, coniferAt, fieldAt, forestAt, groveAt, stampsFor, treesIn, waterShare } from './scatter';
-import { RIDGE_LIFT, cellHeight, lattice, shadePixels } from './relief';
 import { BUCKETS, STAGE_SHAPE, clearRadius, layout, pickBucket, ringOf, spriteKey, variantOf } from './village';
 import {
   AGENT_BUCKETS,
@@ -248,7 +245,8 @@ describe('кэш земли держит то, что кадр просит, —
   // камеры. Экрана мало: кадр просит экран с запасом, и в 46% положений запас в
   // кэш не влезал — тайл вытеснялся, следующий кадр пёк его снова, и так у
   // неподвижной карты по выпечке на кадр. Здесь проверяется не число, а сам
-  // кэш на тех же функциях, что у кадра: `frameQueue`, `cacheFor`, `TileCache`.
+  // запрос и ёмкость, выведенная из него (`frameQueue`, `cacheFor`) — ими считает ближний слой карты по регионам
+  // (`tw/prebake.ts`). Кэш прежней земли (`TileCache`) удалён с прежней картой (docs/ui_audit.md, 16).
   const PHONES: Viewport[] = [{ w: 360, h: 640 }, { w: 375, h: 812 }, VP, TILE_PROMISE];
   const BAND = [FADE_LO + 0.01, 38, FADE_HI, SCALE_START, SCALE_DETAIL, SCALE_MAX];
   // Середина мира, чтобы край карты не обрезал тайлы и не делал запрос легче.
@@ -256,18 +254,6 @@ describe('кэш земли держит то, что кадр просит, —
   // Сдвиги в пределах одного тайла с шагом, не кратным клетке: ровная сетка
   // сдвигов обошла бы как раз те совпадения с сеткой тайлов, на которых и было худо.
   const OFFSETS = Array.from({ length: 10 }, (_, k) => (k * 0.61) % TILE_CELLS);
-
-  /** Кадры без холста: тот же запрос, та же обрезка, тот же кэш, что у `drawGround`. */
-  function stand(cam: Camera, vp: Viewport, frames: number): { bakes: number[]; size: number } {
-    const capacity = cacheFor(vp);
-    const plan = frameQueue(viewRect(cam, vp), capacity);
-    const cache = new TileCache<object>(() => {});
-    const bakes: number[] = [];
-    for (let f = 1; f <= frames && plan; f++) {
-      bakes.push(cache.frame(plan.queue, f, capacity, 1, () => ({})));
-    }
-    return { bakes, size: cache.size };
-  }
 
   it('ёмкость не меньше запроса ни в одном положении камеры', () => {
     for (const vp of PHONES) {
@@ -299,52 +285,6 @@ describe('кэш земли держит то, что кадр просит, —
     }
   });
 
-  it('неподвижная камера, раз испёкши запрос, не печёт больше ничего', () => {
-    for (const vp of PHONES) {
-      const capacity = cacheFor(vp);
-      for (const scale of BAND) {
-        for (const ox of OFFSETS) {
-          for (const oy of OFFSETS) {
-            const { bakes, size } = stand({ cx: MID.x + ox, cy: MID.y + oy, scale }, vp, capacity + 60);
-            // Первые кадры печут запрос по тайлу за кадр, дальше — ни одного.
-            const late = bakes.slice(capacity).reduce((a, b) => a + b, 0);
-            expect(late, `${vp.w}×${vp.h} при ${scale}, сдвиг ${ox.toFixed(2)}|${oy.toFixed(2)}`).toBe(0);
-            expect(size).toBeLessThanOrEqual(capacity);
-          }
-        }
-      }
-    }
-  });
-
-  it('проверка не пустая: движущаяся камера печёт, а кэш не пухнет', () => {
-    const vp = TILE_PROMISE;
-    const capacity = cacheFor(vp);
-    const cache = new TileCache<object>(() => {});
-    let baked = 0;
-    for (let f = 1; f <= 900; f++) {
-      const cam = { cx: MID.x + f * 0.08, cy: MID.y + f * 0.05, scale: FADE_HI };
-      const plan = frameQueue(viewRect(cam, vp), capacity);
-      if (!plan) continue;
-      baked += cache.frame(plan.queue, f, capacity, 1, () => ({}));
-      expect(cache.size).toBeLessThanOrEqual(capacity);
-    }
-    expect(baked).toBeGreaterThan(capacity);
-  });
-
-  it('запрошенное кадром кэш не вытесняет, даже когда его больше ёмкости', () => {
-    // Обрезает запрос кадр; кэш этого не обещает, но и выбрасывать живое не смеет:
-    // лишний тайл в памяти лучше выброшенного и испечённого следующим кадром.
-    const released: object[] = [];
-    const cache = new TileCache<object>((v) => released.push(v));
-    const want = Array.from({ length: 6 }, (_, i) => ({ tx: i, ty: 0 }));
-    for (let f = 1; f <= 6; f++) cache.frame(want, f, 3, 1, () => ({}));
-    expect(cache.size).toBe(6);
-    expect(released).toEqual([]);
-    // Запрос ушёл — вытесняется то, что больше не просят, до ёмкости.
-    cache.frame([{ tx: 100, ty: 0 }], 7, 3, 1, () => ({}));
-    expect(cache.size).toBe(3);
-  });
-
   it('запас отрезается с дальнего края и одинаково от кадра к кадру', () => {
     const rect = viewRect({ cx: MID.x + 1.3, cy: MID.y + 2.7, scale: FADE_HI }, VP);
     const a = tileRequest(rect);
@@ -369,26 +309,6 @@ describe('кэш земли держит то, что кадр просит, —
     }
   });
 
-  it('кадр просит у кэша только через frameQueue, и ёмкость у него одна', () => {
-    // Читается исходник: всё, что проверено выше, держится на том, что кадр
-    // спрашивает теми же функциями. Собери он запрос сам — из `tileRangeFor` с
-    // «кольцом» — и тесты выше проверяли бы одно, а рисовалось бы другое. Ровно
-    // так и жило прежнее правило: число рядом с запросом, а не из него.
-    const read = (f: string): string =>
-      readFileSync(join(process.cwd(), 'src/ui/map', f), 'utf8')
-        .replace(/\/\*[\s\S]*?\*\//g, ' ')
-        .replace(/(^|[^:])\/\/.*$/gm, '$1');
-    const detail = read('detail.ts');
-    expect(detail).toMatch(/frameQueue\(viewRect\(cam, vp\), capacity\)/);
-    expect(detail).toMatch(/capacityValue = cacheFor\(vp\)/);
-    expect(detail).not.toMatch(/tileRangeFor|tilesIn\(/);
-    // Своего числа тайлов в кэше нет нигде в карте: ни в выпечке, ни в кадре.
-    for (const f of ['detail.ts', 'ground.ts', 'tilecache.ts', 'const.ts', 'frame.ts']) {
-      expect(read(f), f).not.toMatch(/TILE_CACHE/);
-    }
-    expect(read('ground.ts')).toMatch(/tiles\.frame\(want, frame, capacity/);
-  });
-
   it('на обещанном экране нарисованный слой есть на всём рабочем диапазоне', () => {
     // Прежний предохранитель сравнивал экран с числом; теперь экран и запас
     // сравниваются с ёмкостью, выведенной из них же, — и на обещанном экране
@@ -401,6 +321,7 @@ describe('кэш земли держит то, что кадр просит, —
     }
   });
 });
+
 
 describe('поселения читаются силуэтом', () => {
   const STAGES = ['camp', 'village', 'stronghold', 'town'] as const;
@@ -879,19 +800,22 @@ describe('отрисовка отряда ходит через правило �
       .replace(/(^|[^:])\/\/.*$/gm, '$1');
 
   it('кадр берёт живой обзор у общего модуля, а не считает его сам', () => {
-    const src = read('frame.ts');
+    // Карта одна — по регионам (прежняя удалена, docs/ui_audit.md, 16): кадр — `tw/frame.ts`, отряды — `tw/scene.ts`.
+    const src = read('tw/frame.ts');
+    const scene = read('tw/scene.ts');
     // `sightDiscs` из world/store и `inSight` из world/fog — те же, которыми
     // мир решал, показывать ли этот отряд вообще (LocalWorld.visibleMarches).
     expect(src).toMatch(/import \{[^}]*sightDiscs[^}]*\} from '@\/world\/store'/);
-    expect(src).toMatch(/import \{[^}]*inSight[^}]*\} from '@\/world\/fog'/);
+    expect(scene).toMatch(/import \{[^}]*inSight[^}]*\} from '@\/world\/fog'/);
     expect(src).toMatch(/const discs = sightDiscs\(now\)/);
     // Своего HOME_SIGHT, своего радиуса лазутчика и своего перебора фигур в
     // кадре быть не должно: это была бы вторая правда о том, кто наблюдает.
     expect(src).not.toMatch(/HOME_SIGHT|watchSight|liveSight/);
+    expect(scene).not.toMatch(/HOME_SIGHT|watchSight|liveSight/);
   });
 
   it('чужому отряду «видно» не приписывается, а вычисляется', () => {
-    const src = read('frame.ts');
+    const src = read('tw/scene.ts');
     // Единственное `seen:` в кадре — вычисленное. Литерал `true` тут означал бы
     // карту, на которой все армии ползают на виду.
     const seen = [...src.matchAll(/seen: (.+),$/gm)].map((m) => m[1].trim());
@@ -954,7 +878,7 @@ describe('агенты на карте различаются силуэтом',
     // каждую секунду, и печь его нельзя.
     expect([...fig.matchAll(/fillText\(/g)].length).toBe(1);
     // Кадр карты имена агентов тоже не рисует: рисовальщика подписей нет вовсе.
-    expect(read('frame.ts')).not.toMatch(/drawFigureLabels/);
+    expect(read('tw/frame.ts')).not.toMatch(/drawFigureLabels/);
     expect(read('agent.ts')).not.toMatch(/labelSprite|bakeLabel/);
   });
 
@@ -964,7 +888,7 @@ describe('агенты на карте различаются силуэтом',
     // Список агентов на карте один — «Походы»: угол агентов убран как вторая
     // кнопка под то же дело.
     const map = read('WorldMap.tsx');
-    expect(readFileSync(join(process.cwd(), 'src/ui/panels/MarchesPanel.tsx'), 'utf8')).toMatch(/\{f\.name\}/);
+    expect(readFileSync(join(process.cwd(), 'src/ui/next/MarchesNew.tsx'), 'utf8')).toMatch(/\{f\.name\}/);
     expect(map).toMatch(/FIGURE_BY_ID\[picked\]\.name/);
     expect(read('ActionMenu.tsx')).toMatch(/def\.name/);
   });
@@ -1030,85 +954,6 @@ describe('агенты на карте различаются силуэтом',
     const mixed = fanOffsets(['5|5', '6|6', '5|5']);
     expect(mixed[1]).toBe(0);
     expect(mixed[0]).toBeCloseTo(-mixed[2]);
-  });
-});
-
-describe('рельеф: свет по высоте', () => {
-  const ridgeNone = () => false;
-
-  it('высота выводится из класса клетки, а хребет поднимает поверх него', () => {
-    expect(cellHeight('hills', false)).toBeGreaterThan(cellHeight('plain', false));
-    expect(cellHeight('water', false)).toBeLessThan(0);
-    expect(cellHeight('hills', true)).toBeCloseTo(cellHeight('hills', false) + RIDGE_LIFT);
-    // Клетки нет — за краем сетки открытое море, а не нулевая высота.
-    expect(cellHeight(null, false)).toBe(cellHeight('water', false));
-  });
-
-  it('решётка детерминирована по сиду, а другой сид даёт другой рельеф', () => {
-    const rect = { x: HOME.x, y: HOME.y, w: 4, h: 4 };
-    const a = lattice(SEED, rect, sampleFor(SEED), ridgeNone);
-    const b = lattice(SEED, rect, sampleFor(SEED), ridgeNone);
-    expect([...b.h]).toEqual([...a.h]);
-    const c = lattice(SEED + 1, rect, sampleFor(SEED + 1), ridgeNone);
-    expect([...c.h]).not.toEqual([...a.h]);
-  });
-
-  it('шва между тайлами нет: в общей точке два соседа считают одну высоту', () => {
-    // Две решётки, сдвинутые на две клетки: общая часть обязана совпасть до бита,
-    // иначе на стыке тайлов по свету пойдёт ступенька.
-    const left = lattice(SEED, { x: HOME.x, y: HOME.y, w: 4, h: 4 }, sampleFor(SEED), ridgeNone);
-    const right = lattice(SEED, { x: HOME.x + 2, y: HOME.y, w: 4, h: 4 }, sampleFor(SEED), ridgeNone);
-    const shift = Math.round(2 * RELIEF_PER_CELL);
-    let checked = 0;
-    for (let j = 0; j < left.n; j++) {
-      for (let i = shift; i < left.n; i++) {
-        expect(left.h[j * left.n + i]).toBeCloseTo(right.h[j * right.n + (i - shift)], 6);
-        checked++;
-      }
-    }
-    expect(checked).toBeGreaterThan(0);
-  });
-
-  it('горы выходят изрезаннее равнины, а вода гладкая', () => {
-    const spread = (t: 'plain' | 'hills' | 'water'): number => {
-      const flat: Sample = () => t;
-      const lat = lattice(SEED, { x: 100, y: 100, w: 6, h: 6 }, flat, ridgeNone);
-      const all = [...lat.h];
-      return Math.max(...all) - Math.min(...all);
-    };
-    expect(spread('hills')).toBeGreaterThan(spread('plain'));
-    expect(spread('plain')).toBeGreaterThan(0);
-    // Рябь на дне выдала бы себя сквозь отмель — под водой её нет вовсе.
-    expect(spread('water')).toBe(0);
-  });
-
-  it('свет падает слева-сверху: склон к свету светлеет, отвёрнутый темнеет', () => {
-    // Ровный скат вниз-вправо: высота растёт с x и с y. По правилу света такой
-    // склон обращён к свету целиком, и краска на нём обязана быть светлой.
-    const n = 9;
-    const lat = { n, x0: 0, y0: 0, step: 0.1, h: new Float32Array(n * n) };
-    for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) lat.h[j * n + i] = (i + j) * 0.05;
-    const size = n - 2;
-    const px = new Uint8ClampedArray(size * size * 4);
-    shadePixels(lat, px, 1, size);
-    const mid = ((size >> 1) * size + (size >> 1)) * 4;
-    const lit = (px[mid] + px[mid + 1] + px[mid + 2]) / 3;
-    // Тот же скат наоборот — склон от света, краска тёмная.
-    for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) lat.h[j * n + i] = -(i + j) * 0.05;
-    shadePixels(lat, px, 1, size);
-    const dark = (px[mid] + px[mid + 1] + px[mid + 2]) / 3;
-    expect(lit).toBeGreaterThan(dark);
-    expect(px[mid + 3]).toBeGreaterThan(0);
-  });
-
-  it('ровная земля света не получает вовсе', () => {
-    const n = 9;
-    const lat = { n, x0: 0, y0: 0, step: 0.1, h: new Float32Array(n * n) };
-    lat.h.fill(0.07);
-    const size = n - 2;
-    const px = new Uint8ClampedArray(size * size * 4);
-    shadePixels(lat, px, 1, size);
-    for (let i = 0; i < size * size; i++) expect(px[i * 4 + 3]).toBe(0);
   });
 });
 

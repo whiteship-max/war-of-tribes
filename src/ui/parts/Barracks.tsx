@@ -15,7 +15,9 @@ import { dismissSoldiers } from '@/game/sim/actions';
 import { UPKEEP_TEXT } from '@/game/data/upkeep';
 import { Icon } from '@/ui/icons/Icon';
 import { Recruit } from './Recruit';
-import { waitDays, waitDaysBoth } from './wait';
+import { waitDays } from './wait';
+import { count } from './plural';
+import { tipAt } from '@/ui/next/tip';
 
 /**
  * Казармы: дружина, найм пеших (`Recruit`; конницу нанимают в конюшне) и
@@ -36,28 +38,28 @@ export function Barracks() {
   return (
     <>
       <h3>
-        Дружина <span className="muted">бойцов: {armySize(s)}</span>
+        Дружина <span className="muted">{count(armySize(s), 'боец', 'бойца', 'бойцов')}</span>
       </h3>
       <div className="mod total">
         <span className="ico">⚔️</span>
-        <span className="name">Мощь армии</span>
+        <span className="name">Мощь</span>
         <span className="val pos">{Math.round(armyPower(s))}</span>
       </div>
       <div className="mod">
         <span className="ico">🛡️</span>
-        <span className="name">Защита поселения</span>
+        <span className="name">Оборона</span>
         <span className="val">{defense(s).toFixed(0)}</span>
       </div>
       {/* Что стена выводит в поле и кто идёт на деревню — у стены, в разделе «Оборона»,
           и оттуда же дверь к донесению о набеге. Второго экрана здесь нет — только дверь туда. */}
       {palisade && (
         <button className="btn ghost wide" onClick={() => openBuilding(palisade.id)}>
-          🛡️ Оборона — у частокола
+          <Icon name="bld-palisade" glyph="🛡️" /> Частокол
         </button>
       )}
       <div className="mod">
         <span className="ico">🔨</span>
-        <span className="name">Свободных жителей</span>
+        <span className="name">Свободные руки</span>
         <span className={`val${free === 0 ? ' neg' : ''}`}>{free}</span>
       </div>
 
@@ -68,10 +70,8 @@ export function Barracks() {
 
       {armySize(s) > 0 && (
         <>
-          <h3>Распустить по домам</h3>
-          <p className="note">
-            Люди вернутся в посёлок, снаряжение — на склад. Припас найма и время учений не вернуть.
-          </p>
+          <h3>Роспуск</h3>
+          <p className="note">Бойцы станут жителями, снаряжение вернётся на склад, плата за найм пропадёт.</p>
           {TROOPS.filter((def) => (s.army[def.id] ?? 0) > 0).map((def) => {
             const n = Math.max(1, release[def.id] ?? 1);
             const check = dismissCheck(s, def.id, n);
@@ -83,7 +83,7 @@ export function Barracks() {
                   <Icon name={`troop-${def.id}`} glyph={def.icon} />
                 </span>
                 <span className="who">
-                  {def.name} <i className="talent">дома {check.max} · −{Math.round(check.saves)} зол./д</i>
+                  {def.name} <i className="talent">гарнизон {check.max} · −{Math.round(check.saves)} золота в день</i>
                 </span>
                 <div className="stepper">
                   <button disabled={n <= 1} onClick={() => set(n - 1)}>
@@ -125,7 +125,7 @@ export function Upkeep() {
       <div className="mod">
         <span className="ico">{UPKEEP_TEXT.icon}</span>
         <span className="name">
-          Войску в день
+          Дружине в день
           {up.amnestyDays > 0 && <em className="sub">платить начнут через {waitDays(Math.ceil(up.amnestyDays))}</em>}
         </span>
         <span className={`val${up.masters === 0 && up.wages > up.income ? ' neg' : ''}`}>{Math.round(up.armyWages)}</span>
@@ -134,10 +134,7 @@ export function Upkeep() {
         <>
           <div className="mod">
             <span className="ico">🔨</span>
-            <span className="name">
-              Наёмным мастерам в день
-              <em className="sub">та же ведомость и та же казна — в Мастерской</em>
-            </span>
+            <span className="name">Мастерам в день</span>
             <span className="val">{up.mastersWages.toFixed(1)}</span>
           </div>
           <div className="mod">
@@ -147,38 +144,51 @@ export function Upkeep() {
           </div>
         </>
       )}
-      <div className="mod">
+      <div
+        className="mod"
+        role="button"
+        tabIndex={0}
+        onClick={(e) => tipAt(e.currentTarget, { title: 'Доход в день', body: 'Золото от налога и веры.' })}
+      >
         <span className="ico"><Icon name="res-gold" glyph="💰" /></span>
-        <span className="name">Казна даёт в день — налог и вера</span>
+        <span className="name">Доход в день</span>
         <span className="val">{Math.round(up.income)}</span>
       </div>
       {up.debt > 0 && (
         <div className="mod">
           <span className="ico">📜</span>
-          <span className="name">Долг войску</span>
+          <span className="name">Долг дружине</span>
           <span className="val neg">{Math.round(up.debt)}</span>
         </div>
       )}
-      <div className="mod">
+      <div
+        className="mod"
+        role="button"
+        tabIndex={0}
+        onClick={(e) =>
+          tipAt(e.currentTarget, {
+            title: 'Терпение',
+            body: 'Сколько дружина ждёт жалованья и еды, потом уходит, даже без тебя. Растёт с уровнем Статуи.',
+          })
+        }
+      >
         <span className="ico">🗿</span>
-        <span className="name">Терпит неуплату и голод — Статуя</span>
-        <span className="val">{waitDaysBoth(up.graceDays)}</span>
+        <span className="name">Терпение</span>
+        <span className="val">{waitDays(up.graceDays)}</span>
       </div>
       {up.why ? (
         <p className="note bad">
           {UPKEEP_TEXT.whoDat(up.armyWages > 0 || up.masters === 0, up.masters > 0)} {UPKEEP_TEXT.why[up.why]}.{' '}
           {up.leavingPerDay > 0
-            ? `Уходят — около ${Math.max(1, Math.round(up.leavingPerDay))} в день, равной долей каждого вида.`
-            : `Уходить начнут через ${waitDays(Math.max(1, Math.ceil(up.graceDays - up.lateDays)))}.`}{' '}
+            ? `Уходят около ${Math.max(1, Math.round(up.leavingPerDay))} в день.`
+            : `Уход через ${waitDays(Math.max(1, Math.ceil(up.graceDays - up.lateDays)))}.`}{' '}
           {up.why === 'pay'
-            ? 'Уход встанет, как только казна покроет жалованье: подними налог или распусти лишних.'
-            : 'Войско ест последним: уход встанет, когда амбару хватит на всех.'}
+            ? 'Подними налог или распусти лишних.'
+            : 'Дружина ест после жителей. Уход встанет, когда еды хватит всем.'}
         </p>
       ) : up.treasuryDays !== null ? (
-        <p className="note">Жалованье больше дохода: казны хватит на {waitDays(Math.max(1, Math.ceil(up.treasuryDays)))}.</p>
-      ) : (
-        <p className="note">Нечем платить или нечем кормить — войско терпит, потом уходит: при тебе и без тебя одинаково.</p>
-      )}
+        <p className="note">Жалованье больше дохода. Золота хватит на {waitDays(Math.max(1, Math.ceil(up.treasuryDays)))}.</p>
+      ) : null}
     </>
   );
 }

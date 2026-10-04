@@ -117,8 +117,8 @@ export function formatEstimate(e: Estimate | null): string {
 }
 
 export const PRECISION_NOTE: Record<Precision, string> = {
-  exact: 'данные свежие',
-  rough: 'данные стареют — примерная оценка',
-  vague: 'данные старые — только порядок величины',
-  unknown: 'данных нет',
+  exact: 'сведения свежие',
+  rough: 'сведения стареют, оценка примерная',
+  vague: 'сведения старые, только порядок числа',
+  unknown: 'сведений нет',
 };

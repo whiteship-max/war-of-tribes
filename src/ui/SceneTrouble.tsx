@@ -21,15 +21,12 @@ export function SceneTrouble({ verdict, onRetry }: { verdict: Verdict; onRetry: 
   return (
     <div className="trouble">
       <div className="trouble-box">
-        <div className="trouble-title">Деревня не рисуется</div>
+        <div className="trouble-title">Город не рисуется</div>
         <div className="trouble-why">{VERDICT_TEXT[verdict]}</div>
         <button className="btn wide" onClick={onRetry}>
           Восстановить
         </button>
-        <div className="trouble-hint">
-          Не помогло — «Задания» → «Служебное» → «Что было со сценой»: там журнал, и его можно
-          скопировать целиком.
-        </div>
+        <div className="trouble-hint">Если не помогло, скопируй отчёт.</div>
         <button className="btn ghost wide" onClick={() => void copy()}>
           Скопировать отчёт
         </button>

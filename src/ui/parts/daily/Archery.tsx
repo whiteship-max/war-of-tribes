@@ -4,6 +4,7 @@ import {
   ARCHERY_SHOTS,
   ARCHERY_WIN,
   SCORE_BULL,
+  SCORE_RING,
   archeryLevel,
   archeryWon,
   markerAt,
@@ -129,8 +130,8 @@ export function Archery({ seed, onDone }: { seed: number; onDone: (won: boolean)
       </div>
 
       <div className="note">
-        Бей по дорожке, когда бегунок в зелёном. Тёмная полоса — три очка, светлая — одно.
-        Нужно {ARCHERY_WIN} из {ARCHERY_MAX}.
+        Бей, когда бегунок в зелёном. Тёмная полоса +{SCORE_BULL}, светлая +{SCORE_RING}. Нужно {ARCHERY_WIN} из{' '}
+        {ARCHERY_MAX}.
       </div>
     </>
   );

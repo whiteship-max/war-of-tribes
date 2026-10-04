@@ -363,7 +363,7 @@ export const useWorld = create<WorldStore>((set, get) => ({
       // Молча такое не делается: карта пропала, и игрок узнаёт об этом строкой.
       if (world.movedByRoster) {
         useGame.getState().world((s) => {
-          log(s, 'Замок занял своё место на общей карте. Разведанное вокруг прежнего пришлось забыть.', 'bad');
+          log(s, 'Город встал на своё место на карте. Разведанное вокруг прежнего забыто.', 'bad');
         });
       }
       setWorldApi(world);
@@ -970,7 +970,7 @@ export function cameraAnchor(now: number): CameraAnchor | null {
   const cell = { x: Math.floor(spot.x), y: Math.floor(spot.y) };
   return {
     id: live ? live.id : 'home',
-    name: live ? live.name : 'Деревня',
+    name: live ? live.name : 'Наш город',
     x: spot.x + 0.5,
     y: spot.y + 0.5,
     r: (live ? live.sight : HOME_SIGHT) + CAMERA_LEASH,

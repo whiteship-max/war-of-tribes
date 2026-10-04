@@ -65,14 +65,14 @@ export function TroopCardView({ troop, onBack }: { troop: TroopId; onBack: () =>
         <div className="body">
           <div className="name">{def.name}</div>
           <div className="lvl">
-            {meta.icon} {meta.name} · вес в бою {weight.value.toFixed(1)} · в деревне {have}
+            {meta.icon} {meta.name} · мощь {weight.power.toFixed(1)} · в городе {have}
           </div>
         </div>
       </div>
       <p className="season-hint">{def.description}</p>
 
-      <h3>Чего он стоит в бою</h3>
-      <Bar icon="⚖️" label="Вес в бою" value={weight.value} max={weight.max} note={`из ${weight.max.toFixed(1)} у тяжелейшего`} />
+      <h3>В бою</h3>
+      <Bar icon="⚖️" label="Мощь" value={weight.power} max={weight.powerMax} note={`из ${weight.powerMax.toFixed(1)} у сильнейшего`} />
       <p className="season-hint">{weight.what}</p>
       <Bar
         icon="🏳️"
@@ -83,7 +83,7 @@ export function TroopCardView({ troop, onBack }: { troop: TroopId; onBack: () =>
         tone={morale.total >= morale.max * 0.6 ? undefined : 'full'}
       />
 
-      <h3>Цена одного бойца</h3>
+      <h3>Цена бойца</h3>
       <div className="cost">
         {cost.resources.map((r) => (
           <span key={r.id} className={s.resources[r.id] >= r.n ? '' : 'no'}>
@@ -100,24 +100,19 @@ export function TroopCardView({ troop, onBack }: { troop: TroopId; onBack: () =>
       </div>
       {cost.gear.length > 0 && smithy && (
         <button className="btn ghost wide" onClick={() => openBuilding(smithy.id)}>
-          ⚒️ В кузницу — ковать {cost.gear.map((g) => EQUIPMENT_BY_ID[g.id].one).join(', ')}
+          ⚒️ Ковать {cost.gear.map((g) => EQUIPMENT_BY_ID[g.id].one).join(', ')}
         </button>
       )}
 
       <h3>Показатели в бою</h3>
-      <div className="note">
-        Кто кого бьёт, решают показатели: нападение бьющего против защиты цели в огне, в натиске и в морали — от рода и
-        от того, что на бойце надето.
-      </div>
+      <div className="note">Нападение бьющего против защиты цели. Зависят от рода и снаряжения.</div>
       <div className="mod-list">
         {card.pips.map((p) => (
           <div className="mod" key={p.stat}>
             <span className="ico">{p.stat.startsWith('fire') ? '🏹' : p.stat.startsWith('shock') ? '⚔️' : '🏳️'}</span>
             <span className="name">
               {p.name}
-              <em className="sub">
-                {p.what}; это показатель рода — вещи идут в бой через вес
-              </em>
+              <em className="sub">{p.what}</em>
             </span>
             <span className={`val ${p.value > 0 ? 'pos' : ''}`}>{p.value}</span>
           </div>
@@ -148,7 +143,7 @@ export function TroopCardView({ troop, onBack }: { troop: TroopId; onBack: () =>
       </ul>
 
       <h3>Характер в бою</h3>
-      <div className="note">Множитель всех потерь морали: меньше — держится дольше.</div>
+      <div className="note">Множитель потерь морали, чем меньше, тем стойче.</div>
       <div className="mod-list">
         {temperOf(card.kind).map((t) => (
           <div className="mod" key={t.when}>
@@ -163,7 +158,7 @@ export function TroopCardView({ troop, onBack }: { troop: TroopId; onBack: () =>
       <div className="mod-list">
         <div className="mod">
           <span className="ico">🗡️</span>
-          <span className="name">Сила рода в натиске</span>
+          <span className="name">Натиск</span>
           <span className="val">{stats.melee.toFixed(1)}</span>
         </div>
         <div className="mod">
@@ -180,7 +175,7 @@ export function TroopCardView({ troop, onBack }: { troop: TroopId; onBack: () =>
 
       {barracks && (
         <button className="btn wide" onClick={() => openBuilding(barracks.id)}>
-          ⚔️ В казармы — нанять
+          ⚔️ Нанять
         </button>
       )}
     </div>

@@ -136,7 +136,7 @@ export function tick(s: GameState, dt: number, opts: TickOptions = {}): void {
       site.level += 1;
       site.work = 0;
       site.workRequired = 0;
-      log(s, `${BUILDING_BY_ID[site.type].name}: уровень ${site.level}.`, 'good');
+      log(s, `${BUILDING_BY_ID[site.type].name}: ур. ${site.level}.`, 'good');
     }
   }
 
