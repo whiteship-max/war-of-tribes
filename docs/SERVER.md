@@ -212,13 +212,7 @@ git clone git@github.com:whiteship-max/war-of-tribes.git ~/tribe
 cd ~/tribe
 ```
 
-**Пока этап 1 не слит в `master`**, работа лежит в ветке:
-
-```bash
-git checkout server/vps
-```
-
-После слияния — `git checkout master` и дальше только `master`.
+Работа идёт из ветки `master` — другой на сервере не нужно.
 
 ## 10. Переменные: куда вписать токен
 
@@ -477,7 +471,7 @@ Coolify на живой панели с этой игрой ещё не пров
    панели дать ей свой домен (например `panel.example.ru`, запись `A` как в шаге 8) — дальше
    заходить по нему.
 4. **Projects → New → Private Repository (GitHub App)** — подключить `war-of-tribes`, ветка
-   `master` (до слияния — `server/vps`).
+   `master`.
 5. **Build Pack: Docker Compose**, файл — `deploy/coolify.yml` (не `docker-compose.yml`: там порты
    80/443, которые заняты прокси Coolify).
 6. У сервиса **web** — домен `https://game.example.ru` (порт 80). HTTPS выдаст Coolify.
