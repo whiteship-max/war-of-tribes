@@ -37,6 +37,7 @@ import {
   LAIR_SPAWN_MAX,
   LAIR_SPAWN_MIN,
   LAIR_START,
+  WORLD_ORIGIN,
 } from '@/world/data/tuning';
 import { createInitialState } from '@/game/state';
 import { playedFor, readyToStrike } from './autopilot';
@@ -48,6 +49,8 @@ import { ARMS_TROPHY } from '@/game/sim/expedition';
 import type { WorldSave } from '@/world/local/state';
 import type { PlayerProfile } from '@/world/types';
 import { DAY_LENGTH, dayRealSeconds, gameDaysOfMs, gameSeconds, realSeconds } from '@/game/pace';
+import { cellOf } from '@/world/atlas/project';
+import { fitToSettle } from '@/world/settle';
 
 const MIN = 60_000;
 const HOUR = 60 * MIN;
@@ -396,3 +399,120 @@ for (const [style, rest] of [
 console.log('');
 console.log('  Выше потолка живых логов не бывает никогда — это держит LAIR_NEAR_CAP. Сколько сжигает охотник, решает');
 console.log('  его войско: оно здесь не пополняется, а логово растёт от жителей города (docs/lair_growth.md).');
+
+// ------------------------------------------------------ логова у дома и набеги ---
+//
+// Логова — только в регионе игрока (docs/map_tw.md, 0.−2): у дома у рубежа кольцо мест под логово (`LAIR_HOME_GAP`…
+// `AI_RANGE`) режет граница, и логова встают ближе или дальше. Раздел меряет то, что от этого зависит, на тех же сидах и
+// домах, где их ставит сама игра (`settle.placeCastle`): сколько логов у дома с первой минуты, как далеко ближнее и
+// среднее, и что с набегами на город у игрока, который логов не трогает, — сколько их за прогон и сколько они идут.
+// Регионов раздел не знает нарочно: тот же файл, положенный на код до правила, даёт числа «до» (docs/map_tw.md, 0.−2,
+// «Баланс»).
+
+const RAID_HOURS = Number(process.env.RAID_HOURS ?? 96);
+const RAID_STEP = 5 * MIN;
+
+interface Doorstep {
+  near: number;
+  nearest: number;
+  mean: number;
+  raids: number;
+  /** Средний путь набега от выхода до ворот, настоящих минут. */
+  travel: number;
+  /** Среднее расстояние, с которого выходят набеги, клеток. */
+  from: number;
+}
+
+/** Ближайшая к долготе и широте клетка, где может встать город (`settle.fitToSettle`). */
+function homeNear(lon: number, lat: number): { x: number; y: number } {
+  const p = cellOf(lon, lat);
+  const c = { x: WORLD_ORIGIN.x + Math.floor(p.col), y: WORLD_ORIGIN.y + Math.floor(p.row) };
+  for (let r = 0; r < 30; r++) {
+    for (let dy = -r; dy <= r; dy++) {
+      for (let dx = -r; dx <= r; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) === r && fitToSettle({ x: c.x + dx, y: c.y + dy })) return { x: c.x + dx, y: c.y + dy };
+      }
+    }
+  }
+  throw new Error(`Нет места под город у ${lon}, ${lat}.`);
+}
+
+/** Дома у рубежей — те же, что в `world/theatre/realm.test.ts`: кольцо логов задевает соседний регион. */
+const BORDER: [string, number, number][] = [
+  ['Инсбрук', 11.4, 47.26],
+  ['Перпиньян', 2.9, 42.7],
+  ['Кошице', 21.26, 48.72],
+  ['Линарес', -3.63, 38.09],
+];
+
+async function doorstep(seed: number, at?: { x: number; y: number }): Promise<Doorstep> {
+  let now = START;
+  const world = new LocalWorld({ seed, now: () => now, storage: null, ...(at ? { home: at } : {}) });
+  const save = saveOf(world);
+  const home = save.home;
+  // Логова первой минуты — того же мира с тем же домом (`lairSpots` собирает мир по сиду, а дом здесь бывает назван).
+  const d = generateWorld(seed, home)
+    .settlements.filter(isLair)
+    .map((at) => distance(at, home))
+    .filter((x) => x <= AI_RANGE)
+    .sort((a, b) => a - b);
+  // Жители — те, при которых логово выходит в полную силу (`shieldVillagers(1)`): у слабого города набегов нет вовсе.
+  const p = { ...profile(), pop: GROWTH_VILLAGERS };
+  await world.sync(p);
+  const seen = new Map<string, { travel: number; from: number }>();
+  const until = START + RAID_HOURS * HOUR;
+  while (now < until) {
+    now += RAID_STEP;
+    await world.sync(p);
+    for (const m of saveOf(world).marches) {
+      if (m.own || m.targetId !== 'home' || seen.has(m.id)) continue;
+      seen.set(m.id, { travel: (m.arriveAt - m.departAt) / MIN, from: distance(m.from, home) });
+    }
+  }
+  const raids = [...seen.values()];
+  const avg = (xs: number[]): number => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0);
+  return {
+    near: d.length,
+    nearest: d[0] ?? 0,
+    mean: avg(d),
+    raids: raids.length,
+    travel: avg(raids.map((r) => r.travel)),
+    from: avg(raids.map((r) => r.from)),
+  };
+}
+
+console.log('');
+console.log('=== ЛОГОВА У ДОМА И НАБЕГИ: логова только в регионе игрока ===');
+console.log(`Дом — где его ставит игра (сид); логова у дома — в круге набегов (${AI_RANGE} кл) с первой минуты; набеги — за`);
+console.log(`${RAID_HOURS} ч у игрока, который логов не трогает (шаг ${RAID_STEP / MIN} мин; жителей ${GROWTH_VILLAGERS} — логово выходит в полную силу),`);
+console.log('путь — от выхода до ворот, настоящих минут.');
+console.log('');
+console.log('  сид   логов у дома   ближнее, кл   среднее, кл   набегов   в пути, мин   выходят с, кл');
+const rows: Doorstep[] = [];
+for (const seed of SEEDS) {
+  const r = await doorstep(seed);
+  rows.push(r);
+  console.log(
+    `  ${pad(seed, 4)}  ${pad(r.near, 13)}  ${pad(n1(r.nearest), 12)}  ${pad(n1(r.mean), 12)}  ${pad(r.raids, 8)}  ${pad(r.raids ? n1(r.travel) : '—', 12)}  ${pad(r.raids ? n1(r.from) : '—', 14)}`,
+  );
+}
+const mean = (f: (r: Doorstep) => number, xs: Doorstep[]): string => n1(xs.reduce((a, r) => a + f(r), 0) / Math.max(1, xs.length));
+const summary = (xs: Doorstep[]): string => {
+  const raided = xs.filter((r) => r.raids > 0);
+  return `логов у дома ${mean((r) => r.near, xs)}, ближнее ${mean((r) => r.nearest, xs)} кл, среднее ${mean((r) => r.mean, xs)} кл; набегов ${mean((r) => r.raids, xs)} за ${RAID_HOURS} ч, в пути ${mean((r) => r.travel, raided)} мин, выходят с ${mean((r) => r.from, raided)} кл.`;
+};
+console.log(`  В среднем: ${summary(rows)}`);
+console.log('');
+console.log('  Дома у рубежей, сиды 7 и 11 (дом назван, а не найден по сиду):');
+console.log('  дом          сид   логов у дома   ближнее, кл   среднее, кл   набегов   в пути, мин   выходят с, кл');
+const border: Doorstep[] = [];
+for (const [name, lon, lat] of BORDER) {
+  for (const seed of [7, 11]) {
+    const r = await doorstep(seed, homeNear(lon, lat));
+    border.push(r);
+    console.log(
+      `  ${name.padEnd(10)} ${pad(seed, 4)}  ${pad(r.near, 13)}  ${pad(n1(r.nearest), 12)}  ${pad(n1(r.mean), 12)}  ${pad(r.raids, 8)}  ${pad(r.raids ? n1(r.travel) : '—', 12)}  ${pad(r.raids ? n1(r.from) : '—', 14)}`,
+    );
+  }
+}
+console.log(`  В среднем у рубежей: ${summary(border)}`);
