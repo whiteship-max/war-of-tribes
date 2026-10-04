@@ -30,6 +30,23 @@ const levelOf = (s: GameState, type: Parameters<typeof buildingOfType>[1]): numb
   buildingOfType(s, type)?.level ?? 0;
 
 /**
+ * Пороги заданий — одно число на проверку, ход и подпись (правило 18): написанное словами, оно
+ * разошлось бы с проверкой при первой же правке порога.
+ */
+const GOAL = {
+  troops: 3,
+  shields: 40,
+  army: 50,
+  barracks: 3,
+  heavy: 20,
+  riders: 25,
+  gold: 1200,
+  wall: 4,
+  pop: 200,
+  bigArmy: 200,
+} as const;
+
+/**
  * ИДЕНТИФИКАТОР ЗАДАНИЯ — КЛЮЧ В СОХРАНЕНИИ, А НЕ ПОДПИСЬ. Он лежит в `s.completedQuests` и
  * переименованию не подлежит без ступени сохранения: партия, выполнившая задание под старым
  * именем, получила бы награду второй раз. Поэтому четыре имени расходятся с тем, что задание
@@ -41,69 +58,69 @@ export const QUESTS: QuestDef[] = [
   {
     id: 'smith_at_work',
     title: 'Кузнец у горна',
-    description: 'Поставь человека в кузницу — без неё дружину не одеть.',
+    description: 'Поставь человека в кузницу. Без неё дружину не одеть.',
     check: (s) => jobCounts(s).smith >= 1,
     reward: { stone: 120 },
   },
   {
     id: 'first_gear',
     title: 'Первое снаряжение',
-    description: 'Скуй что-нибудь: копьё, лук или щит.',
+    description: 'Скуй копьё, лук или щит.',
     check: (s) => Object.values(s.equipment ?? {}).some((n) => n > 0),
     reward: { wood: 120 },
   },
   {
     id: 'first_troops',
     title: 'Первая дружина',
-    description: 'Найми троих бойцов. Каждый стоит снаряжения, припаса и свободного человека.',
-    check: (s) => armySize(s) >= 3,
-    progress: upTo(armySize, 3),
+    description: `Собери дружину из ${GOAL.troops} бойцов. Каждый стоит снаряжения, запасов и свободных рук.`,
+    check: (s) => armySize(s) >= GOAL.troops,
+    progress: upTo(armySize, GOAL.troops),
     reward: { food: 240 },
   },
   {
     id: 'first_scout',
     title: 'Глаза на карте',
-    description: 'Отправь разведку к соседу: чужая мощь видна только после неё.',
+    description: 'Отправь разведку к соседу. Чужую мощь видно только после неё.',
     check: (s) => (s.stats.scouted ?? 0) >= 1,
     reward: { food: 160 },
   },
   {
     id: 'shields',
-    title: 'Сорок щитов',
-    description: 'Скуй сорок щитов: с ними строй держится.',
-    check: (s) => (s.equipment.shield ?? 0) >= 40,
-    progress: upTo((s) => s.equipment.shield ?? 0, 40),
+    title: `${GOAL.shields} щитов`,
+    description: `Скуй ${GOAL.shields} щитов. С ними строй держится.`,
+    check: (s) => (s.equipment.shield ?? 0) >= GOAL.shields,
+    progress: upTo((s) => s.equipment.shield ?? 0, GOAL.shields),
     reward: { hides: 80 },
   },
   {
     id: 'first_raid',
     title: 'Первый поход',
-    description: 'Отправь отряд в набег. Пока он в пути, деревню он не защищает.',
+    description: 'Отправь отряд в поход. Пока он в пути, город он не защищает.',
     check: (s) => (s.stats.raids ?? 0) >= 1,
     reward: { wood: 240, stone: 160 },
   },
   {
     id: 'first_win',
     title: 'Первая победа',
-    description: 'Выиграй бой — в походе или у своих ворот.',
+    description: 'Выиграй бой в походе или у своих ворот.',
     check: (s) => s.stats.battlesWon >= 1,
     reward: { food: 320 },
   },
   {
-    // Имя от прежнего порога: проверяет пятьдесят бойцов.
+    // Имя от прежнего порога: проверяет `GOAL.army` бойцов.
     id: 'army_10',
-    title: 'Полсотни бойцов',
-    description: 'Доведи дружину до пятидесяти человек.',
-    check: (s) => armySize(s) >= 50,
-    progress: upTo(armySize, 50),
+    title: `${GOAL.army} бойцов`,
+    description: `Доведи дружину до ${GOAL.army} бойцов.`,
+    check: (s) => armySize(s) >= GOAL.army,
+    progress: upTo(armySize, GOAL.army),
     reward: { iron: 80, copper: 80 },
   },
   {
     id: 'barracks_3',
-    title: 'Казармы третьего уровня',
-    description: 'Подними казармы до 3 уровня: учения пойдут быстрее.',
-    check: (s) => levelOf(s, 'barracks') >= 3,
-    progress: upTo((s) => levelOf(s, 'barracks'), 3),
+    title: `Казармы ур. ${GOAL.barracks}`,
+    description: `Подними казармы до ур. ${GOAL.barracks}. Найм пойдёт быстрее.`,
+    check: (s) => levelOf(s, 'barracks') >= GOAL.barracks,
+    progress: upTo((s) => levelOf(s, 'barracks'), GOAL.barracks),
     reward: { food: 320 },
   },
   {
@@ -116,52 +133,52 @@ export const QUESTS: QuestDef[] = [
   {
     id: 'heavy',
     title: 'Тяжёлая пехота',
-    description: 'Найми двадцать латников: меч, щит и доспех на каждого.',
-    check: (s) => (s.army.legionary ?? 0) >= 20,
-    progress: upTo((s) => s.army.legionary ?? 0, 20),
+    description: `Найми ${GOAL.heavy} латников. Меч, щит и доспех на каждого.`,
+    check: (s) => (s.army.legionary ?? 0) >= GOAL.heavy,
+    progress: upTo((s) => s.army.legionary ?? 0, GOAL.heavy),
     reward: { iron: 160 },
   },
   {
     id: 'riders',
     title: 'Конный разъезд',
-    description: 'Найми двадцать пять всадников: конница режет лучников и заходит во фланг.',
-    check: (s) => (s.army.rider ?? 0) >= 25,
-    progress: upTo((s) => s.army.rider ?? 0, 25),
+    description: `Найми ${GOAL.riders} всадников. Конница режет лучников.`,
+    check: (s) => (s.army.rider ?? 0) >= GOAL.riders,
+    progress: upTo((s) => s.army.rider ?? 0, GOAL.riders),
     reward: { hides: 320 },
   },
   {
-    // Имя от прежнего порога: проверяет 1200 золота.
+    // Имя от прежнего порога: проверяет `GOAL.gold` золота.
     id: 'gold_150',
     title: 'Полная казна',
-    description: 'Собери 1200 золота: налог в ратуше, десятина прихода, продажа невольников на рынке.',
-    check: (s) => s.gold >= 1200,
-    progress: upTo((s) => s.gold, 1200),
+    description: `Собери ${GOAL.gold} золота. Его дают налог, десятина и рынок.`,
+    check: (s) => s.gold >= GOAL.gold,
+    progress: upTo((s) => s.gold, GOAL.gold),
     reward: { food: 400 },
   },
   {
     id: 'wall_4',
     title: 'Каменная стена',
-    description: 'Подними стену до 4 уровня: с этого уровня она каменная.',
-    check: (s) => levelOf(s, 'palisade') >= 4,
-    progress: upTo((s) => levelOf(s, 'palisade'), 4),
+    description: `Подними стену до ур. ${GOAL.wall}. Тогда она каменная.`,
+    check: (s) => levelOf(s, 'palisade') >= GOAL.wall,
+    progress: upTo((s) => levelOf(s, 'palisade'), GOAL.wall),
     reward: { stone: 480 },
   },
   {
-    // Имя от прежнего порога: проверяет двести жителей.
+    // Имя от прежнего порога: проверяет `GOAL.pop` жителей.
     id: 'pop_20',
-    title: 'Двести душ',
-    description: 'Доведи население до 200: людей на дружину берут с площади.',
-    check: (s) => s.pop >= 200,
-    progress: upTo((s) => s.pop, 200),
+    title: `${GOAL.pop} жителей`,
+    description: `Доведи число жителей до ${GOAL.pop}. Бойцов берут из них.`,
+    check: (s) => s.pop >= GOAL.pop,
+    progress: upTo((s) => s.pop, GOAL.pop),
     reward: { food: 600, wood: 300 },
   },
   {
-    // Имя от прежнего порога: проверяет двести бойцов.
+    // Имя от прежнего порога: проверяет `GOAL.bigArmy` бойцов.
     id: 'army_25',
     title: 'Большая дружина',
-    description: 'Доведи дружину до двухсот бойцов.',
-    check: (s) => armySize(s) >= 200,
-    progress: upTo(armySize, 200),
+    description: `Доведи дружину до ${GOAL.bigArmy} бойцов.`,
+    check: (s) => armySize(s) >= GOAL.bigArmy,
+    progress: upTo(armySize, GOAL.bigArmy),
     reward: { iron: 240, copper: 240 },
   },
 ];

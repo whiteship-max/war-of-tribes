@@ -20,9 +20,9 @@ export function SyncStatus() {
 
   const text =
     state === 'ok'
-      ? `Прогресс сохранён на сервере в ${at(lastOk)}. Он откроется под этим же Telegram на любом устройстве.`
+      ? `Сохранено в ${at(lastOk)}. Партия откроется в этом Telegram на любом устройстве.`
       : state === 'busy'
-        ? 'Сверяемся с сервером…'
+        ? 'Сохраняем…'
         : why;
 
   return (
@@ -49,16 +49,16 @@ export function SpareSave() {
   if (!spare) return null;
   return (
     <div className="spare">
-      <b>Отклонённая партия</b>
+      <b>Отложенная партия</b>
       <small>
-        День {spare.card.day}, племя {spare.card.pop}, мощь {spare.card.power}. Отложена{' '}
+        День {spare.card.day}, жителей {spare.card.pop}, мощь {spare.card.power}. Отложена{' '}
         {new Date(spare.at).toLocaleString('ru-RU', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })}.
       </small>
       <div className="row">
         <button
           className="btn ghost"
           onClick={() => {
-            if (confirm('Вернуть отклонённую партию? Нынешняя будет заменена, игра перезапустится.')) restore();
+            if (confirm('Вернуть отложенную партию? Нынешняя заменится, игра перезапустится.')) restore();
           }}
         >
           Вернуть
@@ -66,7 +66,7 @@ export function SpareSave() {
         <button
           className="btn ghost"
           onClick={() => {
-            if (confirm('Забыть отклонённую партию? Вернуть её после этого будет нечем.')) forget();
+            if (confirm('Забыть отложенную партию? Вернуть её будет нельзя.')) forget();
           }}
         >
           Забыть

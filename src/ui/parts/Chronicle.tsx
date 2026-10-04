@@ -95,7 +95,7 @@ export function Chronicle() {
             ))}
           </div>
         ))}
-        {shown.length === 0 && <div className="log-empty">За {cur.name} записей нет — в племени было тихо.</div>}
+        {shown.length === 0 && <div className="log-empty">За {cur.name} записей нет.</div>}
       </div>
 
       {cur.next !== null && (
@@ -105,10 +105,7 @@ export function Chronicle() {
         </button>
       )}
       {cur.next === null && (
-        <div className="note">
-          Дальше месяца летопись не хранится: старое отбрасывается, чтобы сохранение не росло без
-          конца. Полная летопись поедет на сервер, когда он появится.
-        </div>
+        <div className="note">Летопись хранит месяц.</div>
       )}
       <button className="btn ghost wide chron-toggle" onClick={() => setStep(null)}>
         <span>Свернуть летопись</span>

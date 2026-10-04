@@ -38,8 +38,8 @@ export const TG_GROUP = 'https://t.me/TribesWars';
 export const SITE_URL = 'https://celebrated-yeot-73e410.netlify.app';
 
 /**
- * Куда позвать. `url: null` — ссылки пока нет: канал и чат не заведены, и
- * показывать вместо них выдуманный адрес хуже, чем сказать «скоро».
+ * Куда позвать. `url: null` — ссылки пока нет: канал и чат не заведены. Такой строки игрок
+ * не видит (невыпущенное не показывается) — выдуманный адрес был бы хуже.
  */
 export interface SocialLink {
   id: string;
@@ -55,21 +55,21 @@ export const SOCIAL_LINKS: SocialLink[] = [
     id: 'group',
     icon: '💬',
     name: 'Группа племени',
-    note: 'Новости обновлений, разбор боёв и жалобы на зиму.',
+    note: 'Разбор боёв, советы и жалобы на зиму.',
     url: TG_GROUP,
   },
   {
     id: 'youtube',
     icon: '📺',
     name: 'Канал',
-    note: 'Разборы походов и показ новых зданий. Канал ещё не заведён.',
+    note: 'Разборы походов и новые здания.',
     url: null,
   },
   {
     id: 'chat',
     icon: '🗣️',
     name: 'Чат игроков',
-    note: 'Обмен тактикой и составами. Чат ещё не заведён.',
+    note: 'Тактика и составы.',
     url: null,
   },
 ];
@@ -92,4 +92,4 @@ export function inviteLink(id: number | null): string | null {
 }
 
 /** Что предлагают вместе со ссылкой. */
-export const INVITE_TEXT = 'Веду племя в TRIBE. Ставь своё — посмотрим, чьё войско крепче.';
+export const INVITE_TEXT = 'Веду племя в TRIBE. Ставь своё, посмотрим, чья дружина крепче.';

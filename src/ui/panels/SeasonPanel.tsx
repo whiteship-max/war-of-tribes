@@ -72,7 +72,7 @@ function linesOf(s: GameState, mods: SeasonModifiers): Line[] {
   if (mods.heating > 0)
     out.push({
       icon: '🔥',
-      label: 'Дрова на человека в день',
+      label: 'Дрова на жителя в день',
       text: heatPerHead(s, mods),
       good: false,
     });
@@ -119,7 +119,7 @@ export function SeasonPanel() {
       <p className="season-hint">{meta.hint}</p>
 
       {season === 'winter' && isFirstWinter(s) && (
-        <p className="season-hint soft">Это первая зима племени — она мягче остальных. Дальше будет строже.</p>
+        <p className="season-hint soft">Первая зима мягче остальных.</p>
       )}
 
       <h3>Что меняет сезон</h3>
@@ -128,7 +128,7 @@ export function SeasonPanel() {
       {heat > 0 && (
         <div className="mod total">
           <span className="ico">🌲</span>
-          <span className="name">Всего на отопление сейчас</span>
+          <span className="name">Дрова на отопление</span>
           <span className={`val ${s.resources.wood > heat ? '' : 'neg'}`}>{heat.toFixed(1)} в день</span>
         </div>
       )}
@@ -136,7 +136,7 @@ export function SeasonPanel() {
       {/* Прогноз зимы — тот же компонент, что на складе. */}
       {(season === 'autumn' || season === 'winter') && <WinterForecast />}
 
-      <h3>Дальше: {SEASON_META[next].name}</h3>
+      <h3>Следом {SEASON_META[next].name.toLowerCase()}</h3>
       <ModList s={s} mods={seasonModsFor(next, next === 'spring' ? year + 1 : year)} />
 
       <h3>Круг года</h3>
