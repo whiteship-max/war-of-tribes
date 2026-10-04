@@ -23,6 +23,24 @@
  *   4) чужой размер — холст, поменявшийся, пока страница была скрыта, догоняется
  *      к первому же кадру после возвращения.
  *
+ * И вторая вкладка — **Телеграм: свернули и развернули** (docs/scene-revive.md, раздел 9).
+ * Жалоба с телефона: после разворачивания нижняя панель карты вверху, ниже пустота. Здесь
+ * SDK Телеграма заменён макетом (настоящий заблокирован: стенд не зависит от сети), и
+ * макет держит устоявшуюся высоту ровно так, как SDK (telegram-web-app.js,
+ * `setViewportHeight`): она меняется только с `is_state_stable`. Клиент «сворачивает»
+ * аппку — полоска как устоявшаяся высота, окно сжимается — и «разворачивает» — окно
+ * вернулось, но приходят только промежуточные высоты. На каждом экране — предыстория,
+ * город, окно постройки, держава, карта, промысел — приложение обязано снова встать во всё
+ * окно, нижняя панель — внизу, холст — размером окна. Там же: поток выпечки карты,
+ * «потерянный» посреди работ (дыр после паузы быть не должно), предыстория и промысел с
+ * невернувшимся контекстом и холст ролика о бое.
+ *
+ * Что из второй вкладки НЕ проверено: настоящий клиент Телеграма. Что именно шлёт Android
+ * при сворачивании, не измерено; макет устраивает худшую из последовательностей, которые
+ * дают картину жалобы, остальные держит `src/viewport.test.ts`. Ролик о бое целиком не
+ * открывается — для него нужна запись боя; проверяется его холст через ту же функцию, что у
+ * ролика (`ui/battle/canvas.ts`).
+ *
  * ЧЕГО НЕ ПРОВЕРЯЕТ. Третий случай устраивается подменой `document.visibilityState`
  * и рассылкой события: проверяется **наш обработчик**, а не то, как душит кадры
  * настоящий вебвью Телеграма. Настоящее сворачивание из headless Chrome не
@@ -42,10 +60,12 @@
  */
 import { createServer as createVite } from 'vite';
 import { fileURLToPath, URL } from 'node:url';
-import { launchChrome, reportPage, sleep, Tab } from './lib/chrome';
+import { ENTER_GAME, launchChrome, reportPage, sleep, Tab } from './lib/chrome';
 import { measure as live } from './lib/measured';
 import { realSeconds } from '../src/game/pace';
 import { RESTORE_WAIT } from '../src/render/Scene';
+import { SETTLE } from '../src/viewport';
+import { JOB_STALL_MS } from '../src/ui/map/tw/prebake';
 import { STALL_MS, type Note, type Vitals } from '../src/scenelog';
 
 const PORT = Number(process.env.PORT ?? 4193);
@@ -171,6 +191,7 @@ async function main(): Promise<void> {
   const chrome = await launchChrome(DEBUG_PORT, ['--use-gl=angle', `--window-size=${WIDTH},${HEIGHT}`]);
   try {
     await report();
+    await telegram();
   } finally {
     chrome.kill();
     await vite.close();
@@ -361,6 +382,341 @@ async function report(): Promise<void> {
     // Журнал — живая лента: сколько в нём записей и в какую секунду, решает гонка событий
     // (строка «tg вьюпорт» то приходит, то нет). Сравнивается приговор по случаям выше.
     console.log(`  ${live(`+${((n.at - t0) / 1000).toFixed(1)}s ${pad(n.kind, 9)} ${n.note ?? ''}`)}`);
+  }
+}
+
+// ---------- Телеграм: свернули и развернули ----------
+
+/** Высота полоски свёрнутой аппки — столько клиент называет устоявшейся высотой. */
+const BAR = 64;
+
+/**
+ * Макет SDK Телеграма. Ставится до скриптов страницы; настоящий SDK заблокирован. Правило высоты —
+ * как у SDK (telegram-web-app.js, `setViewportHeight`): `viewportStableHeight` меняется только с
+ * `is_state_stable`, до первого события обе высоты — окно. Пользователя нет: синхронизации с
+ * сервером в стенде нет и не нужно.
+ */
+const TG_MOCK = `
+(() => {
+  const handlers = {};
+  let height = false, stable = false, expanded = true;
+  const posted = [];
+  const fire = (name, arg) => (handlers[name] || []).slice().forEach((cb) => cb.call(app, arg));
+  const app = {
+    platform: 'android', version: '8.0', initData: '', initDataUnsafe: {}, colorScheme: 'dark', themeParams: {},
+    get viewportHeight() { return height === false ? window.innerHeight : height; },
+    get viewportStableHeight() { return stable === false ? window.innerHeight : stable; },
+    get isExpanded() { return expanded; },
+    ready() {}, expand() { posted.push('web_app_expand'); }, disableVerticalSwipes() {},
+    setHeaderColor() {}, setBackgroundColor() {}, isVersionAtLeast() { return true; },
+    onEvent(n, cb) { (handlers[n] = handlers[n] || []).push(cb); },
+    offEvent(n, cb) { handlers[n] = (handlers[n] || []).filter((x) => x !== cb); },
+  };
+  const receive = (type, data) => {
+    if (type === 'viewport_changed' && data.height) {
+      expanded = !!data.is_expanded;
+      height = data.height;
+      if (data.is_state_stable) stable = data.height;
+      fire('viewportChanged', { isStateStable: !!data.is_state_stable });
+    }
+    if (type === 'visibility_changed') fire(data.is_visible ? 'activated' : 'deactivated');
+  };
+  window.Telegram = { WebApp: app, WebView: { postEvent: (t) => posted.push(t), receiveEvent: receive } };
+  window.__tg = { receive: (t, d) => { receive(t, d); return JSON.stringify('ok'); }, posted: () => JSON.stringify(posted) };
+})();
+`;
+
+interface Size2 {
+  w: number;
+  h: number;
+}
+
+interface Layout {
+  win: Size2;
+  app: number;
+  /** Низ нижней панели; null — панели на экране нет. */
+  nav: number | null;
+  /** Холст экрана: размер в разметке и буфер; null — холста нет. */
+  canvas: { css: Size2; buffer: Size2 } | null;
+}
+
+/** Раскладка экрана: окно, приложение, нижняя панель и холст по селектору. */
+const layoutOf = (canvas: string, nav: string): string => `JSON.stringify((() => {
+  const app = document.querySelector('.app');
+  const n = document.querySelector(${JSON.stringify(nav)});
+  const c = document.querySelector(${JSON.stringify(canvas)});
+  return {
+    win: { w: window.innerWidth, h: window.innerHeight },
+    app: app ? Math.round(app.getBoundingClientRect().height) : 0,
+    nav: n ? Math.round(n.getBoundingClientRect().bottom) : null,
+    canvas: c ? { css: { w: c.clientWidth, h: c.clientHeight }, buffer: { w: c.width, h: c.height } } : null,
+  };
+})())`;
+
+async function waitFor(tab: Tab, expr: string, ms: number): Promise<boolean> {
+  for (let t = 0; t < ms; t += 250) {
+    if (await tab.eval<boolean>(`JSON.stringify(!!(${expr}))`).catch(() => false)) return true;
+    await sleep(250);
+  }
+  return false;
+}
+
+const click = (selector: string): string =>
+  `(() => { const e = document.querySelector(${JSON.stringify(selector)}); if (!e) return JSON.stringify('нет ' + ${JSON.stringify(selector)}); e.click(); return JSON.stringify('ok'); })()`;
+
+/** Нажать кнопку по тексту (у кнопок нижней панели текст — подпись под значком, она в конце). */
+const press = (text: string): string =>
+  `(() => { const e = [...document.querySelectorAll('button')].find((b) => b.textContent.trim().endsWith(${JSON.stringify(text)}) && !b.disabled); if (!e) return JSON.stringify('нет кнопки ' + ${JSON.stringify(text)}); e.click(); return JSON.stringify('ok'); })()`;
+
+/**
+ * Перезагрузить страницу с чистой партией и дождаться **нового** документа: без метки проверка
+ * «кнопка на месте» успевала увидеть её ещё на старом, до перезагрузки.
+ */
+async function reloadClean(tab: Tab): Promise<void> {
+  await tab.eval<string>('(() => { try { localStorage.clear(); } catch (e) {} window.__old = 1; return JSON.stringify("ok"); })()');
+  await tab.send('Page.reload');
+  if (!(await waitFor(tab, '!window.__old && document.readyState === "complete"', 60_000))) throw new Error('страница не перезагрузилась за 60 с');
+}
+
+const metrics = (height: number): Record<string, unknown> => ({ width: WIDTH, height, deviceScaleFactor: 2, mobile: true });
+
+/**
+ * Свернуть и развернуть так, как это даёт картину жалобы: клиент говорит «не видно», называет
+ * полоску устоявшейся высотой, окно сжимается; потом окно возвращается, клиент говорит «видно»
+ * и шлёт только промежуточные высоты разворачивания — устоявшейся не приходит.
+ */
+async function fold(tab: Tab): Promise<void> {
+  await tab.eval<string>(`window.__tg.receive('visibility_changed', { is_visible: false })`);
+  await tab.eval<string>(`window.__tg.receive('viewport_changed', { height: ${BAR}, is_state_stable: true, is_expanded: false })`);
+  await tab.send('Emulation.setDeviceMetricsOverride', metrics(BAR));
+  await sleep(500);
+  await tab.send('Emulation.setDeviceMetricsOverride', metrics(HEIGHT));
+  await tab.eval<string>(`window.__tg.receive('visibility_changed', { is_visible: true })`);
+  for (const h of [Math.round(HEIGHT * 0.4), Math.round(HEIGHT * 0.8), HEIGHT]) {
+    await tab.eval<string>(`window.__tg.receive('viewport_changed', { height: ${h}, is_state_stable: false, is_expanded: true })`);
+    await sleep(40);
+  }
+  // Попытки двери окна идут полторы секунды; запас — на ResizeObserver и кадр.
+  await sleep(SETTLE[SETTLE.length - 1] + 700);
+}
+
+/** Раскладка экрана после «свернули — развернули»: приложение во всё окно, панель внизу, холст — окно. */
+function checkLayout(name: string, l: Layout, opts: { nav: boolean; canvas: boolean }): void {
+  check(`${name}: приложение во всё окно`, l.app === l.win.h, `приложение ${l.app} из ${l.win.h} px (полоска — ${BAR})`);
+  if (opts.nav) {
+    check(`${name}: нижняя панель внизу`, l.nav !== null && l.nav > l.win.h * 0.85, l.nav === null ? 'панели нет' : `низ панели на ${l.nav} px из ${l.win.h}`);
+  }
+  if (opts.canvas) {
+    const c = l.canvas;
+    const ratio = c && c.css.w > 0 ? c.buffer.w / c.css.w : 0;
+    const even = c !== null && c.css.h > 0 && Math.abs(c.buffer.h / c.css.h - ratio) < 0.02;
+    check(
+      `${name}: холст — окно, буфер под холст`,
+      c !== null && c.css.w === l.win.w && c.css.h === l.win.h && ratio >= 1 && ratio <= 2 && even,
+      // Буфер — по ступени качества, а ступень у города и промысла подстраивается под цену кадра (`Steady`):
+      // число плавает, сравнивается правило (буфер — холст на плотность в [1, 2]).
+      c ? `холст ${c.css.w}×${c.css.h}, буфер ${live(`${c.buffer.w}×${c.buffer.h}`)}` : 'холста нет',
+    );
+  }
+}
+
+/** Обезвредить возврат у рендерера и потерять контекст — так ведёт себя настоящая потеря. */
+const loseFor = (renderer: string): string => `(() => {
+  const r = ${renderer};
+  const ext = r.getContext().getExtension('WEBGL_lose_context');
+  if (!ext) return JSON.stringify('нет WEBGL_lose_context');
+  r.forceContextRestore = () => { throw new Error('система забрала контекст'); };
+  ext.loseContext();
+  return JSON.stringify('контекст потерян без возврата');
+})()`;
+
+/** Сцена пересобрана (метки на прежней нет) и её контекст жив. */
+const rebuiltOf = (who: string): string =>
+  `JSON.stringify({ fresh: !!${who} && ${who}.__tag !== 1, lost: !!${who} && ${who}.gl.getContext().isContextLost() })`;
+
+async function telegram(): Promise<void> {
+  console.log('\n\nТелеграм: свернули и развернули (макет SDK — см. шапку файла)');
+  const tab = await Tab.open(DEBUG_PORT, 'about:blank');
+  try {
+    await tab.send('Network.enable');
+    // Настоящий SDK не грузится: стенд не зависит от сети, а макет не перезаписывается.
+    await tab.send('Network.setBlockedURLs', { urls: ['*telegram.org*'] });
+    await tab.send('Page.addScriptToEvaluateOnNewDocument', { source: TG_MOCK });
+    await tab.send('Emulation.setDeviceMetricsOverride', metrics(HEIGHT));
+    await tab.send('Page.navigate', { url: reportPage(PORT) });
+    if (!(await waitFor(tab, 'window.__game && window.__tg', 60_000))) throw new Error('игра под макетом Телеграма не поднялась за 60 с');
+    await reloadClean(tab);
+    if (!(await waitFor(tab, 'window.__game && window.__tg && document.querySelector(".start-alt")', 60_000))) {
+      throw new Error('стартовый экран под макетом не поднялся за 60 с');
+    }
+
+    // ---------- 7. Предыстория ----------
+    console.log('\n7. Предыстория');
+    console.log(`  ${await tab.eval<string>(click('.start-alt'))} — «предыстория»`);
+    if (await waitFor(tab, 'window.__pro && document.querySelector(".pro canvas")', 30_000)) {
+      await sleep(1500);
+      await fold(tab);
+      checkLayout('предыстория', await tab.eval<Layout>(layoutOf('.pro canvas', '.nx-nav')), { nav: false, canvas: true });
+      await tab.eval<number>('JSON.stringify(window.__pro.__tag = 1)');
+      console.log(`  ${await tab.eval<string>(loseFor('window.__pro.gl'))}`);
+      await sleep(RESTORE_WAIT + 2500);
+      const re = await tab.eval<{ fresh: boolean; lost: boolean }>(rebuiltOf('window.__pro'));
+      check('предыстория: собрана заново на живом контексте', re.fresh && !re.lost, `новая сцена: ${re.fresh ? 'да' : 'нет'}, контекст потерян: ${re.lost ? 'да' : 'нет'}`);
+    } else check('предыстория: поднялась', false, 'нет window.__pro за 30 с');
+
+    // Из предыстории — в игру: страница перезагружается, партия начинается с нуля.
+    await reloadClean(tab);
+    if (!(await waitFor(tab, 'window.__scene && window.__game && window.__tg && document.querySelector(".start-go")', 60_000))) {
+      throw new Error('город под макетом не поднялся за 60 с');
+    }
+    console.log(`  ${await tab.eval<string>(ENTER_GAME)}`);
+    // Обучение и вести сняты: их окна легли бы поверх экранов, которые здесь проверяются.
+    await tab.eval<string>(`(() => {
+      const g = window.__game.getState();
+      const s = g.s;
+      s.tutorialDone = true;
+      s.inbox = [];
+      s.winterWarning = false;
+      s.nextEventAt = s.time + 1e9;
+      window.__game.setState({ s: { ...s } });
+      return JSON.stringify('ok');
+    })()`);
+    await sleep(1500);
+
+    // ---------- 8. Город, окно постройки, держава ----------
+    console.log('\n8. Город, окно постройки, держава');
+    await fold(tab);
+    checkLayout('город', await tab.eval<Layout>(layoutOf('.canvas-wrap canvas', '.nx-nav')), { nav: true, canvas: true });
+    const posted = await tab.eval<string[]>('window.__tg.posted()');
+    check(
+      'после разворачивания клиента попросили о вьюпорте',
+      posted.includes('web_app_request_viewport'),
+      `отправлено клиенту: ${[...new Set(posted)].join(', ') || 'ничего'}`,
+    );
+    await tab.eval<string>(`(() => { const g = window.__game.getState(); const b = g.s.buildings.find((x) => x.type === 'gathering'); g.openBuilding(b.id); return JSON.stringify('ok'); })()`);
+    await sleep(800);
+    await fold(tab);
+    checkLayout('окно постройки', await tab.eval<Layout>(layoutOf('.canvas-wrap canvas', '.nx-nav')), { nav: true, canvas: true });
+    const win = await tab.eval<number>('JSON.stringify(window.innerHeight)');
+    const sheet = await tab.eval<{ top: number; bottom: number } | null>(
+      `JSON.stringify((() => { const e = document.querySelector('.sheet.open'); if (!e) return null; const r = e.getBoundingClientRect(); return { top: Math.round(r.top), bottom: Math.round(r.bottom) }; })())`,
+    );
+    check(
+      'окно постройки: стоит в окне, а не в полоске',
+      sheet !== null && sheet.bottom <= win && sheet.bottom > win * 0.5,
+      sheet ? `шторка ${sheet.top}…${sheet.bottom} px из ${win}` : 'шторки нет',
+    );
+    await tab.eval<string>(`(() => { window.__game.getState().closeSheet(); return JSON.stringify('ok'); })()`);
+    await sleep(500);
+    console.log(`  ${await tab.eval<string>(press('Вести'))} — «Вести» (меню державы)`);
+    await sleep(800);
+    await fold(tab);
+    checkLayout('держава', await tab.eval<Layout>(layoutOf('.canvas-wrap canvas', '.nx-nav')), { nav: true, canvas: false });
+    const realm = await tab.eval<{ bottom: number } | null>(
+      `JSON.stringify((() => { const e = document.querySelector('.realm'); if (!e) return null; return { bottom: Math.round(e.getBoundingClientRect().bottom) }; })())`,
+    );
+    check('держава: меню до низа, а не до полоски', realm !== null && realm.bottom > win * 0.5, realm ? `низ меню на ${realm.bottom} px из ${win}` : 'меню нет');
+    console.log(`  ${await tab.eval<string>(press('Вести'))} — закрыть`);
+    await sleep(500);
+
+    // ---------- 9. Карта ----------
+    console.log('\n9. Карта по регионам — экран из жалобы');
+    await tab.eval<string>(`(() => { window.__game.getState().openMap(); return JSON.stringify('ok'); })()`);
+    // Поток «теряется», как только поднялся: его работы в полёте остаются без ответа.
+    let jammed = false;
+    for (let t = 0; t < 20_000 && !jammed; t += 50) {
+      jammed = await tab.eval<boolean>('JSON.stringify(!!(window.__twPrebakeJam && window.__twPrebakeJam()))').catch(() => false);
+      if (!jammed) await sleep(50);
+    }
+    check('карта: поток выпечки поднят и «потерян» посреди работ', jammed, jammed ? 'ответы потока больше не доходят' : 'потока нет — проверять нечего');
+    await sleep(1000);
+    await fold(tab);
+    checkLayout('карта', await tab.eval<Layout>(layoutOf('.worldmap canvas', '.nx-mapnav')), { nav: true, canvas: true });
+    await tab.eval<number>('JSON.stringify(window.__mapPerf().length)');
+    await sleep(500);
+    const mapFrames = await tab.eval<number>('JSON.stringify(window.__mapPerf().length)');
+    check('карта: кадры идут', mapFrames > 3, `кадров карты за 500 мс: ${live(mapFrames)}`);
+    // Без срока молчания поток держал бы свои места до перезапуска, и регион не допёкся бы никогда.
+    interface Bake {
+      plan: { chunks: number } | null;
+      have: { chunk: number };
+    }
+    const baked = (b: Bake): boolean => b.plan !== null && b.have.chunk === b.plan.chunks;
+    let bake = await tab.eval<Bake>('JSON.stringify(window.__twPrebake())');
+    for (let t = 0; t < JOB_STALL_MS + 20_000 && !baked(bake); t += 500) {
+      await sleep(500);
+      bake = await tab.eval<Bake>('JSON.stringify(window.__twPrebake())');
+    }
+    check(
+      'карта: после паузы регион испечён целиком, без дыр',
+      baked(bake),
+      // Регион — по городу игрока, а мир новой партии — со своим сидом: число кусков плавает от прогона к прогону.
+      `кусков испечено ${live(`${bake.have.chunk} из ${bake.plan?.chunks ?? '?'}`)} — молчащий поток заводится заново через ${JOB_STALL_MS / 1000} с`,
+    );
+    await tab.eval<string>(`(() => { window.__game.getState().closeMap(); return JSON.stringify('ok'); })()`);
+    await sleep(800);
+
+    // ---------- 10. Холст ролика о бое ----------
+    console.log('\n10. Холст ролика о бое (свой — когда одолжить не у кого)');
+    const made = await tab.eval<{ before: Size2; css: Size2; buffer: Size2; fits: number }>(`(async () => {
+      const m = await import('/src/ui/battle/canvas.ts');
+      const wrap = document.createElement('div');
+      wrap.className = 'canvas-wrap';
+      const canvas = document.createElement('canvas');
+      wrap.appendChild(canvas);
+      document.querySelector('.app').appendChild(wrap);
+      const R = window.__scene.renderer.constructor;
+      const r = new R({ canvas });
+      const before = { w: canvas.width, h: canvas.height };
+      window.__replay = { r, wrap, fits: 0, dead: 0 };
+      window.__replay.off = m.holdReplayCanvas(r, null, () => window.__replay.fits++, () => window.__replay.dead++);
+      return JSON.stringify({ before, css: { w: canvas.clientWidth, h: canvas.clientHeight }, buffer: { w: canvas.width, h: canvas.height }, fits: window.__replay.fits });
+    })()`);
+    check(
+      'ролик: свой холст получил буфер под себя',
+      made.buffer.w === made.css.w * 2 && made.buffer.h === made.css.h * 2,
+      `холст ${made.css.w}×${made.css.h}, буфер ${made.buffer.w}×${made.buffer.h} (без размера был бы ${made.before.w}×${made.before.h})`,
+    );
+    await fold(tab);
+    const refit = await tab.eval<{ css: Size2; buffer: Size2; fits: number }>(
+      `JSON.stringify((() => { const c = window.__replay.r.domElement; return { css: { w: c.clientWidth, h: c.clientHeight }, buffer: { w: c.width, h: c.height }, fits: window.__replay.fits }; })())`,
+    );
+    check(
+      'ролик: после разворачивания аспект пересчитан, буфер — окно',
+      refit.fits > made.fits && refit.css.h === HEIGHT && refit.buffer.h === HEIGHT * 2,
+      `холст ${refit.css.w}×${refit.css.h}, буфер ${refit.buffer.w}×${refit.buffer.h}`,
+    );
+    console.log(`  ${await tab.eval<string>(loseFor('window.__replay.r'))}`);
+    await sleep(RESTORE_WAIT + 1000);
+    const dead = await tab.eval<number>('JSON.stringify(window.__replay.dead)');
+    check('ролик: мёртвый контекст кончает ролик отчётом', dead === 1, `ролику сказано «кончай»: ${dead} раз`);
+    await tab.eval<string>(`(() => { const p = window.__replay; p.off(); p.r.dispose(); p.wrap.remove(); window.__replay = undefined; return JSON.stringify('ok'); })()`);
+
+    // ---------- 11. Промысел ----------
+    console.log('\n11. Промысел «Ягоды»');
+    console.log(`  ${await tab.eval<string>(click('button[aria-label="Энергия"]'))} — подсказка энергии`);
+    await sleep(400);
+    console.log(`  ${await tab.eval<string>(click('.nx-tip-go'))} — «Промыслы»`);
+    await waitFor(tab, `document.querySelector('.nx-trade')`, 8000);
+    console.log(`  ${await tab.eval<string>(press('В лес'))} — «В лес»`);
+    if (await waitFor(tab, 'window.__mini && document.querySelector(".mg canvas")', 30_000)) {
+      await sleep(1500);
+      await fold(tab);
+      checkLayout('промысел', await tab.eval<Layout>(layoutOf('.mg canvas', '.nx-nav')), { nav: false, canvas: true });
+      await tab.eval<number>('JSON.stringify(window.__mini.__tag = 1)');
+      console.log(`  до «Начать»: ${await tab.eval<string>(loseFor('window.__mini.gl'))}`);
+      await sleep(RESTORE_WAIT + 2500);
+      const re = await tab.eval<{ fresh: boolean; lost: boolean }>(rebuiltOf('window.__mini'));
+      check('промысел: не начатый собран заново на живом контексте', re.fresh && !re.lost, `новая сцена: ${re.fresh ? 'да' : 'нет'}, контекст потерян: ${re.lost ? 'да' : 'нет'}`);
+      console.log(`  ${await tab.eval<string>(press('Начать'))} — «Начать»`);
+      await sleep(1000);
+      console.log(`  посреди игры: ${await tab.eval<string>(loseFor('window.__mini.gl'))}`);
+      await sleep(RESTORE_WAIT + 1500);
+      const phase = await tab.eval<string>('JSON.stringify(window.__mini.snapshot().phase)');
+      check('промысел: начатый кончен итогом по набранному', phase === 'done', `фаза: ${phase}`);
+    } else check('промысел: поднялся', false, 'нет window.__mini за 30 с');
+  } finally {
+    tab.close();
   }
 }
 
