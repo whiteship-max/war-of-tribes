@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { STORES } from '../lib/kv.js';
+import { STORES, type Stores } from '../lib/kv.js';
 import { ROUTES } from '../lib/routes/index.js';
 import { placeCastle, settleRandom } from '../../src/world/settle.js';
 import { TEST_TOKEN, blobsHome, signInit, sqliteHome, type Home } from './testkit.js';
@@ -232,6 +232,61 @@ it('оба дома отвечают одно и то же — шаг в шаг'
   expect(sqlite.steps.length).toBeGreaterThan(20);
   expect(blobs.steps).toEqual(sqlite.steps);
   expect(blobs.dueMarks).toEqual(sqlite.dueMarks);
+});
+
+describe('гонка: между чтением и записью успел третий', () => {
+  /**
+   * Обработчик сохранения читает запись, сверяет ETag и пишет условно. Сверка до записи ловит
+   * устаревший ETag, но не того, кто записал **между** чтением и записью: его ловит только условная
+   * запись дома. Здесь третий вклинивается ровно туда — подменой двери, которая перед первой
+   * записью обработчика даёт записать чужому. Ответ обязан быть 409 с записью третьего, на обоих
+   * домах.
+   */
+  const racing = (home: Home, intruder: () => Promise<unknown>): Stores => (name, c) => {
+    const kv = home.stores(name, c);
+    let fired = false;
+    return {
+      ...kv,
+      setJSON: async (key, value, opts) => {
+        if (!fired) {
+          fired = true;
+          await intruder();
+          await home.settle();
+        }
+        return kv.setJSON(key, value, opts);
+      },
+    };
+  };
+  const rec = record();
+  const save = (stores: Stores, user: number, baseEtag: string | null, at: number) =>
+    ROUTES['/api/save'](
+      new Request('http://tribe.test/api/save', {
+        method: 'PUT',
+        headers: { 'x-telegram-init-data': signInit(user, Math.floor(at / SEC) - 60) },
+        body: JSON.stringify({ baseEtag, record: rec }),
+      }),
+      { stores, now: at, ip: null },
+    );
+
+  it.each(HOMES.map(([name], i) => [name, i]))('%s: поверх своей версии, а третий успел раньше — 409 с его записью', async (_name, i) => {
+    const home = homes[Number(i)];
+    const user = 3100 + Number(i);
+    const first = (await (await save(home.stores, user, null, NOW)).json()) as { etag: string };
+    await home.settle();
+    const third = () => home.stores(STORES.saves).setJSON(`tg-${user}`, { ...rec, rev: 7 }, { onlyIfMatch: first.etag });
+    const res = await save(racing(home, third), user, first.etag, NOW + 5 * SEC);
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { record: { rev: number } }).record.rev).toBe(7);
+  });
+
+  it.each(HOMES.map(([name], i) => [name, i]))('%s: в пустое место, а третий успел раньше — 409 с его записью', async (_name, i) => {
+    const home = homes[Number(i)];
+    const user = 3200 + Number(i);
+    const third = () => home.stores(STORES.saves).setJSON(`tg-${user}`, { ...rec, rev: 7 }, { onlyIfNew: true });
+    const res = await save(racing(home, third), user, null, NOW);
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { record: { rev: number } }).record.rev).toBe(7);
+  });
 });
 
 describe('сито частоты: у адресов свои вёдра', () => {

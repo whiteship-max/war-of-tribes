@@ -68,6 +68,24 @@ describe('приём HTTP своего сервера', () => {
     expect(await res.json()).toEqual({ error: 'too-big' });
   });
 
+  /**
+   * Без заявленной длины (тело потоком, `transfer-encoding: chunked`) первая проверка `readBody`
+   * молчит, и 413 держится только на лишнем байте, который приём оставляет сверх потолка.
+   */
+  it('тело потоком, без заявленной длины, больше потолка — тоже 413', async () => {
+    const chunk = new TextEncoder().encode('x'.repeat(64 * 1024));
+    let sent = 0;
+    const body = new ReadableStream<Uint8Array>({
+      pull(ctl) {
+        if (sent >= 700 * 1024) return ctl.close();
+        sent += chunk.length;
+        ctl.enqueue(chunk);
+      },
+    });
+    const res = await fetch(`${base}/api/save`, { method: 'PUT', headers: auth(5004), body, duplex: 'half' } as RequestInit);
+    expect(res.status).toBe(413);
+  });
+
   it('адрес клиента — правый в X-Forwarded-For (его ставит Caddy), без заголовка — адрес сокета', async () => {
     const via = await fetch(`${base}/api/ip`, { headers: { 'x-forwarded-for': '6.6.6.6, 203.0.113.7' } });
     expect(await via.json()).toEqual({ error: '203.0.113.7' });
