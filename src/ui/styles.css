@@ -4132,3 +4132,75 @@ body.replaying .app > *:not(.canvas-wrap) {
  * подписи дня и дружины уходят — значок дня и число дружины их повторяют.
  */
 
+
+/*
+ * Заставка «Поверните телефон» — дверь поворота (`src/orientation.ts`): город, карта, держава и меню стоят
+ * только вертикально, и телефону, лежащему боком, вместо сломанной раскладки показана она. Поверх всего,
+ * включая экран загрузки: пока она видна, под ней нечего трогать.
+ */
+.turn-phone {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px calc(16px + var(--safe-right)) 16px calc(16px + var(--safe-left));
+  background: radial-gradient(ellipse at center, #2b2017 0%, var(--bg) 70%);
+  color: var(--text);
+  text-align: center;
+  touch-action: none;
+}
+
+.turn-phone[hidden] {
+  display: none;
+}
+
+.turn-phone-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 18px 26px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+}
+
+.turn-phone-card b {
+  font-size: 18px;
+  color: var(--accent);
+}
+
+.turn-phone-card span {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.turn-phone-icon {
+  font-size: 40px;
+  line-height: 1;
+  animation: turn-phone 2.4s ease-in-out infinite;
+}
+
+/* Телефон лежит боком и встаёт: с боку — на торец, пауза, обратно. */
+@keyframes turn-phone {
+  0%,
+  20% {
+    transform: rotate(-90deg);
+  }
+  50%,
+  80% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(-90deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .turn-phone-icon {
+    animation: none;
+  }
+}

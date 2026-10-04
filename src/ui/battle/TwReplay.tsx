@@ -27,6 +27,7 @@ import type { BattleRecord, Report } from '@/world/types';
 import type { TwHud } from '@/render/tw/hud';
 import type { TwPlayer } from '@/render/tw/player';
 import type { BattleFx } from '@/sound/battlefx';
+import { freeTurn } from '@/orientation';
 import './tw.css';
 
 /** Кнопки ролика TW: «Пропустить», как у прежнего, и «Общий вид» — вернуть камеру режиссуре. */
@@ -72,6 +73,9 @@ export function TwReplay({ rec, report, onDone }: { rec: BattleRecord; report?: 
   const [muted, setMuted] = useState(false);
   const mute = useRef(false);
   mute.current = muted;
+
+  // Ролик — в любой ориентации (решение владельца 04.10.2026): закрепление вертикали снято, на выходе — снова.
+  useEffect(() => freeTurn('ролик боя'), []);
 
   useEffect(() => {
     const scene = activeScene();

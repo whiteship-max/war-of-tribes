@@ -3,6 +3,7 @@
 import { sceneLog } from '@/scenelog';
 import { setAppAsleep } from '@/render/loop';
 import { measureViewport, startViewport, tgViewportChanged } from '@/viewport';
+import { startOrientation } from '@/orientation';
 
 /**
  * Облако Telegram — **только чтение, и только для подъёма старой партии**
@@ -94,6 +95,9 @@ export interface TelegramWebApp {
   setBackgroundColor?(color: string): void;
   disableVerticalSwipes?(): void;
   requestFullscreen?(): void;
+  /** Bot API 8.0: закрепить текущую ориентацию и отпустить её (`src/orientation.ts`). */
+  lockOrientation?(): void;
+  unlockOrientation?(): void;
   CloudStorage?: TgCloudStorageRead;
   isVersionAtLeast?(v: string): boolean;
   HapticFeedback?: TgHaptic;
@@ -237,6 +241,7 @@ export function initTelegram(): void {
   const app = tg();
   if (!app) {
     startViewport();
+    startOrientation();
     return;
   }
   try {
@@ -249,6 +254,8 @@ export function initTelegram(): void {
   }
   applyTheme();
   startViewport(app, () => askViewport(app));
+  // Город и меню — вертикально, промысел и ролик — как держат (дверь поворота).
+  startOrientation(app);
 
   const on = (event: string, cb: () => void): void => {
     try {

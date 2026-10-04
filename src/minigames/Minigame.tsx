@@ -25,6 +25,7 @@ import { HerdPlay } from './herdPlay';
 import { GAME_SECONDS, LATE_SECONDS, shareOf, type Tally } from './rules';
 import { Stage, type Play, type StageView } from './stage';
 import { watchContext } from '@/render/context';
+import { freeTurn } from '@/orientation';
 
 /**
  * Чем играть: «Ягоды» и «Скот» лежат в куске промыслов, «Охота» — своим куском (лук, олени, звук): её качает только
@@ -93,6 +94,9 @@ export function Minigame({ game, onExit }: { game: MinigameId; onExit: () => voi
   const s = useGame((g) => g.s);
   const now = energyNow();
   const ready = canPlay(s, now);
+
+  // Промысел — в любой ориентации (решение владельца 04.10.2026): закрепление вертикали снято, на выходе — снова.
+  useEffect(() => freeTurn('промысел'), []);
 
   useLayoutEffect(() => {
     const wrap = wrapRef.current;
