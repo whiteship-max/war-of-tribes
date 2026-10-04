@@ -22,13 +22,14 @@ const example = readFileSync(join(ROOT, '.env.example'), 'utf8');
 const netlifyToml = readFileSync(join(ROOT, 'netlify.toml'), 'utf8');
 const caddy = readFileSync(join(DEPLOY, 'Caddyfile'), 'utf8');
 const update = readFileSync(join(DEPLOY, 'update.sh'), 'utf8');
+const coolify = readFileSync(join(DEPLOY, 'coolify.yml'), 'utf8');
 
 /** Переменные, которые понимает сервер: свои — `config.ENV`, токен — `lib/http.botToken`, домен — Caddy. */
 const KNOWN = new Set<string>([...Object.values(ENV), 'TELEGRAM_BOT_TOKEN', 'TRIBE_DOMAIN']);
 
-/** Блок сервиса в docker-compose.yml: от `  имя:` до следующего сервиса или раздела. */
-const service = (name: string): string => {
-  const m = new RegExp(`^  ${name}:\\n([\\s\\S]*?)(?=^  \\w[\\w-]*:\\n|^\\S)`, 'm').exec(compose);
+/** Блок сервиса в compose-файле: от `  имя:` до следующего сервиса или раздела. */
+const service = (name: string, file = compose): string => {
+  const m = new RegExp(`^  ${name}:\\n([\\s\\S]*?)(?=^  \\w[\\w-]*:\\n|^\\S)`, 'm').exec(file);
   if (!m) throw new Error(`нет сервиса ${name}`);
   return m[1];
 };
@@ -120,6 +121,26 @@ describe('Caddy проводит ровно адреса API — те же, чт
 
   it('адрес сайта — из переменной, а не вписан', () => {
     expect(caddy).toMatch(/^\{\$TRIBE_DOMAIN\} \{/m);
+  });
+});
+
+describe('вариант под Coolify — те же образы, без портов', () => {
+  /**
+   * Под Coolify 80 и 443 держит его прокси: открытый порт в compose с ним бы подрался. Остальное —
+   * то же, что в основном файле: те же цели сборки, тот же набор переменных у приложения.
+   */
+  it('ни одного порта наружу; Caddy слушает простой HTTP за прокси', () => {
+    expect(coolify).not.toMatch(/^\s+ports:/m);
+    expect(service('web', coolify)).toMatch(/TRIBE_DOMAIN: ":80"/);
+    expect(service('web', coolify)).toMatch(/target: web/);
+  });
+
+  it('приложение — та же цель и те же переменные, что в основном compose', () => {
+    const vars = (block: string): string[] => [...block.matchAll(/^ {6}([A-Z_]+):/gm)].map((m) => m[1]).sort();
+    expect(service('app', coolify)).toMatch(/target: app/);
+    expect(vars(service('app', coolify))).toEqual(vars(service('app')));
+    expect(vars(service('app')).length).toBeGreaterThan(5);
+    expect(service('app', coolify)).toMatch(/- tribe-data:\/data/);
   });
 });
 
