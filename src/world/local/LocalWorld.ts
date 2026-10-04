@@ -5773,8 +5773,8 @@ export class LocalWorld implements WorldApi {
     const def = FIGURE_BY_ID[id];
     if (f.gone) {
       return f.gone.why === 'died'
-        ? `${def.name} погиб. Место пустует, пока не наймут нового.`
-        : `${def.name} ушёл на покой. Место пустует, пока не наймут нового.`;
+        ? `${def.name} погиб. Место пустует.`
+        : `${def.name} ушёл на покой. Место пустует.`;
     }
     if (f.phase !== 'down') return null;
     const left = formatLeft(Math.max(0, f.downUntil - now) / 1000);
@@ -6501,7 +6501,7 @@ export class LocalWorld implements WorldApi {
     if (!this.inRealm(target)) return this.beyond();
     if (f.phase === 'moving') return `${def.name} ещё в пути.`;
     if (this.touching(this.figureAt(f, now))?.id !== target.id) {
-      return `Слишком далеко. Доведи ${def.one} к самым воротам.`;
+      return `Доведи ${def.one} до ворот.`;
     }
     // На пепелище работать не с кем: ни выведывать, ни дарить, ни бунтовать.
     // Отказ с причиной, а не молчаливо погашенная кнопка.

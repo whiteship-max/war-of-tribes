@@ -3181,98 +3181,12 @@ body.replaying .app > *:not(.canvas-wrap) {
  */
 .am-wrap {
   position: absolute;
-  inset: 0;
+  /* Над нижней навигацией карты (docs/ui_audit.md, 3.10): «Вести сюда» не уходит под неё. */
+  inset: 0 0 calc(var(--nav-h) + var(--safe-bottom)) 0;
   z-index: 14;
   background: rgba(0, 0, 0, 0.45);
   display: flex;
   align-items: flex-end;
-}
-
-.am {
-  width: 100%;
-  max-height: 88%;
-  overflow-y: auto;
-  padding: 10px 10px calc(12px + var(--safe-bottom));
-  background: var(--panel);
-  border-top: 1px solid var(--line);
-  border-radius: 14px 14px 0 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.am-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding-bottom: 6px;
-  border-bottom: 1px solid var(--line);
-}
-
-.am-head .ico {
-  font-size: 22px;
-}
-
-.am-head .body {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-}
-
-.am-head b {
-  font-size: 15px;
-}
-
-.am-head i {
-  font-size: 11px;
-  color: var(--muted);
-  font-style: normal;
-  font-variant-numeric: tabular-nums;
-}
-
-.am-x {
-  flex: 0 0 auto;
-  width: var(--tap);
-  height: var(--tap);
-  background: var(--panel-2);
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  color: var(--text);
-  font-size: 15px;
-}
-
-.am-rel {
-  padding: 8px 10px;
-  background: var(--panel-2);
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  font-size: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
-
-.am-rel-top {
-  display: flex;
-  justify-content: space-between;
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.am-att {
-  font-variant-numeric: tabular-nums;
-  color: var(--muted);
-  font-weight: 400;
-}
-
-.am-temper,
-.am-note {
-  color: var(--muted);
-}
-
-.am-warn {
-  color: var(--bad);
 }
 
 .am-row {
@@ -3286,10 +3200,6 @@ body.replaying .app > *:not(.canvas-wrap) {
   border: 1px solid var(--line);
   border-radius: 10px;
   color: var(--text);
-}
-
-.am-row.lead {
-  border-style: dashed;
 }
 
 .am-row .ico {
@@ -3351,50 +3261,12 @@ body.replaying .app > *:not(.canvas-wrap) {
   color: var(--muted);
 }
 
-.am-chance {
-  color: var(--accent);
-}
-
-.am-time,
-.am-price,
-.am-free {
-  color: var(--muted);
-}
-
 .am-plain {
   padding: 8px 10px;
   font-size: 12px;
   color: var(--muted);
   background: var(--panel-2);
   border: 1px solid var(--line);
-  border-radius: 10px;
-}
-
-.am-agents {
-  display: flex;
-  gap: 6px;
-  padding-top: 4px;
-}
-
-.am-agent {
-  flex: 1;
-  min-height: var(--tap);
-  background: var(--panel-2);
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  font-size: 18px;
-}
-
-.am-agent.active {
-  border-color: var(--accent);
-}
-
-/* Бунт и риск лазутчика в меню приказов. */
-.am-revolt {
-  padding: 8px 10px;
-  font-size: 12px;
-  background: var(--panel-2);
-  border: 1px solid var(--accent);
   border-radius: 10px;
 }
 

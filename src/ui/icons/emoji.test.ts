@@ -74,7 +74,6 @@ const hex = (cp: number): string => `U+${cp.toString(16).toUpperCase()}`;
 const DEBT: readonly { file: string; cp: number; near: string }[] = [
   { file: 'game/data/troops.ts', cp: 0x1fa83, near: "icon: '" },
   { file: 'ui/SyncModal.tsx', cp: 0x1fa9f, near: 'className="m-ico"' },
-  { file: 'ui/map/ActionMenu.tsx', cp: 0x1fae5, near: 'name="ui-eye-off"' },
   { file: 'ui/parts/TroopCardView.tsx', cp: 0x1faa8, near: 't.mult <= 1' },
   { file: 'world/data/diplomacy.ts', cp: 0x1faa8, near: "icon: '" },
 ];
