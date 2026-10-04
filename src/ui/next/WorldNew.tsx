@@ -36,7 +36,7 @@ import { hungerLeft } from '@/ui/parts/hunger';
 import { count } from '@/ui/parts/plural';
 import { signed } from '@/ui/parts/signed';
 import { realLeft, waitLeft, waitShort } from '@/ui/parts/wait';
-import { OwnGarrison } from '@/ui/panels/WorldPanel';
+import { GarrisonEditor } from '@/ui/parts/GarrisonEditor';
 import { tipAt, type TipContent } from './tip';
 
 const fmt = (n: number): string => (Math.abs(n) >= 100 ? String(Math.round(n)) : (Math.round(n * 10) / 10).toString().replace('.', ','));
@@ -465,7 +465,7 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
         </div>
       )}
 
-      {card.mine && standing.includes('general') && <OwnGarrison />}
+      {card.mine && standing.includes('general') && <GarrisonEditor />}
 
       {lead(standing)}
 

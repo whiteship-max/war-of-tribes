@@ -129,11 +129,16 @@ describe('журнал боя со стаей: «волки» и «стая», �
   });
 
   it('отчёт о бое показывает журнал и итог через слой', () => {
+    // Журнал — в панели отчёта, итог — в итоге нового интерфейса (`ui/next/ReportNew`; прежний итог удалён,
+    // docs/ui_audit.md, 16).
     const strip = (code: string): string => code.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
     const src = strip(readFileSync(path.resolve('src/ui/panels/ReportPanel.tsx'), 'utf8'));
+    const body = strip(readFileSync(path.resolve('src/ui/next/ReportNew.tsx'), 'utf8'));
     expect(src, 'журнал — через слой').toMatch(/beastWords\(describeEvent\(e, rec\.us\), rec\.beasts, rec\.us\)/);
-    expect(src, 'итог — через слой').toMatch(/beastSummary\(summarize\(rec\.result, rec\.us\), rec\.beasts, rec\.us\)/);
+    expect(body, 'итог — через слой').toMatch(/beastSummary\(summarize\(rec\.result, rec\.us\), rec\.beasts, rec\.us\)/);
     expect(src.match(/describeEvent\(/g)?.length, 'журнал читается ядром в одном месте').toBe(1);
-    expect(src.match(/summarize\(/g)?.length, 'итог — тоже').toBe(1);
+    expect(body.match(/describeEvent\(/g), 'итог журнала не читает').toBe(null);
+    expect(body.match(/summarize\(/g)?.length, 'итог — в одном месте').toBe(1);
+    expect(src.match(/summarize\(/g), 'панель итога не считает').toBe(null);
   });
 });

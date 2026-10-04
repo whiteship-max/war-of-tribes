@@ -56,7 +56,7 @@ describe('состав дружины: один редактор, два мес�
     const callers = all.filter((f) => /\.setGarrison\b/.test(code(f))).map(rel);
     expect(callers, 'кто зовёт setGarrison мира').toEqual(['parts/GarrisonEditor.tsx']);
     const shown = all.filter((f) => /<GarrisonEditor\b/.test(code(f))).map(rel).sort();
-    expect(shown, 'где показан редактор').toEqual(['panels/WorldPanel.tsx', 'parts/Statue.tsx']);
+    expect(shown, 'где показан редактор').toEqual(['next/WorldNew.tsx', 'parts/Statue.tsx']);
     const defined = all.filter((f) => /function GarrisonEditor\b/.test(code(f))).map(rel);
     expect(defined, 'сколько редакторов определено').toEqual(['parts/GarrisonEditor.tsx']);
     // Отказы — словами мира: ошибка уходит игроку как есть.

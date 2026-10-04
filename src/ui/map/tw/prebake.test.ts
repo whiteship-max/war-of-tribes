@@ -261,7 +261,8 @@ describe('цель вне региона', () => {
       const i = menu.indexOf(order);
       if (i >= 0) expect(i, order).toBeGreaterThan(gate);
     }
-    const panel = strip(readFileSync(join(process.cwd(), 'src/ui/panels/WorldPanel.tsx'), 'utf8'));
+    // Карточка клетки — нового интерфейса (`next/WorldNew`; прежняя удалена, docs/ui_audit.md, 16).
+    const panel = strip(readFileSync(join(process.cwd(), 'src/ui/next/WorldNew.tsx'), 'utf8'));
     const pgate = panel.indexOf('if (!reachable(here))');
     expect(pgate).toBeGreaterThan(0);
     // Карточка: первый `return (` с приказами — после проверки (вести сюда, набег, удар, осада).

@@ -10,24 +10,15 @@ import { Suspense, lazy, useEffect, useMemo, useState, type CSSProperties, type 
 import { createPortal } from 'react-dom';
 import { useGame } from '@/game/store';
 import { useWorld } from '@/world/store';
-import {
-  PHASE_NAME,
-  describeEvent,
-  summarize,
-  type Side,
-} from '@/battle';
+import { PHASE_NAME, describeEvent, type Side } from '@/battle';
 import { setBattleWatch } from '@/game/battle/actions';
-import { beastSummary, beastWords } from '@/game/battle/beasts';
+import { beastWords } from '@/game/battle/beasts';
 import { battleMusic } from '@/sound/web';
-import { fallenText } from '@/game/sim/expedition';
-import { formatCoord } from '@/world/geo';
 import type { BattleRecord, Report } from '@/world/types';
-import { lootText, unitsText } from '@/ui/parts/reportWords';
 import { Icon } from '@/ui/icons/Icon';
 import { SIDE_VARS } from '@/side';
-import { useUiNew } from '@/ui/uimode';
 
-/** Итог нового вида — в куске нового вида (`ui/next/ReportNew`), как окно постройки: первая загрузка его не несёт. */
+/** Итог — в куске нового интерфейса (`ui/next/ReportNew`), как окно постройки: первая загрузка его не несёт. */
 const ReportBodyNew = lazy(() => import('@/ui/next').then((m) => ({ default: m.ReportBodyNew })));
 
 /** Силы несопоставимы — смотреть нечего: мгновенный итог по умолчанию. */
@@ -152,8 +143,7 @@ export function ReportPanel({ id }: { id: string }) {
   const s = useGame((g) => g.s);
   const act = useGame((g) => g.act);
   const report = reports.find((r) => r.id === id) ?? null;
-  // Новый интерфейс — итог своим видом (`ReportBodyNew`); ролик, журнал и выбор «итог или бой» — общие.
-  const next = useUiNew();
+  // Итог — `ReportBodyNew` (свой кусок); ролик, журнал и выбор «итог или бой» — здесь.
 
   // Отчёт открывают и мимо списка походов — из тоста или после перезагрузки.
   // Тогда список ещё пуст, и без этого панель врала бы «отчёт не хранится».
@@ -184,16 +174,12 @@ export function ReportPanel({ id }: { id: string }) {
 
   return (
     <div className="panel">
-      {next ? (
-        <Suspense fallback={null}>
-          <ReportBodyNew report={report} />
-        </Suspense>
-      ) : (
-        <ReportBody report={report} />
-      )}
+      <Suspense fallback={null}>
+        <ReportBodyNew report={report} />
+      </Suspense>
       {rec && (
         <>
-          <div className={next ? 'nx-rbtns' : 'wm-actions'}>
+          <div className="nx-rbtns">
             <button
               className={`btn${watch ? ' ghost' : ''}`}
               onClick={() => {
@@ -235,133 +221,5 @@ export function ReportPanel({ id }: { id: string }) {
         </>
       )}
     </div>
-  );
-}
-
-/** Итог словами: три категории исхода, потери обеих сторон, ключевые события. */
-export function ReportBody({ report }: { report: Report }) {
-  const s = useGame((g) => g.s);
-  const rec = report.battle;
-  // Стая у ворот бьётся родом ядра, а в отчёте она — волки (`game/battle/beasts`): ядро про зверей не знает.
-  const sum = rec ? beastSummary(summarize(rec.result, rec.us), rec.beasts, rec.us) : null;
-  const ours = rec ? rec.result.sides[rec.us].total : null;
-  const foes = rec ? rec.result.sides[other(rec.us)].total : null;
-
-  return (
-    <>
-      <h2>
-        {sum ? sum.title : report.title} <small>{formatCoord(report.target)}</small>
-      </h2>
-      {/* Где это было — именем. У своего города это имя, которое назвал игрок. */}
-      <div className="desc one-line">{report.target.name}</div>
-      <div className="desc">{report.text}</div>
-
-      {sum && ours && foes && (
-        <>
-          <div className="mod-list">
-            <div className="mod">
-              <span className="ico">🛡️</span>
-              <span className="name">Наши силы</span>
-              <span className="val">
-                {ours.initial} → {ours.final}
-              </span>
-            </div>
-            <div className="mod">
-              <span className="ico">⚔️</span>
-              <span className="name">Противник</span>
-              <span className="val">
-                {foes.initial} → {foes.final}
-              </span>
-            </div>
-            <div className="mod total">
-              <span className="ico">⚖️</span>
-              <span className="name">Размен</span>
-              <span className={`val ${foes.losses >= ours.losses ? '' : 'neg'}`}>
-                {ours.losses} за {foes.losses}
-              </span>
-            </div>
-          </div>
-          <p className={`note${sum.verdict === 'defeat' || sum.verdict === 'pyrrhic' ? ' bad' : ''}`}>
-            {sum.reason}
-          </p>
-
-          <h3>Почему так вышло</h3>
-          <div className="bl" style={SIDES_STYLE}>
-            {sum.keys.length === 0 ? (
-              <div className="bl-line muted">Ничего решающего не случилось — перемололи друг друга.</div>
-            ) : (
-              sum.keys.map((k, i) => (
-                <div className={`bl-line${k.good ? ' good' : ' bad'}`} key={i}>
-                  <Icon name={k.art} glyph={k.icon} /> {k.text}
-                </div>
-              ))
-            )}
-          </div>
-        </>
-      )}
-
-      <div className="mod-list">
-        <div className="mod">
-          <span className="ico">👣</span>
-          <span className="name">Ушли</span>
-          <span className="val">{unitsText(report.sent)}</span>
-        </div>
-        {/*
-          Бой у рогаток лагеря: сколько из вышедших вообще дрались. Без этой
-          строки проигрыш сотни против пятерых читался бы как несправедливый —
-          а дрались в нём трое. Число записал мир в минуту боя, тем же расчётом,
-          которым панель вылазки обещала его до нажатия.
-        */}
-        {/* Сторон у лагеря две, и строк по сторонам — столько, сколько с них лезли. */}
-        {report.rearThrough && (report.rearThrough.passed < report.rearThrough.went || (report.through && report.through.passed < report.through.went)) && (
-          <div className="mod">
-            <span className="ico">⛺</span>
-            <span className="name">Пробились с тыла, бойцов строя</span>
-            <span className="val">
-              {report.rearThrough.passed} из {report.rearThrough.went}
-            </span>
-          </div>
-        )}
-        {report.through && (report.through.passed < report.through.went || (report.rearThrough && report.rearThrough.passed < report.rearThrough.went)) && (
-          <div className="mod">
-            <span className="ico">⛺</span>
-            <span className="name">Пробились {report.rearThrough ? 'со стороны города' : 'к рогаткам'}, бойцов строя</span>
-            <span className="val">
-              {report.through.passed} из {report.through.went}
-            </span>
-          </div>
-        )}
-        <div className="mod">
-          <span className="ico"><Icon name="ui-grave" glyph="🪦" /></span>
-          <span className="name">Не вернулись</span>
-          <span className="val">{Object.keys(report.lost).length > 0 ? unitsText(report.lost) : 'нет'}</span>
-        </div>
-        {(report.hidden ?? 0) > 0 && (
-          <div className="mod">
-            <span className="ico">🧰</span>
-            <span className="name">Уцелело в тайнике</span>
-            <span className="val">{report.hidden}</span>
-          </div>
-        )}
-        {report.loot && (
-          <div className="mod total">
-            <span className="ico"><Icon name="ui-loot" glyph="📦" /></span>
-            <span className="name">Добыча</span>
-            <span className="val">{lootText(report.loot)}</span>
-          </div>
-        )}
-        {/*
-          Город взят: какие постройки потеряли уровень, поимённо. Строка та же,
-          что легла в летопись, и из того же списка, который применило племя.
-        */}
-        {report.fallen && report.fallen.length > 0 && (
-          <div className="mod">
-            <span className="ico">🏚️</span>
-            <span className="name">Постройки</span>
-            <span className="val">{fallenText(s, report.fallen)}</span>
-          </div>
-        )}
-      </div>
-    </>
   );
 }

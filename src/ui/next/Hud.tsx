@@ -7,7 +7,7 @@ import { Icon } from '@/ui/icons/Icon';
 import { iconName, moodOf } from '@/ui/icons/registry';
 import { CoatButton } from '@/ui/realm/Coat';
 import { useRealm } from '@/ui/realm/open';
-import { shortNum } from '@/ui/ResourceBar';
+import { shortNum } from '@/ui/parts/shortNum';
 import { tipAt, type TipContent } from './tip';
 import { energyNow, useTrades } from '@/ui/trades';
 import { energyShown } from '@/game/sim/minigames';

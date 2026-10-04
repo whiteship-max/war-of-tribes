@@ -26,7 +26,7 @@ describe('мораль между боями словами', () => {
       'src/ui/panels/SiegePanel.tsx',
       'src/ui/panels/SortiePanel.tsx',
       'src/ui/panels/CampPanel.tsx',
-      'src/ui/panels/MarchesPanel.tsx',
+      'src/ui/next/MarchesNew.tsx',
       'src/ui/panels/ArmyPanel.tsx',
     ];
     for (const file of PLACES) expect(strip(readFileSync(path.resolve(file), 'utf8')), file).toMatch(/restLine\(/);

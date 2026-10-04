@@ -38,82 +38,55 @@ const MARKER_GLYPH: Record<Attention, string> = { idle: '💤', order: '⚒️',
 const markerTextures = new Map<string, THREE.Texture>();
 
 /**
- * Вид значков над крышами. Прежний — эмодзи в янтарном кольце; новый — малый значок листа на тёмной бляхе
- * с кольцом цвета заботы (docs/ui_audit.md, «Новый интерфейс»: значки над зданиями закрывали город).
- * Выбирает интерфейс (`ui/GameCanvas` по `ui/uimode`) и отдаёт рисунки значков: сцена про лист значков не знает.
+ * Значок над крышей — малый значок листа на тёмной бляхе с кольцом цвета заботы (docs/ui_audit.md, «Новый интерфейс»:
+ * значки над зданиями закрывали город). Прежний вид — эмодзи в янтарном кольце над любой заботой — удалён вместе с
+ * прежним интерфейсом (docs/ui_audit.md, 16). Рисунки значков отдаёт интерфейс (`ui/GameCanvas`): сцена про лист
+ * значков не знает.
  */
-export type MarkerLook = 'old' | 'new';
-
 export interface MarkerArt {
   /** Разметка SVG значка листа по имени; `null` — значка нет (лист не приехал), стоит эмодзи. */
   svg(name: string): string | null;
 }
 
-let markerLook: MarkerLook = 'old';
 let markerArt: MarkerArt | null = null;
 
 /**
- * Новый вид значков: над крышей — только беда, и у каждой свой значок листа и кольцо (решение владельца
+ * Над крышей — только беда, и у каждой свой значок листа и кольцо (решение владельца
  * 03.10.2026, docs/ui_audit.md, 12.8): никого нет на работе — красное, кузнецы без заказа — охра. «Можно улучшить»
  * и «есть свободное место» стояли над десятком крыш с первой минуты и закрывали город; построек без рабочих —
  * число на «Ратуше» внизу, а улучшения и места — в её списке (`ui/parts/TownBuild.tsx`). Чего здесь нет, над
- * крышей нового вида не стоит (`onRoof`).
+ * крышей не стоит (`onRoof`).
  */
 export const ROOF_NEW: Partial<Record<Attention, { icon: string; ring: string }>> = {
   idle: { icon: 'attn-idle', ring: '#d0644f' },
   order: { icon: 'job-smith', ring: '#d9a441' },
 };
 
-/** Стоит ли забота над крышей при этом виде значков: в прежнем — любая, в новом — только беда (`ROOF_NEW`). */
-export const onRoof = (look: MarkerLook, kind: Attention): boolean => look === 'old' || ROOF_NEW[kind] !== undefined;
+/** Стоит ли забота над крышей: только беда (`ROOF_NEW`). */
+export const onRoof = (kind: Attention): boolean => ROOF_NEW[kind] !== undefined;
 
-/** Сменить вид значков. Уже стоящие перерисовывает сцена (`TribeScene.restyleMarkers`). */
-export function setMarkerLook(look: MarkerLook, art: MarkerArt | null): void {
-  markerLook = look;
+/** Отдать рисунки значков листа. Уже стоящие перерисовывает сцена (`TribeScene.restyleMarkers`). */
+export function setMarkerArt(art: MarkerArt | null): void {
   markerArt = art;
-  // Рисунки нового вида зависят от листа значков: приехал лист — бляхи рисуются заново.
-  for (const [key, tex] of markerTextures) {
-    if (!key.startsWith('new:')) continue;
-    tex.dispose();
-    markerTextures.delete(key);
-  }
+  // Рисунки зависят от листа значков: приехал лист — бляхи рисуются заново.
+  for (const tex of markerTextures.values()) tex.dispose();
+  markerTextures.clear();
 }
 
-export const markerLookNow = (): MarkerLook => markerLook;
-
-/** Значок над крышей рисуется в канву: эмодзи читается лучше любой low-poly иконки. */
+/** Значок над крышей рисуется в канву (бляха, `plaque`). Только для заботы, что стоит над крышей (`onRoof`). */
 function markerTexture(kind: Attention): THREE.Texture {
-  const key = `${markerLook}:${kind}`;
-  let tex = markerTextures.get(key);
+  let tex = markerTextures.get(kind);
   if (tex) return tex;
+  // Зовут только после правила (`onRoof`): у заботы над крышей бляха есть всегда.
+  const mark = ROOF_NEW[kind] as { icon: string; ring: string };
   const c = document.createElement('canvas');
   const ctx = c.getContext('2d');
-  const mark = markerLook === 'new' ? ROOF_NEW[kind] : undefined;
-  if (mark) {
-    c.width = 64;
-    c.height = 64;
-    tex = new THREE.CanvasTexture(c);
-    if (ctx) plaque(ctx, kind, mark, tex);
-  } else {
-    c.width = 128;
-    c.height = 128;
-    if (ctx) {
-      ctx.fillStyle = 'rgba(26, 20, 16, 0.85)';
-      ctx.beginPath();
-      ctx.arc(64, 64, 52, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.strokeStyle = '#e8a43c';
-      ctx.lineWidth = 6;
-      ctx.stroke();
-      ctx.font = '62px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(MARKER_GLYPH[kind], 64, 70);
-    }
-    tex = new THREE.CanvasTexture(c);
-  }
+  c.width = 64;
+  c.height = 64;
+  tex = new THREE.CanvasTexture(c);
+  if (ctx) plaque(ctx, kind, mark, tex);
   tex.colorSpace = THREE.SRGBColorSpace;
-  markerTextures.set(key, tex);
+  markerTextures.set(kind, tex);
   return tex;
 }
 
@@ -1089,8 +1062,8 @@ export abstract class TribeScene {
   // ---------- Синхронизация с состоянием ----------
 
   /**
-   * Вид значков сменился (`setMarkerLook`): стоящие значки перерисовываются тем же видом заботы, а забота, которой
-   * над крышей этого вида не место (`onRoof`), снимается — и встаёт снова, когда вид вернут: помнится забота, а не значок.
+   * Рисунки значков сменились (`setMarkerArt`): стоящие значки перерисовываются тем же видом заботы. Помнится забота,
+   * а не значок: забота, которой над крышей не место (`onRoof`), значка не получает.
    */
   restyleMarkers(): void {
     for (const view of this.buildings.values()) {
@@ -1107,7 +1080,7 @@ export abstract class TribeScene {
       view.group.remove(view.marker);
       view.marker = null;
     }
-    if (!kind || !onRoof(markerLook, kind)) return;
+    if (!kind || !onRoof(kind)) return;
     const sprite = new THREE.Sprite(
       new THREE.SpriteMaterial({ map: markerTexture(kind), depthTest: false, transparent: true, toneMapped: false }),
     );

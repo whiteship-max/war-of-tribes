@@ -8,7 +8,7 @@ import { armyPower, housingCapacity, netPerDay, storageCap, upkeepInfo } from '@
 import { popGrowth } from '@/game/sim/population';
 import { TAP_TARGET } from '@/gestures';
 import { waitSpan } from '@/ui/parts/wait';
-import { shortNum } from '@/ui/ResourceBar';
+import { shortNum } from '@/ui/parts/shortNum';
 import { TIP_EDGE, TIP_GAP, TIP_MAX, TIP_W, placeTip, type Rect } from './tip';
 import { ALERT_FRESH_MS, isFresh } from './fresh';
 import {

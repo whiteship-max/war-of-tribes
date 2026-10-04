@@ -1,26 +1,13 @@
 import type { Building, JobId } from '@/game/types';
 import { useGame } from '@/game/store';
-import {
-  BONDED_OUTPUT,
-  FREE_RANGE_MULT,
-  MAX_BUILDING_LEVEL,
-  RESOURCE_IDS,
-  RESOURCE_META,
-} from '@/game/constants';
+import { FREE_RANGE_MULT, RESOURCE_IDS, RESOURCE_META } from '@/game/constants';
 import { BUILDING_BY_ID } from '@/game/data/buildings';
 import { EQUIPMENT } from '@/game/data/equipment';
 import { FREE_JOBS, JOB_BY_ID } from '@/game/data/jobs';
-import { ORDER_TEXT } from '@/game/data/order';
 import {
   armyPower,
-  bondedCount,
-  bondedIdle,
-  bondedTotal,
-  buildRate,
-  buildingById,
   buildingHousing,
   buildingProduction,
-  buildingSlots,
   buildingStat,
   buildingTitle,
   cavalryTrain,
@@ -36,37 +23,19 @@ import {
   freeJobCount,
   housingCapacity,
   idleCount,
-  isOutsideWall,
-  isSite,
   jobMultiplier,
-  levelOutputMult,
   maxLevelFor,
-  mastersOn,
   stalls,
   stallsTaken,
   netPerDay,
   stashAt,
   storageCap,
   surveyRadius,
-  takesBonded,
   warningSeconds,
-  upgradeInfo,
-  workerCount,
-  workerMultiplier,
 } from '@/game/derived';
-import {
-  assignBonded,
-  assignWorker,
-  cancelUpgrade,
-  changeFreeJob,
-  startUpgrade,
-  unassignBonded,
-  unassignWorker,
-} from '@/game/sim/actions';
-import { Cost } from '../parts/Cost';
+import { changeFreeJob } from '@/game/sim/actions';
 import { Steps } from '../parts/Steps';
 import { TownHall } from '../parts/TownHall';
-import { Smithy } from '../parts/Smithy';
 import { Market } from '../parts/Market';
 import { Barracks } from '../parts/Barracks';
 import { Recruit } from '../parts/Recruit';
@@ -79,16 +48,14 @@ import { Walls } from '../parts/Walls';
 import { TowerEngine } from '../parts/TowerEngine';
 import { Masters } from '../parts/Masters';
 import { FoodLeft, WinterForecast } from '../parts/Provisions';
-import { waitMinSec, waitSpan } from '../parts/wait';
+import { waitMinSec } from '../parts/wait';
 import { count } from '../parts/plural';
-import { gainText, levelLiftsHand, spareSlotsHelp, upgradeGains, type UpgradeGain } from '../parts/upgrade';
 import { troopBlock, troopOpen } from '@/game/sim/tech';
 import { Icon } from '@/ui/icons/Icon';
 import { moodOf } from '@/ui/icons/registry';
 import { troopTotal } from '@/game/battle/kinds';
 import { asGame } from '@/game/pace';
 import { lazy, Suspense } from 'react';
-import { useUiNew } from '@/ui/uimode';
 
 /** Шаблон окна нового интерфейса и заказ кузницы — в куске нового вида (`ui/next/index.ts`). */
 const BuildingNew = lazy(() => import('@/ui/next').then((m) => ({ default: m.BuildingNew })));
@@ -98,12 +65,10 @@ const fmt = (n: number): string => (Math.abs(n) >= 100 ? String(Math.round(n)) :
 const fmtDelta = (n: number): string => `${n >= 0 ? '+' : '−'}${fmt(Math.abs(n))}`;
 
 /**
- * Одинаковая для всех зданий панель: шапка, слоты рабочих, свои данные, свои действия. В новом интерфейсе
- * (`ui/uimode.ts`) шапка, цена и рабочие — свой шаблон (`next/BuildingNew`), а данные здания — те же.
+ * Одинаковая для всех зданий панель: шапка, цена и рабочие — шаблон нового интерфейса (`next/BuildingNew`), данные
+ * здания — свои (`BuildingData`). Прежний шаблон удалён вместе с прежним интерфейсом (docs/ui_audit.md, 16).
  */
 export function BuildingPanel({ id }: { id: number }) {
-  const next = useUiNew();
-  if (!next) return <BuildingOld id={id} />;
   return (
     <Suspense fallback={null}>
       <BuildingNew id={id} data={(b) => <BuildingData b={b} />} />
@@ -111,209 +76,9 @@ export function BuildingPanel({ id }: { id: number }) {
   );
 }
 
-function BuildingOld({ id }: { id: number }) {
-  const s = useGame((g) => g.s);
-  const act = useGame((g) => g.act);
-  const b = buildingById(s, id);
-  if (!b) {
-    return (
-      <div className="panel">
-        <h2>Здания больше нет</h2>
-        <div className="desc">Все постройки видны в ратуше.</div>
-      </div>
-    );
-  }
-  const def = BUILDING_BY_ID[b.type];
-  const up = upgradeInfo(s, b);
-  const site = isSite(b);
-  const rate = buildRate(s);
-  const first = currentSite(s);
-  const inQueue = site && first !== null && first.id !== b.id;
-  const eta = rate > 0 ? asGame(Math.ceil((b.workRequired - b.work) / rate)) : null;
-  const canLevel = (def.maxLevel ?? MAX_BUILDING_LEVEL) > 1;
-  const upEta = rate > 0 ? asGame(Math.ceil(up.work / rate)) : null;
-  // Что даст следующий уровень — замером (`parts/upgrade.ts`). Нужен и строке под
-  // ценой, и рабочим местам: звать людей на места, от которых нет толку, нельзя.
-  const gains = b.level < maxLevelFor(b.type) ? upgradeGains(s, b, b.level + 1) : null;
-
-  return (
-    <div className="panel">
-      <div className="bhead">
-        <div className="ico">
-          <Icon name={`bld-${def.id}`} glyph={def.icon} />
-        </div>
-        <div className="body">
-          <div className="name">{buildingTitle(s, b.type)}</div>
-          <div className="lvl">
-            {`ур. ${b.level}/${def.maxLevel ?? MAX_BUILDING_LEVEL}`}
-            {canLevel && (
-              <span className="pips">
-                {Array.from({ length: def.maxLevel ?? MAX_BUILDING_LEVEL }, (_, i) => (
-                  <i key={i} className={i < b.level ? 'on' : ''} />
-                ))}
-              </span>
-            )}
-          </div>
-        </div>
-        {!site && canLevel && (
-          <button className="btn" disabled={up.blocked !== null} onClick={() => act((st) => startUpgrade(st, b.id))}>
-            Улучшить
-          </button>
-        )}
-      </div>
-
-      <div className="desc">{def.description}</div>
-
-      {isOutsideWall(b.type) && (
-        <div className="note">
-          Двор за стеной. Прорвавшийся набег разгонит людей, и двор встанет, пока их не вернёшь.
-        </div>
-      )}
-
-      {site ? (
-        <div className="card">
-          <div className="ico">
-            <Icon name="ui-site" glyph="🏗️" />
-          </div>
-          <div className="body">
-            <div className="title">
-              Стройка до ур. {b.level + 1}
-              <span className="count">{inQueue ? 'в очереди' : eta !== null ? waitSpan(eta) : 'нет строителей'}</span>
-            </div>
-            <div className="desc">Пока идёт стройка, здание работает.</div>
-            <div className="progress">
-              <div style={{ width: `${Math.floor((b.work / Math.max(1, b.workRequired)) * 100)}%` }} />
-            </div>
-          </div>
-          <button className="btn ghost" onClick={() => act((st) => cancelUpgrade(st, b.id))} aria-label="Отменить">
-            ✕
-          </button>
-        </div>
-      ) : (
-        canLevel && (
-          <div className="upgrade">
-            <Cost cost={up.cost} work={up.work} eta={upEta} />
-            <div className="hint">{up.blocked ?? (gains ? gainText(gains) : null)}</div>
-          </div>
-        )
-      )}
-
-      <WorkerSlots b={b} gains={gains} />
-      <BuildingData b={b} />
-    </div>
-  );
-}
-
-// ---------- Слоты рабочих ----------
-
-/**
- * Рабочие здания. Мест столько, сколько даёт уровень; кого именно поставить —
- * вопроса нет: личного навыка у жителя не осталось, его роль взял на себя сам
- * уровень постройки, поднимая выработку каждому рабочему.
- *
- * Невольники встают на те же места вторым рядом шага — там, где работу дают
- * невольникам. Места общие: сколько занял один ряд, столько не достанется другому.
- *
- * Про места говорится то, что покажет замер, а не их число: у храма, где
- * служители уже упёрлись в потолок, места есть, а толку от них нет, и звать туда
- * людей — или на следующий уровень ради мест — значит врать.
- */
-function WorkerSlots({ b, gains }: { b: Building; gains: UpgradeGain[] | null }) {
-  const s = useGame((g) => g.s);
-  const act = useGame((g) => g.act);
-  const def = BUILDING_BY_ID[b.type];
-  if (!def.job) return null;
-  const job = JOB_BY_ID[def.job];
-  const slots = buildingSlots(b);
-  const workers = workerCount(s, b.id);
-  const bonded = bondedCount(s, b.id);
-  // Наёмные мастера стоят на местах Мастерской, как невольники на местах дворов: места общие.
-  const masters = mastersOn(s, b.id);
-  const free = idleCount(s);
-  const hands = workers + bonded + masters;
-  const nextSlots = gains?.find((g) => g.id === 'slots') ?? null;
-  const nextIdle = gains?.some((g) => g.id === 'idleSlots') ?? false;
-  const next = nextSlots
-    ? `Следующий уровень добавит ещё ${nextSlots.after - nextSlots.before}.`
-    : nextIdle
-      ? 'Места следующего уровня ничего не прибавят.'
-      : '';
-  const spare = slots > hands;
-  const status = !spare
-    ? nextSlots
-      ? 'Все места заняты. Улучши здание.'
-      : `Все места заняты.${next ? ` ${next}` : ''}`
-    : spareSlotsHelp(s, b, hands)
-      ? `Свободных мест: ${slots - hands}.${next ? ` ${next}` : ''}`
-      : `Свободных мест: ${slots - hands}. Новые люди здесь ничего не прибавят.`;
-  // Ряд невольников показывается там, где их ставят, и только когда есть кого
-  // ставить или кто-то уже стоит: пустой ряд у посёлка без невольников — шум.
-  const bondedRow = takesBonded(b) && (bondedTotal(s) > 0 || bonded > 0);
-
-  return (
-    <>
-      <h3>
-        <Icon name={`job-${job.id}`} glyph={job.icon} /> {job.name}
-        <span className="muted">
-          {[workers, ...(bonded > 0 ? [bonded] : []), ...(masters > 0 ? [masters] : [])].join(' + ')}/{slots || '—'}
-        </span>
-      </h3>
-      <div className="card">
-        <div className="ico">
-          <Icon name={`job-${job.id}`} glyph={job.icon} />
-        </div>
-        <div className="body">
-          <div className="title">
-            Рабочие
-            <span className="count">свободных рук: {free}</span>
-          </div>
-          <div className="desc">{status}</div>
-        </div>
-      </div>
-      <Steps
-        value={workers}
-        max={slots - bonded - masters}
-        spare={free}
-        step={10}
-        addTut="slot-add"
-        onChange={(d) =>
-          act((st) => (d > 0 ? assignWorker(st, b.id, d) : unassignWorker(st, b.id, -d)))
-        }
-      />
-      {bondedRow && (
-        <>
-          <div className="card">
-            <div className="ico">{ORDER_TEXT.bondedIcon}</div>
-            <div className="body">
-              <div className="title">
-                Невольники
-                <span className="count">без места: {bondedIdle(s)}</span>
-              </div>
-              <div className="desc">
-                Места общие с вольными. Невольник даёт {Math.round(BONDED_OUTPUT * 100)}% выработки вольного и ест наравне со
-                всеми.
-              </div>
-            </div>
-          </div>
-          <Steps
-            value={bonded}
-            max={slots - workers}
-            spare={bondedIdle(s)}
-            step={10}
-            onChange={(d) =>
-              act((st) => (d > 0 ? assignBonded(st, b.id, d) : unassignBonded(st, b.id, -d)))
-            }
-          />
-        </>
-      )}
-    </>
-  );
-}
-
 // ---------- Данные конкретного здания ----------
 
 function BuildingData({ b }: { b: Building }) {
-  const next = useUiNew();
   switch (b.type) {
     case 'campfire':
       return <CampfireData />;
@@ -332,13 +97,9 @@ function BuildingData({ b }: { b: Building }) {
       return (
         <>
           <GenericData b={b} />
-          {next ? (
-            <Suspense fallback={null}>
-              <SmithyNew b={b} />
-            </Suspense>
-          ) : (
-            <Smithy b={b} />
-          )}
+          <Suspense fallback={null}>
+            <SmithyNew b={b} />
+          </Suspense>
         </>
       );
     case 'barracks':
@@ -545,16 +306,12 @@ const WALLS: Building['type'][] = ['palisade', 'tower'];
 /** Обычное здание: что оно производит и что даёт городу. */
 function GenericData({ b }: { b: Building }) {
   const s = useGame((g) => g.s);
-  // Новый интерфейс: число рабочих стоит в строке рабочих, множитель уровня — в подсказке; здесь — только
-  // выработка и что здание даёт городу (docs/ui_audit.md, 6.3: число не повторяется трижды).
-  const next = useUiNew();
+  // Число рабочих стоит в строке рабочих, множитель уровня — в подсказке; здесь — только выработка и что здание
+  // даёт городу (docs/ui_audit.md, 6.3: число не повторяется трижды).
   const def = BUILDING_BY_ID[b.type];
   const prod = buildingProduction(s, b);
   const produced = RESOURCE_IDS.filter((r) => prod[r] > 0.01);
-  const workers = workerCount(s, b.id);
-  const bonded = bondedCount(s, b.id);
   const jobDef = def.job ? JOB_BY_ID[def.job] : null;
-  const lifts = jobDef !== null && levelLiftsHand(s, b);
 
   // Строка «что даёт городу»: имя значка, эмодзи на его месте, название, величина.
   // Имя стоит рядом с эмодзи, а не вместо: пока значка нет, показывается эмодзи.
@@ -640,43 +397,6 @@ function GenericData({ b }: { b: Building }) {
               {handsCount(s, b.id) === 0
                 ? 'Нет рабочих. Поставь людей на места.'
                 : 'Здание не пополняет склад.'}
-            </div>
-          )}
-          {workers > 0 && !next && (
-            <div className="mod">
-              <span className="ico">
-                <Icon name={`job-${jobDef.id}`} glyph={jobDef.icon} />
-              </span>
-              <span className="name">Рабочих: {workers}</span>
-              {lifts && <span className="val">×{workerMultiplier(s, jobDef.id, b).toFixed(2)} каждый</span>}
-            </div>
-          )}
-          {/* Наёмный мастер работает с тем же множителем, что ремесленник: своего у него нет. */}
-          {mastersOn(s, b.id) > 0 && !next && (
-            <div className="mod">
-              <span className="ico">🔨</span>
-              <span className="name">Наёмных мастеров: {mastersOn(s, b.id)}</span>
-              {lifts && <span className="val">×{workerMultiplier(s, jobDef.id, b).toFixed(2)} каждый</span>}
-            </div>
-          )}
-          {/* Та же выработка на ту же долю: множитель берётся тот же, а не свой. */}
-          {bonded > 0 && !next && (
-            <div className="mod">
-              <span className="ico">{ORDER_TEXT.bondedIcon}</span>
-              <span className="name">Невольников: {bonded}</span>
-              {lifts && (
-                <span className="val">×{(workerMultiplier(s, jobDef.id, b) * BONDED_OUTPUT).toFixed(2)} каждый</span>
-              )}
-            </div>
-          )}
-          {/* Множитель уровня стоит только там, где игра им умножает. Служителя храма
-              уровень не усиливает — он держит мораль и набожность головой, до потолка, —
-              и «×1.40 от базы» у него было бы враньём (замер — `levelLiftsHand`). */}
-          {!next && (
-            <div className="note">
-              {lifts
-                ? `На ур. ${b.level} каждый рабочий даёт ×${levelOutputMult(b.level).toFixed(2)}.`
-                : 'Уровень здания рабочих не усиливает.'}
             </div>
           )}
         </>

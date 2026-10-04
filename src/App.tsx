@@ -1,9 +1,6 @@
 import { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import { useGame, type SheetView } from './game/store';
 import { GameCanvas } from './ui/GameCanvas';
-import { TopBar } from './ui/TopBar';
-import { AlertBar } from './ui/AlertBar';
-import { BottomNav } from './ui/BottomNav';
 import { Sheet } from './ui/Sheet';
 import { PeoplePanel } from './ui/panels/PeoplePanel';
 import { BuildingPanel } from './ui/panels/BuildingPanel';
@@ -22,8 +19,6 @@ import { SiegeBanner } from './ui/SiegeBanner';
 import { WorldMap } from './ui/map/WorldMap';
 import { StartScreen } from './ui/StartScreen';
 import { SyncModal } from './ui/SyncModal';
-import { WorldPanel } from './ui/panels/WorldPanel';
-import { MarchesPanel } from './ui/panels/MarchesPanel';
 import { SortiePanel } from './ui/panels/SortiePanel';
 import { SiegePanel } from './ui/panels/SiegePanel';
 import { CampPanel } from './ui/panels/CampPanel';
@@ -33,7 +28,6 @@ import { villageMusic } from './sound/web';
 import { probe } from './debug';
 import { CheatPanel } from './ui/CheatPanel';
 import { useRealm } from './ui/realm/open';
-import { useUiNew } from './ui/uimode';
 import { useTrades } from './ui/trades';
 import { tutorialActive } from './game/data/tutorial';
 
@@ -59,9 +53,8 @@ const Prologue = lazy(() => import('./prologue/Prologue').then((m) => ({ default
 const RealmMenu = lazy(() => import('./ui/realm/RealmMenu').then((m) => ({ default: m.RealmMenu })));
 
 /**
- * Новый интерфейс — тоже свой кусок (`ui/next/index.ts`). С 03.10.2026 он по умолчанию (`ui/uimode.ts`), и кусок
- * едет, пока стоит стартовый экран; в первой загрузке остаётся прежний — запасной вид из настроек. Четыре части —
- * один кусок: `import` один и тот же.
+ * Интерфейс — свой кусок (`ui/next/index.ts`): едет, пока стоит стартовый экран. Прежний интерфейс, что ехал в первой
+ * загрузке запасным видом, удалён (docs/ui_audit.md, 16). Четыре части — один кусок: `import` один и тот же.
  */
 const nextUi = () => import('./ui/next');
 const Hud = lazy(() => nextUi().then((m) => ({ default: m.Hud })));
@@ -86,24 +79,18 @@ const Minigame = lazy(() => import('./minigames/Minigame').then((m) => ({ defaul
 const MINI_WAIT = { position: 'fixed', inset: 0, zIndex: 80, background: 'var(--bg)' } as const;
 
 function SheetContent({ view }: { view: SheetView }) {
-  // Вид выбирается здесь, а не внутри панели: переключение в настройках не меняет порядок хуков у открытой панели.
-  const next = useUiNew();
   if (view.kind === 'building') return <BuildingPanel id={view.id} />;
   if (view.kind === 'world')
-    return next ? (
+    return (
       <Suspense fallback={null}>
         <WorldNew x={view.x} y={view.y} />
       </Suspense>
-    ) : (
-      <WorldPanel x={view.x} y={view.y} />
     );
   if (view.kind === 'marches')
-    return next ? (
+    return (
       <Suspense fallback={null}>
         <MarchesNew />
       </Suspense>
-    ) : (
-      <MarchesPanel />
     );
   if (view.kind === 'sortie') return <SortiePanel />;
   if (view.kind === 'siege') return <SiegePanel />;
@@ -142,8 +129,6 @@ export function App() {
   const playing = useTrades((t) => t.playing);
   const stopPlaying = useTrades((t) => t.stop);
   const bootWorld = useWorld((g) => g.boot);
-  // Прежний или новый интерфейс (`ui/uimode.ts`): переключение в настройках перерисовывает сразу.
-  const next = useUiNew();
   // Пока идёт обучение, его строка стоит над низом: держава нового вида встаёт выше неё (`next.css`, `tut-on`),
   // иначе строка накрыла бы закреплённую полосу «Изучить», к которой обучение и ведёт.
   const tut = useGame((g) => tutorialActive(g.s));
@@ -222,7 +207,9 @@ export function App() {
   if (!ready) return null;
 
   return (
-    <div className={`app${next ? ' ui-new' : ''}${next && tut ? ' tut-on' : ''}`} ref={appRef}>
+    // Класс `ui-new` — область правил нового интерфейса (`next/next.css`, `realm-new.css`); прежний удалён
+    // (docs/ui_audit.md, 16), а класс остался: им держатся эти правила.
+    <div className={`app ui-new${tut ? ' tut-on' : ''}`} ref={appRef}>
       {/* Сцена остаётся в DOM и под картой: её рендер-луп встаёт, но геометрия
           жива, и переход в обе стороны мгновенный. Выгружать её на время карты
           пробовали и откатили — размен памяти на задержку оказался невыгодным,
@@ -232,8 +219,8 @@ export function App() {
           сценами нельзя (подробно — в `prologue/Prologue.tsx`). */}
       {!prologue && !playing && <GameCanvas />}
       {mapOpen && <WorldMap />}
-      {!mapOpen && (next ? <Suspense fallback={null}><Hud /></Suspense> : <TopBar />)}
-      {next ? <Suspense fallback={null}><Alerts /></Suspense> : <AlertBar />}
+      {!mapOpen && <Suspense fallback={null}><Hud /></Suspense>}
+      <Suspense fallback={null}><Alerts /></Suspense>
       {/* Осада — в правом низу деревни: её не разбирают, из-под неё выходят.
           Письма и события ждут в почте державы («Решения» за гербом). */}
       {/* Кнопка кодов — раньше осады нарочно: по этому порядку стиль и отодвигает
@@ -244,16 +231,14 @@ export function App() {
       <Sheet open={sheet !== null} onClose={closeSheet}>
         {shown && <SheetContent view={shown} />}
       </Sheet>
-      {next && (
-        <Sheet open={tradesOpen && !mapOpen} onClose={hideTrades}>
-          {tradesOpen && (
-            <Suspense fallback={null}>
-              <Trades />
-            </Suspense>
-          )}
-        </Sheet>
-      )}
-      {!mapOpen && (next ? <Suspense fallback={null}><Nav /></Suspense> : <BottomNav />)}
+      <Sheet open={tradesOpen && !mapOpen} onClose={hideTrades}>
+        {tradesOpen && (
+          <Suspense fallback={null}>
+            <Trades />
+          </Suspense>
+        )}
+      </Sheet>
+      {!mapOpen && <Suspense fallback={null}><Nav /></Suspense>}
       {!mapOpen && realmOpen && (
         <Suspense fallback={null}>
           <RealmMenu />
@@ -265,11 +250,9 @@ export function App() {
       <PaceModal />
       <TutorialOverlay />
       {toast && <div className="toast">{toast}</div>}
-      {next && (
-        <Suspense fallback={null}>
-          <TipLayer />
-        </Suspense>
-      )}
+      <Suspense fallback={null}>
+        <TipLayer />
+      </Suspense>
       {/* Последним нарочно: до ответа игрока партия не сохраняется никуда, и
           этот вопрос обязан стоять поверх остальных окон. Своего слоя у него
           нет — он просто идёт после них. */}
@@ -288,15 +271,11 @@ export function App() {
         <StartScreen
           onEnter={() => setStarted(true)}
           onPrologue={() => setPrologue(true)}
-          naming={
-            next
-              ? (done) => (
-                  <Suspense fallback={null}>
-                    <CityNaming onDone={done} />
-                  </Suspense>
-                )
-              : null
-          }
+          naming={(done) => (
+            <Suspense fallback={null}>
+              <CityNaming onDone={done} />
+            </Suspense>
+          )}
         />
       )}
       {/*

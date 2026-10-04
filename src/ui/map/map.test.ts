@@ -888,7 +888,7 @@ describe('агенты на карте различаются силуэтом',
     // Список агентов на карте один — «Походы»: угол агентов убран как вторая
     // кнопка под то же дело.
     const map = read('WorldMap.tsx');
-    expect(readFileSync(join(process.cwd(), 'src/ui/panels/MarchesPanel.tsx'), 'utf8')).toMatch(/\{f\.name\}/);
+    expect(readFileSync(join(process.cwd(), 'src/ui/next/MarchesNew.tsx'), 'utf8')).toMatch(/\{f\.name\}/);
     expect(map).toMatch(/FIGURE_BY_ID\[picked\]\.name/);
     expect(read('ActionMenu.tsx')).toMatch(/def\.name/);
   });

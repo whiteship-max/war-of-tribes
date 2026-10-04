@@ -30,9 +30,10 @@ describe('карточка клетки нового вида: за краем �
     }
   });
 
-  it('состав дружины правит один редактор — через карточку замка прежнего вида', () => {
-    expect(src).not.toMatch(/<GarrisonEditor\b/);
-    expect(src).toMatch(/card\.mine && standing\.includes\('general'\) && <OwnGarrison \/>/);
+  it('состав дружины правит один редактор — в карточке своего замка, когда полководец дома', () => {
+    // Прежняя карточка, через которую он шёл (`panels/WorldPanel.OwnGarrison`), удалена (docs/ui_audit.md, 16).
+    expect(src).toMatch(/card\.mine && standing\.includes\('general'\) && <GarrisonEditor \/>/);
+    expect(src.match(/<GarrisonEditor\b/g)?.length, 'показан один раз').toBe(1);
   });
 
   it('метка обучения разведки — на кнопке миссии, потом на «Отправить»', () => {
