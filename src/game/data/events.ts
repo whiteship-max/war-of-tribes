@@ -184,6 +184,37 @@ const addRes = (s: GameState, r: keyof GameState['resources'], n: number): numbe
   return Math.round(s.resources[r] - before);
 };
 
+/**
+ * Сколько мораль события прибавляет или отнимает — одно число на подпись ответа и на `apply` (правило 18; решение
+ * владельца, docs/ui_audit.md, 14.4, вопрос 4). Числа те же, что прежде стояли в `apply` руками, — сменилось только то,
+ * откуда подпись их берёт. Шкала морали — 0…100, от размера города она не зависит, поэтому `amount()` ей не нужен.
+ */
+export const EVENT_MORALE = {
+  /** Беженцы: взять сколько поместится, а крыш нет. */
+  refugeesNoRoom: -3,
+  /** Беженцев прогнали. */
+  refugeesTurnedAway: -4,
+  /** Мор: служители обошли дворы. */
+  sicknessPriests: 4,
+  /** Мор: ничего не делали, и он унёс людей. */
+  sicknessNeglect: -5,
+  /** Раскол: проповедника разогнали силой. */
+  preacherForce: -6,
+  /** Раскол: пусть говорят. */
+  preacherTalk: 4,
+} as const;
+
+/** Сдвинуть мораль на число события: вниз — не ниже нуля, вверх — не выше ста. */
+const moveMorale = (s: GameState, d: number): void => {
+  s.morale = d < 0 ? Math.max(0, s.morale + d) : Math.min(100, s.morale + d);
+};
+
+/** «мораль −4», «мораль +4»: знак — из самого числа. */
+const moraleWord = (d: number): string => `мораль ${d > 0 ? '+' : '−'}${Math.abs(d)}`;
+
+/** То же с прописной — в начале подписи. */
+const MoraleWord = (d: number): string => `М${moraleWord(d).slice(1)}`;
+
 /** Склонение «N человек / человека». */
 const people = (n: number): string => {
   const t = n % 100;
@@ -222,7 +253,7 @@ export const EVENTS: EventDef[] = [
       },
       {
         label: 'Взять, сколько поместится',
-        hint: (s) => (fitting(s) > 0 ? `+${people(fitting(s))}` : 'Свободных крыш нет, мораль упадёт'),
+        hint: (s) => (fitting(s) > 0 ? `+${people(fitting(s))}` : `Свободных крыш нет, ${moraleWord(EVENT_MORALE.refugeesNoRoom)}`),
         // Кормят ровно тех, кого взяли, поэтому и цена — доля от полной.
         // Считается она тем же `fitting`, каким считается число принятых: иначе
         // показанное «нужно» разошлось бы со списанным при первой же правке.
@@ -230,7 +261,7 @@ export const EVENTS: EventDef[] = [
         apply: (s) => {
           const n = fitting(s);
           if (n <= 0) {
-            s.morale = Math.max(0, s.morale - 3);
+            moveMorale(s, EVENT_MORALE.refugeesNoRoom);
             return 'Свободных крыш нет. Беженцы ушли дальше, в городе недовольны.';
           }
           const want = crowd(s, 0.06, 8);
@@ -241,9 +272,9 @@ export const EVENTS: EventDef[] = [
       },
       {
         label: 'Прогнать',
-        hint: 'Мораль упадёт',
+        hint: MoraleWord(EVENT_MORALE.refugeesTurnedAway),
         apply: (s) => {
-          s.morale = Math.max(0, s.morale - 4);
+          moveMorale(s, EVENT_MORALE.refugeesTurnedAway);
           return 'Беженцев прогнали. В городе недовольны.';
         },
       },
@@ -392,11 +423,11 @@ export const EVENTS: EventDef[] = [
         label: 'Позвать служителей',
         hint: (s) =>
           jobCounts(s).priest > 0
-            ? 'Хворь отступит, мораль вырастет'
+            ? `Хворь отступит, ${moraleWord(EVENT_MORALE.sicknessPriests)}`
             : `Служителей нет. Может унести ${people(crowd(s, 0.04, 3))}`,
         apply: (s) => {
           if (jobCounts(s).priest > 0) {
-            s.morale = Math.min(100, s.morale + 4);
+            moveMorale(s, EVENT_MORALE.sicknessPriests);
             return `${faithDef(s)?.priests ?? 'Служители'} обошли дворы, хворь отступила.`;
           }
           if (chance(s, 0.5)) {
@@ -416,11 +447,11 @@ export const EVENTS: EventDef[] = [
       },
       {
         label: 'Ничего не делать',
-        hint: (s) => `Может унести ${people(crowd(s, 0.05, 4))}`,
+        hint: (s) => `Может унести ${people(crowd(s, 0.05, 4))}, тогда ${moraleWord(EVENT_MORALE.sicknessNeglect)}`,
         apply: (s) => {
           if (chance(s, 0.5)) {
             const n = killPop(s, crowd(s, 0.05, 4), 'мор');
-            s.morale = Math.max(0, s.morale - 5);
+            moveMorale(s, EVENT_MORALE.sicknessNeglect);
             return `Мор прошёл по городу и унёс ${people(n)}.`;
           }
           return 'На этот раз обошлось, хворь ушла сама.';
@@ -573,9 +604,9 @@ export const EVENTS: EventDef[] = [
       },
       {
         label: 'Разогнать силой',
-        hint: 'Надлом убавится, мораль упадёт',
+        hint: `Надлом убавится, ${moraleWord(EVENT_MORALE.preacherForce)}`,
         apply: (s) => {
-          s.morale = Math.max(0, s.morale - 6);
+          moveMorale(s, EVENT_MORALE.preacherForce);
           s.faith.strain = Math.max(0, strainNow(s) - FAITH_REFUSAL_STRAIN);
           s.faith.strainAt = s.time;
           return 'Проповедника вывели за ворота. Спорить перестали, но смотрят исподлобья.';
@@ -583,10 +614,10 @@ export const EVENTS: EventDef[] = [
       },
       {
         label: 'Пусть говорят',
-        hint: 'Мораль вырастет, надлом тоже',
+        hint: `${MoraleWord(EVENT_MORALE.preacherTalk)}, надлом вырастет`,
         apply: (s) => {
           addStrain(s, FAITH_REFUSAL_STRAIN);
-          s.morale = Math.min(100, s.morale + 4);
+          moveMorale(s, EVENT_MORALE.preacherTalk);
           return 'Пришлого не тронули. Люди довольны, а храм пустеет.';
         },
       },
