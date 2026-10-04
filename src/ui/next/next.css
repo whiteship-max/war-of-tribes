@@ -1017,3 +1017,574 @@
   height: 18px;
   margin-right: 8px;
 }
+
+/* ---------- Имя города: шаг стартового экрана (`CityNaming`) ---------- */
+.nx-cname {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.nx-cname-ask {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+}
+.nx-cname-row {
+  display: flex;
+  gap: 8px;
+}
+/* Кегль поля — 18: мельче 16 iOS приближает страницу при вводе. */
+.nx-cname-in {
+  flex: 1;
+  min-width: 0;
+  height: 52px;
+  padding: 0 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line-2);
+  background: rgba(26, 20, 16, 0.86);
+  color: var(--text);
+  font: inherit;
+  font-size: 18px;
+  font-weight: 600;
+  text-align: center;
+}
+.nx-cname-in:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.nx-cname-dice {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  padding: 0;
+  border-radius: 10px;
+  border: 1px solid var(--line-2);
+  background: rgba(26, 20, 16, 0.86);
+  color: var(--text);
+  font-size: 24px;
+  cursor: pointer;
+}
+.nx-cname-dice svg {
+  width: 28px;
+  height: 28px;
+}
+.nx-cname-dice:active {
+  background: rgba(62, 48, 34, 0.94);
+}
+.nx-cname .start-go:disabled {
+  opacity: 0.45;
+}
+
+/* ---------- Общие строки нового вида: заметка, значок строки, тело строки ---------- */
+.nx-tnote {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--muted);
+}
+.nx-lico {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  font-size: 20px;
+}
+.nx-lico svg {
+  width: 24px;
+  height: 24px;
+}
+.nx-lbody {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.nx-lbody b {
+  font-size: 13px;
+  font-weight: 600;
+}
+.nx-lbody small {
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--muted);
+}
+.nx-lbody small.bad {
+  color: var(--bad);
+}
+.nx-chev {
+  flex: none;
+  color: var(--muted);
+}
+
+/* ---------- Карточка клетки карты (`WorldNew`) и «Походы» (`MarchesNew`) ---------- */
+:where(.nx-fact, .nx-sight, .nx-cact, .nx-leadb, .nx-crow, .nx-act, .nx-mrow, .nx-mico, .nx-mtap, .nx-ico44) {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+}
+.nx-csub {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nx-facts {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  margin: 4px 0 8px;
+}
+.nx-facts.two {
+  grid-template-columns: repeat(2, 1fr);
+}
+.nx-fact {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  min-height: 44px;
+  min-width: 0;
+  padding: 4px 8px;
+  border-radius: 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  text-align: left;
+}
+.nx-fact small,
+.nx-fact b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nx-fact small {
+  font-size: 11px;
+  color: var(--muted);
+}
+.nx-fact b {
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.nx-fact b.bad {
+  color: var(--bad);
+}
+.nx-fact:active,
+.nx-crow:active,
+.nx-leadb:active:not(:disabled) {
+  background: rgba(255, 220, 170, 0.08);
+}
+/* Строка обзора — справка 32 (3.6): промах стоит одной подсказки. */
+.nx-sight {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 32px;
+  padding: 0 4px;
+  font-size: 11px;
+  color: var(--muted);
+  text-align: left;
+}
+.nx-sight svg,
+.nx-sight > span:first-child {
+  width: 16px;
+  height: 16px;
+  font-size: 14px;
+}
+.nx-sight.good > span:nth-child(2) {
+  color: var(--good);
+}
+.nx-sight b {
+  margin-left: auto;
+  font-weight: 600;
+}
+.nx-wcard .bad {
+  color: var(--bad);
+}
+.nx-wcard .good {
+  color: var(--good);
+}
+.nx-cacts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 4px 0;
+}
+.nx-cact {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 44px;
+  padding: 0 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line-2);
+  background: var(--panel-2);
+  font-size: 13px;
+  font-weight: 600;
+}
+.nx-cact svg,
+.nx-cact > span:first-child {
+  width: 20px;
+  height: 20px;
+  font-size: 17px;
+}
+.nx-cact.on {
+  border-color: var(--accent);
+  background: rgba(232, 164, 60, 0.12);
+}
+.nx-cact:disabled {
+  opacity: 0.45;
+}
+.nx-cgo,
+.nx-cacts .fate-pick {
+  flex: 1 1 100%;
+}
+.nx-send {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 4px 0 8px;
+  padding: 8px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: rgba(36, 27, 19, 0.6);
+}
+.nx-sstep {
+  margin-left: auto;
+}
+.nx-lead {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+.nx-leadb {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-height: 64px;
+  min-width: 0;
+  padding: 4px 2px;
+  border-radius: 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+}
+.nx-leadb svg,
+.nx-leadb > span:first-child {
+  width: 24px;
+  height: 24px;
+  font-size: 20px;
+}
+.nx-leadb small,
+.nx-leadb em {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+}
+.nx-leadb small {
+  font-weight: 600;
+}
+.nx-leadb em {
+  font-style: normal;
+  color: var(--accent);
+}
+.nx-leadb:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.nx-leadb.on {
+  opacity: 1;
+  border-color: rgba(122, 184, 90, 0.6);
+}
+.nx-leadb.on em {
+  color: var(--good);
+}
+.nx-crow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 44px;
+  margin-bottom: 6px;
+  padding: 6px 12px;
+  border-radius: 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  text-align: left;
+}
+.nx-crow-t {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 13px;
+}
+.nx-crow-t small {
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--muted);
+}
+.nx-crow > b {
+  flex: none;
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.nx-act {
+  flex: none;
+  height: 44px;
+  padding: 0 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line-2);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+}
+.nx-act:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.nx-mrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 56px;
+  margin-bottom: 6px;
+  padding: 4px 8px 4px 4px;
+  border-radius: 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  text-align: left;
+}
+.nx-mrow.danger {
+  border-color: rgba(224, 107, 90, 0.6);
+}
+.nx-mrow.down,
+.nx-mrow.vacant {
+  opacity: 0.7;
+}
+.nx-mico {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  font-size: 22px;
+}
+.nx-mico svg {
+  width: 28px;
+  height: 28px;
+}
+.nx-mtap {
+  min-height: 44px;
+  justify-content: center;
+  text-align: left;
+}
+.nx-mright {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.nx-due {
+  font-style: normal;
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.nx-due.bad,
+.nx-marches .bad {
+  color: var(--bad);
+}
+.nx-ico44 {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  border: 1px solid var(--line-2);
+  font-size: 18px;
+}
+.nx-ico44 svg {
+  width: 20px;
+  height: 20px;
+}
+
+/* ---------- Донесение о бое нового вида (`ReportPanel`, `ReportBodyNew`) ---------- */
+.nx-rep {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+/* Полоса исхода: победа — зелёной кромкой, поражение и пиррова — красной, ничья — охрой. */
+.nx-verdict {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: linear-gradient(90deg, rgba(217, 164, 65, 0.16), rgba(217, 164, 65, 0));
+  border-left: 4px solid var(--warn);
+}
+.nx-verdict.good {
+  background: linear-gradient(90deg, rgba(122, 184, 90, 0.18), rgba(122, 184, 90, 0));
+  border-left-color: var(--good);
+}
+.nx-verdict.bad {
+  background: linear-gradient(90deg, rgba(224, 107, 90, 0.18), rgba(224, 107, 90, 0));
+  border-left-color: var(--bad);
+}
+.nx-verdict b {
+  font-size: 18px;
+  font-weight: 700;
+}
+.nx-verdict small {
+  font-size: 11px;
+  color: var(--muted);
+}
+.nx-rtext {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+}
+.nx-rtext.bad {
+  color: var(--bad);
+}
+/* Силы сторон: столбец своих — золотом, врага — красным (цвет стороны — одна дверь, `side.ts`, `SIDE_VARS`). */
+.nx-forces {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.nx-fside {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-top: 3px solid var(--side-ours);
+  font-variant-numeric: tabular-nums;
+}
+.nx-fside.foe {
+  border-top-color: var(--side-foe);
+}
+.nx-fside small {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--side-ours);
+}
+.nx-fside.foe small {
+  color: var(--side-foe);
+}
+.nx-fside b {
+  font-size: 18px;
+  font-weight: 700;
+}
+.nx-fside em {
+  font-style: normal;
+  font-size: 11px;
+  color: var(--muted);
+}
+.nx-rh {
+  margin: 8px 0 0;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.nx-rkey {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+.nx-rkey svg,
+.nx-rkey > span:first-child {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  font-size: 15px;
+  margin-top: 1px;
+}
+.nx-rkey.good > span:last-child {
+  color: var(--text);
+}
+.nx-rkey.bad > span:last-child {
+  color: var(--bad);
+}
+.nx-rfacts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+.nx-rfacts > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 44px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  min-width: 0;
+}
+.nx-rfacts > div.wide {
+  grid-column: 1 / -1;
+}
+.nx-rfacts small {
+  font-size: 11px;
+  color: var(--muted);
+}
+.nx-rfacts small svg {
+  width: 12px;
+  height: 12px;
+}
+.nx-rfacts b {
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.nx-rfacts .good {
+  color: var(--good);
+}
+.nx-rfacts .bad {
+  color: var(--bad);
+}
+/* «Мгновенный итог» и «Смотреть бой» — переключатель из двух. */
+.nx-rbtns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  margin: 12px 0 0;
+  padding: 4px;
+  border-radius: 14px;
+  background: rgba(36, 27, 19, 0.8);
+  border: 1px solid var(--line);
+}
+.nx-rbtns .btn {
+  height: 44px;
+  margin: 0;
+  border-radius: 10px;
+  font-size: 13px;
+}

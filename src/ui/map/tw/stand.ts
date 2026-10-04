@@ -438,8 +438,8 @@ function drawNames(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport, old
   }
   // Имена поселений — с того же масштаба, что у игры (`LABEL_FROM`): издали они сливаются в кашу.
   if (cam.scale >= LABEL_FROM) {
-    placeLabel(ctx, SCENE.home.name, cx, cy + cam.scale * 1.05, true);
-    placeLabel(ctx, SCENE.lair.name, lx, ly + cam.scale * 0.72, false);
+    placeLabel(ctx, SCENE.home.name, cx, cy + cam.scale * 1.05, true, SIDE_COLOR.ours);
+    placeLabel(ctx, SCENE.lair.name, lx, ly + cam.scale * 0.72, false, RELATION_META.barbarian.color);
   }
   const [sx, sy] = toScreen(cam, vp, SCENE.sea.x + 0.5, SCENE.sea.y + (cam.scale < LABEL_FROM ? 4.5 : 0.5));
   regionLabel(ctx, SCENE.sea.name, sx, sy, Math.max(13, Math.min(22, cam.scale * 0.42)), true);

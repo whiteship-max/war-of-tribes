@@ -268,7 +268,7 @@ describe('места: мастер стоит на месте Мастерско
       st.realm.tech.admin = 2;
     });
     expect(mastersCap(low), 'точка внутри области: ветвь пускает меньше, чем мест').toBeLessThan(buildingSlots(hall(low)));
-    expect(hireMasters(low, mastersCap(low) + 1), 'сверх открытого ветвью — её отказ').toMatch(/уровень административной ветви/);
+    expect(hireMasters(low, mastersCap(low) + 1), 'сверх открытого ветвью — её отказ').toMatch(/уровень управления/);
     expect(hireMasters(low, mastersCap(low))).toBeNull();
     expect(releaseMasters(low, mastersCap(low))).toBeNull();
     expect(mastersCount(low)).toBe(0);

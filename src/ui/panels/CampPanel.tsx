@@ -20,7 +20,6 @@ import { CASTLE_ICON, STAGE_BY_ID } from '@/world/data/meta';
 import { SIDES, SIDE_NAME, WOOD_SHARES, campSides, playerWood, woodShare, worksRipeAt } from '@/world/works';
 import type { Fate } from '@/world/types';
 import { FatePick } from '@/ui/parts/FatePick';
-import { plural } from '@/ui/parts/plural';
 
 /**
  * Сроки из подсказки к долям — той же функцией, которой считаются стороны: при
@@ -31,7 +30,7 @@ const WOOD_HALVES = realMinutes(worksRipeAt(0, 'front', playerWood(0.5)));
 
 /** Как доля фронту называется на кнопке. */
 const SHARE_NAME: Record<number, string> = {
-  1: 'Всё во фронт',
+  1: 'Всё к городу',
   0.75: 'Три четверти',
   0.5: 'Поровну',
   0.25: 'Четверть',
@@ -68,10 +67,9 @@ export function CampPanel() {
           <div className="ico">⛺</div>
           <div className="body">
             <div className="name">Лагеря нет</div>
-            <div className="lvl">полководец осады не держит</div>
           </div>
         </div>
-        <p className="note">Осаду ставит полководец у чужих стен: приказ «Осадить» в его меню.</p>
+        <p className="note">Осаду ставит полководец у чужих стен.</p>
       </div>
     );
   }
@@ -82,8 +80,8 @@ export function CampPanel() {
   const chosen = pick ?? camp.fate;
   const option = camp.fates.find((o) => o.id === chosen) ?? null;
   const stage = STAGE_BY_ID[camp.stage];
-  const kind = camp.castle ? 'Замок' : camp.lair ? 'Логово' : stage.name;
-  const walls = camp.castle ? 'гарнизон стоит стеной' : 'частокола нет: заслон держат люди';
+  const kind = camp.castle ? 'Город соседа' : camp.lair ? 'Логово' : stage.name;
+  const walls = camp.castle ? 'держит гарнизон' : 'без частокола';
 
   const order = async (fn: () => Promise<string | null>, done: string, close = false): Promise<void> => {
     setBusy(true);
@@ -108,21 +106,21 @@ export function CampPanel() {
         </div>
       </div>
 
-      <h3>Город</h3>
+      <h3>Цель</h3>
       <div className="mod-list">
         <div className="mod">
           <span className="ico">🛡️</span>
-          <span className="name">Мощь заслона</span>
+          <span className="name">Мощь гарнизона</span>
           <span className={`val${camp.power.precision === 'unknown' ? ' neg' : ''}`}>{formatEstimate(camp.power)}</span>
         </div>
         <div className="mod total">
           <span className="ico">⏳</span>
-          <span className="name">Еды в городе хватит на</span>
+          <span className="name">Еды хватит на</span>
           <span className="val pos">{hungerLeft(camp.starvesAt, now)}</span>
         </div>
         <div className="mod">
           <span className="ico">🍞</span>
-          <span className="name">Гарнизон {camp.garrison} — он и ест</span>
+          <span className="name">Гарнизон {camp.garrison} тоже ест</span>
           <span className="val">лагерь стоит {realLeft(Math.max(0, (now - camp.since) / 1000))}</span>
         </div>
       </div>
@@ -141,9 +139,8 @@ export function CampPanel() {
         })}
       </div>
       <p className="note">
-        Древесину лагерь рубит сам и кладёт, куда скажешь. Всё во фронт — фронт дозреет за {WOOD_ALL_FRONT}, а тыл
-        до того открыт; поровну — обе стороны за {WOOD_HALVES}. Вложенное не пропадает: доля меняет только то, как
-        стороны растут дальше.
+        Всё к городу — сторона города дозреет за {WOOD_ALL_FRONT}. Поровну — обе за {WOOD_HALVES}. Вложенное не
+        пропадает.
       </p>
       <div className="fate-shares">
         {WOOD_SHARES.map((sh) => (
@@ -164,33 +161,30 @@ export function CampPanel() {
         </p>
       )}
 
-      <h3>Участь города</h3>
+      <h3>Участь</h3>
       <FatePick options={camp.fates} value={chosen} onChange={setPick} />
-
-      <h3>Осадные орудия</h3>
-      <p className="note">Осадных орудий у лагеря нет: строить их негде.</p>
 
       <h3>Что делать</h3>
       <button
         className="btn wide"
         disabled={busy || sameFate || cantFate !== null}
-        onClick={() => void order(() => besiege(chosen), `Осада идёт: объявлено «${FATE_META[chosen].name.toLowerCase()}».`)}
+        onClick={() => void order(() => besiege(chosen), `Объявлено: ${FATE_META[chosen].name.toLowerCase()}.`)}
       >
-        ⛺ Осаждать · {FATE_META[chosen].name.toLowerCase()}
+        Объявить
       </button>
-      {sameFate && <p className="note">Осада и так идёт с этой участью. Выбери другую строку — и объяви её.</p>}
+      {sameFate && <p className="note">Эта участь уже объявлена</p>}
       <button
         className="btn wide"
         disabled={busy || camp.men === 0 || cantFate !== null}
         onClick={() =>
-          void order(() => attack({ fate: chosen }), 'Дружина пошла на приступ. Отчёт в походах.', true)
+          void order(() => attack({ fate: chosen }), 'Отряд штурмует. Донесение в походах.', true)
         }
       >
-        ⚔️ Штурмовать · {camp.men} {plural(camp.men, 'боец', 'бойца', 'бойцов')}
+        Штурмовать · {camp.men}
       </button>
       <p className="note">{cantFate ?? STORM_LIFTS}</p>
       <button className="btn ghost wide" disabled={busy} onClick={() => void order(retreat, 'Осада снята.', true)}>
-        ↩️ Отступить
+        Отступить
       </button>
       <p className="note">{CAMP_LEAVE}</p>
     </div>

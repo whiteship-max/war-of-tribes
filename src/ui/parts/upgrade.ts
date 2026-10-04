@@ -82,7 +82,7 @@ export interface UpgradeGain {
 }
 
 /** Уровень, который не меняет ни одной величины, говорит это прямо — до оплаты. */
-export const NOTHING_GAINED = 'Этот уровень ничего не прибавит.';
+export const NOTHING_GAINED = 'Уровень ничего не даст';
 
 /** Что сказать о разнице. null — на подписи её не видно. */
 type Said = { text: string; numbers: number[] } | null;
@@ -99,12 +99,18 @@ export const shown = (x: number): number => (Math.abs(x) >= 10 ? Math.round(x) :
 
 const sign = (x: number): string => (x < 0 ? '−' : '+');
 
-/** «+24 к защите»: разница в единицах самой величины. */
+/** Число на кнопке: дробь — запятой («2,5»), как во всём тексте игры (docs/ui_audit.md, 4.5). */
+const frac = (x: number): string => String(x).replace('.', ',');
+
+/** Числа, стоящие в словах срока, по порядку: «1 ч 30 мин» → [1, 30]. */
+const numbersOf = (text: string): number[] => (text.match(/\d+(?:[.,]\d+)?/g) ?? []).map((x) => Number(x.replace(',', '.')));
+
+/** «+24 к обороне»: разница в единицах самой величины. */
 const more =
   (label: string) =>
   (before: number, after: number): Said => {
     const d = shown(after - before);
-    return d === 0 ? null : { text: `${sign(d)}${Math.abs(d)} ${label}`, numbers: [Math.abs(d)] };
+    return d === 0 ? null : { text: `${sign(d)}${frac(Math.abs(d))} ${label}`, numbers: [Math.abs(d)] };
   };
 
 /**
@@ -137,35 +143,37 @@ const GAUGES: Gauge[] = [
   { id: 'build', read: townHallBuildMult, say: grow('к скорости стройки') },
   { id: 'housing', read: housingCapacity, say: more('к жилью') },
   { id: 'storage', read: storageCap, say: more('к вместимости склада') },
-  { id: 'recruit', read: (s) => recruitRate(s, FOOT), say: grow('к скорости учений') },
+  { id: 'recruit', read: (s) => recruitRate(s, FOOT), say: grow('к скорости найма') },
   {
-    // Конница отдельно от пехоты: у неё свой множитель поверх казарм. Меряется
-    // отношением, поэтому уровень казарм, ускоряющий всех одинаково, его не двигает.
+    // Конницу учит конюшня своей очередью и своим уровнем (`derived.recruitRate`): меряется её скорость как есть.
+    // Прежде здесь стояло отношение к скорости казарм — с тех пор, как конница училась в казармах, — и улучшение
+    // казарм обещало «−55% к скорости найма конницы», которую оно не трогает.
     id: 'cavalry',
-    read: (s) => recruitRate(s, MOUNTED) / Math.max(1e-9, recruitRate(s, FOOT)),
-    say: grow('к скорости учений конницы'),
+    read: (s) => recruitRate(s, MOUNTED),
+    say: grow('к скорости найма конницы'),
   },
-  { id: 'stalls', read: stalls, say: more('стойл для конницы') },
-  { id: 'defense', read: defense, say: more('к защите') },
-  { id: 'archers', read: militiaArchers, say: more('стрелков ополчения на стене') },
-  { id: 'seats', read: towerSeats, say: more('мест лучников на башне') },
+  { id: 'stalls', read: stalls, say: more('к стойлам') },
+  { id: 'defense', read: defense, say: more('к обороне') },
+  { id: 'archers', read: militiaArchers, say: more('к стрелкам ополчения') },
+  { id: 'seats', read: towerSeats, say: more('к местам лучников') },
   {
-    // Терпение — игровые дни, по доле дня за уровень (`perLevel.loyalty` Статуи): число мелкое, и главное в нём —
-    // сколько станет, как у тайника.
+    // Терпение — игровые дни, по доле дня за уровень (`perLevel.loyalty` Статуи). Игрок ждёт его своими часами:
+    // прибавка — настоящим временем из модуля сроков; сколько терпит дружина сейчас, стоит в разделе Статуи.
     id: 'loyalty',
     read: payGraceDays,
     say: (b, a) => {
       const d = a - b;
-      return d <= 0 ? null : { text: `+${d} игр. дн. терпения войска к неуплате и голоду (станет ${a})`, numbers: [d, a] };
+      if (d <= 0) return null;
+      const span = waitDays(d);
+      return { text: `+${span} к терпению дружины`, numbers: numbersOf(span) };
     },
   },
   {
-    // Воинская традиция — кружки полководца от Статуи (`derived.tradition`, П4): растёт через уровень, и главное в ней —
-    // сколько станет. Отметки из кружков раскладывает склонность человека — это карточка полководца, а не кнопка.
+    // Воинская традиция — кружки полководца от Статуи (`derived.tradition`, П4): растёт через уровень. Отметки из
+    // кружков раскладывает склонность человека — это карточка полководца, а не кнопка.
     id: 'tradition',
     read: tradition,
-    say: (b, a) =>
-      a <= b ? null : { text: `+${a - b} ${plural(a - b, 'кружок', 'кружка', 'кружков')} полководцу — воинская традиция (станет ${a})`, numbers: [a - b, a] },
+    say: (b, a) => (a <= b ? null : { text: `+${a - b} к навыкам полководца`, numbers: [a - b] }),
   },
   {
     // Доля, у которой главное — сколько станет: 35 % вместо 32 %.
@@ -174,14 +182,14 @@ const GAUGES: Gauge[] = [
     say: (b, a) => {
       const pa = Math.round(a * 100);
       const pb = Math.round(b * 100);
-      return pa === pb ? null : { text: `${pa}% павших ляжет ранеными вместо ${pb}%`, numbers: [pa, pb] };
+      return pa === pb ? null : { text: `${pa}% раненых вместо ${pb}%`, numbers: [pa, pb] };
     },
   },
   {
     // Места лазарета: сколько раненых он держит разом, главное — сколько станет.
     id: 'beds',
     read: infirmaryBeds,
-    say: (b, a) => (a <= b ? null : { text: `+${a - b} ${plural(a - b, 'место', 'места', 'мест')} в лазарете (станет ${a})`, numbers: [a - b, a] }),
+    say: (b, a) => (a <= b ? null : { text: `+${a - b} ${plural(a - b, 'место', 'места', 'мест')} в лазарете · станет ${a}`, numbers: [a - b, a] }),
   },
   {
     // Прибавка Дозора — игровые секунды, а игрок ждёт набега своими часами: срок называет модуль сроков.
@@ -191,20 +199,20 @@ const GAUGES: Gauge[] = [
       const d = shown(a - b);
       if (d === 0) return null;
       const span = waitSpan(asGame(Math.abs(d)));
-      return { text: `набег виден ${d > 0 ? 'дольше' : 'меньше'} на ${span}`, numbers: (span.match(/\d+(?:\.\d+)?/g) ?? []).map(Number) };
+      return { text: `набег виден ${d > 0 ? 'дольше' : 'меньше'} на ${span}`, numbers: numbersOf(span) };
     },
   },
   {
     // Уровень Дозора — потолок ступени изучения, а не её источник.
     id: 'survey',
     read: (s) => Math.min(SURVEY_MAX, surveyInfo(s).level),
-    say: (b, a) => (a <= b ? null : { text: `изучение округи до ${a} ступени`, numbers: [a] }),
+    say: (b, a) => (a <= b ? null : { text: `разведка округи до ур. ${a}`, numbers: [a] }),
   },
-  { id: 'intel', read: intelKeen, say: grow('к стойкости разведданных') },
+  { id: 'intel', read: intelKeen, say: grow('к свежести сведений') },
   {
     id: 'stash',
     read: hiddenStash,
-    say: (b, a) => (a <= b ? null : { text: `+${a - b} к спрятанному от набега (станет ${a})`, numbers: [a - b, a] }),
+    say: (b, a) => (a <= b ? null : { text: `+${a - b} к тайнику · станет ${a}`, numbers: [a - b, a] }),
   },
   { id: 'feast', read: (s) => feastInfo(s).bonus, say: more('к морали от пира') },
   {
@@ -215,7 +223,7 @@ const GAUGES: Gauge[] = [
       if (d === 0) return null;
       // Перерыва игрок ждёт — настоящим временем, словами модуля сроков.
       const span = waitDays(Math.abs(d));
-      return { text: `перерыв между пирами ${d > 0 ? 'короче' : 'длиннее'} на ${span}`, numbers: (span.match(/\d+(?:\.\d+)?/g) ?? []).map(Number) };
+      return { text: `между пирами на ${span} ${d > 0 ? 'меньше' : 'больше'}`, numbers: numbersOf(span) };
     },
   },
   {
@@ -226,7 +234,7 @@ const GAUGES: Gauge[] = [
       return d <= 0 ? null : { text: `+${d} ${plural(d, 'товар', 'товара', 'товаров')} на прилавке`, numbers: [d] };
     },
   },
-  { id: 'stock', read: (s) => marketStock(s, GOOD_BY_ID.food), say: more('еды в дневном запасе рынка') },
+  { id: 'stock', read: (s) => marketStock(s, GOOD_BY_ID.food), say: more('еды на рынке в день') },
   {
     id: 'caravan',
     read: caravanSeconds,
@@ -244,9 +252,9 @@ const GAUGES: Gauge[] = [
   // на кнопке так же, как дар: закят уводит золото, пост — выработку.
   { id: 'gold', read: taxIncomePerDay, say: more('золота в день') },
   // С сезоном без поправок множитель у всех профессий один — берётся любая.
-  { id: 'output', read: (s) => jobMultiplier(s, 'woodcutter', STILL), say: grow('к выработке всех профессий') },
-  { id: 'learning', read: (s) => surveyInfo(s).learning, say: grow('к скорости изучения округи') },
-  { id: 'growth', read: (s) => popGrowth(s).faith, say: grow('к приросту населения') },
+  { id: 'output', read: (s) => jobMultiplier(s, 'woodcutter', STILL), say: grow('к выработке всех рабочих') },
+  { id: 'learning', read: (s) => surveyInfo(s).learning, say: grow('к скорости разведки округи') },
+  { id: 'growth', read: (s) => popGrowth(s).faith, say: grow('к приросту жителей') },
   { id: 'fervour', read: (s) => faithTilt(s).fervour, say: more('к стойкости дружины в обряд') },
 ];
 
@@ -370,7 +378,7 @@ function workGains(s: GameState, b: Building, to: number): UpgradeGain[] {
         before: slotsNow,
         after: slotsNext,
         text: flat.length > 0
-          ? `${places} — на них ещё ${flat.map(({ g, i }) => `${sign(g)}${Math.abs(g)} ${WORK_LABELS[i]}`).join(' и ')}`
+          ? `${places} · на них ещё ${flat.map(({ g, i }) => `${sign(g)}${frac(Math.abs(g))} ${WORK_LABELS[i]}`).join(' и ')}`
           : places,
         numbers: [added, ...flat.map(({ g }) => Math.abs(g))],
       });
@@ -379,7 +387,7 @@ function workGains(s: GameState, b: Building, to: number): UpgradeGain[] {
         id: 'idleSlots',
         before: slotsNow,
         after: slotsNext,
-        text: 'новые рабочие места ничего не прибавят',
+        text: 'новые места ничего не дадут',
         numbers: [],
       });
     }

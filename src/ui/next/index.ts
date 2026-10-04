@@ -10,3 +10,7 @@ export { TipLayer } from './TipLayer';
 export { BuildingNew } from './BuildingNew';
 export { SmithyNew } from './SmithyNew';
 export { RecruitNew } from './RecruitNew';
+export { CityNaming } from './CityNaming';
+export { MarchesNew } from './MarchesNew';
+export { WorldNew } from './WorldNew';
+export { ReportBodyNew } from './ReportNew';

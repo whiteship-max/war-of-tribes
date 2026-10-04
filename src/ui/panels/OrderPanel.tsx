@@ -25,6 +25,8 @@ import {
 import { realSpanText, waitMinSec } from '../parts/wait';
 import { asGame } from '@/game/pace';
 import { EVENT_TTL } from '@/game/sim/mail';
+import { plural } from '../parts/plural';
+import { Icon } from '@/ui/icons/Icon';
 
 const fmt = (n: number): string => (n >= 10 ? String(Math.round(n)) : n.toFixed(1));
 
@@ -47,7 +49,7 @@ export function OrderPanel() {
   return (
     <div className="panel">
       <h2>
-        {ORDER_TEXT.icon} {ORDER_TEXT.name} <small>сейчас {value} из 100</small>
+        {ORDER_TEXT.icon} {ORDER_TEXT.name} <small>{value} из 100</small>
       </h2>
       {/* Две метки на шкале — пороги тревоги и ропота: видно, сколько до них. */}
       <div className={`progress order-bar ${state}`}>
@@ -62,7 +64,7 @@ export function OrderPanel() {
           <span className="ico">{ORDER_TEXT.mutiny.icon}</span>
           <span className="name">
             До мятежа
-            <em className="sub">срок идёт, пока ты в игре; порядок выше {ORDER_UNREST} — ропот стихает</em>
+            <em className="sub">при порядке от {ORDER_UNREST} ропот стихает</em>
           </span>
           <span className="val neg">{clockText(left)}</span>
         </div>
@@ -80,7 +82,8 @@ export function OrderPanel() {
             <span className="name">
               Стража дома
               <em className="sub">
-                мощь {Math.round(f.power)}: подавит до {f.crush} невольников, мораль −{MUTINY_SUPPRESS_MORALE}
+                мощь {Math.round(f.power)}, подавит до {f.crush}{' '}
+                {plural(f.crush, 'невольника', 'невольников', 'невольников')}, мораль −{MUTINY_SUPPRESS_MORALE}
               </em>
             </span>
             <span className="val">{f.guards}</span>
@@ -108,41 +111,40 @@ export function OrderPanel() {
       </div>
       <div className="mod total">
         <span className="ico">{ORDER_TEXT.bondedIcon}</span>
-        <span className="name">
-          Невольников
-          <em className="sub">порядок = 100 × надзор ÷ (надзор + невольники)</em>
-        </span>
+        <span className="name">Невольники</span>
         <span className={`val${o.bonded > o.hold ? ' neg' : ''}`}>{o.bonded}</span>
       </div>
       <div className="note">
-        Ниже {ORDER_WARN} — невольников больше, чем держит надзор, и об этом скажет строка тревоги. Ниже {ORDER_UNREST} —
-        ропот и срок до мятежа.
+        Ниже {ORDER_WARN} надзор держит не всех. Ниже {ORDER_UNREST} идёт ропот и срок до мятежа.
       </div>
 
-      <h3>Рычаги</h3>
+      <h3>Что делать</h3>
       <button className="btn ghost wide" onClick={() => openTab('people')}>
-        {ORDER_TEXT.bondedIcon} Отпустить часть — в «Племени»
+        {ORDER_TEXT.bondedIcon} Отпустить
       </button>
       {market && (
         <button className="btn ghost wide" onClick={() => openBuilding(market.id)}>
-          🛒 Продать торговцам — на рынке
+          <Icon name="bld-market" glyph="🛒" /> Продать
         </button>
       )}
       {home < all ? (
-        <button className="btn ghost wide" onClick={openMap}>
-          ⚔️ Вернуть дружину домой: дома {home} из {all}
-        </button>
+        <>
+          <button className="btn ghost wide" onClick={openMap}>
+            <Icon name="hud-army" glyph="⚔️" /> Вернуть домой
+          </button>
+          <div className="note">Дома {home} из {all}</div>
+        </>
       ) : (
-        <div className="note">Вся дружина дома: {all} бойцов держат невольников. Уведёшь в поле — держать станет некому.</div>
+        <div className="note">Вся дружина дома.</div>
       )}
       {barracks && (
         <button className="btn ghost wide" onClick={() => openBuilding(barracks.id)}>
-          🛡️ Нанять бойцов — в казармах
+          <Icon name="bld-barracks" glyph="🛡️" /> Нанять
         </button>
       )}
       {tavern && (
         <button className="btn ghost wide" onClick={() => openBuilding(tavern.id)}>
-          🍺 Пир: мораль, а с ней и спокойные горожане
+          <Icon name="bld-tavern" glyph="🍺" /> Устроить пир
         </button>
       )}
 

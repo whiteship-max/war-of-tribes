@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useGame } from '@/game/store';
+import { cityName } from '@/profile/identity';
 import { bootSaying } from '@/boot/stage';
 import { haptic } from '@/telegram/webapp';
 import { Settings } from './parts/Settings';
-import { PROLOGUE_LABEL, PROLOGUE_NOTE, START_LABEL, startAction } from './start';
+import { PROLOGUE_LABEL, PROLOGUE_NOTE, START_LABEL, startAction, startStep } from './start';
 
 /**
  * Стартовый экран.
@@ -32,15 +33,34 @@ import { PROLOGUE_LABEL, PROLOGUE_NOTE, START_LABEL, startAction } from './start
  * ради стартового экрана сцену объявил бы поломкой (`diagnose`). Экран живёт
  * секунды, и платить за них новым состоянием в приборе не стоит.
  */
-export function StartScreen({ onEnter, onPrologue }: { onEnter: () => void; onPrologue: () => void }) {
+export function StartScreen({
+  onEnter,
+  onPrologue,
+  naming = null,
+}: {
+  onEnter: () => void;
+  onPrologue: () => void;
+  /**
+   * Шаг «Как назовёшь город?» — у нового интерфейса (`next/CityNaming`, свой кусок: его отдаёт `App`, сам экран
+   * ничего не грузит). Встаёт после главной кнопки, пока у города нет имени.
+   */
+  naming?: ((done: () => void) => ReactNode) | null;
+}) {
   // `fresh` — сохранения на диске не было. Это и есть весь вопрос, на который
   // отвечает единственная кнопка (почему она одна — в `ui/start.ts`).
   const fresh = useGame((g) => g.fresh);
+  // Имя города: нет его — после главной кнопки встаёт шаг имени, а не вход (docs/ui_audit.md, 13).
+  const named = useGame((g) => cityName(g.s.profile.city) !== null);
   const [settings, setSettings] = useState(false);
+  const [ask, setAsk] = useState(false);
   const action = startAction(!fresh);
 
   const enter = (): void => {
     haptic('medium');
+    if (startStep(naming !== null, named) === 'name') {
+      setAsk(true);
+      return;
+    }
     onEnter();
   };
 
@@ -57,24 +77,30 @@ export function StartScreen({ onEnter, onPrologue }: { onEnter: () => void; onPr
 
       <div className="start-body">
         <h1 className="start-name">TRIBE</h1>
-        {/* Присказка захода — та же, что стояла на экране загрузки, и взятая у
-            него же: список присказок живёт в `index.html` в одном экземпляре. */}
-        <p className="start-say">{bootSaying()}</p>
-        <button className="start-go" onClick={enter}>
-          {START_LABEL[action]}
-        </button>
-        {/*
-          Временная кнопка — почему временная и что с ней будет, написано в
-          `ui/start.ts` рядом с её словом. Ждать она не заставляет: чанк
-          предыстории качает `App`, и качает уже после нажатия.
-        */}
-        <button className="start-alt" onClick={onPrologue}>
-          {PROLOGUE_LABEL}
-        </button>
-        <p className="start-note">{PROLOGUE_NOTE}</p>
-        <button className="start-more" onClick={() => setSettings(true)}>
-          Настройки
-        </button>
+        {ask && naming ? (
+          naming(onEnter)
+        ) : (
+          <>
+            {/* Присказка захода — та же, что стояла на экране загрузки, и взятая у
+                него же: список присказок живёт в `index.html` в одном экземпляре. */}
+            <p className="start-say">{bootSaying()}</p>
+            <button className="start-go" onClick={enter}>
+              {START_LABEL[action]}
+            </button>
+            {/*
+              Временная кнопка — почему временная и что с ней будет, написано в
+              `ui/start.ts` рядом с её словом. Ждать она не заставляет: чанк
+              предыстории качает `App`, и качает уже после нажатия.
+            */}
+            <button className="start-alt" onClick={onPrologue}>
+              {PROLOGUE_LABEL}
+            </button>
+            <p className="start-note">{PROLOGUE_NOTE}</p>
+            <button className="start-more" onClick={() => setSettings(true)}>
+              Настройки
+            </button>
+          </>
+        )}
       </div>
 
       {settings && (

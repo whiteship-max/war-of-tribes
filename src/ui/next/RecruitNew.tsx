@@ -18,7 +18,7 @@ import { useRealm } from '@/ui/realm/open';
 import { Icon } from '@/ui/icons/Icon';
 import { waitSpan } from '@/ui/parts/wait';
 import { tipAt } from './tip';
-import { Confirm } from './BuildingNew';
+import { Confirm } from './Confirm';
 import { clampCount } from './SmithyNew';
 
 /**

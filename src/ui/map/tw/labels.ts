@@ -1,16 +1,20 @@
-// Подписи карты нового вида (docs/map_tw.md, раздел 4): антиква системы, чернила с пергаментным
-// ореолом, своё поселение — на картуше. Шрифт не качается: средневековых гарнитур с кириллицей под CC0
-// нет, а загрузка шрифта ради подписи — докачка (раздел 9).
+// Подписи карты нового вида (docs/map_tw.md, раздел 4; docs/ui_audit.md, 13): имя поселения — на тёмной плашке, как
+// таблички городов на карте кампании Total War и панели нового интерфейса; цвет стороны — полосой у левого края (свой
+// город — золотом и золотой рамкой). Крупные места (моря, горы) — по-прежнему чернилами по земле: это карта, а не
+// метки. Шрифт не качается: средневековых гарнитур с кириллицей под CC0 нет, а загрузка шрифта ради подписи —
+// докачка (раздел 9).
+import { SIDE_COLOR, sideRgba } from '@/side';
 
 type C = CanvasRenderingContext2D;
 
 /** Гарнитура: антиква, какая есть в системе. */
 export const SERIF = "Georgia, 'Times New Roman', 'Noto Serif', serif";
 
-const INK = '#3b2a1c';
-const HALO = 'rgba(236, 222, 190, 0.82)';
-const CARTOUCHE = '#e6d4a6';
-const CARTOUCHE_EDGE = '#8a6c42';
+/** Плашка — тёмная панель нового вида с тёплой кромкой; текст — светлые чернила. */
+const PLATE = 'rgba(22, 16, 11, 0.86)';
+const PLATE_EDGE = 'rgba(255, 220, 170, 0.3)';
+const INK_LIGHT = '#efe3c8';
+const INK_OWN = '#f7e9c6';
 
 /** Разрядка, где браузер её умеет (`letterSpacing`); где нет — без неё. */
 function spaced(ctx: C, px: number): void {
@@ -18,50 +22,60 @@ function spaced(ctx: C, px: number): void {
   if ('letterSpacing' in c) c.letterSpacing = `${px}px`;
 }
 
-/** Имя поселения под миниатюрой. `own` — своё: картуш-свиток, крупнее. */
-export function placeLabel(ctx: C, text: string, x: number, y: number, own: boolean): void {
+/** Путь плашки со скруглёнными углами (без `roundRect`: он есть не во всех вебвью). */
+function plate(ctx: C, x: number, y: number, w: number, h: number, r: number): void {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+}
+
+/** Поля плашки имени: слева — полоса стороны и зазор, справа — зазор. */
+const BAR = 3;
+const PAD_L = 8;
+const PAD_R = 6;
+
+/**
+ * Имя поселения: плашка по середине `x`, `y`. `own` — своё: крупнее, золотая рамка. `color` — цвет стороны или
+ * отношения (`RELATION_META`, свой — `side.ts`): им — полоса у левого края.
+ */
+export function placeLabel(ctx: C, text: string, x: number, y: number, own: boolean, color: string): void {
   ctx.save();
-  ctx.textAlign = 'center';
+  ctx.font = labelFont(own);
+  spaced(ctx, own ? 0.8 : 0.4);
+  const tw = ctx.measureText(text).width;
+  const w = tw + PAD_L + PAD_R + (own ? 4 : 0);
+  const h = own ? 21 : 17;
+  const x0 = x - w / 2;
+  const y0 = y - h / 2;
+  // Тень вниз — плашка стоит над землёй, а не нарисована на ней.
+  plate(ctx, x0 + 1, y0 + 1.5, w, h, 4);
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
+  ctx.fill();
+  plate(ctx, x0, y0, w, h, 4);
+  ctx.fillStyle = PLATE;
+  ctx.fill();
+  ctx.lineWidth = own ? 1.5 : 1;
+  ctx.strokeStyle = own ? SIDE_COLOR.ours : PLATE_EDGE;
+  ctx.stroke();
+  // Полоса стороны — у левого края, во всю высоту плашки.
+  ctx.save();
+  plate(ctx, x0, y0, w, h, 4);
+  ctx.clip();
+  ctx.fillStyle = color;
+  ctx.fillRect(x0, y0, BAR, h);
+  ctx.restore();
+  ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
-  if (own) {
-    ctx.font = `600 13px ${SERIF}`;
-    spaced(ctx, 1.2);
-    const w = ctx.measureText(text).width + 22;
-    const h = 20;
-    // Свиток: лента с загнутыми концами, тень вниз-вправо — как подписи на старинной карте.
-    ctx.fillStyle = 'rgba(20, 14, 8, 0.35)';
-    ctx.fillRect(x - w / 2 + 2, y - h / 2 + 2, w, h);
-    ctx.fillStyle = CARTOUCHE_EDGE;
-    for (const s of [-1, 1]) {
-      ctx.beginPath();
-      ctx.moveTo(x + (s * w) / 2, y - h / 2 + 3);
-      ctx.lineTo(x + (s * (w + 12)) / 2, y - h / 2 + 6);
-      ctx.lineTo(x + (s * (w + 6)) / 2, y + 1);
-      ctx.lineTo(x + (s * (w + 12)) / 2, y + h / 2 + 2);
-      ctx.lineTo(x + (s * w) / 2, y + h / 2 - 1);
-      ctx.closePath();
-      ctx.fill();
-    }
-    const g = ctx.createLinearGradient(0, y - h / 2, 0, y + h / 2);
-    g.addColorStop(0, '#efe0b8');
-    g.addColorStop(1, CARTOUCHE);
-    ctx.fillStyle = g;
-    ctx.fillRect(x - w / 2, y - h / 2, w, h);
-    ctx.strokeStyle = CARTOUCHE_EDGE;
-    ctx.lineWidth = 1;
-    ctx.strokeRect(x - w / 2 + 0.5, y - h / 2 + 0.5, w - 1, h - 1);
-    ctx.fillStyle = INK;
-    ctx.fillText(text, x, y + 0.5);
-  } else {
-    ctx.font = `italic 600 12px ${SERIF}`;
-    spaced(ctx, 0.6);
-    ctx.lineJoin = 'round';
-    ctx.lineWidth = 3.5;
-    ctx.strokeStyle = HALO;
-    ctx.strokeText(text, x, y);
-    ctx.fillStyle = INK;
-    ctx.fillText(text, x, y);
-  }
+  ctx.fillStyle = own ? INK_OWN : INK_LIGHT;
+  ctx.fillText(text, x0 + PAD_L + (own ? 2 : 0), y + 0.5);
   ctx.restore();
 }
 
@@ -79,9 +93,9 @@ export function regionLabel(ctx: C, text: string, x: number, y: number, size: nu
 
 // ---------- Подписи игры: испечённые ----------
 //
-// В кадре игры подпись — копирование испечённой: картуш своего города — это градиент и десяток путей, и
-// печь его шестьдесят раз в секунду — ровно то, что запрещает закон кадра (docs/world-map.md). Подпись
-// печётся один раз на (текст, своё, плотность); имя своего города меняет игрок, и старое вытесняется.
+// В кадре игры подпись — копирование испечённой: плашка — путь, тень и полоса, и печь её шестьдесят раз в секунду —
+// ровно то, что запрещает закон кадра (docs/world-map.md). Подпись печётся один раз на (текст, своё, цвет, плотность);
+// имя своего города меняет игрок, и старое вытесняется.
 
 export interface LabelSprite {
   canvas: HTMLCanvasElement;
@@ -94,10 +108,22 @@ const labels = new Map<string, LabelSprite>();
 const LABELS_MAX = 96;
 
 /** Шрифт подписи — им же меряется вписывание имени (`fitName`). */
-export const labelFont = (own: boolean): string => (own ? `600 13px ${SERIF}` : `italic 600 12px ${SERIF}`);
+export const labelFont = (own: boolean): string => (own ? `700 13px ${SERIF}` : `600 12px ${SERIF}`);
 
-export function labelSprite(text: string, own: boolean, dpr: number): LabelSprite {
-  const key = `${own ? 1 : 0}|${dpr}|${text}`;
+/** Положить в кэш с вытеснением самого старого. */
+function keep(key: string, out: LabelSprite): LabelSprite {
+  labels.set(key, out);
+  if (labels.size > LABELS_MAX) {
+    const first = labels.keys().next().value as string;
+    const gone = labels.get(first);
+    if (gone) gone.canvas.width = 0;
+    labels.delete(first);
+  }
+  return out;
+}
+
+export function labelSprite(text: string, own: boolean, dpr: number, color: string): LabelSprite {
+  const key = `${own ? 1 : 0}|${color}|${dpr}|${text}`;
   const have = labels.get(key);
   if (have) {
     labels.delete(key);
@@ -108,29 +134,21 @@ export function labelSprite(text: string, own: boolean, dpr: number): LabelSprit
   let tw = text.length * 7;
   if (probe) {
     probe.font = labelFont(own);
-    spaced(probe, own ? 1.2 : 0.6);
+    spaced(probe, own ? 0.8 : 0.4);
     tw = probe.measureText(text).width;
   }
-  // Картуш шире текста на поля и загнутые концы ленты; простая подпись — на ореол.
-  const w = Math.ceil(tw + (own ? 40 : 10));
-  const h = own ? 26 : 18;
+  // Холст шире плашки на поля и тень справа-снизу.
+  const w = Math.ceil(tw + PAD_L + PAD_R + (own ? 4 : 0) + 4);
+  const h = own ? 26 : 21;
   const canvas = document.createElement('canvas');
   canvas.width = Math.ceil(w * dpr);
   canvas.height = Math.ceil(h * dpr);
   const ctx = canvas.getContext('2d');
   if (ctx) {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    placeLabel(ctx, text, w / 2, h / 2 - (own ? 1 : 0), own);
+    placeLabel(ctx, text, (w - 2) / 2, (h - 2) / 2, own, color);
   }
-  const out = { canvas, w, h };
-  labels.set(key, out);
-  if (labels.size > LABELS_MAX) {
-    const first = labels.keys().next().value as string;
-    const gone = labels.get(first);
-    if (gone) gone.canvas.width = 0;
-    labels.delete(first);
-  }
-  return out;
+  return keep(key, { canvas, w, h });
 }
 
 /** Имя крупного места — тоже испечённое: разрядка и курсив, по воде светлыми чернилами. */
@@ -160,7 +178,64 @@ export function regionSprite(text: string, size: number, onWater: boolean, dpr: 
   return out;
 }
 
+// ---------- Срок похода: пилюля ----------
+//
+// Срок до прихода над отрядом — на тёмной пилюле с кромкой цвета стороны: чужой набег — красной, свой — золотой. Текст
+// меняется раз в секунду и пишется в кадре (как и прежде), а пилюля печётся раз на (ширину, сторону, плотность): путь
+// со скруглением в кадре не строится.
+
+/** Шрифт срока: системный, цифры ровные. */
+export const TIMER_FONT = '700 11px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+/** Высота пилюли срока, CSS px. */
+export const TIMER_H = 16;
+/** Ширина пилюли — ступенями по 6 px: строка срока меняется каждую секунду, а пилюль печётся считанное число. */
+export const timerWidth = (textW: number): number => Math.ceil((textW + 12) / 6) * 6;
+
+export function timerSprite(w: number, ours: boolean, dpr: number): LabelSprite {
+  const key = `t|${w}|${ours ? 1 : 0}|${dpr}`;
+  const have = labels.get(key);
+  if (have) return have;
+  const h = TIMER_H;
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.ceil((w + 2) * dpr);
+  canvas.height = Math.ceil((h + 2) * dpr);
+  const ctx = canvas.getContext('2d');
+  if (ctx) {
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    plate(ctx, 1, 1.5, w, h, h / 2);
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
+    ctx.fill();
+    plate(ctx, 0.5, 0.5, w, h, h / 2);
+    ctx.fillStyle = PLATE;
+    ctx.fill();
+    ctx.lineWidth = 1.2;
+    ctx.strokeStyle = sideRgba(ours, 0.95);
+    ctx.stroke();
+  }
+  const out = { canvas, w: w + 2, h: h + 2 };
+  labels.set(key, out);
+  return out;
+}
+
+/** Ширина строки срока шрифтом срока — мерка одна, на кадр; кэш сбрасывает `dropLabels`. */
+const widths = new Map<string, number>();
+let measurer: CanvasRenderingContext2D | null = null;
+export function timerTextWidth(text: string): number {
+  const have = widths.get(text);
+  if (have !== undefined) return have;
+  measurer ??= document.createElement('canvas').getContext('2d');
+  let w = text.length * 6.5;
+  if (measurer) {
+    measurer.font = TIMER_FONT;
+    w = measurer.measureText(text).width;
+  }
+  if (widths.size > 256) widths.clear();
+  widths.set(text, w);
+  return w;
+}
+
 export function dropLabels(): void {
   for (const l of labels.values()) l.canvas.width = 0;
   labels.clear();
+  widths.clear();
 }

@@ -131,7 +131,7 @@ export const techOpen = (s: GameState, key: TechKey): boolean => openAtLevel(tec
 export function techBlock(s: GameState, key: TechKey): string | null {
   if (techOpen(s, key)) return null;
   const g = gateOf(key);
-  return `Ещё не изучено: ${techName(key)} — ${g.level} уровень ${BRANCH_OF[g.branch]} ветви, в «Технологиях».`;
+  return `Ещё не изучено: ${techName(key)} — ${g.level} уровень ${BRANCH_OF[g.branch]}, в «Технологиях».`;
 }
 
 // ---------- Что гейт закрывает: места агентов и ячейки стола ----------
@@ -206,11 +206,11 @@ export function mastersBlock(s: GameState, want: number): string | null {
   if (level >= ADMIN_LEVELS) return null;
   const next = level + 1;
   if (cap === 0) {
-    return `Ещё не изучено: наёмные мастера — ${next} уровень ${BRANCH_OF.admin} ветви, в «Технологиях».`;
+    return `Ещё не изучено: наёмные мастера — ${next} уровень ${BRANCH_OF.admin}, в «Технологиях».`;
   }
   return (
     `Наёмным открыто мест Мастерской: ${cap}; ещё ${mastersCapAt(next) - cap} — ` +
-    `${next} уровень ${BRANCH_OF.admin} ветви, в «Технологиях».`
+    `${next} уровень ${BRANCH_OF.admin}, в «Технологиях».`
   );
 }
 
@@ -357,7 +357,7 @@ export function studyInfo(s: GameState, branch: RealmBranch): StudyInfo {
   const rate = rulerRate(s, branch);
   const short = Math.max(0, price - have);
   let blocked: string | null = null;
-  if (!BRANCH_BUILT[branch]) blocked = `${BRANCH_NAME[branch]} ветвь ещё не построена.`;
+  if (!BRANCH_BUILT[branch]) blocked = `Ветвь «${BRANCH_NAME[branch]}» ещё не построена.`;
   else if (next === 0) blocked = 'Ветвь изучена целиком.';
   else if (short > 0) blocked = `Не хватает очков: нужно ${price}, есть ${Math.floor(have)}.`;
   return {
@@ -383,7 +383,7 @@ export function study(s: GameState, branch: RealmBranch): string | null {
   if (!spend(s, branch, info.price)) return `Не хватает очков: нужно ${info.price}, есть ${Math.floor(info.have)}.`;
   s.realm.tech[branch] = info.next;
   const opened = info.gains.length > 0 ? ` Открылось: ${info.gains.join('; ').toLowerCase()}.` : '';
-  log(s, `Изучен ${info.next} уровень ${BRANCH_OF[branch]} ветви — ${info.price} очков.${opened}`, 'good');
+  log(s, `Изучен ${info.next} уровень ${BRANCH_OF[branch]} — ${info.price} очков.${opened}`, 'good');
   return null;
 }
 

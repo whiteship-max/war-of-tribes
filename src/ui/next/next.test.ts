@@ -223,6 +223,38 @@ describe('цели касания нового вида — не меньше п
       ['.nx-rtabs button', 'height'],
       ['.nx-tcell', 'height'],
       ['.nx-go', 'height'],
+      // Имя города: поле и кубик шага стартового экрана, имя в шапке державы.
+      ['.nx-cname-in', 'height'],
+      ['.nx-cname-dice', 'height'],
+      ['.nx-cname-dice', 'width'],
+      ['.nx-rname', 'min-height'],
+      // Вкладки державы: навыки, казна, выбор из трёх, порядок, ячейки наклона, страницы заданий, достижения, «Все».
+      ['.nx-skill', 'min-height'],
+      ['.nx-lcell', 'height'],
+      ['.nx-opt', 'min-height'],
+      ['.nx-orow', 'height'],
+      ['.nx-tgcell', 'min-height'],
+      ['.nx-seg button', 'height'],
+      ['.nx-ach button', 'height'],
+      ['.nx-more', 'height'],
+      // Карточка клетки и «Походы»: ячейки-справки, действия, люди сеткой, строки, кнопки строк.
+      ['.nx-fact', 'min-height'],
+      ['.nx-cact', 'height'],
+      ['.nx-leadb', 'min-height'],
+      ['.nx-crow', 'min-height'],
+      ['.nx-act', 'height'],
+      ['.nx-mrow', 'min-height'],
+      ['.nx-mico', 'height'],
+      ['.nx-mico', 'width'],
+      ['.nx-mtap', 'min-height'],
+      ['.nx-ico44', 'height'],
+      ['.nx-ico44', 'width'],
+      // Весть: лупа, ответы, «Отложить»; донесение о бое: «итог или бой».
+      ['.nx-mspot', 'height'],
+      ['.nx-mspot', 'width'],
+      ['.nx-ans', 'min-height'],
+      ['.nx-mback', 'height'],
+      ['.nx-rbtns .btn', 'height'],
     ];
     for (const [sel, prop] of targets) {
       const v = px(sel, prop);

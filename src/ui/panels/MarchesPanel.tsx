@@ -18,12 +18,12 @@ import { CHASE_FROM_CAMP } from '@/world/siege';
 import { realLeft } from '@/ui/parts/wait';
 import { restLine } from '@/ui/parts/restWords';
 import { MISSION_BY_ID } from '@/world/data/meta';
-import { UNITS } from '@/world/data/units';
-import { RESOURCE_IDS, RESOURCE_META } from '@/game/constants';
-import type { Loot, MarchView, Report, ReportKind, UnitStack } from '@/world/types';
+import type { MarchView, Report, ReportKind } from '@/world/types';
 import { Icon } from '@/ui/icons/Icon';
 import { AgentCard } from '@/ui/parts/AgentCard';
-import { agentLevel, personName, yearsOf } from '@/game/sim/agents';
+import { count } from '@/ui/parts/plural';
+import { lootText, unitsText } from '@/ui/parts/reportWords';
+import { agentLevel, personName, yearsOf, yearsWord } from '@/game/sim/agents';
 import { hireWhere } from '@/game/sim/hire';
 import type { FigureId } from '@/world/types';
 
@@ -39,21 +39,6 @@ const PHASE: Record<MarchView['phase'], string> = {
   out: 'идёт к цели',
   stay: 'стоит в поддержке',
   back: 'возвращается',
-};
-
-const unitsText = (units: UnitStack): string =>
-  UNITS.filter((u) => (units[u.id] ?? 0) > 0)
-    .map((u) => `${u.icon} ${units[u.id]}`)
-    .join(' · ') || '—';
-
-/** Добыча строкой. Золото из замка идёт тем же списком, но своим значком. */
-const lootText = (loot: Loot | null): string => {
-  if (!loot) return '';
-  const parts = RESOURCE_IDS.filter((r) => loot[r]).map(
-    (r) => `${RESOURCE_META[r].icon} ${Math.abs(loot[r] as number)}`,
-  );
-  if (loot.gold) parts.push(`💰 ${Math.abs(loot.gold)}`);
-  return parts.join(' · ');
 };
 
 function ReportCard({ r }: { r: Report }) {
@@ -114,26 +99,27 @@ export function MarchesPanel() {
         Походы <small>{own.length > 0 ? `в пути ${own.length}` : 'все дома'}</small>
       </h2>
 
-      <h3>Фигуры</h3>
+      <h3>Люди</h3>
       {figures.map((f) => {
         const at = figurePosition(f, worldNow());
         const cell = { x: Math.round(at.x), y: Math.round(at.y) };
         const men = troopTotal(f.troops);
         // Задержан и выбыл — разные вещи, и говорить «выбыл» о пойманном, которого через
         // `FIGURE_DOWN` отпустят (лазутчика — через `SPY_HELD`), значит врать игроку.
+        // Слова — те же, что у «Походов» нового вида (`next/MarchesNew.whereWords`).
         const where =
           f.place === 'vacant'
-            ? `${f.gone === 'retired' ? 'ушёл на покой' : 'погиб'} — место пустует, нанять ${hireWhere(s, f.id)}`
+            ? `${f.gone === 'retired' ? 'ушёл на покой' : 'погиб'} · нанять ${hireWhere(s, f.id)}`
             : f.place === 'down'
             ? f.held
               ? `задержан, отпустят через ${realLeft(secondsLeft(f.downUntil, worldNow()))}`
               : `разбит, вернётся через ${realLeft(secondsLeft(f.downUntil, worldNow()))}`
             : f.held && f.busyUntil > worldNow()
-              ? `задержан у ${f.atName ?? 'чужих ворот'}, отпустят через ${realLeft(secondsLeft(f.busyUntil, worldNow()))}`
+              ? `задержан, отпустят через ${realLeft(secondsLeft(f.busyUntil, worldNow()))} · ${f.atName ?? 'у чужих ворот'}`
             : f.retiring
-              ? 'дожил до покоя: идёт домой, у ворот уйдёт'
+              ? 'дожил до покоя: идёт домой'
             : f.place === 'city'
-              ? 'укрылся в городе, на карте его нет'
+              ? 'укрылся в городе'
               : f.phase === 'moving'
                 ? `в пути · ${realLeft(secondsLeft(f.arriveAt, worldNow()))}`
                 : f.atHome
@@ -149,15 +135,15 @@ export function MarchesPanel() {
               <div className="title" role="button" onClick={() => setCard(f.id)}>
                 {f.name}
                 {f.place !== 'vacant' && s.agents[f.id].name ? ` ${personName(s, f.id)}` : ''}
-                {f.place !== 'vacant' && <span className="count">ур. {agentLevel(s, f.id)} · {yearsOf(s, f.id)} л. ›</span>}
-                {men > 0 && <span className="count">дружина {men}</span>}
+                {f.place !== 'vacant' && <span className="count">ур. {agentLevel(s, f.id)} · {yearsWord(yearsOf(s, f.id))} ›</span>}
+                {men > 0 && <span className="count">{count(men, 'боец', 'бойца', 'бойцов')}</span>}
               </div>
               <div className="desc">
                 {where}
-                {men > 0 ? (postureOf(f) === 'stands' ? ' · дружина дома, в гарнизоне' : ' · войско при нём, дома его нет') : ''}
+                {men > 0 ? (postureOf(f) === 'stands' ? ' · в гарнизоне' : ' · отряд при нём') : ''}
                 {/* Наблюдение — единственный живой обзор за кругом деревни, и
                     видно оно должно быть там же, где остальные состояния фигур. */}
-                {f.watching ? ' · 👁️ смотрит: приказы не отдаются' : ''}
+                {f.watching ? ' · смотрит' : ''}
               </div>
               <div className="cost">
                 {f.place !== 'down' && f.place !== 'vacant' && (
@@ -184,11 +170,11 @@ export function MarchesPanel() {
                     className="mini text"
                     onClick={() => {
                       void shelter(f.id, false).then((err) =>
-                        showToast(err ?? `${f.name} вышел из города и встал у ворот.`),
+                        showToast(err ?? `${f.name} вышел из города.`),
                       );
                     }}
                   >
-                    Выйти из города
+                    Выйти
                   </button>
                 )}
                 {f.place === 'map' && !f.atHome && (
@@ -221,20 +207,15 @@ export function MarchesPanel() {
                 {/* Мораль отряда между боями (14.31) — живые данные: мир отдаёт её только в живом обзоре. */}
                 {m.rest && <div className="desc">{restLine(m.rest, 'Отряд дрался', worldNow())}</div>}
                 {m.onCamp ? (
-                  // Выручка идёт на полководца, который стоит лагерем: перехватывать некому — дружина и есть цель.
-                  <div className="desc">
-                    Чужой отряд идёт на наш лагерь под {m.toName} от {formatCoord(m.from)}: выручка полезет через рогатки
-                    со стороны города.
-                  </div>
+                  // Выручка идёт на полководца, который стоит лагерем: перехватывать некому, отряд и есть цель. Лагерь у него один.
+                  <div className="desc">Идут на наш лагерь.</div>
                 ) : (
                   <>
-                    <div className="desc">
-                      Чужой отряд идёт к нам от {formatCoord(m.from)}. Успей вернуть своих или встретить.
-                    </div>
+                    <div className="desc">Идут от {formatCoord(m.from)}.</div>
                     <div className="cost">
                       {/* Встретить их можно и в поле: точку встречи покажут до приказа. */}
                       <button className="mini text" disabled={inCamp} onClick={() => void openChase(m)}>
-                        🎖️ Перехватить в поле
+                        Перехватить
                       </button>
                     </div>
                     {inCamp && <div className="desc">{CHASE_FROM_CAMP}</div>}
@@ -247,7 +228,7 @@ export function MarchesPanel() {
       )}
 
       {own.length === 0 ? (
-        <div className="desc">Никто никуда не идёт. Открой карту и выбери цель.</div>
+        <div className="desc">Походов нет. Выбери цель на карте.</div>
       ) : (
         own.map((m) => {
           // У возвращающегося отряда интересно место, откуда он идёт; отозванный
@@ -284,9 +265,9 @@ export function MarchesPanel() {
         })
       )}
 
-      <h3>Отчёты</h3>
+      <h3>Донесения</h3>
       {reports.length === 0 ? (
-        <div className="desc">Отчётов пока нет.</div>
+        <div className="desc">Донесений нет.</div>
       ) : (
         reports.map((r) => <ReportCard key={r.id} r={r} />)
       )}

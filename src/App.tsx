@@ -67,11 +67,32 @@ const Hud = lazy(() => nextUi().then((m) => ({ default: m.Hud })));
 const Alerts = lazy(() => nextUi().then((m) => ({ default: m.Alerts })));
 const Nav = lazy(() => nextUi().then((m) => ({ default: m.Nav })));
 const TipLayer = lazy(() => nextUi().then((m) => ({ default: m.TipLayer })));
+/** Шаг «Как назовёшь город?» стартового экрана — тем же куском: сам экран ничего не грузит (`start.test.ts`). */
+const CityNaming = lazy(() => nextUi().then((m) => ({ default: m.CityNaming })));
+/** Карточка клетки и «Походы» нового вида — тем же куском (docs/ui_audit.md, 13). */
+const WorldNew = lazy(() => nextUi().then((m) => ({ default: m.WorldNew })));
+const MarchesNew = lazy(() => nextUi().then((m) => ({ default: m.MarchesNew })));
 
 function SheetContent({ view }: { view: SheetView }) {
+  // Вид выбирается здесь, а не внутри панели: переключение в настройках не меняет порядок хуков у открытой панели.
+  const next = useUiNew();
   if (view.kind === 'building') return <BuildingPanel id={view.id} />;
-  if (view.kind === 'world') return <WorldPanel x={view.x} y={view.y} />;
-  if (view.kind === 'marches') return <MarchesPanel />;
+  if (view.kind === 'world')
+    return next ? (
+      <Suspense fallback={null}>
+        <WorldNew x={view.x} y={view.y} />
+      </Suspense>
+    ) : (
+      <WorldPanel x={view.x} y={view.y} />
+    );
+  if (view.kind === 'marches')
+    return next ? (
+      <Suspense fallback={null}>
+        <MarchesNew />
+      </Suspense>
+    ) : (
+      <MarchesPanel />
+    );
   if (view.kind === 'sortie') return <SortiePanel />;
   if (view.kind === 'siege') return <SiegePanel />;
   if (view.kind === 'camp') return <CampPanel />;
@@ -238,7 +259,21 @@ export function App() {
         снимается мгновенно — тем же движением, каким снимается экран загрузки
         под ним.
       */}
-      {!started && !prologue && <StartScreen onEnter={() => setStarted(true)} onPrologue={() => setPrologue(true)} />}
+      {!started && !prologue && (
+        <StartScreen
+          onEnter={() => setStarted(true)}
+          onPrologue={() => setPrologue(true)}
+          naming={
+            next
+              ? (done) => (
+                  <Suspense fallback={null}>
+                    <CityNaming onDone={done} />
+                  </Suspense>
+                )
+              : null
+          }
+        />
+      )}
       {/*
         Предыстория поверх всего и вместо всего: пока она открыта, диорама
         разобрана, стартовый экран не рисуется, а выход возвращает ровно туда,

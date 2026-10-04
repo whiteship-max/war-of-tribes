@@ -10,7 +10,7 @@ import { figuresOn, useWorld, worldNow } from '@/world/store';
 import { defense } from '@/game/derived';
 import { sendableUnits } from '@/game/sim/expedition';
 import { formatCoord, marchSeconds, secondsLeft } from '@/world/geo';
-import { realLeft, waitLeft } from '@/ui/parts/wait';
+import { realLeft, waitLeft, waitShort } from '@/ui/parts/wait';
 import { formatAge, formatEstimate, PRECISION_NOTE } from '@/world/intel';
 import { CAMP_LEAVE } from '@/world/siege';
 import { worksWords } from '@/world/works';
@@ -26,14 +26,15 @@ import { STANDING_META, TEMPER_BY_ID } from '@/world/data/diplomacy';
 import { KIND_META, UNIT_KINDS } from '@/battle';
 import { TERRAIN_META } from '@/world/data/terrain';
 import type { Fate, FigureId, Mission, UnitStack } from '@/world/types';
-import { UNITS, UNIT_BY_ID, stackSize } from '@/world/data/units';
+import { UNIT_BY_ID, stackSize } from '@/world/data/units';
 import { awayOf, homeOf } from '@/world/muster';
 import { awayTroops } from '@/world/bridge';
 import { troopTotal } from '@/game/battle/kinds';
 import { Icon } from '@/ui/icons/Icon';
+import { count } from '@/ui/parts/plural';
 import { beyondText, reachable } from '@/ui/map/twslot';
 
-const fmt = (n: number): string => (Math.abs(n) >= 100 ? String(Math.round(n)) : (Math.round(n * 10) / 10).toString());
+const fmt = (n: number): string => (Math.abs(n) >= 100 ? String(Math.round(n)) : (Math.round(n * 10) / 10).toString().replace('.', ','));
 
 /**
  * Какие юниты имеют смысл в этой миссии. Набега здесь нет и быть не может: армию
@@ -44,6 +45,12 @@ const ALLOWED: Record<Mission, ('warrior' | 'scout')[]> = {
   scout: ['scout'],
   support: ['warrior'],
 };
+
+/**
+ * Редактор состава дружины в карточке своего города — дверь для карточки нового вида (`next/WorldNew`): редактор один
+ * и показан в двух местах, карточке замка и Статуе (`GarrisonEditor.test.ts`).
+ */
+export const OwnGarrison = (): JSX.Element => <GarrisonEditor />;
 
 export function WorldPanel({ x, y }: { x: number; y: number }) {
   const s = useGame((g) => g.s);
@@ -101,11 +108,11 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
                   setBusy(true);
                   const err = await shelter(d.id, false);
                   setBusy(false);
-                  showToast(err ?? `${d.name} вышел из города и встал у ворот.`);
+                  showToast(err ?? `${d.name} вышел из города.`);
                 })();
               }}
             >
-              <Icon name={`fig-${d.id}`} glyph={d.icon} /> {d.name}: выйти из города
+              <Icon name={`fig-${d.id}`} glyph={d.icon} /> Вывести {d.one}
             </button>
           );
         }
@@ -125,9 +132,9 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
           >
             <Icon name={`fig-${d.id}`} glyph={d.icon} />{' '}
             {f?.place === 'vacant'
-              ? `${d.name}: место пустует`
+              ? `Нет ${d.one}`
               : down
-                ? `${d.name}: ${f?.held ? 'задержан' : 'вне строя'} ${realLeft(secondsLeft(f?.downUntil ?? 0, worldNow()))}`
+                ? `${d.name} ${f?.held ? 'задержан' : 'вне строя'} · ${realLeft(secondsLeft(f?.downUntil ?? 0, worldNow()))}`
                 : `Вести ${d.one}`}
           </button>
         );
@@ -158,12 +165,12 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
         <div className="desc">
           {loading
             ? 'Смотрим, кто здесь…'
-            : `${terrain ? TERRAIN_META[terrain].name : 'Земля'}. Здесь никто не живёт — но пройти через это место можно.`}
+            : `${terrain ? TERRAIN_META[terrain].name : 'Земля'}. Пройти можно.`}
         </div>
         <div className="mod-list">
           <div className="mod">
             <span className="ico"><Icon name="ui-ruler" glyph="📏" /></span>
-            <span className="name">От нашей деревни</span>
+            <span className="name">От города</span>
             <span className="val">{fmt(homeDist)} кл.</span>
           </div>
         </div>
@@ -249,7 +256,7 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
     setBusy(true);
     const err = await attack({ fate });
     setBusy(false);
-    showToast(err ?? 'Дружина ударила. Отчёт в походах.');
+    showToast(err ?? 'Отряд ударил. Донесение в походах.');
   };
 
   const doSend = async (): Promise<void> => {
@@ -263,7 +270,7 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
     }
     setMission(null);
     setPick({});
-    showToast('Отряд вышел.');
+    showToast(`Отряд вышел. В пути ${waitShort(eta)}.`);
   };
 
   const doDeal = async (id: (typeof DEALS)[number]['id']): Promise<void> => {
@@ -285,7 +292,7 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
         <div className="body">
           <div className="name one-line">{card.name}</div>
           <div className="lvl">
-            {card.castle ? 'Замок' : stage.name} ·{' '}
+            {card.castle ? 'Город соседа' : stage.name} ·{' '}
             <span style={{ color: relation.color }}>{relation.name}</span>
           </div>
         </div>
@@ -293,18 +300,24 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
       </div>
 
       <div className="mod-list">
-        <div className="mod">
-          <span className="ico"><Icon name="ui-person" glyph="👤" /></span>
-          <span className="name">Владелец</span>
-          <span className="val">{card.owner ?? 'ничей'}</span>
-        </div>
-        <div className="mod">
-          <span className="ico">🏳️</span>
-          <span className="name">Племя</span>
-          <span className="val" style={{ color: relation.color }}>
-            {card.tribeName ?? 'нет'}
-          </span>
-        </div>
+        {/* Строка владельца — только то, что есть, и не у своего города: там владелец — заглушка слепка («Наше племя»,
+            `bridge.playerProfile`), как и в меню приказов (docs/ui_audit.md, 14.1, 17). */}
+        {!card.mine && card.owner && (
+          <div className="mod">
+            <span className="ico"><Icon name="ui-person" glyph="👤" /></span>
+            <span className="name">Правитель</span>
+            <span className="val">{card.owner}</span>
+          </div>
+        )}
+        {!card.mine && card.tribeName && (
+          <div className="mod">
+            <span className="ico">🏳️</span>
+            <span className="name">Племя</span>
+            <span className="val" style={{ color: relation.color }}>
+              {card.tribeName}
+            </span>
+          </div>
+        )}
         <div className="mod">
           <span className="ico"><Icon name="ui-ruler" glyph="📏" /></span>
           <span className="name">Расстояние</span>
@@ -312,7 +325,7 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
         </div>
         <div className="mod">
           <span className="ico">👣</span>
-          <span className="name">Ход разведки</span>
+          <span className="name">Разведчик дойдёт за</span>
           <span className="val">{waitLeft(marchSeconds(card.distance, card.terrainFactor, { scout: 1 }))}</span>
         </div>
       </div>
@@ -330,23 +343,23 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
       {!card.mine && (
         <p className={`note${card.visible ? '' : ' bad'}`}>
           {card.visible
-            ? 'Место в обзоре: видно, что там сейчас.'
+            ? 'Видно, что там сейчас.'
             : card.stale && card.seenAt
-              ? `Живьём сюда никто не смотрит: кто там живёт и выходит ли войско — по последнему взгляду, ${formatAge((worldNow() - card.seenAt) / 1000)}.`
-              : 'Живьём сюда никто не смотрит, и в последний раз никто не смотрел.'}
+              ? `Сейчас не видно. Последний взгляд ${formatAge((worldNow() - card.seenAt) / 1000)}.`
+              : 'Сюда ещё никто не смотрел.'}
           {!card.visible && card.figuresHere.includes('scout') && (
-            <> Войско при этом считает разведчик у ворот: числа ниже — его донесение, а не наблюдение.</>
+            <> Числа ниже даёт разведчик у ворот.</>
           )}
           {!card.visible &&
             (card.figuresHere.includes('spy') ? (
-              <> Лазутчик уже здесь — поставь его наблюдателем, и будет видно живьём.</>
+              <> Прикажи лазутчику залечь, и станет видно.</>
             ) : (
-              <> Смотреть живьём может только лазутчик: доведи его и поставь наблюдателем.</>
+              <> Доведи лазутчика и прикажи залечь.</>
             ))}
         </p>
       )}
 
-      <h3>Войско</h3>
+      <h3>Сведения</h3>
       <div className="mod-list">
         <div className="mod">
           <span className="ico">⚔️</span>
@@ -357,7 +370,7 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
         </div>
         <div className="mod">
           <span className="ico">👥</span>
-          <span className="name">Население</span>
+          <span className="name">Жители</span>
           <span className="val">{formatEstimate(card.pop)}</span>
         </div>
         {/* Сколько можно взять — такие же разведданные, как численность, и
@@ -366,7 +379,7 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
             деревни (см. `LocalWorld.lootOpen`). */}
         <div className="mod">
           <span className="ico"><Icon name="ui-loot" glyph="📦" /></span>
-          <span className="name">Можно взять</span>
+          <span className="name">{card.mine ? 'На складе' : 'Добыча'}</span>
           <span className={`val ${card.loot.precision === 'unknown' ? 'neg' : ''}`}>
             {formatEstimate(card.loot)}
           </span>
@@ -374,39 +387,36 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
         {card.visible && card.marching && (
           <div className="mod total">
             <span className="ico"><Icon name="ui-banner" glyph="🚩" /></span>
-            <span className="name">Оттуда выходит войско</span>
+            <span className="name">Оттуда выходит отряд</span>
             <span className="val neg">видим</span>
           </div>
         )}
       </div>
       {!card.mine && (
         <p className="note">
-          Победитель забирает со склада всё, кроме того, что помещается в тайник, и не
-          больше, чем поднимет отряд. Сколько прячет их тайник — не узнать ни разведкой,
-          ни боем: узнаётся только то, что осталось на виду.
+          Победитель уносит всё сверх тайника, сколько поднимет отряд. Сколько в тайнике, не узнать.
         </p>
       )}
       {/* Только у замка, на который можно идти: у замка живого игрока набега нет вовсе. */}
       {card.castle && card.can.raid && (
         <p className="note">
-          В замке казна: удачный набег уносит её тем же правилом, что склад, — всё сверх тайника, сколько поднимет отряд.
-          Гарнизон здесь крепче обычного, и слабый отряд вернётся ни с чем.
+          Здесь лежит и золото. Гарнизон крепче обычного, слабый отряд вернётся ни с чем.
         </p>
       )}
       {card.mine ? (
-        <p className="note">Свои силы видны всегда. Чужие — только после разведки.</p>
+        <p className="note">Свои силы видны всегда.</p>
       ) : card.intel ? (
         <p className={`note${card.intel.precision === 'exact' ? '' : ' bad'}`}>
-          Данные получены {formatAge(card.intel.ageSeconds)} —{' '}
+          Сведения получены {formatAge(card.intel.ageSeconds)},{' '}
           {/* «Приблизительно» и «протухло» — разные вещи, и путать их нельзя:
               донесение лазутчика вилкой с самого начала, а не устарело. */}
           {card.intel.hearsay
-            ? `донесение лазутчика: числа приблизительны с самого начала${card.intel.precision === 'vague' ? ', и с возрастом от них остался только порядок величины' : ''}`
+            ? `числа лазутчика на глаз${card.intel.precision === 'vague' ? ' и устарели' : ''}`
             : PRECISION_NOTE[card.intel.precision]}
           .
         </p>
       ) : (
-        <p className="note bad">Про войско здесь мы ничего не знаем. Нужен разведчик у самых ворот.</p>
+        <p className="note bad">Сведений нет. Доведи разведчика к воротам.</p>
       )}
 
       {/* Донесение лазутчика: числа вилкой и с датой. Точного числа здесь не
@@ -428,7 +438,7 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
               );
             })}
           </div>
-          {card.intel.style && <p className="note">Уклад войска: {card.intel.style}.</p>}
+          {card.intel.style && <p className="note">Уклад: {card.intel.style}.</p>}
         </>
       )}
 
@@ -445,7 +455,7 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
             <div className="mod total">
               <span className="ico">⛺</span>
               <span className="name">
-                {card.siege.mine ? 'Наш лагерь у стен, стоит' : `Лагерь «${card.siege.byName}», стоит`}
+                {card.siege.mine ? 'Наш лагерь стоит' : `Лагерь «${card.siege.byName}» стоит`}
               </span>
               <span className="val">{realLeft(Math.max(0, (worldNow() - card.siege.since) / 1000))}</span>
             </div>
@@ -467,11 +477,11 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
           </div>
           {card.siege.mine || card.mine ? (
             <button className="btn wide" onClick={card.mine ? openSiege : openCamp}>
-              ⛺ Окно осады
+              Открыть осаду
             </button>
           ) : (
             <>
-              <p className="note">Под этими стенами уже стоит чужой лагерь. Разобьёшь его — осада снята.</p>
+              <p className="note">У стен чужой лагерь. Разобьёшь его, и осада снята.</p>
               <p className="note">{worksWords(card.siege, worldNow())}</p>
             </>
           )}
@@ -498,14 +508,11 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
           <div className="mod-list">
             <div className="mod total">
               <span className="ico">🔥</span>
-              <span className="name">Хозяйство стоит, гарнизон поредел</span>
+              <span className="name">Работы стоят, гарнизон поредел</span>
               <span className="val">{card.sack.look}</span>
             </div>
           </div>
-          <p className="note">
-            Здесь уже побывали: двор не растёт, а склад вычищен до тайника — брать сейчас
-            почти нечего. Отстроится сам.
-          </p>
+          <p className="note">Здесь уже побывали. Брать почти нечего, город отстроится сам.</p>
         </>
       )}
 
@@ -521,14 +528,11 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
             </div>
             <div className="mod">
               <span className="ico">⏳</span>
-              <span className="name">Окно закроется через</span>
+              <span className="name">Бунт стихнет через</span>
               <span className="val">{realLeft(secondsLeft(card.revolt.until, worldNow()))}</span>
             </div>
           </div>
-          <p className="note">
-            Пока идёт бунт, поселение не растёт и запасы в нём не копятся. Это время для удара, а не
-            для ожидания.
-          </p>
+          <p className="note">Пока идёт бунт, город не растёт и запасы не копятся. Время для удара.</p>
         </>
       )}
 
@@ -590,8 +594,7 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
               единого действия игрока, и выход обязан быть виден. */}
           {(card.diplomacy.attitude < 0 || card.diplomacy.standing === 'war') && (
             <p className="note">
-              Отношение само не выправляется: ни со временем, ни после войны. Поднимает его
-              дар — доведи дипломата к этим воротам и поднеси добра.
+              Отношение само не выправится. Доведи дипломата к воротам и поднеси дар.
               {card.diplomacy.standing === 'war'
                 ? ' Мир предлагает он же, и разбитый гарнизон соглашается охотнее.'
                 : ''}
@@ -626,12 +629,12 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
               className="btn wide"
               onClick={() => void openMenu(id, { x: card.x, y: card.y })}
             >
-              {FIGURE_BY_ID[id].icon} Приказы: {FIGURE_BY_ID[id].name.toLowerCase()}
+              <Icon name={`fig-${id}`} glyph={FIGURE_BY_ID[id].icon} /> Приказы: {FIGURE_BY_ID[id].name.toLowerCase()}
             </button>
           ))}
         {card.can.open && (
           <button className="btn wide" onClick={closeMap}>
-            🏘️ Открыть деревню
+            Открыть город
           </button>
         )}
         {/* Участь объявляется ударом или осадой — выбирают её прямо над ними. */}
@@ -642,7 +645,7 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
           <>
             {/* Полководец здесь и войско при нём — только теперь и можно ударить. */}
             <button className="btn wide" disabled={busy} onClick={() => void strike()}>
-              ⚔️ Ударить · {generalMen} бойцов
+              Ударить · {count(generalMen, 'боец', 'бойца', 'бойцов')}
             </button>
           </>
         )}
@@ -656,11 +659,11 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
                 setBusy(true);
                 const err = await besiege(fate);
                 setBusy(false);
-                showToast(err ?? `Дружина обложила ${card.name}. ${CAMP_LEAVE}`);
+                showToast(err ?? `${card.name} в осаде.`);
               })();
             }}
           >
-            ⛺ Осадить · {CAMP_LEAVE}
+            Осадить
           </button>
         )}
         {MISSIONS.filter((m) => m.id !== 'raid' && card.can[m.id]).map((m) => (
@@ -672,26 +675,24 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
             data-tut={m.id === 'scout' && mission !== 'scout' ? 'scout' : undefined}
             onClick={() => (mission === m.id ? setMission(null) : start(m.id))}
           >
-            {m.icon} {m.name}
+            <Icon name={m.id === 'scout' ? 'fig-scout' : 'ui-banner'} glyph={m.icon} /> {m.name}
           </button>
         ))}
       </div>
+      {card.can.besiege && <p className="note">{CAMP_LEAVE}</p>}
       {!card.mine && card.note && <p className="note">{card.note}</p>}
 
       {/* Своя деревня — единственное место, где полководец меняет состав войска. */}
       {card.mine && standing.includes('general') && <GarrisonEditor />}
 
       {standing.includes('scout') && !card.mine && (
-        <p className="note">👣 Разведчик стоит у ворот и считает войско: данные обновляются, пока он здесь.</p>
+        <p className="note">Пока разведчик у ворот, сведения свежие.</p>
       )}
 
       {standing.includes('diplomat') && !card.mine && card.tribeId && (
         <>
-          <h3>Союзы с племенем</h3>
-          <p className="note">
-            Это договоры со всем племенем. Отношения с самим двором — война, пакт, дар, оскорбление —
-            в приказах дипломату выше.
-          </p>
+          <h3>Предложить договор</h3>
+          <p className="note">Договор связывает всё племя. Пакт и дар одному городу — в приказах дипломату.</p>
           {DEALS.map((d) => (
             <div className="card" key={d.id}>
               <div className="ico">{d.icon}</div>
@@ -751,12 +752,12 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
             </div>
             <div className="mod">
               <span className="ico">↩️</span>
-              <span className="name">И столько же обратно</span>
+              <span className="name">Обратно</span>
               <span className="val">{stackSize(picked) > 0 ? waitLeft(eta) : '—'}</span>
             </div>
             <div className="mod total">
               <span className="ico"><Icon name="ui-home" glyph="🏠" /></span>
-              <span className="name">Оборона деревни станет</span>
+              <span className="name">Оборона города</span>
               <span className={`val ${defAfter < def * 0.5 ? 'neg' : ''}`}>
                 {fmt(def)} → {fmt(defAfter)}
               </span>
@@ -764,8 +765,8 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
           </div>
           <p className={`note${picked.warrior > 0 ? ' bad' : ''}`}>
             {picked.warrior > 0
-              ? 'Пока отряд в пути, эти воины деревню не защищают. Отозвать можно в любой момент.'
-              : 'Разведчики уходят из строителей: стройка на это время замедлится.'}
+              ? 'Пока отряд в пути, город он не защищает. Отозвать его можно в походах.'
+              : 'Разведчиков берут из свободных рук, стройка замедлится.'}
           </p>
 
           <button
@@ -774,10 +775,7 @@ export function WorldPanel({ x, y }: { x: number; y: number }) {
             disabled={busy || stackSize(picked) === 0}
             onClick={() => void doSend()}
           >
-            {MISSIONS.find((m) => m.id === mission)?.icon} Отправить{' '}
-            {UNITS.filter((u) => picked[u.id] > 0)
-              .map((u) => `${u.icon}${picked[u.id]}`)
-              .join(' ')}
+            Отправить · {stackSize(picked)}
           </button>
         </>
       )}

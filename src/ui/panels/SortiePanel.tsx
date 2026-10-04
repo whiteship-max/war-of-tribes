@@ -100,7 +100,7 @@ export function SortiePanel() {
             <div className="lvl">под стенами никого</div>
           </div>
         </div>
-        <p className="note">Осада снята. Выходить не на кого.</p>
+        <p className="note">Осада снята.</p>
       </div>
     );
   }
@@ -148,21 +148,21 @@ export function SortiePanel() {
         <div className="ico">⛺</div>
         <div className="body">
           <div className="title">
-            {fc.now.works <= 0 ? 'Со стороны города рогаток нет' : fc.now.works < 1 ? 'Со стороны города рогатки растут' : 'Со стороны города рогатки дозрели'}
+            {fc.now.works <= 0 ? 'Рогаток нет' : fc.now.works < 1 ? 'Рогатки растут' : 'Рогатки дозрели'}
           </div>
           <div className="desc">
             {fc.now.works <= 0
-              ? `Лагерь только встал: к бою пройдут все, кого выпустишь.`
-              : `Со стороны города рогатки, ров и частокол достроены на ${Math.floor(fc.now.works * 100)}%: к бою пробьётся не больше ${pass} бойцов строя.`}
+              ? `Лагерь только встал. К бою пройдут все.`
+              : `Со стороны города рогатки готовы на ${Math.floor(fc.now.works * 100)}%. К бою пробьются не больше ${pass}.`}
             {fc.now.works > 0 &&
               fc.now.free < 1 &&
-              ` Проход занят прошедшими раньше: сейчас пропустит ${fc.now.room}, освободится через ${realLeft(secondsLeft(fc.clearAt, now))} — тогда не больше ${fc.clearPass}.`}
+              ` Проход занят, сейчас пройдут ${fc.now.room}. Освободится через ${realLeft(secondsLeft(fc.clearAt, now))}, тогда пройдут не больше ${fc.clearPass}.`}
             {fc.now.works < 1 &&
-              ` Дозреют через ${realLeft(secondsLeft(fc.ripeAt, now))} — тогда не больше ${fc.ripePass}. С каждой минутой проход уже.`}
+              ` Дозреют через ${realLeft(secondsLeft(fc.ripeAt, now))}, тогда пройдут не больше ${fc.ripePass}.`}
             {men > 0 &&
               (fc.now.passed < fc.now.went
-                ? ` В выбранном отряде ${fc.now.went} бойцов строя — к рогаткам пробьются ${fc.now.passed}, остальные в бою не будут.`
-                : ` Выбранный отряд — ${fc.now.went} бойцов строя — пройдёт весь.`)}
+                ? ` К бою пробьются ${fc.now.passed} из ${fc.now.went}.`
+                : ` Отряд пройдёт весь.`)}
           </div>
         </div>
       </div>
@@ -172,7 +172,7 @@ export function SortiePanel() {
       </h3>
       {troopTotal(home) === 0 ? (
         <div className="desc">
-          В гарнизоне никого. Вылазку делают бойцами — найми кого-нибудь в казармах, если успеешь.
+          В гарнизоне никого. Найми бойцов в казармах.
         </div>
       ) : (
         <div className="mod-list">
@@ -207,10 +207,7 @@ export function SortiePanel() {
         </div>
       )}
       {standing > 0 && (
-        <p className="note">
-          Полководец в городе, и его дружина ({standing}) — часть гарнизона: она в списке выше и выходит
-          вылазкой вместе с остальными.
-        </p>
+        <p className="note">Отряд полководца стоит дома и выходит со всеми.</p>
       )}
 
       <div className="cost">
@@ -231,12 +228,12 @@ export function SortiePanel() {
       {siege.campRest && <p className="note">{restLine(siege.campRest, 'Лагерь дрался', now)}</p>}
       {refused && <p className="note bad">{gateBusyText(fc.now.waitMs)}</p>}
       <button className="btn wide" disabled={busy || men === 0 || refused} onClick={() => void go()}>
-        ⚔️ Выйти {men > 0 ? `(${men})` : ''}
+        Выйти{men > 0 ? ` · ${men}` : ''}
       </button>
 
       <p className="note">
-        Победа снимает осаду, и город снова ест. Поражение её не снимает — но и лагерю достаётся:
-        часы голода после этого считаются заново, от того гарнизона, который остался.
+        Победа снимает осаду. После поражения потери несёт и лагерь, а срок голода считается заново по
+        оставшимся.
       </p>
     </div>
   );

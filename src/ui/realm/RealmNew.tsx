@@ -13,21 +13,20 @@ import { POINTS_CAP, REALM_BRANCHES, levelPrice, levelsOf } from '@/game/data/re
 import { pointsOf, rulerRate } from '@/game/sim/points';
 import { levelName, study, studyInfo, techGains, techLevel } from '@/game/sim/tech';
 import type { RealmBranch } from '@/game/types';
-import { profileCity, profileName } from '@/profile/identity';
+import { cityName, profileCity, profileName } from '@/profile/identity';
+import { setCity } from '@/profile/stats';
+import { CITY_MAX } from '../../../netlify/lib/contract';
 import { Icon } from '@/ui/icons/Icon';
 import { waitLeft } from '@/ui/parts/wait';
 import { tipAt } from '@/ui/next/tip';
 import { CoatArt } from './Coat';
 import { useRealm, type RealmView } from './open';
 import { Section, useRealmYield } from './RealmMenu';
+import { BRANCH_ICON, BRANCH_WORD } from './branches';
+import { DecreesNew, FaithNew, QuestsNew, RulerNew } from './RealmTabs';
 
-/** Ветви словами словаря (4.4): управление · дипломатия · война. */
-export const BRANCH_WORD: Record<RealmBranch, string> = { admin: 'Управление', diplo: 'Дипломатия', war: 'Война' };
-export const BRANCH_ICON: Record<RealmBranch, { name: string; glyph: string }> = {
-  admin: { name: 'pts-adm', glyph: '📜' },
-  diplo: { name: 'pts-dip', glyph: '🕊️' },
-  war: { name: 'pts-mil', glyph: '⚔️' },
-};
+// Ветви словами словаря и их значки — общие с вкладками (`branches.ts`).
+export { BRANCH_ICON, BRANCH_WORD } from './branches';
 
 /** Вкладки нового меню: пять, значком и словом. Остальные разделы — внизу экрана или в профиле. */
 export const NEW_TABS: readonly { id: RealmView; word: string; icon: string; glyph: string }[] = [
@@ -43,9 +42,21 @@ export function RealmNew() {
   const go = useRealm((r) => r.go);
   const hide = useRealm((r) => r.hide);
   const s = useGame((g) => g.s);
+  const act = useGame((g) => g.act);
+  const save = useGame((g) => g.save);
   const [top, setTop] = useState(0);
+  // Имя города правится в шапке (docs/ui_audit.md, 13): черновик — сырой ввод, очищает одна дверь `setCity`.
+  const [draft, setDraft] = useState<string | null>(null);
   const body = useRef<HTMLDivElement>(null);
   useRealmYield();
+
+  const commitCity = (): void => {
+    if (draft !== null && cityName(draft) !== null) {
+      act((st) => setCity(st, draft));
+      save();
+    }
+    setDraft(null);
+  };
 
   // Меню стоит под верхом, а не поверх него: запасы не закрывает ни одно окно.
   useEffect(() => {
@@ -74,19 +85,52 @@ export function RealmNew() {
         </div>
       ) : (
         <>
-          <div className="nx-rhead">
-            <CoatArt size={28} />
-            <div className="nx-rtitle">
-              <b className="one-line">{profileCity(s.profile)}</b>
-              <i className="one-line">{profileName(s.profile)}</i>
+          {draft !== null ? (
+            <div className="nx-rhead">
+              <CoatArt size={28} />
+              <form
+                className="nx-rtitle nx-rform"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  commitCity();
+                }}
+              >
+                <input
+                  className="nx-rin"
+                  value={draft}
+                  maxLength={CITY_MAX}
+                  autoFocus
+                  enterKeyHint="done"
+                  aria-label="Имя города"
+                  placeholder={profileCity(s.profile)}
+                  onChange={(e) => setDraft(e.target.value)}
+                />
+              </form>
+              <button className="nx-ibtn" onClick={commitCity} aria-label="Готово">
+                <Icon name="ui-check" glyph="✔️" />
+              </button>
+              <button className="nx-ibtn" onClick={() => setDraft(null)} aria-label="Отмена">
+                <Icon name="ui-close" glyph="✕" />
+              </button>
             </div>
-            <button className={`nx-ibtn${view === 'settings' ? ' on' : ''}`} onClick={() => go('settings')} aria-label="Профиль и настройки">
-              <Icon name="ui-person" glyph="👤" />
-            </button>
-            <button className="nx-ibtn" onClick={hide} aria-label="Закрыть">
-              <Icon name="ui-close" glyph="✕" />
-            </button>
-          </div>
+          ) : (
+            <div className="nx-rhead">
+              <CoatArt size={28} />
+              <button className="nx-rtitle nx-rname" onClick={() => setDraft(cityName(s.profile.city) ?? '')} aria-label="Сменить имя города">
+                <span className="nx-rcity">
+                  <b className="one-line">{profileCity(s.profile)}</b>
+                  <Icon name="ui-edit" glyph="✏️" />
+                </span>
+                <i className="one-line">{profileName(s.profile)}</i>
+              </button>
+              <button className={`nx-ibtn${view === 'settings' ? ' on' : ''}`} onClick={() => go('settings')} aria-label="Профиль и настройки">
+                <Icon name="ui-person" glyph="👤" />
+              </button>
+              <button className="nx-ibtn" onClick={hide} aria-label="Закрыть">
+                <Icon name="ui-close" glyph="✕" />
+              </button>
+            </div>
+          )}
           <PointsRow />
           <div className="nx-rtabs" role="tablist">
             {NEW_TABS.map((t) => (
@@ -99,10 +143,31 @@ export function RealmNew() {
         </>
       )}
       <div className="realm-body nx-rbody" ref={body}>
-        {view === 'tech' ? <TechGrid /> : <Section view={view} />}
+        <TabBody view={view} />
       </div>
     </div>
   );
+}
+
+/**
+ * Раздел нового вида: четыре вкладки и технологии — своими компонентами (`RealmTabs.tsx`), профиль и вести — те же,
+ * что у прежнего меню (`Section`).
+ */
+function TabBody({ view }: { view: RealmView }) {
+  switch (view) {
+    case 'tech':
+      return <TechGrid />;
+    case 'lineage':
+      return <RulerNew />;
+    case 'government':
+      return <DecreesNew />;
+    case 'faith':
+      return <FaithNew />;
+    case 'quests':
+      return <QuestsNew />;
+    default:
+      return <Section view={view} />;
+  }
 }
 
 /** Строка очков правителя: три ячейки-справки, тап — приток и потолок. */

@@ -79,7 +79,8 @@ import { Walls } from '../parts/Walls';
 import { TowerEngine } from '../parts/TowerEngine';
 import { Masters } from '../parts/Masters';
 import { FoodLeft, WinterForecast } from '../parts/Provisions';
-import { waitMinSec, waitShort } from '../parts/wait';
+import { waitMinSec, waitSpan } from '../parts/wait';
+import { count } from '../parts/plural';
 import { gainText, levelLiftsHand, spareSlotsHelp, upgradeGains, type UpgradeGain } from '../parts/upgrade';
 import { troopBlock, troopOpen } from '@/game/sim/tech';
 import { Icon } from '@/ui/icons/Icon';
@@ -118,7 +119,7 @@ function BuildingOld({ id }: { id: number }) {
     return (
       <div className="panel">
         <h2>Здания больше нет</h2>
-        <div className="desc">Постройка исчезла — загляни в список посёлка.</div>
+        <div className="desc">Все постройки видны в ратуше.</div>
       </div>
     );
   }
@@ -144,7 +145,7 @@ function BuildingOld({ id }: { id: number }) {
         <div className="body">
           <div className="name">{buildingTitle(s, b.type)}</div>
           <div className="lvl">
-            {`Уровень ${b.level} из ${def.maxLevel ?? MAX_BUILDING_LEVEL}`}
+            {`ур. ${b.level}/${def.maxLevel ?? MAX_BUILDING_LEVEL}`}
             {canLevel && (
               <span className="pips">
                 {Array.from({ length: def.maxLevel ?? MAX_BUILDING_LEVEL }, (_, i) => (
@@ -156,7 +157,7 @@ function BuildingOld({ id }: { id: number }) {
         </div>
         {!site && canLevel && (
           <button className="btn" disabled={up.blocked !== null} onClick={() => act((st) => startUpgrade(st, b.id))}>
-            До {up.level} ур.
+            Улучшить
           </button>
         )}
       </div>
@@ -165,8 +166,7 @@ function BuildingOld({ id }: { id: number }) {
 
       {isOutsideWall(b.type) && (
         <div className="note">
-          ⚠️ Двор стоит за стеной. Прорвавшийся набег разгонит отсюда людей: двор встанет, пока их не
-          вернёшь. Внутри стены людей со двора набег не сгоняет.
+          Двор за стеной. Прорвавшийся набег разгонит людей, и двор встанет, пока их не вернёшь.
         </div>
       )}
 
@@ -177,10 +177,10 @@ function BuildingOld({ id }: { id: number }) {
           </div>
           <div className="body">
             <div className="title">
-              Улучшение до {b.level + 1} уровня
-              <span className="count">{inQueue ? 'в очереди' : eta !== null ? `~${waitShort(eta)}` : 'нет строителей'}</span>
+              Стройка до ур. {b.level + 1}
+              <span className="count">{inQueue ? 'в очереди' : eta !== null ? waitSpan(eta) : 'нет строителей'}</span>
             </div>
-            <div className="desc">Здание в лесах, но работает: рабочие на местах, выработка идёт.</div>
+            <div className="desc">Пока идёт стройка, здание работает.</div>
             <div className="progress">
               <div style={{ width: `${Math.floor((b.work / Math.max(1, b.workRequired)) * 100)}%` }} />
             </div>
@@ -241,11 +241,11 @@ function WorkerSlots({ b, gains }: { b: Building; gains: UpgradeGain[] | null })
   const spare = slots > hands;
   const status = !spare
     ? nextSlots
-      ? 'Все места заняты — нужен уровень выше.'
+      ? 'Все места заняты. Улучши здание.'
       : `Все места заняты.${next ? ` ${next}` : ''}`
     : spareSlotsHelp(s, b, hands)
       ? `Свободных мест: ${slots - hands}.${next ? ` ${next}` : ''}`
-      : `Свободных мест: ${slots - hands}, но занять их незачем — то, что они дают, уже упёрлось в потолок.`;
+      : `Свободных мест: ${slots - hands}. Новые люди здесь ничего не прибавят.`;
   // Ряд невольников показывается там, где их ставят, и только когда есть кого
   // ставить или кто-то уже стоит: пустой ряд у посёлка без невольников — шум.
   const bondedRow = takesBonded(b) && (bondedTotal(s) > 0 || bonded > 0);
@@ -264,8 +264,8 @@ function WorkerSlots({ b, gains }: { b: Building; gains: UpgradeGain[] | null })
         </div>
         <div className="body">
           <div className="title">
-            Рабочих в здании
-            <span className="count">свободных: {free}</span>
+            Рабочие
+            <span className="count">свободных рук: {free}</span>
           </div>
           <div className="desc">{status}</div>
         </div>
@@ -286,12 +286,12 @@ function WorkerSlots({ b, gains }: { b: Building; gains: UpgradeGain[] | null })
             <div className="ico">{ORDER_TEXT.bondedIcon}</div>
             <div className="body">
               <div className="title">
-                Невольников на местах
+                Невольники
                 <span className="count">без места: {bondedIdle(s)}</span>
               </div>
               <div className="desc">
-                Места общие с вольными. Невольник даёт {Math.round(BONDED_OUTPUT * 100)}% того, что вольный на том же месте, и
-                ест наравне со всеми.
+                Места общие с вольными. Невольник даёт {Math.round(BONDED_OUTPUT * 100)}% выработки вольного и ест наравне со
+                всеми.
               </div>
             </div>
           </div>
@@ -422,31 +422,31 @@ function CampfireData() {
   return (
     <>
       <h3>
-        У костра <span className="muted">свободных: {idle}</span>
+        У костра <span className="muted">свободных рук: {idle}</span>
       </h3>
       <div className="note">
         {site
-          ? `Свободные жители строят: ${buildingTitle(s, site.type)} (${Math.floor((site.work / Math.max(1, site.workRequired)) * 100)}%).`
-          : 'Свободные жители отдыхают. Начни улучшение, чтобы занять их.'}
+          ? `Свободные руки на стройке: ${buildingTitle(s, site.type)}, ${Math.floor((site.work / Math.max(1, site.workRequired)) * 100)}%.`
+          : 'Свободные руки отдыхают. Начни стройку.'}
       </div>
 
       <h3>Вольный сбор</h3>
-      <div className="note">Работа без места в здании идёт вполсилы. Поставь человека в его двор — те же руки дадут вдвое больше.</div>
+      <div className="note">Без своего двора человек даёт {Math.round(FREE_RANGE_MULT * 100)}% выработки.</div>
       {FREE_JOBS.map((jobId) => (
         <FreeJobRow key={jobId} job={jobId} />
       ))}
 
-      <h3>Настроение</h3>
+      <h3>Мораль и слава</h3>
       <div className="mod">
         <span className="ico">
           <Icon name={moodOf(s.morale).name} glyph={moodOf(s.morale).glyph} />
         </span>
-        <span className="name">Мораль племени</span>
+        <span className="name">Мораль</span>
         <span className="val">{Math.round(s.morale)}</span>
       </div>
       <div className="mod">
         <span className="ico">🏅</span>
-        <span className="name">Престиж</span>
+        <span className="name">Слава</span>
         <span className="val">{Math.round(s.prestige)}</span>
       </div>
     </>
@@ -512,7 +512,7 @@ function StorageData() {
             <span className="name">{RESOURCE_META[r].name}</span>
             <span className={`val${full ? ' full' : ''}`}>{Math.floor(v)}</span>
             <span className={`delta ${net[r] > 0.05 ? 'pos' : net[r] < -0.05 ? 'neg' : ''}`}>
-              {full ? 'полно' : `${fmtDelta(net[r])}/д`}
+              {full ? 'полно' : `${fmtDelta(net[r])} в день`}
             </span>
             <span className="bar">
               <i style={{ width: `${pct}%` }} className={full ? 'full' : ''} />
@@ -524,13 +524,8 @@ function StorageData() {
       <FoodLeft />
       <WinterForecast />
 
-      <h3>
-        Снаряжение <span className="muted">вместимость не расходует</span>
-      </h3>
-      <div className="note">
-        Снаряжение куют в кузнице, тратят в казармах. Склад его не ограничивает и чужой набег
-        его не уносит.
-      </div>
+      <h3>Снаряжение</h3>
+      <div className="note">Места на складе не занимает, набег его не уносит.</div>
       {EQUIPMENT.map((e) => (
         <div className="res-line" key={e.id}>
           <span className="ico">
@@ -547,7 +542,7 @@ function StorageData() {
 /** Частокол и башня: итог обороны у них показывает раздел «Оборона», а не список ниже. */
 const WALLS: Building['type'][] = ['palisade', 'tower'];
 
-/** Обычное здание: что оно производит и что даёт посёлку. */
+/** Обычное здание: что оно производит и что даёт городу. */
 function GenericData({ b }: { b: Building }) {
   const s = useGame((g) => g.s);
   // Новый интерфейс: число рабочих стоит в строке рабочих, множитель уровня — в подсказке; здесь — только
@@ -561,7 +556,7 @@ function GenericData({ b }: { b: Building }) {
   const jobDef = def.job ? JOB_BY_ID[def.job] : null;
   const lifts = jobDef !== null && levelLiftsHand(s, b);
 
-  // Строка «что даёт посёлку»: имя значка, эмодзи на его месте, название, величина.
+  // Строка «что даёт городу»: имя значка, эмодзи на его месте, название, величина.
   // Имя стоит рядом с эмодзи, а не вместо: пока значка нет, показывается эмодзи.
   const stats: [string, string, string, string][] = [];
   const housing = buildingHousing(b);
@@ -569,7 +564,7 @@ function GenericData({ b }: { b: Building }) {
   const storage = buildingStat(b, 'storage');
   if (storage) stats.push(['bld-storage', '🧺', 'К вместимости склада', `+${storage}`]);
   const def_ = buildingStat(b, 'defense');
-  if (def_) stats.push(['gear-shield', '🛡️', next ? 'К обороне города' : 'К защите поселения', `+${def_}`]);
+  if (def_) stats.push(['gear-shield', '🛡️', 'К обороне города', `+${def_}`]);
   const morale = buildingStat(b, 'morale');
   if (morale) stats.push(['mood-good', '😊', 'К морали', `+${morale}`]);
   // Службы посёлка: у каждой одно число, и лучше показать его словами игрока,
@@ -581,28 +576,28 @@ function GenericData({ b }: { b: Building }) {
     const { lying, carried } = woundedStacks(s);
     const heads = troopTotal(lying);
     const soon = (s.wounded ?? []).reduce((m, g) => (g.until === null ? m : Math.min(m, g.until)), Infinity);
-    stats.push(['ui-bandage', '🩹', 'Павших ляжет ранеными', `${Math.round(healShare(s) * 100)}%`]);
+    stats.push(['ui-bandage', '🩹', 'Раненых среди павших', `${Math.round(healShare(s) * 100)}%`]);
     // Место — боец строя: всадник занимает столько, сколько весит в бою (docs/stable.md).
-    stats.push(['ui-bandage', '🛏️', 'Мест занято (бойцов строя)', `${Math.round(bedsTaken(s))} из ${infirmaryBeds(s)}`]);
+    stats.push(['ui-bandage', '🛏️', 'Мест занято', `${Math.round(bedsTaken(s))} из ${infirmaryBeds(s)}`]);
     if (heads > 0) stats.push(['ui-bandage', '🩹', 'Лежит раненых', `${heads}`]);
-    if (Number.isFinite(soon)) stats.push(['ui-time', '⏳', 'Первые встанут в строй через', waitMinSec(asGame(soon - s.time))]);
-    if (troopTotal(carried) > 0) stats.push(['ui-bandage', '🩹', 'Раненых при полководце', `${troopTotal(carried)}`]);
+    if (Number.isFinite(soon)) stats.push(['ui-time', '⏳', 'Первые встанут через', waitMinSec(asGame(soon - s.time))]);
+    if (troopTotal(carried) > 0) stats.push(['ui-bandage', '🩹', 'Раненых в отряде полководца', `${troopTotal(carried)}`]);
   }
   if (b.type === 'watch') {
-    stats.push(['ui-spyglass', '🔭', 'Разведданные стареют', `в ${intelKeen(s).toFixed(2)} раза медленнее`]);
+    stats.push(['ui-spyglass', '🔭', 'Сведения стареют', `в ${intelKeen(s).toFixed(2)} раза медленнее`]);
     // Минуты с секундами, а не округлённые минуты: округление и было враньём
     // кнопки — девять уровней обещали девять минут, а давали шесть.
     stats.push(['ui-time', '⏳', 'Набег виден дольше на', waitMinSec(warningSeconds(s))]);
     stats.push([
       'hud-map',
       '🗺️',
-      'Округа изучена на',
-      surveyRadius(s) > 0 ? `${surveyRadius(s)} клеток` : 'только круг деревни',
+      'Округа разведана на',
+      surveyRadius(s) > 0 ? count(surveyRadius(s), 'клетку', 'клетки', 'клеток') : 'только вокруг города',
     ]);
   }
   if (b.type === 'stable') {
     stats.push(['troop-horse', '🐎', 'Стойла заняты', `${stallsTaken(s)} из ${stalls(s)}`]);
-    stats.push(['troop-horse', '🐎', 'Конница учится', `×${cavalryTrain(s).toFixed(2)}`]);
+    stats.push(['troop-horse', '🐎', 'Конница учится быстрее', `×${cavalryTrain(s).toFixed(2)}`]);
     // Латных всадников конюшня больше не открывает — их открывает доспех в военной ветви
     // (решение владельца 3). Строка про это стоит там, где игрок нажимает, — в самом найме,
     // и говорит её гейт; второй правды об открытии здесь быть не должно.
@@ -614,16 +609,16 @@ function GenericData({ b }: { b: Building }) {
   // сказано об этом прямо: иначе тайник читается как мелкая прибавка.
   if (b.type === 'cache') {
     const now = stashAt(b.level);
-    stats.push(['ui-loot', '🧰', 'Прячет сейчас', `${now} каждого припаса`]);
+    stats.push(['ui-loot', '🧰', 'Прячет сейчас', `по ${now} каждого запаса`]);
     if (b.level < maxLevelFor(b.type)) {
       const next = stashAt(b.level + 1);
-      stats.push(['ui-crate', '📦', `На ${b.level + 1} уровне`, `${next} (+${next - now})`]);
+      stats.push(['ui-crate', '📦', `На ур. ${b.level + 1}`, `${next} · +${next - now}`]);
     }
   }
-  if (b.type === 'workshop') stats.push(['ui-hammer', '🔨', 'К скорости улучшений', `+${crafterBuildShare(s).toFixed(1)}/с`]);
-  if (b.type === 'smithy') stats.push(['hud-army', '⚔️', 'Мощь армии сейчас', armyPower(s).toFixed(0)]);
-  if (housing) stats.push(['hud-pop', '👥', next ? 'Всего мест в городе' : 'Всего мест в посёлке', next ? `${housingCapacity(s)} на ${s.pop}` : `${housingCapacity(s)} на ${s.pop} чел.`]);
-  if (def_ && !WALLS.includes(b.type)) stats.push(['hud-army', '⚔️', next ? 'Оборона города' : 'Защита посёлка', defense(s).toFixed(0)]);
+  if (b.type === 'workshop') stats.push(['ui-hammer', '🔨', 'К скорости стройки', `+${crafterBuildShare(s).toFixed(1)}`]);
+  if (b.type === 'smithy') stats.push(['hud-army', '⚔️', 'Мощь дружины', armyPower(s).toFixed(0)]);
+  if (housing) stats.push(['hud-pop', '👥', 'Жители', `${s.pop} из ${housingCapacity(s)}`]);
+  if (def_ && !WALLS.includes(b.type)) stats.push(['hud-army', '⚔️', 'Оборона города', defense(s).toFixed(0)]);
 
   return (
     <>
@@ -643,8 +638,8 @@ function GenericData({ b }: { b: Building }) {
           ) : (
             <div className="note">
               {handsCount(s, b.id) === 0
-                ? 'Здание стоит без рабочих — поставь кого-нибудь на место.'
-                : 'Это здание не даёт ресурсов напрямую.'}
+                ? 'Нет рабочих. Поставь людей на места.'
+                : 'Здание не пополняет склад.'}
             </div>
           )}
           {workers > 0 && !next && (
@@ -680,8 +675,8 @@ function GenericData({ b }: { b: Building }) {
           {!next && (
             <div className="note">
               {lifts
-                ? `Уровень ${b.level}: каждый рабочий работает на ×${levelOutputMult(b.level).toFixed(2)} от базы.`
-                : 'Уровень здания рабочих не усиливает: каждый даёт своё по голове, до потолка.'}
+                ? `На ур. ${b.level} каждый рабочий даёт ×${levelOutputMult(b.level).toFixed(2)}.`
+                : 'Уровень здания рабочих не усиливает.'}
             </div>
           )}
         </>
@@ -689,7 +684,7 @@ function GenericData({ b }: { b: Building }) {
 
       {stats.length > 0 && (
         <>
-          <h3>{next ? 'Что даёт городу' : 'Что даёт посёлку'}</h3>
+          <h3>Что даёт городу</h3>
           {stats.map(([art, glyph, name, val], i) => (
             <div className="mod" key={i}>
               <span className="ico">
