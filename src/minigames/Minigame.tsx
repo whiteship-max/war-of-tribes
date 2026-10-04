@@ -5,9 +5,10 @@
 // (`prologue/Prologue.tsx`): отданный контекст WebGL элемент не отпускает, а холст, положенный последним, закрыл бы
 // надстройку. Города под этим экраном нет вовсе: `App` не рисует `GameCanvas`, пока идёт промысел.
 //
-// В ПАРТИЮ ИДЁТ ОДИН ВЫЗОВ — `sim/minigames.harvest` в конце игры: трата энергии и добыча вместе. Ушёл посреди
-// игры — ни того, ни другого. Числа на карточках — той же дверью (`minigameHaul`, `energyShown`), а не своей
-// арифметикой (правило 18).
+// В ПАРТИЮ ИДУТ ДВА ВЫЗОВА ОДНОЙ ДВЕРИ: «Начать» списывает энергию и пишет партию на диск сразу
+// (`sim/minigames.beginMinigame`), итог кладёт добычу по выданному походу (`harvest`). Ушёл посреди игры — энергия
+// потеряна, добычи нет, а следующий заход — уже в новую раскладку (решение владельца 04.10.2026). Числа на карточках —
+// той же дверью (`minigameHaul`, `energyShown`), а не своей арифметикой (правило 18).
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import './minigames.css';
 import { probe } from '@/debug';
@@ -15,7 +16,7 @@ import { useGame } from '@/game/store';
 import { RESOURCE_IDS, RESOURCE_META } from '@/game/constants';
 import { seasonOf } from '@/game/derived';
 import { ENERGY_MAX, MINIGAME_BY_ID, MINIGAME_COST, type MinigameId } from '@/game/data/minigames';
-import { canPlay, energyReadyIn, harvest, minigameHaul, minigameSeed, type Harvest, type Haul } from '@/game/sim/minigames';
+import { beginMinigame, canPlay, energyReadyIn, harvest, minigameHaul, minigameSeed, type Harvest, type Haul, type Outing } from '@/game/sim/minigames';
 import { Icon } from '@/ui/icons/Icon';
 import { realSpanText } from '@/ui/parts/wait';
 import { energyNow } from '@/ui/trades';
@@ -40,8 +41,8 @@ const LEAVE_MS = 3000;
 /** Что считает игра — подписью счёта и итога. */
 const TALLY_WORDS: Record<MinigameId, { short: (t: Tally) => string; done: (t: Tally) => string }> = {
   berries: { short: (t) => `Ягод ${t.got}`, done: (t) => `Собрано ${t.got} из ${t.total}` },
-  herd: { short: (t) => `Охапок ${t.got} из ${t.total}`, done: (t) => `Отдано охапок: ${t.got} из ${t.total}` },
-  hunt: { short: (t) => `Оленей ${t.got} из ${t.total}`, done: (t) => `Добыто оленей: ${t.got} из ${t.total}` },
+  herd: { short: (t) => `Охапок ${t.got} из ${t.total}`, done: (t) => `Отдано охапок ${t.got} из ${t.total}` },
+  hunt: { short: (t) => `Оленей ${t.got} из ${t.total}`, done: (t) => `Добыто оленей ${t.got} из ${t.total}` },
 };
 
 /** Подсказка на первые секунды: как ходить и как держать лук. */
@@ -74,6 +75,8 @@ export function Minigame({ game, onExit }: { game: MinigameId; onExit: () => voi
   const meterRef = useRef<HTMLDivElement>(null);
   const aimRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<Stage | null>(null);
+  // Поход, выданный на «Начать»: по нему итог кладёт добычу. Нет похода — «Начать» ещё не нажимали.
+  const outingRef = useRef<Outing | null>(null);
   // Зерно и «до N» — на входе: раскладка не меняется посреди игры, что бы ни случилось с партией.
   const [seed] = useState(() => minigameSeed(useGame.getState().s, game));
   const [top] = useState(() => minigameHaul(useGame.getState().s, game, 1));
@@ -105,12 +108,13 @@ export function Minigame({ game, onExit }: { game: MinigameId; onExit: () => voi
       made.stickEl = stickRef.current;
       made.meterEl = meterRef.current;
       made.aimEl = aimRef.current;
-      // Время вышло — итог: трата и добыча одним вызовом двери.
+      // Время вышло — итог: добыча по походу, энергия списана ещё на «Начать».
       made.onEnd = (tally) => {
-        let out: Harvest | string = 'Энергии не хватает';
+        const outing = outingRef.current;
+        let out: Harvest | string = 'Добыча не засчитана';
         const g = useGame.getState();
-        const ok = g.act((st) => {
-          const r = harvest(st, game, energyNow(), shareOf(tally));
+        const ok = outing !== null && g.act((st) => {
+          const r = harvest(st, outing, energyNow(), shareOf(tally));
           if (typeof r === 'string') return r;
           out = r;
           return null;
@@ -155,6 +159,25 @@ export function Minigame({ game, onExit }: { game: MinigameId; onExit: () => voi
     const t = setTimeout(() => setLeave(false), LEAVE_MS);
     return () => clearTimeout(t);
   }, [leave]);
+
+  /**
+   * «Начать»: энергия списывается здесь и партия сразу ложится на диск — закрытое посреди игры приложение трату не
+   * вернёт. Второе касание до перерисовки второго похода не выдаёт: поход уже есть.
+   */
+  const start = (): void => {
+    const stage = stageRef.current;
+    if (!stage || outingRef.current) return;
+    const g = useGame.getState();
+    const ok = g.act((st) => {
+      const r = beginMinigame(st, game, energyNow());
+      if (typeof r === 'string') return r;
+      outingRef.current = r;
+      return null;
+    });
+    if (!ok) return;
+    g.save();
+    stage.begin();
+  };
 
   const phase = view?.phase ?? 'brief';
   const words = TALLY_WORDS[game];
@@ -228,7 +251,7 @@ export function Minigame({ game, onExit }: { game: MinigameId; onExit: () => voi
             <button className="mg-back" onClick={onExit}>
               Назад
             </button>
-            <button className="mg-go" disabled={!ready} onClick={() => stageRef.current?.begin()}>
+            <button className="mg-go" disabled={!ready} onClick={start}>
               Начать
             </button>
           </div>
@@ -249,13 +272,13 @@ export function Minigame({ game, onExit }: { game: MinigameId; onExit: () => voi
                 <span className="mg-res mg-muted">На склад</span>
                 {Object.keys(result.stored).length > 0 ? <HaulRow haul={result.stored} /> : <span className="mg-res">ничего</span>}
               </div>
-              {RESOURCE_IDS.some((r) => (result.stored[r] ?? 0) < (result.got[r] ?? 0)) && <small className="mg-why">Склад полон: легло не всё</small>}
+              {RESOURCE_IDS.some((r) => (result.stored[r] ?? 0) < (result.got[r] ?? 0)) && <small className="mg-why">Склад полон, легло не всё</small>}
               <small className="mg-muted">
                 Энергия {result.energy} из {ENERGY_MAX}
               </small>
             </>
           )}
-          {typeof result === 'string' && <small className="mg-why">{result}: добыча не засчитана</small>}
+          {typeof result === 'string' && <small className="mg-why">{result}</small>}
           <div className="mg-actions">
             <button className="mg-go" onClick={onExit}>
               В город

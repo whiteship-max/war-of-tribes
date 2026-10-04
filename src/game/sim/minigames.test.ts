@@ -17,6 +17,7 @@ import { SEASON_SECONDS } from '../data/seasons';
 import { ENERGY_MAX, ENERGY_REFILL, MINIGAME_COST, MINIGAME_SHARE, MINIGAMES, type MinigameId } from '../data/minigames';
 import type { GameState } from '../types';
 import {
+  beginMinigame,
   canPlay,
   dailyOutput,
   energyAt,
@@ -28,6 +29,7 @@ import {
   minigameHaul,
   minigameSeed,
   minigameShares,
+  refillEnergy,
   type Harvest,
 } from './minigames';
 
@@ -51,6 +53,12 @@ const done = (r: Harvest | string): Harvest => {
   return r;
 };
 
+/** Сыгранная игра целиком: «Начать» (трата) и итог (добыча) в одну минуту. */
+function play(s: GameState, id: MinigameId, now: number, score: number): Harvest | string {
+  const outing = beginMinigame(s, id, now);
+  return typeof outing === 'string' ? outing : harvest(s, outing, now, score);
+}
+
 describe('энергия — чистая функция от времени', () => {
   it('новая партия и партия без поля — полный запас в любую минуту', () => {
     const s = createInitialState();
@@ -62,7 +70,7 @@ describe('энергия — чистая функция от времени', (
 
   it('трата сдвигает отметку на долю суток, запас копится сам и за сутки полон', () => {
     const s = town();
-    done(harvest(s, 'berries', T0, 1));
+    done(play(s, 'berries', T0, 1));
     expect(energyAt(s, T0)).toBeCloseTo(ENERGY_MAX - MINIGAME_COST, 9);
     // Область: точки — внутри окна пополнения (отметка после траты — в будущем, не дальше суток).
     const left = energyFullIn(s, T0);
@@ -77,7 +85,7 @@ describe('энергия — чистая функция от времени', (
     expect(energyAt(s, T0 + left)).toBe(ENERGY_MAX);
     // Сутки — полный запас от нуля: четыре траты подряд опустошают, через сутки снова полон.
     const z = town();
-    for (let i = 0; i < ENERGY_MAX / MINIGAME_COST; i++) done(harvest(z, 'berries', T0, 1));
+    for (let i = 0; i < ENERGY_MAX / MINIGAME_COST; i++) done(play(z, 'berries', T0, 1));
     expect(energyAt(z, T0)).toBeCloseTo(0, 9);
     expect(energyAt(z, T0 + ENERGY_REFILL / 2)).toBeCloseTo(ENERGY_MAX / 2, 6);
     expect(energyAt(z, T0 + ENERGY_REFILL)).toBe(ENERGY_MAX);
@@ -87,8 +95,8 @@ describe('энергия — чистая функция от времени', (
   it('прочитанная по частям энергия — та же, что целиком: ничего не копится в чтении', () => {
     const a = town();
     const b = town();
-    done(harvest(a, 'herd', T0, 0.5));
-    done(harvest(b, 'herd', T0, 0.5));
+    done(play(a, 'herd', T0, 0.5));
+    done(play(b, 'herd', T0, 0.5));
     // Один читает каждую минуту, другой — раз в конце: чтение отметку не двигает.
     for (let m = 1; m <= 600; m++) energyAt(a, T0 + m * 60_000);
     expect(a.energyFull).toBe(b.energyFull);
@@ -97,11 +105,11 @@ describe('энергия — чистая функция от времени', (
 
   it('без энергии игра отказывает и не меняет ни склада, ни отметки', () => {
     const s = town();
-    for (let i = 0; i < ENERGY_MAX / MINIGAME_COST; i++) done(harvest(s, 'berries', T0, 1));
+    for (let i = 0; i < ENERGY_MAX / MINIGAME_COST; i++) done(play(s, 'berries', T0, 1));
     const food = s.resources.food;
     const mark = s.energyFull;
     expect(canPlay(s, T0)).toBe(false);
-    expect(harvest(s, 'berries', T0 + 1000, 1)).toBe('Энергии не хватает');
+    expect(beginMinigame(s, 'berries', T0 + 1000)).toBe('Не хватает энергии');
     expect(s.resources.food).toBe(food);
     expect(s.energyFull).toBe(mark);
     // Срок до игры — ровно когда граница пройдена, ни миллисекундой позже.
@@ -113,10 +121,67 @@ describe('энергия — чистая функция от времени', (
 
   it('на экране — целая вниз: обещать игру, которой нет, нельзя', () => {
     const s = town();
-    for (let i = 0; i < ENERGY_MAX / MINIGAME_COST; i++) done(harvest(s, 'berries', T0, 1));
+    for (let i = 0; i < ENERGY_MAX / MINIGAME_COST; i++) done(play(s, 'berries', T0, 1));
     const t = T0 + energyReadyIn(s, T0) - 1;
     expect(energyAt(s, t)).toBeLessThan(MINIGAME_COST);
     expect(energyShown(s, t)).toBe(MINIGAME_COST - 1);
+  });
+});
+
+/**
+ * Решение владельца 04.10.2026: энергия списывается на «Начать», а не в конце. Брошенная посреди игра стоит энергии и
+ * не даёт сыграть ту же раскладку второй раз. Область: каждая проверка — у города с полным запасом, где трата возможна.
+ */
+describe('трата — на «Начать», добыча — в конце', () => {
+  it('«Начать» списывает энергию сразу: ушедший посреди игры её потерял и добычи не получил', () => {
+    const s = town();
+    expect(canPlay(s, T0), 'точка внутри области: запас полон').toBe(true);
+    const food = s.resources.food;
+    expect(typeof beginMinigame(s, 'berries', T0)).toBe('object');
+    // Итога нет — ушёл посреди игры, — а энергия уже списана.
+    expect(energyAt(s, T0)).toBeCloseTo(ENERGY_MAX - MINIGAME_COST, 9);
+    expect(s.resources.food).toBe(food);
+    // Запись посреди игры уже несёт трату: закрытое приложение её не вернёт.
+    expect(energyAt(deserialize(serialize(s))!, T0)).toBeCloseTo(ENERGY_MAX - MINIGAME_COST, 9);
+  });
+
+  it('брошенную игру не переиграть: зерно сдвигается на «Начать», а не на итоге', () => {
+    const s = town();
+    const seen = minigameSeed(s, 'berries');
+    // С карточки начала без «Начать» — та же раскладка: поле видно со старта, но не сыграно.
+    expect(minigameSeed(s, 'berries')).toBe(seen);
+    expect(typeof beginMinigame(s, 'berries', T0)).toBe('object');
+    expect(minigameSeed(s, 'berries'), 'зашёл снова после брошенной игры').not.toBe(seen);
+  });
+
+  it('добыча — одна на поход: второй итог и поход, выданный не дверью, ничего не кладут', () => {
+    const s = town();
+    const outing = beginMinigame(s, 'herd', T0);
+    if (typeof outing === 'string') throw new Error(outing);
+    const first = done(harvest(s, outing, T0 + 60_000, 1));
+    expect(Object.keys(first.stored).length, 'точка внутри области: первый итог положил добычу').toBeGreaterThan(0);
+    const food = s.resources.food;
+    expect(harvest(s, outing, T0 + 61_000, 1)).toBe('Добыча уже засчитана');
+    expect(harvest(s, { id: 'herd' }, T0 + 61_000, 1)).toBe('Добыча уже засчитана');
+    expect(s.resources.food).toBe(food);
+  });
+
+  it('итог энергию не трогает: она списана на «Начать»', () => {
+    const s = town();
+    const outing = beginMinigame(s, 'hunt', T0);
+    if (typeof outing === 'string') throw new Error(outing);
+    const mark = s.energyFull;
+    done(harvest(s, outing, T0 + 90_000, 0.5));
+    expect(s.energyFull).toBe(mark);
+  });
+
+  it('код проверки снимает отметку: запас снова полон', () => {
+    const s = town();
+    for (let i = 0; i < ENERGY_MAX / MINIGAME_COST; i++) done(play(s, 'berries', T0, 1));
+    expect(canPlay(s, T0), 'точка внутри области: запас пуст').toBe(false);
+    refillEnergy(s);
+    expect(energyAt(s, T0)).toBe(ENERGY_MAX);
+    expect(canPlay(s, T0)).toBe(true);
   });
 });
 
@@ -190,7 +255,7 @@ describe('добыча — доля потолка', () => {
             let now = T0;
             const sum: Record<string, number> = {};
             for (const id of plan) {
-              const h = done(harvest(s, id, now, 1));
+              const h = done(play(s, id, now, 1));
               for (const r of RESOURCE_IDS) sum[r] = (sum[r] ?? 0) + (h.got[r] ?? 0);
               now += 1000;
             }
@@ -218,7 +283,7 @@ describe('добыча — доля потолка', () => {
     const s = town();
     const cap = storageCap(s);
     s.resources.food = cap - 3;
-    const h = done(harvest(s, 'berries', T0, 1));
+    const h = done(play(s, 'berries', T0, 1));
     expect(h.got.food).toBeGreaterThan(3);
     expect(h.stored.food).toBe(3);
     expect(s.resources.food).toBe(cap);
@@ -234,7 +299,7 @@ describe('зерно и сохранение', () => {
     const other = town();
     other.seed = s.seed + 1;
     expect(minigameSeed(other, 'berries')).not.toBe(a);
-    done(harvest(s, 'herd', T0, 0));
+    done(play(s, 'herd', T0, 0));
     expect(minigameSeed(s, 'berries')).not.toBe(a);
   });
 
@@ -248,7 +313,7 @@ describe('зерно и сохранение', () => {
     expect(energyAt(back!, T0)).toBe(ENERGY_MAX);
     expect(back!.version).toBe(s.version);
 
-    done(harvest(s, 'berries', T0, 1));
+    done(play(s, 'berries', T0, 1));
     const again = deserialize(serialize(s));
     expect(again!.energyFull).toBe(s.energyFull);
     expect(energyAt(again!, T0 + 3_600_000)).toBe(energyAt(s, T0 + 3_600_000));

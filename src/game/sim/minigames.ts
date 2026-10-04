@@ -9,8 +9,10 @@
 // клиенте итог даёт не больше потолка, а полный запас энергии — не больше `MINIGAME_SHARE` суточной выработки
 // каждого запаса (тест-свойство, `minigames.test.ts`).
 //
-// ТРАТА И НАЧИСЛЕНИЕ — ОДИН ВЫЗОВ (`harvest`). Без траты добычи не бывает, без добычи траты тоже: ушедший посреди
-// игры не платит ничего. Пишет поле только этот модуль.
+// ТРАТА — В НАЧАЛЕ ИГРЫ, ДОБЫЧА — В КОНЦЕ (решение владельца 04.10.2026). «Начать» списывает энергию и выдаёт поход
+// (`beginMinigame`), итог кладёт добычу по походу и только один раз (`harvest`): без траты добычи не бывает, а ушедший
+// посреди игры энергию потерял — и зайдёт в новую раскладку (зерно — от отметки, она сдвинулась), а не переиграет те же
+// кусты наизусть. Поход в сохранение не едет: второго поля не нужно. Пишет поле только этот модуль.
 import type { GameState, ResourceId } from '../types';
 import { RESOURCE_IDS, RESOURCE_META } from '../constants';
 import { productionPerDay, storageCap } from '../derived';
@@ -44,12 +46,13 @@ export function energyReadyIn(s: GameState, now: number): number {
   return lack > 1e-9 ? (lack / ENERGY_MAX) * ENERGY_REFILL : 0;
 }
 
-/** Хватает ли энергии на игру. Та же граница, что у отказа `harvest`. */
+/** Хватает ли энергии на игру. Та же граница, что у отказа `beginMinigame`. */
 export const canPlay = (s: GameState, now: number): boolean => energyReadyIn(s, now) === 0;
 
 /**
  * Зерно игры: раскладка ягод и поведение скота выводятся из него (`src/minigames`). От сида партии, игры и отметки
- * трат: после каждой сыгранной игры раскладка новая, а ушедший посреди игры заходит в ту же — отметка не сдвинулась.
+ * трат: после каждой начатой игры раскладка новая — и у доигранной, и у брошенной посреди. Заходит в ту же только тот,
+ * кто ушёл с карточки начала, не нажав «Начать»: он видел поле со старта, а не играл его.
  * Кость партии (`sim/roll`) не трогается: промысел не должен сдвигать события деревни.
  */
 export function minigameSeed(s: GameState, id: MinigameId): number {
@@ -120,13 +123,33 @@ export interface Harvest {
 }
 
 /**
- * Итог игры: списать энергию и положить добычу на склад. Энергии нет — отказ словами, и ничего не меняется.
- * Сверх вместимости на склад не ложится ничего — то же правило, что у выработки и возврата цены (`sim/pay`).
+ * Начатая игра: энергия за неё списана, добыча ещё не легла. Выдаёт поход только `beginMinigame`, принимает `harvest`
+ * — один раз. В сохранение не едет: закрывший игру посреди неё теряет энергию, а добычи не получает.
  */
-export function harvest(s: GameState, id: MinigameId, now: number, score: number): Harvest | string {
-  if (!canPlay(s, now)) return 'Энергии не хватает';
-  const got = minigameHaul(s, id, score);
+export interface Outing {
+  readonly id: MinigameId;
+}
+
+/** Выданные и ещё не засчитанные походы. Слабое множество: брошенный поход уходит вместе с экраном игры. */
+const unpaid = new WeakSet<Outing>();
+
+/** «Начать»: списать энергию и выдать поход. Энергии нет — отказ словами, и ничего не меняется. */
+export function beginMinigame(s: GameState, id: MinigameId, now: number): Outing | string {
+  if (!canPlay(s, now)) return 'Не хватает энергии';
   s.energyFull = Math.max(fullAt(s), now) + (MINIGAME_COST / ENERGY_MAX) * ENERGY_REFILL;
+  const outing: Outing = { id };
+  unpaid.add(outing);
+  return outing;
+}
+
+/**
+ * Итог игры: положить добычу похода на склад — один раз на поход. Чужой или засчитанный поход — отказ, и ничего не
+ * меняется. Сверх вместимости на склад не ложится ничего — то же правило, что у выработки и возврата цены (`sim/pay`).
+ */
+export function harvest(s: GameState, outing: Outing, now: number, score: number): Harvest | string {
+  if (!unpaid.delete(outing)) return 'Добыча уже засчитана';
+  const id = outing.id;
+  const got = minigameHaul(s, id, score);
   const cap = storageCap(s);
   const stored: Haul = {};
   for (const r of RESOURCE_IDS) {
@@ -142,6 +165,14 @@ export function harvest(s: GameState, id: MinigameId, now: number, score: number
   const def = MINIGAME_BY_ID[id];
   log(s, `Промысел «${def.name}»: ${haulWords(stored) || 'склад полон'}.`, 'good');
   return { got, stored, energy: energyShown(s, now) };
+}
+
+/**
+ * Код проверки «energy» (`src/cheats.ts`, только вне Telegram): запас снова полон. Отметку снимает эта же дверь —
+ * поля нет, значит запас полон (`fullAt`).
+ */
+export function refillEnergy(s: GameState): void {
+  delete s.energyFull;
 }
 
 /** Добыча словами для летописи: «еда +106, шкуры +9». Пусто — пустая строка. */

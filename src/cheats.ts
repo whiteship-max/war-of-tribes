@@ -48,7 +48,7 @@ export const CHEATS_ON = false;
 export type CheatWhere = 'village' | 'prologue';
 
 /** Какой это код. Имя, по которому его узнают обе двери. */
-export type CheatId = 'tribe' | 'glade' | 'home';
+export type CheatId = 'tribe' | 'glade' | 'home' | 'energy';
 
 export interface Cheat {
   id: CheatId;
@@ -57,14 +57,21 @@ export interface Cheat {
   where: CheatWhere;
   /** Что он даёт — теми же словами, какими об этом скажут игроку. */
   what: string;
+  /**
+   * Только вне Telegram: там, где прогресс не уходит на сервер (стенд, браузер без входа через Telegram). В Telegram
+   * кода нет, даже с поднятым выключателем, — бесконечные игры дали бы бесконечные запасы настоящей партии.
+   */
+  offTelegram?: true;
 }
 
 /**
  * Все коды игры.
  *
- * ТРИ, И КАЖДЫЙ ОТКРЫВАЕТ СВОЙ КУСОК ИГРЫ ОДНИМ НАЖАТИЕМ — это и есть мерка, по
- * которой их отбирали. Четвёртый завёлся бы ровно тогда, когда появится кусок,
- * до которого этими тремя не дойти.
+ * ЧЕТЫРЕ, И КАЖДЫЙ ОТКРЫВАЕТ СВОЙ КУСОК ИГРЫ ОДНИМ НАЖАТИЕМ — это и есть мерка, по
+ * которой их отбирали. Четвёртый, `energy`, завёлся ровно тогда, когда появился
+ * кусок, до которого тремя не дойти: энергия промыслов идёт настоящими сутками,
+ * скорость проверки её не ускоряет, и пятая игра за сутки без кода невозможна
+ * (решение владельца 04.10.2026: код — только вне Telegram, `offTelegram`).
  *
  * Почему в поляне их два. Запас в руках и достроенный дом — разные вещи: первый
  * нужен, чтобы проверять огонь, охоту и зиму, второй — чтобы проверять род и
@@ -90,22 +97,38 @@ export const CHEATS: readonly Cheat[] = [
     where: 'prologue',
     what: 'Дом достроен, у огня ждёт гостья, любовь полна. Принять и назвать сына — твоё.',
   },
+  {
+    id: 'energy',
+    code: 'energy',
+    where: 'village',
+    what: 'Полный запас энергии на промыслы. Только вне Telegram.',
+    offTelegram: true,
+  },
 ];
 
+/**
+ * Коды режима, которые есть здесь: в Telegram кодов `offTelegram` нет. Модуль чистый и Telegram не спрашивает —
+ * признак приносит зовущий (`tgInitData() !== null`: подпись есть — прогресс уходит на сервер). Не принёс — считается,
+ * что в Telegram: забытый довод закрывает код, а не открывает.
+ */
+export const codesOf = (where: CheatWhere, inTelegram = true): readonly Cheat[] =>
+  CHEATS.filter((c) => c.where === where && !(inTelegram && c.offTelegram));
+
 /** Коды этого режима — списком для подсказки под полем. */
-export const cheatsOf = (where: CheatWhere): readonly Cheat[] =>
-  CHEATS_ON ? CHEATS.filter((c) => c.where === where) : [];
+export const cheatsOf = (where: CheatWhere, inTelegram = true): readonly Cheat[] =>
+  CHEATS_ON ? codesOf(where, inTelegram) : [];
 
 /**
  * Какой код набрали. `null` — ни один.
  *
  * Пробелы по краям и регистр не в счёт: поле на телефоне само поднимает первую
  * букву, и «Tribe» обязано сработать так же, как «tribe». Чужого режима код не
- * ищется вовсе — поляна не знает про деревню, и наоборот.
+ * ищется вовсе — поляна не знает про деревню, и наоборот. В Telegram код
+ * `offTelegram` не узнаётся (`codesOf`).
  */
-export function cheatOf(raw: string, where: CheatWhere): Cheat | null {
+export function cheatOf(raw: string, where: CheatWhere, inTelegram = true): Cheat | null {
   if (!CHEATS_ON) return null;
-  return matchCheat(raw, where);
+  return matchCheat(raw, where, inTelegram);
 }
 
 /**
@@ -113,10 +136,10 @@ export function cheatOf(raw: string, where: CheatWhere): Cheat | null {
  * что проверяют тесты: при опущенном выключателе правила разбора иначе было бы не
  * проверить вовсе, а поднимать его ради теста значило бы держать коды включёнными.
  */
-export function matchCheat(raw: string, where: CheatWhere): Cheat | null {
+export function matchCheat(raw: string, where: CheatWhere, inTelegram = true): Cheat | null {
   const text = String(raw ?? '').trim().toLowerCase();
   if (text === '') return null;
-  return CHEATS.find((c) => c.where === where && c.code === text) ?? null;
+  return codesOf(where, inTelegram).find((c) => c.code === text) ?? null;
 }
 
 /** Что сказать, когда набрано не то. Одна строка на оба режима. */

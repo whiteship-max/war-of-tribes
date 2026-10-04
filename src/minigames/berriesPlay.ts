@@ -90,8 +90,8 @@ export class BerriesPlay implements Play {
     const y = bush ? this.basket.pick(bush, t) : null;
     if (!y) return '';
     this.frame(t);
-    if (y.ripe === 0) return `Зелёные: ${y.green} пропало`;
-    return y.green > 0 ? `+${y.ripe}, зелёных ${y.green} пропало` : `+${y.ripe}`;
+    if (y.ripe === 0) return `Зелёных пропало ${y.green}`;
+    return y.green > 0 ? `+${y.ripe}, зелёных пропало ${y.green}` : `+${y.ripe}`;
   }
 
   frame(t: number): void {

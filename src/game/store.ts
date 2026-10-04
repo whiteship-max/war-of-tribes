@@ -14,7 +14,7 @@ import {
   tapTutorial as tapTutorialStep,
   type TutorialUi,
 } from './data/tutorial';
-import { haptic, tgDisplayName, tgUser } from '@/telegram/webapp';
+import { haptic, tgDisplayName, tgInitData, tgUser } from '@/telegram/webapp';
 import { setTelegramIdentity } from '@/profile/stats';
 import { bootPaint, bootStage } from '@/boot/stage';
 import { mayWrite, provideGame, syncBoot } from '@/net/sync';
@@ -408,7 +408,8 @@ export const useGame = create<GameStore>((set, get) => ({
   },
 
   cheat: (code) => {
-    const found = cheatOf(code, 'village');
+    // В Telegram — подпись есть, прогресс уходит на сервер — кодов `offTelegram` нет (`src/cheats.ts`).
+    const found = cheatOf(code, 'village', tgInitData() !== null);
     if (!found) return CHEAT_NO;
     const s = get().s;
     const said = applyCheat(s, found.id);

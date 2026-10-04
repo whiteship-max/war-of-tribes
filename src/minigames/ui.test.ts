@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { createInitialState } from '@/game/state';
 import { ENERGY_MAX, MINIGAME_COST } from '@/game/data/minigames';
-import { energyFullIn, energyShown, harvest } from '@/game/sim/minigames';
+import { beginMinigame, energyFullIn, energyShown } from '@/game/sim/minigames';
 import { realSpanText } from '@/ui/parts/wait';
 import { energyTip } from '@/ui/next/hudTips';
 import { TIP_MAX } from '@/ui/next/tip';
@@ -25,7 +25,7 @@ describe('подсказка энергии — числами двери', () =
     expect(full.body).toContain(String(MINIGAME_COST));
     expect(full.link?.label).toBe('Промыслы');
     // Область: после траты запас не полон, и срок — настоящим временем той же функцией.
-    expect(typeof harvest(s, 'berries', T0, 1)).toBe('object');
+    expect(typeof beginMinigame(s, 'berries', T0)).toBe('object');
     const at = T0 + 3_600_000;
     expect(energyFullIn(s, at)).toBeGreaterThan(0);
     const tip = energyTip(s, at, () => undefined);
