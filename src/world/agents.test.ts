@@ -339,7 +339,7 @@ describe('карточка и бой считают одно и то же', () =
       expect(r.gain).toBeCloseTo(phaseLuck(mid, r.n) - phaseLuck(mid, 0), 12);
       expect(r.gain).toBeCloseTo(r.n * PIP, 12);
     }
-    expect(lines.next, 'куда ляжет следующий кружок — известно: склад человека').toMatch(/^Следующий кружок ляжет в /);
+    expect(lines.next, 'куда ляжет следующая отметка — известно: склад человека').toMatch(/^Следующая отметка ляжет в /);
     expect(pipLines(1, {}, pipsAt(s.seed, person, 2)).rows, 'первый уровень — ни одной строки отметок').toEqual([]);
   });
 });

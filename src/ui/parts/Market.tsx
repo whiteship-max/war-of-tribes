@@ -19,49 +19,34 @@ import {
 import { marketCheck, saleCheck } from '@/game/sim/market';
 import { buyGoods, cancelCaravan, sellBonded } from '@/game/sim/actions';
 import { waitShort } from './wait';
+import { count as countOf } from './plural';
+import { Icon } from '@/ui/icons/Icon';
 import { asGame } from '@/game/pace';
 
 /**
  * Рынок: за золото сюда привозят чужое добро.
  *
- * Две вкладки. Первая — закупка у проезжих торговцев, единственное, что работает
- * сегодня. Вторая оставлена под торг между игроками: он появится вместе с
- * сервером, и место под него занято сразу, чтобы потом не переезжать.
+ * Закупка у проезжих торговцев. Вкладки под торг между игроками нет: невыпущенное не
+ * показывается (docs/ui_audit.md, 14.1, 3), место ему заведут вместе с сервером.
  *
  * Тупика без объяснения быть не должно: у каждой строки написано, почём, сколько
  * осталось на сегодня и почему кнопка не нажимается.
  */
-type Tab = 'buy' | 'tribes';
-
 export function Market() {
   const s = useGame((g) => g.s);
-  const [tab, setTab] = useState<Tab>('buy');
 
   return (
     <>
       <h3>
-        Казна <span className="muted">караван идёт ~{waitShort(caravanSeconds(s))}</span>
+        Закупка <span className="muted">в пути ~{waitShort(caravanSeconds(s))}</span>
       </h3>
       <div className="mod total">
-        <span className="ico">💰</span>
+        <span className="ico"><Icon name="res-gold" glyph="💰" /></span>
         <span className="name">Золото</span>
         <span className="val pos">{Math.floor(s.gold)}</span>
       </div>
-      <div className="note">
-        Купленное везёт телега: она выезжает из ворот и возвращается с грузом. Пока она в пути,
-        товара на складе нет. Отменишь — золото вернётся целиком.
-      </div>
-
-      <div className="tabs">
-        <button className={tab === 'buy' ? 'active' : ''} onClick={() => setTab('buy')}>
-          Закупка
-        </button>
-        <button className={tab === 'tribes' ? 'active' : ''} onClick={() => setTab('tribes')}>
-          Торг с племенами
-        </button>
-      </div>
-
-      {tab === 'buy' ? <BuyTab /> : <TribesTab />}
+      <div className="note">Покупку везёт телега. Отменишь, золото вернётся.</div>
+      <BuyTab />
     </>
   );
 }
@@ -73,7 +58,7 @@ function Caravans() {
   return (
     <>
       <h3>
-        В пути <span className="muted">телег: {s.caravans.length}</span>
+        В пути <span className="muted">{countOf(s.caravans.length, 'телега', 'телеги', 'телег')}</span>
       </h3>
       {s.caravans.map((c) => {
         const def = GOOD_BY_ID[c.good];
@@ -84,14 +69,10 @@ function Caravans() {
             <div className="ico">{def?.icon ?? '📦'}</div>
             <div className="body">
               <div className="title">
-                {def?.name ?? 'Товар'} — {c.count}
+                {def?.name ?? 'Товар'} · {c.count}
                 <span className="count">~{waitShort(left)}</span>
               </div>
-              <div className="desc">
-                {def?.kind === 'bonded'
-                  ? `Уплачено ${c.gold} золота. Торговцы ещё в пути.`
-                  : `Уплачено ${c.gold} золота. Груза на складе ещё нет.`}
-              </div>
+              <div className="desc">Уплачено {c.gold} золота.</div>
               <div className="progress">
                 <div style={{ width: `${pct}%` }} />
               </div>
@@ -99,7 +80,7 @@ function Caravans() {
             <button
               className="btn ghost"
               onClick={() => act((st) => cancelCaravan(st, c.id))}
-              aria-label="Отозвать караван"
+              aria-label="Отменить"
             >
               ✕
             </button>
@@ -118,15 +99,11 @@ function BuyTab() {
     <>
       <Caravans />
       <h3>
-        Сегодня на прилавке <span className="muted">товаров: {offer.length}</span>
+        Прилавок <span className="muted">{countOf(offer.length, 'товар', 'товара', 'товаров')}</span>
       </h3>
-      <div className="note">
-        Ассортимент и запас меняются каждый день, а уровень рынка добавляет и то, и другое.
-        Чем больше берёшь одного товара за день, тем он дороже. Купить всегда дороже, чем
-        сделать самим: рынок нужен, чтобы срочно закрыть дыру, а не вместо лесопилки и кузницы.
-      </div>
+      <div className="note">Товар меняется каждый день и дорожает, чем больше берёшь.</div>
       {offer.length === 0 ? (
-        <div className="note bad">Прилавок пуст — рынок ещё не работает.</div>
+        <div className="note bad">Прилавок пуст.</div>
       ) : (
         offer.map((g) => (g.kind === 'bonded' ? <BondedRow key={g.id} /> : <GoodRow key={g.id} good={g.id} />))
       )}
@@ -170,12 +147,12 @@ function BondedRow() {
           <div className="title">
             {def.name}
             <span className="count">
-              в посёлке: {have}
+              в городе {have}
               {incoming > 0 ? ` · ведут ${incoming}` : ''}
             </span>
           </div>
           <div className="desc">
-            {price} 💰 {ORDER_TEXT.market.unit} · осталось сегодня {left} из {marketStock(s, def)}
+            {price} <Icon name="res-gold" glyph="💰" /> {ORDER_TEXT.market.unit} · сегодня {left} из {marketStock(s, def)}
           </div>
         </div>
       </div>
@@ -183,7 +160,7 @@ function BondedRow() {
       <div className="bonded-line">
         <div className="cost">
           <span className={s.gold >= check.cost ? '' : 'no'}>
-            💰 {check.cost} за {n}
+            <Icon name="res-gold" glyph="💰" /> {check.cost} за {n}
           </span>
         </div>
         <div className="stepper">
@@ -201,11 +178,11 @@ function BondedRow() {
       </div>
       {/* Цена покупки в порядке — до нажатия, а не после. */}
       <div className={`note order-after ${tone}`}>
-        Порядок станет {after} из 100
+        Порядок станет {after}
         {after < ORDER_UNREST
-          ? ` — ропот: через ${MUTINY_FUSE / 60} мин мятеж`
+          ? `. Ропот, мятеж через ${waitShort(asGame(MUTINY_FUSE))}`
           : after < ORDER_WARN
-            ? ' — невольников больше, чем держит надзор'
+            ? '. Надзор не держит столько невольников'
             : ''}
         .
       </div>
@@ -214,7 +191,7 @@ function BondedRow() {
       <div className="bonded-line">
         <div className="cost">
           <span>
-            💰 +{sale.gold} за {m}
+            <Icon name="res-gold" glyph="💰" /> +{sale.gold} за {m}
           </span>
         </div>
         <div className="stepper">
@@ -231,7 +208,7 @@ function BondedRow() {
         </button>
       </div>
       <div className="note">
-        Торговцы берут по {bondedSalePrice()} 💰 {ORDER_TEXT.market.unit}, сегодня ещё {sale.left}.
+        Продажа по {bondedSalePrice()} <Icon name="res-gold" glyph="💰" /> {ORDER_TEXT.market.unit}, сегодня ещё {sale.left}.
         {sale.blocked && have > 0 ? ` ${sale.blocked}` : ''}
       </div>
     </div>
@@ -255,14 +232,14 @@ function GoodRow({ good }: { good: GoodId }) {
       <div className="body">
         <div className="title">
           {def.name}
-          <span className="count">на складе: {own}</span>
+          <span className="count">на складе {own}</span>
         </div>
         <div className="desc">
-          {price} 💰 за штуку · осталось сегодня {left} из {marketStock(s, def)}
+          {price} <Icon name="res-gold" glyph="💰" /> за штуку · сегодня {left} из {marketStock(s, def)}
         </div>
         <div className="cost">
           <span className={s.gold >= check.cost ? '' : 'no'}>
-            💰 {check.cost} за {n}
+            <Icon name="res-gold" glyph="💰" /> {check.cost} за {n}
           </span>
         </div>
         {check.blocked && <div className="hint">{check.blocked}</div>}
@@ -287,11 +264,3 @@ function GoodRow({ good }: { good: GoodId }) {
   );
 }
 
-function TribesTab() {
-  return (
-    <div className="note">
-      Торг между племенами появится вместе с общим сервером: соседи будут выставлять своё и
-      просить чужое. Пока рынок работает только с проезжими торговцами.
-    </div>
-  );
-}

@@ -26,12 +26,9 @@ export function TowerEngine() {
   return (
     <>
       <h3>
-        Орудие <span className="muted">мест лучников: {info.seats}</span>
+        Орудие <span className="muted">мест на башне {info.seats}</span>
       </h3>
-      <div className="note">
-        Орудие бьёт по осадному лагерю, не выходя за стены. Расчёт — лучники на башне: встают те, кто дома,
-        и ушедшие на вылазку или к полководцу своё место оставляют пустым. Неполный расчёт — та же доля силы.
-      </div>
+      <div className="note">Бьёт по осадному лагерю из-за стен. Расчёт из лучников, что дома. Неполный бьёт слабее.</div>
 
       {current ? (
         <div className="card">
@@ -43,21 +40,21 @@ export function TowerEngine() {
             </div>
             <div className="desc">
               {info.left > 0
-                ? 'Ставят. Пока не поставят, башня молчит.'
+                ? 'Ставят. Пока башня молчит.'
                 : !info.ready
-                  ? `Башня ниже ${current.level} уровня — орудие молчит, пока её не отстроят.`
-                  : `${current.description} Расчёт — ${current.crew} ${plural(current.crew, 'лучник', 'лучника', 'лучников')}; лучников в войске ${archers}.`}
+                  ? `Молчит. Нужна башня ур. ${current.level}.`
+                  : `${current.description} Расчёт ${current.crew} ${plural(current.crew, 'лучник', 'лучника', 'лучников')}, в дружине ${archers}.`}
             </div>
           </div>
         </div>
       ) : (
-        <div className="note">Орудия нет: балиста ставится с пятого уровня башни, катапульта — с десятого.</div>
+        <div className="note">Орудия нет.</div>
       )}
 
       {siege?.fire && (
         <div className="mod total">
           <span className="ico">🗼</span>
-          <span className="name">Бьёт по лагерю «{siege.byName}»</span>
+          <span className="name">Обстрел лагеря</span>
           <span className="val pos">
             выбито {Math.round(siege.fire.thin * 100)}% из {Math.round(siege.fire.cap * 100)}%
           </span>
@@ -68,9 +65,9 @@ export function TowerEngine() {
         <div className="upgrade" key={o.def.id}>
           <Cost cost={o.cost} work={o.seconds} eta={o.seconds} />
           <button className="btn wide" disabled={o.blocked !== null} onClick={() => act((st) => setEngine(st, o.def.id))}>
-            {o.def.icon} {current ? 'Сменить на' : 'Поставить'} {o.def.acc} · расчёт {o.def.crew}
+            {o.def.icon} {current ? 'Сменить на' : 'Поставить'} {o.def.acc}
           </button>
-          <div className="hint">{o.blocked ?? o.def.description}</div>
+          <div className="hint">{o.blocked ?? `${o.def.description} Расчёт ${o.def.crew}.`}</div>
         </div>
       ))}
     </>

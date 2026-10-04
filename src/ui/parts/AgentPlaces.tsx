@@ -5,13 +5,13 @@
 // из `sim/hire.hireInfo`, возраст и уровень — из `sim/agents`. Кнопка, которая не
 // сработает, гаснет и говорит причину.
 import { useGame } from '@/game/store';
-import { DAY_LENGTH } from '@/game/constants';
 import { RETIRE_AGE, RETIRE_WARN } from '@/game/data/agents';
 import { agentLevel, ageOf, personName, yearsOf } from '@/game/sim/agents';
 import { hireAgent, hireInfo } from '@/game/sim/hire';
 import { placeBlock } from '@/game/sim/tech';
 import { FIGURE_BY_ID } from '@/world/data/figures';
 import { realLeft, waitLeft } from '@/ui/parts/wait';
+import { tipAt } from '@/ui/next/tip';
 import type { FigureId } from '@/world/types';
 import { Icon } from '@/ui/icons/Icon';
 import { Cost } from './Cost';
@@ -23,6 +23,12 @@ function Place({ id }: { id: FigureId }) {
   const def = FIGURE_BY_ID[id];
   const p = s.agents[id];
   const info = hireInfo(s, id);
+  // Почему место пустое и что решает найм — подсказкой по строке места (ui_audit.md, 3.7).
+  const why = (e: { currentTarget: Element }) =>
+    tipAt(e.currentTarget, {
+      title: def.name,
+      body: `Ушедшего не вернуть, место нанимают заново. Чем выше уровень здания, тем быстрее найм и моложе новичок.`,
+    });
 
   if (!p.vacant) {
     const years = yearsOf(s, id);
@@ -33,13 +39,13 @@ function Place({ id }: { id: FigureId }) {
           <Icon name={`fig-${id}`} glyph={def.icon} />
         </span>
         <span className="name">
-          {def.name} — {personName(s, id)}
+          {def.name} · {personName(s, id)}
           <em className="sub">
-            {count(years, 'год', 'года', 'лет')}, уровень {agentLevel(s, id)}
+            {count(years, 'год', 'года', 'лет')}, ур. {agentLevel(s, id)}
             {years >= RETIRE_WARN
               ? left > 0
                 ? ` · до покоя ${count(Math.ceil(left), 'год', 'года', 'лет')}`
-                : ' · дожил до покоя: уйдёт, как вернётся домой'
+                : ' · уйдёт на покой, как вернётся'
               : ''}
           </em>
         </span>
@@ -59,22 +65,22 @@ function Place({ id }: { id: FigureId }) {
           <Icon name={`fig-${id}`} glyph={def.icon} />
         </span>
         <span className="name">
-          {def.name}: место закрыто
+          {def.name}
           <em className="sub">{closed}</em>
         </span>
-        <span className="val">не открыто</span>
+        <span className="val">закрыто</span>
       </div>
     );
   }
 
   if (p.hiring) {
     return (
-      <div className="mod">
+      <div className="mod" role="button" tabIndex={0} onClick={why}>
         <span className="ico">⏳</span>
         <span className="name">
-          {def.name}: идёт найм
+          {def.name}
           <em className="sub">
-            придёт {p.hiring.name ?? 'новичок'}, {count(Math.floor(p.hiring.age0), 'год', 'года', 'лет')}
+            найм, придёт {p.hiring.name ?? 'новичок'}, {count(Math.floor(p.hiring.age0), 'год', 'года', 'лет')}
           </em>
         </span>
         <span className="val">{realLeft(info.left)}</span>
@@ -84,21 +90,21 @@ function Place({ id }: { id: FigureId }) {
 
   return (
     <>
-      <div className="mod warn">
+      <div className="mod warn" role="button" tabIndex={0} onClick={why}>
         <span className="ico">
           <Icon name={`fig-${id}`} glyph={def.icon} />
         </span>
         <span className="name">
-          {def.name}: место пустует
+          {def.name}
           <em className="sub">
-            придёт за {waitLeft(info.seconds)} ({count(Math.round(info.seconds / DAY_LENGTH), 'игровой день', 'игровых дня', 'игровых дней')}),{' '}
-            {count(Math.floor(info.age0), 'год', 'года', 'лет')}, с первого уровня
+            найм {waitLeft(info.seconds)}, новичку {count(Math.floor(info.age0), 'год', 'года', 'лет')}
           </em>
         </span>
+        <span className="val">пустует</span>
       </div>
       <Cost cost={{ gold: info.gold }} />
       <button className="btn wide" disabled={info.blocked !== null} onClick={() => act((g) => hireAgent(g, id))}>
-        Нанять {def.one}
+        Нанять
       </button>
       {info.blocked && <div className="hint">{info.blocked}</div>}
     </>
@@ -106,24 +112,16 @@ function Place({ id }: { id: FigureId }) {
 }
 
 /**
- * Раздел «Люди» здания. Под ним — что даёт уровень здания новичку: срок и возраст, и
- * только их. Опыта здание не даёт — новичок начинает с нуля.
+ * Раздел «Люди» здания. Что даёт уровень здания новичку — срок и возраст — стоит в строке
+ * пустого места, почему — в её подсказке. Опыта здание не даёт — новичок начинает с нуля.
  */
 export function AgentPlaces({ ids }: { ids: FigureId[] }) {
-  const s = useGame((g) => g.s);
-  const info = hireInfo(s, ids[0]);
   return (
     <>
       <h3>Люди</h3>
       {ids.map((id) => (
         <Place key={id} id={id} />
       ))}
-      <div className="note">
-        Погибший или ушедший на покой не возвращается — место нанимают заново, и новичок
-        начинает с первого уровня. {info.building} {info.level} ур.: найм идёт{' '}
-        {waitLeft(info.seconds)}, новичку {count(Math.floor(info.age0), 'год', 'года', 'лет')}; выше уровень — быстрее
-        и моложе.
-      </div>
     </>
   );
 }

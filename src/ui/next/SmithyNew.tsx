@@ -44,7 +44,7 @@ export function SmithyNew({ b }: { b: Building }) {
   return (
     <div className="nx-smithy">
       {info.idle && <div className="nx-bwarn bad">Кузнецы стоят без заказа.</div>}
-      {!info.idle && smiths === 0 && <div className="nx-bwarn">У горна никого: поставь кузнецов.</div>}
+      {!info.idle && smiths === 0 && <div className="nx-bwarn">У горна никого. Поставь кузнецов.</div>}
 
       {s.forge.length > 0 && (
         <>
@@ -59,7 +59,7 @@ export function SmithyNew({ b }: { b: Building }) {
                 <button
                   className="nx-wico"
                   onClick={(e) =>
-                    tipAt(e.currentTarget, { title: d.name, body: 'Отмена вернёт материалы несделанных вещей, а начатой — половину.' })
+                    tipAt(e.currentTarget, { title: d.name, body: 'Отмена вернёт запасы несделанных вещей и половину за начатую.' })
                   }
                   aria-label={`${d.name}: заказ`}
                 >

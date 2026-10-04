@@ -88,7 +88,7 @@ export function ArmyPanel() {
         {waitDaysBoth(WOUND_DAYS)}, в пути и стоя. Брошенная в бой сразу, армия бежит раньше: сектор, у которого
         кончилась мораль, уходит с поля. Так же устаёт и противник — лагерь после вылазки, отряд после перехвата.
       </div>
-      {general?.rest && <div className="note warn">{restLine(general.rest, 'Дружина дралась', worldNow())}</div>}
+      {general?.rest && <div className="note warn">{restLine(general.rest, 'Отряд дрался', worldNow())}</div>}
 
       <h3>Состав гарнизона</h3>
       <div className="note">

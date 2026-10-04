@@ -14,9 +14,9 @@ const span = (r: { min: number; max: number }): string => (r.min === r.max ? `${
 /** Что получит победитель — хвост строки выбора. */
 export function fateGets(o: FateOption): string {
   if (o.id === 'captives') {
-    return `${span(o.led)} ${plural(o.led.max, 'человек', 'человека', 'человек')}, добра меньше на ${span(o.less)}`;
+    return `${span(o.led)} ${plural(o.led.max, 'человек', 'человека', 'человек')}, добычи меньше на ${span(o.less)}`;
   }
-  return o.id === 'plunder' ? 'всё открытое и казну' : 'ничего';
+  return o.id === 'plunder' ? 'открытые запасы и золото' : 'ничего';
 }
 
 export function FatePick({
@@ -46,7 +46,7 @@ export function FatePick({
             <span className="body">
               <b>
                 {meta.name}
-                {o.can ? ` — ${fateGets(o)}` : ''}
+                {o.can ? ` · ${fateGets(o)}` : ''}
               </b>
               {!o.can && <i>{o.reason}</i>}
             </span>

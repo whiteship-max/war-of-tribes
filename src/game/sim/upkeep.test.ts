@@ -338,7 +338,7 @@ describe('поводы делят уходящих, а не спорят за н
     const steps = Math.round((days * DAY_LENGTH) / DT);
     for (let i = 0; i < steps; i++) upkeepTick(s, DT, unfed);
     const lines = (why: string): number =>
-      s.log.filter((e) => e.text.includes('Ушёл из войска') && e.text.includes(why)).reduce((n, e) => n + (e.n ?? 1), 0);
+      s.log.filter((e) => e.text.includes('Ушёл из дружины') && e.text.includes(why)).reduce((n, e) => n + (e.n ?? 1), 0);
     return { s, gone: army - armySize(s), came: s.pop - pop, byFood: lines(UPKEEP_TEXT.why.food), byPay: lines(UPKEEP_TEXT.why.pay), unpaid };
   };
 

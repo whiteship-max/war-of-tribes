@@ -40,37 +40,35 @@ export function pipLines(level: number, pips: Pips, next: Pips | null, tradition
     .filter((r) => r.n > 0)
     .map((r) =>
       r.crossing
-        ? `${PIP_NAME[r.pip]} ${r.n}: снимает с его войска переправу, когда он нападает, а у противника манёвр ниже — урон в каждой фазе в среднем ${pct(r.gain)}; у логова манёвра нет.`
-        : `${PIP_NAME[r.pip]} ${r.n}: урон его войска в среднем ${pct(r.gain)} — ${pipPhases(r.pip)}.`,
+        ? `${PIP_NAME[r.pip]} ${r.n}: снимает переправу, если у врага манёвр ниже. Урон ${pct(r.gain)} в каждой фазе.`
+        : `${PIP_NAME[r.pip]} ${r.n}: урон ${pct(r.gain)} · ${pipPhases(r.pip)}.`,
     );
   let nextLine: string | null = null;
   if (next && level < MAX_AGENT_LEVEL) {
     const grown = PIP_IDS.find((p) => (next[p] ?? 0) > (pips[p] ?? 0));
-    if (grown) nextLine = `Следующий кружок ляжет в ${INTO[grown]}: такой у него склад.`;
+    if (grown) nextLine = `Следующая отметка ляжет в ${INTO[grown]}.`;
   }
   return {
     now:
       level <= 1
-        ? 'На первом уровне отметок нет: кость у его войска такая же, как у любого.'
-        : 'Каждая отметка прибавляет урон его войска в своей фазе — в боях, которые он ведёт, и у своих стен, пока его дружина стоит у ворот. Манёвр фаз не держит — он снимает переправу. Исхода боя отметка одна не решает.',
+        ? 'Отметок пока нет.'
+        : 'Отметка прибавляет урон в своей фазе, в походе и у своих стен.',
     rows,
     next: nextLine,
     tradition:
       tradition > 0
-        ? `Из его кружков ${count(tradition, 'кружок', 'кружка', 'кружков')} — воинская традиция: её даёт Статуя, и полководец растёт с неё, а не с первого кружка.`
+        ? `Статуя даёт ${count(tradition, 'отметку', 'отметки', 'отметок')}.`
         : null,
   };
 }
 
 export function sightLine(level: number): string {
   const now = revealSight('scout', sightBonusAt(level));
-  const base = revealSight('scout', sightBonusAt(1));
   const next = level < MAX_AGENT_LEVEL ? revealSight('scout', sightBonusAt(level + 1)) : null;
   return (
     `Открывает землю на ${count(now, 'клетку', 'клетки', 'клеток')} вокруг себя` +
-    (now > base ? ` (на первом уровне — ${base})` : '') +
-    (next !== null ? `, со следующим кружком — ${next}` : '') +
-    '. Живого обзора не даёт: за этим лазутчик.'
+    (next !== null && next > now ? `, на ур. ${level + 1} на ${next}` : '') +
+    '.'
   );
 }
 
@@ -79,10 +77,9 @@ export function stealthLine(level: number): string {
   const next = level < MAX_AGENT_LEVEL ? Math.round(slipShare(stealthAt(level + 1)) * 100) : null;
   return (
     (now > 0
-      ? `Из провалов ${now} % проходят незамеченными: не держат, дома не горюют, цель лишь насторожится.`
-      : 'Каждый провал замечают: задержат и запомнят.') +
-    (next !== null ? ` Со следующим кружком — ${next} %.` : '') +
-    ' Шанс дела не меняется: им владеет Дозор.'
+      ? `Незамеченными проходят ${now} % провалов.`
+      : 'Каждый провал замечают.') +
+    (next !== null ? ` На ур. ${level + 1} будет ${next} %.` : '')
   );
 }
 
@@ -99,19 +96,19 @@ const MIDDLE: PerilCase = { veil: 1, ripeness: 0.5, villageTime: 0, visits: 1, d
  * в меню приказа перед каждым делом.
  */
 export function deathLine(id: FigureId, level: number): string {
-  if (id === 'diplomat') return 'На деле не гибнет: во враждебном дворе его хватают, а не убивают; уходит только на покой.';
+  if (id === 'diplomat') return 'На деле не гибнет, его могут только схватить.';
   if (id === 'general') {
     const near = perilText(perilShare(routPeril(0)));
     const far = perilText(perilShare(routPeril(PERIL_FAR)));
-    return `Гибнет, только если его дружину перебьют до последнего: у своих ворот — ${near}, в ${count(PERIL_FAR, 'клетке', 'клетках', 'клетках')} от дома — ${far}. Шанс проиграть бой не показывается нигде.`;
+    return `Гибнет, если его отряд перебьют до последнего. Риск у ворот ${near}, в ${count(PERIL_FAR, 'клетке', 'клетках', 'клетках')} от дома ${far}.`;
   }
   if (id === 'scout') {
-    return 'Гибнет только у поселений с часовыми — там же его и хватают; своего рычага против гибели у разведчика нет, кроме выбора цели. Риск стоит в «Вести сюда».';
+    return 'Гибнет только там, где стоят часовые. Риск виден перед приказом.';
   }
   const now = perilShare(perilOf({ ...MIDDLE, veil: veilAt(level) }));
   const base = perilShare(perilOf({ ...MIDDLE, veil: veilAt(1) }));
   const times = base > 0 ? Math.round((base / now) * 10) / 10 : 1;
   return level <= 1
-    ? 'Гибнет на деле — риск стоит в меню приказа. Скрытность со вторым кружком начнёт его снижать.'
-    : `Гибнет на деле — риск стоит в меню приказа; скрытность уже режет его в ${String(times).replace('.', ',')} раза против первого кружка. Дозор гибели не касается: он владеет шансом дела.`;
+    ? `Риск гибели виден перед приказом. Скрытность снижает его с ур. ${level + 1}.`
+    : `Риск гибели виден перед приказом. Скрытность снижает его в ${String(times).replace('.', ',')} раза.`;
 }
