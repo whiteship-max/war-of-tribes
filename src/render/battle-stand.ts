@@ -1,43 +1,16 @@
 // Стенд ролика о бое. Открывается по ?replay=… и заменяет собой игру — так же,
 // как ?showcase=… заменяет её стендом графики. Стенд не часть визуализации: он
-// сам считает бой, чтобы было что проигрывать, и поэтому лежит рядом с папкой
-// проигрывателя, а не внутри неё. В `render/battle/` симуляции нет и быть не должно.
-//
-//   ?replay=1&men=20&foe=20
-//     бой заданного размера, ролик идёт сам.
-//   ?replay=1&men=500&foe=500&at=pullback
-//     кадр в середине отъезда — самое тяжёлое место: фигуры ещё крупные, а видно
-//     уже много. Бюджет меряется здесь, а не на статичных планах.
-//   ?replay=1&men=200&place=ford,woods&hour=19&at=field
-//     то же место и тот же час, что записал бы мир: земля и свет выводятся из
-//     записи боя той же чистой функцией, что и в игре.
-//   &place=ford|river|ridge|road|woods|hills|shore — через запятую, как в клетке
-//   &hour=0..24  час игровых суток;  &winter=1 — зимний бой
-//   &t=12.5   остановиться на этой секунде
-//   &at=muster|pull1|pullback|pull3|field|melee|last — планы камеры
-//   &at=volley|clash|charge|rout — моменты действия, найденные в журнале
-//   &snap=имя отправить кадр на dev-сервер (POST /__snap → snaps/имя.png)
-//   &dpr=2    плотность пикселей снимка;  &speed=2 быстрее реального времени
-//   &ground=0 бой без штрафа места (по умолчанию нападающему — как у мира: лес, холмы, гребень, переправа)
-//   &beasts=1 к воротам пришла стая: `foe` волков (лёгкая конница ядра, как `LocalWorld.gateParty`)
-//             нападает, `men` наших защищаются; волки одеты псовыми (docs/graphics_world.md, 11.4)
-//
-// Подпись и бюджет дублируются в document.body.dataset.replay — их читает
-// инструмент проверки, которому сама канва недоступна.
-import * as THREE from 'three';
+// сам считает бой, чтобы было что проигрывать (`standBattle`), а показывает его
+// ролик TW (`tw/stand.ts`, параметры — там же). Прежний ролик удалён вместе со
+// своим стендом (docs/ui_audit.md, 16).
 import { simulateBattle } from '@/battle/sim';
 import { deploySetup, emptyStack, stackTotal } from '@/battle/setup';
-import type { Act, Cast } from '@/battle/replay';
-import { castOfRecord } from '@/game/battle/cast';
 import { troopsOfKinds } from '@/game/battle/faces';
-import { groundName, hourName, type BattleLand, type BattlePlace } from '@/game/battle/ground';
+import { type BattleLand, type BattlePlace } from '@/game/battle/ground';
 import { DAY_LENGTH } from '@/game/constants';
 import { type TroopStack } from '@/game/battle/kinds';
 import { kindsOf } from '@/game/battle/price';
 import type { BattleResult, GroundPenalty, Side, Stack } from '@/battle/types';
-import { configureRenderer } from './lighting';
-import { ReplayPlayer } from './battle/player';
-import { nextFrame, pixelRatio } from './loop';
 
 /**
  * Состав по числу бойцов: сбалансированное войско, доли те же на любом размере.
@@ -108,51 +81,6 @@ function fight(a: Stack, d: Stack, seed: number, ground?: GroundPenalty, garriso
   });
 }
 
-/** Именованные моменты ролика: по ним снимают кадры приёмки. */
-function moment(cast: Cast, at: string): number {
-  const win = (a: Act): { from: number; to: number } => cast.acts.find((w) => w.act === a)!;
-  switch (at) {
-    case 'muster':
-      return win('muster').from + 1.5;
-    case 'pull1':
-      return win('pullback').from + (win('pullback').to - win('pullback').from) * 0.2;
-    case 'pullback':
-      return win('pullback').from + (win('pullback').to - win('pullback').from) * 0.5;
-    case 'pull3':
-      return win('pullback').from + (win('pullback').to - win('pullback').from) * 0.8;
-    case 'field':
-      return win('melee').from + 1;
-    case 'melee':
-      return win('melee').from + (win('melee').to - win('melee').from) * 0.6;
-    // Моменты действия ищутся по журналу: стенд обязан показывать ровно то, что
-    // в нём записано, а не подобранную руками секунду.
-    case 'volley': {
-      // Стрельба живёт в стрелковой фазе, а событие `volley` подводит её итог
-      // на тике столкновения, — берём фазу, а не отметку события.
-      const r = cast.spans.find((x) => x.phase === 'ranged');
-      const a = cast.spans.find((x) => x.phase === 'approach');
-      return r && a ? r.t0 + (a.t1 - r.t0) * 0.63 : 1.5;
-    }
-    case 'clash': {
-      const clash = cast.spans.find((x) => x.phase === 'clash');
-      return clash ? clash.t0 + 0.5 : win('melee').from;
-    }
-    case 'charge': {
-      // Перехвата обхода (`cavalry-intercepted`) ядро больше не пишет: он жил приказом «держать фланг».
-      const m = cast.marks.find((x) => x.id === 'cavalry-broke-archers' || x.id === 'flank-turned');
-      return m ? m.t + 1.3 : win('melee').from + 4;
-    }
-    case 'rout': {
-      const m = cast.marks.find((x) => x.id === 'sector-broken');
-      return m ? m.t + 2.2 : cast.seconds - 4;
-    }
-    case 'last':
-      return cast.seconds;
-    default:
-      return 0;
-  }
-}
-
 /** Бой стенда из адреса: состав, место и час — тем же путём, что в игре. Его же берёт стенд ролика TW (`tw/stand.ts`). */
 export interface StandBattle {
   men: number;
@@ -212,113 +140,7 @@ export function standBattle(p: URLSearchParams): StandBattle {
 }
 
 export function mountReplayStand(p: URLSearchParams): void {
-  if (p.get('replay') === 'tw') {
-    // Ролик в стиле Total War — свой кусок (docs/battle_tw.md): в прежний стенд он не едет.
-    void import('./tw/stand').then((m) => m.mountTwStand(p));
-    return;
-  }
-  const root = document.getElementById('root') ?? document.body;
-  root.innerHTML = '';
-  const canvas = document.createElement('canvas');
-  canvas.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none';
-  root.appendChild(canvas);
-
-  const caption = document.createElement('div');
-  caption.style.cssText =
-    'position:fixed;left:0;right:0;bottom:0;padding:8px 10px;font:12px/1.35 ui-monospace,monospace;' +
-    'white-space:pre-wrap;color:#fff;background:rgba(0,0,0,.55);z-index:5';
-  if (p.get('clean') === '1') caption.style.display = 'none';
-  root.appendChild(caption);
-
-  const battle = standBattle(p);
-  const { men, foe, seed, beasts, us, result } = battle;
-  const cast: Cast = castOfRecord(result, us, battle.troops, undefined, battle.place, battle.beastSide);
-
-  const renderer = new THREE.WebGLRenderer({
-    canvas,
-    antialias: true,
-    powerPreference: 'high-performance',
-    // Снимок читается из буфера сразу после render, но в отладке кадр иногда
-    // берут и позже — без этого он придёт пустым.
-    preserveDrawingBuffer: true,
-  });
-  renderer.setPixelRatio(pixelRatio(Number(p.get('dpr') ?? 2)));
-  configureRenderer(renderer);
-  // Честный счёт вызовов вместе с теневым проходом — как в игре и в стенде графики.
-  renderer.info.autoReset = false;
-
-  // onFrame ставится после сборки: конструктор рисует первый кадр сам, а подпись
-  // читает `player`, которого в этот момент ещё нет.
-  const opts = { speed: Number(p.get('speed') ?? 1) } as { speed: number; onFrame?: () => void };
-  const player = new ReplayPlayer(renderer, cast, opts);
-  opts.onFrame = () => publish();
-
-  const resize = (): void => {
-    const w = canvas.clientWidth || window.innerWidth;
-    const h = canvas.clientHeight || window.innerHeight;
-    renderer.setSize(w, h, false);
-    player.fit();
-    player.draw();
-  };
-  window.addEventListener('resize', resize);
-  resize();
-
-  const at = p.get('at');
-  const frozen = p.has('t') ? Number(p.get('t')) : at ? moment(cast, at) : null;
-
-  function publish(): void {
-    const s = player.stats();
-    const f = cast;
-    const text =
-      `${beasts ? 'стая у ворот · ' : ''}бой ${men} против ${foe} · сид ${seed} · ролик ${f.seconds.toFixed(1)} с · ` +
-      `${groundName(f.ground)} ${hourName(f.ground)}${f.ground.winter ? ', зимой' : ''}\n` +
-      `t=${player.time.toFixed(2)} · фигур ${f.figures.attacker}/${f.figures.defender} · ` +
-      `вызовов ${s.calls} · треугольников ${s.triangles.toLocaleString('ru')} · инстансов ${s.instances}`;
-    caption.textContent = text;
-    document.body.dataset.replay = JSON.stringify({
-      men,
-      foe,
-      seed,
-      beasts,
-      seconds: f.seconds,
-      t: Number(player.time.toFixed(3)),
-      figures: f.figures,
-      battleMen: f.men,
-      ground: f.ground,
-      ...s,
-      dpr: renderer.getPixelRatio(),
-      size: [canvas.clientWidth, canvas.clientHeight],
-    });
-  }
-
-  // Отладочный крючок стенда: инструмент проверки не видит канву и не может
-  // дотянуться до сцены иначе. В игру стенд не попадает, поэтому и крючок тоже.
-  (window as unknown as { replayStand?: unknown }).replayStand = { player, cast, result };
-
-  if (frozen !== null) {
-    player.seek(frozen);
-    publish();
-  } else {
-    player.start();
-  }
-
-  const name = p.get('snap');
-  if (name) {
-    // Снимок берётся сразу после кадра: буфер WebGL живёт до следующей отрисовки.
-    nextFrame(() => {
-      player.draw();
-      publish();
-      canvas.toBlob((blob) => {
-        if (!blob) return;
-        void fetch(`/__snap?name=${encodeURIComponent(name)}`, { method: 'POST', body: blob })
-          .then((r) => r.text())
-          .then((file) => {
-            caption.textContent += `\nснимок → ${file}`;
-          })
-          .catch(() => {
-            caption.textContent += '\nснимок некуда класть: /__snap есть только у dev-сервера';
-          });
-      }, 'image/png');
-    });
-  }
+  // Ролик один — в стиле Total War (docs/battle_tw.md), прежний удалён (docs/ui_audit.md, 16): любой `?replay=`
+  // открывает его стенд. Свой кусок — в стенд боя он не едет.
+  void import('./tw/stand').then((m) => m.mountTwStand(p));
 }

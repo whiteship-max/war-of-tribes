@@ -247,10 +247,12 @@ describe('«Пропустить» на каждом кадре', () => {
     }
   });
 
-  it('в разметке ролика кнопок не пишется: они приходят кадром', () => {
-    const jsx = stripComments(readFileSync(join(SRC, 'ui/battle/BattleReplay.tsx'), 'utf8'));
+  it('в разметке ролика кнопок не пишется: они приходят данными', () => {
+    // Ролик один — TW (прежний удалён, docs/ui_audit.md, 16): его кнопки — список данных, и «Пропустить» в нём та же.
+    const jsx = stripComments(readFileSync(join(SRC, 'ui/battle/TwReplay.tsx'), 'utf8'));
     expect(jsx).not.toContain(SKIP.label);
-    expect(jsx).toMatch(/frame\.controls\.map/);
+    expect(jsx).toMatch(/const TW_CONTROLS = \[OVERVIEW, SKIP\] as const;/);
+    expect(jsx).toMatch(/TW_CONTROLS\.map/);
   });
 
   it('других кнопок в кадре нет: звук уехал в настройки', () => {

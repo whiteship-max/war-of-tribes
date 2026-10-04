@@ -57,12 +57,9 @@ import {
 } from './grid';
 import { dropPaper, drawFrame } from './frame';
 import { beyondText, reachable, twSlot } from './twslot';
-import { dropTiles } from './ground';
-import { dropBitmaps } from './tiles';
+import { homeTheatre } from '@/world/theatre/theatre';
 import { type Look, dropSprites, silhouetteUrl } from './village';
 import { dropPaint } from './paint';
-import { dropFog } from './fog';
-import { dropZones } from './zones';
 import { dropParties } from './party';
 import { FELL_WORDS, WORKS_STEPS, dropSiegeMarks, fellUrl, worksUrl } from './siegemark';
 import { bakeAgent } from './agent';
@@ -343,13 +340,9 @@ export function WorldMap() {
   // Новый мир — новая земля: испечённое держать нельзя, оно от старого сида.
   const seed = info?.seed ?? 0;
   useEffect(() => {
-    dropTiles();
-    dropBitmaps();
     dropSprites();
     dropPaint();
     dropPaper();
-    dropFog();
-    dropZones();
     twSlot()?.drop();
   }, [seed]);
 
@@ -453,8 +446,6 @@ export function WorldMap() {
       loop.stop();
       ro.disconnect();
       offViewport();
-      // Уходим с карты — холсты кэша земли в памяти держать незачем.
-      dropTiles();
       // Отряды и силуэты агентов от сида не зависят, поэтому в уборку по новому
       // миру они не входят; а вот держать их между заходами на карту незачем —
       // печутся они за доли миллисекунды.
@@ -766,7 +757,7 @@ export function WorldMap() {
           {/* Верх карты нового вида — только для чтения (docs/ui_audit.md, 12): где я. Вернуться в город — серединой
               низа, как карта открывается серединой низа города. */}
           <div className="nx-mplate">
-            <span className="one-line">{twSlot()?.realm() ?? 'Карта мира'}</span>
+            <span className="one-line">{(info ? homeTheatre(info.home)?.name : null) ?? 'Карта мира'}</span>
             <b ref={coordRef}>—</b>
           </div>
           {FREE_CAMERA && (

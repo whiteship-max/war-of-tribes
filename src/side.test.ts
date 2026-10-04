@@ -8,7 +8,6 @@ import { TROOP_IDS } from '@/game/data/troops';
 import { RELATION_META } from '@/world/data/meta';
 import { STANDING_META } from '@/world/data/diplomacy';
 import { FELL_MARK, PARTY_FOE, PARTY_OWN } from '@/ui/map/palette';
-import { CLOTH_OF } from '@/render/battle/troops';
 import { SIDE_CLOTH } from '@/render/tw/crowd';
 import { Figure } from '@/render/figures';
 import { PALETTE } from '@/render/palette';
@@ -57,9 +56,7 @@ describe('цвет стороны: читатели', () => {
     expect(STANDING_META.war.color).toBe(SIDE_COLOR.foe);
   });
 
-  it('оба ролика боя: наши — краска золота, чужие — краска красного', () => {
-    expect(CLOTH_OF(true)).toBe(sidePaint(true));
-    expect(CLOTH_OF(false)).toBe(sidePaint(false));
+  it('ролик боя: наши — краска золота, чужие — краска красного', () => {
     expect(SIDE_CLOTH.ours).toBe(sidePaint(true));
     expect(SIDE_CLOTH.theirs).toBe(sidePaint(false));
   });

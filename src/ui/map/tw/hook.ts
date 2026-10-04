@@ -1,5 +1,5 @@
-// Дверь нового вида в игру (docs/map_tw.md): `twslot.ts` подгружает этот кусок по выбору вида (`look.ts`), и
-// он кладёт в ячейку свой кадр, свой выбор цели пальцем, рамку камеры и мерку «в регионе ли клетка». Земля
+// Дверь вида карты в игру (docs/map_tw.md): `twslot.ts` подгружает этот кусок на запуске, и он кладёт в ячейку
+// свой кадр, свой выбор цели пальцем и рамку камеры («в регионе ли клетка» спрашивают у мира — `twslot.reachable`). Земля
 // региона печётся заранее и вне кадра (`prebake.ts`, раздел 13.4); здесь — только сверка вида с игрой.
 import { sightDiscs, useWorld, worldNow } from '@/world/store';
 import { useGame } from '@/game/store';
@@ -20,7 +20,6 @@ import { dropNear, playerTheatre, prebakeLook, prebakeWake } from './prebake';
 import { figureItems, hostItems, placeItems, placesRect } from './scene';
 import { aimAt, aimsOf } from './tap';
 import { holdInTheatre } from './theatre/camera';
-import { withinActive } from './theatre/active';
 
 setTwSlot({
   frame(ctx, cam, vp, dpr, frame) {
@@ -42,13 +41,6 @@ setTwSlot({
   hold(cam, vp) {
     const t = playerTheatre();
     return t ? holdInTheatre(cam, vp, t.box) : cam;
-  },
-  reach(c) {
-    playerTheatre();
-    return withinActive(c.x, c.y);
-  },
-  realm() {
-    return playerTheatre()?.name ?? null;
   },
   drop() {
     dropMinis();

@@ -1,97 +1,14 @@
-// Нарисованный слой карты: земля, сетка координат и поселения.
-//
-// Всё, что стоит дорого, уже испечено — тайлы в `ground.ts`, спрайты поселений в
-// `village.ts`. Здесь остаётся только раскладка: посчитать, куда лечь копии, и
-// скопировать. Ни одного пути и ни одного градиента в этом файле нет.
+// Общее у слоёв карты: сетка координат, места в кадре и метки походов на них. Земля и значки мест — у вида карты
+// (`tw/`); прежние земля и значки удалены вместе с прежней картой (docs/ui_audit.md, 16).
 import type { MarchView, Rect, SettlementView } from '@/world/types';
 import { loadedIn } from '@/world/cache';
 import { WORLD_ORIGIN, WORLD_SIZE } from '@/world/data/tuning';
 import { GRID } from './palette';
-import {
-  type Camera,
-  type Viewport,
-  cacheFor,
-  frameQueue,
-  tileQuad,
-  toScreen,
-  viewRect,
-} from './grid';
-import { TILE_SRC, prepareTiles, tileAt } from './ground';
-import { type Look, type MarkerKind, drawMarkers, drawSettlement, variantOf } from './village';
-import { drawWorks, worksStand, worksStep } from './siegemark';
-import { sideWorks } from '@/world/works';
-import { probe, shownGaps } from '@/debug';
-
-/** Счёт недопечённого на экране включён только флагом адреса. */
-const PROBE = probe();
+import { type Camera, type Viewport, toScreen, viewRect } from './grid';
+import { type MarkerKind } from './village';
 
 /** Сетка подписана только по пятёркам: на каждой клетке цифры сливаются в шум. */
 const GRID_STEP = 5;
-
-// ---------- Земля ----------
-
-/**
- * Земля. За кадр это ровно один `drawImage` на тайл — ничего не пересчитывается
- * и не перерисовывается, сколько бы палец ни возил по экрану.
- *
- * Края тайлов сходятся пиксель в пиксель: правая граница берётся не как «левая
- * плюс ширина», а как экранная координата того же мирового столбца, с которого
- * начнётся сосед. Иначе округление разошлось бы на пиксель и по стыкам пошли бы
- * светлые нитки.
- */
-export function drawGround(
-  ctx: CanvasRenderingContext2D,
-  cam: Camera,
-  vp: Viewport,
-  seed: number,
-  frame: number,
-  alpha: number,
-): void {
-  const capacity = capacityOf(vp);
-  const plan = frameQueue(viewRect(cam, vp), capacity);
-  // Экран не влезает в ёмкость даже без запаса — так бывает только на экране
-  // больше обещанного (`TILE_PROMISE`) на мелких масштабах: у планшета у самого
-  // края полосы перехода, у большого монитора и выше неё. Тогда нарисованного
-  // слоя на этом масштабе нет, вместо него виден обзор. Печь по кругу то, что не
-  // влезает, нельзя.
-  if (!plan) return;
-  // В очереди экран и запас, ближние к экрану первыми. На обещанном экране и
-  // меньше запас влезает целиком: ёмкость из него и выведена.
-  prepareTiles(seed, plan.queue, frame, capacity);
-
-  ctx.save();
-  ctx.imageSmoothingEnabled = true;
-  ctx.globalAlpha = alpha;
-  let gaps = 0;
-  for (const { tx, ty } of plan.shown) {
-    const canvas = tileAt(tx, ty);
-    // Тайла ещё нет — сквозь него виден пиксельный обзор. Дырки не бывает.
-    if (!canvas) {
-      gaps++;
-      continue;
-    }
-    const q = tileQuad(cam, vp, tx, ty);
-    ctx.drawImage(canvas, TILE_SRC.x, TILE_SRC.y, TILE_SRC.size, TILE_SRC.size, q.x, q.y, q.w, q.h);
-  }
-  ctx.restore();
-  // Сколько тайлов экрана ещё не испечены: цена тонкого запаса. Под `?probe=1` её
-  // снимает `npm run map:report`; в игре остаётся проверка булева.
-  if (PROBE) shownGaps(gaps);
-}
-
-/**
- * Ёмкость кэша для этого экрана. Считается от размера полотна и пересчитывается
- * только при его смене — от камеры она не зависит, а кадров шестьдесят в секунду.
- */
-let capacityVp = { w: -1, h: -1 };
-let capacityValue = 0;
-function capacityOf(vp: Viewport): number {
-  if (vp.w !== capacityVp.w || vp.h !== capacityVp.h) {
-    capacityVp = { w: vp.w, h: vp.h };
-    capacityValue = cacheFor(vp);
-  }
-  return capacityValue;
-}
 
 // ---------- Сетка координат ----------
 
@@ -185,57 +102,4 @@ export function markersOf(marches: MarchView[]): Map<string, MarkerKind[]> {
     else if (m.own && m.phase === 'stay') add(m.targetId, 'troops');
   }
   return out;
-}
-
-const lookOf = (s: SettlementView): Look => ({
-  stage: s.stage,
-  relation: s.relation,
-  mine: s.mine,
-  variant: variantOf(s.id),
-  castle: s.castle,
-  ruin: s.ruin,
-  sacked: s.sacked,
-});
-
-/**
- * Поселения нарисованного слоя. Значок — одна копия испечённого спрайта, метки
- * состояния поверх него тремя дугами: они меняются каждую секунду и в спрайт не
- * запекаются.
- *
- * Осаждённый город обнимают рогатки: задняя половина кольца ложится под двор, передняя —
- * поверх, два копирования испечённого (`siegemark.ts`). Готовность сторон — та же
- * `works.sideWorks`, что считает бой и окна осады, на минуту кадра: рогатки растут на
- * глазах, а не раз в кусок карты.
- */
-export function drawVillages(
-  ctx: CanvasRenderingContext2D,
-  cam: Camera,
-  vp: Viewport,
-  list: SettlementView[],
-  dpr: number,
-  alpha: number,
-  markers: Map<string, MarkerKind[]>,
-  now: number,
-): void {
-  if (alpha <= 0) return;
-  const px = cam.scale;
-  ctx.save();
-  ctx.globalAlpha = alpha;
-  ctx.imageSmoothingEnabled = true;
-  for (const s of list) {
-    const [sx, sy] = toScreen(cam, vp, s.x + 0.5, s.y + 0.5);
-    // Спрайт занимает несколько клеток (`SPAN_W` в `village.ts`): за экраном его можно не рисовать, но
-    // запас нужен, иначе крыши будут выскакивать на границе.
-    if (sx < -px * 2 || sy < -px * 2 || sx > vp.w + px * 2 || sy > vp.h + px * 2) continue;
-    const siege = s.besieged && worksStand(s.besieged.starvesAt, now) ? s.besieged : null;
-    // Нет долей — лагерь рубит по правилу бота: это умолчание самой `sideWorks`.
-    const front = siege ? worksStep(sideWorks(siege.since, now, 'front', siege.wood)) : 0;
-    const rear = siege ? worksStep(sideWorks(siege.since, now, 'rear', siege.wood)) : 0;
-    if (siege) drawWorks(ctx, front, rear, 'back', px, dpr, sx, sy);
-    drawSettlement(ctx, lookOf(s), px, dpr, sx, sy);
-    if (siege) drawWorks(ctx, front, rear, 'front', px, dpr, sx, sy);
-    const kinds = markers.get(s.id);
-    if (kinds) drawMarkers(ctx, sx, sy, px, kinds, now);
-  }
-  ctx.restore();
 }

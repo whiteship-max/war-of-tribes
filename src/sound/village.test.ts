@@ -326,7 +326,7 @@ describe('ролик о бое глушит деревню и возвращае
   });
 
   it('ролик и деревня разведены в коде: одна глушится, другая играет', () => {
-    const replay = readFileSync(join(SRC, 'ui/battle/BattleReplay.tsx'), 'utf8');
+    const replay = readFileSync(join(SRC, 'ui/battle/TwReplay.tsx'), 'utf8');
     expect(replay).toMatch(/villageMusic\.duck\(true\)/);
     expect(replay).toMatch(/villageMusic\.duck\(false\)/);
   });

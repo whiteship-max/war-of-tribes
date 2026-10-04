@@ -46,14 +46,13 @@
 //
 // Запуск: npm run map:report   (нужен собранный dist: npm run build)
 // Переменные: PORT=4191  CDP_PORT=9334  CHROME=путь\к\chrome.exe  HEAD=1  SECONDS=3
-// MAP=old — прежняя карта (`?map=old`), запасная из настроек: те же замеры на ней. Без переменной — вид по умолчанию:
-// с 03.10.2026 новый (docs/map_tw.md, `?map=tw`; `MAP=tw` — то же самое, названное явно).
-// QUALITY=low|medium|high — уровень качества адресом (`?quality=`): его берёт новый вид (`tw/quality.twQuality`),
-// у прежней карты уровней нет; без переменной — «Авто», как у игрока.
+// Вид карты один — по регионам (docs/map_tw.md); прежняя карта и `MAP=old` удалены (docs/ui_audit.md, 16).
+// QUALITY=low|medium|high — уровень качества адресом (`?quality=`, `tw/quality.twQuality`); без переменной — «Авто», как
+// у игрока.
 // MOTION=1 — только раздел «карта в движении» (docs/map_tw.md, раздел 11): цена кадра в броске, стоя, в щипке
 // от ближнего масштаба к дальнему и в броске издали, ×1 и ×4 (`lib/flight.ts`). Это замер руками, а не
 // приёмка: остальные разделы не гоняются, браузер — один заход до двух минут, перед ним видеокарта остывает
-// минуту от прошлого захода (`budget.gpuCoolDown`). Сравнивать — прогоны одного вида с разными `MAP`/`QUALITY`.
+// минуту от прошлого захода (`budget.gpuCoolDown`). Сравнивать — прогоны с разными `QUALITY`.
 // PREBAKE=page — новый вид без рабочего потока: регион печёт страница сама, по кадрам и стоя (docs/map_tw.md, 13.4).
 import { createServer, type Server } from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
@@ -71,7 +70,6 @@ import { LocalWorld } from '@/world/local/LocalWorld';
 import type { MarchView, PlayerProfile } from '@/world/types';
 import { PARTY_STEPS, partyMen, sizeOf, type PartySize } from '@/ui/map/party';
 import { AGENT_MIN } from '@/ui/map/agent';
-import { MAP_DEFAULT, type MapLook } from '@/ui/map/look';
 
 const DIST = fileURLToPath(new URL('../dist', import.meta.url));
 const PORT = Number(process.env.PORT ?? 4191);
@@ -424,15 +422,8 @@ const FEATURE_MIN = 2;
 /** Размеры, на которых меряются силуэты. Ниже пола `agentUnit` — нарочно. */
 const LOOK_SIZES = [10, 14, 18, 22, 26, 30, 38, 48, 60];
 
-/**
- * Вид карты под замером: без переменной — тот, что у игрока по умолчанию (`MAP_DEFAULT`: с 03.10.2026 новый, в духе
- * карты кампании, docs/map_tw.md), `MAP=old` — прежний, запасной из настроек. Адрес пишется всегда (`?map=…`): отчёт
- * мерит названный вид, а не то, что окажется в записи браузера.
- */
-const LOOK_WORD: MapLook = process.env.MAP === 'old' || process.env.MAP === 'tw' ? process.env.MAP : MAP_DEFAULT;
-const LOOK = `&map=${LOOK_WORD}`;
-/** Вид словами — шапкам разделов. */
-const LOOK_NAME = `${LOOK_WORD === 'tw' ? 'новый' : 'прежний'} (map=${LOOK_WORD}${LOOK_WORD === MAP_DEFAULT ? ', по умолчанию' : ''})`;
+/** Вид словами — шапкам разделов. Вид один: прежняя карта удалена вместе с переключателем (docs/ui_audit.md, 16). */
+const LOOK_NAME = 'карта по регионам (вид один)';
 
 /** Уровень качества адресом (`QUALITY=`); пусто — «Авто». Неизвестное слово — ошибка, а не молчаливое «Авто». */
 const QUALITY = ((): string => {
@@ -449,8 +440,8 @@ const QUALITY = ((): string => {
  */
 const PREBAKE = process.env.PREBAKE === 'page' ? '&prebake=page' : '';
 
-/** Хвост адреса страницы: вид, уровень и путь выпечки. Без переменных — пусто, и адреса прежние. */
-const VIEW = LOOK + (QUALITY ? `&quality=${QUALITY}` : '') + PREBAKE;
+/** Хвост адреса страницы: уровень и путь выпечки. Без переменных — пусто. */
+const VIEW = (QUALITY ? `&quality=${QUALITY}` : '') + PREBAKE;
 
 /** Карта в движении (`MOTION=1`): только этот раздел. */
 const MOTION = process.env.MOTION === '1';
@@ -493,7 +484,7 @@ async function measure(counts: number[]): Promise<{ shots: Shot[]; looks: Look[]
  */
 async function motionMain(): Promise<void> {
   console.log('\n=== карта в движении ===\n');
-  console.log(`Вид: ${LOOK_NAME}; уровень качества: ${QUALITY || 'Авто'}${LOOK_WORD === 'tw' ? '' : ' (у прежней карты уровней нет)'}${PREBAKE ? '; регион печёт страница (без потока)' : ''}.`);
+  console.log(`Вид: ${LOOK_NAME}; уровень качества: ${QUALITY || 'Авто'}${PREBAKE ? '; регион печёт страница (без потока)' : ''}.`);
   console.log(`Мир закреплён (дом ${PINNED_HOME.x}|${PINNED_HOME.y}, сид ${PINNED_SEED}), экран телефона 375×812 @2, потолок игры — 60 кадров.`);
   console.log('Кадр — время drawFrame, мс: вся карта за кадр, с выпечкой, если она пришлась на этот кадр.');
   console.log(`Бросок — спираль у дома на 44 px на клетку; стоя — дома после броска; щипок — ${PINCH.near} → ${PINCH.far} → ${PINCH.near} px`);

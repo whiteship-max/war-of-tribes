@@ -18,7 +18,6 @@ import { Gesture, TAP_MS, TAP_SLIP, TAP_TARGET } from '@/gestures';
 import { SCALE_MAX, SCALE_MIN, SCALE_START } from '../const';
 import type { Camera } from '../grid';
 import { fakeCanvasEnv, waterChunk } from '../fakecanvas';
-import { dropTiles, tileBakes } from '../ground';
 import { cacheFor } from '../grid';
 import { dropMinis } from './mini';
 import { figureItems, hostItems, MINI_HI, MINI_LO, placeItems, placeLookOf, placesRect } from './scene';
@@ -373,7 +372,6 @@ describe('агенты у ворот своего места', () => {
 describe('кадр нового вида стоя не печёт ничего', () => {
   it('места, отряды, агенты и подписи: после прогрева ни холста', () => {
     clearCache();
-    dropTiles();
     dropMinis();
     const list = [
       place({ id: 'h', x: AT.x, y: AT.y, mine: true, relation: 'self', color: '#e8a43c', name: 'Генуя' }),
@@ -400,19 +398,15 @@ describe('кадр нового вида стоя не печёт ничего',
       const cam = camAt(AT.x, AT.y, scale);
       const frames = capacity + 30;
       let late = 0;
-      let lateBakes = 0;
       for (let f = 1; f <= frames; f++) {
         vi.setSystemTime(START + f * 50);
         const c0 = env.created();
-        const b0 = tileBakes();
         drawTwFrame(ctx, cam, VP, DPR, f);
         if (f > capacity) {
           late += env.created() - c0;
-          lateBakes += tileBakes() - b0;
         }
       }
       expect(late, `×${scale}: холстов стоя после прогрева`).toBe(0);
-      expect(lateBakes, `×${scale}: выпечек земли стоя`).toBe(0);
     }
   });
 });

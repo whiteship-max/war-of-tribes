@@ -184,12 +184,6 @@ describe('браузер', () => {
     expect(shots).toMatch(/gpuStamp\(\)/);
     expect(shots).toMatch(/BENCH_PASSES_MAX/);
     expect(shots).toMatch(/new Set\(QUALITIES\)\.size !== QUALITIES\.length/);
-    // Стенд ролика (`replay:shots`) — тот же порядок: отказ рядом с чужим, пауза перед заходом, отметка конца, срок захода.
-    const replay = strip(readFileSync(join(ROOT, 'scripts', 'replay-shots.ts'), 'utf8'));
-    expect(replay).toMatch(/refuseIfBusy\(/);
-    expect(replay).toMatch(/await gpuCoolDown\(/);
-    expect(replay).toMatch(/gpuStamp\(\)/);
-    expect(replay).toMatch(/Date\.now\(\) - began > BROWSER_MAX_MS/);
   });
 
   it('браузерные отчёты приёмки — по одному и с паузой перед каждым, и на базе тоже', () => {

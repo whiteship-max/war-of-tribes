@@ -4,9 +4,6 @@ import { App } from './App';
 import { initTelegram } from './telegram/webapp';
 import './ui/styles.css';
 import { bootDone } from './boot/stage';
-import { bootUiMode } from './ui/uimode';
-import { bootMapLook } from './ui/map/look';
-import { bootBattleLook } from './ui/battle/look';
 
 const params = new URLSearchParams(location.search);
 if (params.has('replay')) {
@@ -25,11 +22,9 @@ if (params.has('replay')) {
   });
 } else {
   initTelegram();
-  // Вид этого устройства — интерфейс, карта, ролик боя: адрес (`?ui=old`, `?map=old`, `?battle=old`; обратно — `new`,
-  // `tw`) пишет выбор до первого кадра (`ui/device.ts`). По умолчанию у всех трёх — новое.
-  bootUiMode(location.search);
-  bootMapLook(location.search);
-  bootBattleLook(location.search);
+  // Вид у игры один — новый интерфейс, карта по регионам, ролик TW (docs/ui_audit.md, 16): прежние удалены вместе со
+  // своими переключателями, и старые адреса (`?ui=old`, `?map=old`, `?battle=old`) и выбор, записанный на устройстве,
+  // не читает никто (`ui/oldviews.test.ts`).
   const start = (): void =>
     createRoot(document.getElementById('root')!).render(
       <React.StrictMode>

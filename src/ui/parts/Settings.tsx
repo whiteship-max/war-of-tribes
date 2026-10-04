@@ -25,9 +25,6 @@ import { setSoundOn, soundOn, subscribeSound } from '@/sound/settings';
 import { GFX_QUALITIES, gfx, setGfx, subscribeGfx } from '@/render/gfx';
 import { battleMusic, villageMusic } from '@/sound/web';
 import { Icon } from '@/ui/icons/Icon';
-import { UI_MODES, setUiMode, subscribeUi, uiMode } from '@/ui/uimode';
-import { MAP_LOOKS, mapLook, setMapLook, subscribeMap } from '@/ui/map/look';
-import { BATTLE_LOOKS, battleLook, setBattleLook, subscribeBattle } from '@/ui/battle/look';
 
 /**
  * Переключатель музыки — **единственный рычаг на весь звук игры**, и деревни, и
@@ -51,11 +48,6 @@ import { BATTLE_LOOKS, battleLook, setBattleLook, subscribeBattle } from '@/ui/b
 export function Settings() {
   const on = useSyncExternalStore(subscribeSound, soundOn, soundOn);
   const chosen = useSyncExternalStore(subscribeGfx, gfx, gfx);
-  const ui = useSyncExternalStore(subscribeUi, uiMode, uiMode);
-  const map = useSyncExternalStore(subscribeMap, mapLook, mapLook);
-  const replay = useSyncExternalStore(subscribeBattle, battleLook, battleLook);
-  // Новый интерфейс говорит своими словами (docs/ui_texts.md, пачка 11), прежний — своими.
-  const next = ui === 'new';
 
   const flip = (): void => {
     const next = !on;
@@ -81,7 +73,7 @@ export function Settings() {
           </span>
           <span className="name">
             Музыка
-            <em className="sub">{next ? 'в городе и в бою' : 'в деревне и под роликом о бое'}</em>
+            <em className="sub">в городе и в бою</em>
           </span>
           <span className="sw">
             <i />
@@ -101,73 +93,11 @@ export function Settings() {
           </span>
           <span className="name">
             Графика
-            <em className="sub">{next ? 'Авто подбирает по телефону' : '«Авто» — по устройству; не тянет — опустится сама'}</em>
+            <em className="sub">Авто подбирает по телефону</em>
           </span>
           <div className="set-seg" role="group" aria-label="Уровень графики">
             {GFX_QUALITIES.map(([q, label]) => (
               <button key={q} className={chosen.quality === q ? 'on' : ''} aria-pressed={chosen.quality === q} onClick={() => setGfx({ quality: q })}>
-                {label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/*
-          Интерфейс — новый или прежний (`ui/uimode.ts`). Две кнопки, как у графики: выбор виден целиком,
-          умолчание — первой. Меняется сразу, без перезагрузки: верх, низ и окна слушают запись сами.
-        */}
-        <div className="set-row pick">
-          <span className="ico">
-            <Icon name="ui-scroll" glyph="📜" />
-          </span>
-          <span className="name">
-            Интерфейс
-            <em className="sub">Новый — значки и подсказки касанием</em>
-          </span>
-          <div className="set-seg" role="group" aria-label="Интерфейс">
-            {UI_MODES.map(([m, label]) => (
-              <button key={m} className={ui === m ? 'on' : ''} aria-pressed={ui === m} onClick={() => setUiMode(m)}>
-                {label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/*
-          Карта мира — новая или прежняя (`ui/map/look.ts`). Выбор читается на входе на карту: здесь, в городе или
-          на стартовом экране, карты на экране нет, и следующий вход — уже в выбранном виде, без перезагрузки.
-        */}
-        <div className="set-row pick">
-          <span className="ico">
-            <Icon name="hud-map" glyph="🗺️" />
-          </span>
-          <span className="name">
-            Карта мира
-            <em className="sub">Новая — в духе карты кампании</em>
-          </span>
-          <div className="set-seg" role="group" aria-label="Карта мира">
-            {MAP_LOOKS.map(([m, label]) => (
-              <button key={m} className={map === m ? 'on' : ''} aria-pressed={map === m} onClick={() => setMapLook(m)}>
-                {label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/*
-          Ролик боя — новый или прежний (`ui/battle/look.ts`): выбор берёт следующий «Смотреть бой».
-        */}
-        <div className="set-row pick">
-          <span className="ico">
-            <Icon name="hud-army" glyph="⚔️" />
-          </span>
-          <span className="name">
-            Ролик боя
-            <em className="sub">Новый — строи на поле, камера в руке</em>
-          </span>
-          <div className="set-seg" role="group" aria-label="Ролик боя">
-            {BATTLE_LOOKS.map(([m, label]) => (
-              <button key={m} className={replay === m ? 'on' : ''} aria-pressed={replay === m} onClick={() => setBattleLook(m)}>
                 {label}
               </button>
             ))}
@@ -191,7 +121,7 @@ export function Settings() {
           </span>
           <span className="name">
             Язык
-            <em className="sub">{next ? 'Русский' : 'Русский. Других пока нет'}</em>
+            <em className="sub">Русский</em>
           </span>
         </div>
       </div>
