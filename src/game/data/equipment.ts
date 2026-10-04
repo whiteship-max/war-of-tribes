@@ -49,7 +49,7 @@ export const EQUIPMENT: EquipmentDef[] = [
     name: 'Топоры',
     one: 'топор',
     icon: '🪓',
-    description: 'Боевой топор: тяжелее копья и прощает меньше промахов.',
+    description: 'Боевой топор. Тяжелее копья и прощает меньше промахов.',
     cost: { wood: 5, copper: 3 },
     work: 112,
   },

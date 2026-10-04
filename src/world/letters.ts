@@ -259,7 +259,7 @@ export function resolveLetter(l: Letter, answer: LetterAnswerId): LetterOutcome 
           duration: PACT_DURATION,
           prestige: 2,
           morale: 2,
-          text: `Пакт с ${who} подписан: набегов оттуда не будет.`,
+          text: `Пакт с ${who} подписан.`,
           good: true,
         };
       }
@@ -267,7 +267,7 @@ export function resolveLetter(l: Letter, answer: LetterAnswerId): LetterOutcome 
         ...NOTHING,
         attitude: LETTER_PACT_REFUSE + extra,
         text: silent
-          ? `Гонец из ${who} уехал без ответа: пакта не будет, а молчание сочли за спесь.`
+          ? `Гонец из ${who} уехал без ответа. Молчание сочли спесью.`
           : `Пакт с ${who} отвергнут.`,
         good: false,
       };
@@ -279,7 +279,7 @@ export function resolveLetter(l: Letter, answer: LetterAnswerId): LetterOutcome 
           attitude: TRIBUTE_PAID_ATTITUDE,
           resources: spend(l.cost),
           morale: -2,
-          text: `Дань ${who} уплачена: ${goods(l.cost)} добра.`,
+          text: `Дань ${who} уплачена, ${goods(l.cost)} запасов.`,
           good: false,
         };
       }
@@ -290,7 +290,7 @@ export function resolveLetter(l: Letter, answer: LetterAnswerId): LetterOutcome 
         prestige: 1,
         morale: silent ? 0 : 2,
         text: silent
-          ? `Гонец из ${who} не дождался ответа: дани нет, и оттуда объявили войну.`
+          ? `Гонец из ${who} уехал без ответа. Оттуда объявили войну.`
           : `Дань ${who} не дана. Это война.`,
         good: false,
       };
@@ -307,7 +307,7 @@ export function resolveLetter(l: Letter, answer: LetterAnswerId): LetterOutcome 
             : null,
           prestige: 2,
           morale: 2,
-          text: `Встали вместе с ${who} против «${l.againstName}»: с одними союз, с другими война.`,
+          text: `Встали вместе с ${who} против «${l.againstName}».`,
           good: true,
         };
       }
@@ -315,7 +315,7 @@ export function resolveLetter(l: Letter, answer: LetterAnswerId): LetterOutcome 
         ...NOTHING,
         attitude: ALLY_CALL_REFUSE + extra,
         text: silent
-          ? `Зов ${who} остался без ответа: в поход не пошли, и там это запомнили хуже отказа.`
+          ? `Зов ${who} остался без ответа. Там это запомнили хуже отказа.`
           : `В поход с ${who} не пошли.`,
         good: false,
       };
@@ -329,7 +329,7 @@ export function resolveLetter(l: Letter, answer: LetterAnswerId): LetterOutcome 
           resources: spend(l.cost),
           pop: men,
           morale: 4,
-          text: `Выкуплено у ${who}: ${men} чел. вернулись в племя за ${goods(l.cost)} добра.`,
+          text: `Выкупили у ${who} ${men} наших за ${goods(l.cost)} запасов.`,
           good: true,
         };
       }
@@ -338,8 +338,8 @@ export function resolveLetter(l: Letter, answer: LetterAnswerId): LetterOutcome 
         attitude: RANSOM_REFUSE_ATTITUDE + extra,
         morale: -3,
         text: silent
-          ? `Гонец из ${who} уехал ни с чем: ${men} чел. увели, и выкупать больше некого.`
-          : `Выкуп ${who} не дан: ${men} чел. увели.`,
+          ? `Гонец из ${who} уехал ни с чем. Пленных увели, всего ${men}.`
+          : `Выкуп ${who} не дан. Пленных увели, всего ${men}.`,
         good: false,
       };
     }

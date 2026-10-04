@@ -22,11 +22,7 @@ export function TechTab() {
     <>
       <div className="panel">
         <h3>Технологии</h3>
-        <div className="note">
-          Три ветви, по одной на навык правителя: каждая тратит очки своего вида. Первый уровень
-          бесплатен — это то, с чем держава начинается; дальше уровень покупается и что-то
-          открывает. Изученное не отнимается ни сменой правителя, ни чем-либо ещё.
-        </div>
+        <div className="note">Каждая ветвь тратит очки своего вида. Изученное не отнимается.</div>
       </div>
       {REALM_BRANCHES.map((b) => (
         <Branch key={b} branch={b} />
@@ -49,7 +45,7 @@ function Branch({ branch }: { branch: RealmBranch }) {
         <span className="ico">◆</span>
         <span className="name">
           Очки
-          <em className="sub">{rate > 0 ? `+${rate} в игровой день` : 'приток нулевой'}</em>
+          <em className="sub">{rate > 0 ? `+${rate} в день` : 'приток нулевой'}</em>
         </span>
         <span className={`val${have >= POINTS_CAP ? ' neg' : ' pos'}`}>
           {Math.floor(have)} из {POINTS_CAP}
@@ -58,21 +54,13 @@ function Branch({ branch }: { branch: RealmBranch }) {
 
       {!BRANCH_BUILT[branch] ? (
         <>
-          <div className="note">Ещё не построена.</div>
-          <div className="note">
-            Ветвь без гейта была бы ценником без товара: пока она ничего не открывает, её и не
-            продают. Очки этого вида копятся и никуда не денутся.
-          </div>
+          <div className="note">Очки этого вида копятся.</div>
         </>
       ) : (
         <>
           {Array.from({ length: last }, (_, i) => i + 1).map((l) => (
             <Level key={l} branch={branch} level={l} at={level} />
           ))}
-          <div className="note">
-            Что уровень открывает, здесь не подписано, а измерено: игра спрашивает у гейта, чем
-            держава на этом уровне отличается от державы уровнем ниже, — и печатает разницу.
-          </div>
         </>
       )}
     </div>

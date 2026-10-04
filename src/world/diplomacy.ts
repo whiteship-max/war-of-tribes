@@ -11,6 +11,7 @@
 // момент вопроса. Фоновой работы у отношений нет и заводить её нельзя — иначе
 // сервер, когда он появится, будет обязан крутить их у себя.
 import { seeded } from '@/game/sim/random';
+import { realSpan } from '@/game/span';
 import type { DiploActionId, DiploRecord, Standing, TemperId } from './types';
 import { TEMPER_BY_ID, TEMPER_IDS } from './data/diplomacy';
 import {
@@ -183,7 +184,7 @@ export function respond(ctx: DiploContext): Answer {
       if (!hit) {
         // Отвергнутый дар холодит: иначе настойчивость упиралась бы в вечный
         // отказ — тот же вопрос при тех же условиях даёт тот же ответ.
-        return keep(ctx.attitude + GIFT_REFUSE_ATTITUDE, 'Дар вернули к воротам: подачек здесь не берут.', false);
+        return keep(ctx.attitude + GIFT_REFUSE_ATTITUDE, 'Дар вернули. Подачек здесь не берут.', false);
       }
       return keep(
         ctx.attitude + GIFT_ATTITUDE * t.giftMult,
@@ -200,7 +201,7 @@ export function respond(ctx: DiploContext): Answer {
           standing: ctx.standing,
           breakIn: 0,
           duration: 0,
-          text: 'Обиду проглотили молча — но запомнили.',
+          text: 'Обиду проглотили молча, но запомнили.',
         };
       }
       // Война как ответ на оскорбление. Из-под пакта её объявляют с той же
@@ -212,7 +213,10 @@ export function respond(ctx: DiploContext): Answer {
         standing: 'war',
         breakIn,
         duration: 0,
-        text: breakIn > 0 ? 'Оскорбления не снесли: пакт разорван, война на пороге.' : 'Оскорбления не снесли: это война.',
+        text:
+          breakIn > 0
+            ? `Оскорбления не снесли. Пакт разорван, война через ${realSpan(breakIn / 1000)}.`
+            : 'Оскорбления не снесли. Это война.',
       };
     }
     case 'pact': {
@@ -229,7 +233,7 @@ export function respond(ctx: DiploContext): Answer {
       };
     }
     case 'peace': {
-      if (!hit) return keep(ctx.attitude, 'Мира не приняли: крови пролито слишком много.', false);
+      if (!hit) return keep(ctx.attitude, 'Мира не приняли. Крови пролито слишком много.', false);
       // Мир возвращает нейтралитет, но отношение сам собой не выправляет — это
       // и есть разница между «перестали воевать» и «помирились».
       return {
@@ -249,7 +253,7 @@ export function respond(ctx: DiploContext): Answer {
         standing: 'war',
         breakIn,
         duration: 0,
-        text: breakIn > 0 ? 'Пакт разорван: война начнётся через сутки.' : 'Война объявлена.',
+        text: breakIn > 0 ? `Пакт разорван. Война через ${realSpan(breakIn / 1000)}.` : 'Война объявлена.',
       };
     }
   }
