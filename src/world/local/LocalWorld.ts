@@ -380,6 +380,13 @@ const onCamp = (m: StoredMarch, camp: SettlementId | null): boolean =>
  */
 const warriorsOf = (power: number): UnitStack => ({ warrior: Math.max(1, Math.round(power / 3)) });
 
+/**
+ * Имя места со словом перед ним: «у логова Волчья Падь», «в городе Белая Гора». Имя места не склоняется —
+ * склоняется слово перед ним (docs/ui_audit.md, 17.1, 14), и род его — по тому, логово это или город.
+ */
+const placeWord = (s: GenSettlement, form: 'of' | 'in'): string =>
+  `${isLair(s) ? (form === 'of' ? 'логова' : 'логове') : form === 'of' ? 'города' : 'городе'} ${s.name}`;
+
 /** Кто лезет через рогатки одной стороны лагеря: свои поимённо или чужие родами. */
 /** Часть нападающих на лагерь: своё войско по видам или чужое по родам; `rest` — её мораль между боями (`world/rest`). */
 type CampPart = ({ own: TroopStack } | { kinds: Stack }) & { rest?: number };
@@ -3335,11 +3342,11 @@ export class LocalWorld implements WorldApi {
         // первой кости: лицо запомнили, или донесение дошло.
         if (isCaught) this.moveAttitude(target.id, SPY_CAUGHT_ATTITUDE, at);
         else this.save.intel[target.id] = this.snapshot(target, at);
-        this.downFigure(id, at, { peril, where: `у ${target.name}`, why: frozen?.why ?? [], spot: { id: target.id, name: target.name, x: target.x, y: target.y } });
+        this.downFigure(id, at, { peril, where: `у ${placeWord(target, 'of')}`, why: frozen?.why ?? [], spot: { id: target.id, name: target.name, x: target.x, y: target.y } });
         return;
       }
       if (isCaught) {
-        this.holdFigure(id, target, at, `попался часовым у ${target.name}.`, { agent: 'scout', ok: false, at, person });
+        this.holdFigure(id, target, at, `попался часовым у ${placeWord(target, 'of')}.`, { agent: 'scout', ok: false, at, person });
         return;
       }
       this.save.intel[target.id] = this.snapshot(target, at);
@@ -3745,16 +3752,16 @@ export class LocalWorld implements WorldApi {
       // Бой полководца — его дело. Пустой бой (некому было драться) делом не считается.
       ...(field.result ? { deed: { agent: 'general' as const, ok: field.won, at } } : {}),
       text: burned
-        ? `Логово ${target.name} (${formatCoord(target)}) сожжено.`
+        ? `Логово ${target.name} сожжено.`
         : field.won
-          ? `Набег на ${target.name} (${formatCoord(target)}) удался.`
-          : `Набег на ${target.name} (${formatCoord(target)}) отбит.`,
+          ? `Набег на ${isLair(target) ? 'логово' : 'город'} ${target.name} удался.`
+          : `Набег на ${isLair(target) ? 'логово' : 'город'} ${target.name} отбит.`,
       good: field.won,
     });
 
     if (survivors === 0) {
       f.troops = undefined;
-      this.defeatGeneral(at, `разбит под ${target.name}.`, `под ${target.name}`, { id: target.id, name: target.name, x: target.x, y: target.y }, seed);
+      this.defeatGeneral(at, `разбит у ${placeWord(target, 'of')}.`, `у ${placeWord(target, 'of')}`, { id: target.id, name: target.name, x: target.x, y: target.y }, seed);
     } else {
       f.troops = left;
     }
@@ -4127,7 +4134,7 @@ export class LocalWorld implements WorldApi {
       prestige: 2,
       morale: 2,
       battle: null,
-      text: `Наш отряд стоит в ${target.name} (${formatCoord(target)}).`,
+      text: `Наш отряд стоит в ${placeWord(target, 'in')}.`,
       good: true,
     });
   }
@@ -6758,7 +6765,7 @@ export class LocalWorld implements WorldApi {
     }
 
     const def = SPY_ACTION_BY_ID[action];
-    const title = out.success ? `${def.name}: ${s.name}` : `Провал у ${s.name}`;
+    const title = out.success ? `${def.name}: ${s.name}` : `Провал у ${placeWord(s, 'of')}`;
     const text = quiet ? SPY_SLIP_TEXT[action] : out.text;
     this.addReport({
       id: `spy-${s.id}-${action}-${now}`,
@@ -6790,7 +6797,7 @@ export class LocalWorld implements WorldApi {
     });
     // Погиб на деле: дело сделано или нет — видно выше, а человека больше нет.
     if (dies) {
-      this.downFigure('spy', now, { peril, where: `у ${s.name}`, why, spot: { id: s.id, name: s.name, x: s.x, y: s.y } });
+      this.downFigure('spy', now, { peril, where: `у ${placeWord(s, 'of')}`, why, spot: { id: s.id, name: s.name, x: s.x, y: s.y } });
     }
     this.write();
     return {
