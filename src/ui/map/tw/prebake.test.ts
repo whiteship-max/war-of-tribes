@@ -240,8 +240,10 @@ describe('цель вне региона', () => {
       ({ ...march(id, to, own), phase: 'out', from, departAt: 0, arriveAt: 1000 }) as MarchView;
     const hosts = hostItems(wide, VP, [march('own-out', BEYOND, true), walking('own-way', true, HOME, BEYOND), walking('foe-way', false, BEYOND, HOME), march('foe-out', BEYOND)], [], 750, DPR);
     expect(hosts.map((h) => h.m.id).sort()).toEqual(['foe-way', 'own-out', 'own-way']);
-    // Свой агент за краем — в сцене и пальцу цель.
-    const figs = figureItems(wide, VP, [fig('scout', HOME), fig('spy', BEYOND)], 0, DPR);
+    // Свой агент за краем — в сцене и пальцу цель; укрывшийся в городе — нет и у себя (место решает мир,
+    // `world/shelter`; правило прежнего кадра, `shelter.test`, — у нового вида то же).
+    const hid = { ...fig('diplomat', HOME), place: 'city' } as FigureView;
+    const figs = figureItems(wide, VP, [fig('scout', HOME), fig('spy', BEYOND), hid], 0, DPR);
     expect(figs.map((f) => f.spot.f.id).sort()).toEqual(['scout', 'spy']);
   });
 
