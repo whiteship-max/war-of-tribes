@@ -9,7 +9,8 @@
 //   LOOK=lite npm run mini:shots        — ступень вида приколота (`full`, `lite`, `base`)
 //   WIDTH=375 npm run mini:shots        — ширина экрана, px (по умолчанию 390)
 //   BONDED=12 npm run mini:shots        — невольники в городе: в верхней строке встаёт ячейка порядка
-//   BUDGET=1 npm run mini:shots         — бюджет кадра счётом по графу сцены, без браузера (`world.frameCost`)
+//   BUDGET=1 npm run mini:shots         — бюджет кадра счётом по графу сцены, без браузера (`world.frameCost`), и дуга
+//                                         стрелы «Охоты»: метки прицела, полёт и падение на их далях
 //
 // Снимки — в `.mini-shots/` (в репозиторий не входит). Бюджет железа (CLAUDE.md, раздел ⛔): один прогон, браузер с
 // потолком кадров отчёта, не дольше двух минут на заход, минута остывания видеокарты перед заходом; рядом с чужой
@@ -227,10 +228,24 @@ async function budget(): Promise<void> {
   }
 }
 
+/** «Охота»: дуга полной натяжки — метки прицела, время полёта и падение от прямой на их далях (`hunt.pins`, `aimFor`). */
+async function arc(): Promise<void> {
+  const { DEER_BODY, EYE_Y, GRAVITY, V_FULL, aimFor, pins, speedOf } = await import('../src/minigames/hunt');
+  console.log('\n=== охота: дуга стрелы (правило hunt.ts, без браузера) ===\n');
+  for (const p of pins()) {
+    const t = p.d / (V_FULL * Math.cos(aimFor(p.d, DEER_BODY.y - EYE_Y, V_FULL) ?? 0));
+    console.log(
+      `  ${String(p.d).padStart(2)} м: метка ${((p.angle * 180) / Math.PI).toFixed(2)}° ниже середины, полёт ${t.toFixed(2)} с, падение от прямой ${((GRAVITY * t * t) / 2).toFixed(2)} м`,
+    );
+  }
+  console.log(`  скорость: натяжка 0.5 — ${speedOf(0.5).toFixed(1)} м/с, полная — ${speedOf(1).toFixed(1)} м/с`);
+}
+
 async function main(): Promise<void> {
   await mkdir(OUT, { recursive: true });
   if (process.env.BUDGET === '1') {
     await budget();
+    await arc();
     return;
   }
   refuseIfBusy('Снимки промыслов');
