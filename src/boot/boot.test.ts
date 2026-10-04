@@ -257,12 +257,12 @@ describe('экран загрузки', () => {
 
   it('при поломке появляется кнопка, а не вечное колесо', () => {
     const { it: b, dom, reloaded } = boot();
-    b.fail('Не загрузился файл игры.');
+    b.fail('Проверь связь.');
     expect(b.failed()).toBe(true);
     expect(dom.els.get('boot')!.className).toBe('on bad');
-    expect(dom.els.get('boot-why')!.textContent).toBe('Не загрузился файл игры.');
+    expect(dom.els.get('boot-why')!.textContent).toBe('Проверь связь.');
     // Кнопка есть в разметке и она настоящая.
-    expect(html).toMatch(/id="boot-retry"[^>]*>\s*Попробовать снова/);
+    expect(html).toMatch(/id="boot-retry"[^>]*>\s*Повторить/);
     dom.els.get('boot-retry')!.click();
     expect(reloaded()).toBe(1);
   });

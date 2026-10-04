@@ -2333,7 +2333,7 @@ export class PrologueScene {
     s.heir = { name: named.name, at: now };
     this.panel = '';
     this.said = '';
-    this.say(`Родился сын — ${named.name}. Род записан в доме.`);
+    this.say(`Родился сын, ${named.name}. Родословная лежит в доме.`);
     // Отсюда начинается финал — но не сию секунду: строка о рождении обязана
     // дочитаться, а чёрный экран поверх неё оборвал бы её на полуслове.
     this.passAt = performance.now() + PASS_AFTER_MS;
@@ -4669,13 +4669,13 @@ export class PrologueScene {
         busy === 'chop'
           ? 'Ещё ударов'
           : busy === 'butcher'
-            ? 'Срезает'
+            ? 'Срезаешь мясо'
             : busy === 'skin'
-              ? 'Снимает шкуру'
+              ? 'Снимаешь шкуру'
               : busy === 'fight'
-                ? 'Отбивается'
+                ? 'Отбиваешься'
                 : busy === 'board'
-                  ? 'Кладёт доску'
+                  ? 'Кладёшь доску'
                   : '',
       busyLeft: busy === 'chop' && this.chopTree >= 0 ? this.chopsLeft : 0,
       dead: death(s, now),

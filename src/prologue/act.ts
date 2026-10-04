@@ -125,17 +125,17 @@ export function offer(s: PrologueSave, spot: Spot | null, now: number): Offer {
     if (!s.axe) return ok('take-axe', 'Взять топор');
     // Колода с взятым топором — место, где строгают стрелы. Дело у неё одно, и
     // погашенная надпись говорит, чего для него не хватает.
-    if (!s.kit) return no(null, 'Колода', 'Лука нет — стрелы строгать незачем');
+    if (!s.kit) return no(null, 'Строгать стрелы', 'Лука нет');
     if (!carveRoom(s.quiver)) return no('carve', 'Строгать стрелы', 'Колчан полон');
     if (s.logs <= 0) return no('carve', 'Строгать стрелы', 'Нужно полено');
-    return ok('carve', `Строгать стрелы (+${ARROWS_PER_LOG})`);
+    return ok('carve', `Строгать стрелы +${ARROWS_PER_LOG}`);
   }
   if (spot.kind === 'tent') {
-    if (!s.kit) return ok('take-kit', 'Взять лук и запас');
+    if (!s.kit) return ok('take-kit', 'Взять лук');
     // Палатка — место, где шьют. Целью тапа она становится, только когда шить
     // есть из чего (`reach`), но правило здесь полное: `offer` не знает, откуда
     // его позвали.
-    if (s.body.coat) return no(null, 'Одежда на тебе', 'Одежда уже сшита');
+    if (s.body.coat) return no(null, 'Сшить одежду', 'Одежда уже сшита');
     if (s.hides < COAT_HIDES) return no('sew', 'Сшить одежду', 'Нужна шкура оленя');
     return ok('sew', 'Сшить одежду');
   }
@@ -150,13 +150,13 @@ export function offer(s: PrologueSave, spot: Spot | null, now: number): Offer {
     // родословную. Делать с ним больше нечего, и погашенная «Дом стоит» была бы
     // кнопкой, которая ничего не значит.
     if (s.house >= HOUSE_LOGS) return ok('kin', 'Родословная');
-    const label = `Ставить дом (${s.house}/${HOUSE_LOGS})`;
+    const label = `Ставить дом ${s.house}/${HOUSE_LOGS}`;
     if (!s.axe) return no('build', label, 'Нужен топор');
-    if (s.logs <= 0) return no('build', label, 'Нужны дрова: полено — бревно');
+    if (s.logs <= 0) return no('build', label, 'Нужны дрова');
     return ok('build', label);
   }
   if (spot.kind === 'arrow') {
-    return ok('take-arrow', 'Подобрать стрелу');
+    return ok('take-arrow', 'Взять стрелу');
   }
   /*
    * Дом сына — последнее дело человека (`end.ts`). Доски лежат у сруба, носить
@@ -164,7 +164,7 @@ export function offer(s: PrologueSave, spot: Spot | null, now: number): Offer {
    * доску; готов — цели тапа у него больше нет вовсе (`reach`).
    */
   if (spot.kind === 'frame') {
-    return ok('board', `${TASK_BUILD} (${Math.min(BOARDS, s.end.boards)}/${BOARDS})`);
+    return ok('board', `${TASK_BUILD} ${Math.min(BOARDS, s.end.boards)}/${BOARDS}`);
   }
   /*
    * Пришедшие из леса. Та же дверь и то же правило, что у волка: они подошли
@@ -172,7 +172,7 @@ export function offer(s: PrologueSave, spot: Spot | null, now: number): Offer {
    * кнопка говорит правду, и правда здесь та же неприятная: отбиваться нечем.
    */
   if (spot.kind === 'foe') {
-    return s.axe ? ok('fight-foe', 'Отбиться топором') : no('fight-foe', 'Отбиться', 'Нужен топор');
+    return s.axe ? ok('fight-foe', 'Отбиться') : no('fight-foe', 'Отбиться', 'Нужен топор');
   }
   // Сын. Дверь разговора, как у матери: что сказать, решается уже в карточке.
   if (spot.kind === 'son') return ok('talk', 'Говорить');
@@ -186,7 +186,7 @@ export function offer(s: PrologueSave, spot: Spot | null, now: number): Offer {
    * кнопка — тем «ничего не произошло», которого в режиме не бывает.
    */
   if (spot.kind === 'wolf') {
-    return s.axe ? ok('fight', 'Отбиться топором') : no('fight', 'Отбиться', 'Нужен топор — беги к огню');
+    return s.axe ? ok('fight', 'Отбиться') : no('fight', 'Отбиться', 'Топора нет. Беги к огню');
   }
   /*
    * Женщина у огня. Подошёл — заговорил; что сказать, решается уже в разговоре
@@ -196,15 +196,15 @@ export function offer(s: PrologueSave, spot: Spot | null, now: number): Offer {
   if (spot.kind === 'mate') return ok('talk', 'Говорить');
   if (spot.kind === 'carcass') {
     const left = carcassLeft(s.hunt, now);
-    if (left > 0) return ok('butcher', `Срезать мясо (${left})`);
+    if (left > 0) return ok('butcher', `Срезать мясо ${left}`);
     // Мясо сперва, шкура потом: снимают её с разделанной туши, и так она не
     // заслоняет собой еду у того, кто пришёл за едой.
-    if (!hideLeft(s.hunt, now)) return no(null, 'Ничего не осталось', 'Туша пуста');
+    if (!hideLeft(s.hunt, now)) return no(null, 'Срезать мясо', 'Туша пуста');
     // Шкура идёт на одну одежду и больше ни на что: лишняя висела бы в руках
     // счётчиком без дела. Туша с ненужной шкурой лежит свой срок и сходит сама —
     // следующий олень от неё не зависит (`hunt.deerLive`).
-    if (s.body.coat) return no(null, 'Шкура не нужна', 'Одежда уже сшита');
-    if (s.hides >= COAT_HIDES) return no(null, 'Шкура не нужна', 'Шкура уже есть — шей у палатки');
+    if (s.body.coat) return no(null, 'Снять шкуру', 'Одежда уже сшита');
+    if (s.hides >= COAT_HIDES) return no(null, 'Снять шкуру', 'Шкура есть. Шей у палатки');
     return ok('skin', 'Снять шкуру');
   }
   if (spot.kind === 'tree') {
@@ -232,13 +232,13 @@ export function offer(s: PrologueSave, spot: Spot | null, now: number): Offer {
    * единственного дела ступени, и «подложить дров» нельзя было бы выполнить.
    */
   if (!s.end.wood && s.end.stage === 'family' && s.logs > 0 && roomForLogs) return ok('feed', 'Подложить дров');
-  if (s.meat.raw > 0 && fuel >= ROAST_COST) return ok('roast', `Пожарить мясо (${roastCount(s, now)})`);
+  if (s.meat.raw > 0 && fuel >= ROAST_COST) return ok('roast', `Пожарить мясо ${roastCount(s, now)}`);
   if (s.logs > 0 && roomForLogs) return ok('feed', 'Подложить дров');
   if (s.meat.raw > 0) {
-    return no('roast', 'Пожарить мясо', fuel <= 0 ? 'Костёр погас' : 'В костре не осталось дров');
+    return no('roast', 'Пожарить мясо', fuel <= 0 ? 'Костёр погас' : 'Мало дров в костре');
   }
   if (s.logs <= 0) return no('feed', 'Подложить дров', 'Дров нет');
-  return no('feed', 'Подложить дров', 'Костёр и так полон');
+  return no('feed', 'Подложить дров', 'Костёр полон');
 }
 
 /**
@@ -313,7 +313,7 @@ export function share(s: PrologueSave, now: number): Offer {
   if (s.end.stage === 'family') {
     return s.end.wife ? no('share', label, 'Она уже поела') : ok('share', label);
   }
-  if (loveFull(s.bond)) return no('share', label, 'Любовь и так полна');
+  if (loveFull(s.bond)) return no('share', label, 'Любовь полна');
   if (s.bond.meal.n >= LOVE_DAYS) return no('share', label, 'Одним мясом любви не прибавишь');
   if (!counts(s.bond.meal, now)) return no('share', label, 'Сегодня уже ели вместе');
   return ok('share', label);
@@ -387,6 +387,6 @@ export const death = (s: PrologueSave, now: number): Death =>
 /** Что показывает строка задания финала. Пусто — задания нет. */
 export const endTask = (e: EndState): string => {
   if (e.stage === 'family') return !e.wood ? TASK_WOOD : !e.wife ? TASK_WIFE : !e.son ? TASK_SON : '';
-  if (e.stage === 'build') return `${TASK_BUILD}: ${Math.min(BOARDS, e.boards)}/${BOARDS}`;
+  if (e.stage === 'build') return `${TASK_BUILD} ${Math.min(BOARDS, e.boards)}/${BOARDS}`;
   return '';
 };

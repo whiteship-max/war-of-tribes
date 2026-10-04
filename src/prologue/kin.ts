@@ -25,6 +25,7 @@
  * Модуль чистый: ни DOM, ни three, ни React, ни часов, ни случайности.
  */
 import { HOUSE_LOGS } from './craft';
+import { count } from '@/ui/parts/plural';
 import { burnWords, burning, type Hearth } from './fire';
 import { SKY_MS } from './sky';
 
@@ -58,7 +59,7 @@ export interface Guest {
 export const GUESTS: readonly Guest[] = [
   {
     name: 'Ведана',
-    story: 'Мой род сгорел за рекой: лес занялся ночью, и не вышел никто. Три дня я шла на твой дым. Пустишь к огню?',
+    story: 'Мой род сгорел за рекой. Лес занялся ночью, не вышел никто. Три дня я шла на твой дым. Пустишь к огню?',
     kin: 'её род сгорел за рекой',
   },
   {
@@ -83,7 +84,7 @@ export const GUESTS: readonly Guest[] = [
   },
   {
     name: 'Дарина',
-    story: 'Волки шли за нашим родом всю осень. Осталась я одна — и знаю, что к огню они не подходят. Пустишь?',
+    story: 'Волки шли за нашим родом всю осень. Осталась я одна. К огню они не подходят, я знаю. Пустишь?',
     kin: 'её род извели волки',
   },
 ];
@@ -311,7 +312,7 @@ export function heirName(raw: string): Named {
   if (parts.length > 2 || parts.some((p) => p === '')) return refuse('Одно имя, можно через дефис');
   const letters = parts.join('');
   if ([...text].length > HEIR_MAX) return refuse(`Не длиннее ${HEIR_MAX} букв`);
-  if ([...letters].length < HEIR_MIN) return refuse(`Хотя бы ${HEIR_MIN} буквы`);
+  if ([...letters].length < HEIR_MIN) return refuse(`Не короче ${count(HEIR_MIN, 'буквы', 'букв', 'букв')}`);
   if (!CYRILLIC.test(letters) && !LATIN.test(letters)) return refuse('Кириллицей или латиницей');
   if (!VOWELS.test(letters) || /(.)\1\1/i.test(letters) || CONSONANTS.test(letters)) return refuse('Так имя не звучит');
   return { name: capital(text), why: '' };
@@ -338,7 +339,7 @@ export function lineage(wife: Person | null, heir: Person | null): KinLine[] {
   const out: KinLine[] = [{ who: 'you', name: 'Ты', note: 'хозяин дома у огня' }];
   if (wife) {
     const from = GUESTS.find((g) => g.name === wife.name)?.kin;
-    out.push({ who: 'wife', name: wife.name, note: from ? `жена; ${from}` : 'жена' });
+    out.push({ who: 'wife', name: wife.name, note: from ? `жена · ${from}` : 'жена' });
   }
   if (heir) out.push({ who: 'son', name: heir.name, note: 'сын' });
   return out;
@@ -362,8 +363,8 @@ export interface Household {
 export function wifeSays(k: Household, h: Hearth, now: number): string {
   if (k.heir) return `${k.heir.name} спит. Огонь я берегу.`;
   if (loveFull(k.bond)) return 'Скоро у нас будет сын. Как назовём?';
-  if (!burning(h, now)) return 'Огонь погас: дров не осталось. Принеси — сберегу.';
-  return 'Огонь берегу. Принесёшь дров — хватит надолго.';
+  if (!burning(h, now)) return 'Огонь погас, дров не осталось. Принеси, я сберегу.';
+  return 'Огонь берегу. Принесёшь дров, хватит надолго.';
 }
 
 /**
@@ -385,7 +386,7 @@ export function welcome(k: Household & Hearthside, h: Hearth, now: number, awayM
   if (!k.wife) return guestHere(k, now) ? 'У огня ждёт женщина.' : '';
   if (awayMs < GREET_AWAY_MS) return '';
   const who = k.wife.name;
-  if (!k.heir && loveFull(k.bond)) return `${who} ждала тебя: ей надо что-то сказать.`;
-  if (!burning(h, now)) return `${who}: «Дрова кончились, огонь погас. Принеси — разожжём».`;
+  if (!k.heir && loveFull(k.bond)) return `${who} ждала тебя. Ей надо что-то сказать.`;
+  if (!burning(h, now)) return `${who}: «Дрова кончились, огонь погас. Принеси, разожжём».`;
   return `${who}: «Огонь я сберегла. Дров ещё на ${burnWords(h, now)}».`;
 }

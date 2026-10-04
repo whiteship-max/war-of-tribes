@@ -3,7 +3,8 @@ import { probe } from '@/debug';
 // Свой файл стилей, а не строки в общем: он уезжает вместе с чанком режима и
 // в первую загрузку игры не входит (почему — в самом файле).
 import './prologue.css';
-import { deathWords } from './body';
+import { RAW_SHARE, deathWords } from './body';
+import { RAIN_BURN } from './sky';
 import { OVER_NOTE, OVER_SAYS, PASSED, RAID_ANSWER } from './end';
 import { CheatPanel } from '@/ui/CheatPanel';
 import { CHEAT_MARK_GLADE } from '@/cheats';
@@ -253,7 +254,7 @@ export function Prologue({ onExit }: { onExit: () => void }) {
       )}
 
       <button className="pro-out" onClick={onExit}>
-        Выход →
+        В меню
       </button>
 
       {view && view.busy !== '' && (
@@ -312,12 +313,12 @@ export function Prologue({ onExit }: { onExit: () => void }) {
           где учат ходить, а чёрный экран она перечеркнула бы собой. */}
       {hint && !view?.dead && card === '' && view?.end === 'none' && (
         <div className="pro-hint">
-          <b>Слева — идти, справа — смотреть.</b>
-          <span>Тап — действие над тем, к чему подошёл: топор на колоде, пожитки у палатки, дрова в костёр.</span>
-          <span>Лук — своей кнопкой: натянуть, навести взглядом, пустить. Оленя тапом не достать.</span>
-          <span>Зима: вдали от огня уходит тепло, а за ним здоровье. Костёр греет и держит волков в стороне.</span>
-          <span>Вещи и еда — кнопкой справа внизу. Мясо возвращает здоровье.</span>
-          <span className="pro-dim">На ПК: WASD или стрелки, мышью тянуть, пробел — действие, F — лук.</span>
+          <b>Слева иди, справа смотри.</b>
+          <span>Подойди и нажми на экран. Начни с топора на колоде.</span>
+          <span>Оленя бьют из лука. Нажми его кнопку, наведи взглядом, нажми снова.</span>
+          <span>Вдали от огня уходит тепло, потом здоровье. Костёр греет и отгоняет волков.</span>
+          <span>Вещи и еда справа внизу. Мясо возвращает здоровье.</span>
+          <span className="pro-dim">На ПК ходи WASD или стрелками, смотри мышью. Действие на пробеле, лук на F.</span>
         </div>
       )}
 
@@ -330,7 +331,7 @@ export function Prologue({ onExit }: { onExit: () => void }) {
           </button>
           <b className="pro-who">Вещи</b>
           {view.items.length === 0 ? (
-            <p className="pro-say">Пусто. Топор — на колоде у костра, лук и запас еды — у палатки.</p>
+            <p className="pro-say">Пусто. Топор на колоде у костра, лук и еда у палатки.</p>
           ) : (
             <ul>
               {view.items.map((it) => {
@@ -479,7 +480,7 @@ export function Prologue({ onExit }: { onExit: () => void }) {
           <button className="pro-x" onClick={closePanel} aria-label="Закрыть">
             ✕
           </button>
-          <b className="pro-who">Род</b>
+          <b className="pro-who">Родословная</b>
           {/* Метка поляны, где применяли коды. Родословная — единственное место
               поляны, где записано, что было: летописи здесь нет. */}
           {view.cheated && <span className="pro-card-why">{CHEAT_MARK_GLADE}</span>}
@@ -517,7 +518,7 @@ export function Prologue({ onExit }: { onExit: () => void }) {
       {/* Те, кто пришёл из леса. Ответ один: это его дом, его жена и его сын. */}
       {view && card === 'raid' && (
         <div className="pro-card pro-raid" role="dialog" aria-label="Разбойники">
-          <b className="pro-who">Пятеро из леса</b>
+          <b className="pro-who">Разбойники из леса</b>
           <p className="pro-say">«{view.mateSays}»</p>
           <div className="pro-row">
             <button className="pro-btn main" onClick={answerRaid}>
@@ -551,7 +552,7 @@ export function Prologue({ onExit }: { onExit: () => void }) {
       {view?.end === 'passed' && (
         <div className="pro-passed" onClick={passOn} role="button" tabIndex={0}>
           <b>{PASSED}</b>
-          <span className="pro-dim">коснись экрана</span>
+          <span className="pro-dim">Нажми на экран</span>
         </div>
       )}
 
@@ -582,13 +583,13 @@ export function Prologue({ onExit }: { onExit: () => void }) {
           <b>{deathWords(view.dead)}</b>
           <span>
             {view.dead === 'cold'
-              ? 'Тепло ушло, а за ним и здоровье. Костёр возвращает тепло за двадцать минут — уходя, оставляй в очаге дров: в дождь он горит втрое быстрее.'
+              ? `Уходя от огня, клади в очаг дров про запас. В дождь они горят в ${RAIN_BURN} раза быстрее.`
               : view.dead === 'wolf'
-                ? 'Стая догнала. У горящего костра волки не подходят, а с топором в руках от одного можно отбиться.'
-                : 'Запас кончился раньше, чем ты вернулся, и голод доел здоровье. Мясо жарится на костре и втрое сытнее сырого.'}
+                ? 'Держись у горящего костра, к нему волки не подходят. Вдали от огня отбивайся топором.'
+                : `Жарь мясо на костре. Жареное в ${Math.round(1 / RAW_SHARE)} раза сытнее сырого.`}
           </span>
           <span className="pro-dim">
-            Новое утро: очаг разожжён, топор и лук при тебе. Запас мяса пропал — его придётся добыть.
+            Новое утро. Очаг горит, топор и лук с тобой. Мясо добудь заново.
           </span>
           <button className="pro-do" onClick={again}>
             Снова
