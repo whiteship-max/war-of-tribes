@@ -7,7 +7,7 @@ import { afterPaint } from '@/boot/paint';
 import { probe } from '@/debug';
 import { diagnose, sceneLog, type Verdict } from '@/scenelog';
 import { SceneTrouble } from './SceneTrouble';
-import { applyViewport } from '@/telegram/webapp';
+import { measureViewport } from '@/viewport';
 import { nextFrame } from '@/render/loop';
 import { gfx, gfxKey, sceneGfx, subscribeGfx } from '@/render/gfx';
 import { useUiNew } from '@/ui/uimode';
@@ -246,7 +246,7 @@ export function GameCanvas() {
         }
       }
     });
-    // Высота приходит из --app-h (viewportStableHeight Telegram), поэтому слушаем
+    // Высота приходит из --app-h (дверь окна, `src/viewport.ts`), поэтому слушаем
     // размер элемента, а не только resize окна.
     const onResize = () => scene.resize();
     const ro = new ResizeObserver(onResize);
@@ -263,10 +263,9 @@ export function GameCanvas() {
      */
     const wake = () => {
       // Сперва вьюпорт, потом холст: `--app-h` задаёт высоту всему приложению,
-      // и пересчитанный до него холст померил бы старую раскладку. Клиент мог не
-      // прислать viewportChanged вовсе — тогда это единственное место, где
-      // высота обновится.
-      applyViewport();
+      // и пересчитанный до него холст померил бы старую раскладку. Попытки после
+      // возвращения дверь окна делает сама; здесь — замер к этой минуте.
+      measureViewport('сцена');
       scene.wake();
     };
     const onFreeze = () => sceneLog.mark('hide', 'страница заморожена');

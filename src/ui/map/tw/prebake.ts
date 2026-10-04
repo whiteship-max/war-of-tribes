@@ -72,11 +72,28 @@ interface Executor {
 /** Работ в потоке разом: одна печётся, одна ждёт — поток не простаивает между ответами. */
 const WORKER_SLOTS = 2;
 
+/**
+ * Сколько поток может молчать при отданных работах, прежде чем счесть его потерянным, мс. Работа региона в потоке
+ * стоит от единиц до сотен миллисекунд (`npm run map:report`, `MOTION=1`, «цена работ»), десять секунд — заведомо
+ * за любой из них. Молчание считается только при видимой карте: в фоне кадров нет и поток стоит законно, поэтому
+ * возвращение отсчёт сбрасывает (`prebakeWake`).
+ *
+ * Без срока поток, не ответивший ни разу, держал свои места навсегда: работа в полёте не отдаётся второй раз, и
+ * выпечка вставала на весь заход — грубый растр вместо земли, дыра до перезапуска. Так бывает, когда поток падает
+ * после «готов» (ошибка вне `try` в нём не доходит ни до кого) или ответ теряется вместе с замороженным вебвью.
+ */
+export const JOB_STALL_MS = 10_000;
+
+/** Потерян ли поток: работы отданы, а ответа не было дольше срока. Чистая функция — её держит тест. */
+export const workerLost = (inFlight: number, heardAt: number, now: number): boolean => inFlight > 0 && now - heardAt > JOB_STALL_MS;
+
 class WorkerExecutor implements Executor {
   readonly kind = 'worker' as const;
   private ready = false;
   private busy = 0;
   private readonly w: Worker;
+  /** Стенду (`npm run revive:report`): поток «потерян» — ответы на работы не доходят. Только под `?probe=1`. */
+  jammed = false;
 
   constructor(
     private readonly deliver: Deliver,
@@ -90,6 +107,7 @@ class WorkerExecutor implements Executor {
         else this.fallback();
         return;
       }
+      if (this.jammed) return;
       this.busy = Math.max(0, this.busy - 1);
       if (m.type === 'done') this.deliver(m.job, m.pic, m.ms, 'worker');
       else this.deliver(m.job, null, 0, 'worker');
@@ -241,6 +259,8 @@ interface Session {
   sheets: Map<string, SheetEntry>;
   near: Map<string, NearEntry>;
   inFlight: Set<string>;
+  /** Когда поток отвечал в последний раз — или когда ему отдали работу после молчания, или когда вернулись из фона. */
+  heardAt: number;
   /**
    * Работы, вернувшиеся ни с чем (земли под окном нет): не повторяются, пока не сменятся знание или вид, — иначе
    * первая в очереди забирала бы поток себе по кругу.
@@ -306,6 +326,7 @@ function startSession(seed: number, theatre: Theatre): Session {
     sheets: new Map(),
     near: new Map(),
     inFlight: new Set(),
+    heardAt: -Infinity,
     failed: new Set(),
     exec: null,
     wantNear: [],
@@ -478,6 +499,7 @@ function refreshKnowledge(s: Session, now: number, force: boolean): void {
 
 function received(s: Session, job: Job, pic: Picture | null, ms: number, where: 'worker' | 'page'): void {
   s.inFlight.delete(jobKey(job));
+  s.heardAt = performance.now();
   if (session !== s) {
     if (pic) freePicture(pic);
     return;
@@ -583,6 +605,8 @@ function pump(s: Session): void {
   while (exec.free() > 0) {
     const job = nextJob(s);
     if (!job) return;
+    // Отсчёт молчания — с первой работы после тишины, а не с последнего ответа часовой давности.
+    if (s.inFlight.size === 0) s.heardAt = performance.now();
     s.inFlight.add(jobKey(job));
     dispatched.push(jobKey(job));
     if (dispatched.length > 64) dispatched.shift();
@@ -625,7 +649,30 @@ export function prebakeFrame(cam: Camera, vp: Viewport, frame: number, now = per
     }
   }
   evictNear(s);
+  // Поток молчит при отданных работах — он потерян: работы забываются, поток заводится заново.
+  if (s.exec?.kind === 'worker' && workerLost(s.inFlight.size, s.heardAt, now)) restartExec(s);
   pump(s);
+}
+
+/** Завести исполнителя заново: прежний останавливается, его работы забываются и отдадутся новому. */
+function restartExec(s: Session): void {
+  s.exec?.stop();
+  s.exec = null;
+  s.inFlight.clear();
+  s.heardAt = -Infinity;
+  if (s.land) startExec(s);
+}
+
+/**
+ * Вернулись из фона (аппку развернули, страница снова видна — `src/viewport.ts`, `onReturn`). Вернувшееся ни с чем
+ * пробуется ещё раз: в фоне холст потока мог не получить памяти, и такой отказ — не «земли нет», а случай; повтор
+ * стоит по работе на отказ раз за возвращение. Молчание потока отсчитывается заново: в фоне он стоял законно.
+ */
+export function prebakeWake(now = performance.now()): void {
+  const s = session;
+  if (!s) return;
+  s.failed.clear();
+  if (s.inFlight.size > 0) s.heardAt = now;
 }
 
 function evictNear(s: Session): void {
@@ -771,5 +818,12 @@ export function prebakeState(): {
 
 if (PROBE && typeof window !== 'undefined') {
   (window as unknown as { __twPrebake?: () => unknown }).__twPrebake = () => ({ ...prebakeState(), memory: prebakeMemory() });
+  // Стенду восстановления: поток «теряется» — ответы на его работы больше не доходят (`npm run revive:report`).
+  (window as unknown as { __twPrebakeJam?: () => boolean }).__twPrebakeJam = () => {
+    const exec = session?.exec;
+    if (!(exec instanceof WorkerExecutor)) return false;
+    exec.jammed = true;
+    return true;
+  };
 }
 

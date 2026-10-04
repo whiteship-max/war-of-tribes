@@ -12,6 +12,7 @@ import { HEIR_MAX, LOVE_DAYS, heirName } from './kin';
 import type { ItemId } from './pack';
 import { loadPrologue } from './save';
 import { PrologueScene, type PrologueView } from './scene';
+import { watchContext } from '@/render/context';
 
 /**
  * Предыстория: оболочка вокруг сцены.
@@ -62,6 +63,11 @@ export function Prologue({ onExit }: { onExit: () => void }) {
    * холстом стоит та же надпись, что у чанка: загрузка режима — одна, а не две.
    */
   const [ready, setReady] = useState(false);
+  /**
+   * Номер сборки поляны. Контекст WebGL умер и не вернулся в срок (`render/context.ts`) — поляна собирается заново на
+   * новой канве из своей записи: уходящая сцена пишет её при уборке, поэтому теряются только секунды.
+   */
+  const [gen, setGen] = useState(0);
 
   useLayoutEffect(() => {
     const wrap = wrapRef.current;
@@ -105,7 +111,9 @@ export function Prologue({ onExit }: { onExit: () => void }) {
     ro.observe(wrap);
     window.addEventListener('resize', onResize);
     window.addEventListener('orientationchange', onResize);
+    const offContext = watchContext(scene.gl, () => setGen((n) => n + 1));
     return () => {
+      offContext();
       ro.disconnect();
       window.removeEventListener('resize', onResize);
       window.removeEventListener('orientationchange', onResize);
@@ -123,7 +131,7 @@ export function Prologue({ onExit }: { onExit: () => void }) {
       canvas.remove();
       sceneRef.current = null;
     };
-  }, []);
+  }, [gen]);
 
   const act = useCallback(() => sceneRef.current?.doAct(), []);
   const shoot = useCallback(() => sceneRef.current?.doBow(), []);

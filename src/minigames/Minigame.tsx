@@ -24,6 +24,7 @@ import { BerriesPlay } from './berriesPlay';
 import { HerdPlay } from './herdPlay';
 import { GAME_SECONDS, LATE_SECONDS, shareOf, type Tally } from './rules';
 import { Stage, type Play, type StageView } from './stage';
+import { watchContext } from '@/render/context';
 
 /**
  * Чем играть: «Ягоды» и «Скот» лежат в куске промыслов, «Охота» — своим куском (лук, олени, звук): её качает только
@@ -84,6 +85,11 @@ export function Minigame({ game, onExit }: { game: MinigameId; onExit: () => voi
   const [result, setResult] = useState<Harvest | string | null>(null);
   const [hint, setHint] = useState(true);
   const [leave, setLeave] = useState(false);
+  /**
+   * Номер сборки сцены. Контекст WebGL умер и не вернулся в срок (`render/context.ts`): не начатая игра собирается
+   * заново на новой канве, начатая кончается итогом по набранному (`Stage.abort`) — доиграть её нечем.
+   */
+  const [gen, setGen] = useState(0);
   const s = useGame((g) => g.s);
   const now = energyNow();
   const ready = canPlay(s, now);
@@ -98,6 +104,7 @@ export function Minigame({ game, onExit }: { game: MinigameId; onExit: () => voi
     // уже стоит, а «Начать» ждёт сцену (`stageRef`).
     let alive = true;
     let stage: Stage | null = null;
+    let offContext: () => void = () => undefined;
     const drop = (): void => setHint(false);
     const onResize = (): void => stage?.resize();
     const ro = new ResizeObserver(onResize);
@@ -124,6 +131,9 @@ export function Minigame({ game, onExit }: { game: MinigameId; onExit: () => voi
       };
       setView(made.snapshot());
       if (probe()) (window as unknown as { __mini?: Stage }).__mini = made;
+      offContext = watchContext(made.gl, () => {
+        if (!made.abort()) setGen((n) => n + 1);
+      });
     };
     void PLAYS[game](seed).then((play) => {
       if (!alive) {
@@ -137,6 +147,7 @@ export function Minigame({ game, onExit }: { game: MinigameId; onExit: () => voi
     window.addEventListener('resize', onResize);
     return () => {
       alive = false;
+      offContext();
       ro.disconnect();
       window.removeEventListener('resize', onResize);
       canvas.removeEventListener('pointerdown', drop);
@@ -151,7 +162,7 @@ export function Minigame({ game, onExit }: { game: MinigameId; onExit: () => voi
       canvas.remove();
       stageRef.current = null;
     };
-  }, [game, seed]);
+  }, [game, seed, gen]);
 
   // «Уйти» ждёт второго касания три секунды.
   useEffect(() => {

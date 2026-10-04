@@ -13,7 +13,7 @@ import { WORLD_ORIGIN } from '@/world/data/tuning';
 import type { Coord, FigureView, MarchView, RegionChunk, SettlementView } from '@/world/types';
 import { fakeCanvasEnv } from '../fakecanvas';
 import { type Camera, viewRect } from '../grid';
-import { STILL_MS, moving, prebakeFrame, prebakeIdle, prebakeState, prebaked, resetPrebake, snapshotRect } from './prebake';
+import { JOB_STALL_MS, STILL_MS, moving, prebakeFrame, prebakeIdle, prebakeState, prebaked, resetPrebake, snapshotRect, workerLost } from './prebake';
 import { cacheLand, extractLand, FEATURE_BITS } from './landcache';
 import { gridLand } from './landgrid';
 import { knownAt } from './knowledge';
@@ -344,5 +344,21 @@ describe('детерминизм', () => {
     // Работы разных видов: видимое — раньше, и среди первых есть и обзор, и средний слой.
     expect(a.some((k) => k.startsWith('chunk:')) && a.some((k) => k.startsWith('mid:'))).toBe(true);
     expect(run()).toEqual(a);
+  });
+});
+
+describe('поток выпечки, переставший отвечать', () => {
+  // Поток без срока держал свои места навсегда: работа в полёте второй раз не отдаётся, и выпечка вставала на весь
+  // заход. Граница — срок молчания `JOB_STALL_MS`; точки по обе стороны проверены здесь же (правило 11).
+  it('потерян — только при отданных работах и молчании дольше срока', () => {
+    const heard = 1000;
+    const inside = heard + JOB_STALL_MS;
+    const outside = heard + JOB_STALL_MS + 1;
+    expect(inside - heard).toBeLessThanOrEqual(JOB_STALL_MS);
+    expect(outside - heard).toBeGreaterThan(JOB_STALL_MS);
+    expect(workerLost(2, heard, inside)).toBe(false);
+    expect(workerLost(2, heard, outside)).toBe(true);
+    // Работ нет — молчать потоку законно, сколько бы ни прошло.
+    expect(workerLost(0, heard, outside + JOB_STALL_MS * 100)).toBe(false);
   });
 });

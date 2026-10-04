@@ -6,6 +6,7 @@ import { useGame } from '@/game/store';
 import { seasonOf } from '@/game/derived';
 import { subscribeGfx } from '@/render/gfx';
 import { pixelRatio } from '@/render/loop';
+import { onReturn } from '@/viewport';
 import { setTwSlot } from '../twslot';
 import { viewRect } from '../grid';
 import { settlementsIn } from '../detail';
@@ -15,7 +16,7 @@ import { drawTwFrame, dropFrame } from './frame';
 import { dropMinis } from './mini';
 import { dropLabels } from './labels';
 import { dropTwFog } from './fog';
-import { dropNear, playerTheatre, prebakeLook } from './prebake';
+import { dropNear, playerTheatre, prebakeLook, prebakeWake } from './prebake';
 import { figureItems, hostItems, placeItems, placesRect } from './scene';
 import { aimAt, aimsOf } from './tap';
 import { holdInTheatre } from './theatre/camera';
@@ -57,6 +58,10 @@ setTwSlot({
     dropNear();
   },
 });
+
+// Вернулись из фона: работы потока и отказы фона — заново (`prebakeWake`). Подписка живёт с куском, то есть до конца
+// страницы: кусок, однажды приехавший, из памяти не уходит.
+onReturn(() => prebakeWake());
 
 /** Сезон выпечки: зима белит горы и север, весна и осень — чуть. Меняется раз в сезон, не в кадр. */
 const SEASON_SNOW = { spring: 0.15, summer: 0, autumn: 0.25, winter: 1 } as const;

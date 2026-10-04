@@ -14,6 +14,7 @@ import * as THREE from 'three';
 import { activeScene } from '@/render/Scene';
 import { configureRenderer } from '@/render/lighting';
 import { pixelRatio } from '@/render/loop';
+import { holdReplayCanvas } from './canvas';
 import { SIDE_VARS } from '@/side';
 import { PHASE_NAME, summarize, type Side } from '@/battle';
 import { SKIP, frameAt, type Frame } from '@/battle/replay';
@@ -96,7 +97,7 @@ export function TwReplay({ rec, report, onDone }: { rec: BattleRecord; report?: 
     villageMusic.duck(true);
     let alive = true;
     let dispose: () => void = () => undefined;
-    let onResize: () => void = () => undefined;
+    let release: () => void = () => undefined;
     // Звук боя качается вместе с роликом, а не после него: рог построения не ждёт второй докачки.
     const sound = import('@/sound/battlefx');
     // Ролик не приехал — звук ему не нужен, и отказ его докачки не должен лететь в консоль необработанным.
@@ -157,10 +158,9 @@ export function TwReplay({ rec, report, onDone }: { rec: BattleRecord; report?: 
             fx.current = f;
           })
           .catch(() => undefined);
-        p.fit();
+        // Размер своего холста, аспект по ResizeObserver и мёртвый контекст — `./canvas`.
+        release = holdReplayCanvas(renderer, scene, () => p.fit(), () => done.current());
         p.start();
-        onResize = () => p.fit();
-        window.addEventListener('resize', onResize);
         dispose = () => p.dispose();
         setLoaded('ok');
       })
@@ -175,7 +175,7 @@ export function TwReplay({ rec, report, onDone }: { rec: BattleRecord; report?: 
       document.removeEventListener('visibilitychange', onHide);
       fx.current?.stop();
       fx.current = null;
-      window.removeEventListener('resize', onResize);
+      release();
       dispose();
       battleMusic.stop();
       villageMusic.duck(false);

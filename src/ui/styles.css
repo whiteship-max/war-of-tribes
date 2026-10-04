@@ -21,7 +21,10 @@
   --safe-left: max(env(safe-area-inset-left, 0px), var(--tg-left, 0px));
   --safe-right: max(env(safe-area-inset-right, 0px), var(--tg-right, 0px));
 
-  /* Высоту перезаписывает JS из tg.viewportStableHeight. */
+  /*
+   * Высота приложения. Пишет её дверь окна (`src/viewport.ts`) с первого кадра игры;
+   * `100vh` и `100dvh` ниже — только до её первого замера.
+   */
   --app-h: 100vh;
   --nav-h: 56px;
   /* Минимальный размер тач-цели. */
@@ -4420,7 +4423,7 @@ body.replaying .app > *:not(.canvas-wrap) {
 
 .cheat-card {
   width: min(260px, calc(100vw - 24px));
-  max-height: 60vh;
+  max-height: calc(var(--app-h) * 0.6);
   overflow-y: auto;
   display: flex;
   flex-direction: column;

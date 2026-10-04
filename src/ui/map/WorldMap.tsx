@@ -71,6 +71,7 @@ import { ActionMenu } from './ActionMenu';
 import { Gesture, WHEEL_STEP, swallowGhostClick, type Press } from '@/gestures';
 import { gestLog, type End } from '@/gestlog';
 import { FrameLoop, pixelRatio } from '@/render/loop';
+import { onViewport } from '@/viewport';
 import { Icon } from '@/ui/icons/Icon';
 import { useUiNew } from '@/ui/uimode';
 
@@ -380,9 +381,14 @@ export function WorldMap() {
       const w = wrap.clientWidth || 1;
       const h = wrap.clientHeight || 1;
       const changed = dpr !== size.current.dpr;
+      const bw = Math.round(w * dpr);
+      const bh = Math.round(h * dpr);
+      // Звать можно с любого события: перемена окна, плотности, возвращение. Тот же размер буфер не трогает —
+      // присвоение ширины стирает холст и сбрасывает его состояние даже при том же числе.
+      if (!changed && w === size.current.w && h === size.current.h && canvas.width === bw && canvas.height === bh) return;
       size.current = { w, h, dpr };
-      canvas.width = Math.round(w * dpr);
-      canvas.height = Math.round(h * dpr);
+      canvas.width = bw;
+      canvas.height = bh;
       // Окно уехало на другой монитор — испечённое осталось в прежней плотности.
       if (changed) {
         dropSprites();
@@ -393,6 +399,9 @@ export function WorldMap() {
     resize();
     const ro = new ResizeObserver(resize);
     ro.observe(wrap);
+    // Обёртку меряет ResizeObserver, а плотность пикселей меняется мимо неё — её приносит дверь окна
+    // (`src/viewport.ts`) вместе с каждой переменой высоты приложения.
+    const offViewport = onViewport(resize);
 
     // Кисть агента наружу — стенду (`npm run map:report`, раздел «агенты»). Он
     // печёт четыре силуэта своими руками и считает, насколько их пятна
@@ -443,6 +452,7 @@ export function WorldMap() {
     return () => {
       loop.stop();
       ro.disconnect();
+      offViewport();
       // Уходим с карты — холсты кэша земли в памяти держать незачем.
       dropTiles();
       // Отряды и силуэты агентов от сида не зависят, поэтому в уборку по новому

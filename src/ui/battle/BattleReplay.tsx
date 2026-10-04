@@ -22,6 +22,7 @@ import * as THREE from 'three';
 import { activeScene } from '@/render/Scene';
 import { configureRenderer } from '@/render/lighting';
 import { pixelRatio } from '@/render/loop';
+import { holdReplayCanvas } from './canvas';
 import { ReplayPlayer } from '@/render/battle/player';
 import { PHASE_NAME } from '@/battle/log';
 import { frameAt, type Frame } from '@/battle/replay';
@@ -100,12 +101,11 @@ function ClassicReplay({ rec, onDone }: { rec: BattleRecord; onDone: () => void 
       },
       onEnd: () => done.current(),
     });
-    player.fit();
+    // Размер своего холста, аспект по ResizeObserver и мёртвый контекст — `./canvas`.
+    const release = holdReplayCanvas(renderer, scene, () => player.fit(), () => done.current());
     player.start();
-    const onResize = (): void => player.fit();
-    window.addEventListener('resize', onResize);
     return () => {
-      window.removeEventListener('resize', onResize);
+      release();
       battleMusic.stop();
       villageMusic.duck(false);
       player.dispose();

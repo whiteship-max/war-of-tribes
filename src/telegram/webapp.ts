@@ -2,6 +2,7 @@
 
 import { sceneLog } from '@/scenelog';
 import { setAppAsleep } from '@/render/loop';
+import { measureViewport, startViewport, tgViewportChanged } from '@/viewport';
 
 /**
  * Облако Telegram — **только чтение, и только для подъёма старой партии**
@@ -100,9 +101,14 @@ export interface TelegramWebApp {
   offEvent?(event: string, cb: () => void): void;
 }
 
+/** Мост к клиенту: события, у которых нет метода в `WebApp`. */
+interface TgWebView {
+  postEvent?(event: string): void;
+}
+
 declare global {
   interface Window {
-    Telegram?: { WebApp?: TelegramWebApp };
+    Telegram?: { WebApp?: TelegramWebApp; WebView?: TgWebView };
   }
 }
 
@@ -122,34 +128,34 @@ export function tgAbout(): string {
 
 // ---------- Вьюпорт ----------
 
-const root = (): CSSStyleDeclaration => document.documentElement.style;
+/**
+ * Высоту приложения и вырезы считает дверь окна (`src/viewport.ts`); обёртка только
+ * передаёт ей Телеграм и его события. Прежде высоту писала она сама — меньшим из окна
+ * и `viewportStableHeight`, и устоявшаяся высота свёрнутой аппки оставалась игре
+ * навсегда (разбор — в шапке `viewport.ts`).
+ */
 
 /**
- * Высота сцены берётся из viewportStableHeight (без учёта клавиатуры и «резинки»),
- * отступы — из safeAreaInset + contentSafeAreaInset. В CSS они складываются с env(),
- * поэтому вне Telegram и на старых клиентах работает фолбэк на safe-area-inset-*.
+ * Попросить клиент сказать вьюпорт заново и развернуть аппку — при каждом
+ * возвращении. Вне клиента просить некого: SDK только пишет об этом в консоль.
  */
-export function applyViewport(): void {
-  const app = tg();
-  const stable = app?.viewportStableHeight ?? 0;
-  const inner = window.innerHeight || 0;
-  // Берём меньшее: в Telegram viewportStableHeight отрезает шапку, а вне клиента
-  // SDK отдаёт устаревшее значение, которое не следит за resize.
-  const candidates = [stable, inner].filter((v) => v > 0);
-  // Во время resize клиент может отдать ноль — тогда оставляем прежнее значение.
-  if (candidates.length) root().setProperty('--app-h', `${Math.round(Math.min(...candidates))}px`);
-
-  const safe = app?.safeAreaInset;
-  const content = app?.contentSafeAreaInset;
-  if (!safe && !content) return;
-  const px = (n: number | undefined): string => `${Math.max(0, Math.round(n ?? 0))}px`;
-  root().setProperty('--tg-top', px((safe?.top ?? 0) + (content?.top ?? 0)));
-  root().setProperty('--tg-bottom', px((safe?.bottom ?? 0) + (content?.bottom ?? 0)));
-  root().setProperty('--tg-left', px((safe?.left ?? 0) + (content?.left ?? 0)));
-  root().setProperty('--tg-right', px((safe?.right ?? 0) + (content?.right ?? 0)));
+function askViewport(app: TelegramWebApp): void {
+  if ((app.platform ?? 'unknown') === 'unknown') return;
+  try {
+    window.Telegram?.WebView?.postEvent?.('web_app_request_viewport');
+  } catch {
+    /* старый клиент */
+  }
+  try {
+    app.expand();
+  } catch {
+    /* ignore */
+  }
 }
 
 // ---------- Тема ----------
+
+const root = (): CSSStyleDeclaration => document.documentElement.style;
 
 const HEX = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i;
 
@@ -228,12 +234,11 @@ export function applyTheme(): void {
 }
 
 export function initTelegram(): void {
-  applyViewport();
-  window.addEventListener('resize', applyViewport);
-  window.addEventListener('orientationchange', applyViewport);
-
   const app = tg();
-  if (!app) return;
+  if (!app) {
+    startViewport();
+    return;
+  }
   try {
     app.ready();
     app.expand();
@@ -243,7 +248,7 @@ export function initTelegram(): void {
     // Старые клиенты могут не поддерживать часть методов.
   }
   applyTheme();
-  applyViewport();
+  startViewport(app, () => askViewport(app));
 
   const on = (event: string, cb: () => void): void => {
     try {
@@ -253,18 +258,19 @@ export function initTelegram(): void {
     }
   };
   on('viewportChanged', () => {
-    applyViewport();
     sceneLog.mark('tg', `вьюпорт ${Math.round(app.viewportHeight)}/${Math.round(app.viewportStableHeight)}`);
+    tgViewportChanged('вьюпорт');
   });
-  on('safeAreaChanged', applyViewport);
-  on('contentSafeAreaChanged', applyViewport);
-  on('fullscreenChanged', applyViewport);
+  on('safeAreaChanged', () => tgViewportChanged('вырезы'));
+  on('contentSafeAreaChanged', () => tgViewportChanged('вырезы шапки'));
+  on('fullscreenChanged', () => tgViewportChanged('полный экран'));
   // Bot API 8.0: клиент говорит, что аппку свернули и что развернули обратно.
   // Это ровно тот случай, из-за которого заведён журнал: у старых клиентов
   // события нет, и тогда о сворачивании расскажет только visibilitychange.
   // Свёрнутой аппке кадров не рисуют: на Telegram Desktop она может оставаться
   // для браузера видимой, и без этого сцена гнала бы кадры в пустоту. Останавливает
-  // их дверь кадра — у всех цепочек разом (`render/loop.ts`).
+  // их дверь кадра — у всех цепочек разом (`render/loop.ts`). Её же «снова можно»
+  // слышит дверь окна и перемеряет высоту с попытками (`src/viewport.ts`).
   on('deactivated', () => {
     sceneLog.mark('tg', 'свернули');
     setAppAsleep(true);
@@ -272,11 +278,10 @@ export function initTelegram(): void {
   on('activated', () => {
     sceneLog.mark('tg', 'развернули');
     setAppAsleep(false);
-    applyViewport();
   });
   on('themeChanged', () => {
     applyTheme();
-    applyViewport();
+    measureViewport('тема');
   });
 }
 

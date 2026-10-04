@@ -1209,6 +1209,10 @@ const NO_VISION: Vision = { haze: 0, lid: 0, black: 0 };
 
 export class PrologueScene {
   private renderer: THREE.WebGLRenderer;
+  /** Рендерер — сторожу контекста (`render/context.ts`): умер — оболочка собирает поляну заново. */
+  get gl(): THREE.WebGLRenderer {
+    return this.renderer;
+  }
   private scene = new THREE.Scene();
   private camera: THREE.PerspectiveCamera;
   private rig: LightRig;

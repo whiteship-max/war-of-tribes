@@ -171,6 +171,10 @@ const _dir = new THREE.Vector3();
 
 export class Stage {
   private renderer: THREE.WebGLRenderer;
+  /** Рендерер — сторожу контекста (`render/context.ts`). */
+  get gl(): THREE.WebGLRenderer {
+    return this.renderer;
+  }
   private scene = new THREE.Scene();
   private camera: THREE.PerspectiveCamera;
   private rig: LightRig;
@@ -305,6 +309,17 @@ export class Stage {
     this.t = Math.min(t, this.seconds);
     if (this.t >= this.seconds) this.finish();
     else this.refresh(true);
+  }
+
+  /**
+   * Кончить начатую игру сейчас — итогом по набранному. Зовёт оболочка, когда холст умер и не вернулся
+   * (`render/context.ts`): доиграть нечем, а энергия уже списана на «Начать», и пустой итог отнял бы её даром.
+   * Не начатая или кончившаяся игра так не кончается. Вернёт, кончилась ли.
+   */
+  abort(): boolean {
+    if (this.phase !== 'play') return false;
+    this.finish();
+    return true;
   }
 
   /** Время вышло: игра кончена, итог — оболочке. Одна дверь на кадр и на перемотку стенда. */

@@ -164,6 +164,28 @@ export function setAppAsleep(on: boolean): void {
   tell();
 }
 
+/**
+ * Слушать «кадров нет / снова есть» — тому, кому кроме кадров надо знать о
+ * возвращении: двери окна (`src/viewport.ts`) — перемерить высоту. Зовётся только на
+ * перемене. Сигналов возвращения много (видимость, `activated`, палец на экране), и
+ * сведены они здесь один раз — второй копии этого свода быть не должно.
+ * Возвращает отписку.
+ */
+export function watchAway(cb: (away: boolean) => void): () => void {
+  let was = awayNow();
+  const w = (): void => {
+    const now = awayNow();
+    if (now === was) return;
+    was = now;
+    cb(now);
+  };
+  watchers.add(w);
+  listen();
+  return () => {
+    watchers.delete(w);
+  };
+}
+
 // ---------- Цепочка кадров ----------
 
 type Raf = (cb: (now: number) => void) => number;

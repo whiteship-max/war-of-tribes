@@ -13,6 +13,7 @@ import { disposeGeometries } from './kit';
 import { Gesture, Press, TAP_TARGET, WHEEL_STEP, swallowGhostClick } from '@/gestures';
 import type { HitBox } from './pick';
 import { FrameLoop, deviceRatio, pageHidden, pixelRatio } from './loop';
+import { RESTORE_WAIT } from './context';
 import { QUALITIES, QUALITY, VILLAGE_STEADY, autoQuality, qualityDpr, type DeviceCaps, type Quality } from './quality';
 import { autoCap, capQuality, rememberAutoCap } from './gfx';
 import { Steady } from './steady';
@@ -148,19 +149,10 @@ function plaque(ctx: CanvasRenderingContext2D, kind: Attention, mark: { icon: st
 }
 
 /**
- * Сколько ждём возвращения контекста WebGL, прежде чем пересобирать сцену.
- *
- * Браузер возвращает контекст сам — но только если ему не помешали (см.
- * `onContextLost`), и не мгновенно: на Android между потерей и возвращением
- * проходит от десятков миллисекунд до секунды с лишним, пока система отдаёт
- * обратно графическую память. Три секунды заведомо больше этого и заведомо
- * меньше того, что игрок готов смотреть на чёрный прямоугольник.
- *
- * Ждать бесконечно нельзя: вебвью, у которого забрали поверхность совсем,
- * события возвращения не пришлёт никогда, и без срока диорама не вернулась бы
- * до перезахода — то есть ровно то, на что жалоба.
+ * Сколько ждём возвращения контекста WebGL, прежде чем пересобирать сцену. Срок один на все
+ * холсты игры и записан у сторожа контекста (`render/context.ts`) вместе с обоснованием.
  */
-export const RESTORE_WAIT = 3000;
+export { RESTORE_WAIT };
 
 /**
  * Живая сцена в приложении одна, а обучению нужна проекция здания в экранные
