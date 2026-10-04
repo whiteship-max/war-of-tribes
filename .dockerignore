@@ -1,0 +1,29 @@
+# Что не уезжает в сборку образа. Главное — секреты: файл .env с токеном бота в образ не копируется
+# никогда (его читает docker compose и передаёт приложению переменными). Остальное — вес и мусор:
+# зависимости ставятся в образе заново (npm ci), сборка собирается заново.
+.env
+.env.*
+!.env.example
+
+.git
+node_modules
+dist
+coverage
+*.log
+*.timestamp-*.mjs
+
+# Снимки, пробы и стенды — для глаз и приёмки, не для сервера.
+snaps
+.city-shots
+.battle-shots
+.map-shots
+.ui-shots
+.mini-shots
+.tmp-review
+docs/handoff/shots
+
+# Исходники ассетов в сотни мегабайт: в репозитории их нет, сборке они не нужны.
+assets-src/Medieval Music Vol.1 by gabone_audio
+assets-src/Combat Pack - vol 1
+assets-src/world/cache
+assets-src/prologue/cache

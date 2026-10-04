@@ -1,0 +1,55 @@
+# Игра на своём сервере: приложение (адреса API и хранилище) и Caddy (статика игры и HTTPS).
+# Значения переменных — в файле .env рядом (образец — .env.example). Секретов в этом файле нет и
+# быть не должно: здесь только имена. Пошагово — docs/SERVER.md.
+#
+#   docker compose up -d --build        собрать и запустить
+#   docker compose logs -f app          журнал приложения
+#   docker compose run --rm app backup  снять копию базы сейчас
+name: tribe
+
+services:
+  app:
+    build:
+      context: .
+      target: app
+    restart: unless-stopped
+    environment:
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:?впишите TELEGRAM_BOT_TOKEN в .env}
+      TRIBE_STORE: ${TRIBE_STORE:-sqlite}
+      TRIBE_DATA: /data
+      BACKUP_KEEP: ${BACKUP_KEEP:-14}
+      BACKUP_AT: ${BACKUP_AT:-03:30}
+      TRIBE_DELIVER: ${TRIBE_DELIVER:-off}
+      NETLIFY_SITE_ID: ${NETLIFY_SITE_ID:-}
+      NETLIFY_AUTH_TOKEN: ${NETLIFY_AUTH_TOKEN:-}
+    volumes:
+      - tribe-data:/data
+    # Порта наружу нет: к приложению ходит только Caddy, по внутренней сети контейнеров.
+    logging:
+      driver: local
+
+  web:
+    build:
+      context: .
+      target: web
+    restart: unless-stopped
+    depends_on:
+      - app
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      TRIBE_DOMAIN: ${TRIBE_DOMAIN:?впишите TRIBE_DOMAIN в .env}
+    volumes:
+      - caddy-data:/data
+      - caddy-config:/config
+    logging:
+      driver: local
+
+volumes:
+  # База игры и её копии. Живёт отдельно от контейнеров: пересборка и обновление её не трогают.
+  tribe-data:
+  # Сертификаты HTTPS, которые получил Caddy.
+  caddy-data:
+  caddy-config:

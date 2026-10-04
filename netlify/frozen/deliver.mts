@@ -26,27 +26,12 @@
  *     git mv netlify/frozen/deliver.mts netlify/functions/deliver.mts
  */
 import type { Config } from '@netlify/functions';
-import { getStore } from '@netlify/blobs';
-import { deliverPass, type Kv } from '../lib/deliver.js';
+import { blobsStores } from '../lib/blobs.js';
+import { deliverPass, passIoOf } from '../lib/deliver.js';
 
 export const config: Config = { schedule: '* * * * *' };
 
-/** Хранилище в узкой двери прохода: чтение текстом, запись, перечисление, удаление. */
-const kv = (name: string): Kv => {
-  const s = getStore({ name, consistency: 'strong' });
-  return {
-    getWithMetadata: async (key, opts) => {
-      const found = await s.getWithMetadata(key, opts);
-      return found ? { data: String(found.data), etag: found.etag } : null;
-    },
-    setJSON: (key, value, opts) => s.setJSON(key, value, opts?.onlyIfMatch ? { onlyIfMatch: opts.onlyIfMatch } : { onlyIfNew: opts?.onlyIfNew }),
-    set: (key, value) => s.set(key, value),
-    list: (opts) => s.list(opts),
-    delete: (key) => s.delete(key),
-  };
-};
-
 export default async (): Promise<Response> => {
-  await deliverPass({ notify: kv('tribe-notify'), due: kv('tribe-notify-due'), stats: kv('tribe-notify-stats') }, Date.now(), Date.now);
+  await deliverPass(passIoOf(blobsStores()), Date.now(), Date.now);
   return new Response(null, { status: 204 });
 };

@@ -1,27 +1,14 @@
 /**
- * Серверные часы. Всё, что она отдаёт, — одно число.
- *
- * Зачем отдельной функцией, если время приезжает и с каждым ответом
- * сохранения: играть можно и вне Telegram, и до первого обращения к своему
- * сохранению, а «сейчас» игре нужно с первой секунды — по нему считается
- * догон офлайна и календарный день ежедневки. Подписи здесь поэтому нет:
- * время не чужая тайна, а знать его игре надо раньше, чем она узнает, кто
- * играет.
- *
- * Судьёй сервер от этого не становится. Часы он раздаёт, а не сверяет: игра
- * по-прежнему считает всё сама, и подделанные часы телефона этой функцией не
- * ловятся. Ловля — отдельная работа, и делать её надо целиком, а не намёком.
+ * Серверные часы (`/api/time`) на Netlify. Правила и разговор целиком — в общем обработчике
+ * `lib/routes/time.ts`, одном на Netlify и на своём сервере (`vps/`); здесь только адрес и
+ * адрес клиента для сита частоты. Хранилище часам не нужно, но дверь у всех обработчиков одна.
  */
 import type { Config, Context } from '@netlify/functions';
-import { allow, deny, json } from '../lib/http.js';
+import { blobsStores } from '../lib/blobs.js';
+import { time } from '../lib/routes/time.js';
 
+/** Путь объявляет функция — по той же причине, что и у сохранения (`save.mts`). */
 export const config: Config = { path: '/api/time' };
 
-/** Запросов в минуту с одного адреса. Игре нужен один за запуск. */
-const PER_MINUTE = 60;
-
-export default async (req: Request, context: Context): Promise<Response> => {
-  if (req.method !== 'GET') return deny(405, 'method');
-  if (!allow(`ip:${context.ip ?? 'unknown'}`, PER_MINUTE)) return deny(429, 'slow-down', { 'retry-after': '5' });
-  return json({ now: Date.now() });
-};
+export default (req: Request, context: Context): Promise<Response> =>
+  time(req, { stores: blobsStores(), now: Date.now(), ip: context.ip ?? null });

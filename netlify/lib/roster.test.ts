@@ -203,7 +203,8 @@ describe('соседям не раздаётся телеграмный номе
 });
 
 describe('замки серверной части реестра', () => {
-  const src = readFileSync(join(__dirname, '..', 'functions', 'castles.mts'), 'utf8');
+  // Обработчик один на Netlify и на своём сервере (`routes/castles.ts`); функция Netlify — его обёртка.
+  const src = readFileSync(join(__dirname, 'routes', 'castles.ts'), 'utf8');
   const code = src.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/.*$/gm, '$1');
 
   it('запрос проверяется подписью до всего остального', () => {

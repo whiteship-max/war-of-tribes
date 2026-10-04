@@ -1,0 +1,32 @@
+# Caddy своего сервера: статика игры, HTTPS и четыре адреса API к приложению.
+#
+# Адрес сайта — переменная TRIBE_DOMAIN (docker-compose.yml, .env):
+#   game.example.ru   — домен: Caddy сам получит и будет продлевать сертификат HTTPS;
+#   http://localhost  — проверка на своей машине, без HTTPS;
+#   :80               — за чужим прокси, который сам держит HTTPS (Coolify, docs/SERVER.md).
+{$TRIBE_DOMAIN} {
+	encode zstd gzip
+
+	# Адреса API — ровно те, что объявлены у функций Netlify и в netlify/lib/routes/index.ts; сверяет
+	# их тест (netlify/vps/deploy.test.ts). Всё остальное — статика, как и на Netlify.
+	@api path /api/save /api/castles /api/notify /api/time
+	handle @api {
+		request_body {
+			max_size 1MB
+		}
+		reverse_proxy app:8080
+	}
+
+	handle {
+		root * /srv
+		# Куски сборки с хешем в имени не меняются никогда — их можно держать год.
+		@hashed path_regexp ^/assets/[^/]+-[A-Za-z0-9_-]{8}\.(js|css)$
+		header @hashed Cache-Control "public, max-age=31536000, immutable"
+		# Остальное — как у Netlify: проверять свежесть при каждом заходе.
+		@fresh not path_regexp ^/assets/[^/]+-[A-Za-z0-9_-]{8}\.(js|css)$
+		header @fresh Cache-Control "public, max-age=0, must-revalidate"
+		# Одностраничное приложение: любой путь, которого нет файлом, отдаёт index.html (как _redirects).
+		try_files {path} /index.html
+		file_server
+	}
+}

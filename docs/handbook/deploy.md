@@ -54,6 +54,9 @@
   функции не подхватились, и `res.ok` об этом не скажет. Шаги подключения и второй способ
   (`netlify deploy --prod`) — [docs/sync.md](../sync.md), раздел 1. Туда же вписывается
   `TELEGRAM_BOT_TOKEN` (Site configuration → Environment variables).
+- **Свой сервер** вместо Netlify — те же адреса и обработчики, SQLite, Docker и Caddy: пошагово —
+  [docs/SERVER.md](../SERVER.md), разбор — [docs/server-move.md](../server-move.md). Пока бот смотрит
+  на Netlify, всё в этом разделе действует как есть.
 - **Сайт обязан быть публичным.** Netlify новым сайтам включает Team protection, и тогда любой
   заход редиректит на форму входа Netlify — в браузере разработчика этого не видно, он залогинен,
   а с телефона и из Telegram игра просто не откроется. Настройка: Site configuration →

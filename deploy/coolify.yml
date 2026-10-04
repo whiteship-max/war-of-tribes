@@ -1,0 +1,38 @@
+# Игра под Coolify (docs/SERVER.md, «Вариант с Coolify»). Те же два образа, что в docker-compose.yml,
+# но без портов наружу: 80 и 443 держит прокси самого Coolify, он же получает сертификат HTTPS для
+# домена, который владелец назначит сервису `web` в панели. Caddy за ним слушает простой HTTP (:80).
+# Переменные вписываются в панели Coolify (Environment Variables), не в этот файл.
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      target: app
+    restart: unless-stopped
+    environment:
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:?}
+      TRIBE_STORE: ${TRIBE_STORE:-sqlite}
+      TRIBE_DATA: /data
+      BACKUP_KEEP: ${BACKUP_KEEP:-14}
+      BACKUP_AT: ${BACKUP_AT:-03:30}
+      TRIBE_DELIVER: ${TRIBE_DELIVER:-off}
+      NETLIFY_SITE_ID: ${NETLIFY_SITE_ID:-}
+      NETLIFY_AUTH_TOKEN: ${NETLIFY_AUTH_TOKEN:-}
+    volumes:
+      - tribe-data:/data
+
+  web:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      target: web
+    restart: unless-stopped
+    depends_on:
+      - app
+    expose:
+      - "80"
+    environment:
+      TRIBE_DOMAIN: ":80"
+
+volumes:
+  tribe-data:
