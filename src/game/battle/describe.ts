@@ -36,7 +36,7 @@ import {
   type UnitStats,
 } from '@/battle';
 import { KIND_OF, profileOfTroop } from './kinds';
-import { BASE_TROOP, battleWeight } from './price';
+import { BASE_TROOP, battleWeight, powerOf } from './price';
 
 // ---------- Слова, которые из чисел не выведешь ----------
 
@@ -168,6 +168,9 @@ export interface WeightParts {
   value: number;
   /** Наибольший вес среди видов — чтобы полоска показывала место в ряду. */
   max: number;
+  /** Мощь вида и наибольшая мощь — то же число в мере мира (`price.powerOf`): им его зовёт найм и строка дружины. */
+  power: number;
+  powerMax: number;
   /** Что это значит — словами, числа из цены. */
   what: string;
 }
@@ -179,10 +182,12 @@ export function weightOfTroop(troop: TroopId): WeightParts {
   return {
     value,
     max: battleWeight(max.id),
+    power: powerOf(troop),
+    powerMax: powerOf(max.id),
     what:
       troop === BASE_TROOP
-        ? 'Мерка веса: одна голова — один боец строя. Вещи и конь идут в бой через цену: чем дороже содержание вида, тем больше он весит.'
-        : `Одна голова выходит в бой ${value.toFixed(1)} бойца строя — во столько раз его содержание в день дороже мерки веса (${TROOP_BY_ID[BASE_TROOP].name}: 1.0). Вещи и конь идут в бой через цену.`,
+        ? 'Мерка мощи: один боец, один боец строя. Снаряжение и конь входят в мощь через цену: чем дороже содержание, тем сильнее вид.'
+        : `Один боец стоит в бою ${value.toFixed(1)} бойца строя: во столько раз его содержание дороже, чем у вида ${TROOP_BY_ID[BASE_TROOP].name}. Снаряжение и конь входят в мощь через цену.`,
   };
 }
 
@@ -289,30 +294,30 @@ function strengthsOf(troop: TroopId): string[] {
           : null,
       () =>
         ex.weightTop === troop
-          ? `Тяжелее всех в бою: одна голова — ${battleWeight(troop).toFixed(1)} бойца строя против ${battleWeight(ex.weightLow).toFixed(1)} у самого лёгкого.`
+          ? `Сильнее всех на бойца: ${battleWeight(troop).toFixed(1)} бойца строя против ${battleWeight(ex.weightLow).toFixed(1)} у самого слабого.`
           : null,
       () =>
         UNIT_STATS[kind].ranged > 0
-          ? `Единственный род, который работает до сближения: стрельба ${UNIT_STATS[kind].ranged.toFixed(1)} на бойца, а рукопашная — всего ${UNIT_STATS[kind].melee.toFixed(1)}.`
+          ? `Единственный род, что бьёт до сближения: стрельба ${UNIT_STATS[kind].ranged.toFixed(1)} на бойца, рукопашная всего ${UNIT_STATS[kind].melee.toFixed(1)}.`
           : null,
       () =>
         kind === 'infantry'
-          ? `Якорь сектора: каждый пехотинец держит ${Math.round(1 / ANCHOR.infantryShare)} человек своего сектора, у них потери морали идут ${fmt(MORALE.anchor)}; с долей пехоты от ${Math.round(ANCHOR.infantryShare * 100)}% — у всего сектора.`
+          ? `Якорь сектора: каждый пехотинец держит ${Math.round(1 / ANCHOR.infantryShare)} человек своего сектора, у них потери морали ${fmt(MORALE.anchor)}. С долей пехоты от ${Math.round(ANCHOR.infantryShare * 100)}% так держится весь сектор.`
           : null,
       () =>
         softest && softest.mult < 1
           ? `Держит удар, когда ${softest.when}: потери морали ${fmt(softest.mult)}.`
           : null,
-      () => (ex.speedTop === kind ? `Быстрее всех на поле: скорость ${UNIT_STATS[kind].speed} — догоняет отходящих первым.` : null),
+      () => (ex.speedTop === kind ? `Быстрее всех на поле: скорость ${UNIT_STATS[kind].speed}, догоняет отходящих первым.` : null),
       () =>
         battleWeight(troop) > 1
-          ? `Меньше голов на тот же строй: сто бойцов строя — ${Math.round(100 / battleWeight(troop))} голов против ста у мерки веса: меньше жителей уходит в войско.`
+          ? `Меньше людей на ту же мощь: ${Math.round(100 / battleWeight(troop))} вместо ста. Меньше жителей уходит в дружину.`
           : null,
       () =>
         ex.workLow === troop
           ? `Быстрее всех учится: ${def.work} работы казарм против ${best(TROOPS, (t) => t.work).work} у самого долгого.`
           : null,
-      () => (Object.keys(def.gear).length === 0 ? 'Кузницы не просит: снаряжения на бойца не нужно, нанять можно с первого дня.' : null),
+      () => (Object.keys(def.gear).length === 0 ? 'Кузницы не просит, нанять можно с первого дня.' : null),
     ],
     3,
   );
@@ -331,11 +336,11 @@ function weaknessesOf(troop: TroopId): string[] {
     [
       () =>
         p.fireDef + p.shockDef === 0
-          ? `Без защиты: ноль отметок и в огне, и в натиске — по нему бьют всей силой удара, каждая отметка нападения врага — +${pipPct()}.`
+          ? `Без защиты в огне и натиске. Каждая отметка нападения врага даёт +${pipPct()} урона.`
           : null,
       () =>
         UNIT_STATS[kind].melee < 1
-          ? `В сшибке и сече слаб: сила рода в натиске ${fmt(UNIT_STATS[kind].melee)} против ${fmt(1)} у остальных.`
+          ? `В сшибке и сече слаб: натиск ${fmt(UNIT_STATS[kind].melee)} против ${fmt(1)} у остальных.`
           : null,
       () =>
         brittle && brittle.mult > 1
@@ -347,23 +352,23 @@ function weaknessesOf(troop: TroopId): string[] {
           : null,
       () =>
         ex.weightLow === troop
-          ? `Легче всех в бою: одна голова — ${battleWeight(troop).toFixed(1)} бойца строя; армию того же веса ставят числом голов.`
+          ? `Слабее всех на бойца: ${battleWeight(troop).toFixed(1)} бойца строя. Ту же мощь набирают числом.`
           : null,
       () =>
         ex.workTop === troop
-          ? `Дольше всех учится: ${def.work} работы казарм против ${cheapest.work} у самого дешёвого — ${fmt(def.work / cheapest.work)}.`
+          ? `Дольше всех учится: ${def.work} работы казарм против ${cheapest.work} у самого быстрого, ${fmt(def.work / cheapest.work)}.`
           : null,
       () =>
         ex.speedLow === kind
-          ? `Медленнее всех: скорость ${UNIT_STATS[kind].speed} — при отходе его догоняют первым.`
+          ? `Медленнее всех: скорость ${UNIT_STATS[kind].speed}, при отходе его догоняют первым.`
           : null,
       () =>
         Object.keys(def.gear).length > 0
-          ? `Без кузницы не нанять: на бойца нужно ${count(Object.values(def.gear).reduce((a, b) => a + (b ?? 0), 0), 'предмет', 'предмета', 'предметов')} снаряжения.`
+          ? `Без кузницы не нанять: снаряжения на бойца ${Object.values(def.gear).reduce((a, b) => a + (b ?? 0), 0)}.`
           : null,
       () => {
         const w = weakestDef(troop);
-        return `Слабее всего — ${w.name}: ${pips(w.value)}; каждая отметка нападения врага сверх неё — +${pipPct()} урона.`;
+        return `Слабее всего ${w.name}: ${pips(w.value)}. Каждая отметка нападения врага сверх неё даёт +${pipPct()} урона.`;
       },
     ],
     3,

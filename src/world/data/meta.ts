@@ -13,10 +13,10 @@ export interface StageDef {
 
 /** От слабого к сильному: stageOf берёт последнюю подходящую. */
 export const STAGES: StageDef[] = [
-  { id: 'camp', name: 'Лагерь', icon: '⛺', minPower: 0, minPop: 0 },
+  { id: 'camp', name: 'Стоянка', icon: '⛺', minPower: 0, minPop: 0 },
   { id: 'village', name: 'Деревня', icon: '🏘️', minPower: 30, minPop: 12 },
-  { id: 'stronghold', name: 'Укреплённое поселение', icon: '🏯', minPower: 90, minPop: 30 },
-  { id: 'town', name: 'Город', icon: '🏙️', minPower: 200, minPop: 65 },
+  { id: 'stronghold', name: 'Острог', icon: '🏯', minPower: 90, minPop: 30 },
+  { id: 'town', name: 'Крепость', icon: '🏙️', minPower: 200, minPop: 65 },
 ];
 
 /**
@@ -64,7 +64,7 @@ export interface MissionDef {
 export const MISSIONS: MissionDef[] = [
   {
     id: 'raid',
-    name: 'Атаковать',
+    name: 'Ударить',
     icon: '⚔️',
     description: 'Разбить гарнизон и унести добычу. Племя цели затаит обиду.',
   },
@@ -72,13 +72,13 @@ export const MISSIONS: MissionDef[] = [
     id: 'scout',
     name: 'Разведать',
     icon: '👣',
-    description: 'Узнать, сколько там войска. Данные стареют — разведку повторяют.',
+    description: 'Узнать, сколько там бойцов. Сведения стареют, разведку повторяют.',
   },
   {
     id: 'support',
     name: 'Поддержать',
     icon: '🤝',
-    description: 'Постоять в союзном поселении и укрепить дружбу.',
+    description: 'Постоять в городе союзника и укрепить дружбу.',
   },
 ];
 
@@ -99,7 +99,7 @@ export const TRIBE_COLORS: string[] = [
 ];
 
 export const BARBARIAN_NAMES: string[] = [
-  'Лагерь чужаков',
+  'Становище лиходеев',
   'Стан бродяг',
   'Костры кочевников',
   'Логово разбойников',

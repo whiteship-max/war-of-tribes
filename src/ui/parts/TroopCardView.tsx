@@ -65,14 +65,14 @@ export function TroopCardView({ troop, onBack }: { troop: TroopId; onBack: () =>
         <div className="body">
           <div className="name">{def.name}</div>
           <div className="lvl">
-            {meta.icon} {meta.name} · мощь {weight.value.toFixed(1)} · в городе {have}
+            {meta.icon} {meta.name} · мощь {weight.power.toFixed(1)} · в городе {have}
           </div>
         </div>
       </div>
       <p className="season-hint">{def.description}</p>
 
       <h3>В бою</h3>
-      <Bar icon="⚖️" label="Мощь" value={weight.value} max={weight.max} note={`из ${weight.max.toFixed(1)} у сильнейшего`} />
+      <Bar icon="⚖️" label="Мощь" value={weight.power} max={weight.powerMax} note={`из ${weight.powerMax.toFixed(1)} у сильнейшего`} />
       <p className="season-hint">{weight.what}</p>
       <Bar
         icon="🏳️"

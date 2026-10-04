@@ -27,10 +27,7 @@ function Taken({ why }: { why: string }) {
         <div className="m-ico">🪟</div>
         <h2>Игра открыта дважды</h2>
         <p>{why}</p>
-        <p>
-          Продолжить можно здесь — тогда в той вкладке партия остановится. Или просто закрой эту
-          вкладку и играй там.
-        </p>
+        <p>Продолжишь здесь, и в той вкладке партия остановится. Или закрой эту и играй там.</p>
         <div className="options">
           <button className="btn" onClick={takeOver}>
             Продолжить здесь
@@ -39,7 +36,7 @@ function Taken({ why }: { why: string }) {
             Оставить там
           </button>
         </div>
-        <small className="muted">Пока ведёт другая вкладка, эта не сохраняет ничего.</small>
+        <small className="muted">Пока играешь в другой вкладке, эта не сохраняет.</small>
       </div>
     </div>
   );

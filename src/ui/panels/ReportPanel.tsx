@@ -78,7 +78,7 @@ function Replay({ rec, report, onDone }: ReplayProps) {
   return createPortal(
     <div className="replay">
       <div className="replay-caption">
-        {play === 'wait' ? 'Ролик загружается…' : 'Ролик не загрузился — нет связи. Итог и журнал остались в отчёте.'}
+        {play === 'wait' ? 'Ролик загружается…' : 'Ролик не загрузился, нет связи. Итог и журнал на месте.'}
       </div>
       <div className="replay-controls">
         <button className="btn" onClick={onDone}>
@@ -164,9 +164,9 @@ export function ReportPanel({ id }: { id: string }) {
   if (!report) {
     return (
       <div className="panel">
-        <h2>Отчёт</h2>
+        <h2>Донесение</h2>
         <div className="desc">
-          {reports.length === 0 ? 'Открываем отчёт…' : 'Этот отчёт уже не хранится: место заняли новые.'}
+          {reports.length === 0 ? 'Открываем донесение…' : 'Это донесение уже не хранится.'}
         </div>
       </div>
     );
@@ -187,7 +187,7 @@ export function ReportPanel({ id }: { id: string }) {
                 act((g) => setBattleWatch(g, false));
               }}
             >
-              <Icon name="ui-bolt" glyph="⚡" /> Мгновенный итог
+              <Icon name="ui-bolt" glyph="⚡" /> Сразу итог
             </button>
             <button
               className={`btn${watch ? '' : ' ghost'}`}
@@ -209,7 +209,7 @@ export function ReportPanel({ id }: { id: string }) {
           )}
           {lopsided && !watch && (
             <p className="note">
-              Силы были несопоставимы — смотреть тут нечего, поэтому сразу итог. Журнал никуда не делся.
+              Силы были несопоставимы, смотреть нечего. Журнал ниже.
             </p>
           )}
           {watch && (
