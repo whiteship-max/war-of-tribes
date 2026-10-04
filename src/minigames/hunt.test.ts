@@ -125,6 +125,36 @@ describe('охота: поле от зерна', () => {
     }
   });
 
+  /**
+   * Решение владельца 04.10.2026: в стаде есть оленухи — без рогов. Область — те же двести зёрен; в каждой кучке их по
+   * одной, кто из двоих — от зерна, и у разных зёрен выпадают обе стороны.
+   */
+  it('в каждой кучке олень и оленуха; оленуха — та же модель без рогов', () => {
+    const first = new Set<number>();
+    for (const seed of SEEDS) {
+      const f = layHunt(seed);
+      for (let g = 0; g < 3; g++) {
+        const pair = f.deer.filter((d) => d.group === g);
+        expect(pair.map((d) => d.doe).sort(), `${seed}: кучка ${g}`).toEqual([false, true]);
+        first.add(pair.findIndex((d) => d.doe));
+      }
+    }
+    expect([...first].sort(), 'оленухой бывает и первый, и второй в кучке').toEqual([0, 1]);
+    // Модель: рогов у оленухи нет — голова и туша меньше на рога, корпус и ноги те же.
+    const verts = (o: THREE.Object3D, name?: string): number => {
+      let n = 0;
+      o.traverse((m) => {
+        if (m instanceof THREE.Mesh && (!name || m.name === name)) n += m.geometry.getAttribute('position').count;
+      });
+      return n;
+    };
+    const stag = deerModel();
+    const doe = deerModel(false);
+    expect(verts(doe, 'head')).toBeLessThan(verts(stag, 'head'));
+    for (const part of ['torso', 'legsFront', 'legsBack']) expect(verts(doe, part), part).toBe(verts(stag, part));
+    expect(verts(carcassModel(false))).toBeLessThan(verts(carcassModel()));
+  });
+
   it('глаз охотника — того же роста, что у поляны; уйти можно не дальше поля', () => {
     expect(EYE_Y).toBe(GLADE_EYE);
     expect(ROAM_R).toBeLessThan(FIELD_R);

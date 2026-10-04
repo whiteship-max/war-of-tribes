@@ -133,7 +133,9 @@ export class HuntPlay implements Play {
     this.camera = camera;
     scene.add(surfaces.adopt(coverMesh(this.hunt.field.cover, this.season, shade), 'crown'));
     for (let i = 0; i < DEER; i++) {
-      const d = surfaces.adopt(deerModel());
+      // Оленуха — без рогов (`DeerSpec.doe`): у неё та же модель и тот же корпус для стрелы, рогов стрела не видит.
+      const doe = this.hunt.field.deer[i].doe;
+      const d = surfaces.adopt(deerModel(!doe));
       d.rotation.order = 'YXZ';
       this.heads.push(d.getObjectByName('head') ?? new THREE.Object3D());
       this.legsF.push(d.getObjectByName('legsFront') ?? new THREE.Object3D());
@@ -141,7 +143,7 @@ export class HuntPlay implements Play {
       for (const leg of [this.legsF[i], this.legsB[i]]) (leg as THREE.Mesh).castShadow = false;
       scene.add(d);
       this.deer.push(d);
-      const c = surfaces.adopt(carcassModel());
+      const c = surfaces.adopt(carcassModel(!doe));
       c.visible = false;
       scene.add(c);
       this.carcasses.push(c);

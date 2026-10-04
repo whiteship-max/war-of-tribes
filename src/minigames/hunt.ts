@@ -242,6 +242,8 @@ export interface DeerSpec {
   /** Сколько бежит, сорвавшись, и в какую сторону от «прочь» отклоняется (рад). */
   dist: number;
   veer: number;
+  /** Оленуха — без рогов (`models.deer(false)`). Правила у неё те же: та же цель, тот же слух, тот же бег. */
+  doe: boolean;
 }
 
 export interface Field {
@@ -313,6 +315,7 @@ export function layHunt(seed: number): Field {
         phase: rnd() * GLANCE_EVERY[1],
         dist: RUN_DIST[0] + rnd() * (RUN_DIST[1] - RUN_DIST[0]),
         veer: (rnd() - 0.5) * 0.7,
+        doe: false,
       });
     }
   }
@@ -334,6 +337,9 @@ export function layHunt(seed: number): Field {
       break;
     }
   }
+  // Оленухи (решение владельца 04.10.2026): в каждой кучке — олень и оленуха, кто из двоих — от зерна. Жребий — после
+  // укрытий, чтобы места оленей и укрытий у каждого зерна остались прежними.
+  for (let g = 0; g < GROUPS; g++) deer[g * (DEER / GROUPS) + Math.floor(rnd() * (DEER / GROUPS))].doe = true;
   return { cover, deer };
 }
 
