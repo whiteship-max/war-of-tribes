@@ -26,6 +26,7 @@ import type { Coord, SettlementId, TribeId } from './types';
 import { coordKey, distance, terrainFactor } from './geo';
 import { buildable } from './geography';
 import { placeCastle } from './settle';
+import { inHomeTheatre } from './theatre/theatre';
 import {
   AI_RANGE,
   BARBARIAN_BLOCK,
@@ -114,14 +115,25 @@ export function generateWorld(seed: number, home?: Coord): WorldGen {
   const byKey = new Map<string, GenSettlement>();
   let counter = 1;
 
-  const addLair = (x: number, y: number): GenSettlement => {
-    const s = makeLair(`b${counter++}`, x, y, BARBARIAN_NAMES[int(0, BARBARIAN_NAMES.length - 1)]);
+  // Замок игрока. Клетку либо назвали снаружи (её выбрал общий реестр), либо
+  // её ищет то же правило, что и на сервере, — второго правила расселения в
+  // игре нет (`settle.placeCastle`). Он решается первым: от него зависит регион,
+  // в котором вообще могут стоять логова, — а поток у поиска свой, и общий `rng`
+  // от того, что дом найден раньше сыпи, не сдвинулся ни на одно обращение.
+  const at: Coord = home ?? placeCastle(seeded((seed ^ HOME_SALT) >>> 0), []);
+
+  /** Следующее логово по счёту: номер и имя из общего потока. */
+  const nextLair = (x: number, y: number): GenSettlement =>
+    makeLair(`b${counter++}`, x, y, BARBARIAN_NAMES[int(0, BARBARIAN_NAMES.length - 1)]);
+  const addLair = (s: GenSettlement): void => {
     settlements.push(s);
     byKey.set(coordKey(s.x, s.y), s);
-    return s;
   };
 
-  // 1. Логова — редкой сыпью по всей карте. Блок крупный нарочно: мир вырос
+  // 1. Логова — редкой сыпью по карте, и встают только в регионе игрока (docs/map_tw.md, 0.−2): игрок видит один
+  // регион, и набег из логова за его краем шёл бы из места, которого нет на карте и в которое не сходить. Не своё
+  // логово всё равно тянет номер и имя — так `rng` и счётчик идут прежним порядком, и у своих логов остаются
+  // прежние место, имя и номер (по номеру они лежат в сохранении). Блок крупный нарочно: мир вырос
   // вчетверо по стороне, и прежний шаг дал бы полторы тысячи лагерей, то есть
   // полторы тысячи объектов в каждом переборе мира.
   for (let by = lo.y; by < hi.y; by += BARBARIAN_BLOCK) {
@@ -130,14 +142,10 @@ export function generateWorld(seed: number, home?: Coord): WorldGen {
       const x = bx + int(0, BARBARIAN_BLOCK - 1);
       const y = by + int(0, BARBARIAN_BLOCK - 1);
       if (!habitable(seed, x, y) || byKey.has(coordKey(x, y))) continue;
-      addLair(x, y);
+      const lair = nextLair(x, y);
+      if (inHomeTheatre(at, lair)) addLair(lair);
     }
   }
-
-  // 2. Замок игрока. Клетку либо назвали снаружи (её выбрал общий реестр), либо
-  // её ищет то же правило, что и на сервере, — второго правила расселения в
-  // игре нет (`settle.placeCastle`).
-  const at: Coord = home ?? placeCastle(seeded((seed ^ HOME_SALT) >>> 0), []);
 
   // Логова, случайно легшие у самого порога, убираются. Раньше от них уходил
   // сам поиск дома; теперь дом приходит первым, и посторониться должны они.
@@ -149,7 +157,7 @@ export function generateWorld(seed: number, home?: Coord): WorldGen {
     settlements.splice(i, 1);
   }
 
-  // 3. Логова у порога. Мир и так заводит их по ходу партии (`spawnLair`), но
+  // 2. Логова у порога — тоже только в регионе игрока. Мир и так заводит их по ходу партии (`spawnLair`), но
   // ждать за это срок появления (`LAIR_SPAWN_MIN`) нечего: без ботов логово — единственная цель на
   // карте, и её надо видеть с первого взгляда.
   //
@@ -166,12 +174,13 @@ export function generateWorld(seed: number, home?: Coord): WorldGen {
       const x = Math.round(at.x + Math.cos(a) * r);
       const y = Math.round(at.y + Math.sin(a) * r);
       if (!habitable(seed, x, y) || byKey.has(coordKey(x, y))) continue;
+      if (!inHomeTheatre(at, { x, y })) continue;
       if (distance({ x, y }, at) < LAIR_HOME_GAP) continue;
       if (settlements.some((o) => distance(o, { x, y }) < LAIR_SETTLE_GAP)) continue;
       // До первой цели идут посуху. На настоящей карте у замка на берегу
       // ближайшее место через залив: по прямой десять клеток, по времени полчаса.
       if (terrainFactor(seed, at, { x, y }) >= LAIR_REACH_FACTOR) continue;
-      addLair(x, y);
+      addLair(nextLair(x, y));
       break;
     }
   }

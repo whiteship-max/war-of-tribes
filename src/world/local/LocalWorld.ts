@@ -237,6 +237,7 @@ import {
   type WoodPlan,
 } from '../works';
 import { faithAt, faithAttitude, faithPressure } from '../faith';
+import { beyondNote, inHomeTheatre } from '../theatre/theatre';
 import { groundAt, placeAt } from '../place';
 import { intercept as meetingOf, type Meeting } from '../pursuit';
 import { UNKNOWN, estimate, precisionOf, readIntel } from '../intel';
@@ -630,7 +631,9 @@ export class LocalWorld implements WorldApi {
    */
   private adoptSpawned(): void {
     for (const l of this.save.spawned) {
-      if (this.byId.has(l.id)) continue;
+      // Логово за краем региона (его могло завести сохранение до правила о регионах) в мир не встаёт: логова живут
+      // только в регионе игрока, как и у генерации. Строка сохранения остаётся как есть — читать её больше некому.
+      if (this.byId.has(l.id) || !this.inRealm(l)) continue;
       const s = makeLair(l.id, l.x, l.y, l.name);
       this.gen.settlements.push(s);
       this.gen.byKey.set(coordKey(s.x, s.y), s);
@@ -645,6 +648,19 @@ export class LocalWorld implements WorldApi {
    */
   private lairRec(id: SettlementId): LairRec {
     return this.save.lairs[id] ?? { bornAt: this.save.createdAt, burnedAt: 0 };
+  }
+
+  /**
+   * Клетка в регионе игрока? Логова, цели походов и приказов — только там (docs/map_tw.md, 0.−2): карта показывает
+   * один регион, и правило держит мир, а не честное слово интерфейса. Мерка та же, что у карты (`world/theatre`).
+   */
+  private inRealm(at: Coord): boolean {
+    return inHomeTheatre(this.save.home, at);
+  }
+
+  /** Отказ цели за краем региона — теми же словами, что у карты. */
+  private beyond(): string {
+    return beyondNote(this.save.home);
   }
 
   /** Опора логова: расстояние до замка игрока. Считается один раз на логово. */
@@ -710,6 +726,8 @@ export class LocalWorld implements WorldApi {
       const spot = clampToWorld({ x: Math.round(home.x + Math.cos(a) * r), y: Math.round(home.y + Math.sin(a) * r) });
       if (!buildable(seed, spot.x, spot.y)) continue;
       if (this.gen.byKey.has(coordKey(spot.x, spot.y))) continue;
+      // Только в регионе игрока: набег из логова за краем шёл бы из места, которого нет на карте.
+      if (!this.inRealm(spot)) continue;
       if (distance(spot, home) < LAIR_HOME_GAP) continue;
       // Под чужой стеной разбойники не селятся — и под своим же пепелищем тоже:
       // новое логово обязано читаться как новое место, а не как воскресшее.
@@ -1946,6 +1964,7 @@ export class LocalWorld implements WorldApi {
     if (!near || near.home) return 'Рядом нет чужого поселения.';
     const target = this.byId.get(near.id);
     if (!target) return 'Цель не найдена.';
+    if (!this.inRealm(target)) return this.beyond();
     // Участь объявляется приказом и проверяется им же: недоступную не объявить.
     const blocked = fateBlock(fateId, 'world', this.save.burnImmune[target.id], now, this.playerLocks());
     if (blocked) return blocked;
@@ -4840,6 +4859,7 @@ export class LocalWorld implements WorldApi {
     if (!w || !camp) return { error: 'Под этими стенами лагеря нет.' };
     const town = id === HOME_ID ? this.save.home : this.byId.get(id);
     if (!town) return { error: 'Цель не найдена.' };
+    if (!this.inRealm(town)) return { error: this.beyond() };
     const from = this.figureAt(f, now);
     const to = { x: town.x, y: town.y };
     const dist = distance(from, to);
@@ -5476,6 +5496,8 @@ export class LocalWorld implements WorldApi {
         march: null,
       };
     }
+    // За край своего региона походов нет — ни разведки, ни поддержки (docs/map_tw.md, 0.−2).
+    if (!this.inRealm(target)) return { error: this.beyond(), march: null };
 
     const held = this.defenders(now);
     // Названный состав уходит из гарнизона поимённо — тех же видов и не больше,
@@ -5651,6 +5673,8 @@ export class LocalWorld implements WorldApi {
     const busy = Math.max(0, (f.busyUntil ?? 0) - now);
     if (busy > 0) return `${this.busyNote(id)}: ${formatLeft(busy / 1000)}.`;
     const target = clampToWorld(to);
+    // За край своего региона агента не отправить: туда не ходит никто (docs/map_tw.md, 0.−2).
+    if (!this.inRealm(target)) return this.beyond();
     const from = this.figureAt(f, now);
     const dist = distance(from, target);
     if (dist < 0.5) return `${def.name} уже там.`;
@@ -6211,6 +6235,9 @@ export class LocalWorld implements WorldApi {
     if (troopTotal(f.troops ?? {}) === 0) return { error: 'Войска при полководце нет.', reportId: null, won: false };
     const near = this.touching(this.figureAt(f, now));
     if (!near) return { error: 'Рядом нет чужого поселения.', reportId: null, won: false };
+    // Ни удара, ни штурма за краем своего региона (docs/map_tw.md, 0.−2): туда полководца и не отправить.
+    const place = near.home ? null : this.byId.get(near.id);
+    if (place && !this.inRealm(place)) return { error: this.beyond(), reportId: null, won: false };
     // Под стенами стоит чужой лагерь — бьём по нему, а не по городу: это и есть
     // «ударить по лагерю» глазами игрока, и считается оно тем же боем, что и
     // вылазка. Свой лагерь этой проверкой не задет: `ourCamp` отсекает его. Под
@@ -6463,6 +6490,8 @@ export class LocalWorld implements WorldApi {
     const def = FIGURE_BY_ID[id];
     const off = this.offDuty(id, now) ?? this.retiringBlock(id);
     if (off) return off;
+    // Приказ — только у цели в своём регионе (docs/map_tw.md, 0.−2): карточка места за краем приказов не даёт.
+    if (!this.inRealm(target)) return this.beyond();
     if (f.phase === 'moving') return `${def.name} ещё в пути.`;
     if (this.touching(this.figureAt(f, now))?.id !== target.id) {
       return `Слишком далеко: ${def.one} надо довести к самым воротам.`;

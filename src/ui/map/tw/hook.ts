@@ -20,7 +20,7 @@ import { dropNear, playerTheatre, prebakeLook, prebakeWake } from './prebake';
 import { figureItems, hostItems, placeItems, placesRect } from './scene';
 import { aimAt, aimsOf } from './tap';
 import { holdInTheatre } from './theatre/camera';
-import { withinActive } from './theatre/theatre';
+import { withinActive } from './theatre/active';
 
 setTwSlot({
   frame(ctx, cam, vp, dpr, frame) {

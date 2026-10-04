@@ -17,8 +17,9 @@ import { JOB_STALL_MS, STILL_MS, moving, prebakeFrame, prebakeIdle, prebakeState
 import { cacheLand, extractLand, FEATURE_BITS } from './landcache';
 import { gridLand } from './landgrid';
 import { knownAt } from './knowledge';
-import { type Theatre, theatreAt, theatreById } from './theatre/theatre';
+import { type Theatre, theatreAt, theatreById } from '@/world/theatre/theatre';
 import { holdInTheatre } from './theatre/camera';
+import { activeTheatre, withinActive } from './theatre/active';
 import { cellsFor, emptyGrid, foldsFor, heightGrid, heightRows, shade, shadowMargin, warpFor } from './field';
 import { figureItems, hostItems, placeItems } from './scene';
 import { aimAt, aimsOf } from './tap';
@@ -200,7 +201,12 @@ describe('заранее испечённый регион: без дыр', () =
 });
 
 describe('цель вне региона', () => {
-  it('объекты вне региона в сцену не попадают — палец их не находит', () => {
+  const march = (id: string, to: Coord, own = false): MarchView =>
+    ({ id, mission: own ? 'scout' : 'raid', units: { warrior: 10 }, own, hostile: !own, phase: 'stay', from: to, to, fromName: '', toName: '', targetId: 't', departAt: 0, arriveAt: 0, loot: null, recallable: false }) as MarchView;
+  const fig = (id: string, c: Coord): FigureView =>
+    ({ id, name: id, phase: 'field', place: 'map', from: c, to: c, at: c, departAt: -1000, arriveAt: -1000, sight: 3, troops: {} }) as unknown as FigureView;
+
+  it('места и чужие отряды вне региона в сцену не попадают — палец их не находит', () => {
     resetPrebake();
     const cam = held({ cx: HOME.x, cy: HOME.y, scale: 9 });
     prebakeFrame(cam, VP, 1, 0);
@@ -208,26 +214,43 @@ describe('цель вне региона', () => {
     const wide = { cx: BEYOND.x, cy: BEYOND.y, scale: 4 };
     const items = placeItems(wide, VP, SETTLEMENTS, DPR);
     expect(items.map((i) => i.s.id).sort()).toEqual(['home', 'lair']);
-    // Отряд и агент за границей — тоже нет; у себя — есть.
-    const march = (id: string, to: Coord): MarchView =>
-      ({ id, mission: 'raid', units: { warrior: 10 }, own: false, hostile: true, phase: 'stay', from: to, to, fromName: '', toName: '', targetId: 't', departAt: 0, arriveAt: 0, loot: null, recallable: false }) as MarchView;
+    // Чужой отряд за границей — тоже нет; у себя — есть. Агентов нет вовсе: свои видны всегда (следующий тест).
     const hosts = hostItems(wide, VP, [march('in', HOME), march('out', BEYOND)], [], 0, DPR);
     expect(hosts.map((h) => h.m.id)).toEqual(['in']);
-    const fig = (id: string, c: Coord): FigureView =>
-      ({ id, name: id, phase: 'field', place: 'map', from: c, to: c, at: c, departAt: -1000, arriveAt: -1000, sight: 3, troops: {} }) as unknown as FigureView;
-    const figs = figureItems(wide, VP, [fig('scout', HOME), fig('spy', BEYOND)], 0, DPR);
-    expect(figs.every((f) => f.spot.f.id !== 'spy')).toBe(true);
+    const figs = figureItems(wide, VP, [], 0, DPR);
     // Палец по точке, где нарисовался бы Гамбург, его клетку не получает.
     const [bx, by] = [(BEYOND.x + 0.5 - wide.cx) * wide.scale + VP.w / 2, (BEYOND.y + 0.5 - wide.cy) * wide.scale + VP.h / 2];
     const aim = aimAt(aimsOf(items, hosts, figs), bx, by, false);
     expect(aim === null || aim.x !== BEYOND.x || aim.y !== BEYOND.y).toBe(true);
   });
 
+  it('свои отряды и агенты видны всегда — и за краем региона (docs/map_tw.md, 0.−2)', () => {
+    resetPrebake();
+    prebakeFrame(held({ cx: HOME.x, cy: HOME.y, scale: 9 }), VP, 1, 0);
+    const wide = { cx: BEYOND.x, cy: BEYOND.y, scale: 4 };
+    // Точки внутри области правила: регион есть, Гамбург — за его краем, дом — в нём.
+    expect(activeTheatre(), 'регион игрока').not.toBe(null);
+    expect(withinActive(BEYOND.x, BEYOND.y), 'Гамбург за краем').toBe(false);
+    expect(withinActive(HOME.x, HOME.y), 'дом в регионе').toBe(true);
+    // Свой отряд, стоящий за краем, и свой, идущий из дома через чужой край, — в сцене; чужой, что идёт к нам из
+    // своего региона через чужой край, — тоже; чужой за краем от края до края — нет.
+    const mid = { x: Math.round((HOME.x + BEYOND.x * 3) / 4), y: Math.round((HOME.y + BEYOND.y * 3) / 4) };
+    expect(withinActive(mid.x, mid.y), 'середина пути за краем').toBe(false);
+    const walking = (id: string, own: boolean, from: Coord, to: Coord): MarchView =>
+      ({ ...march(id, to, own), phase: 'out', from, departAt: 0, arriveAt: 1000 }) as MarchView;
+    const hosts = hostItems(wide, VP, [march('own-out', BEYOND, true), walking('own-way', true, HOME, BEYOND), walking('foe-way', false, BEYOND, HOME), march('foe-out', BEYOND)], [], 750, DPR);
+    expect(hosts.map((h) => h.m.id).sort()).toEqual(['foe-way', 'own-out', 'own-way']);
+    // Свой агент за краем — в сцене и пальцу цель.
+    const figs = figureItems(wide, VP, [fig('scout', HOME), fig('spy', BEYOND)], 0, DPR);
+    expect(figs.map((f) => f.spot.f.id).sort()).toEqual(['scout', 'spy']);
+  });
+
   it('тап, правая кнопка, меню приказов и карточка клетки спрашивают регион раньше, чем открыть цель', () => {
     const strip = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
     const map = strip(readFileSync(join(process.cwd(), 'src/ui/map/WorldMap.tsx'), 'utf8'));
     // Тап: проверка региона стоит между «клетка в мире» и `openAt`.
-    expect(map).toMatch(/if \(!inside \|\| !c\) return;[\s\S]*?if \(!reachable\(c\)\) \{[\s\S]*?return;\s*\}\s*openAt\(c\);/);
+    // Свой агент за краем берётся в руку (свои видны всегда), но с агентом в руке — отказ раньше `openAt`.
+    expect(map).toMatch(/if \(!inside \|\| !c\) return;[\s\S]*?if \(!reachable\(c\) && \(useWorld\.getState\(\)\.picked !== null \|\| figuresOn\(c\.x, c\.y, worldNow\(\)\)\.length === 0\)\) \{[\s\S]*?return;\s*\}\s*openAt\(c\);/);
     // Правая кнопка: до `openMenu`.
     expect(map).toMatch(/if \(!reachable\(c\)\) \{[\s\S]*?return;\s*\}\s*const g = useWorld\.getState\(\);\s*const agent[\s\S]*?openMenu\(agent, c\)/);
     const menu = strip(readFileSync(join(process.cwd(), 'src/ui/map/ActionMenu.tsx'), 'utf8'));
