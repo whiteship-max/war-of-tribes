@@ -9,7 +9,10 @@ import { CoatButton } from '@/ui/realm/Coat';
 import { useRealm } from '@/ui/realm/open';
 import { shortNum } from '@/ui/ResourceBar';
 import { tipAt, type TipContent } from './tip';
-import { armyTip, goldTip, isFull, moraleTip, orderTip, popTip, resTip, seasonTip, trendOf, type TipGo } from './hudTips';
+import { energyNow, useTrades } from '@/ui/trades';
+import { energyShown } from '@/game/sim/minigames';
+import { MINIGAME_COST } from '@/game/data/minigames';
+import { armyTip, energyTip, goldTip, isFull, moraleTip, orderTip, popTip, resTip, seasonTip, trendOf, type TipGo } from './hudTips';
 
 /**
  * Верх нового интерфейса (docs/ui_audit.md, 6.0–6.1): одна строка 44 — герб, золото, жители, мораль,
@@ -32,6 +35,9 @@ export function Hud() {
   const net = netPerDay(s);
   const storage = buildingOfType(s, 'storage');
   const go: TipGo = { tab: openTab, building: openBuilding, realm: showRealm };
+  const showTrades = useTrades((t) => t.show);
+  // Энергия — сутками игрока (`ui/trades.energyNow`); перерисовывается вместе с партией, раз в шаг цикла.
+  const energy = energyShown(s, energyNow());
   // Подсказка считается в миг касания: числа в ней — на эту секунду, а не на последнюю перерисовку.
   const tip =
     (content: () => TipContent) =>
@@ -40,7 +46,8 @@ export function Hud() {
 
   return (
     <div className="nx-hud">
-      <div className="nx-top">
+      {/* Порядок — седьмая ячейка: строка теснее, чтобы с энергией влезть в 375 px (цель касания — та же, 44). */}
+      <div className={`nx-top${order !== null ? ' crowded' : ''}`}>
         <CoatButton quiet />
         <button className="nx-stat" onClick={tip(() => goldTip(s, go))} aria-label="Золото">
           <Icon name="res-gold" glyph="💰" />
@@ -64,6 +71,10 @@ export function Hud() {
         <button className="nx-stat" onClick={tip(() => armyTip(s, go))} aria-label="Дружина">
           <Icon name="hud-army" glyph="⚔️" />
           <b>{armySize(s)}</b>
+        </button>
+        <button className={`nx-stat nx-energy${energy < MINIGAME_COST ? ' low' : ''}`} onClick={tip(() => energyTip(s, energyNow(), showTrades))} aria-label="Энергия">
+          <Icon name="ui-energy" glyph="✋" />
+          <b>{energy}</b>
         </button>
         <span className="nx-grow" />
         <button className={`nx-stat nx-season season-${season}`} onClick={tip(() => seasonTip(s, go))} aria-label={meta.name}>

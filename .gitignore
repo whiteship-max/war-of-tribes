@@ -54,3 +54,5 @@ assets-src/prologue/cache/
 
 # снимки петли самопроверки интерфейса (стенд сессии `.tmp-review/ui-shots.ts`): в историю им не надо
 .ui-shots/
+# снимки стенда промыслов (`npm run mini:shots`, docs/minigames.md)
+.mini-shots/

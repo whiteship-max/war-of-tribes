@@ -1,0 +1,325 @@
+/*
+ * Стили промыслов. Живут рядом с режимом и едут его куском, как стили предыстории: первая загрузка не растёт из-за
+ * экрана, в который игрок может не зайти ни разу. Токены — те же, что у нового интерфейса (`--panel`, `--accent`,
+ * `--tap`, `--safe-*`): шаг отступов 4, радиусы 10 и 14, кегли 11 · 13 · 15 · 18 (docs/ui_audit.md, раздел 3).
+ *
+ * Слой 80 — как у предыстории: пока идёт промысел, из игры не видно ничего, и решать игроку тоже нечего.
+ * `touch-action: none` на холсте обязателен — иначе браузер заберёт вертикальную тягу под прокрутку.
+ */
+.mg {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  overflow: hidden;
+  background: var(--bg);
+  user-select: none;
+  -webkit-user-select: none;
+  color: var(--text);
+}
+.mg-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  touch-action: none;
+}
+
+/* Стик ходьбы — плавающий: появляется там, где лёг палец. Двигает его сцена, минуя React. */
+.mg-stick {
+  position: absolute;
+  left: -48px;
+  top: -48px;
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 240, 220, 0.35);
+  background: rgba(20, 16, 12, 0.18);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s;
+}
+.mg-stick i {
+  position: absolute;
+  left: 30px;
+  top: 30px;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: rgba(255, 240, 220, 0.55);
+}
+
+.mg-top {
+  position: absolute;
+  top: calc(var(--safe-top) + 8px);
+  left: calc(12px + var(--safe-left));
+  right: calc(12px + var(--safe-right));
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+}
+.mg-grow {
+  flex: 1;
+}
+.mg-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: rgba(24, 19, 14, 0.72);
+  border: 1px solid var(--line);
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.mg-chip svg,
+.mg-chip > span:first-child {
+  width: 16px;
+  height: 16px;
+  font-size: 14px;
+  line-height: 16px;
+}
+.mg-clock {
+  font-size: 15px;
+  min-width: 64px;
+  justify-content: center;
+}
+.mg-clock.late {
+  color: var(--warn);
+  border-color: var(--warn);
+}
+.mg-leave {
+  pointer-events: auto;
+  min-width: var(--tap);
+  height: var(--tap);
+  padding: 0 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line-2);
+  background: rgba(24, 19, 14, 0.72);
+  color: var(--text);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.mg-leave.armed {
+  border-color: var(--bad);
+  color: var(--bad);
+}
+
+/* Отклик тапа — над прицелом, ненадолго. */
+.mg-note {
+  position: absolute;
+  left: 50%;
+  top: 38%;
+  transform: translateX(-50%);
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: rgba(24, 19, 14, 0.72);
+  font-size: 15px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+/*
+ * Прицел лука. Середина — куда уходит стрела; кольцо сжимается с натяжкой (`--draw`, ставит сцена). Метки ниже —
+ * поправка дуги на дальность: сцена сдвигает каждую на её угол через нынешний угол обзора (`Stage.aimSync`).
+ */
+.mg-aim {
+  --draw: 0;
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+.mg-aim.off {
+  display: none;
+}
+.mg-dot {
+  position: absolute;
+  left: -2px;
+  top: -2px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #fff6e0;
+  box-shadow: 0 0 2px rgba(0, 0, 0, 0.8);
+}
+.mg-ring {
+  position: absolute;
+  left: -22px;
+  top: -22px;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 240, 210, 0.55);
+  transform: scale(calc(1 - 0.6 * var(--draw)));
+  opacity: calc(0.35 + 0.65 * var(--draw));
+}
+.mg-pin {
+  position: absolute;
+  left: -12px;
+  top: -1px;
+  width: 24px;
+  height: 2px;
+  background: rgba(224, 160, 64, 0.85);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 0;
+  color: rgba(255, 236, 200, 0.85);
+  text-indent: 30px;
+  white-space: nowrap;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+}
+/* Подписи через одну — по разные стороны: метки стоят тесно, и цифры не налезают друг на друга. */
+.mg-pin:nth-of-type(even) {
+  text-indent: -44px;
+}
+
+.mg-bottom {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(var(--safe-bottom) + 24px);
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+.mg-verb {
+  height: 36px;
+  border-color: var(--accent);
+}
+.mg-hint {
+  font-size: 13px;
+  color: var(--muted);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+}
+
+.mg-meter {
+  position: absolute;
+  left: calc(12px + var(--safe-left));
+  top: calc(var(--safe-top) + 48px);
+  font-size: 11px;
+  color: var(--muted);
+  pointer-events: none;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Карточки начала и итога — снизу, над пальцем, сцена над ними видна. */
+.mg-card {
+  position: absolute;
+  left: calc(12px + var(--safe-left));
+  right: calc(12px + var(--safe-right));
+  bottom: calc(var(--safe-bottom) + 16px);
+  max-width: 420px;
+  margin: 0 auto;
+  padding: 12px;
+  border-radius: 14px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.mg-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.mg-head b {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  font-size: 18px;
+  font-weight: 600;
+}
+.mg-ico {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  font-size: 24px;
+}
+.mg-ico svg {
+  width: 28px;
+  height: 28px;
+}
+.mg-card p {
+  margin: 0;
+  font-size: 13px;
+}
+.mg-facts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.mg-res {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.mg-res svg,
+.mg-res > span:first-child {
+  width: 16px;
+  height: 16px;
+  font-size: 14px;
+  line-height: 16px;
+}
+.mg-muted {
+  color: var(--muted);
+}
+small.mg-muted,
+.mg-why {
+  font-size: 11px;
+}
+.mg-why {
+  color: var(--warn);
+}
+.mg-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.mg-go,
+.mg-back {
+  height: var(--tap);
+  min-width: 112px;
+  padding: 0 16px;
+  border-radius: 10px;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.mg-go {
+  border: 0;
+  background: linear-gradient(#f3bd5c, var(--accent));
+  color: var(--accent-text);
+  box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.18);
+}
+.mg-go:disabled {
+  opacity: 0.45;
+}
+.mg-back {
+  border: 1px solid var(--line-2);
+  background: none;
+  color: var(--text);
+  font-weight: 600;
+}
+.mg-go:active:not(:disabled),
+.mg-back:active {
+  transform: scale(0.97);
+}

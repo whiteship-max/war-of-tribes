@@ -502,6 +502,8 @@ export class Post {
   private blank: THREE.WebGLRenderTarget;
   private blankReady = false;
   private frameNo = 0;
+  /** С какой дали размывает глубина резкости, метры: у поляны — `DOF_FOCUS`, у поля промысла — своя (`setFocus`). */
+  private focus = DOF_FOCUS;
 
   constructor(
     private renderer: THREE.WebGLRenderer,
@@ -529,6 +531,14 @@ export class Post {
 
   getTier(): Tier {
     return this.tier;
+  }
+
+  /**
+   * С какой дали размывать. Поляна видна на двадцать метров, и дальше — лес; поле «Охоты» — на сорок, и олень на нём —
+   * цель, а не фон (docs/minigames.md, 13): размытым его не взять.
+   */
+  setFocus(meters: number): void {
+    this.focus = meters;
   }
 
   /** Размер рисующего буфера канвы, в точках экрана. */
@@ -630,6 +640,7 @@ export class Post {
       this.dofMat.uniforms.uNear.value = camera.near;
       this.dofMat.uniforms.uFar.value = camera.far;
       this.dofMat.uniforms.uMax.value = (DOF_MAX_AT_800 * this.height) / 800;
+      this.dofMat.uniforms.uFocus.value = this.focus;
       this.pass(this.dofMat, this.dofRT);
     }
 

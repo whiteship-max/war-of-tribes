@@ -42,6 +42,8 @@ import { gainText, spareSlotsHelp, upgradeGains, type UpgradeGain } from '@/ui/p
 import { tipAt } from './tip';
 import { workerTip } from './buildingTips';
 import { Confirm } from './Confirm';
+import { TradeLine } from './Trades';
+import { MINIGAMES } from '@/game/data/minigames';
 
 /** Кнопка «Точно?» живёт своим модулем (`Confirm.tsx`): ею пользуются и держава, и найм. */
 export { CONFIRM_MS, Confirm } from './Confirm';
@@ -134,6 +136,10 @@ export function BuildingNew({ id, data }: { id: number; data: (b: Building) => R
       {isOutsideWall(b.type) && <div className="nx-bwarn">Двор за стеной: прорвавшийся набег разгонит людей.</div>}
 
       <WorkerRow b={b} gains={gains} />
+      {/* Промысел этого двора — игра у своего двора (docs/minigames.md, 3). */}
+      {MINIGAMES.filter((g) => g.yard === b.type).map((g) => (
+        <TradeLine key={g.id} id={g.id} />
+      ))}
       {data(b)}
     </div>
   );

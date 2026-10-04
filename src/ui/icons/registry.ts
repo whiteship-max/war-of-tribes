@@ -14,6 +14,7 @@
 import { BATTLE_ART } from '@/battle/report';
 import { ACHIEVEMENTS } from '@/game/data/quests';
 import { DAILY_GAMES } from '@/game/data/daily';
+import { MINIGAMES } from '@/game/data/minigames';
 import { DECREES, RATIONS, TAXES } from '@/game/data/policy';
 import { EVENTS } from '@/game/data/events';
 import { SOCIAL_LINKS } from '@/game/data/social';
@@ -90,6 +91,7 @@ export const ICON_GROUPS: readonly IconGroup[] = [
   { prefix: 'evt', ids: EVENTS.map((e) => e.id), source: 'EVENTS' },
   { prefix: 'temper', ids: TEMPERS.map((t) => t.id), source: 'TEMPERS' },
   { prefix: 'daily', ids: DAILY_GAMES.map((g) => g.id), source: 'DAILY_GAMES' },
+  { prefix: 'mini', ids: MINIGAMES.map((g) => g.id), source: 'MINIGAMES' },
   // Ловушек в лабиринте нет: `daily/maze.ts` их не расставляет. Значка поэтому
   // тоже нет — рисунок без места мёртвый вес (разбор в OBJECTS.md).
   { prefix: 'maze', ids: ['key', 'door', 'chest'], source: 'клетки лабиринта' },
@@ -123,6 +125,8 @@ export const ICON_GROUPS: readonly IconGroup[] = [
       'edit',
       // Другое имя города на выбор — кубик (шаг имени стартового экрана, docs/ui_audit.md, 13).
       'dice',
+      // Энергия промыслов — ладонь: силы рук на сутки (docs/minigames.md, 3). Молния занята «мгновенным итогом» боя.
+      'energy',
     ],
     source: 'общий инвентарь интерфейса',
   },
