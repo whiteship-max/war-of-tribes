@@ -177,7 +177,7 @@ describe('казармы', () => {
     const s = warband(6);
     s.equipment.spear = 20;
     const free = idleCount(s);
-    expect(recruitCheck(s, 'spearman', free + 1).blocked).toMatch(/Свободных жителей только/);
+    expect(recruitCheck(s, 'spearman', free + 1).blocked).toMatch(/Свободных рук только/);
     expect(recruitCheck(s, 'spearman', free).freeAfter).toBe(0);
   });
 

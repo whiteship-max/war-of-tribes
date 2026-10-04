@@ -80,7 +80,7 @@ export class NotifyingWorld extends LocalWorld {
       };
       siege = {
         campId: w.campId,
-        from: this.byId.get(w.byId)?.name ?? 'Чужаки',
+        from: this.byId.get(w.byId)?.name ?? 'Враги',
         fate: this.fateFor(w.fate, HOME_ID, starvesAt(w)),
         since,
         starvesAt: starvesAt(w),

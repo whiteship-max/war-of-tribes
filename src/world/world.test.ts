@@ -2192,7 +2192,7 @@ describe('лазутчик в мире', () => {
     expect(opts.find((o) => o.id === 'probe')?.can).toBe(true);
     const revolt = opts.find((o) => o.id === 'revolt');
     expect(revolt?.can).toBe(false);
-    expect(revolt?.reason).toMatch(/бродяг|недовольных/);
+    expect(revolt?.reason).toMatch(/бунтовать не против кого/);
   });
 
   waitsForPlayers('провал не губит лазутчика: его задерживают и запоминают', async () => {
@@ -2573,7 +2573,7 @@ describe('перехват в поле', () => {
     const raid = await waitRaid(w, p);
     const plan = await w.world.interceptPlan(raid.id);
     expect(plan.can).toBe(false);
-    expect(plan.reason).toMatch(/[Вв]ойска/);
+    expect(plan.reason).toMatch(/нет отряда/);
   });
 
   it('свой отряд перехватывать нечего, а исчезнувший — нельзя', async () => {

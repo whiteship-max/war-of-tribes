@@ -111,7 +111,7 @@ import {
   SEASON_SECONDS,
   type SeasonModifiers,
 } from './data/seasons';
-import { daysSpan, gameDaysText } from './span';
+import { daysSpan } from './span';
 import { MAX_AGENT_LEVEL } from './data/agents';
 
 /** На здании идёт улучшение. */
@@ -280,8 +280,8 @@ export function upgradeInfo(s: GameState, b: Building): UpgradeInfo {
   const affordable = canAfford(s, cost);
   let blocked: string | null = null;
   if (isSite(b)) blocked = 'Улучшение уже идёт.';
-  else if (level > maxLevel) blocked = b.level <= 1 ? 'Это здание не улучшается.' : 'Максимальный уровень.';
-  else if (!affordable) blocked = 'Не хватает ресурсов.';
+  else if (level > maxLevel) blocked = b.level <= 1 ? 'Это здание не улучшается.' : 'Высший уровень.';
+  else if (!affordable) blocked = 'Не хватает запасов.';
   return { level, cost, work, maxLevel, affordable, blocked };
 }
 
@@ -308,7 +308,7 @@ export const ATTENTION_META: Record<Attention, { icon: string; text: string }> =
   idle: { icon: '💤', text: 'Стоит без рабочих' },
   order: { icon: '⚒️', text: 'Кузнецы без заказа' },
   slot: { icon: '👤', text: 'Есть свободное место' },
-  upgrade: { icon: '⬆️', text: 'Можно улучшить' },
+  upgrade: { icon: '⬆️', text: 'Пора улучшить' },
 };
 
 // ---------- Вместимости ----------
@@ -692,8 +692,8 @@ export function feastInfo(s: GameState): FeastInfo {
   let blocked: string | null = null;
   if (!tavern) blocked = 'Трактира нет.';
   else if (left > 0) blocked = 'Пир и так идёт.';
-  else if (cooldown > 0) blocked = `Бочки пусты: ещё ${daysSpan(Math.ceil(cooldown / DAY_LENGTH))}`;
-  else if (s.gold < cost) blocked = `Не хватает золота: нужно ${cost}.`;
+  else if (cooldown > 0) blocked = `Бочки пусты ещё ${daysSpan(Math.ceil(cooldown / DAY_LENGTH))}`;
+  else if (s.gold < cost) blocked = 'Не хватает золота.';
   return { bonus, cost, left, cooldown, wait, blocked };
 }
 
@@ -961,7 +961,7 @@ export function forgeInfo(s: GameState, mods: SeasonModifiers = seasonMods(s)): 
   const work = order?.work ?? 0;
   const need = def?.work ?? 0;
   let blocked: string | null = null;
-  if (!def) blocked = 'Заказов нет — кузница стоит.';
+  if (!def) blocked = 'Заказов нет, кузница стоит.';
   else if (rate <= 0) blocked = 'В кузнице никто не работает.';
   const left = def && order ? def.work * (order.count - order.done) - work : 0;
   return {
@@ -1394,29 +1394,29 @@ export function moraleBreakdown(s: GameState): MoraleBreakdown {
       '🏚️',
       'Теснота',
       -Math.min(CROWDING_MAX, (CROWDING_PENALTY * over) / Math.max(1, housing)),
-      `${over} чел. сверх крыш — потолок штрафа −${CROWDING_MAX}`,
+      `${over} сверх крыш, штраф не больше −${CROWDING_MAX}`,
     );
   }
 
   const eat = foodConsumptionPerDay(s);
   const foodDays = s.resources.food / Math.max(1, eat);
-  if (s.resources.food <= 0) add('starving', '💀', 'Закрома пусты', -25, 'еды нет вовсе');
-  else if (foodDays >= 3) add('fed', '🍖', 'Сытость', 10, `запас на ${gameDaysText(foodDays.toFixed(1))}`);
-  else if (foodDays < 1) add('hungry', '🍖', 'Голодно', -8, `запас меньше дня: ${foodDays.toFixed(1)}`);
+  if (s.resources.food <= 0) add('starving', '💀', 'Закрома пусты', -25, 'еды нет');
+  else if (foodDays >= 3) add('fed', '🍖', 'Сытость', 10, `запас на ${daysSpan(foodDays)}`);
+  else if (foodDays < 1) add('hungry', '🍖', 'Голодно', -8, `запас на ${daysSpan(foodDays)}`);
 
   for (const b of s.buildings) {
     const v = buildingStat(b, 'morale');
     const def = BUILDING_BY_ID[b.type];
-    add(`b-${b.id}`, def.icon, def.name, v, `уровень ${b.level}`);
+    add(`b-${b.id}`, def.icon, def.name, v, `ур. ${b.level}`);
   }
 
   const priests = jobCounts(s).priest;
   add(
     'priests',
     '🕯️',
-    'Жрецы в церкви',
+    'Служители',
     priestMorale(s),
-    `${priests} чел. по +${PRIEST_MORALE}, потолок +${PRIEST_MORALE_CAP}`,
+    `${priests} по +${PRIEST_MORALE}, не больше +${PRIEST_MORALE_CAP}`,
     true,
   );
 
@@ -1430,7 +1430,7 @@ export function moraleBreakdown(s: GameState): MoraleBreakdown {
 
   const season = seasonOf(s.time);
   add('season', SEASON_META[season].icon, SEASON_META[season].name, seasonMods(s).morale, 'сезонный сдвиг');
-  if (s.freezing > 0) add('freezing', '🥶', 'Племя мёрзнет', -FREEZING_MORALE_PENALTY, 'дрова кончились');
+  if (s.freezing > 0) add('freezing', '🥶', 'Город мёрзнет', -FREEZING_MORALE_PENALTY, 'дрова кончились');
 
   // Вера. Два слагаемых, и они разной природы: наклон — то, что вера просит и
   // даёт всегда (десятина давит, община держит), а ересь — то, что случается,
@@ -1438,8 +1438,8 @@ export function moraleBreakdown(s: GameState): MoraleBreakdown {
   // число у `faithTilt` и `heresyMorale`, второй формулы тут быть не должно.
   const fd = faithDef(s);
   if (fd) {
-    add('faith', fd.icon, fd.name, faithTilt(s).morale, `${fd.temple} ${templeLevel(s)} ур., ${OBSERVANCE_BY_ID[observanceOf(s)].name.toLowerCase()}`);
-    add('heresy', '🔥', 'Вера трещит', heresyMorale(s), `набожность ${Math.round(piety(s))} из ${PIETY_HERESY}`);
+    add('faith', fd.icon, fd.name, faithTilt(s).morale, `${fd.temple} ур. ${templeLevel(s)}, ${OBSERVANCE_BY_ID[observanceOf(s)].name.toLowerCase()}`);
+    add('heresy', '🔥', 'Вера трещит', heresyMorale(s), `набожность ${Math.round(piety(s))}, раскол ниже ${PIETY_HERESY}`);
   }
 
   const raw = lines.reduce((n, l) => n + l.value, MORALE_BASE);
@@ -1583,14 +1583,14 @@ export function pietyBreakdown(s: GameState): PietyBreakdown {
   const level = templeLevel(s);
   const obs = OBSERVANCE_BY_ID[observanceOf(s)];
 
-  add('temple', def.icon, def.temple, level * PIETY_PER_LEVEL, `уровень ${level} по +${PIETY_PER_LEVEL}`);
+  add('temple', def.icon, def.temple, level * PIETY_PER_LEVEL, `ур. ${level}, по +${PIETY_PER_LEVEL}`);
   const priests = jobCounts(s).priest;
   add(
     'priests',
     '🕯️',
     'Служители прихода',
     priestPiety(s),
-    `${priests} чел. по +${PIETY_PER_PRIEST}, потолок +${PIETY_PRIEST_CAP}`,
+    `${priests} по +${PIETY_PER_PRIEST}, не больше +${PIETY_PRIEST_CAP}`,
     true,
   );
   add('observance', obs.icon, obs.name, obs.piety, obs.effect, true);
@@ -1615,7 +1615,7 @@ export function pietyBreakdown(s: GameState): PietyBreakdown {
 
   const foodDays = s.resources.food / Math.max(1, foodConsumptionPerDay(s));
   if (foodDays < 1) add('hunger', '🍖', 'Голодно в приходе', -PIETY_HUNGER, 'за что нам это');
-  if (s.siege) add('siege', '⚔️', 'Под стенами чужие', -PIETY_SIEGE, `осадил ${s.siege.byName}`);
+  if (s.siege) add('siege', '⚔️', 'Под стенами враги', -PIETY_SIEGE, `осада, ${s.siege.byName}`);
   add('strain', '💔', 'Надлом', -strainNow(s), 'навязанные решения ещё помнят');
 
   const raw = lines.reduce((n, l) => n + l.value, PIETY_BASE);
@@ -1870,13 +1870,13 @@ export function alerts(s: GameState): Alert[] {
   // Нечем кормить только войско — это тревога о войске, ниже; о голоде племени
   // говорится, только когда нехватка дошла до посёлка.
   if (s.resources.food <= 0.5 && (short.town || short.army === 0)) {
-    out.push({ id: 'starving', icon: '💀', text: 'Еда кончилась — племя голодает', goto: 'storage' });
+    out.push({ id: 'starving', icon: '💀', text: 'Еда кончилась, город голодает', goto: 'storage' });
   }
-  else if (foodDays < 1) out.push({ id: 'food', icon: '🍖', text: `Еда на исходе: меньше дня запаса`, goto: 'storage' });
+  else if (foodDays < 1) out.push({ id: 'food', icon: '🍖', text: 'Еды меньше чем на день', goto: 'storage' });
 
   const heat = heatingWoodPerDay(s);
   if (heat > 0) {
-    if (s.freezing > 0) out.push({ id: 'freezing', icon: '🥶', text: 'Дрова кончились — племя мёрзнет', goto: 'storage' });
+    if (s.freezing > 0) out.push({ id: 'freezing', icon: '🥶', text: 'Дрова кончились, город мёрзнет', goto: 'storage' });
     else if (s.resources.wood / heat < 1) out.push({ id: 'wood', icon: '🌲', text: 'Дров хватит меньше чем на день', goto: 'storage' });
   }
   // Войско. Одна строка на обе причины — неуплату и голод, — потому что и дверь у
@@ -1938,7 +1938,7 @@ export function alerts(s: GameState): Alert[] {
   // Ересь. Второй механики под неё нет: в деревне это строка тревоги, просадка
   // морали и событие с выбором — то, чем деревня живёт всегда.
   if (heresy(s)) {
-    out.push({ id: 'heresy', icon: '🔥', text: 'В приходе раскол — вера трещит', goto: 'church' });
+    out.push({ id: 'heresy', icon: '🔥', text: 'В приходе раскол', goto: 'church' });
   }
   return out;
 }

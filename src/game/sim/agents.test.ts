@@ -19,6 +19,7 @@ import {
   MAX_AGENT_LEVEL,
   SIGHT_PER_CIRCLE,
   STEALTH_PER_CIRCLE,
+  THIRD_SLOT_LEVEL,
   XP_CAP,
   circlesOf,
 } from '../data/agents';
@@ -147,7 +148,7 @@ describe('опыт не убывает сам и не растёт быстре�
     expect(s.agents.scout.xp).toBe(10);
     expect(LEVEL_XP[1], 'точка внутри области: пять удач переходят порог второго уровня и не доходят до третьего').toBeLessThanOrEqual(10);
     expect(LEVEL_XP[2]).toBeGreaterThan(10);
-    expect(s.log.filter((e) => e.text.startsWith('Разведчик дошёл до второго уровня'))).toHaveLength(1);
+    expect(s.log.filter((e) => e.text.startsWith('Разведчик дошёл до ур. 2'))).toHaveLength(1);
   });
 });
 
@@ -280,8 +281,8 @@ describe('ячейки: переодеться можно только дома'
 
   it('надеть можно только то, что есть в таблице и во владении; третье место — с четвёртого уровня', () => {
     const s = played(createInitialState());
-    expect(regear(s, 'spy', 0, 'кинжал' as ItemId, home, ['кинжал' as ItemId])).toBe('Такого предмета нет.');
-    expect(regear(s, 'spy', 2, null, home, [])).toMatch(/четвёртого уровня/);
+    expect(regear(s, 'spy', 0, 'кинжал' as ItemId, home, ['кинжал' as ItemId])).toBe('Такой вещи нет.');
+    expect(regear(s, 'spy', 2, null, home, [])).toMatch(new RegExp(`на ур\\. ${THIRD_SLOT_LEVEL}`));
     s.agents.spy.xp = LEVEL_XP[3];
     expect(regear(s, 'spy', 2, null, home, [])).toBeNull();
   });

@@ -441,13 +441,13 @@ export function fateBlock(
 ): string | null {
   const rule = FATES[f];
   if (!rule.vsWorld && target === 'world') {
-    return 'Сжечь можно только город игрока: у логова и двора нет ни построек, ни партии, которую можно отбросить.';
+    return 'Сжечь можно только город игрока.';
   }
   const locked = locks?.[f];
   if (locked) return locked;
   if (rule.chain && burnImmune(burnUntil, now)) {
     const hours = Math.max(1, Math.ceil(((burnUntil ?? 0) - now) / 3_600_000));
-    return `Город сожгли меньше суток назад: сжечь снова можно через ${hours} ч. Ограбить и увести людей — можно.`;
+    return `Город недавно сожгли, снова через ${hours} ч. Ограбить и увести людей можно сейчас.`;
   }
   return null;
 }
