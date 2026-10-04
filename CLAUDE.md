@@ -395,6 +395,11 @@ HEAD один на всех, см. правило 8). Значит развес�
   `roster.ts`;
 - `netlify/lib/initdata.ts`, `netlify/lib/http.ts`, `netlify/lib/roster.ts`,
   `netlify/functions/*.mts`, `netlify/frozen/*.mts` (замороженная доставка — вернётся тем же кодом);
+- `netlify/lib/routes/` целиком, `netlify/lib/kv.ts`, `netlify/lib/blobs.ts` — обработчики адресов и
+  дверь хранилища, одни на Netlify и на своём сервере; `netlify/vps/sqlite.ts`, `backup.ts`,
+  `import.ts` — дом SQLite, копии и перенос с Netlify. Расхождение здесь — запись поверх чужой
+  партии без 409, восстановление поверх живой базы или перенос, сменивший ETag'и, после которого
+  каждый игрок «чужой» своей партии (docs/server-move.md);
 - `netlify/lib/notify.ts`, `netlify/lib/deliver.ts` — правила исходящих и проход доставки:
   расхождение здесь — сообщение, ушедшее дважды, чужому времени или не ушедшее вовсе;
 - `src/world/notice.ts`, `src/world/local/NotifyingWorld.ts` — черновики уведомлений и разрывы:
@@ -499,6 +504,9 @@ HEAD один на всех, см. правило 8). Значит развес�
   в `migrate`, строка летописи — `save.tell` (раздел «Правила» ниже; start).
 - **Сервер хранит, а не судит;** личность — только из подписи `initData`; встреча двух копий —
   `net/sync.decide`; имя города — `contract.cityName` (sync).
+- **Адрес API** — обработчик один на Netlify и на своём сервере, `netlify/lib/routes/`; хранилище — дверь
+  `netlify/lib/kv.ts` с условной записью по ETag, два дома — Blobs и SQLite (`vps/routes.test.ts`,
+  `vps/functions.test.ts`; docs/server-move.md).
 - **Случайность** — кость партии `sim/roll`, корень сида `sim/random.freshSeed`; `Math.random` в игровой
   логике нет нигде (`sim/random.test.ts`).
 - **Алмазы** — начисление одно, `creditGems` с распиской сервера; замок по всему `src` (`gems.test.ts`;
@@ -559,6 +567,9 @@ Deploys → **Trigger deploy**, дождаться сборки, потом об
   docs/handbook/deploy.md.
 - Проверять правки перед выкладкой надо именно на `npm run preview`, а не на dev-сервере:
   у dev-сервера есть `/__snap` и `/__perf`, которых на хостинге нет.
+- **Свой сервер** (переезд с Netlify, этап 1 — код и документы на ветке `server/vps`, сервер не поднят):
+  те же адреса и обработчики (`netlify/lib/routes/`), SQLite, Docker и Caddy — пошагово для владельца
+  [docs/SERVER.md](docs/SERVER.md), разбор и решения — docs/server-move.md.
 - Что проверяется руками на настоящем телефоне после выкладки и **в каком порядке** —
   [docs/PHONE_CHECK.md](docs/PHONE_CHECK.md). Порядок там не украшение: первое сломавшееся
   обесценивает проверку следующего.
