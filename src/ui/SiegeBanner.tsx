@@ -58,10 +58,10 @@ export function SiegeBanner() {
         того, как он закроет игру, а не после. Подробно — в окне осады.
       */}
       <div className="siege-fall">
-        {meta.icon} Объявлено: {meta.name.toLowerCase()}. Случится и без тебя.
+        Объявлено: {meta.name.toLowerCase()}. Случится и без тебя.
       </div>
       <button className="siege-open" onClick={openSiege}>
-        ⛺ Окно осады
+        Что делать
       </button>
     </div>
   );

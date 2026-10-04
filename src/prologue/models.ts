@@ -1011,9 +1011,10 @@ function deerTorso(): THREE.Mesh {
  * Шея, голова и рога — одним мешем с осью поворота в холке.
  *
  * Отдельно от корпуса потому, что голова — это и есть весь язык зверя: пасётся
- * (опущена), заметил (вскинута). Сказать то же самое корпусом нечем.
+ * (опущена), заметил (вскинута). Сказать то же самое корпусом нечем. Без рогов —
+ * оленуха стада «Охоты» (`minigames/huntPlay.ts`); у поляны олень всегда с рогами.
  */
-function deerHead(): THREE.Mesh {
+function deerHead(antlers: boolean): THREE.Mesh {
   const c = coat(DEER_COAT);
   const horn = coat(DEER_HORN);
   const parts: K.Part[] = [
@@ -1029,6 +1030,7 @@ function deerHead(): THREE.Mesh {
     // Уши торчат в стороны — их видно с любого ракурса, и вскинутая голова
     // читается даже когда зверь стоит боком.
     parts.push(K.box(0.05, 0.14, 0.09, c, sx * 0.12, 0.55, 0.3, { z: sx * 0.5 }));
+    if (!antlers) continue;
     // Рог: ствол и два отростка. Больше отростков на восьми метрах не видно.
     parts.push(K.cyl(0.018, 0.026, 0.36, horn, 4, sx * 0.08, 0.72, 0.28, { z: sx * 0.32, x: -0.2 }));
     parts.push(K.cyl(0.014, 0.018, 0.22, horn, 4, sx * 0.17, 0.86, 0.34, { z: sx * 0.7 }));
@@ -1054,7 +1056,8 @@ function deerLegs(back: boolean): THREE.Mesh {
 }
 
 /**
- * Олень: корпус, голова и две пары ног.
+ * Олень: корпус, голова и две пары ног. `antlers = false` — оленуха: тот же зверь без рогов (стадо «Охоты»);
+ * поляна зовёт без довода, и её олень прежний.
  *
  * Четыре меша, а не один склеенный, и это единственное место на поляне, где
  * склейка отменена нарочно: зверь — единственное, что здесь движется само, и
@@ -1065,27 +1068,27 @@ function deerLegs(back: boolean): THREE.Mesh {
  * Ставит его на место сцена: положение зверя живёт во времени кадров и в
  * сохранение не попадает (`hunt.ts`, шапка).
  */
-export function deer(): THREE.Group {
+export function deer(antlers = true): THREE.Group {
   const g = new THREE.Group();
   g.name = 'deer';
   const legsF = deerLegs(false);
   const legsB = deerLegs(true);
   legsF.position.y = DEER_H - 0.34;
   legsB.position.y = DEER_H - 0.34;
-  const head = deerHead();
+  const head = deerHead(antlers);
   head.position.set(0, DEER_H - 0.2, 0.42);
   g.add(deerTorso(), head, legsF, legsB);
   return g;
 }
 
 /**
- * Туша: тот же зверь, лежащий на боку.
+ * Туша: тот же зверь, лежащий на боку. `antlers = false` — туша оленухи, без рогов.
  *
  * Одним мешем — лежащему двигать нечем. Ноги вытянуты и подняты: лежащий на
  * боку олень с ногами «как стоял» читается спящим, а спящего игрок пойдёт
  * будить.
  */
-export function carcass(): THREE.Mesh {
+export function carcass(antlers = true): THREE.Mesh {
   const c = coat(DEER_COAT);
   const parts: K.Part[] = [
     K.box(0.54, 0.5, 0.76, c, 0, 0.26, 0.14, { z: Math.PI / 2 }),
@@ -1094,9 +1097,13 @@ export function carcass(): THREE.Mesh {
     // Шея и голова лежат в траве, рога торчат вверх — по ним тушу и видно.
     K.cyl(0.13, 0.17, 0.5, c, 6, 0, 0.16, 0.6, { x: 1.35 }),
     K.box(0.19, 0.2, 0.32, c, 0, 0.11, 0.88, { x: 1.5, z: 0.4 }),
-    K.cyl(0.02, 0.028, 0.4, coat(DEER_HORN), 4, 0.06, 0.3, 0.94, { x: -0.5, z: 0.5 }),
-    K.cyl(0.016, 0.02, 0.26, coat(DEER_HORN), 4, 0.2, 0.44, 0.98, { z: 1.0 }),
   ];
+  if (antlers) {
+    parts.push(
+      K.cyl(0.02, 0.028, 0.4, coat(DEER_HORN), 4, 0.06, 0.3, 0.94, { x: -0.5, z: 0.5 }),
+      K.cyl(0.016, 0.02, 0.26, coat(DEER_HORN), 4, 0.2, 0.44, 0.98, { z: 1.0 }),
+    );
+  }
   for (const sx of [-1, 1]) {
     for (const z of [-0.4, 0.36]) {
       parts.push(K.cyl(0.07, 0.045, 0.6, c, 5, 0.3, 0.34 + sx * 0.12, z, { z: 1.1 + sx * 0.24 }));

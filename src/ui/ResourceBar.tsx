@@ -15,7 +15,8 @@ import { Icon } from '@/ui/icons/Icon';
 export function shortNum(n: number): string {
   const v = Math.floor(Math.max(0, n));
   if (v < 1000) return String(v);
-  if (v < 10000) return `${(v / 1000).toFixed(1).replace('.', ',')}к`;
+  // С 9 950 дробь округлилась бы до «10,0к» — самой широкой записи строки; там уже «10к».
+  if (v < 9950) return `${(v / 1000).toFixed(1).replace('.', ',')}к`;
   return `${Math.round(v / 1000)}к`;
 }
 

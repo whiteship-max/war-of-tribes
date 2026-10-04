@@ -6,7 +6,7 @@
 // доступен повторно: раз кадры выводятся из журнала, повтор ничего не стоит и
 // обязан совпасть с первым показом до кадра. Журнал по фазам остаётся под
 // кнопками: ролик показывает, текст объясняет.
-import { useEffect, useMemo, useState, type CSSProperties, type ComponentType } from 'react';
+import { Suspense, lazy, useEffect, useMemo, useState, type CSSProperties, type ComponentType } from 'react';
 import { createPortal } from 'react-dom';
 import { useGame } from '@/game/store';
 import { useWorld } from '@/world/store';
@@ -25,6 +25,10 @@ import type { BattleRecord, Report } from '@/world/types';
 import { lootText, unitsText } from '@/ui/parts/reportWords';
 import { Icon } from '@/ui/icons/Icon';
 import { SIDE_VARS } from '@/side';
+import { useUiNew } from '@/ui/uimode';
+
+/** Итог нового вида — в куске нового вида (`ui/next/ReportNew`), как окно постройки: первая загрузка его не несёт. */
+const ReportBodyNew = lazy(() => import('@/ui/next').then((m) => ({ default: m.ReportBodyNew })));
 
 /** Силы несопоставимы — смотреть нечего: мгновенный итог по умолчанию. */
 export const LOPSIDED = 3;
@@ -148,6 +152,8 @@ export function ReportPanel({ id }: { id: string }) {
   const s = useGame((g) => g.s);
   const act = useGame((g) => g.act);
   const report = reports.find((r) => r.id === id) ?? null;
+  // Новый интерфейс — итог своим видом (`ReportBodyNew`); ролик, журнал и выбор «итог или бой» — общие.
+  const next = useUiNew();
 
   // Отчёт открывают и мимо списка походов — из тоста или после перезагрузки.
   // Тогда список ещё пуст, и без этого панель врала бы «отчёт не хранится».
@@ -178,10 +184,16 @@ export function ReportPanel({ id }: { id: string }) {
 
   return (
     <div className="panel">
-      <ReportBody report={report} />
+      {next ? (
+        <Suspense fallback={null}>
+          <ReportBodyNew report={report} />
+        </Suspense>
+      ) : (
+        <ReportBody report={report} />
+      )}
       {rec && (
         <>
-          <div className="wm-actions">
+          <div className={next ? 'nx-rbtns' : 'wm-actions'}>
             <button
               className={`btn${watch ? ' ghost' : ''}`}
               onClick={() => {

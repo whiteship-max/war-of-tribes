@@ -8,6 +8,7 @@ import { armyPower, housingCapacity, netPerDay, storageCap, upkeepInfo } from '@
 import { popGrowth } from '@/game/sim/population';
 import { TAP_TARGET } from '@/gestures';
 import { waitSpan } from '@/ui/parts/wait';
+import { shortNum } from '@/ui/ResourceBar';
 import { TIP_EDGE, TIP_GAP, TIP_MAX, TIP_W, placeTip, type Rect } from './tip';
 import { ALERT_FRESH_MS, isFresh } from './fresh';
 import {
@@ -186,6 +187,37 @@ function px(sel: string, prop: string): number | null {
   return vr ? (VARS[vr[1]] ?? null) : null;
 }
 
+/**
+ * Решение владельца 04.10.2026 (docs/ui_audit.md, 14.4, вопрос 3): числа верхней строки, растущие за тысячу, —
+ * сокращённым форматом, как у запасов («4,0к»): на 375 px четырёхзначные распирали бы строку. Мораль, порядок и
+ * энергия — до ста. Проверка по исходнику: каждое число ячейки строки идёт через `shortNum` или названо ограниченным.
+ */
+describe('верхняя строка: числа за тысячу — сокращённо', () => {
+  it('золото, жители, жильё и дружина — через `shortNum`; без него — только мораль, порядок и энергия', () => {
+    const src = readFileSync(join(__dirname, 'Hud.tsx'), 'utf8');
+    const top = src.slice(src.indexOf('className={`nx-top'), src.indexOf('className="nx-res"'));
+    const nums = [...top.matchAll(/<(?:b|small)>\/?\{([^}]+)\}<\/(?:b|small)>/g)].map((m) => m[1].trim());
+    // Точка внутри области: ячейки строки найдены, и среди них есть и сокращённые, и ограниченные.
+    expect(nums.length).toBeGreaterThanOrEqual(7);
+    const bare = nums.filter((n) => !/^shortNum\(/.test(n));
+    expect(bare.sort(), 'числа без сокращения').toEqual(['energy', 'morale', 'order']);
+    expect(nums.filter((n) => /^shortNum\(/.test(n)).sort()).toEqual(['shortNum(armySize(s))', 'shortNum(housing)', 'shortNum(pop)', 'shortNum(s.gold)']);
+  });
+
+  it('сокращение: до тысячи — целиком, дальше — одна дробь запятой, и «10,0к» не бывает', () => {
+    const cases: [number, string][] = [
+      [999, '999'],
+      [1000, '1,0к'],
+      [4321, '4,3к'],
+      [9949, '9,9к'],
+      [9950, '10к'],
+      [9999, '10к'],
+      [12_345, '12к'],
+    ];
+    for (const [n, want] of cases) expect(shortNum(n), String(n)).toBe(want);
+  });
+});
+
 describe('цели касания нового вида — не меньше порога проекта', () => {
   it('кнопки и ячейки-числа верха, тревоги, низ и ссылка подсказки — 44 и больше', () => {
     expect(TAP_TARGET).toBe(44);
@@ -207,6 +239,9 @@ describe('цели касания нового вида — не меньше п
       ['.nx-confirm', 'height'],
       ['.nx-bclose', 'height'],
       ['.nx-bclose', 'width'],
+      // Промыслы (docs/minigames.md, 3): строка игры и её кнопка — «В лес», «В загон».
+      ['.nx-trade', 'min-height'],
+      ['.nx-go', 'height'],
       // Кузница: строка вещи, «Изучить ›», шаг заказа, «Заказать».
       ['.nx-grow-row', 'min-height'],
       ['.nx-link', 'height'],
@@ -223,6 +258,38 @@ describe('цели касания нового вида — не меньше п
       ['.nx-rtabs button', 'height'],
       ['.nx-tcell', 'height'],
       ['.nx-go', 'height'],
+      // Имя города: поле и кубик шага стартового экрана, имя в шапке державы.
+      ['.nx-cname-in', 'height'],
+      ['.nx-cname-dice', 'height'],
+      ['.nx-cname-dice', 'width'],
+      ['.nx-rname', 'min-height'],
+      // Вкладки державы: навыки, казна, выбор из трёх, порядок, ячейки наклона, страницы заданий, достижения, «Все».
+      ['.nx-skill', 'min-height'],
+      ['.nx-lcell', 'height'],
+      ['.nx-opt', 'min-height'],
+      ['.nx-orow', 'height'],
+      ['.nx-tgcell', 'min-height'],
+      ['.nx-seg button', 'height'],
+      ['.nx-ach button', 'height'],
+      ['.nx-more', 'height'],
+      // Карточка клетки и «Походы»: ячейки-справки, действия, люди сеткой, строки, кнопки строк.
+      ['.nx-fact', 'min-height'],
+      ['.nx-cact', 'height'],
+      ['.nx-leadb', 'min-height'],
+      ['.nx-crow', 'min-height'],
+      ['.nx-act', 'height'],
+      ['.nx-mrow', 'min-height'],
+      ['.nx-mico', 'height'],
+      ['.nx-mico', 'width'],
+      ['.nx-mtap', 'min-height'],
+      ['.nx-ico44', 'height'],
+      ['.nx-ico44', 'width'],
+      // Весть: лупа, ответы, «Отложить»; донесение о бое: «итог или бой».
+      ['.nx-mspot', 'height'],
+      ['.nx-mspot', 'width'],
+      ['.nx-ans', 'min-height'],
+      ['.nx-mback', 'height'],
+      ['.nx-rbtns .btn', 'height'],
     ];
     for (const [sel, prop] of targets) {
       const v = px(sel, prop);

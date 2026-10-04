@@ -133,12 +133,15 @@ export class Sticks {
    * середину экрана большой палец не должен посреди шага превращаться во
    * взгляд.
    */
-  down(id: number, x: number, y: number, now: number, width: number): void {
+  down(id: number, x: number, y: number, now: number, width: number): Half | null {
     const half: Half = x < width / 2 ? 'walk' : 'look';
     // Второй палец в ту же половину не пускаем: два стика ходьбы разом — это не
     // жест, а случайность (ладонь легла краем), и слушать надо тот, что раньше.
-    for (const f of this.fingers.values()) if (f.half === half) return;
+    for (const f of this.fingers.values()) if (f.half === half) return null;
     this.fingers.set(id, { press: new Press(id, x, y, now), half, x, y });
+    // Половину отдаём тому, кто зовёт: лук промыслов тянет тетиву пальцем взгляда
+    // (`minigames/stage.ts`). Принятый палец — его половина, непринятый — `null`.
+    return half;
   }
 
   /** Палец поехал. Взгляд копится здесь же: поворот — это разница, а не место. */
@@ -172,9 +175,11 @@ export class Sticks {
     return { tap: f.press.isTap(now), press: f.press, half: f.half };
   }
 
-  /** Жест отобрал браузер: тапом он уже не станет. */
-  cancel(id: number): void {
+  /** Жест отобрал браузер: тапом он уже не станет. Вернёт половину снятого пальца, чужой — `null`. */
+  cancel(id: number): Half | null {
+    const f = this.fingers.get(id);
     this.fingers.delete(id);
+    return f ? f.half : null;
   }
 
   /** Все пальцы сняты (уход со страницы, потеря захвата). */

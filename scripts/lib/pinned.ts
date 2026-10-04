@@ -11,7 +11,7 @@
  * Здесь только то, что общее у `map:shots` и `map:report`: как положить мир и
  * как войти в карту теми же дверями, что игрок. Что мерить — дело самого стенда.
  */
-import { sleep, Tab } from './chrome';
+import { ENTER_GAME, sleep, Tab } from './chrome';
 import { cellOf } from '@/world/atlas/project';
 import { WORLD_ORIGIN } from '@/world/data/tuning';
 
@@ -78,9 +78,7 @@ export async function openPinnedMap(
     await tab.send('Page.reload');
     await sleep(4500);
     await tab.eval<string>(PIN_PROBE);
-    await tab.eval<string>(
-      '(() => { const b = document.querySelector(".start-go"); if (b) b.click(); return JSON.stringify(!!b); })()',
-    );
+    await tab.eval<string>(ENTER_GAME);
     await sleep(1200);
     await tab.eval<string>('(() => { window.__game.getState().skipTutorial(); return JSON.stringify("ok"); })()');
     await tab.eval<string>('(() => { window.__game.getState().openMap(); return JSON.stringify("ok"); })()');

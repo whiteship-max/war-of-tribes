@@ -20,7 +20,9 @@ import { FATE_DEFAULT } from '@/world/spoils';
 import { CAMP_LEAVE } from '@/world/siege';
 import { worksWords } from '@/world/works';
 import { distance, formatCoord, secondsLeft } from '@/world/geo';
-import { realLeft, waitLeft } from '@/ui/parts/wait';
+import { realLeft, realSpanText, waitLeft } from '@/ui/parts/wait';
+import { count } from '@/ui/parts/plural';
+import { signed } from '@/ui/parts/signed';
 import { perilShare, perilText, routPeril } from '@/world/peril';
 import { personName } from '@/game/sim/agents';
 import { hireWhere } from '@/game/sim/hire';
@@ -87,8 +89,8 @@ export function ActionMenu() {
     showToast(
       err ??
         (on
-          ? `${def.name} укрылся в городе: на карте его нет, выйдет по твоему слову.`
-          : `${def.name} вышел из города и встал у ворот.`),
+          ? `${def.name} укрылся в городе.`
+          : `${def.name} вышел из города.`),
     );
     if (!err) closeMenu();
   };
@@ -96,18 +98,18 @@ export function ActionMenu() {
   const lead = async (): Promise<void> => {
     // Минута плана, который игрок видел: риск у ворот заморозится ровно по нему.
     const err = await moveFigure(menu.agent, menu.cell, menu.lead?.at);
-    showToast(err ?? (leavingCamp ? `Осада снята: ${def.name} ушёл от стен.` : `${def.name} пошёл к ${formatCoord(menu.cell)}.`));
+    showToast(err ?? (leavingCamp ? `${def.name} ушёл от стен, осада снята.` : `${def.name} пошёл к ${formatCoord(menu.cell)}.`));
     if (!err) closeMenu();
   };
 
   /**
-   * Гибель полководца — условно: «если дружину перебьют». Безусловный риск выдал бы
+   * Гибель полководца — условно: «если отряд перебьют до последнего». Безусловный риск выдал бы
    * шанс поражения делением, а его не показывают нигде. Число — та же `routPeril` от
    * дали места боя, по которой мир решает исход.
    */
   const routLine = (spot: { x: number; y: number } | null): string | null =>
     menu.agent === 'general' && info && spot
-      ? `Если дружину перебьют до последнего, ${personName(s, 'general')} погибнет с шансом ${perilText(perilShare(routPeril(distance(info.home, spot))))}.`
+      ? `Если отряд перебьют до последнего, ${personName(s, 'general')} погибнет с шансом ${perilText(perilShare(routPeril(distance(info.home, spot))))}.`
       : null;
   const vacant = figure?.place === 'vacant';
 
@@ -153,15 +155,14 @@ export function ActionMenu() {
 
         {vacant && (
           <div className="am-warn">
-            Места {def.one} некому занять: {figure?.gone === 'retired' ? 'ушёл на покой' : 'погиб'}. Нанять {hireWhere(s, menu.agent)} —
-            приказы появятся, когда встанет новый.
+            {def.name} {figure?.gone === 'retired' ? 'ушёл на покой' : 'погиб'}. Найми нового {hireWhere(s, menu.agent)}.
           </div>
         )}
 
-        {/* Мораль дружины между боями (14.31): до приказа, а не после — уставшая бежит раньше. */}
+        {/* Мораль отряда между боями (14.31): до приказа, а не после — уставший бежит раньше. */}
         {menu.agent === 'general' && figure?.rest && (
           <div className="am-warn">
-            {restLine(figure.rest, 'Дружина дралась', worldNow())} {REST_WHY}
+            {restLine(figure.rest, 'Отряд дрался', worldNow())} {REST_WHY}
           </div>
         )}
 
@@ -173,7 +174,7 @@ export function ActionMenu() {
                 {standing.icon} {standing.name}
               </span>
               <span className="am-att">
-                {diplo.attitude > 0 ? `+${diplo.attitude}` : diplo.attitude} · {diplo.mood}
+                {signed(diplo.attitude, 0)} · {diplo.mood}
               </span>
             </div>
             <div className="am-temper">
@@ -181,29 +182,38 @@ export function ActionMenu() {
             </div>
             {diplo.standing === 'pact' && diplo.breakAt > 0 && (
               <div className="am-warn">
-                Разрыв объявлен: война через {realLeft(secondsLeft(diplo.breakAt, worldNow()))}.
+                Пакт разорван. Война через {realLeft(secondsLeft(diplo.breakAt, worldNow()))}.
               </div>
             )}
             {diplo.standing === 'pact' && diplo.breakAt === 0 && diplo.until > 0 && (
               <div className="am-note">Пакт держится ещё {realLeft(secondsLeft(diplo.until, worldNow()))}.</div>
             )}
-            <div className="am-note">
-              Владелец — {card.owner ?? 'никто'}, племя{' '}
-              <span style={{ color: RELATION_META[card.relation].color }}>{card.tribeName ?? 'нет'}</span>.
-            </div>
+            {/* Чего нет, того строка не называет: у логова ни правителя, ни племени — и строки нет. */}
+            {(card.owner || card.tribeName) && (
+              <div className="am-note">
+                {card.owner && `Правитель ${card.owner}`}
+                {card.owner && card.tribeName && ' · '}
+                {card.tribeName && (
+                  <>
+                    {card.owner ? 'племя' : 'Племя'}{' '}
+                    <span style={{ color: RELATION_META[card.relation].color }}>{card.tribeName}</span>
+                  </>
+                )}
+              </div>
+            )}
           </div>
         )}
 
-        {/* Чужой отряд в поле: точка и время встречи видны до подтверждения. */}
+        {/* Чужой отряд в поле: точка и время встречи видны до подтверждения. Имена мест не склоняются, между ними — стрелка. */}
         {menu.march && (
           <>
             <div className="am-rel">
               <div className="am-rel-top">
-                <span>⚔️ Отряд в поле</span>
-                <span className="am-att">{menu.plan?.men ?? '—'} чел.</span>
+                <span>Отряд врага</span>
+                <span className="am-att">{menu.plan ? count(menu.plan.men, 'боец', 'бойца', 'бойцов') : '—'}</span>
               </div>
               <div className="am-note">
-                Идут от {menu.march.fromName} к {menu.march.toName}; им идти{' '}
+                {menu.march.fromName} → {menu.march.toName}, дойдут через{' '}
                 {realLeft(secondsLeft(menu.march.arriveAt, worldNow()))}.
               </div>
               {menu.march.rest && <div className="am-note">{restLine(menu.march.rest, 'Отряд дрался', worldNow())}</div>}
@@ -222,30 +232,25 @@ export function ActionMenu() {
               >
                 <span className="ico">🏇</span>
                 <span className="body">
-                  <b>Перехватить в поле</b>
-                  <i>
-                    {menu.plan
-                      ? menu.plan.can
-                        ? `Встреча на ${formatCoord(menu.plan.at ?? { x: 0, y: 0 })} через ${realLeft(menu.plan.seconds)}.`
-                        : menu.plan.reason
-                      : 'Считаем встречу…'}
-                  </i>
+                  <b>Перехватить</b>
+                  {/* Где и когда встреча — значками строкой ниже; здесь — только почему нельзя или что план ещё считается. */}
+                  {!menu.plan?.can && <i>{menu.plan ? menu.plan.reason : 'Считаем встречу…'}</i>}
                   {menu.plan?.can && (
                     <em>
                       <span className="am-chance">
-                        📍 {formatCoord(menu.plan.at ?? { x: 0, y: 0 })}
+                        <Icon name="ui-pin" glyph="📍" /> {formatCoord(menu.plan.at ?? { x: 0, y: 0 })}
                       </span>
-                      <span className="am-time">⏳ {realLeft(menu.plan.seconds)}</span>
-                      <span className="am-risk">им идти {realLeft(menu.plan.targetSeconds)}</span>
+                      <span className="am-time">
+                        <Icon name="ui-time" glyph="⏳" /> {realLeft(menu.plan.seconds)}
+                      </span>
+                      <span className="am-risk">им до цели {realLeft(menu.plan.targetSeconds)}</span>
                     </em>
                   )}
                   {menu.plan?.can && menu.plan.at && <i className="am-risk">{routLine(menu.plan.at)}</i>}
                 </span>
               </button>
             ) : (
-              <div className="am-plain">
-                Отряд в поле встречает полководец: у остальных для этого нет ни войска, ни права.
-              </div>
+              <div className="am-plain">Перехватывает только полководец.</div>
             )}
           </>
         )}
@@ -253,9 +258,8 @@ export function ActionMenu() {
         {/* Бунт виден там же, где приказы: он и есть окно для удара. */}
         {card?.revolt && (
           <div className="am-revolt">
-            🔥 В поселении бунт: работы встали, гарнизон слабее на{' '}
-            {Math.round(card.revolt.power * 100)}%. Осталось{' '}
-            {realLeft(secondsLeft(card.revolt.until, worldNow()))}.
+            <Icon name="spy-revolt" glyph="🔥" /> Бунт ещё {realLeft(secondsLeft(card.revolt.until, worldNow()))}. Работы стоят,
+            гарнизон слабее на {Math.round(card.revolt.power * 100)}%.
           </div>
         )}
 
@@ -280,7 +284,9 @@ export function ActionMenu() {
                   <i>{o.can ? a.description : o.reason}</i>
                   <em>
                     {chance && <span className="am-chance">{chance}</span>}
-                    <span className="am-time">⏳ {realLeft(o.seconds)}</span>
+                    <span className="am-time">
+                      <Icon name="ui-time" glyph="⏳" /> {realLeft(o.seconds)}
+                    </span>
                     {!isPaid(o.cost) && <span className="am-free">даром</span>}
                     {menu.agent === 'spy' && o.peril !== null && (
                       // Два числа раздельно: удастся ли дело — выше, уцелеет ли лазутчик —
@@ -291,7 +297,7 @@ export function ActionMenu() {
                       // Цена лазутчика — не добро, а риск, и она обязана стоять
                       // рядом с шансом, а не прятаться в описании. Срок — тот, каким
                       // мир задержит: черта «Отлёживается» его удлиняет.
-                      <span className="am-risk">провал: задержат на {realLeft(o.held)}</span>
+                      <span className="am-risk">при провале задержат на {realSpanText(o.held)}</span>
                     )}
                   </em>
                   {o.perilWhy.length > 0 && <i className="am-risk">{o.perilWhy.join(' · ')}</i>}
@@ -321,10 +327,9 @@ export function ActionMenu() {
           >
             <span className="ico">⛺</span>
             <span className="body">
-              <b>Окно осады</b>
+              <b>Осада</b>
               <i>
-                «{card.siege.byName}» у ворот. Объявлено: {FATE_META[card.siege.fate].name.toLowerCase()}. Там же — удар
-                полководца с тыла и вылазка.
+                {card.siege.byName} у ворот, грозят {FATE_META[card.siege.fate].name.toLowerCase()}.
               </i>
             </span>
           </button>
@@ -354,11 +359,8 @@ export function ActionMenu() {
           >
             <span className="ico">⛺</span>
             <span className="body">
-              <b>Окно осады</b>
-              <i>
-                Здесь стоит наш лагерь, объявлено: {FATE_META[card.siege.fate].name.toLowerCase()}. Хлеб города,
-                стороны лагеря, древесина, штурм и отступление — там.
-              </i>
+              <b>Наш лагерь</b>
+              <i>Решено {FATE_META[card.siege.fate].name.toLowerCase()}.</i>
             </span>
           </button>
         )}
@@ -368,7 +370,7 @@ export function ActionMenu() {
           <>
             {/* Участь объявляется этим же приказом: и ударом, и осадой. Строки выбора —
                 не приказы, и сказано это над ними. */}
-            {card.fates.length > 0 && <div className="am-note">Участь города — её объявит удар или осада ниже:</div>}
+            {card.fates.length > 0 && <div className="am-note">Участь при взятии</div>}
             <FatePick options={card.fates} value={fate} onChange={setFate} />
             <button
               className={`am-row${card.can.raid ? '' : ' off'}`}
@@ -376,7 +378,7 @@ export function ActionMenu() {
               onClick={() => {
                 void (async () => {
                   const err = await attack({ fate });
-                  showToast(err ?? 'Дружина ударила. Отчёт в походах.');
+                  showToast(err ?? 'Отряд ударил. Донесение в походах.');
                   if (!err) closeMenu();
                 })();
               }}
@@ -386,7 +388,7 @@ export function ActionMenu() {
                 <b>Ударить</b>
                 <i>
                   {card.can.raid
-                    ? `Тем, что при нём: ${troopTotal(figure?.troops ?? {})} бойцов. Встанут от центра к краям, лишние — в резерв.`
+                    ? `При нём ${count(troopTotal(figure?.troops ?? {}), 'боец', 'бойца', 'бойцов')}.`
                     : card.note}
                 </i>
                 {card.can.raid && <i className="am-risk">{routLine(card)}</i>}
@@ -395,8 +397,9 @@ export function ActionMenu() {
             {/*
               Осада стоит рядом с ударом нарочно: это второй способ взять город,
               и выбирают между ними в один и тот же миг. Приступ — быстро и с
-              риском, осада — медленно, но без боя, и всё это время дружины нет
-              дома. Цена сказана прямо в строке, а не выясняется потом.
+              риском, осада — медленно, но без боя, и всё это время отряда нет
+              дома. Цену увода из лагеря — снятую осаду — говорит строка «Вести
+              сюда» до нажатия (`CAMP_LEAVE`).
             */}
             <button
               className={`am-row${card.can.besiege ? '' : ' off'}`}
@@ -404,7 +407,7 @@ export function ActionMenu() {
               onClick={() => {
                 void (async () => {
                   const err = await besiege(fate);
-                  showToast(err ?? `Дружина обложила ${card.name}. ${CAMP_LEAVE}`);
+                  showToast(err ?? 'Отряд встал лагерем у стен.');
                   if (!err) closeMenu();
                 })();
               }}
@@ -414,11 +417,11 @@ export function ActionMenu() {
                 <b>Осадить</b>
                 <i>
                   {card.can.besiege
-                    ? `Встать лагерем и ждать, когда кончится хлеб; осаждённый видит участь сразу. ${CAMP_LEAVE}`
+                    ? 'Встать лагерем и ждать, пока кончится хлеб.'
                     : card.siege
-                      ? 'Под этими стенами уже стоит лагерь.'
+                      ? 'Здесь уже стоит лагерь'
                       : figure?.besieging
-                        ? 'Полководец уже держит осаду — второй лагерь ему не поставить.'
+                        ? 'Полководец уже держит осаду'
                         : card.note}
                 </i>
                 {card.can.besiege && <i className="am-risk">{routLine(card)}</i>}
@@ -431,16 +434,13 @@ export function ActionMenu() {
         {menu.agent === 'scout' && menu.target !== null && (
           <div className="am-plain">
             {here
-              ? '👣 Стоит у ворот и считает войско: данные обновляются, пока он здесь.'
-              : 'Доведи разведчика к воротам — он пересчитает войско и будет держать данные свежими.'}
+              ? 'Стоит у ворот, сведения о гарнизоне свежие.'
+              : 'Доведи разведчика до ворот, он пересчитает гарнизон.'}
           </div>
         )}
 
         {menu.agent === 'spy' && menu.target !== null && !here && (
-          <div className="am-plain">
-            Приказы отдаются у самых ворот: доведи лазутчика — он и сосчитает войско, и найдёт
-            недовольных.
-          </div>
+          <div className="am-plain">Доведи лазутчика до ворот, приказы он берёт там.</div>
         )}
 
         {/*
@@ -458,8 +458,8 @@ export function ActionMenu() {
                 showToast(
                   err ??
                     (on
-                      ? 'Лазутчик залёг и смотрит. Пока смотрит — не работает.'
-                      : 'Лазутчик снят с наблюдения и снова готов к делу.'),
+                      ? 'Лазутчик залёг и смотрит.'
+                      : 'Лазутчик снова готов к делу.'),
                 );
               })();
             }}
@@ -468,11 +468,11 @@ export function ActionMenu() {
               {figure?.watching ? <Icon name="ui-eye" glyph="👁️" /> : <Icon name="ui-eye-off" glyph="🫥" />}
             </span>
             <span className="body">
-              <b>{figure?.watching ? 'Снять с наблюдения' : 'Стать наблюдателем'}</b>
+              <b>{figure?.watching ? 'Подняться' : 'Залечь'}</b>
               <i>
                 {figure?.watching
-                  ? `Смотрит на ${(figure?.watchSight ?? 0) || FIGURE_BY_ID.spy.sight} клетки вокруг. Приказы при этом не отдаются.`
-                  : 'Заляжет и будет держать живой обзор вокруг себя. Выведать войско и поднять бунт при этом нельзя.'}
+                  ? `Видит на ${count((figure?.watchSight ?? 0) || FIGURE_BY_ID.spy.sight, 'клетку', 'клетки', 'клеток')} вокруг. Приказов не берёт.`
+                  : 'Заляжет и будет видеть округу. Пока лежит, приказов не берёт.'}
               </i>
             </span>
           </button>
@@ -491,22 +491,22 @@ export function ActionMenu() {
           >
             <span className="ico">🏰</span>
             <span className="body">
-              <b>{inCity ? 'Выйти из города' : 'Укрыться в городе'}</b>
+              <b>{inCity ? 'Выйти' : 'Укрыться'}</b>
               <i>
                 {inCity
-                  ? 'Встанет у ворот — там же, откуда вошёл, — и снова будет на карте.'
+                  ? 'Встанет у своих ворот.'
                   : here
-                    ? 'Уйдёт за стену и пропадёт с карты: не смотрит и не работает, пока не выйдет.'
+                    ? 'Уйдёт за стену и не будет работать.'
                     : figure.phase === 'moving'
-                      ? 'Ещё в пути: в город входят от своих ворот.'
-                      : `Входят от своих ворот: доведи ${def.one} домой.`}
+                      ? 'Ещё в пути'
+                      : `Доведи ${def.one} до своих ворот`}
               </i>
             </span>
           </button>
         )}
 
         {menu.target === null && menu.march === null && (
-          <div className="am-plain">Здесь никто не живёт. Приказывать некому — но пройти можно.</div>
+          <div className="am-plain">Здесь никто не живёт.</div>
         )}
 
         {/*
@@ -519,23 +519,23 @@ export function ActionMenu() {
             <Icon name={`fig-${def.id}`} glyph={def.icon} />
           </span>
           <span className="body">
-            <b>{here || homeInside ? `${def.name} уже здесь` : `Вести ${def.one} сюда`}</b>
+            <b>{here || homeInside ? 'Уже здесь' : 'Вести сюда'}</b>
             <i>
               {homeInside
-                ? 'Он в городе: выведи его строкой выше.'
+                ? 'Сначала выведи его из города.'
                 : here
                   ? 'Дальше приказывай отсюда.'
                   : leavingCamp
                     ? CAMP_LEAVE
                     : menu.lead
                       ? `Идти ${waitLeft(menu.lead.seconds)}.`
-                      : 'Идти будет столько, сколько велит дорога.'}
+                      : 'Считаем путь…'}
             </i>
             {/* Разведчик у ворот с часовыми: схватят ли и погибнет ли — двумя числами, до
                 приказа. Риск замораживается в минуту отправки по этому же плану. */}
             {!here && !homeInside && menu.agent === 'scout' && menu.lead && menu.lead.caught > 0 && (
               <em>
-                <span className="am-risk">часовые: схватят {Math.round(menu.lead.caught * 100)}%</span>
+                <span className="am-risk">поимка {Math.round(menu.lead.caught * 100)}%</span>
                 <span className="am-risk">гибель {perilText(menu.lead.peril)}</span>
               </em>
             )}

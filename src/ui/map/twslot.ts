@@ -41,7 +41,7 @@ export function setTwSlot(next: TwSlot): void {
 export const reachable = (c: Coord): boolean => twSlot()?.reach(c) ?? true;
 
 /** Строка игроку о клетке за краем региона. */
-export const beyondText = (): string => `Это уже не ${twSlot()?.realm() ?? 'ваша земля'}: за край своей земли походы пока не ходят.`;
+export const beyondText = (): string => `Это уже не ${twSlot()?.realm() ?? 'твоя земля'}: за край своей земли походы не ходят.`;
 
 // Новый вид — своим куском и только по выбору: приехал — сам кладёт себя в ячейку (`tw/hook.ts`). Выбрали его в
 // настройках — кусок едет тогда же. Первое чтение выбора — до адреса на запуске (`main.tsx` пишет его после импортов):

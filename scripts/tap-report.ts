@@ -69,7 +69,7 @@
  */
 import { createServer as createVite, type Plugin } from 'vite';
 import { fileURLToPath, URL } from 'node:url';
-import { launchChrome, reportPage, sleep, Tab } from './lib/chrome';
+import { ENTER_GAME, launchChrome, reportPage, sleep, Tab } from './lib/chrome';
 import { TAP_FORGIVE, TAP_MOVE, TAP_MS, TAP_SLIP, TAP_TARGET, WHEEL_STEP } from '../src/gestures';
 import type { HitBox } from '../src/render/pick';
 import { BUILDINGS } from '../src/game/data/buildings';
@@ -524,12 +524,7 @@ async function report(): Promise<void> {
   // «под разметкой». Игрок это нажатие делает сам; стенд мерит не его, поэтому
   // жмёт кнопку прямо, а не касанием. Не нашли кнопку — это находка, а не
   // помеха: значит стартовый экран переделали, и стенд надо чинить.
-  const entered = await tab.eval<string>(`(() => {
-    const go = document.querySelector('.start-go');
-    if (!go) return JSON.stringify(document.querySelector('.start') ? 'экран есть, кнопки нет' : 'нет экрана');
-    go.click();
-    return JSON.stringify('вошли');
-  })()`);
+  const entered = await tab.eval<string>(ENTER_GAME);
   if (entered === 'экран есть, кнопки нет') throw new Error('стартовый экран без кнопки «.start-go» — стенд надо чинить');
   await sleep(200);
   if (await tab.eval<boolean>("JSON.stringify(!!document.querySelector('.start'))")) {

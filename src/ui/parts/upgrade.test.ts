@@ -105,7 +105,7 @@ const FIXTURES: [string, () => GameState][] = [
 
 // ---------- Замер со стороны игры ----------
 
-type Kind = 'more' | 'grow' | 'share' | 'count' | 'plusAfter' | 'upto' | 'days' | 'seconds' | 'wait' | 'opens';
+type Kind = 'more' | 'grow' | 'share' | 'count' | 'plusAfter' | 'upto' | 'days' | 'graceDays' | 'seconds' | 'wait' | 'opens';
 
 /** Числа, которые обязаны стоять на кнопке при такой разнице; null — разницы не видно. */
 function expectedNumbers(kind: Kind, before: number, after: number): number[] | null {
@@ -134,6 +134,9 @@ function expectedNumbers(kind: Kind, before: number, after: number): number[] | 
       const d = shown((before - after) / DAY_LENGTH);
       return d === 0 ? null : numbersIn(waitDays(Math.abs(d)));
     }
+    // Прибавка в игровых днях, которой игрок ждёт своими часами: на кнопке — настоящее время из модуля сроков.
+    case 'graceDays':
+      return after - before <= 0 ? null : numbersIn(waitDays(after - before));
     // Открытие — не число: на кнопке слова без чисел, и только на уровне, где оно наступает.
     case 'opens':
       return after > before ? [] : null;
@@ -163,15 +166,15 @@ const SPEC: Record<string, { kind: Kind; read: (s: GameState) => number }> = {
   housing: { kind: 'more', read: housingCapacity },
   storage: { kind: 'more', read: storageCap },
   recruit: { kind: 'grow', read: (s) => recruitRate(s, 'legionary') },
-  cavalry: { kind: 'grow', read: (s) => recruitRate(s, 'rider') / recruitRate(s, 'legionary') },
+  cavalry: { kind: 'grow', read: (s) => recruitRate(s, 'rider') },
   stalls: { kind: 'count', read: (s) => stalls(s) },
   defense: { kind: 'more', read: (s) => playerProfile(s).defense },
   archers: { kind: 'more', read: (s) => playerProfile(s).militiaArchers ?? 0 },
   seats: { kind: 'more', read: towerSeats },
-  loyalty: { kind: 'plusAfter', read: payGraceDays },
+  loyalty: { kind: 'graceDays', read: payGraceDays },
   // Воинская традиция Статуи (П4): кружки полководца — замером того, что уезжает в мир: отметок у полководца первого уровня
-  // столько, сколько кружков дала традиция (в посёлках замера полководец свежий).
-  tradition: { kind: 'plusAfter', read: (s) => Object.values(playerProfile(s).pips ?? {}).reduce((n, x) => n + (x ?? 0), 0) },
+  // столько, сколько кружков дала традиция (в посёлках замера полководец свежий). На кнопке — прибавка навыков.
+  tradition: { kind: 'count', read: (s) => Object.values(playerProfile(s).pips ?? {}).reduce((n, x) => n + (x ?? 0), 0) },
   heal: { kind: 'share', read: healShare },
   beds: { kind: 'plusAfter', read: infirmaryBeds },
   warning: { kind: 'wait', read: (s) => playerProfile(s).warning ?? 0 },
@@ -252,8 +255,8 @@ function expectedWork(s: GameState, type: BuildingTypeId, level: number): Map<st
   return out;
 }
 
-/** Все числа, стоящие в словах, — чтобы в подписи не оказалось числа без замера. */
-const numbersIn = (text: string): number[] => (text.match(/\d+(?:\.\d+)?/g) ?? []).map(Number);
+/** Все числа, стоящие в словах, — чтобы в подписи не оказалось числа без замера. Дробь на кнопке — запятой («2,5»). */
+const numbersIn = (text: string): number[] => (text.match(/\d+(?:[.,]\d+)?/g) ?? []).map((x) => Number(x.replace(',', '.')));
 
 // ---------- Тесты ----------
 
@@ -425,8 +428,28 @@ describe('лазарет', () => {
   });
 });
 
+describe('конюшня и казармы', () => {
+  it('скорость найма конницы обещает только конюшня: казармы конницу не учат', () => {
+    let stable = 0;
+    for (let level = 1; level < maxLevelFor('barracks'); level++) {
+      const s = createInitialState();
+      place(s, 'stable', 3);
+      const b = place(s, 'barracks', level);
+      // Точка внутри области: уровень казарм двигает найм пехоты — иначе молчание о коннице было бы даром.
+      expect(upgradeGains(s, b, level + 1).find((g) => g.id === 'recruit'), `казармы ${level}: найм пехоты`).toBeDefined();
+      expect(upgradeGains(s, b, level + 1).find((g) => g.id === 'cavalry'), `казармы ${level}: конница`).toBeUndefined();
+    }
+    for (let level = 1; level < maxLevelFor('stable'); level++) {
+      const s = createInitialState();
+      const b = place(s, 'stable', level);
+      if (upgradeGains(s, b, level + 1).find((g) => g.id === 'cavalry')) stable++;
+    }
+    expect(stable, 'уровни конюшни, ускоряющие конницу').toBeGreaterThan(0);
+  });
+});
+
 describe('Статуя', () => {
-  it('«станет N дн.» — ровно через столько дней неуплаты войско начинает уходить', () => {
+  it('«+срок к терпению» — после улучшения войско без платы начинает уходить ровно через замеренное терпение', () => {
     /** Через сколько игровых дней неуплаты ушёл первый боец при Статуе этого уровня. */
     const firstLeave = (level: number): number => {
       const s = createInitialState();
@@ -449,15 +472,14 @@ describe('Статуя', () => {
       const b = place(s, 'statue', level);
       const gain = upgradeGains(s, b, level + 1).find((g) => g.id === 'loyalty');
       const after = firstLeave(level + 1);
-      const promised = gain!.numbers[1];
+      const promised = gain!.after;
       // Первый уходит чуть позже срока: сотне копейщиков нужно несколько секунд, чтобы
       // доля ухода набрала целого бойца. Позже на десятую дня — уже неправда.
       expect(after, `${level}→${level + 1}: уходить начали не раньше обещанного`).toBeGreaterThanOrEqual(promised);
       expect(after, `${level}→${level + 1}: и не позже`).toBeLessThan(promised + 0.1);
-      expect(gain!.numbers[0], `${level}→${level + 1}`).toBe(promised - payGraceDays(s));
       // Числа Статуи — терпение войска и воинская традиция (П4, 14.35; прибавка героя ушла с поставкой 1 боя, docs/battle_eu4.md,
-      // 14.19.6), и единица его сказана словами.
-      expect(gain?.text).toMatch(/дн\. терпения войска/);
+      // 14.19.6). Терпения игрок ждёт своими часами: на кнопке прибавка настоящим временем, словами модуля сроков.
+      expect(gain!.text, `${level}→${level + 1}`).toBe(`+${waitDays(promised - payGraceDays(s))} к терпению дружины`);
       expect(upgradeGain(s, b, level + 1)).not.toMatch(/героем/);
     }
   });
@@ -503,7 +525,7 @@ describe('рабочие и места', () => {
       const text = upgradeGain(s, b, level + 1);
       expect(promisedSlots(text) > 0, `${level}→${level + 1} — «${text}»`).toBe(useful);
       if (!useful) {
-        expect(text).toMatch(/новые рабочие места ничего не прибавят/);
+        expect(text).toMatch(/новые места ничего не дадут/);
         empty++;
       }
     }

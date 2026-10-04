@@ -27,8 +27,10 @@ import { RESOURCE_IDS } from '../constants';
 import { EQUIPMENT_IDS } from '../data/equipment';
 import { TROOP_IDS } from '../data/troops';
 import { storageCap } from '../derived';
+import { ENERGY_MAX } from '../data/minigames';
 import type { GameState } from '../types';
 import { log } from './log';
+import { refillEnergy } from './minigames';
 
 /**
  * Сколько золота кладёт код.
@@ -52,6 +54,14 @@ export const CHEAT_TROOPS = 100;
  * ничего не делает, здесь нет: до сюда доходит только узнанный (`cheatOf`).
  */
 export function applyCheat(s: GameState, id: CheatId): string {
+  // Энергия промыслов — своей дверью (`sim/minigames`): поле пишет только она. Вне Telegram — это решает узнавший код
+  // (`cheatOf`), до сюда в Telegram он не доходит.
+  if (id === 'energy') {
+    refillEnergy(s);
+    const said = `Код: энергия полна (${ENERGY_MAX}).`;
+    mark(s, said);
+    return said;
+  }
   if (id !== 'tribe') return '';
   const cap = storageCap(s);
   for (const r of RESOURCE_IDS) s.resources[r] = cap;

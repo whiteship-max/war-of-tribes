@@ -25,7 +25,7 @@ import { gainText, readVillage, upgradeGains, type Readings, type UpgradeGain } 
 import type { ReactNode } from 'react';
 import { Icon } from '@/ui/icons/Icon';
 import { iconName } from '@/ui/icons/registry';
-import { waitEta } from './wait';
+import { waitSpan } from './wait';
 import { asGame } from '@/game/pace';
 
 const ORDER = new Map(BUILDINGS.map((d, i) => [d.id, i]));
@@ -57,11 +57,11 @@ function rowFacts(s: GameState, b: Building): string {
   const storage = buildingStat(b, 'storage');
   if (storage) facts.push(`вместимость +${storage}`);
   const defence = buildingStat(b, 'defense');
-  if (defence) facts.push(`защита +${defence}`);
+  if (defence) facts.push(`оборона +${defence}`);
   const morale = buildingStat(b, 'morale');
   if (morale) facts.push(`мораль +${morale}`);
   if (facts.length === 0) return def.description;
-  return `Сейчас: ${facts.join(' · ')}`;
+  return facts.join(' · ');
 }
 
 /**
@@ -112,25 +112,25 @@ export function TownBuild() {
       <div className="mod total">
         <span className="ico"><Icon name="ui-hammer" glyph="🔨" /></span>
         <span className="name">
-          Строителей
-          <em className="sub">свободные руки и ремесленники, под рукой ратуши ×{mult.toFixed(2)}</em>
+          Скорость стройки
+          <em className="sub">свободные руки, ремесленники · ратуша ×{mult.toFixed(2)}</em>
         </span>
-        <span className="val pos">{rate.toFixed(1)}/с</span>
+        <span className="val pos">{rate.toFixed(1)}</span>
       </div>
 
       {queue.length > 0 && (
         <>
           <h3>
-            В работе <span className="muted">очередь: {queue.length}</span>
+            В работе <span className="muted">{queue.length}</span>
           </h3>
           {queue.map((b, i) => (
             <SiteRow key={b.id} b={b} first={i === 0} rate={rate} />
           ))}
-          {rate === 0 && <div className="note bad">Нет свободных жителей — стройка стоит.</div>}
+          {rate === 0 && <div className="note bad">Свободных рук нет, стройка стоит.</div>}
         </>
       )}
 
-      <h3>Постройки</h3>
+      <h3>Готовы к улучшению</h3>
       {ready.map((b) => (
         <BuildRow key={b.id} b={b} rate={rate} base={base} />
       ))}
@@ -138,12 +138,8 @@ export function TownBuild() {
       {locked.length > 0 && (
         <>
           <h3>
-            Пока недоступно <span className="muted">{locked.length}</span>
+            Нельзя улучшить <span className="muted">{locked.length}</span>
           </h3>
-          <div className="note">
-            Строить с нуля в игре нечего — посёлок стоит целиком с первого дня. Здесь то,
-            чему прямо сейчас нельзя дать новый уровень, и почему.
-          </div>
           {locked.map((b) => (
             <LockedRow key={b.id} b={b} />
           ))}
@@ -164,9 +160,9 @@ function RushButton({ b }: { b: Building }) {
       data-tut={`rush-${b.type}`}
       disabled={gemsOf(s) < price}
       onClick={() => act((st) => rushUpgrade(st, b.id))}
-      title="Достроить сейчас — алмазы покупают время, ресурсы списываются как обычно"
+      aria-label="Достроить"
     >
-      ♦ {price}
+      <Icon name="res-gem" glyph="♦" /> {price}
     </button>
   );
 }
@@ -192,10 +188,10 @@ function SiteRow({ b, first, rate }: { b: Building; first: boolean; rate: number
         <span className="body">
           <span className="title">
             {name}
-            <i className="lvl-tag">→ {b.level + 1} ур.</i>
-            <span className="count">{first ? waitEta(eta) : 'в очереди'}</span>
+            <i className="lvl-tag">→ ур. {b.level + 1}</i>
+            <span className="count">{first ? (eta !== null ? waitSpan(eta) : 'нет строителей') : 'в очереди'}</span>
           </span>
-          <span className="desc">В лесах, но работает — {pct}%</span>
+          <span className="desc">Работает · готово на {pct}%</span>
           <span className="progress">
             <i style={{ width: `${pct}%` }} />
           </span>
@@ -247,7 +243,7 @@ function BuildRow({ b, rate, base }: { b: Building; rate: number; base: Readings
         cost={up.cost}
         work={up.work}
         eta={eta === null ? null : asGame(Math.ceil(eta))}
-        extra={people && <span className="people" title="Во что уровень обойдётся в людях">{people}</span>}
+        extra={people && <span className="people">{people}</span>}
       />
       <div className="acts">
         <button
@@ -255,7 +251,7 @@ function BuildRow({ b, rate, base }: { b: Building; rate: number; base: Readings
           data-tut={`upgrade-${def.id}`}
           onClick={() => act((st) => startUpgrade(st, b.id))}
         >
-          Уровень {up.level}
+          Улучшить
         </button>
         <RushButton b={b} />
       </div>

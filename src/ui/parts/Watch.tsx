@@ -2,7 +2,9 @@ import { useGame } from '@/game/store';
 import { SURVEY_MAX, SURVEY_STEPS } from '@/game/data/survey';
 import { cancelSurvey, startSurvey, surveyInfo } from '@/game/sim/actions';
 import { surveySeconds } from '@/game/sim/survey';
+import { Icon } from '@/ui/icons/Icon';
 import { Cost } from './Cost';
+import { count } from './plural';
 import { waitShort } from './wait';
 
 /**
@@ -24,31 +26,20 @@ export function Watch() {
   return (
     <>
       <h3>
-        Изучение округи <span className="muted">ступеней: {info.done} из {SURVEY_MAX}</span>
+        Разведка округи <span className="muted">ур. {info.done} из {SURVEY_MAX}</span>
       </h3>
-      <div className="note">
-        Разъезды описывают землю за кругом деревни и оставляют её на грамоте навсегда.
-        Наблюдения это не даёт: изученная округа показывает, что там лежит, а не что там
-        происходит — за этим лазутчик.
-      </div>
-
-      <div className="mod total">
-        <span className="ico">🗺️</span>
-        <span className="name">Открыто вокруг деревни</span>
-        <span className="val pos">{info.radius > 0 ? `${info.radius} клеток` : 'только свой круг'}</span>
-      </div>
+      {/* Сколько клеток уже разведано, стоит строкой «Округа разведана на» в общих данных здания выше (`BuildingPanel.GenericData`). */}
+      <div className="note">Разведанная земля остаётся на карте навсегда. Что на ней происходит, видит лазутчик.</div>
 
       {info.running ? (
         <div className="card">
           <div className="ico">🐎</div>
           <div className="body">
             <div className="title">
-              Ступень {info.running.n}: {info.running.radius} клеток
+              Ур. {info.running.n} · {count(info.running.radius, 'клетка', 'клетки', 'клеток')}
               <span className="count">~{waitShort(info.left)}</span>
             </div>
-            <div className="desc">
-              Разъезды в поле. Дозор занят: следующую ступень не начать, пока не вернутся.
-            </div>
+            <div className="desc">Разъезды в поле</div>
             <div className="progress">
               <div style={{ width: `${Math.floor(info.progress * 100)}%` }} />
             </div>
@@ -74,15 +65,15 @@ export function Watch() {
             disabled={info.blocked !== null}
             onClick={() => act((st) => startSurvey(st))}
           >
-            Изучить ступень {info.next.n} — {info.next.radius} клеток
+            Разведать
           </button>
           <div className="hint">{info.blocked ?? info.next.effect}</div>
         </div>
       ) : (
-        <div className="note">Округа изучена вся — дальше только своими глазами.</div>
+        <div className="note">Вся округа разведана</div>
       )}
 
-      <h3>Ступени</h3>
+      <h3>Уровни разведки</h3>
       {SURVEY_STEPS.map((step) => {
         const done = step.n <= info.done;
         const now = info.running?.n === step.n;
@@ -92,15 +83,19 @@ export function Watch() {
             <div className="ico">{done ? '✅' : now ? '🐎' : locked ? '🔒' : '·'}</div>
             <div className="body">
               <div className="title">
-                Ступень {step.n}
-                <span className="count">{step.radius} клеток</span>
+                Ур. {step.n}
+                <span className="count">{count(step.radius, 'клетка', 'клетки', 'клеток')}</span>
               </div>
               <div className="desc">
-                {done
-                  ? step.effect
-                  : locked
-                    ? `Нужен Дозор ${step.n} уровня — сейчас ${info.level}.`
-                    : `${waitShort(surveySeconds(step, info.learning))} разъездов.`}
+                {done ? (
+                  step.effect
+                ) : locked ? (
+                  `Нужен Дозор ур. ${step.n}`
+                ) : (
+                  <>
+                    <Icon name="ui-time" glyph="⏱" /> {waitShort(surveySeconds(step, info.learning))}
+                  </>
+                )}
               </div>
             </div>
           </div>

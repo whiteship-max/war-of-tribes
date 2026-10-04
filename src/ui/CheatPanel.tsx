@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { CHEATS_ON, CHEAT_MARK, CHEAT_MARK_GLADE, cheatsOf, type CheatWhere } from '@/cheats';
+import { tgInitData } from '@/telegram/webapp';
 
 /**
  * Кнопка кодов: одна разметка на деревню и на поляну.
@@ -35,7 +36,8 @@ export function CheatPanel({
   const [draft, setDraft] = useState('');
   const [said, setSaid] = useState('');
   if (!CHEATS_ON) return null;
-  const list = cheatsOf(where);
+  // В Telegram коды `offTelegram` не показываются — та же проверка, что у узнавания (`game/store.cheat`).
+  const list = cheatsOf(where, tgInitData() !== null);
 
   const submit = (e: FormEvent): void => {
     e.preventDefault();

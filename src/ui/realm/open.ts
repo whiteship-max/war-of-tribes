@@ -9,6 +9,8 @@
 import { create } from 'zustand';
 import { useGame } from '@/game/store';
 import { useWorld } from '@/world/store';
+import { currentStep } from '@/game/data/tutorial';
+import type { GameState } from '@/game/types';
 import { letterKey } from './unread';
 import type { RealmTab } from './tabs';
 
@@ -48,6 +50,17 @@ export const useRealm = create<RealmStore>((set) => ({
     set({ mail: key });
   },
 }));
+
+/**
+ * Куда открыть державу касанием герба. Шаг обучения «Изучи копьё» ведёт к гербу подсветкой, и держава встаёт сразу
+ * на технологиях: путь словами («герб → «Технологии» → военная ветвь») шагу больше не нужен (docs/ui_audit.md, 4.3, 11).
+ * В новом виде «Вести» — свой экран из низа, и герб из них ведёт в разделы державы, а не обратно в вести. Иначе —
+ * раздел, где меню закрыли (`undefined`).
+ */
+export function coatView(s: GameState, quiet: boolean, last: RealmView): RealmView | undefined {
+  if (currentStep(s)?.id === 'tech') return 'tech';
+  return quiet && last === 'decisions' ? 'government' : undefined;
+}
 
 /**
  * Донесение о набеге этого отряда — экран решения о набеге: расстановки обороны больше нет (поставка 2 боя,

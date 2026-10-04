@@ -5,7 +5,7 @@ import { atGates, useWorld } from '@/world/store';
 import { GarrisonEditor } from './GarrisonEditor';
 import { AgentCard } from './AgentCard';
 import { Lineage } from './Lineage';
-import { waitDaysBoth } from './wait';
+import { waitDays } from './wait';
 
 /**
  * Статуя Героя — дом военачальников. Морали она не даёт нарочно — их в посёлке уже
@@ -30,10 +30,10 @@ export function Statue() {
       <div className="mod total">
         <span className="ico">⚔️</span>
         <span className="name">
-          Войско терпит неуплату и голод
-          <em className="sub">потом начинает уходить; полководец уводит в поле сколько угодно</em>
+          Дружина терпит
+          <em className="sub">без жалованья и еды</em>
         </span>
-        <span className="val pos">{waitDaysBoth(payGraceDays(s))}</span>
+        <span className="val pos">{waitDays(payGraceDays(s))}</span>
       </div>
       {/* Герой и полководец на карте — один человек. Сколько он уводит и чего стоит
           сам, решает Статуя; уровень, отметки и черты — его, и карточка у него одна:
@@ -41,7 +41,7 @@ export function Statue() {
       {here ? (
         <AgentCard id="general" embedded />
       ) : (
-        <div className="note">Полководца нет: место пустует, и дружина из деревни не выходит. Нанимают его здесь же, ниже.</div>
+        <div className="note">Полководца нет, и дружина не выходит из города. Найми его ниже.</div>
       )}
 
       {/* Состав дружины — тот же редактор, что на карточке своего замка: мир один, отказы
@@ -50,10 +50,7 @@ export function Statue() {
       {here && (atGates(general) ? (
         <GarrisonEditor />
       ) : (
-        <div className="note">
-          Состав дружины меняют, пока полководец стоит у своих ворот. Сейчас его там нет — где он, видно в
-          «Походах».
-        </div>
+        <div className="note">Полководца нет у ворот. Отряд меняют, только когда он дома.</div>
       ))}
 
       <Lineage id="general" />

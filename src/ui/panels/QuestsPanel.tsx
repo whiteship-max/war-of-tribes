@@ -33,7 +33,7 @@ export function QuestsPanel() {
   return (
     <div className="panel">
       <h2>
-        Задания <small>выполнено {doneCount}/{QUESTS.length} · престиж {s.prestige}</small>
+        Задания <small>выполнено {doneCount} из {QUESTS.length} · слава {s.prestige}</small>
       </h2>
 
       <div className="tabs">
@@ -91,7 +91,7 @@ function QuestList() {
           </div>
         );
       })}
-      {open.length === 0 && <div className="desc">Все задания выполнены. Племя продолжает расти!</div>}
+      {open.length === 0 && <div className="desc">Все задания выполнены.</div>}
 
       <h3>Достижения</h3>
       <div className="villager-list">
@@ -133,7 +133,7 @@ function QuestList() {
         className="btn danger"
         onClick={() => {
           // Новая партия — новый мир: старые соседи и походы к ней отношения не имеют.
-          if (confirm('Начать заново? Прогресс будет потерян.')) {
+          if (confirm('Начать заново? Эта партия пропадёт.')) {
             reset();
             void resetWorld();
           }

@@ -2,7 +2,10 @@
 import { describe, expect, it } from 'vitest';
 import { POINTS_CAP, REALM_BRANCHES, levelsOf } from '@/game/data/realm';
 import { levelName } from '@/game/sim/tech';
+import { createInitialState } from '@/game/state';
+import { TUTORIAL } from '@/game/data/tutorial';
 import { BRANCH_WORD, cellName, pointsTip } from './RealmNew';
+import { coatView } from './open';
 
 describe('держава нового вида', () => {
   it('ячейка ступени говорит то же, что дверь гейта: у управления — число мест из её имени', () => {
@@ -32,5 +35,22 @@ describe('держава нового вида', () => {
     expect(t.body).toBe('+3 в игровой день.');
     expect(pointsTip('admin', POINTS_CAP, 2).body).toContain('Потолок');
     expect(pointsTip('diplo', 10, 0).body).toBe('Приток нулевой.');
+  });
+
+  it('герб на шаге обучения «Изучи копьё» открывает технологии: путь словами шагу не нужен', () => {
+    const s = createInitialState(5);
+    const tech = TUTORIAL.findIndex((st) => st.id === 'tech');
+    // Область: шаг технологий есть, и до него обучение идёт — на нём и после него герб ведёт по-разному.
+    expect(tech, 'шаг технологий в обучении есть').toBeGreaterThan(0);
+    s.tutorialStep = tech;
+    expect(coatView(s, true, 'government')).toBe('tech');
+    expect(coatView(s, false, 'decisions')).toBe('tech');
+    s.tutorialStep = tech + 1;
+    expect(coatView(s, true, 'government'), 'после шага — раздел, где закрыли').toBeUndefined();
+    expect(coatView(s, true, 'decisions'), 'из вестей нового вида — в разделы державы').toBe('government');
+    expect(coatView(s, false, 'decisions'), 'прежний вид помнит вести').toBeUndefined();
+    s.tutorialStep = tech;
+    s.tutorialDone = true;
+    expect(coatView(s, true, 'government'), 'пропущенное обучение не ведёт').toBeUndefined();
   });
 });

@@ -3,7 +3,7 @@ import type { ResourceId } from '@/game/types';
 import { useGame } from '@/game/store';
 import { RESOURCE_IDS, RESOURCE_META } from '@/game/constants';
 import { Icon } from '@/ui/icons/Icon';
-import { waitShort } from './wait';
+import { waitSpan } from './wait';
 import type { GameSec } from '@/game/pace';
 
 /** Чем можно расплатиться: склад плюс казна. Золото — не ресурс, но цена бывает и в нём. */
@@ -67,7 +67,7 @@ export function Cost({ cost, work, eta, extra }: Props) {
       )}
       {work !== undefined && (
         <span className="work">
-          <Icon name="ui-time" glyph="⏱" /> {eta === undefined ? work : eta === null ? 'нет строителей' : `~${waitShort(eta)}`}</span>
+          <Icon name="ui-time" glyph="⏱" /> {eta === undefined ? work : eta === null ? 'нет строителей' : waitSpan(eta)}</span>
       )}
       {extra}
     </div>

@@ -22,6 +22,27 @@ export const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeou
  */
 export const reportPage = (port: number, query = ''): string => `http://127.0.0.1:${port}/?probe=1&fpscap=${REPORT_FPS}${query}`;
 
+/**
+ * Вход в партию со стартового экрана — той же кнопкой, что у игрока (`.start-go`). У нового вида за ней может встать
+ * шаг имени города (`next/CityNaming`, docs/ui_audit.md, 13): имя на выбор в поле уже стоит, и стенд жмёт «В путь»
+ * (кнопка того же класса внутри `.nx-cname`; шаг едет своим куском — ждём его до пяти секунд). Ответ: «вошли»,
+ * «нет экрана» или «экран есть, кнопки нет» — последнее находка: стартовый экран переделали, стенд надо чинить.
+ */
+export const ENTER_GAME = `(async () => {
+  const go = document.querySelector('.start-go');
+  if (!go) return JSON.stringify(document.querySelector('.start') ? 'экран есть, кнопки нет' : 'нет экрана');
+  go.click();
+  for (let i = 0; i < 50 && document.querySelector('.start'); i++) {
+    const named = document.querySelector('.nx-cname .start-go');
+    if (named) {
+      named.click();
+      break;
+    }
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  return JSON.stringify('вошли');
+})()`;
+
 /** Где лежит Chrome. Не нашёлся — путь задаётся переменной CHROME. */
 export function chromePath(): string {
   if (process.env.CHROME) return process.env.CHROME;

@@ -51,3 +51,8 @@ assets-src/prologue/cache/
 
 # снимки стенда карты нового вида (?showcase=map-tw): петля самопроверки, в историю им не надо
 .map-shots/
+
+# снимки петли самопроверки интерфейса (стенд сессии `.tmp-review/ui-shots.ts`): в историю им не надо
+.ui-shots/
+# снимки стенда промыслов (`npm run mini:shots`, docs/minigames.md)
+.mini-shots/

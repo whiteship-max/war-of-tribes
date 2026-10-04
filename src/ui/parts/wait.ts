@@ -24,8 +24,8 @@ import { formatLeft } from '@/world/geo';
 /** Сколько настоящих секунд игрок прождёт срок племени, целым вверх. */
 export const waitSeconds = (gameSec: GameSec): number => Math.ceil(realSeconds(Math.max(0, gameSec)));
 
-/** «40 с». */
-export const waitShort = (gameSec: GameSec): string => `${waitSeconds(gameSec)} с`;
+/** «40 с», «20 мин», «1 ч 5 мин»: срок целыми секундами вверх, словами той же формулы, что `realSpanText`. */
+export const waitShort = (gameSec: GameSec): string => realSpan(waitSeconds(gameSec));
 
 /** «2 мин 40 с»: срок без округления до минут. */
 export const waitMinSec = (gameSec: GameSec): string => realMinSec(realSeconds(gameSec));
@@ -33,14 +33,14 @@ export const waitMinSec = (gameSec: GameSec): string => realMinSec(realSeconds(g
 /** «4:07», а с часа — «1:05:00»: тем же видом, каким мир показывает поход. */
 export const waitLeft = (gameSec: GameSec): string => formatLeft(realSeconds(gameSec));
 
-/** Срок стройки в списке: на 375 px «~2 м 10 с» читается, «~130 с» — нет. */
+/** Срок стройки в списке: на 375 px «~2 мин 10 с» читается, «~130 с» — нет. */
 export function waitEta(gameSec: GameSec | null): string {
   if (gameSec === null) return 'нет строителей';
   const sec = realSeconds(gameSec);
   if (sec < 60) return `~${Math.ceil(sec)} с`;
   const m = Math.floor(sec / 60);
   const r = Math.round(sec % 60);
-  return r > 0 ? `~${m} м ${r} с` : `~${m} м`;
+  return r > 0 ? `~${m} мин ${r} с` : `~${m} мин`;
 }
 
 /** «2 мин 30 с», с часа — «1 ч 5 мин», с двух суток — «4 сут 4 ч»: долгий срок племени. Формула — `game/span`. */
@@ -66,11 +66,11 @@ export const realSpanText = (realSec: RealSecArg): string => realSpan(realSec);
 /** «4:07» — срок мира. Тот же `formatLeft`, что у мира: интерфейс берёт его только отсюда. */
 export const realLeft = (realSec: RealSecArg): string => formatLeft(realSec);
 
-/** «7.5 с»: таймер мини-игры. */
-export const realShort = (realSec: RealSecArg, digits = 1): string => `${realSec.toFixed(digits)} с`;
+/** «7,5 с»: таймер мини-игры. Дробь — запятой (docs/ui_audit.md, 4.5). */
+export const realShort = (realSec: RealSecArg, digits = 1): string => `${realSec.toFixed(digits).replace('.', ',')} с`;
 
-/** «2.5 с»: число уже приведено к настоящим секундам и округлено вызывающим. */
-export const realPlain = (realSec: RealSecArg): string => `${realSec} с`;
+/** «2,5 с»: число уже приведено к настоящим секундам и округлено вызывающим. */
+export const realPlain = (realSec: RealSecArg): string => `${String(realSec).replace('.', ',')} с`;
 
 /** «2 мин 40 с». */
 export function realMinSec(realSec: RealSecArg): string {

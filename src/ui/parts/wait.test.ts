@@ -5,7 +5,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { asGame, realSeconds, setTimeScale, timeScale } from '@/game/pace';
 import { formatLeft, travelTime } from '@/world/geo';
-import { realLeft, realMinSec, waitEta, waitLeft, waitMinSec, waitShort, waitSpan } from './wait';
+import { realLeft, realMinSec, realPlain, realShort, realSpanText, waitEta, waitLeft, waitMinSec, waitShort, waitSpan } from './wait';
 
 afterEach(() => setTimeScale());
 
@@ -13,13 +13,21 @@ describe('сроки словами', () => {
   it('срок племени показан настоящим временем, срок мира — как есть', () => {
     setTimeScale(30);
     expect(timeScale(), 'точка внутри области: шкала отлична от единицы').not.toBe(1);
-    expect(waitShort(asGame(40))).toBe('1200 с');
+    // Короткий срок — словами по 4.5 (docs/ui_audit.md): до минуты секунды, до часа минуты, дальше часы.
+    expect(waitShort(asGame(1))).toBe('30 с');
+    expect(waitShort(asGame(40))).toBe('20 мин');
+    expect(waitShort(asGame(41))).toBe('20 мин 30 с');
+    expect(waitShort(asGame(130))).toBe('1 ч 5 мин');
     expect(waitMinSec(asGame(10))).toBe('5 мин');
-    expect(waitEta(asGame(40))).toBe('~20 м');
+    expect(waitEta(asGame(40))).toBe('~20 мин');
+    expect(waitEta(asGame(41))).toBe('~20 мин 30 с');
     expect(waitSpan(asGame(180))).toBe('1 ч 30 мин');
     expect(waitLeft(asGame(8))).toBe(formatLeft(240));
     expect(realMinSec(160)).toBe('2 мин 40 с');
     expect(realLeft(247)).toBe(formatLeft(247));
+    // Дробь — запятой (4.5).
+    expect(realShort(7.5)).toBe('7,5 с');
+    expect(realPlain(2.5)).toBe('2,5 с');
   });
 
   it('срок, названный игровым, форматтер настоящего времени не принимает — и наоборот', () => {
@@ -39,6 +47,6 @@ describe('сроки словами', () => {
     expect(waitLeft(road), 'путь показан настоящим временем').toBe(formatLeft(realSeconds(road)));
     // Законные пути: перевод дверью и явное «это игровые секунды».
     expect(formatLeft(realSeconds(game))).toBe(formatLeft(40 * timeScale()));
-    expect(waitShort(asGame(real))).toBe(`${40 * timeScale()} с`);
+    expect(waitShort(asGame(real))).toBe(realSpanText(40 * timeScale()));
   });
 });

@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { CHEATS, CHEATS_ON, CHEAT_MARK, CHEAT_NO, cheatOf, cheatsOf, matchCheat } from './cheats';
+import { CHEATS, CHEATS_ON, CHEAT_MARK, CHEAT_NO, cheatOf, cheatsOf, codesOf, matchCheat } from './cheats';
 import { createInitialState } from './game/state';
 import { storageCap } from './game/derived';
 import { RESOURCE_IDS } from './game/constants';
@@ -9,6 +9,8 @@ import { EQUIPMENT_IDS } from './game/data/equipment';
 import { TROOP_IDS } from './game/data/troops';
 import { gemsOf } from './game/sim/gems';
 import { CHEAT_GEAR, CHEAT_GOLD, CHEAT_TROOPS, applyCheat } from './game/sim/cheat';
+import { beginMinigame, canPlay, energyAt } from './game/sim/minigames';
+import { ENERGY_MAX, MINIGAME_COST } from './game/data/minigames';
 import { applyCheat as applyGlade } from './prologue/cheat';
 import { HOUSE_LOGS } from './prologue/craft';
 import { HEARTH_CAP, fuelAt } from './prologue/fire';
@@ -17,19 +19,19 @@ import { QUIVER_MAX } from './prologue/craft';
 import { freshPrologue, loadPrologue, savePrologue } from './prologue/save';
 
 describe('коды: список и разбор', () => {
-  it('кодов три, у каждого свой режим, и все они строчной латиницей', () => {
-    expect(CHEATS).toHaveLength(3);
+  it('кодов четыре, у каждого свой режим, и все они строчной латиницей', () => {
+    expect(CHEATS).toHaveLength(4);
     expect(new Set(CHEATS.map((c) => c.code)).size).toBe(CHEATS.length);
     for (const c of CHEATS) {
       expect(c.code, c.code).toMatch(/^[a-z]{3,12}$/);
       expect(c.what.length, c.code).toBeGreaterThan(20);
     }
-    expect(CHEATS.filter((c) => c.where === 'village').map((c) => c.code)).toEqual(['tribe']);
+    expect(CHEATS.filter((c) => c.where === 'village').map((c) => c.code)).toEqual(['tribe', 'energy']);
     expect(CHEATS.filter((c) => c.where === 'prologue').map((c) => c.code)).toEqual(['glade', 'home']);
   });
 
   it('пробелы и регистр не в счёт, чужой режим не в счёт, лишнее — не код', () => {
-    expect(matchCheat('  TrIbE ', 'village')?.id).toBe('tribe');
+    expect(matchCheat('  TrIbE ', 'village', false)?.id).toBe('tribe');
     expect(matchCheat('tribe', 'prologue')).toBeNull();
     expect(matchCheat('home', 'village')).toBeNull();
     expect(matchCheat('', 'village')).toBeNull();
@@ -59,10 +61,35 @@ describe('коды: список и разбор', () => {
     expect(cheatsOf('village')).toEqual([]);
     expect(cheatsOf('prologue')).toEqual([]);
     for (const c of CHEATS) {
-      expect(matchCheat(c.code, c.where), c.code).not.toBeNull();
-      expect(cheatOf(c.code, c.where), c.code).toBeNull();
+      expect(matchCheat(c.code, c.where, false), c.code).not.toBeNull();
+      expect(cheatOf(c.code, c.where, false), c.code).toBeNull();
     }
     expect(CHEATS_ON).toBe(false);
+  });
+
+  /**
+   * Решение владельца 04.10.2026: код энергии промыслов — только вне Telegram, где прогресс не уходит на сервер. В
+   * Telegram его нет ни в разборе, ни в списке, даже с поднятым выключателем; прочие коды Telegram не касается.
+   * Признак «в Telegram» приносит зовущий; не принёс — считается «в Telegram».
+   */
+  it('код энергии — только вне Telegram: в Telegram его не узнать и не увидеть', () => {
+    expect(matchCheat('energy', 'village', false)?.id).toBe('energy');
+    expect(codesOf('village', false).map((c) => c.code)).toContain('energy');
+    expect(matchCheat('energy', 'village', true), 'в Telegram').toBeNull();
+    expect(codesOf('village', true).map((c) => c.code), 'в Telegram').not.toContain('energy');
+    // Забытый довод закрывает, а не открывает.
+    expect(matchCheat('energy', 'village'), 'довод забыт').toBeNull();
+    expect(codesOf('village').map((c) => c.code), 'довод забыт').not.toContain('energy');
+    // Точка внутри области: прочие коды деревни в Telegram на месте — запрет касается одного кода.
+    expect(matchCheat('tribe', 'village', true)?.id).toBe('tribe');
+    expect(CHEATS.filter((c) => c.offTelegram).map((c) => c.id)).toEqual(['energy']);
+  });
+
+  it('признак Telegram обе двери наружу берут из подписи: та же проверка, что у сохранения на сервер', () => {
+    const store = readFileSync(join(__dirname, 'game', 'store.ts'), 'utf8');
+    const panel = readFileSync(join(__dirname, 'ui', 'CheatPanel.tsx'), 'utf8');
+    expect(store).toMatch(/cheatOf\(code, 'village', tgInitData\(\) !== null\)/);
+    expect(panel).toMatch(/cheatsOf\(where, tgInitData\(\) !== null\)/);
   });
 });
 
@@ -105,6 +132,19 @@ describe('код деревни', () => {
     applyCheat(s, 'tribe');
     expect(s.log.filter((e) => e.text === CHEAT_MARK)).toHaveLength(1);
     expect(s.cheated).toBe(true);
+  });
+
+  it('код энергии наполняет запас промыслов и метит партию', () => {
+    const s = createInitialState();
+    for (let i = 0; i < ENERGY_MAX / MINIGAME_COST; i++) expect(typeof beginMinigame(s, 'berries', 1_700_000_000_000)).toBe('object');
+    expect(canPlay(s, 1_700_000_000_000), 'точка внутри области: запас пуст').toBe(false);
+    const gems = gemsOf(s);
+    const said = applyCheat(s, 'energy');
+    expect(energyAt(s, 1_700_000_000_000)).toBe(ENERGY_MAX);
+    expect(s.cheated).toBe(true);
+    expect(s.log.some((e) => e.text === CHEAT_MARK)).toBe(true);
+    expect(gemsOf(s)).toBe(gems);
+    expect(said).toContain('Код:');
   });
 
   it('чужого кода деревня не знает', () => {

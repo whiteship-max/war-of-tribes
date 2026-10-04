@@ -25,7 +25,9 @@ import { SEASON_META, SEASON_SECONDS } from '@/game/data/seasons';
 import { popGrowth } from '@/game/sim/population';
 import { asGame } from '@/game/pace';
 import { signed } from '@/ui/parts/signed';
-import { waitSpan } from '@/ui/parts/wait';
+import { realSpanText, waitSpan } from '@/ui/parts/wait';
+import { ENERGY_MAX, MINIGAME_COST } from '@/game/data/minigames';
+import { energyFullIn, energyShown } from '@/game/sim/minigames';
 import type { RealmView } from '@/ui/realm/open';
 import type { TipContent } from './tip';
 
@@ -112,6 +114,19 @@ export function seasonTip(s: GameState, go: TipGo): TipContent {
     title: `${SEASON_META[season].name} · день ${dayOf(s.time)}`,
     body: `${SEASON_META[seasonAfter(season)].name} через ${waitSpan(seasonLeft(s.time))}.`,
     link: { label: 'Сезон', go: () => go.tab('season') },
+  };
+}
+
+/**
+ * Энергия промыслов: сколько из полного, когда полная, сколько стоит игра (docs/minigames.md, 1). Числа — дверью
+ * `sim/minigames`, срок — настоящим временем (`realSpanText`): энергия идёт сутками игрока. Ссылка — в «Промыслы».
+ */
+export function energyTip(s: GameState, now: number, open: () => void): TipContent {
+  const full = energyFullIn(s, now);
+  return {
+    title: `Энергия · ${energyShown(s, now)} из ${ENERGY_MAX}`,
+    body: `${full > 0 ? `Полная через ${realSpanText(Math.ceil(full / 1000))}.` : 'Запас полон.'} Промысел стоит ${MINIGAME_COST}.`,
+    link: { label: 'Промыслы', go: open },
   };
 }
 

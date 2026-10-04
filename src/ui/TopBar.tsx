@@ -10,7 +10,7 @@ import {
   seasonProgress,
   solarPhase,
 } from '@/game/derived';
-import { ORDER_WARN } from '@/game/constants';
+import { MORALE_GROWTH_ZERO, ORDER_WARN } from '@/game/constants';
 import { ORDER_TEXT } from '@/game/data/order';
 import { SEASON_META } from '@/game/data/seasons';
 import { useWorld } from '@/world/store';
@@ -90,7 +90,7 @@ export function TopBar() {
         <button
           className={`cell season season-${season}${tab === 'season' ? ' active' : ''}`}
           onClick={() => openTab('season')}
-          title={`${meta.name}: ${meta.hint} Нажми, чтобы увидеть множители.`}
+          title={`${meta.name}. ${meta.hint}`}
         >
           <span className="ic">
             <Icon name={iconName('season', season)} glyph={meta.icon} />
@@ -104,7 +104,7 @@ export function TopBar() {
         <button
           className={`cell tap${pop > housing ? ' warn' : ''}${tab === 'pop' ? ' active' : ''}`}
           onClick={() => openTab('pop')}
-          title="Население и жильё. Нажми, чтобы увидеть, как считается прирост."
+          title="Жители и места под крышей. Теснота бьёт по морали."
         >
           <span className="ic">
             <Icon name="hud-pop" glyph="👥" />
@@ -116,7 +116,7 @@ export function TopBar() {
         <button
           className={`cell tap${morale < 35 ? ' warn' : ''}${tab === 'morale' ? ' active' : ''}`}
           onClick={() => openTab('morale')}
-          title="Мораль племени. Нажми, чтобы увидеть, что её поднимает и что тянет вниз."
+          title={`Мораль племени. Ниже ${MORALE_GROWTH_ZERO} жители уходят. От неё зависит работа.`}
         >
           <span className="ic">
             <Icon name={mood.name} glyph={mood.glyph} />
@@ -129,7 +129,7 @@ export function TopBar() {
             <button
               className={`cell tap order${order < ORDER_WARN ? ' warn' : ''}${tab === 'order' ? ' active' : ''}`}
               onClick={() => openTab('order')}
-              title="Порядок в городе: удержит ли власть невольников. Нажми, чтобы увидеть, кто их держит и что будет при мятеже."
+              title="Порядок среди невольников. Чем он ниже, тем ближе мятеж."
             >
               <span className="ic">
                 <Icon name="hud-order" glyph={ORDER_TEXT.icon} />
@@ -142,7 +142,7 @@ export function TopBar() {
         <button
           className={`cell tap army${tab === 'army' ? ' active' : ''}`}
           onClick={() => openTab('army')}
-          title="Дружина. Нажми, чтобы увидеть состав, показатели и карточки войск."
+          title="Сколько бойцов в дружине."
         >
           <span className="ic">
             <Icon name="hud-army" glyph="⚔️" />
@@ -166,7 +166,7 @@ export function TopBar() {
           className="map-btn"
           data-tut="nav-map"
           onClick={openMap}
-          title="Карта мира: соседи, походы, разведка"
+          title="Карта мира"
           aria-label="Карта мира"
         >
           <Icon name="hud-map" glyph="🗺️" />

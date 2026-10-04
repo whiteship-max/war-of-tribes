@@ -34,14 +34,14 @@ export function Walls({ b }: { b: Building }) {
           <span className="ico">
             <Icon name="gear-shield" glyph="🛡️" />
           </span>
-          <span className="name">Защита посёлка</span>
+          <span className="name">Оборона города</span>
           <span className="val">{defense(s).toFixed(0)}</span>
         </div>
         <div className="mod">
           <span className="ico">
             <Icon name="bld-palisade" glyph="🧱" />
           </span>
-          <span className="name">Ополчение выйдет в поле</span>
+          <span className="name">Ополчение</span>
           <span className="val">{men}</span>
         </div>
         {/* Своя строка башни: сколько из ополчения выйдет стрелками. */}
@@ -50,15 +50,12 @@ export function Walls({ b }: { b: Building }) {
             <span className="ico">
               <Icon name="gear-bow" glyph="🏹" />
             </span>
-            <span className="name">Из них стрелками</span>
+            <span className="name">Из них стрелки</span>
             <span className="val">{archers}</span>
           </div>
         )}
       </div>
-      <div className="note">
-        Строй у частокола раскладывает правило боя, как любой бой: ополчение встаёт пехотой вместе с теми, кто дома,
-        стрелки башни — лучниками во второй линии, а кому не хватило места в строю, ждёт в резерве.
-      </div>
+      <div className="note">Ополчение встаёт в строй с гарнизоном, стрелки башни — во второй линии.</div>
 
       <div className={`card ${raid?.win.late ? 'danger' : ''}`}>
         <div className="ico">{march ? '⚠️' : '🛡️'}</div>
@@ -73,12 +70,12 @@ export function Walls({ b }: { b: Building }) {
 
       {siege ? (
         <button className="btn wide" onClick={openSiege}>
-          ⛺ Окно осады
+          <Icon name="letter-siege" glyph="⛺" /> Осада
         </button>
       ) : (
         march && (
           <button className="btn wide" onClick={() => openRaid(march.id)}>
-            🔥 Донесение о набеге{raid?.short ? ` · ${raid.short}` : ''}
+            <Icon name="letter-raid" glyph="🔥" /> Весть о набеге
           </button>
         )
       )}

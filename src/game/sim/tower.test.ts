@@ -71,7 +71,7 @@ describe('башня: орудие', () => {
     s.time = until - 1;
     expect(readyEngine(s), 'за секунду до отметки').toBeNull();
     expect(playerProfile(s).tower, 'слепок без орудия').toBeUndefined();
-    expect(setEngine(s, 'catapult'), 'занятая башня').toBe('Башня занята: ставят балисту.');
+    expect(setEngine(s, 'catapult'), 'занятая башня').toBe('Башня занята: ставят баллисту.');
     s.time = until;
     expect(readyEngine(s)?.id).toBe('ballista');
     expect(playerProfile(s).tower).toEqual({ slow: def.slow, thin: def.thin, crew: def.crew, seats: towerSeats(s) });

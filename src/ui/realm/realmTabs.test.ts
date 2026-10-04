@@ -1,0 +1,95 @@
+// Вкладки державы нового вида (docs/ui_audit.md, 13): числа — функциями игры (правило 18). Каждый блок называет
+// область, где правило спрашивается, и утверждает, что его точки внутри неё (правило 11).
+import { describe, expect, it } from 'vitest';
+import type { FaithId, GameState } from '@/game/types';
+import { createInitialState } from '@/game/state';
+import { TAXES } from '@/game/data/policy';
+import { REALM_BRANCHES } from '@/game/data/realm';
+import { faithTilt, population, taxIncomePerDay, taxQuote, wagesDue } from '@/game/derived';
+import { rulerRate } from '@/game/sim/points';
+import { fmtInt, perDay } from '@/ui/next/hudTips';
+import { comma, ledgerTips, signedRate, skillTip, taxPicks, tiltCells } from './RealmTabs';
+
+/** Город с храмом десятого уровня: наклон веры — и закят, и десятина — в полную силу. */
+function town(faith: FaithId | null): GameState {
+  const s = createInitialState(7);
+  s.pop = 200;
+  for (const b of s.buildings) if (b.type === 'church') b.level = 10;
+  s.faith.id = faith;
+  return s;
+}
+
+const FAITHS: (FaithId | null)[] = ['catholic', 'orthodox', 'islam', 'pagan', null];
+
+describe('указы: казна и налог — числами игры', () => {
+  it('золото, сбор и жалованье — `fmtInt`, `taxIncomePerDay`, `wagesDue`', () => {
+    for (const faith of FAITHS) {
+      const s = town(faith);
+      s.gold = 1234;
+      const t = ledgerTips(s.gold, taxIncomePerDay(s), wagesDue(s), false);
+      expect(t.gold.title).toBe(`Золото · ${fmtInt(1234)}`);
+      expect(t.income.title).toBe(`Сбор · ${perDay(taxIncomePerDay(s))}`);
+      expect(t.wages.title).toBe(`Жалованье · ${perDay(-wagesDue(s))}`);
+    }
+  });
+
+  it('ячейка налога — сбор `taxQuote` со знаком самого числа; убыток красный', () => {
+    let negative = 0;
+    for (const faith of FAITHS) {
+      const s = town(faith);
+      const picks = taxPicks(s);
+      expect(picks.map((p) => p.id)).toEqual(TAXES.map((t) => t.id));
+      for (const p of picks) {
+        const gold = taxQuote(s, p.id).gold;
+        expect(p.sub, `${faith}: ${p.id}`).toBe(perDay(gold));
+        expect(p.subBad, `${faith}: ${p.id} красный, если убыток`).toBe(gold < 0);
+        if (gold < -0.05) negative++;
+      }
+    }
+    // Область: закят без налога уводит сбор в минус — точка с убытком в наборе есть.
+    expect(negative).toBeGreaterThan(0);
+  });
+
+  it('ставка без слов и дробь запятой', () => {
+    expect(signedRate(19.94)).toBe('+19,9');
+    expect(signedRate(-3)).toBe('−3,0');
+    expect(comma('×1.05')).toBe('×1,05');
+  });
+});
+
+describe('вера: ячейки наклона — числа `faithTilt`, нули не показываются', () => {
+  it('каждое ненулевое слагаемое — ячейкой, со знаком и множителем из `faithTilt`', () => {
+    let shown = 0;
+    for (const faith of FAITHS) {
+      const s = town(faith);
+      const t = faithTilt(s);
+      const cells = tiltCells(t, population(s));
+      const by = new Map(cells.map((c) => [c.key, c]));
+      expect(by.has('gold'), `${faith}: золото`).toBe(Math.abs(t.goldPerPop) > 0.001);
+      if (by.has('gold')) {
+        expect(by.get('gold')!.value).toBe(perDay(t.goldPerPop * population(s)));
+        expect(by.get('gold')!.label).toBe(t.goldPerPop > 0 ? 'Десятина' : 'Закят');
+      }
+      expect(by.has('output'), `${faith}: выработка`).toBe(Math.abs(t.output - 1) > 0.001);
+      if (by.has('output')) expect(by.get('output')!.value).toBe(comma(`×${t.output.toFixed(2)}`));
+      expect(by.has('morale'), `${faith}: мораль`).toBe(Math.abs(t.morale) > 0.001);
+      shown += cells.length;
+    }
+    // Область: у вер есть что показать — иначе проверка нулей прошла бы даром.
+    expect(shown).toBeGreaterThan(3);
+  });
+});
+
+describe('правитель: навык — очки `rulerRate`', () => {
+  it('подсказка навыка называет приток очков ветви и навык наследника', () => {
+    const s = createInitialState(11);
+    for (const b of REALM_BRANCHES) {
+      const t = skillTip(b, s.realm.ruler.skills[b], rulerRate(s, b), s.realm.heir.skills[b]);
+      expect(t.title).toContain(`навык ${s.realm.ruler.skills[b]}`);
+      expect(t.body).toContain(`+${rulerRate(s, b)} очков`);
+      expect(t.body).toContain(`навык ${s.realm.heir.skills[b]}`);
+      // Область: у стартового правителя приток в каждой ветви есть (навык не ниже одного).
+      expect(rulerRate(s, b)).toBeGreaterThan(0);
+    }
+  });
+});

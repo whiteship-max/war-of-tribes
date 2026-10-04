@@ -17,7 +17,7 @@ import { useRealm } from '@/ui/realm/open';
 import { Icon } from '@/ui/icons/Icon';
 import { waitSpan } from '@/ui/parts/wait';
 import { tipAt } from './tip';
-import { Confirm } from './BuildingNew';
+import { Confirm } from './Confirm';
 
 /** Шаг заказа: −10 −1 +1 +10, от одной до девяноста девяти — как прежде. */
 export const clampCount = (n: number): number => Math.max(1, Math.min(99, n));

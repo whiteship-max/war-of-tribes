@@ -35,6 +35,16 @@ export function startAction(hasSave: boolean): StartAction {
   return hasSave ? 'continue' : 'new';
 }
 
+/**
+ * Что делает главная кнопка: входит в партию или сперва спрашивает имя города (docs/ui_audit.md, 13). Имя
+ * спрашивается, пока его нет, — у новой партии и у старой, где город не называли, — и только там, где шаг имени
+ * есть (новый интерфейс: `next/CityNaming`). Назвал — больше не спрашивает: имя лежит в сохранении
+ * (`ProfileState.city`), своего флага у шага нет.
+ */
+export function startStep(hasNaming: boolean, named: boolean): 'enter' | 'name' {
+  return hasNaming && !named ? 'name' : 'enter';
+}
+
 /** Слово на кнопке. Второго набора слов для того же действия быть не должно. */
 export const START_LABEL: Record<StartAction, string> = {
   new: 'Начать игру',
@@ -42,7 +52,7 @@ export const START_LABEL: Record<StartAction, string> = {
 };
 
 /**
- * ВРЕМЕННАЯ КНОПКА: «Играть предысторию».
+ * ВРЕМЕННАЯ КНОПКА: «Предыстория».
  *
  * Правило «кнопка одна, и та, которая правдива» она не нарушает — оно про пару
  * «Регистрация»/«Вход», то есть про два пути в одно и то же место. Здесь путь
@@ -60,10 +70,10 @@ export const START_LABEL: Record<StartAction, string> = {
  * прогресс деревни не трогает и на сервер не едет — об этом сказано игроку
  * подписью под кнопкой (`PROLOGUE_NOTE`), а не умолчанием.
  */
-export const PROLOGUE_LABEL = 'Играть предысторию';
+export const PROLOGUE_LABEL = 'Предыстория';
 
 /** Подпись под временной кнопкой. Врать про связь с партией нельзя. */
-export const PROLOGUE_NOTE = 'Проба нового начала. С вашим племенем не связана.';
+export const PROLOGUE_NOTE = 'С твоим племенем не связана.';
 
 /**
  * Признак того, что вход в предысторию — временный.

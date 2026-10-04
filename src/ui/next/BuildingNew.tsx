@@ -7,7 +7,7 @@
 //
 // Своих чисел нет: цена, срок, места и что даст уровень — `upgradeInfo`, `buildRate`, `upgradeGains`
 // (правило 18). Отмена стройки — двумя касаниями одной кнопки (3.10): первое превращает её в «Точно?».
-import { useEffect, useState, type ReactNode } from 'react';
+import { type ReactNode } from 'react';
 import type { Building } from '@/game/types';
 import { useGame } from '@/game/store';
 import { MAX_BUILDING_LEVEL } from '@/game/constants';
@@ -41,34 +41,12 @@ import { waitSpan } from '@/ui/parts/wait';
 import { gainText, spareSlotsHelp, upgradeGains, type UpgradeGain } from '@/ui/parts/upgrade';
 import { tipAt } from './tip';
 import { workerTip } from './buildingTips';
+import { Confirm } from './Confirm';
+import { TradeLine } from './Trades';
+import { MINIGAMES } from '@/game/data/minigames';
 
-/** Сколько «Точно?» ждёт второго касания. */
-export const CONFIRM_MS = 3000;
-
-/**
- * Кнопка необратимого действия: первое касание превращает её в «Точно?» на три секунды, второе делает
- * (3.10: окон подтверждения не заводим).
- */
-export function Confirm({ label, onConfirm, className = '' }: { label: string; onConfirm: () => void; className?: string }) {
-  const [armed, setArmed] = useState(false);
-  useEffect(() => {
-    if (!armed) return;
-    const t = setTimeout(() => setArmed(false), CONFIRM_MS);
-    return () => clearTimeout(t);
-  }, [armed]);
-  return (
-    <button
-      className={`nx-confirm${armed ? ' armed' : ''} ${className}`}
-      onClick={() => {
-        if (!armed) return setArmed(true);
-        setArmed(false);
-        onConfirm();
-      }}
-    >
-      {armed ? 'Точно?' : label}
-    </button>
-  );
-}
+/** Кнопка «Точно?» живёт своим модулем (`Confirm.tsx`): ею пользуются и держава, и найм. */
+export { CONFIRM_MS, Confirm } from './Confirm';
 
 export function BuildingNew({ id, data }: { id: number; data: (b: Building) => ReactNode }) {
   const s = useGame((g) => g.s);
@@ -158,6 +136,10 @@ export function BuildingNew({ id, data }: { id: number; data: (b: Building) => R
       {isOutsideWall(b.type) && <div className="nx-bwarn">Двор за стеной: прорвавшийся набег разгонит людей.</div>}
 
       <WorkerRow b={b} gains={gains} />
+      {/* Промысел этого двора — игра у своего двора (docs/minigames.md, 3). */}
+      {MINIGAMES.filter((g) => g.yard === b.type).map((g) => (
+        <TradeLine key={g.id} id={g.id} />
+      ))}
       {data(b)}
     </div>
   );
