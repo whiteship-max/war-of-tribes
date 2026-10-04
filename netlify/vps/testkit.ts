@@ -72,11 +72,16 @@ export function sqliteHome(): Home {
 /**
  * Местный сервер Blobs и адрес к нему — для дома и для подстановки контекста функциям Netlify.
  *
- * У местного сервера один пробел против настоящего Blobs: при чтении он не отдаёт ETag (запись
- * отдаёт, и условие `if-match` проверяет). Настоящий отдаёт — на этом держится сохранение на боевом
- * адресе. Пробел закрыт здесь, в подставном `fetch` клиента, тем же способом, каким сервер сам
- * выводит ETag при записи (`generateETag` по файлу ключа): иначе дом «Netlify Blobs» в тестах
- * отличался бы от настоящего ровно тем, что проверяется.
+ * У местного сервера два пробела против настоящего Blobs, и оба закрыты здесь, в подставном
+ * `fetch` клиента, — иначе дом «Netlify Blobs» в тестах отличался бы от настоящего ровно тем, что
+ * проверяется:
+ *
+ * - при чтении он не отдаёт ETag (запись отдаёт, и условие `if-match` проверяет). Настоящий
+ *   отдаёт — на этом держится сохранение на боевом адресе. ETag выводится тем же способом, каким
+ *   сервер сам выводит его при записи (`generateETag` по файлу ключа);
+ * - в перечислении он отдаёт ключи такими, какими они лежат на диске, — с процентной кодировкой
+ *   знаков, которых не терпит файловая система (`03:30` → `03%3A30`). Настоящий отдаёт ключ как
+ *   есть: ключи счётчиков доставки (`2026-10-04/03:30:00.000`) иначе не прочитались бы по списку.
  */
 export async function localBlobs(): Promise<{ site: BlobsSite; stop(): Promise<void> }> {
   const dir = tempDir('blobs');
@@ -86,18 +91,30 @@ export async function localBlobs(): Promise<{ site: BlobsSite; stop(): Promise<v
   const url = `http://127.0.0.1:${port}`;
   const inside = server as unknown as { getLocalPaths(u: URL): { dataPath?: string; key?: string } };
   const etagOf = (BlobsServer as unknown as { generateETag(path: string): Promise<string> }).generateETag.bind(BlobsServer);
-  const withReadEtag: typeof fetch = async (input, init) => {
+  const asReal: typeof fetch = async (input, init) => {
     const res = await realFetch(input, init);
     const method = (init?.method ?? 'GET').toUpperCase();
     if (method !== 'GET' || res.status !== 200 || res.headers.get('etag')) return res;
     const { dataPath, key } = inside.getLocalPaths(new URL(input instanceof Request ? input.url : String(input)));
-    if (!dataPath || !key) return res; // перечисление, а не чтение ключа
+    if (!dataPath) return res;
+    if (!key) {
+      // Перечисление: ключи и папки — без кодировки диска.
+      const list = (await res.json()) as { blobs?: { key: string }[]; directories?: string[] };
+      const plain = {
+        ...list,
+        blobs: list.blobs?.map((b) => ({ ...b, key: decodeURIComponent(b.key) })),
+        directories: list.directories?.map((d) => decodeURIComponent(d)),
+      };
+      const listHeaders = new Headers(res.headers);
+      listHeaders.delete('content-length');
+      return new Response(JSON.stringify(plain), { status: 200, headers: listHeaders });
+    }
     const headers = new Headers(res.headers);
     headers.set('etag', await etagOf(dataPath));
     return new Response(res.body, { status: res.status, headers });
   };
   return {
-    site: { siteID: 'tribe-test-site', token, edgeURL: url, uncachedEdgeURL: url, fetch: withReadEtag },
+    site: { siteID: 'tribe-test-site', token, edgeURL: url, uncachedEdgeURL: url, fetch: asReal },
     stop: async () => {
       await server.stop();
       rmSync(dir, { recursive: true, force: true });

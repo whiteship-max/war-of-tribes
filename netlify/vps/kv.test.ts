@@ -88,6 +88,15 @@ describe.each([
     expect(keys(one)).toEqual(['000100/tg-1', '000100/tg-2']);
   });
 
+  /** Так пишет ключи счётчик доставки (`deliver.writeTally`): перечисление обязано отдать их как есть. */
+  it('ключ с двоеточием перечисляется и читается как есть', async () => {
+    const stats = home.stores(STORES.stats);
+    await stats.setJSON('2026-10-04/03:30:00.000', { at: 1 }, { onlyIfNew: true });
+    const { blobs } = await stats.list({ prefix: '2026-10-04/' });
+    expect(blobs.map((b) => b.key)).toEqual(['2026-10-04/03:30:00.000']);
+    expect((await stats.getWithMetadata(blobs[0].key))?.data).toBe('{"at":1}');
+  });
+
   it('удаление: было — нет; удалить отсутствующее — не ошибка', async () => {
     await kv.set('tg-6', 'x');
     await kv.delete('tg-6');
