@@ -59,9 +59,9 @@ export function surveyInfo(s: GameState): SurveyInfo {
   let blocked: string | null = null;
   if (running) blocked = 'Разъезды в поле: Дозор занят.';
   else if (!next) blocked = 'Округа изучена вся.';
-  else if (!watch) blocked = 'Дозора в посёлке нет.';
-  else if (next.n > level) blocked = `Нужен Дозор ${next.n} уровня — сейчас ${level}.`;
-  else if (!canAfford(s, next.cost)) blocked = 'Не хватает припаса на разъезды.';
+  else if (!watch) blocked = 'Дозора в городе нет.';
+  else if (next.n > level) blocked = `Нужен Дозор ур. ${next.n}.`;
+  else if (!canAfford(s, next.cost)) blocked = 'Не хватает запасов на разъезды.';
 
   return {
     done,
@@ -96,7 +96,7 @@ export function startSurvey(s: GameState): string | null {
   // уклад мог смениться, пока разъезды в поле.
   const seconds = surveySeconds(step, info.learning);
   s.survey = { done: info.done, startedAt: s.time, until: s.time + seconds };
-  log(s, `Дозор: разъезды пошли изучать округу (ступень ${step.n}).`);
+  log(s, `Дозор: разъезды пошли разведывать округу, ур. ${step.n}.`);
   return null;
 }
 
@@ -108,11 +108,11 @@ export function startSurvey(s: GameState): string | null {
  */
 export function cancelSurvey(s: GameState): string | null {
   const st = s.survey;
-  if (!st || st.until <= 0) return 'Изучение не идёт.';
+  if (!st || st.until <= 0) return 'Разведка не идёт.';
   const step = surveyStep(st.done + 1);
   if (step) refund(s, step.cost, 0.5);
   s.survey = { done: st.done, startedAt: 0, until: 0 };
-  log(s, 'Дозор: разъезды отозваны, округа осталась неизученной.', 'bad');
+  log(s, 'Дозор: разъезды отозваны, округа осталась неразведанной.', 'bad');
   return null;
 }
 
@@ -129,8 +129,8 @@ export function surveyTick(s: GameState): void {
   log(
     s,
     step
-      ? `Дозор: округа изучена на ${step.radius} клеток вокруг. ${step.effect}`
-      : 'Дозор: округа изучена.',
+      ? `Дозор: округа разведана на ${step.radius} клеток вокруг. ${step.effect}`
+      : 'Дозор: округа разведана.',
     'good',
   );
 }

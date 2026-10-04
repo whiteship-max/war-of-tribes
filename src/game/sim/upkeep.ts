@@ -207,7 +207,7 @@ export function dismissCheck(s: GameState, troop: TroopId, count: number): Dismi
   const n = Math.max(0, Math.floor(count));
   let blocked: string | null = null;
   if (have === 0) blocked = 'Таких бойцов нет.';
-  else if (max === 0) blocked = 'Дома таких нет: все в поле или в пути.';
+  else if (max === 0) blocked = 'Дома таких нет, все в походе.';
   else if (n < 1) blocked = 'Сколько распустить?';
   else if (n > max) blocked = `Дома только ${max}.`;
   return { max, saves: wageOf(s, troop) * Math.min(n, max), blocked };

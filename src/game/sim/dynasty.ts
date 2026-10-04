@@ -143,8 +143,8 @@ export function succeed(s: GameState): void {
   r.ruler = { ...r.heir, bornAt: s.time, age0: AGENT_AGE0 };
   r.heir = born(s, r.born);
   r.born += 1;
-  log(s, `${old.name ?? 'Правитель'} оставил правление в ${yearsWord(years)}. Держава переходит к наследнику${r.ruler.name ? ` — ${r.ruler.name}` : ''}.`, 'info');
-  log(s, 'Очки и изученное остались при державе: сменились только навыки правителя.', 'info');
+  log(s, `${old.name ?? 'Правитель'} оставил правление в ${yearsWord(years)}. Держава переходит к наследнику${r.ruler.name ? `, ${r.ruler.name}` : ''}.`, 'info');
+  log(s, 'Очки и изученное остались. Сменились только навыки правителя.', 'info');
 }
 
 /**

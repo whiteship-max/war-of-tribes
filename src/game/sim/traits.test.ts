@@ -274,6 +274,6 @@ describe('новый полководец без дружины', () => {
     s.agents.general.vacant = true;
     s.agents.general.hiring = { until: s.time, name: 'Преемник', age0: 24 };
     settleHires(s);
-    expect(s.log.some((e) => e.text.includes('Дружины при нём нет'))).toBe(true);
+    expect(s.log.some((e) => e.text.includes('Отряда при нём нет'))).toBe(true);
   });
 });

@@ -29,8 +29,8 @@ describe('Дозор: изучение округи', () => {
     // Вторая требует второго — и не начинается, пока Дозор первого.
     const info = surveyInfo(s);
     expect(info.next?.n).toBe(2);
-    expect(info.blocked).toContain('Дозор 2 уровня');
-    expect(startSurvey(s)).toContain('Дозор 2 уровня');
+    expect(info.blocked).toContain('Дозор ур. 2');
+    expect(startSurvey(s)).toContain('Дозор ур. 2');
     expect(s.survey.done).toBe(1);
 
     // Подняли здание — та же ступень пошла.

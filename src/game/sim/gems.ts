@@ -109,7 +109,7 @@ export function rushUpgrade(s: GameState, buildingId: number): string | null {
   b.level += 1;
   b.work = 0;
   b.workRequired = 0;
-  log(s, `${BUILDING_BY_ID[b.type].name}: уровень ${b.level} — достроено за ${price} ♦.`, 'good');
+  log(s, `${BUILDING_BY_ID[b.type].name}: ур. ${b.level}, достроено за ${price} алмазов.`, 'good');
   return null;
 }
 
@@ -134,6 +134,6 @@ export function creditGems(s: GameState, grant: GemGrant): string | null {
   if (grant.source !== 'server') return 'Алмазы начисляет только сервер.';
   if (!Number.isFinite(grant.amount) || grant.amount <= 0) return 'Пустое начисление.';
   s.gems = gemsOf(s) + Math.floor(grant.amount);
-  log(s, `Алмазы зачислены: +${Math.floor(grant.amount)} ♦.`, 'good');
+  log(s, `Алмазы зачислены: +${Math.floor(grant.amount)}.`, 'good');
   return null;
 }

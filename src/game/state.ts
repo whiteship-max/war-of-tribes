@@ -232,8 +232,8 @@ export function createInitialState(seed: number = freshSeed()): GameState {
   // (`sim/tech.placeOpen`) — той же, что гасит кнопку найма и рисует строку в Дозоре.
   for (const id of FIGURE_IDS) if (!placeOpen(s, id)) s.agents[id].vacant = true;
 
-  s.log.push({ at: 0, text: 'Посёлок стоит за стеной, у ворот рынок, в кузнице холодный горн. Соседи не дремлют.', kind: 'info' });
-  s.log.push({ at: 0, text: 'Поставь кузнеца к горну, скуй копьё и найми первого бойца — дальше карта.', kind: 'info' });
+  s.log.push({ at: 0, text: 'Город стоит за стеной, у ворот рынок, в кузнице холодный горн. Соседи не дремлют.', kind: 'info' });
+  s.log.push({ at: 0, text: 'Поставь кузнеца к горну, скуй копьё и найми первого бойца. Потом карта.', kind: 'info' });
   // Визитка собирается сразу: мощь стоящего посёлка не ноль, и в профиле она
   // должна быть видна до первого тика.
   refreshCard(s);
