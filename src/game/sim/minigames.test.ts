@@ -121,11 +121,15 @@ describe('энергия — чистая функция от времени', (
 });
 
 describe('добыча — доля потолка', () => {
-  it('доли двора: ягоды — вся еда, скот — еда и шкуры пастуха, в сумме единица', () => {
+  it('доли двора: ягоды — вся еда, скот — еда и шкуры пастуха, охота — мясо, шкуры и кости охотника; в сумме единица', () => {
     expect(minigameShares('berries')).toEqual({ food: 1 });
     const herd = minigameShares('herd');
     expect(herd.food).toBeCloseTo(6 / 7.4, 9);
     expect(herd.hides).toBeCloseTo(1.4 / 7.4, 9);
+    const hunt = minigameShares('hunt');
+    expect(hunt.food).toBeCloseTo(14 / 18.4, 9);
+    expect(hunt.hides).toBeCloseTo(2.4 / 18.4, 9);
+    expect(hunt.bones).toBeCloseTo(2 / 18.4, 9);
     for (const g of MINIGAMES) expect(Object.values(minigameShares(g.id)).reduce((n, x) => n + (x ?? 0), 0)).toBeCloseTo(1, 9);
   });
 
@@ -169,13 +173,16 @@ describe('добыча — доля потолка', () => {
           const base = town(herders);
           base.time = season * SEASON_SECONDS + 30;
           const day = dailyOutput(base);
-          // Область: у города есть выработка обоих запасов игр.
+          // Область: у города есть выработка всех запасов игр — еды, шкур и костей.
           expect(day.food).toBeGreaterThan(0);
           expect(day.hides).toBeGreaterThan(0);
+          expect(day.bones).toBeGreaterThan(0);
           const plans: MinigameId[][] = [
             ['berries', 'berries', 'berries', 'berries'],
             ['herd', 'herd', 'herd', 'herd'],
+            ['hunt', 'hunt', 'hunt', 'hunt'],
             ['berries', 'herd', 'herd', 'berries'],
+            ['hunt', 'herd', 'berries', 'hunt'],
           ];
           for (const plan of plans) {
             const s = town(herders);

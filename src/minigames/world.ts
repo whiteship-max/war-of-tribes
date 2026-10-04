@@ -13,13 +13,16 @@ import type { Season } from '@/game/types';
 import { tufts } from './models';
 import type { Play } from './stage';
 
-/** Обставить поляну: небо, земля, стена леса, трава по сезону, своё у игры и пятна тени. */
+/** Обставить поляну: небо, земля, стена леса, трава по сезону, своё у игры и пятна тени. Своя земля у игры — её. */
 export function furnish(scene: THREE.Scene, surfaces: Surfaces, play: Play, camera: THREE.Camera, dome: Dome, season: Season): void {
   scene.add(dome.root);
   const shade = new Shade();
-  // Трава не растёт там, где стоит своё у игры: в кустах и под стогом.
-  const keep = play.blockers(0).map((b) => ({ x: b.x, z: b.z, r: b.r + 0.25 }));
-  scene.add(surfaces.adopt(gladeGround()), surfaces.adopt(forest(shade), 'crown'), surfaces.adopt(tufts(season, keep), 'tuft'));
+  if (play.land) play.land(scene, surfaces, shade, season);
+  else {
+    // Трава не растёт там, где стоит своё у игры: в кустах и под стогом.
+    const keep = play.blockers(0).map((b) => ({ x: b.x, z: b.z, r: b.r + 0.25 }));
+    scene.add(surfaces.adopt(gladeGround()), surfaces.adopt(forest(shade), 'crown'), surfaces.adopt(tufts(season, keep), 'tuft'));
+  }
   play.build(scene, surfaces, shade, camera);
   scene.add(shade.mesh());
   scene.add(camera);

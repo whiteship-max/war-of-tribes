@@ -22,7 +22,17 @@ import { energyNow } from '@/ui/trades';
 import { BerriesPlay } from './berriesPlay';
 import { HerdPlay } from './herdPlay';
 import { GAME_SECONDS, LATE_SECONDS, shareOf, type Tally } from './rules';
-import { Stage, type StageView } from './stage';
+import { Stage, type Play, type StageView } from './stage';
+
+/**
+ * Чем играть: «Ягоды» и «Скот» лежат в куске промыслов, «Охота» — своим куском (лук, олени, звук): её качает только
+ * «На охоту», а тот, кто ходит за ягодами, за неё не платит (docs/minigames.md, 13).
+ */
+const PLAYS: Record<MinigameId, (seed: number) => Promise<Play>> = {
+  berries: async (seed) => new BerriesPlay(seed),
+  herd: async (seed) => new HerdPlay(seed),
+  hunt: async (seed) => new (await import('./huntPlay')).HuntPlay(seed),
+};
 
 /** Сколько «Уйти» ждёт второго касания: столько же, сколько «Точно?» окна постройки (`next/Confirm`). */
 const LEAVE_MS = 3000;
@@ -31,6 +41,14 @@ const LEAVE_MS = 3000;
 const TALLY_WORDS: Record<MinigameId, { short: (t: Tally) => string; done: (t: Tally) => string }> = {
   berries: { short: (t) => `Ягод ${t.got}`, done: (t) => `Собрано ${t.got} из ${t.total}` },
   herd: { short: (t) => `Охапок ${t.got} из ${t.total}`, done: (t) => `Отдано охапок: ${t.got} из ${t.total}` },
+  hunt: { short: (t) => `Оленей ${t.got} из ${t.total}`, done: (t) => `Добыто оленей: ${t.got} из ${t.total}` },
+};
+
+/** Подсказка на первые секунды: как ходить и как держать лук. */
+const HINT: Record<MinigameId, string> = {
+  berries: 'Слева шаг, справа взгляд',
+  herd: 'Слева шаг, справа взгляд',
+  hunt: 'Справа прижми, веди и отпусти',
 };
 
 /** Секунды отсчёта: «0:47». */
@@ -54,6 +72,7 @@ export function Minigame({ game, onExit }: { game: MinigameId; onExit: () => voi
   const wrapRef = useRef<HTMLDivElement>(null);
   const stickRef = useRef<HTMLDivElement>(null);
   const meterRef = useRef<HTMLDivElement>(null);
+  const aimRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<Stage | null>(null);
   // Зерно и «до N» — на входе: раскладка не меняется посреди игры, что бы ни случилось с партией.
   const [seed] = useState(() => minigameSeed(useGame.getState().s, game));
@@ -72,42 +91,59 @@ export function Minigame({ game, onExit }: { game: MinigameId; onExit: () => voi
     const canvas = document.createElement('canvas');
     canvas.className = 'mg-canvas';
     wrap.prepend(canvas);
-    const play = game === 'berries' ? new BerriesPlay(seed) : new HerdPlay(seed);
-    const stage = new Stage(canvas, play, GAME_SECONDS[game], seasonOf(useGame.getState().s.time));
-    stageRef.current = stage;
-    stage.onView = setView;
-    stage.stickEl = stickRef.current;
-    stage.meterEl = meterRef.current;
-    // Время вышло — итог: трата и добыча одним вызовом двери.
-    stage.onEnd = (tally) => {
-      let out: Harvest | string = 'Энергии не хватает';
-      const g = useGame.getState();
-      const ok = g.act((st) => {
-        const r = harvest(st, game, energyNow(), shareOf(tally));
-        if (typeof r === 'string') return r;
-        out = r;
-        return null;
-      });
-      if (ok) g.save();
-      setResult(out);
-    };
-    setView(stage.snapshot());
-    if (probe()) (window as unknown as { __mini?: Stage }).__mini = stage;
+    // Сцена встаёт, когда приехала игра: «Ягоды» и «Скот» — сразу, «Охота» — своим куском. До того карточка начала
+    // уже стоит, а «Начать» ждёт сцену (`stageRef`).
+    let alive = true;
+    let stage: Stage | null = null;
     const drop = (): void => setHint(false);
-    canvas.addEventListener('pointerdown', drop, { once: true });
-    const onResize = (): void => stage.resize();
+    const onResize = (): void => stage?.resize();
     const ro = new ResizeObserver(onResize);
+    const wire = (made: Stage): void => {
+      stage = made;
+      stageRef.current = made;
+      made.onView = setView;
+      made.stickEl = stickRef.current;
+      made.meterEl = meterRef.current;
+      made.aimEl = aimRef.current;
+      // Время вышло — итог: трата и добыча одним вызовом двери.
+      made.onEnd = (tally) => {
+        let out: Harvest | string = 'Энергии не хватает';
+        const g = useGame.getState();
+        const ok = g.act((st) => {
+          const r = harvest(st, game, energyNow(), shareOf(tally));
+          if (typeof r === 'string') return r;
+          out = r;
+          return null;
+        });
+        if (ok) g.save();
+        setResult(out);
+      };
+      setView(made.snapshot());
+      if (probe()) (window as unknown as { __mini?: Stage }).__mini = made;
+    };
+    void PLAYS[game](seed).then((play) => {
+      if (!alive) {
+        play.dispose();
+        return;
+      }
+      wire(new Stage(canvas, play, GAME_SECONDS[game], seasonOf(useGame.getState().s.time)));
+    });
+    canvas.addEventListener('pointerdown', drop, { once: true });
     ro.observe(wrap);
     window.addEventListener('resize', onResize);
     return () => {
+      alive = false;
       ro.disconnect();
       window.removeEventListener('resize', onResize);
       canvas.removeEventListener('pointerdown', drop);
-      stage.onView = null;
-      stage.onEnd = null;
-      stage.stickEl = null;
-      stage.meterEl = null;
-      stage.dispose();
+      if (stage) {
+        stage.onView = null;
+        stage.onEnd = null;
+        stage.stickEl = null;
+        stage.meterEl = null;
+        stage.aimEl = null;
+        stage.dispose();
+      }
       canvas.remove();
       stageRef.current = null;
     };
@@ -130,6 +166,14 @@ export function Minigame({ game, onExit }: { game: MinigameId; onExit: () => voi
         <i />
       </div>
       {meter && <div className="mg-meter" ref={meterRef} />}
+      {game === 'hunt' && (
+        // Прицел лука: середина — куда уходит стрела, метки ниже — поправка дуги на дальность (их ставит сцена,
+        // `Stage.aimSync`, числами `hunt.pins`). Стоит с первого кадра, чтобы сцена нашла его, — виден в игре.
+        <div className={`mg-aim${phase === 'play' ? '' : ' off'}`} ref={aimRef} aria-hidden="true">
+          <i className="mg-ring" />
+          <i className="mg-dot" />
+        </div>
+      )}
 
       {phase === 'play' && view && (
         <>
@@ -139,6 +183,7 @@ export function Minigame({ game, onExit }: { game: MinigameId; onExit: () => voi
               <Icon name={`mini-${game}`} glyph={def.glyph} />
               {words.short(view.tally)}
             </span>
+            {view.aside && <span className="mg-chip">{view.aside}</span>}
             <span className="mg-grow" />
             <button
               className={`mg-leave${leave ? ' armed' : ''}`}
@@ -152,7 +197,7 @@ export function Minigame({ game, onExit }: { game: MinigameId; onExit: () => voi
           </div>
           {view.note && <div className="mg-note">{view.note}</div>}
           <div className="mg-bottom">
-            {view.verb ? <span className="mg-chip mg-verb">Нажми — {view.verb.toLowerCase()}</span> : hint && <span className="mg-hint">Слева шаг, справа взгляд</span>}
+            {view.verb ? <span className="mg-chip mg-verb">Нажми — {view.verb.toLowerCase()}</span> : hint && <span className="mg-hint">{HINT[game]}</span>}
           </div>
         </>
       )}

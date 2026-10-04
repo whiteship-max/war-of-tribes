@@ -8,7 +8,7 @@ import { DAY_MS } from '../time';
  * сцена, раскладка и время игры — свой кусок `src/minigames/`.
  */
 
-export type MinigameId = 'berries' | 'herd';
+export type MinigameId = 'berries' | 'herd' | 'hunt';
 
 export interface MinigameDef {
   id: MinigameId;
@@ -49,6 +49,8 @@ export const MINIGAME_SHARE = 1 / 12;
 export const MINIGAMES: readonly MinigameDef[] = [
   { id: 'berries', name: 'Ягоды', yard: 'gathering', goal: 'Собери спелые ягоды', go: 'В лес', glyph: '🍓' },
   { id: 'herd', name: 'Скот', yard: 'pen', goal: 'Накорми всех в загоне', go: 'В загон', glyph: '🐑' },
+  // Охота — двор охотников: мясо, шкуры и кости в его пропорции (docs/minigames.md, раздел 13).
+  { id: 'hunt', name: 'Охота', yard: 'hunter_hut', goal: 'Подстрели оленей из лука', go: 'На охоту', glyph: '🦌' },
 ];
 
 export const MINIGAME_BY_ID: Record<MinigameId, MinigameDef> = Object.fromEntries(MINIGAMES.map((g) => [g.id, g])) as Record<

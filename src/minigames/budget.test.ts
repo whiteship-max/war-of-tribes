@@ -1,13 +1,13 @@
 /**
  * Бюджет кадра промыслов — счётом по графу сцены (docs/minigames.md, 8): тот же граф, что рисуется (`world.furnish`).
- * Область: обе игры, с тенью и без (пол `base` теней не держит). Точка внутри области — в графе есть то, ради чего
- * игра: ягоды инстансами и стадо.
+ * Область: все три игры, с тенью и без (пол `base` теней не держит). Точка внутри области — в графе есть то, ради
+ * чего игра: ягоды инстансами, стадо, олени с луком.
  */
 import { describe, expect, it } from 'vitest';
 import { MINI_BUDGET, budgetOf } from './budget';
 
 describe('промыслы: бюджет кадра', () => {
-  for (const id of ['berries', 'herd'] as const) {
+  for (const id of ['berries', 'herd', 'hunt'] as const) {
     it(`${id}: вызовов и треугольников не больше потолка — с тенью и без`, () => {
       for (const shadows of [true, false]) {
         const c = budgetOf(id, shadows);

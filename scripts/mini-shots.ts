@@ -3,7 +3,8 @@
 //   npm run mini:shots                  — вход из города и обе игры: верх, подсказка энергии, «Промыслы»,
 //                                         начало, середина игры у цели, итог; по каждому снимку — ступень,
 //                                         вызовы отрисовки и треугольники прошлого кадра
-//   GAMES=herd npm run mini:shots       — одна игра; GAMES=none — только город, верхняя строка и окно двора
+//   GAMES=herd npm run mini:shots       — одна игра (`berries`, `herd`, `hunt`); GAMES=none — только город, верхняя
+//                                         строка и окно двора
 //   SEASON=winter npm run mini:shots    — сезон города (снег на ветках)
 //   LOOK=lite npm run mini:shots        — ступень вида приколота (`full`, `lite`, `base`)
 //   WIDTH=375 npm run mini:shots        — ширина экрана, px (по умолчанию 390)
@@ -25,10 +26,12 @@ const PORT = Number(process.env.PORT ?? 4198);
 const DEBUG_PORT = Number(process.env.CDP_PORT ?? 9343);
 const SCREEN = { width: Number(process.env.WIDTH ?? 390), height: 844, deviceScaleFactor: 2, mobile: true };
 /** Какие игры снимать; `GAMES=none` — только город и окно двора. */
-const GAMES = (process.env.GAMES ?? 'berries,herd')
+const GAMES = (process.env.GAMES ?? 'berries,herd,hunt')
   .split(',')
   .map((x) => x.trim())
-  .filter((x) => x === 'berries' || x === 'herd');
+  .filter((x) => x === 'berries' || x === 'herd' || x === 'hunt');
+/** Кнопка входа в игру — та же строка, что в таблице игр (`data/minigames.ts`, `go`). */
+const GO: Record<string, string> = { berries: 'В лес', herd: 'В загон', hunt: 'На охоту' };
 const SEASON = process.env.SEASON ?? '';
 const TAG = process.env.TAG ?? 'probe';
 /** Ступень вида из адреса (`?look=full|lite|base`) — приколота, сторож её не трогает. */
@@ -63,8 +66,68 @@ async function waitFor(tab: Tab, expr: string, ms: number): Promise<boolean> {
   return false;
 }
 
+/**
+ * «Охота»: обзор поля со старта, лук натянут на ближнего видимого оленя с поправкой дуги, настоящий выстрел мышью CDP
+ * по правой половине холста (прижал — держит — отпустил: тот же путь, что у пальца, `Stage.onDown/onUp`), олень крупно.
+ */
+async function hunt(tab: Tab, began: number): Promise<void> {
+  await tab.eval<string>(`(() => { window.__mini.seek(2); return JSON.stringify('ok'); })()`);
+  await sleep(1500);
+  await snap(tab, 'hunt-3-field', began);
+  const aim = await tab.eval<string>(`(() => {
+    const st = window.__mini;
+    const h = st.play.hunt;
+    const t = h.now;
+    const eye = { x: st.play.start.x, y: 1.62, z: st.play.start.z };
+    // Ближний пасущийся олень, до которого дуга свободна: место со старта, поправка — той же дугой, что у стрелы.
+    let best = -1, bestD = 1e9;
+    h.field.deer.forEach((d, i) => {
+      const p = h.pose(i, t);
+      const dist = Math.hypot(p.x - eye.x, p.z - eye.z);
+      if (p.kind === 'graze' && dist < bestD) { best = i; bestD = dist; }
+    });
+    if (best < 0) return JSON.stringify('оленей нет');
+    const p = h.pose(best, t);
+    const g = 9.8, v = 50, dy = 0.95 - 1.62, d = bestD - 0.6;
+    const el = Math.atan((v * v - Math.sqrt(v ** 4 - g * (g * d * d + 2 * dy * v * v))) / (g * d));
+    st.place(eye.x, eye.z, Math.atan2(-(p.x - eye.x), -(p.z - eye.z)), el);
+    return JSON.stringify('олень ' + best + ' на ' + bestD.toFixed(1) + ' м, подъём ' + (el * 180 / Math.PI).toFixed(2) + '°');
+  })()`);
+  console.log(`  прицел: ${aim}`);
+  const before = await tab.eval<{ got: number }>('JSON.stringify(window.__mini.play.tally())');
+  const pt = { x: Math.round(SCREEN.width * 0.75), y: Math.round(SCREEN.height * 0.62), button: 'left', clickCount: 1 };
+  await tab.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...pt });
+  await tab.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...pt });
+  // Держать, пока тетива не натянута до конца: время сцены идёт кадрами, а программная отрисовка даёт их мало.
+  await waitFor(tab, 'window.__mini.play.drawn() >= 1', 15000);
+  await sleep(500);
+  await snap(tab, 'hunt-3a-drawn', began);
+  await tab.send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...pt });
+  // Ждать, пока стрела ляжет: в оленя, в землю или в дерево.
+  await waitFor(tab, 'window.__mini.play.hunt.arrows.length > 0 && window.__mini.play.hunt.arrows[0].end !== null', 20000);
+  await sleep(600);
+  const after = await tab.eval<{ got: number; total: number }>('JSON.stringify(window.__mini.play.tally())');
+  const arrow = await tab.eval<string>(`JSON.stringify((() => { const a = window.__mini.play.hunt.arrows[0]; return a ? a.struck + ' ' + a.what : 'стрелы нет'; })())`);
+  console.log(`  выстрел мышью: стрела — ${arrow}; оленей ${before.got} → ${after.got} из ${after.total}`);
+  await snap(tab, 'hunt-3b-shot', began);
+  // Олень крупно: в девяти шагах — дальше, чем он подпускает (`hunt.SEE_R`), сбоку.
+  const close = await tab.eval<string>(`(() => {
+    const st = window.__mini;
+    const h = st.play.hunt;
+    const i = h.field.deer.findIndex((_, k) => h.pose(k, h.now).kind === 'graze' || h.pose(k, h.now).kind === 'alert');
+    if (i < 0) return JSON.stringify('стоящих нет');
+    const p = h.pose(i, h.now);
+    const x = p.x + Math.cos(p.yaw) * 9, z = p.z - Math.sin(p.yaw) * 9;
+    st.place(x, z, Math.atan2(-(p.x - x), -(p.z - z)), -0.08);
+    return JSON.stringify('олень ' + i + ': ' + p.kind);
+  })()`);
+  await sleep(1500);
+  console.log(`  крупно: ${close}`);
+  await snap(tab, 'hunt-3c-deer', began);
+}
+
 async function game(tab: Tab, id: string, began: number): Promise<void> {
-  const go = id === 'berries' ? 'В лес' : 'В загон';
+  const go = GO[id];
   console.log(`  ${await tab.eval<string>(click('button[aria-label="Энергия"]'))} — подсказка энергии`);
   await sleep(400);
   await snap(tab, `${id}-0-tip`, began);
@@ -80,6 +143,20 @@ async function game(tab: Tab, id: string, began: number): Promise<void> {
   await sleep(2500);
   await snap(tab, `${id}-2-brief`, began);
   console.log(`  ${await tab.eval<string>(press('Начать'))} — «Начать»`);
+  if (id === 'hunt') await hunt(tab, began);
+  else await near(tab, id, began);
+  // Итог: время выходит — трата энергии и добыча одним вызовом двери.
+  await tab.eval<string>(`(() => { window.__mini.seek(1e6); return JSON.stringify('ok'); })()`);
+  await sleep(1500);
+  await snap(tab, `${id}-4-done`, began);
+  console.log(`  ${await tab.eval<string>(press('В город'))} — «В город»`);
+  await waitFor(tab, '!window.__mini || !document.querySelector(".mg")', 5000);
+  await tab.eval<string>(`(() => { window.__mini = undefined; return JSON.stringify('ok'); })()`);
+  await sleep(1500);
+}
+
+/** «Ягоды» и «Скот»: середина игры у цели, настоящий тап по холсту, у скота — стадо крупно. */
+async function near(tab: Tab, id: string, began: number): Promise<void> {
   // Середина игры у цели: секунда и место — те же у любого прогона (раскладка от зерна партии).
   // У скота сначала охапка из стога — тем же тапом, что у игрока, — и цель уже животное.
   const T = id === 'berries' ? 30 : 20;
@@ -132,21 +209,13 @@ async function game(tab: Tab, id: string, began: number): Promise<void> {
     console.log(`  стадо: ${seen}`);
     await snap(tab, 'herd-3c-herd', began);
   }
-  // Итог: время выходит — трата энергии и добыча одним вызовом двери.
-  await tab.eval<string>(`(() => { window.__mini.seek(1e6); return JSON.stringify('ok'); })()`);
-  await sleep(1500);
-  await snap(tab, `${id}-4-done`, began);
-  console.log(`  ${await tab.eval<string>(press('В город'))} — «В город»`);
-  await waitFor(tab, '!window.__mini || !document.querySelector(".mg")', 5000);
-  await tab.eval<string>(`(() => { window.__mini = undefined; return JSON.stringify('ok'); })()`);
-  await sleep(1500);
 }
 
 async function budget(): Promise<void> {
   // Счёт без браузера — той же обстановкой, что у сцены (`world.furnish`), и тем же счётчиком, что у теста бюджета.
   const { budgetOf, MINI_BUDGET } = await import('../src/minigames/budget');
   console.log('\n=== промыслы: бюджет кадра (счёт по графу сцены, без браузера) ===\n');
-  for (const id of ['berries', 'herd'] as const) {
+  for (const id of ['berries', 'herd', 'hunt'] as const) {
     for (const shadows of [true, false]) {
       const c = budgetOf(id, shadows);
       const lim = MINI_BUDGET;

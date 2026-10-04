@@ -225,18 +225,30 @@ export function beast(kind: BeastKind): THREE.Group {
   return g;
 }
 
+/** Где растут пучки: сколько их и в каком кольце вокруг какой точки. Поляна — до тринадцати метров от середины. */
+export interface TuftArea {
+  count: number;
+  from: number;
+  to: number;
+  x: number;
+  z: number;
+}
+
+const GLADE_TUFTS: TuftArea = { count: 300, from: 1, to: 13.2, x: 0, z: 0 };
+
 /**
  * Трава пучками — по сезону города: летом зелёная, осенью бурая, зимой солома из-под снега. Своя, а не подлесок
- * поляны (`prologue/models.undergrowth`): у той трава всегда зимняя, и летом читалась чёрными иглами.
+ * поляны (`prologue/models.undergrowth`): у той трава всегда зимняя, и летом читалась чёрными иглами. Поле «Охоты»
+ * шире поляны — у него своё кольцо (`area`), вокруг охотника.
  */
-export function tufts(season: Season, keep: readonly { x: number; z: number; r: number }[]): THREE.Mesh {
+export function tufts(season: Season, keep: readonly { x: number; z: number; r: number }[], area: TuftArea = GLADE_TUFTS): THREE.Mesh {
   const parts: K.Part[] = [];
   const hue = GRASS[season];
-  for (let i = 0; i < 300; i++) {
+  for (let i = 0; i < area.count; i++) {
     const a = hash(i, 401) * Math.PI * 2;
-    const r = 1 + Math.sqrt(hash(i, 403)) * 12.2;
-    const x = Math.cos(a) * r;
-    const z = Math.sin(a) * r;
+    const r = area.from + Math.sqrt(hash(i, 403)) * (area.to - area.from);
+    const x = area.x + Math.cos(a) * r;
+    const z = area.z + Math.sin(a) * r;
     if (keep.some((k) => Math.hypot(x - k.x, z - k.z) < k.r)) continue;
     const h = 0.16 + hash(i, 405) * 0.18;
     const paint = tint(hue[Math.floor(hash(i, 407) * hue.length)]);

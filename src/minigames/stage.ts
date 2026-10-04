@@ -83,6 +83,40 @@ export interface Play {
   /** Счёт. */
   tally(): Tally;
   dispose(): void;
+
+  // Необязательное — у игр, которым мало «ходи и трогай» (лук «Охоты», docs/minigames.md, 13). Нет у игры — сцена
+  // ведёт себя как прежде.
+
+  /** Своя земля и лес вместо поляны предыстории. */
+  land?(scene: THREE.Scene, surfaces: Surfaces, shade: Shade, season: Season): void;
+  /** Туман материалов у пола (`base`), метры: поле шире поляны. */
+  readonly fog?: { near: number; far: number };
+  /** Дальняя плоскость камеры, метры. */
+  readonly far?: number;
+  /** С какой дали размывает глубина резкости (ступень `full`), метры: на поле целятся вдаль. */
+  readonly focus?: number;
+  /** «Начать» — из жеста: открыть звук. */
+  begin?(): void;
+  /** Палец лёг в половину взгляда (или пробел): тянуть тетиву. */
+  draw?(t: number): void;
+  /** Палец снят: `shoot` — отпустить в цель; `false` — жест отобран, тетиву ослабить без выстрела. */
+  loose?(t: number, shoot: boolean): void;
+  /** Во сколько раз тише взгляд: натянутый лук ведут бережно. */
+  lookScale?(): number;
+  /** Во сколько раз уже угол обзора: натянутый лук приближает. */
+  zoom?(): number;
+  /** Во сколько раз медленнее шаг. */
+  stride?(): number;
+  /** Насколько натянута тетива, 0..1 — прицелу. */
+  drawn?(): number;
+  /** Метки прицела: дальность и на сколько ниже середины, рад. */
+  pins?(): readonly { d: number; angle: number }[];
+  /** Вторая строка счёта: «Стрел 6». */
+  aside?(): string;
+  /** Отклик, случившийся сам (попал, мимо), — всплывает над прицелом. Забирается один раз. */
+  say?(): string;
+  /** Кончилась ли игра раньше времени. */
+  over?(t: number): boolean;
 }
 
 export type Phase = 'brief' | 'play' | 'done';
@@ -97,6 +131,8 @@ export interface StageView {
   verb: string;
   /** Отклик последнего тапа и до какого кадра он стоит. */
   note: string;
+  /** Вторая строка счёта (`Play.aside`); нет — пусто. */
+  aside: string;
 }
 
 /** Ступени промыслов — те же, что у поляны (`look.TIERS`): что умеет устройство, то и первая. */
@@ -188,6 +224,13 @@ export class Stage {
   stickEl: HTMLElement | null = null;
   /** Замерник кадров (`?fps=1`): ступень, кадры в секунду, худший кадр. */
   meterEl: HTMLElement | null = null;
+  /** Прицел лука: натяжка и метки дальности — двигает сцена, минуя React. */
+  aimEl: HTMLElement | null = null;
+  private aimShown = '';
+  /** Угол обзора по форме экрана — от него считает приближение лука. */
+  private baseFov = 72;
+  /** Высота холста в точках экрана — с последнего `resize`: прицел не читает раскладку каждый кадр. */
+  private viewH = 1;
   private meterN = 0;
   private meterMs = 0;
   private meterWorst = 0;
@@ -204,8 +247,12 @@ export class Stage {
     this.renderer.toneMapping = ACES;
     this.renderer.info.autoReset = false;
     configureSky(this.scene);
+    if (play.fog) {
+      this.fog.near = play.fog.near;
+      this.fog.far = play.fog.far;
+    }
     this.scene.fog = this.fog;
-    this.camera = new THREE.PerspectiveCamera(72, 1, 0.05, 90);
+    this.camera = new THREE.PerspectiveCamera(72, 1, 0.05, play.far ?? 90);
     this.px = play.start.x;
     this.pz = play.start.z;
     this.yaw = play.start.yaw;
@@ -215,6 +262,7 @@ export class Stage {
     fitShadow(this.rig, play.shadowHalf);
     const tier = this.pickTier();
     this.post = new Post(this.renderer, tier);
+    if (play.focus !== undefined) this.post.setFocus(play.focus);
     this.steady = new Steady<Tier>(TIERS, tier, VILLAGE_STEADY('high'));
     // Сезон города: цвета материалов — его, снег на ветках — только зимой.
     this.seasonLook.jump(season);
@@ -237,6 +285,7 @@ export class Stage {
     if (this.phase !== 'brief') return;
     this.phase = 'play';
     this.t = 0;
+    this.play.begin?.();
     this.refresh(true);
   }
 
@@ -302,7 +351,9 @@ export class Stage {
       /* захват не обязателен */
     }
     const p = this.local(e);
-    this.sticks.down(e.pointerId, p.x, p.y, performance.now(), p.w);
+    const half = this.sticks.down(e.pointerId, p.x, p.y, performance.now(), p.w);
+    // Палец во взгляде тянет тетиву: ведёт он её тем же пальцем, отпускает — снимая.
+    if (half === 'look' && this.phase === 'play') this.play.draw?.(this.t);
   };
 
   private onMove = (e: PointerEvent): void => {
@@ -319,6 +370,7 @@ export class Stage {
       /* захвата могло и не быть */
     }
     if (!done) return;
+    if (done.half === 'look' && this.phase === 'play') this.play.loose?.(this.t, true);
     const target = this.phase === 'play' ? this.target : null;
     gestLog.add({
       where: 'промыслы',
@@ -336,7 +388,7 @@ export class Stage {
   };
 
   private onCancel = (e: PointerEvent): void => {
-    this.sticks.cancel(e.pointerId);
+    if (this.sticks.cancel(e.pointerId) === 'look') this.play.loose?.(this.t, false);
   };
 
   private onKeyDown = (e: KeyboardEvent): void => {
@@ -347,15 +399,24 @@ export class Stage {
     }
     if (e.code === 'Space' || e.code === 'KeyE' || e.code === 'Enter') {
       e.preventDefault();
+      // С луком пробел — тетива: держишь — тянешь, отпустил — выстрел.
+      if (this.play.draw && e.code === 'Space') {
+        if (this.phase === 'play') this.play.draw(this.t);
+        return;
+      }
       this.act();
     }
   };
 
-  private onKeyUp = (e: KeyboardEvent): void => this.keys.up(e.code);
+  private onKeyUp = (e: KeyboardEvent): void => {
+    if (e.code === 'Space' && this.phase === 'play') this.play.loose?.(this.t, true);
+    this.keys.up(e.code);
+  };
 
   private onBlur = (): void => {
     this.keys.clear();
     this.sticks.clear();
+    if (this.phase === 'play') this.play.loose?.(this.t, false);
   };
 
   private onVisibility = (): void => {
@@ -401,16 +462,18 @@ export class Stage {
     const live = this.phase === 'play';
     const look = this.sticks.takeLook();
     if (live) {
-      this.yaw += look.yaw;
-      this.pitch = THREE.MathUtils.clamp(this.pitch + look.pitch, -PITCH_LIMIT, PITCH_LIMIT);
+      const k = this.play.lookScale?.() ?? 1;
+      this.yaw += look.yaw * k;
+      this.pitch = THREE.MathUtils.clamp(this.pitch + look.pitch * k, -PITCH_LIMIT, PITCH_LIMIT);
     }
     const walk: Walk = live ? mergeWalk(this.sticks.walk(), this.keys.walk()) : { forward: 0, strafe: 0 };
     const speed = Math.hypot(walk.forward, walk.strafe);
     if (speed > 0) {
       const sin = Math.sin(this.yaw);
       const cos = Math.cos(this.yaw);
-      const dx = (-sin * walk.forward + cos * walk.strafe) * WALK_SPEED * dt;
-      const dz = (-cos * walk.forward - sin * walk.strafe) * WALK_SPEED * dt;
+      const pace = WALK_SPEED * (this.play.stride?.() ?? 1) * dt;
+      const dx = (-sin * walk.forward + cos * walk.strafe) * pace;
+      const dz = (-cos * walk.forward - sin * walk.strafe) * pace;
       const p = slide(this.px + dx, this.pz + dz, this.play.blockers(this.t));
       const r = Math.hypot(p.x, p.z);
       const k = r > this.play.roam ? this.play.roam / r : 1;
@@ -423,6 +486,19 @@ export class Stage {
     this.camera.position.set(this.px, EYE + Math.sin(this.bob) * 0.025 * this.walkK, this.pz);
     this.surfaces.u.time.value = now / 1000;
     this.play.frame(this.t, dt, this.walkK);
+    const said = this.play.say?.();
+    if (said) {
+      this.note = said;
+      this.noteUntil = now + NOTE_MS;
+      this.refresh(true);
+    }
+    if (live && this.play.over?.(this.t)) this.finish();
+    const zoom = this.play.zoom?.() ?? 1;
+    if (Math.abs(this.camera.fov - this.baseFov * zoom) > 1e-3) {
+      this.camera.fov = this.baseFov * zoom;
+      this.camera.updateProjectionMatrix();
+    }
+    this.aimSync();
     // Что тронет тап: ближайшее в досягаемости. Кольцо под ним — видно, к чему подошёл.
     this.target = live ? nearestTarget(this.px, this.pz, this.play.targets(this.t)) : null;
     const tg = this.target;
@@ -449,8 +525,9 @@ export class Stage {
       tally: this.play.tally(),
       verb: this.target?.verb ?? '',
       note: this.note,
+      aside: this.play.aside?.() ?? '',
     };
-    const key = `${v.phase}|${v.left}|${v.tally.got}|${v.tally.total}|${v.verb}|${v.note}`;
+    const key = `${v.phase}|${v.left}|${v.tally.got}|${v.tally.total}|${v.verb}|${v.note}|${v.aside}`;
     if (!force && key === this.shown) return;
     this.shown = key;
     this.onView?.(v);
@@ -458,7 +535,40 @@ export class Stage {
 
   /** Надпись сейчас — оболочке на первом кадре. */
   snapshot(): StageView {
-    return { phase: this.phase, left: Math.ceil(this.seconds - this.t), tally: this.play.tally(), verb: '', note: '' };
+    return { phase: this.phase, left: Math.ceil(this.seconds - this.t), tally: this.play.tally(), verb: '', note: '', aside: this.play.aside?.() ?? '' };
+  }
+
+  /**
+   * Прицел лука: натяжка — переменной `--draw`, метки дальности — сдвигом вниз от середины в точках экрана. Сдвиг —
+   * тот же угол, что поправка дуги (`Play.pins`), через нынешний угол обзора: приблизил лук — метки разошлись.
+   */
+  private aimSync(): void {
+    const el = this.aimEl;
+    if (!el || !this.play.drawn) return;
+    const draw = this.play.drawn();
+    const h = this.viewH;
+    const half = Math.tan((this.camera.fov * DEG) / 2);
+    const pins = this.play.pins?.() ?? [];
+    const px = pins.map((p) => Math.round((Math.tan(p.angle) / half) * (h / 2)));
+    const key = `${draw.toFixed(2)}|${px.join(',')}`;
+    if (key === this.aimShown) return;
+    this.aimShown = key;
+    el.style.setProperty('--draw', draw.toFixed(2));
+    // Метки — по одной на дальность, подписаны ею же: числа прицела — от правила, а не от разметки.
+    let marks = el.querySelectorAll<HTMLElement>('.mg-pin');
+    if (marks.length !== pins.length) {
+      marks.forEach((b) => b.remove());
+      for (const p of pins) {
+        const b = document.createElement('b');
+        b.className = 'mg-pin';
+        b.textContent = String(p.d);
+        el.append(b);
+      }
+      marks = el.querySelectorAll<HTMLElement>('.mg-pin');
+    }
+    marks.forEach((b, i) => {
+      b.style.transform = `translateY(${px[i] ?? 0}px)`;
+    });
   }
 
   private stick(): void {
@@ -590,12 +700,14 @@ export class Stage {
     const r = this.canvas.getBoundingClientRect();
     const w = Math.max(1, r.width);
     const h = Math.max(1, r.height);
+    this.viewH = h;
     this.renderer.setPixelRatio(pixelRatio(Math.max(1, Math.min(deviceRatio(), DPR_OF[this.post.getTier()]))));
     this.renderer.setSize(w, h, false);
     const buf = this.renderer.getDrawingBufferSize(_size);
     this.post.setSize(buf.x, buf.y);
     this.camera.aspect = w / h;
-    this.camera.fov = viewFov(w / h);
+    this.baseFov = viewFov(w / h);
+    this.camera.fov = this.baseFov * (this.play.zoom?.() ?? 1);
     this.camera.updateProjectionMatrix();
   }
 

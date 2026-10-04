@@ -1,7 +1,7 @@
 /**
  * Бюджет кадра промыслов — счётом по графу сцены, без видеокарты (docs/minigames.md, 8). Граф тот же, что рисуется:
- * обставляет его `world.furnish`, игры — те же классы, что в сцене; зерно — любое: число кустов, ягод и животных от
- * зерна не зависит.
+ * обставляет его `world.furnish`, игры — те же классы, что в сцене; зерно — любое: число кустов, ягод, животных,
+ * оленей и укрытий от зерна не зависит.
  */
 import * as THREE from 'three';
 import { Dome } from '@/prologue/dome';
@@ -9,6 +9,8 @@ import { Surfaces } from '@/prologue/surface';
 import type { MinigameId } from '@/game/data/minigames';
 import { BerriesPlay } from './berriesPlay';
 import { HerdPlay } from './herdPlay';
+import { HuntPlay } from './huntPlay';
+import type { Play } from './stage';
 import { aimRing } from './models';
 import { frameCost, furnish, type FrameCost } from './world';
 
@@ -25,7 +27,7 @@ export function budgetOf(id: MinigameId, shadows: boolean): FrameCost {
   const surfaces = new Surfaces();
   const dome = new Dome();
   const camera = new THREE.PerspectiveCamera(72, 390 / 844, 0.05, 90);
-  const play = id === 'berries' ? new BerriesPlay(12345) : new HerdPlay(12345);
+  const play: Play = id === 'berries' ? new BerriesPlay(12345) : id === 'herd' ? new HerdPlay(12345) : new HuntPlay(12345);
   furnish(scene, surfaces, play, camera, dome, 'summer');
   const aim = aimRing();
   aim.visible = true;

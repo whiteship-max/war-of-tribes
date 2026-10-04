@@ -129,6 +129,18 @@ const LAZY_DOORS: { name: string; door: RegExp; owns: RegExp[] }[] = [
     owns: [/\/src\/sound\/battlefx\.ts$/],
   },
   {
+    // Промыслы — мини-игры от первого лица (docs/minigames.md): свой кусок по кнопке входа; «Охота» внутри него —
+    // ещё одна докачка (лук, олени, звук), её тянет только «На охоту».
+    name: 'промыслы',
+    door: /\/src\/minigames\/Minigame\.tsx$/,
+    owns: [/\/src\/minigames\//],
+  },
+  {
+    name: 'охота',
+    door: /\/src\/minigames\/huntPlay\.ts$/,
+    owns: [/\/src\/minigames\/hunt/],
+  },
+  {
     name: 'предыстория',
     door: /\/src\/prologue\/Prologue\.tsx$/,
     owns: [/\/src\/prologue\//, /\/src\/sound\/howl\.ts$/],

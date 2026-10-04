@@ -36,7 +36,17 @@ describe('подсказка энергии — числами двери', () =
 });
 
 describe('голос промыслов', () => {
-  const FILES = ['minigames/Minigame.tsx', 'minigames/berriesPlay.ts', 'minigames/herdPlay.ts', 'minigames/berries.ts', 'minigames/herd.ts', 'ui/next/Trades.tsx', 'game/data/minigames.ts'];
+  const FILES = [
+    'minigames/Minigame.tsx',
+    'minigames/berriesPlay.ts',
+    'minigames/herdPlay.ts',
+    'minigames/huntPlay.ts',
+    'minigames/berries.ts',
+    'minigames/herd.ts',
+    'minigames/hunt.ts',
+    'ui/next/Trades.tsx',
+    'game/data/minigames.ts',
+  ];
   const SRC = join(__dirname, '..');
 
   it('ни канцелярита, ни восклицаний, ни слов, которые словарь убрал; кнопки — до 14 знаков', () => {
@@ -49,7 +59,7 @@ describe('голос промыслов', () => {
     }
     // Точка внутри области: щуп видит строки.
     expect(seen).toBeGreaterThan(20);
-    for (const label of ['В лес', 'В загон', 'Начать', 'Назад', 'Уйти', 'Точно?', 'В город']) expect(label.length).toBeLessThanOrEqual(14);
+    for (const label of ['В лес', 'В загон', 'На охоту', 'Начать', 'Назад', 'Уйти', 'Точно?', 'В город']) expect(label.length).toBeLessThanOrEqual(14);
   });
 });
 

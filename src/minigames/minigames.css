@@ -126,6 +126,63 @@
   white-space: nowrap;
 }
 
+/*
+ * Прицел лука. Середина — куда уходит стрела; кольцо сжимается с натяжкой (`--draw`, ставит сцена). Метки ниже —
+ * поправка дуги на дальность: сцена сдвигает каждую на её угол через нынешний угол обзора (`Stage.aimSync`).
+ */
+.mg-aim {
+  --draw: 0;
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+.mg-aim.off {
+  display: none;
+}
+.mg-dot {
+  position: absolute;
+  left: -2px;
+  top: -2px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #fff6e0;
+  box-shadow: 0 0 2px rgba(0, 0, 0, 0.8);
+}
+.mg-ring {
+  position: absolute;
+  left: -22px;
+  top: -22px;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 240, 210, 0.55);
+  transform: scale(calc(1 - 0.6 * var(--draw)));
+  opacity: calc(0.35 + 0.65 * var(--draw));
+}
+.mg-pin {
+  position: absolute;
+  left: -12px;
+  top: -1px;
+  width: 24px;
+  height: 2px;
+  background: rgba(224, 160, 64, 0.85);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 0;
+  color: rgba(255, 236, 200, 0.85);
+  text-indent: 30px;
+  white-space: nowrap;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+}
+/* Подписи через одну — по разные стороны: метки стоят тесно, и цифры не налезают друг на друга. */
+.mg-pin:nth-of-type(even) {
+  text-indent: -44px;
+}
+
 .mg-bottom {
   position: absolute;
   left: 0;
