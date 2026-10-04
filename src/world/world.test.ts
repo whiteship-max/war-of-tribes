@@ -4,7 +4,8 @@ import type { GameState } from '@/game/types';
 import { createInitialState } from '@/game/state';
 import { armyPower, armySize, defense, faithTilt, homeArmyPower } from '@/game/derived';
 import { applyExpedition, sendableUnits } from '@/game/sim/expedition';
-import { LocalWorld } from './local/LocalWorld';
+import { HOME_ID, LocalWorld } from './local/LocalWorld';
+import { inHomeTheatre } from './theatre/theatre';
 import { generateWorld } from './gen';
 import { distance, marchSeconds, terrainAt, terrainFactor, travelSeconds } from './geo';
 import { FEATURE, cellCost, dropGeography, featuresAt, landmasses, roadNet } from './geography';
@@ -871,7 +872,8 @@ describe('мягкость мира', () => {
       for (let i = 0; i < 900 && !raid; i++) {
         w.advance(10_000);
         const pulse = await w.world.sync(p);
-        const found = pulse.marches.find((m) => !m.own && m.phase === 'out');
+        // Набег — на свой город: логова воюют и между собой (`scheduleWar`), и такой поход не набег.
+        const found = pulse.marches.find((m) => !m.own && m.phase === 'out' && m.targetId === HOME_ID);
         if (found) {
           raid = found;
           seenAt = pulse.now;
@@ -923,7 +925,8 @@ describe('мягкость мира', () => {
         await offline.world.sync(profile());
         // Граница области: отряд ещё в пути дольше одного пульса — иначе «отсутствия»
         // между последним взглядом и приходом не было бы вовсе.
-        raid = pulse.marches.find((m) => m.hostile && m.phase === 'out' && m.arriveAt - online.now() > 60_000);
+        // Набег — на свой город: поход логова на логово (`scheduleWar`) — другое дело.
+        raid = pulse.marches.find((m) => m.hostile && m.phase === 'out' && m.targetId === HOME_ID && m.arriveAt - online.now() > 60_000);
       }
       if (!raid) continue;
       const end = raid.arriveAt + 30 * 60_000;
@@ -2464,7 +2467,8 @@ describe('перехват в поле', () => {
     for (let i = 0; i < 400; i++) {
       w.advance(20_000);
       const pulse = await w.world.sync(p);
-      const raid = pulse.marches.find((m) => !m.own && m.phase === 'out');
+      // Набег — на свой город: поход логова на логово (`scheduleWar`) перехватывать незачем.
+      const raid = pulse.marches.find((m) => !m.own && m.phase === 'out' && m.targetId === HOME_ID);
       if (raid) return raid;
     }
     throw new Error('набега так и не было');
@@ -2540,10 +2544,18 @@ describe('перехват в поле', () => {
     await w.world.sync(p);
     const raid = await waitRaid(w, p);
 
-    // Уводим полководца в противоположную сторону, за край обзора.
+    // Уводим полководца в сторону от набега, за край обзора, — в своём регионе: за его край не отправить
+    // (docs/map_tw.md, 0.−2). Ближайший к противоположной стороне угол, где своя земля.
     const info = await w.world.info();
-    const far = { x: info.home.x + 30, y: info.home.y + 30 };
-    expect(await w.world.moveFigure('general', far)).toBeNull();
+    const back = Math.atan2(info.home.y - raid.from.y, info.home.x - raid.from.x);
+    let far: { x: number; y: number } | null = null;
+    for (let k = 0; k < 32 && !far; k++) {
+      const a = back + (k % 2 ? 1 : -1) * Math.ceil(k / 2) * (Math.PI / 16);
+      const c = { x: Math.round(info.home.x + Math.cos(a) * 30), y: Math.round(info.home.y + Math.sin(a) * 30) };
+      if (inHomeTheatre(info.home, c)) far = c;
+    }
+    expect(far, 'своя земля в тридцати клетках').not.toBe(null);
+    expect(await w.world.moveFigure('general', far!)).toBeNull();
     w.at((await general(w)).arriveAt);
     await w.world.sync(p);
 

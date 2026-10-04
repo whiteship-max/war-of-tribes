@@ -61,6 +61,7 @@ import { distance } from './geo';
 import { PLAYER_CAMP } from './siege';
 import type { GenSettlement } from './gen';
 import type { FigureId, HomeEffect, PlayerProfile } from './types';
+import { inHomeTheatre } from './theatre/theatre';
 
 const START = 1_700_000_000_000;
 const MIN = 60_000;
@@ -433,7 +434,14 @@ describe('зоркость — только земля разведчика', ()
       }
       const before = w.inner.fog.count();
       const home = w.inner.save.home;
-      expect(await w.world.moveFigure('scout', { x: home.x + 40, y: home.y })).toBeNull();
+      // Сорок клеток — в своём регионе: за его край разведчика не отправить (docs/map_tw.md, 0.−2).
+      let to: { x: number; y: number } | null = null;
+      for (let k = 0; k < 32 && !to; k++) {
+        const c = { x: Math.round(home.x + Math.cos((k * Math.PI) / 16) * 40), y: Math.round(home.y + Math.sin((k * Math.PI) / 16) * 40) };
+        if (inHomeTheatre(home, c)) to = c;
+      }
+      expect(to, 'своя земля в сорока клетках').not.toBe(null);
+      expect(await w.world.moveFigure('scout', to!)).toBeNull();
       w.advance(30 * GAME_DAY);
       await w.world.sync(p);
       counts.push(w.inner.fog.count() - before);

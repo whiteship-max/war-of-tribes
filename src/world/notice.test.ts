@@ -505,7 +505,14 @@ describe('разрыв держит правду', () => {
         got++;
         const wait = Math.round(HANDOVER_MAX * (muster ?? 1));
         const by = item.p.about - wait;
+        // Черновик лежит с выхода отряда, а в игре отряд виден с минуты, когда о нём узнали (`fireAt` — донесение Дозора
+        // или живой обзор): окно в игре сверяется в эту минуту.
+        if (item.fireAt > now) {
+          now = item.fireAt;
+          await world.sync(who);
+        }
         const view = (await world.marches()).find((m) => m.id === item!.key.split(':')[1]);
+        expect(view, `черта ${muster ?? 1}, сид ${seed}: набег виден в минуту черновика`).toBeTruthy();
         expect(view?.musterBy, `черта ${muster ?? 1}, сид ${seed}: окно в игре — той же дверью`).toBe(by);
         if (item.p.late) {
           late++;

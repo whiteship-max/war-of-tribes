@@ -16,7 +16,6 @@ import type { Coord, PlayerProfile } from '../types';
 import { beyondNote, homeTheatre, inHomeTheatre, theatreIndexAt } from './theatre';
 
 const START = 1_700_000_000_000;
-const MIN = 60_000;
 
 /** Ближайшая к долготе и широте клетка, где может встать город, — и в нужном регионе. */
 function homeNear(lon: number, lat: number, region: string): Coord {
@@ -162,8 +161,7 @@ describe('походы и приказы за край — отказ миром
   /** Мир у Инсбрука и чужое место в Италии за Альпами, вложенное в мир в обход генерации (так стоял бы чужой двор). */
   async function setup() {
     const home = HOMES[0][1];
-    let now = START;
-    const world = new LocalWorld({ seed: 7, home, now: () => now, storage: null, reveal: true });
+    const world = new LocalWorld({ seed: 7, home, now: () => START, storage: null, reveal: true });
     const w = inside(world);
     // Две клетки чужой суши у дома: под чужое место и голая земля.
     const spots: Coord[] = [];
@@ -182,7 +180,7 @@ describe('походы и приказы за край — отказ миром
     const own = w.gen.settlements.filter((s) => isLair(s) && s.id !== 'x1').sort((a, b) => distance(home, a) - distance(home, b))[0];
     expect(own, 'своё логово у дома').toBeTruthy();
     await world.sync(profile());
-    return { world, home, far, land: spots[1], own, advance: (ms: number) => void (now += ms) };
+    return { world, home, far, land: spots[1], own };
   }
 
   it('разведка и поддержка за край не уходят; в своём регионе — уходят', async () => {
