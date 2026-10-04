@@ -162,7 +162,7 @@ describe('сейв профиля', () => {
 
     // Приведение не проходит молча: о нём сказано в летописи. Строки ступеней ложатся в летопись при входе, после догона отлучки (`save.enter`); вход — сразу после записи.
     enter(g, g.lastSaved);
-    expect(g.log.some((e) => /грамота вождя/i.test(e.text))).toBe(true);
+    expect(g.log.some((e) => /имя, лицо и счёт побед/i.test(e.text))).toBe(true);
     // Старая запись при этом не потерялась.
     expect(g.log.some((e) => /Пришла зима/.test(e.text))).toBe(true);
   });
@@ -180,7 +180,7 @@ describe('сейв профиля', () => {
     expect(back.profile.totals.produced).toBe(250);
     expect(back.profile.card.battlesWon).toBe(1);
     enter(back, back.lastSaved);
-    expect(back.log.some((e) => /грамота вождя/i.test(e.text))).toBe(false);
+    expect(back.log.some((e) => /имя, лицо и счёт побед/i.test(e.text))).toBe(false);
   });
 });
 

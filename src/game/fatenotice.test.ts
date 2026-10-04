@@ -59,7 +59,7 @@ function stored(o: { version: number; war: number; points: number; awayMs?: numb
   expect(adoptSave(JSON.stringify(raw)), 'запись читается и легла на диск').toBe(true);
 }
 
-const notice = (s: GameState): string[] => s.log.filter((e) => e.text.includes('«увести людей» стала ступенью')).map((e) => e.text);
+const notice = (s: GameState): string[] => s.log.filter((e) => e.text.includes('«увести людей» стала технологией')).map((e) => e.text);
 
 describe('старая партия узнаёт, что участь стала покупной', () => {
   it('очков хватает — строка так и говорит, и кнопка «Изучить» с ней согласна', async () => {
@@ -72,9 +72,9 @@ describe('старая партия узнаёт, что участь стала
     const info = studyInfo(state, 'war');
     expect(info.next, 'кнопка продаёт восьмую').toBe(WAR_CAPTIVES_LEVEL);
     expect(info.blocked, 'и продаёт её сразу').toBeNull();
-    expect(lines[0]).toContain(`${WAR_CAPTIVES_LEVEL} уровень, ${levelPrice('war', WAR_CAPTIVES_LEVEL)} очков`);
-    expect(lines[0], 'почему закрыта').toMatch(/засчитываются вещи на складе и в дружине, а участь — не вещь/);
-    expect(lines[0]).toContain(`Военных очков ${Math.floor(pointsOf(state, 'war'))} из ${info.price} — хватает: изучить можно сразу`);
+    expect(lines[0]).toContain(`${WAR_CAPTIVES_LEVEL} уровень войны, ${levelPrice('war', WAR_CAPTIVES_LEVEL)} очков`);
+    expect(lines[0], 'почему закрыта').toMatch(/Засчитать её нечем, засчитываются только вещи на складе и в дружине/);
+    expect(lines[0]).toContain(`Очков войны ${Math.floor(pointsOf(state, 'war'))} из ${info.price}, хватает.`);
   });
 
   it('очков не хватает — строка называет, сколько есть и сколько ждать, теми же числами', async () => {
@@ -83,9 +83,9 @@ describe('старая партия узнаёт, что участь стала
     const info = studyInfo(state, 'war');
     expect(info.blocked, 'точка внутри области: очков и правда не хватает').not.toBeNull();
     const [line] = notice(state);
-    expect(line).toContain(`Военных очков ${Math.floor(info.have)} из ${info.price} — пока не хватает`);
+    expect(line).toContain(`Очков войны ${Math.floor(info.have)} из ${info.price}, не хватает.`);
     expect(line).toContain(`накопится через ${gameSpan(info.wait)}`);
-    expect(line).not.toMatch(/хватает: изучить можно сразу/);
+    expect(line).not.toMatch(/, хватает\./);
   });
 
   /**
@@ -107,7 +107,7 @@ describe('старая партия узнаёт, что участь стала
     expect(studyInfo(state, 'war').blocked, 'к минуте входа очков хватает').toBeNull();
     const lines = notice(state);
     expect(lines, 'строка есть').toHaveLength(1);
-    expect(lines[0], 'и строка говорит это, а не то, что было на минуту записи').toMatch(/хватает: изучить можно сразу/);
+    expect(lines[0], 'и строка говорит это, а не то, что было на минуту записи').toMatch(/, хватает\./);
   });
 
   /**
@@ -130,8 +130,8 @@ describe('старая партия узнаёт, что участь стала
     let rest = 0;
     for (let l = 4; l <= WAR_CAPTIVES_LEVEL; l++) rest += levelPrice('war', l);
     const [line] = notice(state);
-    expect(line).toContain(`Изучено до 3 уровня: до неё ещё ступени 4–${WAR_CAPTIVES_LEVEL - 1} — вместе с ней ${rest} очков`);
-    expect(line).toContain(`военных очков сейчас ${Math.floor(pointsOf(state, 'war'))}`);
+    expect(line).toContain(`Изучено до 3 уровня. Перед ней уровни 4–${WAR_CAPTIVES_LEVEL - 1}, вместе с ней ${rest} очков`);
+    expect(line).toContain(`очков войны сейчас ${Math.floor(pointsOf(state, 'war'))}`);
   });
 
   it('партия восемнадцатой версии проходит обе ступени: ветвь засчитана, участь названа', async () => {

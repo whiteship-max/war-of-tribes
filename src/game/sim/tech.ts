@@ -131,7 +131,7 @@ export const techOpen = (s: GameState, key: TechKey): boolean => openAtLevel(tec
 export function techBlock(s: GameState, key: TechKey): string | null {
   if (techOpen(s, key)) return null;
   const g = gateOf(key);
-  return `Ещё не изучено: ${techName(key)} — ${g.level} уровень ${BRANCH_OF[g.branch]}, в «Технологиях».`;
+  return `Не изучено: ${techName(key)}, ${g.level} уровень ${BRANCH_OF[g.branch]}.`;
 }
 
 // ---------- Что гейт закрывает: места агентов и ячейки стола ----------
@@ -206,11 +206,11 @@ export function mastersBlock(s: GameState, want: number): string | null {
   if (level >= ADMIN_LEVELS) return null;
   const next = level + 1;
   if (cap === 0) {
-    return `Ещё не изучено: наёмные мастера — ${next} уровень ${BRANCH_OF.admin}, в «Технологиях».`;
+    return `Не изучено: наёмные мастера, ${next} уровень ${BRANCH_OF.admin}.`;
   }
   return (
-    `Наёмным открыто мест Мастерской: ${cap}; ещё ${mastersCapAt(next) - cap} — ` +
-    `${next} уровень ${BRANCH_OF.admin}, в «Технологиях».`
+    `Мест для наёмных мастеров: ${cap}. ` +
+    `${next} уровень ${BRANCH_OF.admin} даст ещё ${mastersCapAt(next) - cap}.`
   );
 }
 
@@ -258,20 +258,20 @@ export function fateNotice(s: GameState, fate: WarFate): string | null {
   const price = levelPrice('war', level);
   const name = techName(fate);
   const head =
-    `${name[0].toUpperCase()}${name.slice(1)} стала ступенью военной ветви — ${level} уровень, ${price} очков. ` +
-    'Прежде её объявлял кто угодно; засчитать её нечем: засчитываются вещи на складе и в дружине, а участь — не вещь.';
+    `${name[0].toUpperCase()}${name.slice(1)} стала технологией: ${level} уровень ${BRANCH_OF.war}, ${price} очков. ` +
+    'Прежде её объявлял кто угодно. Засчитать её нечем, засчитываются только вещи на складе и в дружине.';
   const info = studyInfo(s, 'war');
   const have = Math.floor(info.have);
   if (info.next < level) {
     let rest = 0;
     for (let l = info.next; l <= level; l++) rest += levelPrice('war', l);
-    const before = info.next === level - 1 ? `ступень ${info.next}` : `ступени ${info.next}–${level - 1}`;
-    return `${head} Изучено до ${info.level} уровня: до неё ещё ${before} — вместе с ней ${rest} очков, военных очков сейчас ${have}.`;
+    const before = info.next === level - 1 ? `уровень ${info.next}` : `уровни ${info.next}–${level - 1}`;
+    return `${head} Изучено до ${info.level} уровня. Перед ней ${before}, вместе с ней ${rest} очков, очков ${BRANCH_OF.war} сейчас ${have}.`;
   }
   if (info.blocked === null) {
-    return `${head} Военных очков ${have} из ${price} — хватает: изучить можно сразу, за гербом в «Технологиях».`;
+    return `${head} Очков ${BRANCH_OF.war} ${have} из ${price}, хватает.`;
   }
-  return `${head} Военных очков ${have} из ${price} — пока не хватает; при нынешнем правителе накопится через ${gameSpan(info.wait)}.`;
+  return `${head} Очков ${BRANCH_OF.war} ${have} из ${price}, не хватает. При нынешнем правителе накопится через ${gameSpan(info.wait)}.`;
 }
 
 /**
@@ -285,14 +285,14 @@ export function adminNotice(s: GameState): string {
   const info = studyInfo(s, 'admin');
   const step = mastersCapAt(info.level + 1) - mastersCapAt(info.level);
   const head =
-    `Построена административная ветвь: её ступени открывают наёмным мастерам места Мастерской — по ${step} на ступень. ` +
-    'Мастера строят за жалованье из той же казны, что платит войску, и уходят той же дверью, что войско.';
+    `В технологиях открылось ${BRANCH_NAME.admin.toLowerCase()}. Каждый его уровень прибавляет мест для наёмных мастеров ` +
+    `в Мастерской: ${step}. Им платят из того же золота, что дружине, и уходят они так же.`;
   if (info.next === 0) return head;
   const have = Math.floor(info.have);
   if (info.blocked === null) {
-    return `${head} Административных очков ${have} из ${info.price} — ступень ${info.next} можно изучить сразу, за гербом в «Технологиях».`;
+    return `${head} Очков ${BRANCH_OF.admin} ${have} из ${info.price}, на ${info.next} уровень хватает.`;
   }
-  return `${head} Административных очков ${have} из ${info.price} — ступень ${info.next} накопится через ${gameSpan(info.wait)}.`;
+  return `${head} Очков ${BRANCH_OF.admin} ${have} из ${info.price}, на ${info.next} уровень накопится через ${gameSpan(info.wait)}.`;
 }
 
 // ---------- Что даст следующий уровень: замером, а не подписью ----------
@@ -308,15 +308,15 @@ export function techGains(branch: RealmBranch, level: number): string[] {
   if (branch === 'diplo') {
     const was = FIGURE_IDS.filter((id) => placeOpenAt(level, id));
     const now = FIGURE_IDS.filter((id) => placeOpenAt(level + 1, id));
-    for (const id of now) if (!was.includes(id)) out.push(`Место в игре: ${FIGURE_BY_ID[id].name.toLowerCase()}`);
+    for (const id of now) if (!was.includes(id)) out.push(`Новое место: ${FIGURE_BY_ID[id].name.toLowerCase()}`);
     const slots = mailSlotsAt(level + 1) - mailSlotsAt(level);
-    if (slots > 0) out.push(`Стол донесений: ${mailSlotsAt(level)} → ${mailSlotsAt(level + 1)} ячеек`);
+    if (slots > 0) out.push(`Мест для вестей: ${mailSlotsAt(level)} → ${mailSlotsAt(level + 1)}`);
   }
   if (branch === 'war') {
     const gear = EQUIPMENT_IDS.filter((i) => gearOpenAt(level + 1, i) && !gearOpenAt(level, i));
     if (gear.length > 0) out.push(`Кузница: ${gear.map((i) => EQUIPMENT_BY_ID[i].name.toLowerCase()).join(', ')}`);
     const troops = TROOP_IDS.filter((t) => troopOpenAt(level + 1, t) && !troopOpenAt(level, t));
-    if (troops.length > 0) out.push(`Войско: ${troops.map((t) => TROOP_BY_ID[t].name.toLowerCase()).join(', ')}`);
+    if (troops.length > 0) out.push(`Дружина: ${troops.map((t) => TROOP_BY_ID[t].name.toLowerCase()).join(', ')}`);
     const fates = WAR_FATES.filter((f) => fateOpenAt(level + 1, f) && !fateOpenAt(level, f));
     if (fates.length > 0) out.push(`Участь взятого города: ${fates.map((f) => FATE_META[f].name.toLowerCase()).join(', ')}`);
   }
@@ -357,8 +357,8 @@ export function studyInfo(s: GameState, branch: RealmBranch): StudyInfo {
   const rate = rulerRate(s, branch);
   const short = Math.max(0, price - have);
   let blocked: string | null = null;
-  if (!BRANCH_BUILT[branch]) blocked = `Ветвь «${BRANCH_NAME[branch]}» ещё не построена.`;
-  else if (next === 0) blocked = 'Ветвь изучена целиком.';
+  if (!BRANCH_BUILT[branch]) blocked = `«${BRANCH_NAME[branch]}» ещё закрыто.`;
+  else if (next === 0) blocked = 'Изучено всё.';
   else if (short > 0) blocked = `Не хватает очков: нужно ${price}, есть ${Math.floor(have)}.`;
   return {
     branch,
@@ -383,7 +383,7 @@ export function study(s: GameState, branch: RealmBranch): string | null {
   if (!spend(s, branch, info.price)) return `Не хватает очков: нужно ${info.price}, есть ${Math.floor(info.have)}.`;
   s.realm.tech[branch] = info.next;
   const opened = info.gains.length > 0 ? ` Открылось: ${info.gains.join('; ').toLowerCase()}.` : '';
-  log(s, `Изучен ${info.next} уровень ${BRANCH_OF[branch]} — ${info.price} очков.${opened}`, 'good');
+  log(s, `Изучен ${info.next} уровень ${BRANCH_OF[branch]}, ${info.price} очков.${opened}`, 'good');
   return null;
 }
 

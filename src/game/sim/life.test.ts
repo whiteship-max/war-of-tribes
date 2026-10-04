@@ -201,7 +201,7 @@ describe('ступень сохранения 12 → 13', () => {
     for (const id of FIGURE_IDS) expect(ageOf(late, id), `${id}: догон не состарил`).toBeCloseTo(AGENT_AGE0, 6);
     // Строки ступеней ложатся в летопись при входе, после догона отлучки (`save.enter`); вход — сразу после записи.
     enter(s, s.lastSaved);
-    expect(s.log.some((e) => e.text.startsWith('Агенты получили имена и возраст'))).toBe(true);
+    expect(s.log.some((e) => e.text.startsWith('Люди на местах получили имена и возраст'))).toBe(true);
   });
 
   it('опыт переходит на новые пороги, не сдвигая уровня; сид выводится из самого сохранения', () => {
