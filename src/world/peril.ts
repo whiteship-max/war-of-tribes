@@ -36,6 +36,7 @@ import {
   PERIL_SHARE,
   ROUT_PERIL,
 } from './data/tuning';
+import { dec } from '@/game/num';
 
 const clamp01 = (v: number): number => Math.min(1, Math.max(0, Number.isFinite(v) ? v : 0));
 
@@ -176,5 +177,5 @@ export function perilText(share: number): string {
   if (share <= 0) return 'нет';
   if (share < 0.001) return 'меньше 0,1 %';
   const pct = share * 100;
-  return `${pct < 10 ? pct.toFixed(1).replace('.', ',') : Math.round(pct)} %`;
+  return `${pct < 10 ? dec(pct, 1) : Math.round(pct)} %`;
 }

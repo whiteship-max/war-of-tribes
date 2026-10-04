@@ -5,6 +5,7 @@ import { MASTER_PAID_AS } from '@/game/data/upkeep';
 import { hireMasters, mastersInfo, releaseMasters } from '@/game/sim/masters';
 import { Icon } from '@/ui/icons/Icon';
 import { Steps } from './Steps';
+import { dec } from '@/game/num';
 
 /**
  * Наёмные мастера в Мастерской (docs/admin_branch.md, раздел 4.1): сколько их, сколько стоят,
@@ -47,35 +48,35 @@ export function Masters() {
           <Icon name="res-gold" glyph="💰" />
         </span>
         <span className="name">Жалованье мастеру</span>
-        <span className="val">{m.wage.toFixed(2)} в день</span>
+        <span className="val">{dec(m.wage, 2)} в день</span>
       </div>
       <div className="mod">
         <span className="ico">⚔️</span>
         <span className="name">
           Цена мастера
-          <em className="sub">{m.hands.toFixed(2)} рук стройке, платят как бойцам</em>
+          <em className="sub">{dec(m.hands, 2)} рук стройке, платят как бойцам</em>
         </span>
         <span className="val">
-          {m.inSoldiers.toFixed(2)} × {soldier.one}
+          {dec(m.inSoldiers, 2)} × {soldier.one}
         </span>
       </div>
       <div className="mod">
         <span className="ico">🔨</span>
         <span className="name">
           Дают стройке
-          <em className="sub">каждый +{m.each.toFixed(1)}</em>
+          <em className="sub">каждый +{dec(m.each, 1)}</em>
         </span>
-        <span className="val">+{m.gain.toFixed(1)}</span>
+        <span className="val">+{dec(m.gain, 1)}</span>
       </div>
       <div className="mod">
         <span className="ico">📜</span>
         <span className="name">
           Жалованье в день
           <em className="sub">
-            дружина {up.armyWages.toFixed(1)}, мастера {up.mastersWages.toFixed(1)}, доход {up.income.toFixed(1)}
+            дружина {dec(up.armyWages, 1)}, мастера {dec(up.mastersWages, 1)}, доход {dec(up.income, 1)}
           </em>
         </span>
-        <span className={`val${up.wages > up.income ? ' neg' : ''}`}>{up.wages.toFixed(1)}</span>
+        <span className={`val${up.wages > up.income ? ' neg' : ''}`}>{dec(up.wages, 1)}</span>
       </div>
       <Steps
         value={m.have}

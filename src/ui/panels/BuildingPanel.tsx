@@ -56,12 +56,13 @@ import { moodOf } from '@/ui/icons/registry';
 import { troopTotal } from '@/game/battle/kinds';
 import { asGame } from '@/game/pace';
 import { lazy, Suspense } from 'react';
+import { dec } from '@/game/num';
 
 /** Шаблон окна нового интерфейса и заказ кузницы — в куске нового вида (`ui/next/index.ts`). */
 const BuildingNew = lazy(() => import('@/ui/next').then((m) => ({ default: m.BuildingNew })));
 const SmithyNew = lazy(() => import('@/ui/next').then((m) => ({ default: m.SmithyNew })));
 
-const fmt = (n: number): string => (Math.abs(n) >= 100 ? String(Math.round(n)) : n.toFixed(1));
+const fmt = (n: number): string => (Math.abs(n) >= 100 ? String(Math.round(n)) : dec(n, 1));
 const fmtDelta = (n: number): string => `${n >= 0 ? '+' : '−'}${fmt(Math.abs(n))}`;
 
 /**
@@ -222,7 +223,7 @@ function FreeJobRow({ job }: { job: JobId }) {
   const idle = idleCount(s);
   const mult = jobMultiplier(s, job) * FREE_RANGE_MULT;
   const yields = RESOURCE_IDS.filter((r) => def.yield[r]).map(
-    (r) => `${RESOURCE_META[r].icon}${((def.yield[r] ?? 0) * mult).toFixed(1)}`,
+    (r) => `${RESOURCE_META[r].icon}${dec((def.yield[r] ?? 0) * mult, 1)}`,
   );
 
   return (
@@ -341,7 +342,7 @@ function GenericData({ b }: { b: Building }) {
     if (troopTotal(carried) > 0) stats.push(['ui-bandage', '🩹', 'Раненых в отряде полководца', `${troopTotal(carried)}`]);
   }
   if (b.type === 'watch') {
-    stats.push(['ui-spyglass', '🔭', 'Сведения стареют', `в ${intelKeen(s).toFixed(2)} раза медленнее`]);
+    stats.push(['ui-spyglass', '🔭', 'Сведения стареют', `в ${dec(intelKeen(s), 2)} раза медленнее`]);
     // Минуты с секундами, а не округлённые минуты: округление и было враньём
     // кнопки — девять уровней обещали девять минут, а давали шесть.
     stats.push(['ui-time', '⏳', 'Набег виден дольше на', waitMinSec(warningSeconds(s))]);
@@ -354,7 +355,7 @@ function GenericData({ b }: { b: Building }) {
   }
   if (b.type === 'stable') {
     stats.push(['troop-horse', '🐎', 'Стойла заняты', `${stallsTaken(s)} из ${stalls(s)}`]);
-    stats.push(['troop-horse', '🐎', 'Конница учится быстрее', `×${cavalryTrain(s).toFixed(2)}`]);
+    stats.push(['troop-horse', '🐎', 'Конница учится быстрее', `×${dec(cavalryTrain(s), 2)}`]);
     // Латных всадников конюшня больше не открывает — их открывает доспех в военной ветви
     // (решение владельца 3). Строка про это стоит там, где игрок нажимает, — в самом найме,
     // и говорит её гейт; второй правды об открытии здесь быть не должно.
@@ -372,10 +373,10 @@ function GenericData({ b }: { b: Building }) {
       stats.push(['ui-crate', '📦', `На ур. ${b.level + 1}`, `${next} · +${next - now}`]);
     }
   }
-  if (b.type === 'workshop') stats.push(['ui-hammer', '🔨', 'К скорости стройки', `+${crafterBuildShare(s).toFixed(1)}`]);
-  if (b.type === 'smithy') stats.push(['hud-army', '⚔️', 'Мощь дружины', armyPower(s).toFixed(0)]);
+  if (b.type === 'workshop') stats.push(['ui-hammer', '🔨', 'К скорости стройки', `+${dec(crafterBuildShare(s), 1)}`]);
+  if (b.type === 'smithy') stats.push(['hud-army', '⚔️', 'Мощь дружины', dec(armyPower(s), 0)]);
   if (housing) stats.push(['hud-pop', '👥', 'Жители', `${s.pop} из ${housingCapacity(s)}`]);
-  if (def_ && !WALLS.includes(b.type)) stats.push(['hud-army', '⚔️', 'Оборона города', defense(s).toFixed(0)]);
+  if (def_ && !WALLS.includes(b.type)) stats.push(['hud-army', '⚔️', 'Оборона города', dec(defense(s), 0)]);
 
   return (
     <>

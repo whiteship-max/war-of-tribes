@@ -11,6 +11,7 @@ import { PERIL_FAR } from '@/world/data/tuning';
 import { perilOf, perilShare, perilText, routPeril, veilAt, type PerilCase } from '@/world/peril';
 import type { FigureId } from '@/world/types';
 import { count } from './plural';
+import { num } from '@/game/num';
 
 export interface PipLines {
   /** Что такое отметки и где они работают, словами. */
@@ -27,7 +28,7 @@ export interface PipLines {
 const INTO: Record<PipId, string> = { fire: 'обстрел', shock: 'сшибку', melee: 'сечу', maneuver: 'манёвр' };
 
 /** Доля словами: «+6,7 %». */
-const pct = (x: number): string => `+${String(Math.round(x * 1000) / 10).replace('.', ',')} %`;
+const pct = (x: number): string => `+${num(x * 100, 1)} %`;
 
 /**
  * Отметки полководца словами. `level` — уровень, с которого они считаются (`sim/agents.pipLevel`: свои кружки и кружки
@@ -110,5 +111,5 @@ export function deathLine(id: FigureId, level: number): string {
   const times = base > 0 ? Math.round((base / now) * 10) / 10 : 1;
   return level <= 1
     ? `Риск гибели виден перед приказом. Скрытность снижает его с ур. ${level + 1}.`
-    : `Риск гибели виден перед приказом. Скрытность снижает его в ${String(times).replace('.', ',')} раза.`;
+    : `Риск гибели виден перед приказом. Скрытность снижает его в ${num(times, 2)} раза.`;
 }

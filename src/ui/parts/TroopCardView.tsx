@@ -10,6 +10,7 @@ import { recruitCheck } from '@/game/sim/army';
 import { temperOf, troopCard } from '@/game/battle/describe';
 import { Icon } from '@/ui/icons/Icon';
 import { waitShort } from './wait';
+import { dec } from '@/game/num';
 
 /** Полоска величины в своём потолке: вес среди видов, мораль в шкале боя. */
 function Bar({
@@ -65,14 +66,14 @@ export function TroopCardView({ troop, onBack }: { troop: TroopId; onBack: () =>
         <div className="body">
           <div className="name">{def.name}</div>
           <div className="lvl">
-            {meta.icon} {meta.name} · мощь {weight.power.toFixed(1)} · в городе {have}
+            {meta.icon} {meta.name} · мощь {dec(weight.power, 1)} · в городе {have}
           </div>
         </div>
       </div>
       <p className="season-hint">{def.description}</p>
 
       <h3>В бою</h3>
-      <Bar icon="⚖️" label="Мощь" value={weight.power} max={weight.powerMax} note={`из ${weight.powerMax.toFixed(1)} у сильнейшего`} />
+      <Bar icon="⚖️" label="Мощь" value={weight.power} max={weight.powerMax} note={`из ${dec(weight.powerMax, 1)} у сильнейшего`} />
       <p className="season-hint">{weight.what}</p>
       <Bar
         icon="🏳️"
@@ -159,12 +160,12 @@ export function TroopCardView({ troop, onBack }: { troop: TroopId; onBack: () =>
         <div className="mod">
           <span className="ico">🗡️</span>
           <span className="name">Натиск</span>
-          <span className="val">{stats.melee.toFixed(1)}</span>
+          <span className="val">{dec(stats.melee, 1)}</span>
         </div>
         <div className="mod">
           <span className="ico">🏹</span>
           <span className="name">Стрельба</span>
-          <span className="val">{stats.ranged.toFixed(1)}</span>
+          <span className="val">{dec(stats.ranged, 1)}</span>
         </div>
         <div className="mod">
           <span className="ico">🐾</span>

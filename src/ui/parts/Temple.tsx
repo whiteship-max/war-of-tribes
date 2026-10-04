@@ -30,6 +30,7 @@ import { baptismInfo, baptize, holdRite, riteInfo, setObservance, strainDaysLeft
 import { Cost } from './Cost';
 import { useRealm } from '@/ui/realm/open';
 import { waitDays } from './wait';
+import { dec } from '@/game/num';
 
 const sign = (n: number): string => `${n > 0 ? '+' : n < 0 ? '−' : ''}${Math.abs(Math.round(n * 10) / 10)}`;
 const days = (sec: number): number => Math.ceil(sec / DAY_LENGTH);
@@ -218,7 +219,7 @@ export function RealmFaith() {
         show={Math.abs(tilt.goldPerPop) > 0.001}
         icon="💰"
         name={tilt.goldPerPop > 0 ? 'Десятина в казну' : 'Закят из казны'}
-        hint={`${Math.abs(tilt.goldPerPop).toFixed(2)} с жителя в день`}
+        hint={`${dec(Math.abs(tilt.goldPerPop), 2)} с жителя в день`}
         value={`${sign(tilt.goldPerPop * population(s))} в день`}
         good={tilt.goldPerPop > 0}
       />
@@ -233,28 +234,28 @@ export function RealmFaith() {
         show={Math.abs(tilt.output - 1) > 0.001}
         icon="⛏️"
         name="Выработка"
-        value={`×${tilt.output.toFixed(2)}`}
+        value={`×${dec(tilt.output, 2)}`}
         good={tilt.output > 1}
       />
       <TiltRow
         show={Math.abs(tilt.steadfast) > 0.001}
         icon="🛡️"
         name="Оборона"
-        value={`×${(1 + tilt.steadfast).toFixed(2)}`}
+        value={`×${dec(1 + tilt.steadfast, 2)}`}
         good
       />
       <TiltRow
         show={Math.abs(tilt.learning - 1) > 0.001}
         icon="📖"
         name="Разведка округи"
-        value={`×${tilt.learning.toFixed(2)}`}
+        value={`×${dec(tilt.learning, 2)}`}
         good={tilt.learning > 1}
       />
       <TiltRow
         show={Math.abs(tilt.growth) > 0.001}
         icon="👥"
         name="Прирост жителей"
-        value={`×${(1 + tilt.growth).toFixed(2)}`}
+        value={`×${dec(1 + tilt.growth, 2)}`}
         good
       />
       <TiltRow
@@ -262,7 +263,7 @@ export function RealmFaith() {
         icon="⚔️"
         name="Стойкость дружины"
         hint="к морали в начале боя"
-        value={`+${tilt.fervour.toFixed(1)}`}
+        value={`+${dec(tilt.fervour, 1)}`}
         good
       />
 

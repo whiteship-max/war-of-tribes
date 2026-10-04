@@ -57,6 +57,7 @@ import { count } from '@/ui/parts/plural';
 import { OrderPanel } from '@/ui/panels/OrderPanel';
 import { Bonded } from '@/ui/panels/PeoplePanel';
 import { BRANCH_ICON, BRANCH_WORD } from './branches';
+import { dec } from '@/game/num';
 
 /** Строк рода, видных сразу (6.4: «три последних строки рода»); остальные — по «Все». */
 export const LINEAGE_SHOWN = 3;
@@ -67,7 +68,6 @@ export const LINEAGE_SHOWN = 3;
 export const signedRate = (n: number): string => perDay(n).replace(/ в день$/, '');
 
 /** Дробь — запятой (4.5): «×1,05», «+0,6». */
-export const comma = (text: string): string => text.replace('.', ',');
 
 /** Навык точками: столько полных, сколько навык, из пяти. */
 function Dots({ n, max = 5 }: { n: number; max?: number }) {
@@ -298,7 +298,7 @@ export function DecreesNew() {
         value={tax.id}
         onPick={(id) => act((st) => setTax(st, id))}
         items={taxPicks(s)}
-        note={`Мораль станет ${Math.round(quote.morale)}, выработка ${comma(`×${quote.output.toFixed(2)}`)}.`}
+        note={`Мораль станет ${Math.round(quote.morale)}, выработка ${`×${dec(quote.output, 2)}`}.`}
       />
 
       {bonded > 0 && (
@@ -347,19 +347,19 @@ export function tiltCells(t: ReturnType<typeof faithTilt>, pop: number): TiltCel
       label: t.goldPerPop > 0 ? 'Десятина' : 'Закят',
       value: perDay(t.goldPerPop * pop),
       good: t.goldPerPop > 0,
-      hint: `${comma(Math.abs(t.goldPerPop).toFixed(2))} золота с жителя в день.`,
+      hint: `${dec(Math.abs(t.goldPerPop), 2)} золота с жителя в день.`,
     });
-  if (!near(t.morale, 0)) out.push({ key: 'morale', label: 'Мораль', value: comma(signed(t.morale)), good: t.morale > 0, hint: 'Столько вера даёт морали города.' });
+  if (!near(t.morale, 0)) out.push({ key: 'morale', label: 'Мораль', value: signed(t.morale), good: t.morale > 0, hint: 'Столько вера даёт морали города.' });
   if (!near(t.output, 1))
-    out.push({ key: 'output', label: 'Выработка', value: comma(`×${t.output.toFixed(2)}`), good: t.output > 1, hint: 'Всех ремёсел. Служб и постов в году много.' });
+    out.push({ key: 'output', label: 'Выработка', value: `×${dec(t.output, 2)}`, good: t.output > 1, hint: 'Всех ремёсел. Служб и постов в году много.' });
   if (!near(t.steadfast, 0))
-    out.push({ key: 'steadfast', label: 'Оборона', value: comma(`×${(1 + t.steadfast).toFixed(2)}`), good: true, hint: 'Община держит тех, кто на стене.' });
+    out.push({ key: 'steadfast', label: 'Оборона', value: `×${dec(1 + t.steadfast, 2)}`, good: true, hint: 'Община держит тех, кто на стене.' });
   if (!near(t.learning, 1))
-    out.push({ key: 'learning', label: 'Разведка округи', value: comma(`×${t.learning.toFixed(2)}`), good: t.learning > 1, hint: 'Дозор быстрее. Медресе учит счёту и письму.' });
+    out.push({ key: 'learning', label: 'Разведка округи', value: `×${dec(t.learning, 2)}`, good: t.learning > 1, hint: 'Дозор быстрее. Медресе учит счёту и письму.' });
   if (!near(t.growth, 0))
-    out.push({ key: 'growth', label: 'Прирост', value: comma(`×${(1 + t.growth).toFixed(2)}`), good: true, hint: 'Закят держит бедных на ногах.' });
+    out.push({ key: 'growth', label: 'Прирост', value: `×${dec(1 + t.growth, 2)}`, good: true, hint: 'Закят держит бедных на ногах.' });
   if (t.fervour > 0.001)
-    out.push({ key: 'fervour', label: 'Стойкость', value: comma(`+${t.fervour.toFixed(1)}`), good: true, hint: 'К морали дружины в начале боя, на время обряда.' });
+    out.push({ key: 'fervour', label: 'Стойкость', value: `+${dec(t.fervour, 1)}`, good: true, hint: 'К морали дружины в начале боя, на время обряда.' });
   return out;
 }
 

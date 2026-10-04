@@ -27,6 +27,7 @@ import { Icon } from '@/ui/icons/Icon';
 import { iconName } from '@/ui/icons/registry';
 import { waitSpan } from './wait';
 import { asGame } from '@/game/pace';
+import { dec } from '@/game/num';
 
 const ORDER = new Map(BUILDINGS.map((d, i) => [d.id, i]));
 const byOrder = (a: Building, b: Building): number => (ORDER.get(a.type) ?? 99) - (ORDER.get(b.type) ?? 99);
@@ -51,7 +52,7 @@ function rowFacts(s: GameState, b: Building): string {
       : `Рабочих: ${workerCount(s, b.id)}/${slots}`;
   }
   const facts: string[] = [];
-  if (b.type === 'town_hall') facts.push(`стройка ×${townHallBuildMult(s).toFixed(2)}`);
+  if (b.type === 'town_hall') facts.push(`стройка ×${dec(townHallBuildMult(s), 2)}`);
   const housing = buildingHousing(b);
   if (housing) facts.push(`жильё ${housing}`);
   const storage = buildingStat(b, 'storage');
@@ -113,9 +114,9 @@ export function TownBuild() {
         <span className="ico"><Icon name="ui-hammer" glyph="🔨" /></span>
         <span className="name">
           Скорость стройки
-          <em className="sub">свободные руки, ремесленники · ратуша ×{mult.toFixed(2)}</em>
+          <em className="sub">свободные руки, ремесленники · ратуша ×{dec(mult, 2)}</em>
         </span>
-        <span className="val pos">{rate.toFixed(1)}</span>
+        <span className="val pos">{dec(rate, 1)}</span>
       </div>
 
       {queue.length > 0 && (

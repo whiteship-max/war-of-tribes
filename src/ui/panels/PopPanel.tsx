@@ -30,6 +30,7 @@ import { signed } from '../parts/signed';
 import { Icon } from '@/ui/icons/Icon';
 import { moodOf } from '@/ui/icons/registry';
 import { asGame } from '@/game/pace';
+import { dec } from '@/game/num';
 
 /** Как множитель называется в строке-подсказке про узкое место. */
 const FACTOR_NAME: Record<string, string> = {
@@ -126,7 +127,7 @@ export function PopPanel() {
               {faithDef(s)?.name ?? 'Вера'}
               <em className="sub">{faithTilt(s).boon}</em>
             </span>
-            <span className="val pos">×{growth.faith.toFixed(2)}</span>
+            <span className="val pos">×{dec(growth.faith, 2)}</span>
           </div>
         </>
       )}
@@ -164,7 +165,7 @@ export function PopPanel() {
         <span className="ico">🌱</span>
         <span className="name">Основа</span>
         <span className="val">
-          {base.toFixed(2)} = {POP_GROWTH_PER_DAY} × ({s.pop} + {POP_GROWTH_BASE})
+          {dec(base, 2)} = {POP_GROWTH_PER_DAY} × ({s.pop} + {POP_GROWTH_BASE})
         </span>
       </div>
       <div className="mod">

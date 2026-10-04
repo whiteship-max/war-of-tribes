@@ -20,6 +20,7 @@ import { count } from '../parts/plural';
 import { tipAt } from '@/ui/next/tip';
 import { TroopCardView } from '../parts/TroopCardView';
 import { Icon } from '@/ui/icons/Icon';
+import { dec } from '@/game/num';
 
 export function ArmyPanel() {
   const s = useGame((g) => g.s);
@@ -52,7 +53,7 @@ export function ArmyPanel() {
       >
         <span className="ico">🛡️</span>
         <span className="name">Оборона</span>
-        <span className="val pos">{defense(s).toFixed(0)}</span>
+        <span className="val pos">{dec(defense(s), 0)}</span>
       </div>
       <div className="mod">
         <span className="ico"><Icon name="ui-home" glyph="🏠" /></span>

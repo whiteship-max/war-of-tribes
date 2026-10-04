@@ -30,6 +30,7 @@ import { ENERGY_MAX, MINIGAME_COST } from '@/game/data/minigames';
 import { energyFullIn, energyShown } from '@/game/sim/minigames';
 import type { RealmView } from '@/ui/realm/open';
 import type { TipContent } from './tip';
+import { dec } from '@/game/num';
 
 /** Куда ведут ссылки подсказок: раздел шторки, здание, раздел державы. */
 export interface TipGo {
@@ -47,7 +48,7 @@ export function fmtInt(n: number): string {
 export function fmtRate(n: number): string {
   const a = Math.abs(n);
   if (a < 0.05) return '0';
-  return a >= 100 ? fmtInt(a) : a.toFixed(1).replace('.', ',');
+  return a >= 100 ? fmtInt(a) : dec(a, 1);
 }
 
 /** Ставка со знаком: «+12,4 в день», «−3,0 в день»; ноль — без знака. */

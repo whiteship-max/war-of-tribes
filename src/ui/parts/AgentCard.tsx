@@ -46,6 +46,7 @@ import { deathLine, pipLines, sightLine, stealthLine } from './agentLines';
 import { REST_WHY, restLine } from './restWords';
 import { count } from './plural';
 import { traitLines } from './traitLines';
+import { num } from '@/game/num';
 
 /** Отметки полководца: какие есть, что дают замером и куда ляжет следующий кружок. */
 /** Подсказка по касанию справки (docs/ui_audit.md, 3.7). */
@@ -207,7 +208,7 @@ export function AgentCard({ id, onBack, embedded = false }: { id: FigureId; onBa
             </button>
             <button className="nx-fact" onClick={tip('Скорость', 'Клеток по равнине в день. От уровня не растёт, время пути решают дорога и местность.')}>
               <small>Скорость</small>
-              <b>{def.speed}</b>
+              <b>{num(def.speed)}</b>
             </button>
           </div>
           {next !== null && (

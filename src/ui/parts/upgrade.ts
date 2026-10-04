@@ -64,6 +64,7 @@ import { militiaArchers } from '@/world/bridge';
 import { plural } from './plural';
 import { asGame, realSeconds } from '@/game/pace';
 import { realPlain, waitDays, waitSpan } from './wait';
+import { num } from '@/game/num';
 
 /** Одна прибавка: что меряли, сколько было и станет, и как это сказано. */
 export interface UpgradeGain {
@@ -100,7 +101,7 @@ export const shown = (x: number): number => (Math.abs(x) >= 10 ? Math.round(x) :
 const sign = (x: number): string => (x < 0 ? '−' : '+');
 
 /** Число на кнопке: дробь — запятой («2,5»), как во всём тексте игры (docs/ui_audit.md, 4.5). */
-const frac = (x: number): string => String(x).replace('.', ',');
+const frac = (x: number): string => num(x, 3);
 
 /** Числа, стоящие в словах срока, по порядку: «1 ч 30 мин» → [1, 30]. */
 const numbersOf = (text: string): number[] => (text.match(/\d+(?:[.,]\d+)?/g) ?? []).map((x) => Number(x.replace(',', '.')));

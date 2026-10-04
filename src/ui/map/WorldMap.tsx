@@ -70,6 +70,7 @@ import { gestLog, type End } from '@/gestlog';
 import { FrameLoop, pixelRatio } from '@/render/loop';
 import { onViewport } from '@/viewport';
 import { Icon } from '@/ui/icons/Icon';
+import { num } from '@/game/num';
 
 
 /** Отладочный обзор читается один раз: адрес по ходу партии не меняется. */
@@ -165,7 +166,7 @@ const SHOWN_RELATIONS = RELATION_ORDER.filter((r) => r !== 'ally' && r !== 'enem
 const SHOWN_FATES = (Object.keys(FELL_WORDS) as Fate[]).filter((f) => f !== 'burn');
 
 /** Множитель дороги словами: дробь — запятой (docs/ui_audit.md, 4.5). */
-const frac = (x: number): string => String(x).replace('.', ',');
+const frac = (x: number): string => num(x, 3);
 
 /**
  * Местность поверх ландшафта. Числа берутся из тех же констант, что и расчёт

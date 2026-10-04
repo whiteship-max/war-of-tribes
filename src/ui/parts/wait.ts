@@ -18,6 +18,7 @@
 import { realSeconds, type GameSec, type RealSecArg } from '@/game/pace';
 import { daysBoth, daysSpan, gameDaysText, gameSpan, realSpan } from '@/game/span';
 import { formatLeft } from '@/world/geo';
+import { dec, num } from '@/game/num';
 
 // ---------- срок племени: игровые секунды на входе ----------
 
@@ -67,10 +68,10 @@ export const realSpanText = (realSec: RealSecArg): string => realSpan(realSec);
 export const realLeft = (realSec: RealSecArg): string => formatLeft(realSec);
 
 /** «7,5 с»: таймер мини-игры. Дробь — запятой (docs/ui_audit.md, 4.5). */
-export const realShort = (realSec: RealSecArg, digits = 1): string => `${realSec.toFixed(digits).replace('.', ',')} с`;
+export const realShort = (realSec: RealSecArg, digits = 1): string => `${dec(realSec, digits)} с`;
 
 /** «2,5 с»: число уже приведено к настоящим секундам и округлено вызывающим. */
-export const realPlain = (realSec: RealSecArg): string => `${String(realSec).replace('.', ',')} с`;
+export const realPlain = (realSec: RealSecArg): string => `${num(realSec, 3)} с`;
 
 /** «2 мин 40 с». */
 export function realMinSec(realSec: RealSecArg): string {
@@ -103,4 +104,4 @@ export function realDue(realSec: RealSecArg): string {
 }
 
 /** Отметка журнала приборов: «+1.5с» от начала записи, настоящие миллисекунды. */
-export const sinceMark = (ms: number): string => `+${(ms / 1000).toFixed(1)}с`;
+export const sinceMark = (ms: number): string => `+${dec(ms / 1000, 1)}с`;

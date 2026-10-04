@@ -32,6 +32,7 @@ import {
 import { MASTER_PAID_AS } from '../data/upkeep';
 import { mastersBlock, mastersCap } from './tech';
 import { log } from './log';
+import { dec } from '../num';
 
 export interface MastersInfo {
   /** Сколько мастеров стоит сейчас. */
@@ -91,7 +92,7 @@ export function hireMasters(s: GameState, count: number): string | null {
   if (info.blocked) return info.blocked;
   if (n > info.room) return mastersBlock(s, info.have + n) ?? `Свободных мест в Мастерской ${info.room}.`;
   s.masters = info.have + n;
-  log(s, `Нанято мастеров: ${n}. Жалованье ${(info.wage * n).toFixed(2)} золота в день.`, 'info', 'masters:hire');
+  log(s, `Нанято мастеров: ${n}. Жалованье ${dec(info.wage * n, 2)} золота в день.`, 'info', 'masters:hire');
   return null;
 }
 

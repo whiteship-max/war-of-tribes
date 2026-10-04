@@ -38,8 +38,9 @@ import { signed } from '@/ui/parts/signed';
 import { realLeft, waitLeft, waitShort } from '@/ui/parts/wait';
 import { GarrisonEditor } from '@/ui/parts/GarrisonEditor';
 import { tipAt, type TipContent } from './tip';
+import { num } from '@/game/num';
 
-const fmt = (n: number): string => (Math.abs(n) >= 100 ? String(Math.round(n)) : (Math.round(n * 10) / 10).toString().replace('.', ','));
+const fmt = (n: number): string => (Math.abs(n) >= 100 ? String(Math.round(n)) : num(n, 1));
 
 /** Какие бойцы идут в миссию: набега гонцом нет — армию водит полководец (`LocalWorld.send`). */
 const ALLOWED: Record<Mission, ('warrior' | 'scout')[]> = { raid: [], scout: ['scout'], support: ['warrior'] };
