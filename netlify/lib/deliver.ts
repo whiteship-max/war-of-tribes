@@ -16,15 +16,7 @@
  */
 import { choose, markDone, markSent, minuteOf, PLAYER_KEY, readNotify, type Verdict } from './notify.js';
 import { parseJson } from './http.js';
-
-/** Узкая дверь в хранилище — ровно то, чем пользуется проход. */
-export interface Kv {
-  getWithMetadata(key: string, opts: { type: 'text' }): Promise<{ data: string; etag?: string } | null>;
-  setJSON(key: string, value: unknown, opts?: { onlyIfMatch?: string; onlyIfNew?: boolean }): Promise<{ modified: boolean }>;
-  set(key: string, value: string): Promise<unknown>;
-  list(opts: { prefix?: string; directories?: boolean }): Promise<{ blobs: { key: string }[]; directories: string[] }>;
-  delete(key: string): Promise<void>;
-}
+import { STORES, type Kv, type Stores } from './kv.js';
 
 export interface PassIo {
   /** Записи исходящих по ключу игрока. */
@@ -34,6 +26,16 @@ export interface PassIo {
   /** Счётчики проходов. */
   stats: Kv;
 }
+
+/**
+ * Двери прохода из хранилищ дома: одни и те же на Netlify (`frozen/deliver.mts`) и на своём
+ * сервере (`vps/schedule.ts`). Какие хранилища трогает доставка, сказано здесь, а не в каждом доме.
+ */
+export const passIoOf = (stores: Stores): PassIo => ({
+  notify: stores(STORES.notify),
+  due: stores(STORES.due),
+  stats: stores(STORES.stats),
+});
 
 /** Итог прохода. Ни одного ключа игрока. */
 export interface PassTally {
@@ -122,7 +124,7 @@ export async function deliverPass(io: PassIo, now: number, clock: () => number =
 
 /** Разобрать метки одного игрока. Возвращает минуты, метки которых можно снять. */
 async function deliverOne(io: PassIo, player: string, marks: string[], now: number, tally: PassTally): Promise<string[]> {
-  const found = await io.notify.getWithMetadata(player, { type: 'text' });
+  const found = await io.notify.getWithMetadata(player);
   const rec = readNotify(found ? parseJson(String(found.data)) : null);
   const choice = choose(rec, now);
   for (const minute of marks) {

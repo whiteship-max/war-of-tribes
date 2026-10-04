@@ -12,7 +12,8 @@ import {
   readNotify,
   type NotifyRecord,
 } from './notify.js';
-import { deliverPass, type Kv, type PassIo } from './deliver.js';
+import { deliverPass, type PassIo } from './deliver.js';
+import type { Kv } from './kv.js';
 
 const NOW = Date.UTC(2026, 8, 14, 12, 0, 0);
 const MIN = 60_000;
@@ -225,7 +226,7 @@ const stored = (io: ReturnType<typeof world>): NotifyRecord => readNotify(JSON.p
 
 /** Клиентский приём поверх записи в памяти — тем же `accept`, что у функции. */
 async function clientPut(io: ReturnType<typeof world>, put: Parameters<typeof accept>[1], now: number): Promise<void> {
-  const found = await io.notify.getWithMetadata(PLAYER, { type: 'text' });
+  const found = await io.notify.getWithMetadata(PLAYER);
   const { record, marks } = accept(readNotify(JSON.parse(found!.data)), put, PLAYER, now);
   const w = await io.notify.setJSON(PLAYER, record, { onlyIfMatch: found!.etag });
   expect(w.modified).toBe(true);
