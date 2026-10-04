@@ -136,7 +136,7 @@ export const isFull = (s: GameState, r: ResourceId): boolean => s.resources[r] >
 export function resTip(s: GameState, r: ResourceId, storage: number | null, go: TipGo): TipContent {
   return {
     title: `${RESOURCE_META[r].name} · ${fmtInt(s.resources[r])} из ${fmtInt(storageCap(s))}`,
-    body: isFull(s, r) ? 'Склад полон: новое пропадает.' : perDay(netPerDay(s)[r]),
+    body: isFull(s, r) ? 'Склад полон, лишнее пропадает.' : perDay(netPerDay(s)[r]),
     link: storage !== null ? { label: 'Склад', go: () => go.building(storage) } : undefined,
   };
 }

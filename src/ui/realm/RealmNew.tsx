@@ -18,6 +18,7 @@ import { setCity } from '@/profile/stats';
 import { CITY_MAX } from '../../../netlify/lib/contract';
 import { Icon } from '@/ui/icons/Icon';
 import { waitLeft } from '@/ui/parts/wait';
+import { count } from '@/ui/parts/plural';
 import { tipAt } from '@/ui/next/tip';
 import { CoatArt } from './Coat';
 import { useRealm, type RealmView } from './open';
@@ -199,7 +200,7 @@ export function pointsTip(b: RealmBranch, have: number, rate: number): { title: 
   const flow = rate > 0 ? `+${rate} в игровой день.` : 'Приток нулевой.';
   return {
     title: `${BRANCH_WORD[b]} · ${have} из ${POINTS_CAP}`,
-    body: have >= POINTS_CAP ? `${flow} Потолок: новые очки не копятся.` : flow,
+    body: have >= POINTS_CAP ? `${flow} На потолке, новые не копятся.` : flow,
   };
 }
 
@@ -212,7 +213,7 @@ export function cellName(b: RealmBranch, level: number): string {
   if (level <= 1) return 'Начало';
   const name = levelName(b, level);
   const seats = b === 'admin' ? /:\s*(\d+)$/.exec(name) : null;
-  return seats ? `${seats[1]} мест` : name;
+  return seats ? count(Number(seats[1]), 'место', 'места', 'мест') : name;
 }
 
 /**

@@ -8,6 +8,7 @@ import { REALM_BRANCHES } from '@/game/data/realm';
 import { faithTilt, population, taxIncomePerDay, taxQuote, wagesDue } from '@/game/derived';
 import { rulerRate } from '@/game/sim/points';
 import { fmtInt, perDay } from '@/ui/next/hudTips';
+import { count } from '@/ui/parts/plural';
 import { comma, ledgerTips, signedRate, skillTip, taxPicks, tiltCells } from './RealmTabs';
 
 /** Город с храмом десятого уровня: наклон веры — и закят, и десятина — в полную силу. */
@@ -86,7 +87,7 @@ describe('правитель: навык — очки `rulerRate`', () => {
     for (const b of REALM_BRANCHES) {
       const t = skillTip(b, s.realm.ruler.skills[b], rulerRate(s, b), s.realm.heir.skills[b]);
       expect(t.title).toContain(`навык ${s.realm.ruler.skills[b]}`);
-      expect(t.body).toContain(`+${rulerRate(s, b)} очков`);
+      expect(t.body).toContain(`+${count(rulerRate(s, b), 'очко', 'очка', 'очков')} в игровой день`);
       expect(t.body).toContain(`навык ${s.realm.heir.skills[b]}`);
       // Область: у стартового правителя приток в каждой ветви есть (навык не ниже одного).
       expect(rulerRate(s, b)).toBeGreaterThan(0);

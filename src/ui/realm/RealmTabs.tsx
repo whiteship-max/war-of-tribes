@@ -53,6 +53,7 @@ import { signed } from '@/ui/parts/signed';
 import { SpareSave } from '@/ui/parts/Sync';
 import { TouchDoctor } from '@/ui/parts/TouchDoctor';
 import { waitSpan } from '@/ui/parts/wait';
+import { count } from '@/ui/parts/plural';
 import { OrderPanel } from '@/ui/panels/OrderPanel';
 import { Bonded } from '@/ui/panels/PeoplePanel';
 import { BRANCH_ICON, BRANCH_WORD } from './branches';
@@ -137,7 +138,7 @@ function Pick<T extends string>({
 export function skillTip(b: RealmBranch, skill: number, rate: number, heir: number): TipContent {
   return {
     title: `${BRANCH_WORD[b]} · навык ${skill}`,
-    body: `${rate > 0 ? `+${rate}` : '0'} очков в игровой день. У наследника — навык ${heir}.`,
+    body: `${rate > 0 ? `+${count(rate, 'очко', 'очка', 'очков')}` : 'Ноль очков'} в игровой день. У наследника — навык ${heir}.`,
   };
 }
 
@@ -230,12 +231,12 @@ export function RulerNew() {
 
 // ---------- Указы ----------
 
-/** Подсказки казны — числами `derived` (правило 18). */
+/** Подсказки золота — числами `derived` (правило 18). */
 export function ledgerTips(gold: number, income: number, wages: number, masters: boolean): Record<'gold' | 'income' | 'wages', TipContent> {
   return {
-    gold: { title: `Золото · ${fmtInt(gold)}`, body: 'Из казны платят войску и мастерам. Не хватит — войско начнёт уходить.' },
-    income: { title: `Сбор · ${perDay(income)}`, body: 'Чем больше жителей, тем полнее казна. Налог выше — мораль ниже.' },
-    wages: { title: `Жалованье · ${perDay(-wages)}`, body: masters ? 'Войску и наёмным мастерам.' : 'Войску.' },
+    gold: { title: `Золото · ${fmtInt(gold)}`, body: 'Из него платят дружине и мастерам. Кончится — бойцы начнут уходить.' },
+    income: { title: `Сбор · ${perDay(income)}`, body: 'Чем больше жителей, тем больше сбор. Налог выше — мораль ниже.' },
+    wages: { title: `Жалованье · ${perDay(-wages)}`, body: masters ? 'Дружине и наёмным мастерам.' : 'Дружине.' },
   };
 }
 
@@ -348,17 +349,17 @@ export function tiltCells(t: ReturnType<typeof faithTilt>, pop: number): TiltCel
       good: t.goldPerPop > 0,
       hint: `${comma(Math.abs(t.goldPerPop).toFixed(2))} золота с жителя в день.`,
     });
-  if (!near(t.morale, 0)) out.push({ key: 'morale', label: 'Мораль', value: comma(signed(t.morale)), good: t.morale > 0, hint: 'Слагаемое морали города.' });
+  if (!near(t.morale, 0)) out.push({ key: 'morale', label: 'Мораль', value: comma(signed(t.morale)), good: t.morale > 0, hint: 'Столько вера даёт морали города.' });
   if (!near(t.output, 1))
-    out.push({ key: 'output', label: 'Выработка', value: comma(`×${t.output.toFixed(2)}`), good: t.output > 1, hint: 'Всех ремёсел: служб и постов в году много.' });
+    out.push({ key: 'output', label: 'Выработка', value: comma(`×${t.output.toFixed(2)}`), good: t.output > 1, hint: 'Всех ремёсел. Служб и постов в году много.' });
   if (!near(t.steadfast, 0))
     out.push({ key: 'steadfast', label: 'Оборона', value: comma(`×${(1 + t.steadfast).toFixed(2)}`), good: true, hint: 'Община держит тех, кто на стене.' });
   if (!near(t.learning, 1))
-    out.push({ key: 'learning', label: 'Изучение округи', value: comma(`×${t.learning.toFixed(2)}`), good: t.learning > 1, hint: 'В Дозоре: медресе учит счёту и письму.' });
+    out.push({ key: 'learning', label: 'Разведка округи', value: comma(`×${t.learning.toFixed(2)}`), good: t.learning > 1, hint: 'Дозор быстрее. Медресе учит счёту и письму.' });
   if (!near(t.growth, 0))
     out.push({ key: 'growth', label: 'Прирост', value: comma(`×${(1 + t.growth).toFixed(2)}`), good: true, hint: 'Закят держит бедных на ногах.' });
   if (t.fervour > 0.001)
-    out.push({ key: 'fervour', label: 'Стойкость в обряд', value: comma(`+${t.fervour.toFixed(1)}`), good: true, hint: 'К морали дружины в начале боя.' });
+    out.push({ key: 'fervour', label: 'Стойкость', value: comma(`+${t.fervour.toFixed(1)}`), good: true, hint: 'К морали дружины в начале боя, на время обряда.' });
   return out;
 }
 
@@ -369,7 +370,7 @@ export function FaithNew() {
   if (!def) {
     return (
       <div className="nx-tab">
-        <p className="nx-tnote">Вера города — та же, что у земли вокруг. Открой карту хотя бы раз, и она станет известна.</p>
+        <p className="nx-tnote">Вера города — вера земли вокруг. Открой карту, и она станет известна.</p>
       </div>
     );
   }

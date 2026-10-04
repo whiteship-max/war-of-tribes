@@ -6,6 +6,7 @@ import { createInitialState } from '@/game/state';
 import { TUTORIAL } from '@/game/data/tutorial';
 import { BRANCH_WORD, cellName, pointsTip } from './RealmNew';
 import { coatView } from './open';
+import { count } from '@/ui/parts/plural';
 
 describe('держава нового вида', () => {
   it('ячейка ступени говорит то же, что дверь гейта: у управления — число мест из её имени', () => {
@@ -19,7 +20,7 @@ describe('держава нового вида', () => {
           admin++;
           const n = /(\d+)$/.exec(name)?.[1];
           expect(n, `${b} ${l}: в имени ступени управления есть число мест`).toBeDefined();
-          expect(cell).toBe(`${n} мест`);
+          expect(cell).toBe(count(Number(n), 'место', 'места', 'мест'));
         } else {
           expect(cell, `${b} ${l}`).toBe(name);
         }
@@ -33,7 +34,7 @@ describe('держава нового вида', () => {
     const t = pointsTip('war', 34, 3);
     expect(t.title).toBe(`${BRANCH_WORD.war} · 34 из ${POINTS_CAP}`);
     expect(t.body).toBe('+3 в игровой день.');
-    expect(pointsTip('admin', POINTS_CAP, 2).body).toContain('Потолок');
+    expect(pointsTip('admin', POINTS_CAP, 2).body).toContain('На потолке, новые не копятся.');
     expect(pointsTip('diplo', 10, 0).body).toBe('Приток нулевой.');
   });
 

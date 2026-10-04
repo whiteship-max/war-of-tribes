@@ -67,7 +67,7 @@ export function Nav() {
       <button data-tut="nav-people" className={tab === 'people' ? 'on' : ''} onClick={home(() => openTab('people'))}>
         <span className="nx-ib">
           <Icon name="nav-people" glyph="👥" />
-          {idle > 0 && !building && <em className="nx-badge">{idle > 99 ? '99+' : idle}</em>}
+          {idle > 0 && !building && <em className="nx-badge">{idle > 9 ? '9+' : idle}</em>}
         </span>
         Племя
       </button>

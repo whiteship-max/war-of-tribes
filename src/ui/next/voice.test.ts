@@ -8,7 +8,23 @@ import { describe, expect, it } from 'vitest';
 const UI = join(__dirname, '..');
 
 /** Файлы экранов этапа 2 — новый вид целиком своими строками. */
-export const STAGE2 = ['next/CityNaming.tsx', 'next/cityNames.ts', 'realm/RealmTabs.tsx', 'next/WorldNew.tsx', 'next/MarchesNew.tsx'];
+export const STAGE2 = [
+  'next/CityNaming.tsx',
+  'next/cityNames.ts',
+  'realm/RealmTabs.tsx',
+  'next/WorldNew.tsx',
+  'next/MarchesNew.tsx',
+  // Вычитаны заходом «Добивка» (docs/ui_audit.md, 18): верх, низ, тревоги, окно постройки, промыслы, держава.
+  'next/Hud.tsx',
+  'next/hudTips.ts',
+  'next/buildingTips.ts',
+  'next/BuildingNew.tsx',
+  'next/Nav.tsx',
+  'next/Alerts.tsx',
+  'next/Trades.tsx',
+  'realm/RealmNew.tsx',
+  'alertItems.ts',
+];
 
 /** Строки игрока в исходнике: литералы и текст разметки с кириллицей; комментарии — мимо. */
 export function playerStrings(src: string): string[] {
@@ -30,6 +46,7 @@ export const BANNED = [
   /\bданн(ый|ая|ое|ые)\b|является|осуществ|в рамках|с целью|для того чтобы|таким образом|в свою очередь|при этом|а также|следует|необходимо/,
   /!/,
   /посёл|деревн|\bвождь\b|рацион/i,
+  /казн|войск/i,
 ];
 
 describe('голос текстов этапа 2', () => {
