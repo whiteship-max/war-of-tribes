@@ -196,11 +196,13 @@ describe('укрывшийся агент не виден там, где вид�
     expect(discs(w).some((d) => d.r === standing.sight)).toBe(false);
     expect(await w.world.watch(true)).toMatch(/Из-за стены/);
 
-    // Полководец в городе дружину не собирает — сначала выйти.
+    // Полководец в городе раскладку меняет, как у ворот (docs/retinue.md, решение 2): его отряд и там стоит с
+    // гарнизоном, а укрытие с карты не снимается.
     expect(await w.world.shelter('general', true)).toBeNull();
-    expect(await w.world.setGarrison({ spearman: 5 })).toMatch(/укрылся в городе/);
-    expect(await w.world.shelter('general', false)).toBeNull();
     expect(await w.world.setGarrison({ spearman: 5 })).toBeNull();
+    const sheltered = (await pulse(w)).find((f) => f.id === 'general') as FigureView;
+    expect(sheltered.place, 'сбор не выводит из города').toBe('city');
+    expect(sheltered.troops).toEqual({ spearman: 5 });
   });
 
   it('в город входят только от своих ворот: не из поля и не с дороги', async () => {
