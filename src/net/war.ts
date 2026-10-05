@@ -33,6 +33,9 @@ export const warPace = (): number => cache?.pace ?? 1;
 export const warsKnown = (): boolean => cache !== null;
 
 const keep = (res: WarResponse): void => {
+  // Ответ на чтение, ушедшее раньше приказа, может вернуться позже ответа на приказ — старый список не
+  // затирает новый: полководец иначе на миг «вернулся бы домой» из только что начатого похода.
+  if (cache && res.now < cache.at) return;
   cache = { at: res.now, wars: Array.isArray(res.wars) ? res.wars : [], pace: typeof res.pace === 'number' && res.pace >= 1 ? res.pace : 1 };
 };
 

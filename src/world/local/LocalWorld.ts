@@ -7203,6 +7203,7 @@ export class LocalWorld implements WorldApi {
     });
     // Наш полководец дрался: в походе — всегда, дома — если ударил из поля.
     const general = ours === 'atk' || Boolean(b.genTroops);
+    this.warLost(ourLost);
     if (ours === 'def') {
       // Дружина, стоявшая у ворот, теряет свою долю тут же — тем же правилом, что у частокола; дружина из поля —
       // своими потерями.
@@ -7275,6 +7276,7 @@ export class LocalWorld implements WorldApi {
       this.standingLost(held.own, held.standing, routed);
     }
     const loss = asLoss(f.lost as Loot);
+    this.warLost(routed, f);
     this.addReport({
       id: `war-${w.id}-fell`,
       at: f.at,
@@ -7310,6 +7312,25 @@ export class LocalWorld implements WorldApi {
       text: `Город пал: участь «${how}».`,
       good: false,
     });
+  }
+
+  /**
+   * Потери войны — сразу и в слепок деревни, который держит мир (`save.profile`): племя спишет их со своего
+   * войска и склада концом этого пульса, а запись партии со слепком обороны может уйти раньше следующего, —
+   * и сервер прочёл бы «бой принят» (`warSeen`) у гарнизона, который ещё числит павших.
+   */
+  private warLost(troops: TroopStack, fall?: WarFall): void {
+    const p = this.save.profile;
+    if (!p) return;
+    if (troopTotal(troops) > 0) p.army = troopsAfter(p.army ?? {}, troops);
+    if (!fall) return;
+    const { gold, ...goods } = fall.lost;
+    const stock: Loot = { ...(p.stock ?? {}) };
+    for (const [k, v] of Object.entries(goods)) stock[k as keyof Loot] = Math.max(0, (stock[k as keyof Loot] ?? 0) - (v ?? 0));
+    p.stock = stock;
+    p.gold = Math.max(0, (p.gold ?? 0) - (gold ?? 0));
+    p.bonded = Math.max(0, (p.bonded ?? 0) - fall.bondedLost);
+    p.pop = Math.max(1, p.pop - fall.popLost);
   }
 
   /** Чужие походы на нас и лагерь под стенами — отрядами на карте и тревогой, как набег логова. */
