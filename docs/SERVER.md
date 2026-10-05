@@ -234,7 +234,8 @@ nano .env
 | `TRIBE_STORE` | где данные: `sqlite` — на сервере | `sqlite` |
 | `BACKUP_KEEP` | сколько суточных копий хранить | `14` |
 | `BACKUP_AT` | во сколько снимать копию, время UTC | `03:30` |
-| `TRIBE_DELIVER` | доставка уведомлений — заморожена, как на Netlify | `off` |
+| `TELEGRAM_WEBHOOK_SECRET` | секрет вебхука бота — кнопки под сообщениями (docs/NOTIFY.md, 12.6) | `openssl rand -hex 32` |
+| `TRIBE_DELIVER` | доставка уведомлений: `on` — бот пишет о нападении и о бое (docs/NOTIFY.md, 12.6) | `off` |
 | `NETLIFY_SITE_ID`, `NETLIFY_AUTH_TOKEN` | только для переноса данных (шаг 13), потом стереть | пусто |
 
 Сохранить: `Ctrl+O`, Enter, выйти: `Ctrl+X`. Закрыть файл от чужих глаз:
