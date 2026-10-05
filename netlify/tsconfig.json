@@ -11,7 +11,11 @@
     "isolatedModules": true,
     "skipLibCheck": true,
     "noEmit": true,
-    "types": ["node"]
+    "types": ["node"],
+    // Сервер собирает общие с игрой правила боя (`lib/war.ts` → `src/world/fights.ts`), а они пишут `@/`.
+    // esbuild Netlify берёт пути из корневого `tsconfig.json` сам; свой сервер — из `vps/build.mjs`.
+    "baseUrl": "..",
+    "paths": { "@/*": ["src/*"] }
   },
   "include": ["**/*.ts", "**/*.mts"]
 }

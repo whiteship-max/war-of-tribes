@@ -207,6 +207,7 @@ import { garrisonOf, menOfPower, raidingParty, GARRISON_STYLES } from '../garris
 import { MIRROR_ON, mirrorPower } from '../mirror';
 import type { FaithId } from '@/game/types';
 import { resolveField, type FieldOutcome, type FieldSide } from '../battle';
+import { campFight, defenceKinds, homeLosses, type CampPartIn } from '../fights';
 import { carryRest, mixRest, rejoin, restAfter, restAt, restFullAt, restView, type RestPair } from '../rest';
 import { GATE_FOES, gateReportId } from '../data/gate';
 import {
@@ -229,7 +230,6 @@ import {
   playerWood,
   rebaseWood,
   refusedAtGate,
-  splitLosses,
   strikeForecast,
   throughText,
   woodShare,
@@ -1256,40 +1256,31 @@ export class LocalWorld implements WorldApi {
     | { refused: true; front: Through | null; rear: Through | null }
     | null {
     const kindsOfPart = (p: CampPart | undefined): Stack | undefined => (p ? ('own' in p ? kindsOf(p.own) : p.kinds) : undefined);
-    const gate = this.campGate(id, at, { front: kindsOfPart(attack.front), rear: kindsOfPart(attack.rear) });
-    if (!gate) return null;
-    const { w, camp, front, rear } = gate;
-    if (refusedAtGate(front, rear)) return { refused: true, front, rear };
-    const parts = [
-      { part: attack.front, t: front },
-      { part: attack.rear, t: rear },
-    ].filter((x): x is { part: CampPart; t: Through } => Boolean(x.part && x.t));
-    const kinds = emptyStack();
-    for (const { t } of parts) for (const k of UNIT_KINDS) kinds[k] += t.kinds[k];
-    const fought = parts.reduce((n, x) => n + x.t.passed, 0);
-    const all = parts.reduce((n, x) => n + x.t.went, 0);
-    const own = parts.some((x) => 'own' in x.part);
-    // Совместный удар — с обеих сторон: со стороны города вышел гарнизон. Кто из ворот, ядро только разложит по секторам
-    // для ролика (`FieldSide.garrison`, решение владельца 03.10.2026, вариант А) — бой один, исход от этого не зависит.
-    const garrison = attack.front && attack.rear && front && rear ? front.kinds : undefined;
+    const w = this.siegeOf(id, at);
+    if (!w) return null;
+    const camp = this.campArmy(w, at);
+    if (!camp) return null;
+    const own = [attack.front, attack.rear].some((p) => p && 'own' in p);
     // Лагерь стоит под городом: место боя — клетка города.
     const cell = id === HOME_ID ? this.save.home : this.byId.get(id);
-    const field = resolveField({
+    const partOf = (p: CampPart | undefined): CampPartIn | undefined =>
+      p ? { kinds: kindsOfPart(p) as Stack, rest: p.rest } : undefined;
+    // Бой у лагеря — одна дверь с войной между игроками (`fights.campFight`): рогатки, проходы сторон, один бой на
+    // прошедших и дележ потерь по сторонам считает она, а мир только пишет следствия в своё сохранение.
+    const fight = campFight({
       seed,
+      at,
+      sight: { since: siegeSince(w), builders: this.buildersOf(w, at), gateAt: w.gateAt, rearGateAt: w.rearGateAt, wood: camp.wood },
+      // Стойкость и отметки лагеря: у нашего — обряд и отметки полководца, у чужого её нет.
+      camp: { kinds: camp.kinds, resolve: camp.resolve, pips: camp.pips, rest: camp.rest },
+      front: partOf(attack.front),
+      rear: partOf(attack.rear),
+      resolve: own ? this.ownResolve() : undefined,
+      pips: own ? (attack.general ? this.generalPips() : this.homePips(at)) : undefined,
       ground: cell ? groundAt(this.save.seed, cell, attack.from) : undefined,
-      attacker: {
-        kinds,
-        resolve: own ? this.ownResolve() : undefined,
-        pips: own ? (attack.general ? this.generalPips() : this.homePips(at)) : undefined,
-        // Встают те, кто прошёл, по правилу развёртывания: расстановки у удара по лагерю нет.
-        // Мораль между боями (14.31): у каждой части своя, вместе — по прошедшим.
-        rest: mixRest(parts.map(({ part, t }) => ({ rest: part.rest ?? 1, men: t.passed }))),
-        ...(garrison ? { garrison } : {}),
-      },
-      // Стойкость и отметки лагеря: у нашего — обряд и отметки полководца, у чужого
-      // её нет. Прежде `campArmy` её считал, а сюда она не доходила вовсе.
-      defender: { kinds: camp.kinds, resolve: camp.resolve, pips: camp.pips, rest: camp.rest },
     });
+    if (fight.refused) return { refused: true, front: fight.front, rear: fight.rear };
+    const { field, front, rear, lost, fought, all } = fight;
     // Мораль лагеря после боя — в его войско: у нашего — в дружину, у чужого — в отряд, что сел лагерем. Мораль
     // нападающих пишут те, кто их вывел: у каждой части своя армия.
     if (field.result) {
@@ -1311,8 +1302,6 @@ export class LocalWorld implements WorldApi {
       if (rear.gateAt === undefined) delete w.rearGateAt;
       else w.rearGateAt = rear.gateAt;
     }
-    const losses = field.result?.sides.attacker.losses ?? emptyStack();
-    const lost = splitLosses(losses, front?.kinds ?? emptyStack(), rear?.kinds ?? emptyStack());
     return { refused: false, field, camp, front, rear, lost, fought, all, share: all > 0 ? fought / all : 0 };
   }
 
@@ -4250,11 +4239,10 @@ export class LocalWorld implements WorldApi {
     const held = this.defenders(at);
     const home = held.all;
     const militia = Math.max(0, Math.round(profile?.militia ?? 0));
-    // Башня ставит часть ополчения стрелками: людей не прибавляется, меняется род.
+    // Башня ставит часть ополчения стрелками: людей не прибавляется, меняется род. Сторона обороны — одна дверь
+    // с войной между игроками (`fights.defenceKinds`): сервер собирает её из слепка тем же кодом.
     const archers = Math.min(militia, Math.max(0, Math.round(profile?.militiaArchers ?? 0)));
-    const homeKinds = kindsOf(home);
-    homeKinds.infantry += militia - archers;
-    homeKinds.archer += archers;
+    const homeKinds = defenceKinds(kindsOf(home), militia, archers);
     const field = resolveField({
       seed,
       // Место боя — своя деревня; переправа — если пришедший вышел на неё через русло.
@@ -4284,9 +4272,9 @@ export class LocalWorld implements WorldApi {
   private gateLosses(gate: ReturnType<LocalWorld['gateField']>): { warriors: number; warriorsLost: number; troopsLost: TroopStack } {
     const { held, home, field } = gate;
     const warriors = troopTotal(home);
-    const spread = field.result ? troopLosses(home, field.result.sides.defender.losses) : {};
-    const warriorsLost = Math.min(warriors, troopTotal(spread) || Math.round(warriors * field.defenderLoss));
-    const troopsLost = troopTotal(spread) > 0 ? spread : weakest(home, warriorsLost);
+    // Поимённо — одна дверь с войной между игроками (`fights.homeLosses`).
+    const troopsLost = homeLosses(home, field);
+    const warriorsLost = Math.min(warriors, troopTotal(troopsLost));
     // Дрались все, кто дома: уцелевшие несут долю, с которой вышли из боя (мораль между боями, 14.31).
     if (field.result) this.homeBack(held, home, troopsLost, field.rest.defender, gate.at);
     this.standingLost(held.own, held.standing, troopsLost);
