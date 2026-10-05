@@ -44,6 +44,7 @@ import { figurePosition, useWorld, worldNow } from '@/world/store';
 import type { FigureId } from '@/world/types';
 import { deathLine, pipLines, sightLine, stealthLine } from './agentLines';
 import { REST_WHY, restLine } from './restWords';
+import { EnergyBar } from './Energy';
 import { count } from './plural';
 import { traitLines } from './traitLines';
 import { num } from '@/game/num';
@@ -216,6 +217,8 @@ export function AgentCard({ id, onBack, embedded = false }: { id: FigureId; onBa
               <div style={{ width: `${Math.floor(((progress.xp - floor) / (next - floor)) * 100)}%` }} />
             </div>
           )}
+          {/* Энергия человека (docs/agent_energy.md): шкала, сколько и что с ней — от мира. */}
+          {f?.energy && <EnergyBar energy={f.energy} spent={f.spent} />}
           {toRest <= 0 && <p className="nx-bwarn">Дел не берёт, идёт домой на покой.</p>}
           <p className="nx-tnote">{deathLine(id, level)}</p>
           {road && <p className="nx-tnote">{road}</p>}

@@ -303,6 +303,8 @@ export interface CampView extends Omit<SiegeView, 'fall' | 'palisade'> {
   fates: FateOption[];
   /** Сколько бойцов при полководце: ими штурмуют. */
   men: number;
+  /** Цена штурма из лагеря в энергии полководца и отказ, если её не хватает (`world/energy`). */
+  storm?: EnergyCost;
 }
 
 /**

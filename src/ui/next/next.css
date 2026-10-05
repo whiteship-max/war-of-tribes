@@ -1819,3 +1819,49 @@
   text-align: left;
   cursor: pointer;
 }
+
+/* Энергия агента (docs/agent_energy.md): шкала на карточке агента и в меню приказов. */
+.nx-energy {
+  display: block;
+  width: 100%;
+  margin: 8px 0;
+  padding: 0;
+  background: none;
+  border: 0;
+  color: inherit;
+  text-align: left;
+  font: inherit;
+}
+.nx-energy-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.nx-energy-top svg {
+  width: 14px;
+  height: 14px;
+}
+.nx-energy .progress {
+  display: block;
+}
+.nx-energy .progress > span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--good);
+}
+.nx-energy .progress.low > span {
+  background: var(--bad);
+}
+.nx-energy small {
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--muted);
+}
+.nx-energy small.bad {
+  color: var(--bad);
+}

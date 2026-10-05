@@ -588,6 +588,10 @@ for (let i = 0; i < 200; i++) {
   await w.world.moveFigure('general', { x: target.x, y: target.y });
   for (let i = 0; i < 600; i++) {
     w.advance(MIN);
+    // Энергия агентов (docs/agent_energy.md) — не предмет этого раздела: он меряет, что проигранный набег делает с
+    // отношениями и двором. Ближний двор сида 11 — дальше пяти игровых дней пути, и выбившийся полководец повернул бы
+    // домой, не дойдя; здесь он идёт свежим.
+    delete saveOf(w.world).figures.general.energy;
     await w.world.sync(weak);
     const g = (await w.world.figures()).find((f) => f.id === 'general');
     if (g && g.phase !== 'moving') break;

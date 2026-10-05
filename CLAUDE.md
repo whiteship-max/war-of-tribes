@@ -385,6 +385,10 @@ HEAD один на всех, см. правило 8). Значит развес�
   закрыто и почему, трата уровня и засчитывание пройденного начатой партии. Уровень лежит в
   партии, и два судьи «открыто ли это» разошлись бы молча — заметил бы игрок, у которого
   кнопка обещает одно, а отказ говорит другое, или которому ступень отняла место лазутчика;
+- `src/world/energy.ts` — единственная дверь энергии агентов (`StoredFigure.energy`, `.spent`, `WarArmy.energy`;
+  docs/agent_energy.md): отметка лежит в сохранении мира и едет на сервер войны, и два судьи «хватает ли энергии»
+  разошлись бы молча — заметил бы игрок, у которого кнопка открыта, а сервер отказал, или агент выбился из сил у
+  одного и дошёл у другого. Числа и цены дел — `src/world/data/energy.ts`;
 - `src/game/sim/agents.ts` — сюда же относится `keepInBook`: **книга родословной одна на дом
   правителя и на места агентов**, и кладёт в неё только она (`GameState.lineage`);
 - `netlify/lib/contract.ts` — договор между игрой и сервером, один файл на две стороны.
@@ -527,6 +531,8 @@ HEAD один на всех, см. правило 8). Значит развес�
   `sim/mail` (army, agents, realm).
 - **Мир** — только через `worldApi()`, все методы асинхронные; мир и племя знают друг о друге в
   `world/bridge.ts`; числа мира — `world/data/tuning.ts` (world).
+- **Энергия агентов** — `world/energy` (отметка, `energyAt`, `energyBlock`), числа и цены дел — `world/data/energy.ts`; мир и
+  сервер войны спрашивают одну дверь (`energyworld.test.ts`, `netlify/lib/war.test.ts`; agents).
 - **Мир по дверям** — где стоит боец `world/muster`, кто наблюдает `world/sight`, где агент
   `world/shelter`, мораль армии между боями `world/rest`, гибель агента `world/peril`, обстрел с башни
   `world/bombard`, участь взятого города `world/spoils.fate`, добыча `plunder` (world, agents).
@@ -672,5 +678,5 @@ Deploys → **Trigger deploy**, дождаться сборки, потом об
 | [music.md](docs/handbook/music.md) | «Музыка» | `assets-src/MUSIC.md` |
 | [structure.md](docs/handbook/structure.md) | «Структура» — что где лежит | — |
 | [world.md](docs/handbook/world.md) | «Карта мира» | world-map.md, fog-and-figures.md, geography.md, atlas.md, siege.md, sack.md, lairs.md, lair_growth.md, letters.md, DEFEAT_LADDER.md, tower.md, MAP_ACTIONS.md |
-| [agents.md](docs/handbook/agents.md) | «Агенты: люди на местах» | AGENTS.md |
+| [agents.md](docs/handbook/agents.md) | «Агенты: люди на местах»; энергия агентов (с 05.10.2026) | AGENTS.md, agent_energy.md |
 | [battle.md](docs/handbook/battle.md) | «Бой», «Мост из племени в бой», «Описание вида бойцов», «Подготовка боя и отчёт», «Испытательный стенд: зеркальное логово» | battle_eu4.md (раздел 14.35 — первым), battle-replay.md |

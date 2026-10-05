@@ -284,7 +284,25 @@ function drawFigures(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport, i
       ctx.restore();
     }
     drawAgent(ctx, { kind: f.id, west }, unit, dpr, ax, py);
+    if (f.energy) drawEnergy(ctx, ax, py, unit, f.energy.value / f.energy.max, f.spent);
   }
+}
+
+/**
+ * Энергия у значка агента (docs/agent_energy.md): тонкая полоска под ногами — сколько осталось. Цвет — своей стороны
+ * (`side.ts`: красный — только враг); выбившийся из сил — бледнее: идёт домой и дел не берёт.
+ */
+function drawEnergy(ctx: CanvasRenderingContext2D, x: number, y: number, unit: number, share: number, spent: boolean): void {
+  const w = Math.max(14, Math.min(28, unit * 0.5));
+  const h = 3;
+  const top = y + 3;
+  const k = Math.max(0, Math.min(1, share));
+  ctx.save();
+  ctx.fillStyle = 'rgba(10, 8, 6, 0.75)';
+  ctx.fillRect(x - w / 2 - 1, top - 1, w + 2, h + 2);
+  ctx.fillStyle = sideRgba(true, spent ? 0.45 : 0.95);
+  ctx.fillRect(x - w / 2, top, w * k, h);
+  ctx.restore();
 }
 
 // ---------- Подписи ----------

@@ -156,6 +156,9 @@ export function MarchesNew() {
                 {whereWords(f, now, hireWhere(s, f.id))}
                 {men > 0 ? ` · ${count(men, 'боец', 'бойца', 'бойцов')}${postureOf(f) === 'stands' ? ' · в гарнизоне' : ''}` : ''}
                 {f.watching ? ' · смотрит' : ''}
+                {/* Энергия числом двери (docs/agent_energy.md): шкала и сроки — в карточке человека. */}
+                {f.energy ? ` · энергия ${f.energy.value}` : ''}
+                {f.spent ? ' · выбился из сил' : ''}
               </small>
             </button>
             <span className="nx-mright">

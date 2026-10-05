@@ -13,6 +13,7 @@ import { FatePick } from '@/ui/parts/FatePick';
 import { count } from '@/ui/parts/plural';
 import { realLeft } from '@/ui/parts/wait';
 import { hungerLeft } from '@/ui/parts/hunger';
+import { EnergyPrice } from '@/ui/parts/Energy';
 
 const left = (at: number, now: number): string => realLeft(Math.max(0, (at - now) / 1000));
 
@@ -97,17 +98,24 @@ export function WarCard({ card }: { card: SettlementCard }) {
             посчитает сервер в минуту прихода; хозяин города увидит войско сразу.
           </p>
           {!war.can && war.reason && <p className="nx-tnote bad">{war.reason}</p>}
+          {/* Штурм дороже осады: открыт поход вообще, а на штурм энергии не хватает — причина своей строкой. */}
+          {war.can && war.energy?.storm.block && <p className="nx-tnote bad">Штурм: {war.energy.storm.block}</p>}
           <FatePick options={card.fates} value={fate} onChange={setFate} />
           <div className="nx-cacts">
-            <button className="nx-go nx-cgo" disabled={busy || !war.can} onClick={() => void go('storm')}>
+            <button className="nx-go nx-cgo" disabled={busy || !war.can || Boolean(war.energy?.storm.block)} onClick={() => void go('storm')}>
               Штурм с ходу · {count(war.men, 'боец', 'бойца', 'бойцов')}
+              {war.energy && <EnergyPrice price={war.energy.storm.price} />}
             </button>
             <button className="nx-cact" disabled={busy || !war.can} onClick={() => void go('siege')}>
               <Icon name="ui-target" glyph="⛺" />
               Осадить
+              {war.energy && <EnergyPrice price={war.energy.siege.price} />}
             </button>
           </div>
           <p className="nx-tnote">Штурм — один бой у стены. Осада — лагерь под стенами: город голодает, пока не сдастся или не разобьёт лагерь.</p>
+          <p className="nx-tnote">
+            Поход берёт энергию полководца разом, при выходе; пока идёт война, она не тратится, а дома снова копится.
+          </p>
         </>
       )}
     </div>

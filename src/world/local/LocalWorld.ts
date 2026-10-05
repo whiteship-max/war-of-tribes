@@ -5822,9 +5822,10 @@ export class LocalWorld implements WorldApi {
       if (t === null || t > now) return;
       // Дойдёт раньше, чем кончится: приход разберётся своим чередом, а стоянку проверят после него.
       if (f.phase === 'moving' && t >= f.arriveAt) return;
-      f.spent = t;
+      // Целой миллисекундой: дорога домой ложится в сохранение, как всякая другая.
+      f.spent = Math.ceil(t);
       this.addEffect({
-        id: `fig-${id}-spent-${t}`,
+        id: `fig-${id}-spent-${f.spent}`,
         lost: {},
         resources: {},
         prestige: 0,
@@ -6664,6 +6665,8 @@ export class LocalWorld implements WorldApi {
       power: reading ? reading.power : { ...UNKNOWN },
       fates: this.fateOptions(s, now),
       men: troopTotal(this.save.figures.general.troops ?? {}),
+      // Штурм из лагеря — бой: его цена в энергии полководца (docs/agent_energy.md); в лагере энергия стояла.
+      storm: this.energyCost('general', 'storm', now),
       // Мораль нашего лагеря — дружины. Мораль чужого гарнизона — живые данные, а живого обзора у полководца нет.
       ...this.restViews(this.campRestView(w, now), undefined),
     };
@@ -7695,6 +7698,8 @@ export class LocalWorld implements WorldApi {
       power: card ? estimate(card.power, 'rough') : { ...UNKNOWN },
       fates: this.warFates(w.defCastle, now),
       men: troopTotal(troops),
+      // Штурм из лагеря под городом игрока — та же цена, и сервер спросит её той же дверью.
+      storm: this.energyCost('general', 'storm', now),
       ...this.restViews(camp, undefined),
     };
   }

@@ -38,9 +38,9 @@ export interface EnergyView {
   max: number;
   mode: EnergyMode;
   /** Когда запас станет полным — только если он копится или начнёт копиться. */
-  fullAt?: number;
+  fullBy?: number;
   /** Когда запас кончится на карте — только если кончится раньше, чем агент дойдёт домой. */
-  emptyAt?: number;
+  emptyBy?: number;
 }
 
 const EPS = 1e-9;
@@ -144,7 +144,7 @@ export function energyView(mark: EnergyMark | undefined, now: number): EnergyVie
     value: energyShown(mark, now),
     max: ENERGY_MAX,
     mode: mark?.mode ?? 'fill',
-    ...(full !== null && full > now ? { fullAt: full } : {}),
-    ...(empty !== null && empty > now ? { emptyAt: empty } : {}),
+    ...(full !== null && full > now ? { fullBy: full } : {}),
+    ...(empty !== null && empty > now ? { emptyBy: empty } : {}),
   };
 }
