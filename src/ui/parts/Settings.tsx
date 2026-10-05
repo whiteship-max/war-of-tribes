@@ -7,7 +7,7 @@
 // Отсюда же следует, что содержимое у обоих показов одинаковое. Соблазн
 // «на стартовом экране покажем только звук» — это и есть начало второй копии.
 //
-// Строк здесь шесть — музыка, графика, интерфейс, карта мира, ролик боя, язык, — и это не заготовка под список.
+// Строк здесь четыре — музыка, графика, вести в Telegram (только в Telegram), язык, — и это не заготовка под список.
 // Свалкой раздел становится с той строки, которую добавили «раз уж всё равно
 // открыли»: игрок перестаёт читать и начинает пролистывать. Новая строка
 // появляется тогда, когда без неё что-то нельзя сделать, а не тогда, когда её
@@ -18,6 +18,10 @@
 // Цена кадра новых карты и ролика на настоящем телефоне не измерена (docs/map_tw.md, docs/battle_tw.md): телефону,
 // который их не потянет, вернуться к прежнему нужно тем же пальцем, каким опускают графику.
 //
+// Вести в Telegram — тоже такая (05.10.2026, docs/NOTIFY.md, раздел 12): кнопка под сообщением бота выключает их, а
+// включить снова, когда сообщения уже не приходят, можно только отсюда; и здесь же — жест, в котором Telegram
+// спрашивает разрешения писать. Вне Telegram строки нет: писать некому.
+//
 // Чего здесь нет и быть не может: ничего про алмазы. Премиальная валюта живёт в
 // ратуше, где ею платят, и настройкой не является ни в каком виде.
 import { useSyncExternalStore } from 'react';
@@ -25,6 +29,8 @@ import { setSoundOn, soundOn, subscribeSound } from '@/sound/settings';
 import { GFX_QUALITIES, gfx, setGfx, subscribeGfx } from '@/render/gfx';
 import { battleMusic, villageMusic } from '@/sound/web';
 import { Icon } from '@/ui/icons/Icon';
+import { NOTIFY_ON, notifyState, setNotifyOn, subscribeNotify } from '@/net/notify';
+import { inTelegram } from '@/telegram/webapp';
 
 /**
  * Переключатель музыки — **единственный рычаг на весь звук игры**, и деревни, и
@@ -55,6 +61,12 @@ export function Settings() {
     villageMusic.toggle(next);
     if (!next) battleMusic.toggle(false);
   };
+
+  // Рычаг уведомлений — один на игрока и лежит на сервере (`prefs.on`): его же переключает кнопка под сообщением бота.
+  const news = useSyncExternalStore(subscribeNotify, notifyState, notifyState);
+  const newsOn = news?.on ?? true;
+  // Telegram отказал боту писать: нажатие не выключает, а просит разрешения снова.
+  const shut = newsOn && news?.chan === 'closed';
 
   return (
     <>
@@ -103,6 +115,21 @@ export function Settings() {
             ))}
           </div>
         </div>
+
+        {NOTIFY_ON && inTelegram() && (
+          <button className={`set-row${newsOn ? ' on' : ''}`} onClick={() => setNotifyOn(shut ? true : !newsOn)} aria-pressed={newsOn}>
+            <span className="ico">
+              <Icon name="ui-news" glyph="🔔" />
+            </span>
+            <span className="name">
+              Вести в Telegram
+              <em className="sub">{shut ? 'Нажми, чтобы разрешить боту' : 'О набеге и о бое'}</em>
+            </span>
+            <span className="sw">
+              <i />
+            </span>
+          </button>
+        )}
 
         {/*
           Язык. Это **не** настройка, а сообщение, и потому не кнопка: нажимать

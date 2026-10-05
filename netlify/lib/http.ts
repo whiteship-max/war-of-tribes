@@ -103,6 +103,18 @@ export const WRITE_TRIES = 4;
 export const botToken = (): string => process.env.TELEGRAM_BOT_TOKEN ?? '';
 
 /**
+ * Секрет вебхука бота: владелец задаёт его в `setWebhook` (`secret_token`), и Telegram присылает его заголовком
+ * `X-Telegram-Bot-Api-Secret-Token` в каждом обновлении. Нет секрета — вебхук закрыт для всех (`routes/bot.ts`).
+ */
+export const botSecret = (): string => process.env.TELEGRAM_WEBHOOK_SECRET ?? '';
+
+/**
+ * Проход доставки уведомлений включён: `TRIBE_DELIVER=on`. Одно правило на оба дома — функцию по расписанию
+ * Netlify (`functions/deliver.mts`) и расписание своего сервера (`vps/config.ts` читает то же имя).
+ */
+export const deliverOn = (env: Record<string, string | undefined> = process.env): boolean => (env.TRIBE_DELIVER ?? '').trim() === 'on';
+
+/**
  * Темп войны между игроками для проверки (docs/pvp.md): во сколько раз быстрее идут походы, обратный путь и
  * часы голода под лагерем. Поход идёт игровым временем, и между соседями это сутки настоящих часов — сценарий
  * на двух аккаунтах столько не ждёт. Переменная окружения `TRIBE_WAR_PACE`; нет её — 1, обычная игра. Клиент

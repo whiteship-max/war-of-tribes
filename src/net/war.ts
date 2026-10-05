@@ -5,6 +5,7 @@
 // Исход здесь не считается и не отправляется: бой считает сервер в минуту прихода, клиент только
 // читает итог и применяет свою сторону. Вне Telegram войны нет — подписи нет, и сервер не ответит.
 import { apiGet, apiPost } from './api';
+import { askWriteOnce, NOTIFY_ON } from './notify';
 import { tgInitData } from '@/telegram/webapp';
 import type { WarOrder, WarResponse, WarSheet, WarView } from '../../netlify/lib/contract';
 
@@ -37,6 +38,8 @@ const keep = (res: WarResponse): void => {
   // затирает новый: полководец иначе на миг «вернулся бы домой» из только что начатого похода.
   if (cache && res.now < cache.at) return;
   cache = { at: res.now, wars: Array.isArray(res.wars) ? res.wars : [], pace: typeof res.pace === 'number' && res.pace >= 1 ? res.pace : 1 };
+  // Война идёт — на нас или наша: о бое бот напишет обеим сторонам, и право писать спрашивается сейчас.
+  if (NOTIFY_ON && cache.wars.some((w) => w.phase !== 'done')) askWriteOnce();
 };
 
 /** Перечитать свои войны. Неудача — значением: остаётся прежний список. */

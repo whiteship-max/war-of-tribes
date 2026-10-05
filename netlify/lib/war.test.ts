@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { readWarOrder, type CastleClaim, type RosterFile, type WarArmy, type WarSheet } from './contract.js';
 import { castleIdOf, emptyRoster, upsert } from './roster.js';
-import { advance, applyOrder, emptyWars, fallId, liveSheet, viewOf, warsOf, type SheetAt, type WarFile } from './war.js';
+import { advance, applyOrder, emptyWars, fallId, liveSheet, newsDiff, newsMap, newsOf, viewOf, warsOf, type SheetAt, type WarFile } from './war.js';
 import { weakCity } from '../../src/world/lairs.js';
 import { inHomeTheatre } from '../../src/world/theatre/theatre.js';
 
@@ -184,5 +184,64 @@ describe('приказы: защита слабого, регион, чужое'
     expect(applyOrder(file, B, { op: 'recall', id }, T0 + 1, ctx)).not.toBeNull();
     expect(applyOrder(file, A, { op: 'sortie', id, troops: { spearman: 1 } }, T0 + 1, ctx)).not.toBeNull();
     expect(file.wars[0].phase).toBe('march');
+  });
+});
+
+describe('новости войны для бота: о двух вещах, обеим сторонам, по разу', () => {
+  /**
+   * Решение владельца (05.10.2026): на город идут — защитнику; бой был — обеим сторонам. Новости выводятся из записи,
+   * поэтому «один раз» держит разница до и после хода: тот же ход второй раз новостей не даёт.
+   */
+  it('поход: защитнику «идут на город», нападающему — ничего; отзыв снимает новость', () => {
+    const { file, ctx } = setup();
+    const before = newsMap(file);
+    expect(applyOrder(file, A, { op: 'march', target: castleIdOf(B), mode: 'siege', fate: 'plunder', army: army({ spearman: 30 }) }, T0, ctx)).toBeNull();
+    const diff = newsDiff(before, newsMap(file));
+    expect([...diff.keys()]).toEqual([B]);
+    expect(diff.get(B)?.add.map((i) => `${i.kind}:${i.p.from}:${i.p.mode}`)).toEqual(['war:Альфа:siege']);
+    expect(diff.get(B)?.add[0].until).toBe(file.wars[0].arriveAt);
+    const marched = newsMap(file);
+    expect(applyOrder(file, A, { op: 'recall', id: file.wars[0].id }, T0 + 1000, ctx)).toBeNull();
+    const recalled = newsDiff(marched, newsMap(file));
+    expect(recalled.get(B)).toEqual({ add: [], drop: [`war:${file.wars[0].id}`] });
+  });
+
+  it('штурм в минуту прихода: «бой был» обеим, у каждой своя победа, взятие — одной новостью', () => {
+    const { file, ctx, sheets } = setup();
+    applyOrder(file, A, { op: 'march', target: castleIdOf(B), mode: 'storm', fate: 'plunder', army: army({ spearman: 60, swordsman: 30, archer: 30 }) }, T0, ctx);
+    const w = file.wars[0];
+    const before = newsMap(file);
+    expect(advance(file, w.arriveAt, sheets)).toBe(true);
+    const diff = newsDiff(before, newsMap(file));
+    const atk = diff.get(A)!.add;
+    const def = diff.get(B)!.add;
+    expect(atk.map((i) => i.kind)).toEqual(['war-fight']);
+    expect(def.map((i) => i.kind)).toEqual(['war-fight']);
+    expect(atk[0].key).toBe(def[0].key);
+    expect(atk[0].p.won).toBe(!def[0].p.won);
+    expect(atk[0].p.won).toBe(w.battles[0].won);
+    expect(Boolean(def[0].p.taken)).toBe(Boolean(w.fall));
+    expect(atk[0].p.from).toBe('Бета');
+    expect(def[0].p.from).toBe('Альфа');
+    // Тот же ход ещё раз — новостей нет.
+    const again = newsMap(file);
+    advance(file, w.arriveAt + 1000, sheets);
+    expect([...newsDiff(again, newsMap(file)).values()].every((d) => d.add.length === 0)).toBe(true);
+  });
+
+  it('падение голодом — «город взят» обеим сторонам', () => {
+    const { file, ctx, sheets } = setup({ b: { food: 10 } });
+    applyOrder(file, A, { op: 'march', target: castleIdOf(B), mode: 'siege', fate: 'captives', army: army({ spearman: 30 }) }, T0, ctx);
+    const w = file.wars[0];
+    advance(file, w.arriveAt, sheets);
+    expect(w.phase).toBe('camp');
+    const before = newsMap(file);
+    advance(file, w.starvesAt!, sheets);
+    expect(w.fall?.by).toBe('hunger');
+    const diff = newsDiff(before, newsMap(file));
+    for (const p of [A, B]) {
+      expect(diff.get(p)?.add.map((i) => `${i.kind}:${i.p.role}`), p).toEqual([`war-fall:${p === A ? 'atk' : 'def'}`]);
+    }
+    expect(newsOf(w).filter((n) => n.item.kind === 'war-fall').every((n) => n.item.fireAt === w.fall!.at)).toBe(true);
   });
 });

@@ -281,18 +281,27 @@ export const cityOr = (raw: unknown): string => cityName(raw) ?? DEFAULT_CITY;
 //
 // Третья запись, которую держит сервер, и вторая, которую он читает (docs/NOTIFY.md,
 // раздел 3). Читает он не партию, а поручение: «в такую-то минуту скажи вот это,
-// если игрока нет». Ничего не проверяет о мире, ничего не начисляет. Составляет
-// поручение клиент из сохранения мира (`src/world/notice.ts`), сервер только
-// проверяет форму и держит до срока.
+// если игрока нет». Ничего не проверяет о мире, ничего не начисляет. Поручения о мире на
+// клиенте составляет клиент из сохранения мира (`src/world/notice.ts`); о войне между
+// игроками — сам сервер, из записи войн (`lib/war.newsOf`): её бой считает он же.
 
 /**
- * Белый список видов. **Три и только три**, и тест держит их поимённо: вида «вернись в
- * игру», «стройка готова», «награда ждёт» здесь быть не может — это напоминания игры о
- * себе, а не о городе, и именно из-за них уведомления выключают целиком, вместе с
- * осадой. Новый вид — правкой этой строки и теста, и никак иначе.
+ * Белый список видов. **Решение владельца (05.10.2026): бот пишет о двух вещах — на город
+ * нападают и бой уже был (итог)**, и тест держит виды поимённо: вида «вернись в игру»,
+ * «стройка готова», «награда ждёт» здесь быть не может — это напоминания игры о себе, а не о
+ * городе, и именно из-за них уведомления выключают целиком. Новый вид — правкой этой строки
+ * и теста, и никак иначе.
+ *
+ * - `raid` — набег логова идёт на город (нападают); `raid-fight` — набег дошёл до города
+ *   (бой был, итог в игре); `siege-fall` — хлеб под лагерем логова кончился, город взят;
+ * - `war` — отряд соседа идёт на город (нападают); `war-fight` — бой между игроками был;
+ *   `war-fall` — осаждённый соседом город пал от голода.
  */
-export const NOTICE_KINDS = ['raid', 'siege-works', 'siege-bread'] as const;
+export const NOTICE_KINDS = ['raid', 'raid-fight', 'siege-fall', 'war', 'war-fight', 'war-fall'] as const;
 export type NoticeKind = (typeof NOTICE_KINDS)[number];
+
+/** Что может прислать клиент. Войну знает только сервер: её поручения клиент составить не может. */
+export const CLIENT_KINDS = ['raid', 'raid-fight', 'siege-fall'] as const satisfies readonly NoticeKind[];
 
 /** Участь, объявленная городу, — теми же именами, что `Fate` мира. */
 export const NOTICE_FATES = ['plunder', 'captives', 'burn'] as const;
@@ -300,25 +309,29 @@ export type NoticeFate = (typeof NOTICE_FATES)[number];
 
 /**
  * Числа для слов. Только то, что до `until` само не двигается: имя двора, участь и
- * отметки времени, уже записанные в сохранении мира. Запаса, мощи, потерь здесь нет и
- * быть не может — они устаревают сами (docs/NOTIFY.md, раздел 4, правило 3).
+ * отметки времени, уже записанные в сохранении мира или войны. Запаса, мощи, потерь здесь нет
+ * и быть не может — они устаревают сами (docs/NOTIFY.md, раздел 4, правило 3).
  */
 export interface NoticeFacts {
-  /** Откуда пришли: имя двора. Строка до `NOTICE_LIMITS.name`, без разметки. */
+  /** Кто: имя логова или города соседа. Строка до `NOTICE_LIMITS.name`, без разметки. */
   from: string;
   fate: NoticeFate;
-  /** О какой минуте пункт: приход отряда у набега, конец хлеба у осады. */
+  /** О какой минуте пункт: приход отряда у набега и войны, конец хлеба у осады, минута боя. */
   about: number;
   /**
    * Набег: полный сбор дружины не успевает уже в ту минуту, когда отряд стал виден (сбор дольше предупреждения). Тогда
    * пункт уходит в эту же минуту и годен до прихода; без пометки он годен, пока полный сбор ещё успевает (`until`).
-   * Прежнего поля «когда запрётся оборона» (`freezeAt`) нет: заморозка ушла вместе с расстановкой обороны
-   * (docs/battle_eu4.md, 14.26–14.27). Старый клиент шлёт его, пока не перезагрузится, — разбор его не копирует.
    */
   late?: true;
-  /** Осада: когда достроятся рогатки со стороны города и со стороны поля. */
-  frontAt?: number;
-  rearAt?: number;
+  /** Война: чья сторона у получателя — он идёт (`atk`) или на него идут (`def`). */
+  role?: 'atk' | 'def';
+  /** Война в пути: штурм с ходу или осада лагерем. */
+  mode?: WarMode;
+  /** Бой войны: где, кто нападал в этом бою, победила ли сторона получателя, взят ли город этим боем. */
+  site?: WarSite;
+  by?: 'atk' | 'def';
+  won?: boolean;
+  taken?: true;
 }
 
 /** Пункт исходящих. Ключ — имя момента, а не время: по нему не уходит второй раз. */
@@ -327,32 +340,29 @@ export interface NoticeItem {
   kind: NoticeKind;
   /** С какой минуты пункт годится к отправке. */
   fireAt: number;
-  /** До какой минуты он годен: после неё ответить уже нечем. */
+  /** До какой минуты он годен: после неё ответить уже нечем или новость устарела. */
   until: number;
   p: NoticeFacts;
 }
 
-/** Настройки игрока. Каналов в них нет: каналы — следующая пачка. */
+/**
+ * Настройки игрока. Рычаг один — пишет бот или нет (решение владельца: кнопка «Отключить уведомления» под
+ * каждым сообщением и «Включить», когда выключены). Тихих часов нет: о нападении и о бое бот пишет в любое
+ * время суток. Пояс нужен для «в 14:40» в словах.
+ */
 export interface NotifyPrefs {
-  /** Отряд на подходе. */
-  raid: boolean;
-  /** Осада: рогатки и хлеб одной строкой. */
-  siege: boolean;
-  /** Тихие часы: минуты суток в поясе игрока, `from` может быть больше `to` (через полночь). */
-  quiet: { on: boolean; from: number; to: number };
-  /** Не больше в сутки. */
-  perDay: 3 | 6 | 10;
+  on: boolean;
   /** Пояс игрока (`Intl…timeZone`). Пустая строка — UTC. */
   tz: string;
 }
 
-export const DEFAULT_PREFS: NotifyPrefs = {
-  raid: true,
-  siege: true,
-  quiet: { on: true, from: 23 * 60, to: 8 * 60 },
-  perDay: 6,
-  tz: '',
-};
+export const DEFAULT_PREFS: NotifyPrefs = { on: true, tz: '' };
+
+/**
+ * Сколько годна новость об итоге (`raid-fight`, `siege-fall`, `war-fight`, `war-fall`): позже она уже не новость —
+ * игрок узнает её в игре. Одно число на клиент и сервер.
+ */
+export const RESULT_KEEP = 12 * 60 * 60_000;
 
 /** Потолки формы. Поддельный клиент может навредить только себе — и то в этих пределах. */
 export const NOTICE_LIMITS = {
@@ -375,7 +385,15 @@ export interface NotifyPut {
   /** Игрок здесь (страница видна) или ушёл. Время ставит сервер. */
   present?: boolean;
   prefs?: NotifyPrefs;
+  /**
+   * Игрок только что разрешил боту писать (`requestWriteAccess`). Сервер верит этому ровно настолько, что
+   * пробует писать снова: адресат — только из подписи, и ложное «разрешил» получит отказ Telegram себе же.
+   */
+  canWrite?: true;
 }
+
+/** Может ли бот писать игроку: не знаем, можно, закрыто (отказ Telegram или бот заблокирован). */
+export type NotifyChannel = 'unknown' | 'open' | 'closed';
 
 /** Ответ `/api/notify`: состояние без самих пунктов и без журнала отправленного. */
 export interface NotifyState {
@@ -384,6 +402,7 @@ export interface NotifyState {
   items: number;
   away: number | null;
   prefs: NotifyPrefs;
+  chan: NotifyChannel;
 }
 
 /** Имя двора без разметки: ни угловых скобок, ни знаков выделения, ни управляющих символов. */
@@ -400,20 +419,22 @@ const oneOf = <T extends string>(list: readonly T[], v: unknown): T | null =>
   typeof v === 'string' && (list as readonly string[]).includes(v) ? (v as T) : null;
 
 /**
- * Разбор списка, пришедшего от клиента. Как и у записи партии: лишнее выбрасывается,
- * а нарушение формы — отказ всему списку, а не обрезка. Список, из которого молча
- * выпал пункт, говорил бы игроку меньше, чем клиент думает, что сказал.
+ * Разбор списка. Как и у записи партии: лишнее выбрасывается, а нарушение формы — отказ всему
+ * списку, а не обрезка. Список, из которого молча выпал пункт, говорил бы игроку меньше, чем
+ * клиент думает, что сказал.
  *
- * `now` — серверные часы: `fireAt` дальше `NOTICE_LIMITS.ahead` от них не принимается.
+ * `now` — серверные часы: `fireAt` дальше `NOTICE_LIMITS.ahead` от них не принимается. `kinds` —
+ * какие виды принимаются: от клиента — только `CLIENT_KINDS` (войну он прислать не может), своя
+ * запись сервера читается со всеми.
  */
-export function readNotices(v: unknown, now: number): NoticeItem[] | null {
+export function readNotices(v: unknown, now: number, kinds: readonly NoticeKind[] = CLIENT_KINDS): NoticeItem[] | null {
   if (!Array.isArray(v) || v.length > NOTICE_LIMITS.items) return null;
   const out: NoticeItem[] = [];
   const keys = new Set<string>();
   for (const raw of v) {
     if (!raw || typeof raw !== 'object') return null;
     const r = raw as Record<string, unknown>;
-    const kind = oneOf(NOTICE_KINDS, r.kind);
+    const kind = oneOf(kinds, r.kind);
     const key = str(r.key, NOTICE_LIMITS.key);
     const fireAt = num(r.fireAt);
     const until = num(r.until);
@@ -425,15 +446,23 @@ export function readNotices(v: unknown, now: number): NoticeItem[] | null {
     const about = num(p.about);
     if (!from || !PLAIN.test(from) || !fate || about === null) return null;
     const facts: NoticeFacts = { from, fate, about };
-    for (const f of ['frontAt', 'rearAt'] as const) {
-      if (p[f] === undefined) continue;
-      const n = num(p[f]);
-      if (n === null) return null;
-      facts[f] = n;
-    }
     if (p.late !== undefined) {
       if (p.late !== true) return null;
       facts.late = true;
+    }
+    // Поля войны — только у видов войны: клиент их не шлёт, а своя запись сервера их несёт.
+    if (kind.startsWith('war')) {
+      const role = oneOf(['atk', 'def'] as const, p.role);
+      if (!role) return null;
+      facts.role = role;
+      const mode = oneOf(WAR_MODES, p.mode);
+      const site = oneOf(['wall', 'sortie', 'camp', 'joint'] as const, p.site);
+      const by = oneOf(['atk', 'def'] as const, p.by);
+      if (mode) facts.mode = mode;
+      if (site) facts.site = site;
+      if (by) facts.by = by;
+      if (typeof p.won === 'boolean') facts.won = p.won;
+      if (p.taken === true) facts.taken = true;
     }
     keys.add(key);
     out.push({ key, kind, fireAt, until, p: facts });
@@ -441,24 +470,11 @@ export function readNotices(v: unknown, now: number): NoticeItem[] | null {
   return out;
 }
 
-/** Разбор настроек: неизвестное и кривое — умолчание, а не отказ. */
+/** Разбор настроек: неизвестное и кривое — умолчание, а не отказ. Прежние настройки (виды, тихие часы) не читаются. */
 export function readPrefs(v: unknown): NotifyPrefs {
   const r = (v && typeof v === 'object' ? v : {}) as Record<string, unknown>;
-  const q = (r.quiet && typeof r.quiet === 'object' ? r.quiet : {}) as Record<string, unknown>;
-  const minute = (raw: unknown, dflt: number): number => {
-    const n = num(raw);
-    return n === null ? dflt : Math.min(1439, Math.max(0, Math.floor(n)));
-  };
-  const per = num(r.perDay);
   return {
-    raid: typeof r.raid === 'boolean' ? r.raid : DEFAULT_PREFS.raid,
-    siege: typeof r.siege === 'boolean' ? r.siege : DEFAULT_PREFS.siege,
-    quiet: {
-      on: typeof q.on === 'boolean' ? q.on : DEFAULT_PREFS.quiet.on,
-      from: minute(q.from, DEFAULT_PREFS.quiet.from),
-      to: minute(q.to, DEFAULT_PREFS.quiet.to),
-    },
-    perDay: per === 3 || per === 6 || per === 10 ? per : DEFAULT_PREFS.perDay,
+    on: typeof r.on === 'boolean' ? r.on : DEFAULT_PREFS.on,
     tz: str(r.tz, 64) ?? DEFAULT_PREFS.tz,
   };
 }

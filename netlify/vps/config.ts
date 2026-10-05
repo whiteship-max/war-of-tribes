@@ -9,6 +9,7 @@
  * сервер, который пишет партии не туда, куда думает владелец.
  */
 import { join } from 'node:path';
+import { deliverOn } from '../lib/http.js';
 
 /** Имена переменных. Других сервер не читает; `.env.example` и `docker-compose.yml` сверяются с ними тестом. */
 export const ENV = {
@@ -95,7 +96,7 @@ export function readConfig(env: Record<string, string | undefined>): { config: V
       dataDir: text(ENV.dataDir) || DEFAULTS.dataDir,
       backupKeep: int(ENV.backupKeep, DEFAULTS.backupKeep, 1, 365),
       backupAt,
-      deliver: deliverRaw === 'on',
+      deliver: deliverOn({ [ENV.deliver]: deliverRaw }),
       netlify,
     },
     problems,

@@ -10,7 +10,6 @@
 // только это. Писать он не пишет ничего.
 import { LocalWorld, HOME_ID } from './LocalWorld';
 import { ourCamp, siegeSince, starvesAt } from '../siege';
-import { worksRipeAt } from '../works';
 import { draftNotices, sightFrom, type Break, type Drafts, type NoticeWorld } from '../notice';
 
 export class NotifyingWorld extends LocalWorld {
@@ -45,6 +44,8 @@ export class NotifyingWorld extends LocalWorld {
             ? (m.stayUntil ?? m.arriveAt)
             : m.arriveAt + Math.max(0, m.arriveAt - m.departAt);
       breaks.push({ kind: 'march-home', at });
+      // Идущий туда свой поход на логово, откуда вышел набег, сожжёт его — и набег снимется (`burnLair`).
+      if (m.phase === 'out') breaks.push({ kind: 'burn', at: m.arriveAt, target: m.targetId });
     }
 
     const g = save.figures.general;
@@ -59,6 +60,7 @@ export class NotifyingWorld extends LocalWorld {
     const raid: NoticeWorld['raid'] = m
       ? {
           id: m.id,
+          source: m.fromId,
           from: m.fromName,
           fate: this.fateFor(m.fate, HOME_ID, m.arriveAt),
           departAt: m.departAt,
@@ -73,19 +75,12 @@ export class NotifyingWorld extends LocalWorld {
     const w = this.homeSiege(now);
     let siege: NoticeWorld['siege'] = null;
     if (w && !ourCamp(w)) {
-      const since = siegeSince(w);
-      const ripe = (side: 'front' | 'rear'): number | null => {
-        const t = worksRipeAt(since, side, w.wood);
-        return Number.isFinite(t) ? t : null;
-      };
       siege = {
         campId: w.campId,
         from: this.byId.get(w.byId)?.name ?? 'Враги',
         fate: this.fateFor(w.fate, HOME_ID, starvesAt(w)),
-        since,
+        since: siegeSince(w),
         starvesAt: starvesAt(w),
-        frontAt: ripe('front'),
-        rearAt: ripe('rear'),
       };
     }
     return { raid, siege, breaks };

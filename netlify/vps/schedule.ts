@@ -9,9 +9,8 @@
  * - **отметка «сервер работает»** (`serve.alive`) раз в `ALIVE_MS`: по ней восстановление
  *   отказывается идти под живым сервером;
  * - **проход доставки уведомлений** (`lib/deliver.ts`) раз в минуту — **только если** владелец
- *   включил его (`TRIBE_DELIVER=on`). На Netlify доставка заморожена (16.09.2026,
- *   docs/SUBTRACT.md): адаптеров нет, `NOTIFY_ON` выключен, и проход не отправляет ничего. Здесь
- *   она так же выключена по умолчанию — переезд не повод размораживать то, что заморозил владелец.
+ *   включил его (`TRIBE_DELIVER=on`), тот же проход и тот же флаг, что у функции по расписанию на Netlify
+ *   (`functions/deliver.mts`): ход войны между игроками и сообщения в Telegram (docs/NOTIFY.md, раздел 12).
  *
  * Часы, время следующей копии и решение «нужна ли копия сразу» — чистые функции: их проверяют
  * тестом без настоящих таймеров (`schedule.test.ts`).
@@ -19,6 +18,7 @@
 import { closeSync, openSync, rmSync, utimesSync } from 'node:fs';
 import type { DatabaseSync } from './driver.js';
 import { deliverPass, passIoOf } from '../lib/deliver.js';
+import { telegram } from '../lib/telegram.js';
 import type { Stores } from '../lib/kv.js';
 import { ALIVE_MS, makeBackup, newestBackupAt, rotate } from './backup.js';
 import type { VpsConfig } from './config.js';
@@ -104,7 +104,7 @@ export function startSchedule(io: ScheduleIo): Schedule {
       setInterval(() => {
         if (running) return;
         running = true;
-        deliverPass(passIoOf(io.stores), clock(), clock)
+        deliverPass(passIoOf(io.stores, telegram()), clock(), clock)
           .catch((e) => sayFail('проход доставки упал', e))
           .finally(() => {
             running = false;

@@ -24,8 +24,6 @@ const files = (): string[] => {
   };
   walk(join(ROOT, 'lib'));
   walk(join(ROOT, 'functions'));
-  // Замороженное не выкладывается, но замки на него действуют: вернётся оно тем же кодом.
-  walk(join(ROOT, 'frozen'));
   // Свой сервер — второй дом той же логики: замки те же.
   walk(join(ROOT, 'vps'));
   return out;
@@ -154,47 +152,75 @@ describe('исходящие: ключ только из подписи или �
     expect(assigns).toEqual(['blob.key.slice(minute.length + 1)']);
     expect(deliver).toMatch(/if \(!PLAYER_KEY\.test\(player\)\)/);
     const calls = [...deliver.matchAll(/io\.notify\s*\.\s*\w+\(\s*([A-Za-z_$][\w$]*)/g)].map((m) => m[1]);
-    expect(calls.length).toBe(2);
+    expect(calls.length).toBe(3);
     expect([...new Set(calls)]).toEqual(['player']);
+  });
+
+  /**
+   * Новости войны кладёт сервер сам (`outbox.queueNews`): ключ игрока — из записи войны, куда он попал из подписи
+   * нападающего и из реестра, и проверяется тем же видом, что ключ метки, до первого чтения.
+   */
+  it('новости войны: ключ игрока проверяется видом до первого похода в запись', () => {
+    const outbox = read('lib/outbox.ts');
+    const check = outbox.search(/if \(!PLAYER_KEY\.test\(player\)/);
+    expect(check).toBeGreaterThan(0);
+    expect(outbox.indexOf('io.notify.')).toBeGreaterThan(check);
+    const calls = [...outbox.matchAll(/io\.notify\s*\.\s*\w+\(\s*([A-Za-z_$][\w$]*)/g)].map((m) => m[1]);
+    expect([...new Set(calls)]).toEqual(['player']);
+  });
+
+  /**
+   * Вебхук бота знает игрока не из подписи `initData`, а из обновления Telegram (docs/handbook/sync.md, расширено
+   * вслух 05.10.2026). Подлинность обновления — секрет вебхука: он проверяется раньше любого похода в хранилище, ключ
+   * собирается один раз — из `from.id` обновления, — и трогает вебхук только исходящие (рычаг и канал).
+   */
+  it('вебхук бота: секрет до хранилища, ключ — из обновления, трогает только исходящие', () => {
+    const bot = read('lib/routes/bot.ts');
+    const check = bot.search(/if \(!secretOk\(req\.headers\.get\('x-telegram-bot-api-secret-token'\)\)\) return deny\(401/);
+    expect(check).toBeGreaterThan(0);
+    expect(bot.indexOf('io.stores(')).toBeGreaterThan(check);
+    expect([...bot.matchAll(/\bconst player\s*=\s*([^;]+);/g)].map((m) => m[1].trim())).toEqual(['`tg-${found.id}`']);
+    expect([...new Set([...bot.matchAll(/\bstore\s*\.\s*\w+\(\s*([A-Za-z_$][\w$]*)/g)].map((m) => m[1]))]).toEqual(['player']);
+    expect([...bot.matchAll(/io\.stores\((STORES\.\w+)/g)].map((m) => m[1])).toEqual(['STORES.notify']);
   });
 
   /**
    * Имена хранилищ названы один раз (`lib/kv.STORES`), а хранилища исходящих открывают ровно
    * приём и проход доставки — по имени из того же списка.
    */
-  it('хранилища исходящих трогают ровно приём и доставка', () => {
+  it('хранилища исходящих трогают ровно приём, доставка, война (новости) и вебхук бота (рычаг)', () => {
     const uses = (re: RegExp): string[] => files().filter((f) => re.test(strip(readFileSync(f, 'utf8')))).map(rel).sort();
     expect(uses(/tribe-notify/)).toEqual(['lib/kv.ts']);
-    expect(uses(/STORES\.(?:notify|due)\b/)).toEqual(['lib/deliver.ts', 'lib/routes/notify.ts']);
+    expect(uses(/STORES\.(?:notify|due)\b/)).toEqual(['lib/deliver.ts', 'lib/routes/bot.ts', 'lib/routes/notify.ts', 'lib/routes/war.ts']);
     expect(uses(/STORES\.stats\b/)).toEqual(['lib/deliver.ts']);
   });
 
   /**
-   * Доставка заморожена: 1 440 проходов в сутки не отправляли ничего. Функция лежит вне
-   * `functions/` — платформа собирает только эту папку, — и расписания в выкладке нет ни у
-   * кого. Снять одно `schedule` было бы хуже: функция без него и без `path` отвечает всякому
-   * по `/.netlify/functions/<имя>`. Размораживают переносом файла обратно (шапка
-   * `frozen/deliver.mts`) — и этот тест правится тем же коммитом. На своём сервере проход
-   * так же выключен по умолчанию — это держит `vps/schedule.test.ts`.
+   * Доставка — одна функция по расписанию, и включает её флаг `TRIBE_DELIVER=on` (`http.deliverOn`), а не перенос
+   * файла: без флага функция выходит, ничего не прочитав. Была заморожена 16.09.2026 (docs/SUBTRACT.md) — переносом
+   * в `frozen/`; разморожена 05.10.2026 вместе с адаптером (docs/NOTIFY.md, раздел 12). На своём сервере проход
+   * включает тот же флаг — это держит `vps/schedule.test.ts` и `vps/config.test.ts`.
    */
-  it('доставка заморожена: в выкладке нет ни одной функции по расписанию', () => {
+  it('доставка: одна функция по расписанию, и без флага она выходит, ничего не прочитав', () => {
     const deployed = readdirSync(join(ROOT, 'functions')).filter((n) => /\.m?tsx?$/.test(n));
-    expect(deployed.length).toBeGreaterThan(0);
     const scheduled = deployed.filter((n) => /\bschedule\s*:/.test(read(`functions/${n}`)));
-    expect(scheduled).toEqual([]);
-    expect(deployed).not.toContain('deliver.mts');
-    // Сам проход цел и расписание при нём: разморозка — перенос файла, а не переписывание.
-    expect(read('frozen/deliver.mts')).toMatch(/schedule: '\* \* \* \* \*'/);
+    expect(scheduled).toEqual(['deliver.mts']);
+    const code = read('functions/deliver.mts');
+    expect(code).toMatch(/schedule: '\* \* \* \* \*'/);
+    expect(code).not.toMatch(/\bpath\s*:/);
+    expect(code).toMatch(/if \(deliverOn\(\)\) await deliverPass\(/);
+    expect([...code.matchAll(/\bdeliverPass\(/g)].length).toBe(1);
   });
 
   /**
-   * Замок сервера на доставку: адаптеров в этой пачке нет ни одного. Ни исходящего
-   * запроса, ни адреса Bot API — проход пишет «ушло бы», и больше ничего. Появится адаптер —
-   * этот тест правится вместе с ним, а не обходится.
+   * Наружу ходит один адаптер — `lib/telegram.ts`: ни обработчики, ни проход доставки, ни свой сервер не зовут
+   * `fetch` и не знают адреса Bot API. Новый адресат снаружи — правкой адаптера и этого теста.
    */
-  it('доставка ничего не отправляет: ни запроса наружу, ни адреса Telegram', () => {
-    const guilty = files().filter((f) => /\bfetch\s*\(|api\.telegram\.org|sendMessage/.test(strip(readFileSync(f, 'utf8'))));
-    expect(guilty).toEqual([]);
+  it('наружу ходит один адаптер: запрос и адрес Telegram — только в lib/telegram.ts', () => {
+    const guilty = files()
+      .filter((f) => /\bfetch\s*\(|api\.telegram\.org|sendMessage/.test(strip(readFileSync(f, 'utf8'))))
+      .map(rel);
+    expect(guilty).toEqual(['lib/telegram.ts']);
   });
 });
 

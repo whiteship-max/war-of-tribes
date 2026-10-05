@@ -24,8 +24,8 @@ const caddy = readFileSync(join(DEPLOY, 'Caddyfile'), 'utf8');
 const update = readFileSync(join(DEPLOY, 'update.sh'), 'utf8');
 const coolify = readFileSync(join(DEPLOY, 'coolify.yml'), 'utf8');
 
-/** Переменные, которые понимает сервер: свои — `config.ENV`, токен — `lib/http.botToken`, домен — Caddy. */
-const KNOWN = new Set<string>([...Object.values(ENV), 'TELEGRAM_BOT_TOKEN', 'TRIBE_DOMAIN']);
+/** Переменные, которые понимает сервер: свои — `config.ENV`, токен и секрет вебхука — `lib/http`, домен — Caddy. */
+const KNOWN = new Set<string>([...Object.values(ENV), 'TELEGRAM_BOT_TOKEN', 'TELEGRAM_WEBHOOK_SECRET', 'TRIBE_DOMAIN']);
 
 /** Блок сервиса в compose-файле: от `  имя:` до следующего сервиса или раздела. */
 const service = (name: string, file = compose): string => {
@@ -52,13 +52,14 @@ describe('секреты не уезжают в образ и в репозит�
         .map((l) => l.split('=', 2) as [string, string]),
     );
     expect(values.TELEGRAM_BOT_TOKEN).toBe('');
+    expect(values.TELEGRAM_WEBHOOK_SECRET).toBe('');
     expect(values.NETLIFY_AUTH_TOKEN).toBe('');
     expect(values.TRIBE_DOMAIN).toBe('');
   });
 
   it('в compose значения только из окружения: ни одного вписанного токена', () => {
     for (const line of compose.split('\n')) {
-      const m = /^\s+(TELEGRAM_BOT_TOKEN|NETLIFY_AUTH_TOKEN|NETLIFY_SITE_ID):\s*(.*)$/.exec(line);
+      const m = /^\s+(TELEGRAM_BOT_TOKEN|TELEGRAM_WEBHOOK_SECRET|NETLIFY_AUTH_TOKEN|NETLIFY_SITE_ID):\s*(.*)$/.exec(line);
       if (m) expect(m[2], m[1]).toMatch(/^\$\{\w+(:[-?][^}]*)?\}$/);
     }
   });
@@ -84,7 +85,8 @@ describe('имена переменных — одни у сервера, compos
   it('приложению передаются только его переменные; токен — из окружения', () => {
     const env = [...service('app').matchAll(/^ {6}([A-Z_]+):/gm)].map((m) => m[1]);
     expect(env).toContain('TELEGRAM_BOT_TOKEN');
-    expect(env.filter((n) => n !== 'TELEGRAM_BOT_TOKEN' && !Object.values(ENV).includes(n as never))).toEqual([]);
+    expect(env).toContain('TELEGRAM_WEBHOOK_SECRET');
+    expect(env.filter((n) => n !== 'TELEGRAM_BOT_TOKEN' && n !== 'TELEGRAM_WEBHOOK_SECRET' && !Object.values(ENV).includes(n as never))).toEqual([]);
   });
 });
 

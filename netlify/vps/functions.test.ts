@@ -2,6 +2,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { ROUTES } from '../lib/routes/index.js';
+import * as botRoute from '../lib/routes/bot.js';
 import * as castlesRoute from '../lib/routes/castles.js';
 import * as notifyRoute from '../lib/routes/notify.js';
 import * as saveRoute from '../lib/routes/save.js';
@@ -25,9 +26,13 @@ const ROUTE_MODULES: Record<string, Record<string, unknown>> = {
   notify: notifyRoute,
   time: timeRoute,
   war: warRoute,
+  bot: botRoute,
 };
 
-const deployed = readdirSync(join(ROOT, 'functions')).filter((n) => /\.mts$/.test(n));
+/** Функции с адресом. Функция по расписанию (`deliver.mts`) адреса не имеет: её держит `lib/server.test.ts`. */
+const deployed = readdirSync(join(ROOT, 'functions'))
+  .filter((n) => /\.mts$/.test(n))
+  .filter((n) => !/\bschedule\s*:/.test(readFileSync(join(ROOT, 'functions', n), 'utf8')));
 
 describe('функции Netlify и свой сервер — одни пути и одни обработчики', () => {
   it('у каждой функции путь из ROUTES, и ROUTES не знает путей, которых нет у функций', () => {

@@ -4,10 +4,10 @@ import { LocalWorld, HOME_ID } from './local/LocalWorld';
 import { NotifyingWorld } from './local/NotifyingWorld';
 import type { StoredMarch, WorldSave } from './local/state';
 import type { PlayerProfile, WorldPulse } from './types';
-import { BREAD_LEAD_SHARE, WORKS_FIRE_SHARE, draftNotices, sightFrom, type NoticeWorld } from './notice';
+import { draftNotices, sightFrom, type NoticeWorld } from './notice';
 import { inSight } from './fog';
 import { marchPosition } from './geo';
-import { NOTICE_KINDS, plainName, readNotices, type NoticeItem } from '../../netlify/lib/contract';
+import { CLIENT_KINDS, RESULT_KEEP, plainName, readNotices, type NoticeItem } from '../../netlify/lib/contract';
 import { shieldVillagers } from './lairs';
 import { HANDOVER_MAX, SIEGE_IMMUNE } from './data/tuning';
 
@@ -120,6 +120,7 @@ const T0 = START + 10 * MINUTE;
 
 const raidFacts = (over: Partial<NonNullable<NoticeWorld['raid']>> = {}): NonNullable<NoticeWorld['raid']> => ({
   id: 'm4',
+  source: 's12',
   from: 'Логово разбойников',
   fate: 'plunder',
   departAt: T0 - 2 * MINUTE,
@@ -135,46 +136,41 @@ const siegeFacts = (over: Partial<NonNullable<NoticeWorld['siege']>> = {}): NonN
   fate: 'captives',
   since: T0,
   starvesAt: T0 + 40 * MINUTE,
-  frontAt: T0 + 28 * MINUTE,
-  rearAt: T0 + 56 * MINUTE,
   ...over,
 });
 
+const only = (items: NoticeItem[], kind: NoticeItem['kind']): NoticeItem[] => items.filter((i) => i.kind === kind);
+
 describe('черновики: вид, ключ, «когда» и «годно до»', () => {
-  it('белый список видов — три и только три, поимённо', () => {
+  it('клиент составляет три вида и только их: о войне между игроками говорит сервер', () => {
     // Вида «вернись в игру», «стройка готова», «награда ждёт» здесь быть не может: это
-    // напоминания игры о себе, и именно из-за них уведомления выключают целиком.
-    expect([...NOTICE_KINDS]).toEqual(['raid', 'siege-works', 'siege-bread']);
+    // напоминания игры о себе, и именно из-за них уведомления выключают целиком. Решение
+    // владельца (05.10.2026): о двух вещах — нападают и бой был (docs/NOTIFY.md, раздел 12).
+    expect([...CLIENT_KINDS]).toEqual(['raid', 'raid-fight', 'siege-fall']);
   });
 
-  it('набег: с минуты, когда его видно, до минуты, когда полный сбор ещё успевает', () => {
-    // Окно ответа после расстановки обороны — полный сбор дружины (docs/battle_eu4.md, 14.26–14.27): прежде пункт был
-    // годен до заморозки обороны, и в нём лежало поле `freezeAt`; теперь срок несёт сам `until`.
+  it('набег: «нападают» — с минуты, когда его видно, до минуты, когда полный сбор ещё успевает; «бой был» — в минуту прихода', () => {
+    // Окно ответа после расстановки обороны — полный сбор дружины (docs/battle_eu4.md, 14.26–14.27).
     const { items } = draftNotices({ raid: raidFacts(), siege: null, breaks: [] }, T0);
+    const facts = { from: 'Логово разбойников', fate: 'plunder', about: T0 + 20 * MINUTE };
     expect(items).toEqual([
-      {
-        key: `raid:m4:${T0 - 2 * MINUTE}`,
-        kind: 'raid',
-        fireAt: T0 + 9 * MINUTE,
-        until: T0 + 15 * MINUTE,
-        p: { from: 'Логово разбойников', fate: 'plunder', about: T0 + 20 * MINUTE },
-      },
+      { key: `raid:m4:${T0 - 2 * MINUTE}`, kind: 'raid', fireAt: T0 + 9 * MINUTE, until: T0 + 15 * MINUTE, p: facts },
+      { key: `raid-fight:m4:${T0 - 2 * MINUTE}`, kind: 'raid-fight', fireAt: T0 + 20 * MINUTE, until: T0 + 20 * MINUTE + RESULT_KEEP, p: facts },
     ]);
   });
 
-  it('осада: рогатки на полпути к дозревшему фронту, хлеб — в последней доле окна', () => {
+  it('осада логова: «город взят» — в минуту, когда кончится хлеб', () => {
     const s = siegeFacts();
     const { items } = draftNotices({ raid: null, siege: s, breaks: [] }, T0 + MINUTE);
-    const works = items.find((i) => i.kind === 'siege-works')!;
-    const bread = items.find((i) => i.kind === 'siege-bread')!;
-    expect(works.key).toBe(`siege-works:m9:${T0}`);
-    expect(bread.key).toBe(`siege-bread:m9:${T0}`);
-    expect(works.fireAt).toBe(T0 + 28 * MINUTE * WORKS_FIRE_SHARE);
-    expect(works.until).toBe(T0 + 28 * MINUTE);
-    expect(bread.fireAt).toBe(T0 + 40 * MINUTE * (1 - BREAD_LEAD_SHARE));
-    expect(bread.until).toBe(T0 + 40 * MINUTE);
-    // Слова берут только то, что до «годно до» не двигается само.
-    expect(Object.keys(bread.p).sort()).toEqual(['about', 'fate', 'from', 'frontAt', 'rearAt']);
+    expect(items).toEqual([
+      {
+        key: `siege-fall:m9:${T0}`,
+        kind: 'siege-fall',
+        fireAt: s.starvesAt,
+        until: s.starvesAt + RESULT_KEEP,
+        p: { from: 'Логово разбойников', fate: 'captives', about: s.starvesAt },
+      },
+    ]);
   });
 
   it('ключ — имя момента: пересчёт той же осады его не меняет, новая осада — меняет', () => {
@@ -185,43 +181,50 @@ describe('черновики: вид, ключ, «когда» и «годно �
     expect(c.some((k) => a.includes(k))).toBe(false);
   });
 
-  it('рогатки дозревают после голода — «годно до» не дальше голода', () => {
-    const s = siegeFacts({ frontAt: T0 + 60 * MINUTE });
-    const works = draftNotices({ raid: null, siege: s, breaks: [] }, T0).items.find((i) => i.kind === 'siege-works')!;
-    expect(works.until).toBe(s.starvesAt);
-  });
-
   it('разрыв до минуты, о которой пункт, — молчание; разрыв после неё — не помеха', () => {
     const s = siegeFacts();
     const before = draftNotices({ raid: null, siege: s, breaks: [{ kind: 'march-home', at: T0 + 35 * MINUTE }] }, T0);
-    // Разрыв после «хлеб кончается» (fireAt 30 мин), но до конца хлеба — молчат оба:
-    // правило держит правду до минуты, о которой пункт говорит, а не до его отправки.
     expect(before.items).toEqual([]);
-    expect(before.silent).toEqual([
-      { kind: 'siege-works', why: 'march-home' },
-      { kind: 'siege-bread', why: 'march-home' },
-    ]);
+    expect(before.silent).toEqual([{ kind: 'siege-fall', why: 'march-home' }]);
     const after = draftNotices({ raid: null, siege: s, breaks: [{ kind: 'handover', at: s.starvesAt }] }, T0);
-    expect(after.items.length).toBe(2);
+    expect(after.items.length).toBe(1);
   });
 
   it('погоня молчит только о том набеге, за которым идёт', () => {
     const raid = raidFacts();
     const other = draftNotices({ raid, siege: null, breaks: [{ kind: 'chase', at: T0 + 5 * MINUTE, march: 'm7' }] }, T0);
-    expect(other.items.length).toBe(1);
+    expect(other.items.length).toBe(2);
     const own = draftNotices({ raid, siege: null, breaks: [{ kind: 'chase', at: T0 + 5 * MINUTE, march: 'm4' }] }, T0);
     expect(own.items).toEqual([]);
-    expect(own.silent).toEqual([{ kind: 'raid', why: 'chase' }]);
+    expect(own.silent).toEqual([
+      { kind: 'raid', why: 'chase' },
+      { kind: 'raid-fight', why: 'chase' },
+    ]);
+  });
+
+  /**
+   * Свой поход на логово, откуда вышел набег, доходит до него раньше набега — сожжённое логово снимает свои отряды в
+   * пути (`LocalWorld.burnLair`), и «набег дошёл в 14:40» стало бы неправдой. Граница области — приход набега:
+   * поход, доходящий позже, ничему не мешает; поход на другое логово — тоже.
+   */
+  it('свой поход на логово набега до его прихода — молчание о набеге; позже или на другое логово — не помеха', () => {
+    const raid = raidFacts();
+    const burn = (at: number, target: string) => draftNotices({ raid, siege: null, breaks: [{ kind: 'burn', at, target }] }, T0);
+    expect(T0 + 5 * MINUTE).toBeLessThan(raid.arriveAt);
+    expect(burn(T0 + 5 * MINUTE, 's12').items).toEqual([]);
+    expect(burn(T0 + 5 * MINUTE, 's12').silent.map((x) => x.why)).toEqual(['burn', 'burn']);
+    expect(burn(raid.arriveAt, 's12').items.length).toBe(2);
+    expect(burn(T0 + 5 * MINUTE, 's99').items.length).toBe(2);
   });
 
   it('«годно до» в прошлом и пустое окно — не пункт', () => {
     const late = draftNotices({ raid: raidFacts(), siege: null, breaks: [] }, T0 + 16 * MINUTE);
-    expect(late.items).toEqual([]);
+    expect(only(late.items, 'raid')).toEqual([]);
     expect(late.silent).toEqual([{ kind: 'raid', why: 'passed' }]);
-    // Пустое окно — у осады: рогатки со стороны города не дозреют никогда. У набега пустого окна больше нет — полный сбор,
-    // не успевающий с минуты обнаружения, даёт пункт с пометкой (следующий тест).
-    const shut = draftNotices({ raid: null, siege: siegeFacts({ frontAt: null }), breaks: [] }, T0);
-    expect(shut.silent).toEqual([{ kind: 'siege-works', why: 'no-window' }]);
+    // «Бой был» годен и после прихода — новость об итоге живёт `RESULT_KEEP`.
+    expect(only(late.items, 'raid-fight').length).toBe(1);
+    const gone = draftNotices({ raid: raidFacts(), siege: null, breaks: [] }, T0 + 20 * MINUTE + RESULT_KEEP);
+    expect(gone.silent.map((x) => `${x.kind}:${x.why}`)).toEqual(['raid:passed', 'raid-fight:passed']);
     for (const i of draftNotices({ raid: raidFacts(), siege: siegeFacts(), breaks: [] }, T0).items) {
       expect(i.fireAt, i.key).toBeLessThan(i.until);
       expect(i.until, i.key).toBeGreaterThan(T0);
@@ -241,8 +244,9 @@ describe('черновики: вид, ключ, «когда» и «годно �
       expect(c.musterBy <= raid.seenFrom, 'точка по свою сторону минуты обнаружения').toBe(c.late);
       const { items, silent } = draftNotices({ raid, siege: null, breaks: [] }, T0);
       expect(silent, `сбор до ${c.musterBy - T0}: молчания нет`).toEqual([]);
-      expect(items.length, `сбор до ${c.musterBy - T0}: пункт есть`).toBe(1);
-      const [item] = items;
+      const raids = only(items, 'raid');
+      expect(raids.length, `сбор до ${c.musterBy - T0}: пункт есть`).toBe(1);
+      const [item] = raids;
       expect(item.fireAt, 'уходит в минуту, когда набег виден').toBe(raid.seenFrom);
       expect(item.until, 'годен до прихода, если сбор не успевает, иначе — пока успевает').toBe(c.late ? raid.arriveAt : c.musterBy);
       expect(item.p.late, 'пометка «полный сбор не успеет»').toBe(c.late ? true : undefined);
@@ -264,6 +268,7 @@ describe('черновики: вид, ключ, «когда» и «годно �
       { raid: raidFacts({ from: '<b>Логово</b> *разбойников* с очень-очень длинным именем до конца строки' }), siege: siegeFacts(), breaks: [] },
       T0,
     ).items;
+    expect(odd.length).toBe(3);
     expect(readNotices(JSON.parse(JSON.stringify(odd)), T0)).toEqual(odd);
     expect(plainName('<b>Логово</b>')).toBe('bЛогово/b');
   });
@@ -436,13 +441,12 @@ describe('разрыв держит правду', () => {
           const w = await thaw(fz, t, kind);
           expect(w.pulse.siege, `сид ${seed}, ${kind}, +${dt / MINUTE} мин: осада на t идёт`).not.toBeNull();
           const drafts = await w.world.notices();
-          const points = drafts.items.filter((i) => i.kind !== 'raid' && i.fireAt > t);
+          const points = drafts.items.filter((i) => i.kind === 'siege-fall' && i.fireAt > t);
           if (points.length === 0) continue;
           const about = points[0].p.about;
           for (const i of points) {
             expect(i.fireAt, `${i.key}: fireAt < until`).toBeLessThan(i.until);
-            expect(i.until, `${i.key}: until ≤ about`).toBeLessThanOrEqual(i.p.about);
-            expect(i.p.about, `${i.key}: одна минута на оба пункта`).toBe(about);
+            expect(i.fireAt, `${i.key}: «город взят» — в минуту конца хлеба`).toBe(i.p.about);
           }
           const end = await runTo(w, t, about - 1000);
           const label = `сид ${seed}, ${kind}, черновик с +${dt / MINUTE} мин`;
@@ -453,6 +457,9 @@ describe('разрыв держит правду', () => {
           ).toBe(0);
           expect(end.siege!.since, `${label}: начало осады`).toBe(fz.since);
           expect(end.siege!.fate, `${label}: участь`).toBe(points[0].p.fate);
+          // И правда: в минуту конца хлеба осада кончилась падением, а не чем-то другим.
+          const fell = await runTo(w, about - 1000, about + 1000);
+          expect(fell.siege, `${label}: после конца хлеба осады нет`).toBeNull();
           checked += points.length;
         }
       }
@@ -463,7 +470,7 @@ describe('разрыв держит правду', () => {
   /**
    * Молчание вместо неправды считается: мир, где до конца хлеба назначен пересчёт окна,
    * не выпускает ни одного осадного пункта и называет причину. Без этого правила
-   * отправленное «хлеба до HH:MM» становилось бы неправдой без единого действия игрока.
+   * отправленное «город взят в HH:MM» становилось бы неправдой без единого действия игрока.
    */
   it('назначенный пересчёт окна — ни одного осадного пункта, и причина названа', async () => {
     for (const seed of SEEDS) {
@@ -472,9 +479,9 @@ describe('разрыв держит правду', () => {
         const w = await thaw(fz, fz.since + MINUTE, kind);
         expect(w.pulse.siege, `сид ${seed}, ${kind}: осада идёт`).not.toBeNull();
         const drafts = await w.world.notices();
-        const siegeItems: NoticeItem[] = drafts.items.filter((i) => i.kind !== 'raid');
+        const siegeItems: NoticeItem[] = drafts.items.filter((i) => i.kind === 'siege-fall');
         expect(siegeItems, `сид ${seed}, ${kind}: осадных пунктов`).toEqual([]);
-        expect(drafts.silent.filter((s) => s.kind !== 'raid').map((s) => s.why), `сид ${seed}, ${kind}`).toEqual([kind, kind]);
+        expect(drafts.silent.filter((s) => s.kind === 'siege-fall').map((s) => s.why), `сид ${seed}, ${kind}`).toEqual([kind]);
       }
     }
   }, 60_000);
@@ -553,6 +560,10 @@ describe('разрыв держит правду', () => {
       const t = now;
       expect(t, `сид ${seed}: t < fireAt < until ≤ about`).toBeLessThan(item.fireAt);
       expect(item.until).toBeLessThanOrEqual(item.p.about);
+      // «Бой был» о том же отряде — в минуту того же прихода.
+      const fight = (await world.notices()).items.find((x) => x.kind === 'raid-fight');
+      expect(fight?.key, `сид ${seed}: «бой был» о том же отряде`).toBe(item.key.replace(/^raid:/, 'raid-fight:'));
+      expect(fight?.fireAt).toBe(item.p.about);
       while (now < item.p.about - 20_000) {
         now += 20_000;
         await world.sync(profile());

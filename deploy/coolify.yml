@@ -11,6 +11,7 @@ services:
     restart: unless-stopped
     environment:
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:?}
+      TELEGRAM_WEBHOOK_SECRET: ${TELEGRAM_WEBHOOK_SECRET:-}
       TRIBE_STORE: ${TRIBE_STORE:-sqlite}
       TRIBE_DATA: /data
       BACKUP_KEEP: ${BACKUP_KEEP:-14}

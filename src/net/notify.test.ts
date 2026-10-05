@@ -1,10 +1,10 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import type { NoticeItem, NotifyPut, NotifyState } from '../../netlify/lib/contract';
 import { DEFAULT_PREFS } from '../../netlify/lib/contract';
 import type { ApiResult } from './api';
-import { BEAT_EVERY, LIST_EVERY, NOTIFY_ON, makeNotifier, notifyBoot, notifyDrafts, type NotifyDeps } from './notify';
+import { BEAT_EVERY, LIST_EVERY, NOTIFY_ON, makeNotifier, type NotifyDeps } from './notify';
 
 const SRC = path.join(__dirname, '..');
 
@@ -19,15 +19,15 @@ const walk = (dir: string, out: string[] = []): string[] => {
 
 const strip = (src: string): string => src.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/.*$/gm, '$1');
 
-describe('замок клиента: выключенное выключено', () => {
-  afterEach(() => vi.unstubAllGlobals());
-
+describe('замок клиента', () => {
   /**
-   * Пачка 1 — уведомления на клиенте выключены. Включит их пачка 2 вместе с настройками и
-   * адаптером — и вместе с этой строкой.
+   * Пачка 1 держала уведомления на клиенте выключенными. Открыт замок 05.10.2026 вместе с адаптером Telegram и
+   * флагом сервера `TRIBE_DELIVER` (решение владельца, docs/NOTIFY.md, раздел 12): отправлять или нет, решает
+   * сервер. Прежний тест «выключенный модуль не трогает ни сети, ни страницы» снят вместе с замком: модуль
+   * открыт и обязан говорить с сервером.
    */
-  it('NOTIFY_ON выключен', () => {
-    expect(NOTIFY_ON).toBe(false);
+  it('NOTIFY_ON открыт', () => {
+    expect(NOTIFY_ON).toBe(true);
   });
 
   /**
@@ -48,15 +48,6 @@ describe('замок клиента: выключенное выключено',
     // Запуск клиента, мир с черновиками и черновики после пульса.
     expect(calls.sort()).toEqual(['game/store.ts', 'world/store.ts', 'world/store.ts']);
   });
-
-  it('выключенный модуль не трогает ни сети, ни страницы', () => {
-    const fetch = vi.fn();
-    vi.stubGlobal('fetch', fetch);
-    // Страницы в этой среде нет: тронь модуль документ — упал бы.
-    expect(() => notifyBoot()).not.toThrow();
-    notifyDrafts([], 0);
-    expect(fetch).not.toHaveBeenCalled();
-  });
 });
 
 // ---------- Включённая логика ----------
@@ -67,12 +58,13 @@ const state = (over: Partial<NotifyState> = {}): NotifyState => ({
   items: 0,
   away: null,
   prefs: { ...DEFAULT_PREFS, tz: 'Europe/Moscow' },
+  chan: 'unknown',
   ...over,
 });
 
 const item = (key: string): NoticeItem => ({
   key,
-  kind: 'siege-bread',
+  kind: 'siege-fall',
   fireAt: 100_000,
   until: 200_000,
   p: { from: 'Логово', fate: 'plunder', about: 200_000 },
@@ -126,46 +118,46 @@ describe('клиент уведомлений: когда он говорит с
 
   it('новый список уходит сразу, тот же — не уходит второй раз', async () => {
     const r = rig();
-    r.n.drafts([item('siege-bread:a')], 999_000);
+    r.n.drafts([item('siege-fall:a')], 999_000);
     await r.flushAsync();
-    expect(r.puts).toEqual([{ body: { items: [item('siege-bread:a')], computedAt: 999_000 }, keepalive: false }]);
-    r.n.drafts([item('siege-bread:a')], 1_001_000);
+    expect(r.puts).toEqual([{ body: { items: [item('siege-fall:a')], computedAt: 999_000 }, keepalive: false }]);
+    r.n.drafts([item('siege-fall:a')], 1_001_000);
     await r.flushAsync();
     expect(r.puts.length).toBe(1);
   });
 
   it('список не чаще раза в пять секунд: изменения за это время уходят одним запросом потом', async () => {
     const r = rig();
-    r.n.drafts([item('siege-bread:a')], 0);
+    r.n.drafts([item('siege-fall:a')], 0);
     await r.flushAsync();
     r.set({ now: 1_002_000 });
-    r.n.drafts([item('siege-bread:b')], 0);
-    r.n.drafts([item('siege-bread:c')], 0);
+    r.n.drafts([item('siege-fall:b')], 0);
+    r.n.drafts([item('siege-fall:c')], 0);
     await r.flushAsync();
     expect(r.puts.length).toBe(1);
     await r.tick(1_002_000 + LIST_EVERY);
     expect(r.puts.length).toBe(2);
-    expect(r.puts[1].body.items).toEqual([item('siege-bread:c')]);
+    expect(r.puts[1].body.items).toEqual([item('siege-fall:c')]);
   });
 
   it('скрытие — список и «ушёл» одним запросом с keepalive', async () => {
     const r = rig();
     r.set({ visible: false });
-    r.n.drafts([item('siege-bread:a')], 5);
+    r.n.drafts([item('siege-fall:a')], 5);
     await r.flushAsync();
     // Пока страница не видна, список ждёт скрытия, а не уходит на каждом пульсе.
     expect(r.puts).toEqual([]);
     r.n.visibility();
     await r.flushAsync();
-    expect(r.puts).toEqual([{ body: { present: false, items: [item('siege-bread:a')], computedAt: 5 }, keepalive: true }]);
+    expect(r.puts).toEqual([{ body: { present: false, items: [item('siege-fall:a')], computedAt: 5 }, keepalive: true }]);
   });
 
   it('скрытие через секунду после списка — «ушёл» уходит всё равно, без повторного списка', async () => {
     const r = rig();
-    r.n.drafts([item('siege-bread:a')], 0);
+    r.n.drafts([item('siege-fall:a')], 0);
     await r.flushAsync();
     r.set({ now: 1_001_000, visible: false });
-    r.n.drafts([item('siege-bread:b')], 0);
+    r.n.drafts([item('siege-fall:b')], 0);
     r.n.visibility();
     await r.flushAsync();
     expect(r.puts[1]).toEqual({ body: { present: false }, keepalive: true });
@@ -190,7 +182,7 @@ describe('клиент уведомлений: когда он говорит с
     const r = rig();
     r.set({ leading: false });
     r.n.boot();
-    r.n.drafts([item('siege-bread:a')], 0);
+    r.n.drafts([item('siege-fall:a')], 0);
     r.n.visibility();
     r.n.beat();
     await r.flushAsync();
@@ -199,11 +191,11 @@ describe('клиент уведомлений: когда он говорит с
 
   it('пояс уходит один раз и только если на сервере другой — остальные настройки не трогаются', async () => {
     const r = rig();
-    r.set({ answer: { ok: true, data: state({ prefs: { ...DEFAULT_PREFS, perDay: 3, tz: '' } }) } });
+    r.set({ answer: { ok: true, data: state({ prefs: { on: false, tz: '' } }) } });
     r.n.boot();
     await r.flushAsync();
     await r.flushAsync();
-    expect(r.puts[1]).toEqual({ body: { prefs: { ...DEFAULT_PREFS, perDay: 3, tz: 'Europe/Moscow' } }, keepalive: false });
+    expect(r.puts[1]).toEqual({ body: { prefs: { on: false, tz: 'Europe/Moscow' } }, keepalive: false });
     r.n.beat();
     await r.flushAsync();
     await r.flushAsync();

@@ -11,15 +11,16 @@
  *
  * 1. **Личность — только из подписи.** Ключ записи собирается из проверенного
  *    идентификатора; писать можно только себе, и написать можно только себе — адресат
- *    сообщения в следующей пачке берётся из той же подписи.
+ *    сообщения бота берётся из той же подписи. Из неё же — разрешение писать
+ *    (`allows_write_to_pm`): канал, закрытый отказом Telegram, этим открывается снова.
  * 2. **Форма, а не смысл.** Число пунктов, даль `fireAt`, частота списка и расхождение
  *    часов составления с нашими — в потолках `NOTICE_LIMITS`, виды из белого списка, имя
  *    двора — строка без разметки (`contract.readNotices`, `notify.accept`).
  * 3. **Одновременная запись не теряется молча.** Прочитать — изменить — записать поверх
  *    ETag: запись переписывают двое — этот приём и проход доставки.
  *
- * Клиент, у которого уведомления выключены (`NOTIFY_ON` в `src/net/notify.ts`), сюда не
- * ходит вовсе.
+ * Игрок, выключивший уведомления, по-прежнему присылает присутствие и список: рычаг (`prefs.on`) решает
+ * проход доставки, а не клиент, — кнопка под сообщением бота переключает его, не спрашивая игру.
  */
 import { readInitData, saveKeyOf } from '../initdata.js';
 import { WRITE_TRIES, allow, botToken, deny, json, parseJson, readBody, type Route } from '../http.js';
@@ -59,9 +60,9 @@ export const notify: Route = async (req, io) => {
   for (let tries = 0; tries < WRITE_TRIES; tries++) {
     const found = await store.getWithMetadata(key);
     const rec = readNotify(found ? parseJson(String(found.data)) : null);
-    const { record, marks, fail } = accept(rec, put, key, now);
+    const { record, marks, fail } = accept(rec, put, key, now, auth.user.allowsWrite === true);
     // Отказан список, а больше в запросе ничего и не было — писать нечего.
-    if (fail && put.present === undefined && put.prefs === undefined) return deny(fail.status, fail.error);
+    if (fail && put.present === undefined && put.prefs === undefined && put.canWrite === undefined) return deny(fail.status, fail.error);
     const written = await store.setJSON(
       key,
       record,

@@ -17,11 +17,12 @@ import { readInitData, saveKeyOf } from '../initdata.js';
 import { WRITE_TRIES, allow, botToken, deny, json, parseJson, readBody, warPace, type Route } from '../http.js';
 import { readWarOrder, type WarOrder, type WarResponse } from '../contract.js';
 import { castleIdOf, readRoster } from '../roster.js';
-import { advance, applyOrder, dueKeys, pruneWars, readStoredSheet, readWars, setWarPace, warsOf, type SheetAt } from '../war.js';
+import { advance, applyOrder, dueKeys, newsDiff, newsMap, pruneWars, readStoredSheet, readWars, setWarPace, warsOf, WARS_KEY, type SheetAt } from '../war.js';
+import { queueNews } from '../outbox.js';
 import { STORES } from '../kv.js';
 
 /** Все войны лежат одной записью рядом с реестром. */
-const KEY = 'wars';
+const KEY = WARS_KEY;
 /** Реестр замков — та же запись, что держит `routes/castles.ts`; здесь он только читается. */
 const ROSTER = 'roster';
 
@@ -67,6 +68,8 @@ export const war: Route = async (req, io) => {
     const found = await hot.getWithMetadata(KEY);
     const file = readWars(found ? parseJson(String(found.data)) : null);
     const etag = found?.etag ?? null;
+    // Новости для бота — разница записи до и после этого хода (`war.newsOf`): кладёт их тот, чья запись легла.
+    const told = newsMap(file);
 
     for (const player of dueKeys(file, now)) await load(player);
     let changed = advance(file, now, sheets);
@@ -93,7 +96,10 @@ export const war: Route = async (req, io) => {
     const body: WarResponse = { now, wars: warsOf(file, key), ...(pace !== 1 ? { pace } : {}), ...(error ? { error } : {}) };
     if (!changed) return json(body);
     const written = await hot.setJSON(KEY, file, etag === null ? { onlyIfNew: true } : { onlyIfMatch: etag });
-    if (written.modified) return json(body);
+    if (written.modified) {
+      await queueNews({ notify: io.stores(STORES.notify), due: io.stores(STORES.due) }, newsDiff(told, newsMap(file)), now);
+      return json(body);
+    }
   }
 
   // Не пробились за `WRITE_TRIES` попыток: запись общая, кто-то писал быстрее. Игра спросит ещё раз.

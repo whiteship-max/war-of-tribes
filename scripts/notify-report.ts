@@ -32,7 +32,7 @@ import type { Silence } from '@/world/notice';
 import type { PlayerProfile, SettlementView } from '@/world/types';
 import type { TroopStack } from '@/game/battle/kinds';
 import { SEEN_GRACE } from '../netlify/lib/notify';
-import { NOTICE_KINDS, type NoticeKind } from '../netlify/lib/contract';
+import { CLIENT_KINDS, type NoticeKind } from '../netlify/lib/contract';
 import { shieldVillagers } from '@/world/lairs';
 import { DAY_LENGTH, realMs, worldDays } from '@/game/pace';
 import { PULSE_FLOOR } from './autopilot';
@@ -157,7 +157,7 @@ async function play(seed: number, town: (typeof TOWNS)[number]): Promise<Leave[]
       const d = await world.notices();
       const byKind: Leave['byKind'] = {};
       for (const i of d.items) byKind[i.kind] = (byKind[i.kind] ?? 0) + 1;
-      const siegeSilent = d.silent.find((s) => s.kind === 'siege-bread');
+      const siegeSilent = d.silent.find((s) => s.kind === 'siege-fall');
       const raidSilent = d.silent.find((s) => s.kind === 'raid');
       leaves.push({
         town: town.name,
@@ -168,7 +168,7 @@ async function play(seed: number, town: (typeof TOWNS)[number]): Promise<Leave[]
         byKind,
         siege: fresh.siege !== null,
         siegeKey: fresh.siege ? `${seed}:${town.name}:${fresh.siege.byId}:${fresh.siege.since}` : null,
-        siegeSilence: fresh.siege && !byKind['siege-bread'] ? (siegeSilent?.why ?? 'passed') : null,
+        siegeSilence: fresh.siege && !byKind['siege-fall'] ? (siegeSilent?.why ?? 'passed') : null,
         raid: d.items.some((i) => i.kind === 'raid') || Boolean(raidSilent),
         raidSilence: raidSilent?.why ?? null,
         raidLater: d.items.some((i) => i.kind === 'raid' && i.fireAt >= now + SEEN_GRACE),
@@ -190,7 +190,7 @@ for (const town of TOWNS) for (const seed of SEEDS) all.push(...(await play(seed
 
 console.log('');
 console.log('--- 1. уходы ---');
-console.log('деревня   уходов  черновиков/уход  ушло бы/уход   ' + NOTICE_KINDS.map((k) => k.padEnd(12)).join(''));
+console.log('деревня   уходов  черновиков/уход  ушло бы/уход   ' + CLIENT_KINDS.map((k) => k.padEnd(12)).join(''));
 for (const town of TOWNS) {
   const part = all.filter((l) => l.town === town.name);
   console.log(
@@ -198,7 +198,7 @@ for (const town of TOWNS) {
       part.map((l) => l.wouldSend),
     )
       .toFixed(2)
-      .padStart(12)}   ${NOTICE_KINDS.map((k) => avg(part.map((l) => l.byKind[k] ?? 0)).toFixed(2).padEnd(12)).join('')}`,
+      .padStart(12)}   ${CLIENT_KINDS.map((k) => avg(part.map((l) => l.byKind[k] ?? 0)).toFixed(2).padEnd(12)).join('')}`,
   );
 }
 const max = Math.max(0, ...all.map((l) => l.items));
@@ -218,10 +218,11 @@ const WORDS: Record<string, string> = {
   'general-home': 'полководец идёт к своим воротам',
   strike: 'полководец идёт бить лагерь',
   chase: 'полководец в погоне',
+  burn: 'свой поход идёт на логово набега',
   'no-window': 'окна нет',
 };
 const PASSED: Record<string, string> = {
-  siege: 'хлеб уже кончается: «годно до» прошло',
+  siege: 'хлеб уже кончился: «годно до» прошло',
   raid: 'полный сбор уже не успевает: «годно до» прошло',
 };
 const word = (why: string, kind: 'siege' | 'raid'): string => (why === 'passed' ? PASSED[kind] : (WORDS[why] ?? ''));

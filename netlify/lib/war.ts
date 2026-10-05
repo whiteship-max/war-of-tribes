@@ -18,6 +18,9 @@
 import { castleIdOf } from './roster.js';
 import {
   cityName,
+  plainName,
+  RESULT_KEEP,
+  type NoticeItem,
   readSheet,
   warFallId,
   type Counts,
@@ -58,6 +61,9 @@ export interface WarFile {
   seq: number;
   wars: WarRow[];
 }
+
+/** Ключ записи войн в хранилище мира — рядом с реестром (`roster`). */
+export const WARS_KEY = 'wars';
 
 /** Сколько кончившаяся война лежит, чтобы обе стороны успели прочесть итог, и потолок записи. */
 export const WAR_KEEP_MS = 7 * 24 * 3600_000;
@@ -621,3 +627,95 @@ export const addCounts = plus;
 
 /** Роды боя из видов племени. */
 export const kindsOfCounts = (t: Counts): Stack => kindsOf(asTroops(t));
+
+// ------------------------------------------------ новости для бота ---
+
+/** Новость войны для одного игрока: кому и что (`contract.NoticeItem`). */
+export interface WarNews {
+  player: string;
+  item: NoticeItem;
+}
+
+/**
+ * Новости одной войны — **выводятся из записи, а не копятся**: что бот скажет сторонам, есть функция того, что с
+ * войной уже случилось (docs/NOTIFY.md, раздел 12). Решение владельца — о двух вещах: на город идут (защитнику, с
+ * минуты выхода и до прихода; отозванный поход новостью не остаётся) и бой был (обеим сторонам — каждый бой и
+ * падение голодом). Падение штурмом — тот же бой у стены, второй новостью не идёт.
+ */
+export function newsOf(w: WarRow): WarNews[] {
+  const out: WarNews[] = [];
+  const from = (role: 'atk' | 'def'): string => plainName(role === 'atk' ? w.defCity : w.atkCity);
+  if (w.end !== 'recalled' && w.sentAt < w.arriveAt) {
+    out.push({
+      player: w.def,
+      item: {
+        key: `war:${w.id}`,
+        kind: 'war',
+        fireAt: w.sentAt,
+        until: w.arriveAt,
+        p: { from: from('def'), fate: w.fate, about: w.arriveAt, role: 'def', mode: w.mode },
+      },
+    });
+  }
+  for (const b of w.battles) {
+    const taken = b.site === 'wall' && w.fall?.by === 'storm' && w.fall.at === b.at;
+    for (const role of ['atk', 'def'] as const) {
+      out.push({
+        player: role === 'atk' ? w.atk : w.def,
+        item: {
+          key: `war-fight:${b.id}`,
+          kind: 'war-fight',
+          fireAt: b.at,
+          until: b.at + RESULT_KEEP,
+          p: {
+            from: from(role),
+            fate: w.fate,
+            about: b.at,
+            role,
+            site: b.site,
+            by: b.by,
+            // `won` боя — у того, кто в нём нападал; у получателя — своя сторона.
+            won: b.by === role ? b.won : !b.won,
+            ...(taken ? { taken: true as const } : {}),
+          },
+        },
+      });
+    }
+  }
+  if (w.fall?.by === 'hunger') {
+    const at = w.fall.at;
+    for (const role of ['atk', 'def'] as const) {
+      out.push({
+        player: role === 'atk' ? w.atk : w.def,
+        item: {
+          key: `war-fall:${w.id}`,
+          kind: 'war-fall',
+          fireAt: at,
+          until: at + RESULT_KEEP,
+          p: { from: from(role), fate: w.fall.fate, about: at, role, taken: true },
+        },
+      });
+    }
+  }
+  return out;
+}
+
+/** Все новости записи по ключу «игрок/пункт» — для сравнения до и после хода. */
+export function newsMap(file: WarFile): Map<string, WarNews> {
+  const out = new Map<string, WarNews>();
+  for (const w of file.wars) for (const n of newsOf(w)) out.set(`${n.player}/${n.item.key}`, n);
+  return out;
+}
+
+/** Что изменилось у каждого игрока: новые новости и снятые (отозванный поход). */
+export function newsDiff(before: Map<string, WarNews>, after: Map<string, WarNews>): Map<string, { add: NoticeItem[]; drop: string[] }> {
+  const out = new Map<string, { add: NoticeItem[]; drop: string[] }>();
+  const at = (player: string) => {
+    let x = out.get(player);
+    if (!x) out.set(player, (x = { add: [], drop: [] }));
+    return x;
+  };
+  for (const [k, n] of after) if (!before.has(k)) at(n.player).add.push(n.item);
+  for (const [k, n] of before) if (!after.has(k)) at(n.player).drop.push(n.item.key);
+  return out;
+}
