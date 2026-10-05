@@ -515,6 +515,7 @@ export class LocalWorld implements WorldApi {
     // Первая партия обязана начинаться с открытой округи: чёрный экран на входе
     // читается как сломанная карта, а не как туман войны.
     this.fog.revealDisc(this.save.home, HOME_SIGHT);
+    this.revealNeighbours();
     this.stepSightings(this.clock(), this.sightDiscs(this.clock()));
   }
 
@@ -579,6 +580,17 @@ export class LocalWorld implements WorldApi {
       this.save.castles[c.id] = { ...c };
     }
     for (const c of Object.values(this.save.castles)) this.castles.set(c.id, c);
+  }
+
+  /**
+   * Где стоят соседи по своему краю, знает каждый (docs/pvp.md, решение 6): клетка замка в своём регионе
+   * открыта сразу — иначе цель войны пришлось бы сперва искать разведчиком сутками пути. Открывается
+   * **место**, а не сведения: кто там, насколько велик и как называется, по-прежнему даёт только живой
+   * обзор, и снимка за так нет. Замки за краем своего региона — как прежде, разведкой.
+   */
+  private revealNeighbours(): void {
+    if (this.reveal || !this.fog) return;
+    for (const c of this.castles.values()) if (this.inRealm(c)) this.fog.revealDisc(c, 1);
   }
 
   /** Замок живого игрока по номеру. null — такого нет, и это обычный случай. */
@@ -6960,6 +6972,7 @@ export class LocalWorld implements WorldApi {
     // Реестр приезжает по своему сроку — раз в `ROSTER_PULL_MS` и только пока открыта
     // карта; здесь его просто перечитывают. Дешёвая операция: строк не больше `ROSTER_MAX`.
     this.adoptCastles();
+    this.revealNeighbours();
     // Слепок собран до того, как племя узнало о последствиях, которые ещё лежат
     // здесь неотданными: павших в них мир списывает с войска сам (`bury`).
     let army = profile.army ?? {};

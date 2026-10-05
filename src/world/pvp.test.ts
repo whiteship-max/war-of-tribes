@@ -57,8 +57,8 @@ function game() {
     },
   });
   const world = (me: string): LocalWorld =>
-    // Город соседа виден на карте только разведанным; здесь земля открыта целиком (`reveal`).
-    new LocalWorld({ seed: me === A ? 11 : 12, now: () => now, storage: null, reveal: true, home: roster.rows[me], castles: castlesFor(me), ...link(me) });
+    // Город соседа в своём краю открыт местом сразу (`LocalWorld.revealNeighbours`) — разведчика не нужно.
+    new LocalWorld({ seed: me === A ? 11 : 12, now: () => now, storage: null, home: roster.rows[me], castles: castlesFor(me), ...link(me) });
   const a = world(A);
   const b = world(B);
   const pulse = async () => {

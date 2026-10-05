@@ -24,6 +24,11 @@ export const ENV = {
   backupAt: 'BACKUP_AT',
   /** Проход доставки уведомлений раз в минуту: `on` — включить. Умолчание — выключен, как на Netlify. */
   deliver: 'TRIBE_DELIVER',
+  /**
+   * Темп войны между игроками для проверки (docs/pvp.md): во сколько раз быстрее походы и голод. Читает его
+   * общий обработчик войны сам (`http.warPace`) — одинаково на Netlify и здесь. Умолчание — 1, обычная игра.
+   */
+  warPace: 'TRIBE_WAR_PACE',
   /** Номер сайта Netlify — для `TRIBE_STORE=blobs` и для переноса данных. */
   netlifySite: 'NETLIFY_SITE_ID',
   /** Личный токен Netlify — для `TRIBE_STORE=blobs` и для переноса данных. */
