@@ -14,10 +14,10 @@
  * Тика нет: всё назначенное к этой минуте разбирается здесь, при обращении любой из сторон (`advance`).
  */
 import { readInitData, saveKeyOf } from '../initdata.js';
-import { WRITE_TRIES, allow, botToken, deny, json, parseJson, readBody, type Route } from '../http.js';
+import { WRITE_TRIES, allow, botToken, deny, json, parseJson, readBody, warPace, type Route } from '../http.js';
 import { readWarOrder, type WarOrder, type WarResponse } from '../contract.js';
 import { castleIdOf, readRoster } from '../roster.js';
-import { advance, applyOrder, dueKeys, pruneWars, readStoredSheet, readWars, warsOf, type SheetAt } from '../war.js';
+import { advance, applyOrder, dueKeys, pruneWars, readStoredSheet, readWars, setWarPace, warsOf, type SheetAt } from '../war.js';
 import { STORES } from '../kv.js';
 
 /** Все войны лежат одной записью рядом с реестром. */
@@ -49,6 +49,8 @@ export const war: Route = async (req, io) => {
   const hot = io.stores(STORES.world, 'strong');
   const cool = io.stores(STORES.world, 'eventual');
   const saves = io.stores(STORES.saves, 'strong');
+  const pace = warPace();
+  setWarPace(pace);
 
   // Слепки обороны — из записей партий, по ключу из реестра или из самой войны. Только чтение.
   const sheets = new Map<string, SheetAt | null>();
@@ -88,7 +90,7 @@ export const war: Route = async (req, io) => {
     pruneWars(file, now);
     if (file.wars.length !== before) changed = true;
 
-    const body: WarResponse = { now, wars: warsOf(file, key), ...(error ? { error } : {}) };
+    const body: WarResponse = { now, wars: warsOf(file, key), ...(pace !== 1 ? { pace } : {}), ...(error ? { error } : {}) };
     if (!changed) return json(body);
     const written = await hot.setJSON(KEY, file, etag === null ? { onlyIfNew: true } : { onlyIfMatch: etag });
     if (written.modified) return json(body);

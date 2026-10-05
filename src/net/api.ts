@@ -89,3 +89,7 @@ export const apiGet = <T>(path: string, opts: { auth?: boolean } = {}): Promise<
  */
 export const apiPut = <T>(path: string, body: unknown, opts: { keepalive?: boolean } = {}): Promise<ApiResult<T>> =>
   call<T>(path, { method: 'PUT', body: JSON.stringify(body), keepalive: opts.keepalive });
+
+/** Приказ: тело — JSON, ответ — как у всех. Пока зовёт одна война (`net/war.ts`). */
+export const apiPost = <T>(path: string, body: unknown): Promise<ApiResult<T>> =>
+  call<T>(path, { method: 'POST', body: JSON.stringify(body) });

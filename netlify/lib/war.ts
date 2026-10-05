@@ -17,7 +17,9 @@
  */
 import { castleIdOf } from './roster.js';
 import {
+  cityName,
   readSheet,
+  warFallId,
   type Counts,
   type RosterFile,
   type WarArmy,
@@ -35,8 +37,8 @@ import { kindsOf, troopLosses, troopPower } from '../../src/game/battle/price.js
 import { resolveField } from '../../src/world/battle.js';
 import { campFight, defenceKinds, homeLosses } from '../../src/world/fights.js';
 import { foodLeft, warAt, warWalkMs } from '../../src/world/pvp.js';
-import { openSiege, siegeSince, starvesAt, type SiegeWindow } from '../../src/world/siege.js';
-import { fate, fallSeed, homeLoss, winnerGain } from '../../src/world/spoils.js';
+import { openSiege, siegeSince, siegeWear, starvesAt, type SiegeWindow } from '../../src/world/siege.js';
+import { burnImmuneUntil, fate, fateBlock, fallSeed, homeLoss, winnerGain } from '../../src/world/spoils.js';
 import { restAfter, restAt } from '../../src/world/rest.js';
 import { weakCity } from '../../src/world/lairs.js';
 import { inHomeTheatre } from '../../src/world/theatre/theatre.js';
@@ -137,7 +139,7 @@ export function warSeed(id: string, n: number): number {
 }
 
 /** Отметка падения города в списке принятого (`WarSheet.seen`). */
-export const fallId = (war: string): string => `${war}.fall`;
+export const fallId = warFallId;
 
 /**
  * Оборона города сейчас: слепок минус то, что война отняла у него, а клиент ещё не принял на себя
@@ -183,6 +185,10 @@ function wear(a: WarArmy, lost: Counts, share: number, at: number): WarArmy {
   return { troops, resolve: a.resolve, pips: a.pips, ...(rest ? { rest } : {}) };
 }
 
+/** Мораль гарнизона города в минуту `at`: слепок, и осада, если лагерь стоит, — день за днём (`siege.siegeWear`). */
+const garrisonRest = (w: WarRow, sheet: WarSheet, at: number): number =>
+  sheet.rest * (w.camp ? siegeWear(siegeSince(w.camp as SiegeWindow), at) : 1);
+
 /** Штурм города войском похода в минуту `at`. Возвращает бой и победил ли поход. */
 function storm(w: WarRow, at: number, sheet: WarSheet): { battle: WarBattle; won: boolean } {
   const n = w.battles.length;
@@ -193,7 +199,7 @@ function storm(w: WarRow, at: number, sheet: WarSheet): { battle: WarBattle; won
       kinds: defenceKinds(kindsOf(asTroops(sheet.home)), sheet.militia, sheet.archers),
       resolve: sheet.resolve,
       pips: sheet.pips as Pips,
-      rest: sheet.rest,
+      rest: garrisonRest(w, sheet, at),
     },
   };
   const field = resolveField(input);
@@ -262,6 +268,17 @@ function fall(w: WarRow, at: number, sheet: WarSheet, by: WarFall['by']): void {
   };
 }
 
+/** Темп войны (`http.warPace`): во сколько раз быстрее походы и голод. Ставит его обработчик на запрос. */
+let pace = 1;
+
+/** Поставить темп войны на этот запрос. Вне обработчика — 1, обычная игра. */
+export const setWarPace = (n: number): void => {
+  pace = Number.isFinite(n) && n >= 1 ? n : 1;
+};
+
+/** Путь войска между двумя клетками с темпом войны. */
+const walk = (from: { x: number; y: number }, to: { x: number; y: number }): number => Math.round(warWalkMs(from, to) / pace);
+
 /** Войско уходит домой от минуты `at` с места `from`. Некому уходить — война кончена на месте. */
 function turnBack(w: WarRow, at: number, from: { x: number; y: number }, end: WarEnd): void {
   delete w.camp;
@@ -275,7 +292,7 @@ function turnBack(w: WarRow, at: number, from: { x: number; y: number }, end: Wa
   }
   w.phase = 'back';
   w.backFrom = from;
-  w.backAt = at + warWalkMs(from, w.from);
+  w.backAt = at + walk(from, w.from);
 }
 
 /** Окно осады из слепка обороны: те же часы голода, что у осады логова (`siege.openSiege`). */
@@ -284,7 +301,8 @@ function campWindow(w: WarRow, at: number, sheet: WarSheet, prev: WarCamp | null
     byId: w.atkCastle,
     campId: w.id,
     now: at,
-    food: prev ? foodLeft(prev as SiegeWindow, at) : sheet.food,
+    // Темп войны ускоряет и голод: хлеба в окне во столько же раз меньше.
+    food: prev ? foodLeft(prev as SiegeWindow, at) : sheet.food / pace,
     garrison: troopTotal(asTroops(sheet.home)),
     townPerHour: sheet.townPerHour,
     perManPerHour: sheet.perManPerHour,
@@ -340,7 +358,7 @@ function hitCamp(
     at,
     sight: sightOf(camp),
     camp: campSide(w, at),
-    front: hit.front ? { kinds: kindsOf(asTroops(hit.front)), rest: sheet.rest } : undefined,
+    front: hit.front ? { kinds: kindsOf(asTroops(hit.front)), rest: garrisonRest(w, sheet, at) } : undefined,
     rear: hit.rear ? { kinds: kindsOf(asTroops(hit.rear.troops)), rest: armyRest(hit.rear, at) } : undefined,
     // Ведёт полководец, если он бьёт с тыла; вылазку — он же, если стоит у ворот (слепок).
     resolve: hit.rear ? hit.rear.resolve : sheet.resolve,
@@ -537,7 +555,7 @@ export function applyOrder(file: WarFile, key: string, order: WarOrder, now: num
       if (!s) return 'Город ещё не записан на сервер. Подожди минуту.';
       if (troopTotal(asTroops(order.army.troops)) <= 0) return 'У полководца нет войска.';
       if (!fits(order.army.troops, s.sheet.army)) return 'Столько бойцов в войске нет.';
-      w.strike = { at: now + order.walkMs, army: order.army, joint: order.joint };
+      w.strike = { at: now + Math.round(order.walkMs / pace), army: order.army, joint: order.joint };
       return null;
     }
   }
@@ -564,7 +582,11 @@ function march(file: WarFile, key: string, order: Extract<WarOrder, { op: 'march
   if (weakCity(theirSheet.sheet.pop, theirSheet.sheet.power)) return 'Город под защитой слабого: он ещё мал. Нападать на него нельзя.';
   const mine = ctx.sheet(key);
   if (!mine) return 'Твой город ещё не записан на сервер. Подожди минуту.';
-  if (mine.sheet.locks[order.fate]) return mine.sheet.locks[order.fate] as string;
+  // Участь — та же проверка, что у приказа против логова (`spoils.fateBlock`): замки гейта объявляющего и
+  // неприкосновенность от огня у недавно сожжённого города.
+  const burned = file.wars.filter((w) => w.def === def && w.fall?.burned).reduce((t, w) => Math.max(t, w.fall?.at ?? 0), 0);
+  const why = fateBlock(order.fate, 'player', burned > 0 ? burnImmuneUntil(burned) : undefined, now, mine.sheet.locks);
+  if (why) return why;
   if (troopTotal(asTroops(order.army.troops)) <= 0) return 'У полководца нет войска. Дай ему дружину у ворот.';
   if (!fits(order.army.troops, mine.sheet.army)) return 'Столько бойцов в войске нет.';
   const from = { x: own.x, y: own.y };
@@ -576,14 +598,14 @@ function march(file: WarFile, key: string, order: Extract<WarOrder, { op: 'march
     def,
     atkCastle: castleIdOf(key),
     defCastle: order.target,
-    atkCity: own.city ?? '',
-    defCity: row.city ?? '',
+    atkCity: cityName(own.city) ?? '',
+    defCity: cityName(row.city) ?? '',
     from,
     to,
     mode: order.mode,
     fate: order.fate,
     sentAt: now,
-    arriveAt: now + warWalkMs(from, to),
+    arriveAt: now + walk(from, to),
     phase: 'march',
     army: order.army,
     battles: [],

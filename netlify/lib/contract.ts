@@ -661,6 +661,8 @@ export interface WarView {
 export interface WarResponse {
   now: number;
   wars: WarView[];
+  /** Темп войны (`TRIBE_WAR_PACE`): во сколько раз быстрее походы и голод. Нет — 1. */
+  pace?: number;
   error?: string;
 }
 
@@ -672,6 +674,9 @@ export type WarOrder =
   | { op: 'retreat'; id: string }
   | { op: 'sortie'; id: string; troops: Counts }
   | { op: 'strike'; id: string; army: WarArmy; joint: boolean; walkMs: number };
+
+/** Отметка падения города в списке принятого (`WarSheet.seen`): одна на клиент и на сервер. */
+export const warFallId = (war: string): string => `${war}.fall`;
 
 /** Потолки слепка и приказа. Видов племени и припасов — десятки; больше — порча. */
 export const WAR_LIMITS = { keys: 64, count: 1e7 } as const;

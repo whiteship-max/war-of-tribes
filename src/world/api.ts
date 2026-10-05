@@ -118,6 +118,13 @@ export interface WorldApi {
    */
   besiege(fate?: Fate): Promise<string | null>;
 
+  /**
+   * Поход на город живого игрока (docs/pvp.md): полководец с дружиной выходит из своего замка, и бой
+   * считает сервер в минуту прихода — штурм с ходу (`storm`) или осада лагерем (`siege`). Участь
+   * объявляется этим же приказом. null — выступил, иначе причина.
+   */
+  warMarch(target: SettlementId, mode: 'storm' | 'siege', fate: Fate): Promise<string | null>;
+
   /** Снять свою осаду: полководец остаётся, где стоял. null — снята, иначе причина. */
   retreat(): Promise<string | null>;
 

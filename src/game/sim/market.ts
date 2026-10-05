@@ -10,7 +10,7 @@
 // поэтому дробление покупок ничего не даёт: ни лимита не обходит, ни цены —
 // цена каждой следующей единицы считается отдельно (см. data/market.ts).
 import type { Caravan, GameState, GoodId } from '../types';
-import { DAY_LENGTH } from '../constants';
+import { DAY_LENGTH, SIEGE_NO_TRADE } from '../constants';
 import { GOOD_BY_ID, type GoodDef } from '../data/market';
 import { ORDER_TEXT } from '../data/order';
 import {
@@ -26,6 +26,7 @@ import {
   marketOffer,
   marketSold,
   storageCap,
+  underSiege,
 } from '../derived';
 import { addBonded, loseBonded } from './population';
 import { log } from './log';
@@ -63,7 +64,8 @@ export function marketCheck(s: GameState, good: GoodId, count: number): MarketCh
   const cost = marketCost(s, def, n);
 
   let blocked: string | null = null;
-  if (!marketOffer(s).some((g) => g.id === def.id)) blocked = 'Сегодня этого на прилавке нет.';
+  if (underSiege(s)) blocked = SIEGE_NO_TRADE;
+  else if (!marketOffer(s).some((g) => g.id === def.id)) blocked = 'Сегодня этого на прилавке нет.';
   else if (left <= 0) blocked = 'Сегодня всё разобрали.';
   else if (n > left) blocked = `Сегодня осталось только ${left}.`;
   else if (s.gold < cost) blocked = 'Не хватает золота.';
@@ -132,7 +134,8 @@ export function saleCheck(s: GameState, count: number): SaleCheck {
   const left = bondedSaleLeft(s);
   const gold = bondedSalePrice() * n;
   let blocked: string | null = null;
-  if (marketLevel(s) <= 0) blocked = ORDER_TEXT.market.noMarket;
+  if (underSiege(s)) blocked = SIEGE_NO_TRADE;
+  else if (marketLevel(s) <= 0) blocked = ORDER_TEXT.market.noMarket;
   else if (bondedTotal(s) < n) blocked = ORDER_TEXT.market.noBonded;
   else if (left <= 0) blocked = ORDER_TEXT.market.soldOut;
   else if (n > left) blocked = ORDER_TEXT.market.onlyLeft(left);
