@@ -746,9 +746,30 @@ export interface SettlementCard extends SettlementView {
    * не докладывал. Игрок видит, что двор разорён, и по виду — насколько давно.
    */
   sack: CardSack | null;
+  /** Город живого игрока: поход на него (docs/pvp.md). Нет поля у логова и у своего города. */
+  war?: CardWar;
 }
 
 /** Разорённое поселение глазами игрока. */
+/**
+ * Поход на город живого игрока глазами карточки (docs/pvp.md). Бой считает сервер в минуту прихода;
+ * карточка говорит, можно ли выступить, сколько идти и что с войной сейчас.
+ */
+export interface CardWar {
+  /** Можно ли выступить сейчас; нет — почему, словами. */
+  can: boolean;
+  reason: string | null;
+  /** Сколько идти от своего замка, мс мира (`pvp.warWalkMs`). */
+  walkMs: number;
+  /** Бойцов при полководце и их мощь. */
+  men: number;
+  power: number;
+  /** Своя война с этим городом. Нет поля — войны нет. */
+  ours?: { phase: 'march' | 'camp' | 'back'; mode: 'storm' | 'siege'; arriveAt: number; starvesAt?: number; backAt?: number };
+  /** Этот город идёт на нас или стоит под нашими стенами. */
+  theirs?: { phase: 'march' | 'camp'; arriveAt: number };
+}
+
 export interface CardSack {
   /** Что видно глазами: «дым ещё не осел», «разбирают завалы», «почти отстроились». */
   look: string;

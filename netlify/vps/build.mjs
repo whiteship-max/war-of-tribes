@@ -24,6 +24,8 @@ await build({
   root: ROOT,
   logLevel: 'warn',
   publicDir: false,
+  // Общие с игрой правила боя пишут `@/` (`src/world/fights.ts` и его замыкание) — тот же путь, что у игры.
+  resolve: { alias: { '@': path.join(ROOT, 'src') } },
   build: {
     ssr: path.join(ROOT, 'netlify', 'vps', 'main.ts'),
     outDir: path.dirname(out),

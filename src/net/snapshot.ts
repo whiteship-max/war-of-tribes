@@ -9,13 +9,14 @@
  * здесь нет ни одной.
  */
 import type { GameState } from '@/game/types';
-import type { CastleClaim, SaveCard, SaveRecord } from '../../netlify/lib/contract';
+import type { CastleClaim, SaveCard, SaveRecord, WarSheet } from '../../netlify/lib/contract';
 import { serialize } from '@/game/save';
 import { armySize, dayOf, population } from '@/game/derived';
 import { power } from '@/profile/power';
 import { cityName, profileName } from '@/profile/identity';
 import { browserStorage } from '@/world/local/state';
 import { device } from './session';
+import { warSheet } from './war';
 
 export type { CastleClaim, SaveCard, SaveRecord };
 
@@ -37,6 +38,11 @@ export function snapshotOf(s: GameState): SaveRecord {
     game: serialize(s),
     world: browserStorage.read(),
     card: cardOf(s),
+    // Слепок обороны для войны между игроками: его читает сервер, когда на город приходит войско (docs/pvp.md).
+    ...((): { war?: WarSheet } => {
+      const war = warSheet();
+      return war ? { war } : {};
+    })(),
   };
 }
 

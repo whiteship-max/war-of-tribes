@@ -10,10 +10,12 @@ import { castles } from './castles.js';
 import { notify } from './notify.js';
 import { save } from './save.js';
 import { time } from './time.js';
+import { war } from './war.js';
 
 export const ROUTES: Readonly<Record<string, Route>> = {
   '/api/save': save,
   '/api/castles': castles,
   '/api/notify': notify,
   '/api/time': time,
+  '/api/war': war,
 };

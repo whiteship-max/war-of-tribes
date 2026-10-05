@@ -6,6 +6,7 @@ import * as castlesRoute from '../lib/routes/castles.js';
 import * as notifyRoute from '../lib/routes/notify.js';
 import * as saveRoute from '../lib/routes/save.js';
 import * as timeRoute from '../lib/routes/time.js';
+import * as warRoute from '../lib/routes/war.js';
 import { TEST_TOKEN, localBlobs, signInit } from './testkit.js';
 
 /**
@@ -23,6 +24,7 @@ const ROUTE_MODULES: Record<string, Record<string, unknown>> = {
   castles: castlesRoute,
   notify: notifyRoute,
   time: timeRoute,
+  war: warRoute,
 };
 
 const deployed = readdirSync(join(ROOT, 'functions')).filter((n) => /\.mts$/.test(n));

@@ -1,0 +1,83 @@
+// Война между игроками глазами клиента (docs/pvp.md): свои войны с сервера и приказы туда. Мир про
+// сеть по-прежнему не знает ничего — ему приносят готовый список (`LocalWorld` через `opts.wars`) и дверь
+// приказа (`opts.warOrder`), как реестр замков.
+//
+// Исход здесь не считается и не отправляется: бой считает сервер в минуту прихода, клиент только
+// читает итог и применяет свою сторону. Вне Telegram войны нет — подписи нет, и сервер не ответит.
+import { apiGet, apiPost } from './api';
+import { tgInitData } from '@/telegram/webapp';
+import type { WarOrder, WarResponse, WarSheet, WarView } from '../../netlify/lib/contract';
+
+export type { WarOrder, WarSheet, WarView };
+
+/** Как часто спрашивать свои войны. Тревога о походе на город приходит не позже этого. */
+export const WAR_PULL_MS = 15_000;
+
+interface Cached {
+  at: number;
+  wars: WarView[];
+  pace: number;
+}
+
+let cache: Cached | null = null;
+let timer: ReturnType<typeof setInterval> | null = null;
+let sheet: (() => WarSheet | null) | null = null;
+
+/** Свои войны из последнего ответа. Ответа не было — пусто, и мир войну не трогает. */
+export const wars = (): WarView[] => cache?.wars ?? [];
+
+/** Темп войны с сервера (`TRIBE_WAR_PACE`): во сколько раз быстрее походы. Нет ответа — 1. */
+export const warPace = (): number => cache?.pace ?? 1;
+
+/** Был ли ответ сервера вообще: без него «войны нет» и «не знаем» не различить. */
+export const warsKnown = (): boolean => cache !== null;
+
+const keep = (res: WarResponse): void => {
+  // Ответ на чтение, ушедшее раньше приказа, может вернуться позже ответа на приказ — старый список не
+  // затирает новый: полководец иначе на миг «вернулся бы домой» из только что начатого похода.
+  if (cache && res.now < cache.at) return;
+  cache = { at: res.now, wars: Array.isArray(res.wars) ? res.wars : [], pace: typeof res.pace === 'number' && res.pace >= 1 ? res.pace : 1 };
+};
+
+/** Перечитать свои войны. Неудача — значением: остаётся прежний список. */
+export async function warPull(): Promise<void> {
+  const res = await apiGet<WarResponse>('/api/war');
+  if (res.ok) keep(res.data);
+}
+
+const FAIL: Record<string, string> = {
+  auth: 'Война между игроками идёт только в Telegram.',
+  busy: 'Слишком часто. Попробуй через несколько секунд.',
+  offline: 'Сервер не ответил. Приказ не отдан.',
+  conflict: 'Сервер занят. Попробуй ещё раз.',
+  server: 'Сервер не принял приказ.',
+};
+
+/** Отдать приказ. null — принят, иначе причина словами (отказ сервера — его словами). */
+export async function warOrder(order: WarOrder): Promise<string | null> {
+  const res = await apiPost<WarResponse>('/api/war', order);
+  if (!res.ok) return FAIL[res.why] ?? FAIL.server;
+  keep(res.data);
+  return res.data.error ?? null;
+}
+
+/** Откуда брать слепок обороны для записи партии: его собирает мир (`LocalWorld.warSheet`). */
+export const provideSheet = (fn: () => WarSheet | null): void => {
+  sheet = fn;
+};
+
+/** Слепок обороны сейчас — едет в запись партии (`net/snapshot`). Мира ещё нет — нет и слепка. */
+export const warSheet = (): WarSheet | null => {
+  try {
+    return sheet?.() ?? null;
+  } catch {
+    return null;
+  }
+};
+
+/** Начать спрашивать свои войны. Вне Telegram — не начинать: подписи нет. */
+export function warBoot(): void {
+  if (timer || !tgInitData()) return;
+  void warPull();
+  timer = setInterval(() => void warPull(), WAR_PULL_MS);
+}

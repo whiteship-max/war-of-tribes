@@ -1,0 +1,188 @@
+import { describe, expect, it } from 'vitest';
+import { readWarOrder, type CastleClaim, type RosterFile, type WarArmy, type WarSheet } from './contract.js';
+import { castleIdOf, emptyRoster, upsert } from './roster.js';
+import { advance, applyOrder, emptyWars, fallId, liveSheet, viewOf, warsOf, type SheetAt, type WarFile } from './war.js';
+import { weakCity } from '../../src/world/lairs.js';
+import { inHomeTheatre } from '../../src/world/theatre/theatre.js';
+
+/**
+ * Война между игроками (docs/pvp.md). Тесты только там, где без них можно подделать исход боя, начислить
+ * из ничего или открыть чужое: исход считает сервер и только он, добыча переходит, а не начисляется,
+ * ключей игроков наружу нет. Остальное — сценарий на двух аккаунтах (docs/pvp.md, раздел «Проверка»).
+ */
+const A = 'tg-1001';
+const B = 'tg-1002';
+const T0 = 1_900_000_000_000;
+
+const claim = (name: string): CastleClaim => ({ name, city: name, power: 5000, pop: 400 });
+
+function world(): RosterFile {
+  let r = emptyRoster();
+  r = upsert(r, A, claim('Альфа'), T0);
+  r = upsert(r, B, claim('Бета'), T0);
+  return r;
+}
+
+const sheet = (over: Partial<WarSheet> = {}): WarSheet => ({
+  army: { spearman: 60, archer: 30, swordsman: 30 },
+  home: { spearman: 40, archer: 20 },
+  militia: 20,
+  archers: 6,
+  resolve: 0,
+  pips: {},
+  rest: 1,
+  food: 2000,
+  townPerHour: 20,
+  perManPerHour: 1,
+  stock: { food: 2000, wood: 800, stone: 300 },
+  stash: 100,
+  gold: 400,
+  pop: 400,
+  bonded: 20,
+  levels: { walls: 3, farm: 4, smithy: 2 },
+  power: 5000,
+  locks: {},
+  seen: [],
+  ...over,
+});
+
+const army = (troops: Record<string, number>): WarArmy => ({ troops, resolve: 0, pips: {} });
+
+function setup(over: { a?: Partial<WarSheet>; b?: Partial<WarSheet> } = {}) {
+  const roster = world();
+  const sheets = new Map<string, SheetAt>([
+    [A, { sheet: sheet(over.a), at: T0 }],
+    [B, { sheet: sheet(over.b), at: T0 }],
+  ]);
+  const ctx = { roster, sheet: (k: string) => sheets.get(k) ?? null };
+  return { roster, sheets, ctx, file: emptyWars() as WarFile };
+}
+
+describe('война между игроками: условия задачи', () => {
+  it('замки теста стоят в одном регионе и не под защитой слабого — точки внутри области правила', () => {
+    const { roster } = setup();
+    expect(inHomeTheatre(roster.rows[A], roster.rows[B])).toBe(true);
+    expect(weakCity(sheet().pop, sheet().power)).toBe(false);
+  });
+});
+
+describe('исход считает сервер, а не клиент', () => {
+  it('в приказе нет поля исхода: разбор собирает новый объект и выбрасывает присланное', () => {
+    const sent = {
+      op: 'march',
+      target: 'c1',
+      mode: 'storm',
+      fate: 'plunder',
+      army: { troops: { spearman: 10 }, resolve: 0, pips: {} },
+      won: true,
+      battles: [{ won: true }],
+      fall: { taken: { gold: 1e6 } },
+      phase: 'done',
+    };
+    const order = readWarOrder(sent);
+    expect(order).not.toBeNull();
+    expect(Object.keys(order as object).sort()).toEqual(['army', 'fate', 'mode', 'op', 'target']);
+  });
+
+  it('штурм с ходу бьётся в минуту прихода, по слепку обороны, и одинаково у кого угодно', () => {
+    const run = () => {
+      const { ctx, file, sheets } = setup();
+      expect(applyOrder(file, A, { op: 'march', target: castleIdOf(B), mode: 'storm', fate: 'plunder', army: army({ spearman: 60, swordsman: 30 }) }, T0, ctx)).toBeNull();
+      const w = file.wars[0];
+      expect(w.phase).toBe('march');
+      expect(w.arriveAt).toBeGreaterThan(T0);
+      // До прихода боя нет, сколько ни спрашивай.
+      expect(advance(file, w.arriveAt - 1, sheets)).toBe(false);
+      expect(w.battles).toHaveLength(0);
+      advance(file, w.arriveAt + 1, sheets);
+      return w;
+    };
+    const one = run();
+    const two = run();
+    expect(one.battles).toHaveLength(1);
+    expect(one.battles[0].at).toBe(one.arriveAt);
+    expect(one.battles[0].site).toBe('wall');
+    expect(one.battles[0].homeTroops).toEqual(sheet().home);
+    expect(JSON.stringify(two.battles)).toBe(JSON.stringify(one.battles));
+    expect(two.fall).toEqual(one.fall);
+  });
+
+  it('ключей игроков в виде войны нет ни у одной стороны', () => {
+    const { ctx, file } = setup();
+    applyOrder(file, A, { op: 'march', target: castleIdOf(B), mode: 'siege', fate: 'plunder', army: army({ spearman: 30 }) }, T0, ctx);
+    for (const k of [A, B]) {
+      const text = JSON.stringify(warsOf(file, k));
+      expect(text).not.toMatch(/tg-\d/);
+    }
+    expect(viewOf(file.wars[0], A).role).toBe('atk');
+    expect(viewOf(file.wars[0], B).role).toBe('def');
+  });
+});
+
+describe('добыча переходит, а не начисляется', () => {
+  /**
+   * Набор: двенадцать штурмов — три участи, разные склады и казна, войско сильнее и слабее. Утверждение
+   * держится на каждом взятом городе; городов, взятых в наборе, должно быть больше половины, иначе набор
+   * мерил бы пустое.
+   */
+  it('победитель увозит не больше, чем потерял город, по каждому припасу и людям', () => {
+    let taken = 0;
+    const fates = ['plunder', 'captives', 'burn'] as const;
+    for (let i = 0; i < 12; i++) {
+      const { ctx, file, sheets } = setup({
+        b: { stock: { food: 500 + i * 300, wood: 100 * i, iron: 40 * i }, gold: 50 * i, stash: 20 * i, home: { spearman: 2 + i, archer: i } },
+      });
+      const f = fates[i % 3];
+      expect(applyOrder(file, A, { op: 'march', target: castleIdOf(B), mode: 'storm', fate: f, army: army({ spearman: 60, swordsman: 30, archer: 30 }) }, T0 + i, ctx)).toBeNull();
+      const w = file.wars[0];
+      advance(file, w.arriveAt + 1, sheets);
+      if (!w.fall) continue;
+      taken++;
+      for (const [k, v] of Object.entries(w.fall.taken)) {
+        expect(v, `${f} ${k}`).toBeLessThanOrEqual(w.fall.lost[k] ?? 0);
+      }
+      expect(w.fall.led).toBeLessThanOrEqual(w.fall.bondedLost + w.fall.popLost);
+      if (f === 'burn') expect(w.fall.taken).toEqual({});
+    }
+    expect(taken).toBeGreaterThan(6);
+  });
+
+  it('принятое городом не вычитается дважды, непринятое — вычитается', () => {
+    const { ctx, file, sheets } = setup();
+    applyOrder(file, A, { op: 'march', target: castleIdOf(B), mode: 'storm', fate: 'plunder', army: army({ spearman: 60, swordsman: 30, archer: 30 }) }, T0, ctx);
+    const w = file.wars[0];
+    advance(file, w.arriveAt + 1, sheets);
+    expect(w.fall).toBeDefined();
+    const s = sheets.get(B) as SheetAt;
+    const fresh = liveSheet(file, B, s);
+    expect(fresh.gold).toBe(s.sheet.gold - (w.fall?.lost.gold ?? 0));
+    const seen = liveSheet(file, B, { ...s, sheet: { ...s.sheet, seen: [w.battles[0].id, fallId(w.id)] } });
+    expect(seen.gold).toBe(s.sheet.gold);
+    expect(seen.home).toEqual(s.sheet.home);
+  });
+});
+
+describe('приказы: защита слабого, регион, чужое', () => {
+  it('на слабый город не идут', () => {
+    const { ctx, file } = setup({ b: { pop: 10, power: 5 } });
+    expect(weakCity(10, 5)).toBe(true);
+    const err = applyOrder(file, A, { op: 'march', target: castleIdOf(B), mode: 'storm', fate: 'plunder', army: army({ spearman: 10 }) }, T0, ctx);
+    expect(err).toMatch(/защитой слабого/);
+    expect(file.wars).toHaveLength(0);
+  });
+
+  it('войска больше, чем в слепке, не уведёшь', () => {
+    const { ctx, file } = setup();
+    const err = applyOrder(file, A, { op: 'march', target: castleIdOf(B), mode: 'storm', fate: 'plunder', army: army({ knight: 500 }) }, T0, ctx);
+    expect(err).toMatch(/Столько бойцов/);
+  });
+
+  it('чужой войной не командуют: отзыв, штурм и вылазка — только своей стороной', () => {
+    const { ctx, file } = setup();
+    applyOrder(file, A, { op: 'march', target: castleIdOf(B), mode: 'siege', fate: 'plunder', army: army({ spearman: 30 }) }, T0, ctx);
+    const id = file.wars[0].id;
+    expect(applyOrder(file, B, { op: 'recall', id }, T0 + 1, ctx)).not.toBeNull();
+    expect(applyOrder(file, A, { op: 'sortie', id, troops: { spearman: 1 } }, T0 + 1, ctx)).not.toBeNull();
+    expect(file.wars[0].phase).toBe('march');
+  });
+});

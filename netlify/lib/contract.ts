@@ -41,6 +41,11 @@ export interface SaveRecord {
   /** Сохранение мира. Его может не быть: карту игрок мог ни разу не открыть. */
   world: string | null;
   card: SaveCard;
+  /**
+   * Слепок обороны для войны между игроками (docs/pvp.md). Сервер читает его, когда на этот город
+   * приходит чужое войско; сама партия по-прежнему непрозрачна. Нет поля — клиент до войны.
+   */
+  war?: WarSheet;
 }
 
 /** Ответ на чтение. `etag` — то, чем потом доказывают, что писали поверх этого. */
@@ -113,6 +118,7 @@ export function readRecord(v: unknown, limits: { game: number; world: number }):
       power: Math.max(0, Math.floor(num(c.power) ?? 0)),
       army: Math.max(0, Math.floor(num(c.army) ?? 0)),
     },
+    ...(r.war ? { war: readSheet(r.war) ?? undefined } : {}),
   };
 }
 
@@ -455,4 +461,337 @@ export function readPrefs(v: unknown): NotifyPrefs {
     perDay: per === 3 || per === 6 || per === 10 ? per : DEFAULT_PREFS.perDay,
     tz: str(r.tz, 64) ?? DEFAULT_PREFS.tz,
   };
+}
+
+// ---------- Война между игроками ----------
+//
+// Третья запись, которую сервер читает насквозь, и единственная, где он **считает**: бой между
+// игроками (docs/pvp.md). Решение владельца 05.10.2026: бой считает сервер тем же ядром, в минуту
+// прихода войска, по сохранениям обоих игроков; клиент свой исход прислать не может — поля исхода в
+// приказах нет вовсе, как нет координат в строке реестра.
+//
+// Что сервер берёт из сохранения защитника, — слепок обороны (`WarSheet`), который клиент кладёт рядом с
+// партией. Его считает мир той же дверью, что бой у своих ворот (`LocalWorld.warSheet`), и сервер ему
+// верит ровно настолько, насколько верит описи: сервер по-прежнему не ловит читерство, он только не
+// даёт стороне назвать свой исход.
+
+/** Числа по видам: бойцы племени (`TroopStack`), роды боя (`Stack`), припасы. */
+export type Counts = Record<string, number>;
+
+/** С чем войско идёт на город: штурм с ходу или осада лагерем. */
+export const WAR_MODES = ['storm', 'siege'] as const;
+export type WarMode = (typeof WAR_MODES)[number];
+
+/**
+ * Слепок обороны города — поле записи партии (`SaveRecord.war`). Всё, что нужно серверу, чтобы
+ * посчитать бой у стены, часы голода и участь взятого города, и ничего сверх.
+ */
+export interface WarSheet {
+  /** Всё войско по видам — потолок того, что игрок может увести в поход. */
+  army: Counts;
+  /** Кто дома в обороне по видам: гарнизон и дружина у ворот (`LocalWorld.defenders`). */
+  home: Counts;
+  /** Ополчение — частокол, башня и жители; из них стрелками — `archers`. */
+  militia: number;
+  archers: number;
+  /** Стойкость (обряд), отметки полководца у ворот и мораль обороны, 0..1. */
+  resolve: number;
+  pips: Counts;
+  rest: number;
+  /** Хлеб и расход — часы голода той же дверью, что у осады логова (`siege.openSiege`). */
+  food: number;
+  townPerHour: number;
+  perManPerHour: number;
+  /** Что потеряет взятый город — дверь участи `spoils.fate`. */
+  stock: Counts;
+  stash: number;
+  gold: number;
+  pop: number;
+  bonded: number;
+  levels: Counts;
+  /** Мощь войска — защита слабого (`lairs.weakCity`) по жителям или войску. */
+  power: number;
+  /** Какие участи этот игрок объявить не может — словами отказа гейта. */
+  locks: Partial<Record<NoticeFate, string>>;
+  /**
+   * Какие бои и падения войны этот город уже принял на себя (`WarBattle.id`, `<война>.fall`). Остальное сервер
+   * вычитает из слепка сам (`war.liveSheet`): слепок мог лечь раньше, чем клиент узнал о бое.
+   */
+  seen: string[];
+}
+
+/** Войско в походе: дружина полководца и то, что он кладёт в бой. */
+export interface WarArmy {
+  troops: Counts;
+  resolve: number;
+  pips: Counts;
+  /** Мораль между боями (`world/rest.RestPair`). Нет — свежее. */
+  rest?: { share: number; at: number; men: number };
+}
+
+/** Сторона боя в форме ядра (`world/battle.FieldSide`): роды боя и то, что кладётся поверх. */
+export interface WarSide {
+  kinds: Counts;
+  resolve?: number;
+  pips?: Counts;
+  rest?: number;
+  garrison?: Counts;
+}
+
+/** Вход боя целиком. Ядро детерминировано: клиент пересчитывает по нему журнал для ролика. */
+export interface WarInput {
+  seed: number;
+  attacker: WarSide;
+  defender: WarSide;
+}
+
+export type WarSite = 'wall' | 'sortie' | 'camp' | 'joint';
+
+/** Бой войны. Посчитан сервером; клиент только показывает и применяет свою сторону. */
+export interface WarBattle {
+  id: string;
+  at: number;
+  site: WarSite;
+  /** Кто нападал в этом бою: осаждающий (`atk` — штурм) или город (`def` — вылазка, удар, совместный удар). */
+  by: 'atk' | 'def';
+  input: WarInput;
+  /** Победил ли тот, кто нападал в этом бою. */
+  won: boolean;
+  /** Войско похода в бою и его потери, по видам племени. */
+  atkTroops: Counts;
+  atkLost: Counts;
+  /** Гарнизон города в бою и его потери, по видам племени. */
+  homeTroops: Counts;
+  homeLost: Counts;
+  /** Дружина полководца города в ударе по лагерю и её потери. */
+  genTroops?: Counts;
+  genLost?: Counts;
+  /** Ополчение города в бою у стены — не бойцы, в казармах их нет. */
+  militia?: { men: number; archers: number };
+  /** Сколько вышло и пробилось через рогатки со стороны города и с тыла. */
+  through?: { went: number; passed: number };
+  rearThrough?: { went: number; passed: number };
+}
+
+/** Участь взятого города — посчитана дверью `spoils.fate`, у обеих сторон одними числами. */
+export interface WarFall {
+  at: number;
+  fate: NoticeFate;
+  by: 'storm' | 'hunger';
+  /** Что увёз победитель (припасы и казна) и сколько людей увёл. */
+  taken: Counts;
+  led: number;
+  /** Что потерял город: припасы и казна, невольники, горожане, уровни построек, пожар. */
+  lost: Counts;
+  bondedLost: number;
+  popLost: number;
+  fallen: { id: string; from: number; to: number }[];
+  burned: boolean;
+  /** Сколько осталось в тайнике. */
+  hidden: number;
+  /** Гарнизон, разошедшийся при падении голодом. */
+  routed: Counts;
+}
+
+/** Лагерь под городом — окно осады (`world/siege.SiegeWindow`) как есть. */
+export interface WarCamp {
+  byId: string;
+  campId: string;
+  startedAt: number;
+  sinceAt?: number;
+  foodAtStart: number;
+  garrisonAtStart: number;
+  townPerHour: number;
+  perManPerHour: number;
+  gateAt?: number;
+  rearGateAt?: number;
+  fate?: NoticeFate;
+  wood?: { front: number; rear: number; at?: number; base?: { front: number; rear: number } };
+  builders?: number;
+}
+
+/** Удар полководца города по лагерю: идёт, бьётся в минуту прихода. */
+export interface WarStrike {
+  at: number;
+  army: WarArmy;
+  /** Зовут ли гарнизон во фронт — совместный удар. */
+  joint: boolean;
+}
+
+/**
+ * Где сейчас война: идут к городу (`march`), стоят лагерем (`camp`), возвращаются (`back`), кончилась
+ * (`done`).
+ */
+export type WarPhase = 'march' | 'camp' | 'back' | 'done';
+
+/** Чем кончилась: взяли город, отбили, отозвали, сняли осаду, город исчез из реестра. */
+export type WarEnd = 'taken' | 'beaten' | 'recalled' | 'retreat' | 'lifted' | 'gone';
+
+/** Война глазами игрока. Ключей игроков в ней нет — только замки. */
+export interface WarView {
+  id: string;
+  /** Чья это война для спросившего: он идёт (`atk`) или на него идут (`def`). */
+  role: 'atk' | 'def';
+  atkCastle: string;
+  defCastle: string;
+  atkCity: string;
+  defCity: string;
+  from: { x: number; y: number };
+  to: { x: number; y: number };
+  mode: WarMode;
+  fate: NoticeFate;
+  sentAt: number;
+  arriveAt: number;
+  phase: WarPhase;
+  army: WarArmy;
+  camp?: WarCamp;
+  /** Когда лагерь доедает город. */
+  starvesAt?: number;
+  strike?: WarStrike;
+  /** Обратный путь: откуда и когда дома. */
+  backFrom?: { x: number; y: number };
+  backAt?: number;
+  battles: WarBattle[];
+  fall?: WarFall;
+  end?: WarEnd;
+  endAt?: number;
+}
+
+/** Ответ войны: свои войны и серверное «сейчас»; у отказанного приказа — отказ словами. */
+export interface WarResponse {
+  now: number;
+  wars: WarView[];
+  /** Темп войны (`TRIBE_WAR_PACE`): во сколько раз быстрее походы и голод. Нет — 1. */
+  pace?: number;
+  error?: string;
+}
+
+/** Приказы войны. Исхода в них нет ни в каком виде — его считает сервер. */
+export type WarOrder =
+  | { op: 'march'; target: string; mode: WarMode; fate: NoticeFate; army: WarArmy }
+  | { op: 'recall'; id: string }
+  | { op: 'storm'; id: string }
+  | { op: 'retreat'; id: string }
+  | { op: 'sortie'; id: string; troops: Counts }
+  | { op: 'strike'; id: string; army: WarArmy; joint: boolean; walkMs: number };
+
+/** Отметка падения города в списке принятого (`WarSheet.seen`): одна на клиент и на сервер. */
+export const warFallId = (war: string): string => `${war}.fall`;
+
+/** Потолки слепка и приказа. Видов племени и припасов — десятки; больше — порча. */
+export const WAR_LIMITS = { keys: 64, count: 1e7 } as const;
+
+/** Числа по видам из того, что прислали: новый объект, только конечные неотрицательные целые. */
+export function readCounts(v: unknown): Counts {
+  const out: Counts = {};
+  if (!v || typeof v !== 'object') return out;
+  let n = 0;
+  for (const [k, raw] of Object.entries(v as Record<string, unknown>)) {
+    if (n >= WAR_LIMITS.keys || k.length > 32) break;
+    const x = num(raw);
+    if (x === null || x <= 0) continue;
+    out[k] = Math.min(WAR_LIMITS.count, Math.floor(x));
+    n++;
+  }
+  return out;
+}
+
+/** Дробные числа по видам (отметки полководца) — те же правила, без округления. */
+const readReals = (v: unknown): Counts => {
+  const out: Counts = {};
+  if (!v || typeof v !== 'object') return out;
+  let n = 0;
+  for (const [k, raw] of Object.entries(v as Record<string, unknown>)) {
+    if (n >= WAR_LIMITS.keys || k.length > 32) break;
+    const x = num(raw);
+    if (x === null || x <= 0) continue;
+    out[k] = Math.min(WAR_LIMITS.count, x);
+    n++;
+  }
+  return out;
+};
+
+const real = (v: unknown, max: number): number => Math.min(max, Math.max(0, num(v) ?? 0));
+
+/** Слепок обороны из того, что прислали или что лежит. Нет его или он испорчен — `null`. */
+export function readSheet(v: unknown): WarSheet | null {
+  if (!v || typeof v !== 'object') return null;
+  const r = v as Record<string, unknown>;
+  const locks: Partial<Record<NoticeFate, string>> = {};
+  const l = (r.locks && typeof r.locks === 'object' ? r.locks : {}) as Record<string, unknown>;
+  for (const f of NOTICE_FATES) {
+    const why = str(l[f], 200);
+    if (why) locks[f] = why;
+  }
+  return {
+    army: readCounts(r.army),
+    home: readCounts(r.home),
+    militia: Math.floor(real(r.militia, WAR_LIMITS.count)),
+    archers: Math.floor(real(r.archers, WAR_LIMITS.count)),
+    resolve: real(r.resolve, 100),
+    pips: readReals(r.pips),
+    rest: Math.min(1, real(r.rest, 1)),
+    food: real(r.food, 1e12),
+    townPerHour: real(r.townPerHour, 1e9),
+    perManPerHour: real(r.perManPerHour, 1e9),
+    stock: readCounts(r.stock),
+    stash: Math.floor(real(r.stash, 1e12)),
+    gold: Math.floor(real(r.gold, 1e12)),
+    pop: Math.floor(real(r.pop, 1e9)),
+    bonded: Math.floor(real(r.bonded, 1e9)),
+    levels: readCounts(r.levels),
+    power: real(r.power, 1e12),
+    locks,
+    seen: Array.isArray(r.seen) ? r.seen.filter((x): x is string => typeof x === 'string' && x.length <= 48).slice(-WAR_SEEN_MAX) : [],
+  };
+}
+
+/** Сколько принятых боёв слепок помнит: больше, чем войн лежит у сервера на один город. */
+export const WAR_SEEN_MAX = 200;
+
+/** Войско из приказа: новый объект. */
+export function readArmy(v: unknown): WarArmy | null {
+  if (!v || typeof v !== 'object') return null;
+  const r = v as Record<string, unknown>;
+  const troops = readCounts(r.troops);
+  const rest = r.rest && typeof r.rest === 'object' ? (r.rest as Record<string, unknown>) : null;
+  return {
+    troops,
+    resolve: real(r.resolve, 100),
+    pips: readReals(r.pips),
+    ...(rest && num(rest.at) !== null
+      ? { rest: { share: Math.min(1, real(rest.share, 1)), at: num(rest.at) as number, men: Math.floor(real(rest.men, WAR_LIMITS.count)) } }
+      : {}),
+  };
+}
+
+/** Приказ войны из тела запроса: новый объект, лишние поля (и всякий «исход») отбрасываются. */
+export function readWarOrder(v: unknown): WarOrder | null {
+  if (!v || typeof v !== 'object') return null;
+  const r = v as Record<string, unknown>;
+  const id = str(r.id, 64);
+  switch (r.op) {
+    case 'march': {
+      const target = str(r.target, 64);
+      const mode = WAR_MODES.find((m) => m === r.mode);
+      const fate = NOTICE_FATES.find((f) => f === r.fate);
+      const army = readArmy(r.army);
+      return target && mode && fate && army ? { op: 'march', target, mode, fate, army } : null;
+    }
+    case 'recall':
+    case 'storm':
+    case 'retreat':
+      return id ? { op: r.op, id } : null;
+    case 'sortie':
+      return id ? { op: 'sortie', id, troops: readCounts(r.troops) } : null;
+    case 'strike': {
+      const army = readArmy(r.army);
+      const walk = num(r.walkMs);
+      return id && army && walk !== null
+        ? { op: 'strike', id, army, joint: r.joint === true, walkMs: Math.min(24 * 3600_000, Math.max(0, walk)) }
+        : null;
+    }
+    default:
+      return null;
+  }
 }

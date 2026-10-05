@@ -5,6 +5,7 @@ import { create } from 'zustand';
 import { partyNow, serverNow } from '@/net/clock';
 import { castleCell, castles, rosterReady, startPulling, stopPulling } from '@/net/roster';
 import { NOTIFY_ON, notifyDrafts } from '@/net/notify';
+import { provideSheet, warBoot, warOrder, warPace, wars, warsKnown } from '@/net/war';
 import { log } from '@/game/sim/log';
 import { useGame } from '@/game/store';
 import { haptic } from '@/telegram/webapp';
@@ -80,8 +81,15 @@ let notifying: NotifyingWorld | null = null;
  * закрытым сборщик выбрасывает эту ветку вместе с классом (`world/local/NotifyingWorld.ts`).
  */
 function openWorld(opts: LocalWorldOptions): LocalWorld {
-  if (NOTIFY_ON) return (notifying = new NotifyingWorld(opts));
-  return new LocalWorld(opts);
+  // Война между игроками (docs/pvp.md): мир получает свои войны и дверь приказа, как реестр замков, а
+  // запись партии — слепок обороны от этого мира.
+  const full: LocalWorldOptions = { ...opts, wars, warsKnown, warOrder, warPace };
+  let world: LocalWorld;
+  if (NOTIFY_ON) world = notifying = new NotifyingWorld(full);
+  else world = new LocalWorld(full);
+  provideSheet(() => world.warSheet());
+  warBoot();
+  return world;
 }
 
 /**
@@ -250,6 +258,8 @@ export interface WorldStore {
    * участь заново.
    */
   besiege: (fate?: Fate) => Promise<string | null>;
+  /** Поход на город живого игрока (docs/pvp.md): штурм с ходу или осада; бой считает сервер. */
+  warMarch: (target: SettlementId, mode: 'storm' | 'siege', fate: Fate) => Promise<string | null>;
   /** Снять свою осаду. */
   retreat: () => Promise<string | null>;
   /** Поделить древесину своего лагеря: доля фронту. */
@@ -581,6 +591,18 @@ export const useWorld = create<WorldStore>((set, get) => ({
 
   besiege: async (fate) => {
     const err = await worldApi().besiege(fate);
+    if (err) {
+      haptic('error');
+      return err;
+    }
+    haptic('medium');
+    await get().pulse();
+    await get().refreshCard();
+    return null;
+  },
+
+  warMarch: async (target, mode, fate) => {
+    const err = await worldApi().warMarch(target, mode, fate);
     if (err) {
       haptic('error');
       return err;

@@ -12,7 +12,7 @@
 import type { Fate, SettlementId } from './types';
 import type { WoodPlan } from './works';
 import type { Fire } from './bombard';
-import { SIEGE_EAT_FLOOR, SIEGE_IMMUNE, SIEGE_TOWN_EAT, SIEGE_TOWN_LARDER } from './data/tuning';
+import { SIEGE_EAT_FLOOR, SIEGE_IMMUNE, SIEGE_TOWN_EAT, SIEGE_TOWN_LARDER, SIEGE_WEAR_FLOOR, SIEGE_WEAR_SPAN } from './data/tuning';
 import { HOUR_MS as HOUR } from '../game/time';
 
 /**
@@ -133,6 +133,14 @@ export const consumptionPerHour = (w: SiegeWindow): number =>
  */
 export const starvesAt = (w: SiegeWindow): number =>
   w.startedAt + (Math.max(0, w.foodAtStart) / consumptionPerHour(w)) * HOUR;
+
+/**
+ * Во сколько раз мораль гарнизона в бою ниже от того, что осада идёт с минуты `since` (`SIEGE_WEAR_*`): единица
+ * в минуту, когда лагерь встал, дальше прямой до дна. Одна дверь на осаду логова (`LocalWorld.garrisonRest`) и на
+ * осаду игроком (`netlify/lib/war.ts`). Тика нет — считается при чтении.
+ */
+export const siegeWear = (since: number, at: number): number =>
+  1 - (1 - SIEGE_WEAR_FLOOR) * Math.min(1, Math.max(0, at - since) / SIEGE_WEAR_SPAN);
 
 /** Осада идёт прямо сейчас? Считается при чтении, а не отмечается тиком. */
 export const siegeActive = (w: SiegeWindow | undefined, now: number): boolean =>

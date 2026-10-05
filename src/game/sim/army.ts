@@ -8,10 +8,10 @@
 // другую. Второго поля в сохранении для этого нет: где учат вид, выводится из него самого
 // (`TroopDef.mounted`), и заказ, записанный до конюшни, сам оказывается в своей очереди.
 import type { EquipmentId, GameState, RecruitOrder, ResourceId, TroopId } from '../types';
-import { RESOURCE_IDS } from '../constants';
+import { RESOURCE_IDS, SIEGE_NO_RECRUIT } from '../constants';
 import { TROOPS, TROOP_BY_ID, TROOP_IDS, type TroopDef } from '../data/troops';
 import { EQUIPMENT_BY_ID } from '../data/equipment';
-import { buildingOfType, canAfford, idleCount, recruitRate, recruitsQueued, stalls, stallsTaken } from '../derived';
+import { buildingOfType, canAfford, idleCount, recruitRate, recruitsQueued, stalls, stallsTaken, underSiege } from '../derived';
 import { troopBlock } from './tech';
 import { addPop, losePop } from './population';
 import { log } from './log';
@@ -91,7 +91,8 @@ export function recruitCheck(s: GameState, troop: TroopId, count: number): Recru
   // (`sim/tech`), и её причина не должна перебиваться следующей проверкой.
   let blocked: string | null = troopBlock(s, troop);
   if (blocked === null) {
-    if (def.mounted && !buildingOfType(s, 'stable')) blocked = 'Конницу нанимают в конюшне.';
+    if (underSiege(s)) blocked = SIEGE_NO_RECRUIT;
+    else if (def.mounted && !buildingOfType(s, 'stable')) blocked = 'Конницу нанимают в конюшне.';
     else if (stall < n) blocked = stall === 0 ? 'Все стойла заняты. Улучши конюшню.' : `Свободных стойл только ${stall}.`;
     else if (free < n) blocked = free === 0 ? 'Нет свободных рук.' : `Свободных рук только ${free}.`;
     else if (missing.length > 0) {

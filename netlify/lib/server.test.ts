@@ -55,15 +55,25 @@ describe('сервер ничего не начисляет', () => {
     expect(guilty).toEqual([]);
   });
 
-  it('и наград тоже нет: сервер не знает, что лежит в сохранении', () => {
-    const guilty = files().filter((f) => /\breward|\bgold\b|\bresources\b/i.test(strip(readFileSync(f, 'utf8'))));
-    expect(guilty).toEqual([]);
+  /**
+   * Наград у сервера нет. Склад и казну он знает ровно в одном деле — войне между игроками (решение владельца
+   * 05.10.2026, docs/pvp.md): взятый город теряет, победитель увозит, и что увёз — взято из того, что потерял
+   * (тест «добыча переходит, а не начисляется», `war.test.ts`). Слова склада и казны живут только в договоре
+   * (слепок обороны) и в правилах войны; больше нигде.
+   */
+  it('и наград тоже нет: склад и казну знает только война, и только чтобы перенести', () => {
+    const guilty = files()
+      .filter((f) => /\breward|\bgold\b|\bresources\b/i.test(strip(readFileSync(f, 'utf8'))))
+      .map(rel)
+      .sort();
+    expect(guilty).toEqual(['lib/contract.ts', 'lib/war.ts']);
+    for (const f of files()) expect(strip(readFileSync(f, 'utf8')), rel(f)).not.toMatch(/\breward/i);
   });
 });
 
 describe('личность берётся только из подписи', () => {
   /** Обработчики, которые знают игрока. Часы его не знают — подписи у них нет нарочно. */
-  const SIGNED = ['lib/routes/save.ts', 'lib/routes/castles.ts', 'lib/routes/notify.ts'];
+  const SIGNED = ['lib/routes/save.ts', 'lib/routes/castles.ts', 'lib/routes/notify.ts', 'lib/routes/war.ts'];
 
   it.each(SIGNED)('%s: подпись проверяется до первого похода в хранилище', (p) => {
     const code = read(p);
@@ -97,6 +107,19 @@ describe('личность берётся только из подписи', () 
     expect(calls.length).toBeGreaterThan(2);
     expect([...new Set(calls)]).toEqual(['KEY']);
     expect([...code.matchAll(/\bupsert\(([^)]*)\)/g)].map((m) => m[1])).toEqual(['file, key, claim, now']);
+  });
+
+  /**
+   * Война читает чужие партии — слепок обороны защитника, — и только читает. Ключ чужой партии берётся из
+   * реестра (по номеру замка) или из самой войны, а не из тела запроса; писать в хранилище партий обработчик
+   * войны не умеет вовсе. Строка `saves.setJSON(...)` здесь означала бы, что один игрок пишет в партию другого.
+   */
+  it('война: хранилище партий только читается', () => {
+    const code = read('lib/routes/war.ts');
+    const calls = [...code.matchAll(/\bsaves\s*\.\s*(\w+)\(/g)].map((m) => m[1]);
+    expect(calls.length).toBeGreaterThan(0);
+    expect([...new Set(calls)]).toEqual(['getWithMetadata']);
+    expect(code).not.toMatch(/\bsaves\b[^;]*\.(?:setJSON|set|delete)\(/);
   });
 
   /** Хранилище обработчик получает только из `io`: своего дома у него нет. */
@@ -175,11 +198,12 @@ describe('исходящие: ключ только из подписи или �
   });
 });
 
-describe('сервер разбирает ровно две записи', () => {
+describe('сервер разбирает ровно три записи и слепок обороны', () => {
   /**
-   * «Сервер хранит и раздаёт, а не судит» расширено вслух ровно один раз: кроме реестра
-   * замков, сервер читает исходящие уведомления (docs/handbook/sync.md, «Личность игрока»). Третья
-   * разбирающая запись обязана упереться сюда.
+   * «Сервер хранит и раздаёт, а не судит» расширено вслух дважды: кроме реестра замков, сервер читает
+   * исходящие уведомления (docs/handbook/sync.md, «Личность игрока»), а с войной между игроками (решение
+   * владельца 05.10.2026, docs/pvp.md) — запись войн и слепок обороны из записи партии (`WarSheet`, не саму
+   * партию). Следующая разбирающая запись обязана упереться сюда.
    *
    * Что считается разбором. Всё, что достаётся из хранилища, — `x.data`. Сохранение партии
    * сервер отдаёт обратно как есть (`parseJson` без читателя — в `routes/save.ts`, и только там:
@@ -187,7 +211,7 @@ describe('сервер разбирает ровно две записи', () =>
    * данных перекладывают значение, не читая его: `data: x.data` — и только в них. Всё остальное
    * обязано пройти через читателя записи — и читателей ровно два.
    */
-  it('читателей хранимого ровно два: реестр и исходящие', () => {
+  it('читателей хранимого четыре: реестр, исходящие, войны и слепок обороны', () => {
     const readers = new Set<string>();
     const bare: string[] = [];
     const movers: string[] = [];
@@ -203,7 +227,7 @@ describe('сервер разбирает ровно две записи', () =>
       // Мимо этих форм хранимое не достаётся ни в одном файле.
       expect(uses, `${rel(f)}: хранимое достаётся мимо разбора`).toBe(seen + passthrough);
     }
-    expect([...readers].sort()).toEqual(['readNotify', 'readRoster']);
+    expect([...readers].sort()).toEqual(['readNotify', 'readRoster', 'readStoredSheet', 'readWars']);
     expect(bare).toEqual(['lib/routes/save.ts']);
     expect(movers.sort()).toEqual(['lib/blobs.ts', 'vps/import.ts', 'vps/sqlite.ts']);
   });
