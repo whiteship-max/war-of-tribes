@@ -139,7 +139,8 @@ describe('исходящие: ключ только из подписи или �
     expect([...new Set(calls)]).toEqual(['key']);
     // В индекс кладутся только метки, собранные из того же ключа (`markOf(item, player)`).
     expect([...new Set([...notify.matchAll(/\bdue\s*\.\s*\w+\(\s*([A-Za-z_$][\w$]*)/g)].map((m) => m[1]))]).toEqual(['mark']);
-    expect(notify).toMatch(/accept\(rec, put, key, now\)/);
+    // Разрешение писать — из той же подписи (`allows_write_to_pm`), а не из тела запроса.
+    expect(notify).toMatch(/accept\(rec, put, key, now, auth\.user\.allowsWrite === true\)/);
   });
 
   /**

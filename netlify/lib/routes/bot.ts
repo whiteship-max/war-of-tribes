@@ -45,11 +45,13 @@ function changeOf(update: Record<string, unknown>): { id: number; change: Change
   if (cb && typeof cb === 'object') {
     const id = userId((cb.from as Record<string, unknown> | undefined)?.id);
     if (id === null || typeof cb.id !== 'string') return null;
-    if (cb.data !== CALLBACK_OFF && cb.data !== CALLBACK_ON) return null;
+    // Данные кнопки — то, что мы сами положили в неё (`telegram.switchButton`); других не бывает.
+    const { data: pressed } = cb as { data?: unknown };
+    if (pressed !== CALLBACK_OFF && pressed !== CALLBACK_ON) return null;
     const msg = (cb.message ?? {}) as Record<string, unknown>;
     const chat = userId((msg.chat as Record<string, unknown> | undefined)?.id);
     const message = typeof msg.message_id === 'number' ? msg.message_id : null;
-    return { id, change: { on: cb.data === CALLBACK_ON, callback: cb.id, chat, message } };
+    return { id, change: { on: pressed === CALLBACK_ON, callback: cb.id, chat, message } };
   }
   const member = update.my_chat_member as Record<string, unknown> | undefined;
   if (member && typeof member === 'object') {
