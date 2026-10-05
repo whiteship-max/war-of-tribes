@@ -463,7 +463,7 @@ describe('проход доставки ведёт войну между игр�
     const { emptyRoster, upsert, castleIdOf } = await import('./roster.js');
     const { applyOrder, newsDiff, newsMap } = await import('./war.js');
     const { queueNews } = await import('./outbox.js');
-    const T0 = NOW - 3 * 60 * MIN;
+    const T0 = NOW;
     let roster = emptyRoster();
     roster = upsert(roster, A, { name: 'Альфа', city: 'Альфа', power: 5000, pop: 400 }, T0);
     roster = upsert(roster, B, { name: 'Бета', city: 'Бета', power: 5000, pop: 400 }, T0);
@@ -480,18 +480,18 @@ describe('проход доставки ведёт войну между игр�
     const ctx = { roster, sheet: (k: string) => (k === A || k === B ? { sheet, at: T0 } : null) };
     expect(applyOrder(file, A, order, T0, ctx)).toBeNull();
     const w = file.wars[0];
-    // Граница области: пройдя сюда, бой ещё не разобран, а приход — до прохода.
+    // Граница области: бой ещё не разобран, проход — после прихода.
     expect(w.phase).toBe('march');
-    expect(w.arriveAt).toBeLessThanOrEqual(NOW);
+    const AT = w.arriveAt + 1000;
     await io.world.setJSON(WARS_KEY, file);
     await queueNews(io, newsDiff(before, newsMap(file)), T0);
 
-    const pass = await deliverPass(io, NOW);
+    const pass = await deliverPass(io, AT);
     expect(pass.wars).toBeGreaterThan(0);
     const after = JSON.parse(io.world.data.get(WARS_KEY)!.value) as WarFile;
     expect(after.wars[0].battles).toHaveLength(1);
     // Проход шлёт по одному в чат; оба созрели — нужны проходы до тишины.
-    for (let i = 1; i <= 4; i++) await deliverPass(io, NOW + i * 2 * MIN);
+    for (let i = 1; i <= 4; i++) await deliverPass(io, AT + i * 2 * MIN);
     const byChat = (id: number) => tg.sent.filter((m) => m.chat === id).map((m) => m.text);
     // Защитник: «идут на город» — устарело к проходу (до прихода), не уходит; «бой был» — уходит.
     expect(byChat(1002)).toHaveLength(1);
@@ -500,7 +500,7 @@ describe('проход доставки ведёт войну между игр�
     expect(byChat(1001)[0]).toBe(won ? 'Твой отряд взял город «Бета» штурмом.' : 'Штурм города «Бета» отбит. Отряд идёт домой.');
     expect(byChat(1002)[0]).toContain('Альфа');
     // Ещё проходы — тишина: итог один раз.
-    for (let i = 5; i <= 6; i++) await deliverPass(io, NOW + i * 2 * MIN);
+    for (let i = 5; i <= 6; i++) await deliverPass(io, AT + i * 2 * MIN);
     expect(tg.sent).toHaveLength(2);
   });
 });
