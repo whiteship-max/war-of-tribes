@@ -1,7 +1,7 @@
 import '@/game/pace.minute';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createInitialState } from '@/game/state';
 import { RESOURCE_IDS, SIEGE_FOOD_YIELD, SIEGE_YIELD } from '@/game/constants';
 import { productionPerDay, underSiege } from '@/game/derived';
@@ -33,6 +33,11 @@ import type { WorldSave } from './local/state';
 import type { Fate, FigureView, PlayerProfile, SettlementView, SiegeView, WorldPulse } from './types';
 import type { TroopStack } from '@/game/battle/kinds';
 import { shieldVillagers } from './lairs';
+
+// Энергия агентов здесь не предмет проверки (docs/agent_energy.md): сценарии этого файла держат агентов в поле и ведут их
+// дальше, чем на пять игровых дней пути, — на карте она здесь не убывает. Цены дел и отдых дома остаются; энергию
+// держат `energy.test.ts` и `energyworld.test.ts`.
+vi.mock('@/world/data/energy', async (actual) => ({ ...(await actual<object>()), ENERGY_DRAIN: Infinity }));
 
 /**
  * Спящие случаи. Чужих дворов на карте не осталось ни одного: мир стал общим, а

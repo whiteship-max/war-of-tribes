@@ -1,9 +1,14 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { LocalWorld } from './local/LocalWorld';
 import type { PlayerCastle, PlayerProfile } from './types';
 import { advance, applyOrder, emptyWars, warsOf, type SheetAt } from '../../netlify/lib/war';
 import { castleIdOf, emptyRoster, upsert } from '../../netlify/lib/roster';
 import { type CastleClaim, type RosterFile, type WarOrder } from '../../netlify/lib/contract';
+
+// Энергия агентов здесь не предмет проверки (docs/agent_energy.md): сценарии этого файла держат агентов в поле и ведут их
+// дальше, чем на пять игровых дней пути, — на карте она здесь не убывает. Цены дел и отдых дома остаются; энергию
+// держат `energy.test.ts` и `energyworld.test.ts`.
+vi.mock('@/world/data/energy', async (actual) => ({ ...(await actual<object>()), ENERGY_DRAIN: Infinity }));
 
 /**
  * Война между игроками от начала до конца на двух мирах и одном сервере в памяти (docs/pvp.md). Сервер —

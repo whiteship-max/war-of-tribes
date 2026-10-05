@@ -543,6 +543,32 @@ export interface WarArmy {
   pips: Counts;
   /** Мораль между боями (`world/rest.RestPair`). Нет — свежее. */
   rest?: { share: number; at: number; men: number };
+  /**
+   * Энергия полководца (`world/energy.EnergyMark`, docs/agent_energy.md): сколько было в минуту `at` и что с запасом с
+   * неё. В приказе — отметка клиента, в войне — отметка сервера: поход списывает цену при выходе и держит энергию,
+   * пока идёт война. Нет — полный запас.
+   */
+  energy?: WarEnergy;
+}
+
+/** Отметка энергии полководца в войне — та же форма, что у двери энергии (`world/energy.EnergyMark`). */
+export interface WarEnergy {
+  value: number;
+  at: number;
+  mode: 'drain' | 'fill' | 'hold';
+  homeAt?: number;
+}
+
+/** Отметка энергии из приказа: новый объект; запас не выше полного, мусор — нет отметки. */
+export function readEnergy(v: unknown): WarEnergy | undefined {
+  if (!v || typeof v !== 'object') return undefined;
+  const r = v as Record<string, unknown>;
+  const value = num(r.value);
+  const at = num(r.at);
+  const mode = r.mode === 'drain' || r.mode === 'fill' || r.mode === 'hold' ? r.mode : null;
+  if (value === null || at === null || mode === null) return undefined;
+  const homeAt = num(r.homeAt);
+  return { value: Math.max(0, Math.min(100, value)), at, mode, ...(homeAt !== null ? { homeAt } : {}) };
 }
 
 /** Сторона боя в форме ядра (`world/battle.FieldSide`): роды боя и то, что кладётся поверх. */
@@ -771,6 +797,7 @@ export function readArmy(v: unknown): WarArmy | null {
   const r = v as Record<string, unknown>;
   const troops = readCounts(r.troops);
   const rest = r.rest && typeof r.rest === 'object' ? (r.rest as Record<string, unknown>) : null;
+  const energy = readEnergy(r.energy);
   return {
     troops,
     resolve: real(r.resolve, 100),
@@ -778,6 +805,7 @@ export function readArmy(v: unknown): WarArmy | null {
     ...(rest && num(rest.at) !== null
       ? { rest: { share: Math.min(1, real(rest.share, 1)), at: num(rest.at) as number, men: Math.floor(real(rest.men, WAR_LIMITS.count)) } }
       : {}),
+    ...(energy ? { energy } : {}),
   };
 }
 

@@ -8,6 +8,7 @@ import type { SiegeWindow } from '../siege';
 import type { LairRec } from '../lairs';
 import type { SackRec } from '../sack';
 import type { RestPair } from '../rest';
+import type { EnergyMark } from '../energy';
 import type {
   Coord,
   DealId,
@@ -239,6 +240,17 @@ export interface StoredFigure {
    * необязательное, версию сохранения мира оно не поднимает. У остальных фигур поля нет.
    */
   rest?: RestPair;
+  /**
+   * Энергия агента (docs/agent_energy.md): сколько было в минуту отметки и что с запасом с неё — уходит, копится или
+   * стоит. Читает и пишет одна дверь — `world/energy` через `LocalWorld.energyOf`. Нет поля — запас полный; поле
+   * необязательное, версию сохранения мира оно не поднимает.
+   */
+  energy?: EnergyMark;
+  /**
+   * Минута, когда энергия кончилась на карте: агент идёт домой сам, по пути неуязвим и дел не берёт, пока не дойдёт
+   * (`LocalWorld.exhaust`). Снимается у своих ворот. Необязательное — версию сохранения мира не поднимает.
+   */
+  spent?: number;
 }
 
 /**

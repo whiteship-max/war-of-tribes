@@ -7,7 +7,7 @@
 // разбирает один и тот же код, а разведка не выдаёт того, чего видеть нельзя.
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { LocalWorld } from './local/LocalWorld';
 import { distance } from './geo';
 import {
@@ -52,6 +52,11 @@ import type { GameState } from '@/game/types';
 import type { GenSettlement } from './gen';
 import type { Fate, HomeEffect, Loot, PlayerProfile, SettlementView } from './types';
 import type { WorldSave } from './local/state';
+
+// Энергия агентов здесь не предмет проверки (docs/agent_energy.md): сценарии этого файла держат агентов в поле и ведут их
+// дальше, чем на пять игровых дней пути, — на карте она здесь не убывает. Цены дел и отдых дома остаются; энергию
+// держат `energy.test.ts` и `energyworld.test.ts`.
+vi.mock('@/world/data/energy', async (actual) => ({ ...(await actual<object>()), ENERGY_DRAIN: Infinity }));
 
 /**
  * Спящие случаи. Чужих дворов на карте не осталось ни одного: мир стал общим, а

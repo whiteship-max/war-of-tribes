@@ -43,6 +43,7 @@ import { foodLeft, warAt, warWalkMs } from '../../src/world/pvp.js';
 import { openSiege, siegeSince, siegeWear, starvesAt, type SiegeWindow } from '../../src/world/siege.js';
 import { burnImmuneUntil, fate, fateBlock, fallSeed, homeLoss, winnerGain } from '../../src/world/spoils.js';
 import { restAfter, restAt } from '../../src/world/rest.js';
+import { energyAt, energyBlock, priceOf, spend } from '../../src/world/energy.js';
 import { weakCity } from '../../src/world/lairs.js';
 import { inHomeTheatre } from '../../src/world/theatre/theatre.js';
 import { gateBusyText, playerWood } from '../../src/world/works.js';
@@ -184,11 +185,20 @@ const men = (t: Counts): number => stackTotal(kindsOf(asTroops(t)));
 /** Мораль войска похода в минуту `at` (`world/rest`). */
 const armyRest = (a: WarArmy, at: number): number => restAt(a.rest, at, men(a.troops));
 
-/** Войско после боя: минус павшие, мораль — с какой вышли. */
+/** Войско после боя: минус павшие, мораль — с какой вышли; энергия полководца — та же. */
 function wear(a: WarArmy, lost: Counts, share: number, at: number): WarArmy {
   const troops = minus(a.troops, lost);
   const rest = restAfter(share, at, men(troops));
-  return { troops, resolve: a.resolve, pips: a.pips, ...(rest ? { rest } : {}) };
+  return { troops, resolve: a.resolve, pips: a.pips, ...(rest ? { rest } : {}), ...(a.energy ? { energy: a.energy } : {}) };
+}
+
+/**
+ * Энергия полководца в войне (docs/agent_energy.md, решение 3): поход списывает цену при выходе, и пока идёт война,
+ * энергия стоит — путь между замками сервер по часам не жжёт. Дома, с минуты возврата, копится. Дверь одна с миром на
+ * клиенте — `world/energy`.
+ */
+function homeward(w: WarRow, at: number, backAt: number): void {
+  w.army = { ...w.army, energy: { value: energyAt(w.army.energy, at), at, mode: 'hold', homeAt: backAt } };
 }
 
 /** Мораль гарнизона города в минуту `at`: слепок, и осада, если лагерь стоит, — день за днём (`siege.siegeWear`). */
@@ -299,6 +309,7 @@ function turnBack(w: WarRow, at: number, from: { x: number; y: number }, end: Wa
   w.phase = 'back';
   w.backFrom = from;
   w.backAt = at + walk(from, w.from);
+  homeward(w, at, w.backAt);
 }
 
 /** Окно осады из слепка обороны: те же часы голода, что у осады логова (`siege.openSiege`). */
@@ -520,6 +531,7 @@ export function applyOrder(file: WarFile, key: string, order: WarOrder, now: num
       w.phase = 'back';
       w.backFrom = at;
       w.backAt = now + Math.max(0, now - w.sentAt);
+      homeward(w, now, w.backAt);
       return null;
     }
     case 'retreat': {
@@ -536,6 +548,10 @@ export function applyOrder(file: WarFile, key: string, order: WarOrder, now: num
         turnBack(w, now, w.to, 'gone');
         return 'Города больше нет в игре. Войско идёт домой.';
       }
+      // Штурм — бой: цена в энергии полководца, той же дверью, что у штурма логова (`world/energy`).
+      const tired = energyBlock(energyAt(w.army.energy, now), priceOf('storm'));
+      if (tired) return tired;
+      w.army = { ...w.army, energy: spend(w.army.energy, now, priceOf('storm')) };
       // Штурм снимает осаду до боя (`siege.STORM_LIFTS`): отобьют — лагеря не станет.
       const sheet = liveSheet(file, w.def, s);
       const { won } = storm(w, now, sheet);
@@ -561,6 +577,9 @@ export function applyOrder(file: WarFile, key: string, order: WarOrder, now: num
       if (!s) return 'Город ещё не записан на сервер. Подожди минуту.';
       if (troopTotal(asTroops(order.army.troops)) <= 0) return 'У полководца нет войска.';
       if (!fits(order.army.troops, s.sheet.army)) return 'Столько бойцов в войске нет.';
+      // Удар — бой: энергии на него должно хватить к минуте прихода, с дорогой по карте (`world/energy`).
+      const tired = energyBlock(energyAt(order.army.energy, now), priceOf('strike'), order.walkMs);
+      if (tired) return tired;
       w.strike = { at: now + Math.round(order.walkMs / pace), army: order.army, joint: order.joint };
       return null;
     }
@@ -595,6 +614,13 @@ function march(file: WarFile, key: string, order: Extract<WarOrder, { op: 'march
   if (why) return why;
   if (troopTotal(asTroops(order.army.troops)) <= 0) return 'У полководца нет войска. Дай ему дружину у ворот.';
   if (!fits(order.army.troops, mine.sheet.army)) return 'Столько бойцов в войске нет.';
+  // Энергия полководца — той же дверью, что у мира (`world/energy`): поход и дело у стен разом, при выходе
+  // (docs/agent_energy.md, решение 3). Пока идёт война, энергия стоит.
+  const need = priceOf('march') + priceOf(order.mode);
+  const tired = energyBlock(energyAt(order.army.energy, now), need);
+  if (tired) return tired;
+  const energy = { ...spend(order.army.energy, now, need), mode: 'hold' as const };
+  delete energy.homeAt;
   const from = { x: own.x, y: own.y };
   const to = { x: row.x, y: row.y };
   file.seq += 1;
@@ -613,7 +639,7 @@ function march(file: WarFile, key: string, order: Extract<WarOrder, { op: 'march
     sentAt: now,
     arriveAt: now + walk(from, to),
     phase: 'march',
-    army: order.army,
+    army: { ...order.army, energy },
     battles: [],
   });
   return null;

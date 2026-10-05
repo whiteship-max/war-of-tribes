@@ -139,7 +139,9 @@ describe('покой в шестьдесят', () => {
     await pulse(s, world, last);
     const home = (await world.info()).home;
     expect(await world.moveFigure('scout', { x: home.x + 12, y: home.y })).toBeNull();
-    for (let i = 0; i < 20; i++) {
+    // Стоит в поле, пока силы есть: на карте энергия уходит за пять игровых дней (docs/agent_energy.md), и выбившийся
+    // пошёл бы домой сам, не дожив до покоя в поле.
+    for (let i = 0; i < 4 && last.figures.find((f) => f.id === 'scout')?.phase !== 'field'; i++) {
       now += GAME_DAY;
       await pulse(s, world, last);
     }

@@ -10,6 +10,7 @@ import type { BattleResult, Pips, Side, Stack, UnitKind } from '@/battle';
 import type { WoodPlan } from './works';
 import type { TowerGun } from './bombard';
 import type { FigurePlace } from './shelter';
+import type { EnergyView } from './energy';
 import type { TraitNumbers } from '@/game/data/traits';
 
 /**
@@ -328,6 +329,8 @@ export interface StrikePlan {
    * не показывается нигде.
    */
   rout: number;
+  /** Цена удара в энергии полководца — с дорогой до лагеря (`world/energy`). */
+  energy?: EnergyCost;
 }
 
 /**
@@ -411,6 +414,8 @@ export interface OrderOption {
    * стоит рядом с шансом, и число это то же, каким мир задержит (`LocalWorld.spyTimes`).
    */
   held?: number;
+  /** Цена дела в энергии агента (`data/energy`) и отказ, если её не хватает. */
+  energy: EnergyCost;
   /**
    * Мировая минута, на которую посчитаны шанс и гибель, мс. Приказ, отданный с этой
    * отметкой, исполняется ровно по этим числам — показанное и есть применённое.
@@ -433,6 +438,11 @@ export interface LeadPlan {
   peril: number;
   /** Две главные причины гибели словами. */
   perilWhy: string[];
+  /**
+   * Энергия в пути (`world/energy`): сколько будет на месте и цена дела у ворот (разведка у разведчика). `block` —
+   * почему не пойдёт; `runsOut` — энергия кончится в дороге, и агент повернёт домой сам.
+   */
+  energy?: EnergyCost & { atArrival: number; runsOut: boolean };
   /** Мировая минута, на которую посчитан план, мс: с ней приказ идёт ровно по этим числам. */
   at: number;
 }
@@ -724,6 +734,11 @@ export interface SettlementCard extends SettlementView {
   /** Почему действий нет; null — всё доступно. */
   note: string | null;
   /**
+   * Цены дел полководца у этой цели в его энергии (`world/energy`): удар и осада. Нет поля — полководцу здесь
+   * нечего делать.
+   */
+  energy?: { raid: EnergyCost; besiege: EnergyCost };
+  /**
    * Осада этого поселения — чья и с каких пор. null — под стенами никого.
    *
    * Часов голода в карточке нет: карточка — взгляд со стороны, и лагерь в ней
@@ -764,6 +779,8 @@ export interface CardWar {
   /** Бойцов при полководце и их мощь. */
   men: number;
   power: number;
+  /** Цена похода в энергии полководца — штурмом и осадой (`data/energy`: поход плюс дело у стен). */
+  energy?: { storm: EnergyCost; siege: EnergyCost };
   /** Своя война с этим городом. Нет поля — войны нет. */
   ours?: { phase: 'march' | 'camp' | 'back'; mode: 'storm' | 'siege'; arriveAt: number; starvesAt?: number; backAt?: number };
   /** Этот город идёт на нас или стоит под нашими стенами. */
@@ -886,6 +903,19 @@ export interface FigureView {
   readyAt: number;
   /** Мораль дружины между боями (`world/rest`). Только у полководца и только не полная; нет поля — дружина свежая. */
   rest?: RestView;
+  /** Энергия агента (`world/energy`, docs/agent_energy.md). Нет поля у пустого места. */
+  energy?: EnergyView;
+  /** Энергия кончилась на карте: идёт домой сам, неуязвим и дел не берёт, пока не дойдёт. */
+  spent: boolean;
+}
+
+/**
+ * Цена дела в энергии глазами меню: сколько стоит и чего не хватает — той же проверкой, что примет приказ
+ * (`world/energy.energyBlock`). `block` — null, если хватает.
+ */
+export interface EnergyCost {
+  price: number;
+  block: string | null;
 }
 
 /**
@@ -987,6 +1017,8 @@ export interface InterceptPlan {
   men: number;
   /** Сколько цели осталось идти до своей цели, секунд. */
   targetSeconds: number;
+  /** Цена перехвата в энергии полководца — с дорогой до встречи (`world/energy`). */
+  energy?: EnergyCost;
 }
 
 export interface AttackResult {

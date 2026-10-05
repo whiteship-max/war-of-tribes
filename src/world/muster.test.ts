@@ -1,5 +1,5 @@
 import '@/game/pace.minute';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { UNIT_KINDS, stackTotal } from '@/battle';
 import { createInitialState } from '@/game/state';
@@ -27,6 +27,11 @@ import { STRIKE_FROM_TOWN } from './siege';
 import { distance } from './geo';
 import type { FigureView, MarchView, PlayerProfile, Report, SettlementView, WorldPulse } from './types';
 import { shieldVillagers } from './lairs';
+
+// Энергия агентов здесь не предмет проверки (docs/agent_energy.md): сценарии этого файла держат агентов в поле и ведут их
+// дальше, чем на пять игровых дней пути, — на карте она здесь не убывает. Цены дел и отдых дома остаются; энергию
+// держат `energy.test.ts` и `energyworld.test.ts`.
+vi.mock('@/world/data/energy', async (actual) => ({ ...(await actual<object>()), ENERGY_DRAIN: Infinity }));
 
 const START = 1_700_000_000_000;
 const MIN = 60_000;

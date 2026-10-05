@@ -4,6 +4,8 @@ import { castleIdOf, emptyRoster, upsert } from './roster.js';
 import { advance, applyOrder, emptyWars, fallId, liveSheet, newsDiff, newsMap, newsOf, viewOf, warsOf, type SheetAt, type WarFile } from './war.js';
 import { weakCity } from '../../src/world/lairs.js';
 import { inHomeTheatre } from '../../src/world/theatre/theatre.js';
+import { energyAt, energyBlock, priceOf } from '../../src/world/energy.js';
+import { ENERGY_FILL, ENERGY_MAX } from '../../src/world/data/energy.js';
 
 /**
  * Война между игроками (docs/pvp.md). Тесты только там, где без них можно подделать исход боя, начислить
@@ -184,6 +186,52 @@ describe('приказы: защита слабого, регион, чужое'
     expect(applyOrder(file, B, { op: 'recall', id }, T0 + 1, ctx)).not.toBeNull();
     expect(applyOrder(file, A, { op: 'sortie', id, troops: { spearman: 1 } }, T0 + 1, ctx)).not.toBeNull();
     expect(file.wars[0].phase).toBe('march');
+  });
+});
+
+describe('энергия полководца: поход, осада и удар спрашивают ту же дверь, что мир (docs/agent_energy.md)', () => {
+  const withEnergy = (value: number, troops: Record<string, number> = { spearman: 30 }): WarArmy => ({
+    ...army(troops),
+    energy: { value, at: T0, mode: 'fill' },
+  });
+
+  it('поход с осадой: не хватает — отказ словами двери; хватает — цена списана, и пока идёт война, энергия стоит', () => {
+    const { ctx, file, sheets } = setup();
+    const need = priceOf('march') + priceOf('siege');
+    const march = (value: number) =>
+      applyOrder(file, A, { op: 'march', target: castleIdOf(B), mode: 'siege', fate: 'plunder', army: withEnergy(value) }, T0, ctx);
+    expect(march(need - 1)).toBe(energyBlock(need - 1, need));
+    expect(file.wars).toHaveLength(0);
+    // Десять сверх цены похода: на штурм из лагеря уже не хватит.
+    expect(march(need + 10)).toBeNull();
+    const w = file.wars[0];
+    expect(w.army.energy).toEqual({ value: 10, at: T0, mode: 'hold' });
+    // Путь сервер по часам не жжёт: в лагере столько же, сколько при выходе.
+    advance(file, w.arriveAt + 1, sheets);
+    expect(w.phase, 'точка внутри области: лагерь встал').toBe('camp');
+    expect(energyAt(w.army.energy, w.arriveAt + 1)).toBe(10);
+    // Штурм из лагеря стоит свою цену — без неё отказ.
+    expect(applyOrder(file, A, { op: 'storm', id: w.id }, w.arriveAt + 2, ctx)).toBe(energyBlock(10, priceOf('storm')));
+    expect(w.phase).toBe('camp');
+    // Снял осаду — домой: дорогу назад сервер тоже не жжёт, с минуты возврата энергия копится.
+    expect(applyOrder(file, A, { op: 'retreat', id: w.id }, w.arriveAt + 3, ctx)).toBeNull();
+    expect(w.army.energy?.homeAt).toBe(w.backAt);
+    expect(energyAt(w.army.energy, w.backAt as number)).toBe(10);
+    expect(energyAt(w.army.energy, (w.backAt as number) + ENERGY_FILL)).toBe(ENERGY_MAX);
+  });
+
+  it('удар полководца города по лагерю: энергии должно хватить к приходу, с дорогой по карте', () => {
+    const { ctx, file, sheets } = setup();
+    expect(applyOrder(file, A, { op: 'march', target: castleIdOf(B), mode: 'siege', fate: 'plunder', army: army({ spearman: 30 }) }, T0, ctx)).toBeNull();
+    const w = file.wars[0];
+    advance(file, w.arriveAt + 1, sheets);
+    expect(w.phase, 'точка внутри области: лагерь встал').toBe('camp');
+    const strike = (value: number) =>
+      applyOrder(file, B, { op: 'strike', id: w.id, army: { ...withEnergy(value, { spearman: 20 }), energy: { value, at: w.arriveAt + 2, mode: 'drain' } }, joint: false, walkMs: 0 }, w.arriveAt + 2, ctx);
+    expect(strike(priceOf('strike') - 1)).toBe(energyBlock(priceOf('strike') - 1, priceOf('strike')));
+    expect(w.strike).toBeUndefined();
+    expect(strike(priceOf('strike'))).toBeNull();
+    expect(w.strike).toBeDefined();
   });
 });
 

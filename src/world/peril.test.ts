@@ -77,7 +77,9 @@ function ripeLair(w: ReturnType<typeof makeWorld>): GenSettlement {
 /** Поставить лазутчика вплотную к цели свободным: живым, не занятым, не задержанным. */
 function spyAt(w: ReturnType<typeof makeWorld>, s: GenSettlement): void {
   const f = w.inner.save.figures.spy;
-  Object.assign(f, { phase: 'field', from: { x: s.x, y: s.y }, to: { x: s.x, y: s.y }, departAt: w.now(), arriveAt: w.now(), downUntil: 0, busyUntil: 0, held: false, gone: undefined, watching: false });
+  // Лазутчик ставится к логову свежим — и с полным запасом энергии: сотни проб подряд меряют гибель, а не силы
+  // (docs/agent_energy.md; цены держит `energyworld.test.ts`).
+  Object.assign(f, { phase: 'field', from: { x: s.x, y: s.y }, to: { x: s.x, y: s.y }, departAt: w.now(), arriveAt: w.now(), downUntil: 0, busyUntil: 0, held: false, gone: undefined, watching: false, energy: undefined, spent: undefined });
   delete w.inner.save.diplomacy[s.id];
 }
 
