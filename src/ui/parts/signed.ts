@@ -4,8 +4,12 @@
 // показывала «+-1.1 золота»: закят берёт из казны и при нулевом налоге, и игрок читал
 // прибыль там, где убыток. Знак берётся у уже округлённого числа — иначе −0.04 стало бы
 // «−0.0», а это та же ложь в другую сторону.
+//
+// Дробь — запятой (docs/ui_audit.md, 4.5): запись числа — `game/num.dec`, одна на всю игру.
+import { dec } from '@/game/num';
+
 export function signed(n: number, digits = 1): string {
-  const text = Math.abs(n).toFixed(digits);
-  if (Number(text) === 0) return text;
+  const text = dec(Math.abs(n), digits);
+  if (Number(text.replace(',', '.')) === 0) return text;
   return `${n > 0 ? '+' : '−'}${text}`;
 }

@@ -37,6 +37,7 @@ import {
 } from '@/battle';
 import { KIND_OF, profileOfTroop } from './kinds';
 import { BASE_TROOP, battleWeight, powerOf } from './price';
+import { dec, num } from '../num';
 
 // ---------- Слова, которые из чисел не выведешь ----------
 
@@ -95,9 +96,9 @@ function count(n: number, one: string, few: string, many: string): string {
   return `${n} ${word}`;
 }
 
-/** Множитель словами: «×2.0», «×1.15», «×0.5». */
+/** Множитель словами: «×2,0», «×1,15», «×0,5». */
 export function fmt(m: number): string {
-  const s = Math.abs(m * 10 - Math.round(m * 10)) < 1e-9 ? m.toFixed(1) : String(Math.round(m * 100) / 100);
+  const s = Math.abs(m * 10 - Math.round(m * 10)) < 1e-9 ? dec(m, 1) : num(m, 2);
   return `×${s}`;
 }
 
@@ -187,7 +188,7 @@ export function weightOfTroop(troop: TroopId): WeightParts {
     what:
       troop === BASE_TROOP
         ? 'Мерка мощи: один боец, один боец строя. Снаряжение и конь входят в мощь через цену: чем дороже содержание, тем сильнее вид.'
-        : `Один боец стоит в бою ${value.toFixed(1)} бойца строя: во столько раз его содержание дороже, чем у вида ${TROOP_BY_ID[BASE_TROOP].name}. Снаряжение и конь входят в мощь через цену.`,
+        : `Один боец стоит в бою ${dec(value, 1)} бойца строя: во столько раз его содержание дороже, чем у вида ${TROOP_BY_ID[BASE_TROOP].name}. Снаряжение и конь входят в мощь через цену.`,
   };
 }
 
@@ -294,11 +295,11 @@ function strengthsOf(troop: TroopId): string[] {
           : null,
       () =>
         ex.weightTop === troop
-          ? `Сильнее всех на бойца: ${battleWeight(troop).toFixed(1)} бойца строя против ${battleWeight(ex.weightLow).toFixed(1)} у самого слабого.`
+          ? `Сильнее всех на бойца: ${dec(battleWeight(troop), 1)} бойца строя против ${dec(battleWeight(ex.weightLow), 1)} у самого слабого.`
           : null,
       () =>
         UNIT_STATS[kind].ranged > 0
-          ? `Единственный род, что бьёт до сближения: стрельба ${UNIT_STATS[kind].ranged.toFixed(1)} на бойца, рукопашная всего ${UNIT_STATS[kind].melee.toFixed(1)}.`
+          ? `Единственный род, что бьёт до сближения: стрельба ${dec(UNIT_STATS[kind].ranged, 1)} на бойца, рукопашная всего ${dec(UNIT_STATS[kind].melee, 1)}.`
           : null,
       () =>
         kind === 'infantry'
@@ -352,7 +353,7 @@ function weaknessesOf(troop: TroopId): string[] {
           : null,
       () =>
         ex.weightLow === troop
-          ? `Слабее всех на бойца: ${battleWeight(troop).toFixed(1)} бойца строя. Ту же мощь набирают числом.`
+          ? `Слабее всех на бойца: ${dec(battleWeight(troop), 1)} бойца строя. Ту же мощь набирают числом.`
           : null,
       () =>
         ex.workTop === troop

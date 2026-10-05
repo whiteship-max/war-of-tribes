@@ -20,6 +20,7 @@ import { waitSpan } from '@/ui/parts/wait';
 import { tipAt } from './tip';
 import { Confirm } from './Confirm';
 import { clampCount } from './SmithyNew';
+import { dec } from '@/game/num';
 
 /**
  * Какой вид выбран при открытии: тот, к которому ведёт шаг обучения (его метка — на кнопке «Нанять» выбранного
@@ -113,7 +114,7 @@ export function RecruitNew({ at }: { at: 'barracks' | 'stable' }) {
             <span className="nx-gname">
               <b>{d.name}</b>
               <small>
-                в дружине {s.army[id] ?? 0} · мощь {powerOf(id).toFixed(1).replace('.', ',')} · {wageOf(s, id).toFixed(2).replace('.', ',')} в день
+                в дружине {s.army[id] ?? 0} · мощь {dec(powerOf(id), 1)} · {dec(wageOf(s, id), 2)} в день
               </small>
             </span>
             {closed ? (

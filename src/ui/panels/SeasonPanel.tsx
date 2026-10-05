@@ -16,6 +16,7 @@ import type { GameState, JobId } from '@/game/types';
 import { Icon } from '@/ui/icons/Icon';
 import { iconName } from '@/ui/icons/registry';
 import { WinterForecast } from '@/ui/parts/Provisions';
+import { dec } from '@/game/num';
 
 /** Строка списка множителей: что растёт, что падает. */
 interface Line {
@@ -48,7 +49,7 @@ const JOB_ORDER: JobId[] = [...YARDS.filter((y) => y.yield.food), ...YARDS.filte
 function heatPerHead(s: GameState, mods: SeasonModifiers): string {
   const roofed = heatingWoodPerDay({ ...s, pop: 1 }, mods);
   const open = heatingWoodPerDay({ ...s, pop: 1, buildings: [] }, mods);
-  return `${roofed.toFixed(2)} под крышей, ${open.toFixed(2)} без неё`;
+  return `${dec(roofed, 2)} под крышей, ${dec(open, 2)} без неё`;
 }
 
 function linesOf(s: GameState, mods: SeasonModifiers): Line[] {
@@ -129,7 +130,7 @@ export function SeasonPanel() {
         <div className="mod total">
           <span className="ico">🌲</span>
           <span className="name">Дрова на отопление</span>
-          <span className={`val ${s.resources.wood > heat ? '' : 'neg'}`}>{heat.toFixed(1)} в день</span>
+          <span className={`val ${s.resources.wood > heat ? '' : 'neg'}`}>{dec(heat, 1)} в день</span>
         </div>
       )}
 

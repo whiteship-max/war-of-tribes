@@ -23,6 +23,7 @@
 //    календарь — в комментарии к исламским праздникам и в docs/faiths.md.
 import type { FaithId, ObservanceId, Season } from '../types';
 import { MAX_BUILDING_LEVEL } from '../constants';
+import { num } from '../num';
 
 /** Праздник: настоящее имя и одна строка о том, что в этот день делают. */
 export interface FeastDef {
@@ -248,7 +249,7 @@ function observance(mult: number, piety: number): Pick<ObservanceDef, 'mult' | '
   const effect =
     mult === 1 && piety === 0
       ? 'Как заведено дедами'
-      : `Наклон веры ×${String(mult).replace('.', ',')}, набожность ${piety > 0 ? '+' : '−'}${Math.abs(piety)}`;
+      : `Наклон веры ×${num(mult, 3)}, набожность ${piety > 0 ? '+' : '−'}${Math.abs(piety)}`;
   return { mult, piety, effect };
 }
 

@@ -15,6 +15,7 @@ import {
 } from '@/game/derived';
 import { moraleGrowthFactor } from '@/game/sim/population';
 import { Icon } from '@/ui/icons/Icon';
+import { dec } from '@/game/num';
 
 const sign = (n: number): string => `${n > 0 ? '+' : n < 0 ? '−' : ''}${Math.abs(Math.round(n * 10) / 10)}`;
 
@@ -99,7 +100,7 @@ export function MoralePanel() {
       <div className="mod total">
         <span className="ico">⛏️</span>
         <span className="name">Выработка</span>
-        <span className={`val ${output >= 1 ? 'pos' : 'neg'}`}>×{output.toFixed(2)}</span>
+        <span className={`val ${output >= 1 ? 'pos' : 'neg'}`}>×{dec(output, 2)}</span>
       </div>
       <div className="mod total">
         <span className="ico">{growth >= 0 ? '📈' : '📉'}</span>
@@ -107,7 +108,7 @@ export function MoralePanel() {
           Прирост
           {growth < 0 && <em className="sub">мораль ниже {MORALE_GROWTH_ZERO}, жители уходят</em>}
         </span>
-        <span className={`val ${growth >= 0 ? 'pos' : 'neg'}`}>×{growth.toFixed(2)}</span>
+        <span className={`val ${growth >= 0 ? 'pos' : 'neg'}`}>×{dec(growth, 2)}</span>
       </div>
       <button className="btn ghost wide" onClick={() => openTab('pop')}>
         <Icon name="hud-pop" glyph="👥" /> Прирост

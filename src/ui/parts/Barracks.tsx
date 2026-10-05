@@ -18,6 +18,7 @@ import { Recruit } from './Recruit';
 import { waitDays } from './wait';
 import { count } from './plural';
 import { tipAt } from '@/ui/next/tip';
+import { dec } from '@/game/num';
 
 /**
  * Казармы: дружина, найм пеших (`Recruit`; конницу нанимают в конюшне) и
@@ -48,7 +49,7 @@ export function Barracks() {
       <div className="mod">
         <span className="ico">🛡️</span>
         <span className="name">Оборона</span>
-        <span className="val">{defense(s).toFixed(0)}</span>
+        <span className="val">{dec(defense(s), 0)}</span>
       </div>
       {/* Что стена выводит в поле и кто идёт на деревню — у стены, в разделе «Оборона»,
           и оттуда же дверь к донесению о набеге. Второго экрана здесь нет — только дверь туда. */}
@@ -135,12 +136,12 @@ export function Upkeep() {
           <div className="mod">
             <span className="ico">🔨</span>
             <span className="name">Мастерам в день</span>
-            <span className="val">{up.mastersWages.toFixed(1)}</span>
+            <span className="val">{dec(up.mastersWages, 1)}</span>
           </div>
           <div className="mod">
             <span className="ico">📜</span>
             <span className="name">Всего в день</span>
-            <span className={`val${up.wages > up.income ? ' neg' : ''}`}>{up.wages.toFixed(1)}</span>
+            <span className={`val${up.wages > up.income ? ' neg' : ''}`}>{dec(up.wages, 1)}</span>
           </div>
         </>
       )}

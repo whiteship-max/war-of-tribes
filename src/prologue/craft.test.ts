@@ -308,7 +308,7 @@ describe('кнопка ремесла гаснет и говорит причи�
     expect(offer(S({ axe: true, logs: 3, house: 14 }), AT_HOUSE, 0)).toMatchObject({
       deed: 'build',
       can: true,
-      label: `Ставить дом (14/${HOUSE_LOGS})`,
+      label: `Ставить дом 14/${HOUSE_LOGS}`,
     });
     // Строить больше нечего, но у дома есть дело: в нём записан род (`kin.ts`).
     // Бревно в достроенный дом по-прежнему не ложится — рук тап не трогает.
@@ -337,7 +337,7 @@ describe('кнопка ремесла гаснет и говорит причи�
 
   it('стрелы строгают у колоды из полена, пока влезают', () => {
     const ready = S({ axe: true, kit: true, logs: 1, quiver: ARROWS_START });
-    expect(offer(ready, AT_AXE, 0)).toMatchObject({ deed: 'carve', can: true, label: `Строгать стрелы (+${ARROWS_PER_LOG})` });
+    expect(offer(ready, AT_AXE, 0)).toMatchObject({ deed: 'carve', can: true, label: `Строгать стрелы +${ARROWS_PER_LOG}` });
     expect(offer({ ...ready, logs: 0 }, AT_AXE, 0)).toMatchObject({ deed: 'carve', can: false, why: 'Нужно полено' });
     expect(offer({ ...ready, quiver: QUIVER_MAX }, AT_AXE, 0)).toMatchObject({ deed: 'carve', can: false, why: 'Колчан полон' });
     expect(offer({ ...ready, kit: false }, AT_AXE, 0).can).toBe(false);

@@ -211,7 +211,7 @@
 
       <div id="boot-err">
         <div id="boot-msg">Игра не загрузилась.</div>
-        <button id="boot-retry" type="button">Попробовать снова</button>
+        <button id="boot-retry" type="button">Повторить</button>
         <div id="boot-why"></div>
       </div>
     </div>
@@ -255,7 +255,7 @@
           code: { at: 0.08, text: 'Поднимаем знамя' },
           save: { at: 0.34, text: 'Разбираем зарубки' },
           offline: { at: 0.52, text: 'Считаем, что было без тебя' },
-          scene: { at: 0.78, text: 'Ставим посёлок' },
+          scene: { at: 0.78, text: 'Ставим город' },
           done: { at: 1, text: '' }
         };
 
@@ -266,11 +266,11 @@
           'Не хвались походом, хвались возвращением.',
           'Один в поле воин, да недолго.',
           'Сытое племя стены не бросит.',
-          'Кузнец кует, покуда горн дышит.',
+          'Кузнец куёт, покуда горн дышит.',
           'У соседа за пазухой не считай, свой амбар меряй.',
           'Тихая река берега точит.',
-          'Слово вождя дешевле хлеба, да дороже золота.',
-          'Худой мир лучше доброй драки — а доброй драки не миновать.'
+          'Слово правителя дешевле хлеба, да дороже золота.',
+          'Худой мир лучше доброй драки, да драки не миновать.'
         ];
 
         /**
@@ -430,7 +430,7 @@
           var debug = env.debug || '';
           if (debug && debug !== 'hold' && debug !== 'fail' && !STAGES[debug]) debug = 'hold';
           if (debug === 'fail') env.delay(function () {
-            fail('Не загрузился файл игры.');
+            fail('Проверь связь.');
           }, 0);
 
           paintTheme();
@@ -441,7 +441,7 @@
           failTimer = debug
             ? null
             : env.delay(function () {
-                fail('Загрузка идёт дольше обычного. Проверь связь.');
+                fail('Грузится слишком долго. Проверь связь.');
               }, FAIL_AFTER_MS);
 
           return {
@@ -539,7 +539,7 @@
           function (e) {
             var t = e && e.target;
             if (t && (t.tagName === 'SCRIPT' || t.tagName === 'LINK')) {
-              window.__boot.fail('Не загрузился файл игры.');
+              window.__boot.fail('Проверь связь.');
               return;
             }
             if (e && e.message) window.__boot.fail(e.message);

@@ -33,6 +33,7 @@ import { Icon } from '@/ui/icons/Icon';
 import { count as countOf } from '../parts/plural';
 import { signed } from '../parts/signed';
 import { waitDays } from '../parts/wait';
+import { dec } from '@/game/num';
 
 /**
  * Дружина. Бойцы — не жители с профессией «воин»: их нанимают в казармах,
@@ -201,7 +202,7 @@ export function PeoplePanel() {
   return (
     <div className="panel">
       <h2>
-        Племя <small>жители {s.pop}/{housing} · оборона {defense(s).toFixed(0)}</small>
+        Племя <small>жители {s.pop}/{housing} · оборона {dec(defense(s), 0)}</small>
       </h2>
       <div className="note">Людей ставят на работу в окне здания. Свободные руки строят и отдыхают у костра.</div>
 

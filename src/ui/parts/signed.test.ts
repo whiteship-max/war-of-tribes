@@ -23,15 +23,16 @@ function village(faith: FaithId | null): GameState {
 }
 
 /** Число, которое прочтёт игрок: знак и модуль из надписи. */
-const read = (label: string): number => (label.startsWith('−') ? -1 : 1) * Number(label.replace(/^[+−]/, ''));
+const read = (label: string): number => (label.startsWith('−') ? -1 : 1) * Number(label.replace(/^[+−]/, '').replace(',', '.'));
 
 describe('знак надписи — из числа', () => {
   it('плюс у прибыли, минус у убытка, у нуля знака нет', () => {
-    expect(signed(3.04)).toBe('+3.0');
-    expect(signed(-1.14)).toBe('−1.1');
-    expect(signed(0)).toBe('0.0');
-    // Округлённое до нуля отрицательное — ноль, а не «−0.0».
-    expect(signed(-0.04)).toBe('0.0');
+    // Дробь — запятой (docs/ui_audit.md, 4.5; решение владельца 14.4, вопрос 2): запись числа — `game/num.dec`.
+    expect(signed(3.04)).toBe('+3,0');
+    expect(signed(-1.14)).toBe('−1,1');
+    expect(signed(0)).toBe('0,0');
+    // Округлённое до нуля отрицательное — ноль, а не «−0,0».
+    expect(signed(-0.04)).toBe('0,0');
     expect(signed(2, 0)).toBe('+2');
   });
 

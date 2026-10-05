@@ -429,7 +429,7 @@ describe('симуляция', () => {
   it('золото и рынок доступны сразу, а кузница и казармы — с первой ступени ветви', () => {
     const s = createInitialState();
     expect(s.gold).toBeGreaterThan(0);
-    expect(startForge(s, 'spear', 1), 'до ступени кузница копья не берёт').toMatch(/Ещё не изучено/);
+    expect(startForge(s, 'spear', 1), 'до ступени кузница копья не берёт').toMatch(/Не изучено/);
     expect(study(s, 'war'), 'а ступень покупается сразу: очков ровно на неё').toBeNull();
     expect(startForge(s, 'spear', 1)).toBeNull();
     expect(forgeInfo(s).blocked).toMatch(/никто не работает/);
@@ -1243,7 +1243,7 @@ describe('обучение', () => {
 
     // Копьё — вторая ступень военной ветви, и обучение ведёт её купить: начального котла
     // очков хватает ровно на неё, ждать игроку не приходится.
-    expect(startForge(s, 'spear', 1), 'до ступени кузница копья не берёт').toMatch(/Ещё не изучено/);
+    expect(startForge(s, 'spear', 1), 'до ступени кузница копья не берёт').toMatch(/Не изучено/);
     expect(study(s, 'war')).toBeNull();
     advanceTutorial(s, ui({ building: smithy.id }));
     expect(at(s)).toBe('forge');

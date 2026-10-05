@@ -27,8 +27,9 @@ import { asGame } from '@/game/pace';
 import { EVENT_TTL } from '@/game/sim/mail';
 import { plural } from '../parts/plural';
 import { Icon } from '@/ui/icons/Icon';
+import { dec } from '@/game/num';
 
-const fmt = (n: number): string => (n >= 10 ? String(Math.round(n)) : n.toFixed(1));
+const fmt = (n: number): string => (n >= 10 ? String(Math.round(n)) : dec(n, 1));
 
 export function OrderPanel() {
   const s = useGame((g) => g.s);

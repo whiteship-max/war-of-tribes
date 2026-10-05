@@ -35,6 +35,7 @@ import { adoptSave } from '@/game/save';
 import type { GameState } from '@/game/types';
 import { browserStorage } from '@/world/local/state';
 import { tgInitData } from '@/telegram/webapp';
+import { realSpan } from '@/game/span';
 import { apiGet, apiPut, type ApiFail } from './api';
 import { serverNow } from './clock';
 import { beatLease, claimLease, dropLease, leaseHolder, LEASE_BEAT_MS } from './session';
@@ -132,9 +133,9 @@ const keepSpare = (record: SaveRecord, at: number): void =>
 /** Слова для игрока по причине отказа. Технических подробностей здесь нет. */
 const WORDS: Record<ApiFail, string> = {
   offline: 'Нет связи. Играй дальше, сохраним, когда связь вернётся.',
-  auth: 'Telegram не подтвердил вход. Прогресс сохраняется только на этом устройстве.',
+  auth: 'Telegram не подтвердил вход. Партия сохраняется только на этом устройстве.',
   conflict: 'Партию продолжили на другом устройстве.',
-  busy: 'Слишком часто. Следующая попытка через минуту.',
+  busy: `Слишком часто. Следующая попытка через ${realSpan(PUSH_MS / 1000)}.`,
   server: 'Сохранение не прошло. Играй дальше, попробуем ещё раз.',
 };
 

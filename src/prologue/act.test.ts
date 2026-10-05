@@ -102,10 +102,10 @@ describe('мясо жарится только на огне', () => {
     expect(ROAST_COST * 6).toBe(TREE_LOGS);
     const s = state({ meat: { cooked: 0, raw: 6 }, hearth: { fuel: 1, at: 0 } });
     expect(roastCount(s, 0)).toBe(2);
-    expect(offer(s, AT_FIRE, 0).label).toBe('Пожарить мясо (2)');
+    expect(offer(s, AT_FIRE, 0).label).toBe('Пожарить мясо 2');
     // Меньше полполена — жарить нечем, и это сказано отдельным словом.
     const bare = state({ meat: { cooked: 0, raw: 6 }, hearth: { fuel: 0.4, at: 0 } });
-    expect(offer(bare, AT_FIRE, 0).why).toBe('В костре не осталось дров');
+    expect(offer(bare, AT_FIRE, 0).why).toBe('Мало дров в костре');
   });
 
   it('с сырым мясом в руках костёр предлагает кухню, а не дрова', () => {
@@ -180,7 +180,7 @@ describe('пожитки, туша и стрелы', () => {
   it('с туши срезают по куску, и видно, сколько осталось', () => {
     const s = state({ hunt: { killedAt: 0, carcass: { x: 3, z: 3, taken: 2, skinned: false } } });
     expect(offer(s, AT_CARCASS, 0)).toMatchObject({ deed: 'butcher', can: true });
-    expect(offer(s, AT_CARCASS, 0).label).toBe(`Срезать мясо (${DEER_MEAT - 2})`);
+    expect(offer(s, AT_CARCASS, 0).label).toBe(`Срезать мясо ${DEER_MEAT - 2}`);
   });
 
   it('стрела с земли подбирается', () => {

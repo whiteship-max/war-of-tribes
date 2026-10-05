@@ -9,6 +9,7 @@ import { popGrowth } from '@/game/sim/population';
 import { TAP_TARGET } from '@/gestures';
 import { waitSpan } from '@/ui/parts/wait';
 import { shortNum } from '@/ui/parts/shortNum';
+import { count } from '@/ui/parts/plural';
 import { TIP_EDGE, TIP_GAP, TIP_MAX, TIP_W, placeTip, type Rect } from './tip';
 import { ALERT_FRESH_MS, isFresh } from './fresh';
 import {
@@ -142,7 +143,7 @@ describe('числа подсказок верха — функциями игр
     const full = createInitialState(7);
     full.resources[r] = storageCap(full);
     expect(isFull(full, r)).toBe(true);
-    expect(resTip(full, r, 1, go).body).toBe('Склад полон: новое пропадает.');
+    expect(resTip(full, r, 1, go).body).toBe('Склад полон, лишнее пропадает.');
   });
 
   it('разряды — узким пробелом, ставка — с запятой и знаком', () => {
@@ -343,7 +344,7 @@ describe('подсказка рабочих окна постройки — чи
       expect(t.body).toContain(`Свободных рук в племени: ${idleCount(s)}.`);
       if (more) {
         checked++;
-        expect(t.body).toContain(`ещё ${more.after - more.before} мест`);
+        expect(t.body).toContain(`ещё ${count(more.after - more.before, 'место', 'места', 'мест')}.`);
       }
     }
     expect(checked, 'здания, где уровень прибавляет места, есть').toBeGreaterThan(2);

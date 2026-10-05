@@ -10,6 +10,7 @@ import { Gems } from './Gems';
 import { Icon } from '@/ui/icons/Icon';
 import { signed } from './signed';
 import { decreeLine, rationLine } from './policyWords';
+import { dec } from '@/game/num';
 
 /**
  * Ратуша — сердце города, и в ней три дела, а не одно, поэтому у неё вкладки:
@@ -74,7 +75,7 @@ export function Manage({ b }: { b: Building }) {
       <div className="mod">
         <span className="ico">🔨</span>
         <span className="name">К скорости стройки</span>
-        <span className="val">×{townHallBuildMult(s).toFixed(2)}</span>
+        <span className="val">×{dec(townHallBuildMult(s), 2)}</span>
       </div>
       {morale > 0 && (
         <div className="mod">
@@ -156,7 +157,7 @@ export function Manage({ b }: { b: Building }) {
               <b>{t.name}</b>
               <small>
                 {t.effect}
-                <br />{signed(q.gold)} золота в день · мораль {Math.round(q.morale)} · выработка ×{q.output.toFixed(2)}
+                <br />{signed(q.gold)} золота в день · мораль {Math.round(q.morale)} · выработка ×{dec(q.output, 2)}
               </small>
             </button>
           );

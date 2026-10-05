@@ -7,7 +7,8 @@ import { createInitialState } from '@/game/state';
 import { setCity } from '@/profile/stats';
 import { profileCity } from '@/profile/identity';
 import { startStep } from '../start';
-import { CITY_SUGGESTIONS, suggestCity } from './cityNames';
+import { CITY_NAMES, CITY_SUGGESTIONS, cityList, suggestCity } from './cityNames';
+import type { FaithId } from '@/game/types';
 
 const SEEDS = [1, 7, 42, 20260912, 2 ** 31 - 1];
 
@@ -30,6 +31,35 @@ describe('имена на выбор', () => {
       expect(suggestCity(seed, len), `сид ${seed}: второй круг`).toBe(round[0]);
       expect(suggestCity(seed, 3), 'тот же сид — то же имя').toBe(round[3]);
     }
+  });
+
+  it('у каждой веры свой список: годные имена, без повторов, и кубик ходит по нему', () => {
+    const faiths = Object.keys(CITY_NAMES) as FaithId[];
+    // Область: все четыре веры игры — у каждой земли есть свой список.
+    expect(faiths.sort()).toEqual(['catholic', 'islam', 'orthodox', 'pagan']);
+    for (const faith of faiths) {
+      const list = cityList(faith);
+      expect(list, faith).toBe(CITY_NAMES[faith]);
+      expect(list.length, faith).toBeGreaterThanOrEqual(20);
+      expect(new Set(list).size, `${faith}: повторов нет`).toBe(list.length);
+      for (const name of list) {
+        expect(cityName(name), `${faith}: ${name}`).toBe(name);
+        expect(name.length, name).toBeLessThanOrEqual(CITY_MAX);
+        expect(name).not.toBe(DEFAULT_CITY);
+      }
+      for (const seed of SEEDS) {
+        const round = Array.from({ length: list.length }, (_, n) => suggestCity(seed, n, faith));
+        expect(new Set(round).size, `${faith}, сид ${seed}: круг — перестановка своего списка`).toBe(list.length);
+        for (const name of round) expect(list, `${faith}: имя из своего списка`).toContain(name);
+      }
+    }
+    expect(cityList(null), 'вера не известна — описательные имена').toBe(CITY_SUGGESTIONS);
+  });
+
+  it('шаг имени берёт веру у мира, а до его ответа — у клетки замка', () => {
+    const naming = readFileSync(join(__dirname, 'CityNaming.tsx'), 'utf8');
+    expect(naming).toMatch(/faithAt\(home\.x, home\.y\)/);
+    expect(naming).toMatch(/suggestCity\(seed, [^)]*faith\)/);
   });
 
   it('первое имя зависит от сида: у соседей поле не одно и то же', () => {

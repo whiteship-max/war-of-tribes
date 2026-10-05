@@ -16,6 +16,7 @@ import { militiaArchers, militiaMen } from '@/world/bridge';
 import { Icon } from '@/ui/icons/Icon';
 import { openRaid } from '@/ui/realm/open';
 import { useRaidWords } from './raidWords';
+import { dec } from '@/game/num';
 
 export function Walls({ b }: { b: Building }) {
   const s = useGame((g) => g.s);
@@ -35,7 +36,7 @@ export function Walls({ b }: { b: Building }) {
             <Icon name="gear-shield" glyph="🛡️" />
           </span>
           <span className="name">Оборона города</span>
-          <span className="val">{defense(s).toFixed(0)}</span>
+          <span className="val">{dec(defense(s), 0)}</span>
         </div>
         <div className="mod">
           <span className="ico">

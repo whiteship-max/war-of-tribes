@@ -24,6 +24,7 @@
 import { create } from 'zustand';
 import type { CastleClaim, CastleView, RosterResponse } from '../../netlify/lib/contract';
 import { tgInitData } from '@/telegram/webapp';
+import { realSpan } from '@/game/span';
 import { apiGet, apiPut, type ApiFail } from './api';
 import { serverNow } from './clock';
 import { leaseHolder } from './session';
@@ -83,8 +84,8 @@ export interface RosterStore {
 const WORDS: Record<ApiFail, string> = {
   offline: 'Нет связи. Соседи показаны по памяти.',
   auth: 'Игра открыта не из Telegram, соседей на карте нет.',
-  conflict: 'Реестр перечитывается.',
-  busy: 'Слишком часто. Список обновится через минуту.',
+  conflict: 'Список соседей обновляется.',
+  busy: `Слишком часто. Список обновится через ${realSpan(ROSTER_PULL_MS / 1000)}.`,
   server: 'Список соседей не пришёл. Показаны по памяти.',
 };
 

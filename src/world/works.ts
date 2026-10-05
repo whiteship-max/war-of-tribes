@@ -45,6 +45,7 @@
 // самом событии, а свободная доля выводится при чтении. Тика нет.
 import { emptyStack, stackTotal, UNIT_KINDS, type Stack } from '@/battle';
 import { CAMP_GATE_CLEAR, CAMP_WOOD, CAMP_WORKS_PASS, CAMP_WORKS_RIPE, PLAYER_CAMP_WOOD } from './data/tuning';
+import { dec } from '@/game/num';
 
 /** Сторона лагеря. Фронт — к городу, тыл — в поле. Не путать с `Side` боя: там нападающий и защитник. */
 export type CampSide = 'front' | 'rear';
@@ -498,7 +499,7 @@ function gateTail(gateAt: number | undefined, at: number): string {
 function sideWords(side: CampSide, since: number, at: number, gateAt: number | undefined, plan: WoodPlan): string {
   const works = sideWorks(since, at, side, plan);
   if (works <= 0) return `${SIDE_NAME[side]} рогаток ещё нет: к бою пройдут все.${gateTail(gateAt, at)}`;
-  const num = (v: number): string => (v >= 10 ? String(Math.round(v)) : v.toFixed(1).replace('.', ','));
+  const num = (v: number): string => (v >= 10 ? String(Math.round(v)) : dec(v, 1));
   const share = `к бою пройдут не больше ${num(passPerMan(works))} бойцов строя на каждого, кто ставил лагерь`;
   if (works >= 1) return `${SIDE_NAME[side]} рогатки дозрели: ${share}.${gateTail(gateAt, at)}`;
   const ripe = worksRipeAt(since, side, plan);

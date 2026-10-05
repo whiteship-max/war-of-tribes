@@ -8,7 +8,9 @@ import { REALM_BRANCHES } from '@/game/data/realm';
 import { faithTilt, population, taxIncomePerDay, taxQuote, wagesDue } from '@/game/derived';
 import { rulerRate } from '@/game/sim/points';
 import { fmtInt, perDay } from '@/ui/next/hudTips';
-import { comma, ledgerTips, signedRate, skillTip, taxPicks, tiltCells } from './RealmTabs';
+import { count } from '@/ui/parts/plural';
+import { ledgerTips, signedRate, skillTip, taxPicks, tiltCells } from './RealmTabs';
+import { dec } from '@/game/num';
 
 /** Город с храмом десятого уровня: наклон веры — и закят, и десятина — в полную силу. */
 function town(faith: FaithId | null): GameState {
@@ -53,7 +55,7 @@ describe('указы: казна и налог — числами игры', () 
   it('ставка без слов и дробь запятой', () => {
     expect(signedRate(19.94)).toBe('+19,9');
     expect(signedRate(-3)).toBe('−3,0');
-    expect(comma('×1.05')).toBe('×1,05');
+    expect(dec(1.05, 2)).toBe('1,05');
   });
 });
 
@@ -71,7 +73,7 @@ describe('вера: ячейки наклона — числа `faithTilt`, ну
         expect(by.get('gold')!.label).toBe(t.goldPerPop > 0 ? 'Десятина' : 'Закят');
       }
       expect(by.has('output'), `${faith}: выработка`).toBe(Math.abs(t.output - 1) > 0.001);
-      if (by.has('output')) expect(by.get('output')!.value).toBe(comma(`×${t.output.toFixed(2)}`));
+      if (by.has('output')) expect(by.get('output')!.value).toBe(`×${dec(t.output, 2)}`);
       expect(by.has('morale'), `${faith}: мораль`).toBe(Math.abs(t.morale) > 0.001);
       shown += cells.length;
     }
@@ -86,7 +88,7 @@ describe('правитель: навык — очки `rulerRate`', () => {
     for (const b of REALM_BRANCHES) {
       const t = skillTip(b, s.realm.ruler.skills[b], rulerRate(s, b), s.realm.heir.skills[b]);
       expect(t.title).toContain(`навык ${s.realm.ruler.skills[b]}`);
-      expect(t.body).toContain(`+${rulerRate(s, b)} очков`);
+      expect(t.body).toContain(`+${count(rulerRate(s, b), 'очко', 'очка', 'очков')} в игровой день`);
       expect(t.body).toContain(`навык ${s.realm.heir.skills[b]}`);
       // Область: у стартового правителя приток в каждой ветви есть (навык не ниже одного).
       expect(rulerRate(s, b)).toBeGreaterThan(0);

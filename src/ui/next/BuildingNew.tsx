@@ -133,7 +133,7 @@ export function BuildingNew({ id, data }: { id: number; data: (b: Building) => R
         </div>
       )}
 
-      {isOutsideWall(b.type) && <div className="nx-bwarn">Двор за стеной: прорвавшийся набег разгонит людей.</div>}
+      {isOutsideWall(b.type) && <div className="nx-bwarn">Двор стоит за стеной. Прорвавшийся набег разгонит людей.</div>}
 
       <WorkerRow b={b} gains={gains} />
       {/* Промысел этого двора — игра у своего двора (docs/minigames.md, 3). */}

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { createInitialState } from '../state';
 import { MAX_BUILDING_LEVEL, RESOURCE_IDS } from '../constants';
 import { BUILDING_BY_ID } from './buildings';
-import { EVENTS, eventBlock, eventCost, optionHint, type EventOption } from './events';
+import { EVENTS, EVENT_MORALE, eventBlock, eventCost, optionHint, type EventOption } from './events';
 import { resolveEvent } from '../sim/actions';
 import type { GameState } from '../types';
 
@@ -126,5 +126,74 @@ describe('цена события объявлена, а не спрятана �
       }
     }
     expect(seen).toBeGreaterThan(5);
+  });
+});
+
+/**
+ * Числа морали событий — одним числом на подпись и на исход (`EVENT_MORALE`, правило 18; docs/ui_audit.md, 14.4, вопрос 4).
+ * Область, где правило спрашивается: мораль не у края шкалы — при 50 ни один сдвиг не упирается в 0 или 100, и сдвиг
+ * читается целиком; это утверждается в самом тесте.
+ */
+describe('мораль событий: подпись называет то же число, что сдвигает исход', () => {
+  const option = (event: string, label: string): EventOption => {
+    const o = EVENTS.find((e) => e.id === event)?.options.find((x) => x.label === label);
+    if (!o) throw new Error(`${event}: нет ответа «${label}»`);
+    return o;
+  };
+  const word = (d: number): string => `${d > 0 ? '+' : '−'}${Math.abs(d)}`;
+  const shift = (s: GameState, o: EventOption): number => {
+    s.morale = 50;
+    o.apply(s);
+    return s.morale - 50;
+  };
+  const inside = (d: number): void => expect(50 + d > 0 && 50 + d < 100, 'точка внутри шкалы').toBe(true);
+
+  it('беженцы, раскол и мор при служителях — сдвиг ровно на число подписи', async () => {
+    const { assignWorker } = await import('../sim/workers');
+    const { housingCapacity, jobCounts } = await import('../derived');
+    const cases: [string, string, number, (s: GameState) => void][] = [
+      ['refugees', 'Прогнать', EVENT_MORALE.refugeesTurnedAway, () => {}],
+      ['refugees', 'Взять, сколько поместится', EVENT_MORALE.refugeesNoRoom, (s) => (s.pop = housingCapacity(s))],
+      ['heresy_split', 'Разогнать силой', EVENT_MORALE.preacherForce, () => {}],
+      ['heresy_split', 'Пусть говорят', EVENT_MORALE.preacherTalk, () => {}],
+      [
+        'sickness',
+        'Позвать служителей',
+        EVENT_MORALE.sicknessPriests,
+        (s) => {
+          const church = s.buildings.find((b) => b.type === 'church')!;
+          assignWorker(s, church.id, 1);
+          expect(jobCounts(s).priest, 'точка внутри области: служитель есть').toBeGreaterThan(0);
+        },
+      ],
+    ];
+    for (const [event, label, d, setup] of cases) {
+      inside(d);
+      const s = createInitialState(3);
+      setup(s);
+      const o = option(event, label);
+      expect(optionHint(o, s), `${event} · ${label}`).toContain(word(d));
+      expect(shift(s, o), `${event} · ${label}`).toBe(d);
+    }
+  });
+
+  it('мор без присмотра: подпись называет число, и унёс он людей — мораль сдвинута на него же', () => {
+    const o = option('sickness', 'Ничего не делать');
+    const d = EVENT_MORALE.sicknessNeglect;
+    inside(d);
+    let struck = 0;
+    for (let seed = 1; seed <= 40; seed++) {
+      const s = createInitialState(seed);
+      s.pop = 60;
+      expect(optionHint(o, s)).toContain(word(d));
+      const pop = s.pop;
+      const got = shift(s, o);
+      if (s.pop < pop) {
+        struck++;
+        expect(got, `сид ${seed}`).toBe(d);
+      } else expect(got, `сид ${seed}: обошлось — мораль на месте`).toBe(0);
+    }
+    // Область: мор хоть раз прошёл — иначе сдвиг проверялся бы даром.
+    expect(struck).toBeGreaterThan(0);
   });
 });

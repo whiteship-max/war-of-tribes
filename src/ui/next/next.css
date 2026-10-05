@@ -1660,3 +1660,162 @@
 .nx-top.crowded .nx-pop small {
   display: none;
 }
+
+/* ---------- Меню приказов карты (`map/ActionMenu`): шапка 56, роли вкладками, приказы строками, «Вести сюда» внизу ---------- */
+.nx-am {
+  width: 100%;
+  max-height: 88%;
+  display: flex;
+  flex-direction: column;
+  padding: 0 12px 12px;
+  border-radius: 14px 14px 0 0;
+  border-top: 1px solid var(--line-2);
+  background: rgba(25, 19, 14, 0.97);
+}
+.nx-am-tabs {
+  flex: none;
+  display: flex;
+  gap: 8px;
+  margin: 0 0 8px;
+}
+.nx-am-tab {
+  flex: 1;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  font-size: 20px;
+  cursor: pointer;
+}
+.nx-am-tab svg {
+  width: 24px;
+  height: 24px;
+}
+.nx-am-tab.on {
+  border-color: var(--accent);
+  background: rgba(232, 164, 60, 0.12);
+}
+.nx-am-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+.nx-am-body h3:first-child {
+  margin-top: 0;
+}
+.nx-orow {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0 0 8px;
+  padding: 4px;
+  border-radius: 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+}
+.nx-orow.on {
+  border-color: var(--accent);
+  background: rgba(232, 164, 60, 0.12);
+}
+.nx-orow .nx-wico {
+  color: inherit;
+  cursor: pointer;
+}
+.nx-obtn {
+  flex: 1;
+  min-width: 0;
+  min-height: 44px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.nx-obtn b {
+  font-size: 13px;
+  font-weight: 600;
+}
+.nx-obtn:active:not(:disabled) {
+  background: rgba(255, 220, 170, 0.08);
+}
+/* Недоступно (3.8): имя и значок — .45, причина — строкой 11 px в полную яркость. */
+.nx-orow.off .nx-wico,
+.nx-orow.off .nx-obtn b {
+  opacity: 0.45;
+}
+.nx-obtn .nx-why {
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--bad);
+}
+.nx-ochips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+  font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.nx-ochips span {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.nx-ochips svg {
+  width: 12px;
+  height: 12px;
+}
+.nx-am .good {
+  color: var(--good);
+}
+.nx-am .bad {
+  color: var(--bad);
+}
+.nx-obtn .cost {
+  margin-top: 2px;
+  gap: 8px;
+  font-size: 11px;
+}
+.nx-am-foot {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+.nx-am-why {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--muted);
+}
+.nx-am-why .nx-why {
+  color: var(--warn);
+}
+.nx-am-risk {
+  align-self: flex-start;
+  min-height: 32px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--bad);
+  font: inherit;
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}

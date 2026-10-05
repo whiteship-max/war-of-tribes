@@ -166,8 +166,8 @@ describe('гейт: одна дверь на показ и на запрет', (
       const grewPlaces = FIGURE_IDS.filter((id) => placeOpen(after, id)).length - FIGURE_IDS.filter((id) => placeOpen(before, id)).length;
       const grewSlots = mailSlots(after) - mailSlots(before);
       expect(grewPlaces + grewSlots, `ступень ${l + 1} и правда что-то открыла`).toBe(gains.length);
-      if (grewPlaces > 0) expect(gains.join(' ')).toMatch(/Место в игре/);
-      if (grewSlots > 0) expect(gains.join(' ')).toMatch(/Стол донесений/);
+      if (grewPlaces > 0) expect(gains.join(' ')).toMatch(/Новое место/);
+      if (grewSlots > 0) expect(gains.join(' ')).toMatch(/Мест для вестей/);
     }
   });
 });
@@ -230,8 +230,8 @@ describe('трата очков', () => {
         expect(BRANCH_BUILT[b], `${b}: точка внутри области — ветвь закрыта`).toBe(false);
         s.realm.points[b] = POINTS_CAP;
         s.realm.pointsAt = s.time;
-        expect(studyInfo(s, b).blocked, `${b}: ещё не построена`).toMatch(/не построена/);
-        expect(study(s, b), `${b}: и не покупается`).toMatch(/не построена/);
+        expect(studyInfo(s, b).blocked, `${b}: ещё не построена`).toMatch(/ещё закрыто/);
+        expect(study(s, b), `${b}: и не покупается`).toMatch(/ещё закрыто/);
         expect(techLevel(s, b), `${b}: уровень на месте`).toBe(1);
       } finally {
         BRANCH_BUILT[b] = was;
@@ -242,7 +242,7 @@ describe('трата очков', () => {
   it('изученная целиком ветвь больше ничего не продаёт', () => {
     const s = studied(DIPLO_LEVELS);
     expect(studyInfo(s, 'diplo').next).toBe(0);
-    expect(study(s, 'diplo')).toMatch(/изучена целиком/);
+    expect(study(s, 'diplo')).toMatch(/Изучено всё/);
   });
 });
 
@@ -296,7 +296,7 @@ describe('начатая партия: засчитывается пройден
     // Строки ступеней ложатся в летопись при входе, после догона отлучки (`save.enter`); вход — сразу после записи.
     enter(s!, s!.lastSaved);
     expect(s!.log.some((e) => e.text.includes('Место лазутчика засчитано')), 'о засчитанном сказано').toBe(true);
-    expect(s!.log.some((e) => e.text.includes('открылись «Технологии»')), 'и о самих технологиях').toBe(true);
+    expect(s!.log.some((e) => e.text.includes('открылись технологии')), 'и о самих технологиях').toBe(true);
     // Даром ветвь не проходится: третья ступень остаётся непокупленной.
     expect(techLevel(s!, 'diplo'), 'засчитали ровно пройденное').toBeLessThan(DIPLO_LEVELS);
   });
@@ -501,7 +501,7 @@ describe('военная ветвь: лестница выводится, а н�
       const grewFates = FATE_IDS.filter((f) => fateOpenAt(l + 1, f)).length - FATE_IDS.filter((f) => fateOpenAt(l, f)).length;
       expect(grewGear + grewFates, `ступень ${l + 1} и правда открыла вещь или участь`).toBe(1);
       if (grewGear > 0) expect(gains.join(' ')).toMatch(/Кузница/);
-      if (grewTroops > 0) expect(gains.join(' ')).toMatch(/Войско/);
+      if (grewTroops > 0) expect(gains.join(' ')).toMatch(/Дружина/);
       if (grewFates > 0) expect(gains.join(' ')).toMatch(/Участь взятого города: увести людей/);
     }
   });
@@ -535,7 +535,7 @@ describe('военная ветвь: лестница выводится, а н�
     expect(fateOpen(s, 'captives'), 'купил — открыто').toBe(true);
     expect(fateLocks(s), 'запирать нечего').toEqual({});
     expect('fateLocks' in playerProfile(s), 'и слепок тот же, что до гейта участи: поля нет вовсе').toBe(false);
-    expect(studyInfo(s, 'war').blocked, 'дальше продавать нечего').toMatch(/изучена целиком/);
+    expect(studyInfo(s, 'war').blocked, 'дальше продавать нечего').toMatch(/Изучено всё/);
   });
 });
 
@@ -574,7 +574,7 @@ describe('начатая партия: военная ветвь по самой
     expect(techLevel(empty, 'war'), 'кованого нет — засчитывать нечего').toBe(1);
     // Строки ступеней ложатся в летопись при входе, после догона отлучки (`save.enter`); вход — сразу после записи.
     enter(empty, empty.lastSaved);
-    expect(empty.log.some((e) => e.text.includes('Военная ветвь начинается с первого уровня')), 'и сказано об этом').toBe(true);
+    expect(empty.log.some((e) => e.text.includes('Технологии войны начинаются с первого уровня')), 'и сказано об этом').toBe(true);
   });
 
   /**
@@ -678,7 +678,7 @@ describe('проводка первых шагов под гейтом', () => {
     s.tutorialStep = TUTORIAL.findIndex((x) => x.id === 'tech');
     expect(s.tutorialStep, 'шаг про технологии есть').toBeGreaterThanOrEqual(0);
     expect(gearOpen(s, 'spear'), 'точка внутри области: копьё закрыто').toBe(false);
-    expect(startForge(s, 'spear', 1), 'и кузница его не берёт').toMatch(/Ещё не изучено/);
+    expect(startForge(s, 'spear', 1), 'и кузница его не берёт').toMatch(/Не изучено/);
 
     const ui: TutorialUi = { building: null, tab: null, mapOpen: false, worldTile: false };
     advanceTutorial(s, ui);
@@ -775,18 +775,18 @@ describe('административная ветвь: места наёмных
       expect(SAVE_VERSION, 'точка внутри области: версия поднята этой ступенью').toBe(21);
       expect(s!.masters, 'мастеров у записи не было — приезжает ноль').toBe(0);
       expect(techLevel(s!, 'admin'), 'засчитывать нечего').toBe(1);
-      expect(s!.log.some((e) => e.text.includes('административная ветвь')), 'до входа строки нет').toBe(false);
+      expect(s!.log.some((e) => e.text.includes('В технологиях открылось управление')), 'до входа строки нет').toBe(false);
       enter(s!, s!.lastSaved);
       const info = studyInfo(s!, 'admin');
       expect(info.blocked === null, `точка внутри области: очков ${rich ? 'хватает' : 'не хватает'}`).toBe(rich);
-      const line = s!.log.find((e) => e.text.includes('Построена административная ветвь'));
+      const line = s!.log.find((e) => e.text.includes('В технологиях открылось управление'));
       expect(line, 'о ветви сказано строкой при входе').toBeTruthy();
-      expect(line!.text, 'цена — та, что на кнопке').toContain(`из ${info.price} —`);
-      expect(line!.text, 'и мест на ступень — столько, сколько откроет дверь').toContain(
-        `по ${mastersCapAt(info.level + 1) - mastersCapAt(info.level)} на ступень`,
+      expect(line!.text, 'цена — та, что на кнопке').toContain(`из ${info.price},`);
+      expect(line!.text, 'и мест на уровень — столько, сколько откроет дверь').toContain(
+        `мест для наёмных мастеров в Мастерской: ${mastersCapAt(info.level + 1) - mastersCapAt(info.level)}.`,
       );
       expect(line!.text, rich ? 'хватает — сказано, что сразу' : 'не хватает — сказано, когда накопится').toMatch(
-        rich ? /изучить сразу/ : /накопится через/,
+        rich ? /уровень хватает/ : /накопится через/,
       );
     }
   });
@@ -794,7 +794,7 @@ describe('административная ветвь: места наёмных
   it('отказ говорит, какая ступень пустит ещё, и молчит в пределах открытого', () => {
     const closed = adminAt(1);
     expect(mastersCap(closed)).toBe(0);
-    expect(mastersBlock(closed, 1), 'на первом уровне наёмных нет').toMatch(/Ещё не изучено: наёмные мастера — 2 уровень/);
+    expect(mastersBlock(closed, 1), 'на первом уровне наёмных нет').toMatch(/Не изучено: наёмные мастера, 2 уровень/);
     expect(mastersBlock(closed, 0), 'ноль мастеров не спрашивает ничего').toBeNull();
 
     const two = adminAt(2);

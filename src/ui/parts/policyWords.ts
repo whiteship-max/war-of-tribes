@@ -3,12 +3,12 @@
 // правке. Строку видно на кнопке указа и пайка в ратуше и под рядом вкладки «Указы» державы.
 import type { DecreeDef, RationDef } from '@/game/data/policy';
 import { signed } from './signed';
+import { num } from '@/game/num';
 
 /** Дробь — запятой (docs/ui_audit.md, 4.5). */
-const comma = (text: string): string => text.replace('.', ',');
 /** Множитель — процентом перемены: 1.1 → «+10%», 0.7 → «−30%». */
 const pct = (mult: number): string => `${signed((mult - 1) * 100, 0)}%`;
-const morale = (perDay: number): string => `мораль ${comma(signed(perDay))} в день`;
+const morale = (perDay: number): string => `мораль ${signed(perDay)} в день`;
 const first = (parts: string[]): string | null =>
   parts.length === 0 ? null : parts.join(', ').replace(/^./, (c) => c.toUpperCase());
 
@@ -26,7 +26,7 @@ export function rationNumbers(r: RationDef): string | null {
   if (r.food !== 1) parts.push(`еда ${pct(r.food)}`);
   if (r.moralePerDay !== 0) parts.push(morale(r.moralePerDay));
   if (r.growth === 0) parts.push('рождений нет');
-  else if (r.growth !== 1) parts.push(`рождения ×${comma(String(r.growth))}`);
+  else if (r.growth !== 1) parts.push(`рождения ×${num(r.growth, 3)}`);
   return first(parts);
 }
 

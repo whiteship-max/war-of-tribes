@@ -539,7 +539,7 @@ describe('разговор — своя дверь, и кнопки в нём г
       can: false,
       why: 'Одним мясом любви не прибавишь',
     });
-    expect(share(S({ ...wed, ...meat, bond: bondOf(5, 7, 7, 7) }), day)).toMatchObject({ can: false, why: 'Любовь и так полна' });
+    expect(share(S({ ...wed, ...meat, bond: bondOf(5, 7, 7, 7) }), day)).toMatchObject({ can: false, why: 'Любовь полна' });
     expect(share(S({ ...wed, ...meat, bond: { ...newBond(), meal: { n: 1, day: dayOf(day) - 1 } } }), day)).toMatchObject({
       deed: 'share',
       can: true,
