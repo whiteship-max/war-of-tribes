@@ -72,6 +72,7 @@ import type {
   SettlementView,
   SiegeView,
   RestView,
+  Regroup,
   StrikePlan,
   Standing,
   TemperId,
@@ -2023,7 +2024,7 @@ export class LocalWorld implements WorldApi {
     if (f.phase === 'moving') return 'Полководец ещё в пути.';
     this.settleHandover(f, now);
     if (f.handover) {
-      return `Дружина ещё в дороге: ${formatLeft(Math.max(0, f.handover.until - now) / 1000)}.`;
+      return `Отряд ещё в сборе: ${formatLeft(Math.max(0, f.handover.until - now) / 1000)}.`;
     }
     if (troopTotal(f.troops ?? {}) === 0) return 'При полководце нет отряда.';
     const near = this.touching(this.figureAt(f, now));
@@ -3888,7 +3889,7 @@ export class LocalWorld implements WorldApi {
     if (f.handover) {
       return {
         meet: null,
-        reason: `Дружина ещё в дороге: ${formatLeft(Math.max(0, f.handover.until - now) / 1000)}.`,
+        reason: `Отряд ещё в сборе: ${formatLeft(Math.max(0, f.handover.until - now) / 1000)}.`,
       };
     }
     if (troopTotal(f.troops ?? {}) === 0) {
@@ -4944,7 +4945,7 @@ export class LocalWorld implements WorldApi {
     const off = this.offDuty('general', now) ?? this.retiringBlock('general');
     if (off) return { error: off };
     this.settleHandover(f, now);
-    if (f.handover) return { error: `Дружина ещё в дороге: ${formatLeft(Math.max(0, f.handover.until - now) / 1000)}.` };
+    if (f.handover) return { error: `Отряд ещё в сборе: ${formatLeft(Math.max(0, f.handover.until - now) / 1000)}.` };
     if (f.war) return { error: WAR_BUSY };
     if (troopTotal(f.troops ?? {}) === 0) return { error: 'Войска при полководце нет.' };
     const force = fieldTroops(f, now);
@@ -5561,7 +5562,7 @@ export class LocalWorld implements WorldApi {
           : lead
             ? (energy?.raid.block ?? null)
             : gathering
-            ? `Дружина ещё в дороге: ${formatLeft(Math.max(0, (general.handover?.until ?? 0) - now) / 1000)}.`
+            ? `Отряд ещё в сборе: ${formatLeft(Math.max(0, (general.handover?.until ?? 0) - now) / 1000)}.`
             : here.includes('general')
               ? 'Полководец здесь, но отряда при нём нет. За дружиной надо домой.'
               : 'Бьёт только полководец. Доведи его сюда.',
@@ -5889,6 +5890,7 @@ export class LocalWorld implements WorldApi {
       // снимает осаду. Панель обязана сказать это до приказа, а не после.
       besieging: id === 'general' ? (this.ourSiege(now) ?? this.warCampOf()) : null,
       readyAt: f.handover?.until ?? 0,
+      regroup: id === 'general' ? this.regroupOf(now) : null,
       // Мораль дружины между боями (14.31) — одной дверью `world/rest`; у свежей и у прочих фигур поля нет.
       ...(() => {
         const rest = id === 'general' ? restView(f.rest, now, this.menOf(troops)) : undefined;
@@ -6141,6 +6143,40 @@ export class LocalWorld implements WorldApi {
   }
 
   /**
+   * Почему раскладку полководца сейчас не поменять; null — можно. Одна проверка на приказ (`setGarrison`) и на окно
+   * раскладки (`FigureView.regroup`): кнопка гаснет ровно там, где мир откажет, и той же строкой.
+   *
+   * Меняют её дома — у своих ворот или укрывшись в городе: в городе его отряд стоит с гарнизоном так же, как у ворот, и
+   * требовать выйти к воротам значило бы добавить нажатия без выбора (docs/retinue.md, решение 2; тот же довод у
+   * `shelter.canRegear`), — и стоя в поле вплотную к своему городу. В пути, в поле, в войне и пока идёт прошлый сбор — нет.
+   */
+  private regroupBlock(now: number): string | null {
+    const f = this.save.figures.general;
+    this.settleHandover(f, now);
+    const off = this.offDuty('general', now);
+    if (off) return off;
+    if (f.war) return WAR_BUSY;
+    if (f.phase === 'moving') return 'Полководец в пути, отряд к нему не подойдёт.';
+    if (f.handover) return `Отряд ещё в сборе: ${formatLeft(Math.max(0, f.handover.until - now) / 1000)}.`;
+    if (!this.touching(this.figureAt(f, now))?.home) return 'Отряд собирают только у своего города.';
+    return null;
+  }
+
+  /**
+   * Почему полководцу сейчас не добавить бойцов: город в осаде — логова или игрока, одной мерой (docs/pvp.md, решение
+   * 8). Вернуть отряд в гарнизон осада не мешает: под запретом выход, а не вход.
+   */
+  private regroupGrow(now: number): string | null {
+    return this.homeSiege(now) || this.warOnUs() ? 'Город в осаде. Отряд не собрать.' : null;
+  }
+
+  /** Раскладка полководца глазами окна — те же две проверки, что примет `setGarrison`. */
+  private regroupOf(now: number): Regroup {
+    const block = this.regroupBlock(now);
+    return { block, grow: block ?? this.regroupGrow(now) };
+  }
+
+  /**
    * Полководец берёт гарнизон себе или возвращает его. Только вплотную к своему
    * поселению: в поле состав войска не меняется, и это правило, а не удобство.
    *
@@ -6155,18 +6191,8 @@ export class LocalWorld implements WorldApi {
   async setGarrison(troops: TroopStack | null): Promise<string | null> {
     const now = this.clock();
     const f = this.save.figures.general;
-    this.settleHandover(f, now);
-    const off = this.offDuty('general', now);
-    if (off) return off;
-    if (f.war) return WAR_BUSY;
-    if (f.phase === 'moving') return 'Полководец в пути, отряд к нему не подойдёт.';
-    if (placeOf(f) === 'city') return 'Полководец укрылся в городе. Выведи его к воротам.';
-    if (f.handover) {
-      return `Дружина ещё в дороге: ${formatLeft(Math.max(0, f.handover.until - now) / 1000)}.`;
-    }
-    if (!this.touching(this.figureAt(f, now))?.home) {
-      return 'Отряд собирают только у своего города.';
-    }
+    const block = this.regroupBlock(now);
+    if (block) return block;
     const room = roomOf(this.save.profile?.army ?? {}, this.save.marches);
     const held = f.troops ?? {};
     const next: TroopStack = {};
@@ -6180,7 +6206,7 @@ export class LocalWorld implements WorldApi {
     // приказом. Вернуть её в гарнизон осада не мешает — под запретом выход, а не
     // вход, и подкрепление под стенами дело хорошее.
     if (TROOP_IDS.some((id) => (next[id] ?? 0) > (held[id] ?? 0))) {
-      const blocked = this.siegeBlock(now);
+      const blocked = this.regroupGrow(now);
       if (blocked) return blocked;
     }
     // Сколько людей переходит из рук в руки — в обе стороны: время стоит и
@@ -6541,7 +6567,7 @@ export class LocalWorld implements WorldApi {
     this.settleHandover(f, now);
     if (f.handover) {
       return {
-        error: `Дружина ещё в дороге: ${formatLeft(Math.max(0, f.handover.until - now) / 1000)}.`,
+        error: `Отряд ещё в сборе: ${formatLeft(Math.max(0, f.handover.until - now) / 1000)}.`,
         reportId: null,
         won: false,
       };
@@ -7767,7 +7793,7 @@ export class LocalWorld implements WorldApi {
     if (this.homeSiege(now) || this.warOnUs()) return SIEGE_BLOCK;
     if (!this.inRealm(c)) return this.beyond();
     this.settleHandover(f, now);
-    if (f.handover) return `Дружина ещё в дороге: ${formatLeft(Math.max(0, f.handover.until - now) / 1000)}.`;
+    if (f.handover) return `Отряд ещё в сборе: ${formatLeft(Math.max(0, f.handover.until - now) / 1000)}.`;
     if (f.phase !== 'home') return 'Поход выходит из своего города: верни полководца домой.';
     if (troopTotal(f.troops ?? {}) === 0) return 'У полководца нет дружины. Дай ему войско у ворот.';
     // Энергии — хотя бы на поход с осадой, дешевле из двух дел у стен; какое дело — решает кнопка (`warEnergy`).
@@ -7882,7 +7908,7 @@ export class LocalWorld implements WorldApi {
     if (off) return no(off);
     if (f.war) return no(WAR_BUSY);
     this.settleHandover(f, now);
-    if (f.handover) return no(`Дружина ещё в дороге: ${formatLeft(Math.max(0, f.handover.until - now) / 1000)}.`);
+    if (f.handover) return no(`Отряд ещё в сборе: ${formatLeft(Math.max(0, f.handover.until - now) / 1000)}.`);
     if (troopTotal(f.troops ?? {}) === 0) return no('Войска при полководце нет.');
     const force = fieldTroops(f, now);
     if (troopTotal(force) === 0) return no(STRIKE_FROM_TOWN);

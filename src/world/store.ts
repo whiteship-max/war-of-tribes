@@ -1035,15 +1035,6 @@ export function figuresOn(x: number, y: number, now: number): FigureView[] {
 }
 
 /**
- * Стоит ли фигура у своих ворот — тем же признаком, по которому мир кладёт её в
- * `figuresHere` своей деревни: на карте, не в пути, вплотную к дому. Нужен тем, кто
- * карточки своего замка не открывал, — Статуе с редактором дружины. Сверяет признак с
- * миром тест (`ui/parts/GarrisonEditor.test.ts`).
- */
-export const atGates = (f: FigureView | undefined): boolean =>
-  Boolean(f && f.place === 'map' && f.phase !== 'moving' && f.atHome);
-
-/**
  * Чужой отряд, стоящий сейчас на этой клетке. Ищется по положению, выведенному
  * из времени, — так же, как он и рисуется на полотне.
  */

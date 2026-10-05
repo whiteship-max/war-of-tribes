@@ -30,10 +30,11 @@ describe('карточка клетки нового вида: за краем �
     }
   });
 
-  it('состав дружины правит один редактор — в карточке своего замка, когда полководец дома', () => {
-    // Прежняя карточка, через которую он шёл (`panels/WorldPanel.OwnGarrison`), удалена (docs/ui_audit.md, 16).
-    expect(src).toMatch(/card\.mine && standing\.includes\('general'\) && <GarrisonEditor \/>/);
-    expect(src.match(/<GarrisonEditor\b/g)?.length, 'показан один раз').toBe(1);
+  it('раскладка дружины — строкой-входом в окно «Дружины» в карточке своего замка', () => {
+    // Прежняя карточка, через которую он шёл (`panels/WorldPanel.OwnGarrison`), удалена (docs/ui_audit.md, 16); прежний
+    // редактор здесь же (`parts/GarrisonEditor`) — тоже: окно раскладки одно, в «Дружине» (docs/retinue.md).
+    expect(src).toMatch(/card\.mine && <MusterLink \/>/);
+    expect(src.match(/<MusterLink\b/g)?.length, 'показана один раз').toBe(1);
   });
 
   it('метка обучения разведки — на кнопке миссии, потом на «Отправить»', () => {

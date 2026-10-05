@@ -36,7 +36,7 @@ import { hungerLeft } from '@/ui/parts/hunger';
 import { count } from '@/ui/parts/plural';
 import { signed } from '@/ui/parts/signed';
 import { realLeft, waitLeft, waitShort } from '@/ui/parts/wait';
-import { GarrisonEditor } from '@/ui/parts/GarrisonEditor';
+import { MusterLink } from '@/ui/parts/Muster';
 import { tipAt, type TipContent } from './tip';
 import { WarCard } from './WarCard';
 import { num } from '@/game/num';
@@ -469,7 +469,8 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
         </div>
       )}
 
-      {card.mine && standing.includes('general') && <GarrisonEditor />}
+      {/* Кто с полководцем — окно раскладки в «Дружине», одно на всю игру (docs/retinue.md). */}
+      {card.mine && <MusterLink />}
 
       {lead(standing)}
 

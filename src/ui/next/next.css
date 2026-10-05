@@ -1865,3 +1865,173 @@
 .nx-energy small.bad {
   color: var(--bad);
 }
+
+/* ---------- Раскладка дружины (docs/retinue.md): вид строкой, шаг на всю ширину, закреплённая полоса ---------- */
+.nx-rkwho {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  margin: 0 0 8px;
+  padding: 4px 4px 4px 12px;
+  border-radius: 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+}
+.nx-rkwho > svg,
+.nx-rkwho > .icon {
+  flex: none;
+  width: 20px;
+  height: 20px;
+}
+.nx-rkwho > span {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.nx-rkwho b {
+  font-size: 13px;
+  font-weight: 600;
+}
+.nx-rkwho small {
+  font-size: 11px;
+  color: var(--muted);
+}
+.nx-rkkey {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 12px;
+  margin: 0 0 4px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.nx-rkkey > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.nx-rkkey svg {
+  width: 16px;
+  height: 16px;
+}
+.nx-rkkey .nx-link {
+  padding: 0 4px;
+  font-size: 11px;
+}
+.nx-rkkey .nx-link:first-of-type {
+  margin-left: auto;
+}
+.nx-rkkey .nx-link:disabled {
+  opacity: 0.45;
+}
+.nx-rkrow {
+  margin: 0 0 8px;
+  padding: 0 4px;
+  border-radius: 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+}
+.nx-rkrow.one {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.nx-rkhead {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+/* Значок вида — справка (3.6): промах стоит одной подсказки, высоты 36 хватает. */
+.nx-rkrow .nx-wico {
+  width: 36px;
+  height: 36px;
+}
+.nx-rkname {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nx-rknum {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding-right: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.nx-rknum.gen {
+  color: var(--accent);
+}
+.nx-rknum svg,
+.nx-rksteps .n svg {
+  width: 16px;
+  height: 16px;
+}
+.nx-rksteps.stepper.wide-steps {
+  margin: 0 0 4px;
+}
+.nx-rksteps .n {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 72px;
+  color: var(--accent);
+}
+.nx-rktop {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 4px;
+}
+.nx-rktop .nx-link {
+  margin-left: -8px;
+}
+.nx-rktop b {
+  font-size: 15px;
+  font-weight: 600;
+}
+.nx-rktop small {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.nx-rktop svg {
+  width: 16px;
+  height: 16px;
+}
+.nx-rksum {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 32px;
+  padding: 0 4px;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.nx-rksum b {
+  color: var(--text);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.nx-rksum b.bad {
+  color: var(--bad);
+}
