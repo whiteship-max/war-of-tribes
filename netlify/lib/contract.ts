@@ -534,6 +534,17 @@ export interface WarSheet {
    * вычитает из слепка сам (`war.liveSheet`): слепок мог лечь раньше, чем клиент узнал о бое.
    */
   seen: string[];
+  /**
+   * Какая часть `home` — отряд полководца, стоящий дома (`LocalWorld.defenders().standing`, docs/retinue.md). Слепок лёг
+   * до выхода полководца в поход на игрока — сервер вычтет из `home` ушедших, но не больше этого (`war.liveSheet`).
+   * Нет поля (слепок старого клиента) — ушедшие считаются стоявшими дома целиком.
+   */
+  retinue?: Counts;
+  /**
+   * Свои войны, чьё войско в этом слепке уже не дома: полководец в походе на игрока (`StoredFigure.war`). Война кончилась,
+   * а слепка новее нет, — сервер прибавит вернувшихся сам (`war.liveSheet`).
+   */
+  out?: string[];
 }
 
 /** Войско в походе: дружина полководца и то, что он кладёт в бой. */
@@ -686,6 +697,11 @@ export interface WarView {
   arriveAt: number;
   phase: WarPhase;
   army: WarArmy;
+  /**
+   * С кем войско вышло (`army.troops` в минуту выхода): столько сервер вычитает из гарнизона нападающего, пока его слепок
+   * лёг раньше выхода (`war.liveSheet`, docs/retinue.md). Нет — война старше поля, берётся нынешнее войско.
+   */
+  went?: Counts;
   camp?: WarCamp;
   /** Когда лагерь доедает город. */
   starvesAt?: number;
@@ -785,8 +801,13 @@ export function readSheet(v: unknown): WarSheet | null {
     power: real(r.power, 1e12),
     locks,
     seen: Array.isArray(r.seen) ? r.seen.filter((x): x is string => typeof x === 'string' && x.length <= 48).slice(-WAR_SEEN_MAX) : [],
+    ...(r.retinue && typeof r.retinue === 'object' ? { retinue: readCounts(r.retinue) } : {}),
+    ...(Array.isArray(r.out) ? { out: r.out.filter((x): x is string => typeof x === 'string' && x.length <= 48).slice(-WAR_OUT_MAX) } : {}),
   };
 }
+
+/** Сколько своих войн слепок называет ушедшими: у города один полководец, больше — порча. */
+export const WAR_OUT_MAX = 4;
 
 /** Сколько принятых боёв слепок помнит: больше, чем войн лежит у сервера на один город. */
 export const WAR_SEEN_MAX = 200;

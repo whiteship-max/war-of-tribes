@@ -7838,6 +7838,10 @@ export class LocalWorld implements WorldApi {
       power: troopPower(p.army ?? {}),
       locks: { ...(p.fateLocks ?? {}) },
       seen: [...(this.save.warSeen ?? [])],
+      // Раскладка (docs/retinue.md): чья часть гарнизона — отряд полководца, и в каком своём походе он сейчас. По ним
+      // сервер правит слепок, лёгший до выхода или до возврата (`war.liveSheet`).
+      retinue: { ...held.standing } as Counts,
+      out: this.save.figures.general.war ? [this.save.figures.general.war] : [],
     };
   }
 

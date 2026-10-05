@@ -149,11 +149,17 @@ export function warSeed(id: string, n: number): number {
 export const fallId = warFallId;
 
 /**
- * Оборона города сейчас: слепок минус то, что война отняла у него, а клиент ещё не принял на себя
+ * Оборона города в минуту `at`: слепок минус то, что война отняла у него, а клиент ещё не принял на себя
  * (`WarSheet.seen`). Защитник мог не заходить с боя, и второй бой не должен драться с гарнизоном, уже
  * павшим в первом.
+ *
+ * И свой поход (docs/retinue.md): отряд полководца стоит в гарнизоне, пока полководец дома, уходит с ним и с ним
+ * возвращается. Слепок лёг до выхода — ушедшие в нём ещё дома, и сервер их вычитает (не больше отряда, что слепок
+ * назвал стоящим дома, `WarSheet.retinue`); лёг, пока войско в походе (`WarSheet.out`), — вернувшихся в нём нет, и
+ * сервер их прибавляет. Игрок мог не заходить ни с выхода, ни с возврата, а бой у его стен идёт без него. Отметки
+ * полководца у ворот (`pips`) ходят с отрядом так же.
  */
-export function liveSheet(file: WarFile, key: string, s: SheetAt): WarSheet {
+export function liveSheet(file: WarFile, key: string, s: SheetAt, at = Infinity): WarSheet {
   const seen = new Set(s.sheet.seen);
   let home = s.sheet.home;
   let stock = s.sheet.stock;
@@ -175,7 +181,33 @@ export function liveSheet(file: WarFile, key: string, s: SheetAt): WarSheet {
       for (const x of f.fallen) if (levels[x.id] !== undefined) levels[x.id] = Math.min(levels[x.id], x.to);
     }
   }
-  return { ...s.sheet, home, stock, gold, bonded, pop, levels };
+  let pips = s.sheet.pips;
+  const out = new Set(s.sheet.out ?? []);
+  for (const w of file.wars) {
+    if (w.atk !== key || w.sentAt > at) continue;
+    const back = (w.phase === 'back' || w.phase === 'done') && (w.backAt ?? w.endAt ?? Infinity) <= at;
+    if (out.has(w.id)) {
+      if (!back) continue;
+      home = plus(home, w.army.troops);
+      pips = w.army.pips;
+    } else if (s.at < w.sentAt) {
+      const went = w.went ?? w.army.troops;
+      home = minus(home, s.sheet.retinue ? atMost(went, s.sheet.retinue) : went);
+      pips = back ? w.army.pips : {};
+      if (back) home = plus(home, w.army.troops);
+    }
+  }
+  return { ...s.sheet, home, stock, gold, bonded, pop, levels, pips };
+}
+
+/** По видам — не больше, чем в `cap`. */
+function atMost(a: Counts, cap: Counts): Counts {
+  const out: Counts = {};
+  for (const [k, v] of Object.entries(a)) {
+    const n = Math.min(Math.max(0, v ?? 0), Math.max(0, cap[k] ?? 0));
+    if (n > 0) out[k] = n;
+  }
+  return out;
 }
 
 // ------------------------------------------------ бои ---
@@ -437,15 +469,15 @@ export function dueKeys(file: WarFile, now: number): string[] {
  */
 export function advance(file: WarFile, now: number, sheets: ReadonlyMap<string, SheetAt | null>): boolean {
   let changed = false;
-  const sheetOf = (w: WarRow): WarSheet | null => {
+  const sheetOf = (w: WarRow, at: number): WarSheet | null => {
     const s = sheets.get(w.def);
-    return s ? liveSheet(file, w.def, s) : null;
+    return s ? liveSheet(file, w.def, s, at) : null;
   };
   for (const w of file.wars) {
     for (let guard = 0; guard < 8; guard++) {
       if (w.phase === 'march' && w.arriveAt <= now) {
         changed = true;
-        const sheet = sheetOf(w);
+        const sheet = sheetOf(w, w.arriveAt);
         if (!sheet) {
           turnBack(w, w.arriveAt, w.to, 'gone');
           continue;
@@ -465,7 +497,7 @@ export function advance(file: WarFile, now: number, sheets: ReadonlyMap<string, 
         const strikeAt = w.strike?.at ?? Infinity;
         if (Math.min(hungerAt, strikeAt) > now) break;
         changed = true;
-        const sheet = sheetOf(w);
+        const sheet = sheetOf(w, Math.min(hungerAt, strikeAt));
         if (!sheet) {
           turnBack(w, Math.min(hungerAt, strikeAt), w.to, 'gone');
           continue;
@@ -553,7 +585,7 @@ export function applyOrder(file: WarFile, key: string, order: WarOrder, now: num
       if (tired) return tired;
       w.army = { ...w.army, energy: spend(w.army.energy, now, priceOf('storm')) };
       // Штурм снимает осаду до боя (`siege.STORM_LIFTS`): отобьют — лагеря не станет.
-      const sheet = liveSheet(file, w.def, s);
+      const sheet = liveSheet(file, w.def, s, now);
       const { won } = storm(w, now, sheet);
       if (won) fall(w, now, sheet, 'storm');
       turnBack(w, now, w.to, won ? 'taken' : 'beaten');
@@ -564,7 +596,7 @@ export function applyOrder(file: WarFile, key: string, order: WarOrder, now: num
       if (!w || w.phase !== 'camp') return 'Лагеря под стенами уже нет.';
       const s = ctx.sheet(key);
       if (!s) return 'Город ещё не записан на сервер. Подожди минуту.';
-      const sheet = liveSheet(file, key, s);
+      const sheet = liveSheet(file, key, s, now);
       if (troopTotal(asTroops(order.troops)) <= 0) return 'Некого вывести на вылазку.';
       if (!fits(order.troops, sheet.home)) return 'Столько бойцов в гарнизоне нет.';
       return hitCamp(w, now, sheet, { front: order.troops, site: 'sortie' });
@@ -640,6 +672,7 @@ function march(file: WarFile, key: string, order: Extract<WarOrder, { op: 'march
     arriveAt: now + walk(from, to),
     phase: 'march',
     army: { ...order.army, energy },
+    went: { ...order.army.troops },
     battles: [],
   });
   return null;

@@ -341,3 +341,21 @@ describe('окна выбора нет ни в каком виде', () => {
     expect(modal).not.toMatch(/Conflict/);
   });
 });
+
+/**
+ * Раскладка в слепке обороны (docs/retinue.md): полководец вышел в поход на игрока или вернулся — запись партии уходит
+ * раньше минуты, иначе слепок, лёгший до выхода, держал бы его отряд дома, пока игрок не зайдёт.
+ */
+describe('когда партия уходит на сервер', () => {
+  it('по сроку — всегда; раскладка сменилась — раньше срока, но не чаще HURRY_MS', async () => {
+    const { pushDue, PUSH_MS, HURRY_MS } = await import('./sync');
+    expect(HURRY_MS).toBeLessThan(PUSH_MS);
+    expect(pushDue(PUSH_MS, 'a', 'a')).toBe(true);
+    expect(pushDue(PUSH_MS - 1, 'a', 'a')).toBe(false);
+    expect(pushDue(HURRY_MS, 'b', 'a')).toBe(true);
+    expect(pushDue(HURRY_MS - 1, 'b', 'a')).toBe(false);
+    // Ни одна запись ещё не ушла или слепка нет — сравнивать не с чем, ждём срока.
+    expect(pushDue(HURRY_MS, 'b', null)).toBe(false);
+    expect(pushDue(HURRY_MS, null, 'a')).toBe(false);
+  });
+});

@@ -293,3 +293,26 @@ describe('новости войны для бота: о двух вещах, о�
     expect(newsOf(w).filter((n) => n.item.kind === 'war-fall').every((n) => n.item.fireAt === w.fall!.at)).toBe(true);
   });
 });
+
+describe('раскладка: свой поход в слепке обороны', () => {
+  /**
+   * Слепок лёг, когда часть отряда полководца ещё шла в сбор (в гарнизоне её не было), а вышел он уже со всем отрядом:
+   * вычесть ушедших сверх того, что слепок назвал стоящим дома (`WarSheet.retinue`), значило бы снять с гарнизона чужих.
+   * Путь, слепок в походе и возврат — `src/world/pvp.test.ts` на настоящем мире.
+   */
+  it('ушедших вычитают не больше, чем отряда стояло дома в слепке', () => {
+    const { ctx, file } = setup();
+    expect(applyOrder(file, A, { op: 'march', target: castleIdOf(B), mode: 'siege', fate: 'plunder', army: army({ spearman: 30, archer: 10 }) }, T0 + 5000, ctx)).toBeNull();
+    const w = file.wars[0];
+    expect(w.went).toEqual({ spearman: 30, archer: 10 });
+    const at = T0 + 6000;
+    expect(w.phase, 'точка внутри области: войско в пути').toBe('march');
+    // Слепок до выхода: дома 40 копейщиков и 20 лучников, из них отряда полководца — 12 копейщиков.
+    const stale: SheetAt = { sheet: sheet({ retinue: { spearman: 12 } }), at: T0 };
+    expect(liveSheet(file, A, stale, at).home).toEqual({ spearman: 28, archer: 20 });
+    // Слепок старого клиента без поля — ушедшие считаются стоявшими дома целиком.
+    expect(liveSheet(file, A, { sheet: sheet(), at: T0 }, at).home).toEqual({ spearman: 10, archer: 10 });
+    // Слепок новее выхода — его клиент уже знает, кто ушёл.
+    expect(liveSheet(file, A, { sheet: sheet({ retinue: {} }), at: T0 + 5500 }, at).home).toEqual(sheet().home);
+  });
+});

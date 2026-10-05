@@ -78,6 +78,16 @@ export const warSheet = (): WarSheet | null => {
   }
 };
 
+/**
+ * Отметка того, что в слепке обороны держит раскладка: отряд полководца дома и свой поход (`WarSheet.retinue`, `out`,
+ * docs/retinue.md). Сменилась — запись партии уходит раньше срока (`net/sync.pushDue`): слепок, лёгший до выхода
+ * полководца, держал бы его отряд дома до следующей записи, а игрок, ушедший из игры, её не пришлёт. Слепка нет — нет.
+ */
+export const sheetMark = (): string | null => {
+  const s = warSheet();
+  return s ? JSON.stringify([s.retinue ?? {}, s.out ?? []]) : null;
+};
+
 /** Начать спрашивать свои войны. Вне Telegram — не начинать: подписи нет. */
 export function warBoot(): void {
   if (timer || !tgInitData()) return;
