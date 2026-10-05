@@ -9,7 +9,9 @@
 //   часы партии её прошли (`settleWounds`), и офлайн-догон проходит мимо ровно так же, как игра;
 // - **раненые полководца лежат дома**: бой в поле кладёт их при нём (`until` null), мест они не
 //   занимают, и срок и место у них начинаются, когда дружина вернулась к воротам (`woundsHome`);
-// - **рассеянные не пациенты**: падение города голодом и разгром полководца ранеными не кладут.
+// - **рассеянные не пациенты**: падение города голодом и разгром полководца ранеными не кладут;
+// - **раненые отряда полководца встают его бойцами** (docs/retinue.md): группа помечена (`gen`), а встав,
+//   они прибавляются к счётчику партии (`GameState.risen`), по которому мир возвращает их полководцу.
 // При голоде раненые уходят той же дверью, что войско (`sim/upkeep`), но всегда голодом и совсем.
 import type { GameState, TroopId, WoundGroup } from '../types';
 import { DAY_LENGTH, WOUND_DAYS } from '../constants';
@@ -76,14 +78,35 @@ export function fitBeds(wounded: TroopStack, room: number): TroopStack {
   return {};
 }
 
-/** Уложить раненых в лазарет: сколько легло — на срок, остальные сверх мест не выжили. */
-function layDown(s: GameState, wounded: TroopStack): { laid: number; lost: number } {
+/**
+ * Уложить раненых в лазарет: сколько легло — на срок, остальные сверх мест не выжили. `gen` — сколько из `wounded` по
+ * видам из отряда полководца: они ложатся своей группой (`WoundGroup.gen`), и мест им достаётся та же доля, что всем
+ * раненым своего вида.
+ */
+function layDown(s: GameState, wounded: TroopStack, gen: TroopStack = {}): { laid: number; lost: number } {
   const whole = troopTotal(wounded);
   if (whole <= 0) return { laid: 0, lost: 0 };
   const laid = fitBeds(wounded, freeBeds(s));
   const n = troopTotal(laid);
-  if (n > 0) s.wounded.push({ troops: laid, until: s.time + WOUND_DAYS * DAY_LENGTH });
+  const until = s.time + WOUND_DAYS * DAY_LENGTH;
+  const ours = partOf(laid, wounded, gen);
+  const rest = minus(laid, ours);
+  if (troopTotal(rest) > 0) s.wounded.push({ troops: rest, until });
+  if (troopTotal(ours) > 0) s.wounded.push({ troops: ours, until, gen: true });
   return { laid: n, lost: whole - n };
+}
+
+/** Из `taken` — та доля каждого вида, что `part` составляет в `whole`: кто из отобранных — отряд полководца. */
+function partOf(taken: TroopStack, whole: TroopStack, part: TroopStack | undefined): TroopStack {
+  const out: TroopStack = {};
+  for (const id of TROOP_IDS) {
+    const w = whole[id] ?? 0;
+    const t = taken[id] ?? 0;
+    if (w <= 0 || t <= 0) continue;
+    const k = Math.round((t * Math.min(w, Math.max(0, part?.[id] ?? 0))) / w);
+    if (k > 0) out[id] = k;
+  }
+  return out;
 }
 
 export interface Casualties {
@@ -99,9 +122,17 @@ export interface Casualties {
  * Павшие боя: кто из них ранен. Зовёт одна дверь последствий боя (`applyExpedition`); не
  * выживших сверх мест (`noBed`) погибшими пишет она же.
  * `lost` — кого бой снял с войска, по видам; `field` — сколько из них пало при полководце в поле;
- * `routed` — потери рассеяны, а не ранены (пациентов нет).
+ * `standing` — сколько из павших дома было его отрядом, стоявшим с гарнизоном (`HomeEffect.standing`);
+ * `routed` — потери рассеяны, а не ранены (пациентов нет). Раненые его отряда — в поле все, дома его доля —
+ * встанут его бойцами (`WoundGroup.gen`).
  */
-export function woundsOfBattle(s: GameState, lost: TroopStack, field: TroopStack | undefined, routed: boolean): Casualties {
+export function woundsOfBattle(
+  s: GameState,
+  lost: TroopStack,
+  field: TroopStack | undefined,
+  routed: boolean,
+  standing?: TroopStack,
+): Casualties {
   const none = { laid: 0, carried: 0, noBed: 0 };
   if (routed || troopTotal(lost) <= 0) return none;
   const share = healShare(s);
@@ -115,9 +146,9 @@ export function woundsOfBattle(s: GameState, lost: TroopStack, field: TroopStack
   const atHome = minus(lost, inField);
   const home = shareOf(atHome, troopTotal(atHome) * share);
   const carried = shareOf(inField, troopTotal(inField) * share);
-  const { laid, lost: noBed } = layDown(s, home);
+  const { laid, lost: noBed } = layDown(s, home, partOf(home, atHome, standing));
   const c = troopTotal(carried);
-  if (c > 0) s.wounded.push({ troops: carried, until: null });
+  if (c > 0) s.wounded.push({ troops: carried, until: null, gen: true });
   return { laid, carried: c, noBed };
 }
 
@@ -139,8 +170,14 @@ export function woundsHome(s: GameState): number {
   if (carried.length === 0) return 0;
   s.wounded = s.wounded.filter((g) => g.until !== null);
   const all: TroopStack = {};
-  for (const g of carried) for (const [id, n] of Object.entries(g.troops) as [TroopId, number][]) all[id] = (all[id] ?? 0) + n;
-  const { laid, lost } = layDown(s, all);
+  const gen: TroopStack = {};
+  for (const g of carried) {
+    for (const [id, n] of Object.entries(g.troops) as [TroopId, number][]) {
+      all[id] = (all[id] ?? 0) + n;
+      if (g.gen) gen[id] = (gen[id] ?? 0) + n;
+    }
+  }
+  const { laid, lost } = layDown(s, all, gen);
   s.stats.died += lost;
   log(s, `Отряд привёз раненых: ${laid} легли в лазарет на ${daysSpan(WOUND_DAYS)}${lost > 0 ? `, ${lost} не выжили, не хватило мест` : ''}.`, lost > 0 ? 'bad' : 'info');
   return lost;
@@ -159,6 +196,8 @@ export function settleWounds(s: GameState): number {
     for (const [id, n] of Object.entries(g.troops) as [TroopId, number][]) {
       if (n <= 0) continue;
       s.army[id] = (s.army[id] ?? 0) + n;
+      // Отряд полководца: встал в гарнизон, а мир переведёт его к полководцу по счётчику (docs/retinue.md).
+      if (g.gen) s.risen = { ...(s.risen ?? {}), [id]: (s.risen?.[id] ?? 0) + n };
       back += n;
       // По строке на бойца, склеенной счётчиком за сутки, — как у казарм.
       for (let i = 0; i < n; i++) log(s, `Из лазарета в строй: ${TROOP_BY_ID[id].one}.`, 'good', `wound:back:${id}`);

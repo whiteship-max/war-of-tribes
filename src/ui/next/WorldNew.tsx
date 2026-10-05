@@ -25,7 +25,7 @@ import { KIND_META, UNIT_KINDS } from '@/battle';
 import { TERRAIN_META } from '@/world/data/terrain';
 import type { Estimate, Fate, FigureId, Mission, UnitStack } from '@/world/types';
 import { UNIT_BY_ID, stackSize } from '@/world/data/units';
-import { awayOf, homeOf } from '@/world/muster';
+import { awayOf, ownOf } from '@/world/muster';
 import { awayTroops } from '@/world/bridge';
 import { troopTotal } from '@/game/battle/kinds';
 import { FELL_WORDS } from '@/ui/map/siegemark';
@@ -239,9 +239,10 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
     );
   }
 
-  // Отряд уходит из гарнизона: дружина у ворот в обороне, гонцом за ворота не выходит (`LocalWorld.send`).
+  // Отряд уходит из гарнизона без отряда полководца: тот стоит в обороне и гонцом за ворота не выходит — бойцы
+  // полководца его, а не гарнизона (`LocalWorld.send` берёт отряд без состава из них же, docs/retinue.md).
   const who = awayOf(marches, figures);
-  const have = { ...sendableUnits(s), warrior: troopTotal(homeOf(s.army, who)) };
+  const have = { ...sendableUnits(s), warrior: troopTotal(ownOf(s.army, who)) };
   const def = defense(s);
   const picked = { warrior: pick.warrior ?? 0, scout: pick.scout ?? 0 };
   const eta = marchSeconds(card.distance, card.terrainFactor, picked);

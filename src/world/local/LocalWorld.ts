@@ -2144,7 +2144,7 @@ export class LocalWorld implements WorldApi {
     const lostTroops = field.result ? troopLosses(going, out.lost.front) : {};
     const lostMen = troopTotal(lostTroops);
     if (field.result) this.homeBack(held, going, lostTroops, field.rest.attacker, now, out.share);
-    this.standingLost(held.own, held.standing, lostTroops);
+    const standing = this.standingLost(held.own, held.standing, lostTroops);
     const campLost = this.resolveSortieOn(HOME_ID, now, field, 'Мы вышли на вылазку.');
 
     const record: BattleRecord | null = field.result
@@ -2186,6 +2186,7 @@ export class LocalWorld implements WorldApi {
       id: `${reportId}-eff`,
       lost: lostMen > 0 ? { warrior: lostMen } : {},
       lostTroops,
+      ...(troopTotal(standing) > 0 ? { standing } : {}),
       resources: {},
       prestige: field.won ? 4 : 0,
       morale: field.won ? 6 : -5,
@@ -4242,7 +4243,7 @@ export class LocalWorld implements WorldApi {
     // Набег, не севший в осаду, — штурм стены (ролик TW: лестницы и таран).
     const record = this.gateRecord(wall, troopsOfKinds(party.kinds, party.gear), 'wall');
     const attackerLeft = stackAfter(m.units, stackLosses(m.units, outcome.attackerLoss));
-    const { warriors, warriorsLost, troopsLost } = this.gateLosses(wall);
+    const { warriors, warriorsLost, troopsLost, standing } = this.gateLosses(wall);
     // Пленные: часть тех, кого племя посчитало убитыми, на самом деле уведена (ниже, `captives`). Число — до отчёта:
     // его называет и отчёт, и карточка итога ролика боя (`Report.held`).
     const held = outcome.won && warriorsLost > 0 ? Math.max(1, Math.round(warriorsLost * RANSOM_SHARE)) : 0;
@@ -4299,6 +4300,7 @@ export class LocalWorld implements WorldApi {
       id: `${m.id}-defense`,
       lost: warriorsLost > 0 ? { warrior: warriorsLost } : {},
       lostTroops: troopsLost,
+      ...(troopTotal(standing) > 0 ? { standing } : {}),
       resources: {},
       ...loss,
       prestige: outcome.won ? 0 : 3,
@@ -4370,7 +4372,13 @@ export class LocalWorld implements WorldApi {
    * — со слабых, — а не числом: числом племя сняло бы их со всей дружины и могло задеть тех, кто при полководце в поле.
    * Дружина у ворот теряет свою долю сразу.
    */
-  private gateLosses(gate: ReturnType<LocalWorld['gateField']>): { warriors: number; warriorsLost: number; troopsLost: TroopStack } {
+  private gateLosses(gate: ReturnType<LocalWorld['gateField']>): {
+    warriors: number;
+    warriorsLost: number;
+    troopsLost: TroopStack;
+    /** Доля отряда полководца в потерях (`HomeEffect.standing`); пусто — не стоял или не пал никто. */
+    standing: TroopStack;
+  } {
     const { held, home, field } = gate;
     const warriors = troopTotal(home);
     // Поимённо — одна дверь с войной между игроками (`fights.homeLosses`).
@@ -4378,8 +4386,8 @@ export class LocalWorld implements WorldApi {
     const warriorsLost = Math.min(warriors, troopTotal(troopsLost));
     // Дрались все, кто дома: уцелевшие несут долю, с которой вышли из боя (мораль между боями, 14.31).
     if (field.result) this.homeBack(held, home, troopsLost, field.rest.defender, gate.at);
-    this.standingLost(held.own, held.standing, troopsLost);
-    return { warriors, warriorsLost, troopsLost };
+    const standing = this.standingLost(held.own, held.standing, troopsLost);
+    return { warriors, warriorsLost, troopsLost, standing };
   }
 
   /**
@@ -4448,7 +4456,7 @@ export class LocalWorld implements WorldApi {
     const party = this.gateParty(call);
     const gate = this.gateField(party, call.seed, this.save.home, at);
     const { field } = gate;
-    const { warriors, warriorsLost, troopsLost } = this.gateLosses(gate);
+    const { warriors, warriorsLost, troopsLost, standing } = this.gateLosses(gate);
     // Вызов к воротам: разбойники и волки бьются перед воротами (ролик TW).
     const record = this.gateRecord(gate, def.beasts ? {} : troopsOfKinds(party.kinds, party.gear), 'gate');
     // Прорвались люди — уносят со склада, сколько поднимут уцелевшие; тайник не достать.
@@ -4486,6 +4494,7 @@ export class LocalWorld implements WorldApi {
       gate: call.id,
       lost: warriorsLost > 0 ? { warrior: warriorsLost } : {},
       lostTroops: troopsLost,
+      ...(troopTotal(standing) > 0 ? { standing } : {}),
       resources: loss,
       prestige: field.won ? 0 : 3,
       morale: field.won ? -GATE_MORALE_LOST : GATE_MORALE_WON,
@@ -6268,12 +6277,14 @@ export class LocalWorld implements WorldApi {
    * иначе он держал бы людей, которых у племени уже нет, до сверки на следующем
    * пульсе.
    */
-  private standingLost(own: TroopStack, standing: TroopStack, lost: TroopStack): void {
+  private standingLost(own: TroopStack, standing: TroopStack, lost: TroopStack): TroopStack {
     const share = standingShare(own, standing, lost);
-    if (troopTotal(share) === 0) return;
+    if (troopTotal(share) === 0) return share;
     const f = this.save.figures.general;
     const left = troopsAfter(f.troops ?? {}, share);
     f.troops = troopTotal(left) > 0 ? left : undefined;
+    // Доля отряда — в последствие боя: его раненые встанут его бойцами (`HomeEffect.standing`, docs/retinue.md).
+    return share;
   }
 
   // ---------- Мораль армии между боями (docs/battle_eu4.md, 14.31; `world/rest`) ----------
@@ -6533,6 +6544,47 @@ export class LocalWorld implements WorldApi {
       text: '',
       good: true,
     });
+  }
+
+  /**
+   * Раненые его отряда, вставшие из лазарета, возвращаются к полководцу (docs/retinue.md, решение 9): раскладка держится,
+   * пока бойцы живы. Встав, они стоят в гарнизоне (`s.army`), а слепок везёт счётчик вставших за партию
+   * (`PlayerProfile.risen`); разница с отметкой полководца (`StoredFigure.risenSeen`) — те, кого он ещё не принял.
+   * Принимает он их дома — у ворот или в городе — и без сбора: дома его отряд и так стоит с гарнизоном, и оборона от
+   * перевода не меняется. Берёт только тех, кто ещё в гарнизоне: павших с тех пор, распущенных и ушедших отрядами взять
+   * неоткуда, и отметка их всё равно засчитывает. В пути, в поле, в войне, вне строя и пока идёт сбор — ждут.
+   */
+  private rejoinRisen(now: number): void {
+    const f = this.save.figures.general;
+    const risen = this.save.profile?.risen ?? {};
+    // Отметки ещё не было — мир старше раскладки, собран заново или на месте новый человек (`freshFigure`): ставим её
+    // по слепку, никого не переводя. Раненые прежнего полководца, встав, остаются гарнизону.
+    if (!f.risenSeen) {
+      f.risenSeen = { ...risen };
+      return;
+    }
+    const due: TroopStack = {};
+    for (const id of TROOP_IDS) {
+      const n = (risen[id] ?? 0) - (f.risenSeen[id] ?? 0);
+      if (n > 0) due[id] = n;
+    }
+    if (troopTotal(due) === 0) return;
+    this.settleHandover(f, now);
+    if (f.gone || f.war || f.phase !== 'home' || f.handover) return;
+    const free = this.defenders(now).own;
+    const back: TroopStack = {};
+    for (const id of TROOP_IDS) {
+      const n = Math.min(due[id] ?? 0, free[id] ?? 0);
+      if (n > 0) back[id] = n;
+    }
+    f.risenSeen = { ...risen };
+    if (troopTotal(back) > 0) {
+      const held = f.troops ?? {};
+      const next = plus(held, back);
+      this.carryHandover(held, next, now);
+      f.troops = next;
+    }
+    this.write();
   }
 
   /**
@@ -7260,6 +7312,8 @@ export class LocalWorld implements WorldApi {
     this.advance(now);
     // Война между игроками: итоги, посчитанные сервером, и полководец там, где его войско (docs/pvp.md).
     this.stepWars(now);
+    // Вставшие раненые его отряда — к полководцу, после хода мира: дошедший до дома на этом пульсе принимает их сразу.
+    this.rejoinRisen(now);
     // Бой события у ворот — после хода мира: у ворот стоят те, кто дома в эту минуту.
     const gateDone = this.gateFights(calls, now);
     // Орудие поставили, сняли или башня стала ниже его уровня — мир узнаёт об этом на
@@ -7483,11 +7537,12 @@ export class LocalWorld implements WorldApi {
     // Наш полководец дрался: в походе — всегда, дома — если ударил из поля.
     const general = ours === 'atk' || Boolean(b.genTroops);
     this.warLost(ourLost);
+    let standing: TroopStack = {};
     if (ours === 'def') {
       // Дружина, стоявшая у ворот, теряет свою долю тут же — тем же правилом, что у частокола; дружина из поля —
       // своими потерями.
       const held = this.defenders(b.at);
-      this.standingLost(held.own, held.standing, b.homeLost as TroopStack);
+      standing = this.standingLost(held.own, held.standing, b.homeLost as TroopStack);
       const g = this.save.figures.general;
       if (b.genLost && troopTotal(b.genLost as TroopStack) > 0 && g.troops) g.troops = troopsAfter(g.troops, b.genLost as TroopStack);
     }
@@ -7497,6 +7552,7 @@ export class LocalWorld implements WorldApi {
       lostTroops: ourLost,
       // В поле раненые лежат при полководце: у похода — все, у города — дружина удара.
       ...(ours === 'atk' ? { field: ourLost } : b.genLost ? { field: b.genLost as TroopStack } : {}),
+      ...(troopTotal(standing) > 0 ? { standing } : {}),
       resources: {},
       prestige: won ? 4 : 0,
       morale: won ? 4 : -6,

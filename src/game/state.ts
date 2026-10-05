@@ -154,6 +154,7 @@ export function createInitialState(seed: number = freshSeed()): GameState {
     unrest: 0,
     pay: { debt: 0, late: 0, from: 0, gone: {}, hurt: {}, drafts: {} },
     wounded: [],
+    risen: {},
     gate: [],
     buildings: [],
     completedQuests: [],

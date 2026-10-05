@@ -268,3 +268,44 @@ describe('кто ест — тот считается: строй, новобр�
     expect(s.pop - pop - (s.stats.born - born), 'жителями стали ровно ушедшие из строя, ни одного раненого и новобранца').toBe(stayed);
   });
 });
+
+/**
+ * Раскладка держится, пока бойцы живы (docs/retinue.md, решение 9): раненые отряда полководца — в поле все, дома его
+ * доля — лежат своей группой и, встав, прибавляются к счётчику партии (`GameState.risen`), по которому мир возвращает их
+ * полководцу. Область правила — раненые есть, лежат и встают; что точка внутри, проверяется утверждением.
+ */
+describe('раненые отряда полководца встают его бойцами', () => {
+  it('дома — его доля по виду, в поле — все; встав, они в гарнизоне и в счётчике, прочие — только в гарнизоне', () => {
+    const s = town(10);
+    s.army.spearman = 200;
+    s.army.archer = 100;
+    // У стены пали 20 копейщиков и 10 лучников; из копейщиков половина была его отрядом, лучников у него не было.
+    applyExpedition(s, battle({ spearman: 20, archer: 10 }, { standing: { spearman: 10 } }));
+    const ours = s.wounded.filter((g) => g.gen);
+    const theirs = s.wounded.filter((g) => !g.gen);
+    const gen = ours.reduce((n, g) => n + (g.troops.spearman ?? 0), 0);
+    const laid = lying(s, 'spearman');
+    expect(laid, 'точка внутри области: копейщики легли').toBeGreaterThan(1);
+    expect(gen, 'его доля среди раненых копейщиков — та же, что среди павших').toBe(Math.round(laid / 2));
+    expect(ours.every((g) => (g.troops.archer ?? 0) === 0), 'лучников у него не было').toBe(true);
+    expect(theirs.length).toBeGreaterThan(0);
+
+    // В поле: все раненые — его, лягут по возвращении той же отметкой.
+    applyExpedition(s, battle({ spearman: 12 }, { field: { spearman: 12 } }));
+    const carried = s.wounded.filter((g) => g.until === null);
+    expect(carried.length, 'точка внутри области: раненые при полководце').toBe(1);
+    expect(carried[0].gen).toBe(true);
+    const carriedN = troopTotal(carried[0].troops);
+    woundsHome(s);
+    const genLying = s.wounded.filter((g) => g.gen && g.until !== null).reduce((n, g) => n + troopTotal(g.troops), 0);
+    expect(genLying, 'привезённые легли его группой').toBe(gen + carriedN);
+
+    const army = s.army.spearman;
+    const all = lying(s, 'spearman');
+    play(s, WOUND_DAYS * DAY_LENGTH + DT);
+    expect(s.wounded, 'точка внутри области: все встали').toEqual([]);
+    expect(s.army.spearman, 'встали все — в войско').toBe(army + all);
+    expect(s.risen.spearman ?? 0, 'в счётчике — только его').toBe(gen + carriedN);
+    expect(s.risen.archer ?? 0).toBe(0);
+  });
+});
