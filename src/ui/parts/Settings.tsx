@@ -7,7 +7,8 @@
 // Отсюда же следует, что содержимое у обоих показов одинаковое. Соблазн
 // «на стартовом экране покажем только звук» — это и есть начало второй копии.
 //
-// Строк здесь четыре — музыка, графика, вести в Telegram (только в Telegram), язык, — и это не заготовка под список.
+// Строк здесь пять — музыка, графика, вести в Telegram (только в Telegram), «Сообщить об ошибке» (тоже только в
+// Telegram), язык, — и это не заготовка под список.
 // Свалкой раздел становится с той строки, которую добавили «раз уж всё равно
 // открыли»: игрок перестаёт читать и начинает пролистывать. Новая строка
 // появляется тогда, когда без неё что-то нельзя сделать, а не тогда, когда её
@@ -22,6 +23,9 @@
 // включить снова, когда сообщения уже не приходят, можно только отсюда; и здесь же — жест, в котором Telegram
 // спрашивает разрешения писать. Вне Telegram строки нет: писать некому.
 //
+// «Сообщить об ошибке» — такая же (решение владельца 06.10.2026, docs/admin.md): без неё игрок теста не может сказать о
+// поломке из игры. Окно одно на все входы (`BugReport`): здесь, в шапке меню державы и на плашке заморозки.
+//
 // Чего здесь нет и быть не может: ничего про алмазы. Премиальная валюта живёт в
 // ратуше, где ею платят, и настройкой не является ни в каком виде.
 import { useSyncExternalStore } from 'react';
@@ -31,6 +35,7 @@ import { battleMusic, villageMusic } from '@/sound/web';
 import { Icon } from '@/ui/icons/Icon';
 import { NOTIFY_ON, notifyState, setNotifyOn, subscribeNotify } from '@/net/notify';
 import { inTelegram } from '@/telegram/webapp';
+import { useBugReport } from './bugOpen';
 
 /**
  * Переключатель музыки — **единственный рычаг на весь звук игры**, и деревни, и
@@ -67,6 +72,7 @@ export function Settings() {
   const newsOn = news?.on ?? true;
   // Telegram отказал боту писать: нажатие не выключает, а просит разрешения снова.
   const shut = newsOn && news?.chan === 'closed';
+  const report = useBugReport((b) => b.show);
 
   return (
     <>
@@ -127,6 +133,18 @@ export function Settings() {
             </span>
             <span className="sw">
               <i />
+            </span>
+          </button>
+        )}
+
+        {inTelegram() && (
+          <button className="set-row" onClick={report}>
+            <span className="ico">
+              <Icon name="ui-bug" glyph="🐞" />
+            </span>
+            <span className="name">
+              Сообщить об ошибке
+              <em className="sub">Текст уйдёт разработчику</em>
             </span>
           </button>
         )}

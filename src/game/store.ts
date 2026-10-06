@@ -18,6 +18,8 @@ import { haptic, tgDisplayName, tgInitData, tgUser } from '@/telegram/webapp';
 import { setTelegramIdentity } from '@/profile/stats';
 import { bootPaint, bootStage } from '@/boot/stage';
 import { mayWrite, provideGame, syncBoot } from '@/net/sync';
+import { provideGrants } from '@/net/admin';
+import { applyGrants } from './sim/admin';
 import { provideClaim, rosterBoot } from '@/net/roster';
 import { NOTIFY_ON, notifyBoot } from '@/net/notify';
 import { claimOf } from '@/net/snapshot';
@@ -279,6 +281,13 @@ export const useGame = create<GameStore>((set, get) => ({
     // отдают доступ к состоянию, а не наоборот, — иначе импорты замкнулись бы
     // в кольцо.
     provideGame(() => get().s);
+    // Указы админа приезжают с ответом сохранения и ложатся одной дверью, ровно один раз (docs/admin.md).
+    provideGrants((grants) => {
+      const st = get().s;
+      if (applyGrants(st, grants) === 0) return;
+      set({ s: { ...st } });
+      get().save();
+    });
     // Присутствие — первым сетевым вызовом, раньше партии и реестра: вернувшийся игрок не
     // должен ни секунды числиться ушедшим (docs/NOTIFY.md, раздел 4). Выключено — ни запроса.
     if (NOTIFY_ON) notifyBoot();

@@ -127,6 +127,8 @@ const card = (over: Partial<WatchCard> = {}): WatchCard => ({
   cap: 1000,
   troops: { spearman: 10 },
   queued: 0,
+  away: 0,
+  caravans: 0,
   wounded: 0,
   train: 6,
   deeds: 5,
@@ -365,6 +367,9 @@ describe('флаги выводятся из правил игры', () => {
     expect(flagsBetween(a, NOW, cheat, NOW + MIN).map((f) => f.kind)).toEqual(['stock']);
     const deed = card({ time: a.time + 2, stock: { wood: 5100, gold: 10 }, deeds: 6 });
     expect(flagsBetween(a, NOW, deed, NOW + MIN)).toEqual([]);
+    // Вернулись из похода или пришёл караван — добыча и товар легли разом.
+    expect(flagsBetween(a, NOW, card({ time: a.time + 2, stock: { wood: 900, gold: 10 }, away: 3 }), NOW + MIN)).toEqual([]);
+    expect(flagsBetween(card({ caravans: 1 }), NOW, card({ time: a.time + 2, stock: { wood: 900, gold: 10 } }), NOW + MIN)).toEqual([]);
   });
 
   it('войско без дел растёт не быстрее обучения', () => {
@@ -385,6 +390,8 @@ describe('флаги выводятся из правил игры', () => {
   it('опись сама по себе: коды проверки и часы устройства', () => {
     expect(flagsOf(card(), NOW)).toEqual([]);
     expect(flagsOf(card({ cheated: true, clock: NOW + 20 * MIN }), NOW).map((f) => f.kind)).toEqual(['cheat', 'clock']);
+    // Сверх вместимости склада игра не кладёт ничего; золото в казне — не на складе.
+    expect(flagsOf(card({ stock: { wood: 1500, gold: 99_999 } }), NOW).map((f) => f.kind)).toEqual(['cap']);
   });
 
   it('запись партии кладёт флаг в наблюдение, и /flags его показывает', async () => {
@@ -393,7 +400,7 @@ describe('флаги выводятся из правил игры', () => {
     const first = await saveCall(s, 'PUT', { baseEtag: null, record: record(card()) }, NOW, 7003);
     await saveCall(s, 'PUT', { baseEtag: first.body.etag, record: record(card({ time: 1002, stock: { wood: 99_000, gold: 10 } })) }, NOW + MIN, 7003);
     const rec = readWatchRecord(s.json(STORES.watch, 'tg-7003'));
-    expect(rec.flags.map((f) => f.kind)).toEqual(['stock']);
+    expect(rec.flags.map((f) => f.kind)).toEqual(['cap', 'stock']);
     expect(rec.user).toBe('ivan_99');
     expect(rec.writes).toBe(2);
     expect(rec.played).toBe(MIN);

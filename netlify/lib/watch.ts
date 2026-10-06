@@ -47,12 +47,13 @@ export const GROWTH_SLACK = 2;
 /** Тот же флаг второй раз за этот срок не дописывается, а считается в прежний: запись идёт раз в минуту. */
 const FLAG_QUIET = HOUR;
 
-export type FlagKind = 'cheat' | 'haste' | 'clock' | 'time' | 'stock' | 'army' | 'games' | 'haul' | 'often' | 'rollback';
+export type FlagKind = 'cheat' | 'haste' | 'clock' | 'cap' | 'time' | 'stock' | 'army' | 'games' | 'haul' | 'often' | 'rollback';
 
 export const FLAG_WORD: Record<FlagKind, string> = {
   cheat: 'коды проверки',
   haste: 'скорость проверки',
   clock: 'часы устройства',
+  cap: 'сверх склада',
   time: 'время партии',
   stock: 'рост склада',
   army: 'рост войска',
@@ -198,6 +199,8 @@ export const stockWord = (k: string): string => (RESOURCE_META as Record<string,
 
 const total = (c: Counts): number => Object.values(c).reduce((t, x) => t + x, 0);
 
+const upper = (w: string): string => w.charAt(0).toUpperCase() + w.slice(1);
+
 // ------------------------------------------------ флаги ---
 
 /** Флаги одной описи: то, что видно и без соседней. */
@@ -205,6 +208,14 @@ export function flagsOf(card: WatchCard, at: number): { kind: FlagKind; text: st
   const out: { kind: FlagKind; text: string }[] = [];
   if (card.cheated) out.push({ kind: 'cheat', text: 'Партия помечена кодами проверки: ими пользовались хотя бы раз.' });
   if (card.lead > 0) out.push({ kind: 'haste', text: `Партию ускоряли скоростью проверки: её часы впереди настоящих на ${span(card.lead)}.` });
+  // Сверх вместимости склада игра не кладёт ничего: ни выработка, ни добыча, ни возврат цены, ни указ (`sim/pay`).
+  for (const k of STOCK_KEYS) {
+    if (!(k in RESOURCE_META)) continue;
+    const have = card.stock[k] ?? 0;
+    if (card.cap > 0 && have > card.cap + 1) {
+      out.push({ kind: 'cap', text: `${upper(stockWord(k))} ${big(have)} при вместимости склада ${big(card.cap)} — сверх склада игра не кладёт ничего (или склад потерял уровень).` });
+    }
+  }
   const skew = card.clock > 0 ? card.clock - at : 0;
   if (Math.abs(skew) > CLOCK_SKEW_SECONDS * 1000) {
     out.push({ kind: 'clock', text: `Часы устройства ${skew > 0 ? 'спешат' : 'отстают'} на ${span(Math.abs(skew))} (терпим до ${span(CLOCK_SKEW_SECONDS * 1000)}).` });
@@ -216,8 +227,9 @@ export function flagsOf(card: WatchCard, at: number): { kind: FlagKind; text: st
  * Флаги промежутка между двумя описями: что выросло сильнее, чем позволяют правила игры за прошедшее время.
  *
  * Рост склада и войска сверяется, только если между описями не было ни одного разового дела (событие, бой, логово,
- * набег, покупка, ежедневка, промысел, указ админа): дело может разом принести добро, и тогда рост объяснён. Без дел
- * склад растёт только выработкой, а войско — обучением в казармах и конюшне.
+ * набег, покупка, ежедневка, промысел, указ админа), никто не ушёл и не вернулся из похода и не пришёл караван: дело
+ * может разом принести добро, и тогда рост объяснён. Без дел склад растёт только выработкой, а войско — обучением в
+ * казармах и конюшне.
  */
 export function flagsBetween(a: WatchCard, aAt: number, b: WatchCard, bAt: number): { kind: FlagKind; text: string }[] {
   const out: { kind: FlagKind; text: string }[] = [];
@@ -233,13 +245,13 @@ export function flagsBetween(a: WatchCard, aAt: number, b: WatchCard, bAt: numbe
     out.push({ kind: 'rollback', text: `Партия откатилась назад: разовых дел было ${big(a.deeds)}, стало ${big(b.deeds)} (другое устройство, восстановленная копия или правка сохранения).` });
   }
   const days = Math.max(0, Math.min(wentDays, canDays));
-  const quiet = a.deeds === b.deeds && a.seen === b.seen && a.games === b.games;
+  const quiet = a.deeds === b.deeds && a.seen === b.seen && a.games === b.games && a.away === b.away && a.caravans === b.caravans;
   if (quiet) {
     for (const k of STOCK_KEYS) {
       const grew = (b.stock[k] ?? 0) - (a.stock[k] ?? 0);
       const could = Math.max(a.prod[k] ?? 0, b.prod[k] ?? 0) * days * GROWTH_SLACK + 1;
       if (grew > could) {
-        out.push({ kind: 'stock', text: `${stockWord(k)[0].toUpperCase()}${stockWord(k).slice(1)} ${signed(grew)} за ${span(realMs)} без разовых дел; выработка позволяла не больше ${big(could)}.` });
+        out.push({ kind: 'stock', text: `${upper(stockWord(k))} ${signed(grew)} за ${span(realMs)} без разовых дел; выработка позволяла не больше ${big(could)}.` });
       }
     }
     const grew = total(b.troops) + b.wounded - (total(a.troops) + a.wounded);

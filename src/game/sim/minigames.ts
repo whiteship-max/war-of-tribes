@@ -163,6 +163,9 @@ export function harvest(s: GameState, outing: Outing, now: number, score: number
     }
   }
   const def = MINIGAME_BY_ID[id];
+  // Счёт промыслов и их добычи — для наблюдения сервера (docs/admin.md): что легло на склад, а не что выиграно.
+  s.stats.games = (s.stats.games ?? 0) + 1;
+  s.stats.haul = (s.stats.haul ?? 0) + Object.values(stored).reduce((t, n) => t + (n ?? 0), 0);
   log(s, `Промысел «${def.name}»: ${haulWords(stored) || 'склад полон'}.`, 'good');
   return { got, stored, energy: energyShown(s, now) };
 }

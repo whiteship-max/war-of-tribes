@@ -4076,3 +4076,78 @@ body.replaying .app > *:not(.canvas-wrap) {
     animation: none;
   }
 }
+
+/*
+ * Админка (docs/admin.md). Окно «Сообщить об ошибке» встаёт поверх всего, кроме заставки поворота: его открывают и из
+ * меню державы, и со стартового экрана, и с плашки заморозки. Плашка заморозки — ниже стартового экрана (до входа
+ * ходить и так нечем) и выше игры: прозрачный слой забирает касания, игра под ним видна.
+ */
+.modal-backdrop.over-all {
+  position: fixed;
+  z-index: 80;
+}
+
+.bug-report .bug-text {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 120px;
+  resize: vertical;
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px 12px;
+  font: inherit;
+  font-size: 15px;
+  line-height: 1.4;
+}
+
+.bug-report .bug-count {
+  display: block;
+  text-align: right;
+  margin: 4px 0 8px;
+}
+
+.bug-report .bug-note {
+  display: block;
+  margin: 0 0 12px;
+  line-height: 1.35;
+}
+
+.bug-report .bug-error {
+  color: var(--bad);
+}
+
+.frozen-veil {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(0, 0, 0, 0.18);
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: calc(var(--safe-top) + 12px) calc(var(--safe-right) + 16px) 0 calc(var(--safe-left) + 16px);
+}
+
+.frozen-plate {
+  width: 100%;
+  max-width: 360px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+.frozen-plate span {
+  color: var(--muted);
+}
+
+.frozen-plate .btn {
+  min-height: var(--tap);
+}

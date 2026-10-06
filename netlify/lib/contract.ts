@@ -992,6 +992,10 @@ export interface WatchCard {
   troops: Counts;
   /** Бойцов в обучении (очередь казарм и конюшни). */
   queued: number;
+  /** Вне города: бойцы в походах и разведчики. Вернулись — могли привезти добычу, это тоже разовое дело. */
+  away: number;
+  /** Караванов рынка в пути: пришедший кладёт товар на склад разом. */
+  caravans: number;
   /** Раненых в лазарете. */
   wounded: number;
   /** Сколько бойцов казармы и конюшня выучат за игровой день — не больше. */
@@ -1039,6 +1043,8 @@ export function readWatch(v: unknown): WatchCard | undefined {
     cap: whole(r.cap, big),
     troops: readCounts(r.troops),
     queued: whole(r.queued, 1e9),
+    away: whole(r.away, 1e9),
+    caravans: whole(r.caravans, 1e6),
     wounded: whole(r.wounded, 1e9),
     train: whole(r.train, 1e9),
     deeds: whole(r.deeds, 1e12),

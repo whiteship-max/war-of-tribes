@@ -41,6 +41,7 @@ import { serverNow } from './clock';
 import { beatLease, claimLease, dropLease, leaseHolder, LEASE_BEAT_MS } from './session';
 import { snapshotOf } from './snapshot';
 import { sheetMark } from './war';
+import { takeNote } from './admin';
 
 const META_KEY = 'tribe.sync.v1';
 const SPARE_KEY = 'tribe.sync.spare.v1';
@@ -150,6 +151,7 @@ const WORDS: Record<ApiFail, string> = {
   auth: 'Telegram не подтвердил вход. Партия сохраняется только на этом устройстве.',
   conflict: 'Партию продолжили на другом устройстве.',
   busy: `Слишком часто. Следующая попытка через ${realSpan(PUSH_MS / 1000)}.`,
+  frozen: 'Аккаунт заморожен: партия на сервер не сохраняется.',
   server: 'Сохранение не прошло. Играй дальше, попробуем ещё раз.',
 };
 
@@ -210,6 +212,14 @@ async function push(baseEtag: string | null): Promise<void> {
       pushedMark = mark;
       writeMeta({ etag: res.data.etag, rev: res.data.rev });
       useSync.setState({ state: 'ok', why: '', lastOk: serverNow() });
+      // Записка админки: разморозка и указы приезжают с ответом записи (docs/admin.md).
+      takeNote(res.data.admin);
+      return;
+    }
+    if (res.why === 'frozen') {
+      // Замороженному запись не принимается; попытки идут своим чередом — так приезжает и разморозка.
+      takeNote((res.body as { admin?: unknown } | null)?.admin);
+      say('offline', WORDS.frozen);
       return;
     }
     if (res.why === 'conflict') {
@@ -362,6 +372,7 @@ export async function syncBoot(hadLocal: boolean): Promise<void> {
     return;
   }
   const { record, etag } = res.data;
+  takeNote(res.data.admin);
   const here = mine();
   if (!here) return;
 

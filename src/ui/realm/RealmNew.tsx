@@ -24,6 +24,8 @@ import { CoatArt } from './Coat';
 import { useRealm, type RealmView } from './open';
 import { Section, useRealmYield } from './RealmMenu';
 import { BRANCH_ICON, BRANCH_WORD } from './branches';
+import { useBugReport } from '../parts/bugOpen';
+import { inTelegram } from '@/telegram/webapp';
 import { DecreesNew, FaithNew, QuestsNew, RulerNew } from './RealmTabs';
 
 // Ветви словами словаря и их значки — общие с вкладками (`branches.ts`).
@@ -46,6 +48,7 @@ export function RealmNew() {
   const act = useGame((g) => g.act);
   const save = useGame((g) => g.save);
   const [top, setTop] = useState(0);
+  const report = useBugReport((b) => b.show);
   // Имя города правится в шапке (docs/ui_audit.md, 13): черновик — сырой ввод, очищает одна дверь `setCity`.
   const [draft, setDraft] = useState<string | null>(null);
   const body = useRef<HTMLDivElement>(null);
@@ -124,6 +127,11 @@ export function RealmNew() {
                 </span>
                 <i className="one-line">{profileName(s.profile)}</i>
               </button>
+              {inTelegram() && (
+                <button className="nx-ibtn" onClick={report} aria-label="Сообщить об ошибке">
+                  <Icon name="ui-bug" glyph="🐞" />
+                </button>
+              )}
               <button className={`nx-ibtn${view === 'settings' ? ' on' : ''}`} onClick={() => go('settings')} aria-label="Профиль и настройки">
                 <Icon name="ui-person" glyph="👤" />
               </button>
