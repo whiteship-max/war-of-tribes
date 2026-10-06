@@ -3,10 +3,11 @@
 // - уходит — в дороге, по дням пути; стоит — у цели, в поле, в осадном лагере (ожидание даром, решение владельца
 //   06.10.2026); копится — дома;
 // - кончилась на карте — агент идёт домой **с той минуты, когда кончилась**, дел не берёт, пока не дойдёт; онлайн и
-//   офлайн дают одну дорогу; кончилась в пути — до цели он не доходит; стоит у цели без сил — домой с минуты прихода;
+//   офлайн дают одну дорогу; кончилась в пути — до цели он не доходит; стоит у цели без сил — не хватает ни на одно его
+//   дело (решение владельца 06.10.2026), — домой с минуты прихода, а хватает хоть на одно — стоит;
 // - «дойти и ударить» — бой в минуту прихода, онлайн и офлайн, цена штурма — при приказе;
 // - цена дела — при приказе; не хватает — строка меню гаснет той же причиной, что откажет приказ;
-// - без энергии из своих ворот не выходят.
+// - без сил на своё дело из своих ворот не выходят — та же мерка, что у цели.
 import { describe, expect, it } from 'vitest';
 import { realMs, gameDaysOfMs } from '@/game/pace';
 import { LocalWorld } from './local/LocalWorld';
@@ -14,7 +15,7 @@ import type { WorldSave } from './local/state';
 import type { GenSettlement } from './gen';
 import type { Coord, FigureId, FigureView, PlayerProfile } from './types';
 import { ENERGY_ROAD, ENERGY_FILL, ENERGY_MAX, ENERGY_PRICE } from './data/energy';
-import { energyBlock, idleBlock, roadCost, roadOf } from './energy';
+import { energyBlock, idleBlock, leastPrice, roadCost, roadOf } from './energy';
 import { distance } from './geo';
 import { shieldVillagers } from './lairs';
 
@@ -143,16 +144,15 @@ describe('энергия агента в мире: где уходит и где
 
 describe('энергия кончилась на карте: домой сам, с той минуты', () => {
   /**
-   * Разведчик идёт в поле на день с запасом на дорогу и полединицы сверху: у цели он без сил и идёт домой с минуты
-   * прихода. `pulse` — шаг пульса мира.
+   * Разведчик идёт в поле на день с запасом на дорогу и `extra` сверху — столько у него у цели. `pulse` — шаг пульса мира.
    */
-  async function strand(pulse: number) {
+  async function strand(pulse: number, extra = leastPrice('scout') - 0.5) {
     const w = makeWorld();
     const p = profile();
     await w.world.sync(p);
     const to = await emptyCell(w, 'scout', 1);
     const plan = await w.world.leadPlan('scout', to);
-    w.inner.save.figures.scout.energy = { value: roadCost(realMs(plan.seconds)) + 0.5, at: w.now(), mode: 'fill' };
+    w.inner.save.figures.scout.energy = { value: roadCost(realMs(plan.seconds)) + extra, at: w.now(), mode: 'fill' };
     expect(await w.world.moveFigure('scout', to)).toBeNull();
     const out = await fig(w, 'scout');
     const notes: string[] = [];
@@ -169,7 +169,14 @@ describe('энергия кончилась на карте: домой сам, 
     return { w, f, out, notes, refused };
   }
 
-  it('стоит у цели без сил — идёт домой с минуты прихода; пока идёт, дел не берёт; онлайн и офлайн — одна дорога', async () => {
+  /**
+   * «Без сил» у цели — не хватает ни на одно его дело (решение владельца 06.10.2026): у разведчика дело одно — разведка у
+   * ворот, и у цели у него на полединицы меньше её цены. Точка внутри новой области: на экране не ноль (прежняя мерка —
+   * меньше единицы — оставила бы его стоять), а дела по карману нет.
+   */
+  it('стоит у цели без сил на своё дело — идёт домой с минуты прихода; пока идёт, дел не берёт; онлайн и офлайн — одна дорога', async () => {
+    expect(leastPrice('scout') - 0.5, 'у цели больше прежней мерки (единицы)').toBeGreaterThan(1);
+    expect(leastPrice('scout'), 'мерка разведчика — цена разведки у ворот').toBe(ENERGY_PRICE.recon.price);
     const day = realMs(60);
     const online = await strand(day / 24);
     const offline = await strand(30 * day);
@@ -188,15 +195,25 @@ describe('энергия кончилась на карте: домой сам, 
     expect(online.refused).toBe(`Разведчик выбился из сил и идёт домой. Пока не дойдёт, дел не берёт.`);
   });
 
+  it('у цели хватает хоть на одно его дело — стоит: ожидание даром, домой не идёт', async () => {
+    // Граница области с другой стороны: на полединицы больше цены разведки — дело по карману.
+    const run = await strand(realMs(60) / 24, leastPrice('scout') + 0.5);
+    expect(run.f.phase, 'стоит в поле').toBe('field');
+    expect(run.f.spent).toBe(false);
+    expect(run.notes, 'вести «выбился из сил» нет').toEqual([]);
+    expect(run.f.energy?.value).toBe(leastPrice('scout'));
+  });
+
   it('кончилась в пути — до цели не доходит и поворачивает домой', async () => {
     const w = makeWorld();
     const p = profile();
     await w.world.sync(p);
-    const to = await emptyCell(w, 'diplomat', 2);
+    // В дороге мерка — ноль, а не цена дела: путь несёт оплаченное дело, и повернуть раньше значило бы отнять его.
+    // Сил чуть больше самого дешёвого дела — из ворот выйти можно, — а дороги больше, чем сил.
+    const to = await emptyCell(w, 'diplomat', 4);
     const walk = realMs((await w.world.leadPlan('diplomat', to)).seconds);
-    // Сил на полдороги.
-    const have = roadCost(walk) / 2;
-    expect(have, 'точка внутри области: из ворот выйти можно').toBeGreaterThanOrEqual(1);
+    const have = leastPrice('diplomat') + 0.5;
+    expect(roadCost(walk), 'точка внутри области: дороги больше, чем сил').toBeGreaterThan(have);
     w.inner.save.figures.diplomat.energy = { value: have, at: w.now(), mode: 'fill' };
     const plan = await w.world.leadPlan('diplomat', to);
     expect(plan.energy?.runsOut, 'план говорит до приказа: кончится в пути').toBe(true);
@@ -263,15 +280,22 @@ describe('цена дела: при приказе, и не хватает — �
     // Заплачено при приказе — чем бы ни кончилось дело.
     expect(w.inner.save.figures.spy.energy?.value).toBe(ENERGY_MAX - ENERGY_PRICE.probe.price);
 
-    // Пятнадцать — меньше цены: погашено, и отказ — те же слова.
+    // Пятнадцать — меньше цены пробы, самого дешёвого его дела: сил нет ни на одно дело (решение владельца 06.10.2026), и
+    // лазутчик выбился из сил — погашено, и отказ — те же слова. Прежде здесь стояло «Не хватает энергии: 15 из 20.»:
+    // дешевле пробы у лазутчика дела нет, и между «хватает на дело» и «выбился» места не осталось.
     standAt(w, 'spy', lair);
     w.inner.save.figures.spy.energy = { value: 15, at: w.now(), mode: 'drain' };
+    expect(15, 'точка внутри области: меньше самого дешёвого дела').toBeLessThan(leastPrice('spy'));
     const low = (await w.world.orders('spy', lair.id)).find((o) => o.id === 'probe')!;
-    const why = energyBlock(15, ENERGY_PRICE.probe.price);
-    expect(why).toBe('Не хватает энергии: 15 из 20.');
+    const why = 'Лазутчик выбился из сил и идёт домой. Пока не дойдёт, дел не берёт.';
     expect(low.can).toBe(false);
     expect(low.reason).toBe(why);
     expect((await w.world.order('probe', lair.id, low.at)).error).toBe(why);
+    // Ровно на пробу — отказа нет, и цена та же, что в меню.
+    standAt(w, 'spy', lair);
+    w.inner.save.figures.spy.energy = { value: ENERGY_PRICE.probe.price, at: w.now(), mode: 'hold' };
+    const even = (await w.world.orders('spy', lair.id)).find((o) => o.id === 'probe')!;
+    expect(even.energy).toEqual({ price: ENERGY_PRICE.probe.price, block: null });
   });
 
   it('разведка у ворот: цены должно хватить к приходу, с дорогой', async () => {
@@ -291,13 +315,21 @@ describe('цена дела: при приказе, и не хватает — �
     expect(await w.world.moveFigure('scout', lair)).toBe(why);
   });
 
-  it('без энергии из своих ворот не выходят', async () => {
+  it('без сил на своё дело из своих ворот не выходят — та же мерка, что у цели', async () => {
     const w = makeWorld();
     const p = profile();
     await w.world.sync(p);
-    w.inner.save.figures.spy.energy = { value: 0.5, at: w.now(), mode: 'fill' };
+    // Больше прежней мерки (единицы), меньше пробы: выйти можно было бы только затем, чтобы, придя, повернуть.
+    const have = leastPrice('spy') - 5;
+    expect(have, 'точка внутри области').toBeGreaterThan(1);
+    w.inner.save.figures.spy.energy = { value: have, at: w.now(), mode: 'fill' };
     const to = await emptyCell(w, 'spy', 1);
-    expect(await w.world.moveFigure('spy', to)).toBe(idleBlock(0.5));
+    expect(await w.world.moveFigure('spy', to)).toBe(idleBlock(have, 'spy'));
+    expect(idleBlock(have, 'spy')).toBe(`Не хватает энергии ни на одно дело: ${have} из ${leastPrice('spy')}. Дома она вернётся.`);
+    expect((await w.world.leadPlan('spy', to)).energy?.block, 'план до приказа — та же строка').toBe(idleBlock(have, 'spy'));
+    // Ровно на дело — выйти можно.
+    w.inner.save.figures.spy.energy = { value: leastPrice('spy'), at: w.now(), mode: 'fill' };
+    expect(await w.world.moveFigure('spy', to)).toBeNull();
   });
 });
 
@@ -333,17 +365,29 @@ describe('осадный лагерь: десять энергии, и пока 
     expect(await energyOf(w, 'general')).toBe(Math.floor(ENERGY_MAX - ENERGY_PRICE.siege.price - roadCost((back.arriveAt - back.departAt) / 2) + 1e-9));
   });
 
-  it('без десяти энергии лагерем не встать — та же строка в карточке и в отказе', async () => {
+  /**
+   * Осадный лагерь — самое дешёвое дело полководца, и без десяти у него сил нет ни на одно дело (решение владельца
+   * 06.10.2026): он выбился из сил, и карточка гасит кнопку той же строкой, что откажет приказ. Прежде тест ждал здесь
+   * «Не хватает энергии: 9 из 10.» — при мерке «меньше единицы» полководец с девятью ещё стоял в поле. Граница области —
+   * цена лагеря: девять — нет, десять — лагерем встать можно.
+   */
+  it('без десяти энергии лагерем не встать — сил нет ни на одно дело: та же строка в карточке и в отказе', async () => {
     const w = makeWorld();
     const p = profile({ army: { spearman: 40 } });
     await w.world.sync(p);
     const lair = nearestLair(w);
+    expect(leastPrice('general'), 'лагерь — самое дешёвое дело полководца').toBe(ENERGY_PRICE.siege.price);
     standAt(w, 'general', lair, { spearman: 40 });
-    w.inner.save.figures.general.energy = { value: 9, at: w.now(), mode: 'drain' };
+    w.inner.save.figures.general.energy = { value: ENERGY_PRICE.siege.price - 1, at: w.now(), mode: 'drain' };
     const card = await w.world.settlement(lair.id);
-    const why = energyBlock(9, ENERGY_PRICE.siege.price);
+    const why = 'Полководец выбился из сил и идёт домой. Пока не дойдёт, дел не берёт.';
     expect(card?.can.besiege).toBe(false);
     expect(card?.energy?.besiege).toEqual({ price: ENERGY_PRICE.siege.price, block: why });
     expect(await w.world.besiege()).toBe(why);
+    // Ровно на лагерь — карточка открыта, приказ принят.
+    standAt(w, 'general', lair, { spearman: 40 });
+    w.inner.save.figures.general.energy = { value: ENERGY_PRICE.siege.price, at: w.now(), mode: 'hold' };
+    expect((await w.world.settlement(lair.id))?.energy?.besiege).toEqual({ price: ENERGY_PRICE.siege.price, block: null });
+    expect(await w.world.besiege()).toBeNull();
   });
 });

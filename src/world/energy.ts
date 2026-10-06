@@ -13,11 +13,13 @@
 // её мир в минуту перемены (`LocalWorld.energyOf`) или сервер войны (`netlify/lib/war.ts`) той же функцией `onRoad`.
 //
 // ЦЕНА — ПРИ ПРИКАЗЕ. Дело списывает свою цену (`data/energy.ENERGY_PRICE`) в минуту приказа, и приказ принимается,
-// только если цены хватает к минуте дела — с дорогой до него (`energyBlock`). Без энергии агент ничего не делает;
-// кончилась на карте — идёт домой сам (это решает мир, а не дверь: `emptyAt` говорит только «когда»).
+// только если цены хватает к минуте дела — с дорогой до него (`energyBlock`). Без сил агент ничего не делает; сил нет —
+// это не хватает ни на одно его дело (`outOf`, решение владельца 06.10.2026). Кончилась в дороге или у цели сил нет —
+// идёт домой сам (это решает мир, а не дверь: `emptyAt` и `outOf` говорят только «когда» и «нет ли»).
 //
 // Модуль чистый: часов не читает, время приходит доводом. Без `@/`: его собирает и сервер.
 import { ENERGY_FILL, ENERGY_MAX, ENERGY_PRICE, ENERGY_ROAD, type EnergyAction } from './data/energy';
+import type { FigureId } from './types';
 
 /** Что с запасом с минуты отметки: уходит (в дороге), копится (дома) или стоит (у цели, в лагере, вне строя). */
 export type EnergyMode = 'drain' | 'fill' | 'hold';
@@ -173,13 +175,28 @@ export function energyBlock(have: number, price: number, road = 0): string | nul
   return `Не хватает энергии: ${now} из ${price}.`;
 }
 
-/** Без энергии агент ничего не делает — и из своих ворот не выходит. null — выйти может. */
-export function idleBlock(have: number): string | null {
-  return outOf(have) ? 'Нет энергии. Дома она вернётся.' : null;
+/**
+ * Цена самого дешёвого дела агента — по таблице цен (`ENERGY_PRICE`, поле `agent`). Меньше — ему не по карману ни одно его
+ * дело. Дела без цены (наблюдение, перевод дружины, «вести сюда» в чистое поле) платят только дорогой и мерой не служат:
+ * иначе сил хватало бы всегда. У агента без строк в таблице мерка — единица, как прежде.
+ */
+export function leastPrice(agent: FigureId): number {
+  let least = Infinity;
+  for (const p of Object.values(ENERGY_PRICE)) if (p.agent === agent) least = Math.min(least, p.price);
+  return Number.isFinite(least) ? least : 1;
 }
 
-/** Сил нет: меньше единицы — на экране ноль, и ни одно дело не по карману. Одна мерка на выход из ворот и стоянку в поле. */
-export const outOf = (have: number): boolean => have + EPS < 1;
+/**
+ * Сил нет: энергии не хватает ни на одно его дело (решение владельца 06.10.2026; прежде — меньше единицы, ноль на
+ * экране). Одна мерка на выход из ворот (`idleBlock`) и стоянку в поле (`LocalWorld.outAt`).
+ */
+export const outOf = (have: number, agent: FigureId): boolean => have + EPS < leastPrice(agent);
+
+/** Без сил агент ничего не делает — и из своих ворот не выходит. null — выйти может. */
+export function idleBlock(have: number, agent: FigureId): string | null {
+  if (!outOf(have, agent)) return null;
+  return `Не хватает энергии ни на одно дело: ${Math.floor(Math.max(0, have) + EPS)} из ${leastPrice(agent)}. Дома она вернётся.`;
+}
 
 /** Что с запасом в минуту `now`: режим отметки, а после конца дороги или возврата в строй — тот, что после него. */
 export function modeAt(mark: EnergyMark | undefined, now: number): EnergyMode {

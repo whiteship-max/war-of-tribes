@@ -5800,17 +5800,25 @@ export class LocalWorld implements WorldApi {
   /**
    * Цена дела глазами меню: хватит ли энергии к минуте дела — с дорогой до него (`road`, мс пути по карте). Та же
    * проверка стоит в приказе: показанное и есть применённое.
+   *
+   * Выбился из сил — не по карману ни одно дело, и строка та же, что откажет приказ (`offDuty`): иначе кнопка в карточке
+   * гасла бы «Не хватает энергии: 9 из 10», а приказ отказывал бы «выбился из сил».
    */
   private energyCost(id: FigureId, action: EnergyAction, now: number, road = 0): EnergyCost {
     const price = priceOf(action);
-    return { price, block: energyBlock(this.energyNow(id, now), price, road) };
+    const spent = this.isSpent(id, now) ? this.offDuty(id, now) : null;
+    return { price, block: spent ?? energyBlock(this.energyNow(id, now), price, road) };
   }
 
   /**
    * Минута, когда агент выбился из сил на карте; null — силы есть, он дома или вне строя. Кончилась в дороге раньше
-   * прихода (`emptyAt`) — или стоит в поле без сил (`outOf`: на экране ноль, ни одно дело не по карману), с минуты своей
-   * отметки: стоянка даром, и без сил он стал в минуту прихода или платы за дело. Свой осадный лагерь держит его и без
-   * сил; поход на игрока держит энергию у сервера.
+   * прихода (`emptyAt`) — или стоит в поле без сил (`outOf`: не хватает ни на одно его дело, решение владельца
+   * 06.10.2026), с минуты своей отметки: стоянка даром, и без сил он стал в минуту прихода или платы за дело. Свой
+   * осадный лагерь держит его и без сил; поход на игрока держит энергию у сервера.
+   *
+   * В дороге мерка — ноль, а не цена дела: путь к цели несёт оплаченное дело (разведка у ворот, «дойти и ударить», удар,
+   * перехват — цена списана при приказе, и хватить её должно к приходу), и повернуть домой раньше прихода значило бы
+   * отнять оплаченное. Придя, он стоит — и без сил на дело идёт домой с минуты прихода.
    */
   private outAt(id: FigureId, now: number): number | null {
     const f = this.save.figures[id];
@@ -5819,7 +5827,7 @@ export class LocalWorld implements WorldApi {
     const mark = this.energyOf(id, now);
     if (f.phase === 'moving') return emptyAt(mark);
     if (id === 'general' && Object.values(this.save.sieges).some((w) => ourCamp(w))) return null;
-    return outOf(energyAt(mark, now)) ? mark.at : null;
+    return outOf(energyAt(mark, now), id) ? mark.at : null;
   }
 
   /**
@@ -5964,8 +5972,9 @@ export class LocalWorld implements WorldApi {
     if (this.touching(from)?.home && !this.touching(target)?.home) {
       const blocked = this.siegeBlock(now);
       if (blocked) return blocked;
-      // Без энергии из своих ворот не выходят: дома она вернётся (docs/agent_energy.md).
-      const idle = idleBlock(this.energyNow(id, now));
+      // Без сил на своё дело из своих ворот не выходят — та же мерка, что у цели (`outOf`): дома энергия вернётся
+      // (docs/agent_energy.md, 6.6).
+      const idle = idleBlock(this.energyNow(id, now), id);
       if (idle) return idle;
     }
     // Разведка у чужих ворот — дело разведчика, и цена его — к минуте прихода, с дорогой.
@@ -6068,7 +6077,7 @@ export class LocalWorld implements WorldApi {
     const recon = this.reconCost(id, from, target, now);
     const price = recon?.price ?? 0;
     const left = have - price - roadCost(road);
-    const idle = this.touching(from)?.home && !homeward ? idleBlock(have) : null;
+    const idle = this.touching(from)?.home && !homeward ? idleBlock(have, id) : null;
     return {
       price,
       block: idle ?? recon?.block ?? null,

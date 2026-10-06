@@ -3,7 +3,8 @@
 import { describe, expect, it } from 'vitest';
 import { gameDaysOfMs } from '@/game/pace';
 import { ENERGY_ROAD, ENERGY_FILL, ENERGY_MAX, ENERGY_PRICE } from './data/energy';
-import { emptyAt, energyAt, energyBlock, energyShown, energyView, freshMark, fullAt, idleBlock, onRoad, remark, roadCost, spend, type EnergyMark } from './energy';
+import { emptyAt, energyAt, energyBlock, energyShown, energyView, freshMark, fullAt, idleBlock, leastPrice, onRoad, outOf, remark, roadCost, spend, type EnergyMark } from './energy';
+import { FIGURE_IDS } from './data/figures';
 import { readEnergy as readMark } from '../../netlify/lib/contract';
 
 const T0 = 1_000_000;
@@ -104,9 +105,27 @@ describe('энергия агента: цена и отказ', () => {
     expect(spend(undefined, T0, 10).value).toBe(ENERGY_MAX - 10);
   });
 
-  it('без энергии из ворот не выходят; цены — положительные и не больше запаса', () => {
-    expect(idleBlock(0.4)).not.toBeNull();
-    expect(idleBlock(1)).toBeNull();
+  /**
+   * Без сил — это не хватает ни на одно своё дело (решение владельца 06.10.2026; прежде — меньше единицы). Мерка у каждого
+   * агента своя — цена самого дешёвого из его дел в таблице, — и она же у выхода из ворот. Граница области — эта цена:
+   * точки на полединицы ниже, ровно на ней и выше; и нижняя точка — выше прежней мерки (единицы), иначе новое правило
+   * проверялось бы даром.
+   */
+  it('без сил на своё дело из ворот не выходят: мерка — самое дешёвое дело агента; цены — положительные и не больше запаса', () => {
+    for (const id of FIGURE_IDS) {
+      const prices = Object.values(ENERGY_PRICE).filter((p) => p.agent === id).map((p) => p.price);
+      expect(prices.length, `${id}: у агента есть дела с ценой`).toBeGreaterThan(0);
+      const least = Math.min(...prices);
+      expect(leastPrice(id), `${id}: мерка — самое дешёвое дело`).toBe(least);
+      expect(least - 0.5, `${id}: точка ниже мерки — выше прежней единицы`).toBeGreaterThan(1);
+      expect(outOf(least - 0.5, id), `${id}: на полединицы меньше — сил нет`).toBe(true);
+      expect(outOf(least, id), `${id}: ровно на дело — силы есть`).toBe(false);
+      expect(idleBlock(least - 0.5, id), `${id}: из ворот не выйти`).toBe(
+        `Не хватает энергии ни на одно дело: ${least - 1} из ${least}. Дома она вернётся.`,
+      );
+      expect(idleBlock(least, id), `${id}: выйти можно`).toBeNull();
+      expect(idleBlock(least + 0.5, id), `${id}: выйти можно`).toBeNull();
+    }
     for (const [id, p] of Object.entries(ENERGY_PRICE)) {
       expect(p.price, id).toBeGreaterThan(0);
       expect(p.price, id).toBeLessThanOrEqual(ENERGY_MAX);
