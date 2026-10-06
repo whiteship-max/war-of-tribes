@@ -35,6 +35,6 @@ describe('город: сцена', () => {
     expect(watch, 'плотность — сразу').toMatch(/this\.dprLevel = next;/);
     expect(watch, 'уровень — в память устройства').toMatch(/rememberAutoCap\(next, serverNow\(\)\)/);
     // И читает её, когда собирается: уровень по устройству — не выше памяти сторожа.
-    expect(shell, 'память читается при сборке').toMatch(/capQuality\(autoQuality\(readCaps\(this\.renderer\.getContext\(\)\)\), autoCap\(serverNow\(\)\)\)/);
+    expect(shell, 'память читается при сборке').toMatch(/capQuality\(autoQuality\(deviceCaps\(gpuName\(this\.renderer\.getContext\(\)\)\)\), autoCap\(serverNow\(\)\)\)/);
   });
 });

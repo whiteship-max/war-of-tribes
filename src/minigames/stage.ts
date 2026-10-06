@@ -654,7 +654,7 @@ export class Stage {
     const asked = tierOf(new URLSearchParams(window.location.search).get('look'));
     this.pinned = !!asked && hdr;
     // Не дороже уровня игры (`gfx.levelNow`): телефон, которому город поставил «Низкое», и на поляне — на полу.
-    return miniTier(startTier({ hdr, coarse }, stored, asked), levelNow(window.location.search, serverNow()), !!asked && hdr);
+    return miniTier(startTier({ hdr, coarse }, stored, asked), levelNow(window.location.search), !!asked && hdr);
   }
 
   /** Ступень: конвейер, туман материалов, тени, плотность буфера. Меняется редко — при входе и по сторожу. */

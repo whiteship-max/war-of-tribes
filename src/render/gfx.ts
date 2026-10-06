@@ -20,6 +20,7 @@
  * у остальных уровень остаётся их выбором (`gfxOf`).
  */
 import { QUALITIES, autoQuality, qualityOf, tgClassOf, type DeviceCaps, type Quality } from './quality';
+import { serverNow } from '@/net/clock';
 
 /** Уровень, выбранный игроком: «авто» — по устройству. */
 export type GfxQuality = 'auto' | Quality;
@@ -210,9 +211,10 @@ export function noteSceneLevel(q: Quality | null): void {
  * Уровень для сцен поверх города — карты, ролика боя, промысла (решение ночи 4, docs/perf.md): одна мерка на всю игру,
  * чтобы слабый телефон не получал «Низкое» в городе и «Среднее» на карте. Адрес (`?quality=`) сильнее выбора игрока,
  * выбор — сильнее устройства. «Авто» — уровень, на котором стоит город: он знает видеокарту и уже опущен сторожем,
- * если телефон не потянул; города ещё нет — устройство без видеокарты, не выше памяти сторожа за неделю.
+ * если телефон не потянул; города ещё нет — устройство без видеокарты, не выше памяти сторожа за неделю. Часы — игрока
+ * (`serverNow`): память сторожа — про телефон, а не про партию.
  */
-export function levelNow(search: string, now: number): Quality {
+export function levelNow(search: string, now: number = serverNow()): Quality {
   const g = sceneGfx(gfx(), search);
   if (g.quality) return g.quality;
   return sceneLevel ?? capQuality(autoQuality(deviceCaps()), autoCap(now));

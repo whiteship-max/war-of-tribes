@@ -3,7 +3,7 @@
 // Строки видеокарт — те, что браузеры отдают через WEBGL_debug_renderer_info: Android —
 // настоящее имя, iOS — «Apple GPU», Chrome на Windows — строка ANGLE.
 import { describe, expect, it } from 'vitest';
-import { QUALITIES, VILLAGE_STEADY, autoQuality, lowerQuality, tgClassOf, type DeviceCaps, type Quality } from './quality';
+import { QUALITIES, QUALITY, VILLAGE_STEADY, autoQuality, lowerQuality, tgClassOf, type DeviceCaps, type Quality } from './quality';
 import { Steady } from './steady';
 import { pace } from './loop';
 
@@ -72,6 +72,17 @@ describe('уровень по устройству', () => {
     expect(autoQuality(desk('ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)'))).toBe('low');
     expect(autoQuality(desk('llvmpipe (LLVM 15.0.7, 256 bits)'))).toBe('low');
     expect(autoQuality(desk(null))).toBe('high');
+  });
+
+  it('низкий не дороже среднего ни одной ручкой; средний и высокий — прежние числа (docs/perf.md)', () => {
+    expect(QUALITY.high).toEqual({ dpr: 2, shadowSoft: true, mapDpr: 2, shadowEvery: 2 });
+    expect(QUALITY.medium).toEqual({ dpr: 1.5, shadowSoft: true, mapDpr: 2, shadowEvery: 2 });
+    const low = QUALITY.low;
+    expect(low.dpr).toBeLessThanOrEqual(QUALITY.medium.dpr);
+    expect(low.mapDpr).toBeLessThan(QUALITY.medium.mapDpr);
+    // Плотность карты ниже единицы — мыло, а не экономия (правило двери кадра).
+    expect(low.mapDpr).toBeGreaterThanOrEqual(1);
+    expect(low.shadowEvery).toBeGreaterThan(QUALITY.medium.shadowEvery);
   });
 
   it('ниже низкого — нет', () => {

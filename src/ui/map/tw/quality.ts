@@ -3,9 +3,8 @@
 // Отдельно от `spec.ts`: этот модуль читает настройки и окно, а таблица уровней едет и в рабочий поток.
 import { type Quality } from '@/render/quality';
 import { levelNow } from '@/render/gfx';
-import { serverNow } from '@/net/clock';
 
 /** Уровень карты: тот же, что у города (docs/perf.md). */
 export function twQuality(search = typeof location === 'undefined' ? '' : location.search): Quality {
-  return levelNow(search, serverNow());
+  return levelNow(search);
 }
