@@ -5,6 +5,7 @@
 import type { GameState } from '@/game/types';
 import { dayOf } from '@/game/derived';
 import { sceneLog } from '@/scenelog';
+import { deviceRatio } from '@/render/loop';
 import { tgAbout } from '@/telegram/webapp';
 import { REPORT_LIMITS, type ReportPut, type ReportResponse } from '../../netlify/lib/contract';
 import { apiPost } from './api';
@@ -17,7 +18,7 @@ export function reportOf(text: string, view: string, s: GameState | null): Repor
   let screen = '';
   try {
     device = `${tgAbout()} · ${navigator.userAgent}`;
-    screen = `${window.innerWidth}×${window.innerHeight} @${Math.round(window.devicePixelRatio * 100) / 100}`;
+    screen = `${window.innerWidth}×${window.innerHeight} @${Math.round(deviceRatio() * 100) / 100}`;
   } catch {
     /* вне браузера */
   }

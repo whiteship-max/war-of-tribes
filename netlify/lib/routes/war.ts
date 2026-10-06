@@ -18,7 +18,7 @@
  */
 import { readInitData, saveKeyOf } from '../initdata.js';
 import { WRITE_TRIES, allow, botToken, deny, json, parseJson, readBody, warPace, type Route } from '../http.js';
-import { readWarOrder, type WarOrder, type WarResponse } from '../contract.js';
+import { cityOr, readWarOrder, type WarOrder, type WarResponse } from '../contract.js';
 import { castleIdOf, readRoster } from '../roster.js';
 import { advance, applyOrder, dueKeys, newsDiff, newsMap, pruneWars, readStoredSheet, readWars, setWarPace, warsOf, WARS_KEY, type SheetAt } from '../war.js';
 import { queueNews } from '../outbox.js';
@@ -112,7 +112,7 @@ export const war: Route = async (req, io) => {
       await queueNews({ notify: io.stores(STORES.notify), due: io.stores(STORES.due) }, newsDiff(told, newsMap(file)), now);
       // Поход на игрока — в журнал города нападающего (наблюдение, docs/admin.md).
       if (order?.op === 'march' && !error && targetKey) {
-        const city = roster.rows[targetKey]?.city || 'без имени';
+        const city = cityOr(roster.rows[targetKey]?.city);
         await observe(io.stores, key, (rec) => noted({ ...rec, wars: rec.wars + 1 }, now, 'war', `Поход на «${city}» (${order.mode === 'storm' ? 'штурм' : 'осада'}).`));
       }
       return json(body);

@@ -5,7 +5,7 @@
  * Хранится только нужное, чтобы разобраться: текст игрока, версия, устройство, экран, что было со сценой и последние
  * строки летописи. Снимка экрана пока нет — место под него оставлено в договоре (`ReportPut.shot`).
  */
-import { readReport, type ReportCtx } from './contract.js';
+import { cityName, readReport, type ReportCtx } from './contract.js';
 import { PLAYER } from './admin.js';
 import { parseJson } from './http.js';
 import type { Kv } from './kv.js';
@@ -40,7 +40,7 @@ export function readStoredReport(v: unknown): StoredReport | null {
     at: typeof r.at === 'number' ? r.at : 0,
     player: r.player,
     user: typeof r.user === 'string' ? r.user.slice(0, 32) : '',
-    city: typeof r.city === 'string' ? r.city.slice(0, 64) : '',
+    city: cityName(r.city) ?? '',
     text: body.text,
     ctx: body.ctx,
   };

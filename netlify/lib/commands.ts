@@ -13,7 +13,7 @@
  */
 import { allow, parseJson, type Io } from './http.js';
 import { STORES } from './kv.js';
-import { GRANT_MAX, STOCK_KEYS, TROOP_KEYS, type StockKey, type TroopKey } from './contract.js';
+import { GRANT_MAX, STOCK_KEYS, TROOP_KEYS, cityName, cityOr, type StockKey, type TroopKey } from './contract.js';
 import { FLAG_WORD, big, blankWatch, noted, observe, readWatchRecord, signed, span, stockWord, type WatchRecord } from './watch.js';
 import {
   FROZEN_KEY,
@@ -54,8 +54,7 @@ const troopWord = (k: string): string => TROOPS.find((t) => t.id === k)?.name.to
 
 /** Кто это: город, ключ и имя пользователя. */
 export function label(key: string, rec: WatchRecord): string {
-  const city = rec.card?.city ? `«${rec.card.city}»` : '«без имени»';
-  return `${city} ${key}${rec.user ? ` @${rec.user}` : ''}`;
+  return `«${cityOr(rec.card?.city)}» ${key}${rec.user ? ` @${rec.user}` : ''}`;
 }
 
 export const HELP = [
@@ -208,9 +207,9 @@ export async function lookup(io: Io, raw: string): Promise<Found[]> {
   const byUser = all.filter((f) => f.rec.user && f.rec.user.toLowerCase() === user);
   if (byUser.length) return byUser;
   const nq = plain(q);
-  const exact = all.filter((f) => plain(f.rec.card?.city ?? '') === nq);
+  const exact = all.filter((f) => plain(cityName(f.rec.card?.city) ?? '') === nq);
   if (exact.length) return exact;
-  return all.filter((f) => plain(f.rec.card?.city ?? '').includes(nq) || (f.rec.name && plain(f.rec.name).includes(nq)));
+  return all.filter((f) => plain(cityName(f.rec.card?.city) ?? '').includes(nq) || (f.rec.name && plain(f.rec.name).includes(nq)));
 }
 
 /** Ровно один игрок — или ответ словами, почему нет. */
@@ -419,7 +418,7 @@ export function statsCsv(rows: Found[], frozen: FrozenFile): string {
     const line: (string | number)[] = [
       key.slice(3),
       rec.user,
-      c?.city ?? '',
+      cityName(c?.city) ?? '',
       rec.name,
       when(rec.first),
       when(rec.last),
@@ -483,7 +482,7 @@ async function reportsList(io: Io): Promise<Reply> {
   const lines = ['Последние отчёты:'];
   for (const id of ids) {
     const r = await reportAt(kv, id);
-    if (r) lines.push(`• ${when(r.at)} /report ${r.id} — «${r.city || 'без имени'}» ${r.player}${r.user ? ` @${r.user}` : ''}: ${r.text.slice(0, 80)}`);
+    if (r) lines.push(`• ${when(r.at)} /report ${r.id} — «${cityOr(r.city)}» ${r.player}${r.user ? ` @${r.user}` : ''}: ${r.text.slice(0, 80)}`);
   }
   return say(lines.join('\n'));
 }
@@ -496,7 +495,7 @@ async function reportOne(io: Io, id: string): Promise<Reply> {
   return say(
     [
       `Отчёт ${r.id} · ${when(r.at)}`,
-      `От: «${r.city || 'без имени'}» ${r.player}${r.user ? ` @${r.user}` : ''}`,
+      `От: «${cityOr(r.city)}» ${r.player}${r.user ? ` @${r.user}` : ''}`,
       '',
       r.text,
       '',

@@ -9,7 +9,7 @@
  */
 import { readInitData, saveKeyOf } from '../initdata.js';
 import { allow, botToken, deny, json, parseJson, readBody, type Route } from '../http.js';
-import { REPORT_LIMITS, readReport, type ReportResponse } from '../contract.js';
+import { REPORT_LIMITS, cityName, cityOr, readReport, type ReportResponse } from '../contract.js';
 import { STORES } from '../kv.js';
 import { adminIds } from '../admin.js';
 import { reportId, type StoredReport } from '../reports.js';
@@ -46,7 +46,7 @@ export const reportWith =
         over = true;
         return null;
       }
-      city = rec.card?.city ?? '';
+      city = cityName(rec.card?.city) ?? '';
       return reported(touched(rec, now, auth.user.username), now, id, sent.text);
     });
     if (over) return deny(429, 'too-many', { 'retry-after': '600' });
@@ -58,7 +58,7 @@ export const reportWith =
 
     const api = tg();
     const short = sent.text.length > PREVIEW ? `${sent.text.slice(0, PREVIEW)}…` : sent.text;
-    const note = `🐞 Отчёт об ошибке ${id}\n«${city || 'без имени'}» ${key}${user ? ` @${user}` : ''} · день ${sent.ctx.day} · ${sent.ctx.view || '—'}\n\n${short}\n\nПодробнее: /report ${id}`;
+    const note = `🐞 Отчёт об ошибке ${id}\n«${cityOr(city)}» ${key}${user ? ` @${user}` : ''} · день ${sent.ctx.day} · ${sent.ctx.view || '—'}\n\n${short}\n\nПодробнее: /report ${id}`;
     for (const admin of adminIds()) await api.say(admin, note);
 
     const body: ReportResponse = { now, id };
