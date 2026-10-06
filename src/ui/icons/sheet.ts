@@ -27,6 +27,15 @@ const listeners = new Set<() => void>();
 /** Лист уже в документе — значит, `<use>` покажет картинку, а не пустоту. */
 export const sheetReady = (): boolean => ready;
 
+/**
+ * Символ листа как элемент документа — холсту карты (`ui/map/tw/glyph.ts`): тот же рисунок, что у `<use>`, без второй
+ * загрузки. null — лист не приехал или значка нет.
+ */
+export function sheetSymbol(name: string): Element | null {
+  if (!ready || !DRAWN.has(name) || typeof document === 'undefined') return null;
+  return document.getElementById(`i-${name}`);
+}
+
 export function onSheet(fn: () => void): () => void {
   listeners.add(fn);
   return () => listeners.delete(fn);

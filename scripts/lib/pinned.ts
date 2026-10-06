@@ -64,16 +64,24 @@ export async function openPinnedMap(
      * ним и проверяется, что мир не уехал.
      */
     world?: string;
+    /**
+     * Что ещё положить на устройство рядом с миром — ключ и строка (`tribe.castles.v1` — соседи из реестра для снимков
+     * Сицилии, `SICILY=1` у `map-tw:shots`). Кладётся тем же заходом, что мир, и тем же повтором.
+     */
+    store?: Record<string, string>;
   } = {},
 ): Promise<void> {
   const home = opts.home ?? PINNED_HOME;
   const seed = opts.seed ?? PINNED_SEED;
   const world = opts.world ?? JSON.stringify({ v: 8, seed, home });
+  const extra = Object.entries(opts.store ?? {})
+    .map(([k, v]) => `localStorage.setItem(${JSON.stringify(k)}, ${JSON.stringify(v)});`)
+    .join(' ');
   for (let attempt = 1; ; attempt++) {
     await tab.eval<string>(
       `(() => { try { localStorage.clear(); localStorage.setItem('tribe.world.v1', ${JSON.stringify(
         world,
-      )}); } catch (e) {} return JSON.stringify('ok'); })()`,
+      )}); ${extra} } catch (e) {} return JSON.stringify('ok'); })()`,
     );
     await tab.send('Page.reload');
     await sleep(4500);

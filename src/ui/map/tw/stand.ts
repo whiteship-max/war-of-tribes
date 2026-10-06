@@ -13,7 +13,8 @@
 //   &quality=low|medium|high              уровень (по умолчанию — высокий: «в полном качестве»)
 //   &season=winter  &night=1              сезон выпечки и ночь поверх кадра
 //   &clean=1                              без подписи стенда
-//   &bench=1                              замер этапа 2: тайл среднего масштаба, лист старой карты, миниатюры
+//   &bench=1                              замер этапа 2: тайл среднего масштаба, лист старой карты, миниатюры;
+//                                         значки нового вида (раздел 14) — те же виды на ближнем масштабе
 //
 // Готовность — `document.body.dataset.ready = '1'`; числа — `document.body.dataset.showcase` (JSON):
 // сколько тайлов испечено и медиана выпечки, по частям. Снимает `npm run map-tw:shots`.
@@ -55,6 +56,8 @@ import {
   worksSprite,
 } from './mini';
 import { placeLabel, regionLabel } from './labels';
+import { dropMarks, markPx, markSprite } from './marks';
+import { onSheet, sheetReady } from '@/ui/icons/sheet';
 import { contour, soften } from './border';
 import { PARCHMENT_PX, SHEET_PX, bakeParchment } from './parchment';
 import { RELATION_META } from '@/world/data/meta';
@@ -736,6 +739,13 @@ function bench(cam: Camera, dpr: number, stats: Stats): void {
     ['miniLair', () => placeSprite({ kind: 'lair', stage: 'town', color: RELATION_META.barbarian.color, own: false, variant: 2, sacked: false }, 44, dpr)],
     ['miniHost', () => hostSprite({ color: OWN, size: 4, west: false, camp: false }, 44, dpr)],
   ];
+  // Значки нового вида (раздел 14) — на ближнем масштабе (44), те же виды, что миниатюры выше: до и после в одном прогоне.
+  const marks: [string, () => unknown][] = [
+    ['markCity', () => markSprite({ glyph: 'stage-town', ring: OWN, pips: 4, own: true, dim: false, corner: null }, markPx(44, 4, true), dpr)],
+    ['markCastle', () => markSprite({ glyph: 'stage-town', ring: RELATION_META.neutral.color, pips: 4, own: false, dim: false, corner: null }, markPx(44, 4, false), dpr)],
+    ['markLair', () => markSprite({ glyph: 'evt-raiders', ring: RELATION_META.barbarian.color, pips: 4, own: false, dim: false, corner: null }, markPx(44, 4, false), dpr)],
+    ['markHost', () => markSprite({ glyph: 'troop-legionary', ring: OWN, pips: 4, own: false, dim: false, corner: null }, markPx(44, 4, false), dpr)],
+  ];
   for (let pass = 0; pass < 2; pass++) {
     const keep = pass === 1;
     for (const [tx, ty] of mids) {
@@ -751,6 +761,13 @@ function bench(cam: Camera, dpr: number, stats: Stats): void {
     for (const [name, make] of looks) {
       for (let i = 0; i < 3; i++) {
         dropMinis();
+        const ms = time(make);
+        if (keep) (stats.parts[name] ??= []).push(ms);
+      }
+    }
+    for (const [name, make] of marks) {
+      for (let i = 0; i < 3; i++) {
+        dropMarks();
         const ms = time(make);
         if (keep) (stats.parts[name] ??= []).push(ms);
       }
@@ -822,8 +839,23 @@ export function mountMapTw(root: HTMLElement, p: URLSearchParams): void {
   // Замер этапа 2 (`bench=1`, docs/map_tw.md, раздел 8): тайл среднего масштаба, лист старой карты и
   // спрайты миниатюр — то, что печётся в игре по одному за кадр. Два прохода, меряется второй (первый —
   // прогрев JIT), медиана по шести тайлам, трём листам и трём выпечкам каждого вида миниатюры.
+  // Значки (раздел 14) печётся с рисунком листа: замер ждёт лист, иначе мерил бы диск без рисунка.
+  if (p.get('bench') === '1' && !sheetReady()) {
+    let done = false;
+    const go = (): void => {
+      if (done) return;
+      done = true;
+      bench(cam, dpr, stats);
+      finish();
+    };
+    onSheet(go);
+    setTimeout(go, 5000);
+    return;
+  }
   if (p.get('bench') === '1') bench(cam, dpr, stats);
+  finish();
 
+  function finish(): void {
   const parts: Record<string, number> = {};
   for (const [k, v] of Object.entries(stats.parts)) parts[k] = Math.round(median(v) * 100) / 100;
   const out = {
@@ -848,4 +880,5 @@ export function mountMapTw(root: HTMLElement, p: URLSearchParams): void {
     root.appendChild(cap);
   }
   document.body.dataset.ready = '1';
+  }
 }

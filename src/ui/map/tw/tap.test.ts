@@ -288,7 +288,10 @@ describe('находки проверки этапа 2', () => {
 
   it('город из соседнего куска за краем экрана рисуется и ловит палец', () => {
     clearCache();
-    const scale = 56;
+    // Значок места — с клетку на ближнем масштабе (`tw/marks.ts`), и за краем экрана на полклетки он целиком за краем;
+    // на 20 px на клетку диск шире половины клетки и заходит на экран — точка внутри области правила (тело на экране
+    // проверено ниже).
+    const scale = 20;
     // Правый край экрана — за долю клетки до начала следующего куска; город — в первом столбце того куска.
     const nextX = WORLD_ORIGIN.x + (MID.cx + 1) * CHUNK;
     const cam: Camera = { cx: nextX - 0.01 - VP.w / 2 / scale, cy: AT.y + 0.5, scale };
@@ -317,7 +320,7 @@ describe('находки проверки этапа 2', () => {
     expect(flush).toBeGreaterThan(night);
     // Срок и бейдж нигде не рисуются мимо очереди меток.
     expect([...src.matchAll(/drawTimer\(ctx, /g)].length).toBe([...src.matchAll(/marks\.push\(\(\) => drawTimer\(ctx, /g)].length);
-    expect(src).toMatch(/marks\.push\(\(\) => \{\s*ctx\.globalAlpha = k === 'attack'/);
+    expect(src).toMatch(/marks\.push\(\(\) => \{\s*ctx\.globalAlpha = blink/);
   });
 
   it('сезон и уровень сверяются в каждом кадре нового вида, а не только при выпечке тайлов', () => {

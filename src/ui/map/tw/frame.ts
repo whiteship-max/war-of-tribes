@@ -32,7 +32,8 @@ import { withinActive } from './theatre/active';
 import { drawAgent } from '../agent';
 import type { MarkerKind } from '../village';
 import { FELL_WORDS, LABEL_MAX_PX, fellShown, fitLabel, worksStand, worksStep } from '../siegemark';
-import { type Mini, BADGE_PX, badgeSprite, drawMini, fellSprite, flagSprite, hostSprite, miniBucket, pinSprite, placeSprite, worksSprite } from './mini';
+import { type Mini, drawMini, fellSprite, miniBucket, worksSprite } from './mini';
+import { BADGE_D, type BadgeKind, badgeSprite, markPx, markSprite } from './marks';
 import { TIMER_FONT, labelFont, labelSprite, regionSprite, timerSprite, timerTextWidth, timerWidth } from './labels';
 import { REGION_CELLS, onWater, regionAlpha, regionSize } from './regions';
 import { type Box, type FigureItem, type HostItem, type PlaceItem, figureItems, hostItems, miniAlpha, placeItems, placesRect } from './scene';
@@ -57,6 +58,10 @@ const PROBE = probe();
 const marks: (() => void)[] = [];
 /** Пилюли сроков, уже легшие в этот кадр: следующая ищет свободное место (`drawTimer`). */
 const timers: Box[] = [];
+/** Метки у мест и значки отрядов этого кадра: подписи их обходят (`drawLabels`). */
+const busy: Box[] = [];
+/** Тела значков мест этого кадра: сроки походов их обходят (`drawTimer`). */
+const places: Box[] = [];
 
 /** Значок постоянного размера: точка привязки значка — на точке места. */
 function blit(ctx: CanvasRenderingContext2D, m: Mini, x: number, y: number): void {
@@ -78,20 +83,25 @@ function namedAt(it: PlaceItem, scale: number): boolean {
   return scale >= LABEL_FROM;
 }
 
-/** Бейджи у места: под ударом мигает, свои войска стоят ровно. Столбиком слева от тела. */
-function drawBadges(ctx: CanvasRenderingContext2D, it: PlaceItem, kinds: MarkerKind[], siege: boolean, mini: boolean, dpr: number, now: number): void {
-  const list: ('attack' | 'troops' | 'siege')[] = [];
+/**
+ * Метки у места — малые значки нового вида столбиком у левого плеча значка (у правого стоят агенты — у ворот,
+ * `scene.atGate`): под ударом и гости у ворот (волки, разбойники) мигают, свои войска стоят ровно, осада — только
+ * издали: вблизи её говорят рогатки на земле.
+ */
+function drawBadges(ctx: CanvasRenderingContext2D, it: PlaceItem, kinds: MarkerKind[], siege: boolean, gate: BadgeKind[], mini: boolean, dpr: number, now: number): void {
+  const list: BadgeKind[] = [...gate];
   for (const k of kinds) if (k === 'attack' || k === 'troops') list.push(k);
-  // Осада на дальнем масштабе: рядов рогаток не разобрать, а «в осаде» обязано читаться издали.
   if (siege && !mini) list.push('siege');
   if (list.length === 0) return;
-  const step = BADGE_PX + 1;
-  const x = mini ? it.body.x0 - 2 : it.body.x1 + 6;
-  let y = mini ? it.body.y0 + 10 : it.body.y0 + 6;
+  const step = BADGE_D + 2;
+  const x = it.body.x0 - BADGE_D / 2 + 3;
+  let y = it.sy - it.d / 2 + BADGE_D / 2 - 2;
   for (const k of list) {
     const at = y;
+    const blink = k === 'attack' || k === 'wolves' || k === 'raiders';
+    busy.push({ x0: x - BADGE_D / 2, y0: at - BADGE_D / 2, x1: x + BADGE_D / 2, y1: at + BADGE_D / 2 });
     marks.push(() => {
-      ctx.globalAlpha = k === 'attack' ? 0.55 + 0.45 * Math.abs(Math.sin(now / 380)) : 1;
+      ctx.globalAlpha = blink ? 0.55 + 0.45 * Math.abs(Math.sin(now / 380)) : 1;
       blit(ctx, badgeSprite(k, dpr), x, at);
       ctx.globalAlpha = 1;
     });
@@ -99,32 +109,46 @@ function drawBadges(ctx: CanvasRenderingContext2D, it: PlaceItem, kinds: MarkerK
   }
 }
 
+/** Гости у ворот своего города: вызов к воротам, который мир ещё не посчитал (`sim/gate`, `GameState.gate`). */
+function gateBadges(): BadgeKind[] {
+  const gate = useGame.getState().s?.gate ?? [];
+  const out: BadgeKind[] = [];
+  for (const g of gate) {
+    const k: BadgeKind = g.foe === 'wolves' ? 'wolves' : 'raiders';
+    if (!out.includes(k)) out.push(k);
+  }
+  return out;
+}
+
 function drawPlaces(ctx: CanvasRenderingContext2D, cam: Camera, items: PlaceItem[], dpr: number, now: number, markers: Map<string, MarkerKind[]>): void {
   const px = cam.scale;
   const ma = miniAlpha(px);
   const bucket = miniBucket(px);
+  const gate = gateBadges();
   ctx.save();
   ctx.imageSmoothingEnabled = true;
-  for (const it of items) {
-    const { s, look, sx, sy } = it;
+  // Своё — последним: на дальнем масштабе соседи ложатся под него, а не на него.
+  const order = items.some((it) => it.s.mine) ? [...items].sort((a, b) => Number(a.s.mine) - Number(b.s.mine)) : items;
+  for (const it of order) {
+    const { s, sx, sy } = it;
     const siege = s.besieged && worksStand(s.besieged.starvesAt, now) ? s.besieged : null;
-    if (ma > 0) {
+    // Рогатки обнимают место вблизи: дальняя половина кольца — под значком, ближняя — поверх. Готовность сторон — та
+    // же `works.sideWorks`, что считает бой и окна осады, на минуту кадра.
+    const front = siege ? worksStep(sideWorks(siege.since, now, 'front', siege.wood)) : 0;
+    const rear = siege ? worksStep(sideWorks(siege.since, now, 'rear', siege.wood)) : 0;
+    if (siege && ma > 0) {
       ctx.globalAlpha = ma;
-      // Рогатки обнимают город: дальняя половина кольца — под двором, ближняя — поверх. Готовность сторон —
-      // та же `works.sideWorks`, что считает бой и окна осады, на минуту кадра.
-      const front = siege ? worksStep(sideWorks(siege.since, now, 'front', siege.wood)) : 0;
-      const rear = siege ? worksStep(sideWorks(siege.since, now, 'rear', siege.wood)) : 0;
-      if (siege) drawMini(ctx, worksSprite(front, rear, 'back', px, dpr), px, bucket, sx, sy);
-      drawMini(ctx, placeSprite(look, px, dpr), px, bucket, sx, sy);
-      if (siege) drawMini(ctx, worksSprite(front, rear, 'front', px, dpr), px, bucket, sx, sy);
+      drawMini(ctx, worksSprite(front, rear, 'back', px, dpr), px, bucket, sx, sy);
+      ctx.globalAlpha = 1;
     }
-    if (ma < 1) {
-      ctx.globalAlpha = 1 - ma;
-      blit(ctx, pinSprite({ kind: look.kind, color: look.color, own: look.own }, dpr), sx, sy);
+    blit(ctx, markSprite(it.mark, it.d, dpr), sx, sy);
+    if (siege && ma > 0) {
+      ctx.globalAlpha = ma;
+      drawMini(ctx, worksSprite(front, rear, 'front', px, dpr), px, bucket, sx, sy);
+      ctx.globalAlpha = 1;
     }
-    ctx.globalAlpha = 1;
     const kinds = markers.get(s.id) ?? [];
-    drawBadges(ctx, it, kinds, siege !== null, ma >= 0.5, dpr, now);
+    drawBadges(ctx, it, kinds, siege !== null, s.mine ? gate : [], ma >= 0.5, dpr, now);
   }
   ctx.restore();
 }
@@ -136,7 +160,12 @@ function drawPlaces(ctx: CanvasRenderingContext2D, cam: Camera, items: PlaceItem
  * по счётчику кадров: после ухода с карты и возврата дорожка не прыгает). Две линии на отряд — те же, что
  * у прежнего кадра; здесь только чернила и светлая сердцевина, как у пути на карте кампании.
  */
-function drawRoute(ctx: CanvasRenderingContext2D, fx: number, fy: number, px: number, py: number, tx: number, ty: number, color: string, now: number): void {
+function drawRoute(ctx: CanvasRenderingContext2D, fx: number, fy: number, px: number, py: number, tx: number, ty: number, color: string, now: number, trim = 0): void {
+  // Концы пути — у кольца значка места, а не в его середине: линия не перечёркивает рисунок города.
+  if (trim > 0) {
+    [fx, fy] = cut(fx, fy, px, py, trim);
+    [tx, ty] = cut(tx, ty, px, py, trim);
+  }
   ctx.save();
   ctx.lineCap = 'round';
   ctx.globalAlpha = 0.28;
@@ -160,6 +189,19 @@ function drawRoute(ctx: CanvasRenderingContext2D, fx: number, fy: number, px: nu
   ctx.stroke();
   ctx.restore();
 }
+
+/** Точка `a`, сдвинутая к `b` на `by` (не дальше середины пути). */
+function cut(ax: number, ay: number, bx: number, by_: number, by: number): [number, number] {
+  const dx = bx - ax;
+  const dy = by_ - ay;
+  const len = Math.hypot(dx, dy);
+  if (len < 1) return [ax, ay];
+  const k = Math.min(by, len / 2) / len;
+  return [ax + dx * k, ay + dy * k];
+}
+
+/** Полрадиуса значка крепости на масштабе — сколько отрезать у концов пути. */
+const routeTrim = (scale: number): number => markPx(scale, 4, false) / 2 + 2;
 
 /** Наконечник хода — чернильный шеврон цвета стороны впереди отряда: куда идёт, видно и с дальнего масштаба. */
 function drawChevron(ctx: CanvasRenderingContext2D, x: number, y: number, angle: number, r: number, color: string): void {
@@ -190,7 +232,9 @@ function drawTimer(ctx: CanvasRenderingContext2D, text: string, x: number, y: nu
   const p = timerSprite(timerWidth(timerTextWidth(text)), ours, dpr);
   // Сроки соседних отрядов не ложатся друг на друга: занятое место — выше на пилюлю (не дальше трёх ступеней).
   let top = y - p.h;
-  for (let i = 0; i < 3 && overlaps({ x0: x - p.w / 2, y0: top, x1: x + p.w / 2, y1: top + p.h }, timers); i++) top -= p.h + 1;
+  // Значки мест и меток срок тоже не закрывает: пилюля над отрядом у стены ложилась на город.
+  const blocked = (b: Box): boolean => overlaps(b, timers) || overlaps(b, places);
+  for (let i = 0; i < 3 && blocked({ x0: x - p.w / 2, y0: top, x1: x + p.w / 2, y1: top + p.h }); i++) top -= p.h + 1;
   timers.push({ x0: x - p.w / 2, y0: top, x1: x + p.w / 2, y1: top + p.h });
   ctx.drawImage(p.canvas, x - p.w / 2, top, p.w, p.h);
   ctx.font = TIMER_FONT;
@@ -203,26 +247,16 @@ function drawTimer(ctx: CanvasRenderingContext2D, text: string, x: number, y: nu
 
 function drawHosts(ctx: CanvasRenderingContext2D, cam: Camera, items: HostItem[], dpr: number, now: number): void {
   const px = cam.scale;
-  const ma = miniAlpha(px);
-  const bucket = miniBucket(px);
   const withTimer = px >= LABEL_FROM;
   for (const it of items) {
     const { m, look, sx, sy, fx, fy, tx, ty, standing, angle, body } = it;
-    if (!standing) drawRoute(ctx, fx, fy, sx, sy, tx, ty, look.color, now);
-    ctx.save();
-    if (ma > 0) {
-      ctx.globalAlpha = ma;
-      drawMini(ctx, hostSprite(look, px, dpr), px, bucket, sx, sy);
-    }
-    if (ma < 1) {
-      ctx.globalAlpha = 1 - ma;
-      blit(ctx, flagSprite({ color: look.color, size: look.size, camp: look.camp }, dpr), sx, sy);
-    }
-    ctx.restore();
+    if (!standing) drawRoute(ctx, fx, fy, sx, sy, tx, ty, look.color, now, routeTrim(px));
+    blit(ctx, markSprite(it.mark, it.d, dpr), sx, sy);
+    busy.push(body);
     if (!standing) {
-      // Впереди тела отряда — не на нём: на миниатюре шеврон лежал бы поверх щита.
-      const lead = Math.max(14, (body.x1 - body.x0) * 0.55);
-      drawChevron(ctx, sx + Math.cos(angle) * lead, sy - 4 + Math.sin(angle) * lead, angle, Math.max(5, Math.min(9, px * 0.2)), look.color);
+      // Впереди значка — не на нём: шеврон у кольца показывает, куда идёт отряд, и издали.
+      const lead = it.d / 2 + 6;
+      drawChevron(ctx, sx + Math.cos(angle) * lead, sy + Math.sin(angle) * lead, angle, Math.max(5, Math.min(8, it.d * 0.22)), look.color);
     }
     if (!withTimer && !m.hostile) continue;
     const text = realLeft(secondsLeft(m.arriveAt, now));
@@ -234,8 +268,6 @@ function drawHosts(ctx: CanvasRenderingContext2D, cam: Camera, items: HostItem[]
 
 function drawFigures(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport, items: FigureItem[], picked: string | null, dpr: number, now: number): void {
   const px = cam.scale;
-  const ma = miniAlpha(px);
-  const bucket = miniBucket(px);
   for (const it of items) {
     const { f, px: hx, ax, py, tx, ty, unit, west } = it.spot;
     const [rx, ry] = it.at;
@@ -255,21 +287,13 @@ function drawFigures(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport, i
     }
     if (f.phase === 'moving') {
       const [fx, fy] = toScreen(cam, vp, f.from.x + 0.5, f.from.y + 0.5);
-      drawRoute(ctx, fx, fy, hx, py, tx, ty, OWN, now);
+      drawRoute(ctx, fx, fy, hx, py, tx, ty, OWN, now, routeTrim(px));
       const text = realLeft(secondsLeft(f.arriveAt, now));
       marks.push(() => drawTimer(ctx, text, tx, ty - 8, OWN, dpr));
     }
-    if (it.host) {
-      ctx.save();
-      if (ma > 0) {
-        ctx.globalAlpha = ma;
-        drawMini(ctx, hostSprite(it.host, px, dpr), px, bucket, hx, py);
-      }
-      if (ma < 1) {
-        ctx.globalAlpha = 1 - ma;
-        blit(ctx, flagSprite({ color: it.host.color, size: it.host.size, camp: it.host.camp }, dpr), hx, py);
-      }
-      ctx.restore();
+    if (it.hostMark && it.hostBox) {
+      blit(ctx, markSprite(it.hostMark, it.hostD, dpr), hx, py);
+      busy.push(it.hostBox);
     }
     if (chosen) {
       ctx.save();
@@ -329,27 +353,78 @@ function fitName(name: string, own: boolean): string {
   return out;
 }
 
+/**
+ * Чьё имя важнее: своё — первым и не уступает никому; дальше живые соседи — крупные раньше мелких (Сицилия: двенадцать
+ * городов в 5,8–6 клетках друг от друга, docs/test_world.md, — на 7 px на клетку 40.6–42 px, и все имена не лягут);
+ * логова и пепелища — последними.
+ */
+function labelRank(it: PlaceItem): number {
+  if (it.s.mine) return 100;
+  if (it.s.ruin) return 0;
+  return (it.s.relation === 'barbarian' ? 10 : 20 + (it.look.kind === 'castle' ? 10 : 0)) + it.mark.pips;
+}
+
+/**
+ * Где искать место подписи у значка: под ним, над ним, справа, слева, наискось — первое свободное. Подписи не ложатся ни на
+ * значки мест и отрядов, ни на метки, ни на сроки походов, ни друг на друга; не нашлось места — имя уступает (своё не
+ * уступает никогда и ложится туда, где закроет меньше всего, — `leastCovered`).
+ */
+function labelSpots(b: Box, sx: number, sy: number, w: number, h: number): Box[] {
+  const below = (x0: number): Box => ({ x0, y0: b.y1 + 2, x1: x0 + w, y1: b.y1 + 2 + h });
+  const above = (x0: number): Box => ({ x0, y0: b.y0 - 2 - h, x1: x0 + w, y1: b.y0 - 2 });
+  return [
+    below(sx - w / 2),
+    above(sx - w / 2),
+    { x0: b.x1 + 3, y0: sy - h / 2, x1: b.x1 + 3 + w, y1: sy + h / 2 },
+    { x0: b.x0 - 3 - w, y0: sy - h / 2, x1: b.x0 - 3, y1: sy + h / 2 },
+    // Наискось — край подписи у середины значка: имя проскальзывает мимо соседа, не отрываясь от своего места.
+    below(sx - w * 0.15),
+    below(sx - w * 0.85),
+    above(sx - w * 0.15),
+    above(sx - w * 0.85),
+  ];
+}
+
+/** Место, где подпись закроет меньше всего чужого: первое из равных — порядок мест тот же, что у `labelSpots`. */
+function leastCovered(spots: Box[], taken: Box[]): Box {
+  let best = spots[0];
+  let least = Infinity;
+  for (const b of spots) {
+    const n = taken.filter((t) => b.x0 < t.x1 && b.x1 > t.x0 && b.y0 < t.y1 && b.y1 > t.y0).length;
+    if (n < least) {
+      least = n;
+      best = b;
+    }
+  }
+  return best;
+}
+
+const onScreen = (b: Box, vp: Viewport): boolean => b.x0 >= 2 && b.x1 <= vp.w - 2 && b.y0 >= TOP_INSET && b.y1 <= vp.h - 2;
+
 function drawLabels(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport, items: PlaceItem[], dpr: number, now: number): Box[] {
-  const taken: Box[] = [];
-  // Своё — первым: его имя важнее чужих и не уступает места соседу.
-  const order = [...items].sort((a, b) => Number(b.s.mine) - Number(a.s.mine));
+  // Занято до подписей: значки мест, значки отрядов, метки и сроки.
+  const taken: Box[] = [...items.map((it) => it.body), ...busy, ...timers];
+  const order = [...items].sort((a, b) => labelRank(b) - labelRank(a));
   for (const it of order) {
-    const { s, sx, body } = it;
+    const { s, sx, sy, body } = it;
     if (sx < -40 || sx > vp.w + 40 || body.y1 < -20 || body.y1 > vp.h + 20) continue;
-    let top = body.y1 + 3;
+    // Свой значок подписи не мешает: подпись ищет место вокруг него, а не поверх.
+    const others = taken.filter((t) => t !== body);
+    let under = body.y1 + 2;
     if (namedAt(it, cam.scale)) {
       const l = labelSprite(fitName(s.name, s.mine), s.mine, dpr, it.look.color);
-      const box: Box = { x0: sx - l.w / 2, y0: top, x1: sx + l.w / 2, y1: top + l.h };
-      if (s.mine || !overlaps(box, taken)) {
+      const spots = labelSpots(body, sx, sy, l.w, l.h);
+      const box = spots.find((b) => onScreen(b, vp) && !overlaps(b, others)) ?? (s.mine ? leastCovered(spots, others) : null);
+      if (box) {
         taken.push(box);
         ctx.drawImage(l.canvas, box.x0, box.y0, l.w, l.h);
-        top += l.h + 1;
+        if (box === spots[0]) under = box.y1 + 1;
       }
     }
-    // Знак участи павшего — под именем; он важнее имени и встаёт на его место, если то уступило соседу.
+    // Знак участи павшего — под именем или под значком; он важнее имени и ложится, даже если имя уступило соседу.
     if (cam.scale >= LABEL_FROM && fellShown(s.fell, now)) {
       const p = fellSprite(s.fell.fate, FELL_WORDS[s.fell.fate], dpr);
-      const box: Box = { x0: sx - p.ax, y0: top - p.ay, x1: sx - p.ax + p.w, y1: top - p.ay + p.h };
+      const box: Box = { x0: sx - p.ax, y0: under - p.ay, x1: sx - p.ax + p.w, y1: under - p.ay + p.h };
       taken.push(box);
       ctx.drawImage(p.canvas, box.x0, box.y0, p.w, p.h);
     }
@@ -446,8 +521,11 @@ export function drawTwFrame(ctx: CanvasRenderingContext2D, cam: Camera, vp: View
 
   marks.length = 0;
   timers.length = 0;
-  const places = placeItems(cam, vp, settlementsIn(placesRect(rect)), dpr);
-  drawPlaces(ctx, cam, places, dpr, now, markersOf(state.marches));
+  busy.length = 0;
+  const items = placeItems(cam, vp, settlementsIn(placesRect(rect)), dpr);
+  places.length = 0;
+  for (const it of items) places.push(it.body);
+  drawPlaces(ctx, cam, items, dpr, now, markersOf(state.marches));
 
   // Незнакомое — лист старой карты (своё неразведанное и чужой регион), разведанное вне обзора — сепия
   // (`tw/fog.ts`): поверх мест, под всем, что движется, — как прежний туман.
@@ -460,11 +538,11 @@ export function drawTwFrame(ctx: CanvasRenderingContext2D, cam: Camera, vp: View
   drawFigures(ctx, cam, vp, figureItems(cam, vp, state.figures, now, dpr), state.picked, dpr, now);
 
   // Ночь — по часам партии, как у сцены города (`tw/night.ts`); подписи и сроки — поверх неё.
-  drawNight(ctx, vp.w, vp.h, cam.scale, places, nightNow(), dpr);
+  drawNight(ctx, vp.w, vp.h, cam.scale, items, nightNow(), dpr);
   for (const draw of marks) draw();
   marks.length = 0;
 
-  drawRegions(ctx, cam, vp, dpr, drawLabels(ctx, cam, vp, places, dpr, now));
+  drawRegions(ctx, cam, vp, dpr, drawLabels(ctx, cam, vp, items, dpr, now));
 
   // Метка лупы и выбранная клетка — только в своём регионе: за его границей лист, и метки там нечему держать.
   if (state.spotlight && withinActive(state.spotlight.x, state.spotlight.y)) drawSpot(ctx, cam, vp, state.spotlight, now);

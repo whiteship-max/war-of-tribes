@@ -21,21 +21,23 @@ import { type PartySize, lookOf as partyLook } from '../party';
 import { type Spot, spotsOf } from '../figures';
 import { ANCHOR_X, ANCHOR_Y, FAN_STEP, SPAN_H, SPAN_W } from '../agent';
 import { settlementAt } from '@/world/cache';
-import { type HostLook, type PlaceKind, type PlaceLook, PIN_PX, flagSprite, hostBody, pinSprite, placeBody } from './mini';
+import type { HostLook, PlaceKind, PlaceLook } from './mini';
+import { type MarkLook, STAGE_PIPS, markGeo, markPx } from './marks';
+import { SIDE_COLOR } from '@/side';
 import { withinActive } from './theatre/active';
 
-// ---------- Масштаб: миниатюра или значок ----------
+// ---------- Масштаб: ближний или дальний ----------
 
 /**
- * С какого масштаба места и войска — миниатюры, а не значки постоянного размера. Ниже `MINI_LO` миниатюра
- * мельче значка и неразличима (стоянка логова — полторы клетки, на 12 px — 18 px каши), выше `MINI_HI`
- * значок прячется. Полоса перелива узкая: в широкой полупрозрачные значок и миниатюра читались кашей
- * (снимки игры этапа 2, круг 4, ×14).
+ * Места, отряды и лагеря — значками нового интерфейса на любом масштабе (`tw/marks.ts`, docs/map_tw.md, раздел 14);
+ * прежние миниатюры в кадре игры не рисуются. Порог остался у того, что лежит на земле и читается только вблизи, —
+ * рядов рогаток вокруг осаждённого места: ниже `MINI_LO` они мельче значка, выше `MINI_HI` видны целиком, а издали
+ * осаду говорит метка у значка (`frame.drawBadges`).
  */
 export const MINI_LO = 15;
 export const MINI_HI = 17;
 
-/** Доля миниатюры на масштабе: 0 — значки, 1 — миниатюры. */
+/** Доля ближнего вида на масштабе: 0 — дальний, 1 — ближний (рогатки видны). */
 export function miniAlpha(scale: number): number {
   if (scale <= MINI_LO) return 0;
   if (scale >= MINI_HI) return 1;
@@ -43,7 +45,7 @@ export function miniAlpha(scale: number): number {
   return t * t * (3 - 2 * t);
 }
 
-/** Чем объект нарисован на этом масштабе: цель пальца — то, что видно сильнее. */
+/** Ближний ли масштаб: рогатки на земле, а не метка осады. */
 export const asMini = (scale: number): boolean => miniAlpha(scale) >= 0.5;
 
 // ---------- Коробки на экране ----------
@@ -55,13 +57,6 @@ export interface Box {
   x1: number;
   y1: number;
 }
-
-const bodyBox = (sx: number, sy: number, rx: number, up: number, down: number): Box => ({
-  x0: sx - rx,
-  y0: sy - up,
-  x1: sx + rx,
-  y1: sy + down,
-});
 
 // ---------- Места ----------
 
@@ -87,36 +82,59 @@ export function placeLookOf(s: SettlementView): PlaceLook {
   return { kind, stage, color: s.color, own: s.mine, variant: variantOf(s.id), sacked: s.sacked };
 }
 
+/** Кольцо пепелища: пепел, а не цвет стороны — места больше нет. */
+export const RUIN_RING = '#8c8478';
+
+/**
+ * Значок места (`tw/marks.ts`). Рисунок — по виду и размеру: свой город — город (`stage-town`), как в самом городе;
+ * чужие города и неувиденные места — рисунком своей стадии (стоянка, деревня, острог, крепость); логово — разбойники;
+ * пепелище — огонь, приглушённо. Плашка размера — настоящая стадия у всех, и у своего: размер соседа сравнивают со
+ * своим. Кольцо — цвет стороны или отношения, у своего — золото (`side.ts`).
+ */
+export function placeMarkOf(s: SettlementView): MarkLook {
+  const pips = STAGE_PIPS[s.stage];
+  if (s.ruin) return { glyph: 'evt-fire', ring: RUIN_RING, pips, own: false, dim: true, corner: null };
+  const corner = s.sacked ? 'evt-fire' : null;
+  if (s.relation === 'barbarian') return { glyph: 'evt-raiders', ring: s.color, pips, own: false, dim: false, corner };
+  if (s.mine) return { glyph: 'stage-town', ring: SIDE_COLOR.ours, pips, own: true, dim: false, corner };
+  return { glyph: `stage-${s.stage}`, ring: s.color, pips, own: false, dim: false, corner };
+}
+
+/** Диаметр значка места на масштабе. */
+export const placeMarkPx = (m: MarkLook, scale: number): number => markPx(scale, m.pips, m.own);
+
+/** Тело значка на экране от середины диска. */
+function markBox(m: MarkLook, d: number, sx: number, sy: number): Box {
+  const g = markGeo(m, d);
+  return { x0: sx - g.rx, y0: sy - g.up, x1: sx + g.rx, y1: sy + g.down };
+}
+
 export interface PlaceItem {
   s: SettlementView;
   look: PlaceLook;
-  /** Точка места на экране — середина клетки. */
+  /** Значок и его диаметр на этом масштабе. */
+  mark: MarkLook;
+  d: number;
+  /** Точка места на экране — середина клетки; на ней середина диска. */
   sx: number;
   sy: number;
-  /** Тело миниатюры или значка — смотря что видно на масштабе. */
+  /** Тело значка: цель пальца и место, которое обходят подписи. */
   body: Box;
 }
 
-export function placeItems(cam: Camera, vp: Viewport, list: SettlementView[], dpr: number): PlaceItem[] {
+export function placeItems(cam: Camera, vp: Viewport, list: SettlementView[], _dpr: number): PlaceItem[] {
   const px = cam.scale;
-  const mini = asMini(px);
   const out: PlaceItem[] = [];
   for (const s of list) {
     if (!withinActive(s.x, s.y)) continue;
     const [sx, sy] = toScreen(cam, vp, s.x + 0.5, s.y + 0.5);
-    // Миниатюра шире клетки (город — до трёх с половиной): запас, чтобы крыши не выскакивали у края.
-    const pad = Math.max(48, px * 2.2);
+    // Запас у края: значок и рогатки вокруг осаждённого места (полторы клетки) не выскакивают у края.
+    const pad = Math.max(48, px * 1.6);
     if (sx < -pad || sy < -pad || sx > vp.w + pad || sy > vp.h + pad) continue;
     const look = placeLookOf(s);
-    let body: Box;
-    if (mini) {
-      const b = placeBody(look);
-      body = bodyBox(sx, sy, b.rx * px, b.up * px, b.down * px);
-    } else {
-      const pin = pinSprite({ kind: look.kind, color: look.color, own: look.own }, dpr);
-      body = { x0: sx - pin.ax, y0: sy - pin.ay, x1: sx - pin.ax + pin.w, y1: sy - pin.ay + pin.h };
-    }
-    out.push({ s, look, sx, sy, body });
+    const mark = placeMarkOf(s);
+    const d = placeMarkPx(mark, px);
+    out.push({ s, look, mark, d, sx, sy, body: markBox(mark, d, sx, sy) });
   }
   return out;
 }
@@ -135,9 +153,24 @@ const HOST_SIZE: Record<PartySize, HostLook['size']> = { rumor: 0, small: 1, ban
 export const CAMP_DX = 1.6;
 export const CAMP_DY = 0.42;
 
+/**
+ * Значок отряда: в поле — воин в доспехе со щитом (`troop-legionary`), стоит у цели — шатры (`stage-camp`): лагерь,
+ * осадный или подмоги. Скрещённые мечи (`hud-army`) на диске читались молотками (снимки, круг 1). Плашка —
+ * размер отряда по лестнице прежнего (горстка, отряд, войско, орда); слух — без плашки и приглушённо: сколько их,
+ * знают только глаза (`world/sight`).
+ */
+export function hostMarkOf(l: HostLook): MarkLook {
+  return { glyph: l.camp ? 'stage-camp' : 'troop-legionary', ring: l.color, pips: l.size, own: false, dim: l.size === 0, corner: null };
+}
+
+/** Отряд мельче места того же размера: место — цель, отряд — фишка на пути к ней. */
+export const hostMarkPx = (m: MarkLook, scale: number): number => Math.round((markPx(scale, m.pips, false) * 0.9) / 2) * 2;
+
 export interface HostItem {
   m: MarchView;
   look: HostLook;
+  mark: MarkLook;
+  d: number;
   /** Где отряд в мире (дробная клетка; стоящий — на цели). */
   pos: Coord;
   standing: boolean;
@@ -156,9 +189,8 @@ export interface HostItem {
   target: boolean;
 }
 
-export function hostItems(cam: Camera, vp: Viewport, marches: MarchView[], discs: SightDisc[], now: number, dpr: number): HostItem[] {
+export function hostItems(cam: Camera, vp: Viewport, marches: MarchView[], discs: SightDisc[], now: number, _dpr: number): HostItem[] {
   const out: HostItem[] = [];
-  const mini = asMini(cam.scale);
   for (const m of marches) {
     const standing = m.phase === 'stay';
     const pos = standing ? m.to : marchPosition(m, now);
@@ -187,15 +219,10 @@ export function hostItems(cam: Camera, vp: Viewport, marches: MarchView[], discs
     });
     const color = m.hostile ? RELATION_META.enemy.color : RELATION_META.self.color;
     const look: HostLook = { color, size: HOST_SIZE[old.size], west, camp: old.shape === 'camp' };
-    let body: Box;
-    if (mini) {
-      const b = hostBody(look);
-      body = bodyBox(sx, sy, b.rx * cam.scale, b.up * cam.scale, b.down * cam.scale);
-    } else {
-      const f = flagSprite({ color, size: look.size, camp: look.camp }, dpr);
-      body = { x0: sx - f.ax, y0: sy - f.ay, x1: sx - f.ax + f.w, y1: sy - f.ay + f.h };
-    }
-    out.push({ m, look, pos, standing, sx, sy, fx, fy, tx, ty, angle, body, cell, target: !m.own && m.phase === 'out' });
+    const mark = hostMarkOf(look);
+    const d = hostMarkPx(mark, cam.scale);
+    const body = markBox(mark, d, sx, sy);
+    out.push({ m, look, mark, d, pos, standing, sx, sy, fx, fy, tx, ty, angle, body, cell, target: !m.own && m.phase === 'out' });
   }
   return out;
 }
@@ -207,8 +234,10 @@ export interface FigureItem {
   spot: Spot;
   /** Настоящая точка агента на экране — середина его клетки: от неё круг обзора и всё, что меряет мир. */
   at: [number, number];
-  /** Войско при полководце: тот же вид, что у похода. */
+  /** Войско при полководце: тот же вид и тот же значок, что у похода. */
   host: HostLook | null;
+  hostMark: MarkLook | null;
+  hostD: number;
   /** Силуэт агента и войско при нём. */
   body: Box;
   hostBox: Box | null;
@@ -226,13 +255,13 @@ function atGate(cam: Camera, spots: Spot[], now: number): Spot[] {
   const count = new Map<string, number>();
   const cells = spots.map((sp) => cellOfFigure(sp.f, now));
   for (const c of cells) count.set(`${c.x}|${c.y}`, (count.get(`${c.x}|${c.y}`) ?? 0) + 1);
-  const mini = asMini(cam.scale);
   return spots.map((sp, i) => {
     if (sp.f.phase === 'moving') return sp;
     const c = cells[i];
     const s = settlementAt(c.x, c.y);
     if (!s) return sp;
-    const half = mini ? placeBody(placeLookOf(s)).rx * cam.scale : PIN_PX / 2;
+    const mark = placeMarkOf(s);
+    const half = markGeo(mark, placeMarkPx(mark, cam.scale)).rx;
     const n = count.get(`${c.x}|${c.y}`) ?? 1;
     const fan = ((n - 1) / 2) * FAN_STEP * sp.unit + ANCHOR_X * sp.unit;
     const dx = half + fan + 4;
@@ -241,8 +270,7 @@ function atGate(cam: Camera, spots: Spot[], now: number): Spot[] {
   });
 }
 
-export function figureItems(cam: Camera, vp: Viewport, figures: FigureView[], now: number, dpr: number): FigureItem[] {
-  const mini = asMini(cam.scale);
+export function figureItems(cam: Camera, vp: Viewport, figures: FigureView[], now: number, _dpr: number): FigureItem[] {
   // Агенты — свои люди: видны всегда, и за краем региона тоже (путь между своими клетками через чужой край).
   const raw = spotsOf(cam, vp, figures, now);
   return atGate(cam, raw, now).map((spot, i) => {
@@ -254,20 +282,18 @@ export function figureItems(cam: Camera, vp: Viewport, figures: FigureView[], no
       y1: py - ANCHOR_Y * unit + SPAN_H * unit,
     };
     let host: HostLook | null = null;
+    let hostMark: MarkLook | null = null;
+    let hostD = 0;
     let hostBox: Box | null = null;
     if (men > 0) {
       // Своё войско — своё: размер считает игрок (`seen: true`), как у прежнего `figures.drawFigures`.
       const old = partyLook({ own: true, units: f.troops, standing, seen: true, west });
       host = { color: RELATION_META.self.color, size: HOST_SIZE[old.size], west, camp: old.shape === 'camp' };
-      if (mini) {
-        const b = hostBody(host);
-        hostBox = bodyBox(px, py, b.rx * cam.scale, b.up * cam.scale, b.down * cam.scale);
-      } else {
-        const fl = flagSprite({ color: host.color, size: host.size, camp: host.camp }, dpr);
-        hostBox = { x0: px - fl.ax, y0: py - fl.ay, x1: px - fl.ax + fl.w, y1: py - fl.ay + fl.h };
-      }
+      hostMark = hostMarkOf(host);
+      hostD = hostMarkPx(hostMark, cam.scale);
+      hostBox = markBox(hostMark, hostD, px, py);
     }
-    return { spot, at: [raw[i].px, raw[i].py], host, body, hostBox, cell: cellOfFigure(f, now) };
+    return { spot, at: [raw[i].px, raw[i].py], host, hostMark, hostD, body, hostBox, cell: cellOfFigure(f, now) };
   });
 }
 
