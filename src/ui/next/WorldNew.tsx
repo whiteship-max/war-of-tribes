@@ -25,7 +25,7 @@ import { KIND_META, UNIT_KINDS } from '@/battle';
 import { TERRAIN_META } from '@/world/data/terrain';
 import type { Estimate, Fate, FigureId, Mission, UnitStack } from '@/world/types';
 import { UNIT_BY_ID, stackSize } from '@/world/data/units';
-import { awayOf, homeOf } from '@/world/muster';
+import { awayOf, ownOf } from '@/world/muster';
 import { awayTroops } from '@/world/bridge';
 import { troopTotal } from '@/game/battle/kinds';
 import { FELL_WORDS } from '@/ui/map/siegemark';
@@ -34,9 +34,10 @@ import { Icon } from '@/ui/icons/Icon';
 import { FatePick } from '@/ui/parts/FatePick';
 import { hungerLeft } from '@/ui/parts/hunger';
 import { count } from '@/ui/parts/plural';
+import { EnergyPrice } from '@/ui/parts/Energy';
 import { signed } from '@/ui/parts/signed';
 import { realLeft, waitLeft, waitShort } from '@/ui/parts/wait';
-import { GarrisonEditor } from '@/ui/parts/GarrisonEditor';
+import { MusterLink } from '@/ui/parts/Muster';
 import { tipAt, type TipContent } from './tip';
 import { WarCard } from './WarCard';
 import { num } from '@/game/num';
@@ -113,6 +114,7 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
   const moveFigure = useWorld((g) => g.moveFigure);
   const shelter = useWorld((g) => g.shelter);
   const attack = useWorld((g) => g.attack);
+  const assault = useWorld((g) => g.assault);
   const besiege = useWorld((g) => g.besiege);
   const negotiate = useWorld((g) => g.negotiate);
   const openMenu = useWorld((g) => g.openMenu);
@@ -239,9 +241,10 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
     );
   }
 
-  // Отряд уходит из гарнизона: дружина у ворот в обороне, гонцом за ворота не выходит (`LocalWorld.send`).
+  // Отряд уходит из гарнизона без отряда полководца: тот стоит в обороне и гонцом за ворота не выходит — бойцы
+  // полководца его, а не гарнизона (`LocalWorld.send` берёт отряд без состава из них же, docs/retinue.md).
   const who = awayOf(marches, figures);
-  const have = { ...sendableUnits(s), warrior: troopTotal(homeOf(s.army, who)) };
+  const have = { ...sendableUnits(s), warrior: troopTotal(ownOf(s.army, who)) };
   const def = defense(s);
   const picked = { warrior: pick.warrior ?? 0, scout: pick.scout ?? 0 };
   const eta = marchSeconds(card.distance, card.terrainFactor, picked);
@@ -267,6 +270,15 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
     const err = await attack({ fate });
     setBusy(false);
     showToast(err ?? 'Отряд ударил. Донесение в походах.');
+  };
+  // «Дойти и ударить»: полководец не здесь — идёт сюда и бьёт в минуту прихода (`assault`). Город игрока — блок «Война».
+  const goStrike = !card.castle && !card.siege?.mine && !standing.includes('general') ? card.assault : undefined;
+  const march = async (): Promise<void> => {
+    if (!goStrike) return;
+    setBusy(true);
+    const err = await assault(card.id, fate);
+    setBusy(false);
+    showToast(err ?? `Отряд вышел. Бой через ${realLeft(goStrike.walkMs / 1000)}, даже если ты не в игре.`);
   };
   const doSend = async (): Promise<void> => {
     if (!mission) return;
@@ -308,7 +320,7 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
         ? 'Лазутчик здесь. Прикажи ему залечь, и станет видно.'
         : 'Живьём видно у своего города и вокруг залёгшего лазутчика. Доведи его сюда.',
   };
-  const raidable = (card.can.raid || card.can.besiege) && !card.siege?.mine;
+  const raidable = (card.can.raid || card.can.besiege || Boolean(goStrike?.can)) && !card.siege?.mine;
   // Строка владельца — словами меню приказов и только то, что есть (docs/ui_audit.md, 14.1, 17). У своего города
   // владелец — заглушка слепка («Наше племя», `bridge.playerProfile`), и строки нет, как в меню приказов.
   const ownerLine = card.mine
@@ -381,6 +393,12 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
             Ударить · {count(generalMen, 'боец', 'бойца', 'бойцов')}
           </button>
         )}
+        {goStrike && (
+          <button className="nx-go nx-cgo" disabled={busy || !goStrike.can} onClick={() => void march()}>
+            Дойти и ударить · {realLeft(goStrike.walkMs / 1000)}
+            <EnergyPrice price={goStrike.energy.price} />
+          </button>
+        )}
         {card.can.besiege && (
           <button
             className="nx-cact"
@@ -411,6 +429,7 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
           </button>
         ))}
       </div>
+      {goStrike && !goStrike.can && goStrike.reason && <p className="nx-tnote bad">{goStrike.reason}</p>}
       {card.can.besiege && <p className="nx-tnote">{CAMP_LEAVE}</p>}
       {/* Город живого игрока: поход на него и война с ним (docs/pvp.md). */}
       {card.castle && !card.mine && <WarCard card={card} />}
@@ -469,7 +488,8 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
         </div>
       )}
 
-      {card.mine && standing.includes('general') && <GarrisonEditor />}
+      {/* Кто с полководцем — окно раскладки в «Дружине», одно на всю игру (docs/retinue.md). */}
+      {card.mine && <MusterLink />}
 
       {lead(standing)}
 

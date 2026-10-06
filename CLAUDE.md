@@ -385,6 +385,10 @@ HEAD один на всех, см. правило 8). Значит развес�
   закрыто и почему, трата уровня и засчитывание пройденного начатой партии. Уровень лежит в
   партии, и два судьи «открыто ли это» разошлись бы молча — заметил бы игрок, у которого
   кнопка обещает одно, а отказ говорит другое, или которому ступень отняла место лазутчика;
+- `src/world/energy.ts` — единственная дверь энергии агентов (`StoredFigure.energy`, `.spent`, `WarArmy.energy`;
+  docs/agent_energy.md): отметка лежит в сохранении мира и едет на сервер войны, и два судьи «хватает ли энергии»
+  разошлись бы молча — заметил бы игрок, у которого кнопка открыта, а сервер отказал, или агент выбился из сил у
+  одного и дошёл у другого. Числа и цены дел — `src/world/data/energy.ts`;
 - `src/game/sim/agents.ts` — сюда же относится `keepInBook`: **книга родословной одна на дом
   правителя и на места агентов**, и кладёт в неё только она (`GameState.lineage`);
 - `netlify/lib/contract.ts` — договор между игрой и сервером, один файл на две стороны.
@@ -400,10 +404,11 @@ HEAD один на всех, см. правило 8). Значит развес�
   `import.ts` — дом SQLite, копии и перенос с Netlify. Расхождение здесь — запись поверх чужой
   партии без 409, восстановление поверх живой базы или перенос, сменивший ETag'и, после которого
   каждый игрок «чужой» своей партии (docs/server-move.md);
-- `netlify/lib/notify.ts`, `netlify/lib/deliver.ts` — правила исходящих и проход доставки:
-  расхождение здесь — сообщение, ушедшее дважды, чужому времени или не ушедшее вовсе;
+- `netlify/lib/notify.ts`, `netlify/lib/deliver.ts`, `netlify/lib/outbox.ts`, `netlify/lib/telegram.ts` — правила
+  исходящих, проход доставки, новости войны в исходящие и адаптер Telegram: расхождение здесь — сообщение,
+  ушедшее дважды, чужому времени, не тому игроку или не ушедшее вовсе (docs/NOTIFY.md, раздел 12);
 - `src/world/notice.ts`, `src/world/local/NotifyingWorld.ts` — черновики уведомлений и разрывы:
-  расхождение здесь молча шлёт игроку неправду о его осаде (docs/NOTIFY.md);
+  расхождение здесь молча шлёт игроку неправду о набеге или осаде (docs/NOTIFY.md);
 - `netlify/lib/war.ts` — война между игроками: бой, часы голода и участь, посчитанные сервером, лежат
   записью войн и применяются обеими сторонами по номеру боя (`WarSheet.seen`, `WorldSave.warSeen`);
   расхождение здесь — бой, который у одного был, а у другого нет, или добыча, увезённая дважды (docs/pvp.md);
@@ -507,7 +512,8 @@ HEAD один на всех, см. правило 8). Значит развес�
   `pace` (`timeclasses.test.ts`); шаг племени — только `sim/tick.liveStep` и `absence` (time).
 - **Сохранение** — писатель на диск один, `saveGame` (`game/save.ts`); формат — `SAVE_VERSION` и ступень
   в `migrate`, строка летописи — `save.tell` (раздел «Правила» ниже; start).
-- **Сервер хранит, а не судит;** личность — только из подписи `initData`; встреча двух копий —
+- **Сервер хранит, а не судит;** личность — только из подписи `initData` (вебхук бота — из обновления Telegram с
+  секретом вебхука); встреча двух копий —
   `net/sync.decide`; имя города — `contract.cityName` (sync).
 - **Адрес API** — обработчик один на Netlify и на своём сервере, `netlify/lib/routes/`; хранилище — дверь
   `netlify/lib/kv.ts` с условной записью по ETag, два дома — Blobs и SQLite (`vps/routes.test.ts`,
@@ -523,8 +529,15 @@ HEAD один на всех, см. правило 8). Значит развес�
 - **Люди и войско** — агенты и книга родословной `sim/agents` (`keepInBook`), найм `sim/hire`, жалованье
   и уход `sim/upkeep`, мастера `sim/masters`, раненые `sim/infirmary`, вызов к воротам `sim/gate`, почта
   `sim/mail` (army, agents, realm).
+- **Раскладка** — кто в гарнизоне, кто с полководцем: приказ `setGarrison` и признак `FigureView.regroup` одной проверкой,
+  дома и не в осаде — мгновенно (`Regroup.instant`), окно одно — `ui/parts/Muster`; вставшие раненые его отряда — `GameState.risen` → `rejoinRisen`; свой поход в слепке
+  обороны сервер правит сам (`war.liveSheet`) (`Muster.test.ts`, `retinue.test.ts`, `pvp.test.ts`; army).
 - **Мир** — только через `worldApi()`, все методы асинхронные; мир и племя знают друг о друге в
   `world/bridge.ts`; числа мира — `world/data/tuning.ts` (world).
+- **Энергия агентов** — `world/energy` (отметка, `energyAt`, `energyBlock`, дорога `onRoad`), числа и цены дел —
+  `world/data/energy.ts`; дорога по дням пути, стоянка даром; мир и сервер войны спрашивают одну дверь
+  (`energyworld.test.ts`, `netlify/lib/war.test.ts`; agents). «Дойти и ударить» — одна дверь на логово и город игрока,
+  `WorldApi.assault` (agents).
 - **Мир по дверям** — где стоит боец `world/muster`, кто наблюдает `world/sight`, где агент
   `world/shelter`, мораль армии между боями `world/rest`, гибель агента `world/peril`, обстрел с башни
   `world/bombard`, участь взятого города `world/spoils.fate`, добыча `plunder` (world, agents).
@@ -670,5 +683,5 @@ Deploys → **Trigger deploy**, дождаться сборки, потом об
 | [music.md](docs/handbook/music.md) | «Музыка» | `assets-src/MUSIC.md` |
 | [structure.md](docs/handbook/structure.md) | «Структура» — что где лежит | — |
 | [world.md](docs/handbook/world.md) | «Карта мира» | world-map.md, fog-and-figures.md, geography.md, atlas.md, siege.md, sack.md, lairs.md, lair_growth.md, letters.md, DEFEAT_LADDER.md, tower.md, MAP_ACTIONS.md |
-| [agents.md](docs/handbook/agents.md) | «Агенты: люди на местах» | AGENTS.md |
+| [agents.md](docs/handbook/agents.md) | «Агенты: люди на местах»; энергия агентов (с 05.10.2026) | AGENTS.md, agent_energy.md |
 | [battle.md](docs/handbook/battle.md) | «Бой», «Мост из племени в бой», «Описание вида бойцов», «Подготовка боя и отчёт», «Испытательный стенд: зеркальное логово» | battle_eu4.md (раздел 14.35 — первым), battle-replay.md |

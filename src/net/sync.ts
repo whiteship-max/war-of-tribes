@@ -40,12 +40,26 @@ import { apiGet, apiPut, type ApiFail } from './api';
 import { serverNow } from './clock';
 import { beatLease, claimLease, dropLease, leaseHolder, LEASE_BEAT_MS } from './session';
 import { snapshotOf } from './snapshot';
+import { sheetMark } from './war';
 
 const META_KEY = 'tribe.sync.v1';
 const SPARE_KEY = 'tribe.sync.spare.v1';
 
 /** Как часто партия уезжает на сервер. Реже автосохранения на диск — нарочно. */
 export const PUSH_MS = 60_000;
+
+/**
+ * Раньше срока, но не чаще этого: сменилась раскладка в слепке обороны (`net/war.sheetMark`). Сервер принимает запись
+ * не чаще раза в 4 с (`routes/save.MIN_WRITE_MS`); отказ «слишком часто» здесь — ещё одна попытка через столько же.
+ */
+export const HURRY_MS = 6_000;
+
+/**
+ * Пора ли отправить партию: срок вышел — или раскладка в слепке обороны не та, что ушла последней записью (docs/retinue.md):
+ * полководец вышел в поход на игрока, вернулся или сменил отряд. Пока ни одна запись не ушла, сравнивать не с чем.
+ */
+export const pushDue = (waited: number, mark: string | null, pushed: string | null): boolean =>
+  waited >= PUSH_MS || (waited >= HURRY_MS && mark !== null && pushed !== null && mark !== pushed);
 
 /**
  * Где мы сейчас.
@@ -156,6 +170,8 @@ const mine = (): SaveRecord | null => (source ? snapshotOf(source()) : null);
 
 let timer: ReturnType<typeof setInterval> | null = null;
 let pushing = false;
+/** Отметка раскладки в последней принятой записи (`pushDue`). */
+let pushedMark: string | null = null;
 
 const say = (state: SyncState, why: string): void => useSync.setState({ state, why });
 
@@ -186,10 +202,12 @@ function adopt(record: SaveRecord, etag: string | null, spare: SaveRecord | null
 async function push(baseEtag: string | null): Promise<void> {
   const record = mine();
   if (!record || pushing) return;
+  const mark = sheetMark();
   pushing = true;
   try {
     const res = await apiPut<PushResponse>('/api/save', { baseEtag, record });
     if (res.ok) {
+      pushedMark = mark;
       writeMeta({ etag: res.data.etag, rev: res.data.rev });
       useSync.setState({ state: 'ok', why: '', lastOk: serverNow() });
       return;
@@ -269,7 +287,7 @@ function startBeat(): void {
     }
     if (useSync.getState().state === 'off') return;
     waited += LEASE_BEAT_MS;
-    if (waited < PUSH_MS) return;
+    if (!pushDue(waited, sheetMark(), pushedMark)) return;
     waited = 0;
     void push(readMeta()?.etag ?? null);
   }, LEASE_BEAT_MS);

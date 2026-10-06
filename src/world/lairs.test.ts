@@ -8,7 +8,7 @@ import '@/game/pace.minute';
 // победа убирает логово с карты, пепелище сходит в срок, новое заводится не
 // быстрее объявленного темпа, добыча растёт с силой, а счёт в профиле совпадает
 // с числом побед.
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { LocalWorld } from './local/LocalWorld';
 import { generateWorld, isLair, lairAnchor } from './gen';
 import { distance } from './geo';
@@ -28,6 +28,11 @@ import { createInitialState } from '@/game/state';
 import { toOutcome } from './bridge';
 import type { HomeEffect, PlayerProfile, SettlementView } from './types';
 import type { WorldSave } from './local/state';
+
+// Энергия агентов здесь не предмет проверки (docs/agent_energy.md): сценарии этого файла водят агентов по карте помногу
+// — дорога здесь энергию не берёт. Цены дел и отдых дома остаются; энергию держат `energy.test.ts` и
+// `energyworld.test.ts`.
+vi.mock('@/world/data/energy', async (actual) => ({ ...(await actual<object>()), ENERGY_ROAD: Infinity }));
 
 const MIN = 60_000;
 const HOUR = 60 * MIN;

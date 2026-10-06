@@ -1,9 +1,14 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { LocalWorld } from './local/LocalWorld';
 import type { PlayerCastle, PlayerProfile } from './types';
-import { advance, applyOrder, emptyWars, warsOf, type SheetAt } from '../../netlify/lib/war';
+import { advance, applyOrder, emptyWars, liveSheet, warsOf, type SheetAt } from '../../netlify/lib/war';
 import { castleIdOf, emptyRoster, upsert } from '../../netlify/lib/roster';
 import { type CastleClaim, type RosterFile, type WarOrder } from '../../netlify/lib/contract';
+
+// Энергия агентов здесь не предмет проверки (docs/agent_energy.md): сценарии этого файла водят агентов по карте помногу
+// — дорога здесь энергию не берёт. Цены дел и отдых дома остаются; энергию держат `energy.test.ts` и
+// `energyworld.test.ts`.
+vi.mock('@/world/data/energy', async (actual) => ({ ...(await actual<object>()), ENERGY_ROAD: Infinity }));
 
 /**
  * Война между игроками от начала до конца на двух мирах и одном сервере в памяти (docs/pvp.md). Сервер —
@@ -194,4 +199,60 @@ describe('война между игроками: путь от похода д�
       expect((await g.b.reports()).some((r) => r.id === `war-${war.id}-fell`)).toBe(true);
     }
   }, 120_000);
+
+  /**
+   * Раскладка в слепке обороны (docs/retinue.md): отряд полководца стоит в гарнизоне, пока он дома, уходит с ним и с ним
+   * возвращается — и сервер видит это, даже если игрок не заходил ни с выхода, ни с возврата. Область правила — свой
+   * поход на игрока: слепок, лёгший до выхода, и слепок, лёгший в походе; что точки в ней, проверяется утверждением.
+   */
+  it('раскладка: ушедший отряд сервер дома не держит, вернувшийся — прибавляет, по любому слепку', async () => {
+    const g = game();
+    await g.pulse();
+    expect(await g.a.setGarrison({ spearman: 40, swordsman: 30 })).toBeNull();
+    for (let i = 0; i < 100 && (await g.a.figures()).find((f) => f.id === 'general')!.readyAt > g.now(); i++) {
+      g.step(5 * 60_000);
+      await g.pulse();
+    }
+    await g.pulse();
+    const all = { spearman: 60, archer: 30, swordsman: 30 };
+    const before = g.a.warSheet()!;
+    expect(before.retinue, 'точка внутри области: отряд стоит дома').toEqual({ spearman: 40, swordsman: 30 });
+    expect(before.out).toEqual([]);
+    expect(before.home).toEqual(all);
+    const stale: SheetAt = { sheet: before, at: g.now() };
+
+    g.step(1000);
+    expect(await g.a.warMarch(g.target, 'siege', 'plunder')).toBeNull();
+    const war = g.file.wars[0];
+    await g.pulse();
+    const during = g.a.warSheet()!;
+    expect(during.out, 'точка внутри области: войско в походе').toEqual([war.id]);
+    expect(during.retinue).toEqual({});
+    expect(during.home).toEqual({ spearman: 20, archer: 30 });
+    // Слепок, лёгший до выхода, сервер приводит к тому же гарнизону, что видит сам клиент после выхода.
+    expect(liveSheet(g.file, A, stale, g.now()).home, 'слепок до выхода').toEqual(during.home);
+    expect(liveSheet(g.file, A, stale, g.now()).pips, 'отметки полководца ушли с отрядом').toEqual({});
+    // До выхода — прежний гарнизон: прошлое слепок не переписывает.
+    expect(liveSheet(g.file, A, stale, war.sentAt - 1).home).toEqual(all);
+
+    // Отзыв на полпути: войско разворачивается и дома снова в гарнизоне, хоть игрок и не заходил.
+    g.step(Math.round((war.arriveAt - g.now()) / 2));
+    await g.pulse();
+    expect(war.phase, 'точка внутри области: войско ещё идёт').toBe('march');
+    expect(await g.a.recallFigure('general')).toBeNull();
+    expect(war.phase).toBe('back');
+    const backAt = war.backAt as number;
+    const away: SheetAt = { sheet: during, at: g.now() };
+    expect(liveSheet(g.file, A, away, backAt - 1).home, 'ещё в пути').toEqual(during.home);
+    g.step(backAt - g.now() + 1000);
+    advance(g.file, g.now(), new Map());
+    expect(war.phase, 'точка внутри области: войско дома').toBe('done');
+    expect(liveSheet(g.file, A, away, g.now()).home, 'слепок в походе').toEqual(all);
+    expect(liveSheet(g.file, A, stale, g.now()).home, 'слепок до выхода').toEqual(all);
+    // И клиент, зайдя, говорит то же о своём отряде: он снова дома и снова его. Гарнизон целиком здесь не сверяется:
+    // за часы похода на город ходят логова, и их набег клиент знает, а сервер — нет.
+    await g.pulse();
+    expect(g.a.warSheet()!.retinue).toEqual({ spearman: 40, swordsman: 30 });
+    expect(g.a.warSheet()!.out).toEqual([]);
+  });
 });

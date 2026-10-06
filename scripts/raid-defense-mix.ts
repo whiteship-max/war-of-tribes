@@ -144,7 +144,10 @@ async function fieldWorld(g: GameState, seed: number, take: readonly TroopId[]):
   if (troopTotal(troops) > 0) {
     const err = await sky.world.setGarrison(troops);
     if (err) throw new Error(`setGarrison: ${err}`);
-    sky.at(w.save.figures.general.handover.until);
+    // Дома перевод мгновенный (docs/retinue.md, раздел 7): сбора нет, и ждать его конца нечего. Прежде стенд ждал
+    // `handover.until` и с 06.10.2026 падал на нём — сбор остался только в осаде.
+    const until: number | undefined = w.save.figures.general.handover?.until;
+    if (until !== undefined) sky.at(until);
     await sky.pulse();
     const home = w.save.home;
     const err2 = await sky.world.moveFigure('general', { x: home.x + 4, y: home.y });

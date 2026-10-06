@@ -13,11 +13,13 @@ import { FatePick } from '@/ui/parts/FatePick';
 import { count } from '@/ui/parts/plural';
 import { realLeft } from '@/ui/parts/wait';
 import { hungerLeft } from '@/ui/parts/hunger';
+import { EnergyPrice } from '@/ui/parts/Energy';
 
 const left = (at: number, now: number): string => realLeft(Math.max(0, (at - now) / 1000));
 
 export function WarCard({ card }: { card: SettlementCard }) {
   const warMarch = useWorld((g) => g.warMarch);
+  const assault = useWorld((g) => g.assault);
   const recallFigure = useWorld((g) => g.recallFigure);
   const showToast = useGame((g) => g.showToast);
   const openCamp = useGame((g) => g.openCamp);
@@ -28,9 +30,10 @@ export function WarCard({ card }: { card: SettlementCard }) {
   if (!war) return null;
   const now = worldNow();
 
+  // Штурм с ходу — тот же приказ «Дойти и ударить», что у логова (`assault`); осада — поход лагерем.
   const go = async (mode: 'storm' | 'siege'): Promise<void> => {
     setBusy(true);
-    const err = await warMarch(card.id, mode, fate);
+    const err = mode === 'storm' ? await assault(card.id, fate) : await warMarch(card.id, mode, fate);
     setBusy(false);
     showToast(err ?? `Войско вышло на ${card.name}. В пути ${realLeft(war.walkMs / 1000)}.`);
   };
@@ -65,7 +68,7 @@ export function WarCard({ card }: { card: SettlementCard }) {
           {war.ours.phase === 'march' && (
             <>
               <p className="nx-tnote">
-                Наше войско идёт {war.ours.mode === 'storm' ? 'на штурм' : 'в осаду'}. Придёт через {left(war.ours.arriveAt, now)}. Бой
+                Наше войско идёт {war.ours.mode === 'storm' ? 'на штурм с ходу' : 'в осаду'}. Придёт через {left(war.ours.arriveAt, now)}. Бой
                 посчитается в минуту прихода, даже если ты не в игре.
               </p>
               <button className="nx-cact" disabled={busy} onClick={() => void recall()}>
@@ -97,17 +100,22 @@ export function WarCard({ card }: { card: SettlementCard }) {
             посчитает сервер в минуту прихода; хозяин города увидит войско сразу.
           </p>
           {!war.can && war.reason && <p className="nx-tnote bad">{war.reason}</p>}
+          {/* Штурм дороже осады: открыт поход вообще, а на штурм энергии не хватает — причина своей строкой. */}
+          {war.can && war.energy?.storm.block && <p className="nx-tnote bad">Штурм: {war.energy.storm.block}</p>}
           <FatePick options={card.fates} value={fate} onChange={setFate} />
           <div className="nx-cacts">
-            <button className="nx-go nx-cgo" disabled={busy || !war.can} onClick={() => void go('storm')}>
-              Штурм с ходу · {count(war.men, 'боец', 'бойца', 'бойцов')}
+            <button className="nx-go nx-cgo" disabled={busy || !war.can || Boolean(war.energy?.storm.block)} onClick={() => void go('storm')}>
+              Дойти и ударить · {count(war.men, 'боец', 'бойца', 'бойцов')}
+              {war.energy && <EnergyPrice price={war.energy.storm.price} />}
             </button>
             <button className="nx-cact" disabled={busy || !war.can} onClick={() => void go('siege')}>
               <Icon name="ui-target" glyph="⛺" />
               Осадить
+              {war.energy && <EnergyPrice price={war.energy.siege.price} />}
             </button>
           </div>
-          <p className="nx-tnote">Штурм — один бой у стены. Осада — лагерь под стенами: город голодает, пока не сдастся или не разобьёт лагерь.</p>
+          <p className="nx-tnote">Дойти и ударить — один бой у стены в минуту прихода. Осада — лагерь под стенами: город голодает, пока не сдастся или не разобьёт лагерь.</p>
+          <p className="nx-tnote">Энергия полководца уходит в дороге, по дням пути; у стен она не тратится, дома снова копится.</p>
         </>
       )}
     </div>

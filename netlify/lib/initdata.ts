@@ -21,6 +21,12 @@ export interface TgIdentity {
   id: number;
   /** Когда клиент получил эти данные, Unix-секунды. */
   authDate: number;
+  /**
+   * Пользователь разрешил боту писать ему (`allows_write_to_pm` под подписью). Есть только когда `true`: так
+   * личность без разрешения остаётся той же парой чисел, что была. Строка запуска выдаётся при запуске, и
+   * разрешение, данное посреди игры, появится здесь только со следующим.
+   */
+  allowsWrite?: true;
 }
 
 /**
@@ -124,14 +130,17 @@ export function readInitData(raw: string | null | undefined, botToken: string, n
   const userRaw = pairs.find(([k]) => k === 'user')?.[1];
   if (!userRaw) return { ok: false, why: 'malformed' };
   let id: unknown;
+  let allows: unknown;
   try {
-    id = (JSON.parse(userRaw) as { id?: unknown }).id;
+    const user = JSON.parse(userRaw) as { id?: unknown; allows_write_to_pm?: unknown };
+    id = user.id;
+    allows = user.allows_write_to_pm;
   } catch {
     return { ok: false, why: 'malformed' };
   }
   if (typeof id !== 'number' || !Number.isSafeInteger(id) || id <= 0) return { ok: false, why: 'malformed' };
 
-  return { ok: true, user: { id, authDate } };
+  return { ok: true, user: { id, authDate, ...(allows === true ? { allowsWrite: true as const } : {}) } };
 }
 
 /**

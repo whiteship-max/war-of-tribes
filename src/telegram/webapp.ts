@@ -60,6 +60,11 @@ export interface TgInitDataUnsafe {
      * старых клиентах — тогда лицо берётся из набора игры.
      */
     photo_url?: string;
+    /**
+     * Разрешил ли пользователь боту писать ему. Сервер читает то же поле под подписью (`initdata.allowsWrite`);
+     * здесь оно только решает, спрашивать ли разрешения (`net/notify.askWriteOnce`).
+     */
+    allows_write_to_pm?: boolean;
   };
   /** Параметр из ссылки вида t.me/<бот>/<аппка>?startapp=<код>. */
   start_param?: string;
@@ -100,6 +105,8 @@ export interface TelegramWebApp {
   unlockOrientation?(): void;
   CloudStorage?: TgCloudStorageRead;
   isVersionAtLeast?(v: string): boolean;
+  /** Bot API 6.9: системное окно «разрешить боту писать вам»; ответ — в обратном вызове. */
+  requestWriteAccess?(cb?: (allowed: boolean) => void): void;
   HapticFeedback?: TgHaptic;
   onEvent?(event: string, cb: () => void): void;
   offEvent?(event: string, cb: () => void): void;

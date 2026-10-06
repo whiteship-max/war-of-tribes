@@ -20,7 +20,9 @@ import { troopsOfKinds } from '@/game/battle/faces';
 import type { BattlePlace } from '@/game/battle/ground';
 import type { WorldApi } from '../api';
 import type {
+  AssaultPlan,
   AttackOrder,
+  EnergyCost,
   AttackResult,
   BattleRecord,
   BattleSite,
@@ -71,6 +73,7 @@ import type {
   SettlementView,
   SiegeView,
   RestView,
+  Regroup,
   StrikePlan,
   Standing,
   TemperId,
@@ -223,6 +226,8 @@ import type { FaithId } from '@/game/types';
 import { resolveField, type FieldInput, type FieldOutcome, type FieldSide } from '../battle';
 import { campFight, defenceKinds, homeLosses, type CampPartIn } from '../fights';
 import { carryRest, mixRest, rejoin, restAfter, restAt, restFullAt, restView, type RestPair } from '../rest';
+import { emptyAt, energyAt, energyBlock, energyView, freshMark, idleBlock, outOf, priceOf, remark, roadCost, spend, type EnergyMark, type EnergyMode, type MarkEnds } from '../energy';
+import type { EnergyAction } from '../data/energy';
 import { GATE_FOES, gateReportId } from '../data/gate';
 import {
   awayOf,
@@ -683,9 +688,11 @@ export class LocalWorld implements WorldApi {
       ruinLeft: 0,
       sack: null,
       note: 'Город живого игрока.',
-      ...((): { war?: CardWar } => {
+      // «Дойти и ударить» — та же строка, что у логова: поход со штурмом с ходу (`assault`).
+      ...((): { war?: CardWar; assault?: AssaultPlan } => {
         const war = this.warCard(c, now);
-        return war ? { war } : {};
+        const assault = war ? this.assaultOf(c.id, now) : undefined;
+        return war ? { war, ...(assault ? { assault } : {}) } : {};
       })(),
     };
   }
@@ -1486,7 +1493,10 @@ export class LocalWorld implements WorldApi {
   private liftSiege(id: SettlementId, at: number): SiegeWindow | null {
     const w = this.save.sieges[id];
     if (!w) return null;
+    // Наш лагерь снят — энергия полководца больше не стоит: с этой минуты она уходит, как у всякого в поле.
+    const held = ourCamp(w) ? this.energyOf('general', at) : null;
     delete this.save.sieges[id];
+    if (held) this.restance('general', at, held);
     this.save.siegeAgainAt[id] = at + SIEGE_COOLDOWN;
     const camp = this.save.marches.find((m) => m.id === w.campId);
     // Выбитое обстрелом с башни записывается в войско лагеря одним разом, здесь: до этой
@@ -2017,7 +2027,7 @@ export class LocalWorld implements WorldApi {
     if (f.phase === 'moving') return 'Полководец ещё в пути.';
     this.settleHandover(f, now);
     if (f.handover) {
-      return `Дружина ещё в дороге: ${formatLeft(Math.max(0, f.handover.until - now) / 1000)}.`;
+      return `Отряд ещё в сборе: ${formatLeft(Math.max(0, f.handover.until - now) / 1000)}.`;
     }
     if (troopTotal(f.troops ?? {}) === 0) return 'При полководце нет отряда.';
     const near = this.touching(this.figureAt(f, now));
@@ -2054,8 +2064,13 @@ export class LocalWorld implements WorldApi {
     if (siegeImmune(this.save.siegeImmune[target.id], now)) {
       return 'Город недавно доели: в амбаре пусто, осаждать нечего.';
     }
+    // Осадный лагерь стоит энергию (слово владельца — десять), и пока он стоит, энергия не тратится.
+    const tired = this.energyCost('general', 'siege', now).block;
+    if (tired) return tired;
+    const before = this.energyOf('general', now);
     // Лагерь игрока делит древесину сам, в окне осады; встаёт он со всем во фронт.
     this.openSiegeAt(target.id, HOME_ID, PLAYER_CAMP, now, 0, { fate: fateId, wood: playerWood(WOOD_SHARES[0]) });
+    this.restance('general', now, before, priceOf('siege'));
     this.addReport({
       id: `siege-set-${target.id}-${now}`,
       at: now,
@@ -2132,7 +2147,7 @@ export class LocalWorld implements WorldApi {
     const lostTroops = field.result ? troopLosses(going, out.lost.front) : {};
     const lostMen = troopTotal(lostTroops);
     if (field.result) this.homeBack(held, going, lostTroops, field.rest.attacker, now, out.share);
-    this.standingLost(held.own, held.standing, lostTroops);
+    const standing = this.standingLost(held.own, held.standing, lostTroops);
     const campLost = this.resolveSortieOn(HOME_ID, now, field, 'Мы вышли на вылазку.');
 
     const record: BattleRecord | null = field.result
@@ -2174,6 +2189,7 @@ export class LocalWorld implements WorldApi {
       id: `${reportId}-eff`,
       lost: lostMen > 0 ? { warrior: lostMen } : {},
       lostTroops,
+      ...(troopTotal(standing) > 0 ? { standing } : {}),
       resources: {},
       prestige: field.won ? 4 : 0,
       morale: field.won ? 6 : -5,
@@ -2940,21 +2956,13 @@ export class LocalWorld implements WorldApi {
   /**
    * Срок сбора и роспуска дружины: прежний потолок, умноженный на черту. Множится
    * после потолка — «Мясника» ждут дольше и у дружины, которая и так упиралась в него.
+   *
+   * Окна ответа на набег сбор больше не держит: дома перевод мгновенный (`regroupInstant`, решение владельца
+   * 06.10.2026), и ответить на набег можно до самого его прихода — это окно показывают тревога, донесение и стена
+   * (`MarchView.arriveAt`), до него же годен черновик уведомления (docs/NOTIFY.md, 12.11).
    */
   private musterWait(moved: number): number {
     return musterMs(moved, this.traitOf('muster'));
-  }
-
-  /**
-   * До какой минуты полный сбор дружины, начатый дома, ещё кончается до прихода чужого отряда: приход минус потолок
-   * сбора с чертой полководца — тем же `musterWait`, что сбор в игре (docs/battle_eu4.md, 14.26–14.27; слово
-   * владельца — вариант (а)). Позже сбор не кончится к приходу, и люди в сборе встретят набег на дороге: пока идёт
-   * передача, они не защищают никого (`world/muster.postureOf`). Окно ответа на набег после расстановки обороны — это
-   * оно: его показывают вход тревоги, письмо о набеге и «Оборона» у стены (`MarchView.musterBy`) и им же годен черновик
-   * уведомления (`NotifyingWorld`). Может выйти раньше, чем набег стал виден (сбор дольше предупреждения — «Мясник»).
-   */
-  protected musterBy(m: { arriveAt: number }): number {
-    return m.arriveAt - this.musterWait(Infinity);
   }
 
   /** Сколько лазутчик занят после удачи или тихого провала и сколько его держат пойманного. */
@@ -3089,6 +3097,9 @@ export class LocalWorld implements WorldApi {
    */
   private offMap(id: FigureId, at: number): TroopStack {
     const f = this.save.figures[id];
+    // Стойка меняется — энергия сверяется до перемены (`energyOf`).
+    this.energyOf(id, at);
+    f.spent = undefined;
     f.phase = 'down';
     f.from = { ...this.save.home };
     f.to = { ...this.save.home };
@@ -3299,6 +3310,7 @@ export class LocalWorld implements WorldApi {
         // Пустое место не возвращается само: вернётся нанятый, когда его назовёт слепок.
         if (f.gone || now < f.downUntil) continue;
         const held = Boolean(f.held);
+        this.energyOf(id, now);
         f.phase = 'home';
         f.downUntil = 0;
         f.held = false;
@@ -3318,8 +3330,11 @@ export class LocalWorld implements WorldApi {
         });
         continue;
       }
+      // Энергия кончилась в пути раньше прихода — до цели он не дойдёт, домой с той минуты.
+      this.tire(id, now);
       if (f.phase === 'moving' && now >= f.arriveAt) {
         const at = f.arriveAt;
+        this.energyOf(id, at);
         // Удар по лагерю — в минуту прихода и **пока полководец ещё в пути**: встань
         // он сначала у своих ворот, его дружина стала бы гарнизоном, и выйти ей из
         // поля было бы уже нечем.
@@ -3344,13 +3359,19 @@ export class LocalWorld implements WorldApi {
         f.from = { ...f.to };
         f.departAt = at;
         f.phase = this.touching(f.to)?.home ? 'home' : 'field';
+        // Дошёл до своих ворот — выбившийся из сил снова человек на месте: энергия копится, дела он берёт.
+        if (f.phase === 'home') f.spent = undefined;
         this.onFigureArrived(id, at);
+        // «Дойти и ударить»: бой в минуту прихода, не дожидаясь игрока, — онлайн и офлайн одинаково.
+        if (id === 'general' && f.assault) this.assaultArrived(at);
         if (this.save.figures[id].phase === 'down') continue;
         // Полководец с дружиной встал у своих ворот — дружина вошла в оборону, и
         // за стеной прибавилось ртов. Путь из осаждённого города заперт, а домой
         // открыт, поэтому этот повод под осадой случается, а обратный — нет.
         if (id === 'general' && f.phase === 'home') this.resiege(HOME_ID, at);
       }
+      // Стоит в поле — энергия кончится и там (наблюдает, держат, на переговорах).
+      if (this.save.figures[id].phase !== 'down') this.tire(id, now);
       // Разведчик, стоящий у чужого поселения, считает войско заново, пока стоит:
       // это и есть его умение, и на нём держится ценность фигуры.
       if (id === 'scout' && f.phase === 'field') {
@@ -3866,7 +3887,7 @@ export class LocalWorld implements WorldApi {
     if (f.handover) {
       return {
         meet: null,
-        reason: `Дружина ещё в дороге: ${formatLeft(Math.max(0, f.handover.until - now) / 1000)}.`,
+        reason: `Отряд ещё в сборе: ${formatLeft(Math.max(0, f.handover.until - now) / 1000)}.`,
       };
     }
     if (troopTotal(f.troops ?? {}) === 0) {
@@ -3883,6 +3904,9 @@ export class LocalWorld implements WorldApi {
         reason: `Не догнать: им идти ${formatLeft(secondsLeft(m.arriveAt, now))}, дойдут раньше.`,
       };
     }
+    // Перехват — бой в поле: его цена в энергии — к минуте встречи, с дорогой до неё (docs/agent_energy.md).
+    const tired = this.energyCost('general', 'chase', now, Math.max(0, meet.time - now)).block;
+    if (tired) return { meet: null, reason: tired };
     return { meet, reason: null };
   }
 
@@ -3909,6 +3933,7 @@ export class LocalWorld implements WorldApi {
       targetName: m.fromName,
       men: stackSize(m.units),
       targetSeconds: secondsLeft(m.arriveAt, now),
+      ...(meet ? { energy: this.energyCost('general', 'chase', now, Math.max(0, meet.time - now)) } : {}),
     };
   }
 
@@ -3937,12 +3962,15 @@ export class LocalWorld implements WorldApi {
     const { meet, reason } = this.planChase(m, now);
     if (!meet) return reason ?? 'Перехват не выходит.';
     this.setChase(this.save.figures.general, meet, now, marchId);
+    // Цена — при приказе (`planChase` проверил, что её хватит к встрече).
+    this.payEnergy('general', 'chase', now);
     this.write();
     return null;
   }
 
   /** Курс на точку встречи. Прибытие ставится ровно на её время. */
   private setChase(f: StoredFigure, meet: Meeting, now: number, marchId: string): void {
+    this.energyOf('general', now);
     f.from = this.figureAt(f, now);
     f.to = clampToWorld(meet.at);
     f.departAt = now;
@@ -3950,6 +3978,7 @@ export class LocalWorld implements WorldApi {
     f.phase = 'moving';
     f.chase = { marchId };
     f.strike = undefined;
+    f.assault = undefined;
   }
 
   /**
@@ -3971,6 +4000,7 @@ export class LocalWorld implements WorldApi {
 
   /** Погоня сорвалась: полководец останавливается там, где стоял. */
   private breakChase(f: StoredFigure, now: number, text: string): void {
+    this.energyOf('general', now);
     const at = this.figureAt(f, now);
     f.from = { ...at };
     f.to = { ...at };
@@ -4101,6 +4131,7 @@ export class LocalWorld implements WorldApi {
       this.defeatGeneral(at, `разбит в поле у ${formatCoord(spot)}.`, `в поле у ${formatCoord(spot)}`, { id: m.fromId, name: m.fromName, x: spot.x, y: spot.y }, seed);
     } else {
       f.troops = left;
+      this.energyOf('general', at);
       const stop = this.figureAt(f, at);
       f.from = { ...stop };
       f.to = { ...stop };
@@ -4210,7 +4241,7 @@ export class LocalWorld implements WorldApi {
     // Набег, не севший в осаду, — штурм стены (ролик TW: лестницы и таран).
     const record = this.gateRecord(wall, troopsOfKinds(party.kinds, party.gear), 'wall');
     const attackerLeft = stackAfter(m.units, stackLosses(m.units, outcome.attackerLoss));
-    const { warriors, warriorsLost, troopsLost } = this.gateLosses(wall);
+    const { warriors, warriorsLost, troopsLost, standing } = this.gateLosses(wall);
     // Пленные: часть тех, кого племя посчитало убитыми, на самом деле уведена (ниже, `captives`). Число — до отчёта:
     // его называет и отчёт, и карточка итога ролика боя (`Report.held`).
     const held = outcome.won && warriorsLost > 0 ? Math.max(1, Math.round(warriorsLost * RANSOM_SHARE)) : 0;
@@ -4267,6 +4298,7 @@ export class LocalWorld implements WorldApi {
       id: `${m.id}-defense`,
       lost: warriorsLost > 0 ? { warrior: warriorsLost } : {},
       lostTroops: troopsLost,
+      ...(troopTotal(standing) > 0 ? { standing } : {}),
       resources: {},
       ...loss,
       prestige: outcome.won ? 0 : 3,
@@ -4338,7 +4370,13 @@ export class LocalWorld implements WorldApi {
    * — со слабых, — а не числом: числом племя сняло бы их со всей дружины и могло задеть тех, кто при полководце в поле.
    * Дружина у ворот теряет свою долю сразу.
    */
-  private gateLosses(gate: ReturnType<LocalWorld['gateField']>): { warriors: number; warriorsLost: number; troopsLost: TroopStack } {
+  private gateLosses(gate: ReturnType<LocalWorld['gateField']>): {
+    warriors: number;
+    warriorsLost: number;
+    troopsLost: TroopStack;
+    /** Доля отряда полководца в потерях (`HomeEffect.standing`); пусто — не стоял или не пал никто. */
+    standing: TroopStack;
+  } {
     const { held, home, field } = gate;
     const warriors = troopTotal(home);
     // Поимённо — одна дверь с войной между игроками (`fights.homeLosses`).
@@ -4346,8 +4384,8 @@ export class LocalWorld implements WorldApi {
     const warriorsLost = Math.min(warriors, troopTotal(troopsLost));
     // Дрались все, кто дома: уцелевшие несут долю, с которой вышли из боя (мораль между боями, 14.31).
     if (field.result) this.homeBack(held, home, troopsLost, field.rest.defender, gate.at);
-    this.standingLost(held.own, held.standing, troopsLost);
-    return { warriors, warriorsLost, troopsLost };
+    const standing = this.standingLost(held.own, held.standing, troopsLost);
+    return { warriors, warriorsLost, troopsLost, standing };
   }
 
   /**
@@ -4416,7 +4454,7 @@ export class LocalWorld implements WorldApi {
     const party = this.gateParty(call);
     const gate = this.gateField(party, call.seed, this.save.home, at);
     const { field } = gate;
-    const { warriors, warriorsLost, troopsLost } = this.gateLosses(gate);
+    const { warriors, warriorsLost, troopsLost, standing } = this.gateLosses(gate);
     // Вызов к воротам: разбойники и волки бьются перед воротами (ролик TW).
     const record = this.gateRecord(gate, def.beasts ? {} : troopsOfKinds(party.kinds, party.gear), 'gate');
     // Прорвались люди — уносят со склада, сколько поднимут уцелевшие; тайник не достать.
@@ -4454,6 +4492,7 @@ export class LocalWorld implements WorldApi {
       gate: call.id,
       lost: warriorsLost > 0 ? { warrior: warriorsLost } : {},
       lostTroops: troopsLost,
+      ...(troopTotal(standing) > 0 ? { standing } : {}),
       resources: loss,
       prestige: field.won ? 0 : 3,
       morale: field.won ? -GATE_MORALE_LOST : GATE_MORALE_WON,
@@ -4913,7 +4952,7 @@ export class LocalWorld implements WorldApi {
     const off = this.offDuty('general', now) ?? this.retiringBlock('general');
     if (off) return { error: off };
     this.settleHandover(f, now);
-    if (f.handover) return { error: `Дружина ещё в дороге: ${formatLeft(Math.max(0, f.handover.until - now) / 1000)}.` };
+    if (f.handover) return { error: `Отряд ещё в сборе: ${formatLeft(Math.max(0, f.handover.until - now) / 1000)}.` };
     if (f.war) return { error: WAR_BUSY };
     if (troopTotal(f.troops ?? {}) === 0) return { error: 'Войска при полководце нет.' };
     const force = fieldTroops(f, now);
@@ -4932,6 +4971,9 @@ export class LocalWorld implements WorldApi {
     if (now + realMs(seconds) >= starvesAt(w)) {
       return { error: 'Не успеть: хлеб в городе кончится раньше.' };
     }
+    // Удар — бой: цена его в энергии — к минуте прихода, с дорогой до лагеря (docs/agent_energy.md).
+    const tired = this.energyCost('general', 'strike', now, realMs(seconds)).block;
+    if (tired) return { error: tired };
     return { error: null, f, force, to, seconds };
   }
 
@@ -4966,6 +5008,7 @@ export class LocalWorld implements WorldApi {
       front: cast.front ? { went: cast.front.went, passed: cast.front.passed } : null,
       garrisonable,
       rout,
+      energy: this.energyCost('general', 'strike', now, realMs(seconds)),
     };
   }
 
@@ -4993,17 +5036,22 @@ export class LocalWorld implements WorldApi {
     const plan = await this.strikePlan(id, withGarrison);
     if (!plan.can) return plan.reason;
     if (seconds <= 0) {
-      // Стоит у самого лагеря — бьёт сразу, без дороги.
+      // Стоит у самого лагеря — бьёт сразу, без дороги. Цена — за бой, который был.
       const res = this.resolveStrike(id, now, withGarrison);
+      if (!res.error) this.payEnergy('general', 'strike', now);
       return res.error;
     }
+    this.energyOf('general', now);
     f.from = this.figureAt(f, now);
     f.to = { ...to };
     f.departAt = now;
     f.arriveAt = now + Math.round(realMs(seconds));
     f.phase = 'moving';
     f.chase = undefined;
+    f.assault = undefined;
     f.strike = { id, garrison: withGarrison };
+    // Цена — при приказе: бой случится в минуту прихода, и энергии на него хватит (`strikeCheck`).
+    this.payEnergy('general', 'strike', now);
     this.write();
     return null;
   }
@@ -5315,8 +5363,6 @@ export class LocalWorld implements WorldApi {
       // своим именем. Своего вида похода у осады нет: игрок такого приказа
       // отдать не может, и заводить его в списке заданий было бы враньём.
       siege: m.phase === 'stay' && this.save.sieges[m.targetId]?.campId === m.id,
-      // Чужой отряд, идущий на деревню: до какой минуты полный сбор ещё успевает — одна дверь с черновиком уведомления.
-      ...(!m.own && m.targetId === HOME_ID && m.phase === 'out' ? { musterBy: this.musterBy(m) } : {}),
       // Чужой отряд, идущий на наш лагерь осады, — тем же правилом, каким мир решает, видна ли выручка по донесению.
       ...(onCamp(m, camp) ? { onCamp: true } : {}),
       ...(rest ? { rest } : {}),
@@ -5470,8 +5516,12 @@ export class LocalWorld implements WorldApi {
     // Под пактом нападать нельзя — и это правило мира, а не подсказка панели.
     const pact = standingAt(this.diploOf(s.id, now), now) === 'pact';
     const gathering = Boolean(general.handover);
-    const canRaid =
-      here.includes('general') && troopTotal(general.troops ?? {}) > 0 && !gathering && !pact;
+    const lead = here.includes('general') && troopTotal(general.troops ?? {}) > 0 && !gathering && !pact;
+    // Удар и осада стоят энергию полководца (docs/agent_energy.md): у каждого дела своя цена.
+    const energy = here.includes('general')
+      ? { raid: this.energyCost('general', 'storm', now), besiege: this.energyCost('general', 'siege', now) }
+      : undefined;
+    const canRaid = lead && !energy?.raid.block;
     return {
       ...view,
       terrain: terrainAt(this.save.seed, s.x, s.y),
@@ -5500,7 +5550,8 @@ export class LocalWorld implements WorldApi {
         scout: true,
         support: ally,
         besiege:
-          canRaid &&
+          lead &&
+          !energy?.besiege.block &&
           !this.save.sieges[s.id] &&
           !siegeImmune(this.save.siegeImmune[s.id], now) &&
           this.ourSiege(now) === null,
@@ -5509,12 +5560,19 @@ export class LocalWorld implements WorldApi {
       siege: this.cardSiege(s.id, now),
       ruinLeft: 0,
       sack: this.cardSack(s.id, now),
+      ...(energy ? { energy } : {}),
+      ...(() => {
+        const assault = this.assaultOf(s.id, now);
+        return assault ? { assault } : {};
+      })(),
       note: canRaid
         ? null
         : pact
           ? 'Пакт в силе. Разрыв объявляет дипломат, и в силу он вступает не сразу.'
-          : gathering
-            ? `Дружина ещё в дороге: ${formatLeft(Math.max(0, (general.handover?.until ?? 0) - now) / 1000)}.`
+          : lead
+            ? (energy?.raid.block ?? null)
+            : gathering
+            ? `Отряд ещё в сборе: ${formatLeft(Math.max(0, (general.handover?.until ?? 0) - now) / 1000)}.`
             : here.includes('general')
               ? 'Полководец здесь, но отряда при нём нет. За дружиной надо домой.'
               : 'Бьёт только полководец. Доведи его сюда.',
@@ -5676,6 +5734,157 @@ export class LocalWorld implements WorldApi {
     return null;
   }
 
+  // ---------- Энергия агентов (docs/agent_energy.md) ----------
+  //
+  // Сколько энергии — считает дверь `world/energy` по отметке на фигуре. Мир пишет отметку в минуту, когда меняется
+  // стойка: вышел из ворот, пришёл домой, встал лагерем, снял лагерь, выбыл, вернулся в строй. Стойку выводит одно
+  // правило (`energyStance`) из той же фигуры, что и место (`world/shelter`), — второй правды о том, где агент, нет.
+
+  /**
+   * Что с энергией фигуры по её стойке и с какой минуты эта стойка. Дома (у своих ворот или за стеной) — копится; в
+   * дороге — уходит, а придя, домой — копится, к цели — стоит (`world/energy.onRoad`); стоит в поле, у цели или в
+   * осадном лагере — стоит: ожидание даром (решение владельца 06.10.2026); вне строя — стоит до возврата. Лагерь — пока
+   * окно лежит: снимает его одна дверь (`liftSiege`), и она же пишет перемену.
+   */
+  private energyStance(id: FigureId): { mode: EnergyMode; ends: MarkEnds; since: number } {
+    const f = this.save.figures[id];
+    if (f.phase === 'down') return { mode: 'hold', ends: f.gone ? {} : { homeAt: f.downUntil }, since: f.departAt };
+    if (f.phase === 'home') return { mode: 'fill', ends: {}, since: f.departAt };
+    if (f.phase === 'moving') {
+      const ends = this.touching(f.to)?.home ? { homeAt: f.arriveAt } : { stopAt: f.arriveAt };
+      return { mode: 'drain', ends, since: f.departAt };
+    }
+    return { mode: 'hold', ends: {}, since: f.departAt };
+  }
+
+  /**
+   * Отметка энергии фигуры, сверенная со стойкой. Стойка сменилась с прошлого чтения — новая отметка с минуты, когда
+   * она началась (`departAt`): значение по прежней отметке, режим — по новой. Зовут её все, кто читает энергию, и
+   * каждый, кто меняет фигуру, — **до** перемены: две перемены без чтения между ними слились бы в одну.
+   *
+   * Полководец в войне между игроками — отметка войны: энергией похода владеет сервер (`netlify/lib/war.ts`).
+   */
+  private energyOf(id: FigureId, now: number): EnergyMark {
+    const f = this.save.figures[id];
+    if (id === 'general' && f.war) {
+      const war = this.warList().find((w) => w.id === f.war)?.army.energy;
+      if (war) return (f.energy = { ...war });
+    }
+    const st = this.energyStance(id);
+    const mark = f.energy;
+    if (!mark) return (f.energy = freshMark(now, st.mode, st.ends));
+    if (mark.mode === st.mode && mark.homeAt === st.ends.homeAt && mark.stopAt === st.ends.stopAt) return mark;
+    return (f.energy = remark(mark, Math.max(mark.at, Math.min(st.since, now)), st.mode, st.ends));
+  }
+
+  /** Сколько энергии у агента сейчас, дробью. */
+  private energyNow(id: FigureId, now: number): number {
+    return energyAt(this.energyOf(id, now), now);
+  }
+
+  /**
+   * Стойка сменилась без нового пути — встал лагерем или снял его — в минуту `at`: новая отметка оттуда, и цена дела,
+   * если она есть. Прежнюю стойку сверяет `energyOf` до перемены — его зовут до того, как окно лагеря легло или ушло.
+   */
+  private restance(id: FigureId, at: number, before: EnergyMark, price = 0): void {
+    const st = this.energyStance(id);
+    const next = remark(before, at, st.mode, st.ends);
+    this.save.figures[id].energy = price > 0 ? spend(next, at, price) : next;
+  }
+
+  /** Заплатить цену дела в минуту `at`: отметка сверена со стойкой, значение — минус цена. */
+  private payEnergy(id: FigureId, action: EnergyAction, at: number): void {
+    this.save.figures[id].energy = spend(this.energyOf(id, at), at, priceOf(action));
+  }
+
+  /**
+   * Цена дела глазами меню: хватит ли энергии к минуте дела — с дорогой до него (`road`, мс пути по карте). Та же
+   * проверка стоит в приказе: показанное и есть применённое.
+   *
+   * Выбился из сил — не по карману ни одно дело, и строка та же, что откажет приказ (`offDuty`): иначе кнопка в карточке
+   * гасла бы «Не хватает энергии: 9 из 10», а приказ отказывал бы «выбился из сил».
+   */
+  private energyCost(id: FigureId, action: EnergyAction, now: number, road = 0): EnergyCost {
+    const price = priceOf(action);
+    const spent = this.isSpent(id, now) ? this.offDuty(id, now) : null;
+    return { price, block: spent ?? energyBlock(this.energyNow(id, now), price, road) };
+  }
+
+  /**
+   * Минута, когда агент выбился из сил на карте; null — силы есть, он дома или вне строя. Кончилась в дороге раньше
+   * прихода (`emptyAt`) — или стоит в поле без сил (`outOf`: не хватает ни на одно его дело, решение владельца
+   * 06.10.2026), с минуты своей отметки: стоянка даром, и без сил он стал в минуту прихода или платы за дело. Свой
+   * осадный лагерь держит его и без сил; поход на игрока держит энергию у сервера.
+   *
+   * В дороге мерка — ноль, а не цена дела: путь к цели несёт оплаченное дело (разведка у ворот, «дойти и ударить», удар,
+   * перехват — цена списана при приказе, и хватить её должно к приходу), и повернуть домой раньше прихода значило бы
+   * отнять оплаченное. Придя, он стоит — и без сил на дело идёт домой с минуты прихода.
+   */
+  private outAt(id: FigureId, now: number): number | null {
+    const f = this.save.figures[id];
+    if (f.phase !== 'moving' && f.phase !== 'field') return null;
+    if (id === 'general' && f.war) return null;
+    const mark = this.energyOf(id, now);
+    if (f.phase === 'moving') return emptyAt(mark);
+    if (id === 'general' && Object.values(this.save.sieges).some((w) => ourCamp(w))) return null;
+    return outOf(energyAt(mark, now), id) ? mark.at : null;
+  }
+
+  /**
+   * Энергия кончилась на карте: идёт домой и дел не берёт. Отметка лежит с минуты, когда мир это разобрал
+   * (`tire`), а до разбора — выводится той же дверью: приказ между пульсами не должен пройти у выбившегося из сил.
+   */
+  private isSpent(id: FigureId, now: number): boolean {
+    const f = this.save.figures[id];
+    if (f.phase === 'home' || f.phase === 'down') return false;
+    if (f.spent !== undefined) return true;
+    const t = this.outAt(id, now);
+    return t !== null && t <= now;
+  }
+
+  /**
+   * Энергия кончилась на карте — агент идёт домой сам, **с той минуты, когда она кончилась**, а не когда мир это
+   * заметил: онлайн и офлайн дают одну дорогу. По пути он неуязвим и дел не берёт (`offDuty`), пока не дойдёт до
+   * своих ворот. Занятый — на переговорах, отлёживается после дела, задержан на месте — уходит, как освободится. В
+   * лагере энергия стоит, и без сил он его не бросает; поход на игрока держит энергию у сервера. Кончилась в пути
+   * раньше прихода — до цели он не доходит. Зовётся из `stepFigures` до разбора прихода и после него.
+   */
+  private tire(id: FigureId, now: number): void {
+    const f = this.save.figures[id];
+    if (f.phase !== 'moving' && f.phase !== 'field') return;
+    if (id === 'general' && f.war) return;
+    if (f.spent === undefined) {
+      const t = this.outAt(id, now);
+      if (t === null || t > now) return;
+      // Дойдёт раньше, чем кончится: приход разберётся своим чередом, а стоянку проверят после него.
+      if (f.phase === 'moving' && t >= f.arriveAt) return;
+      // Целой миллисекундой: дорога домой ложится в сохранение, как всякая другая.
+      f.spent = Math.ceil(t);
+      this.addEffect({
+        id: `fig-${id}-spent-${f.spent}`,
+        lost: {},
+        resources: {},
+        prestige: 0,
+        morale: 0,
+        battle: null,
+        text: `${FIGURE_BY_ID[id].name} выбился из сил и идёт домой. Пока не дойдёт, дел не берёт.`,
+        good: false,
+      });
+    }
+    // Уже идёт домой — дорога та же.
+    if (f.phase === 'moving' && this.touching(f.to)?.home) return;
+    const at = Math.max(f.spent, f.busyUntil ?? 0);
+    if (at > now) return;
+    f.chase = undefined;
+    this.walk(id, { ...this.save.home }, at);
+  }
+
+  /** Энергия агента для карточки и меню. У пустого места её нет. */
+  private energyViewOf(id: FigureId, now: number): FigureView['energy'] {
+    if (this.save.figures[id].gone) return undefined;
+    return energyView(this.energyOf(id, now), now);
+  }
+
   // ---------- Фигуры и то, что они умеют ----------
 
   private viewFigure(id: FigureId, now: number): FigureView {
@@ -5716,11 +5925,18 @@ export class LocalWorld implements WorldApi {
       // снимает осаду. Панель обязана сказать это до приказа, а не после.
       besieging: id === 'general' ? (this.ourSiege(now) ?? this.warCampOf()) : null,
       readyAt: f.handover?.until ?? 0,
+      regroup: id === 'general' ? this.regroupOf(now) : null,
       // Мораль дружины между боями (14.31) — одной дверью `world/rest`; у свежей и у прочих фигур поля нет.
       ...(() => {
         const rest = id === 'general' ? restView(f.rest, now, this.menOf(troops)) : undefined;
         return rest ? { rest } : {};
       })(),
+      // Энергия — одной дверью `world/energy`; у пустого места её нет.
+      ...(() => {
+        const energy = this.energyViewOf(id, now);
+        return energy ? { energy } : {};
+      })(),
+      spent: this.isSpent(id, now),
     };
   }
 
@@ -5756,7 +5972,14 @@ export class LocalWorld implements WorldApi {
     if (this.touching(from)?.home && !this.touching(target)?.home) {
       const blocked = this.siegeBlock(now);
       if (blocked) return blocked;
+      // Без сил на своё дело из своих ворот не выходят — та же мерка, что у цели (`outOf`): дома энергия вернётся
+      // (docs/agent_energy.md, 6.6).
+      const idle = idleBlock(this.energyNow(id, now), id);
+      if (idle) return idle;
     }
+    // Разведка у чужих ворот — дело разведчика, и цена его — к минуте прихода, с дорогой.
+    const recon = this.reconCost(id, from, target, now);
+    if (recon?.block) return recon.block;
     // Увести полководца из лагеря можно — но это и есть снятие осады, и
     // сказано об этом должно быть **до** приказа (см. `CAMP_LEAVE` в панели и в
     // меню действий). Отказывать здесь нельзя: тогда армия оказалась бы заперта
@@ -5766,8 +5989,21 @@ export class LocalWorld implements WorldApi {
       if (camp) this.leaveCamp(camp, now);
     }
     this.walk(id, target, now, shownAt);
+    if (recon) this.payEnergy(id, 'recon', now);
     this.write();
     return null;
+  }
+
+  /**
+   * Цена разведки, если разведчика ведут к чужим воротам: пересчитать гарнизон — его дело (`data/energy`), и энергии
+   * на него должно хватить к минуте прихода, с дорогой. Не разведчик или не к воротам — дела нет, цены нет.
+   */
+  private reconCost(id: FigureId, from: Coord, target: Coord, now: number): EnergyCost | null {
+    if (id !== 'scout') return null;
+    const near = this.touching(target);
+    if (!near || near.home) return null;
+    const seconds = travelTime(distance(from, target), terrainFactor(this.save.seed, from, target), FIGURE_BY_ID[id].speed);
+    return this.energyCost(id, 'recon', now, realMs(seconds));
   }
 
   /**
@@ -5777,6 +6013,8 @@ export class LocalWorld implements WorldApi {
    */
   private walk(id: FigureId, target: Coord, now: number, shownAt?: number): void {
     const f = this.save.figures[id];
+    // Стойка меняется — энергия сверяется до перемены: прежний путь или стоянка дожили до этой минуты.
+    this.energyOf(id, now);
     const from = this.figureAt(f, now);
     const seconds = travelTime(distance(from, target), terrainFactor(this.save.seed, from, target), FIGURE_BY_ID[id].speed);
     f.from = from;
@@ -5784,8 +6022,9 @@ export class LocalWorld implements WorldApi {
     f.departAt = now;
     f.arriveAt = now + Math.round(realMs(seconds));
     f.phase = 'moving';
-    // Новый путь — новый приказ: удар по лагерю, отданный раньше, отменён.
+    // Новый путь — новый приказ: удар по лагерю и «дойти и ударить», отданные раньше, отменены.
     f.strike = undefined;
+    f.assault = undefined;
     // Пошёл — значит перестал смотреть. Наблюдение, пережившее дорогу, вернулось
     // бы само собой на новом месте и запирало бы приказы там, где игрок его не
     // ставил: приказ, который молча станет чем-то другим, хуже отказа.
@@ -5823,7 +6062,27 @@ export class LocalWorld implements WorldApi {
       caught: plan?.caught ?? 0,
       peril: plan?.peril ?? 0,
       perilWhy: plan?.why ?? [],
+      energy: this.leadEnergy(id, from, target, realMs(seconds), now),
       at: now,
+    };
+  }
+
+  /**
+   * Энергия в пути глазами «Вести сюда»: сколько будет на месте, цена дела у ворот и кончится ли она в дороге — теми
+   * же проверками, что примет приказ (`moveFigure`): выход из ворот без энергии и цена разведки.
+   */
+  private leadEnergy(id: FigureId, from: Coord, target: Coord, road: number, now: number): NonNullable<LeadPlan['energy']> {
+    const have = this.energyNow(id, now);
+    const homeward = Boolean(this.touching(target)?.home);
+    const recon = this.reconCost(id, from, target, now);
+    const price = recon?.price ?? 0;
+    const left = have - price - roadCost(road);
+    const idle = this.touching(from)?.home && !homeward ? idleBlock(have, id) : null;
+    return {
+      price,
+      block: idle ?? recon?.block ?? null,
+      atArrival: Math.floor(Math.max(0, left) + 1e-9),
+      runsOut: !homeward && left < 0,
     };
   }
 
@@ -5840,7 +6099,10 @@ export class LocalWorld implements WorldApi {
         ? `${def.name} погиб. Место пустует.`
         : `${def.name} ушёл на покой. Место пустует.`;
     }
-    if (f.phase !== 'down') return null;
+    if (f.phase !== 'down') {
+      // Энергия кончилась на карте — идёт домой и дел не берёт, пока не дойдёт (docs/agent_energy.md).
+      return this.isSpent(id, now) ? `${def.name} выбился из сил и идёт домой. Пока не дойдёт, дел не берёт.` : null;
+    }
     const left = formatLeft(Math.max(0, f.downUntil - now) / 1000);
     return f.held ? `${def.name}а держат под стражей, отпустят через ${left}.` : `${def.name} вне строя, вернётся через ${left}.`;
   }
@@ -5918,6 +6180,50 @@ export class LocalWorld implements WorldApi {
   }
 
   /**
+   * Почему раскладку полководца сейчас не поменять; null — можно. Одна проверка на приказ (`setGarrison`) и на окно
+   * раскладки (`FigureView.regroup`): кнопка гаснет ровно там, где мир откажет, и той же строкой.
+   *
+   * Меняют её дома — у своих ворот или укрывшись в городе: в городе его отряд стоит с гарнизоном так же, как у ворот, и
+   * требовать выйти к воротам значило бы добавить нажатия без выбора (docs/retinue.md, решение 2; тот же довод у
+   * `shelter.canRegear`), — и стоя в поле вплотную к своему городу. В пути, в поле, в войне и пока идёт прошлый сбор — нет.
+   */
+  private regroupBlock(now: number): string | null {
+    const f = this.save.figures.general;
+    this.settleHandover(f, now);
+    const off = this.offDuty('general', now);
+    if (off) return off;
+    if (f.war) return WAR_BUSY;
+    if (f.phase === 'moving') return 'Полководец в пути, отряд к нему не подойдёт.';
+    if (f.handover) return `Отряд ещё в сборе: ${formatLeft(Math.max(0, f.handover.until - now) / 1000)}.`;
+    if (!this.touching(this.figureAt(f, now))?.home) return 'Отряд собирают только у своего города.';
+    return null;
+  }
+
+  /**
+   * Почему полководцу сейчас не добавить бойцов: город в осаде — логова (дверь выхода `siegeBlock`, та же, что у похода
+   * и фигуры) или игрока, одной мерой (docs/pvp.md, решение 8). Вернуть отряд в гарнизон осада не мешает: под запретом
+   * выход, а не вход.
+   */
+  private regroupGrow(now: number): string | null {
+    return this.siegeBlock(now) ?? (this.warOnUs() ? SIEGE_BLOCK : null);
+  }
+
+  /**
+   * Перевод мгновенный: полководец дома — у своих ворот или в городе — и город не в осаде (решение владельца 06.10.2026,
+   * docs/retinue.md, раздел 7). Дома его отряд и так стоит с гарнизоном (`muster.postureOf` = `stands`), и перевод
+   * обороны не меняет — платить за него сбором не за что. Вне города и в осаде — сбор, как прежде.
+   */
+  private regroupInstant(now: number): boolean {
+    return this.save.figures.general.phase === 'home' && this.regroupGrow(now) === null;
+  }
+
+  /** Раскладка полководца глазами окна — те же проверки, что примет `setGarrison`. */
+  private regroupOf(now: number): Regroup {
+    const block = this.regroupBlock(now);
+    return { block, grow: block ?? this.regroupGrow(now), instant: block === null && this.regroupInstant(now) };
+  }
+
+  /**
    * Полководец берёт гарнизон себе или возвращает его. Только вплотную к своему
    * поселению: в поле состав войска не меняется, и это правило, а не удобство.
    *
@@ -5928,22 +6234,13 @@ export class LocalWorld implements WorldApi {
    *
    * Сбор — плата: пока он идёт, в `troops` числятся все, кого он касается, и в
    * обороне их нет ни как гарнизона, ни как дружины (`world/muster.postureOf`).
+   * Дома и не в осаде платы нет — перевод мгновенный (`regroupInstant`).
    */
   async setGarrison(troops: TroopStack | null): Promise<string | null> {
     const now = this.clock();
     const f = this.save.figures.general;
-    this.settleHandover(f, now);
-    const off = this.offDuty('general', now);
-    if (off) return off;
-    if (f.war) return WAR_BUSY;
-    if (f.phase === 'moving') return 'Полководец в пути, отряд к нему не подойдёт.';
-    if (placeOf(f) === 'city') return 'Полководец укрылся в городе. Выведи его к воротам.';
-    if (f.handover) {
-      return `Дружина ещё в дороге: ${formatLeft(Math.max(0, f.handover.until - now) / 1000)}.`;
-    }
-    if (!this.touching(this.figureAt(f, now))?.home) {
-      return 'Отряд собирают только у своего города.';
-    }
+    const block = this.regroupBlock(now);
+    if (block) return block;
     const room = roomOf(this.save.profile?.army ?? {}, this.save.marches);
     const held = f.troops ?? {};
     const next: TroopStack = {};
@@ -5957,7 +6254,7 @@ export class LocalWorld implements WorldApi {
     // приказом. Вернуть её в гарнизон осада не мешает — под запретом выход, а не
     // вход, и подкрепление под стенами дело хорошее.
     if (TROOP_IDS.some((id) => (next[id] ?? 0) > (held[id] ?? 0))) {
-      const blocked = this.siegeBlock(now);
+      const blocked = this.regroupGrow(now);
       if (blocked) return blocked;
     }
     // Сколько людей переходит из рук в руки — в обе стороны: время стоит и
@@ -5974,6 +6271,13 @@ export class LocalWorld implements WorldApi {
     }
     if (moved === 0) return null;
     this.carryHandover(held, next, now);
+    // Дома и не в осаде — сразу: отряд и так стоит с гарнизоном, оборона от перевода не меняется.
+    if (this.regroupInstant(now)) {
+      f.troops = troopTotal(next) > 0 ? { ...next } : undefined;
+      f.handover = undefined;
+      this.write();
+      return null;
+    }
     const wait = this.musterWait(moved);
     f.troops = troopTotal(onRoad) > 0 ? onRoad : undefined;
     f.handover = { troops: next, until: now + wait };
@@ -6018,12 +6322,14 @@ export class LocalWorld implements WorldApi {
    * иначе он держал бы людей, которых у племени уже нет, до сверки на следующем
    * пульсе.
    */
-  private standingLost(own: TroopStack, standing: TroopStack, lost: TroopStack): void {
+  private standingLost(own: TroopStack, standing: TroopStack, lost: TroopStack): TroopStack {
     const share = standingShare(own, standing, lost);
-    if (troopTotal(share) === 0) return;
+    if (troopTotal(share) === 0) return share;
     const f = this.save.figures.general;
     const left = troopsAfter(f.troops ?? {}, share);
     f.troops = troopTotal(left) > 0 ? left : undefined;
+    // Доля отряда — в последствие боя: его раненые встанут его бойцами (`HomeEffect.standing`, docs/retinue.md).
+    return share;
   }
 
   // ---------- Мораль армии между боями (docs/battle_eu4.md, 14.31; `world/rest`) ----------
@@ -6234,6 +6540,8 @@ export class LocalWorld implements WorldApi {
       arriveAt: now,
       downUntil: 0,
       person,
+      // Новый человек — с полным запасом (docs/agent_energy.md).
+      energy: freshMark(now, vacant ? 'hold' : 'fill'),
     };
     if (vacant) f.gone = { person, at: now, why: 'retired' };
     // Лагерь уходит вместе с прежним полководцем: осада без него не стоит.
@@ -6284,6 +6592,47 @@ export class LocalWorld implements WorldApi {
   }
 
   /**
+   * Раненые его отряда, вставшие из лазарета, возвращаются к полководцу (docs/retinue.md, решение 9): раскладка держится,
+   * пока бойцы живы. Встав, они стоят в гарнизоне (`s.army`), а слепок везёт счётчик вставших за партию
+   * (`PlayerProfile.risen`); разница с отметкой полководца (`StoredFigure.risenSeen`) — те, кого он ещё не принял.
+   * Принимает он их дома — у ворот или в городе — и без сбора: дома его отряд и так стоит с гарнизоном, и оборона от
+   * перевода не меняется. Берёт только тех, кто ещё в гарнизоне: павших с тех пор, распущенных и ушедших отрядами взять
+   * неоткуда, и отметка их всё равно засчитывает. В пути, в поле, в войне, вне строя и пока идёт сбор — ждут.
+   */
+  private rejoinRisen(now: number): void {
+    const f = this.save.figures.general;
+    const risen = this.save.profile?.risen ?? {};
+    // Отметки ещё не было — мир старше раскладки, собран заново или на месте новый человек (`freshFigure`): ставим её
+    // по слепку, никого не переводя. Раненые прежнего полководца, встав, остаются гарнизону.
+    if (!f.risenSeen) {
+      f.risenSeen = { ...risen };
+      return;
+    }
+    const due: TroopStack = {};
+    for (const id of TROOP_IDS) {
+      const n = (risen[id] ?? 0) - (f.risenSeen[id] ?? 0);
+      if (n > 0) due[id] = n;
+    }
+    if (troopTotal(due) === 0) return;
+    this.settleHandover(f, now);
+    if (f.gone || f.war || f.phase !== 'home' || f.handover) return;
+    const free = this.defenders(now).own;
+    const back: TroopStack = {};
+    for (const id of TROOP_IDS) {
+      const n = Math.min(due[id] ?? 0, free[id] ?? 0);
+      if (n > 0) back[id] = n;
+    }
+    f.risenSeen = { ...risen };
+    if (troopTotal(back) > 0) {
+      const held = f.troops ?? {};
+      const next = plus(held, back);
+      this.carryHandover(held, next, now);
+      f.troops = next;
+    }
+    this.write();
+  }
+
+  /**
    * Передача дружины кончается сама, по времени: срок наступил — состав стал
    * тем, о котором договорились. Это приведение при чтении, а не тик: офлайн
    * даёт ровно то же, что непрерывная игра.
@@ -6316,7 +6665,7 @@ export class LocalWorld implements WorldApi {
     this.settleHandover(f, now);
     if (f.handover) {
       return {
-        error: `Дружина ещё в дороге: ${formatLeft(Math.max(0, f.handover.until - now) / 1000)}.`,
+        error: `Отряд ещё в сборе: ${formatLeft(Math.max(0, f.handover.until - now) / 1000)}.`,
         reportId: null,
         won: false,
       };
@@ -6335,7 +6684,9 @@ export class LocalWorld implements WorldApi {
     if (camp && !ourCamp(camp)) {
       const check = this.strikeCheck(near.id, now);
       if (check.error !== null) return { error: check.error, reportId: null, won: false };
-      return this.resolveStrike(near.id, now, false);
+      const res = this.resolveStrike(near.id, now, false);
+      if (!res.error) this.payEnergy('general', 'strike', now);
+      return res;
     }
     if (near.home) return { error: 'Рядом нет чужого поселения.', reportId: null, won: false };
     // Держит осаду — ударить можно только по тому городу, который держит: это штурм,
@@ -6346,28 +6697,150 @@ export class LocalWorld implements WorldApi {
     }
     const target = this.byId.get(near.id);
     if (!target) return { error: 'Цель не найдена.', reportId: null, won: false };
-    // Второй раз сожжённое логово разграбить нельзя, потому что его нет. Это
-    // правило мира, а не подсказка панели: кнопки у пепелища и так не бывает.
-    if (!this.alive(target, now)) {
-      return { error: 'Здесь только пепелище: брать нечего.', reportId: null, won: false };
-    }
-    // Пакт держит и здесь, а не только в панели: правило игры не может стоять
-    // на честном слове интерфейса.
-    if (standingAt(this.diploOf(target.id, now), now) === 'pact') {
-      return {
-        error: 'Пакт в силе, удара не будет. Разрыв объявляет дипломат.',
-        reportId: null,
-        won: false,
-      };
-    }
-    // Участь объявляется приказом и проверяется им же.
     const declared = order.fate ?? FATE_DEFAULT;
-    const blocked = fateBlock(declared, 'world', this.save.burnImmune[target.id], now, this.playerLocks());
+    const blocked = this.stormBlock(target, now, declared);
     if (blocked) return { error: blocked, reportId: null, won: false };
+    // Штурм — бой: его цена в энергии полководца (docs/agent_energy.md). В лагере энергия стояла — платит тем, что есть.
+    const tired = this.energyCost('general', 'storm', now).block;
+    if (tired) return { error: tired, reportId: null, won: false };
     // Штурм из своего лагеря: осада снимается до боя (`STORM_LIFTS`) — и приступ дальше
     // ничем не отличается от удара с дороги.
     if (besieging === target.id) this.liftSiege(target.id, now);
+    this.payEnergy('general', 'storm', now);
     return this.attackAt(target, now, declared);
+  }
+
+  /**
+   * Почему удар по двору не состоится в минуту `at`; null — состоится. Одна проверка на «Ударить» у ворот, на «Дойти и
+   * ударить» — при приказе и в минуту прихода — и на карточку.
+   */
+  private stormBlock(target: GenSettlement, at: number, declared: Fate): string | null {
+    // Ни удара, ни штурма за краем своего региона (docs/map_tw.md, 0.−2).
+    if (!this.inRealm(target)) return this.beyond();
+    // Второй раз сожжённое логово разграбить нельзя, потому что его нет. Это
+    // правило мира, а не подсказка панели: кнопки у пепелища и так не бывает.
+    if (!this.alive(target, at)) return 'Здесь только пепелище: брать нечего.';
+    // Пакт держит и здесь, а не только в панели: правило игры не может стоять
+    // на честном слове интерфейса.
+    if (standingAt(this.diploOf(target.id, at), at) === 'pact') return 'Пакт в силе, удара не будет. Разрыв объявляет дипломат.';
+    // Участь объявляется приказом и проверяется им же.
+    return fateBlock(declared, 'world', this.save.burnImmune[target.id], at, this.playerLocks());
+  }
+
+  /**
+   * «Дойти и ударить» глазами карточки и приказа (решение владельца 06.10.2026): можно ли, сколько идти и хватит ли
+   * энергии на штурм к минуте прихода, с дорогой. Город игрока — поход со штурмом с ходу, той же проверкой, что у
+   * похода (`warBlock`, `warEnergy`); двор мира — проверки удара (`stormBlock`) и выхода полководца. Стоит у ворот —
+   * дороги нет, удар сразу (`attack`). Undefined — бить тут некому или нечего: свой город, пепелище, места полководца нет.
+   */
+  private assaultOf(target: SettlementId, now: number, declared: Fate = FATE_DEFAULT): AssaultPlan | undefined {
+    const f = this.save.figures.general;
+    if (f.gone) return undefined;
+    const men = troopTotal(f.troops ?? {});
+    const c = this.castleOf(target);
+    if (c) {
+      const walkMs = Math.round(warWalkMs(this.save.home, c) / this.warPaceOf());
+      const energy = this.warEnergy(c, 'storm', now);
+      const reason = this.warBlock(c, now) ?? fateBlock(declared, 'player', undefined, now, this.playerLocks()) ?? energy.block;
+      return { can: reason === null, reason, walkMs, men, energy };
+    }
+    const s = this.byId.get(target);
+    if (!s || this.phaseOf(s, now) !== 'alive') return undefined;
+    const from = this.figureAt(f, now);
+    const here = this.touching(from)?.id === target && f.phase !== 'moving';
+    const walkMs = here
+      ? 0
+      : Math.round(realMs(travelTime(distance(from, s), terrainFactor(this.save.seed, from, s), FIGURE_BY_ID.general.speed)));
+    const energy = this.energyCost('general', 'storm', now, walkMs);
+    const reason = this.assaultBlock(s, here, now, declared) ?? energy.block;
+    return { can: reason === null, reason, walkMs, men, energy };
+  }
+
+  /** Почему полководцу не дойти и не ударить по двору мира; null — можно. Энергию проверяет `assaultOf`. */
+  private assaultBlock(s: GenSettlement, here: boolean, now: number, declared: Fate): string | null {
+    const f = this.save.figures.general;
+    const off = this.offDuty('general', now) ?? this.retiringBlock('general');
+    if (off) return off;
+    if (f.war) return WAR_BUSY;
+    // Из осаждённого своего города не выходят: та же дверь выхода, что у похода и фигуры.
+    if (!here && this.touching(this.figureAt(f, now))?.home) {
+      const blocked = this.siegeBlock(now);
+      if (blocked) return blocked;
+    }
+    const busy = Math.max(0, (f.busyUntil ?? 0) - now);
+    if (busy > 0) return `${this.busyNote('general')}: ${formatLeft(busy / 1000)}.`;
+    this.settleHandover(f, now);
+    if (f.handover) return `Отряд ещё в сборе: ${formatLeft(Math.max(0, f.handover.until - now) / 1000)}.`;
+    if (troopTotal(f.troops ?? {}) === 0) {
+      return this.touching(this.figureAt(f, now))?.home ? 'У полководца нет отряда. Дай ему бойцов в «Раскладке».' : 'Войска при полководце нет.';
+    }
+    // Держит осаду — ударить можно только по тому городу, который держит: это штурм, и он снимает лагерь.
+    const besieging = this.ourSiege(now);
+    if (besieging && besieging !== s.id) return `${CAMP_BUSY} ${CAMP_LEAVE}`;
+    // Под стенами чужой лагерь — бьют по нему, а не по городу: это «Удар по лагерю», свой приказ.
+    const camp = this.siegeOf(s.id, now);
+    if (camp && !ourCamp(camp)) return 'Под стенами чужой лагерь. Ударить по нему — «Удар по лагерю».';
+    return this.stormBlock(s, now, declared);
+  }
+
+  /**
+   * «Дойти и ударить» — одна дверь на логово и на город игрока (решение владельца 06.10.2026). Город игрока — поход со
+   * штурмом с ходу: бой посчитает сервер в минуту прихода (`warMarch`). Двор мира — полководец идёт к воротам, цена
+   * штурма списывается при приказе (её хватит к приходу, с дорогой), и бой случается в минуту прихода
+   * (`assaultArrived`) — онлайн и офлайн одинаково, игрока не ждёт. Стоит у ворот — бьёт сразу (`attack`).
+   */
+  async assault(target: SettlementId, fateId: Fate = FATE_DEFAULT): Promise<string | null> {
+    const now = this.clock();
+    if (this.castleOf(target)) return this.warMarch(target, 'storm', fateId);
+    const plan = this.assaultOf(target, now, fateId);
+    if (!plan) return 'Бить тут некого.';
+    if (!plan.can) return plan.reason;
+    if (plan.walkMs <= 0) return (await this.attack({ fate: fateId })).error;
+    const s = this.byId.get(target);
+    if (!s) return 'Цель не найдена.';
+    const f = this.save.figures.general;
+    f.chase = undefined;
+    this.walk('general', { x: s.x, y: s.y }, now);
+    f.assault = { id: target, fate: fateId };
+    // Цена — при приказе, как у удара по лагерю: бой случится в минуту прихода, и энергии на него хватит (`assaultOf`).
+    this.payEnergy('general', 'storm', now);
+    this.write();
+    return null;
+  }
+
+  /**
+   * Полководец дошёл с приказом «дойти и ударить»: бой в минуту прихода `at`, теми же проверками удара, что у приказа.
+   * Цена уже заплачена при приказе. Не вышло — строкой летописи, почему боя не было.
+   */
+  private assaultArrived(at: number): void {
+    const f = this.save.figures.general;
+    const order = f.assault;
+    f.assault = undefined;
+    if (!order) return;
+    const target = this.byId.get(order.id);
+    const near = this.touching(f.to);
+    const camp = target ? this.siegeOf(target.id, at) : null;
+    const why = !target || near?.id !== target.id
+      ? 'цели на месте нет.'
+      : troopTotal(f.troops ?? {}) === 0
+        ? 'войска при полководце нет.'
+        : camp && !ourCamp(camp)
+          ? 'под стенами чужой лагерь.'
+          : this.stormBlock(target, at, order.fate);
+    if (why) {
+      this.addEffect({
+        id: `assault-miss-${at}`,
+        lost: {},
+        resources: {},
+        prestige: 0,
+        morale: 0,
+        battle: null,
+        text: `Полководец дошёл${target ? ` до «${target.name}»` : ''}, но боя не было: ${why[0].toLowerCase()}${why.slice(1)}`,
+        good: false,
+      });
+      return;
+    }
+    this.attackAt(target as GenSettlement, at, order.fate);
   }
 
   /**
@@ -6434,6 +6907,8 @@ export class LocalWorld implements WorldApi {
       power: reading ? reading.power : { ...UNKNOWN },
       fates: this.fateOptions(s, now),
       men: troopTotal(this.save.figures.general.troops ?? {}),
+      // Штурм из лагеря — бой: его цена в энергии полководца (docs/agent_energy.md); в лагере энергия стояла.
+      storm: this.energyCost('general', 'storm', now),
       // Мораль нашего лагеря — дружины. Мораль чужого гарнизона — живые данные, а живого обзора у полководца нет.
       ...this.restViews(this.campRestView(w, now), undefined),
     };
@@ -6498,6 +6973,10 @@ export class LocalWorld implements WorldApi {
     if (hostility > def.maxHostility) {
       return `Слишком много обид: вражда ${Math.round(hostility)}, нужна не выше ${def.maxHostility}.`;
     }
+    // Договор — переговоры: цена в энергии дипломата (docs/agent_energy.md).
+    const tired = this.energyCost('diplomat', 'deal', now).block;
+    if (tired) return tired;
+    this.payEnergy('diplomat', 'deal', now);
     const tribe = this.save.pacts[target.tribeId] ?? (this.save.pacts[target.tribeId] = {});
     tribe[deal] = { until: now + DEAL_DURATION, paidAt: now };
     // Подпись греет отношения со всеми дворами племени: враждебность племени —
@@ -6654,12 +7133,16 @@ export class LocalWorld implements WorldApi {
           if (short > 0) reason = `На складе не хватает ${short} добра.`;
         }
       }
+      // Переговоры стоят энергию дипломата — у каждого разговора своя цена (`data/energy`).
+      const energy = this.energyCost('diplomat', def.id, now);
+      if (!reason) reason = energy.block;
       return {
         id: def.id,
         can: reason === null,
         reason,
         chance,
         cost,
+        energy,
         seconds: Math.round(def.busy / 1000),
         // Переговоры не губят: дипломат уходит только на покой.
         peril: null,
@@ -6690,6 +7173,9 @@ export class LocalWorld implements WorldApi {
           reason = `Там уже бунт, ещё ${formatLeft(Math.max(0, (this.save.revolts[target.id]?.until ?? 0) - now) / 1000)}.`;
         }
       }
+      // Дело лазутчика стоит его энергию (`data/energy`): добром он не платит, платит силами и риском.
+      const energy = this.energyCost('spy', def.id, now);
+      if (!reason) reason = energy.block;
       return {
         id: def.id,
         can: reason === null,
@@ -6697,6 +7183,7 @@ export class LocalWorld implements WorldApi {
         chance,
         // Лазутчик не платит добром: он платит риском.
         cost: {},
+        energy,
         seconds: Math.round(times.busy / 1000),
         peril: risk.peril,
         perilWhy: risk.why,
@@ -6742,6 +7229,8 @@ export class LocalWorld implements WorldApi {
     const opt = this.orderOptions(agent, s, now, this.shownAt(shownAt, now)).find((o) => o.id === action);
     if (!opt) return fail('Такого приказа нет.');
     if (!opt.can) return fail(opt.reason ?? 'Сейчас нельзя.');
+    // Цена дела в энергии — при приказе, чем бы оно ни кончилось: разговор был, дело сделано (docs/agent_energy.md).
+    this.payEnergy(agent, action, now);
     if (agent === 'spy') return this.spyOrder(action as 'probe' | 'revolt', s, now, opt.chance ?? 0, opt.peril ?? 0, opt.perilWhy);
 
     const diplo = action as DiploActionId;
@@ -6986,6 +7475,8 @@ export class LocalWorld implements WorldApi {
     this.advance(now);
     // Война между игроками: итоги, посчитанные сервером, и полководец там, где его войско (docs/pvp.md).
     this.stepWars(now);
+    // Вставшие раненые его отряда — к полководцу, после хода мира: дошедший до дома на этом пульсе принимает их сразу.
+    this.rejoinRisen(now);
     // Бой события у ворот — после хода мира: у ворот стоят те, кто дома в эту минуту.
     const gateDone = this.gateFights(calls, now);
     // Орудие поставили, сняли или башня стала ниже его уровня — мир узнаёт об этом на
@@ -7099,12 +7590,15 @@ export class LocalWorld implements WorldApi {
       if (f.war === w.id) this.warHome(now, w);
       return;
     }
+    // Энергией полководца в войне владеет сервер: прежняя стойка сверяется до того, как война её сменит.
+    if (!f.war) this.energyOf('general', now);
     f.war = w.id;
     f.troops = troopTotal(w.army.troops as TroopStack) > 0 ? { ...(w.army.troops as TroopStack) } : undefined;
     f.rest = w.army.rest;
     f.handover = undefined;
     f.chase = undefined;
     f.strike = undefined;
+    f.assault = undefined;
     if (w.phase === 'march') {
       f.from = { ...w.from };
       f.to = { ...w.to };
@@ -7129,6 +7623,9 @@ export class LocalWorld implements WorldApi {
   /** Война кончилась: полководец дома с теми, кто уцелел. Дружину перебили — разбит, как в любом бою. */
   private warHome(now: number, w: WarView | null): void {
     const f = this.save.figures.general;
+    // Последняя отметка войны — до того, как полководец снова станет своим: дома энергия копится с минуты прихода.
+    const last = w?.army.energy;
+    if (last) f.energy = { ...last };
     f.war = undefined;
     const troops = w ? (w.army.troops as TroopStack) : (f.troops ?? {});
     f.troops = troopTotal(troops) > 0 ? { ...troops } : undefined;
@@ -7204,11 +7701,12 @@ export class LocalWorld implements WorldApi {
     // Наш полководец дрался: в походе — всегда, дома — если ударил из поля.
     const general = ours === 'atk' || Boolean(b.genTroops);
     this.warLost(ourLost);
+    let standing: TroopStack = {};
     if (ours === 'def') {
       // Дружина, стоявшая у ворот, теряет свою долю тут же — тем же правилом, что у частокола; дружина из поля —
       // своими потерями.
       const held = this.defenders(b.at);
-      this.standingLost(held.own, held.standing, b.homeLost as TroopStack);
+      standing = this.standingLost(held.own, held.standing, b.homeLost as TroopStack);
       const g = this.save.figures.general;
       if (b.genLost && troopTotal(b.genLost as TroopStack) > 0 && g.troops) g.troops = troopsAfter(g.troops, b.genLost as TroopStack);
     }
@@ -7218,6 +7716,7 @@ export class LocalWorld implements WorldApi {
       lostTroops: ourLost,
       // В поле раненые лежат при полководце: у похода — все, у города — дружина удара.
       ...(ours === 'atk' ? { field: ourLost } : b.genLost ? { field: b.genLost as TroopStack } : {}),
+      ...(troopTotal(standing) > 0 ? { standing } : {}),
       resources: {},
       prestige: won ? 4 : 0,
       morale: won ? 4 : -6,
@@ -7357,7 +7856,7 @@ export class LocalWorld implements WorldApi {
         arriveAt: camp ? (w.starvesAt ?? w.arriveAt) : w.arriveAt,
         loot: null,
         recallable: false,
-        ...(camp ? { siege: true } : { musterBy: this.musterBy(w) }),
+        ...(camp ? { siege: true } : {}),
       });
     }
     return out;
@@ -7446,6 +7945,8 @@ export class LocalWorld implements WorldApi {
       power: card ? estimate(card.power, 'rough') : { ...UNKNOWN },
       fates: this.warFates(w.defCastle, now),
       men: troopTotal(troops),
+      // Штурм из лагеря под городом игрока — та же цена, и сервер спросит её той же дверью.
+      storm: this.energyCost('general', 'storm', now),
       ...this.restViews(camp, undefined),
     };
   }
@@ -7486,6 +7987,7 @@ export class LocalWorld implements WorldApi {
       walkMs,
       men: troopTotal(troops),
       power: troopPower(troops),
+      energy: { storm: this.warEnergy(c, 'storm', now), siege: this.warEnergy(c, 'siege', now) },
       ...(mine && mine.phase !== 'done'
         ? {
             ours: {
@@ -7512,10 +8014,21 @@ export class LocalWorld implements WorldApi {
     if (this.homeSiege(now) || this.warOnUs()) return SIEGE_BLOCK;
     if (!this.inRealm(c)) return this.beyond();
     this.settleHandover(f, now);
-    if (f.handover) return `Дружина ещё в дороге: ${formatLeft(Math.max(0, f.handover.until - now) / 1000)}.`;
+    if (f.handover) return `Отряд ещё в сборе: ${formatLeft(Math.max(0, f.handover.until - now) / 1000)}.`;
     if (f.phase !== 'home') return 'Поход выходит из своего города: верни полководца домой.';
     if (troopTotal(f.troops ?? {}) === 0) return 'У полководца нет дружины. Дай ему войско у ворот.';
-    return null;
+    // Энергии — хотя бы на поход с осадой, дешевле из двух дел у стен; какое дело — решает кнопка (`warEnergy`).
+    return this.warEnergy(c, 'siege', now).block;
+  }
+
+  /**
+   * Цена похода на город игрока в энергии полководца: дело у стен — ценой, и её должно хватить к минуте прихода, с
+   * дорогой по дням пути (`data/energy`, docs/agent_energy.md, раздел 2). Ту же проверку делает сервер той же дверью
+   * (`netlify/lib/war.ts`): путь — `pvp.warWalkMs` с темпом войны, как у сервера.
+   */
+  private warEnergy(c: PlayerCastle, mode: 'storm' | 'siege', now: number): EnergyCost {
+    const walkMs = Math.round(warWalkMs(this.save.home, c) / this.warPaceOf());
+    return this.energyCost('general', mode, now, walkMs);
   }
 
   /** Слепок обороны для записи партии (`SaveRecord.war`): его читает сервер, когда на нас идут. */
@@ -7546,6 +8059,10 @@ export class LocalWorld implements WorldApi {
       power: troopPower(p.army ?? {}),
       locks: { ...(p.fateLocks ?? {}) },
       seen: [...(this.save.warSeen ?? [])],
+      // Раскладка (docs/retinue.md): чья часть гарнизона — отряд полководца, и в каком своём походе он сейчас. По ним
+      // сервер правит слепок, лёгший до выхода или до возврата (`war.liveSheet`).
+      retinue: { ...held.standing } as Counts,
+      out: this.save.figures.general.war ? [this.save.figures.general.war] : [],
     };
   }
 
@@ -7566,6 +8083,8 @@ export class LocalWorld implements WorldApi {
     if (block) return block;
     const reason = fateBlock(fateId, 'player', undefined, now, this.playerLocks());
     if (reason) return reason;
+    const tired = this.warEnergy(c, mode, now).block;
+    if (tired) return tired;
     const f = this.save.figures.general;
     const troops = { ...(f.troops ?? {}) };
     const rest = f.rest;
@@ -7579,6 +8098,8 @@ export class LocalWorld implements WorldApi {
         resolve: this.ownResolve(),
         pips: { ...this.generalPips() } as Counts,
         ...(rest ? { rest: { ...rest } } : {}),
+        // Энергия полководца — отметкой: цену дела у стен и дорогу считает сервер той же дверью (`world/energy`).
+        energy: { ...this.energyOf('general', now) },
       },
     });
   }
@@ -7613,7 +8134,7 @@ export class LocalWorld implements WorldApi {
     if (off) return no(off);
     if (f.war) return no(WAR_BUSY);
     this.settleHandover(f, now);
-    if (f.handover) return no(`Дружина ещё в дороге: ${formatLeft(Math.max(0, f.handover.until - now) / 1000)}.`);
+    if (f.handover) return no(`Отряд ещё в сборе: ${formatLeft(Math.max(0, f.handover.until - now) / 1000)}.`);
     if (troopTotal(f.troops ?? {}) === 0) return no('Войска при полководце нет.');
     const force = fieldTroops(f, now);
     if (troopTotal(force) === 0) return no(STRIKE_FROM_TOWN);
@@ -7634,14 +8155,17 @@ export class LocalWorld implements WorldApi {
       going ? kindsOf(going) : null,
     );
     const refused = refusedAtGate(cast.rear, cast.front);
+    // Удар — бой: цена в энергии — к минуте прихода, с дорогой (та же, что у удара по лагерю логова).
+    const energy = this.energyCost('general', 'strike', now, realMs(seconds));
     return {
-      can: !refused,
-      reason: refused ? gateBusyText(Math.max(cast.rear.waitMs, cast.front?.waitMs ?? 0) + realMs(seconds)) : null,
+      can: !refused && !energy.block,
+      reason: refused ? gateBusyText(Math.max(cast.rear.waitMs, cast.front?.waitMs ?? 0) + realMs(seconds)) : energy.block,
       seconds,
       rear: { went: cast.rear.went, passed: cast.rear.passed },
       front: cast.front ? { went: cast.front.went, passed: cast.front.passed } : null,
       garrisonable: true,
       rout,
+      energy,
     };
   }
 
@@ -7665,6 +8189,7 @@ export class LocalWorld implements WorldApi {
         resolve: this.ownResolve(),
         pips: { ...this.generalPips() } as Counts,
         ...(f.rest ? { rest: { ...f.rest } } : {}),
+        energy: { ...this.energyOf('general', now) },
       },
     });
     if (err) return err;
@@ -7675,8 +8200,10 @@ export class LocalWorld implements WorldApi {
       this.walk('general', { ...this.save.home }, now);
       const at = this.warList().find((x) => x.id === w.id)?.strike?.at;
       if (at !== undefined) f.arriveAt = Math.max(now, at);
-      this.write();
     }
+    // Цена удара — при приказе, как у удара по лагерю логова.
+    this.payEnergy('general', 'strike', now);
+    this.write();
     return null;
   }
 

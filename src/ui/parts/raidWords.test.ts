@@ -1,16 +1,17 @@
 // Входы к набегу ведут в донесение о набеге, и окно ответа читается на них одинаково.
 //
 // Экрана расстановки обороны больше нет (поставка 2 боя, docs/battle_eu4.md, 14.27): у частокола строй раскладывает
-// правило, а решение о набеге — донесение в почте, где оба ответа, перехват на карте и сбор дружины в Статуе. Входов к
-// нему два — строка набега в тревогах и раздел «Оборона» у стены, — и открывают они его одной дверью (`realm/open.openRaid`).
-// Окно ответа — сколько ещё успевает полный сбор — читают трое (оба входа и само донесение), и все через одну дверь слов
-// (`useRaidWords` → `raidWords(raidWindow(…))`). Две проверки: по исходнику — прежней двери к расстановке нет нигде, а
-// своих расчётов и слов об окне ни у кого; по ответу — слова на границе окна говорят ровно то, что решил мир.
+// правило, а решение о набеге — донесение в почте, где оба ответа, перехват на карте и полководец с раскладкой в Статуе.
+// Входов к нему два — строка набега в тревогах и раздел «Оборона» у стены, — и открывают они его одной дверью
+// (`realm/open.openRaid`). Окно ответа — до прихода (решение владельца 06.10.2026, docs/NOTIFY.md, 12.11) — читают трое
+// (оба входа и само донесение), и все через одну дверь слов (`useRaidWords` → `raidWords(raidWindow(…))`). Две проверки:
+// по исходнику — прежней двери к расстановке нет нигде, а своих расчётов и слов об окне ни у кого (и слов о сборе дома —
+// «сбор ещё», «не успеет» — тоже); по ответу — слова на границе окна говорят ровно то, что решил мир.
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { raidWindow } from '@/world/store';
-import { formatLeft } from '@/world/geo';
+import { realLeft } from './wait';
 import type { MarchView } from '@/world/types';
 import { raidWords } from './raidWords';
 
@@ -59,48 +60,35 @@ describe('набег — одно донесение и одно окно на �
     // Дверь мира в интерфейсе зовёт один модуль — слов.
     const callers = ui.filter((f) => /\braidWindow\(/.test(code(f))).map((f) => rel(UI, f));
     expect(callers, 'кто зовёт raidWindow в интерфейсе').toEqual(['parts/raidWords.ts']);
-    // Донесение ведёт к действию, которое игрок может сделать: сбор дружины — в Статуе.
+    // Донесение ведёт к действию, которое игрок может сделать: полководец и раскладка — в Статуе.
     const mail = code(path.join(UI, 'realm/Mail.tsx'));
     expect(mail, 'кнопка «Дружина» ведёт в Статую').toMatch(/buildingOfType\(s, 'statue'\)/);
     expect(mail, 'кнопка «Дружина» ведёт в Статую').toMatch(/<b>Дружина<\/b>/);
   });
 
-  it('на границе окна слова говорят то же, что решил мир', () => {
+  /**
+   * Окно ответа — до прихода, и слова называют ровно этот срок. Прежде здесь держалась граница «полный сбор ещё успевает»
+   * (`MarchView.musterBy`, строки «сбор ещё …» и «полный сбор не успеет»): сбора дома больше нет. Граница области —
+   * приход: точки за минуту, за секунду, ровно в минуту прихода и после неё (окно закрыто — срок ноль).
+   */
+  it('на границе окна слова говорят то же, что решил мир: срок — до прихода, о сборе ни слова', () => {
     const NOW = 1_700_000_000_000;
-    const MUSTER = 3 * 3_600_000;
-    const march = (arriveAt: number, musterBy?: number): MarchView =>
-      ({ id: 'm', hostile: true, own: false, phase: 'out', arriveAt, fromName: 'Логово', ...(musterBy === undefined ? {} : { musterBy }) }) as MarchView;
-    // Точки по обе стороны минуты, до которой полный сбор успевает, и на ней самой: за минуту до, за секунду до, ровно,
-    // секунду после, и отряд, до прихода которого сбор не успевал уже с минуты обнаружения.
-    const lefts = [60_000, 1_000, 0, -1_000, -MUSTER + 1_000];
-    let late = 0;
+    const march = (arriveAt: number): MarchView =>
+      ({ id: 'm', hostile: true, own: false, phase: 'out', arriveAt, fromName: 'Логово' }) as MarchView;
     let open = 0;
-    for (const left of lefts) {
-      const musterBy = NOW + left;
-      const win = raidWindow(march(musterBy + MUSTER, musterBy), NOW);
-      // Точка внутри области правила: отряд идёт на деревню, и приход ещё впереди.
-      expect(win.muster, `${left} мс: у отряда на деревню есть срок сбора`).not.toBeNull();
-      expect(win.seconds, `${left} мс: приход впереди`).toBeGreaterThan(0);
+    let shut = 0;
+    for (const left of [60_000, 1_000, 0, -1_000]) {
+      const win = raidWindow(march(NOW + left), NOW);
       const words = raidWords(win);
       expect(words.win, `${left} мс: ответ двери приехал как есть`).toBe(win);
-      expect(win.late, `${left} мс: слова и мир о том, успевает ли сбор`).toBe(left <= 0);
-      if (win.late) {
-        late++;
-        expect(win.muster, `${left} мс: у опоздавшего срока сбора нет`).toBe(0);
-        expect(words.short, `${left} мс: строка опоздания`).toBe('полный сбор не успеет');
-      } else {
-        open++;
-        expect(win.seconds - win.muster!, `${left} мс: до прихода — срок сбора и потолок сбора`).toBeCloseTo(MUSTER / 1000, 6);
-        expect(words.short, `${left} мс: строка называет срок сбора`).toBe(`сбор ещё\u00a0${formatLeft(win.muster!)}`);
-        expect(words.long, `${left} мс: полная строка называет тот же срок`).toContain(formatLeft(win.muster!));
-      }
+      expect(win.seconds, `${left} мс: окно — до прихода`).toBe(Math.max(0, left / 1000));
+      expect(words.left, `${left} мс: строка называет срок до прихода`).toBe(realLeft(win.seconds));
+      expect(`${words.left} ${words.long}`, `${left} мс: о сборе ни слова`).not.toMatch(/сбор|не успеет/i);
+      if (left > 0) open++;
+      else shut++;
     }
     // Граница области — внутри выборки: есть точки по обе её стороны.
-    expect(late, 'точки после минуты сбора').toBeGreaterThan(0);
-    expect(open, 'точки до минуты сбора').toBeGreaterThan(0);
-    // Отряд не на деревню сбора не ждёт: срока нет, и о сборе слов нет.
-    const elsewhere = raidWords(raidWindow(march(NOW + MUSTER), NOW));
-    expect(elsewhere.win.muster, 'отряд не на деревню').toBeNull();
-    expect(elsewhere.short, 'отряд не на деревню').toBeNull();
+    expect(open, 'точки до прихода').toBeGreaterThan(0);
+    expect(shut, 'точки в минуту прихода и после').toBeGreaterThan(0);
   });
 });

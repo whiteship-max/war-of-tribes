@@ -35,7 +35,8 @@ import type { FigurePhase } from './types';
  * Срок сбора или роспуска дружины из `moved` человек при множителе черт полководца `mult`, мс мира: база и доля на
  * бойца, но не дольше потолка, и множится после потолка — «Мясника» ждут дольше и у дружины, которая и так упиралась
  * в него. Одно правило на мир (`LocalWorld.musterWait`) и на слова черты (`ui/parts/traitLines`): полный сбор — это
- * `moved` = `Infinity`, ровно тот, по которому мир ставит окно ответа на набег (`LocalWorld.musterBy`).
+ * `moved` = `Infinity`. Сбор идёт только в осаде своего города: дома перевод мгновенный, и окна ответа на набег он не
+ * держит — оно до прихода (docs/NOTIFY.md, 12.11).
  */
 export const musterMs = (moved: number, mult = 1): number =>
   Math.round(Math.min(HANDOVER_MAX, HANDOVER_BASE + moved * HANDOVER_PER_MAN) * mult);

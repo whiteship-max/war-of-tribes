@@ -15,12 +15,14 @@ services:
     restart: unless-stopped
     environment:
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:?впишите TELEGRAM_BOT_TOKEN в .env}
+      TELEGRAM_WEBHOOK_SECRET: ${TELEGRAM_WEBHOOK_SECRET:-}
       TRIBE_STORE: ${TRIBE_STORE:-sqlite}
       TRIBE_DATA: /data
       BACKUP_KEEP: ${BACKUP_KEEP:-14}
       BACKUP_AT: ${BACKUP_AT:-03:30}
       TRIBE_DELIVER: ${TRIBE_DELIVER:-off}
       TRIBE_WAR_PACE: ${TRIBE_WAR_PACE:-1}
+      TRIBE_APP_URL: ${TRIBE_APP_URL:-}
       NETLIFY_SITE_ID: ${NETLIFY_SITE_ID:-}
       NETLIFY_AUTH_TOKEN: ${NETLIFY_AUTH_TOKEN:-}
     volumes:

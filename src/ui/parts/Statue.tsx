@@ -1,8 +1,7 @@
 import { useGame } from '@/game/store';
 import { payGraceDays } from '@/game/derived';
 import { seated } from '@/game/sim/agents';
-import { atGates, useWorld } from '@/world/store';
-import { GarrisonEditor } from './GarrisonEditor';
+import { MusterLink } from './Muster';
 import { AgentCard } from './AgentCard';
 import { Lineage } from './Lineage';
 import { waitDays } from './wait';
@@ -22,7 +21,6 @@ import { waitDays } from './wait';
 export function Statue() {
   const s = useGame((g) => g.s);
   const here = seated(s, 'general');
-  const general = useWorld((g) => g.figures).find((f) => f.id === 'general');
 
   return (
     <>
@@ -44,14 +42,8 @@ export function Statue() {
         <div className="note">Полководца нет, и дружина не выходит из города. Найми его ниже.</div>
       )}
 
-      {/* Состав дружины — тот же редактор, что на карточке своего замка: мир один, отказы
-          его словами. Показан, пока полководец у ворот; увели его с открытой панелью —
-          «Отдать» получит отказ мира, а на следующем пульсе редактор уйдёт сам. */}
-      {here && (atGates(general) ? (
-        <GarrisonEditor />
-      ) : (
-        <div className="note">Полководца нет у ворот. Отряд меняют, только когда он дома.</div>
-      ))}
+      {/* Кто с полководцем — окно раскладки в «Дружине», одно на всю игру (docs/retinue.md). */}
+      {here && <MusterLink />}
 
       <Lineage id="general" />
     </>

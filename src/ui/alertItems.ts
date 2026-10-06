@@ -3,7 +3,7 @@ import { alerts, buildingOfType, buildingTitle } from '@/game/derived';
 import { eventLeft } from '@/game/sim/mail';
 import { MUTINY_EVENT, ORDER_TEXT } from '@/game/data/order';
 import { useWorld, worldNow } from '@/world/store';
-import { realDue, realLeft } from '@/ui/parts/wait';
+import { realDue } from '@/ui/parts/wait';
 import { FIGURE_BY_ID, FIGURE_IDS } from '@/world/data/figures';
 import { HIRE_AT } from '@/game/data/hire';
 import { hireWhere } from '@/game/sim/hire';
@@ -79,18 +79,17 @@ export function useAlertItems(): AlertItem[] {
       goWord: 'К вести',
     });
   }
-  for (const { win, short } of raids) {
-    // Тап ведёт туда, где это решают: в донесение о набеге — перехват на карте и сбор дружины. Не успевает
-    // полный сбор — у строки значок времени: вышло время полного сбора.
+  for (const { win, left } of raids) {
+    // Тап ведёт туда, где это решают: в донесение о набеге — перехват на карте и раскладка дружины. Окно ответа — до
+    // прихода (`parts/raidWords`): срок в строке один.
     const m = win.march;
-    const left = realLeft(win.seconds);
     out.push({
       key: m.id,
-      icon: win.late ? 'ui-time' : 'alert-raid',
-      glyph: win.late ? '⏳' : '⚔️',
-      text: `Набег · ${m.fromName} · ${left}${short ? ` · ${short}` : ''}`,
+      icon: 'alert-raid',
+      glyph: '⚔️',
+      text: `Набег · ${m.fromName} · ${left}`,
       title: `Набег · ${m.fromName}`,
-      body: short ? `Придёт через ${left}, ${short}.` : `Придёт через ${left}.`,
+      body: `Придёт через ${left}.`,
       timer: left,
       urgent: true,
       raid: true,

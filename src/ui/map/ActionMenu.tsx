@@ -28,12 +28,13 @@ import { personName } from '@/game/sim/agents';
 import { hireWhere } from '@/game/sim/hire';
 import { RESOURCE_IDS } from '@/game/constants';
 import { troopTotal } from '@/game/battle/kinds';
-import type { Fate, Loot, OrderActionId, OrderOption } from '@/world/types';
+import type { Fate, LeadPlan, Loot, OrderActionId, OrderOption } from '@/world/types';
 import { Icon } from '@/ui/icons/Icon';
 import { Cost } from '@/ui/parts/Cost';
 import { CampStrike } from '@/ui/parts/CampStrike';
 import { FatePick } from '@/ui/parts/FatePick';
 import { REST_WHY, restLine } from '@/ui/parts/restWords';
+import { EnergyBar, EnergyPrice } from '@/ui/parts/Energy';
 import { beyondText, reachable } from './twslot';
 import { tipAt } from '@/ui/next/tip';
 
@@ -56,6 +57,7 @@ export function ActionMenu() {
   const moveFigure = useWorld((g) => g.moveFigure);
   const order = useWorld((g) => g.order);
   const attack = useWorld((g) => g.attack);
+  const assault = useWorld((g) => g.assault);
   const besiege = useWorld((g) => g.besiege);
   const intercept = useWorld((g) => g.intercept);
   const watch = useWorld((g) => g.watch);
@@ -184,6 +186,9 @@ export function ActionMenu() {
             </p>
           )}
 
+          {/* Энергия человека (docs/agent_energy.md): сколько есть и что с ней — до приказа, у каждого дела своя цена. */}
+          {figure?.energy && <EnergyBar energy={figure.energy} spent={figure.spent} />}
+
           {/* Мораль отряда между боями (14.31): до приказа, а не после — уставший бежит раньше. */}
           {menu.agent === 'general' && figure?.rest && (
             <p className="nx-bwarn">
@@ -268,6 +273,7 @@ export function ActionMenu() {
                         <Icon name="ui-time" glyph="⏳" /> {realLeft(menu.plan.seconds)}
                       </span>
                       <span className="bad">им до цели {realLeft(menu.plan.targetSeconds)}</span>
+                      {menu.plan.energy && <EnergyPrice price={menu.plan.energy.price} />}
                     </>
                   )}
                 </Order>
@@ -311,6 +317,7 @@ export function ActionMenu() {
                   <span>
                     <Icon name="ui-time" glyph="⏳" /> {realLeft(o.seconds)}
                   </span>
+                  <EnergyPrice price={o.energy.price} />
                   {!isPaid(o.cost) && <span>даром</span>}
                   {menu.agent === 'spy' && o.peril !== null && (
                     // Два числа раздельно: удастся ли дело — выше, уцелеет ли лазутчик —
@@ -381,23 +388,53 @@ export function ActionMenu() {
               {/* Участь объявляется этим же приказом: и ударом, и осадой. Строки выбора — не приказы. */}
               {card.fates.length > 0 && <h3>Участь при взятии</h3>}
               <FatePick options={card.fates} value={fate} onChange={setFate} />
-              <Order
-                icon="hud-army"
-                glyph="⚔️"
-                name="Ударить"
-                can={card.can.raid}
-                why={card.note}
-                tip={tipOf('Удар', 'Бой у ворот в минуту прихода. Донесение ляжет в походы.', routLine(card))}
-                onGo={() => {
-                  void (async () => {
-                    const err = await attack({ fate });
-                    showToast(err ?? 'Отряд ударил. Донесение в походах.');
-                    if (!err) closeMenu();
-                  })();
-                }}
-              >
-                {card.can.raid && <span>{count(troopTotal(figure?.troops ?? {}), 'боец', 'бойца', 'бойцов')}</span>}
-              </Order>
+              {/*
+                Стоит у ворот — «Ударить»: бой сейчас. Не стоит — «Дойти и ударить»: полководец идёт сюда и бьёт в
+                минуту прихода, не дожидаясь игрока (`assault`); по городу игрока — тот же приказ, поход со штурмом с ходу.
+              */}
+              {here || !card.assault ? (
+                <Order
+                  icon="hud-army"
+                  glyph="⚔️"
+                  name="Ударить"
+                  can={card.can.raid}
+                  why={card.note}
+                  tip={tipOf('Удар', 'Бой у ворот сейчас. Донесение ляжет в походы.', routLine(card))}
+                  onGo={() => {
+                    void (async () => {
+                      const err = await attack({ fate });
+                      showToast(err ?? 'Отряд ударил. Донесение в походах.');
+                      if (!err) closeMenu();
+                    })();
+                  }}
+                >
+                  {card.can.raid && <span>{count(troopTotal(figure?.troops ?? {}), 'боец', 'бойца', 'бойцов')}</span>}
+                  {card.energy && <EnergyPrice price={card.energy.raid.price} />}
+                </Order>
+              ) : (
+                <Order
+                  icon="hud-army"
+                  glyph="⚔️"
+                  name="Дойти и ударить"
+                  can={card.assault.can}
+                  why={card.assault.reason}
+                  tip={tipOf('Дойти и ударить', 'Полководец ведёт отряд сюда и бьёт в минуту прихода, даже если ты не в игре. Донесение ляжет в походы.', routLine(card))}
+                  onGo={() => {
+                    void (async () => {
+                      const walkMs = card.assault?.walkMs ?? 0;
+                      const err = await assault(card.id, fate);
+                      showToast(err ?? `Отряд вышел. Бой через ${realLeft(walkMs / 1000)}.`);
+                      if (!err) closeMenu();
+                    })();
+                  }}
+                >
+                  <span>{count(card.assault.men, 'боец', 'бойца', 'бойцов')}</span>
+                  <span>
+                    <Icon name="ui-time" glyph="⏳" /> {realLeft(card.assault.walkMs / 1000)}
+                  </span>
+                  <EnergyPrice price={card.assault.energy.price} />
+                </Order>
+              )}
               {/*
                 Осада стоит рядом с ударом нарочно: это второй способ взять город, и выбирают
                 между ними в один и тот же миг. Цену увода из лагеря — снятую осаду — говорит
@@ -408,8 +445,14 @@ export function ActionMenu() {
                 glyph="⛺"
                 name="Осадить"
                 can={card.can.besiege}
-                why={card.siege ? 'Здесь уже стоит лагерь' : figure?.besieging ? 'Полководец уже держит осаду' : card.note}
-                tip={tipOf('Осада', 'Встать лагерем и ждать, пока кончится хлеб.', routLine(card))}
+                why={
+                  card.siege
+                    ? 'Здесь уже стоит лагерь'
+                    : figure?.besieging
+                      ? 'Полководец уже держит осаду'
+                      : (card.energy?.besiege.block ?? card.note)
+                }
+                tip={tipOf('Осада', 'Встать лагерем и ждать, пока кончится хлеб. Пока лагерь стоит, энергия полководца не тратится.', routLine(card))}
                 onGo={() => {
                   void (async () => {
                     const err = await besiege(fate);
@@ -417,7 +460,9 @@ export function ActionMenu() {
                     if (!err) closeMenu();
                   })();
                 }}
-              />
+              >
+                {card.energy && <EnergyPrice price={card.energy.besiege.price} />}
+              </Order>
             </>
           )}
 
@@ -496,6 +541,8 @@ export function ActionMenu() {
                       ? `Идти ${waitLeft(menu.lead.seconds)}.`
                       : 'Считаем путь…'}
             </small>
+            {/* Энергия в пути — тем же планом, что примет приказ: что останется на месте, цена дела у ворот, кончится ли. */}
+            {!here && !homeInside && !leavingCamp && menu.lead?.energy && <LeadEnergy energy={menu.lead.energy} />}
             {/* Разведчик у ворот с часовыми: схватят ли и погибнет ли — двумя числами, до приказа.
                 Риск замораживается в минуту отправки по этому же плану. */}
             {!here && !homeInside && menu.agent === 'scout' && menu.lead && menu.lead.caught > 0 && (
@@ -507,12 +554,26 @@ export function ActionMenu() {
               </button>
             )}
           </div>
-          <button className="nx-go" disabled={here || homeInside} onClick={() => void lead()}>
+          <button className="nx-go" disabled={here || homeInside || Boolean(figure?.spent) || Boolean(menu.lead?.energy?.block)} onClick={() => void lead()}>
             {here || homeInside ? 'Уже здесь' : 'Вести сюда'}
           </button>
         </div>
       </div>
     </div>
+  );
+}
+
+/** Энергия в пути под «Вести сюда»: отказ, если не пойдёт; иначе — сколько останется на месте и кончится ли в дороге. */
+function LeadEnergy({ energy }: { energy: NonNullable<LeadPlan['energy']> }) {
+  if (energy.block) return <small className="nx-why">{energy.block}</small>;
+  return (
+    <small className={energy.runsOut ? 'nx-why' : ''}>
+      {energy.runsOut
+        ? 'Энергия кончится в дороге — повернёт домой, не дойдя.'
+        : energy.price > 0
+          ? `После дороги и разведки у ворот (${energy.price}) энергии останется ${energy.atArrival}.`
+          : `После дороги энергии останется ${energy.atArrival}.`}
+    </small>
   );
 }
 

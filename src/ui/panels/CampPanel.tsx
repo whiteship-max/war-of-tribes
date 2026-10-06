@@ -175,14 +175,15 @@ export function CampPanel() {
       {sameFate && <p className="note">Эта участь уже объявлена</p>}
       <button
         className="btn wide"
-        disabled={busy || camp.men === 0 || cantFate !== null}
+        disabled={busy || camp.men === 0 || cantFate !== null || Boolean(camp.storm?.block)}
         onClick={() =>
           void order(() => attack({ fate: chosen }), 'Отряд штурмует. Донесение в походах.', true)
         }
       >
         Штурмовать · {camp.men}
+        {camp.storm ? ` · энергия ${camp.storm.price}` : ''}
       </button>
-      <p className="note">{cantFate ?? STORM_LIFTS}</p>
+      <p className="note">{cantFate ?? camp.storm?.block ?? STORM_LIFTS}</p>
       <button className="btn ghost wide" disabled={busy} onClick={() => void order(retreat, 'Осада снята.', true)}>
         Отступить
       </button>

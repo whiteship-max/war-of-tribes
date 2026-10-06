@@ -1,5 +1,5 @@
 import '@/game/pace.minute';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { GameState } from '@/game/types';
 import { createInitialState } from '@/game/state';
 import { armyPower, armySize, defense, faithTilt, homeArmyPower } from '@/game/derived';
@@ -29,7 +29,6 @@ import { SURVEY_MAX, SURVEY_STEPS } from '@/game/data/survey';
 import { gearOfTroop, troopTotal } from '@/game/battle/kinds';
 import {
   AI_WARNING_BASE,
-  HANDOVER_MAX,
   AI_RANGE,
   HOME_SIGHT,
   INTEL_EXACT,
@@ -48,6 +47,11 @@ import {
 } from './data/tuning';
 import type { Coord, FigureView, Intel, MarchView, PlayerProfile, Report, SettlementCard, SettlementView } from './types';
 import { shieldVillagers } from './lairs';
+
+// Энергия агентов здесь не предмет проверки (docs/agent_energy.md): сценарии этого файла водят агентов по карте помногу
+// — дорога здесь энергию не берёт. Цены дел и отдых дома остаются; энергию держат `energy.test.ts` и
+// `energyworld.test.ts`.
+vi.mock('@/world/data/energy', async (actual) => ({ ...(await actual<object>()), ENERGY_ROAD: Infinity }));
 
 /**
  * Спящие случаи. Чужих дворов на карте не осталось ни одного: мир стал общим, а
@@ -539,7 +543,7 @@ describe('армия в походе', () => {
     const general = async (): Promise<FigureView> => (await w.world.figures()).find((f) => f.id === 'general') as FigureView;
     await pulse();
     expect(await w.world.setGarrison({ legionary: 8, clubman: 5 })).toBeNull();
-    w.at((await general()).readyAt);
+    w.at(Math.max(w.now(), (await general()).readyAt));
     await pulse();
     const home = (await w.world.info()).home;
     expect(await w.world.moveFigure('general', { x: home.x + 4, y: home.y })).toBeNull();
@@ -858,8 +862,8 @@ describe('мягкость мира', () => {
     // Живой обзор сжался до круга у деревни, но обещание про набег осталось
     // прежним: его видно за `AI_WARNING_BASE` до прихода, и это работа Дозора,
     // записанная в его определении. Без этого набег из дальнего двора входил
-    // бы в круг уже тогда, когда полный сбор дружины к приходу не успевает, —
-    // и перехват в поле стал бы кнопкой, которая не нажимается.
+    // бы в круг перед самыми стенами — и перехват в поле стал бы кнопкой,
+    // которая не нажимается.
     for (const seed of [101, 303, 707, 909]) {
       const w = makeWorld(seed);
       // Дозор первого уровня стоит с первой секунды: 120 секунд сверх базы.
@@ -881,11 +885,9 @@ describe('мягкость мира', () => {
       }
       if (!raid) continue; // ближних соседей может не оказаться — это допустимо
 
+      // Окно ответа — до прихода (решение владельца 06.10.2026, docs/NOTIFY.md, 12.11): прежде здесь держалось ещё «окно
+      // сбора открыто» (`MarchView.musterBy`) и запас длиннее потолка сбора — сбора дома больше нет.
       const left = raid.arriveAt - seenAt;
-      // Запас времени длиннее потолка сбора: полный сбор, начатый в минуту обнаружения, успевает, и окно
-      // ответа, которое называет мир (`MarchView.musterBy`), в эту минуту ещё открыто.
-      expect(left, `сид ${seed}: запас времени`).toBeGreaterThan(HANDOVER_MAX);
-      expect(raid.musterBy, `сид ${seed}: окно сбора открыто`).toBeGreaterThan(seenAt);
       expect(left, `сид ${seed}: обещанное предупреждение`).toBeGreaterThan(
         AI_WARNING_BASE + 120_000 - 15_000,
       );
@@ -1663,19 +1665,19 @@ describe('фигуры на карте', () => {
     expect(back.downUntil).toBe(0);
   });
 
-  it('полководец берёт и возвращает гарнизон только вплотную к своей деревне', async () => {
+  it('полководец берёт и возвращает гарнизон только вплотную к своей деревне; дома — мгновенно', async () => {
     const w = makeWorld(11);
     const p = profile({ army: { clubman: 6, archer: 4 } });
     await w.world.sync(p);
 
-    // Дома — можно, но не мгновенно: дружина идёт из казарм к полководцу.
-    expect(await w.world.setGarrison({ clubman: 6, archer: 4 })).toBeNull();
+    // Дома — сразу, без сбора: отряд и так стоит с гарнизоном (решение владельца 06.10.2026, docs/retinue.md, раздел 7).
     let general = (await w.world.figures()).find((f) => f.id === 'general') as FigureView;
-    expect(general.readyAt, 'сбор занимает время').toBeGreaterThan(w.now());
-    expect(general.troops, 'ушедшие из деревни числятся при нём сразу').toEqual({ clubman: 6, archer: 4 });
+    expect(general.regroup?.instant, 'точка внутри области: полководец дома, осады нет').toBe(true);
+    expect(await w.world.setGarrison({ clubman: 6, archer: 4 })).toBeNull();
+    general = (await w.world.figures()).find((f) => f.id === 'general') as FigureView;
+    expect(general.readyAt, 'сбора нет').toBe(0);
+    expect(general.troops).toEqual({ clubman: 6, archer: 4 });
     expect(general.power).toBeGreaterThan(0);
-    w.at(general.readyAt);
-    await w.world.sync(p);
 
     // Больше, чем стоит дома, взять нельзя.
     expect(await w.world.setGarrison({ clubman: 99 })).toBeTruthy();
@@ -1688,21 +1690,14 @@ describe('фигуры на карте', () => {
     await w.world.sync(p);
     expect(await w.world.setGarrison({})).toBeTruthy();
 
-    // Вернулся домой — снова можно, и войско уходит обратно в деревню.
+    // Вернулся домой — снова можно, и войско уходит обратно в деревню сразу.
     expect(await w.world.recallFigure('general')).toBeNull();
     general = (await w.world.figures()).find((f) => f.id === 'general') as FigureView;
     w.at(general.arriveAt);
     await w.world.sync(p);
     expect(await w.world.setGarrison(null)).toBeNull();
     general = (await w.world.figures()).find((f) => f.id === 'general') as FigureView;
-    // Роспуск стоит того же времени, что и сбор: пока люди идут обратно, дома
-    // их ещё нет и в строю уже нет.
-    expect(general.readyAt).toBeGreaterThan(w.now());
-    expect(troopTotal(general.troops), 'на дороге они числятся при нём').toBe(10);
-    w.at(general.readyAt);
-    await w.world.sync(p);
-    general = (await w.world.figures()).find((f) => f.id === 'general') as FigureView;
-    expect(troopTotal(general.troops), 'дошли — и полководец снова один').toBe(0);
+    expect(troopTotal(general.troops), 'распустил — и полководец снова один').toBe(0);
     expect(general.readyAt).toBe(0);
   });
 
@@ -2401,7 +2396,7 @@ describe('отряд полководца', () => {
 
     // Ведём полководца с дружиной к тому же двору.
     expect(await w.world.setGarrison({ clubman: 10 })).toBeNull();
-    w.at((await general(w)).readyAt);
+    w.at(Math.max(w.now(), (await general(w)).readyAt));
     await w.world.sync(p);
     expect(await w.world.moveFigure('general', { x: target.x, y: target.y })).toBeNull();
     w.at((await general(w)).arriveAt);
@@ -2435,7 +2430,7 @@ describe('отряд полководца', () => {
       if (!strongest) continue;
 
       expect(await w.world.setGarrison({ clubman: 1 })).toBeNull();
-      w.at((await general(w)).readyAt);
+      w.at(Math.max(w.now(), (await general(w)).readyAt));
       await w.world.sync(p);
       if ((await w.world.moveFigure('general', { x: strongest.x, y: strongest.y })) !== null) continue;
       w.at((await general(w)).arriveAt);
@@ -2483,7 +2478,7 @@ describe('перехват в поле', () => {
     const p = strong();
     await w.world.sync(p);
     expect(await w.world.setGarrison(army)).toBeNull();
-    w.at((await general(w)).readyAt);
+    w.at(Math.max(w.now(), (await general(w)).readyAt));
     await w.world.sync(p);
     const raid = await waitRaid(w, p);
 
@@ -2510,7 +2505,7 @@ describe('перехват в поле', () => {
     const p = strong();
     await w.world.sync(p);
     expect(await w.world.setGarrison(army)).toBeNull();
-    w.at((await general(w)).readyAt);
+    w.at(Math.max(w.now(), (await general(w)).readyAt));
     await w.world.sync(p);
     const raid = await waitRaid(w, p);
     expect(await w.world.intercept(raid.id)).toBeNull();
@@ -2540,7 +2535,7 @@ describe('перехват в поле', () => {
     const p = strong();
     await w.world.sync(p);
     expect(await w.world.setGarrison(army)).toBeNull();
-    w.at((await general(w)).readyAt);
+    w.at(Math.max(w.now(), (await general(w)).readyAt));
     await w.world.sync(p);
     const raid = await waitRaid(w, p);
 

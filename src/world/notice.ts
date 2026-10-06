@@ -3,35 +3,39 @@
 // Модуль чистый, того же рода, что `siege.ts` и `works.ts`: ни состояния мира, ни часов,
 // ни сети, ни слов. Мир отдаёт сюда факты, записанные в его сохранении, — идущий набег,
 // окно осады и назначенные события, способные их пересчитать, — а отсюда уходит список
-// пунктов: вид, ключ, «когда», «годно до» и числа. Слов здесь нет нарочно: одни и те же
-// числа прочтут и сервер, и настройки игры, и второй правды о том, что сказано, быть не
-// должно (docs/NOTIFY.md, раздел 3).
+// пунктов: вид, ключ, «когда», «годно до» и числа. Слов здесь нет нарочно: слова собирает
+// сервер в минуту отправки (`netlify/lib/words.ts`), и второй правды о том, что сказано, быть
+// не должно (docs/NOTIFY.md, раздел 3).
+//
+// **О чём (решение владельца, 05.10.2026): на город нападают и бой уже был** (docs/NOTIFY.md,
+// раздел 12). Набег логова в пути — «нападают» (`raid`); набег дошёл до города — «бой был»
+// (`raid-fight`): чем он кончился, мир посчитает при следующем заходе, а минута боя известна уже
+// сейчас; хлеб под лагерем логова кончился — город взят (`siege-fall`). О войне между игроками
+// говорит сервер сам: её бой считает он.
 //
 // Полнота списка держится на инварианте, который сторожит `notice.test.ts`: набег на
-// деревню рождается только на пульсе. Правдивость — на правиле разрыва ниже.
-//
-// **Сроки здесь выражены долями окна, а не минутами.** Все осадные числа игры условны и
-// переедут, когда игра станет медленнее, — форма механизма от этого меняться не должна:
-// «на полпути к дозревшим рогаткам» и «в последней четверти хлеба» остаются правдой при
-// любой длине осады.
-import { plainName, type NoticeFacts, type NoticeItem, type NoticeKind } from '../../netlify/lib/contract';
+// деревню рождается только на пульсе. Значит, «ближайшие набеги» на время отсутствия — это
+// ровно тот, что уже в пути: нового без игрока не родится. Правдивость — на правиле разрыва
+// ниже.
+import { plainName, RESULT_KEEP, type NoticeFacts, type NoticeItem, type NoticeKind } from '../../netlify/lib/contract';
 import type { Fate } from './types';
 
 /**
  * Набег на деревню в пути. Всё — поля сохранения и то, что из них выводится без
  * будущего: `seenFrom` — минута, с которой игра сама показала бы его (донесение Дозора
- * или вход в живой обзор, что раньше), `musterBy` — последняя минута, когда полный сбор
- * дружины, начатый дома, ещё кончается до прихода (приход минус потолок сбора с чертой
- * полководца, `LocalWorld.musterBy`; docs/battle_eu4.md, 14.26–14.27).
+ * или вход в живой обзор, что раньше). Окно ответа — от неё до прихода (`arriveAt`): дома
+ * перевод дружины мгновенный, и ответить можно до самого прихода (решение владельца
+ * 06.10.2026, docs/NOTIFY.md, 12.11).
  */
 export interface RaidFacts {
   id: string;
+  /** Откуда вышел: номер логова — его сожжение своим походом снимает набег (`LocalWorld.burnLair`). */
+  source: string;
   from: string;
   fate: Fate;
   departAt: number;
   arriveAt: number;
   seenFrom: number;
-  musterBy: number;
 }
 
 /** Осада своей деревни, идущая в минуту составления. */
@@ -42,9 +46,6 @@ export interface SiegeFacts {
   /** Когда лагерь встал. Пересчёт часов голода эту отметку не двигает. */
   since: number;
   starvesAt: number;
-  /** Когда дозреют рогатки со стороны города и со стороны поля. null — никогда. */
-  frontAt: number | null;
-  rearAt: number | null;
 }
 
 /**
@@ -56,15 +57,19 @@ export interface SiegeFacts {
  * - `general-home` — полководец встаёт у своих ворот (`stepFigures` → `resiege`);
  * - `strike` — полководец приходит бить лагерь под своим городом (`resolveStrike`);
  * - `chase` — полководец настигает отряд (`resolveChase`): у набега это его судьба, у
- *   осады — возможная остановка у своих ворот (`breakChase` → `resiege`).
+ *   осады — возможная остановка у своих ворот (`breakChase` → `resiege`);
+ * - `burn` — свой поход доходит до логова, откуда вышел набег: сожжённое логово снимает
+ *   свои отряды в пути (`burnLair`). Нижняя граница — приход, а не победа.
  */
-export type BreakKind = 'march-home' | 'handover' | 'general-home' | 'strike' | 'chase';
+export type BreakKind = 'march-home' | 'handover' | 'general-home' | 'strike' | 'chase' | 'burn';
 
 export interface Break {
   kind: BreakKind;
   at: number;
   /** Кого касается погоня: номер отряда. У остальных пусто. */
   march?: string;
+  /** Куда идёт свой поход (`burn`): номер цели. */
+  target?: string;
 }
 
 export interface NoticeWorld {
@@ -81,17 +86,11 @@ export interface Drafts {
   silent: { kind: NoticeKind; why: Silence }[];
 }
 
-/** «Рогатки растут» — на этой доле пути от постановки лагеря до дозревших рогаток фронта. */
-export const WORKS_FIRE_SHARE = 0.5;
-
-/** «Хлеб кончается» — когда до голода остаётся эта доля всей осады. */
-export const BREAD_LEAD_SHARE = 0.25;
-
 /**
  * Первый разрыв до минуты `about`. Пункт существует, только если между минутой
  * составления и минутой, **о которой он говорит**, нет ни одного назначенного пересчёта
- * — не до `fireAt`, а дальше: иначе отправленное «хлеба до 14:40» могло бы стать
- * неправдой в 14:20 без единого действия игрока.
+ * — не до `fireAt`, а дальше: иначе отправленное «набег дошёл в 14:40» могло бы
+ * стать неправдой в 14:20 без единого действия игрока.
  */
 function firstBreak(breaks: Break[], about: number, touches: (b: Break) => boolean): Break | null {
   let first: Break | null = null;
@@ -117,58 +116,40 @@ export function draftNotices(w: NoticeWorld, now: number): Drafts {
 
   const raid = w.raid;
   if (raid) {
-    const gap = firstBreak(w.breaks, raid.arriveAt, (b) => b.kind === 'chase' && b.march === raid.id);
-    if (gap) silent.push({ kind: 'raid', why: gap.kind });
+    // Набег снимают погоня полководца за этим отрядом и свой поход на его логово — оба до прихода.
+    const gap = firstBreak(
+      w.breaks,
+      raid.arriveAt,
+      (b) => (b.kind === 'chase' && b.march === raid.id) || (b.kind === 'burn' && b.target === raid.source),
+    );
+    if (gap) silent.push({ kind: 'raid', why: gap.kind }, { kind: 'raid-fight', why: gap.kind });
     else {
-      // Годен, пока полный сбор ещё успевает (`musterBy`): после этой минуты сбор, начатый дома, не кончится к приходу, и
-      // люди в сборе встретят набег на дороге, а не у частокола. Полный сбор не успевает уже в минуту, когда отряд стал
-      // виден (сбор дольше предупреждения — черта «Мясник»), — пункт всё равно есть (слово владельца по 14.26): уходит в
-      // эту же минуту с пометкой `late` и годен до прихода — набег правда идёт, а доставка шлёт только до `until`.
-      const late = raid.musterBy <= raid.seenFrom;
+      // Годен до прихода: ответить на набег можно до самой этой минуты — дома перевод дружины мгновенный (решение
+      // владельца 06.10.2026), а войне между игроками сервер ставит тот же срок (`war.newsOf`). Прежде пункт был годен,
+      // пока полный сбор дома ещё успевал (`musterBy`), а сбора дома больше нет.
       // Ключ — имя момента: этот отряд, вышедший в эту минуту. Номер один не годится:
       // «начать заново» заводит мир со счёта походов с нуля, и первый набег новой партии
       // молчал бы `SENT_KEEP` (`netlify/lib/notify.ts`), наткнувшись на отметку первого набега прежней.
-      put('raid', `raid:${raid.id}:${raid.departAt}`, raid.seenFrom, late ? raid.arriveAt : raid.musterBy, {
-        from: plainName(raid.from),
-        fate: raid.fate,
-        about: raid.arriveAt,
-        ...(late ? { late: true as const } : {}),
-      });
+      const name = `${raid.id}:${raid.departAt}`;
+      const facts: NoticeFacts = { from: plainName(raid.from), fate: raid.fate, about: raid.arriveAt };
+      put('raid', `raid:${name}`, raid.seenFrom, raid.arriveAt, facts);
+      // Бой у города — в минуту прихода. Чем кончился (отбили, прорвались, встали лагерем), посчитает мир при
+      // следующем заходе: слова говорят о минуте, а итог — в донесении.
+      put('raid-fight', `raid-fight:${name}`, raid.arriveAt, raid.arriveAt + RESULT_KEEP, facts);
     }
   }
 
   const siege = w.siege;
   if (siege) {
-    // Все пересчёты окна — разрывы для обоих пунктов осады: оба называют «хлеба до».
+    // Все пересчёты окна — разрывы: падение назначено концом хлеба, и пересчёт его двигает.
     const gap = firstBreak(w.breaks, siege.starvesAt, () => true);
-    if (gap) {
-      silent.push({ kind: 'siege-works', why: gap.kind }, { kind: 'siege-bread', why: gap.kind });
-    } else {
-      const facts: NoticeFacts = {
+    if (gap) silent.push({ kind: 'siege-fall', why: gap.kind });
+    else
+      put('siege-fall', `siege-fall:${siege.campId}:${siege.since}`, siege.starvesAt, siege.starvesAt + RESULT_KEEP, {
         from: plainName(siege.from),
         fate: siege.fate,
         about: siege.starvesAt,
-        ...(siege.frontAt !== null ? { frontAt: siege.frontAt } : {}),
-        ...(siege.rearAt !== null ? { rearAt: siege.rearAt } : {}),
-      };
-      const name = `${siege.campId}:${siege.since}`;
-      if (siege.frontAt === null) silent.push({ kind: 'siege-works', why: 'no-window' });
-      else
-        put(
-          'siege-works',
-          `siege-works:${name}`,
-          siege.since + (siege.frontAt - siege.since) * WORKS_FIRE_SHARE,
-          Math.min(siege.frontAt, siege.starvesAt),
-          facts,
-        );
-      put(
-        'siege-bread',
-        `siege-bread:${name}`,
-        siege.starvesAt - (siege.starvesAt - siege.since) * BREAD_LEAD_SHARE,
-        siege.starvesAt,
-        facts,
-      );
-    }
+      });
   }
   return { items, silent };
 }

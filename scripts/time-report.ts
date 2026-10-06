@@ -11,6 +11,8 @@
 //  5. АЛМАЗ — цена достройки как доля настоящих суток: она от шкалы не зависит.
 //  6. ДЕРЖАВА — очки правителя, потолок, цена уровня технологии и военная лестница, выведенная из
 //     работы вещей кузницы. Прибор шага 4 (docs/dynasty.md, пачка 0): чистая арифметика, прогона нет.
+//  7. ДОРОГА ПОЛКОВОДЦА — сколько дней пути до соседа и до ближнего логова и сколько энергии остаётся у цели: мерка
+//     цены дороги (`data/energy.ENERGY_ROAD`, docs/agent_energy.md). Чистая арифметика, прогона нет.
 //
 // Всё, что про хозяйство, печатается в ИГРОВЫХ ДНЯХ: это единица, которая переживает поворот шкалы.
 // Настоящие часы стоят рядом пересчётом — при нынешнем дне в минуту и при дне в полчаса.
@@ -41,14 +43,19 @@ import { YEAR_DAYS } from '@/game/data/seasons';
 import { hireAgent } from '@/game/sim/hire';
 import { generateWorld, isLair } from '@/world/gen';
 import { lairPhase } from '@/world/lairs';
-import { distance } from '@/world/geo';
+import { distance, terrainFactor, travelTime } from '@/world/geo';
+import { placeCastle, settleRandom, type Spot } from '@/world/settle';
+import { warWalkMs } from '@/world/pvp';
+import { FIGURE_BY_ID } from '@/world/data/figures';
+import { ENERGY_MAX, ENERGY_ROAD } from '@/world/data/energy';
+import { energyBlock, priceOf, roadCost } from '@/world/energy';
 import { AI_RANGE } from '@/world/data/tuning';
 import { START, armyAt, away, gone, pilot, played, player, readyToStrike, stackOf, type Cost, type Inside } from './autopilot';
 // Этот отчёт меряет настоящим временем — службу агента, отлучку, заходы, — поэтому часы и минуты у него
 // настоящие (`game/time`), а не единицы автопилота, которые после поворота шкалы стали игровыми днями.
 import { HOUR_MS as HOUR, MINUTE_MS as MIN } from '@/game/time';
 import { measure } from './lib/measured';
-import { dayRealSeconds, gameDaysPerHour, gameSeconds, setTimeScale } from '@/game/pace';
+import { dayRealSeconds, gameDaysOfMs, gameDaysPerHour, gameSeconds, realMs, setTimeScale } from '@/game/pace';
 import {
   ADMIN_LEVELS,
   BRANCH_NAME,
@@ -405,21 +412,37 @@ async function agentsRun(seed: number, style: Style, yearSeconds: number | null)
         const home = saveOf(w).home;
         const fig = (id: FigureId): FigureView => figures.find((f) => f.id === id)!;
 
-        // Полководец жжёт ближайшее логово — мир живёт, как в партии.
+        // Энергия (docs/agent_energy.md, 6.6): без сил на своё дело агент уходит домой сам — это правило мира
+        // (`LocalWorld.outAt`), и игрок отчёта его больше не повторяет: прежде он сам вёл домой разведчика и лазутчика,
+        // у кого меньше цены главного дела, — а у них главное дело и есть самое дешёвое. Дома игрок ждёт полного запаса.
+        const resting = (f: FigureView): boolean => f.atHome && (f.energy?.value ?? ENERGY_MAX) < ENERGY_MAX;
+        // Полководцу у игрока отчёта дело одно — штурм, а мир держит его в поле, пока хватает на осадный лагерь (самое
+        // дешёвое его дело): на штурм не хватает — игрок ведёт его домой сам. Это выбор игрока, который осад не ставит, а
+        // не подпорка правила: без него полководец стоял бы у логова до конца прогона.
+        const stormless = async (f: FigureView): Promise<boolean> => {
+          if (f.atHome || (f.energy?.value ?? ENERGY_MAX) >= priceOf('storm')) return false;
+          await w.recallFigure(f.id);
+          return true;
+        };
+
+        // Полководец жжёт ближайшее логово — мир живёт, как в партии. Стоит у логова — бьёт, иначе — приказом
+        // «дойти и ударить»: бой в минуту прихода, следующего захода он не ждёт.
         const gen = fig('general');
         let genTarget: string | null = null;
         if (gen.place === 'map' && gen.phase !== 'moving' && gen.readyAt <= at) {
           if (gen.atHome && Object.values(gen.troops).every((k) => !k)) {
             await w.setGarrison(GARRISON);
-          } else {
+          } else if (!resting(gen) && !(await stormless(gen))) {
+            // Логово бьют полной дружиной: уставшая идёт к цели и стоит у неё до следующего захода (`readyToStrike`).
+            const ready = readyToStrike(gen);
             const here = gen.atId ? live.find((l) => l.id === gen.atId) : undefined;
             if (here) {
-              // Логово бьют полной дружиной: уставшая стоит у цели до следующего захода (`readyToStrike`).
-              if (readyToStrike(gen) && !(await w.attack({ setup: null })).error) out.general.deeds++;
+              if (ready && !(await w.attack({ setup: null })).error) out.general.deeds++;
             } else {
               const t = [...live].sort((a, b) => distance(a, gen.at) - distance(b, gen.at))[0];
               genTarget = t.id;
-              await w.moveFigure('general', { x: t.x, y: t.y });
+              if (ready && (await w.assault(t.id, 'plunder')) === null) out.general.deeds++;
+              else await w.moveFigure('general', { x: t.x, y: t.y });
             }
           }
         }
@@ -428,7 +451,7 @@ async function agentsRun(seed: number, style: Style, yearSeconds: number | null)
         if (others.length === 0) return;
 
         const sc = fig('scout');
-        if (sc.place === 'map' && sc.phase !== 'moving' && !sc.held) {
+        if (sc.place === 'map' && sc.phase !== 'moving' && !sc.held && !resting(sc)) {
           let target = others[rot.scout++ % others.length];
           if (style === 'careful') {
             const plans: { l: (typeof others)[number]; peril: number }[] = [];
@@ -441,7 +464,7 @@ async function agentsRun(seed: number, style: Style, yearSeconds: number | null)
         }
 
         const sp = fig('spy');
-        if (sp.place === 'map' && sp.phase !== 'moving' && sp.busyUntil <= at) {
+        if (sp.place === 'map' && sp.phase !== 'moving' && sp.busyUntil <= at && !resting(sp)) {
           const here = sp.atId ? others.find((l) => l.id === sp.atId) : undefined;
           if (here) {
             const opt = (await w.orders('spy', here.id)).find((o: Inside) => o.id === 'probe');
@@ -522,7 +545,9 @@ async function agentsSection(): Promise<void> {
   console.log('=== 2. СЛУЖБА АГЕНТА ===');
   console.log(`Мир → последствия → партия настоящим пульсом, миры ${AGENTS_SEEDS.join(', ')}, ${AGENTS_DAYS} суток на мир, заход раз в ${VISIT / 60} ч,`);
   console.log(`шаг прогона ${AGENTS_STEP} с. Статуя 10, Дозор 3, дружина ${Object.values(GARRISON).reduce((a, b) => a + b, 0)}; пустое место нанимается на первом же заходе. Полководец жжёт`);
-  console.log('ближайшее логово, разведчик ходит к логовам по кругу, лазутчик выведывает у логова, где стоит.');
+  console.log('ближайшее логово (стоит у него — бьёт, иначе — «дойти и ударить»), разведчик ходит к логовам по кругу, лазутчик');
+  console.log('выведывает у логова, где стоит. Без сил на своё дело агент идёт домой сам; полководца без сил на штурм игрок ведёт домой;');
+  console.log('дома ждёт полного запаса.');
   console.log('Осторожный выбирает разведчику цель с наименьшей гибелью, лазутчика пускает при гибели ≤ 4 % и уводит');
   console.log('оттуда, где бывали дважды; неосторожный делает дело всегда. Часы — настоящие: дела идут по часам мира.');
   console.log('');
@@ -918,17 +943,88 @@ function realmSection(): void {
   );
 }
 
+// ---------- 7. Дорога полководца ----------
+
+/** Прогонов расселения на каждое число игроков — как у `settle:report`. */
+const ROAD_RUNS = 6;
+const ROAD_PLAYERS = [2, 5, 20, 50];
+/** Миров для ближнего логова: сиды 1…N. */
+const ROAD_WORLDS = 200;
+
+function roadSection(): void {
+  const q = (xs: number[], p: number): number => {
+    const a = [...xs].sort((x, y) => x - y);
+    return a[Math.min(a.length - 1, Math.floor(a.length * p))];
+  };
+  const left = (ms: number): number => ENERGY_MAX - roadCost(ms);
+  const fits = (ms: number, action: 'storm' | 'siege'): boolean => energyBlock(ENERGY_MAX, priceOf(action), ms) === null;
+  console.log('=== 7. ДОРОГА ПОЛКОВОДЦА ===');
+  console.log(
+    `Цена дороги — полный запас за ${n1(gameDaysOfMs(ENERGY_ROAD))} игровых дней пути (${n1(ENERGY_MAX / gameDaysOfMs(ENERGY_ROAD))} в день); ` +
+      `штурм ${priceOf('storm')}, осада ${priceOf('siege')}. Полководец выходит с полным запасом; «у цели» — сколько останется после дороги.`,
+  );
+  console.log('');
+  console.log(`До ближнего соседа (расселение \`settle:report\`, ${ROAD_RUNS} прогонов на число игроков, путь войны \`pvp.warWalkMs\`):`);
+  console.log('  игроков | дней пути: середина · 9 из 10 · самый дальний | у цели: середина · самый дальний | штурм с ходу | осада');
+  for (const n of ROAD_PLAYERS) {
+    const ms: number[] = [];
+    for (let r = 0; r < ROAD_RUNS; r++) {
+      const spots: Spot[] = [];
+      for (let i = 0; i < n; i++) spots.push(placeCastle(settleRandom(`run${r}:player${i}`), spots));
+      for (const s of spots) {
+        let best: Spot | null = null;
+        let bd = Infinity;
+        for (const o of spots) {
+          if (o === s) continue;
+          const d = distance(s, o);
+          if (d < bd) {
+            bd = d;
+            best = o;
+          }
+        }
+        if (best) ms.push(warWalkMs(s, best));
+      }
+    }
+    const storm = ms.filter((m) => fits(m, 'storm')).length;
+    const siege = ms.filter((m) => fits(m, 'siege')).length;
+    console.log(
+      `  ${pad(n, 7)} | ${pad(n1(gameDaysOfMs(q(ms, 0.5))), 18)} · ${pad(n1(gameDaysOfMs(q(ms, 0.9))), 7)} · ${pad(n1(gameDaysOfMs(Math.max(...ms))), 13)} | ` +
+        `${pad(n1(left(q(ms, 0.5))), 16)} · ${pad(n1(left(Math.max(...ms))), 13)} | ${pad(`${storm}/${ms.length}`, 12)} | ${siege}/${ms.length}`,
+    );
+  }
+  const lair: number[] = [];
+  let worst = { seed: 0, ms: 0 };
+  for (let seed = 1; seed <= ROAD_WORLDS; seed++) {
+    const g = generateWorld(seed);
+    const near = g.settlements.filter(isLair).filter((l) => distance(l, g.home) <= AI_RANGE);
+    if (near.length === 0) continue;
+    const ms = Math.min(...near.map((l) => realMs(travelTime(distance(g.home, l), terrainFactor(seed, g.home, l), FIGURE_BY_ID.general.speed))));
+    lair.push(ms);
+    if (ms > worst.ms) worst = { seed, ms };
+  }
+  console.log('');
+  console.log(`До ближнего логова (миры 1…${ROAD_WORLDS}, логова при рождении мира в досягаемости, путь полководца \`geo.travelTime\`):`);
+  console.log(
+    `  дней пути: середина ${n1(gameDaysOfMs(q(lair, 0.5)))} · 9 из 10 ${n1(gameDaysOfMs(q(lair, 0.9)))} · самый дальний ${n1(gameDaysOfMs(worst.ms))} (сид ${worst.seed}); ` +
+      `у цели: середина ${n1(left(q(lair, 0.5)))} · самый дальний ${n1(left(worst.ms))}; штурм с ходу — ${lair.filter((m) => fits(m, 'storm')).length}/${lair.length}.`,
+  );
+  console.log('');
+}
+
 async function main(): Promise<void> {
+  // Раздел 7 — чистая арифметика: без посёлков этапов.
+  if ((process.env.SECTIONS ?? '') === '7') return roadSection();
   const towns = await stages();
   if (towns.length !== STAGES.length) throw new Error(`этапов снято ${towns.length} из ${STAGES.length}`);
   // SECTIONS=13 — только названные разделы: для работы над отчётом, приёмкой не является.
-  const on = (k: string): boolean => (process.env.SECTIONS ?? '123456').includes(k);
+  const on = (k: string): boolean => (process.env.SECTIONS ?? '1234567').includes(k);
   if (on('1')) fillSection(towns);
   if (on('2')) await agentsSection();
   if (on('3')) await costSection(towns);
   if (on('4')) returnSection(towns);
   if (on('5')) gemSection();
   if (on('6')) realmSection();
+  if (on('7')) roadSection();
 }
 
 await main();

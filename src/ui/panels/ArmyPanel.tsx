@@ -2,16 +2,15 @@
 // карточка. Карточка живёт здесь же, а не отдельным разделом шторки, — это чтение
 // про то же самое войско, и возврат должен быть в один тап. Кольца контрров нет
 // (слово владельца по 14.35, docs/battle_eu4.md): кто кого бьёт, решают показатели.
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { TroopId } from '@/game/types';
 import { useGame } from '@/game/store';
 import { TROOPS } from '@/game/data/troops';
 import { armyPower, armySize, buildingOfType, defense, homeArmy, recruitsQueued } from '@/game/derived';
 import { KIND_META } from '@/battle';
-import { KIND_OF, profileOfTroop, troopTotal } from '@/game/battle/kinds';
+import { KIND_OF, profileOfTroop } from '@/game/battle/kinds';
 import { troopPower } from '@/game/battle/price';
 import { useWorld, worldNow } from '@/world/store';
-import { postureOf } from '@/world/muster';
 import { moraleOf } from '@/game/battle/describe';
 import { WOUND_DAYS } from '@/game/constants';
 import { REST_WHY, restLine } from '../parts/restWords';
@@ -19,6 +18,8 @@ import { waitDays } from '../parts/wait';
 import { count } from '../parts/plural';
 import { tipAt } from '@/ui/next/tip';
 import { TroopCardView } from '../parts/TroopCardView';
+import { Muster, MusterOpen } from '../parts/Muster';
+import { useArmyView } from '../parts/armyView';
 import { Icon } from '@/ui/icons/Icon';
 import { dec } from '@/game/num';
 
@@ -30,11 +31,13 @@ export function ArmyPanel() {
   const home = homeArmy(s);
   const away = armySize(s) - home;
   const training = recruitsQueued(s);
-  // Где дружина — три состояния, и за разницу между ними игрок платит.
   const general = useWorld((g) => g.figures.find((f) => f.id === 'general'));
-  const druzhina = troopTotal(general?.troops ?? {});
-  const posture = general ? postureOf(general) : 'none';
+  // Окно раскладки открыто здесь же (docs/retinue.md); ушли из «Дружины» — в следующий раз она открывается списком.
+  const muster = useArmyView((v) => v.muster);
+  const showMuster = useArmyView((v) => v.show);
+  useEffect(() => () => showMuster(false), [showMuster]);
 
+  if (muster) return <Muster onBack={() => showMuster(false)} />;
   if (open) return <TroopCardView troop={open} onBack={() => setOpen(null)} />;
 
   return (
@@ -60,22 +63,6 @@ export function ArmyPanel() {
         <span className="name">Гарнизон</span>
         <span className="val">{home}</span>
       </div>
-      {druzhina > 0 && (
-        <div className="mod">
-          <span className="ico">🎖️</span>
-          <span className="name">
-            Отряд полководца
-            <em className="sub">
-              {posture === 'stands'
-                ? 'собран, стоит в гарнизоне'
-                : posture === 'gathering'
-                  ? 'идёт сбор, город не защищает'
-                  : 'в походе, город не защищает'}
-            </em>
-          </span>
-          <span className={`val${posture === 'stands' ? '' : ' neg'}`}>{druzhina}</span>
-        </div>
-      )}
       <div className="mod">
         <span className="ico"><Icon name="ui-banner" glyph="🚩" /></span>
         <span className="name">Не в обороне</span>
@@ -88,6 +75,8 @@ export function ArmyPanel() {
           <span className="val">{training}</span>
         </div>
       )}
+      {/* Кто в обороне, кто с полководцем — окно раскладки (docs/retinue.md). */}
+      <MusterOpen />
 
       <h3>Мораль между боями</h3>
       <div className="note">

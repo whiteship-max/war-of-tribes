@@ -1,5 +1,5 @@
 import '@/game/pace.minute';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { UNIT_KINDS, stackTotal } from '@/battle';
 import { createInitialState } from '@/game/state';
@@ -27,6 +27,11 @@ import { STRIKE_FROM_TOWN } from './siege';
 import { distance } from './geo';
 import type { FigureView, MarchView, PlayerProfile, Report, SettlementView, WorldPulse } from './types';
 import { shieldVillagers } from './lairs';
+
+// Энергия агентов здесь не предмет проверки (docs/agent_energy.md): сценарии этого файла водят агентов по карте помногу
+// — дорога здесь энергию не берёт. Цены дел и отдых дома остаются; энергию держат `energy.test.ts` и
+// `energyworld.test.ts`.
+vi.mock('@/world/data/energy', async (actual) => ({ ...(await actual<object>()), ENERGY_ROAD: Infinity }));
 
 const START = 1_700_000_000_000;
 const MIN = 60_000;
@@ -457,8 +462,9 @@ describe('дома и в поле вместе не больше, чем ест�
         await again();
         expect(await p.setGarrison(honest(p, await p.general()), `${tag}: собрать`), `${tag}: честный сбор проходит`).toBeNull();
         await again();
-        await p.pulse(`${tag}: посреди сбора`);
-        expect(troopTotal(homeOf(p.s.army, awayOf(p.marches, p.figures))), `${tag}: во время сбора в гарнизоне никого из войска`).toBe(0);
+        await p.pulse(`${tag}: сразу после приказа`);
+        // Дома перевод мгновенный (docs/retinue.md, раздел 7): отряд сразу стоит с гарнизоном — в нём всё войско ровно раз.
+        expect(homeOf(p.s.army, awayOf(p.marches, p.figures)), `${tag}: дома отряд в гарнизоне сразу`).toEqual({ clubman: 10, archer: 6, legionary: 4 });
         await p.settle(`${tag}: сбор идёт`);
         await again();
         await p.pulse(`${tag}: собрана`);
@@ -642,10 +648,10 @@ describe('дружина в обороне: собрана и дома — од�
     }
   }, 60_000);
 
-  it('сбор — плата: пока он идёт, этих бойцов нет ни в гарнизоне, ни в обороне', async () => {
+  it('дома перевод мгновенный: отданные полководцу под самым набегом стоят у частокола', async () => {
     const p = Party.start(42, { clubman: 14 });
     await p.pulse('старт');
-    // Отдать дружину так, чтобы набег пришёл посреди сбора.
+    // Отдать дружину так, чтобы набег пришёл сразу после приказа: прежде это был сбор, и у частокола стоял гарнизон без них.
     const raid = await (async () => {
       for (let i = 0; i < 3000; i++) {
         p.clock.now += 5_000;
@@ -655,11 +661,12 @@ describe('дружина в обороне: собрана и дома — од�
       }
       throw new Error('набега нет');
     })();
-    expect(await p.setGarrison({ clubman: 10 }, 'сбор под набегом')).toBeNull();
-    expect(p.known().readyAt, 'сбор кончится позже набега').toBeGreaterThan(raid.arriveAt);
+    expect(await p.setGarrison({ clubman: 10 }, 'перевод под набегом')).toBeNull();
+    expect(p.known().readyAt, 'сбора нет').toBe(0);
+    expect(postureOf(p.known()), 'точка внутри области: стоит дома с отрядом').toBe('stands');
     const pulse = await until(p, 'ждём боя', (x) => x.reports.some((r) => r.id === `${raid.id}-defense`));
     const fight = pulse.reports.find((r) => r.id === `${raid.id}-defense`) as Report;
-    expect(fight.battle?.troops.defender ?? {}, 'у частокола только гарнизон').toEqual({ clubman: 4 });
+    expect(fight.battle?.troops.defender ?? {}, 'у частокола гарнизон и отряд').toEqual({ clubman: 14 });
   }, 60_000);
 
   it('занята: в пути, в поле и в погоне — у частокола её нет, даже у самых ворот', async () => {

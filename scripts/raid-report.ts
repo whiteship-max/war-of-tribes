@@ -35,9 +35,9 @@ import { shieldVillagers } from '@/world/lairs';
 const MIN = 60_000;
 /**
  * Этот отчёт — про **гонку двух часов**: предупреждение о набеге идёт игровым временем
- * (`AI_WARNING_BASE`), а дорога набега и ход перехвата — настоящим. Сбор дружины (`HANDOVER_MAX`)
- * с поворота шкалы — тоже игровое время (docs/time.md, раздел 20); заморозки обороны нет с поставки 2
- * боя, и запас меряется против потолка сбора — это окно уведомления о набеге без черты полководца.
+ * (`AI_WARNING_BASE`), а дорога набега и ход перехвата — настоящим. Сбора дома нет: перевод дружины к
+ * полководцу дома мгновенный (docs/retinue.md, раздел 7), и окно ответа на набег — до прихода (docs/NOTIFY.md,
+ * 12.11). Прежде запас мерился против потолка сбора (`HANDOVER_MAX`) — тогдашнего окна уведомления о набеге.
  * Считается гонка настоящими миллисекундами, и это верно при любой шкале; печатаются настоящие
  * минуты, а у игровых величин рядом стоит их своя единица — иначе не видно, что с чем гоняется.
  *
@@ -152,7 +152,9 @@ for (const watch of WATCH) for (const seed of SEEDS) {
   await a.world.sync(p);
   await a.world.setGarrison({ ...ARMY });
   const g0 = (await a.world.figures()).find((f) => f.id === 'general');
-  a.at(g0?.readyAt ?? a.now());
+  // `readyAt` без сбора — ноль (`FigureView.readyAt`): готов он сейчас, а не в нулевую минуту. Прежде здесь стояло
+  // `readyAt ?? now`, и с мгновенной раскладкой дома (06.10.2026) часы мира перематывались на ноль.
+  a.at(Math.max(a.now(), g0?.readyAt ?? 0));
   await a.world.sync(p);
   const hit = await waitVisibleRaid(a, p);
   if (!hit) continue;
@@ -172,7 +174,8 @@ for (const watch of WATCH) for (const seed of SEEDS) {
   if (hitB) {
     await b.world.setGarrison({ ...ARMY });
     const gb = (await b.world.figures()).find((f) => f.id === 'general');
-    const readyAt = gb?.readyAt ?? b.now();
+    // Дома сбора нет — готов сразу; сбор остался только в осаде (`readyAt` без сбора — ноль).
+    const readyAt = Math.max(b.now(), gb?.readyAt ?? 0);
     if (readyAt >= hitB.raid.arriveAt) {
       coldNote = 'дружина собирается дольше, чем идёт набег';
     } else {
@@ -212,7 +215,7 @@ console.log('=== Запас времени на перехват ===');
 console.log(`круг у деревни (HOME_SIGHT): ${HOME_SIGHT} клеток`);
 console.log(`дальше этого боты не ходят (AI_RANGE): ${AI_RANGE} клеток`);
 console.log(`обещанное предупреждение (AI_WARNING_BASE, игровое время): ${both(AI_WARNING_BASE)}`);
-console.log(`сбор дружины из ${MEN} бойцов: потолок (HANDOVER_MAX, игровое время) ${both(HANDOVER_MAX)}`);
+console.log(`сбор дружины из ${MEN} бойцов дома — мгновенный; потолок сбора в осаде (HANDOVER_MAX, игровое время) ${both(HANDOVER_MAX)}`);
 for (const watch of WATCH) {
   const part = rows.filter((r) => r.watch === watch.name);
   if (part.length === 0) continue;
@@ -230,7 +233,6 @@ for (const watch of WATCH) {
   }
   const vis = part.map((r) => r.visible);
   console.log(`видно набег: ${m(Math.min(...vis))} … ${m(Math.max(...vis))}, в среднем ${m(avg(vis))}`);
-  console.log(`худший запас сверх потолка сбора: ${m(Math.min(...vis) - HANDOVER_MAX)}`);
   console.log(`перехват с готовым войском: ${part.filter((r) => r.readyOk).length} из ${part.length}`);
   console.log(`перехват с холодного старта: ${part.filter((r) => r.coldOk).length} из ${part.length}`);
   const slack = part.filter((r) => r.coldOk).map((r) => r.visible - r.coldSpent);

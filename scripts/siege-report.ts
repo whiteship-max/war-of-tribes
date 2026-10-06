@@ -23,6 +23,7 @@
 //
 //   npx vite-node scripts/siege-report.ts
 import { LocalWorld } from '@/world/local/LocalWorld';
+import type { WorldSave } from '@/world/local/state';
 import { resolveField } from '@/world/battle';
 import { menOfPower, raidingParty } from '@/world/garrison';
 import { campPass, passKinds, sideWorks } from '@/world/works';
@@ -348,11 +349,22 @@ async function freezeSiege(seed: number, level: number, engine: EngineId | null 
   return null;
 }
 
+/**
+ * Полководец свежим: энергия агентов (docs/agent_energy.md) — не предмет этого отчёта. Удар с тыла меряется на минутах
+ * осады до `FIELD_DELAYS` игровых дней; стоянка в поле даром, но удар стоит цены с дорогой, и сколько её осталось после
+ * дороги в поле — вопрос энергии, а не рогаток. Здесь меряются рогатки.
+ */
+function freshGeneral(save: Pick<WorldSave, 'figures'>): void {
+  delete save.figures.general.energy;
+  delete save.figures.general.spent;
+}
+
 /** Поднять замороженный мир на минуте `at`. Сид боя сдвигается номером варианта. */
 async function thaw(fz: Frozen, at: number, variant: number) {
   let now = at;
   const save = JSON.parse(fz.save);
   save.nextMarch = (save.nextMarch ?? 0) + variant * 7;
+  freshGeneral(save);
   const world = new LocalWorld({ seed: fz.seed, now: () => now, storage: memory(JSON.stringify(save)) });
   const pulse = await world.sync(playerProfile(fz.g));
   return {
@@ -502,6 +514,8 @@ async function freezeField(seed: number, level: number): Promise<Frozen | null> 
   await world.sync(playerProfile(g));
   for (let i = 0; i < stepsFor(WAIT_DAYS); i++) {
     now += STEP_MS;
+    // Ждёт осаду в поле свежим — см. `freshGeneral`.
+    freshGeneral((world as unknown as { save: WorldSave }).save);
     const r = await world.sync(playerProfile(g));
     if (!r.siege) continue;
     const save = store.read() as string;

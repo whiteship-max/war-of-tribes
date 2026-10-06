@@ -16,7 +16,7 @@
 // стоит в самой Статуе строкой выше, и дважды на одном экране оно не нужно.
 import { useEffect, useRef } from 'react';
 import { useGame } from '@/game/store';
-import { buildingOfType, payGraceDays, warningSeconds } from '@/game/derived';
+import { buildingOfType, payGraceDays } from '@/game/derived';
 import {
   DEED_GAP,
   DEED_XP,
@@ -44,6 +44,7 @@ import { figurePosition, useWorld, worldNow } from '@/world/store';
 import type { FigureId } from '@/world/types';
 import { deathLine, pipLines, sightLine, stealthLine } from './agentLines';
 import { REST_WHY, restLine } from './restWords';
+import { EnergyBar } from './Energy';
 import { count } from './plural';
 import { traitLines } from './traitLines';
 import { num } from '@/game/num';
@@ -84,7 +85,7 @@ function GeneralPips({ level }: { level: number }) {
 function Traits({ id }: { id: FigureId }) {
   const s = useGame((g) => g.s);
   const tally = s.agents[id].tally;
-  const lines = traitLines(traitsHeld(s, id), tally, warningSeconds(s));
+  const lines = traitLines(traitsHeld(s, id), tally);
   const n = deedsOf(tally);
   return (
     <>
@@ -216,6 +217,8 @@ export function AgentCard({ id, onBack, embedded = false }: { id: FigureId; onBa
               <div style={{ width: `${Math.floor(((progress.xp - floor) / (next - floor)) * 100)}%` }} />
             </div>
           )}
+          {/* Энергия человека (docs/agent_energy.md): шкала, сколько и что с ней — от мира. */}
+          {f?.energy && <EnergyBar energy={f.energy} spent={f.spent} />}
           {toRest <= 0 && <p className="nx-bwarn">Дел не берёт, идёт домой на покой.</p>}
           <p className="nx-tnote">{deathLine(id, level)}</p>
           {road && <p className="nx-tnote">{road}</p>}

@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { readWarOrder, type CastleClaim, type RosterFile, type WarArmy, type WarSheet } from './contract.js';
 import { castleIdOf, emptyRoster, upsert } from './roster.js';
-import { advance, applyOrder, emptyWars, fallId, liveSheet, viewOf, warsOf, type SheetAt, type WarFile } from './war.js';
+import { advance, applyOrder, emptyWars, fallId, liveSheet, newsDiff, newsMap, newsOf, viewOf, warsOf, type SheetAt, type WarFile } from './war.js';
 import { weakCity } from '../../src/world/lairs.js';
 import { inHomeTheatre } from '../../src/world/theatre/theatre.js';
+import { energyAt, energyBlock, priceOf, roadCost } from '../../src/world/energy.js';
+import { warWalkMs } from '../../src/world/pvp.js';
+import { ENERGY_FILL, ENERGY_MAX } from '../../src/world/data/energy.js';
 
 /**
  * Война между игроками (docs/pvp.md). Тесты только там, где без них можно подделать исход боя, начислить
@@ -184,5 +187,142 @@ describe('приказы: защита слабого, регион, чужое'
     expect(applyOrder(file, B, { op: 'recall', id }, T0 + 1, ctx)).not.toBeNull();
     expect(applyOrder(file, A, { op: 'sortie', id, troops: { spearman: 1 } }, T0 + 1, ctx)).not.toBeNull();
     expect(file.wars[0].phase).toBe('march');
+  });
+});
+
+describe('энергия полководца: поход, осада и удар спрашивают ту же дверь, что мир (docs/agent_energy.md)', () => {
+  const withEnergy = (value: number, troops: Record<string, number> = { spearman: 30 }): WarArmy => ({
+    ...army(troops),
+    energy: { value, at: T0, mode: 'fill' },
+  });
+
+  it('поход с осадой: дорога по дням пути и дело у стен — проверкой двери; у стен энергия стоит, назад уходит, дома копится', () => {
+    const { ctx, file, sheets } = setup();
+    // Путь — та же формула, что у сервера (темпа войны в тесте нет).
+    const walk = warWalkMs(ctx.roster.rows[A], ctx.roster.rows[B]);
+    const road = roadCost(walk);
+    expect(road, 'точка внутри области: дорога стоит энергию').toBeGreaterThan(1);
+    const need = priceOf('siege') + road;
+    const march = (value: number) =>
+      applyOrder(file, A, { op: 'march', target: castleIdOf(B), mode: 'siege', fate: 'plunder', army: withEnergy(value) }, T0, ctx);
+    expect(march(need - 1)).toBe(energyBlock(need - 1, priceOf('siege'), walk));
+    expect(file.wars).toHaveLength(0);
+    // Десять сверх цены похода: на штурм из лагеря уже не хватит.
+    expect(march(need + 10)).toBeNull();
+    const w = file.wars[0];
+    expect(w.arriveAt - T0).toBe(walk);
+    // Цена осады — при выходе; дорога уходит по дням пути: на полпути — половина дороги, у стен — десять.
+    expect(energyAt(w.army.energy, T0)).toBeCloseTo(need + 10 - priceOf('siege'), 6);
+    expect(energyAt(w.army.energy, T0 + walk / 2)).toBeCloseTo(10 + road / 2, 6);
+    advance(file, w.arriveAt + 1, sheets);
+    expect(w.phase, 'точка внутри области: лагерь встал').toBe('camp');
+    // У стен стоит, сколько бы ни ждал.
+    expect(energyAt(w.army.energy, w.arriveAt + 10 * ENERGY_FILL)).toBeCloseTo(10, 6);
+    // Штурм из лагеря стоит свою цену — без неё отказ.
+    const have = energyAt(w.army.energy, w.arriveAt + 2);
+    expect(applyOrder(file, A, { op: 'storm', id: w.id }, w.arriveAt + 2, ctx)).toBe(energyBlock(have, priceOf('storm')));
+    expect(w.phase).toBe('camp');
+    // Снял осаду — домой: назад дорога уходит той же ценой, с минуты возврата энергия копится.
+    expect(applyOrder(file, A, { op: 'retreat', id: w.id }, w.arriveAt + 3, ctx)).toBeNull();
+    const back = w.backAt as number;
+    expect(w.army.energy?.homeAt).toBe(back);
+    expect(energyAt(w.army.energy, back)).toBeCloseTo(Math.max(0, have - roadCost(back - (w.arriveAt + 3))), 6);
+    expect(energyAt(w.army.energy, back + ENERGY_FILL)).toBe(ENERGY_MAX);
+  });
+
+  it('удар полководца города по лагерю: энергии должно хватить к приходу, с дорогой по карте', () => {
+    const { ctx, file, sheets } = setup();
+    expect(applyOrder(file, A, { op: 'march', target: castleIdOf(B), mode: 'siege', fate: 'plunder', army: army({ spearman: 30 }) }, T0, ctx)).toBeNull();
+    const w = file.wars[0];
+    advance(file, w.arriveAt + 1, sheets);
+    expect(w.phase, 'точка внутри области: лагерь встал').toBe('camp');
+    const strike = (value: number) =>
+      applyOrder(file, B, { op: 'strike', id: w.id, army: { ...withEnergy(value, { spearman: 20 }), energy: { value, at: w.arriveAt + 2, mode: 'drain' } }, joint: false, walkMs: 0 }, w.arriveAt + 2, ctx);
+    expect(strike(priceOf('strike') - 1)).toBe(energyBlock(priceOf('strike') - 1, priceOf('strike')));
+    expect(w.strike).toBeUndefined();
+    expect(strike(priceOf('strike'))).toBeNull();
+    expect(w.strike).toBeDefined();
+  });
+});
+
+describe('новости войны для бота: о двух вещах, обеим сторонам, по разу', () => {
+  /**
+   * Решение владельца (05.10.2026): на город идут — защитнику; бой был — обеим сторонам. Новости выводятся из записи,
+   * поэтому «один раз» держит разница до и после хода: тот же ход второй раз новостей не даёт.
+   */
+  it('поход: защитнику «идут на город», нападающему — ничего; отзыв снимает новость', () => {
+    const { file, ctx } = setup();
+    const before = newsMap(file);
+    expect(applyOrder(file, A, { op: 'march', target: castleIdOf(B), mode: 'siege', fate: 'plunder', army: army({ spearman: 30 }) }, T0, ctx)).toBeNull();
+    const diff = newsDiff(before, newsMap(file));
+    expect([...diff.keys()]).toEqual([B]);
+    expect(diff.get(B)?.add.map((i) => `${i.kind}:${i.p.from}:${i.p.mode}`)).toEqual(['war:Альфа:siege']);
+    expect(diff.get(B)?.add[0].until).toBe(file.wars[0].arriveAt);
+    const marched = newsMap(file);
+    expect(applyOrder(file, A, { op: 'recall', id: file.wars[0].id }, T0 + 1000, ctx)).toBeNull();
+    const recalled = newsDiff(marched, newsMap(file));
+    expect(recalled.get(B)).toEqual({ add: [], drop: [`war:${file.wars[0].id}`] });
+  });
+
+  it('штурм в минуту прихода: «бой был» обеим, у каждой своя победа, взятие — одной новостью', () => {
+    const { file, ctx, sheets } = setup();
+    applyOrder(file, A, { op: 'march', target: castleIdOf(B), mode: 'storm', fate: 'plunder', army: army({ spearman: 60, swordsman: 30, archer: 30 }) }, T0, ctx);
+    const w = file.wars[0];
+    const before = newsMap(file);
+    expect(advance(file, w.arriveAt, sheets)).toBe(true);
+    const diff = newsDiff(before, newsMap(file));
+    const atk = diff.get(A)!.add;
+    const def = diff.get(B)!.add;
+    expect(atk.map((i) => i.kind)).toEqual(['war-fight']);
+    expect(def.map((i) => i.kind)).toEqual(['war-fight']);
+    expect(atk[0].key).toBe(def[0].key);
+    expect(atk[0].p.won).toBe(!def[0].p.won);
+    expect(atk[0].p.won).toBe(w.battles[0].won);
+    expect(Boolean(def[0].p.taken)).toBe(Boolean(w.fall));
+    expect(atk[0].p.from).toBe('Бета');
+    expect(def[0].p.from).toBe('Альфа');
+    // Тот же ход ещё раз — новостей нет.
+    const again = newsMap(file);
+    advance(file, w.arriveAt + 1000, sheets);
+    expect([...newsDiff(again, newsMap(file)).values()].every((d) => d.add.length === 0)).toBe(true);
+  });
+
+  it('падение голодом — «город взят» обеим сторонам', () => {
+    const { file, ctx, sheets } = setup({ b: { food: 10 } });
+    applyOrder(file, A, { op: 'march', target: castleIdOf(B), mode: 'siege', fate: 'captives', army: army({ spearman: 30 }) }, T0, ctx);
+    const w = file.wars[0];
+    advance(file, w.arriveAt, sheets);
+    expect(w.phase).toBe('camp');
+    const before = newsMap(file);
+    advance(file, w.starvesAt!, sheets);
+    expect(w.fall?.by).toBe('hunger');
+    const diff = newsDiff(before, newsMap(file));
+    for (const p of [A, B]) {
+      expect(diff.get(p)?.add.map((i) => `${i.kind}:${i.p.role}`), p).toEqual([`war-fall:${p === A ? 'atk' : 'def'}`]);
+    }
+    expect(newsOf(w).filter((n) => n.item.kind === 'war-fall').every((n) => n.item.fireAt === w.fall!.at)).toBe(true);
+  });
+});
+
+describe('раскладка: свой поход в слепке обороны', () => {
+  /**
+   * Слепок лёг, когда часть отряда полководца ещё шла в сбор (в гарнизоне её не было), а вышел он уже со всем отрядом:
+   * вычесть ушедших сверх того, что слепок назвал стоящим дома (`WarSheet.retinue`), значило бы снять с гарнизона чужих.
+   * Путь, слепок в походе и возврат — `src/world/pvp.test.ts` на настоящем мире.
+   */
+  it('ушедших вычитают не больше, чем отряда стояло дома в слепке', () => {
+    const { ctx, file } = setup();
+    expect(applyOrder(file, A, { op: 'march', target: castleIdOf(B), mode: 'siege', fate: 'plunder', army: army({ spearman: 30, archer: 10 }) }, T0 + 5000, ctx)).toBeNull();
+    const w = file.wars[0];
+    expect(w.went).toEqual({ spearman: 30, archer: 10 });
+    const at = T0 + 6000;
+    expect(w.phase, 'точка внутри области: войско в пути').toBe('march');
+    // Слепок до выхода: дома 40 копейщиков и 20 лучников, из них отряда полководца — 12 копейщиков.
+    const stale: SheetAt = { sheet: sheet({ retinue: { spearman: 12 } }), at: T0 };
+    expect(liveSheet(file, A, stale, at).home).toEqual({ spearman: 28, archer: 20 });
+    // Слепок старого клиента без поля — ушедшие считаются стоявшими дома целиком.
+    expect(liveSheet(file, A, { sheet: sheet(), at: T0 }, at).home).toEqual({ spearman: 10, archer: 10 });
+    // Слепок новее выхода — его клиент уже знает, кто ушёл.
+    expect(liveSheet(file, A, { sheet: sheet({ retinue: {} }), at: T0 + 5500 }, at).home).toEqual(sheet().home);
   });
 });

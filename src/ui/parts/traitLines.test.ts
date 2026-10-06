@@ -1,20 +1,12 @@
 // Слова черт выводятся из таблицы: правка множителя или порога меняет строку сама.
 import { afterEach, describe, expect, it } from 'vitest';
 import { TRAITS, TRAIT_BY_ID } from '@/game/data/traits';
-import { buildingOfType, warningSeconds } from '@/game/derived';
-import { createInitialState } from '@/game/state';
 import { gameDaysOfMs } from '@/game/pace';
-import { musterMs, warningMsOf } from '@/world/muster';
+import { gameDaysText } from '@/ui/parts/wait';
+import { musterMs } from '@/world/muster';
 import { traitLines } from './traitLines';
 
 const tally = { ok: 9, fail: 1, bled: 4, burned: 5 };
-
-/** Прибавка Дозора к предупреждению о набеге на уровне `level` — тем же `warningSeconds`, что читает слепок. */
-function watchAt(level: number) {
-  const s = createInitialState();
-  buildingOfType(s, 'watch')!.level = level;
-  return warningSeconds(s);
-}
 
 describe('слова черт', () => {
   const saved = JSON.parse(JSON.stringify(TRAITS)) as typeof TRAITS;
@@ -26,7 +18,6 @@ describe('слова черт', () => {
     for (const line of traitLines(
       TRAITS.map((t) => t.id),
       tally,
-      watchAt(1),
     )) {
       expect(line.what, line.id).toMatch(/\d/);
       expect(line.why, line.id).toMatch(/\d/);
@@ -35,31 +26,30 @@ describe('слова черт', () => {
   });
 
   it('правка множителя и порога в таблице меняет строку', () => {
-    const before = traitLines(['swift', 'unseen'], tally, watchAt(1));
+    const before = traitLines(['swift', 'unseen'], tally);
     (TRAIT_BY_ID.swift.effect as { muster: number }).muster = 0.5;
     (TRAIT_BY_ID.unseen as { min: number }).min = 11;
-    const after = traitLines(['swift', 'unseen'], tally, watchAt(1));
+    const after = traitLines(['swift', 'unseen'], tally);
     expect(after[0].what).not.toBe(before[0].what);
     expect(after[0].what).toContain('50 %');
     expect(after[1].why).toContain('11');
   });
 
-  it('черта сбора говорит живыми числами игры, успевает ли полный сбор до набега при нынешнем Дозоре', () => {
-    // Слово владельца (docs/battle_eu4.md, 14.35): «Сбор с ним — N, Дозор предупреждает за M — успевает / не успевает»,
-    // теми же функциями, что считает мир. «Мясник» — сбор ×1.5: 9 игровых дней против 7 и прибавки Дозора.
-    const butcher = TRAIT_BY_ID.butcher.effect.muster!;
-    const full = musterMs(Infinity, butcher);
-    // Граница области: на 1-м уровне Дозора предупреждение ровно равно полному сбору «Мясника» — запаса нет, и окно
-    // закрыто в минуту, когда набег стал виден; на 2-м оно уже длиннее. Точки по обе стороны сравнения.
-    expect(gameDaysOfMs(warningMsOf(watchAt(1))), 'предупреждение на 1-м уровне Дозора').toBeCloseTo(gameDaysOfMs(full), 6);
-    expect(warningMsOf(watchAt(2)), 'предупреждение на 2-м уровне Дозора').toBeGreaterThan(full);
-    const at1 = traitLines(['butcher'], tally, watchAt(1))[0].what;
-    const at2 = traitLines(['butcher'], tally, watchAt(2))[0].what;
-    expect(at1, 'Дозор 1-го уровня').toContain('сбор не успевает');
-    expect(at2, 'Дозор 2-го уровня').toContain('сбор успевает');
-    expect(at1, 'полный сбор с ним — 9 игровых дней').toContain('9 игр. дн.');
-    expect(at2, 'предупреждение — числом Дозора').not.toBe(at1);
-    // «Скорый на сборы» при том же Дозоре успевает: строка одна на все черты сбора.
-    expect(traitLines(['swift'], tally, watchAt(1))[0].what).toContain('сбор успевает');
+  /**
+   * Черта сбора называет полный сбор с этим человеком той же функцией, что мир (`musterMs`), и где он идёт — в осаде своего
+   * города; дома перевод мгновенный (решение владельца 06.10.2026). Прежде строка сравнивала сбор с предупреждением Дозора
+   * («сбор успевает» / «не успевает», слово владельца, docs/battle_eu4.md, 14.35), и тест держал это сравнение на 1-м и
+   * 2-м уровне Дозора: сбора дома больше нет — сравнивать не с чем. «Мясник» — сбор ×1.5, 9 игровых дней.
+   */
+  it('черта сбора говорит живым сроком полного сбора — в осаде; о набеге и Дозоре не говорит', () => {
+    for (const id of ['butcher', 'swift'] as const) {
+      const full = musterMs(Infinity, TRAIT_BY_ID[id].effect.muster!);
+      const what = traitLines([id], tally)[0].what;
+      const days = gameDaysText(Math.round(gameDaysOfMs(full) * 10) / 10);
+      expect(what, `${id}: полный сбор числом мира`).toContain(`Полный сбор ${days}`);
+      expect(what, `${id}: где идёт сбор`).toContain('в осаде своего города; дома перевод мгновенный');
+      expect(what, `${id}: о набеге и Дозоре ни слова`).not.toMatch(/Дозор|набег|успевает/);
+    }
+    expect(traitLines(['butcher'], tally)[0].what, 'полный сбор с «Мясником» — 9 игровых дней').toContain('9 игр. дн.');
   });
 });

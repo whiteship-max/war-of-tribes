@@ -1,12 +1,12 @@
 /**
  * Исходящие уведомления с этой стороны: отдать серверу список черновиков и отметку
- * «игрок здесь / ушёл» (docs/NOTIFY.md, раздел 4).
+ * «игрок здесь / ушёл» (docs/NOTIFY.md, раздел 4), прочесть рычаг и канал для строки в
+ * настройках и попросить у Telegram права писать (раздел 12).
  *
- * **Выключено замком — `NOTIFY_ON`**, тем же приёмом, что `CHEATS_ON`. `false` значит:
- * ни одного запроса на `/api/notify`, ни одного черновика, посчитанного впустую, ни строки
- * в настройках. Все места вызова стоят за `if (NOTIFY_ON)`, и сборщик выбрасывает их вместе
- * с этим модулем — игрок, который уведомлений не включал, не платит за них ни байтом кода.
- * Второй замок — на сервере: адаптеров в проходе доставки нет ни одного (`server.test.ts`).
+ * **Замок клиента — `NOTIFY_ON`**, тем же приёмом, что `CHEATS_ON`: все места вызова стоят за
+ * `if (NOTIFY_ON)`. Открыт 05.10.2026 вместе с адаптером Telegram (решение владельца): бот пишет о
+ * нападении и о бое. Отправлять или нет, решает сервер — флаг `TRIBE_DELIVER` и рычаг игрока
+ * (`prefs.on`, кнопка под сообщением бота), — а клиент только кладёт поручение.
  *
  * Когда клиент говорит с сервером:
  *
@@ -23,10 +23,11 @@
 import { apiPut, type ApiResult } from './api';
 import { serverNow } from './clock';
 import { leaseHolder } from './session';
-import type { NoticeItem, NotifyPrefs, NotifyPut, NotifyState } from '../../netlify/lib/contract';
+import { tg, tgUser } from '@/telegram/webapp';
+import type { NoticeItem, NotifyChannel, NotifyPrefs, NotifyPut, NotifyState } from '../../netlify/lib/contract';
 
-/** Замок клиента. Включение — отдельная пачка, вместе с настройками и адаптером. */
-export const NOTIFY_ON = false;
+/** Замок клиента (открыт 05.10.2026, docs/NOTIFY.md, раздел 12). */
+export const NOTIFY_ON = true;
 
 /** Список не чаще этого — тот же предел, что держит сервер (`NOTICE_LIMITS.putEvery`). */
 export const LIST_EVERY = 5_000;
@@ -44,6 +45,8 @@ export interface NotifyDeps {
   zone: () => string;
   /** Отложить повтор. */
   later: (fn: () => void, ms: number) => void;
+  /** Ответ сервера: рычаг и канал — строке в настройках. */
+  state?: (s: NotifyState) => void;
 }
 
 export interface Notifier {
@@ -66,6 +69,7 @@ export function makeNotifier(deps: NotifyDeps): Notifier {
 
   const settle = (res: ApiResult<NotifyState>, list: typeof pending): void => {
     if (res.ok) {
+      deps.state?.(res.data);
       if (list) {
         sentHash = list.hash;
         if (pending?.hash === list.hash) pending = null;
@@ -143,6 +147,82 @@ export function makeNotifier(deps: NotifyDeps): Notifier {
 
 let live: Notifier | null = null;
 
+// ---------- Рычаг, канал и право писать (docs/NOTIFY.md, раздел 12) ----------
+
+/** Что сервер сказал о рычаге и канале. `null` — ещё не спрашивали или вне Telegram. */
+let known: { on: boolean; chan: NotifyChannel } | null = null;
+const listeners = new Set<() => void>();
+
+const keepState = (s: NotifyState): void => {
+  if (known?.on === s.prefs.on && known.chan === s.chan) return;
+  known = { on: s.prefs.on, chan: s.chan };
+  for (const fn of listeners) fn();
+};
+
+/** Рычаг и канал для настроек — через подписку, как звук (`sound/settings`). */
+export const notifyState = (): { on: boolean; chan: NotifyChannel } | null => known;
+export const subscribeNotify = (fn: () => void): (() => void) => {
+  listeners.add(fn);
+  return () => void listeners.delete(fn);
+};
+
+const zone = (): string => {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone ?? '';
+  } catch {
+    return '';
+  }
+};
+
+const put = (body: NotifyPut): void => {
+  void apiPut<NotifyState>('/api/notify', body).then((res) => {
+    if (res.ok) keepState(res.data);
+  });
+};
+
+/** Разрешил ли игрок боту писать — по строке запуска. Разрешение, данное в этой сессии, видно по ответу запроса. */
+let granted = false;
+const allowed = (): boolean => granted || tgUser()?.allows_write_to_pm === true;
+
+/**
+ * Попросить у Telegram права писать (`requestWriteAccess`, Bot API 6.9). Хватает ли того, что игрок запускал
+ * бота, видно по `allows_write_to_pm` в строке запуска: есть — не спрашиваем. Ответ «да» говорит серверу
+ * «пробуй писать» (`canWrite`); адресат и так только из подписи.
+ */
+function requestWrite(): void {
+  const app = tg();
+  if (!app?.requestWriteAccess || !app.isVersionAtLeast?.('6.9') || allowed()) return;
+  app.requestWriteAccess((ok) => {
+    if (!ok) return;
+    granted = true;
+    put({ canWrite: true });
+  });
+}
+
+const ASKED = 'tribe.notify.asked';
+
+/**
+ * Спросить один раз за устройство и в минуту, когда это понятно: на город идут или своё войско вышло на соседа.
+ * Без жеста: окно Telegram — системное, и спрашивает оно ровно о том, что игрок видит на экране.
+ */
+export function askWriteOnce(): void {
+  if (!NOTIFY_ON || allowed()) return;
+  try {
+    if (localStorage.getItem(ASKED)) return;
+    localStorage.setItem(ASKED, '1');
+  } catch {
+    return;
+  }
+  requestWrite();
+}
+
+/** Переключить рычаг из настроек. Включение — жест, и право писать спрашивается в нём же, без `await` перед вызовом. */
+export function setNotifyOn(on: boolean): void {
+  if (on) requestWrite();
+  if (known) keepState({ now: 0, gen: 0, items: 0, away: null, prefs: { on, tz: zone() }, chan: known.chan });
+  put({ prefs: { on, tz: zone() } });
+}
+
 /**
  * Завести уведомления. Зовут только из-за `if (NOTIFY_ON)` — раньше синхронизации партии
  * и реестра, чтобы присутствие стало первым сетевым вызовом.
@@ -154,14 +234,9 @@ export function notifyBoot(): void {
     now: serverNow,
     leading: () => leaseHolder() !== 'other',
     visible: () => document.visibilityState !== 'hidden',
-    zone: () => {
-      try {
-        return Intl.DateTimeFormat().resolvedOptions().timeZone ?? '';
-      } catch {
-        return '';
-      }
-    },
+    zone,
     later: (fn, ms) => void setTimeout(fn, ms),
+    state: keepState,
   });
   live.boot();
   document.addEventListener('visibilitychange', () => live?.visibility());
@@ -171,4 +246,6 @@ export function notifyBoot(): void {
 /** Черновики после пульса мира. Зовут только из-за `if (NOTIFY_ON)`. */
 export function notifyDrafts(items: NoticeItem[], at: number): void {
   live?.drafts(items, at);
+  // Первый набег на город — та минута, когда просьба писать понятна без слов.
+  if (items.length > 0) askWriteOnce();
 }

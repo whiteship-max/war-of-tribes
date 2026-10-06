@@ -213,7 +213,8 @@ function DispatchCardNew({
             </button>
           );
         })}
-        {/* Набег решается не здесь: перехватить в поле — на карте, собрать дружину к воротам — в Статуе. */}
+        {/* Набег решается не здесь: перехватить в поле — на карте, полководец и раскладка — в Статуе. Окно ответа —
+            до прихода (`parts/raidWords`), и срок у кнопки тот же, что в строке набега. */}
         {letter?.kind === 'raid' && (
           <>
             <button className="nx-ans" onClick={() => openMap()}>
@@ -222,7 +223,7 @@ function DispatchCardNew({
             </button>
             <button className="nx-ans" disabled={!statue} onClick={() => statue && openBuilding(statue.id)}>
               <b>Дружина</b>
-              <small>{['Собрать к воротам', raid?.short].filter(Boolean).join(' · ')}</small>
+              <small>{['Полководец и раскладка', raid?.left].filter(Boolean).join(' · ')}</small>
             </button>
           </>
         )}

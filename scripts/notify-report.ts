@@ -15,11 +15,10 @@
 //     (правило «ушёл до новости»), сколько на уход приходится сообщений каждого вида.
 //  2. **Осады.** Какая доля уходов посреди осады молчит об осаде и из-за какого разрыва.
 //  3. **Отряд на подходе по уровням Дозора.** Окно ответа — от минуты, когда набег стал
-//     бы виден, до минуты, когда полный сбор дружины ещё успевает (приход минус потолок
-//     сбора с чертой, `LocalWorld.musterBy`; до поставки 2 боя — до заморозки обороны), и
-//     то же за вычетом худшего опоздания прохода доставки (минута расписания). Пункты, у
-//     которых полный сбор не успевает уже с минуты обнаружения, считаются отдельно: окна у
-//     них нет, а пункт есть — годен до прихода, с пометкой (docs/battle_eu4.md, 14.27).
+//     бы виден, до его прихода (решение владельца 06.10.2026: дома перевод дружины
+//     мгновенный, docs/NOTIFY.md, 12.11; прежде — до минуты, когда полный сбор ещё успевал,
+//     а до поставки 2 боя — до заморозки обороны), и то же за вычетом худшего опоздания
+//     прохода доставки (минута расписания).
 //
 //   npx vite-node scripts/notify-report.ts
 import { NotifyingWorld } from '@/world/local/NotifyingWorld';
@@ -27,12 +26,12 @@ import { distance } from '@/world/geo';
 import { seeded } from '@/game/sim/random';
 import { createInitialState } from '@/game/state';
 import { warningSeconds } from '@/game/derived';
-import { AI_WARNING_BASE, HANDOVER_MAX } from '@/world/data/tuning';
+import { AI_WARNING_BASE } from '@/world/data/tuning';
 import type { Silence } from '@/world/notice';
 import type { PlayerProfile, SettlementView } from '@/world/types';
 import type { TroopStack } from '@/game/battle/kinds';
 import { SEEN_GRACE } from '../netlify/lib/notify';
-import { NOTICE_KINDS, type NoticeKind } from '../netlify/lib/contract';
+import { CLIENT_KINDS, type NoticeKind } from '../netlify/lib/contract';
 import { shieldVillagers } from '@/world/lairs';
 import { DAY_LENGTH, realMs, worldDays } from '@/game/pace';
 import { PULSE_FLOOR } from './autopilot';
@@ -157,7 +156,7 @@ async function play(seed: number, town: (typeof TOWNS)[number]): Promise<Leave[]
       const d = await world.notices();
       const byKind: Leave['byKind'] = {};
       for (const i of d.items) byKind[i.kind] = (byKind[i.kind] ?? 0) + 1;
-      const siegeSilent = d.silent.find((s) => s.kind === 'siege-bread');
+      const siegeSilent = d.silent.find((s) => s.kind === 'siege-fall');
       const raidSilent = d.silent.find((s) => s.kind === 'raid');
       leaves.push({
         town: town.name,
@@ -168,7 +167,7 @@ async function play(seed: number, town: (typeof TOWNS)[number]): Promise<Leave[]
         byKind,
         siege: fresh.siege !== null,
         siegeKey: fresh.siege ? `${seed}:${town.name}:${fresh.siege.byId}:${fresh.siege.since}` : null,
-        siegeSilence: fresh.siege && !byKind['siege-bread'] ? (siegeSilent?.why ?? 'passed') : null,
+        siegeSilence: fresh.siege && !byKind['siege-fall'] ? (siegeSilent?.why ?? 'passed') : null,
         raid: d.items.some((i) => i.kind === 'raid') || Boolean(raidSilent),
         raidSilence: raidSilent?.why ?? null,
         raidLater: d.items.some((i) => i.kind === 'raid' && i.fireAt >= now + SEEN_GRACE),
@@ -190,7 +189,7 @@ for (const town of TOWNS) for (const seed of SEEDS) all.push(...(await play(seed
 
 console.log('');
 console.log('--- 1. уходы ---');
-console.log('деревня   уходов  черновиков/уход  ушло бы/уход   ' + NOTICE_KINDS.map((k) => k.padEnd(12)).join(''));
+console.log('деревня   уходов  черновиков/уход  ушло бы/уход   ' + CLIENT_KINDS.map((k) => k.padEnd(12)).join(''));
 for (const town of TOWNS) {
   const part = all.filter((l) => l.town === town.name);
   console.log(
@@ -198,7 +197,7 @@ for (const town of TOWNS) {
       part.map((l) => l.wouldSend),
     )
       .toFixed(2)
-      .padStart(12)}   ${NOTICE_KINDS.map((k) => avg(part.map((l) => l.byKind[k] ?? 0)).toFixed(2).padEnd(12)).join('')}`,
+      .padStart(12)}   ${CLIENT_KINDS.map((k) => avg(part.map((l) => l.byKind[k] ?? 0)).toFixed(2).padEnd(12)).join('')}`,
   );
 }
 const max = Math.max(0, ...all.map((l) => l.items));
@@ -218,11 +217,12 @@ const WORDS: Record<string, string> = {
   'general-home': 'полководец идёт к своим воротам',
   strike: 'полководец идёт бить лагерь',
   chase: 'полководец в погоне',
+  burn: 'свой поход идёт на логово набега',
   'no-window': 'окна нет',
 };
 const PASSED: Record<string, string> = {
-  siege: 'хлеб уже кончается: «годно до» прошло',
-  raid: 'полный сбор уже не успевает: «годно до» прошло',
+  siege: 'хлеб уже кончился: «годно до» прошло',
+  raid: 'набег уже пришёл: «годно до» прошло',
 };
 const word = (why: string, kind: 'siege' | 'raid'): string => (why === 'passed' ? PASSED[kind] : (WORDS[why] ?? ''));
 for (const [why, n] of [...reasons].sort((a, b) => b[1] - a[1])) {
@@ -257,15 +257,14 @@ console.log(
 
 console.log('');
 console.log('--- 3. отряд на подходе: окно ответа по уровням Дозора ---');
-console.log(`потолок сбора дружины (HANDOVER_MAX, без черты): ${m(HANDOVER_MAX)}; худшее опоздание прохода: ${m(CRON_LAG)}`);
-console.log('Дозор  предупреждение  набегов  окно мин…макс        среднее  не успеет  после опоздания (мин)  виден с выхода');
+console.log(`окно — до прихода; худшее опоздание прохода: ${m(CRON_LAG)}`);
+console.log('Дозор  предупреждение  набегов  окно мин…макс        среднее  после опоздания (мин)  виден с выхода');
 for (const level of [1, 5, 10]) {
   const s = createInitialState(7);
   const watch = s.buildings.find((b) => b.type === 'watch');
   if (watch) watch.level = level;
   const warning = warningSeconds(s);
   const windows: number[] = [];
-  let late = 0;
   let atBirth = 0;
   for (const seed of SEEDS) {
     let now = START;
@@ -280,9 +279,7 @@ for (const level of [1, 5, 10]) {
       for (const i of d.items) {
         if (i.kind !== 'raid' || seen.has(i.key)) continue;
         seen.add(i.key);
-        // С пометкой окна нет: полный сбор не успевает с минуты обнаружения, и пункт годен до прихода.
-        if (i.p.late) late++;
-        else windows.push(i.until - i.fireAt);
+        windows.push(i.until - i.fireAt);
         // Ключ несёт минуту выхода: виден с неё — значит новостью стал в минуту рождения.
         if (i.fireAt <= Number(i.key.split(':')[2])) atBirth++;
       }
@@ -291,11 +288,8 @@ for (const level of [1, 5, 10]) {
   const lo = windows.length > 0 ? Math.min(...windows) : 0;
   const hi = windows.length > 0 ? Math.max(...windows) : 0;
   console.log(
-    `${String(level).padStart(4)}   ${m(AI_WARNING_BASE + warning * 1000).padStart(12)}  ${String(windows.length + late).padStart(7)}  ${m(lo).padStart(8)} … ${m(
+    `${String(level).padStart(4)}   ${m(AI_WARNING_BASE + warning * 1000).padStart(12)}  ${String(windows.length).padStart(7)}  ${m(lo).padStart(8)} … ${m(
       hi,
-    ).padEnd(9)}  ${m(avg(windows)).padStart(8)}  ${String(late).padStart(9)}  ${m(lo - CRON_LAG).padStart(8)}              ${pct(
-      atBirth,
-      windows.length + late,
-    )}`,
+    ).padEnd(9)}  ${m(avg(windows)).padStart(8)}  ${m(lo - CRON_LAG).padStart(8)}              ${pct(atBirth, windows.length)}`,
   );
 }

@@ -56,7 +56,7 @@ export function CampStrike({ target, onDone }: { target: SettlementId; onDone?: 
                 ? plan.reason
                 : `${plan.seconds > 0 ? `В пути ${waitLeft(plan.seconds)}. ` : ''}С тыла пробьются ${plan.rear.passed} из ${plan.rear.went}${
                     plan.front ? `, от города ${plan.front.passed} из ${plan.front.went}` : ''
-                  }. Разобьёшь лагерь, осада снята.`}
+                  }. Разобьёшь лагерь, осада снята.${plan.energy ? ` Энергия полководца — ${plan.energy.price}.` : ''}`}
           </i>
           {plan?.can && plan.garrisonable && !garrison && (
             // Без прогноза исхода — его в игре нет нигде (docs/handbook/battle.md, «Подготовка боя и отчёт»): только кто бьёт и чем ещё

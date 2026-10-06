@@ -7,11 +7,11 @@
 // Показываются только черты, которые человек держит: каталога возможных черт у
 // игрока нет, и черта, которую сегодня не заслужить, обещанием не становится.
 import { TRAIT_BY_ID, deedsOf, type TraitDef, type TraitId } from '@/game/data/traits';
-import { gameDaysOfMs, type GameSec } from '@/game/pace';
+import { gameDaysOfMs } from '@/game/pace';
 import type { Tally } from '@/game/types';
 import { gameDaysText, realLeft, waitDays } from '@/ui/parts/wait';
 import { FIGURE_SCOUT_CATCH, SPY_BUSY, SPY_HELD } from '@/world/data/tuning';
-import { musterMs, warningMsOf } from '@/world/muster';
+import { musterMs } from '@/world/muster';
 import { count } from './plural';
 
 export interface TraitLine {
@@ -36,27 +36,25 @@ function daysOf(ms: number): string {
 }
 
 /**
- * Черта сбора — живой строкой из чисел игры (слово владельца, docs/battle_eu4.md, 14.35): полный сбор с этим человеком и
- * предупреждение о набеге при нынешнем Дозоре считают те же функции, что мир (`world/muster.musterMs`, `warningMsOf`), и
- * «успевает» — то же сравнение, что окно ответа на набег (`world/store.raidWindow`: сбор, начатый в минуту, когда набег
- * стал виден, кончается до прихода). Множитель — всех его черт сбора разом, как их складывает слепок
+ * Черта сбора — живой строкой из чисел игры (правило 18): полный сбор с этим человеком считает та же функция, что мир
+ * (`world/muster.musterMs`). Сбор идёт только в осаде своего города: дома перевод мгновенный (`LocalWorld.regroupInstant`,
+ * решение владельца 06.10.2026), и окно ответа на набег от черты не зависит — оно до прихода. Прежде строка сравнивала
+ * полный сбор с предупреждением Дозора («сбор успевает» / «не успевает», слово владельца, docs/battle_eu4.md, 14.35), а
+ * сбора дома больше нет — сравнивать не с чем. Множитель — всех его черт сбора разом, как их складывает слепок
  * (`sim/agents.traitNumbers`).
  */
-function musterWhat(mult: number, own: number, warning: GameSec): string {
-  const full = musterMs(Infinity, mult);
-  const warn = warningMsOf(warning);
+function musterWhat(mult: number, own: number): string {
   return (
     `Дружина собирается и расходится ${own < 1 ? 'быстрее' : 'дольше'} на ${shift(own)}. ` +
-    `Полный сбор ${daysOf(full)}, Дозор видит набег за ${daysOf(warn)}, ` +
-    `${full < warn ? 'сбор успевает' : 'сбор не успевает'}.`
+    `Полный сбор ${daysOf(musterMs(Infinity, mult))} — в осаде своего города; дома перевод мгновенный.`
   );
 }
 
-function whatOf(def: TraitDef, mult: number, warning: GameSec): string {
+function whatOf(def: TraitDef, mult: number): string {
   const e = def.effect;
   if (e.won !== undefined) return `Победа в его бою поднимает мораль дома ещё на +${e.won}.`;
   if (e.lost !== undefined) return `Поражение в его бою роняет мораль дома ещё на ${Math.abs(e.lost)}.`;
-  if (e.muster !== undefined) return musterWhat(mult, e.muster, warning);
+  if (e.muster !== undefined) return musterWhat(mult, e.muster);
   if (e.carry !== undefined) return `Обоз поднимает на ${shift(e.carry)} больше добычи.`;
   if (e.catch !== undefined) {
     return `Часовые ловят его в ${pct(FIGURE_SCOUT_CATCH * e.catch)} приходов вместо ${pct(FIGURE_SCOUT_CATCH)}.`;
@@ -106,14 +104,13 @@ function whyOf(def: TraitDef, t: Tally): string {
 }
 
 /**
- * Черты человека словами — только те, что он держит. `warning` — прибавка Дозора к предупреждению о набеге, игровые
- * секунды (`derived.warningSeconds`): с ней черта сбора говорит, успевает ли полный сбор.
+ * Черты человека словами — только те, что он держит.
  */
-export function traitLines(ids: readonly TraitId[], t: Tally, warning: GameSec): TraitLine[] {
+export function traitLines(ids: readonly TraitId[], t: Tally): TraitLine[] {
   const muster = ids.reduce((m, id) => m * (TRAIT_BY_ID[id].effect.muster ?? 1), 1);
   return ids.map((id) => {
     const def = TRAIT_BY_ID[id];
-    return { id, name: def.name, good: def.good, what: whatOf(def, muster, warning), why: whyOf(def, t) };
+    return { id, name: def.name, good: def.good, what: whatOf(def, muster), why: whyOf(def, t) };
   });
 }
 

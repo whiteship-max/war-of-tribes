@@ -9,6 +9,7 @@
  * сервер, который пишет партии не туда, куда думает владелец.
  */
 import { join } from 'node:path';
+import { deliverOn } from '../lib/http.js';
 
 /** Имена переменных. Других сервер не читает; `.env.example` и `docker-compose.yml` сверяются с ними тестом. */
 export const ENV = {
@@ -29,6 +30,11 @@ export const ENV = {
    * общий обработчик войны сам (`http.warPace`) — одинаково на Netlify и здесь. Умолчание — 1, обычная игра.
    */
   warPace: 'TRIBE_WAR_PACE',
+  /**
+   * Адрес игры для кнопки «Открыть игру» под сообщениями бота (docs/NOTIFY.md, 12.10): `https://домен`. Читает его
+   * общий адаптер Telegram сам (`http.appUrl`) — одинаково на Netlify и здесь. Пусто — боевой адрес на Netlify.
+   */
+  appUrl: 'TRIBE_APP_URL',
   /** Номер сайта Netlify — для `TRIBE_STORE=blobs` и для переноса данных. */
   netlifySite: 'NETLIFY_SITE_ID',
   /** Личный токен Netlify — для `TRIBE_STORE=blobs` и для переноса данных. */
@@ -95,7 +101,7 @@ export function readConfig(env: Record<string, string | undefined>): { config: V
       dataDir: text(ENV.dataDir) || DEFAULTS.dataDir,
       backupKeep: int(ENV.backupKeep, DEFAULTS.backupKeep, 1, 365),
       backupAt,
-      deliver: deliverRaw === 'on',
+      deliver: deliverOn({ [ENV.deliver]: deliverRaw }),
       netlify,
     },
     problems,

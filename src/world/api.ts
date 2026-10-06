@@ -125,6 +125,13 @@ export interface WorldApi {
    */
   warMarch(target: SettlementId, mode: 'storm' | 'siege', fate: Fate): Promise<string | null>;
 
+  /**
+   * «Дойти и ударить» (решение владельца 06.10.2026): полководец идёт к цели и бьёт в минуту прихода, не дожидаясь
+   * игрока, — по логову и по городу игрока одним приказом (город игрока — поход со штурмом с ходу, `warMarch`). Стоит у
+   * ворот — бьёт сразу. Что будет до приказа — `SettlementCard.assault`. null — выступил или ударил, иначе причина.
+   */
+  assault(target: SettlementId, fate: Fate): Promise<string | null>;
+
   /** Снять свою осаду: полководец остаётся, где стоял. null — снята, иначе причина. */
   retreat(): Promise<string | null>;
 
