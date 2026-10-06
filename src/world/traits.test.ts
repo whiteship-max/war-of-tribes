@@ -99,12 +99,24 @@ describe('множитель из слепка доходит до действ�
     return { w, inner: w as unknown as Inner };
   }
 
+  /**
+   * Полководец в поле вплотную к своему городу: там раскладка идёт сбором. Дома перевод мгновенный (docs/retinue.md,
+   * раздел 7), и срока, к которому прикладывается черта, там нет.
+   */
+  function nextToHome(w: LocalWorld): void {
+    const save = (w as unknown as { save: { home: { x: number; y: number }; figures: { general: object } } }).save;
+    const at = { x: save.home.x + 1, y: save.home.y };
+    Object.assign(save.figures.general, { phase: 'field', from: { ...at }, to: { ...at }, departAt: NOW, arriveAt: NOW });
+  }
+
   it('без черт — прежние числа ровно', async () => {
     const { w, inner } = await worldWith(base);
     expect(inner.haul({ warrior: 10 }, true)).toEqual({ carry: stackCarry({ warrior: 10 }), escort: stackEscort({ warrior: 10 }) });
     expect(inner.scoutCatch()).toBe(FIGURE_SCOUT_CATCH);
     const spy = await w.orders('spy', inner.gen.settlements[0].id);
     expect(spy.map((o) => [o.seconds, o.held])).toEqual(spy.map(() => [SPY_BUSY / 1000, SPY_HELD / 1000]));
+    nextToHome(w);
+    expect((await w.figures()).find((f) => f.id === 'general')!.regroup?.instant, 'точка внутри области: сбор есть').toBe(false);
     expect(await w.setGarrison({ spearman: 10 })).toBeNull();
     const g = (await w.figures()).find((f) => f.id === 'general')!;
     expect(g.readyAt - NOW).toBe(Math.min(HANDOVER_MAX, HANDOVER_BASE + 10 * HANDOVER_PER_MAN));
@@ -122,6 +134,7 @@ describe('множитель из слепка доходит до действ�
       expect(o.seconds).toBe(Math.round((SPY_BUSY * TRAITS.busy) / 1000));
       expect(o.held).toBe(Math.round((SPY_HELD * TRAITS.held) / 1000));
     }
+    nextToHome(w);
     expect(await w.setGarrison({ spearman: 10 })).toBeNull();
     const g = (await w.figures()).find((f) => f.id === 'general')!;
     expect(g.readyAt - NOW).toBe(Math.round(Math.min(HANDOVER_MAX, HANDOVER_BASE + 10 * HANDOVER_PER_MAN) * TRAITS.muster));

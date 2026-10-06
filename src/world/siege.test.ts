@@ -601,7 +601,7 @@ describe('осада: подкрепление и часы голода', () => 
     await w.world.sync(away);
     expect(await w.world.setGarrison({ spearman: 10 })).toBeNull();
     const g = (await w.world.figures()).find((f) => f.id === 'general') as FigureView;
-    w.at(g.readyAt);
+    w.at(Math.max(w.now(), g.readyAt));
     await w.world.sync(away);
     const home = (await w.world.info()).home;
     expect(await w.world.moveFigure('general', { x: home.x + 4, y: home.y + 3 })).toBeNull();

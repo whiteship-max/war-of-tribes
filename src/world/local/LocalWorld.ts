@@ -6209,10 +6209,19 @@ export class LocalWorld implements WorldApi {
     return this.siegeBlock(now) ?? (this.warOnUs() ? SIEGE_BLOCK : null);
   }
 
-  /** Раскладка полководца глазами окна — те же две проверки, что примет `setGarrison`. */
+  /**
+   * Перевод мгновенный: полководец дома — у своих ворот или в городе — и город не в осаде (решение владельца 06.10.2026,
+   * docs/retinue.md, раздел 7). Дома его отряд и так стоит с гарнизоном (`muster.postureOf` = `stands`), и перевод
+   * обороны не меняет — платить за него сбором не за что. Вне города и в осаде — сбор, как прежде.
+   */
+  private regroupInstant(now: number): boolean {
+    return this.save.figures.general.phase === 'home' && this.regroupGrow(now) === null;
+  }
+
+  /** Раскладка полководца глазами окна — те же проверки, что примет `setGarrison`. */
   private regroupOf(now: number): Regroup {
     const block = this.regroupBlock(now);
-    return { block, grow: block ?? this.regroupGrow(now) };
+    return { block, grow: block ?? this.regroupGrow(now), instant: block === null && this.regroupInstant(now) };
   }
 
   /**
@@ -6226,6 +6235,7 @@ export class LocalWorld implements WorldApi {
    *
    * Сбор — плата: пока он идёт, в `troops` числятся все, кого он касается, и в
    * обороне их нет ни как гарнизона, ни как дружины (`world/muster.postureOf`).
+   * Дома и не в осаде платы нет — перевод мгновенный (`regroupInstant`).
    */
   async setGarrison(troops: TroopStack | null): Promise<string | null> {
     const now = this.clock();
@@ -6262,6 +6272,13 @@ export class LocalWorld implements WorldApi {
     }
     if (moved === 0) return null;
     this.carryHandover(held, next, now);
+    // Дома и не в осаде — сразу: отряд и так стоит с гарнизоном, оборона от перевода не меняется.
+    if (this.regroupInstant(now)) {
+      f.troops = troopTotal(next) > 0 ? { ...next } : undefined;
+      f.handover = undefined;
+      this.write();
+      return null;
+    }
     const wait = this.musterWait(moved);
     f.troops = troopTotal(onRoad) > 0 ? onRoad : undefined;
     f.handover = { troops: next, until: now + wait };

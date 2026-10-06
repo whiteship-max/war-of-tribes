@@ -530,7 +530,7 @@ HEAD один на всех, см. правило 8). Значит развес�
   и уход `sim/upkeep`, мастера `sim/masters`, раненые `sim/infirmary`, вызов к воротам `sim/gate`, почта
   `sim/mail` (army, agents, realm).
 - **Раскладка** — кто в гарнизоне, кто с полководцем: приказ `setGarrison` и признак `FigureView.regroup` одной проверкой,
-  окно одно — `ui/parts/Muster`; вставшие раненые его отряда — `GameState.risen` → `rejoinRisen`; свой поход в слепке
+  дома и не в осаде — мгновенно (`Regroup.instant`), окно одно — `ui/parts/Muster`; вставшие раненые его отряда — `GameState.risen` → `rejoinRisen`; свой поход в слепке
   обороны сервер правит сам (`war.liveSheet`) (`Muster.test.ts`, `retinue.test.ts`, `pvp.test.ts`; army).
 - **Мир** — только через `worldApi()`, все методы асинхронные; мир и племя знают друг о друге в
   `world/bridge.ts`; числа мира — `world/data/tuning.ts` (world).

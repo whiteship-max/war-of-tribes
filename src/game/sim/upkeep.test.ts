@@ -450,7 +450,8 @@ describe('распустить', () => {
     };
     await pulse();
     expect(await world.setGarrison({ legionary: 10, rider: 6 })).toBeNull();
-    now = save.figures.general.handover!.until;
+    // Дома перевод мгновенный (docs/retinue.md, раздел 7); сбор, если он есть, дожидаемся.
+    now = Math.max(now, save.figures.general.handover?.until ?? now);
     await pulse();
     expect(await world.moveFigure('general', { x: save.home.x + 4, y: save.home.y })).toBeNull();
     now = save.figures.general.arriveAt;

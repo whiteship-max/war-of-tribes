@@ -6,8 +6,9 @@
 // две копии одного решения разошлись бы молча. Держит это тест по исходнику (`Muster.test.ts`): `setGarrison` мира
 // зовёт ровно этот файл.
 //
-// Своей правды здесь нет. Можно ли менять раскладку и почему нет — словами мира (`FigureView.regroup`, та же проверка,
-// что примет приказ); оборона — `defense`, срок сбора — `musterMs` с чертами полководца, как у мира; сколько бойцов
+// Своей правды здесь нет. Можно ли менять раскладку, почему нет и мгновенно ли — словами мира (`FigureView.regroup`, та
+// же проверка, что примет приказ): дома и не в осаде перевод мгновенный (docs/retinue.md, раздел 7); оборона —
+// `defense`, срок сбора там, где он есть, — `musterMs` с чертами полководца, как у мира; сколько бойцов
 // вида можно держать — `roomOf`, тем же правилом, каким отказывает мир. Потолка у отряда нет: войско держит цена
 // (`data/upkeep.ts`), а не Статуя.
 import { useEffect, useState } from 'react';
@@ -27,21 +28,29 @@ import { realSpanText } from './wait';
 import { useArmyView } from './armyView';
 
 /**
- * Какой будет оборона, пока идёт сбор, и когда отряд встанет дома. Считает та же
+ * Какой будет оборона, пока идёт сбор, и когда он кончится. Считает та же
  * `defense`, что и всегда, — на племени, у которого не дома ровно те, кого сбор
  * касается, **по видам**: латник, ушедший в сбор, уносит мощь латника.
  *
  * Не в обороне сверх отряда — отряды в пути: отряд, стоящий дома, в `s.away` не
  * входит, в сборе и в поле — входит весь. В сборе числятся все, кого он касается, —
  * те же `max(было, станет)` по видам, что кладёт в отряд сам мир (`setGarrison`).
+ * После сбора отряд дома (`home`) стоит с гарнизоном, а в поле у ворот — нет: сбор
+ * дома остался только в осаде, остальной — в поле у своих ворот (docs/retinue.md, раздел 7).
  */
-export function musterDefense(s: GameState, held: TroopStack, want: TroopStack, posture: Posture): { during: number; after: number } {
+export function musterDefense(
+  s: GameState,
+  held: TroopStack,
+  want: TroopStack,
+  posture: Posture,
+  home = true,
+): { during: number; after: number } {
   const marches = troopsAfter(s.away, posture === 'stands' ? {} : held);
   const onRoad: TroopStack = {};
   for (const t of TROOP_IDS) onRoad[t] = Math.max(held[t] ?? 0, want[t] ?? 0);
   return {
     during: defense({ ...s, away: plus(marches, onRoad) }),
-    after: defense({ ...s, away: marches }),
+    after: defense({ ...s, away: home ? marches : plus(marches, want) }),
   };
 }
 
@@ -131,7 +140,7 @@ export function Muster({ onBack }: { onBack: () => void }) {
   const statue = buildingOfType(s, 'statue');
   const barracks = buildingOfType(s, 'barracks');
   const here = seated(s, 'general');
-  const regroup = general?.regroup ?? { block: 'Где полководец, пока неизвестно.', grow: null };
+  const regroup = general?.regroup ?? { block: 'Где полководец, пока неизвестно.', grow: null, instant: false };
   const can = here && regroup.block === null;
   const all = (t: TroopId): number => Math.max(pool[t] ?? 0, held[t] ?? 0);
   const rows = TROOP_IDS.filter((t) => all(t) > 0);
@@ -148,9 +157,10 @@ export function Muster({ onBack }: { onBack: () => void }) {
   const posture = general ? postureOf(general) : 'none';
   // Обе цены — до приказа: сколько обороны стоит сам сбор и какой она станет, когда отряд встанет (`world/muster`).
   const def = defense(s);
-  const { during, after } = musterDefense(s, held, want, posture);
-  // Срок сбора — той же функцией, что у мира, с чертами полководца так, как их складывает слепок.
-  const wait = moved > 0 ? musterMs(moved, traitNumbers(s).muster ?? 1) : 0;
+  const { during, after } = musterDefense(s, held, want, posture, general?.phase === 'home');
+  // Срок сбора — той же функцией, что у мира, с чертами полководца так, как их складывает слепок. Дома и не в осаде
+  // сбора нет: перевод мгновенный (`Regroup.instant`).
+  const wait = moved > 0 && !regroup.instant ? musterMs(moved, traitNumbers(s).muster ?? 1) : 0;
   const why = !here ? null : (regroup.block ?? (grows ? regroup.grow : null) ?? (moved === 0 ? 'Раскладка та же' : null));
   const total = troopTotal(want);
   const garrison = rows.reduce((n, t) => n + all(t) - (want[t] ?? 0), 0);
@@ -159,7 +169,7 @@ export function Muster({ onBack }: { onBack: () => void }) {
     setBusy(true);
     const err = await setGarrison(want);
     setBusy(false);
-    showToast(err ?? (wait > 0 ? `Отряд собирается. Сбор ${realSpanText(wait / 1000)}` : 'Раскладка та же.'));
+    showToast(err ?? (wait > 0 ? `Отряд собирается. Сбор ${realSpanText(wait / 1000)}` : moved > 0 ? 'Раскладка новая.' : 'Раскладка та же.'));
   };
 
   return (
@@ -284,25 +294,32 @@ export function Muster({ onBack }: { onBack: () => void }) {
 
       {can && rows.length > 0 && (
         <div className="nx-obar">
-          {/* Обе цены до приказа одной строкой-справкой: оборона после сбора и сколько он идёт. */}
+          {/*
+            Обе цены до приказа одной строкой-справкой: оборона после сбора и сколько он идёт. Дома и не в осаде сбора
+            нет — перевод мгновенный, и строка называет только оборону.
+          */}
           <button
             className="nx-rksum"
             onClick={(e) =>
               tipAt(e.currentTarget, {
-                title: 'Оборона и сбор',
-                body:
-                  moved > 0
+                title: regroup.instant ? 'Оборона' : 'Оборона и сбор',
+                body: regroup.instant
+                  ? 'Полководец дома: перевод мгновенный, отряд стоит с гарнизоном, и оборона та же. Уйдёт полководец, уйдёт и отряд.'
+                  : moved > 0
                     ? `Пока идёт сбор, оборона ${Math.round(during)}: эти бойцы не в гарнизоне и не в отряде.`
                     : 'Отряд дома стоит с гарнизоном. Уйдёт полководец, уйдёт и отряд.',
               })
             }
           >
             <span>
-              Оборона <b className={moved > 0 && during < def * 0.5 ? 'bad' : ''}>{moved > 0 ? `${Math.round(def)} → ${Math.round(after)}` : Math.round(def)}</b>
+              Оборона{' '}
+              <b className={wait > 0 && during < def * 0.5 ? 'bad' : ''}>{wait > 0 ? `${Math.round(def)} → ${Math.round(after)}` : Math.round(def)}</b>
             </span>
-            <span>
-              Сбор <b>{moved > 0 ? realSpanText(wait / 1000) : '—'}</b>
-            </span>
+            {!regroup.instant && (
+              <span>
+                Сбор <b>{moved > 0 ? realSpanText(wait / 1000) : '—'}</b>
+              </span>
+            )}
           </button>
           <div className="nx-ostep">
             <button className="nx-go" disabled={busy || why !== null} onClick={() => void apply()}>

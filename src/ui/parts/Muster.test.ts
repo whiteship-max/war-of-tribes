@@ -125,9 +125,10 @@ describe('раскладка дружины: одно окно, входы к н
   });
 
   // Область правила: сбор уносит виды разной мощи — только там оборона «по числу» и «по
-  // составу» расходится. Две точки: сбор из пустых рук и пересбор дружины, стоящей дома;
-  // в каждой — во время сбора и после. Что точка внутри, проверяется утверждением.
-  it('панель сбора называет ту оборону, которую посчитает игра во время сбора и после', async () => {
+  // составу» расходится. Сбор остался там, где перевод не мгновенный (docs/retinue.md, раздел 7): в поле у своих
+  // ворот и в осаде; мерка — поле у ворот. Две точки: сбор из пустых рук и пересбор отряда, стоящего у ворот; в
+  // каждой — во время сбора и после. Что точка внутри, проверяется утверждением.
+  it('панель сбора называет ту оборону, которую посчитает игра во время сбора и после — в поле у ворот', async () => {
     const START = 1_700_000_000_000;
     let now = START;
     const world = new LocalWorld({ seed: 7, now: () => now, storage: null });
@@ -142,13 +143,21 @@ describe('раскладка дружины: одно окно, входы к н
     };
     const general = (): FigureView => last.figures.find((f) => f.id === 'general') as FigureView;
     await pulse();
+    // В поле вплотную к своему городу (дойти туда нельзя — придя к воротам, он дома; стоять там — можно, правило мира
+    // это место знает, `regroupBlock`): ставим прямо.
+    const save = (world as unknown as { save: { home: Coord; figures: { general: object } } }).save;
+    const at = { x: save.home.x + 1, y: save.home.y };
+    Object.assign(save.figures.general, { phase: 'field', from: { ...at }, to: { ...at }, departAt: now, arriveAt: now });
+    await pulse();
+    expect(general().phase, 'точка внутри области: в поле у своих ворот').toBe('field');
+    expect(general().regroup?.instant, 'точка внутри области: перевод не мгновенный').toBe(false);
     const steps: TroopStack[] = [
       { legionary: 8, clubman: 2 },
       { legionary: 3, clubman: 12 },
     ];
     for (const [i, want] of steps.entries()) {
       const before = general();
-      const plan = musterDefense(s, { ...before.troops }, want, postureOf(before));
+      const plan = musterDefense(s, { ...before.troops }, want, postureOf(before), before.phase === 'home');
       expect(postureOf(before), `шаг ${i}: точка внутри области — сбора ещё нет`).not.toBe('gathering');
       expect(await world.setGarrison(want)).toBeNull();
       await pulse();
@@ -160,7 +169,7 @@ describe('раскладка дружины: одно окно, входы к н
       now = during.readyAt;
       await pulse();
       await pulse();
-      expect(postureOf(general()), `шаг ${i}: точка внутри области — собрана и дома`).toBe('stands');
+      expect(postureOf(general()), `шаг ${i}: точка внутри области — собран, в поле у ворот`).toBe('engaged');
       expect(plan.after, `шаг ${i}: после сбора панель и игра`).toBeCloseTo(defense(s), 9);
     }
   });

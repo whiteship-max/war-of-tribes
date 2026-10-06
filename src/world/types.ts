@@ -943,6 +943,8 @@ export interface FigureView {
 export interface Regroup {
   block: string | null;
   grow: string | null;
+  /** Перевод мгновенный, без сбора: полководец дома и город не в осаде (решение владельца 06.10.2026). */
+  instant: boolean;
 }
 
 /**
