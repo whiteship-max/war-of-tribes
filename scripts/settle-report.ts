@@ -22,7 +22,11 @@ import { KM_PER_CELL } from '../src/world/atlas/project';
 import { MAINLAND_MIN, SETTLE_GAP, SETTLE_REACH } from '../src/world/data/tuning';
 import { TERRAIN_META } from '../src/world/data/terrain';
 import { UNIT_BY_ID } from '../src/world/data/units';
-import { asGame, dayRealSeconds, realSeconds, type GameSec } from '../src/game/pace';
+import { asGame, dayRealSeconds, realMs, realSeconds, type GameSec } from '../src/game/pace';
+import { SICILY, SICILY_GAP } from '../src/world/spawn';
+import { warWalkMs } from '../src/world/pvp';
+import { generateWorld, isLair } from '../src/world/gen';
+import { FIGURE_BY_ID } from '../src/world/data/figures';
 
 const counts = (process.env.PLAYERS ?? '2,5,20,50').split(',').map((s) => Number(s.trim()));
 const runs = Number(process.env.RUNS ?? '6');
@@ -191,4 +195,79 @@ for (const [name, count] of [...kinds.entries()].sort((a, b) => b[1] - a[1])) {
   console.log(`  ${pad(name, 12)}${rpad(String(count), 5)} ${rpad(`${((count / sample) * 100).toFixed(0)}%`, 6)}`);
 }
 console.log(`\n  материк — ${biggest} клеток, порог «это материк» — ${MAINLAND_MIN}.`);
+console.log('');
+
+// ---------- Тест с игроками: Сицилия (docs/test_world.md) ----------
+
+/** «4 ч 05 м» по настоящим миллисекундам. */
+function realSpanMs(ms: number): string {
+  const s = Math.round(ms / 1000);
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  if (h > 0) return `${h} ч ${String(m).padStart(2, '0')} м`;
+  return `${m} м ${String(s % 60).padStart(2, '0')} с`;
+}
+
+/** Темп войны для проверки (`TRIBE_WAR_PACE`): во сколько раз быстрее походы между игроками. */
+const TEST_PACE = 60;
+
+console.log('=== тест с игроками: Сицилия (TRIBE_SPAWN=sicily) ===');
+console.log(`  мест ${SICILY.length}, ближняя граница между ними ${SICILY_GAP} клеток (обычная — ${SETTLE_GAP}).`);
+console.log(
+  `  ${pad('место', 14)}${rpad('сосед', 6)}${rpad('клеток', 8)}${rpad('км', 6)}${rpad('поход', 12)}${rpad(`×${TEST_PACE}`, 10)}`,
+);
+const neighbourMs: number[] = [];
+SICILY.forEach((s, i) => {
+  let j = -1;
+  let best = Infinity;
+  SICILY.forEach((t, k) => {
+    if (k === i) return;
+    const d = distance(s, t);
+    if (d < best) {
+      best = d;
+      j = k;
+    }
+  });
+  const ms = warWalkMs(s, SICILY[j]);
+  neighbourMs.push(ms);
+  console.log(
+    `  ${pad(`${i + 1}. ${s.x}|${s.y}`, 14)}${rpad(String(j + 1), 6)}${rpad(best.toFixed(1), 8)}${rpad(String(Math.round(best * KM_PER_CELL)), 6)}` +
+      `${rpad(realSpanMs(ms), 12)}${rpad(realSpanMs(ms / TEST_PACE), 10)}`,
+  );
+});
+const far = Math.max(...SICILY.flatMap((s) => SICILY.map((t) => warWalkMs(s, t))));
+console.log(
+  `  до ближнего соседа: ${realSpanMs(Math.min(...neighbourMs))} … ${realSpanMs(Math.max(...neighbourMs))}` +
+    ` (×${TEST_PACE}: ${realSpanMs(Math.min(...neighbourMs) / TEST_PACE)} … ${realSpanMs(Math.max(...neighbourMs) / TEST_PACE)});` +
+    ` через весь остров: ${realSpanMs(far)} (×${TEST_PACE}: ${realSpanMs(far / TEST_PACE)}).`,
+);
+
+// Логова — свои у каждого мира: их ставит генерация по сиду мира игрока, поэтому меряется набором сидов.
+const lairSeeds = Number(process.env.LAIR_SEEDS ?? '10');
+const lairMs: number[] = [];
+const lairCells: number[] = [];
+for (const s of SICILY) {
+  for (let seed = 1; seed <= lairSeeds; seed++) {
+    const gen = generateWorld(seed, s);
+    let best = Infinity;
+    let at: Spot | null = null;
+    for (const l of gen.settlements) {
+      if (!isLair(l)) continue;
+      const d = distance(s, l);
+      if (d < best) {
+        best = d;
+        at = l;
+      }
+    }
+    if (!at) continue;
+    lairCells.push(best);
+    lairMs.push(realMs(travelTime(best, terrainFactor(seed, s, at), FIGURE_BY_ID.general.speed)));
+  }
+}
+console.log(
+  `  до ближнего логова (полководец; ${SICILY.length} мест × ${lairSeeds} сидов мира): клеток ${Math.min(...lairCells).toFixed(1)}` +
+    ` … медиана ${median(lairCells).toFixed(1)} … ${Math.max(...lairCells).toFixed(1)};` +
+    ` поход ${realSpanMs(Math.min(...lairMs))} … медиана ${realSpanMs(median(lairMs))} … ${realSpanMs(Math.max(...lairMs))}.`,
+);
+console.log(`  поход на логово темп войны (TRIBE_WAR_PACE) не ускоряет: темп — только для походов между игроками.`);
 console.log('');

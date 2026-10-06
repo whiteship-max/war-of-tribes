@@ -1067,14 +1067,15 @@ Telegram-канал не покажет, сколько игроков его о
 - **Свой сервер:** вписать обе в `.env` рядом с `docker-compose.yml` и перезапустить (`deploy/update.sh` или
   `docker compose up -d`).
 
-**2. Поставить вебхук бота** — один раз, с любого компьютера (вместо `<ТОКЕН>`, `<СЕКРЕТ>` — свои значения; адрес —
-боевой сайт, после переезда — домен своего сервера, и команду повторить):
+**2. Поставить вебхук бота** — один раз, с любого компьютера (вместо `<ТОКЕН>`, `<СЕКРЕТ>` — свои значения; после
+переезда на свой сервер команду повторить с его доменом). `<адрес твоего сайта>` — адрес сайта без `https://` и без косой черты в конце: в Netlify — Site overview (ссылка вида `имя-сайта.netlify.app` под названием проекта) или Site configuration → Domain management → Production domains; на своём сервере — его домен. `message` в списке обновлений —
+для команд админа (docs/admin.md): без него бот их не получит.
 
 ```bash
 curl -sS "https://api.telegram.org/bot<ТОКЕН>/setWebhook" \
-  -d url=https://celebrated-yeot-73e410.netlify.app/api/bot \
+  -d url=https://<адрес твоего сайта>/api/bot \
   -d secret_token=<СЕКРЕТ> \
-  --data-urlencode 'allowed_updates=["callback_query","my_chat_member"]'
+  --data-urlencode 'allowed_updates=["message","callback_query","my_chat_member"]'
 ```
 
 Ответ — `{"ok":true,"result":true,"description":"Webhook was set"}`. Проверка:
@@ -1089,7 +1090,7 @@ curl -sS "https://api.telegram.org/bot<ТОКЕН>/getWebhookInfo"
 
 **3. Проверить.**
 
-1. Без секрета вебхук закрыт: `curl -sS -X POST https://celebrated-yeot-73e410.netlify.app/api/bot -d '{}'` →
+1. Без секрета вебхук закрыт: `curl -sS -X POST https://<адрес твоего сайта>/api/bot -d '{}'` →
    `{"error":"unauthorized"}`.
 2. Проход идёт: Netlify → Logs & metrics → Functions → `deliver` — по вызову в минуту; Blobs →
    `tribe-notify-stats` — по записи на проход, в ней `wouldSend` (ушло), `closed` (Telegram отказал), `retried`,

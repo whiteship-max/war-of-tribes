@@ -783,17 +783,18 @@ npm run preview -- --host
 
    `TELEGRAM_BOT_TOKEN` уже стоит. Переменные читает выкладка: Netlify → Deploys → **Trigger deploy** → **Publish
    deploy**; свой сервер — `docker compose up -d`.
-2. **Вебхук бота** — один раз (и повторить после переезда на свой домен):
+2. **Вебхук бота** — один раз (и повторить после переезда на свой домен). `<адрес твоего сайта>` — адрес сайта без `https://` и без косой черты в конце: в Netlify — Site overview (ссылка вида `имя-сайта.netlify.app` под названием проекта) или Site configuration → Domain management → Production domains; на своём сервере — его домен. `message` в списке —
+   для команд админа (docs/admin.md).
 
    ```bash
    curl -sS "https://api.telegram.org/bot<ТОКЕН>/setWebhook" \
-     -d url=https://celebrated-yeot-73e410.netlify.app/api/bot \
+     -d url=https://<адрес твоего сайта>/api/bot \
      -d secret_token=<СЕКРЕТ> \
-     --data-urlencode 'allowed_updates=["callback_query","my_chat_member"]'
+     --data-urlencode 'allowed_updates=["message","callback_query","my_chat_member"]'
    ```
 
    Проверка — `getWebhookInfo`: `url` наш, `last_error_message` нет. Без секрета адрес закрыт:
-   `curl -sS -X POST https://celebrated-yeot-73e410.netlify.app/api/bot -d '{}'` → `{"error":"unauthorized"}`.
+   `curl -sS -X POST https://<адрес твоего сайта>/api/bot -d '{}'` → `{"error":"unauthorized"}`.
 3. **Выключить бота** — `TRIBE_DELIVER=off` и выкладка; вебхук снять — `deleteWebhook`.
 
 ### Как проверить на телефоне
