@@ -10,6 +10,7 @@
 //   DEVICE=weak                              — устройство говорит «память 2 ГБ, 4 ядра» (`navigator.deviceMemory`,
 //                                              `hardwareConcurrency`): так автовыбор видит дешёвый Android
 //   SECONDS=10                               — сколько мерить плавность
+//   DIST=путь                                — другая сборка вместо `dist` (коммит «до» из второго worktree)
 //   ASK="JSON.stringify(…)"                  — выражение в странице на вставшем городе (разбор: что в сцене)
 //
 // ЧТО МЕРЯЕТСЯ И ЧЕМ:
@@ -382,7 +383,8 @@ async function main(): Promise<void> {
     await dev.listen();
     close = () => dev.close();
   } else {
-    const built = await preview({ configFile, preview: listen, logLevel: 'warn' });
+    // `DIST=путь` — другая сборка (например, коммита «до» из второго worktree): тот же стенд меряет обе.
+    const built = await preview({ configFile, preview: listen, logLevel: 'warn', ...(process.env.DIST ? { build: { outDir: process.env.DIST } } : {}) });
     close = async () => void built.httpServer.close();
   }
   try {

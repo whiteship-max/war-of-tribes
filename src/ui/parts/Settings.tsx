@@ -33,7 +33,7 @@
 // ратуше, где ею платят, и настройкой не является ни в каком виде.
 import { useSyncExternalStore } from 'react';
 import { setSoundOn, soundOn, subscribeSound } from '@/sound/settings';
-import { GFX_QUALITIES, gfx, setGfx, subscribeGfx } from '@/render/gfx';
+import { GFX_QUALITIES, gfx, levelNow, setGfx, subscribeGfx } from '@/render/gfx';
 import { battleMusic, villageMusic } from '@/sound/web';
 import { Icon } from '@/ui/icons/Icon';
 import { NOTIFY_ON, notifyState, setNotifyOn, subscribeNotify } from '@/net/notify';
@@ -119,7 +119,11 @@ export function Settings() {
           </span>
           <span className="name">
             Графика
-            <em className="sub">Авто подбирает по телефону</em>
+            {/* У «Авто» — на чём игра стоит сейчас (`gfx.levelNow`): по устройству или опущенная сторожем. Без этой
+                строки на телефоне не проверить, что слабый телефон получил «Низкую» (docs/perf.md). */}
+            <em className="sub">
+              {chosen.quality === 'auto' ? `Авто: сейчас ${(GFX_QUALITIES.find(([q]) => q === levelNow(location.search))?.[1] ?? '').toLowerCase()}` : 'Авто подбирает по телефону'}
+            </em>
           </span>
           <div className="set-seg" role="group" aria-label="Уровень графики">
             {GFX_QUALITIES.map(([q, label]) => (
