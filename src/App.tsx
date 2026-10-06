@@ -63,6 +63,7 @@ const Hud = lazy(() => nextUi().then((m) => ({ default: m.Hud })));
 const Alerts = lazy(() => nextUi().then((m) => ({ default: m.Alerts })));
 const Nav = lazy(() => nextUi().then((m) => ({ default: m.Nav })));
 const TipLayer = lazy(() => nextUi().then((m) => ({ default: m.TipLayer })));
+const Hints = lazy(() => nextUi().then((m) => ({ default: m.Hints })));
 /** Шаг «Как назовёшь город?» стартового экрана — тем же куском: сам экран ничего не грузит (`start.test.ts`). */
 const CityNaming = lazy(() => nextUi().then((m) => ({ default: m.CityNaming })));
 /** Карточка клетки и «Походы» нового вида — тем же куском (docs/ui_audit.md, 13). */
@@ -258,6 +259,12 @@ export function App() {
       <Suspense fallback={null}>
         <TipLayer />
       </Suspense>
+      {/* Подсказки новичку по ходу игры — после входа в партию (docs/rating.md). */}
+      {started && (
+        <Suspense fallback={null}>
+          <Hints />
+        </Suspense>
+      )}
       {/* Последним нарочно: до ответа игрока партия не сохраняется никуда, и
           этот вопрос обязан стоять поверх остальных окон. Своего слоя у него
           нет — он просто идёт после них. */}

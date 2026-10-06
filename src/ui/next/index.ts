@@ -7,6 +7,7 @@ export { Hud } from './Hud';
 export { Alerts } from './Alerts';
 export { Nav } from './Nav';
 export { TipLayer } from './TipLayer';
+export { Hints } from './Hints';
 export { BuildingNew } from './BuildingNew';
 export { SmithyNew } from './SmithyNew';
 export { RecruitNew } from './RecruitNew';

@@ -7,8 +7,8 @@
 // Отсюда же следует, что содержимое у обоих показов одинаковое. Соблазн
 // «на стартовом экране покажем только звук» — это и есть начало второй копии.
 //
-// Строк здесь пять — музыка, графика, вести в Telegram (только в Telegram), «Сообщить об ошибке» (тоже только в
-// Telegram), язык, — и это не заготовка под список.
+// Строк здесь шесть — музыка, графика, подсказки, вести в Telegram (только в Telegram), «Сообщить об ошибке» (тоже
+// только в Telegram), язык, — и это не заготовка под список.
 // Свалкой раздел становится с той строки, которую добавили «раз уж всё равно
 // открыли»: игрок перестаёт читать и начинает пролистывать. Новая строка
 // появляется тогда, когда без неё что-то нельзя сделать, а не тогда, когда её
@@ -26,6 +26,9 @@
 // «Сообщить об ошибке» — такая же (решение владельца 06.10.2026, docs/admin.md): без неё игрок теста не может сказать о
 // поломке из игры. Окно одно на все входы (`BugReport`): здесь, в шапке меню державы и на плашке заморозки.
 //
+// Подсказки — такая же (решение владельца 06.10.2026, docs/rating.md): игроку, которому они мешают, выключить их больше
+// негде.
+//
 // Чего здесь нет и быть не может: ничего про алмазы. Премиальная валюта живёт в
 // ратуше, где ею платят, и настройкой не является ни в каком виде.
 import { useSyncExternalStore } from 'react';
@@ -36,6 +39,8 @@ import { Icon } from '@/ui/icons/Icon';
 import { NOTIFY_ON, notifyState, setNotifyOn, subscribeNotify } from '@/net/notify';
 import { inTelegram } from '@/telegram/webapp';
 import { useBugReport } from './bugOpen';
+import { useGame } from '@/game/store';
+import { hintsOff, setHintsOff } from '@/game/sim/hints';
 
 /**
  * Переключатель музыки — **единственный рычаг на весь звук игры**, и деревни, и
@@ -73,6 +78,9 @@ export function Settings() {
   // Telegram отказал боту писать: нажатие не выключает, а просит разрешения снова.
   const shut = newsOn && news?.chan === 'closed';
   const report = useBugReport((b) => b.show);
+  // Подсказки новичку — поле партии (`sim/hints`), как и то, какие уже показаны (docs/rating.md).
+  const hintsOn = useGame((g) => !hintsOff(g.s));
+  const flipHints = (): void => useGame.getState().world((s) => setHintsOff(s, hintsOn));
 
   return (
     <>
@@ -121,6 +129,19 @@ export function Settings() {
             ))}
           </div>
         </div>
+
+        <button className={`set-row${hintsOn ? ' on' : ''}`} onClick={flipHints} aria-pressed={hintsOn}>
+          <span className="ico">
+            <Icon name="ui-info" glyph="💡" />
+          </span>
+          <span className="name">
+            Подсказки
+            <em className="sub">Коротко о главном, по ходу игры</em>
+          </span>
+          <span className="sw">
+            <i />
+          </span>
+        </button>
 
         {NOTIFY_ON && inTelegram() && (
           <button className={`set-row${newsOn ? ' on' : ''}`} onClick={() => setNotifyOn(shut ? true : !newsOn)} aria-pressed={newsOn}>

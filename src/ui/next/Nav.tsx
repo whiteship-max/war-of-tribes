@@ -82,7 +82,7 @@ export function Nav() {
         </span>
         {mapOpen ? 'Город' : 'Карта'}
       </button>
-      <button className={tab === 'army' ? 'on' : ''} onClick={home(() => openTab('army'))}>
+      <button data-tut="nav-army" className={tab === 'army' ? 'on' : ''} onClick={home(() => openTab('army'))}>
         <span className="nx-ib">
           <Icon name="hud-army" glyph="⚔️" />
         </span>
