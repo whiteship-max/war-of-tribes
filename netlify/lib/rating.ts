@@ -32,7 +32,7 @@ export const cardPower = (rec: WatchRecord): number => (rec.card ? powerOfCounts
  * прыгал между запросами.
  */
 export function rank(rows: Omit<Ranked, 'place'>[]): Ranked[] {
-  const sorted = [...rows].sort((a, b) => b.points - a.points || b.power - a.power || a.city.localeCompare(b.city, 'ru') || a.id.localeCompare(b.id));
+  const sorted = [...rows].sort((a, b) => b.points - a.points || b.power - a.power || cityOr(a.city).localeCompare(cityOr(b.city), 'ru') || a.id.localeCompare(b.id));
   let place = 0;
   return sorted.map((r, i) => {
     if (i === 0 || sorted[i - 1].points !== r.points) place = i + 1;

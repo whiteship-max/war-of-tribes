@@ -8,7 +8,7 @@
  * («в 14:40», поясом игрока) и ничего больше: потери и добыча устаревают и лежат в донесении (правило 18 — числа
  * нет, и считать его нечем).
  */
-import type { NoticeFate, NoticeItem, RatingRow } from './contract.js';
+import { cityOr, type NoticeFate, type NoticeItem, type RatingRow } from './contract.js';
 import { localTime } from './notify.js';
 import { SICILY } from '../../src/world/spawn.js';
 import { count } from '../../src/ui/parts/plural.js';
@@ -101,7 +101,7 @@ export const FINAL_ROWS = 30;
 /** Строка таблицы: место, город, очки; под ней — из чего они. */
 function finalRow(r: RatingRow): string {
   return [
-    `${r.place}. «${r.city}» — ${count(r.points, 'очко', 'очка', 'очков')}`,
+    `${r.place}. «${cityOr(r.city)}» — ${count(r.points, 'очко', 'очка', 'очков')}`,
     `    мощь ${r.power}, ${count(r.won, 'победа', 'победы', 'побед')}, ${count(r.taken, 'город взят', 'города взято', 'городов взято')}`,
   ].join('\n');
 }

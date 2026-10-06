@@ -65,6 +65,8 @@ import { FELL_WORDS, WORKS_STEPS, dropSiegeMarks, fellUrl, worksUrl } from './si
 import { bakeAgent } from './agent';
 import { dropFigures } from './figures';
 import { ActionMenu } from './ActionMenu';
+import { Rating } from './Rating';
+import { inTelegram } from '@/telegram/webapp';
 import { Gesture, WHEEL_STEP, swallowGhostClick, type Press } from '@/gestures';
 import { gestLog, type End } from '@/gestlog';
 import { FrameLoop, pixelRatio } from '@/render/loop';
@@ -230,6 +232,7 @@ export function WorldMap() {
   const [jumpOpen, setJumpOpen] = useState(false);
   const [jumpText, setJumpText] = useState('');
   const [legendOpen, setLegendOpen] = useState(false);
+  const [ratingOpen, setRatingOpen] = useState(false);
   const [zoomedIn, setZoomedIn] = useState(modeFor(SCALE_START) === 'detail');
 
   const info = useWorld((g) => g.info);
@@ -763,6 +766,19 @@ export function WorldMap() {
             </button>
           )}
           {CHEATS_ON && <SpeedButton className="nx-mbtn" />}
+          {/* Рейтинг игроков (docs/rating.md): вне Telegram сервера нет — и кнопки нет. */}
+          {inTelegram() && (
+            <button
+              className={`nx-mbtn nx-mrate${ratingOpen ? ' on' : ''}`}
+              onClick={() => {
+                setLegendOpen(false);
+                setRatingOpen((v) => !v);
+              }}
+              aria-label="Рейтинг"
+            >
+              <Icon name="ui-trophy" glyph="🏆" />
+            </button>
+          )}
         </div>
         {/* Мир ещё не построен: ждём, когда сервер назовёт место города (`net/roster.seat`, docs/test_world.md). */}
         {!info && roster.state === 'busy' && roster.why && <div className="nx-stale wm-wait">{roster.why}</div>}
@@ -802,6 +818,8 @@ export function WorldMap() {
             </button>
           </div>
         )}
+
+      {ratingOpen && <Rating onClose={() => setRatingOpen(false)} />}
 
       {legendOpen && (
         <div className="wm-legend">
@@ -924,7 +942,13 @@ export function WorldMap() {
             </span>
             Масштаб
           </button>
-          <button className={legendOpen ? 'on' : ''} onClick={() => setLegendOpen((v) => !v)}>
+          <button
+            className={legendOpen ? 'on' : ''}
+            onClick={() => {
+              setRatingOpen(false);
+              setLegendOpen((v) => !v);
+            }}
+          >
             <span className="nx-ib">
               <Icon name="ui-info" glyph="ℹ️" />
               {rosterOld && <em className="nx-dot" />}
