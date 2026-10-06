@@ -21,7 +21,8 @@ import { PHASE_NAME, summarize, type Side } from '@/battle';
 import { SKIP, frameAt, type Frame } from '@/battle/replay';
 import { castOfRecord } from '@/game/battle/cast';
 import { beastSummary, beastWords } from '@/game/battle/beasts';
-import { battleMusic, villageMusic } from '@/sound/web';
+import { battleMusic } from '@/sound/web';
+import { cityAudio } from '@/sound/city';
 import { soundOn, subscribeSound } from '@/sound/settings';
 import { lootText, unitsText } from '@/ui/parts/reportWords';
 import type { BattleRecord, Report } from '@/world/types';
@@ -99,7 +100,7 @@ export function TwReplay({ rec, report, onDone }: { rec: BattleRecord; report?: 
     }
     renderer.info.autoReset = false;
     battleMusic.start();
-    villageMusic.duck(true);
+    cityAudio.hush('battle', true);
     let alive = true;
     let dispose: () => void = () => undefined;
     let release: () => void = () => undefined;
@@ -185,7 +186,7 @@ export function TwReplay({ rec, report, onDone }: { rec: BattleRecord; report?: 
       release();
       dispose();
       battleMusic.stop();
-      villageMusic.duck(false);
+      cityAudio.hush('battle', false);
       if (scene) {
         scene.lend(false);
         scene.renderOnce();

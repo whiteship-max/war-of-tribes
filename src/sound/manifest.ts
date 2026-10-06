@@ -129,64 +129,10 @@ export const WHOLE_LEVELS: Record<MusicLayer, number> = {
 export const battleWholeUrl = (): string => `${MUSIC_DIR}${BATTLE_WHOLE.file}`;
 
 /**
- * Мирные дорожки деревни. Играют по кругу в перемешанном порядке, с переливом
- * между соседними; слоёв у них нет и не нужно — это разные пьесы, а не одна в
- * трёх плотностях.
- *
- * `seconds` здесь — справка и заказ (по ней видно, что вес сходится с
- * потолком). Настоящую длину проигрыватель берёт у разобранного файла: файл
- * могли пересобрать, а число в таблице — забыть.
+ * Мирных дорожек деревни (`village-1..4.mp3`) в игре больше нет: с 06.10.2026 в городе звучит музыка эпохи — синтез,
+ * без файлов и без загрузки (`sound/epoch/`, docs/audio.md, решение 1). Файлы в `public/assets/music/` и их сборка
+ * (`npm run music:build`) оставлены до слова владельца — вопрос в docs/audio.md.
  */
-export interface VillageTrack {
-  id: string;
-  file: string;
-  seconds: number;
-  note: string;
-}
-
-export const VILLAGE_TRACKS: VillageTrack[] = [
-  {
-    id: 'village-1',
-    file: `village-1.${MUSIC_FORMAT}`,
-    seconds: 87,
-    note: 'Medieval Vol.1, Track 1 — 110 BPM, 4/4, Am, полный микс',
-  },
-  {
-    id: 'village-2',
-    file: `village-2.${MUSIC_FORMAT}`,
-    seconds: 82,
-    note: 'Medieval Vol.1, Track 2 — 140 BPM, 4/4, C, полный микс',
-  },
-  {
-    id: 'village-3',
-    file: `village-3.${MUSIC_FORMAT}`,
-    seconds: 120,
-    note: 'Medieval Vol.1, Track 3 — 120 BPM, 3/4, Am, вальс',
-  },
-  {
-    id: 'village-4',
-    file: `village-4.${MUSIC_FORMAT}`,
-    seconds: 110,
-    note: 'Medieval Vol.1, Track 4 — 70 BPM, 4/4, Am, без вокала',
-  },
-];
-
-/** Перелив между соседними дорожками деревни. Не встык и не пауза. */
-export const VILLAGE_FADE = 3;
-
-/**
- * За сколько секунд до конца дорожки тянуть следующую. Раньше нельзя: правило
- * «грузится ровно одна дорожка за раз» и есть цена вопроса — самый тяжёлый
- * файл 938 КБ, и качать их пачкой значит уронить первые секунды игры.
- * Двенадцати секунд хватает и на медленной сети, а не хватило — дорожка
- * встанет с небольшой паузой, а не сорвёт весь круг.
- */
-export const VILLAGE_LEAD = 12;
-
-/** Насколько глушится деревня под роликом о бое, и за сколько. */
-export const VILLAGE_DUCK_FADE = 0.8;
-
-export const villageUrl = (track: VillageTrack): string => `${MUSIC_DIR}${track.file}`;
 
 /**
  * Что качать для боя и с какими громкостями это играть — **обе половины режима

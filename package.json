@@ -46,7 +46,8 @@
     "city:shots": "vite-node scripts/city-shots.ts",
     "mini:shots": "vite-node scripts/mini-shots.ts",
     "tw:shots": "vite-node scripts/tw-shots.ts",
-    "weak:stand": "vite-node scripts/weak-stand.ts"
+    "weak:stand": "vite-node scripts/weak-stand.ts",
+    "audio:samples": "vite-node scripts/audio-samples.ts"
   },
   "dependencies": {
     "@netlify/blobs": "^11.0.3",

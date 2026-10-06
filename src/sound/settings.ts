@@ -88,3 +88,62 @@ export function setSoundOn(on: boolean): void {
   storage.write(on ? '1' : '0');
   for (const listener of listeners) listener();
 }
+
+// ---------- Громкость: музыка и звуки ----------
+//
+// Две громкости, а не два рычага (docs/audio.md, решение 3). Рычаг по-прежнему один — `soundOn`: выключен — молчит всё и
+// не открывается ничего. Громкость лишь делит то, что звучит, на два рода: **музыка** (музыка эпохи в городе и на карте,
+// музыка боя) и **звуки** (фон города и карты, касания, тревога, звуки боя, промыслов и вой). Это то самое «появятся
+// звуки другого рода — тогда и разделим», которое справочник оставил на потом (docs/handbook/music.md).
+
+/** Род звука: на каждый — своя громкость. */
+export type SoundKind = 'music' | 'fx';
+
+/** Умолчания — негромко: фон и музыка под игру, а не вместо неё. */
+export const SOUND_LEVEL_DEFAULT: Record<SoundKind, number> = { music: 0.6, fx: 0.8 };
+
+const LEVEL_KEY: Record<SoundKind, string> = { music: 'tribe.sound.music', fx: 'tribe.sound.fx' };
+
+/** Хранилище громкостей. Подменяется в тестах. */
+export interface LevelStorage {
+  read(key: string): string | null;
+  write(key: string, value: string): void;
+}
+
+const browserLevels: LevelStorage = {
+  read(key) {
+    try {
+      return localStorage.getItem(key);
+    } catch {
+      return null;
+    }
+  },
+  write(key, value) {
+    try {
+      localStorage.setItem(key, value);
+    } catch {
+      // Как у рычага: не переживёт перезагрузку — и только.
+    }
+  },
+};
+
+let levels = browserLevels;
+
+/** Подменить хранилище громкостей. Только для тестов. */
+export function setLevelStorage(next: LevelStorage): void {
+  levels = next;
+}
+
+/** Громкость рода, 0..1. Испорченная запись — умолчание, а не тишина. */
+export function soundLevel(kind: SoundKind): number {
+  const saved = levels.read(LEVEL_KEY[kind]);
+  const v = saved === null ? NaN : Number(saved);
+  return Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : SOUND_LEVEL_DEFAULT[kind];
+}
+
+/** Записать громкость рода. Пишет её тот же раздел настроек, что и рычаг. */
+export function setSoundLevel(kind: SoundKind, value: number): void {
+  const v = Math.min(1, Math.max(0, value));
+  levels.write(LEVEL_KEY[kind], String(Math.round(v * 100) / 100));
+  for (const listener of listeners) listener();
+}

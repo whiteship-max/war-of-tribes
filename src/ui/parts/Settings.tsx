@@ -7,7 +7,7 @@
 // Отсюда же следует, что содержимое у обоих показов одинаковое. Соблазн
 // «на стартовом экране покажем только звук» — это и есть начало второй копии.
 //
-// Строк здесь шесть — музыка, графика, подсказки, вести в Telegram (только в Telegram), «Сообщить об ошибке» (тоже
+// Строк здесь шесть — звук (с громкостью музыки и звуков под ним, пока он включён), графика, подсказки, вести в Telegram (только в Telegram), «Сообщить об ошибке» (тоже
 // только в Telegram), язык, — и это не заготовка под список.
 // Свалкой раздел становится с той строки, которую добавили «раз уж всё равно
 // открыли»: игрок перестаёт читать и начинает пролистывать. Новая строка
@@ -32,9 +32,10 @@
 // Чего здесь нет и быть не может: ничего про алмазы. Премиальная валюта живёт в
 // ратуше, где ею платят, и настройкой не является ни в каком виде.
 import { useSyncExternalStore } from 'react';
-import { setSoundOn, soundOn, subscribeSound } from '@/sound/settings';
+import { setSoundLevel, setSoundOn, soundLevel, soundOn, subscribeSound, type SoundKind } from '@/sound/settings';
 import { GFX_QUALITIES, gfx, levelNow, setGfx, subscribeGfx } from '@/render/gfx';
-import { battleMusic, villageMusic } from '@/sound/web';
+import { battleMusic } from '@/sound/web';
+import { cityAudio } from '@/sound/city';
 import { Icon } from '@/ui/icons/Icon';
 import { NOTIFY_ON, notifyState, setNotifyOn, subscribeNotify } from '@/net/notify';
 import { inTelegram } from '@/telegram/webapp';
@@ -43,24 +44,31 @@ import { useGame } from '@/game/store';
 import { hintsOff, setHintsOff } from '@/game/sim/hints';
 
 /**
- * Переключатель музыки — **единственный рычаг на весь звук игры**, и деревни, и
- * боя. Раньше он стоял в ролике о бое, рядом с «Пропустить», и был там
- * единственным местом, откуда музыку вообще включали.
+ * Переключатель звука — **единственный рычаг на весь звук игры**: город, карта, музыка эпохи, бой, промыслы, вой.
+ * Выключен — «Без звука»: не звучит и не открывается ничего. Раньше он стоял в ролике о бое, рядом с «Пропустить», и
+ * был там единственным местом, откуда музыку вообще включали.
+ *
+ * Под ним, пока звук включён, — две громкости: музыки и звуков (docs/audio.md, решение 3). Это не второй рычаг, а
+ * доля: выключить ими звук нельзя, только сделать тише, — ноль громкости и «Без звука» различаются тем, что первый
+ * держит контекст открытым.
  *
  * Состояние берётся у самой настройки через подписку, а не заводится здесь
  * своим `useState`: показов теперь два, и «одно состояние» должно держаться
  * устройством, а не тем, что два показа не встречаются на экране.
  *
  * Нажатие — это и есть тот жест, которым открывается звуковой контекст: в вебвью
- * Telegram он сам не откроется, а `villageMusic.toggle(true)` открывает его
+ * Telegram он сам не откроется, а `cityAudio.toggle(true)` открывает его
  * прямо здесь, в обработчике. Через `await` его проносить нельзя — активация
  * теряется, — поэтому в этом обработчике нет ни одного.
  *
  * Боевую музыку включение **не заводит**: у неё свой жест — «Смотреть бой», — и
  * начинать качать `battle.mp3` из настроек значило бы платить мегабайтом за
- * нажатие, которое о бое не просило. А вот выключение гасит обе: игрок выключает
- * музыку, а не дорожку.
+ * нажатие, которое о бое не просило. А вот выключение гасит всё: игрок выключает
+ * звук, а не дорожку.
  */
+const musicLevel = (): number => soundLevel('music');
+const fxLevel = (): number => soundLevel('fx');
+
 export function Settings() {
   const on = useSyncExternalStore(subscribeSound, soundOn, soundOn);
   const chosen = useSyncExternalStore(subscribeGfx, gfx, gfx);
@@ -68,9 +76,15 @@ export function Settings() {
   const flip = (): void => {
     const next = !on;
     setSoundOn(next);
-    villageMusic.toggle(next);
+    cityAudio.toggle(next);
     if (!next) battleMusic.toggle(false);
   };
+  // Громкости — тоже подпиской: снимок `soundOn` от них не меняется, и без своих снимков полоса не двигалась бы.
+  const levels: Record<SoundKind, number> = {
+    music: useSyncExternalStore(subscribeSound, musicLevel, musicLevel),
+    fx: useSyncExternalStore(subscribeSound, fxLevel, fxLevel),
+  };
+  const level = (kind: SoundKind): number => Math.round(levels[kind] * 100);
 
   // Рычаг уведомлений — один на игрока и лежит на сервере (`prefs.on`): его же переключает кнопка под сообщением бота.
   const news = useSyncExternalStore(subscribeNotify, notifyState, notifyState);
@@ -98,13 +112,47 @@ export function Settings() {
             <Icon name="ui-music" glyph="🎵" />
           </span>
           <span className="name">
-            Музыка
-            <em className="sub">в городе и в бою</em>
+            Звук
+            <em className="sub">{on ? 'Город, музыка эпохи, бой' : 'Без звука'}</em>
           </span>
           <span className="sw">
             <i />
           </span>
         </button>
+
+        {/* Громкость — пока звук включён: у выключенного громкости нет. Подписка та же (`subscribeSound`). */}
+        {on && (
+          <div className="set-row vol">
+            <span className="ico">
+              <Icon name="ui-volume" glyph="🔊" />
+            </span>
+            <span className="name">
+              Громкость
+              <em className="sub">Музыка и звуки — каждому своя</em>
+            </span>
+            <div className="set-vol">
+              {(
+                [
+                  ['music', 'Музыка'],
+                  ['fx', 'Звуки'],
+                ] as const
+              ).map(([kind, label]) => (
+                <label key={kind}>
+                  <span>{label}</span>
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    step={5}
+                    value={level(kind)}
+                    aria-label={`Громкость: ${label.toLowerCase()}`}
+                    onChange={(e) => setSoundLevel(kind, Number(e.target.value) / 100)}
+                  />
+                </label>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/*
           Графика — рычаг уровня, единственный (`render/gfx.ts`, тест «рычаг один»). Вид у игры

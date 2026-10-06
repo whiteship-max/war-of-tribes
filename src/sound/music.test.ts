@@ -257,11 +257,11 @@ describe('рычаг на музыку один на всю игру', () => {
     expect(src).not.toContain('SOUND');
   });
 
-  it('выключение гасит обе музыки, включение не тянет боевую', () => {
+  it('выключение гасит и город, и боевую музыку, включение не тянет боевую', () => {
     // У боевой свой жест — «Смотреть бой». Качать battle.mp3 из настроек
     // значило бы платить мегабайтом за нажатие, которое о бое не просило.
     const src = read('ui/parts/Settings.tsx');
-    expect(src).toMatch(/villageMusic\.toggle\(next\)/);
+    expect(src).toMatch(/cityAudio\.toggle\(next\)/);
     expect(src).toMatch(/if \(!next\) battleMusic\.toggle\(false\)/);
   });
 });
