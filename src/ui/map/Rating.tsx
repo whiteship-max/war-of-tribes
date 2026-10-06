@@ -68,8 +68,11 @@ export function Rating({ onClose }: { onClose: () => void }) {
         <button key={r.id} className={`wm-rrow${r.mine ? ' mine' : ''}`} onClick={() => show(r)}>
           <span className="wm-rplace">{r.place}</span>
           <span className="wm-rwho">
-            <b className="one-line">{cityOr(r.city)}</b>
-            <small className="one-line">{r.name ? `${r.name} · ` : ''}{rowFacts(r)}</small>
+            <span className="one-line">
+              <b>{cityOr(r.city)}</b>
+              {r.name && <i> · {r.name}</i>}
+            </span>
+            <small>{rowFacts(r)}</small>
           </span>
           <span className="wm-rpts">{num(r.points)}</span>
         </button>
