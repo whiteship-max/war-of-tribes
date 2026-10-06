@@ -534,8 +534,10 @@ HEAD один на всех, см. правило 8). Значит развес�
   обороны сервер правит сам (`war.liveSheet`) (`Muster.test.ts`, `retinue.test.ts`, `pvp.test.ts`; army).
 - **Мир** — только через `worldApi()`, все методы асинхронные; мир и племя знают друг о друге в
   `world/bridge.ts`; числа мира — `world/data/tuning.ts` (world).
-- **Энергия агентов** — `world/energy` (отметка, `energyAt`, `energyBlock`), числа и цены дел — `world/data/energy.ts`; мир и
-  сервер войны спрашивают одну дверь (`energyworld.test.ts`, `netlify/lib/war.test.ts`; agents).
+- **Энергия агентов** — `world/energy` (отметка, `energyAt`, `energyBlock`, дорога `onRoad`), числа и цены дел —
+  `world/data/energy.ts`; дорога по дням пути, стоянка даром; мир и сервер войны спрашивают одну дверь
+  (`energyworld.test.ts`, `netlify/lib/war.test.ts`; agents). «Дойти и ударить» — одна дверь на логово и город игрока,
+  `WorldApi.assault` (agents).
 - **Мир по дверям** — где стоит боец `world/muster`, кто наблюдает `world/sight`, где агент
   `world/shelter`, мораль армии между боями `world/rest`, гибель агента `world/peril`, обстрел с башни
   `world/bombard`, участь взятого города `world/spoils.fate`, добыча `plunder` (world, agents).

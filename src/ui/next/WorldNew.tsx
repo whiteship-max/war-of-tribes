@@ -34,6 +34,7 @@ import { Icon } from '@/ui/icons/Icon';
 import { FatePick } from '@/ui/parts/FatePick';
 import { hungerLeft } from '@/ui/parts/hunger';
 import { count } from '@/ui/parts/plural';
+import { EnergyPrice } from '@/ui/parts/Energy';
 import { signed } from '@/ui/parts/signed';
 import { realLeft, waitLeft, waitShort } from '@/ui/parts/wait';
 import { MusterLink } from '@/ui/parts/Muster';
@@ -113,6 +114,7 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
   const moveFigure = useWorld((g) => g.moveFigure);
   const shelter = useWorld((g) => g.shelter);
   const attack = useWorld((g) => g.attack);
+  const assault = useWorld((g) => g.assault);
   const besiege = useWorld((g) => g.besiege);
   const negotiate = useWorld((g) => g.negotiate);
   const openMenu = useWorld((g) => g.openMenu);
@@ -269,6 +271,15 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
     setBusy(false);
     showToast(err ?? 'Отряд ударил. Донесение в походах.');
   };
+  // «Дойти и ударить»: полководец не здесь — идёт сюда и бьёт в минуту прихода (`assault`). Город игрока — блок «Война».
+  const goStrike = !card.castle && !card.siege?.mine && !standing.includes('general') ? card.assault : undefined;
+  const march = async (): Promise<void> => {
+    if (!goStrike) return;
+    setBusy(true);
+    const err = await assault(card.id, fate);
+    setBusy(false);
+    showToast(err ?? `Отряд вышел. Бой через ${realLeft(goStrike.walkMs / 1000)}, даже если ты не в игре.`);
+  };
   const doSend = async (): Promise<void> => {
     if (!mission) return;
     setBusy(true);
@@ -309,7 +320,7 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
         ? 'Лазутчик здесь. Прикажи ему залечь, и станет видно.'
         : 'Живьём видно у своего города и вокруг залёгшего лазутчика. Доведи его сюда.',
   };
-  const raidable = (card.can.raid || card.can.besiege) && !card.siege?.mine;
+  const raidable = (card.can.raid || card.can.besiege || Boolean(goStrike?.can)) && !card.siege?.mine;
   // Строка владельца — словами меню приказов и только то, что есть (docs/ui_audit.md, 14.1, 17). У своего города
   // владелец — заглушка слепка («Наше племя», `bridge.playerProfile`), и строки нет, как в меню приказов.
   const ownerLine = card.mine
@@ -382,6 +393,12 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
             Ударить · {count(generalMen, 'боец', 'бойца', 'бойцов')}
           </button>
         )}
+        {goStrike && (
+          <button className="nx-go nx-cgo" disabled={busy || !goStrike.can} onClick={() => void march()}>
+            Дойти и ударить · {realLeft(goStrike.walkMs / 1000)}
+            <EnergyPrice price={goStrike.energy.price} />
+          </button>
+        )}
         {card.can.besiege && (
           <button
             className="nx-cact"
@@ -412,6 +429,7 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
           </button>
         ))}
       </div>
+      {goStrike && !goStrike.can && goStrike.reason && <p className="nx-tnote bad">{goStrike.reason}</p>}
       {card.can.besiege && <p className="nx-tnote">{CAMP_LEAVE}</p>}
       {/* Город живого игрока: поход на него и война с ним (docs/pvp.md). */}
       {card.castle && !card.mine && <WarCard card={card} />}

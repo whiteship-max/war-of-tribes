@@ -29,10 +29,10 @@ import { toOutcome } from './bridge';
 import type { HomeEffect, PlayerProfile, SettlementView } from './types';
 import type { WorldSave } from './local/state';
 
-// Энергия агентов здесь не предмет проверки (docs/agent_energy.md): сценарии этого файла держат агентов в поле и ведут их
-// дальше, чем на пять игровых дней пути, — на карте она здесь не убывает. Цены дел и отдых дома остаются; энергию
-// держат `energy.test.ts` и `energyworld.test.ts`.
-vi.mock('@/world/data/energy', async (actual) => ({ ...(await actual<object>()), ENERGY_DRAIN: Infinity }));
+// Энергия агентов здесь не предмет проверки (docs/agent_energy.md): сценарии этого файла водят агентов по карте помногу
+// — дорога здесь энергию не берёт. Цены дел и отдых дома остаются; энергию держат `energy.test.ts` и
+// `energyworld.test.ts`.
+vi.mock('@/world/data/energy', async (actual) => ({ ...(await actual<object>()), ENERGY_ROAD: Infinity }));
 
 const MIN = 60_000;
 const HOUR = 60 * MIN;

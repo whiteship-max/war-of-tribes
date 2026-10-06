@@ -1,23 +1,25 @@
 // Энергия агента — одна дверь на мир, на сервер войны и на всё, что её показывает (docs/agent_energy.md).
 //
 // ЭНЕРГИЯ — ЧИСТАЯ ФУНКЦИЯ ОТ ВРЕМЕНИ, как энергия промыслов (`game/sim/minigames.ts`). На фигуре лежит отметка:
-// сколько было в минуту `at` и что с запасом с этой минуты — уходит (на карте), копится (дома) или стоит (осадный
-// лагерь, вне строя, война между игроками). Сколько сейчас — выводится на чтении; тика, таймера и догона нет, и сутки
-// без игры считаются тем же выражением, что секунда. Отметка сама себя описывает, поэтому её читает и сервер, не зная,
-// где фигура: тот же вход в ту же минуту даёт то же число у кого угодно.
+// сколько было в минуту `at` и что с запасом с этой минуты — уходит (в дороге), копится (дома) или стоит (у цели, в
+// поле, в осадном лагере, вне строя). Сколько сейчас — выводится на чтении; тика, таймера и догона нет, и сутки без игры
+// считаются тем же выражением, что секунда. Отметка сама себя описывает, поэтому её читает и сервер, не зная, где
+// фигура: тот же вход в ту же минуту даёт то же число у кого угодно.
 //
-// Одна смена режима внутри отметки — приход домой: путь домой уходит до минуты прихода и копится после неё, вне
-// строя стоит до возврата и копится после. Остальные перемены — новый путь, осада, выход в поле — новая отметка,
-// и пишет её мир в минуту перемены (`LocalWorld.energyOf`): значение по прежней отметке, режим — по новой стойке.
+// ДОРОГА — ПО ДНЯМ ПУТИ, СТОЯНКА — ДАРОМ (решение владельца 06.10.2026). Запас уходит, только пока агент идёт; дошёл —
+// стоит, сколько бы ни ждал приказа. Одна смена режима живёт внутри отметки — конец дороги: путь домой уходит до
+// прихода и копится после него (`homeAt`), путь к цели уходит до прихода и стоит после него (`stopAt`); вне строя стоит
+// до возврата и копится после (`homeAt`). Остальные перемены — новый путь, осада, выход в поле — новая отметка, и пишет
+// её мир в минуту перемены (`LocalWorld.energyOf`) или сервер войны (`netlify/lib/war.ts`) той же функцией `onRoad`.
 //
 // ЦЕНА — ПРИ ПРИКАЗЕ. Дело списывает свою цену (`data/energy.ENERGY_PRICE`) в минуту приказа, и приказ принимается,
 // только если цены хватает к минуте дела — с дорогой до него (`energyBlock`). Без энергии агент ничего не делает;
 // кончилась на карте — идёт домой сам (это решает мир, а не дверь: `emptyAt` говорит только «когда»).
 //
 // Модуль чистый: часов не читает, время приходит доводом. Без `@/`: его собирает и сервер.
-import { ENERGY_DRAIN, ENERGY_FILL, ENERGY_MAX, ENERGY_PRICE, type EnergyAction } from './data/energy';
+import { ENERGY_FILL, ENERGY_MAX, ENERGY_PRICE, ENERGY_ROAD, type EnergyAction } from './data/energy';
 
-/** Что с запасом с минуты отметки: уходит (на карте), копится (дома) или стоит. */
+/** Что с запасом с минуты отметки: уходит (в дороге), копится (дома) или стоит (у цели, в лагере, вне строя). */
 export type EnergyMode = 'drain' | 'fill' | 'hold';
 
 /** Отметка энергии: сколько было в минуту `at` (часы мира) и что с запасом с этой минуты. */
@@ -30,6 +32,11 @@ export interface EnergyMark {
    * режим держится до новой отметки.
    */
   homeAt?: number;
+  /**
+   * С этой минуты запас стоит — приход к цели у пути (`drain`): дорога кончилась, ожидание у цели даром. Поле только у
+   * пути не домой; у пути домой — `homeAt`.
+   */
+  stopAt?: number;
 }
 
 /** Энергия глазами игрока: целая вниз, полный запас и когда что случится. */
@@ -39,7 +46,7 @@ export interface EnergyView {
   mode: EnergyMode;
   /** Когда запас станет полным — только если он копится или начнёт копиться. */
   fullBy?: number;
-  /** Когда запас кончится на карте — только если кончится раньше, чем агент дойдёт домой. */
+  /** Когда запас кончится в дороге — только если кончится раньше, чем агент дойдёт. */
   emptyBy?: number;
 }
 
@@ -49,21 +56,48 @@ const clamp = (v: number): number => (Number.isFinite(v) ? Math.max(0, Math.min(
 /** Запас через `dt` мс в режиме `mode` от значения `v`. */
 function step(v: number, mode: EnergyMode, dt: number): number {
   if (!(dt > 0)) return v;
-  if (mode === 'drain') return Math.max(0, v - (ENERGY_MAX * dt) / ENERGY_DRAIN);
+  if (mode === 'drain') return Math.max(0, v - (ENERGY_MAX * dt) / ENERGY_ROAD);
   if (mode === 'fill') return Math.min(ENERGY_MAX, v + (ENERGY_MAX * dt) / ENERGY_FILL);
   return v;
 }
 
+const finite = (t: number | undefined): t is number => t !== undefined && Number.isFinite(t);
+
+/**
+ * Смена режима внутри отметки: с какой минуты и на какой. У `fill` смены нет. Приход домой и возврат в строй — копится
+ * (`homeAt`); приход к цели у пути — стоит (`stopAt`). Нет ни того, ни другого — режим держится до новой отметки.
+ */
+function turnOf(m: EnergyMark): { at: number; to: EnergyMode } | null {
+  if (m.mode === 'fill') return null;
+  if (finite(m.homeAt)) return { at: Math.max(m.at, m.homeAt), to: 'fill' };
+  if (m.mode === 'drain' && finite(m.stopAt)) return { at: Math.max(m.at, m.stopAt), to: 'hold' };
+  return null;
+}
+
 /** Минута, с которой отметка копится. Нет — `Infinity`. У `fill` — с самой отметки. */
-const switchAt = (m: EnergyMark): number =>
-  m.mode === 'fill' ? m.at : m.homeAt !== undefined && Number.isFinite(m.homeAt) ? Math.max(m.at, m.homeAt) : Infinity;
+function fillFrom(m: EnergyMark): number {
+  if (m.mode === 'fill') return m.at;
+  const t = turnOf(m);
+  return t?.to === 'fill' ? t.at : Infinity;
+}
 
 /** Полная отметка: свежий человек на месте или фигура, у которой отметки ещё не было. */
-export const freshMark = (at: number, mode: EnergyMode = 'fill', homeAt?: number): EnergyMark => ({
+export const freshMark = (at: number, mode: EnergyMode = 'fill', ends: MarkEnds = {}): EnergyMark => ({
   value: ENERGY_MAX,
   at,
   mode,
-  ...(homeAt !== undefined ? { homeAt } : {}),
+  ...endsOf(ends),
+});
+
+/** Концы режима отметки: приход домой (`homeAt`) и приход к цели (`stopAt`). */
+export interface MarkEnds {
+  homeAt?: number;
+  stopAt?: number;
+}
+
+const endsOf = (e: MarkEnds): MarkEnds => ({
+  ...(e.homeAt !== undefined ? { homeAt: e.homeAt } : {}),
+  ...(e.stopAt !== undefined ? { stopAt: e.stopAt } : {}),
 });
 
 /** Сколько энергии в минуту `now`, дробью. Нет отметки — полный запас. Раньше отметки — её значение. */
@@ -71,50 +105,58 @@ export function energyAt(mark: EnergyMark | undefined, now: number): number {
   if (!mark) return ENERGY_MAX;
   const v = clamp(mark.value);
   if (!(now > mark.at)) return v;
-  const sw = switchAt(mark);
-  const first = step(v, mark.mode === 'fill' ? 'fill' : mark.mode, Math.min(now, sw) - mark.at);
-  return now > sw ? step(first, 'fill', now - Math.max(mark.at, sw)) : first;
+  const turn = turnOf(mark);
+  const first = step(v, mark.mode, Math.min(now, turn?.at ?? Infinity) - mark.at);
+  return turn && now > turn.at ? step(first, turn.to, now - turn.at) : first;
 }
 
 /** Энергия числом на экране и в отказе: целая вниз — обещать дело, на которое сил ещё нет, нельзя. */
 export const energyShown = (mark: EnergyMark | undefined, now: number): number => Math.floor(energyAt(mark, now) + EPS);
 
 /**
- * Минута, когда запас кончится на карте: путь или стоянка в поле (`drain`) дойдут до нуля раньше прихода домой. null —
- * не кончится: копится, стоит или дойдёт домой раньше. Отметка с нулём в поле — кончилась в минуту отметки.
+ * Минута, когда запас кончится в дороге: путь дойдёт до нуля раньше прихода. null — не кончится: копится, стоит или
+ * агент дойдёт раньше. Отметка пути с нулём — кончилась в минуту отметки.
  */
 export function emptyAt(mark: EnergyMark | undefined): number | null {
   if (!mark || mark.mode !== 'drain') return null;
-  const t = mark.at + (clamp(mark.value) / ENERGY_MAX) * ENERGY_DRAIN;
-  return t < switchAt(mark) ? t : null;
+  const t = mark.at + (clamp(mark.value) / ENERGY_MAX) * ENERGY_ROAD;
+  return t < (turnOf(mark)?.at ?? Infinity) ? t : null;
 }
 
 /** Когда запас станет полным. Не копится и копиться не начнёт — null. Полон уже — `now`. */
 export function fullAt(mark: EnergyMark | undefined, now: number): number | null {
   if (energyAt(mark, now) >= ENERGY_MAX - EPS) return now;
   if (!mark) return now;
-  const sw = switchAt(mark);
+  const sw = fillFrom(mark);
   if (sw === Infinity) return null;
   const from = Math.max(now, sw);
   return from + ((ENERGY_MAX - energyAt(mark, from)) / ENERGY_MAX) * ENERGY_FILL;
 }
 
 /** Новая отметка с минуты `at`: значение — по прежней, режим — новый. Так мир пишет перемену стойки. */
-export function remark(mark: EnergyMark | undefined, at: number, mode: EnergyMode, homeAt?: number): EnergyMark {
-  return { value: energyAt(mark, at), at, mode, ...(homeAt !== undefined ? { homeAt } : {}) };
+export function remark(mark: EnergyMark | undefined, at: number, mode: EnergyMode, ends: MarkEnds = {}): EnergyMark {
+  return { value: energyAt(mark, at), at, mode, ...endsOf(ends) };
+}
+
+/**
+ * Отметка дороги с минуты `at` до прихода в `arriveAt`: путь уходит, а придя, домой — копится, к цели — стоит. Одна
+ * функция на мир (`LocalWorld.energyStance`) и на сервер войны (`netlify/lib/war.ts`): дорога у них одна.
+ */
+export function onRoad(mark: EnergyMark | undefined, at: number, arriveAt: number, home: boolean): EnergyMark {
+  return remark(mark, at, 'drain', home ? { homeAt: arriveAt } : { stopAt: arriveAt });
 }
 
 /** Заплатить цену в минуту `at`: значение минус цена (не ниже нуля), режим прежний. */
 export function spend(mark: EnergyMark | undefined, at: number, price: number): EnergyMark {
   const base = mark ?? freshMark(at);
-  return { ...remark(base, at, base.mode, base.homeAt), value: Math.max(0, energyAt(base, at) - Math.max(0, price)) };
+  return { ...remark(base, at, base.mode, base), value: Math.max(0, energyAt(base, at) - Math.max(0, price)) };
 }
 
 /** Сколько энергии съест дорога в `ms` настоящих мс по карте. */
-export const roadCost = (ms: number): number => (ENERGY_MAX * Math.max(0, ms)) / ENERGY_DRAIN;
+export const roadCost = (ms: number): number => (ENERGY_MAX * Math.max(0, ms)) / ENERGY_ROAD;
 
 /** На сколько мс пути по карте хватит `value` энергии. */
-export const roadOf = (value: number): number => (Math.max(0, value) / ENERGY_MAX) * ENERGY_DRAIN;
+export const roadOf = (value: number): number => (Math.max(0, value) / ENERGY_MAX) * ENERGY_ROAD;
 
 /** Цена дела. */
 export const priceOf = (action: EnergyAction): number => ENERGY_PRICE[action].price;
@@ -133,7 +175,17 @@ export function energyBlock(have: number, price: number, road = 0): string | nul
 
 /** Без энергии агент ничего не делает — и из своих ворот не выходит. null — выйти может. */
 export function idleBlock(have: number): string | null {
-  return have + EPS >= 1 ? null : 'Нет энергии. Дома она вернётся.';
+  return outOf(have) ? 'Нет энергии. Дома она вернётся.' : null;
+}
+
+/** Сил нет: меньше единицы — на экране ноль, и ни одно дело не по карману. Одна мерка на выход из ворот и стоянку в поле. */
+export const outOf = (have: number): boolean => have + EPS < 1;
+
+/** Что с запасом в минуту `now`: режим отметки, а после конца дороги или возврата в строй — тот, что после него. */
+export function modeAt(mark: EnergyMark | undefined, now: number): EnergyMode {
+  if (!mark) return 'fill';
+  const turn = turnOf(mark);
+  return turn && now >= turn.at ? turn.to : mark.mode;
 }
 
 /** Энергия глазами игрока в минуту `now`. */
@@ -143,7 +195,7 @@ export function energyView(mark: EnergyMark | undefined, now: number): EnergyVie
   return {
     value: energyShown(mark, now),
     max: ENERGY_MAX,
-    mode: mark?.mode ?? 'fill',
+    mode: modeAt(mark, now),
     ...(full !== null && full > now ? { fullBy: full } : {}),
     ...(empty !== null && empty > now ? { emptyBy: empty } : {}),
   };

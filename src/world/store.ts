@@ -260,6 +260,8 @@ export interface WorldStore {
   besiege: (fate?: Fate) => Promise<string | null>;
   /** Поход на город живого игрока (docs/pvp.md): штурм с ходу или осада; бой считает сервер. */
   warMarch: (target: SettlementId, mode: 'storm' | 'siege', fate: Fate) => Promise<string | null>;
+  /** «Дойти и ударить»: по логову и по городу игрока одним приказом; бой — в минуту прихода. */
+  assault: (target: SettlementId, fate: Fate) => Promise<string | null>;
   /** Снять свою осаду. */
   retreat: () => Promise<string | null>;
   /** Поделить древесину своего лагеря: доля фронту. */
@@ -603,6 +605,18 @@ export const useWorld = create<WorldStore>((set, get) => ({
 
   warMarch: async (target, mode, fate) => {
     const err = await worldApi().warMarch(target, mode, fate);
+    if (err) {
+      haptic('error');
+      return err;
+    }
+    haptic('medium');
+    await get().pulse();
+    await get().refreshCard();
+    return null;
+  },
+
+  assault: async (target, fate) => {
+    const err = await worldApi().assault(target, fate);
     if (err) {
       haptic('error');
       return err;

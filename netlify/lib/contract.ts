@@ -556,8 +556,8 @@ export interface WarArmy {
   rest?: { share: number; at: number; men: number };
   /**
    * Энергия полководца (`world/energy.EnergyMark`, docs/agent_energy.md): сколько было в минуту `at` и что с запасом с
-   * неё. В приказе — отметка клиента, в войне — отметка сервера: поход списывает цену при выходе и держит энергию,
-   * пока идёт война. Нет — полный запас.
+   * неё. В приказе — отметка клиента, в войне — отметка сервера: дело у стен списывается при выходе, дорога уходит по
+   * дням пути, у стен энергия стоит. Нет — полный запас.
    */
   energy?: WarEnergy;
 }
@@ -568,6 +568,7 @@ export interface WarEnergy {
   at: number;
   mode: 'drain' | 'fill' | 'hold';
   homeAt?: number;
+  stopAt?: number;
 }
 
 /** Отметка энергии из приказа: новый объект; запас не выше полного, мусор — нет отметки. */
@@ -579,7 +580,14 @@ export function readEnergy(v: unknown): WarEnergy | undefined {
   const mode = r.mode === 'drain' || r.mode === 'fill' || r.mode === 'hold' ? r.mode : null;
   if (value === null || at === null || mode === null) return undefined;
   const homeAt = num(r.homeAt);
-  return { value: Math.max(0, Math.min(100, value)), at, mode, ...(homeAt !== null ? { homeAt } : {}) };
+  const stopAt = num(r.stopAt);
+  return {
+    value: Math.max(0, Math.min(100, value)),
+    at,
+    mode,
+    ...(homeAt !== null ? { homeAt } : {}),
+    ...(stopAt !== null ? { stopAt } : {}),
+  };
 }
 
 /** Сторона боя в форме ядра (`world/battle.FieldSide`): роды боя и то, что кладётся поверх. */

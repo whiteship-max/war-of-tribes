@@ -19,6 +19,7 @@ const left = (at: number, now: number): string => realLeft(Math.max(0, (at - now
 
 export function WarCard({ card }: { card: SettlementCard }) {
   const warMarch = useWorld((g) => g.warMarch);
+  const assault = useWorld((g) => g.assault);
   const recallFigure = useWorld((g) => g.recallFigure);
   const showToast = useGame((g) => g.showToast);
   const openCamp = useGame((g) => g.openCamp);
@@ -29,9 +30,10 @@ export function WarCard({ card }: { card: SettlementCard }) {
   if (!war) return null;
   const now = worldNow();
 
+  // Штурм с ходу — тот же приказ «Дойти и ударить», что у логова (`assault`); осада — поход лагерем.
   const go = async (mode: 'storm' | 'siege'): Promise<void> => {
     setBusy(true);
-    const err = await warMarch(card.id, mode, fate);
+    const err = mode === 'storm' ? await assault(card.id, fate) : await warMarch(card.id, mode, fate);
     setBusy(false);
     showToast(err ?? `Войско вышло на ${card.name}. В пути ${realLeft(war.walkMs / 1000)}.`);
   };
@@ -66,7 +68,7 @@ export function WarCard({ card }: { card: SettlementCard }) {
           {war.ours.phase === 'march' && (
             <>
               <p className="nx-tnote">
-                Наше войско идёт {war.ours.mode === 'storm' ? 'на штурм' : 'в осаду'}. Придёт через {left(war.ours.arriveAt, now)}. Бой
+                Наше войско идёт {war.ours.mode === 'storm' ? 'на штурм с ходу' : 'в осаду'}. Придёт через {left(war.ours.arriveAt, now)}. Бой
                 посчитается в минуту прихода, даже если ты не в игре.
               </p>
               <button className="nx-cact" disabled={busy} onClick={() => void recall()}>
@@ -103,7 +105,7 @@ export function WarCard({ card }: { card: SettlementCard }) {
           <FatePick options={card.fates} value={fate} onChange={setFate} />
           <div className="nx-cacts">
             <button className="nx-go nx-cgo" disabled={busy || !war.can || Boolean(war.energy?.storm.block)} onClick={() => void go('storm')}>
-              Штурм с ходу · {count(war.men, 'боец', 'бойца', 'бойцов')}
+              Дойти и ударить · {count(war.men, 'боец', 'бойца', 'бойцов')}
               {war.energy && <EnergyPrice price={war.energy.storm.price} />}
             </button>
             <button className="nx-cact" disabled={busy || !war.can} onClick={() => void go('siege')}>
@@ -112,10 +114,8 @@ export function WarCard({ card }: { card: SettlementCard }) {
               {war.energy && <EnergyPrice price={war.energy.siege.price} />}
             </button>
           </div>
-          <p className="nx-tnote">Штурм — один бой у стены. Осада — лагерь под стенами: город голодает, пока не сдастся или не разобьёт лагерь.</p>
-          <p className="nx-tnote">
-            Поход берёт энергию полководца разом, при выходе; пока идёт война, она не тратится, а дома снова копится.
-          </p>
+          <p className="nx-tnote">Дойти и ударить — один бой у стены в минуту прихода. Осада — лагерь под стенами: город голодает, пока не сдастся или не разобьёт лагерь.</p>
+          <p className="nx-tnote">Энергия полководца уходит в дороге, по дням пути; у стен она не тратится, дома снова копится.</p>
         </>
       )}
     </div>

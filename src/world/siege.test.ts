@@ -34,10 +34,10 @@ import type { Fate, FigureView, PlayerProfile, SettlementView, SiegeView, WorldP
 import type { TroopStack } from '@/game/battle/kinds';
 import { shieldVillagers } from './lairs';
 
-// Энергия агентов здесь не предмет проверки (docs/agent_energy.md): сценарии этого файла держат агентов в поле и ведут их
-// дальше, чем на пять игровых дней пути, — на карте она здесь не убывает. Цены дел и отдых дома остаются; энергию
-// держат `energy.test.ts` и `energyworld.test.ts`.
-vi.mock('@/world/data/energy', async (actual) => ({ ...(await actual<object>()), ENERGY_DRAIN: Infinity }));
+// Энергия агентов здесь не предмет проверки (docs/agent_energy.md): сценарии этого файла водят агентов по карте помногу
+// — дорога здесь энергию не берёт. Цены дел и отдых дома остаются; энергию держат `energy.test.ts` и
+// `energyworld.test.ts`.
+vi.mock('@/world/data/energy', async (actual) => ({ ...(await actual<object>()), ENERGY_ROAD: Infinity }));
 
 /**
  * Спящие случаи. Чужих дворов на карте не осталось ни одного: мир стал общим, а
@@ -486,8 +486,9 @@ describe('осада: из города не выступают', () => {
     const pushes = src.match(/marches\.push\(/g) ?? [];
     expect(moves.length, 'фигура трогается с места ровно в трёх местах').toBe(3);
     expect(pushes.length, 'поход заводится ровно в четырёх местах').toBe(4);
-    // И все четыре приказа, ведущие в эти места, спрашивают одну и ту же дверь.
-    expect((src.match(/this\.siegeBlock\(now\)/g) ?? []).length).toBe(4);
+    // И все пять приказов, ведущие в эти места, спрашивают одну и ту же дверь: гонец, фигура, раскладка, перехват и
+    // «дойти и ударить».
+    expect((src.match(/this\.siegeBlock\(now\)/g) ?? []).length).toBe(5);
     // Третье место — удар по лагерю из поля — из города не выводит по учёту, а не
     // по двери: дома дружина — гарнизон (`fieldTroops`), и бить из поля некому.
     const strike = src.slice(src.indexOf('private strikeCheck('), src.indexOf('async strikePlan('));
@@ -495,7 +496,7 @@ describe('осада: из города не выступают', () => {
     expect(strike).toMatch(/STRIKE_FROM_TOWN/);
   });
 
-  it('гонец, фигура, дружина и перехват — все получают отказ с причиной', async () => {
+  it('гонец, фигура, дружина, перехват и «дойти и ударить» — все получают отказ с причиной', async () => {
     const w = makeWorld(7);
     const p = holdout();
     await w.world.sync(p);
@@ -514,6 +515,7 @@ describe('осада: из города не выступают', () => {
     expect(await w.world.moveFigure('general', { x: target.x, y: target.y })).toBe(SIEGE_BLOCK);
     expect(await w.world.setGarrison({ spearman: 5 })).toBe(SIEGE_BLOCK);
     expect(await w.world.intercept('m1')).toBe(SIEGE_BLOCK);
+    expect(await w.world.assault(target.id, 'plunder')).toBe(SIEGE_BLOCK);
 
     // И карточка своей деревни говорит то же самое, а не молчит.
     const card = await w.world.settlement('home');

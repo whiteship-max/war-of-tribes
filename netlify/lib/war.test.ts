@@ -4,7 +4,8 @@ import { castleIdOf, emptyRoster, upsert } from './roster.js';
 import { advance, applyOrder, emptyWars, fallId, liveSheet, newsDiff, newsMap, newsOf, viewOf, warsOf, type SheetAt, type WarFile } from './war.js';
 import { weakCity } from '../../src/world/lairs.js';
 import { inHomeTheatre } from '../../src/world/theatre/theatre.js';
-import { energyAt, energyBlock, priceOf } from '../../src/world/energy.js';
+import { energyAt, energyBlock, priceOf, roadCost } from '../../src/world/energy.js';
+import { warWalkMs } from '../../src/world/pvp.js';
 import { ENERGY_FILL, ENERGY_MAX } from '../../src/world/data/energy.js';
 
 /**
@@ -195,29 +196,38 @@ describe('энергия полководца: поход, осада и уда�
     energy: { value, at: T0, mode: 'fill' },
   });
 
-  it('поход с осадой: не хватает — отказ словами двери; хватает — цена списана, и пока идёт война, энергия стоит', () => {
+  it('поход с осадой: дорога по дням пути и дело у стен — проверкой двери; у стен энергия стоит, назад уходит, дома копится', () => {
     const { ctx, file, sheets } = setup();
-    const need = priceOf('march') + priceOf('siege');
+    // Путь — та же формула, что у сервера (темпа войны в тесте нет).
+    const walk = warWalkMs(ctx.roster.rows[A], ctx.roster.rows[B]);
+    const road = roadCost(walk);
+    expect(road, 'точка внутри области: дорога стоит энергию').toBeGreaterThan(1);
+    const need = priceOf('siege') + road;
     const march = (value: number) =>
       applyOrder(file, A, { op: 'march', target: castleIdOf(B), mode: 'siege', fate: 'plunder', army: withEnergy(value) }, T0, ctx);
-    expect(march(need - 1)).toBe(energyBlock(need - 1, need));
+    expect(march(need - 1)).toBe(energyBlock(need - 1, priceOf('siege'), walk));
     expect(file.wars).toHaveLength(0);
     // Десять сверх цены похода: на штурм из лагеря уже не хватит.
     expect(march(need + 10)).toBeNull();
     const w = file.wars[0];
-    expect(w.army.energy).toEqual({ value: 10, at: T0, mode: 'hold' });
-    // Путь сервер по часам не жжёт: в лагере столько же, сколько при выходе.
+    expect(w.arriveAt - T0).toBe(walk);
+    // Цена осады — при выходе; дорога уходит по дням пути: на полпути — половина дороги, у стен — десять.
+    expect(energyAt(w.army.energy, T0)).toBeCloseTo(need + 10 - priceOf('siege'), 6);
+    expect(energyAt(w.army.energy, T0 + walk / 2)).toBeCloseTo(10 + road / 2, 6);
     advance(file, w.arriveAt + 1, sheets);
     expect(w.phase, 'точка внутри области: лагерь встал').toBe('camp');
-    expect(energyAt(w.army.energy, w.arriveAt + 1)).toBe(10);
+    // У стен стоит, сколько бы ни ждал.
+    expect(energyAt(w.army.energy, w.arriveAt + 10 * ENERGY_FILL)).toBeCloseTo(10, 6);
     // Штурм из лагеря стоит свою цену — без неё отказ.
-    expect(applyOrder(file, A, { op: 'storm', id: w.id }, w.arriveAt + 2, ctx)).toBe(energyBlock(10, priceOf('storm')));
+    const have = energyAt(w.army.energy, w.arriveAt + 2);
+    expect(applyOrder(file, A, { op: 'storm', id: w.id }, w.arriveAt + 2, ctx)).toBe(energyBlock(have, priceOf('storm')));
     expect(w.phase).toBe('camp');
-    // Снял осаду — домой: дорогу назад сервер тоже не жжёт, с минуты возврата энергия копится.
+    // Снял осаду — домой: назад дорога уходит той же ценой, с минуты возврата энергия копится.
     expect(applyOrder(file, A, { op: 'retreat', id: w.id }, w.arriveAt + 3, ctx)).toBeNull();
-    expect(w.army.energy?.homeAt).toBe(w.backAt);
-    expect(energyAt(w.army.energy, w.backAt as number)).toBe(10);
-    expect(energyAt(w.army.energy, (w.backAt as number) + ENERGY_FILL)).toBe(ENERGY_MAX);
+    const back = w.backAt as number;
+    expect(w.army.energy?.homeAt).toBe(back);
+    expect(energyAt(w.army.energy, back)).toBeCloseTo(Math.max(0, have - roadCost(back - (w.arriveAt + 3))), 6);
+    expect(energyAt(w.army.energy, back + ENERGY_FILL)).toBe(ENERGY_MAX);
   });
 
   it('удар полководца города по лагерю: энергии должно хватить к приходу, с дорогой по карте', () => {

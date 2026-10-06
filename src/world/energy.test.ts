@@ -2,20 +2,20 @@
 // сломать: сроки слова владельца, смена режима внутри отметки, граница отказа и подделанная отметка с сервера.
 import { describe, expect, it } from 'vitest';
 import { gameDaysOfMs } from '@/game/pace';
-import { ENERGY_DRAIN, ENERGY_FILL, ENERGY_MAX, ENERGY_PRICE } from './data/energy';
-import { emptyAt, energyAt, energyBlock, energyShown, freshMark, fullAt, idleBlock, remark, roadCost, spend, type EnergyMark } from './energy';
+import { ENERGY_ROAD, ENERGY_FILL, ENERGY_MAX, ENERGY_PRICE } from './data/energy';
+import { emptyAt, energyAt, energyBlock, energyShown, energyView, freshMark, fullAt, idleBlock, onRoad, remark, roadCost, spend, type EnergyMark } from './energy';
 import { readEnergy as readMark } from '../../netlify/lib/contract';
 
 const T0 = 1_000_000;
 
 describe('энергия агента: сроки владельца', () => {
-  it('на карте полный запас уходит за пять игровых дней, дома копится за два', () => {
-    expect(gameDaysOfMs(ENERGY_DRAIN)).toBeCloseTo(5, 9);
+  it('в дороге полный запас уходит за пятьдесят игровых дней пути, дома копится за два', () => {
+    expect(gameDaysOfMs(ENERGY_ROAD)).toBeCloseTo(50, 9);
     expect(gameDaysOfMs(ENERGY_FILL)).toBeCloseTo(2, 9);
     const out: EnergyMark = { value: ENERGY_MAX, at: T0, mode: 'drain' };
-    expect(energyAt(out, T0 + ENERGY_DRAIN / 2)).toBeCloseTo(50, 9);
-    expect(energyAt(out, T0 + ENERGY_DRAIN)).toBe(0);
-    expect(energyAt(out, T0 + 3 * ENERGY_DRAIN)).toBe(0);
+    expect(energyAt(out, T0 + ENERGY_ROAD / 2)).toBeCloseTo(50, 9);
+    expect(energyAt(out, T0 + ENERGY_ROAD)).toBe(0);
+    expect(energyAt(out, T0 + 3 * ENERGY_ROAD)).toBe(0);
     const home: EnergyMark = { value: 0, at: T0, mode: 'fill' };
     expect(energyAt(home, T0 + ENERGY_FILL / 4)).toBeCloseTo(25, 9);
     expect(energyAt(home, T0 + ENERGY_FILL)).toBe(ENERGY_MAX);
@@ -23,7 +23,7 @@ describe('энергия агента: сроки владельца', () => {
   });
 
   it('стоит — не меняется; нет отметки — полный запас; раньше отметки — её значение', () => {
-    expect(energyAt({ value: 37, at: T0, mode: 'hold' }, T0 + 10 * ENERGY_DRAIN)).toBe(37);
+    expect(energyAt({ value: 37, at: T0, mode: 'hold' }, T0 + 10 * ENERGY_ROAD)).toBe(37);
     expect(energyAt(undefined, T0)).toBe(ENERGY_MAX);
     expect(energyAt({ value: 37, at: T0, mode: 'drain' }, T0 - 5000)).toBe(37);
   });
@@ -31,20 +31,44 @@ describe('энергия агента: сроки владельца', () => {
 
 describe('энергия агента: приход домой внутри отметки', () => {
   it('путь домой уходит до прихода и копится после', () => {
-    const back: EnergyMark = { value: 60, at: T0, mode: 'drain', homeAt: T0 + ENERGY_DRAIN / 5 };
+    const back: EnergyMark = { value: 60, at: T0, mode: 'drain', homeAt: T0 + ENERGY_ROAD / 5 };
     // До прихода: −20 за пятую часть срока.
-    expect(energyAt(back, T0 + ENERGY_DRAIN / 5)).toBeCloseTo(40, 9);
+    expect(energyAt(back, T0 + ENERGY_ROAD / 5)).toBeCloseTo(40, 9);
     // После прихода копится: +50 за половину срока дома.
-    expect(energyAt(back, T0 + ENERGY_DRAIN / 5 + ENERGY_FILL / 2)).toBeCloseTo(90, 9);
+    expect(energyAt(back, T0 + ENERGY_ROAD / 5 + ENERGY_FILL / 2)).toBeCloseTo(90, 9);
     // Дошёл раньше, чем кончилась: не кончится на карте.
     expect(emptyAt(back)).toBeNull();
   });
 
   it('кончится раньше прихода — минута, когда станет нулём', () => {
-    const far: EnergyMark = { value: 10, at: T0, mode: 'drain', homeAt: T0 + ENERGY_DRAIN };
-    expect(emptyAt(far)).toBeCloseTo(T0 + ENERGY_DRAIN / 10, 6);
+    const far: EnergyMark = { value: 10, at: T0, mode: 'drain', homeAt: T0 + ENERGY_ROAD };
+    expect(emptyAt(far)).toBeCloseTo(T0 + ENERGY_ROAD / 10, 6);
     expect(emptyAt({ value: 0, at: T0, mode: 'drain' })).toBe(T0);
     expect(emptyAt({ value: 50, at: T0, mode: 'hold' })).toBeNull();
+  });
+
+  it('путь к цели уходит до прихода и стоит после: ожидание у цели даром (решение владельца 06.10.2026)', () => {
+    const go = onRoad({ value: 60, at: T0 - 5000, mode: 'fill' }, T0, T0 + ENERGY_ROAD / 5, false);
+    expect(go.stopAt).toBe(T0 + ENERGY_ROAD / 5);
+    expect(go.homeAt).toBeUndefined();
+    // До прихода: −20 за пятую часть срока дороги.
+    expect(energyAt(go, T0 + ENERGY_ROAD / 10)).toBeCloseTo(energyAt(go, T0) - 10, 9);
+    const there = energyAt(go, T0 + ENERGY_ROAD / 5);
+    expect(there).toBeCloseTo(energyAt(go, T0) - 20, 9);
+    // У цели стоит, сколько бы ни ждал, и на экране — «не тратится».
+    expect(energyAt(go, T0 + 40 * ENERGY_ROAD)).toBeCloseTo(there, 9);
+    expect(energyView(go, T0 + ENERGY_ROAD).mode).toBe('hold');
+    expect(energyView(go, T0 + 1).mode).toBe('drain');
+    // Дошёл раньше, чем кончилась: не кончится; не хватает на дорогу — кончится в пути, до прихода.
+    expect(emptyAt(go)).toBeNull();
+    const short = onRoad({ value: 10, at: T0, mode: 'hold' }, T0, T0 + ENERGY_ROAD / 5, false);
+    expect(emptyAt(short)).toBeCloseTo(T0 + ENERGY_ROAD / 10, 6);
+    // Путь домой — та же функция: придя, копится.
+    const home = onRoad({ value: 60, at: T0, mode: 'hold' }, T0, T0 + ENERGY_ROAD / 5, true);
+    expect(home.homeAt).toBe(T0 + ENERGY_ROAD / 5);
+    expect(energyAt(home, T0 + ENERGY_ROAD / 5 + ENERGY_FILL / 2)).toBeCloseTo(90, 9);
+    // Плата за дело у цели конец дороги не теряет.
+    expect(spend(go, T0 + 1000, 5).stopAt).toBe(go.stopAt);
   });
 
   it('вне строя стоит до возврата и копится после', () => {
@@ -60,7 +84,7 @@ describe('энергия агента: приход домой внутри от
     const t = T0 + ENERGY_FILL / 20;
     const now = remark(was, t, 'drain');
     expect(now.value).toBeCloseTo(energyAt(was, t), 9);
-    expect(energyAt(now, t + ENERGY_DRAIN / 10)).toBeCloseTo(energyAt(was, t) - 10, 9);
+    expect(energyAt(now, t + ENERGY_ROAD / 10)).toBeCloseTo(energyAt(was, t) - 10, 9);
   });
 });
 
@@ -69,9 +93,9 @@ describe('энергия агента: цена и отказ', () => {
     expect(energyBlock(20, 20)).toBeNull();
     expect(energyBlock(19.99, 20)).toBe('Не хватает энергии: 19 из 20.');
     // Дорога до места дела съедает свою долю до цены.
-    expect(energyBlock(50, 20, ENERGY_DRAIN * 0.3)).toBeNull();
-    expect(energyBlock(50, 20, ENERGY_DRAIN * 0.31)).toBe('Не хватит энергии: на месте будет 19, нужно 20.');
-    expect(roadCost(ENERGY_DRAIN)).toBe(ENERGY_MAX);
+    expect(energyBlock(50, 20, ENERGY_ROAD * 0.3)).toBeNull();
+    expect(energyBlock(50, 20, ENERGY_ROAD * 0.31)).toBe('Не хватит энергии: на месте будет 19, нужно 20.');
+    expect(roadCost(ENERGY_ROAD)).toBe(ENERGY_MAX);
   });
 
   it('цена списывается не ниже нуля и режим не меняет', () => {
@@ -98,6 +122,7 @@ describe('энергия агента: отметка из приказа вой
   it('подделанное значение не поднимает запас выше полного; мусор — нет отметки', () => {
     expect(readMark({ value: 1e9, at: T0, mode: 'hold' })).toEqual({ value: ENERGY_MAX, at: T0, mode: 'hold' });
     expect(readMark({ value: -5, at: T0, mode: 'drain', homeAt: T0 + 1 })).toEqual({ value: 0, at: T0, mode: 'drain', homeAt: T0 + 1 });
+    expect(readMark({ value: 50, at: T0, mode: 'drain', stopAt: T0 + 5 })).toEqual({ value: 50, at: T0, mode: 'drain', stopAt: T0 + 5 });
     expect(readMark({ value: 50, at: T0, mode: 'fly' })).toBeUndefined();
     expect(readMark({ value: 'x', at: T0, mode: 'fill' })).toBeUndefined();
     expect(readMark(null)).toBeUndefined();

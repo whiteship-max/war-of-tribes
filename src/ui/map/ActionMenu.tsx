@@ -57,6 +57,7 @@ export function ActionMenu() {
   const moveFigure = useWorld((g) => g.moveFigure);
   const order = useWorld((g) => g.order);
   const attack = useWorld((g) => g.attack);
+  const assault = useWorld((g) => g.assault);
   const besiege = useWorld((g) => g.besiege);
   const intercept = useWorld((g) => g.intercept);
   const watch = useWorld((g) => g.watch);
@@ -387,24 +388,53 @@ export function ActionMenu() {
               {/* Участь объявляется этим же приказом: и ударом, и осадой. Строки выбора — не приказы. */}
               {card.fates.length > 0 && <h3>Участь при взятии</h3>}
               <FatePick options={card.fates} value={fate} onChange={setFate} />
-              <Order
-                icon="hud-army"
-                glyph="⚔️"
-                name="Ударить"
-                can={card.can.raid}
-                why={card.note}
-                tip={tipOf('Удар', 'Бой у ворот в минуту прихода. Донесение ляжет в походы.', routLine(card))}
-                onGo={() => {
-                  void (async () => {
-                    const err = await attack({ fate });
-                    showToast(err ?? 'Отряд ударил. Донесение в походах.');
-                    if (!err) closeMenu();
-                  })();
-                }}
-              >
-                {card.can.raid && <span>{count(troopTotal(figure?.troops ?? {}), 'боец', 'бойца', 'бойцов')}</span>}
-                {card.energy && <EnergyPrice price={card.energy.raid.price} />}
-              </Order>
+              {/*
+                Стоит у ворот — «Ударить»: бой сейчас. Не стоит — «Дойти и ударить»: полководец идёт сюда и бьёт в
+                минуту прихода, не дожидаясь игрока (`assault`); по городу игрока — тот же приказ, поход со штурмом с ходу.
+              */}
+              {here || !card.assault ? (
+                <Order
+                  icon="hud-army"
+                  glyph="⚔️"
+                  name="Ударить"
+                  can={card.can.raid}
+                  why={card.note}
+                  tip={tipOf('Удар', 'Бой у ворот сейчас. Донесение ляжет в походы.', routLine(card))}
+                  onGo={() => {
+                    void (async () => {
+                      const err = await attack({ fate });
+                      showToast(err ?? 'Отряд ударил. Донесение в походах.');
+                      if (!err) closeMenu();
+                    })();
+                  }}
+                >
+                  {card.can.raid && <span>{count(troopTotal(figure?.troops ?? {}), 'боец', 'бойца', 'бойцов')}</span>}
+                  {card.energy && <EnergyPrice price={card.energy.raid.price} />}
+                </Order>
+              ) : (
+                <Order
+                  icon="hud-army"
+                  glyph="⚔️"
+                  name="Дойти и ударить"
+                  can={card.assault.can}
+                  why={card.assault.reason}
+                  tip={tipOf('Дойти и ударить', 'Полководец ведёт отряд сюда и бьёт в минуту прихода, даже если ты не в игре. Донесение ляжет в походы.', routLine(card))}
+                  onGo={() => {
+                    void (async () => {
+                      const walkMs = card.assault?.walkMs ?? 0;
+                      const err = await assault(card.id, fate);
+                      showToast(err ?? `Отряд вышел. Бой через ${realLeft(walkMs / 1000)}.`);
+                      if (!err) closeMenu();
+                    })();
+                  }}
+                >
+                  <span>{count(card.assault.men, 'боец', 'бойца', 'бойцов')}</span>
+                  <span>
+                    <Icon name="ui-time" glyph="⏳" /> {realLeft(card.assault.walkMs / 1000)}
+                  </span>
+                  <EnergyPrice price={card.assault.energy.price} />
+                </Order>
+              )}
               {/*
                 Осада стоит рядом с ударом нарочно: это второй способ взять город, и выбирают
                 между ними в один и тот же миг. Цену увода из лагеря — снятую осаду — говорит

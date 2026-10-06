@@ -1,8 +1,10 @@
 // Энергия агентов в настоящем мире (docs/agent_energy.md). Области правил — и каждая проверяется утверждением в самом
 // тесте (правило 11):
-// - уходит — на карте: в пути и стоя в поле; копится — дома; стоит — пока полководец держит осадный лагерь;
+// - уходит — в дороге, по дням пути; стоит — у цели, в поле, в осадном лагере (ожидание даром, решение владельца
+//   06.10.2026); копится — дома;
 // - кончилась на карте — агент идёт домой **с той минуты, когда кончилась**, дел не берёт, пока не дойдёт; онлайн и
-//   офлайн дают одну дорогу; кончилась в пути — до цели он не доходит;
+//   офлайн дают одну дорогу; кончилась в пути — до цели он не доходит; стоит у цели без сил — домой с минуты прихода;
+// - «дойти и ударить» — бой в минуту прихода, онлайн и офлайн, цена штурма — при приказе;
 // - цена дела — при приказе; не хватает — строка меню гаснет той же причиной, что откажет приказ;
 // - без энергии из своих ворот не выходят.
 import { describe, expect, it } from 'vitest';
@@ -11,8 +13,8 @@ import { LocalWorld } from './local/LocalWorld';
 import type { WorldSave } from './local/state';
 import type { GenSettlement } from './gen';
 import type { Coord, FigureId, FigureView, PlayerProfile } from './types';
-import { ENERGY_DRAIN, ENERGY_FILL, ENERGY_MAX, ENERGY_PRICE } from './data/energy';
-import { energyBlock, idleBlock } from './energy';
+import { ENERGY_ROAD, ENERGY_FILL, ENERGY_MAX, ENERGY_PRICE } from './data/energy';
+import { energyBlock, idleBlock, roadCost, roadOf } from './energy';
 import { distance } from './geo';
 import { shieldVillagers } from './lairs';
 
@@ -96,7 +98,7 @@ function nearestLair(w: W): GenSettlement {
 const energyOf = async (w: W, id: FigureId): Promise<number> => (await fig(w, id)).energy?.value ?? -1;
 
 describe('энергия агента в мире: где уходит и где копится', () => {
-  it('на карте уходит за пять игровых дней, дома копится за два', async () => {
+  it('в дороге уходит по дням пути, у цели стоит, дома копится за два игровых дня', async () => {
     const w = makeWorld();
     const p = profile();
     await w.world.sync(p);
@@ -104,15 +106,20 @@ describe('энергия агента в мире: где уходит и где
     const to = await emptyCell(w, 'scout', 1);
     expect(await w.world.moveFigure('scout', to)).toBeNull();
     const out = await fig(w, 'scout');
-    const days = gameDaysOfMs(out.arriveAt - out.departAt);
-    // Точка внутри области: туда и обратно — раньше, чем кончится.
-    expect(2 * days).toBeLessThan(5);
+    const road = roadCost(out.arriveAt - out.departAt);
+    // Точка внутри области: дорога стоит энергию, туда и обратно — раньше, чем кончится.
+    expect(road).toBeGreaterThan(1);
+    expect(2 * road).toBeLessThan(ENERGY_MAX);
     w.at(out.arriveAt);
     await w.world.sync(p);
     const there = await fig(w, 'scout');
     expect(there.phase).toBe('field');
-    expect(there.energy?.value).toBe(Math.floor(ENERGY_MAX - (ENERGY_MAX * days) / 5 + 1e-9));
-    expect(there.energy?.mode).toBe('drain');
+    expect(there.energy?.value).toBe(Math.floor(ENERGY_MAX - road + 1e-9));
+    expect(there.energy?.mode).toBe('hold');
+    // Стоит у цели десять игровых дней — не убывает: ожидание даром.
+    w.advance(realMs(10 * 60));
+    await w.world.sync(p);
+    expect(await energyOf(w, 'scout')).toBe(Math.floor(ENERGY_MAX - road + 1e-9));
 
     // Домой: дорога уходит, дома копится — половина запаса за игровой день.
     expect(await w.world.recallFigure('scout')).toBeNull();
@@ -121,11 +128,13 @@ describe('энергия агента в мире: где уходит и где
     await w.world.sync(p);
     const home = await fig(w, 'scout');
     expect(home.phase).toBe('home');
-    const atHome = ENERGY_MAX - (ENERGY_MAX * 2 * days) / 5;
+    const atHome = ENERGY_MAX - road - roadCost(back.arriveAt - back.departAt);
     expect(home.energy?.value).toBe(Math.floor(atHome + 1e-9));
-    w.advance(ENERGY_FILL / 4);
+    // Копится ровно: за долю срока — та же доля запаса.
+    const gap = (ENERGY_MAX - atHome) / 2;
+    w.advance((ENERGY_FILL * gap) / ENERGY_MAX);
     await w.world.sync(p);
-    expect(await energyOf(w, 'scout')).toBe(Math.floor(atHome + ENERGY_MAX / 4 + 1e-9));
+    expect(await energyOf(w, 'scout')).toBe(Math.floor(atHome + gap + 1e-9));
     w.advance(ENERGY_FILL);
     await w.world.sync(p);
     expect(await energyOf(w, 'scout')).toBe(ENERGY_MAX);
@@ -133,18 +142,22 @@ describe('энергия агента в мире: где уходит и где
 });
 
 describe('энергия кончилась на карте: домой сам, с той минуты', () => {
-  /** Разведчик идёт в поле на день и стоит там, пока не кончатся силы. `pulse` — шаг пульса мира. */
+  /**
+   * Разведчик идёт в поле на день с запасом на дорогу и полединицы сверху: у цели он без сил и идёт домой с минуты
+   * прихода. `pulse` — шаг пульса мира.
+   */
   async function strand(pulse: number) {
     const w = makeWorld();
     const p = profile();
     await w.world.sync(p);
     const to = await emptyCell(w, 'scout', 1);
+    const plan = await w.world.leadPlan('scout', to);
+    w.inner.save.figures.scout.energy = { value: roadCost(realMs(plan.seconds)) + 0.5, at: w.now(), mode: 'fill' };
     expect(await w.world.moveFigure('scout', to)).toBeNull();
     const out = await fig(w, 'scout');
-    const emptyAt = out.departAt + ENERGY_DRAIN;
     const notes: string[] = [];
     let refused: string | null = null;
-    while (w.now() < emptyAt + 3 * (out.arriveAt - out.departAt)) {
+    while (w.now() < out.arriveAt + 3 * (out.arriveAt - out.departAt)) {
       w.advance(pulse);
       const res = await w.world.sync(p);
       for (const e of res.effects) if (e.text.includes('выбился')) notes.push(e.text);
@@ -153,10 +166,10 @@ describe('энергия кончилась на карте: домой сам, 
     }
     await w.world.sync(p);
     const f = await fig(w, 'scout');
-    return { w, f, out, emptyAt, notes, refused };
+    return { w, f, out, notes, refused };
   }
 
-  it('кончилась в поле — идёт домой с минуты, когда кончилась; пока идёт, дел не берёт; онлайн и офлайн — одна дорога', async () => {
+  it('стоит у цели без сил — идёт домой с минуты прихода; пока идёт, дел не берёт; онлайн и офлайн — одна дорога', async () => {
     const day = realMs(60);
     const online = await strand(day / 24);
     const offline = await strand(30 * day);
@@ -165,9 +178,12 @@ describe('энергия кончилась на карте: домой сам, 
       expect(run.f.spent).toBe(false);
       expect(run.notes.length, 'весть «выбился из сил» — одна').toBe(1);
     }
-    // Дорога одна: вышел домой в минуту, когда кончилась, и пришёл в одну и ту же минуту.
+    // Дорога одна: вышел домой в минуту прихода к цели и пришёл в одну и ту же минуту.
     expect(online.f.departAt).toBe(offline.f.departAt);
     expect(online.f.energy?.value).toBe(offline.f.energy?.value);
+    // Дома он с минуты прихода к цели плюс дорога назад — ни минутой стоянки больше.
+    const walk = online.out.arriveAt - online.out.departAt;
+    expect(Math.abs(online.f.departAt - online.out.arriveAt - walk), 'домой — с минуты прихода').toBeLessThan(1000);
     // Точка внутри области: пульс онлайн видел его выбившимся в пути и спросил приказ.
     expect(online.refused).toBe(`Разведчик выбился из сил и идёт домой. Пока не дойдёт, дел не берёт.`);
   });
@@ -176,12 +192,17 @@ describe('энергия кончилась на карте: домой сам, 
     const w = makeWorld();
     const p = profile();
     await w.world.sync(p);
-    const to = await emptyCell(w, 'diplomat', 6);
+    const to = await emptyCell(w, 'diplomat', 2);
+    const walk = realMs((await w.world.leadPlan('diplomat', to)).seconds);
+    // Сил на полдороги.
+    const have = roadCost(walk) / 2;
+    expect(have, 'точка внутри области: из ворот выйти можно').toBeGreaterThanOrEqual(1);
+    w.inner.save.figures.diplomat.energy = { value: have, at: w.now(), mode: 'fill' };
     const plan = await w.world.leadPlan('diplomat', to);
     expect(plan.energy?.runsOut, 'план говорит до приказа: кончится в пути').toBe(true);
     expect(await w.world.moveFigure('diplomat', to)).toBeNull();
     const out = await fig(w, 'diplomat');
-    const empty = out.departAt + ENERGY_DRAIN;
+    const empty = out.departAt + roadOf(have);
     // Точка внутри области: кончится раньше прихода.
     expect(empty).toBeLessThan(out.arriveAt);
     w.at(empty + 1000);
@@ -189,9 +210,42 @@ describe('энергия кончилась на карте: домой сам, 
     const f = await fig(w, 'diplomat');
     expect(f.phase).toBe('moving');
     expect(f.to).toEqual(w.inner.save.home);
-    expect(f.departAt).toBe(empty);
+    expect(f.departAt).toBe(Math.ceil(empty));
     expect(f.spent).toBe(true);
     expect(f.energy?.value).toBe(0);
+  });
+});
+
+describe('«дойти и ударить»: бой в минуту прихода, игрока не ждёт (решение владельца 06.10.2026)', () => {
+  it('приказ из дома: цена штурма при приказе, бой — в минуту прихода и офлайн; карточка и отказ — одной проверкой', async () => {
+    const w = makeWorld();
+    const p = profile({ army: { spearman: 40 } });
+    await w.world.sync(p);
+    expect(await w.world.setGarrison({ spearman: 40 })).toBeNull();
+    const ready = (await fig(w, 'general')).readyAt;
+    if (ready > w.now()) w.at(ready + 1);
+    await w.world.sync(p);
+    const lair = nearestLair(w);
+    const card = await w.world.settlement(lair.id);
+    const plan = card?.assault;
+    expect(plan?.can, `точка внутри области: приказ открыт (${plan?.reason})`).toBe(true);
+    expect(plan?.walkMs).toBeGreaterThan(0);
+    // Сил меньше, чем на дорогу и штурм: строка карточки и отказ — одни слова.
+    w.inner.save.figures.general.energy = { value: roadCost(plan!.walkMs) + ENERGY_PRICE.storm.price - 1, at: w.now(), mode: 'fill' };
+    const low = (await w.world.settlement(lair.id))?.assault;
+    expect(low?.can).toBe(false);
+    expect(await w.world.assault(lair.id, 'plunder')).toBe(low?.reason);
+    w.inner.save.figures.general.energy = undefined;
+    expect(await w.world.assault(lair.id, 'plunder')).toBeNull();
+    const out = await fig(w, 'general');
+    expect(out.phase).toBe('moving');
+    expect(out.energy?.value).toBe(ENERGY_MAX - ENERGY_PRICE.storm.price);
+    // Игрок не в игре: один заход сутки спустя — бой уже был, в минуту прихода.
+    w.at(out.arriveAt + realMs(30 * 60));
+    const res = await w.world.sync(p);
+    const fight = res.effects.find((e) => e.battle !== null && e.deed?.agent === 'general');
+    expect(fight, 'бой был').toBeDefined();
+    expect(fight?.deed?.at).toBe(out.arriveAt);
   });
 });
 
@@ -228,7 +282,7 @@ describe('цена дела: при приказе, и не хватает — �
     const plan = await w.world.leadPlan('scout', lair);
     const road = realMs(plan.seconds);
     // Сил ровно на дорогу и половину цены: дойдёт, а пересчитать не сможет.
-    const have = (ENERGY_MAX * road) / ENERGY_DRAIN + ENERGY_PRICE.recon.price / 2;
+    const have = (ENERGY_MAX * road) / ENERGY_ROAD + ENERGY_PRICE.recon.price / 2;
     expect(have, 'точка внутри области: запаса меньше полного').toBeLessThan(ENERGY_MAX);
     w.inner.save.figures.scout.energy = { value: have, at: w.now(), mode: 'fill' };
     const why = energyBlock(have, ENERGY_PRICE.recon.price, road);
@@ -248,7 +302,7 @@ describe('цена дела: при приказе, и не хватает — �
 });
 
 describe('осадный лагерь: десять энергии, и пока он стоит, она не тратится', () => {
-  it('встал — минус десять; стоит — не убывает; снял — снова уходит', async () => {
+  it('встал — минус десять; стоит — не убывает; снял — стоит в поле даром; пошёл — уходит в дороге', async () => {
     const w = makeWorld();
     const p = profile({ army: { spearman: 40 } });
     await w.world.sync(p);
@@ -266,11 +320,17 @@ describe('осадный лагерь: десять энергии, и пока 
     const still = await fig(w, 'general');
     expect(still.besieging, 'точка внутри области: лагерь ещё стоит').toBe(lair.id);
     expect(still.energy?.value).toBe(ENERGY_MAX - ENERGY_PRICE.siege.price);
-    // Снял осаду — стоит в поле, и энергия уходит с этой минуты.
+    // Снял осаду — стоит в поле, и энергия не уходит: ожидание даром.
     expect(await w.world.retreat()).toBeNull();
-    w.advance(ENERGY_DRAIN / 10);
+    w.advance(ENERGY_ROAD / 10);
     await w.world.sync(p);
-    expect(await energyOf(w, 'general')).toBe(ENERGY_MAX - ENERGY_PRICE.siege.price - ENERGY_MAX / 10);
+    expect(await energyOf(w, 'general')).toBe(ENERGY_MAX - ENERGY_PRICE.siege.price);
+    // Пошёл — уходит в дороге.
+    expect(await w.world.recallFigure('general')).toBeNull();
+    const back = await fig(w, 'general');
+    w.at(back.departAt + (back.arriveAt - back.departAt) / 2);
+    await w.world.sync(p);
+    expect(await energyOf(w, 'general')).toBe(Math.floor(ENERGY_MAX - ENERGY_PRICE.siege.price - roadCost((back.arriveAt - back.departAt) / 2) + 1e-9));
   });
 
   it('без десяти энергии лагерем не встать — та же строка в карточке и в отказе', async () => {

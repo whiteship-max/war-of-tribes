@@ -43,7 +43,7 @@ import { foodLeft, warAt, warWalkMs } from '../../src/world/pvp.js';
 import { openSiege, siegeSince, siegeWear, starvesAt, type SiegeWindow } from '../../src/world/siege.js';
 import { burnImmuneUntil, fate, fateBlock, fallSeed, homeLoss, winnerGain } from '../../src/world/spoils.js';
 import { restAfter, restAt } from '../../src/world/rest.js';
-import { energyAt, energyBlock, priceOf, spend } from '../../src/world/energy.js';
+import { energyAt, energyBlock, onRoad, priceOf, spend } from '../../src/world/energy.js';
 import { weakCity } from '../../src/world/lairs.js';
 import { inHomeTheatre } from '../../src/world/theatre/theatre.js';
 import { gateBusyText, playerWood } from '../../src/world/works.js';
@@ -225,12 +225,11 @@ function wear(a: WarArmy, lost: Counts, share: number, at: number): WarArmy {
 }
 
 /**
- * Энергия полководца в войне (docs/agent_energy.md, решение 3): поход списывает цену при выходе, и пока идёт война,
- * энергия стоит — путь между замками сервер по часам не жжёт. Дома, с минуты возврата, копится. Дверь одна с миром на
- * клиенте — `world/energy`.
+ * Обратный путь войска: энергия полководца уходит в дороге и копится с минуты возврата — той же функцией дороги, что у
+ * мира на клиенте (`world/energy.onRoad`; docs/agent_energy.md, раздел 2).
  */
 function homeward(w: WarRow, at: number, backAt: number): void {
-  w.army = { ...w.army, energy: { value: energyAt(w.army.energy, at), at, mode: 'hold', homeAt: backAt } };
+  w.army = { ...w.army, energy: onRoad(w.army.energy, at, backAt, true) };
 }
 
 /** Мораль гарнизона города в минуту `at`: слепок, и осада, если лагерь стоит, — день за днём (`siege.siegeWear`). */
@@ -646,15 +645,14 @@ function march(file: WarFile, key: string, order: Extract<WarOrder, { op: 'march
   if (why) return why;
   if (troopTotal(asTroops(order.army.troops)) <= 0) return 'У полководца нет войска. Дай ему дружину у ворот.';
   if (!fits(order.army.troops, mine.sheet.army)) return 'Столько бойцов в войске нет.';
-  // Энергия полководца — той же дверью, что у мира (`world/energy`): поход и дело у стен разом, при выходе
-  // (docs/agent_energy.md, решение 3). Пока идёт война, энергия стоит.
-  const need = priceOf('march') + priceOf(order.mode);
-  const tired = energyBlock(energyAt(order.army.energy, now), need);
-  if (tired) return tired;
-  const energy = { ...spend(order.army.energy, now, need), mode: 'hold' as const };
-  delete energy.homeAt;
+  // Энергия полководца — той же дверью, что у мира (`world/energy`): дело у стен — ценой при выходе, и её должно хватить
+  // к минуте прихода, с дорогой; дорога уходит по дням пути, у стен — стоит (docs/agent_energy.md, раздел 2).
   const from = { x: own.x, y: own.y };
   const to = { x: row.x, y: row.y };
+  const walkMs = walk(from, to);
+  const tired = energyBlock(energyAt(order.army.energy, now), priceOf(order.mode), walkMs);
+  if (tired) return tired;
+  const energy = onRoad(spend(order.army.energy, now, priceOf(order.mode)), now, now + walkMs, false);
   file.seq += 1;
   file.wars.push({
     id: `w${file.seq.toString(36)}${(now % 46656).toString(36)}`,
@@ -669,7 +667,7 @@ function march(file: WarFile, key: string, order: Extract<WarOrder, { op: 'march
     mode: order.mode,
     fate: order.fate,
     sentAt: now,
-    arriveAt: now + walk(from, to),
+    arriveAt: now + walkMs,
     phase: 'march',
     army: { ...order.army, energy },
     went: { ...order.army.troops },
