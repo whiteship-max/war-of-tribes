@@ -69,7 +69,7 @@ import { Rating } from './Rating';
 import { inTelegram } from '@/telegram/webapp';
 import { Gesture, WHEEL_STEP, swallowGhostClick, type Press } from '@/gestures';
 import { gestLog, type End } from '@/gestlog';
-import { FrameLoop, deviceRatio, pixelRatio } from '@/render/loop';
+import { FPS_CAP, FrameLoop, cappedClock, deviceRatio, pixelRatio } from '@/render/loop';
 import { QUALITY } from '@/render/quality';
 import { levelNow } from '@/render/gfx';
 import { onViewport } from '@/viewport';
@@ -184,6 +184,9 @@ const TERRAIN_ROWS: { color: string; name: string; note: string }[] = [
   { color: PALETTE.ridge, name: 'Хребет', note: `×${frac(COST_RIDGE)}, лучше перевалом` },
   { color: PALETTE.pass, name: 'Перевал', note: `×${frac(COST_PASS)}, проход через хребет` },
 ];
+
+/** Сколько камера считается движущейся после последнего сдвига — дальше карта стоит (`QUALITY.mapStillFps`). */
+const MAP_STILL_MS = 500;
 
 export function WorldMap() {
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -366,7 +369,16 @@ export function WorldMap() {
      * бывает под роликом о бое, открытым с карты (`body.replaying` прячет всё,
      * кроме канвы ролика), и прежде карта рисовала весь кадр под ним впустую.
      */
-    const loop = new FrameLoop<'covered'>(() => frame());
+    // Пока камера стоит, карта на «Низком» рисует реже (`QUALITY.mapStillFps`, docs/perf.md): кадр тот же, а
+    // главный поток слабого телефона занят им наполовину. Камера сдвинулась — шестьдесят с этого же кадра.
+    const stillFps = QUALITY[levelNow(location.search)].mapStillFps;
+    let lastCam = { cx: NaN, cy: NaN, scale: NaN };
+    let movedAt = -Infinity;
+    const loop = new FrameLoop<'covered'>(
+      () => frame(),
+      undefined,
+      cappedClock(() => (performance.now() - movedAt < MAP_STILL_MS ? FPS_CAP : stillFps)),
+    );
 
     const resize = (): void => {
       // Больше двойки не берём (потолок двери кадра, `loop.DPR_CAP`): на телефоне это
@@ -425,6 +437,11 @@ export function WorldMap() {
       // фигура идёт, — и камера обязана идти за ним, а не отставать до первого
       // касания. Отладочный обзор мира (`?worldview=`) поводка не знает.
       cam.current = hold(cam.current);
+      const c = cam.current;
+      if (c.cx !== lastCam.cx || c.cy !== lastCam.cy || c.scale !== lastCam.scale) {
+        movedAt = performance.now();
+        lastCam = { cx: c.cx, cy: c.cy, scale: c.scale };
+      }
       const rect = viewRect(cam.current, { w, h });
       // Куски запрашиваются с запасом: тайл у края экрана не испечётся, пока не
       // приедут куски под его округой, а без запаса они приезжали бы только

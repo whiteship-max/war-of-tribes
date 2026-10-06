@@ -10,6 +10,7 @@
 //   DEVICE=weak                              — устройство говорит «память 2 ГБ, 4 ядра» (`navigator.deviceMemory`,
 //                                              `hardwareConcurrency`): так автовыбор видит дешёвый Android
 //   SECONDS=10                               — сколько мерить плавность
+//   PROFILE=1 BUILT=1                        — профиль на собранной игре (имена сжаты, файлы кусков видны)
 //   DIST=путь                                — другая сборка вместо `dist` (коммит «до» из второго worktree)
 //   ASK="JSON.stringify(…)"                  — выражение в странице на вставшем городе (разбор: что в сцене)
 //
@@ -327,11 +328,14 @@ async function battle(tab: Tab): Promise<void> {
   // С разбега: самый тяжёлый кусок — сшибка и сеча, когда все фигуры в движении.
   await tab.eval<string>(`(() => { const s = window.twStand; s.player.seek(s.plan.clashAt - 3); s.player.start(); return JSON.stringify('ok'); })()`);
   await sleep(1000);
+  // Подпись стенда (`tw/stand.publish`: строка и \`dataset\` на каждый кадр) — пятая часть кадра на процессоре, а в игре
+  // её нет: на окно замера она снимается, счёт кадра стенд берёт у проигрывателя после окна.
+  await tab.eval<string>(`(() => { window.twStand.player.opts.onFrame = undefined; return JSON.stringify('ok'); })()`);
   await tab.eval<boolean>(`window.__weakWrap(window.twStand.player, 'loop')`);
   await tab.eval<boolean>(`window.__weakWrap(window.twStand.player.renderer, 'render', 'render', true)`);
   await smooth(tab, `бой ×${RATE}`);
   const r = await tab.eval<{ calls: number; triangles: number; textureMB: number; dpr: number; quality: string; figures: { attacker: number; defender: number } }>(
-    'document.body.dataset.replay',
+    `JSON.stringify((() => { const s = window.twStand; const d = JSON.parse(document.body.dataset.replay); return { ...d, ...s.player.stats() }; })())`,
   );
   console.log(
     `  счёт: ${r.quality}, фигур ${r.figures.attacker}/${r.figures.defender}, вызовов ${r.calls}, треугольников ${r.triangles.toLocaleString('ru')}, текстуры ${r.textureMB} МБ, плотность ${r.dpr}; куча ${await heap(tab)} МБ`,
@@ -378,7 +382,7 @@ async function main(): Promise<void> {
   const configFile = fileURLToPath(new URL('../vite.config.ts', import.meta.url));
   const listen = { port: PORT, strictPort: true, host: '127.0.0.1' };
   let close: () => Promise<void>;
-  if (PROFILE) {
+  if (PROFILE && process.env.BUILT !== '1') {
     const dev = await createVite({ configFile, server: listen, logLevel: 'warn' });
     await dev.listen();
     close = () => dev.close();

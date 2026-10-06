@@ -75,14 +75,15 @@ describe('уровень по устройству', () => {
   });
 
   it('низкий не дороже среднего ни одной ручкой; средний и высокий — прежние числа (docs/perf.md)', () => {
-    expect(QUALITY.high).toEqual({ dpr: 2, shadowSoft: true, mapDpr: 2, shadowEvery: 2 });
-    expect(QUALITY.medium).toEqual({ dpr: 1.5, shadowSoft: true, mapDpr: 2, shadowEvery: 2 });
+    expect(QUALITY.high).toEqual({ dpr: 2, shadowSoft: true, mapDpr: 2, shadowEvery: 2, mapStillFps: 60 });
+    expect(QUALITY.medium).toEqual({ dpr: 1.5, shadowSoft: true, mapDpr: 2, shadowEvery: 2, mapStillFps: 60 });
     const low = QUALITY.low;
     expect(low.dpr).toBeLessThanOrEqual(QUALITY.medium.dpr);
     expect(low.mapDpr).toBeLessThan(QUALITY.medium.mapDpr);
     // Плотность карты ниже единицы — мыло, а не экономия (правило двери кадра).
     expect(low.mapDpr).toBeGreaterThanOrEqual(1);
     expect(low.shadowEvery).toBeGreaterThan(QUALITY.medium.shadowEvery);
+    expect(low.mapStillFps).toBeLessThan(QUALITY.medium.mapStillFps);
   });
 
   it('ниже низкого — нет', () => {

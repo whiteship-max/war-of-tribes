@@ -58,18 +58,24 @@ export interface QualitySpec {
    * в среднем за кадр (docs/perf.md).
    */
   shadowEvery: number;
+  /**
+   * Кадров в секунду у 2D-карты, пока камера стоит. Карта рисует весь кадр заново каждый кадр — и когда на ней не
+   * меняется ничего, кроме хода отрядов и мигания меток; на ×6 стоящая карта занимает половину главного потока
+   * (`weak:stand`, docs/perf.md, раздел 3). На низком, пока стоит, — тридцать; повели — сразу шестьдесят.
+   */
+  mapStillFps: number;
 }
 
 /**
  * Числа уровней (docs/graphics_world.md, раздел 4 и 9.2): высокий — плотность 2, средний — 1.5,
  * низкий — 1.25, жёсткая тень лампы (одна выборка вместо девяти) и теневой проход раз в четыре кадра, а не через
- * кадр; карта — 2, на низком 1.5.
+ * кадр; карта — 2, на низком 1.5 и тридцать кадров, пока стоит.
  * Остальное уровень значит у города (`city/spec.ts`).
  */
 export const QUALITY: Record<Quality, QualitySpec> = {
-  high: { dpr: 2, shadowSoft: true, mapDpr: 2, shadowEvery: 2 },
-  medium: { dpr: 1.5, shadowSoft: true, mapDpr: 2, shadowEvery: 2 },
-  low: { dpr: 1.25, shadowSoft: false, mapDpr: 1.5, shadowEvery: 4 },
+  high: { dpr: 2, shadowSoft: true, mapDpr: 2, shadowEvery: 2, mapStillFps: 60 },
+  medium: { dpr: 1.5, shadowSoft: true, mapDpr: 2, shadowEvery: 2, mapStillFps: 60 },
+  low: { dpr: 1.25, shadowSoft: false, mapDpr: 1.5, shadowEvery: 4, mapStillFps: 30 },
 };
 
 /** Что устройство умеет — то, по чему выбирается уровень. */
