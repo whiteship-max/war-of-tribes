@@ -45,7 +45,7 @@ function changeOf(update: Record<string, unknown>): { id: number; change: Change
   if (cb && typeof cb === 'object') {
     const id = userId((cb.from as Record<string, unknown> | undefined)?.id);
     if (id === null || typeof cb.id !== 'string') return null;
-    // Данные кнопки — то, что мы сами положили в неё (`telegram.switchButton`); других не бывает.
+    // Данные кнопки — то, что мы сами положили в неё (`telegram.keyboard`); других не бывает.
     const { data: pressed } = cb as { data?: unknown };
     if (pressed !== CALLBACK_OFF && pressed !== CALLBACK_ON) return null;
     const msg = (cb.message ?? {}) as Record<string, unknown>;

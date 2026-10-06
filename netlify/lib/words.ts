@@ -15,6 +15,9 @@ import { localTime } from './notify.js';
 export const BUTTON_OFF = 'Отключить уведомления';
 export const BUTTON_ON = 'Включить уведомления';
 
+/** Кнопка рядом — открыть игру (решение владельца 06.10.2026). */
+export const BUTTON_OPEN = 'Открыть игру';
+
 /** Что кнопка шлёт боту. Других данных у кнопок нет. */
 export const CALLBACK_OFF = 'notify:off';
 export const CALLBACK_ON = 'notify:on';

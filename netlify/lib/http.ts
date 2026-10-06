@@ -108,6 +108,19 @@ export const botToken = (): string => process.env.TELEGRAM_BOT_TOKEN ?? '';
  */
 export const botSecret = (): string => process.env.TELEGRAM_WEBHOOK_SECRET ?? '';
 
+/** Боевой адрес игры — тот, что стоит Menu Button'ом в @BotFather (CLAUDE.md, «Выкладка»). */
+export const APP_URL = 'https://celebrated-yeot-73e410.netlify.app';
+
+/**
+ * Адрес игры для кнопки «Открыть игру» под сообщениями бота (`web_app`, docs/NOTIFY.md, 12.10): `TRIBE_APP_URL`, если
+ * задан и это HTTPS (Telegram открывает мини-приложение только по HTTPS), иначе боевой адрес. Одно правило на оба дома:
+ * на Netlify переменной нет — боевой адрес; свой сервер на своём домене вписывает свой (docs/SERVER.md).
+ */
+export const appUrl = (env: Record<string, string | undefined> = process.env): string => {
+  const v = (env.TRIBE_APP_URL ?? '').trim();
+  return /^https:\/\/[^\s/]+(\/\S*)?$/.test(v) ? v : APP_URL;
+};
+
 /**
  * Проход доставки уведомлений включён: `TRIBE_DELIVER=on`. Одно правило на оба дома — функцию по расписанию
  * Netlify (`functions/deliver.mts`) и расписание своего сервера (`vps/config.ts` читает то же имя).

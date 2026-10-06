@@ -1,7 +1,7 @@
 /**
  * Адаптер Telegram — **единственное место серверной части, которое ходит наружу** (тест «наружу ходит один
  * адаптер», `server.test.ts`). Три вызова Bot API: отправить сообщение, ответить на нажатие кнопки, сменить
- * кнопку под сообщением. Больше адаптер не знает ничего: ни записей, ни правил отправки.
+ * кнопки под сообщением. Больше адаптер не знает ничего: ни записей, ни правил отправки.
  *
  * Токен — из одного места (`http.botToken`), в журнал не пишется ничего (журналов у обработчиков нет). Адресат
  * — только числом из подписи или из обновления, пришедшего с секретом вебхука: `chat_id` личного чата бота с
@@ -9,8 +9,8 @@
  *
  * Сообщения без `parse_mode`: имя двора пришло от клиента, и разметки в тексте быть не должно.
  */
-import { botToken } from './http.js';
-import { BUTTON_OFF, BUTTON_ON, CALLBACK_OFF, CALLBACK_ON } from './words.js';
+import { appUrl, botToken } from './http.js';
+import { BUTTON_OFF, BUTTON_ON, BUTTON_OPEN, CALLBACK_OFF, CALLBACK_ON } from './words.js';
 
 /** Как ушло: доставлено; канал закрыт (403 — не разрешено или бот заблокирован); повторить позже; потеряно. */
 export type SendResult = 'ok' | 'closed' | 'retry' | 'lost';
@@ -23,9 +23,22 @@ const TIMEOUT_MS = 8_000;
 
 const live: Fetcher = (url, init) => fetch(url, { ...init, signal: AbortSignal.timeout(TIMEOUT_MS) });
 
-/** Кнопка под сообщением: выключить, если уведомления включены, и включить, если выключены. */
-export const switchButton = (on: boolean): { inline_keyboard: { text: string; callback_data: string }[][] } => ({
-  inline_keyboard: [[on ? { text: BUTTON_OFF, callback_data: CALLBACK_OFF } : { text: BUTTON_ON, callback_data: CALLBACK_ON }]],
+/** Кнопка под сообщением: открыть игру (`web_app`) или переключить рычаг (`callback_data`). */
+export type InlineButton = { text: string; web_app: { url: string } } | { text: string; callback_data: string };
+
+/**
+ * Кнопки под сообщением, одним рядом (решение владельца 06.10.2026): «Открыть игру» — мини-приложение с подписью
+ * `initData`, как из меню чата (`web_app`, только в личном чате с ботом — другого у бота нет), и рядом рычаг —
+ * выключить, если уведомления включены, и включить, если выключены. Тот же ряд и при смене рычага: кнопка «Открыть
+ * игру» не пропадает.
+ */
+export const keyboard = (on: boolean, app = appUrl()): { inline_keyboard: InlineButton[][] } => ({
+  inline_keyboard: [
+    [
+      { text: BUTTON_OPEN, web_app: { url: app } },
+      on ? { text: BUTTON_OFF, callback_data: CALLBACK_OFF } : { text: BUTTON_ON, callback_data: CALLBACK_ON },
+    ],
+  ],
 });
 
 /** Вызов Bot API. Ответ классифицируется по коду; тело не читается. */
@@ -49,17 +62,17 @@ async function call(method: string, params: Record<string, unknown>, go: Fetcher
 }
 
 export interface Telegram {
-  /** Сообщение игроку с кнопкой «Отключить уведомления». */
+  /** Сообщение игроку с кнопками «Открыть игру» и «Отключить уведомления». */
   send(chatId: number, text: string): Promise<SendResult>;
   /** Ответ на нажатие кнопки: строка во всплывающем окне Telegram. */
   answer(callbackId: string, text: string): Promise<SendResult>;
-  /** Сменить кнопку под сообщением, на котором нажали. */
+  /** Сменить рычаг под сообщением, на котором нажали; «Открыть игру» остаётся. */
   button(chatId: number, messageId: number, on: boolean): Promise<SendResult>;
 }
 
 export const telegram = (go: Fetcher = live): Telegram => ({
-  send: (chatId, text) => call('sendMessage', { chat_id: chatId, text, reply_markup: switchButton(true) }, go),
+  send: (chatId, text) => call('sendMessage', { chat_id: chatId, text, reply_markup: keyboard(true) }, go),
   answer: (callbackId, text) => call('answerCallbackQuery', { callback_query_id: callbackId, text }, go),
   button: (chatId, messageId, on) =>
-    call('editMessageReplyMarkup', { chat_id: chatId, message_id: messageId, reply_markup: switchButton(on) }, go),
+    call('editMessageReplyMarkup', { chat_id: chatId, message_id: messageId, reply_markup: keyboard(on) }, go),
 });

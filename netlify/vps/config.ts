@@ -30,6 +30,11 @@ export const ENV = {
    * общий обработчик войны сам (`http.warPace`) — одинаково на Netlify и здесь. Умолчание — 1, обычная игра.
    */
   warPace: 'TRIBE_WAR_PACE',
+  /**
+   * Адрес игры для кнопки «Открыть игру» под сообщениями бота (docs/NOTIFY.md, 12.10): `https://домен`. Читает его
+   * общий адаптер Telegram сам (`http.appUrl`) — одинаково на Netlify и здесь. Пусто — боевой адрес на Netlify.
+   */
+  appUrl: 'TRIBE_APP_URL',
   /** Номер сайта Netlify — для `TRIBE_STORE=blobs` и для переноса данных. */
   netlifySite: 'NETLIFY_SITE_ID',
   /** Личный токен Netlify — для `TRIBE_STORE=blobs` и для переноса данных. */

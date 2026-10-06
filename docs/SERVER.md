@@ -236,6 +236,7 @@ nano .env
 | `BACKUP_AT` | во сколько снимать копию, время UTC | `03:30` |
 | `TELEGRAM_WEBHOOK_SECRET` | секрет вебхука бота — кнопки под сообщениями (docs/NOTIFY.md, 12.6) | `openssl rand -hex 32` |
 | `TRIBE_DELIVER` | доставка уведомлений: `on` — бот пишет о нападении и о бое (docs/NOTIFY.md, 12.6) | `off` |
+| `TRIBE_APP_URL` | адрес игры для кнопки «Открыть игру» под сообщениями бота, только HTTPS (docs/NOTIFY.md, 12.10); пусто — боевой адрес Netlify | `https://game.example.ru` |
 | `NETLIFY_SITE_ID`, `NETLIFY_AUTH_TOKEN` | только для переноса данных (шаг 13), потом стереть | пусто |
 
 Сохранить: `Ctrl+O`, Enter, выйти: `Ctrl+X`. Закрыть файл от чужих глаз:

@@ -2,8 +2,9 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { botWith } from './routes/bot.js';
 import { readNotify } from './notify.js';
 import { STORES, type Kv, type Stores } from './kv.js';
-import type { Telegram } from './telegram.js';
-import { CALLBACK_OFF, CALLBACK_ON, SWITCHED_OFF, SWITCHED_ON } from './words.js';
+import { telegram, type Telegram } from './telegram.js';
+import { APP_URL, appUrl } from './http.js';
+import { BUTTON_OFF, BUTTON_ON, BUTTON_OPEN, CALLBACK_OFF, CALLBACK_ON, SWITCHED_OFF, SWITCHED_ON } from './words.js';
 
 /**
  * Вебхук бота (`/api/bot`) — дверь, где личность приходит не из подписи `initData`, а из обновления Telegram
@@ -136,5 +137,54 @@ describe('вебхук бота', () => {
       expect(r.s.data.size).toBe(0);
       expect(r.t.calls).toEqual([]);
     }
+  });
+});
+
+describe('кнопки под сообщением: «Открыть игру» и рычаг (решение владельца 06.10.2026)', () => {
+  /**
+   * Кривая разметка кнопок — 400 от Telegram на каждое сообщение: всё ушло бы в «потеряно» молча. Поэтому держится форма
+   * того, что уходит в Bot API, — на настоящем адаптере с подменённым `fetch`.
+   */
+  const TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+  beforeEach(() => {
+    process.env.TELEGRAM_BOT_TOKEN = 'test-token';
+  });
+  afterEach(() => {
+    if (TOKEN === undefined) delete process.env.TELEGRAM_BOT_TOKEN;
+    else process.env.TELEGRAM_BOT_TOKEN = TOKEN;
+  });
+
+  async function sent(run: (t: Telegram) => Promise<unknown>): Promise<{ method: string; body: Record<string, unknown> }> {
+    const got: { method: string; body: Record<string, unknown> }[] = [];
+    await run(
+      telegram(async (url, init) => {
+        got.push({ method: url.split('/').pop() as string, body: JSON.parse(init.body) as Record<string, unknown> });
+        return { status: 200 };
+      }),
+    );
+    expect(got).toHaveLength(1);
+    return got[0];
+  }
+
+  it('сообщение — одним рядом: «Открыть игру» (web_app, HTTPS) и «Отключить»; смена рычага ряд не теряет', async () => {
+    const msg = await sent((t) => t.send(77, 'Набег идёт'));
+    expect(msg.method).toBe('sendMessage');
+    expect(msg.body.reply_markup).toEqual({
+      inline_keyboard: [[{ text: BUTTON_OPEN, web_app: { url: appUrl() } }, { text: BUTTON_OFF, callback_data: CALLBACK_OFF }]],
+    });
+    const off = await sent((t) => t.button(77, 55, false));
+    expect(off.method).toBe('editMessageReplyMarkup');
+    expect(off.body.reply_markup).toEqual({
+      inline_keyboard: [[{ text: BUTTON_OPEN, web_app: { url: appUrl() } }, { text: BUTTON_ON, callback_data: CALLBACK_ON }]],
+    });
+  });
+
+  it('адрес игры — из TRIBE_APP_URL, только HTTPS; нет или кривой — боевой адрес', () => {
+    expect(APP_URL).toMatch(/^https:\/\//);
+    expect(appUrl({})).toBe(APP_URL);
+    expect(appUrl({ TRIBE_APP_URL: 'https://game.example.ru' })).toBe('https://game.example.ru');
+    expect(appUrl({ TRIBE_APP_URL: 'http://game.example.ru' })).toBe(APP_URL);
+    expect(appUrl({ TRIBE_APP_URL: 'javascript:alert(1)' })).toBe(APP_URL);
+    expect(appUrl({ TRIBE_APP_URL: '  ' })).toBe(APP_URL);
   });
 });
