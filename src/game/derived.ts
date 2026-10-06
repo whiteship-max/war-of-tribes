@@ -1423,7 +1423,7 @@ export function moraleBreakdown(s: GameState): MoraleBreakdown {
   add(
     'prestige',
     '🏅',
-    'Слава племени',
+    'Слава города',
     Math.min(10, s.prestige / 5),
     `${s.stats.battlesWon} побед · ${s.stats.battlesLost} поражений, слава ${Math.round(s.prestige)}`,
   );

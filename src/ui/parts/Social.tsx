@@ -23,7 +23,7 @@ import { Icon } from '@/ui/icons/Icon';
 export function Social() {
   return (
     <>
-      <h3>Племя в сети</h3>
+      <h3>Мы в сети</h3>
       {/* Ссылки, которой нет, нет и в списке: невыпущенное не показывается (docs/ui_audit.md, 14.1, 3). */}
       {SOCIAL_LINKS.filter((link) => link.url).map((link) => (
         <SocialRow key={link.id} link={link} />

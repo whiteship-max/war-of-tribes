@@ -51,7 +51,7 @@ export function ArmyPanel() {
         role="button"
         tabIndex={0}
         onClick={(e) =>
-          tipAt(e.currentTarget, { title: 'Оборона', body: 'Частокол, башня, жители, гарнизон и собранный дома отряд.' })
+          tipAt(e.currentTarget, { title: 'Оборона', body: 'Стены, башня, жители, гарнизон и собранный дома отряд.' })
         }
       >
         <span className="ico">🛡️</span>

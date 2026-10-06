@@ -169,7 +169,7 @@ export function playerProfile(s: GameState, away: Away = NOBODY_AWAY): PlayerPro
   const stock: Loot = {};
   for (const r of RESOURCE_IDS) stock[r] = Math.max(0, Math.floor(s.resources[r]));
   return {
-    name: 'Наше племя',
+    name: 'Наш город',
     // Имя города — очищенное и с умолчанием: мир называет им дом на карте, в отчётах и в
     // письмах, и второго способа его узнать у мира нет.
     city: profileCity(s.profile),

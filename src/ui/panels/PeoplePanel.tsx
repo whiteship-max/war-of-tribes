@@ -202,9 +202,9 @@ export function PeoplePanel() {
   return (
     <div className="panel">
       <h2>
-        Племя <small>жители {s.pop}/{housing} · оборона {dec(defense(s), 0)}</small>
+        Жители <small>{s.pop}/{housing} · оборона {dec(defense(s), 0)}</small>
       </h2>
-      <div className="note">Людей ставят на работу в окне здания. Свободные руки строят и отдыхают у костра.</div>
+      <div className="note">Людей ставят на работу в окне здания. Свободные руки строят и отдыхают на площади.</div>
 
       <div className="mod total">
         <span className="ico"><Icon name="ui-hammer" glyph="🔨" /></span>
@@ -223,7 +223,7 @@ export function PeoplePanel() {
         Прирост{' '}
         <span className={`muted${growth.perDay < 0 ? ' neg' : ''}`}>{signed(growth.perDay)} в день</span>
       </h3>
-      <div className="note">{growth.blocked ?? 'Племя растёт.'}</div>
+      <div className="note">{growth.blocked ?? 'Город растёт.'}</div>
       <Factor
         icon={growth.morale >= 0 ? '😊' : '😟'}
         name="Мораль"

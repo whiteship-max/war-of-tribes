@@ -212,7 +212,7 @@ export function ActionMenu() {
                       {card.owner && card.tribeName && ' · '}
                       {card.tribeName && (
                         <>
-                          {card.owner ? 'племя' : 'Племя'}{' '}
+                          {card.owner ? 'держава' : 'Держава'}{' '}
                           <span style={{ color: RELATION_META[card.relation].color }}>{card.tribeName}</span>
                         </>
                       )}

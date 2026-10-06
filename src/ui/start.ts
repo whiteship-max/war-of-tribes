@@ -73,7 +73,7 @@ export const START_LABEL: Record<StartAction, string> = {
 export const PROLOGUE_LABEL = 'Предыстория';
 
 /** Подпись под временной кнопкой. Врать про связь с партией нельзя. */
-export const PROLOGUE_NOTE = 'С твоим племенем не связана.';
+export const PROLOGUE_NOTE = 'С твоим городом не связана.';
 
 /**
  * Признак того, что вход в предысторию — временный.

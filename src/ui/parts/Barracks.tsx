@@ -55,7 +55,7 @@ export function Barracks() {
           и оттуда же дверь к донесению о набеге. Второго экрана здесь нет — только дверь туда. */}
       {palisade && (
         <button className="btn ghost wide" onClick={() => openBuilding(palisade.id)}>
-          <Icon name="bld-palisade" glyph="🛡️" /> Частокол
+          <Icon name="bld-palisade" glyph="🛡️" /> Стены
         </button>
       )}
       <div className="mod">

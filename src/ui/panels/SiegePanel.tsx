@@ -167,7 +167,7 @@ export function SiegePanel() {
           <span className="ico">
             <Icon name="bld-palisade" glyph="🧱" />
           </span>
-          <span className="name">Частокол</span>
+          <span className="name">Стены</span>
           <span className="val">ур. {siege.palisade}</span>
         </div>
       </div>

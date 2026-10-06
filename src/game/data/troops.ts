@@ -68,7 +68,7 @@ export const TROOPS: TroopDef[] = [
     name: 'Лучники',
     one: 'лучник',
     icon: '🏹',
-    description: 'Бьёт с частокола, в рукопашную идёт редко.',
+    description: 'Бьёт со стены, в рукопашную идёт редко.',
     gear: { bow: 1 },
     cost: { food: 14, hides: 2 },
     work: 35,

@@ -81,7 +81,7 @@ export function CampPanel() {
   const option = camp.fates.find((o) => o.id === chosen) ?? null;
   const stage = STAGE_BY_ID[camp.stage];
   const kind = camp.castle ? 'Город соседа' : camp.lair ? 'Логово' : stage.name;
-  const walls = camp.castle ? 'держит гарнизон' : 'без частокола';
+  const walls = camp.castle ? 'держит гарнизон' : 'без стен';
 
   const order = async (fn: () => Promise<string | null>, done: string, close = false): Promise<void> => {
     setBusy(true);

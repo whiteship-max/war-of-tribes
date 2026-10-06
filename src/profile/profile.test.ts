@@ -132,7 +132,7 @@ describe('сейв профиля', () => {
     expect((g as unknown as { patron?: unknown }).patron).toBeUndefined();
     // Строки ступеней ложатся в летопись при входе, после догона отлучки (`save.enter`); вход — сразу после записи.
     enter(g, g.lastSaved);
-    expect(g.log.some((l) => l.text.includes('Покровитель племени отпущен'))).toBe(true);
+    expect(g.log.some((l) => l.text.includes('Покровитель города отпущен'))).toBe(true);
     // Вера при этом не подставлена: её назовёт мир по клетке замка.
     expect(g.faith.id).toBeNull();
     expect(g.faith.observance).toBe('even');
