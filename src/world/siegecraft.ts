@@ -12,6 +12,7 @@ import { BOMBARD_VOLLEYS, FORTIFY_FACES } from './data/siegecraft';
 import { siegeWear } from './siege';
 import { gameDaysOfMs } from '../game/pace';
 import { gameDaysText } from '../game/span';
+import { num } from '../game/num';
 
 /** Дело в лагере. Имена — строки таблицы энергии: цена дела у него одна. */
 export type CraftAct = 'fortify' | 'bombard';
@@ -81,8 +82,8 @@ export function wallMen(militia: number, archers: number, craft: Craft | undefin
 
 /** Доля как проценты словами: целые, со знаком минуса. */
 const pct = (share: number): string => `${Math.round(share * 100)} %`;
-/** Грань кости словами: целая — без дроби, иначе с одной цифрой. */
-const faces = (n: number): string => (Number.isInteger(n) ? String(n) : n.toFixed(1));
+/** Грань кости словами: целая — без дроби, иначе с одной цифрой, через запятую (дверь `game/num`). */
+const faces = (n: number): string => num(n);
 const days = (ms: number): string => gameDaysText(Math.round(gameDaysOfMs(ms)));
 
 /**
