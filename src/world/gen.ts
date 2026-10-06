@@ -27,10 +27,11 @@ import { coordKey, distance, terrainFactor } from './geo';
 import { buildable } from './geography';
 import { placeCastle } from './settle';
 import { inHomeTheatre } from './theatre/theatre';
+import { homeSight } from './sight';
+import { islandNeighbours } from './spawn';
 import {
   AI_RANGE,
   BARBARIAN_BLOCK,
-  HOME_SIGHT,
   BARBARIAN_CHANCE,
   LAIR_ANCHOR_HOME,
   LAIR_ANCHOR_FAR,
@@ -121,6 +122,12 @@ export function generateWorld(seed: number, home?: Coord): WorldGen {
   // в котором вообще могут стоять логова, — а поток у поиска свой, и общий `rng`
   // от того, что дом найден раньше сыпи, не сдвинулся ни на одно обращение.
   const at: Coord = home ?? placeCastle(seeded((seed ^ HOME_SALT) >>> 0), []);
+  // Чужие места острова (тест с игроками, docs/test_world.md): под их стенами логова не встают, как под всякой чужой
+  // стеной (`LAIR_SETTLE_GAP`), — и пока место пустует тоже. Город не на месте острова — список пуст, и мир тот же, бросок
+  // в бросок. Реестр замков сюда не идёт: мир пересобирается из сида на каждой загрузке, и логова двигались бы с каждым
+  // новым соседом; места острова — данные и не меняются.
+  const walls = islandNeighbours(at);
+  const underWalls = (p: Coord): boolean => walls.some((w) => distance(w, p) < LAIR_SETTLE_GAP);
 
   /** Следующее логово по счёту: номер и имя из общего потока. */
   const nextLair = (x: number, y: number): GenSettlement =>
@@ -150,9 +157,9 @@ export function generateWorld(seed: number, home?: Coord): WorldGen {
   // Логова, случайно легшие у самого порога, убираются. Раньше от них уходил
   // сам поиск дома; теперь дом приходит первым, и посторониться должны они.
   // Логово ближе `LAIR_HOME_GAP` к воротам — это не сложность, а набег на второй
-  // минуте партии.
+  // минуте партии. Так же уходят легшие под чужие стены острова.
   for (let i = settlements.length - 1; i >= 0; i--) {
-    if (distance(settlements[i], at) >= LAIR_HOME_GAP) continue;
+    if (distance(settlements[i], at) >= LAIR_HOME_GAP && !underWalls(settlements[i])) continue;
     byKey.delete(coordKey(settlements[i].x, settlements[i].y));
     settlements.splice(i, 1);
   }
@@ -167,7 +174,7 @@ export function generateWorld(seed: number, home?: Coord): WorldGen {
   // Ставится на одно меньше потолка: последнее место мир заводит сам, и игрок
   // должен увидеть, что карта живёт, а не только что она нарисована.
   for (let n = 0; n < LAIR_NEAR_CAP - 1; n++) {
-    const far = n === 0 ? HOME_SIGHT - 2 : AI_RANGE;
+    const far = n === 0 ? homeSight(at) - 2 : AI_RANGE;
     for (let attempt = 0; attempt < 60; attempt++) {
       const a = rng() * Math.PI * 2;
       const r = LAIR_HOME_GAP + rng() * (far - LAIR_HOME_GAP);
@@ -176,6 +183,7 @@ export function generateWorld(seed: number, home?: Coord): WorldGen {
       if (!habitable(seed, x, y) || byKey.has(coordKey(x, y))) continue;
       if (!inHomeTheatre(at, { x, y })) continue;
       if (distance({ x, y }, at) < LAIR_HOME_GAP) continue;
+      if (underWalls({ x, y })) continue;
       if (settlements.some((o) => distance(o, { x, y }) < LAIR_SETTLE_GAP)) continue;
       // До первой цели идут посуху. На настоящей карте у замка на берегу
       // ближайшее место через залив: по прямой десять клеток, по времени полчаса.

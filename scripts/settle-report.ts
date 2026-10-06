@@ -19,11 +19,11 @@ import { landmasses } from '../src/world/land';
 import { distance, terrainFactor, travelTime } from '../src/world/geo';
 import { terrainAt } from '../src/world/geography';
 import { KM_PER_CELL } from '../src/world/atlas/project';
-import { MAINLAND_MIN, SETTLE_GAP, SETTLE_REACH } from '../src/world/data/tuning';
+import { HOME_SIGHT, LAIR_SETTLE_GAP, MAINLAND_MIN, SETTLE_GAP, SETTLE_REACH } from '../src/world/data/tuning';
 import { TERRAIN_META } from '../src/world/data/terrain';
 import { UNIT_BY_ID } from '../src/world/data/units';
 import { asGame, dayRealSeconds, realMs, realSeconds, type GameSec } from '../src/game/pace';
-import { SICILY, SICILY_GAP } from '../src/world/spawn';
+import { SICILY, SICILY_SIGHT, SICILY_STEP, islandNeighbours } from '../src/world/spawn';
 import { warWalkMs } from '../src/world/pvp';
 import { generateWorld, isLair } from '../src/world/gen';
 import { FIGURE_BY_ID } from '../src/world/data/figures';
@@ -212,7 +212,10 @@ function realSpanMs(ms: number): string {
 const TEST_PACE = 60;
 
 console.log('=== тест с игроками: Сицилия (TRIBE_SPAWN=sicily) ===');
-console.log(`  мест ${SICILY.length}, ближняя граница между ними ${SICILY_GAP} клеток (обычная — ${SETTLE_GAP}).`);
+console.log(
+  `  мест ${SICILY.length}, шаг решётки ${SICILY_STEP} клеток (обычная ближняя граница — ${SETTLE_GAP});` +
+    ` кольцо обзора у города на месте ${SICILY_SIGHT} клеток (обычное — ${HOME_SIGHT}).`,
+);
 console.log(
   `  ${pad('место', 14)}${rpad('сосед', 6)}${rpad('клеток', 8)}${rpad('км', 6)}${rpad('поход', 12)}${rpad(`×${TEST_PACE}`, 10)}`,
 );
@@ -236,29 +239,39 @@ SICILY.forEach((s, i) => {
   );
 });
 const far = Math.max(...SICILY.flatMap((s) => SICILY.map((t) => warWalkMs(s, t))));
+const across = Math.max(...SICILY.flatMap((s) => SICILY.map((t) => distance(s, t))));
+const seen = SICILY.map((s) => SICILY.filter((t) => t !== s && distance(s, t) <= SICILY_SIGHT).length);
 console.log(
   `  до ближнего соседа: ${realSpanMs(Math.min(...neighbourMs))} … ${realSpanMs(Math.max(...neighbourMs))}` +
     ` (×${TEST_PACE}: ${realSpanMs(Math.min(...neighbourMs) / TEST_PACE)} … ${realSpanMs(Math.max(...neighbourMs) / TEST_PACE)});` +
-    ` через весь остров: ${realSpanMs(far)} (×${TEST_PACE}: ${realSpanMs(far / TEST_PACE)}).`,
+    ` самая дальняя пара мест: ${across.toFixed(1)} клеток, ${realSpanMs(far)} (×${TEST_PACE}: ${realSpanMs(far / TEST_PACE)}).`,
 );
+console.log(`  видно соседей из своего кольца: ${Math.min(...seen)} … ${Math.max(...seen)} из ${SICILY.length - 1}.`);
 
 // Логова — свои у каждого мира: их ставит генерация по сиду мира игрока, поэтому меряется набором сидов.
 const lairSeeds = Number(process.env.LAIR_SEEDS ?? '10');
 const lairMs: number[] = [];
 const lairCells: number[] = [];
+const lairsInSight: number[] = [];
+let underWalls = 0;
 for (const s of SICILY) {
+  const walls = islandNeighbours(s);
   for (let seed = 1; seed <= lairSeeds; seed++) {
     const gen = generateWorld(seed, s);
     let best = Infinity;
     let at: Spot | null = null;
+    let inSight = 0;
     for (const l of gen.settlements) {
       if (!isLair(l)) continue;
+      if (walls.some((w) => distance(w, l) < LAIR_SETTLE_GAP)) underWalls++;
       const d = distance(s, l);
+      if (d <= SICILY_SIGHT) inSight++;
       if (d < best) {
         best = d;
         at = l;
       }
     }
+    lairsInSight.push(inSight);
     if (!at) continue;
     lairCells.push(best);
     lairMs.push(realMs(travelTime(best, terrainFactor(seed, s, at), FIGURE_BY_ID.general.speed)));
@@ -268,6 +281,11 @@ console.log(
   `  до ближнего логова (полководец; ${SICILY.length} мест × ${lairSeeds} сидов мира): клеток ${Math.min(...lairCells).toFixed(1)}` +
     ` … медиана ${median(lairCells).toFixed(1)} … ${Math.max(...lairCells).toFixed(1)};` +
     ` поход ${realSpanMs(Math.min(...lairMs))} … медиана ${realSpanMs(median(lairMs))} … ${realSpanMs(Math.max(...lairMs))}.`,
+);
+console.log(
+  `  логов в кольце обзора на старте: ${Math.min(...lairsInSight)} … медиана ${median(lairsInSight)} … ${Math.max(...lairsInSight)}` +
+    ` (без логова в кольце — ${lairsInSight.filter((n) => n === 0).length} из ${lairsInSight.length} миров);` +
+    ` под чужими стенами (ближе ${LAIR_SETTLE_GAP} клеток к чужому месту): ${underWalls}.`,
 );
 console.log(`  поход на логово темп войны (TRIBE_WAR_PACE) не ускоряет: темп — только для походов между игроками.`);
 console.log('');

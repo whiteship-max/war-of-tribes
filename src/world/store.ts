@@ -16,7 +16,8 @@ import { LocalWorld, type LocalWorldOptions } from './local/LocalWorld';
 import { NotifyingWorld } from './local/NotifyingWorld';
 import { tribePulse } from './bridge';
 import { exploredReach, inSight, type Reach, type SightDisc } from './fog';
-import { CAMERA_LEASH, HOME_SIGHT, REACH_MAX } from './data/tuning';
+import { CAMERA_LEASH, REACH_MAX } from './data/tuning';
+import { homeSight } from './sight';
 import { freshSeed } from '@/game/sim/random';
 import { cityName } from '../../netlify/lib/contract';
 import { marchPosition } from './geo';
@@ -953,7 +954,7 @@ export function sightDiscs(now: number): SightDisc[] {
   const g = useWorld.getState();
   const out: SightDisc[] = [];
   const home = g.info?.home;
-  if (home) out.push({ x: home.x, y: home.y, r: HOME_SIGHT });
+  if (home) out.push({ x: home.x, y: home.y, r: homeSight(home) });
   for (const f of g.figures) {
     if (f.watchSight <= 0) continue;
     const at = figurePosition(f, now);
@@ -1011,7 +1012,7 @@ export function cameraAnchor(now: number): CameraAnchor | null {
     name: live ? live.name : 'Наш город',
     x: spot.x + 0.5,
     y: spot.y + 0.5,
-    r: (live ? live.sight : HOME_SIGHT) + CAMERA_LEASH,
+    r: (live ? live.sight : homeSight(spot)) + CAMERA_LEASH,
     reach: reachAround(cell.x, cell.y, g.chunks),
   };
 }

@@ -137,7 +137,8 @@ import {
   type WarView,
 } from '../../../netlify/lib/contract';
 import { warWalkMs } from '../pvp';
-import { WATCHER, liveSight, standing } from '../sight';
+import { WATCHER, homeSight, liveSight, standing } from '../sight';
+import { islandNeighbours } from '../spawn';
 import { canShelter, placeOf } from '../shelter';
 import { ownGearOf, revealSight, slipped } from '../agents';
 import { diesAt, perilOf, perilShare, perilText, perilWhy, routPeril, recentVisits, type PerilCase } from '../peril';
@@ -277,7 +278,6 @@ import {
   PERIL_MEMORY,
   FIGURE_TOUCH,
   FAITH_AROUND,
-  HOME_SIGHT,
   MARCH_SIGHT,
   HOSTILITY_ALLY_BREAK,
   HOSTILITY_ENEMY,
@@ -527,7 +527,7 @@ export class LocalWorld implements WorldApi {
     this.fog = new FogMap(this.save.fog);
     // Первая партия обязана начинаться с открытой округи: чёрный экран на входе
     // читается как сломанная карта, а не как туман войны.
-    this.fog.revealDisc(this.save.home, HOME_SIGHT);
+    this.fog.revealDisc(this.save.home, homeSight(this.save.home));
     this.revealNeighbours();
     this.stepSightings(this.clock(), this.sightDiscs(this.clock()));
   }
@@ -798,6 +798,18 @@ export class LocalWorld implements WorldApi {
   }
 
   /**
+   * Под чужой стеной: ближе `LAIR_SETTLE_GAP` к чужому месту острова (даже пустому — туда сервер поставит соседа,
+   * docs/test_world.md) или к замку живого игрока из реестра. Генерация мира спрашивает только места острова
+   * (`gen.ts`): реестр меняется, а мир пересобирается из сида; новое логово заводится раз и лежит в сохранении,
+   * поэтому ему можно спросить и реестр.
+   */
+  private underForeignWalls(p: Coord): boolean {
+    if (islandNeighbours(this.save.home).some((w) => distance(w, p) < LAIR_SETTLE_GAP)) return true;
+    for (const c of this.castles.values()) if (distance(c, p) < LAIR_SETTLE_GAP) return true;
+    return false;
+  }
+
+  /**
    * Заводит логово в стороне от дома. Место выбирается по зерну, как всё
    * остальное в этом мире: тот же сид и то же время дают то же логово.
    */
@@ -816,6 +828,7 @@ export class LocalWorld implements WorldApi {
       // Под чужой стеной разбойники не селятся — и под своим же пепелищем тоже:
       // новое логово обязано читаться как новое место, а не как воскресшее.
       if (this.gen.settlements.some((o) => distance(o, spot) < LAIR_SETTLE_GAP)) continue;
+      if (this.underForeignWalls(spot)) continue;
       const l: SpawnedLair = {
         id: `l${this.save.nextLair}`,
         x: spot.x,
@@ -2926,12 +2939,12 @@ export class LocalWorld implements WorldApi {
   /**
    * Докуда деревня открывает местность вокруг себя: свой круг обзора или, если
    * Дозор изучил округу, изученный радиус. Это **только первый слой тумана** —
-   * земля. Живой обзор у деревни остаётся прежним кругом (`HOME_SIGHT`), и
+   * земля. Живой обзор у деревни остаётся прежним кругом (`homeSight`), и
    * растягивать его вслед за изучением нельзя: тогда высшая ступень отдала бы
    * игроку живое наблюдение за всей изученной округой даром.
    */
   private homeReveal(): number {
-    return Math.max(HOME_SIGHT, Math.round(this.save.profile?.survey ?? 0));
+    return Math.max(homeSight(this.save.home), Math.round(this.save.profile?.survey ?? 0));
   }
 
   // ---------- Черты агентов: пять дверей ----------
@@ -2988,7 +3001,7 @@ export class LocalWorld implements WorldApi {
    * открывает землю, и только.
    */
   protected sightDiscs(now: number): SightDisc[] {
-    const out: SightDisc[] = [{ x: this.save.home.x, y: this.save.home.y, r: HOME_SIGHT }];
+    const out: SightDisc[] = [{ x: this.save.home.x, y: this.save.home.y, r: homeSight(this.save.home) }];
     for (const id of FIGURE_IDS) {
       const f = this.save.figures[id];
       if (!f) continue;
