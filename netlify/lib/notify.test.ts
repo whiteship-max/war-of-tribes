@@ -343,6 +343,12 @@ function fakeTg(answer: SendResult = 'ok') {
     async button() {
       return 'ok';
     },
+    async say() {
+      return 'ok';
+    },
+    async file() {
+      return 'ok';
+    },
   };
   return tg;
 }

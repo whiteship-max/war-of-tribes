@@ -10,6 +10,9 @@
  * нажал кнопку (`callback_query.from.id`), и отметить канал по `my_chat_member` (заблокировал бота — закрыт,
  * вернул — открыт). Партию он не читает и не пишет, войн не знает (тест `server.test.ts`).
  *
+ * Сообщения — команды админа (`commands.ts`, docs/admin.md): отвечает он только `ADMIN_IDS`, остальным молчит; что
+ * написал админ, проверяется там раньше любого похода в хранилище.
+ *
  * Telegram ждёт на каждое обновление ответа 200, иначе шлёт его снова: всё, что не наше, — 200 и тишина.
  */
 import { createHash, timingSafeEqual } from 'node:crypto';
@@ -18,6 +21,7 @@ import { closeChannel, readNotify, switchTo, type NotifyRecord } from '../notify
 import { STORES } from '../kv.js';
 import { CALLBACK_OFF, CALLBACK_ON, SWITCHED_OFF, SWITCHED_ON } from '../words.js';
 import { telegram, type Telegram } from '../telegram.js';
+import { adminCommand } from '../commands.js';
 
 /** Обновлений в минуту на игрока — нажатий кнопок больше не бывает. */
 const PER_MINUTE = 30;
@@ -77,6 +81,7 @@ export const botWith =
     const text = await readBody(req);
     if (text === null || Buffer.byteLength(text, 'utf8') > MAX_UPDATE_BYTES) return json({ ok: true });
     const update = parseJson<Record<string, unknown>>(text);
+    if (update && typeof update === 'object' && (await adminCommand(update, io, tg))) return json({ ok: true });
     const found = update && typeof update === 'object' ? changeOf(update) : null;
     if (!found) return json({ ok: true });
 

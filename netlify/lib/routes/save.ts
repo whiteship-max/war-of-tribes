@@ -19,11 +19,17 @@
  * 3. **Одновременная запись не теряется молча.** Кто пишет, обязан сказать,
  *    поверх какой записи он пишет (`baseEtag`). Легло что-то другое — ответ 409
  *    вместе с чужой записью, и разбирается с этим игрок, а не сервер.
+ *
+ * Админка (docs/admin.md) добавила к ответу записку (`admin`): заморожен ли аккаунт и какие указы админа партия ещё не
+ * применила. Замороженному запись не принимается — 423. Попутно сохранение отмечает заход и опись в наблюдении
+ * (`watch.ts`); партию оно по-прежнему не разбирает.
  */
 import { readInitData, saveKeyOf } from '../initdata.js';
 import { allow, botToken, deny, json, parseJson, readBody, type Route } from '../http.js';
-import { readRecord, type ConflictResponse, type PullResponse, type PushBody, type PushResponse } from '../contract.js';
+import { readRecord, type ConflictResponse, type FrozenResponse, type PullResponse, type PushBody, type PushResponse } from '../contract.js';
 import { STORES } from '../kv.js';
+import { frozenNow, grantsOf, isFrozen, noteOf } from '../admin.js';
+import { observe, tooFast, touched, wrote } from '../watch.js';
 
 /** Потолки на части записи. Партия целиком укладывается в десятки килобайт. */
 const LIMITS = { game: 320 * 1024, world: 160 * 1024 };
@@ -50,14 +56,20 @@ export const save: Route = async (req, io) => {
   if (!allow(`save:${key}`, PER_MINUTE, now)) return deny(429, 'slow-down', { 'retry-after': '5' });
 
   const store = io.stores(STORES.saves);
+  const frozen = isFrozen(await frozenNow(io.stores), key);
+  const grants = await grantsOf(io.stores, key);
+  const user = auth.user.username;
 
   if (req.method === 'GET') {
     const found = await store.getWithMetadata(key);
+    // Партия на устройстве может быть впереди серверной записи: указы — все, что лежат; лишние клиент отсеет номером.
     const body: PullResponse = {
       now,
       etag: found?.etag ?? null,
       record: found ? parseJson(String(found.data)) : null,
+      admin: noteOf(frozen, grants, 0),
     };
+    await observe(io.stores, key, (rec) => touched(rec, now, user));
     return json(body);
   }
 
@@ -70,6 +82,14 @@ export const save: Route = async (req, io) => {
   const record = readRecord(sent.record, LIMITS);
   if (!record) return deny(400, 'bad-body');
   const baseEtag = typeof sent.baseEtag === 'string' ? sent.baseEtag : null;
+  const admin = noteOf(frozen, grants, record.watch?.seen ?? 0);
+
+  // Замороженный видит игру, но записи его не принимаются: ответ скажет почему, и игра покажет плашку.
+  if (frozen) {
+    const body: FrozenResponse = { error: 'frozen', now, admin };
+    await observe(io.stores, key, (rec) => touched(rec, now, user));
+    return json(body, 423);
+  }
 
   const found = await store.getWithMetadata(key);
   const current = found ? parseJson<{ rev?: number; updatedAt?: number }>(String(found.data)) : null;
@@ -83,11 +103,13 @@ export const save: Route = async (req, io) => {
       now,
       etag: found?.etag ?? null,
       record: found ? parseJson(String(found.data)) : null,
+      admin,
     };
     return json(body, 409);
   }
 
   if (current && typeof current.updatedAt === 'number' && now - current.updatedAt < MIN_WRITE_MS) {
+    await observe(io.stores, key, (rec) => tooFast(rec, now));
     return deny(429, 'slow-down', { 'retry-after': '5' });
   }
 
@@ -108,10 +130,14 @@ export const save: Route = async (req, io) => {
       now,
       etag: again?.etag ?? null,
       record: again ? parseJson(String(again.data)) : null,
+      admin,
     };
     return json(body, 409);
   }
 
-  const body: PushResponse = { now, etag: written.etag, rev: record.rev };
+  const card = record.card;
+  const rev = record.rev;
+  await observe(io.stores, key, (rec) => wrote(touched(rec, now, user), now, card, record.watch, rev));
+  const body: PushResponse = { now, etag: written.etag, rev: record.rev, admin };
   return json(body);
 };

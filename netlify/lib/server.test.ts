@@ -64,14 +64,16 @@ describe('сервер ничего не начисляет', () => {
       .filter((f) => /\breward|\bgold\b|\bresources\b/i.test(strip(readFileSync(f, 'utf8'))))
       .map(rel)
       .sort();
-    expect(guilty).toEqual(['lib/contract.ts', 'lib/war.ts']);
+    // Третий — команды админа (решение владельца 06.10.2026, docs/admin.md): указ правит склад и казну, но не начисляет —
+    // он ложится записью в журнал игрока, и применяет его клиент одной дверью (`sim/admin`). Алмазов в указе нет (тест выше).
+    expect(guilty).toEqual(['lib/commands.ts', 'lib/contract.ts', 'lib/war.ts']);
     for (const f of files()) expect(strip(readFileSync(f, 'utf8')), rel(f)).not.toMatch(/\breward/i);
   });
 });
 
 describe('личность берётся только из подписи', () => {
   /** Обработчики, которые знают игрока. Часы его не знают — подписи у них нет нарочно. */
-  const SIGNED = ['lib/routes/save.ts', 'lib/routes/castles.ts', 'lib/routes/notify.ts', 'lib/routes/war.ts'];
+  const SIGNED = ['lib/routes/save.ts', 'lib/routes/castles.ts', 'lib/routes/notify.ts', 'lib/routes/war.ts', 'lib/routes/report.ts'];
 
   it.each(SIGNED)('%s: подпись проверяется до первого похода в хранилище', (p) => {
     const code = read(p);
@@ -225,12 +227,17 @@ describe('исходящие: ключ только из подписи или �
   });
 });
 
-describe('сервер разбирает ровно три записи и слепок обороны', () => {
+describe('сервер разбирает ровно названные записи и слепок обороны', () => {
   /**
    * «Сервер хранит и раздаёт, а не судит» расширено вслух дважды: кроме реестра замков, сервер читает
    * исходящие уведомления (docs/handbook/sync.md, «Личность игрока»), а с войной между игроками (решение
    * владельца 05.10.2026, docs/pvp.md) — запись войн и слепок обороны из записи партии (`WarSheet`, не саму
    * партию). Следующая разбирающая запись обязана упереться сюда.
+   *
+   * Расширено вслух в третий раз — админкой (решение владельца 06.10.2026, docs/admin.md): заморозка, указы и журнал
+   * админа (`admin.ts`), наблюдение за игроком (`watch.ts`) и отчёты об ошибках (`reports.ts`). Партию по-прежнему не
+   * разбирает никто: числа для наблюдения клиент кладёт рядом описью (`WatchCard`). `reader` — читатель, переданный
+   * общей двери перезаписи (`admin.rewrite`); кто его передаёт, держит тест «перезапись — только известными читателями».
    *
    * Что считается разбором. Всё, что достаётся из хранилища, — `x.data`. Сохранение партии
    * сервер отдаёт обратно как есть (`parseJson` без читателя — в `routes/save.ts`, и только там:
@@ -238,7 +245,7 @@ describe('сервер разбирает ровно три записи и сл
    * данных перекладывают значение, не читая его: `data: x.data` — и только в них. Всё остальное
    * обязано пройти через читателя записи — и читателей ровно два.
    */
-  it('читателей хранимого четыре: реестр, исходящие, войны и слепок обороны', () => {
+  it('читатели хранимого: реестр, исходящие, войны, слепок обороны и записи админки', () => {
     const readers = new Set<string>();
     const bare: string[] = [];
     const movers: string[] = [];
@@ -254,9 +261,59 @@ describe('сервер разбирает ровно три записи и сл
       // Мимо этих форм хранимое не достаётся ни в одном файле.
       expect(uses, `${rel(f)}: хранимое достаётся мимо разбора`).toBe(seen + passthrough);
     }
-    expect([...readers].sort()).toEqual(['readNotify', 'readRoster', 'readStoredSheet', 'readWars']);
+    expect([...readers].sort()).toEqual([
+      'readAdminLog',
+      'readFrozen',
+      'readGrants',
+      'readNotify',
+      'readRoster',
+      'readStoredReport',
+      'readStoredSheet',
+      'readWars',
+      'readWatchRecord',
+      'reader',
+    ]);
     expect(bare).toEqual(['lib/routes/save.ts']);
     expect(movers.sort()).toEqual(['lib/blobs.ts', 'vps/import.ts', 'vps/sqlite.ts']);
+  });
+});
+
+describe('админка: только ADMIN_IDS, партии не пишет, алмазов не знает (docs/admin.md)', () => {
+  /**
+   * Команда админа приходит в вебхук бота с секретом; что написал админ, проверяется раньше любого похода в хранилище.
+   * Строка, переставленная ниже первого `io.stores(`, открыла бы журнал игроков любому, кто знает имя бота.
+   */
+  it('команды: проверка админа до первого похода в хранилище', () => {
+    const code = read('lib/commands.ts');
+    const body = code.slice(code.indexOf('export async function adminCommand('));
+    const check = body.search(/if \(from === null \|\| chat\.type !== 'private' \|\| chat\.id !== from \|\| !isAdmin\(from, env\)\) return true;/);
+    expect(check).toBeGreaterThan(0);
+    // Все помощники, ходящие в хранилище, зовутся только из `adminCommand` после проверки.
+    expect(body.slice(0, check)).not.toMatch(/io\.stores\(|await /);
+    expect([...code.matchAll(/export async function adminCommand\(/g)].length).toBe(1);
+  });
+
+  it('команды: партии только читаются (есть ли такой игрок), и ни одна команда не пишет в чужие хранилища', () => {
+    const code = read('lib/commands.ts');
+    expect(code).not.toMatch(/STORES\.saves\)\s*\.\s*(?:setJSON|set|delete)\(/);
+    expect([...code.matchAll(/STORES\.saves\)\.(\w+)\(/g)].map((m) => m[1])).toEqual(['getWithMetadata']);
+    expect(code).not.toMatch(/STORES\.(?:notify|due|world)\b/);
+  });
+
+  /** Записи админки пишут только админка и команды; сохранение, война и доставка заморозку и указы только читают. */
+  it('хранилище админки пишут только admin.ts и commands.ts', () => {
+    const uses = files()
+      .filter((f) => /STORES\.admin\b/.test(strip(readFileSync(f, 'utf8'))))
+      .map(rel)
+      .sort();
+    expect(uses).toEqual(['lib/admin.ts', 'lib/commands.ts', 'lib/deliver.ts']);
+    expect(read('lib/deliver.ts')).not.toMatch(/admin\??\.(?:setJSON|set|delete)\(/);
+  });
+
+  it('перезапись — только известными читателями', () => {
+    const calls = files().flatMap((f) => [...strip(readFileSync(f, 'utf8')).matchAll(/\brewrite\([^;]*?\b(read\w+)\b/g)].map((m) => m[1]));
+    expect(calls.length).toBeGreaterThan(3);
+    expect([...new Set(calls)].sort()).toEqual(['readAdminLog', 'readFrozen', 'readGrants', 'readWatchRecord']);
   });
 });
 

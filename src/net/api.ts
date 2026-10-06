@@ -29,6 +29,8 @@ export type ApiFail =
   | 'conflict'
   /** Слишком часто. */
   | 'busy'
+  /** Аккаунт заморожен админом: записи не принимаются (docs/admin.md). */
+  | 'frozen'
   /** Сервер ответил, но чем-то другим. */
   | 'server';
 
@@ -76,6 +78,7 @@ async function call<T>(path: string, init: RequestInit & { auth?: boolean } = {}
   if (res.status === 401 || res.status === 403) return fail('auth', body);
   if (res.status === 409) return fail('conflict', body);
   if (res.status === 429) return fail('busy', body);
+  if (res.status === 423) return fail('frozen', body);
   return fail('server', body);
 }
 

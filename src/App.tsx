@@ -19,6 +19,8 @@ import { SiegeBanner } from './ui/SiegeBanner';
 import { WorldMap } from './ui/map/WorldMap';
 import { StartScreen } from './ui/StartScreen';
 import { SyncModal } from './ui/SyncModal';
+import { Frozen } from './ui/parts/Frozen';
+import { useBugReport } from './ui/parts/bugOpen';
 import { SortiePanel } from './ui/panels/SortiePanel';
 import { SiegePanel } from './ui/panels/SiegePanel';
 import { CampPanel } from './ui/panels/CampPanel';
@@ -74,6 +76,8 @@ const Trades = lazy(() => nextUi().then((m) => ({ default: m.Trades })));
  * города нет вовсе — контекст WebGL один (docs/minigames.md, 7).
  */
 const Minigame = lazy(() => import('./minigames/Minigame').then((m) => ({ default: m.Minigame })));
+/** «Сообщить об ошибке» — своим куском: открывают его редко (docs/admin.md). */
+const BugReport = lazy(() => import('./ui/parts/BugReport').then((m) => ({ default: m.BugReport })));
 
 /** Пока едет кусок промысла — тот же тёмный фон, что у игры: мигать другим цветом незачем. */
 const MINI_WAIT = { position: 'fixed', inset: 0, zIndex: 80, background: 'var(--bg)' } as const;
@@ -127,6 +131,7 @@ export function App() {
   const tradesOpen = useTrades((t) => t.open);
   const hideTrades = useTrades((t) => t.hide);
   const playing = useTrades((t) => t.playing);
+  const bugOpen = useBugReport((b) => b.open);
   const stopPlaying = useTrades((t) => t.stop);
   const bootWorld = useWorld((g) => g.boot);
   // Пока идёт обучение, его строка стоит над низом: держава нового вида встаёт выше неё (`next.css`, `tut-on`),
@@ -257,6 +262,8 @@ export function App() {
           этот вопрос обязан стоять поверх остальных окон. Своего слоя у него
           нет — он просто идёт после них. */}
       <SyncModal />
+      {/* Заморозка — плашка поверх игры, забирающая касания (docs/admin.md). */}
+      <Frozen />
       {/*
         Стартовый экран поверх всего, включая окна: пока игрок не вошёл, ему
         нечего решать про партию, в которую он ещё не зашёл. Вопрос второй
@@ -293,6 +300,12 @@ export function App() {
       {playing && (
         <Suspense fallback={<div style={MINI_WAIT} />}>
           <Minigame game={playing} onExit={stopPlaying} />
+        </Suspense>
+      )}
+      {/* «Сообщить об ошибке» — поверх всего: его открывают из меню, со стартового экрана и с плашки заморозки. */}
+      {bugOpen && (
+        <Suspense fallback={null}>
+          <BugReport />
         </Suspense>
       )}
     </div>

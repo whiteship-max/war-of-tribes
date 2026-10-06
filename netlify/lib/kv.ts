@@ -50,6 +50,15 @@ export const STORES = {
   due: 'tribe-notify-due',
   /** Счётчики проходов доставки. */
   stats: 'tribe-notify-stats',
+  /**
+   * Админка (docs/admin.md): заморозка одной записью (`frozen`), указы игрока (`grants/tg-<id>`) и журнал админа
+   * (`log`). Пишет только команда бота от `ADMIN_IDS`; читают сохранение, война и проход доставки.
+   */
+  admin: 'tribe-admin',
+  /** Наблюдение за игроком: заходы, опись, журнал действий города и флаги, ключ `tg-<id>`. */
+  watch: 'tribe-watch',
+  /** Отчёты об ошибках, ключ — номер отчёта. */
+  reports: 'tribe-reports',
 } as const;
 
 export type StoreName = (typeof STORES)[keyof typeof STORES];

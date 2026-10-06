@@ -35,6 +35,11 @@ export const ENV = {
    * общий адаптер Telegram сам (`http.appUrl`) — одинаково на Netlify и здесь. Пусто — боевой адрес на Netlify.
    */
   appUrl: 'TRIBE_APP_URL',
+  /**
+   * Админы бота (docs/admin.md): идентификаторы Telegram через запятую. Читает его общая админка сама
+   * (`admin.adminIds`) — одинаково на Netlify и здесь. Пусто — команд админа не слушает никто.
+   */
+  admins: 'ADMIN_IDS',
   /** Номер сайта Netlify — для `TRIBE_STORE=blobs` и для переноса данных. */
   netlifySite: 'NETLIFY_SITE_ID',
   /** Личный токен Netlify — для `TRIBE_STORE=blobs` и для переноса данных. */

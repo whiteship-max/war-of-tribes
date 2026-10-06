@@ -87,6 +87,7 @@ const WORDS: Record<ApiFail, string> = {
   conflict: 'Список соседей обновляется.',
   busy: `Слишком часто. Список обновится через ${realSpan(ROSTER_PULL_MS / 1000)}.`,
   server: 'Список соседей не пришёл. Показаны по памяти.',
+  frozen: 'Аккаунт заморожен. Соседи показаны по памяти.',
 };
 
 export const useRoster = create<RosterStore>(() => ({ state: 'off', why: '', at: null, count: 0 }));
