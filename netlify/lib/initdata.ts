@@ -27,7 +27,15 @@ export interface TgIdentity {
    * разрешение, данное посреди игры, появится здесь только со следующим.
    */
   allowsWrite?: true;
+  /**
+   * Имя пользователя Telegram (`@имя` без собаки) — из той же подписанной строки. Нужно только админке: найти игрока
+   * по имени (docs/admin.md). Нет имени или оно не похоже на имя Telegram — поля нет.
+   */
+  username?: string;
 }
+
+/** Имя пользователя Telegram: 4–32 знака, латиница, цифры и подчёркивание. */
+const USERNAME = /^[A-Za-z0-9_]{4,32}$/;
 
 /**
  * Почему отказано. Наружу эти слова не уходят — снаружи видно только «нет»
@@ -131,16 +139,26 @@ export function readInitData(raw: string | null | undefined, botToken: string, n
   if (!userRaw) return { ok: false, why: 'malformed' };
   let id: unknown;
   let allows: unknown;
+  let username: unknown;
   try {
-    const user = JSON.parse(userRaw) as { id?: unknown; allows_write_to_pm?: unknown };
+    const user = JSON.parse(userRaw) as { id?: unknown; allows_write_to_pm?: unknown; username?: unknown };
     id = user.id;
     allows = user.allows_write_to_pm;
+    username = user.username;
   } catch {
     return { ok: false, why: 'malformed' };
   }
   if (typeof id !== 'number' || !Number.isSafeInteger(id) || id <= 0) return { ok: false, why: 'malformed' };
 
-  return { ok: true, user: { id, authDate, ...(allows === true ? { allowsWrite: true as const } : {}) } };
+  return {
+    ok: true,
+    user: {
+      id,
+      authDate,
+      ...(allows === true ? { allowsWrite: true as const } : {}),
+      ...(typeof username === 'string' && USERNAME.test(username) ? { username } : {}),
+    },
+  };
 }
 
 /**

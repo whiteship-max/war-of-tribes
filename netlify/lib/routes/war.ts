@@ -12,6 +12,9 @@
  * Ключ защитника приходит не из тела запроса, а из реестра (по номеру замка) или из самой войны.
  *
  * Тика нет: всё назначенное к этой минуте разбирается здесь, при обращении любой из сторон (`advance`).
+ *
+ * Заморозка (docs/admin.md): приказ замороженного не принимается, на замороженный город поход не уходит, а войско,
+ * пришедшее к нему, поворачивает домой — слепка его обороны для войны нет, как у города, ушедшего из игры.
  */
 import { readInitData, saveKeyOf } from '../initdata.js';
 import { WRITE_TRIES, allow, botToken, deny, json, parseJson, readBody, warPace, type Route } from '../http.js';
@@ -20,6 +23,8 @@ import { castleIdOf, readRoster } from '../roster.js';
 import { advance, applyOrder, dueKeys, newsDiff, newsMap, pruneWars, readStoredSheet, readWars, setWarPace, warsOf, WARS_KEY, type SheetAt } from '../war.js';
 import { queueNews } from '../outbox.js';
 import { STORES } from '../kv.js';
+import { FROZEN_ORDER, FROZEN_TARGET, frozenNow, isFrozen } from '../admin.js';
+import { noted, observe } from '../watch.js';
 
 /** Все войны лежат одной записью рядом с реестром. */
 const KEY = WARS_KEY;
@@ -52,11 +57,17 @@ export const war: Route = async (req, io) => {
   const saves = io.stores(STORES.saves, 'strong');
   const pace = warPace();
   setWarPace(pace);
+  const frozen = await frozenNow(io.stores);
 
-  // Слепки обороны — из записей партий, по ключу из реестра или из самой войны. Только чтение.
+  // Слепки обороны — из записей партий, по ключу из реестра или из самой войны. Только чтение. Замороженного города
+  // для войны нет: слепка нет, и пришедшее войско поворачивает (docs/admin.md).
   const sheets = new Map<string, SheetAt | null>();
   const load = async (player: string): Promise<void> => {
     if (sheets.has(player)) return;
+    if (isFrozen(frozen, player)) {
+      sheets.set(player, null);
+      return;
+    }
     const found = await saves.getWithMetadata(player);
     sheets.set(player, readStoredSheet(found ? parseJson(String(found.data)) : null));
   };
@@ -75,13 +86,14 @@ export const war: Route = async (req, io) => {
     let changed = advance(file, now, sheets);
 
     let error: string | null = null;
-    if (order) {
+    const targetKey = order?.op === 'march' ? (Object.keys(roster.rows).find((k) => castleIdOf(k) === order.target) ?? null) : null;
+    if (order && isFrozen(frozen, key)) {
+      error = FROZEN_ORDER;
+    } else if (targetKey && isFrozen(frozen, targetKey)) {
+      error = FROZEN_TARGET;
+    } else if (order) {
       await load(key);
-      const target = order.op === 'march' ? order.target : null;
-      if (target) {
-        const row = Object.keys(roster.rows).find((k) => castleIdOf(k) === target);
-        if (row) await load(row);
-      }
+      if (targetKey) await load(targetKey);
       if (order.op === 'storm') {
         const w = file.wars.find((x) => x.id === (order as { id: string }).id);
         if (w) await load(w.def);
@@ -98,6 +110,11 @@ export const war: Route = async (req, io) => {
     const written = await hot.setJSON(KEY, file, etag === null ? { onlyIfNew: true } : { onlyIfMatch: etag });
     if (written.modified) {
       await queueNews({ notify: io.stores(STORES.notify), due: io.stores(STORES.due) }, newsDiff(told, newsMap(file)), now);
+      // Поход на игрока — в журнал города нападающего (наблюдение, docs/admin.md).
+      if (order?.op === 'march' && !error && targetKey) {
+        const city = roster.rows[targetKey]?.city || 'без имени';
+        await observe(io.stores, key, (rec) => noted({ ...rec, wars: rec.wars + 1 }, now, 'war', `Поход на «${city}» (${order.mode === 'storm' ? 'штурм' : 'осада'}).`));
+      }
       return json(body);
     }
   }

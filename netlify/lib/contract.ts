@@ -46,6 +46,8 @@ export interface SaveRecord {
    * приходит чужое войско; сама партия по-прежнему непрозрачна. Нет поля — клиент до войны.
    */
   war?: WarSheet;
+  /** Опись наблюдения для статистики и флагов (docs/admin.md). Нет поля — клиент до админки. */
+  watch?: WatchCard;
 }
 
 /** Ответ на чтение. `etag` — то, чем потом доказывают, что писали поверх этого. */
@@ -54,7 +56,17 @@ export interface PullResponse {
   now: number;
   etag: string | null;
   record: SaveRecord | null;
+  /** Заморозка и неприменённые указы админа (docs/admin.md). Нет поля — сервер до админки. */
+  admin?: AdminNote;
 }
+
+/**
+ * Как часто игра отправляет партию на сервер (`src/net/sync.PUSH_MS`), и чаще какого срока — не отправляет никогда
+ * (`sync.HURRY_MS`, раскладка в слепке обороны сменилась). Числа живут здесь, потому что их читают обе стороны:
+ * игра — чтобы отправлять, сервер — чтобы считать заходы и время в игре (`lib/watch.ts`).
+ */
+export const SAVE_PUSH_MS = 60_000;
+export const SAVE_HURRY_MS = 6_000;
 
 export interface PushBody {
   /** Поверх какой записи пишем. `null` — записи не было вовсе. */
@@ -66,6 +78,7 @@ export interface PushResponse {
   now: number;
   etag: string;
   rev: number;
+  admin?: AdminNote;
 }
 
 /** Ответ 409: пока мы играли, поверх нашей записи легла чужая. */
@@ -74,6 +87,7 @@ export interface ConflictResponse {
   now: number;
   etag: string | null;
   record: SaveRecord | null;
+  admin?: AdminNote;
 }
 
 const str = (v: unknown, max: number): string | null =>
@@ -119,6 +133,7 @@ export function readRecord(v: unknown, limits: { game: number; world: number }):
       army: Math.max(0, Math.floor(num(c.army) ?? 0)),
     },
     ...(r.war ? { war: readSheet(r.war) ?? undefined } : {}),
+    ...(r.watch ? { watch: readWatch(r.watch) } : {}),
   };
 }
 
@@ -860,4 +875,245 @@ export function readWarOrder(v: unknown): WarOrder | null {
     default:
       return null;
   }
+}
+
+// ---------- Админка, наблюдение, отчёты об ошибках (docs/admin.md) ----------
+//
+// Инструменты для теста с игроками (решение владельца 06.10.2026). Партия по-прежнему непрозрачна: числа для
+// наблюдения клиент кладёт рядом с ней описью (`WatchCard`) — так же, как `SaveCard`, теми же функциями игры, что
+// интерфейс. Указ админа — запись в журнале игрока на сервере (`AdminGrant`); партию правит не сервер, а клиент,
+// одной дверью (`src/game/sim/admin.ts`) и ровно один раз — по номеру указа.
+
+/**
+ * Виды склада, которые правит указ: семь припасов и золото. Тот же список, что у игры (`constants.RESOURCE_IDS` и
+ * золото) — сверяет тест (`src/net/admin.test.ts`). Алмазов здесь нет и быть не может: начисление алмазов одно —
+ * `creditGems` с распиской сервера.
+ */
+export const STOCK_KEYS = ['wood', 'stone', 'food', 'hides', 'bones', 'copper', 'iron', 'gold'] as const;
+export type StockKey = (typeof STOCK_KEYS)[number];
+
+/** Виды бойцов, которые правит указ. Тот же список, что у игры (`data/troops.TROOP_IDS`) — сверяет тот же тест. */
+export const TROOP_KEYS = ['clubman', 'spearman', 'archer', 'axeman', 'swordsman', 'shieldman', 'rider', 'knight', 'legionary'] as const;
+export type TroopKey = (typeof TROOP_KEYS)[number];
+
+/** Потолок одного числа указа по модулю. Больше на складе и в войске не бывает. */
+export const GRANT_MAX = 1e7;
+
+/** Сколько последних указов игрока лежит на сервере. Номер у партии один, и обрезка списка ничего не теряет. */
+export const GRANTS_KEEP = 50;
+
+/** Указ админа глазами клиента: номер, минута и что поменять. Кто отдал — знает только журнал админа. */
+export interface AdminGrant {
+  /** Номер по порядку у этого игрока: 1, 2, 3… Партия применяет только номера старше своего `adminSeen`. */
+  n: number;
+  /** Когда отдан, по серверным часам. */
+  at: number;
+  /** Склад и золото: прибавка (+) или убавка (−). */
+  stock: Partial<Record<StockKey, number>>;
+  /** Бойцы по видам: прибавка (+) или убавка (−). */
+  troops: Partial<Record<TroopKey, number>>;
+}
+
+/** Что сервер сообщает клиенту об админке вместе с ответом сохранения. */
+export interface AdminNote {
+  /** Аккаунт заморожен: записи и приказы войны не принимаются. */
+  frozen: boolean;
+  /** Указы, ещё не применённые этой партией (номер старше присланного в описи). */
+  grants: AdminGrant[];
+}
+
+/** Ответ 423: аккаунт заморожен, запись не принята. */
+export interface FrozenResponse {
+  error: 'frozen';
+  now: number;
+  admin: AdminNote;
+}
+
+/** Числа со знаком по известным видам: новый объект, только целые, не больше `GRANT_MAX` по модулю, без нулей. */
+export function readDeltas<K extends string>(v: unknown, keys: readonly K[]): Partial<Record<K, number>> {
+  const out: Partial<Record<K, number>> = {};
+  if (!v || typeof v !== 'object') return out;
+  const r = v as Record<string, unknown>;
+  for (const k of keys) {
+    const x = num(r[k]);
+    if (x === null) continue;
+    const n = Math.trunc(Math.max(-GRANT_MAX, Math.min(GRANT_MAX, x)));
+    if (n !== 0) out[k] = n;
+  }
+  return out;
+}
+
+/** Указ из ответа сервера или из хранилища: новый объект; без номера или пустой — `null`. */
+export function readGrant(v: unknown): AdminGrant | null {
+  if (!v || typeof v !== 'object') return null;
+  const r = v as Record<string, unknown>;
+  const n = num(r.n);
+  const at = num(r.at);
+  if (n === null || n < 1 || !Number.isInteger(n) || at === null) return null;
+  const stock = readDeltas(r.stock, STOCK_KEYS);
+  const troops = readDeltas(r.troops, TROOP_KEYS);
+  if (Object.keys(stock).length + Object.keys(troops).length === 0) return null;
+  return { n, at, stock, troops };
+}
+
+/** Записка админки из ответа: кривое — «не заморожен, указов нет». */
+export function readAdminNote(v: unknown): AdminNote {
+  const r = (v && typeof v === 'object' ? v : {}) as Record<string, unknown>;
+  const grants = Array.isArray(r.grants) ? r.grants.map(readGrant).filter((g): g is AdminGrant => g !== null) : [];
+  grants.sort((a, b) => a.n - b.n);
+  return { frozen: r.frozen === true, grants: grants.slice(-GRANTS_KEEP) };
+}
+
+/**
+ * Опись наблюдения: числа партии для статистики и флагов подозрительного. Считает её клиент теми же функциями, что
+ * интерфейс (`src/net/snapshot.ts`); сервер её только читает и сравнивает две соседние описи. Судьёй сервер от этого
+ * не становится: флаг — подсказка админу, а не приговор, и партию он не трогает.
+ */
+export interface WatchCard {
+  /** Версия игры: ступень сохранения и имя входного куска сборки. */
+  build: string;
+  /** Имя города, очищенное (`cityName`); не назван — пусто. */
+  city: string;
+  /** Часы устройства в минуту описи (`deviceNow`): сдвиг против серверных — флаг. */
+  clock: number;
+  /** Часы партии, игровые секунды (`s.time`). */
+  time: number;
+  /** Уровень ратуши. */
+  level: number;
+  /** Жители (без бойцов и учеников). */
+  pop: number;
+  /** Склад и золото по видам `STOCK_KEYS`. */
+  stock: Counts;
+  /** Приток за игровой день: выработка по припасам, золото — налог и вера. */
+  prod: Counts;
+  /** Вместимость склада по каждому припасу. */
+  cap: number;
+  /** Войско по видам. */
+  troops: Counts;
+  /** Бойцов в обучении (очередь казарм и конюшни). */
+  queued: number;
+  /** Раненых в лазарете. */
+  wounded: number;
+  /** Сколько бойцов казармы и конюшня выучат за игровой день — не больше. */
+  train: number;
+  /**
+   * Разовые дела партии одним счётчиком: события, бои, логова, набеги, покупки, ежедневки, промыслы, указы. Дело
+   * может разом принести добро, поэтому между двумя описями с одинаковым счётчиком рост склада обязан уложиться в
+   * выработку.
+   */
+  deeds: number;
+  /** Боёв выиграно и проиграно, логов сожжено, набегов отправлено. */
+  won: number;
+  lost: number;
+  lairs: number;
+  raids: number;
+  /** Промыслов сыграно и сколько добра они принесли всего. */
+  games: number;
+  haul: number;
+  /** Потолок добычи одного промысла сейчас — сумма по видам (`minigameCap`), наибольший из промыслов. */
+  haulCap: number;
+  /** Партию помечали кодами проверки (`GameState.cheated`). */
+  cheated: boolean;
+  /** Опережение часов партии скоростью проверки, мс (`GameState.lead`). */
+  lead: number;
+  /** Номер последнего применённого указа админа (`GameState.adminSeen`). */
+  seen: number;
+}
+
+const whole = (v: unknown, max: number): number => Math.floor(Math.min(max, Math.max(0, num(v) ?? 0)));
+
+/** Опись наблюдения из того, что прислали: новый объект; нет её — `undefined`. */
+export function readWatch(v: unknown): WatchCard | undefined {
+  if (!v || typeof v !== 'object') return undefined;
+  const r = v as Record<string, unknown>;
+  const big = WAR_LIMITS.count * 1e3;
+  return {
+    build: str(r.build, 64) ?? '',
+    city: cityName(r.city) ?? '',
+    clock: whole(r.clock, 1e14),
+    time: whole(r.time, 1e12),
+    level: whole(r.level, 100),
+    pop: whole(r.pop, 1e9),
+    stock: readCounts(r.stock),
+    prod: readCounts(r.prod),
+    cap: whole(r.cap, big),
+    troops: readCounts(r.troops),
+    queued: whole(r.queued, 1e9),
+    wounded: whole(r.wounded, 1e9),
+    train: whole(r.train, 1e9),
+    deeds: whole(r.deeds, 1e12),
+    won: whole(r.won, 1e9),
+    lost: whole(r.lost, 1e9),
+    lairs: whole(r.lairs, 1e9),
+    raids: whole(r.raids, 1e9),
+    games: whole(r.games, 1e9),
+    haul: whole(r.haul, 1e12),
+    haulCap: whole(r.haulCap, big),
+    cheated: r.cheated === true,
+    lead: whole(r.lead, 1e12),
+    seen: whole(r.seen, 1e9),
+  };
+}
+
+/** Потолки отчёта об ошибке. Пять отчётов в час с одного игрока — больше живой человек не пишет. */
+export const REPORT_LIMITS = { text: 2000, perHour: 5, scene: 4000, events: 15, event: 200, field: 300 } as const;
+
+/** Что игра знает о себе в минуту отчёта — собирается сама, игрок пишет только текст. */
+export interface ReportCtx {
+  /** Версия игры — та же строка, что в описи наблюдения. */
+  build: string;
+  /** Устройство: строка браузера и платформа Telegram. */
+  device: string;
+  /** Размер экрана и плотность: `390×844 @3`. */
+  screen: string;
+  /** Текущий экран: город, карта, меню державы с разделом, панель здания. */
+  view: string;
+  /** Что было со сценой (`scenelog.report`), обрезано. */
+  scene: string;
+  /** Последние строки летописи партии. */
+  events: string[];
+  /** Часы устройства в минуту отчёта. */
+  clock: number;
+  /** Игровой день партии. */
+  day: number;
+}
+
+/** Тело `/api/report`. */
+export interface ReportPut {
+  text: string;
+  ctx: ReportCtx;
+  /**
+   * Снимок экрана по желанию игрока — место оставлено (docs/admin.md): поле появится вместе с хранилищем файлов и
+   * своим потолком. Сейчас сервер его не принимает и не хранит.
+   */
+  shot?: null;
+}
+
+/** Ответ `/api/report`: номер отчёта или отказ «слишком часто». */
+export interface ReportResponse {
+  now: number;
+  id: string;
+}
+
+/** Отчёт из тела запроса: новый объект, всё обрезано по потолкам; пустой текст — `null`. */
+export function readReport(v: unknown): ReportPut | null {
+  if (!v || typeof v !== 'object') return null;
+  const r = v as Record<string, unknown>;
+  const text = typeof r.text === 'string' ? r.text.replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, '').trim().slice(0, REPORT_LIMITS.text) : '';
+  if (!text) return null;
+  const c = (r.ctx && typeof r.ctx === 'object' ? r.ctx : {}) as Record<string, unknown>;
+  const cut = (x: unknown, max: number = REPORT_LIMITS.field): string => (typeof x === 'string' ? x.slice(0, max) : '');
+  return {
+    text,
+    ctx: {
+      build: cut(c.build, 64),
+      device: cut(c.device),
+      screen: cut(c.screen, 64),
+      view: cut(c.view, 120),
+      scene: cut(c.scene, REPORT_LIMITS.scene),
+      events: Array.isArray(c.events) ? c.events.slice(-REPORT_LIMITS.events).map((e) => cut(e, REPORT_LIMITS.event)).filter(Boolean) : [],
+      clock: whole(c.clock, 1e14),
+      day: whole(c.day, 1e9),
+    },
+  };
 }

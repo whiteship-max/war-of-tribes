@@ -23,6 +23,7 @@ import { parseJson, warPace } from './http.js';
 import { STORES, type Kv, type Stores } from './kv.js';
 import { advance, dueKeys, newsDiff, newsMap, readStoredSheet, readWars, setWarPace, WARS_KEY, type SheetAt } from './war.js';
 import { queueNews } from './outbox.js';
+import { frozenIn, isFrozen } from './admin.js';
 import { noticeText } from './words.js';
 import type { Telegram } from './telegram.js';
 
@@ -37,6 +38,8 @@ export interface PassIo {
   world: Kv;
   /** Партии — **только чтение**: слепок обороны защитника для боя войны (`war.readStoredSheet`). */
   saves: Kv;
+  /** Админка — **только чтение**: замороженный город для войны закрыт (docs/admin.md). Нет — никто не заморожен. */
+  admin?: Kv;
   /** Адаптер Telegram. Нет — проход считает «ушло бы», не отправляя (тесты, проба). */
   tg: Telegram | null;
 }
@@ -51,6 +54,7 @@ export const passIoOf = (stores: Stores, tg: Telegram | null): PassIo => ({
   stats: stores(STORES.stats),
   world: stores(STORES.world, 'strong'),
   saves: stores(STORES.saves, 'strong'),
+  admin: stores(STORES.admin, 'strong'),
   tg,
 });
 
@@ -211,7 +215,13 @@ async function warTick(io: PassIo, now: number): Promise<number> {
   if (due.length === 0) return 0;
   const before = newsMap(file);
   const sheets = new Map<string, SheetAt | null>();
+  const frozen = io.admin ? await frozenIn(io.admin) : null;
   for (const player of due) {
+    // Замороженного города для войны нет — тем же правилом, что у обработчика `/api/war`.
+    if (frozen && isFrozen(frozen, player)) {
+      sheets.set(player, null);
+      continue;
+    }
     const save = await io.saves.getWithMetadata(player);
     sheets.set(player, readStoredSheet(save ? parseJson(String(save.data)) : null));
   }

@@ -30,7 +30,7 @@
  * её надо целиком, а не намёком отсюда.
  */
 import { create } from 'zustand';
-import type { ConflictResponse, PullResponse, PushResponse, SaveCard, SaveRecord } from '../../netlify/lib/contract';
+import { SAVE_HURRY_MS, SAVE_PUSH_MS, type ConflictResponse, type PullResponse, type PushResponse, type SaveCard, type SaveRecord } from '../../netlify/lib/contract';
 import { adoptSave } from '@/game/save';
 import type { GameState } from '@/game/types';
 import { browserStorage } from '@/world/local/state';
@@ -46,13 +46,13 @@ const META_KEY = 'tribe.sync.v1';
 const SPARE_KEY = 'tribe.sync.spare.v1';
 
 /** Как часто партия уезжает на сервер. Реже автосохранения на диск — нарочно. */
-export const PUSH_MS = 60_000;
+export const PUSH_MS = SAVE_PUSH_MS;
 
 /**
  * Раньше срока, но не чаще этого: сменилась раскладка в слепке обороны (`net/war.sheetMark`). Сервер принимает запись
  * не чаще раза в 4 с (`routes/save.MIN_WRITE_MS`); отказ «слишком часто» здесь — ещё одна попытка через столько же.
  */
-export const HURRY_MS = 6_000;
+export const HURRY_MS = SAVE_HURRY_MS;
 
 /**
  * Пора ли отправить партию: срок вышел — или раскладка в слепке обороны не та, что ушла последней записью (docs/retinue.md):

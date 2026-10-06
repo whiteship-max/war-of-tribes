@@ -63,6 +63,14 @@ function fakeTg() {
       calls.push(`button:${chat}:${message}:${on ? 'off-button' : 'on-button'}`);
       return 'ok';
     },
+    async say(chat, text) {
+      calls.push(`say:${chat}:${text}`);
+      return 'ok';
+    },
+    async file(chat, name) {
+      calls.push(`file:${chat}:${name}`);
+      return 'ok';
+    },
   };
   return { tg, calls };
 }

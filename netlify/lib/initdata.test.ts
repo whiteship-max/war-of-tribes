@@ -45,6 +45,14 @@ describe('личность игрока берётся только из под�
     expect(r).toEqual({ ok: true, user: { id: 777, authDate: NOW - 60 } });
   });
 
+  it('имя пользователя — из той же подписи и только похожее на имя Telegram (админка, docs/admin.md)', () => {
+    const named = (username: unknown): Record<string, string> => fields({ user: JSON.stringify({ id: 777, username }) });
+    expect(readInitData(sign(named('ivan_99'), TOKEN), TOKEN, NOW)).toEqual({ ok: true, user: { id: 777, authDate: NOW - 60, username: 'ivan_99' } });
+    for (const bad of ['iv', 'с кириллицей', 'a'.repeat(33), 5, '<b>evil</b>']) {
+      expect(readInitData(sign(named(bad), TOKEN), TOKEN, NOW)).toEqual({ ok: true, user: { id: 777, authDate: NOW - 60 } });
+    }
+  });
+
   it('чужой токен не подходит: подпись — это и есть весь замок', () => {
     expect(readInitData(sign(fields(), OTHER), TOKEN, NOW)).toEqual({ ok: false, why: 'bad-hash' });
   });

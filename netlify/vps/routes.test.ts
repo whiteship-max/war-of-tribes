@@ -178,7 +178,8 @@ describe.each(HOMES.map(([name]) => [name]))('договор на доме %s', 
   });
 
   it('сохранение: первая запись, чтение своего, чужое не видно', () => {
-    expect(at('сохранение: пусто').body).toEqual({ now: NOW, etag: null, record: null });
+    // Записка админки едет с каждым ответом сохранения: не заморожен, указов нет (docs/admin.md).
+    expect(at('сохранение: пусто').body).toEqual({ now: NOW, etag: null, record: null, admin: { frozen: false, grants: [] } });
     expect(at('сохранение: первая запись')).toMatchObject({ status: 200, body: { now: NOW, etag: 'E1', rev: 1 } });
     const read = at('сохранение: чтение').body as { etag: string; record: Record<string, unknown> };
     expect(read.etag).toBe('E1');
