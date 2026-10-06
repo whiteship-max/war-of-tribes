@@ -42,7 +42,9 @@ export type EnergyAction =
   | 'storm'
   | 'siege'
   | 'strike'
-  | 'chase';
+  | 'chase'
+  | 'fortify'
+  | 'bombard';
 
 export interface EnergyPrice {
   agent: FigureId;
@@ -87,4 +89,18 @@ export const ENERGY_PRICE: Record<EnergyAction, EnergyPrice> = {
   siege: { agent: 'general', name: 'осадный лагерь', price: 10, why: 'Слово владельца. Пока лагерь стоит, энергия не тратится.' },
   strike: { agent: 'general', name: 'удар по лагерю', price: 20, why: 'Тот же бой, что штурм.' },
   chase: { agent: 'general', name: 'перехват', price: 20, why: 'Тот же бой, что штурм, только в поле.' },
+  fortify: {
+    agent: 'general',
+    name: 'укрепить лагерь',
+    price: 10,
+    why: 'Та же работа топором, что поставить лагерь (10): вторая линия рогаток. Два укрепления — пятая часть запаса.',
+  },
+  bombard: {
+    agent: 'general',
+    name: 'обстрел города',
+    price: 15,
+    why:
+      'Бой без сшибки — между лагерем (10) и штурмом (20). Три залпа и штурм — 65: в осаде энергия стоит, и полный обстрел ' +
+      'перед штурмом по карману только лагерю, до которого дорога была недолгой.',
+  },
 };

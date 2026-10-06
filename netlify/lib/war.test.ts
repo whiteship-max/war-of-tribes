@@ -7,6 +7,7 @@ import { inHomeTheatre } from '../../src/world/theatre/theatre.js';
 import { energyAt, energyBlock, priceOf, roadCost } from '../../src/world/energy.js';
 import { warWalkMs } from '../../src/world/pvp.js';
 import { ENERGY_FILL, ENERGY_MAX } from '../../src/world/data/energy.js';
+import { craftBlock, fortFaces, wallMen } from '../../src/world/siegecraft.js';
 
 /**
  * Война между игроками (docs/pvp.md). Тесты только там, где без них можно подделать исход боя, начислить
@@ -253,6 +254,68 @@ describe('энергия полководца: поход, осада и уда�
     expect(w.strike).toBeUndefined();
     expect(strike(priceOf('strike'))).toBeNull();
     expect(w.strike).toBeDefined();
+  });
+});
+
+describe('дела в лагере: укрепить лагерь и обстрел города (world/siegecraft)', () => {
+  /** Поход с осадой и запасом `extra` сверх дороги и лагеря: у стен у полководца ровно `extra`. */
+  function camped(extra: number) {
+    const { ctx, file, sheets } = setup();
+    const walk = warWalkMs(ctx.roster.rows[A], ctx.roster.rows[B]);
+    const value = priceOf('siege') + roadCost(walk) + extra;
+    expect(value, 'точка внутри области: запас не выше полного').toBeLessThanOrEqual(ENERGY_MAX);
+    const order = { ...army({ spearman: 30 }), energy: { value, at: T0, mode: 'fill' as const } };
+    expect(applyOrder(file, A, { op: 'march', target: castleIdOf(B), mode: 'siege', fate: 'plunder', army: order }, T0, ctx)).toBeNull();
+    const w = file.wars[0];
+    advance(file, w.arriveAt + 1, sheets);
+    expect(w.phase, 'точка внутри области: лагерь встал').toBe('camp');
+    return { ctx, file, sheets, w, at: w.arriveAt + 2 };
+  }
+
+  it('в приказе дела нет ни счётчика, ни исхода: разбор оставляет само дело, чужое дело — отказ разбора', () => {
+    const order = readWarOrder({ op: 'craft', id: 'w1', act: 'bombard', craft: { shots: 3 }, won: true, energy: { value: 100 } });
+    expect(Object.keys(order as object).sort()).toEqual(['act', 'id', 'op']);
+    expect(readWarOrder({ op: 'craft', id: 'w1', act: 'storm' })).toBeNull();
+  });
+
+  it('энергия списывается один раз за дело; на пределе и без энергии — отказ без списания; защитник лагерем не правит', () => {
+    const { ctx, file, w, at } = camped(priceOf('fortify') * 2 + 5);
+    const have = () => energyAt(w.army.energy, at);
+    // Защитник не укрепит чужой лагерь: приказ ищет войну по стороне нападающего.
+    expect(applyOrder(file, B, { op: 'craft', id: w.id, act: 'fortify' }, at, ctx)).toBe('Лагеря уже нет.');
+    expect(w.camp?.craft).toBeUndefined();
+    const start = have();
+    expect(applyOrder(file, A, { op: 'craft', id: w.id, act: 'fortify' }, at, ctx)).toBeNull();
+    expect(have()).toBeCloseTo(start - priceOf('fortify'), 6);
+    expect(applyOrder(file, A, { op: 'craft', id: w.id, act: 'fortify' }, at, ctx)).toBeNull();
+    expect(have()).toBeCloseTo(start - 2 * priceOf('fortify'), 6);
+    expect(w.camp?.craft?.fort).toBe(2);
+    // Предел за осаду — отказ двери, энергия на месте.
+    expect(applyOrder(file, A, { op: 'craft', id: w.id, act: 'fortify' }, at, ctx)).toBe(craftBlock({ fort: 2 }, 'fortify'));
+    expect(have()).toBeCloseTo(start - 2 * priceOf('fortify'), 6);
+    // Пять энергии на залп в пятнадцать — отказ двери энергии, счётчик не тронут.
+    expect(applyOrder(file, A, { op: 'craft', id: w.id, act: 'bombard' }, at, ctx)).toBe(energyBlock(have(), priceOf('bombard')));
+    expect(w.camp?.craft?.shots).toBeUndefined();
+  });
+
+  it('сделанное в лагере доходит до боя на сервере: укрепления — в кости вылазки, пролом — в стене при штурме', () => {
+    const { ctx, file, sheets, w, at } = camped(priceOf('fortify') * 2 + priceOf('bombard') + priceOf('storm'));
+    applyOrder(file, A, { op: 'craft', id: w.id, act: 'fortify' }, at, ctx);
+    applyOrder(file, A, { op: 'craft', id: w.id, act: 'fortify' }, at, ctx);
+    expect(applyOrder(file, B, { op: 'sortie', id: w.id, troops: { spearman: 10 } }, at + 1, ctx)).toBeNull();
+    const sortie = w.battles[w.battles.length - 1];
+    expect(sortie.site).toBe('sortie');
+    expect(sortie.input.ground?.works).toBe(fortFaces({ fort: 2 }));
+    expect(sortie.craft?.fort).toBe(2);
+    expect(w.phase, 'точка внутри области: лагерь устоял').toBe('camp');
+    expect(applyOrder(file, A, { op: 'craft', id: w.id, act: 'bombard' }, at + 2, ctx)).toBeNull();
+    advance(file, at + 3, sheets);
+    expect(applyOrder(file, A, { op: 'storm', id: w.id }, at + 3, ctx)).toBeNull();
+    const storm = w.battles[w.battles.length - 1];
+    expect(storm.site).toBe('wall');
+    const wall = wallMen(sheet().militia, sheet().archers, { fort: 2, shots: 1 });
+    expect(wall.militia, 'точка внутри области: пролом снял людей со стены').toBeLessThan(sheet().militia);
+    expect(storm.militia).toEqual({ men: wall.militia, archers: wall.archers });
   });
 });
 

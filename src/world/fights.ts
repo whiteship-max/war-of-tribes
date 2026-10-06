@@ -61,6 +61,11 @@ export interface CampFightIn {
   resolve?: number;
   pips?: Pips;
   ground?: GroundPenalty;
+  /**
+   * Укрепления лагеря в гранях кости (`siegecraft.fortFaces`): штраф нападающим на лагерь, поверх земли. Нет — ноль, и бой
+   * тот же, что до укреплений.
+   */
+  fort?: number;
 }
 
 export type CampFightOut =
@@ -102,9 +107,12 @@ export function campFight(input: CampFightIn): CampFightOut {
   // Совместный удар — с обеих сторон: со стороны города вышел гарнизон. Кто из ворот, ядро только разложит по секторам
   // для ролика (`FieldSide.garrison`, решение владельца 03.10.2026, вариант А) — бой один, исход от этого не зависит.
   const garrison = input.front && input.rear && front && rear ? front.kinds : undefined;
+  // Укрепления — та же грань кости, что земля (`GroundPenalty.works`): у кого бы лагерь ни стоял, бьют его через них.
+  const fort = input.fort !== undefined && input.fort > 0 ? input.fort : 0;
+  const ground = fort > 0 ? { ...(input.ground ?? {}), works: fort } : input.ground;
   const fieldIn: FieldInput = {
     seed: input.seed,
-    ground: input.ground,
+    ...(ground ? { ground } : {}),
     attacker: {
       kinds,
       resolve: input.resolve,

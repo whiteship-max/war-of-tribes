@@ -127,6 +127,11 @@ export interface ArmySetup {
 export interface GroundPenalty {
   land?: number;
   crossing?: number;
+  /**
+   * Укрепления лагеря, на который идут (`world/siegecraft`, приказ «Укрепить лагерь»): та же грань кости, что земля, —
+   * манёвр её не снимает. Ядро про лагерь не знает, как не знает про землю; нет поля — ноль.
+   */
+  works?: number;
 }
 
 export type Side = 'attacker' | 'defender';
@@ -168,7 +173,7 @@ export type BattleEvent = EventBase &
      * Место боя штрафует кость стороны на весь бой (EU4): земля `land` и переправа `crossing`, в гранях. `lifted` —
      * переправу снял манёвр полководца выше манёвра противника. Пишется в начале боя, если штраф есть.
      */
-    | { id: 'ground'; side: Side; land: number; crossing: number; lifted: boolean }
+    | { id: 'ground'; side: Side; land: number; crossing: number; lifted: boolean; works?: number }
     /**
      * Сторона вышла в бой не в полной морали — дралась недавно (`ArmySetup.rest`): `rest` — доля полной, до сотых.
      * Пишется в начале боя, если доля в процентах меньше ста.

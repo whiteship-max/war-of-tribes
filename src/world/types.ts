@@ -2,6 +2,7 @@
 // откуда приходят данные: локальная генерация сейчас или сервер потом.
 // Единственная связь с симуляцией племени — словарь ресурсов: добыча и грабёж
 // говорят на одном языке со складом.
+import type { CraftAct } from './siegecraft';
 import type { GameSec } from '@/game/pace';
 import type { FaithId, ResourceId } from '@/game/types';
 import type { TroopStack } from '@/game/battle/kinds';
@@ -241,6 +242,29 @@ export interface SiegeView {
    */
   campRest?: RestView;
   garrisonRest?: RestView;
+  /**
+   * Что полководец сделал в лагере (`world/siegecraft`): лагерь укреплён, город обстреливают — словами той же двери, что
+   * считает бой (`craftNote`). Нет поля — ничего не делали.
+   */
+  craftNote?: string;
+}
+
+/**
+ * Дело полководца в своём лагере глазами меню осаждающего: что даст следующее, сколько сделано из предела и цена в
+ * энергии. Считает мир той же дверью, что применит приказ (`world/siegecraft`, `world/energy`).
+ */
+export interface CraftOption {
+  act: CraftAct;
+  /** Дело словами — из таблицы энергии. */
+  name: string;
+  done: number;
+  max: number;
+  /** Что даст следующее — или почему предел (`siegecraft.craftGain`). */
+  gain: string;
+  energy: EnergyCost;
+  can: boolean;
+  /** Почему нельзя: предел или энергия. null — можно. */
+  reason: string | null;
 }
 
 /**
@@ -305,6 +329,8 @@ export interface CampView extends Omit<SiegeView, 'fall' | 'palisade'> {
   men: number;
   /** Цена штурма из лагеря в энергии полководца и отказ, если её не хватает (`world/energy`). */
   storm?: EnergyCost;
+  /** Дела в лагере: укрепить лагерь, обстрел города (`world/siegecraft`). */
+  crafts?: CraftOption[];
 }
 
 /**

@@ -612,7 +612,19 @@ export interface WarInput {
   seed: number;
   attacker: WarSide;
   defender: WarSide;
+  /** Штраф кости нападающему (`battle.GroundPenalty`): у боя за лагерь — его укрепления (`works`). Нет — ноль. */
+  ground?: { land?: number; crossing?: number; works?: number };
 }
+
+/** Что полководец сделал в своём лагере (`world/siegecraft.Craft`): сколько раз укрепил, сколько залпов дал. */
+export interface WarCraft {
+  fort?: number;
+  shots?: number;
+}
+
+/** Дела полководца в лагере — строки таблицы энергии (`world/siegecraft.CraftAct`). */
+export const WAR_CRAFTS = ['fortify', 'bombard'] as const;
+export type WarCraftAct = (typeof WAR_CRAFTS)[number];
 
 export type WarSite = 'wall' | 'sortie' | 'camp' | 'joint';
 
@@ -640,6 +652,8 @@ export interface WarBattle {
   /** Сколько вышло и пробилось через рогатки со стороны города и с тыла. */
   through?: { went: number; passed: number };
   rearThrough?: { went: number; passed: number };
+  /** Что было сделано в лагере к этому бою: укрепления и обстрел. Нет — ничего. */
+  craft?: WarCraft;
 }
 
 /** Участь взятого города — посчитана дверью `spoils.fate`, у обеих сторон одними числами. */
@@ -677,6 +691,8 @@ export interface WarCamp {
   fate?: NoticeFate;
   wood?: { front: number; rear: number; at?: number; base?: { front: number; rear: number } };
   builders?: number;
+  /** Дела полководца в этом лагере (`SiegeWindow.craft`). */
+  craft?: WarCraft;
 }
 
 /** Удар полководца города по лагерю: идёт, бьётся в минуту прихода. */
@@ -747,6 +763,7 @@ export type WarOrder =
   | { op: 'storm'; id: string }
   | { op: 'retreat'; id: string }
   | { op: 'sortie'; id: string; troops: Counts }
+  | { op: 'craft'; id: string; act: WarCraftAct }
   | { op: 'strike'; id: string; army: WarArmy; joint: boolean; walkMs: number };
 
 /** Отметка падения города в списке принятого (`WarSheet.seen`): одна на клиент и на сервер. */
@@ -865,6 +882,10 @@ export function readWarOrder(v: unknown): WarOrder | null {
       return id ? { op: r.op, id } : null;
     case 'sortie':
       return id ? { op: 'sortie', id, troops: readCounts(r.troops) } : null;
+    case 'craft': {
+      const act = WAR_CRAFTS.find((a) => a === r.act);
+      return id && act ? { op: 'craft', id, act } : null;
+    }
     case 'strike': {
       const army = readArmy(r.army);
       const walk = num(r.walkMs);

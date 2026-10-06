@@ -4,6 +4,7 @@
 // Когда появится сервер, рядом встанет HttpWorld с теми же сигнатурами, и ни один
 // компонент интерфейса переписывать не придётся. Поэтому все методы асинхронные,
 // даже те, что сегодня отвечают мгновенно.
+import type { CraftAct } from './siegecraft';
 import type { TroopStack } from '@/game/battle/kinds';
 import type {
   AttackOrder,
@@ -140,6 +141,13 @@ export interface WorldApi {
    * Вложенное к этой минуте остаётся вложенным.
    */
   setWood(share: number): Promise<string | null>;
+
+  /**
+   * Дело полководца в своём лагере (`world/siegecraft`): укрепить лагерь или обстрелять город — за энергию, не больше
+   * предела за осаду. Лагерь под логовом — правилом мира, под городом игрока — приказом серверу войны той же дверью.
+   * null — сделано, иначе причина.
+   */
+  campCraft(act: CraftAct): Promise<string | null>;
 
   /** Окно осаждающего: наш лагерь под чужим городом. null — лагеря нет. */
   camp(): Promise<CampView | null>;

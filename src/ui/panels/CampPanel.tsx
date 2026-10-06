@@ -46,6 +46,7 @@ export function CampPanel() {
   const attack = useWorld((g) => g.attack);
   const retreat = useWorld((g) => g.retreat);
   const setWood = useWorld((g) => g.setWood);
+  const campCraft = useWorld((g) => g.campCraft);
   const [pick, setPick] = useState<Fate | null>(null);
   const [busy, setBusy] = useState(false);
   const [, retick] = useState(0);
@@ -159,6 +160,27 @@ export function CampPanel() {
         <p className="note warn">
           {restLine(camp.campRest, 'Лагерь дрался', now)} {REST_WHY}
         </p>
+      )}
+
+      {/* Дела полководца в лагере (world/siegecraft): за энергию, не больше предела за осаду. Числа и отказ — из мира. */}
+      {camp.crafts && camp.crafts.length > 0 && (
+        <>
+          <h3>Дела в лагере</h3>
+          {camp.crafts.map((c) => (
+            <div key={c.act}>
+              <button
+                className="btn wide"
+                disabled={busy || !c.can}
+                onClick={() => void order(() => campCraft(c.act), `${c.name[0].toUpperCase()}${c.name.slice(1)}: сделано.`)}
+              >
+                {c.name[0].toUpperCase()}
+                {c.name.slice(1)} · {c.done} из {c.max} · энергия {c.energy.price}
+              </button>
+              <p className={`note${c.can ? '' : ' bad'}`}>{c.can ? c.gain : c.reason}</p>
+            </div>
+          ))}
+          {camp.craftNote && <p className="note">{camp.craftNote}</p>}
+        </>
       )}
 
       <h3>Участь</h3>
