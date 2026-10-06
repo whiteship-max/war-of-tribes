@@ -25,6 +25,7 @@
  * (`watch.ts`); партию оно по-прежнему не разбирает.
  */
 import { readInitData, saveKeyOf } from '../initdata.js';
+import { eraGate } from '../era.js';
 import { allow, botToken, deny, json, parseJson, readBody, type Route } from '../http.js';
 import { readRecord, type ConflictResponse, type FrozenResponse, type PullResponse, type PushBody, type PushResponse } from '../contract.js';
 import { STORES } from '../kv.js';
@@ -54,6 +55,9 @@ export const save: Route = async (req, io) => {
 
   const key = saveKeyOf(auth.user);
   if (!allow(`save:${key}`, PER_MINUTE, now)) return deny(429, 'slow-down', { 'retry-after': '5' });
+  // Эпоха мира (docs/test_world.md): партия другой эпохи не пишется и не читается — после чистого старта она не воскресает.
+  const gone = await eraGate(req, io);
+  if (gone) return gone;
 
   const store = io.stores(STORES.saves);
   const frozen = isFrozen(await frozenNow(io.stores), key);

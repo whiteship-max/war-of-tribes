@@ -42,6 +42,7 @@ import { beatLease, claimLease, dropLease, leaseHolder, LEASE_BEAT_MS } from './
 import { snapshotOf } from './snapshot';
 import { sheetMark } from './war';
 import { takeNote } from './admin';
+import { knownEra } from './era';
 
 const META_KEY = 'tribe.sync.v1';
 const SPARE_KEY = 'tribe.sync.spare.v1';
@@ -77,6 +78,8 @@ export interface Spare {
   at: number;
   game: string;
   world: string | null;
+  /** Эпоха мира, в которой её отложили (docs/test_world.md). Другая — копии нет: вернуть стёртый мир нельзя. */
+  era?: number;
 }
 
 export interface SyncStore {
@@ -116,6 +119,8 @@ const write = (key: string, value: string | null): void => {
 interface Meta {
   etag: string | null;
   rev: number;
+  /** Эпоха мира, в которой легли поверх `etag`. Другая — отметки нет: сервер той эпохи стёрт. */
+  era?: number;
 }
 
 function readMeta(): Meta | null {
@@ -123,19 +128,21 @@ function readMeta(): Meta | null {
   if (!raw) return null;
   try {
     const v = JSON.parse(raw) as Partial<Meta>;
+    if ((v.era ?? 0) !== knownEra()) return null;
     return typeof v.rev === 'number' ? { etag: typeof v.etag === 'string' ? v.etag : null, rev: v.rev } : null;
   } catch {
     return null;
   }
 }
 
-const writeMeta = (m: Meta): void => write(META_KEY, JSON.stringify(m));
+const writeMeta = (m: Meta): void => write(META_KEY, JSON.stringify({ ...m, era: knownEra() }));
 
 function readSpare(): Spare | null {
   const raw = read(SPARE_KEY);
   if (!raw) return null;
   try {
     const v = JSON.parse(raw) as Partial<Spare>;
+    if ((v.era ?? 0) !== knownEra()) return null;
     return typeof v.game === 'string' && v.card ? (v as Spare) : null;
   } catch {
     return null;
@@ -143,7 +150,7 @@ function readSpare(): Spare | null {
 }
 
 const keepSpare = (record: SaveRecord, at: number): void =>
-  write(SPARE_KEY, JSON.stringify({ card: record.card, at, game: record.game, world: record.world } satisfies Spare));
+  write(SPARE_KEY, JSON.stringify({ card: record.card, at, game: record.game, world: record.world, era: knownEra() } satisfies Spare));
 
 /** Слова для игрока по причине отказа. Технических подробностей здесь нет. */
 const WORDS: Record<ApiFail, string> = {
@@ -153,6 +160,7 @@ const WORDS: Record<ApiFail, string> = {
   busy: `Слишком часто. Следующая попытка через ${realSpan(PUSH_MS / 1000)}.`,
   frozen: 'Аккаунт заморожен: партия на сервер не сохраняется.',
   server: 'Сохранение не прошло. Играй дальше, попробуем ещё раз.',
+  era: 'Мир начат заново. Игра перезапускается в новую партию.',
 };
 
 /**

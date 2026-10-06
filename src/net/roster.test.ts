@@ -172,10 +172,9 @@ describe('сервера нет — игра идёт', () => {
     expect(done).toBe(true);
   });
 
-  it('ожидание клетки кончается в любом случае', async () => {
+  it('ожидание клетки кончается в любом случае, где у мира нет сервера или клетка пришла', async () => {
     for (const setup of [
       () => H.apiPut.mockResolvedValue(ok(answer())),
-      () => H.apiPut.mockResolvedValue(fail('offline')),
       () => {
         H.initData = null;
       },
@@ -189,6 +188,44 @@ describe('сервера нет — игра идёт', () => {
       await vi.advanceTimersByTimeAsync(1);
       await expect(r.rosterReady()).resolves.toBeUndefined();
     }
+  });
+});
+
+describe('место выдаёт сервер до постройки мира (docs/test_world.md)', () => {
+  it('сервер недоступен — мир ждёт и повторяет, а не ставит город сам; сервер ожил — клетка его', async () => {
+    H.apiPut.mockResolvedValue(fail('offline'));
+    const r = await tab();
+    await r.rosterBoot();
+    let done = false;
+    void r.rosterReady().then(() => {
+      done = true;
+    });
+    // Граница области: прошёл и срок ожидания без разговора (`ROSTER_WAIT_MS`), — в Telegram он не отпускает мир.
+    await vi.advanceTimersByTimeAsync(r.ROSTER_WAIT_MS + r.SEAT_RETRY_MAX_MS * 3);
+    expect(done).toBe(false);
+    expect(r.castleCell()).toBeNull();
+    expect(r.useRoster.getState().why).toContain(r.SEAT_WAIT);
+    // Повторы идут, и не чаще потолка: за минуту с лишним — не больше десятка.
+    const tries = H.apiPut.mock.calls.length;
+    expect(tries).toBeGreaterThan(2);
+    expect(tries).toBeLessThan(12);
+    H.apiPut.mockResolvedValue(ok(answer({ mine: { x: 741, y: 1335 } })));
+    await vi.advanceTimersByTimeAsync(r.SEAT_RETRY_MAX_MS + 1);
+    expect(done).toBe(true);
+    expect(r.castleCell()).toEqual({ x: 741, y: 1335 });
+  });
+
+  it('клетка этой эпохи уже известна — мир строится сразу, без ожидания сервера', async () => {
+    H.apiPut.mockResolvedValue(ok(answer()));
+    await (await tab()).rosterBoot();
+    vi.resetModules();
+    H.apiPut.mockReset();
+    H.apiPut.mockReturnValue(new Promise(() => {}));
+    const r = await tab();
+    void r.rosterBoot();
+    await vi.advanceTimersByTimeAsync(1);
+    await expect(r.rosterReady()).resolves.toBeUndefined();
+    expect(r.castleCell()).toEqual({ x: 900, y: 1000 });
   });
 });
 

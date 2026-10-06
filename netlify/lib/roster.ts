@@ -38,6 +38,9 @@ import { cityName, type CastleClaim, type CastleRow, type CastleView, type Roste
 export const ROSTER_MAX = 5000;
 export const ROSTER_FORGET_MS = 90 * 24 * 60 * 60_000;
 
+/** Ключ реестра в хранилище общего мира: весь реестр лежит одним значением. */
+export const ROSTER_KEY = 'roster';
+
 /** Земля, на которой считаны координаты. Сменилась — реестр начинается заново. */
 export const rosterEpoch = (): number => ATLAS_HASH;
 

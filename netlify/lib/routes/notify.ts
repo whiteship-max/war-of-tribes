@@ -23,6 +23,7 @@
  * проход доставки, а не клиент, — кнопка под сообщением бота переключает его, не спрашивая игру.
  */
 import { readInitData, saveKeyOf } from '../initdata.js';
+import { eraGate } from '../era.js';
 import { WRITE_TRIES, allow, botToken, deny, json, parseJson, readBody, type Route } from '../http.js';
 import type { NotifyPut } from '../contract.js';
 import { accept, readNotify, stateOf } from '../notify.js';
@@ -41,6 +42,9 @@ export const notify: Route = async (req, io) => {
 
   const key = saveKeyOf(auth.user);
   if (!allow(`notify:${key}`, PER_MINUTE, now)) return deny(429, 'slow-down', { 'retry-after': '5' });
+  // Эпоха мира (docs/test_world.md): партия другой эпохи не пишется и не читается — после чистого старта она не воскресает.
+  const gone = await eraGate(req, io);
+  if (gone) return gone;
 
   const store = io.stores(STORES.notify);
   const due = io.stores(STORES.due);

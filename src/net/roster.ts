@@ -6,12 +6,14 @@
  *
  * 1. **Игра работает, когда сервера нет.** Реестр — не условие запуска: не
  *    приехал — карта показывает то, что помнит, и говорит словами, что список
- *    соседей устарел. Ни белого экрана, ни бесконечного ожидания; отсюда же
- *    кэш на устройстве, который переживает и отсутствие сети, и отсутствие
- *    Telegram.
+ *    соседей устарел. Ни белого экрана; отсюда же кэш на устройстве, который
+ *    переживает и отсутствие сети, и отсутствие Telegram.
  * 2. **Своё место не выбирают.** Клетку замка называет сервер, и приезжает она
  *    сюда же. Мир читает её отсюда синхронно (`castleCell`), потому что строится
- *    он синхронно, а спросить сеть в конструкторе нельзя.
+ *    он синхронно, а спросить сеть в конструкторе нельзя. **В Telegram мир не
+ *    строится, пока сервер не назвал клетку** (docs/test_world.md): сервер
+ *    недоступен — игра ждёт и повторяет, а не ставит замок куда попало. Деревня
+ *    при этом живёт: ждёт только карта.
  * 3. **Пишет только ведущая вкладка.** Ровно как отправка партии: вкладка,
  *    которой сказано «здесь она больше не сохраняется», не пишет и в реестр —
  *    иначе она объявляла бы миру своё имя и свою мощь из состояния, которое
@@ -28,6 +30,7 @@ import { realSpan } from '@/game/span';
 import { apiGet, apiPut, type ApiFail } from './api';
 import { serverNow } from './clock';
 import { leaseHolder } from './session';
+import { eraLeaving, knownEra } from './era';
 
 const KEY = 'tribe.castles.v1';
 
@@ -59,6 +62,8 @@ interface Cached {
   /** Своя клетка. null — замок ещё не поставлен. */
   mine: Cell | null;
   castles: CastleView[];
+  /** Эпоха мира (docs/test_world.md). Другая — кэша нет: клетка стёртого мира новой партии не принадлежит. */
+  era?: number;
 }
 
 export type RosterState =
@@ -88,6 +93,7 @@ const WORDS: Record<ApiFail, string> = {
   busy: `Слишком часто. Список обновится через ${realSpan(ROSTER_PULL_MS / 1000)}.`,
   server: 'Список соседей не пришёл. Показаны по памяти.',
   frozen: 'Аккаунт заморожен. Соседи показаны по памяти.',
+  era: 'Мир начат заново. Игра перезапускается.',
 };
 
 export const useRoster = create<RosterStore>(() => ({ state: 'off', why: '', at: null, count: 0 }));
@@ -114,6 +120,7 @@ function load(): Cached | null {
   try {
     const v = JSON.parse(raw) as Partial<Cached>;
     if (typeof v.at !== 'number' || typeof v.epoch !== 'number' || !Array.isArray(v.castles)) return null;
+    if ((v.era ?? 0) !== knownEra()) return null;
     const mine = v.mine && typeof v.mine.x === 'number' ? { x: v.mine.x, y: v.mine.y } : null;
     return { at: v.at, epoch: v.epoch, mine, castles: v.castles };
   } catch {
@@ -127,7 +134,7 @@ let cache: Cached | null = load();
 function keep(res: RosterResponse, at: number): void {
   // Земля сменилась — всё, что помнили, относится к другой карте. Приводить
   // тут нечего: клетка 541|822 на новой земле — другое место.
-  const next: Cached = { at, epoch: res.epoch, mine: res.mine, castles: res.castles };
+  const next: Cached = { at, epoch: res.epoch, mine: res.mine, castles: res.castles, era: knownEra() };
   cache = next;
   write(JSON.stringify(next));
   useRoster.setState({ state: 'ok', why: '', at, count: res.castles.length });
@@ -162,17 +169,24 @@ let pullTimer: ReturnType<typeof setInterval> | null = null;
 let talking = false;
 
 /**
- * Больше этого мир клетку не ждёт ни при каких условиях.
+ * Сколько мир ждёт клетку, если разговора с реестром не было вовсе.
  *
- * Срок с запасом к сроку запроса (`TIMEOUT_MS` в `api.ts`). Нужен он не от недоверия к сети, а
- * потому, что ждать может оказаться нечего вовсе: `rosterBoot` зовёт стор
- * племени, а мир поднимают и стенды, и отчёты, и тесты — там его никто не
- * звал, и бесконечное ожидание означало бы карту, которая не открывается.
+ * Ждать может оказаться нечего: `rosterBoot` зовёт стор племени, а мир поднимают
+ * и стенды, и отчёты, и тесты — там его никто не звал, и бесконечное ожидание
+ * означало бы карту, которая не открывается. Когда разговор начат в Telegram
+ * (`rosterBoot`), срок не действует: мир ждёт клетку от сервера столько, сколько
+ * нужно (docs/test_world.md).
  */
 export const ROSTER_WAIT_MS = 9000;
 
+/** Первый повтор, если клетка не пришла, и потолок повторов: дальше — не чаще раза в полминуты. */
+export const SEAT_RETRY_MS = 2000;
+export const SEAT_RETRY_MAX_MS = 30_000;
+
 /** Договорились ли уже с сервером — или решили, что его не будет. */
 let over = false;
+/** Разговор начат в Telegram: мир ждёт клетку от сервера, срок `ROSTER_WAIT_MS` его не отпускает. */
+let holding = false;
 let settled: (() => void) | null = null;
 let ready: Promise<void> | null = null;
 
@@ -184,20 +198,22 @@ const done = (): void => {
 
 /**
  * Ждать, пока клетка замка не станет известна — или пока не станет ясно, что
- * сервера в этой сессии нет. Мир строится синхронно и обязан знать, где ставить
- * замок, **до** постройки: собранный не на том месте, он потом переписывался бы
- * под ногами у игрока.
+ * сервера в этой сессии нет (вне Telegram, вторая вкладка, разговора не было).
+ * Мир строится синхронно и обязан знать, где ставить замок, **до** постройки:
+ * собранный не на том месте, он потом переписывался бы под ногами у игрока.
  *
- * Кончается это ожидание **всегда**: разговором, отказом или сроком. Игры оно
- * не задерживает — деревня к этому времени давно на экране, а карту открывают
- * тапом много позже.
+ * В Telegram ожидание кончается только клеткой: сервер не отвечает — игра
+ * повторяет (`seat`), а не ставит замок сама. Игры оно не задерживает — деревня
+ * к этому времени давно на экране; ждёт только карта.
  */
 export function rosterReady(): Promise<void> {
   if (over) return Promise.resolve();
   if (!ready) {
     ready = new Promise<void>((resolve) => {
       settled = resolve;
-      const timer = setTimeout(done, ROSTER_WAIT_MS) as unknown as { unref?: () => void };
+      const timer = setTimeout(() => {
+        if (!holding) done();
+      }, ROSTER_WAIT_MS) as unknown as { unref?: () => void };
       // В Node таймер держал бы процесс живым до самого срока — отчётам и
       // тестам это ни к чему.
       timer.unref?.();
@@ -259,8 +275,12 @@ export async function rosterBoot(): Promise<void> {
     return;
   }
   say('busy', '');
+  // Своя клетка этой эпохи уже известна (прошлый заход) — мир строится сразу, строка уходит своим чередом.
+  if (cache?.mine) done();
+  else holding = true;
   await push();
-  done();
+  if (cache?.mine) done();
+  else void seat();
   if (!pushTimer) {
     pushTimer = setInterval(() => {
       // Потеряла ведение — перестала писать. То же правило, что и у отправки
@@ -269,6 +289,33 @@ export async function rosterBoot(): Promise<void> {
       void push();
     }, ROSTER_PUSH_MS);
   }
+}
+
+const sleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => {
+    const t = setTimeout(resolve, ms) as unknown as { unref?: () => void };
+    t.unref?.();
+  });
+
+/**
+ * Клетки ещё нет: спрашивать сервер, пока не назовёт, — с растущей паузой, не
+ * чаще раза в `SEAT_RETRY_MAX_MS`. Карта всё это время говорит, чего ждёт
+ * (`useRoster.why`). Кончается клеткой — или сменой эпохи: тогда игра
+ * перезапускается, и ждать здесь нечего.
+ */
+export const SEAT_WAIT = 'Ждём, когда сервер назовёт место города на карте.';
+
+async function seat(): Promise<void> {
+  for (let wait = SEAT_RETRY_MS; !cache?.mine; wait = Math.min(wait * 2, SEAT_RETRY_MAX_MS)) {
+    if (eraLeaving()) return;
+    // Причина последнего отказа — словами реестра; своё «ждём» к ней не прибавляется второй раз.
+    const { state, why } = useRoster.getState();
+    say('busy', state === 'busy' || !why ? SEAT_WAIT : `${SEAT_WAIT} ${why}`);
+    await sleep(wait);
+    if (leaseHolder() === 'other') return;
+    await push();
+  }
+  done();
 }
 
 /**

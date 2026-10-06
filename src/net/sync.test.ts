@@ -174,6 +174,27 @@ async function tab(): Promise<typeof import('./sync')> {
  */
 const unload = async (): Promise<void> => (await import('./session')).dropLease();
 
+describe('чистый старт (docs/test_world.md)', () => {
+  it('отметка и отложенная партия прошлой эпохи не читаются: вернуть стёртую партию нечем', async () => {
+    shelf.set(META, JSON.stringify({ etag: 'e7', rev: 7 }));
+    shelf.set(SPARE, JSON.stringify({ card: record('старый день 90', 90).card, at: 1, game: 'старый день 90', world: null }));
+    shelf.set('tribe.era', '1');
+    H.local = { game: 'новый день 1', world: null, day: 1 };
+    H.apiGet.mockResolvedValue(ok({ now: 1, etag: null, record: null }));
+    H.apiPut.mockResolvedValue(ok({ now: 1, etag: 'e1', rev: 1 }));
+    const sync = await tab();
+    await sync.syncBoot(true);
+    expect(sync.useSync.getState().spare).toBeNull();
+    // Граница области: в той же эпохе отложенная видна (её не стёрли — её не читают).
+    await unload();
+    vi.resetModules();
+    shelf.set('tribe.era', '0');
+    const again = await tab();
+    await again.syncBoot(true);
+    expect(again.useSync.getState().spare?.card.day).toBe(90);
+  });
+});
+
 describe('прогресс при запуске', () => {
   /**
    * Главный обычный случай, ради которого правило и написано так: играли без
@@ -202,7 +223,7 @@ describe('прогресс при запуске', () => {
     expect(H.reload).not.toHaveBeenCalled();
     expect(shelf.get(SPARE)).toBeUndefined();
     // Отметка наследования подновилась: следующий запуск — снова продолжение.
-    expect(JSON.parse(shelf.get(META) as string)).toEqual({ etag: 'e8', rev: 8 });
+    expect(JSON.parse(shelf.get(META) as string)).toEqual({ etag: 'e8', rev: 8, era: 0 });
   });
 
   /**

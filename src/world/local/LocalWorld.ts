@@ -361,6 +361,11 @@ export interface LocalWorldOptions {
    */
   home?: Coord;
   /**
+   * Эпоха мира устройства (`net/era.knownEra`, docs/test_world.md). Сохранение мира другой эпохи не читается — мир
+   * собирается заново. Нет — эпоху не сверяют (стенды, отчёты, тесты).
+   */
+  era?: number;
+  /**
    * Замки живых игроков из реестра. Отдаётся функцией, а не списком: реестр
    * приезжает по своему сроку, а мир спрашивает его на каждом пульсе. Про сеть
    * мир при этом по-прежнему не знает ничего — ему приносят строки.
@@ -490,7 +495,9 @@ export class LocalWorld implements WorldApi {
     this.warsKnown = opts.warsKnown ?? null;
     this.warOrderTo = opts.warOrder ?? null;
     this.warPaceOf = opts.warPace ?? (() => 1);
-    const stored = parseWorldSave(this.storage?.read() ?? null);
+    const parsed = parseWorldSave(this.storage?.read() ?? null);
+    // Мир прошлой эпохи (сервер стёрт `/wipeworld ДА`) не читается: новая партия — новый мир (docs/test_world.md).
+    const stored = parsed && opts.era !== undefined && (parsed.era ?? 0) !== opts.era ? null : parsed;
     const seed = opts.seed ?? stored?.seed ?? freshSeed();
     // Дом решается раньше всего остального: от него зависят и логова у порога,
     // и то, годится ли вообще сохранение. Порядок — реестр, потом сохранение,
@@ -508,6 +515,7 @@ export class LocalWorld implements WorldApi {
       ? (stored as WorldSave)
       : createWorldSave(seed, this.gen.home, this.gen.allyTribe, this.clock(), named !== null);
     if (keep && named) this.save.homeFromRoster = true;
+    if (opts.era !== undefined) this.save.era = opts.era;
     for (const s of this.gen.settlements) this.byId.set(s.id, s);
     // Логова, заведённые по ходу партии, подмешиваются к сгенерированному: для
     // всех, кто спросит мир, они такие же поселения, как остальные. Иначе о

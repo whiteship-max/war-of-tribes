@@ -764,6 +764,8 @@ export function WorldMap() {
           )}
           {CHEATS_ON && <SpeedButton className="nx-mbtn" />}
         </div>
+        {/* Мир ещё не построен: ждём, когда сервер назовёт место города (`net/roster.seat`, docs/test_world.md). */}
+        {!info && roster.state === 'busy' && roster.why && <div className="nx-stale wm-wait">{roster.why}</div>}
 
       {jumpOpen && (
         <div className="wm-jump">

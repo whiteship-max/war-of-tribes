@@ -17,9 +17,10 @@
  * пришедшее к нему, поворачивает домой — слепка его обороны для войны нет, как у города, ушедшего из игры.
  */
 import { readInitData, saveKeyOf } from '../initdata.js';
+import { eraGate } from '../era.js';
 import { WRITE_TRIES, allow, botToken, deny, json, parseJson, readBody, spawnMode, warPace, type Route } from '../http.js';
 import { cityOr, readWarOrder, type WarOrder, type WarResponse } from '../contract.js';
-import { castleIdOf, readRoster } from '../roster.js';
+import { ROSTER_KEY, castleIdOf, readRoster } from '../roster.js';
 import { advance, applyOrder, dueKeys, newsDiff, newsMap, pruneWars, readStoredSheet, readWars, setWarPace, warsOf, WARS_KEY, type SheetAt } from '../war.js';
 import { queueNews } from '../outbox.js';
 import { STORES } from '../kv.js';
@@ -29,7 +30,7 @@ import { noted, observe } from '../watch.js';
 /** Все войны лежат одной записью рядом с реестром. */
 const KEY = WARS_KEY;
 /** Реестр замков — та же запись, что держит `routes/castles.ts`; здесь он только читается. */
-const ROSTER = 'roster';
+const ROSTER = ROSTER_KEY;
 
 /** Запросов в минуту на игрока. Игра читает раз в `WAR_PULL_MS` (`src/net/war.ts`), приказы — по нажатию. */
 const PER_MINUTE = 60;
@@ -41,6 +42,9 @@ export const war: Route = async (req, io) => {
 
   const key = saveKeyOf(auth.user);
   if (!allow(`war:${key}`, PER_MINUTE, now)) return deny(429, 'slow-down', { 'retry-after': '5' });
+  // Эпоха мира (docs/test_world.md): партия другой эпохи не пишется и не читается — после чистого старта она не воскресает.
+  const gone = await eraGate(req, io);
+  if (gone) return gone;
 
   let order: WarOrder | null = null;
   if (req.method === 'POST') {

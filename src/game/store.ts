@@ -21,6 +21,7 @@ import { mayWrite, provideGame, syncBoot } from '@/net/sync';
 import { provideGrants } from '@/net/admin';
 import { applyGrants } from './sim/admin';
 import { provideClaim, rosterBoot } from '@/net/roster';
+import { knownEra } from '@/net/era';
 import { NOTIFY_ON, notifyBoot } from '@/net/notify';
 import { claimOf } from '@/net/snapshot';
 import { CHEATS_ON, CHEAT_NO, cheatOf } from '@/cheats';
@@ -260,7 +261,10 @@ export const useGame = create<GameStore>((set, get) => ({
 
   init: async () => {
     bootStage('save');
+    const era = knownEra();
     const { state, offlineSeconds, legacy, fresh } = await loadGame({
+      // Партия прошлой эпохи мира не загружается (docs/test_world.md): новая начинается в эпохе устройства.
+      era,
       // Подсчёт офлайна — не техническая пауза, а «пока тебя не было»: игрок
       // должен видеть, за что он ждёт. Кадр перед счётом обязателен — счёт
       // синхронный и до конца работы браузеру рисовать будет нечем.
@@ -272,6 +276,7 @@ export const useGame = create<GameStore>((set, get) => ({
     // Имя и лицо из Telegram кладёт сюда оболочка: симуляция про Telegram не
     // знает, а визитке нужны готовые значения. Свой выбор игрока это не трогает —
     // он лежит рядом и приоритетнее (см. profile/identity).
+    if (fresh) state.era = era;
     setTelegramIdentity(state, tgDisplayName(), tgUser()?.photo_url ?? null);
     set({ s: state, ready: true, offlineSeconds, legacyReset: legacy, fresh });
     // Старое сохранение к новой партии не подходит: его место сразу занимает новая.
@@ -441,7 +446,9 @@ export const useGame = create<GameStore>((set, get) => ({
     clearSave();
     // Новая партия начинается с правды: без опережения и на ×1 — раньше, чем её часы впервые прочтут.
     if (CHEATS_ON) enterLead(0);
-    set({ s: createInitialState(), sheet: null, offlineSeconds: 0 });
+    const s = createInitialState();
+    s.era = knownEra();
+    set({ s, sheet: null, offlineSeconds: 0 });
     get().save();
   },
 }));

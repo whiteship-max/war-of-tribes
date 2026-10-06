@@ -194,8 +194,10 @@ describe('исходящие: ключ только из подписи или �
   it('хранилища исходящих трогают ровно приём, доставка, война (новости) и вебхук бота (рычаг)', () => {
     const uses = (re: RegExp): string[] => files().filter((f) => re.test(strip(readFileSync(f, 'utf8')))).map(rel).sort();
     expect(uses(/tribe-notify/)).toEqual(['lib/kv.ts']);
-    expect(uses(/STORES\.(?:notify|due)\b/)).toEqual(['lib/deliver.ts', 'lib/routes/bot.ts', 'lib/routes/notify.ts', 'lib/routes/war.ts']);
-    expect(uses(/STORES\.stats\b/)).toEqual(['lib/deliver.ts']);
+    // Чистый старт (`era.ts`, docs/test_world.md) стирает их целиком и больше ничего с ними не делает.
+    expect(uses(/STORES\.(?:notify|due)\b/)).toEqual(['lib/deliver.ts', 'lib/era.ts', 'lib/routes/bot.ts', 'lib/routes/notify.ts', 'lib/routes/war.ts']);
+    expect(uses(/STORES\.stats\b/)).toEqual(['lib/deliver.ts', 'lib/era.ts']);
+    expect(read('lib/era.ts')).not.toMatch(/STORES\.(?:notify|due|stats)\)/);
   });
 
   /**
@@ -263,6 +265,7 @@ describe('сервер разбирает ровно названные запи
     }
     expect([...readers].sort()).toEqual([
       'readAdminLog',
+      'readEraFile',
       'readFrozen',
       'readGrants',
       'readNotify',
@@ -306,8 +309,12 @@ describe('админка: только ADMIN_IDS, партии не пишет, 
       .filter((f) => /STORES\.admin\b/.test(strip(readFileSync(f, 'utf8'))))
       .map(rel)
       .sort();
-    expect(uses).toEqual(['lib/admin.ts', 'lib/commands.ts', 'lib/deliver.ts']);
+    expect(uses).toEqual(['lib/admin.ts', 'lib/commands.ts', 'lib/deliver.ts', 'lib/era.ts']);
     expect(read('lib/deliver.ts')).not.toMatch(/admin\??\.(?:setJSON|set|delete)\(/);
+    // Чистый старт стирает в хранилище админки только указы: заморозка и журнал админа остаются (`era.ADMIN_KEEP`).
+    expect([...read('lib/era.ts').matchAll(/STORES\.admin\b[^\n]*/g)].map((m) => m[0])).toEqual([
+      "STORES.admin] = await sweep(stores(STORES.admin, 'strong'), (k) => ADMIN_KEEP.includes(k));",
+    ]);
   });
 
   it('перезапись — только известными читателями', () => {
