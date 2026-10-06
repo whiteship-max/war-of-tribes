@@ -521,6 +521,11 @@ HEAD один на всех, см. правило 8). Значит развес�
 - **Сервер хранит, а не судит;** личность — только из подписи `initData` (вебхук бота — из обновления Telegram с
   секретом вебхука); встреча двух копий —
   `net/sync.decide`; имя города — `contract.cityName` (sync).
+- **Эпоха мира** — номер чистого старта (`/wipeworld ДА`): заголовок `x-tribe-era` ставит одна дверь `net/api.ts`, сервер
+  сверяет его `era.eraGate` у партии, реестра, войны и уведомлений (410 — другая эпоха); данные прошлой эпохи на
+  устройстве не читаются (`netlify/lib/era.test.ts`, `src/net/era.test.ts`; docs/test_world.md).
+- **Место нового игрока** — назначает реестр замков: обычное расселение `world/settle` или, при `TRIBE_SPAWN=sicily`,
+  места `world/spawn`; в Telegram мир не строится, пока сервер не назвал клетку (`net/roster.test.ts`; docs/test_world.md).
 - **Адрес API** — обработчик один на Netlify и на своём сервере, `netlify/lib/routes/`; хранилище — дверь
   `netlify/lib/kv.ts` с условной записью по ETag, два дома — Blobs и SQLite (`vps/routes.test.ts`,
   `vps/functions.test.ts`; docs/server-move.md).
