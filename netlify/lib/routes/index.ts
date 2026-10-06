@@ -9,6 +9,7 @@ import type { Route } from '../http.js';
 import { bot } from './bot.js';
 import { castles } from './castles.js';
 import { notify } from './notify.js';
+import { rating } from './rating.js';
 import { report } from './report.js';
 import { save } from './save.js';
 import { time } from './time.js';
@@ -22,4 +23,5 @@ export const ROUTES: Readonly<Record<string, Route>> = {
   '/api/war': war,
   '/api/bot': bot,
   '/api/report': report,
+  '/api/rating': rating,
 };

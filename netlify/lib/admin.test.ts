@@ -67,6 +67,7 @@ function memoryStores() {
 function fakeTg() {
   const said: { chat: number; text: string }[] = [];
   const files: { chat: number; name: string; content: string }[] = [];
+  const greeted: { chat: number; text: string }[] = [];
   const tg: Telegram = {
     send: async () => 'ok',
     answer: async () => 'ok',
@@ -79,8 +80,12 @@ function fakeTg() {
       files.push({ chat, name, content });
       return 'ok';
     },
+    async greet(chat, text) {
+      greeted.push({ chat, text });
+      return 'ok';
+    },
   };
-  return { tg, said, files };
+  return { tg, said, files, greeted };
 }
 
 /** Подписанная строка запуска — тем же алгоритмом, каким её собирает Telegram. */
@@ -121,6 +126,7 @@ const card = (over: Partial<WatchCard> = {}): WatchCard => ({
   clock: NOW,
   time: 1000,
   level: 2,
+  buildings: { town_hall: 2 },
   pop: 50,
   stock: { wood: 100, gold: 10 },
   prod: { wood: 300, gold: 20 },

@@ -73,14 +73,15 @@ describe('сервер ничего не начисляет', () => {
 
 describe('личность берётся только из подписи', () => {
   /** Обработчики, которые знают игрока. Часы его не знают — подписи у них нет нарочно. */
-  const SIGNED = ['lib/routes/save.ts', 'lib/routes/castles.ts', 'lib/routes/notify.ts', 'lib/routes/war.ts', 'lib/routes/report.ts'];
+  const SIGNED = ['lib/routes/save.ts', 'lib/routes/castles.ts', 'lib/routes/notify.ts', 'lib/routes/war.ts', 'lib/routes/report.ts', 'lib/routes/rating.ts'];
 
   it.each(SIGNED)('%s: подпись проверяется до первого похода в хранилище', (p) => {
     const code = read(p);
     expect(code).toMatch(/readInitData\(/);
     const check = code.search(/if \(!auth\.ok\) return deny\(401/);
     expect(check).toBeGreaterThan(0);
-    expect(code.indexOf('io.stores(')).toBeGreaterThan(check);
+    // Хранилище — и вызовом `io.stores(`, и переданным дальше (`ratingNow(io.stores)`): всё после подписи.
+    expect(code.search(/\bio\.stores\b/)).toBeGreaterThan(check);
   });
 
   /**

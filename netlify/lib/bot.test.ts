@@ -71,6 +71,10 @@ function fakeTg() {
       calls.push(`file:${chat}:${name}`);
       return 'ok';
     },
+    async greet(chat, text) {
+      calls.push(`greet:${chat}:${text}`);
+      return 'ok';
+    },
   };
   return { tg, calls };
 }

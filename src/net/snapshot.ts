@@ -98,6 +98,7 @@ export function watchOf(s: GameState): WatchCard {
     clock: deviceNow(),
     time: Math.floor(s.time),
     level: buildingOfType(s, 'town_hall')?.level ?? 0,
+    buildings: Object.fromEntries(s.buildings.map((b) => [b.type, whole(b.level)])),
     pop: whole(s.pop),
     stock,
     prod,

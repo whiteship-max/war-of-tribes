@@ -61,6 +61,17 @@ export interface WarFile {
   v: 1;
   seq: number;
   wars: WarRow[];
+  /**
+   * Итоги войн, уже убранных из записи (`pruneWars`), по ключу игрока: рейтинг считает победы и взятые города по всем
+   * войнам эпохи, а не только по лежащим (docs/rating.md). Нет поля — ничего ещё не убирали.
+   */
+  past?: Record<string, WarTally>;
+}
+
+/** Победы игрока в боях войны и взятые им города. */
+export interface WarTally {
+  won: number;
+  taken: number;
 }
 
 /** Ключ записи войн в хранилище мира — рядом с реестром (`roster`). */
@@ -81,7 +92,40 @@ export function readWars(raw: unknown): WarFile {
     (w): w is WarRow =>
       Boolean(w) && typeof w.id === 'string' && typeof w.atk === 'string' && typeof w.def === 'string' && typeof w.phase === 'string',
   );
-  return { v: 1, seq: Math.max(0, Math.floor(Number(r.seq) || 0)), wars };
+  const past: Record<string, WarTally> = {};
+  if (r.past && typeof r.past === 'object') {
+    for (const [k, t] of Object.entries(r.past as Record<string, unknown>)) {
+      const x = (t ?? {}) as Record<string, unknown>;
+      const n = (v: unknown): number => Math.max(0, Math.floor(Number(v) || 0));
+      if (n(x.won) + n(x.taken) > 0) past[k] = { won: n(x.won), taken: n(x.taken) };
+    }
+  }
+  return { v: 1, seq: Math.max(0, Math.floor(Number(r.seq) || 0)), wars, ...(Object.keys(past).length ? { past } : {}) };
+}
+
+/**
+ * Кто выиграл бой войны. `won` — победил ли тот, кто в этом бою нападал: при штурме это поход (`atk`), при вылазке и
+ * ударе по лагерю — город (`def`).
+ */
+export const battleWinner = (w: WarRow, b: WarBattle): string => ((b.by === 'atk') === b.won ? w.atk : w.def);
+
+/** Прибавить к счёту итоги одной войны: победы в её боях и взятый город. */
+function tallyWar(out: Record<string, WarTally>, w: WarRow): void {
+  const add = (key: string, won: number, taken: number): void => {
+    const t = (out[key] ??= { won: 0, taken: 0 });
+    t.won += won;
+    t.taken += taken;
+  };
+  for (const b of w.battles ?? []) add(battleWinner(w, b), 1, 0);
+  if (w.fall) add(w.atk, 0, 1);
+}
+
+/** Победы и взятые города каждого игрока за эпоху: убранные войны (`past`) плюс лежащие. */
+export function warTally(file: WarFile): Record<string, WarTally> {
+  const out: Record<string, WarTally> = {};
+  for (const [k, t] of Object.entries(file.past ?? {})) out[k] = { ...t };
+  for (const w of file.wars) tallyWar(out, w);
+  return out;
 }
 
 /**
@@ -524,12 +568,18 @@ export function advance(file: WarFile, now: number, sheets: ReadonlyMap<string, 
 
 /** Убрать давно кончившиеся и лишние сверх потолка — самые старые первыми. */
 export function pruneWars(file: WarFile, now: number): void {
+  const was = file.wars;
   file.wars = file.wars.filter((w) => active(w) || now - (w.endAt ?? w.sentAt) <= WAR_KEEP_MS);
   if (file.wars.length > WAR_MAX) {
     const keep = file.wars.filter(active);
     const done = file.wars.filter((w) => !active(w)).slice(-(Math.max(0, WAR_MAX - keep.length)));
     file.wars = file.wars.filter((w) => keep.includes(w) || done.includes(w));
   }
+  // Убранная война уходит в итоги эпохи: рейтинг её побед не теряет (docs/rating.md).
+  if (file.wars.length === was.length) return;
+  const past = { ...(file.past ?? {}) };
+  for (const w of was) if (!file.wars.includes(w)) tallyWar(past, w);
+  file.past = past;
 }
 
 // ------------------------------------------------ приказы ---

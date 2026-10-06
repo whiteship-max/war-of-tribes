@@ -999,6 +999,11 @@ export interface WatchCard {
   time: number;
   /** Уровень ратуши. */
   level: number;
+  /**
+   * Уровни построек по типу. Из них и войска сервер сам выводит мощь для рейтинга (`profile/power.powerOfCounts`,
+   * docs/rating.md). Нет поля — опись до рейтинга: в мощь идёт только войско.
+   */
+  buildings: Counts;
   /** Жители (без бойцов и учеников). */
   pop: number;
   /** Склад и золото по видам `STOCK_KEYS`. */
@@ -1056,6 +1061,7 @@ export function readWatch(v: unknown): WatchCard | undefined {
     clock: whole(r.clock, 1e14),
     time: whole(r.time, 1e12),
     level: whole(r.level, 100),
+    buildings: readCounts(r.buildings),
     pop: whole(r.pop, 1e9),
     stock: readCounts(r.stock),
     prod: readCounts(r.prod),
@@ -1142,3 +1148,48 @@ export function readReport(v: unknown): ReportPut | null {
     },
   };
 }
+
+// ---------- Рейтинг игроков (docs/rating.md) ----------
+//
+// Очки считает сервер: мощь — из описи наблюдения (уровни построек и войско) той же формулой, что игра; победы и взятые
+// города — из записи войн, которую клиент не пишет вовсе. Поля «очки» в запросах нет ни одного: подделать нечего.
+
+/**
+ * Веса очков — данные дизайна, одно место на сервер и на экран рейтинга.
+ * - `power` — 1: мощь и есть мера города, очко за единицу.
+ * - `win` — 100: выигранный бой войны между игроками; столько весит отряд в двадцать дубинщиков (5,6 мощи каждый), —
+ *   ощутимо, но мощь не перекрывает.
+ * - `taken` — 1000: взятый город — главный успех войны, десять побед; это мощь четырёх стартовых городов (230).
+ */
+export const RATING_WEIGHTS = { power: 1, win: 100, taken: 1000 } as const;
+
+/** Строка рейтинга. Ключа игрока нет — только номер замка, как у реестра (`CastleView.id`). */
+export interface RatingRow {
+  /** Место: равные очки — одно место. */
+  place: number;
+  /** Номер замка в реестре и его клетка — касание строки ведёт к городу на карте. */
+  id: string;
+  x: number;
+  y: number;
+  city: string;
+  /** Имя правителя. */
+  name: string;
+  points: number;
+  power: number;
+  /** Жители. */
+  pop: number;
+  /** Боёв войны выиграно и городов взято — по записи войн сервера. */
+  won: number;
+  taken: number;
+  /** Строка спросившего. */
+  mine?: true;
+}
+
+export interface RatingResponse {
+  now: number;
+  rows: RatingRow[];
+}
+
+/** Очки по слагаемым — одна формула на сервер и на подсказку экрана. */
+export const ratingPoints = (power: number, won: number, taken: number): number =>
+  Math.round(power * RATING_WEIGHTS.power + won * RATING_WEIGHTS.win + taken * RATING_WEIGHTS.taken);

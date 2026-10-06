@@ -42,6 +42,11 @@ export const keyboard = (on: boolean, app = appUrl()): { inline_keyboard: Inline
   ],
 });
 
+/** Одна кнопка «Открыть игру» — под приветствием и итоговой таблицей (docs/rating.md). */
+export const openOnly = (app = appUrl()): { inline_keyboard: InlineButton[][] } => ({
+  inline_keyboard: [[{ text: BUTTON_OPEN, web_app: { url: app } }]],
+});
+
 /** Вызов Bot API. Ответ классифицируется по коду; тело не читается. */
 async function call(method: string, params: Record<string, unknown>, go: Fetcher): Promise<SendResult> {
   return post(method, 'application/json', JSON.stringify(params), go);
@@ -91,6 +96,8 @@ export interface Telegram {
   say(chatId: number, text: string): Promise<SendResult>;
   /** Файл админу документом: таблица CSV (`/stats`). */
   file(chatId: number, name: string, content: string, caption: string): Promise<SendResult>;
+  /** Сообщение с одной кнопкой «Открыть игру»: приветствие на `/start` и итоговая таблица (docs/rating.md). */
+  greet(chatId: number, text: string): Promise<SendResult>;
 }
 
 /** Потолок текста сообщения Telegram — 4096 знаков; длиннее обрезается с пометкой. */
@@ -103,6 +110,8 @@ export const telegram = (go: Fetcher = live): Telegram => ({
     call('editMessageReplyMarkup', { chat_id: chatId, message_id: messageId, reply_markup: keyboard(on) }, go),
   say: (chatId, text) =>
     call('sendMessage', { chat_id: chatId, text: text.length > TEXT_MAX ? `${text.slice(0, TEXT_MAX)}\n…` : text, link_preview_options: { is_disabled: true } }, go),
+  greet: (chatId, text) =>
+    call('sendMessage', { chat_id: chatId, text: text.slice(0, TEXT_MAX), reply_markup: openOnly(), link_preview_options: { is_disabled: true } }, go),
   file: (chatId, name, content, caption) =>
     post('sendDocument', `multipart/form-data; boundary=${BOUNDARY}`, fileBody(chatId, name, content, caption.slice(0, 1000)), go),
 });

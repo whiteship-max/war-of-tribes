@@ -11,15 +11,16 @@
  * вернул — открыт). Партию он не читает и не пишет, войн не знает (тест `server.test.ts`).
  *
  * Сообщения — команды админа (`commands.ts`, docs/admin.md): отвечает он только `ADMIN_IDS`, остальным молчит; что
- * написал админ, проверяется там раньше любого похода в хранилище.
+ * написал админ, проверяется там раньше любого похода в хранилище. Исключение одно — `/start` (docs/rating.md): на него
+ * бот отвечает любому приветствием с кнопкой «Открыть игру», не трогая хранилищ.
  *
  * Telegram ждёт на каждое обновление ответа 200, иначе шлёт его снова: всё, что не наше, — 200 и тишина.
  */
 import { createHash, timingSafeEqual } from 'node:crypto';
-import { WRITE_TRIES, allow, botSecret, deny, json, parseJson, readBody, type Route } from '../http.js';
+import { WRITE_TRIES, allow, botSecret, deny, json, parseJson, readBody, spawnMode, type Route } from '../http.js';
 import { closeChannel, readNotify, switchTo, type NotifyRecord } from '../notify.js';
 import { STORES } from '../kv.js';
-import { CALLBACK_OFF, CALLBACK_ON, SWITCHED_OFF, SWITCHED_ON } from '../words.js';
+import { CALLBACK_OFF, CALLBACK_ON, SWITCHED_OFF, SWITCHED_ON, greeting } from '../words.js';
 import { telegram, type Telegram } from '../telegram.js';
 import { adminCommand } from '../commands.js';
 
@@ -40,6 +41,22 @@ function secretOk(got: string | null): boolean {
 
 /** Идентификатор пользователя Telegram из обновления: только положительное целое. */
 const userId = (v: unknown): number | null => (typeof v === 'number' && Number.isSafeInteger(v) && v > 0 ? v : null);
+
+/** Приветствий в минуту на человека: `/start` нажимают раз, второй — по ошибке. */
+const START_PER_MINUTE = 3;
+
+/**
+ * `/start` в личном чате с ботом — от любого, не только от игрока (docs/rating.md): кто это написал. Приветствие —
+ * ответ тому, кто написал, и только ему: хранилищ оно не трогает и ничего о человеке не запоминает.
+ */
+function starter(update: Record<string, unknown>): number | null {
+  const msg = update.message as Record<string, unknown> | undefined;
+  if (!msg || typeof msg !== 'object' || typeof msg.text !== 'string') return null;
+  const chat = (msg.chat ?? {}) as Record<string, unknown>;
+  const from = userId((msg.from as Record<string, unknown> | undefined)?.id);
+  if (from === null || chat.type !== 'private' || chat.id !== from) return null;
+  return /^\/start(?:@\w+)?(?:\s|$)/i.test(msg.text.trim()) ? from : null;
+}
 
 /** Что сделать с записью игрока по обновлению. */
 type Change = { on: boolean; callback: string; chat: number | null; message: number | null } | { chan: 'open' | 'closed' };
@@ -81,6 +98,11 @@ export const botWith =
     const text = await readBody(req);
     if (text === null || Buffer.byteLength(text, 'utf8') > MAX_UPDATE_BYTES) return json({ ok: true });
     const update = parseJson<Record<string, unknown>>(text);
+    const start = update && typeof update === 'object' ? starter(update) : null;
+    if (start !== null) {
+      if (allow(`start:${start}`, START_PER_MINUTE, io.now)) await tg().greet(start, greeting(spawnMode() === 'sicily'));
+      return json({ ok: true });
+    }
     if (update && typeof update === 'object' && (await adminCommand(update, io, tg))) return json({ ok: true });
     const found = update && typeof update === 'object' ? changeOf(update) : null;
     if (!found) return json({ ok: true });
