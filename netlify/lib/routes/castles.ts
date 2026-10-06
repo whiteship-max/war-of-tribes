@@ -26,7 +26,7 @@
  * запрос и молчит между ними.
  */
 import { readInitData, saveKeyOf } from '../initdata.js';
-import { WRITE_TRIES, allow, botToken, deny, json, parseJson, readBody, type Route } from '../http.js';
+import { WRITE_TRIES, allow, botToken, deny, json, parseJson, readBody, spawnMode, type Route } from '../http.js';
 import { readClaim, type RosterFile, type RosterResponse } from '../contract.js';
 import { prune, readRoster, rosterEpoch, upsert, viewOf, worthWriting } from '../roster.js';
 import { STORES } from '../kv.js';
@@ -102,6 +102,8 @@ export const castles: Route = async (req, io) => {
   const claim = readClaim(sent);
   if (!claim) return deny(400, 'bad-body');
 
+  // Режим появления (docs/test_world.md): места острова или обычное расселение — один на весь запрос.
+  const mode = spawnMode();
   // Прочитать — изменить — записать, и место для нового замка выбирается
   // **внутри** цикла. Иначе двое, зашедших в одну секунду, посчитали бы клетку
   // каждый по своему списку, и второй записал бы место, выбранное без учёта
@@ -119,7 +121,7 @@ export const castles: Route = async (req, io) => {
       return json(answer(file, key, now));
     }
 
-    const next = prune(upsert(file, key, claim, now), now, key);
+    const next = prune(upsert(file, key, claim, now, mode), now, key);
     const written = await hot.setJSON(KEY, next, etag === null ? { onlyIfNew: true } : { onlyIfMatch: etag });
     if (written.modified) return json(answer(next, key, now));
   }

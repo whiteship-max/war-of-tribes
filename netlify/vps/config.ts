@@ -40,6 +40,11 @@ export const ENV = {
    * (`admin.adminIds`) — одинаково на Netlify и здесь. Пусто — команд админа не слушает никто.
    */
   admins: 'ADMIN_IDS',
+  /**
+   * Режим появления новых игроков (docs/test_world.md): `sicily` — двенадцать мест на Сицилии и война без защиты слабого.
+   * Читает его общий обработчик сам (`http.spawnMode`) — одинаково на Netlify и здесь. Пусто — обычное расселение.
+   */
+  spawn: 'TRIBE_SPAWN',
   /** Номер сайта Netlify — для `TRIBE_STORE=blobs` и для переноса данных. */
   netlifySite: 'NETLIFY_SITE_ID',
   /** Личный токен Netlify — для `TRIBE_STORE=blobs` и для переноса данных. */

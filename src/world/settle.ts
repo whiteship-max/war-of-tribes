@@ -125,8 +125,12 @@ const sameLand = (a: Spot, b: Spot): boolean => {
  * Пустой мир: первый садится куда угодно на материке. Непустой: точка берётся
  * кольцом вокруг случайного из уже стоящих — так посёлок игроков растёт наружу,
  * а не выстраивается цепочкой от первого.
+ *
+ * `within` — рамка: клетка годится, только если она внутри. Нужна одному режиму теста с игроками — места на Сицилии
+ * кончились, и новичок встаёт в том же регионе по обычным правилам (`world/spawn.ts`, docs/test_world.md). Без рамки
+ * правило прежнее, бросок в бросок: проверка рамки не тянет `rng`.
  */
-export function placeCastle(rng: () => number, roster: readonly Spot[]): Spot {
+export function placeCastle(rng: () => number, roster: readonly Spot[], within?: (at: Spot) => boolean): Spot {
   const lo = WORLD_ORIGIN;
   const hi = { x: WORLD_ORIGIN.x + WORLD_SIZE, y: WORLD_ORIGIN.y + WORLD_SIZE };
   // Список приходит из хранилища, и порядок в нём — не факт о мире: он зависит
@@ -147,6 +151,7 @@ export function placeCastle(rng: () => number, roster: readonly Spot[]): Spot {
       if (at.x < lo.x || at.y < lo.y || at.x >= hi.x || at.y >= hi.y) continue;
       if (!sameLand(anchor, at)) continue;
     }
+    if (within && !within(at)) continue;
     if (!fitToSettle(at)) continue;
     if (!fitsNeighbours(taken, at)) continue;
     return at;
@@ -156,27 +161,31 @@ export function placeCastle(rng: () => number, roster: readonly Spot[]): Spot {
   // вокруг каждого якоря тесно, — и тогда правило обязано ответить, а не
   // промолчать. Обход по спирали от ближайшего к середине занятого места
   // конечен и найдёт первую подходящую клетку, если она вообще есть.
-  const from = taken.length > 0 ? taken[Math.floor(rng() * taken.length)] : { x: lo.x, y: lo.y };
-  const found = spiral(from, taken);
+  // С рамкой (`within`) обход начинается от замка внутри неё: от чужого края спираль шла бы через полмира.
+  const inside = within ? taken.filter(within) : taken;
+  const pool = inside.length > 0 ? inside : taken;
+  const from = pool.length > 0 ? pool[Math.floor(rng() * pool.length)] : { x: lo.x, y: lo.y };
+  const found = spiral(from, taken, within);
   if (found) return found;
 
   // Не нашлось ничего. Молча вставать в середину сетки нельзя — там может быть
   // море; поэтому берём первую пригодную клетку материка. Единственный случай,
   // когда сюда можно попасть, — мир, забитый замками до отказа.
-  return firstFit();
+  return firstFit(within);
 }
 
 /**
  * Обход по расширяющемуся кольцу. Шаг по кольцу — половина ближней границы:
  * чаще незачем, реже — можно проскочить свободное место между двумя занятыми.
  */
-function spiral(from: Spot, taken: readonly Spot[]): Spot | null {
+function spiral(from: Spot, taken: readonly Spot[], within?: (at: Spot) => boolean): Spot | null {
   const step = Math.max(2, Math.round(SETTLE_GAP / 2));
   for (let r = SETTLE_GAP; r <= WORLD_SIZE; r += step) {
     const points = Math.max(8, Math.round((2 * Math.PI * r) / step));
     for (let i = 0; i < points; i++) {
       const a = (i / points) * Math.PI * 2;
       const at = { x: Math.round(from.x + Math.cos(a) * r), y: Math.round(from.y + Math.sin(a) * r) };
+      if (within && !within(at)) continue;
       if (!fitToSettle(at)) continue;
       if (!fitsNeighbours(taken, at)) continue;
       return at;
@@ -186,12 +195,15 @@ function spiral(from: Spot, taken: readonly Spot[]): Spot | null {
 }
 
 /** Первая пригодная клетка материка. Запасной путь, и он обязан быть на земле. */
-function firstFit(): Spot {
+function firstFit(within?: (at: Spot) => boolean): Spot {
   for (let y = WORLD_ORIGIN.y; y < WORLD_ORIGIN.y + WORLD_SIZE; y++) {
     for (let x = WORLD_ORIGIN.x; x < WORLD_ORIGIN.x + WORLD_SIZE; x++) {
+      if (within && !within({ x, y })) continue;
       if (fitToSettle({ x, y })) return { x, y };
     }
   }
+  // Рамка без единой годной клетки — правило всё равно обязано ответить: тогда без рамки.
+  if (within) return firstFit();
   throw new Error('Атлас мира: материка не нашлось ни в одной клетке.');
 }
 

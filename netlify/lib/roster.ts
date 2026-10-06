@@ -17,6 +17,7 @@
  * стороны, как и у сохранения.
  */
 import { placeCastle, settleRandom, type Spot } from '../../src/world/settle.js';
+import { SICILY, inSicilyTheatre, type SpawnMode } from '../../src/world/spawn.js';
 import { ATLAS_HASH } from '../../src/world/atlas/data.js';
 import { cityName, type CastleClaim, type CastleRow, type CastleView, type RosterFile } from './contract.js';
 
@@ -111,9 +112,9 @@ export const viewOf = (file: RosterFile): CastleView[] =>
  * Возвращается новый реестр. Прежний не трогается: сравнить «что было» и «что
  * стало» — это и есть проверка того, что чужие строки целы.
  */
-export function upsert(file: RosterFile, key: string, claim: CastleClaim, now: number): RosterFile {
+export function upsert(file: RosterFile, key: string, claim: CastleClaim, now: number, mode: SpawnMode | null = null): RosterFile {
   const had = file.rows[key];
-  const at: Spot = had ?? placeCastle(settleRandom(key), spotsOf(file));
+  const at: Spot = had ?? placeNew(file, key, mode);
   return {
     v: 1,
     epoch: file.epoch,
@@ -130,6 +131,27 @@ export function upsert(file: RosterFile, key: string, claim: CastleClaim, now: n
       },
     },
   };
+}
+
+/**
+ * Клетка для новой строки.
+ *
+ * Обычный режим — правило расселения (`settle.placeCastle`). Режим `sicily` (docs/test_world.md) — первое свободное из
+ * двенадцати мест острова по порядку списка (`world/spawn.SICILY`); занято место, на котором уже стоит чья-то строка.
+ * Свободных нет — обычное правило, но только в регионе острова: новичок обязан мочь воевать с теми, кто на острове.
+ *
+ * Зовут её внутри цикла записи, на только что прочитанном реестре (`routes/castles.ts`): двое, вошедших разом, не займут
+ * одно место — второй проиграет условную запись, перечитает реестр и увидит место занятым.
+ */
+export function placeNew(file: RosterFile, key: string, mode: SpawnMode | null): Spot {
+  const taken = spotsOf(file);
+  if (mode === 'sicily') {
+    const busy = new Set(taken.map((t) => `${t.x}|${t.y}`));
+    const free = SICILY.find((s) => !busy.has(`${s.x}|${s.y}`));
+    if (free) return { x: free.x, y: free.y };
+    return placeCastle(settleRandom(key), taken, inSicilyTheatre);
+  }
+  return placeCastle(settleRandom(key), taken);
 }
 
 /**

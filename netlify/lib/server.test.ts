@@ -106,7 +106,7 @@ describe('личность берётся только из подписи', () 
     const calls = [...code.matchAll(/\b(?:hot|cool)\s*\.\s*\w+\(\s*([A-Za-z_$][\w$]*)/g)].map((m) => m[1]);
     expect(calls.length).toBeGreaterThan(2);
     expect([...new Set(calls)]).toEqual(['KEY']);
-    expect([...code.matchAll(/\bupsert\(([^)]*)\)/g)].map((m) => m[1])).toEqual(['file, key, claim, now']);
+    expect([...code.matchAll(/\bupsert\(([^)]*)\)/g)].map((m) => m[1])).toEqual(['file, key, claim, now, mode']);
   });
 
   /**

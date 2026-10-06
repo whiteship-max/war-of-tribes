@@ -539,6 +539,11 @@ export interface OrderCtx {
   roster: RosterFile;
   /** Слепок по ключу игрока; нет — `null`. */
   sheet: (key: string) => SheetAt | null;
+  /**
+   * Защита слабого выключена: тест с игроками на Сицилии (`http.spawnMode`, docs/test_world.md) — новички на острове
+   * воюют с первой минуты. Нет поля — защита есть, обычная игра.
+   */
+  noShield?: boolean;
 }
 
 const theirs = (file: WarFile, id: string, key: string, role: 'atk' | 'def'): WarRow | null =>
@@ -635,7 +640,7 @@ function march(file: WarFile, key: string, order: Extract<WarOrder, { op: 'march
   const theirSheet = ctx.sheet(def);
   if (!theirSheet) return 'Город ещё не готов к войне: его владелец не заходил с тех пор, как она началась.';
   // Защита слабого — та же мерка, что у логова (`lairs.weakCity`): жители или войско, что выше.
-  if (weakCity(theirSheet.sheet.pop, theirSheet.sheet.power)) return 'Город под защитой слабого: он ещё мал. Нападать на него нельзя.';
+  if (!ctx.noShield && weakCity(theirSheet.sheet.pop, theirSheet.sheet.power)) return 'Город под защитой слабого: он ещё мал. Нападать на него нельзя.';
   const mine = ctx.sheet(key);
   if (!mine) return 'Твой город ещё не записан на сервер. Подожди минуту.';
   // Участь — та же проверка, что у приказа против логова (`spoils.fateBlock`): замки гейта объявляющего и

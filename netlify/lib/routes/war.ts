@@ -17,7 +17,7 @@
  * пришедшее к нему, поворачивает домой — слепка его обороны для войны нет, как у города, ушедшего из игры.
  */
 import { readInitData, saveKeyOf } from '../initdata.js';
-import { WRITE_TRIES, allow, botToken, deny, json, parseJson, readBody, warPace, type Route } from '../http.js';
+import { WRITE_TRIES, allow, botToken, deny, json, parseJson, readBody, spawnMode, warPace, type Route } from '../http.js';
 import { cityOr, readWarOrder, type WarOrder, type WarResponse } from '../contract.js';
 import { castleIdOf, readRoster } from '../roster.js';
 import { advance, applyOrder, dueKeys, newsDiff, newsMap, pruneWars, readStoredSheet, readWars, setWarPace, warsOf, WARS_KEY, type SheetAt } from '../war.js';
@@ -98,7 +98,7 @@ export const war: Route = async (req, io) => {
         const w = file.wars.find((x) => x.id === (order as { id: string }).id);
         if (w) await load(w.def);
       }
-      error = applyOrder(file, key, order, now, { roster, sheet: (player) => sheets.get(player) ?? null });
+      error = applyOrder(file, key, order, now, { roster, sheet: (player) => sheets.get(player) ?? null, noShield: spawnMode() !== null });
       if (!error) changed = true;
     }
     const before = file.wars.length;
