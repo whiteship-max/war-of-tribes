@@ -23,9 +23,8 @@ import { join } from 'node:path';
 import { fileURLToPath, URL } from 'node:url';
 import { createServer as createVite } from 'vite';
 import { launchChrome, sleep, Tab } from './lib/chrome';
-import { cellAt, openPinnedMap } from './lib/pinned';
+import { cellAt, openPinnedMap, sicilyRoster, SICILY_HOME } from './lib/pinned';
 import { SICILY } from '../src/world/spawn';
-import { ATLAS_HASH } from '../src/world/atlas/data';
 import { BROWSER_MAX_MS, REPORT_FPS, gpuCoolDown, gpuStamp, refuseIfBusy } from './lib/budget';
 
 const OUT = fileURLToPath(new URL('../.map-shots', import.meta.url));
@@ -46,27 +45,6 @@ const GAME = process.env.GAME === '1';
 const MARCHES = process.env.MARCHES === '1';
 /** `SICILY=1` — двенадцать мест острова (`world/spawn.SICILY`): дом в середине кучки, соседи — строками реестра. */
 const SICILY_MODE = process.env.SICILY === '1';
-/** Дом — седьмое место (769|1337), в середине кучки: соседи со всех сторон. */
-const SICILY_HOME = 6;
-/** Соседи всех четырёх стадий (`meta.stageOf` по мощи и людям): стоянка, деревня, острог, крепость. */
-const SICILY_STATS: readonly (readonly [number, number])[] = [
-  [12, 8], [45, 16], [130, 40], [320, 90], [60, 20], [24, 10], [210, 70], [95, 31], [500, 140], [35, 13], [150, 45],
-];
-const SICILY_CITIES = ['Энна', 'Катания', 'Рагуза', 'Ното', 'Джела', 'Модика', 'Лентини', 'Пьяцца', 'Сиракузы', 'Калатины', 'Авола'];
-const SICILY_ROSTER = (): string => {
-  const others = SICILY.filter((_, i) => i !== SICILY_HOME);
-  const castles = others.map((c, i) => ({
-    id: `p${i + 1}`,
-    x: c.x,
-    y: c.y,
-    name: `Вождь ${i + 1}`,
-    city: SICILY_CITIES[i],
-    power: SICILY_STATS[i][0],
-    pop: SICILY_STATS[i][1],
-    seenAt: Date.now(),
-  }));
-  return JSON.stringify({ at: Date.now(), epoch: ATLAS_HASH, mine: SICILY[SICILY_HOME], castles });
-};
 /** Отряды Сицилии: набег соседа на дом, свой поход к соседу, чужой и свой лагеря у соседских стен. */
 const SICILY_MARCHES_JS = `(() => {
   const W = window.__world;
@@ -215,7 +193,7 @@ async function gameShot(): Promise<void> {
     await tab.send('Page.navigate', { url: `http://127.0.0.1:${PORT}/?${q.toString()}` });
     await sleep(2500);
     const home = SICILY_MODE ? SICILY[SICILY_HOME] : GAME_HOME;
-    const store = SICILY_MODE ? { 'tribe.castles.v1': SICILY_ROSTER() } : undefined;
+    const store = SICILY_MODE ? { 'tribe.castles.v1': sicilyRoster() } : undefined;
     await openPinnedMap(tab, { home, store, onLog: (m) => console.log(m) });
     if (MARCHES) await tab.eval<string>(SICILY_MODE ? SICILY_MARCHES_JS : MARCHES_JS);
     await prebakeReport(tab);

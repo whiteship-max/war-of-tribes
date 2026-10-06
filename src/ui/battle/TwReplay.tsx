@@ -14,6 +14,8 @@ import * as THREE from 'three';
 import { activeScene } from '@/render/Scene';
 import { configureRenderer } from '@/render/lighting';
 import { pixelRatio } from '@/render/loop';
+import { levelNow } from '@/render/gfx';
+import { serverNow } from '@/net/clock';
 import { holdReplayCanvas } from './canvas';
 import { SIDE_VARS } from '@/side';
 import { PHASE_NAME, summarize, type Side } from '@/battle';
@@ -114,7 +116,9 @@ export function TwReplay({ rec, report, onDone }: { rec: BattleRecord; report?: 
     void import('@/render/tw/play')
       .then((m) => {
         if (!alive || !layer.current) return;
-        const quality = scene?.quality ?? 'medium';
+        // Уровень — тот же, что у города, и опущенный сторожем, если телефон не потянул (`gfx.levelNow`, docs/perf.md):
+        // ролик рисует в холст города с его плотностью, и фигур ему не больше, чем тянет этот телефон.
+        const quality = levelNow(location.search, serverNow());
         let clock: InstanceType<typeof m.CueClock> | null = null;
         let lastT = 0;
         const p = m.playTw(

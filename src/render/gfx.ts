@@ -19,7 +19,7 @@
  * сборок несёт поле вида: кто выбрал прежний вид (`look: 'now'`), получает город на «Авто»,
  * у остальных уровень остаётся их выбором (`gfxOf`).
  */
-import { QUALITIES, qualityOf, type Quality } from './quality';
+import { QUALITIES, autoQuality, qualityOf, tgClassOf, type DeviceCaps, type Quality } from './quality';
 
 /** Уровень, выбранный игроком: «авто» — по устройству. */
 export type GfxQuality = 'auto' | Quality;
@@ -179,4 +179,41 @@ export function sceneGfx(g: Gfx, search: string): SceneGfx {
   const chosen: GfxQuality = urlQ === 'auto' ? 'auto' : (qualityOf(urlQ) ?? g.quality);
   const quality = chosen === 'auto' ? null : chosen;
   return { quality, asked: quality !== null };
+}
+
+// ---------- Уровень для всех сцен игры ----------
+
+/**
+ * Что умеет устройство — единственное чтение браузера: указатель, память, ядра и класс Телеграма. Имя видеокарты
+ * приносит тот, у кого есть контекст WebGL (сцена игры, `Scene.ts`); у 2D-карты его нет, и она его не спрашивает.
+ */
+export function deviceCaps(gpu: string | null = null): DeviceCaps {
+  const nav = (typeof navigator === 'undefined' ? {} : navigator) as { deviceMemory?: number; hardwareConcurrency?: number; userAgent?: string };
+  return {
+    coarse: typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches,
+    memory: typeof nav.deviceMemory === 'number' ? nav.deviceMemory : null,
+    cores: typeof nav.hardwareConcurrency === 'number' ? nav.hardwareConcurrency : null,
+    gpu,
+    tg: tgClassOf(nav.userAgent),
+  };
+}
+
+/** Уровень, на котором сейчас стоит сцена игры (город): её «Авто» с именем видеокарты, опущенный сторожем, или выбор. */
+let sceneLevel: Quality | null = null;
+
+/** Сцена игры называет свой уровень: при сборке и когда сторож его опустил (`Scene.ts`). */
+export function noteSceneLevel(q: Quality | null): void {
+  sceneLevel = q;
+}
+
+/**
+ * Уровень для сцен поверх города — карты, ролика боя, промысла (решение ночи 4, docs/perf.md): одна мерка на всю игру,
+ * чтобы слабый телефон не получал «Низкое» в городе и «Среднее» на карте. Адрес (`?quality=`) сильнее выбора игрока,
+ * выбор — сильнее устройства. «Авто» — уровень, на котором стоит город: он знает видеокарту и уже опущен сторожем,
+ * если телефон не потянул; города ещё нет — устройство без видеокарты, не выше памяти сторожа за неделю.
+ */
+export function levelNow(search: string, now: number): Quality {
+  const g = sceneGfx(gfx(), search);
+  if (g.quality) return g.quality;
+  return sceneLevel ?? capQuality(autoQuality(deviceCaps()), autoCap(now));
 }

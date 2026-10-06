@@ -69,7 +69,10 @@ import { Rating } from './Rating';
 import { inTelegram } from '@/telegram/webapp';
 import { Gesture, WHEEL_STEP, swallowGhostClick, type Press } from '@/gestures';
 import { gestLog, type End } from '@/gestlog';
-import { FrameLoop, pixelRatio } from '@/render/loop';
+import { FrameLoop, deviceRatio, pixelRatio } from '@/render/loop';
+import { QUALITY } from '@/render/quality';
+import { levelNow } from '@/render/gfx';
+import { serverNow } from '@/net/clock';
 import { onViewport } from '@/viewport';
 import { Icon } from '@/ui/icons/Icon';
 import { num } from '@/game/num';
@@ -369,8 +372,8 @@ export function WorldMap() {
     const resize = (): void => {
       // Больше двойки не берём (потолок двери кадра, `loop.DPR_CAP`): на телефоне это
       // больше пикселей — квадратом плотности — ради разницы, которой не видно, и во
-      // столько же больше памяти под тайлы.
-      const dpr = pixelRatio();
+      // столько же больше памяти под тайлы. На низком уровне — меньше (`QUALITY.mapDpr`, docs/perf.md).
+      const dpr = pixelRatio(Math.max(1, Math.min(QUALITY[levelNow(location.search, serverNow())].mapDpr, deviceRatio())));
       loop.block('covered', wrap.clientWidth < 1 || wrap.clientHeight < 1);
       const w = wrap.clientWidth || 1;
       const h = wrap.clientHeight || 1;

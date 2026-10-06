@@ -14,8 +14,8 @@ import { Gesture, Press, TAP_TARGET, WHEEL_STEP, swallowGhostClick } from '@/ges
 import type { HitBox } from './pick';
 import { FrameLoop, deviceRatio, pageHidden, pixelRatio } from './loop';
 import { RESTORE_WAIT } from './context';
-import { QUALITIES, QUALITY, VILLAGE_STEADY, autoQuality, qualityDpr, type DeviceCaps, type Quality } from './quality';
-import { autoCap, capQuality, rememberAutoCap } from './gfx';
+import { QUALITIES, QUALITY, VILLAGE_STEADY, autoQuality, qualityDpr, type Quality } from './quality';
+import { autoCap, capQuality, deviceCaps, noteSceneLevel, rememberAutoCap } from './gfx';
 import { Steady } from './steady';
 import { serverNow } from '@/net/clock';
 import { sceneLog, sizeNote, type Block, type Vitals } from '@/scenelog';
@@ -156,25 +156,17 @@ export interface SceneLook {
 }
 
 /**
- * Что умеет устройство — единственное место, где сцена спрашивает об этом браузер.
- * Под заглушкой GL (`tap:report`) имени видеокарты нет, и это не ошибка: `gpu` — `null`.
+ * Имя видеокарты — единственное, что сцена спрашивает у браузера об устройстве сама (остальное — `gfx.deviceCaps`).
+ * Под заглушкой GL (`tap:report`) имени нет, и это не ошибка: `null`.
  */
-function readCaps(gl: WebGLRenderingContext | WebGL2RenderingContext): DeviceCaps {
-  const nav = (typeof navigator === 'undefined' ? {} : navigator) as { deviceMemory?: number; hardwareConcurrency?: number };
-  let gpu: string | null = null;
+function gpuName(gl: WebGLRenderingContext | WebGL2RenderingContext): string | null {
   try {
     const ext = gl.getExtension('WEBGL_debug_renderer_info') as { UNMASKED_RENDERER_WEBGL: number } | null;
     const name = ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : null;
-    gpu = typeof name === 'string' ? name : null;
+    return typeof name === 'string' ? name : null;
   } catch {
-    gpu = null;
+    return null;
   }
-  return {
-    coarse: typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches,
-    memory: typeof nav.deviceMemory === 'number' ? nav.deviceMemory : null,
-    cores: typeof nav.hardwareConcurrency === 'number' ? nav.hardwareConcurrency : null,
-    gpu,
-  };
 }
 
 export abstract class TribeScene {
@@ -301,8 +293,10 @@ export abstract class TribeScene {
    */
   constructor(protected canvas: HTMLCanvasElement, protected pixelRatio: number | null = null, opts: SceneLook = {}) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
-    this.quality = opts.quality ?? capQuality(autoQuality(readCaps(this.renderer.getContext())), autoCap(serverNow()));
+    this.quality = opts.quality ?? capQuality(autoQuality(deviceCaps(gpuName(this.renderer.getContext()))), autoCap(serverNow()));
     this.dprLevel = this.quality;
+    // Карта, ролик и промысел берут уровень у города (`gfx.levelNow`): одна мерка на всю игру.
+    noteSceneLevel(this.quality);
     if (!opts.quality) this.steady = new Steady(QUALITIES, this.quality, VILLAGE_STEADY);
     // На 3x-экранах третий пиксель не виден, а филлрейт растёт вдвое — отсюда потолок.
     this.renderer.setPixelRatio(this.dpr());
@@ -561,6 +555,7 @@ export abstract class TribeScene {
     this.dprLevel = next;
     this.needSize = true;
     rememberAutoCap(next, serverNow());
+    noteSceneLevel(next);
   }
 
   protected dpr(): number {
@@ -1158,8 +1153,9 @@ export abstract class TribeScene {
       this.place();
     }
     this.renderer.info.reset();
-    // Теневой проход через кадр: двигаются только фигурки, отставание тени на кадр не видно.
-    this.renderer.shadowMap.needsUpdate = (this.frameNo++ & 1) === 0;
+    // Теневой проход через кадр (на низком — раз в четыре, `QUALITY.shadowEvery`): двигаются только фигурки,
+    // отставание тени на кадр не видно.
+    this.renderer.shadowMap.needsUpdate = this.frameNo++ % QUALITY[this.quality].shadowEvery === 0;
     this.beforeRender?.();
     this.renderer.render(this.scene, this.camera);
     this.afterRender?.();
