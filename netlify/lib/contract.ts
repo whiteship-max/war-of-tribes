@@ -318,11 +318,6 @@ export interface NoticeFacts {
   fate: NoticeFate;
   /** О какой минуте пункт: приход отряда у набега и войны, конец хлеба у осады, минута боя. */
   about: number;
-  /**
-   * Набег: полный сбор дружины не успевает уже в ту минуту, когда отряд стал виден (сбор дольше предупреждения). Тогда
-   * пункт уходит в эту же минуту и годен до прихода; без пометки он годен, пока полный сбор ещё успевает (`until`).
-   */
-  late?: true;
   /** Война: чья сторона у получателя — он идёт (`atk`) или на него идут (`def`). */
   role?: 'atk' | 'def';
   /** Война в пути: штурм с ходу или осада лагерем. */
@@ -445,11 +440,9 @@ export function readNotices(v: unknown, now: number, kinds: readonly NoticeKind[
     const fate = oneOf(NOTICE_FATES, p.fate);
     const about = num(p.about);
     if (!from || !PLAIN.test(from) || !fate || about === null) return null;
+    // Пометки «полный сбор не успеет» (`late`) больше нет: набег годен до прихода, как война (docs/NOTIFY.md, 12.11). Её
+    // шлёт закэшированный бандл прежней сборки и несёт запись прежнего сервера — поле отбрасывается, как всякое лишнее.
     const facts: NoticeFacts = { from, fate, about };
-    if (p.late !== undefined) {
-      if (p.late !== true) return null;
-      facts.late = true;
-    }
     // Поля войны — только у видов войны: клиент их не шлёт, а своя запись сервера их несёт.
     if (kind.startsWith('war')) {
       const role = oneOf(['atk', 'def'] as const, p.role);

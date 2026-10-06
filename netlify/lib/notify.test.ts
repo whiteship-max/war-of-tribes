@@ -16,7 +16,7 @@ import {
 import { deliverPass } from './deliver.js';
 import type { Kv } from './kv.js';
 import type { SendResult, Telegram } from './telegram.js';
-import { noticeText } from './words.js';
+import { clock, noticeText } from './words.js';
 import { emptyWars, WARS_KEY, type WarFile } from './war.js';
 
 const NOW = Date.UTC(2026, 8, 14, 12, 0, 0);
@@ -502,5 +502,21 @@ describe('проход доставки ведёт войну между игр�
     // Ещё проходы — тишина: итог один раз.
     for (let i = 5; i <= 6; i++) await deliverPass(io, AT + i * 2 * MIN);
     expect(tg.sent).toHaveLength(2);
+  });
+});
+
+/**
+ * Слова набега: срок один — приход (решение владельца 06.10.2026, docs/NOTIFY.md, 12.11). Дома перевод дружины мгновенный,
+ * и прежняя фраза «Дружину собрать успеешь до ЧЧ:ММ» (срок — приход минус потолок сбора) стала неправдой. Окно пункта —
+ * до той же минуты, что названа в словах: годен до прихода, как «идёт на твой город» у войны.
+ */
+describe('слова сообщений: набег', () => {
+  it('«идёт на твой город» называет приход и ничего о сборе; годен до той же минуты', () => {
+    const arrive = NOW + 40 * MIN;
+    const raid = item({ key: 'raid:m4:1', kind: 'raid', fireAt: NOW, until: arrive, p: { from: 'Волчья падь', fate: 'plunder', about: arrive } });
+    const text = noticeText(raid, DEFAULT_PREFS.tz);
+    expect(text).toBe(`Набег из «Волчья падь» идёт на твой город. У стен в ${clock(arrive, DEFAULT_PREFS.tz)}.`);
+    expect(text, 'о сборе ни слова').not.toMatch(/сбор|успеешь/i);
+    expect(raid.until, 'годен до названной минуты').toBe(raid.p.about);
   });
 });

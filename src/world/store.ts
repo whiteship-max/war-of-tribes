@@ -1090,24 +1090,18 @@ export const marchesOnUs = (marches: MarchView[], homeId: SettlementId | undefin
     .sort((a, b) => a.arriveAt - b.arriveAt);
 
 /**
- * Окно ответа на набег (поставка 2 боя, docs/battle_eu4.md, 14.26–14.27): сколько до прихода отряда и до какой минуты
- * полный сбор дружины ещё успевает. Замка у обороны больше нет — её раскладывает правило, — и последний ответ дома
- * теперь сбор: начатый позже `musterBy`, он не кончится к приходу. Минуту даёт мир (`MarchView.musterBy`, та же дверь
- * `LocalWorld.musterBy`, что у черновика уведомления), здесь от неё до секунд один шаг — и больше его не делает никто.
+ * Окно ответа на набег — до самого прихода отряда (решение владельца 06.10.2026, docs/NOTIFY.md, 12.11): дома перевод
+ * дружины мгновенный, и переставить её, выйти на перехват или нанять можно, пока отряд не у стен. Тот же срок у
+ * черновика уведомления (`world/notice`) и у войны между игроками на сервере (`war.newsOf`). Прежде окно кончалось
+ * раньше — минутой, когда полный сбор дома ещё успевал (`musterBy`, поставка 2 боя, docs/battle_eu4.md, 14.27), а сбора
+ * дома больше нет. От прихода до секунд здесь один шаг — и больше его не делает никто.
  */
 export interface RaidWindow {
   march: MarchView;
-  /** Секунд до прихода. */
+  /** Секунд до прихода — столько и длится окно ответа. */
   seconds: number;
-  /** Секунд, пока полный сбор ещё успевает; ноль — уже не успевает. null — отряд идёт не на деревню, сбора он не ждёт. */
-  muster: number | null;
-  /** Полный сбор уже не успеет. */
-  late: boolean;
 }
 
 export function raidWindow(m: MarchView, now: number): RaidWindow {
-  const seconds = Math.max(0, (m.arriveAt - now) / 1000);
-  if (m.musterBy === undefined) return { march: m, seconds, muster: null, late: false };
-  const left = (m.musterBy - now) / 1000;
-  return { march: m, seconds, muster: Math.max(0, left), late: left <= 0 };
+  return { march: m, seconds: Math.max(0, (m.arriveAt - now) / 1000) };
 }

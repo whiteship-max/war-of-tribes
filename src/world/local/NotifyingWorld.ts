@@ -68,7 +68,6 @@ export class NotifyingWorld extends LocalWorld {
           // Та же минута, с которой отряд показывает `visibleMarches`: донесение Дозора или
           // живой обзор — что раньше.
           seenFrom: Math.min(m.arriveAt - this.warningMs(), sightFrom(m, this.sightDiscs(now))),
-          musterBy: this.musterBy(m),
         }
       : null;
 

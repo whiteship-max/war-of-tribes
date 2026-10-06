@@ -44,10 +44,9 @@ export function noticeText(item: NoticeItem, tz: string): string {
   const p = item.p;
   const at = clock(p.about, tz);
   switch (item.kind) {
+    // Ответить можно до самого прихода — срок один, «у стен в» (решение владельца 06.10.2026, docs/NOTIFY.md, 12.11).
     case 'raid':
-      return p.late
-        ? `Набег из «${p.from}» идёт на твой город. У стен в ${at}.`
-        : `Набег из «${p.from}» идёт на твой город. У стен в ${at}. Дружину собрать успеешь до ${clock(item.until, tz)}.`;
+      return `Набег из «${p.from}» идёт на твой город. У стен в ${at}.`;
     case 'raid-fight':
       return `Набег из «${p.from}» дошёл до твоего города в ${at}. Чем кончилось, смотри в донесении.`;
     case 'siege-fall':

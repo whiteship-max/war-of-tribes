@@ -9,7 +9,7 @@ import { inSight } from './fog';
 import { marchPosition } from './geo';
 import { CLIENT_KINDS, RESULT_KEEP, plainName, readNotices, type NoticeItem } from '../../netlify/lib/contract';
 import { shieldVillagers } from './lairs';
-import { HANDOVER_MAX, SIEGE_IMMUNE } from './data/tuning';
+import { SIEGE_IMMUNE } from './data/tuning';
 
 const START = 1_700_000_000_000;
 const MINUTE = 60_000;
@@ -126,7 +126,6 @@ const raidFacts = (over: Partial<NonNullable<NoticeWorld['raid']>> = {}): NonNul
   departAt: T0 - 2 * MINUTE,
   arriveAt: T0 + 20 * MINUTE,
   seenFrom: T0 + 9 * MINUTE,
-  musterBy: T0 + 15 * MINUTE,
   ...over,
 });
 
@@ -149,12 +148,13 @@ describe('черновики: вид, ключ, «когда» и «годно �
     expect([...CLIENT_KINDS]).toEqual(['raid', 'raid-fight', 'siege-fall']);
   });
 
-  it('набег: «нападают» — с минуты, когда его видно, до минуты, когда полный сбор ещё успевает; «бой был» — в минуту прихода', () => {
-    // Окно ответа после расстановки обороны — полный сбор дружины (docs/battle_eu4.md, 14.26–14.27).
+  it('набег: «нападают» — с минуты, когда его видно, до прихода; «бой был» — в минуту прихода', () => {
+    // Окно ответа — до прихода: дома перевод дружины мгновенный (решение владельца 06.10.2026, docs/NOTIFY.md, 12.11).
+    // Прежде этот тест держал окно до минуты, когда полный сбор ещё успевал (`musterBy`), — сбора дома больше нет.
     const { items } = draftNotices({ raid: raidFacts(), siege: null, breaks: [] }, T0);
     const facts = { from: 'Логово разбойников', fate: 'plunder', about: T0 + 20 * MINUTE };
     expect(items).toEqual([
-      { key: `raid:m4:${T0 - 2 * MINUTE}`, kind: 'raid', fireAt: T0 + 9 * MINUTE, until: T0 + 15 * MINUTE, p: facts },
+      { key: `raid:m4:${T0 - 2 * MINUTE}`, kind: 'raid', fireAt: T0 + 9 * MINUTE, until: T0 + 20 * MINUTE, p: facts },
       { key: `raid-fight:m4:${T0 - 2 * MINUTE}`, kind: 'raid-fight', fireAt: T0 + 20 * MINUTE, until: T0 + 20 * MINUTE + RESULT_KEEP, p: facts },
     ]);
   });
@@ -218,7 +218,8 @@ describe('черновики: вид, ключ, «когда» и «годно �
   });
 
   it('«годно до» в прошлом и пустое окно — не пункт', () => {
-    const late = draftNotices({ raid: raidFacts(), siege: null, breaks: [] }, T0 + 16 * MINUTE);
+    // «Нападают» годен до прихода: в минуту прихода его уже нет, а «бой был» — есть.
+    const late = draftNotices({ raid: raidFacts(), siege: null, breaks: [] }, T0 + 20 * MINUTE);
     expect(only(late.items, 'raid')).toEqual([]);
     expect(late.silent).toEqual([{ kind: 'raid', why: 'passed' }]);
     // «Бой был» годен и после прихода — новость об итоге живёт `RESULT_KEEP`.
@@ -231,26 +232,29 @@ describe('черновики: вид, ключ, «когда» и «годно �
     }
   });
 
-  it('полный сбор не успевает уже с минуты обнаружения — пункт есть: уходит в эту минуту, годен до прихода, с пометкой', () => {
-    // Слово владельца (docs/battle_eu4.md, 14.27): письмо о набеге приходит всегда, и нового числа нет — только нижняя граница
-    // окна в ноль. Граница области — минута обнаружения: точки строго раньше, ровно на ней и позже неё.
-    const cases = [
-      { musterBy: T0 + 3 * MINUTE, late: true },
-      { musterBy: T0 + 9 * MINUTE, late: true },
-      { musterBy: T0 + 9 * MINUTE + 1, late: false },
-    ];
-    for (const c of cases) {
-      const raid = raidFacts({ musterBy: c.musterBy });
-      expect(c.musterBy <= raid.seenFrom, 'точка по свою сторону минуты обнаружения').toBe(c.late);
+  /**
+   * Окно ответа — до прихода, с какой бы минуты набег ни был виден (решение владельца 06.10.2026, docs/NOTIFY.md, 12.11):
+   * пометки «полный сбор не успеет» больше нет. Прежде здесь стоял тест «полный сбор не успевает уже с минуты обнаружения —
+   * пункт есть, с пометкой»: сбора дома нет, и нижней границы окна в ноль — тоже. Граница области — приход: точки задолго
+   * до него, за секунду и ровно в минуту прихода (окна нет — молчание `no-window`).
+   */
+  it('«нападают» годен до прихода с любой минуты обнаружения; виден только в минуту прихода — окна нет', () => {
+    const arriveAt = raidFacts().arriveAt;
+    for (const seenFrom of [T0 + 3 * MINUTE, T0 + 9 * MINUTE, arriveAt - 1000]) {
+      expect(seenFrom, 'точка до прихода').toBeLessThan(arriveAt);
+      const raid = raidFacts({ seenFrom });
       const { items, silent } = draftNotices({ raid, siege: null, breaks: [] }, T0);
-      expect(silent, `сбор до ${c.musterBy - T0}: молчания нет`).toEqual([]);
+      expect(silent, `виден с ${seenFrom - T0}: молчания нет`).toEqual([]);
       const raids = only(items, 'raid');
-      expect(raids.length, `сбор до ${c.musterBy - T0}: пункт есть`).toBe(1);
+      expect(raids.length, `виден с ${seenFrom - T0}: пункт есть`).toBe(1);
       const [item] = raids;
-      expect(item.fireAt, 'уходит в минуту, когда набег виден').toBe(raid.seenFrom);
-      expect(item.until, 'годен до прихода, если сбор не успевает, иначе — пока успевает').toBe(c.late ? raid.arriveAt : c.musterBy);
-      expect(item.p.late, 'пометка «полный сбор не успеет»').toBe(c.late ? true : undefined);
+      expect(item.fireAt, 'уходит в минуту, когда набег виден').toBe(seenFrom);
+      expect(item.until, 'годен до прихода').toBe(arriveAt);
+      expect(Object.keys(item.p).sort(), 'пометок окна нет').toEqual(['about', 'fate', 'from']);
     }
+    const atArrival = draftNotices({ raid: raidFacts({ seenFrom: arriveAt }), siege: null, breaks: [] }, T0);
+    expect(only(atArrival.items, 'raid'), 'виден в минуту прихода — «нападают» не пункт').toEqual([]);
+    expect(atArrival.silent).toEqual([{ kind: 'raid', why: 'no-window' }]);
   });
 
   it('договор терпит старый клиент: поле `freezeAt` в пункте принимается и отбрасывается', () => {
@@ -259,8 +263,11 @@ describe('черновики: вид, ключ, «когда» и «годно �
     const [item] = draftNotices({ raid: raidFacts(), siege: null, breaks: [] }, T0).items;
     const old = { ...item, p: { ...item.p, freezeAt: T0 + 12 * MINUTE } };
     expect(readNotices(JSON.parse(JSON.stringify([old])), T0), 'пункт старого клиента').toEqual([item]);
-    // Пометка — только `true`: иное значение — чужое, и пункт отвергается целиком, как всякий кривой.
-    expect(readNotices([{ ...item, p: { ...item.p, late: 'да' } }], T0)).toBeNull();
+    // Пометка «полный сбор не успеет» ушла вместе со сбором дома (docs/NOTIFY.md, 12.11): прежний бандл шлёт её, пока не
+    // перезагрузится, — поле отбрасывается, каким бы оно ни было. Прежде иное значение, кроме `true`, роняло пункт.
+    for (const late of [true, 'да']) {
+      expect(readNotices([{ ...item, p: { ...item.p, late } }], T0), `пометка ${String(late)}`).toEqual([item]);
+    }
   });
 
   it('черновик проходит разбор сервера как есть — и со странным именем двора', () => {
@@ -488,13 +495,13 @@ describe('разрыв держит правду', () => {
   }, 60_000);
 
   /**
-   * Для любой черты полководца набег даёт пункт (слово владельца по 14.26): годен до прихода минус потолок сбора с чертой —
-   * той же дверью, что показывает окно в игре (`MarchView.musterBy`), — а где полный сбор не успевает уже с минуты
-   * обнаружения («Мясник»), уходит в эту минуту и годен до прихода.
+   * Для любой черты полководца набег даёт пункт, и годен он до прихода — того же, что окно в игре (`MarchView.arriveAt`):
+   * черта сбора окна ответа больше не двигает, сбора дома нет (решение владельца 06.10.2026, docs/NOTIFY.md, 12.11).
+   * Прежде этот тест держал «годен до прихода минус потолок сбора с чертой», а у «Мясника» — пометку «полный сбор не
+   * успеет»; точки внутри области те же: три черты сбора (без черты, «Скорый», «Мясник») на трёх мирах.
    */
-  it('черновик набега годен до прихода минус потолок сбора с чертой — и для любой черты набег даёт пункт', async () => {
+  it('черновик набега годен до прихода — у любой черты полководца, как окно в игре', async () => {
     const TRAITS = [undefined, 0.75, 1.5];
-    let late = 0;
     for (const muster of TRAITS) {
       let got = 0;
       for (const seed of [202, 404, 606]) {
@@ -511,8 +518,6 @@ describe('разрыв держит правду', () => {
         }
         if (!item) continue;
         got++;
-        const wait = Math.round(HANDOVER_MAX * (muster ?? 1));
-        const by = item.p.about - wait;
         // Черновик лежит с выхода отряда, а в игре отряд виден с минуты, когда о нём узнали (`fireAt` — донесение Дозора
         // или живой обзор): окно в игре сверяется в эту минуту.
         if (item.fireAt > now) {
@@ -521,19 +526,11 @@ describe('разрыв держит правду', () => {
         }
         const view = (await world.marches()).find((m) => m.id === item!.key.split(':')[1]);
         expect(view, `черта ${muster ?? 1}, сид ${seed}: набег виден в минуту черновика`).toBeTruthy();
-        expect(view?.musterBy, `черта ${muster ?? 1}, сид ${seed}: окно в игре — той же дверью`).toBe(by);
-        if (item.p.late) {
-          late++;
-          expect(by, `черта ${muster ?? 1}, сид ${seed}: пометка — только когда сбор не успевает с обнаружения`).toBeLessThanOrEqual(item.fireAt);
-          expect(item.until, `черта ${muster ?? 1}, сид ${seed}: годен до прихода`).toBe(item.p.about);
-        } else {
-          expect(item.until, `черта ${muster ?? 1}, сид ${seed}: годен, пока полный сбор успевает`).toBe(by);
-        }
+        expect(item.until, `черта ${muster ?? 1}, сид ${seed}: годен до прихода`).toBe(item.p.about);
+        expect(view?.arriveAt, `черта ${muster ?? 1}, сид ${seed}: окно в игре — тот же приход`).toBe(item.until);
       }
       expect(got, `черта ${muster ?? 1}: набег дал пункт`).toBeGreaterThan(0);
     }
-    // Граница области: пометка «полный сбор не успеет» в выборке есть — иначе нижняя граница окна проверялась бы даром.
-    expect(late, 'пунктов с пометкой').toBeGreaterThan(0);
   }, 120_000);
 
   /** Набег: черновик, прогнанный до прихода, говорит о том же отряде и той же минуте. */
