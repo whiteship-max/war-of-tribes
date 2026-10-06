@@ -18,9 +18,22 @@
 // Модуль чистый: ни состояния, ни часов. Считают по нему двое — мир
 // (`LocalWorld.sightDiscs`) и карта (`world/store.sightDiscs`), — и второй
 // правды о том, кто наблюдает, между ними быть не должно.
-import type { FigureId, FigurePhase } from './types';
+import type { Coord, FigureId, FigurePhase } from './types';
 import { FIGURE_BY_ID } from './data/figures';
+import { HOME_SIGHT } from './data/tuning';
 import { type Placed, placeOf } from './shelter';
+import { SICILY_SIGHT, sicilySlot } from './spawn';
+
+/**
+ * Кольцо живого обзора у своего города, клеток. Обычное — `HOME_SIGHT`. У города на одном из двенадцати мест острова
+ * (тест с игроками, `TRIBE_SPAWN=sicily`, docs/test_world.md) — `SICILY_SIGHT`: соседи там стоят в шести клетках, и
+ * из любого из двенадцати городов видно остальные одиннадцать.
+ *
+ * Мерка — место, а не настройка сервера: на место острова ставит только этот режим, место не меняется, а мир
+ * пересобирает логова из сида при каждой загрузке — правило от флага сервера двигало бы их при его смене. Спрашивают
+ * одну эту функцию мир (`LocalWorld`), карта (`world/store`) и генерация (`gen`).
+ */
+export const homeSight = (home: Coord): number => (sicilySlot(home) > 0 ? SICILY_SIGHT : HOME_SIGHT);
 
 /**
  * Единственная фигура, дающая живой обзор. Не «список наблюдателей»: лазутчик у
