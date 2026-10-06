@@ -9,6 +9,7 @@
  * либо нет.
  */
 import type { Stores } from './kv.js';
+import { spawnModeOf, type SpawnMode } from '../../src/world/spawn.js';
 
 /** Больше этого тело запроса не принимается. Потолки частей сохранения (`LIMITS` в `routes/save.ts`) в него укладываются. */
 export const MAX_BODY_BYTES = 512 * 1024;
@@ -137,6 +138,13 @@ export const warPace = (): number => {
   const n = Number(process.env.TRIBE_WAR_PACE);
   return Number.isFinite(n) && n >= 1 ? Math.min(1000, n) : 1;
 };
+
+/**
+ * Режим появления новых игроков (docs/test_world.md): `TRIBE_SPAWN=sicily` — новички встают на двенадцать мест Сицилии
+ * (`world/spawn.ts`), а защита слабого в войне между игроками выключена. Нет переменной — обычное расселение и обычная
+ * война. Одно правило на оба дома: Netlify читает переменную окружения функции, свой сервер — ту же (`vps/config.ts`).
+ */
+export const spawnMode = (env: Record<string, string | undefined> = process.env): SpawnMode | null => spawnModeOf(env.TRIBE_SPAWN);
 
 /**
  * Что обработчику дают снаружи — и больше ничего. Обработчик один на Netlify и на своём сервере

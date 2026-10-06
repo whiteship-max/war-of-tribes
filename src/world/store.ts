@@ -4,6 +4,7 @@
 import { create } from 'zustand';
 import { partyNow, serverNow } from '@/net/clock';
 import { castleCell, castles, rosterReady, startPulling, stopPulling } from '@/net/roster';
+import { knownEra } from '@/net/era';
 import { NOTIFY_ON, notifyDrafts } from '@/net/notify';
 import { provideSheet, warBoot, warOrder, warPace, wars, warsKnown } from '@/net/war';
 import { log } from '@/game/sim/log';
@@ -370,7 +371,7 @@ export const useWorld = create<WorldStore>((set, get) => ({
       // неудача возвращается значением, — и первого кадра игры оно не касается:
       // деревня к этому времени давно на экране.
       await rosterReady();
-      const world = openWorld({ reveal: revealWorld(), home: castleCell() ?? undefined, castles: worldCastles });
+      const world = openWorld({ reveal: revealWorld(), home: castleCell() ?? undefined, castles: worldCastles, era: knownEra() });
       // Реестр назвал другую клетку, чем та, на которой партия шла без него.
       // Молча такое не делается: карта пропала, и игрок узнаёт об этом строкой.
       if (world.movedByRoster) {
@@ -875,6 +876,7 @@ export const useWorld = create<WorldStore>((set, get) => ({
         // где о нём знают соседи, и переезжать ему некуда.
         home: castleCell() ?? undefined,
         castles: worldCastles,
+        era: knownEra(),
       }),
     );
     set({

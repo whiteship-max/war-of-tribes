@@ -178,6 +178,22 @@ describe('подъём партии, которой больше негде ле
     expect(res.state.log.some((e) => /облака Telegram/.test(e.text))).toBe(true);
   });
 
+  it('партия прошлой эпохи мира в облаке не поднимается и на диск не ложится (docs/test_world.md)', async () => {
+    const { createInitialState } = await import('@/game/state');
+    const { serialize, loadGame } = await import('@/game/save');
+    const был = createInitialState();
+    был.gold = 4242;
+    putInCloud(cloud, 'tribe.save.v1', serialize(был));
+    // После `/wipeworld ДА` у устройства эпоха 1, а в облаке — партия эпохи 0: она стёрта на сервере и не воскресает.
+    const res = await loadGame({ era: 1 });
+    expect(res).toMatchObject({ fresh: true, legacy: false });
+    expect(res.state.gold).not.toBe(4242);
+    expect(disk.has('tribe.save.v1')).toBe(false);
+    // Граница области: в своей эпохе та же облачная копия поднимается — отказ выше дала именно эпоха.
+    const same = await loadGame({ era: 0 });
+    expect(same.state.gold).toBe(4242);
+  });
+
   it('своя копия сильнее облачной, и облако при ней не спрашивают', async () => {
     const { createInitialState } = await import('@/game/state');
     const { serialize, loadGame } = await import('@/game/save');

@@ -789,6 +789,14 @@
 .ui-new .wm-legend {
   bottom: calc(var(--nav-h) + var(--safe-bottom) + 24px);
 }
+.wm-wait {
+  position: absolute;
+  top: calc(var(--safe-top) + 64px);
+  left: 16px;
+  right: 16px;
+  z-index: 2;
+  text-align: center;
+}
 .nx-stale {
   margin-bottom: 8px;
   padding: 8px 12px;

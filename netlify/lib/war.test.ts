@@ -174,6 +174,17 @@ describe('приказы: защита слабого, регион, чужое'
     expect(file.wars).toHaveLength(0);
   });
 
+  it('тест с игроками (TRIBE_SPAWN=sicily): защиты слабого нет — тот же слабый город берут, прочие условия те же', () => {
+    const { ctx, file } = setup({ b: { pop: 10, power: 5 } });
+    // Точка внутри области правила: город слаб, и без режима отказ был бы ровно защитой (тест выше).
+    expect(weakCity(10, 5)).toBe(true);
+    const march = { op: 'march', target: castleIdOf(B), mode: 'storm', fate: 'plunder', army: army({ spearman: 10 }) } as const;
+    expect(applyOrder(file, A, march, T0, { ...ctx, noShield: true })).toBeNull();
+    expect(file.wars).toHaveLength(1);
+    // Остальное — как обычно: второй поход того же полководца не уходит.
+    expect(applyOrder(file, A, march, T0 + 1, { ...ctx, noShield: true })).toMatch(/уже в походе/);
+  });
+
   it('войска больше, чем в слепке, не уведёшь', () => {
     const { ctx, file } = setup();
     const err = applyOrder(file, A, { op: 'march', target: castleIdOf(B), mode: 'storm', fate: 'plunder', army: army({ knight: 500 }) }, T0, ctx);

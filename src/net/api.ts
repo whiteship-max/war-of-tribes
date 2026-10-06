@@ -15,7 +15,9 @@
  * играет дальше, без синхронизации и без ошибок на экране.
  */
 import { tgInitData } from '@/telegram/webapp';
+import { ERA_HEADER, type EraGoneResponse } from '../../netlify/lib/contract';
 import { setServerTime } from './clock';
+import { adoptEra, eraLeaving, knownEra } from './era';
 
 /** Сколько ждём ответа. Больше — и игрок успевает решить, что игра зависла. */
 const TIMEOUT_MS = 8000;
@@ -31,6 +33,8 @@ export type ApiFail =
   | 'busy'
   /** Аккаунт заморожен админом: записи не принимаются (docs/admin.md). */
   | 'frozen'
+  /** Мир начат заново (docs/test_world.md): у сервера другая эпоха, игра перезапускается в новую партию. */
+  | 'era'
   /** Сервер ответил, но чем-то другим. */
   | 'server';
 
@@ -39,7 +43,10 @@ export type ApiResult<T> = { ok: true; data: T } | { ok: false; why: ApiFail; bo
 const fail = (why: ApiFail, body: unknown = null): ApiResult<never> => ({ ok: false, why, body });
 
 async function call<T>(path: string, init: RequestInit & { auth?: boolean } = {}): Promise<ApiResult<T>> {
-  const headers: Record<string, string> = { accept: 'application/json' };
+  // Эпоха сменилась, игра уходит на перезапуск: ни одного запроса больше — иначе старая партия ушла бы под новым номером.
+  if (eraLeaving()) return fail('era');
+  // Эпоха мира — с каждым запросом: сервер другой эпохи не примет и не отдаст ничего (docs/test_world.md).
+  const headers: Record<string, string> = { accept: 'application/json', [ERA_HEADER]: String(knownEra()) };
   if (init.body) headers['content-type'] = 'application/json';
   if (init.auth !== false) {
     const raw = tgInitData();
@@ -79,6 +86,10 @@ async function call<T>(path: string, init: RequestInit & { auth?: boolean } = {}
   if (res.status === 409) return fail('conflict', body);
   if (res.status === 429) return fail('busy', body);
   if (res.status === 423) return fail('frozen', body);
+  if (res.status === 410 && (body as EraGoneResponse | null)?.error === 'era') {
+    adoptEra(Number((body as EraGoneResponse).era));
+    return fail('era', body);
+  }
   return fail('server', body);
 }
 

@@ -26,13 +26,14 @@
  * запрос и молчит между ними.
  */
 import { readInitData, saveKeyOf } from '../initdata.js';
-import { WRITE_TRIES, allow, botToken, deny, json, parseJson, readBody, type Route } from '../http.js';
+import { eraGate } from '../era.js';
+import { WRITE_TRIES, allow, botToken, deny, json, parseJson, readBody, spawnMode, type Route } from '../http.js';
 import { readClaim, type RosterFile, type RosterResponse } from '../contract.js';
-import { prune, readRoster, rosterEpoch, upsert, viewOf, worthWriting } from '../roster.js';
+import { ROSTER_KEY, prune, readRoster, rosterEpoch, upsert, viewOf, worthWriting } from '../roster.js';
 import { STORES } from '../kv.js';
 
 /** Весь реестр лежит одним значением: его читают целиком и целиком переписывают. */
-const KEY = 'roster';
+const KEY = ROSTER_KEY;
 
 /**
  * Докуда игроку раздаются чужие замки, клеток. Не тайна и не проверка: дальше
@@ -77,6 +78,9 @@ export const castles: Route = async (req, io) => {
 
   const key = saveKeyOf(auth.user);
   if (!allow(`castles:${key}`, PER_MINUTE, now)) return deny(429, 'slow-down', { 'retry-after': '5' });
+  // Эпоха мира (docs/test_world.md): партия другой эпохи не пишется и не читается — после чистого старта она не воскресает.
+  const gone = await eraGate(req, io);
+  if (gone) return gone;
 
   /**
    * Чтение и запись разведены по строгости нарочно. Записи строгая сверка нужна:
@@ -102,6 +106,8 @@ export const castles: Route = async (req, io) => {
   const claim = readClaim(sent);
   if (!claim) return deny(400, 'bad-body');
 
+  // Режим появления (docs/test_world.md): места острова или обычное расселение — один на весь запрос.
+  const mode = spawnMode();
   // Прочитать — изменить — записать, и место для нового замка выбирается
   // **внутри** цикла. Иначе двое, зашедших в одну секунду, посчитали бы клетку
   // каждый по своему списку, и второй записал бы место, выбранное без учёта
@@ -119,7 +125,7 @@ export const castles: Route = async (req, io) => {
       return json(answer(file, key, now));
     }
 
-    const next = prune(upsert(file, key, claim, now), now, key);
+    const next = prune(upsert(file, key, claim, now, mode), now, key);
     const written = await hot.setJSON(KEY, next, etag === null ? { onlyIfNew: true } : { onlyIfMatch: etag });
     if (written.modified) return json(answer(next, key, now));
   }

@@ -922,6 +922,25 @@ export interface AdminNote {
   grants: AdminGrant[];
 }
 
+/**
+ * Эпоха мира (docs/test_world.md): номер чистого старта. Игра шлёт свою в этом заголовке с каждым запросом; сервер, у
+ * которого другая, отвечает 410 (`EraGoneResponse`) и не пишет ничего. Нет заголовка — эпоха 0, мир ни разу не стирали.
+ */
+export const ERA_HEADER = 'x-tribe-era';
+
+/** Эпоха из заголовка: целое не меньше нуля; нет заголовка — 0; порча — −1, она не совпадёт ни с какой эпохой. */
+export function readEra(v: string | null | undefined): number {
+  const n = Number((v ?? '').trim() || '0');
+  return Number.isSafeInteger(n) && n >= 0 ? n : -1;
+}
+
+/** Ответ 410: мир начат заново, у сервера эпоха `era`. Старая партия не принимается и не отдаётся. */
+export interface EraGoneResponse {
+  error: 'era';
+  era: number;
+  now: number;
+}
+
 /** Ответ 423: аккаунт заморожен, запись не принята. */
 export interface FrozenResponse {
   error: 'frozen';

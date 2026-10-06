@@ -30,6 +30,9 @@ import {
   type GrantsFile,
 } from './admin.js';
 import { REPORT_ID, reportAt } from './reports.js';
+import { spawnsNow, wipeWorld } from './era.js';
+import { spawnMode } from './http.js';
+import { SICILY, sicilySlot } from '../../src/world/spawn.js';
 import type { Telegram } from './telegram.js';
 import { TROOPS } from '../../src/game/data/troops.js';
 
@@ -72,6 +75,8 @@ export const HELP = [
   '/flags — подозрительные игроки.',
   '/reports — последние отчёты об ошибках.',
   '/report <номер> — отчёт целиком.',
+  '/spawns — места появления на Сицилии: кто какое занял.',
+  '/wipeworld ДА — чистый старт: стереть все партии, замки, войну, журналы, отчёты и статистику; номер эпохи мира +1.',
   '',
   'Что можно в /give: древесина (дерево), камень, еда, шкуры, кости, медь, железо, золото; бойцы — дубинщики, копейщики, лучники, топорники, мечники, щитоносцы, всадники, латные (латные всадники), латники. Можно и латиницей: wood, spearman… Алмазы указом не меняются.',
   'Город с пробелом в имени — называй номером.',
@@ -509,6 +514,52 @@ async function reportOne(io: Io, id: string): Promise<Reply> {
   );
 }
 
+// ------------------------------------------------ тест с игроками (docs/test_world.md) ---
+
+/** Двенадцать мест острова: кто какое занял, и кто встал вне мест (места кончились). */
+async function spawns(io: Io): Promise<Reply> {
+  const { roster, era } = await spawnsNow(io.stores);
+  const rows = Object.entries(roster.rows);
+  const who = ([key, row]: (typeof rows)[number]): string => `«${cityOr(row.city)}» ${key}${row.name ? ` (${row.name})` : ''}, был ${when(row.seenAt)}`;
+  const lines = SICILY.map((s, i) => {
+    const on = rows.find(([, r]) => r.x === s.x && r.y === s.y);
+    return `${i + 1}. ${s.x}|${s.y} — ${on ? who(on) : 'свободно'}`;
+  });
+  const off = rows.filter(([, r]) => sicilySlot(r) === 0);
+  return say(
+    [
+      `Места на Сицилии (режим ${spawnMode() === 'sicily' ? 'TRIBE_SPAWN=sicily включён' : 'ВЫКЛЮЧЕН — новички встают по обычным правилам'}; эпоха мира ${era.era}${era.wiping ? ', идёт стирание' : ''}).`,
+      `Занято ${SICILY.length - lines.filter((l) => l.endsWith('свободно')).length} из ${SICILY.length}.`,
+      '',
+      ...lines,
+      ...(off.length ? ['', `Вне мест острова (${off.length}):`, ...off.slice(0, 30).map((e) => `• ${e[1].x}|${e[1].y} — ${who(e)}`)] : []),
+    ].join('\n'),
+  );
+}
+
+/** Чистый старт — только со словом «ДА»: без него бот объясняет, что будет стёрто. */
+async function wipe(io: Io, args: string[], admin: number, now: number): Promise<Reply> {
+  if (args.length !== 1 || args[0] !== 'ДА') {
+    return say(
+      [
+        'Чистый старт стирает на сервере: все партии, реестр замков, войну, уведомления, журналы городов, отчёты об ошибках, статистику и указы. Остаются заморозка и журнал админа.',
+        'Номер эпохи мира поднимется на один: старая партия с телефона не загрузится и на сервер не уйдёт — у каждого начнётся новая.',
+        'Подтвердить: /wipeworld ДА',
+      ].join('\n'),
+    );
+  }
+  const done = await wipeWorld(io.stores, admin, now);
+  if (typeof done === 'string') return say(done);
+  const total = Object.values(done.counts).reduce((a, b) => a + b, 0);
+  return say(
+    [
+      `Мир начат заново: эпоха ${done.era}. Стёрто записей: ${total}.`,
+      ...Object.entries(done.counts).map(([k, n]) => `• ${k}: ${n}`),
+      'Игроки, открывшие игру, начнут новую партию с выдачей места. /spawns — кто где встал.',
+    ].join('\n'),
+  );
+}
+
 /**
  * Обновление с сообщением. Возвращает `true`, если это было сообщение (ответили админу или промолчали чужому), и
  * `false`, если сообщения в обновлении нет — тогда его разбирает вебхук (кнопки, блокировка бота).
@@ -561,6 +612,12 @@ export async function adminCommand(update: Record<string, unknown>, io: Io, tg: 
       break;
     case '/report':
       reply = await reportOne(io, rest.trim());
+      break;
+    case '/spawns':
+      reply = await spawns(io);
+      break;
+    case '/wipeworld':
+      reply = await wipe(io, args, from, now);
       break;
     default:
       reply = say(HELP);

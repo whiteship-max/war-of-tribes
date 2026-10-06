@@ -508,6 +508,11 @@ export interface LoadResult {
 export interface LoadHooks {
   /** Зовётся перед догоном, если догонять есть что. */
   onOffline?: (seconds: number) => Promise<void> | void;
+  /**
+   * Эпоха мира устройства (`net/era.knownEra`, docs/test_world.md). Партия другой эпохи не загружается — ни с диска, ни
+   * из облака: начинается новая. Нет — эпоху не сверяют (стенды и отчёты).
+   */
+  era?: number;
 }
 
 export async function loadGame(hooks: LoadHooks = {}): Promise<LoadResult> {
@@ -529,11 +534,15 @@ export async function loadGame(hooks: LoadHooks = {}): Promise<LoadResult> {
   // живые копии и спросит игрока — молча за него не выберет никто.
   const lifted = json ? null : await rescueFromCloud(KEY);
   const chosen = json ?? lifted;
-  const state = chosen ? deserialize(chosen) : null;
+  const read = chosen ? deserialize(chosen) : null;
+  // Партия прошлой эпохи мира: сервер с тех пор стёрт (`/wipeworld ДА`), и её не загружают — ни с диска, ни из облака.
+  // Начинается новая; старая строка на диске ляжет под первой же записью новой партии (docs/test_world.md).
+  const stale = read !== null && hooks.era !== undefined && (read.era ?? 0) !== hooks.era;
+  const state = stale ? null : read;
   if (!state) {
     // Что-то лежало, но прочитать это нельзя — старый формат. Молча стирать
     // прогресс нельзя: игроку об этом скажет отдельное окно.
-    const legacy = Boolean(chosen);
+    const legacy = Boolean(chosen) && !stale;
     if (legacy) clearSave();
     return { state: createInitialState(), offlineSeconds: 0, fresh: true, legacy };
   }
