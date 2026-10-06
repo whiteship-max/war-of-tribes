@@ -9,7 +9,7 @@ import type { TipContent } from './tip';
  * свободные места и сколько мест прибавит следующий уровень — замером `upgradeGains`, а не числом рядом.
  */
 export function workerTip(job: string, hands: number, slots: number, free: number, gains: UpgradeGain[] | null, spareHelps: boolean): TipContent {
-  const parts = [`Свободных рук в племени: ${free}.`];
+  const parts = [`Свободных рук в городе: ${free}.`];
   if (hands < slots && !spareHelps) parts.push('Выработка на потолке, новые руки ничего не дадут.');
   const more = gains?.find((g) => g.id === 'slots');
   if (more) parts.push(`Следующий уровень даст ещё ${count(more.after - more.before, 'место', 'места', 'мест')}.`);

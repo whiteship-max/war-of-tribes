@@ -150,7 +150,7 @@ export function PopPanel() {
       </div>
       <div className="mod">
         <span className="ico">{s.morale < MORALE_GROWTH_ZERO ? '😟' : '😊'}</span>
-        <span className="name">Мораль племени</span>
+        <span className="name">Мораль города</span>
         <span className={`val ${s.morale < MORALE_GROWTH_ZERO ? 'neg' : 'pos'}`}>
           {Math.round(s.morale)}
           {s.morale < MORALE_GROWTH_ZERO ? ` — ниже ${MORALE_GROWTH_ZERO}` : ''}

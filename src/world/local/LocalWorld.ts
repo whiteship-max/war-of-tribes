@@ -2052,7 +2052,7 @@ export class LocalWorld implements WorldApi {
     }
     if (troopTotal(f.troops ?? {}) === 0) return 'При полководце нет отряда.';
     const near = this.touching(this.figureAt(f, now));
-    if (!near || near.home) return 'Рядом нет чужого поселения.';
+    if (!near || near.home) return 'Рядом нет цели.';
     const target = this.byId.get(near.id);
     if (!target) return 'Цель не найдена.';
     if (!this.inRealm(target)) return this.beyond();
@@ -2558,7 +2558,7 @@ export class LocalWorld implements WorldApi {
       relation: 'self',
       owner: p?.name ?? 'Ты',
       tribeId: null,
-      tribeName: 'Твоё племя',
+      tribeName: 'Твоя держава',
       color: RELATION_META.self.color,
       mine: true,
       castle: false,
@@ -3491,7 +3491,7 @@ export class LocalWorld implements WorldApi {
             prestige: 0,
             morale: -2,
             battle: null,
-            text: `Договор «${DEAL_BY_ID[key].name}» с племенем ${this.tribeName(tribeId)} истёк.`,
+            text: `Договор «${DEAL_BY_ID[key].name}» с державой ${this.tribeName(tribeId)} истёк.`,
             good: false,
           });
           continue;
@@ -3519,7 +3519,7 @@ export class LocalWorld implements WorldApi {
         prestige: 0,
         morale: 0,
         battle: null,
-        text: `Торговля с племенем ${name} принесла ${gold} золота.`,
+        text: `Торговля с державой ${name} принесла ${gold} золота.`,
         good: true,
       });
       return;
@@ -3537,7 +3537,7 @@ export class LocalWorld implements WorldApi {
       prestige: 1,
       morale: 1,
       battle: null,
-      text: `Дань от племени ${name} доставлена.`,
+      text: `Дань от державы ${name} доставлена.`,
       good: true,
     });
   }
@@ -4304,7 +4304,7 @@ export class LocalWorld implements WorldApi {
       ...(loss?.fallen ? { fallen: loss.fallen } : {}),
       text: spoils
         ? `${m.fromName} прорвались через заслон. ${lossText(declared, spoils)}`
-        : `${m.fromName} отбиты у частокола.`,
+        : `${m.fromName} отбиты у стен.`,
       read: false,
     });
 
@@ -6693,7 +6693,7 @@ export class LocalWorld implements WorldApi {
     }
     if (troopTotal(f.troops ?? {}) === 0) return { error: 'Войска при полководце нет.', reportId: null, won: false };
     const near = this.touching(this.figureAt(f, now));
-    if (!near) return { error: 'Рядом нет чужого поселения.', reportId: null, won: false };
+    if (!near) return { error: 'Рядом нет цели.', reportId: null, won: false };
     // Ни удара, ни штурма за краем своего региона (docs/map_tw.md, 0.−2): туда полководца и не отправить.
     const place = near.home ? null : this.byId.get(near.id);
     if (place && !this.inRealm(place)) return { error: this.beyond(), reportId: null, won: false };
@@ -6709,7 +6709,7 @@ export class LocalWorld implements WorldApi {
       if (!res.error) this.payEnergy('general', 'strike', now);
       return res;
     }
-    if (near.home) return { error: 'Рядом нет чужого поселения.', reportId: null, won: false };
+    if (near.home) return { error: 'Рядом нет цели.', reportId: null, won: false };
     // Держит осаду — ударить можно только по тому городу, который держит: это штурм,
     // и он снимает лагерь. Другого дела у полководца, пока лагерь стоит, нет.
     const besieging = this.ourSiege(now);
@@ -7030,7 +7030,7 @@ export class LocalWorld implements WorldApi {
       prestige: 3,
       morale: 3,
       battle: null,
-      text: `Договор с племенем ${name}: ${def.name.toLowerCase()}.`,
+      text: `Договор с державой ${name}: ${def.name.toLowerCase()}.`,
       good: true,
     });
     this.write();

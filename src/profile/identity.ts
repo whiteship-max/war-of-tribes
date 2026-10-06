@@ -15,7 +15,7 @@ export { DEFAULT_CITY, cityName };
 
 /** Кем игрок выходит, пока не выбрал сам и пока Telegram молчит. */
 export const DEFAULT_AVATAR: AvatarId = '01_swordsman';
-export const DEFAULT_NAME = 'Вождь';
+export const DEFAULT_NAME = 'Правитель';
 
 /** Длиннее имя не влезает ни в кружок, ни в визитку. */
 export const NAME_MAX = 24;
@@ -37,7 +37,7 @@ export const profileCity = (p: Pick<ProfileState, 'city'>): string => cityOr(p.c
 export const avatarById = (id: AvatarId | null): Avatar =>
   AVATARS.find((a) => a.id === (id ?? DEFAULT_AVATAR)) ?? AVATARS[0];
 
-/** Имя игрока: своё → из Telegram → «Вождь». */
+/** Имя игрока: своё → из Telegram → «Правитель». */
 export const profileName = (p: ProfileState): string => cleanName(p.name) ?? cleanName(p.tgName) ?? DEFAULT_NAME;
 
 /**

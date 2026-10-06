@@ -269,7 +269,7 @@ async function player(io: Io, q: string): Promise<Reply> {
   const ice = frozen.keys[key];
   const lines = [
     label(key, rec),
-    `Вождь: ${rec.name || '—'} · мощь ${big(rec.power)} · игровой день ${rec.day}`,
+    `Правитель: ${rec.name || '—'} · мощь ${big(rec.power)} · игровой день ${rec.day}`,
     `Пришёл ${when(rec.first)} · последний запрос ${when(rec.last)}`,
     `Заходов ${rec.visits} · в игре ${span(rec.played)} · записей партии ${rec.writes} · походов на игроков ${rec.wars}`,
   ];
@@ -387,7 +387,7 @@ export function statsCsv(rows: Found[], frozen: FrozenFile): string {
     'id',
     'имя пользователя',
     'город',
-    'вождь',
+    'правитель',
     'пришёл',
     'последний запрос',
     'заходов',

@@ -69,7 +69,7 @@ export function Nav() {
           <Icon name="nav-people" glyph="👥" />
           {idle > 0 && !building && <em className="nx-badge">{idle > 9 ? '9+' : idle}</em>}
         </span>
-        Племя
+        Жители
       </button>
       <button
         data-tut="nav-map"

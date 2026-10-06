@@ -184,7 +184,7 @@ function CampfireData() {
   return (
     <>
       <h3>
-        У костра <span className="muted">свободных рук: {idle}</span>
+        На площади <span className="muted">свободных рук: {idle}</span>
       </h3>
       <div className="note">
         {site

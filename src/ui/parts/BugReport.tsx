@@ -63,7 +63,7 @@ export function BugReport() {
               maxLength={REPORT_LIMITS.text}
               rows={6}
               autoFocus
-              placeholder="Например: свернул игру, вернулся — вместо деревни чёрный экран."
+              placeholder="Например: свернул игру, вернулся — вместо города чёрный экран."
               onChange={(e) => setText(e.target.value)}
             />
             <small className="muted bug-count">

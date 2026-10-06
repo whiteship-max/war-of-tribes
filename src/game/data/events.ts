@@ -286,7 +286,7 @@ export const EVENTS: EventDef[] = [
     icon: '🧰',
     title: 'Бродячая артель',
     text: (s) =>
-      `К воротам вышла артель, ${people(crowd(s, 0.03, 5))} с инструментом. Просят еды и места у костра.`,
+      `К воротам вышла артель, ${people(crowd(s, 0.03, 5))} с инструментом. Просят еды и крыши.`,
     weight: (s) => (s.pop >= 20 ? 1.5 : 0.5),
     options: [
       {
@@ -416,7 +416,7 @@ export const EVENTS: EventDef[] = [
     silence: 2,
     icon: '🤒',
     title: 'Мор',
-    text: (s) => `По дворам пошла хворь. Слегло уже ${people(crowd(s, 0.04, 3))}.`,
+    text: (s) => `По домам пошла хворь. Слегло уже ${people(crowd(s, 0.04, 3))}.`,
     weight: (s) => (s.pop >= 12 ? 1.5 : 0),
     options: [
       {
@@ -428,7 +428,7 @@ export const EVENTS: EventDef[] = [
         apply: (s) => {
           if (jobCounts(s).priest > 0) {
             moveMorale(s, EVENT_MORALE.sicknessPriests);
-            return `${faithDef(s)?.priests ?? 'Служители'} обошли дворы, хворь отступила.`;
+            return `${faithDef(s)?.priests ?? 'Служители'} обошли дома, хворь отступила.`;
           }
           if (chance(s, 0.5)) {
             const n = killPop(s, crowd(s, 0.04, 3), 'мор');
@@ -493,7 +493,7 @@ export const EVENTS: EventDef[] = [
       const feast = f ? f.feasts[seasonOf(s.time)] : null;
       return feast
         ? `${feast.name}. ${feast.text} Ждут твоего слова.`
-        : 'Люди просят праздника у костра.';
+        : 'Люди просят праздника на площади.';
     },
     // Пока обряд справить нельзя — в этом сезоне уже справляли, идёт другой,
     // не хватает добра, — событие не поднимается вовсе: окно с двумя гашеными
@@ -727,27 +727,27 @@ export const EVENTS: EventDef[] = [
     silence: 1,
     icon: '🔥',
     title: 'Пожар',
-    text: 'Искра от костра попала на крышу двора.',
+    text: 'Искра из очага попала на крышу дома.',
     weight: (s) => ((buildingOfType(s, 'houses')?.level ?? 0) >= 2 ? 1 : 0),
     options: [
       {
-        label: 'Тушить всем племенем',
-        hint: 'Дворы останутся целы',
+        label: 'Тушить всем городом',
+        hint: 'Дома останутся целы',
         cost: (s) => ({ food: amount(s, 10) }),
         apply: () => {
-          return 'Двор отстояли.';
+          return 'Дом отстояли.';
         },
       },
       {
         label: 'Спасать пожитки',
-        hint: 'Жилища потеряют уровень',
+        hint: 'Дома потеряют уровень',
         apply: (s) => {
           // Жилища в посёлке одни: сносить их целиком — значит отнять всё жильё разом.
           // Огонь съедает улицу дворов, то есть один уровень.
           const houses = buildingOfType(s, 'houses');
           if (houses && houses.level > 1) houses.level -= 1;
           addRes(s, 'wood', amount(s, 5));
-          return 'Крайние дворы выгорели дотла. Удалось спасти немного древесины.';
+          return 'Крайние дома выгорели дотла. Удалось спасти немного древесины.';
         },
       },
     ],

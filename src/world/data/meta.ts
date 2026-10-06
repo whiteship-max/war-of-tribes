@@ -66,7 +66,7 @@ export const MISSIONS: MissionDef[] = [
     id: 'raid',
     name: 'Ударить',
     icon: '⚔️',
-    description: 'Разбить гарнизон и унести добычу. Племя цели затаит обиду.',
+    description: 'Разбить гарнизон и унести добычу. Хозяин цели затаит обиду.',
   },
   {
     id: 'scout',

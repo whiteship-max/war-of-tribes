@@ -325,7 +325,7 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
   // владелец — заглушка слепка («Наше племя», `bridge.playerProfile`), и строки нет, как в меню приказов.
   const ownerLine = card.mine
     ? ''
-    : [card.owner ? `Правитель ${card.owner}` : '', card.tribeName ? `${card.owner ? 'племя' : 'Племя'} ${card.tribeName}` : '']
+    : [card.owner ? `Правитель ${card.owner}` : '', card.tribeName ? `${card.owner ? 'держава' : 'Держава'} ${card.tribeName}` : '']
         .filter(Boolean)
         .join(' · ');
 
@@ -356,7 +356,7 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
           }}
         />
         {card.mine ? (
-          <Fact label="Оборона" value={fmt(def)} tip={{ title: `Оборона · ${fmt(def)}`, body: 'Гарнизон, частокол, башня, казармы и жители.' }} />
+          <Fact label="Оборона" value={fmt(def)} tip={{ title: `Оборона · ${fmt(def)}`, body: 'Гарнизон, стены, башня, казармы и жители.' }} />
         ) : (
           <Fact
             label="Дорога"
@@ -591,7 +591,7 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
 
       {card.deals.length > 0 && (
         <>
-          <h3>Договоры с племенем</h3>
+          <h3>Договоры с державой</h3>
           {card.deals.map((d) => (
             <Row
               key={d.id}

@@ -22,7 +22,7 @@ export interface RaidWords {
 
 /** Слова об окне по ответу `raidWindow`. Чистая функция: её сверяет тест на границе окна. */
 export function raidWords(win: RaidWindow): RaidWords {
-  return { win, left: realLeft(win.seconds), long: 'У частокола их встретит гарнизон.' };
+  return { win, left: realLeft(win.seconds), long: 'У стен их встретит гарнизон.' };
 }
 
 /**

@@ -61,7 +61,7 @@ export interface ProfileCard {
 }
 
 export interface ProfileState {
-  /** Имя, заданное игроком. null — берём из Telegram, нет и там — «Вождь». */
+  /** Имя, заданное игроком. null — берём из Telegram, нет и там — «Правитель». */
   name: string | null;
   /**
    * Имя города, которое назвал игрок, уже очищенное (`contract.cityName`). Необязательное:

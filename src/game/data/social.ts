@@ -54,7 +54,7 @@ export const SOCIAL_LINKS: SocialLink[] = [
   {
     id: 'group',
     icon: '💬',
-    name: 'Группа племени',
+    name: 'Группа игры',
     note: 'Разбор боёв, советы и жалобы на зиму.',
     url: TG_GROUP,
   },
@@ -92,4 +92,4 @@ export function inviteLink(id: number | null): string | null {
 }
 
 /** Что предлагают вместе со ссылкой. */
-export const INVITE_TEXT = 'Веду племя в TRIBE. Ставь своё, посмотрим, чья дружина крепче.';
+export const INVITE_TEXT = 'Строю город в TRIBE. Ставь своё, посмотрим, чья дружина крепче.';

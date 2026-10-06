@@ -31,7 +31,7 @@ export const EQUIPMENT: EquipmentDef[] = [
     name: 'Копья',
     one: 'копьё',
     icon: '🔱',
-    description: 'Древко и наконечник. Первое оружие, которое племя делает нарочно.',
+    description: 'Древко и наконечник. Самое простое оружие кузницы.',
     cost: { wood: 4, stone: 3 },
     work: 50,
   },

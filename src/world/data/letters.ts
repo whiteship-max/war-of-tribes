@@ -99,7 +99,7 @@ const KINDS: LetterKindDef[] = [
     title: 'На нас идут',
     icon: '🔥',
     body: (l, _goods, home) =>
-      `Из «${l.fromName}» вышел отряд и идёт на «${home}». Перехвати его на карте или встреть у частокола.`,
+      `Из «${l.fromName}» вышел отряд и идёт на «${home}». Перехвати его на карте или встреть у стен.`,
     yes: null,
     no: null,
     yesHint: () => '',

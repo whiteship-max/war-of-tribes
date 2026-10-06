@@ -341,7 +341,7 @@ describe('подсказка рабочих окна постройки — чи
       const hands = workerCount(s, b.id) + bondedCount(s, b.id) + mastersOn(s, b.id);
       const t = workerTip('Кузнец', hands, slots, idleCount(s), gains, spareSlotsHelp(s, b, hands));
       expect(t.title).toBe(`Кузнец · ${hands} из ${slots}`);
-      expect(t.body).toContain(`Свободных рук в племени: ${idleCount(s)}.`);
+      expect(t.body).toContain(`Свободных рук в городе: ${idleCount(s)}.`);
       if (more) {
         checked++;
         expect(t.body).toContain(`ещё ${count(more.after - more.before, 'место', 'места', 'мест')}.`);
