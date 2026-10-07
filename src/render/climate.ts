@@ -324,3 +324,37 @@ export function skyWords(w: Weather, night = false): string {
 /** «Дождь, ветер с моря» — подсказка погоды в верхней полосе. */
 export const weatherWords = (w: Weather, seaFrom?: (from: number) => boolean, night = false): string =>
   `${skyWords(w, night)}, ${windWords(w, seaFrom)}`;
+
+// ---------- Погода адресом ----------
+
+/**
+ * Погода, поставленная адресом (`?weather=rain`): стенду — снять её, телефону — проверить вид, не дожидаясь фронта.
+ * Только вид: на игру не влияет, как и настоящая.
+ */
+export const WEATHER_LOOKS: Record<string, Weather> = {
+  clear: { cloud: 0, rain: 0, snow: 0, storm: 0, fog: 0, wind: 0.3, from: 300 },
+  cloud: { cloud: 0.55, rain: 0, snow: 0, storm: 0, fog: 0, wind: 0.45, from: 300 },
+  overcast: { cloud: 0.9, rain: 0, snow: 0, storm: 0, fog: 0, wind: 0.4, from: 250 },
+  rain: { cloud: 0.92, rain: 0.8, snow: 0, storm: 0, fog: 0, wind: 0.55, from: 220 },
+  storm: { cloud: 1, rain: 1, snow: 0, storm: 1, fog: 0, wind: 0.85, from: 240 },
+  snow: { cloud: 0.85, rain: 0, snow: 0.8, storm: 0, fog: 0, wind: 0.35, from: 20 },
+  fog: { cloud: 0.35, rain: 0, snow: 0, storm: 0, fog: 1, wind: 0.08, from: 300 },
+  wind: { cloud: 0.35, rain: 0, snow: 0, storm: 0, fog: 0, wind: 1, from: 300 },
+};
+
+/** Погода из адреса страницы; не задана или незнакома — `null` (настоящая). */
+export function forcedWeather(search: string): Weather | null {
+  const v = new URLSearchParams(search).get('weather');
+  return v !== null && v in WEATHER_LOOKS ? WEATHER_LOOKS[v] : null;
+}
+
+/** Вспышки погоды адресом «гроза»: раз в девять секунд, гром — через две с половиной (стенд и проверка на телефоне). */
+export function forcedFlashes(storm: number, from: number, to: number): Flash[] {
+  if (storm <= 0) return [];
+  const out: Flash[] = [];
+  for (let k = Math.floor(from / 9000); k * 9000 < to; k++) {
+    const at = k * 9000 + 2000;
+    if (at >= from && at < to) out.push({ at, power: storm, thunder: at + 2500 });
+  }
+  return out;
+}

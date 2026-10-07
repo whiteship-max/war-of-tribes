@@ -172,12 +172,26 @@ describe('фон города: слои от того, что видит игр�
     expect(inland.sea).toBe(0);
   });
 
+  it('погода: дождь шуршит, ветер громче в бурю, рынок и птицы в дождь тише; без погоды — как прежде', () => {
+    const calm = mixOf(city({ near: 0.5 }));
+    expect(mixOf(city({ wx: { rain: 0, snow: 0, storm: 0, wind: 0.4 } }))).toEqual(calm);
+    expect(calm.rain).toBe(0);
+    const wet = mixOf(city({ wx: { rain: 0.8, snow: 0, storm: 0, wind: 0.4 } }));
+    expect(wet.rain).toBeGreaterThan(0.5);
+    expect(wet.market).toBeLessThan(calm.market * 0.7);
+    expect(wet.birds).toBeLessThan(calm.birds * 0.7);
+    const gale = mixOf(city({ near: 0, wx: { rain: 0, snow: 0, storm: 0, wind: 1 } }));
+    const still = mixOf(city({ near: 0, wx: { rain: 0, snow: 0, storm: 0, wind: 0 } }));
+    expect(gale.wind).toBeGreaterThan(still.wind * 2);
+    expect(mixOf({ view: 'map', solar: 0.25, season: 'summer', near: 1, sea: 0, wx: { rain: 1, snow: 0, storm: 0, wind: 0.4 } }).rain).toBeGreaterThan(0.3);
+  });
+
   it('все слои в пределах 0..1 на всей решётке', () => {
     for (const view of ['city', 'map'] as const)
       for (const season of ['spring', 'summer', 'autumn', 'winter'] as const)
         for (let solar = 0; solar < 1; solar += 0.01)
           for (const near of [0, 0.5, 1]) {
-            const m = mixOf({ view, season, solar, near, sea: 1 });
+            const m = mixOf({ view, season, solar, near, sea: 1, wx: { rain: 1, snow: 1, storm: 1, wind: (near + solar) % 1 } });
             for (const l of LAYERS) {
               expect(m[l], `${view} ${season} ${solar} ${near} ${l}`).toBeGreaterThanOrEqual(0);
               expect(m[l], `${view} ${season} ${solar} ${near} ${l}`).toBeLessThanOrEqual(1);

@@ -11,6 +11,8 @@ import { measureViewport } from '@/viewport';
 import { nextFrame } from '@/render/loop';
 import { gfx, gfxKey, sceneGfx, subscribeGfx } from '@/render/gfx';
 import { awayGameSeconds } from '@/game/sim/tick';
+import { useWorld } from '@/world/store';
+import { homeRegion } from '@/ui/parts/weather';
 
 /**
  * Как часто сторож спрашивает сцену, идут ли кадры. Две секунды: чаще незачем —
@@ -154,6 +156,11 @@ export function GameCanvas() {
     // Пока открыта карта мира, диорама не рисуется — но и не выгружается:
     // sync продолжает идти, поэтому возврат показывает уже актуальный посёлок сразу.
     if (g0.mapOpen) scene.pause();
+    // Погода над городом — по региону игрока (docs/city.md, 15): мир называет клетку города не сразу.
+    scene.setRegion(homeRegion());
+    const unRegion = useWorld.subscribe((w, was) => {
+      if (w.info !== was.info) scene.setRegion(homeRegion());
+    });
     // Экран загрузки уходит не по «сцена создана», а по первому её кадру:
     // между конструктором и картинкой лежит компиляция шейдеров.
     if (first) void afterPaint(bootDone);
@@ -296,6 +303,7 @@ export function GameCanvas() {
       document.removeEventListener('freeze', onFreeze);
       document.removeEventListener('visibilitychange', onVisible);
       sceneLog.detach(wired);
+      unRegion();
       // Порядок важен: сцена отдаёт контекст и снимает свои слушатели, и канва
       // обязана быть при этом ещё в разметке (подробно — в `TribeScene.dispose`).
       scene.dispose();

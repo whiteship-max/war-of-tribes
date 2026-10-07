@@ -13,6 +13,7 @@
 import { sightDiscs, useWorld, worldNow } from '@/world/store';
 import { useGame } from '@/game/store';
 import { drawNight, dropNight, nightAt } from './night';
+import { drawClouds, dropClouds } from './clouds';
 import { secondsLeft } from '@/world/geo';
 import { sideWorks } from '@/world/works';
 import { realLeft } from '@/ui/parts/wait';
@@ -526,6 +527,8 @@ export function drawTwFrame(ctx: CanvasRenderingContext2D, cam: Camera, vp: View
   places.length = 0;
   for (const it of items) places.push(it.body);
   drawPlaces(ctx, cam, items, dpr, now, markersOf(state.marches));
+  // Облака и их тени — погода региона (docs/city.md, 15): над землёй и местами, под листом за границей региона.
+  drawClouds(ctx, cam, vp, nightNow());
 
   // Незнакомое — лист старой карты (своё неразведанное и чужой регион), разведанное вне обзора — сепия
   // (`tw/fog.ts`): поверх мест, под всем, что движется, — как прежний туман.
@@ -555,5 +558,6 @@ export function drawTwFrame(ctx: CanvasRenderingContext2D, cam: Camera, vp: View
 export function dropFrame(): void {
   fitted.clear();
   dropNight();
+  dropClouds();
   dropTwZones();
 }

@@ -13,6 +13,8 @@ import { EpochMusic } from './music';
 import { seeded } from './rng';
 import { makeKit, type Kit } from './synth';
 import { playCue, type Cue } from './cues';
+import { serverNow } from '@/net/clock';
+import { flashesNow, weatherNow } from '@/ui/parts/weather';
 
 export type { Cue };
 
@@ -49,6 +51,8 @@ function hearing(): Hearing {
     season,
     near: cityNear(),
     sea: home ? 1 - landShare(home.x, home.y, SEA_RADIUS) : 0,
+    // Погода над городом — та же, что видит сцена (docs/city.md, 15).
+    wx: weatherNow(g.s),
   };
 }
 
@@ -84,7 +88,12 @@ export function startEpoch(out: { music: GainNode; fx: GainNode }, lite = levelN
     // Слои переставляются, когда слышимое сдвинулось, а не каждый шаг: иначе на параметрах копились бы сотни целей.
     const h = hearing();
     const moved =
-      h.view !== heard.view || h.season !== heard.season || Math.abs(h.near - heard.near) > 0.02 || Math.abs(h.sea - heard.sea) > 0.02;
+      h.view !== heard.view ||
+      h.season !== heard.season ||
+      Math.abs(h.near - heard.near) > 0.02 ||
+      Math.abs(h.sea - heard.sea) > 0.02 ||
+      Math.abs((h.wx?.rain ?? 0) - (heard.wx?.rain ?? 0)) > 0.02 ||
+      Math.abs((h.wx?.wind ?? 0) - (heard.wx?.wind ?? 0)) > 0.02;
     if (moved || now - heardAt > 2) {
       amb.set(h, now);
       heard = h;
@@ -92,7 +101,17 @@ export function startEpoch(out: { music: GainNode; fx: GainNode }, lite = levelN
     }
     amb.tick(now, now + HORIZON);
     music.tick(now, HORIZON);
+    // Гром — следом за молнией, которую видит сцена: миг грома — по общим часам, в окне упреждения.
+    const ms = serverNow();
+    for (const f of flashesNow(useGame.getState().s, ms - 8000, ms + HORIZON * 1000)) {
+      if (rolled.has(f.at) || f.thunder < ms || f.thunder >= ms + HORIZON * 1000) continue;
+      rolled.add(f.at);
+      if (rolled.size > 32) rolled.delete(rolled.values().next().value as number);
+      amb.thunder(now + (f.thunder - ms) / 1000, f.power, (f.thunder - f.at) / 1000);
+    }
   };
+  /** Молнии, чей гром уже поставлен. */
+  const rolled = new Set<number>();
   const timer = setInterval(step, STEP_MS);
   step();
 

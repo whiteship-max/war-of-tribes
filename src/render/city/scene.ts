@@ -27,6 +27,27 @@ import { CITY_KEY, CITY_AZIMUTH, CITY_STEP_MAX, cityFog, cityFraming, cityLeash,
 import { cityPick, screenBox, type Pickable } from './pick';
 import { mainSite, ownerCode, type Site } from './sites';
 import { heightAt } from './layout';
+import type { CityPrecip } from './precip';
+import { CLEAR, ZONES, flashAt, forcedFlashes, forcedWeather, flashGlow, weatherAt, windTo, zoneOf, type Weather } from '../climate';
+import { serverNow } from '@/net/clock';
+
+/** Облака над городом бегут со скоростью верхнего ветра, м/с: пятно тени в двести метров проходит за полминуты. */
+const CLOUD_SPEED = 7;
+/** Сырость держится после дождя: мостовая сохнет минутами (отсчёты назад, секунды, и сколько остаётся сырости). */
+const DRY: readonly (readonly [number, number])[] = [
+  [60, 0.85],
+  [180, 0.6],
+  [360, 0.35],
+];
+const FLASH_SKY = new THREE.Color(0.78, 0.82, 0.95);
+const MIST_SKY = new THREE.Color(0.86, 0.86, 0.84);
+const TMP_C = new THREE.Color();
+
+/** Небо и дымка под облаками: к серому и темнее в дождь. */
+function greyen(c: THREE.Color, k: number, dark: number): void {
+  const l = c.r * 0.2126 + c.g * 0.7152 + c.b * 0.0722;
+  c.lerp(TMP_C.setRGB(l * 0.95, l * 0.97, l), k).multiplyScalar(dark);
+}
 
 /**
  * Значок над крышей: доля высоты экрана (спрайт без перспективы — читается на любом приближении). Около двадцати
@@ -64,6 +85,14 @@ export class CityScene extends TribeScene {
   /** Добыча отлучки ждёт куска отклика (`welcome` раньше его прихода), игровых секунд. */
   private welcomeDue = 0;
   private lastState: GameState | null = null;
+  /** Погода (docs/city.md, 15): регион игрока, погода этого кадра, вспышка и осадки (своей докачкой). */
+  private region: string | null = null;
+  private wx: Weather = CLEAR;
+  private wet = 0;
+  private flash = 0;
+  private precip: CityPrecip | null = null;
+  /** Погода адресом (`?weather=rain`) — стенду и проверке на телефоне. */
+  private readonly forced = typeof location === 'undefined' ? null : forcedWeather(location.search);
   /** Сколько народу на улицах и стражи на стене и какие дворы работают — из партии (`sync`). */
   private crowd: { people: number; guards: number; busy: BuildingTypeId[] } = { people: 40, guards: 6, busy: [] };
 
@@ -182,6 +211,41 @@ export class CityScene extends TribeScene {
     sun.target.updateMatrixWorld();
     // Узкие улицы глубже открытого посёлка: заполняющему свету — треть сверху (стенд, круг 2).
     this.rig.hemi.intensity *= 1.35;
+    this.weather(solar);
+  }
+
+  override setRegion(region: string | null): void {
+    this.region = region;
+  }
+
+  /**
+   * Погода кадра — функция региона и общих часов (`climate.weatherAt`): тучи гасят солнце и серят небо, дождь темнит,
+   * утренний туман белит дымку, молния мягко высвечивает небо и город. Сырость — тоже от часов: дождь последних минут.
+   */
+  private weather(solar: number): void {
+    const now = serverNow();
+    const f = this.forced;
+    const w = f ?? weatherAt(this.region, now, this.season, solar);
+    this.wx = w;
+    let wet = w.rain;
+    if (!f) for (const [back, keep] of DRY) wet = Math.max(wet, weatherAt(this.region, now - back * 1000, this.season, solar).rain * keep);
+    this.wet = wet;
+    // Вспышка: адресом «гроза» — раз в девять секунд, иначе — молнии региона.
+    this.flash = f
+      ? forcedFlashes(f.storm, now - 3000, now + 1).reduce((v, x) => v + flashGlow((now - x.at) / 1000) * x.power, 0)
+      : flashAt(this.region, this.season, now);
+    const dim = Math.max(w.rain, w.snow);
+    this.rig.sun.intensity *= 1 - 0.6 * w.cloud - 0.15 * dim;
+    this.rig.hemi.intensity *= 1 - 0.1 * dim;
+    const bg = this.scene.background as THREE.Color;
+    const fog = (this.scene.fog as THREE.Fog).color;
+    for (const c of [bg, fog]) greyen(c, 0.65 * w.cloud, 1 - 0.22 * w.rain - 0.08 * w.storm + 0.05 * w.snow);
+    if (w.fog > 0) fog.lerp(TMP_C.copy(MIST_SKY).multiplyScalar(0.35 + 0.65 * this.light.daylight), w.fog * 0.55);
+    if (this.flash > 0) {
+      this.rig.hemi.intensity += this.flash * 1.3;
+      bg.lerp(FLASH_SKY, this.flash * 0.5);
+      fog.lerp(FLASH_SKY, this.flash * 0.3);
+    }
   }
 
   // ---------- Кадр ----------
@@ -204,6 +268,28 @@ export class CityScene extends TribeScene {
       u.cSky.value.copy((this.scene.fog as THREE.Fog).color);
       u.cSel.value = this.selected !== null ? ownerCode(this.buildings.get(this.selected)?.type ?? 'campfire') : 0;
       u.cSelGlow.value = 0.18 + Math.sin(t * 3) * 0.1;
+      // Погода в шейдерах: на «Низком» — без теней облаков и кругов на воде (сырость и туман — даром).
+      const w = this.wx;
+      const lo = this.quality === 'low';
+      const dir = windTo(w.from);
+      const aloft = windTo(ZONES[zoneOf(this.region)].from);
+      u.cWet.value = this.wet;
+      u.cCloud.value = lo ? 0 : w.cloud;
+      u.cCloudAt.value.set(aloft.x * CLOUD_SPEED * t, aloft.z * CLOUD_SPEED * t);
+      u.cMist.value = w.fog;
+      u.cRain.value = lo ? 0 : w.rain;
+      u.cWindDir.value.set(dir.x, dir.z);
+      u.cWind.value = w.wind;
+      this.folk?.setWind(dir.x, dir.z, w.wind);
+      // Дождь и снег прячут даль, туман — ещё и ближнее.
+      const fog = this.scene.fog as THREE.Fog | null;
+      if (fog) {
+        const base = cityFog(this.dist);
+        const dim = Math.max(w.rain, w.snow);
+        fog.near = base.near * (1 - 0.55 * dim - 0.35 * w.fog);
+        fog.far = base.far * (1 - 0.4 * dim - 0.2 * w.fog);
+      }
+      this.precip?.update(t, w.rain, w.snow, dir.x, dir.z, w.wind, this.target, this.dist, Math.max(0.22, this.light.daylight) + this.flash);
       const fl = c.group.getObjectByName('city-flames') as THREE.Points | undefined;
       if (fl) {
         const fm = fl.material as THREE.PointsMaterial;
@@ -233,6 +319,16 @@ export class CityScene extends TribeScene {
 
   /** Кусок суеты: пришёл, когда сцену ещё не выгрузили и город тот же, — встаёт; не пришёл — город живёт без него. */
   private loadBustle(c: CityBuild): void {
+    // Осадки — своей докачкой; на «Низком» частиц нет, и кусок не нужен.
+    if (this.quality !== 'low') {
+      import('./precip')
+        .then(({ CityPrecip }) => {
+          if (this.disposed || this.town !== c) return;
+          this.precip = new CityPrecip(this.quality);
+          this.scene.add(this.precip.group);
+        })
+        .catch(() => undefined);
+    }
     import('./alive')
       .then(({ CityBustle }) => {
         if (this.disposed || this.town !== c) return;
@@ -447,6 +543,8 @@ export class CityScene extends TribeScene {
     this.bustle = null;
     this.deeds?.dispose();
     this.deeds = null;
+    this.precip?.dispose();
+    this.precip = null;
     this.pops?.dispose();
     this.pops = null;
     this.town?.dispose();

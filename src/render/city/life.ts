@@ -511,6 +511,9 @@ export const CITY_WIND: { readonly x: number; readonly z: number } = (() => {
 })();
 
 /** Дым труб города — в метрах: клуб 3.4 м, снос по ветру (`CITY_WIND`) на полметра за метр подъёма. */
+/** Сила ветра без погоды (стенд): дым сносит, как прежде, — на полметра за метр подъёма. */
+export const WIND_CALM = 0.4;
+
 export const CITY_SMOKE: SmokeLook = { size: 3.4, opacity: 0.17, drift: { x: CITY_WIND.x * 0.49, z: CITY_WIND.z * 0.49 } };
 
 /** Мягкое пятно для клубов дыма: круглый край вместо квадрата точки. */
@@ -595,7 +598,8 @@ export const SMOKE_PUFFS = 8;
 export class CitySmoke {
   readonly points: THREE.Points;
   private material: THREE.PointsMaterial;
-  readonly u = { cTime: { value: 0 }, cShare: { value: 0.5 }, cSnow: { value: 0 }, cNight: { value: 0 } };
+  /** `cDrift` — снос клуба на метр подъёма по осям мира: погода правит его ветром (`CityLife.setWind`). */
+  readonly u = { cTime: { value: 0 }, cShare: { value: 0.5 }, cSnow: { value: 0 }, cNight: { value: 0 }, cDrift: { value: new THREE.Vector2() } };
 
   constructor(private look: SmokeLook) {
     this.material = new THREE.PointsMaterial({ color: 0xc8cacc, size: look.size, transparent: true, opacity: 1, depthWrite: false });
@@ -605,11 +609,11 @@ export class CitySmoke {
       this.material.alphaTest = 0.01;
     }
     const u = this.u;
-    const drift = look.drift ?? { x: 0, z: 0 };
+    u.cDrift.value.set(look.drift?.x ?? 0, look.drift?.z ?? 0);
     this.material.onBeforeCompile = (shader) => {
       Object.assign(shader.uniforms, u);
       shader.vertexShader =
-        'attribute vec4 puff;\nuniform float cTime;\nuniform float cShare;\nuniform float cSnow;\nuniform float cNight;\nvarying float vAlpha;\nvarying vec3 vTint;\n' +
+        'attribute vec4 puff;\nuniform float cTime;\nuniform float cShare;\nuniform float cSnow;\nuniform float cNight;\nuniform vec2 cDrift;\nvarying float vAlpha;\nvarying vec3 vTint;\n' +
         shader.vertexShader
           .replace(
             '#include <begin_vertex>',
@@ -619,8 +623,8 @@ export class CitySmoke {
             float rise = age * puff.y;
             float sw = puff.x * 41.0;
             vec3 transformed = position;
-            transformed.x += ${drift.x.toFixed(4)} * rise + sin(sw + age * 3.1) * (0.25 + age * 1.4);
-            transformed.z += ${drift.z.toFixed(4)} * rise + cos(sw * 1.3 + age * 2.7) * (0.25 + age * 1.4);
+            transformed.x += cDrift.x * rise + sin(sw + age * 3.1) * (0.25 + age * 1.4);
+            transformed.z += cDrift.y * rise + cos(sw * 1.3 + age * 2.7) * (0.25 + age * 1.4);
             transformed.y += rise;
             float on = puff.w > 0.5 ? 1.0 : clamp((cShare - puff.z) * 12.0, 0.0, 1.0);
             vAlpha = on * smoothstep(0.0, 0.08, age) * pow(1.0 - age, 1.2) * (puff.w > 0.5 ? 0.85 : 0.6 + 0.25 * cSnow);
@@ -708,6 +712,9 @@ export class CityLife {
   private flags: THREE.Mesh;
   private birds: THREE.Mesh;
   private time = { value: 0 };
+  /** Ветер погоды: куда дует (оси мира) и сила — флагам; дыму — его снос (`setWind`). */
+  private windDir = { value: new THREE.Vector2(CITY_WIND.x, CITY_WIND.z) };
+  private windK = { value: WIND_CALM };
   private want = { people: 0, guards: 0 };
   private cap: (typeof LIFE_CAP)[Quality];
   private m4 = new THREE.Matrix4();
@@ -901,7 +908,7 @@ export class CityLife {
     const red = linear(0x9a2a24);
     const gold = linear(0xc8a040);
     const pole = linear(0x3a3028);
-    // Полотнища смотрят по ветру — тому же, что сносит дым (`CITY_WIND`).
+    // Полотнища построены по ветру по умолчанию (`CITY_WIND`); куда дует сейчас, их поворачивает шейдер (`setWind`).
     const wx = CITY_WIND.x;
     const wz = CITY_WIND.z;
     const NX = 6;
@@ -968,18 +975,31 @@ export class CityLife {
     g.computeBoundingSphere();
     const m = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide });
     const time = this.time;
+    const windDir = this.windDir;
+    const windK = this.windK;
     m.onBeforeCompile = (shader) => {
       shader.uniforms.cTime = time;
-      shader.vertexShader = 'attribute float flap;\nuniform float cTime;\n' + shader.vertexShader.replace(
-        '#include <begin_vertex>',
-        /* glsl */ `#include <begin_vertex>
-        // Полотнище волной от древка: чем дальше от древка, тем сильнее; фаза — от места флага.
+      shader.uniforms.cWindDir = windDir;
+      shader.uniforms.cWind = windK;
+      shader.vertexShader = 'attribute float flap;\nuniform float cTime;\nuniform vec2 cWindDir;\nuniform float cWind;\n' + shader.vertexShader
+        .replace(
+          '#include <beginnormal_vertex>',
+          /* glsl */ `#include <beginnormal_vertex>
+          if (flap > 0.0) objectNormal = vec3(-cWindDir.y, 0.0, cWindDir.x);`,
+        )
+        .replace(
+          '#include <begin_vertex>',
+          /* glsl */ `#include <begin_vertex>
+        // Полотнище — от древка туда, куда дует сейчас: древко — там, откуда полотнище построено по ветру по умолчанию.
+        vec2 pole = transformed.xz - vec2(${wx.toFixed(4)}, ${wz.toFixed(4)}) * flap * 2.4;
+        transformed.xz = pole + cWindDir * flap * 2.4;
+        // Волна от древка: чем дальше от древка, тем сильнее; фаза — от места флага; размах — от силы ветра (частота одна:
+        // меняйся она с ветром, фаза прыгала бы). В тишь полотнище обвисает.
         float ph = position.x * 0.37 + position.z * 0.23;
-        float w = sin(cTime * 4.2 - flap * 5.0 + ph) * 0.32 + sin(cTime * 7.1 - flap * 9.0 + ph * 1.7) * 0.08;
-        transformed.x += ${(-wz).toFixed(3)} * w * flap;
-        transformed.z += ${wx.toFixed(3)} * w * flap;
-        transformed.y -= flap * flap * 0.25;`,
-      );
+        float w = (sin(cTime * 4.2 - flap * 5.0 + ph) * 0.32 + sin(cTime * 7.1 - flap * 9.0 + ph * 1.7) * 0.08) * (0.35 + 1.4 * cWind);
+        transformed.xz += vec2(-cWindDir.y, cWindDir.x) * w * flap;
+        transformed.y -= flap * flap * (0.12 + 0.6 * (1.0 - smoothstep(0.1, 0.5, cWind)));`,
+        );
     };
     m.customProgramCacheKey = () => 'city-flag';
     const mesh = new THREE.Mesh(g, m);
@@ -1074,6 +1094,13 @@ export class CityLife {
   /**
    * Кадр: всё — от времени `t` (секунды сцены), `dt` не копится нигде. `night` — доля ночи окон, `snow` — доля зимы.
    */
+  /** Ветер погоды: куда дует (`x`, `z` — единичный, оси мира) и сила `k` 0..1 — флагам и дыму. */
+  setWind(x: number, z: number, k: number): void {
+    this.windDir.value.set(x, z);
+    this.windK.value = k;
+    this.smoke.u.cDrift.value.set(x, z).multiplyScalar(0.12 + 0.95 * k);
+  }
+
   update(dt: number, t: number, night: number, snow: number): void {
     void dt;
     this.time.value = t;

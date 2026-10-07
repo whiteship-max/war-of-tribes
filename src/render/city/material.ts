@@ -6,6 +6,8 @@
 import * as THREE from 'three';
 import { CITY, linear } from './palette';
 import { L, LAYERS, TILE_M } from './tex';
+import { CITY_WIND, WIND_CALM } from './life';
+
 
 /** Массив слоёв RGBA8 sRGB: `size`² × число слоёв, строки снизу вверх; мипы строит видеокарта. */
 export class LayerTexture extends THREE.Texture {
@@ -63,6 +65,18 @@ export interface CityUniforms {
   /** Направление на светило и цвет неба (дымки) — блик и отражение воды (`water.ts`). */
   cSunDir: { value: THREE.Vector3 };
   cSky: { value: THREE.Color };
+  /**
+   * Погода (docs/city.md, 15; числа — `render/climate.weatherAt`): сырость кровель и мостовой, сила теней облаков и их
+   * сдвиг по ветру (метры, функция часов сцены), утренний туман в низинах, дождь на реке (круги), ветер — куда дует
+   * (единичный, оси мира) и сила: им вьются флаги, сносит дым, качаются камыш и кроны.
+   */
+  cWet: { value: number };
+  cCloud: { value: number };
+  cCloudAt: { value: THREE.Vector2 };
+  cMist: { value: number };
+  cRain: { value: number };
+  cWindDir: { value: THREE.Vector2 };
+  cWind: { value: number };
 }
 
 /** Сколько огней видит шейдер: тёплые пятна без точечных ламп (их цена — на каждый пиксель). */
@@ -86,6 +100,13 @@ export function cityUniforms(): CityUniforms {
     cSelGlow: { value: 0 },
     cSunDir: { value: new THREE.Vector3(0.3, 0.8, 0.5) },
     cSky: { value: new THREE.Color(0.5, 0.6, 0.7) },
+    cWet: { value: 0 },
+    cCloud: { value: 0 },
+    cCloudAt: { value: new THREE.Vector2() },
+    cMist: { value: 0 },
+    cRain: { value: 0 },
+    cWindDir: { value: new THREE.Vector2(CITY_WIND.x, CITY_WIND.z) },
+    cWind: { value: WIND_CALM },
   };
 }
 
@@ -101,6 +122,65 @@ varying float vCNy;
 varying float vOwner;
 varying float vSeed;
 `;
+
+/**
+ * Погода в шейдере: тени облаков — пятна в пару сотен метров, бегут по ветру (`cCloudAt`); пока облаков нет, ветка не
+ * считается. Тень гасит только прямой свет солнца — рассеянный остаётся.
+ */
+const WEATHER_GLSL = /* glsl */ `
+uniform vec3 cSky;
+uniform float cWet;
+uniform float cCloud;
+uniform vec2 cCloudAt;
+float cCloudShade(vec2 p) {
+  if (cCloud < 0.02) return 1.0;
+  vec2 q = (p - cCloudAt) * 0.0045;
+  float n = sin(q.x + sin(q.y * 0.7) * 1.6) * sin(q.y * 1.13 + sin(q.x * 0.55) * 1.9);
+  n += 0.5 * sin(q.x * 2.3 - q.y * 1.7 + 1.3) * sin(q.y * 2.1 + q.x * 0.9);
+  n = n * 0.34 + 0.5;
+  float cover = mix(0.78, 0.3, cCloud);
+  return 1.0 - smoothstep(cover - 0.1, cover + 0.1, n) * 0.72;
+}
+// Сырость: мокрое темнее, горизонтали — сильнее стен.
+vec3 cWetten(vec3 c, float up) {
+  return c * mix(1.0, mix(0.82, 0.62, up), cWet);
+}
+// Блик мокрого: небо в лужах и на кровлях — у края взгляда сильнее (нормаль и взгляд — в осях камеры).
+vec3 cSheen(vec3 n, vec3 v, float up, vec3 sky) {
+  float ndv = max(dot(normalize(n), normalize(v)), 0.0);
+  float fres = 0.03 + 0.55 * pow(1.0 - ndv, 4.0);
+  return sky * fres * cWet * up;
+}
+`;
+
+/**
+ * Утренний туман в низинах (docs/city.md, 15): к дальней дымке — молочная мгла там, где земля низко (долина реки ниже
+ * −4 м, город стоит на +7). Своё мировое «y» вершины — в любом материале: кроны и камыш — экземплярами.
+ */
+export function misted(shader: { vertexShader: string; fragmentShader: string }): void {
+  shader.vertexShader = 'varying float vMistY;\n' + shader.vertexShader.replace(
+    '#include <fog_vertex>',
+    /* glsl */ `#include <fog_vertex>
+    vec4 cMistP = vec4(transformed, 1.0);
+    #ifdef USE_INSTANCING
+      cMistP = instanceMatrix * cMistP;
+    #endif
+    vMistY = (modelMatrix * cMistP).y;`,
+  );
+  shader.fragmentShader = 'uniform float cMist;\nvarying float vMistY;\n' + shader.fragmentShader.replace(
+    '#include <fog_fragment>',
+    /* glsl */ `#ifdef USE_FOG
+      float fogFactor = smoothstep(fogNear, fogFar, vFogDepth);
+      float cLow = 1.0 - smoothstep(-13.0, -3.0, vMistY);
+      fogFactor = max(fogFactor, cMist * cLow * smoothstep(6.0, 120.0, vFogDepth) * 0.92);
+      gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, fogFactor);
+    #endif`,
+  );
+}
+
+/** Тени облаков на прямом свете — после сложения света. */
+const clouded = (src: string): string =>
+  src.replace('#include <lights_fragment_end>', '#include <lights_fragment_end>\n  reflectedLight.directDiffuse *= cCloudShade(vCWPos.xz);');
 
 /** Цветокоррекция города: чуть глуше насыщенность и тёплый подъём теней — «осадная карта», а не игрушка. */
 export const GRADE_GLSL = /* glsl */ `
@@ -142,6 +222,7 @@ float cTorch(vec3 p) {
 }
 float cHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 ${GRADE_GLSL}
+${WEATHER_GLSL}
 float cMacro(vec2 p) {
   return sin(p.x * 0.13 + sin(p.y * 0.071) * 2.0) * sin(p.y * 0.11 + sin(p.x * 0.053) * 2.0) * 0.5 + 0.5;
 }
@@ -196,7 +277,10 @@ export function buildingMaterial(u: CityUniforms): THREE.MeshLambertMaterial {
         // Снег — на горизонталях (кровли, карнизы, зубцы).
         // Кровли 50–60° (нормаль 0.5–0.64 вверх) держат снег: порог ниже, чем у земли.
         float cUp = smoothstep(0.3, 0.55, vCNy) * cSnow;
-        diffuseColor.rgb = mix(diffuseColor.rgb, cSnowCol * (0.85 + 0.15 * cTex.r), cUp * 0.9);`,
+        diffuseColor.rgb = mix(diffuseColor.rgb, cSnowCol * (0.85 + 0.15 * cTex.r), cUp * 0.9);
+        // Дождь: мокрое темнее — кровли и карнизы сильнее стен; под снегом сырости нет.
+        float cWetUp = smoothstep(0.2, 0.7, vCNy) * (1.0 - cUp);
+        diffuseColor.rgb = cWetten(diffuseColor.rgb, cWetUp);`,
       )
       .replace(
         '#include <emissivemap_fragment>',
@@ -212,9 +296,12 @@ export function buildingMaterial(u: CityUniforms): THREE.MeshLambertMaterial {
         totalEmissiveRadiance += diffuseColor.rgb * cTorchCol * cTorch(vCWPos) * cNight * 1.6;
         // Выбранная постройка светлеет пульсом — вся: все дома Жилищ, все башни, вся стена.
         float cIsSel = step(0.5, cSel) * (1.0 - step(0.5, abs(vOwner - cSel)));
-        totalEmissiveRadiance += (diffuseColor.rgb * 0.55 + cWarm * 0.06) * cIsSel * cSelGlow;`,
+        totalEmissiveRadiance += (diffuseColor.rgb * 0.55 + cWarm * 0.06) * cIsSel * cSelGlow;
+        // Мокрые кровли ловят небо.
+        totalEmissiveRadiance += cSheen(normal, vViewPosition, cWetUp, cSky) * 0.6 * (1.0 - 0.7 * cNight);`,
       );
-    shader.fragmentShader = graded(shader.fragmentShader);
+    shader.fragmentShader = clouded(graded(shader.fragmentShader));
+    misted(shader);
   };
   m.customProgramCacheKey = () => 'city-building';
   return m;
@@ -305,13 +392,20 @@ export function groundMaterial(u: CityUniforms, map: THREE.Texture, at: GroundMa
         col = mix(col, col * vec3(1.15, 0.95, 0.6), cAutumn * bw.w);
         float cUp = smoothstep(0.6, 0.9, vCNy) * cSnow;
         col = mix(col, cSnowCol * (0.9 + 0.1 * tg.a), cUp * (0.85 - 0.3 * bw.x));
+        // Дождь: мостовая и земля темнеют, в выбоинах — лужи (низкие места фактуры, крупные пятна по миру).
+        float cPud = smoothstep(0.55, 0.85, macro) * (1.0 - smoothstep(0.25, 0.5, mix(td.a, tc.a, bw.x))) * (bw.x + bw.y);
+        float cWetUp = (0.55 + 0.45 * bw.x + 0.6 * cPud) * (1.0 - cUp);
+        col = cWetten(col, min(1.0, cWetUp));
         diffuseColor.rgb *= col * cm4.a;`,
       ).replace(
         '#include <emissivemap_fragment>',
         /* glsl */ `#include <emissivemap_fragment>
-        totalEmissiveRadiance += diffuseColor.rgb * cTorchCol * cTorch(vCWPos) * cNight * 1.8;`,
+        totalEmissiveRadiance += diffuseColor.rgb * cTorchCol * cTorch(vCWPos) * cNight * 1.8;
+        // Мокрая мостовая и лужи зеркалят небо, ночью — тёплые огни.
+        totalEmissiveRadiance += cSheen(normal, vViewPosition, cWetUp * (0.35 + 0.65 * max(bw.x, cPud)), cSky + cTorchCol * cTorch(vCWPos) * cNight) * (1.0 - 0.6 * cNight);`,
       );
-    shader.fragmentShader = graded(shader.fragmentShader);
+    shader.fragmentShader = clouded(graded(shader.fragmentShader));
+    misted(shader);
   };
   m.customProgramCacheKey = () => 'city-ground';
   return m;
@@ -374,7 +468,23 @@ export function foliageMaterial(u: CityUniforms, ragged = false): THREE.MeshLamb
         float cUp = smoothstep(0.35, 0.85, vCNy) * cSnow * (1.0 - 0.6 * vGrime);
         diffuseColor.rgb = mix(diffuseColor.rgb, cSnowCol * 0.9 * cShade, cUp * 0.8);`,
       );
-    shader.fragmentShader = graded(shader.fragmentShader);
+    // Ветер качает кроны: макушка сильнее, дерево — своим ходом (зерно места), сила — от погоды.
+    shader.vertexShader = 'uniform vec2 cWindDir;\nuniform float cWind;\nuniform float cTime;\n' + shader.vertexShader.replace(
+      '#include <project_vertex>',
+      /* glsl */ `vec4 mvPosition = vec4(transformed, 1.0);
+      float cBase = 0.0;
+      #ifdef USE_INSTANCING
+        mvPosition = instanceMatrix * mvPosition;
+        cBase = instanceMatrix[3].y;
+      #endif
+      float cH = max(mvPosition.y - cBase, 0.0);
+      float cGust = 0.55 + 0.3 * sin(cTime * 1.6 + vSeed * 6.28) + 0.15 * sin(cTime * 3.7 + vSeed * 17.0);
+      mvPosition.xz += cWindDir * cH * (0.006 + 0.03 * cWind * cWind) * cGust;
+      mvPosition = modelViewMatrix * mvPosition;
+      gl_Position = projectionMatrix * mvPosition;`,
+    );
+    shader.fragmentShader = clouded(graded(shader.fragmentShader));
+    misted(shader);
   };
   m.customProgramCacheKey = () => (ragged ? 'city-foliage-ragged' : 'city-foliage');
   return m;
