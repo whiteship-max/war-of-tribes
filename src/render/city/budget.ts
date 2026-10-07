@@ -12,7 +12,7 @@ import { cityWall, tower } from './forts';
 import { churchyard, civic, fireBowl, gutter, marketProps, stall, statue, well } from './civic';
 import { placeTrees, treeModel, type Species } from './nature';
 import { LAYERS } from './tex';
-import { CITY_SPEC, LIFE_CAP, LIFE_TRIS, SHORE_CAP, shoreTris } from './spec';
+import { CITY_SPEC, LIFE_CAP, LIFE_TRIS, SHORE_CAP, figureTris, shoreTris } from './spec';
 import { shoreItems, waterTriangles } from './banks';
 
 /** Границы владельца по уровням (задание ночи 1): вызовы, треугольники, МБ текстур, МБ докачки. */
@@ -167,10 +167,11 @@ export function cityCounts(q: Quality, plan: CityPlan = cityPlan()): CityCounts 
   // — вызов жизни (`life.ts`). Стягов — по два на воротах и донжоне (`alive.bannerSpots`).
   const banners = cap.banners > 0 ? plan.towers.filter((t) => t.kind === 'gate' || t.kind === 'castleGate' || t.kind === 'keep').length * 2 : 0;
   calls += [cap.lanterns, cap.carts, cap.ducks, cap.boats, cap.pigeons, banners].filter((n) => n > 0).length;
+  const ft = figureTris(q);
   const life =
-    cap.people * LIFE_TRIS.person +
-    cap.guards * LIFE_TRIS.guard +
-    cap.animals * LIFE_TRIS.beast +
+    cap.people * ft.person +
+    cap.guards * ft.guard +
+    cap.animals * ft.beast +
     cap.birds * LIFE_TRIS.bird +
     plan.towers.length * LIFE_TRIS.flag +
     cap.carts * LIFE_TRIS.cart +

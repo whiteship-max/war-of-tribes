@@ -115,18 +115,28 @@ export const SHAFT: V3 = linear(0x5a4632);
 export const legs = (hip: number, hw: number, hd: number, stride: number, x = 0): Part[] =>
   [-1, 1].map((side) => ({ x, z: side * hw * 0.55, y0: 0, y1: hip, hw: hw * 0.45, hd, col: LEGS, tint: 0, limb: [x, hip, stride, side > 0 ? 0 : Math.PI] as Part['limb'] }));
 
-/** Горожанин: две ноги (шаг в шейдере), рубаха до колен (цвет экземпляра), голова. */
-export const personGeometry = (): THREE.BufferGeometry =>
+/** Руки от плеча на высоте `shoulder`: машут в противофазе ногам своей стороны, рукав — цвета одежды. */
+export const arms = (shoulder: number, span: number, stride: number): Part[] =>
+  [-1, 1].map((side) => ({ x: 0, z: side * span, y0: shoulder - 0.62, y1: shoulder, hw: 0.055, hd: 0.06, col: WHITE, tint: 1, limb: [0, shoulder, stride, side > 0 ? Math.PI : 0] as Part['limb'] }));
+
+/** Ноги одной коробкой, без шага, — низкому уровню: там нового нет, фигура прежняя (`LIFE_TRIS.*Low`). */
+const stiff = (hip: number, hw: number, hd: number): Part[] => [{ x: 0, y0: 0, y1: hip, hw, hd, col: LEGS, tint: 0 }];
+
+/**
+ * Горожанин: две ноги и две руки (шаг в шейдере), рубаха до колен (цвет экземпляра), голова. `simple` — низкий уровень:
+ * ноги одной коробкой и без рук, как до живого города.
+ */
+export const personGeometry = (simple = false): THREE.BufferGeometry =>
   figure([
-    ...legs(0.78, 0.17, 0.11, 1.4),
+    ...(simple ? stiff(0.78, 0.17, 0.11) : [...legs(0.78, 0.17, 0.11, 1.4), ...arms(1.36, 0.27, 1.4)]),
     { x: 0, y0: 0.62, y1: 1.42, hw: 0.27, hd: 0.16, taper: 0.78, col: WHITE, tint: 1 },
     { x: 0, y0: 1.42, y1: 1.7, hw: 0.11, hd: 0.11, col: SKIN, tint: 0 },
   ]);
 
 /** Стражник: то же и шлем, древко копья выше головы. */
-export const guardGeometry = (): THREE.BufferGeometry =>
+export const guardGeometry = (simple = false): THREE.BufferGeometry =>
   figure([
-    ...legs(0.8, 0.17, 0.12, 1.5),
+    ...(simple ? stiff(0.8, 0.17, 0.12) : legs(0.8, 0.17, 0.12, 1.5)),
     { x: 0, y0: 0.65, y1: 1.45, hw: 0.29, hd: 0.18, taper: 0.8, col: WHITE, tint: 1 },
     { x: 0, y0: 1.45, y1: 1.7, hw: 0.11, hd: 0.11, col: SKIN, tint: 0 },
     { x: 0, y0: 1.66, y1: 1.84, hw: 0.13, hd: 0.13, taper: 0.6, col: STEEL, tint: 0 },
@@ -135,10 +145,14 @@ export const guardGeometry = (): THREE.BufferGeometry =>
   ]);
 
 /** Овца (корова — та же, крупнее и в своём цвете): туловище, голова, ноги парами — передние и задние. */
-export const beastGeometry = (): THREE.BufferGeometry =>
+export const beastGeometry = (simple = false): THREE.BufferGeometry =>
   figure([
-    { x: 0.3, y0: 0, y1: 0.35, hw: 0.2, hd: 0.07, col: LEGS, tint: 0, limb: [0.3, 0.35, 0.9, 0] },
-    { x: -0.3, y0: 0, y1: 0.35, hw: 0.2, hd: 0.07, col: LEGS, tint: 0, limb: [-0.3, 0.35, 0.9, Math.PI] },
+    ...(simple
+      ? stiff(0.35, 0.2, 0.36)
+      : ([
+          { x: 0.3, y0: 0, y1: 0.35, hw: 0.2, hd: 0.07, col: LEGS, tint: 0, limb: [0.3, 0.35, 0.9, 0] },
+          { x: -0.3, y0: 0, y1: 0.35, hw: 0.2, hd: 0.07, col: LEGS, tint: 0, limb: [-0.3, 0.35, 0.9, Math.PI] },
+        ] as Part[])),
     { x: 0, y0: 0.3, y1: 0.85, hw: 0.28, hd: 0.55, taper: 0.9, col: WHITE, tint: 1 },
     { x: 0.62, y0: 0.55, y1: 0.95, hw: 0.13, hd: 0.15, col: LEGS, tint: 0 },
   ]);
@@ -575,13 +589,16 @@ export function patrolAt(t: number, v: number, reach: number, pause: number, pha
  * поднимается, сносится ветром, растёт и тает. Топят не все: у трубы порог, дым идёт, пока доля топящих (`share`) выше
  * порога, — зимой топят больше, ночью меньше; порог переходит плавно, без вспышки. Дым работы (кузница) — гуще и темнее.
  */
+/** Клубов на трубу дома: струя сплошная и с полукилометра (пять читались точками). */
+export const SMOKE_PUFFS = 8;
+
 export class CitySmoke {
   readonly points: THREE.Points;
   private material: THREE.PointsMaterial;
   readonly u = { cTime: { value: 0 }, cShare: { value: 0.5 }, cSnow: { value: 0 }, cNight: { value: 0 } };
 
   constructor(private look: SmokeLook) {
-    this.material = new THREE.PointsMaterial({ color: 0xdcd8d0, size: look.size, transparent: true, opacity: 1, depthWrite: false });
+    this.material = new THREE.PointsMaterial({ color: 0xc8cacc, size: look.size, transparent: true, opacity: 1, depthWrite: false });
     const dot = softDot();
     if (dot) {
       this.material.map = dot;
@@ -607,10 +624,11 @@ export class CitySmoke {
             transformed.y += rise;
             float on = puff.w > 0.5 ? 1.0 : clamp((cShare - puff.z) * 12.0, 0.0, 1.0);
             vAlpha = on * smoothstep(0.0, 0.08, age) * pow(1.0 - age, 1.2) * (puff.w > 0.5 ? 0.85 : 0.6 + 0.25 * cSnow);
-            float lit = 1.0 - 0.72 * cNight;
+            // Зимой дым темнее: светлый клуб над снежной кровлей не видно.
+            float lit = (1.0 - 0.72 * cNight) * (1.0 - 0.3 * cSnow);
             // У дыма работы ночью снизу — отсвет горна.
             vTint = puff.w > 0.5 ? mix(vec3(0.42) * lit + vec3(0.55, 0.22, 0.05) * cNight * (1.0 - smoothstep(0.0, 0.25, age)), vec3(0.6) * lit, age) : vec3(lit);
-            float grow = (0.5 + age * 2.1) * (puff.w > 0.5 ? 1.4 : 1.0 + 0.2 * cSnow);`,
+            float grow = (0.7 + age * 1.9) * (puff.w > 0.5 ? 1.4 : 1.0 + 0.2 * cSnow);`,
           )
           .replace('gl_PointSize = size;', 'gl_PointSize = size * grow;');
       shader.fragmentShader = 'varying float vAlpha;\nvarying vec3 vTint;\n' + shader.fragmentShader.replace(
@@ -741,9 +759,10 @@ export class CityLife {
     this.wall = pathOf(inner, 0, (_p, k, f) => topsClosed[k] + (topsClosed[k + 1] - topsClosed[k]) * f);
 
     const mat = figureMaterial();
-    this.people = new THREE.InstancedMesh(personGeometry(), mat, this.cap.people);
-    this.sentries = new THREE.InstancedMesh(guardGeometry(), mat, this.cap.guards);
-    this.beasts = new THREE.InstancedMesh(beastGeometry(), mat, this.cap.animals);
+    const simple = quality === 'low';
+    this.people = new THREE.InstancedMesh(personGeometry(simple), mat, this.cap.people);
+    this.sentries = new THREE.InstancedMesh(guardGeometry(simple), mat, this.cap.guards);
+    this.beasts = new THREE.InstancedMesh(beastGeometry(simple), mat, this.cap.animals);
     for (const im of [this.people, this.sentries, this.beasts]) {
       im.frustumCulled = false;
       im.count = 0;
@@ -783,7 +802,7 @@ export class CityLife {
       .map((c) => ({ c, thr: rnd(Math.round(c[0] * 3), Math.round(c[2] * 3), 61) }))
       .filter((o) => o.thr < 0.8)
       .slice(0, this.cap.smoke)
-      .map(({ c, thr }) => ({ x: c[0], y: c[1], z: c[2], puffs: 5, top: 10, thr }));
+      .map(({ c, thr }) => ({ x: c[0], y: c[1], z: c[2], puffs: SMOKE_PUFFS, top: 10, thr }));
     this.smoke.setSources(this.smokeOn, []);
 
     this.flags = this.buildFlags(input.flagTops);

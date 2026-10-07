@@ -128,9 +128,11 @@ async function gameShot(q: Quality): Promise<void> {
     await tab.eval<string>(ENTER_GAME);
     const built = await tab.eval<string>(`new Promise((ok) => {
       const s = window.__scene;
-      if (!s || !s.built) return ok(JSON.stringify('не город: ' + (s && s.constructor && s.constructor.name)));
+      // Обещание сборки у сцены города — \`ready\` (прежде — \`built\`).
+      const done = s && (s.ready || s.built);
+      if (!done) return ok(JSON.stringify('не город: ' + (s && s.constructor && s.constructor.name)));
       const t = setTimeout(() => ok(JSON.stringify('не собрался за 90 с')), 90000);
-      s.built.then(() => { clearTimeout(t); ok(JSON.stringify('собран')); });
+      done.then(() => { clearTimeout(t); ok(JSON.stringify('собран')); });
     })`);
     console.log(`  игра ${q}: ${built}`);
     // Обучение снято: его затемнение — не вид города (как у `tap:report`).

@@ -43,9 +43,13 @@ export const LIFE_CAP: Record<Quality, { people: number; guards: number; birds: 
 
 /**
  * Треугольников у фигуры жизни — счёту бюджета (`budget.cityCounts`); сами фигуры строят `life.ts` и `alive.ts`, а что
- * числа с ними сходятся, держит тест (`life.test.ts`). Ноги — две коробки: шаг качает их в шейдере.
+ * числа с ними сходятся, держит тест (`life.test.ts`). Ноги и руки — по две коробки: шаг качает их в шейдере.
  */
-export const LIFE_TRIS = { person: 48, guard: 84, beast: 48, bird: 2, flag: 44, cart: 300, duck: 36, boat: 108, pigeon: 3, banner: 64 } as const;
+export const LIFE_TRIS = { person: 72, guard: 84, beast: 48, bird: 2, flag: 44, cart: 300, duck: 36, boat: 108, pigeon: 3, banner: 64, personLow: 36, guardLow: 72, beastLow: 36 } as const;
+
+/** Цена фигур людей, стражи и скота на уровне: на низком — прежние, без шага. */
+export const figureTris = (q: Quality): { person: number; guard: number; beast: number } =>
+  q === 'low' ? { person: LIFE_TRIS.personLow, guard: LIFE_TRIS.guardLow, beast: LIFE_TRIS.beastLow } : { person: LIFE_TRIS.person, guard: LIFE_TRIS.guard, beast: LIFE_TRIS.beast };
 
 /**
  * Вода и берег по уровню (docs/city.md, 12.3). `cols` — колонны ленты реки поперёк, метры от середины: за плоским

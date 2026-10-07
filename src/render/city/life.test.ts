@@ -6,9 +6,9 @@ import { QUALITIES } from '../quality';
 import { cityPlan, distPoly, insidePoly } from './layout';
 import { buildStatic } from './budget';
 import { wallTops } from './forts';
-import { CITY_SMOKE, CITY_WIND, CityLife, CitySmoke, NIGHT_SHARE, ROUTE_MAX, beastGeometry, guardGeometry, patrolAt, personGeometry, poseAt, type Route } from './life';
+import { CITY_SMOKE, CITY_WIND, CityLife, CitySmoke, NIGHT_SHARE, ROUTE_MAX, SMOKE_PUFFS, beastGeometry, guardGeometry, patrolAt, personGeometry, poseAt, type Route } from './life';
 import { HEARTH_LOOK } from '../weather';
-import { LIFE_CAP, LIFE_TRIS } from './spec';
+import { LIFE_CAP, LIFE_TRIS, figureTris } from './spec';
 
 const plan = cityPlan();
 const st = buildStatic(plan, 'medium');
@@ -33,6 +33,17 @@ describe('город: жизнь', () => {
     expect(tris(personGeometry())).toBe(LIFE_TRIS.person);
     expect(tris(guardGeometry())).toBe(LIFE_TRIS.guard);
     expect(tris(beastGeometry())).toBe(LIFE_TRIS.beast);
+    // Низкий — прежние фигуры, без шага: нового на нём нет.
+    expect(tris(personGeometry(true))).toBe(LIFE_TRIS.personLow);
+    expect(tris(guardGeometry(true))).toBe(LIFE_TRIS.guardLow);
+    expect(tris(beastGeometry(true))).toBe(LIFE_TRIS.beastLow);
+    for (const q of QUALITIES) {
+      const life = new CityLife({ plan, chimneys: st.chimneys, flagTops: st.flagTops, quality: q });
+      expect(tris(mesh(life, 'city-people').geometry), q).toBe(figureTris(q).person);
+      expect(tris(mesh(life, 'city-guards').geometry), q).toBe(figureTris(q).guard);
+      expect(tris(mesh(life, 'city-beasts').geometry), q).toBe(figureTris(q).beast);
+      life.dispose();
+    }
   });
 
   it('уровни идут по убыванию: низкий не богаче среднего, средний — высокого', () => {
@@ -159,9 +170,10 @@ describe('город: жизнь', () => {
       expect(st.flagTops.length).toBe(plan.towers.length);
       const smoke = life.group.getObjectByName('city-smoke') as THREE.Points;
       const puff = smoke.geometry.attributes.puff;
-      // Порог трубы — у каждого её клуба один; трубы — по пять клубов.
+      // Порог трубы — у каждого её клуба один; у трубы — `SMOKE_PUFFS` клубов.
+      expect(puff.count % SMOKE_PUFFS).toBe(0);
       const thr: number[] = [];
-      for (let k = 0; k < puff.count; k += 5) thr.push(puff.getZ(k));
+      for (let k = 0; k < puff.count; k += SMOKE_PUFFS) thr.push(puff.getZ(k));
       // Граница области: дым есть, труб с дымом не больше уровня.
       expect(thr.length).toBeGreaterThan(0);
       expect(thr.length).toBeLessThanOrEqual(LIFE_CAP[q].smoke);
