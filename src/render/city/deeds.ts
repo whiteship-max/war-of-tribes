@@ -13,7 +13,7 @@ import './deeds.css';
 import type { BuildingTypeId } from '@/game/types';
 import type { Quality } from '../quality';
 import { heightAt, type P } from './layout';
-import { at, figureMaterial, gaitOf, guardGeometry, heightOnPath, nearestOn, pathOf, patrolAt, personGeometry, tangentAt, type Junction, type Path } from './life';
+import { at, figureMaterial, gaitOf, guardGeometry, heightOnPath, nearestOn, pathOf, patrolAt, personGeometry, softDot, tangentAt, type Junction, type Path } from './life';
 import { hash3, rnd } from './noise';
 import { linear } from './palette';
 import { mainSite, type Site } from './sites';
@@ -286,36 +286,20 @@ export const marchLife = (len: number): number => (2 * len) / MARCH_V + MUSTER_H
 // ---------------------------------------------------------------------------------------------
 // Пыль, вспышка, искры — точки своего шейдера: размер и прозрачность у каждой свои.
 
-function puffMaterial(additive: boolean): THREE.ShaderMaterial {
-  const m = new THREE.ShaderMaterial({
-    uniforms: { uScale: { value: 800 } },
-    vertexShader: /* glsl */ `
-      attribute float aSize;
-      attribute float aAlpha;
-      attribute vec3 aCol;
-      uniform float uScale;
-      varying float vA;
-      varying vec3 vC;
-      void main() {
-        vec4 mv = modelViewMatrix * vec4(position, 1.0);
-        gl_Position = projectionMatrix * mv;
-        gl_PointSize = aSize * uScale / max(1.0, -mv.z);
-        vA = aAlpha;
-        vC = aCol;
-      }`,
-    fragmentShader: /* glsl */ `
-      varying float vA;
-      varying vec3 vC;
-      void main() {
-        vec2 d = gl_PointCoord - 0.5;
-        float r = dot(d, d) * 4.0;
-        if (r > 1.0 || vA < 0.004) discard;
-        gl_FragColor = vec4(vC, vA * (1.0 - r) * (1.0 - r));
-      }`,
-    transparent: true,
-    depthWrite: false,
-    blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending,
-  });
+function puffMaterial(additive: boolean): THREE.PointsMaterial {
+  // Точки three с затуханием по расстоянию (`size` — 1 / tan половины угла зрения, его ставит кадр: тогда размер точки —
+  // в метрах), мягкое пятно — `softDot`; размер, прозрачность и цвет у каждой точки свои — атрибутами.
+  const m = new THREE.PointsMaterial({ size: 3, sizeAttenuation: true, transparent: true, depthWrite: false, map: softDot() });
+  m.blending = additive ? THREE.AdditiveBlending : THREE.NormalBlending;
+  m.onBeforeCompile = (shader) => {
+    shader.vertexShader =
+      'attribute float aSize;\nattribute float aAlpha;\nattribute vec3 aCol;\nvarying float vA;\nvarying vec3 vC;\n' +
+      shader.vertexShader
+        .replace('#include <begin_vertex>', '#include <begin_vertex>\nvA = aAlpha;\nvC = aCol;')
+        .replace('gl_PointSize = size;', 'gl_PointSize = size * aSize;');
+    shader.fragmentShader = 'varying float vA;\nvarying vec3 vC;\n' + shader.fragmentShader.replace('vec4 diffuseColor = vec4( diffuse, opacity );', 'vec4 diffuseColor = vec4( diffuse * vC, opacity * vA );');
+  };
+  m.customProgramCacheKey = () => 'city-puff';
   return m;
 }
 
@@ -327,7 +311,7 @@ class Puffs {
   private alpha: Float32Array;
   private col: Float32Array;
   private n = 0;
-  readonly material: THREE.ShaderMaterial;
+  readonly material: THREE.PointsMaterial;
 
   constructor(
     private cap: number,
@@ -376,6 +360,7 @@ class Puffs {
 
   dispose(): void {
     this.points.geometry.dispose();
+    this.material.map?.dispose();
     this.material.dispose();
   }
 }
@@ -527,7 +512,7 @@ export class CityDeeds {
   }
 
   /**
-   * Кадр: `t` — время сцены, `night` — 0..1, `scale` — пикселей буфера на метр на расстоянии в метр (точкам), `eye` —
+   * Кадр: `t` — время сцены, `night` — 0..1, `scale` — 1 / tan половины угла зрения камеры (точкам: размер в метрах), `eye` —
    * где камера в плане: стяг праздника разворачивается полотнищем к ней (ребром он не читался бы вовсе).
    */
   update(t: number, night: number, scale: number, eye: P = { x: 0, z: 400 }): void {
@@ -684,10 +669,10 @@ export class CityDeeds {
     this.soldiers.instanceMatrix.needsUpdate = ns > 0;
     this.soldierGait.needsUpdate = ns > 0;
     if (this.dust) {
-      this.dust.material.uniforms.uScale.value = scale;
+      this.dust.material.size = scale;
       this.dust.end();
     }
-    this.glow.material.uniforms.uScale.value = scale;
+    this.glow.material.size = scale;
     this.glow.end();
   }
 

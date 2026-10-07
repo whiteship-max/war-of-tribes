@@ -214,8 +214,8 @@ export class CityScene extends TribeScene {
       this.folk?.update(dt, t, night, this.seasonVis.snow);
       this.bustle?.update(t, night, this.seasonVis.snow);
       if (this.deeds) {
-        // Точкам пыли и вспышек — пикселей буфера на метр в метре от камеры.
-        const scale = this.canvas.height / (2 * Math.tan((this.camera.fov * Math.PI) / 360));
+        // Точкам пыли и вспышек — размер в метрах: three делит на расстояние и множит на полвысоты буфера.
+        const scale = 1 / Math.tan((this.camera.fov * Math.PI) / 360);
         this.deeds.update(t, night, scale, { x: this.camera.position.x, z: this.camera.position.z });
       }
       this.pops?.update(this.camera, this.canvas.clientWidth, this.canvas.clientHeight, t);

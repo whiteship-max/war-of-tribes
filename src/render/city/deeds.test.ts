@@ -87,18 +87,18 @@ describe('город: отклик — леса стройки', () => {
 
   it('стройка видна, праздник кончается, а пока ничего не идёт — ни одного вызова', () => {
     const d = new CityDeeds({ sites, quality: 'medium', street });
-    d.update(0, 0, 800);
+    d.update(0, 0, 3);
     expect(d.group.children.every((o) => !o.visible), 'тихо — всё скрыто').toBe(true);
     d.setWorks(['tavern']);
-    d.update(1, 0, 800);
+    d.update(1, 0, 3);
     const shown = (name: string): boolean => d.group.getObjectByName(name)?.visible ?? false;
     expect(shown('city-scaffold')).toBe(true);
     expect(shown('city-builders')).toBe(true);
     d.setWorks([]);
     d.done('tavern', 2);
-    d.update(2.3, 0, 800);
+    d.update(2.3, 0, 3);
     expect(shown('city-flash'), 'вспышка').toBe(true);
-    d.update(2 + FEAST + 0.1, 0, 800);
+    d.update(2 + FEAST + 0.1, 0, 3);
     expect(d.busy()).toBe(false);
     expect(d.group.children.every((o) => !o.visible), 'праздник кончился — снова тихо').toBe(true);
   });
@@ -150,6 +150,14 @@ describe('город: отклик — найм строем', () => {
         rows.add(Math.round(v.s * 10));
       }
       expect(rows.size, `${n}: рядов`).toBe(Math.ceil(n / 2));
+      // На ходу ряд идёт за рядом в шаге `ROW` — колонной, а не толпой: середина пути, все уже вышли.
+      const mid = len / MARCH_V / 2;
+      for (let k = 0; k + 2 < n; k++) {
+        const a = marchAt(len, k, n, mid);
+        const b = marchAt(len, k + 2, n, mid);
+        expect(a.moving && b.moving, `${n}: оба на ходу`).toBe(1);
+        expect(a.s - b.s, `${n}: боец ${k + 2} в ряду за ${k}`).toBeCloseTo(1.6, 6);
+      }
     }
   });
 
@@ -181,6 +189,17 @@ describe('город: отклик — добыча над дворами', () =
   const farm: Yard = { type: 'farm' as BuildingTypeId, perDay: res({ food: 48, hides: 2 }) };
   const mill: Yard = { type: 'sawmill' as BuildingTypeId, perDay: res({ wood: 24 }) };
   const none = new Set<ResourceId>();
+
+  it('быстрый двор — не чаще `POP_GAP`, хотя единица набегает каждый шаг', () => {
+    const tally = new YieldTally();
+    const fast: Yard = { type: 'farm' as BuildingTypeId, perDay: res({ food: 20000 }) };
+    const dt = gameSeconds(0.5);
+    // Внутри области правила: без него надпись была бы на каждом шаге.
+    expect((20000 * dt) / DAY_LENGTH).toBeGreaterThanOrEqual(1);
+    let pops = 0;
+    for (let k = 1; k <= 240; k++) pops += tally.feed([fast], dt, k * 0.5, none).length;
+    expect(pops, 'две минуты — двадцать надписей, не двести сорок').toBe(Math.floor(120 / POP_GAP));
+  });
 
   it('по мере прихода: целыми, не чаще `POP_GAP` над двором, и ни одной единицы мимо', () => {
     const tally = new YieldTally();
