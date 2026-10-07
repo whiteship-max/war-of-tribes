@@ -4,7 +4,7 @@
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 import { RIVER_HALF, cityPlan, insidePoly, riverX } from './layout';
-import { CART_DWELL, CART_KEEP_RIGHT, CART_SPEED, CityBustle, DUCK_FLOCKS, bannerSpots, boatAt, boatGeometry, cartAt, cartGeometry, cartRoute, duckAt, duckGeometry } from './alive';
+import { CART_DWELL, CART_KEEP_RIGHT, CART_SPEED, CityBustle, DUCK_FLOCKS, PIGEON_AIR, PIGEON_FLOCKS, PIGEON_PERIOD, bannerSpots, boatAt, boatGeometry, cartAt, cartGeometry, cartRoute, duckAt, duckGeometry, pigeonAt } from './alive';
 import { at } from './life';
 import { LIFE_CAP, LIFE_TRIS } from './spec';
 
@@ -18,6 +18,7 @@ describe('город: суета', () => {
     expect(tris(duckGeometry())).toBe(LIFE_TRIS.duck);
     expect(tris(boatGeometry())).toBe(LIFE_TRIS.boat);
     const b = new CityBustle({ plan, quality: 'medium' });
+    expect(tris((b.group.getObjectByName('city-pigeons') as THREE.Mesh).geometry)).toBe(LIFE_CAP.medium.pigeons * LIFE_TRIS.pigeon);
     const banners = b.group.getObjectByName('city-banners') as THREE.Mesh;
     expect(tris(banners.geometry)).toBe(bannerSpots(plan.towers).length * LIFE_TRIS.banner);
     b.dispose();
@@ -113,6 +114,42 @@ describe('город: суета', () => {
       expect(Math.abs(b.x - riverX(b.z)), 'лодка в реке').toBeLessThan(RIVER_HALF - 2.5);
       // Правее середины по ходу: на юг — к западу, на север — к востоку.
       expect(Math.sign(riverX(b.z) - b.x)).toBe(b.dir);
+    }
+  });
+
+  it('голуби клюют на площади и взлетают стайкой без скачка — с того места, где клевали', () => {
+    for (const [f, home] of PIGEON_FLOCKS.entries()) {
+      // Крайние места стайки: середина ± полуразброс (9 × 6 м).
+      for (const [dx, dz] of [
+        [-4.5, -3],
+        [4.5, 3],
+        [-4.5, 3],
+        [4.5, -3],
+      ]) {
+        const h = { x: home.x + dx, z: home.z + dz };
+        for (const seed of [0, 0.5, 0.999]) {
+          let prev = pigeonAt(h, seed, f, 0);
+          let air = 0;
+          let lifts = 0;
+          // Граница области: два полных периода — и взлёт, и посадка внутри.
+          for (let t = 0.05; t < 2 * PIGEON_PERIOD; t += 0.05) {
+            const p = pigeonAt(h, seed, f, t);
+            if (p.up === 0) expect(insidePoly(p, plan.square), 'на земле — на площади').toBe(true);
+            else air++;
+            const d = Math.hypot(p.x - prev.x, p.z - prev.z, p.up - prev.up);
+            // Полёт: круг 6–9 м за 12 с с разгоном — до 7.1 м/с посередине.
+            expect(d, 'без скачка').toBeLessThan(0.45);
+            // Взлёт и посадка — с места: в миг отрыва голубь ещё у земли и там, где клевал.
+            if ((prev.up === 0) !== (p.up === 0)) {
+              expect(d, 'взлёт и посадка с места').toBeLessThan(0.15);
+              lifts++;
+            }
+            prev = p;
+          }
+          expect(air * 0.05, 'в воздухе').toBeGreaterThan(2 * PIGEON_PERIOD * PIGEON_AIR * 0.9);
+          expect(lifts, 'два взлёта и две посадки').toBeGreaterThanOrEqual(3);
+        }
+      }
     }
   });
 

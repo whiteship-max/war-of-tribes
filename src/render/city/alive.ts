@@ -1,5 +1,5 @@
 // Живой город — вторая докачка жизни (docs/city.md, раздел 13): телеги с волами через главные ворота к рынку и обратно,
-// утки и лодки на реке, стяги на воротах и донжоне. Свой ленивый кусок (`vite.config.ts`, `LAZY_DOORS`, «город: суета»):
+// утки и лодки на реке, голуби на площади, стяги на воротах и донжоне. Свой ленивый кусок (`vite.config.ts`, `LAZY_DOORS`, «город: суета»):
 // сцена тянет его после первого кадра города, в первую загрузку и в кусок города он не едет.
 //
 // Всё — функция от времени: где телега, утка, лодка в миг `t` — считается заново каждый кадр, ничего не копится. Колёса
@@ -10,6 +10,7 @@ import type { Quality } from '../quality';
 import type { V3 } from './geom';
 import { RIVER_HALF, heightAt, riverLevel, riverX, type CityPlan, type P, type Tower } from './layout';
 import { figure, figureMaterial, gaitOf, legs, pathOf, at, heightOnPath, LEGS, SKIN, SHAFT, type Part, type Path } from './life';
+import { rnd } from './noise';
 import { linear } from './palette';
 import { LIFE_CAP } from './spec';
 
@@ -249,6 +250,43 @@ export function bannerSpots(towers: readonly Tower[]): { x: number; y: number; z
   return out;
 }
 
+/**
+ * Полотнище стяга на холсте: тёмно-красное поле со складками, золотая кайма и герб города — золотая башня с тремя
+ * зубцами и воротами. Без документа (тест) — нет: стяг красится цветом вершин.
+ */
+function bannerTexture(): THREE.CanvasTexture | null {
+  if (typeof document === 'undefined') return null;
+  const c = document.createElement('canvas');
+  c.width = 64;
+  c.height = 160;
+  const x = c.getContext('2d');
+  if (!x) return null;
+  const g = x.createLinearGradient(0, 0, 64, 0);
+  // Складки: поле темнеет и светлеет полосами вдоль.
+  for (let i = 0; i <= 8; i++) g.addColorStop(i / 8, i % 2 ? '#8a201c' : '#6a1614');
+  x.fillStyle = g;
+  x.fillRect(0, 0, 64, 160);
+  x.strokeStyle = '#b8903a';
+  x.lineWidth = 4;
+  x.strokeRect(5, 5, 54, 150);
+  x.fillStyle = '#b8903a';
+  x.fillRect(5, 26, 54, 3);
+  // Башня: тело, три зубца, ворота тёмным.
+  x.fillRect(20, 62, 24, 40);
+  for (const zx of [18, 28.5, 39]) x.fillRect(zx, 54, 7, 9);
+  x.fillStyle = '#5a1210';
+  x.beginPath();
+  x.moveTo(27, 102);
+  x.lineTo(27, 88);
+  x.arc(32, 88, 5, Math.PI, 0);
+  x.lineTo(37, 102);
+  x.fill();
+  x.fillRect(30, 70, 4, 7);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
 function bannerMesh(towers: readonly Tower[], time: { value: number }): THREE.Mesh {
   const NX = 4;
   const NY = 8;
@@ -256,9 +294,11 @@ function bannerMesh(towers: readonly Tower[], time: { value: number }): THREE.Me
   const nor: number[] = [];
   const col: number[] = [];
   const drape: number[] = [];
+  const uv: number[] = [];
   const idx: number[] = [];
-  const red = linear(0x8e2420);
-  const gold = linear(0xc8a040);
+  const map = bannerTexture();
+  const red = map ? WHITE : linear(0x7e1e1a);
+  const gold = map ? WHITE : linear(0xb8903a);
   for (const b of bannerSpots(towers)) {
     const rx = -b.nz;
     const rz = b.nx;
@@ -276,6 +316,7 @@ function bannerMesh(towers: readonly Tower[], time: { value: number }): THREE.Me
         const edge = i === 0 || i === NX || j === 0 || j === 2;
         col.push(...(edge ? gold : red));
         drape.push(v, u);
+        uv.push(u, 1 - v + cut / b.h);
       }
     }
     for (let j = 0; j < NY; j++) {
@@ -291,9 +332,10 @@ function bannerMesh(towers: readonly Tower[], time: { value: number }): THREE.Me
   g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(nor), 3));
   g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(col), 3));
   g.setAttribute('drape', new THREE.BufferAttribute(new Float32Array(drape), 2));
+  g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(uv), 2));
   g.setIndex(idx);
   g.computeBoundingSphere();
-  const m = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide });
+  const m = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide, map });
   m.onBeforeCompile = (shader) => {
     shader.uniforms.cTime = time;
     shader.vertexShader = 'attribute vec2 drape;\nuniform float cTime;\n' + shader.vertexShader.replace(
@@ -309,6 +351,107 @@ function bannerMesh(towers: readonly Tower[], time: { value: number }): THREE.Me
   m.customProgramCacheKey = () => 'city-banner';
   const mesh = new THREE.Mesh(g, m);
   mesh.name = 'city-banners';
+  mesh.frustumCulled = false;
+  return mesh;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Голуби: две стайки на площади — у паперти и у колодца. Клюют, переходя с места на место, раз в три четверти минуты
+// стайка разом взлетает кругом над площадью и садится, где сидела. Всё в шейдере: середина круга, фаза — атрибуты.
+
+/** Середины стаек, период взлёта (с) и доля периода в воздухе. */
+export const PIGEON_FLOCKS: readonly P[] = [
+  { x: -7, z: -17 },
+  { x: 14, z: -11 },
+];
+export const PIGEON_PERIOD = 46;
+export const PIGEON_AIR = 0.26;
+
+/**
+ * Голубь стайки в миг `t` — то же, что считает шейдер (`pigeonMesh`), для теста: на земле — у своего места, в воздухе —
+ * на круге, который начинается и кончается в его месте.
+ */
+export function pigeonAt(home: P, seed: number, flock: number, t: number): { x: number; z: number; up: number } {
+  const ga = seed * 40 + t * 0.15;
+  const x = home.x + Math.cos(ga) * 0.4;
+  const z = home.z + Math.sin(ga) * 0.4;
+  const f = (((t / PIGEON_PERIOD + flock * 0.43) % 1) + 1) % 1;
+  if (f < 1 - PIGEON_AIR) return { x, z, up: 0 };
+  // Круг взлёта начинается и кончается там, где голубь клюёт: ни взлёт, ни посадка не прыгают.
+  // Разгон и торможение: доля круга — плавной ступенью, у земли голубь медленный.
+  const u0 = (f - (1 - PIGEON_AIR)) / PIGEON_AIR;
+  const u = u0 * u0 * (3 - 2 * u0);
+  const r = 6 + seed * 3;
+  const a0 = seed * 6.2832;
+  const a = a0 + u * 6.2832;
+  return { x: x + Math.cos(a0) * r - Math.cos(a) * r, z: z + Math.sin(a0) * r - Math.sin(a) * r, up: Math.sin(u * Math.PI) * (6 + seed * 4) };
+}
+
+function pigeonMesh(n: number, time: { value: number }, light: { value: number }): THREE.Mesh {
+  const pos: number[] = [];
+  const home: number[] = [];
+  const bird: number[] = [];
+  const wing: number[] = [];
+  for (let k = 0; k < n; k++) {
+    const f = k % PIGEON_FLOCKS.length;
+    const c = PIGEON_FLOCKS[f];
+    const hx = c.x + (rnd(k, 1, 91) - 0.5) * 9;
+    const hz = c.z + (rnd(k, 2, 91) - 0.5) * 6;
+    const hy = heightAt(hx, hz);
+    const seed = rnd(k, 3, 91);
+    // Тело и два крыла: на земле крылья сложены вдоль тела, в воздухе — машут.
+    const tri: [number, number, number][] = [
+      [0.17, 0, 0],
+      [-0.15, 0, 0.05],
+      [-0.15, 0, -0.05],
+      [0.04, 0, 0],
+      [-0.08, 0, 0.3],
+      [-0.1, 0, 0],
+      [0.04, 0, 0],
+      [-0.1, 0, 0],
+      [-0.08, 0, -0.3],
+    ];
+    tri.forEach(([x, y, z], i) => {
+      pos.push(x, y, z);
+      home.push(hx, hy, hz);
+      bird.push(seed, f, 0);
+      wing.push(i >= 3 ? Math.sign(z) : 0);
+    });
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pos), 3));
+  g.setAttribute('home', new THREE.BufferAttribute(new Float32Array(home), 3));
+  g.setAttribute('bird', new THREE.BufferAttribute(new Float32Array(bird), 3));
+  g.setAttribute('wing', new THREE.BufferAttribute(new Float32Array(wing), 1));
+  const m = new THREE.MeshBasicMaterial({ color: 0x6e727c, side: THREE.DoubleSide });
+  m.onBeforeCompile = (shader) => {
+    shader.uniforms.cTime = time;
+    shader.uniforms.cLight = light;
+    shader.vertexShader = 'attribute vec3 home;\nattribute vec3 bird;\nattribute float wing;\nuniform float cTime;\n' + shader.vertexShader.replace(
+      '#include <begin_vertex>',
+      /* glsl */ `
+      float seed = bird.x;
+      float f = fract(cTime / ${PIGEON_PERIOD.toFixed(1)} + bird.y * 0.43);
+      float air = step(${(1 - PIGEON_AIR).toFixed(3)}, f);
+      float u = smoothstep(0.0, 1.0, (f - ${(1 - PIGEON_AIR).toFixed(3)}) / ${PIGEON_AIR.toFixed(3)});
+      float r = 6.0 + seed * 3.0;
+      float a0 = seed * 6.2832;
+      float a = a0 + u * 6.2832;
+      float ga = seed * 40.0 + cTime * 0.15;
+      vec3 g = home + vec3(cos(ga) * 0.4, 0.0, sin(ga) * 0.4);
+      vec3 c = g + air * vec3(cos(a0) * r - cos(a) * r, sin(u * 3.1416) * (6.0 + seed * 4.0), sin(a0) * r - sin(a) * r);
+      // Курс: на земле — бродит, клюёт (голова вниз-вверх); в воздухе — по касательной к кругу.
+      vec2 dir = air > 0.5 ? normalize(vec2(sin(a), -cos(a))) : normalize(vec2(-sin(ga), cos(ga)) + vec2(0.001));
+      float peck = (1.0 - air) * step(0.0, position.x - 0.1) * max(0.0, sin(cTime * 7.0 + seed * 30.0)) * 0.06;
+      vec3 p = position * (1.0 - 0.5 * (1.0 - air) * abs(wing));
+      p.y += air * abs(wing) * (sin(cTime * 16.0 + seed * 9.0) * 0.22 + 0.05) - peck + 0.06;
+      vec3 transformed = c + vec3(p.x * dir.x - p.z * dir.y, p.y, p.x * dir.y + p.z * dir.x);`,
+    );
+    shader.fragmentShader = 'uniform float cLight;\n' + shader.fragmentShader.replace('#include <color_fragment>', '#include <color_fragment>\n  diffuseColor.rgb *= cLight;');
+  };
+  m.customProgramCacheKey = () => 'city-pigeons';
+  const mesh = new THREE.Mesh(g, m);
+  mesh.name = 'city-pigeons';
   mesh.frustumCulled = false;
   return mesh;
 }
@@ -343,6 +486,8 @@ export class CityBustle {
   private boatGait: THREE.InstancedBufferAttribute | null = null;
   private boatOut: boolean[] = [];
   private banners: THREE.Mesh | null = null;
+  private pigeons: THREE.Mesh | null = null;
+  private light = { value: 1 };
   private river = riverTable();
   private m4 = new THREE.Matrix4();
   private q4 = new THREE.Quaternion();
@@ -392,6 +537,10 @@ export class CityBustle {
       im.count = 0;
       this.group.add(im);
     }
+    if (this.cap.pigeons > 0) {
+      this.pigeons = pigeonMesh(this.cap.pigeons, this.time, this.light);
+      this.group.add(this.pigeons);
+    }
     if (this.cap.banners > 0) {
       this.banners = bannerMesh(plan.towers, this.time);
       this.group.add(this.banners);
@@ -416,6 +565,9 @@ export class CityBustle {
     this.time.value = t;
     const open = night < 0.5;
     const ice = snow > 0.35;
+    // Голуби ночуют под стрехой: с сумерек их на площади нет; свет на них — доля дня.
+    this.light.value = 1 - 0.8 * night;
+    if (this.pigeons) this.pigeons.visible = night < 0.6;
     if (this.carts && this.cartGait && this.route) {
       const { path, stop } = this.route;
       const g = this.cartGait.array as Float32Array;
@@ -501,9 +653,10 @@ export class CityBustle {
       const m = o as THREE.Mesh;
       if (!m.isMesh) return;
       m.geometry.dispose();
-      const mat = m.material as THREE.Material;
+      const mat = m.material as THREE.MeshLambertMaterial;
       if (!seen.has(mat)) {
         seen.add(mat);
+        mat.map?.dispose();
         mat.dispose();
       }
     });
