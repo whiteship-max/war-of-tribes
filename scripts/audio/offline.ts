@@ -29,6 +29,8 @@ export interface Sample {
   /** Громкости рода; без них — умолчания игры. */
   levels?: { music: number; fx: number };
   cues?: [number, Cue][];
+  /** Гром: миг, сила и через сколько секунд после вспышки (docs/city.md, 15). */
+  thunder?: [number, number, number][];
   /** Только замер: в образцы не пишется. */
   probe?: boolean;
 }
@@ -99,6 +101,20 @@ export const SAMPLES: Sample[] = [
     music: false,
     battle: false,
     duck: { music: 1, amb: 1 },
+  },
+  {
+    name: 'city-storm',
+    title: 'Гроза над городом: ливень, ветер, гром — близкий с треском (2 с), дальний (9 с)',
+    seconds: 16,
+    seed: 47,
+    keys: [[0, day({ solar: 0.3, near: 0.5, wx: { rain: 1, snow: 0, storm: 1, wind: 0.85 } })]],
+    music: false,
+    battle: false,
+    duck: { music: 1, amb: 1 },
+    thunder: [
+      [2, 1, 1.3],
+      [9, 0.8, 4.6],
+    ],
   },
   {
     name: 'map',
@@ -233,6 +249,7 @@ export async function render(name: string, limit: boolean): Promise<string> {
     }
     music?.tick(t, 1);
     for (const [at, c] of s.cues ?? []) if (at >= t && at < t + STEP) playCue(kit, chain.kinds.fx, c, at);
+    for (const [at, power, delay] of s.thunder ?? []) if (amb && at >= t && at < t + STEP) amb.thunder(at, power, delay);
     if (fx) fx.frame(BATTLE.filter(([at]) => at >= t && at < t + STEP).map(([, c]) => c), battleBed(t), ear, STEP);
   };
   step(0);
