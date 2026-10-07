@@ -425,6 +425,25 @@
 .nx-tip-go span {
   font-size: 18px;
 }
+/* Подсказка новичку: крестик в углу плашки, имя не заходит под него. */
+.nx-tip.free b {
+  padding-right: 32px;
+}
+.nx-tip .nx-tip-x {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  color: var(--muted);
+  font-size: 14px;
+}
+.nx-tip-x svg {
+  width: 14px;
+  height: 14px;
+}
 
 /* ---------- Обучение: строка под верхом нового вида ---------- */
 .ui-new .tut-bar.at-top {

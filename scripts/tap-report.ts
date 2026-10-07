@@ -221,6 +221,7 @@ const PROBE = `
 
   const cityPick = await import('/src/render/city/pick.ts');
   const citySites = await import('/src/render/city/sites.ts');
+  const hints = await import('/src/game/sim/hints.ts');
   const rect = () => canvasOf().getBoundingClientRect();
   const state = () => game.getState();
   /** Камера числами — чтобы вернуть её туда, откуда тапали. */
@@ -248,16 +249,19 @@ const PROBE = `
     ready: () => JSON.stringify({ w: rect().width, h: rect().height, dpr: window.devicePixelRatio, fake: !!window.__noWebGL }),
 
     /**
-     * Поднять все постройки до уровня и снять обучение.
+     * Поднять все постройки до уровня, снять обучение и выключить подсказки.
      *
      * Обучение снимается не для удобства: его слой закрывает панель здания на
      * каждом своём шаге (TutorialOverlay), и без этого стенд мерил бы не тап,
-     * а проводку первых шагов.
+     * а проводку первых шагов. Подсказки новичку выключаются тем же
+     * выключателем, что у игрока в настройках (sim/hints): плашка встаёт по
+     * часам, и какой след она застанет, решали бы часы, а не палец.
      */
     level: (max) => {
       const s = state().s;
       for (const b of s.buildings) b.level = Math.max(1, Math.min(max[b.type] || 1, LEVEL_WANTED));
       s.tutorialDone = true;
+      hints.setHintsOff(s, true);
       game.setState({ s: { ...s } });
       home = camOf();
       return JSON.stringify('ok');

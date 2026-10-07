@@ -2,6 +2,8 @@
 // функций игры (правило 18). Каждый блок называет свою область и проверяет, что точки лежат внутри неё.
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { createInitialState } from '@/game/state';
 import { armyPower, housingCapacity, netPerDay, storageCap, upkeepInfo } from '@/game/derived';
@@ -10,7 +12,7 @@ import { TAP_TARGET } from '@/gestures';
 import { waitSpan } from '@/ui/parts/wait';
 import { shortNum } from '@/ui/parts/shortNum';
 import { count } from '@/ui/parts/plural';
-import { TIP_EDGE, TIP_GAP, TIP_MAX, TIP_W, placeTip, type Rect } from './tip';
+import { TIP_EDGE, TIP_GAP, TIP_MAX, TIP_W, placeTip, type Rect, type TipContent } from './tip';
 import { ALERT_FRESH_MS, isFresh } from './fresh';
 import {
   TREND_DEAD,
@@ -229,6 +231,8 @@ describe('цели касания нового вида — не меньше п
       ['.nx-alert', 'min-width'],
       ['.nx-nav button', 'height'],
       ['.nx-tip .nx-tip-go', 'height'],
+      ['.nx-tip .nx-tip-x', 'height'],
+      ['.nx-tip .nx-tip-x', 'width'],
       ['.ui-new .nx-top .coat-btn', 'height'],
       ['.ui-new .nx-top .coat-btn', 'width'],
       // Окно постройки: значок здания, значок рабочих, «Улучшить», отмена двумя касаниями.
@@ -320,6 +324,47 @@ describe('подсказка — касанием, долгого нажатия
     }
     const hud = readFileSync(join(DIR, 'Hud.tsx'), 'utf8');
     expect(hud.match(/onClick=\{tip\(/g)?.length, 'числа верха открывают подсказку касанием').toBeGreaterThanOrEqual(6);
+  });
+});
+
+// ---------- Подсказка новичку не ловит касаний мимо плашки ----------
+
+describe('подсказка новичку: касание мимо плашки доходит до города', () => {
+  // Область: подсказки, которые встают сами (`Hints`), — все из данных; против них — подсказка числа (3.7), которую игрок
+  // открыл сам. Всё, что не плашка, — город: без ловца во весь экран касание по постройке достаётся холсту, а холст судит
+  // один судья пальца (`gestures.ts`) — тап открывает постройку, это меряет `tap:report`.
+  const at: Rect = { x: 160, y: 790, w: 70, h: 54 };
+  const draw = async (tip: TipContent, busy: boolean): Promise<string> => {
+    const { TipView } = await import('./TipLayer');
+    return renderToStaticMarkup(createElement(TipView, { tip: { ...tip, at }, view: PHONE, busy, modal: false, hide: () => {} }));
+  };
+  const NUMBER: TipContent = { title: 'Золото · 120', body: 'Казна города.' };
+
+  it('каждая подсказка новичку свободная: на экране плашка с крестиком, ловца во весь экран нет', async () => {
+    const { hintTip } = await import('./Hints');
+    const { HINTS } = await import('@/game/data/hints');
+    expect(HINTS.length, 'подсказки новичку есть').toBeGreaterThanOrEqual(5);
+    for (const h of HINTS) {
+      const tip = hintTip(h);
+      expect(tip.free, `${h.id}: свободная`).toBe(true);
+      const html = await draw(tip, false);
+      expect(html, `${h.id}: плашка на экране`).toContain('role="tooltip"');
+      expect(html, `${h.id}: ловца нет — тап по постройке доходит до города`).not.toContain('nx-tip-catch');
+      expect(html, `${h.id}: крестик закрывает`).toContain('nx-tip-x');
+    }
+  });
+
+  it('подсказка числа — прежняя: ловец под плашкой, крестика нет', async () => {
+    const html = await draw(NUMBER, false);
+    expect(html).toContain('nx-tip-catch');
+    expect(html).not.toContain('nx-tip-x');
+  });
+
+  it('город занят — подсказка новичку прячется и ждёт, подсказка числа стоит', async () => {
+    const { hintTip } = await import('./Hints');
+    const { HINTS } = await import('@/game/data/hints');
+    expect(await draw(hintTip(HINTS[0]), true)).toBe('');
+    expect(await draw(NUMBER, true)).toContain('role="tooltip"');
   });
 });
 
