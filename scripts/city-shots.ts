@@ -7,6 +7,9 @@
 //   BUDGET=1 npm run city:shots                — бюджет по уровням счётом (без браузера)
 //   GAME=1 QUALITY=medium npm run city:shots   — сама игра по адресу `?look=city`: стартовый кадр
 //                                                (сцена города в игре, не стенд), TAG и QUALITY те же
+//   GAME=1 WX=clear,rain,storm npm run city:shots — погода адресом (`?weather=`, docs/city.md, 15): кадр игры на каждую,
+//                                                `WXLOOK=market:70` — вблизи постройки (тип:расстояние), `WXMAP=1` —
+//                                                карта мира, `WXSEASON=winter` — сезон партии
 //
 // Снимки — в `.city-shots/` (в репозиторий не входит). Бюджет железа (CLAUDE.md, раздел ⛔): один
 // прогон, браузер с потолком кадров отчёта, не дольше двух минут на заход, минута остывания
@@ -22,6 +25,8 @@ import { QUALITY, qualityOf, type Quality } from '../src/render/quality';
 import { LAYERS, paintLayer } from '../src/render/city/tex';
 import { cityCounts, CITY_BUDGET } from '../src/render/city/budget';
 import { QUALITIES as ALL_QUALITIES } from '../src/render/quality';
+import { SEASON_SECONDS } from '../src/game/data/seasons';
+import { DAY_LENGTH } from '../src/game/pace';
 
 const OUT = fileURLToPath(new URL('../.city-shots', import.meta.url));
 const PORT = Number(process.env.PORT ?? 4199);
@@ -155,6 +160,10 @@ async function gameShot(q: Quality): Promise<void> {
       await deedShots(tab, q);
       return;
     }
+    if (process.env.WX) {
+      await weatherShots(tab, q);
+      return;
+    }
     await sleep(3000);
     const c = await tab.eval<{ calls: number; triangles: number }>('JSON.stringify(window.__scene.stats())');
     const png = await tab.send<{ data: string }>('Page.captureScreenshot', { format: 'png' });
@@ -219,6 +228,79 @@ async function gameTaps(tab: Tab): Promise<void> {
   }
   console.log(`  касание в игре: тапов ${list.length}, своё окно — ${own}${wrong.length ? `; мимо: ${wrong.join(', ')}` : ''}`);
   await tab.eval<string>(`(() => { const sc = window.__scene; window.__game.getState().openBuilding(null); sc.scene.children.forEach((o) => { if (o.type === 'Group') o.visible = true; }); return JSON.stringify('ok'); })()`);
+}
+
+/**
+ * Погода (`WX=` к `GAME=1`, docs/city.md, 15): одна партия, погода — адресом страницы, который сцена перечитывает; кадр
+ * на каждую, по желанию — вблизи постройки (`WXLOOK=тип:расстояние`). Гроза снимается в миг вспышки.
+ */
+async function weatherShots(tab: Tab, q: Quality): Promise<void> {
+  await tab.eval<string>(`(() => {
+    const st = document.createElement('style');
+    st.textContent = '.trouble { display: none !important; }';
+    document.head.appendChild(st);
+    const s = window.__game.getState().s;
+    s.inbox = [];
+    s.winterWarning = false;
+    s.nextEventAt = s.time + 1e9;
+    s.hints = { seen: [], off: true };
+    window.__game.setState({ s: { ...s } });
+    return JSON.stringify('ok');
+  })()`);
+  // Сезон партии (`WXSEASON=winter`): снег над снежным городом, а не над летним.
+  const season = process.env.WXSEASON;
+  if (season) {
+    const k = ['spring', 'summer', 'autumn', 'winter'].indexOf(season);
+    await tab.eval<string>(`(() => {
+      const s = window.__game.getState().s;
+      s.time = ${Math.max(0, k) * SEASON_SECONDS + Math.round((SEASON_SECONDS * 0.3) / DAY_LENGTH) * DAY_LENGTH} + (s.time % ${DAY_LENGTH});
+      window.__game.setState({ s: { ...s } });
+      // Палитра сезона переливается секундами, а программный кадр облака — секунда: ставим сразу.
+      window.__scene.seasonVis.jump(${JSON.stringify(season)});
+      return JSON.stringify('ok');
+    })()`);
+  }
+  // Карта мира (`WXMAP=1`): облака и их тени над регионом — та же погода.
+  const map = process.env.WXMAP === '1';
+  if (map) {
+    await tab.eval<string>(`(() => { window.__game.getState().openMap(); return JSON.stringify('ok'); })()`);
+    await sleep(15000);
+  }
+  const near = process.env.WXLOOK;
+  if (near && !map) {
+    const [type, dist] = near.split(':');
+    await tab.eval<string>(`(() => {
+      const sc = window.__scene;
+      const own = sc.sites.filter((x) => x.type === ${JSON.stringify(type)});
+      const m = own.reduce((a, b) => (a.hf * a.hr >= b.hf * b.hr ? a : b));
+      sc.target.set(m.x, m.y0 + 3, m.z);
+      sc.dist = ${Number(dist) || 60};
+      sc.userMoved = true;
+      sc.place();
+      return JSON.stringify('ok');
+    })()`);
+  }
+  for (const wx of list(process.env.WX, 'clear')) {
+    await tab.eval<string>(`(() => {
+      const u = new URL(location.href);
+      u.searchParams.set('weather', ${JSON.stringify(wx)});
+      history.replaceState(null, '', u.toString());
+      return JSON.stringify('ok');
+    })()`);
+    // Программный кадр в облаке — около секунды: ждём несколько кадров с новой погодой и докачку осадков.
+    await sleep(4000);
+    if (wx === 'storm') {
+      for (let i = 0; i < 80; i++) {
+        if (await tab.eval<boolean>('JSON.stringify(window.__scene.flash > 0.35 && (window.__scene.pause(), true))').catch(() => false)) break;
+        await sleep(150);
+      }
+    }
+    const png = await tab.send<{ data: string }>('Page.captureScreenshot', { format: 'png' });
+    const name = `${TAG}-wx-${wx}${map ? '-map' : near ? '-' + near.replace(':', '') : ''}-${q}.png`;
+    await writeFile(join(OUT, name), Buffer.from(png.data, 'base64'));
+    if (wx === 'storm') await tab.eval<string>(`(() => { window.__scene.resume(); return JSON.stringify('ok'); })()`);
+    console.log(`  погода ${q}: ${wx} → .city-shots/${name}`);
+  }
 }
 
 /**

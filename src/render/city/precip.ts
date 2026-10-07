@@ -86,11 +86,12 @@ function rainMesh(n: number, u: PrecipUniforms): THREE.LineSegments {
         vec3 transformed = pPlace(${RAIN_FALL.toFixed(1)}, 1.0);
         // Струя — вдоль скорости: вниз и по ветру; длина — путь капли за десятую долю секунды с небольшим.
         vec3 vel = vec3(pWind.x, -${RAIN_FALL.toFixed(1)}, pWind.y);
-        transformed -= normalize(vel) * tail * (0.7 + 0.5 * drop.w);`,
+        // Издали струя длиннее: в кадре с полукилометра метровая капля была бы точкой.
+        transformed -= normalize(vel) * tail * (0.7 + 0.5 * drop.w) * max(1.0, pBox / 70.0);`,
       );
     shader.fragmentShader =
       'varying float vOn;\nuniform float pLight;\n' +
-      shader.fragmentShader.replace('#include <color_fragment>', '#include <color_fragment>\n  diffuseColor.rgb *= pLight;\n  diffuseColor.a *= vOn * 0.42;');
+      shader.fragmentShader.replace('#include <color_fragment>', '#include <color_fragment>\n  diffuseColor.rgb *= pLight;\n  diffuseColor.a *= vOn * 0.5;');
   };
   m.customProgramCacheKey = () => 'city-rain';
   const mesh = new THREE.LineSegments(g, m);
@@ -191,7 +192,7 @@ export class CityPrecip {
     if (this.snow) {
       this.snow.visible = snow > 0.01;
       // Хлопья — с расстоянием крупнее: издали снегопад читается пеленой, а не пылью.
-      (this.snow.material as THREE.PointsMaterial).size = 0.3 + Math.min(1.2, dist / 400);
+      (this.snow.material as THREE.PointsMaterial).size = 0.35 + Math.min(2, dist / 250);
     }
   }
 

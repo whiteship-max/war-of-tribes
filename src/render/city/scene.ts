@@ -91,8 +91,17 @@ export class CityScene extends TribeScene {
   private wet = 0;
   private flash = 0;
   private precip: CityPrecip | null = null;
-  /** Погода адресом (`?weather=rain`) — стенду и проверке на телефоне. */
-  private readonly forced = typeof location === 'undefined' ? null : forcedWeather(location.search);
+  /** Погода адресом (`?weather=rain`) — стенду и проверке на телефоне; адрес перечитывается, только когда сменился. */
+  private forcedAt = '';
+  private forcedWx: Weather | null = null;
+  private get forced(): Weather | null {
+    const q = typeof location === 'undefined' ? '' : location.search;
+    if (q !== this.forcedAt) {
+      this.forcedAt = q;
+      this.forcedWx = forcedWeather(q);
+    }
+    return this.forcedWx;
+  }
   /** Сколько народу на улицах и стражи на стене и какие дворы работают — из партии (`sync`). */
   private crowd: { people: number; guards: number; busy: BuildingTypeId[] } = { people: 40, guards: 6, busy: [] };
 
@@ -239,7 +248,7 @@ export class CityScene extends TribeScene {
     this.rig.hemi.intensity *= 1 - 0.1 * dim;
     const bg = this.scene.background as THREE.Color;
     const fog = (this.scene.fog as THREE.Fog).color;
-    for (const c of [bg, fog]) greyen(c, 0.65 * w.cloud, 1 - 0.22 * w.rain - 0.08 * w.storm + 0.05 * w.snow);
+    for (const c of [bg, fog]) greyen(c, 0.65 * w.cloud, 1 - 0.32 * w.rain - 0.1 * w.storm + 0.05 * w.snow);
     if (w.fog > 0) fog.lerp(TMP_C.copy(MIST_SKY).multiplyScalar(0.35 + 0.65 * this.light.daylight), w.fog * 0.55);
     if (this.flash > 0) {
       this.rig.hemi.intensity += this.flash * 1.3;
@@ -286,8 +295,8 @@ export class CityScene extends TribeScene {
       if (fog) {
         const base = cityFog(this.dist);
         const dim = Math.max(w.rain, w.snow);
-        fog.near = base.near * (1 - 0.55 * dim - 0.35 * w.fog);
-        fog.far = base.far * (1 - 0.4 * dim - 0.2 * w.fog);
+        fog.near = base.near * (1 - 0.25 * dim - 0.3 * w.fog);
+        fog.far = base.far * (1 - 0.2 * dim - 0.15 * w.fog);
       }
       this.precip?.update(t, w.rain, w.snow, dir.x, dir.z, w.wind, this.target, this.dist, Math.max(0.22, this.light.daylight) + this.flash);
       const fl = c.group.getObjectByName('city-flames') as THREE.Points | undefined;

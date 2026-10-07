@@ -3,9 +3,8 @@
 //
 // Цена — заливка узором: облачный лист (тайл 256 px, бесшовный) печётся один раз на уровень облачности при первом
 // облачном кадре (три листа, пара миллисекунд), а в кадре — одна-две заливки на тени и одна-две на облака, без
-// перебора облаков. Лист едет по ветру как функция часов: сдвиг — скорость × время. На «Низком» облаков нет.
+// перебора облаков. Лист едет по ветру как функция часов страницы: сдвиг — скорость × время. На «Низком» облаков нет.
 import { useGame } from '@/game/store';
-import { serverNow } from '@/net/clock';
 import { ZONES, windTo, zoneOf } from '@/render/climate';
 import { homeRegion, weatherNow } from '@/ui/parts/weather';
 import type { Camera, Viewport } from '../grid';
@@ -120,7 +119,8 @@ export function drawClouds(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewp
   if (cover < 0.08) return;
   // Облака плывут верхним ветром региона — тем же, что гонит тени по городу.
   const to = windTo(ZONES[zoneOf(homeRegion())].from);
-  const t = (serverNow() / 1000) % 1e6;
+  // Сдвиг — по часам страницы: где облако, игроку не важно, важно, что оно плывёт (погода — общая, `weatherNow`).
+  const t = (performance.now() / 1000) % 1e6;
   const ox = to.x * SPEED * t;
   const oy = to.z * SPEED * t;
   // Уровень листа и доля соседнего: облачность переливается, а не переключается.
@@ -129,7 +129,7 @@ export function drawClouds(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewp
   const mix = lv - k0;
   ctx.save();
   // Тени — днём; издали и вблизи одинаково.
-  const shade = 0.75 * (1 - night) * smooth(0.08, 0.35, cover);
+  const shade = (1 - night) * smooth(0.08, 0.35, cover);
   if (shade > 0.01) {
     fill(ctx, sheet(k0).shade, cam, vp, ox + SHADOW_SHIFT.x, oy + SHADOW_SHIFT.y, shade * (1 - mix));
     fill(ctx, sheet(k0 + 1).shade, cam, vp, ox + SHADOW_SHIFT.x, oy + SHADOW_SHIFT.y, shade * mix);

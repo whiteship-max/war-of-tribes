@@ -158,21 +158,31 @@ vec3 cSheen(vec3 n, vec3 v, float up, vec3 sky) {
  * −4 м, город стоит на +7). Своё мировое «y» вершины — в любом материале: кроны и камыш — экземплярами.
  */
 export function misted(shader: { vertexShader: string; fragmentShader: string }): void {
-  shader.vertexShader = 'varying float vMistY;\n' + shader.vertexShader.replace(
+  shader.vertexShader = 'varying vec3 vMistP;\n' + shader.vertexShader.replace(
     '#include <fog_vertex>',
     /* glsl */ `#include <fog_vertex>
+    // Дерево и куртина туманятся целиком по высоте комля, макушка — чуть выше: иначе кроны в низине стояли бы тёмными
+    // вырезами на белой мгле.
     vec4 cMistP = vec4(transformed, 1.0);
     #ifdef USE_INSTANCING
-      cMistP = instanceMatrix * cMistP;
+      vec4 cRoot = modelMatrix * vec4(instanceMatrix[3].xyz, 1.0);
+      cMistP = modelMatrix * (instanceMatrix * cMistP);
+      cMistP.y = cRoot.y + (cMistP.y - cRoot.y) * 0.3;
+    #else
+      cMistP = modelMatrix * cMistP;
     #endif
-    vMistY = (modelMatrix * cMistP).y;`,
+    vMistP = cMistP.xyz;`,
   );
-  shader.fragmentShader = 'uniform float cMist;\nvarying float vMistY;\n' + shader.fragmentShader.replace(
+  shader.fragmentShader = 'uniform float cMist;\nvarying vec3 vMistP;\n' + shader.fragmentShader.replace(
     '#include <fog_fragment>',
     /* glsl */ `#ifdef USE_FOG
       float fogFactor = smoothstep(fogNear, fogFar, vFogDepth);
-      float cLow = 1.0 - smoothstep(-13.0, -3.0, vMistY);
-      fogFactor = max(fogFactor, cMist * cLow * smoothstep(6.0, 120.0, vFogDepth) * 0.92);
+      if (cMist > 0.01) {
+        // Мгла — полосами по низине: густая у воды, редеет к склону; пятнами по миру, не ровной простынёй.
+        float cLow = 1.0 - smoothstep(-15.0, 0.0, vMistP.y);
+        float cBank = 0.55 + 0.45 * sin(vMistP.x * 0.021 + sin(vMistP.z * 0.017) * 2.0) * sin(vMistP.z * 0.026 + 1.3);
+        fogFactor = max(fogFactor, cMist * cLow * cBank * smoothstep(6.0, 160.0, vFogDepth) * 0.78);
+      }
       gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, fogFactor);
     #endif`,
   );
@@ -402,7 +412,9 @@ export function groundMaterial(u: CityUniforms, map: THREE.Texture, at: GroundMa
         /* glsl */ `#include <emissivemap_fragment>
         totalEmissiveRadiance += diffuseColor.rgb * cTorchCol * cTorch(vCWPos) * cNight * 1.8;
         // Мокрая мостовая и лужи зеркалят небо, ночью — тёплые огни.
-        totalEmissiveRadiance += cSheen(normal, vViewPosition, cWetUp * (0.35 + 0.65 * max(bw.x, cPud)), cSky + cTorchCol * cTorch(vCWPos) * cNight) * (1.0 - 0.6 * cNight);`,
+        totalEmissiveRadiance += cSheen(normal, vViewPosition, cWetUp * (0.35 + 0.65 * max(bw.x, cPud)), cSky + cTorchCol * cTorch(vCWPos) * cNight) * (1.0 - 0.6 * cNight);
+        // Лужа — зеркало и сверху: камера игры смотрит почти отвесно, и блик у края взгляда её бы не показал.
+        totalEmissiveRadiance += (cSky * 0.5 + cTorchCol * cTorch(vCWPos) * cNight) * cPud * cWet * 0.22 * (1.0 - cUp);`,
       );
     shader.fragmentShader = clouded(graded(shader.fragmentShader));
     misted(shader);
