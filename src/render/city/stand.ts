@@ -1,4 +1,4 @@
-// Стенд вида «город»: `?showcase=city&quality=high|medium|low&view=game|street|gate|square|top|house
+// Стенд вида «город»: `?showcase=city&quality=high|medium|low&view=game|street|gate|square|top|house&t=секунды
 // &solar=0.25&season=summer`. Свой рендерер, свет — общий риг (`lighting.ts`, числа ночи `next`),
 // кадр — только через дверь `render/loop.ts`. Крючки для снимков: `window.__stand` (счётчики) и
 // `document.body.dataset.ready = '1'`, когда город собран.
@@ -44,6 +44,8 @@ export function mountCity(root: HTMLElement, p: URLSearchParams): void {
   const dpr = Number(p.get('dpr') ?? 2);
   const base = CITY_VIEWS[p.get('view') ?? 'game'] ?? CITY_VIEWS.game;
   const num = (k: string, d: number): number => (p.has(k) ? Number(p.get(k)) : d);
+  // Миг жизни города, секунды (`t=`): жизнь — функция времени, снимок любого мига без ожидания.
+  const tShift = num('t', 0);
   const atS = p.get('at')?.split(',').map(Number);
   const view: CityView = {
     at: atS && atS.length === 3 ? (atS as [number, number, number]) : base.at,
@@ -105,6 +107,7 @@ export function mountCity(root: HTMLElement, p: URLSearchParams): void {
 
   let city: CityBuild | null = null;
   let life: CityLife | null = null;
+  let bustle: import('./alive').CityBustle | null = null;
   const t0 = performance.now();
   let tPrev = t0;
   const sunAt = new THREE.Vector3();
@@ -140,7 +143,8 @@ export function mountCity(root: HTMLElement, p: URLSearchParams): void {
         city.uniforms.cTime.value = (performance.now() - t0) / 1000;
         city.uniforms.cAutumn.value = season === 'autumn' ? 1 : 0;
         const now = performance.now();
-        life?.update(Math.min(0.1, (now - tPrev) / 1000), (now - t0) / 1000, windowNight(light), seasonVis.snow);
+        life?.update(Math.min(0.1, (now - tPrev) / 1000), (now - t0) / 1000 + tShift, windowNight(light), seasonVis.snow);
+        bustle?.update((now - t0) / 1000 + tShift, windowNight(light), seasonVis.snow);
         tPrev = now;
       }
       renderer.info.reset();
@@ -189,10 +193,15 @@ export function mountCity(root: HTMLElement, p: URLSearchParams): void {
     life = new CityLife({ plan: c.plan, chimneys: c.chimneys, flagTops: c.flagTops, quality: q });
     life.set(num('people', 200), num('guards', 20), []);
     scene.add(life.group);
+    // Суета — своим куском, как в игре; снимок ждёт и её.
+    const alive = import('./alive').then(({ CityBustle }) => {
+      bustle = new CityBustle({ plan: c.plan, quality: q });
+      scene.add(bustle.group);
+    });
     target.y = view.at[1] || heightAt(view.at[0], view.at[2]);
     place();
     // Снимок — на полных слоях: сначала город встаёт на мелких (256²).
-    void c.full.then(() => {
+    void Promise.all([c.full, alive]).then(() => {
       document.body.dataset.ready = '1';
     });
   });

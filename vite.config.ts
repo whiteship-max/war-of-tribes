@@ -165,6 +165,13 @@ const LAZY_DOORS: { name: string; door: RegExp; owns: RegExp[] }[] = [
     door: /\/src\/render\/city\/scene\.ts$/,
     owns: [/\/src\/render\/city\//],
   },
+  {
+    // Живой город (docs/city.md, 13): телеги, утки, лодки, стяги — своя докачка, сцена и стенд тянут её после первого
+    // кадра города; в кусок города и в первую загрузку она не едет.
+    name: 'город: суета',
+    door: /\/src\/render\/city\/alive\.ts$/,
+    owns: [/\/src\/render\/city\/alive\.ts$/],
+  },
 ];
 
 function lazyDoorsPlugin(): Plugin {

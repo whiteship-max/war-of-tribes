@@ -128,7 +128,7 @@ export interface CityCounts {
   buildings: number;
   ground: number;
   trees: number;
-  /** Люди, стража, скот, птицы, флаги — потолок уровня (`spec.LIFE_CAP`). */
+  /** Люди, стража, скот, птицы, флаги, телеги, утки, лодки, стяги — потолок уровня (`spec.LIFE_CAP`). */
   life: number;
   /** Вода до кромки и берег: лента реки и ручья, камыш и камни (`spec.SHORE_CAP`, `banks.shoreItems`). */
   shore: number;
@@ -163,12 +163,20 @@ export function cityCounts(q: Quality, plan: CityPlan = cityPlan()): CityCounts 
     if (!far) treeShadow += t;
   }
   const cap = LIFE_CAP[q];
+  // Суета (`alive.ts`): телеги, утки, лодки, стяги — по вызову на вид, если уровень их показывает; фонари ночных прохожих
+  // — вызов жизни (`life.ts`). Стягов — по два на воротах и донжоне (`alive.bannerSpots`).
+  const banners = cap.banners > 0 ? plan.towers.filter((t) => t.kind === 'gate' || t.kind === 'castleGate' || t.kind === 'keep').length * 2 : 0;
+  calls += [cap.lanterns, cap.carts, cap.ducks, cap.boats, banners].filter((n) => n > 0).length;
   const life =
     cap.people * LIFE_TRIS.person +
     cap.guards * LIFE_TRIS.guard +
     cap.animals * LIFE_TRIS.beast +
     cap.birds * LIFE_TRIS.bird +
-    plan.towers.length * LIFE_TRIS.flag;
+    plan.towers.length * LIFE_TRIS.flag +
+    cap.carts * LIFE_TRIS.cart +
+    cap.ducks * LIFE_TRIS.duck +
+    cap.boats * LIFE_TRIS.boat +
+    banners * LIFE_TRIS.banner;
   const layerBytes = spec.tex * spec.tex * 4 * LAYERS.length * (4 / 3);
   const mapBytes = (spec.map * spec.map + spec.land * spec.land) * 4 * (4 / 3);
   const shadowBytes = spec.shadowMap * spec.shadowMap * 8;

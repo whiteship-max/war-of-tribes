@@ -30,18 +30,22 @@ export const CITY_SPEC: Record<Quality, CitySpec> = {
 };
 
 
-/** Сколько фигур жизни уровень показывает самое большее (`life.ts`, docs/city.md, 11.4). */
-export const LIFE_CAP: Record<Quality, { people: number; guards: number; birds: number; animals: number; smoke: number }> = {
-  low: { people: 70, guards: 10, birds: 12, animals: 8, smoke: 40 },
-  medium: { people: 160, guards: 18, birds: 28, animals: 14, smoke: 90 },
-  high: { people: 260, guards: 26, birds: 44, animals: 18, smoke: 160 },
+/**
+ * Сколько фигур жизни уровень показывает самое большее (`life.ts`, docs/city.md, 11.4 и 13). Новое живого города
+ * (`alive.ts`: телеги с волами, утки, лодки, стяги; фонари ночных прохожих) на низком выключено: низкий — для слабых
+ * телефонов, ему хватает прежнего.
+ */
+export const LIFE_CAP: Record<Quality, { people: number; guards: number; birds: number; animals: number; smoke: number; lanterns: number; carts: number; ducks: number; boats: number; banners: number }> = {
+  low: { people: 70, guards: 10, birds: 12, animals: 8, smoke: 40, lanterns: 0, carts: 0, ducks: 0, boats: 0, banners: 0 },
+  medium: { people: 160, guards: 18, birds: 28, animals: 14, smoke: 90, lanterns: 24, carts: 4, ducks: 12, boats: 2, banners: 1 },
+  high: { people: 260, guards: 26, birds: 44, animals: 18, smoke: 160, lanterns: 40, carts: 8, ducks: 20, boats: 3, banners: 1 },
 };
 
 /**
- * Треугольников у фигуры жизни — счёту бюджета (`budget.cityCounts`); сами фигуры строит `life.ts`, а что
- * числа с ними сходятся, держит тест (`life.test.ts`).
+ * Треугольников у фигуры жизни — счёту бюджета (`budget.cityCounts`); сами фигуры строят `life.ts` и `alive.ts`, а что
+ * числа с ними сходятся, держит тест (`life.test.ts`). Ноги — две коробки: шаг качает их в шейдере.
  */
-export const LIFE_TRIS = { person: 36, guard: 72, beast: 36, bird: 2, flag: 44 } as const;
+export const LIFE_TRIS = { person: 48, guard: 84, beast: 48, bird: 2, flag: 44, cart: 300, duck: 36, boat: 108, banner: 64 } as const;
 
 /**
  * Вода и берег по уровню (docs/city.md, 12.3). `cols` — колонны ленты реки поперёк, метры от середины: за плоским

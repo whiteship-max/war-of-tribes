@@ -13,6 +13,7 @@ import { hearCity } from '@/sound/ear';
 import { WORK_SIGN, workBusy } from '../worksigns';
 import type { V3 } from './geom';
 import { CityLife } from './life';
+import type { CityBustle } from './alive';
 import { TAP_TARGET } from '@/gestures';
 import { SCENES, TribeScene, type BuildingView, type SceneLook } from '../Scene';
 import { RIG, applyDayNight, fitShadow, windowNight } from '../lighting';
@@ -42,6 +43,12 @@ export class CityScene extends TribeScene {
   protected stepMax = CITY_STEP_MAX;
   /** Люди, стража, дым, флаги, птицы, скот — встают вместе с городом. */
   private folk: CityLife | null = null;
+  /**
+   * Телеги, утки, лодки, стяги — своим куском (`alive.ts`), который сцена тянет после первого кадра города
+   * (docs/city.md, 13): город встаёт, не дожидаясь их.
+   */
+  private bustle: CityBustle | null = null;
+  private bustleWanted = false;
   /** Сколько народу на улицах и стражи на стене и какие дворы работают — из партии (`sync`). */
   private crowd: { people: number; guards: number; busy: BuildingTypeId[] } = { people: 40, guards: 6, busy: [] };
 
@@ -79,6 +86,7 @@ export class CityScene extends TribeScene {
     this.folk = new CityLife({ plan: c.plan, chimneys: c.chimneys, flagTops: c.flagTops, quality: this.quality });
     this.scene.add(this.folk.group);
     this.folk.set(this.crowd.people, this.crowd.guards, this.workSmoke());
+    this.bustleWanted = true;
     for (const view of this.buildings.values()) this.place3(view);
     if (this.selected !== null) this.setSelected(this.selected);
   }
@@ -189,11 +197,28 @@ export class CityScene extends TribeScene {
         fm.size = 3.6 * (1 + Math.sin(t * 11) * 0.08);
       }
       this.folk?.update(dt, t, night, this.seasonVis.snow);
+      this.bustle?.update(t, night, this.seasonVis.snow);
+      // Первый кадр города нарисован — теперь докачка суеты.
+      if (this.bustleWanted) {
+        this.bustleWanted = false;
+        this.loadBustle(c);
+      }
     }
     // Значки покачиваются — взгляд цепляется без лишних цветов.
     for (const view of this.buildings.values()) {
       if (view.marker) view.marker.position.y = view.markerY + Math.sin(t * 2.2 + view.markerY) * 0.6;
     }
+  }
+
+  /** Кусок суеты: пришёл, когда сцену ещё не выгрузили и город тот же, — встаёт; не пришёл — город живёт без него. */
+  private loadBustle(c: CityBuild): void {
+    import('./alive')
+      .then(({ CityBustle }) => {
+        if (this.disposed || this.town !== c) return;
+        this.bustle = new CityBustle({ plan: c.plan, quality: this.quality });
+        this.scene.add(this.bustle.group);
+      })
+      .catch(() => undefined);
   }
 
   // ---------- Постройки ----------
@@ -223,7 +248,8 @@ export class CityScene extends TribeScene {
     if (this.selected !== null) this.setSelected(this.selected);
     // Улицы — по населению, стена — по войску; дым работы — по правилу посёлка (`workBusy`).
     this.crowd = {
-      people: 20 + population(s) * 0.8,
+      // Посёлок в тридцать душ — уже семьдесят прохожих: город с первого дня живой (docs/city.md, 13.1).
+      people: 40 + population(s),
       guards: 4 + armySize(s) * 0.5,
       busy: s.buildings.filter((b) => WORK_SIGN[b.type]?.smoke && workBusy(s, b, false)).map((b) => b.type),
     };
@@ -311,6 +337,8 @@ export class CityScene extends TribeScene {
   override dispose(): void {
     this.folk?.dispose();
     this.folk = null;
+    this.bustle?.dispose();
+    this.bustle = null;
     this.town?.dispose();
     this.town = null;
     super.dispose();
