@@ -1,0 +1,297 @@
+// Фон города и карты (docs/audio.md, раздел 4).
+//
+// Два рода слоёв. **Постели** тянутся всегда и меняют только громкость: ветер, свист ветра, общий гул, море. **События**
+// случаются по одному: удар молота, колокол, птица, сверчок, голос рынка. Сколько чего слышно — чистая функция
+// `mixOf` от того, что видит игрок: город или карта, время суток (фаза солнца), сезон, близость камеры к улицам, море у
+// дома на карте. Её держит тест; звучит её `Ambience`.
+//
+// Переход слоёв — только `setTargetAtTime` с постоянной в секунды: приблизил камеру, наступила ночь, открыл карту — фон
+// переливается, а не переключается.
+
+import type { Season } from '@/game/types';
+import { pick, span, type Rng } from './rng';
+import { anvil, bell, bird, cricket, noiseLoop, voice, type BirdKind, type Kit } from './synth';
+
+/** Что слышит игрок. */
+export interface Hearing {
+  view: 'city' | 'map';
+  /** Фаза солнца: 0 — рассвет, 0.25 — полдень, 0.5 — закат, 0.75 — глубокая ночь (`derived.solarPhase`). */
+  solar: number;
+  season: Season;
+  /** Близость камеры к улицам, 0..1 (`sound/ear`). */
+  near: number;
+  /** Доля моря вокруг дома на карте, 0..1. */
+  sea: number;
+}
+
+export type Layer = 'wind' | 'whistle' | 'hum' | 'sea' | 'market' | 'forge' | 'birds' | 'crickets' | 'bells';
+
+export const LAYERS: readonly Layer[] = ['wind', 'whistle', 'hum', 'sea', 'market', 'forge', 'birds', 'crickets', 'bells'];
+
+/** Плавная ступенька: 0 до `a`, 1 после `b`. */
+const step = (x: number, a: number, b: number): number => {
+  const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
+  return t * t * (3 - 2 * t);
+};
+
+/** Окно по фазе солнца с мягкими краями. */
+const band = (s: number, from: number, to: number, edge: number): number => step(s, from - edge, from + edge) * (1 - step(s, to - edge, to + edge));
+
+/** Рабочий день: от рассвета до заката. */
+export const workday = (solar: number): number => band(solar, 0.05, 0.45, 0.03);
+/** Утро для птиц: рассвет и чуть после. */
+export const morning = (solar: number): number => Math.max(band(solar, 0.0, 0.12, 0.03), step(solar, 0.94, 0.99));
+/** Ночь: после сумерек и до предрассветья. */
+export const night = (solar: number): number => band(solar, 0.56, 0.93, 0.04);
+
+/** Птицы по сезонам: весной — больше всего, зимой — нет. */
+const BIRDS: Record<Season, number> = { spring: 1, summer: 0.6, autumn: 0.3, winter: 0 };
+/** Сверчки: тёплые ночи. */
+const CRICKETS: Record<Season, number> = { spring: 0.5, summer: 1, autumn: 0.45, winter: 0 };
+/** Рынок зимой тише и короче. */
+const MARKET: Record<Season, number> = { spring: 1, summer: 1, autumn: 0.85, winter: 0.5 };
+
+/**
+ * Сколько слышно каждого слоя, 0..1. Постели — громкость, события — и громкость, и частота.
+ *
+ * Город: ветер и гул — издали (камера отдалена), рынок и кузница — вблизи и днём; колокол — днём, на часах; птицы —
+ * утром и весной; сверчки — тёплой ночью; ночью тихо. Зима — ветер сильнее, птиц и сверчков нет, рынок вполовину; снег
+ * глушит город — это фильтр `muffle`, а не слой. Карта — только ветер и море у дома.
+ */
+export function mixOf(h: Hearing): Record<Layer, number> {
+  const far = 1 - h.near;
+  const winter = h.season === 'winter';
+  if (h.view === 'map') {
+    return {
+      wind: 0.55 + (winter ? 0.2 : 0),
+      whistle: winter ? 0.35 : 0.12,
+      hum: 0,
+      sea: Math.min(1, h.sea * 1.3),
+      market: 0,
+      forge: 0,
+      birds: 0,
+      crickets: 0,
+      bells: 0,
+    };
+  }
+  const work = workday(h.solar);
+  const nite = night(h.solar);
+  return {
+    wind: 0.22 + 0.4 * far + (winter ? 0.25 : 0) + 0.1 * nite,
+    whistle: (winter ? 0.4 : 0.08) * (0.4 + 0.6 * far),
+    hum: (0.15 + 0.45 * far) * (0.25 + 0.75 * work),
+    sea: 0,
+    market: MARKET[h.season] * work * (0.12 + 0.88 * h.near),
+    forge: work * (0.2 + 0.8 * h.near) * (winter ? 0.8 : 1),
+    birds: BIRDS[h.season] * Math.max(morning(h.solar), 0.3 * work),
+    crickets: CRICKETS[h.season] * nite,
+    bells: 1 - nite,
+  };
+}
+
+/** Снег глушит город: срез верхов на всём городском. */
+export const muffleOf = (h: Hearing): number => (h.view === 'city' && h.season === 'winter' ? 1800 : 9000);
+
+/** Где на фазе солнца звонит колокол и сколько ударов: утреня, третий час, полдень, девятый, вечерня. */
+export const BELL_HOURS: readonly (readonly [number, number])[] = [
+  [0.02, 3],
+  [0.125, 1],
+  [0.25, 5],
+  [0.375, 1],
+  [0.47, 3],
+];
+
+/** Сколько ударов, если между фазами `from` и `to` (вперёд, через полночь) прошёл час колокола; иначе 0. */
+export function bellBetween(from: number, to: number): number {
+  if (from === to) return 0;
+  const ahead = (to - from + 1) % 1;
+  // Скачок больше четверти суток — это не ход времени, а вход в игру или догон отлучки: не звонить задним числом.
+  if (ahead > 0.25) return 0;
+  for (const [mark, strikes] of BELL_HOURS) {
+    const d = (mark - from + 1) % 1;
+    if (d > 0 && d <= ahead) return strikes;
+  }
+  return 0;
+}
+
+/** Уровни слоёв на выходе фона — выставлены офлайн-отрисовкой (docs/audio.md, раздел 6). */
+export const AMB_MIX: Record<Layer, number> = {
+  wind: 0.16,
+  whistle: 0.02,
+  hum: 0.1,
+  sea: 0.2,
+  market: 0.09,
+  forge: 0.14,
+  birds: 0.06,
+  crickets: 0.025,
+  bells: 0.12,
+};
+
+/** Постоянная перелива слоёв, с: приблизил камеру — за пару секунд, сменилось время суток — ещё мягче. */
+export const GLIDE = 1.2;
+
+interface Bed {
+  gain: GainNode;
+  filter: BiquadFilterNode;
+}
+
+/** Фон: постели и события. */
+export class Ambience {
+  private mix: Record<Layer, number>;
+  private hearing: Hearing;
+  private beds: Partial<Record<'wind' | 'whistle' | 'hum' | 'sea' | 'foam', Bed>> = {};
+  /** Всё городское — сквозь срез «снега». */
+  private muffle: BiquadFilterNode;
+  /** Голоса рынка — сквозь срез дали: издали гомон, вблизи разборчивее. */
+  private marketTone: BiquadFilterNode;
+  private next: Record<'forge' | 'birds' | 'crickets' | 'market' | 'gust' | 'swell', number>;
+  /** У кузнеца своя наковальня: высота удара одна на игру. */
+  private anvilHz: number;
+  private rnd: Rng;
+
+  constructor(
+    private kit: Kit,
+    private out: AudioNode,
+    at: number,
+    first: Hearing,
+  ) {
+    const ctx = kit.ctx;
+    this.rnd = kit.rnd;
+    this.hearing = first;
+    this.mix = mixOf(first);
+    this.anvilHz = span(this.rnd, 640, 900);
+    this.muffle = ctx.createBiquadFilter();
+    this.muffle.type = 'lowpass';
+    this.muffle.frequency.value = muffleOf(first);
+    this.muffle.connect(out);
+    this.marketTone = ctx.createBiquadFilter();
+    this.marketTone.type = 'lowpass';
+    this.marketTone.frequency.value = 900 + 2600 * first.near;
+    this.marketTone.connect(this.muffle);
+
+    const bed = (brown: boolean, type: BiquadFilterType, f: number, q: number, into: AudioNode): Bed => {
+      const src = noiseLoop(kit, brown, at);
+      const filter = ctx.createBiquadFilter();
+      filter.type = type;
+      filter.frequency.value = f;
+      filter.Q.value = q;
+      const gain = ctx.createGain();
+      gain.gain.value = 0;
+      src.connect(filter);
+      filter.connect(gain);
+      gain.connect(into);
+      return { gain, filter };
+    };
+    this.beds.wind = bed(true, 'lowpass', 500, 0.7, out);
+    this.beds.hum = bed(true, 'lowpass', 260, 0.5, this.muffle);
+    this.beds.sea = bed(true, 'lowpass', 650, 0.5, out);
+    if (!kit.lite) {
+      this.beds.whistle = bed(false, 'bandpass', 900, 9, out);
+      this.beds.foam = bed(false, 'highpass', 2600, 0.5, out);
+    }
+    this.next = { forge: at + span(this.rnd, 1, 4), birds: at + span(this.rnd, 0.5, 3), crickets: at + 0.5, market: at + 0.3, gust: at, swell: at };
+    this.level(at, 0.4);
+  }
+
+  /** Что видит игрок сейчас (`at` — время контекста). Колокол бьёт, если с прошлого раза прошёл его час. */
+  set(h: Hearing, at: number): void {
+    const strikes = h.view === 'city' ? bellBetween(this.hearing.solar, h.solar) : 0;
+    this.hearing = h;
+    this.mix = mixOf(h);
+    this.level(at, GLIDE);
+    this.muffle.frequency.setTargetAtTime(muffleOf(h), at, GLIDE);
+    this.marketTone.frequency.setTargetAtTime(900 + 2600 * h.near, at, GLIDE * 0.5);
+    if (strikes > 0 && this.mix.bells > 0.05) this.peal(at + 0.2, strikes);
+  }
+
+  /** Колокол: `strikes` ударов с промежутком в две с половиной секунды. */
+  peal(at: number, strikes: number): void {
+    const base = 142;
+    for (let i = 0; i < strikes; i++) bell(this.kit, this.muffle, at + i * 2.6, base, AMB_MIX.bells * this.mix.bells);
+  }
+
+  private level(at: number, glide: number): void {
+    const m = this.mix;
+    const set = (b: Bed | undefined, v: number): void => {
+      b?.gain.gain.setTargetAtTime(v, at, glide);
+    };
+    set(this.beds.wind, m.wind * AMB_MIX.wind);
+    set(this.beds.whistle, m.whistle * AMB_MIX.whistle);
+    set(this.beds.hum, m.hum * AMB_MIX.hum);
+    set(this.beds.sea, m.sea * AMB_MIX.sea);
+    set(this.beds.foam, m.sea * AMB_MIX.sea * 0.12);
+  }
+
+  /** Поставить события окна `[from, to)`. */
+  tick(from: number, to: number): void {
+    const m = this.mix;
+    const rnd = this.rnd;
+    const kit = this.kit;
+    const due = (k: keyof Ambience['next']): boolean => this.next[k] < to;
+    const at = (k: keyof Ambience['next']): number => Math.max(from, this.next[k]);
+
+    // Порывы ветра и свист: цель громкости и среза меняется раз в несколько секунд.
+    while (due('gust')) {
+      const t = at('gust');
+      const gust = span(rnd, 0.6, 1.35);
+      const w = this.beds.wind;
+      if (w) {
+        w.gain.gain.setTargetAtTime(m.wind * AMB_MIX.wind * gust, t, 1.5);
+        w.filter.frequency.setTargetAtTime(span(rnd, 300, 900) * (0.8 + 0.4 * gust), t, 2);
+      }
+      this.beds.whistle?.filter.frequency.setTargetAtTime(span(rnd, 600, 1300), t, 2.5);
+      this.beds.whistle?.gain.gain.setTargetAtTime(m.whistle * AMB_MIX.whistle * gust, t, 1.5);
+      this.next.gust = t + span(rnd, 2.5, 6);
+    }
+    // Волна: набегает за пару секунд и отходит.
+    while (due('swell')) {
+      const t = at('swell');
+      const len = span(rnd, 5, 9);
+      const s = this.beds.sea;
+      if (s && m.sea > 0.01) {
+        s.gain.gain.setTargetAtTime(m.sea * AMB_MIX.sea * 1.4, t, len * 0.18);
+        s.gain.gain.setTargetAtTime(m.sea * AMB_MIX.sea * 0.55, t + len * 0.45, len * 0.25);
+        this.beds.foam?.gain.gain.setTargetAtTime(m.sea * AMB_MIX.sea * 0.2, t + len * 0.3, 0.6);
+        this.beds.foam?.gain.gain.setTargetAtTime(m.sea * AMB_MIX.sea * 0.05, t + len * 0.55, 1.2);
+      }
+      this.next.swell = t + len;
+    }
+    // Кузница: два-четыре удара, передышка. Чем ближе камера, тем чаще слышно.
+    while (due('forge')) {
+      const t = at('forge');
+      if (m.forge > 0.03) {
+        const n = 2 + Math.floor(rnd() * 3);
+        const pan = 0.35;
+        for (let i = 0; i < n; i++) anvil(kit, this.muffle, t + i * span(rnd, 0.42, 0.55), this.anvilHz, AMB_MIX.forge * m.forge * (i === n - 1 ? 0.7 : 1), pan);
+        this.next.forge = t + n * 0.5 + span(rnd, 1.5, 5);
+      } else this.next.forge = to + 1;
+    }
+    // Птицы: фраза, тишина; весной и утром чаще.
+    while (due('birds')) {
+      const t = at('birds');
+      if (m.birds > 0.03) {
+        const kind = pick<BirdKind>(rnd, kit.lite ? ['warble'] : ['trill', 'whistle', 'warble']);
+        const len = bird(kit, this.out, t, kind, AMB_MIX.birds * m.birds * span(rnd, 0.6, 1), span(rnd, -0.8, 0.8));
+        this.next.birds = t + len + span(rnd, 0.6, 4) / Math.max(0.3, m.birds);
+      } else this.next.birds = to + 1;
+    }
+    // Сверчки: песня на несколько секунд, рядом другой.
+    while (due('crickets')) {
+      const t = at('crickets');
+      if (m.crickets > 0.03) {
+        const len = cricket(kit, this.out, t, 4 + Math.floor(rnd() * 6), AMB_MIX.crickets * m.crickets, span(rnd, -0.7, 0.7));
+        this.next.crickets = t + len * span(rnd, 0.3, 0.9);
+      } else this.next.crickets = to + 1;
+    }
+    // Рынок: голоса перекрываются — гомон; изредка зазывала.
+    while (due('market')) {
+      const t = at('market');
+      if (m.market > 0.03) {
+        const shout = rnd() < 0.08;
+        const len = voice(kit, this.marketTone, t, shout ? 2 : 2 + Math.floor(rnd() * 5), AMB_MIX.market * m.market * (shout ? 1.2 : span(rnd, 0.4, 1)), span(rnd, -0.7, 0.7), shout);
+        // Чем гуще рынок, тем больше голосов наслаивается: следующий входит, не дожидаясь конца этого.
+        this.next.market = t + len * span(rnd, 0.15, 0.6) / (kit.lite ? 0.5 : 1);
+      } else this.next.market = to + 1;
+    }
+  }
+}

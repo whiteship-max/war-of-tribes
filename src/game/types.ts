@@ -819,6 +819,11 @@ export interface GameState {
   /** Обучение пройдено или пропущено. */
   tutorialDone: boolean;
   /**
+   * Подсказки по ходу игры (`data/hints.ts`, docs/rating.md): какие уже показаны и выключены ли. Пишет только
+   * `sim/hints`. Нет поля — партия до подсказок: ничего не показано, подсказки включены.
+   */
+  hints?: HintsState;
+  /**
    * В этой партии применяли коды (`src/cheats.ts`).
    *
    * Метка навсегда и снимается только новой партией. Нужна она не игроку — он
@@ -865,4 +870,10 @@ export interface GameState {
   nextId: number;
   /** Когда партия записана — в часах партии (`net/clock.partyNow`), мс. */
   lastSaved: number;
+}
+
+/** Подсказки новичку: показанные — по имени, раз и навсегда; `off` — игрок выключил их в настройках. */
+export interface HintsState {
+  seen: string[];
+  off?: boolean;
 }

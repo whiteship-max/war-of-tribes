@@ -40,7 +40,8 @@ import { kindsOf, troopLosses, troopPower } from '../../src/game/battle/price.js
 import { resolveField } from '../../src/world/battle.js';
 import { campFight, defenceKinds, homeLosses } from '../../src/world/fights.js';
 import { foodLeft, warAt, warWalkMs } from '../../src/world/pvp.js';
-import { openSiege, siegeSince, siegeWear, starvesAt, type SiegeWindow } from '../../src/world/siege.js';
+import { openSiege, siegeSince, starvesAt, type SiegeWindow } from '../../src/world/siege.js';
+import { craftAfter, craftBlock, craftDone, fortFaces, garrisonWear, wallMen, type Craft } from '../../src/world/siegecraft.js';
 import { burnImmuneUntil, fate, fateBlock, fallSeed, homeLoss, winnerGain } from '../../src/world/spoils.js';
 import { restAfter, restAt } from '../../src/world/rest.js';
 import { energyAt, energyBlock, onRoad, priceOf, spend } from '../../src/world/energy.js';
@@ -61,6 +62,17 @@ export interface WarFile {
   v: 1;
   seq: number;
   wars: WarRow[];
+  /**
+   * Итоги войн, уже убранных из записи (`pruneWars`), по ключу игрока: рейтинг считает победы и взятые города по всем
+   * войнам эпохи, а не только по лежащим (docs/rating.md). Нет поля — ничего ещё не убирали.
+   */
+  past?: Record<string, WarTally>;
+}
+
+/** Победы игрока в боях войны и взятые им города. */
+export interface WarTally {
+  won: number;
+  taken: number;
 }
 
 /** Ключ записи войн в хранилище мира — рядом с реестром (`roster`). */
@@ -81,7 +93,40 @@ export function readWars(raw: unknown): WarFile {
     (w): w is WarRow =>
       Boolean(w) && typeof w.id === 'string' && typeof w.atk === 'string' && typeof w.def === 'string' && typeof w.phase === 'string',
   );
-  return { v: 1, seq: Math.max(0, Math.floor(Number(r.seq) || 0)), wars };
+  const past: Record<string, WarTally> = {};
+  if (r.past && typeof r.past === 'object') {
+    for (const [k, t] of Object.entries(r.past as Record<string, unknown>)) {
+      const x = (t ?? {}) as Record<string, unknown>;
+      const n = (v: unknown): number => Math.max(0, Math.floor(Number(v) || 0));
+      if (n(x.won) + n(x.taken) > 0) past[k] = { won: n(x.won), taken: n(x.taken) };
+    }
+  }
+  return { v: 1, seq: Math.max(0, Math.floor(Number(r.seq) || 0)), wars, ...(Object.keys(past).length ? { past } : {}) };
+}
+
+/**
+ * Кто выиграл бой войны. `won` — победил ли тот, кто в этом бою нападал: при штурме это поход (`atk`), при вылазке и
+ * ударе по лагерю — город (`def`).
+ */
+export const battleWinner = (w: WarRow, b: WarBattle): string => ((b.by === 'atk') === b.won ? w.atk : w.def);
+
+/** Прибавить к счёту итоги одной войны: победы в её боях и взятый город. */
+function tallyWar(out: Record<string, WarTally>, w: WarRow): void {
+  const add = (key: string, won: number, taken: number): void => {
+    const t = (out[key] ??= { won: 0, taken: 0 });
+    t.won += won;
+    t.taken += taken;
+  };
+  for (const b of w.battles ?? []) add(battleWinner(w, b), 1, 0);
+  if (w.fall) add(w.atk, 0, 1);
+}
+
+/** Победы и взятые города каждого игрока за эпоху: убранные войны (`past`) плюс лежащие. */
+export function warTally(file: WarFile): Record<string, WarTally> {
+  const out: Record<string, WarTally> = {};
+  for (const [k, t] of Object.entries(file.past ?? {})) out[k] = { ...t };
+  for (const w of file.wars) tallyWar(out, w);
+  return out;
 }
 
 /**
@@ -232,18 +277,29 @@ function homeward(w: WarRow, at: number, backAt: number): void {
   w.army = { ...w.army, energy: onRoad(w.army.energy, at, backAt, true) };
 }
 
-/** Мораль гарнизона города в минуту `at`: слепок, и осада, если лагерь стоит, — день за днём (`siege.siegeWear`). */
+/**
+ * Мораль гарнизона города в минуту `at`: слепок, и осада, если лагерь стоит, — день за днём, с обстрелом лагеря
+ * (`siegecraft.garrisonWear`, та же дверь, что у гарнизона логова под лагерем игрока).
+ */
 const garrisonRest = (w: WarRow, sheet: WarSheet, at: number): number =>
-  sheet.rest * (w.camp ? siegeWear(siegeSince(w.camp as SiegeWindow), at) : 1);
+  sheet.rest * (w.camp ? garrisonWear(siegeSince(w.camp as SiegeWindow), at, w.camp.craft) : 1);
+
+/** Что сделано в лагере к бою — в запись боя, чтобы донесение у обеих сторон сказало это словами. */
+const craftOf = (w: WarRow): { craft?: Craft } => {
+  const c = w.camp?.craft;
+  return c && (craftDone(c, 'fortify') > 0 || craftDone(c, 'bombard') > 0) ? { craft: { ...c } } : {};
+};
 
 /** Штурм города войском похода в минуту `at`. Возвращает бой и победил ли поход. */
 function storm(w: WarRow, at: number, sheet: WarSheet): { battle: WarBattle; won: boolean } {
   const n = w.battles.length;
+  // Пролом — стена при штурме из лагеря, по которому стреляли (`siegecraft.wallMen`); штурм с ходу идёт на целую стену.
+  const wall = wallMen(sheet.militia, sheet.archers, w.camp?.craft);
   const input = {
     seed: warSeed(w.id, n),
     attacker: { kinds: kindsOf(asTroops(w.army.troops)), resolve: w.army.resolve, pips: w.army.pips as Pips, rest: armyRest(w.army, at) },
     defender: {
-      kinds: defenceKinds(kindsOf(asTroops(sheet.home)), sheet.militia, sheet.archers),
+      kinds: defenceKinds(kindsOf(asTroops(sheet.home)), wall.militia, wall.archers),
       resolve: sheet.resolve,
       pips: sheet.pips as Pips,
       rest: garrisonRest(w, sheet, at),
@@ -263,7 +319,8 @@ function storm(w: WarRow, at: number, sheet: WarSheet): { battle: WarBattle; won
     atkLost,
     homeTroops: { ...sheet.home },
     homeLost,
-    militia: { men: Math.max(0, Math.round(sheet.militia)), archers: Math.min(Math.round(sheet.militia), Math.round(sheet.archers)) },
+    militia: { men: wall.militia, archers: wall.archers },
+    ...craftOf(w),
   };
   w.battles.push(battle);
   w.army = wear(w.army, atkLost, field.rest.attacker, at);
@@ -362,6 +419,8 @@ function campWindow(w: WarRow, at: number, sheet: WarSheet, prev: WarCamp | null
     wood: prev?.wood ?? playerWood(1),
     // Рогатки держат те, кто их строил: у нового лагеря — войско в минуту постановки.
     builders: prev?.builders ?? men(w.army.troops),
+    // Дела полководца в лагере той же осады (`world/siegecraft`) переносятся, как проходы.
+    craft: prev?.craft,
   });
   return win as WarCamp;
 }
@@ -411,6 +470,8 @@ function hitCamp(
     // Ведёт полководец, если он бьёт с тыла; вылазку — он же, если стоит у ворот (слепок).
     resolve: hit.rear ? hit.rear.resolve : sheet.resolve,
     pips: (hit.rear ? hit.rear.pips : sheet.pips) as Pips,
+    // Укрепления лагеря — та же дверь, что у лагеря игрока под логовом (`siegecraft.fortFaces`).
+    fort: fortFaces(camp.craft),
   });
   if (fight.refused) {
     const waits = [fight.front, fight.rear].filter((t) => t && t.went > 0).map((t) => t?.waitMs ?? 0);
@@ -434,6 +495,7 @@ function hitCamp(
     ...(hit.rear ? { genTroops: { ...hit.rear.troops }, genLost } : {}),
     ...(front ? { through: { went: front.went, passed: front.passed } } : {}),
     ...(rear ? { rearThrough: { went: rear.went, passed: rear.passed } } : {}),
+    ...craftOf(w),
   };
   w.battles.push(battle);
   w.army = wear(w.army, atkLost, field.rest.defender, at);
@@ -524,12 +586,18 @@ export function advance(file: WarFile, now: number, sheets: ReadonlyMap<string, 
 
 /** Убрать давно кончившиеся и лишние сверх потолка — самые старые первыми. */
 export function pruneWars(file: WarFile, now: number): void {
+  const was = file.wars;
   file.wars = file.wars.filter((w) => active(w) || now - (w.endAt ?? w.sentAt) <= WAR_KEEP_MS);
   if (file.wars.length > WAR_MAX) {
     const keep = file.wars.filter(active);
     const done = file.wars.filter((w) => !active(w)).slice(-(Math.max(0, WAR_MAX - keep.length)));
     file.wars = file.wars.filter((w) => keep.includes(w) || done.includes(w));
   }
+  // Убранная война уходит в итоги эпохи: рейтинг её побед не теряет (docs/rating.md).
+  if (file.wars.length === was.length) return;
+  const past = { ...(file.past ?? {}) };
+  for (const w of was) if (!file.wars.includes(w)) tallyWar(past, w);
+  file.past = past;
 }
 
 // ------------------------------------------------ приказы ---
@@ -593,6 +661,19 @@ export function applyOrder(file: WarFile, key: string, order: WarOrder, now: num
       const { won } = storm(w, now, sheet);
       if (won) fall(w, now, sheet, 'storm');
       turnBack(w, now, w.to, won ? 'taken' : 'beaten');
+      return null;
+    }
+    case 'craft': {
+      const w = theirs(file, order.id, key, 'atk');
+      if (!w || w.phase !== 'camp' || !w.camp) return 'Лагеря уже нет.';
+      // Дело в лагере — предел за осаду и цена в энергии полководца, той же дверью, что у лагеря под логовом
+      // (`world/siegecraft`, `world/energy`). Списывается один раз — здесь, вместе со счётчиком.
+      const limit = craftBlock(w.camp.craft, order.act);
+      if (limit) return limit;
+      const tired = energyBlock(energyAt(w.army.energy, now), priceOf(order.act));
+      if (tired) return tired;
+      w.army = { ...w.army, energy: spend(w.army.energy, now, priceOf(order.act)) };
+      w.camp = { ...w.camp, craft: craftAfter(w.camp.craft, order.act) };
       return null;
     }
     case 'sortie': {

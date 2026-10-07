@@ -612,7 +612,19 @@ export interface WarInput {
   seed: number;
   attacker: WarSide;
   defender: WarSide;
+  /** Штраф кости нападающему (`battle.GroundPenalty`): у боя за лагерь — его укрепления (`works`). Нет — ноль. */
+  ground?: { land?: number; crossing?: number; works?: number };
 }
+
+/** Что полководец сделал в своём лагере (`world/siegecraft.Craft`): сколько раз укрепил, сколько залпов дал. */
+export interface WarCraft {
+  fort?: number;
+  shots?: number;
+}
+
+/** Дела полководца в лагере — строки таблицы энергии (`world/siegecraft.CraftAct`). */
+export const WAR_CRAFTS = ['fortify', 'bombard'] as const;
+export type WarCraftAct = (typeof WAR_CRAFTS)[number];
 
 export type WarSite = 'wall' | 'sortie' | 'camp' | 'joint';
 
@@ -640,6 +652,8 @@ export interface WarBattle {
   /** Сколько вышло и пробилось через рогатки со стороны города и с тыла. */
   through?: { went: number; passed: number };
   rearThrough?: { went: number; passed: number };
+  /** Что было сделано в лагере к этому бою: укрепления и обстрел. Нет — ничего. */
+  craft?: WarCraft;
 }
 
 /** Участь взятого города — посчитана дверью `spoils.fate`, у обеих сторон одними числами. */
@@ -677,6 +691,8 @@ export interface WarCamp {
   fate?: NoticeFate;
   wood?: { front: number; rear: number; at?: number; base?: { front: number; rear: number } };
   builders?: number;
+  /** Дела полководца в этом лагере (`SiegeWindow.craft`). */
+  craft?: WarCraft;
 }
 
 /** Удар полководца города по лагерю: идёт, бьётся в минуту прихода. */
@@ -747,6 +763,7 @@ export type WarOrder =
   | { op: 'storm'; id: string }
   | { op: 'retreat'; id: string }
   | { op: 'sortie'; id: string; troops: Counts }
+  | { op: 'craft'; id: string; act: WarCraftAct }
   | { op: 'strike'; id: string; army: WarArmy; joint: boolean; walkMs: number };
 
 /** Отметка падения города в списке принятого (`WarSheet.seen`): одна на клиент и на сервер. */
@@ -865,6 +882,10 @@ export function readWarOrder(v: unknown): WarOrder | null {
       return id ? { op: r.op, id } : null;
     case 'sortie':
       return id ? { op: 'sortie', id, troops: readCounts(r.troops) } : null;
+    case 'craft': {
+      const act = WAR_CRAFTS.find((a) => a === r.act);
+      return id && act ? { op: 'craft', id, act } : null;
+    }
     case 'strike': {
       const army = readArmy(r.army);
       const walk = num(r.walkMs);
@@ -999,6 +1020,11 @@ export interface WatchCard {
   time: number;
   /** Уровень ратуши. */
   level: number;
+  /**
+   * Уровни построек по типу. Из них и войска сервер сам выводит мощь для рейтинга (`profile/power.powerOfCounts`,
+   * docs/rating.md). Нет поля — опись до рейтинга: в мощь идёт только войско.
+   */
+  buildings: Counts;
   /** Жители (без бойцов и учеников). */
   pop: number;
   /** Склад и золото по видам `STOCK_KEYS`. */
@@ -1056,6 +1082,7 @@ export function readWatch(v: unknown): WatchCard | undefined {
     clock: whole(r.clock, 1e14),
     time: whole(r.time, 1e12),
     level: whole(r.level, 100),
+    buildings: readCounts(r.buildings),
     pop: whole(r.pop, 1e9),
     stock: readCounts(r.stock),
     prod: readCounts(r.prod),
@@ -1142,3 +1169,48 @@ export function readReport(v: unknown): ReportPut | null {
     },
   };
 }
+
+// ---------- Рейтинг игроков (docs/rating.md) ----------
+//
+// Очки считает сервер: мощь — из описи наблюдения (уровни построек и войско) той же формулой, что игра; победы и взятые
+// города — из записи войн, которую клиент не пишет вовсе. Поля «очки» в запросах нет ни одного: подделать нечего.
+
+/**
+ * Веса очков — данные дизайна, одно место на сервер и на экран рейтинга.
+ * - `power` — 1: мощь и есть мера города, очко за единицу.
+ * - `win` — 100: выигранный бой войны между игроками; столько весит отряд в двадцать дубинщиков (5,6 мощи каждый), —
+ *   ощутимо, но мощь не перекрывает.
+ * - `taken` — 1000: взятый город — главный успех войны, десять побед; это мощь четырёх стартовых городов (230).
+ */
+export const RATING_WEIGHTS = { power: 1, win: 100, taken: 1000 } as const;
+
+/** Строка рейтинга. Ключа игрока нет — только номер замка, как у реестра (`CastleView.id`). */
+export interface RatingRow {
+  /** Место: равные очки — одно место. */
+  place: number;
+  /** Номер замка в реестре и его клетка — касание строки ведёт к городу на карте. */
+  id: string;
+  x: number;
+  y: number;
+  city: string;
+  /** Имя правителя. */
+  name: string;
+  points: number;
+  power: number;
+  /** Жители. */
+  pop: number;
+  /** Боёв войны выиграно и городов взято — по записи войн сервера. */
+  won: number;
+  taken: number;
+  /** Строка спросившего. */
+  mine?: true;
+}
+
+export interface RatingResponse {
+  now: number;
+  rows: RatingRow[];
+}
+
+/** Очки по слагаемым — одна формула на сервер и на подсказку экрана. */
+export const ratingPoints = (power: number, won: number, taken: number): number =>
+  Math.round(power * RATING_WEIGHTS.power + won * RATING_WEIGHTS.win + taken * RATING_WEIGHTS.taken);

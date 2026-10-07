@@ -17,7 +17,7 @@ import { deploySetup } from '@/battle/setup';
 import { ACTS, MUSIC_BY_ACT, buildCast, frameAt, musicAt, musicCues, type Cast } from '@/battle/replay';
 import { BattleMusic, type AudioHost } from './music';
 import { MUSIC_FORMAT, MUSIC_TRACKS, battleFiles, trackOf, trackUrl } from './manifest';
-import { setSoundStorage, setSoundOn, soundOn } from './settings';
+import { DEFAULT_ON, setSoundStorage, setSoundOn, soundOn } from './settings';
 
 const SRC = join(__dirname, '..');
 
@@ -189,12 +189,12 @@ describe('выключенный звук не грузит файлов', () =>
     expect(host.loaded.length).toBe(battleFiles().length);
   });
 
-  it('настройка помнится между сеансами, а до неё игра молчит', () => {
+  it('настройка помнится между сеансами, а до неё — умолчание игры', () => {
     let saved: string | null = null;
     setSoundStorage({ read: () => saved, write: (v) => (saved = v) });
-    // Пустое хранилище — музыка выключена. Игру открывают где придётся, и
-    // заигравшая без спроса музыка — это неожиданность, а не подарок.
-    expect(soundOn()).toBe(false);
+    // Пустое хранилище — умолчание: на время теста с игроками звук включён (решение владельца 07.10.2026,
+    // docs/audio.md), прежде был выключен. Звучит он всё равно только после жеста.
+    expect(soundOn()).toBe(DEFAULT_ON);
     setSoundOn(true);
     expect(saved).toBe('1');
     expect(soundOn()).toBe(true);
@@ -202,17 +202,20 @@ describe('выключенный звук не грузит файлов', () =>
     expect(soundOn()).toBe(false);
   });
 
-  it('у нового игрока не качается ни байта музыки, пока он её не включит', () => {
-    // То же обещание, но проверенное не флажком, а вызовами: пустое хранилище,
-    // жест был, а сеть не тронута.
+  it('у нового игрока музыка боя — по умолчанию игры, и только после жеста', () => {
+    // То же обещание, но проверенное вызовами: пустое хранилище; без жеста сеть не тронута при любом умолчании, после
+    // жеста — грузит, только если звук по умолчанию включён.
     let saved: string | null = null;
     setSoundStorage({ read: () => saved, write: (v) => (saved = v) });
     const host = new Counting(true);
     const music = new BattleMusic(host, soundOn);
-    music.arm();
     music.start();
     expect(host.opened).toBe(0);
     expect(host.loaded).toEqual([]);
+    music.arm();
+    music.start();
+    expect(host.opened).toBe(DEFAULT_ON ? 1 : 0);
+    expect(host.loaded.length).toBe(DEFAULT_ON ? battleFiles().length : 0);
   });
 });
 
@@ -257,11 +260,11 @@ describe('рычаг на музыку один на всю игру', () => {
     expect(src).not.toContain('SOUND');
   });
 
-  it('выключение гасит обе музыки, включение не тянет боевую', () => {
+  it('выключение гасит и город, и боевую музыку, включение не тянет боевую', () => {
     // У боевой свой жест — «Смотреть бой». Качать battle.mp3 из настроек
     // значило бы платить мегабайтом за нажатие, которое о бое не просило.
     const src = read('ui/parts/Settings.tsx');
-    expect(src).toMatch(/villageMusic\.toggle\(next\)/);
+    expect(src).toMatch(/cityAudio\.toggle\(next\)/);
     expect(src).toMatch(/if \(!next\) battleMusic\.toggle\(false\)/);
   });
 });

@@ -14,6 +14,8 @@
 import { ENTER_GAME, sleep, Tab } from './chrome';
 import { cellOf } from '@/world/atlas/project';
 import { WORLD_ORIGIN } from '@/world/data/tuning';
+import { SICILY } from '@/world/spawn';
+import { ATLAS_HASH } from '@/world/atlas/data';
 
 /** Клетка мира по долготе и широте. Земля настоящая, значит и адреса настоящие. */
 export function cellAt(lon: number, lat: number): { x: number; y: number } {
@@ -25,6 +27,32 @@ export function cellAt(lon: number, lat: number): { x: number; y: number } {
 export const PINNED_HOME = cellAt(11.5, 48.5);
 /** Сид закреплён тем же и по той же причине: иначе соседи и логова переезжают. */
 export const PINNED_SEED = 20260912;
+
+/**
+ * Тест с игроками на Сицилии (`world/spawn.SICILY`) — общее у `map-tw:shots` (`SICILY=1`) и `weak:stand` (`SCENE=map`).
+ * Дом — седьмое место (769|1337), в середине кучки: соседи со всех сторон.
+ */
+export const SICILY_HOME = 6;
+/** Соседи всех четырёх стадий (`meta.stageOf` по мощи и людям): стоянка, деревня, острог, крепость. */
+const SICILY_STATS: readonly (readonly [number, number])[] = [
+  [12, 8], [45, 16], [130, 40], [320, 90], [60, 20], [24, 10], [210, 70], [95, 31], [500, 140], [35, 13], [150, 45],
+];
+const SICILY_CITIES = ['Энна', 'Катания', 'Рагуза', 'Ното', 'Джела', 'Модика', 'Лентини', 'Пьяцца', 'Сиракузы', 'Калатины', 'Авола'];
+/** Одиннадцать соседей строками реестра замков (`tribe.castles.v1`) — так их кладёт на устройство сервер. */
+export const sicilyRoster = (): string => {
+  const others = SICILY.filter((_, i) => i !== SICILY_HOME);
+  const castles = others.map((c, i) => ({
+    id: `p${i + 1}`,
+    x: c.x,
+    y: c.y,
+    name: `Вождь ${i + 1}`,
+    city: SICILY_CITIES[i],
+    power: SICILY_STATS[i][0],
+    pop: SICILY_STATS[i][1],
+    seenAt: Date.now(),
+  }));
+  return JSON.stringify({ at: Date.now(), epoch: ATLAS_HASH, mine: SICILY[SICILY_HOME], castles });
+};
 
 /** Щуп, без которого закрепить мир нечем: готовность, дом, заморозка пульса. */
 const PIN_PROBE = `
@@ -64,16 +92,24 @@ export async function openPinnedMap(
      * ним и проверяется, что мир не уехал.
      */
     world?: string;
+    /**
+     * Что ещё положить на устройство рядом с миром — ключ и строка (`tribe.castles.v1` — соседи из реестра для снимков
+     * Сицилии, `SICILY=1` у `map-tw:shots`). Кладётся тем же заходом, что мир, и тем же повтором.
+     */
+    store?: Record<string, string>;
   } = {},
 ): Promise<void> {
   const home = opts.home ?? PINNED_HOME;
   const seed = opts.seed ?? PINNED_SEED;
   const world = opts.world ?? JSON.stringify({ v: 8, seed, home });
+  const extra = Object.entries(opts.store ?? {})
+    .map(([k, v]) => `localStorage.setItem(${JSON.stringify(k)}, ${JSON.stringify(v)});`)
+    .join(' ');
   for (let attempt = 1; ; attempt++) {
     await tab.eval<string>(
       `(() => { try { localStorage.clear(); localStorage.setItem('tribe.world.v1', ${JSON.stringify(
         world,
-      )}); } catch (e) {} return JSON.stringify('ok'); })()`,
+      )}); ${extra} } catch (e) {} return JSON.stringify('ok'); })()`,
     );
     await tab.send('Page.reload');
     await sleep(4500);

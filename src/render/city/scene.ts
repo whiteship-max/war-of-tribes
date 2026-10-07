@@ -9,6 +9,7 @@ import * as THREE from 'three';
 import type { BuildingTypeId, GameState } from '@/game/types';
 import { armySize, buildingAttention, population, type Attention } from '@/game/derived';
 import type { SmokeSource } from '../weather';
+import { hearCity } from '@/sound/ear';
 import { WORK_SIGN, workBusy } from '../worksigns';
 import type { V3 } from './geom';
 import { CityLife } from './life';
@@ -135,6 +136,8 @@ export class CityScene extends TribeScene {
     this.camera.updateProjectionMatrix();
     this.camera.updateMatrixWorld();
     fitShadow(this.rig, cityShadowHalf(this.dist));
+    // Ухо фона: приблизил к улицам — слышны рынок и кузница, отдалил — ветер и гул (docs/audio.md, раздел 4).
+    hearCity(this.dist, this.zoom.min, this.zoom.max);
   }
 
   protected override leash = (): void => {

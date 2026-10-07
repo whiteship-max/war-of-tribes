@@ -14,6 +14,8 @@ import {
   gfx,
   gfxKey,
   gfxOf,
+  levelNow,
+  noteSceneLevel,
   rememberAutoCap,
   sceneGfx,
   setGfx,
@@ -26,7 +28,10 @@ beforeEach(() => {
   mem = new Map();
   setGfxStorage({ read: (k) => mem.get(k) ?? null, write: (k, v) => void mem.set(k, v) });
 });
-afterEach(() => setGfxStorage({ read: () => null, write: () => undefined }));
+afterEach(() => {
+  setGfxStorage({ read: () => null, write: () => undefined });
+  noteSceneLevel(null);
+});
 
 const strip = (src: string): string => src.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/.*$/gm, '$1');
 const read = (rel: string): string => readFileSync(path.resolve(__dirname, '..', rel), 'utf8');
@@ -181,5 +186,51 @@ describe('рычаг один', () => {
     for (const f of writers) expect(['render/gfx.ts', 'ui/parts/Settings.tsx'], f).toContain(f);
     const cappers = all.filter(([, src]) => /\brememberAutoCap\(/.test(src)).map(([f]) => f);
     expect(cappers.sort()).toEqual(['render/Scene.ts', 'render/gfx.ts']);
+  });
+});
+
+describe('уровень один на всю игру (docs/perf.md)', () => {
+  const at = 1_000_000_000_000;
+
+  it('«Авто» сцен поверх города — уровень города, в том числе опущенный сторожем', () => {
+    noteSceneLevel('medium');
+    expect(levelNow('', at)).toBe('medium');
+    // Сторож опустил город — карта, ролик и промысел следом.
+    noteSceneLevel('low');
+    expect(levelNow('', at)).toBe('low');
+  });
+
+  it('выбор игрока и адрес сильнее уровня города', () => {
+    noteSceneLevel('low');
+    setGfx({ quality: 'high' });
+    expect(levelNow('', at)).toBe('high');
+    expect(levelNow('?quality=medium', at)).toBe('medium');
+    setGfx({ quality: 'auto' });
+    expect(levelNow('?quality=auto', at)).toBe('low');
+  });
+
+  it('города ещё нет — устройство без видеокарты, не выше памяти сторожа за неделю', () => {
+    // Под тестом окна нет: устройство — настольное без видеокарты, «высокий» (`quality.autoQuality`).
+    expect(levelNow('', at)).toBe('high');
+    rememberAutoCap('low', at - 1000);
+    expect(levelNow('', at)).toBe('low');
+    expect(levelNow('', at + GFX_AUTO_KEEP_MS)).toBe('high');
+  });
+
+  it('уровень по устройству выбирают только дверь графики и сцена города — карта, ролик и промысел спрашивают `levelNow`', () => {
+    const ROOT = path.resolve(__dirname, '..');
+    const files = (dir: string): string[] =>
+      readdirSync(dir).flatMap((n) => {
+        const abs = path.join(dir, n);
+        return statSync(abs).isDirectory() ? files(abs) : /\.(ts|tsx)$/.test(n) && !/\.test\./.test(n) ? [abs] : [];
+      });
+    const all = files(ROOT).map((f) => [path.relative(ROOT, f).split(path.sep).join('/'), strip(readFileSync(f, 'utf8'))] as const);
+    // Область: исходники найдены, и дверь в них есть.
+    expect(all.length).toBeGreaterThan(100);
+    const pickers = all.filter(([, src]) => /\bautoQuality\(/.test(src)).map(([f]) => f);
+    expect(pickers.sort()).toEqual(['render/Scene.ts', 'render/gfx.ts', 'render/quality.ts']);
+    for (const f of ['ui/map/tw/quality.ts', 'ui/map/WorldMap.tsx', 'ui/battle/TwReplay.tsx', 'minigames/stage.ts']) {
+      expect(read(f), f).toMatch(/\blevelNow\(/);
+    }
   });
 });

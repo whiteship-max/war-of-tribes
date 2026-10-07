@@ -14,6 +14,8 @@ import { setTwLook } from './bake';
 import { twQuality } from './quality';
 import { drawTwFrame, dropFrame } from './frame';
 import { dropMinis } from './mini';
+import { dropMarks } from './marks';
+import { dropGlyphs } from './glyph';
 import { dropLabels } from './labels';
 import { dropTwFog } from './fog';
 import { dropNear, playerTheatre, prebakeLook, prebakeWake } from './prebake';
@@ -44,6 +46,8 @@ setTwSlot({
   },
   drop() {
     dropMinis();
+    dropMarks();
+    dropGlyphs();
     dropLabels();
     dropFrame();
     dropTwFog();

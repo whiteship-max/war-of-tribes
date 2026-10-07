@@ -196,8 +196,11 @@ export interface LoopClock {
   caf: Caf;
   /** Кадров не должно быть: страница скрыта или аппка свёрнута. */
   away: () => boolean;
-  /** Потолок частоты этой цепочки; без него — `FPS_CAP`. */
-  cap?: number;
+  /**
+   * Потолок частоты этой цепочки; без него — `FPS_CAP`. Функция — потолок, который владелец меняет на ходу
+   * (карта на «Низком», пока стоит, — `cappedClock`); выше `FPS_CAP` он не поднимается ничем.
+   */
+  cap?: number | (() => number);
 }
 
 /**
@@ -218,6 +221,16 @@ const browserClock = (): LoopClock => ({
   away: awayNow,
   cap: typeof location === 'undefined' ? FPS_CAP : capFrom(location.search),
 });
+
+/**
+ * Браузерные часы со своим потолком владельца, который меняется на ходу: потолок адреса (`capFrom`) он только
+ * опускает. Так карта на «Низком» рисует тридцать кадров, пока стоит, и шестьдесят, пока её ведут (docs/perf.md).
+ */
+export function cappedClock(cap: () => number): LoopClock {
+  const base = browserClock();
+  const address = typeof base.cap === 'number' ? base.cap : FPS_CAP;
+  return { ...base, cap: () => Math.min(address, cap()) };
+}
 
 /**
  * Цепочка кадров с набором причин остановки и потолком частоты.
@@ -350,7 +363,8 @@ export class FrameLoop<B extends string> {
     // Причину могли поставить между заявкой и кадром — тогда кадра не будет.
     if (this.blocks.size > 0) return;
     const away = this.clock.away();
-    const paced = pace(this.next, now, away, this.clock.cap ?? FPS_CAP);
+    const cap = typeof this.clock.cap === 'function' ? this.clock.cap() : this.clock.cap;
+    const paced = pace(this.next, now, away, Math.min(FPS_CAP, cap ?? FPS_CAP));
     this.next = paced.next;
     // Скрылись, а события не было: цепочка встаёт до возвращения.
     if (away) {

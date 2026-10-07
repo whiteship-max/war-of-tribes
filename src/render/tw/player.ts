@@ -24,6 +24,11 @@ export class TwPlayer {
   private running = false;
   private disposed = false;
   private aspect = 1;
+  /** Кадров хода нарисовано — счёт теневого прохода (`TwSpec.shadowEvery`). */
+  private drawn = 0;
+  private readonly shadowEvery: number;
+  /** Как рендерер обновлял тень до ролика: холст свой — сам каждый кадр, одолженный у города — по просьбе. */
+  private readonly shadowAuto: boolean;
   /** Скорость хода: ×1, ×2, ×4 — у игрока на полосе; кадр — функция времени, поэтому скорость его не меняет. */
   speed: number;
 
@@ -37,6 +42,10 @@ export class TwPlayer {
     this.stage = new TwStage(plan, spec);
     // Жёсткая тень — `BasicShadowMap` (0) числом, как у уровней сцены (`Scene`): имени в куске three первой загрузки нет.
     renderer.shadowMap.type = spec.shadowSoft ? THREE.PCFShadowMap : (0 as THREE.ShadowMapType);
+    // Тень — по просьбе кадра, а не сама: так её можно рисовать реже (`spec.shadowEvery`) и на своём холсте.
+    this.shadowEvery = Math.max(1, spec.shadowEvery);
+    this.shadowAuto = renderer.shadowMap.autoUpdate;
+    renderer.shadowMap.autoUpdate = false;
     renderer.shadowMap.needsUpdate = true;
     this.fitAspect();
     const start = this.stage.autoView(0, this.aspect);
@@ -117,7 +126,8 @@ export class TwPlayer {
     this.stage.apply(this.t, this.cam);
     // Вызовы и треугольники — честно, вместе с теневым проходом (счётчик сбрасывается руками, как у диорамы).
     this.renderer.info.reset();
-    this.renderer.shadowMap.needsUpdate = true;
+    // Теневой проход — раз в `shadowEvery` кадров хода; кадр на месте (перемотка, снимок, подгонка) — со свежей тенью.
+    this.renderer.shadowMap.needsUpdate = dt === 0 || this.drawn++ % this.shadowEvery === 0;
     this.renderer.render(this.stage.scene, this.cam.camera);
     this.opts.onFrame?.(this.t, twToCast(this.plan.timing, this.t));
   }
@@ -144,5 +154,6 @@ export class TwPlayer {
     this.beat.stop();
     this.cam.detach();
     this.stage.dispose();
+    this.renderer.shadowMap.autoUpdate = this.shadowAuto;
   }
 }

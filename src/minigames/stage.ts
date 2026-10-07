@@ -24,6 +24,8 @@ import { disposeGeometries } from '@/render/kit';
 import { FrameLoop, deviceRatio, pixelRatio } from '@/render/loop';
 import { Steady } from '@/render/steady';
 import { VILLAGE_STEADY } from '@/render/quality';
+import { levelNow } from '@/render/gfx';
+import { miniTier } from './tier';
 import { swallowGhostClick } from '@/gestures';
 import { gestLog } from '@/gestlog';
 import { serverNow } from '@/net/clock';
@@ -651,7 +653,8 @@ export class Stage {
     }
     const asked = tierOf(new URLSearchParams(window.location.search).get('look'));
     this.pinned = !!asked && hdr;
-    return startTier({ hdr, coarse }, stored, asked);
+    // Не дороже уровня игры (`gfx.levelNow`): телефон, которому город поставил «Низкое», и на поляне — на полу.
+    return miniTier(startTier({ hdr, coarse }, stored, asked), levelNow(window.location.search), !!asked && hdr);
   }
 
   /** Ступень: конвейер, туман материалов, тени, плотность буфера. Меняется редко — при входе и по сторожу. */

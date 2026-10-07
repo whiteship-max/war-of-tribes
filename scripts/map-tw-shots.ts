@@ -3,12 +3,13 @@
 //   npm run map-tw:shots                                   — ракурс «start», высокий уровень, лето
 //   SHOTS=start,coast,mountains QUALITY=high,medium TAG=r2 npm run map-tw:shots
 //   EXTRA="season=winter&night=1" npm run map-tw:shots     — свои параметры поверх ракурса
-//   SHOTS=objects EXTRA="scale=22" npm run map-tw:shots    — галерея миниатюр (места, войска, работы, значки);
-//                                                            экран подгоняется под галерею (`dataset.need`)
 //   GAME=1 SHOTS=44,24,7 npm run map-tw:shots              — сама игра (`FOG=1` — с туманом, как у игрока; `MARCHES=1` —
 //                                                            с отрядами и лагерями у дома):
 //                                                            закреплённый мир с домом в Генуе, кадр карты
 //                                                            на масштабах из SHOTS
+//   GAME=1 SICILY=1 SHOTS=44,24,7 npm run map-tw:shots     — тест с игроками: дом на месте острова, одиннадцать соседей
+//                                                            из реестра (все четыре стадии), с MARCHES=1 — набег, поход,
+//                                                            лагеря и полководец между ними; WIDTH=375 HEIGHT=812 — экран
 //
 // Снимки — в `.map-shots/` (в репозиторий не входит). Страница печёт кадр один раз и стоит: цепочки
 // кадров нет, видеокарту стенд не гонит. Числа выпечки — из самой страницы (`dataset.showcase`): тот же
@@ -20,13 +21,14 @@ import { join } from 'node:path';
 import { fileURLToPath, URL } from 'node:url';
 import { createServer as createVite } from 'vite';
 import { launchChrome, sleep, Tab } from './lib/chrome';
-import { cellAt, openPinnedMap } from './lib/pinned';
+import { cellAt, openPinnedMap, sicilyRoster, SICILY_HOME } from './lib/pinned';
+import { SICILY } from '../src/world/spawn';
 import { BROWSER_MAX_MS, REPORT_FPS, gpuCoolDown, gpuStamp, refuseIfBusy } from './lib/budget';
 
 const OUT = fileURLToPath(new URL('../.map-shots', import.meta.url));
 const PORT = Number(process.env.PORT ?? 4197);
 const DEBUG_PORT = Number(process.env.CDP_PORT ?? 9344);
-const SCREEN = { width: 390, height: 844, deviceScaleFactor: 2, mobile: true };
+const SCREEN = { width: Number(process.env.WIDTH ?? 390), height: Number(process.env.HEIGHT ?? 844), deviceScaleFactor: 2, mobile: true };
 const list = (s: string | undefined, d: string): string[] => (s ?? d).split(',').map((x) => x.trim()).filter(Boolean);
 const SHOTS = list(process.env.SHOTS, 'start');
 const QUALITIES = list(process.env.QUALITY, 'high');
@@ -39,6 +41,34 @@ const GAME = process.env.GAME === '1';
  * (тот же приём, что `__parties` у `map:report`). Только для глаз — числа отсюда не берутся.
  */
 const MARCHES = process.env.MARCHES === '1';
+/** `SICILY=1` — двенадцать мест острова (`world/spawn.SICILY`): дом в середине кучки, соседи — строками реестра. */
+const SICILY_MODE = process.env.SICILY === '1';
+/** Отряды Сицилии: набег соседа на дом, свой поход к соседу, чужой и свой лагеря у соседских стен. */
+const SICILY_MARCHES_JS = `(() => {
+  const W = window.__world;
+  W.setState({ pulse: async () => {} });
+  const g = W.getState();
+  const h = g.info.home;
+  const now = Date.now();
+  const m = (id, own, phase, from, to, men, targetId) => ({
+    id, mission: 'raid', units: { warrior: men }, own, hostile: !own, phase, from, to,
+    fromName: 'Стенд', toName: 'Стенд', targetId, departAt: now - 600000, arriveAt: now + 600000, loot: null, recallable: false,
+  });
+  const at = (dx, dy) => ({ x: h.x + dx, y: h.y + dy });
+  W.setState({
+    marches: [
+      m('raid', false, 'out', at(5, -3), at(0, 0), 40, g.info.homeId),
+      m('host', true, 'out', at(0, 0), at(-5, 3), 200, 'p4'),
+      m('camp', false, 'stay', at(5, 9), at(5, 3), 12, 'p10'),
+      m('ours', true, 'stay', at(0, 0), at(-5, -3), 30, 'p3'),
+    ],
+    figures: g.figures.map((f) => (f.id === 'general' ? { ...f, troops: { legionary: 60 } } : f)),
+  });
+  // Стая у ворот своего города — вызов, который мир ещё не посчитал (пульс заморожен): метка «волки» у значка.
+  const G = window.__game.getState();
+  G.s.gate = [{ id: 'stand', foe: 'wolves', power: 10, seed: 1, spoils: {} }];
+  return JSON.stringify('ok');
+})()`;
 const MARCHES_JS = `(() => {
   const W = window.__world;
   W.setState({ pulse: async () => {} });
@@ -90,32 +120,12 @@ async function ready(tab: Tab): Promise<boolean> {
   return false;
 }
 
-/** Галерея миниатюр не помещается в телефон: экран — по её мере, в пределах разумного. */
-const GALLERY_MAX = { width: 1400, height: 4200 };
-
 async function shot(view: string, quality: string): Promise<void> {
   const tab = await Tab.open(DEBUG_PORT, 'about:blank');
   try {
-    const gallery = view.startsWith('objects');
-    let screen = gallery ? { ...SCREEN, width: 640, height: 900 } : SCREEN;
-    await tab.send('Emulation.setDeviceMetricsOverride', screen);
+    await tab.send('Emulation.setDeviceMetricsOverride', SCREEN);
     await tab.send('Page.navigate', { url: pageUrl(view, quality) });
-    let ok = await ready(tab);
-    // Галерея пишет, сколько места ей нужно; экран подгоняется и страница печётся заново (раскладка
-    // зависит от ширины — второй круг выравнивает высоту под новую ширину).
-    for (let round = 0; gallery && ok && round < 3; round++) {
-      const need = await tab.eval<string>(`JSON.stringify(document.body.dataset.need ?? '')`).catch(() => '');
-      const [w, h] = need.split(',').map(Number);
-      if (!(w > 0 && h > 0)) break;
-      const next = { ...SCREEN, width: Math.min(GALLERY_MAX.width, Math.max(360, w)), height: Math.min(GALLERY_MAX.height, Math.max(400, h)) };
-      if (next.width === screen.width && next.height === screen.height) break;
-      screen = next;
-      // Старая готовность не должна сойти за новую: флаг снимается до перехода.
-      await tab.eval<string>(`(() => { delete document.body.dataset.ready; return JSON.stringify('ok'); })()`).catch(() => '');
-      await tab.send('Emulation.setDeviceMetricsOverride', screen);
-      await tab.send('Page.navigate', { url: pageUrl(view, quality) });
-      ok = await ready(tab);
-    }
+    const ok = await ready(tab);
     const label = `${quality} ${view}`;
     if (!ok) {
       console.log(`  ${label}: стенд не встал за 60 с`);
@@ -124,13 +134,8 @@ async function shot(view: string, quality: string): Promise<void> {
     await sleep(300);
     const s = await tab.eval<Shown>(`document.body.dataset.showcase`);
     const png = await tab.send<{ data: string }>('Page.captureScreenshot', { format: 'png' });
-    const scale = new URLSearchParams(EXTRA).get('scale');
-    const name = `${TAG}-${quality}-${view}${gallery && scale ? `-${scale}` : ''}.png`;
+    const name = `${TAG}-${quality}-${view}.png`;
     await writeFile(join(OUT, name), Buffer.from(png.data, 'base64'));
-    if (gallery) {
-      console.log(`  ${label.padEnd(16)} экран ${screen.width}×${screen.height} → .map-shots/${name}`);
-      return;
-    }
     const parts = Object.entries(s.parts ?? {})
       .map(([k, v]) => `${k} ${v}`)
       .join(', ');
@@ -160,14 +165,18 @@ async function gameShot(): Promise<void> {
     await tab.send('Emulation.setDeviceMetricsOverride', SCREEN);
     await tab.send('Page.navigate', { url: `http://127.0.0.1:${PORT}/?${q.toString()}` });
     await sleep(2500);
-    await openPinnedMap(tab, { home: GAME_HOME, onLog: (m) => console.log(m) });
-    if (MARCHES) await tab.eval<string>(MARCHES_JS);
+    const home = SICILY_MODE ? SICILY[SICILY_HOME] : GAME_HOME;
+    const store = SICILY_MODE ? { 'tribe.castles.v1': sicilyRoster() } : undefined;
+    await openPinnedMap(tab, { home, store, onLog: (m) => console.log(m) });
+    if (MARCHES) await tab.eval<string>(SICILY_MODE ? SICILY_MARCHES_JS : MARCHES_JS);
     await prebakeReport(tab);
+    // Сицилия: камера на середине кучки — на дальнем масштабе видны все двенадцать.
+    const look = SICILY_MODE ? { x: home.x - 3, y: home.y + 3 } : { x: home.x, y: home.y - 2 };
     for (const scale of SHOTS.map(Number).filter((v) => v > 0)) {
-      await tab.eval<string>(`(() => { window.__mapCam(${GAME_HOME.x}, ${GAME_HOME.y - 2}, ${scale}); return JSON.stringify('ok'); })()`);
+      await tab.eval<string>(`(() => { window.__mapCam(${look.x}, ${look.y}, ${scale}); return JSON.stringify('ok'); })()`);
       await sleep(5000);
       const png = await tab.send<{ data: string }>('Page.captureScreenshot', { format: 'png' });
-      const name = `${TAG}-game-${scale}.png`;
+      const name = `${TAG}-game${SICILY_MODE ? `-sicily-${SCREEN.width}` : ''}-${scale}.png`;
       await writeFile(join(OUT, name), Buffer.from(png.data, 'base64'));
       const bakes = await tab.eval<string>('JSON.stringify(window.__mapPerf ? window.__mapPerf() : null)').catch(() => 'null');
       console.log(`  игра ×${scale}: → .map-shots/${name}${bakes && bakes !== 'null' ? ` · ${String(bakes).slice(0, 160)}` : ''}`);

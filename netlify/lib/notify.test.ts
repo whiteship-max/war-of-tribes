@@ -349,6 +349,9 @@ function fakeTg(answer: SendResult = 'ok') {
     async file() {
       return 'ok';
     },
+    async greet() {
+      return 'ok';
+    },
   };
   return tg;
 }

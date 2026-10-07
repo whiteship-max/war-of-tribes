@@ -65,9 +65,13 @@ import { FELL_WORDS, WORKS_STEPS, dropSiegeMarks, fellUrl, worksUrl } from './si
 import { bakeAgent } from './agent';
 import { dropFigures } from './figures';
 import { ActionMenu } from './ActionMenu';
+import { Rating } from './Rating';
+import { inTelegram } from '@/telegram/webapp';
 import { Gesture, WHEEL_STEP, swallowGhostClick, type Press } from '@/gestures';
 import { gestLog, type End } from '@/gestlog';
-import { FrameLoop, pixelRatio } from '@/render/loop';
+import { FPS_CAP, FrameLoop, cappedClock, deviceRatio, pixelRatio } from '@/render/loop';
+import { QUALITY } from '@/render/quality';
+import { levelNow } from '@/render/gfx';
 import { onViewport } from '@/viewport';
 import { Icon } from '@/ui/icons/Icon';
 import { num } from '@/game/num';
@@ -181,6 +185,9 @@ const TERRAIN_ROWS: { color: string; name: string; note: string }[] = [
   { color: PALETTE.pass, name: 'Перевал', note: `×${frac(COST_PASS)}, проход через хребет` },
 ];
 
+/** Сколько камера считается движущейся после последнего сдвига — дальше карта стоит (`QUALITY.mapStillFps`). */
+const MAP_STILL_MS = 500;
+
 export function WorldMap() {
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -230,6 +237,7 @@ export function WorldMap() {
   const [jumpOpen, setJumpOpen] = useState(false);
   const [jumpText, setJumpText] = useState('');
   const [legendOpen, setLegendOpen] = useState(false);
+  const [ratingOpen, setRatingOpen] = useState(false);
   const [zoomedIn, setZoomedIn] = useState(modeFor(SCALE_START) === 'detail');
 
   const info = useWorld((g) => g.info);
@@ -361,13 +369,22 @@ export function WorldMap() {
      * бывает под роликом о бое, открытым с карты (`body.replaying` прячет всё,
      * кроме канвы ролика), и прежде карта рисовала весь кадр под ним впустую.
      */
-    const loop = new FrameLoop<'covered'>(() => frame());
+    // Пока камера стоит, карта на «Низком» рисует реже (`QUALITY.mapStillFps`, docs/perf.md): кадр тот же, а
+    // главный поток слабого телефона занят им наполовину. Камера сдвинулась — шестьдесят с этого же кадра.
+    const stillFps = QUALITY[levelNow(location.search)].mapStillFps;
+    let lastCam = { cx: NaN, cy: NaN, scale: NaN };
+    let movedAt = -Infinity;
+    const loop = new FrameLoop<'covered'>(
+      () => frame(),
+      undefined,
+      cappedClock(() => (performance.now() - movedAt < MAP_STILL_MS ? FPS_CAP : stillFps)),
+    );
 
     const resize = (): void => {
       // Больше двойки не берём (потолок двери кадра, `loop.DPR_CAP`): на телефоне это
       // больше пикселей — квадратом плотности — ради разницы, которой не видно, и во
-      // столько же больше памяти под тайлы.
-      const dpr = pixelRatio();
+      // столько же больше памяти под тайлы. На низком уровне — меньше (`QUALITY.mapDpr`, docs/perf.md).
+      const dpr = pixelRatio(Math.max(1, Math.min(QUALITY[levelNow(location.search)].mapDpr, deviceRatio())));
       loop.block('covered', wrap.clientWidth < 1 || wrap.clientHeight < 1);
       const w = wrap.clientWidth || 1;
       const h = wrap.clientHeight || 1;
@@ -420,6 +437,11 @@ export function WorldMap() {
       // фигура идёт, — и камера обязана идти за ним, а не отставать до первого
       // касания. Отладочный обзор мира (`?worldview=`) поводка не знает.
       cam.current = hold(cam.current);
+      const c = cam.current;
+      if (c.cx !== lastCam.cx || c.cy !== lastCam.cy || c.scale !== lastCam.scale) {
+        movedAt = performance.now();
+        lastCam = { cx: c.cx, cy: c.cy, scale: c.scale };
+      }
       const rect = viewRect(cam.current, { w, h });
       // Куски запрашиваются с запасом: тайл у края экрана не испечётся, пока не
       // приедут куски под его округой, а без запаса они приезжали бы только
@@ -763,6 +785,19 @@ export function WorldMap() {
             </button>
           )}
           {CHEATS_ON && <SpeedButton className="nx-mbtn" />}
+          {/* Рейтинг игроков (docs/rating.md): вне Telegram сервера нет — и кнопки нет. */}
+          {inTelegram() && (
+            <button
+              className={`nx-mbtn nx-mrate${ratingOpen ? ' on' : ''}`}
+              onClick={() => {
+                setLegendOpen(false);
+                setRatingOpen((v) => !v);
+              }}
+              aria-label="Рейтинг"
+            >
+              <Icon name="ui-trophy" glyph="🏆" />
+            </button>
+          )}
         </div>
         {/* Мир ещё не построен: ждём, когда сервер назовёт место города (`net/roster.seat`, docs/test_world.md). */}
         {!info && roster.state === 'busy' && roster.why && <div className="nx-stale wm-wait">{roster.why}</div>}
@@ -802,6 +837,8 @@ export function WorldMap() {
             </button>
           </div>
         )}
+
+      {ratingOpen && <Rating onClose={() => setRatingOpen(false)} />}
 
       {legendOpen && (
         <div className="wm-legend">
@@ -924,7 +961,13 @@ export function WorldMap() {
             </span>
             Масштаб
           </button>
-          <button className={legendOpen ? 'on' : ''} onClick={() => setLegendOpen((v) => !v)}>
+          <button
+            className={legendOpen ? 'on' : ''}
+            onClick={() => {
+              setRatingOpen(false);
+              setLegendOpen((v) => !v);
+            }}
+          >
             <span className="nx-ib">
               <Icon name="ui-info" glyph="ℹ️" />
               {rosterOld && <em className="nx-dot" />}

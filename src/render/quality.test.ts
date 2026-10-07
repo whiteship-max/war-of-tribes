@@ -3,7 +3,7 @@
 // Строки видеокарт — те, что браузеры отдают через WEBGL_debug_renderer_info: Android —
 // настоящее имя, iOS — «Apple GPU», Chrome на Windows — строка ANGLE.
 import { describe, expect, it } from 'vitest';
-import { QUALITIES, VILLAGE_STEADY, autoQuality, lowerQuality, type DeviceCaps, type Quality } from './quality';
+import { QUALITIES, QUALITY, VILLAGE_STEADY, autoQuality, lowerQuality, tgClassOf, type DeviceCaps, type Quality } from './quality';
 import { Steady } from './steady';
 import { pace } from './loop';
 
@@ -24,6 +24,31 @@ describe('уровень по устройству', () => {
     expect(autoQuality(phone('Mali-G52 MC2'))).toBe('low');
     expect(autoQuality(phone('PowerVR Rogue GE8320'))).toBe('low');
     expect(autoQuality(phone('Adreno (TM) 506'))).toBe('low');
+  });
+
+  it('Adreno ниже цели среднего (618): 605–613 дешёвых телефонов — низкий, 618 и выше — средний', () => {
+    for (const gpu of ['Adreno (TM) 610', 'Adreno (TM) 612', 'ANGLE (Qualcomm, Adreno (TM) 613, OpenGL ES 3.2)', 'Adreno (TM) 605', 'Adreno (TM) 512']) {
+      expect(autoQuality(phone(gpu)), gpu).toBe('low');
+    }
+    for (const gpu of ['Adreno (TM) 618', 'Adreno (TM) 619', 'Adreno (TM) 620', 'Adreno (TM) 642L', 'Adreno (TM) 660']) {
+      expect(autoQuality(phone(gpu)), gpu).toBe('medium');
+    }
+  });
+
+  it('класс Телеграма: LOW — низкий с первого входа, даже когда видеокарта и память молчат; AVERAGE и HIGH уровня не поднимают', () => {
+    const ua = (cls: string): string =>
+      `Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Mobile Safari/537.36 Telegram-Android/11.7.3 (Samsung SM-A750F; Android 10; SDK 29; ${cls})`;
+    expect(tgClassOf(ua('LOW'))).toBe('LOW');
+    expect(tgClassOf(ua('AVERAGE'))).toBe('AVERAGE');
+    expect(tgClassOf(ua('HIGH'))).toBe('HIGH');
+    expect(tgClassOf('Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148')).toBeNull();
+    expect(tgClassOf('Mozilla/5.0 (Linux; Android 10; K) Chrome/129.0.0.0 Mobile Safari/537.36')).toBeNull();
+    expect(tgClassOf(null)).toBeNull();
+    expect(autoQuality({ coarse: true, memory: null, cores: null, gpu: null, tg: 'LOW' })).toBe('low');
+    expect(autoQuality({ ...phone('Adreno (TM) 618'), tg: 'LOW' })).toBe('low');
+    expect(autoQuality({ ...phone('Adreno (TM) 618'), tg: 'AVERAGE' })).toBe('medium');
+    expect(autoQuality({ ...phone('Adreno (TM) 740'), tg: 'HIGH' })).toBe('medium');
+    expect(autoQuality({ ...phone('Mali-G52 MC2'), tg: 'HIGH' })).toBe('low');
   });
 
   it('память: Chromium на три гигабайта говорит «2» — низкий; четыре гигабайта и четыре ядра — низкий', () => {
@@ -47,6 +72,18 @@ describe('уровень по устройству', () => {
     expect(autoQuality(desk('ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)'))).toBe('low');
     expect(autoQuality(desk('llvmpipe (LLVM 15.0.7, 256 bits)'))).toBe('low');
     expect(autoQuality(desk(null))).toBe('high');
+  });
+
+  it('низкий не дороже среднего ни одной ручкой; средний и высокий — прежние числа (docs/perf.md)', () => {
+    expect(QUALITY.high).toEqual({ dpr: 2, shadowSoft: true, mapDpr: 2, shadowEvery: 2, mapStillFps: 60 });
+    expect(QUALITY.medium).toEqual({ dpr: 1.5, shadowSoft: true, mapDpr: 2, shadowEvery: 2, mapStillFps: 60 });
+    const low = QUALITY.low;
+    expect(low.dpr).toBeLessThanOrEqual(QUALITY.medium.dpr);
+    expect(low.mapDpr).toBeLessThan(QUALITY.medium.mapDpr);
+    // Плотность карты ниже единицы — мыло, а не экономия (правило двери кадра).
+    expect(low.mapDpr).toBeGreaterThanOrEqual(1);
+    expect(low.shadowEvery).toBeGreaterThan(QUALITY.medium.shadowEvery);
+    expect(low.mapStillFps).toBeLessThan(QUALITY.medium.mapStillFps);
   });
 
   it('ниже низкого — нет', () => {

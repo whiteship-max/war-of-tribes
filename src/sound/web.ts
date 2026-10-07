@@ -1,21 +1,31 @@
-// Среда для музыки на Web Audio. Единственное место в проекте, где есть
+// Среда для звука на Web Audio. Единственное место в проекте, где есть
 // `AudioContext`, `fetch` за звуком и слово `mp3` в рантайме.
 //
 // **Контекст один на всю игру, и это не экономия.** На iOS каждый новый
 // `AudioContext` — отдельный аппаратный поток, который вебвью в фоне усыпляет
-// по своему усмотрению; два контекста означали бы, что деревня и бой засыпают
-// врозь и просыпаются врозь. Поэтому здесь один движок, а музыки над ним две:
-// у боя слои с общего начала, у деревни очередь с переливом. Третий звук — вой
-// волка — берёт у движка только выход (`openBus`) и живёт своим файлом, чанком
-// предыстории: в первую загрузку он не едет.
+// по своему усмотрению; два контекста означали бы, что город и бой засыпают
+// врозь и просыпаются врозь. Поэтому здесь один движок: музыка боя (дорожка),
+// а всё процедурное — звук города и карты (`sound/city.ts` и его докачка
+// `sound/epoch/`), вой волка, звуки боя и промыслов — берёт у движка только
+// выход (`openBus`) и живёт своим куском: в первую загрузку оно не едет.
+//
+// Выход идёт через три ступени (docs/audio.md, раздел 3): громкость рода
+// (музыка или звуки, `soundLevel`) → общий выход с паузой в фоне → ограничитель
+// перед динамиком. Пауза — здесь же: свёрнутая аппка или скрытая страница
+// гасят выход за десятую долю секунды и усыпляют контекст, возврат будит его и
+// поднимает выход плавно, без щелчка (`watchAway` — тот же свод сигналов, что у
+// двери кадра).
 import { BattleMusic, type AudioHost } from './music';
-import { VillageMusic, type VillageHost } from './village';
-import { soundOn } from './settings';
+import { soundLevel, soundOn, subscribeSound, type SoundKind } from './settings';
+import { watchAway } from '@/render/loop';
+import { outputChain } from './chain';
 
 /** Громкость музыки боя. Она под роликом, а не вместо него. */
 const BATTLE_VOLUME = 0.55;
-/** Громкость деревни. Тише боя: это фон, под который играют, а не смотрят. */
-const VILLAGE_VOLUME = 0.38;
+
+/** За сколько гаснет выход при уходе в фон и набирается при возврате (постоянная времени, с). */
+const AWAY_FADE = 0.03;
+const BACK_FADE = 0.2;
 
 interface Voice {
   gain: GainNode;
@@ -23,9 +33,15 @@ interface Voice {
   buffer: AudioBuffer;
 }
 
-/** Контекст и загрузка — одни на обе музыки. */
+/** Контекст, выходы и загрузка — одни на весь звук игры. */
 class Engine {
   ctx: AudioContext | null = null;
+  /** Громкость рода: музыка и звуки. */
+  private kinds: Record<SoundKind, GainNode> | null = null;
+  /** Общий выход: на нём пауза в фоне. */
+  private master: GainNode | null = null;
+  /** Номер ухода в фон: возврат раньше, чем контекст уснул, отменяет сон. */
+  private away = 0;
 
   open(): boolean {
     if (this.ctx) {
@@ -43,19 +59,64 @@ class Engine {
     try {
       this.ctx = new Ctor();
       void this.ctx.resume().catch(() => undefined);
+      this.wire(this.ctx);
       return true;
     } catch {
       return false;
     }
   }
 
-  /** Выход с постоянной громкостью: у боя своя, у деревни своя. */
-  bus(volume: number): GainNode | null {
+  /** Ступени выхода — общая цепочка (`sound/chain.ts`), та же, что меряет офлайн-стенд. */
+  private wire(ctx: AudioContext): void {
+    const chain = outputChain(ctx, { music: this.level('music'), fx: this.level('fx') });
+    this.master = chain.master;
+    this.kinds = chain.kinds;
+    // Громкость из настроек — плавно: ползунок, который щёлкает на каждом шаге, хуже, чем никакого.
+    subscribeSound(() => {
+      const kinds = this.kinds;
+      if (!kinds) return;
+      const now = ctx.currentTime;
+      for (const k of ['music', 'fx'] as const) kinds[k].gain.setTargetAtTime(this.level(k), now, 0.05);
+    });
+    watchAway((away) => this.sleep(away));
+  }
+
+  private level(kind: SoundKind): number {
+    return soundOn() ? soundLevel(kind) : 0;
+  }
+
+  /** Свернули — погасить выход и усыпить контекст; развернули — разбудить и поднять выход без щелчка. */
+  private sleep(away: boolean): void {
     const ctx = this.ctx;
-    if (!ctx) return null;
+    const master = this.master;
+    if (!ctx || !master) return;
+    const turn = ++this.away;
+    if (away) {
+      master.gain.setTargetAtTime(0, ctx.currentTime, AWAY_FADE);
+      setTimeout(() => {
+        if (turn === this.away) void ctx.suspend().catch(() => undefined);
+      }, 200);
+      return;
+    }
+    void ctx
+      .resume()
+      .catch(() => undefined)
+      .then(() => {
+        if (turn !== this.away) return;
+        master.gain.cancelScheduledValues(ctx.currentTime);
+        master.gain.setValueAtTime(master.gain.value, ctx.currentTime);
+        master.gain.setTargetAtTime(1, ctx.currentTime, BACK_FADE);
+      });
+  }
+
+  /** Выход с постоянной громкостью на ступени своего рода. */
+  bus(volume: number, kind: SoundKind = 'fx'): GainNode | null {
+    const ctx = this.ctx;
+    const into = this.kinds?.[kind];
+    if (!ctx || !into) return null;
     const gain = ctx.createGain();
     gain.gain.value = volume;
-    gain.connect(ctx.destination);
+    gain.connect(into);
     return gain;
   }
 
@@ -87,9 +148,17 @@ const engine = new Engine();
  *
  * Зовётся ТОЛЬКО из жеста игрока. `null` — звука в этой среде нет.
  */
-export function openBus(volume: number): GainNode | null {
+export function openBus(volume: number, kind: SoundKind = 'fx'): GainNode | null {
   if (!engine.open()) return null;
-  return engine.bus(volume);
+  return engine.bus(volume, kind);
+}
+
+/**
+ * Разбудить звук жестом игрока: открыть контекст или поднять уснувший. Вебвью усыпляет контекст на сворачивании и по
+ * своему усмотрению, поэтому каждое касание — повод разбудить, а не только первое. Зовётся ТОЛЬКО из жеста.
+ */
+export function wakeSound(): boolean {
+  return engine.open();
 }
 
 /**
@@ -104,7 +173,7 @@ class BattleHost implements AudioHost {
 
   open(): boolean {
     if (!engine.open()) return false;
-    if (!this.out) this.out = engine.bus(BATTLE_VOLUME);
+    if (!this.out) this.out = engine.bus(BATTLE_VOLUME, 'music');
     return this.out !== null;
   }
 
@@ -158,96 +227,8 @@ class BattleHost implements AudioHost {
 }
 
 /**
- * Деревня: очередь разных пьес. Играет одна, соседняя переливается поверх, и в
- * памяти держатся ровно две — играющая и скачанная следующая.
- */
-class VillageAudioHost implements VillageHost {
-  private out: GainNode | null = null;
-  private voices = new Map<string, Voice>();
-
-  open(): boolean {
-    if (!engine.open()) return false;
-    if (!this.out) this.out = engine.bus(VILLAGE_VOLUME);
-    return this.out !== null;
-  }
-
-  async load(id: string, url: string): Promise<number> {
-    const ctx = engine.ctx;
-    const buffer = ctx ? await engine.decode(url) : null;
-    if (!ctx || !buffer || !this.out) return 0;
-    const gain = ctx.createGain();
-    gain.gain.value = 0;
-    gain.connect(this.out);
-    this.voices.set(id, { gain, source: null, buffer });
-    return buffer.duration;
-  }
-
-  play(id: string, fade: number): void {
-    const ctx = engine.ctx;
-    const voice = this.voices.get(id);
-    if (!ctx || !voice) return;
-    const now = ctx.currentTime;
-    // Новая набирает, все прочие затухают — это и есть перелив. Дорожки
-    // деревни не петляются: круг ведёт машинка, а петля скрыла бы её конец.
-    const source = ctx.createBufferSource();
-    source.buffer = voice.buffer;
-    source.connect(voice.gain);
-    source.start(now);
-    voice.source = source;
-    for (const [key, other] of this.voices) {
-      const to = key === id ? 1 : 0;
-      other.gain.gain.cancelScheduledValues(now);
-      other.gain.gain.setValueAtTime(other.gain.gain.value, now);
-      other.gain.gain.linearRampToValueAtTime(to, now + fade);
-    }
-  }
-
-  drop(id: string): void {
-    const voice = this.voices.get(id);
-    if (!voice) return;
-    // Останавливаем не сразу: дорожка ещё дотухает переливом, и обрыв на
-    // полугромкости слышен щелчком.
-    const ctx = engine.ctx;
-    const stopAt = ctx ? ctx.currentTime + 4 : 0;
-    try {
-      voice.source?.stop(stopAt);
-    } catch {
-      // Источник мог и не пуститься — тогда останавливать нечего.
-    }
-    voice.source = null;
-    this.voices.delete(id);
-  }
-
-  volume(level: number, fade: number): void {
-    const ctx = engine.ctx;
-    if (!ctx || !this.out) return;
-    const now = ctx.currentTime;
-    this.out.gain.cancelScheduledValues(now);
-    this.out.gain.setValueAtTime(this.out.gain.value, now);
-    this.out.gain.linearRampToValueAtTime(level * VILLAGE_VOLUME, now + fade);
-  }
-
-  stop(): void {
-    for (const voice of this.voices.values()) {
-      try {
-        voice.source?.stop();
-      } catch {
-        // Уже остановлен — не беда.
-      }
-      voice.source = null;
-    }
-    this.voices.clear();
-  }
-}
-
-/**
  * Музыка боя на всю игру: контекст один, дорожки качаются один раз и лежат в
  * кэше браузера. Ролики открываются и закрываются, а это переживает их все.
  */
 export const battleMusic = new BattleMusic(new BattleHost(), soundOn);
 
-/**
- * Музыка деревни. Заводится первым же нажатием игрока в интерфейсе — в вебвью
- * Telegram звук без жеста не заиграет вовсе.
- */
-export const villageMusic = new VillageMusic(new VillageAudioHost(), undefined, soundOn);

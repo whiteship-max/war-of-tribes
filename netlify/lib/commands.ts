@@ -31,6 +31,8 @@ import {
 } from './admin.js';
 import { REPORT_ID, reportAt } from './reports.js';
 import { spawnsNow, wipeWorld } from './era.js';
+import { publicRow, ratingNow } from './rating.js';
+import { finalText } from './words.js';
 import { spawnMode } from './http.js';
 import { SICILY, sicilySlot } from '../../src/world/spawn.js';
 import type { Telegram } from './telegram.js';
@@ -77,6 +79,7 @@ export const HELP = [
   '/report <номер> — отчёт целиком.',
   '/spawns — места появления на Сицилии: кто какое занял.',
   '/wipeworld ДА — чистый старт: стереть все партии, замки, войну, журналы, отчёты и статистику; номер эпохи мира +1.',
+  '/final — итоговый рейтинг: как его увидят игроки. /final ДА — разослать всем игрокам в бот.',
   '',
   'Что можно в /give: древесина (дерево), камень, еда, шкуры, кости, медь, железо, золото; бойцы — дубинщики, копейщики, лучники, топорники, мечники, щитоносцы, всадники, латные (латные всадники), латники. Можно и латиницей: wood, spearman… Алмазы указом не меняются.',
   'Город с пробелом в имени — называй номером.',
@@ -560,6 +563,42 @@ async function wipe(io: Io, args: string[], admin: number, now: number): Promise
   );
 }
 
+/** Сколько сообщений рассылки уходит разом: Telegram пускает около тридцати в секунду. */
+const FINAL_BATCH = 10;
+
+/**
+ * Итоговый рейтинг (docs/rating.md). Без «ДА» — таблица, как её увидят игроки, и сколько их; со «ДА» — каждому игроку
+ * рейтинга в бот, со своим местом. Рассылку назад не вернуть, поэтому подтверждение — как у чистого старта.
+ */
+async function final(io: Io, args: string[], admin: number, now: number, api: Telegram): Promise<Reply> {
+  const ranked = await ratingNow(io.stores);
+  if (!ranked.length) return say('В рейтинге никого: в реестре замков этой эпохи нет игроков.');
+  const rows = ranked.map((r) => publicRow(r, ''));
+  if (args.length !== 1 || args[0] !== 'ДА') {
+    return say([finalText(rows, null), '', `Разослать ${ranked.length} игрокам: /final ДА`].join('\n'));
+  }
+  const tally = { ok: 0, closed: 0, failed: 0 };
+  for (let i = 0; i < ranked.length; i += FINAL_BATCH) {
+    await Promise.all(
+      ranked.slice(i, i + FINAL_BATCH).map(async (r) => {
+        const chat = Number(r.key.slice(3));
+        const sent = await api.greet(chat, finalText(rows, publicRow(r, r.key)));
+        if (sent === 'ok') tally.ok++;
+        else if (sent === 'closed') tally.closed++;
+        else tally.failed++;
+      }),
+    );
+  }
+  await logAdmin(io.stores, { at: now, by: admin, who: '', what: `Итоговый рейтинг разослан: ${tally.ok} из ${ranked.length}` });
+  return say(
+    [
+      `Итоговый рейтинг разослан: дошло ${tally.ok} из ${ranked.length}.`,
+      ...(tally.closed ? [`Бот заблокирован или не запущен: ${tally.closed}.`] : []),
+      ...(tally.failed ? [`Не ушло (сеть или Telegram): ${tally.failed}. Повтор /final ДА пришлёт таблицу всем ещё раз.`] : []),
+    ].join('\n'),
+  );
+}
+
 /**
  * Обновление с сообщением. Возвращает `true`, если это было сообщение (ответили админу или промолчали чужому), и
  * `false`, если сообщения в обновлении нет — тогда его разбирает вебхук (кнопки, блокировка бота).
@@ -618,6 +657,9 @@ export async function adminCommand(update: Record<string, unknown>, io: Io, tg: 
       break;
     case '/wipeworld':
       reply = await wipe(io, args, from, now);
+      break;
+    case '/final':
+      reply = await final(io, args, from, now, tg());
       break;
     default:
       reply = say(HELP);

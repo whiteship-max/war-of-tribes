@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useGame } from '@/game/store';
 import { Icon } from '@/ui/icons/Icon';
 import { useAlertItems, type AlertItem } from '@/ui/alertItems';
 import { tipAt } from './tip';
 import { ALERT_FRESH_MS, isFresh } from './fresh';
+import { cityAudio } from '@/sound/city';
 
 /**
  * Тревоги нового интерфейса (docs/ui_audit.md, 6.0): ряд круглых значков 44 под верхом при любом их числе —
@@ -33,6 +34,15 @@ export function Alerts() {
     const t = setTimeout(() => setNow(performance.now()), ALERT_FRESH_MS);
     return () => clearTimeout(t);
   }, [anyFresh, now]);
+  // Рог — когда встала новая беда по сроку (красное кольцо): набег, мятеж. Те, что были при входе, не трубят — о них
+  // игрок узнаёт с экрана, а не с первого касания; заметки (охра) молчат вовсе (docs/audio.md, раздел 7).
+  const urgent = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    const keys = new Set(items.filter((a) => a.urgent).map((a) => a.key));
+    const was = urgent.current;
+    urgent.current = keys;
+    if (was && [...keys].some((k) => !was.has(k))) cityAudio.cue('alarm');
+  }, [items]);
   if (items.length === 0) return null;
 
   const open = (a: AlertItem, el: Element): void =>

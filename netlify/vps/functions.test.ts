@@ -5,6 +5,7 @@ import { ROUTES } from '../lib/routes/index.js';
 import * as botRoute from '../lib/routes/bot.js';
 import * as castlesRoute from '../lib/routes/castles.js';
 import * as notifyRoute from '../lib/routes/notify.js';
+import * as ratingRoute from '../lib/routes/rating.js';
 import * as reportRoute from '../lib/routes/report.js';
 import * as saveRoute from '../lib/routes/save.js';
 import * as timeRoute from '../lib/routes/time.js';
@@ -29,6 +30,7 @@ const ROUTE_MODULES: Record<string, Record<string, unknown>> = {
   war: warRoute,
   bot: botRoute,
   report: reportRoute,
+  rating: ratingRoute,
 };
 
 /** Функции с адресом. Функция по расписанию (`deliver.mts`) адреса не имеет: её держит `lib/server.test.ts`. */

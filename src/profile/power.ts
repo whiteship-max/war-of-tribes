@@ -57,11 +57,16 @@ export const buildingWeight = (def: BuildingDef): number => buildingCost(def) / 
  * появится новое — оно попадёт в счёт само, как попадает в стартовый посёлок.
  */
 export function buildingsPower(s: GameState): number {
+  return levelsPower(s.buildings.map((b) => [b.type, b.level]));
+}
+
+/** Мощь посёлка по парам «тип — уровень»: одна формула на партию и на опись наблюдения (`powerOfCounts`). */
+function levelsPower(levels: Iterable<readonly [string, number]>): number {
   let sum = 0;
-  for (const b of s.buildings) {
-    const def = BUILDINGS.find((d) => d.id === b.type);
+  for (const [type, level] of levels) {
+    const def = BUILDINGS.find((d) => d.id === type);
     if (!def) continue;
-    sum += buildingWeight(def) * Math.pow(Math.max(0, b.level), LEVEL_EXP);
+    sum += buildingWeight(def) * Math.pow(Math.max(0, level), LEVEL_EXP);
   }
   return sum * POWER_SCALE;
 }
@@ -97,8 +102,12 @@ export const troopWeight = (troop: TroopId): number => battleWeight(troop) * com
  * посчитается сам, потому что имён видов здесь нет.
  */
 export function troopsPower(s: GameState): number {
+  return armyPower(s.army ?? {});
+}
+
+function armyPower(army: Readonly<Partial<Record<string, number>>>): number {
   let sum = 0;
-  for (const def of TROOPS) sum += Math.max(0, s.army?.[def.id] ?? 0) * troopWeight(def.id);
+  for (const def of TROOPS) sum += Math.max(0, army[def.id] ?? 0) * troopWeight(def.id);
   return sum * POWER_SCALE;
 }
 
@@ -106,3 +115,11 @@ export function troopsPower(s: GameState): number {
 
 /** Мощь игрока: посёлок плюс дружина, одним целым числом. */
 export const power = (s: GameState): number => Math.round(buildingsPower(s) + troopsPower(s));
+
+/**
+ * Мощь по числам описи наблюдения: уровни зданий по типу и войско по видам. Та же формула, что `power`, — её зовёт
+ * сервер, когда считает рейтинг (docs/rating.md): число мощи клиент не присылает, присылает только то, из чего оно
+ * выводится, и подделанная цифра мощи в описи в рейтинг не попадает.
+ */
+export const powerOfCounts = (levels: Readonly<Record<string, number>>, army: Readonly<Record<string, number>>): number =>
+  Math.round(levelsPower(Object.entries(levels)) + armyPower(army));

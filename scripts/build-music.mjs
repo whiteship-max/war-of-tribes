@@ -3,9 +3,11 @@
  *
  *     npm run music:build
  *
- * Читает assets-src/ (два пака, 718 МБ, в репозиторий не едут — см.
- * assets-src/MUSIC.md) и кладёт в public/assets/music/ пять mp3: четыре
- * мирные дорожки для деревни и одну боевую под ролик.
+ * Читает assets-src/ (боевой пак, в репозиторий не едет — см.
+ * assets-src/MUSIC.md) и кладёт в public/assets/music/ один mp3 — боевую дорожку
+ * под ролик. Мирных дорожек деревни больше нет: в городе с 06.10.2026 звучит
+ * музыка эпохи — синтез без файлов (`src/sound/epoch/`, docs/audio.md); файлы
+ * и их сборка удалены 07.10.2026 решением владельца.
  *
  * Почему именно так:
  *
@@ -20,8 +22,7 @@
  *   динамическим `loudnorm`: дорожки идут в перемешанном порядке и не должны
  *   прыгать по громкости, но и дышать от компрессии музыке нельзя. Отсюда два
  *   прохода: первый меряет, второй множит на постоянное число.
- * - **Тишину в хвосте режем.** У «сырых» дорожек пака в конце три секунды
- *   цифровой тишины; в очереди с переливом это была бы дыра.
+ * - **Тишину в хвосте режем** (`trim`), если она есть: в петле это была бы дыра.
  *
  * Скрипту нужен ffmpeg — он приезжает пакетом `ffmpeg-static` в
  * devDependencies. Бинарник живёт в node_modules: ни в репозиторий, ни в
@@ -35,10 +36,6 @@ import { fileURLToPath } from 'node:url'
 import ffmpeg from 'ffmpeg-static'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-const VILLAGE_SRC = path.join(
-  ROOT,
-  'assets-src/Medieval Music Vol.1 by gabone_audio/Medieval Music Vol.1 by gabone_audio',
-)
 const COMBAT_SRC = path.join(ROOT, 'assets-src/Combat Pack - vol 1')
 const OUT = path.join(ROOT, 'public/assets/music')
 
@@ -55,36 +52,9 @@ const TARGET_LUFS = -16
 const TARGET_PEAK = -1.5
 
 /**
- * Что из паков взято. Порядок здесь — порядок номеров в именах файлов, а не
- * порядок проигрывания: очередь в игре перемешивается.
- *
- * `trim` — до какой секунды резать. Нужен там, где в хвосте цифровая тишина.
+ * Что из паков взято. `trim` — до какой секунды резать, если в хвосте цифровая тишина.
  */
 const TRACKS = [
-  {
-    out: 'village-1.mp3',
-    src: path.join(VILLAGE_SRC, 'Track 1_110Bpm_4_4_Am/Looped/Track1_Looped_All.wav'),
-    note: 'Track 1, 110 BPM, 4/4, Am — полный микс, бесшовная петля',
-  },
-  {
-    out: 'village-2.mp3',
-    src: path.join(VILLAGE_SRC, 'Track 2_140Bpm_4_4_C/Looped/Track2_Looped_All.wav'),
-    note: 'Track 2, 140 BPM, 4/4, C — полный микс, бесшовная петля',
-  },
-  {
-    out: 'village-3.mp3',
-    src: path.join(VILLAGE_SRC, 'Track 3_120Bpm_3_4_Am/Looped/Track3_Looped_All.wav'),
-    note: 'Track 3, 120 BPM, 3/4, Am — вальс, полный микс, бесшовная петля',
-  },
-  {
-    out: 'village-4.mp3',
-    // Не полный микс: в нём вокал. Петля, которая крутится часами, со словами
-    // надоедает быстрее всего остального и отвлекает от игры. Версия без
-    // вокала есть только среди «сырых», отсюда и обрезка тишины ниже.
-    src: path.join(VILLAGE_SRC, 'Track 4_70Bpm_4_4_Am/Unedited/Track4_unedited_NoVocals.wav'),
-    trim: 110.2,
-    note: 'Track 4, 70 BPM, 4/4, Am — без вокала, хвост тишины срезан',
-  },
   {
     out: 'battle.mp3',
     src: path.join(COMBAT_SRC, '2. One Last Day on Earth - 110bpm - LOOP 52s.wav'),

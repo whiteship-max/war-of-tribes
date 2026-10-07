@@ -3,6 +3,8 @@
 // документа). Модуль живёт в `battle/`: он ничего не знает ни про React, ни про
 // состояние игры, и сервер сможет собрать тот же отчёт у себя.
 import { DICE, EVENT_MIN } from './config';
+// Дробь в строке игрока — одной дверью (укрепления лагеря дают полграни): `game/num` чистая, без импортов.
+import { num } from '../game/num';
 import { PHASE_NAME, SECTOR_NAME } from './log';
 import type { BattleEvent, BattleResult, Side, Verdict } from './types';
 
@@ -100,7 +102,11 @@ function keyLine(e: BattleEvent, us: Side): ReportLine | null {
     }
     case 'ground': {
       // Место боя штрафует кость весь бой — это строка про удачу, и значок у неё тот же, что у кости.
-      const parts = [e.land > 0 ? `земля −${e.land}` : '', e.crossing > 0 ? `переправа −${e.crossing}${e.lifted ? ', её снял манёвр полководца' : ''}` : '']
+      const parts = [
+        e.land > 0 ? `земля −${e.land}` : '',
+        e.crossing > 0 ? `переправа −${e.crossing}${e.lifted ? ', её снял манёвр полководца' : ''}` : '',
+        (e.works ?? 0) > 0 ? `укрепления лагеря −${num(e.works ?? 0)}` : '',
+      ]
         .filter(Boolean)
         .join(', ');
       return line(e, 'bat-dice', '⛰️', `Место боя против ${mine ? 'нас' : 'них'}: ${parts}.`, !mine);

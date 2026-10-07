@@ -26,7 +26,7 @@ import { SiegePanel } from './ui/panels/SiegePanel';
 import { CampPanel } from './ui/panels/CampPanel';
 import { ReportPanel } from './ui/panels/ReportPanel';
 import { useWorld } from './world/store';
-import { villageMusic } from './sound/web';
+import { cityAudio } from './sound/city';
 import { probe } from './debug';
 import { CheatPanel } from './ui/CheatPanel';
 import { useRealm } from './ui/realm/open';
@@ -63,6 +63,7 @@ const Hud = lazy(() => nextUi().then((m) => ({ default: m.Hud })));
 const Alerts = lazy(() => nextUi().then((m) => ({ default: m.Alerts })));
 const Nav = lazy(() => nextUi().then((m) => ({ default: m.Nav })));
 const TipLayer = lazy(() => nextUi().then((m) => ({ default: m.TipLayer })));
+const Hints = lazy(() => nextUi().then((m) => ({ default: m.Hints })));
 /** Шаг «Как назовёшь город?» стартового экрана — тем же куском: сам экран ничего не грузит (`start.test.ts`). */
 const CityNaming = lazy(() => nextUi().then((m) => ({ default: m.CityNaming })));
 /** Карточка клетки и «Походы» нового вида — тем же куском (docs/ui_audit.md, 13). */
@@ -165,18 +166,28 @@ export function App() {
     if (probe()) (window as unknown as { __game?: typeof useGame }).__game = useGame;
   }, []);
 
-  // Музыка деревни ждёт первого нажатия игрока: в вебвью Telegram звук без
-  // жеста не заиграет вовсе. Годится любое нажатие в интерфейсе — отдельной
-  // кнопки «включить музыку» у деревни нет и заводить её не надо.
+  // Звук города ждёт первого касания игрока: в вебвью Telegram звук без жеста не заиграет вовсе (docs/audio.md).
+  // Годится любое нажатие в интерфейсе — отдельной кнопки «включить звук» у города нет и заводить её не надо.
   //
-  // Слушатель не снимается после первого раза нарочно: при выключенном звуке
-  // `arm` ничего не делает и не качает, и следующее нажатие после включения
-  // обязано сработать. Само `arm` идемпотентно — контекст один на все жесты.
+  // Слушатель не снимается после первого раза нарочно: при выключенном звуке `arm` ничего не делает и не качает, и
+  // следующее нажатие после включения обязано сработать; а уснувший в фоне контекст каждое касание будит. Само `arm`
+  // идемпотентно — контекст один на все жесты. Нажатая кнопка — тихий щелчок (`cue('tap')`, не чаще, чем раз в 90 мс).
   useEffect(() => {
-    const wake = (): void => villageMusic.arm();
+    const wake = (): void => cityAudio.arm();
+    const click = (e: MouseEvent): void => {
+      if (e.target instanceof Element && e.target.closest('button:not(:disabled)')) cityAudio.cue('tap');
+    };
     document.addEventListener('pointerdown', wake, { passive: true });
-    return () => document.removeEventListener('pointerdown', wake);
+    document.addEventListener('click', click, { capture: true, passive: true });
+    return () => {
+      document.removeEventListener('pointerdown', wake);
+      document.removeEventListener('click', click, { capture: true });
+    };
   }, []);
+
+  // Свои звуки поверх города — промысел и предыстория — глушат его музыку и фон (ролик боя глушит сам).
+  useEffect(() => cityAudio.hush('mini', Boolean(playing)), [playing]);
+  useEffect(() => cityAudio.hush('prologue', prologue), [prologue]);
 
   // Мир запускается после загрузки сохранения: иначе первый же его отклик
   // применил бы последствия походов к состоянию, которое вот-вот заменят.
@@ -258,6 +269,12 @@ export function App() {
       <Suspense fallback={null}>
         <TipLayer />
       </Suspense>
+      {/* Подсказки новичку по ходу игры — после входа в партию (docs/rating.md). */}
+      {started && (
+        <Suspense fallback={null}>
+          <Hints />
+        </Suspense>
+      )}
       {/* Последним нарочно: до ответа игрока партия не сохраняется никуда, и
           этот вопрос обязан стоять поверх остальных окон. Своего слоя у него
           нет — он просто идёт после них. */}

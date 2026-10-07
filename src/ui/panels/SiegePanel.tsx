@@ -210,6 +210,8 @@ export function SiegePanel() {
         Кто не пройдёт, встанет у рогаток.
         {weak ? ` ${WEAK_HINT[weak]}` : ''}
       </p>
+      {/* Дела полководца в лагере (world/siegecraft): лагерь укреплён, город обстреливают — словами мира. */}
+      {siege.craftNote && <p className="note warn">{siege.craftNote}</p>}
       {/* Мораль между боями (14.31): уставший лагерь бить лучше сейчас, уставшему гарнизону — дать отдохнуть. */}
       {siege.campRest && (
         <p className="note">{restLine(siege.campRest, 'Лагерь дрался', now)} Бей, пока не отдохнул.</p>

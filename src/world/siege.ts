@@ -12,6 +12,7 @@
 import type { Fate, SettlementId } from './types';
 import type { WoodPlan } from './works';
 import type { Fire } from './bombard';
+import type { Craft } from './siegecraft';
 import { SIEGE_EAT_FLOOR, SIEGE_IMMUNE, SIEGE_TOWN_EAT, SIEGE_TOWN_LARDER, SIEGE_WEAR_FLOOR, SIEGE_WEAR_SPAN } from './data/tuning';
 import { HOUR_MS as HOUR } from '../game/time';
 
@@ -110,6 +111,11 @@ export interface SiegeWindow {
    * часов голода той же осады.
    */
   fire?: Fire;
+  /**
+   * Дела полководца в своём лагере (`world/siegecraft`): сколько раз лагерь укрепили и сколько залпов дал обстрел. Нет поля —
+   * ничего не делали. Переносится при пересчёте часов голода той же осады; у новой осады его нет.
+   */
+  craft?: Craft;
 }
 
 /** Когда осада началась. Пересчёт часов голода эту отметку не двигает. */
@@ -174,6 +180,8 @@ export function openSiege(at: {
   builders?: number;
   /** Обстрел той же осады: переносится при пересчёте. */
   fire?: Fire;
+  /** Дела полководца в лагере той же осады: переносятся при пересчёте. */
+  craft?: Craft;
 }): SiegeWindow {
   return {
     byId: at.byId,
@@ -188,6 +196,7 @@ export function openSiege(at: {
     ...(at.wood !== undefined ? { wood: at.wood } : {}),
     ...(at.builders !== undefined ? { builders: Math.max(0, Math.round(at.builders)) } : {}),
     ...(at.fire !== undefined ? { fire: at.fire } : {}),
+    ...(at.craft !== undefined && (at.craft.fort || at.craft.shots) ? { craft: { ...at.craft } } : {}),
     foodAtStart: Math.max(0, at.food),
     garrisonAtStart: Math.max(0, Math.round(at.garrison)),
     townPerHour: Math.max(0, at.townPerHour),

@@ -391,3 +391,32 @@ describe('осадный лагерь: десять энергии, и пока 
     expect(await w.world.besiege()).toBeNull();
   });
 });
+
+describe('дела в лагере: цена при приказе, один раз за дело, и меню гасит той же строкой, что откажет приказ', () => {
+  it('обстрел логова: пятнадцать за залп, на пределе — отказ без списания; без энергии — та же строка в меню и в отказе', async () => {
+    const w = makeWorld();
+    const p = profile({ army: { spearman: 40 } });
+    await w.world.sync(p);
+    const lair = nearestLair(w);
+    standAt(w, 'general', lair, { spearman: 40 });
+    expect(await w.world.besiege()).toBeNull();
+    expect((await fig(w, 'general')).besieging, 'точка внутри области: лагерь стоит').toBe(lair.id);
+    const start = await energyOf(w, 'general');
+    const shot = ENERGY_PRICE.bombard.price;
+    for (let n = 1; n <= 3; n++) {
+      expect(await w.world.campCraft('bombard')).toBeNull();
+      expect(await energyOf(w, 'general')).toBe(start - n * shot);
+    }
+    // Предел за осаду: меню и приказ — одна строка, энергия на месте.
+    const menu = (await w.world.camp())?.crafts?.find((c) => c.act === 'bombard');
+    expect(menu?.can).toBe(false);
+    expect(await w.world.campCraft('bombard')).toBe(menu?.reason);
+    expect(await energyOf(w, 'general')).toBe(start - 3 * shot);
+    // Без энергии на укрепление — та же строка двери энергии в меню и в отказе, счётчик не тронут.
+    w.inner.save.figures.general.energy = { value: ENERGY_PRICE.fortify.price - 1, at: w.now(), mode: 'hold' };
+    const fort = (await w.world.camp())?.crafts?.find((c) => c.act === 'fortify');
+    expect(fort?.reason).toBe(energyBlock(ENERGY_PRICE.fortify.price - 1, ENERGY_PRICE.fortify.price));
+    expect(await w.world.campCraft('fortify')).toBe(fort?.reason);
+    expect(w.inner.save.sieges[lair.id]?.craft?.fort).toBeUndefined();
+  });
+});

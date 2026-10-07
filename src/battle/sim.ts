@@ -289,12 +289,17 @@ export const pipOf = (setup: ArmySetup, pip: PipId): number => {
  * — если манёвр своего полководца не выше манёвра полководца противника. Работа манёвра у EU4 — ровно эта: снять
  * переправу; землю он не снимает. Одна дверь на бой и на карточку полководца (`world/agents.pipRows`).
  */
-export function groundFaces(own: ArmySetup, enemy: ArmySetup): { land: number; crossing: number; lifted: boolean; faces: number } {
+export function groundFaces(
+  own: ArmySetup,
+  enemy: ArmySetup,
+): { land: number; crossing: number; lifted: boolean; works: number; faces: number } {
   const clean = (n: number | undefined): number => (n !== undefined && Number.isFinite(n) ? Math.max(0, n) : 0);
   const land = clean(own.ground?.land);
   const crossing = clean(own.ground?.crossing);
+  // Укрепления лагеря — как земля: манёвр их не снимает (`GroundPenalty.works`).
+  const works = clean(own.ground?.works);
   const lifted = crossing > 0 && pipOf(own, 'maneuver') > pipOf(enemy, 'maneuver');
-  return { land, crossing, lifted, faces: land + (lifted ? 0 : crossing) };
+  return { land, crossing, lifted, works, faces: land + works + (lifted ? 0 : crossing) };
 }
 
 /**
@@ -644,7 +649,9 @@ class Battle {
     if (this.tick === 1) {
       for (const side of SIDES) {
         const g = this.ground[side];
-        if (g.land > 0 || g.crossing > 0) this.emit({ id: 'ground', side, land: g.land, crossing: g.crossing, lifted: g.lifted });
+        if (g.land > 0 || g.crossing > 0 || g.works > 0) {
+          this.emit({ id: 'ground', side, land: g.land, crossing: g.crossing, lifted: g.lifted, ...(g.works > 0 ? { works: g.works } : {}) });
+        }
       }
       // Сторона вышла в бой уставшей — раз, в начале боя: с какой долей полной морали (мораль между боями, 14.31).
       for (const side of SIDES) {

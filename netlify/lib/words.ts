@@ -8,8 +8,10 @@
  * («в 14:40», поясом игрока) и ничего больше: потери и добыча устаревают и лежат в донесении (правило 18 — числа
  * нет, и считать его нечем).
  */
-import type { NoticeFate, NoticeItem } from './contract.js';
+import { cityOr, type NoticeFate, type NoticeItem, type RatingRow } from './contract.js';
 import { localTime } from './notify.js';
+import { SICILY } from '../../src/world/spawn.js';
+import { count } from '../../src/ui/parts/plural.js';
 
 /** Подписи кнопки под сообщением: выключить, когда включено, и наоборот (решение владельца). */
 export const BUTTON_OFF = 'Отключить уведомления';
@@ -77,4 +79,46 @@ function fightText(item: NoticeItem): string {
   // Удар полководца города по лагерю — один или с гарнизоном.
   if (role === 'def') return won ? `Удар по лагерю удался. Лагерь «${from}» разбит.` : `Удар по лагерю «${from}» отбит.`;
   return won ? `Удар по твоему лагерю под «${from}» отбит.` : `Твой лагерь под «${from}» разбит ударом.`;
+}
+
+// ------------------------------------------------ приветствие и итоги (docs/rating.md) ---
+
+/** Мест на острове — столько, сколько их в данных мира (`world/spawn.SICILY`). */
+const SICILY_PLACES = SICILY.length;
+
+/** Ответ на `/start`: что за игра, коротко. Под ним — одна кнопка «Открыть игру» (`telegram.greet`). */
+export function greeting(sicily: boolean): string {
+  return [
+    'TRIBE — стратегия о городе в Европе 1200 года.',
+    'Строишь город, куёшь оружие, нанимаешь дружину и ходишь походами на логова и на соседей. Заход — несколько минут.',
+    ...(sicily ? ['', `Сейчас идёт тест на Сицилии: до ${SICILY_PLACES} городов на одном острове, все против всех.`] : []),
+  ].join('\n');
+}
+
+/** Сколько строк итоговой таблицы помещается в сообщение с запасом: игроков теста — до двенадцати. */
+export const FINAL_ROWS = 30;
+
+/** Строка таблицы: место, город, очки; под ней — из чего они. */
+function finalRow(r: RatingRow): string {
+  return [
+    `${r.place}. «${cityOr(r.city)}» — ${count(r.points, 'очко', 'очка', 'очков')}`,
+    `    мощь ${r.power}, ${count(r.won, 'победа', 'победы', 'побед')}, ${count(r.taken, 'город взят', 'города взято', 'городов взято')}`,
+  ].join('\n');
+}
+
+/**
+ * Итоговая таблица для игрока (`/final`). Первые `FINAL_ROWS` строк; своя строка, если ниже, — отдельно. `me` — строка
+ * получателя; нет её (заморожен или не в реестре) — таблица без своего места.
+ */
+export function finalText(rows: RatingRow[], me: RatingRow | null): string {
+  const top = rows.slice(0, FINAL_ROWS);
+  return [
+    'Тест окончен. Итоговый рейтинг:',
+    '',
+    ...top.map(finalRow),
+    ...(rows.length > top.length ? [`…и ещё ${rows.length - top.length}`] : []),
+    ...(me ? ['', `Твоё место — ${me.place} из ${rows.length}.`] : []),
+    '',
+    'Спасибо за игру.',
+  ].join('\n');
 }

@@ -329,6 +329,30 @@ describe('цепочка кадров держит потолок', () => {
     expect(ticks).toBeLessThanOrEqual(301);
   });
 
+  it('потолок функцией меняется на ходу и выше шестидесяти не поднимается (карта на «Низком», docs/perf.md)', () => {
+    // Точки внутри области: экран 120 Гц быстрее обоих потолков — иначе тридцать и шестьдесят вышли бы и без них.
+    let want = 30;
+    const clock = Object.assign(new FakeClock(120), { cap: () => want });
+    let ticks = 0;
+    const loop = new FrameLoop<never>(() => void ticks++, undefined, clock);
+    loop.restart();
+    clock.run(120 * 10);
+    expect(ticks).toBeGreaterThanOrEqual(299);
+    expect(ticks).toBeLessThanOrEqual(301);
+    ticks = 0;
+    want = 60;
+    clock.run(120 * 10);
+    // Смена потолка стоит не больше одного шага прежнего: срок следующего кадра уже был назначен по тридцати.
+    expect(ticks).toBeGreaterThanOrEqual(597);
+    expect(ticks).toBeLessThanOrEqual(601);
+    ticks = 0;
+    want = 240;
+    clock.run(120 * 10);
+    loop.stop();
+    expect(ticks).toBeGreaterThanOrEqual(599);
+    expect(ticks).toBeLessThanOrEqual(601);
+  });
+
   it('адрес потолок только опускает: выше шестидесяти его не поднять, мусор не значит ничего', () => {
     expect(capFrom('?probe=1&fpscap=30')).toBe(30);
     expect(capFrom('?fpscap=240')).toBe(FPS_CAP);
