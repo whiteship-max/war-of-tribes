@@ -307,7 +307,11 @@ async function deedShots(tab: Tab, q: Quality): Promise<void> {
     window.__game.getState().dismissOffline();
     return JSON.stringify('ok');
   })()`);
-  await still(`document.querySelectorAll('.city-pop.go').length > 2`, '3-yield', 150);
+  // Надписи поднимаются анимацией CSS по настоящим часам: снимок ставит каждую на её полсекунды — всплыла и видна.
+  await until(`document.querySelectorAll('.city-pop.go').length > 2 && (window.__scene.pause(), true)`);
+  await tab.eval<string>(`(() => { for (const a of document.getAnimations()) if (a.animationName === 'city-pop') { a.pause(); a.currentTime = 450; } return JSON.stringify('ok'); })()`);
+  await snap('3-yield');
+  await tab.eval<string>(`(() => { for (const a of document.getAnimations()) if (a.animationName === 'city-pop') a.play(); window.__scene.resume(); return JSON.stringify('ok'); })()`);
   // Найм: заказ в казармах, потом он обучен целиком — заказ снят, бойцы в войске (как кончается настоящий найм).
   await tab.eval<string>(`(() => {
     const s = window.__game.getState().s;
@@ -326,7 +330,7 @@ async function deedShots(tab: Tab, q: Quality): Promise<void> {
     return JSON.stringify('ok');
   })()`);
   await look('barracks', 140);
-  await still(`(window.__scene.deeds?.soldiers?.count ?? 0) >= 8`, '4-muster');
+  await still(`(window.__scene.deeds?.soldiers?.count ?? 0) >= ${q === 'low' ? 6 : 8}`, '4-muster');
   await tab.eval<string>(`(() => { window.__game.getState().openBuilding(${pick.id}); return JSON.stringify('ok'); })()`);
   await sleep(110);
   await snap('5-sheet');

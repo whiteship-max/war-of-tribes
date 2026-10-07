@@ -115,6 +115,9 @@ const POP_LIFE = 1.9;
 const EDGE_X = 0.12;
 const EDGE_TOP = 0.17;
 const EDGE_BOTTOM = 0.84;
+/** Место надписи на экране, точки CSS: ширина, за которой соседи не мешают, и высота строки (`deeds.css`). */
+const POP_W = 76;
+const POP_H = 23;
 /** Волна — лесенкой: надпись за надписью через столько секунд. */
 const WAVE_STEP = 0.14;
 
@@ -178,6 +181,7 @@ export class CityPops {
   update(camera: THREE.Camera, w: number, h: number, now: number): void {
     if (this.live.length === 0) return;
     const keep: Live[] = [];
+    const placed: { p: Live; x: number; y: number; off: boolean; edge: boolean; rows: number }[] = [];
     for (const p of this.live) {
       if (now - p.at > POP_LIFE) {
         p.el.remove();
@@ -188,20 +192,31 @@ export class CityPops {
       const v = this.v.set(p.x, p.y, p.z).project(camera);
       // За кадром двор не теряется: надпись встаёт у края экрана со стороны двора (между верхом и низом интерфейса).
       // За спиной камеры её нет вовсе.
-      const off = v.z > 1;
       const sx = ((v.x + 1) / 2) * w;
       const sy = ((1 - v.y) / 2) * h;
-      const cx = Math.min(w * (1 - EDGE_X), Math.max(w * EDGE_X, sx));
-      const cy = Math.min(h * EDGE_BOTTOM, Math.max(h * EDGE_TOP, sy));
-      p.el.classList.toggle('edge', cx !== sx || cy !== sy);
-      p.el.style.transform = `translate3d(${cx}px, ${cy}px, 0)`;
+      const x = Math.min(w * (1 - EDGE_X), Math.max(w * EDGE_X, sx));
+      const y = Math.min(h * EDGE_BOTTOM, Math.max(h * EDGE_TOP, sy));
+      placed.push({ p, x, y, off: v.z > 1, edge: x !== sx || y !== sy, rows: p.res.length });
+    }
+    // Надписи не ложатся одна на другую: сверху вниз, задевшая верхнюю сдвигается под неё (у края их бывает несколько).
+    placed.sort((a, b) => a.y - b.y);
+    for (let i = 1; i < placed.length; i++) {
+      for (let j = 0; j < i; j++) {
+        const a = placed[j];
+        const b = placed[i];
+        if (Math.abs(a.x - b.x) < POP_W && b.y - a.y < POP_H * a.rows) b.y = a.y + POP_H * a.rows;
+      }
+    }
+    for (const { p, x, y, off, edge } of placed) {
+      p.el.classList.toggle('edge', edge);
+      p.el.style.transform = `translate3d(${x}px, ${y}px, 0)`;
+      p.el.style.visibility = off ? 'hidden' : '';
       if (!p.shown) {
         // Первое появление: анимация подъёма идёт от этой минуты; верхней полосе — знак, какой запас пришёл.
         p.shown = true;
-        p.el.style.visibility = off ? 'hidden' : '';
         p.el.classList.add('go');
         if (!off && typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('tribe-yield', { detail: p.res }));
-      } else p.el.style.visibility = off ? 'hidden' : '';
+      }
     }
     this.live = keep;
   }

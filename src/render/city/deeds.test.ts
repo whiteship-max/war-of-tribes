@@ -2,6 +2,7 @@
 // найм строем и добыча над дворами. Тесты-свойства называют свою область (полный цикл блока, вся жизнь выхода отряда,
 // праздник целиком) и проверяют, что каждая точка внутри неё (правило 11).
 import { describe, expect, it } from 'vitest';
+import * as THREE from 'three';
 import type { BuildingTypeId, GameState, ResourceId, Resources } from '@/game/types';
 import { DAY_LENGTH, RESOURCE_IDS } from '@/game/constants';
 import { gameSeconds } from '@/game/pace';
@@ -17,6 +18,9 @@ const plan = cityPlan();
 const { sites } = buildStatic(plan, 'medium');
 const life = new CityLife({ plan, chimneys: [], flagTops: [], quality: 'medium' });
 const street = life.street();
+
+/** Потолок треугольников отклика в худший миг (три стройки, праздник, строй) — по уровням. */
+const DEED_TRIS = { high: 5000, medium: 5000, low: 1200 };
 
 const res = (part: Partial<Resources>): Resources => ({ ...(Object.fromEntries(RESOURCE_IDS.map((r) => [r, 0])) as Resources), ...part });
 
@@ -101,6 +105,26 @@ describe('город: отклик — леса стройки', () => {
     d.update(2 + FEAST + 0.1, 0, 3);
     expect(d.busy()).toBe(false);
     expect(d.group.children.every((o) => !o.visible), 'праздник кончился — снова тихо').toBe(true);
+  });
+});
+
+describe('город: отклик — цена', () => {
+  it('три стройки самых больших построек, праздник и полный строй разом — в запасе среднего и высокого', () => {
+    for (const q of ['high', 'medium', 'low'] as const) {
+      const d = new CityDeeds({ sites, quality: q, street });
+      const big = [...CITY_OWNERS].sort((a, b) => scaffoldOf(mainSite(sites, b)!, q).beams.length - scaffoldOf(mainSite(sites, a)!, q).beams.length);
+      d.setWorks(big.slice(0, 2));
+      d.done(big[2], 4.5);
+      d.muster(16, 0);
+      d.update(5, 0, 3);
+      const tris = (im: THREE.InstancedMesh): number => (im.visible ? im.count * ((im.geometry.index?.count ?? 0) / 3) : 0);
+      const meshes = d.group.children.filter((o): o is THREE.InstancedMesh => o instanceof THREE.InstancedMesh);
+      const total = meshes.reduce((n, im) => n + tris(im), 0);
+      const calls = d.group.children.filter((o) => o.visible).length;
+      // Пять вызовов: коробки лесов и стягов, строители, строй, пыль, вспышки; треугольники — малая доля кадра (раздел 13.2).
+      expect(calls, q).toBeLessThanOrEqual(5);
+      expect(total, `${q}: треугольников`).toBeLessThanOrEqual(DEED_TRIS[q]);
+    }
   });
 });
 
