@@ -255,7 +255,7 @@ export const heightOnPath = (path: Path, s: number): number => {
 };
 
 /** Ближайшая точка ломаной пути: расстояние и место на пути (метры от начала). */
-function nearestOn(path: Path, p: P): { d: number; s: number } {
+export function nearestOn(path: Path, p: P): { d: number; s: number } {
   let d = Infinity;
   let s = 0;
   for (let k = 1; k < path.pts.length; k++) {
@@ -269,7 +269,7 @@ function nearestOn(path: Path, p: P): { d: number; s: number } {
 }
 
 /** Перекрёсток на пути: на месте `s` можно свернуть на путь `q` в его место `sq`. */
-interface Junction {
+export interface Junction {
   s: number;
   q: number;
   sq: number;
@@ -813,6 +813,11 @@ export class CityLife {
 
   private junctions: Junction[][] = [];
   private weight: number[] = [];
+
+  /** Граф улиц — тем, кто ходит по городу по делу: найм идёт из казарм на площадь (`deeds.marchRoute`). */
+  street(): { paths: readonly Path[]; junctions: readonly Junction[][] } {
+    return { paths: this.paths, junctions: this.junctions };
+  }
 
   /**
    * Прохожие: идущие — по маршрутам графа улиц, стоящие — кружками у рядов, колодца, паперти и ратуши. Раскладка от

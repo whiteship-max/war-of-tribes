@@ -1,7 +1,9 @@
 import './next.css';
+import { useEffect, useRef, useState } from 'react';
 import { useGame } from '@/game/store';
 import { armySize, bondedTotal, buildingOfType, housingCapacity, netPerDay, orderValue, seasonOf, seasonProgress } from '@/game/derived';
 import { ORDER_WARN, RESOURCE_IDS, RESOURCE_META } from '@/game/constants';
+import type { ResourceId } from '@/game/types';
 import { SEASON_META } from '@/game/data/seasons';
 import { Icon } from '@/ui/icons/Icon';
 import { iconName, moodOf } from '@/ui/icons/registry';
@@ -24,6 +26,68 @@ import { armyTip, energyTip, goldTip, isFull, moraleTip, orderTip, popTip, resTi
  * `shortNum`): на 375 px четырёхзначные распёрли бы строку (решение владельца 04.10.2026, docs/ui_audit.md, 14.4,
  * вопрос 3). Мораль, порядок и энергия — до ста, им сокращать нечего.
  */
+/** Сколько число запаса бежит к новому, мс; шаг пересчёта — мс (таймер, не кадр: кадр — у двери `render/loop`). */
+const SOFT_MS = 600;
+const SOFT_STEP = 40;
+
+/**
+ * Число запаса, которое не прыгает, а бежит к новому значению (docs/city.md, 14.3): заметная прибавка или трата видна
+ * движением. Мелкий шаг выработки (меньше двух) встаёт сразу — строка не дрожит на каждом шаге цикла.
+ */
+function Soft({ value }: { value: number }) {
+  const [shown, setShown] = useState(value);
+  const from = useRef(value);
+  const now = useRef(value);
+  useEffect(() => {
+    const start = now.current;
+    if (Math.abs(value - start) < 2) {
+      now.current = value;
+      setShown(value);
+      return;
+    }
+    from.current = start;
+    let k = 0;
+    const steps = Math.ceil(SOFT_MS / SOFT_STEP);
+    const id = setInterval(() => {
+      k++;
+      const u = Math.min(1, k / steps);
+      const e = 1 - (1 - u) * (1 - u) * (1 - u);
+      now.current = from.current + (value - from.current) * e;
+      setShown(now.current);
+      if (u >= 1) clearInterval(id);
+    }, SOFT_STEP);
+    return () => clearInterval(id);
+  }, [value]);
+  return <b>{shortNum(shown)}</b>;
+}
+
+/** Какие запасы сейчас пришли над постройками города (`render/city/pops.ts`, событие `tribe-yield`) — ячейка вспыхивает. */
+function useYieldFlash(): ReadonlySet<ResourceId> {
+  const [lit, setLit] = useState<ReadonlySet<ResourceId>>(new Set());
+  useEffect(() => {
+    const timers = new Map<ResourceId, ReturnType<typeof setTimeout>>();
+    const on = (e: Event): void => {
+      const list = (e as CustomEvent<ResourceId[]>).detail ?? [];
+      setLit((was) => new Set([...was, ...list]));
+      for (const r of list) {
+        clearTimeout(timers.get(r));
+        timers.set(
+          r,
+          setTimeout(() => {
+            setLit((was) => new Set([...was].filter((x) => x !== r)));
+          }, 700),
+        );
+      }
+    };
+    window.addEventListener('tribe-yield', on);
+    return () => {
+      window.removeEventListener('tribe-yield', on);
+      for (const t of timers.values()) clearTimeout(t);
+    };
+  }, []);
+  return lit;
+}
+
 export function Hud() {
   const s = useGame((g) => g.s);
   const openTab = useGame((g) => g.openTab);
@@ -40,6 +104,7 @@ export function Hud() {
   const storage = buildingOfType(s, 'storage');
   const go: TipGo = { tab: openTab, building: openBuilding, realm: showRealm };
   const showTrades = useTrades((t) => t.show);
+  const lit = useYieldFlash();
   // Энергия — сутками игрока (`ui/trades.energyNow`); перерисовывается вместе с партией, раз в шаг цикла.
   const energy = energyShown(s, energyNow());
   // Подсказка считается в миг касания: числа в ней — на эту секунду, а не на последнюю перерисовку.
@@ -96,7 +161,7 @@ export function Hud() {
           return (
             <button
               key={r}
-              className={`nx-cell${full ? ' full' : ''}`}
+              className={`nx-cell${full ? ' full' : ''}${lit.has(r) ? ' got' : ''}`}
               onClick={tip(() => resTip(s, r, storage?.id ?? null, go))}
               aria-label={RESOURCE_META[r].name}
             >
@@ -104,7 +169,7 @@ export function Hud() {
                 <Icon name={`res-${r}`} glyph={RESOURCE_META[r].icon} />
                 {trend && <i className={`nx-tr ${trend}`} />}
               </span>
-              <b>{shortNum(s.resources[r])}</b>
+              <Soft value={s.resources[r]} />
             </button>
           );
         })}

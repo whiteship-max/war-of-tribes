@@ -10,6 +10,7 @@ import { SceneTrouble } from './SceneTrouble';
 import { measureViewport } from '@/viewport';
 import { nextFrame } from '@/render/loop';
 import { gfx, gfxKey, sceneGfx, subscribeGfx } from '@/render/gfx';
+import { awayGameSeconds } from '@/game/sim/tick';
 
 /**
  * Как часто сторож спрашивает сцену, идут ли кадры. Две секунды: чаще незачем —
@@ -237,6 +238,11 @@ export function GameCanvas() {
     const unsub = useGame.subscribe((g, prev) => {
       if (g.s !== prev.s) scene.sync(g.s);
       if (g.sheet !== prev.sheet) scene.setSelected(g.sheet?.kind === 'building' ? g.sheet.id : null);
+      // Окно «С возвращением» закрыто («Посмотреть»): город показывает добычу отлучки одной волной (docs/city.md, 14.3).
+      // Новая партия (`reset`) тоже гасит окно — у неё время с нуля, и показывать нечего.
+      if (prev.offlineSeconds >= 60 && g.offlineSeconds === 0 && g.s.time >= prev.s.time) {
+        scene.welcome(awayGameSeconds(0, prev.offlineSeconds * 1000));
+      }
       if (g.mapOpen !== prev.mapOpen) {
         if (g.mapOpen) scene.pause();
         else {

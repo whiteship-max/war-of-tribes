@@ -6,16 +6,19 @@
 //
 // Ленивый кусок: едет до игры (`main.tsx`) и кладёт свой класс в `SCENES`.
 import * as THREE from 'three';
-import type { BuildingTypeId, GameState } from '@/game/types';
-import { armySize, buildingAttention, population, type Attention } from '@/game/derived';
+import type { BuildingTypeId, GameState, ResourceId } from '@/game/types';
+import { armySize, buildingAttention, buildingProduction, population, productionPerDay, storageCap, type Attention } from '@/game/derived';
+import { RESOURCE_IDS } from '@/game/constants';
 import type { SmokeSource } from '../weather';
 import { hearCity } from '@/sound/ear';
 import { WORK_SIGN, workBusy } from '../worksigns';
 import type { V3 } from './geom';
 import { CityLife } from './life';
 import type { CityBustle } from './alive';
+import type { CityDeeds } from './deeds';
+import { newsOf, seenOf, waveAfter, WAVE_REAL, type CityPops, type Seen, type Yard, type YieldTally } from './pops';
 import { TAP_TARGET } from '@/gestures';
-import { SCENES, TribeScene, type BuildingView, type SceneLook } from '../Scene';
+import { markerSvg, SCENES, TribeScene, type BuildingView, type SceneLook } from '../Scene';
 import { RIG, applyDayNight, fitShadow, windowNight } from '../lighting';
 import { disposeGeometries } from '../kit';
 import type { HitBox } from '../pick';
@@ -49,6 +52,18 @@ export class CityScene extends TribeScene {
    */
   private bustle: CityBustle | null = null;
   private bustleWanted = false;
+  /**
+   * Отклик на дела игрока — стройка лесами, праздник готовности, найм строем, добыча над дворами (docs/city.md, 14):
+   * своим куском (`deeds.ts`), вместе с суетой после первого кадра города.
+   */
+  private deeds: CityDeeds | null = null;
+  private pops: CityPops | null = null;
+  private tally: YieldTally | null = null;
+  /** Что отклик видел в прошлом чтении партии (`pops.seenOf`) и когда это было настоящим временем, мс. */
+  private seen: { was: Seen; real: number } | null = null;
+  /** Добыча отлучки ждёт куска отклика (`welcome` раньше его прихода), игровых секунд. */
+  private welcomeDue = 0;
+  private lastState: GameState | null = null;
   /** Сколько народу на улицах и стражи на стене и какие дворы работают — из партии (`sync`). */
   private crowd: { people: number; guards: number; busy: BuildingTypeId[] } = { people: 40, guards: 6, busy: [] };
 
@@ -198,6 +213,12 @@ export class CityScene extends TribeScene {
       }
       this.folk?.update(dt, t, night, this.seasonVis.snow);
       this.bustle?.update(t, night, this.seasonVis.snow);
+      if (this.deeds) {
+        // Точкам пыли и вспышек — пикселей буфера на метр в метре от камеры.
+        const scale = this.canvas.height / (2 * Math.tan((this.camera.fov * Math.PI) / 360));
+        this.deeds.update(t, night, scale, { x: this.camera.position.x, z: this.camera.position.z });
+      }
+      this.pops?.update(this.camera, this.canvas.clientWidth, this.canvas.clientHeight, t);
       // Первый кадр города нарисован — теперь докачка суеты.
       if (this.bustleWanted) {
         this.bustleWanted = false;
@@ -219,6 +240,89 @@ export class CityScene extends TribeScene {
         this.scene.add(this.bustle.group);
       })
       .catch(() => undefined);
+    // Отклик — своим куском, тем же правилом: не пришёл — город стоит без лесов и надписей, игра идёт как шла.
+    import('./deeds')
+      .then(({ CityDeeds, CityPops, YieldTally }) => {
+        if (this.disposed || this.town !== c || !this.folk) return;
+        this.deeds = new CityDeeds({ sites: this.sites, quality: this.quality, street: this.folk.street() });
+        this.scene.add(this.deeds.group);
+        this.pops = new CityPops(this.canvas.parentElement, this.quality, markerSvg, new THREE.Vector3());
+        this.tally = new YieldTally();
+        if (this.lastState) this.respond(this.lastState);
+        if (this.welcomeDue > 0) this.welcome(this.welcomeDue);
+      })
+      .catch(() => undefined);
+  }
+
+  /**
+   * Отклик на партию: леса у построек, которые улучшаются; праздник у той, чья стройка кончилась; выход обученных по
+   * заказам найма; добыча дворов за прожитое партией время. Первое чтение только запоминает: уровни и найм, бывшие до
+   * входа, — не новость.
+   */
+  private respond(s: GameState): void {
+    const deeds = this.deeds;
+    if (!deeds) return;
+    const t = this.sceneNow();
+    deeds.setWorks(s.buildings.filter((b) => b.workRequired > 0).map((b) => b.type));
+    const prev = this.seen;
+    const real = performance.now();
+    this.seen = { was: seenOf(s), real };
+    if (!prev) return;
+    const news = newsOf(prev.was, s);
+    for (const type of news.done) deeds.done(type, t);
+    if (news.trained > 0) deeds.muster(news.trained, t);
+    // Волна — когда партия прожила отлучку (страница спала): и игрового времени, и настоящего прошло больше порога (под
+    // скоростью проверки игровых секунд за шаг много, а настоящих — полсекунды).
+    this.yieldFor(s, news.dt, news.dt > waveAfter() && real - prev.real > WAVE_REAL * 1000);
+  }
+
+  /**
+   * «Сейчас» на часах сцены — для чтения партии между кадрами: часы сцены идут кадрами (`clock.getDelta`), и после
+   * долгого кадра или возврата из фона их последнее показание отстало бы — праздник начался бы в прошлом.
+   */
+  private sceneNow(): number {
+    const c = this.clock;
+    return c.running ? c.elapsedTime + Math.max(0, performance.now() - c.oldTime) / 1000 : c.elapsedTime;
+  }
+
+  /** Выработка дворов (вольный сбор — площади у костра) за `dt` игровых секунд — надписями над постройками. */
+  private yieldFor(s: GameState, dt: number, wave: boolean): void {
+    const tally = this.tally;
+    const pops = this.pops;
+    if (!tally || !pops || !(dt > 0)) return;
+    const yards: Yard[] = [];
+    const free = productionPerDay(s);
+    for (const b of s.buildings) {
+      const perDay = buildingProduction(s, b);
+      yards.push({ type: b.type, perDay });
+      for (const r of RESOURCE_IDS) free[r] -= perDay[r];
+    }
+    const camp = yards.find((y) => y.type === 'campfire');
+    if (camp) for (const r of RESOURCE_IDS) camp.perDay[r] += Math.max(0, free[r]);
+    const cap = storageCap(s);
+    const full = new Set<ResourceId>(RESOURCE_IDS.filter((r) => s.resources[r] >= cap - 1));
+    const t = this.sceneNow();
+    const list = tally.feed(yards, dt, t, full, wave);
+    const placed = list.flatMap((pop) => {
+      const m = mainSite(this.sites, pop.type);
+      return m ? [{ x: m.x, y: m.y1 + 2.5, z: m.z, pop }] : [];
+    });
+    // Волна — по дальности от середины кадра: от того, на что смотрят, к краям.
+    if (wave) placed.sort((a, b) => Math.hypot(a.x - this.target.x, a.z - this.target.z) - Math.hypot(b.x - this.target.x, b.z - this.target.z));
+    pops.add(placed, wave, t);
+  }
+
+  /**
+   * Игрок вернулся и закрыл окно «С возвращением» (`GameCanvas`): добыча отлучки — одной волной над дворами. Партия
+   * догнана при чтении (`save.enter`), здесь — только показ: выработка дворов за `gameSec` игровых секунд отлучки.
+   */
+  override welcome(gameSec: number): void {
+    if (!this.deeds || !this.lastState) {
+      this.welcomeDue = gameSec;
+      return;
+    }
+    this.welcomeDue = 0;
+    this.yieldFor(this.lastState, gameSec, true);
   }
 
   // ---------- Постройки ----------
@@ -254,6 +358,8 @@ export class CityScene extends TribeScene {
       busy: s.buildings.filter((b) => WORK_SIGN[b.type]?.smoke && workBusy(s, b, false)).map((b) => b.type),
     };
     this.folk?.set(this.crowd.people, this.crowd.guards, this.workSmoke());
+    this.lastState = s;
+    this.respond(s);
   }
 
   /** Группа здания — на главное место его постройки, значок — над крышей. */
@@ -339,6 +445,10 @@ export class CityScene extends TribeScene {
     this.folk = null;
     this.bustle?.dispose();
     this.bustle = null;
+    this.deeds?.dispose();
+    this.deeds = null;
+    this.pops?.dispose();
+    this.pops = null;
     this.town?.dispose();
     this.town = null;
     super.dispose();

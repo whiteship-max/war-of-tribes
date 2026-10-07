@@ -172,6 +172,13 @@ const LAZY_DOORS: { name: string; door: RegExp; owns: RegExp[] }[] = [
     door: /\/src\/render\/city\/alive\.ts$/,
     owns: [/\/src\/render\/city\/alive\.ts$/],
   },
+  {
+    // Отклик на дела игрока (docs/city.md, 14): леса стройки, праздник готовности, найм строем, слой добычи — своя
+    // докачка вместе с суетой, после первого кадра города.
+    name: 'город: отклик',
+    door: /\/src\/render\/city\/deeds\.ts$/,
+    owns: [/\/src\/render\/city\/deeds\.ts$/, /\/src\/render\/city\/deeds\.css$/],
+  },
 ];
 
 function lazyDoorsPlugin(): Plugin {
