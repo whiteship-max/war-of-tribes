@@ -52,8 +52,19 @@ describe('звук города: жест, рычаг и докачка', () => 
     woke = 0;
   });
 
-  it('у нового игрока звук выключен: касание не открывает контекста и не качает кусок', async () => {
+  it('у нового игрока — умолчание игры: на время теста звук включён и начинается с первого касания', async () => {
     memory(null);
+    // Без касания — ничего: дверь сама ничего не открывает.
+    expect(opened).toEqual([]);
+    cityAudio.arm();
+    cityAudio.arm();
+    await flush();
+    expect(opened).toEqual(settings.DEFAULT_ON ? ['music', 'fx'] : []);
+    expect(started.length).toBe(settings.DEFAULT_ON ? 1 : 0);
+  });
+
+  it('выключенный звук: касание не открывает контекста и не качает кусок', async () => {
+    memory(false);
     cityAudio.arm();
     cityAudio.arm();
     await flush();

@@ -10,7 +10,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { WolfHowl, type HowlHost } from './howl';
-import { setSoundOn, setSoundStorage, soundOn } from './settings';
+import { DEFAULT_ON, setSoundOn, setSoundStorage, soundOn } from './settings';
 
 const SRC = join(__dirname, '..');
 
@@ -34,18 +34,20 @@ const memory = (on: boolean | null): void => {
   setSoundStorage({ read: () => saved, write: (v) => (saved = v) });
 };
 
-describe('вой молчит, пока игрок сам не включил звук', () => {
-  it('у нового игрока ни контекста, ни воя — даже после жеста', () => {
-    // Пустое хранилище — звук выключен. Это то же умолчание, что у музыки, и
-    // берётся оно у той же настройки, а не заводится здесь своё.
+describe('вой молчит без жеста и при выключенном звуке', () => {
+  it('у нового игрока — умолчание игры: выть может только после жеста и только при включённом по умолчанию звуке', () => {
+    // Пустое хранилище — то же умолчание, что у музыки (`DEFAULT_ON`; на время теста с игроками — включён), и берётся
+    // оно у той же настройки, а не заводится здесь своё.
     memory(null);
     const host = new Counting();
     const howl = new WolfHowl(host, soundOn);
+    howl.howl(1);
+    expect(host.howls).toEqual([]);
     howl.arm();
     howl.howl(1);
-    expect(host.opened).toBe(0);
-    expect(host.howls).toEqual([]);
-    expect(howl.ready).toBe(false);
+    expect(host.opened).toBe(DEFAULT_ON ? 1 : 0);
+    expect(host.howls.length).toBe(DEFAULT_ON ? 1 : 0);
+    expect(howl.ready).toBe(DEFAULT_ON);
   });
 
   it('без жеста не воет и при включённом звуке', () => {

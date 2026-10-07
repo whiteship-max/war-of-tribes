@@ -7,7 +7,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { setSoundStorage, soundOn } from '@/sound/settings';
+import { DEFAULT_ON, setSoundStorage, soundOn } from '@/sound/settings';
 import { HUNT_NEAR, HuntSound, placeSound, type HuntHost, type ThudKind } from './huntSound';
 
 /** Среда, которая только считает. */
@@ -39,16 +39,17 @@ const memory = (on: boolean | null): void => {
 
 const EAR = { x: 0, z: 0, rx: 1, rz: 0 };
 
-describe('звук охоты молчит, пока игрок сам не включил звук', () => {
-  it('у нового игрока — ни контекста, ни звука, даже после «Начать»', () => {
+describe('звук охоты молчит без жеста и при выключенном звуке', () => {
+  it('у нового игрока — умолчание игры (`DEFAULT_ON`): звук только после «Начать» и только при включённом умолчании', () => {
     memory(null);
     const host = new Counting();
     const s = new HuntSound(host, soundOn);
+    s.twang(1);
+    expect(host.heard).toEqual([]);
     s.arm();
     s.twang(1);
-    s.thud('ground', EAR, 1, 1);
-    expect(host.opened).toBe(0);
-    expect(host.heard).toEqual([]);
+    expect(host.opened).toBe(DEFAULT_ON ? 1 : 0);
+    expect(host.heard.length > 0).toBe(DEFAULT_ON);
   });
 
   it('без жеста молчит и при включённом звуке; после жеста — звучит, и выход открыт один раз', () => {

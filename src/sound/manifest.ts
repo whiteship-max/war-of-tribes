@@ -129,9 +129,8 @@ export const WHOLE_LEVELS: Record<MusicLayer, number> = {
 export const battleWholeUrl = (): string => `${MUSIC_DIR}${BATTLE_WHOLE.file}`;
 
 /**
- * Мирных дорожек деревни (`village-1..4.mp3`) в игре больше нет: с 06.10.2026 в городе звучит музыка эпохи — синтез,
- * без файлов и без загрузки (`sound/epoch/`, docs/audio.md, решение 1). Файлы в `public/assets/music/` и их сборка
- * (`npm run music:build`) оставлены до слова владельца — вопрос в docs/audio.md.
+ * Мирных дорожек деревни в игре больше нет: с 06.10.2026 в городе звучит музыка эпохи — синтез, без файлов и без
+ * загрузки (`sound/epoch/`, docs/audio.md, решение 1); файлы и их сборка удалены 07.10.2026 решением владельца.
  */
 
 /**
