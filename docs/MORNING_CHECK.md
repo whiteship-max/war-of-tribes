@@ -265,8 +265,8 @@ Wi-Fi.
 - **Игра с новой картой:** `/?map=tw` — выбор запоминается на устройстве (в Телеграме адрес не поправишь);
   `/?map=old` — вернуть прежнюю. Открыть карту кнопкой мира.
 - **Стенд (один кадр, без пальца):** `/?showcase=map-tw` — Лигурийский берег. Ракурсы `&view=`: `start`, `near`,
-  `mid`, `far`, `coast`, `mountains`, `forest`, `army`, `edge` (край старой карты); **`objects`** — галерея всех
-  миниатюр (`&scale=22` / `72`, `&boxes=1` — рамки тела = цели пальца), `objects-far` — значки и стяги; края Европы —
+  `mid`, `far`, `coast`, `mountains`, `forest`, `army`, `edge` (край старой карты); галерея миниатюр (`objects`)
+  убрана 07.10.2026 вместе с миниатюрами — места и отряды теперь значки (docs/map_tw.md, раздел 14); края Европы —
   `eu-norway`, `eu-sahara`, `eu-anatolia`, `eu-britain`, `eu-hungary`, `eu-pyrenees`, `eu-crimea`, `eu-baltic`,
   `eu-greece`, `eu-alps`. Свои: `&quality=low|medium|high`, `&season=winter`, `&night=1`, `&old=1` (прежняя карта).
 

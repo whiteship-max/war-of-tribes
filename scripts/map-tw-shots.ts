@@ -3,8 +3,6 @@
 //   npm run map-tw:shots                                   — ракурс «start», высокий уровень, лето
 //   SHOTS=start,coast,mountains QUALITY=high,medium TAG=r2 npm run map-tw:shots
 //   EXTRA="season=winter&night=1" npm run map-tw:shots     — свои параметры поверх ракурса
-//   SHOTS=objects EXTRA="scale=22" npm run map-tw:shots    — галерея миниатюр (места, войска, работы, значки);
-//                                                            экран подгоняется под галерею (`dataset.need`)
 //   GAME=1 SHOTS=44,24,7 npm run map-tw:shots              — сама игра (`FOG=1` — с туманом, как у игрока; `MARCHES=1` —
 //                                                            с отрядами и лагерями у дома):
 //                                                            закреплённый мир с домом в Генуе, кадр карты
@@ -122,32 +120,12 @@ async function ready(tab: Tab): Promise<boolean> {
   return false;
 }
 
-/** Галерея миниатюр не помещается в телефон: экран — по её мере, в пределах разумного. */
-const GALLERY_MAX = { width: 1400, height: 4200 };
-
 async function shot(view: string, quality: string): Promise<void> {
   const tab = await Tab.open(DEBUG_PORT, 'about:blank');
   try {
-    const gallery = view.startsWith('objects');
-    let screen = gallery ? { ...SCREEN, width: 640, height: 900 } : SCREEN;
-    await tab.send('Emulation.setDeviceMetricsOverride', screen);
+    await tab.send('Emulation.setDeviceMetricsOverride', SCREEN);
     await tab.send('Page.navigate', { url: pageUrl(view, quality) });
-    let ok = await ready(tab);
-    // Галерея пишет, сколько места ей нужно; экран подгоняется и страница печётся заново (раскладка
-    // зависит от ширины — второй круг выравнивает высоту под новую ширину).
-    for (let round = 0; gallery && ok && round < 3; round++) {
-      const need = await tab.eval<string>(`JSON.stringify(document.body.dataset.need ?? '')`).catch(() => '');
-      const [w, h] = need.split(',').map(Number);
-      if (!(w > 0 && h > 0)) break;
-      const next = { ...SCREEN, width: Math.min(GALLERY_MAX.width, Math.max(360, w)), height: Math.min(GALLERY_MAX.height, Math.max(400, h)) };
-      if (next.width === screen.width && next.height === screen.height) break;
-      screen = next;
-      // Старая готовность не должна сойти за новую: флаг снимается до перехода.
-      await tab.eval<string>(`(() => { delete document.body.dataset.ready; return JSON.stringify('ok'); })()`).catch(() => '');
-      await tab.send('Emulation.setDeviceMetricsOverride', screen);
-      await tab.send('Page.navigate', { url: pageUrl(view, quality) });
-      ok = await ready(tab);
-    }
+    const ok = await ready(tab);
     const label = `${quality} ${view}`;
     if (!ok) {
       console.log(`  ${label}: стенд не встал за 60 с`);
@@ -156,13 +134,8 @@ async function shot(view: string, quality: string): Promise<void> {
     await sleep(300);
     const s = await tab.eval<Shown>(`document.body.dataset.showcase`);
     const png = await tab.send<{ data: string }>('Page.captureScreenshot', { format: 'png' });
-    const scale = new URLSearchParams(EXTRA).get('scale');
-    const name = `${TAG}-${quality}-${view}${gallery && scale ? `-${scale}` : ''}.png`;
+    const name = `${TAG}-${quality}-${view}.png`;
     await writeFile(join(OUT, name), Buffer.from(png.data, 'base64'));
-    if (gallery) {
-      console.log(`  ${label.padEnd(16)} экран ${screen.width}×${screen.height} → .map-shots/${name}`);
-      return;
-    }
     const parts = Object.entries(s.parts ?? {})
       .map(([k, v]) => `${k} ${v}`)
       .join(', ');

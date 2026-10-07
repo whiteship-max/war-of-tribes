@@ -16,7 +16,6 @@ import { marchPosition } from '@/world/geo';
 import { figurePosition } from '@/world/store';
 import { RELATION_META } from '@/world/data/meta';
 import { type Camera, type Viewport, toScreen } from '../grid';
-import { variantOf } from '../village';
 import { type PartySize, lookOf as partyLook } from '../party';
 import { type Spot, spotsOf } from '../figures';
 import { ANCHOR_X, ANCHOR_Y, FAN_STEP, SPAN_H, SPAN_W } from '../agent';
@@ -79,7 +78,7 @@ export const placesRect = (r: Rect): Rect => ({ x: r.x - 3, y: r.y - 2, w: r.w +
 export function placeLookOf(s: SettlementView): PlaceLook {
   const kind: PlaceKind = s.ruin ? 'ruin' : s.relation === 'barbarian' ? 'lair' : s.castle && !s.mine ? 'castle' : 'city';
   const stage = s.mine && kind === 'city' ? 'town' : s.stage;
-  return { kind, stage, color: s.color, own: s.mine, variant: variantOf(s.id), sacked: s.sacked };
+  return { kind, stage, color: s.color, own: s.mine };
 }
 
 /** Кольцо пепелища: пепел, а не цвет стороны — места больше нет. */
