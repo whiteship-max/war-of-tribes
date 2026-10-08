@@ -735,6 +735,9 @@ export interface Ground {
   knowledgeGen: number;
   /** Растёт, когда куски под регионом приехали заново: по нему растр владений знает, что устарел. */
   dataGen: number;
+  /** Сид мира и снимок земли под регионом — прибою (`alive.ts`): берег он выводит той же мерой, что выпечка. */
+  seed: number;
+  land: LandGrid | null;
 }
 
 /** Испечённое региона для кадра — или null, пока региона нет. */
@@ -754,6 +757,8 @@ export function prebaked(): Ground | null {
     knowledge: s.knowledge,
     knowledgeGen: s.knowledgeGen,
     dataGen: s.dataGen,
+    seed: s.seed,
+    land: s.land,
   };
 }
 

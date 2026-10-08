@@ -14,6 +14,7 @@ import { sightDiscs, useWorld, worldNow } from '@/world/store';
 import { useGame } from '@/game/store';
 import { drawNight, dropNight, nightAt } from './night';
 import { drawClouds, dropClouds } from './clouds';
+import { columnAlpha, drawCampFires, drawColumn, drawSmoke, drawSurf, dropAlive } from './alive';
 import { secondsLeft } from '@/world/geo';
 import { sideWorks } from '@/world/works';
 import { realLeft } from '@/ui/parts/wait';
@@ -150,8 +151,26 @@ function drawPlaces(ctx: CanvasRenderingContext2D, cam: Camera, items: PlaceItem
     }
     const kinds = markers.get(s.id) ?? [];
     drawBadges(ctx, it, kinds, siege !== null, s.mine ? gate : [], ma >= 0.5, dpr, now);
+    // Живая карта (`alive.ts`): дым над осаждённым городом, над пепелищем и над сожжённым — после значков, огонь лагеря
+    // ночью — поверх ночи.
+    const burnt = s.ruin || (s.fell !== null && s.fell.fate === 'burn' && fellShown(s.fell, now));
+    // Стенд: `?smoke=1` — свой город как осаждённый (дым и огни), чтобы снять их без осады; игре адрес ничего не даёт.
+    const shown = siege !== null || (FORCED_SMOKE && s.mine);
+    if (shown || burnt) smokes.push({ x: sx, y: sy, weight: shown ? 1 : 0.6, seed: seedOf(s.id), siege: shown });
   }
   ctx.restore();
+}
+
+const FORCED_SMOKE = typeof location !== 'undefined' && new URLSearchParams(location.search).get('smoke') === '1';
+
+/** Дым и огонь мест кадра: собирает `drawPlaces`, рисует кадр — дым под ночью, огонь над ней. */
+const smokes: { x: number; y: number; weight: number; seed: number; siege: boolean }[] = [];
+
+/** Число от имени места: у каждого столба своя доля такта и свои огни. */
+function seedOf(id: string): number {
+  let h = 7;
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
+  return h % 9973;
 }
 
 // ---------- Войска ----------
@@ -252,7 +271,14 @@ function drawHosts(ctx: CanvasRenderingContext2D, cam: Camera, items: HostItem[]
   for (const it of items) {
     const { m, look, sx, sy, fx, fy, tx, ty, standing, angle, body } = it;
     if (!standing) drawRoute(ctx, fx, fy, sx, sy, tx, ty, look.color, now, routeTrim(px));
-    blit(ctx, markSprite(it.mark, it.d, dpr), sx, sy);
+    // Вблизи идущий отряд — колонна со знаменем впереди (`alive.ts`), издали — прежний значок; между — перетекают.
+    const col = standing ? 0 : columnAlpha(px);
+    if (col < 1) {
+      ctx.globalAlpha = 1 - col;
+      blit(ctx, markSprite(it.mark, it.d, dpr), sx, sy);
+      ctx.globalAlpha = 1;
+    }
+    if (col > 0) drawColumn(ctx, sx, sy, angle, look.size, look.color, px, dpr, col, seedOf(m.id));
     busy.push(body);
     if (!standing) {
       // Впереди значка — не на нём: шеврон у кольца показывает, куда идёт отряд, и издали.
@@ -293,7 +319,14 @@ function drawFigures(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport, i
       marks.push(() => drawTimer(ctx, text, tx, ty - 8, OWN, dpr));
     }
     if (it.hostMark && it.hostBox) {
-      blit(ctx, markSprite(it.hostMark, it.hostD, dpr), hx, py);
+      // Войско полководца в пути — колонной за ним, как поход (`alive.ts`); стоящее — значком.
+      const col = f.phase === 'moving' && it.host ? columnAlpha(px) : 0;
+      if (col < 1) {
+        ctx.globalAlpha = 1 - col;
+        blit(ctx, markSprite(it.hostMark, it.hostD, dpr), hx, py);
+        ctx.globalAlpha = 1;
+      }
+      if (col > 0 && it.host) drawColumn(ctx, hx, py, Math.atan2(ty - py, tx - hx), it.host.size, it.host.color, px, dpr, col, seedOf(f.id));
       busy.push(it.hostBox);
     }
     if (chosen) {
@@ -513,6 +546,8 @@ export function drawTwFrame(ctx: CanvasRenderingContext2D, cam: Camera, vp: View
   ctx.fillRect(0, 0, vp.w, vp.h);
   const gaps = ground ? drawGround(ctx, cam, vp, rect, ground) : 0;
   if (PROBE) shownGaps(gaps);
+  // Прибой у берегов (`alive.ts`): над землёй, под владениями, туманом и ночью; берег выводится стоя, кусками.
+  drawSurf(ctx, cam, vp, ground, !moving());
   // Владения — тоньше прежних, с чертой границы по краю (`tw/zones.ts`); под туманом, как и прежде. Растр — над
   // рамкой региона и заново только при новых данных и стоя.
   drawTwZones(ctx, cam, vp, now, ground ? { rect: ground.plan.reach, stamp: ground.dataGen, may: !moving() } : undefined);
@@ -526,7 +561,9 @@ export function drawTwFrame(ctx: CanvasRenderingContext2D, cam: Camera, vp: View
   const items = placeItems(cam, vp, settlementsIn(placesRect(rect)), dpr);
   places.length = 0;
   for (const it of items) places.push(it.body);
+  smokes.length = 0;
   drawPlaces(ctx, cam, items, dpr, now, markersOf(state.marches));
+  for (const sm of smokes) drawSmoke(ctx, sm.x, sm.y, cam.scale, sm.weight, sm.seed);
   // Облака и их тени — погода региона (docs/city.md, 15): над землёй и местами, под листом за границей региона.
   drawClouds(ctx, cam, vp, nightNow());
 
@@ -541,7 +578,10 @@ export function drawTwFrame(ctx: CanvasRenderingContext2D, cam: Camera, vp: View
   drawFigures(ctx, cam, vp, figureItems(cam, vp, state.figures, now, dpr), state.picked, dpr, now);
 
   // Ночь — по часам партии, как у сцены города (`tw/night.ts`); подписи и сроки — поверх неё.
-  drawNight(ctx, vp.w, vp.h, cam.scale, items, nightNow(), dpr);
+  const night = nightNow();
+  drawNight(ctx, vp.w, vp.h, cam.scale, items, night, dpr);
+  // Огни осадного лагеря — поверх ночи: их и видно только ночью.
+  for (const sm of smokes) if (sm.siege) drawCampFires(ctx, sm.x, sm.y, cam.scale, night, sm.seed);
   for (const draw of marks) draw();
   marks.length = 0;
 
@@ -557,6 +597,7 @@ export function drawTwFrame(ctx: CanvasRenderingContext2D, cam: Camera, vp: View
 
 export function dropFrame(): void {
   fitted.clear();
+  dropAlive();
   dropNight();
   dropClouds();
   dropTwZones();
