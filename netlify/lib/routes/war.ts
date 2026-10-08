@@ -25,7 +25,7 @@ import { advance, applyOrder, dueKeys, newsDiff, newsMap, pruneWars, readStoredS
 import { queueNews } from '../outbox.js';
 import { STORES } from '../kv.js';
 import { FROZEN_ORDER, FROZEN_TARGET, frozenNow, isFrozen } from '../admin.js';
-import { noted, observe } from '../watch.js';
+import { addFlags, bookOf, noted, observe, readWatchRecord } from '../watch.js';
 
 /** Все войны лежат одной записью рядом с реестром. */
 const KEY = WARS_KEY;
@@ -59,6 +59,7 @@ export const war: Route = async (req, io) => {
   const hot = io.stores(STORES.world, 'strong');
   const cool = io.stores(STORES.world, 'eventual');
   const saves = io.stores(STORES.saves, 'strong');
+  const watched = io.stores(STORES.watch, 'strong');
   const pace = warPace();
   setWarPace(pace);
   const frozen = await frozenNow(io.stores);
@@ -73,8 +74,18 @@ export const war: Route = async (req, io) => {
       return;
     }
     const found = await saves.getWithMetadata(player);
-    sheets.set(player, readStoredSheet(found ? parseJson(String(found.data)) : null));
+    const sheet = readStoredSheet(found ? parseJson(String(found.data)) : null);
+    if (!sheet) {
+      sheets.set(player, null);
+      return;
+    }
+    // Книга войска (docs/pvp.md, раздел 6): в бой идёт только подтверждённое. Записи наблюдения нет — книга пустая с этой
+    // минуты: войска, которое сервер не видел ни разу, он не подтверждает.
+    const seen = await watched.getWithMetadata(player);
+    sheets.set(player, { ...sheet, book: bookOf(readWatchRecord(seen ? parseJson(String(seen.data)) : null), now) });
   };
+  // Приказ сверх подтверждённого — флаг в описи наблюдения приказавшего (docs/admin.md, «Флаги»).
+  const forged: { text: string | null; told: boolean } = { text: null, told: false };
 
   const rosterFound = order?.op === 'march' ? await cool.getWithMetadata(ROSTER) : null;
   const roster = readRoster(rosterFound ? parseJson(String(rosterFound.data)) : null);
@@ -102,7 +113,15 @@ export const war: Route = async (req, io) => {
         const w = file.wars.find((x) => x.id === (order as { id: string }).id);
         if (w) await load(w.def);
       }
-      error = applyOrder(file, key, order, now, { roster, sheet: (player) => sheets.get(player) ?? null, noShield: spawnMode() !== null });
+      forged.text = null;
+      error = applyOrder(file, key, order, now, {
+        roster,
+        sheet: (player) => sheets.get(player) ?? null,
+        noShield: spawnMode() !== null,
+        forged: (text) => {
+          forged.text = text;
+        },
+      });
       if (!error) changed = true;
     }
     const before = file.wars.length;
@@ -110,6 +129,11 @@ export const war: Route = async (req, io) => {
     if (file.wars.length !== before) changed = true;
 
     const body: WarResponse = { now, wars: warsOf(file, key), ...(pace !== 1 ? { pace } : {}), ...(error ? { error } : {}) };
+    const flag = forged.text;
+    if (flag && !forged.told) {
+      forged.told = true;
+      await observe(io.stores, key, (rec) => addFlags(rec, now, [{ kind: 'forged', text: flag }]));
+    }
     if (!changed) return json(body);
     const written = await hot.setJSON(KEY, file, etag === null ? { onlyIfNew: true } : { onlyIfMatch: etag });
     if (written.modified) {

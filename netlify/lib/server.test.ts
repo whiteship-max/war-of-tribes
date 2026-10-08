@@ -123,6 +123,18 @@ describe('личность берётся только из подписи', () 
     expect(code).not.toMatch(/\bsaves\b[^;]*\.(?:setJSON|set|delete)\(/);
   });
 
+  /**
+   * Книга войска (docs/pvp.md, раздел 6): каждый слепок, который война кладёт в бой, идёт с книгой подтверждённого войска —
+   * иначе `war.liveSheet` поверил бы заявленному. Слепок без книги здесь означал бы, что подправленный клиент снова
+   * выставляет в бой войско, которого у него нет.
+   */
+  it('война: каждый слепок идёт в бой с книгой войска', () => {
+    const code = read('lib/routes/war.ts');
+    const sets = [...code.matchAll(/\bsheets\.set\(player,\s*([^;]*)\);/g)].map((m) => m[1].replace(/\s+/g, ' '));
+    expect(sets).toEqual(['null', 'null', '{ ...sheet, book: bookOf(readWatchRecord(seen ? parseJson(String(seen.data)) : null), now) }']);
+    expect([...code.matchAll(/\bsheets\.set\(/g)].length).toBe(3);
+  });
+
   /** Хранилище обработчик получает только из `io`: своего дома у него нет. */
   it('обработчики не открывают хранилищ сами и не называют их строкой', () => {
     for (const name of readdirSync(join(ROOT, 'lib', 'routes')).filter((n) => !/\.test\./.test(n))) {

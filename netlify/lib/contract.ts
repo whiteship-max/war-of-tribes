@@ -1043,6 +1043,11 @@ export interface WatchCard {
   caravans: number;
   /** Раненых в лазарете. */
   wounded: number;
+  /**
+   * Раненые по видам — в лазарете и при полководце в поле. Книга войска сервера считает тела (`troops` + `hurt`): раненый
+   * встаёт тем же бойцом, и подтверждать его второй раз незачем (docs/pvp.md, раздел 6). Нет поля — опись до книги.
+   */
+  hurt?: Counts;
   /** Сколько бойцов казармы и конюшня выучат за игровой день — не больше. */
   train: number;
   /**
@@ -1092,6 +1097,7 @@ export function readWatch(v: unknown): WatchCard | undefined {
     away: whole(r.away, 1e9),
     caravans: whole(r.caravans, 1e6),
     wounded: whole(r.wounded, 1e9),
+    ...(r.hurt && typeof r.hurt === 'object' ? { hurt: readCounts(r.hurt) } : {}),
     train: whole(r.train, 1e9),
     deeds: whole(r.deeds, 1e12),
     won: whole(r.won, 1e9),

@@ -108,6 +108,7 @@ export function watchOf(s: GameState): WatchCard {
     away: troopTotal(s.away ?? {}) + (s.scoutsAway ?? 0),
     caravans: (s.caravans ?? []).length,
     wounded: troopTotal(wounded.lying) + troopTotal(wounded.carried),
+    hurt: hurtOf(wounded.lying, wounded.carried),
     train: Math.ceil(train),
     deeds:
       st.hunts + st.battlesWon + st.battlesLost + st.eventsResolved + st.scouted + st.raids + st.castles + st.lairs + st.purchases + st.dailyWins + games + seen,
@@ -122,6 +123,16 @@ export function watchOf(s: GameState): WatchCard {
     lead: whole(leadAt()),
     seen,
   };
+}
+
+/** Раненые по видам одним набором: в лазарете и при полководце (книга войска сервера считает тела, docs/pvp.md). */
+function hurtOf(lying: Partial<Record<string, number>>, carried: Partial<Record<string, number>>): Counts {
+  const out: Counts = {};
+  for (const t of TROOP_IDS) {
+    const n = whole((lying[t] ?? 0) + (carried[t] ?? 0));
+    if (n > 0) out[t] = n;
+  }
+  return out;
 }
 
 /** Что уедет на сервер. Сохранение мира — та же строка, что лежит на диске. */

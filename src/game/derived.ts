@@ -55,7 +55,6 @@ import {
   PIETY_RELIC,
   PIETY_RITE,
   PIETY_SIEGE,
-  RECRUIT_WORK,
   RESOURCE_IDS,
   PRIEST_MORALE,
   PRIEST_MORALE_CAP,
@@ -81,6 +80,7 @@ import { DESERT_SHARE, MASTER_PAID_AS, UPKEEP_TEXT } from './data/upkeep';
 import { BATTLE_MAN, troopTotal, troopsAfter, type TroopStack } from './battle/kinds';
 import { baseWage, mouthsOf, troopPower } from './battle/price';
 import { levelOutputMult } from './selfcost';
+import { statAt, trainRateAt } from './train';
 import { DECREE_BY_ID, RATION_BY_ID, TAX_BY_ID, TAX_PER_POP, type DecreeDef, type RationDef, type TaxDef } from './data/policy';
 import {
   BONDED_GOOD,
@@ -228,14 +228,7 @@ export const bondedIncoming = (s: GameState): number =>
  * того, с которого эффект вообще появляется (`since`). У большинства зданий это
  * первый уровень; у ратуши жильё начинается позже (её `since` в `data/buildings.ts`).
  */
-export function buildingStat(b: Building, key: keyof BuildingStats): number {
-  const def = BUILDING_BY_ID[b.type];
-  const base = def[key] ?? 0;
-  if (base === 0) return 0;
-  const from = def.since?.[key] ?? 1;
-  if (b.level < from) return 0;
-  return base + (def.perLevel?.[key] ?? 0) * (b.level - from);
-}
+export const buildingStat = (b: Building, key: keyof BuildingStats): number => statAt(b.type, key, b.level);
 
 /** Потолок уровня для типа здания: свой предел и общий предел. */
 export function maxLevelFor(type: BuildingTypeId): number {
@@ -909,12 +902,11 @@ export const recruitsQueued = (s: GameState): number =>
  */
 export function recruitRate(s: GameState, troop: TroopId): number {
   // Конницу учат в конюшне, пеших — в казармах: у каждого здания своя очередь и свой уровень.
-  // Формула одна и та же, поэтому при равных уровнях срок найма головы прежний.
+  // Формула одна и та же, поэтому при равных уровнях срок найма головы прежний; она же — у книги войска сервера
+  // (`train.trainRateAt`, docs/pvp.md, раздел 6).
   const mounted = TROOP_BY_ID[troop].mounted === true;
   const b = buildingOfType(s, mounted ? 'stable' : 'barracks');
-  if (!b) return 0;
-  const base = RECRUIT_WORK * b.level * levelOutputMult(b.level);
-  return mounted ? base * cavalryTrain(s) : base;
+  return b ? trainRateAt(mounted, b.level) : 0;
 }
 
 // ---------- Кузница ----------

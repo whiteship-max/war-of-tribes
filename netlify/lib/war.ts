@@ -50,6 +50,7 @@ import { inHomeTheatre } from '../../src/world/theatre/theatre.js';
 import { gateBusyText, playerWood } from '../../src/world/works.js';
 import { stackCarry, stackEscort } from '../../src/world/data/units.js';
 import { SIEGE_IMMUNE, SIEGE_ROUT } from '../../src/world/data/tuning.js';
+import { bookLive, least, over, rulePips, ruleResolve, type ArmyBook } from './book.js';
 
 /** Война в хранилище: вид для игроков плюс ключи сторон. Ключи наружу не уходят никогда (`viewOf`). */
 export interface WarRow extends Omit<WarView, 'role'> {
@@ -156,6 +157,11 @@ const active = (w: WarRow): boolean => w.phase !== 'done';
 export interface SheetAt {
   sheet: WarSheet;
   at: number;
+  /**
+   * Книга войска игрока (`book.ts`, docs/pvp.md, раздел 6): сколько бойцов сервер подтверждает. Есть — войско и оборона
+   * слепка не больше подтверждённого (`liveSheet`); обработчик войны кладёт её всегда. Нет — слепок как есть (тесты правил).
+   */
+  book?: ArmyBook;
 }
 
 // ------------------------------------------------ счёт по видам ---
@@ -205,7 +211,28 @@ export const fallId = warFallId;
  * полководца у ворот (`pips`) ходят с отрядом так же.
  */
 export function liveSheet(file: WarFile, key: string, s: SheetAt, at = Infinity): WarSheet {
+  const claim = claimedSheet(file, key, s, at);
+  if (!s.book) return claim;
+  // Книга войска (docs/pvp.md, раздел 6): в бой идёт только подтверждённое. Слепок — то, что заявил клиент; книга — что
+  // сервер может объяснить обучением, указами и потерями войны. По видам — меньшее; дома — не больше всего войска.
+  const army = least(claim.army, bookLive(s.book, file, key));
+  const home = least(claim.home, army);
+  return {
+    ...claim,
+    army,
+    home,
+    ...(claim.retinue ? { retinue: least(claim.retinue, home) } : {}),
+    power: troopPower(asTroops(army)),
+  };
+}
+
+/**
+ * Слепок, как его заявил клиент, приведённый к минуте `at` (см. `liveSheet`), но без книги войска. Стойкость и отметки —
+ * в пределах правил (`book.ruleResolve`, `rulePips`): больше их у игрока не бывает никак.
+ */
+function claimedSheet(file: WarFile, key: string, s: SheetAt, at: number): WarSheet {
   const seen = new Set(s.sheet.seen);
+  let army = s.sheet.army;
   let home = s.sheet.home;
   let stock = s.sheet.stock;
   let gold = s.sheet.gold;
@@ -213,11 +240,17 @@ export function liveSheet(file: WarFile, key: string, s: SheetAt, at = Infinity)
   let pop = s.sheet.pop;
   const levels = { ...s.sheet.levels };
   for (const w of file.wars) {
+    if (w.atk === key) for (const b of w.battles) if (!seen.has(b.id)) army = minus(army, b.atkLost);
     if (w.def !== key) continue;
-    for (const b of w.battles) if (!seen.has(b.id)) home = minus(home, b.homeLost);
+    for (const b of w.battles) {
+      if (seen.has(b.id)) continue;
+      home = minus(home, b.homeLost);
+      army = minus(army, plus(b.homeLost, b.genLost ?? {}));
+    }
     const f = w.fall;
     if (f && !seen.has(fallId(w.id))) {
       home = minus(home, f.routed);
+      army = minus(army, f.routed);
       const { gold: g, ...goods } = f.lost;
       stock = minus(stock, goods);
       gold = Math.max(0, gold - (g ?? 0));
@@ -242,7 +275,7 @@ export function liveSheet(file: WarFile, key: string, s: SheetAt, at = Infinity)
       if (back) home = plus(home, w.army.troops);
     }
   }
-  return { ...s.sheet, home, stock, gold, bonded, pop, levels, pips };
+  return { ...s.sheet, army, home, stock, gold, bonded, pop, levels, pips: rulePips(pips), resolve: ruleResolve(s.sheet.resolve) };
 }
 
 /** По видам — не больше, чем в `cap`. */
@@ -612,6 +645,24 @@ export interface OrderCtx {
    * воюют с первой минуты. Нет поля — защита есть, обычная игра.
    */
   noShield?: boolean;
+  /**
+   * Приказ просил больше войска, чем подтверждает книга (docs/pvp.md, раздел 6): отказ уже сказан словами, а это —
+   * для флага в описи наблюдения. Слова — для админа.
+   */
+  forged?: (text: string) => void;
+}
+
+/**
+ * Хватает ли войска на приказ: сначала заявленного клиентом, потом подтверждённого книгой. Не хватает заявленного —
+ * обычный отказ; заявленного хватает, а подтверждённого нет — отказ словами книги и флаг (`OrderCtx.forged`).
+ */
+function enough(want: Counts, claimed: Counts, confirmed: Counts, where: string, ctx: OrderCtx): string | null {
+  if (!fits(want, claimed)) return `Столько бойцов ${where} нет.`;
+  if (fits(want, confirmed)) return null;
+  const asked = troopTotal(asTroops(want));
+  const ok = troopTotal(asTroops(least(want, confirmed)));
+  ctx.forged?.(`Приказ войны на ${asked} бойцов ${where}, сервер подтверждает из них ${ok} (сверх книги ${over(want, confirmed)}).`);
+  return `Сервер подтверждает ${where} только ${ok} из ${asked} бойцов: новобранцы засчитываются по мере обучения, а павшие на войне не возвращаются. Подожди немного или возьми меньше.`;
 }
 
 const theirs = (file: WarFile, id: string, key: string, role: 'atk' | 'def'): WarRow | null =>
@@ -683,7 +734,8 @@ export function applyOrder(file: WarFile, key: string, order: WarOrder, now: num
       if (!s) return 'Город ещё не записан на сервер. Подожди минуту.';
       const sheet = liveSheet(file, key, s, now);
       if (troopTotal(asTroops(order.troops)) <= 0) return 'Некого вывести на вылазку.';
-      if (!fits(order.troops, sheet.home)) return 'Столько бойцов в гарнизоне нет.';
+      const short = enough(order.troops, claimedSheet(file, key, s, now).home, sheet.home, 'в гарнизоне', ctx);
+      if (short) return short;
       return hitCamp(w, now, sheet, { front: order.troops, site: 'sortie' });
     }
     case 'strike': {
@@ -693,15 +745,19 @@ export function applyOrder(file: WarFile, key: string, order: WarOrder, now: num
       const s = ctx.sheet(key);
       if (!s) return 'Город ещё не записан на сервер. Подожди минуту.';
       if (troopTotal(asTroops(order.army.troops)) <= 0) return 'У полководца нет войска.';
-      if (!fits(order.army.troops, s.sheet.army)) return 'Столько бойцов в войске нет.';
+      const short = enough(order.army.troops, claimedSheet(file, key, s, now).army, liveSheet(file, key, s, now).army, 'в войске', ctx);
+      if (short) return short;
       // Удар — бой: энергии на него должно хватить к минуте прихода, с дорогой по карте (`world/energy`).
       const tired = energyBlock(energyAt(order.army.energy, now), priceOf('strike'), order.walkMs);
       if (tired) return tired;
-      w.strike = { at: now + Math.round(order.walkMs / pace), army: order.army, joint: order.joint };
+      w.strike = { at: now + Math.round(order.walkMs / pace), army: ruleArmy(order.army), joint: order.joint };
       return null;
     }
   }
 }
+
+/** Войско приказа в пределах правил: стойкость и отметки полководца не выше, чем бывает у игрока (`book.ts`). */
+const ruleArmy = (a: WarArmy): WarArmy => ({ ...a, resolve: ruleResolve(a.resolve), pips: rulePips(a.pips) });
 
 function march(file: WarFile, key: string, order: Extract<WarOrder, { op: 'march' }>, now: number, ctx: OrderCtx): string | null {
   const own = ctx.roster.rows[key];
@@ -721,7 +777,7 @@ function march(file: WarFile, key: string, order: Extract<WarOrder, { op: 'march
   const theirSheet = ctx.sheet(def);
   if (!theirSheet) return 'Город ещё не готов к войне: его владелец не заходил с тех пор, как она началась.';
   // Защита слабого — та же мерка, что у логова (`lairs.weakCity`): жители или войско, что выше.
-  if (!ctx.noShield && weakCity(theirSheet.sheet.pop, theirSheet.sheet.power)) return 'Город под защитой слабого: он ещё мал. Нападать на него нельзя.';
+  if (!ctx.noShield && weakCity(theirSheet.sheet.pop, liveSheet(file, def, theirSheet, now).power)) return 'Город под защитой слабого: он ещё мал. Нападать на него нельзя.';
   const mine = ctx.sheet(key);
   if (!mine) return 'Твой город ещё не записан на сервер. Подожди минуту.';
   // Участь — та же проверка, что у приказа против логова (`spoils.fateBlock`): замки гейта объявляющего и
@@ -730,7 +786,8 @@ function march(file: WarFile, key: string, order: Extract<WarOrder, { op: 'march
   const why = fateBlock(order.fate, 'player', burned > 0 ? burnImmuneUntil(burned) : undefined, now, mine.sheet.locks);
   if (why) return why;
   if (troopTotal(asTroops(order.army.troops)) <= 0) return 'У полководца нет войска. Дай ему дружину у ворот.';
-  if (!fits(order.army.troops, mine.sheet.army)) return 'Столько бойцов в войске нет.';
+  const short = enough(order.army.troops, claimedSheet(file, key, mine, now).army, liveSheet(file, key, mine, now).army, 'в войске', ctx);
+  if (short) return short;
   // Энергия полководца — той же дверью, что у мира (`world/energy`): дело у стен — ценой при выходе, и её должно хватить
   // к минуте прихода, с дорогой; дорога уходит по дням пути, у стен — стоит (docs/agent_energy.md, раздел 2).
   const from = { x: own.x, y: own.y };
@@ -755,7 +812,7 @@ function march(file: WarFile, key: string, order: Extract<WarOrder, { op: 'march
     sentAt: now,
     arriveAt: now + walkMs,
     phase: 'march',
-    army: { ...order.army, energy },
+    army: { ...ruleArmy(order.army), energy },
     went: { ...order.army.troops },
     battles: [],
   });
