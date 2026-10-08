@@ -62,7 +62,7 @@ export interface PerilCase {
    * Цель — город живого игрока (docs/spy_pvp.md): слово цели про стражу города, а не про логово. Числа не меняет:
    * спелость города — единица, как у замка.
    */
-  city?: boolean;
+  town?: boolean;
 }
 
 export type PerilFactorId = keyof typeof PERIL_SHARE;
@@ -110,7 +110,7 @@ export function perilFactors(c: PerilCase): PerilFactor[] {
     {
       id: 'target',
       mult: factor('target', ripe),
-      words: c.city ? 'город: стража настороже' : ripe >= 0.75 ? 'спелое логово: часовые настороже' : ripe <= 0.25 ? 'свежее логово: стерегут вполглаза' : 'логово в силе',
+      words: c.town ? 'город: стража настороже' : ripe >= 0.75 ? 'спелое логово: часовые настороже' : ripe <= 0.25 ? 'свежее логово: стерегут вполглаза' : 'логово в силе',
     },
     { id: 'hour', mult: factor('hour', HOUR_AT[part]), words: HOUR_WORDS[part] },
     { id: 'season', mult: factor('season', SEASON_AT[season]), words: SEASON_WORDS[season] },

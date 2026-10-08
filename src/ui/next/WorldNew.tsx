@@ -40,6 +40,7 @@ import { realLeft, waitLeft, waitShort } from '@/ui/parts/wait';
 import { MusterLink } from '@/ui/parts/Muster';
 import { tipAt, type TipContent } from './tip';
 import { WarCard } from './WarCard';
+import { SpyRival } from './SpyRival';
 import { num } from '@/game/num';
 
 const fmt = (n: number): string => (Math.abs(n) >= 100 ? String(Math.round(n)) : num(n, 1));
@@ -433,6 +434,7 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
       {card.can.besiege && <p className="nx-tnote">{CAMP_LEAVE}</p>}
       {/* Город живого игрока: поход на него и война с ним (docs/pvp.md). */}
       {card.castle && !card.mine && <WarCard card={card} />}
+      {card.castle && !card.mine && <SpyRival card={card} />}
 
       {mission && (
         <div className="nx-send">

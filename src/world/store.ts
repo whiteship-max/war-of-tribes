@@ -7,7 +7,7 @@ import { partyNow, serverNow } from '@/net/clock';
 import { castleCell, castles, rosterReady, startPulling, stopPulling } from '@/net/roster';
 import { knownEra } from '@/net/era';
 import { NOTIFY_ON, notifyDrafts } from '@/net/notify';
-import { provideSheet, warBoot, warOrder, warPace, wars, warsKnown } from '@/net/war';
+import { provideSheet, spies, spyLook, warBoot, warOrder, warPace, wars, warsKnown } from '@/net/war';
 import { log } from '@/game/sim/log';
 import { useGame } from '@/game/store';
 import { haptic } from '@/telegram/webapp';
@@ -45,6 +45,8 @@ import type {
   DealId,
   DealView,
   Fate,
+  RivalDeedId,
+  RivalMenu,
   OrderActionId,
   FigureId,
   FigureView,
@@ -86,7 +88,7 @@ let notifying: NotifyingWorld | null = null;
 function openWorld(opts: LocalWorldOptions): LocalWorld {
   // Война между игроками (docs/pvp.md): мир получает свои войны и дверь приказа, как реестр замков, а
   // запись партии — слепок обороны от этого мира.
-  const full: LocalWorldOptions = { ...opts, wars, warsKnown, warOrder, warPace };
+  const full: LocalWorldOptions = { ...opts, wars, warsKnown, warOrder, warPace, spies, spyLook };
   let world: LocalWorld;
   if (NOTIFY_ON) world = notifying = new NotifyingWorld(full);
   else world = new LocalWorld(full);
@@ -263,6 +265,9 @@ export interface WorldStore {
   besiege: (fate?: Fate) => Promise<string | null>;
   /** Поход на город живого игрока (docs/pvp.md): штурм с ходу или осада; бой считает сервер. */
   warMarch: (target: SettlementId, mode: 'storm' | 'siege', fate: Fate) => Promise<string | null>;
+  /** Дела лазутчика против города игрока (docs/spy_pvp.md): меню — с сервера, приказ — по его минуте. */
+  spyMenu: (target: SettlementId) => Promise<RivalMenu>;
+  spyRival: (target: SettlementId, deed: RivalDeedId, shownAt: number) => Promise<string | null>;
   /** «Дойти и ударить»: по логову и по городу игрока одним приказом; бой — в минуту прихода. */
   assault: (target: SettlementId, fate: Fate) => Promise<string | null>;
   /** Снять свою осаду. */
@@ -610,6 +615,20 @@ export const useWorld = create<WorldStore>((set, get) => ({
 
   warMarch: async (target, mode, fate) => {
     const err = await worldApi().warMarch(target, mode, fate);
+    if (err) {
+      haptic('error');
+      return err;
+    }
+    haptic('medium');
+    await get().pulse();
+    await get().refreshCard();
+    return null;
+  },
+
+  spyMenu: (target) => worldApi().spyMenu(target),
+
+  spyRival: async (target, deed, shownAt) => {
+    const err = await worldApi().spyRival(target, deed, shownAt);
     if (err) {
       haptic('error');
       return err;
