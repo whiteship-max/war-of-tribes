@@ -28,6 +28,7 @@ import {
   type TwWall,
 } from './site';
 import { unitPose, type TwPlan } from './plan';
+import { breachColumns } from './barrage';
 import { heightAt } from './terrain';
 
 /** Средний тон слоя набора города (sRGB): то, во что слой красит тон вершины, если смотреть издали. */
@@ -60,8 +61,8 @@ const TONES = LAYERS.map((n) => new THREE.Color(LAYER_TONE[n]));
 
 const DETAIL: Record<Quality, Detail> = { low: 0, medium: 1, high: 2 };
 
-/** Строитель → геометрия сцены: метры набора в единицы ролика, тон вершины × тон слоя. */
-function geometryOf(b: Builder): THREE.BufferGeometry {
+/** Строитель → геометрия сцены: метры набора в единицы ролика, тон вершины × тон слоя. Её же берут машины обстрела. */
+export function geometryOf(b: Builder): THREE.BufferGeometry {
   const n = b.vertexCount;
   const pos = new Float32Array(n * 3);
   const col = new Float32Array(n * 3);
@@ -84,14 +85,15 @@ function geometryOf(b: Builder): THREE.BufferGeometry {
 }
 
 /** Метры набора от единиц ролика. */
-const m = (u: number): number => u / CITY_M;
+export const m = (u: number): number => u / CITY_M;
 
-const MERLON_STEP = 1.55;
+/** Шаг зубцов парапета, единицы набора. */
+export const MERLON_STEP = 1.55;
 /** Несомая лестница клонится вперёд на столько (рад): стоймя её несут над строем. */
 const CARRY_TILT = 0.22;
 
 /** Прямой пролёт стены по X (метры): тело до боевого хода, деревянный настил, парапет с зубцами снаружи. */
-function wallRun(b: Builder, w: TwWall, x0: number, x1: number, avoid: (x: number) => boolean): void {
+export function wallRun(b: Builder, w: TwWall, x0: number, x1: number, avoid: (x: number) => boolean): void {
   if (x1 - x0 < 0.2) return;
   const s = w.inward;
   const out = -s;
@@ -130,6 +132,51 @@ function wallRun(b: Builder, w: TwWall, x0: number, x1: number, avoid: (x: numbe
     if (avoid(x)) continue;
     box(b, x, zo + s * (par / 2), 0, out, 0.85, par, top + 1.05, top + 2.0, 'ashlar', T, 'ashlar');
   }
+}
+
+/**
+ * Пролёт пролома (обстрел перед штурмом, `barrage.ts`): внутренняя половина стены цела и держит ход — защитники стоят на
+ * нём, как стояли; наружная — опущена клином по столбцам пролома (`breachColumns`), без парапета и зубцов. До обвала её
+ * закрывают целые куски (`siegeworks.ts`) — те же столбцы сверху.
+ */
+function breachRun(b: Builder, w: TwWall, x0: number, x1: number, cols: { x0: number; x1: number; drop: number }[]): void {
+  if (x1 - x0 < 0.05) return;
+  const s = w.inward;
+  const out = -s;
+  const zo = m(w.z);
+  const thick = m(w.thick);
+  const base = m(w.base);
+  const top = base + m(w.top);
+  const T = tint(CITY.stoneTints[0]);
+  const Tbroken = tint(CITY.stoneTints[1], 0.92);
+  const cx = (x0 + x1) / 2;
+  const len = x1 - x0;
+  box(b, cx, zo + s * (thick * 0.75), 0, out, len, thick / 2, base - 1.6, top, 'ashlar', T, null, { aoBottom: 0.72, grimeBottom: 0.9 });
+  for (const c of cols) {
+    const a = Math.max(x0, m(c.x0));
+    const e = Math.min(x1, m(c.x1));
+    if (e - a < 0.02) continue;
+    box(b, (a + e) / 2, zo + s * (thick / 4), 0, out, e - a, thick / 2, base - 1.6, top - m(c.drop), 'ashlar', T, 'rubble', { aoBottom: 0.72 });
+    // Излом кладки — светлее и грубее над срезом: свежий камень.
+    box(b, (a + e) / 2, zo + s * (thick / 2 - 0.05), 0, out, e - a, 0.12, top - m(c.drop) - 0.4, top - m(c.drop) + 0.02, 'rubble', Tbroken, 'rubble');
+  }
+  const mid = zo + s * (thick / 2);
+  const zIn = zo + s * thick;
+  const walk: [number, number][] =
+    s < 0
+      ? [
+          [x0, mid],
+          [x1, mid],
+          [x1, zIn],
+          [x0, zIn],
+        ]
+      : [
+          [x0, zIn],
+          [x1, zIn],
+          [x1, mid],
+          [x0, mid],
+        ];
+  flat(b, walk, top, 'wood', tint(CITY.timberGrey, 1.1), true, 0.9);
 }
 
 /** Надвратная башня с проездом: два устоя, свод над проездом, верх с поясом и шатром (как надвратная набора). */
@@ -226,13 +273,24 @@ export function buildFort(plan: TwPlan, quality: Quality): FortView {
     const stops: [number, number][] = [[m(w.gateX) - m(GATEHOUSE) / 2, m(w.gateX) + m(GATEHOUSE) / 2]];
     for (const t of w.towers) stops.push([m(t.x) - m(t.size) / 2 + 0.3, m(t.x) + m(t.size) / 2 - 0.3]);
     stops.sort((a, c) => a[0] - c[0]);
-    const nearTower = (x: number): boolean => stops.some(([a, c]) => x > a - 0.9 && x < c + 0.9);
+    // Пролом обстрела (`plan.barrage`): пролёт стены над ним строится опущенным снаружи (`breachRun`).
+    const br = plan.barrage?.breach ?? null;
+    const ba = br ? m(br.x - br.width / 2) : Infinity;
+    const bb = br ? m(br.x + br.width / 2) : -Infinity;
+    const cols = br ? breachColumns(br, plan.cast.seed) : [];
+    const nearTower = (x: number): boolean => stops.some(([a, c]) => x > a - 0.9 && x < c + 0.9) || (x > ba - 0.4 && x < bb + 0.4);
+    const run = (x0: number, x1: number): void => {
+      if (!br || x1 <= ba || x0 >= bb) return wallRun(b, w, x0, x1, nearTower);
+      if (x0 < ba) wallRun(b, w, x0, ba, nearTower);
+      breachRun(b, w, Math.max(x0, ba), Math.min(x1, bb), cols);
+      if (x1 > bb) wallRun(b, w, bb, x1, nearTower);
+    };
     let x = -m(w.halfX);
     for (const [a, c] of stops) {
-      if (a > x) wallRun(b, w, x, Math.min(a, m(w.halfX)), nearTower);
+      if (a > x) run(x, Math.min(a, m(w.halfX)));
       x = Math.max(x, c);
     }
-    if (x < m(w.halfX)) wallRun(b, w, x, m(w.halfX), nearTower);
+    if (x < m(w.halfX)) run(x, m(w.halfX));
     // Угол: стена у концов уходит внутрь, к городу (кольцо стены, а не забор).
     const s = w.inward;
     for (const e of [1, -1]) {

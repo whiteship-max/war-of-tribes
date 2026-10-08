@@ -97,6 +97,8 @@ export interface StandBattle {
   site: string | undefined;
   /** Ополчение у своих ворот (`BattleRecord.militia`): на штурме стены и у ворот — как `gateField` мира. */
   militia: Record<Side, { men: number; archers: number }> | undefined;
+  /** Залпов обстрела перед штурмом (`BattleRecord.shots`, ролик TW, раздел 15): `&shots=1..3`; нет — без обстрела. */
+  shots: number | undefined;
 }
 
 export function standBattle(p: URLSearchParams): StandBattle {
@@ -110,6 +112,7 @@ export function standBattle(p: URLSearchParams): StandBattle {
   const place = placeOf(p);
   const ground = p.get('ground') === '0' ? undefined : standGround(place);
   const site = p.get('site') ?? undefined;
+  const shots = Number(p.get('shots') ?? 0) || undefined;
   // У своих ворот и на стене к гарнизону встаёт ополчение — жители, частокол и башня (`gateField` мира).
   const home = site === 'wall' || site === 'gate';
   const militiaMen = home ? Number(p.get('militia') ?? Math.round(men * 0.4)) : 0;
@@ -120,13 +123,13 @@ export function standBattle(p: URLSearchParams): StandBattle {
     // Стая у ворот — как в игре: волки нападают лёгкой конницей без снаряжения, состава племени у них нет, и
     // запись боя несёт только их сторону (`BattleRecord.beasts`).
     const result = fight({ ...emptyStack(), cavalry: foe }, withMilitia(kindsOf(mine)), seed, ground);
-    return { men, foe, seed, beasts, us, result, troops: { attacker: {}, defender: mine }, place, beastSide: 'attacker', site, militia };
+    return { men, foe, seed, beasts, us, result, troops: { attacker: {}, defender: mine }, place, beastSide: 'attacker', site, militia, shots };
   }
   if (home) {
     // Штурм стены и бой у ворот: пришедшие нападают, мы обороняем — `men` наш гарнизон, `foe` пришедшие.
     const raiders = theirs ?? armyOf(foe);
     const result = fight(kindsOf(raiders), withMilitia(kindsOf(mine)), seed, ground);
-    return { men, foe, seed, beasts, us: 'defender', result, troops: { attacker: raiders, defender: mine }, place, beastSide: undefined, site, militia };
+    return { men, foe, seed, beasts, us: 'defender', result, troops: { attacker: raiders, defender: mine }, place, beastSide: undefined, site, militia, shots };
   }
   // Совместный удар: часть наших вышла из ворот — `&garrison=` бойцов (по умолчанию 40 %), в той же доле каждого рода, как
   // мир отдаёт ядру прошедший гарнизон (`LocalWorld.campBattle`).
@@ -136,7 +139,7 @@ export function standBattle(p: URLSearchParams): StandBattle {
   const result = fight(ours, theirs ? kindsOf(theirs) : { ...emptyStack(), infantry: foe }, seed, ground, garrison);
   // Чужой состав — как в игре: из родов и ступени снаряжения (`foeKinds=1` показывает именно этот путь, а не поимённый).
   const foeTroops = theirs ?? troopsOfKinds(result.sides.defender.initial, { infantry: 3 });
-  return { men, foe, seed, beasts, us, result, troops: { attacker: mine, defender: foeTroops }, place, beastSide: undefined, site, militia: undefined };
+  return { men, foe, seed, beasts, us, result, troops: { attacker: mine, defender: foeTroops }, place, beastSide: undefined, site, militia: undefined, shots };
 }
 
 export function mountReplayStand(p: URLSearchParams): void {

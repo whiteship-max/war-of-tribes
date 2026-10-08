@@ -22,7 +22,24 @@ import { openBus } from './web';
 
 /** Звук на секунде ролика — то, что раскладывает ролик (`render/tw/cues.ts`). Своего знания о бое у машинки нет. */
 export interface FxCue {
-  kind: 'horn' | 'charge' | 'cry' | 'crash' | 'bows' | 'whistle' | 'thud' | 'panic' | 'victory' | 'ram' | 'gate' | 'ladder' | 'wallcry';
+  kind:
+    | 'horn'
+    | 'charge'
+    | 'cry'
+    | 'crash'
+    | 'bows'
+    | 'whistle'
+    | 'thud'
+    | 'panic'
+    | 'victory'
+    | 'ram'
+    | 'gate'
+    | 'ladder'
+    | 'wallcry'
+    | 'engine'
+    | 'stone'
+    | 'impact'
+    | 'collapse';
   x: number;
   z: number;
   x2: number;
@@ -78,7 +95,7 @@ export const FX_NEAR = 18;
 /** Звуков за кадр, не больше: на ×4 залпы идут вчетверо гуще, а ухо разбирает не больше этого. */
 export const FX_PER_FRAME = { full: 6, lite: 3 };
 /** Низкий уровень: без свиста залпов и стука стрел, лязга реже. */
-export const FX_LITE = { skip: ['whistle', 'thud'] as readonly FxCue['kind'][], clash: 0.4 };
+export const FX_LITE = { skip: ['whistle', 'thud', 'stone'] as readonly FxCue['kind'][], clash: 0.4 };
 
 /** Громкость и сторона звука в точке `x, z` для уха. Чистая — по ней и тест. */
 export function place(ear: FxEar, x: number, z: number): { gain: number; pan: number } {
@@ -129,7 +146,7 @@ export class BattleFx {
       if (n >= cap) break;
       if (this.lite && FX_LITE.skip.includes(c.kind)) continue;
       // Свист — посреди полёта тучи, а не у лучников: слышно, куда летит.
-      const at = c.kind === 'whistle' ? place(ear, (c.x + c.x2) / 2, (c.z + c.z2) / 2) : place(ear, c.x, c.z);
+      const at = c.kind === 'whistle' || c.kind === 'stone' ? place(ear, (c.x + c.x2) / 2, (c.z + c.z2) / 2) : place(ear, c.x, c.z);
       // Рог и трубы слышны через всё поле: это сигнал, а не шум.
       const gain = c.kind === 'horn' || c.kind === 'charge' || c.kind === 'victory' ? Math.max(0.45, at.gain) : at.gain;
       if (gain < 0.03) continue;
@@ -364,7 +381,88 @@ class FxVoice implements FxHost {
       case 'wallcry':
         this.cry(dest, at, g * 0.45, c.seed, 1.1, 1.3);
         break;
+      // Обстрел перед штурмом: скрип рычага и удар перекладины, свист камня, удар в кладку, обвал.
+      case 'engine':
+        this.creak(dest, at, g * 0.55, c.seed);
+        this.ram(dest, at + 0.32, g * 0.5, c.seed, false);
+        break;
+      case 'stone':
+        this.whoosh(dest, at, g * 0.4, c.dur);
+        break;
+      case 'impact':
+        this.ram(dest, at, g, c.seed, false);
+        this.rubble(dest, at + 0.03, g * 0.7, c.seed, 0.6);
+        break;
+      case 'collapse':
+        this.ram(dest, at, g, c.seed, true);
+        this.rubble(dest, at + 0.1, g, c.seed, 2.2);
+        break;
     }
+  }
+
+  /** Скрип рычага: пила низко, высота дрожит и ползёт вверх — дерево под натягом, и перед срывом оно поёт. */
+  private creak(dest: AudioNode, at: number, gain: number, seed: number): void {
+    const ctx = this.ctx!;
+    const o = ctx.createOscillator();
+    o.type = 'sawtooth';
+    const f0 = 70 + rnd(seed, 3) * 30;
+    o.frequency.setValueAtTime(f0, at);
+    o.frequency.linearRampToValueAtTime(f0 * 1.9, at + 0.3);
+    const wob = ctx.createOscillator();
+    wob.frequency.value = 23 + rnd(seed, 4) * 9;
+    const depth = ctx.createGain();
+    depth.gain.value = f0 * 0.25;
+    wob.connect(depth);
+    depth.connect(o.frequency);
+    const f = ctx.createBiquadFilter();
+    f.type = 'bandpass';
+    f.frequency.value = 520;
+    f.Q.value = 3;
+    const amp = ctx.createGain();
+    this.env(amp.gain, at, gain, 0.04, 0.18, 0.12);
+    o.connect(f);
+    f.connect(amp);
+    amp.connect(dest);
+    o.start(at);
+    wob.start(at);
+    this.voice(o, at + 0.45);
+    this.voice(wob, at + 0.45);
+  }
+
+  /** Свист камня: ниже и шире стрелы — шум сквозь полосу, что ползёт вниз, громче к середине полёта. */
+  private whoosh(dest: AudioNode, at: number, gain: number, dur: number): void {
+    const ctx = this.ctx!;
+    const n = this.noiseSrc(at);
+    const f = ctx.createBiquadFilter();
+    f.type = 'bandpass';
+    f.Q.value = 3.5;
+    f.frequency.setValueAtTime(1300, at);
+    f.frequency.exponentialRampToValueAtTime(420, at + dur);
+    const amp = ctx.createGain();
+    amp.gain.setValueAtTime(0, at);
+    amp.gain.linearRampToValueAtTime(gain, at + dur * 0.55);
+    amp.gain.linearRampToValueAtTime(0, at + dur);
+    n.connect(f);
+    f.connect(amp);
+    amp.connect(dest);
+    this.voice(n, at + dur + 0.05);
+  }
+
+  /** Осыпь: камни сыплются — мелкие глухие удары, реже к концу; низкий гул под ними у обвала. */
+  private rubble(dest: AudioNode, at: number, gain: number, seed: number, len: number): void {
+    const ctx = this.ctx!;
+    const n = this.noiseSrc(at);
+    const f = ctx.createBiquadFilter();
+    f.type = 'lowpass';
+    f.frequency.setValueAtTime(900, at);
+    f.frequency.exponentialRampToValueAtTime(160, at + len);
+    const amp = ctx.createGain();
+    this.env(amp.gain, at, gain * 0.6, 0.01, len * 0.2, len * 0.8);
+    n.connect(f);
+    f.connect(amp);
+    amp.connect(dest);
+    this.voice(n, at + len + 0.1);
+    this.thud(dest, at + 0.05, gain * 0.5, seed + 17, Math.round(4 + len * 4));
   }
 
   /**

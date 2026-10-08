@@ -81,6 +81,13 @@ function crowdMaterial(bones: BoneTexture): THREE.MeshLambertMaterial {
   return mat;
 }
 
+/** Добавочные фигуры вида (`Crowd.extras`): разложить `k`-ю и показать первые `count`. */
+export interface CrowdExtras {
+  mesh: THREE.InstancedMesh;
+  set(k: number, x: number, y: number, z: number, yaw: number, clip: (typeof CLIPS)[number], time: number): void;
+  show(count: number): void;
+}
+
 /** Заместитель тени: столбик ростом с человека (пеший) или с всадника (конный, зверь — ниже и длиннее). */
 function proxyGeometry(body: 'man' | 'horse' | 'beast'): THREE.BufferGeometry {
   if (body === 'horse') return new THREE.BoxGeometry(0.42, 1.75, 1.5).translate(0, 0.88, 0);
@@ -103,6 +110,8 @@ export class Crowd {
   readonly group = new THREE.Group();
   readonly bones: BoneTexture;
   private groups: Group[] = [];
+  /** Геометрии добавочных фигур: свои только атрибуты инстансов, остальное — у вида (`extras`). */
+  private extraMeshes: THREE.BufferGeometry[] = [];
   private material: THREE.MeshLambertMaterial;
   private proxyMaterial: THREE.MeshLambertMaterial | null = null;
   private rows = { a: 0, b: 0, w: 0 };
@@ -219,6 +228,67 @@ export class Crowd {
     }
   }
 
+  /**
+   * Добавочные фигуры того же вида, что фигура плана `template`, — не бойцы плана: расчёты машин обстрела и сбитые со
+   * стены (`siegeworks.ts`, docs/battle_tw.md, раздел 15). Свой инстанс на ту же геометрию и тот же материал (запечённые
+   * позы — те же), место и клип — от хозяина. Без тени: их немного, и стоят они далеко от строя.
+   */
+  extras(template: number, n: number): CrowdExtras | null {
+    const g = this.groups.find((x) => x.figures.includes(template));
+    if (!g || n <= 0) return null;
+    const src = g.baked.geometry;
+    const geo = new THREE.BufferGeometry();
+    for (const [name, attr] of Object.entries(src.attributes)) {
+      if (name !== 'aPlace' && name !== 'aAnim' && name !== 'aTint') geo.setAttribute(name, attr);
+    }
+    geo.setIndex(src.index);
+    const place = new THREE.InstancedBufferAttribute(new Float32Array(n * 4), 4);
+    const anim = new THREE.InstancedBufferAttribute(new Float32Array(n * 4), 4);
+    const tint = new THREE.InstancedBufferAttribute(new Float32Array(n * 2), 2);
+    for (const a of [place, anim, tint]) a.setUsage(THREE.DynamicDrawUsage);
+    geo.setAttribute('aPlace', place);
+    geo.setAttribute('aAnim', anim);
+    geo.setAttribute('aTint', tint);
+    const mesh = new THREE.InstancedMesh(geo, this.material, n);
+    mesh.name = `tw-extra-${g.baked.look.key}`;
+    mesh.frustumCulled = false;
+    mesh.receiveShadow = true;
+    mesh.count = 0;
+    this.group.add(mesh);
+    const baked = g.baked;
+    const rows = { a: 0, b: 0, w: 0 };
+    const ours = this.plan.units[this.plan.unitOf[template]].ours ? 0 : 1;
+    const tone = this.plan.tone[template];
+    const scale = this.plan.scale[template];
+    const extra: CrowdExtras = {
+      mesh,
+      set: (k, x, y, z, yaw, clip, time) => {
+        const pa = place.array as Float32Array;
+        const aa = anim.array as Float32Array;
+        const ta = tint.array as Float32Array;
+        pa[k * 4] = x;
+        pa[k * 4 + 1] = y;
+        pa[k * 4 + 2] = z;
+        pa[k * 4 + 3] = yaw;
+        frameRows(baked, clip, time, rows);
+        aa[k * 4] = rows.a;
+        aa[k * 4 + 1] = rows.b;
+        aa[k * 4 + 2] = rows.w;
+        aa[k * 4 + 3] = scale;
+        ta[k * 2] = ours;
+        ta[k * 2 + 1] = tone + ((k * 37) % 11) * 0.01 - 0.05;
+      },
+      show: (count) => {
+        mesh.count = count;
+        place.needsUpdate = true;
+        anim.needsUpdate = true;
+        tint.needsUpdate = true;
+      },
+    };
+    this.extraMeshes.push(geo);
+    return extra;
+  }
+
   /** Сколько треугольников у бойцов в кадре (без тени): по ним сверяется бюджет. */
   triangles(): number {
     return this.groups.reduce((n, g) => n + g.baked.triangles * g.mesh.count, 0);
@@ -230,6 +300,12 @@ export class Crowd {
   }
 
   dispose(): void {
+    // Геометрия добавочных делит буферы вида: снимаются только свои атрибуты инстансов — общие уйдут с видом.
+    for (const geo of this.extraMeshes) {
+      for (const n of ['position', 'normal', 'color', 'aJoint', 'aSide']) geo.deleteAttribute(n);
+      geo.setIndex(null);
+      geo.dispose();
+    }
     for (const g of this.groups) {
       g.mesh.geometry.dispose();
       g.mesh.dispose();

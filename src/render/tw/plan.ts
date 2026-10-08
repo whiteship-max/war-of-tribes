@@ -8,6 +8,7 @@
 //
 // Тот же журнал — тот же ролик до фигуры: разброс места, роста, тона и фазы шага — от сида боя и номера фигуры
 // (`terrain.hash`), без `Math.random`.
+import type { TwBarrage } from './barrage';
 import { lossProgress, sectorLost, type Cast, type Face } from '@/battle/replay';
 import { UNIT_STATS } from '@/battle/config';
 import { FRONT, SECTORS, UNIT_KINDS, type BattleResult, type Lane, type Sector, type Side, type UnitKind } from '@/battle/types';
@@ -423,6 +424,12 @@ export interface TwPlan {
   sallyBlocks: { x0: number; x1: number; z: number }[] | null;
   /** Виден ли павший: павший из ворот в проезде или в городе не лежит на виду (`sallyFromGate`); прочие — всегда. */
   deadShown: Uint8Array;
+  /**
+   * Обстрел перед штурмом (`barrage.ts`, docs/battle_tw.md, раздел 15): пролог со своими часами до первой секунды боя.
+   * Ставит его запись боя (`BattleRecord.shots`, `record.ts`); null — обстрела не было, и ролик идёт с первой секунды боя.
+   * Ни одно число плана от него не зависит.
+   */
+  barrage: TwBarrage | null;
 }
 
 /** Чисел на путь фигуры в `TwPlan.path`. */
@@ -889,6 +896,7 @@ export function buildPlan(input: PlanInput): TwPlan {
     sallyZ: null,
     sallyBlocks: null,
     deadShown: new Uint8Array(figures).fill(1),
+    barrage: null,
   };
   plan.fire = fireWindows(plan);
   // Из ворот — до прочих путей: вышедшие из ворот бьются с городской стороны и в резерв и обход не уходят.

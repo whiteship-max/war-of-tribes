@@ -10,6 +10,7 @@
 //   &sound=1                                   звук боя: первое касание холста открывает его (жест), настройку не трогает
 //
 // Счёт кадра — в `document.body.dataset.replay` (его читает `npm run tw:shots`), отладочный крючок — `window.twStand`.
+import { barrageShares } from '@/ui/battle/barrage';
 import * as THREE from 'three';
 import { standBattle } from '../battle-stand';
 import { groundName, hourName } from '@/game/battle/ground';
@@ -25,6 +26,34 @@ import { CueClock, ambienceAt, cuesOf } from './cues';
 import type { BattleFx } from '@/sound/battlefx';
 
 /** Именованные моменты: по ним снимают кадры самопроверки. Ищутся по режиссуре, а не подбираются руками. */
+/**
+ * Секунда ролика для момента стенда: пролог обстрела — своими секундами (docs/battle_tw.md, раздел 15), бой — секундами боя
+ * со сдвигом на длину пролога (`TwPlayer.pre`): часы ролика идут от начала пролога.
+ */
+function momentOf(plan: TwPlan, at: string): number {
+  const b = plan.barrage;
+  const pre = b?.seconds ?? 0;
+  if (b) {
+    const firstWall = Math.min(...b.stones.filter((s) => s.hit === 'wall' || s.hit === 'hut').map((s) => s.at + s.flight));
+    const chunk = b.breach?.chunks[0]?.at ?? firstWall;
+    switch (at) {
+      case 'bombard':
+        return 1.4;
+      case 'loose':
+        return b.stones[0].at + b.stones[0].flight * 0.45;
+      case 'impact':
+        return firstWall + 0.25;
+      case 'collapse':
+        return chunk + 0.3;
+      case 'fall':
+        return chunk + 0.6;
+      case 'smoke':
+        return pre - 0.4;
+    }
+  }
+  return pre + moment(plan, at);
+}
+
 function moment(plan: TwPlan, at: string): number {
   const firstVolley = Math.min(...plan.units.flatMap((u) => u.volleys), Infinity);
   const broke = Math.min(...plan.units.map((u) => u.fleeAt ?? Infinity));
@@ -160,7 +189,7 @@ export function mountTwStand(p: URLSearchParams): void {
   const battle = standBattle(p);
   const quality = qualityOf(p.get('quality')) ?? 'medium';
   const spec = TW_SPEC[quality];
-  const plan = twPlanOfRecord(battle.result, battle.us, battle.troops, quality, battle.militia, battle.place, battle.beastSide, battle.site);
+  const plan = twPlanOfRecord(battle.result, battle.us, battle.troops, quality, battle.militia, battle.place, battle.beastSide, battle.site, barrageShares(battle.shots));
 
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance', preserveDrawingBuffer: true });
   renderer.setPixelRatio(pixelRatio(Number(p.get('dpr') ?? 2)));
@@ -223,13 +252,13 @@ export function mountTwStand(p: URLSearchParams): void {
   window.addEventListener('resize', resize);
 
   const at = p.get('at');
-  const frozen = p.has('t') ? Number(p.get('t')) : at ? moment(plan, at) : null;
+  const frozen = p.has('t') ? Number(p.get('t')) : at ? momentOf(plan, at) : null;
   const cam = p.get('cam') ?? 'auto';
   const freeze = (): void => {
     player.seek(frozen ?? 0);
     if (cam !== 'auto') {
       player.cam.auto = false;
-      Object.assign(player.cam.goal, shot(player.stage.autoView(frozen ?? 0, canvas.clientWidth / Math.max(1, canvas.clientHeight)), cam, plan));
+      Object.assign(player.cam.goal, shot(player.view(frozen ?? 0), cam, plan));
       player.cam.snap();
     }
     player.draw();

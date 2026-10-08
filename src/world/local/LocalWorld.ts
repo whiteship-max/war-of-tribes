@@ -3805,6 +3805,8 @@ export class LocalWorld implements WorldApi {
           place: this.placeOf(target),
           // Логово — лагерь в лесу (ролик TW); прочие цели — поле.
           ...(isLair(target) ? { site: 'lair' as const } : {}),
+          // Обстрел из своего лагеря перед штурмом — ролик начнётся с него (только показ: дух ядро уже посчитало).
+          ...(isLair(target) && craftDone(camp?.craft, 'bombard') > 0 ? { shots: craftDone(camp?.craft, 'bombard') } : {}),
         }
       : null;
 
@@ -7752,6 +7754,8 @@ export class LocalWorld implements WorldApi {
           ...(b.militia && b.by === 'atk' ? { militia: { attacker: { men: 0, archers: 0 }, defender: { ...b.militia } } } : {}),
           place: this.placeOf(w.to),
           site: b.site,
+          // Штурм из лагеря после обстрела: ролик начнётся с него; пролом сервер уже снял со стены (`siegecraft.wallMen`).
+          ...(b.site === 'wall' && b.by === 'atk' && craftDone(b.craft, 'bombard') > 0 ? { shots: craftDone(b.craft, 'bombard') } : {}),
         }
       : null;
     const other = this.warCity(w, ours === 'atk' ? 'def' : 'atk');

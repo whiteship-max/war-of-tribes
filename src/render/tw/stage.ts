@@ -13,6 +13,7 @@ import { buildField, fogFor, type FieldView } from './field';
 import { OVERVIEW_PITCH, overview, type CamBounds, type CamState, type TacticalCamera } from './camera';
 import { figureFrame, poseFigures, unitPose, type FigureFrame, type TwPlan } from './plan';
 import { heightAt } from './terrain';
+import { Siegeworks } from './siegeworks';
 
 /** Лампа стоит так далеко от цели по своему направлению; коробка теней — от расстояния камеры. */
 const SUN_DIST = 160;
@@ -29,6 +30,8 @@ export class TwStage {
   private arrows: Arrows;
   private dust: Dust;
   readonly fort: FortView;
+  /** Обстрел перед штурмом (`plan.barrage`, docs/battle_tw.md, раздел 15); нет — null. */
+  readonly siege: Siegeworks | null;
   private sky: THREE.Mesh;
   private rig: LightRig;
   private sunDir = new THREE.Vector3();
@@ -62,11 +65,16 @@ export class TwStage {
     // Место боя: стена, ворота, город, лагерь, логово (docs/battle_tw.md, раздел 13); у поля — пустая группа.
     this.fort = buildFort(plan, plan.quality);
     this.scene.add(this.fort.group);
+    this.siege = plan.barrage ? new Siegeworks(plan, plan.barrage, this.crowd) : null;
+    if (this.siege) this.scene.add(this.siege.group);
     this.frame = figureFrame(plan.figures);
   }
 
-  /** Разложить кадр на секунде `t`. Камера — уже поставлена (её ведёт игрок или общий вид). */
-  apply(t: number, cam: TacticalCamera): void {
+  /**
+   * Разложить кадр на секунде боя `t`; `clip` — секунда ролика с прологом обстрела (`TwPlayer.pre`), по ней идут машины,
+   * камни и дым. Камера — уже поставлена (её ведёт игрок или общий вид).
+   */
+  apply(t: number, cam: TacticalCamera, clip = t): void {
     poseFigures(this.plan, t, this.frame);
     this.crowd.update(this.frame);
     this.banners.update(this.frame, t, cam.camera, cam.now.dist);
@@ -74,6 +82,7 @@ export class TwStage {
     this.dust.update(t, cam.camera);
     this.field.update(t);
     this.fort.update(t);
+    this.siege?.update(clip, cam.camera);
     // Небо идёт за камерой, туман — от её расстояния, коробка теней — вокруг её цели.
     this.sky.position.copy(cam.camera.position);
     const fog = this.scene.fog as THREE.Fog;
@@ -132,6 +141,7 @@ export class TwStage {
     this.arrows.dispose();
     this.dust.dispose();
     this.fort.dispose();
+    this.siege?.dispose();
     this.field.dispose();
     this.sky.geometry.dispose();
     (this.sky.material as THREE.Material).dispose();
