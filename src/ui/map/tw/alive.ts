@@ -223,13 +223,15 @@ export function drawSurf(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewpor
   ctx.translate(vp.w / 2 - cam.cx * s, vp.h / 2 - cam.cy * s);
   ctx.scale(s, s);
   ctx.lineCap = 'round';
+  ctx.strokeStyle = 'rgb(236, 242, 238)';
   for (let lv = SURF_LEVELS.length - 1; lv >= 0; lv--) {
     // Гребень `lv` загорается раньше того, что ближе к берегу: волна бежит к урезу; пена вспыхивает, когда она дошла.
     const phase = t / SURF_PERIOD - (SURF_LEVELS.length - 1 - lv) * 0.17;
     const crest = Math.pow(0.5 + 0.5 * Math.sin(phase * Math.PI * 2), 3);
     const a = lv === 0 ? 0.28 + 0.42 * crest : 0.05 + 0.4 * crest * (1 - lv * 0.18);
     if (a * vis < 0.02) continue;
-    ctx.strokeStyle = `rgba(236, 242, 238, ${(a * vis).toFixed(3)})`;
+    // Сила — прозрачностью кисти, а не строкой цвета: строка на каждый кадр и уровень была бы мусором (и дробью в тексте).
+    ctx.globalAlpha = a * vis;
     // Ширина — в пикселях экрана: пена шире гребня, вблизи — немного толще.
     ctx.lineWidth = ((lv === 0 ? 1.6 : 1.1) + Math.min(1.2, s / 60)) / s;
     const m = paths[lv];
