@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { createInitialState } from '../state';
 import { DAY_LENGTH, MAX_BUILDING_LEVEL, RESOURCE_IDS } from '../constants';
@@ -225,20 +224,16 @@ describe('ни в одном исходе нет алмазов, и наград
         setRandom(seeded(3));
         const s = rich();
         s.faith.id = 'catholic';
-        s.gems = 7;
+        const before = s.gems;
         answer(s, e.id, i);
         setRandom(null);
-        expect(s.gems, `${e.id}/${i}`).toBe(7);
+        expect(s.gems, `${e.id}/${i}`).toBe(before);
       }
     }
   });
 
-  it('в таблицах вестей, усилителей и цепочек слова «алмаз» нет', () => {
-    for (const f of ['../data/tidings.ts', '../data/boons.ts', '../data/eventKit.ts', './boons.ts', './chains.ts']) {
-      const src = readFileSync(new URL(f, import.meta.url), 'utf8');
-      expect(src, f).not.toMatch(/creditGems|\.gems\b|gems\s*[+-]?=/);
-    }
-  });
+  // Что код вестей вообще не умеет начислять алмазы, держит общий замок по всему `src` (`sim/gems.test.ts`):
+  // второй замок рядом был бы его копией.
 
   it('ответ на весть, которой уже нет на столе, ничего не даёт', () => {
     for (const id of NEW) {
