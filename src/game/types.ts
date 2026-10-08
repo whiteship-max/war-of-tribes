@@ -439,6 +439,19 @@ export interface DailyState {
   result: DailyResult;
 }
 
+/** Следствие ответа, ждущее своего часа: какая весть и с какой игровой секунды она приходит. */
+export interface PendingChain {
+  defId: string;
+  /** Игровая секунда (`s.time`), с которой весть ложится на стол. */
+  at: number;
+}
+
+/** Временный усилитель: вид (`data/boons.BOONS`) и до какой игровой секунды он держится. */
+export interface ActiveBoon {
+  id: string;
+  until: number;
+}
+
 export interface ActiveEvent {
   defId: string;
   /** Момент появления (игровое время, сек). */
@@ -713,6 +726,19 @@ export interface GameState {
    * версии здесь было одно поле `activeEvent`, и новое событие ждало, пока ответят на прежнее.
    */
   inbox: ActiveEvent[];
+  /**
+   * Следствия ответов, которые придут письмом позже (docs/events.md): вид вести и игровая
+   * секунда, с которой она зреет. Кладёт их одна дверь — `sim/chains.scheduleChain`, на стол
+   * их выкладывает почта (`sim/mail.mailArrive`). Поля нет у партии до вестей с цепочками —
+   * значит, ничего не ждёт.
+   */
+  chains: PendingChain[];
+  /**
+   * Временные усилители от ответов на вести (docs/events.md): вид и игровая секунда, до
+   * которой он держится. Действует тот, у кого срок впереди, — считается при чтении
+   * (`derived.activeBoons`), тика у него нет. Пишет одна дверь — `sim/boons.grantBoon`.
+   */
+  boons: ActiveBoon[];
   nextEventAt: number;
   morale: number; // 0..100
   prestige: number;

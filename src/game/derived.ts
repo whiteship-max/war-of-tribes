@@ -112,6 +112,7 @@ import {
   type SeasonModifiers,
 } from './data/seasons';
 import { daysSpan } from './span';
+import { BOON_BY_ID, type BoonDef } from './data/boons';
 import { MAX_AGENT_LEVEL } from './data/agents';
 
 /** На здании идёт улучшение. */
@@ -1243,8 +1244,43 @@ export function seasonModsFor(season: Season, year: number): SeasonModifiers {
   return soften(base, FIRST_WINTER_SOFTEN);
 }
 
-/** Действующие сейчас множители сезона. Единственная точка входа для симуляции. */
-export const seasonMods = (s: GameState): SeasonModifiers => seasonModsFor(seasonOf(s.time), yearOf(s.time));
+/**
+ * Усилители от ответов на вести, чей срок ещё впереди (docs/events.md, раздел 3). Считается при чтении: тика у
+ * усилителя нет, и догон отлучки снимает его сам тем, что двигает `s.time`. Неизвестный вид (вести убрали из игры)
+ * пропускается молча — партия из-за него не ломается.
+ */
+export function activeBoons(s: GameState): { def: BoonDef; until: number }[] {
+  const out: { def: BoonDef; until: number }[] = [];
+  for (const b of s.boons ?? []) {
+    const def = BOON_BY_ID[b.id];
+    if (def && b.until > s.time) out.push({ def, until: b.until });
+  }
+  return out;
+}
+
+/** Множители сезона с усилителями поверх: множители перемножаются, как сезон с двором. */
+function withBoons(base: SeasonModifiers, s: GameState): SeasonModifiers {
+  const on = activeBoons(s);
+  if (on.length === 0) return base;
+  const jobs: Partial<Record<JobId, number>> = { ...base.jobs };
+  let { build, food, heating } = base;
+  for (const { def } of on) {
+    for (const [job, m] of Object.entries(def.jobs ?? {}) as [JobId, number][]) jobs[job] = (jobs[job] ?? 1) * m;
+    build *= def.build ?? 1;
+    food *= def.food ?? 1;
+    heating *= def.heating ?? 1;
+  }
+  return { ...base, jobs, build, food, heating };
+}
+
+/**
+ * Действующие сейчас множители сезона — с усилителями вестей поверх. Единственная точка входа для симуляции: усилитель
+ * — поле сезона, а не условие в коде (CLAUDE.md, «Правила»).
+ */
+export const seasonMods = (s: GameState): SeasonModifiers => withBoons(seasonModsFor(seasonOf(s.time), yearOf(s.time)), s);
+
+/** Сколько усилители вестей прибавляют к цели морали (с минусом — отнимают). Ложится после потолка шкалы, как пир. */
+export const boonMorale = (s: GameState): number => activeBoons(s).reduce((n, b) => n + (b.def.morale ?? 0), 0);
 
 /** Множители ближайшей зимы — она всегда завершает текущий год. */
 export const winterMods = (s: GameState): SeasonModifiers => seasonModsFor('winter', yearOf(s.time));
@@ -1356,6 +1392,8 @@ export interface MoraleBreakdown {
    * обряд без пира «Пиром в трактире».
    */
   rite: number;
+  /** Усилители вестей: праздник по вести, лютый холод (docs/events.md). Ложатся туда же, где пир, — после шкалы. */
+  boon: number;
   /** Итог: к какой морали стремится племя. */
   target: number;
 }
@@ -1451,6 +1489,8 @@ export function moraleBreakdown(s: GameState): MoraleBreakdown {
   // больше, чем вмещает сотня.
   const feast = feastMorale(s);
   const rite = riteMorale(s);
+  // Усилители вестей — там же и по той же причине: праздник по вести, утонувший в потолке, не стоил бы ничего.
+  const boon = boonMorale(s);
   return {
     base: MORALE_BASE,
     lines,
@@ -1459,7 +1499,8 @@ export function moraleBreakdown(s: GameState): MoraleBreakdown {
     tax,
     feast,
     rite,
-    target: Math.max(0, Math.min(100, clamped - tax + feast + rite)),
+    boon,
+    target: Math.max(0, Math.min(100, clamped - tax + feast + rite + boon)),
   };
 }
 

@@ -159,6 +159,8 @@ export function createInitialState(seed: number = freshSeed()): GameState {
     buildings: [],
     completedQuests: [],
     inbox: [],
+    chains: [],
+    boons: [],
     nextEventAt: 50,
     morale: 60,
     prestige: 5,

@@ -13,7 +13,7 @@ import {
   RESOURCE_IDS,
   RESOURCE_META,
   RITE_DAYS,
-  START_POP,
+  RITE_MORALE,
 } from '../constants';
 import {
   buildingOfType,
@@ -27,9 +27,7 @@ import {
   isSite,
   jobCounts,
   mutinyForecast,
-  population,
   seasonOf,
-  storageCap,
   strainNow,
 } from '../derived';
 import { callGate } from '../sim/gate';
@@ -44,6 +42,12 @@ import { chance, roll } from '../sim/roll';
 import { log } from '../sim/log';
 import { MUTINY_EVENT, ORDER_TEXT } from './order';
 import { daysSpan } from '../span';
+import { addRes, amount, crowd, FameWord, fameWord, moraleWord, MoraleWord, moveFame, moveMorale, people } from './eventKit';
+import { CHAIN_SEASONS, TIDING, TIDINGS } from './tidings';
+import { BOON_BY_ID, boonWords } from './boons';
+import { SEASON_DAYS } from './seasons';
+import { grantBoon } from '../sim/boons';
+import { scheduleChain } from '../sim/chains';
 
 /** Что вариант просит отдать. Золото — не ресурс, но плата бывает и в нём. */
 export type EventCost = Partial<Record<ResourceId | 'gold', number>>;
@@ -94,22 +98,7 @@ export interface EventDef {
   silence: number;
 }
 
-/**
- * Всё, что событие даёт или отнимает, умножается на то, во сколько раз нынешнее
- * племя больше стартового (`START_POP` — под него числа событий и писались), —
- * иначе к концу партии награда события тонет в дневной выработке.
- */
-const scale = (s: GameState): number => Math.max(1, population(s) / START_POP);
-
-/** Число под нынешний размер посёлка. */
-const amount = (s: GameState, n: number): number => Math.max(1, Math.round(n * scale(s)));
-
-/**
- * Сколько человек приводит толпа: доля посёлка, но не меньше горстки — иначе в
- * первые минуты партии событие про беженцев не про что.
- */
-const crowd = (s: GameState, share: number, min: number): number =>
-  Math.max(min, Math.round(population(s) * share));
+// Размер посёлка, толпа, склад, мораль и слава словами — общие помощники вестей (`data/eventKit.ts`).
 
 /**
  * Сила случайного противника у ворот — по уровню посёлка, таблицей (слово владельца по 14.35, пп. 4 и 6): для типичного
@@ -177,13 +166,6 @@ const toGate = (s: GameState, foe: GateFoe, spoils: Partial<Record<ResourceId, n
 const fitting = (s: GameState): number =>
   Math.min(crowd(s, 0.06, 8), Math.max(0, housingCapacity(s) - s.pop));
 
-const addRes = (s: GameState, r: keyof GameState['resources'], n: number): number => {
-  const cap = storageCap(s);
-  const before = s.resources[r];
-  s.resources[r] = Math.max(0, Math.min(cap, before + n));
-  return Math.round(s.resources[r] - before);
-};
-
 /**
  * Сколько мораль события прибавляет или отнимает — одно число на подпись ответа и на `apply` (правило 18; решение
  * владельца, docs/ui_audit.md, 14.4, вопрос 4). Числа те же, что прежде стояли в `apply` руками, — сменилось только то,
@@ -204,26 +186,26 @@ export const EVENT_MORALE = {
   preacherTalk: 4,
 } as const;
 
-/** Сдвинуть мораль на число события: вниз — не ниже нуля, вверх — не выше ста. */
-const moveMorale = (s: GameState, d: number): void => {
-  s.morale = d < 0 ? Math.max(0, s.morale + d) : Math.min(100, s.morale + d);
-};
+/**
+ * Сколько славы событие прибавляет или отнимает — одно число на подпись и на исход (правило 18), как `EVENT_MORALE`.
+ * Числа те же, что прежде стояли в `apply` руками; подпись теперь называет их, а не «слава упадёт».
+ */
+export const EVENT_FAME = {
+  /** Обмен с купцами состоялся. */
+  trade: 1,
+  /** Дань разбойникам. */
+  raidersPaid: -2,
+  /** Праздник прихода справили. */
+  festival: 1,
+  /** Дали Риму, сколько просили. */
+  romeGave: 3,
+} as const;
 
-/** «мораль −4», «мораль +4»: знак — из самого числа. */
-const moraleWord = (d: number): string => `мораль ${d > 0 ? '+' : '−'}${Math.abs(d)}`;
+/** Какую долю стройки делает артель: осевшая — сразу, нанятая на день — за день (числа прежние, из `apply`). */
+export const EVENT_WORK = { settle: 0.2, day: 0.35, storm: 0.5 } as const;
 
-/** То же с прописной — в начале подписи. */
-const MoraleWord = (d: number): string => `М${moraleWord(d).slice(1)}`;
-
-/** Склонение «N человек / человека». */
-const people = (n: number): string => {
-  const t = n % 100;
-  const o = n % 10;
-  if (t >= 11 && t <= 14) return `${n} человек`;
-  if (o === 1) return `${n} человек`;
-  if (o >= 2 && o <= 4) return `${n} человека`;
-  return `${n} человек`;
-};
+/** «+20%» — доля стройки словами. */
+const share = (f: number): string => `+${Math.round(f * 100)}%`;
 
 export const EVENTS: EventDef[] = [
   {
@@ -291,7 +273,7 @@ export const EVENTS: EventDef[] = [
     options: [
       {
         label: 'Взять к себе',
-        hint: (s) => `+${people(crowd(s, 0.03, 5))}${currentSite(s) ? ' и помощь стройке' : ''}`,
+        hint: (s) => `+${people(crowd(s, 0.03, 5))}${currentSite(s) ? `, стройка ${share(EVENT_WORK.settle)}` : ''}`,
         cost: (s) => ({ food: amount(s, 16) }),
         apply: (s) => {
           const n = crowd(s, 0.03, 5);
@@ -300,7 +282,7 @@ export const EVENTS: EventDef[] = [
           // Артель приходит с инструментом: первое дело — помочь на стройке.
           const site = currentSite(s);
           if (site) {
-            const done = Math.min(site.workRequired - site.work, site.workRequired * 0.2);
+            const done = Math.min(site.workRequired - site.work, site.workRequired * EVENT_WORK.settle);
             site.work += done;
             return `Артель осталась, ${people(n)}. Сразу взялись за стройку.`;
           }
@@ -309,12 +291,12 @@ export const EVENTS: EventDef[] = [
       },
       {
         label: 'Нанять на день',
-        hint: (s) => (currentSite(s) ? 'Стройка продвинется' : 'Стройки нет, работы не будет'),
+        hint: (s) => (currentSite(s) ? `Стройка ${share(EVENT_WORK.day)}` : 'Стройки нет, работы не будет'),
         cost: (s) => ({ gold: amount(s, 20) }),
         apply: (s) => {
           const site = currentSite(s);
           if (!site) return 'Золото заплачено, а стройки нет. Артель ушла.';
-          site.work = Math.min(site.workRequired, site.work + site.workRequired * 0.35);
+          site.work = Math.min(site.workRequired, site.work + site.workRequired * EVENT_WORK.day);
           return 'Артель отработала день и ушла. Стройка продвинулась.';
         },
       },
@@ -381,10 +363,10 @@ export const EVENTS: EventDef[] = [
       },
       {
         label: 'Не чинить',
-        hint: 'Часть стройки пропадёт',
+        hint: `Стройка −${Math.round(EVENT_WORK.storm * 100)}% сделанного`,
         apply: (s) => {
           const b = s.buildings.find(isSite);
-          if (b) b.work *= 0.5;
+          if (b) b.work *= 1 - EVENT_WORK.storm;
           return 'Часть работы придётся переделать.';
         },
       },
@@ -400,11 +382,11 @@ export const EVENTS: EventDef[] = [
     options: [
       {
         label: 'Обменять',
-        hint: (s) => `+${amount(s, 30)} еды`,
+        hint: (s) => `+${amount(s, 30)} еды, ${fameWord(EVENT_FAME.trade)}`,
         cost: (s) => ({ wood: amount(s, 20) }),
         apply: (s) => {
           addRes(s, 'food', amount(s, 30));
-          s.prestige += 1;
+          moveFame(s, EVENT_FAME.trade);
           return 'Обмен состоялся. Купцы довольны.';
         },
       },
@@ -469,11 +451,65 @@ export const EVENTS: EventDef[] = [
     options: [
       {
         label: 'Заплатить',
-        hint: 'Уйдут без боя, слава упадёт',
+        hint: `Уйдут без боя, ${fameWord(EVENT_FAME.raidersPaid)}`,
         cost: (s) => ({ food: amount(s, 25) }),
         apply: (s) => {
-          s.prestige = Math.max(0, s.prestige - 2);
+          moveFame(s, EVENT_FAME.raidersPaid);
           return 'Дань уплачена, разбойники ушли. Слава упала.';
+        },
+      },
+      {
+        label: 'Принять бой',
+        hint: 'Бой у ворот',
+        apply: (s) => toGate(s, 'raiders', { wood: amount(s, 15), hides: amount(s, 5) }),
+      },
+    ],
+  },
+  {
+    id: 'mercenaries',
+    silence: 1,
+    icon: '🛡️',
+    title: 'Вольная рота',
+    text: (s) => `У ворот встала вольная рота, их ${gateMen(s, 'raiders')}. Ищут найма на сезон, а нет — пойдут искать добычи.`,
+    weight: (s) => (dayOf(s.time) >= 5 ? 1 : 0),
+    options: [
+      {
+        label: 'Нанять на стройку',
+        hint: `${boonWords(BOON_BY_ID.mercs)} на ${daysSpan(BOON_BY_ID.mercs.days)}`,
+        cost: (s) => ({ gold: amount(s, 30) }),
+        apply: (s) => {
+          grantBoon(s, 'mercs');
+          return 'Рота взялась за топоры и носилки. Частокол растёт на глазах.';
+        },
+      },
+      {
+        label: 'Отказать',
+        hint: `Могут вернуться к воротам через ${daysSpan(CHAIN_SEASONS.free_company * SEASON_DAYS)}, риск ${Math.round(TIDING.risk * 100)}%`,
+        apply: (s) => {
+          if (chance(s, TIDING.risk) && scheduleChain(s, 'free_company', CHAIN_SEASONS.free_company)) {
+            return 'Рота ушла, но недалеко: их костры видны с башни.';
+          }
+          return 'Рота ушла искать найма у соседей.';
+        },
+      },
+    ],
+  },
+  {
+    id: 'free_company',
+    silence: 1,
+    icon: '⚔️',
+    title: 'Рота у ворот',
+    text: (s) => `Вольная рота вернулась, их ${gateMen(s, 'raiders')}. Требуют ${amount(s, 25)} золота за то, чтобы уйти.`,
+    // Только следствием отказа роте. Бьётся она у ворот силой разбойников — той же таблицей и той же дверью.
+    weight: () => 0,
+    options: [
+      {
+        label: 'Откупиться',
+        hint: `Уйдут без боя, ${fameWord(EVENT_FAME.raidersPaid)}`,
+        cost: (s) => ({ gold: amount(s, 25) }),
+        apply: (s) => {
+          moveFame(s, EVENT_FAME.raidersPaid);
+          return 'Роте заплатили, и она ушла за холмы.';
         },
       },
       {
@@ -502,7 +538,7 @@ export const EVENTS: EventDef[] = [
     options: [
       {
         label: 'Справить',
-        hint: `Набожность и мораль на ${daysSpan(RITE_DAYS)}`,
+        hint: `${MoraleWord(RITE_MORALE)} и набожность на ${daysSpan(RITE_DAYS)}, ${fameWord(EVENT_FAME.festival)}`,
         cost: (s) => {
           const r = riteInfo(s);
           return { food: r.food, gold: r.gold };
@@ -513,7 +549,7 @@ export const EVENTS: EventDef[] = [
           // одна и та же функция — двух правд о начавшемся обряде быть не должно.
           const f = faithDef(s);
           beginRite(s);
-          s.prestige += 1;
+          moveFame(s, EVENT_FAME.festival);
           return f
             ? `${f.feasts[seasonOf(s.time)].name}. Праздник справили, приход доволен.`
             : 'Праздник справили.';
@@ -534,16 +570,16 @@ export const EVENTS: EventDef[] = [
     options: [
       {
         label: 'Дать, сколько просят',
-        hint: 'Слава вырастет',
+        hint: FameWord(EVENT_FAME.romeGave),
         cost: (s) => ({ gold: amount(s, 60) }),
         apply: (s) => {
-          s.prestige += 3;
+          moveFame(s, EVENT_FAME.romeGave);
           return 'Легат уехал довольным. Имя правителя прочтут в Риме.';
         },
       },
       {
         label: 'Отказать',
-        hint: 'Надлом веры вырастет',
+        hint: `Надлом веры +${FAITH_REFUSAL_STRAIN}`,
         apply: (s) => {
           addStrain(s, FAITH_REFUSAL_STRAIN);
           return 'Легат уехал ни с чем. Священник служил в тот день молча, и приход это заметил.';
@@ -604,7 +640,7 @@ export const EVENTS: EventDef[] = [
       },
       {
         label: 'Разогнать силой',
-        hint: `Надлом убавится, ${moraleWord(EVENT_MORALE.preacherForce)}`,
+        hint: `Надлом веры −${FAITH_REFUSAL_STRAIN}, ${moraleWord(EVENT_MORALE.preacherForce)}`,
         apply: (s) => {
           moveMorale(s, EVENT_MORALE.preacherForce);
           s.faith.strain = Math.max(0, strainNow(s) - FAITH_REFUSAL_STRAIN);
@@ -614,7 +650,7 @@ export const EVENTS: EventDef[] = [
       },
       {
         label: 'Пусть говорят',
-        hint: `${MoraleWord(EVENT_MORALE.preacherTalk)}, надлом вырастет`,
+        hint: `${MoraleWord(EVENT_MORALE.preacherTalk)}, надлом веры +${FAITH_REFUSAL_STRAIN}`,
         apply: (s) => {
           addStrain(s, FAITH_REFUSAL_STRAIN);
           moveMorale(s, EVENT_MORALE.preacherTalk);
@@ -740,7 +776,7 @@ export const EVENTS: EventDef[] = [
       },
       {
         label: 'Спасать пожитки',
-        hint: 'Дома потеряют уровень',
+        hint: (s) => `${(buildingOfType(s, 'houses')?.level ?? 0) > 1 ? 'Жилища −1 ур., д' : 'Д'}ревесина +${amount(s, 5)}`,
         apply: (s) => {
           // Жилища в посёлке одни: сносить их целиком — значит отнять всё жильё разом.
           // Огонь съедает улицу дворов, то есть один уровень.
@@ -752,6 +788,8 @@ export const EVENTS: EventDef[] = [
       },
     ],
   },
+  // Сезонные, случайные и цепочки — своей таблицей (`data/tidings.ts`, docs/events.md).
+  ...TIDINGS,
 ];
 
 export const EVENT_BY_ID = Object.fromEntries(EVENTS.map((e) => [e.id, e])) as Record<string, EventDef>;
