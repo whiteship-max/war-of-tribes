@@ -13,11 +13,12 @@
  */
 import * as THREE from 'three';
 import type { Surfaces } from '@/prologue/surface';
-import { BOW_TIP, Shade, arrow as arrowModel, blob, bow as bowModel, bowLimb, carcass as carcassModel, deer as deerModel } from '@/prologue/models';
+import { Shade, arrow as arrowModel, blob, carcass as carcassModel, deer as deerModel } from '@/prologue/models';
 import type { Blocker } from '@/prologue/glade';
 import type { Season } from '@/game/types';
 import { haptic } from '@/telegram/webapp';
 import { tufts } from './models';
+import { Archer } from './archer';
 import {
   ARROWS,
   CARCASS,
@@ -26,6 +27,7 @@ import {
   GRAVITY,
   HOP_S,
   Hunt,
+  NOCK_S,
   ROAM_R,
   RUN_SPEED,
   START,
@@ -40,18 +42,6 @@ import { huntSound, type Ear, type HuntSound, type ThudKind } from './huntSound'
 import type { Tally, Target } from './rules';
 import type { Play } from './stage';
 
-/** Лук у камеры: во сколько раз меньше своего. Ближе — закрыл бы полкадра, дальше — не читался бы луком. */
-const BOW_SCALE = 0.5;
-/**
- * Где лук, опущенный и вскинутый, в осях камеры: положение и наклон. Опущенный — внизу слева, плечом в кадр; вскинутый
- * — левее середины и почти не завален: стрела на нём смотрит вдоль взгляда, и её линия сходится в прицел.
- */
-const BOW_REST = { x: -0.2, y: -0.36, z: -0.62, rx: 0.3, ry: 0.25, rz: 0.75 };
-const BOW_AIM = { x: -0.12, y: -0.1, z: -0.75, rx: 0, ry: 0, rz: 0.18 };
-/** Насколько тетива уходит к стрелку в полную натяжку, в осях лука: хвост стрелы — в кадре, а не у самого глаза. */
-const PULL = 0.55;
-/** Хвост стрелы от её середины — по модели (`models.arrow`: древко 0,68). */
-const ARROW_TAIL = 0.34;
 /** Насколько уже угол обзора в полную натяжку: приближение лука — олень на тридцати шагах крупнее, метки дальше. */
 const ZOOM = 0.3;
 /** Взгляд с натянутым луком тише вдвое с лишним; шаг — медленнее. */
@@ -66,11 +56,8 @@ const _p = new THREE.Vector3();
 const _s = new THREE.Vector3(1, 1, 1);
 const _d = new THREE.Vector3();
 const _fwd = new THREE.Vector3(0, 0, -1);
-const _up = new THREE.Vector3(0, 1, 0);
-const _cord = new THREE.Vector3();
 const _e = new THREE.Euler();
 
-const lerp = (a: number, b: number, k: number): number => a + (b - a) * k;
 const smooth = (k: number): number => {
   const c = Math.max(0, Math.min(1, k));
   return c * c * (3 - 2 * c);
@@ -101,11 +88,14 @@ export class HuntPlay implements Play {
   private beat: number[] = [];
   private blobs: THREE.InstancedMesh | null = null;
   private arrows: THREE.InstancedMesh | null = null;
-  private bowRig: THREE.Mesh | null = null;
-  private cords: THREE.Mesh[] = [];
-  private nock: THREE.Mesh | null = null;
-  private raise = 0;
-  private drawShown = 0;
+  /** Лучник у глаза: лук, руки, тетива и стрела на ней (`archer.ts`). */
+  private archer: Archer | null = null;
+  /** Часы рига: дрожь и дыхание идут и до «Начать». */
+  private clock = 0;
+  /** Взгляд прошлого кадра без поправки рига — от него риг отстаёт, когда игрок ведёт взгляд. */
+  private look = { yaw: NaN, pitch: 0 };
+  /** Приближение, под которое сцена поставила угол камеры в прошлом кадре. */
+  private zoomed = 1;
   private notes: string[] = [];
   private blockers_: Blocker[];
   private pins_ = pins();
@@ -165,31 +155,11 @@ export class HuntPlay implements Play {
   }
 
   /**
-   * Лук: дуга, тетива двумя плечами и стрела на тетиве. Рук нет нарочно: кулак кубом у самой камеры читался не рукой,
-   * а ящиком поверх кадра (снимок стенда), а рук предыстории здесь не взять — они живут в её сцене.
+   * Лучник: лук в левой, правая на тетиве, рукава и перчатки (`archer.ts`). Висит на камере — вещь взгляда, а не мира.
    */
   private buildBow(camera: THREE.Camera): void {
-    const b = bowModel(false);
-    b.scale.setScalar(BOW_SCALE);
-    b.castShadow = false;
-    b.receiveShadow = false;
-    for (let i = 0; i < 2; i++) {
-      const limb = bowLimb();
-      b.add(limb);
-      this.cords.push(limb);
-    }
-    const nock = arrowModel();
-    nock.scale.setScalar(1 / BOW_SCALE);
-    nock.visible = false;
-    b.add(nock);
-    this.nock = nock;
-    // Лук — вещь взгляда, а не мира: рисуется поверх всего и не режется ближней плоскостью о траву под ногами.
-    b.traverse((o) => {
-      o.renderOrder = 5;
-      o.frustumCulled = false;
-    });
-    camera.add(b);
-    this.bowRig = b;
+    this.archer = new Archer();
+    camera.add(this.archer.root);
   }
 
   blockers(): Blocker[] {
@@ -245,7 +215,7 @@ export class HuntPlay implements Play {
   }
 
   zoom(): number {
-    return 1 - ZOOM * this.drawShown;
+    return 1 - ZOOM * (this.archer?.shown ?? 0);
   }
 
   drawn(): number {
@@ -284,7 +254,7 @@ export class HuntPlay implements Play {
     this.react(this.hunt.takeEvents());
     this.syncDeer(t, dt);
     this.syncArrows(t);
-    this.syncBow(dt);
+    this.syncBow(t, dt);
   }
 
   /** Что случилось за кадр: звук, подпись, отклик рукой. */
@@ -415,32 +385,45 @@ export class HuntPlay implements Play {
     return true;
   }
 
-  /** Лук: вскидывается, пока тянут, тетива уходит к скуле, стрела на тетиве — если наложена. */
-  private syncBow(dt: number): void {
-    const b = this.bowRig;
-    if (!b) return;
-    const pulling = this.hunt.pulling;
-    this.raise += ((pulling ? 1 : 0) - this.raise) * Math.min(1, dt * (pulling ? 12 : 5));
-    const draw = this.hunt.drawn();
-    this.drawShown += (draw - this.drawShown) * Math.min(1, dt * 14);
-    const k = smooth(this.raise);
-    b.position.set(lerp(BOW_REST.x, BOW_AIM.x, k), lerp(BOW_REST.y, BOW_AIM.y, k), lerp(BOW_REST.z, BOW_AIM.z, k));
-    b.rotation.set(lerp(BOW_REST.rx, BOW_AIM.rx, k), lerp(BOW_REST.ry, BOW_AIM.ry, k), lerp(BOW_REST.rz, BOW_AIM.rz, k));
-    // Тетива — от концов плеч к хвосту стрелы; стрела наложена, если она есть и прошло время наложить.
-    const nockZ = BOW_TIP.z + PULL * this.drawShown;
-    for (let i = 0; i < this.cords.length; i++) {
-      const limb = this.cords[i];
-      const ty = i === 0 ? BOW_TIP.y : -BOW_TIP.y;
-      _cord.set(0.06, -ty, nockZ - BOW_TIP.z);
-      const len = _cord.length() || 1e-4;
-      limb.position.set(0, ty, BOW_TIP.z);
-      limb.quaternion.setFromUnitVectors(_up, _cord.divideScalar(len));
-      limb.scale.set(1, len, 1);
-    }
-    const loaded = this.hunt.quiver > 0 && (pulling || this.raise > 0.05);
-    if (this.nock) {
-      this.nock.visible = loaded;
-      this.nock.position.set(0.06, 0, nockZ - ARROW_TAIL / BOW_SCALE);
+  /**
+   * Лучник: правило говорит, тянут ли, насколько и когда ушла последняя стрела; риг рисует жест и отдаёт поправку
+   * взгляда — дрожь натянутого лука и толчок отдачи. Поправка ложится на камеру поверх взгляда игрока: стрела летит
+   * туда, куда смотрит камера, и гуляет вместе с прицелом.
+   */
+  private syncBow(t: number, dt: number): void {
+    const a = this.archer;
+    const cam = this.camera;
+    if (!a || !cam) return;
+    this.clock += dt;
+    const last = this.hunt.arrows[this.hunt.arrows.length - 1];
+    // Взгляд игрока — тот, что поставила сцена в этом кадре; поворот за кадр — без прошлой поправки рига.
+    const yaw = cam.rotation.y;
+    const pitch = cam.rotation.x;
+    const turn = Number.isNaN(this.look.yaw) ? { yaw: 0, pitch: 0 } : { yaw: yaw - this.look.yaw, pitch: pitch - this.look.pitch };
+    this.look.yaw = yaw;
+    this.look.pitch = pitch;
+    a.update({
+      now: this.clock,
+      dt,
+      pulling: this.hunt.pulling,
+      drawn: this.hunt.drawn(t),
+      quiver: this.hunt.quiver,
+      sinceLoose: last ? Math.max(0, t - last.t0) : null,
+      nockS: NOCK_S,
+      walking: this.walking,
+      turn,
+    });
+    cam.rotation.y = yaw + a.sway.yaw;
+    cam.rotation.x = pitch + a.sway.pitch;
+    // Натянутый лук приближает поле, а не руки: риг сжат к середине кадра ровно на столько, на сколько уже стал угол
+    // обзора, — руки и лук стоят на экране так же, как без приближения (угол рига свой, как у вещи в руках в играх от
+    // первого лица). Угол камеры прошлого кадра — от прошлого приближения; этот кадр сцена поставит по `zoom()`.
+    const pc = cam as THREE.PerspectiveCamera;
+    if (pc.isPerspectiveCamera) {
+      const base = (pc.fov / this.zoomed) * (Math.PI / 360);
+      this.zoomed = this.zoom();
+      const k = Math.tan(base * this.zoomed) / Math.tan(base);
+      a.root.scale.set(k, k, 1);
     }
   }
 
@@ -452,5 +435,6 @@ export class HuntPlay implements Play {
   dispose(): void {
     this.blobs?.dispose();
     this.arrows?.dispose();
+    this.archer?.dispose();
   }
 }

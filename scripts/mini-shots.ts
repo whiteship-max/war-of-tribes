@@ -151,6 +151,10 @@ async function hunt(tab: Tab, began: number): Promise<void> {
   await sleep(500);
   await snap(tab, 'hunt-3a-drawn', began);
   await tab.send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...pt });
+  // Наложение: правая несёт новую стрелу от колчана к тетиве (`archer.ts`, состояние руки `return`).
+  if (await waitFor(tab, "window.__mini.play.archer && window.__mini.play.archer.state.hand === 'return'", 8000)) {
+    await snap(tab, 'hunt-3a3-reload', began);
+  }
   // Ждать, пока стрела ляжет: в оленя, в землю или в дерево.
   await waitFor(tab, 'window.__mini.play.hunt.arrows.length > 0 && window.__mini.play.hunt.arrows[0].end !== null', 20000);
   await sleep(600);
