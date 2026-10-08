@@ -37,6 +37,24 @@ class FakeClock {
 
   away = (): boolean => this.hidden;
 
+  /** Будильники сна цепочки: срок по времени экрана. */
+  private timers = new Map<number, { at: number; cb: () => void }>();
+
+  wait = (cb: () => void, ms: number): number => {
+    const id = this.id++;
+    this.timers.set(id, { at: this.now + ms, cb });
+    return id;
+  };
+
+  unwait = (id: number): void => {
+    this.timers.delete(id);
+  };
+
+  /** Сколько будильников заведено. */
+  get napping(): number {
+    return this.timers.size;
+  }
+
   /** Сколько заявок ждёт кадра. Больше одной — цепочка раздвоилась. */
   get waiting(): number {
     return this.queue.size;
@@ -46,6 +64,12 @@ class FakeClock {
   run(n = 1): void {
     for (let i = 0; i < n; i++) {
       this.now += 1000 / this.hz;
+      // Будильники, чей срок настал, звонят до кадра экрана — как таймер между кадрами браузера.
+      for (const [id, t] of [...this.timers]) {
+        if (t.at > this.now) continue;
+        this.timers.delete(id);
+        t.cb();
+      }
       const [id, cb] = [...this.queue.entries()][0] ?? [];
       if (id === undefined || !cb) continue;
       this.queue.delete(id);
@@ -407,6 +431,117 @@ describe('цепочка кадров держит потолок', () => {
     expect(loop.running).toBe(true);
     fake.run(2);
     expect(ticks).toBe(5);
+    loop.stop();
+  });
+});
+
+describe('сон цепочки: карта рисует только по изменению (docs/perf.md, решение 9)', () => {
+  it('во сне цепочка не просит кадров вовсе, к сроку — снова рисует', () => {
+    // Точки внутри области: сон в 100 мс — это шесть кадров экрана 60 Гц, и без сна их было бы шесть рисунков.
+    const clock = new FakeClock(60);
+    let ticks = 0;
+    let napMs = 0;
+    const loop = new FrameLoop<never>(
+      () => {
+        ticks++;
+        if (napMs > 0) loop.rest(napMs);
+      },
+      undefined,
+      clock,
+    );
+    loop.restart();
+    clock.run(3);
+    expect(ticks).toBe(3);
+    napMs = 100;
+    clock.run(1);
+    expect(ticks).toBe(4);
+    expect(loop.resting).toBe(true);
+    expect(clock.waiting).toBe(0);
+    expect(clock.napping).toBe(1);
+    // 100 мс сна — шесть кадров экрана: ни одной заявки и ни одного рисунка, пока срок не настал.
+    clock.run(5);
+    expect(ticks).toBe(4);
+    expect(clock.waiting).toBe(0);
+    // Срок настал: будильник подаёт заявку, кадр рисуется (и цепочка снова засыпает).
+    clock.run(3);
+    expect(ticks).toBe(5);
+    loop.stop();
+    expect(clock.napping).toBe(0);
+  });
+
+  it('`wake` будит спящую цепочку к ближайшему кадру экрана, не дожидаясь срока', () => {
+    const clock = new FakeClock(60);
+    let ticks = 0;
+    const loop = new FrameLoop<never>(
+      () => {
+        ticks++;
+        loop.rest(10_000);
+      },
+      undefined,
+      clock,
+    );
+    loop.restart();
+    clock.run(1);
+    expect(ticks).toBe(1);
+    clock.run(60);
+    expect(ticks).toBe(1);
+    loop.wake();
+    expect(clock.napping).toBe(0);
+    expect(clock.waiting).toBe(1);
+    clock.run(1);
+    expect(ticks).toBe(2);
+    // Не спит — будить нечего: вторая заявка не подаётся, цепочка не раздваивается.
+    loop.wake();
+    loop.wake();
+    expect(clock.waiting + clock.napping).toBe(1);
+    loop.stop();
+  });
+
+  it('скрытая страница снимает сон, возвращение рисует сразу — не к сроку сна', () => {
+    // «После разворачивания приложения карта сразу правильная»: сон в минуту не держит кадр возвращения.
+    const fake = new FakeClock();
+    let ticks = 0;
+    const loop = new FrameLoop<never>(
+      () => {
+        ticks++;
+        loop.rest(60_000);
+      },
+      undefined,
+      { raf: fake.raf, caf: fake.caf, away: awayNow, wait: fake.wait, unwait: fake.unwait },
+    );
+    loop.restart();
+    fake.run(1);
+    expect(ticks).toBe(1);
+    expect(loop.resting).toBe(true);
+    setAppAsleep(true);
+    expect(loop.resting).toBe(false);
+    expect(fake.napping).toBe(0);
+    setAppAsleep(false);
+    fake.run(1);
+    expect(ticks).toBe(2);
+    loop.stop();
+  });
+
+  it('причина владельца снимает сон; стоящую цепочку сон не трогает', () => {
+    const clock = new FakeClock(60);
+    let ticks = 0;
+    const loop = new FrameLoop<'covered'>(
+      () => {
+        ticks++;
+        loop.rest(60_000);
+      },
+      undefined,
+      clock,
+    );
+    loop.restart();
+    clock.run(1);
+    loop.block('covered', true);
+    expect(clock.napping).toBe(0);
+    loop.rest(1000);
+    expect(clock.napping).toBe(0);
+    loop.block('covered', false);
+    clock.run(1);
+    expect(ticks).toBe(2);
     loop.stop();
   });
 });

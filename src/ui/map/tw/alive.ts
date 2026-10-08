@@ -2,8 +2,9 @@
 // пепелищем, огонь осадного лагеря ночью. Всё — поверх испечённого и без выпечки в кадре: берег прибоя выводится один
 // раз на регион (кусками, стоя), а в кадре только штрихи и спрайты, как облака (`clouds.ts`).
 //
-// Уровень решает, что живое: на «Низком» прибоя нет, дым и колонна стоят (без движения), огонь не мерцает — стоящая
-// карта «Низкого» рисует тридцать кадров (docs/perf.md, решение 7), и нового в каждом кадре на нём почти нет.
+// Уровень решает, что живое: на «Низком» прибоя нет, дым и колонна стоят (без движения), огонь не мерцает. Стоящая
+// карта рисует только по изменению (docs/perf.md, решение 9): каждая кисть здесь говорит, движется ли нарисованное само,
+// и тогда карта шагает им редким шагом уровня (`QUALITY.mapStepFps`), а на «Низком» живого убранства нет вовсе.
 import type { Rect } from '@/world/types';
 import { type Camera, type Viewport, viewRect } from '../grid';
 import { makeCanvas } from '../paint';
@@ -203,15 +204,20 @@ function coastOf(ground: Ground, still: boolean, budgetMs = 3): Map<string, Path
   }
 }
 
+/** Что прибой сделал в кадре: ничего, волны (идут сами — шаг живого) или берег ещё печётся (нужен следующий кадр). */
+export type Surf = 'none' | 'waves' | 'baking';
+
 /**
  * Прибой кадра: гребни волн идут к берегу и разбиваются пеной у уреза. Над землёй, под владениями, туманом и ночью —
  * незнакомое лист закроет, ночь притушит. На «Низком» — нет (испечённая кайма прибоя остаётся).
  */
-export function drawSurf(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport, ground: Ground | null, still: boolean): void {
-  if (!ground || twQuality() === 'low') return;
+export function drawSurf(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport, ground: Ground | null, still: boolean): Surf {
+  if (!ground || twQuality() === 'low') return 'none';
   const paths = coastOf(ground, still);
+  // Берег ещё выводится — стоящей карте нужен следующий кадр, а не сон (`still.ts`).
+  if (!paths) return coast?.job ? 'baking' : 'none';
   const vis = smooth(SURF_FROM, SURF_FULL, cam.scale);
-  if (!paths || vis <= 0.01) return;
+  if (vis <= 0.01) return 'none';
   const r = viewRect(cam, vp);
   const bx0 = Math.floor(r.x / BUCKET);
   const by0 = Math.floor(r.y / BUCKET);
@@ -243,6 +249,7 @@ export function drawSurf(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewpor
     }
   }
   ctx.restore();
+  return 'waves';
 }
 
 /** Уборка: берег прибоя отпускается вместе с кадром карты. */
@@ -370,11 +377,12 @@ const COLUMN_MAX = { low: 5, medium: 9, high: 12 } as const;
 export const columnAlpha = (scale: number): number => smooth(COLUMN_FROM, COLUMN_FULL, scale);
 
 /**
- * Колонна похода: знамя впереди, за ним — люди по дороге назад, к месту выхода (`angle` — куда идут). Шаг — по часам
+ * Колонна похода: знамя впереди, за ним — люди по дороге назад, к месту выхода (`angle` — куда идут). Вернёт, шагает ли
+ * она сама (шаг живого стоящей карты, `still.ts`). Шаг — по часам
  * страницы; на «Низком» колонна стоит. Цель пальца — прежнее тело значка: колонна его не меняет.
  */
-export function drawColumn(ctx: CanvasRenderingContext2D, x: number, y: number, angle: number, size: number, color: string, scale: number, dpr: number, alpha: number, seed: number): void {
-  if (alpha <= 0.01) return;
+export function drawColumn(ctx: CanvasRenderingContext2D, x: number, y: number, angle: number, size: number, color: string, scale: number, dpr: number, alpha: number, seed: number): boolean {
+  if (alpha <= 0.01) return false;
   const q = twQuality();
   const n = Math.min(COLUMN_MAX[q], 3 + size * 2);
   const hPx = Math.max(8, Math.min(20, scale * 0.26));
@@ -408,6 +416,8 @@ export function drawColumn(ctx: CanvasRenderingContext2D, x: number, y: number, 
   }
   draw(bannerSprite(color, hPx * 1.45, dpr), x + dx * gap * 0.2, y + dy * gap * 0.15);
   ctx.restore();
+  // Шагает колонна сама — кроме «Низкого», где она стоит.
+  return q !== 'low';
 }
 
 // ---------- Дым и огонь ----------
@@ -419,12 +429,12 @@ const SMOKE_PUFFS = { low: 3, medium: 6, high: 8 } as const;
 const SMOKE_LIFE = 5;
 
 /**
- * Столб дыма над местом: клубы поднимаются и тают, сносимые ветром вправо. `weight` — густота: осада — 1, пепелище —
- * тоньше. На «Низком» столб стоит (клубы на своих местах, без движения).
+ * Столб дыма над местом: клубы поднимаются и тают, сносимые ветром вправо; вернёт, движется ли он. `weight` — густота:
+ * осада — 1, пепелище — тоньше. На «Низком» столб стоит (клубы на своих местах, без движения).
  */
-export function drawSmoke(ctx: CanvasRenderingContext2D, x: number, y: number, scale: number, weight: number, seed: number): void {
+export function drawSmoke(ctx: CanvasRenderingContext2D, x: number, y: number, scale: number, weight: number, seed: number): boolean {
   const vis = smooth(SMOKE_FROM, SMOKE_FULL, scale) * weight;
-  if (vis <= 0.02) return;
+  if (vis <= 0.02) return false;
   const q = twQuality();
   const n = SMOKE_PUFFS[q];
   const t = q === 'low' ? 0 : performance.now() / 1000;
@@ -443,12 +453,16 @@ export function drawSmoke(ctx: CanvasRenderingContext2D, x: number, y: number, s
     ctx.drawImage(img, px - r, py - r, r * 2, r * 2);
   }
   ctx.restore();
+  return q !== 'low';
 }
 
-/** Огни осадного лагеря ночью: костры по кольцу рогаток, мерцают (на «Низком» — ровно). Кладутся поверх ночи. */
-export function drawCampFires(ctx: CanvasRenderingContext2D, x: number, y: number, scale: number, night: number, seed: number): void {
+/**
+ * Огни осадного лагеря ночью: костры по кольцу рогаток, мерцают (на «Низком» — ровно); вернёт, мерцают ли. Кладутся
+ * поверх ночи.
+ */
+export function drawCampFires(ctx: CanvasRenderingContext2D, x: number, y: number, scale: number, night: number, seed: number): boolean {
   const vis = smooth(0.2, 0.6, night) * smooth(4, 10, scale);
-  if (vis <= 0.02) return;
+  if (vis <= 0.02) return false;
   const q = twQuality();
   const t = q === 'low' ? 0 : performance.now() / 1000;
   const ring = scale * 1.25;
@@ -465,4 +479,5 @@ export function drawCampFires(ctx: CanvasRenderingContext2D, x: number, y: numbe
     ctx.drawImage(img, x + Math.cos(a) * ring - rr, y + Math.sin(a) * ring * 0.6 - rr, rr * 2, rr * 2);
   }
   ctx.restore();
+  return q !== 'low';
 }

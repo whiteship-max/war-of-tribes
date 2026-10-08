@@ -703,6 +703,19 @@ export function prebakeIdle(budgetMs = PAGE_SLICE_MS): void {
   pump(s);
 }
 
+/**
+ * Выпечке нужен следующий кадр: региона ещё нет, исполнитель не готов, работы в полёте или в очереди. Стоящая карта
+ * рисует только по изменению (`still.ts`) и, пока выпечка занята, не засыпает: приехавшее ложится на экран тем же
+ * кадром, что прежде, а работы раздаются в кадре (`prebakeFrame`). Отказы (`failed`) занятостью не считаются — их
+ * повтор ждёт возвращения из фона (`prebakeWake`), а не кадра.
+ */
+export function prebakeBusy(): boolean {
+  const s = session;
+  if (!s) return false;
+  if (!s.land || !s.exec) return true;
+  return s.inFlight.size > 0 || s.exec.free() === 0 || nextJob(s) !== null;
+}
+
 /** Уровень или сезон сменились: испечённое устарело — рисуется, пока не приехало новое. */
 export function prebakeLook(): void {
   const s = session;

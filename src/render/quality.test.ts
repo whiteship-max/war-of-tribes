@@ -75,15 +75,18 @@ describe('уровень по устройству', () => {
   });
 
   it('низкий не дороже среднего ни одной ручкой; средний и высокий — прежние числа (docs/perf.md)', () => {
-    expect(QUALITY.high).toEqual({ dpr: 2, shadowSoft: true, mapDpr: 2, shadowEvery: 2, mapStillFps: 60 });
-    expect(QUALITY.medium).toEqual({ dpr: 1.5, shadowSoft: true, mapDpr: 2, shadowEvery: 2, mapStillFps: 60 });
+    expect(QUALITY.high).toEqual({ dpr: 2, shadowSoft: true, mapDpr: 2, shadowEvery: 2, mapStepFps: 20 });
+    expect(QUALITY.medium).toEqual({ dpr: 1.5, shadowSoft: true, mapDpr: 2, shadowEvery: 2, mapStepFps: 15 });
     const low = QUALITY.low;
     expect(low.dpr).toBeLessThanOrEqual(QUALITY.medium.dpr);
     expect(low.mapDpr).toBeLessThan(QUALITY.medium.mapDpr);
     // Плотность карты ниже единицы — мыло, а не экономия (правило двери кадра).
     expect(low.mapDpr).toBeGreaterThanOrEqual(1);
     expect(low.shadowEvery).toBeGreaterThan(QUALITY.medium.shadowEvery);
-    expect(low.mapStillFps).toBeLessThan(QUALITY.medium.mapStillFps);
+    // Шаг живого стоящей карты (docs/perf.md, решение 9): ниже — реже, и не реже десяти — метки мигают, отряды идут.
+    expect(QUALITY.medium.mapStepFps).toBeLessThanOrEqual(QUALITY.high.mapStepFps);
+    expect(low.mapStepFps).toBeLessThan(QUALITY.medium.mapStepFps);
+    expect(low.mapStepFps).toBeGreaterThanOrEqual(10);
   });
 
   it('ниже низкого — нет', () => {
