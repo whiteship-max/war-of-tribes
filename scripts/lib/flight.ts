@@ -167,6 +167,9 @@ const FLIGHT_PROBE = `
     return JSON.stringify('ok');
   };
   window.__dtsTake = () => JSON.stringify(window.__dts || []);
+  // Стоянка меряет кадр, который рисуется, и выпечку в нём: стоящая карта рисует только по изменению, и замер просит
+  // её рисовать каждый кадр (WorldMap.probeAlways, docs/perf.md, решение 9).
+  window.__mapAlways = true;
   window.__flightBakes = () => JSON.stringify(window.__mapBakes());
   window.__flightGaps = () => JSON.stringify(window.__mapGaps ? window.__mapGaps() : null);
   window.__flightCache = () => JSON.stringify(window.__mapTiles ? window.__mapTiles() : null);

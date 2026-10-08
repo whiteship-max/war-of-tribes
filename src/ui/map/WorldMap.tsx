@@ -187,6 +187,13 @@ const TERRAIN_ROWS: { color: string; name: string; note: string }[] = [
 ];
 
 /**
+ * Стенд просит рисовать каждый кадр (`window.__mapAlways = true`, только под `?probe=1`): `map:report` меряет цену кадра
+ * полотна на сотнях кадров — стоя и с отрядами, — а стоящая карта иначе рисовала бы их единицы (решение 9, docs/perf.md).
+ * Цена кадра от этого не меняется; сколько кадров карта рисует стоя, меряет `weak:stand` — без флага.
+ */
+const probeAlways = (): boolean => (window as unknown as { __mapAlways?: boolean }).__mapAlways === true;
+
+/**
  * Поля стора мира, перемена которых стоящую карту не будит: `now` — отметка пульса, она меняется каждые две секунды, а
  * всё, что кадр рисует по времени, он отмечает сам (`still.FrameMotion`).
  */
@@ -484,7 +491,7 @@ export function WorldMap() {
       // Сколько спать до следующего кадра: ведут — ни сколько, движется само — шаг уровня, сроки — секунду, ничего —
       // до толчка или страховочного срока (`still.restAfter`).
       const nap = restAfter(motion, performance.now() - cam.movedAt, QUALITY[levelNow(location.search)].mapStepFps);
-      if (nap > 0) loop.rest(nap);
+      if (nap > 0 && !(PROBE && probeAlways())) loop.rest(nap);
     };
     loop.restart();
     return () => {
