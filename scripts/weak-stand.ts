@@ -12,6 +12,7 @@
 //   SECONDS=10                               — сколько мерить плавность
 //   PROFILE=1 BUILT=1                        — профиль на собранной игре (имена сжаты, файлы кусков видны)
 //   DIST=путь                                — другая сборка вместо `dist` (коммит «до» из второго worktree)
+//   EXTRA="&weather=rain"                    — добавка к адресу страницы (погода адресом, docs/city.md, 15)
 //   ASK="JSON.stringify(…)"                  — выражение в странице на вставшем городе (разбор: что в сцене)
 //
 // ЧТО МЕРЯЕТСЯ И ЧЕМ:
@@ -47,6 +48,8 @@ const RATE = Math.max(1, Math.min(20, Number(process.env.RATE ?? 4)));
 const QUALITY = process.env.QUALITY ?? 'low';
 const SECONDS = Math.max(3, Math.min(30, Number(process.env.SECONDS ?? 10)));
 const WEAK = process.env.DEVICE === 'weak';
+/** `EXTRA="&weather=rain"` — добавка к адресу каждой страницы стенда: погода и другое, что игра читает из адреса. */
+const EXTRA = process.env.EXTRA ?? '';
 /** `PROFILE=1` — профилировщик страницы на окне плавности: собственное время функций, первые пятнадцать. */
 const PROFILE = process.env.PROFILE === '1';
 /**
@@ -104,7 +107,7 @@ const BEFORE = `
 })();
 `;
 
-const page = (query: string): string => `http://127.0.0.1:${PORT}/?probe=1${QUALITY === 'auto' ? '' : `&quality=${QUALITY}`}${query}`;
+const page = (query: string): string => `http://127.0.0.1:${PORT}/?probe=1${QUALITY === 'auto' ? '' : `&quality=${QUALITY}`}${query}${EXTRA}`;
 
 async function waitFor(tab: Tab, expr: string, ms: number): Promise<boolean> {
   for (let t = 0; t < ms; t += 250) {
@@ -392,7 +395,7 @@ async function main(): Promise<void> {
     close = async () => void built.httpServer.close();
   }
   try {
-    console.log(`\n=== слабый телефон: ${SCENE}, процессор ×${RATE}, уровень ${QUALITY}${WEAK ? ', устройство «2 ГБ, 4 ядра»' : ''}${SMALL ? ', экран мал' : ''} ===\n`);
+    console.log(`\n=== слабый телефон: ${SCENE}, процессор ×${RATE}, уровень ${QUALITY}${WEAK ? ', устройство «2 ГБ, 4 ядра»' : ''}${EXTRA ? `, адрес ${EXTRA}` : ''}${SMALL ? ', экран мал' : ''} ===\n`);
     await gpuCoolDown('стендом слабого телефона');
     // В облачном контейнере браузер идёт от root без видеокарты: песочница не поднимается, WebGL — программный.
     const root = process.getuid?.() === 0 ? ['--no-sandbox', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] : [];
