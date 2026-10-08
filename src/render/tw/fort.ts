@@ -28,7 +28,7 @@ import {
   type TwWall,
 } from './site';
 import { unitPose, type TwPlan } from './plan';
-import { breachColumns } from './barrage';
+import { BREACH_BAND, breachColumns } from './barrage';
 import { heightAt } from './terrain';
 
 /** Средний тон слоя набора города (sRGB): то, во что слой красит тон вершины, если смотреть издали. */
@@ -151,16 +151,17 @@ function breachRun(b: Builder, w: TwWall, x0: number, x1: number, cols: { x0: nu
   const Tbroken = tint(CITY.stoneTints[1], 0.92);
   const cx = (x0 + x1) / 2;
   const len = x1 - x0;
-  box(b, cx, zo + s * (thick * 0.75), 0, out, len, thick / 2, base - 1.6, top, 'ashlar', T, null, { aoBottom: 0.72, grimeBottom: 0.9 });
+  const band = m(BREACH_BAND);
+  box(b, cx, zo + s * (band + (thick - band) / 2), 0, out, len, thick - band, base - 1.6, top, 'ashlar', T, null, { aoBottom: 0.72, grimeBottom: 0.9 });
   for (const c of cols) {
     const a = Math.max(x0, m(c.x0));
     const e = Math.min(x1, m(c.x1));
     if (e - a < 0.02) continue;
-    box(b, (a + e) / 2, zo + s * (thick / 4), 0, out, e - a, thick / 2, base - 1.6, top - m(c.drop), 'ashlar', T, 'rubble', { aoBottom: 0.72 });
-    // Излом кладки — светлее и грубее над срезом: свежий камень.
-    box(b, (a + e) / 2, zo + s * (thick / 2 - 0.05), 0, out, e - a, 0.12, top - m(c.drop) - 0.4, top - m(c.drop) + 0.02, 'rubble', Tbroken, 'rubble');
+    box(b, (a + e) / 2, zo + s * (band / 2), 0, out, e - a, band, base - 1.6, top - m(c.drop), 'ashlar', T, 'rubble', { aoBottom: 0.72 });
+    // Излом кладки — светлее и грубее над срезом: свежий камень на грани уцелевшей кладки.
+    box(b, (a + e) / 2, zo + s * (band + 0.04), 0, out, e - a, 0.1, top - m(c.drop), top - 0.05, 'rubble', Tbroken, null);
   }
-  const mid = zo + s * (thick / 2);
+  const mid = zo + s * band;
   const zIn = zo + s * thick;
   const walk: [number, number][] =
     s < 0

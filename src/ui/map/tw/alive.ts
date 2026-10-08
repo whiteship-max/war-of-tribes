@@ -147,6 +147,8 @@ export function* coastField(seed: number, g: LandGrid, rect: Rect): Generator<vo
 
 interface Coast {
   seed: number;
+  /** Снимок земли, по которому выведен: новый снимок — новый берег. */
+  land: LandGrid;
   rect: Rect;
   job: Generator<void, { L: Float32Array; nx: number; ny: number; x0: number; y0: number; step: number }> | null;
   /** Линии по уровням (`SURF_LEVELS`), по корзинам: ключ — «bx:by». */
@@ -186,7 +188,7 @@ function coastOf(ground: Ground, still: boolean, budgetMs = 3): Map<string, Path
   const y = Math.max(r.y, d.y);
   const rect = { x, y, w: Math.max(0, Math.min(r.x + r.w, d.x + d.w) - x), h: Math.max(0, Math.min(r.y + r.h, d.y + d.h) - y) };
   if (rect.w <= 0 || rect.h <= 0) return null;
-  if (!coast || coast.seed !== ground.seed || !sameRect(coast.rect, rect)) coast = { seed: ground.seed, rect, job: coastField(ground.seed, g, rect), paths: null };
+  if (!coast || coast.seed !== ground.seed || coast.land !== g || !sameRect(coast.rect, rect)) coast = { seed: ground.seed, land: g, rect, job: coastField(ground.seed, g, rect), paths: null };
   if (coast.paths || !still || !coast.job) return coast.paths;
   const until = performance.now() + budgetMs;
   for (;;) {

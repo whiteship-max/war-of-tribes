@@ -282,7 +282,7 @@ export function mountTwStand(p: URLSearchParams): void {
     const g = plan.cast.ground;
     caption.textContent =
       `бой ${battle.men} против ${battle.foe} · сид ${battle.seed} · ${quality} · k ${plan.k}` +
-      `${plan.k > 1 ? ` (1 фигура — ${plan.k} бойца)` : ''} · ролик ${plan.seconds.toFixed(1)} с · ` +
+      `${plan.k > 1 ? ` (1 фигура — ${plan.k} бойца)` : ''} · ролик ${player.seconds.toFixed(1)} с · ` +
       `${groundName(g)} ${hourName(g)}${g.winter ? ', зимой' : ''}${plan.crossing ? ' · переправа' : ''}\n` +
       `t=${player.time.toFixed(2)} · фигур ${plan.sideFigures.attacker}/${plan.sideFigures.defender} · отрядов ${plan.units.length} · ` +
       `вызовов ${s.calls}/${budget.calls} · треугольников ${s.triangles.toLocaleString('ru')}/${budget.triangles.toLocaleString('ru')} · ` +
@@ -294,7 +294,7 @@ export function mountTwStand(p: URLSearchParams): void {
       foe: battle.foe,
       seed: battle.seed,
       k: plan.k,
-      seconds: plan.seconds,
+      seconds: player.seconds,
       t: Number(player.time.toFixed(3)),
       figures: plan.sideFigures,
       units: plan.units.length,

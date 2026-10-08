@@ -111,7 +111,7 @@ export class Crowd {
   readonly bones: BoneTexture;
   private groups: Group[] = [];
   /** Геометрии добавочных фигур: свои только атрибуты инстансов, остальное — у вида (`extras`). */
-  private extraMeshes: THREE.BufferGeometry[] = [];
+  private extraMeshes: THREE.InstancedMesh[] = [];
   private material: THREE.MeshLambertMaterial;
   private proxyMaterial: THREE.MeshLambertMaterial | null = null;
   private rows = { a: 0, b: 0, w: 0 };
@@ -285,7 +285,7 @@ export class Crowd {
         tint.needsUpdate = true;
       },
     };
-    this.extraMeshes.push(geo);
+    this.extraMeshes.push(mesh);
     return extra;
   }
 
@@ -301,10 +301,12 @@ export class Crowd {
 
   dispose(): void {
     // Геометрия добавочных делит буферы вида: снимаются только свои атрибуты инстансов — общие уйдут с видом.
-    for (const geo of this.extraMeshes) {
-      for (const n of ['position', 'normal', 'color', 'aJoint', 'aSide']) geo.deleteAttribute(n);
+    for (const mesh of this.extraMeshes) {
+      const geo = mesh.geometry;
+      for (const n of Object.keys(geo.attributes)) if (n !== 'aPlace' && n !== 'aAnim' && n !== 'aTint') geo.deleteAttribute(n);
       geo.setIndex(null);
       geo.dispose();
+      mesh.dispose();
     }
     for (const g of this.groups) {
       g.mesh.geometry.dispose();

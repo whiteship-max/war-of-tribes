@@ -201,6 +201,9 @@ function siegeCues(plan: TwPlan, out: Cue[]): void {
  * Часы звуков: отдаёт звуки, чьё время пришло с прошлого кадра. Перемотка назад и скачок вперёд (снова, ×4 на паузе)
  * звуков не сыплют: прошлые — уже прозвучали, пропущенные — не догоняют.
  */
+/** Скачок часов, после которого пропущенные звуки не звучат: больше шага кадра на ×4 (0.4 с). */
+const JUMP = 0.5;
+
 export class CueClock {
   private next = 0;
   private last: number | null = null;
@@ -215,7 +218,9 @@ export class CueClock {
       if (this.next < 0) this.next = this.cues.length;
       this.last = from;
     }
-    if (t < this.last - 1e-6 || t - this.last > 1.5) {
+    // Скачок вперёд больше кадра на ×4 (шаг кадра — не больше 0.1 с, `TwPlayer.loop`): «Пропустить» обстрел, перемотка —
+    // пропущенное не догоняет пачкой.
+    if (t < this.last - 1e-6 || t - this.last > JUMP) {
       this.next = this.cues.findIndex((c) => c.at > t);
       if (this.next < 0) this.next = this.cues.length;
       this.last = t;

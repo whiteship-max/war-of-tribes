@@ -142,6 +142,16 @@ export interface TwBarrage {
   look: { crew: number; faller: number };
 }
 
+/**
+ * Опущенная полоса стены над проломом — от наружной грани внутрь, метры. Передняя шеренга защитников стоит на ходу в
+ * `CONTACT_HALF` (0.42 м) от грани, и план боя от пролога не меняется: полоса у́же, чтобы никто не стоял над пустотой.
+ * Пролом поэтому — сбитые зубцы, парапет и облицовка с осыпью у подножия, а не дыра насквозь; у ядра он и есть не дыра,
+ * а доля стены, на которой больше не стоят (`wallMen`).
+ */
+export const BREACH_BAND = 0.26;
+/** Ключи камеры пролога — не ближе этого друг к другу: переход между ними (`player.CAM_MOVE`) не рвётся. */
+const CAM_GAP = 1.3;
+
 /** Залпов в прологе, не больше. */
 const MAX_SHOTS = 3;
 /** Пролог: показ машин до первого срыва, круг залпа, разнос машин в круге, хвост после последнего удара. */
@@ -177,7 +187,7 @@ const clamp = (v: number, a: number, b: number): number => (v < a ? a : v > b ? 
 export const breachShare = (shares: readonly number[], n: number): number => (n <= 0 ? 0 : Math.min(1, shares[Math.min(n, shares.length) - 1]));
 
 /** Ширина пролома после первых `n` залпов, метры. */
-export const breachWidth = (shares: readonly number[], n: number): number => breachShare(shares, n) * BREACH_PER_SHARE;
+export const breachWidth = (shares: readonly number[], n: number, k = 1): number => breachShare(shares, n) * BREACH_PER_SHARE * k;
 
 /**
  * Насколько опущена наружная половина стены над `x` (метры от верха, 0 — цела): клин пролома, глубже к середине, с
@@ -271,6 +281,8 @@ interface Ctx {
   seed: number;
   n: number;
   shares: readonly number[];
+  /** Пролом ужат под самый длинный пролёт стены, если целиком не влезает ни в один (1 — влезает). */
+  fit: number;
 }
 
 /** Первая фигура отряда — образец вида. */
@@ -285,7 +297,7 @@ export function barrageOf(plan: TwPlan, shares: readonly number[] | undefined): 
   const n = Math.min(MAX_SHOTS, shares?.length ?? 0);
   const site = plan.site;
   if (n === 0 || !site || !shares) return null;
-  const ctx: Ctx = { plan, seed: plan.cast.seed, n, shares };
+  const ctx: Ctx = { plan, seed: plan.cast.seed, n, shares, fit: 1 };
   if (site.kind === 'wall' && site.wall) return wallBarrage(ctx, site.wall);
   if (site.kind === 'lair' && site.camp) return lairBarrage(ctx);
   return null;
@@ -360,7 +372,7 @@ function wallHit(n: number, r: number, e: number): StoneHit | 'collapse' {
 function breachX(ctx: Ctx, w: TwWall, width: number, ladders: number[]): number {
   const stops: [number, number][] = [[w.gateX - 3.2, w.gateX + 3.2]];
   for (const t of w.towers) stops.push([t.x - t.size / 2, t.x + t.size / 2]);
-  let best = 0;
+  let best = NaN;
   let bestScore = -Infinity;
   const half = width / 2 + 1;
   for (let x = -w.halfX + half + 2; x <= w.halfX - half - 2; x += 0.5) {
@@ -372,7 +384,17 @@ function breachX(ctx: Ctx, w: TwWall, width: number, ladders: number[]): number 
       best = x;
     }
   }
-  return best;
+  if (!Number.isNaN(best)) return best;
+  // Ни один пролёт не вмещает пролом целиком (стена коротка): середина самого длинного пролёта, и пролом ужат под него.
+  stops.sort((a, b) => a[0] - b[0]);
+  let gap = { a: -w.halfX, b: w.halfX, len: -1 };
+  let x = -w.halfX;
+  for (const [a, b] of [...stops, [w.halfX, w.halfX] as [number, number]]) {
+    if (a - x > gap.len) gap = { a: x, b: a, len: a - x };
+    x = Math.max(x, b);
+  }
+  ctx.fit = Math.max(0.1, Math.min(1, (gap.len - 2.5) / Math.max(0.1, width)));
+  return (gap.a + gap.b) / 2;
 }
 
 function wallBarrage(ctx: Ctx, w: TwWall): TwBarrage {
@@ -380,8 +402,8 @@ function wallBarrage(ctx: Ctx, w: TwWall): TwBarrage {
   const f = plan.field;
   const besiegerSide: Side = w.side === 'attacker' ? 'defender' : 'attacker';
   const besieger = plan.units.filter((u) => u.side === besiegerSide);
-  const width = breachWidth(ctx.shares, n);
-  const bx = breachX(ctx, w, width, plan.site!.ladders.map((l) => l.x));
+  const bx = breachX(ctx, w, breachWidth(ctx.shares, n), plan.site!.ladders.map((l) => l.x));
+  const width = breachWidth(ctx.shares, n, ctx.fit);
   const top = w.base + w.top;
   const outward = -w.inward;
   const engines = placeEngines(ctx, besieger, w.inward, bx, w.z);
@@ -401,8 +423,8 @@ function wallBarrage(ctx: Ctx, w: TwWall): TwBarrage {
       let st: TwStone;
       if (what === 'collapse') {
         const ci = r - 1;
-        const prev = breachWidth(ctx.shares, ci) / 2;
-        const now = breachWidth(ctx.shares, ci + 1) / 2;
+        const prev = breachWidth(ctx.shares, ci, ctx.fit) / 2;
+        const now = breachWidth(ctx.shares, ci + 1, ctx.fit) / 2;
         const spans: [number, number][] = ci === 0 ? [[bx - now, bx + now]] : [[bx - now, bx - prev], [bx + prev, bx + now]];
         const tx = ci === 0 ? bx + jitter(67) * 1.5 : bx + (r % 2 === 0 ? -1 : 1) * (prev + now) / 2;
         st = stone(ctx, engines, e, at, tx, w.base + w.top * 0.7, faceZ, 'wall', ci);
@@ -454,11 +476,11 @@ function wallBarrage(ctx: Ctx, w: TwWall): TwBarrage {
   const toward = w.z + (engZ - w.z) * 0.55;
   const engBox = boxOf(engines.map((e) => [e.x, e.z]), [[bx * 0.6, toward]], 4);
   const near = (half: number): TwCamKey['box'] => ({ minX: bx - half, maxX: bx + half, minZ: Math.min(w.z, w.z + outward * 6), maxZ: Math.max(w.z, w.z + outward * 6) });
-  const cam: TwCamKey[] = [
+  const cam = spaced([
     { at: 0, box: engBox, yaw: yawOut + 0.45, pitch: 0.46 },
     { at: Math.max(1.5, firstWall - 0.4), box: near(7), yaw: yawOut + 0.38, pitch: 0.42 },
     { at: Math.max(2.5, lastCollapse - 0.9), box: near(5), yaw: yawOut - 0.3, pitch: 0.4 },
-  ];
+  ]);
   return {
     shots: n,
     shares: ctx.shares,
@@ -472,7 +494,7 @@ function wallBarrage(ctx: Ctx, w: TwWall): TwBarrage {
     crew: crewOf(ctx, engines),
     smoke,
     cam,
-    cues: cuesOfBarrage(ctx, engines, stones, chunks, fallers, w.inward),
+    cues: cuesOfBarrage(ctx, engines, stones, chunks, fallers, w.inward, w.z),
     look: { crew: firstOf(besieger.filter((u) => !mounted(u))), faller: firstOf(wallUnits) },
   };
 }
@@ -523,10 +545,10 @@ function lairBarrage(ctx: Ctx): TwBarrage {
   const hit = stones.find((s) => s.hit === 'hut');
   const hx = hit ? hit.x1 : cx;
   const hz = hit ? hit.z1 : cz;
-  const cam: TwCamKey[] = [
+  const cam = spaced([
     { at: 0, box: boxOf(engines.map((e) => [e.x, e.z]), [[cx * 0.4, (engines[0].z + cz) / 2]], 4), yaw: yawIn + 0.45, pitch: 0.46 },
     { at: Math.max(1.5, firstHut - 0.4), box: { minX: hx - 6, maxX: hx + 6, minZ: hz - 5, maxZ: hz + 5 }, yaw: yawIn + 0.35, pitch: 0.44 },
-  ];
+  ]);
   return {
     shots: n,
     shares: ctx.shares,
@@ -540,9 +562,16 @@ function lairBarrage(ctx: Ctx): TwBarrage {
     crew: crewOf(ctx, engines),
     smoke,
     cam,
-    cues: cuesOfBarrage(ctx, engines, stones, [], [], dir),
+    cues: cuesOfBarrage(ctx, engines, stones, [], [], dir, cz),
     look: { crew: firstOf(besieger.filter((u) => !mounted(u))), faller: -1 },
   };
+}
+
+/** Ключи по времени и не ближе `CAM_GAP` друг к другу: близкий к прежнему выпадает (переход не рвётся на полпути). */
+function spaced(keys: TwCamKey[]): TwCamKey[] {
+  const out: TwCamKey[] = [];
+  for (const k of keys) if (out.length === 0 || k.at >= out[out.length - 1].at + CAM_GAP) out.push(k);
+  return out;
 }
 
 function boxOf(points: number[][], more: number[][], pad: number): TwCamKey['box'] {
@@ -556,7 +585,7 @@ function boxOf(points: number[][], more: number[][], pad: number): TwCamKey['box
 }
 
 /** Звук пролога: скрип рычага и удар перекладины, свист камня, удар, обвал, крик сбитых. */
-function cuesOfBarrage(ctx: Ctx, engines: TwEngine[], stones: TwStone[], chunks: TwChunk[], fallers: TwFaller[], inward: number): BarrageCue[] {
+function cuesOfBarrage(ctx: Ctx, engines: TwEngine[], stones: TwStone[], chunks: TwChunk[], fallers: TwFaller[], inward: number, wallZ: number): BarrageCue[] {
   const out: BarrageCue[] = [];
   const c = (at: number, kind: BarrageCueKind, x: number, z: number, size: number, seed: number, more: Partial<BarrageCue> = {}): BarrageCue => ({
     at,
@@ -579,7 +608,7 @@ function cuesOfBarrage(ctx: Ctx, engines: TwEngine[], stones: TwStone[], chunks:
   }
   for (const ch of chunks) {
     const x = ch.spans.reduce((m, [a, b]) => m + (a + b) / 2, 0) / ch.spans.length;
-    out.push(c(ch.at + 0.12, 'collapse', x, 0, 1, ctx.seed + Math.round(ch.at * 10)));
+    out.push(c(ch.at + 0.12, 'collapse', x, wallZ, 1, ctx.seed + Math.round(ch.at * 10)));
   }
   if (fallers.length > 0) {
     const f0 = fallers[0];
