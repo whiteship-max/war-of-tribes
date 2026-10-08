@@ -44,6 +44,7 @@ import {
   type Shore,
 } from './fishing';
 import {
+  FISH_LOOK,
   WATER_Y,
   farBank,
   fishGeometry,
@@ -125,6 +126,8 @@ const JUMP_S = 0.75;
 const _v = new THREE.Vector3();
 const _w = new THREE.Vector3();
 const _q = new THREE.Quaternion();
+const _q2 = new THREE.Quaternion();
+const _x = new THREE.Vector3(1, 0, 0);
 const _e = new THREE.Euler();
 const _col = new THREE.Color();
 const _la = new THREE.Vector3();
@@ -846,6 +849,8 @@ export class FishPlay implements Play {
     // Голова вверх (висит на крючке за губу), бок — к глазу, хвост бьёт.
     const flap = Math.sin(age * 13) * 0.35 * Math.exp(-age * 0.6);
     _q.setFromEuler(_e.set(0, cam.rotation.y - SHORE_YAW + flap, Math.PI / 2 - 0.12, 'YXZ'));
+    // Камбала плоская: к глазу — её широкая спина, а не ребро.
+    if (FISH_LOOK[fish.def.id].flat) _q.multiply(_q2.setFromAxisAngle(_x, Math.PI / 2));
     m.quaternion.copy(_q);
     // Рот — на голове, куда идёт леска: в осях берега.
     this.mouth.set(scale * 0.5, 0, 0).applyQuaternion(_q).add(m.position);
@@ -912,8 +917,9 @@ export class FishPlay implements Play {
     m.visible = true;
     m.position.set(at.x, WATER_Y + 0.02, at.z);
     const hang = spotAt(g.field, at.x, at.z).hang;
-    (m.material as THREE.MeshBasicMaterial).color.setHex(hang ? 0xe0503a : 0xf2e6c4);
-    m.scale.setScalar(0.6 + 0.04 * at.d);
+    // Охра — цвет действия, как у шкалы: на светлой воде у горизонта кремовое кольцо терялось (снимок `f7`).
+    (m.material as THREE.MeshBasicMaterial).color.setHex(hang ? 0xe0503a : 0xe0a040);
+    m.scale.setScalar(0.8 + 0.07 * at.d);
   }
 
   dispose(): void {
@@ -933,7 +939,7 @@ function markerRing(): THREE.Mesh {
   const idx: number[] = [];
   for (let i = 0; i <= seg; i++) {
     const a = (i / seg) * Math.PI * 2;
-    for (const r of [0.85, 1]) pos.push(Math.cos(a) * r, 0, Math.sin(a) * r);
+    for (const r of [0.72, 1]) pos.push(Math.cos(a) * r, 0, Math.sin(a) * r);
   }
   for (let i = 0; i < seg; i++) {
     const a = i * 2;
@@ -942,7 +948,7 @@ function markerRing(): THREE.Mesh {
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   g.setIndex(idx);
-  const m = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ color: 0xf2e6c4, transparent: true, opacity: 0.85, depthWrite: false, side: THREE.DoubleSide }));
+  const m = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ color: 0xe0a040, transparent: true, opacity: 0.95, depthWrite: false, side: THREE.DoubleSide, fog: false }));
   m.name = 'castMarker';
   m.renderOrder = 2;
   m.castShadow = false;

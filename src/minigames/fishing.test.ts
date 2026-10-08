@@ -180,7 +180,7 @@ describe('рыбалка: рыбы по берегу, поясу и сезону
     expect(warm.filter((id) => cold.includes(id))).toEqual([]);
   });
 
-  it('цель — четыре средние рыбы берега; у моря тяжелее, чем у реки того же пояса', () => {
+  it('цель — четыре средние рыбы берега; у холодного моря (треска) тяжелее, чем у северной реки', () => {
     for (const zone of ['ocean', 'land'] as const) {
       const s: Setting = { shore: 'river', zone, season: 'summer' };
       const pool = poolOf(s);
@@ -354,6 +354,32 @@ describe('рыбалка: вываживание', () => {
     }
     expect(all).toBeGreaterThan(4);
     expect(faster).toBe(all);
+  });
+
+  it('удилище против рывка гасит натяжение: в том же рывке вбок оно ниже, чем у прямого удилища', () => {
+    const bass = FISH.find((f) => f.id === 'bass')!;
+    const a = hooked(bass, 0.6, false, 12);
+    const b = hooked(bass, 0.6, false, 12);
+    a.release(0.06, 0, 0);
+    b.release(0.06, 0, 0);
+    let t = 0.06;
+    let checked = 0;
+    while (t < 20 && a.line && b.line && checked === 0) {
+      t += 1 / 60;
+      const sg = a.line.surge;
+      if (sg && sg.side !== 0) {
+        a.steer(t, -sg.side);
+        // Треть рывка: натяжение успело лечь на новую цель.
+        if (t - sg.t0 > 0.45 && t < sg.t1) {
+          expect(b.line.surge?.side, 'точка внутри области: у обоих тот же рывок вбок').toBe(sg.side);
+          expect(a.line.tension).toBeLessThan(b.line.tension - 0.03);
+          checked++;
+        }
+      }
+      a.advance(t);
+      b.advance(t);
+    }
+    expect(checked).toBe(1);
   });
 
   it('леска рвётся не от одного кадра: натяжение выше предела держится SNAP_S, прежде чем лопнуть', () => {

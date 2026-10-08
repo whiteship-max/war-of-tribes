@@ -327,9 +327,9 @@ export class FishRig {
       basis(_x, [-0.25, -0.9, 0.3], this.left.quaternion);
     } else {
       // Держит удилище над катушкой, предплечье — вниз, за нижний край кадра: рука не загораживает воду.
-      _p.copy(this.butt).addScaledVector(_z, 0.3);
+      _p.copy(this.butt).addScaledVector(_z, 0.2);
       this.left.position.lerp(_p, 1 - Math.exp(-dt / 0.06));
-      basis(_z, [-0.12, -0.95, 0.25], _q);
+      basis(_z, [-0.05, -1, 0.12], _q);
       this.left.quaternion.slerp(_q, 1 - Math.exp(-dt / 0.06));
     }
   }

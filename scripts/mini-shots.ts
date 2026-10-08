@@ -13,8 +13,9 @@
 //   FIT=1 npm run mini:shots            — верхняя строка на 375 и 390 px одним заходом: обычные и четырёхзначные числа,
 //                                         с ячейкой порядка и без; влезает ли строка, не переполнена ли ячейка, и снимок
 //                                         строки на каждый случай
-//   BUDGET=1 npm run mini:shots         — бюджет кадра счётом по графу сцены, без браузера (`world.frameCost`), и дуга
-//                                         стрелы «Охоты»: метки прицела, полёт и падение на их далях
+//   BUDGET=1 npm run mini:shots         — бюджет кадра счётом по графу сцены, без браузера (`world.frameCost`), дуга
+//                                         стрелы «Охоты»: метки прицела, полёт и падение на их далях, и рыбалка: цели по
+//                                         берегу, поясу и сезону, секунды вываживания средней рыбы каждого вида
 //
 // Снимки — в `.mini-shots/` (в репозиторий не входит). Бюджет железа (CLAUDE.md, раздел ⛔): один прогон, браузер с
 // потолком кадров отчёта, не дольше двух минут на заход, минута остывания видеокарты перед заходом; рядом с чужой
@@ -390,11 +391,54 @@ async function arc(): Promise<void> {
   console.log(`  скорость: натяжка 0.5 — ${speedOf(0.5).toFixed(1)} м/с, полная — ${speedOf(1).toFixed(1)} м/с`);
 }
 
+/**
+ * «Рыбалка»: цель по берегу, поясу и сезону (`fishing.goalGrams`) и вываживание стратегией «держи, пока натяжение ниже 0.72,
+ * удилище против рывка» — сколько секунд от подсечки на четырнадцати метрах до рыбы в руке, у средней рыбы каждого вида.
+ */
+async function fishNumbers(): Promise<void> {
+  const F = await import('../src/minigames/fishing');
+  console.log('\n=== рыбалка: цели и вываживание (правило fishing.ts, без браузера) ===\n');
+  for (const shore of ['river', 'sea'] as const) {
+    for (const zone of ['med', 'ocean', 'land', 'north'] as const) {
+      const row = (['spring', 'summer', 'autumn', 'winter'] as const).map((season) => (F.goalGrams({ shore, zone, season }) / 1000).toFixed(1));
+      console.log(`  цель ${shore === 'river' ? 'река' : 'море'} ${zone.padEnd(5)}: весна ${row[0]}, лето ${row[1]}, осень ${row[2]}, зима ${row[3]} кг`);
+    }
+  }
+  for (const def of F.FISH) {
+    const g = new F.Fishing(17, { shore: def.shore, zone: 'land', season: 'summer' });
+    g.press(0);
+    g.release(F.STEP, 1, 0);
+    g.land = { x: 0, z: F.BANK_Z - 14, d: 14 };
+    g.phase = 'wait';
+    g.since = 0;
+    g.plan = { fish: F.hookedOf(def, 0.5, 1), nibbles: [], bite: 0, window: 99 };
+    g.press(0.05);
+    let t = 0.05;
+    let end = 'время';
+    while (t < 60 && g.line) {
+      t += 1 / 60;
+      const L = g.line;
+      const hold = L.tension < 0.72;
+      if (hold !== L.reeling) {
+        if (hold) g.press(t);
+        else g.release(t, 0, 0);
+      }
+      const rod = L.surge ? -L.surge.side : 0;
+      if (Math.abs(rod - L.rod) > 0.01) g.steer(t, rod);
+      g.advance(t);
+      const e = g.takeEvents().find((x) => x.kind === 'caught' || x.kind === 'snap' || x.kind === 'slack');
+      if (e) end = e.kind === 'caught' ? 'в руке' : e.kind;
+    }
+    console.log(`  ${def.name.padEnd(9)} ${String(g.catches[0]?.grams ?? '—').padStart(5)} г: ${end} за ${(t - 0.05).toFixed(1)} с`);
+  }
+}
+
 async function main(): Promise<void> {
   await mkdir(OUT, { recursive: true });
   if (process.env.BUDGET === '1') {
     await budget();
     await arc();
+    await fishNumbers();
     return;
   }
   refuseIfBusy('Снимки промыслов');
