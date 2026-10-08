@@ -180,6 +180,33 @@ describe('экран загрузки', () => {
     expect(external.filter((u) => !u.includes('telegram.org') && !u.includes('w3.org'))).toEqual([]);
   });
 
+  it('предпросмотр заставки — строкой и крошечный, и лежит ровно под чётким кадром', () => {
+    // Строкой в документе лежит ровно одна картинка — предпросмотр заставки в 12 точек (`npm run splash:build`).
+    // Это не запрос, а полкилобайта: целиком строкой заставка отодвинула бы первый кадр экрана на полсекунды
+    // (docs/loading.md), а предпросмотр размером с саму строку `<img>` не отодвигает ничего.
+    const uris = [...html.matchAll(/url\((data:[^)]*)\)/g)].map((m) => m[1]);
+    expect(uris).toHaveLength(1);
+    expect(uris[0]).toMatch(/^data:image\/webp;base64,[A-Za-z0-9+/=]+$/);
+    expect(uris[0].length, 'предпросмотр вырос — первый кадр экрана опять ждёт картинку').toBeLessThan(600);
+
+    // Размытый кадр и чёткий подрезаются одним правилом, иначе при проявлении город прыгнет. Тем же — и кадр
+    // стартового экрана: он стоит под экраном загрузки и показывается при его уходе.
+    const rule = (src: string, sel: string): string => new RegExp(`${sel}\\s*\\{([^}]*)\\}`).exec(src)?.[1] ?? '';
+    const prop = (body: string, name: string): string | undefined => new RegExp(`${name}:\\s*([^;]+);`).exec(body)?.[1];
+    const css = readFileSync(fileURLToPath(new URL('../ui/styles.css', import.meta.url)), 'utf8');
+    const pos = prop(rule(html, '#boot-art'), 'object-position');
+    expect(pos).toBeTruthy();
+    expect(prop(rule(html, '#boot-blur'), 'background-position')).toBe(pos);
+    expect(prop(rule(css, '\\.start-art'), 'object-position')).toBe(pos);
+
+    // Название — на том же месте и теми же буквами на обоих экранах: смена экранов его не двигает.
+    for (const name of ['top', 'font-size', 'font-weight', 'letter-spacing', 'line-height']) {
+      const boot = prop(rule(html, '#boot-name'), name);
+      expect(boot, name).toBeTruthy();
+      expect(prop(rule(css, '\\.start-name'), name), name).toBe(boot);
+    }
+  });
+
   it('при быстрой загрузке не показывается вовсе', () => {
     const { B, it: b, clock, dom } = boot();
     clock.advance(B.SHOW_AFTER_MS - 1);

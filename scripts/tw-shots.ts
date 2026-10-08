@@ -34,8 +34,17 @@ const DEBUG_PORT = Number(process.env.CDP_PORT ?? 9341);
 const TAG = process.env.TAG ?? 'probe';
 const list = (v: string | undefined, all: string[]): string[] => (v ? v.split(',').map((s) => s.trim()).filter(Boolean) : all);
 
-/** Экран телефона: портрет 390×844, плотность 2 — тот же, что у снимков города и прежнего ролика. */
-const SCREEN = { width: 390, height: 844, deviceScaleFactor: 2, mobile: true };
+/**
+ * Экран телефона: портрет 390×844, плотность 2 — тот же, что у снимков города и прежнего ролика. `SIZE=ШxВ` — свой
+ * экран, `EXTRA=hour=21&…` — поверх адреса снимка (кадр «осада у стен» для заставки, assets-src/splash/README.md).
+ */
+const SIZE = /^(\d+)x(\d+)$/.exec(process.env.SIZE ?? '');
+const SCREEN = { width: SIZE ? Number(SIZE[1]) : 390, height: SIZE ? Number(SIZE[2]) : 844, deviceScaleFactor: 2, mobile: true };
+const withExtra = (query: string): string => {
+  const p = new URLSearchParams(query);
+  for (const [k, v] of new URLSearchParams(process.env.EXTRA ?? '')) p.set(k, v);
+  return p.toString();
+};
 
 /** Полевой бой двух армий: сбалансированные составы стенда, поле с опушкой и трактом. */
 const FIELD = 'replay=tw&men=600&foe=560&seed=7&place=woods,road&hour=10';
@@ -226,7 +235,7 @@ async function bench(name: string, quality: string): Promise<void> {
 let benchGpu = '';
 
 const pageUrl = (shot: Shot, quality: string): string =>
-  `http://127.0.0.1:${PORT}/?${shot.query}&quality=${quality}&clean=1&dpr=${SCREEN.deviceScaleFactor}&fpscap=${REPORT_FPS}`;
+  `http://127.0.0.1:${PORT}/?${withExtra(shot.query)}&quality=${quality}&clean=1&dpr=${SCREEN.deviceScaleFactor}&fpscap=${REPORT_FPS}`;
 
 interface Stats {
   calls: number;

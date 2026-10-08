@@ -46,6 +46,9 @@ export function mountCity(root: HTMLElement, p: URLSearchParams): void {
   const num = (k: string, d: number): number => (p.has(k) ? Number(p.get(k)) : d);
   // Миг жизни города, секунды (`t=`): жизнь — функция времени, снимок любого мига без ожидания.
   const tShift = num('t', 0);
+  // Дымка (`haze=`): во сколько раз дальше встаёт туман — у низкого ракурса заставки (docs/loading.md) дальний лес
+  // иначе тонет в молоке. По умолчанию 1 — кадр прежний.
+  const haze = num('haze', 1);
   const atS = p.get('at')?.split(',').map(Number);
   const view: CityView = {
     at: atS && atS.length === 3 ? (atS as [number, number, number]) : base.at,
@@ -91,8 +94,8 @@ export function mountCity(root: HTMLElement, p: URLSearchParams): void {
     camera.lookAt(target);
     const fog = scene.fog as THREE.Fog;
     // Дымка — за целью: середина кадра чистая, даль уходит в воздух.
-    fog.near = view.dist * 0.8;
-    fog.far = view.dist * 2.1 + 150;
+    fog.near = view.dist * 0.8 * haze;
+    fog.far = (view.dist * 2.1 + 150) * haze;
   };
   const resize = (): void => {
     const w = window.innerWidth;

@@ -3675,7 +3675,7 @@ body.replaying .app > *:not(.canvas-wrap) {
   justify-content: flex-end;
   padding: 24px 24px calc(var(--safe-bottom) + 28px);
   background: var(--bg);
-  /* Отсвет костра — на случай, если арт не приехал: тот же, что у экрана загрузки. */
+  /* Тёплый отсвет — на случай, если арт не приехал: тот же, что у экрана загрузки. */
   background-image: radial-gradient(60% 34% at 50% 74%, rgba(255, 154, 58, 0.22), rgba(255, 154, 58, 0) 70%);
   overflow: hidden;
   text-align: center;
@@ -3687,8 +3687,8 @@ body.replaying .app > *:not(.canvas-wrap) {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  /* Вождь и костёр остаются в кадре при обеих ориентациях — разбор в index.html. */
-  object-position: 31% 22%;
+  /* Телефон видит город целиком по высоте, широкое окно — донжон, собор и площадь: разбор в index.html. */
+  object-position: 50% 31%;
 }
 
 .start-scrim {
@@ -3696,6 +3696,13 @@ body.replaying .app > *:not(.canvas-wrap) {
   inset: auto 0 0;
   height: 52%;
   background: linear-gradient(180deg, rgba(26, 20, 16, 0) 0%, rgba(26, 20, 16, 0.82) 58%, rgba(26, 20, 16, 0.96) 100%);
+}
+
+.start-top {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 34%;
+  background: linear-gradient(180deg, rgba(26, 20, 16, 0.62) 0%, rgba(26, 20, 16, 0) 100%);
 }
 
 .start-body {
@@ -3709,13 +3716,38 @@ body.replaying .app > *:not(.canvas-wrap) {
 }
 
 .start-name {
+  /* Место и буквы — те же, что у `#boot-name` в index.html: смена экранов название не двигает. */
+  position: absolute;
+  top: 14%;
+  left: 0;
+  right: 0;
   margin: 0;
-  font-size: 30px;
+  font-size: 34px;
   font-weight: 700;
+  line-height: 1.2;
   letter-spacing: 0.22em;
   /* Отступ съедает межбуквенный интервал последней буквы — иначе слово стоит криво. */
   text-indent: 0.22em;
   color: var(--text);
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.65);
+}
+
+/* Уход в город: кадр заставки гаснет поверх живой диорамы (`StartVeil`), касаний не беря. */
+.start-veil {
+  pointer-events: none;
+  animation: start-veil 0.6s ease-in forwards;
+}
+
+@keyframes start-veil {
+  to {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .start-veil {
+    animation-duration: 1ms;
+  }
 }
 
 /*

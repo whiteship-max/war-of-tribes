@@ -10,6 +10,8 @@
 //   GAME=1 WX=clear,rain,storm npm run city:shots — погода адресом (`?weather=`, docs/city.md, 15): кадр игры на каждую,
 //                                                `WXLOOK=market:70` — вблизи постройки (тип:расстояние), `WXMAP=1` —
 //                                                карта мира, `WXSEASON=winter` — сезон партии, `WXREGION=italy` — регион
+//   SIZE=540x900 VIEWS=game SOLAR=0.46 npm run city:shots — свой экран (точки CSS, плотность 2): кадры заставки
+//                                                экрана загрузки (assets-src/splash/README.md — какие и какими числами)
 //
 // Снимки — в `.city-shots/` (в репозиторий не входит). Бюджет железа (CLAUDE.md, раздел ⛔): один
 // прогон, браузер с потолком кадров отчёта, не дольше двух минут на заход, минута остывания
@@ -31,7 +33,9 @@ import { DAY_LENGTH } from '../src/game/pace';
 const OUT = fileURLToPath(new URL('../.city-shots', import.meta.url));
 const PORT = Number(process.env.PORT ?? 4199);
 const DEBUG_PORT = Number(process.env.CDP_PORT ?? 9342);
-const SCREEN = { width: 390, height: 844, deviceScaleFactor: 2, mobile: true };
+// Экран телефона; `SIZE=ШxВ` — свой (кадр заставки шире и выше телефона: его подрежут обе ориентации).
+const SIZE = /^(\d+)x(\d+)$/.exec(process.env.SIZE ?? '');
+const SCREEN = { width: SIZE ? Number(SIZE[1]) : 390, height: SIZE ? Number(SIZE[2]) : 844, deviceScaleFactor: 2, mobile: true };
 const list = (s: string | undefined, d: string): string[] => (s ?? d).split(',').map((x) => x.trim()).filter(Boolean);
 const QUALITIES = list(process.env.QUALITY, 'medium').map((q) => qualityOf(q) ?? 'medium') as Quality[];
 const VIEWS = list(process.env.VIEWS, 'game');

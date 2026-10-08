@@ -60,6 +60,12 @@ const REQUIRED = [
   { file: '_redirects', min: 10 },
   { file: 'assets/icons/sprite.svg', min: 10000 },
   { file: 'assets/splash/boot.webp', min: 5000 },
+  // Герб: вкладка, экран «Домой», ярлык Android (`npm run splash:build`).
+  { file: 'favicon.svg', min: 300 },
+  { file: 'apple-touch-icon.png', min: 300 },
+  { file: 'icon-192.png', min: 300 },
+  { file: 'icon-512.png', min: 300 },
+  { file: 'manifest.webmanifest', min: 100 },
 ];
 
 /**

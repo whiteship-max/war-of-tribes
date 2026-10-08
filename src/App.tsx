@@ -17,7 +17,7 @@ import { PaceModal } from './ui/PaceModal';
 import { TutorialOverlay } from './ui/TutorialOverlay';
 import { SiegeBanner } from './ui/SiegeBanner';
 import { WorldMap } from './ui/map/WorldMap';
-import { StartScreen } from './ui/StartScreen';
+import { StartScreen, StartVeil } from './ui/StartScreen';
 import { SyncModal } from './ui/SyncModal';
 import { Frozen } from './ui/parts/Frozen';
 import { useBugReport } from './ui/parts/bugOpen';
@@ -150,6 +150,8 @@ export function App() {
    * потому, что на него ведёт ссылка из справки о морали).
    */
   const [started, setStarted] = useState(false);
+  /** Заставка, растворяющаяся в городе после входа (`StartVeil`): полсекунды, потом её нет. */
+  const [veil, setVeil] = useState(false);
   /**
    * Открыта ли предыстория. Тоже местное состояние: в неё ведёт одна временная
    * кнопка со стартового экрана, и знать о ней ни сцене, ни симуляции незачем.
@@ -292,11 +294,14 @@ export function App() {
 
         Появляется он вместе с приложением, то есть когда игра уже готова, и
         снимается мгновенно — тем же движением, каким снимается экран загрузки
-        под ним.
+        под ним; гаснет поверх города уже его кадр (`StartVeil`), касаний не беря.
       */}
       {!started && !prologue && (
         <StartScreen
-          onEnter={() => setStarted(true)}
+          onEnter={() => {
+            setStarted(true);
+            setVeil(true);
+          }}
           onPrologue={() => setPrologue(true)}
           naming={(done) => (
             <Suspense fallback={null}>
@@ -305,6 +310,7 @@ export function App() {
           )}
         />
       )}
+      {veil && <StartVeil onDone={() => setVeil(false)} />}
       {/*
         Предыстория поверх всего и вместо всего: пока она открыта, диорама
         разобрана, стартовый экран не рисуется, а выход возвращает ровно туда,
