@@ -30,6 +30,15 @@ class Counting implements HuntHost {
   hoof(): void {
     this.heard.push('hoof');
   }
+  creak(): void {
+    this.heard.push('creak');
+  }
+  rustle(): void {
+    this.heard.push('rustle');
+  }
+  tick(): void {
+    this.heard.push('tick');
+  }
 }
 
 const memory = (on: boolean | null): void => {
@@ -64,8 +73,11 @@ describe('звук охоты молчит без жеста и при выкл�
     s.whistle(0.8, EAR, 10, 0);
     s.thud('wood', EAR, 3, 0);
     s.hoof(EAR, 5, 0);
+    s.creak(0.5);
+    s.rustle();
+    s.tick();
     expect(host.opened).toBe(1);
-    expect(host.heard).toEqual(['twang', 'whistle', 'thud:wood', 'hoof']);
+    expect(host.heard).toEqual(['twang', 'whistle', 'thud:wood', 'hoof', 'creak', 'rustle', 'tick']);
   });
 
   it('выключили посреди охоты — замолкает на следующем звуке', () => {
@@ -75,6 +87,9 @@ describe('звук охоты молчит без жеста и при выкл�
     s.arm();
     memory(false);
     s.twang(1);
+    s.creak(1);
+    s.rustle();
+    s.tick();
     expect(host.heard).toEqual([]);
   });
 });

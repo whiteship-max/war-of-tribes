@@ -102,13 +102,15 @@ describe('звук города: жест, рычаг и докачка', () => 
     cityAudio.hush('battle', true);
     cityAudio.hush('mini', true);
     cityAudio.hush('mini', true);
+    expect(cityAudio.glade).toBe(true);
     cityAudio.hush('battle', false);
     cityAudio.hush('mini', false);
+    expect(cityAudio.glade).toBe(false);
     expect(ducks).toEqual([
       { music: 1, amb: 1 },
       { music: 0.12, amb: 0.25 },
-      { music: 0.12, amb: 0.2 },
-      { music: 0.15, amb: 0.2 },
+      { music: 0.12, amb: 0.25 },
+      { music: 0.15, amb: 1 },
       { music: 1, amb: 1 },
     ]);
   });

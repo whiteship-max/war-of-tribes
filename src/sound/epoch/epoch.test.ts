@@ -172,6 +172,18 @@ describe('фон города: слои от того, что видит игр�
     expect(inland.sea).toBe(0);
   });
 
+  it('поляна промысла: лес — ветер и птицы по сезону; ни города, ни моря, ни дождя', () => {
+    const glade = (season: 'spring' | 'winter', wx = { rain: 1, snow: 0, storm: 0, wind: 0.4 }) =>
+      mixOf({ view: 'glade', solar: 0.6, season, near: 1, sea: 1, wx });
+    const spring = glade('spring');
+    for (const l of ['market', 'forge', 'bells', 'hum', 'sea', 'crickets', 'rain'] as const) expect(spring[l], l).toBe(0);
+    // Птицы — утро промысла, а не час города: и в городскую ночь (solar 0.6) поют.
+    expect(spring.birds).toBeGreaterThan(0.5);
+    expect(spring.wind).toBeGreaterThan(0.2);
+    expect(glade('winter').birds).toBe(0);
+    expect(glade('spring', { rain: 0, snow: 0, storm: 0, wind: 1 }).wind).toBeGreaterThan(glade('spring', { rain: 0, snow: 0, storm: 0, wind: 0 }).wind * 2);
+  });
+
   it('погода: дождь шуршит, ветер громче в бурю, рынок и птицы в дождь тише; без погоды — как прежде', () => {
     const calm = mixOf(city({ near: 0.5 }));
     expect(mixOf(city({ wx: { rain: 0, snow: 0, storm: 0, wind: 0.4 } }))).toEqual(calm);
@@ -195,7 +207,7 @@ describe('фон города: слои от того, что видит игр�
   });
 
   it('все слои в пределах 0..1 на всей решётке', () => {
-    for (const view of ['city', 'map'] as const)
+    for (const view of ['city', 'map', 'glade'] as const)
       for (const season of ['spring', 'summer', 'autumn', 'winter'] as const)
         for (let solar = 0; solar < 1; solar += 0.01)
           for (const near of [0, 0.5, 1]) {

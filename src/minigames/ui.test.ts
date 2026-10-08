@@ -77,7 +77,7 @@ describe('цели касания промыслов — не меньше по�
     return m ? Number(m[1]) : null;
   };
 
-  it('«Уйти», «Начать», «Назад», «В город» — 44 и больше', () => {
+  it('«Уйти», «Начать», «Назад», «В город», «Как играть» — 44 и больше', () => {
     expect(TAP_TARGET).toBe(44);
     for (const [sel, prop] of [
       ['.mg-leave', 'height'],
@@ -85,6 +85,7 @@ describe('цели касания промыслов — не меньше по�
       ['.mg-go', 'height'],
       ['.mg-back', 'height'],
       ['.mg-go', 'min-width'],
+      ['.mg-howbtn', 'height'],
     ] as const) {
       const n = value(sel, prop);
       expect(n, `${sel} ${prop}`).not.toBeNull();

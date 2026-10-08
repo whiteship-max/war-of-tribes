@@ -15,6 +15,7 @@
 // что и где прозвучало, говорит сцена.
 import { soundOn } from '@/sound/settings';
 import { openBus } from '@/sound/web';
+import { Voices } from './miniSound';
 
 /** Во что воткнулась стрела — у каждого свой стук. */
 export type ThudKind = 'ground' | 'wood' | 'deer';
@@ -31,6 +32,12 @@ export interface HuntHost {
   thud(kind: ThudKind, gain: number, pan: number): void;
   /** Удар копыта. */
   hoof(gain: number, pan: number): void;
+  /** Скрип натягиваемого лука: `draw` — до какой натяжки дошли (0..1). */
+  creak(draw: number): void;
+  /** Стрела из колчана: шорох перьев о кожу. */
+  rustle(): void;
+  /** Последние секунды. */
+  tick(): void;
 }
 
 /** Ухо охотника: где стоит и куда у него правая рука (единичный вектор по земле). */
@@ -97,79 +104,46 @@ export class HuntSound {
     const p = placeSound(ear, x, z);
     if (p.gain >= 0.03) this.host.hoof(p.gain * 0.8, p.pan);
   }
+
+  creak(draw: number): void {
+    if (this.live) this.host.creak(draw);
+  }
+
+  rustle(): void {
+    if (this.live) this.host.rustle();
+  }
+
+  tick(): void {
+    if (this.live) this.host.tick();
+  }
 }
 
 // ---------- Голоса ----------
 
-/** Шум из своего сида: случай устройства звуку не нужен (`Math.random` в игре нет нигде). */
-function noiseBuffer(ctx: BaseAudioContext): AudioBuffer {
-  const b = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
-  const d = b.getChannelData(0);
-  let x = 0x1f2e3d4c;
-  for (let i = 0; i < d.length; i++) {
-    x ^= x << 13;
-    x ^= x >>> 17;
-    x ^= x << 5;
-    d[i] = ((x >>> 0) / 4294967296) * 2 - 1;
-  }
-  return b;
-}
-
 /** Голоса на Web Audio: граф узлов на звук; каждый живёт доли секунды и сам себя останавливает. */
-class HuntVoice implements HuntHost {
-  private ctx: BaseAudioContext | null = null;
-  private out: GainNode | null = null;
-  private noise: AudioBuffer | null = null;
-  private n = 0;
-
+class HuntVoice extends Voices implements HuntHost {
   open(): boolean {
     const out = openBus(HUNT_VOLUME);
     if (!out) return false;
-    this.out = out;
-    this.ctx = out.context;
-    this.noise = noiseBuffer(this.ctx);
+    this.attach(out);
     return true;
   }
 
-  /** Сторона: −1 левое ухо, 1 правое. Старый вебвью без неё — посередине. Отпускается вместе со звуком. */
-  private side(pan: number, life: number): AudioNode {
-    const ctx = this.ctx!;
-    const g = ctx.createGain();
-    let p: StereoPannerNode | null = null;
-    if (typeof ctx.createStereoPanner === 'function') {
-      p = ctx.createStereoPanner();
-      p.pan.value = pan;
-      g.connect(p);
-      p.connect(this.out!);
-    } else g.connect(this.out!);
-    setTimeout(() => {
-      g.disconnect();
-      p?.disconnect();
-    }, life * 1000);
-    return g;
+  /** Скрип: тис и рог под натяжкой — узкая полоса шума, тем выше, чем сильнее натянут. */
+  creak(draw: number): void {
+    if (!this.ctx) return;
+    const at = this.ctx.currentTime + 0.005;
+    const dest = this.side(-0.2, 0.6);
+    this.hiss('bandpass', 260 + 420 * draw, 9, at, 0.04, 0.16, 0.12 + 0.1 * draw, dest);
   }
 
-  private env(g: AudioParam, at: number, peak: number, attack: number, release: number): void {
-    g.setValueAtTime(0, at);
-    g.linearRampToValueAtTime(peak, at + attack);
-    g.exponentialRampToValueAtTime(0.0001, at + attack + release);
-  }
-
-  private noiseSrc(at: number, stop: number): AudioBufferSourceNode {
-    const s = this.ctx!.createBufferSource();
-    s.buffer = this.noise;
-    s.loop = true;
-    s.start(at, ((this.n++ * 0.137) % 0.8) + 0.05);
-    s.stop(stop);
-    return s;
-  }
-
-  private filter(type: BiquadFilterType, freq: number, q: number): BiquadFilterNode {
-    const f = this.ctx!.createBiquadFilter();
-    f.type = type;
-    f.frequency.value = freq;
-    f.Q.value = q;
-    return f;
+  /** Колчан: стрела выходит — шорох перьев о кожу и лёгкий стук древка. */
+  rustle(): void {
+    if (!this.ctx) return;
+    const at = this.ctx.currentTime + 0.005;
+    const dest = this.side(0.45, 0.8);
+    this.hiss('bandpass', 2800, 1.1, at, 0.05, 0.22, 0.14, dest);
+    this.tone('triangle', 700, 520, at + 0.18, 0.04, 0.06, dest);
   }
 
   /** Тетива: щелчок жилы о кожу на руке и низкий гул отпущенной дуги. Чем сильнее натянута, тем звонче и громче. */

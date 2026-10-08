@@ -23,7 +23,8 @@ import { energyNow } from '@/ui/trades';
 import { BerriesPlay } from './berriesPlay';
 import { HerdPlay } from './herdPlay';
 import { GAME_SECONDS, LATE_SECONDS, shareOf, type Tally } from './rules';
-import { Stage, type Play, type StageView } from './stage';
+import { LAST_TICKS, Stage, type Play, type StageView } from './stage';
+import { weatherNow } from '@/ui/parts/weather';
 import { watchContext } from '@/render/context';
 import { freeTurn } from '@/orientation';
 
@@ -53,6 +54,50 @@ const HINT: Record<MinigameId, string> = {
   herd: 'Слева шаг, справа взгляд',
   hunt: 'Справа прижми, веди и отпусти',
 };
+
+/**
+ * Как играть — три строки на игру: управление, цель, хитрость. Карточка начала показывает их при первом входе в игру
+ * сама, дальше — по кнопке «Как играть» (решение по правилу 19: подсказка на первые секунды, `HINT`, читается уже на
+ * ходу, а правило игры — порядок ягод, охапки коровы, поправка дуги — должно быть прочитано до «Начать»).
+ */
+export const HOW: Record<MinigameId, readonly string[]> = {
+  berries: [
+    'Слева — шаг, справа — взгляд, нажатие у куста обирает его целиком',
+    'Спелые — в корзину, зелёные пропадут: сначала спелые кусты',
+    'Ягоды зреют на глазах — поздние оставь под конец минуты',
+  ],
+  herd: [
+    'Слева — шаг, справа — взгляд',
+    'У стога нажми — охапка в руках; у голодного — он ест',
+    'Овце и козе — охапка, корове — три. Сытые ложатся',
+  ],
+  hunt: [
+    'Слева — шаг: пока олень щиплет траву, к нему можно подкрасться',
+    'Справа прижми — тянешь, веди — целишься, отпусти — выстрел',
+    'Метки 15, 25 и 35 — поправка на дальность. Долго держишь — руки дрожат',
+  ],
+};
+
+/** Какие игры игрок уже открывал: подсказка «как играть» сама — только в первый раз. Удобство одного устройства. */
+const HOW_KEY = 'tribe.minigames.how';
+
+function howSeen(game: MinigameId): boolean {
+  try {
+    return (localStorage.getItem(HOW_KEY) ?? '').split(',').includes(game);
+  } catch {
+    return false;
+  }
+}
+
+function markHow(game: MinigameId): void {
+  try {
+    const seen = new Set((localStorage.getItem(HOW_KEY) ?? '').split(',').filter(Boolean));
+    seen.add(game);
+    localStorage.setItem(HOW_KEY, [...seen].join(','));
+  } catch {
+    // Приватное окно без хранилища: подсказка покажется снова — не беда.
+  }
+}
 
 /** Секунды отсчёта: «0:47». */
 const clock = (left: number): string => `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`;
@@ -85,6 +130,7 @@ export function Minigame({ game, onExit }: { game: MinigameId; onExit: () => voi
   const [view, setView] = useState<StageView | null>(null);
   const [result, setResult] = useState<Harvest | string | null>(null);
   const [hint, setHint] = useState(true);
+  const [how, setHow] = useState(() => !howSeen(game));
   const [leave, setLeave] = useState(false);
   /**
    * Номер сборки сцены. Контекст WebGL умер и не вернулся в срок (`render/context.ts`): не начатая игра собирается
@@ -144,7 +190,9 @@ export function Minigame({ game, onExit }: { game: MinigameId; onExit: () => voi
         play.dispose();
         return;
       }
-      wire(new Stage(canvas, play, GAME_SECONDS[game], seasonOf(useGame.getState().s.time)));
+      const st = useGame.getState().s;
+      // Ветер в траве и кронах — погоды города в эту минуту (`weather.weatherNow`), той же, что слышит фон.
+      wire(new Stage(canvas, play, GAME_SECONDS[game], seasonOf(st.time), weatherNow(st).wind));
     });
     canvas.addEventListener('pointerdown', drop, { once: true });
     ro.observe(wrap);
@@ -191,6 +239,7 @@ export function Minigame({ game, onExit }: { game: MinigameId; onExit: () => voi
     });
     if (!ok) return;
     g.save();
+    markHow(game);
     stage.begin();
   };
 
@@ -210,14 +259,19 @@ export function Minigame({ game, onExit }: { game: MinigameId; onExit: () => voi
         <div className={`mg-aim${phase === 'play' ? '' : ' off'}`} ref={aimRef} aria-hidden="true">
           <i className="mg-ring" />
           <i className="mg-dot" />
+          {/* Попал — крест вспыхивает на прицеле и гаснет: отклик в том месте, куда смотрит глаз. */}
+          {view?.note === 'Попал' && <i className="mg-hit" />}
         </div>
       )}
 
       {phase === 'play' && view && (
         <>
           <div className="mg-top">
-            <span className={`mg-chip mg-clock${view.left <= LATE_SECONDS ? ' late' : ''}`}>{clock(view.left)}</span>
-            <span className="mg-chip">
+            <span className={`mg-chip mg-clock${view.left <= LATE_SECONDS ? ' late' : ''}${view.left <= LAST_TICKS ? ' last' : ''}`} key={view.left <= LAST_TICKS ? view.left : 'clock'}>
+              {clock(view.left)}
+            </span>
+            {/* Счёт прыгает на каждое очко: ключ — само число, анимация играет заново. */}
+            <span className="mg-chip mg-score" key={`score-${view.tally.got}`}>
               <Icon name={`mini-${game}`} glyph={def.glyph} />
               {words.short(view.tally)}
             </span>
@@ -249,6 +303,17 @@ export function Minigame({ game, onExit }: { game: MinigameId; onExit: () => voi
             <b>{def.name}</b>
           </div>
           <p>{def.goal}</p>
+          {how ? (
+            <ol className="mg-how" aria-label="Как играть">
+              {HOW[game].map((line) => (
+                <li key={line}>{line}</li>
+              ))}
+            </ol>
+          ) : (
+            <button className="mg-howbtn" onClick={() => setHow(true)}>
+              Как играть
+            </button>
+          )}
           <div className="mg-facts">
             <span className="mg-res" aria-label="Время">
               <Icon name="ui-time" glyph="⏳" />
@@ -283,6 +348,13 @@ export function Minigame({ game, onExit }: { game: MinigameId; onExit: () => voi
           </div>
           {result && typeof result !== 'string' && (
             <>
+              {/* Доля от предела — та же, что ушла в начисление (`shareOf` → `harvest`): полоса и число одной функцией. */}
+              <div className="mg-share" aria-label="Доля от предела">
+                <span className="mg-bar">
+                  <i style={{ width: `${Math.round(shareOf(view.tally) * 100)}%` }} />
+                </span>
+                <span>Взято {Math.round(shareOf(view.tally) * 100)} % предела</span>
+              </div>
               <div className="mg-facts">
                 <span className="mg-res mg-muted">На склад</span>
                 {Object.keys(result.stored).length > 0 ? <HaulRow haul={result.stored} /> : <span className="mg-res">ничего</span>}

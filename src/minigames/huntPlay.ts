@@ -19,6 +19,7 @@ import type { Season } from '@/game/types';
 import { haptic } from '@/telegram/webapp';
 import { tufts } from './models';
 import { Archer } from './archer';
+import { Sparks, type Burst } from './sparks';
 import {
   ARROWS,
   CARCASS,
@@ -63,6 +64,21 @@ const smooth = (k: number): number => {
   return c * c * (3 - 2 * c);
 };
 
+/** Горсть от стрелы: клок шерсти и пыль — от оленя, дёрн — от земли, щепа — от ствола, листья — от куста. */
+const PUFF: Record<'deer' | 'ground' | 'wood' | 'bush', Burst> = {
+  deer: { colors: [0x8a5a3a, 0xb08a64, 0x9c8e74, 0xd8c8a8], n: 14, speed: 1.6, up: 0.55, gravity: 1.2, life: 1.0, drag: 2.5 },
+  ground: { colors: [0x6f8f3e, 0x7a6248, 0x5f7a36], n: 10, speed: 1.9, up: 0.85, gravity: 7, life: 0.8, drag: 1 },
+  wood: { colors: [0xd9c49a, 0x8a6a4a, 0xe8dcc0], n: 9, speed: 2.2, up: 0.4, gravity: 8, life: 0.8, drag: 0.8 },
+  bush: { colors: [0x4f7d3c, 0x6f9a48, 0x3e6a32], n: 12, speed: 1.3, up: 0.6, gravity: 2.5, life: 1.2, drag: 2.5 },
+};
+
+/** След стрелы: точка раз в столько секунд, бледная, без тяжести — висит в воздухе и тает. */
+const TRAIL_EVERY = 0.025;
+const TRAIL: Burst = { colors: [0xf2ecdc, 0xe0d8c4], n: 1, speed: 0.04, up: 0, gravity: 0, life: 0.45, drag: 3 };
+
+/** Скрип лука — на этих долях натяжки: тис отзывается по мере того, как его гнут. */
+const CREAKS = [0.3, 0.65, 0.97];
+
 /** Что сказать над прицелом, когда стрела легла. */
 const LANDED: Record<string, string> = { ground: 'Мимо', cover: 'В дерево', bush: 'В куст', lost: 'Улетела', deer: 'В тушу' };
 
@@ -96,6 +112,17 @@ export class HuntPlay implements Play {
   private look = { yaw: NaN, pitch: 0 };
   /** Приближение, под которое сцена поставила угол камеры в прошлом кадре. */
   private zoomed = 1;
+  /** Натяжка прошлого кадра — скрипу лука; что делала правая — шороху колчана. */
+  private drawnWas = 0;
+  private handWas = 'string';
+  /** Крупнее, чем у ягод: на поле горсть видна с тридцати метров. */
+  private sparks = new Sparks(0.1);
+  /**
+   * След летящей стрелы: бледная пыль вдоль полёта, тает за треть секунды. Дугу видно глазом — по ней и учатся брать
+   * поправку (раздел 13.2: учиться помогают метки и воткнувшиеся стрелы; след — третий учитель, и самый быстрый).
+   */
+  private trail = new Sparks(0.035);
+  private trailDue = 0;
   private notes: string[] = [];
   private blockers_: Blocker[];
   private pins_ = pins();
@@ -150,6 +177,7 @@ export class HuntPlay implements Play {
     this.arrows = arrowsMesh(one, ARROWS);
     one.geometry.dispose();
     scene.add(this.arrows);
+    scene.add(this.sparks.points, this.trail.points);
     this.buildBow(camera);
     this.frame(0, 0, 0);
   }
@@ -238,6 +266,10 @@ export class HuntPlay implements Play {
     return this.hunt.over(t);
   }
 
+  tick(): void {
+    this.sound?.tick();
+  }
+
   /** Ухо охотника: где камера и куда её правая рука. */
   private ear(): Ear {
     const cam = this.camera;
@@ -255,6 +287,22 @@ export class HuntPlay implements Play {
     this.syncDeer(t, dt);
     this.syncArrows(t);
     this.syncBow(t, dt);
+    this.sparks.frame(dt);
+    this.syncTrail(t, dt);
+  }
+
+  /** След: точка за каждые `TRAIL_EVERY` секунды полёта каждой летящей стрелы. */
+  private syncTrail(t: number, dt: number): void {
+    this.trailDue -= dt;
+    if (this.trailDue <= 0) {
+      this.trailDue = TRAIL_EVERY;
+      for (const a of this.hunt.arrows) {
+        if (a.end !== null && a.end <= t) continue;
+        const p = flightAt(a, Math.max(0, t - a.t0));
+        this.trail.burst(p.x, p.y, p.z, TRAIL);
+      }
+    }
+    this.trail.frame(dt);
   }
 
   /** Что случилось за кадр: звук, подпись, отклик рукой. */
@@ -265,12 +313,18 @@ export class HuntPlay implements Play {
         this.notes.push('Попал');
         haptic('medium');
         this.sound?.thud('deer', ear, e.x, e.z);
+        this.sparks.burst(e.x, DEER_BODY.y, e.z, PUFF.deer);
       } else if (e.kind === 'thud') {
-        const c = e.struck === 'cover' ? this.hunt.field.cover[this.hunt.arrows[e.id]?.what ?? -1] : undefined;
+        const arrow = this.hunt.arrows[e.id];
+        const c = e.struck === 'cover' ? this.hunt.field.cover[arrow?.what ?? -1] : undefined;
         const word = e.struck === 'cover' && c?.kind === 'bush' ? 'bush' : (e.struck ?? 'ground');
         this.notes.push(LANDED[word] ?? 'Мимо');
         const kind: ThudKind | null = e.struck === 'deer' ? 'deer' : e.struck === 'cover' && c?.kind !== 'bush' ? 'wood' : e.struck === 'lost' ? null : 'ground';
         if (kind) this.sound?.thud(kind, ear, e.x, e.z);
+        // Горсть там, где воткнулась стрела: от земли — дёрн, от ствола — щепа, от куста — листья.
+        const at = arrow?.at;
+        const puff = word === 'bush' ? PUFF.bush : kind === 'wood' ? PUFF.wood : kind === 'ground' ? PUFF.ground : null;
+        if (at && puff) this.sparks.burst(at.x, Math.max(0.05, at.y), at.z, puff);
       }
     }
   }
@@ -413,6 +467,12 @@ export class HuntPlay implements Play {
       walking: this.walking,
       turn,
     });
+    // Скрип — когда натяжка прошла очередную долю; шорох — когда правая дошла до колчана.
+    const drawn = this.hunt.drawn(t);
+    for (const k of CREAKS) if (this.drawnWas < k && drawn >= k) this.sound?.creak(k);
+    this.drawnWas = drawn;
+    if (a.state.hand === 'quiver' && this.handWas !== 'quiver') this.sound?.rustle();
+    this.handWas = a.state.hand;
     cam.rotation.y = yaw + a.sway.yaw;
     cam.rotation.x = pitch + a.sway.pitch;
     // Натянутый лук приближает поле, а не руки: риг сжат к середине кадра ровно на столько, на сколько уже стал угол
@@ -436,5 +496,7 @@ export class HuntPlay implements Play {
     this.blobs?.dispose();
     this.arrows?.dispose();
     this.archer?.dispose();
+    this.sparks.dispose();
+    this.trail.dispose();
   }
 }
