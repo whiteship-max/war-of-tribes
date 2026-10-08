@@ -28,7 +28,7 @@ import { cityPick, screenBox, type Pickable } from './pick';
 import { mainSite, ownerCode, type Site } from './sites';
 import { heightAt } from './layout';
 import type { CityPrecip } from './precip';
-import { CLEAR, ZONES, flashAt, forcedFlashes, forcedWeather, flashGlow, weatherAt, windTo, zoneOf, type Weather } from '../climate';
+import { CLEAR, ZONES, flashAt, lyingSnow, forcedFlashes, forcedWeather, flashGlow, weatherAt, windTo, zoneOf, type Weather } from '../climate';
 import { serverNow } from '@/net/clock';
 
 /** Облака над городом бегут со скоростью верхнего ветра, м/с: пятно тени в двести метров проходит за полминуты. */
@@ -90,6 +90,8 @@ export class CityScene extends TribeScene {
   private wx: Weather = CLEAR;
   private wet = 0;
   private flash = 0;
+  /** Снег на земле зимой (`climate.lyingSnow`): в поясе севера — всю зиму, на Сицилии — после снегопада. */
+  private lying = 1;
   private precip: CityPrecip | null = null;
   /** Погода адресом (`?weather=rain`) — стенду и проверке на телефоне; адрес перечитывается, только когда сменился. */
   private forcedAt = '';
@@ -239,6 +241,7 @@ export class CityScene extends TribeScene {
     let wet = w.rain;
     if (!f) for (const [back, keep] of DRY) wet = Math.max(wet, weatherAt(this.region, now - back * 1000, this.season, solar).rain * keep);
     this.wet = wet;
+    this.lying = lyingSnow(this.region, now, f);
     // Вспышка: адресом «гроза» — раз в девять секунд, иначе — молнии региона.
     this.flash = f
       ? forcedFlashes(f.storm, now - 3000, now + 1).reduce((v, x) => v + flashGlow((now - x.at) / 1000) * x.power, 0)
@@ -270,7 +273,12 @@ export class CityScene extends TribeScene {
       const u = c.uniforms;
       const night = windowNight(this.light);
       u.cNight.value = night;
-      u.cSnow.value = this.seasonVis.snow;
+      // Зима сезона партии — голые кроны и сухой камыш; снег на кровлях и земле — по климату региона; лёд — по холоду пояса.
+      const winter = this.seasonVis.snow;
+      const ice = winter * ZONES[zoneOf(this.region)].frost;
+      u.cSnow.value = winter * this.lying;
+      u.cWinter.value = winter;
+      u.cIce.value = ice;
       u.cAutumn.value = Math.max(0, Math.min(1, this.seasonVis.turn));
       u.cTime.value = t;
       u.cSunDir.value.copy(this.rig.sun.position).sub(this.target).normalize();
@@ -307,7 +315,8 @@ export class CityScene extends TribeScene {
         fm.size = 3.6 * (1 + Math.sin(t * 11) * 0.08);
       }
       this.folk?.update(dt, t, night, this.seasonVis.snow);
-      this.bustle?.update(t, night, this.seasonVis.snow);
+      // Суета судит о льде: на реке без льда утки и лодки остаются и зимой.
+      this.bustle?.update(t, night, ice);
       if (this.deeds) {
         // Точкам пыли и вспышек — размер в метрах: three делит на расстояние и множит на полвысоты буфера.
         const scale = 1 / Math.tan((this.camera.fov * Math.PI) / 360);

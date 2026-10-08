@@ -27,6 +27,7 @@ uniform float cSnow;
 uniform vec3 cSunDir;
 uniform vec3 cSky;
 uniform float cRain;
+uniform float cIce;
 uniform vec3 cSnowCol;
 uniform vec3 cTorchCol;
 uniform vec4 cWaterLights[${WATER_LIGHTS}];
@@ -151,7 +152,8 @@ export function buildWater(u: CityUniforms, cols: readonly number[], detail: 0 |
             // Зима: река замерзает от берегов, кромка льда — неровными заберегами по течению; стрежень остаётся тёмной
             // открытой водой, ручей у мельницы бежит и не мёрзнет.
             float iceN = 0.5 + 0.5 * sin(along * 0.07 + 1.3 * sin(along * 0.023)) * sin(along * 0.031 + across * 0.05 + 0.7);
-            float ice = cSnow * (1.0 - vRace) * smoothstep(0.5, 0.75, (1.0 - deep) * 0.9 + iceN * 0.3 + cSnow * 0.15);
+            // Лёд — по холоду пояса (\`cIce\`): на Сицилии река не мёрзнет и после снегопада.
+            float ice = cIce * (1.0 - vRace) * smoothstep(0.5, 0.75, (1.0 - deep) * 0.9 + iceN * 0.3 + cIce * 0.15);
             vec3 iceCol = vec3(0.62, 0.68, 0.74);
             #if WATER_DETAIL >= 1
               // Снег на льду — переметами, и тёмные трещины.

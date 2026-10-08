@@ -75,7 +75,7 @@ varying float vTone;
 
 const REED_FRAG = /* glsl */ `
 uniform float cAutumn;
-uniform float cSnow;
+uniform float cWinter;
 varying vec3 vReed;
 varying float vTone;
 ${GRADE_GLSL}
@@ -117,8 +117,8 @@ function reedMaterial(u: CityUniforms): THREE.MeshLambertMaterial {
           vec3 leafTop = mix(vec3(0.42, 0.48, 0.2), vec3(0.5, 0.5, 0.24), vTone);
           vec3 leaf = mix(leafLow, leafTop, smoothstep(0.62, 1.05, vReed.r));
           leaf = mix(leaf, leaf * vec3(1.55, 1.05, 0.5) + vec3(0.06, 0.02, 0.0), cAutumn * 0.85);
-          leaf = mix(leaf, vec3(0.5, 0.44, 0.31) * (0.8 + 0.3 * vReed.r), cSnow);
-          vec3 head = mix(vec3(0.26, 0.15, 0.08), vec3(0.32, 0.27, 0.2), cSnow);
+          leaf = mix(leaf, vec3(0.5, 0.44, 0.31) * (0.8 + 0.3 * vReed.r), cWinter);
+          vec3 head = mix(vec3(0.26, 0.15, 0.08), vec3(0.32, 0.27, 0.2), cWinter);
           diffuseColor.rgb *= mix(leaf, head, vReed.g) * (0.9 + 0.2 * vTone);`,
         ),
       );

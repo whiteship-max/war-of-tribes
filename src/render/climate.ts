@@ -35,6 +35,13 @@ interface ZoneClimate {
   wind: number;
   /** Откуда чаще дует, градусы от севера по часовой. */
   from: number;
+  /**
+   * Снег лежит всю зиму (1) или только после снегопада (0): север и суша — белые всю зиму, Средиземье — после редкого
+   * снегопада (`snowCover`).
+   */
+  cover: number;
+  /** Мёрзнет ли река зимой: лёд у берегов, утки и лодки уходят. Средиземье и сушь — не мёрзнут. */
+  frost: number;
 }
 
 /**
@@ -50,6 +57,8 @@ export const ZONES: Record<Zone, ZoneClimate> = {
     fair: { spring: 0.35, summer: 0.2, autumn: 0.4, winter: 0.5 },
     wind: 0.38,
     from: 300,
+    cover: 0,
+    frost: 0,
   },
   dry: {
     wet: { spring: 0.06, summer: 0.01, autumn: 0.05, winter: 0.1 },
@@ -59,6 +68,8 @@ export const ZONES: Record<Zone, ZoneClimate> = {
     fair: { spring: 0.15, summer: 0.05, autumn: 0.15, winter: 0.3 },
     wind: 0.45,
     from: 0,
+    cover: 0,
+    frost: 0,
   },
   ocean: {
     wet: { spring: 0.3, summer: 0.22, autumn: 0.38, winter: 0.4 },
@@ -68,6 +79,8 @@ export const ZONES: Record<Zone, ZoneClimate> = {
     fair: { spring: 0.55, summer: 0.45, autumn: 0.6, winter: 0.7 },
     wind: 0.5,
     from: 250,
+    cover: 0,
+    frost: 0.4,
   },
   land: {
     wet: { spring: 0.25, summer: 0.22, autumn: 0.25, winter: 0.25 },
@@ -77,6 +90,8 @@ export const ZONES: Record<Zone, ZoneClimate> = {
     fair: { spring: 0.45, summer: 0.4, autumn: 0.5, winter: 0.6 },
     wind: 0.35,
     from: 270,
+    cover: 1,
+    frost: 1,
   },
   north: {
     wet: { spring: 0.25, summer: 0.25, autumn: 0.35, winter: 0.4 },
@@ -86,6 +101,8 @@ export const ZONES: Record<Zone, ZoneClimate> = {
     fair: { spring: 0.5, summer: 0.45, autumn: 0.6, winter: 0.65 },
     wind: 0.4,
     from: 240,
+    cover: 1,
+    frost: 1,
   },
 };
 
@@ -231,6 +248,45 @@ export function weatherAt(region: string | null, ms: number, season: Season, sol
     wind: mix(a.wind, b.wind),
     from: mixAngle(a.from, b.from, k),
   };
+}
+
+// ---------- Снег на земле ----------
+
+/** Снег после снегопада лежит игровые сутки и тает полсуток (полчаса и четверть часа настоящего времени). */
+export const SNOW_HOLD_DAYS = 1;
+export const SNOW_MELT_DAYS = 0.5;
+/** Снегопад, после которого снег ложится. */
+const SNOW_FALLS = 0.15;
+
+/**
+ * Сколько снега лежит зимой, 0..1, — функция региона и общих часов, как погода: в поясе, где снег лежит всю зиму, — 1;
+ * в остальных — от снегопадов последних полутора суток (ложится за десятую долю суток, лежит `SNOW_HOLD_DAYS` после
+ * конца снегопада, тает `SNOW_MELT_DAYS`). Сезон здесь — всегда зима: летом снега нет, и его гасит перелив сезона сцены.
+ */
+export function snowCover(region: string | null, ms: number): number {
+  const c = ZONES[zoneOf(region)];
+  if (c.cover >= 1) return 1;
+  const seed = regionSeed(region);
+  const x = gameDaysOfMs(ms) / SPELL_DAYS;
+  const i = Math.floor(x);
+  const back = Math.ceil((SNOW_HOLD_DAYS + SNOW_MELT_DAYS) / SPELL_DAYS) + 1;
+  let lying = c.cover;
+  for (let k = 0; k <= back; k++) {
+    const j = i - k;
+    const fall = spell(seed, j, c, 'winter').snow;
+    if (fall < SNOW_FALLS) continue;
+    const since = (x - j) * SPELL_DAYS;
+    const after = since - SPELL_DAYS;
+    const melt = 1 - smooth(SNOW_HOLD_DAYS, SNOW_HOLD_DAYS + SNOW_MELT_DAYS, after);
+    lying = Math.max(lying, Math.min(1, 0.55 + 0.45 * fall) * smooth(0, 0.1, since) * melt);
+  }
+  return lying;
+}
+
+/** Снег на земле с погодой адресом: снегопад адресом — бело сразу, иначе — как лежит в поясе всю зиму. */
+export function lyingSnow(region: string | null, ms: number, forced: Weather | null): number {
+  if (!forced) return snowCover(region, ms);
+  return Math.max(ZONES[zoneOf(region)].cover, forced.snow > SNOW_FALLS ? 1 : 0);
 }
 
 /** Куда дует, в осях мира (x — восток, вторая ось — юг): единичный вектор. */

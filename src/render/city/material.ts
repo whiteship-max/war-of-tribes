@@ -71,6 +71,12 @@ export interface CityUniforms {
    * (единичный, оси мира) и сила: им вьются флаги, сносит дым, качаются камыш и кроны.
    */
   cWet: { value: number };
+  /**
+   * Зима по сезону партии (голые кроны, сухой камыш) и лёд на реке (холод пояса) — отдельно от `cSnow`: снег на кровлях
+   * и земле лежит по климату региона (`climate.snowCover`), на Сицилии — только после снегопада.
+   */
+  cWinter: { value: number };
+  cIce: { value: number };
   cCloud: { value: number };
   cCloudAt: { value: THREE.Vector2 };
   cMist: { value: number };
@@ -101,6 +107,8 @@ export function cityUniforms(): CityUniforms {
     cSunDir: { value: new THREE.Vector3(0.3, 0.8, 0.5) },
     cSky: { value: new THREE.Color(0.5, 0.6, 0.7) },
     cWet: { value: 0 },
+    cWinter: { value: 0 },
+    cIce: { value: 0 },
     cCloud: { value: 0 },
     cCloudAt: { value: new THREE.Vector2() },
     cMist: { value: 0 },
@@ -205,6 +213,7 @@ const COMMON_FRAG = /* glsl */ `
 uniform highp sampler2DArray cityTex;
 uniform float cNight;
 uniform float cSnow;
+uniform float cWinter;
 uniform float cAutumn;
 uniform vec3 cWarm;
 uniform vec3 cSnowCol;
@@ -450,7 +459,7 @@ export function foliageMaterial(u: CityUniforms, ragged = false): THREE.MeshLamb
         // Край кроны: чем ближе грань к ребру взгляда, тем выше порог листвы — между пучками видно небо.
         float cRim = 1.0 - abs(dot(normalize(normal), normalize(vViewPosition)));
         // Зимой голая крона сквозная: просветы между пучками вырезаны по всей кроне, не только по краю.
-        if (cTex.a < max(smoothstep(0.5, 0.92, cRim) * 0.85, 0.55 * cSnow * vGrime)) discard;`,
+        if (cTex.a < max(smoothstep(0.5, 0.92, cRim) * 0.85, 0.55 * cWinter * vGrime)) discard;`,
       );
     }
     shader.fragmentShader = 'varying vec3 vInst;\n' + COMMON_FRAG + shader.fragmentShader
@@ -475,7 +484,7 @@ export function foliageMaterial(u: CityUniforms, ragged = false): THREE.MeshLamb
         // Высота листвы: просветы — у нуля (треть слоя), пучки — от 0.4 до 0.9.
         float twig = smoothstep(0.15, 0.4, cTex.a);
         vec3 bare = mix(vec3(0.34, 0.35, 0.38), vec3(0.055, 0.045, 0.04), twig) * cShade;
-        diffuseColor.rgb = mix(diffuseColor.rgb, bare, cSnow * vGrime * 0.92);
+        diffuseColor.rgb = mix(diffuseColor.rgb, bare, cWinter * vGrime * 0.92);
         // Снег сверху; на голых ветвях он почти не лежит — шапка в 2.5 раза тоньше, чем на хвое.
         float cUp = smoothstep(0.35, 0.85, vCNy) * cSnow * (1.0 - 0.6 * vGrime);
         diffuseColor.rgb = mix(diffuseColor.rgb, cSnowCol * 0.9 * cShade, cUp * 0.8);`,

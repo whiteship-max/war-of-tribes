@@ -8,7 +8,7 @@ import { useWorld } from '@/world/store';
 import { homeTheatre } from '@/world/theatre/theatre';
 import { isWaterAt } from '@/world/land';
 import type { Coord } from '@/world/types';
-import { flashes, forcedFlashes, forcedWeather, weatherAt, weatherWords, type Flash, type Weather } from '@/render/climate';
+import { flashes, forcedFlashes, forcedWeather, lyingSnow, weatherAt, weatherWords, type Flash, type Weather } from '@/render/climate';
 
 /** Регион игрока по клетке его города; мира ещё нет — `null` (погода умеренной суши). */
 export function homeRegion(): string | null {
@@ -37,6 +37,11 @@ const forced = (): Weather | null => (typeof location === 'undefined' ? null : f
 export function weatherNow(s: GameState): Weather {
   const season = seasonOf(s.time);
   return forced() ?? weatherAt(homeRegion(), serverNow(), season, solarPhase(dayFraction(s.time), season));
+}
+
+/** Снег на земле у города игрока зимой, 0..1; не зима — 0. */
+export function coverNow(s: GameState): number {
+  return seasonOf(s.time) === 'winter' ? lyingSnow(homeRegion(), serverNow(), forced()) : 0;
 }
 
 /** Молнии над городом игрока, чьи миги лежат в `[from, to)` мс общих часов, — грому. */

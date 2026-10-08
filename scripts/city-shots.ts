@@ -9,7 +9,7 @@
 //                                                (сцена города в игре, не стенд), TAG и QUALITY те же
 //   GAME=1 WX=clear,rain,storm npm run city:shots — погода адресом (`?weather=`, docs/city.md, 15): кадр игры на каждую,
 //                                                `WXLOOK=market:70` — вблизи постройки (тип:расстояние), `WXMAP=1` —
-//                                                карта мира, `WXSEASON=winter` — сезон партии
+//                                                карта мира, `WXSEASON=winter` — сезон партии, `WXREGION=italy` — регион
 //
 // Снимки — в `.city-shots/` (в репозиторий не входит). Бюджет железа (CLAUDE.md, раздел ⛔): один
 // прогон, браузер с потолком кадров отчёта, не дольше двух минут на заход, минута остывания
@@ -247,6 +247,9 @@ async function weatherShots(tab: Tab, q: Quality): Promise<void> {
     window.__game.setState({ s: { ...s } });
     return JSON.stringify('ok');
   })()`);
+  // Регион (`WXREGION=italy`): климат пояса — снег на кровлях, лёд на реке. Мир в облаке ставит город, где придётся.
+  const region = process.env.WXREGION;
+  if (region) await tab.eval<string>(`(() => { window.__scene.setRegion(${JSON.stringify(region)}); return JSON.stringify('ok'); })()`);
   // Сезон партии (`WXSEASON=winter`): снег над снежным городом, а не над летним.
   const season = process.env.WXSEASON;
   if (season) {
@@ -296,7 +299,7 @@ async function weatherShots(tab: Tab, q: Quality): Promise<void> {
       }
     }
     const png = await tab.send<{ data: string }>('Page.captureScreenshot', { format: 'png' });
-    const name = `${TAG}-wx-${wx}${map ? '-map' : near ? '-' + near.replace(':', '') : ''}-${q}.png`;
+    const name = `${TAG}-wx-${wx}${region ? '-' + region : ''}${map ? '-map' : near ? '-' + near.replace(':', '') : ''}-${q}.png`;
     await writeFile(join(OUT, name), Buffer.from(png.data, 'base64'));
     if (wx === 'storm') await tab.eval<string>(`(() => { window.__scene.resume(); return JSON.stringify('ok'); })()`);
     console.log(`  погода ${q}: ${wx} → .city-shots/${name}`);

@@ -32,6 +32,8 @@ export interface WeatherSound {
   snow: number;
   storm: number;
   wind: number;
+  /** Снег на земле зимой, 0..1 (`climate.lyingSnow`): глушит город. Нет — как прежде, зима глушит всегда. */
+  cover?: number;
 }
 
 /** Без погоды — ветер, как прежде (средней силы), ни дождя, ни грозы. */
@@ -109,8 +111,9 @@ export function mixOf(h: Hearing): Record<Layer, number> {
   };
 }
 
-/** Снег глушит город: срез верхов на всём городском. */
-export const muffleOf = (h: Hearing): number => (h.view === 'city' && h.season === 'winter' ? 1800 : 9000);
+/** Снег глушит город: срез верхов на всём городском — пока снег лежит (на Сицилии зимой — только после снегопада). */
+export const muffleOf = (h: Hearing): number =>
+  h.view === 'city' && h.season === 'winter' && (h.wx?.cover ?? 1) > 0.3 ? 1800 : 9000;
 
 /** Где на фазе солнца звонит колокол и сколько ударов: утреня, третий час, полдень, девятый, вечерня. */
 export const BELL_HOURS: readonly (readonly [number, number])[] = [

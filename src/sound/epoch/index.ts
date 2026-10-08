@@ -14,7 +14,7 @@ import { seeded } from './rng';
 import { makeKit, type Kit } from './synth';
 import { playCue, type Cue } from './cues';
 import { serverNow } from '@/net/clock';
-import { flashesNow, weatherNow } from '@/ui/parts/weather';
+import { coverNow, flashesNow, weatherNow } from '@/ui/parts/weather';
 
 export type { Cue };
 
@@ -52,7 +52,7 @@ function hearing(): Hearing {
     near: cityNear(),
     sea: home ? 1 - landShare(home.x, home.y, SEA_RADIUS) : 0,
     // Погода над городом — та же, что видит сцена (docs/city.md, 15).
-    wx: weatherNow(g.s),
+    wx: { ...weatherNow(g.s), cover: coverNow(g.s) },
   };
 }
 

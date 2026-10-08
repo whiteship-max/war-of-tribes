@@ -138,6 +138,9 @@ export function mountCity(root: HTMLElement, p: URLSearchParams): void {
           fm.size = 3.6 * (1 + Math.sin(performance.now() * 0.011) * 0.08);
         }
         city.uniforms.cSnow.value = seasonVis.snow;
+        // Стенд без региона: зима — снег, лёд и голые кроны разом, как до погоды.
+        city.uniforms.cWinter.value = seasonVis.snow;
+        city.uniforms.cIce.value = seasonVis.snow;
         city.uniforms.cSunDir.value.copy(rig.sun.position).sub(center).normalize();
         city.uniforms.cSky.value.copy((scene.fog as THREE.Fog).color);
         city.uniforms.cTime.value = (performance.now() - t0) / 1000;

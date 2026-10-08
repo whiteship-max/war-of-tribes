@@ -186,6 +186,14 @@ describe('фон города: слои от того, что видит игр�
     expect(mixOf({ view: 'map', solar: 0.25, season: 'summer', near: 1, sea: 0, wx: { rain: 1, snow: 0, storm: 0, wind: 0.4 } }).rain).toBeGreaterThan(0.3);
   });
 
+  it('снег глушит город, пока лежит: зимой без снега на земле — не глушит', () => {
+    const wx = { rain: 0, snow: 0, storm: 0, wind: 0.4 };
+    expect(muffleOf(city({ season: 'winter' }))).toBe(1800);
+    expect(muffleOf(city({ season: 'winter', wx: { ...wx, cover: 1 } }))).toBe(1800);
+    expect(muffleOf(city({ season: 'winter', wx: { ...wx, cover: 0 } }))).toBe(9000);
+    expect(muffleOf(city({ season: 'summer', wx: { ...wx, cover: 1 } }))).toBe(9000);
+  });
+
   it('все слои в пределах 0..1 на всей решётке', () => {
     for (const view of ['city', 'map'] as const)
       for (const season of ['spring', 'summer', 'autumn', 'winter'] as const)

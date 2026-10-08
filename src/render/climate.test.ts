@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Season } from '@/game/types';
 import { realMs } from '@/game/pace';
-import { BLEND, SPELL_DAYS, flashAt, flashGlow, flashes, weatherAt, weatherWords, windTo, zoneOf, type Weather } from './climate';
+import { BLEND, SNOW_HOLD_DAYS, SNOW_MELT_DAYS, SPELL_DAYS, WEATHER_LOOKS, flashAt, flashGlow, flashes, lyingSnow, snowCover, weatherAt, weatherWords, windTo, zoneOf, type Weather } from './climate';
 
 /** Миг середины полосы `i` в мс общих часов — внутри полосы, вдали от перехода. */
 const mid = (i: number): number => realMs((i + 0.4) * SPELL_DAYS * 60);
@@ -114,6 +114,49 @@ describe('погода — функция региона и общих часо�
     expect(f.power).toBeGreaterThan(0.5);
     expect(flashAt('italy', 'autumn', f.at + 150)).toBeGreaterThan(0.3);
     expect(flashAt('italy', 'autumn', f.at - 10)).toBeLessThan(flashAt('italy', 'autumn', f.at + 150));
+  });
+
+  it('снег на земле: на севере всю зиму, на Сицилии — только после редкого снегопада', () => {
+    for (let i = 0; i < N; i += 7) expect(snowCover('norway', mid(I0 + i))).toBe(1);
+    // Белый миг Сицилии — в пределах «снегопад + лежит + тает» после снегопада: ищем его назад шагом в десятую полосы.
+    const back = realMs((SNOW_HOLD_DAYS + SNOW_MELT_DAYS + SPELL_DAYS) * 60);
+    const tenth = realMs(SPELL_DAYS * 6);
+    let white = 0;
+    for (let i = 0; i < N; i++) {
+      const ms = mid(I0 + i);
+      if (snowCover('italy', ms) <= 0.5) continue;
+      white++;
+      let fell = false;
+      for (let t = ms - back; t <= ms && !fell; t += tenth) fell = weatherAt('italy', t, 'winter', 0.25).snow > 0.15;
+      expect(fell, 'бело без снегопада').toBe(true);
+    }
+    // Точка внутри области: белые миги есть, и их мало — снег на Сицилии редок.
+    expect(white / N, 'доля белых мигов на Сицилии').toBeGreaterThan(0.005);
+    expect(white / N, 'доля белых мигов на Сицилии').toBeLessThan(0.15);
+    // Погода адресом: снегопад — бело сразу; ясно — как лежит в поясе.
+    expect(lyingSnow('italy', 0, WEATHER_LOOKS.snow)).toBe(1);
+    expect(lyingSnow('italy', 0, WEATHER_LOOKS.clear)).toBe(0);
+    expect(lyingSnow('norway', 0, WEATHER_LOOKS.clear)).toBe(1);
+  });
+
+  it('снег ложится и тает без скачка: секундами сквозь снегопад Сицилии и его таяние', () => {
+    // Граница области: от начала снежной полосы до конца таяния; точки — внутри (снег лёг и сошёл).
+    let i = I0;
+    while (weatherAt('italy', mid(i), 'winter', 0.25).snow < 0.3) i++;
+    const start = realMs(i * SPELL_DAYS * 60);
+    const span = realMs((SPELL_DAYS + SNOW_HOLD_DAYS + SNOW_MELT_DAYS) * 60) + 60_000;
+    let prev = snowCover('italy', start);
+    let top = 0;
+    for (let ms = start + 1000; ms < start + span; ms += 1000) {
+      const c = snowCover('italy', ms);
+      expect(Math.abs(c - prev), 'снег за секунду').toBeLessThan(0.01);
+      top = Math.max(top, c);
+      prev = c;
+    }
+    expect(top).toBeGreaterThan(0.6);
+    // Если следом не было нового снегопада — к концу сошёл.
+    const later = Array.from({ length: 4 }, (_, k) => weatherAt('italy', mid(i + 1 + k), 'winter', 0.25).snow).every((x) => x < 0.15);
+    if (later) expect(prev).toBeLessThan(0.05);
   });
 
   it('слова: небо и ветер, «с моря» — когда с той стороны море', () => {
