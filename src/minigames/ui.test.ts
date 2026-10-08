@@ -44,6 +44,8 @@ describe('голос промыслов', () => {
     'minigames/berries.ts',
     'minigames/herd.ts',
     'minigames/hunt.ts',
+    'minigames/fishPlay.ts',
+    'minigames/fishing.ts',
     'ui/next/Trades.tsx',
     'game/data/minigames.ts',
   ];
@@ -59,7 +61,7 @@ describe('голос промыслов', () => {
     }
     // Точка внутри области: щуп видит строки.
     expect(seen).toBeGreaterThan(20);
-    for (const label of ['В лес', 'В загон', 'На охоту', 'Начать', 'Назад', 'Уйти', 'Точно?', 'В город']) expect(label.length).toBeLessThanOrEqual(14);
+    for (const label of ['В лес', 'В загон', 'На охоту', 'К воде', 'Начать', 'Назад', 'Уйти', 'Точно?', 'В город']) expect(label.length).toBeLessThanOrEqual(14);
   });
 });
 

@@ -14,6 +14,27 @@ import type { BeastKind } from './herd';
 /** Громкость промыслов: та же, что у охоты (`huntSound.HUNT_VOLUME`) — звуки дела, а не фон. */
 export const MINI_VOLUME = 0.6;
 
+/** Ухо игрока: где стоит и куда у него правая рука (единичный вектор по земле). Общее у охоты и рыбалки. */
+export interface Ear {
+  x: number;
+  z: number;
+  rx: number;
+  rz: number;
+}
+
+/** На этом расстоянии звук в полную силу; дальше — тише обратно расстоянию. */
+export const SOUND_NEAR = 8;
+
+/** Громкость и сторона звука в точке для уха. Чистая — по ней и тест (`huntSound.test.ts`). */
+export function placeSound(ear: Ear, x: number, z: number): { gain: number; pan: number } {
+  const dx = x - ear.x;
+  const dz = z - ear.z;
+  const d = Math.hypot(dx, dz);
+  const gain = Math.min(1, SOUND_NEAR / Math.max(1, d));
+  const pan = d > 0.5 ? Math.max(-1, Math.min(1, (dx * ear.rx + dz * ear.rz) / d)) * 0.75 : 0;
+  return { gain, pan };
+}
+
 /** Шум из своего сида: случай устройства звуку не нужен (`Math.random` в игре нет нигде). */
 export function noiseBuffer(ctx: BaseAudioContext): AudioBuffer {
   const b = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);

@@ -12,6 +12,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import './minigames.css';
 import { probe } from '@/debug';
+import { dec } from '@/game/num';
 import { useGame } from '@/game/store';
 import { RESOURCE_IDS, RESOURCE_META } from '@/game/constants';
 import { seasonOf } from '@/game/derived';
@@ -24,19 +25,36 @@ import { BerriesPlay } from './berriesPlay';
 import { HerdPlay } from './herdPlay';
 import { GAME_SECONDS, LATE_SECONDS, shareOf, type Tally } from './rules';
 import { LAST_TICKS, Stage, type Play, type StageView } from './stage';
-import { weatherNow } from '@/ui/parts/weather';
+import { homeWater, weatherNow } from '@/ui/parts/weather';
+import type { Season } from '@/game/types';
 import { watchContext } from '@/render/context';
 import { freeTurn } from '@/orientation';
 
+/** Что игре нужно знать о городе: сезон, погода, берег и пояс — на входе, один раз. */
+interface Place {
+  season: Season;
+  /** Сила ветра и дождь погоды города, 0..1 (`weather.weatherNow`). */
+  wind: number;
+  rain: number;
+  /** У воды: море в дне пути или река у города, и климатический пояс региона (`weather.homeWater`). */
+  shore: 'river' | 'sea';
+  zone: ReturnType<typeof homeWater>['zone'];
+}
+
 /**
- * Чем играть: «Ягоды» и «Скот» лежат в куске промыслов, «Охота» — своим куском (лук, олени, звук): её качает только
- * «На охоту», а тот, кто ходит за ягодами, за неё не платит (docs/minigames.md, 13).
+ * Чем играть: «Ягоды» и «Скот» лежат в куске промыслов, «Охота» и «Рыбалка» — своими кусками (лук и олени; удочка,
+ * вода и рыбы): их качает только «На охоту» и «К воде», а тот, кто ходит за ягодами, за них не платит
+ * (docs/minigames.md, 13 и 17).
  */
-const PLAYS: Record<MinigameId, (seed: number) => Promise<Play>> = {
+const PLAYS: Record<MinigameId, (seed: number, place: Place) => Promise<Play>> = {
   berries: async (seed) => new BerriesPlay(seed),
   herd: async (seed) => new HerdPlay(seed),
   hunt: async (seed) => new (await import('./huntPlay')).HuntPlay(seed),
+  fish: async (seed, p) => new (await import('./fishPlay')).FishPlay(seed, { shore: p.shore, zone: p.zone, season: p.season, rain: p.rain }),
 };
+
+/** Килограммы с запятой и одной цифрой после неё: «2,4» — дробь одной дверью (`game/num.dec`). */
+const kg = (grams: number): string => dec(grams / 1000, 1);
 
 /** Сколько «Уйти» ждёт второго касания: столько же, сколько «Точно?» окна постройки (`next/Confirm`). */
 const LEAVE_MS = 3000;
@@ -46,6 +64,8 @@ const TALLY_WORDS: Record<MinigameId, { short: (t: Tally) => string; done: (t: T
   berries: { short: (t) => `Ягод ${t.got}`, done: (t) => `Собрано ${t.got} из ${t.total}` },
   herd: { short: (t) => `Охапок ${t.got} из ${t.total}`, done: (t) => `Отдано охапок ${t.got} из ${t.total}` },
   hunt: { short: (t) => `Оленей ${t.got} из ${t.total}`, done: (t) => `Добыто оленей ${t.got} из ${t.total}` },
+  // Счёт рыбалки — граммы улова до цели (`fishing.Fishing.tally`): словами — килограммы.
+  fish: { short: (t) => `Улов ${kg(t.got)} из ${kg(t.total)} кг`, done: (t) => `Улов ${kg(t.got)} из ${kg(t.total)} кг` },
 };
 
 /** Подсказка на первые секунды: как ходить и как держать лук. */
@@ -53,6 +73,7 @@ const HINT: Record<MinigameId, string> = {
   berries: 'Слева шаг, справа взгляд',
   herd: 'Слева шаг, справа взгляд',
   hunt: 'Справа прижми, веди и отпусти',
+  fish: 'Тяни вниз и отпусти — заброс',
 };
 
 /**
@@ -75,6 +96,11 @@ export const HOW: Record<MinigameId, readonly string[]> = {
     'Слева — шаг: пока олень щиплет траву, к нему можно подкрасться',
     'Справа прижми — тянешь, веди — целишься, отпусти — выстрел',
     'Метки 15, 25 и 35 — поправка на дальность. Долго держишь — руки дрожат',
+  ],
+  fish: [
+    'Тяни вниз — замах, веди вбок — куда, отпусти — заброс. В траву и корягу не бросай',
+    'Дрожит поплавок — жди; утонул — жми сразу: это подсечка',
+    'Держи — тянешь, отпусти на рывке — рыба берёт леску. Красная шкала — порвёт',
   ],
 };
 
@@ -185,14 +211,16 @@ export function Minigame({ game, onExit }: { game: MinigameId; onExit: () => voi
         if (!made.abort()) setGen((n) => n + 1);
       });
     };
-    void PLAYS[game](seed).then((play) => {
+    const st0 = useGame.getState().s;
+    const wx = weatherNow(st0);
+    const place: Place = { season: seasonOf(st0.time), wind: wx.wind, rain: wx.rain, ...homeWater() };
+    void PLAYS[game](seed, place).then((play) => {
       if (!alive) {
         play.dispose();
         return;
       }
-      const st = useGame.getState().s;
       // Ветер в траве и кронах — погоды города в эту минуту (`weather.weatherNow`), той же, что слышит фон.
-      wire(new Stage(canvas, play, GAME_SECONDS[game], seasonOf(st.time), weatherNow(st).wind));
+      wire(new Stage(canvas, play, GAME_SECONDS[game], place.season, place.wind));
     });
     canvas.addEventListener('pointerdown', drop, { once: true });
     ro.observe(wrap);
@@ -264,6 +292,15 @@ export function Minigame({ game, onExit }: { game: MinigameId; onExit: () => voi
         </div>
       )}
 
+      {game === 'fish' && (
+        // Шкала удочки: сила заброса в замахе, натяжение лески на вываживании (`Play.gauge`, `Stage.aimSync`). Стоит с
+        // первого кадра, чтобы сцена нашла её, — видна, когда есть что показать.
+        <div className={`mg-aim mg-gauge${phase === 'play' ? '' : ' off'}`} ref={aimRef} aria-hidden="true" data-mode="none">
+          <i className="mg-gauge-bar" />
+          <i className="mg-gauge-red" />
+        </div>
+      )}
+
       {phase === 'play' && view && (
         <>
           <div className="mg-top">
@@ -289,7 +326,13 @@ export function Minigame({ game, onExit }: { game: MinigameId; onExit: () => voi
           </div>
           {view.note && <div className="mg-note">{view.note}</div>}
           <div className="mg-bottom">
-            {view.verb ? <span className="mg-chip mg-verb">Нажми — {view.verb.toLowerCase()}</span> : hint && <span className="mg-hint">{HINT[game]}</span>}
+            {view.verb ? (
+              <span className="mg-chip mg-verb">Нажми — {view.verb.toLowerCase()}</span>
+            ) : view.cue ? (
+              <span className="mg-chip mg-verb">{view.cue}</span>
+            ) : (
+              hint && <span className="mg-hint">{HINT[game]}</span>
+            )}
           </div>
         </>
       )}

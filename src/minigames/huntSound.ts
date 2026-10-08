@@ -15,7 +15,7 @@
 // что и где прозвучало, говорит сцена.
 import { soundOn } from '@/sound/settings';
 import { openBus } from '@/sound/web';
-import { Voices } from './miniSound';
+import { Voices, placeSound, type Ear } from './miniSound';
 
 /** Во что воткнулась стрела — у каждого свой стук. */
 export type ThudKind = 'ground' | 'wood' | 'deer';
@@ -40,28 +40,10 @@ export interface HuntHost {
   tick(): void;
 }
 
-/** Ухо охотника: где стоит и куда у него правая рука (единичный вектор по земле). */
-export interface Ear {
-  x: number;
-  z: number;
-  rx: number;
-  rz: number;
-}
-
 /** Громкость звуков охоты: под музыкой деревни (0.38) не тише её — это звуки дела, а не фон. */
 export const HUNT_VOLUME = 0.6;
-/** На этом расстоянии звук в полную силу; дальше — тише обратно расстоянию. */
-export const HUNT_NEAR = 8;
-
-/** Громкость и сторона звука в точке для уха. Чистая — по ней и тест. */
-export function placeSound(ear: Ear, x: number, z: number): { gain: number; pan: number } {
-  const dx = x - ear.x;
-  const dz = z - ear.z;
-  const d = Math.hypot(dx, dz);
-  const gain = Math.min(1, HUNT_NEAR / Math.max(1, d));
-  const pan = d > 0.5 ? Math.max(-1, Math.min(1, (dx * ear.rx + dz * ear.rz) / d)) * 0.75 : 0;
-  return { gain, pan };
-}
+/** Ухо, сторона и ближняя граница громкости — общие у охоты и рыбалки (`miniSound.placeSound`). */
+export { placeSound, type Ear, SOUND_NEAR as HUNT_NEAR } from './miniSound';
 
 /** Звуки охоты: без жеста и при выключенном звуке молчит и ничего не открывает. */
 export class HuntSound {

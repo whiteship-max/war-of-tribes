@@ -6,9 +6,9 @@ import { dayFraction, seasonOf, solarPhase } from '@/game/derived';
 import { serverNow } from '@/net/clock';
 import { useWorld } from '@/world/store';
 import { homeTheatre } from '@/world/theatre/theatre';
-import { isWaterAt } from '@/world/land';
+import { isWaterAt, landShare } from '@/world/land';
 import type { Coord } from '@/world/types';
-import { flashes, forcedFlashes, forcedWeather, lyingSnow, weatherAt, weatherWords, type Flash, type Weather } from '@/render/climate';
+import { flashes, forcedFlashes, forcedWeather, lyingSnow, weatherAt, weatherWords, zoneOf, type Flash, type Weather, type Zone } from '@/render/climate';
 
 /** Регион игрока по клетке его города; мира ещё нет — `null` (погода умеренной суши). */
 export function homeRegion(): string | null {
@@ -28,6 +28,30 @@ export function seaSide(home: Coord, from: number): boolean {
   let water = 0;
   for (let k = 1; k <= SEA_REACH; k++) if (isWaterAt(Math.round(home.x + dx * k), Math.round(home.y + dy * k))) water++;
   return water >= SEA_NEED;
+}
+
+/**
+ * До моря — не дальше дня пути: столько клеток (по 6 км с небольшим, `atlas/project.KM_PER_CELL`) от дома. Ближе есть
+ * вода атласа — рыбалка у моря; нет — у реки (она течёт у каждого города, docs/city.md). День пути — довод из
+ * структуры: все двенадцать мест Сицилии (`world/spawn.SICILY`) — в 2–8 клетках от моря, и слово владельца «у Сицилии
+ * — море» выполняется числом, а не исключением (docs/minigames.md, 17).
+ */
+export const SHORE_REACH = 8;
+
+/** Где рыбачить: у моря или у реки — по клетке дома. */
+export const shoreAt = (home: Coord): 'river' | 'sea' => (landShare(home.x, home.y, SHORE_REACH) < 1 ? 'sea' : 'river');
+
+/** Берег адресом (`?shore=sea|river`) — стенду и проверке на телефоне, как погода адресом. */
+const forcedShore = (): 'river' | 'sea' | null => {
+  if (typeof location === 'undefined') return null;
+  const v = new URLSearchParams(location.search).get('shore');
+  return v === 'sea' || v === 'river' ? v : null;
+};
+
+/** Берег и климатический пояс игрока; мира ещё нет — река умеренной суши. */
+export function homeWater(): { shore: 'river' | 'sea'; zone: Zone } {
+  const home = useWorld.getState().info?.home;
+  return { shore: forcedShore() ?? (home ? shoreAt(home) : 'river'), zone: zoneOf(homeRegion()) };
 }
 
 /** Погода адресом (`?weather=rain`) — та же, что у сцены: стенду и проверке на телефоне. */

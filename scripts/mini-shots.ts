@@ -3,8 +3,9 @@
 //   npm run mini:shots                  — вход из города и обе игры: верх, подсказка энергии, «Промыслы»,
 //                                         начало, середина игры у цели, итог; по каждому снимку — ступень,
 //                                         вызовы отрисовки и треугольники прошлого кадра
-//   GAMES=herd npm run mini:shots       — одна игра (`berries`, `herd`, `hunt`); GAMES=none — только город, верхняя
-//                                         строка и окно двора
+//   GAMES=herd npm run mini:shots       — одна игра (`berries`, `herd`, `hunt`, `fish`); GAMES=none — только город,
+//                                         верхняя строка и окно двора
+//   EXTRA='&shore=sea&weather=rain'     — добавка к адресу страницы: берег рыбалки и погода (`ui/parts/weather`)
 //   SEASON=winter npm run mini:shots    — сезон города (снег на ветках)
 //   LOOK=lite npm run mini:shots        — ступень вида приколота (`full`, `lite`, `base`)
 //   WIDTH=375 npm run mini:shots        — ширина экрана, px (по умолчанию 390)
@@ -33,9 +34,11 @@ const SCREEN = { width: Number(process.env.WIDTH ?? 390), height: 844, deviceSca
 const GAMES = (process.env.GAMES ?? 'berries,herd,hunt')
   .split(',')
   .map((x) => x.trim())
-  .filter((x) => x === 'berries' || x === 'herd' || x === 'hunt');
+  .filter((x) => x === 'berries' || x === 'herd' || x === 'hunt' || x === 'fish');
 /** Кнопка входа в игру — та же строка, что в таблице игр (`data/minigames.ts`, `go`). */
-const GO: Record<string, string> = { berries: 'В лес', herd: 'В загон', hunt: 'На охоту' };
+const GO: Record<string, string> = { berries: 'В лес', herd: 'В загон', hunt: 'На охоту', fish: 'К воде' };
+/** Добавка к адресу страницы: `&shore=sea`, `&weather=rain`. */
+const EXTRA = process.env.EXTRA ?? '';
 const SEASON = process.env.SEASON ?? '';
 const TAG = process.env.TAG ?? 'probe';
 /** Ступень вида из адреса (`?look=full|lite|base`) — приколота, сторож её не трогает. */
@@ -178,6 +181,94 @@ async function hunt(tab: Tab, began: number): Promise<void> {
   await snap(tab, 'hunt-3c-deer', began);
 }
 
+/** Мышь CDP по холсту — тот же путь, что у пальца (`Stage.onDown/onMove/onUp`). */
+async function mouse(tab: Tab, type: 'mouseMoved' | 'mousePressed' | 'mouseReleased', x: number, y: number): Promise<void> {
+  await tab.send('Input.dispatchMouseEvent', { type, x: Math.round(x), y: Math.round(y), button: 'left', clickCount: 1, buttons: type === 'mouseReleased' ? 0 : 1 });
+}
+
+const fishState = `JSON.stringify((() => { const p = window.__mini.play; const g = p.game; const L = g.line;
+  return { phase: g.phase, age: (p.ruleT || 0) - g.since, bite: g.plan ? g.plan.bite : -1, window: g.plan ? g.plan.window : 0,
+    tension: L ? L.tension : 0, dist: L ? L.dist : 0, reeling: L ? L.reeling : false, fish: g.fish ? g.fish.def.name + ' ' + g.fish.grams : '',
+    caught: g.catches.length, power: p.power() }; })())`;
+
+interface FishState {
+  phase: string;
+  age: number;
+  bite: number;
+  window: number;
+  tension: number;
+  dist: number;
+  reeling: boolean;
+  fish: string;
+  caught: number;
+  power: number;
+}
+
+/**
+ * «Рыбалка»: берег со старта, настоящий заброс мышью CDP (прижал, повёл вниз, отпустил), поплавок на воде, подсечка
+ * в окне поклёвки, вываживание «держи, пока натяжение ниже трёх четвертей» и вытащенная рыба в руке.
+ */
+async function fishing(tab: Tab, began: number): Promise<void> {
+  await sleep(1500);
+  await snap(tab, 'fish-3-shore', began);
+  const x = SCREEN.width * 0.6;
+  const y0 = SCREEN.height * 0.42;
+  await mouse(tab, 'mouseMoved', x, y0);
+  await mouse(tab, 'mousePressed', x, y0);
+  for (let k = 1; k <= 12; k++) {
+    await mouse(tab, 'mouseMoved', x - k * 2, y0 + k * 12);
+    await sleep(60);
+  }
+  await sleep(700);
+  await snap(tab, 'fish-3a-charge', began);
+  await mouse(tab, 'mouseReleased', x - 24, y0 + 144);
+  if (!(await waitFor(tab, "window.__mini.play.game.phase === 'wait'", 20000))) {
+    console.log(`  заброс: ${JSON.stringify(await tab.eval<FishState>(fishState))}`);
+    return;
+  }
+  await sleep(800);
+  await snap(tab, 'fish-3b-float', began);
+  // Подсечка: перемотать к поклёвке (время сцены в программной отрисовке идёт медленно) и нажать в окне.
+  await tab.eval<string>(`(() => { const st = window.__mini; const g = st.play.game; st.seek(g.since + g.plan.bite + 0.04); return JSON.stringify('ok'); })()`);
+  await sleep(400);
+  await snap(tab, 'fish-3b2-bite', began);
+  await mouse(tab, 'mousePressed', x, y0);
+  let s = await tab.eval<FishState>(fishState);
+  console.log(`  подсечка: ${s.phase}${s.fish ? ` — ${s.fish} г на ${s.dist.toFixed(1)} м` : ''}`);
+  let shot = false;
+  let held = true;
+  for (let i = 0; i < 1500 && s.phase === 'fight'; i++) {
+    if (Date.now() - began > BROWSER_MAX_MS - 40000) break;
+    const want = s.tension < 0.72;
+    if (want !== held) {
+      await mouse(tab, want ? 'mousePressed' : 'mouseReleased', x, y0);
+      held = want;
+    }
+    if (!shot && s.tension > 0.45) {
+      await snap(tab, 'fish-3c-fight', began);
+      shot = true;
+    }
+    await sleep(40);
+    s = await tab.eval<FishState>(fishState);
+  }
+  // Прыжок рыбы — снимком: рывок с прыжком у рыбы бывает не каждый, а стенду он нужен в кадре.
+  if (s.phase === 'fight') {
+    await tab.eval<string>(`(() => { const p = window.__mini.play; p.jumpAt = p.clock; return JSON.stringify('ok'); })()`);
+    await sleep(1500);
+    await snap(tab, 'fish-3c2-jump', began);
+    // Вытащить: подвести рыбу к берегу (стенд меряет вид, а не терпение) — правило само засчитает её на следующем тике.
+    await tab.eval<string>(`(() => { const g = window.__mini.play.game; if (g.line) g.line.dist = 1.5; return JSON.stringify('ok'); })()`);
+    await waitFor(tab, "window.__mini.play.game.phase === 'show'", 8000);
+    s = await tab.eval<FishState>(fishState);
+  }
+  if (held) await mouse(tab, 'mouseReleased', x, y0);
+  if (s.phase === 'show') {
+    await sleep(900);
+    await snap(tab, 'fish-3d-caught', began);
+  }
+  console.log(`  вываживание: ${s.phase}, в садке ${s.caught}`);
+}
+
 async function game(tab: Tab, id: string, began: number): Promise<void> {
   const go = GO[id];
   console.log(`  ${await tab.eval<string>(click('button[aria-label="Энергия"]'))} — подсказка энергии`);
@@ -196,6 +287,7 @@ async function game(tab: Tab, id: string, began: number): Promise<void> {
   await snap(tab, `${id}-2-brief`, began);
   console.log(`  ${await tab.eval<string>(press('Начать'))} — «Начать»`);
   if (id === 'hunt') await hunt(tab, began);
+  else if (id === 'fish') await fishing(tab, began);
   else await near(tab, id, began);
   // Итог: время выходит — трата энергии и добыча одним вызовом двери.
   await tab.eval<string>(`(() => { window.__mini.seek(1e6); return JSON.stringify('ok'); })()`);
@@ -267,12 +359,18 @@ async function budget(): Promise<void> {
   // Счёт без браузера — той же обстановкой, что у сцены (`world.furnish`), и тем же счётчиком, что у теста бюджета.
   const { budgetOf, MINI_BUDGET } = await import('../src/minigames/budget');
   console.log('\n=== промыслы: бюджет кадра (счёт по графу сцены, без браузера) ===\n');
-  for (const id of ['berries', 'herd', 'hunt'] as const) {
+  for (const [id, shore] of [
+    ['berries', 'river'],
+    ['herd', 'river'],
+    ['hunt', 'river'],
+    ['fish', 'river'],
+    ['fish', 'sea'],
+  ] as const) {
     for (const shadows of [true, false]) {
-      const c = budgetOf(id, shadows);
+      const c = budgetOf(id, shadows, shore);
       const lim = MINI_BUDGET;
       console.log(
-        `  ${id.padEnd(7)} тени ${shadows ? 'да ' : 'нет'}: вызовов ${c.calls + c.shadowCalls} (сцена ${c.calls}, тени ${c.shadowCalls}; ≤ ${lim.calls}), ` +
+        `  ${(id === 'fish' ? `fish-${shore}` : id).padEnd(10)} тени ${shadows ? 'да ' : 'нет'}: вызовов ${c.calls + c.shadowCalls} (сцена ${c.calls}, тени ${c.shadowCalls}; ≤ ${lim.calls}), ` +
           `треугольников ${Math.round(c.triangles + c.shadowTriangles)} (сцена ${Math.round(c.triangles)}, тени ${Math.round(c.shadowTriangles)}; ≤ ${lim.triangles})`,
       );
     }
@@ -315,7 +413,7 @@ async function main(): Promise<void> {
     const chrome = await launchChrome(DEBUG_PORT, ['--use-gl=angle', '--window-size=500,900', '--force-device-scale-factor=1', ...root]);
     const began = Date.now();
     try {
-      const tab = await Tab.open(DEBUG_PORT, reportPage(PORT, LOOK ? `&look=${LOOK}` : ''));
+      const tab = await Tab.open(DEBUG_PORT, reportPage(PORT, `${LOOK ? `&look=${LOOK}` : ''}${EXTRA}`));
       try {
         await tab.send('Emulation.setDeviceMetricsOverride', SCREEN);
         await tab.eval<string>('(() => { try { localStorage.clear(); } catch (e) {} return JSON.stringify("ok"); })()');

@@ -166,6 +166,23 @@ describe('трата — на «Начать», добыча — в конце',
     expect(s.resources.food).toBe(food);
   });
 
+  it('рыбалка: энергия — один раз на «Начать», добыча — один раз на поход и не выше потолка', () => {
+    const s = town();
+    const before = energyAt(s, T0);
+    const outing = beginMinigame(s, 'fish', T0);
+    if (typeof outing === 'string') throw new Error(outing);
+    expect(energyAt(s, T0)).toBeCloseTo(before - MINIGAME_COST, 9);
+    const cap = minigameCap(s, 'fish');
+    const first = done(harvest(s, outing, T0 + 90_000, 5));
+    expect(first.got.food ?? 0, 'точка внутри области: улов лёг').toBeGreaterThan(0);
+    expect(first.got.food ?? 0).toBeLessThanOrEqual(cap.food);
+    const food = s.resources.food;
+    const mark = s.energyFull;
+    expect(harvest(s, outing, T0 + 91_000, 1)).toBe('Добыча уже засчитана');
+    expect(s.resources.food).toBe(food);
+    expect(s.energyFull, 'итог энергию не трогает').toBe(mark);
+  });
+
   it('итог энергию не трогает: она списана на «Начать»', () => {
     const s = town();
     const outing = beginMinigame(s, 'hunt', T0);
@@ -195,6 +212,8 @@ describe('добыча — доля потолка', () => {
     expect(hunt.food).toBeCloseTo(14 / 18.4, 9);
     expect(hunt.hides).toBeCloseTo(2.4 / 18.4, 9);
     expect(hunt.bones).toBeCloseTo(2 / 18.4, 9);
+    // Рыбалка — двор собирателей: вся еда, как у ягод (своего двора у рыбы нет, docs/minigames.md, 17).
+    expect(minigameShares('fish')).toEqual({ food: 1 });
     for (const g of MINIGAMES) expect(Object.values(minigameShares(g.id)).reduce((n, x) => n + (x ?? 0), 0)).toBeCloseTo(1, 9);
   });
 
@@ -248,6 +267,8 @@ describe('добыча — доля потолка', () => {
             ['hunt', 'hunt', 'hunt', 'hunt'],
             ['berries', 'herd', 'herd', 'berries'],
             ['hunt', 'herd', 'berries', 'hunt'],
+            ['fish', 'fish', 'fish', 'fish'],
+            ['fish', 'berries', 'hunt', 'herd'],
           ];
           for (const plan of plans) {
             const s = town(herders);

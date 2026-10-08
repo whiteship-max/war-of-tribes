@@ -476,3 +476,63 @@ small.mg-muted,
     animation: none;
   }
 }
+
+/*
+ * Шкала удочки («Рыбалка», docs/minigames.md, 17): в замахе — сила заброса (охра), на вываживании — натяжение лески
+ * (зелень → охра → красное). Последняя доля — красная зона: держишь в ней — леска лопнет. Долю (`--k`), вид (`data-mode`)
+ * и красное (`data-warn`) ставит сцена (`Stage.aimSync`), минуя React.
+ */
+.mg-gauge {
+  --k: 0;
+  top: auto;
+  left: 50%;
+  bottom: calc(var(--safe-bottom) + 72px);
+  width: 168px;
+  height: 10px;
+  margin-left: -84px;
+  border-radius: 999px;
+  background: rgba(24, 19, 14, 0.55);
+  box-shadow: 0 0 0 1px rgba(255, 244, 220, 0.25);
+  overflow: hidden;
+}
+.mg-gauge[data-mode='none'] {
+  display: none;
+}
+.mg-gauge-bar {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: calc(var(--k) * 100%);
+  border-radius: 999px;
+  background: #e0a040;
+}
+.mg-gauge[data-mode='line'] .mg-gauge-bar {
+  background: linear-gradient(90deg, #6fae4a 0%, #c9b040 60%, #e0503a 100%);
+  background-size: 168px 100%;
+}
+.mg-gauge-red {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 85%;
+  width: 2px;
+  background: rgba(255, 244, 220, 0.7);
+}
+.mg-gauge[data-mode='cast'] .mg-gauge-red {
+  display: none;
+}
+.mg-gauge[data-warn='1'] {
+  box-shadow: 0 0 0 2px #e0503a, 0 0 12px rgba(224, 80, 58, 0.8);
+  animation: mg-warn 0.25s ease-in-out infinite alternate;
+}
+@keyframes mg-warn {
+  to {
+    box-shadow: 0 0 0 2px #e0503a, 0 0 4px rgba(224, 80, 58, 0.4);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mg-gauge[data-warn='1'] {
+    animation: none;
+  }
+}

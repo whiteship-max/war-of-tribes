@@ -121,6 +121,21 @@ export interface Play {
   over?(t: number): boolean;
   /** Пошла одна из последних секунд (`LAST_TICKS`): стукнуть. */
   tick?(): void;
+
+  // «Рыбалка» (docs/minigames.md, 17): удочка — весь экран, взгляд ведёт сама игра, у прицела — шкала.
+
+  /** Весь экран — одна рука: каждый палец — палец взгляда, стика шага нет. */
+  readonly oneHand?: boolean;
+  /** Сырой поворот пальца за кадр, рад, до множителей взгляда: удочке — сила замаха и удилище вбок. */
+  steer?(yaw: number, pitch: number, t: number): void;
+  /** Во сколько раз тише взгляд вверх-вниз (поверх `lookScale`): замах тянет вниз, а не опускает взгляд. */
+  pitchScale?(): number;
+  /** Взгляд, который ведёт игра: куда смотреть в этот кадр (за поплавком, за рыбой); `null` — ведёт игрок. */
+  lead?(yaw: number, pitch: number, dt: number): { yaw: number; pitch: number } | null;
+  /** Шкала у прицела: сила заброса или натяжение лески, 0..1, и в красной ли она. `null` — шкалы нет. */
+  gauge?(): { mode: 'cast' | 'line'; k: number; warn: boolean } | null;
+  /** Что делать сейчас — строка внизу, когда тапом трогать нечего. */
+  cue?(): string;
 }
 
 export type Phase = 'brief' | 'play' | 'done';
@@ -137,6 +152,8 @@ export interface StageView {
   note: string;
   /** Вторая строка счёта (`Play.aside`); нет — пусто. */
   aside: string;
+  /** Что делать сейчас (`Play.cue`); нет — пусто. */
+  cue: string;
 }
 
 /** Ступени промыслов — те же, что у поляны (`look.TIERS`): что умеет устройство, то и первая. */
@@ -394,7 +411,8 @@ export class Stage {
       /* захват не обязателен */
     }
     const p = this.local(e);
-    const half = this.sticks.down(e.pointerId, p.x, p.y, performance.now(), p.w);
+    // Одна рука (удочка): ширина ноль — любой палец ложится во взгляд.
+    const half = this.sticks.down(e.pointerId, p.x, p.y, performance.now(), this.play.oneHand ? 0 : p.w);
     // Палец во взгляде тянет тетиву: ведёт он её тем же пальцем, отпускает — снимая.
     if (half === 'look' && this.phase === 'play') this.play.draw?.(this.t);
   };
@@ -511,9 +529,15 @@ export class Stage {
     const live = this.phase === 'play';
     const look = this.sticks.takeLook();
     if (live) {
+      this.play.steer?.(look.yaw, look.pitch, this.t);
       const k = this.play.lookScale?.() ?? 1;
       this.yaw += look.yaw * k;
-      this.pitch = THREE.MathUtils.clamp(this.pitch + look.pitch * k, -PITCH_LIMIT, PITCH_LIMIT);
+      this.pitch = THREE.MathUtils.clamp(this.pitch + look.pitch * k * (this.play.pitchScale?.() ?? 1), -PITCH_LIMIT, PITCH_LIMIT);
+      const lead = this.play.lead?.(this.yaw, this.pitch, dt);
+      if (lead) {
+        this.yaw = lead.yaw;
+        this.pitch = THREE.MathUtils.clamp(lead.pitch, -PITCH_LIMIT, PITCH_LIMIT);
+      }
     }
     const walk: Walk = live ? mergeWalk(this.sticks.walk(), this.keys.walk()) : { forward: 0, strafe: 0 };
     const speed = Math.hypot(walk.forward, walk.strafe);
@@ -578,8 +602,9 @@ export class Stage {
       verb: this.target?.verb ?? '',
       note: this.note,
       aside: this.play.aside?.() ?? '',
+      cue: this.phase === 'play' ? (this.play.cue?.() ?? '') : '',
     };
-    const key = `${v.phase}|${v.left}|${v.tally.got}|${v.tally.total}|${v.verb}|${v.note}|${v.aside}`;
+    const key = `${v.phase}|${v.left}|${v.tally.got}|${v.tally.total}|${v.verb}|${v.note}|${v.aside}|${v.cue}`;
     if (!force && key === this.shown) return;
     this.shown = key;
     this.onView?.(v);
@@ -587,7 +612,7 @@ export class Stage {
 
   /** Надпись сейчас — оболочке на первом кадре. */
   snapshot(): StageView {
-    return { phase: this.phase, left: Math.ceil(this.seconds - this.t), tally: this.play.tally(), verb: '', note: '', aside: this.play.aside?.() ?? '' };
+    return { phase: this.phase, left: Math.ceil(this.seconds - this.t), tally: this.play.tally(), verb: '', note: '', aside: this.play.aside?.() ?? '', cue: '' };
   }
 
   /**
@@ -596,7 +621,19 @@ export class Stage {
    */
   private aimSync(): void {
     const el = this.aimEl;
-    if (!el || !this.play.drawn) return;
+    if (!el) return;
+    if (this.play.gauge) {
+      // Шкала удочки: сила заброса или натяжение лески — переменной `--k`, вид — `data-mode`, красная зона — `data-warn`.
+      const g = this.play.gauge();
+      const key = g ? `${g.mode}|${g.k.toFixed(2)}|${g.warn ? 1 : 0}` : '';
+      if (key === this.aimShown) return;
+      this.aimShown = key;
+      el.dataset.mode = g?.mode ?? 'none';
+      el.dataset.warn = g?.warn ? '1' : '0';
+      el.style.setProperty('--k', (g?.k ?? 0).toFixed(2));
+      return;
+    }
+    if (!this.play.drawn) return;
     const draw = this.play.drawn();
     const h = this.viewH;
     const half = Math.tan((this.camera.fov * DEG) / 2);

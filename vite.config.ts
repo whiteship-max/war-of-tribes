@@ -148,6 +148,12 @@ const LAZY_DOORS: { name: string; door: RegExp; owns: RegExp[] }[] = [
     owns: [/\/src\/minigames\/hunt/],
   },
   {
+    // «Рыбалка» — третья докачка внутри промыслов (удочка, вода, рыбы, звук): её тянет только «К воде».
+    name: 'рыбалка',
+    door: /\/src\/minigames\/fishPlay\.ts$/,
+    owns: [/\/src\/minigames\/fish/],
+  },
+  {
     name: 'предыстория',
     door: /\/src\/prologue\/Prologue\.tsx$/,
     owns: [/\/src\/prologue\//, /\/src\/sound\/howl\.ts$/],
