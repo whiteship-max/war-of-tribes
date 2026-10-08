@@ -97,6 +97,25 @@
 .nx-cell:active {
   background: rgba(255, 220, 170, 0.08);
 }
+/* Запас пришёл над постройкой города (`Hud.useYieldFlash`, docs/city.md, 14.3): ячейка вспыхивает и гаснет. */
+.nx-cell.got {
+  animation: nx-got 0.7s ease-out;
+}
+.nx-cell.got b {
+  color: #f6dd9a;
+  transition: color 0.2s;
+}
+@keyframes nx-got {
+  0% {
+    background: rgba(246, 210, 120, 0);
+  }
+  25% {
+    background: rgba(246, 210, 120, 0.22);
+  }
+  100% {
+    background: rgba(246, 210, 120, 0);
+  }
+}
 .nx-grow {
   flex: 1;
 }
@@ -472,9 +491,6 @@
 }
 .nx-go:disabled {
   opacity: 0.45;
-}
-.nx-go:active:not(:disabled) {
-  transform: scale(0.97);
 }
 
 /* ---------- Шторка нового вида: сцена над ней живая ---------- */

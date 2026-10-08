@@ -4,11 +4,15 @@
 //
 // Сколько людей на улицах и стражи на стене — от партии (`set`): население и войско. Ночью улицы
 // пустеют, стража остаётся.
+//
+// **Всё — функция от времени** (docs/city.md, 13): положение прохожего, стража, клуба дыма — f(t), без накопления шагов.
+// Вошёл в город, вернулся из фона, переждал медленный кадр — каждый уже там, где ему быть, рывков нет. Шаг ног, колёса
+// и вёсла — в шейдере фигур (`gait`): кадр кладёт пройденный путь, вершинный шейдер качает ноги.
 import * as THREE from 'three';
 import type { Quality } from '../quality';
-import { HEARTH_LOOK, Smoke, type SmokeLook, type SmokeSource } from '../weather';
+import { HEARTH_LOOK, type SmokeLook, type SmokeSource } from '../weather';
 import type { V3 } from './geom';
-import { heightAt, insidePoly, type CityPlan, type P } from './layout';
+import { distSeg, heightAt, insidePoly, type CityPlan, type P } from './layout';
 import { wallTops } from './forts';
 import { hash3, rnd } from './noise';
 import { linear } from './palette';
@@ -18,9 +22,11 @@ export { LIFE_CAP } from './spec';
 // ---------------------------------------------------------------------------------------------
 // Модели: фигура стоит в начале координат лицом на +x; масштаб — метры.
 
-interface Part {
+export interface Part {
   /** Середина низа, полуразмеры и сужение кверху. */
   x: number;
+  /** Сдвиг вбок (по z): левая и правая нога. */
+  z?: number;
   y0: number;
   y1: number;
   hw: number;
@@ -29,22 +35,30 @@ interface Part {
   col: V3;
   /** 1 — красится цветом экземпляра (одежда), 0 — свой цвет (лицо, ноги, древко). */
   tint: number;
+  /**
+   * Качание в шейдере (`figureMaterial`): ось — поперёк хода (z) через точку (px, py). `stride` > 0 — нога: полный
+   * мах за `stride` метров пути, `phase` — левая или правая; `stride` < 0 — колесо радиусом −stride: катится по пути;
+   * `phase` больше 50 — весло: поворот по вертикали вокруг уключины (px, pz = py).
+   */
+  limb?: [px: number, py: number, stride: number, phase: number];
 }
 
-/** Коробки фигуры в один буфер: положение, нормаль, цвет, маска окраски. */
-function figure(parts: Part[]): THREE.BufferGeometry {
+/** Коробки фигуры в один буфер: положение, нормаль, цвет, маска окраски, качание. */
+export function figure(parts: Part[]): THREE.BufferGeometry {
   const pos: number[] = [];
   const nor: number[] = [];
   const col: number[] = [];
   const msk: number[] = [];
+  const limb: number[] = [];
   const idx: number[] = [];
   for (const p of parts) {
     const t = p.taper ?? 1;
     const lo = [p.hw, p.hd];
     const hi = [p.hw * t, p.hd * t];
+    const pz = p.z ?? 0;
     const c = (sx: number, sy: number, sz: number): V3 => {
       const h = sy > 0 ? hi : lo;
-      return [p.x + sx * h[1], sy > 0 ? p.y1 : p.y0, sz * h[0]];
+      return [p.x + sx * h[1], sy > 0 ? p.y1 : p.y0, pz + sz * h[0]];
     };
     // Шесть граней: обход против часовой, если смотреть снаружи (нормаль — наружу).
     const faces: [V3, V3, V3, V3, V3][] = [
@@ -64,6 +78,7 @@ function figure(parts: Part[]): THREE.BufferGeometry {
         const k = 0.75 + 0.25 * Math.min(1, v[1] / 1.6);
         col.push(p.col[0] * k, p.col[1] * k, p.col[2] * k);
         msk.push(p.tint);
+        limb.push(...(p.limb ?? [0, 0, 0, 0]));
       }
       idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
     }
@@ -73,29 +88,55 @@ function figure(parts: Part[]): THREE.BufferGeometry {
   g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(nor), 3));
   g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(col), 3));
   g.setAttribute('tintMask', new THREE.BufferAttribute(new Float32Array(msk), 1));
+  g.setAttribute('limb', new THREE.BufferAttribute(new Float32Array(limb), 4));
   g.setIndex(idx);
   g.computeBoundingSphere();
   return g;
 }
 
-const SKIN: V3 = linear(0xc79a7a);
-const LEGS: V3 = linear(0x4a3b2e);
-const WHITE: V3 = [1, 1, 1];
-const STEEL: V3 = linear(0x8a8e92);
-const SHAFT: V3 = linear(0x5a4632);
+/**
+ * Шаг экземпляра для шейдера: (пройденный путь, метры; размах 0..1). Каждому экземплярному мешу фигур — свой буфер; кадр
+ * пишет его вместе с матрицами.
+ */
+export function gaitOf(im: THREE.InstancedMesh): THREE.InstancedBufferAttribute {
+  const a = new THREE.InstancedBufferAttribute(new Float32Array(im.instanceMatrix.count * 2), 2);
+  a.setUsage(THREE.DynamicDrawUsage);
+  im.geometry.setAttribute('gait', a);
+  return a;
+}
 
-/** Горожанин: ноги, рубаха до колен (цвет экземпляра), голова. */
-export const personGeometry = (): THREE.BufferGeometry =>
+export const SKIN: V3 = linear(0xc79a7a);
+export const LEGS: V3 = linear(0x4a3b2e);
+export const WHITE: V3 = [1, 1, 1];
+export const STEEL: V3 = linear(0x8a8e92);
+export const SHAFT: V3 = linear(0x5a4632);
+
+/** Две ноги от бедра на высоте `hip`: мах за `stride` метров, левая и правая — в противофазе. */
+export const legs = (hip: number, hw: number, hd: number, stride: number, x = 0): Part[] =>
+  [-1, 1].map((side) => ({ x, z: side * hw * 0.55, y0: 0, y1: hip, hw: hw * 0.45, hd, col: LEGS, tint: 0, limb: [x, hip, stride, side > 0 ? 0 : Math.PI] as Part['limb'] }));
+
+/** Руки от плеча на высоте `shoulder`: машут в противофазе ногам своей стороны, рукав — цвета одежды. */
+export const arms = (shoulder: number, span: number, stride: number): Part[] =>
+  [-1, 1].map((side) => ({ x: 0, z: side * span, y0: shoulder - 0.62, y1: shoulder, hw: 0.055, hd: 0.06, col: WHITE, tint: 1, limb: [0, shoulder, stride, side > 0 ? Math.PI : 0] as Part['limb'] }));
+
+/** Ноги одной коробкой, без шага, — низкому уровню: там нового нет, фигура прежняя (`LIFE_TRIS.*Low`). */
+const stiff = (hip: number, hw: number, hd: number): Part[] => [{ x: 0, y0: 0, y1: hip, hw, hd, col: LEGS, tint: 0 }];
+
+/**
+ * Горожанин: две ноги и две руки (шаг в шейдере), рубаха до колен (цвет экземпляра), голова. `simple` — низкий уровень:
+ * ноги одной коробкой и без рук, как до живого города.
+ */
+export const personGeometry = (simple = false): THREE.BufferGeometry =>
   figure([
-    { x: 0, y0: 0, y1: 0.78, hw: 0.17, hd: 0.11, col: LEGS, tint: 0 },
+    ...(simple ? stiff(0.78, 0.17, 0.11) : [...legs(0.78, 0.17, 0.11, 1.4), ...arms(1.36, 0.27, 1.4)]),
     { x: 0, y0: 0.62, y1: 1.42, hw: 0.27, hd: 0.16, taper: 0.78, col: WHITE, tint: 1 },
     { x: 0, y0: 1.42, y1: 1.7, hw: 0.11, hd: 0.11, col: SKIN, tint: 0 },
   ]);
 
 /** Стражник: то же и шлем, древко копья выше головы. */
-export const guardGeometry = (): THREE.BufferGeometry =>
+export const guardGeometry = (simple = false): THREE.BufferGeometry =>
   figure([
-    { x: 0, y0: 0, y1: 0.8, hw: 0.17, hd: 0.12, col: LEGS, tint: 0 },
+    ...(simple ? stiff(0.8, 0.17, 0.12) : legs(0.8, 0.17, 0.12, 1.5)),
     { x: 0, y0: 0.65, y1: 1.45, hw: 0.29, hd: 0.18, taper: 0.8, col: WHITE, tint: 1 },
     { x: 0, y0: 1.45, y1: 1.7, hw: 0.11, hd: 0.11, col: SKIN, tint: 0 },
     { x: 0, y0: 1.66, y1: 1.84, hw: 0.13, hd: 0.13, taper: 0.6, col: STEEL, tint: 0 },
@@ -103,19 +144,44 @@ export const guardGeometry = (): THREE.BufferGeometry =>
     { x: 0.05, y0: 2.6, y1: 2.85, hw: 0.04, hd: 0.04, taper: 0.2, col: STEEL, tint: 0 },
   ]);
 
-/** Овца (корова — та же, крупнее и в своём цвете): туловище, голова, четыре ноги одной коробкой. */
-export const beastGeometry = (): THREE.BufferGeometry =>
+/** Овца (корова — та же, крупнее и в своём цвете): туловище, голова, ноги парами — передние и задние. */
+export const beastGeometry = (simple = false): THREE.BufferGeometry =>
   figure([
-    { x: 0, y0: 0, y1: 0.35, hw: 0.2, hd: 0.36, col: LEGS, tint: 0 },
+    ...(simple
+      ? stiff(0.35, 0.2, 0.36)
+      : ([
+          { x: 0.3, y0: 0, y1: 0.35, hw: 0.2, hd: 0.07, col: LEGS, tint: 0, limb: [0.3, 0.35, 0.9, 0] },
+          { x: -0.3, y0: 0, y1: 0.35, hw: 0.2, hd: 0.07, col: LEGS, tint: 0, limb: [-0.3, 0.35, 0.9, Math.PI] },
+        ] as Part[])),
     { x: 0, y0: 0.3, y1: 0.85, hw: 0.28, hd: 0.55, taper: 0.9, col: WHITE, tint: 1 },
     { x: 0.62, y0: 0.55, y1: 0.95, hw: 0.13, hd: 0.15, col: LEGS, tint: 0 },
   ]);
 
-/** Ламберт с краской экземпляра только по маске: одежда своя у каждого, лицо — у всех лицо. */
-function figureMaterial(): THREE.MeshLambertMaterial {
+/**
+ * Ламберт с краской экземпляра только по маске: одежда своя у каждого, лицо — у всех лицо. Ноги, колёса и вёсла
+ * качаются в шейдере по пройденному пути экземпляра (`gait`): идёт — шагает, стоит — ноги вместе, колесо катится ровно
+ * на свой путь.
+ */
+export function figureMaterial(): THREE.MeshLambertMaterial {
   const m = new THREE.MeshLambertMaterial({ vertexColors: true });
   m.onBeforeCompile = (shader) => {
-    shader.vertexShader = 'attribute float tintMask;\n' + shader.vertexShader.replace(
+    shader.vertexShader = 'attribute float tintMask;\nattribute vec4 limb;\nattribute vec2 gait;\n' + shader.vertexShader.replace(
+      '#include <begin_vertex>',
+      /* glsl */ `#include <begin_vertex>
+      if (limb.z != 0.0) {
+        float ang = limb.z > 0.0 ? sin(gait.x * 6.2832 / limb.z + limb.w) * 0.5 * gait.y : gait.x / limb.z;
+        float ca = cos(ang);
+        float sa = sin(ang);
+        if (limb.w > 50.0) {
+          // Весло: поворот по вертикали вокруг уключины (x, z) = limb.xy.
+          vec2 d = transformed.xz - limb.xy;
+          transformed.xz = limb.xy + vec2(d.x * ca - d.y * sa, d.x * sa + d.y * ca);
+        } else {
+          vec2 d = transformed.xy - limb.xy;
+          transformed.xy = limb.xy + vec2(d.x * ca - d.y * sa, d.x * sa + d.y * ca);
+        }
+      }`,
+    ).replace(
       '#include <color_vertex>',
       /* glsl */ `#if defined( USE_COLOR_ALPHA )
         vColor = vec4( 1.0 );
@@ -137,7 +203,7 @@ function figureMaterial(): THREE.MeshLambertMaterial {
 // ---------------------------------------------------------------------------------------------
 // Пути: ломаная с накопленной длиной и высотами земли через метр — кадру не считать шум рельефа.
 
-interface Path {
+export interface Path {
   pts: P[];
   acc: number[];
   len: number;
@@ -147,7 +213,7 @@ interface Path {
   half: number;
 }
 
-function pathOf(pts: P[], half: number, height: (p: P, k: number, f: number) => number): Path {
+export function pathOf(pts: P[], half: number, height: (p: P, k: number, f: number) => number): Path {
   const acc = [0];
   for (let k = 1; k < pts.length; k++) acc.push(acc[k - 1] + Math.hypot(pts[k].x - pts[k - 1].x, pts[k].z - pts[k - 1].z));
   const len = acc[acc.length - 1];
@@ -160,7 +226,7 @@ function pathOf(pts: P[], half: number, height: (p: P, k: number, f: number) => 
 }
 
 const AT = { p: { x: 0, z: 0 }, k: 0, f: 0, tx: 1, tz: 0 };
-function at(path: Path, s: number): typeof AT {
+export function at(path: Path, s: number): typeof AT {
   const { pts, acc } = path;
   const ss = Math.min(Math.max(s, 0), path.len);
   let lo = 0;
@@ -182,20 +248,254 @@ function at(path: Path, s: number): typeof AT {
   return AT;
 }
 
-const heightOnPath = (path: Path, s: number): number => {
+export const heightOnPath = (path: Path, s: number): number => {
   const i = Math.min(path.h.length - 2, Math.max(0, Math.floor(s)));
   const f = Math.min(1, Math.max(0, s - i));
   return path.h[i] + (path.h[i + 1] - path.h[i]) * f;
 };
 
-interface Walker {
-  path: number;
-  s: number;
-  v: number;
-  side: number;
-  /** Стоит (на площади, у колодца): покачивается на месте. */
-  idle?: { x: number; z: number; y: number; yaw: number };
+/** Ближайшая точка ломаной пути: расстояние и место на пути (метры от начала). */
+export function nearestOn(path: Path, p: P): { d: number; s: number } {
+  let d = Infinity;
+  let s = 0;
+  for (let k = 1; k < path.pts.length; k++) {
+    const r = distSeg(p, path.pts[k - 1], path.pts[k]);
+    if (r.d < d) {
+      d = r.d;
+      s = path.acc[k - 1] + r.t * (path.acc[k] - path.acc[k - 1]);
+    }
+  }
+  return { d, s };
 }
+
+/** Перекрёсток на пути: на месте `s` можно свернуть на путь `q` в его место `sq`. */
+export interface Junction {
+  s: number;
+  q: number;
+  sq: number;
+}
+
+/** Пересечение отрезков ab и cd: доли вдоль каждого или null. */
+function cross(a: P, b: P, c: P, d: P): [number, number] | null {
+  const rx = b.x - a.x;
+  const rz = b.z - a.z;
+  const sx = d.x - c.x;
+  const sz = d.z - c.z;
+  const den = rx * sz - rz * sx;
+  if (Math.abs(den) < 1e-9) return null;
+  const u = ((c.x - a.x) * sz - (c.z - a.z) * sx) / den;
+  const v = ((c.x - a.x) * rz - (c.z - a.z) * rx) / den;
+  return u >= 0 && u <= 1 && v >= 0 && v <= 1 ? [u, v] : null;
+}
+
+/**
+ * Перекрёстки графа улиц — узлы обоих путей: конец пути, лежащий на другом пути (ближе `tol`), — переулки у улиц,
+ * улицы у площади, Главная у ворот и дороги; и пересечение серединами — улица вдоль стены поперёк переулков и улиц,
+ * идущих к воротам. Отрезки — по клеткам 16 м: каждый сверяется только с соседями.
+ */
+export function junctionsOf(paths: readonly Path[], tol = 4): Junction[][] {
+  const out: Junction[][] = paths.map(() => []);
+  const CELL = 16;
+  const grid = new Map<string, [number, number][]>();
+  paths.forEach((pa, ia) => {
+    for (let k = 1; k < pa.pts.length; k++) {
+      const a = pa.pts[k - 1];
+      const b = pa.pts[k];
+      for (let cx = Math.floor(Math.min(a.x, b.x) / CELL); cx <= Math.floor(Math.max(a.x, b.x) / CELL); cx++) {
+        for (let cz = Math.floor(Math.min(a.z, b.z) / CELL); cz <= Math.floor(Math.max(a.z, b.z) / CELL); cz++) {
+          const key = `${cx},${cz}`;
+          const list = grid.get(key);
+          for (const [ib, kb] of list ?? []) {
+            if (ib === ia) continue;
+            const pb = paths[ib];
+            const r = cross(a, b, pb.pts[kb - 1], pb.pts[kb]);
+            if (!r) continue;
+            const sa = pa.acc[k - 1] + r[0] * (pa.acc[k] - pa.acc[k - 1]);
+            const sb = pb.acc[kb - 1] + r[1] * (pb.acc[kb] - pb.acc[kb - 1]);
+            if (out[ia].some((j) => j.q === ib && Math.abs(j.s - sa) < 1)) continue;
+            out[ia].push({ s: sa, q: ib, sq: sb });
+            out[ib].push({ s: sb, q: ia, sq: sa });
+          }
+          if (list) list.push([ia, k]);
+          else grid.set(key, [[ia, k]]);
+        }
+      }
+    }
+  });
+  paths.forEach((a, ia) => {
+    for (const end of [0, a.len]) {
+      const pe = at(a, end).p;
+      const p = { x: pe.x, z: pe.z };
+      paths.forEach((b, ib) => {
+        if (ib === ia) return;
+        const n = nearestOn(b, p);
+        if (n.d > tol) return;
+        out[ia].push({ s: end, q: ib, sq: n.s });
+        out[ib].push({ s: n.s, q: ia, sq: end });
+      });
+    }
+  });
+  for (const j of out) j.sort((x, y) => x.s - y.s);
+  return out;
+}
+
+/**
+ * Колено маршрута: кусок пути (`path` ≥ 0, от `s0` к `s1`) или прямая перемычка между путями на перекрёстке
+ * (`path` −1, от a к b): перемычка снимает скачок — точка на одном пути и на другом не совпадают.
+ */
+interface Leg {
+  path: number;
+  s0: number;
+  s1: number;
+  /** Сдвиг от середины пути вбок от хода маршрута, метры. */
+  off: number;
+  a: V3;
+  b: V3;
+  len: number;
+}
+
+/** Маршрут прохожего — цепь колен по графу улиц; идёт по нему туда и обратно. */
+export interface Route {
+  legs: Leg[];
+  acc: number[];
+  len: number;
+  /** Скорость, м/с, и где он был в нулевой миг (метры пройденного пути). */
+  v: number;
+  phase: number;
+}
+
+/** Длина маршрута прохожего: от сотни метров до полукилометра — квартал, рынок, ворота. */
+const ROUTE_MIN = 140;
+export const ROUTE_MAX = 520;
+
+/**
+ * Маршрут от зерна: начало — на пути по весу (длина × `weight`), дальше по графу; на перекрёстке сворачивает с долей
+ * 0.55, в тупике (конец пути без перекрёстка — ворота, двор) маршрут кончается: там прохожий и повернёт обратно.
+ */
+export function routeOf(paths: readonly Path[], junctions: readonly Junction[][], weight: readonly number[], k: number, salt: number): Route {
+  const r = (j: number): number => rnd(k, j, salt);
+  const sum = weight.reduce((a, b) => a + b, 0);
+  let pick = r(1) * sum;
+  let p = 0;
+  while (p < weight.length - 1 && pick > weight[p]) pick -= weight[p++];
+  let s = r(2) * paths[p].len;
+  let dir = r(3) < 0.5 ? 1 : -1;
+  const side = (r(4) - 0.5) * 1.5;
+  const target = ROUTE_MIN + r(5) * (ROUTE_MAX - ROUTE_MIN);
+  const raw: { path: number; s0: number; s1: number }[] = [];
+  let total = 0;
+  for (let step = 0; step < 40 && total < target; step++) {
+    const path = paths[p];
+    const next = junctions[p].filter((j) => (j.s - s) * dir > 0.5).sort((a, b) => (a.s - b.s) * dir)[0];
+    let end = next ? next.s : dir > 0 ? path.len : 0;
+    // Не длиннее своей меры: последнее колено обрезается — там прохожий и повернёт (улица вдоль стены — 690 м).
+    const cut = Math.abs(end - s) > target - total;
+    if (cut) end = s + dir * (target - total);
+    if (Math.abs(end - s) > 0.01) raw.push({ path: p, s0: s, s1: end });
+    total += Math.abs(end - s);
+    if (!next || cut) break;
+    s = end;
+    if (r(10 + step) < 0.55) {
+      const q = paths[next.q];
+      p = next.q;
+      s = next.sq;
+      // С конца пути — внутрь; с середины — куда выпадет.
+      dir = s < 1 ? 1 : s > q.len - 1 ? -1 : r(60 + step) < 0.5 ? 1 : -1;
+    }
+  }
+  const legs: Leg[] = [];
+  const point = (l: { path: number; s0: number; s1: number }, s1: boolean, off: number): V3 => {
+    const path = paths[l.path];
+    const s = s1 ? l.s1 : l.s0;
+    const { tx, tz } = tangentAt(path, s);
+    const a = at(path, s);
+    const sg = Math.sign(l.s1 - l.s0) || 1;
+    return [a.p.x - tz * sg * off, heightOnPath(path, s), a.p.z + tx * sg * off];
+  };
+  for (const l of raw) {
+    const half = paths[l.path].half;
+    const off = side * Math.max(0.6, half - 0.8) * 0.6;
+    const a = point(l, false, off);
+    const prev = legs[legs.length - 1];
+    if (prev) {
+      // Перемычка — от конца прежнего колена к началу этого.
+      const pb = prev.b;
+      const len = Math.hypot(a[0] - pb[0], a[2] - pb[2]);
+      if (len > 0.05) legs.push({ path: -1, s0: 0, s1: len, off: 0, a: pb, b: a, len });
+    }
+    legs.push({ ...l, off, a, b: point(l, true, off), len: Math.abs(l.s1 - l.s0) });
+  }
+  const acc = [0];
+  for (const l of legs) acc.push(acc[acc.length - 1] + l.len);
+  return { legs, acc, len: acc[acc.length - 1], v: 0.9 + r(6) * 0.6, phase: r(7) * 2 * Math.max(1, acc[acc.length - 1]) };
+}
+
+/** Где прохожий в миг `t`: туда по маршруту, обратно тем же путём, без остановок. */
+export const POSE = { x: 0, y: 0, z: 0, yaw: 0, dist: 0 };
+export function poseAt(paths: readonly Path[], r: Route, t: number): typeof POSE {
+  const u = r.phase + r.v * t;
+  POSE.dist = u;
+  const period = 2 * r.len;
+  const m = ((u % period) + period) % period;
+  const fwd = m < r.len;
+  const d = fwd ? m : period - m;
+  let lo = 0;
+  let hi = r.legs.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (r.acc[mid] <= d) lo = mid;
+    else hi = mid - 1;
+  }
+  const leg = r.legs[lo];
+  const local = Math.min(leg.len, Math.max(0, d - r.acc[lo]));
+  const go = fwd ? 1 : -1;
+  if (leg.path < 0) {
+    const f = local / (leg.len || 1);
+    POSE.x = leg.a[0] + (leg.b[0] - leg.a[0]) * f;
+    POSE.y = leg.a[1] + (leg.b[1] - leg.a[1]) * f;
+    POSE.z = leg.a[2] + (leg.b[2] - leg.a[2]) * f;
+    POSE.yaw = Math.atan2(-(leg.b[2] - leg.a[2]) * go, (leg.b[0] - leg.a[0]) * go);
+    return POSE;
+  }
+  const path = paths[leg.path];
+  const sg = Math.sign(leg.s1 - leg.s0) || 1;
+  const s = leg.s0 + sg * local;
+  const { tx, tz } = tangentAt(path, s);
+  const a = at(path, s);
+  POSE.x = a.p.x - tz * sg * leg.off;
+  POSE.z = a.p.z + tx * sg * leg.off;
+  POSE.y = heightOnPath(path, s);
+  POSE.yaw = Math.atan2(-tz * sg * go, tx * sg * go);
+  return POSE;
+}
+
+/**
+ * Касательная пути — по точкам за два метра до и после: на изломе ломаной она поворачивает плавно, и сдвиг вбок не прыгает
+ * (касательная отрезка повернула бы его разом).
+ */
+const TAN = { tx: 1, tz: 0 };
+export function tangentAt(path: Path, s: number): typeof TAN {
+  const b = at(path, Math.max(0, s - 2)).p;
+  const bx = b.x;
+  const bz = b.z;
+  const f = at(path, Math.min(path.len, s + 2)).p;
+  const l = Math.hypot(f.x - bx, f.z - bz) || 1;
+  TAN.tx = (f.x - bx) / l;
+  TAN.tz = (f.z - bz) / l;
+  return TAN;
+}
+
+/**
+ * Пути через площадь и меж рядов рынка (docs/city.md, 13.1): улицы кончаются у краёв площади, и без этих путей прохожие
+ * поворачивали бы назад у её кромки. Обходят ряды, колодец с чашей, бочки и статую; к паперти — сквозь проход ограды.
+ */
+export const SQUARE_PATHS: readonly { name: string; pts: P[]; half: number; weight: number }[] = [
+  { name: 'от Главной к Верхней', pts: [{ x: 1, z: 30 }, { x: 14, z: 25.8 }, { x: 26, z: 23.5 }, { x: 28.5, z: 12 }, { x: 27, z: -4 }, { x: 25, z: -24 }], half: 2.5, weight: 2 },
+  { name: 'от Восточной к Западной', pts: [{ x: 31, z: 0 }, { x: 12, z: -1 }, { x: -10, z: -2 }, { x: -23, z: -10 }, { x: -27, z: -24 }], half: 2.5, weight: 2 },
+  { name: 'к паперти', pts: [{ x: -2, z: -1.8 }, { x: -6, z: -14 }, { x: -9, z: -24 }, { x: -9, z: -31 }], half: 2, weight: 2.5 },
+  { name: 'меж рядов, южный проход', pts: [{ x: -15, z: 8.25 }, { x: 28.3, z: 8.25 }], half: 1.2, weight: 4 },
+  { name: 'меж рядов, северный проход', pts: [{ x: -15, z: 14.75 }, { x: 28.2, z: 14.75 }], half: 1.2, weight: 3 },
+];
 
 // ---------------------------------------------------------------------------------------------
 
@@ -211,10 +511,13 @@ export const CITY_WIND: { readonly x: number; readonly z: number } = (() => {
 })();
 
 /** Дым труб города — в метрах: клуб 3.4 м, снос по ветру (`CITY_WIND`) на полметра за метр подъёма. */
+/** Сила ветра без погоды (стенд): дым сносит, как прежде, — на полметра за метр подъёма. */
+export const WIND_CALM = 0.4;
+
 export const CITY_SMOKE: SmokeLook = { size: 3.4, opacity: 0.17, drift: { x: CITY_WIND.x * 0.49, z: CITY_WIND.z * 0.49 } };
 
 /** Мягкое пятно для клубов дыма: круглый край вместо квадрата точки. */
-function softDot(): THREE.CanvasTexture | null {
+export function softDot(): THREE.CanvasTexture | null {
   if (typeof document === 'undefined') return null;
   const c = document.createElement('canvas');
   c.width = 64;
@@ -240,27 +543,178 @@ export interface LifeInput {
   quality: Quality;
 }
 
+/** Огоньки без своего света: точки с мягким пятном, складываются с картинкой; видны в сумерках и ночью. */
+export function glowPoints(n: number, size: number, color: number, name: string): THREE.Points {
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(n * 3), 3));
+  const p = new THREE.Points(
+    g,
+    new THREE.PointsMaterial({ size, map: softDot(), color, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0 }),
+  );
+  p.name = name;
+  p.frustumCulled = false;
+  p.visible = false;
+  return p;
+}
+
 const DRESS = [0x7a4a3a, 0x5a6a7a, 0x8a7a5a, 0x6a5a4a, 0x9a8a6a, 0x4a5a3a, 0x8a5a5a, 0x5a4a6a, 0xa09070, 0x6a6a5a].map(linear);
 const TABARD = [0x8a2f2a, 0x7a3a2c, 0x6a2a28].map(linear);
+
+/** Стоит, а не идёт: у рядов, у колодца, у паперти, у ратуши — кружком по двое-четверо, лицом друг к другу. */
+interface Idle {
+  x: number;
+  y: number;
+  z: number;
+  yaw: number;
+}
+
+/** Ночью на улицах редкие прохожие: доля дневных (docs/city.md, 13.1). */
+export const NIGHT_SHARE = 0.18;
+/** Зимой на улицах на четверть меньше. */
+export const WINTER_SHARE = 0.75;
+
+/**
+ * Дозор стража в миг `t`: свой отрезок хода ±`reach` метров от места, туда и обратно; на концах стоит `pause` секунд —
+ * смотрит со стены. Положение — функция времени: пришёл из фона — страж там, где ему быть.
+ */
+export function patrolAt(t: number, v: number, reach: number, pause: number, phase: number): { s: number; dir: number; moving: number; dist: number } {
+  const run = (2 * reach) / v;
+  const cycle = 2 * run + 2 * pause;
+  const m = (((t + phase * cycle) % cycle) + cycle) % cycle;
+  if (m < run) return { s: -reach + v * m, dir: 1, moving: 1, dist: v * m };
+  if (m < run + pause) return { s: reach, dir: 1, moving: 0, dist: 2 * reach };
+  if (m < 2 * run + pause) return { s: reach - v * (m - run - pause), dir: -1, moving: 1, dist: 2 * reach + v * (m - run - pause) };
+  return { s: -reach, dir: -1, moving: 0, dist: 4 * reach };
+}
+
+/**
+ * Дым труб: каждый клуб — функция времени в вершинном шейдере (возраст — дробная часть времени со своим сдвигом):
+ * поднимается, сносится ветром, растёт и тает. Топят не все: у трубы порог, дым идёт, пока доля топящих (`share`) выше
+ * порога, — зимой топят больше, ночью меньше; порог переходит плавно, без вспышки. Дым работы (кузница) — гуще и темнее.
+ */
+/** Клубов на трубу дома: струя сплошная и с полукилометра (пять читались точками). */
+export const SMOKE_PUFFS = 8;
+
+export class CitySmoke {
+  readonly points: THREE.Points;
+  private material: THREE.PointsMaterial;
+  /** `cDrift` — снос клуба на метр подъёма по осям мира: погода правит его ветром (`CityLife.setWind`). */
+  readonly u = { cTime: { value: 0 }, cShare: { value: 0.5 }, cSnow: { value: 0 }, cNight: { value: 0 }, cDrift: { value: new THREE.Vector2() } };
+
+  constructor(private look: SmokeLook) {
+    this.material = new THREE.PointsMaterial({ color: 0xc8cacc, size: look.size, transparent: true, opacity: 1, depthWrite: false });
+    const dot = softDot();
+    if (dot) {
+      this.material.map = dot;
+      this.material.alphaTest = 0.01;
+    }
+    const u = this.u;
+    u.cDrift.value.set(look.drift?.x ?? 0, look.drift?.z ?? 0);
+    this.material.onBeforeCompile = (shader) => {
+      Object.assign(shader.uniforms, u);
+      shader.vertexShader =
+        'attribute vec4 puff;\nuniform float cTime;\nuniform float cShare;\nuniform float cSnow;\nuniform float cNight;\nuniform vec2 cDrift;\nvarying float vAlpha;\nvarying vec3 vTint;\n' +
+        shader.vertexShader
+          .replace(
+            '#include <begin_vertex>',
+            /* glsl */ `
+            // puff: x — сдвиг возраста (место клуба в струе и труба), y — высота подъёма, z — порог трубы, w — 1 у дыма работы.
+            float age = fract(cTime * (0.075 + 0.02 * cSnow) * (0.85 + 0.3 * fract(puff.x * 7.31)) + puff.x);
+            float rise = age * puff.y;
+            float sw = puff.x * 41.0;
+            vec3 transformed = position;
+            transformed.x += cDrift.x * rise + sin(sw + age * 3.1) * (0.25 + age * 1.4);
+            transformed.z += cDrift.y * rise + cos(sw * 1.3 + age * 2.7) * (0.25 + age * 1.4);
+            transformed.y += rise;
+            float on = puff.w > 0.5 ? 1.0 : clamp((cShare - puff.z) * 12.0, 0.0, 1.0);
+            vAlpha = on * smoothstep(0.0, 0.08, age) * pow(1.0 - age, 1.2) * (puff.w > 0.5 ? 0.85 : 0.6 + 0.25 * cSnow);
+            // Зимой дым темнее: светлый клуб над снежной кровлей не видно.
+            float lit = (1.0 - 0.72 * cNight) * (1.0 - 0.3 * cSnow);
+            // У дыма работы ночью снизу — отсвет горна.
+            vTint = puff.w > 0.5 ? mix(vec3(0.42) * lit + vec3(0.55, 0.22, 0.05) * cNight * (1.0 - smoothstep(0.0, 0.25, age)), vec3(0.6) * lit, age) : vec3(lit);
+            float grow = (0.7 + age * 1.9) * (puff.w > 0.5 ? 1.4 : 1.0 + 0.2 * cSnow);`,
+          )
+          .replace('gl_PointSize = size;', 'gl_PointSize = size * grow;');
+      shader.fragmentShader = 'varying float vAlpha;\nvarying vec3 vTint;\n' + shader.fragmentShader.replace(
+        '#include <color_fragment>',
+        '#include <color_fragment>\n  diffuseColor.rgb *= vTint;\n  diffuseColor.a *= vAlpha;',
+      );
+    };
+    this.material.customProgramCacheKey = () => 'city-smoke';
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(0), 3));
+    this.points = new THREE.Points(geo, this.material);
+    this.points.frustumCulled = false;
+    this.points.name = 'city-smoke';
+  }
+
+  /** Трубы домов (с порогом) и трубы работы — пересборка буфера; зовётся, когда меняется партия, а не каждый кадр. */
+  setSources(houses: (SmokeSource & { thr: number })[], work: SmokeSource[]): void {
+    const pos: number[] = [];
+    const puff: number[] = [];
+    const add = (s: SmokeSource, thr: number, w: number, j: number): void => {
+      for (let i = 0; i < s.puffs; i++) {
+        pos.push(s.x, s.y, s.z);
+        puff.push(i / s.puffs + rnd(j, 7, 67) * 0.999, s.top, thr, w);
+      }
+    };
+    houses.forEach((s, j) => add(s, s.thr, 0, j));
+    work.forEach((s, j) => add(s, -1, 1, 1000 + j));
+    this.points.geometry.dispose();
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pos), 3));
+    geo.setAttribute('puff', new THREE.BufferAttribute(new Float32Array(puff), 4));
+    this.points.geometry = geo;
+    this.points.visible = pos.length > 0;
+  }
+
+  /** Доля топящих: днём летом меньше половины, зимой — три четверти, ночью огонь прикрыт. */
+  static share(night: number, snow: number): number {
+    return Math.min(1, Math.max(0, 0.42 + 0.3 * snow - 0.14 * night));
+  }
+
+  update(t: number, night: number, snow: number): void {
+    this.u.cTime.value = t;
+    this.u.cSnow.value = snow;
+    this.u.cNight.value = night;
+    this.u.cShare.value = CitySmoke.share(night, snow);
+    this.material.size = this.look.size;
+  }
+
+  dispose(): void {
+    this.material.map?.dispose();
+    this.material.dispose();
+    this.points.geometry.dispose();
+  }
+}
 
 export class CityLife {
   readonly group = new THREE.Group();
   private paths: Path[] = [];
   private wall: Path;
-  private walkers: Walker[] = [];
-  private guards: Walker[] = [];
+  /** Маршруты идущих и места стоящих; порядок экземпляров перемешан — ночью пустеет равномерно. */
+  private routes: (Route | null)[] = [];
+  private idle: (Idle | null)[] = [];
   private people: THREE.InstancedMesh;
   private sentries: THREE.InstancedMesh;
   private beasts: THREE.InstancedMesh;
+  private peopleGait: THREE.InstancedBufferAttribute;
+  private guardGait: THREE.InstancedBufferAttribute;
+  private beastGait: THREE.InstancedBufferAttribute;
   /** Факелы стражи: огонёк над плечом каждого — ночью идут по стене вместе с ним. */
   private torches: THREE.Points;
+  /** Фонари редких ночных прохожих — в руке, идут с ним. */
+  private lanterns: THREE.Points | null = null;
   private beastAt: { x: number; z: number; y: number; yaw: number; r: number; seed: number }[] = [];
-  private smoke: Smoke;
-  private smokeOn: SmokeSource[] = [];
+  private smoke: CitySmoke;
+  private smokeOn: (SmokeSource & { thr: number })[] = [];
   private work: SmokeSource[] = [];
   private flags: THREE.Mesh;
   private birds: THREE.Mesh;
   private time = { value: 0 };
+  /** Ветер погоды: куда дует (оси мира) и сила — флагам; дыму — его снос (`setWind`). */
+  private windDir = { value: new THREE.Vector2(CITY_WIND.x, CITY_WIND.z) };
+  private windK = { value: WIND_CALM };
   private want = { people: 0, guards: 0 };
   private cap: (typeof LIFE_CAP)[Quality];
   private m4 = new THREE.Matrix4();
@@ -273,9 +727,23 @@ export class CityLife {
     const { plan, quality } = input;
     this.cap = LIFE_CAP[quality];
     const ground = (p: P): number => heightAt(p.x, p.z);
-    // Улицы и площадь — прохожим; переулки и вдоль стены — реже (по длине доля и так меньше).
-    for (const st of plan.streets) this.paths.push(pathOf(st.pts, st.half, ground));
-    for (const r of plan.roads.slice(0, 2)) this.paths.push(pathOf(r.pts.slice(0, Math.min(r.pts.length, 18)), r.half, ground));
+    // Граф улиц: улицы, переулки, дороги у ворот и пути через площадь и меж рядов.
+    const weight: number[] = [];
+    // Богатая улица людная: Главная и Верхняя — вдвое против переулков, улица вдоль стены — пустынна.
+    for (const st of plan.streets) {
+      this.paths.push(pathOf(st.pts, st.half, ground));
+      weight.push(this.paths[this.paths.length - 1].len * (0.25 + st.rich * 1.5));
+    }
+    for (const r of plan.roads.slice(0, 2)) {
+      this.paths.push(pathOf(r.pts.slice(0, Math.min(r.pts.length, 18)), r.half, ground));
+      weight.push(this.paths[this.paths.length - 1].len * 0.5);
+    }
+    for (const sq of SQUARE_PATHS) {
+      this.paths.push(pathOf(sq.pts, sq.half, ground));
+      weight.push(this.paths[this.paths.length - 1].len * sq.weight);
+    }
+    this.junctions = junctionsOf(this.paths);
+    this.weight = weight;
     // Боевой ход: контур стены, сдвинутый внутрь на метр, высота — верх хода.
     const tops = wallTops(plan.wall);
     const n = plan.wall.length;
@@ -298,14 +766,18 @@ export class CityLife {
     this.wall = pathOf(inner, 0, (_p, k, f) => topsClosed[k] + (topsClosed[k + 1] - topsClosed[k]) * f);
 
     const mat = figureMaterial();
-    this.people = new THREE.InstancedMesh(personGeometry(), mat, this.cap.people);
-    this.sentries = new THREE.InstancedMesh(guardGeometry(), mat, this.cap.guards);
-    this.beasts = new THREE.InstancedMesh(beastGeometry(), mat, this.cap.animals);
+    const simple = quality === 'low';
+    this.people = new THREE.InstancedMesh(personGeometry(simple), mat, this.cap.people);
+    this.sentries = new THREE.InstancedMesh(guardGeometry(simple), mat, this.cap.guards);
+    this.beasts = new THREE.InstancedMesh(beastGeometry(simple), mat, this.cap.animals);
     for (const im of [this.people, this.sentries, this.beasts]) {
       im.frustumCulled = false;
       im.count = 0;
       this.group.add(im);
     }
+    this.peopleGait = gaitOf(this.people);
+    this.guardGait = gaitOf(this.sentries);
+    this.beastGait = gaitOf(this.beasts);
     this.people.name = 'city-people';
     this.sentries.name = 'city-guards';
     this.beasts.name = 'city-beasts';
@@ -319,43 +791,26 @@ export class CityLife {
       const c = TABARD[i % TABARD.length];
       this.sentries.setColorAt(i, col.setRGB(c[0], c[1], c[2]));
     }
-    this.seedWalkers();
+    this.seedPeople();
     this.seedBeasts();
 
-    this.smoke = new Smoke(CITY_SMOKE, []);
-    const dot = softDot();
-    const sm = this.smoke.points.material as THREE.PointsMaterial;
-    if (dot) {
-      sm.map = dot;
-      sm.alphaTest = 0.01;
-    }
-    this.smoke.points.name = 'city-smoke';
+    this.smoke = new CitySmoke(CITY_SMOKE);
     // Факелы стражи — точки с мягким пятном, как огоньки стены (`index.flames`), видны в сумерках и ночью.
-    const tg = new THREE.BufferGeometry();
-    tg.setAttribute('position', new THREE.BufferAttribute(new Float32Array(this.cap.guards * 3), 3));
-    this.torches = new THREE.Points(
-      tg,
-      new THREE.PointsMaterial({
-        size: 2.4,
-        map: softDot(),
-        color: 0xffa040,
-        transparent: true,
-        depthWrite: false,
-        blending: THREE.AdditiveBlending,
-        opacity: 0,
-      }),
-    );
-    this.torches.name = 'city-torches';
-    this.torches.frustumCulled = false;
-    this.torches.visible = false;
+    this.torches = glowPoints(this.cap.guards, 2.4, 0xffa040, 'city-torches');
     this.group.add(this.torches);
+    if (this.cap.lanterns > 0) {
+      this.lanterns = glowPoints(this.cap.lanterns, 1.7, 0xffb860, 'city-lanterns');
+      this.group.add(this.lanterns);
+    }
     this.group.add(this.smoke.points);
-    // Дым идёт не из каждой трубы: топят там, где сейчас готовят, — доля от зерна.
+    // Дым идёт не из каждой трубы: у трубы порог, топят те, чей порог ниже доли (`CitySmoke.share`). Труб с
+    // порогом выше 0.8 нет вовсе: доля в мороз — 0.72, все не топят никогда.
     this.smokeOn = input.chimneys
-      .filter((c, k) => rnd(Math.round(c[0] * 3), Math.round(c[2] * 3), 61) < 0.5 && k < this.cap.smoke * 3)
+      .map((c) => ({ c, thr: rnd(Math.round(c[0] * 3), Math.round(c[2] * 3), 61) }))
+      .filter((o) => o.thr < 0.8)
       .slice(0, this.cap.smoke)
-      .map((c) => ({ x: c[0], y: c[1], z: c[2], puffs: 5, top: 10 }));
-    this.smoke.setSources(this.smokeOn);
+      .map(({ c, thr }) => ({ x: c[0], y: c[1], z: c[2], puffs: SMOKE_PUFFS, top: 10, thr }));
+    this.smoke.setSources(this.smokeOn, []);
 
     this.flags = this.buildFlags(input.flagTops);
     this.group.add(this.flags);
@@ -363,32 +818,53 @@ export class CityLife {
     this.group.add(this.birds);
   }
 
-  /** Прохожие: кто идёт по какой улице, кто стоит на площади. Раскладка от зерна — одна на город. */
-  private seedWalkers(): void {
+  private junctions: Junction[][] = [];
+  private weight: number[] = [];
+
+  /** Граф улиц — тем, кто ходит по городу по делу: найм идёт из казарм на площадь (`deeds.marchRoute`). */
+  street(): { paths: readonly Path[]; junctions: readonly Junction[][] } {
+    return { paths: this.paths, junctions: this.junctions };
+  }
+
+  /**
+   * Прохожие: идущие — по маршрутам графа улиц, стоящие — кружками у рядов, колодца, паперти и ратуши. Раскладка от
+   * зерна — одна на город; порядок перемешан, чтобы при малом населении и ночью стояли и шли в той же доле.
+   */
+  private seedPeople(): void {
     const total = this.cap.people;
-    const lens = this.paths.map((p) => p.len);
-    const sum = lens.reduce((a, b) => a + b, 0);
-    const idle = Math.round(total * 0.3);
-    for (let k = 0; k < total - idle; k++) {
-      // Улица — по длине: на длинной больше народу.
-      let r = rnd(k, 1, 71) * sum;
-      let path = 0;
-      while (path < lens.length - 1 && r > lens[path]) r -= lens[path++];
-      const v = (0.9 + rnd(k, 2, 71) * 0.6) * (rnd(k, 3, 71) < 0.5 ? 1 : -1);
-      this.walkers.push({ path, s: rnd(k, 4, 71) * this.paths[path].len, v, side: (rnd(k, 5, 71) - 0.5) * 1.5 });
-    }
-    // Стоят: у рядов рынка, у колодца, у паперти храма.
-    const sq = this.input.plan;
-    for (let k = 0; k < idle; k++) {
-      const kind = rnd(k, 6, 73);
-      const c = kind < 0.6 ? { x: 4, z: 11, rx: 17, rz: 9 } : kind < 0.85 ? { x: sq.well.x, z: sq.well.z, rx: 5, rz: 4 } : { x: -9, z: -29, rx: 12, rz: 4 };
-      const x = c.x + (rnd(k, 7, 73) - 0.5) * 2 * c.rx;
-      const z = c.z + (rnd(k, 8, 73) - 0.5) * 2 * c.rz;
-      this.walkers.push({ path: -1, s: 0, v: 0, side: 0, idle: { x, z, y: heightAt(x, z), yaw: rnd(k, 9, 73) * Math.PI * 2 } });
-    }
-    // Стража: на своём отрезке боевого хода, ходит взад-вперёд.
-    for (let k = 0; k < this.cap.guards; k++) {
-      this.guards.push({ path: 0, s: ((k + rnd(k, 1, 79) * 0.6) / this.cap.guards) * this.wall.len, v: 0.7 * (k % 2 ? 1 : -1), side: 0 });
+    const spots = [
+      { x: 4, z: 8.3, rx: 15, rz: 0.4, w: 4 },
+      { x: 4, z: 14.8, rx: 15, rz: 0.4, w: 3 },
+      { x: 2, z: -7, rx: 5, rz: 4.5, w: 3 },
+      { x: -9, z: -29.5, rx: 8, rz: 1.6, w: 2 },
+      { x: -23, z: -2, rx: 1.6, rz: 9, w: 2 },
+      { x: -19, z: 9, rx: 2, rz: 2, w: 1 },
+    ];
+    const wsum = spots.reduce((a, b) => a + b.w, 0);
+    let group: { x: number; z: number; left: number; k: number } | null = null;
+    for (let k = 0; k < total; k++) {
+      if (rnd(k, 6, 72) >= 0.32) {
+        this.routes.push(routeOf(this.paths, this.junctions, this.weight, k, 71));
+        this.idle.push(null);
+        continue;
+      }
+      // Кружок: середина у места, двое-четверо вокруг неё лицом внутрь.
+      if (!group || group.left <= 0) {
+        let r = rnd(k, 7, 73) * wsum;
+        let i = 0;
+        while (i < spots.length - 1 && r > spots[i].w) r -= spots[i++].w;
+        const c = spots[i];
+        group = { x: c.x + (rnd(k, 8, 73) - 0.5) * 2 * c.rx, z: c.z + (rnd(k, 9, 73) - 0.5) * 2 * c.rz, left: 2 + Math.floor(rnd(k, 10, 73) * 3), k: 0 };
+      }
+      const a = rnd(k, 11, 73) * 0.6 + (group.k * Math.PI * 2) / 3.2;
+      const rr = 0.55 + rnd(k, 12, 73) * 0.25;
+      const x = group.x + Math.cos(a) * rr;
+      const z = group.z + Math.sin(a) * rr;
+      // Лицом к середине кружка: фигура смотрит по +x, поворот — вокруг вертикали.
+      this.idle.push({ x, z, y: heightAt(x, z), yaw: Math.atan2(-(group.z - z), group.x - x) });
+      this.routes.push(null);
+      group.left--;
+      group.k++;
     }
   }
 
@@ -432,7 +908,7 @@ export class CityLife {
     const red = linear(0x9a2a24);
     const gold = linear(0xc8a040);
     const pole = linear(0x3a3028);
-    // Полотнища смотрят по ветру — тому же, что сносит дым (`CITY_WIND`).
+    // Полотнища построены по ветру по умолчанию (`CITY_WIND`); куда дует сейчас, их поворачивает шейдер (`setWind`).
     const wx = CITY_WIND.x;
     const wz = CITY_WIND.z;
     const NX = 6;
@@ -499,18 +975,31 @@ export class CityLife {
     g.computeBoundingSphere();
     const m = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide });
     const time = this.time;
+    const windDir = this.windDir;
+    const windK = this.windK;
     m.onBeforeCompile = (shader) => {
       shader.uniforms.cTime = time;
-      shader.vertexShader = 'attribute float flap;\nuniform float cTime;\n' + shader.vertexShader.replace(
-        '#include <begin_vertex>',
-        /* glsl */ `#include <begin_vertex>
-        // Полотнище волной от древка: чем дальше от древка, тем сильнее; фаза — от места флага.
+      shader.uniforms.cWindDir = windDir;
+      shader.uniforms.cWind = windK;
+      shader.vertexShader = 'attribute float flap;\nuniform float cTime;\nuniform vec2 cWindDir;\nuniform float cWind;\n' + shader.vertexShader
+        .replace(
+          '#include <beginnormal_vertex>',
+          /* glsl */ `#include <beginnormal_vertex>
+          if (flap > 0.0) objectNormal = vec3(-cWindDir.y, 0.0, cWindDir.x);`,
+        )
+        .replace(
+          '#include <begin_vertex>',
+          /* glsl */ `#include <begin_vertex>
+        // Полотнище — от древка туда, куда дует сейчас: древко — там, откуда полотнище построено по ветру по умолчанию.
+        vec2 pole = transformed.xz - vec2(${wx.toFixed(4)}, ${wz.toFixed(4)}) * flap * 2.4;
+        transformed.xz = pole + cWindDir * flap * 2.4;
+        // Волна от древка: чем дальше от древка, тем сильнее; фаза — от места флага; размах — от силы ветра (частота одна:
+        // меняйся она с ветром, фаза прыгала бы). В тишь полотнище обвисает.
         float ph = position.x * 0.37 + position.z * 0.23;
-        float w = sin(cTime * 4.2 - flap * 5.0 + ph) * 0.32 + sin(cTime * 7.1 - flap * 9.0 + ph * 1.7) * 0.08;
-        transformed.x += ${(-wz).toFixed(3)} * w * flap;
-        transformed.z += ${wx.toFixed(3)} * w * flap;
-        transformed.y -= flap * flap * 0.25;`,
-      );
+        float w = (sin(cTime * 4.2 - flap * 5.0 + ph) * 0.32 + sin(cTime * 7.1 - flap * 9.0 + ph * 1.7) * 0.08) * (0.35 + 1.4 * cWind);
+        transformed.xz += vec2(-cWindDir.y, cWindDir.x) * w * flap;
+        transformed.y -= flap * flap * (0.12 + 0.6 * (1.0 - smoothstep(0.1, 0.5, cWind)));`,
+        );
     };
     m.customProgramCacheKey = () => 'city-flag';
     const mesh = new THREE.Mesh(g, m);
@@ -599,58 +1088,76 @@ export class CityLife {
     const same = working.length === this.work.length && working.every((w, k) => w.x === this.work[k].x && w.z === this.work[k].z);
     if (same) return;
     this.work = working;
-    this.smoke.setSources([...this.smokeOn, ...working]);
+    this.smoke.setSources(this.smokeOn, working);
+  }
+
+  /**
+   * Кадр: всё — от времени `t` (секунды сцены), `dt` не копится нигде. `night` — доля ночи окон, `snow` — доля зимы.
+   */
+  /** Ветер погоды: куда дует (`x`, `z` — единичный, оси мира) и сила `k` 0..1 — флагам и дыму. */
+  setWind(x: number, z: number, k: number): void {
+    this.windDir.value.set(x, z);
+    this.windK.value = k;
+    this.smoke.u.cDrift.value.set(x, z).multiplyScalar(0.12 + 0.95 * k);
   }
 
   update(dt: number, t: number, night: number, snow: number): void {
+    void dt;
     this.time.value = t;
-    // Ночью улицы пустеют до трети, зимой — на четверть; стража стоит всегда.
-    const shown = Math.round(this.want.people * (1 - 0.68 * night) * (1 - 0.25 * snow));
-    this.people.count = Math.min(shown, this.walkers.length);
-    let k = 0;
-    for (const w of this.walkers) {
-      if (k >= this.people.count) break;
-      let x: number;
-      let y: number;
-      let z: number;
-      let yaw: number;
-      if (w.idle) {
-        x = w.idle.x;
-        z = w.idle.z;
-        y = w.idle.y + Math.abs(Math.sin(t * 1.3 + k)) * 0.03;
-        yaw = w.idle.yaw + Math.sin(t * 0.3 + k) * 0.4;
-      } else {
-        const path = this.paths[w.path];
-        w.s += w.v * dt;
-        if (w.s < 0 || w.s > path.len) {
-          w.v = -w.v;
-          w.s = Math.min(Math.max(w.s, 0), path.len);
+    // Ночью на улицах редкие прохожие, зимой — на четверть меньше; стража стоит всегда.
+    const shown = Math.round(this.want.people * (1 - (1 - NIGHT_SHARE) * night) * (1 - (1 - WINTER_SHARE) * snow));
+    this.people.count = Math.min(shown, this.routes.length);
+    const pg = this.peopleGait.array as Float32Array;
+    // Фонарь — у каждого второго идущего, пока темно.
+    const lamps = this.lanterns;
+    const lampOn = lamps !== null && night > 0.3;
+    let lit = 0;
+    const lp = lamps ? (lamps.geometry.attributes.position as THREE.BufferAttribute) : null;
+    for (let k = 0; k < this.people.count; k++) {
+      const r = this.routes[k];
+      if (r) {
+        const p = poseAt(this.paths, r, t);
+        // Шаг: лёгкое подпрыгивание в такт ног.
+        this.place(this.people, k, p.x, p.y + Math.abs(Math.sin(p.dist * 4.488)) * 0.04, p.z, p.yaw, 1);
+        pg[k * 2] = p.dist;
+        pg[k * 2 + 1] = 1;
+        if (lampOn && lp && lit < lp.count && hash3(k, 13, 97) % 2 === 0) {
+          const v = this.v3.set(0.12, 0.92, 0.3).applyMatrix4(this.m4);
+          lp.setXYZ(lit++, v.x, v.y, v.z);
         }
-        const a = at(path, w.s);
-        const off = w.side * Math.max(0.6, path.half - 0.8) * 0.6;
-        x = a.p.x - a.tz * off;
-        z = a.p.z + a.tx * off;
-        // Шаг: лёгкое подпрыгивание.
-        y = heightOnPath(path, w.s) + Math.abs(Math.sin(w.s * 3.2)) * 0.05;
-        yaw = Math.atan2(-a.tz * Math.sign(w.v), a.tx * Math.sign(w.v));
+      } else {
+        const w = this.idle[k]!;
+        this.place(this.people, k, w.x, w.y + Math.abs(Math.sin(t * 1.3 + k)) * 0.02, w.z, w.yaw + Math.sin(t * 0.3 + k) * 0.25, 1);
+        pg[k * 2] = 0;
+        pg[k * 2 + 1] = 0;
       }
-      this.place(this.people, k++, x, y, z, yaw, 1);
     }
     this.people.instanceMatrix.needsUpdate = true;
-    // Стража: у каждого свой отрезок хода в два пролёта, туда и обратно.
-    this.sentries.count = Math.min(this.want.guards, this.guards.length);
+    this.peopleGait.needsUpdate = true;
+    if (lamps && lp) {
+      const lm = lamps.material as THREE.PointsMaterial;
+      lamps.visible = lit > 0;
+      lm.opacity = Math.min(1, (night - 0.3) * 2.5);
+      lm.size = 1.7 * (1 + Math.sin(t * 9) * 0.06);
+      lamps.geometry.setDrawRange(0, lit);
+      lp.needsUpdate = lit > 0;
+    }
+    // Стража: у каждого свой отрезок хода ±22 м, туда и обратно; на концах стоит, смотрит со стены.
+    this.sentries.count = Math.min(this.want.guards, this.cap.guards);
     const L = this.wall.len;
+    const gg = this.guardGait.array as Float32Array;
     for (let i = 0; i < this.sentries.count; i++) {
-      const g = this.guards[i];
-      const home = ((i + 0.5) / this.guards.length) * L;
-      g.s += g.v * dt;
-      if (Math.abs(g.s - home) > 22) g.v = -Math.sign(g.s - home) * Math.abs(g.v);
-      const s = ((g.s % L) + L) % L;
+      const home = ((i + 0.5 + rnd(i, 1, 79) * 0.3) / this.cap.guards) * L;
+      const g = patrolAt(t, 0.7, 22, 4 + rnd(i, 2, 79) * 5, rnd(i, 3, 79));
+      const s = (((home + g.s) % L) + L) % L;
       const a = at(this.wall, s);
-      const yaw = Math.atan2(-a.tz * Math.sign(g.v), a.tx * Math.sign(g.v));
+      const yaw = Math.atan2(-a.tz * g.dir, a.tx * g.dir);
       this.place(this.sentries, i, a.p.x, heightOnPath(this.wall, s), a.p.z, yaw, 1);
+      gg[i * 2] = g.dist;
+      gg[i * 2 + 1] = g.moving;
     }
     this.sentries.instanceMatrix.needsUpdate = true;
+    this.guardGait.needsUpdate = true;
     // Факел — над правым плечом стража, мерцает; ночью виден, днём погашен.
     const tm = this.torches.material as THREE.PointsMaterial;
     tm.opacity = night;
@@ -666,16 +1173,20 @@ export class CityLife {
       this.torches.geometry.setDrawRange(0, this.sentries.count);
       tm.size = 2.4 * (1 + Math.sin(t * 13) * 0.1);
     }
-    // Скот бродит медленно: круг в пару метров у своего места.
+    // Скот бродит медленно: круг в пару метров у своего места, ноги — по пройденной дуге.
     this.beasts.count = this.beastAt.length;
+    const bg = this.beastGait.array as Float32Array;
     this.beastAt.forEach((b, i) => {
       const a = t * 0.05 + (b.seed % 100) * 0.06;
       const x = b.x + Math.cos(a) * 1.5;
       const z = b.z + Math.sin(a) * 1.5;
       this.place(this.beasts, i, x, b.y, z, -a - Math.PI / 2 + Math.sin(t * 0.5 + i) * 0.3, b.r);
+      bg[i * 2] = (a * 1.5) / b.r;
+      bg[i * 2 + 1] = 0.6;
     });
     this.beasts.instanceMatrix.needsUpdate = true;
-    this.smoke.update(dt, snow);
+    this.beastGait.needsUpdate = true;
+    this.smoke.update(t, night, snow);
   }
 
   private place(im: THREE.InstancedMesh, k: number, x: number, y: number, z: number, yaw: number, scale: number): void {
@@ -685,12 +1196,13 @@ export class CityLife {
   }
 
   dispose(): void {
-    const sm = this.smoke.points.material as THREE.PointsMaterial;
-    sm.map?.dispose();
-    sm.dispose();
-    const tm = this.torches.material as THREE.PointsMaterial;
-    tm.map?.dispose();
-    tm.dispose();
+    this.smoke.dispose();
+    for (const p of [this.torches, this.lanterns]) {
+      if (!p) continue;
+      const m = p.material as THREE.PointsMaterial;
+      m.map?.dispose();
+      m.dispose();
+    }
     (this.people.material as THREE.Material).dispose();
     (this.flags.material as THREE.Material).dispose();
     (this.birds.material as THREE.Material).dispose();

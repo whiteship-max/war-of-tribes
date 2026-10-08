@@ -1,0 +1,103 @@
+/* Добыча над постройкой (docs/city.md, 14.3): слой поверх холста, касаний не берёт. Надпись ставит кадр
+   (`CityPops.update`, сдвиг `transform`), подъём и таяние — анимация внутри неё; длина — `POP_LIFE` в `pops.ts`. */
+.city-pops {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 1;
+  contain: strict;
+}
+
+.city-pop {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  will-change: transform;
+}
+
+.city-pop span {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  translate: -50% -100%;
+  padding: 2px 7px 2px 8px;
+  border-radius: 999px;
+  background: rgba(26, 20, 16, 0.72);
+  border: 1px solid rgba(230, 190, 110, 0.45);
+  color: #f6dd9a;
+  font: 700 13px/18px system-ui, sans-serif;
+  white-space: nowrap;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+  opacity: 0;
+}
+
+.city-pop i {
+  display: inline-flex;
+  width: 16px;
+  height: 16px;
+  font-style: normal;
+  font-size: 13px;
+  line-height: 16px;
+  justify-content: center;
+}
+
+.city-pop i svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* Двор за кадром: надпись у края экрана — бледнее и мельче, чем над видимой постройкой. */
+.city-pop.edge span {
+  font-size: 12px;
+  background: rgba(26, 20, 16, 0.6);
+  border-style: dashed;
+}
+
+.city-pop.go span {
+  animation: city-pop 1.9s cubic-bezier(0.2, 0.7, 0.3, 1) both;
+}
+
+.city-pop.go span + span {
+  animation-delay: 0.08s;
+}
+
+@keyframes city-pop {
+  0% {
+    opacity: 0;
+    transform: translateY(8px) scale(0.7);
+  }
+  12% {
+    opacity: 1;
+    transform: translateY(0) scale(1.08);
+  }
+  22% {
+    transform: translateY(-4px) scale(1);
+  }
+  75% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-34px) scale(0.96);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .city-pop.go span {
+    animation-name: city-pop-still;
+  }
+  @keyframes city-pop-still {
+    0%,
+    80% {
+      opacity: 1;
+    }
+    100% {
+      opacity: 0;
+    }
+  }
+}

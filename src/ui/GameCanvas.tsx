@@ -10,6 +10,9 @@ import { SceneTrouble } from './SceneTrouble';
 import { measureViewport } from '@/viewport';
 import { nextFrame } from '@/render/loop';
 import { gfx, gfxKey, sceneGfx, subscribeGfx } from '@/render/gfx';
+import { awayGameSeconds } from '@/game/sim/tick';
+import { useWorld } from '@/world/store';
+import { homeRegion } from '@/ui/parts/weather';
 
 /**
  * Как часто сторож спрашивает сцену, идут ли кадры. Две секунды: чаще незачем —
@@ -153,6 +156,11 @@ export function GameCanvas() {
     // Пока открыта карта мира, диорама не рисуется — но и не выгружается:
     // sync продолжает идти, поэтому возврат показывает уже актуальный посёлок сразу.
     if (g0.mapOpen) scene.pause();
+    // Погода над городом — по региону игрока (docs/city.md, 15): мир называет клетку города не сразу.
+    scene.setRegion(homeRegion());
+    const unRegion = useWorld.subscribe((w, was) => {
+      if (w.info !== was.info) scene.setRegion(homeRegion());
+    });
     // Экран загрузки уходит не по «сцена создана», а по первому её кадру:
     // между конструктором и картинкой лежит компиляция шейдеров.
     if (first) void afterPaint(bootDone);
@@ -237,6 +245,11 @@ export function GameCanvas() {
     const unsub = useGame.subscribe((g, prev) => {
       if (g.s !== prev.s) scene.sync(g.s);
       if (g.sheet !== prev.sheet) scene.setSelected(g.sheet?.kind === 'building' ? g.sheet.id : null);
+      // Окно «С возвращением» закрыто («Посмотреть»): город показывает добычу отлучки одной волной (docs/city.md, 14.3).
+      // Новая партия (`reset`) тоже гасит окно — у неё время с нуля, и показывать нечего.
+      if (prev.offlineSeconds >= 60 && g.offlineSeconds === 0 && g.s.time >= prev.s.time) {
+        scene.welcome(awayGameSeconds(0, prev.offlineSeconds * 1000));
+      }
       if (g.mapOpen !== prev.mapOpen) {
         if (g.mapOpen) scene.pause();
         else {
@@ -290,6 +303,7 @@ export function GameCanvas() {
       document.removeEventListener('freeze', onFreeze);
       document.removeEventListener('visibilitychange', onVisible);
       sceneLog.detach(wired);
+      unRegion();
       // Порядок важен: сцена отдаёт контекст и снимает свои слушатели, и канва
       // обязана быть при этом ещё в разметке (подробно — в `TribeScene.dispose`).
       scene.dispose();

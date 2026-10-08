@@ -1,10 +1,9 @@
 // Камыш у кромки и камни на берегу реки (docs/city.md, 12.3): экземплярами, по вызову на вид, тени не бросают (у
 // воды они мелкие, а тень стоила бы прохода). Места — `banks.shoreItems` (от зерна, по уровню), здесь — модели и
-// материалы. Камыш качается тем же ветром, что флаги и дым (`life.CITY_WIND`): летом зелёный, осенью рыжеет,
+// материалы. Камыш качается тем же ветром, что флаги и дым (погода, `cWindDir` и `cWind`): летом зелёный, осенью рыжеет,
 // зимой — сухая солома; камни во мху снизу и под снегом сверху зимой.
 import * as THREE from 'three';
-import { CITY_WIND } from './life';
-import { GRADE_GLSL, graded, type CityUniforms } from './material';
+import { GRADE_GLSL, graded, misted, type CityUniforms } from './material';
 import type { Reed, Stone } from './banks';
 
 /**
@@ -68,14 +67,15 @@ export function stoneGeometry(): THREE.BufferGeometry {
 
 const REED_VERT = /* glsl */ `
 uniform float cTime;
-uniform vec2 cWind;
+uniform vec2 cWindDir;
+uniform float cWind;
 varying vec3 vReed;
 varying float vTone;
 `;
 
 const REED_FRAG = /* glsl */ `
 uniform float cAutumn;
-uniform float cSnow;
+uniform float cWinter;
 varying vec3 vReed;
 varying float vTone;
 ${GRADE_GLSL}
@@ -84,9 +84,8 @@ ${GRADE_GLSL}
 /** Камыш: лист — от тёмной зелени у воды к светлой макушке; осенью рыжеет, зимой — сухая солома. */
 function reedMaterial(u: CityUniforms): THREE.MeshLambertMaterial {
   const m = new THREE.MeshLambertMaterial({ color: 0xffffff, side: THREE.DoubleSide, vertexColors: true });
-  const wind = { value: new THREE.Vector2(CITY_WIND.x, CITY_WIND.z) };
   m.onBeforeCompile = (shader) => {
-    Object.assign(shader.uniforms, u, { cWind: wind });
+    Object.assign(shader.uniforms, u);
     shader.vertexShader =
       REED_VERT +
       shader.vertexShader.replace(
@@ -99,9 +98,10 @@ function reedMaterial(u: CityUniforms): THREE.MeshLambertMaterial {
           at = instanceMatrix[3].xyz;
         #endif
         vTone = fract(sin(dot(at.xz, vec2(12.9898, 78.233))) * 43758.5453);
-        // Ветер — в мире, не в куртине: у каждой свой поворот, а ветер один (life.CITY_WIND), метры у макушки.
-        float sway = color.b * color.b * (0.28 + 0.14 * sin(cTime * 1.7 + vTone * 6.28)) + color.b * 0.08 * sin(cTime * 4.1 + at.x * 0.3);
-        vec3 wd = vec3(cWind.x, 0.0, cWind.y) * sway;
+        // Ветер — в мире, не в куртине: у каждой свой поворот, а ветер один (погода, \`cWindDir\`), метры у макушки; сила — от
+        // погоды: в тишь камыш едва колышется, в бурю гнётся.
+        float sway = (color.b * color.b * (0.28 + 0.14 * sin(cTime * 1.7 + vTone * 6.28)) + color.b * 0.08 * sin(cTime * 4.1 + at.x * 0.3)) * (0.35 + 1.6 * cWind);
+        vec3 wd = vec3(cWindDir.x, 0.0, cWindDir.y) * sway;
         #ifdef USE_INSTANCING
           wd = inverse(mat3(instanceMatrix)) * wd;
         #endif
@@ -117,11 +117,12 @@ function reedMaterial(u: CityUniforms): THREE.MeshLambertMaterial {
           vec3 leafTop = mix(vec3(0.42, 0.48, 0.2), vec3(0.5, 0.5, 0.24), vTone);
           vec3 leaf = mix(leafLow, leafTop, smoothstep(0.62, 1.05, vReed.r));
           leaf = mix(leaf, leaf * vec3(1.55, 1.05, 0.5) + vec3(0.06, 0.02, 0.0), cAutumn * 0.85);
-          leaf = mix(leaf, vec3(0.5, 0.44, 0.31) * (0.8 + 0.3 * vReed.r), cSnow);
-          vec3 head = mix(vec3(0.26, 0.15, 0.08), vec3(0.32, 0.27, 0.2), cSnow);
+          leaf = mix(leaf, vec3(0.5, 0.44, 0.31) * (0.8 + 0.3 * vReed.r), cWinter);
+          vec3 head = mix(vec3(0.26, 0.15, 0.08), vec3(0.32, 0.27, 0.2), cWinter);
           diffuseColor.rgb *= mix(leaf, head, vReed.g) * (0.9 + 0.2 * vTone);`,
         ),
       );
+    misted(shader);
   };
   m.customProgramCacheKey = () => 'city-reeds';
   return m;
@@ -171,6 +172,7 @@ function stoneMaterial(u: CityUniforms): THREE.MeshLambertMaterial {
           diffuseColor.rgb *= rock;`,
         ),
       );
+    misted(shader);
   };
   m.customProgramCacheKey = () => 'city-stones';
   return m;

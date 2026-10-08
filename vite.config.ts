@@ -165,6 +165,27 @@ const LAZY_DOORS: { name: string; door: RegExp; owns: RegExp[] }[] = [
     door: /\/src\/render\/city\/scene\.ts$/,
     owns: [/\/src\/render\/city\//],
   },
+  {
+    // Живой город (docs/city.md, 13): телеги, утки, лодки, стяги — своя докачка, сцена и стенд тянут её после первого
+    // кадра города; в кусок города и в первую загрузку она не едет.
+    name: 'город: суета',
+    door: /\/src\/render\/city\/alive\.ts$/,
+    owns: [/\/src\/render\/city\/alive\.ts$/],
+  },
+  {
+    // Отклик на дела игрока (docs/city.md, 14): леса стройки, праздник готовности, найм строем, слой добычи — своя
+    // докачка вместе с суетой, после первого кадра города.
+    name: 'город: отклик',
+    door: /\/src\/render\/city\/deeds\.ts$/,
+    owns: [/\/src\/render\/city\/deeds\.ts$/, /\/src\/render\/city\/deeds\.css$/],
+  },
+  {
+    // Погода (docs/city.md, 15): струи дождя и снегопад — своя докачка вместе с суетой, после первого кадра города; на
+    // «Низком» её не тянут вовсе.
+    name: 'город: погода',
+    door: /\/src\/render\/city\/precip\.ts$/,
+    owns: [/\/src\/render\/city\/precip\.ts$/],
+  },
 ];
 
 function lazyDoorsPlugin(): Plugin {

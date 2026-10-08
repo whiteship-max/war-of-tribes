@@ -22,11 +22,26 @@ export interface Hearing {
   near: number;
   /** Доля моря вокруг дома на карте, 0..1. */
   sea: number;
+  /** Погода над городом (`render/climate`): дождь, снег, гроза и сила ветра, 0..1. Нет — тихая погода. */
+  wx?: WeatherSound;
 }
 
-export type Layer = 'wind' | 'whistle' | 'hum' | 'sea' | 'market' | 'forge' | 'birds' | 'crickets' | 'bells';
+/** Что слышно из погоды. */
+export interface WeatherSound {
+  rain: number;
+  snow: number;
+  storm: number;
+  wind: number;
+  /** Снег на земле зимой, 0..1 (`climate.lyingSnow`): глушит город. Нет — как прежде, зима глушит всегда. */
+  cover?: number;
+}
 
-export const LAYERS: readonly Layer[] = ['wind', 'whistle', 'hum', 'sea', 'market', 'forge', 'birds', 'crickets', 'bells'];
+/** Без погоды — ветер, как прежде (средней силы), ни дождя, ни грозы. */
+export const CALM: WeatherSound = { rain: 0, snow: 0, storm: 0, wind: 0.4 };
+
+export type Layer = 'wind' | 'whistle' | 'hum' | 'sea' | 'market' | 'forge' | 'birds' | 'crickets' | 'bells' | 'rain';
+
+export const LAYERS: readonly Layer[] = ['wind', 'whistle', 'hum', 'sea', 'market', 'forge', 'birds', 'crickets', 'bells', 'rain'];
 
 /** Плавная ступенька: 0 до `a`, 1 после `b`. */
 const step = (x: number, a: number, b: number): number => {
@@ -61,10 +76,15 @@ const MARKET: Record<Season, number> = { spring: 1, summer: 1, autumn: 0.85, win
 export function mixOf(h: Hearing): Record<Layer, number> {
   const far = 1 - h.near;
   const winter = h.season === 'winter';
+  // Погода: ветер — по её силе (средняя — как прежде), дождь — своей постелью; в дождь рынок и птицы тише.
+  const wx = h.wx ?? CALM;
+  const gust = 0.45 + 1.375 * wx.wind;
+  const cap = (x: number): number => Math.min(1, x);
+  const dry = 1 - 0.6 * Math.max(wx.rain, wx.snow);
   if (h.view === 'map') {
     return {
-      wind: 0.55 + (winter ? 0.2 : 0),
-      whistle: winter ? 0.35 : 0.12,
+      wind: cap((0.55 + (winter ? 0.2 : 0)) * gust),
+      whistle: cap((winter ? 0.35 : 0.12) * gust * (1 + wx.storm)),
       hum: 0,
       sea: Math.min(1, h.sea * 1.3),
       market: 0,
@@ -72,25 +92,28 @@ export function mixOf(h: Hearing): Record<Layer, number> {
       birds: 0,
       crickets: 0,
       bells: 0,
+      rain: wx.rain * 0.6,
     };
   }
   const work = workday(h.solar);
   const nite = night(h.solar);
   return {
-    wind: 0.22 + 0.4 * far + (winter ? 0.25 : 0) + 0.1 * nite,
-    whistle: (winter ? 0.4 : 0.08) * (0.4 + 0.6 * far),
+    wind: cap((0.22 + 0.4 * far + (winter ? 0.25 : 0) + 0.1 * nite) * gust),
+    whistle: cap((winter ? 0.4 : 0.08) * (0.4 + 0.6 * far) * gust * (1 + wx.storm)),
     hum: (0.15 + 0.45 * far) * (0.25 + 0.75 * work),
     sea: 0,
-    market: MARKET[h.season] * work * (0.12 + 0.88 * h.near),
+    market: MARKET[h.season] * work * (0.12 + 0.88 * h.near) * dry,
     forge: work * (0.2 + 0.8 * h.near) * (winter ? 0.8 : 1),
-    birds: BIRDS[h.season] * Math.max(morning(h.solar), 0.3 * work),
-    crickets: CRICKETS[h.season] * nite,
+    birds: BIRDS[h.season] * Math.max(morning(h.solar), 0.3 * work) * dry,
+    crickets: CRICKETS[h.season] * nite * dry,
     bells: 1 - nite,
+    rain: wx.rain * (0.7 + 0.3 * h.near),
   };
 }
 
-/** Снег глушит город: срез верхов на всём городском. */
-export const muffleOf = (h: Hearing): number => (h.view === 'city' && h.season === 'winter' ? 1800 : 9000);
+/** Снег глушит город: срез верхов на всём городском — пока снег лежит (на Сицилии зимой — только после снегопада). */
+export const muffleOf = (h: Hearing): number =>
+  h.view === 'city' && h.season === 'winter' && (h.wx?.cover ?? 1) > 0.3 ? 1800 : 9000;
 
 /** Где на фазе солнца звонит колокол и сколько ударов: утреня, третий час, полдень, девятый, вечерня. */
 export const BELL_HOURS: readonly (readonly [number, number])[] = [
@@ -125,7 +148,11 @@ export const AMB_MIX: Record<Layer, number> = {
   birds: 0.06,
   crickets: 0.025,
   bells: 0.12,
+  rain: 0.14,
 };
+
+/** Гром — громче фона, но не пугает: на уровне колокола. */
+export const THUNDER_MIX = 0.16;
 
 /** Постоянная перелива слоёв, с: приблизил камеру — за пару секунд, сменилось время суток — ещё мягче. */
 export const GLIDE = 1.2;
@@ -139,7 +166,7 @@ interface Bed {
 export class Ambience {
   private mix: Record<Layer, number>;
   private hearing: Hearing;
-  private beds: Partial<Record<'wind' | 'whistle' | 'hum' | 'sea' | 'foam', Bed>> = {};
+  private beds: Partial<Record<'wind' | 'whistle' | 'hum' | 'sea' | 'foam' | 'rain' | 'patter', Bed>> = {};
   /** Всё городское — сквозь срез «снега». */
   private muffle: BiquadFilterNode;
   /** Голоса рынка — сквозь срез дали: издали гомон, вблизи разборчивее. */
@@ -185,9 +212,12 @@ export class Ambience {
     this.beds.wind = bed(true, 'lowpass', 500, 0.7, out);
     this.beds.hum = bed(true, 'lowpass', 260, 0.5, this.muffle);
     this.beds.sea = bed(true, 'lowpass', 650, 0.5, out);
+    // Дождь: шелест — белый шум в середине полосы; крупные капли по крышам — его верх отдельно (не на слабом).
+    this.beds.rain = bed(false, 'bandpass', 1500, 0.45, out);
     if (!kit.lite) {
       this.beds.whistle = bed(false, 'bandpass', 900, 9, out);
       this.beds.foam = bed(false, 'highpass', 2600, 0.5, out);
+      this.beds.patter = bed(false, 'highpass', 4200, 0.6, out);
     }
     this.next = { forge: at + span(this.rnd, 1, 4), birds: at + span(this.rnd, 0.5, 3), crickets: at + 0.5, market: at + 0.3, gust: at, swell: at };
     this.level(at, 0.4);
@@ -220,6 +250,50 @@ export class Ambience {
     set(this.beds.hum, m.hum * AMB_MIX.hum);
     set(this.beds.sea, m.sea * AMB_MIX.sea);
     set(this.beds.foam, m.sea * AMB_MIX.sea * 0.12);
+    set(this.beds.rain, m.rain * AMB_MIX.rain);
+    set(this.beds.patter, m.rain * AMB_MIX.rain * 0.35);
+  }
+
+  /**
+   * Гром: раскат через `delay` секунд после вспышки — чем дальше, тем позже, глуше и дольше; близкий — с треском.
+   * Бурый шум сквозь срез, который сползает вниз, и огибающая с перекатами.
+   */
+  thunder(at: number, power: number, delay: number): void {
+    const ctx = this.kit.ctx;
+    const far = Math.min(1, Math.max(0, (delay - 1.2) / 3.8));
+    const src = noiseLoop(this.kit, true, at);
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.setValueAtTime(700 - 350 * far, at);
+    lp.frequency.exponentialRampToValueAtTime(70, at + 2.5 + 2 * far);
+    const g = ctx.createGain();
+    const peak = THUNDER_MIX * power * (1 - 0.45 * far);
+    const life = 3 + 2.5 * far;
+    g.gain.setValueAtTime(0.0001, at);
+    g.gain.exponentialRampToValueAtTime(Math.max(0.0002, peak), at + 0.12 + 0.4 * far);
+    // Перекаты: два-три вздоха громкости по ходу спада.
+    const rolls = 2 + Math.floor(this.rnd() * 2);
+    for (let i = 1; i <= rolls; i++) g.gain.setTargetAtTime(peak * (0.9 - i * 0.18), at + (i * life) / (rolls + 2), 0.25);
+    g.gain.setTargetAtTime(0.0001, at + life * 0.7, life * 0.15);
+    src.connect(lp);
+    lp.connect(g);
+    g.connect(this.out);
+    src.stop(at + life + 0.5);
+    // Близкий удар — треск в начале.
+    if (far < 0.3 && !this.kit.lite) {
+      const crack = noiseLoop(this.kit, false, at);
+      const hp = ctx.createBiquadFilter();
+      hp.type = 'bandpass';
+      hp.frequency.value = 1800;
+      const cg = ctx.createGain();
+      cg.gain.setValueAtTime(0.0001, at);
+      cg.gain.exponentialRampToValueAtTime(peak * 0.5, at + 0.03);
+      cg.gain.exponentialRampToValueAtTime(0.0001, at + 0.5);
+      crack.connect(hp);
+      hp.connect(cg);
+      cg.connect(this.out);
+      crack.stop(at + 0.6);
+    }
   }
 
   /** Поставить события окна `[from, to)`. */
@@ -241,6 +315,8 @@ export class Ambience {
       }
       this.beds.whistle?.filter.frequency.setTargetAtTime(span(rnd, 600, 1300), t, 2.5);
       this.beds.whistle?.gain.gain.setTargetAtTime(m.whistle * AMB_MIX.whistle * gust, t, 1.5);
+      // Порыв гонит и дождь: шелест крепнет и стихает с ветром.
+      this.beds.rain?.gain.gain.setTargetAtTime(m.rain * AMB_MIX.rain * (0.75 + 0.25 * gust), t, 1.5);
       this.next.gust = t + span(rnd, 2.5, 6);
     }
     // Волна: набегает за пару секунд и отходит.

@@ -6,15 +6,19 @@
 //
 // Ленивый кусок: едет до игры (`main.tsx`) и кладёт свой класс в `SCENES`.
 import * as THREE from 'three';
-import type { BuildingTypeId, GameState } from '@/game/types';
-import { armySize, buildingAttention, population, type Attention } from '@/game/derived';
+import type { BuildingTypeId, GameState, ResourceId } from '@/game/types';
+import { armySize, buildingAttention, buildingProduction, population, productionPerDay, storageCap, type Attention } from '@/game/derived';
+import { RESOURCE_IDS } from '@/game/constants';
 import type { SmokeSource } from '../weather';
 import { hearCity } from '@/sound/ear';
 import { WORK_SIGN, workBusy } from '../worksigns';
 import type { V3 } from './geom';
 import { CityLife } from './life';
+import type { CityBustle } from './alive';
+import type { CityDeeds } from './deeds';
+import { newsOf, seenOf, waveAfter, WAVE_REAL, type CityPops, type Seen, type Yard, type YieldTally } from './pops';
 import { TAP_TARGET } from '@/gestures';
-import { SCENES, TribeScene, type BuildingView, type SceneLook } from '../Scene';
+import { markerSvg, SCENES, TribeScene, type BuildingView, type SceneLook } from '../Scene';
 import { RIG, applyDayNight, fitShadow, windowNight } from '../lighting';
 import { disposeGeometries } from '../kit';
 import type { HitBox } from '../pick';
@@ -23,6 +27,27 @@ import { CITY_KEY, CITY_AZIMUTH, CITY_STEP_MAX, cityFog, cityFraming, cityLeash,
 import { cityPick, screenBox, type Pickable } from './pick';
 import { mainSite, ownerCode, type Site } from './sites';
 import { heightAt } from './layout';
+import type { CityPrecip } from './precip';
+import { CLEAR, ZONES, flashAt, lyingSnow, forcedFlashes, forcedWeather, flashGlow, weatherAt, windTo, zoneOf, type Weather } from '../climate';
+import { serverNow } from '@/net/clock';
+
+/** Облака над городом бегут со скоростью верхнего ветра, м/с: пятно тени в двести метров проходит за полминуты. */
+const CLOUD_SPEED = 7;
+/** Сырость держится после дождя: мостовая сохнет минутами (отсчёты назад, секунды, и сколько остаётся сырости). */
+const DRY: readonly (readonly [number, number])[] = [
+  [60, 0.85],
+  [180, 0.6],
+  [360, 0.35],
+];
+const FLASH_SKY = new THREE.Color(0.78, 0.82, 0.95);
+const MIST_SKY = new THREE.Color(0.86, 0.86, 0.84);
+const TMP_C = new THREE.Color();
+
+/** Небо и дымка под облаками: к серому и темнее в дождь. */
+function greyen(c: THREE.Color, k: number, dark: number): void {
+  const l = c.r * 0.2126 + c.g * 0.7152 + c.b * 0.0722;
+  c.lerp(TMP_C.setRGB(l * 0.95, l * 0.97, l), k).multiplyScalar(dark);
+}
 
 /**
  * Значок над крышей: доля высоты экрана (спрайт без перспективы — читается на любом приближении). Около двадцати
@@ -42,6 +67,43 @@ export class CityScene extends TribeScene {
   protected stepMax = CITY_STEP_MAX;
   /** Люди, стража, дым, флаги, птицы, скот — встают вместе с городом. */
   private folk: CityLife | null = null;
+  /**
+   * Телеги, утки, лодки, стяги — своим куском (`alive.ts`), который сцена тянет после первого кадра города
+   * (docs/city.md, 13): город встаёт, не дожидаясь их.
+   */
+  private bustle: CityBustle | null = null;
+  private bustleWanted = false;
+  /**
+   * Отклик на дела игрока — стройка лесами, праздник готовности, найм строем, добыча над дворами (docs/city.md, 14):
+   * своим куском (`deeds.ts`), вместе с суетой после первого кадра города.
+   */
+  private deeds: CityDeeds | null = null;
+  private pops: CityPops | null = null;
+  private tally: YieldTally | null = null;
+  /** Что отклик видел в прошлом чтении партии (`pops.seenOf`) и когда это было настоящим временем, мс. */
+  private seen: { was: Seen; real: number } | null = null;
+  /** Добыча отлучки ждёт куска отклика (`welcome` раньше его прихода), игровых секунд. */
+  private welcomeDue = 0;
+  private lastState: GameState | null = null;
+  /** Погода (docs/city.md, 15): регион игрока, погода этого кадра, вспышка и осадки (своей докачкой). */
+  private region: string | null = null;
+  private wx: Weather = CLEAR;
+  private wet = 0;
+  private flash = 0;
+  /** Снег на земле зимой (`climate.lyingSnow`): в поясе севера — всю зиму, на Сицилии — после снегопада. */
+  private lying = 1;
+  private precip: CityPrecip | null = null;
+  /** Погода адресом (`?weather=rain`) — стенду и проверке на телефоне; адрес перечитывается, только когда сменился. */
+  private forcedAt = '';
+  private forcedWx: Weather | null = null;
+  private get forced(): Weather | null {
+    const q = typeof location === 'undefined' ? '' : location.search;
+    if (q !== this.forcedAt) {
+      this.forcedAt = q;
+      this.forcedWx = forcedWeather(q);
+    }
+    return this.forcedWx;
+  }
   /** Сколько народу на улицах и стражи на стене и какие дворы работают — из партии (`sync`). */
   private crowd: { people: number; guards: number; busy: BuildingTypeId[] } = { people: 40, guards: 6, busy: [] };
 
@@ -79,6 +141,7 @@ export class CityScene extends TribeScene {
     this.folk = new CityLife({ plan: c.plan, chimneys: c.chimneys, flagTops: c.flagTops, quality: this.quality });
     this.scene.add(this.folk.group);
     this.folk.set(this.crowd.people, this.crowd.guards, this.workSmoke());
+    this.bustleWanted = true;
     for (const view of this.buildings.values()) this.place3(view);
     if (this.selected !== null) this.setSelected(this.selected);
   }
@@ -159,6 +222,42 @@ export class CityScene extends TribeScene {
     sun.target.updateMatrixWorld();
     // Узкие улицы глубже открытого посёлка: заполняющему свету — треть сверху (стенд, круг 2).
     this.rig.hemi.intensity *= 1.35;
+    this.weather(solar);
+  }
+
+  override setRegion(region: string | null): void {
+    this.region = region;
+  }
+
+  /**
+   * Погода кадра — функция региона и общих часов (`climate.weatherAt`): тучи гасят солнце и серят небо, дождь темнит,
+   * утренний туман белит дымку, молния мягко высвечивает небо и город. Сырость — тоже от часов: дождь последних минут.
+   */
+  private weather(solar: number): void {
+    const now = serverNow();
+    const f = this.forced;
+    const w = f ?? weatherAt(this.region, now, this.season, solar);
+    this.wx = w;
+    let wet = w.rain;
+    if (!f) for (const [back, keep] of DRY) wet = Math.max(wet, weatherAt(this.region, now - back * 1000, this.season, solar).rain * keep);
+    this.wet = wet;
+    this.lying = lyingSnow(this.region, now, f);
+    // Вспышка: адресом «гроза» — раз в девять секунд, иначе — молнии региона.
+    this.flash = f
+      ? forcedFlashes(f.storm, now - 3000, now + 1).reduce((v, x) => v + flashGlow((now - x.at) / 1000) * x.power, 0)
+      : flashAt(this.region, this.season, now);
+    const dim = Math.max(w.rain, w.snow);
+    this.rig.sun.intensity *= 1 - 0.6 * w.cloud - 0.15 * dim;
+    this.rig.hemi.intensity *= 1 - 0.1 * dim;
+    const bg = this.scene.background as THREE.Color;
+    const fog = (this.scene.fog as THREE.Fog).color;
+    for (const c of [bg, fog]) greyen(c, 0.65 * w.cloud, 1 - 0.32 * w.rain - 0.1 * w.storm + 0.05 * w.snow);
+    if (w.fog > 0) fog.lerp(TMP_C.copy(MIST_SKY).multiplyScalar(0.35 + 0.65 * this.light.daylight), w.fog * 0.55);
+    if (this.flash > 0) {
+      this.rig.hemi.intensity += this.flash * 1.3;
+      bg.lerp(FLASH_SKY, this.flash * 0.5);
+      fog.lerp(FLASH_SKY, this.flash * 0.3);
+    }
   }
 
   // ---------- Кадр ----------
@@ -174,13 +273,40 @@ export class CityScene extends TribeScene {
       const u = c.uniforms;
       const night = windowNight(this.light);
       u.cNight.value = night;
-      u.cSnow.value = this.seasonVis.snow;
+      // Зима сезона партии — голые кроны и сухой камыш; снег на кровлях и земле — по климату региона; лёд — по холоду пояса.
+      const winter = this.seasonVis.snow;
+      const ice = winter * ZONES[zoneOf(this.region)].frost;
+      u.cSnow.value = winter * this.lying;
+      u.cWinter.value = winter;
+      u.cIce.value = ice;
       u.cAutumn.value = Math.max(0, Math.min(1, this.seasonVis.turn));
       u.cTime.value = t;
       u.cSunDir.value.copy(this.rig.sun.position).sub(this.target).normalize();
       u.cSky.value.copy((this.scene.fog as THREE.Fog).color);
       u.cSel.value = this.selected !== null ? ownerCode(this.buildings.get(this.selected)?.type ?? 'campfire') : 0;
       u.cSelGlow.value = 0.18 + Math.sin(t * 3) * 0.1;
+      // Погода в шейдерах: на «Низком» — без теней облаков и кругов на воде (сырость и туман — даром).
+      const w = this.wx;
+      const lo = this.quality === 'low';
+      const dir = windTo(w.from);
+      const aloft = windTo(ZONES[zoneOf(this.region)].from);
+      u.cWet.value = this.wet;
+      u.cCloud.value = lo ? 0 : w.cloud;
+      u.cCloudAt.value.set(aloft.x * CLOUD_SPEED * t, aloft.z * CLOUD_SPEED * t);
+      u.cMist.value = w.fog;
+      u.cRain.value = lo ? 0 : w.rain;
+      u.cWindDir.value.set(dir.x, dir.z);
+      u.cWind.value = w.wind;
+      this.folk?.setWind(dir.x, dir.z, w.wind);
+      // Дождь и снег прячут даль, туман — ещё и ближнее.
+      const fog = this.scene.fog as THREE.Fog | null;
+      if (fog) {
+        const base = cityFog(this.dist);
+        const dim = Math.max(w.rain, w.snow);
+        fog.near = base.near * (1 - 0.25 * dim - 0.3 * w.fog);
+        fog.far = base.far * (1 - 0.2 * dim - 0.15 * w.fog);
+      }
+      this.precip?.update(t, w.rain, w.snow, dir.x, dir.z, w.wind, this.target, this.dist, Math.max(0.22, this.light.daylight) + this.flash);
       const fl = c.group.getObjectByName('city-flames') as THREE.Points | undefined;
       if (fl) {
         const fm = fl.material as THREE.PointsMaterial;
@@ -189,11 +315,128 @@ export class CityScene extends TribeScene {
         fm.size = 3.6 * (1 + Math.sin(t * 11) * 0.08);
       }
       this.folk?.update(dt, t, night, this.seasonVis.snow);
+      // Суета судит о льде: на реке без льда утки и лодки остаются и зимой.
+      this.bustle?.update(t, night, ice);
+      if (this.deeds) {
+        // Точкам пыли и вспышек — размер в метрах: three делит на расстояние и множит на полвысоты буфера.
+        const scale = 1 / Math.tan((this.camera.fov * Math.PI) / 360);
+        this.deeds.update(t, night, scale, { x: this.camera.position.x, z: this.camera.position.z });
+      }
+      this.pops?.update(this.camera, this.canvas.clientWidth, this.canvas.clientHeight, t);
+      // Первый кадр города нарисован — теперь докачка суеты.
+      if (this.bustleWanted) {
+        this.bustleWanted = false;
+        this.loadBustle(c);
+      }
     }
     // Значки покачиваются — взгляд цепляется без лишних цветов.
     for (const view of this.buildings.values()) {
       if (view.marker) view.marker.position.y = view.markerY + Math.sin(t * 2.2 + view.markerY) * 0.6;
     }
+  }
+
+  /** Кусок суеты: пришёл, когда сцену ещё не выгрузили и город тот же, — встаёт; не пришёл — город живёт без него. */
+  private loadBustle(c: CityBuild): void {
+    // Осадки — своей докачкой; на «Низком» частиц нет, и кусок не нужен.
+    if (this.quality !== 'low') {
+      import('./precip')
+        .then(({ CityPrecip }) => {
+          if (this.disposed || this.town !== c) return;
+          this.precip = new CityPrecip(this.quality);
+          this.scene.add(this.precip.group);
+        })
+        .catch(() => undefined);
+    }
+    import('./alive')
+      .then(({ CityBustle }) => {
+        if (this.disposed || this.town !== c) return;
+        this.bustle = new CityBustle({ plan: c.plan, quality: this.quality });
+        this.scene.add(this.bustle.group);
+      })
+      .catch(() => undefined);
+    // Отклик — своим куском, тем же правилом: не пришёл — город стоит без лесов и надписей, игра идёт как шла.
+    import('./deeds')
+      .then(({ CityDeeds, CityPops, YieldTally }) => {
+        if (this.disposed || this.town !== c || !this.folk) return;
+        this.deeds = new CityDeeds({ sites: this.sites, quality: this.quality, street: this.folk.street() });
+        this.scene.add(this.deeds.group);
+        this.pops = new CityPops(this.canvas.parentElement, this.quality, markerSvg, new THREE.Vector3());
+        this.tally = new YieldTally();
+        if (this.lastState) this.respond(this.lastState);
+        if (this.welcomeDue > 0) this.welcome(this.welcomeDue);
+      })
+      .catch(() => undefined);
+  }
+
+  /**
+   * Отклик на партию: леса у построек, которые улучшаются; праздник у той, чья стройка кончилась; выход обученных по
+   * заказам найма; добыча дворов за прожитое партией время. Первое чтение только запоминает: уровни и найм, бывшие до
+   * входа, — не новость.
+   */
+  private respond(s: GameState): void {
+    const deeds = this.deeds;
+    if (!deeds) return;
+    const t = this.sceneNow();
+    deeds.setWorks(s.buildings.filter((b) => b.workRequired > 0).map((b) => b.type));
+    const prev = this.seen;
+    const real = performance.now();
+    this.seen = { was: seenOf(s), real };
+    if (!prev) return;
+    const news = newsOf(prev.was, s);
+    for (const type of news.done) deeds.done(type, t);
+    if (news.trained > 0) deeds.muster(news.trained, t);
+    // Волна — когда партия прожила отлучку (страница спала): и игрового времени, и настоящего прошло больше порога (под
+    // скоростью проверки игровых секунд за шаг много, а настоящих — полсекунды).
+    this.yieldFor(s, news.dt, news.dt > waveAfter() && real - prev.real > WAVE_REAL * 1000);
+  }
+
+  /**
+   * «Сейчас» на часах сцены — для чтения партии между кадрами: часы сцены идут кадрами (`clock.getDelta`), и после
+   * долгого кадра или возврата из фона их последнее показание отстало бы — праздник начался бы в прошлом.
+   */
+  private sceneNow(): number {
+    const c = this.clock;
+    return c.running ? c.elapsedTime + Math.max(0, performance.now() - c.oldTime) / 1000 : c.elapsedTime;
+  }
+
+  /** Выработка дворов (вольный сбор — площади у костра) за `dt` игровых секунд — надписями над постройками. */
+  private yieldFor(s: GameState, dt: number, wave: boolean): void {
+    const tally = this.tally;
+    const pops = this.pops;
+    if (!tally || !pops || !(dt > 0)) return;
+    const yards: Yard[] = [];
+    const free = productionPerDay(s);
+    for (const b of s.buildings) {
+      const perDay = buildingProduction(s, b);
+      yards.push({ type: b.type, perDay });
+      for (const r of RESOURCE_IDS) free[r] -= perDay[r];
+    }
+    const camp = yards.find((y) => y.type === 'campfire');
+    if (camp) for (const r of RESOURCE_IDS) camp.perDay[r] += Math.max(0, free[r]);
+    const cap = storageCap(s);
+    const full = new Set<ResourceId>(RESOURCE_IDS.filter((r) => s.resources[r] >= cap - 1));
+    const t = this.sceneNow();
+    const list = tally.feed(yards, dt, t, full, wave);
+    const placed = list.flatMap((pop) => {
+      const m = mainSite(this.sites, pop.type);
+      return m ? [{ x: m.x, y: m.y1 + 2.5, z: m.z, pop }] : [];
+    });
+    // Волна — по дальности от середины кадра: от того, на что смотрят, к краям.
+    if (wave) placed.sort((a, b) => Math.hypot(a.x - this.target.x, a.z - this.target.z) - Math.hypot(b.x - this.target.x, b.z - this.target.z));
+    pops.add(placed, wave, t);
+  }
+
+  /**
+   * Игрок вернулся и закрыл окно «С возвращением» (`GameCanvas`): добыча отлучки — одной волной над дворами. Партия
+   * догнана при чтении (`save.enter`), здесь — только показ: выработка дворов за `gameSec` игровых секунд отлучки.
+   */
+  override welcome(gameSec: number): void {
+    if (!this.deeds || !this.lastState) {
+      this.welcomeDue = gameSec;
+      return;
+    }
+    this.welcomeDue = 0;
+    this.yieldFor(this.lastState, gameSec, true);
   }
 
   // ---------- Постройки ----------
@@ -223,11 +466,14 @@ export class CityScene extends TribeScene {
     if (this.selected !== null) this.setSelected(this.selected);
     // Улицы — по населению, стена — по войску; дым работы — по правилу посёлка (`workBusy`).
     this.crowd = {
-      people: 20 + population(s) * 0.8,
+      // Посёлок в тридцать душ — уже семьдесят прохожих: город с первого дня живой (docs/city.md, 13.1).
+      people: 40 + population(s),
       guards: 4 + armySize(s) * 0.5,
       busy: s.buildings.filter((b) => WORK_SIGN[b.type]?.smoke && workBusy(s, b, false)).map((b) => b.type),
     };
     this.folk?.set(this.crowd.people, this.crowd.guards, this.workSmoke());
+    this.lastState = s;
+    this.respond(s);
   }
 
   /** Группа здания — на главное место его постройки, значок — над крышей. */
@@ -311,6 +557,14 @@ export class CityScene extends TribeScene {
   override dispose(): void {
     this.folk?.dispose();
     this.folk = null;
+    this.bustle?.dispose();
+    this.bustle = null;
+    this.deeds?.dispose();
+    this.deeds = null;
+    this.precip?.dispose();
+    this.precip = null;
+    this.pops?.dispose();
+    this.pops = null;
     this.town?.dispose();
     this.town = null;
     super.dispose();

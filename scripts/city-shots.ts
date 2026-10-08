@@ -7,6 +7,9 @@
 //   BUDGET=1 npm run city:shots                — бюджет по уровням счётом (без браузера)
 //   GAME=1 QUALITY=medium npm run city:shots   — сама игра по адресу `?look=city`: стартовый кадр
 //                                                (сцена города в игре, не стенд), TAG и QUALITY те же
+//   GAME=1 WX=clear,rain,storm npm run city:shots — погода адресом (`?weather=`, docs/city.md, 15): кадр игры на каждую,
+//                                                `WXLOOK=market:70` — вблизи постройки (тип:расстояние), `WXMAP=1` —
+//                                                карта мира, `WXSEASON=winter` — сезон партии, `WXREGION=italy` — регион
 //
 // Снимки — в `.city-shots/` (в репозиторий не входит). Бюджет железа (CLAUDE.md, раздел ⛔): один
 // прогон, браузер с потолком кадров отчёта, не дольше двух минут на заход, минута остывания
@@ -22,6 +25,8 @@ import { QUALITY, qualityOf, type Quality } from '../src/render/quality';
 import { LAYERS, paintLayer } from '../src/render/city/tex';
 import { cityCounts, CITY_BUDGET } from '../src/render/city/budget';
 import { QUALITIES as ALL_QUALITIES } from '../src/render/quality';
+import { SEASON_SECONDS } from '../src/game/data/seasons';
+import { DAY_LENGTH } from '../src/game/pace';
 
 const OUT = fileURLToPath(new URL('../.city-shots', import.meta.url));
 const PORT = Number(process.env.PORT ?? 4199);
@@ -125,18 +130,40 @@ async function gameShot(q: Quality): Promise<void> {
       console.log('  игра: сцена не поднялась за 60 с');
       return;
     }
-    await tab.eval<string>(ENTER_GAME);
-    const built = await tab.eval<string>(`new Promise((ok) => {
+    // Вход и сборка — с повтором: обещание, которое ждёт CDP, страница изредка теряет («Promise was collected»), а
+    // город при этом собирается как собирался.
+    const retry = async <T,>(f: () => Promise<T>): Promise<T> => {
+      for (let k = 0; ; k++) {
+        try {
+          return await f();
+        } catch (e) {
+          if (k >= 2) throw e;
+          await sleep(2000);
+        }
+      }
+    };
+    await retry(() => tab.eval<string>(ENTER_GAME));
+    const built = await retry(() => tab.eval<string>(`new Promise((ok) => {
       const s = window.__scene;
-      if (!s || !s.built) return ok(JSON.stringify('не город: ' + (s && s.constructor && s.constructor.name)));
+      // Обещание сборки у сцены города — \`ready\` (прежде — \`built\`).
+      const done = s && (s.ready || s.built);
+      if (!done) return ok(JSON.stringify('не город: ' + (s && s.constructor && s.constructor.name)));
       const t = setTimeout(() => ok(JSON.stringify('не собрался за 90 с')), 90000);
-      s.built.then(() => { clearTimeout(t); ok(JSON.stringify('собран')); });
-    })`);
+      done.then(() => { clearTimeout(t); ok(JSON.stringify('собран')); });
+    })`));
     console.log(`  игра ${q}: ${built}`);
     // Обучение снято: его затемнение — не вид города (как у `tap:report`).
     await tab.eval<string>(`(() => { const s = window.__game.getState().s; s.tutorialDone = true; window.__game.setState({ s: { ...s } }); return JSON.stringify('ok'); })()`);
     // Касание — сразу, пока сторож кадров не счёл медленные программные кадры остановкой (см. `gameTaps`).
     if (process.env.TAP === '1') await gameTaps(tab);
+    if (process.env.DEEDS === '1') {
+      await deedShots(tab, q);
+      return;
+    }
+    if (process.env.WX) {
+      await weatherShots(tab, q);
+      return;
+    }
     await sleep(3000);
     const c = await tab.eval<{ calls: number; triangles: number }>('JSON.stringify(window.__scene.stats())');
     const png = await tab.send<{ data: string }>('Page.captureScreenshot', { format: 'png' });
@@ -201,6 +228,214 @@ async function gameTaps(tab: Tab): Promise<void> {
   }
   console.log(`  касание в игре: тапов ${list.length}, своё окно — ${own}${wrong.length ? `; мимо: ${wrong.join(', ')}` : ''}`);
   await tab.eval<string>(`(() => { const sc = window.__scene; window.__game.getState().openBuilding(null); sc.scene.children.forEach((o) => { if (o.type === 'Group') o.visible = true; }); return JSON.stringify('ok'); })()`);
+}
+
+/**
+ * Погода (`WX=` к `GAME=1`, docs/city.md, 15): одна партия, погода — адресом страницы, который сцена перечитывает; кадр
+ * на каждую, по желанию — вблизи постройки (`WXLOOK=тип:расстояние`). Гроза снимается в миг вспышки.
+ */
+async function weatherShots(tab: Tab, q: Quality): Promise<void> {
+  await tab.eval<string>(`(() => {
+    const st = document.createElement('style');
+    st.textContent = '.trouble { display: none !important; }';
+    document.head.appendChild(st);
+    const s = window.__game.getState().s;
+    s.inbox = [];
+    s.winterWarning = false;
+    s.nextEventAt = s.time + 1e9;
+    s.hints = { seen: [], off: true };
+    window.__game.setState({ s: { ...s } });
+    return JSON.stringify('ok');
+  })()`);
+  // Регион (`WXREGION=italy`): климат пояса — снег на кровлях, лёд на реке. Мир в облаке ставит город, где придётся.
+  const region = process.env.WXREGION;
+  if (region) await tab.eval<string>(`(() => { window.__scene.setRegion(${JSON.stringify(region)}); return JSON.stringify('ok'); })()`);
+  // Сезон партии (`WXSEASON=winter`): снег над снежным городом, а не над летним.
+  const season = process.env.WXSEASON;
+  if (season) {
+    const k = ['spring', 'summer', 'autumn', 'winter'].indexOf(season);
+    await tab.eval<string>(`(() => {
+      const s = window.__game.getState().s;
+      s.time = ${Math.max(0, k) * SEASON_SECONDS + Math.round((SEASON_SECONDS * 0.3) / DAY_LENGTH) * DAY_LENGTH} + (s.time % ${DAY_LENGTH});
+      window.__game.setState({ s: { ...s } });
+      // Палитра сезона переливается секундами, а программный кадр облака — секунда: ставим сразу.
+      window.__scene.seasonVis.jump(${JSON.stringify(season)});
+      return JSON.stringify('ok');
+    })()`);
+  }
+  // Карта мира (`WXMAP=1`): облака и их тени над регионом — та же погода.
+  const map = process.env.WXMAP === '1';
+  if (map) {
+    await tab.eval<string>(`(() => { window.__game.getState().openMap(); return JSON.stringify('ok'); })()`);
+    await sleep(15000);
+  }
+  const near = process.env.WXLOOK;
+  if (near && !map) {
+    const [type, dist] = near.split(':');
+    await tab.eval<string>(`(() => {
+      const sc = window.__scene;
+      const own = sc.sites.filter((x) => x.type === ${JSON.stringify(type)});
+      const m = own.reduce((a, b) => (a.hf * a.hr >= b.hf * b.hr ? a : b));
+      sc.target.set(m.x, m.y0 + 3, m.z);
+      sc.dist = ${Number(dist) || 60};
+      sc.userMoved = true;
+      sc.place();
+      return JSON.stringify('ok');
+    })()`);
+  }
+  for (const wx of list(process.env.WX, 'clear')) {
+    await tab.eval<string>(`(() => {
+      const u = new URL(location.href);
+      u.searchParams.set('weather', ${JSON.stringify(wx)});
+      history.replaceState(null, '', u.toString());
+      return JSON.stringify('ok');
+    })()`);
+    // Программный кадр в облаке — около секунды: ждём несколько кадров с новой погодой и докачку осадков.
+    await sleep(4000);
+    if (wx === 'storm') {
+      for (let i = 0; i < 80; i++) {
+        if (await tab.eval<boolean>('JSON.stringify(window.__scene.flash > 0.35 && (window.__scene.pause(), true))').catch(() => false)) break;
+        await sleep(150);
+      }
+    }
+    const png = await tab.send<{ data: string }>('Page.captureScreenshot', { format: 'png' });
+    const name = `${TAG}-wx-${wx}${region ? '-' + region : ''}${map ? '-map' : near ? '-' + near.replace(':', '') : ''}-${q}.png`;
+    await writeFile(join(OUT, name), Buffer.from(png.data, 'base64'));
+    if (wx === 'storm') await tab.eval<string>(`(() => { window.__scene.resume(); return JSON.stringify('ok'); })()`);
+    console.log(`  погода ${q}: ${wx} → .city-shots/${name}`);
+  }
+}
+
+/**
+ * Отклик игры на действия (`DEEDS=1` к `GAME=1`, docs/city.md, 14): шесть снимков одной партии — стройка лесами,
+ * её конец, волна добычи «пока тебя не было», найм строем, шторка на ходу и нажатая кнопка. Состояние правится
+ * через стор игры, как у `gameTaps`; события и почта сняты, чтобы окно не закрыло город.
+ */
+async function deedShots(tab: Tab, q: Quality): Promise<void> {
+  const snap = async (name: string): Promise<void> => {
+    const png = await tab.send<{ data: string }>('Page.captureScreenshot', { format: 'png' });
+    await writeFile(join(OUT, `${TAG}-deeds-${q}-${name}.png`), Buffer.from(png.data, 'base64'));
+    console.log(`  отклик ${q}: ${name} → .city-shots/${TAG}-deeds-${q}-${name}.png`);
+  };
+  // Ждать условия на странице (не дольше 30 с): часы сцены, надписи, строй.
+  const until = async (cond: string): Promise<void> => {
+    for (let i = 0; i < 120; i++) {
+      if (await tab.eval<boolean>(`JSON.stringify(!!(${cond}))`).catch(() => false)) return;
+      await sleep(250);
+    }
+    console.log(`  отклик ${q}: не дождался ${cond.slice(0, 60)}`);
+  };
+  // Снимок мига: дождались — сцена встаёт на этом кадре (тот же \`pause\`, что у карты), снимок, и сцена идёт дальше.
+  // Программный кадр длится секунду: без остановки снимок ловил бы кадр, когда праздник уже кончился.
+  const still = async (cond: string, name: string, after = 0): Promise<void> => {
+    await until(`(${cond}) && (window.__scene.pause(), true)`);
+    if (after) await sleep(after);
+    await snap(name);
+    await tab.eval<string>(`(() => { window.__scene.resume(); return JSON.stringify('ok'); })()`);
+  };
+  // Камера — к месту постройки (`look`): цель, расстояние; мимо `place` сцены — те же числа, что у пальца.
+  const look = (type: string, dist: number): Promise<string> =>
+    tab.eval<string>(`(() => {
+      const sc = window.__scene;
+      const own = sc.sites.filter((x) => x.type === ${JSON.stringify(type)});
+      const m = own.reduce((a, b) => (a.hf * a.hr >= b.hf * b.hr ? a : b));
+      sc.target.set(m.x, m.y0 + 3, m.z);
+      sc.dist = ${dist};
+      sc.userMoved = true;
+      sc.place();
+      return JSON.stringify(m.type);
+    })()`);
+  const pick = await tab.eval<{ id: number; type: string }>(`JSON.stringify((() => {
+    // Программная видеокарта облака рисует кадр за полсекунды — сторож кадров зовёт это остановкой и кладёт поверх
+    // города экран восстановления; на снимках его нет, город под ним рисуется как рисовался.
+    const st = document.createElement('style');
+    st.textContent = '.trouble { display: none !important; }';
+    document.head.appendChild(st);
+    const g = window.__game.getState();
+    const s = g.s;
+    s.inbox = [];
+    s.winterWarning = false;
+    s.nextEventAt = s.time + 1e9;
+    s.hints = { seen: [], off: true };
+    const b = s.buildings.find((x) => x.type === 'tavern') || s.buildings[1];
+    b.workRequired = 400;
+    b.work = 120;
+    window.__game.setState({ s: { ...s } });
+    return { id: b.id, type: b.type };
+  })())`);
+  await look(pick.type, 120);
+  await sleep(3500);
+  await snap('1-build');
+  await tab.eval<string>(`(() => {
+    const s = window.__game.getState().s;
+    const b = s.buildings.find((x) => x.id === ${pick.id});
+    b.level += 1;
+    b.work = 0;
+    b.workRequired = 0;
+    window.__game.setState({ s: { ...s } });
+    return JSON.stringify('ok');
+  })()`);
+  // Вспышка — первые 0.7 с праздника, стяг на крыше — с секунды до шести. Ждём по часам сцены: программная отрисовка
+  // облака кладёт кадр за секунду и больше, настоящие секунды тут не мерка.
+  const age = (a: number): string => `(() => { const f = window.__scene.deeds?.feasts?.[0]; return !!f && window.__scene.clock.elapsedTime - f.t0 > ${a}; })()`;
+  await still(age(0.05), '2-done');
+  await still(age(1.6), '2b-banner');
+  // Волна «пока тебя не было»: окно «С возвращением» закрыто кнопкой «Посмотреть» — сцена показывает добычу отлучки.
+  await tab.eval<string>(`(() => {
+    const sc = window.__scene;
+    sc.userMoved = false;
+    sc.resize();
+    // Склад не полон: у потолка добыча пропадает и над двором не всплывает (\`pops.YieldTally\`).
+    const s = window.__game.getState().s;
+    for (const r of Object.keys(s.resources)) s.resources[r] = Math.floor(s.resources[r] * 0.4);
+    window.__game.setState({ s: { ...s }, offlineSeconds: 3 * 3600 });
+    window.__game.getState().dismissOffline();
+    return JSON.stringify('ok');
+  })()`);
+  // Надписи поднимаются анимацией CSS по настоящим часам: снимок ставит каждую на её полсекунды — всплыла и видна.
+  await until(`document.querySelectorAll('.city-pop.go').length > 2 && (window.__scene.pause(), true)`);
+  await tab.eval<string>(`(() => { for (const a of document.getAnimations()) if (a.animationName === 'city-pop') { a.pause(); a.currentTime = 450; } return JSON.stringify('ok'); })()`);
+  await snap('3-yield');
+  await tab.eval<string>(`(() => { for (const a of document.getAnimations()) if (a.animationName === 'city-pop') a.play(); window.__scene.resume(); return JSON.stringify('ok'); })()`);
+  // Найм: заказ в казармах, потом он обучен целиком — заказ снят, бойцы в войске (как кончается настоящий найм).
+  await tab.eval<string>(`(() => {
+    const s = window.__game.getState().s;
+    const troop = Object.keys(s.army)[0];
+    s.recruits = [{ id: 990001, troop, count: 10, done: 0, work: 0, people: 10 }];
+    window.__game.setState({ s: { ...s } });
+    return JSON.stringify(troop);
+  })()`);
+  await sleep(400);
+  await tab.eval<string>(`(() => {
+    const s = window.__game.getState().s;
+    const troop = Object.keys(s.army)[0];
+    s.recruits = [];
+    s.army[troop] += 10;
+    window.__game.setState({ s: { ...s } });
+    return JSON.stringify('ok');
+  })()`);
+  await look('barracks', 140);
+  await still(`(window.__scene.deeds?.soldiers?.count ?? 0) >= ${q === 'low' ? 6 : 8}`, '4-muster');
+  await tab.eval<string>(`(() => { window.__game.getState().openBuilding(${pick.id}); return JSON.stringify('ok'); })()`);
+  await sleep(110);
+  await snap('5-sheet');
+  await sleep(1200);
+  // Нажатая кнопка: палец лёг на главное действие шторки и держится — снимок до отпускания.
+  const btn = await tab.eval<{ x: number; y: number } | null>(`JSON.stringify((() => {
+    const b = [...document.querySelectorAll('.sheet.open button:not(:disabled)')].find((e) => e.getBoundingClientRect().height >= 40 && e.getBoundingClientRect().width > 120);
+    if (!b) return null;
+    const r = b.getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+  })())`);
+  if (btn) {
+    await tab.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: btn.x, y: btn.y });
+    await tab.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: btn.x, y: btn.y, button: 'left', clickCount: 1 });
+    await sleep(250);
+    await snap('6-press');
+    // Отпускание за краем кнопки: щелчка нет — снимок не меняет партию.
+    await tab.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 2, y: 2, button: 'left' });
+    await tab.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: 2, y: 2, button: 'left', clickCount: 1 });
+  }
 }
 
 /** Слои текстур листом — без браузера: самопроверка материала. */

@@ -5,7 +5,7 @@
 // у мельницы бежит быстро и не мёрзнет). Уровень качества — `CITY_SPEC.detail`: на низком одна рябь и без огней.
 import * as THREE from 'three';
 import { WATER_LIGHTS, waterGeometry } from './banks';
-import { GRADE_GLSL, graded, type CityUniforms } from './material';
+import { GRADE_GLSL, graded, misted, type CityUniforms } from './material';
 import type { V3 } from './geom';
 
 const VERT = /* glsl */ `
@@ -26,6 +26,8 @@ uniform float cNight;
 uniform float cSnow;
 uniform vec3 cSunDir;
 uniform vec3 cSky;
+uniform float cRain;
+uniform float cIce;
 uniform vec3 cSnowCol;
 uniform vec3 cTorchCol;
 uniform vec4 cWaterLights[${WATER_LIGHTS}];
@@ -110,6 +112,27 @@ export function buildWater(u: CityUniforms, cols: readonly number[], detail: 0 |
             #if WATER_DETAIL >= 2
               g += vec2(sin(along * 4.3 - across * 2.1 - t * 4.1 * sp), sin(across * 4.7 + along * 1.3 - t * 3.3)) * 0.03 * o2;
             #endif
+            #if WATER_DETAIL >= 1
+              // Дождь: капли бьют кругами — в клетке 1.6 м своя капля, свой миг и своё место; круг расходится и гаснет.
+              if (cRain > 0.01) {
+                vec2 rp = vWPos.xz / 1.6;
+                vec2 ci = floor(rp);
+                for (int k = 0; k < 2; k++) {
+                  vec2 cc = ci + vec2(float(k) * 0.5);
+                  vec2 rf = rp - cc - 0.5;
+                  float hs = fract(sin(dot(cc, vec2(41.3, 289.1))) * 43758.5453);
+                  vec2 off = vec2(fract(hs * 13.7), fract(hs * 71.3)) - 0.5;
+                  vec2 d = rf - off * 0.5;
+                  float r = length(d);
+                  float ph = fract(t * (0.8 + 0.4 * hs) + hs * 7.0);
+                  float R = ph * 0.55;
+                  float on = step(hs, cRain * 0.9 + 0.05) * (1.0 - ph) * smoothstep(0.0, 0.08, ph);
+                  float ring = sin((r - R) * 38.0) * (1.0 - smoothstep(0.0, 0.09, abs(r - R)));
+                  vec2 dn = d / max(r, 1e-3);
+                  g += vec2(dot(dn, fdir), dot(dn, fside)) * ring * on * 0.35 * o1;
+                }
+              }
+            #endif
             // На мелководье у берега тише, в стрежне — живее.
             float deep = smoothstep(0.05, 1.1, vDepth);
             g *= mix(0.45, 1.0, deep) * mix(1.0, 1.5, vRace);
@@ -129,7 +152,8 @@ export function buildWater(u: CityUniforms, cols: readonly number[], detail: 0 |
             // Зима: река замерзает от берегов, кромка льда — неровными заберегами по течению; стрежень остаётся тёмной
             // открытой водой, ручей у мельницы бежит и не мёрзнет.
             float iceN = 0.5 + 0.5 * sin(along * 0.07 + 1.3 * sin(along * 0.023)) * sin(along * 0.031 + across * 0.05 + 0.7);
-            float ice = cSnow * (1.0 - vRace) * smoothstep(0.5, 0.75, (1.0 - deep) * 0.9 + iceN * 0.3 + cSnow * 0.15);
+            // Лёд — по холоду пояса (\`cIce\`): на Сицилии река не мёрзнет и после снегопада.
+            float ice = cIce * (1.0 - vRace) * smoothstep(0.5, 0.75, (1.0 - deep) * 0.9 + iceN * 0.3 + cIce * 0.15);
             vec3 iceCol = vec3(0.62, 0.68, 0.74);
             #if WATER_DETAIL >= 1
               // Снег на льду — переметами, и тёмные трещины.
@@ -178,6 +202,7 @@ export function buildWater(u: CityUniforms, cols: readonly number[], detail: 0 |
             totalEmissiveRadiance += em;`,
           ),
     );
+    misted(shader);
   };
   m.customProgramCacheKey = () => `city-water-${detail}`;
   const mesh = new THREE.Mesh(g, m);

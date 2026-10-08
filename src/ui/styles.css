@@ -4105,9 +4105,69 @@ body.replaying .app > *:not(.canvas-wrap) {
   }
 }
 
+/*
+ * Отклик интерфейса (docs/city.md, 14.5). Нажатая кнопка отзывается сразу — сжатие до .97 и темнее на 8 % (docs/ui_audit.md,
+ * 3.8): отдельным свойством `scale`, чтобы не спорить с `transform` кнопок. Окна появляются и тают; уходящее (`.leaving`,
+ * `ui/parts/leave.tsx`) касаний не берёт — действие, которым его закрыли, уже сделано.
+ */
+button {
+  transition:
+    scale 0.08s ease,
+    filter 0.08s ease;
+}
+button:not(:disabled):active {
+  scale: 0.97;
+  filter: brightness(0.92);
+}
+.leave {
+  display: contents;
+}
+.leaving,
+.leaving * {
+  pointer-events: none !important;
+}
+.modal-backdrop {
+  animation: win-fade 0.18s ease both;
+}
+.modal-backdrop > .modal {
+  animation: win-in 0.22s cubic-bezier(0.2, 0.8, 0.3, 1.15) both;
+}
+.leaving .modal-backdrop {
+  animation: win-fade 0.16s ease reverse both;
+}
+.leaving .modal-backdrop > .modal {
+  animation: win-out 0.16s ease both;
+}
+@keyframes win-fade {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes win-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.95);
+  }
+}
+@keyframes win-out {
+  to {
+    opacity: 0;
+    transform: translateY(8px) scale(0.97);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .turn-phone-icon {
     animation: none;
+  }
+  .modal-backdrop,
+  .modal-backdrop > .modal,
+  .leaving .modal-backdrop,
+  .leaving .modal-backdrop > .modal {
+    animation-duration: 0.01s;
+  }
+  button:not(:disabled):active {
+    scale: none;
   }
 }
 

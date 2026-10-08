@@ -32,6 +32,7 @@ import { CheatPanel } from './ui/CheatPanel';
 import { useRealm } from './ui/realm/open';
 import { useTrades } from './ui/trades';
 import { tutorialActive } from './game/data/tutorial';
+import { Leave } from './ui/parts/leave';
 
 /**
  * Предыстория — отдельный чанк, и качается он по нажатию кнопки.
@@ -248,18 +249,20 @@ export function App() {
         {shown && <SheetContent view={shown} />}
       </Sheet>
       <Sheet open={tradesOpen && !mapOpen} onClose={hideTrades}>
-        {tradesOpen && (
+        {/* Содержимое переживает закрытие, пока шторка уезжает (как у шторки построек выше). */}
+        <Leave open={tradesOpen} ms={320}>
           <Suspense fallback={null}>
             <Trades />
           </Suspense>
-        )}
+        </Leave>
       </Sheet>
       {!mapOpen && <Suspense fallback={null}><Nav /></Suspense>}
-      {!mapOpen && realmOpen && (
+      {/* Меню державы появляется и уходит плавно (`leave.tsx`): закрытое ещё тает, касаний не беря. */}
+      <Leave open={!mapOpen && realmOpen}>
         <Suspense fallback={null}>
           <RealmMenu />
         </Suspense>
-      )}
+      </Leave>
       <WinterModal />
       <OfflineModal />
       <LegacyModal />

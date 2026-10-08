@@ -73,6 +73,9 @@ export function setMarkerArt(art: MarkerArt | null): void {
   markerTextures.clear();
 }
 
+/** Разметка значка листа по имени — тем, кто пишет поверх холста разметкой (добыча города, `city/pops.ts`). */
+export const markerSvg = (name: string): string | null => markerArt?.svg(name) ?? null;
+
 /** Значок над крышей рисуется в канву (бляха, `plaque`). Только для заботы, что стоит над крышей (`onRoof`). */
 function markerTexture(kind: Attention): THREE.Texture {
   let tex = markerTextures.get(kind);
@@ -1055,6 +1058,18 @@ export abstract class TribeScene {
   abstract setSelected(id: number | null): void;
 
   // ---------- Синхронизация с состоянием ----------
+
+  /**
+   * Игрок вернулся и закрыл окно «С возвращением»: показать добычу отлучки — `gameSec` игровых секунд. Отклик есть у
+   * города (`city/scene.ts`); у сцены без него — ничего.
+   */
+  welcome(_gameSec: number): void {}
+
+  /**
+   * Регион игрока (`world/theatre`, имя в коде): по нему погода над городом (docs/city.md, 15). Зовёт игра, когда мир
+   * назвал клетку города; сцене без погоды — ничего.
+   */
+  setRegion(_region: string | null): void {}
 
   /**
    * Рисунки значков сменились (`setMarkerArt`): стоящие значки перерисовываются тем же видом заботы. Помнится забота,

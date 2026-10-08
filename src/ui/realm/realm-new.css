@@ -3,12 +3,35 @@
  * Шторка между верхом и низом: верх, тревоги и низ видны и работают.
  */
 .ui-new .nx-realm {
+  /* Появляется снизу и тает на уходе (docs/city.md, 14.5; уходящее — `.leaving`, `ui/parts/leave.tsx`). */
+  animation: realm-in 0.22s cubic-bezier(0.2, 0.8, 0.3, 1) both;
   bottom: calc(var(--nav-h) + var(--safe-bottom));
   padding: 0 calc(12px + var(--safe-right)) 0 calc(12px + var(--safe-left));
   border-top: 1px solid var(--line-2);
   border-radius: 14px 14px 0 0;
   background: #19130e;
   box-shadow: 0 -6px 18px rgba(0, 0, 0, 0.45);
+}
+.ui-new .leaving .nx-realm {
+  animation: realm-out 0.16s ease both;
+}
+@keyframes realm-in {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+}
+@keyframes realm-out {
+  to {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ui-new .nx-realm,
+  .ui-new .leaving .nx-realm {
+    animation-duration: 0.01s;
+  }
 }
 /* Сброс кнопок без веса и только у своих элементов: кнопки разделов (`.btn` и прочие) остаются своими. */
 :where(.nx-rhead, .nx-points, .nx-rtabs, .nx-tech) button {

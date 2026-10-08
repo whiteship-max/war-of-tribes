@@ -6,9 +6,9 @@ import { QUALITIES } from '../quality';
 import { cityPlan, distPoly, insidePoly } from './layout';
 import { buildStatic } from './budget';
 import { wallTops } from './forts';
-import { CITY_SMOKE, CITY_WIND, CityLife, beastGeometry, guardGeometry, personGeometry } from './life';
+import { CITY_SMOKE, CITY_WIND, CityLife, CitySmoke, NIGHT_SHARE, ROUTE_MAX, SMOKE_PUFFS, beastGeometry, guardGeometry, patrolAt, personGeometry, poseAt, type Route } from './life';
 import { HEARTH_LOOK } from '../weather';
-import { LIFE_CAP, LIFE_TRIS } from './spec';
+import { LIFE_CAP, LIFE_TRIS, figureTris } from './spec';
 
 const plan = cityPlan();
 const st = buildStatic(plan, 'medium');
@@ -33,10 +33,21 @@ describe('город: жизнь', () => {
     expect(tris(personGeometry())).toBe(LIFE_TRIS.person);
     expect(tris(guardGeometry())).toBe(LIFE_TRIS.guard);
     expect(tris(beastGeometry())).toBe(LIFE_TRIS.beast);
+    // Низкий — прежние фигуры, без шага: нового на нём нет.
+    expect(tris(personGeometry(true))).toBe(LIFE_TRIS.personLow);
+    expect(tris(guardGeometry(true))).toBe(LIFE_TRIS.guardLow);
+    expect(tris(beastGeometry(true))).toBe(LIFE_TRIS.beastLow);
+    for (const q of QUALITIES) {
+      const life = new CityLife({ plan, chimneys: st.chimneys, flagTops: st.flagTops, quality: q });
+      expect(tris(mesh(life, 'city-people').geometry), q).toBe(figureTris(q).person);
+      expect(tris(mesh(life, 'city-guards').geometry), q).toBe(figureTris(q).guard);
+      expect(tris(mesh(life, 'city-beasts').geometry), q).toBe(figureTris(q).beast);
+      life.dispose();
+    }
   });
 
   it('уровни идут по убыванию: низкий не богаче среднего, средний — высокого', () => {
-    for (const k of ['people', 'guards', 'birds', 'animals', 'smoke'] as const) {
+    for (const k of ['people', 'guards', 'birds', 'animals', 'smoke', 'lanterns', 'carts', 'ducks', 'boats', 'banners'] as const) {
       expect(LIFE_CAP.low[k], k).toBeLessThanOrEqual(LIFE_CAP.medium[k]);
       expect(LIFE_CAP.medium[k], k).toBeLessThanOrEqual(LIFE_CAP.high[k]);
     }
@@ -88,7 +99,8 @@ describe('город: жизнь', () => {
     expect(day).toBe(50);
     life.update(0.1, 0.1, 1, 0);
     const night = mesh(life, 'city-people').count;
-    expect(night).toBeLessThanOrEqual(Math.ceil(day * 0.35));
+    expect(night).toBeLessThanOrEqual(Math.ceil(day * NIGHT_SHARE));
+    expect(night).toBeLessThanOrEqual(Math.ceil(day * 0.25));
     expect(night).toBeGreaterThan(0);
     expect(mesh(life, 'city-guards').count).toBe(guardsDay);
     life.set(100000, 100000, []);
@@ -150,18 +162,99 @@ describe('город: жизнь', () => {
     life.dispose();
   });
 
-  it('у каждой башни флаг; дым идёт не из всех труб и не больше уровня', () => {
+  it('у каждой башни флаг; дым идёт не из всех труб и не больше уровня; зимой топят больше, ночью меньше', () => {
     for (const q of QUALITIES) {
       const life = new CityLife({ plan, chimneys: st.chimneys, flagTops: st.flagTops, quality: q });
       const flags = life.group.getObjectByName('city-flags') as THREE.Mesh;
       expect(tris(flags.geometry)).toBe(st.flagTops.length * LIFE_TRIS.flag);
       expect(st.flagTops.length).toBe(plan.towers.length);
       const smoke = life.group.getObjectByName('city-smoke') as THREE.Points;
-      const puffs = smoke.geometry.attributes.position.count;
-      // Граница области: дым есть, но не из каждой трубы.
-      expect(puffs).toBeGreaterThan(0);
-      expect(puffs / 5).toBeLessThanOrEqual(Math.min(LIFE_CAP[q].smoke, st.chimneys.length * 0.75));
+      const puff = smoke.geometry.attributes.puff;
+      // Порог трубы — у каждого её клуба один; у трубы — `SMOKE_PUFFS` клубов.
+      expect(puff.count % SMOKE_PUFFS).toBe(0);
+      const thr: number[] = [];
+      for (let k = 0; k < puff.count; k += SMOKE_PUFFS) thr.push(puff.getZ(k));
+      // Граница области: дым есть, труб с дымом не больше уровня.
+      expect(thr.length).toBeGreaterThan(0);
+      expect(thr.length).toBeLessThanOrEqual(LIFE_CAP[q].smoke);
+      const burning = (night: number, snow: number): number => thr.filter((t) => t < CitySmoke.share(night, snow)).length;
+      const all = Math.min(LIFE_CAP[q].smoke, st.chimneys.length);
+      // Летним днём топит меньше половины труб города, в мороз — больше, но и тогда не все; ночью огонь прикрыт.
+      expect(burning(0, 0), q).toBeLessThan(st.chimneys.length * 0.5);
+      expect(burning(0, 1), q).toBeGreaterThan(burning(0, 0));
+      expect(burning(0, 1), q).toBeLessThan(all);
+      expect(burning(1, 0), q).toBeLessThan(burning(0, 0));
+      expect(burning(0, 0), q).toBeGreaterThan(0);
       life.dispose();
     }
+  });
+
+  it('прохожие — функция времени: тот же миг — то же место, как бы ни шли кадры; шаг без скачков', () => {
+    const a = new CityLife({ plan, chimneys: st.chimneys, flagTops: st.flagTops, quality: 'medium' });
+    const b = new CityLife({ plan, chimneys: st.chimneys, flagTops: st.flagTops, quality: 'medium' });
+    a.set(1000, 1000, []);
+    b.set(1000, 1000, []);
+    // a — кадрами по 0.1 с до 30 с, b — сразу в 30 с (вошёл в город, вернулся из фона).
+    for (let k = 0; k <= 300; k++) a.update(0.1, k * 0.1, 0, 0);
+    b.update(5, 30, 0, 0);
+    for (const name of ['city-people', 'city-guards']) {
+      const pa = placed(mesh(a, name));
+      const pb = placed(mesh(b, name));
+      expect(pa.length).toBeGreaterThan(0);
+      pa.forEach((p, k) => expect(p.distanceTo(pb[k]), `${name} ${k}`).toBeLessThan(1e-4));
+    }
+    // Без скачков: за 0.05 с никто не уходит дальше тройного шага (1.5 м/с) — и на перекрёстках, и на поворотах маршрута.
+    // Тройного, а не одного: на крутом изломе улицы сдвиг от середины поворачивает вместе с касательной, и внешний край
+    // поворота идёт быстрее середины (до двух шагов у угла улицы вдоль стены). Скачок — это метры за кадр: так сдвиг
+    // прыгал на изломе, пока касательная бралась отрезком (0.5 м за 0.05 с). Граница области: каждый маршрут — на полном
+    // своём круге, туда и обратно (2 · длина / скорость), и маршрут не длиннее своей меры (`ROUTE_MAX`).
+    const L = a as unknown as { routes: (Route | null)[]; paths: Parameters<typeof poseAt>[0] };
+    let max = 0;
+    let checked = 0;
+    for (const r of L.routes) {
+      if (!r) continue;
+      expect(r.len, 'маршрут не длиннее меры').toBeLessThanOrEqual(ROUTE_MAX + 1e-6);
+      const period = (2 * r.len) / r.v;
+      let prev = { ...poseAt(L.paths, r, 0) };
+      for (let t = 0.05; t <= period + 0.05; t += 0.05) {
+        const p = poseAt(L.paths, r, t);
+        max = Math.max(max, Math.hypot(p.x - prev.x, p.z - prev.z));
+        prev = { ...p };
+      }
+      checked++;
+    }
+    expect(checked).toBeGreaterThan(LIFE_CAP.medium.people * 0.6);
+    expect(max, 'шаг за 0.05 с').toBeLessThan(1.5 * 0.05 * 3);
+    a.dispose();
+    b.dispose();
+  });
+
+  it('прохожие ходят по графу улиц: большинство сворачивает на другие улицы и на площадь', () => {
+    const life = new CityLife({ plan, chimneys: st.chimneys, flagTops: st.flagTops, quality: 'high' });
+    const r = (life as unknown as { routes: ({ legs: { path: number }[] } | null)[] }).routes.filter((x) => x !== null);
+    // Граница области: идущих — две трети потолка и больше.
+    expect(r.length).toBeGreaterThan(LIFE_CAP.high.people * 0.6);
+    const many = r.filter((x) => new Set(x!.legs.filter((l) => l.path >= 0).map((l) => l.path)).size > 1).length;
+    expect(many / r.length, 'сворачивают').toBeGreaterThan(0.5);
+    // Через площадь и меж рядов кто-то идёт всегда: пути площади — последние пять в графе.
+    const paths = (life as unknown as { paths: unknown[] }).paths.length;
+    const square = r.filter((x) => x!.legs.some((l) => l.path >= paths - 5)).length;
+    expect(square, 'через площадь').toBeGreaterThan(r.length * 0.25);
+    life.dispose();
+  });
+
+  it('дозор стража — функция времени: в своём отрезке, без скачков, на концах стоит', () => {
+    let prev = patrolAt(0, 0.7, 22, 6, 0.3);
+    let still = 0;
+    // Граница области: два полных круга дозора (2 × (2·44/0.7 + 12) с).
+    const cycle = (2 * 44) / 0.7 + 12;
+    for (let t = 0.05; t < 2 * cycle; t += 0.05) {
+      const g = patrolAt(t, 0.7, 22, 6, 0.3);
+      expect(Math.abs(g.s)).toBeLessThanOrEqual(22 + 1e-9);
+      expect(Math.abs(g.s - prev.s)).toBeLessThan(0.7 * 0.05 + 1e-6);
+      if (g.moving === 0) still++;
+      prev = g;
+    }
+    expect(still * 0.05, 'стоит на концах').toBeGreaterThan(2 * 2 * 6 * 0.9);
   });
 });

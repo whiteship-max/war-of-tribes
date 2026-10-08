@@ -31,6 +31,7 @@ import { energyFullIn, energyShown } from '@/game/sim/minigames';
 import type { RealmView } from '@/ui/realm/open';
 import type { TipContent } from './tip';
 import { dec } from '@/game/num';
+import { weatherLine } from '@/ui/parts/weather';
 
 /** Куда ведут ссылки подсказок: раздел шторки, здание, раздел державы. */
 export interface TipGo {
@@ -113,7 +114,8 @@ export function seasonTip(s: GameState, go: TipGo): TipContent {
   const season = seasonOf(s.time);
   return {
     title: `${SEASON_META[season].name} · день ${dayOf(s.time)}`,
-    body: `${SEASON_META[seasonAfter(season)].name} через ${waitSpan(seasonLeft(s.time))}.`,
+    // Погода над городом — первой строкой (docs/city.md, 15): «Дождь, ветер с моря». Только вид: на хозяйство не влияет.
+    body: `${weatherLine(s)}. ${SEASON_META[seasonAfter(season)].name} через ${waitSpan(seasonLeft(s.time))}.`,
     link: { label: 'Сезон', go: () => go.tab('season') },
   };
 }

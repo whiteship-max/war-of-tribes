@@ -2,6 +2,7 @@ import { useGame } from '@/game/store';
 import { winterForecast, type ResourceForecast } from '@/game/derived';
 import { SEASON_DAYS } from '@/game/data/seasons';
 import { waitDays } from '@/ui/parts/wait';
+import { Leave } from '@/ui/parts/leave';
 
 const n1 = (x: number): string => String(Math.round(x * 10) / 10);
 
@@ -34,15 +35,19 @@ function Stock({ icon, name, f, days }: { icon: string; name: string; f: Resourc
 
 export function WinterModal() {
   const s = useGame((g) => g.s);
-  const dismiss = useGame((g) => g.dismissWinterWarning);
-  const openSeason = useGame((g) => g.openTab);
   const offline = useGame((g) => g.offlineSeconds);
-  if (!s.winterWarning) return null;
   // Модалки делят один слой: наложенное поверх окна офлайна предупреждение
   // закрыло бы его. Флаг живёт в состоянии, поэтому просто ждём своей очереди.
   // События больше не окно — они ждут в почте державы и слоя не занимают.
-  if (offline >= 60 || s.paceNotice) return null;
+  const open = s.winterWarning && !(offline >= 60 || s.paceNotice);
+  // Закрытое окно ещё тает (`leave.tsx`): тело — своим компонентом, его зовут только открытым.
+  return <Leave open={open}>{open && <WinterBody />}</Leave>;
+}
 
+function WinterBody() {
+  const s = useGame((g) => g.s);
+  const dismiss = useGame((g) => g.dismissWinterWarning);
+  const openSeason = useGame((g) => g.openTab);
   const f = winterForecast(s);
   const ready = f.food.ok && f.wood.ok;
 
