@@ -42,7 +42,7 @@ function momentOf(plan: TwPlan, at: string): number {
       case 'loose':
         return b.stones[0].at + b.stones[0].flight * 0.45;
       case 'impact':
-        return firstWall + 0.25;
+        return firstWall + 0.6;
       case 'collapse':
         return chunk + 0.3;
       case 'fall':
@@ -149,6 +149,18 @@ function shot(base: CamState, cam: string, plan: TwPlan): CamState {
       const w = plan.site?.wall;
       if (!w) return base;
       return { tx: w.gateX, tz: w.z - w.inward * 3, dist: 22, yaw: w.inward < 0 ? Math.PI * 0.86 : Math.PI * 0.14, pitch: 0.5 };
+    }
+    // Пролом обстрела (раздел 15): снаружи, вплотную к нему.
+    case 'breach': {
+      const w = plan.site?.wall;
+      const br = plan.barrage?.breach;
+      if (!w || !br) return base;
+      return { tx: br.x, tz: w.z - w.inward * 2, dist: 20, yaw: (w.inward > 0 ? 0 : Math.PI) + 0.35, pitch: 0.42 };
+    }
+    // Машина обстрела вблизи: требушет и расчёт.
+    case 'engine': {
+      const e = plan.barrage?.engines.find((x) => x.kind === 'trebuchet');
+      return e ? { tx: e.x, tz: e.z, dist: 17, yaw: e.yaw + 2.1, pitch: 0.42 } : base;
     }
     default:
       return { ...base, pitch: OVERVIEW_PITCH };

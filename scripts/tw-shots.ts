@@ -105,6 +105,17 @@ const SHOTS: Shot[] = [
   { name: 'joint-melee', query: `${JOINT}&at=melee&cam=top`, why: 'совместный удар сверху: лагерь зажат между дружиной и гарнизоном' },
   { name: 'lair', query: `${LAIR}&at=deploy`, why: 'логово: лагерь в лесу, частокол, шалаши, костры' },
   { name: 'lair-clash', query: `${LAIR}&at=clash&cam=low`, why: 'набег на логово: сшибка у частокола' },
+  // Обстрел перед штурмом (docs/battle_tw.md, раздел 15): пролог со своими часами, камера — своя, пролога.
+  { name: 'bombard', query: `${WALL}&shots=3&at=bombard`, why: 'обстрел: общий план — машины у лагеря, стена, расчёты у ворота' },
+  { name: 'bombard-loose', query: `${WALL}&shots=3&at=loose`, why: 'обстрел: камень в полёте дугой, рычаг требушета вскинут' },
+  { name: 'bombard-impact', query: `${WALL}&shots=3&at=impact`, why: 'обстрел: удар в кладку — пыль, обломки, трещины' },
+  { name: 'bombard-collapse', query: `${WALL}&shots=3&at=collapse`, why: 'обстрел: обвал куска стены, облако до земли' },
+  { name: 'bombard-fall', query: `${WALL}&shots=3&at=fall`, why: 'обстрел: сбитые со стены падают наружу' },
+  { name: 'bombard-breach', query: `${WALL}&shots=3&at=smoke`, why: 'обстрел: пролом во всю величину, дым над городом' },
+  { name: 'bombard-wall', query: `${WALL}&shots=3&at=deploy&cam=breach`, why: 'штурм после обстрела: пролом в стене, обрушенные куски у подножия' },
+  { name: 'bombard-engine', query: `${WALL}&shots=3&at=loose&cam=engine`, why: 'требушет вблизи: рычаг вскинут, расчёт у ворота' },
+  { name: 'bombard-lair', query: `${LAIR}&shots=2&at=impact`, why: 'обстрел логова: камни в шалаши, дым' },
+  { name: 'bombard-lair-top', query: `${LAIR}&shots=2&at=smoke&cam=top`, why: 'обстрел логова сверху: куда легли камни, дым над шалашами' },
 ];
 
 const DEFAULT_SHOTS = ['deploy', 'volley', 'clash', 'clash-near', 'ford-clash'];

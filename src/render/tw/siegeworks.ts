@@ -20,15 +20,17 @@ import { ENGINE, FALL_TIME, armAngle, breachColumns, chunkFall, stoneAt, winchin
 /** Что есть на уровне: обломков и клубов на удар, дым, трещины, тени машин. */
 interface Detail {
   debris: number;
+  /** Камней осыпи у подножия на кусок стены. */
+  rubble: number;
   puffs: number;
   smoke: number;
   cracks: boolean;
   shadow: boolean;
 }
 const DETAIL: Record<Quality, Detail> = {
-  low: { debris: 0, puffs: 3, smoke: 0, cracks: false, shadow: false },
-  medium: { debris: 8, puffs: 6, smoke: 9, cracks: true, shadow: true },
-  high: { debris: 14, puffs: 9, smoke: 14, cracks: true, shadow: true },
+  low: { debris: 0, rubble: 6, puffs: 3, smoke: 0, cracks: false, shadow: false },
+  medium: { debris: 8, rubble: 14, puffs: 6, smoke: 9, cracks: true, shadow: true },
+  high: { debris: 14, rubble: 22, puffs: 9, smoke: 14, cracks: true, shadow: true },
 };
 
 /** Обломок летит столько, клуб удара живёт столько, клуб обвала — столько. */
@@ -40,12 +42,15 @@ const SMOKE_LIFE = 6;
 const SMOKE_RISE = 1.5;
 const WIND = 0.45;
 const GRAVITY = 9.8;
-/** Обрушенный кусок: на сколько клонится наружу и отъезжает от стены, когда лёг. */
-const SLAB_TILT = 1.3;
-const SLAB_OUT = 1.6;
+/** Обрушенный кусок: на сколько клонится наружу, отъезжает от стены и оседает (доля высоты), когда лёг. */
+const SLAB_TILT = 0.5;
+const SLAB_OUT = 1.4;
+const SLAB_SQUAT = 0.72;
 
 const DUST = 0xb6a080;
-const SMOKE = 0x4a4642;
+const SMOKE = 0x6f6a63;
+/** Огонь у основания столба: тёплый конус без света (лампа на сцене одна, как у костров лагеря). */
+const FIRE = 0xf09a3a;
 
 export class Siegeworks {
   readonly group = new THREE.Group();
@@ -56,8 +61,11 @@ export class Siegeworks {
   private debris: THREE.InstancedMesh | null = null;
   private puffs: THREE.InstancedMesh;
   private smoke: THREE.InstancedMesh | null = null;
+  private fire: THREE.InstancedMesh | null = null;
   private cracks: THREE.InstancedMesh | null = null;
-  private chunks: { mesh: THREE.Mesh; pivot: THREE.Vector3; ground: number; at: number }[] = [];
+  private chunks: { mesh: THREE.Mesh; pivot: THREE.Vector3; ground: number; at: number; spans: [number, number][] }[] = [];
+  /** Осыпь у подножия пролома: камни встают с обвалом своего куска и лежат весь бой. */
+  private rubble: THREE.InstancedMesh | null = null;
   private crew: CrowdExtras | null = null;
   private fallers: CrowdExtras | null = null;
   private M = new THREE.Matrix4();
@@ -101,10 +109,13 @@ export class Siegeworks {
     this.puffs = this.instanced(pg, pm, b.stones.length * this.detail.puffs + (b.breach?.chunks.length ?? 0) * this.detail.puffs * 3, 'tw-barrage-dust', false);
     this.puffs.renderOrder = 2;
     if (this.detail.smoke > 0 && b.smoke.length > 0) {
-      const sm = new THREE.MeshBasicMaterial({ color: SMOKE, transparent: true, opacity: 0.38, depthWrite: false });
+      const sm = new THREE.MeshBasicMaterial({ color: SMOKE, transparent: true, opacity: 0.42, depthWrite: false });
       sm.name = 'tw-smoke';
       this.smoke = this.instanced(new THREE.CircleGeometry(1, 10), sm, b.smoke.length * this.detail.smoke, 'tw-smoke', false);
       this.smoke.renderOrder = 3;
+      const fm = new THREE.MeshBasicMaterial({ color: FIRE });
+      fm.name = 'tw-fire';
+      this.fire = this.instanced(new THREE.ConeGeometry(0.55, 1.4, 5).translate(0, 0.7, 0), fm, b.smoke.length * 3, 'tw-fire', false);
     }
     const w = plan.site?.wall ?? null;
     if (w && b.breach) {
@@ -258,7 +269,16 @@ export class Siegeworks {
       mesh.position.copy(pivot);
       this.group.add(mesh);
       this.disposables.push(geo);
-      this.chunks.push({ mesh, pivot, ground: heightAt(this.plan.field, pivot.x, w.z - s * 2), at: ch.at });
+      this.chunks.push({ mesh, pivot, ground: heightAt(this.plan.field, pivot.x, w.z - s * 2), at: ch.at, spans: ch.spans });
+    }
+    const n = this.chunks.length * this.detail.rubble;
+    if (n > 0) {
+      const rm = new THREE.MeshLambertMaterial({ color: 0xffffff, flatShading: true });
+      rm.name = 'tw-rubble';
+      this.rubble = this.instanced(new THREE.IcosahedronGeometry(0.5, 0), rm, n, 'tw-rubble', false);
+      this.rubble.receiveShadow = true;
+      const C = new THREE.Color();
+      for (let i = 0; i < n; i++) this.rubble.setColorAt(i, C.setHex(i % 3 === 0 ? 0xb8ae9c : i % 3 === 1 ? 0xd6ccba : 0x9a917f));
     }
   }
 
@@ -427,11 +447,34 @@ export class Siegeworks {
     const w = this.plan.site?.wall;
     if (!w) return;
     const outward = -w.inward;
-    for (const c of this.chunks) {
+    const rb = this.rubble;
+    let n = 0;
+    const per = this.detail.rubble;
+    for (const [ci, c] of this.chunks.entries()) {
       const u = chunkFall({ spans: [], at: c.at }, t);
-      // Клонится наружу вокруг нижней кромки, оседает на землю у подножия и отъезжает от стены.
+      // Клонится наружу вокруг нижней кромки, рассыпается (оседает) и ложится грудой у подножия, отъехав от стены.
       c.mesh.rotation.set(outward * SLAB_TILT * u, 0, 0);
-      c.mesh.position.set(c.pivot.x, c.pivot.y + (c.ground + 0.35 - c.pivot.y) * u, c.pivot.z + outward * SLAB_OUT * u);
+      c.mesh.scale.set(1, 1 - SLAB_SQUAT * u, 1 + 0.4 * u);
+      c.mesh.position.set(c.pivot.x, c.pivot.y + (c.ground - 0.2 - c.pivot.y) * u, c.pivot.z + outward * SLAB_OUT * u);
+      if (!rb || u < 0.35) continue;
+      // Осыпь: камни встают из-под облака, крупные — ближе к стене, мелкие — дальше по склону груды.
+      const grow = Math.min(1, (u - 0.35) / 0.4);
+      for (let j = 0; j < per; j++) {
+        const k = ci * 101 + j;
+        const [a, b] = c.spans[j % c.spans.length];
+        const x = a - 0.6 + (b - a + 1.2) * hash(k, 1, 95);
+        const d = 0.4 + Math.pow(hash(k, 2, 96), 1.4) * 3.6;
+        const z = w.z + outward * d;
+        const r = (1.25 - d * 0.22) * (0.5 + 0.7 * hash(k, 3, 97)) * grow;
+        this.V.set(x, heightAt(this.plan.field, x, z) + r * 0.25, z);
+        this.Q.setFromAxisAngle(this.X, hash(k, 4, 98) * 6).multiply(this.Q2.setFromAxisAngle(this.Y, hash(k, 5, 99) * 6));
+        rb.setMatrixAt(n++, this.M.compose(this.V, this.Q, this.S.set(r, r * 0.7, r)));
+      }
+    }
+    if (rb) {
+      rb.count = n;
+      rb.visible = n > 0;
+      rb.instanceMatrix.needsUpdate = true;
     }
   }
 
@@ -464,6 +507,24 @@ export class Siegeworks {
     sm.count = n;
     sm.visible = n > 0;
     sm.instanceMatrix.needsUpdate = true;
+    // Огонь: три языка на столб, дрожат каждый в своём такте.
+    const fi = this.fire;
+    if (fi) {
+      let k = 0;
+      for (const [ci, col] of this.b.smoke.entries()) {
+        if (t < col.from) continue;
+        const grow = Math.min(1, (t - col.from) / 1.5);
+        for (let j = 0; j < 3; j++) {
+          const fl = 0.75 + 0.25 * Math.sin(t * (9 + j * 3.7) + ci * 2.1 + j) * Math.sin(t * 4.3 + j);
+          const r = grow * (j === 0 ? 1 : 0.65) * col.size;
+          this.V.set(col.x + (j - 1) * 0.5, col.y - 0.6, col.z + (j % 2) * 0.4 - 0.2);
+          fi.setMatrixAt(k++, this.M.compose(this.V, this.Q.identity(), this.S.set(r, r * fl * (j === 0 ? 1.3 : 1), r)));
+        }
+      }
+      fi.count = k;
+      fi.visible = k > 0;
+      fi.instanceMatrix.needsUpdate = true;
+    }
   }
 
   private updateFigures(t: number): void {

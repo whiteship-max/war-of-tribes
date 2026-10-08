@@ -188,7 +188,8 @@ export function breachDrop(br: TwBreach, x: number, seed: number): number {
   const d = Math.abs(x - br.x);
   if (d >= half) return 0;
   const shape = Math.pow(1 - d / half, 0.55);
-  const rag = 0.82 + 0.18 * hash(seed, Math.floor(x * 1.3) + 997, 71);
+  // Рваный край: соседние столбцы обрываются на разной высоте, а не ступенькой.
+  const rag = 0.6 + 0.4 * hash(seed, Math.floor(x * 1.3) + 997, 71);
   return br.depth * shape * rag;
 }
 
@@ -448,12 +449,15 @@ function wallBarrage(ctx: Ctx, w: TwWall): TwBarrage {
   const yawOut = w.inward > 0 ? 0 : Math.PI;
   const firstWall = stones.filter((s) => s.hit === 'wall').reduce((m, s) => Math.min(m, s.at + s.flight), Infinity);
   const lastCollapse = chunks.reduce((m, c) => Math.max(m, c.at), 0);
-  const engBox = boxOf(engines.map((e) => [e.x, e.z]), [[bx - 8, w.z], [bx + 8, w.z]], 5);
+  // Общий план — из-за машин на стену: машины крупно, стена за ними в глубине (перспектива сама её уменьшит).
+  const engZ = engines.reduce((s, e) => s + e.z, 0) / engines.length;
+  const toward = w.z + (engZ - w.z) * 0.55;
+  const engBox = boxOf(engines.map((e) => [e.x, e.z]), [[bx * 0.6, toward]], 4);
   const near = (half: number): TwCamKey['box'] => ({ minX: bx - half, maxX: bx + half, minZ: Math.min(w.z, w.z + outward * 6), maxZ: Math.max(w.z, w.z + outward * 6) });
   const cam: TwCamKey[] = [
-    { at: 0, box: engBox, yaw: yawOut + 0.75, pitch: 0.42 },
-    { at: Math.max(1.5, firstWall - 0.4), box: near(9), yaw: yawOut + 0.38, pitch: 0.42 },
-    { at: Math.max(2.5, lastCollapse - 0.9), box: near(6), yaw: yawOut - 0.3, pitch: 0.4 },
+    { at: 0, box: engBox, yaw: yawOut + 0.45, pitch: 0.46 },
+    { at: Math.max(1.5, firstWall - 0.4), box: near(7), yaw: yawOut + 0.38, pitch: 0.42 },
+    { at: Math.max(2.5, lastCollapse - 0.9), box: near(5), yaw: yawOut - 0.3, pitch: 0.4 },
   ];
   return {
     shots: n,
@@ -520,8 +524,8 @@ function lairBarrage(ctx: Ctx): TwBarrage {
   const hx = hit ? hit.x1 : cx;
   const hz = hit ? hit.z1 : cz;
   const cam: TwCamKey[] = [
-    { at: 0, box: boxOf(engines.map((e) => [e.x, e.z]), [[cx - 10, cz], [cx + 10, cz]], 5), yaw: yawIn + 0.7, pitch: 0.44 },
-    { at: Math.max(1.5, firstHut - 0.4), box: { minX: hx - 10, maxX: hx + 10, minZ: hz - 7, maxZ: hz + 7 }, yaw: yawIn + 0.35, pitch: 0.4 },
+    { at: 0, box: boxOf(engines.map((e) => [e.x, e.z]), [[cx * 0.4, (engines[0].z + cz) / 2]], 4), yaw: yawIn + 0.45, pitch: 0.46 },
+    { at: Math.max(1.5, firstHut - 0.4), box: { minX: hx - 6, maxX: hx + 6, minZ: hz - 5, maxZ: hz + 5 }, yaw: yawIn + 0.35, pitch: 0.44 },
   ];
   return {
     shots: n,
