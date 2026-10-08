@@ -310,9 +310,11 @@ export const cityOr = (raw: unknown): string => cityName(raw) ?? DEFAULT_CITY;
  * - `raid` — набег логова идёт на город (нападают); `raid-fight` — набег дошёл до города
  *   (бой был, итог в игре); `siege-fall` — хлеб под лагерем логова кончился, город взят;
  * - `war` — отряд соседа идёт на город (нападают); `war-fight` — бой между игроками был;
- *   `war-fall` — осаждённый соседом город пал от голода.
+ *   `war-fall` — осаждённый соседом город пал от голода;
+ * - `war-spy` — чужой лазутчик напал на город: поджёг склад, обокрал или поднял смуту (docs/spy_pvp.md). Разведка и
+ *   пойманный лазутчик нападением не считаются: город ничего не потерял.
  */
-export const NOTICE_KINDS = ['raid', 'raid-fight', 'siege-fall', 'war', 'war-fight', 'war-fall'] as const;
+export const NOTICE_KINDS = ['raid', 'raid-fight', 'siege-fall', 'war', 'war-fight', 'war-fall', 'war-spy'] as const;
 export type NoticeKind = (typeof NOTICE_KINDS)[number];
 
 /** Что может прислать клиент. Войну знает только сервер: её поручения клиент составить не может. */
@@ -553,6 +555,28 @@ export interface WarSheet {
    * а слепка новее нет, — сервер прибавит вернувшихся сам (`war.liveSheet`).
    */
   out?: string[];
+  /**
+   * Тайная служба города (docs/spy_pvp.md): Дозор, скрытность и черты своего лазутчика и стоит ли он дома. Нападающему —
+   * шанс, гибель и поимка его дела; защитнику — охрана от чужого. Нет поля (слепок старого клиента) — лазутчика против
+   * этого города не послать и свой не отправить.
+   */
+  watch?: SpyWatch;
+  /** Игровое время деревни в минуту слепка, секунды (`GameState.time`): час и время года в городе — в гибели лазутчика. */
+  time?: number;
+}
+
+/** Тайная служба города в слепке обороны (`WarSheet.watch`). */
+export interface SpyWatch {
+  /** Дозор (`intelKeen`, от единицы): шанс своего дела и охрана от чужого. */
+  keen: number;
+  /** Скрытность своего лазутчика множителем гибели, 0..1 (`PlayerProfile.veil`). */
+  veil: number;
+  /** Скрытность долей: какой провал проходит незамеченным (`PlayerProfile.stealth`). */
+  stealth: number;
+  /** Черта «сколько его держат» множителем срока плена (`LocalWorld.spyTimes`). */
+  held: number;
+  /** Свой лазутчик дома — у ворот или в городе: он и охраняет. */
+  home: boolean;
 }
 
 /** Войско в походе: дружина полководца и то, что он кладёт в бой. */
@@ -754,7 +778,96 @@ export interface WarResponse {
   /** Темп войны (`TRIBE_WAR_PACE`): во сколько раз быстрее походы и голод. Нет — 1. */
   pace?: number;
   error?: string;
+  /** Дела своего лазутчика у соседей и чужих — у нас, которые мы видим (docs/spy_pvp.md). Нет — нет ни одного. */
+  spies?: SpyView[];
+  /** Меню дел против города, если о нём спросили (`GET /api/war?spy=<замок>`). */
+  spyMenu?: SpyMenu;
 }
+
+// ---------- Лазутчик против соседа (docs/spy_pvp.md) ----------
+//
+// Исход считает сервер, как бой: в приказе — какое дело и к какому городу, отметка энергии и показанные числа (чтобы
+// сервер отказал, если обстановка сменилась), а исхода нет ни в каком виде. Кости — из номера дела, который назначает
+// сервер.
+
+export const RIVAL_DEEDS = ['look', 'fire', 'theft', 'unrest'] as const;
+export type RivalDeed = (typeof RIVAL_DEEDS)[number];
+
+/** Где дело: лазутчик идёт к городу, его держат там в плену, идёт домой, дело кончено. */
+export type SpyPhase = 'go' | 'held' | 'back' | 'done';
+
+/** Что разведал лазутчик: войско и оборона соседа точно, на минуту дела. */
+export interface SpyIntel {
+  home: Counts;
+  army: Counts;
+  militia: number;
+  archers: number;
+  pop: number;
+  power: number;
+}
+
+/** Чем кончилось дело — посчитано сервером в минуту прихода. */
+export interface SpyOut {
+  at: number;
+  ok: boolean;
+  slipped: boolean;
+  held: boolean;
+  dead: boolean;
+  /** Города больше нет в игре — дела не было, лазутчик идёт домой. */
+  gone?: true;
+  intel?: SpyIntel;
+  burned?: Counts;
+  stolen?: Counts;
+  lured?: number;
+  morale?: number;
+}
+
+/** Дело лазутчика глазами стороны. Защитник видит дело, только если оно его задело или лазутчика поймали. */
+export interface SpyView {
+  id: string;
+  role: 'atk' | 'def';
+  deed: RivalDeed;
+  /** Чей лазутчик. У защитника — пусто, пока лазутчика не поймали (удача и тихий провал имени не оставляют). */
+  atkCastle: string;
+  atkCity: string;
+  defCastle: string;
+  defCity: string;
+  from: { x: number; y: number };
+  to: { x: number; y: number };
+  sentAt: number;
+  arriveAt: number;
+  /** Показанные и применённые числа: шанс и гибель, замороженные при приказе. */
+  chance: number;
+  peril: number;
+  phase: SpyPhase;
+  /** Энергия лазутчика — отметка сервера (у нападающего). */
+  energy?: WarEnergy;
+  releaseAt?: number;
+  backAt?: number;
+  endAt?: number;
+  out?: SpyOut;
+}
+
+/** Строка меню дел против города. */
+export interface SpyOption {
+  deed: RivalDeed;
+  can: boolean;
+  reason: string | null;
+  chance: number;
+  peril: number;
+  why: string[];
+}
+
+/** Меню дел против города: на какую минуту посчитано и сколько идти (с темпом войны). */
+export interface SpyMenu {
+  target: string;
+  at: number;
+  walkMs: number;
+  options: SpyOption[];
+}
+
+/** Отметка дела в списке принятого (`WarSheet.seen`): одна на клиент и на сервер. */
+export const spySeenId = (id: string): string => `${id}.spy`;
 
 /** Приказы войны. Исхода в них нет ни в каком виде — его считает сервер. */
 export type WarOrder =
@@ -764,7 +877,8 @@ export type WarOrder =
   | { op: 'retreat'; id: string }
   | { op: 'sortie'; id: string; troops: Counts }
   | { op: 'craft'; id: string; act: WarCraftAct }
-  | { op: 'strike'; id: string; army: WarArmy; joint: boolean; walkMs: number };
+  | { op: 'strike'; id: string; army: WarArmy; joint: boolean; walkMs: number }
+  | { op: 'spy'; target: string; deed: RivalDeed; energy?: WarEnergy; shown: { chance: number; peril: number }; at: number };
 
 /** Отметка падения города в списке принятого (`WarSheet.seen`): одна на клиент и на сервер. */
 export const warFallId = (war: string): string => `${war}.fall`;
@@ -836,6 +950,22 @@ export function readSheet(v: unknown): WarSheet | null {
     seen: Array.isArray(r.seen) ? r.seen.filter((x): x is string => typeof x === 'string' && x.length <= 48).slice(-WAR_SEEN_MAX) : [],
     ...(r.retinue && typeof r.retinue === 'object' ? { retinue: readCounts(r.retinue) } : {}),
     ...(Array.isArray(r.out) ? { out: r.out.filter((x): x is string => typeof x === 'string' && x.length <= 48).slice(-WAR_OUT_MAX) } : {}),
+    ...(readSpyWatch(r.watch) ? { watch: readSpyWatch(r.watch) } : {}),
+    ...(num(r.time) !== null ? { time: real(r.time, 1e12) } : {}),
+  };
+}
+
+/** Тайная служба из слепка: новый объект; Дозор от единицы, доли — 0..1. Нет или мусор — нет. */
+function readSpyWatch(v: unknown): SpyWatch | undefined {
+  if (!v || typeof v !== 'object') return undefined;
+  const r = v as Record<string, unknown>;
+  if (num(r.keen) === null) return undefined;
+  return {
+    keen: Math.max(1, real(r.keen, 100)),
+    veil: Math.min(1, real(r.veil ?? 1, 1)),
+    stealth: Math.min(1, real(r.stealth, 1)),
+    held: Math.max(0.1, real(r.held ?? 1, 10)),
+    home: r.home === true,
   };
 }
 
@@ -891,6 +1021,18 @@ export function readWarOrder(v: unknown): WarOrder | null {
       const walk = num(r.walkMs);
       return id && army && walk !== null
         ? { op: 'strike', id, army, joint: r.joint === true, walkMs: Math.min(24 * 3600_000, Math.max(0, walk)) }
+        : null;
+    }
+    case 'spy': {
+      const target = str(r.target, 64);
+      const deed = RIVAL_DEEDS.find((d) => d === r.deed);
+      const shown = (r.shown && typeof r.shown === 'object' ? r.shown : {}) as Record<string, unknown>;
+      const chance = num(shown.chance);
+      const peril = num(shown.peril);
+      const at = num(r.at);
+      const energy = readEnergy(r.energy);
+      return target && deed && chance !== null && peril !== null && at !== null
+        ? { op: 'spy', target, deed, shown: { chance, peril }, at, ...(energy ? { energy } : {}) }
         : null;
     }
     default:

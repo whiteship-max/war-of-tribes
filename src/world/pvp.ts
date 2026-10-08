@@ -23,6 +23,13 @@ export const WAR_GROUND_SEED = 0;
 export const warWalkMs = (from: Coord, to: Coord): number =>
   Math.round(realMs(travelTime(distance(from, to), terrainFactor(WAR_GROUND_SEED, from, to), FIGURE_BY_ID.general.speed)));
 
+/**
+ * Сколько лазутчик идёт от замка до замка, мс мира: та же формула и тот же сид земли, что у похода, со скоростью
+ * лазутчика (docs/spy_pvp.md). Путь один на обе стороны и на сервер.
+ */
+export const spyWalkMs = (from: Coord, to: Coord): number =>
+  Math.round(realMs(travelTime(distance(from, to), terrainFactor(WAR_GROUND_SEED, from, to), FIGURE_BY_ID.spy.speed)));
+
 /** Где войско на пути из `from` в `to` в минуту `at`. */
 export function warAt(from: Coord, to: Coord, departAt: number, arriveAt: number, at: number): Coord {
   const span = Math.max(1, arriveAt - departAt);

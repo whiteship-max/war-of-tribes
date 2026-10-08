@@ -7,7 +7,8 @@
 // выводятся из него в момент вопроса.
 import { seeded } from '@/game/sim/random';
 import { hashId } from './diplomacy';
-import type { SpyActionId } from './types';
+import type { RivalDeedId, SpyActionId } from './types';
+import { RIVAL_DEED_BY_ID } from './data/spy';
 import {
   REVOLT_DURATION,
   REVOLT_POWER_LOSS,
@@ -34,7 +35,8 @@ export function guardOf(power: number, castle: boolean): number {
 }
 
 export interface SpyContext {
-  action: SpyActionId;
+  /** Дело: у логова (`SpyActionId`) или у города игрока (`RivalDeedId`, docs/spy_pvp.md) — одна формула шанса. */
+  action: SpyActionId | RivalDeedId;
   /** Во сколько раз лучше работает разведка игрока: уровень Дозора. */
   keen: number;
   /** Стража цели — `guardOf`. */
@@ -44,12 +46,22 @@ export interface SpyContext {
 }
 
 /**
+ * Во сколько раз дело труднее пробы гарнизона. Бунт — `SPY_REVOLT_HARDER`; дела против игрока — своей строкой
+ * таблицы (`data/spy.RIVAL_DEEDS`). Одна мерка трудности на оба списка дел.
+ */
+export function spyHard(action: SpyActionId | RivalDeedId): number {
+  if (action === 'probe') return 1;
+  if (action === 'revolt') return SPY_REVOLT_HARDER;
+  return RIVAL_DEED_BY_ID[action].hard;
+}
+
+/**
  * Шанс. Три входа и ровно три: уровень лазутчика (Дозор), стража цели и
  * расстояние. Верного дела не бывает, безнадёжного тоже — иначе приказ
  * превращается либо в кнопку, либо в запрет.
  */
 export function spyChance(ctx: SpyContext): number {
-  const base = SPY_PROBE_BASE * (ctx.action === 'revolt' ? SPY_REVOLT_HARDER : 1);
+  const base = SPY_PROBE_BASE * spyHard(ctx.action);
   const reach = 1 / (1 + Math.max(0, ctx.distance) / SPY_REACH);
   const raw = (base * Math.max(0.1, ctx.keen) * reach) / Math.max(0.1, ctx.guard);
   return clamp(raw, SPY_CHANCE_MIN, SPY_CHANCE_MAX);

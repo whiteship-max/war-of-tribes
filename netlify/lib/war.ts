@@ -33,13 +33,32 @@ import {
   type WarOrder,
   type WarSheet,
   type WarView,
+  RIVAL_DEEDS,
+  spySeenId,
+  type RivalDeed,
+  type SpyMenu,
+  type SpyOption,
+  type SpyView,
 } from './contract.js';
 import { stackTotal, type Pips, type Stack } from '../../src/battle/index.js';
 import { troopTotal, type TroopStack } from '../../src/game/battle/kinds.js';
 import { kindsOf, troopLosses, troopPower } from '../../src/game/battle/price.js';
 import { resolveField } from '../../src/world/battle.js';
 import { campFight, defenceKinds, homeLosses } from '../../src/world/fights.js';
-import { foodLeft, warAt, warWalkMs } from '../../src/world/pvp.js';
+import { foodLeft, spyWalkMs, warAt, warWalkMs } from '../../src/world/pvp.js';
+import { distance } from '../../src/world/geo.js';
+import {
+  homePowerOf,
+  rivalChance,
+  rivalFate,
+  rivalGuard,
+  rivalHarm,
+  rivalHostile,
+  rivalPeril,
+  rivalPerilCase,
+  rivalRolls,
+} from '../../src/world/rivalspy.js';
+import { gameSecondsOfMs } from '../../src/game/pace.js';
 import { openSiege, siegeSince, starvesAt, type SiegeWindow } from '../../src/world/siege.js';
 import { craftAfter, craftBlock, craftDone, fortFaces, garrisonWear, wallMen, type Craft } from '../../src/world/siegecraft.js';
 import { burnImmuneUntil, fate, fateBlock, fallSeed, homeLoss, winnerGain } from '../../src/world/spoils.js';
@@ -49,7 +68,7 @@ import { weakCity } from '../../src/world/lairs.js';
 import { inHomeTheatre } from '../../src/world/theatre/theatre.js';
 import { gateBusyText, playerWood } from '../../src/world/works.js';
 import { stackCarry, stackEscort } from '../../src/world/data/units.js';
-import { SIEGE_IMMUNE, SIEGE_ROUT } from '../../src/world/data/tuning.js';
+import { PERIL_MEMORY, SIEGE_IMMUNE, SIEGE_ROUT, SPY_HELD } from '../../src/world/data/tuning.js';
 import { bookLive, least, over, rulePips, ruleResolve, type ArmyBook } from './book.js';
 
 /** Война в хранилище: вид для игроков плюс ключи сторон. Ключи наружу не уходят никогда (`viewOf`). */
@@ -68,6 +87,21 @@ export interface WarFile {
    * войнам эпохи, а не только по лежащим (docs/rating.md). Нет поля — ничего ещё не убирали.
    */
   past?: Record<string, WarTally>;
+  /** Дела лазутчиков против соседей (docs/spy_pvp.md). Нет поля — ни одного ещё не было. */
+  spies?: SpyRow[];
+}
+
+/**
+ * Дело лазутчика в хранилище: вид для игроков плюс ключи сторон и то, что заморожено при приказе (скрытность и срок
+ * плена нападающего). Ключи и замороженное наружу не уходят (`spyViewOf`).
+ */
+export interface SpyRow extends Omit<SpyView, 'role'> {
+  atk: string;
+  def: string;
+  /** Скрытность нападающего долей (`agents.slipped`) — на минуту приказа. */
+  stealth: number;
+  /** Сколько держат в плену, мс мира с темпом войны — на минуту приказа. */
+  heldMs: number;
 }
 
 /** Победы игрока в боях войны и взятые им города. */
@@ -102,7 +136,24 @@ export function readWars(raw: unknown): WarFile {
       if (n(x.won) + n(x.taken) > 0) past[k] = { won: n(x.won), taken: n(x.taken) };
     }
   }
-  return { v: 1, seq: Math.max(0, Math.floor(Number(r.seq) || 0)), wars, ...(Object.keys(past).length ? { past } : {}) };
+  const spies = Array.isArray(r.spies)
+    ? r.spies.filter(
+        (x): x is SpyRow =>
+          Boolean(x) &&
+          typeof x.id === 'string' &&
+          typeof x.atk === 'string' &&
+          typeof x.def === 'string' &&
+          typeof x.phase === 'string' &&
+          RIVAL_DEEDS.includes(x.deed),
+      )
+    : [];
+  return {
+    v: 1,
+    seq: Math.max(0, Math.floor(Number(r.seq) || 0)),
+    wars,
+    ...(Object.keys(past).length ? { past } : {}),
+    ...(spies.length ? { spies } : {}),
+  };
 }
 
 /**
@@ -257,6 +308,23 @@ function claimedSheet(file: WarFile, key: string, s: SheetAt, at: number): WarSh
       bonded = Math.max(0, bonded - f.bondedLost);
       pop = Math.max(1, pop - f.popLost);
       for (const x of f.fallen) if (levels[x.id] !== undefined) levels[x.id] = Math.min(levels[x.id], x.to);
+    }
+  }
+  // Дела лазутчиков, ещё не принятые этим городом (docs/spy_pvp.md): у соседа — сгоревшее, унесённое и ушедшие люди; у
+  // нападающего — ровно унесённое и пришедшие люди. Переход, а не начисление: одна запись `stolen` на обе стороны.
+  for (const sp of file.spies ?? []) {
+    const o = sp.out;
+    if (!o || seen.has(spySeenId(sp.id))) continue;
+    const { gold: took, ...goods } = o.stolen ?? {};
+    if (sp.def === key) {
+      stock = minus(minus(stock, o.burned ?? {}), goods);
+      gold = Math.max(0, gold - (took ?? 0));
+      pop = Math.max(1, pop - (o.lured ?? 0));
+    }
+    if (sp.atk === key) {
+      stock = plus(stock, goods);
+      gold += took ?? 0;
+      pop += o.lured ?? 0;
     }
   }
   let pips = s.sheet.pips;
@@ -553,6 +621,7 @@ export function dueKeys(file: WarFile, now: number): string[] {
     if (w.phase === 'march' && w.arriveAt <= now) keys.add(w.def);
     if (w.phase === 'camp' && ((w.starvesAt ?? Infinity) <= now || (w.strike && w.strike.at <= now))) keys.add(w.def);
   }
+  for (const sp of file.spies ?? []) if (sp.phase === 'go' && sp.arriveAt <= now) keys.add(sp.def);
   return [...keys];
 }
 
@@ -614,6 +683,7 @@ export function advance(file: WarFile, now: number, sheets: ReadonlyMap<string, 
       break;
     }
   }
+  if (advanceSpies(file, now, sheets)) changed = true;
   return changed;
 }
 
@@ -625,6 +695,10 @@ export function pruneWars(file: WarFile, now: number): void {
     const keep = file.wars.filter(active);
     const done = file.wars.filter((w) => !active(w)).slice(-(Math.max(0, WAR_MAX - keep.length)));
     file.wars = file.wars.filter((w) => keep.includes(w) || done.includes(w));
+  }
+  if (file.spies) {
+    const keep = file.spies.filter((x) => x.phase !== 'done' || now - (x.endAt ?? x.sentAt) <= WAR_KEEP_MS).slice(-WAR_MAX);
+    if (keep.length !== file.spies.length) file.spies = keep;
   }
   // Убранная война уходит в итоги эпохи: рейтинг её побед не теряет (docs/rating.md).
   if (file.wars.length === was.length) return;
@@ -676,6 +750,8 @@ export function applyOrder(file: WarFile, key: string, order: WarOrder, now: num
   switch (order.op) {
     case 'march':
       return march(file, key, order, now, ctx);
+    case 'spy':
+      return spyOrder(file, key, order, now, ctx);
     case 'recall': {
       const w = theirs(file, order.id, key, 'atk');
       if (!w || w.phase !== 'march') return 'Войско уже не в пути.';
@@ -904,6 +980,7 @@ export function newsOf(w: WarRow): WarNews[] {
 export function newsMap(file: WarFile): Map<string, WarNews> {
   const out = new Map<string, WarNews>();
   for (const w of file.wars) for (const n of newsOf(w)) out.set(`${n.player}/${n.item.key}`, n);
+  for (const sp of file.spies ?? []) for (const n of spyNewsOf(sp)) out.set(`${n.player}/${n.item.key}`, n);
   return out;
 }
 
@@ -918,4 +995,250 @@ export function newsDiff(before: Map<string, WarNews>, after: Map<string, WarNew
   for (const [k, n] of after) if (!before.has(k)) at(n.player).add.push(n.item);
   for (const [k, n] of before) if (!after.has(k)) at(n.player).drop.push(n.item.key);
   return out;
+}
+
+// ------------------------------------------------ лазутчик против соседа (docs/spy_pvp.md) ---
+//
+// Дело лазутчика — как поход: приказ при выходе (какое дело, к какому городу), приход назначен временем, исход — в
+// минуту прихода, при первом обращении любой из сторон (`advanceSpies`). Шанс и гибель замораживаются при приказе —
+// игрок видел их в меню (`spyMenuOf`), и применяются ровно они; что дело сделало с городом, считается по слепку обороны
+// в минуту прихода (`rivalHarm`). Кости — из номера дела (`rivalRolls`): тот же номер даёт тот же исход у кого угодно.
+
+/** Свежесть меню: приказ исполняется по минуте меню, если ей не больше стольких мс (как `OrderOption.at` у логова). */
+export const SPY_SHOWN_FRESH = 10_000;
+
+/** Путь лазутчика между двумя клетками с темпом войны. */
+const spyWalk = (from: { x: number; y: number }, to: { x: number; y: number }): number => Math.round(spyWalkMs(from, to) / pace);
+
+const spyActive = (x: SpyRow): boolean => x.phase !== 'done';
+
+/** Лазутчик города дома в минуту `at`: слепок говорит, а свои дела, которых слепок ещё не знал, — поправляют. */
+function spyHomeAt(file: WarFile, key: string, s: SheetAt, at: number): boolean {
+  let home = s.sheet.watch?.home ?? false;
+  for (const x of file.spies ?? []) {
+    if (x.atk !== key || x.sentAt > at) continue;
+    const back = x.phase === 'done' && !x.out?.dead ? (x.endAt ?? x.backAt ?? Infinity) : Infinity;
+    if (back <= at) {
+      if (back > s.at) home = true;
+    } else if (x.phase !== 'done' || x.out?.dead) {
+      home = false;
+    }
+  }
+  return home;
+}
+
+/** Игровое время в городе в минуту `at` — от слепка (`WarSheet.time`). */
+const villageTimeAt = (s: SheetAt, at: number): number => (s.sheet.time ?? 0) + gameSecondsOfMs(Math.max(0, at - s.at));
+
+/** Сколько раз лазутчики этого игрока заходили к этому городу за окно памяти — любым исходом (`peril.recentVisits`). */
+const spyVisits = (file: WarFile, atk: string, def: string, at: number): number =>
+  (file.spies ?? []).filter((x) => x.atk === atk && x.def === def && x.arriveAt <= at && at - x.arriveAt < PERIL_MEMORY).length;
+
+interface SpyPlan {
+  def: string;
+  own: { x: number; y: number; city?: string };
+  row: { x: number; y: number; city?: string };
+  mine: SheetAt;
+  walkMs: number;
+  options: SpyOption[];
+}
+
+/**
+ * Меню дел против города — одна проверка на меню (`spyMenuOf`) и на приказ (`spyOrder`): что можно, с какими шансом и
+ * гибелью, а чего нельзя — словами. Энергию проверяет приказ (отметку несёт он); меню её не знает.
+ */
+function spyPlan(file: WarFile, key: string, target: string, at: number, ctx: OrderCtx): SpyPlan | string {
+  const own = ctx.roster.rows[key];
+  if (!own) return 'Твой замок ещё не стоит на карте.';
+  const entry = Object.entries(ctx.roster.rows).find(([k]) => castleIdOf(k) === target);
+  if (!entry) return 'Этого города больше нет в игре.';
+  const [def, row] = entry;
+  if (def === key) return 'Это твой город.';
+  // Регион игрока — то же правило мира, что у похода (`theatre.inHomeTheatre`).
+  if (!inHomeTheatre(own, row)) return 'Город за пределами твоего края. Лазутчик туда не ходит.';
+  if ((file.spies ?? []).some((x) => x.atk === key && spyActive(x))) return 'Лазутчик уже на деле у соседа.';
+  const mine = ctx.sheet(key);
+  if (!mine?.sheet.watch) return 'Твой город ещё не записан на сервер. Подожди минуту.';
+  const theirs = ctx.sheet(def);
+  if (!theirs) return 'Город ещё не готов: его владелец не заходил с тех пор, как появились лазутчики.';
+  const sheet = liveSheet(file, def, theirs, at);
+  const guard = rivalGuard({ homePower: homePowerOf(sheet.home), keen: theirs.sheet.watch?.keen ?? 1, spyHome: spyHomeAt(file, def, theirs, at) });
+  const away = distance(own, row);
+  const risk = rivalPeril(rivalPerilCase(mine.sheet.watch.veil, villageTimeAt(theirs, at), spyVisits(file, key, def, at), away));
+  // Нападение на слабого и на недавно павший — те же запреты, что у похода; разведка — не нападение.
+  const shielded = !ctx.noShield && weakCity(theirs.sheet.pop, theirs.sheet.power);
+  const fell = file.wars.filter((w) => w.def === def && w.fall).reduce((t, w) => Math.max(t, w.fall?.at ?? 0), 0);
+  const options = RIVAL_DEEDS.map((deed): SpyOption => {
+    const hostile = rivalHostile(deed);
+    const reason =
+      hostile && shielded
+        ? 'Город под защитой слабого: он ещё мал. Вредить ему нельзя.'
+        : hostile && fell > 0 && at < fell + SIEGE_IMMUNE
+          ? 'Город недавно пал. Пока его не трогают.'
+          : null;
+    return { deed, can: reason === null, reason, chance: rivalChance(deed, mine.sheet.watch?.keen ?? 1, guard, away), peril: risk.peril, why: risk.why };
+  });
+  return { def, own, row, mine, walkMs: spyWalk(own, row), options };
+}
+
+/** Меню дел против города на минуту `now`. Отказ всему меню — строкой. */
+export function spyMenuOf(file: WarFile, key: string, target: string, now: number, ctx: OrderCtx): SpyMenu | string {
+  const plan = spyPlan(file, key, target, now, ctx);
+  if (typeof plan === 'string') return plan;
+  return { target, at: now, walkMs: plan.walkMs, options: plan.options };
+}
+
+/** Приказ лазутчику: числа — на минуту меню, если она свежая; не те, что видел игрок, — отказ, а не другое дело. */
+function spyOrder(file: WarFile, key: string, order: Extract<WarOrder, { op: 'spy' }>, now: number, ctx: OrderCtx): string | null {
+  const at = order.at <= now && now - order.at <= SPY_SHOWN_FRESH ? order.at : now;
+  const plan = spyPlan(file, key, order.target, at, ctx);
+  if (typeof plan === 'string') return plan;
+  const opt = plan.options.find((o) => o.deed === order.deed);
+  if (!opt) return 'Такого дела нет.';
+  if (!opt.can) return opt.reason ?? 'Сейчас нельзя.';
+  if (opt.chance !== order.shown.chance || opt.peril !== order.shown.peril) return 'Обстановка у города сменилась. Посмотри дела заново.';
+  // Энергия лазутчика — той же дверью, что у похода (`world/energy`): цена дела при выходе, и её должно хватить к
+  // минуте прихода, с дорогой; дорога уходит по дням пути, у города — стоит.
+  const price = priceOf(order.deed);
+  const tired = energyBlock(energyAt(order.energy, now), price, plan.walkMs);
+  if (tired) return tired;
+  const watch = plan.mine.sheet.watch;
+  if (!watch) return 'Твой город ещё не записан на сервер. Подожди минуту.';
+  file.seq += 1;
+  const row: SpyRow = {
+    id: `s${file.seq.toString(36)}${(now % 46656).toString(36)}`,
+    atk: key,
+    def: plan.def,
+    atkCastle: castleIdOf(key),
+    defCastle: order.target,
+    atkCity: cityName(plan.own.city) ?? '',
+    defCity: cityName(plan.row.city) ?? '',
+    from: { x: plan.own.x, y: plan.own.y },
+    to: { x: plan.row.x, y: plan.row.y },
+    deed: order.deed,
+    sentAt: now,
+    arriveAt: now + plan.walkMs,
+    chance: opt.chance,
+    peril: opt.peril,
+    phase: 'go',
+    energy: onRoad(spend(order.energy, now, price), now, now + plan.walkMs, false),
+    stealth: watch.stealth,
+    heldMs: Math.round((SPY_HELD * watch.held) / pace),
+  };
+  file.spies = [...(file.spies ?? []), row];
+  return null;
+}
+
+/** Исход дела в минуту прихода — по слепку обороны соседа на эту минуту. Нет слепка — города нет, дела не было. */
+function resolveSpy(file: WarFile, x: SpyRow, s: SheetAt | null): void {
+  const at = x.arriveAt;
+  const home = (from: number): void => {
+    x.phase = 'back';
+    x.backAt = from + spyWalk(x.to, x.from);
+    x.energy = onRoad(x.energy, from, x.backAt, true);
+  };
+  if (!s) {
+    x.out = { at, ok: false, slipped: false, held: false, dead: false, gone: true };
+    home(at);
+    return;
+  }
+  const sheet = liveSheet(file, x.def, s, at);
+  const f = rivalFate(x.chance, x.peril, x.stealth, rivalRolls(x.id));
+  const harm = f.ok ? rivalHarm(x.deed, { stock: sheet.stock, gold: sheet.gold, stash: sheet.stash, pop: sheet.pop }) : {};
+  x.out = {
+    at,
+    ...f,
+    ...harm,
+    ...(f.ok && x.deed === 'look'
+      ? { intel: { home: { ...sheet.home }, army: { ...sheet.army }, militia: sheet.militia, archers: sheet.archers, pop: sheet.pop, power: sheet.power } }
+      : {}),
+  };
+  if (f.dead) {
+    x.phase = 'done';
+    x.endAt = at;
+  } else if (f.held) {
+    x.phase = 'held';
+    x.releaseAt = at + x.heldMs;
+  } else {
+    home(at);
+  }
+}
+
+/** Разобрать дела лазутчиков к минуте `now`: приход, отпуск из плена, возврат. */
+function advanceSpies(file: WarFile, now: number, sheets: ReadonlyMap<string, SheetAt | null>): boolean {
+  let changed = false;
+  for (const x of file.spies ?? []) {
+    for (let guard = 0; guard < 4; guard++) {
+      if (x.phase === 'go' && x.arriveAt <= now) {
+        resolveSpy(file, x, sheets.get(x.def) ?? null);
+      } else if (x.phase === 'held' && (x.releaseAt ?? 0) <= now) {
+        const from = x.releaseAt ?? now;
+        x.phase = 'back';
+        x.backAt = from + spyWalk(x.to, x.from);
+        x.energy = onRoad(x.energy, from, x.backAt, true);
+      } else if (x.phase === 'back' && (x.backAt ?? 0) <= now) {
+        x.phase = 'done';
+        x.endAt = x.backAt;
+      } else {
+        break;
+      }
+      changed = true;
+    }
+  }
+  return changed;
+}
+
+/**
+ * Дело глазами стороны. Нападающему — всё, кроме ключей и замороженного. Защитнику — только дело, которое его задело
+ * (удавшийся поджог, кража, смута) или в котором лазутчика поймали; имя нападающего — только у пойманного (плен или
+ * гибель). Удача и тихий провал имени не оставляют, разведка — следа.
+ */
+export function spyViewOf(row: SpyRow, key: string): SpyView | null {
+  const { atk, def, stealth: _s, heldMs: _h, ...rest } = row;
+  if (atk === key) return { ...rest, role: 'atk' };
+  if (def !== key || !row.out) return null;
+  const caught = row.out.held || row.out.dead;
+  if (!caught && !(row.out.ok && rivalHostile(row.deed))) return null;
+  const { energy: _e, ...seen } = rest;
+  const { intel: _i, ...out } = row.out;
+  return {
+    ...seen,
+    role: 'def',
+    chance: 0,
+    peril: 0,
+    out,
+    ...(caught ? {} : { atkCastle: '', atkCity: '', from: { ...row.to } }),
+  };
+}
+
+/** Свои дела лазутчиков и чужие у нас, которые мы видим, — свежие сверху. */
+export const spiesOf = (file: WarFile, key: string): SpyView[] =>
+  (file.spies ?? [])
+    .map((x) => spyViewOf(x, key))
+    .filter((x): x is SpyView => x !== null)
+    .reverse();
+
+/** Участь, которой бот называет тайное нападение: огонь — сожжение, кража — грабёж, смута — люди уходят. */
+export const spyFate = (deed: RivalDeed): NoticeItem['p']['fate'] => (deed === 'fire' ? 'burn' : deed === 'theft' ? 'plunder' : 'captives');
+
+/**
+ * Новость тайного дела — выводится из записи, как у войны. Нападение — только удавшийся поджог, кража или смута: город
+ * что-то потерял. Разведка и пойманный лазутчик — не нападение (город цел), и бот о них молчит; нападающему бот не
+ * пишет вовсе — на него не нападали (правило владельца: бот пишет о нападении и о бое, docs/NOTIFY.md).
+ */
+export function spyNewsOf(x: SpyRow): WarNews[] {
+  const o = x.out;
+  if (!o || !o.ok || !rivalHostile(x.deed)) return [];
+  return [
+    {
+      player: x.def,
+      item: {
+        key: `war-spy:${x.id}`,
+        kind: 'war-spy',
+        fireAt: o.at,
+        until: o.at + RESULT_KEEP,
+        p: { from: 'чужой лазутчик', fate: spyFate(x.deed), about: o.at, role: 'def' },
+      },
+    },
+  ];
 }

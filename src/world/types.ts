@@ -102,6 +102,12 @@ export type DiploActionId = 'gift' | 'insult' | 'pact' | 'peace' | 'war';
  */
 export type SpyActionId = 'probe' | 'revolt';
 
+/**
+ * Дела лазутчика против города живого игрока (docs/spy_pvp.md): разведать, поджечь склад, украсть, посеять смуту.
+ * Своим списком, а не строками `SpyActionId`: меню логова их не показывает, а исход считает сервер войны.
+ */
+export type RivalDeedId = 'look' | 'fire' | 'theft' | 'unrest';
+
 /** Всё, что можно приказать агенту у цели. Кому какой приказ — `ORDER_AGENT`. */
 export type OrderActionId = DiploActionId | SpyActionId;
 
