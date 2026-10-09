@@ -107,7 +107,9 @@ function Buy() {
         const bonus = packBonus(p);
         return (
           <div className="nx-trade" key={p.id}>
-            <span className="nx-bico">{p.icon}</span>
+            <span className="nx-bico">
+              <Icon name={`gempack-${p.id}`} glyph={p.icon} />
+            </span>
             <div className="nx-trade-body">
               <b>
                 {p.name} · <GemIcon /> {p.amount}

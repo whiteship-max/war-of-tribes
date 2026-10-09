@@ -184,6 +184,31 @@ describe('начисление: стартовые один раз, больше
     expect(s.ledger(p)!.list).toHaveLength(1);
   });
 
+  /**
+   * В журнале игрока запись «стартовые» одна, что бы ни шло дальше: входы через `/api/gems` и через сохранение
+   * вперемешку с тратами, в разные минуты и сутки. Точки внутри области: книга уже открыта (вторых стартовых взяться
+   * неоткуда, кроме ошибки открытия), и приказы проходят — журнал растёт.
+   */
+  it('стартовые в журнале одной строкой при любом ходе входов и трат', async () => {
+    const s = memoryStores();
+    const p = player();
+    const savePull = async (now: number): Promise<void> => {
+      const req = new Request('https://x/api/save', { method: 'GET', headers: { 'x-telegram-init-data': signInit(p) } });
+      await save(req, { stores: s.stores, now, ip: null });
+    };
+    for (let i = 0; i < 12; i++) {
+      // Полтора часа на шаг: восемнадцать часов, через полночь UTC, — внутри срока подписи.
+      const now = NOW + i * 5_400_000;
+      if (i % 3 === 0) await savePull(now);
+      const r = await call(s, p, i % 2 === 0 ? undefined : buy(`k-run-${i}`, 'food'), now);
+      expect(r.status, `шаг ${i}`).toBe(200);
+    }
+    const l = s.ledger(p)!;
+    expect(l.list.filter((e) => e.kind === 'buy').length, 'точка внутри области: траты шли').toBeGreaterThan(3);
+    expect(l.list.filter((e) => e.kind === 'start')).toHaveLength(1);
+    expect(l.list.filter((e) => e.delta > 0)).toHaveLength(1);
+  });
+
   it('сохранение открывает книгу тем же входом и везёт записку', async () => {
     const s = memoryStores();
     const p = player();

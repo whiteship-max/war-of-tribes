@@ -84,6 +84,7 @@ import { KIND_OF, gearOfTroop } from '@/game/battle/kinds';
 import { realSpan } from '@/game/span';
 import { GEM_WAIT, RUSH_FREE_SECONDS, SHOP_DAILY, SHOP_GOODS, SHOP_LOT, START_GEMS, gemsForWait, rushPriceOfWork, rushSeconds, shopHours, shopPrice, yardHourly } from '@/game/gemrules';
 import { upgradeWork } from '@/game/labour';
+import { GEM_PACKS, packRate } from '@/game/data/gems';
 import { BUILDING_BY_ID } from '@/game/data/buildings';
 import { SILENCE_PREFIX } from '@/game/sim/mail';
 import { settleHires } from '@/game/sim/hire';
@@ -763,6 +764,26 @@ function gemSection(): void {
     );
   }
   console.log(`  проверка кривой: час — ${gemsForWait(3600)}, сутки — ${gemsForWait(86_400)}, неделя — ${gemsForWait(604_800)}.`);
+
+  // Экономика до настоящих денег (docs/gems.md, раздел 3.5): что стоит в долларах — по самому дешёвому и самому дорогому
+  // алмазу наборов (`data/gems.ts`). Ускорение — как игрок его покупает: одним разом или кусками по часу.
+  const rates = GEM_PACKS.map(packRate);
+  const cheap = Math.max(...rates);
+  const dear = Math.min(...rates);
+  const usd = (gems: number): string => `${n1(gems / cheap)}–${n1(gems / dear)} USDT`;
+  const half = 12 * 3600;
+  const once = gemsForWait(half - RUSH_FREE_SECONDS);
+  const hourly = 12 * gemsForWait(3600 - RUSH_FREE_SECONDS);
+  const shopAll = SHOP_GOODS.map((r) => shopPrice(r));
+  const shopMin = Math.min(...shopAll) * SHOP_DAILY;
+  const shopMax = Math.max(...shopAll) * SHOP_DAILY;
+  const shopMix = Math.round((shopAll.reduce((a, b) => a + b, 0) / shopAll.length) * SHOP_DAILY);
+  console.log('');
+  console.log(`Экономика до настоящих денег: алмаз в наборах — от ${n1(cheap)} до ${n1(dear)} за USDT (${GEM_PACKS.map((p) => `${p.amount} за ${p.usdt}`).join(', ')}).`);
+  console.log(`  вся лестница построек: ${whole} алмазов — ${usd(whole)}`);
+  console.log(`  полдня ускорений (12 ч ожидания): одним разом ${once} алмазов — ${usd(once)}; кусками по часу ${hourly} — ${usd(hourly)}`);
+  console.log(`  лавка за день (${SHOP_DAILY} покупок): самое дешёвое ${shopMin} алмазов — ${usd(shopMin)}; поровну всех припасов ${shopMix} — ${usd(shopMix)}; всё железом ${shopMax} — ${usd(shopMax)}`);
+  console.log(`  стартовые ${START_GEMS} — ${usd(START_GEMS)}`);
 }
 
 /**
