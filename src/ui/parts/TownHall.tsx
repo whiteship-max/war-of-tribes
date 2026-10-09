@@ -4,22 +4,22 @@ import { DECREES, RATIONS, TAXES } from '@/game/data/policy';
 import { BUILDING_BY_ID } from '@/game/data/buildings';
 import { buildingHousing, buildingStat, decreeOf, mastersCount, rationOf, taxIncomePerDay, taxOf, taxQuote, townHallBuildMult, wagesDue } from '@/game/derived';
 import { setDecree, setRation, setTax } from '@/game/sim/actions';
-import { gemsOf } from '@/game/sim/gems';
 import { TownBuild } from './TownBuild';
-import { Gems } from './Gems';
 import { Icon } from '@/ui/icons/Icon';
 import { signed } from './signed';
 import { decreeLine, rationLine } from './policyWords';
 import { dec } from '@/game/num';
 
 /**
- * Ратуша — сердце города, и в ней три дела, а не одно, поэтому у неё вкладки:
+ * Ратуша — сердце города, и в ней два дела, а не одно, поэтому у неё вкладки:
  *
  * 1. «Стройка» — главная: весь город списком, уровни и очередь. Отдельного
  *    раздела «Здания» внизу нет, чтобы одно и то же не делалось в двух местах.
  * 2. «Указы» — то, чем правит правитель: указ, паёк, налог и золото. Слова — те же, что у
  *    вкладки «Указы» державы нового вида (`realm/RealmTabs.DecreesNew`; словарь — docs/ui_audit.md, 4.4).
- * 3. «Алмазы» — чем они платят за время.
+ *
+ * Алмазы ушли из ратуши в «Сокровищницу» — плашка под строкой запасов (docs/gems.md): баланс, покупка, лавка и история
+ * живут на сервере и видны из любого места города, а не только из ратуши.
  *
  * Вкладка живёт в сторе, а не здесь (ключ `manage`): на «Указы» ведёт ссылка из справки
  * о морали, и вести ей некуда, если память о вкладке умирает вместе с панелью.
@@ -27,7 +27,6 @@ import { dec } from '@/game/num';
 export function TownHall({ b }: { b: Building }) {
   const tab = useGame((g) => g.townTab);
   const setTab = useGame((g) => g.setTownTab);
-  const gems = useGame((g) => gemsOf(g.s));
 
   return (
     <>
@@ -42,14 +41,10 @@ export function TownHall({ b }: { b: Building }) {
         <button className={tab === 'manage' ? 'active' : ''} onClick={() => setTab('manage')}>
           Указы
         </button>
-        <button className={tab === 'gems' ? 'active' : ''} onClick={() => setTab('gems')}>
-          Алмазы <i className="tab-count">{gems}</i>
-        </button>
       </div>
 
       {tab === 'build' && <TownBuild />}
       {tab === 'manage' && <Manage b={b} />}
-      {tab === 'gems' && <Gems />}
     </>
   );
 }

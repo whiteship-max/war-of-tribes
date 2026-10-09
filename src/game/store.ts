@@ -20,6 +20,8 @@ import { bootPaint, bootStage } from '@/boot/stage';
 import { mayWrite, provideGame, syncBoot } from '@/net/sync';
 import { provideGrants } from '@/net/admin';
 import { applyGrants } from './sim/admin';
+import { provideGemDeeds } from '@/net/gems';
+import { applyGemDeeds } from './sim/gems';
 import { provideClaim, rosterBoot } from '@/net/roster';
 import { knownEra } from '@/net/era';
 import { NOTIFY_ON, notifyBoot } from '@/net/notify';
@@ -40,7 +42,7 @@ export type Tab = 'people' | 'quests' | 'season' | 'pop' | 'morale' | 'order' | 
  * ссылки из справки о морали, и вести им некуда, если вкладка — местная память
  * компонента, который ещё не открыт.
  */
-export type TownTab = 'build' | 'manage' | 'gems';
+export type TownTab = 'build' | 'manage';
 
 /**
  * Что показывает нижняя шторка: раздел, конкретное здание или клетка карты мира.
@@ -290,6 +292,14 @@ export const useGame = create<GameStore>((set, get) => ({
     provideGrants((grants) => {
       const st = get().s;
       if (applyGrants(st, grants) === 0) return;
+      set({ s: { ...st } });
+      get().save();
+    });
+    // Дела алмазов (лавка, ускорение) приезжают с ответом приказа и записи и ложатся одной дверью, ровно один раз
+    // (docs/gems.md). На диск сразу: номер применённого не должен ждать автосохранения.
+    provideGemDeeds((deeds) => {
+      const st = get().s;
+      if (applyGemDeeds(st, deeds) === 0) return;
       set({ s: { ...st } });
       get().save();
     });

@@ -80,6 +80,7 @@ import { DESERT_SHARE, MASTER_PAID_AS, UPKEEP_TEXT } from './data/upkeep';
 import { BATTLE_MAN, troopTotal, troopsAfter, type TroopStack } from './battle/kinds';
 import { baseWage, mouthsOf, troopPower } from './battle/price';
 import { levelOutputMult } from './selfcost';
+import { upgradeWork } from './labour';
 import { statAt, trainRateAt } from './train';
 import { DECREE_BY_ID, RATION_BY_ID, TAX_BY_ID, TAX_PER_POP, type DecreeDef, type RationDef, type TaxDef } from './data/policy';
 import {
@@ -250,9 +251,8 @@ const scaleCost = (
 export const upgradeCost = (def: BuildingDef, toLevel: number): Partial<Record<ResourceId, number>> =>
   scaleCost(def.cost, Math.pow(UPGRADE_GROWTH, toLevel - 1));
 
-/** Работа строителей на улучшение — растёт так же, как цена. */
-export const upgradeWork = (def: BuildingDef, toLevel: number): number =>
-  Math.round(def.work * Math.pow(UPGRADE_GROWTH, toLevel - 1));
+/** Работа строителей на улучшение — растёт так же, как цена. Формула одна на игру и сервер (`game/labour.ts`). */
+export { upgradeWork };
 
 export interface UpgradeInfo {
   /** Уровень, до которого улучшаем. */

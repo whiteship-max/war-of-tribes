@@ -31,6 +31,7 @@ import { probe } from './debug';
 import { CheatPanel } from './ui/CheatPanel';
 import { useRealm } from './ui/realm/open';
 import { useTrades } from './ui/trades';
+import { useTreasury } from './ui/treasury';
 import { tutorialActive } from './game/data/tutorial';
 import { Leave } from './ui/parts/leave';
 
@@ -72,6 +73,7 @@ const WorldNew = lazy(() => nextUi().then((m) => ({ default: m.WorldNew })));
 const MarchesNew = lazy(() => nextUi().then((m) => ({ default: m.MarchesNew })));
 /** Окно «Промыслы» — тем же куском (docs/minigames.md, 3). */
 const Trades = lazy(() => nextUi().then((m) => ({ default: m.Trades })));
+const Treasury = lazy(() => nextUi().then((m) => ({ default: m.Treasury })));
 
 /**
  * Промыслы — мини-игры от первого лица — свой кусок, как предыстория: качается по кнопке входа, и пока игра идёт,
@@ -131,6 +133,8 @@ export function App() {
   const mapOpen = useGame((g) => g.mapOpen);
   const realmOpen = useRealm((r) => r.open);
   const tradesOpen = useTrades((t) => t.open);
+  const treasuryOpen = useTreasury((t) => t.open);
+  const hideTreasury = useTreasury((t) => t.hide);
   const hideTrades = useTrades((t) => t.hide);
   const playing = useTrades((t) => t.playing);
   const bugOpen = useBugReport((b) => b.open);
@@ -255,6 +259,14 @@ export function App() {
         <Leave open={tradesOpen} ms={320}>
           <Suspense fallback={null}>
             <Trades />
+          </Suspense>
+        </Leave>
+      </Sheet>
+      {/* Сокровищница (docs/gems.md) — тем же приёмом, что промыслы: своё окно, встаёт вместо шторки. */}
+      <Sheet open={treasuryOpen && !mapOpen} onClose={hideTreasury}>
+        <Leave open={treasuryOpen} ms={320}>
+          <Suspense fallback={null}>
+            <Treasury />
           </Suspense>
         </Leave>
       </Sheet>

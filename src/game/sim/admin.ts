@@ -8,8 +8,8 @@
 // Правила склада — игровые: прибавка ложится не сверх вместимости (как возврат цены, `sim/pay.refund`), убавка — не
 // ниже нуля; бойцов не меньше, чем их сейчас в походе (`s.away`). Летопись говорит, что легло на самом деле.
 //
-// Алмазов здесь нет: виды указа — только `STOCK_KEYS` и `TROOP_KEYS` договора, и начисление алмазов остаётся одно —
-// `creditGems` с распиской сервера (`gems.test.ts`).
+// Алмазов здесь нет: виды указа — только `STOCK_KEYS` и `TROOP_KEYS` договора, а алмазы живут на сервере, и начисление
+// у них одно — `netlify/lib/gems.creditGems` (docs/gems.md).
 import type { GameState, ResourceId, TroopId } from '../types';
 import { RESOURCE_IDS, RESOURCE_META } from '../constants';
 import { storageCap } from '../derived';
@@ -19,6 +19,17 @@ import { log } from './log';
 
 /** Номер последнего применённого указа. */
 export const adminSeen = (s: GameState): number => (typeof s.adminSeen === 'number' && Number.isFinite(s.adminSeen) ? s.adminSeen : 0);
+
+/**
+ * Положить припас на склад по правилу склада — одна дверь на указ админа и на лавку алмазов (`sim/gems.applyGemDeeds`):
+ * прибавка ложится до вместимости и не отнимает того, что уже лежит сверх неё; убавка — до нуля. Возвращает, сколько
+ * легло на самом деле (со знаком).
+ */
+export function layStock(s: GameState, r: ResourceId, want: number): number {
+  const before = s.resources[r] ?? 0;
+  s.resources[r] = want > 0 ? Math.max(before, Math.min(storageCap(s), before + want)) : Math.max(0, before + want);
+  return s.resources[r] - before;
+}
 
 /** Число со знаком для летописи: +500, −10. */
 const signed = (n: number): string => (n > 0 ? `+${n}` : `−${Math.abs(n)}`);
@@ -30,7 +41,6 @@ const signed = (n: number): string => (n > 0 ? `+${n}` : `−${Math.abs(n)}`);
 export function applyGrants(s: GameState, grants: readonly AdminGrant[]): number {
   const fresh = grants.filter((g) => g.n > adminSeen(s)).sort((a, b) => a.n - b.n);
   for (const g of fresh) {
-    const cap = storageCap(s);
     const parts: string[] = [];
     for (const k of STOCK_KEYS) {
       const want = g.stock[k];
@@ -43,10 +53,7 @@ export function applyGrants(s: GameState, grants: readonly AdminGrant[]): number
       }
       const r = k as ResourceId;
       if (!RESOURCE_IDS.includes(r)) continue;
-      const before = s.resources[r] ?? 0;
-      // Прибавка — до вместимости и не отнимая того, что уже лежит сверх неё; убавка — до нуля.
-      s.resources[r] = want > 0 ? Math.max(before, Math.min(cap, before + want)) : Math.max(0, before + want);
-      const moved = Math.round(s.resources[r] - before);
+      const moved = Math.round(layStock(s, r, want));
       parts.push(`${RESOURCE_META[r].name.toLowerCase()} ${moved === 0 ? '0 (склад полон)' : signed(moved)}`);
     }
     for (const k of TROOP_KEYS) {

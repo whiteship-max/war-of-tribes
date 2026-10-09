@@ -63,12 +63,11 @@ describe('указ ложится ровно один раз', () => {
 
   it('алмазы указом не меняются: чужой вид договор отбрасывает, дверь его не знает', () => {
     const s = createInitialState();
-    const gems = s.gems;
     // Подделка собирается из пар: литерал с ключом алмазов в исходниках запрещён замком (`gems.test.ts`).
     const forged = readGrant({ n: 1, at: 0, stock: Object.fromEntries([['gems', 1000], ['wood', 1]]) });
     expect(forged?.stock).toEqual({ wood: 1 });
     applyGrants(s, [forged as AdminGrant, { n: 2, at: 0, stock: Object.fromEntries([['gems', 5000]]) as never, troops: {} }]);
-    expect(s.gems).toBe(gems);
+    expect(Object.keys(s)).not.toContain('gems');
   });
 });
 

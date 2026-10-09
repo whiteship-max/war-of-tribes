@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { START_GEMS, shopDay } from '../../src/game/gemrules.js';
 import { STORES, type Stores } from '../lib/kv.js';
 import { ROUTES } from '../lib/routes/index.js';
 import { placeCastle, settleRandom } from '../../src/world/settle.js';
@@ -178,8 +179,15 @@ describe.each(HOMES.map(([name]) => [name]))('договор на доме %s', 
   });
 
   it('сохранение: первая запись, чтение своего, чужое не видно', () => {
-    // Записка админки едет с каждым ответом сохранения: не заморожен, указов нет (docs/admin.md).
-    expect(at('сохранение: пусто').body).toEqual({ now: NOW, etag: null, record: null, admin: { frozen: false, grants: [] } });
+    // Записка админки едет с каждым ответом сохранения: не заморожен, указов нет (docs/admin.md). С ней — записка алмазов:
+    // первый вход открыл книгу со стартовыми, дел для партии нет (docs/gems.md).
+    expect(at('сохранение: пусто').body).toEqual({
+      now: NOW,
+      etag: null,
+      record: null,
+      admin: { frozen: false, grants: [] },
+      gems: { balance: START_GEMS, shop: { day: shopDay(NOW), used: 0 }, deeds: [] },
+    });
     expect(at('сохранение: первая запись')).toMatchObject({ status: 200, body: { now: NOW, etag: 'E1', rev: 1 } });
     const read = at('сохранение: чтение').body as { etag: string; record: Record<string, unknown> };
     expect(read.etag).toBe('E1');

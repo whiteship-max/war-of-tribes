@@ -16,6 +16,7 @@ import type { V3 } from './geom';
 import { CityLife } from './life';
 import type { CityBustle } from './alive';
 import type { CityDeeds } from './deeds';
+import type { SiteTags } from './tags';
 import { newsOf, seenOf, waveAfter, WAVE_REAL, type CityPops, type Seen, type Yard, type YieldTally } from './pops';
 import { TAP_TARGET } from '@/gestures';
 import { markerSvg, SCENES, TribeScene, type BuildingView, type SceneLook } from '../Scene';
@@ -79,6 +80,8 @@ export class CityScene extends TribeScene {
    */
   private deeds: CityDeeds | null = null;
   private pops: CityPops | null = null;
+  /** Ярлыки у лесов: места кнопки «Ускорить» над стройками (`tags.ts`, docs/gems.md). */
+  private tags: SiteTags | null = null;
   private tally: YieldTally | null = null;
   /** Что отклик видел в прошлом чтении партии (`pops.seenOf`) и когда это было настоящим временем, мс. */
   private seen: { was: Seen; real: number } | null = null;
@@ -323,6 +326,7 @@ export class CityScene extends TribeScene {
         this.deeds.update(t, night, scale, { x: this.camera.position.x, z: this.camera.position.z });
       }
       this.pops?.update(this.camera, this.canvas.clientWidth, this.canvas.clientHeight, t);
+      this.tags?.update(this.camera, this.canvas.clientWidth, this.canvas.clientHeight);
       // Первый кадр города нарисован — теперь докачка суеты.
       if (this.bustleWanted) {
         this.bustleWanted = false;
@@ -356,11 +360,12 @@ export class CityScene extends TribeScene {
       .catch(() => undefined);
     // Отклик — своим куском, тем же правилом: не пришёл — город стоит без лесов и надписей, игра идёт как шла.
     import('./deeds')
-      .then(({ CityDeeds, CityPops, YieldTally }) => {
+      .then(({ CityDeeds, CityPops, SiteTags, YieldTally }) => {
         if (this.disposed || this.town !== c || !this.folk) return;
         this.deeds = new CityDeeds({ sites: this.sites, quality: this.quality, street: this.folk.street() });
         this.scene.add(this.deeds.group);
         this.pops = new CityPops(this.canvas.parentElement, this.quality, markerSvg, new THREE.Vector3());
+        this.tags = new SiteTags(this.canvas.parentElement, new THREE.Vector3());
         this.tally = new YieldTally();
         if (this.lastState) this.respond(this.lastState);
         if (this.welcomeDue > 0) this.welcome(this.welcomeDue);
@@ -378,6 +383,15 @@ export class CityScene extends TribeScene {
     if (!deeds) return;
     const t = this.sceneNow();
     deeds.setWorks(s.buildings.filter((b) => b.workRequired > 0).map((b) => b.type));
+    // Ярлык «Ускорить» — у лесов: над главной точкой строящейся постройки, чуть ниже надписей добычи.
+    this.tags?.set(
+      s.buildings
+        .filter((b) => b.workRequired > 0)
+        .flatMap((b) => {
+          const m = mainSite(this.sites, b.type);
+          return m ? [{ type: b.type, x: m.x, y: m.y1 + 1.2, z: m.z }] : [];
+        }),
+    );
     const prev = this.seen;
     const real = performance.now();
     this.seen = { was: seenOf(s), real };
@@ -565,6 +579,8 @@ export class CityScene extends TribeScene {
     this.precip = null;
     this.pops?.dispose();
     this.pops = null;
+    this.tags?.dispose();
+    this.tags = null;
     this.town?.dispose();
     this.town = null;
     super.dispose();

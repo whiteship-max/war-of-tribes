@@ -224,10 +224,10 @@ describe('ни в одном исходе нет алмазов, и наград
         setRandom(seeded(3));
         const s = rich();
         s.faith.id = 'catholic';
-        const before = s.gems;
         answer(s, e.id, i);
         setRandom(null);
-        expect(s.gems, `${e.id}/${i}`).toBe(before);
+        // Алмазы живут на сервере (docs/gems.md): поля в партии нет, и исход его не заводит.
+        expect(Object.keys(s), `${e.id}/${i}`).not.toContain('gems');
       }
     }
   });

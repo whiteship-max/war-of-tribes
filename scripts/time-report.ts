@@ -21,12 +21,12 @@
 //   AGENTS_DAYS=12 AGENTS_SEEDS=7,42,101 npm run time:report
 //   YEARS=1 npm run time:report   — ещё и проверка года жизни прогоном (дорого, в приёмку не входит)
 //   SECTIONS=13 npm run time:report — только названные разделы
-import type { GameState, ResourceId, TroopId } from '@/game/types';
+import type { BuildingTypeId, GameState, ResourceId, TroopId } from '@/game/types';
 import type { FigureId, FigureView } from '@/world/types';
 import type { WorldSave } from '@/world/local/state';
 import { createInitialState } from '@/game/state';
 import { seeded, setRandom } from '@/game/sim/random';
-import { DAY_LENGTH, MAX_BUILDING_LEVEL, MAX_OFFLINE_DAYS, RESOURCE_IDS, RESOURCE_META, TEST_GEMS } from '@/game/constants';
+import { DAY_LENGTH, MAX_BUILDING_LEVEL, MAX_OFFLINE_DAYS, RESOURCE_IDS, RESOURCE_META } from '@/game/constants';
 import {
   armySize,
   buildingOfType,
@@ -82,7 +82,9 @@ import { EQUIPMENT_BY_ID } from '@/game/data/equipment';
 import { TROOPS, TROOP_BY_ID } from '@/game/data/troops';
 import { KIND_OF, gearOfTroop } from '@/game/battle/kinds';
 import { realSpan } from '@/game/span';
-import { GEM_DAY_SHARE, GEM_REAL_SECONDS, GEM_REF_RATE, rushPrice, rushWork } from '@/game/sim/gems';
+import { GEM_WAIT, RUSH_FREE_SECONDS, SHOP_DAILY, SHOP_GOODS, SHOP_LOT, START_GEMS, gemsForWait, rushPriceOfWork, rushSeconds, shopHours, shopPrice, yardHourly } from '@/game/gemrules';
+import { upgradeWork } from '@/game/labour';
+import { GEM_PACKS, packRate } from '@/game/data/gems';
 import { BUILDING_BY_ID } from '@/game/data/buildings';
 import { SILENCE_PREFIX } from '@/game/sim/mail';
 import { settleHires } from '@/game/sim/hire';
@@ -701,71 +703,87 @@ function returnSection(towns: GameState[]): void {
 }
 
 /**
- * Алмаз — доля настоящих суток, а не игровые секунды (решение владельца, docs/time.md, раздел 16).
- * Раздел печатает вывод доли и цены достройки при обеих шкалах — и рядом то, что было бы, останься
- * алмаз десятью игровыми секундами: столько же алмазов, в тридцать раз больше снятого ожидания.
+ * Алмаз — настоящее ожидание (решение владельца, docs/time.md, раздел 16; цены — docs/gems.md). Раздел печатает кривую
+ * «ожидание → алмазы», цену ускорения целых улучшений при обеих шкалах (она от шкалы зависит только через настоящее
+ * ожидание), всю лестницу, что берут стартовые, и цены лавки: сколько часов работы двора заменяют сто единиц.
  */
 function gemSection(): void {
   console.log('');
-  console.log('=== 5. АЛМАЗ: ДОЛЯ НАСТОЯЩИХ СУТОК ===');
-  console.log(`Один алмаз снимает ${GEM_REAL_SECONDS} с настоящего нормативного ожидания — долю 1/${Math.round(1 / GEM_DAY_SHARE)} настоящих суток (GEM_DAY_SHARE). Доля выведена из`);
-  console.log('прежней цены: десять секунд при дне в минуту — десять настоящих секунд из 86 400. Норматив — труд улучшения на GEM_REF_RATE, как у цены.');
-  console.log(`«алмазов» — цена достройки целого улучшения (rushPrice); «ждать» — нормативное ожидание настоящим временем; «было бы» — цена, останься алмаз`);
-  console.log(`десятью игровыми секундами: при ×${SCALE_NEXT} те же алмазы снимали бы в ${SCALE_NEXT} раз больше ожидания. Тестовый запас новой партии — ${TEST_GEMS} алмазов.`);
-  console.log('  улучшение              | шкала 1: алмазов · ждать | ×' + SCALE_NEXT + ': алмазов · ждать     | было бы при ×' + SCALE_NEXT + ': алмазов · с ожидания на алмаз');
+  console.log('=== 5. АЛМАЗ: ЦЕНА НАСТОЯЩЕГО ОЖИДАНИЯ ===');
+  console.log(`Кривая GEM_WAIT (настоящие секунды → алмазы, между точками прямая): ${GEM_WAIT.map(([t, g]) => `${realSpan(t) || '0'} → ${g}`).join(' · ')}.`);
+  console.log(`Ускорение: остаток труда на GEM_REF_RATE — настоящее ожидание; последние ${realSpan(RUSH_FREE_SECONDS)} даром, остальное — по кривой.`);
+  console.log('  улучшение              | шкала 1: алмазов · ждать | ×' + SCALE_NEXT + ': алмазов · ждать');
   const base = createInitialState(7);
-  const rows: [string, number][] = [
-    ['Жилища 1→2', 1],
-    ['Рынок 1→2', 1],
-    ['Жилища 5→6', 5],
-    ['Рынок 9→10', 9],
+  const rows: [string, BuildingTypeId, number][] = [
+    ['Жилища 1→2', 'houses', 2],
+    ['Рынок 1→2', 'market', 2],
+    ['Жилища 5→6', 'houses', 6],
+    ['Казармы 3→4', 'barracks', 4],
+    ['Рынок 9→10', 'market', 10],
   ];
-  let whole = { one: 0, slow: 0 };
-  for (const [name, level] of rows) {
-    const b = structuredClone(base.buildings.find((x) => x.type === (name.startsWith('Рынок') ? 'market' : 'houses'))!);
-    b.level = level;
-    const norm = rushWork(b) / GEM_REF_RATE;
-    const one = rushPrice(b);
+  for (const [name, type, level] of rows) {
+    const work = upgradeWork(BUILDING_BY_ID[type], level);
+    setTimeScale(1);
+    const one = rushPriceOfWork(work);
+    const oneWait = rushSeconds(work);
     setTimeScale(SCALE_NEXT);
-    const slow = rushPrice(b);
+    const slow = rushPriceOfWork(work);
+    const slowWait = rushSeconds(work);
     setTimeScale();
-    const old = Math.max(1, Math.ceil(norm / 10));
-    console.log(
-      `  ${name.padEnd(22)} | ${pad(one, 8)} · ${realSpan(norm).padStart(12)} | ${pad(slow, 8)} · ${realSpan(norm * SCALE_NEXT).padStart(12)} | ${pad(old, 8)} · ${pad(n1((norm * SCALE_NEXT) / old), 6)}`,
-    );
+    console.log(`  ${name.padEnd(22)} | ${pad(one, 8)} · ${realSpan(oneWait).padStart(12)} | ${pad(slow, 8)} · ${realSpan(slowWait).padStart(12)}`);
   }
-  // Вся лестница уровней всех построек: сколько алмазов стоит достроить партию целиком.
+  // Вся лестница уровней всех построек при нынешней шкале.
+  let whole = 0;
+  let wait = 0;
+  const first: { name: string; price: number }[] = [];
   for (const b0 of base.buildings) {
-    const max = Math.min(BUILDING_BY_ID[b0.type].maxLevel ?? MAX_BUILDING_LEVEL, MAX_BUILDING_LEVEL);
-    for (let level = 1; level < max; level++) {
-      const b = structuredClone(b0);
-      b.level = level;
-      whole.one += rushPrice(b);
-      setTimeScale(SCALE_NEXT);
-      whole.slow += rushPrice(b);
-      setTimeScale();
+    const def = BUILDING_BY_ID[b0.type];
+    const max = Math.min(def.maxLevel ?? MAX_BUILDING_LEVEL, MAX_BUILDING_LEVEL);
+    for (let level = 2; level <= max; level++) {
+      const work = upgradeWork(def, level);
+      whole += rushPriceOfWork(work);
+      wait += rushSeconds(work);
+      if (level === 2) first.push({ name: def.name, price: rushPriceOfWork(work) });
     }
   }
-  console.log(`  все уровни всех построек: ${whole.one} алмазов при шкале 1 и ${whole.slow} при ×${SCALE_NEXT} (×${n1(whole.slow / whole.one)}); тестовый запас — ${n1((TEST_GEMS / whole.one) * 100)} % и ${n1((TEST_GEMS / whole.slow) * 100)} % этого пути,`);
-  console.log(`  и те же ${realSpan(TEST_GEMS * GEM_REAL_SECONDS)} настоящего ожидания при любой шкале.`);
-
-  // Из чего выведен тестовый запас: он существует затем, чтобы трату можно было проверить, — а
-  // проверить её нельзя, не достроив ни одного улучшения целиком. Мерка поэтому серединная, а не
-  // самая дешёвая: дешевле всех Костёр, у которого труда почти нет, и сорока алмазов хватало
-  // ровно на него одного. Цена в алмазах от шкалы не зависит (алмаз — доля настоящих суток).
-  const first = base.buildings
-    .map((b0) => ({ name: BUILDING_BY_ID[b0.type].name, price: rushPrice({ ...structuredClone(b0), level: 1 }) }))
-    .sort((a, b) => a.price - b.price);
+  first.sort((a, b) => a.price - b.price);
   const mid = first[Math.floor(first.length / 2)];
-  const reach = first.filter((r) => r.price <= TEST_GEMS).length;
+  console.log(`  все уровни всех построек: ${whole} алмазов за ${realSpan(wait)} нормативного ожидания; стартовые ${START_GEMS} — ${n1((START_GEMS / whole) * 100)} % этого пути.`);
   console.log(
-    `  достройка 1→2 новой партии: дешевле всех ${first[0].name} — ${first[0].price}, середина ${mid.name} — ${mid.price}, ` +
-      `дороже всех ${first[first.length - 1].name} — ${first[first.length - 1].price} алмазов.`,
+    `  ускорение 1→2 новой партии целиком: дешевле всех ${first[0].name} — ${first[0].price}, середина ${mid.name} — ${mid.price}, ` +
+      `дороже всех ${first[first.length - 1].name} — ${first[first.length - 1].price}; стартовые берут ${first.filter((r) => r.price <= START_GEMS).length} из ${first.length}.`,
   );
-  console.log(
-    `  тестовый запас ${TEST_GEMS} берёт ${reach} из ${first.length} первых улучшений; мерка запаса — серединное (${mid.price}): ` +
-      `${TEST_GEMS >= mid.price ? 'хватает' : 'НЕ ХВАТАЕТ'}. Цена в алмазах от шкалы не зависит — алмаз есть доля настоящих суток.`,
-  );
+
+  console.log('');
+  console.log(`Лавка: ${SHOP_LOT} единиц за столько алмазов, сколько стоит по той же кривой ожидание, за которое их добыл бы двор —`);
+  console.log(`здание первого уровня с полной дюжиной работников, лучшее по припасу, без сезона. Покупок в сутки — ${SHOP_DAILY}.`);
+  console.log('  припас     | двор в час | ждать сотню | алмазов | 10 покупок');
+  for (const r of SHOP_GOODS) {
+    console.log(
+      `  ${RESOURCE_META[r].name.padEnd(10)} | ${pad(n1(yardHourly(r)), 10)} | ${realSpan(shopHours(r) * 3600).padStart(11)} | ${pad(shopPrice(r), 7)} | ${pad(shopPrice(r) * SHOP_DAILY, 10)}`,
+    );
+  }
+  console.log(`  проверка кривой: час — ${gemsForWait(3600)}, сутки — ${gemsForWait(86_400)}, неделя — ${gemsForWait(604_800)}.`);
+
+  // Экономика до настоящих денег (docs/gems.md, раздел 3.5): что стоит в долларах — по самому дешёвому и самому дорогому
+  // алмазу наборов (`data/gems.ts`). Ускорение — как игрок его покупает: одним разом или кусками по часу.
+  const rates = GEM_PACKS.map(packRate);
+  const cheap = Math.max(...rates);
+  const dear = Math.min(...rates);
+  const usd = (gems: number): string => `${n1(gems / cheap)}–${n1(gems / dear)} USDT`;
+  const half = 12 * 3600;
+  const once = gemsForWait(half - RUSH_FREE_SECONDS);
+  const hourly = 12 * gemsForWait(3600 - RUSH_FREE_SECONDS);
+  const shopAll = SHOP_GOODS.map((r) => shopPrice(r));
+  const shopMin = Math.min(...shopAll) * SHOP_DAILY;
+  const shopMax = Math.max(...shopAll) * SHOP_DAILY;
+  const shopMix = Math.round((shopAll.reduce((a, b) => a + b, 0) / shopAll.length) * SHOP_DAILY);
+  console.log('');
+  console.log(`Экономика до настоящих денег: алмаз в наборах — от ${n1(cheap)} до ${n1(dear)} за USDT (${GEM_PACKS.map((p) => `${p.amount} за ${p.usdt}`).join(', ')}).`);
+  console.log(`  вся лестница построек: ${whole} алмазов — ${usd(whole)}`);
+  console.log(`  полдня ускорений (12 ч ожидания): одним разом ${once} алмазов — ${usd(once)}; кусками по часу ${hourly} — ${usd(hourly)}`);
+  console.log(`  лавка за день (${SHOP_DAILY} покупок): самое дешёвое ${shopMin} алмазов — ${usd(shopMin)}; поровну всех припасов ${shopMix} — ${usd(shopMix)}; всё железом ${shopMax} — ${usd(shopMax)}`);
+  console.log(`  стартовые ${START_GEMS} — ${usd(START_GEMS)}`);
 }
 
 /**

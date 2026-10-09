@@ -372,6 +372,8 @@ export const bookOf = (rec: WatchRecord, at: number): ArmyBook => rec.book ?? se
 /**
  * Записать книгу войска по принятой записи партии (docs/pvp.md, раздел 6): опись заявляет войско, книга подтверждает его
  * не больше, чем объясняют правила за прошедшее серверное время. Заявлено больше — флаг «войско сверх подтверждённого».
+ * `rushed` — ожидание, снятое ускорением за алмазы (книга алмазов, docs/gems.md): потолок уровня казарм и конюшни
+ * сдвигается на него, и подтверждённое ускорение не даёт ложного отказа.
  * Нет описи — книга не трогается: её минута остаётся прежней, и обучение за это время подтвердится со следующей.
  */
 export function booked(
@@ -382,9 +384,10 @@ export function booked(
   grants: readonly Pick<AdminGrant, 'n' | 'troops'>[],
   wars: WarFile | null,
   key: string,
+  rushed: Counts = {},
 ): WatchRecord {
   if (!watch) return rec;
-  const step = bookAfter(bookOf(rec, at), at, { troops: watch.troops, hurt: watch.hurt, buildings: watch.buildings }, grants, wars, key, seen ?? []);
+  const step = bookAfter(bookOf(rec, at), at, { troops: watch.troops, hurt: watch.hurt, buildings: watch.buildings }, grants, wars, key, seen ?? [], rushed);
   const next = { ...rec, book: step.book };
   if (step.forged <= 0) return next;
   return addFlags(next, at, [

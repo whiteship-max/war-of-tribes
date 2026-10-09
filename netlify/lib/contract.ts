@@ -58,6 +58,8 @@ export interface PullResponse {
   record: SaveRecord | null;
   /** Заморозка и неприменённые указы админа (docs/admin.md). Нет поля — сервер до админки. */
   admin?: AdminNote;
+  /** Алмазы: баланс, лавка и неприменённые дела (docs/gems.md). Нет поля — сервер до алмазов или хранилище не ответило. */
+  gems?: GemNote;
 }
 
 /**
@@ -79,6 +81,7 @@ export interface PushResponse {
   etag: string;
   rev: number;
   admin?: AdminNote;
+  gems?: GemNote;
 }
 
 /** Ответ 409: пока мы играли, поверх нашей записи легла чужая. */
@@ -1050,7 +1053,7 @@ export function readWarOrder(v: unknown): WarOrder | null {
 /**
  * Виды склада, которые правит указ: семь припасов и золото. Тот же список, что у игры (`constants.RESOURCE_IDS` и
  * золото) — сверяет тест (`src/net/admin.test.ts`). Алмазов здесь нет и быть не может: начисление алмазов одно —
- * `creditGems` с распиской сервера.
+ * `netlify/lib/gems.creditGems` (docs/gems.md).
  */
 export const STOCK_KEYS = ['wood', 'stone', 'food', 'hides', 'bones', 'copper', 'iron', 'gold'] as const;
 export type StockKey = (typeof STOCK_KEYS)[number];
@@ -1214,6 +1217,11 @@ export interface WatchCard {
   lead: number;
   /** Номер последнего применённого указа админа (`GameState.adminSeen`). */
   seen: number;
+  /**
+   * Номер последней применённой записи журнала алмазов (`GameState.gemSeen`, docs/gems.md): записка сохранения везёт
+   * только дела старше. Нет поля — опись до алмазов на сервере.
+   */
+  gemSeen?: number;
 }
 
 const whole = (v: unknown, max: number): number => Math.floor(Math.min(max, Math.max(0, num(v) ?? 0)));
@@ -1252,6 +1260,7 @@ export function readWatch(v: unknown): WatchCard | undefined {
     cheated: r.cheated === true,
     lead: whole(r.lead, 1e12),
     seen: whole(r.seen, 1e9),
+    ...(r.gemSeen !== undefined ? { gemSeen: whole(r.gemSeen, 1e12) } : {}),
   };
 }
 
@@ -1362,3 +1371,146 @@ export interface RatingResponse {
 /** Очки по слагаемым — одна формула на сервер и на подсказку экрана. */
 export const ratingPoints = (power: number, won: number, taken: number): number =>
   Math.round(power * RATING_WEIGHTS.power + won * RATING_WEIGHTS.win + taken * RATING_WEIGHTS.taken);
+
+// ------------------------------------------------ алмазы (docs/gems.md) ---
+
+/**
+ * Виды записей журнала алмазов: стартовые (сервер кладёт при первом входе в эпоху мира), покупка набора (место под
+ * оплату; сегодня её нет), покупка в лавке и ускорение стройки. Начисляют только `start` и `purchase` — одной дверью
+ * `netlify/lib/gems.creditGems`; `buy` и `rush` только списывают.
+ */
+export const GEM_KINDS = ['start', 'purchase', 'buy', 'rush'] as const;
+export type GemKind = (typeof GEM_KINDS)[number];
+
+/** Припасы лавки — виды склада без золота: золото за алмазы не продаётся. */
+export const GEM_GOODS = ['wood', 'stone', 'food', 'hides', 'bones', 'copper', 'iron'] as const satisfies readonly StockKey[];
+export type GemGood = (typeof GEM_GOODS)[number];
+
+/** Потолки журнала: ключ повтора, сколько записей лежит, сколько уходит в окно «История» и в записку сохранения. */
+export const GEM_LIMITS = { key: 64, keep: 1000, view: 100, deeds: 50, building: 32 } as const;
+
+/** Запись журнала алмазов глазами клиента. Номер — по порядку у игрока, как у указов. */
+export interface GemEntry {
+  n: number;
+  /** Когда, по серверным часам. */
+  at: number;
+  /** Изменение баланса: +120 стартовые, −15 ускорение. */
+  delta: number;
+  kind: GemKind;
+  /** Лавка: какой припас и сколько. */
+  res?: GemGood;
+  amount?: number;
+  /** Ускорение: постройка и уровень, до которого она достроена. */
+  building?: string;
+  level?: number;
+}
+
+/** Лавка за сегодня: номер суток (`gemrules.shopDay`) и сколько покупок уже сделано. */
+export interface GemShop {
+  day: number;
+  used: number;
+}
+
+/**
+ * Записка об алмазах — с каждым ответом сохранения и на `/api/gems`. Баланс считает только сервер; дела для партии
+ * (`deeds` — покупки лавки и ускорения) партия применяет одной дверью (`src/game/sim/gems.applyGemDeeds`) ровно один
+ * раз, по номеру (`GameState.gemSeen`), как указы админа.
+ */
+export interface GemNote {
+  balance: number;
+  shop: GemShop;
+  /** Записи с делом для партии, номер старше присланного в описи (`WatchCard.gemSeen`). */
+  deeds: GemEntry[];
+}
+
+/** Ответ `/api/gems`: записка, журнал для «Истории» и, на приказ, — его запись или отказ словами. */
+export interface GemsResponse extends GemNote {
+  now: number;
+  /** Последние записи журнала, свежие в конце. */
+  list: GemEntry[];
+  /** Запись принятого приказа (и повтора того же ключа — та же запись, второй раз не списано). */
+  entry?: GemEntry;
+  /** Отказ словами — приказ не исполнен, ничего не списано. */
+  error?: string;
+}
+
+/**
+ * Приказ серверу: купить в лавке или ускорить стройку. `key` — ключ повтора: тот же ключ второй раз не списывает, а
+ * возвращает прежнюю запись. Ускорение называет постройку, уровень, остаток работы и цену, которую видел игрок: сервер
+ * считает свою по остатку не больше полного труда уровня и не берёт больше показанной.
+ */
+export type GemOrder =
+  | { op: 'buy'; key: string; res: GemGood }
+  | { op: 'rush'; key: string; building: string; level: number; work: number; price: number };
+
+const gemKey = (v: unknown): string | null => (typeof v === 'string' && /^[\w.:-]{6,64}$/.test(v) ? v : null);
+const isGood = (v: unknown): v is GemGood => typeof v === 'string' && (GEM_GOODS as readonly string[]).includes(v);
+
+/** Приказ из тела запроса: новый объект; кривое — `null`. */
+export function readGemOrder(v: unknown): GemOrder | null {
+  if (!v || typeof v !== 'object') return null;
+  const r = v as Record<string, unknown>;
+  const key = gemKey(r.key);
+  if (!key) return null;
+  if (r.op === 'buy') return isGood(r.res) ? { op: 'buy', key, res: r.res } : null;
+  if (r.op === 'rush') {
+    const building = str(r.building, GEM_LIMITS.building);
+    const level = num(r.level);
+    const work = num(r.work);
+    const price = num(r.price);
+    if (!building || level === null || work === null || price === null) return null;
+    if (!Number.isInteger(level) || work < 0 || price < 0 || !Number.isInteger(price)) return null;
+    return { op: 'rush', key, building, level, work, price };
+  }
+  return null;
+}
+
+/** Запись журнала из ответа или хранилища: новый объект; без номера или вида — `null`. */
+export function readGemEntry(v: unknown): GemEntry | null {
+  if (!v || typeof v !== 'object') return null;
+  const r = v as Record<string, unknown>;
+  const n = num(r.n);
+  const at = num(r.at);
+  const delta = num(r.delta);
+  if (n === null || n < 1 || !Number.isInteger(n) || at === null || delta === null || !Number.isInteger(delta)) return null;
+  if (typeof r.kind !== 'string' || !(GEM_KINDS as readonly string[]).includes(r.kind)) return null;
+  const out: GemEntry = { n, at, delta, kind: r.kind as GemKind };
+  if (isGood(r.res)) out.res = r.res;
+  const amount = num(r.amount);
+  if (amount !== null && amount > 0) out.amount = Math.floor(amount);
+  const building = str(r.building, GEM_LIMITS.building);
+  if (building) out.building = building;
+  const level = num(r.level);
+  if (level !== null && Number.isInteger(level) && level > 0) out.level = level;
+  return out;
+}
+
+/** Есть ли у записи дело для партии: лавка кладёт припас, ускорение достраивает. */
+export const gemDeed = (e: GemEntry): boolean =>
+  (e.kind === 'buy' && e.res !== undefined && (e.amount ?? 0) > 0) || (e.kind === 'rush' && e.building !== undefined && e.level !== undefined);
+
+/** Записка из ответа: кривое или нет её — `null` (сервер до алмазов или ответ без записки). */
+export function readGemNote(v: unknown): GemNote | null {
+  if (!v || typeof v !== 'object') return null;
+  const r = v as Record<string, unknown>;
+  const bal = num(r.balance);
+  if (bal === null) return null;
+  const shop = (r.shop && typeof r.shop === 'object' ? r.shop : {}) as Record<string, unknown>;
+  const deeds = Array.isArray(r.deeds) ? r.deeds.map(readGemEntry).filter((e): e is GemEntry => e !== null && gemDeed(e)) : [];
+  deeds.sort((a, b) => a.n - b.n);
+  return {
+    balance: Math.max(0, Math.floor(bal)),
+    shop: { day: Math.max(0, Math.floor(num(shop.day) ?? 0)), used: Math.max(0, Math.floor(num(shop.used) ?? 0)) },
+    deeds: deeds.slice(-GEM_LIMITS.deeds),
+  };
+}
+
+/** Журнал из ответа `/api/gems`: только целые записи, по номеру. */
+export function readGemList(v: unknown): GemEntry[] {
+  if (!Array.isArray(v)) return [];
+  return v
+    .map(readGemEntry)
+    .filter((e): e is GemEntry => e !== null)
+    .sort((a, b) => a.n - b.n)
+    .slice(-GEM_LIMITS.view);
+}
