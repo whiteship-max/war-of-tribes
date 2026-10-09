@@ -25,6 +25,7 @@ import { createInitialState } from '../../src/game/state.js';
 import { tick, absence } from '../../src/game/sim/tick.js';
 import { startUpgrade } from '../../src/game/sim/actions.js';
 import { addPop } from '../../src/game/sim/population.js';
+import { rushFree, rushPrice } from '../../src/game/sim/gems.js';
 import {
   bondedTotal,
   buildRate,
@@ -96,6 +97,9 @@ function keepBusy(s: GameState): void {
   s.morale = 100;
   const shop = buildingOfType(s, 'workshop');
   if (shop) s.workers[shop.id] = Math.min(buildingSlots(shop), Math.max(0, s.pop - 2));
+  const now = currentSite(s);
+  // Последние пять минут честный игрок ускоряет даром (`sim/gems.rushFree`) — без сервера.
+  if (now && rushPrice(now) === 0) rushFree(s, now.id);
   if (currentSite(s)) return;
   const next = s.buildings
     .filter((b) => b.level < maxLevelFor(b.type) && !upgradeInfo(s, b).blocked)
