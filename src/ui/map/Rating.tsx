@@ -4,6 +4,8 @@
 //
 // Очки считает сервер (`/api/rating`); своих чисел здесь нет, веса в подсказке — из договора (`RATING_WEIGHTS`).
 import { useEffect, useState } from 'react';
+import { ratingCard } from '@/ui/share/shareCard';
+import { ShareSheet } from '@/ui/share/ShareSheet';
 import { useWorld } from '@/world/store';
 import { fetchRating, RATING_PULL_MS, type RatingRow } from '@/net/rating';
 import { RATING_WEIGHTS, cityOr } from '../../../netlify/lib/contract';
@@ -26,6 +28,9 @@ export function rowFacts(r: RatingRow): string {
 export function Rating({ onClose }: { onClose: () => void }) {
   const [rows, setRows] = useState<RatingRow[] | null>(null);
   const [why, setWhy] = useState('');
+  const [sharing, setSharing] = useState(false);
+  // «Поделиться» своим местом (docs/feed.md, раздел 3): своя строка есть — есть и кнопка.
+  const mine = rows?.find((r) => r.mine) ?? null;
 
   useEffect(() => {
     let live = true;
@@ -54,6 +59,11 @@ export function Rating({ onClose }: { onClose: () => void }) {
     <div className="wm-rating" role="dialog" aria-label="Рейтинг">
       <div className="wm-rhead">
         <b>Рейтинг</b>
+        {mine && (
+          <button className="wm-rbtn" onClick={() => setSharing(true)} aria-label="Поделиться местом">
+            <Icon name="ui-share" glyph="📣" />
+          </button>
+        )}
         <button className="wm-rbtn" onClick={(e) => tipAt(e.currentTarget, RATING_TIP)} aria-label="Откуда очки">
           <Icon name="ui-info" glyph="ℹ️" />
         </button>
@@ -77,6 +87,7 @@ export function Rating({ onClose }: { onClose: () => void }) {
           <span className="wm-rpts">{num(r.points)}</span>
         </button>
       ))}
+      {mine && sharing && <ShareSheet card={ratingCard(mine)} onClose={() => setSharing(false)} />}
     </div>
   );
 }

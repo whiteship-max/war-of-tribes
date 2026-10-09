@@ -123,6 +123,7 @@ npm run map:report # карта: сколько людей ходит, что с
 npm run map:shots  # снимки карты в snaps/map: тот же кадр «до» и «после» (стенд, не отчёт)
 npm run prologue:stand # предыстория: числа круга, кадр, память, пальцем и финал (стенд, не отчёт; гонит тот, кто трогает поляну)
 npm run splash:build # заставка экрана загрузки из assets-src/splash в public/assets/splash (WebP)
+npm run share:build  # картинки «Поделиться» для историй Telegram в public/assets/share (docs/feed.md)
 npm run emoji:build  # белый список эмодзи (Emoji 12.0) из таблицы Unicode в src/ui/icons/emoji12.ts
 ```
 

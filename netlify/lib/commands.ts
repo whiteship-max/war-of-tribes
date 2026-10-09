@@ -456,6 +456,7 @@ export function statsCsv(rows: Found[], frozen: FrozenFile): string {
     'город',
     'правитель',
     'пришёл',
+    'пригласил',
     'последний запрос',
     'заходов',
     'минут в игре',
@@ -493,6 +494,7 @@ export function statsCsv(rows: Found[], frozen: FrozenFile): string {
       cityName(c?.city) ?? '',
       rec.name,
       when(rec.first),
+      rec.ref ? rec.ref.slice(3) : '',
       when(rec.last),
       rec.visits,
       Math.round(rec.played / 60_000),
@@ -536,7 +538,7 @@ async function stats(io: Io, now: number): Promise<Reply> {
     file: {
       name: `tribe-stats-${day}.csv`,
       content: statsCsv(rows, frozen),
-      caption: `Игроков: ${rows.length}, с флагами: ${rows.filter((r) => r.rec.flags.length).length}, заморожено: ${Object.keys(frozen.keys).length}. Разделитель — точка с запятой.`,
+      caption: `Игроков: ${rows.length}, по приглашению: ${rows.filter((r) => r.rec.ref).length}, с флагами: ${rows.filter((r) => r.rec.flags.length).length}, заморожено: ${Object.keys(frozen.keys).length}. Разделитель — точка с запятой.`,
     },
   };
 }

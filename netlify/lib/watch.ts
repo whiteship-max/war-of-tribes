@@ -119,6 +119,11 @@ export interface WatchRecord {
   book?: ArmyBook;
   /** Книга стройки и жителей (`town.ts`, docs/pvp.md, раздел 7): уровни и жители, которые сервер подтверждает. */
   town?: TownBook;
+  /**
+   * Кто привёл: ключ игрока, по чьей ссылке был первый заход (`invitedBy`, docs/feed.md, раздел 3). Только статистика
+   * админа, наград за это нет. Нет — пришёл сам или запись старше поля.
+   */
+  ref?: string;
 }
 
 const n0 = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
@@ -172,6 +177,7 @@ export function readWatchRecord(v: unknown): WatchRecord {
     }
     out.flags = out.flags.slice(-FLAGS_KEEP);
   }
+  if (typeof r.ref === 'string' && /^tg-\d{1,20}$/.test(r.ref)) out.ref = r.ref;
   const book = readBook(r.book);
   if (book) out.book = book;
   const town = readTown(r.town);
@@ -309,9 +315,23 @@ export function addFlags(rec: WatchRecord, at: number, found: { kind: FlagKind; 
 // ------------------------------------------------ события ---
 
 /** Запрос сохранения с подписью: заход, время в игре, имя пользователя. */
-export function touched(rec: WatchRecord, at: number, user?: string): WatchRecord {
+/** Ключ игрока из кода приглашения (`data/social.refCode`: «r» и номер Telegram в base36). Свой код — не приглашение. */
+export function invitedBy(start: string | undefined, self: string): string | null {
+  const m = start ? /^r([0-9a-z]{1,11})$/.exec(start) : null;
+  if (!m) return null;
+  const id = parseInt(m[1], 36);
+  if (!Number.isSafeInteger(id) || id <= 0) return null;
+  const key = `tg-${id}`;
+  return key === self ? null : key;
+}
+
+/** Заход: первый — с меткой пригласившего, если игрок пришёл по ссылке (`invitedBy`); у старого игрока метка не меняется. */
+export function touched(rec: WatchRecord, at: number, user?: string, ref?: string | null): WatchRecord {
   const next = { ...rec, journal: [...rec.journal] };
-  if (!next.first) next.first = at;
+  if (!next.first) {
+    next.first = at;
+    if (ref) next.ref = ref;
+  }
   const gap = rec.last ? at - rec.last : Infinity;
   if (gap > SESSION_GAP_MS) {
     next.visits += 1;

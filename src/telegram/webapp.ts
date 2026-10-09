@@ -96,6 +96,11 @@ export interface TelegramWebApp {
   openLink?(url: string, options?: { try_instant_view?: boolean }): void;
   /** Bot API 6.0: открыть ссылку t.me внутри клиента, не выходя из аппки. */
   openTelegramLink?(url: string): void;
+  /**
+   * Bot API 7.8: выложить историю. Картинка — только адресом, который Telegram заберёт сам; подпись до 200 знаков
+   * (2048 у Premium), ссылка-виджет — только у Premium.
+   */
+  shareToStory?(mediaUrl: string, params?: { text?: string; widget_link?: { url: string; name?: string } }): void;
   setHeaderColor?(color: string): void;
   setBackgroundColor?(color: string): void;
   disableVerticalSwipes?(): void;
@@ -431,5 +436,36 @@ export async function shareLink(url: string, text: string): Promise<ShareResult>
     return 'telegram';
   } catch {
     return 'none';
+  }
+}
+
+/** Можно ли выложить историю: клиент Bot API 7.8 и старше (`shareToStory`). Вне Telegram и у старого клиента — нет. */
+export function canStory(): boolean {
+  const app = tg();
+  try {
+    return !!app?.shareToStory && (app.isVersionAtLeast?.('7.8') ?? false);
+  } catch {
+    return false;
+  }
+}
+
+/** Подпись истории: обычному аккаунту Telegram пускает 200 знаков. */
+export const STORY_TEXT_MAX = 200;
+
+/**
+ * Выложить историю с картинкой по адресу и подписью; ссылка-виджет ведёт в игру (у Premium). `false` — не вышло:
+ * старый клиент или Telegram отказал.
+ */
+export function shareStory(mediaUrl: string, text: string, link: string | null): boolean {
+  const app = tg();
+  if (!canStory() || !app?.shareToStory) return false;
+  try {
+    app.shareToStory(mediaUrl, {
+      text: text.slice(0, STORY_TEXT_MAX),
+      ...(link ? { widget_link: { url: link, name: 'Играть в TRIBE' } } : {}),
+    });
+    return true;
+  } catch {
+    return false;
   }
 }

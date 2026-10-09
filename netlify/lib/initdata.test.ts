@@ -53,6 +53,16 @@ describe('личность игрока берётся только из под�
     }
   });
 
+  it('параметр ссылки запуска — из той же подписи и только похожий на код (кто кого привёл, docs/feed.md)', () => {
+    expect(readInitData(sign(fields({ start_param: 'r2kgn' }), TOKEN), TOKEN, NOW)).toEqual({ ok: true, user: { id: 777, authDate: NOW - 60, start: 'r2kgn' } });
+    for (const bad of ['', 'с кириллицей', 'a'.repeat(65), '<b>']) {
+      expect(readInitData(sign(fields({ start_param: bad }), TOKEN), TOKEN, NOW)).toEqual({ ok: true, user: { id: 777, authDate: NOW - 60 } });
+    }
+    // Параметр, дописанный мимо подписи, ломает её: подменить пригласившего нельзя.
+    const forged = `${sign(fields(), TOKEN)}&start_param=r1`;
+    expect(readInitData(forged, TOKEN, NOW)).toEqual({ ok: false, why: 'bad-hash' });
+  });
+
   it('чужой токен не подходит: подпись — это и есть весь замок', () => {
     expect(readInitData(sign(fields(), OTHER), TOKEN, NOW)).toEqual({ ok: false, why: 'bad-hash' });
   });

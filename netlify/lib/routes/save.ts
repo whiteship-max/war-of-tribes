@@ -34,7 +34,7 @@ import { allow, botToken, deny, json, parseJson, readBody, type Route } from '..
 import { readRecord, type ConflictResponse, type FrozenResponse, type PullResponse, type PushBody, type PushResponse } from '../contract.js';
 import { STORES } from '../kv.js';
 import { frozenNow, grantsOf, isFrozen, noteOf } from '../admin.js';
-import { booked, observe, tooFast, touched, wrote } from '../watch.js';
+import { booked, invitedBy, observe, tooFast, touched, wrote } from '../watch.js';
 import { readWars, WARS_KEY, type WarFile } from '../war.js';
 import { gemNoteOf, rushesOf, settleGems } from '../gems.js';
 
@@ -69,6 +69,8 @@ export const save: Route = async (req, io) => {
   const frozen = isFrozen(await frozenNow(io.stores), key);
   const grants = await grantsOf(io.stores, key);
   const user = auth.user.username;
+  // Кто привёл (docs/feed.md, раздел 3): метка ляжет только на первом заходе — в `touched`.
+  const ref = invitedBy(auth.user.start, key);
 
   if (req.method === 'GET') {
     const found = await store.getWithMetadata(key);
@@ -83,7 +85,7 @@ export const save: Route = async (req, io) => {
       admin: noteOf(frozen, grants, 0),
       ...(ledger ? { gems: gemNoteOf(ledger.ledger, 0, now) } : {}),
     };
-    await observe(io.stores, key, (rec) => touched(rec, now, user));
+    await observe(io.stores, key, (rec) => touched(rec, now, user, ref));
     return json(body);
   }
 
@@ -101,7 +103,7 @@ export const save: Route = async (req, io) => {
   // Замороженный видит игру, но записи его не принимаются: ответ скажет почему, и игра покажет плашку.
   if (frozen) {
     const body: FrozenResponse = { error: 'frozen', now, admin };
-    await observe(io.stores, key, (rec) => touched(rec, now, user));
+    await observe(io.stores, key, (rec) => touched(rec, now, user, ref));
     return json(body, 423);
   }
 
@@ -159,7 +161,7 @@ export const save: Route = async (req, io) => {
   // подтверждает их без работы (docs/pvp.md, раздел 7). Не ответила — без записки; ускорения подождут следующей записи.
   const ledger = await settleGems(io.stores, key, now);
   const paid = rushesOf(ledger?.ledger ?? null);
-  await observe(io.stores, key, (rec) => booked(wrote(touched(rec, now, user), now, card, record.watch, rev), now, record.watch, seen, grants.list, wars, key, paid));
+  await observe(io.stores, key, (rec) => booked(wrote(touched(rec, now, user, ref), now, card, record.watch, rev), now, record.watch, seen, grants.list, wars, key, paid));
   const body: PushResponse = {
     now,
     etag: written.etag,
