@@ -74,7 +74,7 @@ export const HINTS: readonly HintDef[] = [
     id: 'games',
     title: 'Промыслы и энергия',
     body: 'Энергия тратится на промыслы — короткие игры, добыча идёт на склад. Запас копится сам.',
-    anchor: '.nx-energy',
+    anchor: '.nx-hen',
     link: { label: 'Промыслы', go: 'trades' },
     due: (s, ctx) => ctx.energyFull && (s.stats.games ?? 0) === 0,
   },

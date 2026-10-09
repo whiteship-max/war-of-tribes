@@ -223,6 +223,21 @@ describe('верхняя строка: числа за тысячу — сокр
   });
 });
 
+describe('верхняя строка: ячейка не делит имя класса с блоком во всю ширину', () => {
+  // Ячейка энергии звалась `nx-energy`, как шкала энергии агента (`width: 100%`), и растягивалась на всю строку: сезон
+  // уходил за экран (щуп стенда `mini:shots`, docs/minigames.md, 17.8). Область — классы кнопок строки `nx-top` в Hud.tsx.
+  it('ни у одного класса ячеек строки нет правила с шириной 100 %', () => {
+    const hud = readFileSync(join(__dirname, 'Hud.tsx'), 'utf8');
+    const top = hud.slice(hud.indexOf('nx-top'), hud.indexOf('nx-res'));
+    const classes = new Set([...top.matchAll(/className=\{?[`"]([^`"$]+)/g)].flatMap((m) => m[1].split(/\s+/)).filter((c) => c.startsWith('nx-')));
+    expect(classes.has('nx-stat')).toBe(true);
+    const css = readFileSync(join(__dirname, 'next.css'), 'utf8');
+    for (const c of classes) {
+      for (const m of css.matchAll(new RegExp(`(^|\\n)\\.${c}\\s*\\{([^}]*)\\}`, 'g'))) expect(m[2], c).not.toMatch(/width:\s*100%/);
+    }
+  });
+});
+
 describe('цели касания нового вида — не меньше порога проекта', () => {
   it('кнопки и ячейки-числа верха, тревоги, низ и ссылка подсказки — 44 и больше', () => {
     expect(TAP_TARGET).toBe(44);
