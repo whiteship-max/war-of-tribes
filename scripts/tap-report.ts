@@ -53,6 +53,9 @@
  * если канва под всем пятном (`free`), и второй палец щипка ставится так же: на
  * разметке его касание досталось бы кнопке, и город увидел бы одиночный тап.
  *
+ * `SPOTS=1 npm run tap:report` — середины областей построек на стартовом кадре и кто под каждой (стартовый кадр, без
+ * следов): где плашка может встать, не закрыв постройку.
+ *
  * ЧЕГО НЕ МЕРЯЕТ:
  *   рисунок      кадра нет вовсе — за внешним видом на `?showcase=` и в snaps/;
  *   разметку     кнопки двумерного слоя стенд не жмёт: его касания — в точки, где
@@ -551,6 +554,19 @@ async function report(): Promise<void> {
   // стенд подводит камеру, как игрок, и целится уже от неё.
   const inside = (p: { x: number; y: number }): boolean => p.x > 2 && p.y > 2 && p.x < view.w - 2 && p.y < view.h - 2;
   const freeAt = (p: { x: number; y: number }): Promise<boolean> => tab.eval<boolean>(`window.__tap.free(${p.x}, ${p.y}, ${FINGER_R})`);
+  // `SPOTS=1` — только середины областей построек на стартовом кадре и кто под ними: где на кадре можно поставить
+  // плашку, не закрыв ни одной постройки (плашка алмазов, docs/feed.md, раздел 5). Таблица и сход пальца не гоняются.
+  if (process.env.SPOTS === '1') {
+    for (const b of boxes) {
+      const a = b.area;
+      if (!a) continue;
+      const who = inside(a) ? await tab.eval<string>(`window.__tap.who(${a.x}, ${a.y})`) : 'за краем';
+      const free = inside(a) && (await freeAt(a));
+      const name = BUILDINGS.find((d) => d.id === b.type)?.name ?? b.type;
+      console.log(`  ${name.padEnd(22)} ${String(Math.round(a.x)).padStart(4)},${String(Math.round(a.y)).padStart(4)}  ±${Math.round(a.hw)}×${Math.round(a.hh)}  ${free ? 'свободна' : who}`);
+    }
+    return;
+  }
   const points: Aim[] = [];
   /** Постройки, которых не достать и с подведённой камерой: стенд скажет о них вслух. */
   const unreachable: Box[] = [];
