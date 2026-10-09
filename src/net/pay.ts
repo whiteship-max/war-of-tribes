@@ -4,10 +4,11 @@
  * комментарий считает сервер, а алмазы ложатся, когда сервер сам нашёл перевод в сети. Баланс после этого приезжает
  * обычной запиской (`net/gems.refreshGems`).
  *
- * Библиотека кошелька (`@tonconnect/ui`) грузится здесь же отдельным куском — только когда открыта вкладка «Купить»
- * Сокровищницы (`ui/next/TreasuryBuy.tsx`, тоже отдельный кусок): первая загрузка её не несёт.
+ * Модуль и библиотека кошелька (`@tonconnect/ui`) едут в отдельном куске вкладки «Купить» Сокровищницы
+ * (`ui/next/TreasuryBuy.tsx`, `lazy`): импортирует этот модуль только она, и первая загрузка их не несёт.
  */
 import { create } from 'zustand';
+import { THEME, TonConnectUI } from '@tonconnect/ui';
 import { readPayResponse, type PayOrderView, type PayResponse } from '../../netlify/lib/contract';
 import { BOT_USERNAME, MINI_APP_NAME } from '@/game/data/social';
 import { tgInitData } from '@/telegram/webapp';
@@ -63,15 +64,14 @@ export const anyWaiting = (orders: PayOrderView[], now: number): boolean =>
 
 // ------------------------------------------------ TON Connect ---
 
-type Ui = import('@tonconnect/ui').TonConnectUI;
-let ui: Promise<Ui> | null = null;
+let ui: Promise<TonConnectUI> | null = null;
 
 /** Адрес манифеста TON Connect — рядом с игрой (`public/tonconnect-manifest.json`). */
 const manifestUrl = (): string => new URL('/tonconnect-manifest.json', location.origin).toString();
 
-/** Библиотека кошелька — один раз за запуск, отдельным куском. */
-export function tonConnect(): Promise<Ui> {
-  ui ??= import('@tonconnect/ui').then(({ TonConnectUI, THEME }) => {
+/** Подключение кошелька — одно на запуск. */
+export function tonConnect(): Promise<TonConnectUI> {
+  ui ??= Promise.resolve().then(() => {
     const t = new TonConnectUI({
       manifestUrl: manifestUrl(),
       uiPreferences: { theme: THEME.DARK },
