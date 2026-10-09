@@ -523,9 +523,18 @@ async function report(): Promise<void> {
   // помеха: значит стартовый экран переделали, и стенд надо чинить.
   const entered = await tab.eval<string>(ENTER_GAME);
   if (entered === 'экран есть, кнопки нет') throw new Error('стартовый экран без кнопки «.start-go» — стенд надо чинить');
-  await sleep(200);
-  if (await tab.eval<boolean>("JSON.stringify(!!document.querySelector('.start'))")) {
-    throw new Error('стартовый экран не ушёл после нажатия — следы дошли бы до него, а не до города');
+  // Сам экран снимается по кнопке сразу, но поверх города ещё 0.6 с гаснет кадр заставки (`StartVeil`, классы
+  // `.start .start-veil`; docs/loading.md, 1б) — стенд ждёт, пока он догаснет, а не мерит сквозь него. Прежние
+  // 200 мс вслепую с ним не сходились: вход через «Назвать город» отдаёт ход сразу после нажатия (09.10.2026).
+  let left = '';
+  for (let i = 0; i < 15; i++) {
+    await sleep(200);
+    left = await tab.eval<string>("JSON.stringify(document.querySelector('.start')?.className ?? '')");
+    if (!left) break;
+  }
+  if (left) {
+    const what = left.includes('start-veil') ? 'кадр заставки не догас за 3 с' : 'стартовый экран не ушёл после нажатия';
+    throw new Error(`${what} — следы дошли бы до него, а не до города`);
   }
   await tab.eval<string>(PROBE.replace('LEVEL_WANTED', String(LEVEL)).replace(/CITY_WAIT/g, String(CITY_WAIT_MS)));
   const maxLevel: Record<string, number> = {};
