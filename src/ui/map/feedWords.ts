@@ -3,6 +3,7 @@
 // город стоит после слова «город», правитель — после слова «правитель», оба в именительном.
 import type { FeedItem } from '@/net/feed';
 import { realSpan } from '@/game/span';
+import { cityOr } from '../../../netlify/lib/contract';
 
 export interface FeedWords {
   title: string;
@@ -23,7 +24,7 @@ export const agoText = (ms: number): string => (ms < 60_000 ? 'только чт
 
 /** Другая сторона: «отряд из города Катания, правитель Андрей». */
 const party = (item: FeedItem, what: string): string =>
-  `${what} из города ${item.byCity ?? ''}${item.byRuler ? `, правитель ${item.byRuler}` : ''}`;
+  `${what} из города ${cityOr(item.byCity)}${item.byRuler ? `, правитель ${item.byRuler}` : ''}`;
 
 const DEED: Record<string, { title: string; line: string; icon: FeedWords['icon'] }> = {
   fire: { title: 'Пожар', line: 'Склад поджёг чужой лазутчик.', icon: { name: 'evt-fire', glyph: '🔥' } },
@@ -32,8 +33,9 @@ const DEED: Record<string, { title: string; line: string; icon: FeedWords['icon'
 };
 
 export function feedWords(item: FeedItem): FeedWords {
-  const city = `город ${item.city}`;
-  const City = `Город ${item.city}`;
+  const name = cityOr(item.city);
+  const city = `город ${name}`;
+  const City = `Город ${name}`;
   switch (item.kind) {
     case 'fell': {
       const how =
@@ -60,7 +62,7 @@ export function feedWords(item: FeedItem): FeedWords {
     case 'caught':
       return {
         title: `${item.how === 'dead' ? 'Убит' : 'Схвачен'} лазутчик, ${city}`,
-        line: item.byRuler ? `Его послал правитель ${item.byRuler} из города ${item.byCity ?? ''}.` : `Его послал город ${item.byCity ?? ''}.`,
+        line: item.byRuler ? `Его послал правитель ${item.byRuler} из города ${cityOr(item.byCity)}.` : `Его послал город ${cityOr(item.byCity)}.`,
         icon: { name: 'fig-spy', glyph: '🕵️' },
       };
     case 'settled':

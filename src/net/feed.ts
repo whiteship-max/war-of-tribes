@@ -3,7 +3,7 @@
  * тела у запроса нет.
  */
 import { apiGet } from './api';
-import { FEED_KINDS, type FeedItem, type FeedResponse } from '../../netlify/lib/contract';
+import { FEED_KINDS, cityName, type FeedItem, type FeedResponse } from '../../netlify/lib/contract';
 
 export type { FeedItem };
 
@@ -28,7 +28,7 @@ const okItem = (r: unknown): r is FeedItem => {
     typeof x.at === 'number' &&
     typeof x.x === 'number' &&
     typeof x.y === 'number' &&
-    typeof x.city === 'string'
+    cityName(x.city) !== null
   );
 };
 
