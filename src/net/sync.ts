@@ -24,10 +24,10 @@
  * можно в «Заданиях», в «Служебном». Тихо стереть её — нельзя; тихо предпочесть
  * серверную — можно, потому что сервер и есть то место, где партия живёт.
  *
- * Чего здесь нет и не появится по дороге: сервер ничего не проверяет и ничего
- * не начисляет. Он хранит две непрозрачные строки и раздаёт своё «сейчас».
- * Алмазов, наград и права судить у него нет — это отдельная работа, и делать
- * её надо целиком, а не намёком отсюда.
+ * Чего здесь нет и не появится по дороге: партию сервер не проверяет и в неё
+ * ничего не начисляет. Он хранит две непрозрачные строки и раздаёт своё «сейчас».
+ * Алмазы ведёт его книга (docs/gems.md): с ответом записи приезжает только её
+ * записка — баланс и дела, которые партия применяет сама (`net/gems.takeGems`).
  */
 import { create } from 'zustand';
 import { SAVE_HURRY_MS, SAVE_PUSH_MS, type ConflictResponse, type PullResponse, type PushResponse, type SaveCard, type SaveRecord } from '../../netlify/lib/contract';
@@ -42,6 +42,7 @@ import { beatLease, claimLease, dropLease, leaseHolder, LEASE_BEAT_MS } from './
 import { snapshotOf } from './snapshot';
 import { sheetMark } from './war';
 import { takeNote } from './admin';
+import { gemsQuiet, takeGems } from './gems';
 import { knownEra } from './era';
 
 const META_KEY = 'tribe.sync.v1';
@@ -222,6 +223,8 @@ async function push(baseEtag: string | null): Promise<void> {
       useSync.setState({ state: 'ok', why: '', lastOk: serverNow() });
       // Записка админки: разморозка и указы приезжают с ответом записи (docs/admin.md).
       takeNote(res.data.admin);
+      // Записка алмазов: баланс, лавка и неприменённые дела (docs/gems.md).
+      takeGems(res.data.gems);
       return;
     }
     if (res.why === 'frozen') {
@@ -248,6 +251,7 @@ async function push(baseEtag: string | null): Promise<void> {
     }
     // «Слишком часто» — это не беда: следующая попытка через `PUSH_MS`, а на диске
     // партия уже лежит. Тревожить этим игрока незачем.
+    gemsQuiet(res.why);
     say(res.why === 'busy' ? 'ok' : 'offline', WORDS[res.why]);
   } finally {
     pushing = false;
@@ -376,11 +380,13 @@ export async function syncBoot(hadLocal: boolean): Promise<void> {
   say('busy', '');
   const res = await apiGet<PullResponse>('/api/save');
   if (!res.ok) {
+    gemsQuiet(res.why);
     say(res.why === 'auth' ? 'off' : 'offline', WORDS[res.why]);
     return;
   }
   const { record, etag } = res.data;
   takeNote(res.data.admin);
+  takeGems(res.data.gems);
   const here = mine();
   if (!here) return;
 

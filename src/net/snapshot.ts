@@ -33,6 +33,7 @@ import { troopTotal } from '@/game/battle/kinds';
 import { hiredAt } from '@/game/sim/army';
 import { minigameCap } from '@/game/sim/minigames';
 import { adminSeen } from '@/game/sim/admin';
+import { gemSeen } from '@/game/sim/gems';
 import { deviceNow, leadAt } from './clock';
 import { power } from '@/profile/power';
 import { cityName, profileName } from '@/profile/identity';
@@ -91,6 +92,8 @@ export function watchOf(s: GameState): WatchCard {
   const wounded = woundedStacks(s);
   const st = s.stats;
   const seen = adminSeen(s);
+  // Дела алмазов (лавка кладёт припас) — тоже разовые дела: рост склада между описями ими объяснён (docs/gems.md).
+  const gemmed = gemSeen(s);
   const games = st.games ?? 0;
   return {
     build: buildId(),
@@ -111,7 +114,7 @@ export function watchOf(s: GameState): WatchCard {
     hurt: hurtOf(wounded.lying, wounded.carried),
     train: Math.ceil(train),
     deeds:
-      st.hunts + st.battlesWon + st.battlesLost + st.eventsResolved + st.scouted + st.raids + st.castles + st.lairs + st.purchases + st.dailyWins + games + seen,
+      st.hunts + st.battlesWon + st.battlesLost + st.eventsResolved + st.scouted + st.raids + st.castles + st.lairs + st.purchases + st.dailyWins + games + seen + gemmed,
     won: st.battlesWon,
     lost: st.battlesLost,
     lairs: st.lairs,
@@ -122,6 +125,7 @@ export function watchOf(s: GameState): WatchCard {
     cheated: s.cheated === true,
     lead: whole(leadAt()),
     seen,
+    gemSeen: gemmed,
   };
 }
 

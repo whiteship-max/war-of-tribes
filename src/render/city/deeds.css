@@ -101,3 +101,25 @@
     }
   }
 }
+
+/* Ярлыки у лесов (docs/gems.md): место кнопки «Ускорить» над стройкой. Слой касаний не берёт — берёт только ярлык; ставит
+   его кадр (`SiteTags.update`), содержимое кладёт интерфейс (`ui/next/SiteTags.tsx`). */
+.city-tags {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.city-tag {
+  position: absolute;
+  left: 0;
+  top: 0;
+  will-change: transform;
+}
+
+.city-tag > * {
+  translate: -50% -100%;
+  pointer-events: auto;
+}

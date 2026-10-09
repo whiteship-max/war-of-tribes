@@ -7,7 +7,6 @@ import { storageCap } from './game/derived';
 import { RESOURCE_IDS } from './game/constants';
 import { EQUIPMENT_IDS } from './game/data/equipment';
 import { TROOP_IDS } from './game/data/troops';
-import { gemsOf } from './game/sim/gems';
 import { CHEAT_GEAR, CHEAT_GOLD, CHEAT_TROOPS, applyCheat } from './game/sim/cheat';
 import { beginMinigame, canPlay, energyAt } from './game/sim/minigames';
 import { ENERGY_MAX, MINIGAME_COST } from './game/data/minigames';
@@ -118,9 +117,9 @@ describe('код деревни', () => {
    */
   it('алмазов не прибавляет', () => {
     const s = createInitialState();
-    const before = gemsOf(s);
     applyCheat(s, 'tribe');
-    expect(gemsOf(s)).toBe(before);
+    // Алмазы живут на сервере (docs/gems.md): поля в партии нет, и код его не заводит.
+    expect(Object.keys(s)).not.toContain('gems');
   });
 
   it('метит партию навсегда, а строку метки пишет один раз', () => {
@@ -138,12 +137,11 @@ describe('код деревни', () => {
     const s = createInitialState();
     for (let i = 0; i < ENERGY_MAX / MINIGAME_COST; i++) expect(typeof beginMinigame(s, 'berries', 1_700_000_000_000)).toBe('object');
     expect(canPlay(s, 1_700_000_000_000), 'точка внутри области: запас пуст').toBe(false);
-    const gems = gemsOf(s);
     const said = applyCheat(s, 'energy');
     expect(energyAt(s, 1_700_000_000_000)).toBe(ENERGY_MAX);
     expect(s.cheated).toBe(true);
     expect(s.log.some((e) => e.text === CHEAT_MARK)).toBe(true);
-    expect(gemsOf(s)).toBe(gems);
+    expect(Object.keys(s)).not.toContain('gems');
     expect(said).toContain('Код:');
   });
 
