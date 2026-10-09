@@ -413,6 +413,8 @@ describe('сервер разбирает ровно названные запи
       'readEraFile',
       'readFrozen',
       'readGrants',
+      // вести края (docs/feed.md): память первых мест рейтинга — кто и когда вышел вперёд
+      'readLeaders',
       'readLedger',
       'readNotify',
       // оплата алмазов (docs/payments.md): заказы игрока и метка оплаченного перевода

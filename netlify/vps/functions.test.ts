@@ -4,6 +4,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { ROUTES } from '../lib/routes/index.js';
 import * as botRoute from '../lib/routes/bot.js';
 import * as castlesRoute from '../lib/routes/castles.js';
+import * as feedRoute from '../lib/routes/feed.js';
 import * as gemsRoute from '../lib/routes/gems.js';
 import * as notifyRoute from '../lib/routes/notify.js';
 import * as payRoute from '../lib/routes/pay.js';
@@ -35,6 +36,7 @@ const ROUTE_MODULES: Record<string, Record<string, unknown>> = {
   rating: ratingRoute,
   gems: gemsRoute,
   pay: payRoute,
+  feed: feedRoute,
 };
 
 /** Функции с адресом. Функция по расписанию (`deliver.mts`) адреса не имеет: её держит `lib/server.test.ts`. */
