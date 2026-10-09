@@ -11,7 +11,7 @@ import type { BuildingTypeId, ResourceId } from './types';
 import { BUILDING_BY_ID } from './data/buildings';
 import { YARDS } from './data/yards';
 import { MAX_BUILDING_LEVEL, SLOTS_PER_LEVEL } from './constants';
-import { gameDaysPerHour, gameRate, realSeconds } from './pace';
+import { gameDaysPerHour, gameRate, realSec, realSeconds } from './pace';
 import { upgradeWork } from './labour';
 import { DAY_MS } from './time';
 import { dayIndex } from './data/daily';
@@ -26,8 +26,8 @@ export const START_GEMS = 120;
  */
 export const GEM_REF_RATE = gameRate(20);
 
-/** Последние пять минут ожидания ускоряются даром (решение владельца 09.10.2026). */
-export const RUSH_FREE_SECONDS = 5 * 60;
+/** Последние пять минут ожидания ускоряются даром (решение владельца 09.10.2026). Настоящие: время игрока. */
+export const RUSH_FREE_SECONDS = realSec(5 * 60);
 
 /** Трата больше этого — вторым касанием той же кнопки («Точно?», docs/ui_audit.md, 3.10). */
 export const GEM_CONFIRM = 50;
