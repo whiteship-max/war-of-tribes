@@ -40,6 +40,8 @@ import { TROOPS } from '../../src/game/data/troops.js';
 import { BUILDING_BY_ID } from '../../src/game/data/buildings.js';
 import { SHOP_DAILY, gemLine } from '../../src/game/gemrules.js';
 import { peekGems, shopToday } from './gems.js';
+import { peekPayments } from './pay.js';
+import { payConfig } from './ton.js';
 
 /** Команд в минуту от одного админа — больше живой человек не набирает. */
 const PER_MINUTE = 30;
@@ -76,6 +78,7 @@ export const HELP = [
   '/unfreeze <кто> — разморозить.',
   '/frozen — кто заморожен.',
   '/gems <кто> — алмазы игрока: баланс, лавка за сегодня и журнал операций. Начислять алмазы команда не умеет.',
+  '/payments — последние заказы алмазов за USDT и их статус. Только чтение.',
   '/log [сколько] — журнал админа.',
   '/stats — таблица по всем игрокам файлом CSV (Excel, Google Таблицы).',
   '/flags — подозрительные игроки.',
@@ -291,6 +294,34 @@ async function gemsOf(io: Io, q: string): Promise<Reply> {
   if (rushed.length) lines.push(`Ускорено: ${rushed.map(([b, ms]) => `${gemBuilding(b)} ${span(ms)}`).join(', ')}`);
   lines.push('', ledger.list.length > GEMS_LINES ? `Журнал (последние ${GEMS_LINES}):` : 'Журнал:');
   for (const e of ledger.list.slice(-GEMS_LINES)) lines.push(`№${e.n} ${when(e.at)} ${gemLine(e)}`);
+  return say(lines.join('\n'));
+}
+
+/** Сколько заказов показывает `/payments`. */
+export const PAYMENTS_LINES = 20;
+
+/** Статус заказа словами — для админа. */
+export const PAY_WORD: Record<string, string> = {
+  created: 'создан',
+  waiting: 'ждёт перевода',
+  paid: 'оплачен, начисляется',
+  credited: 'начислено',
+  expired: 'истёк',
+};
+
+/**
+ * `/payments` — последние заказы алмазов за USDT (docs/payments.md): кто, набор, сумма, статус, причина. Только чтение
+ * (`peekPayments`): начислить или поменять статус команда не может — начисляет только перевод, найденный в сети.
+ */
+async function payments(io: Io): Promise<Reply> {
+  const cfg = payConfig();
+  const head = typeof cfg === 'string' ? `Оплата выключена: ${cfg}` : `Оплата: сеть ${cfg.net}, кошелёк ${cfg.wallet.toString({ testOnly: cfg.net === 'testnet' })}`;
+  const rows = await peekPayments(io.stores, PAYMENTS_LINES);
+  if (!rows.length) return say(`${head}\nЗаказов нет.`);
+  const lines = [head, '', `Последние ${rows.length}:`];
+  for (const { player: who, order: o } of rows) {
+    lines.push(`${when(o.at)} ${who} · ${o.id} · ${o.gems} за ${o.usdt} USDT · ${PAY_WORD[o.state] ?? o.state}${o.tx ? ` · tx ${o.tx.slice(0, 12)}…` : ''}${o.note ? ` · ${o.note}` : ''}`);
+  }
   return say(lines.join('\n'));
 }
 
@@ -672,6 +703,9 @@ export async function adminCommand(update: Record<string, unknown>, io: Io, tg: 
       break;
     case '/gems':
       reply = await gemsOf(io, rest);
+      break;
+    case '/payments':
+      reply = await payments(io);
       break;
     case '/log':
       reply = await adminLog(io, rest);

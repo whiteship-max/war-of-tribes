@@ -67,9 +67,13 @@ describe('сервер ничего не начисляет, кроме одно
       'lib/gems.ts',
       // имя хранилища
       'lib/kv.ts',
+      // оплата наборов: находит перевод в сети и зовёт `settlePurchase` (docs/payments.md)
+      'lib/pay.ts',
       // обработчик `/api/gems`
       'lib/routes/gems.ts',
       'lib/routes/index.ts',
+      // обработчик `/api/pay` — заказы и проверка; начисляет только `lib/pay.ts`
+      'lib/routes/pay.ts',
       // сохранение приносит записку и ускоренные уровни книге стройки
       'lib/routes/save.ts',
       // книга стройки читает ускоренные уровни (`paid`) — только номера и уровни записей, баланса не знает
@@ -137,11 +141,22 @@ describe('сервер ничего не начисляет, кроме одно
     expect([...code.matchAll(/\bentered\(/g)].length).toBe(3);
   });
 
-  it('creditGems зовут только стартовые эпохи — ни приказ, ни сохранение, ни админ', () => {
+  /**
+   * С 09.10.2026 (docs/payments.md) зовущих два: стартовые и оплата набора (`settlePurchase`, источник `purchase`).
+   * `settlePurchase` зовёт только проверка перевода `lib/pay.ts` — после того, как перевод найден в сети и занят.
+   */
+  it('creditGems зовут только стартовые эпохи и оплата, найденная в сети, — ни приказ, ни сохранение, ни админ', () => {
     const calls = files().flatMap((f) =>
       [...codeOnly(readFileSync(f, 'utf8')).matchAll(/(?<!function )\bcreditGems\(([^;]*)\);/g)].map((m) => `${rel(f)}: ${m[1].replace(/\s+/g, ' ')}`),
     );
-    expect(calls).toEqual(["lib/gems.ts: blank(), { source: '', amount: START_GEMS, key: '', at }"]);
+    expect(calls).toEqual(["lib/gems.ts: blank(), { source: '', amount: START_GEMS, key: '', at }", "lib/gems.ts: cur, { ...grant, source: '' }"]);
+    const purchases = files().flatMap((f) =>
+      [...codeOnly(readFileSync(f, 'utf8')).matchAll(/(?<!function )\bsettlePurchase\(/g)].map(() => rel(f)),
+    );
+    expect(purchases).toEqual(['lib/pay.ts']);
+    // И в `lib/pay.ts` — только после того, как заказ стал «оплачен» (перевод найден и занят).
+    const pay = read('lib/pay.ts');
+    expect(pay).toMatch(/for \(const o of cur\.filter\(\(x\) => x\.state === 'paid'\)\) \{\n\s*const done = await settlePurchase\(/);
     // Стартовые кладутся только в пустое место: открытие книги — только когда записи нет.
     const code = codeOnly(readFileSync(join(ROOT, 'lib/gems.ts'), 'utf8'));
     expect(code).toMatch(/const cur = stored \?\? openLedger\(at\);/);
@@ -151,8 +166,9 @@ describe('сервер ничего не начисляет, кроме одно
 
   it('админ алмазы только читает: /gems не открывает книгу и не пишет', () => {
     const code = read('lib/commands.ts');
-    expect(code).not.toMatch(/settleGems|creditGems|openLedger|applyGemOrder|STORES\.gems/);
+    expect(code).not.toMatch(/settleGems|settlePurchase|creditGems|openLedger|applyGemOrder|checkOrders|createOrder|markSent|claimTx|STORES\.(?:gems|pay|paid)/);
     expect(code).toMatch(/peekGems\(/);
+    expect(code).toMatch(/peekPayments\(/);
     // И хранилище алмазов называет только книга.
     const uses = files()
       .filter((f) => /STORES\.gems\b/.test(strip(readFileSync(f, 'utf8'))))
@@ -342,11 +358,19 @@ describe('исходящие: ключ только из подписи или �
    * Наружу ходит один адаптер — `lib/telegram.ts`: ни обработчики, ни проход доставки, ни свой сервер не зовут
    * `fetch` и не знают адреса Bot API. Новый адресат снаружи — правкой адаптера и этого теста.
    */
-  it('наружу ходит один адаптер: запрос и адрес Telegram — только в lib/telegram.ts', () => {
+  /**
+   * Второй адаптер — сеть TON (решение владельца 09.10.2026, docs/payments.md): сервер сам проверяет перевод USDT, и
+   * запрос к API сети ходит только из `lib/ton.ts`. Адрес и слова Telegram по-прежнему только в `lib/telegram.ts`.
+   */
+  it('наружу ходят два адаптера: Telegram — только lib/telegram.ts, сеть TON — только lib/ton.ts', () => {
     const guilty = files()
       .filter((f) => /\bfetch\s*\(|api\.telegram\.org|sendMessage/.test(strip(readFileSync(f, 'utf8'))))
       .map(rel);
-    expect(guilty).toEqual(['lib/telegram.ts']);
+    expect(guilty).toEqual(['lib/telegram.ts', 'lib/ton.ts']);
+    const tg = files()
+      .filter((f) => /api\.telegram\.org|sendMessage/.test(strip(readFileSync(f, 'utf8'))))
+      .map(rel);
+    expect(tg).toEqual(['lib/telegram.ts']);
   });
 });
 
@@ -391,6 +415,9 @@ describe('сервер разбирает ровно названные запи
       'readGrants',
       'readLedger',
       'readNotify',
+      // оплата алмазов (docs/payments.md): заказы игрока и метка оплаченного перевода
+      'readPaidMark',
+      'readPayFile',
       'readRoster',
       'readStoredReport',
       'readStoredSheet',

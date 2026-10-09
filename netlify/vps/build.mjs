@@ -25,7 +25,9 @@ await build({
   logLevel: 'warn',
   publicDir: false,
   // Общие с игрой правила боя пишут `@/` (`src/world/fights.ts` и его замыкание) — тот же путь, что у игры.
-  resolve: { alias: { '@': path.join(ROOT, 'src') } },
+  // Библиотека сети TON (`@ton/crypto`, docs/payments.md) зовёт встроенный модуль голым именем `crypto` — тот же
+  // встроенный, только под именем `node:`, чтобы снаружи файла оставалось одно встроенное в Node (`bundle.test.ts`).
+  resolve: { alias: [{ find: '@', replacement: path.join(ROOT, 'src') }, { find: /^crypto$/, replacement: 'node:crypto' }] },
   build: {
     ssr: path.join(ROOT, 'netlify', 'vps', 'main.ts'),
     outDir: path.dirname(out),

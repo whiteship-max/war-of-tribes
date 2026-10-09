@@ -4,8 +4,9 @@
  * каждая операция — запись в журнале.
  *
  * **Начисление — одна дверь, `creditGems`.** Зовут её ровно два источника: стартовые `START_GEMS` при первом входе игрока
- * в эпоху мира (`openLedger`) и — когда появится оплата — подтверждённая покупка набора. Больше ниоткуда: админ алмазов не
- * начисляет (`/gems` только читает), приказ игрока только списывает (`spendGems`). Держит это замок `server.test.ts`.
+ * в эпоху мира (`openLedger`) и подтверждённая сервером оплата набора (`settlePurchase`, зовёт его только проверка
+ * перевода `lib/pay.ts`, docs/payments.md). Больше ниоткуда: админ алмазов не начисляет (`/gems` и `/payments` только
+ * читают), приказ игрока только списывает (`spendGems`). Держит это замок `server.test.ts`.
  *
  * **Ключ повтора.** Приказ несёт `key`; запись с тем же ключом уже лежит — второй раз не списывается, отвечает прежняя
  * запись. Сеть оборвала ответ, игра спросила снова — алмазы ушли один раз.
@@ -55,6 +56,12 @@ export interface GemLedger {
    * сдвигает на них потолок уровня казарм и конюшни (`book.levelAt`): ускоренная стройка не даёт ложного отказа.
    */
   rushed: Counts;
+  /**
+   * Ключи всех начисленных покупок (`pay:<номер заказа>`) — **без обрезки**: журнал держит последние `GEM_LIMITS.keep`
+   * записей, и повтор по журналу через тысячу операций начислил бы второй раз (дыра docs/gems.md, 5.2). Номера самих
+   * переводов в сети лежат отдельно и вечно — хранилище `tribe-paid` (`lib/pay.ts`).
+   */
+  paid: string[];
 }
 
 /** Повтор ускорения той же постройки до того же уровня в этот срок — второй приказ, а не новая стройка. */
@@ -84,10 +91,11 @@ export function readLedger(v: unknown): GemLedger | null {
     list: list.slice(-GEM_LIMITS.keep),
     shop: { day: Math.max(0, Math.floor(n0(shop.day))), used: Math.max(0, Math.floor(n0(shop.used))) },
     rushed: readCounts(r.rushed),
+    paid: Array.isArray(r.paid) ? r.paid.filter((k): k is string => typeof k === 'string' && k.length <= GEM_LIMITS.key) : [],
   };
 }
 
-const blank = (): GemLedger => ({ v: 1, balance: 0, seq: 0, list: [], shop: { day: 0, used: 0 }, rushed: {} });
+const blank = (): GemLedger => ({ v: 1, balance: 0, seq: 0, list: [], shop: { day: 0, used: 0 }, rushed: {}, paid: [] });
 
 /** Дописать запись в журнал — с номером по порядку и обрезкой. */
 function entered(ledger: GemLedger, entry: Omit<StoredGem, 'n'>, balance: number): { ledger: GemLedger; entry: StoredGem } {
@@ -110,15 +118,18 @@ export interface GemGrant {
 }
 
 /**
- * Единственное начисление алмазов в игре. Тот же ключ второй раз ничего не начисляет. Сегодня её зовёт только открытие
- * книги (`openLedger`, стартовые); покупка набора войдёт сюда же, когда сервер научится проверять платёж.
+ * Единственное начисление алмазов в игре. Тот же ключ второй раз ничего не начисляет: по журналу, а у покупки ещё и по
+ * вечному списку `paid` — запись журнала могла уйти обрезкой, тогда `entry` пуст. Зовут её открытие книги
+ * (`openLedger`, стартовые) и оплата набора (`settlePurchase`).
  */
-export function creditGems(ledger: GemLedger, grant: GemGrant): { ledger: GemLedger; entry: StoredGem } | string {
+export function creditGems(ledger: GemLedger, grant: GemGrant): { ledger: GemLedger; entry: StoredGem | null } | string {
   if (grant.source !== 'start' && grant.source !== 'purchase') return 'Алмазы начисляют только стартовые и покупка.';
   if (!Number.isInteger(grant.amount) || grant.amount <= 0) return 'Пустое начисление.';
   const was = byKey(ledger, grant.key);
   if (was) return { ledger, entry: was };
-  return entered(ledger, { at: grant.at, delta: grant.amount, kind: grant.source, key: grant.key }, ledger.balance + grant.amount);
+  if (ledger.paid.includes(grant.key)) return { ledger, entry: null };
+  const done = entered(ledger, { at: grant.at, delta: grant.amount, kind: grant.source, key: grant.key }, ledger.balance + grant.amount);
+  return grant.source === 'purchase' ? { ledger: { ...done.ledger, paid: [...ledger.paid, grant.key] }, entry: done.entry } : done;
 }
 
 /** Книга нового игрока эпохи: пустая плюс стартовые — через ту же дверь начисления. */
@@ -213,13 +224,31 @@ export const listOf = (ledger: GemLedger): GemEntry[] => ledger.list.slice(-GEM_
  * хранилища алмазов: условная запись поверх прочитанного, при чужой записи между — заново. `null` — хранилище не
  * ответило или не пробились за `WRITE_TRIES`: ничего не списано.
  */
-export async function settleGems(
+export function settleGems(
   stores: Stores,
   player: string,
   at: number,
   order: GemOrder | null = null,
   left?: number | null,
 ): Promise<{ ledger: GemLedger; entry?: StoredGem; error?: string } | null> {
+  return settle(stores, player, at, (cur) => (order ? applyGemOrder(cur, order, at, left) : { ledger: null }));
+}
+
+/**
+ * Начислить оплаченный набор — вторая и последняя дверь, которая зовёт `creditGems` (источник `purchase`, ключ
+ * `pay:<номер заказа>`). Зовёт её только проверка перевода (`lib/pay.ts`), когда сервер сам нашёл перевод в сети. Повтор
+ * ничего не начисляет. `null` — хранилище не ответило: заказ остаётся «оплачен» и начислится следующей проверкой.
+ */
+export function settlePurchase(stores: Stores, player: string, grant: Omit<GemGrant, 'source'>): Promise<{ ledger: GemLedger; entry?: StoredGem; error?: string } | null> {
+  return settle(stores, player, grant.at, (cur) => {
+    const done = creditGems(cur, { ...grant, source: 'purchase' });
+    if (typeof done === 'string') return { ledger: null, error: done };
+    return { ledger: done.ledger === cur ? null : done.ledger, ...(done.entry ? { entry: done.entry } : {}) };
+  });
+}
+
+/** Одна дверь записи хранилища алмазов: прочитать (открыть со стартовыми), сделать шаг, записать условно. */
+async function settle(stores: Stores, player: string, at: number, act: (cur: GemLedger) => OrderStep): Promise<{ ledger: GemLedger; entry?: StoredGem; error?: string } | null> {
   const kv: Kv = stores(STORES.gems, 'strong');
   try {
     for (let tries = 0; tries < WRITE_TRIES; tries++) {
@@ -228,7 +257,7 @@ export async function settleGems(
       // Запись есть, а не читается, — не открывать заново: вторые стартовые хуже, чем отказ.
       if (found && !stored) return null;
       const cur = stored ?? openLedger(at);
-      const step = order ? applyGemOrder(cur, order, at, left) : { ledger: null };
+      const step = act(cur);
       const next = step.ledger ?? (stored ? null : cur);
       if (!next) return { ledger: cur, ...(step.entry ? { entry: step.entry } : {}), ...(step.error ? { error: step.error } : {}) };
       const written = await kv.setJSON(player, next, found?.etag ? { onlyIfMatch: found.etag } : { onlyIfNew: true });

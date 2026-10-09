@@ -6,6 +6,7 @@ import * as botRoute from '../lib/routes/bot.js';
 import * as castlesRoute from '../lib/routes/castles.js';
 import * as gemsRoute from '../lib/routes/gems.js';
 import * as notifyRoute from '../lib/routes/notify.js';
+import * as payRoute from '../lib/routes/pay.js';
 import * as ratingRoute from '../lib/routes/rating.js';
 import * as reportRoute from '../lib/routes/report.js';
 import * as saveRoute from '../lib/routes/save.js';
@@ -33,6 +34,7 @@ const ROUTE_MODULES: Record<string, Record<string, unknown>> = {
   report: reportRoute,
   rating: ratingRoute,
   gems: gemsRoute,
+  pay: payRoute,
 };
 
 /** Функции с адресом. Функция по расписанию (`deliver.mts`) адреса не имеет: её держит `lib/server.test.ts`. */

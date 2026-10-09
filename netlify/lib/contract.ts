@@ -1537,3 +1537,117 @@ export function readGemList(v: unknown): GemEntry[] {
     .sort((a, b) => a.n - b.n)
     .slice(-GEM_LIMITS.view);
 }
+
+// ------------------------------------------------ оплата наборов (docs/payments.md) ---
+
+/**
+ * Жизнь заказа: создан (номер и сумма выданы) → ждёт перевода (кошелёк подписал) → оплачен (сервер нашёл перевод в сети)
+ * → начислено (алмазы легли через `creditGems`). Не нашли перевода в срок — истёк; поздний перевод с тем же номером
+ * сервер ещё неделю ищет и начисляет (`lib/pay.ts`, `PAY_LATE_MS`).
+ */
+export const PAY_STATES = ['created', 'waiting', 'paid', 'credited', 'expired'] as const;
+export type PayState = (typeof PAY_STATES)[number];
+
+/** Заказ глазами игрока. */
+export interface PayOrderView {
+  /** Номер заказа; в комментарии перевода — `TRIBE-<номер>`. */
+  id: string;
+  /** Набор (`data/gems.GEM_PACKS`). */
+  pack: string;
+  gems: number;
+  usdt: number;
+  at: number;
+  /** До какой минуты ждём перевода. */
+  until: number;
+  state: PayState;
+  /** Что не так с переводом, словами (сумма не та). */
+  note?: string;
+}
+
+/** Сообщение кошельку через TON Connect (`sendTransaction`). */
+export interface PayTx {
+  /** Секунды Unix: до какого времени кошелёк может подписать. */
+  validUntil: number;
+  /** Сеть TON Connect: `-3` тестовая, `-239` основная. */
+  network: string;
+  messages: { address: string; amount: string; payload: string }[];
+}
+
+/** Ответ `/api/pay`. */
+export interface PayResponse {
+  now: number;
+  /** Оплата настроена на сервере. */
+  on: boolean;
+  net?: 'testnet' | 'mainnet';
+  /** Последние заказы игрока, свежие в конце. */
+  orders: PayOrderView[];
+  /** На новый заказ: что подписать кошельком. */
+  tx?: PayTx;
+  order?: PayOrderView;
+  /** Сколько алмазов легло этой проверкой. */
+  credited?: number;
+  error?: string;
+}
+
+/** Запрос `/api/pay`: новый заказ (набор, адрес и сеть кошелька) или «кошелёк подписал». */
+export type PayRequest = { op: 'order'; pack: string; wallet: string; chain: string } | { op: 'sent'; id: string };
+
+/** Номер заказа: десять знаков без похожих (0/O, 1/I). */
+export const PAY_ID = /^[A-HJ-NP-Z2-9]{10}$/;
+/** Комментарий перевода по номеру заказа. */
+export const payComment = (id: string): string => `TRIBE-${id}`;
+
+export function readPayRequest(v: unknown): PayRequest | null {
+  if (!v || typeof v !== 'object') return null;
+  const r = v as Record<string, unknown>;
+  if (r.op === 'order') {
+    const pack = str(r.pack, 16);
+    const wallet = str(r.wallet, 80);
+    const chain = str(r.chain, 8);
+    return pack && wallet && chain ? { op: 'order', pack, wallet, chain } : null;
+  }
+  if (r.op === 'sent') return typeof r.id === 'string' && PAY_ID.test(r.id) ? { op: 'sent', id: r.id } : null;
+  return null;
+}
+
+/** Заказ из ответа или хранилища: новый объект; кривой — `null`. */
+export function readPayOrder(v: unknown): PayOrderView | null {
+  if (!v || typeof v !== 'object') return null;
+  const r = v as Record<string, unknown>;
+  const at = num(r.at);
+  const until = num(r.until);
+  const gems = num(r.gems);
+  const usdt = num(r.usdt);
+  const pack = str(r.pack, 16);
+  if (typeof r.id !== 'string' || !PAY_ID.test(r.id) || !pack || at === null || until === null || gems === null || usdt === null) return null;
+  if (typeof r.state !== 'string' || !(PAY_STATES as readonly string[]).includes(r.state)) return null;
+  const out: PayOrderView = { id: r.id, pack, gems, usdt, at, until, state: r.state as PayState };
+  const note = str(r.note, 200);
+  if (note) out.note = note;
+  return out;
+}
+
+/** Ответ `/api/pay`: заказы — только целые. */
+export function readPayResponse(v: unknown): PayResponse | null {
+  if (!v || typeof v !== 'object') return null;
+  const r = v as Record<string, unknown>;
+  const now = num(r.now);
+  if (now === null) return null;
+  const orders = Array.isArray(r.orders) ? r.orders.map(readPayOrder).filter((o): o is PayOrderView => o !== null) : [];
+  const out: PayResponse = { now, on: r.on === true, orders };
+  if (r.net === 'testnet' || r.net === 'mainnet') out.net = r.net;
+  const order = readPayOrder(r.order);
+  if (order) out.order = order;
+  const credited = num(r.credited);
+  if (credited !== null && credited > 0) out.credited = credited;
+  if (typeof r.error === 'string') out.error = r.error.slice(0, 300);
+  const tx = r.tx as Record<string, unknown> | undefined;
+  if (tx && typeof tx.validUntil === 'number' && typeof tx.network === 'string' && Array.isArray(tx.messages)) {
+    const messages = tx.messages.flatMap((m) => {
+      const x = m as Record<string, unknown>;
+      return typeof x?.address === 'string' && typeof x.amount === 'string' && typeof x.payload === 'string' ? [{ address: x.address, amount: x.amount, payload: x.payload }] : [];
+    });
+    if (messages.length) out.tx = { validUntil: tx.validUntil, network: tx.network, messages };
+  }
+  return out;
+}

@@ -45,6 +45,16 @@ export const ENV = {
    * Читает его общий обработчик сам (`http.spawnMode`) — одинаково на Netlify и здесь. Пусто — обычное расселение.
    */
   spawn: 'TRIBE_SPAWN',
+  /**
+   * Оплата алмазов USDT в сети TON (docs/payments.md). Читает их общий обработчик оплаты сам (`ton.payConfig`) —
+   * одинаково на Netlify и здесь. Пусто `TON_WALLET` — оплата выключена. Сеть — `testnet` (умолчание) или `mainnet`.
+   */
+  tonNetwork: 'TON_NETWORK',
+  tonWallet: 'TON_WALLET',
+  tonUsdtMaster: 'TON_USDT_MASTER',
+  tonUsdtDecimals: 'TON_USDT_DECIMALS',
+  tonApiKey: 'TON_API_KEY',
+  tonApiUrl: 'TON_API_URL',
   /** Номер сайта Netlify — для `TRIBE_STORE=blobs` и для переноса данных. */
   netlifySite: 'NETLIFY_SITE_ID',
   /** Личный токен Netlify — для `TRIBE_STORE=blobs` и для переноса данных. */
