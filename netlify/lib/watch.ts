@@ -12,11 +12,14 @@
  */
 import { CLOCK_SKEW_SECONDS } from './initdata.js';
 import { SAVE_HURRY_MS, SAVE_PUSH_MS, STOCK_KEYS, readWatch, type AdminGrant, type Counts, type WatchCard } from './contract.js';
-import { DAY_LENGTH, gameDaysOfMs } from '../../src/game/pace.js';
+import { DAY_LENGTH, gameDaysOfMs, realMs } from '../../src/game/pace.js';
 import { ENERGY_MAX, ENERGY_REFILL, MINIGAME_COST } from '../../src/game/data/minigames.js';
 import { RESOURCE_META } from '../../src/game/constants.js';
 import { rewrite } from './admin.js';
 import { bookAfter, readBook, seedBook, type ArmyBook } from './book.js';
+import { builtForged, buildStep, peopleStep, readTown, seedTown, type PaidLevel, type TownBook } from './town.js';
+import { troopPower } from '../../src/game/battle/price.js';
+import type { TroopStack } from '../../src/game/battle/kinds.js';
 import type { WarFile } from './war.js';
 import { STORES, type Stores } from './kv.js';
 
@@ -49,7 +52,7 @@ export const GROWTH_SLACK = 2;
 /** Тот же флаг второй раз за этот срок не дописывается, а считается в прежний: запись идёт раз в минуту. */
 const FLAG_QUIET = HOUR;
 
-export type FlagKind = 'cheat' | 'haste' | 'clock' | 'cap' | 'time' | 'stock' | 'army' | 'games' | 'haul' | 'often' | 'rollback' | 'forged';
+export type FlagKind = 'cheat' | 'haste' | 'clock' | 'cap' | 'time' | 'stock' | 'army' | 'games' | 'haul' | 'often' | 'rollback' | 'forged' | 'built' | 'people';
 
 export const FLAG_WORD: Record<FlagKind, string> = {
   cheat: 'коды проверки',
@@ -64,6 +67,8 @@ export const FLAG_WORD: Record<FlagKind, string> = {
   often: 'частые записи',
   rollback: 'откат партии',
   forged: 'войско сверх подтверждённого',
+  built: 'стройка сверх подтверждённой',
+  people: 'жители сверх подтверждённых',
 };
 
 export interface WatchFlag {
@@ -112,6 +117,8 @@ export interface WatchRecord {
   journal: WatchEntry[];
   /** Книга войска (`book.ts`, docs/pvp.md, раздел 6): сколько бойцов сервер подтверждает. Нет — запись до книги. */
   book?: ArmyBook;
+  /** Книга стройки и жителей (`town.ts`, docs/pvp.md, раздел 7): уровни и жители, которые сервер подтверждает. */
+  town?: TownBook;
 }
 
 const n0 = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
@@ -167,6 +174,8 @@ export function readWatchRecord(v: unknown): WatchRecord {
   }
   const book = readBook(r.book);
   if (book) out.book = book;
+  const town = readTown(r.town);
+  if (town) out.town = town;
   if (Array.isArray(r.journal)) {
     for (const e of r.journal as Record<string, unknown>[]) {
       if (e && ENTRY_KINDS.includes(e.kind as EntryKind)) out.journal.push({ at: n0(e.at), kind: e.kind as EntryKind, text: s0(e.text, 400) });
@@ -369,12 +378,18 @@ export function wrote(rec: WatchRecord, at: number, card: { name: string; power:
 /** Книга войска игрока: лежащая или заведённая с первой встречи — пустое войско с минуты, когда сервер его впервые увидел. */
 export const bookOf = (rec: WatchRecord, at: number): ArmyBook => rec.book ?? seedBook(rec.first > 0 ? rec.first : at);
 
+/** Книга стройки игрока: лежащая или заведённая с первой встречи — посёлок новой партии с минуты, когда сервер его увидел. */
+export const townOf = (rec: WatchRecord, at: number): TownBook => rec.town ?? seedTown(rec.first > 0 ? rec.first : at);
+
+const sumOf = (c: Counts): number => Object.values(c).reduce((t, x) => t + Math.max(0, x), 0);
+
 /**
- * Записать книгу войска по принятой записи партии (docs/pvp.md, раздел 6): опись заявляет войско, книга подтверждает его
- * не больше, чем объясняют правила за прошедшее серверное время. Заявлено больше — флаг «войско сверх подтверждённого».
- * `rushed` — ожидание, снятое ускорением за алмазы (книга алмазов, docs/gems.md): потолок уровня казарм и конюшни
- * сдвигается на него, и подтверждённое ускорение не даёт ложного отказа.
- * Нет описи — книга не трогается: её минута остаётся прежней, и обучение за это время подтвердится со следующей.
+ * Записать книги по принятой записи партии (docs/pvp.md, разделы 6 и 7): опись заявляет, книги подтверждают не больше,
+ * чем объясняют правила за прошедшее серверное время. Порядок: стройка (`town.buildStep`; ускоренные за алмазы уровни —
+ * `gems`, записи книги алмазов) → войско (`book.bookAfter`, казармы и конюшня — подтверждённых уровней) → жители
+ * (`town.peopleStep`; ушедшие из войска не на войне могут вернуться домой). Заявлено больше — флаги «войско сверх
+ * подтверждённого», «стройка сверх подтверждённой», «жители сверх подтверждённых».
+ * Нет описи — книги не трогаются: их минута остаётся прежней, и всё объяснимое за это время подтвердится со следующей.
  */
 export function booked(
   rec: WatchRecord,
@@ -384,18 +399,37 @@ export function booked(
   grants: readonly Pick<AdminGrant, 'n' | 'troops'>[],
   wars: WarFile | null,
   key: string,
-  rushed: Counts = {},
+  gems: readonly PaidLevel[] = [],
 ): WatchRecord {
   if (!watch) return rec;
-  const step = bookAfter(bookOf(rec, at), at, { troops: watch.troops, hurt: watch.hurt, buildings: watch.buildings }, grants, wars, key, seen ?? [], rushed);
-  const next = { ...rec, book: step.book };
-  if (step.forged <= 0) return next;
-  return addFlags(next, at, [
-    {
+  const town0 = townOf(rec, at);
+  const claim = { buildings: watch.buildings, pop: watch.pop, bonded: watch.bonded, queued: watch.queued, site: watch.site };
+  const built = buildStep(town0, at, claim, gems);
+  const book0 = bookOf(rec, at);
+  const step = bookAfter(book0, at, { troops: watch.troops, hurt: watch.hurt, buildings: watch.buildings }, grants, wars, key, seen ?? [], built.book.levels);
+  const army = {
+    before: sumOf(book0.bodies),
+    after: sumOf(step.book.bodies),
+    dead: sumOf(step.dead),
+    power: troopPower(step.book.bodies as TroopStack),
+    deadPower: troopPower(step.dead as TroopStack),
+  };
+  const people = peopleStep(built.book, town0.at, claim, army, wars, key);
+  const next = { ...rec, book: step.book, town: people.book };
+  const found: { kind: FlagKind; text: string }[] = [];
+  if (step.forged > 0) {
+    found.push({
       kind: 'forged',
       text: `Войско с ранеными: заявлено ${big(step.claimed)}, сервер подтверждает ${big(step.confirmed)} — сверх обучения в казармах и конюшне, указов и потерь войны за прошедшее время на ${big(step.forged)}. В войну идёт только подтверждённое.`,
-    },
-  ]);
+    });
+  }
+  if (builtForged(built)) {
+    found.push({ kind: 'built', text: `Уровни построек выше, чем позволяет труд стройки: не хватает ${big(built.short)} работы — это ${span(realMs(built.short / Math.max(1e-9, built.rate)))} потолка стройки. В войну идут подтверждённые уровни.` });
+  }
+  if (people.forged > 0) {
+    found.push({ kind: 'people', text: `Жителей заявлено ${big(watch.pop)}, сервер подтверждает ${big(people.book.pop)} — сверх прироста, жилья, вестей и вернувшихся из войска на ${big(people.forged)}.` });
+  }
+  return found.length ? addFlags(next, at, found) : next;
 }
 
 /** Отказ «слишком часто»: минута в окно часа; с `OFTEN_PER_HOUR` в окне — флаг. */

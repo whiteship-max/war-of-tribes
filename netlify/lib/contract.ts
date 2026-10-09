@@ -1193,6 +1193,16 @@ export interface WatchCard {
    * встаёт тем же бойцом, и подтверждать его второй раз незачем (docs/pvp.md, раздел 6). Нет поля — опись до книги.
    */
   hurt?: Counts;
+  /**
+   * Невольники (`bondedTotal`): руки стройки. Книга стройки сервера (docs/pvp.md, раздел 7) считает их не больше жителей.
+   * Нет поля — опись до книги стройки: стройка идёт одними жителями.
+   */
+  bonded?: number;
+  /**
+   * Идущая стройка — первая в очереди (`derived.currentSite`): тип, до какого уровня и сколько работы сделано. По ней книга
+   * стройки подтверждает работу, а сервер считает остаток для цены ускорения. Нет поля — стройки нет.
+   */
+  site?: { type: string; level: number; done: number };
   /** Сколько бойцов казармы и конюшня выучат за игровой день — не больше. */
   train: number;
   /**
@@ -1226,6 +1236,17 @@ export interface WatchCard {
 
 const whole = (v: unknown, max: number): number => Math.floor(Math.min(max, Math.max(0, num(v) ?? 0)));
 
+/** Идущая стройка описи: тип — строка до 32 знаков, уровень — целый 2..100, работа — неотрицательная. */
+function readSite(v: unknown): Pick<WatchCard, 'site'> {
+  if (!v || typeof v !== 'object') return {};
+  const r = v as Record<string, unknown>;
+  const type = str(r.type, 32);
+  const level = num(r.level);
+  const done = num(r.done);
+  if (!type || level === null || !Number.isInteger(level) || level < 2 || level > 100 || done === null || done < 0) return {};
+  return { site: { type, level, done: Math.min(done, 1e12) } };
+}
+
 /** Опись наблюдения из того, что прислали: новый объект; нет её — `undefined`. */
 export function readWatch(v: unknown): WatchCard | undefined {
   if (!v || typeof v !== 'object') return undefined;
@@ -1248,6 +1269,8 @@ export function readWatch(v: unknown): WatchCard | undefined {
     caravans: whole(r.caravans, 1e6),
     wounded: whole(r.wounded, 1e9),
     ...(r.hurt && typeof r.hurt === 'object' ? { hurt: readCounts(r.hurt) } : {}),
+    ...(r.bonded !== undefined ? { bonded: whole(r.bonded, 1e9) } : {}),
+    ...readSite(r.site),
     train: whole(r.train, 1e9),
     deeds: whole(r.deeds, 1e12),
     won: whole(r.won, 1e9),

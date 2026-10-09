@@ -9,7 +9,6 @@ import { gameDaysPerHour, gameSecondsOfMs } from '@/game/pace';
 import {
   bondedTotal,
   buildingOfType,
-  buildingStat,
   defense,
   hiddenStash,
   homeArmyPower,
@@ -23,7 +22,7 @@ import {
   townFoodPerDay,
   warningSeconds,
 } from '@/game/derived';
-import { BATTLE_MAN } from '@/game/battle/kinds';
+import { militiaOf, towerArchersAt } from '@/game/build';
 import { troopTotal, troopsAfter, type TroopStack } from '@/game/battle/kinds';
 import { TROOP_IDS } from '@/game/data/troops';
 import {
@@ -65,8 +64,7 @@ const daysPerHour = gameDaysPerHour;
  * жители. В поле оно выходит пехотой без снаряжения — иначе набеги ИИ, чей
  * потолок считается от `defense()`, били бы по пустому месту.
  */
-export const militiaMen = (s: GameState): number =>
-  Math.max(0, Math.round((defense(s) - homeArmyPower(s)) / BATTLE_MAN));
+export const militiaMen = (s: GameState): number => militiaOf(defense(s), homeArmyPower(s));
 
 /**
  * Сколько ополченцев выходит стрелками, а не пехотой. Это и есть работа башни:
@@ -77,7 +75,7 @@ export const militiaMen = (s: GameState): number =>
 export const militiaArchers = (s: GameState): number => {
   const tower = buildingOfType(s, 'tower');
   if (!tower) return 0;
-  return Math.min(militiaMen(s), Math.max(0, Math.round(buildingStat(tower, 'archers'))));
+  return Math.min(militiaMen(s), towerArchersAt(tower.level));
 };
 
 /**

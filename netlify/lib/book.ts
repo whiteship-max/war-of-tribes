@@ -6,7 +6,7 @@
  * **Что считается.** Тела по видам: бойцы и раненые (`WatchCard.troops` + `hurt`) — раненый встаёт тем же бойцом. Книга
  * растёт только тем, что сервер может объяснить правилами игры за прошедшее **серверное** время:
  *  · обучением — не быстрее, чем выучили бы казармы и конюшня (`train.trainRateAt`) с запасом `BOOK_SLACK`; уровень
- *    здания берётся из описи, но не выше, чем позволяет время на сервере (`LEVEL_STEP_MS` на уровень от первой встречи);
+ *    здания берётся из описи, но не выше подтверждённого книгой стройки (`town.ts`, docs/pvp.md, раздел 7);
  *    неизрасходованная работа ждёт в копилке, но не больше одной головы самого долгого вида (`ArmyBook.credit`);
  *  · указами админа — их сервер отдаёт сам (`GrantsFile`).
  * Убывает книга всем, что показала опись (потери в походах, уход, голод: подтверждённое — не больше заявленного), и
@@ -29,10 +29,7 @@ import { PIP_IDS } from '../../src/battle/index.js';
 import { readCounts, warFallId, type AdminGrant, type Counts } from './contract.js';
 import type { WarFile } from './war.js';
 
-/**
- * Подтверждённое войско игрока на минуту `at`. `since` — когда сервер впервые встретил игрока: от неё отсчитывается
- * потолок уровня казарм и конюшни.
- */
+/** Подтверждённое войско игрока на минуту `at`. `since` — когда сервер впервые встретил игрока. */
 export interface ArmyBook {
   since: number;
   at: number;
@@ -49,13 +46,6 @@ export interface ArmyBook {
   /** Бои и падения войны, чьи потери книга уже вычла (`WarBattle.id`, `<война>.fall`). */
   lost: string[];
 }
-
-/**
- * Сколько настоящего времени на сервере стоит уровень казарм или конюшни сверх первого. Моё число: честная стройка
- * уровня идёт десятки минут и часы (труд `upgradeWork` растёт в 1.4 раза за уровень), быстрее — только алмазами; тогда
- * книга отстаёт на минуты, и отставание стоит лишь части запаса обучения за эти минуты — книга догоняет сама.
- */
-export const LEVEL_STEP_MS = 10 * 60_000;
 
 /**
  * Во сколько раз подтверждённое обучение может обогнать скорость здания. Тот же довод, что у флага роста войска
@@ -200,20 +190,17 @@ const longest = (school: School): number =>
   Math.max(...Object.keys(TROOP_BY_ID).filter((k) => schoolOf(k) === school).map(workOf));
 
 /**
- * Уровень здания, который сервер готов признать в минуту `at`: заявленный описью, но не выше потолка здания и не выше
- * того, что прошло времени с первой встречи (`LEVEL_STEP_MS` на уровень сверх первого). `rushed` — настоящие миллисекунды
- * ожидания, снятые с этого здания ускорением за алмазы (книга алмазов, `gems.GemLedger.rushed`, docs/gems.md): сервер сам
- * списал за них алмазы, и столько времени здание прожило быстрее — на столько и сдвигается потолок.
+ * Уровень здания, который сервер готов признать: заявленный описью, но не выше потолка здания и не выше подтверждённого
+ * книгой стройки (`town.buildStep`: уровень растёт не быстрее труда стройки, ускорение за алмазы — по книге алмазов).
  */
-export function levelAt(book: ArmyBook, school: School, claimed: number, at: number, rushed = 0): number {
+export function levelAt(school: School, claimed: number, confirmed: number): number {
   const cap = Math.min(BUILDING_BY_ID[school].maxLevel ?? MAX_BUILDING_LEVEL, MAX_BUILDING_LEVEL);
-  const time = 1 + Math.floor((Math.max(0, at - book.since) + Math.max(0, rushed)) / LEVEL_STEP_MS);
-  return Math.max(0, Math.min(Math.floor(claimed), cap, time));
+  return Math.max(0, Math.min(Math.floor(claimed), cap, Math.floor(confirmed)));
 }
 
 /** Работа обучения, которую здание могло сделать между записями книги, с запасом, — и копилка прежних записей. */
-export function workAllowed(book: ArmyBook, school: School, claimed: number, at: number, rushed = 0): number {
-  const level = levelAt(book, school, claimed, at, rushed);
+export function workAllowed(book: ArmyBook, school: School, claimed: number, at: number, confirmed: number): number {
+  const level = levelAt(school, claimed, confirmed);
   const rate = trainRateAt(school === 'stable', level);
   return (book.credit[school] ?? 0) + rate * gameSecondsOfMs(Math.max(0, at - book.at)) * BOOK_SLACK;
 }
@@ -234,6 +221,8 @@ export interface BookStep {
   /** Подтверждено и заявлено всего — для слов флага. */
   confirmed: number;
   claimed: number;
+  /** Погибшие в боях войны, которых книга вычла этой записью (книге жителей: они домой не вернутся). */
+  dead: Counts;
 }
 
 /**
@@ -244,7 +233,7 @@ export interface BookStep {
  *     обгоняет работу здания, запас делится между видами пропорционально росту.
  * `seen` — бои, которые клиент уже принял (`WarSheet.seen`): для флага заявленное сравнивается с книгой за вычетом
  * погибших в боях, о которых клиент ещё не знает, — честный клиент, не успевший принять бой, флага не получает.
- * `rushed` — ожидание, снятое ускорением за алмазы, по типам построек (`levelAt`).
+ * `levels` — уровни построек, подтверждённые книгой стройки (`town.buildStep`): казармы и конюшня учат не выше их.
  */
 export function bookAfter(
   prev: ArmyBook,
@@ -254,15 +243,17 @@ export function bookAfter(
   file: WarFile | null,
   key: string,
   seen: readonly string[] = [],
-  rushed: Counts = {},
+  levels: Counts = {},
 ): BookStep {
   let bodies = { ...prev.bodies };
   let lost = prev.lost;
   let unseen: Counts = {};
+  let dead: Counts = {};
   if (file) {
     const losses = warLosses(file, key);
     const done = new Set(prev.lost);
-    bodies = minus(bodies, deadExcept(losses, done));
+    dead = least(deadExcept(losses, done), bodies);
+    bodies = minus(bodies, dead);
     unseen = deadExcept(losses, new Set(seen));
     // Помнит только бои, что ещё лежат у сервера: остальных он больше не вычтет.
     lost = losses.map((l) => l.id).slice(-BOOK_LOST_MAX);
@@ -285,7 +276,7 @@ export function bookAfter(
       if (g > 0) grow[k] = g;
       need += g * workOf(k);
     }
-    const allowed = workAllowed(prev, school, claim.buildings?.[school] ?? 0, at, rushed[school] ?? 0);
+    const allowed = workAllowed(prev, school, claim.buildings?.[school] ?? 0, at, levels[school] ?? 0);
     const share = need > 0 ? Math.min(1, allowed / need) : 1;
     let used = 0;
     for (const k of kinds) {
@@ -303,6 +294,7 @@ export function bookAfter(
     forged: Math.max(0, over(minus(claimed, unseen), next) - FORGED_SLACK),
     confirmed: troopTotal(next as TroopStack),
     claimed: troopTotal(claimed as TroopStack),
+    dead,
   };
 }
 

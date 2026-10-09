@@ -70,6 +70,7 @@ import { gateBusyText, playerWood } from '../../src/world/works.js';
 import { stackCarry, stackEscort } from '../../src/world/data/units.js';
 import { PERIL_MEMORY, SIEGE_IMMUNE, SIEGE_ROUT, SPY_HELD } from '../../src/world/data/tuning.js';
 import { bookLive, least, over, rulePips, ruleResolve, type ArmyBook } from './book.js';
+import { floorAt, townSheet, type TownBook } from './town.js';
 
 /** Война в хранилище: вид для игроков плюс ключи сторон. Ключи наружу не уходят никогда (`viewOf`). */
 export interface WarRow extends Omit<WarView, 'role'> {
@@ -213,6 +214,12 @@ export interface SheetAt {
    * слепка не больше подтверждённого (`liveSheet`); обработчик войны кладёт её всегда. Нет — слепок как есть (тесты правил).
    */
   book?: ArmyBook;
+  /**
+   * Книга стройки и жителей (`town.ts`, docs/pvp.md, раздел 7): уровни, жители, ополчение, башня, склад и тайник слепка —
+   * не больше подтверждённого (`town.townSheet`), а защита слабого — по «не меньше» (`town.floorAt`). Обработчик войны
+   * кладёт её всегда. Нет — слепок как есть (тесты правил).
+   */
+  town?: TownBook;
 }
 
 // ------------------------------------------------ счёт по видам ---
@@ -263,18 +270,31 @@ export const fallId = warFallId;
  */
 export function liveSheet(file: WarFile, key: string, s: SheetAt, at = Infinity): WarSheet {
   const claim = claimedSheet(file, key, s, at);
-  if (!s.book) return claim;
+  if (!s.book) return s.town ? townSheet(claim, s.town, troopPower(asTroops(claim.home))) : claim;
   // Книга войска (docs/pvp.md, раздел 6): в бой идёт только подтверждённое. Слепок — то, что заявил клиент; книга — что
   // сервер может объяснить обучением, указами и потерями войны. По видам — меньшее; дома — не больше всего войска.
   const army = least(claim.army, bookLive(s.book, file, key));
   const home = least(claim.home, army);
-  return {
+  const live: WarSheet = {
     ...claim,
     army,
     home,
     ...(claim.retinue ? { retinue: least(claim.retinue, home) } : {}),
     power: troopPower(asTroops(army)),
   };
+  // Книга стройки (docs/pvp.md, раздел 7): уровни, жители, ополчение, башня, склад и тайник — не больше подтверждённого.
+  return s.town ? townSheet(live, s.town, troopPower(asTroops(home))) : live;
+}
+
+/**
+ * Защита слабого (`lairs.weakCity`) по слепку и книге: жители и мощь — не меньше «наибольшего» книги стройки за вычетом
+ * того, что сервер объясняет (`town.floorAt`): город, заявивший себя меньше, чем был, защиты не получает.
+ */
+export function shielded(file: WarFile, key: string, s: SheetAt, at: number): boolean {
+  const power = Math.max(s.sheet.power, liveSheet(file, key, s, at).power);
+  if (!s.town) return weakCity(s.sheet.pop, power);
+  const floor = floorAt(s.town, at);
+  return weakCity(Math.max(s.sheet.pop, floor.pop), Math.max(power, floor.power));
 }
 
 /**
@@ -853,7 +873,7 @@ function march(file: WarFile, key: string, order: Extract<WarOrder, { op: 'march
   const theirSheet = ctx.sheet(def);
   if (!theirSheet) return 'Город ещё не готов к войне: его владелец не заходил с тех пор, как она началась.';
   // Защита слабого — та же мерка, что у логова (`lairs.weakCity`): жители или войско, что выше.
-  if (!ctx.noShield && weakCity(theirSheet.sheet.pop, liveSheet(file, def, theirSheet, now).power)) return 'Город под защитой слабого: он ещё мал. Нападать на него нельзя.';
+  if (!ctx.noShield && shielded(file, def, theirSheet, now)) return 'Город под защитой слабого: он ещё мал. Нападать на него нельзя.';
   const mine = ctx.sheet(key);
   if (!mine) return 'Твой город ещё не записан на сервер. Подожди минуту.';
   // Участь — та же проверка, что у приказа против логова (`spoils.fateBlock`): замки гейта объявляющего и
@@ -1066,12 +1086,12 @@ function spyPlan(file: WarFile, key: string, target: string, at: number, ctx: Or
   const away = distance(own, row);
   const risk = rivalPeril(rivalPerilCase(mine.sheet.watch.veil, villageTimeAt(theirs, at), spyVisits(file, key, def, at), away));
   // Нападение на слабого и на недавно павший — те же запреты, что у похода; разведка — не нападение.
-  const shielded = !ctx.noShield && weakCity(theirs.sheet.pop, theirs.sheet.power);
+  const shield = !ctx.noShield && shielded(file, def, theirs, at);
   const fell = file.wars.filter((w) => w.def === def && w.fall).reduce((t, w) => Math.max(t, w.fall?.at ?? 0), 0);
   const options = RIVAL_DEEDS.map((deed): SpyOption => {
     const hostile = rivalHostile(deed);
     const reason =
-      hostile && shielded
+      hostile && shield
         ? 'Город под защитой слабого: он ещё мал. Вредить ему нельзя.'
         : hostile && fell > 0 && at < fell + SIEGE_IMMUNE
           ? 'Город недавно пал. Пока его не трогают.'

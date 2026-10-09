@@ -70,8 +70,12 @@ describe('сервер ничего не начисляет, кроме одно
       // обработчик `/api/gems`
       'lib/routes/gems.ts',
       'lib/routes/index.ts',
-      // сохранение приносит записку и сдвиг книги войска
+      // сохранение приносит записку и ускоренные уровни книге стройки
       'lib/routes/save.ts',
+      // книга стройки читает ускоренные уровни (`paid`) — только номера и уровни записей, баланса не знает
+      'lib/town.ts',
+      // запись книг передаёт их книге стройки
+      'lib/watch.ts',
     ]);
   });
 
@@ -232,10 +236,10 @@ describe('личность берётся только из подписи', () 
    * иначе `war.liveSheet` поверил бы заявленному. Слепок без книги здесь означал бы, что подправленный клиент снова
    * выставляет в бой войско, которого у него нет.
    */
-  it('война: каждый слепок идёт в бой с книгой войска', () => {
+  it('война: каждый слепок идёт в бой с книгами войска и стройки', () => {
     const code = read('lib/routes/war.ts');
     const sets = [...code.matchAll(/\bsheets\.set\(player,\s*([^;]*)\);/g)].map((m) => m[1].replace(/\s+/g, ' '));
-    expect(sets).toEqual(['null', 'null', '{ ...sheet, book: bookOf(readWatchRecord(seen ? parseJson(String(seen.data)) : null), now) }']);
+    expect(sets).toEqual(['null', 'null', '{ ...sheet, book: bookOf(rec, now), town: townOf(rec, now) }']);
     expect([...code.matchAll(/\bsheets\.set\(/g)].length).toBe(3);
   });
 

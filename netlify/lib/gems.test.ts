@@ -7,7 +7,6 @@ import { STORES, type Kv, type Stores } from './kv.js';
 import type { Telegram } from './telegram.js';
 import { FROZEN_KEY } from './admin.js';
 import { RUSH_REPEAT_MS, applyGemOrder, creditGems, gemNoteOf, openLedger, readLedger, shopToday, type GemLedger } from './gems.js';
-import { LEVEL_STEP_MS, levelAt, seedBook } from './book.js';
 import type { GemOrder, GemsResponse, WatchCard } from './contract.js';
 import {
   GEM_REF_RATE,
@@ -401,28 +400,24 @@ describe('ускорение: цена от остатка, проверка т�
   });
 });
 
-describe('книга войска засчитывает подтверждённое ускорение', () => {
+describe('книги стройки и войска засчитывают ускорение за алмазы', () => {
   /**
-   * Казармы, поднятые алмазами быстрее `LEVEL_STEP_MS` на уровень, книга раньше признавала по времени — и честный игрок
-   * получал ложный отказ. Теперь потолок сдвигается на ожидание, снятое ускорением. Точка внутри области: заявленный
-   * уровень выше потолка времени, иначе сдвигу нечего поднимать.
+   * Уровни, ускоренные за алмазы, книга стройки подтверждает без работы (`town.buildStep`, `paid`): сервер сам списал за
+   * них. Казармы учат по подтверждённому уровню — честный игрок, поднявший их алмазами, ложного отказа не получает. Точка
+   * внутри области: без ускорения за десять минут книга не подтверждает заявленного шестого уровня.
    */
-  it('ускорение казарм поднимает признанный уровень на снятое время', () => {
-    const book = seedBook(NOW);
-    const at = NOW + 15 * 60_000;
-    expect(levelAt(book, 'barracks', 5, at), 'без ускорения — по времени').toBe(2);
-    expect(5, 'заявлено выше потолка времени').toBeGreaterThan(levelAt(book, 'barracks', 5, at));
-    expect(levelAt(book, 'barracks', 5, at, 3 * LEVEL_STEP_MS)).toBe(5);
-    expect(levelAt(book, 'barracks', 5, at, LEVEL_STEP_MS)).toBe(3);
-  });
-
-  it('запись партии сдвигает потолок книги по книге алмазов', async () => {
-    // Два игрока с одной и той же описью; у одного казармы ускорены на пять ступеней времени книги.
-    const confirmed = async (rushedMs: number): Promise<number> => {
+  it('запись партии подтверждает ускоренные уровни по книге алмазов', async () => {
+    const confirmed = async (rushed: boolean): Promise<{ spear: number; level: number }> => {
       const s = memoryStores();
       const p = player();
       await call(s, p);
-      if (rushedMs) await s.stores(STORES.gems).setJSON(`tg-${p}`, { ...s.ledger(p)!, rushed: { barracks: rushedMs } });
+      if (rushed) {
+        const l = s.ledger(p)!;
+        let n = l.seq;
+        const list = [...l.list];
+        for (let lv = 2; lv <= 6; lv++) list.push({ n: ++n, at: NOW, delta: -1, kind: 'rush', key: `rush-key-${lv}`, building: 'barracks', level: lv });
+        await s.stores(STORES.gems).setJSON(`tg-${p}`, { ...l, list, seq: n });
+      }
       const put = async (now: number, w: WatchCard, base: string | null): Promise<string> => {
         const req = new Request('https://x/api/save', {
           method: 'PUT',
@@ -435,14 +430,15 @@ describe('книга войска засчитывает подтверждён�
       const etag = await put(NOW, card({ buildings: { barracks: 6 } }), null);
       // Десять минут спустя заявлено войско, которое казармы первого уровня за это время не выучили бы.
       await put(NOW + 10 * 60_000, card({ buildings: { barracks: 6 }, troops: { spearman: 400 } }), etag);
-      const watched = s.data.get(STORES.watch)!.get(`tg-${p}`)!;
-      return (JSON.parse(watched.value).book as { bodies: Record<string, number> }).bodies.spearman ?? 0;
+      const rec = JSON.parse(s.data.get(STORES.watch)!.get(`tg-${p}`)!.value) as { book: { bodies: Record<string, number> }; town: { levels: Record<string, number> } };
+      return { spear: rec.book.bodies.spearman ?? 0, level: rec.town.levels.barracks ?? 0 };
     };
-    const plain = await confirmed(0);
-    const rushed = await confirmed(5 * LEVEL_STEP_MS);
-    expect(plain, 'без ускорения книга что-то подтверждает — точка внутри области').toBeGreaterThan(0);
-    expect(rushed, 'ускоренные казармы учат быстрее — подтверждено больше').toBeGreaterThan(plain);
-    expect(rushed).toBeLessThan(400);
+    const plain = await confirmed(false);
+    const rushed = await confirmed(true);
+    expect(plain.level, 'без ускорения шестой уровень за десять минут не подтверждён — точка внутри области').toBeLessThan(6);
+    expect(rushed.level, 'ускоренные уровни подтверждены').toBe(6);
+    expect(rushed.spear, 'ускоренные казармы учат быстрее — подтверждено больше').toBeGreaterThan(plain.spear);
+    expect(rushed.spear).toBeLessThan(400);
   });
 });
 

@@ -14,7 +14,11 @@ import { allow, botToken, deny, json, parseJson, readBody, type Route } from '..
 import { readGemOrder, type GemOrder, type GemsResponse } from '../contract.js';
 import { FROZEN_ORDER, frozenNow, isFrozen } from '../admin.js';
 import { gemNoteOf, listOf, settleGems, shown } from '../gems.js';
-import { noted, observe } from '../watch.js';
+import { noted, observe, readWatchRecord, townOf } from '../watch.js';
+import { rushFloor } from '../town.js';
+import { STORES } from '../kv.js';
+import { BUILDING_BY_ID } from '../../../src/game/data/buildings.js';
+import type { BuildingTypeId } from '../../../src/game/types.js';
 import { gemLine } from '../../../src/game/gemrules.js';
 
 /** Запросов в минуту на игрока. Игра читает при открытии окна и приказывает по нажатию. */
@@ -43,7 +47,9 @@ export const gems: Route = async (req, io) => {
 
   // Приказ замороженного — отказ словами; книгу он только читает.
   const frozen = order !== null && isFrozen(await frozenNow(io.stores), key);
-  const done = await settleGems(io.stores, key, now, frozen ? null : order);
+  // Остаток стройки сервер считает сам — по книге стройки (docs/pvp.md, раздел 7; дыра docs/gems.md, 5.1 закрыта).
+  const left = order?.op === 'rush' && !frozen ? await rushLeft(io, key, order.building, order.level, now) : undefined;
+  const done = await settleGems(io.stores, key, now, frozen ? null : order, left);
   if (!done) return deny(503, 'busy', { 'retry-after': '3' });
 
   const error = frozen ? FROZEN_ORDER : done.error;
@@ -62,3 +68,20 @@ export const gems: Route = async (req, io) => {
   }
   return json(body);
 };
+
+/**
+ * Сколько работы стройки наверняка осталось по книге стройки игрока (`town.rushFloor`); `null` — такой стройки по книге
+ * быть не может. Записи наблюдения нет — книга посёлка новой партии с первой встречи. Хранилище не ответило — `undefined`:
+ * цена по остатку игры, как до книги (ускорение не падает из-за попутного чтения).
+ */
+async function rushLeft(io: Parameters<Route>[1], key: string, building: string, level: number, now: number): Promise<number | null | undefined> {
+  if (!(building in BUILDING_BY_ID)) return null;
+  try {
+    const found = await io.stores(STORES.watch, 'strong').getWithMetadata(key);
+    const rec = readWatchRecord(found ? parseJson(String(found.data)) : null);
+    const card = rec.card;
+    return rushFloor(townOf(rec, now), card?.buildings ?? {}, card?.bonded ?? 0, building as BuildingTypeId, level, now);
+  } catch {
+    return undefined;
+  }
+}

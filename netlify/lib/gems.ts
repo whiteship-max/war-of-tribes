@@ -150,11 +150,13 @@ export interface OrderStep {
 /**
  * Приказ игрока по книге в минуту `at`. Повтор ключа — прежняя запись без списания. Отказ — словами, книга не тронута.
  *  · `buy` — сто единиц припаса лавки: не больше `SHOP_DAILY` покупок за сутки, цена `shopPrice`;
- *  · `rush` — ускорение стройки: сервер очереди не знает (книга стройки — позже), поэтому верит остатку работы, но не
- *    больше полного труда уровня по правилам игры, и не берёт больше цены, которую видел игрок; последние пять минут —
- *    даром и приказом не идут.
+ *  · `rush` — ускорение стройки. Остаток работы сервер знает сам — по книге стройки (`town.rushFloor`, `left`): сколько
+ *    работы наверняка осталось, раз посёлок не мог сделать больше. Цена — по большему из остатка, названного игрой, и
+ *    этого (не больше полного труда уровня): подделка, назвавшая остаток меньше, платит за настоящий. `left === null` —
+ *    такой стройки по книге быть не может (уровень уже подтверждён или не следующий). Не берёт больше цены, которую
+ *    видел игрок; последние пять минут — даром и приказом не идут.
  */
-export function applyGemOrder(ledger: GemLedger, order: GemOrder, at: number): OrderStep {
+export function applyGemOrder(ledger: GemLedger, order: GemOrder, at: number, left?: number | null): OrderStep {
   const was = byKey(ledger, order.key);
   if (was) return { ledger: null, entry: was };
 
@@ -167,8 +169,9 @@ export function applyGemOrder(ledger: GemLedger, order: GemOrder, at: number): O
     return { ledger: { ...done.ledger, shop: { day: shop.day, used: shop.used + 1 } }, entry: done.entry };
   }
 
-  if (!rushLevelOk(order.building, order.level)) return { ledger: null, error: 'Такой стройки нет.' };
-  const work = Math.min(order.work, fullWork(order.building, order.level));
+  if (!rushLevelOk(order.building, order.level) || left === null) return { ledger: null, error: 'Такой стройки нет.' };
+  const full = fullWork(order.building, order.level);
+  const work = Math.min(Math.max(order.work, left ?? 0), full);
   const price = rushPriceOfWork(work);
   if (price === 0) return { ledger: null, error: 'Последние пять минут стройка ускоряется даром.' };
   if (price > order.price) return { ledger: null, error: `Ускорение стоит ${price}, а не ${order.price}. Посмотри цену ещё раз.` };
@@ -179,6 +182,10 @@ export function applyGemOrder(ledger: GemLedger, order: GemOrder, at: number): O
   const rushed = { ...done.ledger.rushed, [order.building]: (done.ledger.rushed[order.building] ?? 0) + Math.round(rushSeconds(work) * 1000) };
   return { ledger: { ...done.ledger, rushed }, entry: done.entry };
 }
+
+/** Уровни, ускоренные за алмазы, — книге стройки (`town.buildStep`): сервер сам списал за них, работы они не требуют. */
+export const rushesOf = (ledger: GemLedger | null): { n: number; building: string; level: number }[] =>
+  (ledger?.list ?? []).flatMap((e) => (e.kind === 'rush' && e.building && e.level ? [{ n: e.n, building: e.building, level: e.level }] : []));
 
 // ------------------------------------------------ что видит клиент ---
 
@@ -211,6 +218,7 @@ export async function settleGems(
   player: string,
   at: number,
   order: GemOrder | null = null,
+  left?: number | null,
 ): Promise<{ ledger: GemLedger; entry?: StoredGem; error?: string } | null> {
   const kv: Kv = stores(STORES.gems, 'strong');
   try {
@@ -220,7 +228,7 @@ export async function settleGems(
       // Запись есть, а не читается, — не открывать заново: вторые стартовые хуже, чем отказ.
       if (found && !stored) return null;
       const cur = stored ?? openLedger(at);
-      const step = order ? applyGemOrder(cur, order, at) : { ledger: null };
+      const step = order ? applyGemOrder(cur, order, at, left) : { ledger: null };
       const next = step.ledger ?? (stored ? null : cur);
       if (!next) return { ledger: cur, ...(step.entry ? { entry: step.entry } : {}), ...(step.error ? { error: step.error } : {}) };
       const written = await kv.setJSON(player, next, found?.etag ? { onlyIfMatch: found.etag } : { onlyIfNew: true });

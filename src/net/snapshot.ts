@@ -14,7 +14,9 @@ import { serialize } from '@/game/save';
 import { SAVE_VERSION } from '@/game/state';
 import {
   armySize,
+  bondedTotal,
   buildingOfType,
+  currentSite,
   dayOf,
   faithGoldPerDay,
   population,
@@ -95,6 +97,7 @@ export function watchOf(s: GameState): WatchCard {
   // Дела алмазов (лавка кладёт припас) — тоже разовые дела: рост склада между описями ими объяснён (docs/gems.md).
   const gemmed = gemSeen(s);
   const games = st.games ?? 0;
+  const site = currentSite(s);
   return {
     build: buildId(),
     city: cityName(s.profile.city) ?? '',
@@ -112,6 +115,9 @@ export function watchOf(s: GameState): WatchCard {
     caravans: (s.caravans ?? []).length,
     wounded: troopTotal(wounded.lying) + troopTotal(wounded.carried),
     hurt: hurtOf(wounded.lying, wounded.carried),
+    // Книга стройки сервера (docs/pvp.md, раздел 7): руки стройки и идущая стройка — её работу сервер подтверждает.
+    bonded: whole(bondedTotal(s)),
+    ...(site ? { site: { type: site.type, level: site.level + 1, done: Math.max(0, site.work) } } : {}),
     train: Math.ceil(train),
     deeds:
       st.hunts + st.battlesWon + st.battlesLost + st.eventsResolved + st.scouted + st.raids + st.castles + st.lairs + st.purchases + st.dailyWins + games + seen + gemmed,

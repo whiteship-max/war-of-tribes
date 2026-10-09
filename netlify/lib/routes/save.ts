@@ -20,9 +20,9 @@
  *    поверх какой записи он пишет (`baseEtag`). Легло что-то другое — ответ 409
  *    вместе с чужой записью, и разбирается с этим игрок, а не сервер.
  *
- * Книга войска (docs/pvp.md, раздел 6): принятая запись двигает книгу подтверждённого войска в наблюдении игрока — опись
- * заявляет, сервер подтверждает не больше, чем объясняют правила за прошедшее время. Партию она тоже не разбирает: читает
- * опись и запись войн.
+ * Книги войска, стройки и жителей (docs/pvp.md, разделы 6 и 7): принятая запись двигает их в наблюдении игрока — опись
+ * заявляет, сервер подтверждает не больше, чем объясняют правила за прошедшее время. Партию они тоже не разбирают:
+ * читают опись, запись войн и книгу алмазов.
  *
  * Админка (docs/admin.md) добавила к ответу записку (`admin`): заморожен ли аккаунт и какие указы админа партия ещё не
  * применила. Замороженному запись не принимается — 423. Попутно сохранение отмечает заход и опись в наблюдении
@@ -36,7 +36,7 @@ import { STORES } from '../kv.js';
 import { frozenNow, grantsOf, isFrozen, noteOf } from '../admin.js';
 import { booked, observe, tooFast, touched, wrote } from '../watch.js';
 import { readWars, WARS_KEY, type WarFile } from '../war.js';
-import { gemNoteOf, settleGems } from '../gems.js';
+import { gemNoteOf, rushesOf, settleGems } from '../gems.js';
 
 /** Потолки на части записи. Партия целиком укладывается в десятки килобайт. */
 const LIMITS = { game: 320 * 1024, world: 160 * 1024 };
@@ -155,11 +155,11 @@ export const save: Route = async (req, io) => {
   // потери подождут следующей записи: книга помнит, какие бои уже вычла.
   const wars = await readWarsSoft(io);
   const seen = record.war?.seen;
-  // Книга алмазов — записка партии (баланс, лавка, неприменённые дела) и ожидание, снятое ускорением: книга войска
-  // сдвигает на него потолок уровня казарм и конюшни (docs/gems.md). Не ответила — без записки и без сдвига.
+  // Книга алмазов — записка партии (баланс, лавка, неприменённые дела) и уровни, ускоренные за алмазы: книга стройки
+  // подтверждает их без работы (docs/pvp.md, раздел 7). Не ответила — без записки; ускорения подождут следующей записи.
   const ledger = await settleGems(io.stores, key, now);
-  const rushed = ledger?.ledger.rushed ?? {};
-  await observe(io.stores, key, (rec) => booked(wrote(touched(rec, now, user), now, card, record.watch, rev), now, record.watch, seen, grants.list, wars, key, rushed));
+  const paid = rushesOf(ledger?.ledger ?? null);
+  await observe(io.stores, key, (rec) => booked(wrote(touched(rec, now, user), now, card, record.watch, rev), now, record.watch, seen, grants.list, wars, key, paid));
   const body: PushResponse = {
     now,
     etag: written.etag,
