@@ -62,7 +62,8 @@ export function feedWords(item: FeedItem): FeedWords {
     case 'caught':
       return {
         title: `${item.how === 'dead' ? 'Убит' : 'Схвачен'} лазутчик, ${city}`,
-        line: item.byRuler ? `Его послал правитель ${item.byRuler} из города ${cityOr(item.byCity)}.` : `Его послал город ${cityOr(item.byCity)}.`,
+        // «Послали», а не «послал»: правитель может быть и правительницей, а имя пишет игрок.
+        line: `Его послали из города ${cityOr(item.byCity)}${item.byRuler ? `, правитель ${item.byRuler}` : ''}.`,
         icon: { name: 'fig-spy', glyph: '🕵️' },
       };
     case 'settled':

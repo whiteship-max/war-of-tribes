@@ -40,6 +40,6 @@ describe('вести края словами', () => {
     const secret = feedWords(item({ kind: 'spy', how: 'fire', byCity: undefined, byRuler: undefined }));
     expect(`${secret.title} ${secret.line}`).not.toMatch(/Катания|Андрей/);
     const caught = feedWords(item({ kind: 'caught', how: 'held' }));
-    expect(caught.line).toBe('Его послал правитель Андрей из города Катания.');
+    expect(caught.line).toBe('Его послали из города Катания, правитель Андрей.');
   });
 });
