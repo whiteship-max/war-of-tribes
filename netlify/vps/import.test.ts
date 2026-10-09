@@ -27,8 +27,9 @@ beforeAll(async () => {
   stop = local.stop;
   netlify = blobsStores(local.site);
   dir = tempDir('import');
-  // Партия игрока легла на Netlify тем же обработчиком, что и в бою; с ней — запись наблюдения (docs/admin.md).
-  // Строк поэтому шесть: партия, наблюдение, реестр, исходящие, метка индекса и счётчик прохода.
+  // Партия игрока легла на Netlify тем же обработчиком, что и в бою; с ней — запись наблюдения (docs/admin.md) и книга
+  // алмазов со стартовыми (docs/gems.md). Строк поэтому семь: партия, наблюдение, книга алмазов, реестр, исходящие, метка
+  // индекса и счётчик прохода.
   const rec = { v: 1, rev: 0, updatedAt: 0, device: 'd', game: '{"pop":30}', world: null, card: {} };
   const res = await ROUTES['/api/save'](
     new Request('http://t/api/save', {
@@ -54,7 +55,7 @@ describe('перенос Netlify Blobs → SQLite', () => {
   it('переносит все хранилища — строка в строку и ETag в ETag', async () => {
     const db = fresh();
     const tally = await importBlobs(netlify, db, { replace: false, dryRun: false, now: NOW });
-    expect(tally.total).toBe(6);
+    expect(tally.total).toBe(7);
     expect(tally.noEtag).toBe(0);
     expect(tally.missing).toBe(0);
     expect(Object.keys(tally.stores).sort()).toEqual([...ALL_STORES].sort());
@@ -87,7 +88,7 @@ describe('перенос Netlify Blobs → SQLite', () => {
   it('пробный прогон считает и ничего не пишет', async () => {
     const db = fresh();
     const tally = await importBlobs(netlify, db, { replace: false, dryRun: true, now: NOW });
-    expect(tally.total).toBe(6);
+    expect(tally.total).toBe(7);
     expect(countRows(db)).toBe(0);
     db.close();
   });
@@ -98,7 +99,7 @@ describe('перенос Netlify Blobs → SQLite', () => {
     await expect(importBlobs(netlify, db, { replace: false, dryRun: false, now: NOW })).rejects.toThrow(/--replace/);
     expect(countRows(db)).toBe(1);
     await importBlobs(netlify, db, { replace: true, dryRun: false, now: NOW });
-    expect(countRows(db)).toBe(6);
+    expect(countRows(db)).toBe(7);
     expect(await sqliteStores(db)(STORES.saves).getWithMetadata('tg-9999')).toBeNull();
     db.close();
   });

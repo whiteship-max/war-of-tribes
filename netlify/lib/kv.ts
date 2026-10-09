@@ -59,6 +59,11 @@ export const STORES = {
   watch: 'tribe-watch',
   /** Отчёты об ошибках, ключ — номер отчёта. */
   reports: 'tribe-reports',
+  /**
+   * Книга алмазов (docs/gems.md): баланс, журнал операций, лавка, ключ `tg-<id>`. Пишет только `lib/gems.ts`; читают
+   * алмазы, сохранение (записка и книга войска) и команда админа `/gems`.
+   */
+  gems: 'tribe-gems',
 } as const;
 
 export type StoreName = (typeof STORES)[keyof typeof STORES];

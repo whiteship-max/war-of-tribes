@@ -201,17 +201,19 @@ const longest = (school: School): number =>
 
 /**
  * Уровень здания, который сервер готов признать в минуту `at`: заявленный описью, но не выше потолка здания и не выше
- * того, что прошло времени с первой встречи (`LEVEL_STEP_MS` на уровень сверх первого).
+ * того, что прошло времени с первой встречи (`LEVEL_STEP_MS` на уровень сверх первого). `rushed` — настоящие миллисекунды
+ * ожидания, снятые с этого здания ускорением за алмазы (книга алмазов, `gems.GemLedger.rushed`, docs/gems.md): сервер сам
+ * списал за них алмазы, и столько времени здание прожило быстрее — на столько и сдвигается потолок.
  */
-export function levelAt(book: ArmyBook, school: School, claimed: number, at: number): number {
+export function levelAt(book: ArmyBook, school: School, claimed: number, at: number, rushed = 0): number {
   const cap = Math.min(BUILDING_BY_ID[school].maxLevel ?? MAX_BUILDING_LEVEL, MAX_BUILDING_LEVEL);
-  const time = 1 + Math.floor(Math.max(0, at - book.since) / LEVEL_STEP_MS);
+  const time = 1 + Math.floor((Math.max(0, at - book.since) + Math.max(0, rushed)) / LEVEL_STEP_MS);
   return Math.max(0, Math.min(Math.floor(claimed), cap, time));
 }
 
 /** Работа обучения, которую здание могло сделать между записями книги, с запасом, — и копилка прежних записей. */
-export function workAllowed(book: ArmyBook, school: School, claimed: number, at: number): number {
-  const level = levelAt(book, school, claimed, at);
+export function workAllowed(book: ArmyBook, school: School, claimed: number, at: number, rushed = 0): number {
+  const level = levelAt(book, school, claimed, at, rushed);
   const rate = trainRateAt(school === 'stable', level);
   return (book.credit[school] ?? 0) + rate * gameSecondsOfMs(Math.max(0, at - book.at)) * BOOK_SLACK;
 }
@@ -242,6 +244,7 @@ export interface BookStep {
  *     обгоняет работу здания, запас делится между видами пропорционально росту.
  * `seen` — бои, которые клиент уже принял (`WarSheet.seen`): для флага заявленное сравнивается с книгой за вычетом
  * погибших в боях, о которых клиент ещё не знает, — честный клиент, не успевший принять бой, флага не получает.
+ * `rushed` — ожидание, снятое ускорением за алмазы, по типам построек (`levelAt`).
  */
 export function bookAfter(
   prev: ArmyBook,
@@ -251,6 +254,7 @@ export function bookAfter(
   file: WarFile | null,
   key: string,
   seen: readonly string[] = [],
+  rushed: Counts = {},
 ): BookStep {
   let bodies = { ...prev.bodies };
   let lost = prev.lost;
@@ -281,7 +285,7 @@ export function bookAfter(
       if (g > 0) grow[k] = g;
       need += g * workOf(k);
     }
-    const allowed = workAllowed(prev, school, claim.buildings?.[school] ?? 0, at);
+    const allowed = workAllowed(prev, school, claim.buildings?.[school] ?? 0, at, rushed[school] ?? 0);
     const share = need > 0 ? Math.min(1, allowed / need) : 1;
     let used = 0;
     for (const k of kinds) {
