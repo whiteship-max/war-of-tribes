@@ -2,12 +2,11 @@
 // «Купить · Лавка · История». Баланс, лавка и журнал — с сервера (`net/gems`); своих чисел у окна нет: цены — `gemrules`
 // (правило 18), наборы — `data/gems`.
 //
-// «Купить» — наборы за USDT в сети TON. Оплаты пока нет (решение владельца 09.10.2026): кнопки «Подключить кошелёк» и
-// «Купить» стоят, по нажатию — «Покупка скоро». Библиотеки кошелька в сборке нет.
-import { useEffect } from 'react';
+// «Купить» — наборы за USDT в сети TON (docs/payments.md): отдельный кусок `TreasuryBuy` вместе с библиотекой кошелька
+// TON Connect — грузится только при открытии вкладки, первая загрузка его не несёт.
+import { Suspense, lazy, useEffect } from 'react';
 import { useGame } from '@/game/store';
 import { RESOURCE_META } from '@/game/constants';
-import { GEM_PACKS, PAY_WITH, packBonus } from '@/game/data/gems';
 import { SHOP_DAILY, SHOP_GOODS, SHOP_LOT, shopBlocked, shopPrice, shopRoom } from '@/game/sim/gems';
 import { gemLine, shopDay, shopResetAt } from '@/game/gemrules';
 import { buildingTitle } from '@/game/derived';
@@ -22,8 +21,8 @@ import { useTrades } from '@/ui/trades';
 import { useRealm } from '@/ui/realm/open';
 import { GemIcon } from './Rush';
 
-/** Слово оплаты, пока её нет. */
-export const SOON = 'Покупка скоро.';
+/** Вкладка «Купить» — отдельным куском, с библиотекой кошелька. */
+const Buy = lazy(() => import('./TreasuryBuy'));
 
 /** Плашка «💎 120 +» справа под строкой запасов: касание открывает Сокровищницу. */
 export function GemPlaque() {
@@ -84,47 +83,14 @@ export function Treasury() {
           </button>
         ))}
       </div>
-      {tab === 'buy' && <Buy />}
+      {tab === 'buy' && (
+        <Suspense fallback={<div className="note">Открываем кошелёк…</div>}>
+          <Buy />
+        </Suspense>
+      )}
       {tab === 'shop' && <Shop />}
       {tab === 'history' && <History />}
     </div>
-  );
-}
-
-/** Наборы алмазов за USDT в сети TON. Оплаты пока нет — кнопки отвечают «Покупка скоро». */
-function Buy() {
-  const toast = useGame((g) => g.showToast);
-  const soon = (): void => toast(SOON);
-  return (
-    <>
-      <div className="nx-pay">
-        <span>Оплата — {PAY_WITH}</span>
-        <button className="nx-confirm" onClick={soon}>
-          Подключить кошелёк
-        </button>
-      </div>
-      {GEM_PACKS.map((p) => {
-        const bonus = packBonus(p);
-        return (
-          <div className="nx-trade" key={p.id}>
-            <span className="nx-bico">
-              <Icon name={`gempack-${p.id}`} glyph={p.icon} />
-            </span>
-            <div className="nx-trade-body">
-              <b>
-                {p.name} · <GemIcon /> {p.amount}
-              </b>
-              <span className="nx-trade-haul">
-                {p.usdt} USDT{bonus > 0 && <em className="nx-bonus">+{bonus} %</em>}
-              </span>
-            </div>
-            <button className="nx-go nx-trade-go" onClick={soon}>
-              Купить
-            </button>
-          </div>
-        );
-      })}
-    </>
   );
 }
 
