@@ -12,7 +12,7 @@ import { viewRect } from '../grid';
 import { settlementsIn } from '../detail';
 import { setTwLook } from './bake';
 import { twQuality } from './quality';
-import { drawTwFrame, dropFrame } from './frame';
+import { drawTwFrame, dropFrame, partyLook } from './frame';
 import { dropMinis } from './mini';
 import { dropMarks } from './marks';
 import { dropGlyphs } from './glyph';
@@ -28,7 +28,7 @@ setTwSlot({
     // Сезон и уровень сверяются в каждом кадре: сменились — испечённое устарело (новое печётся вне кадра, старое
     // рисуется, пока его нет).
     if (syncLook()) prebakeLook();
-    drawTwFrame(ctx, cam, vp, dpr, frame);
+    return drawTwFrame(ctx, cam, vp, dpr, frame);
   },
   tap(cam, vp, x, y, hand) {
     const state = useWorld.getState();
@@ -44,6 +44,7 @@ setTwSlot({
     const t = playerTheatre();
     return t ? holdInTheatre(cam, vp, t.box) : cam;
   },
+  party: partyLook,
   drop() {
     dropMinis();
     dropMarks();

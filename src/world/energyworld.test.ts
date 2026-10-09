@@ -419,4 +419,22 @@ describe('дела в лагере: цена при приказе, один р�
     expect(await w.world.campCraft('fortify')).toBe(fort?.reason);
     expect(w.inner.save.sieges[lair.id]?.craft?.fort).toBeUndefined();
   });
+
+  it('штурм логова после обстрела: запись боя несёт залпы для ролика (`BattleRecord.shots`), без обстрела — нет', async () => {
+    for (const shots of [0, 2]) {
+      const w = makeWorld();
+      await w.world.sync(profile({ army: { spearman: 40 } }));
+      const lair = nearestLair(w);
+      standAt(w, 'general', lair, { spearman: 40 });
+      expect(await w.world.besiege()).toBeNull();
+      for (let n = 0; n < shots; n++) expect(await w.world.campCraft('bombard')).toBeNull();
+      w.inner.save.figures.general.energy = { value: ENERGY_MAX, at: w.now(), mode: 'hold' };
+      const res = await w.world.attack({});
+      expect(res.error).toBeNull();
+      const rec = w.inner.save.reports.find((r) => r.id === res.reportId)?.battle;
+      // Точка внутри области: бой был, и шёл он у логова.
+      expect(rec?.site).toBe('lair');
+      expect(rec?.shots).toBe(shots > 0 ? shots : undefined);
+    }
+  });
 });

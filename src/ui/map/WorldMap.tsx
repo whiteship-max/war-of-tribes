@@ -66,12 +66,13 @@ import { bakeAgent } from './agent';
 import { dropFigures } from './figures';
 import { ActionMenu } from './ActionMenu';
 import { Rating } from './Rating';
+import { cameraBox, changedBesides, restAfter } from './still';
 import { inTelegram } from '@/telegram/webapp';
 import { Gesture, WHEEL_STEP, swallowGhostClick, type Press } from '@/gestures';
 import { gestLog, type End } from '@/gestlog';
-import { FPS_CAP, FrameLoop, cappedClock, deviceRatio, pixelRatio } from '@/render/loop';
+import { FrameLoop, deviceRatio, pixelRatio } from '@/render/loop';
 import { QUALITY } from '@/render/quality';
-import { levelNow } from '@/render/gfx';
+import { levelNow, subscribeGfx } from '@/render/gfx';
 import { onViewport } from '@/viewport';
 import { Icon } from '@/ui/icons/Icon';
 import { num } from '@/game/num';
@@ -185,8 +186,18 @@ const TERRAIN_ROWS: { color: string; name: string; note: string }[] = [
   { color: PALETTE.pass, name: 'Перевал', note: `×${frac(COST_PASS)}, проход через хребет` },
 ];
 
-/** Сколько камера считается движущейся после последнего сдвига — дальше карта стоит (`QUALITY.mapStillFps`). */
-const MAP_STILL_MS = 500;
+/**
+ * Стенд просит рисовать каждый кадр (`window.__mapAlways = true`, только под `?probe=1`): `map:report` меряет цену кадра
+ * полотна на сотнях кадров — стоя и с отрядами, — а стоящая карта иначе рисовала бы их единицы (решение 9, docs/perf.md).
+ * Цена кадра от этого не меняется; сколько кадров карта рисует стоя, меряет `weak:stand` — без флага.
+ */
+const probeAlways = (): boolean => (window as unknown as { __mapAlways?: boolean }).__mapAlways === true;
+
+/**
+ * Поля стора мира, перемена которых стоящую карту не будит: `now` — отметка пульса, она меняется каждые две секунды, а
+ * всё, что кадр рисует по времени, он отмечает сам (`still.FrameMotion`).
+ */
+const WORLD_QUIET = ['now'] as const;
 
 export function WorldMap() {
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -198,11 +209,16 @@ export function WorldMap() {
    * (ниже камера встаёт на дом), но пустое море в них читается как сломанная
    * карта, поэтому начинаем с чёрного: туман честнее чужого берега.
    */
-  const cam = useRef<Camera>({
-    cx: WORLD_ORIGIN.x + WORLD_SIZE / 2,
-    cy: WORLD_ORIGIN.y + WORLD_SIZE / 2,
-    scale: SCALE_START,
-  });
+  const [cam] = useState(() =>
+    cameraBox(
+      {
+        cx: WORLD_ORIGIN.x + WORLD_SIZE / 2,
+        cy: WORLD_ORIGIN.y + WORLD_SIZE / 2,
+        scale: SCALE_START,
+      },
+      () => performance.now(),
+    ),
+  );
   const placed = useRef(false);
   /**
    * Наводка лупы: куда, сколько раз пробовали и удалось ли.
@@ -368,19 +384,18 @@ export function WorldMap() {
      * Своя причина стоять у полотна одна — `covered`: слой карты скрыт. Так
      * бывает под роликом о бое, открытым с карты (`body.replaying` прячет всё,
      * кроме канвы ролика), и прежде карта рисовала весь кадр под ним впустую.
+     *
+     * Стоящая карта рисует только по изменению (`still.ts`, docs/perf.md, решение 9): после кадра цепочка засыпает до
+     * срока, который назвал кадр (шаг живого, секунда сроков, страховка), а будят её сдвиг камеры, данные мира,
+     * партия, уровень графики, шрифт и размер окна. Возвращение из фона заводит цепочку заново — первый кадр сразу.
      */
-    // Пока камера стоит, карта на «Низком» рисует реже (`QUALITY.mapStillFps`, docs/perf.md): кадр тот же, а
-    // главный поток слабого телефона занят им наполовину. Камера сдвинулась — шестьдесят с этого же кадра.
-    const stillFps = QUALITY[levelNow(location.search)].mapStillFps;
-    let lastCam = { cx: NaN, cy: NaN, scale: NaN };
-    let movedAt = -Infinity;
-    const loop = new FrameLoop<'covered'>(
-      () => frame(),
-      undefined,
-      cappedClock(() => (performance.now() - movedAt < MAP_STILL_MS ? FPS_CAP : stillFps)),
-    );
+    const loop = new FrameLoop<'covered'>(() => frame());
+    const wake = (): void => loop.wake();
+    cam.onMove = wake;
 
     const resize = (): void => {
+      // Окно и плотность меняют кадр, даже если буфер остался прежним: стоящую карту будит любое событие окна.
+      wake();
       // Больше двойки не берём (потолок двери кадра, `loop.DPR_CAP`): на телефоне это
       // больше пикселей — квадратом плотности — ради разницы, которой не видно, и во
       // столько же больше памяти под тайлы. На низком уровне — меньше (`QUALITY.mapDpr`, docs/perf.md).
@@ -410,6 +425,22 @@ export function WorldMap() {
     // Обёртку меряет ResizeObserver, а плотность пикселей меняется мимо неё — её приносит дверь окна
     // (`src/viewport.ts`) вместе с каждой переменой высоты приложения.
     const offViewport = onViewport(resize);
+    // Стор мира: походы, фигуры, куски тумана, выбор, лупа — переменой содержания, не ссылки (`still.changedBesides`).
+    const offWorld = useWorld.subscribe((next, prev) => {
+      if (changedBesides(prev, next, WORLD_QUIET)) wake();
+    });
+    // Партия: ночь, гости у ворот, погода, сезон — строкой того, что кадр из неё читает (`TwSlot.party`).
+    let party = twSlot()?.party() ?? '';
+    const offGame = useGame.subscribe(() => {
+      const now = twSlot()?.party() ?? '';
+      if (now === party) return;
+      party = now;
+      wake();
+    });
+    const offGfx = subscribeGfx(wake);
+    // Подписи пекутся шрифтом: доехал шрифт — подписи перепекутся (`labels.ts`), и кадр должен это показать.
+    const fonts = typeof document !== 'undefined' ? document.fonts : undefined;
+    fonts?.addEventListener('loadingdone', wake);
 
     // Кисть агента наружу — стенду (`npm run map:report`, раздел «агенты»). Он
     // печёт четыре силуэта своими руками и считает, насколько их пятна
@@ -436,12 +467,8 @@ export function WorldMap() {
       // Поводок держится каждый кадр, а не в момент жеста: якорь движется сам —
       // фигура идёт, — и камера обязана идти за ним, а не отставать до первого
       // касания. Отладочный обзор мира (`?worldview=`) поводка не знает.
-      cam.current = hold(cam.current);
-      const c = cam.current;
-      if (c.cx !== lastCam.cx || c.cy !== lastCam.cy || c.scale !== lastCam.scale) {
-        movedAt = performance.now();
-        lastCam = { cx: c.cx, cy: c.cy, scale: c.scale };
-      }
+      // Мимо отметки сдвига (`still.cameraBox`): поводок — не ведение карты, идущая фигура шагает живым шагом.
+      cam.follow(hold(cam.current));
       const rect = viewRect(cam.current, { w, h });
       // Куски запрашиваются с запасом: тайл у края экрана не испечётся, пока не
       // приедут куски под его округой, а без запаса они приезжали бы только
@@ -451,7 +478,7 @@ export function WorldMap() {
 
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       const t0 = PROBE ? performance.now() : 0;
-      drawFrame(ctx, cam.current, { w, h }, dpr, ++frameNo.current);
+      const motion = drawFrame(ctx, cam.current, { w, h }, dpr, ++frameNo.current);
       if (PROBE) frameCost(performance.now() - t0);
 
       // В шапке всегда координата под серединой экрана: она отвечает на вопрос
@@ -460,12 +487,22 @@ export function WorldMap() {
         const text = formatCoord({ x: Math.floor(cam.current.cx), y: Math.floor(cam.current.cy) });
         if (coordRef.current.textContent !== text) coordRef.current.textContent = text;
       }
+
+      // Сколько спать до следующего кадра: ведут — ни сколько, движется само — шаг уровня, сроки — секунду, ничего —
+      // до толчка или страховочного срока (`still.restAfter`).
+      const nap = restAfter(motion, performance.now() - cam.movedAt, QUALITY[levelNow(location.search)].mapStepFps);
+      if (nap > 0 && !(PROBE && probeAlways())) loop.rest(nap);
     };
     loop.restart();
     return () => {
       loop.stop();
+      cam.onMove = () => undefined;
       ro.disconnect();
       offViewport();
+      offWorld();
+      offGame();
+      offGfx();
+      fonts?.removeEventListener('loadingdone', wake);
       // Отряды и силуэты агентов от сида не зависят, поэтому в уборку по новому
       // миру они не входят; а вот держать их между заходами на карту незачем —
       // печутся они за доли миллисекунды.

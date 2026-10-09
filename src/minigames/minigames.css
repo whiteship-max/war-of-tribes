@@ -178,6 +178,53 @@
   white-space: nowrap;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
 }
+/* Отметка попадания: косой крест из двух штрихов, вспыхивает и гаснет за полсекунды. */
+.mg-hit {
+  position: absolute;
+  left: -14px;
+  top: -14px;
+  width: 28px;
+  height: 28px;
+  opacity: 0;
+  animation: mg-hit 0.55s ease-out;
+}
+.mg-hit::before,
+.mg-hit::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 0;
+  width: 2px;
+  height: 100%;
+  margin-left: -1px;
+  background: #ffe6b0;
+  box-shadow: 0 0 3px rgba(0, 0, 0, 0.7);
+  transform: rotate(45deg);
+}
+.mg-hit::after {
+  transform: rotate(-45deg);
+}
+@keyframes mg-hit {
+  0% {
+    opacity: 1;
+    transform: scale(0.6);
+  }
+  30% {
+    opacity: 1;
+    transform: scale(1.15);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.3);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mg-hit {
+    animation: none;
+    opacity: 1;
+  }
+}
+
 /* Подписи через одну — по разные стороны: метки стоят тесно, и цифры не налезают друг на друга. */
 .mg-pin:nth-of-type(even) {
   text-indent: -44px;
@@ -322,4 +369,170 @@ small.mg-muted,
 .mg-go:active:not(:disabled),
 .mg-back:active {
   transform: scale(0.97);
+}
+
+/*
+ * Отклик счёта (docs/minigames.md, 16.2): счёт прыгает на каждое очко — ключ ячейки сам число, анимация играет заново;
+ * последние секунды отсчёта бьются в такт стуку. Движение — короткое и только вверх-вниз размера: глазу ясно «прибавилось»,
+ * а строка не скачет. Кто просит меньше движения — не двигается ничего.
+ */
+@keyframes mg-pop {
+  0% {
+    transform: scale(1);
+  }
+  35% {
+    transform: scale(1.18);
+    border-color: var(--accent);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+.mg-score {
+  animation: mg-pop 0.36s ease-out;
+}
+.mg-clock.last {
+  animation: mg-pop 0.42s ease-out;
+}
+@keyframes mg-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+}
+.mg-card {
+  animation: mg-card-in 0.24s ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .mg-score,
+  .mg-clock.last,
+  .mg-card {
+    animation: none;
+  }
+}
+
+/* Как играть: три строки на карточке начала — при первом входе в игру сами, дальше по кнопке. */
+.mg-how {
+  margin: 0;
+  padding: 8px 8px 8px 28px;
+  border-radius: 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  line-height: 1.35;
+}
+.mg-how li::marker {
+  color: var(--accent);
+  font-weight: 700;
+}
+.mg-howbtn {
+  align-self: flex-start;
+  height: var(--tap);
+  padding: 0 12px;
+  margin: -6px 0 -6px -12px;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* Итог: доля от предела полосой — та же доля, что ушла в начисление. */
+.mg-share {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.mg-bar {
+  flex: 1;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  overflow: hidden;
+}
+.mg-bar i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #f3bd5c, var(--accent));
+  transform-origin: left;
+  animation: mg-fill 0.7s ease-out;
+}
+@keyframes mg-fill {
+  from {
+    transform: scaleX(0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mg-bar i {
+    animation: none;
+  }
+}
+
+/*
+ * Шкала удочки («Рыбалка», docs/minigames.md, 17): в замахе — сила заброса (охра), на вываживании — натяжение лески
+ * (зелень → охра → красное). Последняя доля — красная зона: держишь в ней — леска лопнет. Долю (`--k`), вид (`data-mode`)
+ * и красное (`data-warn`) ставит сцена (`Stage.aimSync`), минуя React.
+ */
+.mg-gauge {
+  --k: 0;
+  top: auto;
+  left: 50%;
+  bottom: calc(var(--safe-bottom) + 72px);
+  width: 168px;
+  height: 10px;
+  margin-left: -84px;
+  border-radius: 999px;
+  background: rgba(24, 19, 14, 0.55);
+  box-shadow: 0 0 0 1px rgba(255, 244, 220, 0.25);
+  overflow: hidden;
+}
+.mg-gauge[data-mode='none'] {
+  display: none;
+}
+.mg-gauge-bar {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: calc(var(--k) * 100%);
+  border-radius: 999px;
+  background: #e0a040;
+}
+.mg-gauge[data-mode='line'] .mg-gauge-bar {
+  background: linear-gradient(90deg, #6fae4a 0%, #c9b040 60%, #e0503a 100%);
+  background-size: 168px 100%;
+}
+.mg-gauge-red {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 85%;
+  width: 2px;
+  background: rgba(255, 244, 220, 0.7);
+}
+.mg-gauge[data-mode='cast'] .mg-gauge-red {
+  display: none;
+}
+.mg-gauge[data-warn='1'] {
+  box-shadow: 0 0 0 2px #e0503a, 0 0 12px rgba(224, 80, 58, 0.8);
+  animation: mg-warn 0.25s ease-in-out infinite alternate;
+}
+@keyframes mg-warn {
+  to {
+    box-shadow: 0 0 0 2px #e0503a, 0 0 4px rgba(224, 80, 58, 0.4);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mg-gauge[data-warn='1'] {
+    animation: none;
+  }
 }

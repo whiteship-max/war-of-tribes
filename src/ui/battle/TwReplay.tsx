@@ -30,6 +30,7 @@ import type { TwHud } from '@/render/tw/hud';
 import type { TwPlayer } from '@/render/tw/player';
 import type { BattleFx } from '@/sound/battlefx';
 import { freeTurn } from '@/orientation';
+import { barrageCaption, barrageShares } from './barrage';
 import './tw.css';
 
 /** Кнопки ролика TW: «Пропустить», как у прежнего, и «Общий вид» — вернуть камеру режиссуре. */
@@ -65,6 +66,8 @@ export function TwReplay({ rec, report, onDone }: { rec: BattleRecord; report?: 
   // Скорость ролика — своё имя, не `speed`: «скорость» в игре — часы партии (`game/pace`), и путать их нельзя.
   const [rate, setRate] = useState<number>(1);
   const [ended, setEnded] = useState(false);
+  // Идёт ли пролог обстрела перед штурмом: подпись и фаза — его, «Пропустить» — к бою.
+  const [barrage, setBarrage] = useState(false);
   const shown = useRef('');
   const done = useRef(onDone);
   done.current = onDone;
@@ -123,7 +126,7 @@ export function TwReplay({ rec, report, onDone }: { rec: BattleRecord; report?: 
         let lastT = 0;
         const p = m.playTw(
           renderer,
-          { result: rec.result, us: rec.us, troops: rec.troops, militia: rec.militia, place: rec.place, beasts: rec.beasts, site: rec.site },
+          { result: rec.result, us: rec.us, troops: rec.troops, militia: rec.militia, place: rec.place, beasts: rec.beasts, site: rec.site, breach: barrageShares(rec.shots) },
           quality,
           layer.current,
           {
@@ -141,11 +144,13 @@ export function TwReplay({ rec, report, onDone }: { rec: BattleRecord; report?: 
               lastT = t;
               const h = m.hudAt(cast, rec.result, castT);
               const mor = (v: number | null): string => (v === null ? '-' : v.toFixed(2));
-              const key = `${f.caption ?? ''}|${h.phase}|${h.round}|${f.side.attacker.men}|${f.side.defender.men}|${mor(h.morale.attacker)}|${mor(h.morale.defender)}`;
+              const pre = player.current?.barrage ?? false;
+              const key = `${pre}|${f.caption ?? ''}|${h.phase}|${h.round}|${f.side.attacker.men}|${f.side.defender.men}|${mor(h.morale.attacker)}|${mor(h.morale.defender)}`;
               if (key === shown.current) return;
               shown.current = key;
               setFrame(f);
               setHud(h);
+              setBarrage(pre);
             },
             onEnd: () => {
               fx.current?.rest();
@@ -205,6 +210,8 @@ export function TwReplay({ rec, report, onDone }: { rec: BattleRecord; report?: 
   }, [cast, rec]);
 
   const pick = (id: string): void => {
+    // «Пропустить» в прологе обстрела — к бою; в бою — из ролика, как раньше.
+    if (id === 'skip' && player.current?.skipBarrage()) return;
     if (id === 'skip' || id === 'report') done.current();
     else if (id === 'overview') player.current?.cam.release();
     else if (id === 'again') {
@@ -251,8 +258,8 @@ export function TwReplay({ rec, report, onDone }: { rec: BattleRecord; report?: 
         <div className="tw-bar">
           {bar(us)}
           <div className="tw-phase">
-            <b>{PHASE_NAME[hud?.phase ?? frame.phase]}</b>
-            {(hud?.round ?? 1) > 1 && <small>круг {hud!.round}</small>}
+            <b>{barrage ? 'Обстрел' : PHASE_NAME[hud?.phase ?? frame.phase]}</b>
+            {!barrage && (hud?.round ?? 1) > 1 && <small>круг {hud!.round}</small>}
           </div>
           {bar(them)}
         </div>
@@ -275,7 +282,8 @@ export function TwReplay({ rec, report, onDone }: { rec: BattleRecord; report?: 
         </div>
       </div>
       {loaded === 'fail' && <div className="replay-caption">Ролик не загрузился — итог боя в отчёте.</div>}
-      {loaded !== 'fail' && !ended && frame.caption && <div className="replay-caption">{beastWords(frame.caption, rec.beasts, us)}</div>}
+      {loaded !== 'fail' && !ended && barrage && <div className="replay-caption">{barrageCaption(rec)}</div>}
+      {loaded !== 'fail' && !ended && !barrage && frame.caption && <div className="replay-caption">{beastWords(frame.caption, rec.beasts, us)}</div>}
       {ended && <ResultCard rec={rec} report={report} onPick={pick} />}
       {!ended && (
         <div className="replay-controls">

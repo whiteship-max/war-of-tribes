@@ -18,7 +18,7 @@ import {
   upgradeInfo,
   workerCount,
 } from '@/game/derived';
-import { gemsOf, rushPrice, rushUpgrade } from '@/game/sim/gems';
+import { RushButton } from '@/ui/next/Rush';
 import { startUpgrade } from '@/game/sim/actions';
 import { Cost } from './Cost';
 import { gainText, readVillage, upgradeGains, type Readings, type UpgradeGain } from './upgrade';
@@ -150,25 +150,7 @@ export function TownBuild() {
   );
 }
 
-/** Кнопка достройки за алмазы. Цена падает по мере приближения к концу стройки. */
-function RushButton({ b }: { b: Building }) {
-  const s = useGame((g) => g.s);
-  const act = useGame((g) => g.act);
-  const price = rushPrice(b);
-  return (
-    <button
-      className="btn gem"
-      data-tut={`rush-${b.type}`}
-      disabled={gemsOf(s) < price}
-      onClick={() => act((st) => rushUpgrade(st, b.id))}
-      aria-label="Достроить"
-    >
-      <Icon name="res-gem" glyph="♦" /> {price}
-    </button>
-  );
-}
-
-/** Улучшение в общей очереди: прогресс, время до конца и достройка за алмазы. */
+/** Улучшение в общей очереди: прогресс, время до конца и ускорение за алмазы (`ui/next/Rush`, docs/gems.md). */
 function SiteRow({ b, first, rate }: { b: Building; first: boolean; rate: number }) {
   const s = useGame((g) => g.s);
   const openBuilding = useGame((g) => g.openBuilding);
@@ -254,7 +236,6 @@ function BuildRow({ b, rate, base }: { b: Building; rate: number; base: Readings
         >
           Улучшить
         </button>
-        <RushButton b={b} />
       </div>
     </div>
   );

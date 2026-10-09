@@ -33,6 +33,7 @@ import { troopTotal } from '@/game/battle/kinds';
 import { hiredAt } from '@/game/sim/army';
 import { minigameCap } from '@/game/sim/minigames';
 import { adminSeen } from '@/game/sim/admin';
+import { gemSeen } from '@/game/sim/gems';
 import { deviceNow, leadAt } from './clock';
 import { power } from '@/profile/power';
 import { cityName, profileName } from '@/profile/identity';
@@ -91,6 +92,8 @@ export function watchOf(s: GameState): WatchCard {
   const wounded = woundedStacks(s);
   const st = s.stats;
   const seen = adminSeen(s);
+  // Дела алмазов (лавка кладёт припас) — тоже разовые дела: рост склада между описями ими объяснён (docs/gems.md).
+  const gemmed = gemSeen(s);
   const games = st.games ?? 0;
   return {
     build: buildId(),
@@ -108,9 +111,10 @@ export function watchOf(s: GameState): WatchCard {
     away: troopTotal(s.away ?? {}) + (s.scoutsAway ?? 0),
     caravans: (s.caravans ?? []).length,
     wounded: troopTotal(wounded.lying) + troopTotal(wounded.carried),
+    hurt: hurtOf(wounded.lying, wounded.carried),
     train: Math.ceil(train),
     deeds:
-      st.hunts + st.battlesWon + st.battlesLost + st.eventsResolved + st.scouted + st.raids + st.castles + st.lairs + st.purchases + st.dailyWins + games + seen,
+      st.hunts + st.battlesWon + st.battlesLost + st.eventsResolved + st.scouted + st.raids + st.castles + st.lairs + st.purchases + st.dailyWins + games + seen + gemmed,
     won: st.battlesWon,
     lost: st.battlesLost,
     lairs: st.lairs,
@@ -121,7 +125,18 @@ export function watchOf(s: GameState): WatchCard {
     cheated: s.cheated === true,
     lead: whole(leadAt()),
     seen,
+    gemSeen: gemmed,
   };
+}
+
+/** Раненые по видам одним набором: в лазарете и при полководце (книга войска сервера считает тела, docs/pvp.md). */
+function hurtOf(lying: Partial<Record<string, number>>, carried: Partial<Record<string, number>>): Counts {
+  const out: Counts = {};
+  for (const t of TROOP_IDS) {
+    const n = whole((lying[t] ?? 0) + (carried[t] ?? 0));
+    if (n > 0) out[t] = n;
+  }
+  return out;
 }
 
 /** Что уедет на сервер. Сохранение мира — та же строка, что лежит на диске. */

@@ -6,7 +6,8 @@
 // значку. Дальше — данные и действия своего здания (`data`), те же, что в прежнем окне.
 //
 // Своих чисел нет: цена, срок, места и что даст уровень — `upgradeInfo`, `buildRate`, `upgradeGains`
-// (правило 18). Отмена стройки — двумя касаниями одной кнопки (3.10): первое превращает её в «Точно?».
+// (правило 18). Отмена стройки — двумя касаниями одной кнопки (3.10): первое превращает её в «Точно?». Под стройкой —
+// «Ускорить 💎N» (`Rush.tsx`, docs/gems.md).
 import { type ReactNode } from 'react';
 import type { Building } from '@/game/types';
 import { useGame } from '@/game/store';
@@ -44,6 +45,7 @@ import { workerTip } from './buildingTips';
 import { Confirm } from './Confirm';
 import { TradeLine } from './Trades';
 import { MINIGAMES } from '@/game/data/minigames';
+import { RushButton } from './Rush';
 
 /** Кнопка «Точно?» живёт своим модулем (`Confirm.tsx`): ею пользуются и держава, и найм. */
 export { CONFIRM_MS, Confirm } from './Confirm';
@@ -130,6 +132,12 @@ export function BuildingNew({ id, data }: { id: number; data: (b: Building) => R
             </i>
           </div>
           <Confirm label="Отменить" onConfirm={() => act((st) => cancelUpgrade(st, b.id))} />
+        </div>
+      )}
+      {/* Ускорение за алмазы — от оставшегося времени, последние пять минут даром (docs/gems.md). */}
+      {site && (
+        <div className="nx-brush">
+          <RushButton b={b} />
         </div>
       )}
 

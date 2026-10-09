@@ -55,7 +55,6 @@ import {
   PIETY_RELIC,
   PIETY_RITE,
   PIETY_SIEGE,
-  RECRUIT_WORK,
   RESOURCE_IDS,
   PRIEST_MORALE,
   PRIEST_MORALE_CAP,
@@ -81,6 +80,8 @@ import { DESERT_SHARE, MASTER_PAID_AS, UPKEEP_TEXT } from './data/upkeep';
 import { BATTLE_MAN, troopTotal, troopsAfter, type TroopStack } from './battle/kinds';
 import { baseWage, mouthsOf, troopPower } from './battle/price';
 import { levelOutputMult } from './selfcost';
+import { upgradeWork } from './labour';
+import { statAt, trainRateAt } from './train';
 import { DECREE_BY_ID, RATION_BY_ID, TAX_BY_ID, TAX_PER_POP, type DecreeDef, type RationDef, type TaxDef } from './data/policy';
 import {
   BONDED_GOOD,
@@ -112,6 +113,7 @@ import {
   type SeasonModifiers,
 } from './data/seasons';
 import { daysSpan } from './span';
+import { BOON_BY_ID, type BoonDef } from './data/boons';
 import { MAX_AGENT_LEVEL } from './data/agents';
 
 /** На здании идёт улучшение. */
@@ -228,14 +230,7 @@ export const bondedIncoming = (s: GameState): number =>
  * того, с которого эффект вообще появляется (`since`). У большинства зданий это
  * первый уровень; у ратуши жильё начинается позже (её `since` в `data/buildings.ts`).
  */
-export function buildingStat(b: Building, key: keyof BuildingStats): number {
-  const def = BUILDING_BY_ID[b.type];
-  const base = def[key] ?? 0;
-  if (base === 0) return 0;
-  const from = def.since?.[key] ?? 1;
-  if (b.level < from) return 0;
-  return base + (def.perLevel?.[key] ?? 0) * (b.level - from);
-}
+export const buildingStat = (b: Building, key: keyof BuildingStats): number => statAt(b.type, key, b.level);
 
 /** Потолок уровня для типа здания: свой предел и общий предел. */
 export function maxLevelFor(type: BuildingTypeId): number {
@@ -256,9 +251,8 @@ const scaleCost = (
 export const upgradeCost = (def: BuildingDef, toLevel: number): Partial<Record<ResourceId, number>> =>
   scaleCost(def.cost, Math.pow(UPGRADE_GROWTH, toLevel - 1));
 
-/** Работа строителей на улучшение — растёт так же, как цена. */
-export const upgradeWork = (def: BuildingDef, toLevel: number): number =>
-  Math.round(def.work * Math.pow(UPGRADE_GROWTH, toLevel - 1));
+/** Работа строителей на улучшение — растёт так же, как цена. Формула одна на игру и сервер (`game/labour.ts`). */
+export { upgradeWork };
 
 export interface UpgradeInfo {
   /** Уровень, до которого улучшаем. */
@@ -909,12 +903,11 @@ export const recruitsQueued = (s: GameState): number =>
  */
 export function recruitRate(s: GameState, troop: TroopId): number {
   // Конницу учат в конюшне, пеших — в казармах: у каждого здания своя очередь и свой уровень.
-  // Формула одна и та же, поэтому при равных уровнях срок найма головы прежний.
+  // Формула одна и та же, поэтому при равных уровнях срок найма головы прежний; она же — у книги войска сервера
+  // (`train.trainRateAt`, docs/pvp.md, раздел 6).
   const mounted = TROOP_BY_ID[troop].mounted === true;
   const b = buildingOfType(s, mounted ? 'stable' : 'barracks');
-  if (!b) return 0;
-  const base = RECRUIT_WORK * b.level * levelOutputMult(b.level);
-  return mounted ? base * cavalryTrain(s) : base;
+  return b ? trainRateAt(mounted, b.level) : 0;
 }
 
 // ---------- Кузница ----------
@@ -1251,8 +1244,43 @@ export function seasonModsFor(season: Season, year: number): SeasonModifiers {
   return soften(base, FIRST_WINTER_SOFTEN);
 }
 
-/** Действующие сейчас множители сезона. Единственная точка входа для симуляции. */
-export const seasonMods = (s: GameState): SeasonModifiers => seasonModsFor(seasonOf(s.time), yearOf(s.time));
+/**
+ * Усилители от ответов на вести, чей срок ещё впереди (docs/events.md, раздел 3). Считается при чтении: тика у
+ * усилителя нет, и догон отлучки снимает его сам тем, что двигает `s.time`. Неизвестный вид (вести убрали из игры)
+ * пропускается молча — партия из-за него не ломается.
+ */
+export function activeBoons(s: GameState): { def: BoonDef; until: number }[] {
+  const out: { def: BoonDef; until: number }[] = [];
+  for (const b of s.boons ?? []) {
+    const def = BOON_BY_ID[b.id];
+    if (def && b.until > s.time) out.push({ def, until: b.until });
+  }
+  return out;
+}
+
+/** Множители сезона с усилителями поверх: множители перемножаются, как сезон с двором. */
+function withBoons(base: SeasonModifiers, s: GameState): SeasonModifiers {
+  const on = activeBoons(s);
+  if (on.length === 0) return base;
+  const jobs: Partial<Record<JobId, number>> = { ...base.jobs };
+  let { build, food, heating } = base;
+  for (const { def } of on) {
+    for (const [job, m] of Object.entries(def.jobs ?? {}) as [JobId, number][]) jobs[job] = (jobs[job] ?? 1) * m;
+    build *= def.build ?? 1;
+    food *= def.food ?? 1;
+    heating *= def.heating ?? 1;
+  }
+  return { ...base, jobs, build, food, heating };
+}
+
+/**
+ * Действующие сейчас множители сезона — с усилителями вестей поверх. Единственная точка входа для симуляции: усилитель
+ * — поле сезона, а не условие в коде (CLAUDE.md, «Правила»).
+ */
+export const seasonMods = (s: GameState): SeasonModifiers => withBoons(seasonModsFor(seasonOf(s.time), yearOf(s.time)), s);
+
+/** Сколько усилители вестей прибавляют к цели морали (с минусом — отнимают). Ложится после потолка шкалы, как пир. */
+export const boonMorale = (s: GameState): number => activeBoons(s).reduce((n, b) => n + (b.def.morale ?? 0), 0);
 
 /** Множители ближайшей зимы — она всегда завершает текущий год. */
 export const winterMods = (s: GameState): SeasonModifiers => seasonModsFor('winter', yearOf(s.time));
@@ -1364,6 +1392,8 @@ export interface MoraleBreakdown {
    * обряд без пира «Пиром в трактире».
    */
   rite: number;
+  /** Усилители вестей: праздник по вести, лютый холод (docs/events.md). Ложатся туда же, где пир, — после шкалы. */
+  boon: number;
   /** Итог: к какой морали стремится племя. */
   target: number;
 }
@@ -1459,6 +1489,8 @@ export function moraleBreakdown(s: GameState): MoraleBreakdown {
   // больше, чем вмещает сотня.
   const feast = feastMorale(s);
   const rite = riteMorale(s);
+  // Усилители вестей — там же и по той же причине: праздник по вести, утонувший в потолке, не стоил бы ничего.
+  const boon = boonMorale(s);
   return {
     base: MORALE_BASE,
     lines,
@@ -1467,7 +1499,8 @@ export function moraleBreakdown(s: GameState): MoraleBreakdown {
     tax,
     feast,
     rite,
-    target: Math.max(0, Math.min(100, clamped - tax + feast + rite)),
+    boon,
+    target: Math.max(0, Math.min(100, clamped - tax + feast + rite + boon)),
   };
 }
 

@@ -1,16 +1,22 @@
 /**
  * Бюджет кадра промыслов — счётом по графу сцены (docs/minigames.md, 8): тот же граф, что рисуется (`world.furnish`).
- * Область: все три игры, с тенью и без (пол `base` теней не держит). Точка внутри области — в графе есть то, ради
- * чего игра: ягоды инстансами, стадо, олени с луком.
+ * Область: все четыре игры (рыбалка — у реки и у моря), с тенью и без (пол `base` теней не держит). Точка внутри области
+ * — в графе есть то, ради чего игра: ягоды инстансами, стадо, олени с луком, вода с удочкой.
  */
 import { describe, expect, it } from 'vitest';
 import { MINI_BUDGET, budgetOf } from './budget';
 
 describe('промыслы: бюджет кадра', () => {
-  for (const id of ['berries', 'herd', 'hunt'] as const) {
-    it(`${id}: вызовов и треугольников не больше потолка — с тенью и без`, () => {
+  for (const [id, shore] of [
+    ['berries', 'river'],
+    ['herd', 'river'],
+    ['hunt', 'river'],
+    ['fish', 'river'],
+    ['fish', 'sea'],
+  ] as const) {
+    it(`${id}${id === 'fish' ? ` (${shore})` : ''}: вызовов и треугольников не больше потолка — с тенью и без`, () => {
       for (const shadows of [true, false]) {
-        const c = budgetOf(id, shadows);
+        const c = budgetOf(id, shadows, shore);
         expect(c.calls, 'в графе что-то есть').toBeGreaterThan(5);
         expect(c.calls + c.shadowCalls, `${id} вызовов`).toBeLessThanOrEqual(MINI_BUDGET.calls);
         expect(c.triangles + c.shadowTriangles, `${id} треугольников`).toBeLessThanOrEqual(MINI_BUDGET.triangles);

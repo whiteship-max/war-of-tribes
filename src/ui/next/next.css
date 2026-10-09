@@ -2191,3 +2191,187 @@
 .nx-mbtn.on {
   box-shadow: inset 0 0 0 1px var(--accent);
 }
+
+/* ---------- Лазутчик против соседа (docs/spy_pvp.md): строка дела — кнопка и числа под ней ---------- */
+.nx-spyrow {
+  display: grid;
+  gap: 2px;
+  margin: 6px 0;
+}
+
+/* ---------- Алмазы (docs/gems.md): плашка Сокровищницы, ускорение, окно ---------- */
+/* Плашка — справа под строкой запасов; ряд тревог слева уступает ей место (`.nx-alerts` ниже). */
+.nx-gems {
+  position: absolute;
+  top: calc(var(--safe-top) + var(--hud-h) + 2px);
+  right: calc(8px + var(--safe-right));
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 32px;
+  min-width: 44px;
+  padding: 0 4px 0 8px;
+  border-radius: 999px;
+  background: rgba(36, 27, 19, 0.88);
+  border: 1px solid rgba(224, 82, 79, 0.55);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+.nx-gems svg {
+  width: 16px;
+  height: 16px;
+}
+.nx-gems-plus {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: var(--gem);
+  color: var(--gem-text);
+  font-style: normal;
+  font-weight: 700;
+  font-size: 15px;
+  line-height: 1;
+}
+/* Плашка выше ряда тревог по высоте ряда: тревоги начинаются там же, слева, и не заходят под неё. */
+.nx-alerts:not(.on-map) {
+  right: calc(8px + var(--safe-right) + 112px);
+}
+.nx-brush {
+  margin: 0 0 8px;
+}
+.nx-rush {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+}
+.nx-rush-go {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 12px 0 16px;
+  border-radius: 10px;
+  border: 1px solid rgba(224, 82, 79, 0.6);
+  background: rgba(224, 82, 79, 0.16);
+  color: var(--text);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.nx-rush-go b {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--gem);
+  font-variant-numeric: tabular-nums;
+}
+.nx-rush-go svg {
+  width: 16px;
+  height: 16px;
+}
+.nx-rush-go.off {
+  opacity: 0.55;
+}
+.nx-rush-go.armed {
+  border-color: var(--bad);
+  color: var(--bad);
+}
+.nx-rush small.nx-why {
+  font-size: 11px;
+  color: var(--bad);
+}
+/* Ярлык у лесов: та же кнопка короче, на тёмной подложке, чтобы читалась над городом. */
+.nx-rush.tag .nx-rush-go {
+  min-height: 36px;
+  padding: 0 10px 0 12px;
+  font-size: 13px;
+  white-space: nowrap;
+  background: rgba(26, 20, 16, 0.86);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+}
+.nx-bico.gem svg {
+  width: 26px;
+  height: 26px;
+}
+.nx-gem-val {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+}
+.nx-gem-val svg {
+  width: 14px;
+  height: 14px;
+}
+.nx-treasury .tabs {
+  margin: 4px 0 12px;
+}
+.nx-pay {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.nx-trade-body b svg {
+  width: 14px;
+  height: 14px;
+  vertical-align: -2px;
+}
+.nx-bonus {
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: rgba(127, 191, 106, 0.18);
+  color: var(--good);
+  font-style: normal;
+  font-weight: 700;
+}
+.nx-gem-go span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.nx-gem-go svg {
+  width: 16px;
+  height: 16px;
+}
+.nx-trade-body small.nx-why {
+  font-size: 11px;
+  color: var(--bad);
+}
+.nx-gem-log {
+  display: flex;
+  flex-direction: column;
+}
+.nx-gem-line {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.nx-gem-line .pos {
+  color: var(--good);
+}
+.nx-gem-line .neg {
+  color: var(--text);
+}
+.nx-gem-line small {
+  flex: none;
+  font-size: 11px;
+  color: var(--muted);
+}

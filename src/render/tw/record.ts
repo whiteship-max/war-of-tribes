@@ -8,6 +8,7 @@ import type { TroopStack } from '@/game/battle/kinds';
 import type { Quality } from '../quality';
 import { buildPlan, type TwPlan } from './plan';
 import { siteKindOf } from './site';
+import { barrageOf } from './barrage';
 
 export function twPlanOfRecord(
   result: BattleResult,
@@ -18,8 +19,13 @@ export function twPlanOfRecord(
   place?: BattlePlace,
   beasts?: Side,
   site?: string,
+  breach?: readonly number[],
 ): TwPlan {
   const faces = facesOfRecord(result, troops, militia, beasts);
   const cast = buildCast(result, us, faces, groundOf(place, result.seed));
-  return buildPlan({ cast, result, faces, quality, site: siteKindOf(site) });
+  const plan = buildPlan({ cast, result, faces, quality, site: siteKindOf(site) });
+  // Обстрел перед штурмом — пролог поверх готового плана: бой от него не меняется ни в одном числе (`barrage.test.ts`).
+  // `breach` — доля пробитой стены после каждого залпа (`siegecraft.breachOf`): мира ролик не читает, её даёт зовущий.
+  plan.barrage = barrageOf(plan, breach);
+  return plan;
 }

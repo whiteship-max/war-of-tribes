@@ -108,15 +108,15 @@ function fill(ctx: CanvasRenderingContext2D, img: HTMLCanvasElement, cam: Camera
 
 /**
  * Облака кадра: под туманом и листом за границей региона, над землёй и местами. `night` — доля ночи: ночью теней нет,
- * облака темнеют ночной заливкой кадра.
+ * облака темнеют ночной заливкой кадра. Вернёт, легло ли что-нибудь: оно плывёт само (шаг живого, `still.ts`).
  */
-export function drawClouds(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport, night: number): void {
-  if (twQuality() === 'low' || typeof DOMMatrix === 'undefined') return;
+export function drawClouds(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport, night: number): boolean {
+  if (twQuality() === 'low' || typeof DOMMatrix === 'undefined') return false;
   const s = useGame.getState().s;
-  if (!s) return;
+  if (!s) return false;
   const w = weatherNow(s);
   const cover = Math.max(w.cloud, w.rain, w.snow);
-  if (cover < 0.08) return;
+  if (cover < 0.08) return false;
   // Облака плывут верхним ветром региона — тем же, что гонит тени по городу.
   const to = windTo(ZONES[zoneOf(homeRegion())].from);
   // Сдвиг — по часам страницы: где облако, игроку не важно, важно, что оно плывёт (погода — общая, `weatherNow`).
@@ -141,6 +141,8 @@ export function drawClouds(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewp
     fill(ctx, sheet(k0 + 1).top, cam, vp, ox, oy, top * mix);
   }
   ctx.restore();
+  // Плывут, только когда хоть что-то легло: ночью без теней и вблизи без облаков стоять нечему.
+  return shade > 0.01 || top > 0.01;
 }
 
 /** Уборка: листы облаков отпускаются вместе с кадром карты. */

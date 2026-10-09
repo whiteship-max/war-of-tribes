@@ -37,6 +37,9 @@ import { spawnMode } from './http.js';
 import { SICILY, sicilySlot } from '../../src/world/spawn.js';
 import type { Telegram } from './telegram.js';
 import { TROOPS } from '../../src/game/data/troops.js';
+import { BUILDING_BY_ID } from '../../src/game/data/buildings.js';
+import { SHOP_DAILY, gemLine } from '../../src/game/gemrules.js';
+import { peekGems, shopToday } from './gems.js';
 
 /** Команд в минуту от одного админа — больше живой человек не набирает. */
 const PER_MINUTE = 30;
@@ -72,6 +75,7 @@ export const HELP = [
   '/freeze <кто> [причина] — заморозить: игру видит, ходить не может, походы игроков его не трогают.',
   '/unfreeze <кто> — разморозить.',
   '/frozen — кто заморожен.',
+  '/gems <кто> — алмазы игрока: баланс, лавка за сегодня и журнал операций. Начислять алмазы команда не умеет.',
   '/log [сколько] — журнал админа.',
   '/stats — таблица по всем игрокам файлом CSV (Excel, Google Таблицы).',
   '/flags — подозрительные игроки.',
@@ -259,6 +263,35 @@ async function find(io: Io, q: string): Promise<Reply> {
         .map((f) => `• ${label(f.key, f.rec)} — ${f.rec.card ? `ратуша ${f.rec.card.level}, жителей ${big(f.rec.card.pop)}` : 'описи ещё нет'}, был ${when(f.rec.last)}`)
         .join('\n'),
   );
+}
+
+/** Имя постройки для админа — именем игры. */
+const gemBuilding = (b: string): string => (BUILDING_BY_ID as Record<string, { name: string } | undefined>)[b]?.name ?? b;
+
+/** Сколько строк журнала алмазов показывает `/gems`. */
+export const GEMS_LINES = 25;
+
+/**
+ * `/gems <кто>` — алмазы игрока (docs/gems.md): баланс, лавка за сегодня, сколько ожидания снято ускорением и журнал.
+ * Только чтение: книга не открывается и не пишется, и начислить отсюда нельзя ничего — начисление одно, `creditGems`.
+ */
+async function gemsOf(io: Io, q: string): Promise<Reply> {
+  if (!q) return say('Кого? /gems 123456789');
+  const f = await one(io, q);
+  if (typeof f === 'string') return say(f);
+  const ledger = await peekGems(io.stores, f.key);
+  if (!ledger) return say(`${label(f.key, f.rec)}\nКниги алмазов нет: игрок не заходил в эту эпоху мира с новой версией игры.`);
+  const shop = shopToday(ledger, io.now);
+  const lines = [
+    label(f.key, f.rec),
+    `Алмазов: ${big(ledger.balance)} · операций ${ledger.seq}`,
+    `Лавка сегодня: ${shop.used} из ${SHOP_DAILY}`,
+  ];
+  const rushed = Object.entries(ledger.rushed).filter(([, ms]) => ms > 0);
+  if (rushed.length) lines.push(`Ускорено: ${rushed.map(([b, ms]) => `${gemBuilding(b)} ${span(ms)}`).join(', ')}`);
+  lines.push('', ledger.list.length > GEMS_LINES ? `Журнал (последние ${GEMS_LINES}):` : 'Журнал:');
+  for (const e of ledger.list.slice(-GEMS_LINES)) lines.push(`№${e.n} ${when(e.at)} ${gemLine(e)}`);
+  return say(lines.join('\n'));
 }
 
 async function player(io: Io, q: string): Promise<Reply> {
@@ -636,6 +669,9 @@ export async function adminCommand(update: Record<string, unknown>, io: Io, tg: 
       break;
     case '/frozen':
       reply = await frozenList(io);
+      break;
+    case '/gems':
+      reply = await gemsOf(io, rest);
       break;
     case '/log':
       reply = await adminLog(io, rest);

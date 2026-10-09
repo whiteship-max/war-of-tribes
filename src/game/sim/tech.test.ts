@@ -772,7 +772,7 @@ describe('административная ветвь: места наёмных
       const s = deserialize(JSON.stringify(raw));
       expect(s).not.toBeNull();
       expect(s!.version).toBe(SAVE_VERSION);
-      expect(SAVE_VERSION, 'точка внутри области: версия поднята этой ступенью').toBe(21);
+      expect(SAVE_VERSION, 'точка внутри области: ступень 20 → 21 в цепочке чтения').toBeGreaterThanOrEqual(21);
       expect(s!.masters, 'мастеров у записи не было — приезжает ноль').toBe(0);
       expect(techLevel(s!, 'admin'), 'засчитывать нечего').toBe(1);
       expect(s!.log.some((e) => e.text.includes('В технологиях открылось управление')), 'до входа строки нет').toBe(false);

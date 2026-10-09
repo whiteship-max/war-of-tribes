@@ -15,6 +15,7 @@ import { BATTLE_ART } from '@/battle/report';
 import { ACHIEVEMENTS } from '@/game/data/quests';
 import { DAILY_GAMES } from '@/game/data/daily';
 import { MINIGAMES } from '@/game/data/minigames';
+import { GEM_PACKS } from '@/game/data/gems';
 import { DECREES, RATIONS, TAXES } from '@/game/data/policy';
 import { EVENTS } from '@/game/data/events';
 import { SOCIAL_LINKS } from '@/game/data/social';
@@ -92,6 +93,8 @@ export const ICON_GROUPS: readonly IconGroup[] = [
   { prefix: 'temper', ids: TEMPERS.map((t) => t.id), source: 'TEMPERS' },
   { prefix: 'daily', ids: DAILY_GAMES.map((g) => g.id), source: 'DAILY_GAMES' },
   { prefix: 'mini', ids: MINIGAMES.map((g) => g.id), source: 'MINIGAMES' },
+  // Наборы Сокровищницы (docs/gems.md): горсть самоцветов, кожаный кошель с завязкой, окованный сундук.
+  { prefix: 'gempack', ids: GEM_PACKS.map((p) => p.id), source: 'GEM_PACKS' },
   // Ловушек в лабиринте нет: `daily/maze.ts` их не расставляет. Значка поэтому
   // тоже нет — рисунок без места мёртвый вес (разбор в OBJECTS.md).
   { prefix: 'maze', ids: ['key', 'door', 'chest'], source: 'клетки лабиринта' },
@@ -148,9 +151,6 @@ const ALIAS: Record<string, IconName> = {
   'alert-wood': 'res-wood',
   'alert-forge-idle': 'job-smith',
   'nav-townhall': 'bld-town_hall',
-  // Наборы алмазов на витрине: горсть — это сам алмаз, сундук — общий сундук.
-  'ui-handful': 'res-gem',
-  'ui-chest': 'ui-crate',
   // Достижения: шесть из семи — про то, что уже нарисовано. Второго рисунка
   // тому же событию заводить незачем (техзадание, 1.19). «Взятого замка» среди
   // них больше нет: замков на карте нет, и достижение убрано (data/quests.ts).

@@ -5,7 +5,7 @@
 // картинку или оставить эмодзи. Накладная — то, что игра ждёт, — лежит рядом,
 // в registry.ts, и собирается из данных игры.
 //
-// Лист: 201 символов, 71.3 КБ на диске, 14.1 КБ по сети.
+// Лист: 205 символов, 74.3 КБ на диске, 14.7 КБ по сети.
 
 export const ICON_SHEET = '/assets/icons/sprite.svg';
 
@@ -93,6 +93,9 @@ export const DRAWN_ICONS: readonly string[] = [
   'gear-shield',
   'gear-spear',
   'gear-sword',
+  'gempack-chest',
+  'gempack-handful',
+  'gempack-pouch',
   'hud-army',
   'hud-map',
   'hud-pop',
@@ -116,6 +119,7 @@ export const DRAWN_ICONS: readonly string[] = [
   'maze-door',
   'maze-key',
   'mini-berries',
+  'mini-fish',
   'mini-herd',
   'mini-hunt',
   'mood-bad',

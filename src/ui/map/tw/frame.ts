@@ -14,6 +14,7 @@ import { sightDiscs, useWorld, worldNow } from '@/world/store';
 import { useGame } from '@/game/store';
 import { drawNight, dropNight, nightAt } from './night';
 import { drawClouds, dropClouds } from './clouds';
+import { columnAlpha, drawCampFires, drawColumn, drawSmoke, drawSurf, dropAlive } from './alive';
 import { secondsLeft } from '@/world/geo';
 import { sideWorks } from '@/world/works';
 import { realLeft } from '@/ui/parts/wait';
@@ -26,7 +27,10 @@ import { probe, shownGaps } from '@/debug';
 import { drawTwZones, dropTwZones } from './zones';
 import { drawTwFog } from './fog';
 import { drawGround } from './layers';
-import { moving, prebakeFrame, prebakeIdle, prebaked } from './prebake';
+import { moving, prebakeBusy, prebakeFrame, prebakeIdle, prebaked } from './prebake';
+import type { FrameMotion } from '../still';
+import { seasonOf } from '@/game/derived';
+import { weatherNow } from '@/ui/parts/weather';
 import { TW } from './palette';
 import { SIDE_COLOR, sideRgba } from '@/side';
 import { withinActive } from './theatre/active';
@@ -64,6 +68,12 @@ const busy: Box[] = [];
 /** Тела значков мест этого кадра: сроки походов их обходят (`drawTimer`). */
 const places: Box[] = [];
 
+/**
+ * Что движется в этом кадре само (`still.ts`): кадр отмечает по ходу, карта решает по итогу, когда рисовать следующий.
+ * Живёт один кадр, как очереди выше.
+ */
+const motion: FrameMotion = { busy: false, live: false, decor: false, clock: false };
+
 /** Значок постоянного размера: точка привязки значка — на точке места. */
 function blit(ctx: CanvasRenderingContext2D, m: Mini, x: number, y: number): void {
   ctx.drawImage(m.canvas, x - m.ax, y - m.ay, m.w, m.h);
@@ -100,6 +110,7 @@ function drawBadges(ctx: CanvasRenderingContext2D, it: PlaceItem, kinds: MarkerK
   for (const k of list) {
     const at = y;
     const blink = k === 'attack' || k === 'wolves' || k === 'raiders';
+    if (blink) motion.live = true;
     busy.push({ x0: x - BADGE_D / 2, y0: at - BADGE_D / 2, x1: x + BADGE_D / 2, y1: at + BADGE_D / 2 });
     marks.push(() => {
       ctx.globalAlpha = blink ? 0.55 + 0.45 * Math.abs(Math.sin(now / 380)) : 1;
@@ -133,6 +144,8 @@ function drawPlaces(ctx: CanvasRenderingContext2D, cam: Camera, items: PlaceItem
   for (const it of order) {
     const { s, sx, sy } = it;
     const siege = s.besieged && worksStand(s.besieged.starvesAt, now) ? s.besieged : null;
+    // Рогатки растут по часам мира: шаг стройки — не чаще раза в секунду.
+    if (siege) motion.clock = true;
     // Рогатки обнимают место вблизи: дальняя половина кольца — под значком, ближняя — поверх. Готовность сторон — та
     // же `works.sideWorks`, что считает бой и окна осады, на минуту кадра.
     const front = siege ? worksStep(sideWorks(siege.since, now, 'front', siege.wood)) : 0;
@@ -150,8 +163,26 @@ function drawPlaces(ctx: CanvasRenderingContext2D, cam: Camera, items: PlaceItem
     }
     const kinds = markers.get(s.id) ?? [];
     drawBadges(ctx, it, kinds, siege !== null, s.mine ? gate : [], ma >= 0.5, dpr, now);
+    // Живая карта (`alive.ts`): дым над осаждённым городом, над пепелищем и над сожжённым — после значков, огонь лагеря
+    // ночью — поверх ночи.
+    const burnt = s.ruin || (s.fell !== null && s.fell.fate === 'burn' && fellShown(s.fell, now));
+    // Стенд: `?smoke=1` — свой город как осаждённый (дым и огни), чтобы снять их без осады; игре адрес ничего не даёт.
+    const shown = siege !== null || (FORCED_SMOKE && s.mine);
+    if (shown || burnt) smokes.push({ x: sx, y: sy, weight: shown ? 1 : 0.6, seed: seedOf(s.id), siege: shown });
   }
   ctx.restore();
+}
+
+const FORCED_SMOKE = typeof location !== 'undefined' && new URLSearchParams(location.search).get('smoke') === '1';
+
+/** Дым и огонь мест кадра: собирает `drawPlaces`, рисует кадр — дым под ночью, огонь над ней. */
+const smokes: { x: number; y: number; weight: number; seed: number; siege: boolean }[] = [];
+
+/** Число от имени места: у каждого столба своя доля такта и свои огни. */
+function seedOf(id: string): number {
+  let h = 7;
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
+  return h % 9973;
 }
 
 // ---------- Войска ----------
@@ -167,6 +198,8 @@ function drawRoute(ctx: CanvasRenderingContext2D, fx: number, fy: number, px: nu
     [fx, fy] = cut(fx, fy, px, py, trim);
     [tx, ty] = cut(tx, ty, px, py, trim);
   }
+  // Следы бегут к цели по часам — путь движется сам.
+  motion.live = true;
   ctx.save();
   ctx.lineCap = 'round';
   ctx.globalAlpha = 0.28;
@@ -252,7 +285,14 @@ function drawHosts(ctx: CanvasRenderingContext2D, cam: Camera, items: HostItem[]
   for (const it of items) {
     const { m, look, sx, sy, fx, fy, tx, ty, standing, angle, body } = it;
     if (!standing) drawRoute(ctx, fx, fy, sx, sy, tx, ty, look.color, now, routeTrim(px));
-    blit(ctx, markSprite(it.mark, it.d, dpr), sx, sy);
+    // Вблизи идущий отряд — колонна со знаменем впереди (`alive.ts`), издали — прежний значок; между — перетекают.
+    const col = standing ? 0 : columnAlpha(px);
+    if (col < 1) {
+      ctx.globalAlpha = 1 - col;
+      blit(ctx, markSprite(it.mark, it.d, dpr), sx, sy);
+      ctx.globalAlpha = 1;
+    }
+    if (col > 0 && drawColumn(ctx, sx, sy, angle, look.size, look.color, px, dpr, col, seedOf(m.id))) motion.decor = true;
     busy.push(body);
     if (!standing) {
       // Впереди значка — не на нём: шеврон у кольца показывает, куда идёт отряд, и издали.
@@ -260,6 +300,7 @@ function drawHosts(ctx: CanvasRenderingContext2D, cam: Camera, items: HostItem[]
       drawChevron(ctx, sx + Math.cos(angle) * lead, sy + Math.sin(angle) * lead, angle, Math.max(5, Math.min(8, it.d * 0.22)), look.color);
     }
     if (!withTimer && !m.hostile) continue;
+    motion.clock = true;
     const text = realLeft(secondsLeft(m.arriveAt, now));
     marks.push(() => drawTimer(ctx, text, sx, body.y0 - 3, look.color, dpr));
   }
@@ -293,7 +334,16 @@ function drawFigures(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport, i
       marks.push(() => drawTimer(ctx, text, tx, ty - 8, OWN, dpr));
     }
     if (it.hostMark && it.hostBox) {
-      blit(ctx, markSprite(it.hostMark, it.hostD, dpr), hx, py);
+      // Войско полководца в пути — колонной за ним, как поход (`alive.ts`); стоящее — значком.
+      const col = f.phase === 'moving' && it.host ? columnAlpha(px) : 0;
+      if (col < 1) {
+        ctx.globalAlpha = 1 - col;
+        blit(ctx, markSprite(it.hostMark, it.hostD, dpr), hx, py);
+        ctx.globalAlpha = 1;
+      }
+      if (col > 0 && it.host && drawColumn(ctx, hx, py, Math.atan2(ty - py, tx - hx), it.host.size, it.host.color, px, dpr, col, seedOf(f.id))) {
+        motion.decor = true;
+      }
       busy.push(it.hostBox);
     }
     if (chosen) {
@@ -424,6 +474,8 @@ function drawLabels(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport, it
     }
     // Знак участи павшего — под именем или под значком; он важнее имени и ложится, даже если имя уступило соседу.
     if (cam.scale >= LABEL_FROM && fellShown(s.fell, now)) {
+      // Знак участи сходит по часам мира.
+      motion.clock = true;
       const p = fellSprite(s.fell.fate, FELL_WORDS[s.fell.fate], dpr);
       const box: Box = { x0: sx - p.ax, y0: under - p.ay, x1: sx - p.ax + p.w, y1: under - p.ay + p.h };
       taken.push(box);
@@ -500,7 +552,11 @@ function nightNow(): number {
  * выбранная клетка. Выпечки в кадре нет: работы уходят рабочему потоку (`prebakeFrame`), а без потока страница
  * печёт свою долю после кадра и только стоя (`prebakeIdle`).
  */
-export function drawTwFrame(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport, dpr: number, frame: number): void {
+export function drawTwFrame(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport, dpr: number, frame: number): FrameMotion {
+  motion.busy = false;
+  motion.live = false;
+  motion.decor = false;
+  motion.clock = false;
   const rect = viewRect(cam, vp);
   const near = detailAlpha(cam.scale);
   const state = useWorld.getState();
@@ -513,6 +569,10 @@ export function drawTwFrame(ctx: CanvasRenderingContext2D, cam: Camera, vp: View
   ctx.fillRect(0, 0, vp.w, vp.h);
   const gaps = ground ? drawGround(ctx, cam, vp, rect, ground) : 0;
   if (PROBE) shownGaps(gaps);
+  // Прибой у берегов (`alive.ts`): над землёй, под владениями, туманом и ночью; берег выводится стоя, кусками.
+  const surf = drawSurf(ctx, cam, vp, ground, !moving());
+  if (surf === 'waves') motion.decor = true;
+  if (surf === 'baking') motion.busy = true;
   // Владения — тоньше прежних, с чертой границы по краю (`tw/zones.ts`); под туманом, как и прежде. Растр — над
   // рамкой региона и заново только при новых данных и стоя.
   drawTwZones(ctx, cam, vp, now, ground ? { rect: ground.plan.reach, stamp: ground.dataGen, may: !moving() } : undefined);
@@ -526,9 +586,11 @@ export function drawTwFrame(ctx: CanvasRenderingContext2D, cam: Camera, vp: View
   const items = placeItems(cam, vp, settlementsIn(placesRect(rect)), dpr);
   places.length = 0;
   for (const it of items) places.push(it.body);
+  smokes.length = 0;
   drawPlaces(ctx, cam, items, dpr, now, markersOf(state.marches));
+  for (const sm of smokes) if (drawSmoke(ctx, sm.x, sm.y, cam.scale, sm.weight, sm.seed)) motion.decor = true;
   // Облака и их тени — погода региона (docs/city.md, 15): над землёй и местами, под листом за границей региона.
-  drawClouds(ctx, cam, vp, nightNow());
+  if (drawClouds(ctx, cam, vp, nightNow())) motion.decor = true;
 
   // Незнакомое — лист старой карты (своё неразведанное и чужой регион), разведанное вне обзора — сепия
   // (`tw/fog.ts`): поверх мест, под всем, что движется, — как прежний туман.
@@ -541,22 +603,47 @@ export function drawTwFrame(ctx: CanvasRenderingContext2D, cam: Camera, vp: View
   drawFigures(ctx, cam, vp, figureItems(cam, vp, state.figures, now, dpr), state.picked, dpr, now);
 
   // Ночь — по часам партии, как у сцены города (`tw/night.ts`); подписи и сроки — поверх неё.
-  drawNight(ctx, vp.w, vp.h, cam.scale, items, nightNow(), dpr);
+  const night = nightNow();
+  drawNight(ctx, vp.w, vp.h, cam.scale, items, night, dpr);
+  // Огни осадного лагеря — поверх ночи: их и видно только ночью.
+  for (const sm of smokes) if (sm.siege && drawCampFires(ctx, sm.x, sm.y, cam.scale, night, sm.seed)) motion.decor = true;
   for (const draw of marks) draw();
   marks.length = 0;
 
   drawRegions(ctx, cam, vp, dpr, drawLabels(ctx, cam, vp, items, dpr, now));
 
   // Метка лупы и выбранная клетка — только в своём регионе: за его границей лист, и метки там нечему держать.
-  if (state.spotlight && withinActive(state.spotlight.x, state.spotlight.y)) drawSpot(ctx, cam, vp, state.spotlight, now);
+  if (state.spotlight && withinActive(state.spotlight.x, state.spotlight.y)) {
+    drawSpot(ctx, cam, vp, state.spotlight, now);
+    // Пульс лупы расходится кругами сам.
+    motion.live = true;
+  }
   if (state.selected && withinActive(state.selected.x, state.selected.y)) drawSelected(ctx, cam, vp, state.selected);
 
   // Страница без рабочего потока печёт свою долю — после кадра и только стоя.
   prebakeIdle();
+  // Пока камеру ведут, карта и так рисует каждый кадр — очередь выпечки второй раз за кадр не перебирается.
+  if (!moving() && prebakeBusy()) motion.busy = true;
+  return { ...motion };
+}
+
+/**
+ * Что кадр читает из партии — одной строкой: ночь (`nightNow`), гости у ворот (`gateBadges`), погода облаков
+ * (`drawClouds`) и сезон выпечки (`hook.syncLook`). Стоящая карта будится, когда строка сменилась (`WorldMap`,
+ * `still.ts`), а не на каждом шаге племени — он дважды в секунду кладёт в стор свежую партию. Новое чтение партии в
+ * кадре дописывается сюда же: иначе стоящая карта увидит его только к страховочному сроку (`still.IDLE_MS`).
+ */
+export function partyLook(): string {
+  const s = useGame.getState().s;
+  if (!s) return '';
+  const w = weatherNow(s);
+  const q = (x: number): number => Math.round(x * 50);
+  return [Math.round(nightNow() * 100), gateBadges().join(','), seasonOf(s.time), q(w.cloud), q(w.rain), q(w.snow), q(w.storm)].join('|');
 }
 
 export function dropFrame(): void {
   fitted.clear();
+  dropAlive();
   dropNight();
   dropClouds();
   dropTwZones();

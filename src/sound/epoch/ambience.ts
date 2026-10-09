@@ -14,7 +14,8 @@ import { anvil, bell, bird, cricket, noiseLoop, voice, type BirdKind, type Kit }
 
 /** Что слышит игрок. */
 export interface Hearing {
-  view: 'city' | 'map';
+  /** Город, карта или поляна промысла (`glade`: идёт промысел — лес вместо города, docs/minigames.md, 16.2). */
+  view: 'city' | 'map' | 'glade';
   /** Фаза солнца: 0 — рассвет, 0.25 — полдень, 0.5 — закат, 0.75 — глубокая ночь (`derived.solarPhase`). */
   solar: number;
   season: Season;
@@ -81,6 +82,22 @@ export function mixOf(h: Hearing): Record<Layer, number> {
   const gust = 0.45 + 1.375 * wx.wind;
   const cap = (x: number): number => Math.min(1, x);
   const dry = 1 - 0.6 * Math.max(wx.rain, wx.snow);
+  if (h.view === 'glade') {
+    // Поляна промысла: лес утра — ветер в кронах по погоде и птицы по сезону; ни города, ни моря, ни дождя (у сцены
+    // промысла своя минута — утро без погоды, docs/minigames.md, 7: слышно то же, что видно).
+    return {
+      wind: cap((0.38 + (winter ? 0.15 : 0)) * gust),
+      whistle: cap((winter ? 0.22 : 0.04) * gust * (1 + wx.storm)),
+      hum: 0,
+      sea: 0,
+      market: 0,
+      forge: 0,
+      birds: BIRDS[h.season] * 0.9,
+      crickets: 0,
+      bells: 0,
+      rain: 0,
+    };
+  }
   if (h.view === 'map') {
     return {
       wind: cap((0.55 + (winter ? 0.2 : 0)) * gust),

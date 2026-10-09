@@ -197,10 +197,13 @@ export interface LoopClock {
   /** Кадров не должно быть: страница скрыта или аппка свёрнута. */
   away: () => boolean;
   /**
-   * Потолок частоты этой цепочки; без него — `FPS_CAP`. Функция — потолок, который владелец меняет на ходу
-   * (карта на «Низком», пока стоит, — `cappedClock`); выше `FPS_CAP` он не поднимается ничем.
+   * Потолок частоты этой цепочки; без него — `FPS_CAP`. Функция — потолок, который владелец меняет на ходу;
+   * выше `FPS_CAP` он не поднимается ничем.
    */
   cap?: number | (() => number);
+  /** Будильник сна цепочки (`FrameLoop.rest`); без него — `setTimeout`. Тесты подменяют его своими часами. */
+  wait?: (cb: () => void, ms: number) => number;
+  unwait?: (id: number) => void;
 }
 
 /**
@@ -221,16 +224,6 @@ const browserClock = (): LoopClock => ({
   away: awayNow,
   cap: typeof location === 'undefined' ? FPS_CAP : capFrom(location.search),
 });
-
-/**
- * Браузерные часы со своим потолком владельца, который меняется на ходу: потолок адреса (`capFrom`) он только
- * опускает. Так карта на «Низком» рисует тридцать кадров, пока стоит, и шестьдесят, пока её ведут (docs/perf.md).
- */
-export function cappedClock(cap: () => number): LoopClock {
-  const base = browserClock();
-  const address = typeof base.cap === 'number' ? base.cap : FPS_CAP;
-  return { ...base, cap: () => Math.min(address, cap()) };
-}
 
 /**
  * Цепочка кадров с набором причин остановки и потолком частоты.
@@ -257,6 +250,8 @@ export class FrameLoop<B extends string> {
    * от возврата видимости не заводится, иначе кадры пошли бы в недособранную сцену.
    */
   private armed = false;
+  /** Будильник сна (`rest`): цепочка жива, но заявки кадра не подано до срока или до `wake`. */
+  private nap: number | null = null;
 
   /**
    * @param tick    один кадр;
@@ -288,6 +283,45 @@ export class FrameLoop<B extends string> {
 
   get running(): boolean {
     return this.pending;
+  }
+
+  /** Цепочка спит (`rest`): жива, но кадров не просит. */
+  get resting(): boolean {
+    return this.nap !== null;
+  }
+
+  /**
+   * Уснуть на `ms` мс — или до `wake`: владелец нарисовал кадр, и до срока картинка сама не изменится. Во сне цепочка
+   * не подаёт ни одной заявки кадра: браузер не будит страницу вовсе, а не будит и отпускает, как при потолке частоты.
+   * Зовётся из кадра (`tick`) — цепочка там жива; стоящую или выгруженную сон не трогает. Остановка (причина, скрытая
+   * страница) снимает сон вместе с заявкой; снятие последней причины заводит цепочку сразу, а не к сроку сна.
+   *
+   * Так рисует карта мира: стоя — только по изменению и редким шагом живого (docs/perf.md, решение 9).
+   */
+  rest(ms: number): void {
+    if (this.dead || !this.pending || this.blocks.size > 0 || !(ms > 0)) return;
+    this.unnap();
+    if (this.id) this.clock.caf(this.id);
+    this.id = 0;
+    const wait = this.clock.wait ?? ((cb: () => void, t: number): number => setTimeout(cb, t) as unknown as number);
+    this.nap = wait(() => {
+      this.nap = null;
+      if (this.pending && !this.dead) this.schedule();
+    }, ms);
+  }
+
+  /** Разбудить спящую цепочку: кадр — ближайший кадр экрана. Не спит — ничего (цепочка и так просит кадр). */
+  wake(): void {
+    if (this.nap === null || this.dead) return;
+    this.unnap();
+    this.schedule();
+  }
+
+  private unnap(): void {
+    if (this.nap === null) return;
+    const unwait = this.clock.unwait ?? ((id: number): void => clearTimeout(id));
+    unwait(this.nap);
+    this.nap = null;
   }
 
   /**
@@ -339,6 +373,7 @@ export class FrameLoop<B extends string> {
   };
 
   private halt(): void {
+    this.unnap();
     if (this.id) this.clock.caf(this.id);
     this.id = 0;
     this.pending = false;

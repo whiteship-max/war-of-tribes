@@ -1,6 +1,7 @@
 // Бюджет кадра ролика TW по уровням — подсчётом построенного, без браузера (docs/battle_tw.md, раздел 7; как
 // `city.test.ts` считает город). Сцена собирается целиком, как на стенде, и обходится: вызовы и треугольники главного
 // прохода и теневого, байты текстур. Бой — самый тяжёлый: обе стороны на потолке фигур уровня.
+import { barrageShares } from '@/ui/battle/barrage';
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 import { QUALITIES, type Quality } from '../quality';
@@ -45,16 +46,24 @@ function countStage(stage: TwStage): Count {
  * (docs/battle_tw.md, раздел 13) — то же войско у стены, у ворот, у лагеря, у логова: камень, дома, шатры и лестницы
  * поверх потолка фигур.
  */
-function heaviest(q: Quality, site = ''): Count {
+function heaviest(q: Quality, site = '', shots = 0): Count {
   const b = standBattle(new URLSearchParams(`replay=tw&men=4000&foe=4000&seed=7&place=woods,road,river,ford${site ? `&site=${site}` : ''}`));
-  const plan = twPlanOfRecord(b.result, b.us, b.troops, q, b.militia, b.place, b.beastSide, b.site);
+  const plan = twPlanOfRecord(b.result, b.us, b.troops, q, b.militia, b.place, b.beastSide, b.site, barrageShares(shots));
   const stage = new TwStage(plan, TW_SPEC[q]);
   // Кадр на построении: все живы и все стоят — фигур больше, чем когда-либо потом.
   const cam = { camera: new THREE.PerspectiveCamera(), now: { tx: 0, tz: 0, dist: 120, yaw: 0, pitch: 0.8 }, groundY: 0 };
-  stage.apply(1, cam as never);
-  const c = countStage(stage);
+  // С обстрелом (раздел 15) — самый тяжёлый кадр пролога: строи стоят, и в воздухе камни, обломки, пыль обвала и дым;
+  // перебор по четверти секунды, берётся худший. Бой после пролога — с машинами, сбитыми и дымом.
+  let worst: Count | null = null;
+  const pre = plan.barrage?.seconds ?? 0;
+  const times = pre > 0 ? [...Array.from({ length: Math.ceil(pre * 4) }, (_, i) => i / 4), pre + 1] : [1];
+  for (const clip of times) {
+    stage.apply(pre > 0 ? Math.max(0, clip - pre) : clip, cam as never, clip);
+    const c = countStage(stage);
+    if (!worst || c.calls + c.triangles / 1e4 > worst.calls + worst.triangles / 1e4) worst = c;
+  }
   stage.dispose();
-  return c;
+  return worst!;
 }
 
 describe('ролик TW: бюджет кадра по уровням', () => {
@@ -92,6 +101,23 @@ describe('ролик TW: бюджет кадра по уровням', () => {
         expect(c.bytes / 1048576, `${site} ${q}: текстуры, МБ`).toBeLessThanOrEqual(b.textureMB);
         // Точка внутри области: обе стороны на потолке фигур, место построено.
         expect(c.figures, `${site} ${q}`).toBeGreaterThan(TW_SPEC[q].perSide * 1.8);
+      }
+    }
+  });
+
+  it('обстрел перед штурмом (стена и логово, три залпа) — в том же бюджете уровня', () => {
+    for (const site of ['wall', 'lair']) {
+      for (const q of QUALITIES) {
+        const c = heaviest(q, site, 3);
+        const bare = heaviest(q, site);
+        const b = TW_BUDGET[q];
+        if (process.env.TW_BUDGET_SHOW === '1') {
+          console.log(`${site}+обстрел ${q}: вызовов ${bare.calls} → ${c.calls} · треугольников ${bare.triangles} → ${c.triangles}`);
+        }
+        // Точка внутри области: пролог есть и что-то добавил.
+        expect(c.calls, `${site} ${q}`).toBeGreaterThan(bare.calls);
+        expect(c.calls, `${site} ${q}: вызовов`).toBeLessThanOrEqual(b.calls);
+        expect(c.triangles, `${site} ${q}: треугольников`).toBeLessThanOrEqual(b.triangles);
       }
     }
   });

@@ -4,12 +4,44 @@
 import * as THREE from 'three';
 import { FrameLoop } from '../loop';
 import type { TwSpec } from './spec';
-import { TacticalCamera } from './camera';
+import { TacticalCamera, overview, type CamState } from './camera';
 import { TwStage } from './stage';
 import { twToCast, type TwPlan } from './plan';
+import type { TwBarrage } from './barrage';
+
+/** Переход камеры пролога от ключа к ключу и от последнего — к общему виду боя, секунды. */
+const CAM_MOVE = 1.3;
+const smooth = (u: number): number => (u <= 0 ? 0 : u >= 1 ? 1 : u * u * (3 - 2 * u));
+const wrap = (a: number): number => Math.atan2(Math.sin(a), Math.cos(a));
+
+function blendCam(a: CamState, b: CamState, u: number): CamState {
+  const k = smooth(u);
+  return {
+    tx: a.tx + (b.tx - a.tx) * k,
+    tz: a.tz + (b.tz - a.tz) * k,
+    dist: a.dist + (b.dist - a.dist) * k,
+    yaw: a.yaw + wrap(b.yaw - a.yaw) * k,
+    pitch: a.pitch + (b.pitch - a.pitch) * k,
+  };
+}
+
+/**
+ * Камера пролога обстрела сама (docs/battle_tw.md, раздел 15): общий план машин и стены → удар → пролом, и к концу пролога
+ * — общий вид боя. Ключи — у режиссуры (`TwBarrage.cam`), кадр — `overview` на ключевой прямоугольник.
+ */
+export function barrageView(b: TwBarrage, t: number, aspect: number, battle: CamState): CamState {
+  const keys = b.cam.map((k) => overview(k.box, aspect, k.yaw, k.pitch));
+  let i = 0;
+  while (i + 1 < b.cam.length && b.cam[i + 1].at <= t) i++;
+  const next = i + 1 < b.cam.length ? { at: b.cam[i + 1].at, s: keys[i + 1] } : { at: b.seconds, s: battle };
+  return blendCam(keys[i], next.s, (t - (next.at - CAM_MOVE)) / CAM_MOVE);
+}
 
 export interface TwPlayerOptions {
-  /** Кадр нарисован: секунда ролика TW и та же секунда раскадровки (подпись, фаза и музыка берутся у неё). */
+  /**
+   * Кадр нарисован: секунда ролика TW (с прологом обстрела, `TwPlayer.pre`) и секунда раскадровки боя (подпись, фаза и
+   * музыка берутся у неё; в прологе — нулевая).
+   */
   onFrame?: (t: number, castT: number) => void;
   onEnd?: () => void;
   speed?: number;
@@ -31,6 +63,11 @@ export class TwPlayer {
   private readonly shadowAuto: boolean;
   /** Скорость хода: ×1, ×2, ×4 — у игрока на полосе; кадр — функция времени, поэтому скорость его не меняет. */
   speed: number;
+  /**
+   * Пролог обстрела перед штурмом, секунды (`plan.barrage`); ноль — его нет. Часы ролика идут от начала пролога: бой — с
+   * секунды `pre`, и до неё он стоит на своей нулевой секунде (строи построены).
+   */
+  readonly pre: number;
 
   constructor(
     private renderer: THREE.WebGLRenderer,
@@ -39,6 +76,7 @@ export class TwPlayer {
     private opts: TwPlayerOptions = {},
   ) {
     this.speed = opts.speed ?? 1;
+    this.pre = plan.barrage?.seconds ?? 0;
     this.stage = new TwStage(plan, spec);
     // Жёсткая тень — `BasicShadowMap` (0) числом, как у уровней сцены (`Scene`): имени в куске three первой загрузки нет.
     renderer.shadowMap.type = spec.shadowSoft ? THREE.PCFShadowMap : (0 as THREE.ShadowMapType);
@@ -48,7 +86,7 @@ export class TwPlayer {
     renderer.shadowMap.autoUpdate = false;
     renderer.shadowMap.needsUpdate = true;
     this.fitAspect();
-    const start = this.stage.autoView(0, this.aspect);
+    const start = this.view(0);
     this.cam = new TacticalCamera(start, this.stage.bounds(this.aspect));
     this.cam.setAspect(this.aspect);
     this.beat.block('idle', true);
@@ -59,8 +97,37 @@ export class TwPlayer {
     return this.t;
   }
 
+  /** Весь ролик: пролог обстрела и бой. */
   get seconds(): number {
-    return this.plan.seconds;
+    return this.pre + this.plan.seconds;
+  }
+
+  /** Секунда боя на секунде ролика `t`: в прологе — ноль. */
+  battleTime(t = this.t): number {
+    return Math.max(0, t - this.pre);
+  }
+
+  /** Идёт ли пролог обстрела. */
+  get barrage(): boolean {
+    return this.t < this.pre;
+  }
+
+  /** Общий вид на секунде ролика: в прологе — камера обстрела, в бою — строи (`TwStage.autoView`). */
+  view(t: number): CamState {
+    const battle = this.stage.autoView(this.battleTime(t), this.aspect);
+    const b = this.plan.barrage;
+    return b && t < this.pre ? barrageView(b, t, this.aspect, battle) : battle;
+  }
+
+  /**
+   * «Пропустить» в прологе — к бою, а не из ролика: обстрел — вступление, и пропускают его, как у Total War. Пролога нет
+   * или он прошёл — `false`, и кнопка закрывает ролик, как раньше.
+   */
+  skipBarrage(): boolean {
+    if (this.t >= this.pre) return false;
+    this.t = this.pre;
+    this.draw();
+    return true;
   }
 
   get playing(): boolean {
@@ -69,9 +136,9 @@ export class TwPlayer {
 
   /** Перемотать и показать кадр: повтор точен, кадр — функция времени. */
   seek(t: number): void {
-    this.t = Math.max(0, Math.min(this.plan.seconds, t));
+    this.t = Math.max(0, Math.min(this.seconds, t));
     if (this.cam.auto) {
-      this.cam.follow(this.stage.autoView(this.t, this.aspect));
+      this.cam.follow(this.view(this.t));
       this.cam.snap();
     }
     this.draw();
@@ -79,7 +146,7 @@ export class TwPlayer {
 
   start(): void {
     if (this.running || this.disposed) return;
-    if (this.t >= this.plan.seconds) this.t = 0;
+    if (this.t >= this.seconds) this.t = 0;
     this.running = true;
     this.clock.getDelta();
     this.beat.block('idle', false);
@@ -106,9 +173,9 @@ export class TwPlayer {
   private loop = (): void => {
     if (this.disposed) return;
     const dt = Math.min(0.1, this.clock.getDelta());
-    if (this.running) this.t = Math.min(this.plan.seconds, this.t + dt * this.speed);
+    if (this.running) this.t = Math.min(this.seconds, this.t + dt * this.speed);
     this.draw(dt);
-    if (this.running && this.t >= this.plan.seconds) {
+    if (this.running && this.t >= this.seconds) {
       this.stop();
       this.opts.onEnd?.();
     }
@@ -120,16 +187,17 @@ export class TwPlayer {
    */
   draw(dt = 0): void {
     if (this.disposed) return;
-    if (this.cam.auto) this.cam.follow(this.stage.autoView(this.t, this.aspect));
+    if (this.cam.auto) this.cam.follow(this.view(this.t));
     this.cam.groundY = this.stage.groundY(this.cam.now.tx, this.cam.now.tz);
     if (dt > 0) this.cam.update(dt);
-    this.stage.apply(this.t, this.cam);
+    const bt = this.battleTime();
+    this.stage.apply(bt, this.cam, this.t);
     // Вызовы и треугольники — честно, вместе с теневым проходом (счётчик сбрасывается руками, как у диорамы).
     this.renderer.info.reset();
     // Теневой проход — раз в `shadowEvery` кадров хода; кадр на месте (перемотка, снимок, подгонка) — со свежей тенью.
     this.renderer.shadowMap.needsUpdate = dt === 0 || this.drawn++ % this.shadowEvery === 0;
     this.renderer.render(this.stage.scene, this.cam.camera);
-    this.opts.onFrame?.(this.t, twToCast(this.plan.timing, this.t));
+    this.opts.onFrame?.(this.t, twToCast(this.plan.timing, bt));
   }
 
   /** Камера двигается и без хода ролика: цикл кадров нужен и на паузе, пока её ведут. */

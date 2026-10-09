@@ -15,6 +15,8 @@ import { energyNow, useTrades } from '@/ui/trades';
 import { energyShown } from '@/game/sim/minigames';
 import { MINIGAME_COST } from '@/game/data/minigames';
 import { armyTip, energyTip, goldTip, isFull, moraleTip, orderTip, popTip, resTip, seasonTip, trendOf, type TipGo } from './hudTips';
+import { GemPlaque } from './Treasury';
+import { SiteTags } from './Rush';
 
 /**
  * Верх нового интерфейса (docs/ui_audit.md, 6.0–6.1): одна строка 44 — герб, золото, жители, мораль,
@@ -174,6 +176,9 @@ export function Hud() {
           );
         })}
       </div>
+      {/* Сокровищница — справа под строкой запасов (docs/gems.md); ярлыки «Ускорить» у лесов — порталом в сцену. */}
+      <GemPlaque />
+      <SiteTags />
     </div>
   );
 }

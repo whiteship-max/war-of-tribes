@@ -69,14 +69,14 @@ export function StartScreen({
       {/*
         Тот же файл, что у экрана загрузки, и тот же кадр. Второго запроса он не
         стоит: браузер взял его минуту назад с `fetchpriority="high"` и отдаёт из
-        кэша. Не приехал вовсе — под ним остаётся фон и отсвет костра, ровно как
-        на экране загрузки, и это правильный вид, а не поломка.
+        кэша. Не приехал вовсе — под ним остаётся фон и тёплый отсвет, и это
+        правильный вид, а не поломка.
       */}
-      <img className="start-art" src="/assets/splash/boot.webp" alt="" aria-hidden="true" decoding="async" />
-      <div className="start-scrim" />
+      <StartArt />
+      {/* Название — на том же месте и теми же буквами, что на экране загрузки (`#boot-name`). */}
+      <h1 className="start-name">TRIBE</h1>
 
       <div className="start-body">
-        <h1 className="start-name">TRIBE</h1>
         {ask ? (
           naming(onEnter)
         ) : (
@@ -117,6 +117,32 @@ export function StartScreen({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/** Кадр заставки с затемнениями — тот же, что у экрана загрузки (числа — в `index.html` и `styles.css`). */
+function StartArt() {
+  return (
+    <>
+      <img className="start-art" src="/assets/splash/boot.webp" alt="" aria-hidden="true" decoding="async" />
+      <div className="start-scrim" />
+      <div className="start-top" />
+    </>
+  );
+}
+
+/**
+ * Уход в город. Стартовый экран снимается по кнопке сразу — партия уже идёт, — а поверх живой диорамы ещё
+ * полсекунды гаснет тот же кадр заставки: заставка не пропадает, а растворяется в городе. Касаний он не берёт, а
+ * снимает его конец его же анимации, а не таймер (`onDone`): в скрытом вебвью анимация стоит вместе со страницей и
+ * доигрывает, когда страницу покажут. Без движения (`prefers-reduced-motion`) она длится миг — и всё равно кончается.
+ */
+export function StartVeil({ onDone }: { onDone: () => void }) {
+  return (
+    <div className="start start-veil" aria-hidden="true" onAnimationEnd={onDone}>
+      <StartArt />
+      <div className="start-name">TRIBE</div>
     </div>
   );
 }

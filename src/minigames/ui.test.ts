@@ -44,6 +44,8 @@ describe('голос промыслов', () => {
     'minigames/berries.ts',
     'minigames/herd.ts',
     'minigames/hunt.ts',
+    'minigames/fishPlay.ts',
+    'minigames/fishing.ts',
     'ui/next/Trades.tsx',
     'game/data/minigames.ts',
   ];
@@ -59,7 +61,7 @@ describe('голос промыслов', () => {
     }
     // Точка внутри области: щуп видит строки.
     expect(seen).toBeGreaterThan(20);
-    for (const label of ['В лес', 'В загон', 'На охоту', 'Начать', 'Назад', 'Уйти', 'Точно?', 'В город']) expect(label.length).toBeLessThanOrEqual(14);
+    for (const label of ['В лес', 'В загон', 'На охоту', 'К воде', 'Начать', 'Назад', 'Уйти', 'Точно?', 'В город']) expect(label.length).toBeLessThanOrEqual(14);
   });
 });
 
@@ -77,7 +79,7 @@ describe('цели касания промыслов — не меньше по�
     return m ? Number(m[1]) : null;
   };
 
-  it('«Уйти», «Начать», «Назад», «В город» — 44 и больше', () => {
+  it('«Уйти», «Начать», «Назад», «В город», «Как играть» — 44 и больше', () => {
     expect(TAP_TARGET).toBe(44);
     for (const [sel, prop] of [
       ['.mg-leave', 'height'],
@@ -85,6 +87,7 @@ describe('цели касания промыслов — не меньше по�
       ['.mg-go', 'height'],
       ['.mg-back', 'height'],
       ['.mg-go', 'min-width'],
+      ['.mg-howbtn', 'height'],
     ] as const) {
       const n = value(sel, prop);
       expect(n, `${sel} ${prop}`).not.toBeNull();

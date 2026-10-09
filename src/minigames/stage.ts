@@ -119,6 +119,23 @@ export interface Play {
   say?(): string;
   /** Кончилась ли игра раньше времени. */
   over?(t: number): boolean;
+  /** Пошла одна из последних секунд (`LAST_TICKS`): стукнуть. */
+  tick?(): void;
+
+  // «Рыбалка» (docs/minigames.md, 17): удочка — весь экран, взгляд ведёт сама игра, у прицела — шкала.
+
+  /** Весь экран — одна рука: каждый палец — палец взгляда, стика шага нет. */
+  readonly oneHand?: boolean;
+  /** Сырой поворот пальца за кадр, рад, до множителей взгляда: удочке — сила замаха и удилище вбок. */
+  steer?(yaw: number, pitch: number, t: number): void;
+  /** Во сколько раз тише взгляд вверх-вниз (поверх `lookScale`): замах тянет вниз, а не опускает взгляд. */
+  pitchScale?(): number;
+  /** Взгляд, который ведёт игра: куда смотреть в этот кадр (за поплавком, за рыбой); `null` — ведёт игрок. */
+  lead?(yaw: number, pitch: number, dt: number): { yaw: number; pitch: number } | null;
+  /** Шкала у прицела: сила заброса или натяжение лески, 0..1, и в красной ли она. `null` — шкалы нет. */
+  gauge?(): { mode: 'cast' | 'line'; k: number; warn: boolean } | null;
+  /** Что делать сейчас — строка внизу, когда тапом трогать нечего. */
+  cue?(): string;
 }
 
 export type Phase = 'brief' | 'play' | 'done';
@@ -135,6 +152,8 @@ export interface StageView {
   note: string;
   /** Вторая строка счёта (`Play.aside`); нет — пусто. */
   aside: string;
+  /** Что делать сейчас (`Play.cue`); нет — пусто. */
+  cue: string;
 }
 
 /** Ступени промыслов — те же, что у поляны (`look.TIERS`): что умеет устройство, то и первая. */
@@ -161,6 +180,20 @@ const NOTE_MS = 1400;
 
 /** Как часто пересобирать надпись, мс: секунды отсчёта и подпись прицела. */
 const VIEW_EVERY = 100;
+
+/** Сколько последних секунд стучит отсчёт. */
+export const LAST_TICKS = 5;
+
+/** Толчок взгляда на удачное действие, рад, и как быстро гаснет, с: рука дёрнула — голова чуть кивнула. */
+const JOLT = 0.007;
+const JOLT_S = 0.11;
+
+/**
+ * Ветер погоды города в траве и кронах: сила погоды 0..1 (`weather.wind`, средняя — 0.4) в размах качания материалов
+ * поляны (`surface.u.wind`, у поляны — 0.6). Тот же множитель, что у звука ветра города (`ambience.mixOf`, `gust`):
+ * средняя погода — прежние 0.6; штиль — едва колышет, буря — гнёт.
+ */
+export const windOf = (w: number): number => 0.6 * (0.45 + 1.375 * Math.max(0, Math.min(1, w)));
 
 const DEG = Math.PI / 180;
 const lum = (c: THREE.Color): number => 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
@@ -221,6 +254,10 @@ export class Stage {
   private viewedAt = 0;
   private shown = '';
   private target: Target | null = null;
+  /** Последняя показанная секунда отсчёта — стуку последних секунд. */
+  private lastLeft = -1;
+  /** Когда был толчок взгляда, мс кадра. */
+  private joltAt = -1e9;
 
   /** Кому сказать, что надпись поменялась. */
   onView: ((v: StageView) => void) | null = null;
@@ -246,6 +283,8 @@ export class Stage {
     private play: Play,
     private seconds: number,
     season: Season,
+    /** Сила ветра погоды города, 0..1 (`ui/parts/weather.weatherNow`); нет — средняя. */
+    wind = 0.4,
   ) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
     configureRenderer(this.renderer);
@@ -266,6 +305,9 @@ export class Stage {
     const noonSun = this.rig.sun.intensity;
     const noonSky = this.rig.hemi.intensity * SKY_FILL * lum(_bounce.copy(this.rig.hemi.color).lerp(SKY_CLEAR, SKY_BLUE));
     fitShadow(this.rig, play.shadowHalf);
+    // Край тени шире на полтора тексела: у телефонной ступени тень — PCF без мягкой полутени поляны, и тень куста в двух
+    // шагах ложилась ступеньками по три сантиметра (снимок `b1`). Мягкая полутень `full` своего радиуса не читает.
+    this.rig.sun.shadow.radius = 3.5;
     const tier = this.pickTier();
     this.post = new Post(this.renderer, tier);
     if (play.focus !== undefined) this.post.setFocus(play.focus);
@@ -273,6 +315,7 @@ export class Stage {
     // Сезон города: цвета материалов — его, снег на ветках — только зимой.
     this.seasonLook.jump(season);
     this.surfaces.u.snow.value = season === 'winter' ? WINTER_SNOW : 0;
+    this.surfaces.u.wind.value = windOf(wind);
 
     furnish(this.scene, this.surfaces, play, this.camera, this.dome, season);
     this.scene.add(this.aim);
@@ -368,7 +411,8 @@ export class Stage {
       /* захват не обязателен */
     }
     const p = this.local(e);
-    const half = this.sticks.down(e.pointerId, p.x, p.y, performance.now(), p.w);
+    // Одна рука (удочка): ширина ноль — любой палец ложится во взгляд.
+    const half = this.sticks.down(e.pointerId, p.x, p.y, performance.now(), this.play.oneHand ? 0 : p.w);
     // Палец во взгляде тянет тетиву: ведёт он её тем же пальцем, отпускает — снимая.
     if (half === 'look' && this.phase === 'play') this.play.draw?.(this.t);
   };
@@ -451,8 +495,9 @@ export class Stage {
     if (said) {
       this.note = said;
       this.noteUntil = performance.now() + NOTE_MS;
-      // Отклик рукой — тот же, что у кнопок игры (`telegram/webapp.haptic`); вне Телеграма молчит.
+      // Отклик рукой — тот же, что у кнопок игры (`telegram/webapp.haptic`); вне Телеграма молчит. И голова кивнула.
       haptic('light');
+      this.joltAt = performance.now();
     }
     this.refresh(true);
   }
@@ -475,13 +520,24 @@ export class Stage {
     if (this.phase === 'play') {
       this.t += dt;
       if (this.t >= this.seconds) this.finish();
+      const left = Math.ceil(this.seconds - this.t - 1e-6);
+      if (left !== this.lastLeft) {
+        this.lastLeft = left;
+        if (this.phase === 'play' && left > 0 && left <= LAST_TICKS) this.play.tick?.();
+      }
     }
     const live = this.phase === 'play';
     const look = this.sticks.takeLook();
     if (live) {
+      this.play.steer?.(look.yaw, look.pitch, this.t);
       const k = this.play.lookScale?.() ?? 1;
       this.yaw += look.yaw * k;
-      this.pitch = THREE.MathUtils.clamp(this.pitch + look.pitch * k, -PITCH_LIMIT, PITCH_LIMIT);
+      this.pitch = THREE.MathUtils.clamp(this.pitch + look.pitch * k * (this.play.pitchScale?.() ?? 1), -PITCH_LIMIT, PITCH_LIMIT);
+      const lead = this.play.lead?.(this.yaw, this.pitch, dt);
+      if (lead) {
+        this.yaw = lead.yaw;
+        this.pitch = THREE.MathUtils.clamp(lead.pitch, -PITCH_LIMIT, PITCH_LIMIT);
+      }
     }
     const walk: Walk = live ? mergeWalk(this.sticks.walk(), this.keys.walk()) : { forward: 0, strafe: 0 };
     const speed = Math.hypot(walk.forward, walk.strafe);
@@ -499,7 +555,10 @@ export class Stage {
       this.bob += speed * dt * 9;
     }
     this.walkK += (Math.min(1, speed) - this.walkK) * Math.min(1, dt * 6);
-    this.camera.rotation.set(this.pitch, this.yaw, 0, 'YXZ');
+    // Толчок взгляда на действие: короткий кивок вниз, гаснущий за доли секунды.
+    const since = (now - this.joltAt) / 1000;
+    const jolt = since < 0.6 ? JOLT * Math.sin(Math.min(1, since / 0.05) * Math.PI * 0.5) * Math.exp(-since / JOLT_S) : 0;
+    this.camera.rotation.set(this.pitch - jolt, this.yaw, 0, 'YXZ');
     this.camera.position.set(this.px, EYE + Math.sin(this.bob) * 0.025 * this.walkK, this.pz);
     this.surfaces.u.time.value = now / 1000;
     this.play.frame(this.t, dt, this.walkK);
@@ -543,8 +602,9 @@ export class Stage {
       verb: this.target?.verb ?? '',
       note: this.note,
       aside: this.play.aside?.() ?? '',
+      cue: this.phase === 'play' ? (this.play.cue?.() ?? '') : '',
     };
-    const key = `${v.phase}|${v.left}|${v.tally.got}|${v.tally.total}|${v.verb}|${v.note}|${v.aside}`;
+    const key = `${v.phase}|${v.left}|${v.tally.got}|${v.tally.total}|${v.verb}|${v.note}|${v.aside}|${v.cue}`;
     if (!force && key === this.shown) return;
     this.shown = key;
     this.onView?.(v);
@@ -552,7 +612,7 @@ export class Stage {
 
   /** Надпись сейчас — оболочке на первом кадре. */
   snapshot(): StageView {
-    return { phase: this.phase, left: Math.ceil(this.seconds - this.t), tally: this.play.tally(), verb: '', note: '', aside: this.play.aside?.() ?? '' };
+    return { phase: this.phase, left: Math.ceil(this.seconds - this.t), tally: this.play.tally(), verb: '', note: '', aside: this.play.aside?.() ?? '', cue: '' };
   }
 
   /**
@@ -561,7 +621,19 @@ export class Stage {
    */
   private aimSync(): void {
     const el = this.aimEl;
-    if (!el || !this.play.drawn) return;
+    if (!el) return;
+    if (this.play.gauge) {
+      // Шкала удочки: сила заброса или натяжение лески — переменной `--k`, вид — `data-mode`, красная зона — `data-warn`.
+      const g = this.play.gauge();
+      const key = g ? `${g.mode}|${g.k.toFixed(2)}|${g.warn ? 1 : 0}` : '';
+      if (key === this.aimShown) return;
+      this.aimShown = key;
+      el.dataset.mode = g?.mode ?? 'none';
+      el.dataset.warn = g?.warn ? '1' : '0';
+      el.style.setProperty('--k', (g?.k ?? 0).toFixed(2));
+      return;
+    }
+    if (!this.play.drawn) return;
     const draw = this.play.drawn();
     const h = this.viewH;
     const half = Math.tan((this.camera.fov * DEG) / 2);

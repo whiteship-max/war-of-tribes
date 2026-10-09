@@ -10,7 +10,10 @@ import { useEffect, useState } from 'react';
 import { useGame } from '@/game/store';
 import { partyNow } from '@/net/clock';
 import { useWorld, worldNow } from '@/world/store';
-import { buildingOfType } from '@/game/derived';
+import { activeBoons, buildingOfType } from '@/game/derived';
+import { boonWords } from '@/game/data/boons';
+import { realSeconds } from '@/game/pace';
+import type { GameState } from '@/game/types';
 import { RHUMB_WORDS } from '@/world/data/letters';
 import type { LetterView } from '@/world/types';
 import { Icon } from '@/ui/icons/Icon';
@@ -103,6 +106,8 @@ export function Mail() {
 
   if (list.length === 0) {
     return (
+      <>
+        <Boons s={s} />
         <div className="panel dispatch-empty">
           <div className="big">
             <Icon name="ui-mail" glyph="✉️" />
@@ -110,11 +115,13 @@ export function Mail() {
           <b className="nx-empty">Вестей нет</b>
           <div className="note">Сюда приходят вести из города и от соседей. Без ответа каждая решится сама.</div>
         </div>
+      </>
     );
   }
 
   return (
     <div className="panel">
+      <Boons s={s} />
       <div className="mail-list">
         {list.map((d) => {
           const fresh = !seen.includes(d.key);
@@ -232,6 +239,30 @@ function DispatchCardNew({
       <button className="nx-mback" onClick={onBack}>
         {d.choices.length > 0 ? 'Отложить' : 'К вестям'}
       </button>
+    </div>
+  );
+}
+
+/**
+ * Что сейчас действует после ответов на вести (docs/events.md, раздел 3): значок, имя, что даёт и сколько ещё. Числа и
+ * срок — из самого усилителя (`data/boons`, `derived.activeBoons`), строка своей арифметики не держит. Нет усилителей —
+ * нет и строки.
+ */
+function Boons({ s }: { s: GameState }) {
+  const on = activeBoons(s);
+  if (on.length === 0) return null;
+  return (
+    <div className="mail-boons">
+      {on.map(({ def, until }) => (
+        <div key={def.id} className="mail-boon">
+          <span className="ic">{def.icon}</span>
+          <span className="txt">
+            <b>{def.name}</b>
+            <small>{boonWords(def)}</small>
+          </span>
+          <em>{leftWords(realSeconds(until - s.time))}</em>
+        </div>
+      ))}
     </div>
   );
 }

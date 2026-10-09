@@ -58,6 +58,8 @@ export interface PullResponse {
   record: SaveRecord | null;
   /** Заморозка и неприменённые указы админа (docs/admin.md). Нет поля — сервер до админки. */
   admin?: AdminNote;
+  /** Алмазы: баланс, лавка и неприменённые дела (docs/gems.md). Нет поля — сервер до алмазов или хранилище не ответило. */
+  gems?: GemNote;
 }
 
 /**
@@ -79,6 +81,7 @@ export interface PushResponse {
   etag: string;
   rev: number;
   admin?: AdminNote;
+  gems?: GemNote;
 }
 
 /** Ответ 409: пока мы играли, поверх нашей записи легла чужая. */
@@ -310,9 +313,11 @@ export const cityOr = (raw: unknown): string => cityName(raw) ?? DEFAULT_CITY;
  * - `raid` — набег логова идёт на город (нападают); `raid-fight` — набег дошёл до города
  *   (бой был, итог в игре); `siege-fall` — хлеб под лагерем логова кончился, город взят;
  * - `war` — отряд соседа идёт на город (нападают); `war-fight` — бой между игроками был;
- *   `war-fall` — осаждённый соседом город пал от голода.
+ *   `war-fall` — осаждённый соседом город пал от голода;
+ * - `war-spy` — чужой лазутчик напал на город: поджёг склад, обокрал или поднял смуту (docs/spy_pvp.md). Разведка и
+ *   пойманный лазутчик нападением не считаются: город ничего не потерял.
  */
-export const NOTICE_KINDS = ['raid', 'raid-fight', 'siege-fall', 'war', 'war-fight', 'war-fall'] as const;
+export const NOTICE_KINDS = ['raid', 'raid-fight', 'siege-fall', 'war', 'war-fight', 'war-fall', 'war-spy'] as const;
 export type NoticeKind = (typeof NOTICE_KINDS)[number];
 
 /** Что может прислать клиент. Войну знает только сервер: её поручения клиент составить не может. */
@@ -553,6 +558,28 @@ export interface WarSheet {
    * а слепка новее нет, — сервер прибавит вернувшихся сам (`war.liveSheet`).
    */
   out?: string[];
+  /**
+   * Тайная служба города (docs/spy_pvp.md): Дозор, скрытность и черты своего лазутчика и стоит ли он дома. Нападающему —
+   * шанс, гибель и поимка его дела; защитнику — охрана от чужого. Нет поля (слепок старого клиента) — лазутчика против
+   * этого города не послать и свой не отправить.
+   */
+  watch?: SpyWatch;
+  /** Игровое время деревни в минуту слепка, секунды (`GameState.time`): час и время года в городе — в гибели лазутчика. */
+  time?: number;
+}
+
+/** Тайная служба города в слепке обороны (`WarSheet.watch`). */
+export interface SpyWatch {
+  /** Дозор (`intelKeen`, от единицы): шанс своего дела и охрана от чужого. */
+  keen: number;
+  /** Скрытность своего лазутчика множителем гибели, 0..1 (`PlayerProfile.veil`). */
+  veil: number;
+  /** Скрытность долей: какой провал проходит незамеченным (`PlayerProfile.stealth`). */
+  stealth: number;
+  /** Черта «сколько его держат» множителем срока плена (`LocalWorld.spyTimes`). */
+  held: number;
+  /** Свой лазутчик дома — у ворот или в городе: он и охраняет. */
+  home: boolean;
 }
 
 /** Войско в походе: дружина полководца и то, что он кладёт в бой. */
@@ -754,7 +781,96 @@ export interface WarResponse {
   /** Темп войны (`TRIBE_WAR_PACE`): во сколько раз быстрее походы и голод. Нет — 1. */
   pace?: number;
   error?: string;
+  /** Дела своего лазутчика у соседей и чужих — у нас, которые мы видим (docs/spy_pvp.md). Нет — нет ни одного. */
+  spies?: SpyView[];
+  /** Меню дел против города, если о нём спросили (`GET /api/war?spy=<замок>`). */
+  spyMenu?: SpyMenu;
 }
+
+// ---------- Лазутчик против соседа (docs/spy_pvp.md) ----------
+//
+// Исход считает сервер, как бой: в приказе — какое дело и к какому городу, отметка энергии и показанные числа (чтобы
+// сервер отказал, если обстановка сменилась), а исхода нет ни в каком виде. Кости — из номера дела, который назначает
+// сервер.
+
+export const RIVAL_DEEDS = ['look', 'fire', 'theft', 'unrest'] as const;
+export type RivalDeed = (typeof RIVAL_DEEDS)[number];
+
+/** Где дело: лазутчик идёт к городу, его держат там в плену, идёт домой, дело кончено. */
+export type SpyPhase = 'go' | 'held' | 'back' | 'done';
+
+/** Что разведал лазутчик: войско и оборона соседа точно, на минуту дела. */
+export interface SpyIntel {
+  home: Counts;
+  army: Counts;
+  militia: number;
+  archers: number;
+  pop: number;
+  power: number;
+}
+
+/** Чем кончилось дело — посчитано сервером в минуту прихода. */
+export interface SpyOut {
+  at: number;
+  ok: boolean;
+  slipped: boolean;
+  held: boolean;
+  dead: boolean;
+  /** Города больше нет в игре — дела не было, лазутчик идёт домой. */
+  gone?: true;
+  intel?: SpyIntel;
+  burned?: Counts;
+  stolen?: Counts;
+  lured?: number;
+  morale?: number;
+}
+
+/** Дело лазутчика глазами стороны. Защитник видит дело, только если оно его задело или лазутчика поймали. */
+export interface SpyView {
+  id: string;
+  role: 'atk' | 'def';
+  deed: RivalDeed;
+  /** Чей лазутчик. У защитника — пусто, пока лазутчика не поймали (удача и тихий провал имени не оставляют). */
+  atkCastle: string;
+  atkCity: string;
+  defCastle: string;
+  defCity: string;
+  from: { x: number; y: number };
+  to: { x: number; y: number };
+  sentAt: number;
+  arriveAt: number;
+  /** Показанные и применённые числа: шанс и гибель, замороженные при приказе. */
+  chance: number;
+  peril: number;
+  phase: SpyPhase;
+  /** Энергия лазутчика — отметка сервера (у нападающего). */
+  energy?: WarEnergy;
+  releaseAt?: number;
+  backAt?: number;
+  endAt?: number;
+  out?: SpyOut;
+}
+
+/** Строка меню дел против города. */
+export interface SpyOption {
+  deed: RivalDeed;
+  can: boolean;
+  reason: string | null;
+  chance: number;
+  peril: number;
+  why: string[];
+}
+
+/** Меню дел против города: на какую минуту посчитано и сколько идти (с темпом войны). */
+export interface SpyMenu {
+  target: string;
+  at: number;
+  walkMs: number;
+  options: SpyOption[];
+}
+
+/** Отметка дела в списке принятого (`WarSheet.seen`): одна на клиент и на сервер. */
+export const spySeenId = (id: string): string => `${id}.spy`;
 
 /** Приказы войны. Исхода в них нет ни в каком виде — его считает сервер. */
 export type WarOrder =
@@ -764,7 +880,8 @@ export type WarOrder =
   | { op: 'retreat'; id: string }
   | { op: 'sortie'; id: string; troops: Counts }
   | { op: 'craft'; id: string; act: WarCraftAct }
-  | { op: 'strike'; id: string; army: WarArmy; joint: boolean; walkMs: number };
+  | { op: 'strike'; id: string; army: WarArmy; joint: boolean; walkMs: number }
+  | { op: 'spy'; target: string; deed: RivalDeed; energy?: WarEnergy; shown: { chance: number; peril: number }; at: number };
 
 /** Отметка падения города в списке принятого (`WarSheet.seen`): одна на клиент и на сервер. */
 export const warFallId = (war: string): string => `${war}.fall`;
@@ -836,6 +953,22 @@ export function readSheet(v: unknown): WarSheet | null {
     seen: Array.isArray(r.seen) ? r.seen.filter((x): x is string => typeof x === 'string' && x.length <= 48).slice(-WAR_SEEN_MAX) : [],
     ...(r.retinue && typeof r.retinue === 'object' ? { retinue: readCounts(r.retinue) } : {}),
     ...(Array.isArray(r.out) ? { out: r.out.filter((x): x is string => typeof x === 'string' && x.length <= 48).slice(-WAR_OUT_MAX) } : {}),
+    ...(readSpyWatch(r.watch) ? { watch: readSpyWatch(r.watch) } : {}),
+    ...(num(r.time) !== null ? { time: real(r.time, 1e12) } : {}),
+  };
+}
+
+/** Тайная служба из слепка: новый объект; Дозор от единицы, доли — 0..1. Нет или мусор — нет. */
+function readSpyWatch(v: unknown): SpyWatch | undefined {
+  if (!v || typeof v !== 'object') return undefined;
+  const r = v as Record<string, unknown>;
+  if (num(r.keen) === null) return undefined;
+  return {
+    keen: Math.max(1, real(r.keen, 100)),
+    veil: Math.min(1, real(r.veil ?? 1, 1)),
+    stealth: Math.min(1, real(r.stealth, 1)),
+    held: Math.max(0.1, real(r.held ?? 1, 10)),
+    home: r.home === true,
   };
 }
 
@@ -893,6 +1026,18 @@ export function readWarOrder(v: unknown): WarOrder | null {
         ? { op: 'strike', id, army, joint: r.joint === true, walkMs: Math.min(24 * 3600_000, Math.max(0, walk)) }
         : null;
     }
+    case 'spy': {
+      const target = str(r.target, 64);
+      const deed = RIVAL_DEEDS.find((d) => d === r.deed);
+      const shown = (r.shown && typeof r.shown === 'object' ? r.shown : {}) as Record<string, unknown>;
+      const chance = num(shown.chance);
+      const peril = num(shown.peril);
+      const at = num(r.at);
+      const energy = readEnergy(r.energy);
+      return target && deed && chance !== null && peril !== null && at !== null
+        ? { op: 'spy', target, deed, shown: { chance, peril }, at, ...(energy ? { energy } : {}) }
+        : null;
+    }
     default:
       return null;
   }
@@ -908,7 +1053,7 @@ export function readWarOrder(v: unknown): WarOrder | null {
 /**
  * Виды склада, которые правит указ: семь припасов и золото. Тот же список, что у игры (`constants.RESOURCE_IDS` и
  * золото) — сверяет тест (`src/net/admin.test.ts`). Алмазов здесь нет и быть не может: начисление алмазов одно —
- * `creditGems` с распиской сервера.
+ * `netlify/lib/gems.creditGems` (docs/gems.md).
  */
 export const STOCK_KEYS = ['wood', 'stone', 'food', 'hides', 'bones', 'copper', 'iron', 'gold'] as const;
 export type StockKey = (typeof STOCK_KEYS)[number];
@@ -1043,6 +1188,11 @@ export interface WatchCard {
   caravans: number;
   /** Раненых в лазарете. */
   wounded: number;
+  /**
+   * Раненые по видам — в лазарете и при полководце в поле. Книга войска сервера считает тела (`troops` + `hurt`): раненый
+   * встаёт тем же бойцом, и подтверждать его второй раз незачем (docs/pvp.md, раздел 6). Нет поля — опись до книги.
+   */
+  hurt?: Counts;
   /** Сколько бойцов казармы и конюшня выучат за игровой день — не больше. */
   train: number;
   /**
@@ -1067,6 +1217,11 @@ export interface WatchCard {
   lead: number;
   /** Номер последнего применённого указа админа (`GameState.adminSeen`). */
   seen: number;
+  /**
+   * Номер последней применённой записи журнала алмазов (`GameState.gemSeen`, docs/gems.md): записка сохранения везёт
+   * только дела старше. Нет поля — опись до алмазов на сервере.
+   */
+  gemSeen?: number;
 }
 
 const whole = (v: unknown, max: number): number => Math.floor(Math.min(max, Math.max(0, num(v) ?? 0)));
@@ -1092,6 +1247,7 @@ export function readWatch(v: unknown): WatchCard | undefined {
     away: whole(r.away, 1e9),
     caravans: whole(r.caravans, 1e6),
     wounded: whole(r.wounded, 1e9),
+    ...(r.hurt && typeof r.hurt === 'object' ? { hurt: readCounts(r.hurt) } : {}),
     train: whole(r.train, 1e9),
     deeds: whole(r.deeds, 1e12),
     won: whole(r.won, 1e9),
@@ -1104,6 +1260,7 @@ export function readWatch(v: unknown): WatchCard | undefined {
     cheated: r.cheated === true,
     lead: whole(r.lead, 1e12),
     seen: whole(r.seen, 1e9),
+    ...(r.gemSeen !== undefined ? { gemSeen: whole(r.gemSeen, 1e12) } : {}),
   };
 }
 
@@ -1214,3 +1371,146 @@ export interface RatingResponse {
 /** Очки по слагаемым — одна формула на сервер и на подсказку экрана. */
 export const ratingPoints = (power: number, won: number, taken: number): number =>
   Math.round(power * RATING_WEIGHTS.power + won * RATING_WEIGHTS.win + taken * RATING_WEIGHTS.taken);
+
+// ------------------------------------------------ алмазы (docs/gems.md) ---
+
+/**
+ * Виды записей журнала алмазов: стартовые (сервер кладёт при первом входе в эпоху мира), покупка набора (место под
+ * оплату; сегодня её нет), покупка в лавке и ускорение стройки. Начисляют только `start` и `purchase` — одной дверью
+ * `netlify/lib/gems.creditGems`; `buy` и `rush` только списывают.
+ */
+export const GEM_KINDS = ['start', 'purchase', 'buy', 'rush'] as const;
+export type GemKind = (typeof GEM_KINDS)[number];
+
+/** Припасы лавки — виды склада без золота: золото за алмазы не продаётся. */
+export const GEM_GOODS = ['wood', 'stone', 'food', 'hides', 'bones', 'copper', 'iron'] as const satisfies readonly StockKey[];
+export type GemGood = (typeof GEM_GOODS)[number];
+
+/** Потолки журнала: ключ повтора, сколько записей лежит, сколько уходит в окно «История» и в записку сохранения. */
+export const GEM_LIMITS = { key: 64, keep: 1000, view: 100, deeds: 50, building: 32 } as const;
+
+/** Запись журнала алмазов глазами клиента. Номер — по порядку у игрока, как у указов. */
+export interface GemEntry {
+  n: number;
+  /** Когда, по серверным часам. */
+  at: number;
+  /** Изменение баланса: +120 стартовые, −15 ускорение. */
+  delta: number;
+  kind: GemKind;
+  /** Лавка: какой припас и сколько. */
+  res?: GemGood;
+  amount?: number;
+  /** Ускорение: постройка и уровень, до которого она достроена. */
+  building?: string;
+  level?: number;
+}
+
+/** Лавка за сегодня: номер суток (`gemrules.shopDay`) и сколько покупок уже сделано. */
+export interface GemShop {
+  day: number;
+  used: number;
+}
+
+/**
+ * Записка об алмазах — с каждым ответом сохранения и на `/api/gems`. Баланс считает только сервер; дела для партии
+ * (`deeds` — покупки лавки и ускорения) партия применяет одной дверью (`src/game/sim/gems.applyGemDeeds`) ровно один
+ * раз, по номеру (`GameState.gemSeen`), как указы админа.
+ */
+export interface GemNote {
+  balance: number;
+  shop: GemShop;
+  /** Записи с делом для партии, номер старше присланного в описи (`WatchCard.gemSeen`). */
+  deeds: GemEntry[];
+}
+
+/** Ответ `/api/gems`: записка, журнал для «Истории» и, на приказ, — его запись или отказ словами. */
+export interface GemsResponse extends GemNote {
+  now: number;
+  /** Последние записи журнала, свежие в конце. */
+  list: GemEntry[];
+  /** Запись принятого приказа (и повтора того же ключа — та же запись, второй раз не списано). */
+  entry?: GemEntry;
+  /** Отказ словами — приказ не исполнен, ничего не списано. */
+  error?: string;
+}
+
+/**
+ * Приказ серверу: купить в лавке или ускорить стройку. `key` — ключ повтора: тот же ключ второй раз не списывает, а
+ * возвращает прежнюю запись. Ускорение называет постройку, уровень, остаток работы и цену, которую видел игрок: сервер
+ * считает свою по остатку не больше полного труда уровня и не берёт больше показанной.
+ */
+export type GemOrder =
+  | { op: 'buy'; key: string; res: GemGood }
+  | { op: 'rush'; key: string; building: string; level: number; work: number; price: number };
+
+const gemKey = (v: unknown): string | null => (typeof v === 'string' && /^[\w.:-]{6,64}$/.test(v) ? v : null);
+const isGood = (v: unknown): v is GemGood => typeof v === 'string' && (GEM_GOODS as readonly string[]).includes(v);
+
+/** Приказ из тела запроса: новый объект; кривое — `null`. */
+export function readGemOrder(v: unknown): GemOrder | null {
+  if (!v || typeof v !== 'object') return null;
+  const r = v as Record<string, unknown>;
+  const key = gemKey(r.key);
+  if (!key) return null;
+  if (r.op === 'buy') return isGood(r.res) ? { op: 'buy', key, res: r.res } : null;
+  if (r.op === 'rush') {
+    const building = str(r.building, GEM_LIMITS.building);
+    const level = num(r.level);
+    const work = num(r.work);
+    const price = num(r.price);
+    if (!building || level === null || work === null || price === null) return null;
+    if (!Number.isInteger(level) || work < 0 || price < 0 || !Number.isInteger(price)) return null;
+    return { op: 'rush', key, building, level, work, price };
+  }
+  return null;
+}
+
+/** Запись журнала из ответа или хранилища: новый объект; без номера или вида — `null`. */
+export function readGemEntry(v: unknown): GemEntry | null {
+  if (!v || typeof v !== 'object') return null;
+  const r = v as Record<string, unknown>;
+  const n = num(r.n);
+  const at = num(r.at);
+  const delta = num(r.delta);
+  if (n === null || n < 1 || !Number.isInteger(n) || at === null || delta === null || !Number.isInteger(delta)) return null;
+  if (typeof r.kind !== 'string' || !(GEM_KINDS as readonly string[]).includes(r.kind)) return null;
+  const out: GemEntry = { n, at, delta, kind: r.kind as GemKind };
+  if (isGood(r.res)) out.res = r.res;
+  const amount = num(r.amount);
+  if (amount !== null && amount > 0) out.amount = Math.floor(amount);
+  const building = str(r.building, GEM_LIMITS.building);
+  if (building) out.building = building;
+  const level = num(r.level);
+  if (level !== null && Number.isInteger(level) && level > 0) out.level = level;
+  return out;
+}
+
+/** Есть ли у записи дело для партии: лавка кладёт припас, ускорение достраивает. */
+export const gemDeed = (e: GemEntry): boolean =>
+  (e.kind === 'buy' && e.res !== undefined && (e.amount ?? 0) > 0) || (e.kind === 'rush' && e.building !== undefined && e.level !== undefined);
+
+/** Записка из ответа: кривое или нет её — `null` (сервер до алмазов или ответ без записки). */
+export function readGemNote(v: unknown): GemNote | null {
+  if (!v || typeof v !== 'object') return null;
+  const r = v as Record<string, unknown>;
+  const bal = num(r.balance);
+  if (bal === null) return null;
+  const shop = (r.shop && typeof r.shop === 'object' ? r.shop : {}) as Record<string, unknown>;
+  const deeds = Array.isArray(r.deeds) ? r.deeds.map(readGemEntry).filter((e): e is GemEntry => e !== null && gemDeed(e)) : [];
+  deeds.sort((a, b) => a.n - b.n);
+  return {
+    balance: Math.max(0, Math.floor(bal)),
+    shop: { day: Math.max(0, Math.floor(num(shop.day) ?? 0)), used: Math.max(0, Math.floor(num(shop.used) ?? 0)) },
+    deeds: deeds.slice(-GEM_LIMITS.deeds),
+  };
+}
+
+/** Журнал из ответа `/api/gems`: только целые записи, по номеру. */
+export function readGemList(v: unknown): GemEntry[] {
+  if (!Array.isArray(v)) return [];
+  return v
+    .map(readGemEntry)
+    .filter((e): e is GemEntry => e !== null)
+    .sort((a, b) => a.n - b.n)
+    .slice(-GEM_LIMITS.view);
+}

@@ -433,3 +433,66 @@ describe('размер чужого отряда — только в живом 
     expect(hostItems(cam, VP, [m], [{ x: AT.x, y: AT.y, r: 30 }], START, DPR)[0].look.size).toBeGreaterThan(0);
   });
 });
+
+describe('кадр говорит, что в нём движется само (`still.ts`, docs/perf.md, решение 9)', () => {
+  // Стоящая карта засыпает до срока, который назвал кадр. Кадр, промолчавший о движении, оставил бы отряд стоять на
+  // карте до толчка — поэтому каждое «движется» проверяется на кадре, где оно нарисовано, и на кадре, где его нет.
+  const ctx = (): CanvasRenderingContext2D =>
+    (globalThis as unknown as { document: { createElement: () => { getContext: () => CanvasRenderingContext2D } } }).document
+      .createElement()
+      .getContext();
+  const setup = (o: Partial<{ marches: MarchView[]; figures: FigureView[]; spotlight: { x: number; y: number } | null }>): void => {
+    clearCache();
+    const list = [place({ id: 'h', x: AT.x, y: AT.y, mine: true, relation: 'self', color: '#e8a43c', name: 'Генуя' })];
+    for (let cy = MID.cy - 1; cy <= MID.cy + 1; cy++) {
+      for (let cx = MID.cx - 1; cx <= MID.cx + 1; cx++) putChunk(chunkKey(cx, cy), waterChunk(cx, cy, list), START);
+    }
+    useWorld.setState({
+      info: { seed: 20260912, size: 800, origin: WORLD_ORIGIN, home: AT, homeId: 'h', createdAt: START },
+      marches: o.marches ?? [],
+      figures: o.figures ?? [figure({})],
+      selected: null,
+      spotlight: o.spotlight ?? null,
+      picked: null,
+    } as never);
+  };
+  const cam = camAt(AT.x, AT.y, 24);
+
+  it('ничего не идёт и не мигает — кадр не живой: стоящей карте можно спать до толчка', () => {
+    setup({});
+    vi.setSystemTime(START);
+    const m = drawTwFrame(ctx(), cam, VP, DPR, 1);
+    expect(m.live).toBe(false);
+    expect(m.clock).toBe(false);
+  });
+
+  it('свой отряд в пути — кадр живой и со сроком', () => {
+    // Точка внутри области: отряд на экране и в пути (не стоит), без метки удара — живым его делает сам путь.
+    const own = march({ own: true, hostile: false, targetId: 'x' });
+    setup({ marches: [own] });
+    vi.setSystemTime(START);
+    const items = hostItems(cam, VP, [own], [], START, DPR);
+    expect(items.length).toBe(1);
+    expect(items[0].standing).toBe(false);
+    expect(items[0].sx).toBeGreaterThan(0);
+    expect(items[0].sx).toBeLessThan(VP.w);
+    const m = drawTwFrame(ctx(), cam, VP, DPR, 2);
+    expect(m.live).toBe(true);
+    expect(m.clock).toBe(true);
+  });
+
+  it('агент в пути — кадр живой', () => {
+    const walking = figure({ phase: 'moving', from: { x: AT.x - 2, y: AT.y }, to: { x: AT.x + 2, y: AT.y }, departAt: START - 5000, arriveAt: START + 5000 });
+    setup({ figures: [walking] });
+    vi.setSystemTime(START);
+    expect(figureItems(cam, VP, [walking], START, DPR).length).toBe(1);
+    expect(drawTwFrame(ctx(), cam, VP, DPR, 3).live).toBe(true);
+  });
+
+  it('пульс лупы — кадр живой', () => {
+    setup({ spotlight: { x: AT.x + 1, y: AT.y } });
+    vi.setSystemTime(START);
+    expect(drawTwFrame(ctx(), cam, VP, DPR, 4).live).toBe(true);
+    useWorld.setState({ spotlight: null } as never);
+  });
+});

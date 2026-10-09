@@ -12,6 +12,7 @@ import {
   rationOf,
   taxOf,
   type MoraleLine,
+  activeBoons,
 } from '@/game/derived';
 import { moraleGrowthFactor } from '@/game/sim/population';
 import { Icon } from '@/ui/icons/Icon';
@@ -73,6 +74,17 @@ export function MoralePanel() {
       icon: '🕯️',
       name: 'Обряд в приходе',
       value: b.rite,
+      hint: 'после потолка шкалы',
+    });
+  }
+  // Усилители вестей — по строке на каждый: это разные ответы, и игрок ищет, какой из них греет или студит.
+  for (const { def } of activeBoons(s)) {
+    if (!def.morale) continue;
+    (def.morale > 0 ? up : down).unshift({
+      id: `boon-${def.id}`,
+      icon: def.icon,
+      name: def.name,
+      value: def.morale,
       hint: 'после потолка шкалы',
     });
   }
@@ -157,6 +169,16 @@ export function MoralePanel() {
           <span className="ico">🕯️</span>
           <span className="name">Обряд в приходе</span>
           <span className="val pos">+{b.rite}</span>
+        </div>
+      )}
+      {b.boon !== 0 && (
+        <div className="mod">
+          <span className="ico">📜</span>
+          <span className="name">Вести</span>
+          <span className={`val ${b.boon > 0 ? 'pos' : 'neg'}`}>
+            {b.boon > 0 ? '+' : '−'}
+            {Math.abs(b.boon)}
+          </span>
         </div>
       )}
       <div className="mod total">

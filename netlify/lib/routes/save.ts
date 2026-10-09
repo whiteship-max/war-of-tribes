@@ -14,11 +14,15 @@
  * 2. **Сервер хранит, а не судит.** Сохранение — непрозрачная строка. Обработчик
  *    не разбирает состояние партии, не считает ресурсы, не начисляет ничего и
  *    ничему не верит на слово ровно потому, что ни во что и не смотрит.
- *    Алмазов здесь нет ни в каком виде — ни поля, ни имени (тест `server.test.ts`
- *    читает эту папку исходником).
+ *    Алмазы ведёт своя книга (`lib/gems.ts`, docs/gems.md): сохранение только
+ *    приносит её записку и открывает книгу при первом входе в эпоху мира.
  * 3. **Одновременная запись не теряется молча.** Кто пишет, обязан сказать,
  *    поверх какой записи он пишет (`baseEtag`). Легло что-то другое — ответ 409
  *    вместе с чужой записью, и разбирается с этим игрок, а не сервер.
+ *
+ * Книга войска (docs/pvp.md, раздел 6): принятая запись двигает книгу подтверждённого войска в наблюдении игрока — опись
+ * заявляет, сервер подтверждает не больше, чем объясняют правила за прошедшее время. Партию она тоже не разбирает: читает
+ * опись и запись войн.
  *
  * Админка (docs/admin.md) добавила к ответу записку (`admin`): заморожен ли аккаунт и какие указы админа партия ещё не
  * применила. Замороженному запись не принимается — 423. Попутно сохранение отмечает заход и опись в наблюдении
@@ -30,7 +34,9 @@ import { allow, botToken, deny, json, parseJson, readBody, type Route } from '..
 import { readRecord, type ConflictResponse, type FrozenResponse, type PullResponse, type PushBody, type PushResponse } from '../contract.js';
 import { STORES } from '../kv.js';
 import { frozenNow, grantsOf, isFrozen, noteOf } from '../admin.js';
-import { observe, tooFast, touched, wrote } from '../watch.js';
+import { booked, observe, tooFast, touched, wrote } from '../watch.js';
+import { readWars, WARS_KEY, type WarFile } from '../war.js';
+import { gemNoteOf, settleGems } from '../gems.js';
 
 /** Потолки на части записи. Партия целиком укладывается в десятки килобайт. */
 const LIMITS = { game: 320 * 1024, world: 160 * 1024 };
@@ -66,12 +72,16 @@ export const save: Route = async (req, io) => {
 
   if (req.method === 'GET') {
     const found = await store.getWithMetadata(key);
-    // Партия на устройстве может быть впереди серверной записи: указы — все, что лежат; лишние клиент отсеет номером.
+    // Книга алмазов (docs/gems.md): первый вход в эпоху мира открывает её со стартовыми. Не ответила — без записки.
+    const ledger = await settleGems(io.stores, key, now);
+    // Партия на устройстве может быть впереди серверной записи: указы и дела алмазов — все, что лежат; лишние клиент
+    // отсеет номером.
     const body: PullResponse = {
       now,
       etag: found?.etag ?? null,
       record: found ? parseJson(String(found.data)) : null,
       admin: noteOf(frozen, grants, 0),
+      ...(ledger ? { gems: gemNoteOf(ledger.ledger, 0, now) } : {}),
     };
     await observe(io.stores, key, (rec) => touched(rec, now, user));
     return json(body);
@@ -141,7 +151,31 @@ export const save: Route = async (req, io) => {
 
   const card = record.card;
   const rev = record.rev;
-  await observe(io.stores, key, (rec) => wrote(touched(rec, now, user), now, card, record.watch, rev));
-  const body: PushResponse = { now, etag: written.etag, rev: record.rev, admin };
+  // Книга войска (docs/pvp.md, раздел 6) вычитает потери войны, посчитанные сервером, — по записи войн. Не прочиталась —
+  // потери подождут следующей записи: книга помнит, какие бои уже вычла.
+  const wars = await readWarsSoft(io);
+  const seen = record.war?.seen;
+  // Книга алмазов — записка партии (баланс, лавка, неприменённые дела) и ожидание, снятое ускорением: книга войска
+  // сдвигает на него потолок уровня казарм и конюшни (docs/gems.md). Не ответила — без записки и без сдвига.
+  const ledger = await settleGems(io.stores, key, now);
+  const rushed = ledger?.ledger.rushed ?? {};
+  await observe(io.stores, key, (rec) => booked(wrote(touched(rec, now, user), now, card, record.watch, rev), now, record.watch, seen, grants.list, wars, key, rushed));
+  const body: PushResponse = {
+    now,
+    etag: written.etag,
+    rev: record.rev,
+    admin,
+    ...(ledger ? { gems: gemNoteOf(ledger.ledger, record.watch?.gemSeen ?? 0, now) } : {}),
+  };
   return json(body);
 };
+
+/** Запись войн для книги войска — только чтение и попутно: ошибка хранилища не роняет запись партии. */
+async function readWarsSoft(io: Parameters<Route>[1]): Promise<WarFile | null> {
+  try {
+    const found = await io.stores(STORES.world, 'eventual').getWithMetadata(WARS_KEY);
+    return readWars(found ? parseJson(String(found.data)) : null);
+  } catch {
+    return null;
+  }
+}

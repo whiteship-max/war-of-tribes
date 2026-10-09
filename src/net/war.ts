@@ -7,9 +7,9 @@
 import { apiGet, apiPost } from './api';
 import { askWriteOnce, NOTIFY_ON } from './notify';
 import { tgInitData } from '@/telegram/webapp';
-import type { WarOrder, WarResponse, WarSheet, WarView } from '../../netlify/lib/contract';
+import type { SpyMenu, SpyView, WarOrder, WarResponse, WarSheet, WarView } from '../../netlify/lib/contract';
 
-export type { WarOrder, WarSheet, WarView };
+export type { SpyMenu, SpyView, WarOrder, WarSheet, WarView };
 
 /** Как часто спрашивать свои войны. Тревога о походе на город приходит не позже этого. */
 export const WAR_PULL_MS = 15_000;
@@ -17,6 +17,8 @@ export const WAR_PULL_MS = 15_000;
 interface Cached {
   at: number;
   wars: WarView[];
+  /** Дела лазутчиков: свои и чужие у нас, которые мы видим (docs/spy_pvp.md). */
+  spies: SpyView[];
   pace: number;
 }
 
@@ -26,6 +28,9 @@ let sheet: (() => WarSheet | null) | null = null;
 
 /** Свои войны из последнего ответа. Ответа не было — пусто, и мир войну не трогает. */
 export const wars = (): WarView[] => cache?.wars ?? [];
+
+/** Дела лазутчиков из последнего ответа (docs/spy_pvp.md). */
+export const spies = (): SpyView[] => cache?.spies ?? [];
 
 /** Темп войны с сервера (`TRIBE_WAR_PACE`): во сколько раз быстрее походы. Нет ответа — 1. */
 export const warPace = (): number => cache?.pace ?? 1;
@@ -37,7 +42,12 @@ const keep = (res: WarResponse): void => {
   // Ответ на чтение, ушедшее раньше приказа, может вернуться позже ответа на приказ — старый список не
   // затирает новый: полководец иначе на миг «вернулся бы домой» из только что начатого похода.
   if (cache && res.now < cache.at) return;
-  cache = { at: res.now, wars: Array.isArray(res.wars) ? res.wars : [], pace: typeof res.pace === 'number' && res.pace >= 1 ? res.pace : 1 };
+  cache = {
+    at: res.now,
+    wars: Array.isArray(res.wars) ? res.wars : [],
+    spies: Array.isArray(res.spies) ? res.spies : [],
+    pace: typeof res.pace === 'number' && res.pace >= 1 ? res.pace : 1,
+  };
   // Война идёт — на нас или наша: о бое бот напишет обеим сторонам, и право писать спрашивается сейчас.
   if (NOTIFY_ON && cache.wars.some((w) => w.phase !== 'done')) askWriteOnce();
 };
@@ -62,6 +72,17 @@ export async function warOrder(order: WarOrder): Promise<string | null> {
   if (!res.ok) return FAIL[res.why] ?? FAIL.server;
   keep(res.data);
   return res.data.error ?? null;
+}
+
+/**
+ * Меню дел лазутчика против города (docs/spy_pvp.md): шанс и гибель считает сервер — чужого слепка у клиента нет. Отказ —
+ * строкой (словами сервера или сети).
+ */
+export async function spyLook(target: string): Promise<SpyMenu | string> {
+  const res = await apiGet<WarResponse>(`/api/war?spy=${encodeURIComponent(target)}`);
+  if (!res.ok) return FAIL[res.why] ?? FAIL.server;
+  keep(res.data);
+  return res.data.spyMenu ?? res.data.error ?? FAIL.server;
 }
 
 /** Откуда брать слепок обороны для записи партии: его собирает мир (`LocalWorld.warSheet`). */

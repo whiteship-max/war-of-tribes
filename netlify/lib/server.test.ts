@@ -40,17 +40,121 @@ const codeOnly = (src: string): string =>
 
 const read = (p: string): string => strip(readFileSync(join(ROOT, p), 'utf8'));
 
-describe('сервер ничего не начисляет', () => {
+describe('сервер ничего не начисляет, кроме одной двери алмазов', () => {
   /**
-   * На этом шаге сервер хранит и раздаёт, а не судит. Алмазов у него нет ни в
-   * каком виде: ни поля, ни имени, ни ключа — иначе правило «клиент не умеет
-   * начислять себе алмазы» просто переехало бы на сервер, который их умеет, и
-   * ослабло бы вдвое. Появится настоящая оплата — начисление будет писаться
-   * заново и целиком, вместе с проверкой платежа.
+   * До 09.10.2026 алмазов у сервера не было вовсе, и замок требовал, чтобы слова «gems» в серверной части не было. Решение
+   * владельца перенесло алмазы на сервер (docs/gems.md): баланс и журнал — книга `lib/gems.ts`, трата — приказом
+   * `/api/gems`. Замок остался тем же по смыслу: **начисление одно** — `gems.creditGems`, и зовут её только стартовые
+   * эпохи (`openLedger`). Приказ игрока только списывает, админ только читает (`/gems`), указ алмазов не знает.
+   *
+   * Сначала — где алмазы вообще названы. Новый файл, заговоривший об алмазах, обязан упереться сюда и объясниться.
    */
-  it('слова «алмаз» в серверной части нет вовсе', () => {
-    const guilty = files().filter((f) => /\bgems?\b|creditGems/i.test(strip(readFileSync(f, 'utf8'))));
-    expect(guilty).toEqual([]);
+  it('алмазы знают ровно их книга, обработчик, договор и те, кто их только читает или стирает', () => {
+    const named = files()
+      .filter((f) => /\bgems?\b|creditGems/i.test(strip(readFileSync(f, 'utf8'))))
+      .map(rel)
+      .sort();
+    expect(named).toEqual([
+      // адрес на Netlify — только имя пути и обработчика
+      'functions/gems.mts',
+      // `/gems <кто>` — только чтение (`peekGems`), тест ниже
+      'lib/commands.ts',
+      // типы и разбор записки, приказа и журнала
+      'lib/contract.ts',
+      // чистый старт стирает книги вместе с партиями
+      'lib/era.ts',
+      // книга: единственная дверь записи и начисления
+      'lib/gems.ts',
+      // имя хранилища
+      'lib/kv.ts',
+      // обработчик `/api/gems`
+      'lib/routes/gems.ts',
+      'lib/routes/index.ts',
+      // сохранение приносит записку и сдвиг книги войска
+      'lib/routes/save.ts',
+    ]);
+  });
+
+  /** Любой оператор присваивания и запись ключом объекта — всё, чем баланс можно изменить. */
+  const BALANCE_WRITE = /\bbalance\s*(?:(?:\*\*|\?\?|\|\||&&|[+\-*/%])?=(?!=)|\+\+|--|:(?!\s*number\b))/;
+  /** Прибавка к балансу — в любом виде: `balance + n`, `n + x.balance`, `balance += n`. */
+  const BALANCE_UP = /\bbalance\s*\+|\+\s*[\w$.]*\bbalance\b/;
+
+  it('образцы замка ловят то, ради чего заведены, и не ловят честный код', () => {
+    for (const line of [
+      'ledger.balance += 500;',
+      'return { ...ledger, balance: ledger.balance + 9999 };',
+      'cur.balance = 1e6;',
+      'next.balance++;',
+      'const l = { balance: 120 };',
+      'ledger.balance ||= 999;',
+    ]) {
+      expect([line, BALANCE_WRITE.test(line)]).toEqual([line, true]);
+    }
+    for (const line of ['if (ledger.balance < price) return x;', 'balance: number;', 'const b = ledger.balance;']) {
+      expect([line, BALANCE_WRITE.test(line)]).toEqual([line, false]);
+    }
+    for (const line of ['balance: ledger.balance + grant.amount', 'x = 5 + cur.balance', 'balance += 1']) {
+      expect([line, BALANCE_UP.test(line)]).toEqual([line, true]);
+    }
+    expect(BALANCE_UP.test('ledger.balance - price')).toBe(false);
+  });
+
+  /**
+   * Баланс пишет только книга. Внутри неё — четыре места, и каждое названо: чтение из хранилища (не выше лежащего),
+   * пустая книга (ноль), запись журнала (`entered` берёт посчитанное снаружи) и два её зовущих — начисление и трата.
+   * Прибавка — только в `creditGems`. Мутация «трата прибавляет» или «приказ начисляет» валит этот тест.
+   */
+  it('баланс пишет только книга, а прибавляет только creditGems', () => {
+    for (const f of files()) {
+      if (rel(f) === 'lib/gems.ts') continue;
+      let code = codeOnly(readFileSync(f, 'utf8'));
+      // Договор разбирает записку из ответа: баланс переносится как есть, не выше присланного.
+      if (rel(f) === 'lib/contract.ts') code = code.replace('balance: Math.max(0, Math.floor(bal)),', '');
+      expect(code, rel(f)).not.toMatch(BALANCE_WRITE);
+    }
+    const code = codeOnly(readFileSync(join(ROOT, 'lib/gems.ts'), 'utf8'));
+    const body = (name: string): string => {
+      const at = code.search(new RegExp(`(?:function|const) ${name}\\b`));
+      expect(at, name).toBeGreaterThanOrEqual(0);
+      // До следующего объявления верхнего уровня.
+      const next = code.slice(at + 1).search(/\n(?:export )?(?:async )?(?:function|const|interface|type) /);
+      return code.slice(at, next < 0 ? undefined : at + 1 + next);
+    };
+    const credit = body('creditGems');
+    expect(credit).toMatch(BALANCE_UP);
+    expect(code.replace(credit, '')).not.toMatch(BALANCE_UP);
+    // Трата отнимает, и только положительную цену, и только при достаточном балансе.
+    const spend = body('spendGems');
+    expect(spend).toMatch(/price <= 0/);
+    expect(spend).toMatch(/balance < price/);
+    expect(spend).toMatch(/ledger\.balance - price/);
+    // Новая запись журнала — только через начисление и трату.
+    expect([...code.matchAll(/\bentered\(/g)].length).toBe(3);
+  });
+
+  it('creditGems зовут только стартовые эпохи — ни приказ, ни сохранение, ни админ', () => {
+    const calls = files().flatMap((f) =>
+      [...codeOnly(readFileSync(f, 'utf8')).matchAll(/(?<!function )\bcreditGems\(([^;]*)\);/g)].map((m) => `${rel(f)}: ${m[1].replace(/\s+/g, ' ')}`),
+    );
+    expect(calls).toEqual(["lib/gems.ts: blank(), { source: '', amount: START_GEMS, key: '', at }"]);
+    // Стартовые кладутся только в пустое место: открытие книги — только когда записи нет.
+    const code = codeOnly(readFileSync(join(ROOT, 'lib/gems.ts'), 'utf8'));
+    expect(code).toMatch(/const cur = stored \?\? openLedger\(at\);/);
+    expect(code).toMatch(/if \(found && !stored\) return null;/);
+    expect(code).toMatch(/onlyIfNew: true/);
+  });
+
+  it('админ алмазы только читает: /gems не открывает книгу и не пишет', () => {
+    const code = read('lib/commands.ts');
+    expect(code).not.toMatch(/settleGems|creditGems|openLedger|applyGemOrder|STORES\.gems/);
+    expect(code).toMatch(/peekGems\(/);
+    // И хранилище алмазов называет только книга.
+    const uses = files()
+      .filter((f) => /STORES\.gems\b/.test(strip(readFileSync(f, 'utf8'))))
+      .map(rel)
+      .sort();
+    expect(uses).toEqual(['lib/era.ts', 'lib/gems.ts']);
   });
 
   /**
@@ -121,6 +225,18 @@ describe('личность берётся только из подписи', () 
     expect(calls.length).toBeGreaterThan(0);
     expect([...new Set(calls)]).toEqual(['getWithMetadata']);
     expect(code).not.toMatch(/\bsaves\b[^;]*\.(?:setJSON|set|delete)\(/);
+  });
+
+  /**
+   * Книга войска (docs/pvp.md, раздел 6): каждый слепок, который война кладёт в бой, идёт с книгой подтверждённого войска —
+   * иначе `war.liveSheet` поверил бы заявленному. Слепок без книги здесь означал бы, что подправленный клиент снова
+   * выставляет в бой войско, которого у него нет.
+   */
+  it('война: каждый слепок идёт в бой с книгой войска', () => {
+    const code = read('lib/routes/war.ts');
+    const sets = [...code.matchAll(/\bsheets\.set\(player,\s*([^;]*)\);/g)].map((m) => m[1].replace(/\s+/g, ' '));
+    expect(sets).toEqual(['null', 'null', '{ ...sheet, book: bookOf(readWatchRecord(seen ? parseJson(String(seen.data)) : null), now) }']);
+    expect([...code.matchAll(/\bsheets\.set\(/g)].length).toBe(3);
   });
 
   /** Хранилище обработчик получает только из `io`: своего дома у него нет. */
@@ -269,6 +385,7 @@ describe('сервер разбирает ровно названные запи
       'readEraFile',
       'readFrozen',
       'readGrants',
+      'readLedger',
       'readNotify',
       'readRoster',
       'readStoredReport',

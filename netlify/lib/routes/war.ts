@@ -21,11 +21,27 @@ import { eraGate } from '../era.js';
 import { WRITE_TRIES, allow, botToken, deny, json, parseJson, readBody, spawnMode, warPace, type Route } from '../http.js';
 import { cityOr, readWarOrder, type WarOrder, type WarResponse } from '../contract.js';
 import { ROSTER_KEY, castleIdOf, readRoster } from '../roster.js';
-import { advance, applyOrder, dueKeys, newsDiff, newsMap, pruneWars, readStoredSheet, readWars, setWarPace, warsOf, WARS_KEY, type SheetAt } from '../war.js';
+import {
+  advance,
+  applyOrder,
+  dueKeys,
+  newsDiff,
+  newsMap,
+  pruneWars,
+  readStoredSheet,
+  readWars,
+  setWarPace,
+  spiesOf,
+  spyMenuOf,
+  warsOf,
+  WARS_KEY,
+  type SheetAt,
+} from '../war.js';
 import { queueNews } from '../outbox.js';
+import { RIVAL_DEED_BY_ID } from '../../../src/world/data/spy.js';
 import { STORES } from '../kv.js';
 import { FROZEN_ORDER, FROZEN_TARGET, frozenNow, isFrozen } from '../admin.js';
-import { noted, observe } from '../watch.js';
+import { addFlags, bookOf, noted, observe, readWatchRecord } from '../watch.js';
 
 /** Все войны лежат одной записью рядом с реестром. */
 const KEY = WARS_KEY;
@@ -47,6 +63,8 @@ export const war: Route = async (req, io) => {
   if (gone) return gone;
 
   let order: WarOrder | null = null;
+  // Меню дел лазутчика против города (docs/spy_pvp.md): `GET /api/war?spy=<замок>` — шанс и гибель считает сервер.
+  let spyAsk: string | null = null;
   if (req.method === 'POST') {
     const text = await readBody(req);
     if (text === null) return deny(413, 'too-big');
@@ -54,11 +72,15 @@ export const war: Route = async (req, io) => {
     if (!order) return deny(400, 'bad-body');
   } else if (req.method !== 'GET') {
     return deny(405, 'method');
+  } else {
+    const q = new URL(req.url, 'http://local').searchParams.get('spy');
+    spyAsk = q && q.length <= 64 ? q : null;
   }
 
   const hot = io.stores(STORES.world, 'strong');
   const cool = io.stores(STORES.world, 'eventual');
   const saves = io.stores(STORES.saves, 'strong');
+  const watched = io.stores(STORES.watch, 'strong');
   const pace = warPace();
   setWarPace(pace);
   const frozen = await frozenNow(io.stores);
@@ -73,10 +95,21 @@ export const war: Route = async (req, io) => {
       return;
     }
     const found = await saves.getWithMetadata(player);
-    sheets.set(player, readStoredSheet(found ? parseJson(String(found.data)) : null));
+    const sheet = readStoredSheet(found ? parseJson(String(found.data)) : null);
+    if (!sheet) {
+      sheets.set(player, null);
+      return;
+    }
+    // Книга войска (docs/pvp.md, раздел 6): в бой идёт только подтверждённое. Записи наблюдения нет — книга пустая с этой
+    // минуты: войска, которое сервер не видел ни разу, он не подтверждает.
+    const seen = await watched.getWithMetadata(player);
+    sheets.set(player, { ...sheet, book: bookOf(readWatchRecord(seen ? parseJson(String(seen.data)) : null), now) });
   };
+  // Приказ сверх подтверждённого — флаг в описи наблюдения приказавшего (docs/admin.md, «Флаги»).
+  const forged: { text: string | null; told: boolean } = { text: null, told: false };
 
-  const rosterFound = order?.op === 'march' ? await cool.getWithMetadata(ROSTER) : null;
+  const byTarget = order?.op === 'march' || order?.op === 'spy' ? order.target : spyAsk;
+  const rosterFound = byTarget ? await cool.getWithMetadata(ROSTER) : null;
   const roster = readRoster(rosterFound ? parseJson(String(rosterFound.data)) : null);
 
   for (let tries = 0; tries < WRITE_TRIES; tries++) {
@@ -90,7 +123,7 @@ export const war: Route = async (req, io) => {
     let changed = advance(file, now, sheets);
 
     let error: string | null = null;
-    const targetKey = order?.op === 'march' ? (Object.keys(roster.rows).find((k) => castleIdOf(k) === order.target) ?? null) : null;
+    const targetKey = byTarget ? (Object.keys(roster.rows).find((k) => castleIdOf(k) === byTarget) ?? null) : null;
     if (order && isFrozen(frozen, key)) {
       error = FROZEN_ORDER;
     } else if (targetKey && isFrozen(frozen, targetKey)) {
@@ -102,19 +135,56 @@ export const war: Route = async (req, io) => {
         const w = file.wars.find((x) => x.id === (order as { id: string }).id);
         if (w) await load(w.def);
       }
-      error = applyOrder(file, key, order, now, { roster, sheet: (player) => sheets.get(player) ?? null, noShield: spawnMode() !== null });
+      forged.text = null;
+      error = applyOrder(file, key, order, now, {
+        roster,
+        sheet: (player) => sheets.get(player) ?? null,
+        noShield: spawnMode() !== null,
+        forged: (text) => {
+          forged.text = text;
+        },
+      });
       if (!error) changed = true;
     }
     const before = file.wars.length;
     pruneWars(file, now);
     if (file.wars.length !== before) changed = true;
 
-    const body: WarResponse = { now, wars: warsOf(file, key), ...(pace !== 1 ? { pace } : {}), ...(error ? { error } : {}) };
+    let spyMenu: WarResponse['spyMenu'];
+    if (spyAsk && !order) {
+      if (isFrozen(frozen, key)) error = FROZEN_ORDER;
+      else if (targetKey && isFrozen(frozen, targetKey)) error = FROZEN_TARGET;
+      else {
+        await load(key);
+        if (targetKey) await load(targetKey);
+        const menu = spyMenuOf(file, key, spyAsk, now, { roster, sheet: (player) => sheets.get(player) ?? null, noShield: spawnMode() !== null });
+        if (typeof menu === 'string') error = menu;
+        else spyMenu = menu;
+      }
+    }
+    const spies = spiesOf(file, key);
+    const body: WarResponse = {
+      now,
+      wars: warsOf(file, key),
+      ...(spies.length ? { spies } : {}),
+      ...(spyMenu ? { spyMenu } : {}),
+      ...(pace !== 1 ? { pace } : {}),
+      ...(error ? { error } : {}),
+    };
+    const flag = forged.text;
+    if (flag && !forged.told) {
+      forged.told = true;
+      await observe(io.stores, key, (rec) => addFlags(rec, now, [{ kind: 'forged', text: flag }]));
+    }
     if (!changed) return json(body);
     const written = await hot.setJSON(KEY, file, etag === null ? { onlyIfNew: true } : { onlyIfMatch: etag });
     if (written.modified) {
       await queueNews({ notify: io.stores(STORES.notify), due: io.stores(STORES.due) }, newsDiff(told, newsMap(file)), now);
-      // Поход на игрока — в журнал города нападающего (наблюдение, docs/admin.md).
+      // Поход на игрока и дело лазутчика — в журнал города нападающего (наблюдение, docs/admin.md).
+      if (order?.op === 'spy' && !error && targetKey) {
+        const city = cityOr(roster.rows[targetKey]?.city);
+        await observe(io.stores, key, (rec) => noted(rec, now, 'war', `Лазутчик к «${city}»: ${RIVAL_DEED_BY_ID[order.deed].name.toLowerCase()}.`));
+      }
       if (order?.op === 'march' && !error && targetKey) {
         const city = cityOr(roster.rows[targetKey]?.city);
         await observe(io.stores, key, (rec) => noted({ ...rec, wars: rec.wars + 1 }, now, 'war', `Поход на «${city}» (${order.mode === 'storm' ? 'штурм' : 'осада'}).`));

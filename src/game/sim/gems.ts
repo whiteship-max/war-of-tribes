@@ -1,139 +1,131 @@
-// Алмазы — премиальная валюта. Весь их учёт живёт здесь и больше нигде:
-// поле `s.gems` меняют ровно две функции этого модуля, и обе на виду.
+// Алмазы в партии (docs/gems.md). Алмазов в партии больше нет: баланс, журнал и лавка живут на сервере
+// (`netlify/lib/gems.ts`), начисляет он один (`creditGems`), а трата — приказ серверу (`net/gems.ts`). Сюда приходит
+// только **дело**, за которое сервер уже списал алмазы: покупка лавки кладёт припас на склад, ускорение достраивает
+// стройку. Ложится оно одной дверью — `applyGemDeeds` — ровно один раз, по номеру записи (`GameState.gemSeen`), как указ
+// админа (`sim/admin.applyGrants`), и припас — тем же правилом склада (`sim/admin.layStock`).
 //
-// Почему так строго. Настоящая оплата в Telegram Mini App идёт через Telegram
-// Stars: счёт выставляет бот, подтверждает его вебхук на сервере, и только
-// сервер имеет право сказать «алмазы начислены». Сервера у нас пока нет,
-// поэтому начисление сделано дверью, в которую сегодня никто не входит:
-// `creditGems` требует расписку с источником `server`, а весь клиентский код —
-// компоненты интерфейса, сцена, обработчики кнопок — этой двери не касается.
-// Договор держит `gems.test.ts`: он читает исходники и проверяет, что ни в
-// `src/ui`, ни в `src/render` нет ни начисления, ни присваивания `s.gems`.
+// Что алмаз покупает. Время стройки и сто единиц припаса в лавке (решение владельца 09.10.2026). Ускорение не платит за
+// стройку ресурсы второй раз и не платит их вместо игрока: ускоряется только начатая стройка, за которую припасы уже
+// уплачены. Войско за алмазы не продаётся.
 //
-// Что алмаз покупает. Только время: мгновенная достройка списывает алмазы и —
-// как обычная стройка — ресурсы. Пропуска ресурсов не будет: он обнулил бы
-// производство, склад и зиму для платящего игрока, а в PvP превратил бы игру
-// в чистый pay-to-win.
-import type { Building, GameState } from '../types';
+// Цены — общие с сервером (`game/gemrules.ts`): кнопка показывает ровно то, что сервер спишет.
+import type { Building, GameState, ResourceId } from '../types';
+import type { GemEntry } from '../../../netlify/lib/contract';
 import { BUILDING_BY_ID } from '../data/buildings';
-import { buildingById, isSite, upgradeInfo, upgradeWork } from '../derived';
-import { TEST_GEMS } from '../constants';
-import { gameRate, gameSeconds, realSec } from '../pace';
-import { startUpgrade } from './actions';
+import { buildingById, buildingTitle, isSite, storageCap, underSiege } from '../derived';
+import { RESOURCE_META, SIEGE_NO_TRADE } from '../constants';
+import { SHOP_LOT, gemLine, rushPriceOfWork, rushSeconds } from '../gemrules';
+import { layStock } from './admin';
 import { log } from './log';
 
-/**
- * Нормативная скорость стройки, работа в секунду. Цена достройки считается от
- * оставшейся работы, приведённой к этой скорости, а не от настоящей: иначе цена
- * прыгала бы каждый раз, когда игрок снимает человека с площади, и её нельзя
- * было бы повторить на сервере.
- */
-export const GEM_REF_RATE = gameRate(20);
+export {
+  GEM_CONFIRM,
+  GEM_REF_RATE,
+  RUSH_FREE_SECONDS,
+  SHOP_DAILY,
+  SHOP_GOODS,
+  SHOP_LOT,
+  START_GEMS,
+  gemsForWait,
+  shopHours,
+  shopPrice,
+} from '../gemrules';
 
-/**
- * Какую долю **настоящих суток** нормативного ожидания снимает один алмаз. Долей, а не числом
- * игровых секунд (решение владельца, docs/time.md, раздел 16): алмаз покупает время игрока, а
- * время игрока — настоящее. Записанный игровыми секундами, после поворота шкалы тот же алмаз
- * снимал бы в тридцать раз больше ожидания.
- *
- * Доля не выбрана, а выведена из нынешней цены: алмаз снимал десять секунд при дне в минуту, то
- * есть десять настоящих секунд из 86 400 (`npm run time:report`, раздел 5, печатает вывод и цены
- * достройки при обеих шкалах). Сутки — та же мерка настоящего времени, что у почты и ежедневки.
- */
-export const GEM_DAY_SHARE = 1 / 8640;
-/** Настоящих секунд в сутках — мерка, от которой берётся доля алмаза. */
-const REAL_DAY_SECONDS = 24 * 3600;
-/** Сколько **настоящих** секунд нормативного ожидания снимает один алмаз. */
-export const GEM_REAL_SECONDS = realSec(GEM_DAY_SHARE * REAL_DAY_SECONDS);
-/** То же игровыми секундами — при нынешней шкале времени: труд стройки идёт игровым временем. */
-export const gemSeconds = (): number => gameSeconds(GEM_REAL_SECONDS);
+/** Номер последней применённой записи журнала алмазов. */
+export const gemSeen = (s: GameState): number => (typeof s.gemSeen === 'number' && Number.isFinite(s.gemSeen) ? s.gemSeen : 0);
 
-/** Дешевле одного алмаза достройки не бывает: даром время не отдают. */
-export const GEM_MIN_PRICE = 1;
+// ------------------------------------------------ ускорение ---
 
-export const gemsOf = (s: GameState): number => Math.max(0, Math.floor(s.gems ?? 0));
+/** Остаток работы начатой стройки. Нетронутое здание не ускоряется: стройку сначала начинают и оплачивают. */
+export const rushWork = (b: Building): number => (isSite(b) ? Math.max(0, b.workRequired - b.work) : 0);
 
-/** Тестовый запас новой партии — он же и помечен в интерфейсе как тестовый. */
-export { TEST_GEMS };
+/** Цена ускорения в алмазах; ноль — последние пять минут, ускоряется даром. */
+export const rushPrice = (b: Building): number => rushPriceOfWork(rushWork(b));
 
-/**
- * Сколько работы осталось до конца улучшения. У начатой стройки — остаток,
- * у нетронутого здания — вся работа следующего уровня: кнопка достройки стоит
- * и там, и там.
- */
-export function rushWork(b: Building): number {
-  if (isSite(b)) return Math.max(0, b.workRequired - b.work);
-  const def = BUILDING_BY_ID[b.type];
-  return upgradeWork(def, b.level + 1);
-}
+/** Настоящие секунды нормативного ожидания, которые снимает ускорение. */
+export const rushLeft = (b: Building): number => rushSeconds(rushWork(b));
 
-/**
- * Цена мгновенной достройки в алмазах. Зависит от оставшегося времени, а не от
- * уровня: чем ближе конец, тем дешевле, и на последних процентах достройка
- * стоит один алмаз.
- */
-export function rushPrice(b: Building): number {
-  const seconds = rushWork(b) / GEM_REF_RATE;
-  // Малый допуск — против хвоста деления: 10 / (1 / 8640 × 86 400) обязано быть ровно единицей.
-  return Math.max(GEM_MIN_PRICE, Math.ceil(seconds / gemSeconds() - 1e-9));
-}
-
-/** Почему достроить нельзя прямо сейчас; null — можно. */
-export function rushBlocked(s: GameState, b: Building): string | null {
-  if (!isSite(b)) {
-    const info = upgradeInfo(s, b);
-    if (info.blocked) return info.blocked;
-  }
-  if (gemsOf(s) < rushPrice(b)) return 'Не хватает алмазов.';
-  return null;
-}
-
-/**
- * Мгновенная достройка за алмазы. Время — единственное, что покупается:
- * ресурсы списываются как за обычное улучшение (нетронутое здание оплачивает
- * их здесь же через `startUpgrade`), а очередь остаётся очередью — достроенное
- * уходит из неё, и следующая стройка становится первой сама.
- */
-export function rushUpgrade(s: GameState, buildingId: number): string | null {
-  const b = buildingById(s, buildingId);
-  if (!b) return 'Здание не найдено.';
-  const price = rushPrice(b);
-  const blocked = rushBlocked(s, b);
-  if (blocked) return blocked;
-  if (!isSite(b)) {
-    // Ресурсы и работу назначает обычная стройка — отдельной ветки цен нет.
-    const err = startUpgrade(s, b.id);
-    if (err) return err;
-  }
-  s.gems = gemsOf(s) - price;
+/** Достроить стройку: уровень вверх, стройка снята — следующая в очереди становится первой сама. */
+function finish(b: Building): void {
   b.level += 1;
   b.work = 0;
   b.workRequired = 0;
-  log(s, `${BUILDING_BY_ID[b.type].name}: ур. ${b.level}, достроено за ${price} алмазов.`, 'good');
+}
+
+/**
+ * Ускорить даром — последние пять минут ожидания. Приказа серверу нет и сеть не нужна: алмазы не тратятся. Дороже —
+ * только приказом (`net/gems.orderRush`), и тогда стройку достраивает дело с сервера (`applyGemDeeds`).
+ */
+export function rushFree(s: GameState, buildingId: number): string | null {
+  const b = buildingById(s, buildingId);
+  if (!b) return 'Здание не найдено.';
+  if (!isSite(b)) return 'Здесь ничего не строится.';
+  if (rushPrice(b) > 0) return 'Даром ускоряются только последние пять минут.';
+  finish(b);
+  log(s, `${buildingTitle(s, b.type)}: ур. ${b.level}, ускорено даром.`, 'good');
   return null;
 }
 
 /**
- * Расписка о начислении. Клиент такую не выписывает: её приносит ответ сервера
- * на подтверждённый платёж Telegram Stars. Поле `ref` — идентификатор платежа,
- * по нему начисление и не задваивается.
+ * Почему ускорить за алмазы нельзя прямо сейчас; `null` — можно. `balance` — баланс с сервера, `null` — сервера не
+ * слышно (без сети траты алмазов нет); `offline` — причина словами, если сервера не слышно.
  */
-export interface GemGrant {
-  source: 'server';
-  amount: number;
-  ref: string;
+export function rushBlocked(b: Building, balance: number | null, offline: string | null): string | null {
+  if (!isSite(b)) return 'Здесь ничего не строится.';
+  if (rushPrice(b) === 0) return null;
+  if (offline !== null || balance === null) return offline ?? 'Нет связи: алмазы тратятся только при связи.';
+  if (balance < rushPrice(b)) return 'Не хватает алмазов.';
+  return null;
 }
 
-/**
- * Единственное начисление алмазов в игре. Сегодня его никто не вызывает —
- * и это нормально: место под серверный ответ занято сразу, чтобы потом не
- * искать, куда его вставить. Стартовый запас приходит не отсюда, а из
- * `createInitialState`, и он тестовый.
- */
-export function creditGems(s: GameState, grant: GemGrant): string | null {
-  if (grant.source !== 'server') return 'Алмазы начисляет только сервер.';
-  if (!Number.isFinite(grant.amount) || grant.amount <= 0) return 'Пустое начисление.';
-  s.gems = gemsOf(s) + Math.floor(grant.amount);
-  log(s, `Алмазы зачислены: +${Math.floor(grant.amount)}.`, 'good');
+// ------------------------------------------------ лавка ---
+
+/** Сколько места на складе под этот припас. */
+export const shopRoom = (s: GameState, r: ResourceId): number => Math.max(0, Math.floor(storageCap(s) - (s.resources[r] ?? 0)));
+
+/** Почему купить в лавке нельзя прямо сейчас; `null` — можно. Сто единиц сверх вместимости не покупаются. */
+export function shopBlocked(s: GameState, r: ResourceId, price: number, balance: number | null, left: number, offline: string | null): string | null {
+  // В осаде торговли нет (`SIEGE_NO_TRADE`): лавка — тот же обоз к городу, и купленное снимало бы голод осады.
+  if (underSiege(s)) return SIEGE_NO_TRADE;
+  if (shopRoom(s, r) < SHOP_LOT) return `Склад полон: ${SHOP_LOT} ${RESOURCE_META[r].name.toLowerCase()} не поместится.`;
+  if (offline !== null || balance === null) return offline ?? 'Нет связи: алмазы тратятся только при связи.';
+  if (left <= 0) return 'На сегодня покупки кончились.';
+  if (balance < price) return 'Не хватает алмазов.';
   return null;
+}
+
+// ------------------------------------------------ дела с сервера ---
+
+/**
+ * Применить дела журнала алмазов старше `gemSeen` — по порядку номеров. Возвращает, сколько применено; ничего нового —
+ * ноль, и партия не тронута. Дело ложится ровно один раз, сколько бы раз запись ни приехала (с ответом приказа, с
+ * ответом сохранения, с другого устройства).
+ *
+ *  · лавка — припас на склад по правилу склада (`layStock`): сверх вместимости не ложится;
+ *  · ускорение — достраивает стройку этого здания до названного уровня, если она ещё идёт; уже достроено (дело приехало
+ *    позже, чем стройка кончилась сама) — ничего, и летопись говорит об этом.
+ */
+export function applyGemDeeds(s: GameState, deeds: readonly GemEntry[]): number {
+  const fresh = deeds.filter((e) => e.n > gemSeen(s)).sort((a, b) => a.n - b.n);
+  for (const e of fresh) {
+    s.gemSeen = e.n;
+    if (e.kind === 'buy' && e.res && (RESOURCE_META as Record<string, unknown>)[e.res]) {
+      const moved = Math.round(layStock(s, e.res, e.amount ?? SHOP_LOT));
+      log(s, `Лавка: ${RESOURCE_META[e.res].name.toLowerCase()} +${moved}${moved < (e.amount ?? SHOP_LOT) ? ' (склад полон)' : ''}.`, 'good');
+      continue;
+    }
+    if (e.kind === 'rush' && e.building && e.level) {
+      const b = s.buildings.find((x) => x.type === e.building);
+      const name = b ? buildingTitle(s, b.type) : (BUILDING_BY_ID as Record<string, { name: string } | undefined>)[e.building]?.name ?? e.building;
+      if (b && isSite(b) && b.level + 1 === e.level) {
+        finish(b);
+        log(s, `${name}: ур. ${b.level}, ускорено за ${-e.delta} алмазов.`, 'good');
+      } else {
+        log(s, `${name}: ускорение не понадобилось — стройка до ур. ${e.level} уже не идёт.`, 'info');
+      }
+      continue;
+    }
+    log(s, `Алмазы: ${gemLine(e)}.`, 'info');
+  }
+  return fresh.length;
 }

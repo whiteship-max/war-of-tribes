@@ -19,7 +19,8 @@ export type DuckReason = 'battle' | 'mini' | 'prologue';
 /** Насколько глушить по причине: музыка уступает звукам боя и промыслов, фон города в предыстории не к месту вовсе. */
 const DUCKS: Record<DuckReason, Duck> = {
   battle: { music: 0.12, amb: 0.25 },
-  mini: { music: 0.15, amb: 0.2 },
+  // Промысел: фон не глушится, а становится его поляной — лес, ветер и птицы (`glade`, docs/minigames.md, 16.2).
+  mini: { music: 0.15, amb: 1 },
   prologue: { music: 0.3, amb: 0 },
 };
 
@@ -77,6 +78,11 @@ class CityAudio {
     if (on) this.ducks.add(reason);
     else this.ducks.delete(reason);
     this.machine?.duck(this.duck());
+  }
+
+  /** Идёт промысел: фон играет его поляну, а не город (`epoch.hearing`). */
+  get glade(): boolean {
+    return this.ducks.has('mini');
   }
 
   /** Звук интерфейса. До докачки и при выключенном звуке — тишина. */

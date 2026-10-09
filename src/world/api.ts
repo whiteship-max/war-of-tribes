@@ -30,6 +30,8 @@ import type {
   Rect,
   RegionChunk,
   Report,
+  RivalDeedId,
+  RivalMenu,
   SendResult,
   SettlementCard,
   SettlementId,
@@ -125,6 +127,13 @@ export interface WorldApi {
    * объявляется этим же приказом. null — выступил, иначе причина.
    */
   warMarch(target: SettlementId, mode: 'storm' | 'siege', fate: Fate): Promise<string | null>;
+
+  /**
+   * Дела лазутчика против города живого игрока (docs/spy_pvp.md): шанс и гибель считает сервер, цену энергии — мир той
+   * же дверью. Меню — `spyMenu`, приказ — `spyRival` с минутой меню: применяются ровно показанные числа. null — пошёл.
+   */
+  spyMenu(target: SettlementId): Promise<RivalMenu>;
+  spyRival(target: SettlementId, deed: RivalDeedId, shownAt: number): Promise<string | null>;
 
   /**
    * «Дойти и ударить» (решение владельца 06.10.2026): полководец идёт к цели и бьёт в минуту прихода, не дожидаясь

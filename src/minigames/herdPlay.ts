@@ -12,6 +12,12 @@ import { BEASTS, Feed, HAY, PEN_R, herdOf, roamAt, roamSpeed, roamYaw, type Herd
 import { BACK, LEGS, armful, beast, hayMesh, penMesh } from './models';
 import type { Tally, Target } from './rules';
 import type { Play } from './stage';
+import { Sparks } from './sparks';
+import { armfulArms, viewMaterial } from './hands';
+import { fieldSound, type FieldSound } from './miniSound';
+
+/** Сено в горсти: соломенное, светлое и выгоревшее — как у стога (`models.hayMesh`). */
+const HAY_BITS = [0xd8b860, 0xc9a24a, 0xe8d08a, 0xb89440];
 
 /** Где охапка в кадре: внизу посередине, чуть справа, — в руках. */
 const ARMFUL_AT = { x: 0.1, y: -0.5, z: -0.78 };
@@ -55,8 +61,13 @@ export class HerdPlay implements Play {
   private bodies: THREE.Group[] = [];
   private marks: THREE.Sprite[] = [];
   private needTex: THREE.Texture[] = [];
-  private hands: THREE.Mesh | null = null;
+  /** Охапка в руках: копна сена и руки под ней — вещь взгляда, висит на камере. */
+  private hands: THREE.Group | null = null;
+  private armfulMesh: THREE.Mesh | null = null;
+  private arms: THREE.Mesh | null = null;
   private sway = 0;
+  private sparks = new Sparks(0.055);
+  private sound: FieldSound | null = null;
 
   constructor(seed: number) {
     this.herd = herdOf(seed);
@@ -89,12 +100,33 @@ export class HerdPlay implements Play {
       g.add(s);
       this.marks.push(s);
     }
-    this.hands = armful();
-    this.hands.scale.setScalar(0.7);
-    this.hands.position.set(ARMFUL_AT.x, ARMFUL_AT.y, ARMFUL_AT.z);
-    this.hands.visible = false;
-    camera.add(this.hands);
+    // Охапку несут руками: кисти в перчатках снизу у её краёв, рукава уходят к нижним углам кадра (`hands.ts`).
+    const carry = new THREE.Group();
+    carry.name = 'carry';
+    this.armfulMesh = armful();
+    this.armfulMesh.scale.setScalar(0.7);
+    this.arms = new THREE.Mesh(armfulArms(), viewMaterial());
+    this.arms.name = 'arms';
+    this.arms.castShadow = false;
+    for (const o of [this.armfulMesh, this.arms]) {
+      o.frustumCulled = false;
+      carry.add(o);
+    }
+    carry.position.set(ARMFUL_AT.x, ARMFUL_AT.y, ARMFUL_AT.z);
+    carry.visible = false;
+    camera.add(carry);
+    this.hands = carry;
+    scene.add(this.sparks.points);
     this.frame(0, 0, 0);
+  }
+
+  begin(): void {
+    this.sound ??= fieldSound();
+    this.sound.arm();
+  }
+
+  tick(): void {
+    this.sound?.tick();
   }
 
   blockers(t: number): Blocker[] {
@@ -119,10 +151,20 @@ export class HerdPlay implements Play {
   }
 
   tap(target: Target, t: number): string {
-    if (target.id < 0) return this.feed.take() ? 'Охапка в руках' : '';
+    if (target.id < 0) {
+      if (!this.feed.take()) return '';
+      this.sound?.take();
+      // Охапка из стога: сено летит с его бока, к человеку.
+      this.sparks.burst(HAY.x, HAY.r * 0.9, HAY.z, { colors: HAY_BITS, n: 14, speed: 1.6, up: 0.6, gravity: 2.4, life: 1.3, drag: 2.2 });
+      return 'Охапка в руках';
+    }
     const b = this.herd.beasts[target.id];
     if (!b || !this.feed.feed(target.id, t)) return '';
     const left = BEASTS[b.kind].need - this.feed.given[target.id];
+    this.sound?.feed(b.kind, left <= 0);
+    // Сено у морды: где животное стоит в эту секунду, на высоте спины.
+    const p = this.feed.at(target.id, t);
+    this.sparks.burst(p.x, BACK[b.kind] * 0.75, p.z, { colors: HAY_BITS, n: 10, speed: 1.1, up: 0.7, gravity: 2.4, life: 1.1, drag: 2.2 });
     return left > 0 ? `Ещё ${left}` : 'Сыта';
   }
 
@@ -161,6 +203,7 @@ export class HerdPlay implements Play {
         }
       }
     });
+    this.sparks.frame(dt);
     const h = this.hands;
     if (h) {
       h.visible = this.feed.carrying;
@@ -175,9 +218,12 @@ export class HerdPlay implements Play {
   }
 
   dispose(): void {
+    this.sparks.dispose();
     for (const s of this.marks) s.material.dispose();
     for (const tex of this.needTex) tex.dispose();
     this.hands?.removeFromParent();
-    this.hands?.geometry.dispose();
+    this.armfulMesh?.geometry.dispose();
+    this.arms?.geometry.dispose();
+    (this.arms?.material as THREE.Material | undefined)?.dispose();
   }
 }

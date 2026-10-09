@@ -30,6 +30,9 @@ import type {
   CraftOption,
   CardWar,
   CardSack,
+  CardSpy,
+  RivalDeedId,
+  RivalMenu,
   CardSiege,
   Coord,
   DealId,
@@ -128,16 +131,20 @@ import { FogMap, inSight, type FogData, type SightDisc } from '../fog';
 import {
   cityName,
   cityOr,
+  spySeenId,
   warFallId,
   WAR_SEEN_MAX,
   type Counts,
+  type SpyMenu,
+  type SpyOut,
+  type SpyView,
   type WarBattle,
   type WarFall,
   type WarOrder,
   type WarSheet,
   type WarView,
 } from '../../../netlify/lib/contract';
-import { warWalkMs } from '../pvp';
+import { spyWalkMs, warWalkMs } from '../pvp';
 import { WATCHER, homeSight, liveSight, standing } from '../sight';
 import { islandNeighbours } from '../spawn';
 import { canShelter, placeOf } from '../shelter';
@@ -147,7 +154,7 @@ import { buildable, featuresAt } from '../geography';
 import { claimsNear, claimsOf, ownerAt, type Claim } from '../territory';
 import { DEAL_BY_ID, FIGURE_BY_ID, FIGURE_IDS } from '../data/figures';
 import { DIPLO_ACTIONS, DIPLO_ACTION_BY_ID, TEMPER_BY_ID } from '../data/diplomacy';
-import { ORDER_AGENT, SPY_ACTIONS, SPY_ACTION_BY_ID } from '../data/spy';
+import { ORDER_AGENT, RIVAL_DEED_BY_ID, SPY_ACTIONS, SPY_ACTION_BY_ID } from '../data/spy';
 import {
   guardOf,
   revoltActive,
@@ -225,7 +232,8 @@ import { aimOf, firePlan, reaim, thinAt } from '../bombard';
 import { CRAFT_ACTS, craftAfter, craftBlock, craftDone, craftGain, craftMax, craftNote, fortFaces, garrisonWear, type CraftAct } from '../siegecraft';
 import { garrisonOf, menOfPower, raidingParty, GARRISON_STYLES } from '../garrison';
 import { MIRROR_ON, mirrorPower } from '../mirror';
-import type { FaithId } from '@/game/types';
+import type { FaithId, ResourceId } from '@/game/types';
+import { RESOURCE_META } from '@/game/constants';
 import { resolveField, type FieldInput, type FieldOutcome, type FieldSide } from '../battle';
 import { campFight, defenceKinds, homeLosses, type CampPartIn } from '../fights';
 import { carryRest, mixRest, rejoin, restAfter, restAt, restFullAt, restView, type RestPair } from '../rest';
@@ -384,6 +392,10 @@ export interface LocalWorldOptions {
   warOrder?: (order: WarOrder) => Promise<string | null>;
   /** Темп войны с сервера (`TRIBE_WAR_PACE`): во сколько раз быстрее походы. Нет — 1. */
   warPace?: () => number;
+  /** Дела лазутчиков с сервера (docs/spy_pvp.md): свои и чужие у нас, которые мы видим. Нет — тайной войны нет. */
+  spies?: () => SpyView[];
+  /** Меню дел против города: шанс и гибель считает сервер. Отказ — строкой. */
+  spyLook?: (target: string) => Promise<SpyMenu | string>;
   /**
    * Отдавать всю землю разведанной. Только отладочный обзор мира (`?worldview=open`):
    * в обычной партии мир не отдаёт клиенту того, чего игрок не видел, — иначе
@@ -481,6 +493,11 @@ export class LocalWorld implements WorldApi {
   private warsKnown: (() => boolean) | null;
   private warOrderTo: ((order: WarOrder) => Promise<string | null>) | null;
   private warPaceOf: () => number;
+  /** Дела лазутчиков с сервера и меню дел (docs/spy_pvp.md). null — тайной войны в этой сессии нет. */
+  private spiesFrom: (() => SpyView[]) | null;
+  private spyLookTo: ((target: string) => Promise<SpyMenu | string>) | null;
+  /** Последнее меню дел против города — приказ идёт ровно по его числам. */
+  private spyShown: { target: string; menu: SpyMenu } | null = null;
   /**
    * Мир собран заново оттого, что реестр назвал другую клетку. Читается один
    * раз, сразу после постройки: сказать об этом игроку должен тот, у кого есть
@@ -497,6 +514,8 @@ export class LocalWorld implements WorldApi {
     this.warsKnown = opts.warsKnown ?? null;
     this.warOrderTo = opts.warOrder ?? null;
     this.warPaceOf = opts.warPace ?? (() => 1);
+    this.spiesFrom = opts.spies ?? null;
+    this.spyLookTo = opts.spyLook ?? null;
     const parsed = parseWorldSave(this.storage?.read() ?? null);
     // Мир прошлой эпохи (сервер стёрт `/wipeworld ДА`) не читается: новая партия — новый мир (docs/test_world.md).
     const stored = parsed && opts.era !== undefined && (parsed.era ?? 0) !== opts.era ? null : parsed;
@@ -703,6 +722,10 @@ export class LocalWorld implements WorldApi {
         const war = this.warCard(c, now);
         const assault = war ? this.assaultOf(c.id, now) : undefined;
         return war ? { war, ...(assault ? { assault } : {}) } : {};
+      })(),
+      ...((): { spy?: CardSpy } => {
+        const spy = this.spyCard(c, now);
+        return spy ? { spy } : {};
       })(),
     };
   }
@@ -3333,6 +3356,8 @@ export class LocalWorld implements WorldApi {
     for (const id of FIGURE_IDS) {
       const f = this.save.figures[id];
       if (!f) continue;
+      // Лазутчик на деле у соседа идёт и стоит по словам сервера (`stepSpies`): своего прихода у него нет.
+      if (id === 'spy' && f.rival) continue;
       if (f.phase === 'down') {
         // Пустое место не возвращается само: вернётся нанятый, когда его назовёт слепок.
         if (f.gone || now < f.downUntil) continue;
@@ -3805,6 +3830,8 @@ export class LocalWorld implements WorldApi {
           place: this.placeOf(target),
           // Логово — лагерь в лесу (ролик TW); прочие цели — поле.
           ...(isLair(target) ? { site: 'lair' as const } : {}),
+          // Обстрел из своего лагеря перед штурмом — ролик начнётся с него (только показ: дух ядро уже посчитало).
+          ...(isLair(target) && craftDone(camp?.craft, 'bombard') > 0 ? { shots: craftDone(camp?.craft, 'bombard') } : {}),
         }
       : null;
 
@@ -5801,6 +5828,11 @@ export class LocalWorld implements WorldApi {
       const war = this.warList().find((w) => w.id === f.war)?.army.energy;
       if (war) return (f.energy = { ...war });
     }
+    // Лазутчик на деле у соседа — отметка сервера: цену и дорогу списал он (docs/spy_pvp.md).
+    if (id === 'spy' && f.rival) {
+      const op = this.spyList().find((x) => x.id === f.rival)?.energy;
+      if (op) return (f.energy = { ...op });
+    }
     const st = this.energyStance(id);
     const mark = f.energy;
     if (!mark) return (f.energy = freshMark(now, st.mode, st.ends));
@@ -5854,7 +5886,7 @@ export class LocalWorld implements WorldApi {
   private outAt(id: FigureId, now: number): number | null {
     const f = this.save.figures[id];
     if (f.phase !== 'moving' && f.phase !== 'field') return null;
-    if (id === 'general' && f.war) return null;
+    if ((id === 'general' && f.war) || (id === 'spy' && f.rival)) return null;
     const mark = this.energyOf(id, now);
     if (f.phase === 'moving') return emptyAt(mark);
     if (id === 'general' && Object.values(this.save.sieges).some((w) => ourCamp(w))) return null;
@@ -5883,7 +5915,7 @@ export class LocalWorld implements WorldApi {
   private tire(id: FigureId, now: number): void {
     const f = this.save.figures[id];
     if (f.phase !== 'moving' && f.phase !== 'field') return;
-    if (id === 'general' && f.war) return;
+    if ((id === 'general' && f.war) || (id === 'spy' && f.rival)) return;
     if (f.spent === undefined) {
       const t = this.outAt(id, now);
       if (t === null || t > now) return;
@@ -6130,6 +6162,8 @@ export class LocalWorld implements WorldApi {
         ? `${def.name} погиб. Место пустует.`
         : `${def.name} ушёл на покой. Место пустует.`;
     }
+    // Лазутчик на тайном деле у соседа (docs/spy_pvp.md): где он и когда вернётся, говорит сервер.
+    if (id === 'spy' && f.rival && f.phase !== 'down') return this.rivalNote(now);
     if (f.phase !== 'down') {
       // Энергия кончилась на карте — идёт домой и дел не берёт, пока не дойдёт (docs/agent_energy.md).
       return this.isSpent(id, now) ? `${def.name} выбился из сил и идёт домой. Пока не дойдёт, дел не берёт.` : null;
@@ -7669,6 +7703,7 @@ export class LocalWorld implements WorldApi {
     // заново. Он дома с тем, что было при нём, — пропасть в походе без следа он не может.
     const led = this.save.figures.general.war;
     if (led && this.warsKnown?.() && !list.some((w) => w.id === led)) this.warHome(now, null);
+    this.stepSpies(now, seen);
     this.save.warSeen = [...seen].slice(-WAR_SEEN_MAX);
   }
 
@@ -7752,6 +7787,8 @@ export class LocalWorld implements WorldApi {
           ...(b.militia && b.by === 'atk' ? { militia: { attacker: { men: 0, archers: 0 }, defender: { ...b.militia } } } : {}),
           place: this.placeOf(w.to),
           site: b.site,
+          // Штурм из лагеря после обстрела: ролик начнётся с него; пролом сервер уже снял со стены (`siegecraft.wallMen`).
+          ...(b.site === 'wall' && b.by === 'atk' && craftDone(b.craft, 'bombard') > 0 ? { shots: craftDone(b.craft, 'bombard') } : {}),
         }
       : null;
     const other = this.warCity(w, ours === 'atk' ? 'def' : 'atk');
@@ -8157,6 +8194,16 @@ export class LocalWorld implements WorldApi {
       // сервер правит слепок, лёгший до выхода или до возврата (`war.liveSheet`).
       retinue: { ...held.standing } as Counts,
       out: this.save.figures.general.war ? [this.save.figures.general.war] : [],
+      // Тайная служба (docs/spy_pvp.md): Дозор, скрытность и черта своего лазутчика и стоит ли он дома — нападающему шанс
+      // и гибель его дела, защитнику охрана от чужого.
+      watch: {
+        keen: Math.max(1, p.intelKeen ?? 1),
+        veil: Math.max(0, Math.min(1, p.veil ?? 1)),
+        stealth: Math.max(0, Math.min(1, p.stealth ?? 0)),
+        held: this.traitOf('held'),
+        home: this.spyHome(),
+      },
+      time: this.villageTime(now),
     };
   }
 
@@ -8307,6 +8354,358 @@ export class LocalWorld implements WorldApi {
     const b = w?.battles[w.battles.length - 1];
     if (!w || !b) return { reportId: null, won: false };
     return { reportId: `war-${b.id}`, won: b.won === (b.by === w.role) };
+  }
+
+  // ---------- Лазутчик против соседа (docs/spy_pvp.md) ----------
+  //
+  // Исход тайного дела считает сервер войны (`netlify/lib/war.ts` через `world/rivalspy`), как бой. Мир на клиенте
+  // делает то же, что с войной: показывает лазутчика там, где он по словам сервера (идёт, в плену, идёт домой),
+  // применяет итог своей стороны ровно один раз (`warSeen`, отметка `<номер>.spy`) и отдаёт приказ — по меню, которое
+  // посчитал сервер. Своего исхода у него нет.
+
+  /** Дела лазутчиков из последнего ответа сервера. Сервера нет — пусто. */
+  private spyList(): SpyView[] {
+    return this.spiesFrom?.() ?? [];
+  }
+
+  /** Свой лазутчик дома — у ворот или в городе, в строю и не на деле: он охраняет город от чужого. */
+  private spyHome(): boolean {
+    const f = this.save.figures.spy;
+    return !f.gone && !f.rival && f.phase === 'home';
+  }
+
+  /** Чем занят лазутчик на деле у соседа — словами отказа. */
+  private rivalNote(now: number): string {
+    const f = this.save.figures.spy;
+    const x = this.spyList().find((v) => v.id === f.rival);
+    const name = x ? cityOr(x.defCity) : 'соседа';
+    if (x?.phase === 'held') return `Лазутчика держат в «${name}», отпустят через ${formatLeft(Math.max(0, (x.releaseAt ?? now) - now) / 1000)}.`;
+    if (x?.phase === 'back') return `Лазутчик идёт домой от «${name}», дома через ${formatLeft(Math.max(0, (x.backAt ?? now) - now) / 1000)}.`;
+    return `Лазутчик на тайном деле у «${name}». Вернётся сам.`;
+  }
+
+  /**
+   * Итоги тайных дел — в отчёты и последствия, каждое ровно один раз (`warSeen`), и лазутчик — туда, где он по словам
+   * сервера. Зовётся из `stepWars` с тем же списком принятого.
+   */
+  private stepSpies(now: number, seen: Set<string>): void {
+    if (!this.spiesFrom) return;
+    const list = this.spyList();
+    for (const x of [...list].reverse()) {
+      const sid = spySeenId(x.id);
+      if (x.out && !seen.has(sid) && x.out.at <= now) {
+        seen.add(sid);
+        this.spyDeed(x, x.out);
+      }
+      if (x.role === 'atk') this.rivalSpy(x, now);
+    }
+    // Лазутчик числится на деле, которого у сервера больше нет: он дома с тем, что было при нём.
+    const led = this.save.figures.spy.rival;
+    if (led && this.warsKnown?.() && !list.some((x) => x.id === led)) this.rivalHome(now, null);
+  }
+
+  /** Лазутчик — где он по словам сервера: идёт к соседу, в плену, идёт домой. */
+  private rivalSpy(x: SpyView, now: number): void {
+    const f = this.save.figures.spy;
+    if (x.phase === 'done') {
+      if (f.rival === x.id) this.rivalHome(now, x);
+      return;
+    }
+    if (f.gone) return;
+    // Энергией лазутчика на деле владеет сервер: прежняя стойка сверяется до того, как дело её сменит.
+    if (!f.rival) this.energyOf('spy', now);
+    f.rival = x.id;
+    f.watching = false;
+    f.sheltered = undefined;
+    f.spent = undefined;
+    const home = { ...this.save.home };
+    if (x.phase === 'go') {
+      f.from = home;
+      f.to = { ...x.to };
+      f.departAt = x.sentAt;
+      f.arriveAt = x.arriveAt;
+      f.phase = now < x.arriveAt ? 'moving' : 'field';
+      f.held = false;
+    } else if (x.phase === 'held') {
+      f.from = { ...x.to };
+      f.to = { ...x.to };
+      f.departAt = x.arriveAt;
+      f.arriveAt = x.arriveAt;
+      f.phase = 'field';
+      f.held = true;
+      // Держат до отпуска, названного сервером: так «задержан» видят карточка и «Походы».
+      f.busyUntil = x.releaseAt ?? f.busyUntil;
+    } else {
+      f.from = { ...x.to };
+      f.to = home;
+      f.departAt = x.releaseAt ?? x.arriveAt;
+      f.arriveAt = x.backAt ?? now;
+      f.phase = now < f.arriveAt ? 'moving' : 'home';
+      f.held = false;
+    }
+  }
+
+  /** Дело кончилось: лазутчик дома. Погиб — место уже пустует (`downFigure` в `spyDeed`), его не трогают. */
+  private rivalHome(now: number, x: SpyView | null): void {
+    const f = this.save.figures.spy;
+    f.rival = undefined;
+    f.held = false;
+    if (f.phase === 'down' || f.gone) return;
+    // Последняя отметка дела — дома энергия копится с минуты прихода.
+    if (x?.energy) f.energy = { ...x.energy };
+    const at = Math.min(now, x?.backAt ?? now);
+    f.from = { ...this.save.home };
+    f.to = { ...this.save.home };
+    f.departAt = at;
+    f.arriveAt = at;
+    f.phase = 'home';
+  }
+
+  /** Добро словами: «120 еды, 40 дерева». */
+  private goodsWords(c: Counts | undefined): string {
+    const parts = Object.entries(c ?? {})
+      .filter(([, v]) => v > 0)
+      .map(([k, v]) => `${RESOURCE_META[k as ResourceId]?.name.toLowerCase() ?? (k === 'gold' ? 'золото' : k)} ${v}`);
+    return parts.length ? parts.join(', ') : 'ничего';
+  }
+
+  /** Итог дела — отчётом и последствием своей стороны, ровно один раз. Посчитан сервером, здесь только применяется. */
+  private spyDeed(x: SpyView, o: SpyOut): void {
+    const def = RIVAL_DEED_BY_ID[x.deed];
+    const caught = o.held || o.dead;
+    const p = this.save.profile;
+    if (x.role === 'atk') {
+      const name = cityOr(x.defCity);
+      const spot = { id: x.defCastle, name, x: x.to.x, y: x.to.y };
+      const f = this.save.figures.spy;
+      const person = f.person ?? 0;
+      let text: string;
+      if (o.gone) text = `Города «${name}» больше нет в игре. Лазутчик идёт домой.`;
+      else if (o.ok) text = this.rivalDone(x.deed, o);
+      else if (o.slipped) text = 'Не вышло, но лазутчик ушёл тихо. Чей он, там не узнали, но насторожились.';
+      else if (o.held) text = `Лазутчика схватили. Держат до отпуска: ${formatLeft(Math.max(0, (x.releaseAt ?? o.at) - o.at) / 1000)}.`;
+      else text = 'Лазутчика схватили у ворот.';
+      const stolen = o.stolen ?? {};
+      this.addReport({
+        id: `spy-${x.id}`,
+        at: o.at,
+        kind: 'scout',
+        title: o.ok ? `${def.name}: ${name}` : caught ? `Лазутчик схвачен: ${name}` : `Не вышло у «${name}»`,
+        target: spot,
+        won: o.ok,
+        sent: {},
+        lost: {},
+        enemyPower: null,
+        enemyLost: null,
+        loot: Object.keys(stolen).length ? ({ ...stolen } as Loot) : null,
+        intel: null,
+        battle: null,
+        text: `${text} Дело посчитано сервером в минуту, когда случилось.`,
+        read: false,
+      });
+      if (!o.gone) {
+        this.addEffect({
+          id: `spy-${x.id}-eff`,
+          lost: {},
+          resources: { ...stolen } as Loot,
+          ...(o.lured ? { pop: o.lured } : {}),
+          prestige: o.ok && def.hostile ? 2 : 0,
+          morale: o.ok ? 1 : o.slipped || o.dead ? 0 : AGENT_HELD_MORALE,
+          battle: null,
+          deed: { agent: 'spy', ok: o.ok, at: o.at, person },
+          text: `${name}: ${text}`,
+          good: o.ok,
+        });
+      }
+      // Пришедшее — сразу и в слепок деревни: запись партии со слепком может уйти раньше, чем племя его примет.
+      if (p) {
+        const { gold, ...goods } = stolen;
+        const stock: Loot = { ...(p.stock ?? {}) };
+        for (const [k, v] of Object.entries(goods)) stock[k as keyof Loot] = (stock[k as keyof Loot] ?? 0) + v;
+        p.stock = stock;
+        p.gold = (p.gold ?? 0) + (gold ?? 0);
+        p.pop = p.pop + (o.lured ?? 0);
+      }
+      if (o.dead && !f.gone) this.downFigure('spy', o.at, { peril: x.peril, where: `у города ${name}`, why: [], spot });
+      return;
+    }
+    // Защитник: дело его задело или лазутчика поймали — иначе сервер его не прислал бы.
+    const who = caught ? cityOr(x.atkCity) : null;
+    const lost: Counts = { ...(o.burned ?? {}) };
+    for (const [k, v] of Object.entries(o.stolen ?? {})) lost[k] = (lost[k] ?? 0) + v;
+    const harm = o.ok && def.hostile ? this.rivalHarmWords(x.deed, o) : '';
+    const catchText = o.dead
+      ? `Лазутчика из «${who}» схватили, живым он не дался.`
+      : o.held
+        ? `Лазутчика из «${who}» схватили и держат под стражей.`
+        : 'Чей лазутчик — не узнали.';
+    const title = harm ? `${def.name} в городе` : `Схвачен лазутчик из «${who}»`;
+    this.addReport({
+      id: `spy-${x.id}`,
+      at: o.at,
+      kind: 'defense',
+      title,
+      target: this.homeSpot(),
+      won: !harm,
+      sent: {},
+      lost: {},
+      enemyPower: null,
+      enemyLost: null,
+      loot: Object.keys(lost).length ? asLoss(lost as Loot) : null,
+      intel: null,
+      battle: null,
+      text: [harm, catchText].filter(Boolean).join(' '),
+      read: false,
+    });
+    this.addEffect({
+      id: `spy-${x.id}-eff`,
+      lost: {},
+      resources: asLoss(lost as Loot),
+      ...(o.lured ? { popLost: o.lured } : {}),
+      prestige: caught ? 1 : 0,
+      morale: (o.ok ? (o.morale ?? 0) : 0) + (caught ? 1 : 0),
+      battle: null,
+      text: harm || catchText,
+      good: !harm,
+    });
+    if (p) {
+      const { gold, ...goods } = lost;
+      const stock: Loot = { ...(p.stock ?? {}) };
+      for (const [k, v] of Object.entries(goods)) stock[k as keyof Loot] = Math.max(0, (stock[k as keyof Loot] ?? 0) - v);
+      p.stock = stock;
+      p.gold = Math.max(0, (p.gold ?? 0) - (gold ?? 0));
+      p.pop = Math.max(1, p.pop - (o.lured ?? 0));
+    }
+  }
+
+  /** Что сделало удавшееся дело — глазами нападающего. Числа — сервера (`SpyOut`), своей арифметики нет. */
+  private rivalDone(deed: RivalDeedId, o: SpyOut): string {
+    if (deed === 'look') {
+      const i = o.intel;
+      if (!i) return 'Лазутчик вернулся, но сосчитать не успел.';
+      return `Лазутчик сосчитал точно: дома ${troopTotal(i.home as TroopStack)} бойцов, всего войска ${troopTotal(i.army as TroopStack)}, ополчения ${i.militia} (стрелков ${i.archers}), жителей ${i.pop}.`;
+    }
+    if (deed === 'fire') return `Склад горел: сгорело ${this.goodsWords(o.burned)}.`;
+    if (deed === 'theft') return `Лазутчик унёс со склада ${this.goodsWords(o.stolen)}. Добро уже дома.`;
+    return `В городе смута: дух упал${o.lured ? `, к нам ушло ${o.lured} чел.` : ''}.`;
+  }
+
+  /** Что сделал с нами чужой лазутчик — словами защитника. */
+  private rivalHarmWords(deed: RivalDeedId, o: SpyOut): string {
+    if (deed === 'fire') return `Ночью загорелся склад: сгорело ${this.goodsWords(o.burned)}.`;
+    if (deed === 'theft') return `Со склада пропало: ${this.goodsWords(o.stolen)}.`;
+    return `В городе смута: дух упал${o.lured ? `, ушло ${o.lured} чел.` : ''}.`;
+  }
+
+  /** Почему лазутчика сейчас к этому городу не послать; null — можно спросить меню. Последнее слово — у сервера. */
+  private rivalBlock(c: PlayerCastle, now: number): string | null {
+    if (!this.spyLookTo || !this.warOrderTo) return 'Тайная война между игроками идёт только в Telegram.';
+    const f = this.save.figures.spy;
+    const off = this.offDuty('spy', now) ?? this.retiringBlock('spy');
+    if (off) return off;
+    if (!this.inRealm(c)) return this.beyond();
+    const busy = Math.max(0, (f.busyUntil ?? 0) - now);
+    if (busy > 0) return `${this.busyNote('spy')}: ${formatLeft(busy / 1000)}.`;
+    if (f.watching) return 'Лазутчик наблюдает. Сними наблюдение, потом посылай.';
+    if (f.phase !== 'home') return 'Лазутчик выходит из своего города: верни его домой.';
+    return null;
+  }
+
+  /** Лазутчик против города игрока глазами карточки: можно ли спросить меню, сколько идти, что с делом сейчас. */
+  private spyCard(c: PlayerCastle, now: number): CardSpy | undefined {
+    if (!this.spiesFrom) return undefined;
+    const mine = this.spyList().find((x) => x.role === 'atk' && x.defCastle === c.id && x.phase !== 'done');
+    const look = this.spyList().find((x) => x.role === 'atk' && x.defCastle === c.id && x.out?.ok && x.out.intel);
+    const i = look?.out?.intel;
+    return {
+      reason: this.rivalBlock(c, now),
+      walkMs: Math.round(spyWalkMs(this.save.home, c) / this.warPaceOf()),
+      ...(mine && mine.phase !== 'done'
+        ? {
+            ours: {
+              deed: mine.deed,
+              phase: mine.phase,
+              arriveAt: mine.arriveAt,
+              ...(mine.releaseAt !== undefined ? { releaseAt: mine.releaseAt } : {}),
+              ...(mine.backAt !== undefined ? { backAt: mine.backAt } : {}),
+            },
+          }
+        : {}),
+      ...(look && i
+        ? {
+            intel: {
+              at: look.out?.at ?? look.arriveAt,
+              home: troopTotal(i.home as TroopStack),
+              army: troopTotal(i.army as TroopStack),
+              militia: i.militia,
+              archers: i.archers,
+              pop: i.pop,
+              power: Math.round(i.power),
+            },
+          }
+        : {}),
+    };
+  }
+
+  async spyMenu(target: SettlementId): Promise<RivalMenu> {
+    const now = this.clock();
+    const none = (error: string): RivalMenu => ({ error, at: now, walkMs: 0, options: [] });
+    const c = this.castleOf(target);
+    if (!c) return none('Этого города нет на карте.');
+    const block = this.rivalBlock(c, now);
+    if (block || !this.spyLookTo) return none(block ?? 'Тайная война между игроками идёт только в Telegram.');
+    const menu = await this.spyLookTo(target);
+    if (typeof menu === 'string') return none(menu);
+    this.spyShown = { target, menu };
+    // Срок плена — та же черта, что у логова (`spyTimes`), с темпом войны, как у сервера.
+    const held = Math.round(this.spyTimes().held / this.warPaceOf() / 1000);
+    return {
+      error: null,
+      at: menu.at,
+      walkMs: menu.walkMs,
+      options: menu.options.map((o) => {
+        const def = RIVAL_DEED_BY_ID[o.deed];
+        // Цена в энергии — своей дверью и с дорогой до города: отметка лазутчика у клиента, сервер проверит её же.
+        const energy = this.energyCost('spy', o.deed, now, menu.walkMs);
+        const reason = o.reason ?? energy.block;
+        return {
+          deed: o.deed,
+          name: def.name,
+          icon: def.icon,
+          description: def.description,
+          can: o.can && reason === null,
+          reason,
+          chance: o.chance,
+          peril: o.peril,
+          why: o.why,
+          held,
+          energy,
+        };
+      }),
+    };
+  }
+
+  async spyRival(target: SettlementId, deed: RivalDeedId, shownAt: number): Promise<string | null> {
+    const now = this.clock();
+    const c = this.castleOf(target);
+    if (!c) return 'Этого города нет на карте.';
+    const block = this.rivalBlock(c, now);
+    if (block) return block;
+    const shown = this.spyShown?.target === target && this.spyShown.menu.at === shownAt ? this.spyShown.menu : null;
+    const opt = shown?.options.find((o) => o.deed === deed);
+    if (!shown || !opt) return 'Посмотри дела заново.';
+    if (!opt.can) return opt.reason ?? 'Сейчас нельзя.';
+    const tired = this.energyCost('spy', deed, now, shown.walkMs).block;
+    if (tired) return tired;
+    // Энергия — отметкой: цену дела и дорогу считает сервер той же дверью (`world/energy`), и здесь её не списывают.
+    return this.warSend({
+      op: 'spy',
+      target,
+      deed,
+      energy: { ...this.energyOf('spy', now) },
+      shown: { chance: opt.chance, peril: opt.peril },
+      at: shownAt,
+    });
   }
 
   async persist(): Promise<void> {

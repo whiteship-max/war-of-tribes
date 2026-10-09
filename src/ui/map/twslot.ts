@@ -6,10 +6,11 @@ import type { Coord } from '@/world/types';
 import { useWorld } from '@/world/store';
 import { beyondNote, inHomeTheatre } from '@/world/theatre/theatre';
 import type { Camera, Viewport } from './grid';
+import type { FrameMotion } from './still';
 
 export interface TwSlot {
-  /** Кадр карты целиком. */
-  frame(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport, dpr: number, frame: number): void;
+  /** Кадр карты целиком; вернёт, что в нём движется само, — по нему карта решает, когда рисовать следующий (`still.ts`). */
+  frame(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport, dpr: number, frame: number): FrameMotion;
   /**
    * Клетка, в которую целился палец в точке экрана `x`, `y`: клетка объекта, нарисованного под пальцем
    * (цель не меньше пальца), или null — тогда клетка под точкой. Смысл тапа решает `openAt` по
@@ -18,6 +19,8 @@ export interface TwSlot {
   tap(cam: Camera, vp: Viewport, x: number, y: number, hand: boolean): Coord | null;
   /** Камера в рамке региона игрока (docs/map_tw.md, раздел 13.5) — поверх прежних поводка и потолка отдаления. */
   hold(cam: Camera, vp: Viewport): Camera;
+  /** Что кадр читает из партии, одной строкой: сменилась — стоящую карту будят (`tw/frame.partyLook`, `still.ts`). */
+  party(): string;
   /** Уборка испечённого: новый мир, другая плотность экрана, уход с карты. */
   drop(): void;
 }

@@ -12,6 +12,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import './minigames.css';
 import { probe } from '@/debug';
+import { dec } from '@/game/num';
 import { useGame } from '@/game/store';
 import { RESOURCE_IDS, RESOURCE_META } from '@/game/constants';
 import { seasonOf } from '@/game/derived';
@@ -23,19 +24,37 @@ import { energyNow } from '@/ui/trades';
 import { BerriesPlay } from './berriesPlay';
 import { HerdPlay } from './herdPlay';
 import { GAME_SECONDS, LATE_SECONDS, shareOf, type Tally } from './rules';
-import { Stage, type Play, type StageView } from './stage';
+import { LAST_TICKS, Stage, type Play, type StageView } from './stage';
+import { homeWater, weatherNow } from '@/ui/parts/weather';
+import type { Season } from '@/game/types';
 import { watchContext } from '@/render/context';
 import { freeTurn } from '@/orientation';
 
+/** Что игре нужно знать о городе: сезон, погода, берег и пояс — на входе, один раз. */
+interface Place {
+  season: Season;
+  /** Сила ветра и дождь погоды города, 0..1 (`weather.weatherNow`). */
+  wind: number;
+  rain: number;
+  /** У воды: море в дне пути или река у города, и климатический пояс региона (`weather.homeWater`). */
+  shore: 'river' | 'sea';
+  zone: ReturnType<typeof homeWater>['zone'];
+}
+
 /**
- * Чем играть: «Ягоды» и «Скот» лежат в куске промыслов, «Охота» — своим куском (лук, олени, звук): её качает только
- * «На охоту», а тот, кто ходит за ягодами, за неё не платит (docs/minigames.md, 13).
+ * Чем играть: «Ягоды» и «Скот» лежат в куске промыслов, «Охота» и «Рыбалка» — своими кусками (лук и олени; удочка,
+ * вода и рыбы): их качает только «На охоту» и «К воде», а тот, кто ходит за ягодами, за них не платит
+ * (docs/minigames.md, 13 и 17).
  */
-const PLAYS: Record<MinigameId, (seed: number) => Promise<Play>> = {
+const PLAYS: Record<MinigameId, (seed: number, place: Place) => Promise<Play>> = {
   berries: async (seed) => new BerriesPlay(seed),
   herd: async (seed) => new HerdPlay(seed),
   hunt: async (seed) => new (await import('./huntPlay')).HuntPlay(seed),
+  fish: async (seed, p) => new (await import('./fishPlay')).FishPlay(seed, { shore: p.shore, zone: p.zone, season: p.season, rain: p.rain }),
 };
+
+/** Килограммы с запятой и одной цифрой после неё: «2,4» — дробь одной дверью (`game/num.dec`). */
+const kg = (grams: number): string => dec(grams / 1000, 1);
 
 /** Сколько «Уйти» ждёт второго касания: столько же, сколько «Точно?» окна постройки (`next/Confirm`). */
 const LEAVE_MS = 3000;
@@ -45,6 +64,8 @@ const TALLY_WORDS: Record<MinigameId, { short: (t: Tally) => string; done: (t: T
   berries: { short: (t) => `Ягод ${t.got}`, done: (t) => `Собрано ${t.got} из ${t.total}` },
   herd: { short: (t) => `Охапок ${t.got} из ${t.total}`, done: (t) => `Отдано охапок ${t.got} из ${t.total}` },
   hunt: { short: (t) => `Оленей ${t.got} из ${t.total}`, done: (t) => `Добыто оленей ${t.got} из ${t.total}` },
+  // Счёт рыбалки — граммы улова до цели (`fishing.Fishing.tally`): словами — килограммы.
+  fish: { short: (t) => `Улов ${kg(t.got)} из ${kg(t.total)} кг`, done: (t) => `Улов ${kg(t.got)} из ${kg(t.total)} кг` },
 };
 
 /** Подсказка на первые секунды: как ходить и как держать лук. */
@@ -52,7 +73,57 @@ const HINT: Record<MinigameId, string> = {
   berries: 'Слева шаг, справа взгляд',
   herd: 'Слева шаг, справа взгляд',
   hunt: 'Справа прижми, веди и отпусти',
+  fish: 'Тяни вниз и отпусти — заброс',
 };
+
+/**
+ * Как играть — три строки на игру: управление, цель, хитрость. Карточка начала показывает их при первом входе в игру
+ * сама, дальше — по кнопке «Как играть» (решение по правилу 19: подсказка на первые секунды, `HINT`, читается уже на
+ * ходу, а правило игры — порядок ягод, охапки коровы, поправка дуги — должно быть прочитано до «Начать»).
+ */
+export const HOW: Record<MinigameId, readonly string[]> = {
+  berries: [
+    'Слева — шаг, справа — взгляд, нажатие у куста обирает его целиком',
+    'Спелые — в корзину, зелёные пропадут: сначала спелые кусты',
+    'Ягоды зреют на глазах — поздние оставь под конец минуты',
+  ],
+  herd: [
+    'Слева — шаг, справа — взгляд',
+    'У стога нажми — охапка в руках; у голодного — он ест',
+    'Овце и козе — охапка, корове — три. Сытые ложатся',
+  ],
+  hunt: [
+    'Слева — шаг: пока олень щиплет траву, к нему можно подкрасться',
+    'Справа прижми — тянешь, веди — целишься, отпусти — выстрел',
+    'Метки 15, 25 и 35 — поправка на дальность. Долго держишь — руки дрожат',
+  ],
+  fish: [
+    'Тяни вниз — замах, веди вбок — куда, отпусти — заброс. В траву и корягу не бросай',
+    'Дрожит поплавок — жди; утонул — жми сразу: это подсечка',
+    'Держи — тянешь, отпусти на рывке — рыба берёт леску. Красная шкала — порвёт',
+  ],
+};
+
+/** Какие игры игрок уже открывал: подсказка «как играть» сама — только в первый раз. Удобство одного устройства. */
+const HOW_KEY = 'tribe.minigames.how';
+
+function howSeen(game: MinigameId): boolean {
+  try {
+    return (localStorage.getItem(HOW_KEY) ?? '').split(',').includes(game);
+  } catch {
+    return false;
+  }
+}
+
+function markHow(game: MinigameId): void {
+  try {
+    const seen = new Set((localStorage.getItem(HOW_KEY) ?? '').split(',').filter(Boolean));
+    seen.add(game);
+    localStorage.setItem(HOW_KEY, [...seen].join(','));
+  } catch {
+    // Приватное окно без хранилища: подсказка покажется снова — не беда.
+  }
+}
 
 /** Секунды отсчёта: «0:47». */
 const clock = (left: number): string => `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`;
@@ -85,6 +156,7 @@ export function Minigame({ game, onExit }: { game: MinigameId; onExit: () => voi
   const [view, setView] = useState<StageView | null>(null);
   const [result, setResult] = useState<Harvest | string | null>(null);
   const [hint, setHint] = useState(true);
+  const [how, setHow] = useState(() => !howSeen(game));
   const [leave, setLeave] = useState(false);
   /**
    * Номер сборки сцены. Контекст WebGL умер и не вернулся в срок (`render/context.ts`): не начатая игра собирается
@@ -139,12 +211,16 @@ export function Minigame({ game, onExit }: { game: MinigameId; onExit: () => voi
         if (!made.abort()) setGen((n) => n + 1);
       });
     };
-    void PLAYS[game](seed).then((play) => {
+    const st0 = useGame.getState().s;
+    const wx = weatherNow(st0);
+    const place: Place = { season: seasonOf(st0.time), wind: wx.wind, rain: wx.rain, ...homeWater() };
+    void PLAYS[game](seed, place).then((play) => {
       if (!alive) {
         play.dispose();
         return;
       }
-      wire(new Stage(canvas, play, GAME_SECONDS[game], seasonOf(useGame.getState().s.time)));
+      // Ветер в траве и кронах — погоды города в эту минуту (`weather.weatherNow`), той же, что слышит фон.
+      wire(new Stage(canvas, play, GAME_SECONDS[game], place.season, place.wind));
     });
     canvas.addEventListener('pointerdown', drop, { once: true });
     ro.observe(wrap);
@@ -191,6 +267,7 @@ export function Minigame({ game, onExit }: { game: MinigameId; onExit: () => voi
     });
     if (!ok) return;
     g.save();
+    markHow(game);
     stage.begin();
   };
 
@@ -210,14 +287,28 @@ export function Minigame({ game, onExit }: { game: MinigameId; onExit: () => voi
         <div className={`mg-aim${phase === 'play' ? '' : ' off'}`} ref={aimRef} aria-hidden="true">
           <i className="mg-ring" />
           <i className="mg-dot" />
+          {/* Попал — крест вспыхивает на прицеле и гаснет: отклик в том месте, куда смотрит глаз. */}
+          {view?.note === 'Попал' && <i className="mg-hit" />}
+        </div>
+      )}
+
+      {game === 'fish' && (
+        // Шкала удочки: сила заброса в замахе, натяжение лески на вываживании (`Play.gauge`, `Stage.aimSync`). Стоит с
+        // первого кадра, чтобы сцена нашла её, — видна, когда есть что показать.
+        <div className={`mg-aim mg-gauge${phase === 'play' ? '' : ' off'}`} ref={aimRef} aria-hidden="true" data-mode="none">
+          <i className="mg-gauge-bar" />
+          <i className="mg-gauge-red" />
         </div>
       )}
 
       {phase === 'play' && view && (
         <>
           <div className="mg-top">
-            <span className={`mg-chip mg-clock${view.left <= LATE_SECONDS ? ' late' : ''}`}>{clock(view.left)}</span>
-            <span className="mg-chip">
+            <span className={`mg-chip mg-clock${view.left <= LATE_SECONDS ? ' late' : ''}${view.left <= LAST_TICKS ? ' last' : ''}`} key={view.left <= LAST_TICKS ? view.left : 'clock'}>
+              {clock(view.left)}
+            </span>
+            {/* Счёт прыгает на каждое очко: ключ — само число, анимация играет заново. */}
+            <span className="mg-chip mg-score" key={`score-${view.tally.got}`}>
               <Icon name={`mini-${game}`} glyph={def.glyph} />
               {words.short(view.tally)}
             </span>
@@ -235,7 +326,13 @@ export function Minigame({ game, onExit }: { game: MinigameId; onExit: () => voi
           </div>
           {view.note && <div className="mg-note">{view.note}</div>}
           <div className="mg-bottom">
-            {view.verb ? <span className="mg-chip mg-verb">Нажми — {view.verb.toLowerCase()}</span> : hint && <span className="mg-hint">{HINT[game]}</span>}
+            {view.verb ? (
+              <span className="mg-chip mg-verb">Нажми — {view.verb.toLowerCase()}</span>
+            ) : view.cue ? (
+              <span className="mg-chip mg-verb">{view.cue}</span>
+            ) : (
+              hint && <span className="mg-hint">{HINT[game]}</span>
+            )}
           </div>
         </>
       )}
@@ -249,6 +346,17 @@ export function Minigame({ game, onExit }: { game: MinigameId; onExit: () => voi
             <b>{def.name}</b>
           </div>
           <p>{def.goal}</p>
+          {how ? (
+            <ol className="mg-how" aria-label="Как играть">
+              {HOW[game].map((line) => (
+                <li key={line}>{line}</li>
+              ))}
+            </ol>
+          ) : (
+            <button className="mg-howbtn" onClick={() => setHow(true)}>
+              Как играть
+            </button>
+          )}
           <div className="mg-facts">
             <span className="mg-res" aria-label="Время">
               <Icon name="ui-time" glyph="⏳" />
@@ -283,6 +391,13 @@ export function Minigame({ game, onExit }: { game: MinigameId; onExit: () => voi
           </div>
           {result && typeof result !== 'string' && (
             <>
+              {/* Доля от предела — та же, что ушла в начисление (`shareOf` → `harvest`): полоса и число одной функцией. */}
+              <div className="mg-share" aria-label="Доля от предела">
+                <span className="mg-bar">
+                  <i style={{ width: `${Math.round(shareOf(view.tally) * 100)}%` }} />
+                </span>
+                <span>Взято {Math.round(shareOf(view.tally) * 100)} % предела</span>
+              </div>
               <div className="mg-facts">
                 <span className="mg-res mg-muted">На склад</span>
                 {Object.keys(result.stored).length > 0 ? <HaulRow haul={result.stored} /> : <span className="mg-res">ничего</span>}

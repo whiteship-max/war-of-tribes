@@ -1,6 +1,6 @@
 import type { Building, BuildingTypeId, GameState } from './types';
 import { partyNow } from '@/net/clock';
-import { START_POP, TEST_GEMS } from './constants';
+import { START_POP } from './constants';
 import { BUILDINGS } from './data/buildings';
 import { emptyEquipment } from './data/equipment';
 import { emptyArmy } from './data/troops';
@@ -13,6 +13,10 @@ import { FIGURE_IDS } from '@/world/data/figures';
 
 /**
  * Формат сохранения. Поднимается при изменении структуры состояния (см. save.ts).
+ *
+ * Версия 22 — алмазы ушли с устройства на сервер (решение владельца 09.10.2026, docs/gems.md): поля
+ * `gems` больше нет, ступень снимает его у старой партии и говорит об этом строкой летописи. Новое
+ * поле `gemSeen` — номер последней применённой записи журнала алмазов — необязательное.
  *
  * Версия 20 — участь «увести людей» стала покупной ступенью военной ветви, и кредита ей нет
  * (решение владельца, docs/dynasty.md, раздел 11.2). Формат тот же, полей нет ни одного; версию
@@ -93,7 +97,7 @@ import { FIGURE_IDS } from '@/world/data/figures';
  * это не к чему: сохранение младшей версии отбрасывается, партия начинается
  * заново, и игроку об этом говорят прямо (LegacyModal).
  */
-export const SAVE_VERSION = 21;
+export const SAVE_VERSION = 22;
 
 const built = (s: GameState, type: BuildingTypeId): Building => ({
   id: s.nextId++,
@@ -135,7 +139,6 @@ export function createInitialState(seed: number = freshSeed()): GameState {
     gold: 320,
     // Тестовый запас алмазов: он существует, чтобы можно было проверить трату,
     // пока покупки нет. Начисляет алмазы одно место на всю игру — creditGems.
-    gems: TEST_GEMS,
     market: { day: 0, bought: {}, sold: {} },
     caravans: [],
     // Ноль — 1 января 1970: он не совпадёт ни с каким сегодняшним номером,
@@ -159,6 +162,8 @@ export function createInitialState(seed: number = freshSeed()): GameState {
     buildings: [],
     completedQuests: [],
     inbox: [],
+    chains: [],
+    boons: [],
     nextEventAt: 50,
     morale: 60,
     prestige: 5,

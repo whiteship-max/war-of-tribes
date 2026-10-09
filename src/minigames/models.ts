@@ -38,10 +38,19 @@ export function bushesMesh(bushes: readonly Bush[]): THREE.Mesh {
     const ao = { base: [0.62, 0.66, 0.74] as [number, number, number], y0: 0, y1: look.h };
     if (b.kind === 'raspberry') {
       // Малина — пучок стеблей и листва шапками по высоте: высокий силуэт виден с другого края поляны.
+      // Стебли — ниже верхней шапки и с пучком листьев на макушке: голая палка над кустом читалась прутом.
       for (let k = 0; k < 6; k++) {
         const a = b.yaw + k * 1.05;
         const lean = 0.18 + (k % 3) * 0.06;
-        parts.push(K.cyl(0.012, 0.02, look.h, tint(CANE), 4, b.x + Math.cos(a) * 0.12, look.h / 2, b.z + Math.sin(a) * 0.12, { x: Math.sin(a) * lean, z: -Math.cos(a) * lean }));
+        const len = look.h * (0.78 + (k % 2) * 0.08);
+        const bx = b.x + Math.cos(a) * 0.12;
+        const bz = b.z + Math.sin(a) * 0.12;
+        parts.push(K.cyl(0.011, 0.019, len, tint(CANE), 4, bx, len / 2, bz, { x: Math.sin(a) * lean, z: -Math.cos(a) * lean }));
+        // Макушка наклонённого стебля — куда увёл её тот же поворот, что у стебля (`K.place`: Эйлер X, Y, Z).
+        const tip = new THREE.Vector3(0, len / 2, 0).applyEuler(new THREE.Euler(Math.sin(a) * lean, 0, -Math.cos(a) * lean));
+        const g = new THREE.IcosahedronGeometry(0.11, 0);
+        g.scale(1.3, 0.7, 1.3);
+        parts.push(K.place(g, leaf, bx + tip.x, len / 2 + tip.y, bz + tip.z, { y: a }));
       }
       for (let k = 0; k < 5; k++) {
         const a = b.yaw + k * 1.3;
@@ -99,8 +108,11 @@ export function penMesh(): THREE.Mesh {
   return m;
 }
 
-const HAY_TINT = 0xcfa85e;
-const HAY_DARK = 0xa98545;
+/** Солома: насыщенная — утреннее солнце в спину выбеливало прежний светлый тон до яичной скорлупы (снимок `b1`). */
+const HAY_TINT = 0xb98d42;
+const HAY_DARK = 0x8f6a33;
+/** Шапка стога темнее: верх мокнет и выгорает. */
+const HAY_TOP = 0x9a7a45;
 
 /** Стог посредине загона: копна на жердях. */
 export function hayMesh(): THREE.Mesh {
@@ -108,7 +120,7 @@ export function hayMesh(): THREE.Mesh {
   // Копна — низкий купол и шапка: стог, а не яйцо. Жердь торчит из макушки.
   const g = new THREE.CylinderGeometry(HAY.r * 0.8, HAY.r, 0.9, 9);
   parts.push(K.place(g, tint(HAY_TINT), HAY.x, 0.45, HAY.z, undefined, { base: [0.72, 0.68, 0.62], y0: 0, y1: 0.9 }));
-  parts.push(K.cone(HAY.r * 0.82, 0.75, tint(HAY_TINT), 9, HAY.x, 0.9 + 0.37, HAY.z));
+  parts.push(K.cone(HAY.r * 0.82, 0.75, tint(HAY_TOP), 9, HAY.x, 0.9 + 0.37, HAY.z));
   parts.push(K.cyl(0.025, 0.025, 0.6, tint(0x5e4130), 4, HAY.x, 1.6, HAY.z));
   // Клочья у подножия: из стога берут, и он это показывает.
   for (let k = 0; k < 6; k++) {
@@ -122,13 +134,19 @@ export function hayMesh(): THREE.Mesh {
   return m;
 }
 
-/** Охапка в руках: висит на камере внизу кадра. */
+/**
+ * Охапка в руках: висит на камере внизу кадра. Пучки соломы — вытянутые и тонкие, вразнобой, светлые концы торчат: охапка
+ * сена, а не глыбы (снимок `b2`).
+ */
 export function armful(): THREE.Mesh {
   const parts: K.Part[] = [];
-  for (let k = 0; k < 5; k++) {
-    const g = new THREE.IcosahedronGeometry(0.11, 0);
-    g.scale(1.6, 0.6, 1);
-    parts.push(K.place(g, tint(k % 2 ? HAY_TINT : HAY_DARK), (k - 2) * 0.07, (k % 2) * 0.05, (k % 3) * 0.03, { y: k * 0.7, z: (k - 2) * 0.2 }));
+  for (let k = 0; k < 11; k++) {
+    const g = new THREE.IcosahedronGeometry(0.1, 0);
+    g.scale(2.6, 0.32, 0.7);
+    const x = ((k % 5) - 2) * 0.055;
+    const y = (k % 3) * 0.028 - 0.01;
+    const z = ((k * 3) % 4) * 0.025 - 0.035;
+    parts.push(K.place(g, tint(k % 3 === 0 ? HAY_DARK : k % 3 === 1 ? HAY_TINT : 0xd2ad62), x, y, z, { y: (k - 5) * 0.23, z: ((k % 4) - 1.5) * 0.12 }));
   }
   const m = K.assemble(parts);
   m.name = 'armful';

@@ -57,10 +57,10 @@ export async function eraGate(req: Request, io: Io): Promise<Response | null> {
 
 /**
  * Что стирает чистый старт: партии, общий мир (реестр замков, война — всё, кроме самой эпохи), исходящие уведомления и
- * их индекс, счётчики доставки, наблюдение (журналы городов, опись, флаги), отчёты об ошибках и указы. Заморозка и журнал
- * админа остаются: заморожен человек, а не партия, и журнал админа хранит само стирание.
+ * их индекс, счётчики доставки, наблюдение (журналы городов, опись, флаги), отчёты об ошибках, указы и книги алмазов (в
+ * новой эпохе игрок снова получает стартовые, docs/gems.md). Заморозка и журнал админа остаются: заморожен человек, а не партия, и журнал админа хранит само стирание.
  */
-export const WIPED: readonly StoreName[] = [STORES.saves, STORES.world, STORES.notify, STORES.due, STORES.stats, STORES.watch, STORES.reports];
+export const WIPED: readonly StoreName[] = [STORES.saves, STORES.world, STORES.notify, STORES.due, STORES.stats, STORES.watch, STORES.reports, STORES.gems];
 
 /** В хранилище админки стираются указы — они относятся к партии. Остаются эти ключи. */
 export const ADMIN_KEEP: readonly string[] = [FROZEN_KEY, LOG_KEY];

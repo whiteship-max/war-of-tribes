@@ -8,7 +8,24 @@
 import { ARROW_FLIGHT, CLIPS, RUN_LAST, figurePose, figureState, targetOf, unitPose, type FigureFrame, type TwPlan, type TwUnit } from './plan';
 import { hash } from './terrain';
 
-export type CueKind = 'horn' | 'charge' | 'cry' | 'crash' | 'bows' | 'whistle' | 'thud' | 'panic' | 'victory' | 'ram' | 'gate' | 'ladder' | 'wallcry';
+export type CueKind =
+  | 'horn'
+  | 'charge'
+  | 'cry'
+  | 'crash'
+  | 'bows'
+  | 'whistle'
+  | 'thud'
+  | 'panic'
+  | 'victory'
+  | 'ram'
+  | 'gate'
+  | 'ladder'
+  | 'wallcry'
+  | 'engine'
+  | 'stone'
+  | 'impact'
+  | 'collapse';
 
 /** Звук на секунде ролика. */
 export interface Cue {
@@ -133,7 +150,21 @@ export function cuesOf(plan: TwPlan): Cue[] {
     if (at + 1.5 < plan.seconds) out.push(cue(at + 1.5, 'victory', h.x, h.z, 1, ours, seed + 200));
   }
   siegeCues(plan, out);
+  barrageCues(plan, out);
   return out.sort((a, b) => a.at - b.at || a.seed - b.seed);
+}
+
+/**
+ * Звук обстрела перед штурмом (docs/battle_tw.md, раздел 15): скрип рычага и удар перекладины, свист камня, удар в кладку,
+ * обвал, крик сбитых — раскладка пролога (`barrage.ts`). Часы ролика идут от начала пролога, поэтому звук боя сдвигается
+ * на его длину — так же, как кадр (`TwPlayer.pre`).
+ */
+function barrageCues(plan: TwPlan, out: Cue[]): void {
+  const b = plan.barrage;
+  if (!b) return;
+  for (const c of out) c.at += b.seconds;
+  const ours = b.besieger === plan.us;
+  for (const c of b.cues) out.push(cue(c.at, c.kind, c.x, c.z, c.size, c.kind === 'wallcry' ? !ours : ours, c.seed, { x2: c.x2, z2: c.z2, dur: c.dur }));
 }
 
 /**
@@ -170,6 +201,9 @@ function siegeCues(plan: TwPlan, out: Cue[]): void {
  * Часы звуков: отдаёт звуки, чьё время пришло с прошлого кадра. Перемотка назад и скачок вперёд (снова, ×4 на паузе)
  * звуков не сыплют: прошлые — уже прозвучали, пропущенные — не догоняют.
  */
+/** Скачок часов, после которого пропущенные звуки не звучат: больше шага кадра на ×4 (0.4 с). */
+const JUMP = 0.5;
+
 export class CueClock {
   private next = 0;
   private last: number | null = null;
@@ -184,7 +218,9 @@ export class CueClock {
       if (this.next < 0) this.next = this.cues.length;
       this.last = from;
     }
-    if (t < this.last - 1e-6 || t - this.last > 1.5) {
+    // Скачок вперёд больше кадра на ×4 (шаг кадра — не больше 0.1 с, `TwPlayer.loop`): «Пропустить» обстрел, перемотка —
+    // пропущенное не догоняет пачкой.
+    if (t < this.last - 1e-6 || t - this.last > JUMP) {
       this.next = this.cues.findIndex((c) => c.at > t);
       if (this.next < 0) this.next = this.cues.length;
       this.last = t;

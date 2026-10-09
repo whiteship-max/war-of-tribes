@@ -22,6 +22,11 @@ export interface TwRecord {
   beasts?: Side;
   /** Место боя — `BattleRecord.site` (стена, ворота, вылазка, лагерь, логово); нет — поле. */
   site?: string;
+  /**
+   * Обстрел перед штурмом (`BattleRecord.shots`): доля пробитой стены после каждого залпа — дверью ядра
+   * (`siegecraft.breachOf`), её считает зовущий (`barrageShares`). Есть — ролик начинается с обстрела.
+   */
+  breach?: readonly number[];
 }
 
 /**
@@ -29,7 +34,7 @@ export interface TwRecord {
  * сидит ввод сцены, и ведение пальцем в ролике двигало бы спрятанную камеру города.
  */
 export function playTw(renderer: THREE.WebGLRenderer, rec: TwRecord, quality: Quality, touch: HTMLElement, opts: TwPlayerOptions): TwPlayer {
-  const plan = twPlanOfRecord(rec.result, rec.us, rec.troops, quality, rec.militia, rec.place, rec.beasts, rec.site);
+  const plan = twPlanOfRecord(rec.result, rec.us, rec.troops, quality, rec.militia, rec.place, rec.beasts, rec.site, rec.breach);
   const player = new TwPlayer(renderer, plan, TW_SPEC[quality], opts);
   player.cam.attach(touch);
   return player;

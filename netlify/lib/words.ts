@@ -41,6 +41,13 @@ const FATE_DONE: Record<NoticeFate, string> = {
   burn: 'Город сожжён.',
 };
 
+/** Что сделал чужой лазутчик — по участи, которой сервер назвал дело (`war.spyFate`): огонь, кража, смута. */
+const SPY_DONE: Record<NoticeFate, string> = {
+  burn: 'Чужой лазутчик поджёг склад в {at}. Что сгорело, смотри в донесении.',
+  plunder: 'Чужой лазутчик обокрал склад в {at}. Что пропало, смотри в донесении.',
+  captives: 'Чужой лазутчик поднял смуту в городе в {at}. Что стало с людьми, смотри в донесении.',
+};
+
 /** Слова пункта. `tz` — пояс получателя. */
 export function noticeText(item: NoticeItem, tz: string): string {
   const p = item.p;
@@ -61,6 +68,9 @@ export function noticeText(item: NoticeItem, tz: string): string {
         : `Хлеб в городе кончился. Отряд из «${p.from}» взял город. ${FATE_DONE[p.fate]}`;
     case 'war-fight':
       return fightText(item);
+    // Тайное нападение (docs/spy_pvp.md): чей лазутчик, город не знает — имени в словах нет.
+    case 'war-spy':
+      return SPY_DONE[p.fate].replace('{at}', at);
   }
 }
 

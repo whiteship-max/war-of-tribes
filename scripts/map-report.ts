@@ -339,6 +339,9 @@ const PROBE = `
     });
     return JSON.stringify(rows);
   };
+  // Цена кадра — на сотнях кадров: стоящая карта рисует только по изменению, и отчёт просит её рисовать каждый кадр
+  // (WorldMap.probeAlways, docs/perf.md, решение 9).
+  window.__mapAlways = true;
   window.__take = () => JSON.stringify(window.__mapPerf());
   window.__ready = () => JSON.stringify({ map: window.__game.getState().mapOpen, world: !!window.__world });
   return JSON.stringify('ok');

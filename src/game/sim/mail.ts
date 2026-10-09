@@ -28,6 +28,7 @@ import { kickFrom } from '@/world/letters';
 import { mailSlots } from './tech';
 import { MUTINY_EVENT } from '../data/order';
 import { log } from './log';
+import { realMs } from '../pace';
 
 /** Сколько событие ждёт ответа, мс настоящего времени. Одно число на всю почту. */
 export const EVENT_TTL = LETTER_TTL;
@@ -178,7 +179,7 @@ export function mailArrive(s: GameState, from: number, now: number): number {
   if (!s.tutorialDone && s.time < TUTORIAL_EVENT_MUTE) return 0;
   if (s.unrest > 0) return 0;
   const start = Math.max(from, now - EVENT_TTL);
-  let n = 0;
+  let n = chainsArrive(s, start, now);
   for (let k = Math.floor((start - AWAY_JITTER) / AWAY_STEP); ; k++) {
     const t = awayArrival(s.seed, k);
     if (t > now) break;
@@ -193,3 +194,29 @@ export function mailArrive(s: GameState, from: number, now: number): number {
   return n;
 }
 
+
+/**
+ * Следствия ответов, чей час пришёл (`GameState.chains`, кладёт их `sim/chains.scheduleChain`; docs/events.md, раздел 4).
+ * Ложатся на стол тем же правилом, что весть по сетке (`raiseEvent`): лишнее сгоняет ближний срок, того же вида второй
+ * раз не кладут — тогда следствие ждёт следующего окна, а не пропадает. Срок ответа — сутки от минуты, когда следствие
+ * созрело, если она лежит в окне; созревшее раньше окна (долгая отлучка) приходит с минутой входа: это следствие
+ * ответа самого игрока, и решиться молча, не показавшись, оно не должно. Вид, которого в игре больше нет, уходит
+ * из партии молча. Возвращает, сколько легло.
+ */
+function chainsArrive(s: GameState, start: number, now: number): number {
+  if (!s.chains?.length) return 0;
+  let n = 0;
+  for (const c of [...s.chains]) {
+    if (c.at > s.time) continue;
+    if (!EVENT_BY_ID[c.defId]) {
+      s.chains = s.chains.filter((x) => x !== c);
+      continue;
+    }
+    if (!raiseEvent(s, c.defId)) continue;
+    s.chains = s.chains.filter((x) => x !== c);
+    const due = now - realMs(s.time - c.at);
+    s.inbox[s.inbox.length - 1].until = (due > start ? due : now) + EVENT_TTL;
+    n++;
+  }
+  return n;
+}

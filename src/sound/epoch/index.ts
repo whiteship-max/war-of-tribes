@@ -8,6 +8,7 @@ import { useWorld } from '@/world/store';
 import { landShare } from '@/world/land';
 import { levelNow } from '@/render/gfx';
 import { cityNear } from '../ear';
+import { cityAudio } from '../city';
 import { Ambience, type Hearing } from './ambience';
 import { EpochMusic } from './music';
 import { seeded } from './rng';
@@ -46,7 +47,8 @@ function hearing(): Hearing {
   const season = seasonOf(time);
   const home = useWorld.getState().info?.home;
   return {
-    view: g.mapOpen ? 'map' : 'city',
+    // Идёт промысел — слышна его поляна, а не город под ней (`cityAudio.glade`).
+    view: cityAudio.glade ? 'glade' : g.mapOpen ? 'map' : 'city',
     solar: solarPhase(dayFraction(time), season),
     season,
     near: cityNear(),

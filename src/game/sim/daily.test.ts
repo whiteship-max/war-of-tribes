@@ -220,11 +220,11 @@ describe('ежедневное задание: награда', () => {
   it('награда — только ресурсы: ни золота, ни алмазов не прибавляется', () => {
     const s = createInitialState();
     const gold = s.gold;
-    const gems = s.gems;
     startDaily(s, TODAY);
     finishDaily(s, TODAY, true);
     expect(s.gold).toBe(gold);
-    expect(s.gems).toBe(gems);
+    // Алмазы живут на сервере (docs/gems.md): поля в партии нет, и награда его не заводит.
+    expect(Object.keys(s)).not.toContain('gems');
   });
 
   it('награда растёт вместе с посёлком, а не тонет в дневной выработке', () => {

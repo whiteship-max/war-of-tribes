@@ -102,6 +102,12 @@ export type DiploActionId = 'gift' | 'insult' | 'pact' | 'peace' | 'war';
  */
 export type SpyActionId = 'probe' | 'revolt';
 
+/**
+ * Дела лазутчика против города живого игрока (docs/spy_pvp.md): разведать, поджечь склад, украсть, посеять смуту.
+ * Своим списком, а не строками `SpyActionId`: меню логова их не показывает, а исход считает сервер войны.
+ */
+export type RivalDeedId = 'look' | 'fire' | 'theft' | 'unrest';
+
 /** Всё, что можно приказать агенту у цели. Кому какой приказ — `ORDER_AGENT`. */
 export type OrderActionId = DiploActionId | SpyActionId;
 
@@ -791,6 +797,8 @@ export interface SettlementCard extends SettlementView {
   sack: CardSack | null;
   /** Город живого игрока: поход на него (docs/pvp.md). Нет поля у логова и у своего города. */
   war?: CardWar;
+  /** Город живого игрока: лазутчик против него (docs/spy_pvp.md). Нет поля у логова и у своего города. */
+  spy?: CardSpy;
   /**
    * «Дойти и ударить»: полководец идёт к этой цели и бьёт в минуту прихода (`WorldApi.assault`). Нет поля — бить здесь
    * некому или нечего: свой город, пепелище, места полководца нет.
@@ -835,6 +843,45 @@ export interface CardWar {
   ours?: { phase: 'march' | 'camp' | 'back'; mode: 'storm' | 'siege'; arriveAt: number; starvesAt?: number; backAt?: number };
   /** Этот город идёт на нас или стоит под нашими стенами. */
   theirs?: { phase: 'march' | 'camp'; arriveAt: number };
+}
+
+/**
+ * Лазутчик против этого города глазами карточки (docs/spy_pvp.md): меню дел приходит с сервера отдельно (`WorldApi.spyMenu`
+ * — шанс и гибель считает сервер), здесь — что с нашим лазутчиком у этого города сейчас и что он разведал.
+ */
+export interface CardSpy {
+  /** Почему лазутчика сейчас не послать никуда — словами; null — можно спросить меню. */
+  reason: string | null;
+  /** Сколько идти от своего замка, мс мира (`pvp.spyWalkMs` с темпом войны). */
+  walkMs: number;
+  /** Наше дело у этого города, пока лазутчик не дома. */
+  ours?: { deed: RivalDeedId; phase: 'go' | 'held' | 'back'; arriveAt: number; releaseAt?: number; backAt?: number };
+  /** Последняя удачная разведка: точные числа на минуту дела. */
+  intel?: { at: number; home: number; army: number; militia: number; archers: number; pop: number; power: number };
+}
+
+/** Строка меню дел лазутчика против города (`WorldApi.spyMenu`): числа сервера и цена энергии своей дверью. */
+export interface RivalOption {
+  deed: RivalDeedId;
+  name: string;
+  icon: string;
+  description: string;
+  can: boolean;
+  reason: string | null;
+  chance: number;
+  peril: number;
+  why: string[];
+  /** Сколько держат пойманного, секунд (`LocalWorld.spyTimes`) — с темпом войны, как сервер. */
+  held: number;
+  energy: EnergyCost;
+}
+
+/** Меню дел против города: строки и минута, на которую сервер их посчитал. Отказ всему меню — `error`. */
+export interface RivalMenu {
+  error: string | null;
+  at: number;
+  walkMs: number;
+  options: RivalOption[];
 }
 
 export interface CardSack {
@@ -1147,6 +1194,12 @@ export interface BattleRecord {
    * у записей, сделанных раньше, — им достаётся поле.
    */
   site?: BattleSite;
+  /**
+   * Сколько залпов обстрела легло перед этим штурмом (`world/siegecraft`, `Craft.shots`) — для показа, а не для счёта:
+   * ролик TW начинается с обстрела (docs/battle_tw.md, раздел 15). Пролом и дух гарнизона ядро уже посчитало до боя
+   * (`wallMen`, `garrisonWear`), и исход от этого поля не зависит. Поля нет у боя без обстрела и у записей, сделанных раньше.
+   */
+  shots?: number;
 }
 
 /**

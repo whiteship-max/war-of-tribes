@@ -11,11 +11,13 @@
  * (указ, заморозка). Запись наблюдения — попутная: не легла — партия всё равно сохранена, а ответ игроку тот же.
  */
 import { CLOCK_SKEW_SECONDS } from './initdata.js';
-import { SAVE_HURRY_MS, SAVE_PUSH_MS, STOCK_KEYS, readWatch, type Counts, type WatchCard } from './contract.js';
+import { SAVE_HURRY_MS, SAVE_PUSH_MS, STOCK_KEYS, readWatch, type AdminGrant, type Counts, type WatchCard } from './contract.js';
 import { DAY_LENGTH, gameDaysOfMs } from '../../src/game/pace.js';
 import { ENERGY_MAX, ENERGY_REFILL, MINIGAME_COST } from '../../src/game/data/minigames.js';
 import { RESOURCE_META } from '../../src/game/constants.js';
 import { rewrite } from './admin.js';
+import { bookAfter, readBook, seedBook, type ArmyBook } from './book.js';
+import type { WarFile } from './war.js';
 import { STORES, type Stores } from './kv.js';
 
 /**
@@ -47,7 +49,7 @@ export const GROWTH_SLACK = 2;
 /** Тот же флаг второй раз за этот срок не дописывается, а считается в прежний: запись идёт раз в минуту. */
 const FLAG_QUIET = HOUR;
 
-export type FlagKind = 'cheat' | 'haste' | 'clock' | 'cap' | 'time' | 'stock' | 'army' | 'games' | 'haul' | 'often' | 'rollback';
+export type FlagKind = 'cheat' | 'haste' | 'clock' | 'cap' | 'time' | 'stock' | 'army' | 'games' | 'haul' | 'often' | 'rollback' | 'forged';
 
 export const FLAG_WORD: Record<FlagKind, string> = {
   cheat: 'коды проверки',
@@ -61,6 +63,7 @@ export const FLAG_WORD: Record<FlagKind, string> = {
   haul: 'добыча промыслов',
   often: 'частые записи',
   rollback: 'откат партии',
+  forged: 'войско сверх подтверждённого',
 };
 
 export interface WatchFlag {
@@ -107,6 +110,8 @@ export interface WatchRecord {
   reports: number[];
   flags: WatchFlag[];
   journal: WatchEntry[];
+  /** Книга войска (`book.ts`, docs/pvp.md, раздел 6): сколько бойцов сервер подтверждает. Нет — запись до книги. */
+  book?: ArmyBook;
 }
 
 const n0 = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
@@ -160,6 +165,8 @@ export function readWatchRecord(v: unknown): WatchRecord {
     }
     out.flags = out.flags.slice(-FLAGS_KEEP);
   }
+  const book = readBook(r.book);
+  if (book) out.book = book;
   if (Array.isArray(r.journal)) {
     for (const e of r.journal as Record<string, unknown>[]) {
       if (e && ENTRY_KINDS.includes(e.kind as EntryKind)) out.journal.push({ at: n0(e.at), kind: e.kind as EntryKind, text: s0(e.text, 400) });
@@ -357,6 +364,38 @@ export function wrote(rec: WatchRecord, at: number, card: { name: string; power:
     return { ...next, journal };
   }
   return noted(next, at, 'save', line);
+}
+
+/** Книга войска игрока: лежащая или заведённая с первой встречи — пустое войско с минуты, когда сервер его впервые увидел. */
+export const bookOf = (rec: WatchRecord, at: number): ArmyBook => rec.book ?? seedBook(rec.first > 0 ? rec.first : at);
+
+/**
+ * Записать книгу войска по принятой записи партии (docs/pvp.md, раздел 6): опись заявляет войско, книга подтверждает его
+ * не больше, чем объясняют правила за прошедшее серверное время. Заявлено больше — флаг «войско сверх подтверждённого».
+ * `rushed` — ожидание, снятое ускорением за алмазы (книга алмазов, docs/gems.md): потолок уровня казарм и конюшни
+ * сдвигается на него, и подтверждённое ускорение не даёт ложного отказа.
+ * Нет описи — книга не трогается: её минута остаётся прежней, и обучение за это время подтвердится со следующей.
+ */
+export function booked(
+  rec: WatchRecord,
+  at: number,
+  watch: WatchCard | undefined,
+  seen: readonly string[] | undefined,
+  grants: readonly Pick<AdminGrant, 'n' | 'troops'>[],
+  wars: WarFile | null,
+  key: string,
+  rushed: Counts = {},
+): WatchRecord {
+  if (!watch) return rec;
+  const step = bookAfter(bookOf(rec, at), at, { troops: watch.troops, hurt: watch.hurt, buildings: watch.buildings }, grants, wars, key, seen ?? [], rushed);
+  const next = { ...rec, book: step.book };
+  if (step.forged <= 0) return next;
+  return addFlags(next, at, [
+    {
+      kind: 'forged',
+      text: `Войско с ранеными: заявлено ${big(step.claimed)}, сервер подтверждает ${big(step.confirmed)} — сверх обучения в казармах и конюшне, указов и потерь войны за прошедшее время на ${big(step.forged)}. В войну идёт только подтверждённое.`,
+    },
+  ]);
 }
 
 /** Отказ «слишком часто»: минута в окно часа; с `OFTEN_PER_HOUR` в окне — флаг. */

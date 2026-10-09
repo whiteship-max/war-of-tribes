@@ -10,6 +10,7 @@ import { PALETTE } from './const';
 import { type Camera, type Viewport, toScreen } from './grid';
 import { GRID } from './palette';
 import { twSlot } from './twslot';
+import { STILL_FRAME, type FrameMotion } from './still';
 
 /**
  * Пульс на клетке, куда игрока привели лупой из письма.
@@ -100,13 +101,12 @@ export function drawFrame(
   vp: Viewport,
   dpr: number,
   frame: number,
-): void {
+): FrameMotion {
   const tw = twSlot();
-  if (tw) {
-    tw.frame(ctx, cam, vp, dpr, frame);
-    return;
-  }
+  if (tw) return tw.frame(ctx, cam, vp, dpr, frame);
   ctx.fillStyle = PALETTE.void;
   ctx.fillRect(0, 0, vp.w, vp.h);
   drawPaper(ctx, vp);
+  // Кусок вида едет: лист рисуется каждый кадр, пока он не приедет, — ячейку никто не толкает.
+  return { ...STILL_FRAME, busy: true };
 }
