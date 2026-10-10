@@ -100,6 +100,30 @@ export function allow(key: string, perMinute: number, now: number = Date.now()):
  */
 export const WRITE_TRIES = 4;
 
+/**
+ * Очередь к общей записи внутри экземпляра: `run` — чтение, расчёт и условная запись — идёт по одному на имя.
+ *
+ * Правду держит условная запись по ETag и без очереди, но в давке она дорога: запросы, прочитавшие одну версию,
+ * выигрывают по одному за круг, и за `WRITE_TRIES` кругов проходят не все — остальным отказ, хотя ничего не нарушено
+ * (прогон ботов, docs/playtest_sim.md, «Мелкое», п. 1). На своём сервере экземпляр один, и очередь снимает гонку
+ * целиком; на Netlify экземпляр держит один запрос за раз, и гонку между экземплярами по-прежнему держат попытки.
+ */
+const turns = new Map<string, Promise<void>>();
+
+export function inTurn<T>(name: string, run: () => Promise<T>): Promise<T> {
+  const mine = (turns.get(name) ?? Promise.resolve()).then(run);
+  const done = mine.then(
+    () => undefined,
+    () => undefined,
+  );
+  turns.set(name, done);
+  // Очередь опустела — имя не держим: имён немного, но память экземпляра живёт неделями.
+  void done.then(() => {
+    if (turns.get(name) === done) turns.delete(name);
+  });
+  return mine;
+}
+
 /** Токен бота из окружения. В репозитории его нет и быть не может. */
 export const botToken = (): string => process.env.TELEGRAM_BOT_TOKEN ?? '';
 

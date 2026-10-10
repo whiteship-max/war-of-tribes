@@ -302,6 +302,7 @@ class Bot {
 
   async spyLook(target: string): Promise<SpyMenu | string> {
     const res = await call('/api/war', this.id, this.era, 'GET', undefined, `?spy=${encodeURIComponent(target)}`);
+    this.orders.push(`spy-menu:${res.status}`);
     if (res.status !== 200) return `HTTP ${res.status}`;
     const r = res.data as WarResponse;
     return r.spyMenu ?? r.error ?? 'нет меню';
@@ -467,6 +468,13 @@ async function main(): Promise<void> {
     }
   }
   note(`дела в лагере: ${crafts.filter((x) => x === 'ok').length} принято из ${crafts.length}; вылазки: ${sorties.filter((x) => x === 'ok').length} из ${sorties.length}; удары с тыла: ${strikes.filter((x) => x === 'ok').length} из ${strikes.length}${[...crafts, ...sorties, ...strikes].some((x) => x !== 'ok') ? `; отказы: ${[...new Set([...crafts, ...sorties, ...strikes].filter((x) => x !== 'ok'))].slice(0, 4).join(' | ')}` : ''}`);
+
+  // Приказ или меню лазутчика, отказанные «слишком часто», — то, что живой игрок заметит в «час войны» (docs/playtest_sim.md,
+  // «Мелкое», п. 1): ни опрос, ни давка чужих приказов этого давать не должны.
+  const taps = bots.flatMap((b) => b.orders);
+  const refused = taps.filter((o) => o.endsWith(':429'));
+  if (refused.length) problem(`приказы войны отказаны «слишком часто»: ${refused.length} из ${taps.length} (${[...new Set(refused)].join(', ')})`);
+  note(`приказы войны и меню лазутчика: ${taps.length}, отказов «слишком часто» ${refused.length}`);
 
   // 8. Итоги боёв: у каждой стороны каждый бой принят партией один раз, а войны у сервера и у сторон совпадают.
   let battles = 0;

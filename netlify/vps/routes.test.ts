@@ -2,6 +2,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { START_GEMS, shopDay } from '../../src/game/gemrules.js';
 import { STORES, type Stores } from '../lib/kv.js';
 import { ROUTES } from '../lib/routes/index.js';
+import { castleIdOf } from '../lib/roster.js';
+import type { Counts, WarResponse, WarSheet, WatchCard } from '../lib/contract.js';
 import { placeCastle, settleRandom } from '../../src/world/settle.js';
 import { TEST_TOKEN, blobsHome, signInit, sqliteHome, type Home } from './testkit.js';
 
@@ -317,5 +319,169 @@ describe('сито частоты: у адресов свои вёдра', () =>
     expect(statuses.slice(0, 40).every((s) => s === 200)).toBe(true);
     expect(statuses[40]).toBe(429);
     expect((await ask('/api/save')).status).toBe(200);
+  });
+});
+
+describe('война в «час войны»: опрос не душит приказы, давка не отказывает', () => {
+  /**
+   * docs/playtest_sim.md, «Мелкое», п. 1. Игра спрашивает войну раз в `WAR_PULL_MS`, приказы — по нажатию; ведро на
+   * игрока было общим. А двенадцать походов разом проигрывали гонку условной записи общей записи войн: по одному за
+   * круг, и за `WRITE_TRIES` кругов проходили четыре. Область правила — одна минута: ведро не доливается, поэтому все
+   * запросы ведра идут в одну минуту `at`.
+   */
+  const ask = (home: Home, user: number, at: number, body?: unknown, query = '') =>
+    ROUTES['/api/war'](
+      new Request(`http://tribe.test/api/war${query}`, {
+        method: body === undefined ? 'GET' : 'POST',
+        headers: { 'x-telegram-init-data': signInit(user, Math.floor(at / SEC) - 60) },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      }),
+      { stores: home.stores, now: at, ip: null },
+    );
+  /** Приказ, которому нечего менять: отказ словами в теле, запись войн не трогается. */
+  const idle = { op: 'recall', id: 'w-none' };
+
+  it.each(HOMES.map(([name], i) => [name, i]))('%s: опрос упёрся в свой потолок — приказы идут; приказы упёрлись — опрос идёт', async (_name, i) => {
+    const home = homes[Number(i)];
+    const at = NOW + 2 * 3600 * SEC;
+    const poller = 2300 + Number(i);
+    const polls: number[] = [];
+    for (let n = 0; n < 61; n++) polls.push((await ask(home, poller, at)).status);
+    expect(polls.slice(0, 60).every((s) => s === 200)).toBe(true);
+    expect(polls[60]).toBe(429);
+    // Тот же игрок в ту же минуту — приказы подряд и меню лазутчика: ни одного «слишком часто».
+    const taps: number[] = [];
+    for (let n = 0; n < 10; n++) taps.push((await ask(home, poller, at, idle)).status);
+    taps.push((await ask(home, poller, at, undefined, '?spy=nowhere')).status);
+    expect(taps).toEqual(Array(11).fill(200));
+
+    // Ведро нажатий своё и с потолком: петля приказов режется, а опрос того же игрока идёт.
+    const tapper = 2400 + Number(i);
+    const orders: number[] = [];
+    for (let n = 0; n < 31; n++) orders.push((await ask(home, tapper, at, idle)).status);
+    expect(orders.slice(0, 30).every((s) => s === 200)).toBe(true);
+    expect(orders[30]).toBe(429);
+    expect((await ask(home, tapper, at)).status).toBe(200);
+  });
+
+  const card = (troops: Counts): WatchCard => ({
+    build: 'v1',
+    city: 'Город',
+    clock: 0,
+    time: 0,
+    level: 1,
+    buildings: { barracks: 1, stable: 1 },
+    pop: 2000,
+    stock: {},
+    prod: {},
+    cap: 1000,
+    troops,
+    queued: 0,
+    away: 0,
+    caravans: 0,
+    wounded: 0,
+    train: 0,
+    deeds: 0,
+    won: 0,
+    lost: 0,
+    lairs: 0,
+    raids: 0,
+    games: 0,
+    haul: 0,
+    haulCap: 0,
+    cheated: false,
+    lead: 0,
+    seen: 0,
+  });
+  const sheet = (army: Counts): WarSheet => ({
+    army,
+    home: army,
+    militia: 0,
+    archers: 0,
+    resolve: 0,
+    pips: {},
+    rest: 1,
+    food: 2000,
+    townPerHour: 20,
+    perManPerHour: 1,
+    stock: { food: 2000 },
+    stash: 0,
+    gold: 0,
+    pop: 2000,
+    bonded: 0,
+    levels: {},
+    power: 0,
+    locks: {},
+    seen: [],
+  });
+
+  /**
+   * Давка — только на доме своего сервера: там экземпляр один, и запросы встречаются в одной памяти. На Netlify экземпляр
+   * держит один запрос за раз, гонку между экземплярами держат попытки, а местный сервер Blobs в тесте даёт двум записям
+   * одной миллисекунды один ETag (`testkit.Home.settle`) — гонка в нём не та, что у настоящего Blobs.
+   */
+  it('SQLite: двенадцать походов разом, потом отзыв под опрос всех двадцати четырёх — ни одного отказа', async () => {
+    const i = HOMES.findIndex(([name]) => name === 'SQLite');
+    const home = homes[i];
+    expect(home.name).toBe('sqlite');
+    const spawn = process.env.TRIBE_SPAWN;
+    // Режим теста на 25 (docs/test_world.md): все на острове, в одном крае, защиты слабого нет.
+    process.env.TRIBE_SPAWN = 'sicily';
+    try {
+      const base = NOW + 10 * 3600 * SEC;
+      const players = Array.from({ length: 24 }, (_, k) => 6000 + k);
+      const etags = new Map<number, string>();
+      const push = async (user: number, at: number, troops: Counts) => {
+        const record = { v: 1, rev: 0, updatedAt: 0, device: 'd-test', game: '{}', world: null, card: { name: 'Вождь', day: 1, pop: 2000, power: 0, army: 0 }, watch: card(troops), war: sheet(troops) };
+        const res = await ROUTES['/api/save'](
+          new Request('http://tribe.test/api/save', {
+            method: 'PUT',
+            headers: { 'x-telegram-init-data': signInit(user, Math.floor(at / SEC) - 60) },
+            body: JSON.stringify({ baseEtag: etags.get(user) ?? null, record }),
+          }),
+          { stores: home.stores, now: at, ip: null },
+        );
+        expect(res.status).toBe(200);
+        etags.set(user, ((await res.json()) as { etag: string }).etag);
+        await home.settle();
+      };
+      for (const user of players) {
+        const res = await ROUTES['/api/castles'](
+          new Request('http://tribe.test/api/castles', {
+            method: 'PUT',
+            headers: { 'x-telegram-init-data': signInit(user, Math.floor(base / SEC) - 60) },
+            body: JSON.stringify({ name: `Вождь ${user}`, city: '', power: 0, pop: 2000 }),
+          }),
+          { stores: home.stores, now: base, ip: null },
+        );
+        expect(res.status).toBe(200);
+        await home.settle();
+        await push(user, base, {});
+      }
+      // Десять часов казарм первого уровня — копейщиков больше десяти: книга подтверждает отряд (docs/pvp.md, раздел 6).
+      const troops = { spearman: 10 };
+      const pairs = Array.from({ length: 12 }, (_, k) => [players[2 * k], players[2 * k + 1]] as const);
+      for (const [atk] of pairs) await push(atk, base + 10 * 3600 * SEC, troops);
+
+      const at = base + 10 * 3600 * SEC + MIN;
+      const march = (def: number) => ({ op: 'march', target: castleIdOf(`tg-${def}`), mode: 'storm', fate: 'plunder', army: { troops, resolve: 0, pips: {} } });
+      const sent = await Promise.all(pairs.map(([atk, def]) => ask(home, atk, at, march(def))));
+      expect(sent.map((r) => r.status)).toEqual(Array(12).fill(200));
+      const went = (await Promise.all(sent.map((r) => r.json()))) as WarResponse[];
+      expect(went.map((r) => r.error ?? null)).toEqual(Array(12).fill(null));
+      expect(went.map((r) => r.wars.length)).toEqual(Array(12).fill(1));
+
+      // Тот же игрок следом — второй приказ (отзыв), а все двадцать четыре в ту же минуту спрашивают войну.
+      const later = at + 2 * SEC;
+      const recalls = pairs.map(([atk], k) => ask(home, atk, later, { op: 'recall', id: went[k].wars[0].id }));
+      const polls = players.map((user) => ask(home, user, later));
+      const [back, looked] = await Promise.all([Promise.all(recalls), Promise.all(polls)]);
+      expect(back.map((r) => r.status)).toEqual(Array(12).fill(200));
+      expect(((await Promise.all(back.map((r) => r.json()))) as WarResponse[]).map((r) => r.error ?? null)).toEqual(Array(12).fill(null));
+      expect(looked.map((r) => r.status)).toEqual(Array(24).fill(200));
+    } finally {
+      if (spawn === undefined) delete process.env.TRIBE_SPAWN;
+      else process.env.TRIBE_SPAWN = spawn;
+    }
   });
 });

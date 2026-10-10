@@ -18,7 +18,7 @@
  */
 import { readInitData, saveKeyOf } from '../initdata.js';
 import { eraGate } from '../era.js';
-import { WRITE_TRIES, allow, botToken, deny, json, parseJson, readBody, spawnMode, warPace, type Route } from '../http.js';
+import { WRITE_TRIES, allow, botToken, deny, inTurn, json, parseJson, readBody, spawnMode, warPace, type Route } from '../http.js';
 import { cityOr, readWarOrder, type WarOrder, type WarResponse } from '../contract.js';
 import { ROSTER_KEY, castleIdOf, readRoster } from '../roster.js';
 import {
@@ -48,8 +48,13 @@ const KEY = WARS_KEY;
 /** Реестр замков — та же запись, что держит `routes/castles.ts`; здесь он только читается. */
 const ROSTER = ROSTER_KEY;
 
-/** Запросов в минуту на игрока. Игра читает раз в `WAR_PULL_MS` (`src/net/war.ts`), приказы — по нажатию. */
+/** Опросов в минуту на игрока. Игра читает раз в `WAR_PULL_MS` (`src/net/war.ts`). */
 const PER_MINUTE = 60;
+/**
+ * Нажатий в минуту на игрока — приказов и меню лазутчика, своим ведром: опрос игры их не съедает. Приказ переписывает
+ * общую запись войн, поэтому потолок есть, но выше того, что палец успевает через меню.
+ */
+const ORDERS_PER_MINUTE = 30;
 
 export const war: Route = async (req, io) => {
   const now = io.now;
@@ -57,7 +62,10 @@ export const war: Route = async (req, io) => {
   if (!auth.ok) return deny(401, 'unauthorized');
 
   const key = saveKeyOf(auth.user);
-  if (!allow(`war:${key}`, PER_MINUTE, now)) return deny(429, 'slow-down', { 'retry-after': '5' });
+  // Опрос (`warPull`) и нажатия игрока — разные вёдра: в «час войны» приказ не ждёт, пока наполнится ведро опроса.
+  const ask = req.method === 'GET' ? new URL(req.url, 'http://local').searchParams.get('spy') : null;
+  const tap = req.method === 'POST' || !!ask;
+  if (!allow(tap ? `warorder:${key}` : `war:${key}`, tap ? ORDERS_PER_MINUTE : PER_MINUTE, now)) return deny(429, 'slow-down', { 'retry-after': '5' });
   // Эпоха мира (docs/test_world.md): партия другой эпохи не пишется и не читается — после чистого старта она не воскресает.
   const gone = await eraGate(req, io);
   if (gone) return gone;
@@ -73,8 +81,7 @@ export const war: Route = async (req, io) => {
   } else if (req.method !== 'GET') {
     return deny(405, 'method');
   } else {
-    const q = new URL(req.url, 'http://local').searchParams.get('spy');
-    spyAsk = q && q.length <= 64 ? q : null;
+    spyAsk = ask && ask.length <= 64 ? ask : null;
   }
 
   const hot = io.stores(STORES.world, 'strong');
@@ -113,87 +120,91 @@ export const war: Route = async (req, io) => {
   const rosterFound = byTarget ? await cool.getWithMetadata(ROSTER) : null;
   const roster = readRoster(rosterFound ? parseJson(String(rosterFound.data)) : null);
 
-  for (let tries = 0; tries < WRITE_TRIES; tries++) {
-    const found = await hot.getWithMetadata(KEY);
-    const file = readWars(found ? parseJson(String(found.data)) : null);
-    const etag = found?.etag ?? null;
-    // Новости для бота — разница записи до и после этого хода (`war.newsOf`): кладёт их тот, чья запись легла.
-    const told = newsMap(file);
+  // Чтение, ход и запись — по одному в экземпляре (`http.inTurn`): в давке приказ ждёт свою очередь, а не проигрывает
+  // гонку условной записи четыре раза подряд.
+  return inTurn(KEY, async () => {
+    for (let tries = 0; tries < WRITE_TRIES; tries++) {
+      const found = await hot.getWithMetadata(KEY);
+      const file = readWars(found ? parseJson(String(found.data)) : null);
+      const etag = found?.etag ?? null;
+      // Новости для бота — разница записи до и после этого хода (`war.newsOf`): кладёт их тот, чья запись легла.
+      const told = newsMap(file);
 
-    for (const player of dueKeys(file, now)) await load(player);
-    let changed = advance(file, now, sheets);
+      for (const player of dueKeys(file, now)) await load(player);
+      let changed = advance(file, now, sheets);
 
-    let error: string | null = null;
-    const targetKey = byTarget ? (Object.keys(roster.rows).find((k) => castleIdOf(k) === byTarget) ?? null) : null;
-    if (order && isFrozen(frozen, key)) {
-      error = FROZEN_ORDER;
-    } else if (targetKey && isFrozen(frozen, targetKey)) {
-      error = FROZEN_TARGET;
-    } else if (order) {
-      await load(key);
-      if (targetKey) await load(targetKey);
-      if (order.op === 'storm') {
-        const w = file.wars.find((x) => x.id === (order as { id: string }).id);
-        if (w) await load(w.def);
-      }
-      forged.text = null;
-      error = applyOrder(file, key, order, now, {
-        roster,
-        sheet: (player) => sheets.get(player) ?? null,
-        noShield: spawnMode() !== null,
-        forged: (text) => {
-          forged.text = text;
-        },
-      });
-      if (!error) changed = true;
-    }
-    const before = file.wars.length;
-    pruneWars(file, now);
-    if (file.wars.length !== before) changed = true;
-
-    let spyMenu: WarResponse['spyMenu'];
-    if (spyAsk && !order) {
-      if (isFrozen(frozen, key)) error = FROZEN_ORDER;
-      else if (targetKey && isFrozen(frozen, targetKey)) error = FROZEN_TARGET;
-      else {
+      let error: string | null = null;
+      const targetKey = byTarget ? (Object.keys(roster.rows).find((k) => castleIdOf(k) === byTarget) ?? null) : null;
+      if (order && isFrozen(frozen, key)) {
+        error = FROZEN_ORDER;
+      } else if (targetKey && isFrozen(frozen, targetKey)) {
+        error = FROZEN_TARGET;
+      } else if (order) {
         await load(key);
         if (targetKey) await load(targetKey);
-        const menu = spyMenuOf(file, key, spyAsk, now, { roster, sheet: (player) => sheets.get(player) ?? null, noShield: spawnMode() !== null });
-        if (typeof menu === 'string') error = menu;
-        else spyMenu = menu;
+        if (order.op === 'storm') {
+          const w = file.wars.find((x) => x.id === (order as { id: string }).id);
+          if (w) await load(w.def);
+        }
+        forged.text = null;
+        error = applyOrder(file, key, order, now, {
+          roster,
+          sheet: (player) => sheets.get(player) ?? null,
+          noShield: spawnMode() !== null,
+          forged: (text) => {
+            forged.text = text;
+          },
+        });
+        if (!error) changed = true;
       }
-    }
-    const spies = spiesOf(file, key);
-    const body: WarResponse = {
-      now,
-      wars: warsOf(file, key),
-      ...(spies.length ? { spies } : {}),
-      ...(spyMenu ? { spyMenu } : {}),
-      ...(pace !== 1 ? { pace } : {}),
-      ...(error ? { error } : {}),
-    };
-    const flag = forged.text;
-    if (flag && !forged.told) {
-      forged.told = true;
-      await observe(io.stores, key, (rec) => addFlags(rec, now, [{ kind: 'forged', text: flag }]));
-    }
-    if (!changed) return json(body);
-    const written = await hot.setJSON(KEY, file, etag === null ? { onlyIfNew: true } : { onlyIfMatch: etag });
-    if (written.modified) {
-      await queueNews({ notify: io.stores(STORES.notify), due: io.stores(STORES.due) }, newsDiff(told, newsMap(file)), now);
-      // Поход на игрока и дело лазутчика — в журнал города нападающего (наблюдение, docs/admin.md).
-      if (order?.op === 'spy' && !error && targetKey) {
-        const city = cityOr(roster.rows[targetKey]?.city);
-        await observe(io.stores, key, (rec) => noted(rec, now, 'war', `Лазутчик к «${city}»: ${RIVAL_DEED_BY_ID[order.deed].name.toLowerCase()}.`));
-      }
-      if (order?.op === 'march' && !error && targetKey) {
-        const city = cityOr(roster.rows[targetKey]?.city);
-        await observe(io.stores, key, (rec) => noted({ ...rec, wars: rec.wars + 1 }, now, 'war', `Поход на «${city}» (${order.mode === 'storm' ? 'штурм' : 'осада'}).`));
-      }
-      return json(body);
-    }
-  }
+      const before = file.wars.length;
+      pruneWars(file, now);
+      if (file.wars.length !== before) changed = true;
 
-  // Не пробились за `WRITE_TRIES` попыток: запись общая, кто-то писал быстрее. Игра спросит ещё раз.
-  return deny(429, 'slow-down', { 'retry-after': '3' });
+      let spyMenu: WarResponse['spyMenu'];
+      if (spyAsk && !order) {
+        if (isFrozen(frozen, key)) error = FROZEN_ORDER;
+        else if (targetKey && isFrozen(frozen, targetKey)) error = FROZEN_TARGET;
+        else {
+          await load(key);
+          if (targetKey) await load(targetKey);
+          const menu = spyMenuOf(file, key, spyAsk, now, { roster, sheet: (player) => sheets.get(player) ?? null, noShield: spawnMode() !== null });
+          if (typeof menu === 'string') error = menu;
+          else spyMenu = menu;
+        }
+      }
+      const spies = spiesOf(file, key);
+      const body: WarResponse = {
+        now,
+        wars: warsOf(file, key),
+        ...(spies.length ? { spies } : {}),
+        ...(spyMenu ? { spyMenu } : {}),
+        ...(pace !== 1 ? { pace } : {}),
+        ...(error ? { error } : {}),
+      };
+      const flag = forged.text;
+      if (flag && !forged.told) {
+        forged.told = true;
+        await observe(io.stores, key, (rec) => addFlags(rec, now, [{ kind: 'forged', text: flag }]));
+      }
+      if (!changed) return json(body);
+      const written = await hot.setJSON(KEY, file, etag === null ? { onlyIfNew: true } : { onlyIfMatch: etag });
+      if (written.modified) {
+        await queueNews({ notify: io.stores(STORES.notify), due: io.stores(STORES.due) }, newsDiff(told, newsMap(file)), now);
+        // Поход на игрока и дело лазутчика — в журнал города нападающего (наблюдение, docs/admin.md).
+        if (order?.op === 'spy' && !error && targetKey) {
+          const city = cityOr(roster.rows[targetKey]?.city);
+          await observe(io.stores, key, (rec) => noted(rec, now, 'war', `Лазутчик к «${city}»: ${RIVAL_DEED_BY_ID[order.deed].name.toLowerCase()}.`));
+        }
+        if (order?.op === 'march' && !error && targetKey) {
+          const city = cityOr(roster.rows[targetKey]?.city);
+          await observe(io.stores, key, (rec) => noted({ ...rec, wars: rec.wars + 1 }, now, 'war', `Поход на «${city}» (${order.mode === 'storm' ? 'штурм' : 'осада'}).`));
+        }
+        return json(body);
+      }
+    }
+
+    // Не пробились за `WRITE_TRIES` попыток: запись общая, кто-то писал быстрее. Игра спросит ещё раз.
+    return deny(429, 'slow-down', { 'retry-after': '3' });
+  });
 };
