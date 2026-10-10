@@ -305,6 +305,11 @@
   margin: 0;
   font-size: 13px;
 }
+/* Итог строкой вкуса — курсивом под заголовком, как вкус постройки (docs/voice.md, 3). */
+.mg-verdict {
+  font-size: 13px;
+  color: var(--muted);
+}
 .mg-facts {
   display: flex;
   flex-wrap: wrap;

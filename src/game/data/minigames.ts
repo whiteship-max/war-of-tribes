@@ -47,13 +47,13 @@ export const MINIGAME_COST = 25;
 export const MINIGAME_SHARE = 1 / 12;
 
 export const MINIGAMES: readonly MinigameDef[] = [
-  { id: 'berries', name: 'Ягоды', yard: 'gathering', goal: 'Собери спелые ягоды', go: 'В лес', glyph: '🍓' },
-  { id: 'herd', name: 'Скот', yard: 'pen', goal: 'Накорми всех в загоне', go: 'В загон', glyph: '🐑' },
+  { id: 'berries', name: 'Ягоды', yard: 'gathering', goal: 'Набери корзины спелых ягод', go: 'В лес', glyph: '🍓' },
+  { id: 'herd', name: 'Скот', yard: 'pen', goal: 'Накорми загон до последней овцы', go: 'В загон', glyph: '🐑' },
   // Охота — двор охотников: мясо, шкуры и кости в его пропорции (docs/minigames.md, раздел 13).
-  { id: 'hunt', name: 'Охота', yard: 'hunter_hut', goal: 'Подстрели оленей из лука', go: 'На охоту', glyph: '🦌' },
+  { id: 'hunt', name: 'Охота', yard: 'hunter_hut', goal: 'Выследи и подстрели оленей', go: 'На охоту', glyph: '🦌' },
   // Рыбалка — двор собирателей: рыба — вольная еда, как ягоды и коренья, и своего двора у неё нет; доля — вся еда
   // (docs/minigames.md, раздел 17).
-  { id: 'fish', name: 'Рыбалка', yard: 'gathering', goal: 'Налови рыбы удочкой', go: 'К воде', glyph: '🐟' },
+  { id: 'fish', name: 'Рыбалка', yard: 'gathering', goal: 'Налови рыбы на уху и засолку', go: 'К воде', glyph: '🐟' },
 ];
 
 export const MINIGAME_BY_ID: Record<MinigameId, MinigameDef> = Object.fromEntries(MINIGAMES.map((g) => [g.id, g])) as Record<

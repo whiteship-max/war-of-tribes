@@ -13,6 +13,11 @@ import { energyTip } from '@/ui/next/hudTips';
 import { TIP_MAX } from '@/ui/next/tip';
 import { BANNED, playerStrings } from '@/ui/next/voice.test';
 import { TAP_TARGET } from '@/gestures';
+import { HOW, verdictOf } from './Minigame';
+import { BEASTS } from './herd';
+import { PIN_DISTS } from './hunt';
+import { FISH } from './fishing';
+import { MINIGAMES } from '@/game/data/minigames';
 
 const T0 = Date.UTC(2026, 9, 4, 6, 0, 0);
 
@@ -97,5 +102,34 @@ describe('цели касания промыслов — не меньше по�
 
   it('холст отдаёт пальцу вертикальную тягу: `touch-action: none`', () => {
     expect(CSS).toMatch(/\.mg-canvas\s*\{[^}]*touch-action:\s*none/);
+  });
+});
+
+// Итог, «как играть» и трофеи голосом игры (docs/voice.md, 11): числа правил — данными игры (правило 18), итог —
+// ступенью доли той же функцией, что начисление, у каждой рыбы своё имя трофея.
+describe('промыслы голосом игры', () => {
+  it('«как играть» называет числа правил данными игры, а не руками', () => {
+    expect(HOW.herd.join(' ')).toContain(`корове надо ${BEASTS.cow.need}`);
+    for (const d of PIN_DISTS) expect(HOW.hunt.join(' ')).toContain(String(d));
+  });
+
+  it('итог — своя строка на каждую ступень, и ступень растёт с долей', () => {
+    for (const g of MINIGAMES) {
+      const lines = [0, 0.2, 0.5, 0.9].map((x) => verdictOf(g.id, x));
+      expect(new Set(lines).size, g.id).toBe(4);
+      for (const t of lines) for (const re of BANNED) expect(re.test(t), `${g.id}: «${t}»`).toBe(false);
+      // Область: пороги ступеней лежат внутри [0, 1] — крайние доли дают верх и «ничего».
+      expect(verdictOf(g.id, 1), g.id).toBe(lines[3]);
+      expect(verdictOf(g.id, 0), g.id).toBe(lines[0]);
+    }
+  });
+
+  it('у каждой рыбы своё имя трофея, без запретных слов', () => {
+    const names = FISH.map((f) => f.big);
+    expect(new Set(names).size).toBe(FISH.length);
+    for (const f of FISH) {
+      expect(f.big.length, f.id).toBeLessThanOrEqual(20);
+      for (const re of BANNED) expect(re.test(f.big), f.big).toBe(false);
+    }
   });
 });

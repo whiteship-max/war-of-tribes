@@ -108,9 +108,9 @@ const SPLASH: Record<'float' | 'fish' | 'drip' | 'jump', Burst> = {
 
 /** Что сказать над прицелом. */
 const SAY: Partial<Record<FishEvent['kind'], string>> = {
-  weak: 'Тяни вниз сильнее',
+  weak: 'Замах слабый, тяни сильнее',
   hang: 'Зацеп',
-  early: 'Рано — пусто',
+  early: 'Рано, крючок пустой',
   missed: 'Объела насадку',
   hooked: 'На крючке',
   snap: 'Леска лопнула',
@@ -560,7 +560,7 @@ export class FishPlay implements Play {
         case 'caught': {
           this.shown = e.fish;
           const kg = weightText(e.fish.grams);
-          this.notes.push(e.fish.trophy ? `Трофей — ${e.fish.def.name.toLowerCase()}, ${kg}` : `${e.fish.def.name}, ${kg}`);
+          this.notes.push(e.fish.trophy ? `Трофей · ${e.fish.def.big}, ${kg}` : `${e.fish.def.name}, ${kg}`);
           this.splash(0, BANK_Z - 0.6, SPLASH.fish);
           this.ring(0, BANK_Z - 0.8, 1.2);
           this.sound?.caught(e.fish.trophy);

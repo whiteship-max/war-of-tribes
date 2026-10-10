@@ -147,6 +147,8 @@ export interface FishDef {
   id: FishId;
   /** Имя в отклике и в итоге. */
   name: string;
+  /** Имя трофея — так рыбаки зовут рыбу сверх обычного веса (docs/voice.md, 11). */
+  big: string;
   shore: Shore;
   /** В каких поясах водится и насколько часто, доля; нет пояса — не водится. */
   zones: Partial<Record<Zone, number>>;
@@ -180,24 +182,24 @@ export interface FishDef {
  */
 export const FISH: readonly FishDef[] = [
   // Река.
-  { id: 'roach', name: 'Плотва', shore: 'river', zones: { med: 1, dry: 1, ocean: 1, land: 1, north: 1 }, min: 0.08, max: 0.32, pull: 0.25, tire: 3.5, nibble: [1, 3], wait: [2.2, 6], window: 0.6, bite: 'dip', likes: { near: 1.6, weeds: 1.3, deep: 0.6 } },
-  { id: 'perch', name: 'Окунь', shore: 'river', zones: { med: 0.6, dry: 0.5, ocean: 0.8, land: 0.8, north: 0.9 }, min: 0.12, max: 0.6, pull: 0.42, tire: 4.5, nibble: [0, 1], wait: [2, 5.5], window: 0.7, bite: 'dip', likes: { snag: 3, weeds: 1.6, near: 0.8 } },
-  { id: 'bream', name: 'Лещ', shore: 'river', zones: { med: 0.4, dry: 0.3, ocean: 0.5, land: 0.6, north: 0.4 }, seasons: { winter: 0.4 }, min: 0.6, max: 2.4, pull: 0.62, tire: 7, nibble: [1, 2], wait: [3.5, 9], window: 1.1, bite: 'lift', likes: { deep: 3.5, near: 0.25 } },
-  { id: 'pike', name: 'Щука', shore: 'river', zones: { med: 0.15, dry: 0.12, ocean: 0.25, land: 0.3, north: 0.35 }, seasons: { spring: 1.4, autumn: 1.5 }, min: 1.4, max: 5.5, pull: 0.88, tire: 8, nibble: [0, 1], wait: [3, 8], window: 0.85, bite: 'run', jumps: true, likes: { weeds: 4, snag: 1.5, near: 0.6, deep: 0.6 } },
-  { id: 'burbot', name: 'Налим', shore: 'river', zones: { ocean: 0.3, land: 0.4, north: 0.6 }, seasons: { winter: 2.4, autumn: 0.6, spring: 0.2, summer: 0 }, min: 0.6, max: 2.2, pull: 0.55, tire: 6, nibble: [0, 1], wait: [3.5, 9], window: 0.9, bite: 'dip', likes: { deep: 2.5, snag: 1.8 } },
-  { id: 'trout', name: 'Форель', shore: 'river', zones: { ocean: 0.45, north: 0.55, land: 0.15 }, seasons: { winter: 0.5 }, min: 0.3, max: 1.6, pull: 0.65, tire: 5, nibble: [0, 2], wait: [2.5, 7], window: 0.6, bite: 'dip', jumps: true, likes: { snag: 1.6, deep: 1.2, near: 0.7 } },
-  { id: 'carp', name: 'Карп', shore: 'river', zones: { med: 0.4, dry: 0.45, land: 0.3 }, seasons: { winter: 0.2, summer: 1.3 }, min: 1, max: 4.5, pull: 0.85, tire: 9, nibble: [1, 3], wait: [4.5, 10], window: 1.0, bite: 'lift', likes: { weeds: 2, deep: 1.6, near: 0.4 } },
+  { id: 'roach', name: 'Плотва', big: 'Плотва-лопата', shore: 'river', zones: { med: 1, dry: 1, ocean: 1, land: 1, north: 1 }, min: 0.08, max: 0.32, pull: 0.25, tire: 3.5, nibble: [1, 3], wait: [2.2, 6], window: 0.6, bite: 'dip', likes: { near: 1.6, weeds: 1.3, deep: 0.6 } },
+  { id: 'perch', name: 'Окунь', big: 'Окунь-горбач', shore: 'river', zones: { med: 0.6, dry: 0.5, ocean: 0.8, land: 0.8, north: 0.9 }, min: 0.12, max: 0.6, pull: 0.42, tire: 4.5, nibble: [0, 1], wait: [2, 5.5], window: 0.7, bite: 'dip', likes: { snag: 3, weeds: 1.6, near: 0.8 } },
+  { id: 'bream', name: 'Лещ', big: 'Лещ-лапоть', shore: 'river', zones: { med: 0.4, dry: 0.3, ocean: 0.5, land: 0.6, north: 0.4 }, seasons: { winter: 0.4 }, min: 0.6, max: 2.4, pull: 0.62, tire: 7, nibble: [1, 2], wait: [3.5, 9], window: 1.1, bite: 'lift', likes: { deep: 3.5, near: 0.25 } },
+  { id: 'pike', name: 'Щука', big: 'Старая щука', shore: 'river', zones: { med: 0.15, dry: 0.12, ocean: 0.25, land: 0.3, north: 0.35 }, seasons: { spring: 1.4, autumn: 1.5 }, min: 1.4, max: 5.5, pull: 0.88, tire: 8, nibble: [0, 1], wait: [3, 8], window: 0.85, bite: 'run', jumps: true, likes: { weeds: 4, snag: 1.5, near: 0.6, deep: 0.6 } },
+  { id: 'burbot', name: 'Налим', big: 'Матёрый налим', shore: 'river', zones: { ocean: 0.3, land: 0.4, north: 0.6 }, seasons: { winter: 2.4, autumn: 0.6, spring: 0.2, summer: 0 }, min: 0.6, max: 2.2, pull: 0.55, tire: 6, nibble: [0, 1], wait: [3.5, 9], window: 0.9, bite: 'dip', likes: { deep: 2.5, snag: 1.8 } },
+  { id: 'trout', name: 'Форель', big: 'Форель-пеструшка', shore: 'river', zones: { ocean: 0.45, north: 0.55, land: 0.15 }, seasons: { winter: 0.5 }, min: 0.3, max: 1.6, pull: 0.65, tire: 5, nibble: [0, 2], wait: [2.5, 7], window: 0.6, bite: 'dip', jumps: true, likes: { snag: 1.6, deep: 1.2, near: 0.7 } },
+  { id: 'carp', name: 'Карп', big: 'Монастырский карп', shore: 'river', zones: { med: 0.4, dry: 0.45, land: 0.3 }, seasons: { winter: 0.2, summer: 1.3 }, min: 1, max: 4.5, pull: 0.85, tire: 9, nibble: [1, 3], wait: [4.5, 10], window: 1.0, bite: 'lift', likes: { weeds: 2, deep: 1.6, near: 0.4 } },
   // Тёплое море.
-  { id: 'mullet', name: 'Кефаль', shore: 'sea', zones: { med: 1, dry: 1 }, min: 0.3, max: 1.5, pull: 0.6, tire: 5, nibble: [2, 3], wait: [2.5, 7], window: 0.6, bite: 'dip', jumps: true, likes: { near: 1.4, weeds: 1.3 } },
-  { id: 'sargo', name: 'Ласкирь', shore: 'sea', zones: { med: 1.1, dry: 1 }, min: 0.1, max: 0.42, pull: 0.3, tire: 3.5, nibble: [1, 3], wait: [2, 5.5], window: 0.5, bite: 'dip', likes: { weeds: 2, snag: 1.6 } },
-  { id: 'bass', name: 'Лаврак', shore: 'sea', zones: { med: 0.35, dry: 0.3, ocean: 0.25 }, min: 0.8, max: 4, pull: 0.85, tire: 8, nibble: [0, 1], wait: [3, 8], window: 0.75, bite: 'run', jumps: true, likes: { snag: 3, weeds: 1.5, deep: 1.2 } },
-  { id: 'mackerel', name: 'Скумбрия', shore: 'sea', zones: { med: 0.6, dry: 0.5, ocean: 0.6 }, seasons: { winter: 0.2, summer: 1.4 }, min: 0.2, max: 0.6, pull: 0.48, tire: 3.5, nibble: [0, 1], wait: [2, 5], window: 0.5, bite: 'run', likes: { deep: 2, near: 0.5 } },
-  { id: 'dentex', name: 'Зубан', shore: 'sea', zones: { med: 0.1, dry: 0.08 }, min: 1.5, max: 6, pull: 0.95, tire: 9, nibble: [0, 1], wait: [4, 9], window: 0.8, bite: 'run', likes: { deep: 3, snag: 2, near: 0.2 } },
+  { id: 'mullet', name: 'Кефаль', big: 'Кефаль-лобан', shore: 'sea', zones: { med: 1, dry: 1 }, min: 0.3, max: 1.5, pull: 0.6, tire: 5, nibble: [2, 3], wait: [2.5, 7], window: 0.6, bite: 'dip', jumps: true, likes: { near: 1.4, weeds: 1.3 } },
+  { id: 'sargo', name: 'Ласкирь', big: 'Ласкирь-серебряк', shore: 'sea', zones: { med: 1.1, dry: 1 }, min: 0.1, max: 0.42, pull: 0.3, tire: 3.5, nibble: [1, 3], wait: [2, 5.5], window: 0.5, bite: 'dip', likes: { weeds: 2, snag: 1.6 } },
+  { id: 'bass', name: 'Лаврак', big: 'Морской волк', shore: 'sea', zones: { med: 0.35, dry: 0.3, ocean: 0.25 }, min: 0.8, max: 4, pull: 0.85, tire: 8, nibble: [0, 1], wait: [3, 8], window: 0.75, bite: 'run', jumps: true, likes: { snag: 3, weeds: 1.5, deep: 1.2 } },
+  { id: 'mackerel', name: 'Скумбрия', big: 'Скумбрия-вожак', shore: 'sea', zones: { med: 0.6, dry: 0.5, ocean: 0.6 }, seasons: { winter: 0.2, summer: 1.4 }, min: 0.2, max: 0.6, pull: 0.48, tire: 3.5, nibble: [0, 1], wait: [2, 5], window: 0.5, bite: 'run', likes: { deep: 2, near: 0.5 } },
+  { id: 'dentex', name: 'Зубан', big: 'Зубан-клыкач', shore: 'sea', zones: { med: 0.1, dry: 0.08 }, min: 1.5, max: 6, pull: 0.95, tire: 9, nibble: [0, 1], wait: [4, 9], window: 0.8, bite: 'run', likes: { deep: 3, snag: 2, near: 0.2 } },
   // Холодное море.
-  { id: 'herring', name: 'Сельдь', shore: 'sea', zones: { ocean: 1, land: 1, north: 1 }, min: 0.1, max: 0.35, pull: 0.26, tire: 3, nibble: [0, 2], wait: [2, 5.5], window: 0.5, bite: 'dip', likes: { deep: 1.5, near: 1 } },
-  { id: 'cod', name: 'Треска', shore: 'sea', zones: { ocean: 0.5, land: 0.4, north: 0.6 }, seasons: { winter: 1.3, summer: 0.7 }, min: 1, max: 5, pull: 0.78, tire: 8, nibble: [0, 1], wait: [3.5, 9], window: 0.9, bite: 'dip', likes: { deep: 3, snag: 1.5, near: 0.3 } },
-  { id: 'flounder', name: 'Камбала', shore: 'sea', zones: { ocean: 0.6, land: 0.7, north: 0.5 }, min: 0.3, max: 1.4, pull: 0.48, tire: 5, nibble: [1, 2], wait: [3, 8], window: 1.0, bite: 'lift', likes: { near: 1.6, deep: 0.8 } },
-  { id: 'pollock', name: 'Сайда', shore: 'sea', zones: { ocean: 0.4, north: 0.5, land: 0.2 }, min: 0.5, max: 3, pull: 0.72, tire: 6.5, nibble: [0, 1], wait: [2.5, 7], window: 0.7, bite: 'run', jumps: false, likes: { snag: 2.4, weeds: 1.4 } },
+  { id: 'herring', name: 'Сельдь', big: 'Сельдь-залом', shore: 'sea', zones: { ocean: 1, land: 1, north: 1 }, min: 0.1, max: 0.35, pull: 0.26, tire: 3, nibble: [0, 2], wait: [2, 5.5], window: 0.5, bite: 'dip', likes: { deep: 1.5, near: 1 } },
+  { id: 'cod', name: 'Треска', big: 'Треска-великан', shore: 'sea', zones: { ocean: 0.5, land: 0.4, north: 0.6 }, seasons: { winter: 1.3, summer: 0.7 }, min: 1, max: 5, pull: 0.78, tire: 8, nibble: [0, 1], wait: [3.5, 9], window: 0.9, bite: 'dip', likes: { deep: 3, snag: 1.5, near: 0.3 } },
+  { id: 'flounder', name: 'Камбала', big: 'Камбала-поднос', shore: 'sea', zones: { ocean: 0.6, land: 0.7, north: 0.5 }, min: 0.3, max: 1.4, pull: 0.48, tire: 5, nibble: [1, 2], wait: [3, 8], window: 1.0, bite: 'lift', likes: { near: 1.6, deep: 0.8 } },
+  { id: 'pollock', name: 'Сайда', big: 'Сайда-вожак', shore: 'sea', zones: { ocean: 0.4, north: 0.5, land: 0.2 }, min: 0.5, max: 3, pull: 0.72, tire: 6.5, nibble: [0, 1], wait: [2.5, 7], window: 0.7, bite: 'run', jumps: false, likes: { snag: 2.4, weeds: 1.4 } },
 ];
 
 export const FISH_BY_ID = Object.fromEntries(FISH.map((f) => [f.id, f])) as Record<FishId, FishDef>;
