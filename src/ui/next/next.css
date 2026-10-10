@@ -2370,10 +2370,15 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 4px 8px;
   margin: 0 0 8px;
   font-size: 13px;
   color: var(--muted);
+}
+/* Причина, общая всем рядам лавки, — своей строкой под счётом покупок, а не в каждом ряду (docs/voice.md, 12). */
+.nx-pay .nx-why {
+  flex-basis: 100%;
 }
 .nx-trade-body b svg {
   width: 14px;

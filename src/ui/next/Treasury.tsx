@@ -111,16 +111,19 @@ function Shop() {
     const err = await orderBuy(r);
     if (err) toast(err);
   };
+  const rows = SHOP_GOODS.map((r) => ({ r, price: shopPrice(r), blocked: shopBlocked(s, r, shopPrice(r), balance, left, offline) }));
+  // Причина, общая для всех рядов («Алмазы тратятся только в игре внутри Telegram», «Нет связи…»), говорится один раз над
+  // списком: семь одинаковых строк подряд — повтор (docs/voice.md, 5).
+  const common = rows.every((x) => x.blocked !== null && x.blocked === rows[0].blocked) ? rows[0].blocked : null;
   return (
     <>
       <div className="nx-pay">
         <span>
           Сегодня {used} из {SHOP_DAILY} · новые через {realSpanText(Math.ceil((shopResetAt(now) - now) / 1000))}
         </span>
+        {common && <small className="nx-why">{common}</small>}
       </div>
-      {SHOP_GOODS.map((r) => {
-        const price = shopPrice(r);
-        const blocked = shopBlocked(s, r, price, balance, left, offline);
+      {rows.map(({ r, price, blocked }) => {
         const waiting = busy === `buy:${r}`;
         return (
           <div className="nx-trade" key={r}>
@@ -131,7 +134,11 @@ function Shop() {
               <b>
                 {RESOURCE_META[r].name} +{SHOP_LOT}
               </b>
-              {blocked ? <small className="nx-why">{blocked}</small> : <span className="nx-trade-haul">Места на складе: {shopRoom(s, r)}</span>}
+              {blocked && blocked !== common ? (
+                <small className="nx-why">{blocked}</small>
+              ) : (
+                <span className="nx-trade-haul">Места на складе: {shopRoom(s, r)}</span>
+              )}
             </div>
             <button className="nx-go nx-trade-go nx-gem-go" disabled={blocked !== null || waiting} onClick={() => void buy(r)}>
               {waiting ? (

@@ -95,6 +95,7 @@ export function Hud() {
   const openTab = useGame((g) => g.openTab);
   const openBuilding = useGame((g) => g.openBuilding);
   const showRealm = useRealm((r) => r.show);
+  const realmOpen = useRealm((r) => r.open);
   const season = seasonOf(s.time);
   const meta = SEASON_META[season];
   const pop = s.pop;
@@ -176,8 +177,10 @@ export function Hud() {
           );
         })}
       </div>
-      {/* Сокровищница — справа под строкой запасов (docs/gems.md); ярлыки «Ускорить» у лесов — порталом в сцену. */}
-      <GemPlaque />
+      {/* Сокровищница — слева под строкой запасов (docs/gems.md); ярлыки «Ускорить» у лесов — порталом в сцену. Пока
+          открыта держава, плашки нет: она легла бы на шапку раздела («Вести», «Правитель») — снимок 390 и 375,
+          docs/voice.md, 12. */}
+      {!realmOpen && <GemPlaque />}
       <SiteTags />
     </div>
   );
