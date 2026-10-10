@@ -13,7 +13,7 @@ import './deeds.css';
 import type { BuildingTypeId } from '@/game/types';
 import type { Quality } from '../quality';
 import { heightAt, type P } from './layout';
-import { at, figureMaterial, gaitOf, guardGeometry, heightOnPath, nearestOn, pathOf, patrolAt, personGeometry, softDot, tangentAt, type Junction, type Path } from './life';
+import { at, figureLod, figureMaterial, figureMesh, gaitOf, guardGeometry, heightOnPath, nearestOn, pathOf, patrolAt, personGeometry, softDot, tangentAt, type Junction, type Path } from './life';
 import { hash3, rnd } from './noise';
 import { linear } from './palette';
 import { mainSite, type Site } from './sites';
@@ -441,20 +441,12 @@ export class CityDeeds {
     this.beams.name = 'city-scaffold';
     this.beams.castShadow = q === 'high';
     const mat = figureMaterial();
-    const simple = q === 'low';
-    this.builders = new THREE.InstancedMesh(personGeometry(simple), mat, Math.max(1, this.cap.builders * 3));
-    this.soldiers = new THREE.InstancedMesh(guardGeometry(simple), mat, Math.max(1, this.cap.soldiers * 2));
-    this.builders.name = 'city-builders';
-    this.soldiers.name = 'city-muster';
+    // Цвет одежды, вторая ткань и кожа — до первого кадра (`life.figureMesh`): без них программа собралась бы без цвета
+    // экземпляров, а капюшон и лицо вышли бы чёрными.
+    this.builders = figureMesh(personGeometry(figureLod(q)), mat, this.cap.builders * 3, 'city-builders', WORK_DRESS, WORK_DRESS, 41);
+    this.soldiers = figureMesh(guardGeometry(figureLod(q)), mat, this.cap.soldiers * 2, 'city-muster', [linear(0x8a2f2a)], [linear(0x9a2a24), linear(0xb08a3a)], 43);
     this.builderGait = gaitOf(this.builders);
     this.soldierGait = gaitOf(this.soldiers);
-    // Цвет экземпляров — до первого кадра: без него программа собралась бы без цвета экземпляров.
-    for (let i = 0; i < this.builders.count; i++) {
-      const c = WORK_DRESS[i % WORK_DRESS.length];
-      this.builders.setColorAt(i, this.c3.setRGB(c[0], c[1], c[2]));
-    }
-    const tabard = linear(0x8a2f2a);
-    for (let i = 0; i < this.soldiers.count; i++) this.soldiers.setColorAt(i, this.c3.setRGB(tabard[0], tabard[1], tabard[2]));
     for (let i = 0; i < this.beams.count; i++) this.beams.setColorAt(i, this.c3.setRGB(1, 1, 1));
     for (const im of [this.beams, this.builders, this.soldiers]) {
       im.frustumCulled = false;

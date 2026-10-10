@@ -5,10 +5,10 @@ import * as THREE from 'three';
 import { QUALITIES } from '../quality';
 import { cityPlan, distPoly, insidePoly } from './layout';
 import { buildStatic } from './budget';
-import { wallTops } from './forts';
-import { CITY_SMOKE, CITY_WIND, CityLife, CitySmoke, NIGHT_SHARE, ROUTE_MAX, SMOKE_PUFFS, beastGeometry, guardGeometry, patrolAt, personGeometry, poseAt, type Route } from './life';
+import { inTowerShape, wallTops } from './forts';
+import { CITY_SMOKE, CITY_WIND, CityLife, CitySmoke, GATE_POSTS, NIGHT_SHARE, ROUTE_MAX, SMOKE_PUFFS, TOWNSFOLK, archerGeometry, beastGeometry, guardGeometry, patrolAt, personGeometry, poseAt, townsGeometry, type Route } from './life';
 import { HEARTH_LOOK } from '../weather';
-import { LIFE_CAP, LIFE_TRIS, figureTris } from './spec';
+import { GATE_GUARDS, LIFE_CAP, LIFE_TRIS, figureTris, townsfolkTris } from './spec';
 
 const plan = cityPlan();
 const st = buildStatic(plan, 'medium');
@@ -28,19 +28,34 @@ function placed(im: THREE.InstancedMesh): THREE.Vector3[] {
 
 const mesh = (life: CityLife, name: string): THREE.InstancedMesh => life.group.getObjectByName(name) as THREE.InstancedMesh;
 
+/** Горожане всех видов (меш на вид: `city-people`, `city-people-woman`, `city-people-cap`). */
+const crowd = (life: CityLife): THREE.InstancedMesh[] =>
+  life.group.children.filter((c): c is THREE.InstancedMesh => c instanceof THREE.InstancedMesh && c.name.startsWith('city-people'));
+const crowdCount = (life: CityLife): number => crowd(life).reduce((n, im) => n + im.count, 0);
+const crowdPlaced = (life: CityLife): THREE.Vector3[] => crowd(life).flatMap((im) => placed(im));
+
 describe('город: жизнь', () => {
   it('фигуры той цены, что считает бюджет', () => {
     expect(tris(personGeometry())).toBe(LIFE_TRIS.person);
+    TOWNSFOLK.forEach((k, i) => expect(tris(townsGeometry(k)), k).toBe(townsfolkTris('high')[i]));
+    TOWNSFOLK.forEach((k, i) => expect(tris(townsGeometry(k, 1)), `${k} на среднем`).toBe(townsfolkTris('medium')[i]));
     expect(tris(guardGeometry())).toBe(LIFE_TRIS.guard);
+    expect(tris(archerGeometry())).toBe(LIFE_TRIS.archer);
+    expect(tris(guardGeometry(1))).toBe(LIFE_TRIS.guardMid);
+    expect(tris(archerGeometry(1))).toBe(LIFE_TRIS.archerMid);
     expect(tris(beastGeometry())).toBe(LIFE_TRIS.beast);
     // Низкий — прежние фигуры, без шага: нового на нём нет.
-    expect(tris(personGeometry(true))).toBe(LIFE_TRIS.personLow);
-    expect(tris(guardGeometry(true))).toBe(LIFE_TRIS.guardLow);
+    expect(tris(personGeometry(0))).toBe(LIFE_TRIS.personLow);
+    expect(tris(guardGeometry(0))).toBe(LIFE_TRIS.guardLow);
+    expect(tris(archerGeometry(0))).toBe(LIFE_TRIS.guardLow);
     expect(tris(beastGeometry(true))).toBe(LIFE_TRIS.beastLow);
     for (const q of QUALITIES) {
       const life = new CityLife({ plan, chimneys: st.chimneys, flagTops: st.flagTops, quality: q });
-      expect(tris(mesh(life, 'city-people').geometry), q).toBe(figureTris(q).person);
-      expect(tris(mesh(life, 'city-guards').geometry), q).toBe(figureTris(q).guard);
+      const kinds = crowd(life);
+      expect(kinds.length, q).toBe(q === 'low' ? 1 : TOWNSFOLK.length);
+      kinds.forEach((im, i) => expect(tris(im.geometry), `${q} ${im.name}`).toBe(townsfolkTris(q)[i]));
+      expect(tris(mesh(life, 'city-guards').geometry), q).toBe(figureTris(q).archer);
+      expect(tris(mesh(life, 'city-gate-guards').geometry), q).toBe(figureTris(q).guard);
       expect(tris(mesh(life, 'city-beasts').geometry), q).toBe(figureTris(q).beast);
       life.dispose();
     }
@@ -59,7 +74,7 @@ describe('город: жизнь', () => {
     life.set(1000, 1000, []);
     for (let k = 0; k < 20; k++) life.update(0.1, k * 0.1, 0, 0);
     const guards = placed(mesh(life, 'city-guards'));
-    const people = placed(mesh(life, 'city-people'));
+    const people = crowdPlaced(life);
     // Граница области: днём при большом городе фигур — сколько позволяет уровень.
     expect(guards.length).toBe(LIFE_CAP.medium.guards);
     expect(people.length).toBe(LIFE_CAP.medium.people);
@@ -94,18 +109,18 @@ describe('город: жизнь', () => {
     const life = new CityLife({ plan, chimneys: st.chimneys, flagTops: st.flagTops, quality: 'low' });
     life.set(50, 8, []);
     life.update(0.1, 0, 0, 0);
-    const day = mesh(life, 'city-people').count;
+    const day = crowdCount(life);
     const guardsDay = mesh(life, 'city-guards').count;
     expect(day).toBe(50);
     life.update(0.1, 0.1, 1, 0);
-    const night = mesh(life, 'city-people').count;
+    const night = crowdCount(life);
     expect(night).toBeLessThanOrEqual(Math.ceil(day * NIGHT_SHARE));
     expect(night).toBeLessThanOrEqual(Math.ceil(day * 0.25));
     expect(night).toBeGreaterThan(0);
     expect(mesh(life, 'city-guards').count).toBe(guardsDay);
     life.set(100000, 100000, []);
     life.update(0.1, 0.2, 0, 0);
-    expect(mesh(life, 'city-people').count).toBe(LIFE_CAP.low.people);
+    expect(crowdCount(life)).toBe(LIFE_CAP.low.people);
     life.dispose();
   });
 
@@ -120,9 +135,11 @@ describe('город: жизнь', () => {
     // Граница области: ночь и стража на стене — иначе факелов нечем проверить.
     expect(guards.length).toBe(12);
     expect(torches.visible, 'ночью факел горит').toBe(true);
-    expect(torches.geometry.drawRange.count).toBe(guards.length);
+    const posts = placed(mesh(life, 'city-gate-guards'));
+    expect(posts.length, 'у каждых ворот — четверо').toBe(GATE_GUARDS * plan.towers.filter((t) => t.kind === 'gate' || t.kind === 'castleGate').length);
+    expect(torches.geometry.drawRange.count).toBe(guards.length + posts.length);
     const pos = torches.geometry.attributes.position as THREE.BufferAttribute;
-    guards.forEach((g, i) => {
+    [...guards, ...posts].forEach((g, i) => {
       const t = new THREE.Vector3().fromBufferAttribute(pos, i);
       expect(Math.hypot(t.x - g.x, t.z - g.z), 'факел у своего стража').toBeLessThan(0.6);
       expect(t.y - g.y, 'факел над плечом').toBeGreaterThan(1.6);
@@ -197,7 +214,7 @@ describe('город: жизнь', () => {
     // a — кадрами по 0.1 с до 30 с, b — сразу в 30 с (вошёл в город, вернулся из фона).
     for (let k = 0; k <= 300; k++) a.update(0.1, k * 0.1, 0, 0);
     b.update(5, 30, 0, 0);
-    for (const name of ['city-people', 'city-guards']) {
+    for (const name of ['city-people', 'city-people-woman', 'city-people-cap', 'city-guards']) {
       const pa = placed(mesh(a, name));
       const pb = placed(mesh(b, name));
       expect(pa.length).toBeGreaterThan(0);
@@ -256,5 +273,64 @@ describe('город: жизнь', () => {
       prev = g;
     }
     expect(still * 0.05, 'стоит на концах').toBeGreaterThan(2 * 2 * 6 * 0.9);
+  });
+  it('у ворот — копейщики по двое с каждой стороны проезда, стоят перед башней, вне арки', () => {
+    const life = new CityLife({ plan, chimneys: st.chimneys, flagTops: st.flagTops, quality: 'medium' });
+    life.set(100, 0, []);
+    life.update(0.1, 5, 0, 0);
+    const posts = placed(mesh(life, 'city-gate-guards'));
+    const gates = plan.towers.filter((t) => t.kind === 'gate' || t.kind === 'castleGate');
+    // Граница области: все ворота города и замка — четверо и трое.
+    expect(gates.length).toBe(4);
+    for (const t of gates) {
+      const fx = Math.cos(t.out);
+      const fz = Math.sin(t.out);
+      // Свои — ближе к этим воротам, чем к другим: северные ворота города и ворота замка стоят через ров в шести метрах.
+      const near = (p: THREE.Vector3): (typeof gates)[number] => gates.reduce((a, b) => (Math.hypot(p.x - a.x, p.z - a.z) < Math.hypot(p.x - b.x, p.z - b.z) ? a : b));
+      const mine = posts.filter((p) => near(p) === t);
+      expect(mine.length, `${t.kind}: четверо`).toBe(GATE_GUARDS);
+      const sides = mine.map((p) => Math.sign((p.x - t.x) * fz - (p.z - t.z) * fx));
+      expect(sides.filter((x) => x > 0).length, `${t.kind}: двое справа`).toBe(2);
+      expect(sides.filter((x) => x < 0).length, `${t.kind}: двое слева`).toBe(2);
+      for (const p of mine) {
+        const lat = Math.abs((p.x - t.x) * fz - (p.z - t.z) * fx);
+        const fwd = (p.x - t.x) * fx + (p.z - t.z) * fz;
+        expect(lat, 'вне арки в 6 м').toBeGreaterThan(3);
+        expect(Math.abs(fwd), 'перед башней, не в ней').toBeGreaterThan(t.size / 2);
+        expect(plan.towers.some((o) => inTowerShape(o, p.x, p.z, 0.2)), 'не в чужой башне').toBe(false);
+      }
+    }
+    // Стоят: шаг не копится, и через минуту — там же.
+    life.update(0.1, 65, 0, 0);
+    placed(mesh(life, 'city-gate-guards')).forEach((p, i) => expect(p.distanceTo(posts[i])).toBeLessThan(1e-6));
+    expect(GATE_POSTS[0]).toBeGreaterThan(3);
+    life.dispose();
+  });
+
+  it('лучники — по всем сторонам стены, дозором между башнями, сквозь башню не ходят', () => {
+    const life = new CityLife({ plan, chimneys: st.chimneys, flagTops: st.flagTops, quality: 'high' });
+    life.set(100, 6, []);
+    const towers = plan.towers.filter((t) => t.kind !== 'castleGate' && t.kind !== 'keep');
+    let samples = 0;
+    let moved = 0;
+    const first: THREE.Vector3[] = [];
+    // Граница области: два полных круга самого длинного дозора (2 · (2·44/0.7 + 9) с) через полсекунды.
+    for (let t = 0; t <= 2 * ((2 * 44) / 0.7 + 9); t += 0.5) {
+      life.update(0.5, t, 0, 0);
+      const g = placed(mesh(life, 'city-guards'));
+      expect(g.length).toBe(6);
+      g.forEach((p, i) => {
+        samples++;
+        if (t === 0) first.push(p.clone());
+        else if (p.distanceTo(first[i]) > 3) moved++;
+        for (const tw of towers) expect(inTowerShape(tw, p.x, p.z, 0.3), `лучник ${i} в башне ${tw.kind} (${p.x.toFixed(0)}, ${p.z.toFixed(0)})`).toBe(false);
+      });
+    }
+    expect(samples).toBeGreaterThan(6 * 300);
+    expect(moved, 'ходят, а не стоят').toBeGreaterThan(samples * 0.3);
+    // По всем сторонам: шестеро — на севере и юге, западе и востоке города.
+    const g0 = first;
+    expect(g0.some((p) => p.z > 60) && g0.some((p) => p.z < -60) && g0.some((p) => p.x > 50) && g0.some((p) => p.x < -50), 'со всех сторон').toBe(true);
+    life.dispose();
   });
 });

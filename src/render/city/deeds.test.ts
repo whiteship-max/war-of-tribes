@@ -20,7 +20,9 @@ const life = new CityLife({ plan, chimneys: [], flagTops: [], quality: 'medium' 
 const street = life.street();
 
 /** Потолок треугольников отклика в худший миг (три стройки, праздник, строй) — по уровням. */
-const DEED_TRIS = { high: 5000, medium: 5000, low: 1200 };
+// Точёные строители и бойцы (docs/city.md, 16.2) дороже коробок: высокий — 6 000 (до границы владельца там десятки
+// тысяч), средний — 5 200 (фигуры грубее по кругу; кадр среднего 389 061 + 5 200 — в границе 400 000).
+const DEED_TRIS = { high: 6000, medium: 5200, low: 1200 };
 
 const res = (part: Partial<Resources>): Resources => ({ ...(Object.fromEntries(RESOURCE_IDS.map((r) => [r, 0])) as Resources), ...part });
 

@@ -12,7 +12,7 @@ import { cityWall, tower } from './forts';
 import { churchyard, civic, civicStoop, fireBowl, gutter, marketProps, stall, statue, well } from './civic';
 import { placeTrees, treeModel, type Species } from './nature';
 import { LAYERS } from './tex';
-import { CITY_SPEC, LIFE_CAP, LIFE_TRIS, SHORE_CAP, figureTris, shoreTris } from './spec';
+import { CITY_SPEC, GATE_GUARDS, LIFE_CAP, LIFE_TRIS, SHORE_CAP, figureTris, peopleTris, shoreTris } from './spec';
 import { shoreItems, waterTriangles } from './banks';
 
 /** Границы владельца по уровням (задание ночи 1): вызовы, треугольники, МБ текстур, МБ докачки. */
@@ -173,10 +173,14 @@ export function cityCounts(q: Quality, plan: CityPlan = cityPlan()): CityCounts 
   // — вызов жизни (`life.ts`). Стягов — по два на воротах и донжоне (`alive.bannerSpots`).
   const banners = cap.banners > 0 ? plan.towers.filter((t) => t.kind === 'gate' || t.kind === 'castleGate' || t.kind === 'keep').length * 2 : 0;
   calls += [cap.lanterns, cap.carts, cap.ducks, cap.boats, cap.pigeons, banners].filter((n) => n > 0).length;
+  // Горожане — по вызову на вид (на низком — один), копейщики у ворот — вызов (docs/city.md, 16.2).
+  const gates = plan.towers.filter((t) => t.kind === 'gate' || t.kind === 'castleGate').length;
+  calls += (q === 'low' ? 0 : 2) + 1;
   const ft = figureTris(q);
   const life =
-    cap.people * ft.person +
-    cap.guards * ft.guard +
+    peopleTris(q, cap.people) +
+    cap.guards * ft.archer +
+    gates * GATE_GUARDS * ft.guard +
     cap.animals * ft.beast +
     cap.birds * LIFE_TRIS.bird +
     plan.towers.length * LIFE_TRIS.flag +
