@@ -51,7 +51,7 @@ export function battleCard(report: Report, myCity: string): ShareCard | null {
       { label: 'Наши потери', value: `${num(ours.losses)} из ${num(ours.initial)}` },
       { label: 'Потери врага', value: `${num(foes.losses)} из ${num(foes.initial)}` },
     ],
-    text: `Бой «${me}» и «${report.target.name}». ${head}. Наши потери ${num(ours.losses)}, у врага ${num(foes.losses)}.`,
+    text: `Сошлись в бою «${me}» и «${report.target.name}». ${head}. Наши потери ${num(ours.losses)}, у врага ${num(foes.losses)}.`,
   };
 }
 
@@ -66,7 +66,7 @@ export function cityCard(report: Report, myCity: string, ruler: string): ShareCa
     head: 'Город взят',
     title: `«${report.target.name}»`,
     rows,
-    text: `Город «${report.target.name}» взят. Победил «${me}», правитель ${ruler}.`,
+    text: `Пал город «${report.target.name}». Взял его «${me}», правитель ${ruler}.`,
   };
 }
 

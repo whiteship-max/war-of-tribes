@@ -35,7 +35,7 @@ export function startUpgrade(s: GameState, buildingId: number): string | null {
   pay(s, info.cost);
   b.work = 0;
   b.workRequired = info.work;
-  log(s, `Стройка: ${BUILDING_BY_ID[b.type].name} до ур. ${info.level}.`);
+  log(s, `Заложили стройку: ${BUILDING_BY_ID[b.type].name.toLowerCase()}, до ур. ${info.level}.`);
   return null;
 }
 
@@ -48,7 +48,7 @@ export function cancelUpgrade(s: GameState, buildingId: number): string | null {
   refund(s, upgradeCost(def, b.level + 1), b.work === 0 ? 1 : 0.5);
   b.work = 0;
   b.workRequired = 0;
-  log(s, `Улучшение отменено: ${def.name}.`);
+  log(s, `Стройку остановили: ${def.name.toLowerCase()}.`);
   return null;
 }
 
@@ -67,7 +67,7 @@ export function throwFeast(s: GameState): string | null {
   s.gold -= info.cost;
   s.feastUntil = s.time + feastSeconds();
   s.feastAt = s.time;
-  log(s, `Пир для всего города за ${info.cost} золота. Мораль +${info.bonus} на ${daysSpan(FEAST_DAYS)}.`, 'good');
+  log(s, `Правитель созвал город на пир, ушло ${info.cost} золота. Мораль +${info.bonus} на ${daysSpan(FEAST_DAYS)}.`, 'good');
   return null;
 }
 
@@ -80,7 +80,7 @@ export function setDecree(s: GameState, id: DecreeId): string | null {
   if (!def) return 'Такого указа нет.';
   if (s.decree === id) return null;
   s.decree = id;
-  log(s, `Указ: ${def.name.toLowerCase()}.`);
+  log(s, `Объявлен указ «${def.name}».`);
   return null;
 }
 
@@ -90,7 +90,7 @@ export function setRation(s: GameState, id: RationId): string | null {
   if (!def) return 'Такого пайка нет.';
   if (s.ration === id) return null;
   s.ration = id;
-  log(s, `Паёк: ${def.name.toLowerCase()}.`);
+  log(s, `Паёк сменили: «${def.name}».`);
   return null;
 }
 
@@ -103,6 +103,6 @@ export function setTax(s: GameState, id: TaxId): string | null {
   if (!def) return 'Такого налога нет.';
   if (s.tax === id) return null;
   s.tax = id;
-  log(s, `Налог: ${def.name.toLowerCase()}.`);
+  log(s, `Налог сменили: «${def.name}».`);
   return null;
 }

@@ -281,7 +281,7 @@ describe('/start — приветствие', () => {
     expect(t.greeted[0].text).not.toMatch(/Сицили/);
     process.env.TRIBE_SPAWN = 'sicily';
     await message(t, 778, '/start');
-    expect(t.greeted[1].text).toMatch(new RegExp(`Сицилии: до ${SICILY.length} городов`));
+    expect(t.greeted[1].text).toMatch(new RegExp(`острове до ${SICILY.length} городов`));
     // Админ-команды /start не открывает: чужому на другое — тишина.
     await message(t, 777, '/help');
     expect(t.said).toEqual([]);

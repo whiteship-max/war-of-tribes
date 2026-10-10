@@ -47,12 +47,12 @@ export async function sendReport(body: ReportPut): Promise<ReportResult> {
   if (res.ok) return { ok: true, id: res.data.id };
   switch (res.why) {
     case 'auth':
-      return { ok: false, why: 'Отчёт уходит только из игры, открытой в Telegram.' };
+      return { ok: false, why: 'Письмо уходит только из игры, открытой в Telegram.' };
     case 'busy':
-      return { ok: false, why: `Слишком много отчётов: не больше ${REPORT_LIMITS.perHour} в час. Попробуй позже.` };
+      return { ok: false, why: `Слишком много писем: не больше ${REPORT_LIMITS.perHour} в час. Попробуй позже.` };
     case 'offline':
-      return { ok: false, why: 'Нет связи. Текст не пропал — попробуй ещё раз, когда связь вернётся.' };
+      return { ok: false, why: 'Нет связи. Текст не пропал, отправь его, когда связь вернётся.' };
     default:
-      return { ok: false, why: 'Отчёт не ушёл. Попробуй ещё раз чуть позже.' };
+      return { ok: false, why: 'Письмо не ушло. Попробуй ещё раз чуть позже.' };
   }
 }

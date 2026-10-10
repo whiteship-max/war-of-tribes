@@ -307,7 +307,7 @@ describe('отвергнутая партия достаётся из служе
     const second = await tab();
     await second.syncBoot(true);
 
-    // Отвергнутая видна игроку — это и есть «Задания» → «Служебное».
+    // Отвергнутая видна игроку — это и есть «Задания» → «Партия».
     const spare = second.useSync.getState().spare;
     expect(spare?.card.day).toBe(41);
 

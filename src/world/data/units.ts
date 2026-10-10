@@ -39,8 +39,8 @@ export const UNITS: UnitDef[] = [
   },
   {
     id: 'warrior',
-    name: 'Воины',
-    one: 'воин',
+    name: 'Бойцы',
+    one: 'боец',
     icon: '🛡️',
     description: 'Пеший боец с копьём. В походе город не защищает.',
     speed: 4.5,

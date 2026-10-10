@@ -15,5 +15,5 @@ export function barrageShares(shots: number | undefined): number[] {
  * у логова стены нет — пролом ему ничего не стоит, и подпись без чисел.
  */
 export function barrageCaption(rec: Pick<BattleRecord, 'site' | 'shots'>): string {
-  return rec.site === 'wall' ? craftNote({ shots: rec.shots }) : 'Обстрел логова: камни ложатся меж шалашей, дух гарнизона падает.';
+  return rec.site === 'wall' ? craftNote({ shots: rec.shots }) : 'Обстрел логова: камни ложатся меж шалашей, мораль гарнизона падает.';
 }

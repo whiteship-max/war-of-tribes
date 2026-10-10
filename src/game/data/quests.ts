@@ -10,6 +10,7 @@
 // задания на него обязаны появиться.
 import type { GameState, ResourceId } from '../types';
 import { armySize, buildingOfType, jobCounts } from '../derived';
+import { DAY_LENGTH } from '../pace';
 
 export interface QuestDef {
   id: string;
@@ -95,7 +96,7 @@ export const QUESTS: QuestDef[] = [
   {
     id: 'first_raid',
     title: 'Первый поход',
-    description: 'Отправь отряд в поход. Пока он в пути, город он не защищает.',
+    description: 'Отправь отряд в поход. Пока он в пути, стены стоят без него.',
     check: (s) => (s.stats.raids ?? 0) >= 1,
     reward: { wood: 240, stone: 160 },
   },
@@ -133,7 +134,7 @@ export const QUESTS: QuestDef[] = [
   {
     id: 'heavy',
     title: 'Тяжёлая пехота',
-    description: `Найми ${GOAL.heavy} латников. Меч, щит и доспех на каждого.`,
+    description: `Найми ${GOAL.heavy} латников. Каждому нужны меч, щит и доспех.`,
     check: (s) => (s.army.legionary ?? 0) >= GOAL.heavy,
     progress: upTo((s) => s.army.legionary ?? 0, GOAL.heavy),
     reward: { iron: 160 },
@@ -149,7 +150,7 @@ export const QUESTS: QuestDef[] = [
   {
     // Имя от прежнего порога: проверяет `GOAL.gold` золота.
     id: 'gold_150',
-    title: 'Полная казна',
+    title: 'Золото в сундуках',
     description: `Собери ${GOAL.gold} золота. Его дают налог, десятина и рынок.`,
     check: (s) => s.gold >= GOAL.gold,
     progress: upTo((s) => s.gold, GOAL.gold),
@@ -157,8 +158,8 @@ export const QUESTS: QuestDef[] = [
   },
   {
     id: 'wall_4',
-    title: 'Каменная стена',
-    description: `Подними стену до ур. ${GOAL.wall}. Тогда она каменная.`,
+    title: 'Крепкие стены',
+    description: `Подними стены до ур. ${GOAL.wall}. Пусть набег разбивается о камень.`,
     check: (s) => levelOf(s, 'palisade') >= GOAL.wall,
     progress: upTo((s) => levelOf(s, 'palisade'), GOAL.wall),
     reward: { stone: 480 },
@@ -204,12 +205,15 @@ export interface AchievementDef {
  * нет, они считаются `check` при чтении. Поэтому врущее имя здесь можно было поправить
  * (`twenty_people` проверяло двести жителей — теперь `pop_200`), а у заданий — нельзя.
  */
+/** Пороги достижений — одно число на проверку и подпись (правило 18), как `GOAL` у заданий. */
+const ACH = { days: 10, pop: 200 } as const;
+
 export const ACHIEVEMENTS: AchievementDef[] = [
   { id: 'first_gear', icon: '⚒️', title: 'Первое снаряжение', check: (s) => Object.values(s.equipment ?? {}).some((n) => n > 0) },
   { id: 'first_scout', icon: '👣', title: 'Первая разведка', check: (s) => (s.stats.scouted ?? 0) >= 1 },
   { id: 'first_raid', icon: '⚔️', title: 'Первый поход', check: (s) => (s.stats.raids ?? 0) >= 1 },
   { id: 'first_win', icon: '🏆', title: 'Первая победа', check: (s) => s.stats.battlesWon >= 1 },
   { id: 'first_hunt', icon: '🏹', title: 'Первая охота', check: (s) => s.stats.hunts >= 1 },
-  { id: 'survivor', icon: '🌙', title: 'Пережили 10 дней', check: (s) => s.time >= 10 * 60 },
-  { id: 'pop_200', icon: '🏘️', title: '200 жителей', check: (s) => s.pop >= 200 },
+  { id: 'survivor', icon: '🌙', title: `Город выстоял ${ACH.days} игровых дней`, check: (s) => s.time >= ACH.days * DAY_LENGTH },
+  { id: 'pop_200', icon: '🏘️', title: `${ACH.pop} жителей`, check: (s) => s.pop >= ACH.pop },
 ];

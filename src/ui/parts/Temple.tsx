@@ -218,7 +218,7 @@ export function RealmFaith() {
       <TiltRow
         show={Math.abs(tilt.goldPerPop) > 0.001}
         icon="💰"
-        name={tilt.goldPerPop > 0 ? 'Десятина в казну' : 'Закят из казны'}
+        name={tilt.goldPerPop > 0 ? 'Десятина' : 'Закят на бедных'}
         hint={`${dec(Math.abs(tilt.goldPerPop), 2)} с жителя в день`}
         value={`${sign(tilt.goldPerPop * population(s))} в день`}
         good={tilt.goldPerPop > 0}

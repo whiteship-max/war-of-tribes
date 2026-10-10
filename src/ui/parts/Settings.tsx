@@ -128,7 +128,7 @@ export function Settings() {
             </span>
             <span className="name">
               Громкость
-              <em className="sub">Музыка и звуки — каждому своя</em>
+              <em className="sub">Своя для музыки и для звуков</em>
             </span>
             <div className="set-vol">
               {(
@@ -170,7 +170,7 @@ export function Settings() {
             {/* У «Авто» — на чём игра стоит сейчас (`gfx.levelNow`): по устройству или опущенная сторожем. Без этой
                 строки на телефоне не проверить, что слабый телефон получил «Низкую» (docs/perf.md). */}
             <em className="sub">
-              {chosen.quality === 'auto' ? `Авто: сейчас ${(GFX_QUALITIES.find(([q]) => q === levelNow(location.search))?.[1] ?? '').toLowerCase()}` : 'Авто подбирает по телефону'}
+              {chosen.quality === 'auto' ? `Авто: сейчас ${(GFX_QUALITIES.find(([q]) => q === levelNow(location.search))?.[1] ?? '').toLowerCase()}` : 'Авто подстроится под телефон'}
             </em>
           </span>
           <div className="set-seg" role="group" aria-label="Уровень графики">
@@ -217,7 +217,7 @@ export function Settings() {
             </span>
             <span className="name">
               Сообщить об ошибке
-              <em className="sub">Текст уйдёт разработчику</em>
+              <em className="sub">Письмо мастерам игры</em>
             </span>
           </button>
         )}

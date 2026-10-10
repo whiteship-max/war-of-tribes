@@ -507,7 +507,7 @@ describe('проход доставки ведёт войну между игр�
     expect(byChat(1002)).toHaveLength(1);
     expect(byChat(1001)).toHaveLength(1);
     const won = after.wars[0].battles[0].won;
-    expect(byChat(1001)[0]).toBe(won ? 'Твой отряд взял город «Бета» штурмом.' : 'Штурм города «Бета» отбит. Отряд идёт домой.');
+    expect(byChat(1001)[0]).toBe(won ? 'Город «Бета» взят штурмом.' : 'Штурм «Бета» отбит. Отряд отходит домой.');
     expect(byChat(1002)[0]).toContain('Альфа');
     // Ещё проходы — тишина: итог один раз.
     for (let i = 5; i <= 6; i++) await deliverPass(io, AT + i * 2 * MIN);
@@ -525,7 +525,7 @@ describe('слова сообщений: набег', () => {
     const arrive = NOW + 40 * MIN;
     const raid = item({ key: 'raid:m4:1', kind: 'raid', fireAt: NOW, until: arrive, p: { from: 'Волчья падь', fate: 'plunder', about: arrive } });
     const text = noticeText(raid, DEFAULT_PREFS.tz);
-    expect(text).toBe(`Набег из «Волчья падь» идёт на твой город. У стен в ${clock(arrive, DEFAULT_PREFS.tz)}.`);
+    expect(text).toBe(`Набег из «Волчья падь». Идут на твой город, у стен будут в ${clock(arrive, DEFAULT_PREFS.tz)}.`);
     expect(text, 'о сборе ни слова').not.toMatch(/сбор|успеешь/i);
     expect(raid.until, 'годен до названной минуты').toBe(raid.p.about);
   });

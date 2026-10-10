@@ -56,7 +56,7 @@ export const pay: Route = async (req, io) => {
   const base = (): Pick<PayResponse, 'now' | 'on' | 'net'> => ({ now, on, ...(conf ? { net: conf.net } : {}) });
 
   if (ask?.op === 'order') {
-    if (!conf) return json({ ...base(), orders: [], error: 'Оплата ещё не настроена на сервере.' } satisfies PayResponse);
+    if (!conf) return json({ ...base(), orders: [], error: 'Оплата ещё не открыта.' } satisfies PayResponse);
     if (isFrozen(await frozenNow(io.stores), key)) return json({ ...base(), orders: [], error: FROZEN_ORDER } satisfies PayResponse);
     if (!allow(`payorder:${key}`, ORDERS_PER_MINUTE, now)) return deny(429, 'slow-down', { 'retry-after': '10' });
     const made = await createOrder(io.stores, conf, fetcher, key, ask, now);

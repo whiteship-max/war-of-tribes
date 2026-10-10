@@ -415,7 +415,7 @@ describe('подправленный клиент не выставляет в �
     expect(flagsOf(s, A)).toContain('forged');
 
     const forged = await order(s, A, base + 10 * HOUR + 2 * MIN, march({ spearman: 30, swordsman: 1000 }));
-    expect(forged.error).toMatch(/Сервер подтверждает в войске только 3\d из 1030 бойцов/);
+    expect(forged.error).toMatch(/К войне готовы в отряде только 3\d из 1030 бойцов/);
     expect(forged.wars).toEqual([]);
     expect(readWatchRecord(s.json(STORES.watch, A)).flags.find((f) => f.kind === 'forged')?.n).toBeGreaterThanOrEqual(2);
 

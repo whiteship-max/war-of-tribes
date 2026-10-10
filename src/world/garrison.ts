@@ -21,11 +21,11 @@ interface StyleDef {
 // Конница логов — тяжёлая (docs/stable.md, раздел 8): в подстановке логово с тяжёлой не сдвигало силы
 // набега (1.06 полпути, как с прежним всадником), а с лёгкой сдвигало.
 export const GARRISON_STYLES: Record<GarrisonStyle, StyleDef> = {
-  balanced: { name: 'смешанное войско', shares: { spear: 0.3, infantry: 0.35, archer: 0.2, heavy: 0.15 } },
+  balanced: { name: 'смешанный отряд', shares: { spear: 0.3, infantry: 0.35, archer: 0.2, heavy: 0.15 } },
   horde: { name: 'пешая орда', shares: { infantry: 0.7, archer: 0.3 } },
   riders: { name: 'конная дружина', shares: { heavy: 0.4, infantry: 0.35, archer: 0.25 } },
   wall: { name: 'копейная стена', shares: { spear: 0.45, infantry: 0.3, archer: 0.25 } },
-  bowmen: { name: 'лучный засад', shares: { archer: 0.45, infantry: 0.35, spear: 0.2 } },
+  bowmen: { name: 'лучная засада', shares: { archer: 0.45, infantry: 0.35, spear: 0.2 } },
 };
 
 const STYLE_IDS: GarrisonStyle[] = ['balanced', 'horde', 'riders', 'wall', 'bowmen'];

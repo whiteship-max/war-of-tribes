@@ -48,7 +48,7 @@ describe('башня: орудие', () => {
   it('ниже нужного уровня не ставится, а на нём стоит ровно улучшение башни', () => {
     for (const def of ENGINES) {
       const low = towerAt(def.level - 1);
-      expect(setEngine(low, def.id)).toBe(`Нужна башня ${def.level} уровня — сейчас ${def.level - 1}.`);
+      expect(setEngine(low, def.id)).toBe(`Нужна башня ур. ${def.level}, сейчас ур. ${def.level - 1}.`);
       expect(low.engine.id).toBeNull();
 
       const s = towerAt(def.level);

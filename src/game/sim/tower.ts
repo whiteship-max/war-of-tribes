@@ -75,7 +75,7 @@ export function engineInfo(s: GameState): EngineInfo {
     if (!tower) blocked = 'Башни в городе нет.';
     else if (installing) blocked = `Башня занята: ставят ${current.acc}.`;
     else if (current?.id === def.id) blocked = 'Уже стоит.';
-    else if (def.level > level) blocked = `Нужна башня ${def.level} уровня — сейчас ${level}.`;
+    else if (def.level > level) blocked = `Нужна башня ур. ${def.level}, сейчас ур. ${level}.`;
     else if (!canAfford(s, cost)) blocked = 'Не хватает запасов.';
     return { def, cost, seconds: engineSeconds(def), blocked };
   });
@@ -103,8 +103,8 @@ export function setEngine(s: GameState, id: EngineId): string | null {
   log(
     s,
     was
-      ? `Башня: снимают ${was.acc}, ставят ${option.def.acc}.`
-      : `Башня: ставят ${option.def.acc}.`,
+      ? `На башне сняли ${was.acc} и ставят ${option.def.acc}.`
+      : `На башню ставят ${option.def.acc}.`,
   );
   return null;
 }

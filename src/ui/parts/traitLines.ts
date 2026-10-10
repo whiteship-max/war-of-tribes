@@ -29,10 +29,10 @@ const pct = (share: number): string => `${Math.round(share * 100)} %`;
 /** На сколько процентов множитель меняет число: «на четверть быстрее» говорится числом. */
 const shift = (mult: number): string => `${Math.round(Math.abs(mult - 1) * 100)} %`;
 
-/** Срок мира в игровых днях с единицей и настоящим временем рядом: «9 игр. дн. (4 ч 30 мин)». */
-function daysOf(ms: number): string {
+/** Срок мира в игровых днях и тот же срок настоящим временем — без скобок (docs/voice.md, 5): «9 игр. дн.» и «4 ч 30 мин». */
+function daysOf(ms: number): { game: string; real: string } {
   const days = Math.round(gameDaysOfMs(ms) * 10) / 10;
-  return `${gameDaysText(days)} (${waitDays(days)})`;
+  return { game: gameDaysText(days), real: waitDays(days) };
 }
 
 /**
@@ -44,9 +44,10 @@ function daysOf(ms: number): string {
  * (`sim/agents.traitNumbers`).
  */
 function musterWhat(mult: number, own: number): string {
+  const full = daysOf(musterMs(Infinity, mult));
   return (
     `Дружина собирается и расходится ${own < 1 ? 'быстрее' : 'дольше'} на ${shift(own)}. ` +
-    `Полный сбор ${daysOf(musterMs(Infinity, mult))} — в осаде своего города; дома перевод мгновенный.`
+    `Полный сбор ${full.game} в осаде своего города, по часам ${full.real}. Дома перевод мгновенный.`
   );
 }
 

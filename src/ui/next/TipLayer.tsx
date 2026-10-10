@@ -55,6 +55,7 @@ export function TipView({ tip, view, busy, modal, hide }: ViewProps) {
         onClick={hide}
       >
         <b>{tip.title}</b>
+        {tip.lore && <p className="nx-tip-lore">{tip.lore}</p>}
         {tip.body && <p>{tip.body}</p>}
         {tip.free && (
           <button

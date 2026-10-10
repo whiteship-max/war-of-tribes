@@ -15,8 +15,8 @@ export type FeedResult = { ok: true; items: FeedItem[]; now: number } | { ok: fa
 /** Почему ленты нет — словами для окна. */
 const WHY: Record<string, string> = {
   auth: 'Вести края видны в игре из Telegram.',
-  offline: 'Нет связи с сервером.',
-  busy: 'Сервер занят. Попробуй через минуту.',
+  offline: 'Нет связи.',
+  busy: 'Слишком часто. Попробуй через минуту.',
 };
 
 const okItem = (r: unknown): r is FeedItem => {

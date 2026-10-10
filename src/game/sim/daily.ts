@@ -115,7 +115,7 @@ export function finishDaily(s: GameState, day: number, won: boolean): string | n
   const game = dailyGameOf(day);
   const def = DAILY_GAME_BY_ID[game];
   if (!won) {
-    log(s, `${def.icon} ${def.name}: не вышло. Новая попытка завтра.`);
+    log(s, `Задание дня «${def.name}» не далось. Завтра будет новое.`);
     return null;
   }
 
@@ -127,6 +127,6 @@ export function finishDaily(s: GameState, day: number, won: boolean): string | n
     const n = reward[r];
     if (n) s.resources[r] = Math.min(cap, s.resources[r] + n);
   }
-  log(s, `${def.icon} ${def.name}: задание дня выполнено. Награда на складе.`, 'good');
+  log(s, `Задание дня «${def.name}» выполнено, награда легла на склад.`, 'good');
   return null;
 }

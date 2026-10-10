@@ -259,11 +259,11 @@ describe('ежедневное задание: награда', () => {
     startDaily(s, TODAY);
     finishDaily(s, TODAY, true);
     expect(s.log[0].kind).toBe('good');
-    expect(s.log[0].text).toContain('задание дня выполнено');
+    expect(s.log[0].text).toMatch(/^Задание дня «.+» выполнено/);
 
     const l = createInitialState();
     startDaily(l, TODAY);
     finishDaily(l, TODAY, false);
-    expect(l.log[0].text).toContain('не вышло');
+    expect(l.log[0].text).toMatch(/^Задание дня «.+» не далось/);
   });
 });

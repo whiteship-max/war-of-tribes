@@ -210,6 +210,6 @@ export function growthTick(s: GameState, dt: number, mods?: SeasonModifiers): vo
 export function logPopDay(s: GameState): void {
   const delta = s.pop - s.popDay;
   s.popDay = s.pop;
-  if (delta > 0) log(s, `Пришло жителей: ${delta}. Всего ${s.pop}.`, 'good');
-  else if (delta < 0) log(s, `Жителей убыло: ${-delta}. Осталось ${s.pop}.`, 'bad');
+  if (delta > 0) log(s, `В городе прибыло жителей: ${delta}. Всего ${s.pop}.`, 'good');
+  else if (delta < 0) log(s, `Город недосчитался жителей: ${-delta}. Осталось ${s.pop}.`, 'bad');
 }

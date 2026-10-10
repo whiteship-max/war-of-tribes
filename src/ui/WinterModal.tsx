@@ -26,7 +26,7 @@ function Stock({ icon, name, f, days }: { icon: string; name: string; f: Resourc
       </div>
       <small>
         {f.drainPerDay > 0
-          ? `В запасе ${Math.floor(f.have)}, уходит ${n1(f.drainPerDay)} в день. Нужно на зиму ${Math.ceil(f.need)}.`
+          ? `В запасе ${Math.floor(f.have)}, уходит ${n1(f.drainPerDay)} в день, на зиму надо ${Math.ceil(f.need)}.`
           : `В запасе ${Math.floor(f.have)}, зимой добыча больше трат.`}
       </small>
     </div>
@@ -57,7 +57,7 @@ function WinterBody() {
         <div className="m-ico">❄️</div>
         <h2>Скоро зима</h2>
         <p>
-          Скоро поля встанут, сбор просядет, очаги начнут жечь дрова.
+          Скоро поля встанут, а очаги запросят дров.
           {f.first ? ' Первая зима мягче, но запасы считай уже сейчас.' : ''}
         </p>
 
@@ -68,8 +68,8 @@ function WinterBody() {
 
         <p className={ready ? 'verdict ok' : 'verdict no'}>
           {ready
-            ? 'Запасов хватит на всю зиму.'
-            : 'Запасов не хватит до весны. Переведи людей на еду и дрова или сократи стройку.'}
+            ? 'Амбаров и поленниц хватит до весны.'
+            : 'До весны не дотянем. Поставь людей на еду и дрова или придержи стройку.'}
         </p>
 
         <div className="options">

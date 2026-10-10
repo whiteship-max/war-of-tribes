@@ -41,7 +41,7 @@ import { Steps } from '@/ui/parts/Steps';
 import { waitSpan } from '@/ui/parts/wait';
 import { gainText, spareSlotsHelp, upgradeGains, type UpgradeGain } from '@/ui/parts/upgrade';
 import { tipAt } from './tip';
-import { workerTip } from './buildingTips';
+import { buildingTip, workerTip } from './buildingTips';
 import { Confirm } from './Confirm';
 import { TradeLine } from './Trades';
 import { MINIGAMES } from '@/game/data/minigames';
@@ -85,7 +85,7 @@ export function BuildingNew({ id, data }: { id: number; data: (b: Building) => R
       <div className="nx-bhead">
         <button
           className="nx-bico"
-          onClick={(e) => tipAt(e.currentTarget, { title: buildingTitle(s, b.type), body: def.description })}
+          onClick={(e) => tipAt(e.currentTarget, buildingTip(s, b))}
           aria-label={`${buildingTitle(s, b.type)}: что это`}
         >
           <Icon name={`bld-${def.id}`} glyph={def.icon} />

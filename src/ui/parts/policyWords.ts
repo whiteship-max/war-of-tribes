@@ -30,5 +30,11 @@ export function rationNumbers(r: RationDef): string | null {
   return first(parts);
 }
 
-export const decreeLine = (d: DecreeDef): string => decreeNumbers(d) ?? d.effect;
-export const rationLine = (r: RationDef): string => rationNumbers(r) ?? r.effect;
+/**
+ * Два слоя (docs/voice.md, 3): образ словами записи, за ним — числа. «Стража на улицах, работа от зари до зари.
+ * Выработка +10%, мораль −0,5 в день». Без перемен — один образ.
+ */
+const both = (effect: string, numbers: string | null): string => (numbers ? `${effect}. ${numbers}` : effect);
+
+export const decreeLine = (d: DecreeDef): string => both(d.effect, decreeNumbers(d));
+export const rationLine = (r: RationDef): string => both(r.effect, rationNumbers(r));

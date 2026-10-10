@@ -272,7 +272,7 @@ describe('трата: атомарно, с ключом повтора', () => {
     await call(s, p);
     await s.stores(STORES.admin).setJSON(FROZEN_KEY, { v: 1, keys: { [`tg-${p}`]: { at: NOW, by: ADMIN, why: 'тест' } } });
     const r = await call(s, p, buy('k-ice-1'));
-    expect(r.body.error).toBe('Аккаунт заморожен: приказы не принимаются.');
+    expect(r.body.error).toBe('Счёт заморожен. Приказы не принимаются.');
     expect(r.body.balance).toBe(START_GEMS);
     expect(s.ledger(p)!.balance).toBe(START_GEMS);
   });

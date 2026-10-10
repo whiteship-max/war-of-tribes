@@ -756,7 +756,7 @@ function enough(want: Counts, claimed: Counts, confirmed: Counts, where: string,
   const asked = troopTotal(asTroops(want));
   const ok = troopTotal(asTroops(least(want, confirmed)));
   ctx.forged?.(`Приказ войны на ${asked} бойцов ${where}, сервер подтверждает из них ${ok} (сверх книги ${over(want, confirmed)}).`);
-  return `Сервер подтверждает ${where} только ${ok} из ${asked} бойцов: новобранцы засчитываются по мере обучения, а павшие на войне не возвращаются. Подожди немного или возьми меньше.`;
+  return `К войне готовы ${where} только ${ok} из ${asked} бойцов. Новобранцы встают в строй по мере учения, павшие на войне не возвращаются. Подожди немного или возьми меньше.`;
 }
 
 const theirs = (file: WarFile, id: string, key: string, role: 'atk' | 'def'): WarRow | null =>
@@ -774,7 +774,7 @@ export function applyOrder(file: WarFile, key: string, order: WarOrder, now: num
       return spyOrder(file, key, order, now, ctx);
     case 'recall': {
       const w = theirs(file, order.id, key, 'atk');
-      if (!w || w.phase !== 'march') return 'Войско уже не в пути.';
+      if (!w || w.phase !== 'march') return 'Отряд уже не в пути.';
       // Обратный путь — по уже пройденному: развернулись там, где шли.
       const at = warAt(w.from, w.to, w.sentAt, w.arriveAt, now);
       w.end = 'recalled';
@@ -797,7 +797,7 @@ export function applyOrder(file: WarFile, key: string, order: WarOrder, now: num
       const s = ctx.sheet(w.def);
       if (!s) {
         turnBack(w, now, w.to, 'gone');
-        return 'Города больше нет в игре. Войско идёт домой.';
+        return 'Города больше нет в игре. Отряд идёт домой.';
       }
       // Штурм — бой: цена в энергии полководца, той же дверью, что у штурма логова (`world/energy`).
       const tired = energyBlock(energyAt(w.army.energy, now), priceOf('storm'));
@@ -827,7 +827,7 @@ export function applyOrder(file: WarFile, key: string, order: WarOrder, now: num
       const w = theirs(file, order.id, key, 'def');
       if (!w || w.phase !== 'camp') return 'Лагеря под стенами уже нет.';
       const s = ctx.sheet(key);
-      if (!s) return 'Город ещё не записан на сервер. Подожди минуту.';
+      if (!s) return 'Вести о городе ещё не дошли до края. Подожди минуту.';
       const sheet = liveSheet(file, key, s, now);
       if (troopTotal(asTroops(order.troops)) <= 0) return 'Некого вывести на вылазку.';
       const short = enough(order.troops, claimedSheet(file, key, s, now).home, sheet.home, 'в гарнизоне', ctx);
@@ -839,9 +839,9 @@ export function applyOrder(file: WarFile, key: string, order: WarOrder, now: num
       if (!w || w.phase !== 'camp') return 'Лагеря под стенами уже нет.';
       if (w.strike) return 'Полководец уже идёт на лагерь.';
       const s = ctx.sheet(key);
-      if (!s) return 'Город ещё не записан на сервер. Подожди минуту.';
-      if (troopTotal(asTroops(order.army.troops)) <= 0) return 'У полководца нет войска.';
-      const short = enough(order.army.troops, claimedSheet(file, key, s, now).army, liveSheet(file, key, s, now).army, 'в войске', ctx);
+      if (!s) return 'Вести о городе ещё не дошли до края. Подожди минуту.';
+      if (troopTotal(asTroops(order.army.troops)) <= 0) return 'У полководца нет отряда.';
+      const short = enough(order.army.troops, claimedSheet(file, key, s, now).army, liveSheet(file, key, s, now).army, 'в отряде', ctx);
       if (short) return short;
       // Удар — бой: энергии на него должно хватить к минуте прихода, с дорогой по карте (`world/energy`).
       const tired = energyBlock(energyAt(order.army.energy, now), priceOf('strike'), order.walkMs);
@@ -857,7 +857,7 @@ const ruleArmy = (a: WarArmy): WarArmy => ({ ...a, resolve: ruleResolve(a.resolv
 
 function march(file: WarFile, key: string, order: Extract<WarOrder, { op: 'march' }>, now: number, ctx: OrderCtx): string | null {
   const own = ctx.roster.rows[key];
-  if (!own) return 'Твой замок ещё не стоит на карте.';
+  if (!own) return 'Твой город ещё не стоит на карте.';
   const entry = Object.entries(ctx.roster.rows).find(([k]) => castleIdOf(k) === order.target);
   if (!entry) return 'Этого города больше нет в игре.';
   const [def, row] = entry;
@@ -866,23 +866,23 @@ function march(file: WarFile, key: string, order: Extract<WarOrder, { op: 'march
   if (!inHomeTheatre(own, row)) return 'Город за пределами твоего края. Походы туда не ходят.';
   if (file.wars.some((w) => w.atk === key && active(w))) return 'Полководец уже в походе.';
   if (file.wars.some((w) => w.def === key && active(w) && w.phase === 'camp')) return 'Твой город в осаде. Выйти можно только вылазкой.';
-  if (file.wars.some((w) => w.def === def && active(w))) return 'На этот город уже идёт другое войско.';
+  if (file.wars.some((w) => w.def === def && active(w))) return 'На этот город уже идёт другой отряд.';
   // Павший город неприкосновенен, как и у логова (`siege.SIEGE_IMMUNE`): цепочки падений нет.
   const fell = file.wars.filter((w) => w.def === def && w.fall).reduce((t, w) => Math.max(t, w.fall?.at ?? 0), 0);
   if (fell > 0 && now < fell + SIEGE_IMMUNE) return 'Город недавно пал. Пока его не трогают.';
   const theirSheet = ctx.sheet(def);
-  if (!theirSheet) return 'Город ещё не готов к войне: его владелец не заходил с тех пор, как она началась.';
+  if (!theirSheet) return 'Город ещё не готов к войне. Его правитель не заходил с тех пор, как она началась.';
   // Защита слабого — та же мерка, что у логова (`lairs.weakCity`): жители или войско, что выше.
-  if (!ctx.noShield && shielded(file, def, theirSheet, now)) return 'Город под защитой слабого: он ещё мал. Нападать на него нельзя.';
+  if (!ctx.noShield && shielded(file, def, theirSheet, now)) return 'Город ещё мал и стоит под защитой слабого. Нападать на него нельзя.';
   const mine = ctx.sheet(key);
-  if (!mine) return 'Твой город ещё не записан на сервер. Подожди минуту.';
+  if (!mine) return 'Вести о твоём городе ещё не дошли до края. Подожди минуту.';
   // Участь — та же проверка, что у приказа против логова (`spoils.fateBlock`): замки гейта объявляющего и
   // неприкосновенность от огня у недавно сожжённого города.
   const burned = file.wars.filter((w) => w.def === def && w.fall?.burned).reduce((t, w) => Math.max(t, w.fall?.at ?? 0), 0);
   const why = fateBlock(order.fate, 'player', burned > 0 ? burnImmuneUntil(burned) : undefined, now, mine.sheet.locks);
   if (why) return why;
-  if (troopTotal(asTroops(order.army.troops)) <= 0) return 'У полководца нет войска. Дай ему дружину у ворот.';
-  const short = enough(order.army.troops, claimedSheet(file, key, mine, now).army, liveSheet(file, key, mine, now).army, 'в войске', ctx);
+  if (troopTotal(asTroops(order.army.troops)) <= 0) return 'У полководца нет отряда. Дай ему бойцов у ворот.';
+  const short = enough(order.army.troops, claimedSheet(file, key, mine, now).army, liveSheet(file, key, mine, now).army, 'в отряде', ctx);
   if (short) return short;
   // Энергия полководца — той же дверью, что у мира (`world/energy`): дело у стен — ценой при выходе, и её должно хватить
   // к минуте прихода, с дорогой; дорога уходит по дням пути, у стен — стоит (docs/agent_energy.md, раздел 2).
@@ -1069,7 +1069,7 @@ interface SpyPlan {
  */
 function spyPlan(file: WarFile, key: string, target: string, at: number, ctx: OrderCtx): SpyPlan | string {
   const own = ctx.roster.rows[key];
-  if (!own) return 'Твой замок ещё не стоит на карте.';
+  if (!own) return 'Твой город ещё не стоит на карте.';
   const entry = Object.entries(ctx.roster.rows).find(([k]) => castleIdOf(k) === target);
   if (!entry) return 'Этого города больше нет в игре.';
   const [def, row] = entry;
@@ -1078,9 +1078,9 @@ function spyPlan(file: WarFile, key: string, target: string, at: number, ctx: Or
   if (!inHomeTheatre(own, row)) return 'Город за пределами твоего края. Лазутчик туда не ходит.';
   if ((file.spies ?? []).some((x) => x.atk === key && spyActive(x))) return 'Лазутчик уже на деле у соседа.';
   const mine = ctx.sheet(key);
-  if (!mine?.sheet.watch) return 'Твой город ещё не записан на сервер. Подожди минуту.';
+  if (!mine?.sheet.watch) return 'Вести о твоём городе ещё не дошли до края. Подожди минуту.';
   const theirs = ctx.sheet(def);
-  if (!theirs) return 'Город ещё не готов: его владелец не заходил с тех пор, как появились лазутчики.';
+  if (!theirs) return 'Город ещё не готов. Его правитель не заходил с тех пор, как появились лазутчики.';
   const sheet = liveSheet(file, def, theirs, at);
   const guard = rivalGuard({ homePower: homePowerOf(sheet.home), keen: theirs.sheet.watch?.keen ?? 1, spyHome: spyHomeAt(file, def, theirs, at) });
   const away = distance(own, row);
@@ -1092,7 +1092,7 @@ function spyPlan(file: WarFile, key: string, target: string, at: number, ctx: Or
     const hostile = rivalHostile(deed);
     const reason =
       hostile && shield
-        ? 'Город под защитой слабого: он ещё мал. Вредить ему нельзя.'
+        ? 'Город ещё мал и стоит под защитой слабого. Вредить ему нельзя.'
         : hostile && fell > 0 && at < fell + SIEGE_IMMUNE
           ? 'Город недавно пал. Пока его не трогают.'
           : null;
@@ -1123,7 +1123,7 @@ function spyOrder(file: WarFile, key: string, order: Extract<WarOrder, { op: 'sp
   const tired = energyBlock(energyAt(order.energy, now), price, plan.walkMs);
   if (tired) return tired;
   const watch = plan.mine.sheet.watch;
-  if (!watch) return 'Твой город ещё не записан на сервер. Подожди минуту.';
+  if (!watch) return 'Вести о твоём городе ещё не дошли до края. Подожди минуту.';
   file.seq += 1;
   const row: SpyRow = {
     id: `s${file.seq.toString(36)}${(now % 46656).toString(36)}`,

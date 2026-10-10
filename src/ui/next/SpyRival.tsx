@@ -46,14 +46,14 @@ export function SpyRival({ card }: { card: SettlementCard }) {
       <h3>Лазутчик</h3>
       {spy.intel && (
         <p className="nx-tnote">
-          Разведано {left(now, spy.intel.at)} назад: дома {spy.intel.home} бойцов, всего войска {spy.intel.army}, ополчения{' '}
-          {spy.intel.militia} (стрелков {spy.intel.archers}), жителей {spy.intel.pop}.
+          Разведано {left(now, spy.intel.at)} назад: дома {spy.intel.home} бойцов, в дружине {spy.intel.army}, ополчения{' '}
+          {spy.intel.militia}, из них стрелков {spy.intel.archers}, жителей {spy.intel.pop}.
         </p>
       )}
       {ours ? (
         <p className="nx-tnote">
           {ours.phase === 'go'
-            ? `Лазутчик идёт сюда: ${RIVAL_DEED_BY_ID[ours.deed].name.toLowerCase()}. Дойдёт через ${left(ours.arriveAt, now)}; дело посчитается в минуту прихода, даже если ты не в игре.`
+            ? `Лазутчик идёт сюда: ${RIVAL_DEED_BY_ID[ours.deed].name.toLowerCase()}. Дойдёт через ${left(ours.arriveAt, now)}. Дело случится в минуту прихода, даже если ты не в игре.`
             : ours.phase === 'held'
               ? `Лазутчика схватили и держат. Отпустят через ${left(ours.releaseAt ?? now, now)}.`
               : `Лазутчик идёт домой. Дома через ${left(ours.backAt ?? now, now)}.`}
@@ -62,7 +62,7 @@ export function SpyRival({ card }: { card: SettlementCard }) {
         <p className="nx-tnote bad">{spy.reason}</p>
       ) : !menu ? (
         <>
-          <p className="nx-tnote">Дорога — {realLeft(spy.walkMs / 1000)}. Шанс и гибель посчитает сервер: он знает стражу и Дозор этого города.</p>
+          <p className="nx-tnote">Дорога — {realLeft(spy.walkMs / 1000)}. Удача и гибель зависят от стражи и Дозора этого города.</p>
           <button className="nx-cact" disabled={busy} onClick={() => void look()}>
             <Icon name="spy-probe" glyph="🕵️" />
             Тайные дела

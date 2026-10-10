@@ -12,17 +12,17 @@ export const energyCount = (e: EnergyView): string => `${e.value} из ${e.max}`
 
 /** Что с энергией сейчас — одной строкой: копится, уходит в дороге, стоит; выбившийся из сил идёт домой. */
 export function energyLine(e: EnergyView, spent: boolean, now: number): string {
-  if (spent) return 'Выбился из сил: идёт домой и дел не берёт, пока не дойдёт.';
-  if (e.mode === 'fill') return e.fullBy !== undefined ? `Дома копится: полная через ${left(e.fullBy, now)}.` : 'Полная.';
+  if (spent) return 'Выбился из сил. Идёт домой и до дома дел не берёт.';
+  if (e.mode === 'fill') return e.fullBy !== undefined ? `Дома копится, полная через ${left(e.fullBy, now)}.` : 'Полная.';
   if (e.mode === 'drain') {
-    if (e.emptyBy !== undefined) return `В дороге уходит: кончится через ${left(e.emptyBy, now)}, тогда пойдёт домой сам.`;
+    if (e.emptyBy !== undefined) return `В дороге уходит. Кончится через ${left(e.emptyBy, now)}, тогда повернёт домой сам.`;
     return e.fullBy !== undefined ? 'В дороге уходит, дома начнёт копиться.' : 'В дороге уходит, у цели не тратится.';
   }
-  return e.fullBy !== undefined ? 'Не тратится. Дома снова начнёт копиться.' : 'Не тратится, пока стоит: ожидание даром.';
+  return e.fullBy !== undefined ? 'Не тратится. Дома снова начнёт копиться.' : 'Пока стоит, не тратится.';
 }
 
 /** Подсказка: откуда энергия берётся и куда уходит — словами решения владельца, числами двери (правило 18). */
 export const ENERGY_TIP =
-  `Энергия агента — ${ENERGY_MAX}. Уходит в дороге (полная — за ${Math.round(gameDaysOfMs(ENERGY_ROAD))} игровых дней пути) и на дела; ` +
-  `ожидание у цели и стоянка даром. Дома копится за ${Math.round(gameDaysOfMs(ENERGY_FILL))} игровых дня. Не хватает ни на одно ` +
-  'его дело — агент из ворот не выходит, а на карте идёт домой сам.';
+  `Полная энергия — ${ENERGY_MAX}. Она уходит на дела и в дороге: полной хватает на ${Math.round(gameDaysOfMs(ENERGY_ROAD))} игр. дн. пути. ` +
+  `Ожидание у цели и стоянка ничего не стоят. Дома энергия копится за ${Math.round(gameDaysOfMs(ENERGY_FILL))} игр. дн. ` +
+  'Если её не хватает ни на одно дело, человек не выходит из ворот, а с карты сам идёт домой.';

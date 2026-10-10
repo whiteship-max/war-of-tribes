@@ -69,7 +69,7 @@ export function resolveEvent(
 ): { error: string | null; result: string | null } {
   const ev = pick(s, id);
   const def = ev ? EVENT_BY_ID[ev.defId] : undefined;
-  if (!ev || !def) return { error: 'Нет такого события.', result: null };
+  if (!ev || !def) return { error: 'Нет такой вести.', result: null };
   const opt = def.options[optionIndex];
   if (!opt) return { error: 'Неверный выбор.', result: null };
   // Цена списывается в двери, до `apply`, и отказ приходит отсюда же: цена одна

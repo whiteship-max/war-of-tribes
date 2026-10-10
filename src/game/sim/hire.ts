@@ -100,7 +100,8 @@ export function hireAgent(s: GameState, agent: FigureId): string | null {
   if (info.blocked) return info.blocked;
   s.gold -= info.gold;
   s.agents[agent].hiring = { until: s.time + info.seconds, name: drawName(s), age0: info.age0 };
-  log(s, `${info.building}: нанят ${FIGURE_BY_ID[agent].one}${s.agents[agent].hiring?.name ? `, ${s.agents[agent].hiring?.name}` : ''}, за ${info.gold} золота.`);
+  const where = hireWhere(s, agent);
+  log(s, `${where[0].toUpperCase()}${where.slice(1)} нанят ${FIGURE_BY_ID[agent].one}${s.agents[agent].hiring?.name ? ` ${s.agents[agent].hiring?.name}` : ''} за ${info.gold} золота.`);
   return null;
 }
 

@@ -80,7 +80,7 @@ const scouting = (s: GameState): boolean => s.scoutsAway > 0;
 export const TUTORIAL: TutorialStep[] = [
   {
     id: 'intro',
-    text: 'Город стоит, стена замкнута. Соседи не дремлют.',
+    text: 'От костра на поляне — до каменных стен. Соседи не дремлют.',
     target: { kind: 'none' },
   },
   {
@@ -156,7 +156,7 @@ export const TUTORIAL: TutorialStep[] = [
   },
   {
     id: 'outro',
-    text: 'Разведка вернётся со сведениями. Потом поход.',
+    text: 'Разведка принесёт сведения. Тогда решишь, куда вести поход.',
     target: { kind: 'none' },
   },
 ];

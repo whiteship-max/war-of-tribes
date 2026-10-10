@@ -40,7 +40,7 @@ const TW_CONTROLS = [OVERVIEW, SKIP] as const;
 const SPEEDS = [1, 2, 4] as const;
 /** Кнопки карточки итога: пересмотреть или в отчёт. */
 const AGAIN = { id: 'again', label: 'Смотреть снова' } as const;
-const TO_REPORT = { id: 'report', label: 'К отчёту' } as const;
+const TO_REPORT = { id: 'report', label: 'К донесению' } as const;
 const CARD_CONTROLS = [AGAIN, TO_REPORT] as const;
 /**
  * Звук в ролике — «тише» на этот просмотр, а не второй рычаг: включён ли звук вообще, решает одна настройка («Музыка»,
@@ -235,7 +235,7 @@ export function TwReplay({ rec, report, onDone }: { rec: BattleRecord; report?: 
     if (player.current) player.current.speed = n;
   };
 
-  const sideName = { [us]: 'Наши', [them]: rec.beasts === them ? 'Волки' : 'Противник' } as Record<Side, string>;
+  const sideName = { [us]: 'Наши', [them]: rec.beasts === them ? 'Волки' : 'Враг' } as Record<Side, string>;
   const bar = (side: Side) => {
     const m = hud?.morale[side] ?? null;
     return (
@@ -244,7 +244,7 @@ export function TwReplay({ rec, report, onDone }: { rec: BattleRecord; report?: 
         <span className="tw-name">{sideName[side]}</span>
         <span className="tw-men">{frame.side[side].men}</span>
         {m !== null && (
-          <span className="tw-morale" title="Мораль армии">
+          <span className="tw-morale" title="Мораль отряда">
             <i style={{ width: `${Math.round(m * 100)}%` }} />
           </span>
         )}
@@ -281,7 +281,7 @@ export function TwReplay({ rec, report, onDone }: { rec: BattleRecord; report?: 
           </button>
         </div>
       </div>
-      {loaded === 'fail' && <div className="replay-caption">Ролик не загрузился — итог боя в отчёте.</div>}
+      {loaded === 'fail' && <div className="replay-caption">Ролик не открылся. Итог боя — в донесении.</div>}
       {loaded !== 'fail' && !ended && barrage && <div className="replay-caption">{barrageCaption(rec)}</div>}
       {loaded !== 'fail' && !ended && !barrage && frame.caption && <div className="replay-caption">{beastWords(frame.caption, rec.beasts, us)}</div>}
       {ended && <ResultCard rec={rec} report={report} onPick={pick} />}
@@ -328,7 +328,7 @@ function ResultCard({ rec, report, onPick }: { rec: BattleRecord; report?: Repor
         <div className="mod">
           <span className="name">
             <i className="tw-mark them" />
-            {rec.beasts === other(us) ? 'Стая' : 'Противник'}
+            {rec.beasts === other(us) ? 'Стая' : 'Враг'}
           </span>
           <span className="val">
             {foes.initial} → {foes.final}

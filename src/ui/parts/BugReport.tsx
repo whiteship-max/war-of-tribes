@@ -47,7 +47,7 @@ export function BugReport() {
         <h2>Сообщить об ошибке</h2>
         {done ? (
           <>
-            <p>Отправлено, номер {done}. Спасибо — посмотрим.</p>
+            <p>Письмо ушло, номер {done}. Разберём.</p>
             <div className="options">
               <button className="btn" onClick={hide}>
                 Закрыть

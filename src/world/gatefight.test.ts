@@ -301,9 +301,10 @@ describe('сила у ворот — таблица по уровню посёл
 });
 
 describe('что сказано — то и бьётся', () => {
-  it('«Их N» в тексте события — ровно столько волков выходит на ядро', async () => {
+  // Текст письма стражи (docs/voice.md, 11): «к утру насчитали N» — число то же, что прежнее «Их N».
+  it('«насчитали N» в тексте события — ровно столько волков выходит на ядро', async () => {
     const f = await fightAtGate(30, 5, 'wolves');
-    const n = Number(/Их (\d+)\./.exec(f.shown)?.[1]);
+    const n = Number(/насчитали (\d+)\./.exec(f.shown)?.[1]);
     expect(n, 'в тексте есть число').toBeGreaterThan(0);
     expect(n, 'число текста — мерой боя').toBe(menOfPower(f.call.power));
     expect(total(kindsIn(f.input!.attacker)), 'столько волков и вышло').toBe(n);

@@ -120,8 +120,10 @@ export const ORDER_TEXT = {
   mutiny: {
     title: 'Мятеж',
     icon: '⚠️',
+    /** Кто пишет весть о мятеже (`EventDef.from`). */
+    from: 'Старший стражи',
     text: (bonded: number, guards: number): string =>
-      `Невольники бросили работу и поднялись, ${bonded} человек. С ними недовольные жители. Гарнизон ${guards}.`,
+      `Невольники бросили работу и поднялись, ${bonded} человек. К ним пристали недовольные из города. Со мной в строю ${guards}.`,
     suppress: 'Подавить силой',
     suppressHint: (f: { holds: boolean; flee: number; leave: number; morale: number }): string =>
       f.holds

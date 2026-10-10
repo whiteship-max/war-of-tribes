@@ -105,7 +105,8 @@ describe('Дозор: изучение округи', () => {
     s.log = [];
     startSurvey(s);
     catchUp(s, SURVEY_STEPS[0].seconds + 2);
-    const lines = s.log.filter((l) => l.text.startsWith('Дозор:'));
+    // Голос летописца (docs/voice.md, 12): строки Дозора начинаются с «Разъезды Дозора», а не с «Дозор:».
+    const lines = s.log.filter((l) => l.text.startsWith('Разъезды Дозора'));
     expect(lines).toHaveLength(2); // «пошли» и «изучена»
   });
 

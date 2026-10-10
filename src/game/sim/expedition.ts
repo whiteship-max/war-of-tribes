@@ -28,6 +28,7 @@ import { hireWhere } from './hire';
 import type { HomeEffect } from '@/world/types';
 import { loseRelic } from './faith';
 import { recordBattle, recordLairBurned, recordLoot, recordRaidLoss, recordTroopsLost } from '@/profile/stats';
+import { count } from '@/ui/parts/plural';
 
 /** Что случилось с деревней, пока отряд был в пути. */
 export interface ExpeditionOutcome {
@@ -374,7 +375,7 @@ export function applyExpedition(s: GameState, o: ExpeditionOutcome): void {
   if (o.fell && typeof o.fell === 'object') recordDeath(s, o.fell, (a) => hireWhere(s, a));
   if (o.retired) recordRetire(s, o.retired, (a) => hireWhere(s, a));
   if (sacked.length > 0) {
-    log(s, `Разорено за стеной: ${sacked.join(', ')}. Рабочие разбежались.`, 'bad');
+    log(s, `За стеной разорили: ${sacked.join(', ')}. Работники разбежались.`, 'bad');
   }
   if (relicLost) log(s, `${relicLost} унесли из храма. Приход осиротел.`, 'bad');
   if (bondedOut > 0) log(s, ORDER_TEXT.ledAway(bondedOut), 'bad');
@@ -386,13 +387,13 @@ export function applyExpedition(s: GameState, o: ExpeditionOutcome): void {
   if (o.fallen && o.fallen.length > 0) {
     log(s, `Постройки потеряли уровни: ${levelLossText(s, levelsLost, o.fallen.length)}.`, 'bad');
   }
-  if (o.gold > 0) log(s, `В казну легло золота: ${Math.round(o.gold)}.`, 'good');
-  if (o.gold < 0) log(s, `Из казны унесли золота: ${Math.round(-o.gold)}.`, 'bad');
+  if (o.gold > 0) log(s, `Золота прибыло: ${Math.round(o.gold)}.`, 'good');
+  if (o.gold < 0) log(s, `Золота унесли: ${Math.round(-o.gold)}.`, 'bad');
   const armsText = Object.entries(arms)
     .map(([id, n]) => `${EQUIPMENT_BY_ID[id as EquipmentId].name.toLowerCase()} ${n}`)
     .join(', ');
   if (armsText) log(s, `Из логова принесли снаряжение: ${armsText}.`, 'good');
-  if (soldiersLost > 0) log(s, `Не вернулись из похода: ${soldiersLost} бойцов.`, 'bad');
+  if (soldiersLost > 0) log(s, `Не вернулись из похода: ${count(soldiersLost, 'боец', 'бойца', 'бойцов')}.`, 'bad');
   if (fallen > 0) log(s, `Не вернулись из разведки: ${fallen}.`, 'bad');
   if (care.laid + care.carried + care.noBed > 0) log(s, woundLine(care), care.noBed > 0 ? 'bad' : 'info');
 }

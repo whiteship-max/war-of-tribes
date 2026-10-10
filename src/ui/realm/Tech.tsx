@@ -11,7 +11,7 @@
 // гаснет кнопка. Самим `Cost` очки не показать — он про ресурсы склада и казну, а очки не
 // ресурс; форма поэтому взята его, буква в букву, чтобы игрок читал её тем же взглядом.
 import { useGame } from '@/game/store';
-import { BRANCH_BUILT, BRANCH_NAME, POINTS_CAP, REALM_BRANCHES, levelPrice, levelsOf } from '@/game/data/realm';
+import { BRANCH_BUILT, BRANCH_LORE, BRANCH_NAME, POINTS_CAP, REALM_BRANCHES, levelPrice, levelsOf } from '@/game/data/realm';
 import { pointsOf, rulerRate } from '@/game/sim/points';
 import { levelName, study, studyInfo, techGains, techLevel } from '@/game/sim/tech';
 import { waitLeft } from '@/ui/parts/wait';
@@ -41,11 +41,14 @@ function Branch({ branch }: { branch: RealmBranch }) {
   return (
     <div className="panel">
       <h3>{BRANCH_NAME[branch]}</h3>
+      <div className="note">
+        <i>{BRANCH_LORE[branch].flavor}</i> {BRANCH_LORE[branch].deed}
+      </div>
       <div className="mod total">
         <span className="ico">◆</span>
         <span className="name">
           Очки
-          <em className="sub">{rate > 0 ? `+${rate} в день` : 'приток нулевой'}</em>
+          <em className="sub">{rate > 0 ? `+${rate} в день` : 'не копятся'}</em>
         </span>
         <span className={`val${have >= POINTS_CAP ? ' neg' : ' pos'}`}>
           {Math.floor(have)} из {POINTS_CAP}

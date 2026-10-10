@@ -40,24 +40,24 @@ export function feedWords(item: FeedItem): FeedWords {
     case 'fell': {
       const how =
         item.how === 'hunger'
-          ? `Сдался от голода${item.siegeMs ? ` после ${coarse(item.siegeMs)} осады` : ''}.`
+          ? `Сдался голоду${item.siegeMs ? ` после ${coarse(item.siegeMs)} осады` : ''}.`
           : item.siegeMs
-            ? `Взят штурмом после ${coarse(item.siegeMs)} осады.`
-            : 'Взят штурмом.';
-      return { title: `${City} взят`, line: `${how} Победил ${party(item, 'отряд')}.`, icon: { name: 'ui-banner', glyph: '🚩' } };
+            ? `Пал при штурме после ${coarse(item.siegeMs)} осады.`
+            : 'Пал при штурме.';
+      return { title: `${City} взят`, line: `${how} Победитель — ${party(item, 'отряд')}.`, icon: { name: 'ui-banner', glyph: '🚩' } };
     }
     case 'siege':
-      return { title: `${City} в осаде`, line: `Под стенами встал ${party(item, 'отряд')}.`, icon: { name: 'stage-camp', glyph: '⛺' } };
+      return { title: `${City} в осаде`, line: `Под стенами встал лагерем ${party(item, 'отряд')}.`, icon: { name: 'stage-camp', glyph: '⛺' } };
     case 'lifted': {
       const how =
-        item.how === 'retreat' ? 'Осада снята, враг уходит.' : item.how === 'beaten' ? 'Штурм из лагеря отбит.' : 'Защитники разбили лагерь у стен.';
+        item.how === 'retreat' ? 'Враг снял осаду и ушёл.' : item.how === 'beaten' ? 'Штурм из лагеря отбили.' : 'Защитники вышли из ворот и разбили лагерь.';
       return { title: `${City} выстоял`, line: `${how} Осаждал ${party(item, 'отряд')}.`, icon: { name: 'gear-shield', glyph: '🛡️' } };
     }
     case 'repelled':
-      return { title: `${City} отбил штурм`, line: `Ушёл ни с чем ${party(item, 'отряд')}.`, icon: { name: 'gear-shield', glyph: '🛡️' } };
+      return { title: `${City} отбил штурм`, line: `Штурмовал ${party(item, 'отряд')}, но ушёл ни с чем.`, icon: { name: 'gear-shield', glyph: '🛡️' } };
     case 'spy': {
       const d = DEED[item.how ?? ''] ?? DEED.fire;
-      return { title: `${d.title}, ${city}`, line: `${d.line} Чей, не знают.`, icon: d.icon };
+      return { title: `${d.title}, ${city}`, line: `${d.line} Чей он, так и не узнали.`, icon: d.icon };
     }
     case 'caught':
       return {
@@ -72,8 +72,8 @@ export function feedWords(item: FeedItem): FeedWords {
         : { title: `Новый сосед, ${city}`, line: `Правитель ${item.ruler || 'без имени'}.`, icon: { name: 'stage-village', glyph: '🏘️' } };
     case 'leader':
       return {
-        title: 'Новый первый в рейтинге',
-        line: `${City}, правитель ${item.ruler || 'без имени'}.`,
+        title: 'Первенство сменилось',
+        line: `Первым в рейтинге стал ${city}, правитель ${item.ruler || 'без имени'}.`,
         icon: { name: 'ui-crown', glyph: '👑' },
       };
   }

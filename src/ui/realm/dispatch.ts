@@ -14,7 +14,7 @@
 // называет мир (`LetterView.silence`), у события — само событие
 // (`EventDef.silence`). Своего правила «что будет без ответа» у почты нет.
 import type { GameState } from '@/game/types';
-import { EVENT_BY_ID, eventBlock, eventCost, eventText, optionHint } from '@/game/data/events';
+import { EVENT_BY_ID, eventBlock, eventCost, eventFrom, eventText, optionHint } from '@/game/data/events';
 import { eventId, eventLeft } from '@/game/sim/mail';
 import type { ActiveEvent } from '@/game/types';
 import type { LetterView } from '@/world/types';
@@ -45,7 +45,7 @@ export interface Dispatch {
   iconName: string;
   icon: string;
   title: string;
-  /** Кто прислал. У события — никто: оно случилось в своём посёлке. */
+  /** Кто прислал: у письма — сосед или логово, у события — человек города, который о нём пишет (`EventDef.from`). */
   from: string | null;
   text: string;
   /** Что просят одним числом на всё донесение (дань, выкуп). */
@@ -75,7 +75,7 @@ export function eventDispatch(s: GameState, ev: ActiveEvent, now: number): Dispa
     iconName: `evt-${def.id}`,
     icon: def.icon,
     title: def.title,
-    from: null,
+    from: eventFrom(def, s),
     text: eventText(def, s),
     cost: {},
     choices: def.options.map((o, i) => ({

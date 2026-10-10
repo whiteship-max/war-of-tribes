@@ -31,6 +31,11 @@ export interface TipLink {
 
 export interface TipContent {
   title: string;
+  /**
+   * Строка вкуса описания (docs/voice.md, 3) — курсивом над делом. В `TIP_MAX` не входит: её открывают нарочно,
+   * касанием по значку постройки, и стоит она своей строкой.
+   */
+  lore?: string;
   /** Одна-две строки, не длиннее `TIP_MAX` вместе с именем. */
   body?: string;
   link?: TipLink;

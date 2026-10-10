@@ -30,7 +30,7 @@ export function assignWorker(s: GameState, buildingId: number, n = 1): string | 
   if (!def.job) return 'В этом здании не работают.';
   // Места общие: занятое невольником не отдаётся вольному поверх него.
   const room = buildingSlots(b) - handsCount(s, b.id);
-  if (room <= 0) return 'Все места заняты — нужен уровень выше.';
+  if (room <= 0) return 'Все места заняты. Улучши здание.';
   const free = idleCount(s);
   if (free <= 0) return 'Нет свободных жителей.';
   const take = Math.min(Math.max(1, Math.floor(n)), room, free);
@@ -58,7 +58,7 @@ export function assignBonded(s: GameState, buildingId: number, n = 1): string | 
   if (!b) return 'Здание не найдено.';
   if (!takesBonded(b)) return 'На эту работу невольников не ставят.';
   const room = buildingSlots(b) - handsCount(s, b.id);
-  if (room <= 0) return 'Все места заняты — нужен уровень выше.';
+  if (room <= 0) return 'Все места заняты. Улучши здание.';
   const free = bondedIdle(s);
   if (free <= 0) return 'Свободных невольников нет.';
   const take = Math.min(Math.max(1, Math.floor(n)), room, free);

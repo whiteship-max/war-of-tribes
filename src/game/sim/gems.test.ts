@@ -159,7 +159,7 @@ describe('дела с сервера ложатся ровно один раз',
     s.resources.wood = cap - 30;
     expect(applyGemDeeds(s, [deed(1, { res: 'wood', amount: SHOP_LOT })])).toBe(1);
     expect(s.resources.wood).toBe(cap);
-    expect(s.log.some((l) => l.text.includes('склад полон'))).toBe(true);
+    expect(s.log.some((l) => l.text.includes('остальное склад не вместил'))).toBe(true);
     // Лежащее сверх вместимости (склад потерял уровень) прибавка не отнимает.
     s.resources.wood = cap + 50;
     applyGemDeeds(s, [deed(2, { res: 'wood', amount: SHOP_LOT })]);

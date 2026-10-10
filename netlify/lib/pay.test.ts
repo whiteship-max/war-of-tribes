@@ -204,7 +204,7 @@ describe('настройка: сеть одной переменной, ключ
     const p = player();
     expect((await call(s, p)).on).toBe(false);
     const r = await order(s, p);
-    expect([r.on, r.error, r.tx]).toEqual([false, 'Оплата ещё не настроена на сервере.', undefined]);
+    expect([r.on, r.error, r.tx]).toEqual([false, 'Оплата ещё не открыта.', undefined]);
   });
 });
 
@@ -307,7 +307,7 @@ describe('проверка перевода: начисляет только н�
     chain.notify({ units: units(POUCH.usdt), comment: payComment('ABCDEFGHJK') });
     const r = await call(s, p);
     expect(r.orders.at(-1)?.state).toBe('created');
-    expect(r.orders.at(-1)?.note).toBe('Пришло 4.999999 USDT вместо 5: не начислено. Напиши в поддержку.');
+    expect(r.orders.at(-1)?.note).toBe('Пришло 4.999999 USDT вместо 5, алмазы не начислены. Напиши мастерам игры.');
     expect(await balance(s, p)).toBe(START_GEMS);
     // Верный перевод после неверного — начислен, причина ушла.
     chain.notify({ units: units(POUCH.usdt), comment: payComment(o!.id), at: NOW + 5000 });

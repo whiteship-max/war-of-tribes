@@ -21,7 +21,7 @@ const POLL_MS = 5000;
 export const PAY_STATE_WORD: Record<PayState, string> = {
   created: 'создан',
   waiting: 'ждёт перевода',
-  paid: 'оплачен, начисляется',
+  paid: 'оплачен, алмазы в пути',
   credited: 'начислено',
   expired: 'истёк',
 };
@@ -61,7 +61,7 @@ export default function TreasuryBuy() {
     return () => clearInterval(t);
   }, [waiting]);
 
-  const why = outside ? 'Покупка — только в игре из Telegram.' : on === false ? 'Оплата ещё не настроена на сервере.' : null;
+  const why = outside ? 'Алмазы покупают только в игре внутри Telegram.' : on === false ? 'Оплата ещё не открыта.' : null;
   const buy = async (pack: string): Promise<void> => {
     const said = await buyPack(pack);
     if (said) toast(said);

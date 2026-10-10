@@ -15,8 +15,8 @@ export type RatingResult = { ok: true; rows: RatingRow[] } | { ok: false; why: s
 /** Почему рейтинга нет — словами для окна. */
 const WHY: Record<string, string> = {
   auth: 'Рейтинг виден в игре из Telegram.',
-  offline: 'Нет связи с сервером.',
-  busy: 'Сервер занят. Попробуй через минуту.',
+  offline: 'Нет связи.',
+  busy: 'Слишком часто. Попробуй через минуту.',
 };
 
 const okRow = (r: unknown): r is RatingRow => {
