@@ -4,6 +4,9 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { BUILDINGS } from '@/game/data/buildings';
+import { createInitialState } from '@/game/state';
+import { buildingFacts, buildingTip } from './buildingTips';
 
 const UI = join(__dirname, '..');
 
@@ -65,5 +68,45 @@ describe('голос текстов этапа 2', () => {
   it('щуп строк видит литерал, шаблон и текст разметки', () => {
     const got = playerStrings(`const a = 'Привет'; const b = \`Срок \${x}\`; <b>Город</b> // Комментарий`);
     expect(got).toEqual(['Привет', 'Срок ${x}', 'Город']);
+  });
+});
+
+// Два слоя описаний (docs/voice.md, 3 и 4): вкус — одна фраза без чисел, дело — без вписанных чисел (правило 18),
+// длины по голосу; зачины не повторяются, подсказка окна несёт оба слоя и показание числами игры.
+describe('описания построек: вкус и дело', () => {
+  it('вкус — одна короткая фраза, дело — короткое, обе без цифр и без запретных слов', () => {
+    expect(BUILDINGS.length).toBeGreaterThan(20);
+    for (const d of BUILDINGS) {
+      expect(d.flavor.length, d.id).toBeLessThanOrEqual(70);
+      expect(d.description.length, d.id).toBeLessThanOrEqual(110);
+      expect(d.flavor.split(/[.?]\s/).length, `${d.id}: одна фраза`).toBe(1);
+      for (const t of [d.flavor, d.description]) {
+        expect(t, d.id).not.toMatch(/\d/);
+        expect(t, d.id).not.toMatch(/[()]/);
+        for (const bad of BANNED) expect(t, `${d.id}: «${t}»`).not.toMatch(bad);
+      }
+    }
+  });
+
+  it('зачины не повторяются: вкус — ни разу, дело — не больше двух раз одним словом', () => {
+    const first = (t: string) => t.split(/[\s,]/)[0].toLowerCase();
+    const flavor = BUILDINGS.map((d) => first(d.flavor));
+    expect(new Set(flavor).size).toBe(flavor.length);
+    const deed = new Map<string, number>();
+    for (const d of BUILDINGS) deed.set(first(d.description), (deed.get(first(d.description)) ?? 0) + 1);
+    for (const [w, n] of deed) expect(n, w).toBeLessThanOrEqual(2);
+  });
+
+  it('подсказка окна постройки — вкус, дело и показание числами игры', () => {
+    const s = createInitialState();
+    for (const b of s.buildings) {
+      const tip = buildingTip(s, b);
+      const def = BUILDINGS.find((d) => d.id === b.type)!;
+      expect(tip.lore).toBe(def.flavor);
+      expect(tip.body!.startsWith(def.description), b.type).toBe(true);
+      const now = buildingFacts(s, b);
+      if (now) expect(tip.body!.toLowerCase(), b.type).toContain(now.toLowerCase());
+      else expect(tip.body).toBe(def.description);
+    }
   });
 });

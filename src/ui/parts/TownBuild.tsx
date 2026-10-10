@@ -1,24 +1,18 @@
-import type { Building, GameState } from '@/game/types';
+import type { Building } from '@/game/types';
 import { useGame } from '@/game/store';
 import { MAX_BUILDING_LEVEL } from '@/game/constants';
 import { BUILDINGS, BUILDING_BY_ID } from '@/game/data/buildings';
-import { ORDER_TEXT } from '@/game/data/order';
 import {
   ATTENTION_META,
-  bondedCount,
   buildRate,
   buildingAttention,
-  buildingHousing,
-  buildingSlots,
-  buildingStat,
   buildingTitle,
-  handsCount,
   isSite,
   townHallBuildMult,
   upgradeInfo,
-  workerCount,
 } from '@/game/derived';
 import { RushButton } from '@/ui/next/Rush';
+import { buildingFacts } from '@/ui/next/buildingTips';
 import { startUpgrade } from '@/game/sim/actions';
 import { Cost } from './Cost';
 import { gainText, readVillage, upgradeGains, type Readings, type UpgradeGain } from './upgrade';
@@ -34,36 +28,6 @@ const byOrder = (a: Building, b: Building): number => (ORDER.get(a.type) ?? 99) 
 
 const canLevelUp = (type: Building['type']): boolean =>
   (BUILDING_BY_ID[type].maxLevel ?? MAX_BUILDING_LEVEL) > 1;
-
-/**
- * Чем постройка занята сейчас — вторая строка в ряду. У рабочего здания это
- * люди на местах, у пассивного — то, что оно уже даёт посёлку. Описание из
- * определения здания сюда не годится: в списке из двух десятков строк оно
- * занимает три строки и повторяет то, что и так написано в панели здания.
- */
-function rowFacts(s: GameState, b: Building): string {
-  const def = BUILDING_BY_ID[b.type];
-  const slots = buildingSlots(b);
-  if (slots > 0) {
-    // Невольники стоят на тех же местах: занятые места — это все руки, а не одни вольные.
-    const bonded = bondedCount(s, b.id);
-    return bonded > 0
-      ? `Рабочих: ${handsCount(s, b.id)}/${slots} · ${ORDER_TEXT.bondedIcon} ${bonded}`
-      : `Рабочих: ${workerCount(s, b.id)}/${slots}`;
-  }
-  const facts: string[] = [];
-  if (b.type === 'town_hall') facts.push(`стройка ×${dec(townHallBuildMult(s), 2)}`);
-  const housing = buildingHousing(b);
-  if (housing) facts.push(`жильё ${housing}`);
-  const storage = buildingStat(b, 'storage');
-  if (storage) facts.push(`вместимость +${storage}`);
-  const defence = buildingStat(b, 'defense');
-  if (defence) facts.push(`оборона +${defence}`);
-  const morale = buildingStat(b, 'morale');
-  if (morale) facts.push(`мораль +${morale}`);
-  if (facts.length === 0) return def.description;
-  return facts.join(' · ');
-}
 
 /**
  * Цена уровня в людях — третий столбец после ресурсов и времени, как в ратуше
@@ -218,7 +182,7 @@ function BuildRow({ b, rate, base }: { b: Building; rate: number; base: Readings
               )}
             </span>
           </span>
-          <span className="desc">{rowFacts(s, b)}</span>
+          <span className="desc">{buildingFacts(s, b) ?? BUILDING_BY_ID[b.type].description}</span>
           <span className="desc gain">{gainText(gains)}</span>
         </span>
       </button>

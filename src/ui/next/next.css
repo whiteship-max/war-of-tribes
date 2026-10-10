@@ -429,6 +429,10 @@
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
+.nx-tip p.nx-tip-lore {
+  font-style: italic;
+  color: var(--text);
+}
 .nx-tip .nx-tip-go {
   display: flex;
   align-items: center;
