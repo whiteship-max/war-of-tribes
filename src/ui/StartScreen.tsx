@@ -4,7 +4,8 @@ import { cityName } from '@/profile/identity';
 import { bootSaying } from '@/boot/stage';
 import { haptic } from '@/telegram/webapp';
 import { Settings } from './parts/Settings';
-import { PROLOGUE_LABEL, PROLOGUE_NOTE, START_LABEL, startAction, startStep } from './start';
+import { probe } from '@/debug';
+import { PROLOGUE_LABEL, PROLOGUE_NOTE, START_LABEL, prologueShown, startAction, startStep } from './start';
 
 /**
  * Стартовый экран.
@@ -90,12 +91,17 @@ export function StartScreen({
             {/*
               Временная кнопка — почему временная и что с ней будет, написано в
               `ui/start.ts` рядом с её словом. Ждать она не заставляет: чанк
-              предыстории качает `App`, и качает уже после нажатия.
+              предыстории качает `App`, и качает уже после нажатия. Игрокам она
+              скрыта (`prologueShown`), стендам — на месте.
             */}
-            <button className="start-alt" onClick={onPrologue}>
-              {PROLOGUE_LABEL}
-            </button>
-            <p className="start-note">{PROLOGUE_NOTE}</p>
+            {prologueShown(probe()) && (
+              <>
+                <button className="start-alt" onClick={onPrologue}>
+                  {PROLOGUE_LABEL}
+                </button>
+                <p className="start-note">{PROLOGUE_NOTE}</p>
+              </>
+            )}
             <button className="start-more" onClick={() => setSettings(true)}>
               Настройки
             </button>

@@ -10,7 +10,7 @@ import { generateWorld, isLair, type GenSettlement, type WorldGen } from './gen'
 import { distance } from './geo';
 import { seeded } from '@/game/sim/random';
 import { AI_RANGE, HOME_SIGHT, LAIR_HOME_GAP, LAIR_SETTLE_GAP } from './data/tuning';
-import { SICILY, SICILY_SIGHT, islandNeighbours, sicilyFit, sicilyLand, sicilySlot } from './spawn';
+import { MAINLAND, SICILY, SICILY_SIGHT, SPAWNS, islandNeighbours, sicilyFit, sicilyLand, sicilySlot } from './spawn';
 import type { PlayerCastle, PlayerProfile } from './types';
 
 const START = 1_700_000_000_000;
@@ -125,6 +125,24 @@ describe('логова при плотной посадке', () => {
     }
     // Логова у порога остались: правило не опустошило округу.
     expect(lairs).toBeGreaterThan(SICILY.length * 20 * 2);
+  });
+
+  it('генерация на материке: ни одного логова на чужом месте и у чужих стен — острова и материка, места × шесть сидов', () => {
+    let lairs = 0;
+    for (const home of MAINLAND) {
+      // Стены — все места, кроме своего, прямо из списка: не из той же двери, которую проверяем.
+      const walls = SPAWNS.filter((s) => s !== home);
+      // Граница области: правилу есть где работать — соседи по цепочке стоят в кольце логов у порога.
+      expect([home, walls.filter((w) => distance(w, home) <= AI_RANGE).length >= 2]).toEqual([home, true]);
+      for (let seed = 1; seed <= 6; seed++) {
+        for (const s of generateWorld(seed, home).settlements) {
+          if (!isLair(s)) continue;
+          if (distance(s, home) <= AI_RANGE) lairs++;
+          expect([home, seed, s.x, s.y, underWalls(walls, s)]).toEqual([home, seed, s.x, s.y, false]);
+        }
+      }
+    }
+    expect(lairs).toBeGreaterThan(MAINLAND.length * 6);
   });
 
   it('место вокруг города осталось: в кольце обзора на старте есть логово почти на каждом сиде', () => {

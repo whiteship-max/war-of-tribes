@@ -8,7 +8,15 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { PROLOGUE_IS_TEMPORARY, PROLOGUE_LABEL, PROLOGUE_NOTE, START_LABEL, startAction } from './start';
+import {
+  PROLOGUE_FOR_PLAYERS,
+  PROLOGUE_IS_TEMPORARY,
+  PROLOGUE_LABEL,
+  PROLOGUE_NOTE,
+  START_LABEL,
+  prologueShown,
+  startAction,
+} from './start';
 
 const SRC = join(__dirname, '..');
 
@@ -61,6 +69,14 @@ describe('вход в предысторию — временная кнопка
     expect(PROLOGUE_LABEL).not.toBe(START_LABEL.new);
     expect(PROLOGUE_LABEL).not.toBe(START_LABEL.continue);
     expect(PROLOGUE_NOTE).toMatch(/не связана/);
+  });
+
+  it('игрокам скрыта, стенду (?probe=1) — на месте', () => {
+    // Слово владельца 11.10.2026: кнопку убрать, код оставить. Стенды предыстории и восстановления сцены жмут её.
+    expect(PROLOGUE_FOR_PLAYERS).toBe(false);
+    expect(prologueShown(false)).toBe(false);
+    expect(prologueShown(true)).toBe(true);
+    expect(read('ui/StartScreen.tsx')).toContain('prologueShown(probe())');
   });
 
   it('слово и подпись стоят в разметке из одного места', () => {

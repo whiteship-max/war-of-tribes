@@ -23,7 +23,7 @@ import { HOME_SIGHT, LAIR_SETTLE_GAP, MAINLAND_MIN, SETTLE_GAP, SETTLE_REACH } f
 import { TERRAIN_META } from '../src/world/data/terrain';
 import { UNIT_BY_ID } from '../src/world/data/units';
 import { asGame, dayRealSeconds, realMs, realSeconds, type GameSec } from '../src/game/pace';
-import { SICILY, SICILY_SIGHT, SICILY_STEP, islandNeighbours } from '../src/world/spawn';
+import { MAINLAND, SICILY, SICILY_SIGHT, SICILY_STEP, SPAWNS, islandNeighbours } from '../src/world/spawn';
 import { warWalkMs } from '../src/world/pvp';
 import { generateWorld, isLair } from '../src/world/gen';
 import { FIGURE_BY_ID } from '../src/world/data/figures';
@@ -247,6 +247,19 @@ console.log(
     ` самая дальняя пара мест: ${across.toFixed(1)} клеток, ${realSpanMs(far)} (×${TEST_PACE}: ${realSpanMs(far / TEST_PACE)}).`,
 );
 console.log(`  видно соседей из своего кольца: ${Math.min(...seen)} … ${Math.max(...seen)} из ${SICILY.length - 1}.`);
+
+// Материк после острова: цепочка с юга на север, от пролива до Флоренции. Поход — с того места острова, откуда ближе всего.
+const chain = MAINLAND.slice(1).map((s, k) => distance(MAINLAND[k], s));
+const fromIsland = (to: Spot): string => {
+  const ms = Math.min(...SICILY.map((s) => warWalkMs(s, to)));
+  return `${realSpanMs(ms)} (×${TEST_PACE}: ${realSpanMs(ms / TEST_PACE)})`;
+};
+const last = MAINLAND[MAINLAND.length - 1];
+console.log(
+  `  материк: мест ${MAINLAND.length} (всего ${SPAWNS.length}), ${SICILY.length + 1}. ${MAINLAND[0].x}|${MAINLAND[0].y} у пролива …` +
+    ` ${SPAWNS.length}. ${last.x}|${last.y} — Флоренция; соседи по цепочке ${Math.min(...chain).toFixed(1)} … ${Math.max(...chain).toFixed(1)} клеток.`,
+);
+console.log(`  поход с острова до первого места материка: ${fromIsland(MAINLAND[0])}; до Флоренции: ${fromIsland(last)}.`);
 
 // Логова — свои у каждого мира: их ставит генерация по сиду мира игрока, поэтому меряется набором сидов.
 const lairSeeds = Number(process.env.LAIR_SEEDS ?? '10');

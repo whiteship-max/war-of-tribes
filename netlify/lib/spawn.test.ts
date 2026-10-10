@@ -10,7 +10,7 @@ import { spawnMode } from './http.js';
 import type { CastleClaim, RosterFile, RosterResponse } from './contract.js';
 import { SETTLE_GAP } from '../../src/world/data/tuning.js';
 import { fitToSettle, placeCastle, settleRandom } from '../../src/world/settle.js';
-import { SICILY, SICILY_COUNT, inSicilyTheatre, sicilySlot } from '../../src/world/spawn.js';
+import { MAINLAND, SICILY, SICILY_COUNT, SPAWNS, inSicilyTheatre, sicilySlot, spawnSlot } from '../../src/world/spawn.js';
 import { theatreAt } from '../../src/world/theatre/theatre.js';
 import { TEST_TOKEN, signInit, sqliteHome, type Home } from '../vps/testkit.js';
 
@@ -56,13 +56,27 @@ describe('места острова: выдача', () => {
     expect(sicilySlot(next.rows['tg-901'])).toBe(3);
   });
 
+  it('двадцать шестой и дальше — места материка по порядку, с юга на север; места острова не сдвинулись', () => {
+    const file = seated(SICILY_COUNT + 3);
+    for (let i = 0; i < SICILY_COUNT; i++) {
+      const row = file.rows[`tg-${500 + i}`];
+      expect([i, row.x, row.y]).toEqual([i, SICILY[i].x, SICILY[i].y]);
+    }
+    for (let k = 0; k < 3; k++) {
+      const row = file.rows[`tg-${500 + SICILY_COUNT + k}`];
+      expect([k, row.x, row.y, spawnSlot(row)]).toEqual([k, MAINLAND[k].x, MAINLAND[k].y, SICILY_COUNT + k + 1]);
+    }
+  });
+
   it('мест нет — свободная клетка в регионе острова по обычным правилам расселения', () => {
-    let file = seated(SICILY_COUNT);
-    for (let i = 0; i < 4; i++) {
+    // Сколько регион вмещает сверх мест по обычным правилам (граница 24, дальняя 60, посуху до каждого в досягаемости),
+    // решают броски: за цепочкой вдоль всего западного берега — три (до материка, за двадцатью пятью, — десять).
+    let file = seated(SPAWNS.length);
+    for (let i = 0; i < 3; i++) {
       const key = `tg-${700 + i}`;
       file = upsert(file, key, claim(`Сверх ${i}`), NOW, 'sicily');
       const at = file.rows[key];
-      expect([key, sicilySlot(at)]).toEqual([key, 0]);
+      expect([key, spawnSlot(at)]).toEqual([key, 0]);
       // Тот же регион, что у острова: на острове воюют только внутри региона (`theatre.inHomeTheatre`).
       expect([key, theatreAt(at.x, at.y)?.id]).toEqual([key, 'italy']);
       expect([key, inSicilyTheatre(at), fitToSettle(at)]).toEqual([key, true, true]);

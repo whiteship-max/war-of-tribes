@@ -1,26 +1,34 @@
 // Места появления на Сицилии (docs/test_world.md): двадцать пять мест — данные, выведенные из атласа; все на суше острова,
 // все в одном регионе, одной кучкой узлов шестиугольной решётки — равномерно, ближе прежних 8–10 клеток и так, что из
-// любого места кольцо обзора острова видит все остальные.
+// любого места кольцо обзора острова видит все остальные. За ними — цепочка мест на материке, от пролива вдоль западного
+// берега до Флоренции, и места острова от неё не сдвинулись.
 import { describe, expect, it } from 'vitest';
 import { landmasses, settleable } from './land';
 import { HOME_SIGHT, SETTLE_GAP } from './data/tuning';
 import { theatreAt } from './theatre/theatre';
 import { homeSight } from './sight';
 import {
+  COAST_REACH,
+  MAINLAND,
   SICILY,
   SICILY_COUNT,
   SICILY_SIGHT,
   SICILY_STEP,
   SICILY_THEATRE,
+  SPAWNS,
+  coastPath,
+  deriveMainland,
   deriveSicily,
   inSicilyTheatre,
   islandNeighbours,
+  mainlandFit,
   sicilyAt,
   sicilyFit,
   sicilyLand,
   sicilyPatches,
   sicilySlot,
   spawnModeOf,
+  spawnSlot,
 } from './spawn';
 
 type P = { x: number; y: number };
@@ -147,5 +155,106 @@ describe('места появления: Сицилия', () => {
     expect(spawnModeOf(undefined)).toBeNull();
     expect(spawnModeOf('')).toBeNull();
     expect(spawnModeOf('malta')).toBeNull();
+  });
+});
+
+/** Где на пути вдоль берега лежит клетка: расстояние до пути и длина пути до ближней его точки. */
+function onPath(path: readonly P[], p: P): { off: number; along: number } {
+  let off = Infinity;
+  let along = 0;
+  let walked = 0;
+  for (let k = 0; k + 1 < path.length; k++) {
+    const a = path[k];
+    const b = path[k + 1];
+    const len = dist(a, b);
+    const t = Math.max(0, Math.min(1, ((p.x - a.x) * (b.x - a.x) + (p.y - a.y) * (b.y - a.y)) / (len * len)));
+    const d = dist(p, { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t });
+    if (d < off) {
+      off = d;
+      along = walked + t * len;
+    }
+    walked += len;
+  }
+  return { off, along };
+}
+
+describe('места появления: материк после острова', () => {
+  it('запечённый список — ровно вывод из атласа (детерминированно)', () => {
+    expect(deriveMainland()).toEqual([...MAINLAND]);
+  });
+
+  it('места острова не сдвинулись: номера 1..25 — те же клетки, что заняты на сервере', () => {
+    // Слепок списка на 11.10.2026, до материка: на этих клетках уже стоят игроки. Пересобрал остров — красное здесь.
+    const before =
+      '765|1340 768|1338 768|1342 771|1340 765|1336 765|1344 762|1338 762|1342 771|1336 771|1344 768|1334 768|1346 774|1338 ' +
+      '774|1342 762|1334 762|1346 759|1340 765|1332 765|1348 759|1336 759|1344 771|1332 771|1348 774|1334 774|1346';
+    expect(SICILY.map((s) => `${s.x}|${s.y}`).join(' ')).toBe(before);
+    expect(SPAWNS.slice(0, SICILY_COUNT)).toEqual([...SICILY]);
+    SICILY.forEach((s, i) => expect(spawnSlot(s)).toBe(i + 1));
+  });
+
+  it('не меньше тридцати мест, все разные, на годной суше материка, в регионе острова', () => {
+    expect(MAINLAND.length).toBeGreaterThanOrEqual(30);
+    expect(SPAWNS.length).toBe(SICILY_COUNT + MAINLAND.length);
+    expect(new Set(SPAWNS.map((s) => `${s.x}|${s.y}`)).size).toBe(SPAWNS.length);
+    const island = new Set(sicilyLand().map((p) => `${p.x}|${p.y}`));
+    for (const s of MAINLAND) {
+      expect([s, settleable(s.x, s.y), sicilyFit(s), mainlandFit(s, island)]).toEqual([s, true, true, true]);
+      // Тот же регион, что у острова: воевать между игроками можно только внутри региона (`theatre.inHomeTheatre`).
+      expect([s, theatreAt(s.x, s.y)?.id]).toEqual([s, SICILY_THEATRE]);
+      expect([s, island.has(`${s.x}|${s.y}`)]).toEqual([s, false]);
+    }
+  });
+
+  it('соседи по цепочке — как на острове: не ближе шага острова ни к одному месту, до следующего — не дальше полутора шагов', () => {
+    for (const s of MAINLAND) {
+      const near = Math.min(...SPAWNS.filter((t) => t !== s).map((t) => dist(s, t)));
+      expect([s, near >= SICILY_STEP]).toEqual([s, true]);
+    }
+    for (let k = 1; k < MAINLAND.length; k++) {
+      const d = dist(MAINLAND[k - 1], MAINLAND[k]);
+      expect([k, d >= SICILY_STEP && d <= 1.5 * SICILY_STEP]).toEqual([k, true]);
+    }
+  });
+
+  it('вдоль западного берега, с юга на север: от пролива до самой Флоренции, чем позже — тем севернее', () => {
+    const path = coastPath();
+    const reggio = path[0];
+    const florence = path[path.length - 1];
+    // Граница области — путь вдоль берега: каждое место в `COAST_REACH` от него (диагональ клетки — допуск округления).
+    const at = MAINLAND.map((s) => onPath(path, s));
+    at.forEach((a, k) => expect([k, a.off <= COAST_REACH + Math.SQRT2]).toEqual([k, true]));
+    for (let k = 1; k < MAINLAND.length; k++) {
+      expect([k, at[k].along > at[k - 1].along]).toEqual([k, true]);
+      expect([k, MAINLAND[k].y <= MAINLAND[k - 1].y]).toEqual([k, true]);
+    }
+    expect(dist(MAINLAND[0], reggio)).toBeLessThan(SICILY_STEP);
+    expect(MAINLAND[MAINLAND.length - 1]).toEqual(florence);
+    // Начало цепочки — у острова, за проливом: ближе любого места материка к острову.
+    const toIsland = (s: P): number => Math.min(...SICILY.map((t) => dist(s, t)));
+    expect(MAINLAND.every((s) => toIsland(s) >= toIsland(MAINLAND[0]))).toBe(true);
+  });
+
+  it('номер места: остров 1..25, материк дальше по порядку, соседняя клетка — 0', () => {
+    MAINLAND.forEach((s, k) => expect(spawnSlot(s)).toBe(SICILY_COUNT + k + 1));
+    expect(spawnSlot({ x: MAINLAND[0].x + 1, y: MAINLAND[0].y })).toBe(0);
+    for (const s of MAINLAND) expect(sicilySlot(s)).toBe(0);
+  });
+
+  it('чужие места: у острова — только остров (мир острова не сдвинулся), у материка — все остальные', () => {
+    for (const s of SICILY) {
+      const others = islandNeighbours(s);
+      expect(others.length).toBe(SICILY_COUNT - 1);
+      expect(others.some((o) => spawnSlot(o) > SICILY_COUNT)).toBe(false);
+    }
+    for (const s of MAINLAND) {
+      const others = islandNeighbours(s);
+      expect(others.length).toBe(SPAWNS.length - 1);
+      expect(others.some((o) => o.x === s.x && o.y === s.y)).toBe(false);
+    }
+  });
+
+  it('кольцо обзора на материке — обычное: соседи стоят цепочкой, а не кучкой', () => {
+    for (const s of MAINLAND) expect(homeSight(s)).toBe(HOME_SIGHT);
   });
 });
