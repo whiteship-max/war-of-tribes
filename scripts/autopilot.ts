@@ -1013,6 +1013,14 @@ export async function playedFor(hours: number): Promise<GameState> {
   return s;
 }
 
+/**
+ * Пульс мира, которым правит вызывающий (прогон ботов на настоящем сервере, `playtest-sim`): та же дверь `tribePulse`,
+ * что у `openSky`, но мир со своими часами и дверями к серверу заводит сам прогон.
+ */
+export function pulseOf(world: LocalWorld, g: GameState, last: { marches: MarchView[]; figures: FigureView[] }): Promise<WorldPulse> {
+  return tribePulse(world, { get: () => g, apply: (change) => change(g) }, last);
+}
+
 /** Игрок ушёл на `seconds` **игровых** секунд: офлайн-догон шагом `step`, как при возвращении в игру. */
 export function away(g: GameState, seconds: number, step: number): void {
   catchUp(g, seconds, step);

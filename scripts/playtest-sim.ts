@@ -16,7 +16,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHmac } from 'node:crypto';
 import { budgetCores } from './lib/budget';
-import { away, build, memory, played, staff } from './autopilot';
+import { away, build, memory, played, pulseOf, staff } from './autopilot';
 import { openDb, sqliteStores } from '../netlify/vps/sqlite';
 import { ROUTES } from '../netlify/lib/routes/index';
 import { botWith } from '../netlify/lib/routes/bot';
@@ -43,7 +43,6 @@ import { applyGemDeeds } from '../src/game/sim/gems';
 import { gameSeconds } from '../src/game/pace';
 import { cardOf, claimOf, watchOf } from '../src/net/snapshot';
 import { HOME_ID, LocalWorld } from '../src/world/local/LocalWorld';
-import { tribePulse } from '../src/world/bridge';
 import type { FigureView, MarchView, PlayerCastle } from '../src/world/types';
 import { SICILY, sicilySlot } from '../src/world/spawn';
 
@@ -279,8 +278,7 @@ class Bot {
     build(this.g);
     if (minutes > 0) away(this.g, gameSeconds(minutes * 60), 60);
     if (!this.world) return;
-    const tribe = { get: () => this.g, apply: (f: (s: GameState) => void) => f(this.g) };
-    const pulse = await tribePulse(this.world, tribe, this.last);
+    const pulse = await pulseOf(this.world, this.g, this.last);
     this.last = { marches: pulse.marches, figures: pulse.figures };
   }
 
