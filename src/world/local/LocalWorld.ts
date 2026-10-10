@@ -7705,7 +7705,7 @@ export class LocalWorld implements WorldApi {
     const led = this.save.figures.general.war;
     if (led && this.warsKnown?.() && !list.some((w) => w.id === led)) this.warHome(now, null);
     this.stepSpies(now, seen);
-    this.save.warSeen = [...seen].slice(-WAR_SEEN_MAX);
+    this.save.warSeen = keptSeen(seen, this.warsKnown?.() === false ? null : [...warSeenIds(list), ...this.spyList().map((x) => spySeenId(x.id))]);
   }
 
   /** Полководец — где его войско по словам сервера: идёт, стоит лагерем, возвращается. */
@@ -8713,4 +8713,28 @@ export class LocalWorld implements WorldApi {
     this.write();
   }
 
+}
+
+/** Номера итогов, которые сервер отдаёт в списке войн: бои и падения городов. */
+function warSeenIds(list: readonly WarView[]): string[] {
+  const ids: string[] = [];
+  for (const w of list) {
+    for (const b of w.battles) ids.push(b.id);
+    if (w.fall) ids.push(warFallId(w.id));
+  }
+  return ids;
+}
+
+/**
+ * Список принятого после пульса. Номер, который сервер ещё отдаёт, не вытесняется никогда: вытесненный, он на следующем
+ * пульсе снова «не принят», и итог ложился бы второй раз — на каждом пульсе, пока игрок в игре (docs/bughunt.md,
+ * «Больше двухсот итогов»). Потолок `WAR_SEEN_MAX` — только на номера, которых в списках сервера уже нет. Списков ещё
+ * не знаем (`live` — null: игра только открылась) — не вытесняется ничего.
+ */
+export function keptSeen(seen: Iterable<string>, live: readonly string[] | null): string[] {
+  const all = [...seen];
+  if (live === null) return all;
+  const listed = new Set(live);
+  const gone = new Set(all.filter((id) => !listed.has(id)).slice(-WAR_SEEN_MAX));
+  return all.filter((id) => listed.has(id) || gone.has(id));
 }
