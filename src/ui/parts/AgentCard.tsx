@@ -92,7 +92,7 @@ function Traits({ id }: { id: FigureId }) {
       <h3>Черты</h3>
       {lines.length === 0 ? (
         <button className="nx-crow" onClick={tip('Черты', 'Черты приходят делами, добрые и дурные, и уходят, если дела меняются.')}>
-          <span className="nx-crow-t">{n === 0 ? 'Дел пока нет.' : `${count(n, 'дело', 'дела', 'дел')}, черт пока нет.`}</span>
+          <span className="nx-crow-t">{n === 0 ? 'Дел ещё не было.' : `${count(n, 'дело', 'дела', 'дел')}, черт ещё нет.`}</span>
         </button>
       ) : (
         lines.map((l) => (
