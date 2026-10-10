@@ -1133,6 +1133,19 @@ export function readDeltas<K extends string>(v: unknown, keys: readonly K[]): Pa
   return out;
 }
 
+/**
+ * Кости стали углём (10.10.2026, docs/economy.md): запись, легшая на сервер до этого (указ `/give`, покупка лавки), читается
+ * с углём вместо костей — иначе неприменённый указ или оплаченная покупка пропали бы молча. Партия и мир приводятся своей
+ * ступенью (`game/charcoal`); здесь — только чтение того, что сервер хранит.
+ */
+const boneless = (v: unknown): unknown => {
+  if (v === 'bones') return 'charcoal';
+  if (!v || typeof v !== 'object' || !('bones' in v)) return v;
+  const { bones, ...rest } = v as Record<string, unknown>;
+  const both = typeof bones === 'number' && typeof rest.charcoal === 'number';
+  return { ...rest, charcoal: both ? (rest.charcoal as number) + (bones as number) : (rest.charcoal ?? bones) };
+};
+
 /** Указ из ответа сервера или из хранилища: новый объект; без номера или пустой — `null`. */
 export function readGrant(v: unknown): AdminGrant | null {
   if (!v || typeof v !== 'object') return null;
@@ -1140,7 +1153,7 @@ export function readGrant(v: unknown): AdminGrant | null {
   const n = num(r.n);
   const at = num(r.at);
   if (n === null || n < 1 || !Number.isInteger(n) || at === null) return null;
-  const stock = readDeltas(r.stock, STOCK_KEYS);
+  const stock = readDeltas(boneless(r.stock), STOCK_KEYS);
   const troops = readDeltas(r.troops, TROOP_KEYS);
   if (Object.keys(stock).length + Object.keys(troops).length === 0) return null;
   return { n, at, stock, troops };
@@ -1550,7 +1563,8 @@ export function readGemEntry(v: unknown): GemEntry | null {
   if (n === null || n < 1 || !Number.isInteger(n) || at === null || delta === null || !Number.isInteger(delta)) return null;
   if (typeof r.kind !== 'string' || !(GEM_KINDS as readonly string[]).includes(r.kind)) return null;
   const out: GemEntry = { n, at, delta, kind: r.kind as GemKind };
-  if (isGood(r.res)) out.res = r.res;
+  const res = boneless(r.res);
+  if (isGood(res)) out.res = res;
   const amount = num(r.amount);
   if (amount !== null && amount > 0) out.amount = Math.floor(amount);
   const building = str(r.building, GEM_LIMITS.building);

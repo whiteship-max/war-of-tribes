@@ -15,7 +15,7 @@ import { SHOP_GOODS, shopPrice, GOOD_OF } from './gemrules';
 import { buildingOfType, productionPerDay, selfCost } from './derived';
 import { startForge } from './sim/smithy';
 import { WORLD_SAVE_VERSION, parseWorldSave, createWorldSave } from '@/world/local/state';
-import { GEM_GOODS, STOCK_KEYS } from '../../netlify/lib/contract';
+import { GEM_GOODS, STOCK_KEYS, readGemEntry, readGrant } from '../../netlify/lib/contract';
 import { parseGive, statsCsv } from '../../netlify/lib/commands';
 
 const noBones = (json: string): void => expect(json, 'имени bones в записи нет').not.toMatch(/bones/);
@@ -122,6 +122,12 @@ describe('старые сохранения: кости становятся у�
     expect(got.resources.charcoal).toBe(33);
     enter(got, got.lastSaved);
     expect(got.log.some((e) => /пошли в уголь/.test(e.text))).toBe(false);
+  });
+
+  it('записи сервера до угля читаются углём: неприменённый указ и оплаченная покупка лавки не пропадают', () => {
+    expect(readGrant({ n: 3, at: 1, stock: { bones: 40, wood: 5 }, troops: {} })).toEqual({ n: 3, at: 1, stock: { charcoal: 40, wood: 5 }, troops: {} });
+    expect(readGemEntry({ n: 7, at: 1, delta: -32, kind: 'buy', res: 'bones', amount: 100 })).toEqual({ n: 7, at: 1, delta: -32, kind: 'buy', res: 'charcoal', amount: 100 });
+    expect(readGemEntry({ n: 8, at: 1, delta: -32, kind: 'buy', res: 'charcoal', amount: 100 })!.res).toBe('charcoal');
   });
 
   it('мир 9-й версии читается: добыча и склады в угле, версия поднята', () => {

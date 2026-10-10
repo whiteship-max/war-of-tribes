@@ -728,7 +728,7 @@ Deploys → **Trigger deploy**, дождаться сборки, потом об
 | [faith.md](docs/handbook/faith.md) | «Вера» | faiths.md |
 | [order.md](docs/handbook/order.md) | «Невольники и порядок в городе» | order.md |
 | [army.md](docs/handbook/army.md) | «Содержание войска», «Снаряжение и войско» | upkeep.md, hiring.md, infirmary.md, stable.md |
-| [economy.md](docs/handbook/economy.md) | «Алмазы», «Золото и рынок» | — |
+| [economy.md](docs/handbook/economy.md) | «Алмазы», «Золото и рынок» | economy.md (уголь вместо костей), gems.md |
 | [cheats.md](docs/handbook/cheats.md) | «Коды проверки» | cheats.md |
 | [graphics.md](docs/handbook/graphics.md) | «Визуальный рост зданий», «Графика: палитра, свет, набор деталей», «Значки интерфейса», «У костра стоят свободные руки», «Планировка поселения», «Зона расчистки вокруг поселения» | figures.md, icons.md |
 | [gestures.md](docs/handbook/gestures.md) | «Палец: тап по зданию и обзор деревни», «Стенд следа пальца» | — |
