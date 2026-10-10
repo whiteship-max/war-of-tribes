@@ -96,7 +96,7 @@ export function startSurvey(s: GameState): string | null {
   // уклад мог смениться, пока разъезды в поле.
   const seconds = surveySeconds(step, info.learning);
   s.survey = { done: info.done, startedAt: s.time, until: s.time + seconds };
-  log(s, `Дозор: разъезды пошли разведывать округу, ур. ${step.n}.`);
+  log(s, `Дозор: разъезды ушли разведывать округу, ур. ${step.n}.`);
   return null;
 }
 
@@ -112,7 +112,7 @@ export function cancelSurvey(s: GameState): string | null {
   const step = surveyStep(st.done + 1);
   if (step) refund(s, step.cost, 0.5);
   s.survey = { done: st.done, startedAt: 0, until: 0 };
-  log(s, 'Дозор: разъезды отозваны, округа осталась неразведанной.', 'bad');
+  log(s, 'Дозор: разъезды отозвали, округа осталась неразведанной.', 'bad');
   return null;
 }
 

@@ -136,7 +136,7 @@ export function tick(s: GameState, dt: number, opts: TickOptions = {}): void {
       site.level += 1;
       site.work = 0;
       site.workRequired = 0;
-      log(s, `${BUILDING_BY_ID[site.type].name}: ур. ${site.level}.`, 'good');
+      log(s, `Достроили: ${BUILDING_BY_ID[site.type].name.toLowerCase()}, ур. ${site.level}.`, 'good');
     }
   }
 
@@ -182,7 +182,7 @@ export function tick(s: GameState, dt: number, opts: TickOptions = {}): void {
   // 6б. Смена сезона и предупреждение о зиме.
   if (seasonIndex(s.time) !== seasonBefore) {
     const season = seasonOf(s.time);
-    log(s, `Пришла ${SEASON_META[season].name.toLowerCase()}. ${SEASON_META[season].hint}`, season === 'winter' ? 'bad' : 'info');
+    log(s, `${season === 'summer' ? 'Пришло' : 'Пришла'} ${SEASON_META[season].name.toLowerCase()}. ${SEASON_META[season].hint}`, season === 'winter' ? 'bad' : 'info');
   }
   // Предупреждение поднимается за игровой день до зимы — в последний день осени.
   // Без конкретного расчёта запасов зима читается как несправедливость, а с ним — как задача.
@@ -191,7 +191,7 @@ export function tick(s: GameState, dt: number, opts: TickOptions = {}): void {
     if (s.winterWarnedYear !== year) {
       s.winterWarnedYear = year;
       s.winterWarning = true;
-      log(s, 'Скоро зима. Пора считать запасы еды и дров.', 'bad');
+      log(s, 'Близится зима. Управитель пересчитывает амбары и поленницы.', 'bad');
     }
   }
   // Догон мог проскочить осень насквозь — устаревшее предупреждение снимаем.

@@ -130,7 +130,7 @@ export function startRecruit(s: GameState, troop: TroopId, count = 1): string | 
 
   const order: RecruitOrder = { id: s.nextId++, troop, count: people, done: 0, work: 0, people };
   s.recruits.push(order);
-  log(s, `${hiredAt(troop) === 'stable' ? 'Конюшня' : 'Казармы'}: найм, ${check.def.name.toLowerCase()}, ${people}.`);
+  log(s, `${hiredAt(troop) === 'stable' ? 'Конюшня набирает' : 'Казармы набирают'}: ${check.def.name.toLowerCase()}, ${people}.`);
   return null;
 }
 
@@ -149,7 +149,7 @@ export function cancelRecruit(s: GameState, orderId: number): string | null {
   // Недоучившиеся возвращаются к костру свободными руками.
   addPop(s, Math.min(order.people, left));
   s.recruits.splice(idx, 1);
-  log(s, `${hiredAt(order.troop) === 'stable' ? 'Конюшня' : 'Казармы'}: найм отменён, ${def.name.toLowerCase()}.`);
+  log(s, `${hiredAt(order.troop) === 'stable' ? 'Конюшне' : 'Казармам'} отменили найм: ${def.name.toLowerCase()}.`);
   return null;
 }
 
@@ -189,7 +189,7 @@ export function recruitTick(s: GameState, dt: number): void {
       order.people = Math.max(0, order.people - 1);
       s.army[order.troop] = (s.army[order.troop] ?? 0) + 1;
       // По строке на бойца: заказ на полсотни — полсотни одинаковых строк.
-      log(s, `${where === 'stable' ? 'Конюшня' : 'Казармы'}: обучен ${def.one}.`, 'good', `recruit:${order.troop}`);
+      log(s, `${where === 'stable' ? 'Конюшня выучила' : 'Казармы выучили'}: ${def.one}.`, 'good', `recruit:${order.troop}`);
     }
     if (order.done >= order.count) {
       const rest = order.work;

@@ -111,7 +111,7 @@ export function applyGemDeeds(s: GameState, deeds: readonly GemEntry[]): number 
     s.gemSeen = e.n;
     if (e.kind === 'buy' && e.res && (RESOURCE_META as Record<string, unknown>)[e.res]) {
       const moved = Math.round(layStock(s, e.res, e.amount ?? SHOP_LOT));
-      log(s, `Лавка: ${RESOURCE_META[e.res].name.toLowerCase()} +${moved}${moved < (e.amount ?? SHOP_LOT) ? ' (склад полон)' : ''}.`, 'good');
+      log(s, `Лавка: ${RESOURCE_META[e.res].name.toLowerCase()} +${moved}${moved < (e.amount ?? SHOP_LOT) ? ', склад полон' : ''}.`, 'good');
       continue;
     }
     if (e.kind === 'rush' && e.building && e.level) {
