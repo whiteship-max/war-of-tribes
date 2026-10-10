@@ -548,7 +548,7 @@ export function Prologue({ onExit }: { onExit: () => void }) {
         <i className="pro-black" />
       </div>
 
-      {/* «Прошло много дней…». Ждёт человека, а не часов: он переводит дух. */}
+      {/* «Минули годы…». Ждёт человека, а не часов: он переводит дух. */}
       {view?.end === 'passed' && (
         <div className="pro-passed" onClick={passOn} role="button" tabIndex={0}>
           <b>{PASSED}</b>
