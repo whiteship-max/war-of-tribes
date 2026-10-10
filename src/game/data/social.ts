@@ -35,7 +35,7 @@ export const BOT_IS_PLACEHOLDER = BOT_USERNAME === 'TribesWarsBot' && MINI_APP_N
 export const TG_GROUP = 'https://t.me/TribesWars';
 
 /** Боевой адрес игры. Им делятся, когда приглашения ещё нет. */
-export const SITE_URL = 'https://celebrated-yeot-73e410.netlify.app';
+export const SITE_URL = 'https://game.kingsvassals.com';
 
 /**
  * Куда позвать. `url: null` — ссылки пока нет: канал и чат не заведены. Такой строки игрок

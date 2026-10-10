@@ -6,7 +6,7 @@ import { ENV } from './config.js';
 
 /**
  * Файлы выкладки своего сервера — Dockerfile, docker-compose.yml, deploy/Caddyfile, .dockerignore,
- * .env.example, deploy/update.sh — проверяются чтением, как замки сервера (`server.test.ts`).
+ * .env.example, deploy/update.sh, deploy/coolify.yml, deploy/behind-coolify.yml, deploy/pull-backups.ps1 — проверяются чтением, как замки сервера (`server.test.ts`).
  * Собрать образ здесь нечем (Docker на машине разработки не обязателен), поэтому держатся свойства,
  * ошибка в которых стоила бы дорого и молча: токен в образе, открытый наружу порт приложения,
  * адрес API, который Caddy не провёл бы, переменная, которую сервер не читает.
@@ -23,6 +23,8 @@ const netlifyToml = readFileSync(join(ROOT, 'netlify.toml'), 'utf8');
 const caddy = readFileSync(join(DEPLOY, 'Caddyfile'), 'utf8');
 const update = readFileSync(join(DEPLOY, 'update.sh'), 'utf8');
 const coolify = readFileSync(join(DEPLOY, 'coolify.yml'), 'utf8');
+const behind = readFileSync(join(DEPLOY, 'behind-coolify.yml'), 'utf8');
+const pull = readFileSync(join(DEPLOY, 'pull-backups.ps1'), 'utf8');
 
 /** Переменные, которые понимает сервер: свои — `config.ENV`, токен и секрет вебхука — `lib/http`, домен — Caddy. */
 const KNOWN = new Set<string>([...Object.values(ENV), 'TELEGRAM_BOT_TOKEN', 'TELEGRAM_WEBHOOK_SECRET', 'TRIBE_DOMAIN']);
@@ -143,6 +145,40 @@ describe('вариант под Coolify — те же образы, без по�
     expect(vars(service('app', coolify))).toEqual(vars(service('app')));
     expect(vars(service('app')).length).toBeGreaterThan(5);
     expect(service('app', coolify)).toMatch(/- tribe-data:\/data/);
+  });
+});
+
+describe('игра за прокси Coolify на своём сервере — дополнение к основному compose', () => {
+  /**
+   * На сервере с Coolify 80 и 443 держит его прокси (Traefik), и порт Caddy из основного compose с ним бы подрался.
+   * Дополнение (`COMPOSE_FILE=docker-compose.yml:deploy/behind-coolify.yml` в .env) снимает порты у Caddy и отдаёт
+   * его прокси по меткам; приложение, тома и переменные остаются из основного файла.
+   */
+  it('у Caddy порты сняты, он слушает простой HTTP в сети прокси', () => {
+    const web = service('web', behind);
+    expect(web).toMatch(/^ {4}ports: !reset \[\]/m);
+    expect(web).toMatch(/TRIBE_DOMAIN: ":80"/);
+    expect(web).toMatch(/^ {6}- coolify\b/m);
+    expect(behind).toMatch(/^ {2}coolify:\s+external: true/m);
+  });
+
+  it('прокси ведёт домен игры из TRIBE_DOMAIN на 80-й порт Caddy, сертификат — его', () => {
+    const web = service('web', behind);
+    expect(web).toMatch(/traefik\.enable=true/);
+    expect(web).toMatch(/traefik\.http\.routers\.tribe\.rule=Host\(`\$\{TRIBE_DOMAIN\}`\)/);
+    expect(web).toMatch(/traefik\.http\.routers\.tribe\.tls\.certresolver=letsencrypt/);
+    expect(web).toMatch(/traefik\.http\.services\.tribe\.loadbalancer\.server\.port=80\b/);
+  });
+
+  it('приложение и тома не тронуты: дополнение говорит только о Caddy', () => {
+    expect(() => service('app', behind)).toThrow();
+    expect(behind).not.toMatch(/^volumes:/m);
+  });
+
+  it('копии с сервера забираются из контейнера, имя которого даёт основной compose', () => {
+    // Имя контейнера compose — `<name>-<сервис>-1`; разойдись оно с образцом, копии молча перестали бы приходить.
+    const project = /^name: (\S+)/m.exec(compose)![1];
+    expect(pull).toMatch(new RegExp(`docker cp ${project}-app-1:/data/backups -`));
   });
 });
 

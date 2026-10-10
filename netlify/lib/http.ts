@@ -137,7 +137,7 @@ export const botToken = (): string => process.env.TELEGRAM_BOT_TOKEN ?? '';
 export const botSecret = (): string => process.env.TELEGRAM_WEBHOOK_SECRET ?? '';
 
 /** Боевой адрес игры — тот, что стоит Menu Button'ом в @BotFather (CLAUDE.md, «Выкладка»). */
-export const APP_URL = 'https://celebrated-yeot-73e410.netlify.app';
+export const APP_URL = 'https://game.kingsvassals.com';
 
 /**
  * Адрес игры для кнопки «Открыть игру» под сообщениями бота (`web_app`, docs/NOTIFY.md, 12.10): `TRIBE_APP_URL`, если
