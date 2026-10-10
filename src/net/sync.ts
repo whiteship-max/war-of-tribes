@@ -183,6 +183,13 @@ let timer: ReturnType<typeof setInterval> | null = null;
 let pushing = false;
 /** Отметка раскладки в последней принятой записи (`pushDue`). */
 let pushedMark: string | null = null;
+/**
+ * Вкладка уходит на перезапуск с другой партией на диске (`adopt`, «Вернуть»). С этой минуты она не пишет ничего — ни
+ * на диск, ни на сервер: перезапуск шлёт `beforeunload` и `visibilitychange`, стор по ним пишет партию из памяти, и та
+ * ложилась поверх только что взятой. После перезапуска отметка наследования называла её продолжением серверной — и
+ * пустая партия нового устройства уезжала на сервер поверх настоящей (docs/bughunt.md, «Взятая партия затиралась»).
+ */
+let leaving = false;
 
 const say = (state: SyncState, why: string): void => useSync.setState({ state, why });
 
@@ -200,6 +207,7 @@ function adopt(record: SaveRecord, etag: string | null, spare: SaveRecord | null
     say('offline', 'Сохранение из облака не читается. Партия на этом устройстве не тронута.');
     return;
   }
+  leaving = true;
   if (spare) keepSpare(spare, serverNow());
   if (record.world) browserStorage.write(record.world);
   else browserStorage.clear?.();
@@ -212,7 +220,7 @@ function adopt(record: SaveRecord, etag: string | null, spare: SaveRecord | null
 /** Отправить нынешнюю партию поверх записи `baseEtag`. */
 async function push(baseEtag: string | null): Promise<void> {
   const record = mine();
-  if (!record || pushing) return;
+  if (!record || pushing || leaving) return;
   const mark = sheetMark();
   pushing = true;
   try {
@@ -273,6 +281,7 @@ export const useSync = create<SyncStore>((set, get) => ({
     const sp = get().spare;
     if (!sp) return;
     if (!adoptSave(sp.game)) return;
+    leaving = true;
     if (sp.world) browserStorage.write(sp.world);
     else browserStorage.clear?.();
     // Отметка о том, чему наследует эта копия, **остаётся**: она указывает на
@@ -415,4 +424,4 @@ export async function syncBoot(hadLocal: boolean): Promise<void> {
 }
 
 /** Можно ли этой вкладке писать партию — на диск и на сервер. */
-export const mayWrite = (): boolean => useSync.getState().state !== 'taken';
+export const mayWrite = (): boolean => !leaving && useSync.getState().state !== 'taken';
