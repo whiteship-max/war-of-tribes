@@ -63,7 +63,7 @@ const RESOURCE_GOODS: {
   { id: 'food', price: 10, stock: 60, stockPerLevel: 13, always: true },
   { id: 'wood', price: 3, stock: 200, stockPerLevel: 80 },
   { id: 'stone', price: 3, stock: 160, stockPerLevel: 64 },
-  { id: 'bones', price: 4, stock: 64, stockPerLevel: 24 },
+  { id: 'charcoal', price: 4, stock: 64, stockPerLevel: 24 },
   { id: 'hides', price: 6, stock: 64, stockPerLevel: 24 },
   { id: 'copper', price: 9, stock: 40, stockPerLevel: 16 },
   { id: 'iron', price: 14, stock: 32, stockPerLevel: 16 },

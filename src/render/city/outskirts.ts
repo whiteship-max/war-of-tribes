@@ -194,6 +194,12 @@ export function millWheel(y: Yard, d: Detail): { b: Builder; at: V3; fx: number;
 }
 
 /**
+ * Угольная куча лесопилки во дворе (вперёд, вправо, радиус): за домом и левее — мельничный ручей обходит дом сзади и
+ * справа, река — слева; место выбрано так, чтобы куча стояла на суше с запасом от обоих, и держит это `seat.test.ts`.
+ */
+export const KILN = { f: -9, r: -5, R: 3 } as const;
+
+/**
  * Лесопилка: каменный низ и фахверк над ним, колесо в мельничном ручье у южной стены (`layout.RACE`) —
  * лицом к камере, ось — в стену; брёвна штабелем и доски во дворе.
  */
@@ -243,6 +249,20 @@ function sawmill(b: Builder, y: Yard, d: Detail): { lights: V3[]; chimneys: V3[]
     const [lx, lz] = fr.q(0, -W / 2 - 1.6);
     const ly = heightAt(lx, lz);
     box(b, lx, lz, fr.fx, fr.fz, 1.6, 4.5, ly, ly + 1.1, 'wood', woodLight(1.1), 'wood', { aoBottom: 0.6 });
+    // Угольная куча за лесопилкой: сучья под дёрном тлеют неделю, дым идёт из макушки (docs/economy.md, «Уголь вместо
+    // костей»). Низкий земляной купол — два конуса, чёрная земля у подножия и дёрн выше; поленница сучьев рядом.
+    const [kx, kz] = fr.q(KILN.f, KILN.r);
+    const ky = heightAt(kx, kz);
+    cone(b, kx, kz, KILN.R, ky - 0.3, ky + 1.6, 12, 'rubble', tint(0x4a4651, 0.9), 0.75);
+    cone(b, kx, kz, KILN.R * 0.63, ky + 0.6, ky + 2.3, 10, 'grass', tint(0x6f6a4e, 0.85), 0.8);
+    // Сучья — между кучей и домом, поперёк «вперёд».
+    for (let i = 0; i < 4; i++) {
+      const a0 = fr.p(KILN.f + KILN.R + 0.25 + i * 0.4, KILN.r - 1.2, 0);
+      const e0 = fr.p(KILN.f + KILN.R + 0.25 + i * 0.4, KILN.r + 1.2, 0);
+      const yy = Math.max(heightAt(a0[0], a0[2]), heightAt(e0[0], e0[2])) + 0.12 + (i % 2) * 0.1;
+      log(b, [a0[0], yy, a0[2]], [e0[0], yy, e0[2]], 0.12, wood(0.8), 5, true);
+    }
+    return { lights: [fr.p(D / 2 + 0.4, -2, c.base + 2.6)], chimneys: [...r.chimneys, [kx, ky + 2.4, kz]] };
   }
   return { lights: [fr.p(D / 2 + 0.4, -2, c.base + 2.6)], chimneys: r.chimneys };
 }

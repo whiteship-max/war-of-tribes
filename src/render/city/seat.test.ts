@@ -9,12 +9,13 @@
 //   кусок кончается внутри башни (без щели), стена не выше башни; зубец стоит на парапете открытого куска и весь
 //   вне башен; сквозь проезд ворот стена не идёт.
 import { describe, expect, it } from 'vitest';
-import { cityPlan, type Tower } from './layout';
+import { cityPlan, distPoly, heightAt, RACE, RACE_HALF, RACE_LEVEL, RIVER_HALF, riverX, type Tower } from './layout';
 import { groundGrid, gridHeight } from './ground';
 import { CITY_SPEC } from './spec';
 import { QUALITIES } from '../quality';
 import { inTowerShape, MERLON_FOOT, merlonCorners, MERLON_TOP, PARAPET_IN, wallPlan, type Merlon, type WallPiece } from './forts';
-import { yardHalls } from './outskirts';
+import { KILN, yardHalls } from './outskirts';
+import { Frame } from './kit';
 
 /** Допуск «не тонет»: пол может быть ниже нарисованной земли не больше чем на столько. */
 const SINK_TOL = 0.1;
@@ -281,3 +282,23 @@ function inQuad(q: [number, number][], x: number, z: number): boolean {
   }
   return true;
 }
+
+describe('угольная куча лесопилки стоит на суше', () => {
+  it('след кучи — с запасом от мельничного ручья и реки и выше воды ручья', () => {
+    const y = plan.yards.find((v) => v.kind === 'sawmill')!;
+    const fr = new Frame(y.x, y.z, Math.cos(y.rot), Math.sin(y.rot));
+    // Граница области: обходим весь след кучи — центр и обод на двенадцати направлениях.
+    const ring: [number, number][] = [[KILN.f, KILN.r]];
+    for (let k = 0; k < 12; k++) {
+      const a = (k / 12) * Math.PI * 2;
+      ring.push([KILN.f + Math.cos(a) * KILN.R, KILN.r + Math.sin(a) * KILN.R]);
+    }
+    for (const [f, r] of ring) {
+      const [x, z] = fr.q(f, r);
+      expect(distPoly({ x, z }, RACE) - RACE_HALF, `ручей у ${f},${r}`).toBeGreaterThan(1);
+      expect(Math.abs(x - riverX(z)) - RIVER_HALF, `река у ${f},${r}`).toBeGreaterThan(1);
+    }
+    const [cx, cz] = fr.q(KILN.f, KILN.r);
+    expect(heightAt(cx, cz)).toBeGreaterThan(RACE_LEVEL + 0.5);
+  });
+});

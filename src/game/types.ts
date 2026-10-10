@@ -6,7 +6,7 @@ import type { FigureId, GateCall } from '@/world/types';
 import type { ItemId } from './data/items';
 import type { TraitId } from './data/traits';
 
-export type ResourceId = 'wood' | 'stone' | 'food' | 'hides' | 'bones' | 'copper' | 'iron';
+export type ResourceId = 'wood' | 'stone' | 'food' | 'hides' | 'charcoal' | 'copper' | 'iron';
 export type Resources = Record<ResourceId, number>;
 
 /**

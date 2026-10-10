@@ -344,14 +344,14 @@ export const MUTINY_SUPPRESS_MORALE = 8;
 export const MUTINY_PAY_FOOD = 1;
 export const MUTINY_PAY_GOLD = 1;
 
-export const RESOURCE_IDS: ResourceId[] = ['wood', 'stone', 'food', 'hides', 'bones', 'copper', 'iron'];
+export const RESOURCE_IDS: ResourceId[] = ['wood', 'stone', 'food', 'hides', 'charcoal', 'copper', 'iron'];
 
 export const RESOURCE_META: Record<ResourceId, { name: string; icon: string }> = {
   wood: { name: 'Древесина', icon: '🌲' },
   stone: { name: 'Камень', icon: '⛰️' },
   food: { name: 'Еда', icon: '🍖' },
   hides: { name: 'Шкуры', icon: '🦌' },
-  bones: { name: 'Кости', icon: '🦴' },
+  charcoal: { name: 'Уголь', icon: '⚫' },
   copper: { name: 'Медь', icon: '🟠' },
   iron: { name: 'Железо', icon: '⚙️' },
 };
@@ -361,7 +361,7 @@ export const emptyResources = (): Resources => ({
   stone: 0,
   food: 0,
   hides: 0,
-  bones: 0,
+  charcoal: 0,
   copper: 0,
   iron: 0,
 });

@@ -1060,7 +1060,7 @@ export function readWarOrder(v: unknown): WarOrder | null {
  * золото) — сверяет тест (`src/net/admin.test.ts`). Алмазов здесь нет и быть не может: начисление алмазов одно —
  * `netlify/lib/gems.creditGems` (docs/gems.md).
  */
-export const STOCK_KEYS = ['wood', 'stone', 'food', 'hides', 'bones', 'copper', 'iron', 'gold'] as const;
+export const STOCK_KEYS = ['wood', 'stone', 'food', 'hides', 'charcoal', 'copper', 'iron', 'gold'] as const;
 export type StockKey = (typeof STOCK_KEYS)[number];
 
 /** Виды бойцов, которые правит указ. Тот же список, что у игры (`data/troops.TROOP_IDS`) — сверяет тот же тест. */
@@ -1458,7 +1458,7 @@ export const GEM_KINDS = ['start', 'purchase', 'buy', 'rush'] as const;
 export type GemKind = (typeof GEM_KINDS)[number];
 
 /** Припасы лавки — виды склада без золота: золото за алмазы не продаётся. */
-export const GEM_GOODS = ['wood', 'stone', 'food', 'hides', 'bones', 'copper', 'iron'] as const satisfies readonly StockKey[];
+export const GEM_GOODS = ['wood', 'stone', 'food', 'hides', 'charcoal', 'copper', 'iron'] as const satisfies readonly StockKey[];
 export type GemGood = (typeof GEM_GOODS)[number];
 
 /** Потолки журнала: ключ повтора, сколько записей лежит, сколько уходит в окно «История» и в записку сохранения. */

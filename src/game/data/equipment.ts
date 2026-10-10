@@ -40,8 +40,8 @@ export const EQUIPMENT: EquipmentDef[] = [
     name: 'Луки',
     one: 'лук',
     icon: '🏹',
-    description: 'Тис, жила и костяные наконечники. Бьёт дальше копья.',
-    cost: { wood: 6, bones: 3 },
+    description: 'Тис и жила, наконечники калят в горне на угле. Бьёт дальше копья.',
+    cost: { wood: 6, charcoal: 3 },
     work: 75,
   },
   {

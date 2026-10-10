@@ -148,7 +148,7 @@ export const RESOURCE_WORD: Record<string, string> = {
   stone: 'камень',
   food: 'еда',
   hides: 'шкуры',
-  bones: 'кость',
+  charcoal: 'уголь',
   copper: 'медь',
   iron: 'железо',
   gold: 'золото',

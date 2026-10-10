@@ -30,7 +30,7 @@ import { power } from './power';
 const SAVE_V8 = `{
   "version": 8,
   "time": 12345.5,
-  "resources": { "wood": 1200, "stone": 640, "food": 1580, "hides": 210, "bones": 96, "copper": 240, "iron": 175 },
+  "resources": { "wood": 1200, "stone": 640, "food": 1580, "hides": 210, "charcoal": 96, "copper": 240, "iron": 175 },
   "equipment": { "spear": 7, "bow": 3, "axe": 0, "shield": 2, "sword": 1, "armor": 0 },
   "army": { "clubman": 4, "spearman": 12, "archer": 6, "axeman": 0, "swordsman": 2, "shieldman": 0, "rider": 0, "legionary": 3 },
   "recruits": [],
