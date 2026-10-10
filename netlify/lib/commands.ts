@@ -443,9 +443,14 @@ async function flags(io: Io): Promise<Reply> {
   return say(lines.join('\n'));
 }
 
-/** Ячейка CSV: точка с запятой — разделитель русского Excel; кавычки удваиваются. */
-const cell = (v: string | number): string => {
-  const s = String(v);
+/**
+ * Ячейка CSV: точка с запятой — разделитель русского Excel; кавычки удваиваются. Строка, которую Excel или Таблицы
+ * прочтут формулой (начало `=`, `+`, `-`, `@`, табуляция, возврат каретки), получает спереди апостроф: имя города и
+ * правителя пишет игрок, и город `=HYPERLINK(…)` в таблице админа стал бы живой ссылкой или запросом наружу со
+ * столбцом чужих номеров Telegram (docs/bughunt.md, «Формула в /stats»). Числа не трогаются — минус у них свой.
+ */
+export const cell = (v: string | number): string => {
+  const s = typeof v === 'string' && /^[=+\-@\t\r]/.test(v) ? `'${v}` : String(v);
   return /[;"\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 };
 
