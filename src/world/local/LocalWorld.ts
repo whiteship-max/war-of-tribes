@@ -7523,7 +7523,7 @@ export class LocalWorld implements WorldApi {
     const now = this.clock();
     this.stepLetters(now);
     const l = this.save.letters.find((x) => x.id === id);
-    if (!l) return 'Этого письма уже нет. Оно решилось само, исход в летописи.';
+    if (!l) return 'Этой вести уже нет. Она решилась сама, исход в летописи.';
     if (letterExpired(l, now)) return 'Срок вышел, гонец уехал.';
     const view = this.letterView(l, now);
     const choice = view.choices.find((c) => c.id === answer);

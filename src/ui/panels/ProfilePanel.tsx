@@ -268,7 +268,7 @@ export function ProfilePanel() {
         <span className={`val${t.troopsLost > 0 ? ' neg' : ''}`}>{big(t.troopsLost)}</span>
       </div>
 
-      <h3>Производство</h3>
+      <h3>Хозяйство</h3>
       <div className="mod total">
         <span className="ico">📦</span>
         <span className="name">Добыто всего</span>

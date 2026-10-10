@@ -26,9 +26,9 @@ export function SceneTrouble({ verdict, onRetry }: { verdict: Verdict; onRetry: 
         <button className="btn wide" onClick={onRetry}>
           Восстановить
         </button>
-        <div className="trouble-hint">Если не помогло, скопируй отчёт.</div>
+        <div className="trouble-hint">Если не помогло, скопируй запись для мастеров игры.</div>
         <button className="btn ghost wide" onClick={() => void copy()}>
-          Скопировать отчёт
+          Скопировать запись
         </button>
       </div>
     </div>

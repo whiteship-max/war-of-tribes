@@ -52,7 +52,7 @@ export function pipLines(level: number, pips: Pips, next: Pips | null, tradition
   return {
     now:
       level <= 1
-        ? 'Отметок пока нет.'
+        ? 'Отметок ещё нет.'
         : 'Отметка прибавляет урон в своей фазе, в походе и у своих стен.',
     rows,
     next: nextLine,

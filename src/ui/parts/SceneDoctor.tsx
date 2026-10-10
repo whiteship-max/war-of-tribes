@@ -103,7 +103,7 @@ export function SceneDoctor() {
   async function copy(): Promise<void> {
     const ok = await copyText(sceneLog.report({ Telegram: tgAbout() }));
     setCopied(ok);
-    showToast(ok ? 'Отчёт скопирован.' : 'Не вышло. Перепиши с экрана.');
+    showToast(ok ? 'Запись скопирована.' : 'Не вышло. Перепиши с экрана.');
   }
 }
 

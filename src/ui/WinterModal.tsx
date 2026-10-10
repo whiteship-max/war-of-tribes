@@ -26,7 +26,7 @@ function Stock({ icon, name, f, days }: { icon: string; name: string; f: Resourc
       </div>
       <small>
         {f.drainPerDay > 0
-          ? `В запасе ${Math.floor(f.have)}, уходит ${n1(f.drainPerDay)} в день. Нужно на зиму ${Math.ceil(f.need)}.`
+          ? `В запасе ${Math.floor(f.have)}, уходит ${n1(f.drainPerDay)} в день, на зиму надо ${Math.ceil(f.need)}.`
           : `В запасе ${Math.floor(f.have)}, зимой добыча больше трат.`}
       </small>
     </div>

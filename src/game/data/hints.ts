@@ -49,7 +49,7 @@ export const HINTS: readonly HintDef[] = [
   {
     id: 'army',
     title: 'Найми дружину',
-    body: 'Бойцов нанимают в казармах, оружие куёт кузница. Без дружины не отбить набег и не выйти в поход.',
+    body: 'Бойцов нанимают в казармах, снаряжение куёт кузница. Без дружины не отбить набег и не выйти в поход.',
     anchor: '[data-tut="nav-army"]',
     link: { label: 'Казармы', go: 'barracks' },
     due: (s) => armySize(s) + recruitsQueued(s) < HINT_ARMY,

@@ -500,7 +500,7 @@ function sideWords(side: CampSide, since: number, at: number, gateAt: number | u
   const works = sideWorks(since, at, side, plan);
   if (works <= 0) return `${SIDE_NAME[side]} рогаток ещё нет: к бою пройдут все.${gateTail(gateAt, at)}`;
   const num = (v: number): string => (v >= 10 ? String(Math.round(v)) : dec(v, 1));
-  const share = `к бою пройдут не больше ${num(passPerMan(works))} бойцов строя на каждого, кто ставил лагерь`;
+  const share = `к бою пройдут не больше ${num(passPerMan(works))} на каждого, кто ставил лагерь`;
   if (works >= 1) return `${SIDE_NAME[side]} рогатки дозрели: ${share}.${gateTail(gateAt, at)}`;
   const ripe = worksRipeAt(since, side, plan);
   const when = ripe < Infinity ? ` Дозреют через ${mins(ripe - at)} мин — тогда ${num(CAMP_WORKS_PASS)}.` : ' Дальше не растут: сюда не рубят.';
