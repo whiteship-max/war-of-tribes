@@ -93,6 +93,20 @@ export const VOICE2 = [
   'src/ui/parts/Watch.tsx', 'src/world/data/gate.ts', 'src/world/siegecraft.ts', 'src/world/garrison.ts', 'src/world/local/LocalWorld.ts',
 ];
 
+/**
+ * Вычитаны заходом «Голос», чат 4 (docs/voice.md, 12): сеть и отказы связи, плашка заморозки, экран «Город не рисуется»,
+ * письмо мастерам игры, справочные окна (жители, дружина, порядок, сезон, профиль, задания), вести, задание дня, карточка
+ * вида бойцов, летопись Дозора, найма, башни и заданий. Пути — от корня проекта.
+ */
+export const VOICE4 = [
+  'src/net/feed.ts', 'src/net/rating.ts', 'src/net/war.ts', 'src/net/roster.ts', 'src/net/sync.ts', 'src/net/report.ts',
+  'src/ui/parts/Frozen.tsx', 'src/ui/parts/Temple.tsx', 'src/ui/parts/daily/Quiz.tsx', 'src/ui/parts/daily/DailyPage.tsx',
+  'src/ui/parts/TroopCardView.tsx', 'src/ui/SceneTrouble.tsx', 'src/scenelog.ts', 'src/ui/panels/QuestsPanel.tsx',
+  'src/ui/panels/ProfilePanel.tsx', 'src/ui/panels/ArmyPanel.tsx', 'src/ui/panels/OrderPanel.tsx', 'src/ui/panels/SeasonPanel.tsx',
+  'src/ui/realm/Mail.tsx', 'src/ui/WinterModal.tsx', 'src/ui/next/Treasury.tsx', 'src/game/sim/survey.ts', 'src/game/sim/daily.ts',
+  'src/game/sim/hire.ts', 'src/game/sim/tower.ts', 'src/game/sim/workers.ts', 'src/world/works.ts', 'src/game/data/troops.ts',
+];
+
 describe('голос текстов этапа 2', () => {
   it('ни канцелярита, ни восклицаний, ни слов, которые словарь убрал', () => {
     let seen = 0;
@@ -128,6 +142,18 @@ describe('голос текстов этапа 2', () => {
       }
     }
     expect(seen).toBeGreaterThan(500);
+  });
+
+  it('то же для файлов, вычитанных заходом «Голос», чат 4: без служебных слов и без «аккаунта», «отчёта» и «бойцов строя»', () => {
+    let seen = 0;
+    for (const f of VOICE4) {
+      for (const t of playerStrings(readFileSync(join(UI, '..', '..', f), 'utf8'))) {
+        seen++;
+        for (const bad of BANNED) expect(t, `${f}: «${t}»`).not.toMatch(bad);
+        expect(t, `${f}: «${t}»`).not.toMatch(/сервер|\bданн|противник|агент|аккаунт|отч[её]т|бойц\S* строя|WebGL/i);
+      }
+    }
+    expect(seen).toBeGreaterThan(300);
   });
 
   it('щуп строк видит литерал, шаблон и текст разметки', () => {
