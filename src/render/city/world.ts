@@ -48,6 +48,8 @@ export interface CityWorld {
   trees: Record<Species, TreeInst[]>;
   /** Камыш у кромки и камни на берегу (`banks.shoreItems`). */
   shore: { reeds: Reed[]; stones: Stone[] };
+  /** Колесо лесопилки, что крутится (docs/city.md, 16.4): модель вокруг оси и где стоит; на «Низком» — нет. */
+  wheel: { mesh: MeshArrays; at: V3; fx: number; fz: number; R: number; water: number } | null;
   /** Сколько стоила каждая часть, мс — подписи стенда и таблице бюджета. */
   ms: { plan: number; build: number; ground: number; trees: number };
 }
@@ -83,6 +85,7 @@ export function buildWorld(q: Quality): CityWorld {
     wet,
     trees,
     shore,
+    wheel: st.wheel ? { mesh: arraysOf(st.wheel.b), at: st.wheel.at, fx: st.wheel.fx, fz: st.wheel.fz, R: st.wheel.R, water: st.wheel.water } : null,
     ms: { plan: t1 - t0, build: t2 - t1, ground: t3 - t2, trees: t4 - t3 },
   };
 }
@@ -90,5 +93,7 @@ export function buildWorld(q: Quality): CityWorld {
 /** Буферы, которые поток передаёт, а не копирует. */
 export function transferables(w: CityWorld): ArrayBuffer[] {
   const b = w.buildings;
-  return [b.pos, b.nor, b.uv, b.col, b.cfg, b.idx, w.map, w.land, w.grid.positions, w.grid.normals, w.grid.index, w.wet].map((a) => a.buffer as ArrayBuffer);
+  const wh = w.wheel?.mesh;
+  const wheel = wh ? [wh.pos, wh.nor, wh.uv, wh.col, wh.cfg, wh.idx] : [];
+  return [b.pos, b.nor, b.uv, b.col, b.cfg, b.idx, w.map, w.land, w.grid.positions, w.grid.normals, w.grid.index, w.wet, ...wheel].map((a) => a.buffer as ArrayBuffer);
 }

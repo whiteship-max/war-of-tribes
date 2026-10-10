@@ -146,6 +146,53 @@ function gathering(b: Builder, y: Yard, d: Detail): V3[] {
   return [fr.p(D / 2 + 0.4, 0, yF - 0.6)];
 }
 
+/** Колесо лесопилки в рамке двора: вынос вперёд от середины дома, высота оси, радиус. */
+const WHEEL_R = 2.7;
+const WHEEL_AT = { wf: 8 / 2 + 4.5, cy: RACE_LEVEL + WHEEL_R - 0.45 };
+
+/**
+ * Водяное колесо (docs/city.md, 16.4): два обода, лопасти во всю ширину, спицы. `P(off, r, y)` — точка: `off` вдоль
+ * оси, (`r`, `y`) — в плоскости колеса от оси. Одна модель на два места: стоя в общем меше (на «Низком») и в своём
+ * меше, что крутится (`millWheel`).
+ */
+export function wheelModel(b: Builder, P: (off: number, r: number, y: number) => V3, d: Detail): void {
+  const R = WHEEL_R;
+  const seg = d === 0 ? 10 : 16;
+  const T = wood(1.15);
+  const rim = (k: number, rr: number, off: number): V3 => {
+    const ang = (k / seg) * Math.PI * 2;
+    return P(off, Math.cos(ang) * rr, Math.sin(ang) * rr);
+  };
+  for (const off of [-0.55, 0.55]) {
+    for (let k = 0; k < seg; k++) log(b, rim(k, R, off), rim(k + 1, R, off), 0.12, T, 4, false);
+  }
+  // Лопасти — доски по радиусу во всю ширину колеса; спицы — через одну четверть.
+  for (let k = 0; k < seg; k += d === 0 ? 2 : 1) {
+    const ang = ((k + 0.5) / seg) * Math.PI * 2;
+    const p = (off: number, rr: number): V3 => P(off, Math.cos(ang) * rr, Math.sin(ang) * rr);
+    const A = p(-0.55, R - 0.75);
+    const B = p(0.55, R - 0.75);
+    const C = p(0.55, R + 0.05);
+    const E = p(-0.55, R + 0.05);
+    pushQuadOut(b, A, B, C, E, 'wood', T, P(0, Math.cos(ang + 0.5) * R * 2, Math.sin(ang + 0.5) * R * 2), 0.9);
+    pushQuadOut(b, A, B, C, E, 'wood', T, P(0, Math.cos(ang - 0.5) * R * 2, Math.sin(ang - 0.5) * R * 2), 0.7);
+    if (k % 4 === 0) log(b, P(0, 0, 0), rim(k, R, 0), 0.08, T, 4, false);
+  }
+}
+
+/**
+ * Колесо, что крутится: модель вокруг своей оси (x — ось, y — вверх, z — против «вправо» двора) и где оно стоит.
+ * Меш ставит `index.MillWheel`: поворот вокруг y — ось на (fx, fz), вращение — вокруг своей x.
+ */
+export function millWheel(y: Yard, d: Detail): { b: Builder; at: V3; fx: number; fz: number; R: number; water: number } {
+  const fx = Math.cos(y.rot);
+  const fz = Math.sin(y.rot);
+  const fr = new Frame(y.x, y.z, fx, fz);
+  const b = new Builder();
+  wheelModel(b, (off, r, yy) => [off, yy, -r], d);
+  return { b, at: fr.p(WHEEL_AT.wf, 0, WHEEL_AT.cy), fx, fz, R: WHEEL_R, water: RACE_LEVEL };
+}
+
 /**
  * Лесопилка: каменный низ и фахверк над ним, колесо в мельничном ручье у южной стены (`layout.RACE`) —
  * лицом к камере, ось — в стену; брёвна штабелем и доски во дворе.
@@ -170,31 +217,10 @@ function sawmill(b: Builder, y: Yard, d: Detail): { lights: V3[]; chimneys: V3[]
     },
     d,
   );
-  // Колесо: в ручье перед фасадом, обод — в плоскости фасада, ось — вперёд, в стену.
-  const wf = D / 2 + 4.5;
-  const R = 2.7;
-  const cy = RACE_LEVEL + R - 0.45;
-  const seg = d === 0 ? 10 : 16;
-  const T = wood(1.15);
-  const rim = (k: number, rr: number, off: number): V3 => {
-    const ang = (k / seg) * Math.PI * 2;
-    return fr.p(wf + off, Math.cos(ang) * rr, cy + Math.sin(ang) * rr);
-  };
-  for (const off of [-0.55, 0.55]) {
-    for (let k = 0; k < seg; k++) log(b, rim(k, R, off), rim(k + 1, R, off), 0.12, T, 4, false);
-  }
-  // Лопасти — доски по радиусу во всю ширину колеса; спицы — через одну четверть.
-  for (let k = 0; k < seg; k += d === 0 ? 2 : 1) {
-    const ang = ((k + 0.5) / seg) * Math.PI * 2;
-    const p = (off: number, rr: number): V3 => fr.p(wf + off, Math.cos(ang) * rr, cy + Math.sin(ang) * rr);
-    const A = p(-0.55, R - 0.75);
-    const B = p(0.55, R - 0.75);
-    const C = p(0.55, R + 0.05);
-    const E = p(-0.55, R + 0.05);
-    pushQuadOut(b, A, B, C, E, 'wood', T, fr.p(wf, Math.cos(ang + 0.5) * R * 2, cy + Math.sin(ang + 0.5) * R * 2), 0.9);
-    pushQuadOut(b, A, B, C, E, 'wood', T, fr.p(wf, Math.cos(ang - 0.5) * R * 2, cy + Math.sin(ang - 0.5) * R * 2), 0.7);
-    if (k % 4 === 0) log(b, fr.p(wf, 0, cy), rim(k, R, 0), 0.08, T, 4, false);
-  }
+  // Колесо: в ручье перед фасадом, обод — в плоскости фасада, ось — вперёд, в стену. На «Среднем» и «Высоком» оно
+  // крутится — его рисует отдельный меш (`millWheel`, `index.MillWheel`), здесь — только на «Низком», стоя.
+  const { wf, cy } = WHEEL_AT;
+  if (d === 0) wheelModel(b, (off, r, yy) => fr.p(wf + off, r, cy + yy), d);
   // Ось — из стены через колесо на каменную опору за ручьём.
   log(b, fr.p(D / 2 - 0.2, 0, cy), fr.p(wf + 2.6, 0, cy), 0.2, wood(0.9), 6, true);
   const [sx, sz] = fr.q(wf + 2.6, 0);

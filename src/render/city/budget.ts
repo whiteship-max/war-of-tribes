@@ -6,7 +6,7 @@ import type { BuildingTypeId } from '@/game/types';
 import { Builder, type V3 } from './geom';
 import { cityPlan, type CityPlan, type Civic, type TowerKind } from './layout';
 import { ownerCode, siteOf, wallSites, type Site } from './sites';
-import { yard, yardHalls } from './outskirts';
+import { millWheel, yard, yardHalls } from './outskirts';
 import { house, houseStoop } from './kit';
 import { cityWall, tower } from './forts';
 import { churchyard, civic, civicStoop, fireBowl, gutter, marketProps, stall, statue, well } from './civic';
@@ -32,6 +32,8 @@ export interface StaticBuild {
   /** Коробки 24 построек игры (`sites.ts`) — сняты с самих моделей. */
   sites: Site[];
   marks: { houses: number; forts: number; civic: number; outside: number };
+  /** Колесо лесопилки, что крутится, — своим мешем (docs/city.md, 16.4); на «Низком» его нет: колесо стоит в общем. */
+  wheel: ReturnType<typeof millWheel> | null;
 }
 
 /** Чья постройка — большое здание города (docs/city.md, раздел 5); палас — замок, казна в нём. */
@@ -124,7 +126,9 @@ export function buildStatic(plan: CityPlan, q: Quality): StaticBuild {
     });
     for (const h of yardHalls(y)) civicStoop(b, h);
   }
-  return { b, lights, chimneys, flagTops, sites, marks: { houses, forts, civic: civicT, outside: b.mark().t } };
+  const mill = d > 0 ? plan.yards.find((y) => y.kind === 'sawmill') : undefined;
+  const wheel = mill ? millWheel(mill, d) : null;
+  return { b, lights, chimneys, flagTops, sites, marks: { houses, forts, civic: civicT, outside: b.mark().t }, wheel };
 }
 
 export interface CityCounts {
@@ -145,7 +149,7 @@ const FAR: readonly Species[] = ['broadFar', 'spruceFar'];
 
 export function cityCounts(q: Quality, plan: CityPlan = cityPlan()): CityCounts {
   const spec = CITY_SPEC[q];
-  const { b } = buildStatic(plan, q);
+  const { b, wheel } = buildStatic(plan, q);
   const ground = spec.groundCells * spec.groundCells * 2;
   const trees = placeTrees(plan, spec.treeNear, spec.nearStep, spec.farStep, spec.treeReach);
   let treeTris = 0;
@@ -173,6 +177,8 @@ export function cityCounts(q: Quality, plan: CityPlan = cityPlan()): CityCounts 
   // — вызов жизни (`life.ts`). Стягов — по два на воротах и донжоне (`alive.bannerSpots`).
   const banners = cap.banners > 0 ? plan.towers.filter((t) => t.kind === 'gate' || t.kind === 'castleGate' || t.kind === 'keep').length * 2 : 0;
   calls += [cap.lanterns, cap.carts, cap.ducks, cap.boats, cap.pigeons, banners].filter((n) => n > 0).length;
+  // Колесо лесопилки крутится своим мешем (с тенью) и брызжет точками — три вызова (docs/city.md, 16.4).
+  if (wheel) calls += 3;
   // Горожане — по вызову на вид (на низком — один), копейщики у ворот — вызов (docs/city.md, 16.2).
   const gates = plan.towers.filter((t) => t.kind === 'gate' || t.kind === 'castleGate').length;
   calls += (q === 'low' ? 0 : 2) + 1;
@@ -194,7 +200,7 @@ export function cityCounts(q: Quality, plan: CityPlan = cityPlan()): CityCounts 
   const shadowBytes = spec.shadowMap * spec.shadowMap * 8;
   return {
     calls,
-    triangles: b.triangleCount * 2 + ground + treeTris + treeShadow + life + shore,
+    triangles: (b.triangleCount + (wheel?.b.triangleCount ?? 0)) * 2 + ground + treeTris + treeShadow + life + shore,
     buildings: b.triangleCount,
     ground,
     trees: treeTris,

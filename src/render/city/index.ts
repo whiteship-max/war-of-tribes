@@ -17,6 +17,7 @@ import type { Site } from './sites';
 import { buildWater } from './water';
 import { buildShore } from './shore';
 import { waterLights } from './banks';
+import { MillWheel } from './mill';
 export { CITY_SPEC, type CitySpec } from './spec';
 
 /** Слои текстур в потоке: кадр не ждёт генерации. Нет потока — считаем здесь же. */
@@ -86,6 +87,8 @@ export interface CityBuild {
   dispose(): void;
   /** Полные слои текстур встали (сначала город стоит на слоях 256²). */
   full: Promise<void>;
+  /** Колесо лесопилки, что крутится, и брызги (docs/city.md, 16.4); на «Низком» — нет, колесо стоит в меше зданий. */
+  mill: MillWheel | null;
 }
 
 /** Огоньки факелов: точки с мягким пятном, видны ночью (прозрачность — доля ночи). */
@@ -166,6 +169,8 @@ export async function buildCity(q: Quality): Promise<CityBuild> {
   bMesh.receiveShadow = true;
   group.add(bMesh);
   group.add(flames(lights));
+  const mill = w.wheel ? new MillWheel(w.wheel, new THREE.Mesh(geometryFrom(w.wheel.mesh), bMat)) : null;
+  if (mill) group.add(mill.group);
 
   // Земля.
   const mapTex = new MapTexture(map, spec.map);
@@ -284,10 +289,12 @@ export async function buildCity(q: Quality): Promise<CityBuild> {
         m.dispose();
       }
       gone = true;
+      mill?.dispose();
       tex.dispose();
       mapTex.dispose();
       landTex.dispose();
     },
     full,
+    mill,
   };
 }

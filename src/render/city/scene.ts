@@ -318,6 +318,8 @@ export class CityScene extends TribeScene {
         fm.size = 3.6 * (1 + Math.sin(t * 11) * 0.08);
       }
       this.folk?.update(dt, t, night, this.seasonVis.snow);
+      // Колесо лесопилки крутится и брызжет — от времени (ручей не мёрзнет).
+      c.mill?.update(t);
       // Суета судит о льде: на реке без льда утки и лодки остаются и зимой.
       this.bustle?.update(t, night, ice);
       if (this.deeds) {
