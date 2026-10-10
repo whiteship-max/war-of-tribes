@@ -453,11 +453,16 @@ export const useGame = create<GameStore>((set, get) => ({
   },
 
   reset: () => {
+    const was = get().s;
     clearSave();
     // Новая партия начинается с правды: без опережения и на ×1 — раньше, чем её часы впервые прочтут.
     if (CHEATS_ON) enterLead(0);
     const s = createInitialState();
     s.era = knownEra();
+    // Дела алмазов и указы админа — за игроком, а не за партией: сервер отдаёт их все, и новая партия с отметками с
+    // нуля положила бы покупки лавки и указы второй раз (docs/bughunt.md, «Начать заново»).
+    if (was.gemSeen !== undefined) s.gemSeen = was.gemSeen;
+    if (was.adminSeen !== undefined) s.adminSeen = was.adminSeen;
     set({ s, sheet: null, offlineSeconds: 0 });
     get().save();
   },

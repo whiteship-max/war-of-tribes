@@ -536,6 +536,11 @@ export class LocalWorld implements WorldApi {
       ? (stored as WorldSave)
       : createWorldSave(seed, this.gen.home, this.gen.allyTribe, this.clock(), named !== null);
     if (keep && named) this.save.homeFromRoster = true;
+    // Мир собран заново поверх прежнего той же эпохи («Начать заново», дом сменён реестром): итоги войн и тайных дел,
+    // уже принятые партией, принятыми и остаются. Сервер отдаёт их ещё семь суток (`WAR_KEEP_MS`), и новый мир без
+    // этого списка применял бы их второй раз — добыча взятого города, украденное и потери приходили снова
+    // (docs/bughunt.md, «Начать заново»).
+    if (!keep && stored?.warSeen?.length) this.save.warSeen = [...stored.warSeen];
     if (opts.era !== undefined) this.save.era = opts.era;
     for (const s of this.gen.settlements) this.byId.set(s.id, s);
     // Логова, заведённые по ходу партии, подмешиваются к сгенерированному: для
