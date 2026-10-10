@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULTS, ENV, readConfig } from './config.js';
+import { DEFAULTS, ENV, launchNotes, readConfig } from './config.js';
 
 describe('настройки своего сервера', () => {
   it('пустое окружение — умолчания: SQLite в /data, копия в 03:30 UTC, 14 копий, доставка выключена', () => {
@@ -41,5 +41,17 @@ describe('настройки своего сервера', () => {
   /** Токен бота читается в одном месте на оба дома — `lib/http.botToken`, а не здесь. */
   it('токена бота среди настроек нет', () => {
     expect(Object.values(ENV)).not.toContain('TELEGRAM_BOT_TOKEN');
+  });
+});
+
+describe('строки запуска', () => {
+  it('пустой секрет вебхука и пустые админы — предупреждение словами', () => {
+    const quiet = launchNotes({ secret: false, admins: 0, spawn: 'sicily', pace: 60, pay: false, deliver: true });
+    expect(quiet.filter((l) => l.startsWith('внимание:'))).toHaveLength(2);
+    expect(quiet.join('\n')).toMatch(/TELEGRAM_WEBHOOK_SECRET/);
+    expect(quiet.join('\n')).toMatch(/ADMIN_IDS/);
+    expect(quiet.at(-1)).toBe('режим: места sicily, темп войны ×60, админов 0, оплата выключена, доставка уведомлений включена');
+    const ready = launchNotes({ secret: true, admins: 2, spawn: null, pace: 1, pay: true, deliver: false });
+    expect(ready.some((l) => l.startsWith('внимание:'))).toBe(false);
   });
 });
