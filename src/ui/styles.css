@@ -3861,6 +3861,23 @@ body.replaying .app > *:not(.canvas-wrap) {
   filter: brightness(0.92);
 }
 
+/* Экран «играют в Telegram» (`ui/TelegramOnly.tsx`): кнопка — ссылка на бота, вид тот же, что у входа в игру. */
+a.start-go {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+}
+
+.tg-only-title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.3;
+  color: var(--text);
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.65);
+}
+
 /*
  * Временная кнопка входа в предысторию. Вид у неё нарочно не такой, как у
  * главной: главная — это партия, а эта — проба другого начала, и путать их

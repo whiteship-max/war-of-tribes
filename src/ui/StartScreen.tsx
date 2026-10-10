@@ -128,7 +128,7 @@ export function StartScreen({
 }
 
 /** Кадр заставки с затемнениями — тот же, что у экрана загрузки (числа — в `index.html` и `styles.css`). */
-function StartArt() {
+export function StartArt() {
   return (
     <>
       <img className="start-art" src="/assets/splash/boot.webp" alt="" aria-hidden="true" decoding="async" />

@@ -38,6 +38,12 @@ export const TG_GROUP = 'https://t.me/TribesWars';
 export const SITE_URL = 'https://game.kingsvassals.com';
 
 /**
+ * Бот игры. Сюда ведёт экран «играют в Telegram», если адрес игры открыт просто в браузере (`telegram/gate.ts`):
+ * играть можно только в Telegram (решение владельца, 11.10.2026).
+ */
+export const BOT_URL = 'https://t.me/WarOfTribesTESTING_bot';
+
+/**
  * Куда позвать. `url: null` — ссылки пока нет: канал и чат не заведены. Такой строки игрок
  * не видит (невыпущенное не показывается) — выдуманный адрес был бы хуже.
  */

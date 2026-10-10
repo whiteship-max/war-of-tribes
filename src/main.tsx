@@ -1,10 +1,13 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './App';
-import { initTelegram } from './telegram/webapp';
+import { initTelegram, tgInitData } from './telegram/webapp';
 import './ui/styles.css';
 import { bootDone } from './boot/stage';
 import { Crash } from './ui/Crash';
+import { telegramOnly } from './telegram/gate';
+import { TelegramOnly } from './ui/TelegramOnly';
+import { probe } from './debug';
 
 const params = new URLSearchParams(location.search);
 if (params.has('replay')) {
@@ -21,6 +24,11 @@ if (params.has('replay')) {
     m.mountShowcase(params);
     bootDone();
   });
+} else if (telegramOnly({ host: location.hostname, hash: location.hash, initData: tgInitData(), probe: probe() })) {
+  // Адрес открыт просто в браузере — играть можно только в Telegram (`telegram/gate.ts`). Игра не встаёт: ни стора,
+  // ни сохранения, только экран со ссылкой на бота. Стенды и отчёты сюда не попадают — своя машина и `?probe=1`.
+  createRoot(document.getElementById('root')!).render(<TelegramOnly />);
+  bootDone();
 } else {
   initTelegram();
   // Вид у игры один — новый интерфейс, карта по регионам, ролик TW (docs/ui_audit.md, 16): прежние удалены вместе со
