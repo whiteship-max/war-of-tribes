@@ -10,6 +10,12 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { roadNet } from '@/world/geography';
+import { STAGE_BY_ID } from '@/world/data/meta';
+import { SIDE_COLOR } from '@/side';
+import { HOST_ROWS, PLACE_ROWS } from './tw/legend';
+import { hostMarkOf, placeMarkOf } from './tw/scene';
+import { badgeLook, type BadgeKind, type MarkLook } from './tw/marks';
+import type { SettlementView } from '@/world/types';
 
 const strip = (src: string): string =>
   src
@@ -17,7 +23,8 @@ const strip = (src: string): string =>
     .replace(/\{\/\*[\s\S]*?\*\/\}/g, ' ')
     .replace(/(^|[^:])\/\/.*$/gm, '$1');
 
-const map = strip(readFileSync(join(__dirname, 'WorldMap.tsx'), 'utf8'));
+// Легенда — окно в `WorldMap.tsx` и строки значков в `tw/legend.ts`: обещания ищутся в обоих.
+const map = strip(readFileSync(join(__dirname, 'WorldMap.tsx'), 'utf8') + readFileSync(join(__dirname, 'tw/legend.ts'), 'utf8'));
 
 describe('легенда карты', () => {
   it('трактов в мире нет — и строки «Тракт» в легенде нет', () => {
@@ -38,5 +45,27 @@ describe('легенда карты', () => {
 
   it('замок в легенде — город живого игрока, а не крепость с казной', () => {
     expect(map).not.toMatch(/с казной/);
+  });
+  it('значки легенды — значки самой карты: старых силуэтов нет, каждый вид значка карты в легенде есть', () => {
+    expect(map, 'легенда без прежних силуэтов миниатюр').not.toMatch(/silhouetteUrl/);
+    const key = (m: MarkLook): string => `${m.glyph}|${m.own ? 1 : 0}|${m.dim ? 1 : 0}`;
+    const shown = new Set([...PLACE_ROWS, ...HOST_ROWS].map((r) => key(r.mark)));
+    const place = (p: Partial<SettlementView>): MarkLook => placeMarkOf({ stage: 'village', relation: 'neutral', color: '#cbbca6', mine: false, ruin: false, sacked: false, ...p } as SettlementView);
+    // Граница области: все виды, что рисует карта сегодня, — стадии соседа, свой город, логово, пепелище, отряд в поле и
+    // лагерь, слух, все пять меток у места.
+    const drawn: MarkLook[] = [
+      ...Object.values(STAGE_BY_ID).map((s) => place({ stage: s.id })),
+      place({ mine: true, relation: 'self' }),
+      place({ relation: 'barbarian' }),
+      place({ relation: 'barbarian', ruin: true }),
+      hostMarkOf({ camp: false, color: SIDE_COLOR.ours, size: 2, west: false }),
+      hostMarkOf({ camp: true, color: SIDE_COLOR.ours, size: 2, west: false }),
+      hostMarkOf({ camp: false, color: SIDE_COLOR.foe, size: 0, west: false }),
+      ...(['attack', 'troops', 'siege', 'wolves', 'raiders'] as BadgeKind[]).map(badgeLook),
+    ];
+    expect(drawn.length).toBe(Object.keys(STAGE_BY_ID).length + 11);
+    for (const m of drawn) expect(shown.has(key(m)), `в легенде есть ${key(m)}`).toBe(true);
+    // И не обещает разорённого: огня в углу (разорено) ни у одной строки нет.
+    for (const r of [...PLACE_ROWS, ...HOST_ROWS]) expect(r.mark.corner, r.name).toBeNull();
   });
 });
