@@ -53,7 +53,7 @@ export function SpyRival({ card }: { card: SettlementCard }) {
       {ours ? (
         <p className="nx-tnote">
           {ours.phase === 'go'
-            ? `Лазутчик идёт сюда: ${RIVAL_DEED_BY_ID[ours.deed].name.toLowerCase()}. Дойдёт через ${left(ours.arriveAt, now)}; дело посчитается в минуту прихода, даже если ты не в игре.`
+            ? `Лазутчик идёт сюда: ${RIVAL_DEED_BY_ID[ours.deed].name.toLowerCase()}. Дойдёт через ${left(ours.arriveAt, now)}. Дело случится в минуту прихода, даже если ты не в игре.`
             : ours.phase === 'held'
               ? `Лазутчика схватили и держат. Отпустят через ${left(ours.releaseAt ?? now, now)}.`
               : `Лазутчик идёт домой. Дома через ${left(ours.backAt ?? now, now)}.`}

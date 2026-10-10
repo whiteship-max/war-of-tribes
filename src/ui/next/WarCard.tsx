@@ -35,13 +35,13 @@ export function WarCard({ card }: { card: SettlementCard }) {
     setBusy(true);
     const err = mode === 'storm' ? await assault(card.id, fate) : await warMarch(card.id, mode, fate);
     setBusy(false);
-    showToast(err ?? `Войско вышло на ${card.name}. В пути ${realLeft(war.walkMs / 1000)}.`);
+    showToast(err ?? `Отряд вышел на ${card.name}. В пути ${realLeft(war.walkMs / 1000)}.`);
   };
   const recall = async (): Promise<void> => {
     setBusy(true);
     const err = await recallFigure('general');
     setBusy(false);
-    showToast(err ?? 'Приказ отдан: войско поворачивает домой.');
+    showToast(err ?? 'Отряд поворачивает домой.');
   };
 
   return (
@@ -51,7 +51,7 @@ export function WarCard({ card }: { card: SettlementCard }) {
         <>
           <p className="nx-tnote bad">
             {war.theirs.phase === 'march'
-              ? `Их войско идёт на наш город. Придёт через ${left(war.theirs.arriveAt, now)}.`
+              ? `Их отряд идёт на наш город. У стен будет через ${left(war.theirs.arriveAt, now)}.`
               : 'Их лагерь стоит под нашими стенами.'}
           </p>
           {war.theirs.phase === 'camp' && (
@@ -114,8 +114,8 @@ export function WarCard({ card }: { card: SettlementCard }) {
               {war.energy && <EnergyPrice price={war.energy.siege.price} />}
             </button>
           </div>
-          <p className="nx-tnote">Дойти и ударить — один бой у стены в минуту прихода. Осада — лагерь под стенами: город голодает, пока не сдастся или не разобьёт лагерь.</p>
-          <p className="nx-tnote">Энергия полководца уходит в дороге, по дням пути; у стен она не тратится, дома снова копится.</p>
+          <p className="nx-tnote">Штурм с ходу решается одним боем у стены в минуту прихода. Осада ставит лагерь под стенами, и город голодает, пока не сдастся или не разобьёт лагерь.</p>
+          <p className="nx-tnote">Полководец тратит энергию в дороге, по дням пути. У стен она не уходит, дома копится снова.</p>
         </>
       )}
     </div>

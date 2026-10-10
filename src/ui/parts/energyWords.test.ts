@@ -12,15 +12,15 @@ describe('энергия словами', () => {
     const now = T0 + 1000;
     const field = energyView({ value: 40, at: T0, mode: 'drain' }, now);
     expect(field.emptyBy).toBe(T0 + 0.4 * ENERGY_ROAD);
-    expect(energyLine(field, false, now)).toBe(`В дороге уходит: кончится через ${realLeft((field.emptyBy! - now) / 1000)}, тогда пойдёт домой сам.`);
+    expect(energyLine(field, false, now)).toBe(`В дороге уходит. Кончится через ${realLeft((field.emptyBy! - now) / 1000)}, тогда повернёт домой сам.`);
     const home = energyView({ value: 40, at: T0, mode: 'fill' }, now);
-    expect(energyLine(home, false, now)).toBe(`Дома копится: полная через ${realLeft((home.fullBy! - now) / 1000)}.`);
+    expect(energyLine(home, false, now)).toBe(`Дома копится, полная через ${realLeft((home.fullBy! - now) / 1000)}.`);
     expect(home.fullBy).toBeCloseTo(T0 + 0.6 * ENERGY_FILL, 6);
     expect(energyCount(home)).toBe('40 из 100');
     expect(energyLine(energyView({ value: 0, at: T0, mode: 'drain' }, now), true, now)).toMatch(/^Выбился из сил/);
-    expect(energyLine(energyView({ value: 90, at: T0, mode: 'hold' }, now), false, now)).toBe('Не тратится, пока стоит: ожидание даром.');
+    expect(energyLine(energyView({ value: 90, at: T0, mode: 'hold' }, now), false, now)).toBe('Пока стоит, не тратится.');
     // Дошёл до цели: дорога кончилась — строка говорит «не тратится», а не «уходит».
     const there = energyView({ value: 90, at: T0, mode: 'drain', stopAt: T0 + 500 }, now);
-    expect(energyLine(there, false, now)).toBe('Не тратится, пока стоит: ожидание даром.');
+    expect(energyLine(there, false, now)).toBe('Пока стоит, не тратится.');
   });
 });

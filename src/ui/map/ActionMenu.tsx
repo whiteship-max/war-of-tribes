@@ -343,7 +343,7 @@ export function ActionMenu() {
               glyph="⛺"
               name="Осада"
               can
-              tip={tipOf('Осада', `${card.siege.byName} у ворот, грозят: ${FATE_META[card.siege.fate].name.toLowerCase()}.`)}
+              tip={tipOf('Осада', `${card.siege.byName} у ворот и грозят ${FATE_META[card.siege.fate].name.toLowerCase()}.`)}
               onGo={() => {
                 closeMenu();
                 openSiege();
@@ -569,9 +569,9 @@ function LeadEnergy({ energy }: { energy: NonNullable<LeadPlan['energy']> }) {
   return (
     <small className={energy.runsOut ? 'nx-why' : ''}>
       {energy.runsOut
-        ? 'Энергия кончится в дороге — повернёт домой, не дойдя.'
+        ? 'Энергии на дорогу не хватит. Повернёт домой, не дойдя.'
         : energy.price > 0
-          ? `После дороги и разведки у ворот (${energy.price}) энергии останется ${energy.atArrival}.`
+          ? `После дороги и разведки у ворот энергии останется ${energy.atArrival}. Разведка стоит ${energy.price}.`
           : `После дороги энергии останется ${energy.atArrival}.`}
     </small>
   );

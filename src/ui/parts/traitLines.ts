@@ -46,7 +46,7 @@ function daysOf(ms: number): string {
 function musterWhat(mult: number, own: number): string {
   return (
     `Дружина собирается и расходится ${own < 1 ? 'быстрее' : 'дольше'} на ${shift(own)}. ` +
-    `Полный сбор ${daysOf(musterMs(Infinity, mult))} — в осаде своего города; дома перевод мгновенный.`
+    `Полный сбор ${daysOf(musterMs(Infinity, mult))} в осаде своего города. Дома перевод мгновенный.`
   );
 }
 

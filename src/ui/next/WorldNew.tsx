@@ -314,12 +314,12 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
         ? `Последний взгляд ${formatAge((now - card.seenAt) / 1000)}`
         : 'Не видно';
   const sightTip: TipContent = {
-    title: card.visible ? 'В обзоре' : 'Живьём не видно',
+    title: card.visible ? 'В обзоре' : 'Сейчас не видно',
     body: card.visible
       ? 'Видно, что там сейчас.'
       : card.figuresHere.includes('spy')
         ? 'Лазутчик здесь. Прикажи ему залечь, и станет видно.'
-        : 'Живьём видно у своего города и вокруг залёгшего лазутчика. Доведи его сюда.',
+        : 'Своими глазами видно у своего города и вокруг залёгшего лазутчика. Доведи его сюда.',
   };
   const raidable = (card.can.raid || card.can.besiege || Boolean(goStrike?.can)) && !card.siege?.mine;
   // Строка владельца — словами меню приказов и только то, что есть (docs/ui_audit.md, 14.1, 17). У своего города

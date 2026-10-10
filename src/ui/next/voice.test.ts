@@ -67,6 +67,19 @@ export const VOICE1 = [
   'game/data/equipment.ts', 'game/data/buildings.ts', 'game/data/jobs.ts', 'game/data/yards.ts',
 ];
 
+/**
+ * Вычитаны заходом «Голос», чат 2 (docs/voice.md, 10): карта, походы, война, осада, агенты, донесения, вести края, ролик боя,
+ * сообщения бота. Пути — от корня проекта.
+ */
+export const VOICE2 = [
+  'netlify/lib/words.ts', 'src/ui/map/feedWords.ts', 'src/ui/map/Feed.tsx', 'src/ui/map/ActionMenu.tsx', 'src/ui/map/WorldMap.tsx',
+  'src/ui/next/WarCard.tsx', 'src/ui/next/SpyRival.tsx', 'src/ui/next/ReportNew.tsx', 'src/ui/panels/ReportPanel.tsx',
+  'src/ui/panels/SiegePanel.tsx', 'src/ui/panels/CampPanel.tsx', 'src/ui/panels/SortiePanel.tsx', 'src/ui/battle/TwReplay.tsx',
+  'src/ui/battle/barrage.ts', 'src/ui/parts/CampStrike.tsx', 'src/ui/parts/TowerEngine.tsx', 'src/ui/parts/AgentCard.tsx',
+  'src/ui/parts/AgentPlaces.tsx', 'src/ui/parts/agentLines.ts', 'src/ui/parts/energyWords.ts', 'src/ui/parts/traitLines.ts',
+  'src/ui/parts/Watch.tsx', 'src/world/data/gate.ts', 'src/world/siegecraft.ts', 'src/world/garrison.ts', 'src/world/local/LocalWorld.ts',
+];
+
 describe('голос текстов этапа 2', () => {
   it('ни канцелярита, ни восклицаний, ни слов, которые словарь убрал', () => {
     let seen = 0;
@@ -89,6 +102,19 @@ describe('голос текстов этапа 2', () => {
       }
     }
     expect(seen).toBeGreaterThan(300);
+  });
+
+  it('то же для файлов, вычитанных заходом «Голос», чат 2', () => {
+    let seen = 0;
+    for (const f of VOICE2) {
+      for (const t of playerStrings(readFileSync(join(UI, '..', '..', f), 'utf8'))) {
+        seen++;
+        for (const bad of BANNED) expect(t, `${f}: «${t}»`).not.toMatch(bad);
+        // Служебные слова игры (voice.md, 5): в донесении и сообщении бота их нет.
+        expect(t, `${f}: «${t}»`).not.toMatch(/сервер|загруз|\bданн|противник|агент/i);
+      }
+    }
+    expect(seen).toBeGreaterThan(500);
   });
 
   it('щуп строк видит литерал, шаблон и текст разметки', () => {

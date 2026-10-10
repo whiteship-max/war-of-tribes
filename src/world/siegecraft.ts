@@ -96,12 +96,12 @@ export function craftGain(craft: Craft | undefined, act: CraftAct, since: number
   if (block) return block;
   const next = craftAfter(craft, act);
   if (act === 'fortify') {
-    return `Вылазке и удару с тыла кость −${faces(fortFaces(next) - fortFaces(craft))} (всего −${faces(fortFaces(next))}).`;
+    return `Вылазке и удару с тыла кость −${faces(fortFaces(next) - fortFaces(craft))}, всего −${faces(fortFaces(next))}.`;
   }
   const shake = garrisonWear(since, at, craft) - garrisonWear(since, at, next);
   const parts = [
     walls ? `пролом ${pct(breachOf(next) - breachOf(craft))} стены` : '',
-    Math.round(shake * 100) > 0 ? `дух гарнизона −${pct(shake)}` : 'дух гарнизона уже на дне осады',
+    Math.round(shake * 100) > 0 ? `мораль гарнизона −${pct(shake)}` : 'мораль гарнизона уже на дне осады',
   ].filter(Boolean);
   const line = parts.join(', ');
   return `${line[0].toUpperCase()}${line.slice(1)}.`;
@@ -113,11 +113,11 @@ export function craftGain(craft: Craft | undefined, act: CraftAct, since: number
 export function craftNote(craft: Craft | undefined): string {
   const parts: string[] = [];
   const fort = craftDone(craft, 'fortify');
-  if (fort > 0) parts.push(`Лагерь укреплён (${fort} из ${craftMax('fortify')}): кость тех, кто идёт на лагерь, −${faces(fortFaces(craft))}.`);
+  if (fort > 0) parts.push(`Лагерь укреплён на ${fort} из ${craftMax('fortify')}. Кость тех, кто идёт на лагерь, −${faces(fortFaces(craft))}.`);
   const shots = craftDone(craft, 'bombard');
   if (shots > 0) {
     parts.push(
-      `Город обстреляли ${shots} из ${craftMax('bombard')}: пролом ${pct(breachOf(craft))} стены, дух гарнизона — как после ещё ${days(shakeMs(craft))} осады.`,
+      `Город обстреляли ${shots} из ${craftMax('bombard')} раз. Пролом ${pct(breachOf(craft))} стены, мораль гарнизона просела, как после ещё ${days(shakeMs(craft))} осады.`,
     );
   }
   return parts.join(' ');
