@@ -79,6 +79,12 @@ export interface EventDef {
   id: string;
   icon: string;
   title: string;
+  /**
+   * Кто пишет весть — человек эпохи, а не «город»: привратник, управитель, старший стражи, служитель веры
+   * (docs/voice.md, 11). Голос письма — один из пяти голосов игры: привратник и стража говорят как гонец,
+   * управитель и мастера — как управитель, служитель — как летописец о вере.
+   */
+  from: string | ((s: GameState) => string);
   text: string | ((s: GameState) => string);
   options: EventOption[];
   /** Вес выбора (0 — событие сейчас невозможно). */
@@ -159,7 +165,7 @@ export const weakVillage = (s: GameState): boolean => weakCity(s.pop, troopPower
  */
 const toGate = (s: GameState, foe: GateFoe, spoils: Partial<Record<ResourceId, number>>): string => {
   callGate(s, foe, gatePower(s, foe), spoils);
-  return 'Гарнизон вышел к воротам. Исход придёт донесением.';
+  return 'Гарнизон вышел за ворота. Чем кончилось, скажет донесение.';
 };
 
 /** Сколько беженцев влезет под свободные крыши. Считают это двое: цена и сам выбор. */
@@ -213,13 +219,14 @@ export const EVENTS: EventDef[] = [
     silence: 2,
     icon: '🚶',
     title: 'Беженцы у ворот',
+    from: 'Привратник',
     text: (s) =>
-      `С юга пришли ${people(crowd(s, 0.06, 8))}. Их дома сожгли, они просятся под нашу стену.`,
+      `У ворот ${people(crowd(s, 0.06, 8))} с юга. Сёла их сожжены, дети на руках. Просятся под нашу стену.`,
     // Когда селить некуда, толпа приходит реже: событие про выбор, а не про отказ.
     weight: (s) => (s.pop < housingCapacity(s) ? 3 : 1),
     options: [
       {
-        label: 'Принять всех',
+        label: 'Открыть ворота всем',
         hint: (s) => `+${people(crowd(s, 0.06, 8))}`,
         cost: (s) => ({ food: amount(s, 8) }),
         apply: (s) => {
@@ -227,14 +234,14 @@ export const EVENTS: EventDef[] = [
           addPop(s, n);
           s.stats.born += n;
           const over = s.pop - housingCapacity(s);
-          log(s, `Приняли беженцев, ${people(n)}.`, 'good');
+          log(s, `Город принял беженцев с юга, ${people(n)}.`, 'good');
           return over > 0
-            ? `Пришло ${people(n)}. Под крышей тесно, лишних ${over}. Мораль упадёт, пока всем не хватит крыш.`
-            : `Пришло ${people(n)}. Все под крышей.`;
+            ? `Вошли ${people(n)}. Ночуют по сеням и сеновалам, лишних ${over}. Пока крыш не прибавится, мораль будет падать.`
+            : `Вошли ${people(n)}. Всем нашлись угол и миска.`;
         },
       },
       {
-        label: 'Взять, сколько поместится',
+        label: 'Впустить, сколько вместим',
         hint: (s) => (fitting(s) > 0 ? `+${people(fitting(s))}` : `Свободных крыш нет, ${moraleWord(EVENT_MORALE.refugeesNoRoom)}`),
         // Кормят ровно тех, кого взяли, поэтому и цена — доля от полной.
         // Считается она тем же `fitting`, каким считается число принятых: иначе
@@ -244,20 +251,20 @@ export const EVENTS: EventDef[] = [
           const n = fitting(s);
           if (n <= 0) {
             moveMorale(s, EVENT_MORALE.refugeesNoRoom);
-            return 'Свободных крыш нет. Беженцы ушли дальше, в городе недовольны.';
+            return 'Свободных углов не нашлось, и беженцы побрели дальше. В городе этим недовольны.';
           }
           const want = crowd(s, 0.06, 8);
           addPop(s, n);
           s.stats.born += n;
-          return `Приняли ${people(n)} из ${want}. Остальные пошли дальше.`;
+          return `Впустили ${people(n)} из ${want}. Остальные побрели дальше по дороге.`;
         },
       },
       {
-        label: 'Прогнать',
+        label: 'Затворить ворота',
         hint: MoraleWord(EVENT_MORALE.refugeesTurnedAway),
         apply: (s) => {
           moveMorale(s, EVENT_MORALE.refugeesTurnedAway);
-          return 'Беженцев прогнали. В городе недовольны.';
+          return 'Ворота затворили. Беженцы ночевали под стеной и к утру ушли. В городе этого не одобрили.';
         },
       },
     ],
@@ -267,12 +274,13 @@ export const EVENTS: EventDef[] = [
     silence: 2,
     icon: '🧰',
     title: 'Бродячая артель',
+    from: 'Десятник стройки',
     text: (s) =>
-      `К воротам вышла артель, ${people(crowd(s, 0.03, 5))} с инструментом. Просят еды и крыши.`,
+      `У ворот артель, ${people(crowd(s, 0.03, 5))} с топорами и пилами. Плотники и каменщики. Просят еды и крыши, готовы осесть.`,
     weight: (s) => (s.pop >= 20 ? 1.5 : 0.5),
     options: [
       {
-        label: 'Взять к себе',
+        label: 'Принять в город',
         hint: (s) => `+${people(crowd(s, 0.03, 5))}${currentSite(s) ? `, стройка ${share(EVENT_WORK.settle)}` : ''}`,
         cost: (s) => ({ food: amount(s, 16) }),
         apply: (s) => {
@@ -284,9 +292,9 @@ export const EVENTS: EventDef[] = [
           if (site) {
             const done = Math.min(site.workRequired - site.work, site.workRequired * EVENT_WORK.settle);
             site.work += done;
-            return `Артель осталась, ${people(n)}. Сразу взялись за стройку.`;
+            return `Артель осела у нас, ${people(n)}. Наутро они уже стояли на лесах.`;
           }
-          return `Артель осталась, ${people(n)}. Стройки нет, прибавилось свободных рук.`;
+          return `Артель осела у нас, ${people(n)}. Стройки нет, и руки пока свободны.`;
         },
       },
       {
@@ -295,12 +303,12 @@ export const EVENTS: EventDef[] = [
         cost: (s) => ({ gold: amount(s, 20) }),
         apply: (s) => {
           const site = currentSite(s);
-          if (!site) return 'Золото заплачено, а стройки нет. Артель ушла.';
+          if (!site) return 'Золото отдали, а строить нечего. Артель ушла.';
           site.work = Math.min(site.workRequired, site.work + site.workRequired * EVENT_WORK.day);
-          return 'Артель отработала день и ушла. Стройка продвинулась.';
+          return 'Артель отработала день от зари до зари. Стройка заметно подвинулась.';
         },
       },
-      { label: 'Отказать', apply: () => 'Артель ушла к соседям.' },
+      { label: 'Отпустить с миром', apply: () => 'Артель ушла искать работы у соседей.' },
     ],
   },
   {
@@ -308,21 +316,23 @@ export const EVENTS: EventDef[] = [
     silence: 0,
     icon: '🐺',
     title: 'Волки',
-    text: (s) => `Стая волков кружит у города. Их ${gateMen(s, 'wolves')}.`,
+    from: 'Старший стражи',
+    text: (s) =>
+      `Всю ночь у стен выла стая, к утру насчитали ${gateMen(s, 'wolves')}. Режут скот на выгонах и к воротам подходят без страха.`,
     // Волки — угроза слабого посёлка: к городу, который логово уже замечает, они не приходят (слово владельца по 14.35, п. 6).
     weight: (s) => (s.time > DAY_LENGTH && weakVillage(s) ? 3 : 0),
     options: [
       {
-        label: 'Принять бой',
+        label: 'Выйти на стаю',
         hint: 'Бой у ворот',
         apply: (s) => toGate(s, 'wolves', { hides: amount(s, 4), bones: amount(s, 4) }),
       },
       {
-        label: 'Отдать запасы',
-        hint: 'Волки уйдут без боя',
+        label: 'Бросить им мяса',
+        hint: 'Стая уйдёт без боя',
         cost: (s) => ({ food: amount(s, 15) }),
         apply: () => {
-          return 'Волки утащили часть запасов и ушли.';
+          return 'Мясо вынесли за ворота. Стая взяла своё и ушла в лес.';
         },
       },
     ],
@@ -332,15 +342,16 @@ export const EVENTS: EventDef[] = [
     silence: 0,
     icon: '🍇',
     title: 'Ягодная поляна',
-    text: 'Собиратели нашли богатую ягодную поляну.',
+    from: 'Управитель',
+    text: 'Собиратели нашли за ручьём поляну, красную от ягоды. Своих корзин не хватит, пришли людей.',
     weight: () => 2,
     options: [
       {
-        label: 'Собрать всё',
+        label: 'Послать людей',
         hint: (s) => `+${amount(s, 25)} еды`,
         apply: (s) => {
           const n = addRes(s, 'food', amount(s, 25));
-          return `Собрано ${n} еды.`;
+          return `Носили до темноты. В амбар легло ${n} еды.`;
         },
       },
     ],
@@ -350,24 +361,25 @@ export const EVENTS: EventDef[] = [
     silence: 1,
     icon: '🌩️',
     title: 'Буря',
-    text: 'Ночью налетела буря и повалила леса на стройке.',
+    from: 'Десятник стройки',
+    text: 'Ночью налетела буря. Леса на стройке повалило, брёвна раскидало по двору.',
     weight: (s) => (s.buildings.some(isSite) ? 2 : 0),
     options: [
       {
-        label: 'Починить',
+        label: 'Поставить леса заново',
         hint: 'Стройка не пострадает',
         cost: (s) => ({ wood: amount(s, 10) }),
         apply: () => {
-          return 'Стройку починили.';
+          return 'Леса подняли заново. К полудню снова стучали топоры.';
         },
       },
       {
-        label: 'Не чинить',
+        label: 'Оставить как есть',
         hint: `Стройка −${Math.round(EVENT_WORK.storm * 100)}% сделанного`,
         apply: (s) => {
           const b = s.buildings.find(isSite);
           if (b) b.work *= 1 - EVENT_WORK.storm;
-          return 'Часть работы придётся переделать.';
+          return 'Что повалило, то пропало. Часть работы начнут сызнова.';
         },
       },
     ],
@@ -377,20 +389,22 @@ export const EVENTS: EventDef[] = [
     silence: 1,
     icon: '🤝',
     title: 'Купцы у ворот',
-    text: (s) => `Купцы предлагают ${amount(s, 30)} еды за ${amount(s, 20)} древесины.`,
+    from: 'Управитель',
+    text: (s) =>
+      `Пришли купцы с реки. Дают ${amount(s, 30)} еды за ${amount(s, 20)} древесины. Зерно доброе, я сам смотрел.`,
     weight: (s) => (s.resources.wood >= amount(s, 20) ? 2 : 0),
     options: [
       {
-        label: 'Обменять',
+        label: 'Ударить по рукам',
         hint: (s) => `+${amount(s, 30)} еды, ${fameWord(EVENT_FAME.trade)}`,
         cost: (s) => ({ wood: amount(s, 20) }),
         apply: (s) => {
           addRes(s, 'food', amount(s, 30));
           moveFame(s, EVENT_FAME.trade);
-          return 'Обмен состоялся. Купцы довольны.';
+          return 'Ударили по рукам. Струги разгрузили, и купцы уплыли довольные.';
         },
       },
-      { label: 'Отказаться', apply: () => 'Купцы ушли ни с чем.' },
+      { label: 'Отпустить купцов', apply: () => 'Купцы уплыли ни с чем.' },
     ],
   },
   {
@@ -398,7 +412,8 @@ export const EVENTS: EventDef[] = [
     silence: 2,
     icon: '🤒',
     title: 'Мор',
-    text: (s) => `По домам пошла хворь. Слегло уже ${people(crowd(s, 0.04, 3))}.`,
+    from: 'Управитель',
+    text: (s) => `По домам пошла хворь, слегло уже ${people(crowd(s, 0.04, 3))}. Жар и кашель, в двух дворах плачут.`,
     weight: (s) => (s.pop >= 12 ? 1.5 : 0),
     options: [
       {
@@ -410,33 +425,33 @@ export const EVENTS: EventDef[] = [
         apply: (s) => {
           if (jobCounts(s).priest > 0) {
             moveMorale(s, EVENT_MORALE.sicknessPriests);
-            return `${faithDef(s)?.priests ?? 'Служители'} обошли дома, хворь отступила.`;
+            return `${faithDef(s)?.priests ?? 'Служители'} обошли дома с молитвой. Хворь отступила.`;
           }
           if (chance(s, 0.5)) {
             const n = killPop(s, crowd(s, 0.04, 3), 'мор');
-            return `Служителей нет, обряда не было. Мор унёс ${people(n)}.`;
+            return `Служителей в городе не нашлось. Мор унёс ${people(n)}.`;
           }
-          return 'Обряда не было, но хворь ушла сама.';
+          return 'Служителей не нашлось, но хворь ушла сама.';
         },
       },
       {
-        label: 'Выхаживать',
+        label: 'Выхаживать больных',
         hint: 'Никто не умрёт',
         cost: (s) => ({ food: amount(s, 20) }),
         apply: () => {
-          return 'Больных выходили горячим варевом. Все поправились.';
+          return 'Больных отпаивали горячим варевом. Поднялись все.';
         },
       },
       {
-        label: 'Ничего не делать',
+        label: 'Переждать',
         hint: (s) => `Может унести ${people(crowd(s, 0.05, 4))}, тогда ${moraleWord(EVENT_MORALE.sicknessNeglect)}`,
         apply: (s) => {
           if (chance(s, 0.5)) {
             const n = killPop(s, crowd(s, 0.05, 4), 'мор');
             moveMorale(s, EVENT_MORALE.sicknessNeglect);
-            return `Мор прошёл по городу и унёс ${people(n)}.`;
+            return `Мор прошёл по улицам и унёс ${people(n)}.`;
           }
-          return 'На этот раз обошлось, хворь ушла сама.';
+          return 'Переждали. Хворь ушла сама, никого не взяв.';
         },
       },
     ],
@@ -446,16 +461,18 @@ export const EVENTS: EventDef[] = [
     silence: 1,
     icon: '⚔️',
     title: 'Разбойники',
-    text: (s) => `Пришли разбойники, их ${gateMen(s, 'raiders')}. Требуют ${amount(s, 25)} еды, иначе нападут.`,
+    from: 'Старший стражи',
+    text: (s) =>
+      `У ворот разбойники, ${gateMen(s, 'raiders')} при оружии. Главарь требует ${amount(s, 25)} еды, иначе к ночи полезут на стены.`,
     weight: (s) => (dayOf(s.time) >= 5 ? 2 : 0),
     options: [
       {
-        label: 'Заплатить',
+        label: 'Откупиться',
         hint: `Уйдут без боя, ${fameWord(EVENT_FAME.raidersPaid)}`,
         cost: (s) => ({ food: amount(s, 25) }),
         apply: (s) => {
           moveFame(s, EVENT_FAME.raidersPaid);
-          return 'Дань уплачена, разбойники ушли. Слава упала.';
+          return 'Дань вынесли за ворота, и разбойники ушли. По округе говорят, что мы платим.';
         },
       },
       {
@@ -470,7 +487,9 @@ export const EVENTS: EventDef[] = [
     silence: 1,
     icon: '🛡️',
     title: 'Вольная рота',
-    text: (s) => `У ворот встала вольная рота, их ${gateMen(s, 'raiders')}. Ищут найма на сезон, а нет — пойдут искать добычи.`,
+    from: 'Старший стражи',
+    text: (s) =>
+      `Под стенами встала вольная рота, ${people(gateMen(s, 'raiders'))} при оружии. Капитан ищет найма на сезон. Откажем — пойдёт искать добычи.`,
     weight: (s) => (dayOf(s.time) >= 5 ? 1 : 0),
     options: [
       {
@@ -479,15 +498,15 @@ export const EVENTS: EventDef[] = [
         cost: (s) => ({ gold: amount(s, 30) }),
         apply: (s) => {
           grantBoon(s, 'mercs');
-          return 'Рота взялась за топоры и носилки. Частокол растёт на глазах.';
+          return 'Наёмники взялись за топоры и носилки. Стены растут на глазах.';
         },
       },
       {
-        label: 'Отказать',
+        label: 'Отказать капитану',
         hint: `Могут вернуться к воротам через ${daysSpan(CHAIN_SEASONS.free_company * SEASON_DAYS)}, риск ${Math.round(TIDING.risk * 100)}%`,
         apply: (s) => {
           if (chance(s, TIDING.risk) && scheduleChain(s, 'free_company', CHAIN_SEASONS.free_company)) {
-            return 'Рота ушла, но недалеко: их костры видны с башни.';
+            return 'Рота снялась, но ушла недалеко. Ночью с башни видны их костры.';
           }
           return 'Рота ушла искать найма у соседей.';
         },
@@ -499,7 +518,9 @@ export const EVENTS: EventDef[] = [
     silence: 1,
     icon: '⚔️',
     title: 'Рота у ворот',
-    text: (s) => `Вольная рота вернулась, их ${gateMen(s, 'raiders')}. Требуют ${amount(s, 25)} золота за то, чтобы уйти.`,
+    from: 'Старший стражи',
+    text: (s) =>
+      `Вольная рота вернулась, ${people(gateMen(s, 'raiders'))} при оружии. Капитан требует ${amount(s, 25)} золота, чтобы уйти по-хорошему.`,
     // Только следствием отказа роте. Бьётся она у ворот силой разбойников — той же таблицей и той же дверью.
     weight: () => 0,
     options: [
@@ -509,7 +530,7 @@ export const EVENTS: EventDef[] = [
         cost: (s) => ({ gold: amount(s, 25) }),
         apply: (s) => {
           moveFame(s, EVENT_FAME.raidersPaid);
-          return 'Роте заплатили, и она ушла за холмы.';
+          return 'Капитан взвесил кошель на ладони и увёл роту за холмы.';
         },
       },
       {
@@ -524,12 +545,13 @@ export const EVENTS: EventDef[] = [
     silence: 1,
     icon: '🎉',
     title: 'Праздник прихода',
+    from: (s) => faithDef(s)?.priest ?? 'Управитель',
     text: (s) => {
       const f = faithDef(s);
       const feast = f ? f.feasts[seasonOf(s.time)] : null;
       return feast
         ? `${feast.name}. ${feast.text} Ждут твоего слова.`
-        : 'Люди просят праздника на площади.';
+        : 'Люди просят праздника на площади. Ждут твоего слова.';
     },
     // Пока обряд справить нельзя — в этом сезоне уже справляли, идёт другой,
     // не хватает добра, — событие не поднимается вовсе: окно с двумя гашеными
@@ -537,7 +559,7 @@ export const EVENTS: EventDef[] = [
     weight: (s) => (riteInfo(s).blocked === null ? 3 : 0),
     options: [
       {
-        label: 'Справить',
+        label: 'Справить праздник',
         hint: `${MoraleWord(RITE_MORALE)} и набожность на ${daysSpan(RITE_DAYS)}, ${fameWord(EVENT_FAME.festival)}`,
         cost: (s) => {
           const r = riteInfo(s);
@@ -551,11 +573,11 @@ export const EVENTS: EventDef[] = [
           beginRite(s);
           moveFame(s, EVENT_FAME.festival);
           return f
-            ? `${f.feasts[seasonOf(s.time)].name}. Праздник справили, приход доволен.`
-            : 'Праздник справили.';
+            ? `${f.feasts[seasonOf(s.time)].name}. Отстояли службу и сели за столы. Приход доволен.`
+            : 'Праздник справили всем городом.';
         },
       },
-      { label: 'Не время', apply: () => 'Праздник отложили до лучших времён.' },
+      { label: 'Не время', apply: () => 'Праздник отложили до лучших дней.' },
     ],
   },
   {
@@ -563,7 +585,8 @@ export const EVENTS: EventDef[] = [
     silence: 1,
     icon: '📜',
     title: 'Грамота из Рима',
-    text: 'Легат привёз грамоту с печатью. Рим собирает на поход и ждёт нашей доли, отказавших запомнит.',
+    from: 'Папский легат',
+    text: 'Святой престол собирает на поход за море и ждёт доли от каждого прихода. Отказавших в Риме запомнят.',
     // Только у латинского обряда: связь с Римом — его наклон, и ни у кого
     // больше такой грамоты быть не может.
     weight: (s) => (faithOf(s) === 'catholic' ? 2 : 0),
@@ -578,7 +601,7 @@ export const EVENTS: EventDef[] = [
         },
       },
       {
-        label: 'Отказать',
+        label: 'Отказать Риму',
         hint: `Надлом веры +${FAITH_REFUSAL_STRAIN}`,
         apply: (s) => {
           addStrain(s, FAITH_REFUSAL_STRAIN);
@@ -592,7 +615,8 @@ export const EVENTS: EventDef[] = [
     silence: 0,
     icon: '🕊️',
     title: 'Заступничество',
-    text: 'Из дальнего аббатства пришёл обоз с хлебом. О нашей беде услышали и ничего не просят взамен.',
+    from: 'Настоятель аббатства',
+    text: 'Слышали мы о беде твоего города. Шлём обоз с хлебом и взамен ничего не просим. Помолись о нас.',
     // Заступничество приходит только к тем, кто платит за связь с Римом, и
     // только когда действительно плохо: голод или чужие под стенами. Это и есть
     // вторая половина католического наклона — за десятину есть что получить.
@@ -620,7 +644,8 @@ export const EVENTS: EventDef[] = [
     // Имя служителя тут не склоняется нарочно: у четырёх вер это священник,
     // имам и волхв, и правило «прибавить „и“» даёт «имами». Падежи руками — в
     // `data/faiths.ts`, а здесь обходимся общим словом.
-    text: 'У колодца проповедует пришлый. Говорит, что в храме лгут, и люди его слушают.',
+    from: (s) => faithDef(s)?.priest ?? 'Управитель',
+    text: 'У колодца проповедует пришлый. Говорит, что в храме лгут, и люди слушают его до темноты.',
     // Событие поднимается только тогда, когда вера действительно трещит:
     // раскол на здоровом приходе был бы шумом.
     weight: (s) => (heresy(s) ? 4 : 0),
@@ -664,6 +689,7 @@ export const EVENTS: EventDef[] = [
     silence: 0,
     icon: ORDER_TEXT.mutiny.icon,
     title: ORDER_TEXT.mutiny.title,
+    from: ORDER_TEXT.mutiny.from,
     // Лёг мятеж туда же, куда ересь: в эту таблицу, с выбором. Своей механики у
     // него нет — ни бунта деревни (его в игре нет вовсе), ни окна мира. Отличие
     // одно: случаем он не выпадает (вес ноль), его поднимает срок ропота
@@ -711,11 +737,12 @@ export const EVENTS: EventDef[] = [
     silence: 1,
     icon: '📿',
     title: 'Странник со святыней',
+    from: 'Привратник',
     text: (s) => {
       const f = faithDef(s);
       return f
-        ? `У ворот странник. Он несёт святыню «${f.relic}» и просит поставить её в ${f.temple.toLowerCase()}.`
-        : 'У ворот стоит странник и просится в храм.';
+        ? `У ворот странник в пыльном плаще. Несёт святыню «${f.relic}» и просит поставить её в ${f.temple.toLowerCase()}.`
+        : 'У ворот странник в пыльном плаще. Просится в храм.';
     },
     // Своей святыни ещё нет, вера уже известна. Редко: реликвия должна остаться
     // событием, а не строкой расходов.
@@ -742,7 +769,8 @@ export const EVENTS: EventDef[] = [
     silence: 0,
     icon: '🦌',
     title: 'Удачная охота',
-    text: 'Охотники выследили стадо оленей.',
+    from: 'Ловчий',
+    text: 'Охотники выследили в дубраве стадо оленей. Пошли людей с волокушами, и к вечеру мясо будет в городе.',
     weight: (s) => (jobCounts(s).hunter > 0 ? 2 : 0),
     options: [
       {
@@ -753,7 +781,7 @@ export const EVENTS: EventDef[] = [
           const h = addRes(s, 'hides', amount(s, 5));
           const b = addRes(s, 'bones', amount(s, 3));
           s.stats.hunts++;
-          return `Еды прибавилось на ${f}, шкур на ${h}, костей на ${b}.`;
+          return `Туши привезли на волокушах. Еды прибавилось на ${f}, шкур на ${h}, костей на ${b}.`;
         },
       },
     ],
@@ -763,7 +791,8 @@ export const EVENTS: EventDef[] = [
     silence: 1,
     icon: '🔥',
     title: 'Пожар',
-    text: 'Искра из очага попала на крышу дома.',
+    from: 'Старший стражи',
+    text: 'Искра из очага ушла под стреху. Горит дом у стены, огонь уже лижет соседний.',
     weight: (s) => ((buildingOfType(s, 'houses')?.level ?? 0) >= 2 ? 1 : 0),
     options: [
       {
@@ -771,19 +800,19 @@ export const EVENTS: EventDef[] = [
         hint: 'Дома останутся целы',
         cost: (s) => ({ food: amount(s, 10) }),
         apply: () => {
-          return 'Дом отстояли.';
+          return 'Таскали вёдра от колодца до темноты. Дом отстояли.';
         },
       },
       {
         label: 'Спасать пожитки',
-        hint: (s) => `${(buildingOfType(s, 'houses')?.level ?? 0) > 1 ? 'Жилища −1 ур., д' : 'Д'}ревесина +${amount(s, 5)}`,
+        hint: (s) => `${(buildingOfType(s, 'houses')?.level ?? 0) > 1 ? 'Дома −1 ур., д' : 'Д'}ревесина +${amount(s, 5)}`,
         apply: (s) => {
           // Жилища в посёлке одни: сносить их целиком — значит отнять всё жильё разом.
           // Огонь съедает улицу дворов, то есть один уровень.
           const houses = buildingOfType(s, 'houses');
           if (houses && houses.level > 1) houses.level -= 1;
           addRes(s, 'wood', amount(s, 5));
-          return 'Крайние дома выгорели дотла. Удалось спасти немного древесины.';
+          return 'Крайние дома выгорели дотла. Из огня вынесли немного древесины.';
         },
       },
     ],
@@ -807,6 +836,9 @@ export function pickEvent(s: GameState): EventDef | null {
 }
 
 export const eventText = (e: EventDef, s: GameState): string => (typeof e.text === 'function' ? e.text(s) : e.text);
+
+/** Кто пишет весть — словами самой вести (`EventDef.from`). */
+export const eventFrom = (e: EventDef, s: GameState): string => (typeof e.from === 'function' ? e.from(s) : e.from);
 
 /**
  * Подсказка варианта: числа в ней тоже считаются от размера посёлка.

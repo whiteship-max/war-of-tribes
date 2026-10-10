@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { createInitialState } from '../state';
 import { MAX_BUILDING_LEVEL, RESOURCE_IDS } from '../constants';
 import { BUILDING_BY_ID } from './buildings';
-import { EVENTS, EVENT_MORALE, eventBlock, eventCost, optionHint, type EventOption } from './events';
+import { EVENTS, EVENT_MORALE, eventBlock, eventCost, eventFrom, eventText, optionHint, type EventOption } from './events';
+import { BANNED } from '@/ui/next/voice.test';
 import { resolveEvent } from '../sim/actions';
 import type { GameState } from '../types';
 
@@ -152,8 +153,8 @@ describe('мораль событий: подпись называет то же
     const { assignWorker } = await import('../sim/workers');
     const { housingCapacity, jobCounts } = await import('../derived');
     const cases: [string, string, number, (s: GameState) => void][] = [
-      ['refugees', 'Прогнать', EVENT_MORALE.refugeesTurnedAway, () => {}],
-      ['refugees', 'Взять, сколько поместится', EVENT_MORALE.refugeesNoRoom, (s) => (s.pop = housingCapacity(s))],
+      ['refugees', 'Затворить ворота', EVENT_MORALE.refugeesTurnedAway, () => {}],
+      ['refugees', 'Впустить, сколько вместим', EVENT_MORALE.refugeesNoRoom, (s) => (s.pop = housingCapacity(s))],
       ['heresy_split', 'Разогнать силой', EVENT_MORALE.preacherForce, () => {}],
       ['heresy_split', 'Пусть говорят', EVENT_MORALE.preacherTalk, () => {}],
       [
@@ -178,7 +179,7 @@ describe('мораль событий: подпись называет то же
   });
 
   it('мор без присмотра: подпись называет число, и унёс он людей — мораль сдвинута на него же', () => {
-    const o = option('sickness', 'Ничего не делать');
+    const o = option('sickness', 'Переждать');
     const d = EVENT_MORALE.sicknessNeglect;
     inside(d);
     let struck = 0;
@@ -195,5 +196,60 @@ describe('мораль событий: подпись называет то же
     }
     // Область: мор хоть раз прошёл — иначе сдвиг проверялся бы даром.
     expect(struck).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * Весть — письмо от человека эпохи (docs/voice.md, 11): у каждой есть кто пишет, текст укладывается в меру словаря при
+ * любой вере и на малом и большом городе, ответ — глагол в меру кнопки, и ни в тексте, ни в ответе, ни в исходе нет
+ * запретных слов голоса. Исход читается на большом городе с полными закромами: там каждый ответ доступен.
+ */
+describe('вести голосом эпохи: кто пишет, мера и словарь', () => {
+  const faiths = [null, 'catholic', 'orthodox', 'islam', 'pagan'] as const;
+  const at = (faith: (typeof faiths)[number], pop: number): GameState => {
+    const s = rich();
+    s.faith.id = faith;
+    s.pop = pop;
+    return s;
+  };
+
+  it('у каждой вести есть кто пишет, и это человек, а не «город»', () => {
+    for (const e of EVENTS)
+      for (const f of faiths) {
+        const who = eventFrom(e, at(f, 200));
+        expect(who.length, e.id).toBeGreaterThan(2);
+        expect(who.length, e.id).toBeLessThanOrEqual(22);
+        expect(who, e.id).not.toMatch(/^(Город|Дозор)$/);
+      }
+  });
+
+  it('текст ≤ 160 при любой вере и размере города, ответ ≤ 28 и без запретных слов', () => {
+    let seen = 0;
+    for (const e of EVENTS) {
+      for (const f of faiths)
+        for (const pop of [30, 600]) {
+          const t = eventText(e, at(f, pop));
+          expect(t.length, `${e.id}: «${t}»`).toBeLessThanOrEqual(160);
+          for (const bad of BANNED) expect(t, `${e.id}: «${t}»`).not.toMatch(bad);
+          seen++;
+        }
+      for (const o of e.options) {
+        expect(o.label.length, `${e.id}: «${o.label}»`).toBeLessThanOrEqual(28);
+        for (const bad of BANNED) expect(o.label, `${e.id}: «${o.label}»`).not.toMatch(bad);
+      }
+    }
+    expect(seen).toBeGreaterThan(EVENTS.length * 5);
+  });
+
+  it('исход ответа — без запретных слов голоса', () => {
+    let seen = 0;
+    for (const e of EVENTS)
+      for (let i = 0; i < e.options.length; i++) {
+        const s = at('catholic', 200);
+        const t = e.options[i].apply(s);
+        for (const bad of BANNED) expect(t, `${e.id}/${i}: «${t}»`).not.toMatch(bad);
+        seen++;
+      }
+    expect(seen).toBeGreaterThan(40);
   });
 });
