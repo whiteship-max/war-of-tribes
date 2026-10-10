@@ -14,7 +14,7 @@ import { MAX_BODY_BYTES } from './http.js';
 /** Отчёт с записью боя: армии от десятков до сотен — от набега у ворот до войны городов. */
 function reportOf(i: number) {
   const n = 30 + ((i * 37) % 300);
-  const kinds = (m: number) => ({ spear: Math.round(m * 0.4), infantry: Math.round(m * 0.3), archer: Math.round(m * 0.2), cavalry: Math.round(m * 0.1) });
+  const kinds = (m: number) => ({ spear: Math.round(m * 0.4), infantry: Math.round(m * 0.3), archer: Math.round(m * 0.2), cavalry: Math.round(m * 0.1), heavy: 0 });
   const out = resolveField({ seed: 1000 + i, attacker: { kinds: kinds(n) }, defender: { kinds: kinds(Math.round(n * 0.9)) } });
   return { id: `r${i}`, at: i, read: false, battle: { result: out.result } };
 }

@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { START_GEMS, shopDay } from '../../src/game/gemrules.js';
 import { STORES, type Stores } from '../lib/kv.js';
 import { ROUTES } from '../lib/routes/index.js';
+import { MAX_BODY_BYTES } from '../lib/http.js';
 import { castleIdOf } from '../lib/roster.js';
 import type { Counts, WarResponse, WarSheet, WatchCard } from '../lib/contract.js';
 import { placeCastle, settleRandom } from '../../src/world/settle.js';
@@ -115,7 +116,7 @@ async function scenario(home: Home): Promise<{ steps: Step[]; dueMarks: string[]
     method: 'PUT',
     user: A,
     at: NOW + 20 * SEC,
-    body: JSON.stringify({ baseEtag: null, record: record({ game: 'x'.repeat(600 * 1024) }) }),
+    body: JSON.stringify({ baseEtag: null, record: record({ game: 'x'.repeat(MAX_BODY_BYTES + 64 * 1024) }) }),
   });
   await call('сохранение: не тот метод', '/api/save', { method: 'DELETE', user: A });
 

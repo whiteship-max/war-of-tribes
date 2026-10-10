@@ -1,7 +1,7 @@
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { deny, type Route } from '../lib/http.js';
+import { deny, MAX_BODY_BYTES, type Route } from '../lib/http.js';
 import { ROUTES } from '../lib/routes/index.js';
 import { listen } from './listen.js';
 import { TEST_TOKEN, signInit, sqliteHome, type Home } from './testkit.js';
@@ -62,7 +62,7 @@ describe('приём HTTP своего сервера', () => {
    * ответить 413 — как на Netlify, — а не разобрать обрезанное как испорченное и ответить 400.
    */
   it('тело больше потолка — 413, а не обрезанное 400', async () => {
-    const big = JSON.stringify({ baseEtag: null, record: { game: 'x'.repeat(700 * 1024) } });
+    const big = JSON.stringify({ baseEtag: null, record: { game: 'x'.repeat(MAX_BODY_BYTES + 64 * 1024) } });
     const res = await fetch(`${base}/api/save`, { method: 'PUT', headers: auth(5002), body: big });
     expect(res.status).toBe(413);
     expect(await res.json()).toEqual({ error: 'too-big' });
@@ -77,7 +77,7 @@ describe('приём HTTP своего сервера', () => {
     let sent = 0;
     const body = new ReadableStream<Uint8Array>({
       pull(ctl) {
-        if (sent >= 700 * 1024) return ctl.close();
+        if (sent >= MAX_BODY_BYTES + 128 * 1024) return ctl.close();
         sent += chunk.length;
         ctl.enqueue(chunk);
       },
