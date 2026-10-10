@@ -35,7 +35,8 @@ describe('держава нового вида', () => {
     expect(t.title).toBe(`${BRANCH_WORD.war} · 34 из ${POINTS_CAP}`);
     expect(t.body).toBe('+3 в игровой день.');
     expect(pointsTip('admin', POINTS_CAP, 2).body).toContain('На потолке, новые не копятся.');
-    expect(pointsTip('diplo', 10, 0).body).toBe('Приток нулевой.');
+    // «Приток нулевой» → «Очки не копятся» (docs/voice.md: слово дела, а не счётчика).
+    expect(pointsTip('diplo', 10, 0).body).toBe('Очки не копятся.');
   });
 
   it('герб на шаге обучения «Изучи копьё» открывает технологии: путь словами шагу не нужен', () => {

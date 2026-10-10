@@ -1873,14 +1873,14 @@ export function alerts(s: GameState): Alert[] {
   // Нечем кормить только войско — это тревога о войске, ниже; о голоде племени
   // говорится, только когда нехватка дошла до посёлка.
   if (s.resources.food <= 0.5 && (short.town || short.army === 0)) {
-    out.push({ id: 'starving', icon: '💀', text: 'Еда кончилась, город голодает', goto: 'storage' });
+    out.push({ id: 'starving', icon: '💀', text: 'Амбары пусты, город голодает', goto: 'storage' });
   }
-  else if (foodDays < 1) out.push({ id: 'food', icon: '🍖', text: 'Еды меньше чем на день', goto: 'storage' });
+  else if (foodDays < 1) out.push({ id: 'food', icon: '🍖', text: 'Еды не хватит и на день', goto: 'storage' });
 
   const heat = heatingWoodPerDay(s);
   if (heat > 0) {
-    if (s.freezing > 0) out.push({ id: 'freezing', icon: '🥶', text: 'Дрова кончились, город мёрзнет', goto: 'storage' });
-    else if (s.resources.wood / heat < 1) out.push({ id: 'wood', icon: '🌲', text: 'Дров хватит меньше чем на день', goto: 'storage' });
+    if (s.freezing > 0) out.push({ id: 'freezing', icon: '🥶', text: 'Дров нет, город мёрзнет', goto: 'storage' });
+    else if (s.resources.wood / heat < 1) out.push({ id: 'wood', icon: '🌲', text: 'Дров не хватит и на день', goto: 'storage' });
   }
   // Войско. Одна строка на обе причины — неуплату и голод, — потому что и дверь у
   // них одна (`sim/upkeep`). Сначала то, что уже идёт, потом срок, потом отсрочка,
@@ -1936,7 +1936,7 @@ export function alerts(s: GameState): Alert[] {
   // ровно часа: заказ он закрывает одним тапом, а не заметив — теряет вечер.
   // Строка идёт последней: голод и холод острее.
   if (forgeInfo(s).idle) {
-    out.push({ id: 'forge-idle', icon: '⚒️', text: 'Кузнецы стоят без заказа', goto: 'smithy' });
+    out.push({ id: 'forge-idle', icon: '⚒️', text: 'Кузнецы сидят без заказа', goto: 'smithy' });
   }
   // Ересь. Второй механики под неё нет: в деревне это строка тревоги, просадка
   // морали и событие с выбором — то, чем деревня живёт всегда.

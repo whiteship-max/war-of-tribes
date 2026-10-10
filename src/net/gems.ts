@@ -45,8 +45,8 @@ export const useGems = create<GemsStore>(() => ({ balance: null, shop: null, lis
 /** Сервер молчит дольше трёх записей партии — связи нет. Записка приезжает с каждой (раз в минуту). */
 export const GEMS_STALE_MS = 3 * SAVE_PUSH_MS;
 
-export const OFFLINE = 'Нет связи: алмазы тратятся только при связи.';
-export const OUTSIDE = 'Алмазы тратятся только в игре из Telegram.';
+export const OFFLINE = 'Нет связи с Сокровищницей.';
+export const OUTSIDE = 'Алмазы тратятся только в игре внутри Telegram.';
 
 /** Почему тратить алмазы сейчас нельзя по связи; `null` — можно. */
 export function gemsOffline(g: Pick<GemsStore, 'balance' | 'at' | 'why'> = useGems.getState(), now: number = serverNow()): string | null {
@@ -84,7 +84,7 @@ const WHY: Partial<Record<ApiFail, string>> = {
   offline: OFFLINE,
   auth: OUTSIDE,
   busy: 'Слишком часто. Попробуй через пару секунд.',
-  frozen: 'Аккаунт заморожен: приказы не принимаются.',
+  frozen: 'Твой счёт заморожен.',
   server: 'Сокровищница не ответила. Попробуй ещё раз.',
 };
 

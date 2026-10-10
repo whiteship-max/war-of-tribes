@@ -45,7 +45,7 @@ function Branch({ branch }: { branch: RealmBranch }) {
         <span className="ico">◆</span>
         <span className="name">
           Очки
-          <em className="sub">{rate > 0 ? `+${rate} в день` : 'приток нулевой'}</em>
+          <em className="sub">{rate > 0 ? `+${rate} в день` : 'не копятся'}</em>
         </span>
         <span className={`val${have >= POINTS_CAP ? ' neg' : ' pos'}`}>
           {Math.floor(have)} из {POINTS_CAP}

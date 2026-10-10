@@ -17,7 +17,7 @@ import { num } from '@/game/num';
 /** Подсказка «откуда очки» — весами договора. */
 export const RATING_TIP = {
   title: 'Очки рейтинга',
-  body: `Мощь, плюс ${RATING_WEIGHTS.win} за победу в бою с игроком и ${RATING_WEIGHTS.taken} за взятый город. Считает сервер.`,
+  body: `Мощь, плюс ${RATING_WEIGHTS.win} за победу над соседом и ${RATING_WEIGHTS.taken} за взятый город.`,
 };
 
 /** Вторая строка: из чего очки. */
@@ -73,7 +73,7 @@ export function Rating({ onClose }: { onClose: () => void }) {
       </div>
       {why && <div className="nx-stale">{why}</div>}
       {rows === null && !why && <div className="wm-rnone">Считаем…</div>}
-      {rows !== null && rows.length === 0 && <div className="wm-rnone">В мире пока нет городов.</div>}
+      {rows !== null && rows.length === 0 && <div className="wm-rnone">В мире ещё нет городов.</div>}
       {rows?.map((r) => (
         <button key={r.id} className={`wm-rrow${r.mine ? ' mine' : ''}`} onClick={() => show(r)}>
           <span className="wm-rplace">{r.place}</span>

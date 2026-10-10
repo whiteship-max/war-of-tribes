@@ -43,7 +43,7 @@ export function SmithyNew({ b }: { b: Building }) {
 
   return (
     <div className="nx-smithy">
-      {info.idle && <div className="nx-bwarn bad">Кузнецы стоят без заказа.</div>}
+      {info.idle && <div className="nx-bwarn bad">Кузнецы сидят без заказа.</div>}
       {!info.idle && smiths === 0 && <div className="nx-bwarn">У горна никого. Поставь кузнецов.</div>}
 
       {s.forge.length > 0 && (

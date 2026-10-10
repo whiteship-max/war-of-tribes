@@ -205,7 +205,7 @@ function PointsRow() {
 
 /** Подсказка ячейки очков — функциями `sim/points` (правило 18). */
 export function pointsTip(b: RealmBranch, have: number, rate: number): { title: string; body: string } {
-  const flow = rate > 0 ? `+${rate} в игровой день.` : 'Приток нулевой.';
+  const flow = rate > 0 ? `+${rate} в игровой день.` : 'Очки не копятся.';
   return {
     title: `${BRANCH_WORD[b]} · ${have} из ${POINTS_CAP}`,
     body: have >= POINTS_CAP ? `${flow} На потолке, новые не копятся.` : flow,

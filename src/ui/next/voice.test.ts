@@ -52,6 +52,21 @@ export const BANNED = [
   /казн|войск/i,
 ];
 
+/**
+ * Вычитаны заходом «Голос», чат 1 (docs/voice.md): интерфейс вне этапа 2 — Сокровищница, найм и кузница, держава,
+ * окна построек, окна поверх города, данные построек, указов, заданий, войска. Пути — от `src`.
+ */
+export const VOICE1 = [
+  'ui/next/Treasury.tsx', 'ui/next/TreasuryBuy.tsx', 'ui/next/Rush.tsx', 'ui/next/RecruitNew.tsx', 'ui/next/SmithyNew.tsx',
+  'ui/next/Hints.tsx', 'ui/realm/RealmTabs.tsx', 'ui/realm/Tech.tsx', 'ui/realm/Ruler.tsx', 'ui/parts/Settings.tsx',
+  'ui/parts/BugReport.tsx', 'ui/parts/TownHall.tsx', 'ui/parts/TownBuild.tsx', 'ui/parts/Barracks.tsx', 'ui/parts/Muster.tsx',
+  'ui/parts/Market.tsx', 'ui/parts/Masters.tsx', 'ui/parts/Tavern.tsx', 'ui/parts/Walls.tsx', 'ui/parts/Statue.tsx',
+  'ui/parts/Provisions.tsx', 'ui/parts/policyWords.ts', 'ui/panels/BuildingPanel.tsx', 'ui/panels/PeoplePanel.tsx',
+  'ui/panels/PopPanel.tsx', 'ui/panels/MoralePanel.tsx', 'ui/OfflineModal.tsx', 'ui/WinterModal.tsx', 'ui/map/Rating.tsx',
+  'game/data/hints.ts', 'game/data/tutorial.ts', 'game/data/policy.ts', 'game/data/quests.ts', 'game/data/troops.ts',
+  'game/data/equipment.ts', 'game/data/buildings.ts', 'game/data/jobs.ts', 'game/data/yards.ts',
+];
+
 describe('голос текстов этапа 2', () => {
   it('ни канцелярита, ни восклицаний, ни слов, которые словарь убрал', () => {
     let seen = 0;
@@ -63,6 +78,17 @@ describe('голос текстов этапа 2', () => {
     }
     // Область: строки нашлись — проверка не пустая.
     expect(seen).toBeGreaterThan(30);
+  });
+
+  it('то же для файлов, вычитанных заходом «Голос»', () => {
+    let seen = 0;
+    for (const f of VOICE1) {
+      for (const t of playerStrings(readFileSync(join(UI, '..', f), 'utf8'))) {
+        seen++;
+        for (const bad of BANNED) expect(t, `${f}: «${t}»`).not.toMatch(bad);
+      }
+    }
+    expect(seen).toBeGreaterThan(300);
   });
 
   it('щуп строк видит литерал, шаблон и текст разметки', () => {

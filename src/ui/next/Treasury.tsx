@@ -131,7 +131,7 @@ function Shop() {
               <b>
                 {RESOURCE_META[r].name} +{SHOP_LOT}
               </b>
-              {blocked ? <small className="nx-why">{blocked}</small> : <span className="nx-trade-haul">места на складе: {shopRoom(s, r)}</span>}
+              {blocked ? <small className="nx-why">{blocked}</small> : <span className="nx-trade-haul">Места на складе: {shopRoom(s, r)}</span>}
             </div>
             <button className="nx-go nx-trade-go nx-gem-go" disabled={blocked !== null || waiting} onClick={() => void buy(r)}>
               {waiting ? (
@@ -161,7 +161,7 @@ function History() {
   const s = useGame((g) => g.s);
   const list = useGems((g) => g.list);
   const balance = useGems((g) => g.balance);
-  if (list.length === 0) return <div className="note">{balance === null ? 'Нет связи — журнал покажется, когда она будет.' : 'Операций пока нет.'}</div>;
+  if (list.length === 0) return <div className="note">{balance === null ? 'Нет связи. Журнал откроется, когда она вернётся.' : 'Записей ещё нет.'}</div>;
   const name = (b: string): string => (b in BUILDING_BY_ID ? buildingTitle(s, b as BuildingTypeId) : b);
   return (
     <div className="nx-gem-log">

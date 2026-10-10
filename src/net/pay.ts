@@ -36,10 +36,10 @@ export interface PayStore {
 export const usePay = create<PayStore>(() => ({ on: null, net: null, orders: [], wallet: null, ready: false, busy: null }));
 
 const WHY: Partial<Record<ApiFail, string>> = {
-  offline: 'Нет связи: покупка — только при связи.',
-  auth: 'Покупка — только в игре из Telegram.',
+  offline: 'Нет связи. Покупка подождёт.',
+  auth: 'Алмазы покупают только в игре внутри Telegram.',
   busy: 'Слишком часто. Попробуй через пару секунд.',
-  frozen: 'Аккаунт заморожен: приказы не принимаются.',
+  frozen: 'Твой счёт заморожен.',
 };
 
 function fold(raw: unknown): PayResponse | null {

@@ -26,7 +26,7 @@ export const DECREES: DecreeDef[] = [
     icon: '🤝',
     output: 1,
     moralePerDay: 0,
-    effect: 'Всё идёт своим чередом',
+    effect: 'Город живёт по обычаю',
   },
   {
     id: 'order',
@@ -34,7 +34,7 @@ export const DECREES: DecreeDef[] = [
     icon: '⚖️',
     output: 1.1,
     moralePerDay: -0.5,
-    effect: 'Выработка выше, мораль падает',
+    effect: 'Стража на улицах, работа от зари до зари',
   },
   {
     id: 'freedom',
@@ -42,7 +42,7 @@ export const DECREES: DecreeDef[] = [
     icon: '🎶',
     output: 0.95,
     moralePerDay: 0.5,
-    effect: 'Выработка ниже, мораль растёт',
+    effect: 'Праздники чаще, работа неспешнее',
   },
 ];
 
@@ -74,7 +74,7 @@ export const RATIONS: RationDef[] = [
     food: 0.7,
     moralePerDay: -0.6,
     growth: 0,
-    effect: 'Еды уходит меньше, мораль падает, рождений нет',
+    effect: 'Пустая похлёбка, свадьбы откладывают',
   },
   {
     id: 'normal',
@@ -83,7 +83,7 @@ export const RATIONS: RationDef[] = [
     food: 1,
     moralePerDay: 0,
     growth: 1,
-    effect: 'Все сыты',
+    effect: 'Каша и хлеб каждому',
   },
   {
     id: 'rich',
@@ -92,7 +92,7 @@ export const RATIONS: RationDef[] = [
     food: 1.4,
     moralePerDay: 0.6,
     growth: 1.5,
-    effect: 'Еды уходит больше, мораль растёт, рождений больше',
+    effect: 'Мясо к столу, свадьбы играют чаще',
   },
 ];
 
@@ -144,7 +144,7 @@ export const TAXES: TaxDef[] = [
     icon: '🕊️',
     perPop: 0,
     moralePenalty: 0,
-    effect: 'Сбора нет',
+    effect: 'Сборщики сидят дома',
   },
   {
     id: 'moderate',
@@ -152,7 +152,7 @@ export const TAXES: TaxDef[] = [
     icon: '🏺',
     perPop: 0.55,
     moralePenalty: 8,
-    effect: 'Часть сбора',
+    effect: 'Сборщики берут с оглядкой',
   },
   {
     id: 'high',
@@ -160,7 +160,7 @@ export const TAXES: TaxDef[] = [
     icon: '💰',
     perPop: 1,
     moralePenalty: 22,
-    effect: 'Полный сбор',
+    effect: 'Сборщики выгребают всё до гроша',
   },
 ];
 

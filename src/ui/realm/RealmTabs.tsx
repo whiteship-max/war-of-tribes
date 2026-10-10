@@ -157,7 +157,7 @@ export function RulerNew() {
           <Icon name="ui-crown" glyph="👑" />
         </span>
         <div className="nx-pname">
-          <b className="one-line">{r.ruler.name ?? 'Имени ещё нет'}</b>
+          <b className="one-line">{r.ruler.name ?? 'Без имени'}</b>
           <small className={rulerAging(s) ? 'warn' : ''}>
             {yearsWord(rulerYears(s))} · {rulerAge(s) < RETIRE_AGE ? `на покой через ${waitSpan(asGame(restIn))}` : 'уходит на покой'}
           </small>
@@ -183,7 +183,7 @@ export function RulerNew() {
         <span className="nx-hico">
           <Icon name="ui-person" glyph="👤" />
         </span>
-        <b className="one-line">{r.heir.name ?? 'Имени ещё нет'}</b>
+        <b className="one-line">{r.heir.name ?? 'Без имени'}</b>
         <span className="nx-hskills">
           {REALM_BRANCHES.map((b) => (
             <span key={b}>
@@ -193,12 +193,12 @@ export function RulerNew() {
           ))}
         </span>
       </div>
-      <p className="nx-tnote">При смене правителя меняются только навыки. Очки и изученное остаются.</p>
+      <p className="nx-tnote">Новый правитель приносит свои навыки. Очки и изученное остаются державе.</p>
 
       <h3>
         Род <span className="muted">{rows.length > 0 ? `${rows.length}` : ''}</span>
       </h3>
-      {rows.length === 0 && <p className="nx-tnote">Прежних правителей ещё нет.</p>}
+      {rows.length === 0 && <p className="nx-tnote">Книга рода ещё пуста.</p>}
       {shown.map((row, i) => (
         <div className="nx-lrow" key={`${row.name}-${i}`}>
           <span className="nx-lico">
@@ -234,7 +234,7 @@ export function RulerNew() {
 /** Подсказки золота — числами `derived` (правило 18). */
 export function ledgerTips(gold: number, income: number, wages: number, masters: boolean): Record<'gold' | 'income' | 'wages', TipContent> {
   return {
-    gold: { title: `Золото · ${fmtInt(gold)}`, body: 'Из него платят дружине и мастерам. Кончится — бойцы начнут уходить.' },
+    gold: { title: `Золото · ${fmtInt(gold)}`, body: 'Из него платят дружине и мастерам. Кончится, и бойцы начнут уходить.' },
     income: { title: `Сбор · ${perDay(income)}`, body: 'Чем больше жителей, тем больше сбор. Налог выше — мораль ниже.' },
     wages: { title: `Жалованье · ${perDay(-wages)}`, body: masters ? 'Дружине и наёмным мастерам.' : 'Дружине.' },
   };
