@@ -47,7 +47,8 @@ describe('слова черт', () => {
       const what = traitLines([id], tally)[0].what;
       const days = gameDaysText(Math.round(gameDaysOfMs(full) * 10) / 10);
       expect(what, `${id}: полный сбор числом мира`).toContain(`Полный сбор ${days}`);
-      expect(what, `${id}: где идёт сбор`).toContain('в осаде своего города. Дома перевод мгновенный');
+      // Без скобок (docs/voice.md, 12): настоящее время — своей частью фразы, «по часам …».
+      expect(what, `${id}: где идёт сбор`).toMatch(/в осаде своего города, по часам \d.*\. Дома перевод мгновенный/);
       expect(what, `${id}: о набеге и Дозоре ни слова`).not.toMatch(/Дозор|набег|успевает/);
     }
     expect(traitLines(['butcher'], tally)[0].what, 'полный сбор с «Мясником» — 9 игровых дней').toContain('9 игр. дн.');

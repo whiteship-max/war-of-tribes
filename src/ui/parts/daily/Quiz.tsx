@@ -67,7 +67,7 @@ export function Quiz({ seed, onDone }: { seed: number; onDone: (won: boolean) =>
       )}
       {!picked && (
         <div className="note">
-          Силы почти равны, решают рода войск. Нажми на ту сторону, что удержит поле.
+          Силы почти равны, исход решат виды бойцов. Нажми на ту сторону, что удержит поле.
         </div>
       )}
     </>

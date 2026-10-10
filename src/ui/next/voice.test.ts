@@ -3,9 +3,11 @@
 // которое однажды напишут не думая, а не тонкость.
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 import { BUILDINGS } from '@/game/data/buildings';
 import { BRANCH_LORE } from '@/game/data/realm';
+import { TROOPS } from '@/game/data/troops';
 import { createInitialState } from '@/game/state';
 import { buildingFacts, buildingTip } from './buildingTips';
 
@@ -30,14 +32,23 @@ export const STAGE2 = [
   'alertItems.ts',
 ];
 
-/** Строки игрока в исходнике: литералы и текст разметки с кириллицей; комментарии — мимо. */
+/**
+ * Строки игрока в исходнике: литералы, шаблоны и текст разметки с кириллицей; комментарии — мимо. Разбор — компилятором
+ * TypeScript: прежний щуп регулярным выражением не видел текст разметки рядом с `{…}` («Наше войско идёт {…}»), и
+ * такие строки проходили замок молча (docs/voice.md, 12).
+ */
 export function playerStrings(src: string): string[] {
-  const code = src.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\{\/\*[\s\S]*?\*\/\}/g, ' ').replace(/(^|[^:])\/\/.*$/gm, '$1');
+  const sf = ts.createSourceFile('x.tsx', src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
   const out: string[] = [];
-  for (const m of code.matchAll(/'([^'\n]*)'|`([^`]*)`|>([^<>{}\n]+)</g)) {
-    const t = (m[1] ?? m[2] ?? m[3] ?? '').trim();
-    if (/[а-яё]/i.test(t)) out.push(t);
-  }
+  const visit = (n: ts.Node): void => {
+    let t: string | null = null;
+    if (ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n)) t = n.text;
+    else if (ts.isTemplateExpression(n)) t = n.getText(sf).slice(1, -1);
+    else if (ts.isJsxText(n)) t = n.text.replace(/\s+/g, ' ');
+    if (t !== null && /[а-яё]/i.test(t)) out.push(t.trim());
+    ts.forEachChild(n, visit);
+  };
+  visit(sf);
   return out;
 }
 
@@ -120,8 +131,10 @@ describe('голос текстов этапа 2', () => {
   });
 
   it('щуп строк видит литерал, шаблон и текст разметки', () => {
-    const got = playerStrings(`const a = 'Привет'; const b = \`Срок \${x}\`; <b>Город</b> // Комментарий`);
+    const got = playerStrings(`const a = 'Привет'; const b = \`Срок \${x}\`; const c = <b>Город</b>; // Комментарий`);
     expect(got).toEqual(['Привет', 'Срок ${x}', 'Город']);
+    // Текст разметки рядом с выражением — тоже строка игрока; прежний щуп его пропускал.
+    expect(playerStrings(`const d = <p>Наше войско идёт {x}. Придёт через {y}.</p>;`)).toEqual(['Наше войско идёт', '. Придёт через']);
   });
 });
 
@@ -151,6 +164,22 @@ describe('описания построек: вкус и дело', () => {
         for (const bad of BANNED) expect(t, `${id}: «${t}»`).not.toMatch(bad);
       }
     }
+  });
+
+  it('виды бойцов — тем же правилом двух слоёв, вкус не повторяет зачина', () => {
+    expect(TROOPS.length).toBeGreaterThan(5);
+    const first = new Set<string>();
+    for (const d of TROOPS) {
+      expect(d.flavor.length, d.id).toBeLessThanOrEqual(70);
+      expect(d.description.length, d.id).toBeLessThanOrEqual(110);
+      expect(d.flavor.split(/[.?]\s/).length, `${d.id}: одна фраза`).toBe(1);
+      for (const t of [d.flavor, d.description]) {
+        expect(t, d.id).not.toMatch(/\d|[()]/);
+        for (const bad of BANNED) expect(t, `${d.id}: «${t}»`).not.toMatch(bad);
+      }
+      first.add(d.flavor.split(/[\s,]/)[0].toLowerCase());
+    }
+    expect(first.size).toBe(TROOPS.length);
   });
 
   it('зачины не повторяются: вкус — ни разу, дело — не больше двух раз одним словом', () => {

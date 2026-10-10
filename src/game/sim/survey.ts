@@ -96,7 +96,7 @@ export function startSurvey(s: GameState): string | null {
   // уклад мог смениться, пока разъезды в поле.
   const seconds = surveySeconds(step, info.learning);
   s.survey = { done: info.done, startedAt: s.time, until: s.time + seconds };
-  log(s, `Дозор: разъезды ушли разведывать округу, ур. ${step.n}.`);
+  log(s, 'Разъезды Дозора ушли разведывать округу дальше прежнего.');
   return null;
 }
 
@@ -112,7 +112,7 @@ export function cancelSurvey(s: GameState): string | null {
   const step = surveyStep(st.done + 1);
   if (step) refund(s, step.cost, 0.5);
   s.survey = { done: st.done, startedAt: 0, until: 0 };
-  log(s, 'Дозор: разъезды отозвали, округа осталась неразведанной.', 'bad');
+  log(s, 'Разъезды Дозора отозвали, округа осталась неразведанной.', 'bad');
   return null;
 }
 
@@ -129,8 +129,8 @@ export function surveyTick(s: GameState): void {
   log(
     s,
     step
-      ? `Дозор: округа разведана на ${step.radius} клеток вокруг. ${step.effect}`
-      : 'Дозор: округа разведана.',
+      ? `Разъезды Дозора вернулись. Округа разведана на ${step.radius} клеток вокруг. ${step.effect}`
+      : 'Разъезды Дозора вернулись. Округа разведана.',
     'good',
   );
 }

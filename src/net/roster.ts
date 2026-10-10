@@ -92,7 +92,7 @@ const WORDS: Record<ApiFail, string> = {
   conflict: 'Список соседей обновляется.',
   busy: `Слишком часто. Список обновится через ${realSpan(ROSTER_PULL_MS / 1000)}.`,
   server: 'Список соседей не пришёл. Показаны по памяти.',
-  frozen: 'Аккаунт заморожен. Соседи показаны по памяти.',
+  frozen: 'Счёт заморожен. Соседи показаны по памяти.',
   era: 'Мир начат заново. Игра перезапускается.',
 };
 
@@ -303,7 +303,7 @@ const sleep = (ms: number): Promise<void> =>
  * (`useRoster.why`). Кончается клеткой — или сменой эпохи: тогда игра
  * перезапускается, и ждать здесь нечего.
  */
-export const SEAT_WAIT = 'Ждём, когда сервер назовёт место города на карте.';
+export const SEAT_WAIT = 'Ждём, когда городу отведут место на карте.';
 
 async function seat(): Promise<void> {
   for (let wait = SEAT_RETRY_MS; !cache?.mine; wait = Math.min(wait * 2, SEAT_RETRY_MAX_MS)) {

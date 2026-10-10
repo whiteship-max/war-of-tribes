@@ -71,7 +71,7 @@ export const frozenNow = (stores: Stores): Promise<FrozenFile> => frozenIn(store
 export const isFrozen = (file: FrozenFile, player: string): boolean => player in file.keys;
 
 /** Отказ войны замороженному — словами, как все отказы приказа. */
-export const FROZEN_ORDER = 'Аккаунт заморожен: приказы не принимаются.';
+export const FROZEN_ORDER = 'Счёт заморожен. Приказы не принимаются.';
 
 /** Отказ похода на замороженный город. Почему закрыт — нападающему знать незачем. */
 export const FROZEN_TARGET = 'Этот город сейчас закрыт для войны.';

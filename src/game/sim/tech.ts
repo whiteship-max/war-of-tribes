@@ -383,7 +383,7 @@ export function study(s: GameState, branch: RealmBranch): string | null {
   if (!spend(s, branch, info.price)) return `Не хватает очков: нужно ${info.price}, есть ${Math.floor(info.have)}.`;
   s.realm.tech[branch] = info.next;
   const opened = info.gains.length > 0 ? ` Открылось: ${info.gains.join('; ').toLowerCase()}.` : '';
-  log(s, `Изучен ${info.next} уровень ${BRANCH_OF[branch]}, ${info.price} очков.${opened}`, 'good');
+  log(s, `Ветвь ${BRANCH_OF[branch]} изучена до уровня ${info.next}, ушло ${info.price} очков.${opened}`, 'good');
   return null;
 }
 

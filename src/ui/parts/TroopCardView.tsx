@@ -70,6 +70,9 @@ export function TroopCardView({ troop, onBack }: { troop: TroopId; onBack: () =>
           </div>
         </div>
       </div>
+      <p className="season-hint">
+        <em>{def.flavor}</em>
+      </p>
       <p className="season-hint">{def.description}</p>
 
       <h3>В бою</h3>

@@ -238,7 +238,7 @@ export async function huntTransfers(cfg: PayConfig, fetcher: Fetch, orders: Stor
     const o = m && PAY_ID.test(m[1]) ? byId.get(m[1]) : undefined;
     if (!notice || !o || out.get(o.id) && 'tx' in out.get(o.id)!) continue;
     if (notice.units === BigInt(o.units)) out.set(o.id, { tx: tx.hash });
-    else out.set(o.id, { wrong: `Пришло ${usdtText(notice.units, cfg.decimals)} USDT вместо ${o.usdt}: не начислено. Напиши в поддержку.` });
+    else out.set(o.id, { wrong: `Пришло ${usdtText(notice.units, cfg.decimals)} USDT вместо ${o.usdt}, алмазы не начислены. Напиши мастерам игры.` });
   }
   return out;
 }

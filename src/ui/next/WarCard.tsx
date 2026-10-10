@@ -68,8 +68,8 @@ export function WarCard({ card }: { card: SettlementCard }) {
           {war.ours.phase === 'march' && (
             <>
               <p className="nx-tnote">
-                Наше войско идёт {war.ours.mode === 'storm' ? 'на штурм с ходу' : 'в осаду'}. Придёт через {left(war.ours.arriveAt, now)}. Бой
-                посчитается в минуту прихода, даже если ты не в игре.
+                Наш отряд идёт {war.ours.mode === 'storm' ? 'на штурм с ходу' : 'в осаду'}. У стен через {left(war.ours.arriveAt, now)}. Бой
+                будет в минуту прихода, даже если ты не в игре.
               </p>
               <button className="nx-cact" disabled={busy} onClick={() => void recall()}>
                 <Icon name="ui-time" glyph="↩️" />
@@ -90,14 +90,14 @@ export function WarCard({ card }: { card: SettlementCard }) {
             </>
           )}
           {war.ours.phase === 'back' && (
-            <p className="nx-tnote">Войско возвращается. Дома через {left(war.ours.backAt ?? now, now)}.</p>
+            <p className="nx-tnote">Отряд возвращается. Дома через {left(war.ours.backAt ?? now, now)}.</p>
           )}
         </>
       ) : (
         <>
           <p className="nx-tnote">
-            Полководец ведёт {count(war.men, 'бойца', 'бойцов', 'бойцов')} из своего города. Дорога — {realLeft(war.walkMs / 1000)}. Бой
-            посчитает сервер в минуту прихода; хозяин города увидит войско сразу.
+            Полководец ведёт {count(war.men, 'бойца', 'бойцов', 'бойцов')} из своего города, в пути {realLeft(war.walkMs / 1000)}. Бой
+            будет в минуту прихода. Хозяин города увидит отряд сразу.
           </p>
           {!war.can && war.reason && <p className="nx-tnote bad">{war.reason}</p>}
           {/* Штурм дороже осады: открыт поход вообще, а на штурм энергии не хватает — причина своей строкой. */}

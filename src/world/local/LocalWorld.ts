@@ -2057,7 +2057,7 @@ export class LocalWorld implements WorldApi {
           ? `${m.fromName} пришли на выручку осаждённым и сбили наш лагерь. Осада снята.`
           : `${m.fromName} пришли на выручку осаждённым и были отбиты. Осада стоит.`) +
         (out.share < 1
-          ? ` Через рогатки к бою прошли ${out.fought} бойцов строя из ${out.all}.`
+          ? ` Рогатки задержали их, к бою прошли ${out.fought} из ${out.all}.`
           : ''),
       read: false,
     });
