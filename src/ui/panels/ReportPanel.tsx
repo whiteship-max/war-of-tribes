@@ -78,7 +78,7 @@ function Replay({ rec, report, onDone }: ReplayProps) {
   return createPortal(
     <div className="replay">
       <div className="replay-caption">
-        {play === 'wait' ? 'Ролик загружается…' : 'Ролик не загрузился, нет связи. Итог и журнал на месте.'}
+        {play === 'wait' ? 'Ролик открывается…' : 'Нет связи, ролик не открылся. Итог и журнал боя на месте.'}
       </div>
       <div className="replay-controls">
         <button className="btn" onClick={onDone}>
@@ -166,7 +166,7 @@ export function ReportPanel({ id }: { id: string }) {
       <div className="panel">
         <h2>Донесение</h2>
         <div className="desc">
-          {reports.length === 0 ? 'Открываем донесение…' : 'Это донесение уже не хранится.'}
+          {reports.length === 0 ? 'Открываем донесение…' : 'Донесение не сохранилось.'}
         </div>
       </div>
     );
