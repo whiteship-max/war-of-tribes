@@ -11,8 +11,11 @@
 import type { Stores } from './kv.js';
 import { spawnModeOf, type SpawnMode } from '../../src/world/spawn.js';
 
-/** Больше этого тело запроса не принимается. Потолки частей сохранения (`LIMITS` в `routes/save.ts`) в него укладываются. */
-export const MAX_BODY_BYTES = 512 * 1024;
+/**
+ * Больше этого тело запроса не принимается. Потолки частей сохранения (`LIMITS` в `routes/save.ts`) в него укладываются
+ * и после экранирования строк в JSON; потолок Caddy (`deploy/Caddyfile`, `max_size 1MB`) — выше него.
+ */
+export const MAX_BODY_BYTES = 960 * 1024;
 
 const HEADERS = {
   'content-type': 'application/json; charset=utf-8',
