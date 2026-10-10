@@ -71,6 +71,7 @@ export function readRoster(raw: unknown): RosterFile {
       power: Math.max(0, Math.floor(Number(c.power) || 0)),
       pop: Math.max(0, Math.floor(Number(c.pop) || 0)),
       seenAt: Math.max(0, Math.floor(Number(c.seenAt) || 0)),
+      ...(Number(c.since) > 0 ? { since: Math.floor(Number(c.since)) } : {}),
     };
   }
   return { v: 1, epoch: rosterEpoch(), rows };
@@ -131,6 +132,8 @@ export function upsert(file: RosterFile, key: string, claim: CastleClaim, now: n
         power: claim.power,
         pop: claim.pop,
         seenAt: now,
+        // Когда встал — у новой строки «сейчас», у стоящей прежнее (вести края, «новый сосед»).
+        ...(had ? (had.since ? { since: had.since } : {}) : { since: now }),
       },
     },
   };

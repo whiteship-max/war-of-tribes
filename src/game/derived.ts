@@ -15,15 +15,12 @@ import type {
   Season,
 } from './types';
 import {
-  BASE_DEFENSE,
-  BASE_HOUSING,
   BONDED_OUTPUT,
   FEAST_COOLDOWN_DAYS,
   FEAST_COOLDOWN_PER_LEVEL,
   FEAST_DAYS,
   FEAST_GOLD_PER_POP,
   INFIRMARY_HEAL_CAP,
-  BASE_STORAGE_CAP,
   BUILDER_RATE,
   CROWDING_MAX,
   CROWDING_PENALTY,
@@ -62,7 +59,6 @@ import {
   SIEGE_FOOD_YIELD,
   SIEGE_YIELD,
   SMITH_WORK,
-  TOWN_HALL_BUILD_STEP,
   SOLDIER_FOOD,
   STRAIN_DAYS,
   UPGRADE_GROWTH,
@@ -72,6 +68,7 @@ import {
 import { asGame, sessionSec, type GameSec } from './pace';
 import { BUILDING_BY_ID, MASTERS_AT, type BuildingDef, type BuildingStats, slotsAt } from './data/buildings';
 import { surveyRadiusOf } from './data/survey';
+import { buildRateOf, defenseOf, hallBuildMult, housingOf, stashAt, storageOf, type Levels } from './build';
 import { FAITH_BY_ID, OBSERVANCE_BY_ID, tiltAt, type FaithDef, type FaithTilt } from './data/faiths';
 import { FREE_JOBS, JOBS, JOB_BY_ID } from './data/jobs';
 import { EQUIPMENT_BY_ID, type EquipmentDef } from './data/equipment';
@@ -310,17 +307,14 @@ export const ATTENTION_META: Record<Attention, { icon: string; text: string }> =
 /** Жилых мест в здании. */
 export const buildingHousing = (b: Building): number => buildingStat(b, 'housing');
 
-export function housingCapacity(s: GameState): number {
-  let cap = BASE_HOUSING;
-  for (const b of s.buildings) cap += buildingHousing(b);
-  return cap;
-}
+/** Уровни построек по типу — вход общих формул посёлка (`game/build.ts`), тот же, что опись шлёт серверу. */
+export const levelsOf = (s: GameState): Levels => Object.fromEntries(s.buildings.map((b) => [b.type, b.level]));
 
-export function storageCap(s: GameState): number {
-  let cap = BASE_STORAGE_CAP;
-  for (const b of s.buildings) cap += buildingStat(b, 'storage');
-  return cap;
-}
+/** Вместимость жилья. Формула одна на игру и книгу стройки сервера (`game/build.housingOf`). */
+export const housingCapacity = (s: GameState): number => housingOf(levelsOf(s));
+
+/** Вместимость склада. Формула одна на игру и книгу стройки сервера (`game/build.storageOf`). */
+export const storageCap = (s: GameState): number => storageOf(levelsOf(s));
 
 /** Сколько человек по профессиям: рабочие зданий, вольный сбор и свободные руки. */
 export function jobCounts(s: GameState): Record<JobId, number> {
@@ -487,15 +481,10 @@ export const homeArmyPower = (s: GameState): number => troopPower(homeTroops(s))
  * пока отряд в пути, дом стоит открытым.
  */
 export function defense(s: GameState): number {
-  let d = homeArmyPower(s);
-  for (const b of s.buildings) d += buildingStat(b, 'defense');
-  d += BASE_DEFENSE;
-  // Любой житель может отбиваться дубиной, но слабо.
-  d += Math.max(0, s.pop - Math.max(0, s.scoutsAway)) * VILLAGER_DEFENSE;
-  // Стойкость от веры — множитель на всё разом, а не слагаемое: приход не
-  // добавляет людей на стену, он держит тех, кто на ней уже стоит. Число берётся
-  // из наклона (`faithTilt`) и потому растёт вместе с храмом и укладом.
-  return d * (1 + faithTilt(s).steadfast);
+  // Любой житель может отбиваться дубиной, но слабо. Стойкость от веры — множитель на всё разом, а не слагаемое: приход
+  // не добавляет людей на стену, он держит тех, кто на ней уже стоит. Число берётся из наклона (`faithTilt`) и потому
+  // растёт вместе с храмом и укладом. Формула одна на игру и книгу стройки сервера (`game/build.defenseOf`).
+  return defenseOf(levelsOf(s), s.pop - Math.max(0, s.scoutsAway), homeArmyPower(s), faithTilt(s).steadfast);
 }
 
 // ---------- Службы посёлка ----------
@@ -624,24 +613,8 @@ export const stallsTaken = (s: GameState): number => {
   return mounted(m.army) + mounted(m.recruits) + mounted(m.wounded);
 };
 
-/**
- * Сколько единиц каждого припаса прячет Тайник этого уровня.
- *
- * Растёт **геометрически**, тем же множителем `UPGRADE_GROWTH`, каким дорожают
- * улучшения зданий, и это не украшение, а всё содержание таблицы. Обещание
- * тайника одно и должно держаться на любом уровне: **спрятанного хватает на
- * одно улучшение того уровня, на котором игрок сейчас стоит.** Улучшения дорожают
- * в `UPGRADE_GROWTH` раз за уровень; расти линейно тайник не может — к десятому уровню он
- * перестал бы покрывать даже среднее улучшение, а таблица, верная на первый день
- * и бессмысленная на десятый, хуже отсутствующей.
- *
- * Вместимость склада при этом растёт линейно, поэтому доля спрятанного сама
- * собой идёт от мелочи на первом уровне к заметной части на десятом. Ни на каком
- * уровне это не «весь склад» — неуязвимый склад убил бы и риск копить, и смысл
- * нападать. Числа — `npm run sack:report`, раздел «тайник»; вывод — docs/sack.md.
- */
-export const stashAt = (level: number): number =>
-  Math.round((BUILDING_BY_ID.cache.hidden ?? 0) * Math.pow(UPGRADE_GROWTH, Math.max(1, level) - 1));
+/** Тайник по уровню — формула одна на игру и книгу стройки сервера (`game/build.stashAt`). */
+export { stashAt };
 
 /** Сколько единиц каждого ресурса тайник прячет от чужого набега прямо сейчас. */
 export const hiddenStash = (s: GameState): number => {
@@ -1167,11 +1140,7 @@ export function crafterHeadShare(s: GameState, mods: SeasonModifiers = seasonMod
  * Ратуша не даёт труда сама — она им распоряжается, поэтому это множитель ко
  * всему, что строит посёлок, а не ещё одно слагаемое.
  */
-export function townHallBuildMult(s: GameState): number {
-  const hall = buildingOfType(s, 'town_hall');
-  if (!hall) return 1;
-  return 1 + TOWN_HALL_BUILD_STEP * Math.max(0, hall.level - 1);
-}
+export const townHallBuildMult = (s: GameState): number => hallBuildMult(buildingOfType(s, 'town_hall')?.level ?? 0);
 
 /**
  * Скорость стройки: свободные жители с площади плюс ремесленники в мастерской,
@@ -1183,7 +1152,8 @@ export function buildRate(s: GameState, mods: SeasonModifiers = seasonMods(s)): 
   const idle = Math.max(0, jobCounts(s).idle - Math.max(0, s.scoutsAway));
   // Невольники без места — на стройке, тем же трудом и на ту же долю, что в поле.
   const bonded = bondedIdle(s) * bondedShare(s);
-  return ((idle + bonded) * BUILDER_RATE + crafterBuildRate(s, mods)) * mods.build * townHallBuildMult(s);
+  // Формула одна на игру и книгу стройки сервера (`game/build.buildRateOf`; потолок сервера — `buildCeil`).
+  return buildRateOf(idle, bonded, crafterBuildRate(s, mods), mods.build, buildingOfType(s, 'town_hall')?.level ?? 0);
 }
 
 /**

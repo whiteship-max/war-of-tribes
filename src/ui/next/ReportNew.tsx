@@ -1,6 +1,6 @@
 // Итог донесения о бое нового интерфейса (docs/ui_audit.md, 13). Ролик, журнал по фазам и выбор «итог или бой» —
 // общие с прежним видом и живут в `panels/ReportPanel`; здесь только итог.
-import type { CSSProperties } from 'react';
+import { useState, type CSSProperties } from 'react';
 import { useGame } from '@/game/store';
 import { summarize, type Side } from '@/battle';
 import { beastSummary } from '@/game/battle/beasts';
@@ -10,6 +10,9 @@ import type { Report } from '@/world/types';
 import { lootText, unitsText } from '@/ui/parts/reportWords';
 import { Icon } from '@/ui/icons/Icon';
 import { SIDE_VARS } from '@/side';
+import { profileCity, profileName } from '@/profile/identity';
+import { reportCard } from '@/ui/share/shareCard';
+import { ShareSheet } from '@/ui/share/ShareSheet';
 
 const other = (side: Side): Side => (side === 'attacker' ? 'defender' : 'attacker');
 /** Цвет сторон — одна дверь (`side.ts`): переменные стиля столбцов «Мы» и «Враг». */
@@ -29,6 +32,9 @@ export function ReportBodyNew({ report }: { report: Report }) {
   const good = sum ? sum.verdict === 'victory' : report.won;
   const bad = sum ? sum.verdict === 'defeat' || sum.verdict === 'pyrrhic' : !report.won;
   const lost = Object.keys(report.lost).length > 0;
+  // «Поделиться» (docs/feed.md, раздел 3): итог боя или взятый город — карточкой в чат или историю.
+  const card = reportCard(report, profileCity(s.profile), profileName(s.profile));
+  const [sharing, setSharing] = useState(false);
 
   return (
     <div className="nx-rep" style={SIDES_STYLE}>
@@ -121,6 +127,12 @@ export function ReportBodyNew({ report }: { report: Report }) {
           </div>
         )}
       </div>
+      {card && (
+        <button className="btn nx-rshare" onClick={() => setSharing(true)}>
+          Поделиться
+        </button>
+      )}
+      {card && sharing && <ShareSheet card={card} onClose={() => setSharing(false)} />}
     </div>
   );
 }

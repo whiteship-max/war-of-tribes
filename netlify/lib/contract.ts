@@ -172,6 +172,11 @@ export interface CastleRow {
   pop: number;
   /** Когда владелец последний раз был в игре, по серверным часам. */
   seenAt: number;
+  /**
+   * Когда замок встал в реестр, по серверным часам: «новый сосед» в вестях края (docs/feed.md). Нет поля — строка
+   * старше него, и о ней вестей нет.
+   */
+  since?: number;
 }
 
 /**
@@ -1193,6 +1198,16 @@ export interface WatchCard {
    * встаёт тем же бойцом, и подтверждать его второй раз незачем (docs/pvp.md, раздел 6). Нет поля — опись до книги.
    */
   hurt?: Counts;
+  /**
+   * Невольники (`bondedTotal`): руки стройки. Книга стройки сервера (docs/pvp.md, раздел 7) считает их не больше жителей.
+   * Нет поля — опись до книги стройки: стройка идёт одними жителями.
+   */
+  bonded?: number;
+  /**
+   * Идущая стройка — первая в очереди (`derived.currentSite`): тип, до какого уровня и сколько работы сделано. По ней книга
+   * стройки подтверждает работу, а сервер считает остаток для цены ускорения. Нет поля — стройки нет.
+   */
+  site?: { type: string; level: number; done: number };
   /** Сколько бойцов казармы и конюшня выучат за игровой день — не больше. */
   train: number;
   /**
@@ -1226,6 +1241,17 @@ export interface WatchCard {
 
 const whole = (v: unknown, max: number): number => Math.floor(Math.min(max, Math.max(0, num(v) ?? 0)));
 
+/** Идущая стройка описи: тип — строка до 32 знаков, уровень — целый 2..100, работа — неотрицательная. */
+function readSite(v: unknown): Pick<WatchCard, 'site'> {
+  if (!v || typeof v !== 'object') return {};
+  const r = v as Record<string, unknown>;
+  const type = str(r.type, 32);
+  const level = num(r.level);
+  const done = num(r.done);
+  if (!type || level === null || !Number.isInteger(level) || level < 2 || level > 100 || done === null || done < 0) return {};
+  return { site: { type, level, done: Math.min(done, 1e12) } };
+}
+
 /** Опись наблюдения из того, что прислали: новый объект; нет её — `undefined`. */
 export function readWatch(v: unknown): WatchCard | undefined {
   if (!v || typeof v !== 'object') return undefined;
@@ -1248,6 +1274,8 @@ export function readWatch(v: unknown): WatchCard | undefined {
     caravans: whole(r.caravans, 1e6),
     wounded: whole(r.wounded, 1e9),
     ...(r.hurt && typeof r.hurt === 'object' ? { hurt: readCounts(r.hurt) } : {}),
+    ...(r.bonded !== undefined ? { bonded: whole(r.bonded, 1e9) } : {}),
+    ...readSite(r.site),
     train: whole(r.train, 1e9),
     deeds: whole(r.deeds, 1e12),
     won: whole(r.won, 1e9),
@@ -1371,6 +1399,53 @@ export interface RatingResponse {
 /** Очки по слагаемым — одна формула на сервер и на подсказку экрана. */
 export const ratingPoints = (power: number, won: number, taken: number): number =>
   Math.round(power * RATING_WEIGHTS.power + won * RATING_WEIGHTS.win + taken * RATING_WEIGHTS.taken);
+
+// ------------------------------------------------ вести края (docs/feed.md) ---
+//
+// Лента событий региона. Пишет её сервер: каждая запись выводится из того, что он сам хранит, — записи войн (бои,
+// осады, падения, дела лазутчиков), реестра замков (новый сосед) и памяти первых мест рейтинга. Клиент записей не
+// присылает: тела у запроса нет. Тайное остаётся тайным: имя хозяина лазутчика — только у пойманного (docs/spy_pvp.md).
+
+/**
+ * Что случилось: город взят (`fell`), осада началась (`siege`), осада снята (`lifted`), штурм с ходу отбит
+ * (`repelled`), тайное дело удалось (`spy`), лазутчик пойман (`caught`), новый сосед (`settled`), первое место рейтинга
+ * сменилось (`leader`).
+ */
+export const FEED_KINDS = ['fell', 'siege', 'lifted', 'repelled', 'spy', 'caught', 'settled', 'leader'] as const;
+export type FeedKind = (typeof FEED_KINDS)[number];
+
+/** Запись ленты. Ключей игроков нет — только имена городов и правителей, как у рейтинга. */
+export interface FeedItem {
+  /** Номер записи — из того, что её породило (`fell:<война>`), один и тот же при каждом чтении. */
+  id: string;
+  kind: FeedKind;
+  /** Когда, по серверным часам. */
+  at: number;
+  /** Где — касание записи ведёт сюда на карте. */
+  x: number;
+  y: number;
+  /** Город, с которым это случилось: осаждённый, взятый, новый, первый. */
+  city: string;
+  /** Другая сторона: город и правитель нападавшего или хозяина пойманного лазутчика. Нет — тайна или её нет. */
+  byCity?: string;
+  byRuler?: string;
+  /** Правитель города `city` — у нового соседа и первого места. */
+  ruler?: string;
+  /**
+   * Подробность: как взят (`storm`, `hunger`), как снята осада (`retreat`, `lifted`, `beaten`), какое дело удалось
+   * (`fire`, `theft`, `unrest`), что с пойманным (`held`, `dead`).
+   */
+  how?: string;
+  /** Сколько стояла осада, мс — у взятого голодом или осадой. */
+  siegeMs?: number;
+  /** Запись про свой город спросившего. */
+  mine?: true;
+}
+
+export interface FeedResponse {
+  now: number;
+  items: FeedItem[];
+}
 
 // ------------------------------------------------ алмазы (docs/gems.md) ---
 
@@ -1513,4 +1588,118 @@ export function readGemList(v: unknown): GemEntry[] {
     .filter((e): e is GemEntry => e !== null)
     .sort((a, b) => a.n - b.n)
     .slice(-GEM_LIMITS.view);
+}
+
+// ------------------------------------------------ оплата наборов (docs/payments.md) ---
+
+/**
+ * Жизнь заказа: создан (номер и сумма выданы) → ждёт перевода (кошелёк подписал) → оплачен (сервер нашёл перевод в сети)
+ * → начислено (алмазы легли через `creditGems`). Не нашли перевода в срок — истёк; поздний перевод с тем же номером
+ * сервер ещё неделю ищет и начисляет (`lib/pay.ts`, `PAY_LATE_MS`).
+ */
+export const PAY_STATES = ['created', 'waiting', 'paid', 'credited', 'expired'] as const;
+export type PayState = (typeof PAY_STATES)[number];
+
+/** Заказ глазами игрока. */
+export interface PayOrderView {
+  /** Номер заказа; в комментарии перевода — `TRIBE-<номер>`. */
+  id: string;
+  /** Набор (`data/gems.GEM_PACKS`). */
+  pack: string;
+  gems: number;
+  usdt: number;
+  at: number;
+  /** До какой минуты ждём перевода. */
+  until: number;
+  state: PayState;
+  /** Что не так с переводом, словами (сумма не та). */
+  note?: string;
+}
+
+/** Сообщение кошельку через TON Connect (`sendTransaction`). */
+export interface PayTx {
+  /** Секунды Unix: до какого времени кошелёк может подписать. */
+  validUntil: number;
+  /** Сеть TON Connect: `-3` тестовая, `-239` основная. */
+  network: string;
+  messages: { address: string; amount: string; payload: string }[];
+}
+
+/** Ответ `/api/pay`. */
+export interface PayResponse {
+  now: number;
+  /** Оплата настроена на сервере. */
+  on: boolean;
+  net?: 'testnet' | 'mainnet';
+  /** Последние заказы игрока, свежие в конце. */
+  orders: PayOrderView[];
+  /** На новый заказ: что подписать кошельком. */
+  tx?: PayTx;
+  order?: PayOrderView;
+  /** Сколько алмазов легло этой проверкой. */
+  credited?: number;
+  error?: string;
+}
+
+/** Запрос `/api/pay`: новый заказ (набор, адрес и сеть кошелька) или «кошелёк подписал». */
+export type PayRequest = { op: 'order'; pack: string; wallet: string; chain: string } | { op: 'sent'; id: string };
+
+/** Номер заказа: десять знаков без похожих (0/O, 1/I). */
+export const PAY_ID = /^[A-HJ-NP-Z2-9]{10}$/;
+/** Комментарий перевода по номеру заказа. */
+export const payComment = (id: string): string => `TRIBE-${id}`;
+
+export function readPayRequest(v: unknown): PayRequest | null {
+  if (!v || typeof v !== 'object') return null;
+  const r = v as Record<string, unknown>;
+  if (r.op === 'order') {
+    const pack = str(r.pack, 16);
+    const wallet = str(r.wallet, 80);
+    const chain = str(r.chain, 8);
+    return pack && wallet && chain ? { op: 'order', pack, wallet, chain } : null;
+  }
+  if (r.op === 'sent') return typeof r.id === 'string' && PAY_ID.test(r.id) ? { op: 'sent', id: r.id } : null;
+  return null;
+}
+
+/** Заказ из ответа или хранилища: новый объект; кривой — `null`. */
+export function readPayOrder(v: unknown): PayOrderView | null {
+  if (!v || typeof v !== 'object') return null;
+  const r = v as Record<string, unknown>;
+  const at = num(r.at);
+  const until = num(r.until);
+  const gems = num(r.gems);
+  const usdt = num(r.usdt);
+  const pack = str(r.pack, 16);
+  if (typeof r.id !== 'string' || !PAY_ID.test(r.id) || !pack || at === null || until === null || gems === null || usdt === null) return null;
+  if (typeof r.state !== 'string' || !(PAY_STATES as readonly string[]).includes(r.state)) return null;
+  const out: PayOrderView = { id: r.id, pack, gems, usdt, at, until, state: r.state as PayState };
+  const note = str(r.note, 200);
+  if (note) out.note = note;
+  return out;
+}
+
+/** Ответ `/api/pay`: заказы — только целые. */
+export function readPayResponse(v: unknown): PayResponse | null {
+  if (!v || typeof v !== 'object') return null;
+  const r = v as Record<string, unknown>;
+  const now = num(r.now);
+  if (now === null) return null;
+  const orders = Array.isArray(r.orders) ? r.orders.map(readPayOrder).filter((o): o is PayOrderView => o !== null) : [];
+  const out: PayResponse = { now, on: r.on === true, orders };
+  if (r.net === 'testnet' || r.net === 'mainnet') out.net = r.net;
+  const order = readPayOrder(r.order);
+  if (order) out.order = order;
+  const credited = num(r.credited);
+  if (credited !== null && credited > 0) out.credited = credited;
+  if (typeof r.error === 'string') out.error = r.error.slice(0, 300);
+  const tx = r.tx as Record<string, unknown> | undefined;
+  if (tx && typeof tx.validUntil === 'number' && typeof tx.network === 'string' && Array.isArray(tx.messages)) {
+    const messages = tx.messages.flatMap((m) => {
+      const x = m as Record<string, unknown>;
+      return typeof x?.address === 'string' && typeof x.amount === 'string' && typeof x.payload === 'string' ? [{ address: x.address, amount: x.amount, payload: x.payload }] : [];
+    });
+    if (messages.length) out.tx = { validUntil: tx.validUntil, network: tx.network, messages };
+  }
+  return out;
 }

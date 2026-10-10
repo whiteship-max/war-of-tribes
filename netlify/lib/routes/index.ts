@@ -8,8 +8,10 @@
 import type { Route } from '../http.js';
 import { bot } from './bot.js';
 import { castles } from './castles.js';
+import { feed } from './feed.js';
 import { gems } from './gems.js';
 import { notify } from './notify.js';
+import { pay } from './pay.js';
 import { rating } from './rating.js';
 import { report } from './report.js';
 import { save } from './save.js';
@@ -26,4 +28,6 @@ export const ROUTES: Readonly<Record<string, Route>> = {
   '/api/report': report,
   '/api/rating': rating,
   '/api/gems': gems,
+  '/api/pay': pay,
+  '/api/feed': feed,
 };

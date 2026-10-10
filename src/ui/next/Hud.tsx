@@ -144,7 +144,7 @@ export function Hud() {
           <Icon name="hud-army" glyph="⚔️" />
           <b>{shortNum(armySize(s))}</b>
         </button>
-        <button className={`nx-stat nx-energy${energy < MINIGAME_COST ? ' low' : ''}`} onClick={tip(() => energyTip(s, energyNow(), showTrades))} aria-label="Энергия">
+        <button className={`nx-stat nx-hen${energy < MINIGAME_COST ? ' low' : ''}`} onClick={tip(() => energyTip(s, energyNow(), showTrades))} aria-label="Энергия">
           <Icon name="ui-energy" glyph="✋" />
           <b>{energy}</b>
         </button>

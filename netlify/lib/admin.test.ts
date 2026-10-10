@@ -406,8 +406,9 @@ describe('флаги выводятся из правил игры', () => {
     const first = await saveCall(s, 'PUT', { baseEtag: null, record: record(card()) }, NOW, 7003);
     await saveCall(s, 'PUT', { baseEtag: first.body.etag, record: record(card({ time: 1002, stock: { wood: 99_000, gold: 10 } })) }, NOW + MIN, 7003);
     const rec = readWatchRecord(s.json(STORES.watch, 'tg-7003'));
-    // Десять копейщиков с первой же записи сервер обученными не видел — это и книга войска (docs/pvp.md, раздел 6).
-    expect(rec.flags.map((f) => f.kind)).toEqual(['forged', 'cap', 'stock']);
+    // Десять копейщиков с первой же записи сервер обученными не видел — это и книга войска (docs/pvp.md, раздел 6); пятьдесят
+    // жителей с первой записи — сверх посёлка новой партии (тридцать) и толп вестей — книга жителей (раздел 7).
+    expect(rec.flags.map((f) => f.kind)).toEqual(['forged', 'people', 'cap', 'stock']);
     expect(rec.user).toBe('ivan_99');
     expect(rec.writes).toBe(2);
     expect(rec.played).toBe(MIN);

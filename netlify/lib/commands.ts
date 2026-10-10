@@ -40,6 +40,8 @@ import { TROOPS } from '../../src/game/data/troops.js';
 import { BUILDING_BY_ID } from '../../src/game/data/buildings.js';
 import { SHOP_DAILY, gemLine } from '../../src/game/gemrules.js';
 import { peekGems, shopToday } from './gems.js';
+import { peekPayments } from './pay.js';
+import { payConfig } from './ton.js';
 
 /** Команд в минуту от одного админа — больше живой человек не набирает. */
 const PER_MINUTE = 30;
@@ -76,6 +78,7 @@ export const HELP = [
   '/unfreeze <кто> — разморозить.',
   '/frozen — кто заморожен.',
   '/gems <кто> — алмазы игрока: баланс, лавка за сегодня и журнал операций. Начислять алмазы команда не умеет.',
+  '/payments — последние заказы алмазов за USDT и их статус. Только чтение.',
   '/log [сколько] — журнал админа.',
   '/stats — таблица по всем игрокам файлом CSV (Excel, Google Таблицы).',
   '/flags — подозрительные игроки.',
@@ -294,6 +297,34 @@ async function gemsOf(io: Io, q: string): Promise<Reply> {
   return say(lines.join('\n'));
 }
 
+/** Сколько заказов показывает `/payments`. */
+export const PAYMENTS_LINES = 20;
+
+/** Статус заказа словами — для админа. */
+export const PAY_WORD: Record<string, string> = {
+  created: 'создан',
+  waiting: 'ждёт перевода',
+  paid: 'оплачен, начисляется',
+  credited: 'начислено',
+  expired: 'истёк',
+};
+
+/**
+ * `/payments` — последние заказы алмазов за USDT (docs/payments.md): кто, набор, сумма, статус, причина. Только чтение
+ * (`peekPayments`): начислить или поменять статус команда не может — начисляет только перевод, найденный в сети.
+ */
+async function payments(io: Io): Promise<Reply> {
+  const cfg = payConfig();
+  const head = typeof cfg === 'string' ? `Оплата выключена: ${cfg}` : `Оплата: сеть ${cfg.net}, кошелёк ${cfg.wallet.toString({ testOnly: cfg.net === 'testnet' })}`;
+  const rows = await peekPayments(io.stores, PAYMENTS_LINES);
+  if (!rows.length) return say(`${head}\nЗаказов нет.`);
+  const lines = [head, '', `Последние ${rows.length}:`];
+  for (const { player: who, order: o } of rows) {
+    lines.push(`${when(o.at)} ${who} · ${o.id} · ${o.gems} за ${o.usdt} USDT · ${PAY_WORD[o.state] ?? o.state}${o.tx ? ` · tx ${o.tx.slice(0, 12)}…` : ''}${o.note ? ` · ${o.note}` : ''}`);
+  }
+  return say(lines.join('\n'));
+}
+
 async function player(io: Io, q: string): Promise<Reply> {
   if (!q) return say('Кого? /player 123456789');
   const f = await one(io, q);
@@ -425,6 +456,7 @@ export function statsCsv(rows: Found[], frozen: FrozenFile): string {
     'город',
     'правитель',
     'пришёл',
+    'пригласил',
     'последний запрос',
     'заходов',
     'минут в игре',
@@ -462,6 +494,7 @@ export function statsCsv(rows: Found[], frozen: FrozenFile): string {
       cityName(c?.city) ?? '',
       rec.name,
       when(rec.first),
+      rec.ref ? rec.ref.slice(3) : '',
       when(rec.last),
       rec.visits,
       Math.round(rec.played / 60_000),
@@ -505,7 +538,7 @@ async function stats(io: Io, now: number): Promise<Reply> {
     file: {
       name: `tribe-stats-${day}.csv`,
       content: statsCsv(rows, frozen),
-      caption: `Игроков: ${rows.length}, с флагами: ${rows.filter((r) => r.rec.flags.length).length}, заморожено: ${Object.keys(frozen.keys).length}. Разделитель — точка с запятой.`,
+      caption: `Игроков: ${rows.length}, по приглашению: ${rows.filter((r) => r.rec.ref).length}, с флагами: ${rows.filter((r) => r.rec.flags.length).length}, заморожено: ${Object.keys(frozen.keys).length}. Разделитель — точка с запятой.`,
     },
   };
 }
@@ -672,6 +705,9 @@ export async function adminCommand(update: Record<string, unknown>, io: Io, tg: 
       break;
     case '/gems':
       reply = await gemsOf(io, rest);
+      break;
+    case '/payments':
+      reply = await payments(io);
       break;
     case '/log':
       reply = await adminLog(io, rest);

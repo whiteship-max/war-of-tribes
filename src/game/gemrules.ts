@@ -11,7 +11,7 @@ import type { BuildingTypeId, ResourceId } from './types';
 import { BUILDING_BY_ID } from './data/buildings';
 import { YARDS } from './data/yards';
 import { MAX_BUILDING_LEVEL, SLOTS_PER_LEVEL } from './constants';
-import { gameDaysPerHour, gameRate, realSec, realSeconds } from './pace';
+import { gameDaysPerHour, gameRate, gameSeconds, realSec, realSeconds } from './pace';
 import { upgradeWork } from './labour';
 import { DAY_MS } from './time';
 import { dayIndex } from './data/daily';
@@ -60,6 +60,12 @@ export function gemsForWait(seconds: number): number {
 
 /** Настоящие секунды нормативного ожидания на эту работу стройки. */
 export const rushSeconds = (work: number): number => realSeconds(Math.max(0, work) / GEM_REF_RATE);
+
+/**
+ * Сколько работы стройки укладывается в последние пять минут нормативного ожидания — их ускоряют даром, без приказа
+ * (`sim/gems.rushFree`). Книга стройки сервера засчитывает их каждому уровню сама: сервер этой достройки не видит.
+ */
+export const rushFreeWork = (): number => gameSeconds(RUSH_FREE_SECONDS) * GEM_REF_RATE;
 
 /** Цена ускорения остатка работы `work`: последние пять минут даром, остальное — по кривой. Ноль — ускорение даром. */
 export const rushPriceOfWork = (work: number): number => gemsForWait(rushSeconds(work) - RUSH_FREE_SECONDS);

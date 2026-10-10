@@ -6,7 +6,7 @@ import { STORES, type Kv, type Stores } from './kv.js';
 import { ROSTER_KEY, castleIdOf, emptyRoster, upsert } from './roster.js';
 import { emptyWars, liveSheet, WARS_KEY, type WarFile, type WarRow } from './war.js';
 import { readWatchRecord } from './watch.js';
-import { BOOK_SLACK, LEVEL_STEP_MS, PIPS_MAX, RESOLVE_MAX, bookAfter, bookLive, deadOf, levelAt, seedBook, workAllowed, type ArmyBook } from './book.js';
+import { BOOK_SLACK, PIPS_MAX, RESOLVE_MAX, bookAfter, bookLive, deadOf, levelAt, seedBook, workAllowed, type ArmyBook } from './book.js';
 import { type CastleClaim, type Counts, type WarResponse, type WarSheet, type WatchCard } from './contract.js';
 import { INFIRMARY_HEAL_CAP } from '../../src/game/constants.js';
 import { TROOP_BY_ID } from '../../src/game/data/troops.js';
@@ -43,12 +43,12 @@ describe('книга войска: подтверждает только объ�
     const level = 2;
     const offline = spearsIn(level, 8 * HOUR);
     expect(offline).toBeGreaterThan(10);
-    const after = bookAfter(seedBook(T0), T0 + 8 * HOUR, { troops: { spearman: offline }, buildings: { barracks: level } }, [], null, A);
+    const after = bookAfter(seedBook(T0), T0 + 8 * HOUR, { troops: { spearman: offline }, buildings: { barracks: level } }, [], null, A, [], { barracks: level });
     expect(after.book.bodies).toEqual({ spearman: offline });
     expect(after.forged).toBe(0);
 
     // Запись раз в минуту: голова выходит из казарм целиком, а дробь работы ждёт в копилке.
-    let book: ArmyBook = { ...seedBook(T0 - 10 * LEVEL_STEP_MS), at: T0 };
+    let book: ArmyBook = { ...seedBook(T0 - HOUR), at: T0 };
     let forged = 0;
     let work = 0;
     let heads = 0;
@@ -58,7 +58,7 @@ describe('книга войска: подтверждает только объ�
         work -= spearWork;
         heads += 1;
       }
-      const step = bookAfter(book, t, { troops: { spearman: heads }, buildings: { barracks: level } }, [], null, A);
+      const step = bookAfter(book, t, { troops: { spearman: heads }, buildings: { barracks: level } }, [], null, A, [], { barracks: level });
       book = step.book;
       forged += step.forged;
     }
@@ -67,14 +67,15 @@ describe('книга войска: подтверждает только объ�
     expect(forged).toBe(0);
   });
 
-  it('подделка растёт не быстрее казарм: за промежуток — не больше, чем выучили бы казармы заявленного уровня с запасом', () => {
-    // Уровень заявлен высокий, но время на сервере даёт не больше: уровень за `LEVEL_STEP_MS`.
-    const span = 4 * LEVEL_STEP_MS;
+  it('подделка растёт не быстрее казарм: за промежуток — не больше, чем выучили бы казармы подтверждённого уровня с запасом', () => {
+    // Уровень заявлен высокий, но книга стройки подтверждает ниже — казармы учат по подтверждённому (`town.buildStep`).
+    const span = 40 * MIN;
     const prev = { ...seedBook(T0), at: T0 + span };
-    expect(levelAt(prev, 'barracks', 10, T0)).toBe(1);
-    const level = levelAt(prev, 'barracks', 10, T0 + 2 * span);
-    expect(level).toBe(9);
-    const step = bookAfter(prev, T0 + 2 * span, { troops: { spearman: 10_000 }, buildings: { barracks: 10 } }, [], null, A);
+    expect(levelAt('barracks', 10, 1)).toBe(1);
+    const level = levelAt('barracks', 10, 3);
+    expect(level).toBe(3);
+    expect(levelAt('barracks', 2, 3), 'заявлено ниже подтверждённого — по заявленному').toBe(2);
+    const step = bookAfter(prev, T0 + 2 * span, { troops: { spearman: 10_000 }, buildings: { barracks: 10 } }, [], null, A, [], { barracks: 3 });
     const cap = Math.floor((trainRateAt(false, level) * gameSecondsOfMs(span) * BOOK_SLACK) / spearWork);
     expect(step.book.bodies.spearman).toBeLessThanOrEqual(cap);
     expect(step.book.bodies.spearman).toBeGreaterThan(0);
@@ -82,10 +83,10 @@ describe('книга войска: подтверждает только объ�
   });
 
   it('копилка не копит пустое время: после суток простоя — не больше одной головы самого долгого вида сверх обучения', () => {
-    const idle = bookAfter({ ...seedBook(T0), at: T0 }, T0 + 24 * HOUR, { troops: {}, buildings: { barracks: 1 } }, [], null, A).book;
+    const idle = bookAfter({ ...seedBook(T0), at: T0 }, T0 + 24 * HOUR, { troops: {}, buildings: { barracks: 1 } }, [], null, A, [], { barracks: 1 }).book;
     expect(idle.credit.barracks).toBeLessThanOrEqual(Math.max(...Object.values(TROOP_BY_ID).filter((t) => !t.mounted).map((t) => t.work)));
-    const dump = bookAfter(idle, T0 + 24 * HOUR + MIN, { troops: { clubman: 1000 }, buildings: { barracks: 1 } }, [], null, A);
-    expect(dump.book.bodies.clubman ?? 0).toBeLessThanOrEqual(Math.ceil((idle.credit.barracks + workAllowed({ ...idle, credit: {} }, 'barracks', 1, T0 + 24 * HOUR + MIN)) / TROOP_BY_ID.clubman.work));
+    const dump = bookAfter(idle, T0 + 24 * HOUR + MIN, { troops: { clubman: 1000 }, buildings: { barracks: 1 } }, [], null, A, [], { barracks: 1 });
+    expect(dump.book.bodies.clubman ?? 0).toBeLessThanOrEqual(Math.ceil((idle.credit.barracks + workAllowed({ ...idle, credit: {} }, 'barracks', 1, T0 + 24 * HOUR + MIN, 1)) / TROOP_BY_ID.clubman.work));
     expect(dump.book.bodies.clubman ?? 0).toBeLessThan(10);
   });
 

@@ -32,7 +32,15 @@ export interface TgIdentity {
    * по имени (docs/admin.md). Нет имени или оно не похоже на имя Telegram — поля нет.
    */
   username?: string;
+  /**
+   * Параметр ссылки запуска (`start_param` под подписью: `t.me/<бот>/<аппка>?startapp=<код>`). Нужен только статистике
+   * админа — кто кого привёл (`watch.invitedBy`, docs/feed.md, раздел 3). Нет или не похоже на код — поля нет.
+   */
+  start?: string;
 }
+
+/** Параметр ссылки запуска: Telegram пускает до 64 знаков латиницы, цифр, подчёркивания и дефиса. */
+const START = /^[A-Za-z0-9_-]{1,64}$/;
 
 /** Имя пользователя Telegram: 4–32 знака, латиница, цифры и подчёркивание. */
 const USERNAME = /^[A-Za-z0-9_]{4,32}$/;
@@ -149,6 +157,7 @@ export function readInitData(raw: string | null | undefined, botToken: string, n
     return { ok: false, why: 'malformed' };
   }
   if (typeof id !== 'number' || !Number.isSafeInteger(id) || id <= 0) return { ok: false, why: 'malformed' };
+  const start = pairs.find(([k]) => k === 'start_param')?.[1];
 
   return {
     ok: true,
@@ -157,6 +166,7 @@ export function readInitData(raw: string | null | undefined, botToken: string, n
       authDate,
       ...(allows === true ? { allowsWrite: true as const } : {}),
       ...(typeof username === 'string' && USERNAME.test(username) ? { username } : {}),
+      ...(typeof start === 'string' && START.test(start) ? { start } : {}),
     },
   };
 }

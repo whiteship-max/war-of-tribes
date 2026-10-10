@@ -80,6 +80,9 @@ export async function launchChrome(port: number, args: string[] = []): Promise<C
       '--no-first-run',
       '--no-default-browser-check',
       '--disable-extensions',
+      // Под root (облачный контейнер) Chrome без песочницы не стартует вовсе: отчёт `tap` падал «не открыл отладочный
+      // порт», хотя стенды, передававшие флаг сами, шли.
+      ...(process.getuid?.() === 0 && !args.includes('--no-sandbox') ? ['--no-sandbox'] : []),
       ...args,
       'about:blank',
     ],

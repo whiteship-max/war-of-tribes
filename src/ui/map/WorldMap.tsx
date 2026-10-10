@@ -66,6 +66,7 @@ import { bakeAgent } from './agent';
 import { dropFigures } from './figures';
 import { ActionMenu } from './ActionMenu';
 import { Rating } from './Rating';
+import { Feed, useFeed } from './Feed';
 import { cameraBox, changedBesides, restAfter } from './still';
 import { inTelegram } from '@/telegram/webapp';
 import { Gesture, WHEEL_STEP, swallowGhostClick, type Press } from '@/gestures';
@@ -254,6 +255,9 @@ export function WorldMap() {
   const [jumpText, setJumpText] = useState('');
   const [legendOpen, setLegendOpen] = useState(false);
   const [ratingOpen, setRatingOpen] = useState(false);
+  const [feedOpen, setFeedOpen] = useState(false);
+  // Вести края (docs/feed.md): лента спрашивается, пока карта открыта, — точке новых на кнопке нужна и закрытой.
+  const feed = useFeed(inTelegram());
   const [zoomedIn, setZoomedIn] = useState(modeFor(SCALE_START) === 'detail');
 
   const info = useWorld((g) => g.info);
@@ -822,12 +826,27 @@ export function WorldMap() {
             </button>
           )}
           {CHEATS_ON && <SpeedButton className="nx-mbtn" />}
-          {/* Рейтинг игроков (docs/rating.md): вне Telegram сервера нет — и кнопки нет. */}
+          {/* Вести края и рейтинг игроков (docs/feed.md, docs/rating.md): вне Telegram сервера нет — и кнопок нет. */}
+          {inTelegram() && (
+            <button
+              className={`nx-mbtn nx-mfeed${feedOpen ? ' on' : ''}`}
+              onClick={() => {
+                setLegendOpen(false);
+                setRatingOpen(false);
+                setFeedOpen((v) => !v);
+              }}
+              aria-label="Вести края"
+            >
+              <Icon name="ui-scroll" glyph="📜" />
+              {feed.unseen && !feedOpen && <em className="nx-dot" />}
+            </button>
+          )}
           {inTelegram() && (
             <button
               className={`nx-mbtn nx-mrate${ratingOpen ? ' on' : ''}`}
               onClick={() => {
                 setLegendOpen(false);
+                setFeedOpen(false);
                 setRatingOpen((v) => !v);
               }}
               aria-label="Рейтинг"
@@ -876,6 +895,7 @@ export function WorldMap() {
         )}
 
       {ratingOpen && <Rating onClose={() => setRatingOpen(false)} />}
+      {feedOpen && <Feed feed={feed} onClose={() => setFeedOpen(false)} />}
 
       {legendOpen && (
         <div className="wm-legend">
@@ -1002,6 +1022,7 @@ export function WorldMap() {
             className={legendOpen ? 'on' : ''}
             onClick={() => {
               setRatingOpen(false);
+              setFeedOpen(false);
               setLegendOpen((v) => !v);
             }}
           >

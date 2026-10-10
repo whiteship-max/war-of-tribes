@@ -5,7 +5,7 @@
 // картинку или оставить эмодзи. Накладная — то, что игра ждёт, — лежит рядом,
 // в registry.ts, и собирается из данных игры.
 //
-// Лист: 205 символов, 74.3 КБ на диске, 14.7 КБ по сети.
+// Лист: 223 символов, 84.1 КБ на диске, 16.8 КБ по сети.
 
 export const ICON_SHEET = '/assets/icons/sprite.svg';
 
@@ -73,12 +73,29 @@ export const DRAWN_ICONS: readonly string[] = [
   'dip-peace',
   'dip-war',
   'evt-berries',
+  'evt-deserters',
+  'evt-deserters_flee',
+  'evt-fair',
   'evt-festival',
+  'evt-feud',
   'evt-fire',
+  'evt-free_company',
   'evt-good_hunt',
+  'evt-hard_winter',
+  'evt-harvest_feast',
+  'evt-mercenaries',
+  'evt-merchant_due',
+  'evt-merchant_loan',
+  'evt-mine_collapse',
+  'evt-mine_find',
+  'evt-noble_dispute',
+  'evt-pilgrims',
+  'evt-pilgrims_gift',
   'evt-raiders',
   'evt-refugees',
   'evt-sickness',
+  'evt-silt',
+  'evt-spring_flood',
   'evt-storm',
   'evt-trade',
   'evt-wanderers',
@@ -207,6 +224,7 @@ export const DRAWN_ICONS: readonly string[] = [
   'ui-pouch',
   'ui-ruler',
   'ui-scroll',
+  'ui-share',
   'ui-site',
   'ui-spyglass',
   'ui-star',
