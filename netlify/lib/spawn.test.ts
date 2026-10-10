@@ -10,7 +10,7 @@ import { spawnMode } from './http.js';
 import type { CastleClaim, RosterFile, RosterResponse } from './contract.js';
 import { SETTLE_GAP } from '../../src/world/data/tuning.js';
 import { fitToSettle, placeCastle, settleRandom } from '../../src/world/settle.js';
-import { SICILY, inSicilyTheatre, sicilySlot } from '../../src/world/spawn.js';
+import { SICILY, SICILY_COUNT, inSicilyTheatre, sicilySlot } from '../../src/world/spawn.js';
 import { theatreAt } from '../../src/world/theatre/theatre.js';
 import { TEST_TOKEN, signInit, sqliteHome, type Home } from '../vps/testkit.js';
 
@@ -29,13 +29,13 @@ function seated(n: number, from = 0): RosterFile {
 const cells = (file: RosterFile): string[] => Object.values(file.rows).map((r) => `${r.x}|${r.y}`);
 
 describe('места острова: выдача', () => {
-  it('двенадцать вошедших — двенадцать разных мест острова, по порядку списка', () => {
-    const file = seated(12);
+  it('двадцать пять вошедших — двадцать пять разных мест острова, по порядку списка', () => {
+    const file = seated(SICILY_COUNT);
     const got = Object.keys(file.rows)
       .sort()
       .map((k) => file.rows[k]);
-    expect(got.map((r) => sicilySlot(r))).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
-    expect(new Set(cells(file)).size).toBe(12);
+    expect(got.map((r) => sicilySlot(r))).toEqual(SICILY.map((_, i) => i + 1));
+    expect(new Set(cells(file)).size).toBe(SICILY_COUNT);
   });
 
   it('стоящий замок не переезжает: повторная запись того же игрока места не меняет и чужого не берёт', () => {
@@ -57,7 +57,7 @@ describe('места острова: выдача', () => {
   });
 
   it('мест нет — свободная клетка в регионе острова по обычным правилам расселения', () => {
-    let file = seated(12);
+    let file = seated(SICILY_COUNT);
     for (let i = 0; i < 4; i++) {
       const key = `tg-${700 + i}`;
       file = upsert(file, key, claim(`Сверх ${i}`), NOW, 'sicily');
@@ -151,9 +151,9 @@ describe('места острова: двое разом не займут од�
     expect(new Set(cells(file)).size).toBe(2);
   });
 
-  it('двенадцать вошли одновременно — двенадцать разных мест острова', async () => {
+  it('двадцать пять вошли одновременно — двадцать пять разных мест острова', async () => {
     home = sqliteHome();
-    const users = Array.from({ length: 12 }, (_, i) => 4100 + i);
+    const users = Array.from({ length: SICILY_COUNT }, (_, i) => 4100 + i);
     // Все разом; кто проиграл все попытки записи (429), входит снова — так делает игра.
     let left = users;
     for (let round = 0; round < 20 && left.length > 0; round++) {
@@ -162,8 +162,8 @@ describe('места острова: двое разом не займут од�
     }
     expect(left).toEqual([]);
     const file = await roster(home.stores);
-    expect(Object.keys(file.rows).length).toBe(12);
-    expect(new Set(cells(file)).size).toBe(12);
+    expect(Object.keys(file.rows).length).toBe(SICILY_COUNT);
+    expect(new Set(cells(file)).size).toBe(SICILY_COUNT);
     expect(Object.values(file.rows).every((r) => sicilySlot(r) > 0)).toBe(true);
     expect(new Set(Object.values(file.rows).map((r) => sicilySlot(r)))).toEqual(new Set(SICILY.map((_, i) => i + 1)));
   });

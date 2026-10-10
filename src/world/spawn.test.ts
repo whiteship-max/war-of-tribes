@@ -1,9 +1,9 @@
-// Места появления на Сицилии (docs/test_world.md): двенадцать мест — данные, выведенные из атласа; все на суше острова,
+// Места появления на Сицилии (docs/test_world.md): двадцать пять мест — данные, выведенные из атласа; все на суше острова,
 // все в одном регионе, одной кучкой узлов шестиугольной решётки — равномерно, ближе прежних 8–10 клеток и так, что из
 // любого места кольцо обзора острова видит все остальные.
 import { describe, expect, it } from 'vitest';
 import { landmasses, settleable } from './land';
-import { HOME_SIGHT, LAIR_HOME_GAP, SETTLE_GAP } from './data/tuning';
+import { HOME_SIGHT, SETTLE_GAP } from './data/tuning';
 import { theatreAt } from './theatre/theatre';
 import { homeSight } from './sight';
 import {
@@ -53,7 +53,7 @@ describe('места появления: Сицилия', () => {
     expect([...ids]).toEqual([SICILY_THEATRE]);
   });
 
-  it('двенадцать мест: разные, на суше острова, годные под город, в регионе острова', () => {
+  it('двадцать пять мест: разные, на суше острова, годные под город, в регионе острова', () => {
     expect(SICILY.length).toBe(SICILY_COUNT);
     const land = new Set(sicilyLand().map((p) => `${p.x}|${p.y}`));
     const keys = new Set(SICILY.map((s) => `${s.x}|${s.y}`));
@@ -76,26 +76,37 @@ describe('места появления: Сицилия', () => {
     // Ближе прежних мест (8,1–10 клеток по острову), и ослабленная граница — только для этих мест.
     expect(Math.max(...near)).toBeLessThan(8);
     expect(SICILY_STEP).toBeLessThan(SETTLE_GAP);
-    // Шаг — порог дома: сосед стоит там, ближе чего к одиночке не подходит логово.
-    expect(SICILY_STEP).toBe(LAIR_HOME_GAP);
   });
 
-  it('шаг — наибольший, при котором двенадцать встают на годную сушу острова одной кучкой', () => {
+  it('выдача от середины к краю: каждое следующее место не ближе к середине кучки, первые три — соседи', () => {
+    const n = SICILY.length;
+    const cx = SICILY.reduce((v, s) => v + s.x, 0) / n;
+    const cy = SICILY.reduce((v, s) => v + s.y, 0) / n;
+    const far = SICILY.map((s) => Math.hypot(s.x - cx, s.y - cy));
+    for (let i = 1; i < n; i++) expect([i, far[i] >= far[i - 1]]).toEqual([i, true]);
+    // Первые пришедшие — ближе друг к другу, чем кто угодно из последних.
+    const first = SICILY.slice(0, 3);
+    expect(across(first)).toBeLessThanOrEqual(SICILY_STEP);
+    expect(across(first)).toBeLessThan(across(SICILY.slice(-3)));
+  });
+
+  it('шаг — наибольший, при котором двадцать пять встают на годную сушу острова одной кучкой', () => {
     expect(sicilyAt(SICILY_STEP)).not.toBeNull();
     expect(sicilyAt(SICILY_STEP + 1)).toBeNull();
   });
 
-  it('кучка решётки: двенадцать разных узлов, соседи — в шаге или по диагонали, поперечник — три шага', () => {
+  it('кучка решётки: двадцать пять разных узлов, соседи — в шаге или по диагонали, поперечник — около четырёх с половиной шагов', () => {
     const patches = sicilyPatches(SICILY_STEP);
     expect(patches.length).toBe(4);
     for (const patch of patches) {
       expect(new Set(patch.map((p) => `${p.x}|${p.y}`)).size).toBe(SICILY_COUNT);
       for (const d of nearest(patch)) expect(d >= DIAGONAL - 1e-9 && d <= SICILY_STEP).toBe(true);
-      expect(across(patch)).toBe(3 * SICILY_STEP);
+      expect(across(patch)).toBeGreaterThan(4 * SICILY_STEP);
+      expect(across(patch)).toBeLessThan(5 * SICILY_STEP);
     }
   });
 
-  it('одна часть острова: из любого места кольцо обзора острова видит все одиннадцать — и кольцо не больше нужного', () => {
+  it('одна часть острова: из любого места кольцо обзора острова видит все двадцать четыре — и кольцо не больше нужного', () => {
     for (const s of SICILY) {
       const seen = SICILY.filter((t) => t !== s && dist(s, t) <= SICILY_SIGHT);
       expect([s, seen.length]).toEqual([s, SICILY_COUNT - 1]);
@@ -115,7 +126,7 @@ describe('места появления: Сицилия', () => {
     expect(homeSight({ x: 541, y: 822 })).toBe(HOME_SIGHT);
   });
 
-  it('чужие места острова: у места — остальные одиннадцать, не у места — никого', () => {
+  it('чужие места острова: у места — остальные двадцать четыре, не у места — никого', () => {
     for (const s of SICILY) {
       const others = islandNeighbours(s);
       expect(others.length).toBe(SICILY_COUNT - 1);
@@ -126,7 +137,7 @@ describe('места появления: Сицилия', () => {
 
   it('номер места — по порядку списка, не место — 0', () => {
     expect(sicilySlot(SICILY[0])).toBe(1);
-    expect(sicilySlot(SICILY[11])).toBe(12);
+    expect(sicilySlot(SICILY[24])).toBe(25);
     expect(sicilySlot({ x: SICILY[0].x + 1, y: SICILY[0].y })).toBe(0);
   });
 
