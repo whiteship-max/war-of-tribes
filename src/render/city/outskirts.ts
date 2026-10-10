@@ -9,7 +9,7 @@ import { CITY } from './palette';
 import { Builder, box, cone, cylinder, flat, tint, type V3 } from './geom';
 import { Frame, log, pushQuadOut, type Detail } from './kit';
 import { body } from './civic';
-import { heightAt, RACE_LEVEL, type Civic, type Yard } from './layout';
+import { FLOOR_LIFT, footSpan, heightAt, RACE_LEVEL, type Civic, type Yard } from './layout';
 import { rnd } from './noise';
 
 const wood = (k = 1): V3 => tint(CITY.oak, k);
@@ -60,8 +60,26 @@ function fence(b: Builder, fr: Frame, f0: number, r0: number, f1: number, r1: nu
 const hall = (y: Yard, f: number, r: number, rot: number, w: number, d: number): Civic => {
   const fr = new Frame(y.x, y.z, Math.cos(y.rot), Math.sin(y.rot));
   const [x, z] = fr.q(f, r);
-  return { kind: 'stable', x, z, rot, w, d, base: heightAt(x, z), seed: y.seed + Math.round(f * 7 + r * 13) };
+  // Пол — над самой высокой землёй следа: дом двора на склоне не тонет, под ним цоколь (`civic.body`).
+  return { kind: 'stable', x, z, rot, w, d, base: footSpan(x, z, Math.cos(rot), Math.sin(rot), w, d).hi + FLOOR_LIFT, seed: y.seed + Math.round(f * 7 + r * 13) };
 };
+
+/** Дома дворов: (вперёд, вправо, доворот, ширина, глубина) — одни на модели и на тест посадки (`seat.test.ts`). */
+const YARD_HALLS: Record<Yard['kind'], readonly (readonly [number, number, number, number, number])[]> = {
+  gathering: [],
+  sawmill: [[0, 0, 0, 11, 8]],
+  quarry: [[9, -11, 0, 5, 4]],
+  hunter_hut: [[0, 0, 0, 6.5, 5.5]],
+  mine: [[7, -9, 0, 5.5, 4.5]],
+  farm: [
+    [0, -6, 0, 15, 8],
+    [-9, 9, Math.PI / 2, 12, 8.5],
+  ],
+  pen: [],
+};
+
+/** Дома двора — как их ставит `yard`. */
+export const yardHalls = (y: Yard): Civic[] => YARD_HALLS[y.kind].map(([f, r, rot, w, d]) => hall(y, f, r, y.rot + rot, w, d));
 
 /** Стог: цилиндр соломы под конусом. */
 function stack(b: Builder, x: number, z: number, r: number, h: number): void {
@@ -136,7 +154,7 @@ function sawmill(b: Builder, y: Yard, d: Detail): { lights: V3[]; chimneys: V3[]
   const fr = new Frame(y.x, y.z, Math.cos(y.rot), Math.sin(y.rot));
   const W = 11;
   const D = 8;
-  const c = hall(y, 0, 0, y.rot, W, D);
+  const c = yardHalls(y)[0];
   const r = body(
     b,
     c,
@@ -273,7 +291,7 @@ function quarry(b: Builder, y: Yard, d: Detail): V3[] {
   // Сарай каменотёсов — сбоку, у подножия.
   body(
     b,
-    hall(y, 9, -11, y.rot, 5, 4),
+    yardHalls(y)[0],
     {
       storeys: [{ h: 2.6, front: 'groundDoor', side: 'wood' }],
       wallHex: CITY.wallTints[6],
@@ -293,7 +311,7 @@ function flatOn(b: Builder, cx: number, cz: number, fr: Frame, w: number, dd: nu
 /** Охотничий домик: сруб под крутой дранкой, сушило со шкурами, поленница. */
 function hunterHut(b: Builder, y: Yard, d: Detail): { lights: V3[]; chimneys: V3[] } {
   const fr = new Frame(y.x, y.z, Math.cos(y.rot), Math.sin(y.rot));
-  const c = hall(y, 0, 0, y.rot, 6.5, 5.5);
+  const c = yardHalls(y)[0];
   const r = body(
     b,
     c,
@@ -378,7 +396,7 @@ function mine(b: Builder, y: Yard, d: Detail): V3[] {
   // Хижина горняков.
   body(
     b,
-    hall(y, 7, -9, y.rot, 5.5, 4.5),
+    yardHalls(y)[0],
     {
       storeys: [{ h: 2.7, front: 'groundDoor', side: 'wood' }],
       wallHex: CITY.wallTints[6],
@@ -392,7 +410,7 @@ function mine(b: Builder, y: Yard, d: Detail): V3[] {
 /** Хутор: длинный дом и амбар под высокими кровлями, двор в изгороди, стога и телега. */
 function farm(b: Builder, y: Yard, d: Detail): { lights: V3[]; chimneys: V3[] } {
   const fr = new Frame(y.x, y.z, Math.cos(y.rot), Math.sin(y.rot));
-  const house = hall(y, 0, -6, y.rot, 15, 8);
+  const house = yardHalls(y)[0];
   const r = body(
     b,
     house,
@@ -411,7 +429,7 @@ function farm(b: Builder, y: Yard, d: Detail): { lights: V3[]; chimneys: V3[] } 
   // Амбар поперёк — дощатый, под тёмной дранкой, ворота к двору.
   body(
     b,
-    hall(y, -9, 9, y.rot + Math.PI / 2, 12, 8.5),
+    yardHalls(y)[1],
     {
       storeys: [{ h: 4.2, front: 'wood', side: 'wood' }],
       wallHex: CITY.wallTints[6],

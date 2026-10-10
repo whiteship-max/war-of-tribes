@@ -249,3 +249,40 @@ export function groundGrid(cells: number, cell: number, center: P, reach: number
   }
   return { positions, normals, index, nx, nz };
 }
+
+/**
+ * Высота нарисованной земли в точке — по треугольникам сетки, а не по `heightAt`: между узлами сетка идёт
+ * прямой, и на редкой сетке вдали она выше или ниже рельефа. По ней тест посадки (`seat.test.ts`) судит,
+ * не утонула ли постройка и не висит ли. Сетка разделима: x узла зависит только от столбца, z — от строки.
+ */
+export function gridHeight(g: GroundGrid, x: number, z: number): number {
+  const p = g.positions;
+  const find = (v: number, n: number, at: (k: number) => number): number => {
+    let lo = 0;
+    let hi = n - 1;
+    if (v <= at(0)) return 0;
+    if (v >= at(n - 1)) return n - 2;
+    while (hi - lo > 1) {
+      const m = (lo + hi) >> 1;
+      if (at(m) <= v) lo = m;
+      else hi = m;
+    }
+    return lo;
+  };
+  const i = find(x, g.nx, (k) => p[k * 3]);
+  const j = find(z, g.nz, (k) => p[k * g.nx * 3 + 2]);
+  const h = (ii: number, jj: number): number => p[(jj * g.nx + ii) * 3 + 1];
+  const x0 = p[i * 3];
+  const x1 = p[(i + 1) * 3];
+  const z0 = p[j * g.nx * 3 + 2];
+  const z1 = p[(j + 1) * g.nx * 3 + 2];
+  const u = Math.min(1, Math.max(0, (x - x0) / (x1 - x0)));
+  const v = Math.min(1, Math.max(0, (z - z0) / (z1 - z0)));
+  // Треугольники (a, c, b) и (b, c, d); диагональ — от (i+1, j) к (i, j+1).
+  const ha = h(i, j);
+  const hb = h(i + 1, j);
+  const hc = h(i, j + 1);
+  const hd = h(i + 1, j + 1);
+  if (u + v <= 1) return ha + u * (hb - ha) + v * (hc - ha);
+  return hd + (1 - u) * (hc - hd) + (1 - v) * (hb - hd);
+}

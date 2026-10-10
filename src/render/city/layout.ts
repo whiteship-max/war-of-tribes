@@ -253,8 +253,12 @@ export interface Tower {
   size: number;
   /** Высота до карниза над подножием. */
   height: number;
-  /** Основание — земля под башней (самая низкая точка следа). */
+  /** Основание — земля под башней (самая низкая точка круга следа); от него — высота. */
   base: number;
+  /** Самая низкая земля под всем следом (квадрат по оси — углы дальше круга) — низ кладки; нет — `base`. */
+  foot?: number;
+  /** Пол проезда надвратной башни — дорога у обоих концов арки и посередине, самая высокая; нет — `base`. */
+  floor?: number;
   seed: number;
 }
 
@@ -293,9 +297,14 @@ export interface House {
   roof: 'tile' | 'slate' | 'shingle';
   pitch: number;
   jetty: number;
-  /** Уровень пола первого этажа (земля у фасада) и самая низкая земля под домом. */
+  /**
+   * Уровень пола первого этажа — не ниже самой высокой земли под домом (`footSpan`): дом на склоне не тонет, а
+   * встаёт на цоколь; самая низкая земля под домом — низ цоколя; земля у фасада — откуда ступени к двери.
+   */
   floor: number;
   low: number;
+  /** Земля у фасада (у домов города): ниже пола — ступени (`kit.houseStoop`). */
+  street?: number;
   wallTint: number;
   roofTint: number;
   seed: number;
@@ -415,8 +424,7 @@ function placeSuburb(road: Street, wall: P[], yards: Yard[], seed: number): Hous
         yards.every((yd) => Math.hypot(cx - yd.x, cz - yd.z) > yd.r + 6);
       if (ok) {
         const fl = heightAt(mid.p.x + nx * (front + 0.5), mid.p.z + nz * (front + 0.5));
-        let low = fl;
-        for (const q of pts) low = Math.min(low, heightAt(q.x, q.z));
+        const span = footSpan(cx, cz, -nx, -nz, w, d);
         out.push({
           x: cx,
           z: cz,
@@ -432,8 +440,9 @@ function placeSuburb(road: Street, wall: P[], yards: Yard[], seed: number): Hous
           roof: r() < 0.45 ? 'tile' : 'shingle',
           pitch: (50 + r() * 12) * (Math.PI / 180),
           jetty: r() < 0.5 ? 0 : 0.25 + r() * 0.2,
-          floor: fl,
-          low,
+          floor: Math.max(fl, span.hi + FLOOR_LIFT),
+          low: Math.min(fl, span.lo),
+          street: fl,
           wallTint: Math.floor(r() * 7),
           roofTint: Math.floor(r() * 6),
           seed: Math.floor(r() * 1e9),
@@ -523,6 +532,46 @@ function nearestIndex(pts: readonly P[], p: P): number {
     }
   });
   return best;
+}
+
+/**
+ * Земля под прямоугольным следом: самая высокая и самая низкая точки решёткой 5×5 (углы, середины кромок,
+ * середина). `w` — поперёк оси (вправо), `d` — вдоль оси (`fx`, `fz`) — как `kit.Frame` и `geom.box`.
+ */
+export function footSpan(x: number, z: number, fx: number, fz: number, w: number, d: number): { hi: number; lo: number } {
+  let hi = -Infinity;
+  let lo = Infinity;
+  for (let a = -1; a <= 1; a += 0.5) {
+    for (let c = -1; c <= 1; c += 0.5) {
+      const h = heightAt(x + (fx * d * a) / 2 + (fz * w * c) / 2, z + (fz * d * a) / 2 - (fx * w * c) / 2);
+      hi = Math.max(hi, h);
+      lo = Math.min(lo, h);
+    }
+  }
+  return { hi, lo };
+}
+
+/** Пол постройки над землёй: на столько выше самой высокой земли следа — сетка земли между узлами идёт прямой и вдали, на редкой сетке «Низкого», выше рельефа (охотничий домик — на 0.24 м, `seat.test.ts`). */
+export const FLOOR_LIFT = 0.15;
+
+/**
+ * Башня на рельефе (docs/city.md, 16.1): низ — самая низкая земля под всем следом (`forts.inTowerShape`: круг у
+ * круглой, квадрат по оси у остальных), пол проезда ворот — самая высокая дорога у концов арки и посередине.
+ */
+function seatTower(t: Tower): Tower {
+  const fx = Math.cos(t.out);
+  const fz = Math.sin(t.out);
+  const h = t.size / 2;
+  let foot = t.base;
+  for (let a = -1; a <= 1; a += 0.5) {
+    for (let c = -1; c <= 1; c += 0.5) {
+      if (t.kind === 'round' && Math.hypot(a, c) > 1.01) continue;
+      foot = Math.min(foot, heightAt(t.x + (fx * a + fz * c) * h, t.z + (fz * a - fx * c) * h));
+    }
+  }
+  const gate = t.kind === 'gate' || t.kind === 'castleGate';
+  const floor = gate ? Math.max(heightAt(t.x + fx * h, t.z + fz * h), heightAt(t.x - fx * h, t.z - fz * h), heightAt(t.x, t.z)) + 0.04 : undefined;
+  return { ...t, foot, floor };
 }
 
 /** Самая низкая земля под кругом радиуса r. */
@@ -659,7 +708,7 @@ function civicOf(seed: number): Civic[] {
     rot,
     w,
     d,
-    base: heightAt(x, z),
+    base: footSpan(x, z, Math.cos(rot), Math.sin(rot), w, d).hi + FLOOR_LIFT,
     seed: hash3(Math.round(x), Math.round(z), seed),
   });
   const E = 0;
@@ -778,10 +827,9 @@ function placeHouses(streets: Street[], wall: P[], blocked: Box[], seed: number)
     for (const b of boxes) if (boxesOverlap(box, b, 0.05)) return null;
     const fx = -nx;
     const fz = -nz;
-    // Пол — земля у фасада; низ — самая низкая земля под домом.
+    // Пол — не ниже земли под домом и не ниже земли у фасада; низ — самая низкая земля под домом.
     const fl = heightAt(p.x + nx * (front + 0.5), p.z + nz * (front + 0.5));
-    let low = fl;
-    for (const q of pts) low = Math.min(low, heightAt(q.x, q.z));
+    const span = footSpan(cx, cz, fx, fz, w, d);
     const rich = st.rich;
     const stone = r() < 0.12 + rich * 0.35;
     const floors = r() < 0.15 + rich * 0.55 ? 3 : 2;
@@ -799,8 +847,9 @@ function placeHouses(streets: Street[], wall: P[], blocked: Box[], seed: number)
       roof: r() < 0.72 ? 'tile' : r() < 0.6 ? 'shingle' : 'slate',
       pitch: (48 + r() * 12) * (Math.PI / 180),
       jetty: stone ? 0 : 0.28 + r() * 0.3,
-      floor: fl,
-      low,
+      floor: Math.max(fl, span.hi + FLOOR_LIFT),
+      low: Math.min(fl, span.lo),
+      street: fl,
       wallTint: Math.floor(r() * 7),
       roofTint: Math.floor(r() * 6),
       seed: Math.floor(r() * 1e9),
@@ -921,7 +970,7 @@ export function cityPlan(seed = CITY_SEED): CityPlan {
   return {
     wall,
     castleWall,
-    towers: [...towers, keep, cGate, ...cTowers],
+    towers: [...towers, keep, cGate, ...cTowers].map(seatTower),
     gates,
     streets,
     square: SQUARE,
