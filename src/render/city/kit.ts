@@ -289,6 +289,35 @@ export interface HouseOut {
   ridge: number;
 }
 
+/** Ниже этой — ступеней нет (порог у двери); выше — одна или две: пол выше улицы больше чем на полметра бывает редко. */
+const STEP_RISE = 0.24;
+const STEP_RUN = 0.32;
+
+/**
+ * Ступени от земли `yLow` к полу `yHigh` у кромки `front` (вперёд от середины), шириной `width`. Ниже ступени
+ * нечего класть; каждая ступень — короб до самой земли, вперёд от кромки, на улицу.
+ */
+export function stoop(b: Builder, fr: Frame, front: number, width: number, yLow: number, yHigh: number, t: V3): void {
+  const rise = yHigh - yLow;
+  if (rise < STEP_RISE) return;
+  const n = Math.min(2, Math.ceil(rise / STEP_RISE));
+  for (let k = 0; k < n; k++) {
+    const top = yHigh - ((k + 1) * rise) / (n + 1);
+    const [x, z] = fr.q(front + STEP_RUN * (k + 0.5), 0);
+    box(b, x, z, fr.fx, fr.fz, width, STEP_RUN, yLow - 0.3, top, 'rubble', [t[0] * (1 - k * 0.03), t[1] * (1 - k * 0.03), t[2] * (1 - k * 0.03)], 'rubble', { aoBottom: 0.7 });
+  }
+}
+
+/**
+ * Ступени к двери дома на склоне, что стоит выше улицы (`layout.footSpan`, `House.floor`). Отдельно от `house`:
+ * сборка кладёт их мимо коробки касания дома (`budget.buildStatic`) — ступени на улице не заслоняют пальцу соседа.
+ */
+export function houseStoop(b: Builder, h: House): void {
+  if (h.street === undefined) return;
+  const fr = new Frame(h.x, h.z, h.fx, h.fz);
+  stoop(b, fr, h.d / 2 + 0.07, h.w * 0.7, h.street, h.floor, tint(CITY.stoneTints[h.seed % CITY.stoneTints.length], 0.86));
+}
+
 export function house(b: Builder, h: House, detail: Detail): HouseOut {
   const fr = new Frame(h.x, h.z, h.fx, h.fz);
   const hd = h.d / 2;

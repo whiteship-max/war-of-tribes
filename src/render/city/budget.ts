@@ -6,13 +6,13 @@ import type { BuildingTypeId } from '@/game/types';
 import { Builder, type V3 } from './geom';
 import { cityPlan, type CityPlan, type Civic, type TowerKind } from './layout';
 import { ownerCode, siteOf, wallSites, type Site } from './sites';
-import { yard } from './outskirts';
-import { house } from './kit';
+import { millWheel, yard, yardHalls } from './outskirts';
+import { house, houseStoop } from './kit';
 import { cityWall, tower } from './forts';
-import { churchyard, civic, fireBowl, gutter, marketProps, stall, statue, well } from './civic';
+import { churchyard, civic, civicStoop, fireBowl, gutter, marketProps, stall, statue, well } from './civic';
 import { placeTrees, treeModel, type Species } from './nature';
 import { LAYERS } from './tex';
-import { CITY_SPEC, LIFE_CAP, LIFE_TRIS, SHORE_CAP, figureTris, shoreTris } from './spec';
+import { CITY_SPEC, GATE_GUARDS, LIFE_CAP, LIFE_TRIS, SHORE_CAP, figureTris, peopleTris, shoreTris } from './spec';
 import { shoreItems, waterTriangles } from './banks';
 
 /** Границы владельца по уровням (задание ночи 1): вызовы, треугольники, МБ текстур, МБ докачки. */
@@ -32,6 +32,8 @@ export interface StaticBuild {
   /** Коробки 24 построек игры (`sites.ts`) — сняты с самих моделей. */
   sites: Site[];
   marks: { houses: number; forts: number; civic: number; outside: number };
+  /** Колесо лесопилки, что крутится, — своим мешем (docs/city.md, 16.4); на «Низком» его нет: колесо стоит в общем. */
+  wheel: ReturnType<typeof millWheel> | null;
 }
 
 /** Чья постройка — большое здание города (docs/city.md, раздел 5); палас — замок, казна в нём. */
@@ -68,6 +70,8 @@ export function buildStatic(plan: CityPlan, q: Quality): StaticBuild {
     b.owner = 0;
   };
   for (const h of plan.houses) own('houses', h.x, h.z, h.fx, h.fz, () => chimneys.push(...house(b, h, d).chimneys));
+  // Ступени домов на склоне — ничьи: они на улице, коробка касания дома ими не растёт.
+  for (const h of plan.houses) houseStoop(b, h);
   const houses = b.mark().t;
   // Стена города: крытый ход — на южной и западной сторонах через пролёт.
   b.owner = ownerCode('palisade');
@@ -87,6 +91,8 @@ export function buildStatic(plan: CityPlan, q: Quality): StaticBuild {
       chimneys.push(...r.chimneys);
       lights.push(...r.lights);
     });
+    // Ступени — ничьи, как у домов; у храма вход — в башне и с площади через двор.
+    if (c.kind !== 'church') civicStoop(b, c);
     // Ограда двора — храму, но коробкой не служит: двор — земля, а не здание.
     if (c.kind === 'church') {
       b.owner = ownerCode('church');
@@ -111,14 +117,18 @@ export function buildStatic(plan: CityPlan, q: Quality): StaticBuild {
   const civicT = b.mark().t;
   // За стеной: предместье (дома Жилищ) и семь дворов.
   for (const h of plan.suburb) own('houses', h.x, h.z, h.fx, h.fz, () => chimneys.push(...house(b, h, d).chimneys));
+  for (const h of plan.suburb) houseStoop(b, h);
   for (const y of plan.yards) {
     own(y.kind, y.x, y.z, Math.cos(y.rot), Math.sin(y.rot), () => {
       const r = yard(b, y, d);
       lights.push(...r.lights);
       chimneys.push(...r.chimneys);
     });
+    for (const h of yardHalls(y)) civicStoop(b, h);
   }
-  return { b, lights, chimneys, flagTops, sites, marks: { houses, forts, civic: civicT, outside: b.mark().t } };
+  const mill = d > 0 ? plan.yards.find((y) => y.kind === 'sawmill') : undefined;
+  const wheel = mill ? millWheel(mill, d) : null;
+  return { b, lights, chimneys, flagTops, sites, marks: { houses, forts, civic: civicT, outside: b.mark().t }, wheel };
 }
 
 export interface CityCounts {
@@ -139,7 +149,7 @@ const FAR: readonly Species[] = ['broadFar', 'spruceFar'];
 
 export function cityCounts(q: Quality, plan: CityPlan = cityPlan()): CityCounts {
   const spec = CITY_SPEC[q];
-  const { b } = buildStatic(plan, q);
+  const { b, wheel } = buildStatic(plan, q);
   const ground = spec.groundCells * spec.groundCells * 2;
   const trees = placeTrees(plan, spec.treeNear, spec.nearStep, spec.farStep, spec.treeReach);
   let treeTris = 0;
@@ -167,10 +177,16 @@ export function cityCounts(q: Quality, plan: CityPlan = cityPlan()): CityCounts 
   // — вызов жизни (`life.ts`). Стягов — по два на воротах и донжоне (`alive.bannerSpots`).
   const banners = cap.banners > 0 ? plan.towers.filter((t) => t.kind === 'gate' || t.kind === 'castleGate' || t.kind === 'keep').length * 2 : 0;
   calls += [cap.lanterns, cap.carts, cap.ducks, cap.boats, cap.pigeons, banners].filter((n) => n > 0).length;
+  // Колесо лесопилки крутится своим мешем (с тенью) и брызжет точками — три вызова (docs/city.md, 16.4).
+  if (wheel) calls += 3;
+  // Горожане — по вызову на вид (на низком — один), копейщики у ворот — вызов (docs/city.md, 16.2).
+  const gates = plan.towers.filter((t) => t.kind === 'gate' || t.kind === 'castleGate').length;
+  calls += (q === 'low' ? 0 : 2) + 1;
   const ft = figureTris(q);
   const life =
-    cap.people * ft.person +
-    cap.guards * ft.guard +
+    peopleTris(q, cap.people) +
+    cap.guards * ft.archer +
+    gates * GATE_GUARDS * ft.guard +
     cap.animals * ft.beast +
     cap.birds * LIFE_TRIS.bird +
     plan.towers.length * LIFE_TRIS.flag +
@@ -184,7 +200,7 @@ export function cityCounts(q: Quality, plan: CityPlan = cityPlan()): CityCounts 
   const shadowBytes = spec.shadowMap * spec.shadowMap * 8;
   return {
     calls,
-    triangles: b.triangleCount * 2 + ground + treeTris + treeShadow + life + shore,
+    triangles: (b.triangleCount + (wheel?.b.triangleCount ?? 0)) * 2 + ground + treeTris + treeShadow + life + shore,
     buildings: b.triangleCount,
     ground,
     trees: treeTris,

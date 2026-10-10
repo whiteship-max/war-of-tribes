@@ -203,15 +203,15 @@ describe('трата — на «Начать», добыча — в конце',
 });
 
 describe('добыча — доля потолка', () => {
-  it('доли двора: ягоды — вся еда, скот — еда и шкуры пастуха, охота — мясо, шкуры и кости охотника; в сумме единица', () => {
+  it('доли двора: ягоды — вся еда, скот — еда и шкуры пастуха, охота — мясо и шкуры охотника; в сумме единица', () => {
     expect(minigameShares('berries')).toEqual({ food: 1 });
     const herd = minigameShares('herd');
     expect(herd.food).toBeCloseTo(6 / 7.4, 9);
     expect(herd.hides).toBeCloseTo(1.4 / 7.4, 9);
     const hunt = minigameShares('hunt');
-    expect(hunt.food).toBeCloseTo(14 / 18.4, 9);
-    expect(hunt.hides).toBeCloseTo(2.4 / 18.4, 9);
-    expect(hunt.bones).toBeCloseTo(2 / 18.4, 9);
+    expect(Object.keys(hunt).sort()).toEqual(['food', 'hides']);
+    expect(hunt.food).toBeCloseTo(14 / 16.4, 9);
+    expect(hunt.hides).toBeCloseTo(2.4 / 16.4, 9);
     // Рыбалка — двор собирателей: вся еда, как у ягод (своего двора у рыбы нет, docs/minigames.md, 17).
     expect(minigameShares('fish')).toEqual({ food: 1 });
     for (const g of MINIGAMES) expect(Object.values(minigameShares(g.id)).reduce((n, x) => n + (x ?? 0), 0)).toBeCloseTo(1, 9);
@@ -257,10 +257,9 @@ describe('добыча — доля потолка', () => {
           const base = town(herders);
           base.time = season * SEASON_SECONDS + 30;
           const day = dailyOutput(base);
-          // Область: у города есть выработка всех запасов игр — еды, шкур и костей.
+          // Область: у города есть выработка всех запасов игр — еды и шкур.
           expect(day.food).toBeGreaterThan(0);
           expect(day.hides).toBeGreaterThan(0);
-          expect(day.bones).toBeGreaterThan(0);
           const plans: MinigameId[][] = [
             ['berries', 'berries', 'berries', 'berries'],
             ['herd', 'herd', 'herd', 'herd'],

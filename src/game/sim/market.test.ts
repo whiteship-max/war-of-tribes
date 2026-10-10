@@ -87,7 +87,7 @@ function city(pop = 700, marketLevel = MAX_BUILDING_LEVEL): GameState {
   }
   place(s, 'market', marketLevel);
   staff(s);
-  s.resources = { wood: 4000, stone: 4000, food: 4000, hides: 1000, bones: 1000, copper: 1000, iron: 1000 };
+  s.resources = { wood: 4000, stone: 4000, food: 4000, hides: 1000, charcoal: 1000, copper: 1000, iron: 1000 };
   s.morale = moraleTarget(s);
   return s;
 }
@@ -116,7 +116,7 @@ function hungryTribe(): GameState {
       if (assignWorker(s, b.id) !== null) break;
     }
   }
-  s.resources = { wood: 2000, stone: 1000, food: 1200, hides: 200, bones: 200, copper: 0, iron: 0 };
+  s.resources = { wood: 2000, stone: 1000, food: 1200, hides: 200, charcoal: 200, copper: 0, iron: 0 };
   s.morale = moraleTarget(s);
   return s;
 }

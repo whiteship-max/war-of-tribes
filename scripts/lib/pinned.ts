@@ -30,15 +30,19 @@ export const PINNED_SEED = 20260912;
 
 /**
  * Тест с игроками на Сицилии (`world/spawn.SICILY`) — общее у `map-tw:shots` (`SICILY=1`) и `weak:stand` (`SCENE=map`).
- * Дом — седьмое место (769|1337), в середине кучки: соседи со всех сторон.
+ * Дом — первое место (середина кучки, выдача идёт от середины к краю): соседи со всех сторон.
  */
-export const SICILY_HOME = 6;
-/** Соседи всех четырёх стадий (`meta.stageOf` по мощи и людям): стоянка, деревня, острог, крепость. */
+export const SICILY_HOME = 0;
+/** Соседи всех четырёх стадий (`meta.stageOf` по мощи и людям): стоянка, деревня, острог, крепость — по кругу. */
 const SICILY_STATS: readonly (readonly [number, number])[] = [
   [12, 8], [45, 16], [130, 40], [320, 90], [60, 20], [24, 10], [210, 70], [95, 31], [500, 140], [35, 13], [150, 45],
 ];
-const SICILY_CITIES = ['Энна', 'Катания', 'Рагуза', 'Ното', 'Джела', 'Модика', 'Лентини', 'Пьяцца', 'Сиракузы', 'Калатины', 'Авола'];
-/** Одиннадцать соседей строками реестра замков (`tribe.castles.v1`) — так их кладёт на устройство сервер. */
+const SICILY_CITIES = [
+  'Энна', 'Катания', 'Рагуза', 'Ното', 'Джела', 'Модика', 'Лентини', 'Пьяцца', 'Сиракузы', 'Калатины', 'Авола',
+  'Агридженто', 'Кальтаниссетта', 'Ликата', 'Никозия', 'Адрано', 'Бронте', 'Скордия', 'Аугуста', 'Пахино', 'Виттория',
+  'Комизо', 'Буккери', 'Палагония',
+];
+/** Все соседи строками реестра замков (`tribe.castles.v1`) — так их кладёт на устройство сервер. */
 export const sicilyRoster = (): string => {
   const others = SICILY.filter((_, i) => i !== SICILY_HOME);
   const castles = others.map((c, i) => ({
@@ -47,8 +51,8 @@ export const sicilyRoster = (): string => {
     y: c.y,
     name: `Вождь ${i + 1}`,
     city: SICILY_CITIES[i],
-    power: SICILY_STATS[i][0],
-    pop: SICILY_STATS[i][1],
+    power: SICILY_STATS[i % SICILY_STATS.length][0],
+    pop: SICILY_STATS[i % SICILY_STATS.length][1],
     seenAt: Date.now(),
   }));
   return JSON.stringify({ at: Date.now(), epoch: ATLAS_HASH, mine: SICILY[SICILY_HOME], castles });

@@ -388,13 +388,13 @@ export async function hiringSection(): Promise<Hired> {
   }
   console.log('');
   console.log('Во что обходится войско за час на мир: добро на найм и ковку, по видам (медиана миров не берётся — сумма, делённая на миры и часы).');
-  console.log(' поведение                    ур  добра/ч  из них: еда  дерево  камень  железо  медь  шкуры  кости  уход войска по поводу: неуплата / голод (пульсов)');
+  console.log(' поведение                    ур  добра/ч  из них: еда  дерево  камень  железо  медь  шкуры  уголь  уход войска по поводу: неуплата / голод (пульсов)');
   for (const level of LEVELS) {
     for (const style of STYLES) {
       const l = ladder[`${style}:${level}`].map((o) => o.l);
       const per = (r: ResourceId): number => Math.round(sum(l.map((x) => x.spentBy[r] ?? 0)) / (l.length * HOURS));
       console.log(
-        ` ${NAME[style].padEnd(27)} ${pad(level, 2)}  ${pad(Math.round(sum(l.map((x) => x.spent)) / (l.length * HOURS)), 7)}  ${pad(per('food'), 11)}  ${pad(per('wood'), 6)}  ${pad(per('stone'), 6)}  ${pad(per('iron'), 6)}  ${pad(per('copper'), 4)}  ${pad(per('hides'), 5)}  ${pad(per('bones'), 5)}  ${sum(l.map((x) => x.whyPay))} / ${sum(l.map((x) => x.whyFood))}`,
+        ` ${NAME[style].padEnd(27)} ${pad(level, 2)}  ${pad(Math.round(sum(l.map((x) => x.spent)) / (l.length * HOURS)), 7)}  ${pad(per('food'), 11)}  ${pad(per('wood'), 6)}  ${pad(per('stone'), 6)}  ${pad(per('iron'), 6)}  ${pad(per('copper'), 4)}  ${pad(per('hides'), 5)}  ${pad(per('charcoal'), 5)}  ${sum(l.map((x) => x.whyPay))} / ${sum(l.map((x) => x.whyFood))}`,
       );
     }
   }

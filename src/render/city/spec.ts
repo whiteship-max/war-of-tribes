@@ -43,13 +43,63 @@ export const LIFE_CAP: Record<Quality, { people: number; guards: number; birds: 
 
 /**
  * Треугольников у фигуры жизни — счёту бюджета (`budget.cityCounts`); сами фигуры строят `life.ts` и `alive.ts`, а что
- * числа с ними сходятся, держит тест (`life.test.ts`). Ноги и руки — по две коробки: шаг качает их в шейдере.
+ * числа с ними сходятся, держит тест (`life.test.ts`). Люди — точёные (docs/city.md, 16.2): мужчина в капюшоне
+ * (`person`), в шапке (`personCap`), женщина (`personWoman`); копейщик у ворот (`guard`), лучник на стене (`archer`).
+ * На низком — прежние коробки (`*Low`).
  */
-export const LIFE_TRIS = { person: 72, guard: 84, beast: 48, bird: 2, flag: 44, cart: 300, duck: 36, boat: 108, pigeon: 3, banner: 64, personLow: 36, guardLow: 72, beastLow: 36 } as const;
+export const LIFE_TRIS = {
+  person: 144,
+  personCap: 128,
+  personWoman: 146,
+  guard: 164,
+  archer: 156,
+  personMid: 116,
+  personCapMid: 103,
+  personWomanMid: 122,
+  guardMid: 139,
+  archerMid: 131,
+  beast: 48,
+  bird: 2,
+  flag: 44,
+  cart: 300,
+  duck: 36,
+  boat: 108,
+  pigeon: 3,
+  banner: 64,
+  personLow: 36,
+  guardLow: 72,
+  beastLow: 36,
+} as const;
 
-/** Цена фигур людей, стражи и скота на уровне: на низком — прежние, без шага. */
-export const figureTris = (q: Quality): { person: number; guard: number; beast: number } =>
-  q === 'low' ? { person: LIFE_TRIS.personLow, guard: LIFE_TRIS.guardLow, beast: LIFE_TRIS.beastLow } : { person: LIFE_TRIS.person, guard: LIFE_TRIS.guard, beast: LIFE_TRIS.beast };
+/**
+ * Цена горожан по виду в порядке `life.TOWNSFOLK` (капюшон, женщина, шапка) на уровне: прохожий `k` — вида `k % 3`;
+ * на «Среднем» — те же фигуры грубее по кругу (`life.figureLod`), на «Низком» — прежняя у всех.
+ */
+export const townsfolkTris = (q: Quality): readonly number[] =>
+  q === 'low'
+    ? [LIFE_TRIS.personLow]
+    : q === 'medium'
+      ? [LIFE_TRIS.personMid, LIFE_TRIS.personWomanMid, LIFE_TRIS.personCapMid]
+      : [LIFE_TRIS.person, LIFE_TRIS.personWoman, LIFE_TRIS.personCap];
+
+/** Цена фигур стражи и скота на уровне (`person` — горожанин в капюшоне, строитель): на низком — прежние, без шага. */
+export const figureTris = (q: Quality): { person: number; guard: number; archer: number; beast: number } =>
+  q === 'low'
+    ? { person: LIFE_TRIS.personLow, guard: LIFE_TRIS.guardLow, archer: LIFE_TRIS.guardLow, beast: LIFE_TRIS.beastLow }
+    : q === 'medium'
+      ? { person: LIFE_TRIS.personMid, guard: LIFE_TRIS.guardMid, archer: LIFE_TRIS.archerMid, beast: LIFE_TRIS.beast }
+      : { person: LIFE_TRIS.person, guard: LIFE_TRIS.guard, archer: LIFE_TRIS.archer, beast: LIFE_TRIS.beast };
+
+/** Треугольники `n` горожан на уровне: виды по очереди (`townsfolkTris`). */
+export const peopleTris = (q: Quality, n: number): number => {
+  const k = townsfolkTris(q);
+  let t = 0;
+  for (let i = 0; i < n; i++) t += k[i % k.length];
+  return t;
+};
+
+/** Копейщиков у каждых ворот: по двое с каждой стороны проезда (`life.GATE_POSTS`). */
+export const GATE_GUARDS = 4;
 
 /**
  * Вода и берег по уровню (docs/city.md, 12.3). `cols` — колонны ленты реки поперёк, метры от середины: за плоским

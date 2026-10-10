@@ -41,10 +41,39 @@ export interface Part {
    * `phase` больше 50 — весло: поворот по вертикали вокруг уключины (px, pz = py).
    */
   limb?: [px: number, py: number, stride: number, phase: number];
+  /** Размах качания ноги или руки, рад (по умолчанию 0.5 — прежние фигуры). */
+  amp?: number;
+  /**
+   * Точёная часть вместо коробки (docs/city.md, 16.2): кольца снизу вверх с эллиптическим сечением, `n` граней по кругу,
+   * нормали сглажены — фигура круглая, а не кубик. Цвет и маска окраски — у каждого кольца свои (между кольцами —
+   * переход); `front` — свой цвет спереди (передник), без лишних граней. `cap` — закрыть верх (1), низ (2) или оба (3).
+   */
+  ring?: Ring[];
+  n?: number;
+  /** Граней на «Среднем» (`figure(…, coarse)`): та же фигура, грубее по кругу. */
+  nLow?: number;
+  cap?: number;
+  /** Цвет и маска торца (низа и верха), если не те, что у кольца: кисть — кожей из рукава. */
+  capCol?: { col: V3; tint: number };
+}
+
+/** Кольцо точёной части: высота, полуширина поперёк хода (z), полутолщина вдоль хода (x), сдвиг вперёд. */
+export interface Ring {
+  y: number;
+  hw: number;
+  hd: number;
+  x?: number;
+  /** Сдвиг вбок (по z): кисть ближе к бедру, чем плечо. */
+  z?: number;
+  col: V3;
+  /** Маска окраски: 0 — свой цвет, 1 — одежда экземпляра, 2 — вторая ткань, 3 — кожа экземпляра. */
+  tint: number;
+  /** Спереди (косинус угла от хода больше `from`) — свой цвет и маска: передник. */
+  front?: { col: V3; tint: number; from: number };
 }
 
 /** Коробки фигуры в один буфер: положение, нормаль, цвет, маска окраски, качание. */
-export function figure(parts: Part[]): THREE.BufferGeometry {
+export function figure(parts: Part[], coarse = false): THREE.BufferGeometry {
   const pos: number[] = [];
   const nor: number[] = [];
   const col: number[] = [];
@@ -52,6 +81,10 @@ export function figure(parts: Part[]): THREE.BufferGeometry {
   const limb: number[] = [];
   const idx: number[] = [];
   for (const p of parts) {
+    if (p.ring) {
+      lathe(coarse && p.nLow ? { ...p, n: p.nLow } : p, pos, nor, col, msk, limb, idx);
+      continue;
+    }
     const t = p.taper ?? 1;
     const lo = [p.hw, p.hd];
     const hi = [p.hw * t, p.hd * t];
@@ -78,7 +111,7 @@ export function figure(parts: Part[]): THREE.BufferGeometry {
         const k = 0.75 + 0.25 * Math.min(1, v[1] / 1.6);
         col.push(p.col[0] * k, p.col[1] * k, p.col[2] * k);
         msk.push(p.tint);
-        limb.push(...(p.limb ?? [0, 0, 0, 0]));
+        limb.push(...(p.limb ?? [0, 0, 0, 0]), p.amp ?? 0.5);
       }
       idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
     }
@@ -88,10 +121,91 @@ export function figure(parts: Part[]): THREE.BufferGeometry {
   g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(nor), 3));
   g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(col), 3));
   g.setAttribute('tintMask', new THREE.BufferAttribute(new Float32Array(msk), 1));
-  g.setAttribute('limb', new THREE.BufferAttribute(new Float32Array(limb), 4));
+  // Качание — пять чисел на вершину: ось (x, y), шаг, фаза — `limb`, размах — `limbAmp`.
+  const l5 = new Float32Array(limb);
+  const l4 = new Float32Array((l5.length / 5) * 4);
+  const amp = new Float32Array(l5.length / 5);
+  for (let k = 0; k < amp.length; k++) {
+    l4.set(l5.subarray(k * 5, k * 5 + 4), k * 4);
+    amp[k] = l5[k * 5 + 4];
+  }
+  g.setAttribute('limb', new THREE.BufferAttribute(l4, 4));
+  g.setAttribute('limbAmp', new THREE.BufferAttribute(amp, 1));
   g.setIndex(idx);
   g.computeBoundingSphere();
   return g;
+}
+
+/** Затенение снизу: фигура «стоит», а не висит. */
+const footShade = (y: number): number => 0.75 + 0.25 * Math.min(1, y / 1.6);
+
+/**
+ * Точёная часть (`Part.ring`): кольца по `n` вершин делят вершины с соседними гранями — нормали сглажены, тень
+ * ложится по кругу. Треугольников — 2·n на пояс между кольцами и n − 2 на закрытый торец.
+ */
+function lathe(p: Part, pos: number[], nor: number[], col: number[], msk: number[], limb: number[], idx: number[]): void {
+  const rings = p.ring!;
+  const n = p.n ?? 6;
+  const pz = p.z ?? 0;
+  const lb = [...(p.limb ?? [0, 0, 0, 0]), p.amp ?? 0.5];
+  const start = pos.length / 3;
+  // Грань смотрит вперёд: первая вершина — на полграни от оси хода.
+  const ang = (k: number): number => ((k + 0.5) / n) * Math.PI * 2;
+  rings.forEach((r, j) => {
+    const lo = rings[Math.max(0, j - 1)];
+    const hi = rings[Math.min(rings.length - 1, j + 1)];
+    const dy = hi.y - lo.y || 1;
+    for (let k = 0; k < n; k++) {
+      const a = ang(k);
+      const ca = Math.cos(a);
+      const sa = Math.sin(a);
+      const x = p.x + (r.x ?? 0) + ca * r.hd;
+      const z = pz + (r.z ?? 0) + sa * r.hw;
+      pos.push(x, r.y, z);
+      // Нормаль эллипса и наклон пояса: на сужении кверху смотрит вверх.
+      const ex = ca / Math.max(r.hd, 1e-3);
+      const ez = sa / Math.max(r.hw, 1e-3);
+      const el = Math.hypot(ex, ez) || 1;
+      const slope = ((lo.hd + lo.hw - hi.hd - hi.hw) / 2) / dy;
+      const nl = Math.hypot(1, slope);
+      nor.push(ex / el / nl, slope / nl, ez / el / nl);
+      const f = r.front && ca > r.front.from ? r.front : null;
+      const c = f ? f.col : r.col;
+      const sh = footShade(r.y);
+      col.push(c[0] * sh, c[1] * sh, c[2] * sh);
+      msk.push(f ? f.tint : r.tint);
+      limb.push(...lb);
+    }
+  });
+  for (let j = 0; j + 1 < rings.length; j++) {
+    for (let k = 0; k < n; k++) {
+      const a = start + j * n + k;
+      const b = start + j * n + ((k + 1) % n);
+      const c = a + n;
+      const d = b + n;
+      // Обход против часовой снаружи: низ a → низ b → верх d → верх c.
+      idx.push(a, d, b, a, c, d);
+    }
+  }
+  const cap = (r: Ring, up: boolean): void => {
+    const base = pos.length / 3;
+    for (let k = 0; k < n; k++) {
+      const a = ang(k);
+      pos.push(p.x + (r.x ?? 0) + Math.cos(a) * r.hd, r.y, pz + (r.z ?? 0) + Math.sin(a) * r.hw);
+      nor.push(0, up ? 1 : -1, 0);
+      const sh = footShade(r.y);
+      const cc = p.capCol?.col ?? r.col;
+      col.push(cc[0] * sh, cc[1] * sh, cc[2] * sh);
+      msk.push(p.capCol?.tint ?? r.tint);
+      limb.push(...lb);
+    }
+    for (let k = 1; k + 1 < n; k++) {
+      if (up) idx.push(base, base + k + 1, base + k);
+      else idx.push(base, base + k, base + k + 1);
+    }
+  };
+  if ((p.cap ?? 0) & 1) cap(rings[rings.length - 1], true);
+  if ((p.cap ?? 0) & 2) cap(rings[0], false);
 }
 
 /**
@@ -122,27 +236,381 @@ export const arms = (shoulder: number, span: number, stride: number): Part[] =>
 /** Ноги одной коробкой, без шага, — низкому уровню: там нового нет, фигура прежняя (`LIFE_TRIS.*Low`). */
 const stiff = (hip: number, hw: number, hd: number): Part[] => [{ x: 0, y0: 0, y1: hip, hw, hd, col: LEGS, tint: 0 }];
 
-/**
- * Горожанин: две ноги и две руки (шаг в шейдере), рубаха до колен (цвет экземпляра), голова. `simple` — низкий уровень:
- * ноги одной коробкой и без рук, как до живого города.
- */
-export const personGeometry = (simple = false): THREE.BufferGeometry =>
+/** Старый горожанин коробками — низкому уровню: там нового нет (`LIFE_TRIS.personLow`). */
+const boxPerson = (): THREE.BufferGeometry =>
   figure([
-    ...(simple ? stiff(0.78, 0.17, 0.11) : [...legs(0.78, 0.17, 0.11, 1.4), ...arms(1.36, 0.27, 1.4)]),
+    ...stiff(0.78, 0.17, 0.11),
     { x: 0, y0: 0.62, y1: 1.42, hw: 0.27, hd: 0.16, taper: 0.78, col: WHITE, tint: 1 },
     { x: 0, y0: 1.42, y1: 1.7, hw: 0.11, hd: 0.11, col: SKIN, tint: 0 },
   ]);
 
-/** Стражник: то же и шлем, древко копья выше головы. */
-export const guardGeometry = (simple = false): THREE.BufferGeometry =>
+/** Старый стражник коробками — низкому уровню: копьё выше головы, шлем. */
+const boxGuard = (): THREE.BufferGeometry =>
   figure([
-    ...(simple ? stiff(0.8, 0.17, 0.12) : legs(0.8, 0.17, 0.12, 1.5)),
+    ...stiff(0.8, 0.17, 0.12),
     { x: 0, y0: 0.65, y1: 1.45, hw: 0.29, hd: 0.18, taper: 0.8, col: WHITE, tint: 1 },
     { x: 0, y0: 1.45, y1: 1.7, hw: 0.11, hd: 0.11, col: SKIN, tint: 0 },
     { x: 0, y0: 1.66, y1: 1.84, hw: 0.13, hd: 0.13, taper: 0.6, col: STEEL, tint: 0 },
     { x: 0.05, y0: 0.2, y1: 2.6, hw: 0.03, hd: 0.03, col: SHAFT, tint: 0 },
     { x: 0.05, y0: 2.6, y1: 2.85, hw: 0.04, hd: 0.04, taper: 0.2, col: STEEL, tint: 0 },
   ]);
+
+// Люди 1200 года (docs/city.md, 16.2): точёные части, пропорции взрослого 1.7 м — голова седьмая часть роста, плечи
+// на 1.38, бёдра на 0.82. Одежда — цвет экземпляра (туника, юбка), вторая ткань — капюшон с оплечьем, шапка, платок,
+// щит; кожа — своя у каждого. Ноги и руки качаются в шейдере (`gait`), руки — мягче ног.
+const HOSE: V3 = linear(0x4a3e34);
+const SHOE: V3 = linear(0x2a2018);
+const BELT: V3 = linear(0x3a2a1c);
+const HAIR: V3 = linear(0x4a3424);
+const LINEN: V3 = linear(0xd8cfb8);
+const LEATHER: V3 = linear(0x6a4a2e);
+const WOOD: V3 = linear(0x7a5a38);
+
+/** Плечи, бёдра и шаг взрослого. */
+const SHOULDER = 1.38;
+const HIP = 0.82;
+const STRIDE = 1.4;
+/** Размах ног и рук, рад: руки мягче — идут в противофазе ногам и не машут. */
+const LEG_AMP = 0.42;
+const ARM_AMP = 0.3;
+
+/** Ноги в шоссах до башмака: одна грань-кольцо от пола до бедра, башмак — цветом низа. */
+const roundLegs = (): Part[] =>
+  [-1, 1].map((side) => ({
+    x: 0,
+    z: side * 0.085,
+    y0: 0,
+    y1: HIP,
+    hw: 0,
+    hd: 0,
+    col: HOSE,
+    tint: 0,
+    n: 5,
+    nLow: 4,
+    ring: [
+      { y: 0, hw: 0.055, hd: 0.08, x: 0.03, col: SHOE, tint: 0 },
+      { y: HIP, hw: 0.08, hd: 0.085, col: HOSE, tint: 0 },
+    ],
+    limb: [0, HIP, STRIDE, side > 0 ? 0 : Math.PI] as Part['limb'],
+    amp: LEG_AMP,
+  }));
+
+/** Руки от плеча: рукав — цветом одежды (или `tint`), кисть — кожей. `swing` — размах (0 — держит что-то). */
+const roundArms = (tint = 1, swing: number = ARM_AMP): Part[] =>
+  [-1, 1].map((side) => ({
+    x: 0,
+    z: side * 0.235,
+    y0: 0,
+    y1: 0,
+    hw: 0,
+    hd: 0,
+    col: WHITE,
+    tint,
+    n: 4,
+    nLow: 3,
+    cap: 2,
+    capCol: { col: WHITE, tint: 3 },
+    ring: [
+      { y: SHOULDER - 0.6, hw: 0.04, hd: 0.045, x: 0.03, z: -side * 0.035, col: WHITE, tint },
+      { y: SHOULDER, hw: 0.06, hd: 0.065, col: WHITE, tint },
+    ],
+    limb: [0, SHOULDER, STRIDE, side > 0 ? Math.PI : 0] as Part['limb'],
+    amp: swing === 0 ? 0.05 : swing,
+  }));
+
+/** Голова: шея, скулы, темя — кожей, макушка — волосами (`hair` — цвет; под шапкой не видна). */
+const roundHead = (hair: V3 = HAIR, hairTint = 0): Part => ({
+  x: 0.02,
+  y0: 0,
+  y1: 0,
+  hw: 0,
+  hd: 0,
+  col: SKIN,
+  tint: 3,
+  n: 6,
+  nLow: 5,
+  cap: 1,
+  ring: [
+    { y: 1.43, hw: 0.05, hd: 0.055, col: WHITE, tint: 3 },
+    { y: 1.56, hw: 0.095, hd: 0.105, col: WHITE, tint: 3 },
+    { y: 1.7, hw: 0.055, hd: 0.06, x: -0.01, col: hair, tint: hairTint },
+  ],
+});
+
+/** Туника до колен с поясом: подол, пояс (тёмный), плечи; `upper` — маска верха (1 — та же, 2 — котта второй ткани). */
+const tunic = (upper = 1): Part => ({
+  x: 0,
+  y0: 0,
+  y1: 0,
+  hw: 0,
+  hd: 0,
+  col: WHITE,
+  tint: 1,
+  n: 6,
+  nLow: 5,
+  ring: [
+    { y: 0.48, hw: 0.2, hd: 0.17, col: WHITE, tint: 1 },
+    { y: 0.95, hw: 0.165, hd: 0.135, col: BELT, tint: 0 },
+    { y: SHOULDER, hw: 0.215, hd: 0.125, col: WHITE, tint: upper },
+    { y: 1.45, hw: 0.06, hd: 0.06, col: WHITE, tint: 3 },
+  ],
+});
+
+/** Мужчина в тунике и капюшоне с оплечьем (шаперон) — второй тканью; лицо выглядывает из капюшона. */
+const manHood = (): Part[] => [
+  ...roundLegs(),
+  tunic(),
+  ...roundArms(),
+  roundHead(),
+  {
+    x: -0.035,
+    y0: 0,
+    y1: 0,
+    hw: 0,
+    hd: 0,
+    col: WHITE,
+    tint: 2,
+    n: 6,
+    nLow: 5,
+    cap: 1,
+    ring: [
+      { y: 1.22, hw: 0.28, hd: 0.2, col: WHITE, tint: 2 },
+      { y: 1.42, hw: 0.15, hd: 0.13, col: WHITE, tint: 2 },
+      { y: 1.6, hw: 0.135, hd: 0.13, col: WHITE, tint: 2 },
+      { y: 1.75, hw: 0.075, hd: 0.08, x: -0.02, col: WHITE, tint: 2 },
+    ],
+  },
+];
+
+/** Мужчина в тунике и котте (верх — второй тканью) и в шапке-валенке. */
+const manCap = (): Part[] => [
+  ...roundLegs(),
+  tunic(2),
+  ...roundArms(),
+  roundHead(),
+  {
+    x: 0.01,
+    y0: 0,
+    y1: 0,
+    hw: 0,
+    hd: 0,
+    col: WHITE,
+    tint: 2,
+    n: 6,
+    nLow: 5,
+    ring: [
+      { y: 1.58, hw: 0.11, hd: 0.118, col: WHITE, tint: 2 },
+      { y: 1.69, hw: 0.1, hd: 0.108, col: WHITE, tint: 2 },
+      { y: 1.76, hw: 0.02, hd: 0.02, col: WHITE, tint: 2 },
+    ],
+  },
+];
+
+/** Женщина: юбка до земли с передником спереди, лиф, рукава, платок (вимпл) — второй тканью или льном; башмаки шагают. */
+const woman = (): Part[] => [
+  ...[-1, 1].map((side) => ({
+    x: 0,
+    z: side * 0.08,
+    y0: 0,
+    y1: 0,
+    hw: 0,
+    hd: 0,
+    col: SHOE,
+    tint: 0,
+    n: 4,
+    ring: [
+      { y: 0, hw: 0.045, hd: 0.08, x: 0.06, col: SHOE, tint: 0 },
+      { y: 0.14, hw: 0.04, hd: 0.05, col: SHOE, tint: 0 },
+    ],
+    limb: [0, 0.6, STRIDE * 0.85, side > 0 ? 0 : Math.PI] as Part['limb'],
+    amp: 0.3,
+  })),
+  {
+    x: 0,
+    y0: 0,
+    y1: 0,
+    hw: 0,
+    hd: 0,
+    col: WHITE,
+    tint: 1,
+    n: 7,
+    nLow: 6,
+    ring: [
+      { y: 0.03, hw: 0.26, hd: 0.25, col: WHITE, tint: 1, front: { col: LINEN, tint: 0, from: 0.55 } },
+      { y: 0.95, hw: 0.15, hd: 0.125, col: WHITE, tint: 1, front: { col: LINEN, tint: 0, from: 0.55 } },
+      { y: 1.36, hw: 0.19, hd: 0.115, col: WHITE, tint: 1 },
+      { y: 1.44, hw: 0.05, hd: 0.05, col: WHITE, tint: 3 },
+    ],
+  },
+  ...roundArms().map((a) => ({ ...a, z: (a.z ?? 0) * 0.92 })),
+  roundHead(),
+  {
+    x: -0.03,
+    y0: 0,
+    y1: 0,
+    hw: 0,
+    hd: 0,
+    col: WHITE,
+    tint: 2,
+    n: 6,
+    nLow: 5,
+    cap: 1,
+    ring: [
+      { y: 1.26, hw: 0.21, hd: 0.16, col: WHITE, tint: 2 },
+      { y: 1.44, hw: 0.13, hd: 0.12, col: WHITE, tint: 2 },
+      { y: 1.62, hw: 0.126, hd: 0.124, col: WHITE, tint: 2 },
+      { y: 1.75, hw: 0.07, hd: 0.075, x: -0.01, col: WHITE, tint: 2 },
+    ],
+  },
+];
+
+/** Виды горожан: мужчина в капюшоне, мужчина в шапке, женщина. Порядок — `TOWNSFOLK`, доли — `townsfolkOf`. */
+export type Townsfolk = 'hood' | 'cap' | 'woman';
+export const TOWNSFOLK: readonly Townsfolk[] = ['hood', 'woman', 'cap'];
+/** Вид горожанина по номеру: женщины — треть, мужчины в капюшоне и в шапке — поровну. */
+export const townsfolkOf = (k: number): Townsfolk => TOWNSFOLK[k % TOWNSFOLK.length];
+
+/**
+ * Подробность фигур по уровню: 0 — «Низкое», прежние коробки без шага; 1 — «Среднее», точёные, грубее по кругу;
+ * 2 — «Высокое», точёные полностью.
+ */
+export type FigureLod = 0 | 1 | 2;
+export const figureLod = (q: Quality): FigureLod => (q === 'low' ? 0 : q === 'medium' ? 1 : 2);
+
+/** Горожанин вида `kind` на подробности `lod`; на «Низком» — прежняя фигура коробками без шага, одна на всех. */
+export const townsGeometry = (kind: Townsfolk, lod: FigureLod = 2): THREE.BufferGeometry =>
+  lod === 0 ? boxPerson() : figure(kind === 'hood' ? manHood() : kind === 'cap' ? manCap() : woman(), lod === 1);
+
+/** Горожанин (строитель, прохожий) — мужчина в капюшоне. */
+export const personGeometry = (lod: FigureLod = 2): THREE.BufferGeometry => townsGeometry('hood', lod);
+
+/** Стёганка стражи: туника цвета экземпляра (сюрко города) поверх, пояс, — и железный шлем. */
+const helmet = (kettle: boolean): Part => ({
+  x: 0.01,
+  y0: 0,
+  y1: 0,
+  hw: 0,
+  hd: 0,
+  col: STEEL,
+  tint: 0,
+  n: 6,
+  nLow: 5,
+  ring: kettle
+    ? [
+        { y: 1.6, hw: 0.19, hd: 0.2, col: STEEL, tint: 0 },
+        { y: 1.64, hw: 0.115, hd: 0.12, col: STEEL, tint: 0 },
+        { y: 1.78, hw: 0.03, hd: 0.03, col: STEEL, tint: 0 },
+      ]
+    : [
+        { y: 1.57, hw: 0.112, hd: 0.12, col: STEEL, tint: 0 },
+        { y: 1.67, hw: 0.105, hd: 0.112, col: STEEL, tint: 0 },
+        { y: 1.82, hw: 0.01, hd: 0.01, col: STEEL, tint: 0 },
+      ],
+});
+
+/**
+ * Копейщик у ворот: стёганка цвета стражи, конический шлем, копьё в правой руке выше головы, миндалевидный щит на
+ * левой — второй тканью (цвет города). Стоит — шейдер его не качает (шаг 0); в строю найма — идёт.
+ */
+export const guardGeometry = (lod: FigureLod = 2): THREE.BufferGeometry =>
+  lod === 0
+    ? boxGuard()
+    : figure([
+        ...roundLegs(),
+        tunic(),
+        ...roundArms(1, 0),
+        roundHead(),
+        helmet(false),
+        // Копьё: древко у правой руки и наконечник.
+        {
+          x: 0.12,
+          z: 0.27,
+          y0: 0,
+          y1: 0,
+          hw: 0,
+          hd: 0,
+          col: SHAFT,
+          tint: 0,
+          n: 3,
+          ring: [
+            { y: 0.02, hw: 0.018, hd: 0.018, col: SHAFT, tint: 0 },
+            { y: 2.55, hw: 0.018, hd: 0.018, col: SHAFT, tint: 0 },
+            { y: 2.56, hw: 0.035, hd: 0.035, col: STEEL, tint: 0 },
+            { y: 2.8, hw: 0.002, hd: 0.002, col: STEEL, tint: 0 },
+          ],
+        },
+        // Щит на левой руке: сверху широкий, книзу клином.
+        {
+          x: 0.08,
+          z: -0.31,
+          y0: 0,
+          y1: 0,
+          hw: 0,
+          hd: 0,
+          col: WHITE,
+          tint: 2,
+          n: 4,
+          cap: 1,
+          ring: [
+            { y: 0.62, hw: 0.02, hd: 0.02, col: WHITE, tint: 2 },
+            { y: 1.02, hw: 0.03, hd: 0.2, col: WHITE, tint: 2 },
+            { y: 1.36, hw: 0.03, hd: 0.21, col: WHITE, tint: 2 },
+          ],
+        },
+      ], lod === 1);
+
+/**
+ * Лучник на стене: стёганка цвета стражи, шапель (шлем с полями), колчан за спиной, лук в левой руке — качается вместе
+ * с ней, мягко. Ходит дозором; ночью над правым плечом факел (`torches`).
+ */
+export const archerGeometry = (lod: FigureLod = 2): THREE.BufferGeometry => {
+  if (lod === 0) return boxGuard();
+  const arms = roundArms(1, ARM_AMP * 0.6);
+  const left = arms.find((a) => (a.z ?? 0) < 0)!;
+  return figure([
+    ...roundLegs(),
+    tunic(),
+    ...arms,
+    roundHead(),
+    helmet(true),
+    // Колчан: кожаный ствол за правым плечом наискось вверх, стрелы — светлыми перьями.
+    {
+      x: -0.17,
+      z: 0.07,
+      y0: 0,
+      y1: 0,
+      hw: 0,
+      hd: 0,
+      col: LEATHER,
+      tint: 0,
+      n: 4,
+      ring: [
+        { y: 0.9, hw: 0.05, hd: 0.05, col: LEATHER, tint: 0 },
+        { y: 1.42, hw: 0.055, hd: 0.055, x: -0.03, col: LEATHER, tint: 0 },
+        { y: 1.55, hw: 0.04, hd: 0.04, x: -0.04, col: LINEN, tint: 0 },
+      ],
+    },
+    // Лук: длинный, дугой вперёд — у левой кисти, качается с рукой.
+    {
+      x: 0.06,
+      z: -0.27,
+      y0: 0,
+      y1: 0,
+      hw: 0,
+      hd: 0,
+      col: WOOD,
+      tint: 0,
+      n: 3,
+      ring: [
+        { y: 0.15, hw: 0.012, hd: 0.012, x: -0.04, col: WOOD, tint: 0 },
+        { y: 0.78, hw: 0.022, hd: 0.022, x: 0.06, col: WOOD, tint: 0 },
+        { y: 1.45, hw: 0.012, hd: 0.012, x: -0.04, col: WOOD, tint: 0 },
+      ],
+      limb: left.limb,
+      amp: left.amp,
+    },
+  ], lod === 1);
+};
 
 /** Овца (корова — та же, крупнее и в своём цвете): туловище, голова, ноги парами — передние и задние. */
 export const beastGeometry = (simple = false): THREE.BufferGeometry =>
@@ -165,11 +633,13 @@ export const beastGeometry = (simple = false): THREE.BufferGeometry =>
 export function figureMaterial(): THREE.MeshLambertMaterial {
   const m = new THREE.MeshLambertMaterial({ vertexColors: true });
   m.onBeforeCompile = (shader) => {
-    shader.vertexShader = 'attribute float tintMask;\nattribute vec4 limb;\nattribute vec2 gait;\n' + shader.vertexShader.replace(
+    shader.vertexShader =
+      'attribute float tintMask;\nattribute vec4 limb;\nattribute float limbAmp;\nattribute vec2 gait;\nattribute vec3 cloth2;\nattribute vec3 skinTone;\n' +
+      shader.vertexShader.replace(
       '#include <begin_vertex>',
       /* glsl */ `#include <begin_vertex>
       if (limb.z != 0.0) {
-        float ang = limb.z > 0.0 ? sin(gait.x * 6.2832 / limb.z + limb.w) * 0.5 * gait.y : gait.x / limb.z;
+        float ang = limb.z > 0.0 ? sin(gait.x * 6.2832 / limb.z + limb.w) * limbAmp * gait.y : gait.x / limb.z;
         float ca = cos(ang);
         float sa = sin(ang);
         if (limb.w > 50.0) {
@@ -192,7 +662,8 @@ export function figureMaterial(): THREE.MeshLambertMaterial {
         vColor *= color;
       #endif
       #ifdef USE_INSTANCING_COLOR
-        vColor.xyz *= mix( vec3( 1.0 ), instanceColor.xyz, tintMask );
+        // Маска: 0 — свой цвет, 1 — одежда экземпляра, 2 — вторая ткань (капюшон, платок, щит), 3 — кожа.
+        vColor.xyz *= tintMask < 0.5 ? vec3( 1.0 ) : tintMask < 1.5 ? instanceColor.xyz : tintMask < 2.5 ? cloth2 : skinTone;
       #endif`,
     );
   };
@@ -559,6 +1030,36 @@ export function glowPoints(n: number, size: number, color: number, name: string)
 
 const DRESS = [0x7a4a3a, 0x5a6a7a, 0x8a7a5a, 0x6a5a4a, 0x9a8a6a, 0x4a5a3a, 0x8a5a5a, 0x5a4a6a, 0xa09070, 0x6a6a5a].map(linear);
 const TABARD = [0x8a2f2a, 0x7a3a2c, 0x6a2a28].map(linear);
+/** Кожа горожан — от светлой до смуглой (Сицилия 1200 года — и норманны, и греки, и арабы). */
+const SKINS = [0xe0b494, 0xd4a07e, 0xc79a7a, 0xb88462, 0xa87252, 0x8e5e40].map(linear);
+/** Вторая ткань мужчин — капюшон с оплечьем, котта, шапка: некрашеная шерсть, вайда, марена, ореховая, зелень. */
+const CLOTH2 = [0x6a5a48, 0x4a5a72, 0x7a3a30, 0x5a4a38, 0x4a5a3a, 0x8a7a60, 0x3a3a3a, 0x6a4a5a].map(linear);
+/** Платок женщин: лён, беленый, синий, охра. */
+const KERCHIEF = [0xe8e0cc, 0xd8cfb8, 0xf0ece0, 0x8a9ab0, 0xb89a60].map(linear);
+/** Щиты стражи — цвета города: червлень с золотом, синь. */
+const SHIELD = [0x9a2a24, 0xb08a3a, 0x2a3a6a].map(linear);
+
+/**
+ * Экземплярный меш фигур: цвет одежды — `instanceColor`, вторая ткань и кожа — свои атрибуты экземпляра
+ * (`figureMaterial`, маски 2 и 3). Цвета — от номера экземпляра (`hash3`), до первого кадра.
+ */
+export function figureMesh(g: THREE.BufferGeometry, mat: THREE.Material, n: number, name: string, dress: readonly V3[], second: readonly V3[], salt: number): THREE.InstancedMesh {
+  const im = new THREE.InstancedMesh(g, mat, Math.max(1, n));
+  const c2 = new Float32Array(im.count * 3);
+  const sk = new Float32Array(im.count * 3);
+  const col = new THREE.Color();
+  for (let i = 0; i < im.count; i++) {
+    const d = dress[hash3(i, 3, salt) % dress.length];
+    im.setColorAt(i, col.setRGB(d[0], d[1], d[2]));
+    c2.set(second[hash3(i, 5, salt) % second.length], i * 3);
+    sk.set(SKINS[hash3(i, 7, salt) % SKINS.length], i * 3);
+  }
+  g.setAttribute('cloth2', new THREE.InstancedBufferAttribute(c2, 3));
+  g.setAttribute('skinTone', new THREE.InstancedBufferAttribute(sk, 3));
+  im.name = name;
+  im.frustumCulled = false;
+  return im;
+}
 
 /** Стоит, а не идёт: у рядов, у колодца, у паперти, у ратуши — кружком по двое-четверо, лицом друг к другу. */
 interface Idle {
@@ -567,6 +1068,9 @@ interface Idle {
   z: number;
   yaw: number;
 }
+
+/** Копейщики у ворот: с каждой стороны проезда (арка 6 м) двое — у столба арки и на шаг дальше, м от оси. */
+export const GATE_POSTS = [3.5, 4.4] as const;
 
 /** Ночью на улицах редкие прохожие: доля дневных (docs/city.md, 13.1). */
 export const NIGHT_SHARE = 0.18;
@@ -695,10 +1199,16 @@ export class CityLife {
   /** Маршруты идущих и места стоящих; порядок экземпляров перемешан — ночью пустеет равномерно. */
   private routes: (Route | null)[] = [];
   private idle: (Idle | null)[] = [];
-  private people: THREE.InstancedMesh;
+  /** Горожане — по мешу на вид (`TOWNSFOLK`; на низком — один прежний); прохожий `k` — в меше `k % видов`. */
+  private crowd: THREE.InstancedMesh[] = [];
+  private crowdGait: THREE.InstancedBufferAttribute[] = [];
+  /** Лучники на стене. */
   private sentries: THREE.InstancedMesh;
+  /** Копейщики у ворот: по двое с каждой стороны проезда, стоят. */
+  private gateGuards: THREE.InstancedMesh;
+  private gatePosts: { x: number; y: number; z: number; yaw: number }[] = [];
+  private beatStops: { s: number; half: number }[] = [];
   private beasts: THREE.InstancedMesh;
-  private peopleGait: THREE.InstancedBufferAttribute;
   private guardGait: THREE.InstancedBufferAttribute;
   private beastGait: THREE.InstancedBufferAttribute;
   /** Факелы стражи: огонёк над плечом каждого — ночью идут по стене вместе с ним. */
@@ -767,36 +1277,64 @@ export class CityLife {
 
     const mat = figureMaterial();
     const simple = quality === 'low';
-    this.people = new THREE.InstancedMesh(personGeometry(simple), mat, this.cap.people);
-    this.sentries = new THREE.InstancedMesh(guardGeometry(simple), mat, this.cap.guards);
+    const lod = figureLod(quality);
+    const kinds: readonly Townsfolk[] = simple ? ['hood'] : TOWNSFOLK;
+    kinds.forEach((kind, m) => {
+      const n = Math.ceil((this.cap.people - m) / kinds.length);
+      const im = figureMesh(townsGeometry(kind, lod), mat, n, m === 0 ? 'city-people' : `city-people-${kind}`, DRESS, kind === 'woman' ? KERCHIEF : CLOTH2, 97 + m);
+      this.crowd.push(im);
+      this.crowdGait.push(gaitOf(im));
+    });
+    this.sentries = figureMesh(archerGeometry(lod), mat, this.cap.guards, 'city-guards', TABARD, SHIELD, 79);
+    // Ворота: по двое копейщиков с каждой стороны проезда, перед башней, лицом от неё. Снаружи — если там есть место:
+    // северные ворота города и ворота замка стоят через ров вплотную, и их стража — каждая со своей, внутренней стороны.
+    const gates = plan.towers.filter((t) => t.kind === 'gate' || t.kind === 'castleGate');
+    for (const t of gates) {
+      let fx = Math.cos(t.out);
+      let fz = Math.sin(t.out);
+      const blocked = gates.some((o) => o !== t && (o.x - t.x) * fx + (o.z - t.z) * fz > 0 && Math.hypot(o.x - t.x, o.z - t.z) < (t.size + o.size) / 2 + 4);
+      if (blocked) {
+        fx = -fx;
+        fz = -fz;
+      }
+      for (const side of [-1, 1]) {
+        for (const r of GATE_POSTS) {
+          const x = t.x + fx * (t.size / 2 + 0.9) + fz * side * r;
+          const z = t.z + fz * (t.size / 2 + 0.9) - fx * side * r;
+          this.gatePosts.push({ x, y: heightAt(x, z), z, yaw: Math.atan2(-fz, fx) });
+        }
+      }
+    }
+    this.gateGuards = figureMesh(guardGeometry(lod), mat, this.gatePosts.length, 'city-gate-guards', TABARD, SHIELD, 83);
     this.beasts = new THREE.InstancedMesh(beastGeometry(simple), mat, this.cap.animals);
-    for (const im of [this.people, this.sentries, this.beasts]) {
+    for (const im of [...this.crowd, this.sentries, this.gateGuards, this.beasts]) {
       im.frustumCulled = false;
       im.count = 0;
       this.group.add(im);
     }
-    this.peopleGait = gaitOf(this.people);
+    // Копейщики стоят: матрицы — один раз.
+    this.gatePosts.forEach((g, i) => this.place(this.gateGuards, i, g.x, g.y, g.z, g.yaw, 1));
+    this.gateGuards.count = this.gatePosts.length;
+    gaitOf(this.gateGuards);
     this.guardGait = gaitOf(this.sentries);
     this.beastGait = gaitOf(this.beasts);
-    this.people.name = 'city-people';
-    this.sentries.name = 'city-guards';
     this.beasts.name = 'city-beasts';
-    // Цвет одежды — до первого кадра: без него программа собралась бы без цвета экземпляров.
+    // Цвет шкур — до первого кадра: без него программа собралась бы без цвета экземпляров.
     const col = new THREE.Color();
-    for (let i = 0; i < this.cap.people; i++) {
-      const c = DRESS[hash3(i, 3, 97) % DRESS.length];
-      this.people.setColorAt(i, col.setRGB(c[0], c[1], c[2]));
-    }
-    for (let i = 0; i < this.cap.guards; i++) {
-      const c = TABARD[i % TABARD.length];
-      this.sentries.setColorAt(i, col.setRGB(c[0], c[1], c[2]));
-    }
+    for (let i = 0; i < this.cap.animals; i++) this.beasts.setColorAt(i, col.setRGB(1, 1, 1));
+    // Дозор лучника — между соседними башнями, не сквозь них: башни на ходу стены — по их проекции на ход.
+    const stops = plan.towers
+      .map((t) => ({ t, n: nearestOn(this.wall, t) }))
+      .filter((o) => o.n.d < o.t.size)
+      .map((o) => ({ s: o.n.s, half: o.t.size / 2 + 1.2 }))
+      .sort((a, b) => a.s - b.s);
+    this.beatStops = stops;
     this.seedPeople();
     this.seedBeasts();
 
     this.smoke = new CitySmoke(CITY_SMOKE);
     // Факелы стражи — точки с мягким пятном, как огоньки стены (`index.flames`), видны в сумерках и ночью.
-    this.torches = glowPoints(this.cap.guards, 2.4, 0xffa040, 'city-torches');
+    this.torches = glowPoints(this.cap.guards + this.gatePosts.length, 2.4, 0xffa040, 'city-torches');
     this.group.add(this.torches);
     if (this.cap.lanterns > 0) {
       this.lanterns = glowPoints(this.cap.lanterns, 1.7, 0xffb860, 'city-lanterns');
@@ -1106,34 +1644,38 @@ export class CityLife {
     this.time.value = t;
     // Ночью на улицах редкие прохожие, зимой — на четверть меньше; стража стоит всегда.
     const shown = Math.round(this.want.people * (1 - (1 - NIGHT_SHARE) * night) * (1 - (1 - WINTER_SHARE) * snow));
-    this.people.count = Math.min(shown, this.routes.length);
-    const pg = this.peopleGait.array as Float32Array;
+    const n = Math.min(shown, this.routes.length);
+    const kinds = this.crowd.length;
+    this.crowd.forEach((im, m) => (im.count = n > m ? Math.ceil((n - m) / kinds) : 0));
     // Фонарь — у каждого второго идущего, пока темно.
     const lamps = this.lanterns;
     const lampOn = lamps !== null && night > 0.3;
     let lit = 0;
     const lp = lamps ? (lamps.geometry.attributes.position as THREE.BufferAttribute) : null;
-    for (let k = 0; k < this.people.count; k++) {
+    for (let k = 0; k < n; k++) {
+      const im = this.crowd[k % kinds];
+      const i = Math.floor(k / kinds);
+      const pg = this.crowdGait[k % kinds].array as Float32Array;
       const r = this.routes[k];
       if (r) {
         const p = poseAt(this.paths, r, t);
-        // Шаг: лёгкое подпрыгивание в такт ног.
-        this.place(this.people, k, p.x, p.y + Math.abs(Math.sin(p.dist * 4.488)) * 0.04, p.z, p.yaw, 1);
-        pg[k * 2] = p.dist;
-        pg[k * 2 + 1] = 1;
+        // Шаг: лёгкое подпрыгивание в такт ног — дважды за шаг, мягко.
+        this.place(im, i, p.x, p.y + (1 - Math.cos(p.dist * 8.976)) * 0.018, p.z, p.yaw, 1);
+        pg[i * 2] = p.dist;
+        pg[i * 2 + 1] = 1;
         if (lampOn && lp && lit < lp.count && hash3(k, 13, 97) % 2 === 0) {
           const v = this.v3.set(0.12, 0.92, 0.3).applyMatrix4(this.m4);
           lp.setXYZ(lit++, v.x, v.y, v.z);
         }
       } else {
         const w = this.idle[k]!;
-        this.place(this.people, k, w.x, w.y + Math.abs(Math.sin(t * 1.3 + k)) * 0.02, w.z, w.yaw + Math.sin(t * 0.3 + k) * 0.25, 1);
-        pg[k * 2] = 0;
-        pg[k * 2 + 1] = 0;
+        this.place(im, i, w.x, w.y + Math.abs(Math.sin(t * 1.3 + k)) * 0.02, w.z, w.yaw + Math.sin(t * 0.3 + k) * 0.25, 1);
+        pg[i * 2] = 0;
+        pg[i * 2 + 1] = 0;
       }
     }
-    this.people.instanceMatrix.needsUpdate = true;
-    this.peopleGait.needsUpdate = true;
+    for (const im of this.crowd) im.instanceMatrix.needsUpdate = true;
+    for (const g of this.crowdGait) g.needsUpdate = true;
     if (lamps && lp) {
       const lm = lamps.material as THREE.PointsMaterial;
       lamps.visible = lit > 0;
@@ -1142,14 +1684,17 @@ export class CityLife {
       lamps.geometry.setDrawRange(0, lit);
       lp.needsUpdate = lit > 0;
     }
-    // Стража: у каждого свой отрезок хода ±22 м, туда и обратно; на концах стоит, смотрит со стены.
-    this.sentries.count = Math.min(this.want.guards, this.cap.guards);
+    // Лучники: по всем сторонам стены поровну, у каждого свой отрезок между башнями — туда и обратно, на концах
+    // стоит, смотрит со стены. Сквозь башни не ходит.
+    const c = Math.min(this.want.guards, this.cap.guards);
+    this.sentries.count = c;
     const L = this.wall.len;
     const gg = this.guardGait.array as Float32Array;
-    for (let i = 0; i < this.sentries.count; i++) {
-      const home = ((i + 0.5 + rnd(i, 1, 79) * 0.3) / this.cap.guards) * L;
-      const g = patrolAt(t, 0.7, 22, 4 + rnd(i, 2, 79) * 5, rnd(i, 3, 79));
-      const s = (((home + g.s) % L) + L) % L;
+    for (let i = 0; i < c; i++) {
+      const home = ((i + 0.5 + rnd(i, 1, 79) * 0.3) / c) * L;
+      const beat = this.beatOf(home);
+      const g = patrolAt(t, 0.7, beat.reach, 4 + rnd(i, 2, 79) * 5, rnd(i, 3, 79));
+      const s = (((beat.mid + g.s) % L) + L) % L;
       const a = at(this.wall, s);
       const yaw = Math.atan2(-a.tz * g.dir, a.tx * g.dir);
       this.place(this.sentries, i, a.p.x, heightOnPath(this.wall, s), a.p.z, yaw, 1);
@@ -1158,19 +1703,25 @@ export class CityLife {
     }
     this.sentries.instanceMatrix.needsUpdate = true;
     this.guardGait.needsUpdate = true;
-    // Факел — над правым плечом стража, мерцает; ночью виден, днём погашен.
+    // Факел — над правым плечом лучника и у копья копейщика, мерцает; ночью виден, днём погашен.
     const tm = this.torches.material as THREE.PointsMaterial;
     tm.opacity = night;
-    this.torches.visible = night > 0.02 && this.sentries.count > 0;
+    const posts = this.gateGuards.count;
+    this.torches.visible = night > 0.02 && c + posts > 0;
     if (this.torches.visible) {
       const tp = this.torches.geometry.attributes.position as THREE.BufferAttribute;
-      for (let i = 0; i < this.sentries.count; i++) {
+      for (let i = 0; i < c; i++) {
         this.sentries.getMatrixAt(i, this.m4);
         const v = this.v3.set(0.15, 2.05, 0.32).applyMatrix4(this.m4);
         tp.setXYZ(i, v.x, v.y, v.z);
       }
+      for (let i = 0; i < posts; i++) {
+        this.gateGuards.getMatrixAt(i, this.m4);
+        const v = this.v3.set(0.2, 1.95, 0.42).applyMatrix4(this.m4);
+        tp.setXYZ(c + i, v.x, v.y, v.z);
+      }
       tp.needsUpdate = true;
-      this.torches.geometry.setDrawRange(0, this.sentries.count);
+      this.torches.geometry.setDrawRange(0, c + posts);
       tm.size = 2.4 * (1 + Math.sin(t * 13) * 0.1);
     }
     // Скот бродит медленно: круг в пару метров у своего места, ноги — по пройденной дуге.
@@ -1189,6 +1740,22 @@ export class CityLife {
     this.smoke.update(t, night, snow);
   }
 
+  /** Отрезок дозора между башнями, в котором дом лучника: середина и полудлина (не больше 22 м). */
+  private beatOf(home: number): { mid: number; reach: number } {
+    const st = this.beatStops;
+    const L = this.wall.len;
+    const m = st.length;
+    if (m === 0) return { mid: home, reach: 22 };
+    let j = -1;
+    for (let k = 0; k < m; k++) if (st[k].s <= home) j = k;
+    // Башня до дома и башня после — по кругу хода.
+    const a = j === -1 ? { s: st[m - 1].s - L, half: st[m - 1].half } : st[j];
+    const b = j === -1 ? st[0] : j + 1 < m ? st[j + 1] : { s: st[0].s + L, half: st[0].half };
+    const from = a.s + a.half;
+    const to = b.s - b.half;
+    return { mid: (from + to) / 2, reach: Math.max(0.3, Math.min(22, (to - from) / 2)) };
+  }
+
   private place(im: THREE.InstancedMesh, k: number, x: number, y: number, z: number, yaw: number, scale: number): void {
     this.q4.setFromAxisAngle(this.up, yaw);
     this.m4.compose(this.v3.set(x, y, z), this.q4, this.s3.set(scale, scale, scale));
@@ -1203,7 +1770,7 @@ export class CityLife {
       m.map?.dispose();
       m.dispose();
     }
-    (this.people.material as THREE.Material).dispose();
+    (this.crowd[0].material as THREE.Material).dispose();
     (this.flags.material as THREE.Material).dispose();
     (this.birds.material as THREE.Material).dispose();
   }

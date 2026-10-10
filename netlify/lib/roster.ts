@@ -16,6 +16,8 @@
  * умеет Node 22. Общие с игрой типы лежат в `contract.ts` — один файл на две
  * стороны, как и у сохранения.
  */
+import { createHmac } from 'node:crypto';
+import { botToken } from './http.js';
 import { placeCastle, settleRandom, type Spot } from '../../src/world/settle.js';
 import { SICILY, inSicilyTheatre, type SpawnMode } from '../../src/world/spawn.js';
 import { ATLAS_HASH } from '../../src/world/atlas/data.js';
@@ -83,11 +85,19 @@ export const spotsOf = (file: RosterFile): Spot[] =>
 
 /**
  * Идентификатор замка наружу. Не телеграмный: соседям знать, кто именно за ним
- * играет, незачем — имя вождь называет сам. Хеш двойной, потому что на одном
- * тридцатидвухбитном `ROSTER_MAX` замков сходились бы в одну строку чаще, чем
- * хочется.
+ * играет, незачем — имя вождь называет сам.
+ *
+ * Хеш ключа с секретом сервера (HMAC от токена бота). Голый хеш `tg-<id>` обращался перебором номеров Telegram: ключ
+ * устроен известно, хеш быстрый, и номер игрока по идентификатору замка находил любой сосед (docs/LAUNCH.md,
+ * «Безопасность»). Токен на сервере есть всегда — без него не проходит ни одна подпись; переезд на свой сервер с тем
+ * же ботом идентификаторы не меняет. Токена нет (тесты без подписи) — прежний хеш без секрета. Смена правила меняет
+ * идентификаторы стоящих замков: выкладывается вместе с `/wipeworld ДА`.
  */
-export function castleIdOf(key: string): string {
+export function castleIdOf(key: string, token: string = botToken()): string {
+  if (token) {
+    const h = createHmac('sha256', token).update(`castle:${key}`).digest();
+    return `c${h.readUInt32BE(0).toString(36).padStart(7, '0')}${h.readUInt32BE(4).toString(36).padStart(7, '0')}`;
+  }
   const mix = (salt: number): string => {
     let h = salt >>> 0;
     for (let i = 0; i < key.length; i++) {
@@ -143,7 +153,7 @@ export function upsert(file: RosterFile, key: string, claim: CastleClaim, now: n
  * Клетка для новой строки.
  *
  * Обычный режим — правило расселения (`settle.placeCastle`). Режим `sicily` (docs/test_world.md) — первое свободное из
- * двенадцати мест острова по порядку списка (`world/spawn.SICILY`); занято место, на котором уже стоит чья-то строка.
+ * мест острова по порядку списка (`world/spawn.SICILY`); занято место, на котором уже стоит чья-то строка.
  * Свободных нет — обычное правило, но только в регионе острова: новичок обязан мочь воевать с теми, кто на острове.
  *
  * Зовут её внутри цикла записи, на только что прочитанном реестре (`routes/castles.ts`): двое, вошедших разом, не займут

@@ -15,6 +15,7 @@
     "time:report": "vite-node scripts/time-report.ts",
     "world:report": "vite-node scripts/world-report.ts",
     "settle:report": "vite-node scripts/settle-report.ts",
+    "playtest:sim": "vite-node scripts/playtest-sim.ts",
     "raid:report": "vite-node scripts/raid-report.ts",
     "raid-growth:report": "vite-node scripts/raid-growth-report.ts",
     "raid-hiring:report": "vite-node scripts/raid-hiring-report.ts",

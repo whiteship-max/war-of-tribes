@@ -1,4 +1,5 @@
 import type { ActiveEvent, GameState, LogEntry } from './types';
+import { bonesToCharcoal } from './charcoal';
 import { DAY_LENGTH } from './constants';
 import { UPKEEP_TEXT, WAGE_AMNESTY_DAYS } from './data/upkeep';
 import { PACE_TEXT } from './data/pace';
@@ -230,6 +231,11 @@ function migrate(s: GameState, from: number, data: SavedState): void {
     delete (s as { gems?: unknown }).gems;
     tell(s, 'Алмазы теперь хранятся в Сокровищнице. Каждая трата записана в её книге.', 'info');
   }
+  //
+  // 22 → 23: кости стали углём (решение владельца 10.10.2026, docs/economy.md). Припас переименован везде, где лежал, ещё
+  // до слияния с новой партией (`deserialize` → `bonesToCharcoal`): иначе склад приехал бы с костями сбоку и стартовым
+  // углём. Здесь — только строка игроку.
+  if (from < 23) tell(s, 'Кости на складе пошли в уголь, один к одному. Уголь жгут лесорубы, и без него горн холоден.', 'info');
 }
 
 /**
@@ -372,6 +378,8 @@ export function deserialize(json: string): GameState | null {
     // Сохранение из будущего читать нечем: полей, которых мы не знаем, не бывает
     // только у младших версий.
     if (from < MIN_SAVE_VERSION || from > SAVE_VERSION) return null;
+    // 22 → 23: кости — уголь. До слияния: ключ склада, рынка и трофея должен прийти уже новым (ступень — в `migrate`).
+    if (from < 23) bonesToCharcoal(data);
     const base = createInitialState();
     // Простое слияние: новые поля из createInitialState, остальное из сохранения.
     const s = {

@@ -11,8 +11,11 @@
 import type { Stores } from './kv.js';
 import { spawnModeOf, type SpawnMode } from '../../src/world/spawn.js';
 
-/** Больше этого тело запроса не принимается. Потолки частей сохранения (`LIMITS` в `routes/save.ts`) в него укладываются. */
-export const MAX_BODY_BYTES = 512 * 1024;
+/**
+ * Больше этого тело запроса не принимается. Потолки частей сохранения (`LIMITS` в `routes/save.ts`) в него укладываются
+ * и после экранирования строк в JSON; потолок Caddy (`deploy/Caddyfile`, `max_size 1MB`) — выше него.
+ */
+export const MAX_BODY_BYTES = 960 * 1024;
 
 const HEADERS = {
   'content-type': 'application/json; charset=utf-8',
@@ -99,6 +102,30 @@ export function allow(key: string, perMinute: number, now: number = Date.now()):
  * на всех, кто переписывает общую запись: реестр замков и исходящие уведомления.
  */
 export const WRITE_TRIES = 4;
+
+/**
+ * Очередь к общей записи внутри экземпляра: `run` — чтение, расчёт и условная запись — идёт по одному на имя.
+ *
+ * Правду держит условная запись по ETag и без очереди, но в давке она дорога: запросы, прочитавшие одну версию,
+ * выигрывают по одному за круг, и за `WRITE_TRIES` кругов проходят не все — остальным отказ, хотя ничего не нарушено
+ * (прогон ботов, docs/playtest_sim.md, «Мелкое», п. 1). На своём сервере экземпляр один, и очередь снимает гонку
+ * целиком; на Netlify экземпляр держит один запрос за раз, и гонку между экземплярами по-прежнему держат попытки.
+ */
+const turns = new Map<string, Promise<void>>();
+
+export function inTurn<T>(name: string, run: () => Promise<T>): Promise<T> {
+  const mine = (turns.get(name) ?? Promise.resolve()).then(run);
+  const done = mine.then(
+    () => undefined,
+    () => undefined,
+  );
+  turns.set(name, done);
+  // Очередь опустела — имя не держим: имён немного, но память экземпляра живёт неделями.
+  void done.then(() => {
+    if (turns.get(name) === done) turns.delete(name);
+  });
+  return mine;
+}
 
 /** Токен бота из окружения. В репозитории его нет и быть не может. */
 export const botToken = (): string => process.env.TELEGRAM_BOT_TOKEN ?? '';

@@ -4,6 +4,7 @@ import { App } from './App';
 import { initTelegram } from './telegram/webapp';
 import './ui/styles.css';
 import { bootDone } from './boot/stage';
+import { Crash } from './ui/Crash';
 
 const params = new URLSearchParams(location.search);
 if (params.has('replay')) {
@@ -28,7 +29,9 @@ if (params.has('replay')) {
   const start = (): void =>
     createRoot(document.getElementById('root')!).render(
       <React.StrictMode>
-        <App />
+        <Crash where="игра">
+          <App />
+        </Crash>
       </React.StrictMode>,
     );
   // Сцена игры — город (docs/city.md, «Город — единственный вид»), своим куском: он едет до игры,

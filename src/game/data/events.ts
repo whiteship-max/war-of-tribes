@@ -325,7 +325,7 @@ export const EVENTS: EventDef[] = [
       {
         label: 'Выйти на стаю',
         hint: 'Бой у ворот',
-        apply: (s) => toGate(s, 'wolves', { hides: amount(s, 4), bones: amount(s, 4) }),
+        apply: (s) => toGate(s, 'wolves', { hides: amount(s, 4) }),
       },
       {
         label: 'Бросить им мяса',
@@ -775,13 +775,12 @@ export const EVENTS: EventDef[] = [
     options: [
       {
         label: 'Забрать добычу',
-        hint: (s) => `Еда +${amount(s, 20)}, шкуры +${amount(s, 5)}, кости +${amount(s, 3)}`,
+        hint: (s) => `Еда +${amount(s, 20)}, шкуры +${amount(s, 5)}`,
         apply: (s) => {
           const f = addRes(s, 'food', amount(s, 20));
           const h = addRes(s, 'hides', amount(s, 5));
-          const b = addRes(s, 'bones', amount(s, 3));
           s.stats.hunts++;
-          return `Туши привезли на волокушах. Еды прибавилось на ${f}, шкур на ${h}, костей на ${b}.`;
+          return `Туши привезли на волокушах. Еды прибавилось на ${f}, шкур на ${h}.`;
         },
       },
     ],

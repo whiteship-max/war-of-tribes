@@ -35,6 +35,9 @@
 /** Размер куска, которым писали. Читаем чужие данные — число берём как есть. */
 const CHUNK_KEYS_MAX = 512;
 
+/** Сколько ждать ответа облака Telegram на один ключ (куски спрашиваются разом). */
+export const CLOUD_WAIT_MS = 4000;
+
 const store = () => {
   const app = window.Telegram?.WebApp;
   if (!app?.CloudStorage || !app.isVersionAtLeast?.('6.9')) return undefined;
@@ -52,8 +55,12 @@ const store = () => {
 export async function rescueFromCloud(key: string): Promise<string | null> {
   const cs = store();
   if (!cs) return null;
+  // Ответ облака ждётся не дольше `CLOUD_WAIT_MS`: у `getItem` своего срока нет, и клиент, не ответивший вовсе,
+  // держал бы загрузку нового игрока вечно — облако зовут ровно тогда, когда на устройстве пусто (docs/bughunt.md,
+  // «Облако без срока»). Не ответило — значит, в облаке ничего нет.
   const getOne = (k: string) =>
     new Promise<string | null>((resolve) => {
+      setTimeout(() => resolve(null), CLOUD_WAIT_MS);
       try {
         cs.getItem(k, (err, v) => resolve(err || !v ? null : v));
       } catch {

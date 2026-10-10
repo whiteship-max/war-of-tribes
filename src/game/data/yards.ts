@@ -53,8 +53,8 @@ export const YARDS: YardDef[] = [
     job: 'hunter',
     name: 'Охотник',
     icon: '🏹',
-    description: 'Приносит мясо, шкуры и кости.',
-    yield: { food: 14, hides: 2.4, bones: 2 },
+    description: 'Приносит мясо и шкуры.',
+    yield: { food: 14, hides: 2.4 },
     freeRange: true,
     seasons: { summer: 0.9, autumn: 1.2, winter: 0.75 },
   },
@@ -63,8 +63,11 @@ export const YARDS: YardDef[] = [
     job: 'woodcutter',
     name: 'Лесоруб',
     icon: '🪓',
-    description: 'Рубит лес за стеной.',
-    yield: { wood: 9 },
+    description: 'Рубит лес за стеной и жжёт уголь из сучьев.',
+    // Уголь выжигают в яме из сучьев и вершинника — того, что от бревна и так остаётся в лесу, — поэтому дерево лесопилки
+    // не убывает. Число — прежний поток пятого припаса (кости охотника, 2 на работника): лавка, рынок и рецепты стоят на
+    // нём, и перенос не сдвигает ни одной их цены (docs/economy.md, «Уголь вместо костей»).
+    yield: { wood: 9, charcoal: 2 },
     freeRange: true,
     bonded: true,
     seasons: { summer: 1.1, autumn: 1.15, winter: 0.8 },

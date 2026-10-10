@@ -187,17 +187,17 @@ describe('после стирания старая партия не воскр�
 });
 
 describe('/spawns', () => {
-  it('двенадцать мест: занятые — чьи, остальные свободны; чужому — тишина', async () => {
+  it('все места острова: занятые — чьи, остальные свободны; чужому — тишина', async () => {
     await lived();
     const t = fakeTg();
     expect(await command(t, A, '/spawns')).toBeNull();
     const text = (await command(t, ADMIN, '/spawns')) as string;
     expect(text).toMatch(/режим TRIBE_SPAWN=sicily включён; эпоха мира 0/);
-    expect(text).toMatch(/Занято 2 из 12/);
+    expect(text).toContain(`Занято 2 из ${SICILY.length}.`);
     expect(text).toContain(`1. ${SICILY[0].x}|${SICILY[0].y} — «`);
     expect(text).toContain(`tg-${A} (А)`);
     expect(text).toContain(`tg-${B} (Б)`);
-    expect(text.split('\n').filter((l) => l.endsWith('— свободно'))).toHaveLength(10);
+    expect(text.split('\n').filter((l) => l.endsWith('— свободно'))).toHaveLength(SICILY.length - 2);
     delete process.env.TRIBE_SPAWN;
     expect(await command(t, ADMIN, '/spawns')).toMatch(/ВЫКЛЮЧЕН/);
   });

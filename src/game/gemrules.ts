@@ -89,7 +89,7 @@ export const SHOP_LOT = 100;
 export const SHOP_DAILY = 10;
 
 /** Что продаёт лавка: припасы, которые добывают дворы. Войска и золота в ней нет (решение владельца). */
-export const SHOP_GOODS: readonly ResourceId[] = (['wood', 'stone', 'food', 'hides', 'bones', 'copper', 'iron'] as const).filter((r) =>
+export const SHOP_GOODS: readonly ResourceId[] = (['wood', 'stone', 'food', 'hides', 'charcoal', 'copper', 'iron'] as const).filter((r) =>
   YARDS.some((y) => (y.yield[r] ?? 0) > 0),
 );
 
@@ -124,7 +124,7 @@ export const GOOD_OF: Readonly<Record<ResourceId, string>> = {
   stone: 'камня',
   food: 'еды',
   hides: 'шкур',
-  bones: 'костей',
+  charcoal: 'угля',
   copper: 'меди',
   iron: 'железа',
 };

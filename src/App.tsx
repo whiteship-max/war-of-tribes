@@ -34,6 +34,7 @@ import { useTrades } from './ui/trades';
 import { useTreasury } from './ui/treasury';
 import { tutorialActive } from './game/data/tutorial';
 import { Leave } from './ui/parts/leave';
+import { Crash } from './ui/Crash';
 
 /**
  * Предыстория — отдельный чанк, и качается он по нажатию кнопки.
@@ -132,6 +133,9 @@ export function App() {
   const cheated = useGame((g) => g.s.cheated);
   const mapOpen = useGame((g) => g.mapOpen);
   const realmOpen = useRealm((r) => r.open);
+  const hideRealm = useRealm((r) => r.hide);
+  const hideBug = useBugReport((b) => b.hide);
+  const closeMap = useGame((g) => g.closeMap);
   const tradesOpen = useTrades((t) => t.open);
   const treasuryOpen = useTreasury((t) => t.open);
   const hideTreasury = useTreasury((t) => t.hide);
@@ -241,7 +245,11 @@ export function App() {
           разобрана: контекст WebGL в игре один, и делить его между двумя живыми
           сценами нельзя (подробно — в `prologue/Prologue.tsx`). */}
       {!prologue && !playing && <GameCanvas />}
-      {mapOpen && <WorldMap />}
+      {mapOpen && (
+        <Crash where="карта" onClose={closeMap}>
+          <WorldMap />
+        </Crash>
+      )}
       {!mapOpen && <Suspense fallback={null}><Hud /></Suspense>}
       <Suspense fallback={null}><Alerts /></Suspense>
       {/* Осада — в правом низу деревни: её не разбирают, из-под неё выходят.
@@ -252,30 +260,40 @@ export function App() {
       {!mapOpen && <CheatPanel where="village" marked={cheated} onApply={cheat} />}
       {!mapOpen && <SiegeBanner />}
       <Sheet open={sheet !== null} onClose={closeSheet}>
-        {shown && <SheetContent view={shown} />}
+        {shown && (
+          <Crash key={JSON.stringify(shown)} where={`шторка ${shown.kind}`} onClose={closeSheet} inline>
+            <SheetContent view={shown} />
+          </Crash>
+        )}
       </Sheet>
       <Sheet open={tradesOpen && !mapOpen} onClose={hideTrades}>
         {/* Содержимое переживает закрытие, пока шторка уезжает (как у шторки построек выше). */}
         <Leave open={tradesOpen} ms={320}>
-          <Suspense fallback={null}>
-            <Trades />
-          </Suspense>
+          <Crash where="промыслы" onClose={hideTrades} inline>
+            <Suspense fallback={null}>
+              <Trades />
+            </Suspense>
+          </Crash>
         </Leave>
       </Sheet>
       {/* Сокровищница (docs/gems.md) — тем же приёмом, что промыслы: своё окно, встаёт вместо шторки. */}
       <Sheet open={treasuryOpen && !mapOpen} onClose={hideTreasury}>
         <Leave open={treasuryOpen} ms={320}>
-          <Suspense fallback={null}>
-            <Treasury />
-          </Suspense>
+          <Crash where="сокровищница" onClose={hideTreasury} inline>
+            <Suspense fallback={null}>
+              <Treasury />
+            </Suspense>
+          </Crash>
         </Leave>
       </Sheet>
       {!mapOpen && <Suspense fallback={null}><Nav /></Suspense>}
       {/* Меню державы появляется и уходит плавно (`leave.tsx`): закрытое ещё тает, касаний не беря. */}
       <Leave open={!mapOpen && realmOpen}>
-        <Suspense fallback={null}>
-          <RealmMenu />
-        </Suspense>
+        <Crash where="держава" onClose={hideRealm}>
+          <Suspense fallback={null}>
+            <RealmMenu />
+          </Suspense>
+        </Crash>
       </Leave>
       <WinterModal />
       <OfflineModal />
@@ -330,21 +348,27 @@ export function App() {
         экрана: чанк едет доли секунды, и мигать другим цветом ради них незачем.
       */}
       {prologue && (
-        <Suspense fallback={<div className="pro pro-wait">Поляна…</div>}>
-          <Prologue onExit={() => setPrologue(false)} />
-        </Suspense>
+        <Crash where="предыстория" onClose={() => setPrologue(false)}>
+          <Suspense fallback={<div className="pro pro-wait">Поляна…</div>}>
+            <Prologue onExit={() => setPrologue(false)} />
+          </Suspense>
+        </Crash>
       )}
       {/* Промысел — поверх всего и вместо города, как предыстория: выход возвращает в город. */}
       {playing && (
-        <Suspense fallback={<div style={MINI_WAIT} />}>
-          <Minigame game={playing} onExit={stopPlaying} />
-        </Suspense>
+        <Crash where="промысел" onClose={stopPlaying}>
+          <Suspense fallback={<div style={MINI_WAIT} />}>
+            <Minigame game={playing} onExit={stopPlaying} />
+          </Suspense>
+        </Crash>
       )}
       {/* «Сообщить об ошибке» — поверх всего: его открывают из меню, со стартового экрана и с плашки заморозки. */}
       {bugOpen && (
-        <Suspense fallback={null}>
-          <BugReport />
-        </Suspense>
+        <Crash where="сообщить об ошибке" onClose={hideBug}>
+          <Suspense fallback={null}>
+            <BugReport />
+          </Suspense>
+        </Crash>
       )}
     </div>
   );

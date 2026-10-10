@@ -8,6 +8,8 @@ import { deserialize, serialize } from '@/game/save';
 import { STOCK_KEYS, TROOP_KEYS, readGrant, type AdminGrant } from '../../netlify/lib/contract';
 import { provideGrants, takeNote, useAdmin } from './admin';
 import { watchOf } from './snapshot';
+import { tick } from '@/game/sim/tick';
+import { flagsBetween } from '../../netlify/lib/watch';
 
 /**
  * Указ админа в партии (docs/admin.md): ложится одной дверью и ровно один раз, по правилам склада, и алмазов не знает.
@@ -97,5 +99,19 @@ describe('опись наблюдения', () => {
     expect(w.deeds).toBeGreaterThanOrEqual(1);
     expect(w.haulCap).toBeGreaterThan(0);
     expect(w.train).toBeGreaterThanOrEqual(0);
+  });
+
+  it('награда задания — разовое дело: склад, выросший наградой, флага не даёт (прогон 25 ботов)', () => {
+    const s = createInitialState(11);
+    s.army.spearman = 500; // сверх цели «Первой дружины»
+    const a = watchOf(s);
+    const food = s.resources.food;
+    tick(s, 1);
+    // Точка внутри правила: задание закрылось этим шагом, и склад вырос наградой больше, чем позволила бы выработка.
+    expect(s.completedQuests).toContain('first_troops');
+    expect(s.resources.food - food).toBeGreaterThan(200);
+    const b = watchOf(s);
+    expect(b.deeds).toBeGreaterThan(a.deeds);
+    expect(flagsBetween(a, 0, b, 60_000).map((f) => f.kind)).not.toContain('stock');
   });
 });

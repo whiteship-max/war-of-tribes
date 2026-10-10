@@ -151,6 +151,7 @@ export function mountCity(root: HTMLElement, p: URLSearchParams): void {
         const now = performance.now();
         life?.update(Math.min(0.1, (now - tPrev) / 1000), (now - t0) / 1000 + tShift, windowNight(light), seasonVis.snow);
         bustle?.update((now - t0) / 1000 + tShift, windowNight(light), seasonVis.snow);
+        city.mill?.update((now - t0) / 1000 + tShift);
         tPrev = now;
       }
       renderer.info.reset();

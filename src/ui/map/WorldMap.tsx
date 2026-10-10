@@ -26,7 +26,7 @@ import { cameraAnchor, figuresOn, marchOn, useWorld, worldNow } from '@/world/st
 import { freeCamera, frameCost, probe } from '@/debug';
 import { settlementAt } from '@/world/cache';
 import { formatCoord, parseCoord } from '@/world/geo';
-import { RELATION_META, RELATION_ORDER, STAGE_BY_ID } from '@/world/data/meta';
+import { RELATION_META, RELATION_ORDER } from '@/world/data/meta';
 import { FIGURE_BY_ID } from '@/world/data/figures';
 import { TERRAIN_META, TERRAIN_ORDER } from '@/world/data/terrain';
 import {
@@ -58,7 +58,7 @@ import {
 import { dropPaper, drawFrame } from './frame';
 import { beyondText, reachable, twSlot } from './twslot';
 import { homeTheatre } from '@/world/theatre/theatre';
-import { type Look, dropSprites, silhouetteUrl } from './village';
+import { dropSprites } from './village';
 import { dropPaint } from './paint';
 import { dropParties } from './party';
 import { FELL_WORDS, WORKS_STEPS, dropSiegeMarks, fellUrl, worksUrl } from './siegemark';
@@ -98,66 +98,6 @@ const PROBE = probe();
  */
 const SPOT_REGION = 24;
 const SPOT_TRIES = 12;
-
-/**
- * Легенда показывает те же силуэты, что и полотно, а не эмодзи: значки стадий с
- * карты ушли, когда поселения стали рисоваться, и картинка в легенде обязана
- * совпадать с картинкой на земле. Замок стоит на стадии деревни нарочно — он
- * бывает при любой, и именно этим опасен: кучка хижин в каменной стене.
- */
-const LEGEND_ROWS: { look: Look; name: string; note?: string }[] = [
-  ...Object.values(STAGE_BY_ID).map((s) => ({
-    look: {
-      stage: s.id,
-      relation: 'neutral',
-      mine: false,
-      variant: 0,
-      castle: false,
-      ruin: false,
-      sacked: false,
-    } as Look,
-    name: s.name,
-  })),
-  {
-    look: {
-      stage: 'village',
-      relation: 'neutral',
-      mine: false,
-      variant: 0,
-      castle: true,
-      ruin: false,
-      sacked: false,
-    },
-    name: 'Город соседа',
-    note: 'любого размера',
-  },
-  {
-    look: {
-      stage: 'stronghold',
-      relation: 'barbarian',
-      mine: false,
-      variant: 0,
-      castle: false,
-      ruin: false,
-      sacked: false,
-    },
-    name: 'Логово',
-    note: 'шатры за терновой дугой',
-  },
-  {
-    look: {
-      stage: 'camp',
-      relation: 'barbarian',
-      mine: false,
-      variant: 0,
-      castle: false,
-      ruin: true,
-      sacked: false,
-    },
-    name: 'Пепелище',
-    note: 'сожжённое логово, след сойдёт сам',
-  },
-];
 
 /**
  * Легенда говорит только о том, что на карте бывает сегодня. На ней логова и замки живых
@@ -254,6 +194,16 @@ export function WorldMap() {
   const [jumpOpen, setJumpOpen] = useState(false);
   const [jumpText, setJumpText] = useState('');
   const [legendOpen, setLegendOpen] = useState(false);
+  // Легенда значками карты: кусок `tw/legend` тянется, когда её открыли (первая загрузка не растёт).
+  const [legendKit, setLegendKit] = useState<typeof import('./tw/legend') | null>(null);
+  useEffect(() => {
+    if (!legendOpen || legendKit) return;
+    let live = true;
+    void import('./tw/legend').then((m) => live && setLegendKit(m));
+    return () => {
+      live = false;
+    };
+  }, [legendOpen, legendKit]);
   const [ratingOpen, setRatingOpen] = useState(false);
   const [feedOpen, setFeedOpen] = useState(false);
   // Вести края (docs/feed.md): лента спрашивается, пока карта открыта, — точке новых на кнопке нужна и закрытой.
@@ -909,15 +859,30 @@ export function WorldMap() {
               <span>{RELATION_META[r].name}</span>
             </div>
           ))}
-          <h3>Города и логова</h3>
-          {LEGEND_ROWS.map((row) => (
-            <div className="wm-leg-row wm-leg-shape" key={row.name}>
-              <img src={silhouetteUrl(row.look)} alt="" />
-              <span>
-                {row.name} {row.note && <em>{row.note}</em>}
-              </span>
-            </div>
-          ))}
+          {/* Значками самой карты (`tw/legend.ts`): те же функции и та же кисть, что у значков на земле. Кусок
+              ленивый — приезжает, когда легенду открыли; до него строк нет, а не прежние картинки. */}
+          {legendKit && (
+            <>
+              <h3>Города и логова</h3>
+              {legendKit.PLACE_ROWS.map((row) => (
+                <div className="wm-leg-row wm-leg-shape wm-leg-mark" key={row.name}>
+                  <img src={legendKit.legendUrl(row)} alt="" />
+                  <span>
+                    {row.name} {row.note && <em>{row.note}</em>}
+                  </span>
+                </div>
+              ))}
+              <h3>Отряды и метки</h3>
+              {legendKit.HOST_ROWS.map((row) => (
+                <div className="wm-leg-row wm-leg-shape wm-leg-mark" key={row.name}>
+                  <img src={legendKit.legendUrl(row)} alt="" />
+                  <span>
+                    {row.name} {row.note && <em>{row.note}</em>}
+                  </span>
+                </div>
+              ))}
+            </>
+          )}
           {/* Осада и взятые города — теми же картинками, что на полотне (`siegemark.ts`). */}
           <h3>Осада и взятые города</h3>
           <div className="wm-leg-row wm-leg-shape">

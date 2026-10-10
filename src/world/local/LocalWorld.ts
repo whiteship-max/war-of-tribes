@@ -536,6 +536,11 @@ export class LocalWorld implements WorldApi {
       ? (stored as WorldSave)
       : createWorldSave(seed, this.gen.home, this.gen.allyTribe, this.clock(), named !== null);
     if (keep && named) this.save.homeFromRoster = true;
+    // Мир собран заново поверх прежнего той же эпохи («Начать заново», дом сменён реестром): итоги войн и тайных дел,
+    // уже принятые партией, принятыми и остаются. Сервер отдаёт их ещё семь суток (`WAR_KEEP_MS`), и новый мир без
+    // этого списка применял бы их второй раз — добыча взятого города, украденное и потери приходили снова
+    // (docs/bughunt.md, «Начать заново»).
+    if (!keep && stored?.warSeen?.length) this.save.warSeen = [...stored.warSeen];
     if (opts.era !== undefined) this.save.era = opts.era;
     for (const s of this.gen.settlements) this.byId.set(s.id, s);
     // Логова, заведённые по ходу партии, подмешиваются к сгенерированному: для
@@ -7700,7 +7705,7 @@ export class LocalWorld implements WorldApi {
     const led = this.save.figures.general.war;
     if (led && this.warsKnown?.() && !list.some((w) => w.id === led)) this.warHome(now, null);
     this.stepSpies(now, seen);
-    this.save.warSeen = [...seen].slice(-WAR_SEEN_MAX);
+    this.save.warSeen = keptSeen(seen, this.warsKnown?.() === false ? null : [...warSeenIds(list), ...this.spyList().map((x) => spySeenId(x.id))]);
   }
 
   /** Полководец — где его войско по словам сервера: идёт, стоит лагерем, возвращается. */
@@ -8708,4 +8713,28 @@ export class LocalWorld implements WorldApi {
     this.write();
   }
 
+}
+
+/** Номера итогов, которые сервер отдаёт в списке войн: бои и падения городов. */
+function warSeenIds(list: readonly WarView[]): string[] {
+  const ids: string[] = [];
+  for (const w of list) {
+    for (const b of w.battles) ids.push(b.id);
+    if (w.fall) ids.push(warFallId(w.id));
+  }
+  return ids;
+}
+
+/**
+ * Список принятого после пульса. Номер, который сервер ещё отдаёт, не вытесняется никогда: вытесненный, он на следующем
+ * пульсе снова «не принят», и итог ложился бы второй раз — на каждом пульсе, пока игрок в игре (docs/bughunt.md,
+ * «Больше двухсот итогов»). Потолок `WAR_SEEN_MAX` — только на номера, которых в списках сервера уже нет. Списков ещё
+ * не знаем (`live` — null: игра только открылась) — не вытесняется ничего.
+ */
+export function keptSeen(seen: Iterable<string>, live: readonly string[] | null): string[] {
+  const all = [...seen];
+  if (live === null) return all;
+  const listed = new Set(live);
+  const gone = new Set(all.filter((id) => !listed.has(id)).slice(-WAR_SEEN_MAX));
+  return all.filter((id) => listed.has(id) || gone.has(id));
 }

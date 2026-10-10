@@ -282,6 +282,55 @@ describe('прогресс при запуске', () => {
   });
 });
 
+describe('взятая партия не затирается на перезапуске (docs/bughunt.md, «Взятая партия затиралась»)', () => {
+  /**
+   * Перезапуск после смены партии шлёт `beforeunload` и `visibilitychange`, и стор по ним пишет на диск партию из
+   * памяти — если вкладке ещё можно писать. Можно было: взятая с сервера партия тут же затиралась той, что в памяти, а
+   * отметка наследования уже называла её продолжением серверной, и следующий запуск увозил её наверх.
+   */
+  it('новое устройство взяло серверную партию — вкладка больше не пишет ни на диск, ни на сервер', async () => {
+    H.local = { game: 'пустая новая партия', world: null, day: 0 };
+    H.apiGet.mockResolvedValue(ok({ now: 1, etag: 'e9', record: record('настоящая, день 60', 60, 'карта', 'd-телефон') }));
+    const mod = await tab();
+    expect(mod.mayWrite()).toBe(true);
+    await mod.syncBoot(false);
+    expect(H.adoptSave).toHaveBeenCalledWith('настоящая, день 60');
+    expect(H.reload).toHaveBeenCalled();
+    // Ровно то, что спрашивает стор на выходе (`beforeunload`, `visibilitychange`, автосохранение).
+    expect(mod.mayWrite()).toBe(false);
+    H.apiPut.mockResolvedValue(ok({ now: 1, etag: 'e10', rev: 10 }));
+    await vi.advanceTimersByTimeAsync(5 * 60_000);
+    expect(H.apiPut).not.toHaveBeenCalled();
+  });
+
+  it('два устройства: уступили серверу — своя партия ушла в отложенные, а в памяти не пишется поверх взятой', async () => {
+    shelf.set(META, JSON.stringify({ etag: 'e7', rev: 7 }));
+    H.local = { game: 'наш день 41', world: 'наша карта', day: 41 };
+    H.apiGet.mockResolvedValue(ok({ now: 1, etag: 'e9', record: record('чужой день 60', 60, 'чужая карта', 'd-второе') }));
+    const mod = await tab();
+    await mod.syncBoot(true);
+    expect(shelf.get(SPARE)).toBeDefined();
+    expect(mod.mayWrite()).toBe(false);
+  });
+
+  it('«Вернуть» отложенную — вкладка не пишет поверх неё на перезапуске', async () => {
+    shelf.set(META, JSON.stringify({ etag: 'e7', rev: 7 }));
+    H.local = { game: 'наш день 41', world: 'наша карта', day: 41 };
+    H.apiGet.mockResolvedValue(ok({ now: 1, etag: 'e9', record: record('чужой день 60', 60, 'чужая карта', 'd-второе') }));
+    await (await tab()).syncBoot(true);
+    await unload();
+    vi.resetModules();
+    H.local = { game: 'чужой день 60', world: 'чужая карта', day: 60 };
+    H.apiPut.mockResolvedValue(ok({ now: 1, etag: 'e10', rev: 10 }));
+    const second = await tab();
+    await second.syncBoot(true);
+    expect(second.mayWrite()).toBe(true);
+    second.useSync.getState().restoreSpare();
+    expect(H.reload).toHaveBeenCalled();
+    expect(second.mayWrite()).toBe(false);
+  });
+});
+
 describe('отвергнутая партия достаётся из служебного', () => {
   /**
    * Ради этой кнопки расхождение и разбирается без вопросов. Проверяется весь

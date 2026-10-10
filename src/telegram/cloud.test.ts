@@ -154,6 +154,25 @@ describe('подъём партии, которой больше негде ле
     expect(await rescueFromCloud('tribe.save.v1')).toBeNull();
   });
 
+  it('облако, которое не отвечает вовсе, не держит загрузку: через срок — «в облаке ничего»', async () => {
+    vi.useFakeTimers();
+    try {
+      Object.defineProperty(globalThis, 'window', {
+        configurable: true,
+        value: { Telegram: { WebApp: { isVersionAtLeast: () => true, CloudStorage: { getItem: () => {} } } } },
+      });
+      const { rescueFromCloud, CLOUD_WAIT_MS } = await import('./cloud-rescue');
+      let got: string | null | undefined;
+      void rescueFromCloud('tribe.save.v1').then((v) => (got = v));
+      await vi.advanceTimersByTimeAsync(CLOUD_WAIT_MS - 1);
+      expect(got).toBeUndefined();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(got).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('пустого устройства мало: облака может не быть вовсе', async () => {
     Object.defineProperty(globalThis, 'window', { configurable: true, value: {} });
     const { rescueFromCloud } = await import('./cloud-rescue');

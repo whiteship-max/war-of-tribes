@@ -90,7 +90,7 @@ describe('ширина поля: бои у ворот по событиям в �
       militia: 40,
       units: { warrior: 10, scout: 4 },
       army: { legionary: 30, spearman: 24, archer: 16 },
-      stock: { food: 4000, wood: 4000, stone: 4000, hides: 4000, bones: 4000, copper: 4000, iron: 4000 },
+      stock: { food: 4000, wood: 4000, stone: 4000, hides: 4000, charcoal: 4000, copper: 4000, iron: 4000 },
       stash: 0,
       ...(gate ? { gate } : {}),
     });

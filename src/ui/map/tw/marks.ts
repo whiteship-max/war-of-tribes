@@ -274,3 +274,31 @@ const BADGE: Record<BadgeKind, { glyph: string; ring: string }> = {
 export const badgeLook = (k: BadgeKind): MarkLook => ({ glyph: BADGE[k].glyph, ring: BADGE[k].ring, pips: 0, own: false, dim: false, corner: null });
 
 export const badgeSprite = (k: BadgeKind, dpr: number): Mini => markSprite(badgeLook(k), BADGE_D, dpr);
+
+// ---------- Легенда ----------
+
+/** Картинки легенды — свой кэш, мимо экранного: строки легенды не вытесняют живые значки карты. */
+const legendCache = new Map<string, string>();
+
+/**
+ * Значок картинкой для легенды (`tw/legend.ts`): тот же рисунок, что на карте, диаметром `d` CSS px, вдвое плотнее.
+ * Лист значков ещё не пришёл — ключ другой (`glyphStamp`), и легенда перерисует строку, когда он придёт.
+ */
+export function markUrl(l: MarkLook, d: number): string {
+  const key = markKey(l, d, 2);
+  const have = legendCache.get(key);
+  if (have) return have;
+  const g = markGeo(l, d);
+  const rx = Math.max(g.rx, g.pillW / 2) + PAD;
+  const w = Math.ceil(rx * 2);
+  const h = Math.ceil(g.up + g.down + PAD * 2);
+  const canvas = makeCanvas(w * 2, h * 2);
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return '';
+  ctx.setTransform(2, 0, 0, 2, w, (g.up + PAD) * 2);
+  ctx.lineJoin = 'round';
+  drawMark(ctx, l, d);
+  const url = canvas.toDataURL();
+  legendCache.set(key, url);
+  return url;
+}

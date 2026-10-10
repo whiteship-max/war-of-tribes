@@ -18,11 +18,13 @@ import { mkdirSync } from 'node:fs';
 import type { Server } from 'node:http';
 import type { DatabaseSync } from './driver.js';
 import { blobsStores } from '../lib/blobs.js';
-import { botToken } from '../lib/http.js';
+import { botSecret, botToken, deliverOn, spawnMode, warPace } from '../lib/http.js';
+import { adminIds } from '../lib/admin.js';
+import { payConfig } from '../lib/ton.js';
 import { ALL_STORES, type Stores } from '../lib/kv.js';
 import { ROUTES } from '../lib/routes/index.js';
 import { listBackups, makeBackup, restore, rotate, serverAlive } from './backup.js';
-import { ENV, pathsOf, readConfig, type VpsConfig } from './config.js';
+import { ENV, launchNotes, pathsOf, readConfig, type VpsConfig } from './config.js';
 import { importBlobs } from './import.js';
 import { listen } from './listen.js';
 import { say, sayFail } from './log.js';
@@ -73,6 +75,7 @@ async function serve(): Promise<void> {
   );
   const address = server.address();
   say(`слушаю порт ${typeof address === 'object' && address ? address.port : cfg.port}; адреса: ${Object.keys(ROUTES).join(' ')}`);
+  for (const line of launchNotes({ secret: botSecret() !== '', admins: adminIds().size, spawn: spawnMode(), pace: warPace(), pay: typeof payConfig() !== 'string', deliver: deliverOn() })) say(line);
 
   const schedule = startSchedule({ config: cfg, stores, db, paths });
 

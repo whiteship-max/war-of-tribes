@@ -980,8 +980,12 @@ function readSpyWatch(v: unknown): SpyWatch | undefined {
 /** Сколько своих войн слепок называет ушедшими: у города один полководец, больше — порча. */
 export const WAR_OUT_MAX = 4;
 
-/** Сколько принятых боёв слепок помнит: больше, чем войн лежит у сервера на один город. */
-export const WAR_SEEN_MAX = 200;
+/**
+ * Сколько принятых итогов (боёв, падений, тайных дел) слепок помнит сверх тех, что сервер ещё отдаёт. Было 200 — меньше,
+ * чем итогов лежит у сервера на одного игрока за неделю (войн и дел до `WAR_MAX` каждых): вытесненный номер сервер
+ * снова вычитал из слепка, а игра снова применяла (docs/bughunt.md, «Больше двухсот итогов»).
+ */
+export const WAR_SEEN_MAX = 2000;
 
 /** Войско из приказа: новый объект. */
 export function readArmy(v: unknown): WarArmy | null {
@@ -1060,7 +1064,7 @@ export function readWarOrder(v: unknown): WarOrder | null {
  * золото) — сверяет тест (`src/net/admin.test.ts`). Алмазов здесь нет и быть не может: начисление алмазов одно —
  * `netlify/lib/gems.creditGems` (docs/gems.md).
  */
-export const STOCK_KEYS = ['wood', 'stone', 'food', 'hides', 'bones', 'copper', 'iron', 'gold'] as const;
+export const STOCK_KEYS = ['wood', 'stone', 'food', 'hides', 'charcoal', 'copper', 'iron', 'gold'] as const;
 export type StockKey = (typeof STOCK_KEYS)[number];
 
 /** Виды бойцов, которые правит указ. Тот же список, что у игры (`data/troops.TROOP_IDS`) — сверяет тот же тест. */
@@ -1133,6 +1137,19 @@ export function readDeltas<K extends string>(v: unknown, keys: readonly K[]): Pa
   return out;
 }
 
+/**
+ * Кости стали углём (10.10.2026, docs/economy.md): запись, легшая на сервер до этого (указ `/give`, покупка лавки), читается
+ * с углём вместо костей — иначе неприменённый указ или оплаченная покупка пропали бы молча. Партия и мир приводятся своей
+ * ступенью (`game/charcoal`); здесь — только чтение того, что сервер хранит.
+ */
+const boneless = (v: unknown): unknown => {
+  if (v === 'bones') return 'charcoal';
+  if (!v || typeof v !== 'object' || !('bones' in v)) return v;
+  const { bones, ...rest } = v as Record<string, unknown>;
+  const both = typeof bones === 'number' && typeof rest.charcoal === 'number';
+  return { ...rest, charcoal: both ? (rest.charcoal as number) + (bones as number) : (rest.charcoal ?? bones) };
+};
+
 /** Указ из ответа сервера или из хранилища: новый объект; без номера или пустой — `null`. */
 export function readGrant(v: unknown): AdminGrant | null {
   if (!v || typeof v !== 'object') return null;
@@ -1140,7 +1157,7 @@ export function readGrant(v: unknown): AdminGrant | null {
   const n = num(r.n);
   const at = num(r.at);
   if (n === null || n < 1 || !Number.isInteger(n) || at === null) return null;
-  const stock = readDeltas(r.stock, STOCK_KEYS);
+  const stock = readDeltas(boneless(r.stock), STOCK_KEYS);
   const troops = readDeltas(r.troops, TROOP_KEYS);
   if (Object.keys(stock).length + Object.keys(troops).length === 0) return null;
   return { n, at, stock, troops };
@@ -1458,7 +1475,7 @@ export const GEM_KINDS = ['start', 'purchase', 'buy', 'rush'] as const;
 export type GemKind = (typeof GEM_KINDS)[number];
 
 /** Припасы лавки — виды склада без золота: золото за алмазы не продаётся. */
-export const GEM_GOODS = ['wood', 'stone', 'food', 'hides', 'bones', 'copper', 'iron'] as const satisfies readonly StockKey[];
+export const GEM_GOODS = ['wood', 'stone', 'food', 'hides', 'charcoal', 'copper', 'iron'] as const satisfies readonly StockKey[];
 export type GemGood = (typeof GEM_GOODS)[number];
 
 /** Потолки журнала: ключ повтора, сколько записей лежит, сколько уходит в окно «История» и в записку сохранения. */
@@ -1550,7 +1567,8 @@ export function readGemEntry(v: unknown): GemEntry | null {
   if (n === null || n < 1 || !Number.isInteger(n) || at === null || delta === null || !Number.isInteger(delta)) return null;
   if (typeof r.kind !== 'string' || !(GEM_KINDS as readonly string[]).includes(r.kind)) return null;
   const out: GemEntry = { n, at, delta, kind: r.kind as GemKind };
-  if (isGood(r.res)) out.res = r.res;
+  const res = boneless(r.res);
+  if (isGood(res)) out.res = res;
   const amount = num(r.amount);
   if (amount !== null && amount > 0) out.amount = Math.floor(amount);
   const building = str(r.building, GEM_LIMITS.building);

@@ -200,6 +200,32 @@ describe('соседям не раздаётся телеграмный номе
     for (let i = 0; i < 5000; i++) all.add(castleIdOf(`tg-${i}`));
     expect(all.size).toBe(5000);
   });
+
+  it('признак не обращается перебором номеров: без токена бота его не посчитать', () => {
+    // Голый хеш `tg-<id>` перебирался по всем номерам Telegram за минуты. С токеном признак — HMAC: перебор по
+    // номерам без секрета сервера даёт другой признак, а тот же ключ с другим токеном — другой.
+    const id = castleIdOf('tg-123456789', 'bot-token-A');
+    expect(id).toMatch(/^c[0-9a-z]{14}$/);
+    expect(id).not.toBe(castleIdOf('tg-123456789', ''));
+    expect(id).not.toBe(castleIdOf('tg-123456789', 'bot-token-B'));
+    expect(id).toBe(castleIdOf('tg-123456789', 'bot-token-A'));
+    const all = new Set<string>();
+    for (let i = 0; i < 5000; i++) all.add(castleIdOf(`tg-${i}`, 'bot-token-A'));
+    expect(all.size).toBe(5000);
+  });
+
+  it('сервер с токеном раздаёт соседям признак с секретом', () => {
+    const was = process.env.TELEGRAM_BOT_TOKEN;
+    process.env.TELEGRAM_BOT_TOKEN = 'bot-token-A';
+    try {
+      const seen = viewOf(upsert(emptyRoster(), 'tg-123456789', claim(), NOW));
+      expect(seen[0].id).toBe(castleIdOf('tg-123456789', 'bot-token-A'));
+      expect(seen[0].id).not.toBe(castleIdOf('tg-123456789', ''));
+    } finally {
+      if (was === undefined) delete process.env.TELEGRAM_BOT_TOKEN;
+      else process.env.TELEGRAM_BOT_TOKEN = was;
+    }
+  });
 });
 
 describe('замки серверной части реестра', () => {

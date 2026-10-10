@@ -10,6 +10,8 @@
 //   GAME=1 WX=clear,rain,storm npm run city:shots — погода адресом (`?weather=`, docs/city.md, 15): кадр игры на каждую,
 //                                                `WXLOOK=market:70` — вблизи постройки (тип:расстояние), `WXMAP=1` —
 //                                                карта мира, `WXSEASON=winter` — сезон партии, `WXREGION=italy` — регион
+//   LEGEND=1 npm run city:shots              — легенда карты листом: строки значков той же функцией, что окно легенды
+//                                                (docs/city.md, 16.5); `GAME=1 WXMAP=1 LEGEND=1` — окно в самой игре
 //   SIZE=540x900 VIEWS=game SOLAR=0.46 npm run city:shots — свой экран (точки CSS, плотность 2): кадры заставки
 //                                                экрана загрузки (assets-src/splash/README.md — какие и какими числами)
 //
@@ -75,6 +77,55 @@ const PROBE = `JSON.stringify((() => {
   const st = s.stats();
   return { ...st, bytes: s.memory().bytes, texBytes: s.textureBytes(), counts: s.counts() };
 })())`;
+
+/**
+ * Легенда карты листом (`LEGEND=1` без `GAME`, docs/city.md, 16.5): страница на сервере стенда тянет лист значков и
+ * `tw/legend.ts` и рисует строки той же функцией, что окно легенды (`legendUrl`). Карта стендом в облаке не встаёт —
+ * сторож кадров снимает её и на `master`, — а строки легенды от кадра не зависят.
+ */
+async function legendShot(): Promise<void> {
+  const tab = await Tab.open(DEBUG_PORT, 'about:blank');
+  try {
+    await tab.send('Emulation.setDeviceMetricsOverride', SCREEN);
+    await tab.send('Page.navigate', { url: `http://127.0.0.1:${PORT}/src/ui/map/tw/legend.ts` });
+    await sleep(1500);
+    const r = await tab.eval<string>(`(async () => {
+      const sheet = await import('/src/ui/icons/sheet.ts');
+      sheet.loadSheet();
+      for (let i = 0; i < 100 && !sheet.sheetSymbol('stage-town'); i++) await new Promise((r) => setTimeout(r, 100));
+      const L = await import('/src/ui/map/tw/legend.ts');
+      document.querySelector('pre')?.remove();
+      document.body.style.cssText = 'margin:0;padding:14px;background:#1d1813;color:#eadfc8;font:15px/1.3 system-ui,sans-serif';
+      const box = document.createElement('div');
+      for (const [title, rows] of [['Города и логова', L.PLACE_ROWS], ['Отряды и метки', L.HOST_ROWS]]) {
+        const h = document.createElement('h3');
+        h.textContent = title;
+        h.style.cssText = 'margin:10px 0 6px;font-size:16px;color:#e0b25a';
+        box.append(h);
+        for (const row of rows) {
+          const d = document.createElement('div');
+          d.style.cssText = 'display:flex;align-items:center;gap:10px;min-height:52px';
+          const img = document.createElement('img');
+          img.src = L.legendUrl(row);
+          img.style.cssText = 'width:52px;height:52px;object-fit:contain;flex:0 0 auto';
+          const t = document.createElement('span');
+          t.innerHTML = row.name + (row.note ? ' <em style="opacity:.7;font-size:13px">' + row.note + '</em>' : '');
+          d.append(img, t);
+          box.append(d);
+        }
+      }
+      document.body.append(box);
+      return JSON.stringify(sheet.sheetSymbol('stage-town') ? 'ok' : 'лист не пришёл');
+    })()`);
+    await sleep(800);
+    const png = await tab.send<{ data: string }>('Page.captureScreenshot', { format: 'png' });
+    const name = `${TAG}-legend.png`;
+    await writeFile(join(OUT, name), Buffer.from(png.data, 'base64'));
+    console.log(`  легенда карты: ${r} → .city-shots/${name}`);
+  } finally {
+    tab.close();
+  }
+}
 
 async function shot(q: Quality, view: string, solar: number): Promise<void> {
   const tab = await Tab.open(DEBUG_PORT, 'about:blank');
@@ -272,6 +323,23 @@ async function weatherShots(tab: Tab, q: Quality): Promise<void> {
   if (map) {
     await tab.eval<string>(`(() => { window.__game.getState().openMap(); return JSON.stringify('ok'); })()`);
     await sleep(15000);
+    // Легенда карты (`LEGEND=1`, docs/city.md, 16.5): кнопка «Легенда» внизу карты; значки — ленивым куском.
+    if (process.env.LEGEND === '1') {
+      await tab.eval<string>(`(() => {
+        const b = [...document.querySelectorAll('button')].find((x) => x.textContent?.trim().endsWith('Легенда'));
+        b?.click();
+        return JSON.stringify(b ? 'ok' : 'нет кнопки');
+      })()`);
+      await sleep(3000);
+      // Строки значков — ниже рельефа и тумана: прокрутить окно легенды к ним.
+      await tab.eval<string>(`(() => {
+        const l = document.querySelector('.wm-legend');
+        const h = [...(l?.querySelectorAll('h3') ?? [])].find((x) => x.textContent === 'Города и логова');
+        if (l && h) l.scrollTop = h.offsetTop - 8;
+        return JSON.stringify('ok');
+      })()`);
+      await sleep(1500);
+    }
   }
   const near = process.env.WXLOOK;
   if (near && !map) {
@@ -502,6 +570,10 @@ async function main(): Promise<void> {
       const began = Date.now();
       if (process.env.GAME === '1') {
         for (const q of QUALITIES) await gameShot(q);
+        return;
+      }
+      if (process.env.LEGEND === '1') {
+        await legendShot();
         return;
       }
       outer: for (const q of QUALITIES) {

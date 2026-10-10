@@ -289,14 +289,14 @@ describe('оружие логова не растёт с городом', () => 
 });
 
 describe('старая партия узнаёт о росте логов строкой летописи', () => {
-  it('сохранение мира версии 8 приводится к 9 и кладёт одну строку; девятое — ни одной', async () => {
+  it('сохранение мира версии 8 приводится к текущей и кладёт одну строку; текущее — ни одной', async () => {
     const w = makeWorld(7);
     await w.world.sync(profile());
     const fresh = JSON.parse(w.saved() as string) as WorldSave;
     expect(fresh.v).toBe(WORLD_SAVE_VERSION);
 
     const old = parseWorldSave(JSON.stringify({ ...fresh, v: 8, effects: [] }))!;
-    expect(old.v).toBe(9);
+    expect(old.v).toBe(WORLD_SAVE_VERSION);
     expect(old.effects.filter((e) => e.text === LAIRS_GREW_TEXT)).toHaveLength(1);
     expect(parseWorldSave(JSON.stringify(fresh))!.effects.some((e) => e.text === LAIRS_GREW_TEXT)).toBe(false);
 

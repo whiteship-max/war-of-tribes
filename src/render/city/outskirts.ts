@@ -9,7 +9,7 @@ import { CITY } from './palette';
 import { Builder, box, cone, cylinder, flat, tint, type V3 } from './geom';
 import { Frame, log, pushQuadOut, type Detail } from './kit';
 import { body } from './civic';
-import { heightAt, RACE_LEVEL, type Civic, type Yard } from './layout';
+import { FLOOR_LIFT, footSpan, heightAt, RACE_LEVEL, type Civic, type Yard } from './layout';
 import { rnd } from './noise';
 
 const wood = (k = 1): V3 => tint(CITY.oak, k);
@@ -60,8 +60,26 @@ function fence(b: Builder, fr: Frame, f0: number, r0: number, f1: number, r1: nu
 const hall = (y: Yard, f: number, r: number, rot: number, w: number, d: number): Civic => {
   const fr = new Frame(y.x, y.z, Math.cos(y.rot), Math.sin(y.rot));
   const [x, z] = fr.q(f, r);
-  return { kind: 'stable', x, z, rot, w, d, base: heightAt(x, z), seed: y.seed + Math.round(f * 7 + r * 13) };
+  // Пол — над самой высокой землёй следа: дом двора на склоне не тонет, под ним цоколь (`civic.body`).
+  return { kind: 'stable', x, z, rot, w, d, base: footSpan(x, z, Math.cos(rot), Math.sin(rot), w, d).hi + FLOOR_LIFT, seed: y.seed + Math.round(f * 7 + r * 13) };
 };
+
+/** Дома дворов: (вперёд, вправо, доворот, ширина, глубина) — одни на модели и на тест посадки (`seat.test.ts`). */
+const YARD_HALLS: Record<Yard['kind'], readonly (readonly [number, number, number, number, number])[]> = {
+  gathering: [],
+  sawmill: [[0, 0, 0, 11, 8]],
+  quarry: [[9, -11, 0, 5, 4]],
+  hunter_hut: [[0, 0, 0, 6.5, 5.5]],
+  mine: [[7, -9, 0, 5.5, 4.5]],
+  farm: [
+    [0, -6, 0, 15, 8],
+    [-9, 9, Math.PI / 2, 12, 8.5],
+  ],
+  pen: [],
+};
+
+/** Дома двора — как их ставит `yard`. */
+export const yardHalls = (y: Yard): Civic[] => YARD_HALLS[y.kind].map(([f, r, rot, w, d]) => hall(y, f, r, y.rot + rot, w, d));
 
 /** Стог: цилиндр соломы под конусом. */
 function stack(b: Builder, x: number, z: number, r: number, h: number): void {
@@ -128,6 +146,59 @@ function gathering(b: Builder, y: Yard, d: Detail): V3[] {
   return [fr.p(D / 2 + 0.4, 0, yF - 0.6)];
 }
 
+/** Колесо лесопилки в рамке двора: вынос вперёд от середины дома, высота оси, радиус. */
+const WHEEL_R = 2.7;
+const WHEEL_AT = { wf: 8 / 2 + 4.5, cy: RACE_LEVEL + WHEEL_R - 0.45 };
+
+/**
+ * Водяное колесо (docs/city.md, 16.4): два обода, лопасти во всю ширину, спицы. `P(off, r, y)` — точка: `off` вдоль
+ * оси, (`r`, `y`) — в плоскости колеса от оси. Одна модель на два места: стоя в общем меше (на «Низком») и в своём
+ * меше, что крутится (`millWheel`).
+ */
+export function wheelModel(b: Builder, P: (off: number, r: number, y: number) => V3, d: Detail): void {
+  const R = WHEEL_R;
+  const seg = d === 0 ? 10 : 16;
+  const T = wood(1.15);
+  const rim = (k: number, rr: number, off: number): V3 => {
+    const ang = (k / seg) * Math.PI * 2;
+    return P(off, Math.cos(ang) * rr, Math.sin(ang) * rr);
+  };
+  for (const off of [-0.55, 0.55]) {
+    for (let k = 0; k < seg; k++) log(b, rim(k, R, off), rim(k + 1, R, off), 0.12, T, 4, false);
+  }
+  // Лопасти — доски по радиусу во всю ширину колеса; спицы — через одну четверть.
+  for (let k = 0; k < seg; k += d === 0 ? 2 : 1) {
+    const ang = ((k + 0.5) / seg) * Math.PI * 2;
+    const p = (off: number, rr: number): V3 => P(off, Math.cos(ang) * rr, Math.sin(ang) * rr);
+    const A = p(-0.55, R - 0.75);
+    const B = p(0.55, R - 0.75);
+    const C = p(0.55, R + 0.05);
+    const E = p(-0.55, R + 0.05);
+    pushQuadOut(b, A, B, C, E, 'wood', T, P(0, Math.cos(ang + 0.5) * R * 2, Math.sin(ang + 0.5) * R * 2), 0.9);
+    pushQuadOut(b, A, B, C, E, 'wood', T, P(0, Math.cos(ang - 0.5) * R * 2, Math.sin(ang - 0.5) * R * 2), 0.7);
+    if (k % 4 === 0) log(b, P(0, 0, 0), rim(k, R, 0), 0.08, T, 4, false);
+  }
+}
+
+/**
+ * Колесо, что крутится: модель вокруг своей оси (x — ось, y — вверх, z — против «вправо» двора) и где оно стоит.
+ * Меш ставит `index.MillWheel`: поворот вокруг y — ось на (fx, fz), вращение — вокруг своей x.
+ */
+export function millWheel(y: Yard, d: Detail): { b: Builder; at: V3; fx: number; fz: number; R: number; water: number } {
+  const fx = Math.cos(y.rot);
+  const fz = Math.sin(y.rot);
+  const fr = new Frame(y.x, y.z, fx, fz);
+  const b = new Builder();
+  wheelModel(b, (off, r, yy) => [off, yy, -r], d);
+  return { b, at: fr.p(WHEEL_AT.wf, 0, WHEEL_AT.cy), fx, fz, R: WHEEL_R, water: RACE_LEVEL };
+}
+
+/**
+ * Угольная куча лесопилки во дворе (вперёд, вправо, радиус): за домом и левее — мельничный ручей обходит дом сзади и
+ * справа, река — слева; место выбрано так, чтобы куча стояла на суше с запасом от обоих, и держит это `seat.test.ts`.
+ */
+export const KILN = { f: -9, r: -5, R: 3 } as const;
+
 /**
  * Лесопилка: каменный низ и фахверк над ним, колесо в мельничном ручье у южной стены (`layout.RACE`) —
  * лицом к камере, ось — в стену; брёвна штабелем и доски во дворе.
@@ -136,7 +207,7 @@ function sawmill(b: Builder, y: Yard, d: Detail): { lights: V3[]; chimneys: V3[]
   const fr = new Frame(y.x, y.z, Math.cos(y.rot), Math.sin(y.rot));
   const W = 11;
   const D = 8;
-  const c = hall(y, 0, 0, y.rot, W, D);
+  const c = yardHalls(y)[0];
   const r = body(
     b,
     c,
@@ -152,31 +223,10 @@ function sawmill(b: Builder, y: Yard, d: Detail): { lights: V3[]; chimneys: V3[]
     },
     d,
   );
-  // Колесо: в ручье перед фасадом, обод — в плоскости фасада, ось — вперёд, в стену.
-  const wf = D / 2 + 4.5;
-  const R = 2.7;
-  const cy = RACE_LEVEL + R - 0.45;
-  const seg = d === 0 ? 10 : 16;
-  const T = wood(1.15);
-  const rim = (k: number, rr: number, off: number): V3 => {
-    const ang = (k / seg) * Math.PI * 2;
-    return fr.p(wf + off, Math.cos(ang) * rr, cy + Math.sin(ang) * rr);
-  };
-  for (const off of [-0.55, 0.55]) {
-    for (let k = 0; k < seg; k++) log(b, rim(k, R, off), rim(k + 1, R, off), 0.12, T, 4, false);
-  }
-  // Лопасти — доски по радиусу во всю ширину колеса; спицы — через одну четверть.
-  for (let k = 0; k < seg; k += d === 0 ? 2 : 1) {
-    const ang = ((k + 0.5) / seg) * Math.PI * 2;
-    const p = (off: number, rr: number): V3 => fr.p(wf + off, Math.cos(ang) * rr, cy + Math.sin(ang) * rr);
-    const A = p(-0.55, R - 0.75);
-    const B = p(0.55, R - 0.75);
-    const C = p(0.55, R + 0.05);
-    const E = p(-0.55, R + 0.05);
-    pushQuadOut(b, A, B, C, E, 'wood', T, fr.p(wf, Math.cos(ang + 0.5) * R * 2, cy + Math.sin(ang + 0.5) * R * 2), 0.9);
-    pushQuadOut(b, A, B, C, E, 'wood', T, fr.p(wf, Math.cos(ang - 0.5) * R * 2, cy + Math.sin(ang - 0.5) * R * 2), 0.7);
-    if (k % 4 === 0) log(b, fr.p(wf, 0, cy), rim(k, R, 0), 0.08, T, 4, false);
-  }
+  // Колесо: в ручье перед фасадом, обод — в плоскости фасада, ось — вперёд, в стену. На «Среднем» и «Высоком» оно
+  // крутится — его рисует отдельный меш (`millWheel`, `index.MillWheel`), здесь — только на «Низком», стоя.
+  const { wf, cy } = WHEEL_AT;
+  if (d === 0) wheelModel(b, (off, r, yy) => fr.p(wf + off, r, cy + yy), d);
   // Ось — из стены через колесо на каменную опору за ручьём.
   log(b, fr.p(D / 2 - 0.2, 0, cy), fr.p(wf + 2.6, 0, cy), 0.2, wood(0.9), 6, true);
   const [sx, sz] = fr.q(wf + 2.6, 0);
@@ -199,6 +249,20 @@ function sawmill(b: Builder, y: Yard, d: Detail): { lights: V3[]; chimneys: V3[]
     const [lx, lz] = fr.q(0, -W / 2 - 1.6);
     const ly = heightAt(lx, lz);
     box(b, lx, lz, fr.fx, fr.fz, 1.6, 4.5, ly, ly + 1.1, 'wood', woodLight(1.1), 'wood', { aoBottom: 0.6 });
+    // Угольная куча за лесопилкой: сучья под дёрном тлеют неделю, дым идёт из макушки (docs/economy.md, «Уголь вместо
+    // костей»). Низкий земляной купол — два конуса, чёрная земля у подножия и дёрн выше; поленница сучьев рядом.
+    const [kx, kz] = fr.q(KILN.f, KILN.r);
+    const ky = heightAt(kx, kz);
+    cone(b, kx, kz, KILN.R, ky - 0.3, ky + 1.6, 12, 'rubble', tint(0x4a4651, 0.9), 0.75);
+    cone(b, kx, kz, KILN.R * 0.63, ky + 0.6, ky + 2.3, 10, 'grass', tint(0x6f6a4e, 0.85), 0.8);
+    // Сучья — между кучей и домом, поперёк «вперёд».
+    for (let i = 0; i < 4; i++) {
+      const a0 = fr.p(KILN.f + KILN.R + 0.25 + i * 0.4, KILN.r - 1.2, 0);
+      const e0 = fr.p(KILN.f + KILN.R + 0.25 + i * 0.4, KILN.r + 1.2, 0);
+      const yy = Math.max(heightAt(a0[0], a0[2]), heightAt(e0[0], e0[2])) + 0.12 + (i % 2) * 0.1;
+      log(b, [a0[0], yy, a0[2]], [e0[0], yy, e0[2]], 0.12, wood(0.8), 5, true);
+    }
+    return { lights: [fr.p(D / 2 + 0.4, -2, c.base + 2.6)], chimneys: [...r.chimneys, [kx, ky + 2.4, kz]] };
   }
   return { lights: [fr.p(D / 2 + 0.4, -2, c.base + 2.6)], chimneys: r.chimneys };
 }
@@ -273,7 +337,7 @@ function quarry(b: Builder, y: Yard, d: Detail): V3[] {
   // Сарай каменотёсов — сбоку, у подножия.
   body(
     b,
-    hall(y, 9, -11, y.rot, 5, 4),
+    yardHalls(y)[0],
     {
       storeys: [{ h: 2.6, front: 'groundDoor', side: 'wood' }],
       wallHex: CITY.wallTints[6],
@@ -293,7 +357,7 @@ function flatOn(b: Builder, cx: number, cz: number, fr: Frame, w: number, dd: nu
 /** Охотничий домик: сруб под крутой дранкой, сушило со шкурами, поленница. */
 function hunterHut(b: Builder, y: Yard, d: Detail): { lights: V3[]; chimneys: V3[] } {
   const fr = new Frame(y.x, y.z, Math.cos(y.rot), Math.sin(y.rot));
-  const c = hall(y, 0, 0, y.rot, 6.5, 5.5);
+  const c = yardHalls(y)[0];
   const r = body(
     b,
     c,
@@ -378,7 +442,7 @@ function mine(b: Builder, y: Yard, d: Detail): V3[] {
   // Хижина горняков.
   body(
     b,
-    hall(y, 7, -9, y.rot, 5.5, 4.5),
+    yardHalls(y)[0],
     {
       storeys: [{ h: 2.7, front: 'groundDoor', side: 'wood' }],
       wallHex: CITY.wallTints[6],
@@ -392,7 +456,7 @@ function mine(b: Builder, y: Yard, d: Detail): V3[] {
 /** Хутор: длинный дом и амбар под высокими кровлями, двор в изгороди, стога и телега. */
 function farm(b: Builder, y: Yard, d: Detail): { lights: V3[]; chimneys: V3[] } {
   const fr = new Frame(y.x, y.z, Math.cos(y.rot), Math.sin(y.rot));
-  const house = hall(y, 0, -6, y.rot, 15, 8);
+  const house = yardHalls(y)[0];
   const r = body(
     b,
     house,
@@ -411,7 +475,7 @@ function farm(b: Builder, y: Yard, d: Detail): { lights: V3[]; chimneys: V3[] } 
   // Амбар поперёк — дощатый, под тёмной дранкой, ворота к двору.
   body(
     b,
-    hall(y, -9, 9, y.rot + Math.PI / 2, 12, 8.5),
+    yardHalls(y)[1],
     {
       storeys: [{ h: 4.2, front: 'wood', side: 'wood' }],
       wallHex: CITY.wallTints[6],

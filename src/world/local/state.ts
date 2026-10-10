@@ -1,6 +1,7 @@
 // Изменяемая часть локального мира: походы, разведданные, следы набегов, отношения.
 // Всё, что нельзя вывести из сида, живёт здесь и сохраняется в localStorage.
 import { partyNow } from '@/net/clock';
+import { bonesToCharcoal } from '@/game/charcoal';
 import type { TroopStack } from '@/game/battle/kinds';
 import { troopsOfKinds } from '@/game/battle/faces';
 import type { FogData } from '../fog';
@@ -88,8 +89,11 @@ import { FIRST_RAID_AFTER, FIRST_WAR_AFTER } from '../data/tuning';
  * этих отметок — логово старой партии в первую же минуту становится сильным по жителям
  * её города, — и молча такое не делают. Ступень кладёт в очередь последствий одну строку
  * летописи, и больше ничего.
+ *
+ * Десятка — кости стали углём (docs/economy.md): ключ припаса `bones` в добыче, ценах и складах переименован в
+ * `charcoal` (`game/charcoal.bonesToCharcoal`, та же ступень, что у партии). Строку игроку говорит партия.
  */
-export const WORLD_SAVE_VERSION = 9;
+export const WORLD_SAVE_VERSION = 10;
 /** Младше этой версии сохранение мира не приводится: там другой дом и другая земля. */
 export const MIN_WORLD_SAVE_VERSION = 8;
 export const WORLD_KEY = 'tribe.world.v1';
@@ -716,6 +720,12 @@ function migrateWorldSave(data: Partial<WorldSave>): void {
       { id: 'lairs-grew', lost: {}, resources: {}, prestige: 0, morale: 0, battle: null, text: LAIRS_GREW_TEXT, good: false },
     ];
     data.v = 9;
+  }
+  if (data.v === 9) {
+    // 9 → 10: кости стали углём (docs/economy.md). Припас лежит в мире добычей походов, ценой дел и складом соседей —
+    // ступень переименовывает его по всему сохранению той же функцией, что у партии, один к одному.
+    bonesToCharcoal(data);
+    data.v = 10;
   }
 }
 

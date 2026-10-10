@@ -14,6 +14,11 @@ import { FIGURE_IDS } from '@/world/data/figures';
 /**
  * Формат сохранения. Поднимается при изменении структуры состояния (см. save.ts).
  *
+ * Версия 23 — кости стали углём (решение владельца 10.10.2026, docs/economy.md): ресурс `bones` переименован в
+ * `charcoal` везде, где лежит в партии, — склад, счёт рынка, караваны, трофей у ворот. Умолчания мало: слияние с новой
+ * партией привезло бы кости сбоку и стартовый уголь, — поэтому `deserialize` переименовывает до слияния
+ * (`charcoal.bonesToCharcoal`), один к одному.
+ *
  * Версия 22 — алмазы ушли с устройства на сервер (решение владельца 09.10.2026, docs/gems.md): поля
  * `gems` больше нет, ступень снимает его у старой партии и говорит об этом строкой летописи. Новое
  * поле `gemSeen` — номер последней применённой записи журнала алмазов — необязательное.
@@ -97,7 +102,7 @@ import { FIGURE_IDS } from '@/world/data/figures';
  * это не к чему: сохранение младшей версии отбрасывается, партия начинается
  * заново, и игроку об этом говорят прямо (LegacyModal).
  */
-export const SAVE_VERSION = 22;
+export const SAVE_VERSION = 23;
 
 const built = (s: GameState, type: BuildingTypeId): Building => ({
   id: s.nextId++,
@@ -117,7 +122,7 @@ export function createInitialState(seed: number = freshSeed()): GameState {
   const s: GameState = {
     version: SAVE_VERSION,
     time: 0,
-    resources: { wood: 900, stone: 600, food: 900, hides: 180, bones: 150, copper: 180, iron: 120 },
+    resources: { wood: 900, stone: 600, food: 900, hides: 180, charcoal: 150, copper: 180, iron: 120 },
     equipment: emptyEquipment(),
     army: emptyArmy(),
     recruits: [],

@@ -56,7 +56,7 @@ export const DAILY_GAMES: DailyGameDef[] = [
     icon: '🏹',
     name: 'Меткий выстрел',
     rules: 'Три выстрела. Бей, когда бегунок в зачётной зоне.',
-    reward: { food: 90, hides: 24, bones: 20 },
+    reward: { food: 90, hides: 24, charcoal: 20 },
   },
   {
     id: 'quiz',

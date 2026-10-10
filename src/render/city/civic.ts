@@ -4,8 +4,8 @@
 // ограда церковного двора. Один вид навсегда: уровни игры модель не меняют.
 import { CITY } from './palette';
 import { Builder, box, cone, cylinder, pyramid, tint, wall, type V3 } from './geom';
-import { Frame, GROUND_H, STOREY_H, chimney, face, gableRoof, gableTri, log, pushQuadOut, type Detail } from './kit';
-import { heightAt, type Civic, type P, type Stall } from './layout';
+import { Frame, GROUND_H, STOREY_H, chimney, face, gableRoof, gableTri, log, pushQuadOut, stoop, type Detail } from './kit';
+import { footSpan, heightAt, type Civic, type P, type Stall } from './layout';
 import { L, TILE_M, type LayerName } from './tex';
 import { rnd } from './noise';
 
@@ -27,20 +27,17 @@ export interface Body {
   glow?: number;
 }
 
-const lowUnder = (fr: Frame, w: number, d: number): number => {
-  let lo = Infinity;
-  for (const [f, r] of [
-    [d / 2, w / 2],
-    [d / 2, -w / 2],
-    [-d / 2, w / 2],
-    [-d / 2, -w / 2],
-    [0, 0],
-  ]) {
-    const [x, z] = fr.q(f, r);
-    lo = Math.min(lo, heightAt(x, z));
-  }
-  return lo;
-};
+const lowUnder = (fr: Frame, w: number, d: number): number => footSpan(fr.cx, fr.cz, fr.fx, fr.fz, w, d).lo;
+
+/**
+ * Ступени к главной двери большого здания или дома двора, если пол (над самой высокой землёй следа,
+ * `layout.footSpan`) выше земли перед фасадом. Мимо коробки касания (`budget.buildStatic`), как у домов.
+ */
+export function civicStoop(b: Builder, c: Civic): void {
+  const fr = new Frame(c.x, c.z, Math.cos(c.rot), Math.sin(c.rot));
+  const [sx, sz] = fr.q(c.d / 2 + 1, 0);
+  stoop(b, fr, c.d / 2 + 0.08, Math.min(c.w * 0.4, 6), heightAt(sx, sz), c.base, tint(CITY.stoneTints[1], 0.86));
+}
 
 /** Коробка большого здания по этажам, кровля, щипцы (простые или ступенчатые), трубы, слуховые окна. */
 export function body(b: Builder, c: Civic, s: Body, detail: Detail): { top: number; ridge: number; chimneys: V3[] } {
