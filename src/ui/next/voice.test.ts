@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { BUILDINGS } from '@/game/data/buildings';
+import { BRANCH_LORE } from '@/game/data/realm';
 import { createInitialState } from '@/game/state';
 import { buildingFacts, buildingTip } from './buildingTips';
 
@@ -137,6 +138,17 @@ describe('описания построек: вкус и дело', () => {
         expect(t, d.id).not.toMatch(/\d/);
         expect(t, d.id).not.toMatch(/[()]/);
         for (const bad of BANNED) expect(t, `${d.id}: «${t}»`).not.toMatch(bad);
+      }
+    }
+  });
+
+  it('ветви технологий — тем же правилом двух слоёв', () => {
+    for (const [id, { flavor, deed }] of Object.entries(BRANCH_LORE)) {
+      expect(flavor.length, id).toBeLessThanOrEqual(70);
+      expect(deed.length, id).toBeLessThanOrEqual(110);
+      for (const t of [flavor, deed]) {
+        expect(t, id).not.toMatch(/\d|[()]/);
+        for (const bad of BANNED) expect(t, `${id}: «${t}»`).not.toMatch(bad);
       }
     }
   });
