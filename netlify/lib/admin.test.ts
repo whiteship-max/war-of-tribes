@@ -3,13 +3,14 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { botWith } from './routes/bot.js';
 import { save } from './routes/save.js';
 import { war } from './routes/war.js';
+import { gems } from './routes/gems.js';
 import { reportWith } from './routes/report.js';
 import { STORES, type Kv, type Stores } from './kv.js';
 import type { Telegram } from './telegram.js';
 import { FROZEN_ORDER, adminIds, grantsKey, readAdminLog, readFrozen, readGrants } from './admin.js';
 import { kindOf, parseGive, statsCsv } from './commands.js';
 import { readWatchRecord, flagsBetween, flagsOf } from './watch.js';
-import { REPORT_LIMITS, readAdminNote, readGrant, type WatchCard } from './contract.js';
+import { GEM_GOODS, REPORT_LIMITS, readAdminNote, readGrant, type WatchCard } from './contract.js';
 
 /**
  * Админка (docs/admin.md). Тесты там, где без них можно открыть админку чужому, начислить из ничего или потерять
@@ -311,6 +312,23 @@ describe('заморозка', () => {
       { stores: s.stores, now: NOW + 62_000, ip: null },
     );
     expect(((await order.json()) as { error?: string }).error).toBe(FROZEN_ORDER);
+
+    // Алмазы и лазутчик — тоже приказы: замороженный их не отдаёт, книга алмазов не тронута.
+    const gemsAt = (body: unknown, now: number) =>
+      gems(new Request('https://x/api/gems', { method: 'POST', headers: { 'x-telegram-init-data': signInit(7002) }, body: JSON.stringify(body) }), {
+        stores: s.stores,
+        now,
+        ip: null,
+      });
+    const bought = (await (await gemsAt({ op: 'buy', key: 'frozen-buy-1', res: GEM_GOODS[0] }, NOW + 63_000)).json()) as { error?: string; entry?: unknown };
+    expect(bought.error).toBe(FROZEN_ORDER);
+    expect(bought.entry).toBeUndefined();
+    const spy = await war(new Request('https://x/api/war?spy=c0000000000000', { headers: { 'x-telegram-init-data': signInit(7002) } }), {
+      stores: s.stores,
+      now: NOW + 64_000,
+      ip: null,
+    });
+    expect(((await spy.json()) as { error?: string }).error).toBe(FROZEN_ORDER);
 
     expect(await command(s, t, ADMIN, '/unfreeze 7002')).toMatch(/разморожен/);
     const again = await saveCall(s, 'PUT', { baseEtag: first.body.etag, record: record(card()) }, NOW + 120_000, 7002);
