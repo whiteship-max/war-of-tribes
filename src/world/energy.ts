@@ -18,11 +18,14 @@
 // идёт домой сам (это решает мир, а не дверь: `emptyAt` и `outOf` говорят только «когда» и «нет ли»).
 //
 // Модуль чистый: часов не читает, время приходит доводом. Без `@/`: его собирает и сервер.
-import { ENERGY_FILL, ENERGY_MAX, ENERGY_PRICE, ENERGY_ROAD, type EnergyAction } from './data/energy';
+import { ENERGY_CAMP, ENERGY_FILL, ENERGY_MAX, ENERGY_PRICE, ENERGY_ROAD, type EnergyAction } from './data/energy';
 import type { FigureId } from './types';
 
-/** Что с запасом с минуты отметки: уходит (в дороге), копится (дома) или стоит (у цели, в лагере, вне строя). */
-export type EnergyMode = 'drain' | 'fill' | 'hold';
+/**
+ * Что с запасом с минуты отметки: уходит (в дороге), копится (дома), копится медленно (в осадном лагере, `camp`: залп за
+ * фазу, ответ владельца 3) или стоит (у цели, в поле, вне строя).
+ */
+export type EnergyMode = 'drain' | 'fill' | 'camp' | 'hold';
 
 /** Отметка энергии: сколько было в минуту `at` (часы мира) и что с запасом с этой минуты. */
 export interface EnergyMark {
@@ -60,8 +63,12 @@ function step(v: number, mode: EnergyMode, dt: number): number {
   if (!(dt > 0)) return v;
   if (mode === 'drain') return Math.max(0, v - (ENERGY_MAX * dt) / ENERGY_ROAD);
   if (mode === 'fill') return Math.min(ENERGY_MAX, v + (ENERGY_MAX * dt) / ENERGY_FILL);
+  if (mode === 'camp') return Math.min(ENERGY_MAX, v + (ENERGY_MAX * dt) / ENERGY_CAMP);
   return v;
 }
+
+/** За сколько мс копится полный запас в режиме, который копит; не копит — `Infinity`. */
+const fillSpan = (mode: EnergyMode): number => (mode === 'fill' ? ENERGY_FILL : mode === 'camp' ? ENERGY_CAMP : Infinity);
 
 const finite = (t: number | undefined): t is number => t !== undefined && Number.isFinite(t);
 
@@ -70,15 +77,15 @@ const finite = (t: number | undefined): t is number => t !== undefined && Number
  * (`homeAt`); приход к цели у пути — стоит (`stopAt`). Нет ни того, ни другого — режим держится до новой отметки.
  */
 function turnOf(m: EnergyMark): { at: number; to: EnergyMode } | null {
-  if (m.mode === 'fill') return null;
+  if (m.mode === 'fill' || m.mode === 'camp') return null;
   if (finite(m.homeAt)) return { at: Math.max(m.at, m.homeAt), to: 'fill' };
   if (m.mode === 'drain' && finite(m.stopAt)) return { at: Math.max(m.at, m.stopAt), to: 'hold' };
   return null;
 }
 
-/** Минута, с которой отметка копится. Нет — `Infinity`. У `fill` — с самой отметки. */
+/** Минута, с которой отметка копится. Нет — `Infinity`. У `fill` и `camp` — с самой отметки. */
 function fillFrom(m: EnergyMark): number {
-  if (m.mode === 'fill') return m.at;
+  if (m.mode === 'fill' || m.mode === 'camp') return m.at;
   const t = turnOf(m);
   return t?.to === 'fill' ? t.at : Infinity;
 }
@@ -132,7 +139,7 @@ export function fullAt(mark: EnergyMark | undefined, now: number): number | null
   const sw = fillFrom(mark);
   if (sw === Infinity) return null;
   const from = Math.max(now, sw);
-  return from + ((ENERGY_MAX - energyAt(mark, from)) / ENERGY_MAX) * ENERGY_FILL;
+  return from + ((ENERGY_MAX - energyAt(mark, from)) / ENERGY_MAX) * fillSpan(modeAt(mark, from));
 }
 
 /** Новая отметка с минуты `at`: значение — по прежней, режим — новый. Так мир пишет перемену стойки. */

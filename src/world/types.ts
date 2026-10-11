@@ -3,6 +3,7 @@
 // Единственная связь с симуляцией племени — словарь ресурсов: добыча и грабёж
 // говорят на одном языке со складом.
 import type { CraftAct } from './siegecraft';
+import type { SiegeOrders } from './siegeroll';
 import type { GameSec } from '@/game/pace';
 import type { FaithId, ResourceId } from '@/game/types';
 import type { TroopStack } from '@/game/battle/kinds';
@@ -261,6 +262,29 @@ export interface SiegeView {
    * считает бой (`craftNote`). Нет поля — ничего не делали.
    */
   craftNote?: string;
+  /** Ход осады фазами (docs/siege_v2.md, раздел 2): журнал, поправки следующей фазы, проломы. Нет поля — старое окно. */
+  phases?: SiegePhasesView;
+}
+
+/**
+ * Ход осады фазами глазами окна — обеим сторонам одно (docs/siege_v2.md, 9.1–9.2). Слова и числа — дверью фаз
+ * (`world/siegeroll`, правило 18); прогноза исхода нет, поправки следующей фазы — описание состояния (ответ владельца 2).
+ */
+export interface SiegePhasesView {
+  /** Журнал брошенных фаз словами, новые сверху (`siegeroll.journalOf`). */
+  journal: string[];
+  /** Поправки следующей фазы словами: «+1 пролом, −2 стена» (`siegeroll.nextModsText`). */
+  next: string;
+  /** Минута следующего броска. */
+  nextAt: number;
+  /** Номер следующей фазы, с единицы. */
+  nextK: number;
+  /** Проломов в стене, 0..3. */
+  breaches: number;
+  /** Накопленный ход осады, ступеней. */
+  progress: number;
+  /** Наказы осаждающего — только в окне того, кто стоит лагерем. */
+  orders?: SiegeOrders;
 }
 
 /**
@@ -1237,6 +1261,12 @@ export interface BattleRecord {
    * (`wallMen`, `garrisonWear`), и исход от этого поля не зависит. Поля нет у боя без обстрела и у записей, сделанных раньше.
    */
   shots?: number;
+  /**
+   * Сколько проломов было в стене к этому штурму (`siegeroll.breachesOf`, 0..3) — тоже только показ: ролик рушит стену на
+   * их долю. Пролом даёт исход фазы, а не залп (docs/siege_v2.md, 2.5). Нет поля — запись до фаз: её залпы читаются
+   * прежними долями (`siegecraft.breachOf`).
+   */
+  breach?: number;
 }
 
 /**

@@ -29,6 +29,7 @@ import type { FallForecast, Fate } from '@/world/types';
 import { Icon } from '@/ui/icons/Icon';
 import { CampStrike } from '@/ui/parts/CampStrike';
 import { plural } from '@/ui/parts/plural';
+import { SiegePhases } from '@/ui/parts/SiegePhases';
 import { bondedWord, townsWord } from '@/game/data/order';
 
 const byLevels = (n: number): string => `до ${n} ${plural(n, 'уровня', 'уровней', 'уровней')}`;
@@ -187,6 +188,8 @@ export function SiegePanel() {
       </p>
       {/* Дела полководца в лагере (world/siegecraft): лагерь укреплён, город обстреливают — словами мира. */}
       {siege.craftNote && <p className="note warn">{siege.craftNote}</p>}
+      {/* Ход осады фазами (world/siegeroll): тот же журнал, что у осаждающего, и поправки следующей фазы. */}
+      {siege.phases && <SiegePhases phases={siege.phases} now={now} />}
       {/* Мораль между боями (14.31): уставший лагерь бить лучше сейчас, уставшему гарнизону — дать отдохнуть. */}
       {siege.campRest && (
         <p className="note">{restLine(siege.campRest, 'Лагерь дрался', now)} Бей, пока не отдохнул.</p>

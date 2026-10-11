@@ -7,12 +7,17 @@ import { campFight, campHolds, holdMinute, type HoldIn } from './fights';
 import { sideWorks, worksRipeAt } from './works';
 import { siegeWear } from './siege';
 import { CAMP_GATE_CLEAR, CAMP_WOOD, CAMP_WORKS_RIPE } from './data/tuning';
+import { worldDays } from '@/game/pace';
 
 const T0 = 1_700_000_000_000;
 const inf = (n: number): Stack => ({ ...emptyStack(), infantry: n });
 
+/** Путь износа до дна — срок голода окна; здесь — обычный голод осады игроком, около двадцати игровых дней. */
+const SPAN = worldDays(20);
+
 const hold = (o: { camp: number; builders: number; sortie: number; rest?: number; seed?: number }): HoldIn => ({
   seed: o.seed ?? 7,
+  wearSpan: SPAN,
   sight: { since: T0, builders: o.builders },
   camp: { kinds: inf(o.camp), rest: 1 },
   sortie: { kinds: inf(o.sortie), rest: o.rest ?? 1 },
@@ -47,7 +52,7 @@ describe('садиться ли: лагерь к дозревшим рогатк
 
   it('износ осады к минуте дозревания кладёт сама дверь: свежая вылазка взяла бы лагерь, уставшая к той минуте — нет', () => {
     const at = holdMinute(T0);
-    const wear = siegeWear(T0, at);
+    const wear = siegeWear(T0, at, SPAN);
     // Граница области: к дозреванию износ уже есть, но дна (0) нет.
     expect(wear).toBeLessThan(1);
     expect(wear).toBeGreaterThan(0);

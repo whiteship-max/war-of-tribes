@@ -58,12 +58,13 @@ import {
   rivalPerilCase,
   rivalRolls,
 } from '../../src/world/rivalspy.js';
-import { gameSecondsOfMs } from '../../src/game/pace.js';
+import { gameDaysOfMs, gameSecondsOfMs } from '../../src/game/pace.js';
 import { FATE_SAME, openSiege, SIEGE_BLOCK, siegeSince, starvesAt, type SiegeWindow } from '../../src/world/siege.js';
-import { craftAfter, craftBlock, craftDone, fortFaces, garrisonWear, wallMen, type Craft } from '../../src/world/siegecraft.js';
+import { craftAfter, craftAt, craftBlock, craftCount, fortFaces, garrisonWear, wallMen, type Craft } from '../../src/world/siegecraft.js';
+import { breachesOf, cleanOrders, nextRollAt, orderStorms, orderVolleys, rollPhase, rowsOf, softerFate } from '../../src/world/siegeroll.js';
 import { burnImmuneUntil, fate, fateBlock, fallSeed, homeLoss, winnerGain } from '../../src/world/spoils.js';
 import { restAfter, restAt } from '../../src/world/rest.js';
-import { energyAt, energyBlock, onRoad, priceOf, spend } from '../../src/world/energy.js';
+import { energyAt, energyBlock, onRoad, priceOf, remark, spend } from '../../src/world/energy.js';
 import { ENERGY_MAX } from '../../src/world/data/energy.js';
 import { weakCity } from '../../src/world/lairs.js';
 import { inHomeTheatre } from '../../src/world/theatre/theatre.js';
@@ -404,19 +405,20 @@ function homeward(w: WarRow, at: number, backAt: number): void {
  * (`siegecraft.garrisonWear`, та же дверь, что у гарнизона логова под лагерем игрока).
  */
 const garrisonRest = (w: WarRow, sheet: WarSheet, at: number): number =>
-  sheet.rest * (w.camp ? garrisonWear(siegeSince(w.camp as SiegeWindow), at, w.camp.craft) : 1);
+  sheet.rest * (w.camp ? garrisonWear(w.camp as SiegeWindow, at) : 1);
 
-/** Что сделано в лагере к бою — в запись боя, чтобы донесение у обеих сторон сказало это словами. */
+/** Что сделано в лагере к бою, с проломами — в запись боя, чтобы донесение у обеих сторон сказало это словами. */
 const craftOf = (w: WarRow): { craft?: Craft } => {
-  const c = w.camp?.craft;
-  return c && (craftDone(c, 'fortify') > 0 || craftDone(c, 'bombard') > 0) ? { craft: { ...c } } : {};
+  if (!w.camp) return {};
+  const c = craftAt(w.camp as SiegeWindow);
+  return craftCount(c, 'fortify') > 0 || craftCount(c, 'bombard') > 0 || (c.breach ?? 0) > 0 ? { craft: c } : {};
 };
 
 /** Штурм города войском похода в минуту `at`. Возвращает бой и победил ли поход. */
 function storm(w: WarRow, at: number, sheet: WarSheet): { battle: WarBattle; won: boolean } {
   const n = w.battles.length;
   // Пролом — стена при штурме из лагеря, по которому стреляли (`siegecraft.wallMen`); штурм с ходу идёт на целую стену.
-  const wall = wallMen(sheet.militia, sheet.archers, w.camp?.craft);
+  const wall = wallMen(sheet.militia, sheet.archers, w.camp ? craftAt(w.camp as SiegeWindow) : undefined);
   const input = {
     seed: warSeed(w.id, n),
     attacker: { kinds: kindsOf(asTroops(w.army.troops)), resolve: w.army.resolve, pips: w.army.pips as Pips, rest: armyRest(w.army, at) },
@@ -453,8 +455,10 @@ function storm(w: WarRow, at: number, sheet: WarSheet): { battle: WarBattle; won
 function fall(w: WarRow, at: number, sheet: WarSheet, by: WarFall['by']): void {
   // Обоз и конвой — уцелевшие похода, той же меркой, что у полководца против логова (`LocalWorld.haul`).
   const survivors = troopTotal(asTroops(w.army.troops));
+  // Сдача (ворота открыли на фазе осады) — участь на ступень мягче объявленной, гарнизон уходит живым (ответ владельца 5).
+  const fated = by === 'gates' ? softerFate(w.fate) : w.fate;
   const r = fate({
-    fate: w.fate,
+    fate: fated,
     stock: sheet.stock,
     gold: sheet.gold,
     stash: sheet.stash,
@@ -480,7 +484,7 @@ function fall(w: WarRow, at: number, sheet: WarSheet, by: WarFall['by']): void {
   for (const [k, v] of Object.entries(gain.resources)) if ((v ?? 0) > 0) taken[k] = v as number;
   w.fall = {
     at,
-    fate: w.fate,
+    fate: fated,
     by,
     taken,
     led: gain.bonded ?? 0,
@@ -507,6 +511,8 @@ const walk = (from: { x: number; y: number }, to: { x: number; y: number }): num
 
 /** Войско уходит домой от минуты `at` с места `from`. Некому уходить — война кончена на месте. */
 function turnBack(w: WarRow, at: number, from: { x: number; y: number }, end: WarEnd): void {
+  // Журнал фаз переживает лагерь: по нему вести и донесение у обеих сторон (`newsOf`).
+  if (w.camp?.phases?.length) w.phases = w.camp.phases;
   delete w.camp;
   delete w.starvesAt;
   delete w.strike;
@@ -543,8 +549,60 @@ function campWindow(w: WarRow, at: number, sheet: WarSheet, prev: WarCamp | null
     builders: prev?.builders ?? men(w.army.troops),
     // Дела полководца в лагере той же осады (`world/siegecraft`) переносятся, как проходы.
     craft: prev?.craft,
+    // Ход осады фазами (`world/siegeroll`): стена города и путь войска от дома — при постановке (путь без темпа войны:
+    // истощение считает игровые дни дороги), журнал дел и фаз и наказы той же осады переносятся.
+    wall: prev ? prev.wall : (sheet.levels.palisade ?? 0),
+    homeDays: prev ? prev.homeDays : gameDaysOfMs(warWalkMs(w.from, w.to)),
+    log: prev ? prev.log : [],
+    phases: prev?.phases,
+    orders: prev?.orders,
   });
   return win as WarCamp;
+}
+
+/** Войско после истощения фазы: доля `share` с каждого рода, как при потерях в бою. */
+function wasted(troops: Counts, share: number): Counts {
+  const kinds = kindsOf(asTroops(troops));
+  const hit = { ...kinds };
+  for (const k of Object.keys(hit) as (keyof typeof hit)[]) hit[k] = Math.round(kinds[k] * share);
+  return minus(troops, troopLosses(asTroops(troops), hit) as Counts);
+}
+
+/**
+ * Фаза осады в минуту `at` (docs/siege_v2.md, раздел 2) — той же дверью, что у мира на клиенте (`siegeroll.rollPhase`):
+ * строка в журнал лагеря, истощение войска похода (раздел 3), исход. Ворота открыли — падение (`fall`, сдача); лагерь
+ * растаял — осада снята. Потом наказы нападающего (8.3) — те же приказы с теми же отказами: штурм при названных проломах,
+ * иначе залп этой фазы, пока энергии хватает и на него, и на штурм. `atkHungry` — пуст ли амбар дома у нападающего.
+ */
+function phaseStep(w: WarRow, at: number, sheet: WarSheet, atkHungry: boolean): void {
+  const camp = w.camp as SiegeWindow;
+  const k = rowsOf(camp).length + 1;
+  const row = rollPhase(camp, k, atkHungry);
+  camp.phases = [...rowsOf(camp), row];
+  if (row.waste > 0) w.army = { ...w.army, troops: wasted(w.army.troops, row.waste) };
+  if (troopTotal(asTroops(w.army.troops)) <= 0) {
+    turnBack(w, at, w.to, 'lifted');
+    return;
+  }
+  if (row.out === 'gates') {
+    fall(w, at, sheet, 'gates');
+    turnBack(w, at, w.to, 'taken');
+    return;
+  }
+  const orders = camp.orders;
+  if (orderStorms(orders, breachesOf(camp)) && !energyBlock(energyAt(w.army.energy, at), priceOf('storm'))) {
+    row.orders = ['storm'];
+    w.army = { ...w.army, energy: spend(w.army.energy, at, priceOf('storm')) };
+    const { won } = storm(w, at, sheet);
+    if (won) fall(w, at, sheet, 'storm');
+    turnBack(w, at, w.to, won ? 'taken' : 'beaten');
+    return;
+  }
+  if (orderVolleys(orders, energyAt(w.army.energy, at), priceOf('bombard'), priceOf('storm')) && !craftBlock(camp, 'bombard', at)) {
+    w.army = { ...w.army, energy: spend(w.army.energy, at, priceOf('bombard')) };
+    Object.assign(camp, craftAfter(camp, 'bombard', at));
+    row.orders = ['volley'];
+  }
 }
 
 function setCamp(w: WarRow, camp: WarCamp): void {
@@ -657,6 +715,11 @@ export function dueKeys(file: WarFile, now: number): string[] {
   for (const w of file.wars) {
     if (w.phase === 'march' && w.arriveAt <= now) keys.add(w.def);
     if (w.phase === 'camp' && ((w.starvesAt ?? Infinity) <= now || (w.strike && w.strike.at <= now))) keys.add(w.def);
+    // Фаза осады: слепок защитника — для штурма по наказу и падения сдачей, нападающего — пуст ли его амбар.
+    if (w.phase === 'camp' && w.camp && nextRollAt(w.camp as SiegeWindow) <= now) {
+      keys.add(w.def);
+      keys.add(w.atk);
+    }
   }
   for (const sp of file.spies ?? []) if (sp.phase === 'go' && sp.arriveAt <= now) keys.add(sp.def);
   return [...keys];
@@ -674,7 +737,8 @@ export function advance(file: WarFile, now: number, sheets: ReadonlyMap<string, 
     return s ? liveSheet(file, w.def, s, at) : null;
   };
   for (const w of file.wars) {
-    for (let guard = 0; guard < 8; guard++) {
+    // Фаз за долгий простой бывает много: каждая — одно событие очереди.
+    for (let guard = 0; guard < 64; guard++) {
       if (w.phase === 'march' && w.arriveAt <= now) {
         changed = true;
         const sheet = sheetOf(w, w.arriveAt);
@@ -689,28 +753,38 @@ export function advance(file: WarFile, now: number, sheets: ReadonlyMap<string, 
         } else {
           w.phase = 'camp';
           setCamp(w, campWindow(w, w.arriveAt, sheet, null));
+          // Лагерь — полудом: энергия полководца копится залпом за фазу (ответ владельца 3, docs/siege_v2.md, 8.4).
+          w.army = { ...w.army, energy: remark(w.army.energy, w.arriveAt, 'camp') };
         }
         continue;
       }
       if (w.phase === 'camp') {
         const hungerAt = w.starvesAt ?? Infinity;
         const strikeAt = w.strike?.at ?? Infinity;
+        const rollAt = w.camp ? nextRollAt(w.camp as SiegeWindow) : Infinity;
+        const phaseAt = rollAt < hungerAt ? rollAt : Infinity;
         const fresh = sheets.get(w.def);
-        if (fresh && regarrison(file, w, fresh, Math.min(hungerAt, strikeAt, now + 1))) {
+        if (fresh && regarrison(file, w, fresh, Math.min(hungerAt, strikeAt, phaseAt, now + 1))) {
           changed = true;
           continue;
         }
-        if (Math.min(hungerAt, strikeAt) > now) break;
+        const next = Math.min(hungerAt, strikeAt, phaseAt);
+        if (next > now) break;
         changed = true;
-        const sheet = sheetOf(w, Math.min(hungerAt, strikeAt));
+        const sheet = sheetOf(w, next);
         if (!sheet) {
-          turnBack(w, Math.min(hungerAt, strikeAt), w.to, 'gone');
+          turnBack(w, next, w.to, 'gone');
           continue;
         }
-        if (strikeAt <= hungerAt && w.strike) {
+        if (strikeAt <= hungerAt && strikeAt <= phaseAt && w.strike) {
           const s = w.strike;
           delete w.strike;
           hitCamp(w, s.at, sheet, { rear: s.army, front: s.joint ? sheet.home : undefined, site: s.joint ? 'joint' : 'camp' });
+          continue;
+        }
+        if (phaseAt < hungerAt) {
+          const atk = sheets.get(w.atk);
+          phaseStep(w, phaseAt, sheet, atk ? atk.sheet.food <= 0 : false);
           continue;
         }
         fall(w, hungerAt, sheet, 'hunger');
@@ -858,12 +932,23 @@ export function applyOrder(file: WarFile, key: string, order: WarOrder, now: num
       if (!w || w.phase !== 'camp' || !w.camp) return 'Лагеря уже нет.';
       // Дело в лагере — предел за осаду и цена в энергии полководца, той же дверью, что у лагеря под логовом
       // (`world/siegecraft`, `world/energy`). Списывается один раз — здесь, вместе со счётчиком.
-      const limit = craftBlock(w.camp.craft, order.act);
+      const limit = craftBlock(w.camp as SiegeWindow, order.act, now);
       if (limit) return limit;
       const tired = energyBlock(energyAt(w.army.energy, now), priceOf(order.act));
       if (tired) return tired;
       w.army = { ...w.army, energy: spend(w.army.energy, now, priceOf(order.act)) };
-      w.camp = { ...w.camp, craft: craftAfter(w.camp.craft, order.act) };
+      w.camp = { ...w.camp, ...craftAfter(w.camp as SiegeWindow, order.act, now) };
+      return null;
+    }
+    case 'orders': {
+      // Наказы на отлучку (docs/siege_v2.md, 8.3): разбирает их сервер в минуту фазы, теми же дверями, что ручные приказы.
+      const w = theirs(file, order.id, key, 'atk');
+      if (!w || w.phase !== 'camp' || !w.camp) return 'Лагеря уже нет.';
+      const clean = cleanOrders(order.orders);
+      const camp = { ...w.camp };
+      if (clean) camp.orders = clean;
+      else delete camp.orders;
+      w.camp = camp;
       return null;
     }
     case 'sortie': {
@@ -1063,8 +1148,41 @@ export function newsOf(w: WarRow): WarNews[] {
       });
     }
   }
-  if (w.fall?.by === 'hunger') {
+  // Фазы осады (docs/siege_v2.md, 8.3): весть — только о значимом. Пролом и мор — обеим сторонам; наказ, сработавший в
+  // минуту фазы, — нападающему, чей он. «Без перемен» и «нехватка в городе» без наказа молчат.
+  const rows = w.camp ? rowsOf(w.camp as SiegeWindow) : (w.phases ?? []);
+  let breaches = 0;
+  rows.forEach((r, i) => {
+    if (r.out === 'breach') breaches = Math.min(3, breaches + 1);
+    if (r.out === 'gates') return;
+    const order = r.orders?.[0];
+    for (const role of ['atk', 'def'] as const) {
+      const loud = r.out === 'breach' || r.out === 'plague';
+      if (!loud && !(role === 'atk' && order)) continue;
+      out.push({
+        player: role === 'atk' ? w.atk : w.def,
+        item: {
+          key: `war-phase:${w.id}:${i + 1}`,
+          kind: 'war-phase',
+          fireAt: r.at,
+          until: r.at + RESULT_KEEP,
+          p: {
+            from: from(role),
+            fate: w.fate,
+            about: r.at,
+            role,
+            phase: r.out,
+            k: i + 1,
+            ...(r.out === 'breach' ? { breaches } : {}),
+            ...(role === 'atk' && order ? { order } : {}),
+          },
+        },
+      });
+    }
+  });
+  if (w.fall?.by === 'hunger' || w.fall?.by === 'gates') {
     const at = w.fall.at;
+    const gates = w.fall.by === 'gates';
     for (const role of ['atk', 'def'] as const) {
       out.push({
         player: role === 'atk' ? w.atk : w.def,
@@ -1073,7 +1191,7 @@ export function newsOf(w: WarRow): WarNews[] {
           kind: 'war-fall',
           fireAt: at,
           until: at + RESULT_KEEP,
-          p: { from: from(role), fate: w.fall.fate, about: at, role, taken: true },
+          p: { from: from(role), fate: w.fall.fate, about: at, role, taken: true, ...(gates ? { gates: true as const } : {}) },
         },
       });
     }

@@ -2,6 +2,7 @@
 // компоненты читают этот стор, а он ходит в worldApi(). Ни один экран не знает,
 // что за интерфейсом сейчас стоит LocalWorld.
 import type { CraftAct } from './siegecraft';
+import type { SiegeOrders } from './siegeroll';
 import { create } from 'zustand';
 import { partyNow, serverNow } from '@/net/clock';
 import { castleCell, castles, rosterReady, startPulling, stopPulling } from '@/net/roster';
@@ -280,6 +281,8 @@ export interface WorldStore {
   setWood: (share: number) => Promise<string | null>;
   /** Дело полководца в своём лагере: укрепить лагерь, обстрел города (`world/siegecraft`). */
   campCraft: (act: CraftAct) => Promise<string | null>;
+  /** Наказы своему лагерю на отлучку (`world/siegeroll`, docs/siege_v2.md, 8.3). */
+  setOrders: (orders: SiegeOrders) => Promise<string | null>;
   /** Перечитать окно осаждающего. */
   loadCamp: () => Promise<void>;
   /**
@@ -680,6 +683,17 @@ export const useWorld = create<WorldStore>((set, get) => ({
 
   campCraft: async (act) => {
     const err = await worldApi().campCraft(act);
+    if (err) {
+      haptic('error');
+      return err;
+    }
+    haptic('light');
+    await get().loadCamp();
+    return null;
+  },
+
+  setOrders: async (orders) => {
+    const err = await worldApi().setOrders(orders);
     if (err) {
       haptic('error');
       return err;

@@ -126,7 +126,7 @@ export function TwReplay({ rec, report, onDone }: { rec: BattleRecord; report?: 
         let lastT = 0;
         const p = m.playTw(
           renderer,
-          { result: rec.result, us: rec.us, troops: rec.troops, militia: rec.militia, place: rec.place, beasts: rec.beasts, site: rec.site, breach: barrageShares(rec.shots) },
+          { result: rec.result, us: rec.us, troops: rec.troops, militia: rec.militia, place: rec.place, beasts: rec.beasts, site: rec.site, breach: barrageShares(rec.shots, rec.breach) },
           quality,
           layer.current,
           {

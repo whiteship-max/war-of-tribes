@@ -8,13 +8,15 @@
 // - «дойти и ударить» — бой в минуту прихода, онлайн и офлайн, цена штурма — при приказе;
 // - цена дела — при приказе; не хватает — строка меню гаснет той же причиной, что откажет приказ;
 // - без сил на своё дело из своих ворот не выходят — та же мерка, что у цели.
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { realMs, gameDaysOfMs } from '@/game/pace';
 import { LocalWorld } from './local/LocalWorld';
 import type { WorldSave } from './local/state';
 import type { GenSettlement } from './gen';
 import type { Coord, FigureId, FigureView, PlayerProfile } from './types';
-import { ENERGY_ROAD, ENERGY_FILL, ENERGY_MAX, ENERGY_PRICE } from './data/energy';
+import { ENERGY_CAMP, ENERGY_ROAD, ENERGY_FILL, ENERGY_MAX, ENERGY_PRICE } from './data/energy';
+import { SIEGE_PHASE } from './data/siegeroll';
+import { setPhaseDie } from './siegeroll';
 import { energyBlock, idleBlock, leastPrice, roadCost, roadOf } from './energy';
 import { craftNote } from './siegecraft';
 import { distance } from './geo';
@@ -389,7 +391,7 @@ describe('цена дела: при приказе, и не хватает — �
 });
 
 describe('осадный лагерь: десять энергии, и пока он стоит, она не тратится', () => {
-  it('встал — минус десять; стоит — не убывает; снял — стоит в поле даром; пошёл — уходит в дороге', async () => {
+  it('встал — минус десять; стоит — копит залп за фазу; снял — стоит в поле даром; пошёл — уходит в дороге', async () => {
     const w = makeWorld();
     const p = profile({ army: { spearman: 40 } });
     await w.world.sync(p);
@@ -400,24 +402,28 @@ describe('осадный лагерь: десять энергии, и пока 
     // Точка внутри области: лагерь стоит.
     expect(camp.besieging).toBe(lair.id);
     expect(camp.energy?.value).toBe(ENERGY_MAX - ENERGY_PRICE.siege.price);
-    expect(camp.energy?.mode).toBe('hold');
-    // Два игровых дня — на карте это сорок энергии, в лагере — ничего.
-    w.advance(realMs(2 * 60));
+    // Лагерь — полудом: копится залп за фазу (ответ владельца 3, docs/siege_v2.md, 8.4).
+    expect(camp.energy?.mode).toBe('camp');
+    // Два игровых дня — на карте это сорок энергии в дороге, дома — полный запас, в лагере — полфазы залпа.
+    const stay = realMs(2 * 60);
+    w.advance(stay);
     await w.world.sync(p);
     const still = await fig(w, 'general');
     expect(still.besieging, 'точка внутри области: лагерь ещё стоит').toBe(lair.id);
-    expect(still.energy?.value).toBe(ENERGY_MAX - ENERGY_PRICE.siege.price);
+    const held = ENERGY_MAX - ENERGY_PRICE.siege.price + (ENERGY_MAX * stay) / ENERGY_CAMP;
+    expect(held, 'точка внутри области: копится, но до полного далеко').toBeLessThan(ENERGY_MAX);
+    expect(still.energy?.value).toBe(Math.floor(held + 1e-9));
     // Снял осаду — стоит в поле, и энергия не уходит: ожидание даром.
     expect(await w.world.retreat()).toBeNull();
     w.advance(ENERGY_ROAD / 10);
     await w.world.sync(p);
-    expect(await energyOf(w, 'general')).toBe(ENERGY_MAX - ENERGY_PRICE.siege.price);
+    expect(await energyOf(w, 'general')).toBe(Math.floor(held + 1e-9));
     // Пошёл — уходит в дороге.
     expect(await w.world.recallFigure('general')).toBeNull();
     const back = await fig(w, 'general');
     w.at(back.departAt + (back.arriveAt - back.departAt) / 2);
     await w.world.sync(p);
-    expect(await energyOf(w, 'general')).toBe(Math.floor(ENERGY_MAX - ENERGY_PRICE.siege.price - roadCost((back.arriveAt - back.departAt) / 2) + 1e-9));
+    expect(await energyOf(w, 'general')).toBe(Math.floor(held - roadCost((back.arriveAt - back.departAt) / 2) + 1e-9));
   });
 
   /**
@@ -479,8 +485,22 @@ describe('осада у ворот: до приказа сказано, хват
   });
 });
 
+/**
+ * Логово под нашим лагерем уже решало о вылазке и выручке: их минуты (4-й и 7-й игр. день) совпали бы с новой фазой, а
+ * тест держит цену и предел дела, а не бой у рогаток.
+ */
+function calmLair(w: ReturnType<typeof makeWorld>, id: string): void {
+  const win = w.inner.save.sieges[id];
+  win.sortied = true;
+  win.relieved = true;
+}
+
 describe('дела в лагере: цена при приказе, один раз за дело, и меню гасит той же строкой, что откажет приказ', () => {
-  it('обстрел логова: пятнадцать за залп, на пределе — отказ без списания; без энергии — та же строка в меню и в отказе', async () => {
+  // Фазы здесь тихие («без перемен»): тест держит цену и предел дела, а не исход фазы (`siegeroll.test.ts`).
+  beforeEach(() => setPhaseDie(() => 7));
+  afterEach(() => setPhaseDie(null));
+
+  it('обстрел логова: пятнадцать за залп, один залп за фазу — отказ без списания; без энергии — та же строка в меню и в отказе', async () => {
     const w = makeWorld();
     const p = profile({ army: { spearman: 40 } });
     await w.world.sync(p);
@@ -490,15 +510,20 @@ describe('дела в лагере: цена при приказе, один р�
     expect((await fig(w, 'general')).besieging, 'точка внутри области: лагерь стоит').toBe(lair.id);
     const start = await energyOf(w, 'general');
     const shot = ENERGY_PRICE.bombard.price;
-    for (let n = 1; n <= 3; n++) {
-      expect(await w.world.campCraft('bombard')).toBeNull();
-      expect(await energyOf(w, 'general')).toBe(start - n * shot);
-    }
-    // Предел за осаду: меню и приказ — одна строка, энергия на месте.
+    expect(await w.world.campCraft('bombard')).toBeNull();
+    expect(await energyOf(w, 'general')).toBe(start - shot);
+    // Предел — залп этой фазы (docs/siege_v2.md, 2.5): меню и приказ — одна строка, энергия на месте.
     const menu = (await w.world.camp())?.crafts?.find((c) => c.act === 'bombard');
     expect(menu?.can).toBe(false);
     expect(await w.world.campCraft('bombard')).toBe(menu?.reason);
-    expect(await energyOf(w, 'general')).toBe(start - 3 * shot);
+    expect(await energyOf(w, 'general')).toBe(start - shot);
+    // Новая фаза — новый залп; за фазу лагерь накопил ровно залп (`ENERGY_CAMP`).
+    calmLair(w, lair.id);
+    w.advance(SIEGE_PHASE);
+    await w.world.sync(p);
+    expect((await fig(w, 'general')).besieging, 'точка внутри области: лагерь стоит и в новой фазе').toBe(lair.id);
+    expect(ENERGY_CAMP, 'за фазу копится цена залпа').toBeCloseTo((SIEGE_PHASE * ENERGY_MAX) / shot, 6);
+    expect(await w.world.campCraft('bombard')).toBeNull();
     // Без энергии на укрепление — та же строка двери энергии в меню и в отказе, счётчик не тронут.
     w.inner.save.figures.general.energy = { value: ENERGY_PRICE.fortify.price - 1, at: w.now(), mode: 'hold' };
     const fort = (await w.world.camp())?.crafts?.find((c) => c.act === 'fortify');
@@ -507,19 +532,28 @@ describe('дела в лагере: цена при приказе, один р�
     expect(w.inner.save.sieges[lair.id]?.craft?.fort).toBeUndefined();
     // Стены у логова нет: строка «что сделано» не обещает пролома — как и меню (docs/siege_audit.md, решение 7).
     const note = (await w.world.camp())?.craftNote ?? '';
-    expect(note, 'точка внутри области: залпы были').toContain('Город обстреляли 3 из 3 раз');
-    expect(note).not.toContain('Пролом');
-    expect(note).toBe(craftNote({ shots: 3 }, false));
+    expect(note, 'точка внутри области: залпы были').toContain('Город обстреляли 2 раза');
+    expect(note).not.toContain('пролом');
+    expect(note).toBe(craftNote({ shots: 2 }, false));
   });
 
   it('штурм логова после обстрела: запись боя несёт залпы для ролика (`BattleRecord.shots`), без обстрела — нет', async () => {
     for (const shots of [0, 2]) {
       const w = makeWorld();
-      await w.world.sync(profile({ army: { spearman: 40 } }));
+      const p = profile({ army: { spearman: 40 } });
+      await w.world.sync(p);
       const lair = nearestLair(w);
       standAt(w, 'general', lair, { spearman: 40 });
       expect(await w.world.besiege()).toBeNull();
-      for (let n = 0; n < shots; n++) expect(await w.world.campCraft('bombard')).toBeNull();
+      // Один залп за фазу: второй — в следующей.
+      for (let n = 0; n < shots; n++) {
+        if (n > 0) {
+          calmLair(w, lair.id);
+          w.advance(SIEGE_PHASE);
+          await w.world.sync(p);
+        }
+        expect(await w.world.campCraft('bombard')).toBeNull();
+      }
       w.inner.save.figures.general.energy = { value: ENERGY_MAX, at: w.now(), mode: 'hold' };
       const res = await w.world.attack({});
       expect(res.error).toBeNull();

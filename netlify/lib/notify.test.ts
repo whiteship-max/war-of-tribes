@@ -50,16 +50,17 @@ describe('белый список видов', () => {
    * три о логове (мир на клиенте), три о войне между игроками и тайное нападение лазутчика соседа (сервер,
    * docs/spy_pvp.md). Вида «вернись в игру» быть не может.
    */
-  it('семь видов поимённо, вида «вернись в игру» быть не может', () => {
-    expect([...NOTICE_KINDS]).toEqual(['raid', 'raid-fight', 'siege-fall', 'war', 'war-fight', 'war-fall', 'war-spy']);
+  it('девять видов поимённо, вида «вернись в игру» быть не может', () => {
+    // Фаза осады — пролом и мор (`siege-phase` у осады логова, `war-phase` у войны; docs/siege_v2.md, 8.3).
+    expect([...NOTICE_KINDS]).toEqual(['raid', 'raid-fight', 'siege-fall', 'siege-phase', 'war', 'war-fight', 'war-fall', 'war-spy', 'war-phase']);
     const put = accept(emptyNotify(), { computedAt: NOW, items: [item({ kind: 'come-back' as never, key: 'come-back:1' })] }, PLAYER, NOW);
     expect(put.fail).toEqual({ status: 400, error: 'bad-body' });
   });
 
   /** Войну знает только сервер: клиент, приславший «бой был» о войне, назвал бы исход, которого сервер не считал. */
   it('клиент не может прислать вид войны — отказ всему списку', () => {
-    expect([...CLIENT_KINDS]).toEqual(['raid', 'raid-fight', 'siege-fall']);
-    for (const kind of ['war', 'war-fight', 'war-fall', 'war-spy'] as const) {
+    expect([...CLIENT_KINDS]).toEqual(['raid', 'raid-fight', 'siege-fall', 'siege-phase']);
+    for (const kind of ['war', 'war-fight', 'war-fall', 'war-spy', 'war-phase'] as const) {
       const fake = item({ kind, key: `${kind}:x`, p: { ...item().p, role: 'def', won: true } });
       expect(accept(emptyNotify(), { computedAt: NOW, items: [fake] }, PLAYER, NOW).fail, kind).toEqual({ status: 400, error: 'bad-body' });
     }

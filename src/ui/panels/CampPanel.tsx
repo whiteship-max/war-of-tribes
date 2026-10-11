@@ -21,6 +21,7 @@ import { SIDES, SIDE_NAME, WOOD_SHARES, campSides, playerWood, woodShare, worksR
 import type { CampView, Fate } from '@/world/types';
 import { FatePick } from '@/ui/parts/FatePick';
 import { plural } from '@/ui/parts/plural';
+import { SiegePhases } from '@/ui/parts/SiegePhases';
 
 /**
  * Сроки из подсказки к долям — той же функцией, которой считаются стороны: при
@@ -56,6 +57,7 @@ export function CampPanel() {
   const retreat = useWorld((g) => g.retreat);
   const setWood = useWorld((g) => g.setWood);
   const campCraft = useWorld((g) => g.campCraft);
+  const setOrders = useWorld((g) => g.setOrders);
   const [pick, setPick] = useState<Fate | null>(null);
   const [busy, setBusy] = useState(false);
   const [, retick] = useState(0);
@@ -186,6 +188,16 @@ export function CampPanel() {
         <p className="note warn">
           {restLine(camp.campRest, 'Лагерь дрался', now)} {REST_WHY}
         </p>
+      )}
+
+      {/* Ход осады фазами и наказы на отлучку (world/siegeroll): журнал, поправки и проломы — из мира. */}
+      {camp.phases && (
+        <SiegePhases
+          phases={camp.phases}
+          now={now}
+          busy={busy}
+          onOrders={(o) => void order(() => setOrders(o), 'Наказы поставлены.')}
+        />
       )}
 
       {/* Дела полководца в лагере (world/siegecraft): за энергию, не больше предела за осаду. Числа и отказ — из мира. */}

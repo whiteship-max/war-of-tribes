@@ -322,11 +322,19 @@ export const cityOr = (raw: unknown): string => cityName(raw) ?? DEFAULT_CITY;
  * - `war-spy` — чужой лазутчик напал на город: поджёг склад, обокрал или поднял смуту (docs/spy_pvp.md). Разведка и
  *   пойманный лазутчик нападением не считаются: город ничего не потерял.
  */
-export const NOTICE_KINDS = ['raid', 'raid-fight', 'siege-fall', 'war', 'war-fight', 'war-fall', 'war-spy'] as const;
+export const NOTICE_KINDS = ['raid', 'raid-fight', 'siege-fall', 'siege-phase', 'war', 'war-fight', 'war-fall', 'war-spy', 'war-phase'] as const;
 export type NoticeKind = (typeof NOTICE_KINDS)[number];
 
 /** Что может прислать клиент. Войну знает только сервер: её поручения клиент составить не может. */
-export const CLIENT_KINDS = ['raid', 'raid-fight', 'siege-fall'] as const satisfies readonly NoticeKind[];
+export const CLIENT_KINDS = ['raid', 'raid-fight', 'siege-fall', 'siege-phase'] as const satisfies readonly NoticeKind[];
+
+/**
+ * Исход фазы осады в вести (docs/siege_v2.md, 8.3). Весть идёт о значимом — пролом, мор в лагере, сработавший наказ;
+ * «без перемен» и «нехватка в городе» бывают в вести только рядом с наказом. Сдача — падение (`siege-fall`, `war-fall`
+ * с `gates`).
+ */
+export const NOTICE_PHASES = ['breach', 'plague', 'short', 'calm'] as const;
+export type NoticePhase = (typeof NOTICE_PHASES)[number];
 
 /** Участь, объявленная городу, — теми же именами, что `Fate` мира. */
 export const NOTICE_FATES = ['plunder', 'captives', 'burn'] as const;
@@ -352,6 +360,13 @@ export interface NoticeFacts {
   by?: 'atk' | 'def';
   won?: boolean;
   taken?: true;
+  /** Фаза осады (`siege-phase`, `war-phase`): что выпало, номер фазы, сколько проломов стало, какой наказ сработал. */
+  phase?: NoticePhase;
+  k?: number;
+  breaches?: number;
+  order?: 'volley' | 'storm';
+  /** Падение сдачей — ворота открыли (`siege-fall`, `war-fall`), а не голодом. */
+  gates?: true;
 }
 
 /** Пункт исходящих. Ключ — имя момента, а не время: по нему не уходит второй раз. */
@@ -482,6 +497,19 @@ export function readNotices(v: unknown, now: number, kinds: readonly NoticeKind[
       if (typeof p.won === 'boolean') facts.won = p.won;
       if (p.taken === true) facts.taken = true;
     }
+    // Поля фазы осады — только у вестей о фазе и о падении.
+    if (kind.endsWith('-phase')) {
+      const phase = oneOf(NOTICE_PHASES, p.phase);
+      const k = num(p.k);
+      if (!phase || k === null || k < 1 || k > 99) return null;
+      facts.phase = phase;
+      facts.k = Math.floor(k);
+      const breaches = num(p.breaches);
+      if (breaches !== null) facts.breaches = Math.min(3, Math.max(0, Math.floor(breaches)));
+      const order = oneOf(['volley', 'storm'] as const, p.order);
+      if (order) facts.order = order;
+    }
+    if (kind.endsWith('-fall') && p.gates === true) facts.gates = true;
     keys.add(key);
     out.push({ key, kind, fireAt, until, p: facts });
   }
@@ -606,7 +634,8 @@ export interface WarArmy {
 export interface WarEnergy {
   value: number;
   at: number;
-  mode: 'drain' | 'fill' | 'hold';
+  /** `camp` — в осадном лагере копится залп за фазу (docs/siege_v2.md, 8.4). */
+  mode: 'drain' | 'fill' | 'camp' | 'hold';
   homeAt?: number;
   stopAt?: number;
 }
@@ -617,7 +646,7 @@ export function readEnergy(v: unknown): WarEnergy | undefined {
   const r = v as Record<string, unknown>;
   const value = num(r.value);
   const at = num(r.at);
-  const mode = r.mode === 'drain' || r.mode === 'fill' || r.mode === 'hold' ? r.mode : null;
+  const mode = r.mode === 'drain' || r.mode === 'fill' || r.mode === 'camp' || r.mode === 'hold' ? r.mode : null;
   if (value === null || at === null || mode === null) return undefined;
   const homeAt = num(r.homeAt);
   const stopAt = num(r.stopAt);
@@ -652,6 +681,36 @@ export interface WarInput {
 export interface WarCraft {
   fort?: number;
   shots?: number;
+  /** Проломов в стене к минуте боя (0..3) — только в записи боя (`siegecraft.craftAt`). */
+  breach?: number;
+}
+
+/** Исход фазы осады (`world/siegeroll.PhaseOut`). */
+export const WAR_PHASE_OUTS = ['plague', 'calm', 'short', 'breach', 'gates'] as const;
+export type WarPhaseOut = (typeof WAR_PHASE_OUTS)[number];
+
+/** Брошенная фаза осады — строка журнала (`world/siegeroll.PhaseRow`). Пишет её сервер в минуту фазы. */
+export interface WarPhaseRow {
+  at: number;
+  die: number;
+  mods: Partial<Record<'breach' | 'volley' | 'hunger' | 'progress' | 'wall', number>>;
+  out: WarPhaseOut;
+  waste: number;
+  orders?: ('volley' | 'storm')[];
+}
+
+/** Наказы осаждающего на отлучку (`world/siegeroll.SiegeOrders`): залп каждую фазу, штурм при N проломах. */
+export interface WarOrders {
+  volley?: boolean;
+  storm?: number;
+}
+
+/** Наказы из приказа: только известные поля, штурм — 1..3 пролома. */
+export function readOrders(v: unknown): WarOrders {
+  if (!v || typeof v !== 'object') return {};
+  const r = v as Record<string, unknown>;
+  const storm = typeof r.storm === 'number' && Number.isFinite(r.storm) ? Math.min(3, Math.max(0, Math.floor(r.storm))) : 0;
+  return { ...(r.volley === true ? { volley: true } : {}), ...(storm > 0 ? { storm } : {}) };
 }
 
 /** Дела полководца в лагере — строки таблицы энергии (`world/siegecraft.CraftAct`). */
@@ -692,7 +751,8 @@ export interface WarBattle {
 export interface WarFall {
   at: number;
   fate: NoticeFate;
-  by: 'storm' | 'hunger';
+  /** Штурм, голод или сдача — ворота открыли на фазе осады (участь на ступень мягче, гарнизон уходит живым). */
+  by: 'storm' | 'hunger' | 'gates';
   /** Что увёз победитель (припасы и казна) и сколько людей увёл. */
   taken: Counts;
   led: number;
@@ -725,6 +785,15 @@ export interface WarCamp {
   builders?: number;
   /** Дела полководца в этом лагере (`SiegeWindow.craft`). */
   craft?: WarCraft;
+  /** Ход осады фазами (`world/siegeroll`, docs/siege_v2.md, раздел 2): уровень частокола, дни пути лагеря от дома. */
+  wall?: number;
+  homeDays?: number;
+  /** Журнал дел с минутой — залпы (`SiegeWindow.log`). Нет поля — лагерь до фаз. */
+  log?: { at: number; act: 'volley' }[];
+  /** Брошенные фазы (`SiegeWindow.phases`). */
+  phases?: WarPhaseRow[];
+  /** Наказы осаждающего (`SiegeWindow.orders`). */
+  orders?: WarOrders;
 }
 
 /** Удар полководца города по лагерю: идёт, бьётся в минуту прихода. */
@@ -767,6 +836,8 @@ export interface WarView {
    */
   went?: Counts;
   camp?: WarCamp;
+  /** Журнал фаз снятой осады (`WarCamp.phases`, переносится при снятии лагеря). Нет поля — осады не было или она идёт. */
+  phases?: WarPhaseRow[];
   /** Когда лагерь доедает город. */
   starvesAt?: number;
   strike?: WarStrike;
@@ -891,6 +962,7 @@ export type WarOrder =
   | { op: 'retreat'; id: string }
   | { op: 'sortie'; id: string; troops: Counts }
   | { op: 'craft'; id: string; act: WarCraftAct }
+  | { op: 'orders'; id: string; orders: WarOrders }
   | { op: 'strike'; id: string; army: WarArmy; joint: boolean; walkMs: number }
   | { op: 'spy'; target: string; deed: RivalDeed; energy?: WarEnergy; shown: { chance: number; peril: number }; at: number };
 
@@ -1041,6 +1113,8 @@ export function readWarOrder(v: unknown): WarOrder | null {
       const act = WAR_CRAFTS.find((a) => a === r.act);
       return id && act ? { op: 'craft', id, act } : null;
     }
+    case 'orders':
+      return id ? { op: 'orders', id, orders: readOrders(r.orders) } : null;
     case 'strike': {
       const army = readArmy(r.army);
       const walk = num(r.walkMs);

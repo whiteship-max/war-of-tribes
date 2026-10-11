@@ -13,7 +13,8 @@ import type { Fate, SettlementId } from './types';
 import type { WoodPlan } from './works';
 import type { Fire } from './bombard';
 import type { Craft } from './siegecraft';
-import { SIEGE_EAT_FLOOR, SIEGE_IMMUNE, SIEGE_TOWN_EAT, SIEGE_TOWN_LARDER, SIEGE_WEAR_FLOOR, SIEGE_WEAR_SPAN } from './data/tuning';
+import type { PhaseRow, SiegeDeed, SiegeOrders } from './siegeroll';
+import { SIEGE_EAT_FLOOR, SIEGE_IMMUNE, SIEGE_TOWN_EAT, SIEGE_TOWN_LARDER, SIEGE_WEAR_FLOOR } from './data/tuning';
 import { HOUR_MS as HOUR } from '../game/time';
 
 /**
@@ -116,6 +117,26 @@ export interface SiegeWindow {
    * ничего не делали. Переносится при пересчёте часов голода той же осады; у новой осады его нет.
    */
   craft?: Craft;
+  /**
+   * Уровень частокола осаждённого города в минуту, когда встал лагерь (`siegeroll.wallFaces`: −1 к кости фазы за каждые
+   * два уровня). Нет поля — стены нет: логово, двор мира, окно из сохранения до фаз.
+   */
+  wall?: number;
+  /**
+   * Дни пути лагеря от своего дома — города игрока или логова отряда, игровые (`siegeroll.wasteOf`: истощение растёт с
+   * дальностью). Заморожено при постановке; нет поля — ноль.
+   */
+  homeDays?: number;
+  /**
+   * Журнал дел с минутой — входы фазы, которые должны быть известны задним числом (docs/siege_v2.md, 2.1): залп ложится
+   * сюда, и кость его фазы читает его отсюда. Нет поля — окно из сохранения до фаз: его прежние залпы переводятся в
+   * проломы (`siegeroll.breachesOf`).
+   */
+  log?: SiegeDeed[];
+  /** Брошенные фазы — журнал фаз (`siegeroll.PhaseRow`). Нет поля — ни одной. */
+  phases?: PhaseRow[];
+  /** Наказы осаждающего на отлучку (`siegeroll.SiegeOrders`). Нет поля — наказов нет. */
+  orders?: SiegeOrders;
 }
 
 /** Когда осада началась. Пересчёт часов голода эту отметку не двигает. */
@@ -141,12 +162,16 @@ export const starvesAt = (w: SiegeWindow): number =>
   w.startedAt + (Math.max(0, w.foodAtStart) / consumptionPerHour(w)) * HOUR;
 
 /**
- * Во сколько раз мораль гарнизона в бою ниже от того, что осада идёт с минуты `since` (`SIEGE_WEAR_*`): единица
- * в минуту, когда лагерь встал, дальше прямой до дна. Одна дверь на осаду логова (`LocalWorld.garrisonRest`) и на
- * осаду игроком (`netlify/lib/war.ts`). Тика нет — считается при чтении.
+ * Во сколько раз мораль гарнизона в бою ниже от того, что осада идёт с минуты `since`: единица в минуту, когда лагерь
+ * встал, дальше прямой до дна (`SIEGE_WEAR_FLOOR`) за `span` — срок голода окна (`wearSpan`; docs/siege_v2.md, 2.6: к
+ * голоду гарнизон на дне). Одна дверь на осаду логова (`LocalWorld.garrisonRest`) и на осаду игроком
+ * (`netlify/lib/war.ts`). Тика нет — считается при чтении.
  */
-export const siegeWear = (since: number, at: number): number =>
-  1 - (1 - SIEGE_WEAR_FLOOR) * Math.min(1, Math.max(0, at - since) / SIEGE_WEAR_SPAN);
+export const siegeWear = (since: number, at: number, span: number): number =>
+  1 - (1 - SIEGE_WEAR_FLOOR) * Math.min(1, Math.max(0, at - since) / Math.max(1, span));
+
+/** Путь износа гарнизона до дна — от начала осады до голода этого окна, мс (docs/siege_v2.md, 2.6). */
+export const wearSpan = (w: SiegeWindow): number => Math.max(1, starvesAt(w) - siegeSince(w));
 
 /** Осада идёт прямо сейчас? Считается при чтении, а не отмечается тиком. */
 export const siegeActive = (w: SiegeWindow | undefined, now: number): boolean =>
@@ -182,6 +207,12 @@ export function openSiege(at: {
   fire?: Fire;
   /** Дела полководца в лагере той же осады: переносятся при пересчёте. */
   craft?: Craft;
+  /** Ход осады фазами (`world/siegeroll`): стена, путь от дома, журнал дел и фаз, наказы — переносятся при пересчёте. */
+  wall?: number;
+  homeDays?: number;
+  log?: SiegeDeed[];
+  phases?: PhaseRow[];
+  orders?: SiegeOrders;
 }): SiegeWindow {
   return {
     byId: at.byId,
@@ -197,6 +228,11 @@ export function openSiege(at: {
     ...(at.builders !== undefined ? { builders: Math.max(0, Math.round(at.builders)) } : {}),
     ...(at.fire !== undefined ? { fire: at.fire } : {}),
     ...(at.craft !== undefined && (at.craft.fort || at.craft.shots) ? { craft: { ...at.craft } } : {}),
+    ...(at.wall ? { wall: Math.max(0, Math.floor(at.wall)) } : {}),
+    ...(at.homeDays ? { homeDays: Math.max(0, at.homeDays) } : {}),
+    ...(at.log !== undefined ? { log: at.log.map((d) => ({ ...d })) } : {}),
+    ...(at.phases?.length ? { phases: at.phases.map((r) => ({ ...r, mods: { ...r.mods }, ...(r.orders ? { orders: [...r.orders] } : {}) })) } : {}),
+    ...(at.orders ? { orders: { ...at.orders } } : {}),
     foodAtStart: Math.max(0, at.food),
     garrisonAtStart: Math.max(0, Math.round(at.garrison)),
     townPerHour: Math.max(0, at.townPerHour),

@@ -1,7 +1,7 @@
 import '@/game/pace.minute';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
-import { describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { createInitialState } from '@/game/state';
 import { worldDays } from '@/game/pace';
 import { RESOURCE_IDS, SIEGE_FOOD_YIELD, SIEGE_YIELD } from '@/game/constants';
@@ -35,6 +35,13 @@ import type { WorldSave } from './local/state';
 import type { Fate, FigureView, PlayerProfile, SettlementView, SiegeView, WorldPulse } from './types';
 import type { TroopStack } from '@/game/battle/kinds';
 import { shieldVillagers } from './lairs';
+import { setPhaseDie } from './siegeroll';
+
+// Этот файл — о голоде, участи, проходах и неприкосновенности: кость фаз здесь тихая — каждая фаза «без перемен» (7 при
+// поправках от −5 до +2 даёт 2…9), чтобы сдача и пролом не падали на свои минуты поперёк правила, которое тест держит.
+// Правило фаз — `siegeroll.test.ts` и `siegephase.test.ts`.
+beforeAll(() => setPhaseDie(() => 7));
+afterAll(() => setPhaseDie(null));
 
 // Энергия агентов здесь не предмет проверки (docs/agent_energy.md): сценарии этого файла водят агентов по карте помногу
 // — дорога здесь энергию не берёт. Цены дел и отдых дома остаются; энергию держат `energy.test.ts` и
@@ -555,7 +562,7 @@ describe('осада логова у своих стен: мораль гарн�
     const view = pulse.siege!;
     expect(view, 'точка внутри области: осада стоит').toBeTruthy();
     expect(view.garrisonRest, 'боя не было — «дрался недавно» не пишется').toBeUndefined();
-    const wear = Math.floor(siegeWear(view.since, w.now()) * 100) / 100;
+    const wear = Math.floor(siegeWear(view.since, w.now(), view.starvesAt - view.since) * 100) / 100;
     expect(wear, 'точка внутри области: осада уже точит').toBeLessThan(1);
     expect(view.wear).toBe(wear);
   }, 60_000);
@@ -1118,8 +1125,10 @@ describe('участь взятого города в мире: казна и п
     const p = holdout({ gold: s.gold, levels: fallPool(s), stock: { food: 600, wood: 400 } });
     await w.world.sync(p);
     const pulse = await besiege(w, p);
-    const camp = pulse.marches.find((m) => !m.own && m.siege)!;
     const at = Math.ceil(pulse.siege!.starvesAt);
+    // Обоз — лагерь в минуту падения: истощение фаз его убавило (docs/siege_v2.md, раздел 3).
+    w.at(at - 1);
+    const camp = (await w.world.sync(p)).marches.find((m) => !m.own && m.siege)!;
 
     w.at(at);
     const after = await w.world.sync(p);

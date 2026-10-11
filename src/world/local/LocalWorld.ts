@@ -3,7 +3,7 @@
 // считается здесь (время пути, бой, старение разведки), считается детерминированно,
 // чтобы сервер мог повторить расчёт один в один.
 import { freshSeed, mixSeed, seeded } from '@/game/sim/random';
-import { asGame, gameSecondsOfMs, realMs, type GameSec } from '@/game/pace';
+import { asGame, gameDaysOfMs, gameSecondsOfMs, realMs, type GameSec } from '@/game/pace';
 import { partyNow } from '@/net/clock';
 import {
   UNIT_KINDS,
@@ -187,8 +187,25 @@ import {
   starvesAt,
   townEatPerHour,
   townLarder,
+  wearSpan,
   type SiegeWindow,
 } from '../siege';
+import {
+  breachesOf,
+  cleanOrders,
+  journalOf,
+  nextModsText,
+  nextRollAt,
+  OUT_NAMES,
+  orderStorms,
+  orderVolleys,
+  progressOf,
+  rollPhase,
+  rowsOf,
+  softerFate,
+  type PhaseRow,
+  type SiegeOrders,
+} from '../siegeroll';
 import {
   chanceOf,
   clampAttitude,
@@ -232,7 +249,7 @@ import {
 import { FATE_META, gainText, lossText } from '../data/fates';
 import { marchSeed, stackAfter, stackLosses, stackPower } from '../combat';
 import { aimOf, firePlan, reaim, thinAt } from '../bombard';
-import { CRAFT_ACTS, craftAfter, craftBlock, craftDone, craftGain, craftMax, craftNote, fortFaces, garrisonWear, type CraftAct } from '../siegecraft';
+import { CRAFT_ACTS, craftAfter, craftAt, craftBlock, craftCount, craftDone, craftGain, craftMax, craftNote, fortFaces, garrisonWear, type CraftAct } from '../siegecraft';
 import { garrisonOf, menOfPower, raidingParty, GARRISON_STYLES } from '../garrison';
 import { MIRROR_ON, mirrorPower } from '../mirror';
 import type { FaithId, ResourceId } from '@/game/types';
@@ -1094,6 +1111,13 @@ export class LocalWorld implements WorldApi {
       fire: same?.fire,
       // Дела полководца в лагере той же осады (`world/siegecraft`) переносятся; у новой их нет.
       craft: same?.craft,
+      // Ход осады фазами (`world/siegeroll`): стена и путь от дома заморожены при постановке, журнал дел и фаз и наказы
+      // той же осады переносятся. У новой осады журнал пустой — по нему окно знает, что оно уже фазовое.
+      wall: same ? same.wall : id === HOME_ID ? (this.save.profile?.levels?.palisade ?? 0) : undefined,
+      homeDays: same ? same.homeDays : this.campHomeDays(id, campId),
+      log: same ? same.log : [],
+      phases: same?.phases,
+      orders: same?.orders,
     });
     // Рогатки держат те, кто их строил: у новой осады это лагерь в минуту постановки.
     // Спрашивается у того же `campArmy`, которым лагерь бьётся, — второго счёта людей нет.
@@ -1117,6 +1141,39 @@ export class LocalWorld implements WorldApi {
     const w = this.siegeOf(id, now);
     if (!w) return;
     this.openSiegeAt(id, w.byId, w.campId, now, extraMen);
+  }
+
+  /**
+   * Дни пути лагеря от своего дома, игровые (`siegeroll.wasteOf`: истощение растёт с дальностью). У отряда логова — его
+   * собственный поход до ворот; у нашего лагеря — путь полководца от дома до цели той же формулой, что «Дойти и ударить»
+   * (`travelTime`).
+   */
+  private campHomeDays(id: SettlementId, campId: string): number {
+    if (campId === PLAYER_CAMP) {
+      const s = this.byId.get(id);
+      if (!s) return 0;
+      const home = this.save.home;
+      return gameDaysOfMs(realMs(travelTime(distance(home, s), terrainFactor(this.save.seed, home, s), FIGURE_BY_ID.general.speed)));
+    }
+    const m = this.save.marches.find((x) => x.id === campId);
+    return m ? gameDaysOfMs(Math.max(0, m.arriveAt - m.departAt)) : 0;
+  }
+
+  /**
+   * Ход осады фазами глазами окна (`SiegeView.phases`) — обеим сторонам одно; наказы — только тому, кто стоит лагерем.
+   * Слова — дверью фаз (`world/siegeroll`, правило 18). Окно из сохранения до фаз (без журнала дел) тоже идёт фазами.
+   */
+  private phasesView(w: SiegeWindow, now: number, mine: boolean): SiegeView['phases'] {
+    const next = nextRollAt(w);
+    return {
+      journal: journalOf(w),
+      next: nextModsText(w, now),
+      nextAt: next,
+      nextK: rowsOf(w).length + 1,
+      breaches: breachesOf(w),
+      progress: progressOf(w),
+      ...(mine && w.orders ? { orders: { ...w.orders } } : {}),
+    };
   }
 
   /** Осада наружу: факт, срок и то, чем он посчитан. Считать её больше негде. */
@@ -1144,6 +1201,7 @@ export class LocalWorld implements WorldApi {
       palisade: this.save.profile?.levels?.palisade ?? 0,
       ...this.restViews(this.campRestView(w, now), this.homeRestView(now)),
       ...this.wearOf(this.homeWear(now)),
+      phases: this.phasesView(w, now, false),
     };
   }
 
@@ -1492,7 +1550,17 @@ export class LocalWorld implements WorldApi {
    * лагеря: у чужого — в мощь и состав марша, у нашего — в дружину при
    * полководце. Второго места, где хранится войско лагеря, нет.
    */
-  private wearCamp(w: SiegeWindow, loss: number, at: number, why: string): number {
+  private wearCamp(
+    w: SiegeWindow,
+    loss: number,
+    at: number,
+    why: string,
+    after = 'Лагерь устоял, но людей поубавилось.',
+    /** Бой у рогаток не может не стоить лагерю ни одного человека; истощение фазы — может. */
+    atLeastOne = true,
+    /** Писать ли строку летописи об убыли (истощение чужого лагеря у чужого города — не наше дело). */
+    note = true,
+  ): number {
     if (ourCamp(w)) {
       const f = this.save.figures.general;
       const troops = f.troops ?? {};
@@ -1510,7 +1578,7 @@ export class LocalWorld implements WorldApi {
       let gone = troopTotal(troops) - troopTotal(left);
       // То же правило и для нашего лагеря: вылазка, дошедшая до рогаток, не
       // может не стоить ему ни одного человека.
-      if (gone === 0 && troopTotal(left) > 1) {
+      if (atLeastOne && gone === 0 && troopTotal(left) > 1) {
         for (const id of TROOP_IDS) {
           if ((left[id] ?? 0) > 0) {
             left[id] = (left[id] as number) - 1;
@@ -1534,18 +1602,19 @@ export class LocalWorld implements WorldApi {
         );
       } else {
         f.troops = left;
-        if (gone > 0) {
+        if (gone > 0 && note) {
           this.addEffect({
             id: `camp-wear-${at}`,
             lost: { warrior: gone },
             lostTroops: lost,
-            // Лагерь — дружина в поле: раненые лежат при полководце (docs/infirmary.md).
-            field: lost,
+            // Лагерь — дружина в поле: раненые в бою лежат при полководце (docs/infirmary.md); ушедшие от истощения —
+            // больные и беглые, а не раненые: лазарет их не кладёт.
+            ...(atLeastOne ? { field: lost } : { routed: true }),
             resources: {},
             prestige: 0,
-            morale: -3,
+            morale: atLeastOne ? -3 : 0,
             battle: null,
-            text: `${why} Лагерь устоял, но людей поубавилось.`,
+            text: `${why} ${after}`,
             good: false,
           });
         }
@@ -1562,7 +1631,7 @@ export class LocalWorld implements WorldApi {
     // нуля» здесь нарочно нет: вылазка, не стоившая осаждающему ни одного
     // человека, — чистый минус, и такую кнопку не нажмёт никто ни разу. Один
     // человек лагерю стоит любой бой у его рогаток, даже проигранный вчистую.
-    if (gone === 0 && before > 1) {
+    if (atLeastOne && gone === 0 && before > 1) {
       m.units = stackAfter(m.units, { warrior: 1 });
       gone = before - stackSize(m.units);
     }
@@ -1705,6 +1774,7 @@ export class LocalWorld implements WorldApi {
     }
     return campHolds({
       seed: m.seed,
+      wearSpan: wearSpan(w),
       sight: { since: at, builders: w.builders ?? set.men, wood: camp.wood },
       camp: { kinds: camp.kinds, rest: camp.rest },
       sortie,
@@ -1723,7 +1793,7 @@ export class LocalWorld implements WorldApi {
    * отсюда, и расходятся они ровно в том, кому достаётся добыча и кто получает
    * отчёт.
    */
-  private siegeFalls(id: SettlementId, at: number): void {
+  private siegeFalls(id: SettlementId, at: number, by: 'hunger' | 'gates' = 'hunger'): void {
     const w = this.save.sieges[id];
     if (!w) return;
     this.save.siegeImmune[id] = immuneUntil(at);
@@ -1733,7 +1803,9 @@ export class LocalWorld implements WorldApi {
     // не наш лагерь, и падение чужого двора под чужим же лагерем (война соседей)
     // рассеяло бы наш гарнизон и вычистило наш склад. Проверка стоит на самом
     // городе, а не на лагере.
-    if (id === HOME_ID) return this.homeFalls(w, at);
+    if (id === HOME_ID) return this.homeFalls(w, at, by);
+    // Сдача (ворота открыли, docs/siege_v2.md, 2.4) — гарнизон уходит живым, участь на ступень мягче (ответ владельца 5).
+    const gates = by === 'gates';
 
     // Чужой город доели — мы или его соседи. Гарнизон разошёлся ровно так же,
     // как расходится наш: та же доля и тот же смысл, — а разница в том, кому
@@ -1745,10 +1817,12 @@ export class LocalWorld implements WorldApi {
     // народ выводится из силы, а сила — из побитого гарнизона.
     const popThere = this.popNow(s, at);
     const bondedThere = this.bondedAt(popThere);
-    this.save.damage[id] = {
-      loss: Math.min(0.95, prev + SIEGE_ROUT * (1 - prev)),
-      at: this.liveAt(id, at),
-    };
+    if (!gates) {
+      this.save.damage[id] = {
+        loss: Math.min(0.95, prev + SIEGE_ROUT * (1 - prev)),
+        at: this.liveAt(id, at),
+      };
+    }
     // Война соседей между собой: игроку не достаётся ничего, и отчёта ему нет —
     // это не его бой.
     if (!ours) return;
@@ -1757,7 +1831,8 @@ export class LocalWorld implements WorldApi {
     // Участь города — та же дверь, что у нашей деревни, и та, что объявлена приказом
     // «Осадить»: склад и казна до тайника, сколько поднимет дружина, а на ступени,
     // уводящей людей, — невольники и горожане, скольких она устережёт.
-    const declared = this.fateFor(w.fate, id, at);
+    const announced = this.fateFor(w.fate, id, at);
+    const declared = gates ? softerFate(announced) : announced;
     this.markFall(id, declared, at);
     const haul = this.haul({ warrior: men }, true);
     const took = this.takeLoot(s, at, haul.carry, bondedThere, haul.escort, declared, popThere);
@@ -1768,7 +1843,7 @@ export class LocalWorld implements WorldApi {
       id: `siege-${id}-${at}`,
       at,
       kind: 'raid',
-      title: `Город взят голодом: ${s.name}`,
+      title: gates ? `Ворота открыли: ${s.name}` : `Город взят голодом: ${s.name}`,
       target: { id, name: s.name, x: s.x, y: s.y },
       won: true,
       sent: { warrior: men },
@@ -1780,9 +1855,11 @@ export class LocalWorld implements WorldApi {
       led: gain.bonded,
       intel: this.snapshot(s, at),
       battle: null,
-      text: `В ${s.name} кончился хлеб. Гарнизон разошёлся.${gainText(took)}${
-        took.hiddenTotal > 0 ? ` В их тайнике осталось ${took.hiddenTotal}.` : ''
-      } Лагерь снят.`,
+      text: `${
+        gates
+          ? `${s.name} сдался на ${rowsOf(w).length}-й фазе осады: гарнизон ушёл живым, участь «${FATE_META[declared].name.toLowerCase()}».`
+          : `В ${s.name} кончился хлеб. Гарнизон разошёлся.`
+      }${gainText(took)}${took.hiddenTotal > 0 ? ` В их тайнике осталось ${took.hiddenTotal}.` : ''} Лагерь снят.`,
       read: false,
     });
     this.addEffect({
@@ -1795,7 +1872,7 @@ export class LocalWorld implements WorldApi {
       battle: null,
       ...gain,
       castle: s.castle || undefined,
-      text: `Осада ${s.name} кончилась: город сдался голоду.`,
+      text: gates ? `Осада ${s.name} кончилась: ворота открыли.` : `Осада ${s.name} кончилась: город сдался голоду.`,
       good: true,
     });
     this.moveAttitude(id, ATTACK_ATTITUDE, at);
@@ -1827,22 +1904,27 @@ export class LocalWorld implements WorldApi {
   }
 
   /** Пал наш город. Всё, что при этом происходит, — здесь и больше нигде. */
-  private homeFalls(w: SiegeWindow, at: number): void {
+  private homeFalls(w: SiegeWindow, at: number, by: 'hunger' | 'gates' = 'hunger'): void {
     const p = this.save.profile;
+    // Сдача (ворота открыли) — гарнизон уходит живым, участь на ступень мягче (ответ владельца 5).
+    const gates = by === 'gates';
     // Расходится оборона, а не всё войско: гарнизон и дружина, если она собрана
     // и стоит дома, — она голодала за той же стеной. Дружина в поле или в сборе
     // в городе не голодала, и рассеивать её значило бы снять людей, которых
     // полководец по-прежнему держит при себе.
     // Гарнизон рассеян: люди с оружием из взятого голодом города расходятся.
-    const { held, routed } = this.routedAt(at);
+    const fallen = this.routedAt(at);
+    const held = fallen.held;
+    const routed = gates ? {} : fallen.routed;
     const army = held.all;
     const men = troopTotal(routed);
-    this.standingLost(held.own, held.standing, routed);
+    if (!gates) this.standingLost(held.own, held.standing, routed);
     const camp = this.save.marches.find((m) => m.id === w.campId);
     // Участь взятого города — одна дверь на оба пути поражения и та, что объявил
     // лагерь: тот же дележ склада и казны, что у прорвавшегося набега, тот же увод,
     // те же постройки. Соль выбора построек — сид мира и минута падения.
-    const declared = this.fateFor(w.fate, HOME_ID, at);
+    const announced = this.fateFor(w.fate, HOME_ID, at);
+    const declared = gates ? softerFate(announced) : announced;
     this.markFall(HOME_ID, declared, at);
     const haul = this.haul(camp?.units ?? {}, false);
     const spoils = this.fateHome(p ?? null, haul.carry, haul.escort, at, declared);
@@ -1854,7 +1936,7 @@ export class LocalWorld implements WorldApi {
       id: `${w.campId}-fell`,
       at,
       kind: 'defense',
-      title: 'Хлеб кончился',
+      title: gates ? 'Ворота открыли' : 'Хлеб кончился',
       target: { id: HOME_ID, name: this.homeName(), x: this.save.home.x, y: this.save.home.y },
       won: false,
       sent: { warrior: Math.round(troopTotal(army)) },
@@ -1866,7 +1948,11 @@ export class LocalWorld implements WorldApi {
       intel: null,
       battle: null,
       ...(loss.fallen ? { fallen: loss.fallen } : {}),
-      text: `${from} взяли город голодом, гарнизон разошёлся. Участь «${FATE_META[declared].name.toLowerCase()}». ${lossText(declared, spoils)} Лагерь снят.`,
+      text: `${
+        gates
+          ? `На ${rowsOf(w).length}-й фазе осады город открыл ворота лагерю «${from}», гарнизон ушёл живым. Участь${declared !== announced ? ' на ступень мягче объявленной' : ''}`
+          : `${from} взяли город голодом, гарнизон разошёлся. Участь`
+      } «${FATE_META[declared].name.toLowerCase()}». ${lossText(declared, spoils)} Лагерь снят.`,
       read: false,
     });
     this.addEffect({
@@ -1881,7 +1967,9 @@ export class LocalWorld implements WorldApi {
       // проигранные битвы значило бы считать то, чего не случилось.
       battle: null,
       ...loss,
-      text: `Осада доела город: гарнизон рассеян, ${FATES[declared].spoils ? 'склад вычищен' : 'город сожжён'}.`,
+      text: gates
+        ? `Ворота открыли: гарнизон ушёл живым, ${FATES[declared].spoils ? 'склад вычищен' : 'город сожжён'}.`
+        : `Осада доела город: гарнизон рассеян, ${FATES[declared].spoils ? 'склад вычищен' : 'город сожжён'}.`,
       good: false,
     });
   }
@@ -1899,6 +1987,9 @@ export class LocalWorld implements WorldApi {
     for (const [id, w] of Object.entries(this.save.sieges)) {
       const since = siegeSince(w);
       const times = [starvesAt(w)];
+      // Фаза осады (`world/siegeroll`): бросок в свою минуту, пока город не доели.
+      const roll = nextRollAt(w);
+      if (roll < starvesAt(w)) times.push(roll);
       if (!w.sortied) times.push(since + SIEGE_SORTIE_AT);
       if (!w.relieved) times.push(since + SIEGE_RELIEF_AT);
       for (const t of times) {
@@ -1914,6 +2005,7 @@ export class LocalWorld implements WorldApi {
     const w = this.save.sieges[id];
     if (!w) return;
     if (at >= starvesAt(w)) return this.siegeFalls(id, at);
+    if (at >= nextRollAt(w)) return this.siegePhase(id, at);
     const since = siegeSince(w);
     if (!w.sortied && at >= since + SIEGE_SORTIE_AT) {
       w.sortied = true;
@@ -1924,6 +2016,93 @@ export class LocalWorld implements WorldApi {
       w.relieved = true;
       this.sendRelief(id, at);
     }
+  }
+
+  /**
+   * Фаза осады в минуту `at` (docs/siege_v2.md, раздел 2): бросок той же дверью, что у сервера войны
+   * (`siegeroll.rollPhase`), строка в журнал окна, истощение лагеря (раздел 3), исход. Ворота открыли — город сдаётся той
+   * же дверью, что голод, на ступень мягче (`siegeFalls`, ответ владельца 5). Лагерь растаял — осада снята. Потом — наказы
+   * нашего лагеря на следующую фазу (8.3). Тика нет: фаза — событие очереди осады, офлайн разбирается так же.
+   */
+  private siegePhase(id: SettlementId, at: number): void {
+    const w = this.save.sieges[id];
+    if (!w) return;
+    const k = rowsOf(w).length + 1;
+    const ours = ourCamp(w);
+    // Пустой амбар дома удваивает истощение нашего лагеря (раздел 3.3): второго склада у лагеря нет.
+    const row = rollPhase(w, k, ours && (this.save.profile?.food ?? 1) <= 0);
+    w.phases = [...rowsOf(w), row];
+    const town = id === HOME_ID ? this.homeName() : (this.byId.get(id)?.name ?? 'город');
+    const involved = ours || id === HOME_ID;
+    // Истощение — каждую фазу, а строка летописи — только о море: обычная убыль видна в журнале фаз окна осады.
+    if (row.waste > 0) {
+      const plague = involved && row.out === 'plague';
+      this.wearCamp(w, row.waste, at, `Осада ${town}, фаза ${k}: ${OUT_NAMES[row.out]}.`, 'Лагерь тает: болезни, бегство, фураж.', false, plague && ourCamp(w));
+    }
+    if (this.save.sieges[id] !== w) return;
+    if ((this.campArmy(w, at)?.men ?? 0) <= 0) {
+      this.liftSiege(id, at);
+      if (involved) this.phaseNote(`Лагерь под ${town} растаял к ${k}-й фазе: осада снята.`, at, id === HOME_ID);
+      return;
+    }
+    if (row.out === 'gates') return this.siegeFalls(id, at, 'gates');
+    // Мор в нашем лагере уже сказан строкой убыли (`wearCamp`); здесь — пролом и мор в лагере под нашим городом.
+    if (involved && (row.out === 'breach' || (row.out === 'plague' && !ours))) {
+      const good = (row.out === 'breach') === ours;
+      const what = row.out === 'breach' ? `пролом в стене, проломов ${breachesOf(w)} из 3` : 'мор в лагере';
+      this.phaseNote(`Осада ${town}, фаза ${k}: ${what}.`, at, good);
+    }
+    if (ours) this.campOrders(id, w, row, at);
+  }
+
+  /** Строка летописи о фазе осады: без потерь и добычи, только весть. */
+  private phaseNote(text: string, at: number, good: boolean): void {
+    this.addEffect({ id: `siege-phase-${at}`, lost: {}, resources: {}, prestige: 0, morale: 0, battle: null, text, good });
+  }
+
+  /**
+   * Наказы нашего лагеря в минуту фазы (docs/siege_v2.md, 8.3) — той же дверью, что ручные приказы, с теми же отказами:
+   * штурм, когда проломов не меньше названного (и энергии хватает), иначе залп этой фазы, пока энергии хватает и на залп,
+   * и на штурм после него. Не выбирает состав и не ставит прогноза: делает то, что игрок сделал бы кнопкой.
+   */
+  private campOrders(id: SettlementId, w: SiegeWindow, row: PhaseRow, at: number): void {
+    const o = w.orders;
+    const target = this.byId.get(id);
+    if (!o || !target) return;
+    if (orderStorms(o, breachesOf(w))) {
+      const declared = this.fateFor(w.fate, id, at);
+      if (!this.stormBlock(target, at, declared) && !this.energyCost('general', 'storm', at).block) {
+        row.orders = ['storm'];
+        const lifted = this.liftSiege(id, at);
+        this.payEnergy('general', 'storm', at);
+        this.attackAt(target, at, declared, lifted);
+        return;
+      }
+    }
+    if (orderVolleys(o, this.energyNow('general', at), priceOf('bombard'), priceOf('storm')) && !craftBlock(w, 'bombard', at)) {
+      this.payEnergy('general', 'bombard', at);
+      Object.assign(w, craftAfter(w, 'bombard', at));
+      row.orders = ['volley'];
+    }
+  }
+
+  /**
+   * Поставить наказы своему лагерю (docs/siege_v2.md, 8.3). Лагерь под городом игрока — приказом серверу войны: наказы
+   * разбирает он, в минуту фазы.
+   */
+  async setOrders(orders: SiegeOrders): Promise<string | null> {
+    const now = this.clock();
+    const clean = cleanOrders(orders);
+    const id = this.ourSiege(now);
+    const w = id ? this.save.sieges[id] : null;
+    if (!w) {
+      const led = this.warLed();
+      return led?.phase === 'camp' ? this.warSend({ op: 'orders', id: led.id, orders: clean ?? {} }) : 'Лагеря нет.';
+    }
+    if (clean) w.orders = clean;
+    else delete w.orders;
+    this.write();
+    return null;
   }
 
   /**
@@ -3898,7 +4077,7 @@ export class LocalWorld implements WorldApi {
           // Логово — лагерь в лесу (ролик TW); прочие цели — поле.
           ...(isLair(target) ? { site: 'lair' as const } : {}),
           // Обстрел из своего лагеря перед штурмом — ролик начнётся с него (только показ: дух ядро уже посчитало).
-          ...(isLair(target) && craftDone(camp?.craft, 'bombard') > 0 ? { shots: craftDone(camp?.craft, 'bombard') } : {}),
+          ...(isLair(target) && craftCount(camp?.craft, 'bombard') > 0 ? { shots: craftCount(camp?.craft, 'bombard') } : {}),
         }
       : null;
 
@@ -5877,6 +6056,12 @@ export class LocalWorld implements WorldApi {
       const ends = this.touching(f.to)?.home ? { homeAt: f.arriveAt } : { stopAt: f.arriveAt };
       return { mode: 'drain', ends, since: f.departAt };
     }
+    // Держит осаду — лагерь полудом: копится залп за фазу (ответ владельца 3, docs/siege_v2.md, 8.4). Окно снимает одна
+    // дверь (`liftSiege`), и она же пишет перемену стойки.
+    if (id === 'general') {
+      const camp = Object.values(this.save.sieges).find(ourCamp);
+      if (camp) return { mode: 'camp', ends: {}, since: siegeSince(camp) };
+    }
     return { mode: 'hold', ends: {}, since: f.departAt };
   }
 
@@ -6489,7 +6674,7 @@ export class LocalWorld implements WorldApi {
    */
   private homeWear(at: number): number {
     const w = this.homeSiege(at);
-    return w ? garrisonWear(siegeSince(w), at, w.craft) : 1;
+    return w ? garrisonWear(w, at) : 1;
   }
 
   /**
@@ -6515,7 +6700,7 @@ export class LocalWorld implements WorldApi {
    * своего лагеря — снятое перед боем (`attack`).
    */
   private besiegedRest(id: SettlementId, at: number, men: number, w: SiegeWindow | null = this.siegeOf(id, at)): number {
-    return this.lairRestAt(id, at, men) * (w ? garrisonWear(siegeSince(w), at, w.craft) : 1);
+    return this.lairRestAt(id, at, men) * (w ? garrisonWear(w, at) : 1);
   }
 
   /**
@@ -7049,10 +7234,10 @@ export class LocalWorld implements WorldApi {
       const led = this.warLed();
       return led?.phase === 'camp' ? this.warSend({ op: 'craft', id: led.id, act }) : 'Лагеря нет.';
     }
-    const block = craftBlock(w.craft, act) ?? this.energyCost('general', act, now).block;
+    const block = craftBlock(w, act, now) ?? this.energyCost('general', act, now).block;
     if (block) return block;
     this.payEnergy('general', act, now);
-    w.craft = craftAfter(w.craft, act);
+    Object.assign(w, craftAfter(w, act, now));
     this.write();
     return null;
   }
@@ -7061,13 +7246,13 @@ export class LocalWorld implements WorldApi {
   private craftMenu(w: SiegeWindow, now: number, walls: boolean): CraftOption[] {
     return CRAFT_ACTS.map((act) => {
       const energy = this.energyCost('general', act, now);
-      const reason = craftBlock(w.craft, act) ?? energy.block;
+      const reason = craftBlock(w, act, now) ?? energy.block;
       return {
         act,
         name: ENERGY_PRICE[act].name,
-        done: craftDone(w.craft, act),
+        done: craftDone(w, act, now),
         max: craftMax(act),
-        gain: craftGain(w.craft, act, siegeSince(w), now, walls),
+        gain: craftGain(w, act, now, walls),
         energy,
         can: reason === null,
         reason,
@@ -7077,7 +7262,7 @@ export class LocalWorld implements WorldApi {
 
   /** Строка «что сделано в лагере» для окна осады: нет дел — нет поля. `walls` — есть ли у города стена (у логова нет). */
   private craftNoteOf(w: SiegeWindow, walls: boolean): { craftNote?: string } {
-    const note = craftNote(w.craft, walls);
+    const note = craftNote(craftAt(w), walls);
     return note ? { craftNote: note } : {};
   }
 
@@ -7121,6 +7306,7 @@ export class LocalWorld implements WorldApi {
       // У двора мира стены нет: обстрел бьёт только по духу гарнизона (`siegecraft.wallMen`).
       crafts: this.craftMenu(w, now, false),
       ...this.craftNoteOf(w, false),
+      phases: this.phasesView(w, now, true),
       ...(relief ? { relief: { from: relief.fromName, men: Math.round(relief.units.warrior ?? 0), at: relief.arriveAt, joint: false } } : {}),
       // Мораль нашего лагеря — дружины. Мораль чужого гарнизона — живые данные, а живого обзора у полководца нет.
       ...this.restViews(this.campRestView(w, now), undefined),
@@ -7878,7 +8064,8 @@ export class LocalWorld implements WorldApi {
           place: this.placeOf(w.to),
           site: b.site,
           // Штурм из лагеря после обстрела: ролик начнётся с него; пролом сервер уже снял со стены (`siegecraft.wallMen`).
-          ...(b.site === 'wall' && b.by === 'atk' && craftDone(b.craft, 'bombard') > 0 ? { shots: craftDone(b.craft, 'bombard') } : {}),
+          ...(b.site === 'wall' && b.by === 'atk' && craftCount(b.craft, 'bombard') > 0 ? { shots: craftCount(b.craft, 'bombard') } : {}),
+          ...(b.site === 'wall' && b.by === 'atk' && (b.craft?.breach ?? 0) > 0 ? { breach: b.craft?.breach } : {}),
         }
       : null;
     const other = this.warCity(w, ours === 'atk' ? 'def' : 'atk');
@@ -8131,7 +8318,8 @@ export class LocalWorld implements WorldApi {
       ...this.craftNoteOf(c, true),
       ...this.restViews(camp, home),
       // Износ осады — тот, с которым сервер войны бьёт гарнизон (`war.garrisonRest`): дни осады и залпы лагеря.
-      ...this.wearOf(garrisonWear(siegeSince(c), now, c.craft)),
+      ...this.wearOf(garrisonWear(c, now)),
+      phases: this.phasesView(c, now, false),
       // Орудие на башне есть, а по лагерю соседа оно не бьёт — окно говорит это, а не молчит.
       ...(this.save.profile?.tower ? { towerIdle: TOWER_NOT_PVP } : {}),
     };
@@ -8181,6 +8369,7 @@ export class LocalWorld implements WorldApi {
       crafts: this.craftMenu(c, now, true),
       ...this.craftNoteOf(c, true),
       ...this.restViews(camp, undefined),
+      phases: this.phasesView(c, now, true),
     };
   }
 

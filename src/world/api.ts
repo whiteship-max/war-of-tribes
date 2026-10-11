@@ -5,6 +5,7 @@
 // компонент интерфейса переписывать не придётся. Поэтому все методы асинхронные,
 // даже те, что сегодня отвечают мгновенно.
 import type { CraftAct } from './siegecraft';
+import type { SiegeOrders } from './siegeroll';
 import type { TroopStack } from '@/game/battle/kinds';
 import type {
   AssaultMode,
@@ -158,6 +159,12 @@ export interface WorldApi {
    * null — сделано, иначе причина.
    */
   campCraft(act: CraftAct): Promise<string | null>;
+
+  /**
+   * Наказы своему лагерю на отлучку (docs/siege_v2.md, 8.3): залп каждую фазу, штурм при N проломах. Срабатывают в минуту
+   * фазы той же дверью, что ручные приказы. Лагерь под городом игрока — приказом серверу войны. null — поставлены.
+   */
+  setOrders(orders: SiegeOrders): Promise<string | null>;
 
   /** Окно осаждающего: наш лагерь под чужим городом. null — лагеря нет. */
   camp(): Promise<CampView | null>;

@@ -4,7 +4,7 @@ import type { PlayerCastle, PlayerProfile } from './types';
 import { advance, applyOrder, emptyWars, liveSheet, warsOf, type SheetAt } from '../../netlify/lib/war';
 import { castleIdOf, emptyRoster, upsert } from '../../netlify/lib/roster';
 import { type CastleClaim, type RosterFile, type WarOrder } from '../../netlify/lib/contract';
-import { FATE_SAME, SIEGE_BLOCK, STRIKE_FROM_TOWN, TOWER_NOT_PVP, WOOD_FIXED, siegeSince, type SiegeWindow } from './siege';
+import { FATE_SAME, SIEGE_BLOCK, STRIKE_FROM_TOWN, TOWER_NOT_PVP, WOOD_FIXED, type SiegeWindow } from './siege';
 import { garrisonWear } from './siegecraft';
 import { worldDays } from '@/game/pace';
 import { troopTotal, type TroopStack } from '@/game/battle/kinds';
@@ -340,15 +340,17 @@ describe('осада под городом игрока: окна обеих с�
     g.step(worldDays(6));
     let { pb } = await g.pulse();
     expect(pb.siege?.garrisonRest, 'боя не было — усталости после боя нет').toBeUndefined();
-    const since = siegeSince(war.camp as unknown as SiegeWindow);
-    const wear = (craft?: { fort?: number; shots?: number }) => Math.floor(garrisonWear(since, g.now(), craft) * 100) / 100;
-    expect(wear(), 'точка внутри области: шесть дней осады').toBeLessThan(1);
-    expect(pb.siege?.wear).toBe(wear());
+    // Износ — той же дверью, что у сервера (`garrisonWear` по окну: дни осады к голоду и залпы журнала).
+    const wear = () => Math.floor(garrisonWear(war.camp as unknown as SiegeWindow, g.now()) * 100) / 100;
+    const before = wear();
+    expect(before, 'точка внутри области: шесть дней осады').toBeLessThan(1);
+    expect(pb.siege?.wear).toBe(before);
     expect(await g.a.campCraft('bombard')).toBeNull();
     ({ pb } = await g.pulse());
     expect(war.camp?.craft?.shots).toBe(1);
-    expect(pb.siege?.wear).toBe(wear({ shots: 1 }));
-    expect(pb.siege!.wear!).toBeLessThan(wear());
+    expect(war.camp?.log?.length, 'залп лёг в журнал с минутой').toBe(1);
+    expect(pb.siege?.wear).toBe(wear());
+    expect(pb.siege!.wear!).toBeLessThan(before);
   }, 120_000);
 
   it('башня с орудием по лагерю соседа молчит — и окно говорит это', async () => {

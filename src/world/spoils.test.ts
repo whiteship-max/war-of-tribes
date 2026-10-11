@@ -460,7 +460,7 @@ describe('одно правило на обе стороны', () => {
     // между собой рассеяла бы наш гарнизон, вычистила склад и увела невольников.
     // Проверка стоит на самом городе.
     const fall = src.slice(src.indexOf('private siegeFalls'), src.indexOf('private homeFalls'));
-    expect(fall).toContain('if (id === HOME_ID) return this.homeFalls(w, at);');
+    expect(fall).toContain('if (id === HOME_ID) return this.homeFalls(w, at, by);');
     expect(fall).not.toMatch(/if \(!ours\) return this\.homeFalls/);
   });
 

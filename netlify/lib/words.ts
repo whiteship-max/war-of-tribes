@@ -59,10 +59,20 @@ export function noticeText(item: NoticeItem, tz: string): string {
     case 'raid-fight':
       return `В ${at} набег из «${p.from}» дошёл до стен. Чем кончился бой, сказано в донесении.`;
     case 'siege-fall':
-      return `В ${at} в городе кончился хлеб. Лагерь «${p.from}» вошёл в ворота. ${FATE_DONE[p.fate]}`;
+      return p.gates
+        ? `В ${at} ворота открыли. Лагерь «${p.from}» вошёл в город, гарнизон ушёл живым. ${FATE_DONE[p.fate]}`
+        : `В ${at} в городе кончился хлеб. Лагерь «${p.from}» вошёл в ворота. ${FATE_DONE[p.fate]}`;
+    case 'siege-phase':
+    case 'war-phase':
+      return phaseText(item, at);
     case 'war':
       return `Из города «${p.from}» вышел отряд на твой город. У стен будут в ${at}. ${p.mode === 'storm' ? 'Идут на штурм.' : 'Идут встать лагерем у ворот.'}`;
     case 'war-fall':
+      if (p.gates) {
+        return p.role === 'atk'
+          ? `«${p.from}» открыл ворота, не дождавшись голода. Город наш.`
+          : `В ${at} ворота открыли. Отряд из «${p.from}» вошёл в город, гарнизон ушёл живым. ${FATE_DONE[p.fate]}`;
+      }
       return p.role === 'atk'
         ? `В «${p.from}» кончился хлеб, ворота открыты. Город наш.`
         : `В городе кончился хлеб. Отряд из «${p.from}» вошёл в ворота. ${FATE_DONE[p.fate]}`;
@@ -72,6 +82,30 @@ export function noticeText(item: NoticeItem, tz: string): string {
     case 'war-spy':
       return SPY_DONE[p.fate].replace('{at}', at);
   }
+}
+
+/**
+ * Фаза осады глазами получателя (docs/siege_v2.md, 8.3): пролом и мор — значимое; наказ, сработавший в эту минуту, —
+ * строкой следом. Своя сторона: `role` у войны, у осады логова получатель — всегда осаждённый.
+ */
+function phaseText(item: NoticeItem, at: string): string {
+  const { from, role, phase, k, breaches, order } = item.p;
+  const atk = role === 'atk';
+  const lines: string[] = [];
+  if (phase === 'breach') {
+    const count = breaches ? ` Проломов ${breaches} из 3.` : '';
+    lines.push(
+      atk
+        ? `В ${at}, на ${k}-й фазе осады, в стене «${from}» пролом.${count}`
+        : `В ${at}, на ${k}-й фазе осады, в стене пролом.${count} Лагерь «${from}» у ворот. Сдаться город может не раньше следующей фазы.`,
+    );
+  }
+  if (phase === 'plague') {
+    lines.push(atk ? `В ${at} в нашем лагере под «${from}» мор. Людей стало меньше.` : `В ${at} в лагере «${from}» мор. Лагерь тает.`);
+  }
+  if (order === 'volley') lines.push('По наказу лагерь дал залп этой фазы.');
+  if (order === 'storm') lines.push('По наказу лагерь пошёл на штурм. Чем кончился бой, сказано в донесении.');
+  return lines.join(' ') || `В ${at} прошла ${k}-я фаза осады «${from}».`;
 }
 
 /** Бой между игроками глазами получателя: `won` — победила ли его сторона. */

@@ -45,6 +45,9 @@ import {
   SIEGE_SORTIE_RATIO,
 } from '@/world/data/tuning';
 import type { PlayerProfile, Report, WorldPulse } from '@/world/types';
+import { siegeWear, type SiegeWindow } from '@/world/siege';
+import { phaseAt, rollPhase, rowsOf, type PhaseRow } from '@/world/siegeroll';
+import { CAMP_WASTE, CAMP_WASTE_DAYS, SIEGE_PHASE } from '@/world/data/siegeroll';
 import { militiaArchers, militiaMen, playerProfile } from '@/world/bridge';
 import { FATE_META } from '@/world/data/fates';
 import { createInitialState } from '@/game/state';
@@ -1179,4 +1182,146 @@ console.log('лучник против орудия: цена, с которой
         `в коде (data/engines): ${inCode}${inCode === crew ? '' : ' — РАСХОДИТСЯ'}`,
     );
   }
+}
+
+
+// ------------------------------------------------------- ход осады фазами ---
+//
+// Этап 2б (docs/siege_v2.md, разделы 2, 3 и 10.2): фазы по 4 игр. дн., кость d14 с поправками, истощение лагеря. Оба
+// раздела — на настоящих окнах осады (лагерь логова под посёлком L5 и L10, `freezeSiege`), числа — дверью фаз
+// (`world/siegeroll`): своей арифметики у отчёта нет.
+
+const PHASE_LEVELS = [5, 10];
+const PHASE_VARIANTS = 4;
+const phaseFrozen: { level: number; fz: Frozen }[] = [];
+for (const level of PHASE_LEVELS) {
+  for (const seed of TOWN_SEEDS) {
+    const fz = await freezeSiege(seed, level);
+    if (fz) phaseFrozen.push({ level, fz });
+  }
+}
+
+/** Окно осады и лагерь из замороженного сохранения. */
+function frozenWindow(fz: Frozen): { win: SiegeWindow; camp: { id: string; power: number; homeDays: number }; worldSeed: number } {
+  const save = JSON.parse(fz.save);
+  const win = save.sieges.home as SiegeWindow;
+  const m = save.marches.find((x: { id: string }) => x.id === win.campId);
+  return { win, camp: { id: m.id, power: m.power, homeDays: win.homeDays ?? 0 }, worldSeed: save.seed };
+}
+
+/** Фаз до голода у окна. */
+const phasesToHunger = (fz: Frozen): number => Math.floor((fz.starvesAt - fz.since) / SIEGE_PHASE);
+
+/**
+ * Потери лагеря при штурме через полный пролом в середине осады (3.2): весь фронт без стены — ополчения на стене нет,
+ * гарнизон с износом той минуты, лагерь — истощённый к ней долей `a`. Доля потерь нападающего, средняя по вариантам боя.
+ */
+function stormLoss(fz: Frozen, a: number): number {
+  const { camp, worldSeed } = frozenWindow(fz);
+  const span = fz.starvesAt - fz.since;
+  const mid = fz.since + span / 2;
+  const before = Math.floor((mid - fz.since) / SIEGE_PHASE);
+  const rate = a * (1 + camp.homeDays / CAMP_WASTE_DAYS);
+  const party = raidingParty(worldSeed, camp.id, camp.power * Math.pow(1 - rate, before));
+  let loss = 0;
+  for (let v = 0; v < PHASE_VARIANTS; v++) {
+    const field = resolveField({
+      seed: fz.seed * 31 + v,
+      attacker: { kinds: party.kinds },
+      defender: { kinds: kindsOf(fz.g.army), rest: siegeWear(fz.since, mid, span) },
+    });
+    loss += field.attackerLoss;
+  }
+  return loss / PHASE_VARIANTS;
+}
+
+/** Потери лагеря за осаду до голода истощением доли `a` (без мора: он — та же доля сверху, по кости). */
+function waitLoss(fz: Frozen, a: number): number {
+  const { camp } = frozenWindow(fz);
+  const rate = a * (1 + camp.homeDays / CAMP_WASTE_DAYS);
+  return 1 - Math.pow(1 - rate, phasesToHunger(fz));
+}
+
+const meanOf = (xs: readonly number[]): number => xs.reduce((n, x) => n + x, 0) / Math.max(1, xs.length);
+
+console.log('');
+console.log(`--- безразличие: ждать до голода против штурма через полный пролом в середине осады (${phaseFrozen.length} осад, L5 и L10) ---`);
+console.log('правило (docs/siege_v2.md, 3.2): за осаду до голода лагерь теряет столько же, сколько при штурме через полный пролом;');
+console.log('неподвижная точка (правило 16): потери штурма зависят от того, сколько в лагере осталось к середине, а это — от a.');
+{
+  let a = CAMP_WASTE;
+  const trail: number[] = [a];
+  for (let step = 0; step < 30; step++) {
+    const storm = meanOf(phaseFrozen.map((x) => stormLoss(x.fz, a)));
+    // Доля a, при которой ожидание стоит столько же: бисекция по монотонной `waitLoss`.
+    let lo = 0;
+    let hi = 0.5;
+    for (let i = 0; i < 60; i++) {
+      const midA = (lo + hi) / 2;
+      if (meanOf(phaseFrozen.map((x) => waitLoss(x.fz, midA))) < storm) lo = midA;
+      else hi = midA;
+    }
+    const next = (lo + hi) / 2;
+    trail.push(next);
+    if (Math.abs(next - a) < 0.0005) {
+      a = next;
+      break;
+    }
+    // Качается между двумя — полусумма (правило 16).
+    a = trail.length >= 3 && Math.abs(trail[trail.length - 3] - next) < 0.0005 ? (next + a) / 2 : next;
+  }
+  for (const level of PHASE_LEVELS) {
+    const set = phaseFrozen.filter((x) => x.level === level);
+    console.log(
+      `L${String(level).padStart(2)}: осад ${set.length}, фаз до голода ${meanOf(set.map((x) => phasesToHunger(x.fz))).toFixed(1)}, ` +
+        `штурм через полный пролом теряет ${pct(Math.round(meanOf(set.map((x) => stormLoss(x.fz, a))) * 1000), 1000)}, ` +
+        `ожидание до голода — ${pct(Math.round(meanOf(set.map((x) => waitLoss(x.fz, a))) * 1000), 1000)}`,
+    );
+  }
+  console.log(`шаги: ${trail.map((x) => x.toFixed(4)).join(' → ')}`);
+  console.log(`итог: a = ${a.toFixed(3)} за фазу (в коде CAMP_WASTE = ${CAMP_WASTE}${Math.abs(a - CAMP_WASTE) < 0.0015 ? '' : ' — РАСХОДИТСЯ'})`);
+}
+
+console.log('');
+console.log('--- ход осады: на какой фазе падает город — сдачей или голодом (docs/siege_v2.md, 10.2, п. 2) ---');
+console.log('окна — настоящие осады L5 и L10; стена и залпы подставлены; кость — дверь фаз, 8 вариантов сида на окно');
+console.log('стена  залпы            сдач   голодом   фаза падения (средняя)');
+{
+  const WALLS = [0, 4, 8, 10];
+  for (const wall of WALLS) {
+    for (const volleys of [false, true]) {
+      let gates = 0;
+      let hunger = 0;
+      const when: number[] = [];
+      for (const { fz } of phaseFrozen) {
+        for (let v = 0; v < 8; v++) {
+          const base = frozenWindow(fz).win;
+          const since = fz.since;
+          let w: SiegeWindow = { ...base, campId: `${base.campId}#${v}`, wall, log: [], phases: [] };
+          let fell = 0;
+          for (let k = 1; phaseAt(since, k) < fz.starvesAt; k++) {
+            if (volleys) w = { ...w, log: [...(w.log ?? []), { at: phaseAt(since, k - 1), act: 'volley' }] };
+            const row: PhaseRow = rollPhase(w, k);
+            w = { ...w, phases: [...rowsOf(w), row] };
+            if (row.out === 'gates') {
+              fell = k;
+              break;
+            }
+          }
+          if (fell > 0) {
+            gates += 1;
+            when.push(fell);
+          } else {
+            hunger += 1;
+            when.push(phasesToHunger(fz) + 1);
+          }
+        }
+      }
+      const n = gates + hunger;
+      console.log(
+        `${String(wall).padStart(5)}  ${(volleys ? 'каждую фазу' : 'никогда').padEnd(15)}  ${pct(gates, n).padStart(5)}   ${pct(hunger, n).padStart(6)}   ${meanOf(when).toFixed(1)}`,
+      );
+    }
+  }
+  console.log('«фаза падения» у голода — фаза после последней брошенной: город падает в минуту конца хлеба.');
 }

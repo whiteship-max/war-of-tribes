@@ -148,6 +148,8 @@ export interface HoldIn extends Omit<CampFightIn, 'at' | 'front' | 'rear' | 'res
    * дозревания; износ осады к этой минуте дверь кладёт сама (`siege.siegeWear`).
    */
   sortie: CampPartIn & { resolve?: number; pips?: Pips };
+  /** Путь износа гарнизона до дна — срок голода окна, которое встало бы (`siege.wearSpan`). */
+  wearSpan: number;
 }
 
 /**
@@ -169,7 +171,7 @@ export function campHolds(input: HoldIn): boolean {
     at,
     sight: input.sight,
     camp: input.camp,
-    front: { kinds: sortie.kinds, rest: (sortie.rest ?? 1) * siegeWear(input.sight.since, at) },
+    front: { kinds: sortie.kinds, rest: (sortie.rest ?? 1) * siegeWear(input.sight.since, at, input.wearSpan) },
     resolve: sortie.resolve,
     pips: sortie.pips,
     ground: input.ground,
