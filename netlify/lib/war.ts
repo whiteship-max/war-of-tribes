@@ -45,7 +45,7 @@ import { troopTotal, type TroopStack } from '../../src/game/battle/kinds.js';
 import { kindsOf, troopLosses, troopPower } from '../../src/game/battle/price.js';
 import { campFight, homeLosses, wallFight } from '../../src/world/fights.js';
 import { SCALING, wallFront } from '../../src/world/wall.js';
-import { assaultOf, engineAfter, engineBlock, enginesSpent, stormEngines, type EngineId } from '../../src/world/engines.js';
+import { assaultOf, machineAfter, machineBlock, machinesSpent, stormMachines, type MachineId } from '../../src/world/machines.js';
 import { foodLeft, spyWalkMs, warAt, warWalkMs } from '../../src/world/pvp.js';
 import { distance } from '../../src/world/geo.js';
 import {
@@ -69,7 +69,7 @@ import { energyAt, energyBlock, onRoad, priceOf, remark, spend } from '../../src
 import { ENERGY_MAX } from '../../src/world/data/energy.js';
 import { weakCity } from '../../src/world/lairs.js';
 import { inHomeTheatre } from '../../src/world/theatre/theatre.js';
-import { engineShare, gateBusyText, playerWood, rebaseWood } from '../../src/world/works.js';
+import { machineShare, gateBusyText, playerWood, rebaseWood } from '../../src/world/works.js';
 import { stackCarry, stackEscort } from '../../src/world/data/units.js';
 import { PERIL_MEMORY, SIEGE_IMMUNE, SIEGE_ROUT, SPY_HELD } from '../../src/world/data/tuning.js';
 import { bookLive, least, over, rulePips, ruleResolve, type ArmyBook } from './book.js';
@@ -416,16 +416,16 @@ const craftOf = (w: WarRow): { craft?: Craft } => {
 };
 
 /**
- * Штурм города войском похода в минуту `at`. Возвращает бой и победил ли поход. `engines` — машины лагеря, пущенные в этот
- * штурм (`world/engines.stormEngines`): они истрачены, а проёмы их — во фронте.
+ * Штурм города войском похода в минуту `at`. Возвращает бой и победил ли поход. `machines` — машины лагеря, пущенные в этот
+ * штурм (`world/machines.stormMachines`): они истрачены, а проёмы их — во фронте.
  */
-function storm(w: WarRow, at: number, sheet: WarSheet, engines: readonly EngineId[] = []): { battle: WarBattle; won: boolean } {
+function storm(w: WarRow, at: number, sheet: WarSheet, machines: readonly MachineId[] = []): { battle: WarBattle; won: boolean } {
   const n = w.battles.length;
   // Стена-проход (`fights.wallFight`, docs/siege_v2.md, 4.1): штурм из лагеря идёт проломами фаз и машинами, штурм с ходу —
   // по лестницам, принесённым на себе. Ополчение стоит на стене всё: пролом открывает долю фронта, а не снимает людей.
   const wall = { militia: sheet.militia, archers: sheet.archers };
-  const front = wallFront(w.camp ? assaultOf(breachesOf(w.camp as SiegeWindow), engines) : SCALING);
-  if (w.camp && engines.length > 0) w.camp = { ...w.camp, engines: enginesSpent(w.camp as SiegeWindow, at, engines) as WarCamp['engines'] };
+  const front = wallFront(w.camp ? assaultOf(breachesOf(w.camp as SiegeWindow), machines) : SCALING);
+  if (w.camp && machines.length > 0) w.camp = { ...w.camp, machines: machinesSpent(w.camp as SiegeWindow, at, machines) as WarCamp['machines'] };
   const { input, field } = wallFight({
     seed: warSeed(w.id, n),
     attacker: { kinds: kindsOf(asTroops(w.army.troops)), resolve: w.army.resolve, pips: w.army.pips as Pips, rest: armyRest(w.army, at) },
@@ -604,8 +604,8 @@ function phaseStep(w: WarRow, at: number, sheet: WarSheet, atkHungry: boolean): 
   if (orderStorms(orders, breachesOf(camp)) && !energyBlock(energyAt(w.army.energy, at), priceOf('storm'))) {
     row.orders = ['storm'];
     w.army = { ...w.army, energy: spend(w.army.energy, at, priceOf('storm')) };
-    // Наказ штурма идёт всем, что готово (`engines.stormEngines` без списка).
-    stormCamp(w, at, sheet, stormEngines(camp, at));
+    // Наказ штурма идёт всем, что готово (`machines.stormMachines` без списка).
+    stormCamp(w, at, sheet, stormMachines(camp, at));
     return;
   }
   if (orderVolleys(orders, energyAt(w.army.energy, at), priceOf('bombard'), priceOf('storm')) && !craftBlock(camp, 'bombard', at)) {
@@ -619,8 +619,8 @@ function phaseStep(w: WarRow, at: number, sheet: WarSheet, atkHungry: boolean): 
  * Штурм из лагеря и что с лагерем после (docs/siege_v2.md, 4.4): взяли — падение; отбили — **осада идёт дальше** с тем,
  * что осталось: штурм с машинами — дело осады, а не отказ от неё. Лагерь снимается, только если штурмовать стало некому.
  */
-function stormCamp(w: WarRow, at: number, sheet: WarSheet, engines: readonly EngineId[]): boolean {
-  const { won } = storm(w, at, sheet, engines);
+function stormCamp(w: WarRow, at: number, sheet: WarSheet, machines: readonly MachineId[]): boolean {
+  const { won } = storm(w, at, sheet, machines);
   if (won) {
     fall(w, at, sheet, 'storm');
     turnBack(w, at, w.to, 'taken');
@@ -935,7 +935,7 @@ export function applyOrder(file: WarFile, key: string, order: WarOrder, now: num
       // Штурм из лагеря машинами, выбранными у кнопки (нет списка — всеми готовыми); отбитый лагерь не снимает
       // (`siege.STORM_HOLDS`, docs/siege_v2.md, 4.4).
       const sheet = liveSheet(file, w.def, s, now);
-      stormCamp(w, now, sheet, w.camp ? stormEngines(w.camp as SiegeWindow, now, order.engines) : []);
+      stormCamp(w, now, sheet, w.camp ? stormMachines(w.camp as SiegeWindow, now, order.machines) : []);
       return null;
     }
     case 'wood': {
@@ -943,18 +943,18 @@ export function applyOrder(file: WarFile, key: string, order: WarOrder, now: num
       const w = theirs(file, order.id, key, 'atk');
       if (!w || w.phase !== 'camp' || !w.camp) return 'Лагеря уже нет.';
       const camp = w.camp as SiegeWindow;
-      if (Math.abs(engineShare(camp.wood) - order.engines) < 1e-9) return 'Лагерь и так рубит так.';
-      w.camp = { ...w.camp, wood: rebaseWood(siegeSince(camp), now, camp.wood, 1, order.engines) };
+      if (Math.abs(machineShare(camp.wood) - order.machines) < 1e-9) return 'Лагерь и так рубит так.';
+      w.camp = { ...w.camp, wood: rebaseWood(siegeSince(camp), now, camp.wood, 1, order.machines) };
       return null;
     }
-    case 'engine': {
-      // Заказ машины — той же проверкой, что у лагеря под логовом (`world/engines.engineBlock`): у города стена есть.
+    case 'machine': {
+      // Заказ машины — той же проверкой, что у лагеря под логовом (`world/machines.machineBlock`): у города стена есть.
       const w = theirs(file, order.id, key, 'atk');
       if (!w || w.phase !== 'camp' || !w.camp) return 'Лагеря уже нет.';
       const camp = w.camp as SiegeWindow;
-      const why = engineBlock(camp, order.engine, now, true);
+      const why = machineBlock(camp, order.machine, now, true);
       if (why) return why;
-      w.camp = { ...w.camp, engines: engineAfter(camp, order.engine, now) as WarCamp['engines'] };
+      w.camp = { ...w.camp, machines: machineAfter(camp, order.machine, now) as WarCamp['machines'] };
       return null;
     }
     case 'fate': {

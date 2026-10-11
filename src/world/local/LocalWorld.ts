@@ -28,7 +28,7 @@ import type {
   BattleRecord,
   BattleSite,
   CampView,
-  EnginesView,
+  MachinesView,
   StormMethod,
   CraftOption,
   CardWar,
@@ -259,8 +259,8 @@ import { RESOURCE_META } from '@/game/constants';
 import { resolveField, type FieldInput, type FieldOutcome, type FieldSide } from '../battle';
 import { campFight, campHolds, holdMinute, homeLosses, wallFight, type CampPartIn, type HoldIn } from '../fights';
 import { SCALING, openingWords, wallFront, type WallFront } from '../wall';
-import { ENGINE_NAME, ENGINE_USE, assaultOf, engineAfter, engineBlock, enginesAt, enginesNote, stormEngines } from '../engines';
-import { ENGINE_IDS, ENGINE_SHARES, ENGINE_WOOD, type EngineId } from '../data/engines';
+import { MACHINE_NAME, MACHINE_USE, assaultOf, machineAfter, machineBlock, machinesAt, machinesNote, stormMachines } from '../machines';
+import { MACHINE_IDS, MACHINE_SHARES, MACHINE_WOOD, type MachineId } from '../data/machines';
 import { carryRest, mixRest, rejoin, restAfter, restAt, restFullAt, restView, type RestPair } from '../rest';
 import { emptyAt, energyAt, energyBlock, energyView, freshMark, idleBlock, leftAfter, outOf, priceOf, remark, roadCost, shownEnergy, spend, type EnergyMark, type EnergyMode, type MarkEnds } from '../energy';
 import { ENERGY_PRICE, type EnergyAction } from '../data/energy';
@@ -281,7 +281,7 @@ import {
 } from '../muster';
 import {
   WOOD_SHARES,
-  engineShare,
+  machineShare,
   gateBusyText,
   playerWood,
   rebaseWood,
@@ -4712,7 +4712,7 @@ export class LocalWorld implements WorldApi {
    * и записаны они отдельно. Оборону держат у себя дома — там и снимается место боя.
    */
   private gateRecord(gate: ReturnType<LocalWorld['gateField']>, attacker: TroopStack, site: BattleSite): BattleRecord | null {
-    const { home, militia, archers, field } = gate;
+    const { home, militia, archers, field, front } = gate;
     return field.result
       ? {
           us: 'defender',
@@ -4721,6 +4721,8 @@ export class LocalWorld implements WorldApi {
           militia: { attacker: { men: 0, archers: 0 }, defender: { men: militia, archers } },
           place: this.placeOf(this.save.home),
           site,
+          // Проёмы штурма — ролик рисует, чем лезли (стена-проход, `world/wall`).
+          ...(front ? { openings: front.openings } : {}),
         }
       : null;
   }
@@ -7009,7 +7011,7 @@ export class LocalWorld implements WorldApi {
         op: 'storm',
         id: led.id,
         ...(order.fate ? { fate: order.fate } : {}),
-        ...(order.engines ? { engines: order.engines } : {}),
+        ...(order.machines ? { machines: order.machines } : {}),
       });
       return err ? { error: err, reportId: null, won: false } : { error: null, ...this.warReportOf(led.id) };
     }
@@ -7241,40 +7243,40 @@ export class LocalWorld implements WorldApi {
   }
 
   /**
-   * Доля древесины лагеря осадным машинам (docs/siege_v2.md, 4.3): одна из `ENGINE_SHARES`. Вложенное остаётся вложенным
+   * Доля древесины лагеря осадным машинам (docs/siege_v2.md, 4.3): одна из `MACHINE_SHARES`. Вложенное остаётся вложенным
    * (`works.rebaseWood`) — и в рогатках, и в машинах. Лагерь под городом игрока — приказом серверу войны, той же дверью.
    */
-  async setEngineWood(share: number): Promise<string | null> {
+  async setMachineWood(share: number): Promise<string | null> {
     const now = this.clock();
-    if (!ENGINE_SHARES.includes(share)) return 'Такой доли нет.';
+    if (!MACHINE_SHARES.includes(share)) return 'Такой доли нет.';
     const id = this.ourSiege(now);
     const w = id ? this.save.sieges[id] : null;
     if (!w) {
       const led = this.warLed();
-      return led?.phase === 'camp' ? this.warSend({ op: 'wood', id: led.id, engines: share }) : 'Лагеря нет.';
+      return led?.phase === 'camp' ? this.warSend({ op: 'wood', id: led.id, machines: share }) : 'Лагеря нет.';
     }
-    if (Math.abs(engineShare(w.wood) - share) < 1e-9) return 'Лагерь и так рубит так.';
+    if (Math.abs(machineShare(w.wood) - share) < 1e-9) return 'Лагерь и так рубит так.';
     w.wood = rebaseWood(siegeSince(w), now, w.wood, woodShare(w.wood) ?? WOOD_SHARES[0], share);
     this.write();
     return null;
   }
 
   /**
-   * Заказать осадную машину в своём лагере (`world/engines`): строится очередью из древесины машин. У двора мира стены нет —
+   * Заказать осадную машину в своём лагере (`world/machines`): строится очередью из древесины машин. У двора мира стены нет —
    * лестницы, таран и башня не к чему, камнемёт бьёт по кости фазы. Лагерь под городом игрока — приказом серверу.
    */
-  async orderEngine(id: EngineId): Promise<string | null> {
+  async orderMachine(id: MachineId): Promise<string | null> {
     const now = this.clock();
-    if (!ENGINE_IDS.includes(id)) return 'Такой машины нет.';
+    if (!MACHINE_IDS.includes(id)) return 'Такой машины нет.';
     const sid = this.ourSiege(now);
     const w = sid ? this.save.sieges[sid] : null;
     if (!w) {
       const led = this.warLed();
-      return led?.phase === 'camp' ? this.warSend({ op: 'engine', id: led.id, engine: id }) : 'Лагеря нет.';
+      return led?.phase === 'camp' ? this.warSend({ op: 'machine', id: led.id, machine: id }) : 'Лагеря нет.';
     }
-    const why = engineBlock(w, id, now, false);
+    const why = machineBlock(w, id, now, false);
     if (why) return why;
-    w.engines = engineAfter(w, id, now);
+    w.machines = machineAfter(w, id, now);
     this.write();
     return null;
   }
@@ -7365,7 +7367,7 @@ export class LocalWorld implements WorldApi {
       // У двора мира стены нет: обстрел бьёт только по духу гарнизона (стена-проход — только у города игрока).
       crafts: this.craftMenu(w, now, false),
       ...this.craftNoteOf(w, false),
-      engines: this.enginesView(w, now, false),
+      machines: this.machinesView(w, now, false),
       phases: this.phasesView(w, now, true),
       ...(relief ? { relief: { from: relief.fromName, men: Math.round(relief.units.warrior ?? 0), at: relief.arriveAt, joint: false } } : {}),
       // Мораль нашего лагеря — дружины. Мораль чужого гарнизона — живые данные, а живого обзора у полководца нет.
@@ -8126,6 +8128,7 @@ export class LocalWorld implements WorldApi {
           // Штурм из лагеря после обстрела: ролик начнётся с него; проломы сервер уже открыл во фронте штурма (`world/wall`).
           ...(b.site === 'wall' && b.by === 'atk' && craftCount(b.craft, 'bombard') > 0 ? { shots: craftCount(b.craft, 'bombard') } : {}),
           ...(b.site === 'wall' && b.by === 'atk' && (b.craft?.breach ?? 0) > 0 ? { breach: b.craft?.breach } : {}),
+          ...(b.site === 'wall' && b.openings ? { openings: b.openings } : {}),
         }
       : null;
     const other = this.warCity(w, ours === 'atk' ? 'def' : 'atk');
@@ -8381,7 +8384,7 @@ export class LocalWorld implements WorldApi {
       ...this.wearOf(garrisonWear(c, now)),
       phases: this.phasesView(c, now, false),
       // Машины лагеря видны со стены (docs/siege_v2.md, 4.3).
-      ...(enginesNote(c, now) ? { machines: enginesNote(c, now) } : {}),
+      ...(machinesNote(c, now) ? { machineNote: machinesNote(c, now) } : {}),
       // Орудие на башне есть, а по лагерю соседа оно не бьёт — окно говорит это, а не молчит.
       ...(this.save.profile?.tower ? { towerIdle: TOWER_NOT_PVP } : {}),
     };
@@ -8430,43 +8433,43 @@ export class LocalWorld implements WorldApi {
       // У города игрока стена есть: обстрел ломает её и бьёт по духу гарнизона; дела и цены сервер проверит той же дверью.
       crafts: this.craftMenu(c, now, true),
       ...this.craftNoteOf(c, true),
-      engines: this.enginesView(c, now, true),
+      machines: this.machinesView(c, now, true),
       ...this.restViews(camp, undefined),
       phases: this.phasesView(c, now, true),
     };
   }
 
   /**
-   * Осадные машины и способы штурма глазами окна лагеря (docs/siege_v2.md, 4.3–4.4) — дверями `world/engines` и
+   * Осадные машины и способы штурма глазами окна лагеря (docs/siege_v2.md, 4.3–4.4) — дверями `world/machines` и
    * `world/wall`: готовность — та же очередь, что у штурма; что откроет машина — та же стена, что у боя. `walls` — есть ли у
    * цели стена (город игрока); у двора мира и логова её нет.
    */
-  private enginesView(w: SiegeWindow, now: number, walls: boolean): EnginesView {
-    const list = enginesAt(w, now);
+  private machinesView(w: SiegeWindow, now: number, walls: boolean): MachinesView {
+    const list = machinesAt(w, now);
     const breaches = walls ? breachesOf(w) : 0;
     const methods: StormMethod[] = walls
-      ? stormEngines(w, now).map((id) => {
+      ? stormMachines(w, now).map((id) => {
           const words = wallFront(assaultOf(breaches, [id]))
             .openings.filter((o) => o.id !== 'breach' && o.id !== 'scaling')
             .map((o) => openingWords(o))
             .join(' ');
-          return { engine: id, words };
+          return { machine: id, words };
         })
       : [];
     return {
-      share: engineShare(w.wood),
+      share: machineShare(w.wood),
       walls,
       breaches,
       methods,
-      list: ENGINE_IDS.map((id) => {
+      list: MACHINE_IDS.map((id) => {
         const mine = list.filter((e) => e.id === id && !(e.spent !== undefined && e.spent <= now));
         const ready = mine.some((e) => e.ready);
-        const reason = engineBlock(w, id, now, walls);
+        const reason = machineBlock(w, id, now, walls);
         return {
           id,
-          name: ENGINE_NAME[id],
-          use: ENGINE_USE[id],
-          wood: ENGINE_WOOD[id],
+          name: MACHINE_NAME[id],
+          use: MACHINE_USE[id],
+          wood: MACHINE_WOOD[id],
           state: ready ? 'ready' : mine.length > 0 ? 'building' : 'none',
           ...(mine.length > 0 && !ready ? { readyAt: mine[0].readyAt } : {}),
           can: reason === null,

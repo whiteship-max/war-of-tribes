@@ -578,23 +578,23 @@ describe('осадные машины в лагере под логовом и �
     const lair = nearestLair(w);
     standAt(w, 'general', lair, { spearman: 40 });
     expect(await w.world.besiege()).toBeNull();
-    const view = (await w.world.camp())?.engines;
+    const view = (await w.world.camp())?.machines;
     expect(view?.walls).toBe(false);
     for (const id of ['ladders', 'ram', 'tower'] as const) {
       const row = view?.list.find((e) => e.id === id);
       expect(row?.can).toBe(false);
-      expect(await w.world.orderEngine(id)).toBe(row?.reason);
+      expect(await w.world.orderMachine(id)).toBe(row?.reason);
     }
-    expect(view?.list.find((e) => e.id === 'catapult')?.can).toBe(true);
-    expect(await w.world.setEngineWood(1)).toBeNull();
-    expect(await w.world.setEngineWood(1)).toMatch(/и так/);
-    expect(await w.world.orderEngine('catapult')).toBeNull();
-    const building = (await w.world.camp())?.engines?.list.find((e) => e.id === 'catapult');
+    expect(view?.list.find((e) => e.id === 'mangonel')?.can).toBe(true);
+    expect(await w.world.setMachineWood(1)).toBeNull();
+    expect(await w.world.setMachineWood(1)).toMatch(/и так/);
+    expect(await w.world.orderMachine('mangonel')).toBeNull();
+    const building = (await w.world.camp())?.machines?.list.find((e) => e.id === 'mangonel');
     expect(building?.state).toBe('building');
     w.advance((building?.readyAt ?? Infinity) - w.now() + 1);
     calmLair(w, lair.id);
     await w.world.sync(p);
-    expect((await w.world.camp())?.engines?.list.find((e) => e.id === 'catapult')?.state).toBe('ready');
+    expect((await w.world.camp())?.machines?.list.find((e) => e.id === 'mangonel')?.state).toBe('ready');
   });
 
   it('отбитый штурм из лагеря лагерь не снимает: осада идёт дальше с теми, кто уцелел', async () => {

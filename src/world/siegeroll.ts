@@ -12,8 +12,8 @@
 import type { SiegeWindow } from './siege';
 import type { Fate } from './types';
 import { siegeSince, starvesAt } from './siege';
-import { catapultAt } from './engines';
-import { MOD_ENGINE } from './data/engines';
+import { mangonelAt } from './machines';
+import { MOD_MACHINE } from './data/machines';
 import {
   BREACH_MAX,
   CAMP_WASTE,
@@ -40,8 +40,8 @@ import {
 export type PhaseOut = 'plague' | 'calm' | 'short' | 'breach' | 'gates';
 
 /** Поправка к кости фазы. Порядок — порядок строки журнала. */
-export type ModId = 'breach' | 'volley' | 'engine' | 'hunger' | 'progress' | 'wall';
-export const MOD_IDS: readonly ModId[] = ['breach', 'volley', 'engine', 'hunger', 'progress', 'wall'];
+export type ModId = 'breach' | 'volley' | 'machine' | 'hunger' | 'progress' | 'wall';
+export const MOD_IDS: readonly ModId[] = ['breach', 'volley', 'machine', 'hunger', 'progress', 'wall'];
 export type PhaseMods = Partial<Record<ModId, number>>;
 
 /** Наказ на отлучку, сработавший в минуту фазы (docs/siege_v2.md, 8.3). */
@@ -94,7 +94,7 @@ export type RollWindow = Pick<
   | 'log'
   | 'phases'
   | 'wood'
-  | 'engines'
+  | 'machines'
 >;
 
 /** Минута броска фазы `k` (с единицы). */
@@ -176,8 +176,8 @@ export function modsOf(w: RollWindow, k: number, prior: readonly PhaseRow[] = ro
   const mods: PhaseMods = {
     breach: breachesOf(w, prior) * MOD_BREACH,
     volley: volleyIn(w, k) ? MOD_VOLLEY : 0,
-    // Камнемёт, стоящий в лагере к минуте фазы, — постоянная артиллерия (docs/siege_v2.md, 2.3; `world/engines`).
-    engine: catapultAt(w, at) ? MOD_ENGINE : 0,
+    // Камнемёт, стоящий в лагере к минуте фазы, — постоянная артиллерия (docs/siege_v2.md, 2.3; `world/machines`).
+    machine: mangonelAt(w, at) ? MOD_MACHINE : 0,
     hunger,
     progress: progressOf(w, prior) * MOD_PROGRESS,
     wall: wallFaces(w.wall),
@@ -319,7 +319,7 @@ export function cleanOrders(o: SiegeOrders | undefined): SiegeOrders | undefined
 const MOD_NAMES: Record<ModId, string> = {
   breach: 'пролом',
   volley: 'залп',
-  engine: 'камнемёт',
+  machine: 'камнемёт',
   hunger: 'голод',
   progress: 'ход осады',
   wall: 'стена',

@@ -2,7 +2,7 @@
 // компоненты читают этот стор, а он ходит в worldApi(). Ни один экран не знает,
 // что за интерфейсом сейчас стоит LocalWorld.
 import type { CraftAct } from './siegecraft';
-import type { EngineId } from './data/engines';
+import type { MachineId } from './data/machines';
 import type { SiegeOrders } from './siegeroll';
 import { create } from 'zustand';
 import { partyNow, serverNow } from '@/net/clock';
@@ -280,10 +280,10 @@ export interface WorldStore {
   retreat: () => Promise<string | null>;
   /** Поделить древесину своего лагеря: доля фронту. */
   setWood: (share: number) => Promise<string | null>;
-  /** Доля древесины лагеря осадным машинам (`world/engines`). */
-  setEngineWood: (share: number) => Promise<string | null>;
+  /** Доля древесины лагеря осадным машинам (`world/machines`). */
+  setMachineWood: (share: number) => Promise<string | null>;
   /** Заказать осадную машину в своём лагере. */
-  orderEngine: (id: EngineId) => Promise<string | null>;
+  orderMachine: (id: MachineId) => Promise<string | null>;
   /** Дело полководца в своём лагере: укрепить лагерь, обстрел города (`world/siegecraft`). */
   campCraft: (act: CraftAct) => Promise<string | null>;
   /** Наказы своему лагерю на отлучку (`world/siegeroll`, docs/siege_v2.md, 8.3). */
@@ -686,8 +686,8 @@ export const useWorld = create<WorldStore>((set, get) => ({
     return null;
   },
 
-  setEngineWood: async (share) => {
-    const err = await worldApi().setEngineWood(share);
+  setMachineWood: async (share) => {
+    const err = await worldApi().setMachineWood(share);
     if (err) {
       haptic('error');
       return err;
@@ -697,8 +697,8 @@ export const useWorld = create<WorldStore>((set, get) => ({
     return null;
   },
 
-  orderEngine: async (id) => {
-    const err = await worldApi().orderEngine(id);
+  orderMachine: async (id) => {
+    const err = await worldApi().orderMachine(id);
     if (err) {
       haptic('error');
       return err;

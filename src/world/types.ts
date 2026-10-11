@@ -4,7 +4,8 @@
 // говорят на одном языке со складом.
 import type { CraftAct } from './siegecraft';
 import type { SiegeOrders } from './siegeroll';
-import type { EngineId } from './data/engines';
+import type { MachineId } from './data/machines';
+import type { Opening } from './wall';
 import type { GameSec } from '@/game/pace';
 import type { FaithId, ResourceId } from '@/game/types';
 import type { TroopStack } from '@/game/battle/kinds';
@@ -264,10 +265,10 @@ export interface SiegeView {
    */
   craftNote?: string;
   /**
-   * Осадные машины лагеря — видны со стены (docs/siege_v2.md, 4.3): что стоит готовым и что строится (`engines.enginesNote`).
+   * Осадные машины лагеря — видны со стены (docs/siege_v2.md, 4.3): что стоит готовым и что строится (`machines.machinesNote`).
    * Нет поля — машин нет.
    */
-  machines?: string;
+  machineNote?: string;
   /** Ход осады фазами (docs/siege_v2.md, раздел 2): журнал, поправки следующей фазы, проломы. Нет поля — старое окно. */
   phases?: SiegePhasesView;
 }
@@ -388,13 +389,13 @@ export interface CampView extends Omit<SiegeView, 'fall' | 'palisade' | 'garriso
   storm?: EnergyCost;
   /** Дела в лагере: укрепить лагерь, обстрел города (`world/siegecraft`). */
   crafts?: CraftOption[];
-  /** Осадные машины лагеря и способы штурма (`world/engines`, `world/wall`; docs/siege_v2.md, 4.3–4.4). */
-  engines?: EnginesView;
+  /** Осадные машины лагеря и способы штурма (`world/machines`, `world/wall`; docs/siege_v2.md, 4.3–4.4). */
+  machines?: MachinesView;
 }
 
-/** Машина в окне лагеря: что даёт, в каком она состоянии и можно ли её заказать. Числа — дверью `world/engines`. */
-export interface EngineOption {
-  id: EngineId;
+/** Машина в окне лагеря: что даёт, в каком она состоянии и можно ли её заказать. Числа — дверью `world/machines`. */
+export interface MachineOption {
+  id: MachineId;
   name: string;
   /** Что даёт — строкой устройства, без прогноза. */
   use: string;
@@ -411,14 +412,14 @@ export interface EngineOption {
 
 /** Способ штурма у кнопки «Штурмовать»: машина и что она откроет во фронте (`wall.openingWords`). */
 export interface StormMethod {
-  engine: EngineId;
+  machine: MachineId;
   words: string;
 }
 
-export interface EnginesView {
-  /** Доля древесины машинам, одна из `ENGINE_SHARES`. */
+export interface MachinesView {
+  /** Доля древесины машинам, одна из `MACHINE_SHARES`. */
   share: number;
-  list: EngineOption[];
+  list: MachineOption[];
   /** Есть ли у цели стена: без неё лестницы, таран и башня не нужны, а штурм идёт в поле. */
   walls: boolean;
   /** Готовые машины на штурм — выбор способа. */
@@ -1207,9 +1208,9 @@ export interface AttackOrder {
    */
   fate?: Fate;
   /**
-   * Машины, пущенные в штурм из лагеря (`world/engines.stormEngines`): только готовые. Нет поля — все готовые.
+   * Машины, пущенные в штурм из лагеря (`world/machines.stormMachines`): только готовые. Нет поля — все готовые.
    */
-  engines?: EngineId[];
+  machines?: MachineId[];
 }
 
 /**
@@ -1302,6 +1303,12 @@ export interface BattleRecord {
    * у записей, сделанных раньше, — им достаётся поле.
    */
   site?: BattleSite;
+  /**
+   * Проёмы штурма у стены (`world/wall.Opening`; docs/siege_v2.md, 4.5) — только показ: ролик рисует выбранный способ —
+   * лестницы, таран и ворота, осадную башню, пролом. Исход от поля не зависит: ядро получило ширину и грань. Нет поля —
+   * бой не у стены или запись до стены-прохода.
+   */
+  openings?: Opening[];
   /**
    * Сколько залпов обстрела легло перед этим штурмом (`world/siegecraft`, `Craft.shots`) — для показа, а не для счёта:
    * ролик TW начинается с обстрела (docs/battle_tw.md, раздел 15). Пролом и дух гарнизона ядро уже посчитало до боя

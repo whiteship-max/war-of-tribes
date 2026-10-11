@@ -15,7 +15,7 @@ import { hungerLeft } from '@/ui/parts/hunger';
 import { sideReady } from '@/ui/parts/campSide';
 import { formatEstimate } from '@/world/intel';
 import { CAMP_LEAVE, STORM_HOLDS } from '@/world/siege';
-import { ENGINE_SHARES, type EngineId } from '@/world/data/engines';
+import { MACHINE_SHARES, type MachineId } from '@/world/data/machines';
 import { SIEGE_PHASE } from '@/world/data/siegeroll';
 import { FATE_META } from '@/world/data/fates';
 import { CASTLE_ICON, STAGE_BY_ID } from '@/world/data/meta';
@@ -34,10 +34,10 @@ const WOOD_HALVES = realMinutes(worksRipeAt(0, 'front', playerWood(0.5)));
 
 /** Как доля фронту называется на кнопке. */
 /** Доля древесины машинам словами на кнопке. */
-const ENGINE_SHARE_NAME: Record<number, string> = { 0: 'Ничего', 0.25: 'Четверть', 0.5: 'Половину', 0.75: 'Три четверти', 1: 'Всё' };
+const MACHINE_SHARE_NAME: Record<number, string> = { 0: 'Ничего', 0.25: 'Четверть', 0.5: 'Половину', 0.75: 'Три четверти', 1: 'Всё' };
 
 /** Состояние машины словами: стоит, строится (через сколько), не строится. */
-function engineState(e: NonNullable<CampView['engines']>['list'][number], now: number): string {
+function machineState(e: NonNullable<CampView['machines']>['list'][number], now: number): string {
   if (e.state === 'ready') return 'готова';
   if (e.state === 'none') return 'не заказана';
   if (e.readyAt === undefined || !Number.isFinite(e.readyAt)) return 'не строится: машинам не отдано леса';
@@ -70,9 +70,9 @@ export function CampPanel() {
   const attack = useWorld((g) => g.attack);
   const retreat = useWorld((g) => g.retreat);
   const setWood = useWorld((g) => g.setWood);
-  const setEngineWood = useWorld((g) => g.setEngineWood);
-  const orderEngine = useWorld((g) => g.orderEngine);
-  const [use, setUse] = useState<EngineId[] | null>(null);
+  const setMachineWood = useWorld((g) => g.setMachineWood);
+  const orderMachine = useWorld((g) => g.orderMachine);
+  const [use, setUse] = useState<MachineId[] | null>(null);
   const campCraft = useWorld((g) => g.campCraft);
   const setOrders = useWorld((g) => g.setOrders);
   const [pick, setPick] = useState<Fate | null>(null);
@@ -200,31 +200,31 @@ export function CampPanel() {
           </div>
         </>
       )}
-      {/* Осадные машины из древесины лагеря (world/engines, docs/siege_v2.md, 4.3): доля леса, очередь, отказ — из мира. */}
-      {camp.engines && (
+      {/* Осадные машины из древесины лагеря (world/machines, docs/siege_v2.md, 4.3): доля леса, очередь, отказ — из мира. */}
+      {camp.machines && (
         <>
           <h3>Машины</h3>
-          <p className="note">Лес машинам: {ENGINE_SHARE_NAME[camp.engines.share] ?? `${Math.round(camp.engines.share * 100)} %`}. Остальное идёт на рогатки.</p>
+          <p className="note">Лес машинам: {MACHINE_SHARE_NAME[camp.machines.share] ?? `${Math.round(camp.machines.share * 100)} %`}. Остальное идёт на рогатки.</p>
           <div className="fate-shares">
-            {ENGINE_SHARES.map((sh) => (
+            {MACHINE_SHARES.map((sh) => (
               <button
                 key={sh}
-                className={`mini${camp.engines?.share === sh ? ' on' : ''}`}
-                disabled={busy || camp.engines?.share === sh}
-                onClick={() => void order(() => setEngineWood(sh), `Машинам: ${ENGINE_SHARE_NAME[sh].toLowerCase()}.`)}
+                className={`mini${camp.machines?.share === sh ? ' on' : ''}`}
+                disabled={busy || camp.machines?.share === sh}
+                onClick={() => void order(() => setMachineWood(sh), `Машинам: ${MACHINE_SHARE_NAME[sh].toLowerCase()}.`)}
               >
-                {ENGINE_SHARE_NAME[sh]}
+                {MACHINE_SHARE_NAME[sh]}
               </button>
             ))}
           </div>
-          {camp.engines.list.map((e) => (
+          {camp.machines.list.map((e) => (
             <div key={e.id}>
               <button
                 className="btn wide"
                 disabled={busy || !e.can}
-                onClick={() => void order(() => orderEngine(e.id), `${e.name}: заказано.`)}
+                onClick={() => void order(() => orderMachine(e.id), `${e.name}: заказано.`)}
               >
-                {e.name} · {engineState(e, now)}
+                {e.name} · {machineState(e, now)}
               </button>
               <p className={`note${e.can || e.state !== 'none' ? '' : ' bad'}`}>{e.state === 'none' && e.reason ? e.reason : e.use}</p>
             </div>
@@ -283,25 +283,25 @@ export function CampPanel() {
       </button>
       {sameFate && <p className="note">Эта участь уже объявлена</p>}
       {/* Способ штурма (docs/siege_v2.md, 4.4): из готовых машин, проёмы складываются; строка — устройство, без прогноза. */}
-      {camp.engines?.walls && (
+      {camp.machines?.walls && (
         <>
           <p className="note">
-            {camp.engines.breaches > 0
-              ? `Проломов ${camp.engines.breaches} из 3: столько стены без штрафа.`
+            {camp.machines.breaches > 0
+              ? `Проломов ${camp.machines.breaches} из 3: столько стены без штрафа.`
               : 'Проломов нет.'}{' '}
-            {camp.engines.methods.length === 0 ? 'Готовых машин нет: лестницы — те, что принесут на себе, на треть стены.' : ''}
+            {camp.machines.methods.length === 0 ? 'Готовых машин нет: лестницы — те, что принесут на себе, на треть стены.' : ''}
           </p>
-          {camp.engines.methods.map((m) => {
-            const on = (use ?? camp.engines!.methods.map((x) => x.engine)).includes(m.engine);
+          {camp.machines.methods.map((m) => {
+            const on = (use ?? camp.machines!.methods.map((x) => x.machine)).includes(m.machine);
             return (
-              <label key={m.engine} className="note">
+              <label key={m.machine} className="note">
                 <input
                   type="checkbox"
                   checked={on}
                   disabled={busy}
                   onChange={() => {
-                    const was = use ?? camp.engines!.methods.map((x) => x.engine);
-                    setUse(on ? was.filter((x) => x !== m.engine) : [...was, m.engine]);
+                    const was = use ?? camp.machines!.methods.map((x) => x.machine);
+                    setUse(on ? was.filter((x) => x !== m.machine) : [...was, m.machine]);
                   }}
                 />{' '}
                 {m.words}
@@ -314,7 +314,7 @@ export function CampPanel() {
         className="btn wide"
         disabled={busy || camp.men === 0 || cantFate !== null || Boolean(camp.storm?.block)}
         onClick={() =>
-          void order(() => attack({ fate: chosen, ...(use ? { engines: use } : {}) }), 'Отряд штурмует. Донесение в походах.', true)
+          void order(() => attack({ fate: chosen, ...(use ? { machines: use } : {}) }), 'Отряд штурмует. Донесение в походах.', true)
         }
       >
         Штурмовать · {camp.men}

@@ -25,6 +25,12 @@
 import { LocalWorld } from '@/world/local/LocalWorld';
 import type { WorldSave } from '@/world/local/state';
 import { resolveField } from '@/world/battle';
+import { wallFight } from '@/world/fights';
+import { wallFront, type Assault } from '@/world/wall';
+import { WALL_BREACHES } from '@/world/data/wall';
+import { MACHINE_IDS, MACHINE_WOOD } from '@/world/data/machines';
+import { MACHINE_NAME } from '@/world/machines';
+import { machineWoodAt, playerWood } from '@/world/works';
 import { menOfPower, raidingParty } from '@/world/garrison';
 import { campPass, passKinds, sideWorks } from '@/world/works';
 import { awayOf, homeOf } from '@/world/muster';
@@ -1214,14 +1220,21 @@ function frozenWindow(fz: Frozen): { win: SiegeWindow; camp: { id: string; power
   return { win, camp: { id: m.id, power: m.power, homeDays: win.homeDays ?? 0 }, worldSeed: save.seed };
 }
 
+/** Лагерь с камнемётом, готовым с минуты постановки: древесины машинам — на него с запасом (`world/machines`). */
+const MANGONEL_READY = (since: number): Pick<SiegeWindow, 'wood' | 'machines'> => ({
+  wood: { front: 0, rear: 0, machines: 1, at: since, base: { front: 0, rear: 0, machines: 1 } },
+  machines: [{ id: 'mangonel', at: since }],
+});
+
 /** Фаз до голода у окна. */
 const phasesToHunger = (fz: Frozen): number => Math.floor((fz.starvesAt - fz.since) / SIEGE_PHASE);
 
 /**
- * Потери лагеря при штурме через полный пролом в середине осады (3.2): весь фронт без стены — ополчения на стене нет,
- * гарнизон с износом той минуты, лагерь — истощённый к ней долей `a`. Доля потерь нападающего, средняя по вариантам боя.
+ * Штурм в середине осады той же дверью, что у мира и сервера (`fights.wallFight`, стена-проход `world/wall`): гарнизон с
+ * износом той минуты и ополчение на стене, лагерь — истощённый к ней долей `a`, фронт — проёмы `assault`. Доля потерь
+ * нападающего и доля побед, средние по вариантам боя.
  */
-function stormLoss(fz: Frozen, a: number): number {
+function stormAt(fz: Frozen, a: number, assault: Assault): { loss: number; won: number } {
   const { camp, worldSeed } = frozenWindow(fz);
   const span = fz.starvesAt - fz.since;
   const mid = fz.since + span / 2;
@@ -1229,16 +1242,25 @@ function stormLoss(fz: Frozen, a: number): number {
   const rate = a * (1 + camp.homeDays / CAMP_WASTE_DAYS);
   const party = raidingParty(worldSeed, camp.id, camp.power * Math.pow(1 - rate, before));
   let loss = 0;
+  let won = 0;
   for (let v = 0; v < PHASE_VARIANTS; v++) {
-    const field = resolveField({
+    const { field } = wallFight({
       seed: fz.seed * 31 + v,
       attacker: { kinds: party.kinds },
-      defender: { kinds: kindsOf(fz.g.army), rest: siegeWear(fz.since, mid, span) },
+      defender: { kinds: kindsOf(fz.g.army), militia: militiaMen(fz.g), archers: militiaArchers(fz.g), rest: siegeWear(fz.since, mid, span) },
+      front: wallFront(assault),
     });
     loss += field.attackerLoss;
+    if (field.won) won += 1;
   }
-  return loss / PHASE_VARIANTS;
+  return { loss: loss / PHASE_VARIANTS, won: won / PHASE_VARIANTS };
 }
+
+/**
+ * Потери лагеря при штурме через полный пролом в середине осады (3.2): три пролома — весь фронт без штрафа, а ополчение на
+ * стене стоит (стена-проход, 4.2: пролом открывает фронт, людей не снимает).
+ */
+const stormLoss = (fz: Frozen, a: number): number => stormAt(fz, a, { breaches: WALL_BREACHES }).loss;
 
 /** Потери лагеря за осаду до голода истощением доли `a` (без мора: он — та же доля сверху, по кости). */
 function waitLoss(fz: Frozen, a: number): number {
@@ -1252,6 +1274,7 @@ const meanOf = (xs: readonly number[]): number => xs.reduce((n, x) => n + x, 0) 
 console.log('');
 console.log(`--- безразличие: ждать до голода против штурма через полный пролом в середине осады (${phaseFrozen.length} осад; уровни — ${PHASE_LEVELS.map((l) => `L${l}`).join(', ')}) ---`);
 console.log('правило (docs/siege_v2.md, 3.2): за осаду до голода лагерь теряет столько же, сколько при штурме через полный пролом;');
+console.log('штурм — дверью стены (fights.wallFight): три пролома — весь фронт без штрафа, ополчение на стене стоит (4.2);');
 console.log('неподвижная точка (правило 16): потери штурма зависят от того, сколько в лагере осталось к середине, а это — от a.');
 {
   let a = CAMP_WASTE;
@@ -1290,11 +1313,12 @@ console.log('неподвижная точка (правило 16): потери
 console.log('');
 console.log('--- ход осады: на какой фазе падает город — сдачей или голодом (docs/siege_v2.md, 10.2, п. 2) ---');
 console.log('окна — настоящие осады L5 и L10; стена и залпы подставлены; кость — дверь фаз, 8 вариантов сида на окно');
-console.log('стена  залпы            сдач   голодом   фаза падения (средняя)');
+console.log('камнемёт — готов с постановки лагеря (`world/machines`, +1 к кости каждой фазы)');
+console.log('стена  залпы                     сдач   голодом   фаза падения (средняя)');
 {
   const WALLS = [0, 4, 8, 10];
   for (const wall of WALLS) {
-    for (const volleys of [false, true]) {
+    for (const [volleys, mangonel] of [[false, false], [true, false], [false, true], [true, true]] as const) {
       let gates = 0;
       let hunger = 0;
       const when: number[] = [];
@@ -1302,7 +1326,7 @@ console.log('стена  залпы            сдач   голодом   фа�
         for (let v = 0; v < 8; v++) {
           const base = frozenWindow(fz).win;
           const since = fz.since;
-          let w: SiegeWindow = { ...base, campId: `${base.campId}#${v}`, wall, log: [], phases: [] };
+          let w: SiegeWindow = { ...base, campId: `${base.campId}#${v}`, wall, log: [], phases: [], ...(mangonel ? MANGONEL_READY(since) : {}) };
           let fell = 0;
           for (let k = 1; phaseAt(since, k) < fz.starvesAt; k++) {
             if (volleys) w = { ...w, log: [...(w.log ?? []), { at: phaseAt(since, k - 1), act: 'volley' }] };
@@ -1324,9 +1348,59 @@ console.log('стена  залпы            сдач   голодом   фа�
       }
       const n = gates + hunger;
       console.log(
-        `${String(wall).padStart(5)}  ${(volleys ? 'каждую фазу' : 'никогда').padEnd(15)}  ${pct(gates, n).padStart(5)}   ${pct(hunger, n).padStart(6)}   ${meanOf(when).toFixed(1)}`,
+        `${String(wall).padStart(5)}  ${((volleys ? 'каждую фазу' : 'никогда') + (mangonel ? ' + камнемёт' : '')).padEnd(24)}  ${pct(gates, n).padStart(5)}   ${pct(hunger, n).padStart(6)}   ${meanOf(when).toFixed(1)}`,
       );
     }
   }
   console.log('«фаза падения» у голода — фаза после последней брошенной: город падает в минуту конца хлеба.');
 }
+
+// ------------------------------------------------------- машины и штурм ---
+//
+// Этап 2в (docs/siege_v2.md, 4.1–4.4 и 10.2, п. 4): осадные машины из древесины лагеря и способы штурма через стену-проход.
+// Сроки — дверью машин (`world/machines`, `works.machineWoodAt`), бои — дверью стены (`fights.wallFight`) на тех же
+// замороженных осадах, что «безразличие»: своей арифметики у отчёта нет.
+
+console.log('');
+console.log('--- машины: древесина и срок постройки (docs/siege_v2.md, 4.3) ---');
+console.log('срок — в фазах осады (4 игр. дн.), от заказа на пустой лагерь; лагерь игрока рубит одну сторону за 7 фаз (PLAYER_CAMP_WOOD)');
+console.log('машина            древесина (стороны)   весь лес машинам   половина   четверть');
+for (const id of MACHINE_IDS) {
+  const span = (share: number): string => {
+    const at = machineWoodAt(0, MACHINE_WOOD[id], playerWood(1, share));
+    return Number.isFinite(at) ? (at / SIEGE_PHASE).toFixed(2) : '—';
+  };
+  console.log(`${MACHINE_NAME[id].padEnd(17)} ${MACHINE_WOOD[id].toFixed(3).padStart(19)}   ${span(1).padStart(16)}   ${span(0.5).padStart(8)}   ${span(0.25).padStart(8)}`);
+}
+
+console.log('');
+console.log(`--- способы штурма: штурм в середине осады по способам и проломам (docs/siege_v2.md, 10.2, п. 4; ${phaseFrozen.length} осад × ${PHASE_VARIANTS} вариантов) ---`);
+console.log(`лагерь истощён долей a = ${CAMP_WASTE} к середине осады; гарнизон с износом той минуты и ополчение на стене; бой — fights.wallFight`);
+console.log('способ                      проломов 0          1          2          3     (побед % / потери нападающего %)');
+{
+  const METHODS: { name: string; a: Assault }[] = [
+    { name: 'с ходу (лестницы на себе)', a: {} },
+    { name: 'лестницы', a: { ladders: true } },
+    { name: 'таран', a: { ram: true } },
+    { name: 'башня', a: { tower: true } },
+    { name: 'лестницы + таран', a: { ladders: true, ram: true } },
+    { name: 'лестницы + башня', a: { ladders: true, tower: true } },
+    { name: 'всё', a: { ladders: true, ram: true, tower: true } },
+  ];
+  let falls = 0;
+  for (const m of METHODS) {
+    const cells: string[] = [];
+    let prev = Infinity;
+    for (let b = 0; b <= WALL_BREACHES; b++) {
+      const runs = phaseFrozen.map((x) => stormAt(x.fz, CAMP_WASTE, { ...m.a, breaches: b }));
+      const won = meanOf(runs.map((r) => r.won));
+      const loss = meanOf(runs.map((r) => r.loss));
+      if (loss > prev + 1e-9) falls += 1;
+      prev = loss;
+      cells.push(`${pct(Math.round(won * 1000), 1000).padStart(5)} / ${pct(Math.round(loss * 1000), 1000).padStart(5)}`);
+    }
+    console.log(`${m.name.padEnd(26)} ${cells.join('  ')}`);
+  }
+  console.log(`свойство 6 (10.3) — пролом удешевляет штурм: потери не растут от 0 к 3 проломам — ${falls === 0 ? 'да, у каждого способа' : `нет, ${falls} шагов с ростом`}`);
+}
+

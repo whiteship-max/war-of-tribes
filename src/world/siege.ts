@@ -14,7 +14,7 @@ import type { WoodPlan } from './works';
 import type { Fire } from './bombard';
 import type { Craft } from './siegecraft';
 import type { PhaseRow, SiegeDeed, SiegeOrders } from './siegeroll';
-import type { EngineOrder } from './engines';
+import type { MachineOrder } from './machines';
 import { SIEGE_EAT_FLOOR, SIEGE_IMMUNE, SIEGE_TOWN_EAT, SIEGE_TOWN_LARDER, SIEGE_WEAR_FLOOR } from './data/tuning';
 import { HOUR_MS as HOUR } from '../game/time';
 
@@ -139,10 +139,10 @@ export interface SiegeWindow {
   /** Наказы осаждающего на отлучку (`siegeroll.SiegeOrders`). Нет поля — наказов нет. */
   orders?: SiegeOrders;
   /**
-   * Осадные машины лагеря — очередь заказов (`world/engines`): что, когда заказано и когда истрачено на штурм. Древесину
-   * им даёт план древесины (`wood.engines`). Нет поля — машин не заказывали.
+   * Осадные машины лагеря — очередь заказов (`world/machines`): что, когда заказано и когда истрачено на штурм. Древесину
+   * им даёт план древесины (`wood.machines`). Нет поля — машин не заказывали.
    */
-  engines?: EngineOrder[];
+  machines?: MachineOrder[];
 }
 
 /** Когда осада началась. Пересчёт часов голода эту отметку не двигает. */

@@ -1,5 +1,5 @@
 // Осадные машины и способ штурма между игроками (docs/siege_v2.md, 4.3–4.4; этап 2в): машины строит лагерь у сервера той же
-// дверью, что у мира (`world/engines`), штурм собирает фронт стеной-проходом (`world/wall`), отбитый штурм лагерь не снимает.
+// дверью, что у мира (`world/machines`), штурм собирает фронт стеной-проходом (`world/wall`), отбитый штурм лагерь не снимает.
 import { afterEach, describe, expect, it } from 'vitest';
 import { readWarOrder, type CastleClaim, type RosterFile, type WarArmy, type WarSheet } from './contract.js';
 import { castleIdOf, emptyRoster, upsert } from './roster.js';
@@ -7,8 +7,8 @@ import { advance, applyOrder, emptyWars, type SheetAt, type WarFile, type WarRow
 import { phaseAt, setPhaseDie } from '../../src/world/siegeroll.js';
 import { siegeSince, type SiegeWindow } from '../../src/world/siege.js';
 import { ENERGY_MAX } from '../../src/world/data/energy.js';
-import { enginesAt } from '../../src/world/engines.js';
-import { ENGINE_WOOD, MOD_ENGINE } from '../../src/world/data/engines.js';
+import { machinesAt } from '../../src/world/machines.js';
+import { MACHINE_WOOD, MOD_MACHINE } from '../../src/world/data/machines.js';
 import { CAMP_WORKS_RIPE, PLAYER_CAMP_WOOD } from '../../src/world/data/tuning.js';
 import { wallFront } from '../../src/world/wall.js';
 
@@ -64,36 +64,36 @@ function camped(def: Partial<WarSheet> = {}) {
 
 describe('машины лагеря у сервера войны', () => {
   it('приказы разбираются из тела: доля леса из шагов, машина из списка, способ штурма без чужих имён', () => {
-    expect(readWarOrder({ op: 'wood', id: 'x', engines: 0.5 })).toEqual({ op: 'wood', id: 'x', engines: 0.5 });
-    expect(readWarOrder({ op: 'wood', id: 'x', engines: 0.3 })).toBeNull();
-    expect(readWarOrder({ op: 'engine', id: 'x', engine: 'ram' })).toEqual({ op: 'engine', id: 'x', engine: 'ram' });
-    expect(readWarOrder({ op: 'engine', id: 'x', engine: 'dragon' })).toBeNull();
-    expect(readWarOrder({ op: 'storm', id: 'x', engines: ['ram', 'dragon', 'ram'] })).toEqual({ op: 'storm', id: 'x', engines: ['ram'] });
+    expect(readWarOrder({ op: 'wood', id: 'x', machines: 0.5 })).toEqual({ op: 'wood', id: 'x', machines: 0.5 });
+    expect(readWarOrder({ op: 'wood', id: 'x', machines: 0.3 })).toBeNull();
+    expect(readWarOrder({ op: 'machine', id: 'x', machine: 'ram' })).toEqual({ op: 'machine', id: 'x', machine: 'ram' });
+    expect(readWarOrder({ op: 'machine', id: 'x', machine: 'dragon' })).toBeNull();
+    expect(readWarOrder({ op: 'storm', id: 'x', machines: ['ram', 'dragon', 'ram'] })).toEqual({ op: 'storm', id: 'x', machines: ['ram'] });
   });
 
   it('лес машинам и заказ — той же дверью, что у мира; вторую машину рода не заказать', () => {
     setPhaseDie(() => 7);
     const { file, ctx, w, since } = camped();
-    expect(applyOrder(file, A, { op: 'wood', id: w.id, engines: 1 }, since + 1, ctx)).toBeNull();
-    expect(applyOrder(file, A, { op: 'wood', id: w.id, engines: 1 }, since + 2, ctx)).toMatch(/и так/);
-    expect(applyOrder(file, A, { op: 'engine', id: w.id, engine: 'ram' }, since + 2, ctx)).toBeNull();
-    expect(applyOrder(file, A, { op: 'engine', id: w.id, engine: 'ram' }, since + 3, ctx)).toMatch(/строится/);
+    expect(applyOrder(file, A, { op: 'wood', id: w.id, machines: 1 }, since + 1, ctx)).toBeNull();
+    expect(applyOrder(file, A, { op: 'wood', id: w.id, machines: 1 }, since + 2, ctx)).toMatch(/и так/);
+    expect(applyOrder(file, A, { op: 'machine', id: w.id, machine: 'ram' }, since + 2, ctx)).toBeNull();
+    expect(applyOrder(file, A, { op: 'machine', id: w.id, machine: 'ram' }, since + 3, ctx)).toMatch(/строится/);
     // Защитник машин лагеря не заказывает.
-    expect(applyOrder(file, B, { op: 'engine', id: w.id, engine: 'ladders' }, since + 3, ctx)).not.toBeNull();
-    const ready = since + 1 + (ENGINE_WOOD.ram / PLAYER_CAMP_WOOD) * CAMP_WORKS_RIPE;
-    expect(enginesAt(w.camp as SiegeWindow, ready + 10)[0].ready).toBe(true);
+    expect(applyOrder(file, B, { op: 'machine', id: w.id, machine: 'ladders' }, since + 3, ctx)).not.toBeNull();
+    const ready = since + 1 + (MACHINE_WOOD.ram / PLAYER_CAMP_WOOD) * CAMP_WORKS_RIPE;
+    expect(machinesAt(w.camp as SiegeWindow, ready + 10)[0].ready).toBe(true);
   });
 
   it('штурм машинами: фронт — стена-проход из пущенного, машина истрачена, проёмы в записи боя', () => {
     setPhaseDie(() => 7);
     // Гарнизон сильный — штурм отобьют, и лагерь останется: видно, что лестницы истрачены.
     const { file, ctx, sheets, w, since } = camped({ home: { spearman: 200, archer: 120, swordsman: 120 }, militia: 120, archers: 40 });
-    applyOrder(file, A, { op: 'wood', id: w.id, engines: 1 }, since + 1, ctx);
-    applyOrder(file, A, { op: 'engine', id: w.id, engine: 'ladders' }, since + 1, ctx);
-    const at = since + 1 + (ENGINE_WOOD.ladders / PLAYER_CAMP_WOOD) * CAMP_WORKS_RIPE + 1;
+    applyOrder(file, A, { op: 'wood', id: w.id, machines: 1 }, since + 1, ctx);
+    applyOrder(file, A, { op: 'machine', id: w.id, machine: 'ladders' }, since + 1, ctx);
+    const at = since + 1 + (MACHINE_WOOD.ladders / PLAYER_CAMP_WOOD) * CAMP_WORKS_RIPE + 1;
     expect(at, 'точка внутри области: до голода').toBeLessThan(w.starvesAt ?? Infinity);
     advance(file, at, sheets);
-    expect(applyOrder(file, A, { op: 'storm', id: w.id, engines: ['ladders'] }, at, ctx)).toBeNull();
+    expect(applyOrder(file, A, { op: 'storm', id: w.id, machines: ['ladders'] }, at, ctx)).toBeNull();
     const b = w.battles[w.battles.length - 1];
     expect(b.site).toBe('wall');
     const front = wallFront({ breaches: 0, ladders: true });
@@ -101,7 +101,7 @@ describe('машины лагеря у сервера войны', () => {
     expect(b.input.ground?.wall).toBe(front.wall);
     expect(b.openings?.map((o) => o.id)).toEqual(['ladders']);
     expect(b.won, 'точка внутри области: штурм отбит, лагерь стоит').toBe(false);
-    expect(enginesAt(w.camp as SiegeWindow, at + 1).some((e) => e.ready), 'лестницы истрачены').toBe(false);
+    expect(machinesAt(w.camp as SiegeWindow, at + 1).some((e) => e.ready), 'лестницы истрачены').toBe(false);
   });
 
   it('отбитый штурм лагерь не снимает: осада идёт дальше с теми, кто уцелел', () => {
@@ -122,14 +122,14 @@ describe('машины лагеря у сервера войны', () => {
   it('камнемёт в лагере — +1 к кости фазы у сервера', () => {
     setPhaseDie(() => 7);
     const { file, ctx, sheets, w, since } = camped();
-    applyOrder(file, A, { op: 'wood', id: w.id, engines: 1 }, since + 1, ctx);
-    applyOrder(file, A, { op: 'engine', id: w.id, engine: 'catapult' }, since + 1, ctx);
-    const ready = since + 1 + (ENGINE_WOOD.catapult / PLAYER_CAMP_WOOD) * CAMP_WORKS_RIPE;
+    applyOrder(file, A, { op: 'wood', id: w.id, machines: 1 }, since + 1, ctx);
+    applyOrder(file, A, { op: 'machine', id: w.id, machine: 'mangonel' }, since + 1, ctx);
+    const ready = since + 1 + (MACHINE_WOOD.mangonel / PLAYER_CAMP_WOOD) * CAMP_WORKS_RIPE;
     const k = Math.ceil((ready - since) / (phaseAt(since, 1) - since));
     expect(phaseAt(since, k), 'точка внутри области: фаза k после готовности, до голода').toBeLessThan(w.starvesAt ?? Infinity);
     advance(file, phaseAt(since, k) + 1, sheets);
     const rows = w.camp?.phases ?? [];
-    expect(rows[k - 1]?.mods.engine).toBe(MOD_ENGINE);
-    expect(rows[k - 2]?.mods.engine).toBeUndefined();
+    expect(rows[k - 1]?.mods.machine).toBe(MOD_MACHINE);
+    expect(rows[k - 2]?.mods.machine).toBeUndefined();
   });
 });

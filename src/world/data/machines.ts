@@ -1,9 +1,9 @@
 // Осадные машины — числа дизайна в одном месте (docs/siege_v2.md, 4.3; этап 2в). Считает всё одна дверь —
-// `world/engines.ts`; мир на клиенте и сервер войны спрашивают её. Без `@/`: файл собирает сервер.
+// `world/machines.ts`; мир на клиенте и сервер войны спрашивают её. Без `@/`: файл собирает сервер.
 
 /** Машины лагеря: лестницы, таран, осадная башня — на штурм; камнемёт — к кости каждой фазы. */
-export type EngineId = 'ladders' | 'ram' | 'tower' | 'catapult';
-export const ENGINE_IDS: readonly EngineId[] = ['ladders', 'ram', 'tower', 'catapult'];
+export type MachineId = 'ladders' | 'ram' | 'tower' | 'mangonel';
+export const MACHINE_IDS: readonly MachineId[] = ['ladders', 'ram', 'tower', 'mangonel'];
 
 /**
  * Сколько древесины машина стоит — доли стороны лагеря (docs/siege_v2.md, 4.3): то, что лагерь вложил бы в рогатки одной
@@ -14,24 +14,24 @@ export const ENGINE_IDS: readonly EngineId[] = ['ladders', 'ram', 'tower', 'cata
  * 28 игр. дн. — семь фаз). Лестницы — фаза, таран и камнемёт — две, башня — три. Лагерь игрока рубит меньше
  * (`PLAYER_CAMP_WOOD` — сторона за семь фаз), и у него машины дольше: срок печатает окно лагеря той же функцией.
  */
-export const ENGINE_WOOD: Record<EngineId, number> = {
+export const MACHINE_WOOD: Record<MachineId, number> = {
   ladders: 1 / 6,
   ram: 1 / 3,
   tower: 1 / 2,
-  catapult: 1 / 3,
+  mangonel: 1 / 3,
 };
 
 /** Машины на штурм — тратятся им; камнемёт стоит всю осаду. */
-export const STORM_ENGINES: readonly EngineId[] = ['ladders', 'ram', 'tower'];
+export const STORM_MACHINES: readonly MachineId[] = ['ladders', 'ram', 'tower'];
 
 /** Камнемёт в лагере — +1 к кости каждой фазы (docs/siege_v2.md, 2.3): постоянная артиллерия. */
-export const MOD_ENGINE = 1;
+export const MOD_MACHINE = 1;
 
 /**
  * Какую долю древесины лагерь отдаёт машинам — шагом, как доли сторон (`works.WOOD_SHARES`): на 375 px пять кнопок
  * читаются, ползунок — нет.
  */
-export const ENGINE_SHARES: readonly number[] = [0, 0.25, 0.5, 0.75, 1];
+export const MACHINE_SHARES: readonly number[] = [0, 0.25, 0.5, 0.75, 1];
 
 /** Сколько машин одного рода лагерь держит сразу: одна — машину строят под дело, а не впрок. */
-export const ENGINE_HOLD = 1;
+export const MACHINE_HOLD = 1;

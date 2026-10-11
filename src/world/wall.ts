@@ -11,7 +11,7 @@ import { FRONT_WIDTH } from '../battle/config';
 import type { Widen } from '../battle/types';
 import { GATE_SHARE, LADDER_FACES, RAM_ROUND, SCALING_SHARE, TOWER_SHARE, BREACH_SHARE, WALL_BREACHES } from './data/wall';
 
-/** Чем идут на стену в этом штурме: проломы к его минуте и машины, пущенные в дело (`world/engines`). */
+/** Чем идут на стену в этом штурме: проломы к его минуте и машины, пущенные в дело (`world/machines`). */
 export interface Assault {
   /** Проломов в стене к минуте штурма, 0..3 (`siegeroll.breachesOf`). */
   breaches?: number;
