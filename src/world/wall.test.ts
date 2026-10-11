@@ -79,7 +79,7 @@ describe('проёмы стены', () => {
   });
 
   it('у каждого проёма — строка устройства без прогноза: места строя и штраф', () => {
-    for (const a of ALL) for (const o of openingsOf(a)) expect(openingWords(o)).toMatch(/из 156 мест строя/);
+    for (const a of ALL) for (const o of openingsOf(a)) expect(openingWords(o)).toMatch(new RegExp(`из ${Math.round(W)} мест строя`));
     expect(OPENING_IDS).toContain('gate');
   });
 });
