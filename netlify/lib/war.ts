@@ -43,8 +43,8 @@ import {
 import { stackTotal, type Pips, type Stack } from '../../src/battle/index.js';
 import { troopTotal, type TroopStack } from '../../src/game/battle/kinds.js';
 import { kindsOf, troopLosses, troopPower } from '../../src/game/battle/price.js';
-import { resolveField } from '../../src/world/battle.js';
-import { campFight, defenceKinds, homeLosses } from '../../src/world/fights.js';
+import { campFight, homeLosses, wallFight } from '../../src/world/fights.js';
+import { SCALING, wallFront } from '../../src/world/wall.js';
 import { foodLeft, spyWalkMs, warAt, warWalkMs } from '../../src/world/pvp.js';
 import { distance } from '../../src/world/geo.js';
 import {
@@ -60,7 +60,7 @@ import {
 } from '../../src/world/rivalspy.js';
 import { gameDaysOfMs, gameSecondsOfMs } from '../../src/game/pace.js';
 import { FATE_SAME, openSiege, SIEGE_BLOCK, siegeSince, starvesAt, type SiegeWindow } from '../../src/world/siege.js';
-import { craftAfter, craftAt, craftBlock, craftCount, fortFaces, garrisonWear, wallMen, type Craft } from '../../src/world/siegecraft.js';
+import { craftAfter, craftAt, craftBlock, craftCount, fortFaces, garrisonWear, type Craft } from '../../src/world/siegecraft.js';
 import { breachesOf, cleanOrders, nextRollAt, orderStorms, orderVolleys, rollPhase, rowsOf, softerFate } from '../../src/world/siegeroll.js';
 import { burnImmuneUntil, fate, fateBlock, fallSeed, homeLoss, winnerGain } from '../../src/world/spoils.js';
 import { restAfter, restAt } from '../../src/world/rest.js';
@@ -417,19 +417,23 @@ const craftOf = (w: WarRow): { craft?: Craft } => {
 /** Штурм города войском похода в минуту `at`. Возвращает бой и победил ли поход. */
 function storm(w: WarRow, at: number, sheet: WarSheet): { battle: WarBattle; won: boolean } {
   const n = w.battles.length;
-  // Пролом — стена при штурме из лагеря, по которому стреляли (`siegecraft.wallMen`); штурм с ходу идёт на целую стену.
-  const wall = wallMen(sheet.militia, sheet.archers, w.camp ? craftAt(w.camp as SiegeWindow) : undefined);
-  const input = {
+  // Стена-проход (`fights.wallFight`, docs/siege_v2.md, 4.1): штурм из лагеря идёт проломами фаз, штурм с ходу — по
+  // лестницам, принесённым на себе. Ополчение стоит на стене всё: пролом открывает долю фронта, а не снимает людей.
+  const wall = { militia: sheet.militia, archers: sheet.archers };
+  const front = wallFront(w.camp ? { breaches: breachesOf(w.camp as SiegeWindow) } : SCALING);
+  const { input, field } = wallFight({
     seed: warSeed(w.id, n),
     attacker: { kinds: kindsOf(asTroops(w.army.troops)), resolve: w.army.resolve, pips: w.army.pips as Pips, rest: armyRest(w.army, at) },
     defender: {
-      kinds: defenceKinds(kindsOf(asTroops(sheet.home)), wall.militia, wall.archers),
+      kinds: kindsOf(asTroops(sheet.home)),
+      militia: wall.militia,
+      archers: wall.archers,
       resolve: sheet.resolve,
       pips: sheet.pips as Pips,
       rest: garrisonRest(w, sheet, at),
     },
-  };
-  const field = resolveField(input);
+    front,
+  });
   const atkLost = field.result ? (troopLosses(asTroops(w.army.troops), field.result.sides.attacker.losses) as Counts) : {};
   const homeLost = homeLosses(asTroops(sheet.home), field) as Counts;
   const battle: WarBattle = {

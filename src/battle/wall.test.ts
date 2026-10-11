@@ -133,3 +133,24 @@ describe('проём посреди боя (BattleInput.widen)', () => {
     expect(() => opened(1, { round: 0, width: FRONT_WIDTH, wall: 0 })).toThrow();
   });
 });
+
+describe('ширина стрельбы (BattleInput.fire)', () => {
+  // Узкий фронт у стены: сходятся в проёмах, а стреляют со всей стены. Граница области — ряд лучников шире узкого фронта
+  // и не шире полного: проверяется в самом тесте.
+  const NARROW = 40;
+  const bows = { archer: 300, infantry: 300 };
+  const run = (seed: number, fire?: number): BattleResult =>
+    simulateBattle({ seed, attacker: deploySetup(bows), defender: deploySetup(DEFENDER), width: NARROW, ...(fire ? { fire } : {}) });
+  const firstFire = (r: BattleResult): number => r.phases.find((p) => p.phase === 'ranged')?.losses.defender ?? 0;
+
+  it('ширина стрельбы равна ширине боя — тот же бой до бита', () => {
+    for (const seed of SEEDS) expect(run(seed, NARROW)).toEqual(run(seed));
+  });
+
+  it('полная ширина стрельбы при узком фронте: лучники в первом огне выбивают больше', () => {
+    const rowOfBows = deploySetup(bows).sectors.D.archer + deploySetup(bows).sectors.A.archer;
+    expect(rowOfBows, 'точка внутри области: лучников в полосе больше узкого фронта').toBeGreaterThan(NARROW);
+    for (const seed of SEEDS) expect(firstFire(run(seed, FRONT_WIDTH))).toBeGreaterThan(firstFire(run(seed)));
+  });
+});
+

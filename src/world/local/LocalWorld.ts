@@ -255,7 +255,8 @@ import { MIRROR_ON, mirrorPower } from '../mirror';
 import type { FaithId, ResourceId } from '@/game/types';
 import { RESOURCE_META } from '@/game/constants';
 import { resolveField, type FieldInput, type FieldOutcome, type FieldSide } from '../battle';
-import { campFight, campHolds, defenceKinds, holdMinute, homeLosses, type CampPartIn, type HoldIn } from '../fights';
+import { campFight, campHolds, holdMinute, homeLosses, wallFight, type CampPartIn, type HoldIn } from '../fights';
+import { SCALING, wallFront, type WallFront } from '../wall';
 import { carryRest, mixRest, rejoin, restAfter, restAt, restFullAt, restView, type RestPair } from '../rest';
 import { emptyAt, energyAt, energyBlock, energyView, freshMark, idleBlock, leftAfter, outOf, priceOf, remark, roadCost, shownEnergy, spend, type EnergyMark, type EnergyMode, type MarkEnds } from '../energy';
 import { ENERGY_PRICE, type EnergyAction } from '../data/energy';
@@ -3985,8 +3986,8 @@ export class LocalWorld implements WorldApi {
       ground: groundAt(this.save.seed, target, this.save.figures.general.from),
       // Мораль между боями — у обеих сторон одним правилом (14.31): дружина и гарнизон логова своими парами.
       attacker: { kinds: kindsOf(troops), resolve: this.ownResolve(), pips: this.generalPips(), rest: this.generalRest(at) },
-      // Штурм из своего лагеря: гарнизон дерётся с духом осады и обстрела (`besiegedRest`); стен у двора мира нет — пролому
-      // ломать нечего (`siegecraft.wallMen` берёт только ополчение и стрелков башни города игрока).
+      // Штурм из своего лагеря: гарнизон дерётся с духом осады и обстрела (`besiegedRest`); стен у двора мира нет — штурм
+      // идёт в поле, во всю ширину (стена-проход, `world/wall`, — только у города игрока).
       defender: { kinds: garrison.kinds, rest: this.besiegedRest(target.id, at, garrisonMen, camp) },
     });
     if (field.result) {
@@ -4627,7 +4628,8 @@ export class LocalWorld implements WorldApi {
     const party = raidingParty(this.save.seed, m.id, m.power);
     // Отряд, отбившийся от перехвата, идёт к стене со своей усталостью (мораль между боями, `world/rest`).
     const rest = restAt(m.rest, at, stackTotal(party.kinds));
-    return { party, ...this.gateField({ kinds: party.kinds, rest }, m.seed, m.from, at) };
+    // Набег у стены — штурм с ходу: лестницы, принесённые на себе, на треть стены (стена-проход, `world/wall`).
+    return { party, ...this.gateField({ kinds: party.kinds, rest }, m.seed, m.from, at, wallFront(SCALING)) };
   }
 
   /**
@@ -4635,7 +4637,7 @@ export class LocalWorld implements WorldApi {
    * разбойники, `gateFight`; docs/battle_eu4.md, 14.28): сторона обороны собирается только здесь. Весь, как он
    * случится, и ничего не трогая. `from` — откуда пришли: переправу на шаге к деревне штрафует место боя.
    */
-  private gateField(attacker: FieldSide, seed: number, from: Coord, at: number) {
+  private gateField(attacker: FieldSide, seed: number, from: Coord, at: number, front: WallFront | null) {
     const profile = this.save.profile;
     // Оборона дома: гарнизон, дружина, если она собрана и стоит у своих ворот, плюс
     // ополчение — частокол, башня и сами жители. Раскладывает их правило развёртывания,
@@ -4649,8 +4651,9 @@ export class LocalWorld implements WorldApi {
     // Башня ставит часть ополчения стрелками: людей не прибавляется, меняется род. Сторона обороны — одна дверь
     // с войной между игроками (`fights.defenceKinds`): сервер собирает её из слепка тем же кодом.
     const archers = Math.min(militia, Math.max(0, Math.round(profile?.militiaArchers ?? 0)));
-    const homeKinds = defenceKinds(kindsOf(home), militia, archers);
-    const field = resolveField({
+    // Стена-проход (`fights.wallFight`, docs/siege_v2.md, 4.1) — у набега; бой события у ворот идёт перед воротами, в
+    // поле (`front` пуст): гарнизон выходит к стае и к разбойникам, стены между сторонами нет.
+    const { field } = wallFight({
       seed,
       // Место боя — своя деревня; переправа — если пришедший вышел на неё через русло.
       ground: groundAt(this.save.seed, this.save.home, from),
@@ -4659,13 +4662,16 @@ export class LocalWorld implements WorldApi {
       // обороняющегося держит переправу нападающему (docs/battle_eu4.md, 14.5, Л9). Мораль — тех, кто дома: гарнизон и
       // дружина у ворот своими парами, ополчение свежее (мораль между боями, 14.31).
       defender: {
-        kinds: homeKinds,
+        kinds: kindsOf(home),
+        militia,
+        archers,
         resolve: this.ownResolve(),
         pips: this.homePips(at),
         rest: this.homeRest(held, at, militia),
       },
+      front,
     });
-    return { profile, held, home, militia, archers, field, at };
+    return { profile, held, home, militia, archers, field, at, front };
   }
 
   /**
@@ -4758,7 +4764,7 @@ export class LocalWorld implements WorldApi {
   private gateFight(call: GateCall, at: number): void {
     const def = GATE_FOES[call.foe];
     const party = this.gateParty(call);
-    const gate = this.gateField(party, call.seed, this.save.home, at);
+    const gate = this.gateField(party, call.seed, this.save.home, at, null);
     const { field } = gate;
     const { warriors, warriorsLost, troopsLost, standing } = this.gateLosses(gate);
     // Вызов к воротам: разбойники и волки бьются перед воротами (ролик TW).
@@ -7304,7 +7310,7 @@ export class LocalWorld implements WorldApi {
       men: troopTotal(this.save.figures.general.troops ?? {}),
       // Штурм из лагеря — бой: его цена в энергии полководца (docs/agent_energy.md); в лагере энергия стояла.
       storm: this.energyCost('general', 'storm', now),
-      // У двора мира стены нет: обстрел бьёт только по духу гарнизона (`siegecraft.wallMen`).
+      // У двора мира стены нет: обстрел бьёт только по духу гарнизона (стена-проход — только у города игрока).
       crafts: this.craftMenu(w, now, false),
       ...this.craftNoteOf(w, false),
       phases: this.phasesView(w, now, true),
@@ -8064,7 +8070,7 @@ export class LocalWorld implements WorldApi {
           ...(b.militia && b.by === 'atk' ? { militia: { attacker: { men: 0, archers: 0 }, defender: { ...b.militia } } } : {}),
           place: this.placeOf(w.to),
           site: b.site,
-          // Штурм из лагеря после обстрела: ролик начнётся с него; пролом сервер уже снял со стены (`siegecraft.wallMen`).
+          // Штурм из лагеря после обстрела: ролик начнётся с него; проломы сервер уже открыл во фронте штурма (`world/wall`).
           ...(b.site === 'wall' && b.by === 'atk' && craftCount(b.craft, 'bombard') > 0 ? { shots: craftCount(b.craft, 'bombard') } : {}),
           ...(b.site === 'wall' && b.by === 'atk' && (b.craft?.breach ?? 0) > 0 ? { breach: b.craft?.breach } : {}),
         }

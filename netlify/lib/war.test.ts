@@ -8,7 +8,9 @@ import { inHomeTheatre } from '../../src/world/theatre/theatre.js';
 import { energyAt, energyBlock, priceOf, roadCost, roadOf } from '../../src/world/energy.js';
 import { warWalkMs } from '../../src/world/pvp.js';
 import { ENERGY_CAMP, ENERGY_FILL, ENERGY_MAX } from '../../src/world/data/energy.js';
-import { craftBlock, fortFaces, wallMen } from '../../src/world/siegecraft.js';
+import { craftBlock, fortFaces } from '../../src/world/siegecraft.js';
+import { wallFront } from '../../src/world/wall.js';
+import { FRONT_WIDTH } from '../../src/battle/config.js';
 import type { SiegeWindow } from '../../src/world/siege.js';
 
 /**
@@ -322,9 +324,12 @@ describe('дела в лагере: укрепить лагерь и обстр�
     const storm = w.battles[w.battles.length - 1];
     expect(storm.site).toBe('wall');
     expect(storm.craft?.breach, 'в запись боя лёг пролом').toBe(1);
-    const wall = wallMen(sheet().militia, sheet().archers, { fort: 2, shots: 1, breach: 1 });
-    expect(wall.militia, 'точка внутри области: пролом снял людей со стены').toBeLessThan(sheet().militia);
-    expect(storm.militia).toEqual({ men: wall.militia, archers: wall.archers });
+    // Стена-проход (docs/siege_v2.md, 4.1–4.2): пролом открывает треть фронта без штрафа, ополчение стоит на стене всё.
+    const front = wallFront({ breaches: 1 });
+    expect(front.width, 'точка внутри области: фронт уже полного').toBeLessThan(FRONT_WIDTH);
+    expect(storm.input.width).toBe(front.width);
+    expect(storm.input.ground?.wall).toBe(front.wall);
+    expect(storm.militia).toEqual({ men: sheet().militia, archers: sheet().archers });
   });
 });
 

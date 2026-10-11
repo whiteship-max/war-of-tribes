@@ -16,6 +16,7 @@ import {
   type Pips,
   type Side,
   type Stack,
+  type Widen,
 } from '@/battle';
 
 /**
@@ -62,6 +63,14 @@ export interface FieldInput {
    * 14.5): поля у стороны нет нарочно, чтобы обороняющемуся его было неоткуда взять.
    */
   ground?: GroundPenalty;
+  /**
+   * Ширина боя и проём посреди боя (`BattleInput.width`, `.widen`): у боя у стены — фронт штурма (`world/wall.wallFront`).
+   * Нет поля — ширина фронта, бой в поле.
+   */
+  width?: number;
+  /** Ширина стрельбы (`BattleInput.fire`): у боя у стены — полная, стреляют со всей стены. Нет — ширина боя. */
+  fire?: number;
+  widen?: Widen;
 }
 
 export interface FieldOutcome {
@@ -105,6 +114,9 @@ export function resolveField(input: FieldInput): FieldOutcome {
       ...(input.attacker.garrison ? { garrison: input.attacker.garrison } : {}),
     },
     defender: { ...defender, resolve: input.defender.resolve ?? 0, pips: input.defender.pips ?? {}, ...rested(input.defender.rest) },
+    ...(input.width !== undefined ? { width: input.width } : {}),
+    ...(input.fire !== undefined ? { fire: input.fire } : {}),
+    ...(input.widen ? { widen: input.widen } : {}),
   });
 
   const a = result.sides.attacker.total;

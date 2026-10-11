@@ -964,15 +964,23 @@ class Battle {
     }
   }
 
-  /** Какая доля группы бьёт в этот тик: ряд уже ширины — вся. Первый раз зажатый ряд пишется в журнал. */
-  widthShare(g: Group): number {
+  /**
+   * Какая доля группы бьёт в этот тик: ряд уже ширины — вся. Первый раз зажатый ряд пишется в журнал. Ширина — боя; у
+   * стрельбы своя (`BattleInput.fire`, нет — та же).
+   */
+  widthShare(g: Group, width: number = this.width): number {
     if (g.lane === null || (g.row !== 'front' && g.row !== 'rear' && g.row !== 'strike')) return 1;
     const men = this.rowMen.get(rowKey(g.side, g.lane, g.row)) ?? 0;
-    if (men <= this.width) return 1;
+    if (men <= width) return 1;
     const row = g.row;
     const sector = laneSector(g.lane, row === 'rear' ? 'rear' : 'front');
-    this.once(`depth:${row}:${sector}`, this.sides[g.side], { id: 'depth', side: g.side, sector, row, men: Math.round(men), width: this.width });
-    return this.width / men;
+    this.once(`depth:${row}:${sector}`, this.sides[g.side], { id: 'depth', side: g.side, sector, row, men: Math.round(men), width });
+    return width / men;
+  }
+
+  /** Ширина стрельбы: своя у боя у стены (`BattleInput.fire`), иначе — ширина боя. */
+  get fireWidth(): number {
+    return this.input.fire ?? this.width;
   }
 
   /** Пары позиций, которые сейчас дерутся. */
@@ -1169,7 +1177,7 @@ class Battle {
     // Пока цель не в рукопашной, стрельба идёт в полную силу; после контакта — через головы своих (`FIRE_AFTER_CONTACT`).
     const m = targets.some((t) => engaged.has(t)) ? FIRE_AFTER_CONTACT : 1;
     // Стреляет не больше ширины ряда: лучники за строем шире фронта — та же глубина, что у пехоты.
-    const p = g.stack.archer * UNIT_STATS.archer.ranged * RANGED_RATE * this.dealtMult(g) * m * this.widthShare(g);
+    const p = g.stack.archer * UNIT_STATS.archer.ranged * RANGED_RATE * this.dealtMult(g) * m * this.widthShare(g, this.fireWidth);
     this.distribute(g, 'archer', p, targets, { flank: false, ranged: true }, g.lane, hits);
   }
 
@@ -1587,6 +1595,7 @@ export function simulateBattle(input: BattleInput, opts: { observe?: boolean } =
   }
   // Ширина — положительное число; `Infinity` законна и значит «боя без ширины».
   if (input.width !== undefined && !(input.width > 0)) throw new Error(`battle: ширина фронта ${input.width}`);
+  if (input.fire !== undefined && !(input.fire > 0)) throw new Error(`battle: ширина стрельбы ${input.fire}`);
   if (input.widen && !(input.widen.width > 0 && input.widen.round >= 1 && input.widen.wall >= 0)) {
     throw new Error(`battle: проём посреди боя ${JSON.stringify(input.widen)}`);
   }

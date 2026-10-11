@@ -5,10 +5,11 @@
 //
 // Модуль чистый: ни состояния мира, ни часов, ни случайности — сид приходит снаружи. Его собирает и
 // сервер (`netlify/lib/war.ts`), поэтому DOM и хранилища здесь нет и быть не может.
-import { emptyStack, UNIT_KINDS, type GroundPenalty, type Pips, type Stack } from '@/battle';
+import { emptyStack, HORSE_KINDS, UNIT_KINDS, type GroundPenalty, type Pips, type Stack } from '@/battle';
 import { troopTotal, type TroopStack } from '@/game/battle/kinds';
 import { troopLosses } from '@/game/battle/price';
-import { resolveField, type FieldInput, type FieldOutcome } from './battle';
+import { resolveField, type FieldInput, type FieldOutcome, type FieldSide } from './battle';
+import type { WallFront } from './wall';
 import { refusedAtGate, splitLosses, strikeForecast, worksRipeAt, type CampSight, type Through, type WoodPlan } from './works';
 import { siegeWear } from './siege';
 import { CAMP_WOOD, CAMP_WORKS_RIPE } from './data/tuning';
@@ -27,6 +28,58 @@ export function defenceKinds(kinds: Stack, militia: number, archers: number): St
   out.infantry += men - bows;
   out.archer += bows;
   return out;
+}
+
+/** Оборона у стены: гарнизон и дружина у ворот в родах боя, ополчение и стрелки башни среди него. */
+export interface WallDefence {
+  kinds: Stack;
+  militia: number;
+  archers: number;
+  resolve?: number;
+  pips?: Pips;
+  rest?: number;
+}
+
+/** Бой у стены: обе стороны, место и фронт штурма. Ни мира, ни часов. */
+export interface WallFightIn {
+  seed: number;
+  attacker: FieldSide;
+  defender: WallDefence;
+  ground?: GroundPenalty;
+  /** Фронт штурма (`wall.wallFront`); нет — бой в поле у ворот: стены между сторонами нет (волки — на выгоне). */
+  front?: WallFront | null;
+}
+
+/** Конница нападающего, которая в бой не входит: на лестницы и с башни кони не лезут (`WallFront.horse`). */
+export function horseHeld(kinds: Stack, front: WallFront | null | undefined): Stack {
+  const out = emptyStack();
+  if (!front || front.horse) return out;
+  for (const k of HORSE_KINDS) out[k] = kinds[k];
+  return out;
+}
+
+/**
+ * Бой у стены — **одна дверь** на набег логова и разбойников у ворот города игрока (мир) и на штурм города игрока войной
+ * (сервер): сторона обороны собирается здесь (`defenceKinds`), фронт штурма — проёмами стены (`world/wall`, docs/siege_v2.md,
+ * 4.1). Ядро получает ширину боя, грань стены нападающему поверх места и проём посреди боя; конница нападающего, если
+ * пройти ей некуда, стоит у стены и в бою её нет — ни убивает, ни гибнет. Весь, как он случится, и ничего не трогая.
+ */
+export function wallFight(input: WallFightIn): { input: FieldInput; field: FieldOutcome } {
+  const front = input.front ?? null;
+  const held = horseHeld(input.attacker.kinds, front);
+  const kinds = { ...input.attacker.kinds };
+  for (const k of UNIT_KINDS) kinds[k] -= held[k];
+  const ground: GroundPenalty | undefined = front && front.wall > 0 ? { ...(input.ground ?? {}), wall: front.wall } : input.ground;
+  const d = input.defender;
+  const fieldIn: FieldInput = {
+    seed: input.seed,
+    ...(ground ? { ground } : {}),
+    attacker: { ...input.attacker, kinds },
+    defender: { kinds: defenceKinds(d.kinds, d.militia, d.archers), resolve: d.resolve, pips: d.pips, rest: d.rest },
+    ...(front ? { width: front.width, fire: front.fire } : {}),
+    ...(front?.widen ? { widen: front.widen } : {}),
+  };
+  return { input: fieldIn, field: resolveField(fieldIn) };
 }
 
 /**

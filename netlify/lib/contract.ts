@@ -673,8 +673,15 @@ export interface WarInput {
   seed: number;
   attacker: WarSide;
   defender: WarSide;
-  /** Штраф кости нападающему (`battle.GroundPenalty`): у боя за лагерь — его укрепления (`works`). Нет — ноль. */
-  ground?: { land?: number; crossing?: number; works?: number };
+  /**
+   * Штраф кости нападающему (`battle.GroundPenalty`): у боя за лагерь — его укрепления (`works`), у штурма — стена
+   * (`wall`, `world/wall`). Нет — ноль.
+   */
+  ground?: { land?: number; crossing?: number; works?: number; wall?: number };
+  /** Ширина боя у стены и ворота посреди боя (`world/wall.wallFront`). Нет — ширина фронта, бой в поле. */
+  width?: number;
+  fire?: number;
+  widen?: { round: number; width: number; wall: number };
 }
 
 /** Что полководец сделал в своём лагере (`world/siegecraft.Craft`): сколько раз укрепил, сколько залпов дал. */

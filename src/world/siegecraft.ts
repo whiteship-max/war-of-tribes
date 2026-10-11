@@ -9,7 +9,7 @@
 //  - укрепления — грани кости нападающих на лагерь (`fortFaces` → `GroundPenalty.works`, через `fights.campFight`);
 //  - обстрел — дело фазы (docs/siege_v2.md, 2.5): один залп за фазу, +2 к кости своей фазы (`siegeroll.modsOf`) и дух
 //    гарнизона во всяком его бою, пока лагерь стоит (`garrisonWear`). Пролом даёт исход фазы, а не залп; пробитая доля
-//    стены при штурме — проломы / 3 (`wallMen`).
+//    стены при штурме — проломы / 3: доля фронта без штрафа (`world/wall`).
 // Числа — `data/siegecraft.ts`, цены в энергии — `data/energy.ENERGY_PRICE`.
 import { FORTIFY_FACES } from './data/siegecraft';
 import { BREACH_MAX, LEGACY_VOLLEY_WALL } from './data/siegeroll';
@@ -100,13 +100,6 @@ export function garrisonWear(w: SiegeWindow, at: number): number {
   const span = wearSpan(w);
   const shots = volleysOf(w).filter((d) => d.at <= at).length + (w.log ? 0 : count(w.craft?.shots));
   return siegeWear(siegeSince(w) - shakeShare(shots) * span, at, span);
-}
-
-/** Кто стоит на стене при штурме после пролома: ополчение и стрелки башни среди него, целыми людьми. */
-export function wallMen(militia: number, archers: number, craft: Craft | undefined): { militia: number; archers: number } {
-  const keep = 1 - breachOf(craft);
-  const men = Math.max(0, Math.round(Math.max(0, militia) * keep));
-  return { militia: men, archers: Math.min(men, Math.max(0, Math.round(Math.max(0, archers) * keep))) };
 }
 
 /** Доля как проценты словами: целые, со знаком минуса. */
