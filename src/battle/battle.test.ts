@@ -1875,3 +1875,10 @@ describe('ширина фронта', () => {
     expect(widthed / counted, `размен с шириной ${(widthed / counted).toFixed(2)}, без — ${(bare / counted).toFixed(2)}`).toBeLessThan(bare / counted - 0.1);
   });
 });
+
+describe('журнал боя: место боя у укреплённого лагеря', () => {
+  it('укрепления названы, строка не кончается пустой частью (docs/bughunt.md, «Ролик», п. 3)', () => {
+    const line = describeEvent({ id: 'ground', side: 'attacker', land: 0, crossing: 0, lifted: false, works: 1.5 } as never, 'attacker');
+    expect(line).toBe('наши: место боя против них, укрепления лагеря −1,5');
+  });
+});

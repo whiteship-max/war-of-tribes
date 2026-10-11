@@ -877,11 +877,17 @@ export interface SpyMenu {
 /** Отметка дела в списке принятого (`WarSheet.seen`): одна на клиент и на сервер. */
 export const spySeenId = (id: string): string => `${id}.spy`;
 
-/** Приказы войны. Исхода в них нет ни в каком виде — его считает сервер. */
+/**
+ * Приказы войны. Исхода в них нет ни в каком виде — его считает сервер.
+ *
+ * Участь меняют в лагере так же, как под логовом (docs/siege_audit.md, решение 2): `fate` — объявить новую, `storm` с
+ * участью — штурмовать с ней. Нет поля участи у штурма — та, что объявлена (старый клиент шлёт так).
+ */
 export type WarOrder =
   | { op: 'march'; target: string; mode: WarMode; fate: NoticeFate; army: WarArmy }
   | { op: 'recall'; id: string }
-  | { op: 'storm'; id: string }
+  | { op: 'storm'; id: string; fate?: NoticeFate }
+  | { op: 'fate'; id: string; fate: NoticeFate }
   | { op: 'retreat'; id: string }
   | { op: 'sortie'; id: string; troops: Counts }
   | { op: 'craft'; id: string; act: WarCraftAct }
@@ -1019,9 +1025,16 @@ export function readWarOrder(v: unknown): WarOrder | null {
       return target && mode && fate && army ? { op: 'march', target, mode, fate, army } : null;
     }
     case 'recall':
-    case 'storm':
     case 'retreat':
       return id ? { op: r.op, id } : null;
+    case 'storm': {
+      const fate = NOTICE_FATES.find((f) => f === r.fate);
+      return id ? { op: 'storm', id, ...(fate ? { fate } : {}) } : null;
+    }
+    case 'fate': {
+      const fate = NOTICE_FATES.find((f) => f === r.fate);
+      return id && fate ? { op: 'fate', id, fate } : null;
+    }
     case 'sortie':
       return id ? { op: 'sortie', id, troops: readCounts(r.troops) } : null;
     case 'craft': {

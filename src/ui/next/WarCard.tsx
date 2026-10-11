@@ -114,6 +114,8 @@ export function WarCard({ card }: { card: SettlementCard }) {
               {war.energy && <EnergyPrice price={war.energy.siege.price} />}
             </button>
           </div>
+          {/* Хватит ли после осады на штурм из лагеря — до выхода: в лагере энергия не копится (siege_audit, 9). */}
+          {war.can && war.campStorm && <p className="nx-tnote">{war.campStorm}</p>}
           <p className="nx-tnote">Штурм с ходу решается одним боем у стены в минуту прихода. Осада ставит лагерь под стенами, и город голодает, пока не сдастся или не разобьёт лагерь.</p>
           <p className="nx-tnote">Полководец тратит энергию в дороге, по дням пути. У стен она не уходит, дома копится снова.</p>
         </>

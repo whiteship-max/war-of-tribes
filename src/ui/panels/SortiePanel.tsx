@@ -22,7 +22,7 @@ import { troopTotal, type TroopStack } from '@/game/battle/kinds';
 import { kindsOf } from '@/game/battle/price';
 import { secondsLeft } from '@/world/geo';
 import { realLeft } from '@/ui/parts/wait';
-import { REST_WHY, restLine } from '@/ui/parts/restWords';
+import { REST_WHY, restLine, wearLine } from '@/ui/parts/restWords';
 import { hungerLeft } from '@/ui/parts/hunger';
 import { gateBusyText, refusedAtGate, sortieForecast } from '@/world/works';
 import type { TroopId } from '@/game/types';
@@ -226,6 +226,9 @@ export function SortiePanel() {
         </p>
       )}
       {siege.campRest && <p className="note">{restLine(siege.campRest, 'Лагерь дрался', now)}</p>}
+      {/* Износ осады и дела лагеря (укрепления — кость вылазки) — то, что идёт в этот бой, до нажатия (siege_audit, 5 и 11). */}
+      {siege.wear !== undefined && <p className="note warn">{wearLine(siege.wear)}</p>}
+      {siege.craftNote && <p className="note warn">{siege.craftNote}</p>}
       {refused && <p className="note bad">{gateBusyText(fc.now.waitMs)}</p>}
       <button className="btn wide" disabled={busy || men === 0 || refused} onClick={() => void go()}>
         Выйти{men > 0 ? ` · ${men}` : ''}

@@ -131,6 +131,9 @@ export const war: Route = async (req, io) => {
       const told = newsMap(file);
 
       for (const player of dueKeys(file, now)) await load(player);
+      // Лагерь, где спросивший — сторона: слепок защитника нужен, чтобы часы голода шли за его гарнизоном
+      // (`war.regarrison`, docs/siege_audit.md, решение 8), а не только за боями у лагеря.
+      for (const w of file.wars) if (w.phase === 'camp' && (w.def === key || w.atk === key)) await load(w.def);
       let changed = advance(file, now, sheets);
 
       let error: string | null = null;

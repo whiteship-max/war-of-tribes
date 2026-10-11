@@ -59,11 +59,12 @@ import {
   rivalRolls,
 } from '../../src/world/rivalspy.js';
 import { gameSecondsOfMs } from '../../src/game/pace.js';
-import { openSiege, siegeSince, starvesAt, type SiegeWindow } from '../../src/world/siege.js';
+import { FATE_SAME, openSiege, SIEGE_BLOCK, siegeSince, starvesAt, type SiegeWindow } from '../../src/world/siege.js';
 import { craftAfter, craftBlock, craftDone, fortFaces, garrisonWear, wallMen, type Craft } from '../../src/world/siegecraft.js';
 import { burnImmuneUntil, fate, fateBlock, fallSeed, homeLoss, winnerGain } from '../../src/world/spoils.js';
 import { restAfter, restAt } from '../../src/world/rest.js';
 import { energyAt, energyBlock, onRoad, priceOf, spend } from '../../src/world/energy.js';
+import { ENERGY_MAX } from '../../src/world/data/energy.js';
 import { weakCity } from '../../src/world/lairs.js';
 import { inHomeTheatre } from '../../src/world/theatre/theatre.js';
 import { gateBusyText, playerWood } from '../../src/world/works.js';
@@ -551,6 +552,22 @@ function setCamp(w: WarRow, camp: WarCamp): void {
   w.starvesAt = Math.round(starvesAt(camp as SiegeWindow));
 }
 
+/**
+ * Гарнизон города сменился — часы голода заново, от остатка хлеба (docs/siege_audit.md, решение 8). Как у осады логова
+ * (`LocalWorld.resiege`): один пересчёт на одно событие, тика нет. Событие здесь — новый слепок обороны, в котором
+ * гарнизон не тот, по которому открыто окно: вернул дружину домой, вывел полководца в поле, отряд дошёл. Пересчёт — на
+ * минуту, когда слепок лёг (`s.at`), и только если она раньше ближайшего события лагеря (`until`): удар и голод,
+ * назначенные раньше, разбираются первыми. Слепок не новее окна — его гарнизон окно уже знает.
+ */
+function regarrison(file: WarFile, w: WarRow, s: SheetAt, until: number): boolean {
+  const camp = w.camp;
+  if (!camp || s.at <= camp.startedAt || s.at >= until) return false;
+  const live = liveSheet(file, w.def, s, s.at);
+  if (troopTotal(asTroops(live.home)) === camp.garrisonAtStart) return false;
+  setCamp(w, campWindow(w, s.at, live, camp));
+  return true;
+}
+
 /** Лагерь в родах боя — кто в нём стоит. */
 const campSide = (w: WarRow, at: number) => ({
   kinds: kindsOf(asTroops(w.army.troops)),
@@ -678,6 +695,11 @@ export function advance(file: WarFile, now: number, sheets: ReadonlyMap<string, 
       if (w.phase === 'camp') {
         const hungerAt = w.starvesAt ?? Infinity;
         const strikeAt = w.strike?.at ?? Infinity;
+        const fresh = sheets.get(w.def);
+        if (fresh && regarrison(file, w, fresh, Math.min(hungerAt, strikeAt, now + 1))) {
+          changed = true;
+          continue;
+        }
         if (Math.min(hungerAt, strikeAt) > now) break;
         changed = true;
         const sheet = sheetOf(w, Math.min(hungerAt, strikeAt));
@@ -759,6 +781,12 @@ function enough(want: Counts, claimed: Counts, confirmed: Counts, where: string,
   return `К войне готовы ${where} только ${ok} из ${asked} бойцов. Новобранцы встают в строй по мере учения, павшие на войне не возвращаются. Подожди немного или возьми меньше.`;
 }
 
+/**
+ * Город игрока в осаде у соседа: лагерь стоит под его стенами. Из такого города не выходит ни поход, ни лазутчик — то же
+ * правило выхода, что у мира на клиенте (`LocalWorld.siegeBlock`, docs/siege_audit.md, решение 4).
+ */
+const besieged = (file: WarFile, key: string): boolean => file.wars.some((w) => w.def === key && active(w) && w.phase === 'camp');
+
 const theirs = (file: WarFile, id: string, key: string, role: 'atk' | 'def'): WarRow | null =>
   file.wars.find((w) => w.id === id && (role === 'atk' ? w.atk === key : w.def === key)) ?? null;
 
@@ -799,15 +827,30 @@ export function applyOrder(file: WarFile, key: string, order: WarOrder, now: num
         turnBack(w, now, w.to, 'gone');
         return 'Города больше нет в игре. Отряд идёт домой.';
       }
+      // Участь штурма — выбранная в лагере, той же проверкой, что при выходе; нет её в приказе — объявленная.
+      const why = order.fate && order.fate !== w.fate ? fateWhy(file, key, w.def, order.fate, now, ctx) : null;
+      if (why) return why;
       // Штурм — бой: цена в энергии полководца, той же дверью, что у штурма логова (`world/energy`).
       const tired = energyBlock(energyAt(w.army.energy, now), priceOf('storm'));
       if (tired) return tired;
+      if (order.fate) declare(w, order.fate);
       w.army = { ...w.army, energy: spend(w.army.energy, now, priceOf('storm')) };
       // Штурм снимает осаду до боя (`siege.STORM_LIFTS`): отобьют — лагеря не станет.
       const sheet = liveSheet(file, w.def, s, now);
       const { won } = storm(w, now, sheet);
       if (won) fall(w, now, sheet, 'storm');
       turnBack(w, now, w.to, won ? 'taken' : 'beaten');
+      return null;
+    }
+    case 'fate': {
+      // «Объявить» в лагере — как под логовом (`LocalWorld.besiege` у своего лагеря): окно остаётся, часы голода и проходы
+      // не трогаются, осаждённый видит новую участь со следующим опросом.
+      const w = theirs(file, order.id, key, 'atk');
+      if (!w || w.phase !== 'camp' || !w.camp) return 'Лагеря уже нет.';
+      if (w.fate === order.fate) return FATE_SAME;
+      const why = fateWhy(file, key, w.def, order.fate, now, ctx);
+      if (why) return why;
+      declare(w, order.fate);
       return null;
     }
     case 'craft': {
@@ -838,13 +881,18 @@ export function applyOrder(file: WarFile, key: string, order: WarOrder, now: num
       const w = theirs(file, order.id, key, 'def');
       if (!w || w.phase !== 'camp') return 'Лагеря под стенами уже нет.';
       if (w.strike) return 'Полководец уже идёт на лагерь.';
+      // Полководец один: ведёт свой поход — по лагерю у своих стен он не ударит (у клиента — `WAR_BUSY`).
+      if (file.wars.some((x) => x.atk === key && active(x))) return 'Полководец в походе на соседа.';
       const s = ctx.sheet(key);
       if (!s) return 'Вести о городе ещё не дошли до края. Подожди минуту.';
       if (troopTotal(asTroops(order.army.troops)) <= 0) return 'У полководца нет отряда.';
       const short = enough(order.army.troops, claimedSheet(file, key, s, now).army, liveSheet(file, key, s, now).army, 'в отряде', ctx);
       if (short) return short;
-      // Удар — бой: энергии на него должно хватить к минуте прихода, с дорогой по карте (`world/energy`).
-      const tired = energyBlock(energyAt(order.army.energy, now), priceOf('strike'), order.walkMs);
+      // Удар — бой: энергии на него должно хватить к минуте прихода, с дорогой по карте (`world/energy`). Отметка — из
+      // приказа, но не выше того, что сервер знает о полководце сам (`generalCap`). Срок пути — по-прежнему со слов
+      // клиента: где полководец в поле, знает только мир на клиенте (docs/siege_audit.md, решение 11).
+      const have = Math.min(energyAt(order.army.energy, now), generalCap(file, key, now));
+      const tired = energyBlock(have, priceOf('strike'), order.walkMs);
       if (tired) return tired;
       w.strike = { at: now + Math.round(order.walkMs / pace), army: ruleArmy(order.army), joint: order.joint };
       return null;
@@ -854,6 +902,41 @@ export function applyOrder(file: WarFile, key: string, order: WarOrder, now: num
 
 /** Войско приказа в пределах правил: стойкость и отметки полководца не выше, чем бывает у игрока (`book.ts`). */
 const ruleArmy = (a: WarArmy): WarArmy => ({ ...a, resolve: ruleResolve(a.resolve), pips: rulePips(a.pips) });
+
+/** Когда в последний раз жгли этот город — для неприкосновенности от огня (`spoils.burnImmuneUntil`). 0 — не жгли. */
+const burnedAt = (file: WarFile, def: string): number =>
+  file.wars.filter((w) => w.def === def && w.fall?.burned).reduce((t, w) => Math.max(t, w.fall?.at ?? 0), 0);
+
+/**
+ * Почему участь `fate` против города `def` объявить нельзя — одна проверка на выход (`march`), «Объявить» в лагере и
+ * штурм с участью (`spoils.fateBlock`): замки гейта объявляющего и неприкосновенность недавно сожжённого города.
+ */
+function fateWhy(file: WarFile, key: string, def: string, fateId: WarRow['fate'], now: number, ctx: OrderCtx): string | null {
+  const mine = ctx.sheet(key);
+  if (!mine) return 'Вести о твоём городе ещё не дошли до края. Подожди минуту.';
+  const burned = burnedAt(file, def);
+  return fateBlock(fateId, 'player', burned > 0 ? burnImmuneUntil(burned) : undefined, now, mine.sheet.locks);
+}
+
+/** Объявить участь войны: её читают падение голодом, штурм и окно у обеих сторон. */
+function declare(w: WarRow, fateId: WarRow['fate']): void {
+  w.fate = fateId;
+  if (w.camp) w.camp = { ...w.camp, fate: fateId };
+}
+
+/**
+ * Сколько энергии может быть у полководца игрока `key` в минуту `now` по тому, что сервер знает сам (docs/siege_audit.md,
+ * решение 11): последняя его война — отметка обратного пути той же дверью (`world/energy.onRoad`), дома копится с минуты
+ * возврата. Это потолок, а не правда: походов на логова сервер не видит, и у полководца может быть меньше, но не больше.
+ * Войны не было, или войско не вернулось (полководец разбит — на его месте может стоять новый, свежий) — потолка нет.
+ */
+export function generalCap(file: WarFile, key: string, now: number): number {
+  let last: WarRow | null = null;
+  for (const w of file.wars) if (w.atk === key && (!last || w.sentAt >= last.sentAt)) last = w;
+  const mark = last?.army.energy;
+  if (!last || !mark || (last.phase === 'done' && last.backAt === undefined)) return ENERGY_MAX;
+  return energyAt(mark, now);
+}
 
 function march(file: WarFile, key: string, order: Extract<WarOrder, { op: 'march' }>, now: number, ctx: OrderCtx): string | null {
   const own = ctx.roster.rows[key];
@@ -865,7 +948,7 @@ function march(file: WarFile, key: string, order: Extract<WarOrder, { op: 'march
   // Регион игрока — правило мира (`theatre.inHomeTheatre`): походы за край не уходят.
   if (!inHomeTheatre(own, row)) return 'Город за пределами твоего края. Походы туда не ходят.';
   if (file.wars.some((w) => w.atk === key && active(w))) return 'Полководец уже в походе.';
-  if (file.wars.some((w) => w.def === key && active(w) && w.phase === 'camp')) return 'Твой город в осаде. Выйти можно только вылазкой.';
+  if (besieged(file, key)) return SIEGE_BLOCK;
   if (file.wars.some((w) => w.def === def && active(w))) return 'На этот город уже идёт другой отряд.';
   // Павший город неприкосновенен, как и у логова (`siege.SIEGE_IMMUNE`): цепочки падений нет.
   const fell = file.wars.filter((w) => w.def === def && w.fall).reduce((t, w) => Math.max(t, w.fall?.at ?? 0), 0);
@@ -878,8 +961,7 @@ function march(file: WarFile, key: string, order: Extract<WarOrder, { op: 'march
   if (!mine) return 'Вести о твоём городе ещё не дошли до края. Подожди минуту.';
   // Участь — та же проверка, что у приказа против логова (`spoils.fateBlock`): замки гейта объявляющего и
   // неприкосновенность от огня у недавно сожжённого города.
-  const burned = file.wars.filter((w) => w.def === def && w.fall?.burned).reduce((t, w) => Math.max(t, w.fall?.at ?? 0), 0);
-  const why = fateBlock(order.fate, 'player', burned > 0 ? burnImmuneUntil(burned) : undefined, now, mine.sheet.locks);
+  const why = fateWhy(file, key, def, order.fate, now, ctx);
   if (why) return why;
   if (troopTotal(asTroops(order.army.troops)) <= 0) return 'У полководца нет отряда. Дай ему бойцов у ворот.';
   const short = enough(order.army.troops, claimedSheet(file, key, mine, now).army, liveSheet(file, key, mine, now).army, 'в отряде', ctx);
@@ -889,9 +971,12 @@ function march(file: WarFile, key: string, order: Extract<WarOrder, { op: 'march
   const from = { x: own.x, y: own.y };
   const to = { x: row.x, y: row.y };
   const walkMs = walk(from, to);
-  const tired = energyBlock(energyAt(order.army.energy, now), priceOf(order.mode), walkMs);
+  // Отметка — из приказа, но не выше того, что сервер знает о полководце сам (`generalCap`): вернувшийся из похода
+  // не выходит в новый с полным запасом, пока не отдохнёт дома (docs/siege_audit.md, решение 11).
+  const have = Math.min(energyAt(order.army.energy, now), generalCap(file, key, now));
+  const tired = energyBlock(have, priceOf(order.mode), walkMs);
   if (tired) return tired;
-  const energy = onRoad(spend(order.army.energy, now, priceOf(order.mode)), now, now + walkMs, false);
+  const energy = onRoad(spend({ value: have, at: now, mode: 'hold' }, now, priceOf(order.mode)), now, now + walkMs, false);
   file.seq += 1;
   file.wars.push({
     id: `w${file.seq.toString(36)}${(now % 46656).toString(36)}`,
@@ -1077,6 +1162,8 @@ function spyPlan(file: WarFile, key: string, target: string, at: number, ctx: Or
   // Регион игрока — то же правило мира, что у похода (`theatre.inHomeTheatre`).
   if (!inHomeTheatre(own, row)) return 'Город за пределами твоего края. Лазутчик туда не ходит.';
   if ((file.spies ?? []).some((x) => x.atk === key && spyActive(x))) return 'Лазутчик уже на деле у соседа.';
+  // Из осаждённого города не выходит и лазутчик — то же правило выхода, что у похода.
+  if (besieged(file, key)) return SIEGE_BLOCK;
   const mine = ctx.sheet(key);
   if (!mine?.sheet.watch) return 'Вести о твоём городе ещё не дошли до края. Подожди минуту.';
   const theirs = ctx.sheet(def);

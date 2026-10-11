@@ -164,6 +164,15 @@ export const roadOf = (value: number): number => (Math.max(0, value) / ENERGY_MA
 export const priceOf = (action: EnergyAction): number => ENERGY_PRICE[action].price;
 
 /**
+ * Сколько энергии останется на месте дела после дороги до него и его цены, дробью, не ниже нуля. Так меряется, хватит ли
+ * у стен на следующее дело — штурм из лагеря после осады (docs/siege_audit.md, решение 9): в лагере энергия стоит.
+ */
+export const leftAfter = (have: number, price: number, road = 0): number => Math.max(0, have - roadCost(road) - Math.max(0, price));
+
+/** Энергия числом на экране — целая вниз, как `energyShown`: обещать дело, на которое сил ещё нет, нельзя. */
+export const shownEnergy = (v: number): number => Math.floor(Math.max(0, v) + EPS);
+
+/**
  * Хватит ли энергии на дело — одна проверка на мир, сервер и меню. `have` — сколько сейчас, `price` — цена, `road` —
  * сколько съест дорога до места дела (мс пути по карте; дело на месте — 0). null — хватит, иначе отказ словами.
  */

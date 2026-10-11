@@ -1,6 +1,7 @@
 // Слова для журнала. Отчёт на экране — следующий шаг; здесь только то, что
 // нужно тестам и отладке: одно событие — одна строка по-русски.
 import { CIRCLE_PHASES, PHASE_PIPS } from './config';
+import { num } from '../game/num';
 import type { BattleEvent, PhaseId, PipId, ResultReason, Sector, Side } from './types';
 
 export const SECTOR_NAME: Record<Sector, string> = {
@@ -64,7 +65,12 @@ export function describeEvent(e: BattleEvent, us?: Side): string {
       return `кость: ${name(a)} ${dieText(e.rolls[a], e.pips[a], e.ground?.[a])}, ${name(b)} ${dieText(e.rolls[b], e.pips[b], e.ground?.[b])}`;
     }
     case 'ground': {
-      const parts = [e.land > 0 ? `земля −${e.land}` : '', e.crossing > 0 ? `переправа −${e.crossing}${e.lifted ? ', снята манёвром' : ''}` : ''].filter(Boolean);
+      // Укрепления лагеря — та же часть, что у отчёта (`report.ts`): без неё у боя за лагерь строка кончалась запятой.
+      const parts = [
+        e.land > 0 ? `земля −${e.land}` : '',
+        e.crossing > 0 ? `переправа −${e.crossing}${e.lifted ? ', снята манёвром' : ''}` : '',
+        (e.works ?? 0) > 0 ? `укрепления лагеря −${num(e.works ?? 0)}` : '',
+      ].filter(Boolean);
       return `${who}: место боя против них, ${parts.join(', ')}`;
     }
     case 'weary':

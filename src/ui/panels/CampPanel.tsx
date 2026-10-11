@@ -18,8 +18,9 @@ import { CAMP_LEAVE, STORM_LIFTS } from '@/world/siege';
 import { FATE_META } from '@/world/data/fates';
 import { CASTLE_ICON, STAGE_BY_ID } from '@/world/data/meta';
 import { SIDES, SIDE_NAME, WOOD_SHARES, campSides, playerWood, woodShare, worksRipeAt } from '@/world/works';
-import type { Fate } from '@/world/types';
+import type { CampView, Fate } from '@/world/types';
 import { FatePick } from '@/ui/parts/FatePick';
+import { plural } from '@/ui/parts/plural';
 
 /**
  * Сроки из подсказки к долям — той же функцией, которой считаются стороны: при
@@ -36,6 +37,14 @@ const SHARE_NAME: Record<number, string> = {
   0.25: 'Четверть',
   0: 'Всё в тыл',
 };
+
+/** Выручка, идущая на лагерь, словами: кто, сколько и когда ударит. Числа — из мира (`CampView.relief`). */
+export function reliefLine(r: NonNullable<CampView['relief']>, now: number): string {
+  const left = realLeft(Math.max(0, (r.at - now) / 1000));
+  return `На лагерь идёт выручка: «${r.from}», ${r.men} ${plural(r.men, 'боец', 'бойца', 'бойцов')}. Ударит через ${left}${
+    r.joint ? ', гарнизон выйдет навстречу' : ''
+  }.`;
+}
 
 export function CampPanel() {
   const showToast = useGame((g) => g.showToast);
@@ -119,12 +128,20 @@ export function CampPanel() {
           <span className="name">Еды хватит на</span>
           <span className="val pos">{hungerLeft(camp.starvesAt, now)}</span>
         </div>
+        {/* Гарнизон — той же точностью, что мощь: точное число знает только разведка (docs/siege_audit.md, 10). */}
         <div className="mod">
           <span className="ico">🍞</span>
-          <span className="name">Гарнизон {camp.garrison} тоже ест</span>
-          <span className="val">лагерь стоит {realLeft(Math.max(0, (now - camp.since) / 1000))}</span>
+          <span className="name">Гарнизон ест вместе с городом</span>
+          <span className={`val${camp.garrison.precision === 'unknown' ? ' neg' : ''}`}>{formatEstimate(camp.garrison)}</span>
+        </div>
+        <div className="mod">
+          <span className="ico">⛺</span>
+          <span className="name">Лагерь стоит</span>
+          <span className="val">{realLeft(Math.max(0, (now - camp.since) / 1000))}</span>
         </div>
       </div>
+      {/* Выручка, идущая на лагерь (siege_audit, 6): у логова — отряд соседей по донесению, у города игрока — его полководец. */}
+      {camp.relief && <p className="note bad">{reliefLine(camp.relief, now)}</p>}
 
       <h3>Лагерь</h3>
       <div className="mod-list">
@@ -139,22 +156,31 @@ export function CampPanel() {
           );
         })}
       </div>
-      <p className="note">
-        Всё к городу — сторона города дозреет за {WOOD_ALL_FRONT}. Поровну — обе за {WOOD_HALVES}. Вложенное не
-        пропадает.
-      </p>
-      <div className="fate-shares">
-        {WOOD_SHARES.map((sh) => (
-          <button
-            key={sh}
-            className={`mini${share === sh ? ' on' : ''}`}
-            disabled={busy || share === sh}
-            onClick={() => void order(() => setWood(sh), `Древесина: ${SHARE_NAME[sh].toLowerCase()}.`)}
-          >
-            {SHARE_NAME[sh]}
-          </button>
-        ))}
-      </div>
+      {/* Под городом соседа древесину не делят: кнопок, которые только отказывают, нет — есть строка (siege_audit, 3). */}
+      {camp.woodFixed ? (
+        <p className="note">
+          {camp.woodFixed} Сторона города дозреет за {WOOD_ALL_FRONT}.
+        </p>
+      ) : (
+        <>
+          <p className="note">
+            Всё к городу — сторона города дозреет за {WOOD_ALL_FRONT}. Поровну — обе за {WOOD_HALVES}. Вложенное не
+            пропадает.
+          </p>
+          <div className="fate-shares">
+            {WOOD_SHARES.map((sh) => (
+              <button
+                key={sh}
+                className={`mini${share === sh ? ' on' : ''}`}
+                disabled={busy || share === sh}
+                onClick={() => void order(() => setWood(sh), `Древесина: ${SHARE_NAME[sh].toLowerCase()}.`)}
+              >
+                {SHARE_NAME[sh]}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
       {/* Мораль между боями (14.31): наш лагерь — дружина; после вылазки штурмовать сразу — уставшими. */}
       {camp.campRest && (
         <p className="note warn">

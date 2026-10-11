@@ -14,7 +14,8 @@ import { defense } from '@/game/derived';
 import { sendableUnits } from '@/game/sim/expedition';
 import { formatCoord, marchSeconds, secondsLeft } from '@/world/geo';
 import { formatAge, formatEstimate, PRECISION_NOTE } from '@/world/intel';
-import { CAMP_LEAVE } from '@/world/siege';
+import { CAMP_LEAVE, SIEGE_AT_GATES } from '@/world/siege';
+import { priceOf } from '@/world/energy';
 import { worksWords } from '@/world/works';
 import { FATE_DEFAULT } from '@/world/spoils';
 import { FATE_META } from '@/world/data/fates';
@@ -417,6 +418,15 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
             Осадить
           </button>
         )}
+        {/* Полководец не у ворот: осада — не поход, её ставят на месте. Кнопка видна погашенной с ценой, а не прячется
+            (правило меню приказов; docs/siege_audit.md, п. 14). Пути «дойти и осадить» нет. */}
+        {goStrike && !card.can.besiege && (
+          <button className="nx-cact" disabled>
+            <Icon name="ui-target" glyph="⛺" />
+            Осадить
+            <EnergyPrice price={priceOf('siege')} />
+          </button>
+        )}
         {MISSIONS.filter((m) => m.id !== 'raid' && card.can[m.id]).map((m) => (
           <button
             key={m.id}
@@ -431,6 +441,8 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
         ))}
       </div>
       {goStrike && !goStrike.can && goStrike.reason && <p className="nx-tnote bad">{goStrike.reason}</p>}
+      {goStrike && !card.can.besiege && <p className="nx-tnote">{SIEGE_AT_GATES}</p>}
+      {card.can.besiege && card.campStorm && <p className="nx-tnote">{card.campStorm}</p>}
       {card.can.besiege && <p className="nx-tnote">{CAMP_LEAVE}</p>}
       {/* Город живого игрока: поход на него и война с ним (docs/pvp.md). */}
       {card.castle && !card.mine && <WarCard card={card} />}

@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { readWarOrder, type CastleClaim, type RosterFile, type WarArmy, type WarSheet } from './contract.js';
 import { castleIdOf, emptyRoster, upsert } from './roster.js';
-import { advance, applyOrder, emptyWars, fallId, liveSheet, newsDiff, newsMap, newsOf, viewOf, warsOf, type SheetAt, type WarFile } from './war.js';
+import { advance, applyOrder, emptyWars, fallId, generalCap, liveSheet, newsDiff, newsMap, newsOf, viewOf, warsOf, type SheetAt, type WarFile } from './war.js';
+import { FATE_SAME, SIEGE_BLOCK } from '../../src/world/siege.js';
 import { weakCity } from '../../src/world/lairs.js';
 import { inHomeTheatre } from '../../src/world/theatre/theatre.js';
-import { energyAt, energyBlock, priceOf, roadCost } from '../../src/world/energy.js';
+import { energyAt, energyBlock, priceOf, roadCost, roadOf } from '../../src/world/energy.js';
 import { warWalkMs } from '../../src/world/pvp.js';
 import { ENERGY_FILL, ENERGY_MAX } from '../../src/world/data/energy.js';
 import { craftBlock, fortFaces, wallMen } from '../../src/world/siegecraft.js';
@@ -398,5 +399,162 @@ describe('раскладка: свой поход в слепке обороны
     expect(liveSheet(file, A, { sheet: sheet(), at: T0 }, at).home).toEqual({ spearman: 10, archer: 10 });
     // Слепок новее выхода — его клиент уже знает, кто ушёл.
     expect(liveSheet(file, A, { sheet: sheet({ retinue: {} }), at: T0 + 5500 }, at).home).toEqual(sheet().home);
+  });
+});
+
+describe('осада под городом игрока: находки отчёта (docs/siege_audit.md)', () => {
+  /** Поход с осадой; лагерь встал. */
+  function camp(over: { a?: Partial<WarSheet>; b?: Partial<WarSheet> } = {}) {
+    const g = setup(over);
+    expect(applyOrder(g.file, A, { op: 'march', target: castleIdOf(B), mode: 'siege', fate: 'plunder', army: army({ spearman: 60, swordsman: 30 }) }, T0, g.ctx)).toBeNull();
+    const w = g.file.wars[0];
+    advance(g.file, w.arriveAt + 1, g.sheets);
+    expect(w.phase, 'точка внутри области: лагерь встал').toBe('camp');
+    return { ...g, w, at: w.arriveAt + 2 };
+  }
+
+  it('участь из лагеря: разбор оставляет её у штурма и у «Объявить», чужое слово — отказ разбора', () => {
+    expect(readWarOrder({ op: 'storm', id: 'w1', fate: 'burn', won: true })).toEqual({ op: 'storm', id: 'w1', fate: 'burn' });
+    expect(readWarOrder({ op: 'storm', id: 'w1' })).toEqual({ op: 'storm', id: 'w1' });
+    expect(readWarOrder({ op: 'fate', id: 'w1', fate: 'captives', fall: { taken: { gold: 9 } } })).toEqual({ op: 'fate', id: 'w1', fate: 'captives' });
+    expect(readWarOrder({ op: 'fate', id: 'w1', fate: 'raze' })).toBeNull();
+  });
+
+  it('«Объявить» в лагере меняет участь у обеих сторон и в окне; та же участь и замок гейта — отказ теми же словами, что у логова', () => {
+    const { file, ctx, w, at } = camp({ a: { locks: { burn: 'Сжигать города учит ветвь войны.' } } });
+    expect(applyOrder(file, A, { op: 'fate', id: w.id, fate: 'plunder' }, at, ctx)).toBe(FATE_SAME);
+    expect(applyOrder(file, A, { op: 'fate', id: w.id, fate: 'burn' }, at, ctx)).toBe('Сжигать города учит ветвь войны.');
+    expect(w.fate).toBe('plunder');
+    // Защитник участью чужого лагеря не правит.
+    expect(applyOrder(file, B, { op: 'fate', id: w.id, fate: 'captives' }, at, ctx)).toBe('Лагеря уже нет.');
+    expect(applyOrder(file, A, { op: 'fate', id: w.id, fate: 'captives' }, at, ctx)).toBeNull();
+    expect(w.fate).toBe('captives');
+    expect(w.camp?.fate).toBe('captives');
+    expect(warsOf(file, B)[0].fate, 'защитник видит новую участь').toBe('captives');
+  });
+
+  it('штурм из лагеря идёт с участью, выбранной в лагере, а не с той, что объявлена при выходе', () => {
+    // Город без гарнизона и ополчения: штурм берёт его наверняка, и участь видна в падении.
+    const weak = { b: { home: {}, militia: 0, archers: 0 } };
+    const { file, ctx, w, at } = camp(weak);
+    expect(applyOrder(file, A, { op: 'storm', id: w.id, fate: 'captives' }, at, ctx)).toBeNull();
+    expect(w.fall, 'точка внутри области: город взят штурмом').toBeDefined();
+    expect(w.fall?.by).toBe('storm');
+    expect(w.fall?.fate).toBe('captives');
+    // Без участи в приказе (старый клиент) — объявленная.
+    const old = camp(weak);
+    expect(applyOrder(old.file, A, { op: 'storm', id: old.w.id }, old.at, old.ctx)).toBeNull();
+    expect(old.w.fall?.fate).toBe('plunder');
+  });
+
+  it('часы голода идут за гарнизоном: новый слепок с другим гарнизоном пересчитывает окно от остатка хлеба, тот же — нет', () => {
+    const { file, sheets, w } = camp({ b: { food: 400 } });
+    const first = w.starvesAt as number;
+    expect(w.camp?.garrisonAtStart).toBe(60);
+    // Тот же гарнизон в новом слепке — окно не трогается.
+    const t1 = w.arriveAt + 60_000;
+    expect(t1 + 200_000, 'точка внутри области: все слепки — до голода').toBeLessThan(first);
+    sheets.set(B, { sheet: sheet({ food: 400 }), at: t1 });
+    expect(advance(file, t1 + 1000, sheets)).toBe(false);
+    expect(w.starvesAt).toBe(first);
+    // Дружина вернулась домой: ртов больше — хлеб кончится раньше; пересчёт — на минуту слепка, от остатка.
+    const t2 = t1 + 60_000;
+    sheets.set(B, { sheet: sheet({ food: 400, home: { spearman: 40, archer: 20, swordsman: 30 } }), at: t2 });
+    expect(advance(file, t2 + 1000, sheets)).toBe(true);
+    expect(w.camp?.garrisonAtStart).toBe(90);
+    expect(w.camp?.startedAt).toBe(t2);
+    expect(w.starvesAt as number).toBeLessThan(first);
+    // Отряд ушёл — ртов меньше, хлеба хватит дольше прежнего.
+    const t3 = t2 + 60_000;
+    sheets.set(B, { sheet: sheet({ food: 400, home: { spearman: 10 } }), at: t3 });
+    advance(file, t3 + 1000, sheets);
+    expect(w.camp?.garrisonAtStart).toBe(10);
+    expect(w.starvesAt as number).toBeGreaterThan(first);
+  });
+
+  it('слепок, легший позже часа голода, окна не двигает: город падает в свой час', () => {
+    const { file, sheets, w } = camp({ b: { food: 400 } });
+    const hunger = w.starvesAt as number;
+    sheets.set(B, { sheet: sheet({ food: 400, home: { spearman: 5 } }), at: hunger + 60_000 });
+    advance(file, hunger + 120_000, sheets);
+    expect(w.fall?.by).toBe('hunger');
+    expect(w.fall?.at).toBe(hunger);
+  });
+
+  it('из осаждённого города не выходят ни поход, ни лазутчик: то же правило выхода, что у мира', () => {
+    const { file, ctx, at } = camp();
+    expect(applyOrder(file, B, { op: 'march', target: castleIdOf(A), mode: 'storm', fate: 'plunder', army: army({ spearman: 10 }) }, at, ctx)).toBe(SIEGE_BLOCK);
+    expect(applyOrder(file, B, { op: 'spy', target: castleIdOf(A), deed: 'look', shown: { chance: 0, peril: 0 }, at }, at, ctx)).toBe(SIEGE_BLOCK);
+  });
+
+  it('энергия полководца: вернувшийся из похода не выходит в новый с полным запасом — сервер помнит свою отметку', () => {
+    const { file, ctx, sheets, w, at } = camp();
+    expect(applyOrder(file, A, { op: 'retreat', id: w.id }, at, ctx)).toBeNull();
+    const home = w.backAt as number;
+    advance(file, home + 1, sheets);
+    expect(w.phase, 'точка внутри области: войско дома').toBe('done');
+    // Отметка обратного пути, которую сервер сам записал в войну: дома копится с минуты возврата.
+    const own = energyAt(w.army.energy, home + 1);
+    expect(own, 'точка внутри области: дорога и лагерь стоили энергии').toBeLessThan(ENERGY_MAX - priceOf('siege'));
+    expect(generalCap(file, A, home + 1), 'потолок — своя отметка сервера').toBeCloseTo(own, 6);
+    // Клиент называет полный запас — сервер берёт не больше своего.
+    const full: WarArmy = { ...army({ spearman: 30 }), energy: { value: ENERGY_MAX, at: home + 1, mode: 'fill' } };
+    const told = applyOrder(file, A, { op: 'march', target: castleIdOf(B), mode: 'storm', fate: 'plunder', army: full }, home + 1, ctx);
+    if (told === null) {
+      expect(energyAt(file.wars[1].army.energy, home + 1)).toBeCloseTo(own - priceOf('storm'), 6);
+    } else {
+      expect(told).toBe(energyBlock(own, priceOf('storm'), warWalkMs(ctx.roster.rows[A], ctx.roster.rows[B])));
+    }
+    // Отдохнул дома — потолок снова полный.
+    expect(generalCap(file, A, home + 1 + ENERGY_FILL)).toBe(ENERGY_MAX);
+  });
+
+  it('удар по лагерю: полководец, ведущий свой поход, по лагерю у своих стен не бьёт', () => {
+    const C = 'tg-1003';
+    const roster = upsert(world(), C, claim('Гамма'), T0);
+    expect(inHomeTheatre(roster.rows[B], roster.rows[C]), 'точка внутри области: Гамма в краю Беты').toBe(true);
+    const sheets = new Map<string, SheetAt>([A, B, C].map((k) => [k, { sheet: sheet(), at: T0 }]));
+    const ctx = { roster, sheet: (k: string) => sheets.get(k) ?? null };
+    const file = emptyWars() as WarFile;
+    expect(applyOrder(file, B, { op: 'march', target: castleIdOf(C), mode: 'siege', fate: 'plunder', army: army({ spearman: 20 }) }, T0, ctx)).toBeNull();
+    expect(applyOrder(file, A, { op: 'march', target: castleIdOf(B), mode: 'siege', fate: 'plunder', army: army({ spearman: 30 }) }, T0, ctx)).toBeNull();
+    const w = file.wars[1];
+    advance(file, w.arriveAt + 1, sheets);
+    expect(w.phase, 'точка внутри области: лагерь у стен Беты').toBe('camp');
+    expect(['march', 'camp'], 'точка внутри области: Бета в походе').toContain(file.wars[0].phase);
+    const strike = { op: 'strike' as const, id: w.id, army: army({ spearman: 10 }), joint: false, walkMs: 0 };
+    expect(applyOrder(file, B, strike, w.arriveAt + 2, ctx)).toBe('Полководец в походе на соседа.');
+    expect(w.strike).toBeUndefined();
+  });
+
+  it('удар по лагерю: энергия — не выше своей отметки сервера, как у похода', () => {
+    const C = 'tg-1003';
+    const roster = upsert(world(), C, claim('Гамма'), T0);
+    const sheets = new Map<string, SheetAt>([A, B, C].map((k) => [k, { sheet: sheet(), at: T0 }]));
+    const ctx = { roster, sheet: (k: string) => sheets.get(k) ?? null };
+    const file = emptyWars() as WarFile;
+    // Бета сходила осадить Гамму и вернулась: её полководец дома с тем, что оставили дорога и лагерь.
+    expect(applyOrder(file, B, { op: 'march', target: castleIdOf(C), mode: 'siege', fate: 'plunder', army: army({ spearman: 20 }) }, T0, ctx)).toBeNull();
+    const out = file.wars[0];
+    advance(file, out.arriveAt + 1, sheets);
+    expect(applyOrder(file, B, { op: 'retreat', id: out.id }, out.arriveAt + 2, ctx)).toBeNull();
+    const back = out.backAt as number;
+    // Альфа выходит так, чтобы встать лагерем у Беты сразу после её возврата, пока та не отдохнула.
+    const walkAB = warWalkMs(roster.rows[A], roster.rows[B]);
+    const go = Math.max(out.arriveAt + 3, back + 1 - walkAB);
+    expect(applyOrder(file, A, { op: 'march', target: castleIdOf(B), mode: 'siege', fate: 'plunder', army: army({ spearman: 30 }) }, go, ctx)).toBeNull();
+    const w = file.wars[1];
+    advance(file, w.arriveAt + 1, sheets);
+    expect(out.phase, 'точка внутри области: Бета дома').toBe('done');
+    expect(w.phase, 'точка внутри области: лагерь у стен Беты').toBe('camp');
+    const at = w.arriveAt + 2;
+    const own = energyAt(out.army.energy, at);
+    expect(own, 'точка внутри области: не отдохнула').toBeLessThan(ENERGY_MAX - priceOf('strike'));
+    // Дорога до лагеря такая, что своей энергии на удар не хватит, а названной клиентом — хватило бы.
+    const walkMs = roadOf(Math.max(0, own - priceOf('strike') / 2));
+    expect(energyBlock(ENERGY_MAX, priceOf('strike'), walkMs), 'точка внутри области: полного хватило бы').toBeNull();
+    const forged: WarArmy = { ...army({ spearman: 10 }), energy: { value: ENERGY_MAX, at, mode: 'fill' } };
+    expect(applyOrder(file, B, { op: 'strike', id: w.id, army: forged, joint: false, walkMs }, at, ctx)).toBe(energyBlock(own, priceOf('strike'), walkMs));
+    expect(w.strike).toBeUndefined();
   });
 });

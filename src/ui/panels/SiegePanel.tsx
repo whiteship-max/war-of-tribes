@@ -18,21 +18,18 @@ import { awayOf, homeOf } from '@/world/muster';
 import { troopTotal } from '@/game/battle/kinds';
 import { kindsOf } from '@/game/battle/price';
 import { realLeft } from '@/ui/parts/wait';
-import { REST_WHY, restLine } from '@/ui/parts/restWords';
+import { REST_WHY, restLine, wearLine } from '@/ui/parts/restWords';
 import { hungerLeft } from '@/ui/parts/hunger';
 import { sideReady } from '@/ui/parts/campSide';
 import { profileCity } from '@/profile/identity';
 import { FATE_META } from '@/world/data/fates';
 import { SIDES, SIDE_NAME, WEAK_HINT, campSides, gateBusyText, refusedAtGate, sortieForecast, weakSide } from '@/world/works';
+import { NO_GARRISON } from '@/world/siege';
 import type { FallForecast, Fate } from '@/world/types';
 import { Icon } from '@/ui/icons/Icon';
 import { CampStrike } from '@/ui/parts/CampStrike';
 import { plural } from '@/ui/parts/plural';
 import { bondedWord, townsWord } from '@/game/data/order';
-import { recruitRate } from '@/game/derived';
-import { TROOP_BY_ID } from '@/game/data/troops';
-import { waitShort } from '../parts/wait';
-import { asGame } from '@/game/pace';
 
 const byLevels = (n: number): string => `до ${n} ${plural(n, 'уровня', 'уровней', 'уровней')}`;
 const goodsAndGold = (f: FallForecast): string => `${f.goods} запасов${f.gold > 0 ? ` и ${f.gold} золота` : ''}`;
@@ -60,28 +57,6 @@ export function fallWords(fate: Fate, f: FallForecast): string[] {
   }
   if (f.routed > 0) out.push(`Разойдутся ${f.routed} ${plural(f.routed, 'боец', 'бойца', 'бойцов')} гарнизона.`);
   return out;
-}
-
-/**
- * Пустой гарнизон — не тупик: вылазку делают бойцами, а дубинщика казармы нанимают за
- * секунды. Погашенная кнопка без этой строки не говорила, что делать, и новичок сидел под
- * лагерем до голода. Срок — тот же, что показывают казармы (`recruitRate`).
- */
-function HireClubmen() {
-  const s = useGame((g) => g.s);
-  const openBuilding = useGame((g) => g.openBuilding);
-  const barracks = s.buildings.find((b) => b.type === 'barracks');
-  const rate = recruitRate(s, 'clubman');
-  if (!barracks || rate <= 0) return null;
-  const seconds = asGame(Math.max(1, Math.ceil(TROOP_BY_ID.clubman.work / rate)));
-  return (
-    <>
-      <p className="note">Найми дубинщиков. Казармы учат одного за {waitShort(seconds)}.</p>
-      <button className="btn wide" data-tut="siege-barracks" onClick={() => openBuilding(barracks.id)}>
-        <Icon name="troop-clubman" glyph={TROOP_BY_ID.clubman.icon} /> В казармы
-      </button>
-    </>
-  );
 }
 
 export function SiegePanel() {
@@ -221,13 +196,17 @@ export function SiegePanel() {
           {restLine(siege.garrisonRest, 'Гарнизон дрался', now)} {REST_WHY}
         </p>
       )}
+      {/* Износ осады (дни под стенами и залпы лагеря) — тем числом, с которым гарнизон идёт в бой у мира и у сервера войны. */}
+      {siege.wear !== undefined && <p className="note warn">{wearLine(siege.wear)}</p>}
+      {siege.towerIdle && <p className="note">{siege.towerIdle}</p>}
 
       <h3>Что делать</h3>
       <button className="btn wide" disabled={sortieBlock !== null} onClick={openSortie}>
         Вылазка{garrisonMen > 0 ? ` · ${all.passed} из ${all.went}` : ''}
       </button>
       {sortieBlock && <p className="note bad">{sortieBlock}</p>}
-      {garrisonMen === 0 && <HireClubmen />}
+      {/* Пустой гарнизон: в осаде новобранцев не набрать — в казармы окно не зовёт, а говорит, что есть (siege_audit, 1). */}
+      {garrisonMen === 0 && <p className="note">{NO_GARRISON}</p>}
       {homeId && <CampStrike target={homeId} />}
       <p className="note">Разбитый лагерь снимает осаду, и город снова ест.</p>
     </div>

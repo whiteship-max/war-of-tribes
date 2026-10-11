@@ -5,8 +5,6 @@ import '@/game/pace.minute';
 //
 // Каждый тест — свойство одного правила, и точки выборки в нём проверяются на то, что они
 // внутри области, где правило спрашивается: иначе тест зеленел бы даром.
-import { readFileSync } from 'node:fs';
-import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { LocalWorld, HOME_ID } from './local/LocalWorld';
 import { isLair, type GenSettlement } from './gen';
@@ -316,15 +314,6 @@ describe('старая партия узнаёт о росте логов стр
   });
 });
 
-describe('пустой гарнизон в осаде — не тупик', () => {
-  const panel = readFileSync(path.join(process.cwd(), 'src/ui/panels/SiegePanel.tsx'), 'utf8');
-
-  it('погашенная вылазка говорит, кого нанять, и ведёт в казармы', () => {
-    // Строка стоит ровно там, где вылазка погашена пустым гарнизоном.
-    expect(panel).toMatch(/\{garrisonMen === 0 && <HireClubmen \/>\}/);
-    const hint = panel.slice(panel.indexOf('function HireClubmen('), panel.indexOf('export function SiegePanel('));
-    expect(hint).toMatch(/Найми дубинщиков/);
-    expect(hint).toMatch(/b\.type === 'barracks'/);
-    expect(hint).toMatch(/openBuilding\(barracks\.id\)/);
-  });
-});
+// «Пустой гарнизон в осаде — не тупик» жил здесь чтением исходника и держал подсказку «Найми дубинщиков… В казармы».
+// Найм в осаде закрыт (`SIEGE_NO_RECRUIT`), и подсказка вела в тупик (docs/siege_audit.md, находка 1): правило теперь —
+// окно говорит, что остаётся, и в казармы не зовёт; держит его `src/ui/panels/siegepanels.test.ts` по нарисованному окну.

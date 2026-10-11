@@ -3,6 +3,7 @@ import { readFileSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { createInitialState } from '@/game/state';
+import { worldDays } from '@/game/pace';
 import { RESOURCE_IDS, SIEGE_FOOD_YIELD, SIEGE_YIELD } from '@/game/constants';
 import { productionPerDay, underSiege } from '@/game/derived';
 import { catchUp, tick } from '@/game/sim/tick';
@@ -17,6 +18,7 @@ import {
   openSiege,
   siegeActive,
   siegeImmune,
+  siegeWear,
   starvesAt,
   type SiegeWindow,
 } from './siege';
@@ -486,9 +488,12 @@ describe('осада: из города не выступают', () => {
     const pushes = src.match(/marches\.push\(/g) ?? [];
     expect(moves.length, 'фигура трогается с места ровно в трёх местах').toBe(3);
     expect(pushes.length, 'поход заводится ровно в четырёх местах').toBe(4);
-    // И все пять приказов, ведущие в эти места, спрашивают одну и ту же дверь: гонец, фигура, раскладка, перехват и
-    // «дойти и ударить».
-    expect((src.match(/this\.siegeBlock\(now\)/g) ?? []).length).toBe(5);
+    // И все приказы, ведущие наружу, спрашивают одну и ту же дверь: гонец, фигура, раскладка, перехват, «дойти и
+    // ударить», поход на соседа и лазутчик к соседу (docs/siege_audit.md, решение 4: одно правило выхода на осаду логова и
+    // игрока, — дверь `siegeBlock` знает обе).
+    expect((src.match(/this\.siegeBlock\(now\)/g) ?? []).length).toBe(7);
+    const door = src.slice(src.indexOf('private siegeBlock('), src.indexOf('private larderOf('));
+    expect(door, 'дверь выхода знает осаду игроком').toMatch(/this\.warOnUs\(\)/);
     // Третье место — удар по лагерю из поля — из города не выводит по учёту, а не
     // по двери: дома дружина — гарнизон (`fieldTroops`), и бить из поля некому.
     const strike = src.slice(src.indexOf('private strikeCheck('), src.indexOf('async strikePlan('));
@@ -536,6 +541,23 @@ describe('осада: из города не выступают', () => {
     // Разведчик застигнут осадой в поле — и обязан суметь вернуться.
     expect(await w.world.recallFigure('scout')).toBeNull();
     expect((await w.world.figures()).find((f) => f.id === 'scout')?.phase).toBe('moving');
+  }, 60_000);
+});
+
+describe('осада логова у своих стен: мораль гарнизона в окне (docs/siege_audit.md, решение 5)', () => {
+  it('без боя строки «дрался недавно» нет; износ осады — своим полем, тем числом, с которым гарнизон дерётся', async () => {
+    const w = makeWorld(7);
+    const p = holdout();
+    const start = (await besiege(w, p)).siege!;
+    // Пара дней под стенами, а голод ещё не скоро: точка внутри области — осада стоит, боя не было.
+    w.advance(Math.min(worldDays(2), (start.starvesAt - w.now()) / 2));
+    const pulse = await w.world.sync(p);
+    const view = pulse.siege!;
+    expect(view, 'точка внутри области: осада стоит').toBeTruthy();
+    expect(view.garrisonRest, 'боя не было — «дрался недавно» не пишется').toBeUndefined();
+    const wear = Math.floor(siegeWear(view.since, w.now()) * 100) / 100;
+    expect(wear, 'точка внутри области: осада уже точит').toBeLessThan(1);
+    expect(view.wear).toBe(wear);
   }, 60_000);
 });
 

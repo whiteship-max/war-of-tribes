@@ -249,6 +249,14 @@ export interface SiegeView {
   campRest?: RestView;
   garrisonRest?: RestView;
   /**
+   * Во сколько раз осада ослабила гарнизон города в бою — дни осады и залпы лагеря (`siegecraft.garrisonWear`), та же
+   * дверь, что у боя в мире и у сервера войны. Отдельно от `garrisonRest` — усталости после боя: эта не проходит, пока
+   * лагерь стоит (docs/siege_audit.md, решение 5). Нет поля — осада только встала.
+   */
+  wear?: number;
+  /** Орудие на башне есть, а бить им нельзя — словами почему (`siege.TOWER_NOT_PVP`). Нет поля — башня бьёт или нечем. */
+  towerIdle?: string;
+  /**
    * Что полководец сделал в лагере (`world/siegecraft`): лагерь укреплён, город обстреливают — словами той же двери, что
    * считает бой (`craftNote`). Нет поля — ничего не делали.
    */
@@ -320,7 +328,20 @@ export interface FateOption {
  * глазами того, кто стоит под стенами: чей город, чем держится, сколько ему осталось
  * хлеба, и что можно приказать.
  */
-export interface CampView extends Omit<SiegeView, 'fall' | 'palisade'> {
+export interface CampView extends Omit<SiegeView, 'fall' | 'palisade' | 'garrison'> {
+  /**
+   * Гарнизон города — сколько о нём известно, той же точностью, что мощь (`power`): точное число осаждающий знает только
+   * с разведки (docs/siege_audit.md, решение 10).
+   */
+  garrison: Estimate;
+  /** Древесину лагеря не делят — словами почему (`siege.WOOD_FIXED`). Нет поля — доли выбирает игрок. */
+  woodFixed?: string;
+  /**
+   * Выручка, идущая на лагерь, — кто, сколько бойцов и когда ударит; `joint` — гарнизон выйдет ей навстречу. У лагеря под
+   * логовом — отряд соседей, видный по донесению; под городом игрока — удар его полководца (`WarView.strike`). Нет поля —
+   * не идёт никто или не видно (docs/siege_audit.md, решение 6).
+   */
+  relief?: { from: string; men: number; at: number; joint: boolean };
   targetId: SettlementId;
   targetName: string;
   /** Чем держится город: замок, логово или стадия поселения. */
@@ -772,6 +793,8 @@ export interface SettlementCard extends SettlementView {
    * нечего делать.
    */
   energy?: { raid: EnergyCost; besiege: EnergyCost };
+  /** Хватит ли после осады на штурм из лагеря — та же строка, что у похода на город игрока (`CardWar.campStorm`). */
+  campStorm?: string;
   /**
    * Осада этого поселения — чья и с каких пор. null — под стенами никого.
    *
@@ -839,6 +862,11 @@ export interface CardWar {
   power: number;
   /** Цена похода в энергии полководца — штурмом и осадой: дело у стен, и его должно хватить к приходу, с дорогой. */
   energy?: { storm: EnergyCost; siege: EnergyCost };
+  /**
+   * Хватит ли после осады на штурм из лагеря — словами, до выхода (`LocalWorld.campStormNote`): в лагере энергия не
+   * копится (docs/siege_audit.md, решение 9). Нет поля — осада сама не по карману.
+   */
+  campStorm?: string;
   /** Своя война с этим городом. Нет поля — войны нет. */
   ours?: { phase: 'march' | 'camp' | 'back'; mode: 'storm' | 'siege'; arriveAt: number; starvesAt?: number; backAt?: number };
   /** Этот город идёт на нас или стоит под нашими стенами. */

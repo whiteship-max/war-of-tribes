@@ -17,5 +17,13 @@ export function restLine(rest: RestView | undefined, who: string, now: number): 
   return `${who} недавно. Мораль ${restPercent(rest)} %, полная через ${realLeft(secondsLeft(rest.fullAt, now))}.`;
 }
 
+/**
+ * Износ осады словами (docs/siege_audit.md, решение 5): насколько гарнизон в бою слабее от дней под стенами и залпов
+ * лагеря. Доля — из мира (`SiegeView.wear`, `siegecraft.garrisonWear`); это не усталость после боя (`restLine`), она не
+ * проходит, пока лагерь стоит.
+ */
+export const wearLine = (wear: number): string =>
+  `Осада точит гарнизон: в бою он слабее на ${Math.round((1 - wear) * 100)} %. Пока лагерь стоит, это не проходит.`;
+
 /** Почему уставших лучше не посылать — правило боя, которое ядро уже держит: сектор без морали уходит с поля. */
 export const REST_WHY = 'Уставший отряд раньше уходит с поля. Отдых идёт и в пути.';

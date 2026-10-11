@@ -16,6 +16,7 @@ import type { GenSettlement } from './gen';
 import type { Coord, FigureId, FigureView, PlayerProfile } from './types';
 import { ENERGY_ROAD, ENERGY_FILL, ENERGY_MAX, ENERGY_PRICE } from './data/energy';
 import { energyBlock, idleBlock, leastPrice, roadCost, roadOf } from './energy';
+import { craftNote } from './siegecraft';
 import { distance } from './geo';
 import { shieldVillagers } from './lairs';
 
@@ -392,6 +393,38 @@ describe('осадный лагерь: десять энергии, и пока 
   });
 });
 
+describe('осада у ворот: до приказа сказано, хватит ли у стен на штурм из лагеря (docs/siege_audit.md, решение 9)', () => {
+  /**
+   * В лагере энергия стоит: что останется после цены лагеря, то и будет на штурм. Граница области — цена лагеря плюс цена
+   * штурма: на ней и выше строка говорит «хватит», ниже — «не хватит», и кнопка штурма в лагере говорит то же самое. Ниже
+   * цены лагеря строки нет: осада сама не по карману (об этом — её отказ).
+   */
+  it('строка карточки и кнопка штурма в лагере — одна правда', async () => {
+    const siege = ENERGY_PRICE.siege.price;
+    const storm = ENERGY_PRICE.storm.price;
+    for (const value of [siege + storm, siege + storm - 1, siege - 1]) {
+      const w = makeWorld();
+      const p = profile({ army: { spearman: 40 } });
+      await w.world.sync(p);
+      const lair = nearestLair(w);
+      standAt(w, 'general', lair, { spearman: 40 });
+      w.inner.save.figures.general.energy = { value, at: w.now(), mode: 'hold' };
+      const card = await w.world.settlement(lair.id);
+      if (value < siege) {
+        expect(card?.campStorm, `${value}: осада не по карману — строки нет`).toBeUndefined();
+        continue;
+      }
+      expect(card?.can.besiege, `${value}: точка внутри области — осадить можно`).toBe(true);
+      const enough = value >= siege + storm;
+      expect(card?.campStorm).toContain(`останется ${value - siege} энергии`);
+      expect(card?.campStorm).toContain(enough ? 'хватит и на штурм' : 'не хватит');
+      // Встали лагерем — и кнопка штурма говорит то же, что карточка до приказа.
+      expect(await w.world.besiege()).toBeNull();
+      expect((await w.world.camp())?.storm?.block ?? null, `${value}`).toBe(enough ? null : energyBlock(value - siege, storm));
+    }
+  });
+});
+
 describe('дела в лагере: цена при приказе, один раз за дело, и меню гасит той же строкой, что откажет приказ', () => {
   it('обстрел логова: пятнадцать за залп, на пределе — отказ без списания; без энергии — та же строка в меню и в отказе', async () => {
     const w = makeWorld();
@@ -418,6 +451,11 @@ describe('дела в лагере: цена при приказе, один р�
     expect(fort?.reason).toBe(energyBlock(ENERGY_PRICE.fortify.price - 1, ENERGY_PRICE.fortify.price));
     expect(await w.world.campCraft('fortify')).toBe(fort?.reason);
     expect(w.inner.save.sieges[lair.id]?.craft?.fort).toBeUndefined();
+    // Стены у логова нет: строка «что сделано» не обещает пролома — как и меню (docs/siege_audit.md, решение 7).
+    const note = (await w.world.camp())?.craftNote ?? '';
+    expect(note, 'точка внутри области: залпы были').toContain('Город обстреляли 3 из 3 раз');
+    expect(note).not.toContain('Пролом');
+    expect(note).toBe(craftNote({ shots: 3 }, false));
   });
 
   it('штурм логова после обстрела: запись боя несёт залпы для ролика (`BattleRecord.shots`), без обстрела — нет', async () => {
@@ -435,6 +473,8 @@ describe('дела в лагере: цена при приказе, один р�
       // Точка внутри области: бой был, и шёл он у логова.
       expect(rec?.site).toBe('lair');
       expect(rec?.shots).toBe(shots > 0 ? shots : undefined);
+      // Донесение о штурме логова — тоже без пролома: стены нет.
+      expect(w.inner.save.reports.find((r) => r.id === res.reportId)?.text ?? '').not.toContain('Пролом');
     }
   });
 });

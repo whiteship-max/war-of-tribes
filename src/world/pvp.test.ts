@@ -4,6 +4,10 @@ import type { PlayerCastle, PlayerProfile } from './types';
 import { advance, applyOrder, emptyWars, liveSheet, warsOf, type SheetAt } from '../../netlify/lib/war';
 import { castleIdOf, emptyRoster, upsert } from '../../netlify/lib/roster';
 import { type CastleClaim, type RosterFile, type WarOrder } from '../../netlify/lib/contract';
+import { FATE_SAME, SIEGE_BLOCK, STRIKE_FROM_TOWN, TOWER_NOT_PVP, WOOD_FIXED, siegeSince, type SiegeWindow } from './siege';
+import { garrisonWear } from './siegecraft';
+import { worldDays } from '@/game/pace';
+import { troopTotal, type TroopStack } from '@/game/battle/kinds';
 
 // Энергия агентов здесь не предмет проверки (docs/agent_energy.md): сценарии этого файла водят агентов по карте помногу
 // — дорога здесь энергию не берёт. Цены дел и отдых дома остаются; энергию держат `energy.test.ts` и
@@ -38,7 +42,8 @@ const profile = (): PlayerProfile => ({
   soldierFoodPerHour: 1,
 });
 
-function game() {
+/** `b` — что сверх общего слепка у деревни Беты (башня с орудием и т. п.). */
+function game(b: Partial<PlayerProfile> = {}) {
   let now = T0;
   let roster: RosterFile = emptyRoster();
   roster = upsert(roster, A, claim('Альфа'), T0);
@@ -65,16 +70,16 @@ function game() {
     // Город соседа в своём краю открыт местом сразу (`LocalWorld.revealNeighbours`) — разведчика не нужно.
     new LocalWorld({ seed: me === A ? 11 : 12, now: () => now, storage: null, home: roster.rows[me], castles: castlesFor(me), ...link(me) });
   const a = world(A);
-  const b = world(B);
+  const bw = world(B);
   const pulse = async () => {
     const pa = await a.sync(profile());
-    const pb = await b.sync(profile());
+    const pb = await bw.sync({ ...profile(), ...b });
     // Слепки ложатся на сервер, как с записью партии.
     sheets.set(A, { sheet: a.warSheet()!, at: now });
-    sheets.set(B, { sheet: b.warSheet()!, at: now });
+    sheets.set(B, { sheet: bw.warSheet()!, at: now });
     return { pa, pb };
   };
-  return { a, b, file, pulse, now: () => now, step: (ms: number) => (now += ms), target: castleIdOf(B) };
+  return { a, b: bw, file, pulse, now: () => now, step: (ms: number) => (now += ms), target: castleIdOf(B) };
 }
 
 describe('война между игроками: путь от похода до итога у обеих сторон', () => {
@@ -255,4 +260,129 @@ describe('война между игроками: путь от похода д�
     expect(g.a.warSheet()!.retinue).toEqual({ spearman: 40, swordsman: 30 });
     expect(g.a.warSheet()!.out).toEqual([]);
   });
+});
+
+/**
+ * Находки отчёта об осаде (docs/siege_audit.md) на двух настоящих мирах и сервере в памяти: что окно говорит, то и считает
+ * мир и сервер. Область правил — лагерь игрока под городом игрока; что лагерь стоит, проверяется утверждением.
+ */
+describe('осада под городом игрока: окна обеих сторон говорят то, что считают мир и сервер', () => {
+  /**
+   * Дружина полководцу Альфы, поход с осадой, лагерь у стен Беты. `retinue` — у полководца Беты отряд (дома, в гарнизоне);
+   * `outside` — он с отрядом в поле.
+   */
+  async function camped(opt: { retinue?: boolean; outside?: boolean; b?: Partial<PlayerProfile> } = {}) {
+    const outside = Boolean(opt.outside);
+    const g = game(opt.b);
+    await g.pulse();
+    expect(await g.a.setGarrison({ spearman: 60, swordsman: 30, archer: 30 })).toBeNull();
+    if (outside || opt.retinue) expect(await g.b.setGarrison({ swordsman: 30, archer: 20 })).toBeNull();
+    for (let i = 0; i < 30; i++) {
+      g.step(5 * 60_000);
+      await g.pulse();
+    }
+    expect(await g.a.warMarch(g.target, 'siege', 'plunder')).toBeNull();
+    const war = g.file.wars[0];
+    if (outside) {
+      const home = (await g.b.info()).home;
+      expect(await g.b.moveFigure('general', { x: home.x + 3, y: home.y })).toBeNull();
+    }
+    g.step(war.arriveAt - g.now() + 1000);
+    const { pa, pb } = await g.pulse();
+    expect(war.phase, 'точка внутри области: лагерь встал').toBe('camp');
+    return { g, war, pa, pb };
+  }
+
+  it('одно правило выхода: из города под лагерем игрока не выйти, как из города под лагерем логова', async () => {
+    const { g } = await camped({ retinue: true });
+    const home = (await g.b.info()).home;
+    const out = { x: home.x + 3, y: home.y };
+    expect(await g.b.moveFigure('general', out)).toBe(SIEGE_BLOCK);
+    expect(await g.b.moveFigure('scout', out)).toBe(SIEGE_BLOCK);
+    expect((await g.b.send({ target: castleIdOf(A), mission: 'scout', units: { scout: 1 } })).error).toBe(SIEGE_BLOCK);
+    expect(await g.b.assault(castleIdOf(A), 'plunder')).toBe(SIEGE_BLOCK);
+    expect((await g.b.settlement(castleIdOf(A)))?.war?.reason).toBe(SIEGE_BLOCK);
+    // Удар с тыла — только тем, кто в поле; полководец в городе выходит вылазкой (`fieldTroops`).
+    expect((await g.b.strikePlan('home', true)).reason).toBe(STRIKE_FROM_TOWN);
+  }, 120_000);
+
+  it('участь в лагере: «Объявить» и штурм — с выбранной; защитник видит новую участь', async () => {
+    const { g, war } = await camped();
+    expect(await g.a.besiege('captives')).toBeNull();
+    expect(war.fate).toBe('captives');
+    const { pb } = await g.pulse();
+    expect(pb.siege?.fate, 'окно осады у защитника').toBe('captives');
+    expect((await g.a.camp())?.fate).toBe('captives');
+    expect(await g.a.besiege('captives')).toBe(FATE_SAME);
+    // Штурм с участью, выбранной в окне, — сервер штурмует с ней.
+    expect((await g.a.attack({ fate: 'plunder' })).error).toBeNull();
+    expect(war.fate).toBe('plunder');
+    expect(war.battles.some((b) => b.site === 'wall'), 'точка внутри области: штурм был').toBe(true);
+    if (war.fall) expect(war.fall.fate).toBe('plunder');
+  }, 120_000);
+
+  it('окно лагеря: древесину не делят — строка вместо кнопок; гарнизон — грубо, как мощь', async () => {
+    const { g, war } = await camped();
+    const camp = (await g.a.camp())!;
+    expect(camp.woodFixed).toBe(WOOD_FIXED);
+    expect(await g.a.setWood(0.5)).toBe(WOOD_FIXED);
+    // Точного числа гарнизона нападающий не видит: оценка той же точности, что мощь, и вилка его держит.
+    const real = war.camp!.garrisonAtStart;
+    expect(real, 'точка внутри области: гарнизон есть').toBeGreaterThan(0);
+    expect(camp.garrison.precision).toBe(camp.power.precision);
+    expect(camp.garrison.precision).not.toBe('exact');
+    expect(camp.garrison.min).toBeLessThanOrEqual(real);
+    expect(camp.garrison.max).toBeGreaterThanOrEqual(real);
+  }, 120_000);
+
+  it('мораль защитника: износ осады и залпы — тем числом, с которым бьёт сервер; ложной «дрался недавно» нет', async () => {
+    const { g, war } = await camped();
+    g.step(worldDays(6));
+    let { pb } = await g.pulse();
+    expect(pb.siege?.garrisonRest, 'боя не было — усталости после боя нет').toBeUndefined();
+    const since = siegeSince(war.camp as unknown as SiegeWindow);
+    const wear = (craft?: { fort?: number; shots?: number }) => Math.floor(garrisonWear(since, g.now(), craft) * 100) / 100;
+    expect(wear(), 'точка внутри области: шесть дней осады').toBeLessThan(1);
+    expect(pb.siege?.wear).toBe(wear());
+    expect(await g.a.campCraft('bombard')).toBeNull();
+    ({ pb } = await g.pulse());
+    expect(war.camp?.craft?.shots).toBe(1);
+    expect(pb.siege?.wear).toBe(wear({ shots: 1 }));
+    expect(pb.siege!.wear!).toBeLessThan(wear());
+  }, 120_000);
+
+  it('башня с орудием по лагерю соседа молчит — и окно говорит это', async () => {
+    const tower = { slow: 0.3, thin: 0.2, crew: 4, seats: 6 } as unknown as PlayerProfile['tower'];
+    const { pb } = await camped({ b: { tower } });
+    expect(pb.siege?.towerIdle).toBe(TOWER_NOT_PVP);
+    expect(pb.siege?.fire).toBeUndefined();
+  }, 120_000);
+
+  it('нападающий видит выручку: удар полководца города — кто, сколько, когда и с гарнизоном ли', async () => {
+    const { g, war } = await camped({ outside: true });
+    expect(await g.b.strikeCamp('home', true)).toBeNull();
+    expect(war.strike, 'точка внутри области: удар назначен').toBeDefined();
+    await g.pulse();
+    const relief = (await g.a.camp())?.relief;
+    expect(relief).toEqual({ from: 'Бета', men: troopTotal(war.strike!.army.troops as TroopStack), at: war.strike!.at, joint: true });
+  }, 120_000);
+
+  it('часы голода под игроком идут за гарнизоном: полководец вернул отряд домой — хлеб кончится раньше', async () => {
+    const { g, war } = await camped({ outside: true });
+    // Слепок Беты, где отряд уже в поле, доходит до сервера пульсом позже прихода — окно приходит к нему.
+    await g.pulse();
+    const first = war.starvesAt as number;
+    const garrison = war.camp!.garrisonAtStart;
+    expect(garrison, 'точка внутри области: отряд полководца не за стеной').toBeLessThan(troopTotal(profile().army as TroopStack));
+    // Вернуться в осаждённый город можно: под запретом выход, а не вход.
+    const home = (await g.b.info()).home;
+    expect(await g.b.moveFigure('general', { ...home })).toBeNull();
+    const walking = (await g.b.figures()).find((f) => f.id === 'general')!;
+    g.step(Math.max(0, walking.arriveAt - g.now()) + 1000);
+    await g.pulse();
+    await g.pulse();
+    expect(war.phase, 'точка внутри области: лагерь стоит').toBe('camp');
+    expect(war.camp!.garrisonAtStart).toBeGreaterThan(garrison);
+    expect(war.starvesAt as number).toBeLessThan(first);
+  }, 120_000);
 });

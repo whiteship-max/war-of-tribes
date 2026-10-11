@@ -108,16 +108,19 @@ export function craftGain(craft: Craft | undefined, act: CraftAct, since: number
 }
 
 /**
- * Что сделано в лагере — словами для обороняющегося и для донесения о бое. Пусто — ничего не делали.
+ * Что сделано в лагере — словами для обороняющегося и для донесения о бое. Пусто — ничего не делали. `walls` — есть ли у
+ * города стена, как у `craftGain`: у логова и двора мира её нет, и пролома строка не называет (docs/siege_audit.md,
+ * решение 7) — меню и строка «что сделано» одного окна не расходятся.
  */
-export function craftNote(craft: Craft | undefined): string {
+export function craftNote(craft: Craft | undefined, walls = true): string {
   const parts: string[] = [];
   const fort = craftDone(craft, 'fortify');
   if (fort > 0) parts.push(`Лагерь укреплён на ${fort} из ${craftMax('fortify')}. Кость тех, кто идёт на лагерь, −${faces(fortFaces(craft))}.`);
   const shots = craftDone(craft, 'bombard');
   if (shots > 0) {
+    const shake = `мораль гарнизона просела, как после ещё ${days(shakeMs(craft))} осады.`;
     parts.push(
-      `Город обстреляли ${shots} из ${craftMax('bombard')} раз. Пролом ${pct(breachOf(craft))} стены, мораль гарнизона просела, как после ещё ${days(shakeMs(craft))} осады.`,
+      `Город обстреляли ${shots} из ${craftMax('bombard')} раз. ${walls ? `Пролом ${pct(breachOf(craft))} стены, ${shake}` : `${shake[0].toUpperCase()}${shake.slice(1)}`}`,
     );
   }
   return parts.join(' ');
