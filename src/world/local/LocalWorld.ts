@@ -1925,6 +1925,7 @@ export class LocalWorld implements WorldApi {
     // те же постройки. Соль выбора построек — сид мира и минута падения.
     const announced = this.fateFor(w.fate, HOME_ID, at);
     const declared = gates ? softerFate(announced) : announced;
+    const softer = declared === announced ? '' : ' на ступень мягче объявленной';
     this.markFall(HOME_ID, declared, at);
     const haul = this.haul(camp?.units ?? {}, false);
     const spoils = this.fateHome(p ?? null, haul.carry, haul.escort, at, declared);
@@ -1950,7 +1951,7 @@ export class LocalWorld implements WorldApi {
       ...(loss.fallen ? { fallen: loss.fallen } : {}),
       text: `${
         gates
-          ? `На ${rowsOf(w).length}-й фазе осады город открыл ворота лагерю «${from}», гарнизон ушёл живым. Участь${declared !== announced ? ' на ступень мягче объявленной' : ''}`
+          ? `На ${rowsOf(w).length}-й фазе осады город открыл ворота лагерю «${from}», гарнизон ушёл живым. Участь${softer}`
           : `${from} взяли город голодом, гарнизон разошёлся. Участь`
       } «${FATE_META[declared].name.toLowerCase()}». ${lossText(declared, spoils)} Лагерь снят.`,
       read: false,
