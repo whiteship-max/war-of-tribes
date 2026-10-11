@@ -14,7 +14,9 @@ import { REST_WHY, restLine } from '@/ui/parts/restWords';
 import { hungerLeft } from '@/ui/parts/hunger';
 import { sideReady } from '@/ui/parts/campSide';
 import { formatEstimate } from '@/world/intel';
-import { CAMP_LEAVE, STORM_LIFTS } from '@/world/siege';
+import { CAMP_LEAVE, STORM_HOLDS } from '@/world/siege';
+import { ENGINE_SHARES, type EngineId } from '@/world/data/engines';
+import { SIEGE_PHASE } from '@/world/data/siegeroll';
 import { FATE_META } from '@/world/data/fates';
 import { CASTLE_ICON, STAGE_BY_ID } from '@/world/data/meta';
 import { SIDES, SIDE_NAME, WOOD_SHARES, campSides, playerWood, woodShare, worksRipeAt } from '@/world/works';
@@ -31,6 +33,18 @@ const WOOD_ALL_FRONT = realMinutes(worksRipeAt(0, 'front', playerWood(1)));
 const WOOD_HALVES = realMinutes(worksRipeAt(0, 'front', playerWood(0.5)));
 
 /** Как доля фронту называется на кнопке. */
+/** Доля древесины машинам словами на кнопке. */
+const ENGINE_SHARE_NAME: Record<number, string> = { 0: 'Ничего', 0.25: 'Четверть', 0.5: 'Половину', 0.75: 'Три четверти', 1: 'Всё' };
+
+/** Состояние машины словами: стоит, строится (через сколько), не строится. */
+function engineState(e: NonNullable<CampView['engines']>['list'][number], now: number): string {
+  if (e.state === 'ready') return 'готова';
+  if (e.state === 'none') return 'не заказана';
+  if (e.readyAt === undefined || !Number.isFinite(e.readyAt)) return 'не строится: машинам не отдано леса';
+  const left = Math.max(0, e.readyAt - now);
+  return `готова через ${realLeft(left / 1000)} (${Math.max(1, Math.ceil(left / SIEGE_PHASE))} ${plural(Math.max(1, Math.ceil(left / SIEGE_PHASE)), 'фаза', 'фазы', 'фаз')})`;
+}
+
 const SHARE_NAME: Record<number, string> = {
   1: 'Всё к городу',
   0.75: 'Три четверти',
@@ -56,6 +70,9 @@ export function CampPanel() {
   const attack = useWorld((g) => g.attack);
   const retreat = useWorld((g) => g.retreat);
   const setWood = useWorld((g) => g.setWood);
+  const setEngineWood = useWorld((g) => g.setEngineWood);
+  const orderEngine = useWorld((g) => g.orderEngine);
+  const [use, setUse] = useState<EngineId[] | null>(null);
   const campCraft = useWorld((g) => g.campCraft);
   const setOrders = useWorld((g) => g.setOrders);
   const [pick, setPick] = useState<Fate | null>(null);
@@ -183,6 +200,38 @@ export function CampPanel() {
           </div>
         </>
       )}
+      {/* Осадные машины из древесины лагеря (world/engines, docs/siege_v2.md, 4.3): доля леса, очередь, отказ — из мира. */}
+      {camp.engines && (
+        <>
+          <h3>Машины</h3>
+          <p className="note">Лес машинам: {ENGINE_SHARE_NAME[camp.engines.share] ?? `${Math.round(camp.engines.share * 100)} %`}. Остальное идёт на рогатки.</p>
+          <div className="fate-shares">
+            {ENGINE_SHARES.map((sh) => (
+              <button
+                key={sh}
+                className={`mini${camp.engines?.share === sh ? ' on' : ''}`}
+                disabled={busy || camp.engines?.share === sh}
+                onClick={() => void order(() => setEngineWood(sh), `Машинам: ${ENGINE_SHARE_NAME[sh].toLowerCase()}.`)}
+              >
+                {ENGINE_SHARE_NAME[sh]}
+              </button>
+            ))}
+          </div>
+          {camp.engines.list.map((e) => (
+            <div key={e.id}>
+              <button
+                className="btn wide"
+                disabled={busy || !e.can}
+                onClick={() => void order(() => orderEngine(e.id), `${e.name}: заказано.`)}
+              >
+                {e.name} · {engineState(e, now)}
+              </button>
+              <p className={`note${e.can || e.state !== 'none' ? '' : ' bad'}`}>{e.state === 'none' && e.reason ? e.reason : e.use}</p>
+            </div>
+          ))}
+        </>
+      )}
+
       {/* Мораль между боями (14.31): наш лагерь — дружина; после вылазки штурмовать сразу — уставшими. */}
       {camp.campRest && (
         <p className="note warn">
@@ -233,17 +282,45 @@ export function CampPanel() {
         Объявить
       </button>
       {sameFate && <p className="note">Эта участь уже объявлена</p>}
+      {/* Способ штурма (docs/siege_v2.md, 4.4): из готовых машин, проёмы складываются; строка — устройство, без прогноза. */}
+      {camp.engines?.walls && (
+        <>
+          <p className="note">
+            {camp.engines.breaches > 0
+              ? `Проломов ${camp.engines.breaches} из 3: столько стены без штрафа.`
+              : 'Проломов нет.'}{' '}
+            {camp.engines.methods.length === 0 ? 'Готовых машин нет: лестницы — те, что принесут на себе, на треть стены.' : ''}
+          </p>
+          {camp.engines.methods.map((m) => {
+            const on = (use ?? camp.engines!.methods.map((x) => x.engine)).includes(m.engine);
+            return (
+              <label key={m.engine} className="note">
+                <input
+                  type="checkbox"
+                  checked={on}
+                  disabled={busy}
+                  onChange={() => {
+                    const was = use ?? camp.engines!.methods.map((x) => x.engine);
+                    setUse(on ? was.filter((x) => x !== m.engine) : [...was, m.engine]);
+                  }}
+                />{' '}
+                {m.words}
+              </label>
+            );
+          })}
+        </>
+      )}
       <button
         className="btn wide"
         disabled={busy || camp.men === 0 || cantFate !== null || Boolean(camp.storm?.block)}
         onClick={() =>
-          void order(() => attack({ fate: chosen }), 'Отряд штурмует. Донесение в походах.', true)
+          void order(() => attack({ fate: chosen, ...(use ? { engines: use } : {}) }), 'Отряд штурмует. Донесение в походах.', true)
         }
       >
         Штурмовать · {camp.men}
         {camp.storm ? ` · энергия ${camp.storm.price}` : ''}
       </button>
-      <p className="note">{cantFate ?? camp.storm?.block ?? STORM_LIFTS}</p>
+      <p className="note">{cantFate ?? camp.storm?.block ?? STORM_HOLDS}</p>
       <button className="btn ghost wide" disabled={busy} onClick={() => void order(retreat, 'Осада снята.', true)}>
         Отступить
       </button>

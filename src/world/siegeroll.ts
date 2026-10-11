@@ -12,6 +12,8 @@
 import type { SiegeWindow } from './siege';
 import type { Fate } from './types';
 import { siegeSince, starvesAt } from './siege';
+import { catapultAt } from './engines';
+import { MOD_ENGINE } from './data/engines';
 import {
   BREACH_MAX,
   CAMP_WASTE,
@@ -38,8 +40,8 @@ import {
 export type PhaseOut = 'plague' | 'calm' | 'short' | 'breach' | 'gates';
 
 /** Поправка к кости фазы. Порядок — порядок строки журнала. */
-export type ModId = 'breach' | 'volley' | 'hunger' | 'progress' | 'wall';
-export const MOD_IDS: readonly ModId[] = ['breach', 'volley', 'hunger', 'progress', 'wall'];
+export type ModId = 'breach' | 'volley' | 'engine' | 'hunger' | 'progress' | 'wall';
+export const MOD_IDS: readonly ModId[] = ['breach', 'volley', 'engine', 'hunger', 'progress', 'wall'];
 export type PhaseMods = Partial<Record<ModId, number>>;
 
 /** Наказ на отлучку, сработавший в минуту фазы (docs/siege_v2.md, 8.3). */
@@ -80,7 +82,19 @@ export interface SiegeOrders {
 /** Окно глазами двери фаз: что ей нужно из `SiegeWindow`. Тот же тип у лагеря сервера войны (`contract.WarCamp`). */
 export type RollWindow = Pick<
   SiegeWindow,
-  'campId' | 'startedAt' | 'sinceAt' | 'foodAtStart' | 'garrisonAtStart' | 'townPerHour' | 'perManPerHour' | 'craft' | 'wall' | 'log' | 'phases'
+  | 'campId'
+  | 'startedAt'
+  | 'sinceAt'
+  | 'foodAtStart'
+  | 'garrisonAtStart'
+  | 'townPerHour'
+  | 'perManPerHour'
+  | 'craft'
+  | 'wall'
+  | 'log'
+  | 'phases'
+  | 'wood'
+  | 'engines'
 >;
 
 /** Минута броска фазы `k` (с единицы). */
@@ -162,6 +176,8 @@ export function modsOf(w: RollWindow, k: number, prior: readonly PhaseRow[] = ro
   const mods: PhaseMods = {
     breach: breachesOf(w, prior) * MOD_BREACH,
     volley: volleyIn(w, k) ? MOD_VOLLEY : 0,
+    // Камнемёт, стоящий в лагере к минуте фазы, — постоянная артиллерия (docs/siege_v2.md, 2.3; `world/engines`).
+    engine: catapultAt(w, at) ? MOD_ENGINE : 0,
     hunger,
     progress: progressOf(w, prior) * MOD_PROGRESS,
     wall: wallFaces(w.wall),
@@ -303,6 +319,7 @@ export function cleanOrders(o: SiegeOrders | undefined): SiegeOrders | undefined
 const MOD_NAMES: Record<ModId, string> = {
   breach: 'пролом',
   volley: 'залп',
+  engine: 'камнемёт',
   hunger: 'голод',
   progress: 'ход осады',
   wall: 'стена',

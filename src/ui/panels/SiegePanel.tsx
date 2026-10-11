@@ -188,6 +188,7 @@ export function SiegePanel() {
       </p>
       {/* Дела полководца в лагере (world/siegecraft): лагерь укреплён, город обстреливают — словами мира. */}
       {siege.craftNote && <p className="note warn">{siege.craftNote}</p>}
+      {siege.machines && <p className="note warn">{siege.machines}</p>}
       {/* Ход осады фазами (world/siegeroll): тот же журнал, что у осаждающего, и поправки следующей фазы. */}
       {siege.phases && <SiegePhases phases={siege.phases} now={now} />}
       {/* Мораль между боями (14.31): уставший лагерь бить лучше сейчас, уставшему гарнизону — дать отдохнуть. */}

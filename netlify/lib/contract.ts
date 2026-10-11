@@ -700,7 +700,7 @@ export type WarPhaseOut = (typeof WAR_PHASE_OUTS)[number];
 export interface WarPhaseRow {
   at: number;
   die: number;
-  mods: Partial<Record<'breach' | 'volley' | 'hunger' | 'progress' | 'wall', number>>;
+  mods: Partial<Record<'breach' | 'volley' | 'engine' | 'hunger' | 'progress' | 'wall', number>>;
   out: WarPhaseOut;
   waste: number;
   orders?: ('volley' | 'storm')[];
@@ -752,6 +752,8 @@ export interface WarBattle {
   rearThrough?: { went: number; passed: number };
   /** Что было сделано в лагере к этому бою: укрепления и обстрел. Нет — ничего. */
   craft?: WarCraft;
+  /** Проёмы штурма (`world/wall.Opening`) — только показ: ролик рисует выбранный способ. Нет — запись до стены-прохода. */
+  openings?: { id: 'breach' | 'gate' | 'tower' | 'ladders' | 'scaling'; share: number; faces: number; round: number; horse: boolean }[];
 }
 
 /** Участь взятого города — посчитана дверью `spoils.fate`, у обеих сторон одними числами. */
@@ -788,7 +790,7 @@ export interface WarCamp {
   gateAt?: number;
   rearGateAt?: number;
   fate?: NoticeFate;
-  wood?: { front: number; rear: number; at?: number; base?: { front: number; rear: number } };
+  wood?: { front: number; rear: number; engines?: number; at?: number; base?: { front: number; rear: number; engines?: number } };
   builders?: number;
   /** Дела полководца в этом лагере (`SiegeWindow.craft`). */
   craft?: WarCraft;
@@ -801,7 +803,15 @@ export interface WarCamp {
   phases?: WarPhaseRow[];
   /** Наказы осаждающего (`SiegeWindow.orders`). */
   orders?: WarOrders;
+  /** Осадные машины лагеря — очередь заказов (`SiegeWindow.engines`, `world/engines`). Нет поля — не заказывали. */
+  engines?: { id: WarEngine; at: number; spent?: number }[];
 }
+
+/** Осадные машины (`world/data/engines.ENGINE_IDS`; тест сверяет). */
+export const WAR_ENGINES = ['ladders', 'ram', 'tower', 'catapult'] as const;
+export type WarEngine = (typeof WAR_ENGINES)[number];
+/** Доли древесины машинам (`world/data/engines.ENGINE_SHARES`; тест сверяет). */
+export const WAR_ENGINE_SHARES: readonly number[] = [0, 0.25, 0.5, 0.75, 1];
 
 /** Удар полководца города по лагерю: идёт, бьётся в минуту прихода. */
 export interface WarStrike {
@@ -964,7 +974,9 @@ export const spySeenId = (id: string): string => `${id}.spy`;
 export type WarOrder =
   | { op: 'march'; target: string; mode: WarMode; fate: NoticeFate; army: WarArmy }
   | { op: 'recall'; id: string }
-  | { op: 'storm'; id: string; fate?: NoticeFate }
+  | { op: 'storm'; id: string; fate?: NoticeFate; engines?: WarEngine[] }
+  | { op: 'wood'; id: string; engines: number }
+  | { op: 'engine'; id: string; engine: WarEngine }
   | { op: 'fate'; id: string; fate: NoticeFate }
   | { op: 'retreat'; id: string }
   | { op: 'sortie'; id: string; troops: Counts }
@@ -1108,7 +1120,17 @@ export function readWarOrder(v: unknown): WarOrder | null {
       return id ? { op: r.op, id } : null;
     case 'storm': {
       const fate = NOTICE_FATES.find((f) => f === r.fate);
-      return id ? { op: 'storm', id, ...(fate ? { fate } : {}) } : null;
+      // Машины штурма — из списка, без повторов; нет поля — все готовые (старый клиент шлёт так).
+      const engines = Array.isArray(r.engines) ? WAR_ENGINES.filter((e) => (r.engines as unknown[]).includes(e)) : null;
+      return id ? { op: 'storm', id, ...(fate ? { fate } : {}), ...(engines ? { engines } : {}) } : null;
+    }
+    case 'wood': {
+      const share = WAR_ENGINE_SHARES.find((x) => x === r.engines);
+      return id && share !== undefined ? { op: 'wood', id, engines: share } : null;
+    }
+    case 'engine': {
+      const engine = WAR_ENGINES.find((e) => e === r.engine);
+      return id && engine ? { op: 'engine', id, engine } : null;
     }
     case 'fate': {
       const fate = NOTICE_FATES.find((f) => f === r.fate);

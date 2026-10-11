@@ -6,6 +6,7 @@
 // даже те, что сегодня отвечают мгновенно.
 import type { CraftAct } from './siegecraft';
 import type { SiegeOrders } from './siegeroll';
+import type { EngineId } from './data/engines';
 import type { TroopStack } from '@/game/battle/kinds';
 import type {
   AssaultMode,
@@ -152,6 +153,15 @@ export interface WorldApi {
    * Вложенное к этой минуте остаётся вложенным.
    */
   setWood(share: number): Promise<string | null>;
+
+  /**
+   * Какую долю древесины лагеря отдать осадным машинам (одну из `data/engines.ENGINE_SHARES`; docs/siege_v2.md, 4.3).
+   * Вложенное к этой минуте остаётся вложенным — и в рогатках, и в машинах.
+   */
+  setEngineWood(share: number): Promise<string | null>;
+
+  /** Заказать осадную машину в своём лагере (`world/engines.engineBlock`): строится из древесины машин, очередью. */
+  orderEngine(id: EngineId): Promise<string | null>;
 
   /**
    * Дело полководца в своём лагере (`world/siegecraft`): укрепить лагерь или обстрелять город — за энергию, не больше

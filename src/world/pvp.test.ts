@@ -125,7 +125,8 @@ describe('война между игроками: путь от похода д�
     expect((await g.b.reports()).some((r) => r.id === `war-${war.battles[0].id}`)).toBe(true);
 
     if (war.phase === 'camp') {
-      // Штурм из лагеря — тоже сервер; лагерь снимается, войско идёт домой.
+      // Штурм из лагеря — тоже сервер. Взяли — войско идёт домой; отбили — осада идёт дальше с теми, кто уцелел
+      // (docs/siege_v2.md, 4.4), а снимается лагерь, только если штурмовать стало некому.
       const storm = await g.a.attack({});
       expect(storm.error).toBeNull();
       ({ pa, pb } = await g.pulse());
@@ -133,7 +134,9 @@ describe('война между игроками: путь от похода д�
       expect(war.battles[1].site).toBe('wall');
       const wallB = (await g.b.reports()).find((r) => r.id === `war-${war.battles[1].id}`);
       expect(wallB?.battle?.us).toBe('defender');
-      expect(['taken', 'beaten']).toContain(war.end);
+      if (war.end === 'taken') expect(war.phase).not.toBe('camp');
+      else if (troopTotal(war.army.troops as TroopStack) > 0) expect(war.phase, 'отбитый штурм лагерь не снимает').toBe('camp');
+      else expect(war.end).toBe('beaten');
     }
 
     // Набор держит, что штурм из лагеря и правда случился: лагерь пережил вылазку.

@@ -566,3 +566,55 @@ describe('дела в лагере: цена при приказе, один р�
     }
   });
 });
+
+describe('осадные машины в лагере под логовом и штурм, который лагерь не снимает (docs/siege_v2.md, 4.3–4.4)', () => {
+  beforeEach(() => setPhaseDie(() => 7));
+  afterEach(() => setPhaseDie(null));
+
+  it('у логова стены нет: лестницы, таран и башню не заказать — окно и приказ одной строкой; камнемёт строится из леса машинам', async () => {
+    const w = makeWorld();
+    const p = profile({ army: { spearman: 40 } });
+    await w.world.sync(p);
+    const lair = nearestLair(w);
+    standAt(w, 'general', lair, { spearman: 40 });
+    expect(await w.world.besiege()).toBeNull();
+    const view = (await w.world.camp())?.engines;
+    expect(view?.walls).toBe(false);
+    for (const id of ['ladders', 'ram', 'tower'] as const) {
+      const row = view?.list.find((e) => e.id === id);
+      expect(row?.can).toBe(false);
+      expect(await w.world.orderEngine(id)).toBe(row?.reason);
+    }
+    expect(view?.list.find((e) => e.id === 'catapult')?.can).toBe(true);
+    expect(await w.world.setEngineWood(1)).toBeNull();
+    expect(await w.world.setEngineWood(1)).toMatch(/и так/);
+    expect(await w.world.orderEngine('catapult')).toBeNull();
+    const building = (await w.world.camp())?.engines?.list.find((e) => e.id === 'catapult');
+    expect(building?.state).toBe('building');
+    w.advance((building?.readyAt ?? Infinity) - w.now() + 1);
+    calmLair(w, lair.id);
+    await w.world.sync(p);
+    expect((await w.world.camp())?.engines?.list.find((e) => e.id === 'catapult')?.state).toBe('ready');
+  });
+
+  it('отбитый штурм из лагеря лагерь не снимает: осада идёт дальше с теми, кто уцелел', async () => {
+    let checked = 0;
+    for (const n of [3, 5, 8, 12]) {
+      const w = makeWorld();
+      const p = profile({ army: { spearman: n } });
+      await w.world.sync(p);
+      const lair = nearestLair(w);
+      standAt(w, 'general', lair, { spearman: n });
+      expect(await w.world.besiege()).toBeNull();
+      w.inner.save.figures.general.energy = { value: ENERGY_MAX, at: w.now(), mode: 'hold' };
+      const res = await w.world.attack({});
+      expect(res.error).toBeNull();
+      const left = Object.values(w.inner.save.figures.general.troops ?? {}).reduce((s, x) => s + (x ?? 0), 0);
+      // Граница области: штурм отбит, и при полководце кто-то уцелел.
+      if (res.won || left === 0) continue;
+      checked += 1;
+      expect(w.inner.save.sieges[lair.id], 'лагерь стоит').toBeTruthy();
+    }
+    expect(checked, 'точка внутри области: хоть один штурм отбит с уцелевшими').toBeGreaterThan(0);
+  });
+});

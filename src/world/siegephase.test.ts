@@ -211,7 +211,7 @@ describe('наказы нашего лагеря (8.3)', () => {
     expect(now?.log).toEqual([]);
   }, 120_000);
 
-  it('«штурм при N проломах»: пролом выпал — штурм той же дверью, что кнопка, лагерь снят', async () => {
+  it('«штурм при N проломах»: пролом выпал — штурм той же дверью, что кнопка; лагерь снят, только если город взят или штурмовать некому', async () => {
     // Кость 14 у логова без стены: фаза 1 — пролом.
     setPhaseDie(() => 14);
     const w = makeWorld(11);
@@ -220,7 +220,11 @@ describe('наказы нашего лагеря (8.3)', () => {
     const since = win.sinceAt ?? win.startedAt;
     w.at(phaseAt(since, 1) + 1000);
     const pulse = await w.world.sync(p);
-    expect(w.inner.save.sieges[lair.id], 'штурм снял лагерь').toBeUndefined();
-    expect(pulse.reports.some((r) => r.at === phaseAt(since, 1) && r.kind === 'raid'), 'бой был в минуту фазы').toBe(true);
+    const raid = pulse.reports.find((r) => r.at === phaseAt(since, 1) && r.kind === 'raid');
+    expect(raid, 'бой был в минуту фазы').toBeTruthy();
+    // Отбитый штурм лагерь не снимает (docs/siege_v2.md, 4.4, `STORM_HOLDS`).
+    const left = Object.values(w.inner.save.figures.general.troops ?? {}).reduce((n, x) => n + (x ?? 0), 0);
+    if (raid?.won || left === 0) expect(w.inner.save.sieges[lair.id], 'взяли или некому — лагерь снят').toBeUndefined();
+    else expect(w.inner.save.sieges[lair.id], 'отбили — лагерь стоит').toBeTruthy();
   }, 120_000);
 });

@@ -4,6 +4,7 @@
 // говорят на одном языке со складом.
 import type { CraftAct } from './siegecraft';
 import type { SiegeOrders } from './siegeroll';
+import type { EngineId } from './data/engines';
 import type { GameSec } from '@/game/pace';
 import type { FaithId, ResourceId } from '@/game/types';
 import type { TroopStack } from '@/game/battle/kinds';
@@ -262,6 +263,11 @@ export interface SiegeView {
    * считает бой (`craftNote`). Нет поля — ничего не делали.
    */
   craftNote?: string;
+  /**
+   * Осадные машины лагеря — видны со стены (docs/siege_v2.md, 4.3): что стоит готовым и что строится (`engines.enginesNote`).
+   * Нет поля — машин нет.
+   */
+  machines?: string;
   /** Ход осады фазами (docs/siege_v2.md, раздел 2): журнал, поправки следующей фазы, проломы. Нет поля — старое окно. */
   phases?: SiegePhasesView;
 }
@@ -382,6 +388,43 @@ export interface CampView extends Omit<SiegeView, 'fall' | 'palisade' | 'garriso
   storm?: EnergyCost;
   /** Дела в лагере: укрепить лагерь, обстрел города (`world/siegecraft`). */
   crafts?: CraftOption[];
+  /** Осадные машины лагеря и способы штурма (`world/engines`, `world/wall`; docs/siege_v2.md, 4.3–4.4). */
+  engines?: EnginesView;
+}
+
+/** Машина в окне лагеря: что даёт, в каком она состоянии и можно ли её заказать. Числа — дверью `world/engines`. */
+export interface EngineOption {
+  id: EngineId;
+  name: string;
+  /** Что даёт — строкой устройства, без прогноза. */
+  use: string;
+  /** Сколько стоит древесины — доля стороны. */
+  wood: number;
+  /** Нет в очереди, строится, стоит готовая. */
+  state: 'none' | 'building' | 'ready';
+  /** Когда будет готова (строится); бесконечность — машинам не отдано леса. */
+  readyAt?: number;
+  /** Можно ли заказать ещё и почему нельзя. */
+  can: boolean;
+  reason: string | null;
+}
+
+/** Способ штурма у кнопки «Штурмовать»: машина и что она откроет во фронте (`wall.openingWords`). */
+export interface StormMethod {
+  engine: EngineId;
+  words: string;
+}
+
+export interface EnginesView {
+  /** Доля древесины машинам, одна из `ENGINE_SHARES`. */
+  share: number;
+  list: EngineOption[];
+  /** Есть ли у цели стена: без неё лестницы, таран и башня не нужны, а штурм идёт в поле. */
+  walls: boolean;
+  /** Готовые машины на штурм — выбор способа. */
+  methods: StormMethod[];
+  /** Проломы к этой минуте: из них и машин собирается фронт штурма. */
+  breaches: number;
 }
 
 /**
@@ -1163,6 +1206,10 @@ export interface AttackOrder {
    * так ударили бы приказом, отданным до лестницы.
    */
   fate?: Fate;
+  /**
+   * Машины, пущенные в штурм из лагеря (`world/engines.stormEngines`): только готовые. Нет поля — все готовые.
+   */
+  engines?: EngineId[];
 }
 
 /**
