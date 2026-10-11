@@ -296,8 +296,8 @@ describe('«дойти и осадить»: лагерь в минуту при�
     expect(out.phase).toBe('moving');
     expect(out.energy?.value, 'заплачена цена осады, а не штурма').toBe(ENERGY_MAX - ENERGY_PRICE.siege.price);
     expect(w.inner.save.sieges[lair.id], 'лагеря до прихода нет').toBeUndefined();
-    // Игрок не в игре: один заход спустя полчаса после прихода — лагерь уже стоит, с минуты прихода.
-    w.at(out.arriveAt + realMs(30 * 60));
+    // Игрок не в игре: первый заход после прихода — лагерь уже стоит, с минуты прихода.
+    w.at(out.arriveAt + 1000);
     await w.world.sync(p);
     const camp = w.inner.save.sieges[lair.id];
     expect(camp?.campId, 'лагерь — наш').toBe('general');
