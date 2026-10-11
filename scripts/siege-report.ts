@@ -808,6 +808,11 @@ async function playerSiege(seed: number): Promise<string> {
         log.push(`город доели голодом ${stamp()}`);
         return log.join(', ');
       }
+      // Сдача на фазе осады (docs/siege_v2.md, 2.4): ворота открыли раньше голода.
+      if (r.title.startsWith('Ворота открыли')) {
+        log.push(`ворота открыли ${stamp()}`);
+        return log.join(', ');
+      }
       if (r.title.startsWith('Лагерь разбит')) {
         log.push(`лагерь сбила выручка ${stamp()}`);
         return log.join(', ');
@@ -1245,7 +1250,7 @@ function waitLoss(fz: Frozen, a: number): number {
 const meanOf = (xs: readonly number[]): number => xs.reduce((n, x) => n + x, 0) / Math.max(1, xs.length);
 
 console.log('');
-console.log(`--- безразличие: ждать до голода против штурма через полный пролом в середине осады (${phaseFrozen.length} осад, L5 и L10) ---`);
+console.log(`--- безразличие: ждать до голода против штурма через полный пролом в середине осады (${phaseFrozen.length} осад; уровни — ${PHASE_LEVELS.map((l) => `L${l}`).join(', ')}) ---`);
 console.log('правило (docs/siege_v2.md, 3.2): за осаду до голода лагерь теряет столько же, сколько при штурме через полный пролом;');
 console.log('неподвижная точка (правило 16): потери штурма зависят от того, сколько в лагере осталось к середине, а это — от a.');
 {
