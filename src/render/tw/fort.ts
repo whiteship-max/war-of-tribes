@@ -89,6 +89,8 @@ export const m = (u: number): number => u / CITY_M;
 
 /** Шаг зубцов парапета, единицы набора. */
 export const MERLON_STEP = 1.55;
+/** Осадную башню подкатывают к стене за столько секунд до сшибки. */
+const TOWER_ROLL = 3;
 /** Несомая лестница клонится вперёд на столько (рад): стоймя её несут над строем. */
 const CARRY_TILT = 0.22;
 
@@ -416,6 +418,34 @@ export function buildFort(plan: TwPlan, quality: Quality): FortView {
     disposables.push(ladders);
   }
 
+  // ---- осадная башня ----
+  // Своей модели у набора нет: сруб из брёвен на колёсах, обшитый досками и сырыми шкурами, с площадкой вровень с боевым
+  // ходом и откидным мостом. Перед — у z = 0 (к стене), тело — наружу (+z), как у тарана.
+  let siege: THREE.Mesh | null = null;
+  if (w && site.tower) {
+    const tb = new Builder();
+    const T = tint(CITY.oak, 0.9);
+    const H = m(w.top) + 2.6;
+    const half = 2.2;
+    for (const [px, pz] of [[-half, 0.3], [half, 0.3], [-half, 4.4], [half, 4.4]] as const) box(tb, px, pz, 0, 1, 0.34, 0.34, 0, H, 'wood', T, 'wood');
+    // Обшивка с трёх сторон: бока и зад; перед открыт на верхнем ярусе — мост.
+    for (const side of [1, -1]) box(tb, side * half, 2.35, 1, 0, 4.1, 0.16, 0.5, H - 0.3, 'wood', tint(CITY.oak, 0.75), null);
+    box(tb, 0, 4.4, 0, 1, 2 * half, 0.16, 0.5, H - 0.3, 'wood', tint(CITY.oak, 0.75), null);
+    box(tb, 0, 0.3, 0, 1, 2 * half, 0.16, 0.5, m(w.top) - 0.6, 'wood', tint(CITY.oak, 0.75), null);
+    // Шкуры по верху и площадка вровень с ходом.
+    box(tb, 0, 2.35, 0, 1, 2 * half + 0.2, 4.4, H - 0.3, H, 'cloth', tint(0x8a7656), 'cloth');
+    box(tb, 0, 2.35, 0, 1, 2 * half, 4.1, m(w.top) - 0.15, m(w.top) + 0.05, 'wood', T, 'wood');
+    // Мост: опущен на стену, доски на 2 м вперёд.
+    box(tb, 0, -1.0, 0, 1, 2.2, 2.2, m(w.top) - 0.1, m(w.top) + 0.05, 'wood', tint(CITY.oakLight, 1.0), 'wood');
+    for (const side of [1, -1]) for (const zz of [0.9, 3.8]) box(tb, side * (half + 0.15), zz, 1, 0, 1.2, 0.2, 0, 1.2, 'wood', tint(CITY.oak, 0.7), 'wood');
+    const sg = geometryOf(tb);
+    disposables.push(sg);
+    siege = new THREE.Mesh(sg, mat);
+    siege.name = 'tw-siege-tower';
+    siege.castShadow = true;
+    group.add(siege);
+  }
+
   // ---- таран ----
   let ram: THREE.Mesh | null = null;
   if (w && site.ram) {
@@ -471,6 +501,11 @@ export function buildFort(plan: TwPlan, quality: Quality): FortView {
     const s = w.inward;
     if (ladders) {
       site.ladders.forEach((l, k) => {
+        // Лестница осадной башни — внутри сруба: её не несут и не видно.
+        if (l.tower) {
+          ladders!.setMatrixAt(k, M4.makeScale(0, 0, 0));
+          return;
+        }
         const u = plan.units[l.unit];
         const pose = unitPose(plan, u, Math.min(t, u.fleeAt ?? t));
         // Несут к стене стоймя перед строем, чуть наклонив вперёд; у стены — опускают верхом на боевой ход.
@@ -488,6 +523,18 @@ export function buildFort(plan: TwPlan, quality: Quality): FortView {
         ladders!.setMatrixAt(k, M4.compose(V, Q, S1));
       });
       ladders.instanceMatrix.needsUpdate = true;
+    }
+    if (siege && site.tower) {
+      // Башню катят перед строем и к сшибке ставят мостом на боевой ход; отряд дрогнул — она остаётся, где стояла.
+      const u = plan.units[site.tower.unit];
+      const pose = unitPose(plan, u, Math.min(t, u.fleeAt ?? t, site.tower.at));
+      const roll = Math.min(1, Math.max(0, (t - (site.tower.at - TOWER_ROLL)) / TOWER_ROLL));
+      const far = Math.max(1.4, outOf(w, pose.z) + 1.2);
+      const front = far + (0.15 - far) * roll;
+      const z = w.z - s * front;
+      V.set(site.tower.x, heightAt(f, site.tower.x, z), z);
+      siege.position.copy(V);
+      siege.quaternion.setFromAxisAngle(new THREE.Vector3(0, 1, 0), s > 0 ? Math.PI : 0);
     }
     if (ram && site.ram) {
       const u = plan.units[site.ram.unit];

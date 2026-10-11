@@ -1204,6 +1204,8 @@ console.log('лучник против орудия: цена, с которой
 
 const PHASE_LEVELS = [5, 10];
 const PHASE_VARIANTS = 4;
+/** Вариантов боя у раздела «способы штурма»: разница способов — доли силы, и четырёх вариантов на неё мало. */
+const STORM_VARIANTS = 12;
 const phaseFrozen: { level: number; fz: Frozen }[] = [];
 for (const level of PHASE_LEVELS) {
   for (const seed of TOWN_SEEDS) {
@@ -1374,10 +1376,48 @@ for (const id of MACHINE_IDS) {
 }
 
 console.log('');
-console.log(`--- способы штурма: штурм в середине осады по способам и проломам (docs/siege_v2.md, 10.2, п. 4; ${phaseFrozen.length} осад × ${PHASE_VARIANTS} вариантов) ---`);
-console.log(`лагерь истощён долей a = ${CAMP_WASTE} к середине осады; гарнизон с износом той минуты и ополчение на стене; бой — fights.wallFight`);
-console.log('способ                      проломов 0          1          2          3     (побед % / потери нападающего %)');
+console.log(`--- способы штурма: ровный штурм по способам и проломам (docs/siege_v2.md, 10.2, п. 4; ${phaseFrozen.length} осад × ${STORM_VARIANTS} вариантов) ---`);
+console.log('ровный штурм — во сколько раз войско сильнее лагеря этой осады к её середине, чтобы брать половину боёв у стены;');
+console.log(`медиана по осадам; гарнизон с износом той минуты и ополчение на стене, бой — fights.wallFight; лагерь истощён долей a = ${CAMP_WASTE}`);
+console.log('способ                      проломов 0      1      2      3');
 {
+  /** Доля побед штурма войском в `k` раз сильнее лагеря к середине осады. */
+  const winShare = (fz: Frozen, assault: Assault, k: number): number => {
+    const { camp, worldSeed } = frozenWindow(fz);
+    const span = fz.starvesAt - fz.since;
+    const mid = fz.since + span / 2;
+    const before = Math.floor((mid - fz.since) / SIEGE_PHASE);
+    const rate = CAMP_WASTE * (1 + camp.homeDays / CAMP_WASTE_DAYS);
+    const party = raidingParty(worldSeed, camp.id, camp.power * Math.pow(1 - rate, before) * k);
+    let won = 0;
+    for (let v = 0; v < STORM_VARIANTS; v++) {
+      const { field } = wallFight({
+        seed: fz.seed * 31 + v,
+        attacker: { kinds: party.kinds },
+        defender: { kinds: kindsOf(fz.g.army), militia: militiaMen(fz.g), archers: militiaArchers(fz.g), rest: siegeWear(fz.since, mid, span) },
+        front: wallFront(assault),
+      });
+      if (field.won) won += 1;
+    }
+    return won / STORM_VARIANTS;
+  };
+  /** Наименьшее `k` (до сотых), при котором штурм берёт половину боёв; бесконечность — не берёт и в восемь раз. */
+  const evenK = (fz: Frozen, assault: Assault): number => {
+    let lo = 0.25;
+    let hi = 8;
+    if (winShare(fz, assault, hi) < 0.5) return Infinity;
+    if (winShare(fz, assault, lo) >= 0.5) return lo;
+    while (hi - lo > 0.01) {
+      const mid = (lo + hi) / 2;
+      if (winShare(fz, assault, mid) >= 0.5) hi = mid;
+      else lo = mid;
+    }
+    return hi;
+  };
+  const median = (xs: number[]): number => {
+    const a = [...xs].sort((x, y) => x - y);
+    return a.length ? (a.length % 2 ? a[(a.length - 1) / 2] : (a[a.length / 2 - 1] + a[a.length / 2]) / 2) : NaN;
+  };
   const METHODS: { name: string; a: Assault }[] = [
     { name: 'с ходу (лестницы на себе)', a: {} },
     { name: 'лестницы', a: { ladders: true } },
@@ -1387,20 +1427,19 @@ console.log('способ                      проломов 0          1    
     { name: 'лестницы + башня', a: { ladders: true, tower: true } },
     { name: 'всё', a: { ladders: true, ram: true, tower: true } },
   ];
-  let falls = 0;
+  let rises = 0;
+  const field = median(phaseFrozen.map((x) => evenK(x.fz, { breaches: WALL_BREACHES })));
   for (const m of METHODS) {
     const cells: string[] = [];
     let prev = Infinity;
     for (let b = 0; b <= WALL_BREACHES; b++) {
-      const runs = phaseFrozen.map((x) => stormAt(x.fz, CAMP_WASTE, { ...m.a, breaches: b }));
-      const won = meanOf(runs.map((r) => r.won));
-      const loss = meanOf(runs.map((r) => r.loss));
-      if (loss > prev + 1e-9) falls += 1;
-      prev = loss;
-      cells.push(`${pct(Math.round(won * 1000), 1000).padStart(5)} / ${pct(Math.round(loss * 1000), 1000).padStart(5)}`);
+      const k = median(phaseFrozen.map((x) => evenK(x.fz, { ...m.a, breaches: b })));
+      if (k > prev + 0.011) rises += 1;
+      prev = k;
+      cells.push((Number.isFinite(k) ? `×${k.toFixed(2)}` : '—').padStart(6));
     }
-    console.log(`${m.name.padEnd(26)} ${cells.join('  ')}`);
+    console.log(`${m.name.padEnd(26)} ${cells.join(' ')}`);
   }
-  console.log(`свойство 6 (10.3) — пролом удешевляет штурм: потери не растут от 0 к 3 проломам — ${falls === 0 ? 'да, у каждого способа' : `нет, ${falls} шагов с ростом`}`);
+  console.log(`три пролома — весь фронт без штрафа, ополчение на стене: ×${field.toFixed(2)} (полевой бой с ополчением)`);
+  console.log(`свойство 6 (10.3) — пролом удешевляет штурм: ровный штурм не дорожает от 0 к 3 проломам — ${rises === 0 ? 'да, у каждого способа' : `нет, ${rises} шагов с ростом`}`);
 }
-

@@ -43,6 +43,8 @@ import {
   townHouses,
   wallTowers,
   type Rect,
+  type SlotUse,
+  type TwOpening,
   type TwSite,
   type TwSiteKind,
   type TwWall,
@@ -442,7 +444,51 @@ export interface PlanInput {
   quality: Quality;
   /** Место боя по метке записи (`BattleRecord.site`); нет — поле. */
   site?: TwSiteKind | null;
+  /**
+   * Проёмы штурма у стены (`BattleRecord.openings`): чем лезли — лестницы, таран, башня, пролом. Нет — запись до
+   * стены-прохода: лестницы по всему фронту и таран у ворот, как прежде.
+   */
+  openings?: readonly TwOpening[] | null;
 }
+
+/**
+ * Чем идут на стену в каждом слоте фронта (`SlotUse`) — раскладка проёмов записи по слотам. Ворота — в середине (там
+ * надвратная), проломы — с краёв, башня — в первый свободный край, лестницы — во все свободные (построенные) или в один
+ * свободный, с краёв (принесённые на себе, на треть стены). Где не лезет никто — глухая стена.
+ */
+export function slotUses(openings: readonly TwOpening[]): SlotUse[] {
+  const uses: SlotUse[] = ['wall', 'wall', 'wall'];
+  const of = (id: TwOpening['id']): TwOpening | undefined => openings.find((o) => o.id === id);
+  if (of('gate')) uses[1] = 'gate';
+  let breaches = Math.round((of('breach')?.share ?? 0) * 3);
+  for (const k of [0, 2, 1]) {
+    if (breaches <= 0) break;
+    if (uses[k] !== 'wall') continue;
+    uses[k] = 'breach';
+    breaches -= 1;
+  }
+  if (of('tower')) {
+    const k = [2, 0, 1].find((x) => uses[x] === 'wall');
+    if (k !== undefined) uses[k] = 'tower';
+  }
+  const ladders = of('ladders') ? 3 : of('scaling') ? Math.max(1, Math.round((of('scaling')?.share ?? 0) * 3)) : 0;
+  let left = ladders;
+  // С краёв: в середине надвратная, и лестниц к ней не ставят.
+  for (const k of [0, 2, 1]) {
+    if (left <= 0) break;
+    if (uses[k] !== 'wall') continue;
+    uses[k] = 'ladders';
+    left -= 1;
+  }
+  return uses;
+}
+
+/** Слот фронта, в котором стоит отряд: ближайшая середина слота по X. */
+const slotAt = (plan: TwPlan, x: number): number => {
+  let best = 0;
+  for (let k = 1; k < plan.slotX.length; k++) if (Math.abs(plan.slotX[k] - x) < Math.abs(plan.slotX[best] - x)) best = k;
+  return best;
+};
 
 /** Мера «наружу» для полосы-слота: 0 — наша левая (у +X), 2 — правая (у −X). */
 const SLOT_SIGN: Record<number, number> = { 0: 1, 1: 0, 2: -1 };
@@ -709,6 +755,7 @@ export function buildPlan(input: PlanInput): TwPlan {
 
   // ---- место: стена, город, лагерь (docs/battle_tw.md, раздел 13) ----
   const site = kind ? placeSite(kind, units, us, deployZ, contactZ, slotX, slotW, laneGap, TW_SPEC[quality], seed) : null;
+  if (site && kind === 'wall' && input.openings && input.openings.length > 0) site.uses = slotUses(input.openings);
 
   // ---- поле ----
   const xs = units.map((u) => Math.abs(u.x) + u.width / 2);
@@ -902,7 +949,7 @@ export function buildPlan(input: PlanInput): TwPlan {
   // Из ворот — до прочих путей: вышедшие из ворот бьются с городской стороны и в резерв и обход не уходят.
   if (sally) sallyFromGate(plan);
   // Штурм: лестницы, таран и ворота — по журналу (кто когда дрогнул); до путей фигур — лезущие стоят на лестницах.
-  if (site?.kind === 'wall') siegeWall(plan);
+  if (site?.kind === 'wall') siegeWall(plan, result);
   // Пути фигур — до залпов: резерв-лучник стреляет, когда вошёл (`commit`), а лучники в обход не ходят.
   trickleReserve(plan);
   plan.flankers = flankMoves(plan, result);
@@ -1080,14 +1127,16 @@ const deployX = (plan: TwPlan, u: TwUnit, i: number): number => u.x + plan.lx[i]
  * ворота выбиты, когда дрогнула оборона у ворот (сектор слома, `fleeAt`) или сломана вся оборона, и только если таран к
  * тому времени ещё у ворот. Оборона устояла — ворота целы, сколько бы таран ни бил (`site.test.ts`).
  */
-function siegeWall(plan: TwPlan): void {
+function siegeWall(plan: TwPlan, result: BattleResult): void {
   const site = plan.site!;
   const w = site.wall!;
   const att: Side = w.side === 'defender' ? 'attacker' : 'defender';
   const seed = plan.cast.seed;
+  const uses = site.uses ?? null;
   for (const u of plan.units) {
-    // Лестницы несёт пехота: конница и стая к стене не лезут.
+    // Лестницы несёт пехота: конница и стая к стене не лезут. Проёмы записи — лестницы только там, где по ним шли.
     if (u.side !== att || u.row !== 'front' || mounted(u)) continue;
+    if (uses && uses[slotAt(plan, u.x)] !== 'ladders') continue;
     const x0 = u.x - u.width / 2 + 0.7;
     const x1 = u.x + u.width / 2 - 0.7;
     if (x1 <= x0) continue;
@@ -1126,14 +1175,47 @@ function siegeWall(plan: TwPlan): void {
       l.queue.push(c.i);
     }
   }
-  // Таран — у отряда первой линии напротив ворот.
-  const ramUnit = plan.units
-    .filter((u) => u.side === att && u.row === 'front' && !mounted(u) && u.form !== 'bow' && Math.abs(u.x - w.gateX) < u.width / 2 + 1)
-    .sort((a, b) => Math.abs(a.x - w.gateX) - Math.abs(b.x - w.gateX))[0];
-  // Ворота выбиты, когда дрогнула оборона у ворот или сломана вся — и таран (или штурмующие) ещё у ворот.
+  // Осадная башня — у отряда первой линии в её слоте: подкатывают к сшибке, по её лестнице лезут вдвое гуще, чем по
+  // приставной (`TwLadder.tower`), и с моста — на боевой ход.
+  const towerSlot = uses ? uses.indexOf('tower') : -1;
+  if (towerSlot >= 0) {
+    const tx0 = plan.slotX[towerSlot];
+    const tu = plan.units
+      .filter((u) => u.side === att && u.row === 'front' && !mounted(u) && u.form !== 'bow')
+      .sort((a, b) => Math.abs(a.x - tx0) - Math.abs(b.x - tx0))[0];
+    if (tu) {
+      let x = tx0;
+      for (const t of w.towers) if (Math.abs(x - t.x) < t.size / 2 + 2) x = t.x + Math.sign(x - t.x || 1) * (t.size / 2 + 2);
+      const k = site.ladders.push({ x, unit: tu.id, raiseAt: plan.clashAt, queue: [], tower: true }) - 1;
+      site.tower = { unit: tu.id, x, at: plan.clashAt };
+      const bearer = bearerOf(plan, tu);
+      const near: { i: number; d: number }[] = [];
+      for (let i = tu.first; i < tu.first + tu.figures; i++) {
+        if (i === bearer || plan.climb[i] >= 0) continue;
+        near.push({ i, d: plan.rank[i] * 10 + Math.abs(deployX(plan, tu, i) - x) });
+      }
+      near.sort((a, b) => a.d - b.d || a.i - b.i);
+      for (const e of near.slice(0, LADDER_QUEUE * 2)) {
+        plan.climb[e.i] = k;
+        plan.climbQ[e.i] = site.ladders[k].queue.length;
+        site.ladders[k].queue.push(e.i);
+      }
+    }
+  }
+  // Таран — у отряда первой линии напротив ворот; проёмы записи без ворот — тарана не было, ворота целы.
+  const ramWanted = !uses || uses.includes('gate');
+  const ramUnit = ramWanted
+    ? plan.units
+        .filter((u) => u.side === att && u.row === 'front' && !mounted(u) && u.form !== 'bow' && Math.abs(u.x - w.gateX) < u.width / 2 + 1)
+        .sort((a, b) => Math.abs(a.x - w.gateX) - Math.abs(b.x - w.gateX))[0]
+    : undefined;
+  // Ворота выбиты: у записи с проёмами — в миг, когда ядро открыло проём ворот (событие `widen`), у прежних записей — когда
+  // дрогнула оборона у ворот или сломана вся; и только если таран (или штурмующие) ещё у ворот.
   const guards = plan.units.filter((u) => u.side === w.side && u.row === 'front' && Math.abs(u.x - w.gateX) < u.width / 2 + GATE_HALF);
   const cands = [...guards.map((u) => u.fleeAt), plan.brokenAt[w.side]].filter((x): x is number => x !== null && x > plan.clashAt);
-  const broke = cands.length ? Math.min(...cands) : null;
+  const widen = result.log.find((e) => e.id === 'widen');
+  const opened = widen ? castToTw(plan.timing, castTimeOfTick(plan.cast, widen.tick)) : null;
+  const broke = !ramWanted ? null : uses ? opened : cands.length ? Math.min(...cands) : null;
   const leave = ramUnit ? (ramUnit.fleeAt ?? plan.brokenAt[att]) : plan.brokenAt[att];
   w.gateAt = broke !== null && broke < plan.seconds && (leave === null || broke < leave) ? broke : null;
   if (ramUnit) {
@@ -1230,6 +1312,33 @@ function siegeStorm(plan: TwPlan): void {
         plan.goLane[e.i] = u.lane ?? 1;
         plan.goFight[e.i] = 1;
       });
+    }
+  }
+  // Через пролом — по осыпи, без лестниц и всем рядом, где оборона напротив дрогнула (проёмы записи, `TwSite.uses`).
+  const uses = site.uses;
+  if (!uses) return;
+  for (const u of plan.units) {
+    if (u.side !== att || u.row === 'reserve' || u.row === 'general' || u.form === 'bow' || uses[slotAt(plan, u.x)] !== 'breach') continue;
+    const facing = plan.units.filter((d) => d.side === w.side && d.row === 'front' && Math.abs(d.x - u.x) < (d.width + u.width) / 2);
+    const times = [...facing.map((d) => d.fleeAt), all].filter((x): x is number => x !== null && x > plan.clashAt);
+    if (times.length === 0) continue;
+    const over = Math.min(...times);
+    if (over >= plan.seconds || (u.fleeAt !== null && u.fleeAt <= over)) continue;
+    let j = 0;
+    for (let i = u.first; i < u.first + u.figures; i++) {
+      if (plan.deathAt[i] <= over + 0.5 || Number.isFinite(plan.goAt[i]) || plan.climb[i] >= 0) continue;
+      const at = over + 0.2 + j * (OVER_GAP / 4);
+      j += 1;
+      if (at >= plan.seconds || (u.fleeAt !== null && u.fleeAt <= at)) break;
+      figurePose(plan, i, at, null, q);
+      const x1 = q.x + (hash(seed, i, 88) - 0.5) * 1.6;
+      const z1 = w.z + w.inward * (w.thick + 1.2 + (j % 5) * 0.75 + hash(seed, i, 89));
+      const gz = w.z - w.inward * 0.05;
+      const bend: [number, number] = [q.x, 2 * gz - 0.5 * (q.z + z1)];
+      detour(plan, i, at, x1, z1, u.yaw, RUN_SPEED, bend);
+      plan.goKind[i] = 4;
+      plan.goLane[i] = u.lane ?? 1;
+      plan.goFight[i] = 1;
     }
   }
 }

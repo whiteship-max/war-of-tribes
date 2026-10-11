@@ -9,6 +9,7 @@ import type { Quality } from '../quality';
 import { TW_SPEC } from './spec';
 import { twPlanOfRecord } from './record';
 import { TwPlayer, type TwPlayerOptions } from './player';
+import type { TwOpening } from './site';
 
 export { hudAt, type TwHud } from './hud';
 export { CueClock, ambienceAt, cuesOf } from './cues';
@@ -27,6 +28,8 @@ export interface TwRecord {
    * (`siegecraft.breachOf`), её считает зовущий (`barrageShares`). Есть — ролик начинается с обстрела.
    */
   breach?: readonly number[];
+  /** Проёмы штурма (`BattleRecord.openings`): ролик рисует выбранный способ. Нет — лестницы по всему фронту и таран. */
+  openings?: readonly TwOpening[];
 }
 
 /**
@@ -34,7 +37,7 @@ export interface TwRecord {
  * сидит ввод сцены, и ведение пальцем в ролике двигало бы спрятанную камеру города.
  */
 export function playTw(renderer: THREE.WebGLRenderer, rec: TwRecord, quality: Quality, touch: HTMLElement, opts: TwPlayerOptions): TwPlayer {
-  const plan = twPlanOfRecord(rec.result, rec.us, rec.troops, quality, rec.militia, rec.place, rec.beasts, rec.site, rec.breach);
+  const plan = twPlanOfRecord(rec.result, rec.us, rec.troops, quality, rec.militia, rec.place, rec.beasts, rec.site, rec.breach, rec.openings);
   const player = new TwPlayer(renderer, plan, TW_SPEC[quality], opts);
   player.cam.attach(touch);
   return player;

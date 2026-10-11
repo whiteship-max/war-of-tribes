@@ -10,7 +10,8 @@ import { type BattleLand, type BattlePlace } from '@/game/battle/ground';
 import { DAY_LENGTH } from '@/game/constants';
 import { type TroopStack } from '@/game/battle/kinds';
 import { kindsOf } from '@/game/battle/price';
-import type { BattleResult, GroundPenalty, Side, Stack } from '@/battle/types';
+import { HORSE_KINDS, type BattleResult, type GroundPenalty, type Side, type Stack } from '@/battle/types';
+import { wallFront, type Assault, type Opening, type WallFront } from '@/world/wall';
 
 /**
  * Состав по числу бойцов: сбалансированное войско, доли те же на любом размере.
@@ -71,14 +72,33 @@ export function standGround(place: BattlePlace | undefined): GroundPenalty | und
   return land > 0 || crossing > 0 ? out : undefined;
 }
 
-function fight(a: Stack, d: Stack, seed: number, ground?: GroundPenalty, garrison?: Stack): BattleResult {
+function fight(a: Stack, d: Stack, seed: number, ground?: GroundPenalty, garrison?: Stack, front?: WallFront | null): BattleResult {
   // Обе стороны встают по правилу развёртывания — как в игре: пресетов больше нет (docs/battle_eu4.md, 14.5). Штраф
   // места — только нападающему, как у мира (`world/battle.resolveField`). Кто из ворот (совместный удар) — наблюдение ядра.
+  // Штурм с проёмами (`&open=`) — стеной-проходом мира (`world/wall`): ширина, грань стены, ворота посреди боя, конница
+  // без прохода стоит у стены — тем же правилом, что `fights.horseHeld` мира (дверь мира стенд не тянет: она тяжела).
+  const kinds = { ...a };
+  if (front && !front.horse) for (const k of HORSE_KINDS) kinds[k] = 0;
+  const wallGround = front && front.wall > 0 ? { ...(ground ?? {}), wall: front.wall } : ground;
   return simulateBattle({
     seed,
-    attacker: { ...deploySetup(a), ...(ground ? { ground } : {}), ...(garrison ? { garrison } : {}) },
+    attacker: { ...deploySetup(kinds), ...(wallGround ? { ground: wallGround } : {}), ...(garrison ? { garrison } : {}) },
     defender: deploySetup(d),
+    ...(front ? { width: front.width, fire: front.fire, ...(front.widen ? { widen: front.widen } : {}) } : {}),
   });
+}
+
+/** Проёмы штурма из адреса: `&open=ladders,ram,tower,b2` — машины и проломы; `&open=scaling` — лестницы на себе. */
+function assaultOf(open: string | null): Assault | null {
+  if (!open) return null;
+  const parts = open.split(',');
+  const b = parts.find((x) => /^b[0-3]$/.test(x));
+  return {
+    ...(b ? { breaches: Number(b.slice(1)) } : {}),
+    ...(parts.includes('ladders') ? { ladders: true } : {}),
+    ...(parts.includes('ram') ? { ram: true } : {}),
+    ...(parts.includes('tower') ? { tower: true } : {}),
+  };
 }
 
 /** Бой стенда из адреса: состав, место и час — тем же путём, что в игре. Его же берёт стенд ролика TW (`tw/stand.ts`). */
@@ -99,6 +119,8 @@ export interface StandBattle {
   militia: Record<Side, { men: number; archers: number }> | undefined;
   /** Залпов обстрела перед штурмом (`BattleRecord.shots`, ролик TW, раздел 15): `&shots=1..3`; нет — без обстрела. */
   shots: number | undefined;
+  /** Проёмы штурма (`BattleRecord.openings`): `&open=` на `site=wall`; нет — прежний штурм без стены-прохода. */
+  openings?: Opening[];
 }
 
 export function standBattle(p: URLSearchParams): StandBattle {
@@ -128,8 +150,24 @@ export function standBattle(p: URLSearchParams): StandBattle {
   if (home) {
     // Штурм стены и бой у ворот: пришедшие нападают, мы обороняем — `men` наш гарнизон, `foe` пришедшие.
     const raiders = theirs ?? armyOf(foe);
-    const result = fight(kindsOf(raiders), withMilitia(kindsOf(mine)), seed, ground);
-    return { men, foe, seed, beasts, us: 'defender', result, troops: { attacker: raiders, defender: mine }, place, beastSide: undefined, site, militia, shots };
+    const assault = site === 'wall' ? assaultOf(p.get('open')) : null;
+    const front = assault ? wallFront(assault) : null;
+    const result = fight(kindsOf(raiders), withMilitia(kindsOf(mine)), seed, ground, undefined, front);
+    return {
+      men,
+      foe,
+      seed,
+      beasts,
+      us: 'defender',
+      result,
+      troops: { attacker: raiders, defender: mine },
+      place,
+      beastSide: undefined,
+      site,
+      militia,
+      shots,
+      ...(front ? { openings: front.openings } : {}),
+    };
   }
   // Совместный удар: часть наших вышла из ворот — `&garrison=` бойцов (по умолчанию 40 %), в той же доле каждого рода, как
   // мир отдаёт ядру прошедший гарнизон (`LocalWorld.campBattle`).
