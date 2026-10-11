@@ -9,7 +9,9 @@ import { emptyStack, UNIT_KINDS, type GroundPenalty, type Pips, type Stack } fro
 import { troopTotal, type TroopStack } from '@/game/battle/kinds';
 import { troopLosses } from '@/game/battle/price';
 import { resolveField, type FieldInput, type FieldOutcome } from './battle';
-import { refusedAtGate, splitLosses, strikeForecast, type CampSight, type Through } from './works';
+import { refusedAtGate, splitLosses, strikeForecast, worksRipeAt, type CampSight, type Through, type WoodPlan } from './works';
+import { siegeWear } from './siege';
+import { CAMP_WOOD, CAMP_WORKS_RIPE } from './data/tuning';
 import { mixRest } from './rest';
 import { weakest } from './muster';
 
@@ -127,4 +129,51 @@ export function campFight(input: CampFightIn): CampFightOut {
   const losses = field.result?.sides.attacker.losses ?? emptyStack();
   const lost = splitLosses(losses, front?.kinds ?? emptyStack(), rear?.kinds ?? emptyStack());
   return { refused: false, input: fieldIn, field, front, rear, lost, fought, all };
+}
+
+/**
+ * Минута, в которую решается «садиться ли» (`campHolds`): рогатки стороны города дозрели (`works.worksRipeAt`, по плану
+ * древесины лагеря). Фронт не дозреет никогда (весь лес в тыл) — через `CAMP_WORKS_RIPE` от постановки: позже рогатки
+ * фронта не станут крепче, чем сейчас.
+ */
+export function holdMinute(since: number, wood: WoodPlan = CAMP_WOOD): number {
+  const ripe = worksRipeAt(since, 'front', wood);
+  return ripe < Infinity ? ripe : since + CAMP_WORKS_RIPE;
+}
+
+/** Всё, чем решается «садиться ли»: лагерь в минуту дозревания и гарнизон, выходящий на вылазку весь. */
+export interface HoldIn extends Omit<CampFightIn, 'at' | 'front' | 'rear' | 'resolve' | 'pips'> {
+  /**
+   * Гарнизон на вылазке: все, кто дома, без ополчения — оно за ворота не выходит. Мораль — между боями, на минуту
+   * дозревания; износ осады к этой минуте дверь кладёт сама (`siege.siegeWear`).
+   */
+  sortie: CampPartIn & { resolve?: number; pips?: Pips };
+}
+
+/**
+ * **Садиться в осаду или штурмовать** (docs/siege_v2.md, 1.3, шаг 3) — одна дверь на лагерь логова у города игрока и у
+ * двора мира. Отряд, который стены с ходу не взял бы, садится, если его лагерь **удержится против вылазки всего гарнизона
+ * в минуту, когда рогатки со стороны города дозреют** (`holdMinute`); не удержится — штурмует, как прежде.
+ *
+ * Правило, а не порог: это сухой бой той же двери, что настоящая вылазка (`campFight`) — проход через дозревшие рогатки,
+ * укрепления, место, мораль, — в минуту дозревания и ничего не трогая. Почему дозревание, а не постановка: прежнее правило
+ * спрашивало вылазку на пустом поле, а рано вылазка сильна, поздно безнадёжна (docs/siege_audit.md, Б3), — и отсекало
+ * ровно те осады, где у защитника был бы ответ. Новое оставляет ему окно до дозревания: решение, которое надо успеть
+ * принять. Пробиться к рогаткам некому (проход закрыт) — лагерь держится.
+ */
+export function campHolds(input: HoldIn): boolean {
+  const at = holdMinute(input.sight.since, input.sight.wood);
+  const { sortie } = input;
+  const out = campFight({
+    seed: input.seed,
+    at,
+    sight: input.sight,
+    camp: input.camp,
+    front: { kinds: sortie.kinds, rest: (sortie.rest ?? 1) * siegeWear(input.sight.since, at) },
+    resolve: sortie.resolve,
+    pips: sortie.pips,
+    ground: input.ground,
+    fort: input.fort,
+  });
+  return out.refused || !out.field.won;
 }

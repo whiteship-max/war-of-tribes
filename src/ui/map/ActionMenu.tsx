@@ -440,29 +440,54 @@ export function ActionMenu() {
                 между ними в один и тот же миг. Цену увода из лагеря — снятую осаду — говорит
                 строка «Вести сюда» до нажатия (`CAMP_LEAVE`).
               */}
-              <Order
-                icon="ui-target"
-                glyph="⛺"
-                name="Осадить"
-                can={card.can.besiege}
-                why={
-                  card.siege
-                    ? 'Здесь уже стоит лагерь'
-                    : figure?.besieging
-                      ? 'Полководец уже держит осаду'
-                      : (card.energy?.besiege.block ?? card.note)
-                }
-                tip={tipOf('Осада', 'Встать лагерем и ждать, пока кончится хлеб. Пока лагерь стоит, энергия полководца не тратится.', routLine(card))}
-                onGo={() => {
-                  void (async () => {
-                    const err = await besiege(fate);
-                    showToast(err ?? 'Отряд встал лагерем у стен.');
-                    if (!err) closeMenu();
-                  })();
-                }}
-              >
-                {card.energy && <EnergyPrice price={card.energy.besiege.price} />}
-              </Order>
+{here || !card.invest ? (
+                              <Order
+                  icon="ui-target"
+                  glyph="⛺"
+                  name="Осадить"
+                  can={card.can.besiege}
+                  why={
+                    card.siege
+                      ? 'Здесь уже стоит лагерь'
+                      : figure?.besieging
+                        ? 'Полководец уже держит осаду'
+                        : (card.energy?.besiege.block ?? card.note)
+                  }
+                  tip={tipOf('Осада', 'Встать лагерем и ждать, пока кончится хлеб. Пока лагерь стоит, энергия полководца не тратится.', routLine(card))}
+                  onGo={() => {
+                    void (async () => {
+                      const err = await besiege(fate);
+                      showToast(err ?? 'Отряд встал лагерем у стен.');
+                      if (!err) closeMenu();
+                    })();
+                  }}
+                >
+                  {card.energy && <EnergyPrice price={card.energy.besiege.price} />}
+                </Order>
+              ) : (
+                <Order
+                  icon="ui-target"
+                  glyph="⛺"
+                  name="Дойти и осадить"
+                  can={card.invest.can}
+                  why={card.invest.reason}
+                  tip={tipOf('Дойти и осадить', 'Полководец ведёт отряд сюда и встаёт лагерем в минуту прихода, даже если ты не в игре. Пока лагерь стоит, энергия полководца не тратится.', routLine(card))}
+                  onGo={() => {
+                    void (async () => {
+                      const walkMs = card.invest?.walkMs ?? 0;
+                      const err = await assault(card.id, fate, 'siege');
+                      showToast(err ?? `Отряд вышел. Лагерь встанет через ${realLeft(walkMs / 1000)}.`);
+                      if (!err) closeMenu();
+                    })();
+                  }}
+                >
+                  <span>{count(card.invest.men, 'боец', 'бойца', 'бойцов')}</span>
+                  <span>
+                    <Icon name="ui-time" glyph="⏳" /> {realLeft(card.invest.walkMs / 1000)}
+                  </span>
+                  <EnergyPrice price={card.invest.energy.price} />
+                </Order>
+              )}
             </>
           )}
 

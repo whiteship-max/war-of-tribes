@@ -267,6 +267,60 @@ describe('«дойти и ударить»: бой в минуту приход�
   });
 });
 
+describe('«дойти и осадить»: лагерь в минуту прихода (docs/siege_v2.md, 1.3)', () => {
+  const ready = async () => {
+    const w = makeWorld();
+    const p = profile({ army: { spearman: 40 } });
+    await w.world.sync(p);
+    expect(await w.world.setGarrison({ spearman: 40 })).toBeNull();
+    const at = (await fig(w, 'general')).readyAt;
+    if (at > w.now()) w.at(at + 1);
+    await w.world.sync(p);
+    return { w, p, lair: nearestLair(w) };
+  };
+
+  it('цена осады при приказе, лагерь встаёт в минуту прихода и офлайн; карточка и отказ — одной проверкой', async () => {
+    const { w, p, lair } = await ready();
+    const plan = (await w.world.settlement(lair.id))?.invest;
+    expect(plan?.can, `точка внутри области: приказ открыт (${plan?.reason})`).toBe(true);
+    expect(plan?.walkMs).toBeGreaterThan(0);
+    expect(plan?.energy.price).toBe(ENERGY_PRICE.siege.price);
+    // Сил меньше, чем на дорогу и осаду: строка карточки и отказ — одни слова.
+    w.inner.save.figures.general.energy = { value: roadCost(plan!.walkMs) + ENERGY_PRICE.siege.price - 1, at: w.now(), mode: 'fill' };
+    const low = (await w.world.settlement(lair.id))?.invest;
+    expect(low?.can).toBe(false);
+    expect(await w.world.assault(lair.id, 'plunder', 'siege')).toBe(low?.reason);
+    w.inner.save.figures.general.energy = undefined;
+    expect(await w.world.assault(lair.id, 'plunder', 'siege')).toBeNull();
+    const out = await fig(w, 'general');
+    expect(out.phase).toBe('moving');
+    expect(out.energy?.value, 'заплачена цена осады, а не штурма').toBe(ENERGY_MAX - ENERGY_PRICE.siege.price);
+    expect(w.inner.save.sieges[lair.id], 'лагеря до прихода нет').toBeUndefined();
+    // Игрок не в игре: один заход спустя полчаса после прихода — лагерь уже стоит, с минуты прихода.
+    w.at(out.arriveAt + realMs(30 * 60));
+    await w.world.sync(p);
+    const camp = w.inner.save.sieges[lair.id];
+    expect(camp?.campId, 'лагерь — наш').toBe('general');
+    expect(camp?.sinceAt, 'встал в минуту прихода').toBe(out.arriveAt);
+    expect(camp?.fate, 'с объявленной участью').toBe('plunder');
+    // Боя не было: «дойти и осадить» — не удар.
+    expect((await w.world.reports()).some((r) => r.kind === 'raid' && r.target.id === lair.id)).toBe(false);
+  });
+
+  it('к приходу осадить нельзя — лагеря нет, и летопись говорит почему той же проверкой, что у «Осадить»', async () => {
+    const { w, p, lair } = await ready();
+    expect(await w.world.assault(lair.id, 'plunder', 'siege')).toBeNull();
+    const out = await fig(w, 'general');
+    // Пока полководец в пути, город успели доесть: неприкосновенность до после прихода.
+    w.inner.save.siegeImmune[lair.id] = out.arriveAt + realMs(60 * 60);
+    w.at(out.arriveAt + 1000);
+    const res = await w.world.sync(p);
+    expect(w.inner.save.sieges[lair.id]).toBeUndefined();
+    const miss = res.effects.find((e) => e.id.startsWith('assault-miss-'));
+    expect(miss?.text).toContain('лагеря не поставил: город недавно доели');
+  });
+});
+
 describe('цена дела: при приказе, и не хватает — та же причина в меню и в отказе', () => {
   it('лазутчик: проба стоит двадцать; без них строка погашена той же строкой, что откажет приказ', async () => {
     const w = makeWorld();

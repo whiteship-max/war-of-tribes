@@ -14,8 +14,7 @@ import { defense } from '@/game/derived';
 import { sendableUnits } from '@/game/sim/expedition';
 import { formatCoord, marchSeconds, secondsLeft } from '@/world/geo';
 import { formatAge, formatEstimate, PRECISION_NOTE } from '@/world/intel';
-import { CAMP_LEAVE, SIEGE_AT_GATES } from '@/world/siege';
-import { priceOf } from '@/world/energy';
+import { CAMP_LEAVE } from '@/world/siege';
 import { worksWords } from '@/world/works';
 import { FATE_DEFAULT } from '@/world/spoils';
 import { FATE_META } from '@/world/data/fates';
@@ -275,6 +274,15 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
   };
   // «Дойти и ударить»: полководец не здесь — идёт сюда и бьёт в минуту прихода (`assault`). Город игрока — блок «Война».
   const goStrike = !card.castle && !card.siege?.mine && !standing.includes('general') ? card.assault : undefined;
+  // «Дойти и осадить»: полководец не здесь — идёт сюда и встаёт лагерем в минуту прихода (docs/siege_v2.md, 1.3).
+  const goSiege = !card.castle && !card.siege?.mine && !standing.includes('general') ? card.invest : undefined;
+  const invest = async (): Promise<void> => {
+    if (!goSiege) return;
+    setBusy(true);
+    const err = await assault(card.id, fate, 'siege');
+    setBusy(false);
+    showToast(err ?? `Отряд вышел. Лагерь встанет через ${realLeft(goSiege.walkMs / 1000)}, даже если ты не в игре.`);
+  };
   const march = async (): Promise<void> => {
     if (!goStrike) return;
     setBusy(true);
@@ -418,13 +426,13 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
             Осадить
           </button>
         )}
-        {/* Полководец не у ворот: осада — не поход, её ставят на месте. Кнопка видна погашенной с ценой, а не прячется
-            (правило меню приказов; docs/siege_audit.md, п. 14). Пути «дойти и осадить» нет. */}
-        {goStrike && !card.can.besiege && (
-          <button className="nx-cact" disabled>
+        {/* Полководец не у ворот: «Дойти и осадить» — поход, лагерь в минуту прихода (docs/siege_v2.md, 1.3; закрывает
+            находку 14 docs/siege_audit.md). Погашенная — с причиной строкой ниже. */}
+        {goSiege && !card.can.besiege && (
+          <button className="nx-cact" disabled={busy || !goSiege.can} onClick={() => void invest()}>
             <Icon name="ui-target" glyph="⛺" />
-            Осадить
-            <EnergyPrice price={priceOf('siege')} />
+            Дойти и осадить · {realLeft(goSiege.walkMs / 1000)}
+            <EnergyPrice price={goSiege.energy.price} />
           </button>
         )}
         {MISSIONS.filter((m) => m.id !== 'raid' && card.can[m.id]).map((m) => (
@@ -441,7 +449,9 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
         ))}
       </div>
       {goStrike && !goStrike.can && goStrike.reason && <p className="nx-tnote bad">{goStrike.reason}</p>}
-      {goStrike && !card.can.besiege && <p className="nx-tnote">{SIEGE_AT_GATES}</p>}
+      {goSiege && !card.can.besiege && !goSiege.can && goSiege.reason && goSiege.reason !== goStrike?.reason && (
+        <p className="nx-tnote bad">{goSiege.reason}</p>
+      )}
       {card.can.besiege && card.campStorm && <p className="nx-tnote">{card.campStorm}</p>}
       {card.can.besiege && <p className="nx-tnote">{CAMP_LEAVE}</p>}
       {/* Город живого игрока: поход на него и война с ним (docs/pvp.md). */}

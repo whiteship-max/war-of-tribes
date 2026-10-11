@@ -7,6 +7,7 @@
 import type { CraftAct } from './siegecraft';
 import type { TroopStack } from '@/game/battle/kinds';
 import type {
+  AssaultMode,
   AttackOrder,
   AttackResult,
   CampView,
@@ -140,7 +141,7 @@ export interface WorldApi {
    * игрока, — по логову и по городу игрока одним приказом (город игрока — поход со штурмом с ходу, `warMarch`). Стоит у
    * ворот — бьёт сразу. Что будет до приказа — `SettlementCard.assault`. null — выступил или ударил, иначе причина.
    */
-  assault(target: SettlementId, fate: Fate): Promise<string | null>;
+  assault(target: SettlementId, fate: Fate, mode?: AssaultMode): Promise<string | null>;
 
   /** Снять свою осаду: полководец остаётся, где стоял. null — снята, иначе причина. */
   retreat(): Promise<string | null>;

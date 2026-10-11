@@ -827,7 +827,16 @@ export interface SettlementCard extends SettlementView {
    * некому или нечего: свой город, пепелище, места полководца нет.
    */
   assault?: AssaultPlan;
+  /**
+   * «Дойти и осадить» (docs/siege_v2.md, 1.3): полководец идёт к этому двору и ставит лагерь в минуту прихода
+   * (`WorldApi.assault` с `'siege'`), цена осады — при приказе. У города игрока поля нет: осаду туда выбирают при выходе
+   * в блоке «Война» (`WarCard`, тот же `assault` с `'siege'` → `warMarch`).
+   */
+  invest?: AssaultPlan;
 }
+
+/** Что делает полководец, дойдя до цели: штурм с ходу или осада. */
+export type AssaultMode = 'storm' | 'siege';
 
 /**
  * «Дойти и ударить» глазами карточки и меню приказов (решение владельца 06.10.2026, docs/agent_energy.md): полководец

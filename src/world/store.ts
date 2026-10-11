@@ -38,6 +38,7 @@ import {
   terrainAt,
 } from './cache';
 import type {
+  AssaultMode,
   AnchorId,
   AttackOrder,
   CampView,
@@ -268,8 +269,11 @@ export interface WorldStore {
   /** Дела лазутчика против города игрока (docs/spy_pvp.md): меню — с сервера, приказ — по его минуте. */
   spyMenu: (target: SettlementId) => Promise<RivalMenu>;
   spyRival: (target: SettlementId, deed: RivalDeedId, shownAt: number) => Promise<string | null>;
-  /** «Дойти и ударить»: по логову и по городу игрока одним приказом; бой — в минуту прихода. */
-  assault: (target: SettlementId, fate: Fate) => Promise<string | null>;
+  /**
+   * «Дойти и ударить» (`mode` 'storm', по умолчанию): по логову и по городу игрока одним приказом; бой — в минуту прихода.
+   * «Дойти и осадить» (`'siege'`): лагерь в минуту прихода (docs/siege_v2.md, 1.3).
+   */
+  assault: (target: SettlementId, fate: Fate, mode?: AssaultMode) => Promise<string | null>;
   /** Снять свою осаду. */
   retreat: () => Promise<string | null>;
   /** Поделить древесину своего лагеря: доля фронту. */
@@ -639,8 +643,8 @@ export const useWorld = create<WorldStore>((set, get) => ({
     return null;
   },
 
-  assault: async (target, fate) => {
-    const err = await worldApi().assault(target, fate);
+  assault: async (target, fate, mode) => {
+    const err = await worldApi().assault(target, fate, mode);
     if (err) {
       haptic('error');
       return err;

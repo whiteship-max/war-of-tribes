@@ -947,36 +947,50 @@ describe('осада: лагерь как цель на карте', () => {
   }, 60_000);
 });
 
-describe('осада: лагерь переживёт вылазку', () => {
-  it('отряд, которого гарнизон сметёт первой же вылазкой, в осаду не садится: идёт на приступ, отбит и уходит', async () => {
-    // Правило (docs/battle_eu4.md, 14.35, «Осада в одного»): в осаду становится только отряд, чей лагерь переживёт вылазку
-    // гарнизона, — иначе это набег. Один мир, один набег, два гарнизона. Без войска дома лагерь садится — это и граница
-    // области: у этого набега стена не взята, доля осады выпала, остывания и неприкосновенности нет (иначе он не сел бы).
+describe('осада: лагерь удержится к дозревшим рогаткам', () => {
+  it('отряд, которого гарнизон смёл бы в минуту постановки, садится: «садиться ли» спрашивает минуту дозревания', async () => {
+    // Правило (docs/siege_v2.md, 1.3, шаг 3): в осаду становится отряд, чей лагерь удержится против вылазки всего
+    // гарнизона **к минуте, когда рогатки со стороны города дозреют**, — а не в минуту постановки на пустом поле. Один мир,
+    // один набег, два гарнизона. Граница области: у этого набега стена не взята, доля осады выпала, остывания и
+    // неприкосновенности нет — без войска дома он садится (иначе правило здесь не спрашивалось бы).
     const bare = holdout({ army: {} });
     const a = makeWorld(7);
     await a.world.sync(bare);
     const sat = (await besiege(a, bare)).siege!;
     const campId = (a.world as unknown as { save: WorldSave }).save.sieges.home.campId;
-    const camp = sat.campMen;
-    expect(camp, 'лагерь — те же люди, что пришли').toBeGreaterThan(0);
+    expect(sat.campMen, 'лагерь — те же люди, что пришли').toBeGreaterThan(0);
 
-    // Тот же мир, тот же набег — а дома гарнизон, которому этот лагерь не соперник. Слабость посёлка у логова та же: мощь
-    // войска ниже порога защиты слабого, и набег выходит тем же (граница: отчёт о нём есть, и пришёл он в ту же минуту).
-    const garrison = holdout({ army: { legionary: 40, spearman: 30, archer: 20 } });
+    // Тот же мир, тот же набег — а дома гарнизон, который этот лагерь в минуту постановки сметает (проверено ниже тем же
+    // боем вылазки). Рогатки к дозреванию пропускают к лагерю лишь долю строивших — и лагерь садится.
+    const army = { legionary: 40, spearman: 30, archer: 20 };
+    const garrison = holdout({ army });
     const b = makeWorld(7);
     await b.world.sync(garrison);
-    while (b.now() < sat.since) {
+    let pulse = await b.world.sync(garrison);
+    while (b.now() < sat.since && !pulse.siege) {
       b.advance(20_000);
-      const pulse = await b.world.sync(garrison);
-      expect(pulse.siege, 'лагерь, который гарнизон сметёт, не садится').toBeNull();
+      pulse = await b.world.sync(garrison);
     }
-    const report = (await b.world.reports()).find((r) => r.id === `${campId}-defense`);
-    expect(report, 'тот же набег дошёл до стены').toBeTruthy();
-    expect(report!.at, 'в ту же минуту').toBe(sat.since);
-    expect(report!.won, 'пошёл на приступ и отбит').toBe(true);
-    const back = (await b.world.sync(garrison)).marches.find((m) => m.id === campId);
-    expect(back?.phase ?? 'дома', 'и уходит, а не стоит у ворот').not.toBe('stay');
+    expect(pulse.siege, 'лагерь, который удержится к дозреванию, садится').toBeTruthy();
+    const save = (b.world as unknown as { save: WorldSave }).save;
+    expect(save.sieges.home.campId, 'тот же набег').toBe(campId);
+    expect(pulse.siege!.since, 'в ту же минуту').toBe(sat.since);
+
+    // Вылазка всем гарнизоном сразу после постановки (рогаток ещё нет) лагерь сметает: правило «в минуту постановки»
+    // этого отряда не посадило бы — тест отличает новое правило от старого.
+    const res = await b.world.sortie(army);
+    expect(res.error).toBeNull();
+    expect(res.won, 'в минуту постановки гарнизон лагерь сметает').toBe(true);
   }, 120_000);
+
+  it('дверь одна: решает fights.campHolds в минуту дозревания, мир не держит своей арифметики', () => {
+    const src = readFileSync(path.join(process.cwd(), 'src/world/local/LocalWorld.ts'), 'utf8');
+    const holds = src.slice(src.indexOf('private campHolds('), src.indexOf('private siegeFalls('));
+    expect(holds, 'сухой прогон — дверью campHolds').toContain('return campHolds({');
+    expect(holds, 'минута — дозревание фронта').toContain('holdMinute(at, set.wood)');
+    expect(holds, 'окно — то же, что встало бы').toContain('this.siegeWindowAt(');
+    expect(holds, 'своего боя у мира нет').not.toContain('resolveField(');
+  });
 });
 
 describe('осада: частота от ИИ', () => {

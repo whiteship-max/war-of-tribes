@@ -252,6 +252,9 @@ for (const town of TOWNS) {
   );
 }
 console.log(`всего:    ${totalCame} прихода, осад могло быть ${totalOld} (${pct(totalOld, totalCame)}), село ${totalNew} (${pct(totalNew, totalCame)})`);
+// `SIEGE_PART=частота` — только этот раздел: ручка замера частоты при выводе `SIEGE_CHANCE` (docs/siege_v2.md, 1.3),
+// не приёмки — приёмка гонит отчёт целиком.
+if (process.env.SIEGE_PART === 'частота') process.exit(0);
 
 console.log('');
 console.log(`--- проход через рогатки: доля побед вылазки (дозревшие рогатки — ${CAMP_WORKS_PASS} на человека) ---`);
