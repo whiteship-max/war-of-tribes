@@ -292,14 +292,15 @@ export const pipOf = (setup: ArmySetup, pip: PipId): number => {
 export function groundFaces(
   own: ArmySetup,
   enemy: ArmySetup,
-): { land: number; crossing: number; lifted: boolean; works: number; faces: number } {
+): { land: number; crossing: number; lifted: boolean; works: number; wall: number; faces: number } {
   const clean = (n: number | undefined): number => (n !== undefined && Number.isFinite(n) ? Math.max(0, n) : 0);
   const land = clean(own.ground?.land);
   const crossing = clean(own.ground?.crossing);
-  // Укрепления лагеря — как земля: манёвр их не снимает (`GroundPenalty.works`).
+  // Укрепления лагеря и стена — как земля: манёвр их не снимает (`GroundPenalty.works`, `.wall`).
   const works = clean(own.ground?.works);
+  const wall = clean(own.ground?.wall);
   const lifted = crossing > 0 && pipOf(own, 'maneuver') > pipOf(enemy, 'maneuver');
-  return { land, crossing, lifted, works, faces: land + works + (lifted ? 0 : crossing) };
+  return { land, crossing, lifted, works, wall, faces: land + works + wall + (lifted ? 0 : crossing) };
 }
 
 /**
@@ -373,7 +374,8 @@ class Battle {
    */
   luck: Record<Side, number> = { attacker: 1, defender: 1 };
   /** Ширина фронта полосы в этом бою: столько бьёт в одном ряду полосы с одной стороны. */
-  readonly width: number;
+  /** Ширина боя; меняется только проёмом посреди боя (`BattleInput.widen`), в начале его круга. */
+  width: number;
   /** Сколько живых стоит в ряду полосы в этот тик (`measureRows`): ключ — `rowKey`. */
   rowMen = new Map<string, number>();
   /** Сколько кругов прошло сверх первого (`run`); круг по счёту — на единицу больше. */
@@ -474,6 +476,19 @@ class Battle {
     }
     // Поле штрафа — только когда он есть: у боя на ровном месте запись та же, что до поставки 1.
     this.emit(ground.attacker > 0 || ground.defender > 0 ? { id: 'dice', rolls, pips, ground } : { id: 'dice', rolls, pips });
+  }
+
+  /**
+   * Проём посреди боя (`BattleInput.widen`): в начале круга `round` ширина боя и штраф стены нападающего становятся
+   * такими, как сказал вход, — раз. Кость фазы читает штраф в начале фазы, так что новый круг бросает уже с ним.
+   */
+  widenAt(round: number): void {
+    const w = this.input.widen;
+    if (!w || round !== Math.max(1, Math.floor(w.round))) return;
+    this.width = w.width;
+    const atk = this.input.attacker;
+    this.ground.attacker = groundFaces({ ...atk, ground: { ...(atk.ground ?? {}), wall: w.wall } }, this.input.defender);
+    this.emit({ id: 'widen', width: w.width, wall: this.ground.attacker.wall });
   }
 
   emit(e: EventBody): void {
@@ -649,8 +664,16 @@ class Battle {
     if (this.tick === 1) {
       for (const side of SIDES) {
         const g = this.ground[side];
-        if (g.land > 0 || g.crossing > 0 || g.works > 0) {
-          this.emit({ id: 'ground', side, land: g.land, crossing: g.crossing, lifted: g.lifted, ...(g.works > 0 ? { works: g.works } : {}) });
+        if (g.land > 0 || g.crossing > 0 || g.works > 0 || g.wall > 0) {
+          this.emit({
+            id: 'ground',
+            side,
+            land: g.land,
+            crossing: g.crossing,
+            lifted: g.lifted,
+            ...(g.works > 0 ? { works: g.works } : {}),
+            ...(g.wall > 0 ? { wall: g.wall } : {}),
+          });
         }
       }
       // Сторона вышла в бой уставшей — раз, в начале боя: с какой долей полной морали (мораль между боями, 14.31).
@@ -659,6 +682,8 @@ class Battle {
         if (rest < 1) this.emit({ id: 'weary', side, rest });
       }
     }
+    // Проём посреди боя открывается в начале своего круга — до кости: новый круг бросает уже с новым штрафом.
+    if (this.opening) this.widenAt(this.round);
     this.rollDice();
     for (const side of SIDES) this.sides[side].killsAtPhase = cloneKills(this.sides[side].kills);
     if (this.opening) {
@@ -1562,5 +1587,8 @@ export function simulateBattle(input: BattleInput, opts: { observe?: boolean } =
   }
   // Ширина — положительное число; `Infinity` законна и значит «боя без ширины».
   if (input.width !== undefined && !(input.width > 0)) throw new Error(`battle: ширина фронта ${input.width}`);
+  if (input.widen && !(input.widen.width > 0 && input.widen.round >= 1 && input.widen.wall >= 0)) {
+    throw new Error(`battle: проём посреди боя ${JSON.stringify(input.widen)}`);
+  }
   return new Battle(input, opts.observe ?? true).run();
 }
