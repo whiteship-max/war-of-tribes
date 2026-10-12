@@ -228,3 +228,22 @@ describe('наказы нашего лагеря (8.3)', () => {
     else expect(w.inner.save.sieges[lair.id], 'отбили — лагерь стоит').toBeTruthy();
   }, 120_000);
 });
+
+describe('вылазка по нашему лагерю (находка 2а)', () => {
+  it('разбитый лагерь не «устоял»: строка убыли говорит исход того же боя', async () => {
+    type Sortie = { resolveSortieOn(id: string, at: number, field: { won: boolean; defenderLoss: number; attackerLoss: number }, why: string): number };
+    const texts: Record<string, string> = {};
+    for (const won of [true, false]) {
+      const w = makeWorld(11);
+      const { p, lair } = await ourCamp(w, 100);
+      const lost = (w.world as unknown as Sortie).resolveSortieOn(lair.id, w.now(), { won, defenderLoss: 0.3, attackerLoss: 0.1 }, 'Из логова вышли на вылазку.');
+      expect(lost, 'точка внутри области: лагерь недосчитался людей, строка убыли пишется').toBeGreaterThan(0);
+      expect(Boolean(w.inner.save.sieges[lair.id]), 'победа вылазки снимает осаду').toBe(!won);
+      const pulse = await w.world.sync(p);
+      texts[String(won)] = pulse.effects.find((e) => e.id.startsWith('camp-wear'))?.text ?? '';
+    }
+    expect(texts.true).toContain('Лагерь разбит');
+    expect(texts.true).not.toContain('устоял');
+    expect(texts.false).toContain('Лагерь устоял');
+  }, 120_000);
+});

@@ -1734,7 +1734,7 @@ export class LocalWorld implements WorldApi {
   }
 
   /**
-   * Лагерь понёс потери, но устоял. Убыль ложится туда, где живёт войско
+   * Лагерь понёс потери (устоял он или разбит — говорит `after`). Убыль ложится туда, где живёт войско
    * лагеря: у чужого — в мощь и состав марша, у нашего — в дружину при
    * полководце. Второго места, где хранится войско лагеря, нет.
    */
@@ -2353,7 +2353,8 @@ export class LocalWorld implements WorldApi {
   private resolveSortieOn(id: SettlementId, at: number, field: FieldOutcome, why: string): number {
     const w = this.save.sieges[id];
     if (!w) return 0;
-    const campLost = this.wearCamp(w, field.defenderLoss, at, why);
+    // Разбитый лагерь не «устоял» (находка 2а): строка убыли говорит исход того же боя, что снимает осаду.
+    const campLost = this.wearCamp(w, field.defenderLoss, at, why, field.won ? 'Лагерь разбит, осада снята.' : undefined);
     if (field.won) this.liftSiege(id, at);
     return campLost;
   }

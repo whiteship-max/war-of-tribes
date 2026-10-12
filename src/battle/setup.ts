@@ -249,7 +249,23 @@ export function validateSetup(setup: ArmySetup): string | null {
     }
   }
   if (total === 0) return 'армия пуста';
+  if (setup.behind) {
+    for (const id of SECTORS) {
+      for (const k of UNIT_KINDS) {
+        const n = setup.behind[id][k];
+        if (!Number.isInteger(n) || n < 0 || n > setup.sectors[id][k]) return `тыл ${id}: ${k} = ${n}`;
+      }
+    }
+  }
   return null;
+}
+
+/** Часть секторов, которая не в тылу противника: строй своей полосы (`ArmySetup.behind`). Нет поля — все сектора. */
+export function frontOf(setup: ArmySetup): Record<Sector, Stack> {
+  if (!setup.behind) return setup.sectors;
+  const out = emptySectors();
+  for (const id of SECTORS) for (const k of UNIT_KINDS) out[id][k] = setup.sectors[id][k] - setup.behind[id][k];
+  return out;
 }
 
 export { FRONT, REAR };

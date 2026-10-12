@@ -287,7 +287,7 @@ export function CampPanel() {
         <>
           <p className="note">
             {camp.machines.breaches > 0
-              ? `Проломов ${camp.machines.breaches} из 3: столько стены без штрафа.`
+              ? `Проломов ${camp.machines.breaches} из 3: столько стены без лестниц.`
               : 'Проломов нет.'}{' '}
             {camp.machines.methods.length === 0 ? 'Готовых машин нет: лестницы — те, что принесут на себе, на треть стены.' : ''}
           </p>

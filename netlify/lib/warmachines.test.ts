@@ -9,7 +9,7 @@ import { siegeSince, type SiegeWindow } from '../../src/world/siege.js';
 import { ENERGY_MAX } from '../../src/world/data/energy.js';
 import { machinesAt } from '../../src/world/machines.js';
 import { MACHINE_WOOD, MOD_MACHINE } from '../../src/world/data/machines.js';
-import { CAMP_WORKS_RIPE, PLAYER_CAMP_WOOD } from '../../src/world/data/tuning.js';
+import { CAMP_WORKS_RIPE, MACHINE_CAMP_WOOD } from '../../src/world/data/tuning.js';
 import { wallFront } from '../../src/world/wall.js';
 
 afterEach(() => setPhaseDie(null));
@@ -80,7 +80,7 @@ describe('машины лагеря у сервера войны', () => {
     expect(applyOrder(file, A, { op: 'machine', id: w.id, machine: 'ram' }, since + 3, ctx)).toMatch(/строится/);
     // Защитник машин лагеря не заказывает.
     expect(applyOrder(file, B, { op: 'machine', id: w.id, machine: 'ladders' }, since + 3, ctx)).not.toBeNull();
-    const ready = since + 1 + (MACHINE_WOOD.ram / PLAYER_CAMP_WOOD) * CAMP_WORKS_RIPE;
+    const ready = since + 1 + (MACHINE_WOOD.ram / MACHINE_CAMP_WOOD) * CAMP_WORKS_RIPE;
     expect(machinesAt(w.camp as SiegeWindow, ready + 10)[0].ready).toBe(true);
   });
 
@@ -90,7 +90,7 @@ describe('машины лагеря у сервера войны', () => {
     const { file, ctx, sheets, w, since } = camped({ home: { spearman: 200, archer: 120, swordsman: 120 }, militia: 120, archers: 40 });
     applyOrder(file, A, { op: 'wood', id: w.id, machines: 1 }, since + 1, ctx);
     applyOrder(file, A, { op: 'machine', id: w.id, machine: 'ladders' }, since + 1, ctx);
-    const at = since + 1 + (MACHINE_WOOD.ladders / PLAYER_CAMP_WOOD) * CAMP_WORKS_RIPE + 1;
+    const at = since + 1 + (MACHINE_WOOD.ladders / MACHINE_CAMP_WOOD) * CAMP_WORKS_RIPE + 1;
     expect(at, 'точка внутри области: до голода').toBeLessThan(w.starvesAt ?? Infinity);
     advance(file, at, sheets);
     expect(applyOrder(file, A, { op: 'storm', id: w.id, machines: ['ladders'] }, at, ctx)).toBeNull();
@@ -124,7 +124,7 @@ describe('машины лагеря у сервера войны', () => {
     const { file, ctx, sheets, w, since } = camped();
     applyOrder(file, A, { op: 'wood', id: w.id, machines: 1 }, since + 1, ctx);
     applyOrder(file, A, { op: 'machine', id: w.id, machine: 'mangonel' }, since + 1, ctx);
-    const ready = since + 1 + (MACHINE_WOOD.mangonel / PLAYER_CAMP_WOOD) * CAMP_WORKS_RIPE;
+    const ready = since + 1 + (MACHINE_WOOD.mangonel / MACHINE_CAMP_WOOD) * CAMP_WORKS_RIPE;
     const k = Math.ceil((ready - since) / (phaseAt(since, 1) - since));
     expect(phaseAt(since, k), 'точка внутри области: фаза k после готовности, до голода').toBeLessThan(w.starvesAt ?? Infinity);
     advance(file, phaseAt(since, k) + 1, sheets);

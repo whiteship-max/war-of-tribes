@@ -179,8 +179,9 @@ export type CampFightOut =
  * Бой у лагеря — одна дверь на вылазку, выручку, удар полководца с тыла и совместный удар, и у мира, и у
  * сервера. Укрепления действуют на всех одинаково: в бой входят только прошедшие через рогатки
  * (`works.strikeForecast`), остальные стоят у рогаток и в бою их нет. У лагеря две стороны, у каждой свой
- * проход; бой при этом один — прошедшие с обеих сторон складываются в одного нападающего, а потери
- * делятся между сторонами по родам (`works.splitLosses`). Вышли, а пробиться некому, — отказ до боя.
+ * проход; бой при этом один, а прошли с обеих сторон — это клещи: гарнизон бьёт фронт лагеря, дружина стоит у него в
+ * тылу (`FieldSide.behind`). Потери делятся между сторонами по родам (`works.splitLosses`). Вышли, а пробиться некому, —
+ * отказ до боя.
  */
 export function campFight(input: CampFightIn): CampFightOut {
   const cast = strikeForecast(input.sight, input.at, input.rear?.kinds ?? emptyStack(), input.front?.kinds ?? null);
@@ -195,9 +196,11 @@ export function campFight(input: CampFightIn): CampFightOut {
   for (const { t } of parts) for (const k of UNIT_KINDS) kinds[k] += t.kinds[k];
   const fought = parts.reduce((n, x) => n + x.t.passed, 0);
   const all = parts.reduce((n, x) => n + x.t.went, 0);
-  // Совместный удар — с обеих сторон: со стороны города вышел гарнизон. Кто из ворот, ядро только разложит по секторам
-  // для ролика (`FieldSide.garrison`, решение владельца 03.10.2026, вариант А) — бой один, исход от этого не зависит.
+  // Совместный удар — клещи (docs/siege_v2.md, 6.2; этап 2д): гарнизон из ворот бьёт лагерь со стороны города, дружина с
+  // поля стоит у него в тылу (`FieldSide.behind`) — ядро считает удар с двух сторон правилами обхода и тыла. Кто из ворот,
+  // ядро пишет и для ролика (`FieldSide.garrison`).
   const garrison = input.front && input.rear && front && rear ? front.kinds : undefined;
+  const behind = garrison && rear ? rear.kinds : undefined;
   // Укрепления — та же грань кости, что земля (`GroundPenalty.works`): у кого бы лагерь ни стоял, бьют его через них.
   const fort = input.fort !== undefined && input.fort > 0 ? input.fort : 0;
   const ground = fort > 0 ? { ...(input.ground ?? {}), works: fort } : input.ground;
@@ -211,6 +214,7 @@ export function campFight(input: CampFightIn): CampFightOut {
       // Мораль между боями (14.31): у каждой части своя, вместе — по прошедшим.
       rest: mixRest(parts.map(({ part, t }) => ({ rest: part.rest ?? 1, men: t.passed }))),
       ...(garrison ? { garrison } : {}),
+      ...(behind ? { behind } : {}),
     },
     defender: { kinds: input.camp.kinds, resolve: input.camp.resolve, pips: input.camp.pips, rest: input.camp.rest },
   };

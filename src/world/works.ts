@@ -44,7 +44,7 @@
 // осады — `gateAt` у фронта, `rearGateAt` у тыла; пишет их только бой у лагеря, в
 // самом событии, а свободная доля выводится при чтении. Тика нет.
 import { emptyStack, stackTotal, UNIT_KINDS, type Stack } from '@/battle';
-import { CAMP_GATE_CLEAR, CAMP_WOOD, CAMP_WORKS_PASS, CAMP_WORKS_RIPE, PLAYER_CAMP_WOOD } from './data/tuning';
+import { CAMP_GATE_CLEAR, CAMP_WOOD, CAMP_WORKS_PASS, CAMP_WORKS_RIPE, MACHINE_CAMP_WOOD, PLAYER_CAMP_WOOD } from './data/tuning';
 import { dec } from '@/game/num';
 
 /** Сторона лагеря. Фронт — к городу, тыл — в поле. Не путать с `Side` боя: там нападающий и защитник. */
@@ -138,17 +138,18 @@ const share01 = (n: number): number => Math.min(1, Math.max(0, Number.isFinite(n
 
 /**
  * Доли лагеря игрока: машинам — доля `machines` всей древесины, остальное рогаткам, и из него фронту — доля `share`. Без
- * машин — прежние доли сторон.
+ * машин — прежние доли сторон. Доля машинам рубится выработкой лагеря бота (`MACHINE_CAMP_WOOD`): машины игрока строятся
+ * по той же таблице, что выведена на ней (docs/siege_v2.md, 17.2).
  */
 export const playerWood = (share: number, machines = 0): WoodPlan => {
   const f = share01(share);
   const e = share01(machines);
   const works = (1 - e) * PLAYER_CAMP_WOOD;
-  return { front: f * works, rear: (1 - f) * works, ...(e > 0 ? { machines: e * PLAYER_CAMP_WOOD } : {}) };
+  return { front: f * works, rear: (1 - f) * works, ...(e > 0 ? { machines: e * MACHINE_CAMP_WOOD } : {}) };
 };
 
 /** Какую долю всей древесины план отдаёт машинам, 0..1. Нет поля — ноль. */
-export const machineShare = (plan: WoodPlan | undefined): number => share01((plan?.machines ?? 0) / PLAYER_CAMP_WOOD);
+export const machineShare = (plan: WoodPlan | undefined): number => share01((plan?.machines ?? 0) / MACHINE_CAMP_WOOD);
 
 /** Какую долю фронту отдаёт этот план; null — план не из шагов игрока (лагерь бота, старое окно). */
 export const woodShare = (plan: WoodPlan | undefined): number | null => {

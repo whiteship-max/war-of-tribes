@@ -2,8 +2,8 @@
 import { describe, expect, it } from 'vitest';
 import { assaultOf, mangonelAt, machineAfter, machineBlock, machinesAt, machinesSpent, stormMachines, type MachineWindow } from './machines';
 import { MACHINE_IDS, MACHINE_WOOD, MOD_MACHINE, STORM_MACHINES } from './data/machines';
-import { CAMP_WORKS_RIPE, PLAYER_CAMP_WOOD } from './data/tuning';
-import { machineShare, machineWood, playerWood, rebaseWood, sideWorks, woodShare } from './works';
+import { CAMP_WOOD, CAMP_WORKS_RIPE, MACHINE_CAMP_WOOD } from './data/tuning';
+import { machineShare, machineWood, machineWoodAt, playerWood, rebaseWood, sideWorks, woodShare } from './works';
 import { modsOf, phaseAt } from './siegeroll';
 import { SIEGE_PHASE } from './data/siegeroll';
 import type { SiegeWindow } from './siege';
@@ -14,16 +14,25 @@ const T0 = 1_000_000;
 /** Лагерь игрока: половина леса машинам. */
 const camp = (machines = 0.5, over: Partial<MachineWindow> = {}): MachineWindow => ({ startedAt: T0, wood: playerWood(1, machines), ...over });
 /** Минута, к которой лагерь нарубит машинам `need` сторон при доле `machines`. */
-const after = (need: number, machines: number): number => T0 + (need / (machines * PLAYER_CAMP_WOOD)) * CAMP_WORKS_RIPE;
+const after = (need: number, machines: number): number => T0 + (need / (machines * MACHINE_CAMP_WOOD)) * CAMP_WORKS_RIPE;
 
 describe('древесина делится между рогатками и машинами', () => {
   it('доля машинам отнимается у рогаток: фронт дозревает во столько раз дольше, во сколько меньше ему леса', () => {
     for (const e of [0.25, 0.5, 0.75]) {
       const at = T0 + CAMP_WORKS_RIPE / 2;
       expect(sideWorks(T0, at, 'front', playerWood(1, e))).toBeCloseTo(sideWorks(T0, at, 'front', playerWood(1)) * (1 - e), 9);
-      expect(machineWood(T0, at, playerWood(1, e))).toBeCloseTo((e * PLAYER_CAMP_WOOD) / 2, 9);
+      expect(machineWood(T0, at, playerWood(1, e))).toBeCloseTo((e * MACHINE_CAMP_WOOD) / 2, 9);
       expect(machineShare(playerWood(0.5, e))).toBeCloseTo(e, 9);
       expect(woodShare(playerWood(0.5, e))).toBe(0.5);
+    }
+  });
+
+  it('машины лагеря игрока — по таблице лагеря бота: весь лес машинам рубится выработкой CAMP_WOOD (17.2)', () => {
+    const bot = CAMP_WOOD.front + CAMP_WOOD.rear;
+    for (const id of MACHINE_IDS) {
+      const ready = machineWoodAt(T0, MACHINE_WOOD[id], playerWood(1, 1));
+      expect(ready, `${id}: срок конечен — точка внутри области`).toBeLessThan(Infinity);
+      expect((ready - T0) / CAMP_WORKS_RIPE, id).toBeCloseTo(MACHINE_WOOD[id] / bot, 9);
     }
   });
 

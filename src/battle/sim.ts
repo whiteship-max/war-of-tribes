@@ -34,7 +34,7 @@ import {
   roundsCap,
 } from './config';
 import { seededRng, type Rng } from './rng';
-import { emptyStack, garrisonShare, reinforceInto, stackTotal, validateSetup } from './setup';
+import { emptyStack, frontOf, garrisonShare, reinforceInto, stackTotal, validateSetup } from './setup';
 import {
   FRONT,
   HORSE_KINDS,
@@ -95,6 +95,8 @@ interface Group {
   flankCover: number;
   /** Потери группы за тик, взвешенные для морали. */
   lostTick: number;
+  /** Вторая армия стороны, вставшая в тылу противника (`ArmySetup.behind`): дошла до тыла с первого контакта. */
+  behind?: boolean;
 }
 
 type Kills = Record<UnitKind, Record<UnitKind, number>>;
@@ -348,10 +350,23 @@ function newGroup(side: Side, setup: ArmySetup, origin: Sector, stack: Stack, la
 /** Группа на сектор расстановки: где встал — там и стоит. Приказов, разводящих сектор на части, нет. */
 function buildGroups(side: Side, setup: ArmySetup): Group[] {
   const groups: Group[] = [];
+  const own = frontOf(setup);
   for (const sector of SECTORS) {
-    const stack = setup.sectors[sector];
+    const stack = own[sector];
     if (stackTotal(stack) <= 0) continue;
     groups.push(newGroup(side, setup, sector, stack, laneOf(sector), rowOf(sector)));
+  }
+  // Клещи (`ArmySetup.behind`): вторая армия стоит в тылу противника обходящими своей полосы — тот же ряд, что у ушедших в
+  // обход (`relocate`), только с первого тика и лицом к тылу (`prefer: 'rear'`). Её резерв — резерв стороны.
+  if (setup.behind) {
+    for (const sector of SECTORS) {
+      const stack = setup.behind[sector];
+      if (stackTotal(stack) <= 0) continue;
+      const lane = laneOf(sector);
+      const g = lane === null ? newGroup(side, setup, sector, stack, null, 'reserve') : newGroup(side, setup, sector, stack, lane, 'strike', { prefer: 'rear' });
+      g.behind = lane !== null;
+      groups.push(g);
+    }
   }
   return groups;
 }
@@ -433,9 +448,10 @@ class Battle {
         kills: [zeroKills(), zeroKills(), zeroKills()],
         killsAtPhase: [zeroKills(), zeroKills(), zeroKills()],
         fired: new Set(),
+        // Места в ряду держит строй своей полосы; вторая армия в тылу противника (`behind`) их не держит.
         held: {
-          front: ([0, 1, 2] as Lane[]).map((lane) => stackTotal(setup.sectors[laneSector(lane, 'front')])),
-          rear: ([0, 1, 2] as Lane[]).map((lane) => stackTotal(setup.sectors[laneSector(lane, 'rear')])),
+          front: ([0, 1, 2] as Lane[]).map((lane) => stackTotal(frontOf(setup)[laneSector(lane, 'front')])),
+          rear: ([0, 1, 2] as Lane[]).map((lane) => stackTotal(frontOf(setup)[laneSector(lane, 'rear')])),
         },
       };
     };
@@ -1012,6 +1028,9 @@ class Battle {
           const cover = coverOf(occupied(aimed[row], this.width), occupied(rows[row], this.width));
           for (const g of aimed[row]) contacts.push({ a: [g], b: rows[row], aFlank: true, aRow: 'strike', bRow: row, aCover: cover });
           if (cover > 0) this.flankTurned(side, enemy, eLane, row, rows[row], cover);
+          // Клещи: вторая армия стоит в тылу и бьёт тыл полосы — противник дошёл до тыла (`reached`), тем же правилом, что
+          // строй, прорвавшийся сквозь фронт.
+          if (row === 'rear' && aimed.rear.some((g) => g.behind)) this.reached(enemy, eLane);
         }
       }
     }
@@ -1527,7 +1546,8 @@ class Battle {
     const s = this.sides[side];
     const sectors = {} as SideResult['sectors'];
     // Кто из ворот (совместный удар): наблюдение для показа, раскладка входа по секторам — бой его не читает.
-    const garrison = this.observe && s.setup.garrison ? garrisonShare(s.setup.sectors, s.setup.garrison) : null;
+    // При клещах (`behind`) из ворот — ровно строй своей полосы, а в тылу — дружина с поля.
+    const garrison = this.observe && s.setup.garrison ? (s.setup.behind ? frontOf(s.setup) : garrisonShare(s.setup.sectors, s.setup.garrison)) : null;
     const initial = emptyStack();
     const final = emptyStack();
     for (const sector of SECTORS) {
