@@ -31,6 +31,7 @@ import { CampStrike } from '@/ui/parts/CampStrike';
 import { plural } from '@/ui/parts/plural';
 import { SiegePhases } from '@/ui/parts/SiegePhases';
 import { SiegeAnswers } from '@/ui/parts/SiegeAnswers';
+import { SiegeParley } from '@/ui/parts/SiegeParley';
 import { bondedWord, townsWord } from '@/game/data/order';
 
 const byLevels = (n: number): string => `до ${n} ${plural(n, 'уровня', 'уровней', 'уровней')}`;
@@ -215,6 +216,8 @@ export function SiegePanel() {
       <p className="note">Разбитый лагерь снимает осаду, и город снова ест.</p>
       {/* Ответы осаждённого (docs/siege_v2.md, раздел 5): починка, паёк, вылазка на машину, выручка, наказы, сдача. */}
       <SiegeAnswers siege={siege} now={now} />
+      {/* Переговоры у стен (docs/siege_v2.md, раздел 7): дань за снятие, ответ на условия, наказ — числа из мира. */}
+      {siege.parley && <SiegeParley view={siege.parley} fate={siege.fate} now={now} defend={siege.answers?.defend} />}
     </div>
   );
 }

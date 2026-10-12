@@ -319,10 +319,23 @@ export const cityOr = (raw: unknown): string => cityName(raw) ?? DEFAULT_CITY;
  *   (бой был, итог в игре); `siege-fall` — хлеб под лагерем логова кончился, город взят;
  * - `war` — отряд соседа идёт на город (нападают); `war-fight` — бой между игроками был;
  *   `war-fall` — осаждённый соседом город пал от голода;
+ * - `war-parley` — переговоры у стен (docs/siege_v2.md, раздел 7): пришло предложение (сдача на условиях или дань), его
+ *   отклонили или дань приняли;
  * - `war-spy` — чужой лазутчик напал на город: поджёг склад, обокрал или поднял смуту (docs/spy_pvp.md). Разведка и
  *   пойманный лазутчик нападением не считаются: город ничего не потерял.
  */
-export const NOTICE_KINDS = ['raid', 'raid-fight', 'siege-fall', 'siege-phase', 'war', 'war-fight', 'war-fall', 'war-spy', 'war-phase'] as const;
+export const NOTICE_KINDS = [
+  'raid',
+  'raid-fight',
+  'siege-fall',
+  'siege-phase',
+  'war',
+  'war-fight',
+  'war-fall',
+  'war-spy',
+  'war-phase',
+  'war-parley',
+] as const;
 export type NoticeKind = (typeof NOTICE_KINDS)[number];
 
 /** Что может прислать клиент. Войну знает только сервер: её поручения клиент составить не может. */
@@ -367,6 +380,12 @@ export interface NoticeFacts {
   order?: WarOrderId;
   /** Падение сдачей — ворота открыли (`siege-fall`, `war-fall`), а не голодом. */
   gates?: true;
+  /**
+   * Переговоры у стен (`war-parley`): какое предложение и чем кончилось. Нет `answer` — предложение пришло получателю, и
+   * `about` — минута, до которой оно стоит; есть — ответ на его собственное предложение. Участь условий — в `fate`.
+   */
+  offer?: 'terms' | 'tribute';
+  answer?: 'yes' | 'no';
 }
 
 /** Пункт исходящих. Ключ — имя момента, а не время: по нему не уходит второй раз. */
@@ -713,7 +732,7 @@ export type WarPhaseOut = (typeof WAR_PHASE_OUTS)[number];
 export interface WarPhaseRow {
   at: number;
   die: number;
-  mods: Partial<Record<'breach' | 'volley' | 'machine' | 'hunger' | 'progress' | 'wall', number>>;
+  mods: Partial<Record<'breach' | 'volley' | 'machine' | 'general' | 'hunger' | 'progress' | 'wall', number>>;
   out: WarPhaseOut;
   waste: number;
   orders?: WarOrderId[];
@@ -727,19 +746,24 @@ export type WarOrderId = (typeof WAR_ORDER_IDS)[number];
 export interface WarDefend {
   repair?: boolean;
   ration?: boolean;
+  /** Принять сдачу на условиях не хуже этой участи (docs/siege_v2.md, 8.3; этап 2е). */
+  terms?: NoticeFate;
 }
 
 /** Наказы осаждённого из приказа: только известные поля. */
 export function readDefend(v: unknown): WarDefend {
   if (!v || typeof v !== 'object') return {};
   const r = v as Record<string, unknown>;
-  return { ...(r.repair === true ? { repair: true } : {}), ...(r.ration === true ? { ration: true } : {}) };
+  const terms = NOTICE_FATES.find((f) => f === r.terms);
+  return { ...(r.repair === true ? { repair: true } : {}), ...(r.ration === true ? { ration: true } : {}), ...(terms ? { terms } : {}) };
 }
 
 /** Наказы осаждающего на отлучку (`world/siegeroll.SiegeOrders`): залп каждую фазу, штурм при N проломах. */
 export interface WarOrders {
   volley?: boolean;
   storm?: number;
+  /** Принять дань не меньше справедливой (docs/siege_v2.md, 8.3; этап 2е). */
+  tribute?: boolean;
 }
 
 /** Наказы из приказа: только известные поля, штурм — 1..3 пролома. */
@@ -747,7 +771,7 @@ export function readOrders(v: unknown): WarOrders {
   if (!v || typeof v !== 'object') return {};
   const r = v as Record<string, unknown>;
   const storm = typeof r.storm === 'number' && Number.isFinite(r.storm) ? Math.min(3, Math.max(0, Math.floor(r.storm))) : 0;
-  return { ...(r.volley === true ? { volley: true } : {}), ...(storm > 0 ? { storm } : {}) };
+  return { ...(r.volley === true ? { volley: true } : {}), ...(storm > 0 ? { storm } : {}), ...(r.tribute === true ? { tribute: true } : {}) };
 }
 
 /** Дела полководца в лагере — строки таблицы энергии (`world/siegecraft.CraftAct`). */
@@ -812,6 +836,8 @@ export interface WarFall {
   hidden: number;
   /** Гарнизон, разошедшийся при падении голодом. */
   routed: Counts;
+  /** Сдача на условиях (docs/siege_v2.md, 7.1): участь — из принятых условий, а не на ступень мягче объявленной. */
+  terms?: true;
 }
 
 /** Лагерь под городом — окно осады (`world/siege.SiegeWindow`) как есть. */
@@ -848,6 +874,34 @@ export interface WarCamp {
   ration?: boolean;
   /** Наказы осаждённого (`SiegeWindow.defend`). */
   defend?: WarDefend;
+  /** Отметки «осада» полководца похода, при постановке лагеря (`SiegeWindow.lead`, docs/siege_v2.md, 2.3). Нет — ноль. */
+  lead?: number;
+  /** Переговоры у стен (`SiegeWindow.offers`, `world/parley`, раздел 7). Нет поля — никто ничего не предлагал. */
+  offers?: WarOffer[];
+}
+
+/** Предложение у стен (`world/parley.SiegeOffer`): сдача на условиях от осаждающего, дань за снятие от осаждённого. */
+export interface WarOffer {
+  kind: 'terms' | 'tribute';
+  at: number;
+  until: number;
+  fate?: NoticeFate;
+  price?: number;
+  answer?: 'yes' | 'no';
+  answeredAt?: number;
+}
+
+/**
+ * Дань, принятая осаждающим (docs/siege_v2.md, 7.3): добро переходит от города походу той же дверью дележа, что добыча
+ * (`spoils.plunder`), — посчитано сервером, у обеих сторон одними числами. Применяет каждая сторона сама, один раз, по
+ * отметке `warTributeId` в списке принятого.
+ */
+export interface WarTribute {
+  at: number;
+  /** Что ушло данью: припасы и казна. */
+  taken: Counts;
+  /** Сколько осталось в тайнике. */
+  hidden: number;
 }
 
 /** Осадные машины (`world/data/machines.MACHINE_IDS`; тест сверяет). */
@@ -870,8 +924,8 @@ export interface WarStrike {
  */
 export type WarPhase = 'march' | 'camp' | 'back' | 'done';
 
-/** Чем кончилась: взяли город, отбили, отозвали, сняли осаду, город исчез из реестра. */
-export type WarEnd = 'taken' | 'beaten' | 'recalled' | 'retreat' | 'lifted' | 'gone';
+/** Чем кончилась: взяли город, отбили, отозвали, сняли осаду, город исчез из реестра, город дал дань (`paid`). */
+export type WarEnd = 'taken' | 'beaten' | 'recalled' | 'retreat' | 'lifted' | 'gone' | 'paid';
 
 /** Война глазами игрока. Ключей игроков в ней нет — только замки. */
 export interface WarView {
@@ -913,6 +967,8 @@ export interface WarView {
   backAt?: number;
   battles: WarBattle[];
   fall?: WarFall;
+  /** Дань, принятая лагерем (docs/siege_v2.md, 7.3): добро перешло, лагерь снят. Нет — дани не было. */
+  tribute?: WarTribute;
   end?: WarEnd;
   endAt?: number;
 }
@@ -1057,6 +1113,8 @@ export type WarOrder =
   | { op: 'defend'; id: string; defend: WarDefend }
   | { op: 'sally'; id: string; machine: WarMachine; troops: Counts }
   | { op: 'surrender'; id: string }
+  | { op: 'offer'; id: string; kind: 'terms' | 'tribute'; fate?: NoticeFate }
+  | { op: 'answer'; id: string; kind: 'terms' | 'tribute'; yes: boolean }
   | { op: 'relief'; id: string; army: WarArmy; walkMs: number }
   | { op: 'pact'; target: string }
   | { op: 'unpact'; target: string }
@@ -1064,6 +1122,9 @@ export type WarOrder =
 
 /** Отметка падения города в списке принятого (`WarSheet.seen`): одна на клиент и на сервер. */
 export const warFallId = (war: string): string => `${war}.fall`;
+
+/** Отметка дани в списке принятого (`WarSheet.seen`): одна на клиент и на сервер (docs/siege_v2.md, 7.3). */
+export const warTributeId = (war: string): string => `${war}.tribute`;
 
 /**
  * Отметка починки пролома в списке принятого (`WarSheet.seen`): защитник платит за неё деревом и камнем со своего склада
@@ -1255,6 +1316,15 @@ export function readWarOrder(v: unknown): WarOrder | null {
       return id ? { op: r.op, id } : null;
     case 'ration':
       return id && typeof r.on === 'boolean' ? { op: 'ration', id, on: r.on } : null;
+    case 'offer': {
+      const kind = r.kind === 'terms' || r.kind === 'tribute' ? r.kind : null;
+      const fate = NOTICE_FATES.find((f) => f === r.fate);
+      return id && kind ? { op: 'offer', id, kind, ...(kind === 'terms' && fate ? { fate } : {}) } : null;
+    }
+    case 'answer': {
+      const kind = r.kind === 'terms' || r.kind === 'tribute' ? r.kind : null;
+      return id && kind && typeof r.yes === 'boolean' ? { op: 'answer', id, kind, yes: r.yes } : null;
+    }
     case 'defend':
       return id ? { op: 'defend', id, defend: readDefend(r.defend) } : null;
     case 'sally': {

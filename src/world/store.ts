@@ -43,6 +43,7 @@ import type {
   AssaultMode,
   AnchorId,
   DefendOrder,
+  ParleyOrder,
   AttackOrder,
   CampView,
   Coord,
@@ -297,6 +298,8 @@ export interface WorldStore {
    */
   /** Ответ осаждённого (docs/siege_v2.md, раздел 5): починка, паёк, наказы, сдача. */
   defend: (order: DefendOrder) => Promise<string | null>;
+  /** Переговоры у стен (docs/siege_v2.md, раздел 7): предложить или ответить. */
+  parley: (order: ParleyOrder) => Promise<string | null>;
   /** Вылазка на машину лагеря. */
   burnMachine: (id: MachineId, troops: TroopStack) => Promise<{ error: string | null; reportId: string | null }>;
   /** Пакт с соседом-игроком: предложить/принять или разорвать. */
@@ -751,6 +754,18 @@ export const useWorld = create<WorldStore>((set, get) => ({
     }
     haptic('light');
     // Паёк и сдача меняют город сразу: панель и племя видят это в тот же миг, а не через пульс.
+    await get().pulse();
+    return null;
+  },
+
+  parley: async (order) => {
+    const err = await worldApi().parley(order);
+    if (err) {
+      haptic('error');
+      return err;
+    }
+    haptic('light');
+    // Принятая дань и сдача снимают лагерь сразу: панель и племя видят это в тот же миг.
     await get().pulse();
     return null;
   },

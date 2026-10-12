@@ -81,7 +81,32 @@ export function noticeText(item: NoticeItem, tz: string): string {
     // Тайное нападение (docs/spy_pvp.md): чей лазутчик, город не знает — имени в словах нет.
     case 'war-spy':
       return SPY_DONE[p.fate].replace('{at}', at);
+    case 'war-parley':
+      return parleyText(item, at);
   }
+}
+
+/** Условия сдачи словами: что станет с городом, если откроет ворота. */
+const TERMS_FATE: Record<NoticeFate, string> = {
+  plunder: 'склад ограбят, людей не тронут',
+  captives: 'склад ограбят и уведут людей, но город не сожгут',
+  burn: 'город сожгут',
+};
+
+/**
+ * Переговоры у стен глазами получателя (docs/siege_v2.md, 7.3): пришло предложение — до какой минуты отвечать; ответ на
+ * своё — отклонили или дань приняли. Цены дани в словах нет: она в окне осады (правило 18 — считать её здесь нечем).
+ */
+function parleyText(item: NoticeItem, at: string): string {
+  const { from, offer, answer, fate } = item.p;
+  if (answer === 'no') {
+    return offer === 'terms' ? `«${from}» отказался сдаться на наших условиях. Осада идёт.` : `Лагерь «${from}» отказался от дани. Осада идёт.`;
+  }
+  if (answer === 'yes') return `Лагерь «${from}» взял дань и снимается.`;
+  if (offer === 'terms') {
+    return `Лагерь «${from}» предлагает сдачу на условиях: гарнизон уйдёт живым, ${TERMS_FATE[fate]}. Ответить можно до ${at}.`;
+  }
+  return `«${from}» предлагает дань за снятие осады. Ответить можно до ${at}.`;
 }
 
 /**

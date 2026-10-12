@@ -346,6 +346,7 @@ export function toOutcome(e: HomeEffect): ExpeditionOutcome {
     fallen: e.fallen,
     // Дело и гибель агента: опыт пишет племя, мир только сообщает событие.
     deed: e.deed,
+    siege: e.siege ?? false,
     fell: e.fell,
     retired: e.retired,
     text: e.text,

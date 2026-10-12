@@ -29,6 +29,7 @@ import type {
   MarchView,
   OrderOption,
   OrderResult,
+  ParleyOrder,
   PlayerProfile,
   Coord,
   Rect,
@@ -196,6 +197,13 @@ export interface WorldApi {
    * Под логовом — правилом мира, под лагерем игрока — приказом серверу войны той же дверью. null — сделано, иначе причина.
    */
   defend(order: DefendOrder): Promise<string | null>;
+
+  /**
+   * Переговоры у стен (docs/siege_v2.md, раздел 7): осаждающий предлагает сдачу на условиях и отвечает на дань, осаждённый —
+   * наоборот. С логовом — правилом мира той же формулой, с игроком — приказом серверу войны. null — сделано, иначе причина
+   * (отказ логова — тоже строкой).
+   */
+  parley(order: ParleyOrder): Promise<string | null>;
 
   /** Вылазка на машину лагеря (раздел 5): бой с её охраной, победа сжигает машину. Состав приходит приказом. */
   burnMachine(id: MachineId, troops: TroopStack): Promise<AttackResult>;

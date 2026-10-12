@@ -21,6 +21,7 @@ import {
   CAMP_WASTE_HUNGRY,
   LEGACY_VOLLEY_WALL,
   MOD_BREACH,
+  MOD_GENERAL,
   MOD_HUNGER,
   MOD_PROGRESS,
   MOD_VOLLEY,
@@ -30,6 +31,7 @@ import {
   OUT_SHORT_MAX,
   SIEGE_DIE,
   SIEGE_PHASE,
+  SIEGE_PIPS_MAX,
   VOLLEY_SHAKE_DECAY,
   VOLLEY_SHAKE_FIRST,
   WALL_FACES_MAX,
@@ -40,8 +42,8 @@ import {
 export type PhaseOut = 'plague' | 'calm' | 'short' | 'breach' | 'gates';
 
 /** Поправка к кости фазы. Порядок — порядок строки журнала. */
-export type ModId = 'breach' | 'volley' | 'machine' | 'hunger' | 'progress' | 'wall';
-export const MOD_IDS: readonly ModId[] = ['breach', 'volley', 'machine', 'hunger', 'progress', 'wall'];
+export type ModId = 'breach' | 'volley' | 'machine' | 'general' | 'hunger' | 'progress' | 'wall';
+export const MOD_IDS: readonly ModId[] = ['breach', 'volley', 'machine', 'general', 'hunger', 'progress', 'wall'];
 export type PhaseMods = Partial<Record<ModId, number>>;
 
 /**
@@ -84,6 +86,8 @@ export interface SiegeOrders {
   volley?: boolean;
   /** Штурмовать, когда проломов столько (1..3). Нет поля — не штурмовать. */
   storm?: number;
+  /** Принять дань не меньше справедливой (8.3; этап 2е, `world/parley`). Нет поля — отвечает сам. */
+  tribute?: boolean;
 }
 
 /**
@@ -94,6 +98,8 @@ export interface SiegeOrders {
 export interface DefendOrders {
   repair?: boolean;
   ration?: boolean;
+  /** Принять сдачу на условиях не хуже этой участи (8.3; этап 2е, `world/parley`). Нет поля — отвечает сам. */
+  terms?: Fate;
 }
 
 /** Окно глазами двери фаз: что ей нужно из `SiegeWindow`. Тот же тип у лагеря сервера войны (`contract.WarCamp`). */
@@ -113,6 +119,8 @@ export type RollWindow = Pick<
   | 'wood'
   | 'machines'
   | 'ration'
+  | 'lead'
+  | 'offers'
 >;
 
 /** Минута броска фазы `k` (с единицы). */
@@ -257,6 +265,8 @@ export function modsOf(w: RollWindow, k: number, prior: readonly PhaseRow[] = ro
     volley: volleyIn(w, k) ? MOD_VOLLEY : 0,
     // Камнемёт, стоящий в лагере к минуте фазы, — постоянная артиллерия (docs/siege_v2.md, 2.3; `world/machines`).
     machine: mangonelAt(w, at) ? MOD_MACHINE : 0,
+    // Отметки полководца «осада», замороженные при постановке лагеря (этап 2е).
+    general: leadFaces(w.lead),
     hunger,
     progress: progressOf(w, prior) * MOD_PROGRESS,
     wall: wallFaces(w.wall),
@@ -264,6 +274,10 @@ export function modsOf(w: RollWindow, k: number, prior: readonly PhaseRow[] = ro
   for (const id of MOD_IDS) if (!mods[id]) delete mods[id];
   return mods;
 }
+
+/** Отметки полководца «осада» в гранях: +1 за каждую, до трёх (2.3). Нет полководца или отметок — ноль. */
+export const leadFaces = (lead: number | undefined): number =>
+  MOD_GENERAL * Math.min(SIEGE_PIPS_MAX, Math.max(0, Math.floor(Number.isFinite(lead) ? (lead as number) : 0)));
 
 /** Сумма поправок. */
 export const modsSum = (mods: PhaseMods): number => MOD_IDS.reduce((n, id) => n + (mods[id] ?? 0), 0);
@@ -399,16 +413,20 @@ export const orderRations = (d: DefendOrders | undefined, on: boolean, bread: nu
 /** Наказы осаждённого, приведённые к правилу: пустые — без поля. */
 export function cleanDefend(d: DefendOrders | undefined): DefendOrders | undefined {
   if (!d) return undefined;
-  const out: DefendOrders = { ...(d.repair ? { repair: true } : {}), ...(d.ration ? { ration: true } : {}) };
-  return out.repair || out.ration ? out : undefined;
+  const out: DefendOrders = {
+    ...(d.repair ? { repair: true } : {}),
+    ...(d.ration ? { ration: true } : {}),
+    ...(d.terms === 'plunder' || d.terms === 'captives' || d.terms === 'burn' ? { terms: d.terms } : {}),
+  };
+  return out.repair || out.ration || out.terms ? out : undefined;
 }
 
 /** Наказы, приведённые к правилу: штурм — 1..3 пролома, пустые — без поля. */
 export function cleanOrders(o: SiegeOrders | undefined): SiegeOrders | undefined {
   if (!o) return undefined;
   const storm = Number.isFinite(o.storm) ? Math.min(BREACH_MAX, Math.max(0, Math.floor(o.storm as number))) : 0;
-  const out: SiegeOrders = { ...(o.volley ? { volley: true } : {}), ...(storm > 0 ? { storm } : {}) };
-  return out.volley || out.storm ? out : undefined;
+  const out: SiegeOrders = { ...(o.volley ? { volley: true } : {}), ...(storm > 0 ? { storm } : {}), ...(o.tribute ? { tribute: true } : {}) };
+  return out.volley || out.storm || out.tribute ? out : undefined;
 }
 
 // ------------------------------------------------ слова (правило 18: числа — этими же функциями) ---
@@ -417,6 +435,7 @@ const MOD_NAMES: Record<ModId, string> = {
   breach: 'пролом',
   volley: 'залп',
   machine: 'камнемёт',
+  general: 'полководец',
   hunger: 'голод',
   progress: 'ход осады',
   wall: 'стена',

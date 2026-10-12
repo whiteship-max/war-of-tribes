@@ -26,6 +26,7 @@ import { trainRateAt } from '../../src/game/train.js';
 import { FAITHS, OBSERVANCES, tiltAt } from '../../src/game/data/faiths.js';
 import { MAX_AGENT_LEVEL } from '../../src/game/data/agents.js';
 import { PIP_IDS } from '../../src/battle/index.js';
+import { SIEGE_PIPS_MAX } from '../../src/world/data/siegeroll.js';
 import { readCounts, warFallId, type AdminGrant, type Counts } from './contract.js';
 import type { WarFile } from './war.js';
 
@@ -315,7 +316,10 @@ export const PIPS_MAX = Math.max(0, MAX_AGENT_LEVEL - 1);
 /** Стойкость в пределах правил. */
 export const ruleResolve = (r: number): number => Math.min(RESOLVE_MAX, Math.max(0, r));
 
-/** Отметки в пределах правил: только известные (`PIP_IDS`), целые, сумма не выше `PIPS_MAX` — сверх неё срезаются с конца. */
+/**
+ * Отметки в пределах правил: только известные (`PIP_IDS`), целые, сумма не выше `PIPS_MAX` — сверх неё срезаются с конца.
+ * Отметка «осада» (`siege`, этап 2е) — своим счётом, не выше `SIEGE_PIPS_MAX`: она из опыта осад, а не из кружков уровня.
+ */
 export function rulePips(p: Counts): Counts {
   const out: Counts = {};
   let left = PIPS_MAX;
@@ -324,5 +328,7 @@ export function rulePips(p: Counts): Counts {
     if (n > 0) out[k] = n;
     left -= n;
   }
+  const siege = Math.min(SIEGE_PIPS_MAX, Math.max(0, Math.floor(p.siege ?? 0)));
+  if (siege > 0) out.siege = siege;
   return out;
 }

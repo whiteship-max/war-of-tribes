@@ -23,6 +23,7 @@ import {
   type NoticeItem,
   readSheet,
   warFallId,
+  warTributeId,
   warRepairId,
   cityOr,
   type Counts,
@@ -99,6 +100,20 @@ import {
   type PhaseRow,
 } from '../../src/world/siegeroll.js';
 import { burnImmuneUntil, fate, fateBlock, fallSeed, homeLoss, winnerGain } from '../../src/world/spoils.js';
+import type { Loot } from '../../src/world/types.js';
+import {
+  answerAfter,
+  bountyOf,
+  fairTribute,
+  liveOffer,
+  offerAfter,
+  offerBlock,
+  siegeShare,
+  softerThan,
+  termsBlock,
+  tributeGoods,
+  type OfferKind,
+} from '../../src/world/parley.js';
 import { restAfter, restAt } from '../../src/world/rest.js';
 import { energyAt, energyBlock, onRoad, priceOf, remark, spend } from '../../src/world/energy.js';
 import { ENERGY_MAX } from '../../src/world/data/energy.js';
@@ -483,6 +498,13 @@ function claimedSheet(file: WarFile, key: string, s: SheetAt, at: number): WarSh
       pop = Math.max(1, pop - f.popLost);
       for (const x of f.fallen) if (levels[x.id] !== undefined) levels[x.id] = Math.min(levels[x.id], x.to);
     }
+    // Дань, ещё не принятая городом (docs/siege_v2.md, 7.3): ушедшее добро вычитается, как добыча падения.
+    const t = w.tribute;
+    if (t && !seen.has(warTributeId(w.id))) {
+      const { gold: g, ...goods } = t.taken;
+      stock = minus(stock, goods);
+      gold = Math.max(0, gold - (g ?? 0));
+    }
   }
   // Дела лазутчиков, ещё не принятые этим городом (docs/spy_pvp.md): у соседа — сгоревшее, унесённое и ушедшие люди; у
   // нападающего — ровно унесённое и пришедшие люди. Переход, а не начисление: одна запись `stolen` на обе стороны.
@@ -640,13 +662,14 @@ function storm(w: WarRow, at: number, sheet: WarSheet, machines: readonly Machin
   return { battle, won: field.won };
 }
 
-/** Участь взятого города — одна дверь `spoils.fate`, у обеих сторон одними числами. */
-function fall(w: WarRow, at: number, sheet: WarSheet, by: WarFall['by']): void {
+/**
+ * Участь города `fated` в минуту `at`, если его возьмёт войско похода, — дверь `spoils.fate`. Одна на падение и на цену
+ * дани (`fairOf`): справедливая дань считается от той же добычи, что увезёт падение.
+ */
+function fateOfWar(w: WarRow, at: number, sheet: WarSheet, fated: WarRow['fate']) {
   // Обоз и конвой — уцелевшие похода, той же меркой, что у полководца против логова (`LocalWorld.haul`).
   const survivors = troopTotal(asTroops(w.army.troops));
-  // Сдача (ворота открыли на фазе осады) — участь на ступень мягче объявленной, гарнизон уходит живым (ответ владельца 5).
-  const fated = by === 'gates' ? softerFate(w.fate) : w.fate;
-  const r = fate({
+  return fate({
     fate: fated,
     stock: sheet.stock,
     gold: sheet.gold,
@@ -658,6 +681,16 @@ function fall(w: WarRow, at: number, sheet: WarSheet, by: WarFall['by']): void {
     levels: sheet.levels,
     seed: fallSeed(warSeed(w.id, 0xfa11), at),
   });
+}
+
+/**
+ * Участь взятого города — одна дверь `spoils.fate`, у обеих сторон одними числами. `terms` — сдача на условиях
+ * (docs/siege_v2.md, 7.1): участь из принятых условий, гарнизон уходит живым, как при сдаче.
+ */
+function fall(w: WarRow, at: number, sheet: WarSheet, by: WarFall['by'], terms?: WarRow['fate']): void {
+  // Сдача (ворота открыли на фазе осады) — участь на ступень мягче объявленной, гарнизон уходит живым (ответ владельца 5).
+  const fated = terms ?? (by === 'gates' ? softerFate(w.fate) : w.fate);
+  const r = fateOfWar(w, at, sheet, fated);
   const loss = homeLoss(r);
   const gain = winnerGain(r);
   const routed: Counts = {};
@@ -684,7 +717,60 @@ function fall(w: WarRow, at: number, sheet: WarSheet, by: WarFall['by']): void {
     burned: loss.burned ?? false,
     hidden: r.hiddenTotal,
     routed,
+    ...(terms ? { terms: true as const } : {}),
   };
+}
+
+// ------------------------------------------------ переговоры у стен (docs/siege_v2.md, раздел 7; этап 2е) ---
+
+/** Справедливая дань в минуту `at` (7.2): добыча объявленной участи × доля пути осады — дверью `world/parley`. */
+export function fairOf(w: WarRow, at: number, sheet: WarSheet): number {
+  return w.camp ? fairTribute(bountyOf(fateOfWar(w, at, sheet, w.fate)), siegeShare(w.camp as SiegeWindow, at)) : 0;
+}
+
+/**
+ * Ответ на предложение вида `kind`, ждущее в минуту `now` (7.3). Принятая дань — добро переходит от города походу той же
+ * дверью дележа, что добыча (`parley.tributeGoods`), лагерь уходит домой, город получает неприкосновенность, как после
+ * падения; принятые условия — падение сдачей с участью из условий. Ответа нет — null; предложения уже нет — отказ.
+ */
+function settleOffer(file: WarFile, w: WarRow, now: number, ctx: OrderCtx, kind: OfferKind, yes: boolean): string | null {
+  if (!w.camp) return 'Лагеря уже нет.';
+  const live = liveOffer(w.camp as SiegeWindow, kind, now);
+  if (!live) return 'Предложение уже не в силе.';
+  const s = ctx.sheet(w.def);
+  if (yes && !s) return 'Вести о городе ещё не дошли до края. Подожди минуту.';
+  w.camp = { ...w.camp, ...answerAfter(w.camp as SiegeWindow, kind, yes ? 'yes' : 'no', now) } as WarCamp;
+  if (!yes || !s) return null;
+  const sheet = liveSheet(file, w.def, s, now);
+  if (kind === 'terms') {
+    fall(w, now, sheet, 'gates', live.fate ?? softerFate(w.fate));
+    turnBack(w, now, w.to, 'taken');
+    return null;
+  }
+  const paid = tributeGoods(sheet.stock as Loot, sheet.gold, sheet.stash, live.price ?? 0);
+  const taken: Counts = {};
+  for (const [k, v] of Object.entries(paid.taken)) if ((v ?? 0) > 0) taken[k] = v as number;
+  w.tribute = { at: now, taken, hidden: paid.hiddenTotal };
+  turnBack(w, now, w.to, 'paid');
+  return null;
+}
+
+/**
+ * Наказы на переговоры (8.3): осаждающий принимает дань не меньше справедливой — цена дани и есть справедливая на минуту
+ * предложения; осаждённый принимает сдачу на условиях не хуже названной участи. Срабатывают в минуту, когда предложение
+ * пришло или наказ поставлен, — той же дверью, что кнопка.
+ */
+function autoAnswer(file: WarFile, w: WarRow, now: number, ctx: OrderCtx): void {
+  const camp = w.camp as SiegeWindow | undefined;
+  if (!camp) return;
+  const tribute = liveOffer(camp, 'tribute', now);
+  if (tribute && camp.orders?.tribute) {
+    settleOffer(file, w, now, ctx, 'tribute', true);
+    return;
+  }
+  const terms = liveOffer(camp, 'terms', now);
+  const floor = camp.defend?.terms;
+  if (terms?.fate && floor && !softerThan(floor, terms.fate)) settleOffer(file, w, now, ctx, 'terms', true);
 }
 
 /** Темп войны (`http.warPace`): во сколько раз быстрее походы и голод. Ставит его обработчик на запрос. */
@@ -758,6 +844,10 @@ function campWindow(w: WarRow, at: number, sheet: WarSheet, prev: WarCamp | null
     defend: prev?.defend,
     machines: prev?.machines as SiegeWindow['machines'],
     fire: prev?.fire as Fire | undefined,
+    // Отметки «осада» полководца похода — при постановке лагеря (в пределах правил, `book.rulePips`); переговоры той же
+    // осады переносятся (docs/siege_v2.md, этап 2е).
+    lead: prev ? prev.lead : w.army.pips.siege,
+    offers: prev?.offers as SiegeWindow['offers'],
   });
   const aimed = reaim(win.fire, win.wood, siegeSince(win), at, aimOfSheet(sheet));
   if (aimed.fire) win.fire = aimed.fire;
@@ -1280,6 +1370,8 @@ export function applyOrder(file: WarFile, key: string, order: WarOrder, now: num
       if (clean) camp.orders = clean;
       else delete camp.orders;
       w.camp = camp;
+      // Наказ «принять дань» срабатывает и на дань, уже ждущую ответа (8.3).
+      autoAnswer(file, w, now, ctx);
       return null;
     }
     case 'sortie': {
@@ -1326,6 +1418,8 @@ export function applyOrder(file: WarFile, key: string, order: WarOrder, now: num
       if (clean) camp.defend = clean;
       else delete camp.defend;
       w.camp = camp;
+      // Наказ «принять условия» срабатывает и на условия, уже ждущие ответа (8.3).
+      autoAnswer(file, w, now, ctx);
       return null;
     }
     case 'sally': {
@@ -1351,6 +1445,30 @@ export function applyOrder(file: WarFile, key: string, order: WarOrder, now: num
       fall(w, now, liveSheet(file, key, s, now), 'gates');
       turnBack(w, now, w.to, 'taken');
       return null;
+    }
+    case 'offer': {
+      // Переговоры у стен (docs/siege_v2.md, раздел 7): условия предлагает осаждающий, дань — осаждённый. Одно предложение на
+      // сторону в фазу, стоит до конца следующей; цену дани назначает сервер — справедливую на эту минуту (`world/parley`).
+      const role = order.kind === 'terms' ? 'atk' : 'def';
+      const w = theirs(file, order.id, key, role);
+      if (!w || w.phase !== 'camp' || !w.camp) return role === 'atk' ? 'Лагеря уже нет.' : 'Лагеря под стенами уже нет.';
+      const camp = w.camp as SiegeWindow;
+      const why = offerBlock(camp, order.kind, now) ?? (order.kind === 'terms' ? termsBlock(w.fate, order.fate) : null);
+      if (why) return why;
+      const s = ctx.sheet(w.def);
+      if (!s) return 'Вести о городе ещё не дошли до края. Подожди минуту.';
+      const price = order.kind === 'tribute' ? fairOf(w, now, liveSheet(file, w.def, s, now)) : 0;
+      if (order.kind === 'tribute' && price <= 0) return 'На виду ничего не лежит: дани дать нечем.';
+      const offer = order.kind === 'terms' ? { kind: order.kind, at: now, fate: order.fate } : { kind: order.kind, at: now, price };
+      w.camp = { ...w.camp, ...offerAfter(camp, offer) } as WarCamp;
+      autoAnswer(file, w, now, ctx);
+      return null;
+    }
+    case 'answer': {
+      // Ответ на предложение другой стороны: на условия отвечает осаждённый, на дань — осаждающий.
+      const w = theirs(file, order.id, key, order.kind === 'terms' ? 'def' : 'atk');
+      if (!w || w.phase !== 'camp' || !w.camp) return 'Лагеря уже нет.';
+      return settleOffer(file, w, now, ctx, order.kind, order.yes);
     }
     case 'relief': {
       // Выручка (docs/siege_v2.md, раздел 5): союзник осаждённого по пакту бьёт по лагерю с тыла тем же ударом, что
@@ -1407,6 +1525,13 @@ export function applyOrder(file: WarFile, key: string, order: WarOrder, now: num
 /** Войско приказа в пределах правил: стойкость и отметки полководца не выше, чем бывает у игрока (`book.ts`). */
 const ruleArmy = (a: WarArmy): WarArmy => ({ ...a, resolve: ruleResolve(a.resolve), pips: rulePips(a.pips) });
 
+/**
+ * Когда город в последний раз пал или дал дань — от этой минуты он неприкосновенен (`SIEGE_IMMUNE`): дань за снятие осады
+ * закрывает город так же, как падение (docs/siege_v2.md, 7.1). 0 — ни разу.
+ */
+const fellAt = (file: WarFile, def: string): number =>
+  file.wars.filter((w) => w.def === def && (w.fall || w.tribute)).reduce((t, w) => Math.max(t, w.fall?.at ?? 0, w.tribute?.at ?? 0), 0);
+
 /** Когда в последний раз жгли этот город — для неприкосновенности от огня (`spoils.burnImmuneUntil`). 0 — не жгли. */
 const burnedAt = (file: WarFile, def: string): number =>
   file.wars.filter((w) => w.def === def && w.fall?.burned).reduce((t, w) => Math.max(t, w.fall?.at ?? 0), 0);
@@ -1457,7 +1582,7 @@ function march(file: WarFile, key: string, order: Extract<WarOrder, { op: 'march
   if (besieged(file, key)) return SIEGE_BLOCK;
   if (file.wars.some((w) => w.def === def && active(w))) return 'На этот город уже идёт другой отряд.';
   // Павший город неприкосновенен, как и у логова (`siege.SIEGE_IMMUNE`): цепочки падений нет.
-  const fell = file.wars.filter((w) => w.def === def && w.fall).reduce((t, w) => Math.max(t, w.fall?.at ?? 0), 0);
+  const fell = fellAt(file, def);
   if (fell > 0 && now < fell + SIEGE_IMMUNE) return 'Город недавно пал. Пока его не трогают.';
   const theirSheet = ctx.sheet(def);
   if (!theirSheet) return 'Город ещё не готов к войне. Его правитель не заходил с тех пор, как она началась.';
@@ -1604,6 +1729,45 @@ export function newsOf(w: WarRow): WarNews[] {
       });
     }
   });
+  // Переговоры у стен (docs/siege_v2.md, 7.3): предложение — тому, кому отвечать, пока оно стоит; отказ — тому, кто
+  // предлагал; принятая дань — осаждённому (принятые условия — падение сдачей, его весть ниже).
+  for (const o of w.camp?.offers ?? []) {
+    const by = o.kind === 'terms' ? 'atk' : 'def';
+    const to = by === 'atk' ? 'def' : 'atk';
+    const fate = o.fate ?? w.fate;
+    // Наказ ответил в ту же минуту — спрашивать уже не о чем: весть скажет итог (дань или сдача).
+    if (o.answeredAt !== o.at) {
+      out.push({
+        player: to === 'atk' ? w.atk : w.def,
+        item: { key: `war-parley:${w.id}:${o.kind}:${o.at}`, kind: 'war-parley', fireAt: o.at, until: o.until, p: { from: from(to), fate, about: o.until, role: to, offer: o.kind } },
+      });
+    }
+    if (o.answer === 'no' && o.answeredAt !== undefined) {
+      out.push({
+        player: by === 'atk' ? w.atk : w.def,
+        item: {
+          key: `war-parley:${w.id}:${o.kind}:${o.at}:no`,
+          kind: 'war-parley',
+          fireAt: o.answeredAt,
+          until: o.answeredAt + RESULT_KEEP,
+          p: { from: from(by), fate, about: o.answeredAt, role: by, offer: o.kind, answer: 'no' },
+        },
+      });
+    }
+  }
+  if (w.tribute) {
+    const at = w.tribute.at;
+    out.push({
+      player: w.def,
+      item: {
+        key: `war-parley:${w.id}:tribute:paid`,
+        kind: 'war-parley',
+        fireAt: at,
+        until: at + RESULT_KEEP,
+        p: { from: from('def'), fate: w.fate, about: at, role: 'def', offer: 'tribute', answer: 'yes' },
+      },
+    });
+  }
   if (w.fall?.by === 'hunger' || w.fall?.by === 'gates') {
     const at = w.fall.at;
     const gates = w.fall.by === 'gates';
@@ -1716,7 +1880,7 @@ function spyPlan(file: WarFile, key: string, target: string, at: number, ctx: Or
   const risk = rivalPeril(rivalPerilCase(mine.sheet.watch.veil, villageTimeAt(theirs, at), spyVisits(file, key, def, at), away));
   // Нападение на слабого и на недавно павший — те же запреты, что у похода; разведка — не нападение.
   const shield = !ctx.noShield && shielded(file, def, theirs, at);
-  const fell = file.wars.filter((w) => w.def === def && w.fall).reduce((t, w) => Math.max(t, w.fall?.at ?? 0), 0);
+  const fell = fellAt(file, def);
   const options = RIVAL_DEEDS.map((deed): SpyOption => {
     const hostile = rivalHostile(deed);
     const reason =

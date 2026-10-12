@@ -97,7 +97,7 @@ function warItems(w: WarRow, roster: RosterFile, now: number): FeedItem[] {
       how: w.fall.by,
       ...(camped ? { siegeMs: Math.max(0, w.fall.at - w.arriveAt) } : {}),
     });
-  } else if (w.endAt !== undefined && (w.end === 'retreat' || w.end === 'lifted' || w.end === 'beaten')) {
+  } else if (w.endAt !== undefined && (w.end === 'retreat' || w.end === 'lifted' || w.end === 'beaten' || w.end === 'paid')) {
     // Штурм с ходу, отбитый у стен, — «штурм отбит»; всё, что кончилось у лагеря без падения, — «осада снята».
     if (camped) out.push({ id: `lifted:${w.id}`, kind: 'lifted', at: w.endAt, ...base, how: w.end });
     else if (w.end === 'beaten') out.push({ id: `repelled:${w.id}`, kind: 'repelled', at: w.endAt, ...base });

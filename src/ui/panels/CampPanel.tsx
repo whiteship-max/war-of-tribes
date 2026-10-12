@@ -24,6 +24,7 @@ import type { CampView, Fate } from '@/world/types';
 import { FatePick } from '@/ui/parts/FatePick';
 import { plural } from '@/ui/parts/plural';
 import { SiegePhases } from '@/ui/parts/SiegePhases';
+import { SiegeParley } from '@/ui/parts/SiegeParley';
 
 /**
  * Сроки из подсказки к долям — той же функцией, которой считаются стороны: при
@@ -248,6 +249,9 @@ export function CampPanel() {
           onOrders={(o) => void order(() => setOrders(o), 'Наказы поставлены.')}
         />
       )}
+
+      {/* Переговоры у стен (docs/siege_v2.md, раздел 7): условия сдачи, дань, наказ брать дань — числа из мира. */}
+      {camp.parley && <SiegeParley view={camp.parley} fate={camp.fate} now={now} orders={camp.phases?.orders} busy={busy} />}
 
       {/* Дела полководца в лагере (world/siegecraft): за энергию, не больше предела за осаду. Числа и отказ — из мира. */}
       {camp.crafts && camp.crafts.length > 0 && (

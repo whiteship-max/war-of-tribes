@@ -50,9 +50,21 @@ describe('белый список видов', () => {
    * три о логове (мир на клиенте), три о войне между игроками и тайное нападение лазутчика соседа (сервер,
    * docs/spy_pvp.md). Вида «вернись в игру» быть не может.
    */
-  it('девять видов поимённо, вида «вернись в игру» быть не может', () => {
-    // Фаза осады — пролом и мор (`siege-phase` у осады логова, `war-phase` у войны; docs/siege_v2.md, 8.3).
-    expect([...NOTICE_KINDS]).toEqual(['raid', 'raid-fight', 'siege-fall', 'siege-phase', 'war', 'war-fight', 'war-fall', 'war-spy', 'war-phase']);
+  it('десять видов поимённо, вида «вернись в игру» быть не может', () => {
+    // Фаза осады — пролом и мор (`siege-phase` у осады логова, `war-phase` у войны; docs/siege_v2.md, 8.3). Переговоры у стен
+    // (`war-parley`, раздел 7) — только у войны: с логовом переговоры идут в игре, без вестей.
+    expect([...NOTICE_KINDS]).toEqual([
+      'raid',
+      'raid-fight',
+      'siege-fall',
+      'siege-phase',
+      'war',
+      'war-fight',
+      'war-fall',
+      'war-spy',
+      'war-phase',
+      'war-parley',
+    ]);
     const put = accept(emptyNotify(), { computedAt: NOW, items: [item({ kind: 'come-back' as never, key: 'come-back:1' })] }, PLAYER, NOW);
     expect(put.fail).toEqual({ status: 400, error: 'bad-body' });
   });
@@ -60,7 +72,7 @@ describe('белый список видов', () => {
   /** Войну знает только сервер: клиент, приславший «бой был» о войне, назвал бы исход, которого сервер не считал. */
   it('клиент не может прислать вид войны — отказ всему списку', () => {
     expect([...CLIENT_KINDS]).toEqual(['raid', 'raid-fight', 'siege-fall', 'siege-phase']);
-    for (const kind of ['war', 'war-fight', 'war-fall', 'war-spy', 'war-phase'] as const) {
+    for (const kind of ['war', 'war-fight', 'war-fall', 'war-spy', 'war-phase', 'war-parley'] as const) {
       const fake = item({ kind, key: `${kind}:x`, p: { ...item().p, role: 'def', won: true } });
       expect(accept(emptyNotify(), { computedAt: NOW, items: [fake] }, PLAYER, NOW).fail, kind).toEqual({ status: 400, error: 'bad-body' });
     }

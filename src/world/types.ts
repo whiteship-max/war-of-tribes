@@ -6,6 +6,7 @@ import type { CraftAct } from './siegecraft';
 import type { DefendOrders, SiegeOrders } from './siegeroll';
 import type { MachineId } from './data/machines';
 import type { Opening } from './wall';
+import type { OfferKind } from './parley';
 import type { GameSec } from '@/game/pace';
 import type { FaithId, ResourceId } from '@/game/types';
 import type { TroopStack } from '@/game/battle/kinds';
@@ -276,7 +277,35 @@ export interface SiegeView {
    * же дверью, что применит приказ. Нет поля — окно не осаждённого.
    */
   answers?: SiegeAnswers;
+  /** Переговоры у стен (docs/siege_v2.md, раздел 7; этап 2е): доля пути, цена дани, предложения сторон. Нет — окно без них. */
+  parley?: ParleyView;
 }
+
+/**
+ * Переговоры у стен глазами окна — осаждающему и осаждённому (docs/siege_v2.md, раздел 7). Числа — дверью `world/parley`
+ * (правило 18): доля пути, справедливая дань, условия на выбор. Прогноза исхода нет: доля пути — уже случившееся.
+ */
+export interface ParleyView {
+  /** Сторона смотрящего: осаждающий предлагает условия и отвечает на дань, осаждённый — наоборот. */
+  side: 'atk' | 'def';
+  /** Доля пути осады, 0..1 (`parley.siegeShare`): большее из хода к сдаче и прошедшего к голоду. */
+  share: number;
+  /** Справедливая дань сейчас — у осаждённого: он знает свой склад (`parley.fairTribute`). */
+  fair?: number;
+  /** Условия, которые можно предложить, — участи мягче объявленной (у осаждающего). */
+  terms?: Fate[];
+  /** Почему своё предложение сейчас не сделать; null — можно. */
+  block: string | null;
+  /** Предложение другой стороны, ждущее ответа: условия (участь) или дань (цена), до какой минуты стоит. */
+  incoming?: { kind: OfferKind; fate?: Fate; price?: number; until: number };
+  /** Своё последнее предложение этой осады: ждёт ответа, отклонено или истекло. */
+  mine?: { kind: OfferKind; fate?: Fate; price?: number; until: number; answer?: 'yes' | 'no' };
+  /** Другая сторона — логово или двор мира: отвечает сразу, правилом той же формулы. */
+  bot: boolean;
+}
+
+/** Переговоры приказом (`WorldApi.parley`): предложить своё или ответить на чужое. */
+export type ParleyOrder = { act: 'offer'; kind: OfferKind; fate?: Fate } | { act: 'answer'; kind: OfferKind; yes: boolean };
 
 /** Ответы осаждённого глазами окна осады (docs/siege_v2.md, 9.2). */
 export interface SiegeAnswers {
@@ -1540,6 +1569,11 @@ export interface HomeEffect {
    * последствий и у записей до опыта — версию сохранения мира оно не поднимает.
    */
   deed?: { agent: FigureId; ok: boolean; at: number; person?: number };
+  /**
+   * Наш лагерь довёл осаду до конца в нашу пользу: город пал или дал дань (docs/siege_v2.md, этап 2е). Племя засчитывает её
+   * полководцу (`sim/agents.recordSiege`) — из счёта осад выводится его отметка «осада». Поля нет у прочих последствий.
+   */
+  siege?: boolean;
   /**
    * Агент погиб на деле. Племя освобождает его место (`sim/agents.recordDeath`) —
    * если на нём всё ещё тот же человек (`person`): весть приезжает поздно, и убить она

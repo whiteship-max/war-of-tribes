@@ -41,7 +41,9 @@ export function feedWords(item: FeedItem): FeedWords {
       const how =
         item.how === 'hunger'
           ? `Сдался голоду${item.siegeMs ? ` после ${coarse(item.siegeMs)} осады` : ''}.`
-          : item.siegeMs
+          : item.how === 'gates'
+            ? `Открыл ворота${item.siegeMs ? ` после ${coarse(item.siegeMs)} осады` : ''}.`
+            : item.siegeMs
             ? `Пал при штурме после ${coarse(item.siegeMs)} осады.`
             : 'Пал при штурме.';
       return { title: `${City} взят`, line: `${how} Победитель — ${party(item, 'отряд')}.`, icon: { name: 'ui-banner', glyph: '🚩' } };
@@ -50,7 +52,13 @@ export function feedWords(item: FeedItem): FeedWords {
       return { title: `${City} в осаде`, line: `Под стенами встал лагерем ${party(item, 'отряд')}.`, icon: { name: 'stage-camp', glyph: '⛺' } };
     case 'lifted': {
       const how =
-        item.how === 'retreat' ? 'Враг снял осаду и ушёл.' : item.how === 'beaten' ? 'Штурм из лагеря отбили.' : 'Защитники вышли из ворот и разбили лагерь.';
+        item.how === 'retreat'
+          ? 'Враг снял осаду и ушёл.'
+          : item.how === 'beaten'
+            ? 'Штурм из лагеря отбили.'
+            : item.how === 'paid'
+              ? 'Откупился данью, лагерь ушёл.'
+              : 'Защитники вышли из ворот и разбили лагерь.';
       return { title: `${City} выстоял`, line: `${how} Осаждал ${party(item, 'отряд')}.`, icon: { name: 'gear-shield', glyph: '🛡️' } };
     }
     case 'repelled':

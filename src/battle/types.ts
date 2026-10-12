@@ -72,7 +72,11 @@ export const PHASES: readonly PhaseId[] = [
  */
 export type PipId = 'fire' | 'shock' | 'melee' | 'maneuver';
 export const PIP_IDS: readonly PipId[] = ['fire', 'shock', 'melee', 'maneuver'];
-export type Pips = Partial<Record<PipId, number>>;
+/**
+ * Отметки по видам. Сверх четырёх боевых — отметка «осада» (`siege`, docs/siege_v2.md, 2.3, этап 2е): грань кости фазы
+ * осады, а не боя. Ядро боя её не читает (`pipOf` спрашивает только `PIP_IDS`), её читает ход осады (`world/siegeroll`).
+ */
+export type Pips = Partial<Record<PipId | 'siege', number>>;
 
 /**
  * С чем сторона выходит в бой. Плана, приказов и условия резерва у стороны нет (docs/battle_eu4.md, 14.5):

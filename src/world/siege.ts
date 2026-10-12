@@ -15,6 +15,7 @@ import type { Fire } from './bombard';
 import type { Craft } from './siegecraft';
 import type { DefendOrders, PhaseRow, SiegeDeed, SiegeOrders } from './siegeroll';
 import type { MachineOrder } from './machines';
+import type { SiegeOffer } from './parley';
 import { SIEGE_EAT_FLOOR, SIEGE_IMMUNE, SIEGE_TOWN_EAT, SIEGE_TOWN_LARDER, SIEGE_WEAR_FLOOR } from './data/tuning';
 import { HOUR_MS as HOUR } from '../game/time';
 import { SIEGE_RATION } from '../game/constants';
@@ -151,6 +152,16 @@ export interface SiegeWindow {
   ration?: boolean;
   /** Наказы осаждённого на отлучку (`siegeroll.DefendOrders`): чинить пролом, урезать паёк. Нет поля — наказов нет. */
   defend?: DefendOrders;
+  /**
+   * Отметки «осада» того, кто ведёт лагерь (`siegeroll.leadFaces`: +1 к кости фазы за каждую, до трёх; docs/siege_v2.md,
+   * 2.3, этап 2е) — заморожены при постановке. Нет поля — ноль: у логова и двора мира полководца нет.
+   */
+  lead?: number;
+  /**
+   * Переговоры у стен (`world/parley`, docs/siege_v2.md, раздел 7): предложения сторон — сдача на условиях и дань — и ответ
+   * на них. Нет поля — никто ничего не предлагал. Переносится при пересчёте часов голода той же осады.
+   */
+  offers?: SiegeOffer[];
 }
 
 /** Когда осада началась. Пересчёт часов голода эту отметку не двигает. */
@@ -244,6 +255,10 @@ export function openSiege(at: {
   defend?: DefendOrders;
   /** Очередь осадных машин той же осады (`world/machines`): переносится при пересчёте, как журнал дел. */
   machines?: MachineOrder[];
+  /** Отметки «осада» полководца лагеря: у новой осады — при постановке, у той же — переносятся. */
+  lead?: number;
+  /** Переговоры той же осады (`world/parley`): переносятся при пересчёте. */
+  offers?: SiegeOffer[];
 }): SiegeWindow {
   return {
     byId: at.byId,
@@ -267,6 +282,8 @@ export function openSiege(at: {
     ...(at.ration ? { ration: true } : {}),
     ...(at.defend ? { defend: { ...at.defend } } : {}),
     ...(at.machines?.length ? { machines: at.machines.map((m) => ({ ...m })) } : {}),
+    ...(at.lead ? { lead: Math.max(0, Math.floor(at.lead)) } : {}),
+    ...(at.offers?.length ? { offers: at.offers.map((o) => ({ ...o })) } : {}),
     foodAtStart: Math.max(0, at.food),
     garrisonAtStart: Math.max(0, Math.round(at.garrison)),
     townPerHour: Math.max(0, at.townPerHour),
