@@ -1095,6 +1095,9 @@ function placeSite(
   return site;
 }
 
+/** Ближе этого к наружной грани чужой стены строй чужих не подходит (единицы сцены). */
+const WALL_KEEP = 0.1;
+
 /** Парапет изнутри: передняя шеренга на стене стоит сразу за ним. Шаг шеренг на стене — теснее строя в поле. */
 const PARAPET_IN = 0.32;
 const PERCH_RANK = 0.62;
@@ -2427,6 +2430,15 @@ export function figurePose(plan: TwPlan, i: number, t: number, pose: UnitPose | 
         out.z -= w.inward * over;
         out.x += Math.sign(out.x - w.gateX || 1) * over;
       }
+    }
+  }
+  // Чужая стена — граница и для строя: давление (`pushOf`) и глубина строя не заводят чужих в камень. Через стену чужой
+  // ходит только проездом, по лестнице или поверху (свой путь, `goKind` 3 и 4) — их это не держит.
+  {
+    const w = plan.site?.wall;
+    if (w && w.side !== u.side && plan.climb[i] < 0 && plan.goKind[i] !== 3 && plan.goKind[i] !== 4) {
+      const d = outOf(w, out.z);
+      if (d < WALL_KEEP) out.z -= w.inward * (WALL_KEEP - d);
     }
   }
   // За краем поля гаснут и бегущие, и гонящие их; ушедшие в город за стеной — тоже.
