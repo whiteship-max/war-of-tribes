@@ -106,6 +106,15 @@ describe('осадный паёк — правило двери и деревн�
     expect(order.lines.find((l) => l.id === 'ration')?.value).toBeCloseTo(-(order.lines.filter((l) => l.id !== 'ration').reduce((n, l) => n + l.value, 0)) * SIEGE_RATION_CUT, 9);
   });
 
+  it('строка пайка — своей строкой: пустые закрома остаются одной строкой запаса, без «Голодно» поверх', () => {
+    const s = createInitialState();
+    s.resources.food = 0;
+    const ids = (): string[] => moraleBreakdown(s).lines.map((l) => l.id).filter((id) => ['starving', 'hungry', 'fed', 'ration'].includes(id));
+    expect(ids()).toEqual(['starving']);
+    s.siege = { byName: 'Логово', until: s.time + 1000, ration: true };
+    expect(ids()).toEqual(['starving', 'ration']);
+  });
+
   it('наказ пайка — когда хлеба меньше половины, и только если паёк ещё обычный', () => {
     expect(orderRations({ ration: true }, false, 0.49)).toBe(true);
     expect(orderRations({ ration: true }, false, 0.5)).toBe(false);

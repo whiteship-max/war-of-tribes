@@ -1414,10 +1414,10 @@ export function moraleBreakdown(s: GameState): MoraleBreakdown {
   const eat = foodConsumptionPerDay(s);
   const foodDays = s.resources.food / Math.max(1, eat);
   if (s.resources.food <= 0) add('starving', '💀', 'Закрома пусты', -STARVING_MORALE, 'еды нет');
-  // Осадный паёк — та же кара в доле урезанного (docs/siege_v2.md, раздел 5).
-  if (s.siege?.ration) add('ration', '🥣', 'Осадный паёк', -rationMorale(), `еды ×${SIEGE_RATION}`);
   else if (foodDays >= 3) add('fed', '🍖', 'Сытость', 10, `запас на ${daysSpan(foodDays)}`);
   else if (foodDays < 1) add('hungry', '🍖', 'Голодно', -8, `запас на ${daysSpan(foodDays)}`);
+  // Осадный паёк — та же кара в доле урезанного (docs/siege_v2.md, раздел 5): своей строкой, вне цепочки запаса.
+  if (s.siege?.ration) add('ration', '🥣', 'Осадный паёк', -rationMorale(), `еды ×${SIEGE_RATION}`);
 
   for (const b of s.buildings) {
     const v = buildingStat(b, 'morale');
