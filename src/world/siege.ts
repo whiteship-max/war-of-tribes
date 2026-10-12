@@ -165,7 +165,10 @@ export const siegeSince = (w: SiegeWindow): number => w.sinceAt ?? w.startedAt;
  * дольше, а еда кончится раньше.
  */
 export const consumptionPerHour = (w: SiegeWindow): number =>
-  Math.max(SIEGE_EAT_FLOOR, (w.townPerHour + Math.max(0, w.garrisonAtStart) * w.perManPerHour) * (w.ration ? SIEGE_RATION : 1));
+  Math.max(SIEGE_EAT_FLOOR, (w.townPerHour + Math.max(0, w.garrisonAtStart) * w.perManPerHour) * rationShare(w));
+
+/** Доля обычного расхода, которую ест город: осадный паёк — ×¾ (`SIEGE_RATION`), без него — единица. Без единиц времени. */
+export const rationShare = (w: Pick<SiegeWindow, 'ration'>): number => (w.ration ? SIEGE_RATION : 1);
 
 /**
  * Когда кончится еда. Чистая функция от окна и только от него: ни часов, ни

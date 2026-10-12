@@ -127,6 +127,16 @@ function clamp01(v: number): number {
 }
 
 /**
+ * Обстрел лагеря игрока глазами окна осады защитника (сервер войны прикладывает его сам, `war.campSide`): выбитое к минуте
+ * `at`, потолок и замедление рогаток. Мир на клиенте его не прикладывает — только показывает.
+ */
+export const fireView = (fire: Fire, at: number): { thin: number; cap: number; slow: number } => ({
+  thin: thinAt(fire, at),
+  cap: Math.max(fire.base, fire.thin),
+  slow: fire.slow,
+});
+
+/**
  * Роды лагеря, прорежённые обстрелом: каждый род — доля `1 − thin`, до целого. Одна мерка на лагерь в бою у мира
  * (`LocalWorld.campArmy`) и у сервера войны (`war.campSide`): в бою те, кого башня не выбила.
  */

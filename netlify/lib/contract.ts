@@ -1055,7 +1055,7 @@ export type WarOrder =
   | { op: 'repair'; id: string }
   | { op: 'ration'; id: string; on: boolean }
   | { op: 'defend'; id: string; defend: WarDefend }
-  | { op: 'burn'; id: string; machine: WarMachine; troops: Counts }
+  | { op: 'sally'; id: string; machine: WarMachine; troops: Counts }
   | { op: 'surrender'; id: string }
   | { op: 'relief'; id: string; army: WarArmy; walkMs: number }
   | { op: 'pact'; target: string }
@@ -1257,9 +1257,9 @@ export function readWarOrder(v: unknown): WarOrder | null {
       return id && typeof r.on === 'boolean' ? { op: 'ration', id, on: r.on } : null;
     case 'defend':
       return id ? { op: 'defend', id, defend: readDefend(r.defend) } : null;
-    case 'burn': {
+    case 'sally': {
       const machine = WAR_MACHINES.find((e) => e === r.machine);
-      return id && machine ? { op: 'burn', id, machine, troops: readCounts(r.troops) } : null;
+      return id && machine ? { op: 'sally', id, machine, troops: readCounts(r.troops) } : null;
     }
     case 'relief': {
       const army = readArmy(r.army);

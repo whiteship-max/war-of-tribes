@@ -291,7 +291,7 @@ export interface SiegeAnswers {
   /** Наказы осаждённого на отлучку. Нет — не стоят. */
   defend?: DefendOrders;
   /** Выручка соседей-союзников, идущая на лагерь: чей город, сколько бойцов, когда ударят. */
-  reliefs: { city: string; men: number; at: number }[];
+  reliefs: { from: string; men: number; at: number }[];
 }
 
 /** Ответ осаждённого приказом (`WorldApi.defend`): починка, паёк, наказы, сдача. */

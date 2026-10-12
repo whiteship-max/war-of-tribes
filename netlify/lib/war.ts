@@ -1328,7 +1328,7 @@ export function applyOrder(file: WarFile, key: string, order: WarOrder, now: num
       w.camp = camp;
       return null;
     }
-    case 'burn': {
+    case 'sally': {
       const w = theirs(file, order.id, key, 'def');
       if (!w || w.phase !== 'camp' || !w.camp) return 'Лагеря под стенами уже нет.';
       const why = burnBlock(w.camp as SiegeWindow, order.machine, now);

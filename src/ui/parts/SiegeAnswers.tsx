@@ -91,8 +91,8 @@ export function SiegeAnswers({ siege, now }: { siege: SiegeView; now: number }) 
       )}
 
       {a.reliefs.map((r) => (
-        <p className="note" key={`${r.city}-${r.at}`}>
-          Союзник «{r.city}» идёт на выручку: {r.men} {plural(r.men, 'боец', 'бойца', 'бойцов')}, ударит по лагерю с тыла через{' '}
+        <p className="note" key={`${r.from}-${r.at}`}>
+          Союзник «{r.from}» идёт на выручку: {r.men} {plural(r.men, 'боец', 'бойца', 'бойцов')}, ударит по лагерю с тыла через{' '}
           {realLeft(secondsLeft(r.at, now))}.
         </p>
       ))}

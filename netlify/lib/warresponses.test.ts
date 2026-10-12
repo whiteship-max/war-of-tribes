@@ -163,10 +163,10 @@ describe('вылазка на машину', () => {
     // Лес — машинам, таран заказан и строится.
     expect(applyOrder(file, A, { op: 'wood', id: w.id, machines: 1 }, since + 1, ctx)).toBeNull();
     expect(applyOrder(file, A, { op: 'machine', id: w.id, machine: 'ram' }, since + 2, ctx)).toBeNull();
-    expect(applyOrder(file, B, { op: 'burn', id: w.id, machine: 'tower', troops: { spearman: 10 } }, since + 3, ctx)).toBe(
+    expect(applyOrder(file, B, { op: 'sally', id: w.id, machine: 'tower', troops: { spearman: 10 } }, since + 3, ctx)).toBe(
       'Осадная башня: у лагеря её нет.',
     );
-    expect(applyOrder(file, B, { op: 'burn', id: w.id, machine: 'ram', troops: { spearman: 200, archer: 60 } }, since + 3, ctx)).toBeNull();
+    expect(applyOrder(file, B, { op: 'sally', id: w.id, machine: 'ram', troops: { spearman: 200, archer: 60 } }, since + 3, ctx)).toBeNull();
     const b = w.battles[w.battles.length - 1];
     expect(b.burn).toBe('ram');
     expect(b.won, 'точка внутри области: охрану смяли').toBe(true);

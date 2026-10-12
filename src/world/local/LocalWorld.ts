@@ -262,7 +262,7 @@ import {
 } from '../spoils';
 import { FATE_META, gainText, lossText } from '../data/fates';
 import { marchSeed, stackAfter, stackLosses, stackPower } from '../combat';
-import { aimOf, firePlan, reaim, thinAt, thinKinds } from '../bombard';
+import { aimOf, fireView, firePlan, reaim, thinAt, thinKinds } from '../bombard';
 import { CRAFT_ACTS, craftAfter, craftAt, craftBlock, craftCount, craftDone, craftGain, craftMax, craftNote, fortFaces, garrisonWear, type CraftAct } from '../siegecraft';
 import { garrisonOf, menOfPower, raidingParty, GARRISON_STYLES } from '../garrison';
 import { MIRROR_ON, mirrorPower } from '../mirror';
@@ -8393,7 +8393,8 @@ export class LocalWorld implements WorldApi {
     const SITE: Record<WarBattle['site'], string> = { wall: 'Штурм', sortie: 'Вылазка', camp: 'Удар по лагерю', joint: 'Совместный удар' };
     // Вылазка на машину и выручка союзника — свои слова (docs/siege_v2.md, раздел 5).
     const burnt = b.burn ? MACHINE_NAME[b.burn].toLowerCase() : null;
-    const site = burnt ? `Вылазка на ${burnt === 'осадная башня' ? 'осадную башню' : burnt}` : allied ? `Выручка из ${this.castleOf(b.ally as SettlementId)?.city ?? 'соседнего города'}` : SITE[b.site];
+    const helper = b.ally ? this.castleOf(b.ally as SettlementId) : null;
+    const site = burnt ? `Вылазка на ${burnt === 'осадная башня' ? 'осадную башню' : burnt}` : allied ? `Выручка из «${cityOr(helper?.city)}»` : SITE[b.site];
     const hit = burnt ? (b.won ? 'сожгли' : 'отбита') : null;
     const title =
       ours === 'atk'
@@ -8647,15 +8648,15 @@ export class LocalWorld implements WorldApi {
       // Машины лагеря видны со стены (docs/siege_v2.md, 4.3).
       ...(machinesNote(c, now) ? { machineNote: machinesNote(c, now) } : {}),
       // Башня бьёт и по лагерю соседа (docs/siege_v2.md, раздел 5): обстрел посчитан сервером той же дверью (`world/bombard`).
-      ...(c.fire ? { fire: { thin: thinAt(c.fire, now), cap: Math.max(c.fire.base, c.fire.thin), slow: c.fire.slow } } : {}),
+      ...(c.fire ? { fire: fireView(c.fire, now) } : {}),
       ...(c.ration ? { ration: true } : {}),
       answers: this.answersOf(
         c,
         now,
         w.fate,
         // Охрана машины — доля лагеря, прорежённого башней: той же меркой, что у сервера (`war.campSide`).
-        thinKinds(kindsOf(w.army.troops as TroopStack), c.fire ? thinAt(c.fire, now) : 0),
-        (w.reliefs ?? []).map((r) => ({ city: cityOr(r.city), men: troopTotal(r.army.troops as TroopStack), at: r.at })),
+        thinKinds(kindsOf(w.army.troops as TroopStack), c.fire ? fireView(c.fire, now).thin : 0),
+        (w.reliefs ?? []).map((r) => ({ from: cityOr(r.city), men: troopTotal(r.army.troops as TroopStack), at: r.at })),
       ),
     };
   }
@@ -8913,7 +8914,7 @@ export class LocalWorld implements WorldApi {
       going[key] = n;
     }
     if (troopTotal(going) === 0) return { error: 'Отряд пустой.', reportId: null, won: false };
-    const err = await this.warSend({ op: 'burn', id: w.id, machine: id, troops: going as Counts });
+    const err = await this.warSend({ op: 'sally', id: w.id, machine: id, troops: going as Counts });
     return err ? { error: err, reportId: null, won: false } : { error: null, ...this.warReportOf(w.id) };
   }
 
