@@ -44,8 +44,11 @@ export type ModId = 'breach' | 'volley' | 'machine' | 'hunger' | 'progress' | 'w
 export const MOD_IDS: readonly ModId[] = ['breach', 'volley', 'machine', 'hunger', 'progress', 'wall'];
 export type PhaseMods = Partial<Record<ModId, number>>;
 
-/** Наказ на отлучку, сработавший в минуту фазы (docs/siege_v2.md, 8.3). */
-export type OrderId = 'volley' | 'storm';
+/**
+ * Наказ на отлучку, сработавший в минуту фазы (docs/siege_v2.md, 8.3): у осаждающего — залп и штурм, у осаждённого —
+ * починка пролома и урезанный паёк (этап 2г).
+ */
+export type OrderId = 'volley' | 'storm' | 'repair' | 'ration';
 
 /** Строка журнала фаз: брошенная фаза. Пишет её мир или сервер в минуту фазы; дальше она не меняется. */
 export interface PhaseRow {
@@ -65,7 +68,11 @@ export interface PhaseRow {
 /** Дело с минутой в журнале окна: входы фазы должны быть известны задним числом (docs/siege_v2.md, 2.1). */
 export interface SiegeDeed {
   at: number;
-  act: 'volley';
+  /**
+   * Залп осаждающего (`volley`, 2.5) или починка пролома осаждённым (`repair`, раздел 5): заделанный пролом закрыт к концу
+   * фазы, в которой начали чинить, — к минуте её броска (`repairDoneAt`).
+   */
+  act: 'volley' | 'repair';
 }
 
 /**
@@ -77,6 +84,16 @@ export interface SiegeOrders {
   volley?: boolean;
   /** Штурмовать, когда проломов столько (1..3). Нет поля — не штурмовать. */
   storm?: number;
+}
+
+/**
+ * Наказы осаждённого (docs/siege_v2.md, 8.3; этап 2г) — те же дела той же дверью, что кнопки окна осады, в минуту фазы:
+ * чинить пролом, пока хватает дерева и камня; урезать паёк, когда хлеба меньше половины. Состав вылазки наказ не выбирает
+ * («наказ — не автопилот боя»), поэтому вылазки на машину в наказах нет.
+ */
+export interface DefendOrders {
+  repair?: boolean;
+  ration?: boolean;
 }
 
 /** Окно глазами двери фаз: что ей нужно из `SiegeWindow`. Тот же тип у лагеря сервера войны (`contract.WarCamp`). */
@@ -95,6 +112,7 @@ export type RollWindow = Pick<
   | 'phases'
   | 'wood'
   | 'machines'
+  | 'ration'
 >;
 
 /** Минута броска фазы `k` (с единицы). */
@@ -120,27 +138,87 @@ function legacyBreaches(w: Pick<RollWindow, 'craft' | 'log'>): number {
 /** Проломов среди строк, без потолка и без прежних залпов. */
 const breachRows = (rows: readonly PhaseRow[]): number => rows.filter((r) => r.out === 'breach').length;
 
-/** Сколько проломов в стене после брошенных фаз: 0..3 (`BREACH_MAX`). */
-export function breachesOf(w: Pick<RollWindow, 'craft' | 'log' | 'phases'>, rows: readonly PhaseRow[] = rowsOf(w)): number {
-  return Math.min(BREACH_MAX, legacyBreaches(w) + breachRows(rows));
+/** Окно глазами счёта проломов: прежние залпы, журнал дел с починками, начало осады. */
+type BreachWindow = Pick<RollWindow, 'craft' | 'log' | 'phases' | 'startedAt' | 'sinceAt'>;
+
+/** Починки в журнале окна. */
+export const repairsOf = (w: Pick<RollWindow, 'log'>): readonly SiegeDeed[] => (w.log ?? []).filter((d) => d.act === 'repair');
+
+/**
+ * Минута, когда починка закрыла пролом: конец фазы, в которой начали чинить (docs/siege_v2.md, раздел 5: «−1 пролом в конце
+ * фазы»), — минута её броска. Бросок этой фазы видит стену уже заделанной.
+ */
+export const repairDoneAt = (since: number, deedAt: number): number => phaseAt(since, phaseOf(since, deedAt));
+
+/** Минута, после которой считать: последняя брошенная фаза, а до неё — начало осады. */
+const lastRollAt = (w: BreachWindow, rows: readonly PhaseRow[]): number =>
+  rows.length ? rows[rows.length - 1].at : siegeSince(w as SiegeWindow);
+
+/**
+ * Проломы и ход осады по порядку времени: строки фаз и починки, закрывшие пролом к минуте `until`. Починка, закрытая в
+ * минуту броска, ложится раньше броска — бросок видит стену заделанной. Пролом сверх трёх — ход +1 вместо пролома (2.4).
+ */
+function breachWalk(w: BreachWindow, rows: readonly PhaseRow[], until: number): { breaches: number; steps: number } {
+  const since = siegeSince(w as SiegeWindow);
+  const fixes = repairsOf(w)
+    .map((d) => repairDoneAt(since, d.at))
+    .sort((a, b) => a - b);
+  let breaches = legacyBreaches(w);
+  let steps = 0;
+  let i = 0;
+  const close = (t: number): void => {
+    for (; i < fixes.length && fixes[i] <= t; i++) if (breaches > 0) breaches -= 1;
+  };
+  for (const r of rows) {
+    close(r.at);
+    if (r.out === 'short') steps += 1;
+    if (r.out === 'breach') {
+      steps += breaches >= BREACH_MAX ? 2 : 1;
+      breaches = Math.min(BREACH_MAX, breaches + 1);
+    }
+  }
+  close(until);
+  return { breaches, steps };
+}
+
+/**
+ * Сколько проломов в стене после брошенных фаз: 0..3 (`BREACH_MAX`), за вычетом починок, закрытых к минуте `until` — по
+ * умолчанию к последнему брошенному броску: починка, начатая в этой фазе, закроет пролом только к её концу.
+ */
+export function breachesOf(w: BreachWindow, rows: readonly PhaseRow[] = rowsOf(w), until = lastRollAt(w, rows)): number {
+  return breachWalk(w, rows, until).breaches;
 }
 
 /**
  * Накопленный ход осады — ступени: нехватка в городе даёт одну, пролом одну, пролом сверх трёх — ещё одну вместо пролома
- * (docs/siege_v2.md, 2.4).
+ * (docs/siege_v2.md, 2.4). Починка хода не отнимает: заделанная стена — не возвращённый хлеб.
  */
-export function progressOf(w: Pick<RollWindow, 'craft' | 'log' | 'phases'>, rows: readonly PhaseRow[] = rowsOf(w)): number {
-  let steps = 0;
-  let breaches = legacyBreaches(w);
-  for (const r of rows) {
-    if (r.out === 'short') steps += 1;
-    if (r.out === 'breach') {
-      steps += breaches >= BREACH_MAX ? 2 : 1;
-      breaches += 1;
-    }
-  }
-  return steps;
+export function progressOf(w: BreachWindow, rows: readonly PhaseRow[] = rowsOf(w)): number {
+  return breachWalk(w, rows, lastRollAt(w, rows)).steps;
 }
+
+/** Починка, начатая и ещё не закрытая к минуте `now`: минута, когда пролом закроется. Нет — null. */
+export function repairPending(w: BreachWindow, now: number): number | null {
+  const since = siegeSince(w as SiegeWindow);
+  const after = lastRollAt(w, rowsOf(w));
+  const open = repairsOf(w)
+    .map((d) => (d.at <= now ? repairDoneAt(since, d.at) : Infinity))
+    .filter((t) => t > after && t < Infinity);
+  return open.length ? Math.min(...open) : null;
+}
+
+/**
+ * Почему пролом не починить в минуту `now` (docs/siege_v2.md, раздел 5); null — можно. Цену и склад спрашивает тот, кто
+ * платит: у мира — слепок деревни, у сервера войны — слепок обороны.
+ */
+export function repairBlock(w: BreachWindow, now: number): string | null {
+  if (repairPending(w, now) !== null) return 'Пролом этой фазы уже заделывают. Следующий — в новой фазе.';
+  if (breachesOf(w) <= 0) return 'Проломов нет, заделывать нечего.';
+  return null;
+}
+
+/** Окно после починки, начатой в минуту `at`. */
+export const repairAfter = (w: Pick<RollWindow, 'log'>, at: number): { log: SiegeDeed[] } => ({ log: [...(w.log ?? []), { at, act: 'repair' }] });
 
 /** Доля хлеба города в минуту `at`, 0..1: от часов голода окна — единица, когда встал лагерь, ноль в минуту голода. */
 export function breadLeft(w: RollWindow, at: number): number {
@@ -174,7 +252,8 @@ export function modsOf(w: RollWindow, k: number, prior: readonly PhaseRow[] = ro
   const bread = breadLeft(w, at);
   const hunger = MOD_HUNGER.find((h) => bread < h.below)?.faces ?? 0;
   const mods: PhaseMods = {
-    breach: breachesOf(w, prior) * MOD_BREACH,
+    // Проломы к минуте броска: починка, закрытая в эту минуту, уже легла (раздел 5).
+    breach: breachesOf(w, prior, at) * MOD_BREACH,
     volley: volleyIn(w, k) ? MOD_VOLLEY : 0,
     // Камнемёт, стоящий в лагере к минуте фазы, — постоянная артиллерия (docs/siege_v2.md, 2.3; `world/machines`).
     machine: mangonelAt(w, at) ? MOD_MACHINE : 0,
@@ -306,6 +385,24 @@ export const orderVolleys = (orders: SiegeOrders | undefined, energy: number, vo
 export const orderStorms = (orders: SiegeOrders | undefined, breaches: number): boolean =>
   orders?.storm !== undefined && orders.storm > 0 && breaches >= orders.storm;
 
+/** Хлеба меньше этой доли — наказ урезает паёк: «когда еды меньше половины» (8.3) — тот же порог, что у поправки голода. */
+export const RATION_ORDER_BELOW = 0.5;
+
+/** Починка по наказу в минуту фазы: наказ стоит, пролом есть и не заделывается, на починку хватает (`afford`). */
+export const orderRepairs = (d: DefendOrders | undefined, w: BreachWindow, at: number, afford: boolean): boolean =>
+  Boolean(d?.repair) && afford && repairBlock(w, at) === null;
+
+/** Паёк по наказу: наказ стоит, паёк ещё обычный, хлеба меньше половины (`breadLeft`). */
+export const orderRations = (d: DefendOrders | undefined, on: boolean, bread: number): boolean =>
+  Boolean(d?.ration) && !on && bread < RATION_ORDER_BELOW;
+
+/** Наказы осаждённого, приведённые к правилу: пустые — без поля. */
+export function cleanDefend(d: DefendOrders | undefined): DefendOrders | undefined {
+  if (!d) return undefined;
+  const out: DefendOrders = { ...(d.repair ? { repair: true } : {}), ...(d.ration ? { ration: true } : {}) };
+  return out.repair || out.ration ? out : undefined;
+}
+
 /** Наказы, приведённые к правилу: штурм — 1..3 пролома, пустые — без поля. */
 export function cleanOrders(o: SiegeOrders | undefined): SiegeOrders | undefined {
   if (!o) return undefined;
@@ -333,7 +430,12 @@ export const OUT_NAMES: Record<PhaseOut, string> = {
   gates: 'ворота открыли',
 };
 
-const ORDER_NAMES: Record<OrderId, string> = { volley: 'залп по наказу', storm: 'штурм по наказу' };
+const ORDER_NAMES: Record<OrderId, string> = {
+  volley: 'залп по наказу',
+  storm: 'штурм по наказу',
+  repair: 'починка по наказу',
+  ration: 'паёк по наказу',
+};
 
 /** Поправки словами, как у EU4: «+1 пролом, +2 залп, −2 стена». Нет поправок — «без поправок». */
 export function modsText(mods: PhaseMods): string {

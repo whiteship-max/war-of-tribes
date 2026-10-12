@@ -7,9 +7,9 @@
 import { apiGet, apiPost } from './api';
 import { askWriteOnce, NOTIFY_ON } from './notify';
 import { tgInitData } from '@/telegram/webapp';
-import type { SpyMenu, SpyView, WarOrder, WarResponse, WarSheet, WarView } from '../../netlify/lib/contract';
+import type { SpyMenu, SpyView, WarOrder, WarPact, WarResponse, WarSheet, WarView } from '../../netlify/lib/contract';
 
-export type { SpyMenu, SpyView, WarOrder, WarSheet, WarView };
+export type { SpyMenu, SpyView, WarOrder, WarPact, WarSheet, WarView };
 
 /** Как часто спрашивать свои войны. Тревога о походе на город приходит не позже этого. */
 export const WAR_PULL_MS = 15_000;
@@ -19,6 +19,8 @@ interface Cached {
   wars: WarView[];
   /** Дела лазутчиков: свои и чужие у нас, которые мы видим (docs/spy_pvp.md). */
   spies: SpyView[];
+  /** Пакты и предложения пакта с соседями-игроками (docs/siege_v2.md, раздел 5). */
+  pacts: WarPact[];
   pace: number;
 }
 
@@ -31,6 +33,9 @@ export const wars = (): WarView[] => cache?.wars ?? [];
 
 /** Дела лазутчиков из последнего ответа (docs/spy_pvp.md). */
 export const spies = (): SpyView[] => cache?.spies ?? [];
+
+/** Пакты из последнего ответа: с кем заключён, кому предложен, кто предлагает нам. */
+export const pacts = (): WarPact[] => cache?.pacts ?? [];
 
 /** Темп войны с сервера (`TRIBE_WAR_PACE`): во сколько раз быстрее походы. Нет ответа — 1. */
 export const warPace = (): number => cache?.pace ?? 1;
@@ -46,6 +51,7 @@ const keep = (res: WarResponse): void => {
     at: res.now,
     wars: Array.isArray(res.wars) ? res.wars : [],
     spies: Array.isArray(res.spies) ? res.spies : [],
+    pacts: Array.isArray(res.pacts) ? res.pacts : [],
     pace: typeof res.pace === 'number' && res.pace >= 1 ? res.pace : 1,
   };
   // Война идёт — на нас или наша: о бое бот напишет обеим сторонам, и право писать спрашивается сейчас.

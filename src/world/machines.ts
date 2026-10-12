@@ -8,7 +8,7 @@
 //
 // Одна дверь на лагерь под логовом (мир на клиенте) и под городом игрока (сервер войны). Без `@/`: его собирает сервер.
 import { CAMP_WORKS_RIPE } from './data/tuning';
-import { MACHINE_HOLD, MACHINE_IDS, MACHINE_WOOD, STORM_MACHINES, type MachineId } from './data/machines';
+import { CAMP_SIDES, MACHINE_HOLD, MACHINE_IDS, MACHINE_WOOD, STORM_MACHINES, type MachineId } from './data/machines';
 import { machineShare, machineWood, machineWoodAt, type WoodPlan } from './works';
 import type { Assault } from './wall';
 
@@ -19,6 +19,8 @@ export interface MachineOrder {
   id: MachineId;
   at: number;
   spent?: number;
+  /** Сожжена вылазкой осаждённого (docs/siege_v2.md, раздел 5), а не пущена на штурм: `spent` — минута пожара. */
+  burned?: true;
 }
 
 /** Что нужно двери от окна осады. */
@@ -151,3 +153,39 @@ export function machinesNote(w: MachineWindow, at: number): string {
   return parts.join(' ');
 }
 
+
+/**
+ * Какая доля лагеря охраняет машину (docs/siege_v2.md, раздел 5): её древесина в сторонах лагеря на две стороны
+ * (`CAMP_SIDES`). С этой долей лагеря дерётся вылазка на машину (`fights.machineFight`).
+ */
+export const guardShare = (id: MachineId): number => Math.min(1, (MACHINE_WOOD[id] ?? 0) / CAMP_SIDES);
+
+/** Машина этого рода, стоящая у лагеря к минуте `at`, — готовая или строящаяся, не истраченная и не сожжённая. */
+export const liveMachine = (w: MachineWindow, id: MachineId, at: number): boolean =>
+  machinesAt(w, at).some((e) => e.id === id && !(e.spent !== undefined && e.spent <= at));
+
+/** Почему вылазку на машину не начать в минуту `at`; null — можно. */
+export function burnBlock(w: MachineWindow, id: MachineId, at: number): string | null {
+  if (!MACHINE_IDS.includes(id)) return 'Такой машины нет.';
+  if (!liveMachine(w, id, at)) return `${MACHINE_NAME[id]}: у лагеря её нет.`;
+  return null;
+}
+
+/**
+ * Очередь после пожара в минуту `at`: машина этого рода сожжена вместе с древесиной — очередь, а не склад, и нарубленное на
+ * неё не возвращается (как у истраченной на штурм). Готовые и строящиеся горят одинаково.
+ */
+export function machinesBurned(w: MachineWindow, id: MachineId, at: number): MachineOrder[] {
+  let done = false;
+  return [...(w.machines ?? [])]
+    .sort((a, b) => a.at - b.at)
+    .map((o) => {
+      if (done || o.id !== id || (o.spent !== undefined && o.spent <= at)) return o;
+      done = true;
+      return { ...o, spent: at, burned: true as const };
+    });
+}
+
+/** Машины лагеря, на которые можно выйти вылазкой в минуту `at`, — по порядку заказа, без повторов рода. */
+export const burnTargets = (w: MachineWindow, at: number): MachineId[] =>
+  MACHINE_IDS.filter((id) => liveMachine(w, id, at));

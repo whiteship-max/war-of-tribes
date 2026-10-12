@@ -4,7 +4,8 @@ import type { PlayerCastle, PlayerProfile } from './types';
 import { advance, applyOrder, emptyWars, liveSheet, warsOf, type SheetAt } from '../../netlify/lib/war';
 import { castleIdOf, emptyRoster, upsert } from '../../netlify/lib/roster';
 import { type CastleClaim, type RosterFile, type WarOrder } from '../../netlify/lib/contract';
-import { FATE_SAME, SIEGE_BLOCK, STRIKE_FROM_TOWN, TOWER_NOT_PVP, WOOD_FIXED, type SiegeWindow } from './siege';
+import { FATE_SAME, SIEGE_BLOCK, STRIKE_FROM_TOWN, WOOD_FIXED, type SiegeWindow } from './siege';
+import { thinAt, type Fire } from './bombard';
 import { garrisonWear } from './siegecraft';
 import { worldDays } from '@/game/pace';
 import { troopTotal, type TroopStack } from '@/game/battle/kinds';
@@ -356,10 +357,24 @@ describe('осада под городом игрока: окна обеих с�
     expect(pb.siege!.wear!).toBeLessThan(before);
   }, 120_000);
 
-  it('башня с орудием по лагерю соседа молчит — и окно говорит это', async () => {
-    const tower = { slow: 0.3, thin: 0.2, crew: 4, seats: 6 } as unknown as PlayerProfile['tower'];
-    const { pb } = await camped({ b: { tower } });
-    expect(pb.siege?.towerIdle).toBe(TOWER_NOT_PVP);
+  it('башня бьёт по лагерю соседа (осада 2г): обстрел считает сервер той же дверью, окно защитника его показывает', async () => {
+    // Баллиста (`game/data/engines`: пятый уровень башни, расчёт 1) и лучники дома — башня бьёт в полную силу.
+    const tower = { slow: 0, thin: 0.2, crew: 1, seats: 1 };
+    const { g, war } = await camped({ b: { tower, levels: { tower: 5 } } });
+    const fire = war.camp?.fire as Fire | undefined;
+    expect(fire, 'обстрел лёг в лагерь сервера').toBeDefined();
+    expect(fire?.thin).toBe(0.2);
+    g.step(worldDays(8));
+    const { pb } = await g.pulse();
+    const thin = thinAt(war.camp?.fire as Fire, g.now());
+    expect(thin, 'точка внутри области: башня успела выбить').toBeGreaterThan(0);
+    expect(pb.siege?.fire?.thin).toBe(thin);
+  }, 120_000);
+
+  it('орудие, какого на башне этого уровня не бывает, сервер не принимает: обстрела нет', async () => {
+    const tower = { slow: 0.3, thin: 0.2, crew: 4, seats: 6 };
+    const { war, pb } = await camped({ b: { tower, levels: { tower: 5 } } });
+    expect(war.camp?.fire).toBeUndefined();
     expect(pb.siege?.fire).toBeUndefined();
   }, 120_000);
 

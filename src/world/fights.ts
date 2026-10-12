@@ -94,6 +94,42 @@ export function homeLosses(home: TroopStack, field: FieldOutcome): TroopStack {
   return weakest(home, Math.min(all, Math.round(all * field.defenderLoss)));
 }
 
+/** Вылазка на машину лагеря: охрана машины и вышедшие из ворот. Ни мира, ни часов. */
+export interface MachineFightIn {
+  seed: number;
+  /** Охрана машины — доля лагеря у неё (`machines.guardShare`), в родах боя. */
+  guard: { kinds: Stack; resolve?: number; pips?: Pips; rest: number };
+  /** Кто вышел из ворот, с моралью между боями и износом осады. */
+  sortie: CampPartIn;
+  /** Стойкость и отметки вышедших — кто их ведёт. */
+  resolve?: number;
+  pips?: Pips;
+  ground?: GroundPenalty;
+}
+
+/** Охрана машины в родах боя: доля `share` каждого рода лагеря, вниз до целого. */
+export function guardKinds(camp: Stack, share: number): Stack {
+  const out = emptyStack();
+  const k = Math.min(1, Math.max(0, share));
+  for (const u of UNIT_KINDS) out[u] = Math.floor(camp[u] * k);
+  return out;
+}
+
+/**
+ * Вылазка на машину лагеря (docs/siege_v2.md, раздел 5) — одна дверь на мир и на сервер войны. Машина стоит перед лагерем,
+ * у стены: вышедшие из ворот бьются с её охраной в поле — без рогаток и без укреплений лагеря (они держат сам лагерь, а не
+ * машину). Победа сжигает машину; что с ней делать, решает тот, кто зовёт. Весь бой, как он случится, и ничего не трогая.
+ */
+export function machineFight(input: MachineFightIn): { input: FieldInput; field: FieldOutcome } {
+  const fieldIn: FieldInput = {
+    seed: input.seed,
+    ...(input.ground ? { ground: input.ground } : {}),
+    attacker: { kinds: input.sortie.kinds, resolve: input.resolve, pips: input.pips, rest: input.sortie.rest ?? 1 },
+    defender: { kinds: input.guard.kinds, resolve: input.guard.resolve, pips: input.guard.pips, rest: input.guard.rest },
+  };
+  return { input: fieldIn, field: resolveField(fieldIn) };
+}
+
 /** Часть нападающих на лагерь: кто вышел с этой стороны и с какой моралью. */
 export interface CampPartIn {
   kinds: Stack;

@@ -21,6 +21,8 @@ export function WarCard({ card }: { card: SettlementCard }) {
   const warMarch = useWorld((g) => g.warMarch);
   const assault = useWorld((g) => g.assault);
   const recallFigure = useWorld((g) => g.recallFigure);
+  const pact = useWorld((g) => g.pact);
+  const relief = useWorld((g) => g.relief);
   const showToast = useGame((g) => g.showToast);
   const openCamp = useGame((g) => g.openCamp);
   const openSiege = useGame((g) => g.openSiege);
@@ -36,6 +38,19 @@ export function WarCard({ card }: { card: SettlementCard }) {
     const err = mode === 'storm' ? await assault(card.id, fate) : await warMarch(card.id, mode, fate);
     setBusy(false);
     showToast(err ?? `Отряд вышел на ${card.name}. В пути ${realLeft(war.walkMs / 1000)}.`);
+  };
+  // Пакт и выручка (docs/siege_v2.md, раздел 5): пакт значит одно — союзник может прийти на выручку, а походом на него не пойти.
+  const pactAct = async (on: boolean): Promise<void> => {
+    setBusy(true);
+    const err = await pact(card.id, on);
+    setBusy(false);
+    if (err) showToast(err);
+  };
+  const reliefGo = async (): Promise<void> => {
+    setBusy(true);
+    const err = await relief(card.id);
+    setBusy(false);
+    showToast(err ?? `Полководец идёт на выручку к «${card.name}».`);
   };
   const recall = async (): Promise<void> => {
     setBusy(true);
@@ -118,6 +133,52 @@ export function WarCard({ card }: { card: SettlementCard }) {
           {war.can && war.campStorm && <p className="nx-tnote">{war.campStorm}</p>}
           <p className="nx-tnote">Штурм с ходу решается одним боем у стены в минуту прихода. Осада ставит лагерь под стенами, и город голодает, пока не сдастся или не разобьёт лагерь.</p>
           <p className="nx-tnote">Полководец тратит энергию в дороге, по дням пути. У стен она не уходит, дома копится снова.</p>
+        </>
+      )}
+      <h3>Пакт</h3>
+      {war.pact === 'pact' ? (
+        <>
+          <p className="nx-tnote">Пакт заключён. Если город осадят, наш полководец может ударить по лагерю с тыла. Походом на союзника не пойти.</p>
+          {war.relief && (
+            <>
+              {war.relief.going !== undefined ? (
+                <p className="nx-tnote">Наша дружина идёт на выручку. Ударит по лагерю через {left(war.relief.going, now)}.</p>
+              ) : (
+                <button className="nx-go nx-cgo" disabled={busy || !war.relief.can} onClick={() => void reliefGo()}>
+                  На выручку · {count(war.relief.men, 'боец', 'бойца', 'бойцов')}
+                  {war.relief.energy && <EnergyPrice price={war.relief.energy.price} />}
+                </button>
+              )}
+              {!war.relief.can && war.relief.going === undefined && war.relief.reason && <p className="nx-tnote bad">{war.relief.reason}</p>}
+            </>
+          )}
+          <button className="nx-cact" disabled={busy} onClick={() => void pactAct(false)}>
+            Разорвать пакт
+          </button>
+        </>
+      ) : war.pact === 'offered' ? (
+        <>
+          <p className="nx-tnote">Пакт предложен. Ждём ответа.</p>
+          <button className="nx-cact" disabled={busy} onClick={() => void pactAct(false)}>
+            Отозвать
+          </button>
+        </>
+      ) : war.pact === 'asked' ? (
+        <>
+          <p className="nx-tnote">Они предлагают пакт: в осаде союзники выручают друг друга.</p>
+          <button className="nx-go nx-cgo" disabled={busy} onClick={() => void pactAct(true)}>
+            Принять пакт
+          </button>
+          <button className="nx-cact" disabled={busy} onClick={() => void pactAct(false)}>
+            Отклонить
+          </button>
+        </>
+      ) : (
+        <>
+          <p className="nx-tnote">Союзники выручают друг друга в осаде: полководец бьёт лагерь под городом союзника с тыла.</p>
+          <button className="nx-cact" disabled={busy} onClick={() => void pactAct(true)}>
+            Предложить пакт
+          </button>
         </>
       )}
     </div>

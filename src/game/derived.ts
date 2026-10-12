@@ -57,7 +57,10 @@ import {
   PRIEST_MORALE_CAP,
   RITE_MORALE,
   SIEGE_FOOD_YIELD,
+  SIEGE_RATION,
+  SIEGE_RATION_CUT,
   SIEGE_YIELD,
+  STARVING_MORALE,
   SMITH_WORK,
   SOLDIER_FOOD,
   STRAIN_DAYS,
@@ -791,7 +794,7 @@ export function foodShortfall(s: GameState, mods: SeasonModifiers = seasonMods(s
   // кто ест — тот и считается.
   // Наёмные мастера едят последними вместе с войском — «по тем же правилам, что у войска»: нехватка
   // делится и на них, и уходят они той же дверью (`sim/upkeep`).
-  const army = mouthCount(s) * soldierFoodPerDay(s, mods) + mastersFoodPerDay(s, mods);
+  const army = (mouthCount(s) * soldierFoodPerDay(s, mods) + mastersFoodPerDay(s, mods)) * siegeRation(s);
   return { army: army > 0 ? Math.min(1, short / army) : 0, town: short > army };
 }
 
@@ -1062,8 +1065,18 @@ export function buildingProduction(s: GameState, b: Building, mods: SeasonModifi
 export function foodConsumptionPerDay(s: GameState, mods: SeasonModifiers = seasonMods(s)): number {
   // Новобранцы на учениях и раненые уже не жители, но кормятся так же, как бойцы: список ртов один
   // на расход и на голод (`soldierMouths`).
-  return townFoodPerDay(s, mods) + mouthCount(s) * soldierFoodPerDay(s, mods) + mastersFoodPerDay(s, mods);
+  return (townFoodPerDay(s, mods) + mouthCount(s) * soldierFoodPerDay(s, mods) + mastersFoodPerDay(s, mods)) * siegeRation(s);
 }
+
+/**
+ * Осадный паёк (docs/siege_v2.md, раздел 5; ответ владельца 6): урезан — весь расход ×¾ (`SIEGE_RATION`), иначе единица.
+ * Множит общий расход и голод (`foodConsumptionPerDay`, `foodShortfall`), а не части: мост везёт миру расход без пайка
+ * (`bridge.playerProfile`), и окно осады умножает его тем же числом само (`siege.consumptionPerHour`) — второй нормы нет.
+ */
+export const siegeRation = (s: GameState): number => (s.siege?.ration ? SIEGE_RATION : 1);
+
+/** Сколько морали стоит урезанный паёк: кара пустых закромов в доле урезанного (`STARVING_MORALE` × ¼). */
+export const rationMorale = (): number => STARVING_MORALE * SIEGE_RATION_CUT;
 
 /**
  * Сколько за день съедают наёмные мастера. Паёк у них жителя — по голове, тем же сезоном и
@@ -1400,7 +1413,9 @@ export function moraleBreakdown(s: GameState): MoraleBreakdown {
 
   const eat = foodConsumptionPerDay(s);
   const foodDays = s.resources.food / Math.max(1, eat);
-  if (s.resources.food <= 0) add('starving', '💀', 'Закрома пусты', -25, 'еды нет');
+  if (s.resources.food <= 0) add('starving', '💀', 'Закрома пусты', -STARVING_MORALE, 'еды нет');
+  // Осадный паёк — та же кара в доле урезанного (docs/siege_v2.md, раздел 5).
+  if (s.siege?.ration) add('ration', '🥣', 'Осадный паёк', -rationMorale(), `еды ×${SIEGE_RATION}`);
   else if (foodDays >= 3) add('fed', '🍖', 'Сытость', 10, `запас на ${daysSpan(foodDays)}`);
   else if (foodDays < 1) add('hungry', '🍖', 'Голодно', -8, `запас на ${daysSpan(foodDays)}`);
 
@@ -1706,7 +1721,7 @@ export const faithGoldPerDay = (s: GameState): number => faithTilt(s).goldPerPop
 
 /** Слагаемое надзора: кто и скольких невольников держит. */
 export interface OrderLine {
-  id: 'household' | 'guards' | 'town';
+  id: 'household' | 'guards' | 'town' | 'ration';
   icon: string;
   name: string;
   /** Скольких невольников держит это слагаемое. */
@@ -1754,7 +1769,12 @@ export function orderBreakdown(s: GameState, extraBonded = 0): OrderBreakdown {
       hint: T.town.hint(pop, ORDER_PER_TOWNSMAN, s.morale),
     },
   ];
-  const hold = lines.reduce((n, l) => n + l.value, 0);
+  // Осадный паёк — порядок платит той же долей урезанного (docs/siege_v2.md, раздел 5): голодных держать труднее.
+  if (s.siege?.ration) {
+    const held = lines.reduce((n, l) => n + l.value, 0);
+    lines.push({ id: 'ration', icon: T.ration.icon, name: T.ration.name, value: -held * SIEGE_RATION_CUT, hint: T.ration.hint(SIEGE_RATION_CUT) });
+  }
+  const hold = Math.max(0, lines.reduce((n, l) => n + l.value, 0));
   const bonded = Math.max(0, bondedTotal(s) + extraBonded);
   const value = bonded <= 0 ? 100 : (100 * hold) / (hold + bonded);
   return { lines, hold, bonded, value };

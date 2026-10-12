@@ -8,7 +8,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { createInitialState } from '@/game/state';
 import { recruitCheck } from '@/game/sim/army';
 import { SIEGE_NO_RECRUIT } from '@/game/constants';
-import { NO_GARRISON, TOWER_NOT_PVP, WOOD_FIXED } from '@/world/siege';
+import { NO_GARRISON, WOOD_FIXED } from '@/world/siege';
 import { estimate } from '@/world/intel';
 import type { CampView, SiegeView } from '@/world/types';
 import { SiegePanel } from './SiegePanel';
@@ -99,15 +99,12 @@ describe('окно осады у обороняющегося', () => {
     expect(html).not.toContain('Найми дубинщиков');
   });
 
-  it('износ осады — своей строкой, и молчащая башня под лагерем соседа — словами', () => {
-    const html = siegeHtml(siege({ wear: 0.85, towerIdle: TOWER_NOT_PVP }));
+  it('износ осады — своей строкой; без поля строки нет', () => {
+    const html = siegeHtml(siege({ wear: 0.85 }));
     expect(html).toContain(wearLine(0.85));
     expect(wearLine(0.85)).toContain('слабее на 15 %');
-    expect(html).toContain(TOWER_NOT_PVP);
-    // Без поля — ни строки износа, ни строки башни.
     const plain = siegeHtml(siege());
     expect(plain).not.toContain('Осада точит');
-    expect(plain).not.toContain(TOWER_NOT_PVP);
   });
 });
 

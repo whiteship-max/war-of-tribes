@@ -9,7 +9,7 @@ import { partyNow, serverNow } from '@/net/clock';
 import { castleCell, castles, rosterReady, startPulling, stopPulling } from '@/net/roster';
 import { knownEra } from '@/net/era';
 import { NOTIFY_ON, notifyDrafts } from '@/net/notify';
-import { provideSheet, spies, spyLook, warBoot, warOrder, warPace, wars, warsKnown } from '@/net/war';
+import { pacts, provideSheet, spies, spyLook, warBoot, warOrder, warPace, wars, warsKnown } from '@/net/war';
 import { log } from '@/game/sim/log';
 import { useGame } from '@/game/store';
 import { haptic } from '@/telegram/webapp';
@@ -42,6 +42,7 @@ import {
 import type {
   AssaultMode,
   AnchorId,
+  DefendOrder,
   AttackOrder,
   CampView,
   Coord,
@@ -91,7 +92,7 @@ let notifying: NotifyingWorld | null = null;
 function openWorld(opts: LocalWorldOptions): LocalWorld {
   // Война между игроками (docs/pvp.md): мир получает свои войны и дверь приказа, как реестр замков, а
   // запись партии — слепок обороны от этого мира.
-  const full: LocalWorldOptions = { ...opts, wars, warsKnown, warOrder, warPace, spies, spyLook };
+  const full: LocalWorldOptions = { ...opts, wars, warsKnown, warOrder, warPace, spies, spyLook, pacts };
   let world: LocalWorld;
   if (NOTIFY_ON) world = notifying = new NotifyingWorld(full);
   else world = new LocalWorld(full);
@@ -294,6 +295,14 @@ export interface WorldStore {
    * Вылазка из осаждённой деревни выбранным составом. Возвращает номер отчёта —
    * его сразу и открывают: у боя всегда есть что показать.
    */
+  /** Ответ осаждённого (docs/siege_v2.md, раздел 5): починка, паёк, наказы, сдача. */
+  defend: (order: DefendOrder) => Promise<string | null>;
+  /** Вылазка на машину лагеря. */
+  burnMachine: (id: MachineId, troops: TroopStack) => Promise<{ error: string | null; reportId: string | null }>;
+  /** Пакт с соседом-игроком: предложить/принять или разорвать. */
+  pact: (castle: SettlementId, on: boolean) => Promise<string | null>;
+  /** На выручку союзнику в осаде. */
+  relief: (castle: SettlementId) => Promise<string | null>;
   sortie: (troops: TroopStack) => Promise<{ error: string | null; reportId: string | null }>;
   negotiate: (deal: DealId) => Promise<string | null>;
   /** Открыть меню приказов агента по этой клетке. */
@@ -732,6 +741,52 @@ export const useWorld = create<WorldStore>((set, get) => ({
 
   loadCamp: async () => {
     set({ camp: await worldApi().camp() });
+  },
+
+  defend: async (order) => {
+    const err = await worldApi().defend(order);
+    if (err) {
+      haptic('error');
+      return err;
+    }
+    haptic('light');
+    // Паёк и сдача меняют город сразу: панель и племя видят это в тот же миг, а не через пульс.
+    await get().pulse();
+    return null;
+  },
+
+  burnMachine: async (id, troops) => {
+    const res = await worldApi().burnMachine(id, troops);
+    if (res.error) {
+      haptic('error');
+      return { error: res.error, reportId: null };
+    }
+    haptic('medium');
+    await get().pulse();
+    return { error: null, reportId: res.reportId };
+  },
+
+  pact: async (castle, on) => {
+    const err = await worldApi().pact(castle, on);
+    if (err) {
+      haptic('error');
+      return err;
+    }
+    haptic('light');
+    await get().refreshCard();
+    return null;
+  },
+
+  relief: async (castle) => {
+    const err = await worldApi().relief(castle);
+    if (err) {
+      haptic('error');
+      return err;
+    }
+    haptic('medium');
+    await get().pulse();
+    await get().refreshCard();
+    return null;
   },
 
   sortie: async (troops) => {

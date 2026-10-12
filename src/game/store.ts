@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { GameState } from './types';
+import type { MachineId } from '@/world/data/machines';
 import { createInitialState } from './state';
 import { liveStep } from './sim/tick';
 import { resolveEvent } from './sim/actions';
@@ -69,7 +70,7 @@ export type SheetView =
    * Вылазка из осаждённой деревни: кого выпускаем за ворота. Открывается из окна
    * осады и живёт в деревне, а не на карте, — из-под осады выходят там, где стоят.
    */
-  | { kind: 'sortie' }
+  | { kind: 'sortie'; machine?: MachineId }
   /** Отчёт о бое с журналом по фазам. */
   | { kind: 'report'; id: string };
 
@@ -129,7 +130,8 @@ export interface GameStore {
   /** Список своих походов и отчётов. */
   openMarches: () => void;
   /** Открыть вылазку. Ведёт сюда одна кнопка — из окна осады. */
-  openSortie: () => void;
+  /** Вылазка: на лагерь или — с `machine` — на его машину (docs/siege_v2.md, раздел 5). */
+  openSortie: (machine?: MachineId) => void;
   /** Окно осады своего города. */
   openSiege: () => void;
   /** Окно своего лагеря под чужим городом. */
@@ -242,9 +244,9 @@ export const useGame = create<GameStore>((set, get) => ({
 
   openMarches: () => set({ sheet: { kind: 'marches' } }),
 
-  openSortie: () => {
+  openSortie: (machine) => {
     haptic('light');
-    set({ sheet: { kind: 'sortie' } });
+    set({ sheet: machine ? { kind: 'sortie', machine } : { kind: 'sortie' } });
   },
 
   openSiege: () => {

@@ -101,7 +101,7 @@ function SheetContent({ view }: { view: SheetView }) {
         <MarchesNew />
       </Suspense>
     );
-  if (view.kind === 'sortie') return <SortiePanel />;
+  if (view.kind === 'sortie') return <SortiePanel machine={view.machine} />;
   if (view.kind === 'siege') return <SiegePanel />;
   if (view.kind === 'camp') return <CampPanel />;
   if (view.kind === 'report') return <ReportPanel id={view.id} />;

@@ -27,6 +27,7 @@ import {
   dueKeys,
   newsDiff,
   newsMap,
+  pactsOf,
   pruneWars,
   readStoredSheet,
   readWars,
@@ -116,8 +117,10 @@ export const war: Route = async (req, io) => {
   // Приказ сверх подтверждённого — флаг в описи наблюдения приказавшего (docs/admin.md, «Флаги»).
   const forged: { text: string | null; told: boolean } = { text: null, told: false };
 
-  const byTarget = order?.op === 'march' || order?.op === 'spy' ? order.target : spyAsk;
-  const rosterFound = byTarget ? await cool.getWithMetadata(ROSTER) : null;
+  const byTarget =
+    order?.op === 'march' || order?.op === 'spy' || order?.op === 'pact' || order?.op === 'unpact' ? order.target : spyAsk;
+  // Выручке нужно имя своего города (`WarRelief.city`) — тот же реестр.
+  const rosterFound = byTarget || order?.op === 'relief' ? await cool.getWithMetadata(ROSTER) : null;
   const roster = readRoster(rosterFound ? parseJson(String(rosterFound.data)) : null);
 
   // Чтение, ход и запись — по одному в экземпляре (`http.inTurn`): в давке приказ ждёт свою очередь, а не проигрывает
@@ -145,7 +148,7 @@ export const war: Route = async (req, io) => {
       } else if (order) {
         await load(key);
         if (targetKey) await load(targetKey);
-        if (order.op === 'storm') {
+        if (order.op === 'storm' || order.op === 'relief') {
           const w = file.wars.find((x) => x.id === (order as { id: string }).id);
           if (w) await load(w.def);
         }
@@ -177,10 +180,12 @@ export const war: Route = async (req, io) => {
         }
       }
       const spies = spiesOf(file, key);
+      const pacts = pactsOf(file, key);
       const body: WarResponse = {
         now,
         wars: warsOf(file, key),
         ...(spies.length ? { spies } : {}),
+        ...(pacts.length ? { pacts } : {}),
         ...(spyMenu ? { spyMenu } : {}),
         ...(pace !== 1 ? { pace } : {}),
         ...(error ? { error } : {}),

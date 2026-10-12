@@ -292,9 +292,12 @@ export function syncSiege(s: GameState, view: SiegeView | null, now: number): bo
   }
   // Срок голода мир называет настоящими миллисекундами, догон племени идёт игровыми секундами.
   const until = s.time + gameSecondsOfMs(Math.max(0, view.starvesAt - now));
-  const same = s.siege !== null && s.siege.byName === view.byName && Math.abs(s.siege.until - until) < 1;
+  const ration = Boolean(view.ration);
+  const same =
+    s.siege !== null && s.siege.byName === view.byName && Math.abs(s.siege.until - until) < 1 && Boolean(s.siege.ration) === ration;
   if (same) return false;
-  s.siege = { byName: view.byName, until };
+  // Осадный паёк — решение, лежащее в окне осады мира; племя ест по нему (`derived.siegeRation`).
+  s.siege = { byName: view.byName, until, ...(ration ? { ration: true as const } : {}) };
   return true;
 }
 

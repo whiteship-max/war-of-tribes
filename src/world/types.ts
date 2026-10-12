@@ -3,7 +3,7 @@
 // Единственная связь с симуляцией племени — словарь ресурсов: добыча и грабёж
 // говорят на одном языке со складом.
 import type { CraftAct } from './siegecraft';
-import type { SiegeOrders } from './siegeroll';
+import type { DefendOrders, SiegeOrders } from './siegeroll';
 import type { MachineId } from './data/machines';
 import type { Opening } from './wall';
 import type { GameSec } from '@/game/pace';
@@ -257,8 +257,6 @@ export interface SiegeView {
    * лагерь стоит (docs/siege_audit.md, решение 5). Нет поля — осада только встала.
    */
   wear?: number;
-  /** Орудие на башне есть, а бить им нельзя — словами почему (`siege.TOWER_NOT_PVP`). Нет поля — башня бьёт или нечем. */
-  towerIdle?: string;
   /**
    * Что полководец сделал в лагере (`world/siegecraft`): лагерь укреплён, город обстреливают — словами той же двери, что
    * считает бой (`craftNote`). Нет поля — ничего не делали.
@@ -271,7 +269,37 @@ export interface SiegeView {
   machineNote?: string;
   /** Ход осады фазами (docs/siege_v2.md, раздел 2): журнал, поправки следующей фазы, проломы. Нет поля — старое окно. */
   phases?: SiegePhasesView;
+  /** Осадный паёк урезан (`SiegeWindow.ration`): племя ест по нему (`bridge.syncSiege`, `derived.siegeRation`). */
+  ration?: boolean;
+  /**
+   * Ответы осаждённого (docs/siege_v2.md, раздел 5; окно защитника — 9.2): что каждый стоит и что даёт — числами мира, той
+   * же дверью, что применит приказ. Нет поля — окно не осаждённого.
+   */
+  answers?: SiegeAnswers;
 }
+
+/** Ответы осаждённого глазами окна осады (docs/siege_v2.md, 9.2). */
+export interface SiegeAnswers {
+  /** Починка пролома: цена со склада (треть уровня стен), почему нельзя и когда закроется начатая. */
+  repair: { cost: Partial<Record<ResourceId, number>>; reason: string | null; doneAt: number | null };
+  /** Паёк: урезан ли и когда кончится хлеб, если переключить сейчас (`siege.starvesIfRation`). */
+  ration: { on: boolean; starvesAt: number };
+  /** Сдача — открыть ворота самим: участь на ступень мягче объявленной, гарнизон уходит живым (ответ владельца 5). */
+  surrender: Fate;
+  /** Машины лагеря, на которые можно выйти вылазкой: какая и сколько бойцов строя её охраняет. */
+  burn: { machine: MachineId; name: string; ready: boolean; guard: number }[];
+  /** Наказы осаждённого на отлучку. Нет — не стоят. */
+  defend?: DefendOrders;
+  /** Выручка соседей-союзников, идущая на лагерь: чей город, сколько бойцов, когда ударят. */
+  reliefs: { city: string; men: number; at: number }[];
+}
+
+/** Ответ осаждённого приказом (`WorldApi.defend`): починка, паёк, наказы, сдача. */
+export type DefendOrder =
+  | { act: 'repair' }
+  | { act: 'ration'; on: boolean }
+  | { act: 'orders'; defend: DefendOrders }
+  | { act: 'surrender' };
 
 /**
  * Ход осады фазами глазами окна — обеим сторонам одно (docs/siege_v2.md, 9.1–9.2). Слова и числа — дверью фаз
@@ -948,6 +976,24 @@ export interface CardWar {
   ours?: { phase: 'march' | 'camp' | 'back'; mode: 'storm' | 'siege'; arriveAt: number; starvesAt?: number; backAt?: number };
   /** Этот город идёт на нас или стоит под нашими стенами. */
   theirs?: { phase: 'march' | 'camp'; arriveAt: number };
+  /**
+   * Пакт с этим городом (docs/siege_v2.md, раздел 5): заключён, предложен нами или предложен нам. Нет поля — пакта нет.
+   * Союзника можно выручить из осады, а походом на него не пойти.
+   */
+  pact?: 'pact' | 'offered' | 'asked';
+  /** Союзник в осаде: выручка нашим полководцем из поля — до приказа (та же проверка, что примет приказ). */
+  relief?: ReliefPlan;
+}
+
+/** Выручка союзника глазами карточки: можно ли, сколько идти, кого ведёт и цена в энергии; уже идёт — когда ударит. */
+export interface ReliefPlan {
+  can: boolean;
+  reason: string | null;
+  seconds: GameSec;
+  men: number;
+  energy?: EnergyCost;
+  /** Наша выручка уже идёт: минута удара. */
+  going?: number;
 }
 
 /**

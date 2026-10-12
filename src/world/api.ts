@@ -14,6 +14,7 @@ import type {
   AttackResult,
   CampView,
   DealId,
+  DefendOrder,
   Fate,
   DealView,
   OrderActionId,
@@ -189,6 +190,24 @@ export interface WorldApi {
    * ровно один раз, здесь, в самом событии.
    */
   sortie(troops: TroopStack): Promise<AttackResult>;
+
+  /**
+   * Ответ осаждённого (docs/siege_v2.md, раздел 5): починить пролом, урезать или вернуть паёк, поставить наказы, сдаться.
+   * Под логовом — правилом мира, под лагерем игрока — приказом серверу войны той же дверью. null — сделано, иначе причина.
+   */
+  defend(order: DefendOrder): Promise<string | null>;
+
+  /** Вылазка на машину лагеря (раздел 5): бой с её охраной, победа сжигает машину. Состав приходит приказом. */
+  burnMachine(id: MachineId, troops: TroopStack): Promise<AttackResult>;
+
+  /**
+   * Пакт с соседом-игроком (раздел 5): `on` — предложить или принять, иначе разорвать, отозвать, отклонить. null — принято,
+   * иначе причина.
+   */
+  pact(castle: SettlementId, on: boolean): Promise<string | null>;
+
+  /** На выручку союзнику в осаде (раздел 5): полководец из поля бьёт лагерь с тыла в минуту прихода. */
+  relief(castle: SettlementId): Promise<string | null>;
 
   /**
    * Где и когда полководец встретит чужой отряд, если приказать сейчас. Точка

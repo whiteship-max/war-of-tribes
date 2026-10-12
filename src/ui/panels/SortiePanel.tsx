@@ -15,6 +15,8 @@
 // считает его та же функция, что и сам бой (`world/works.sortieForecast`).
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import { useGame } from '@/game/store';
+import type { MachineId } from '@/world/data/machines';
+import { plural } from '@/ui/parts/plural';
 import { useWorld, worldNow } from '@/world/store';
 import { awayOf, homeOf, standingTroops } from '@/world/muster';
 import { TROOP_BY_ID, TROOP_IDS } from '@/game/data/troops';
@@ -60,7 +62,11 @@ function Steps({ value, max, onChange }: { value: number; max: number; onChange:
   );
 }
 
-export function SortiePanel() {
+/**
+ * `machine` — вылазка на машину лагеря (docs/siege_v2.md, раздел 5): бой с её охраной у стены, перед рогатками; победа сжигает
+ * машину. Без него — вылазка на лагерь через рогатки.
+ */
+export function SortiePanel({ machine }: { machine?: MachineId } = {}) {
   const s = useGame((g) => g.s);
   const showToast = useGame((g) => g.showToast);
   const openReport = useGame((g) => g.openReport);
@@ -69,6 +75,7 @@ export function SortiePanel() {
   const marches = useWorld((g) => g.marches);
   const figures = useWorld((g) => g.figures);
   const sortie = useWorld((g) => g.sortie);
+  const burnMachine = useWorld((g) => g.burnMachine);
 
   const away = useMemo(() => awayOf(marches, figures), [marches, figures]);
   // Выходят из гарнизона — а в нём и дружина, если полководец в городе: дома она
@@ -110,11 +117,13 @@ export function SortiePanel() {
   const pass = fc.now.pass;
   // Проход — поток: занят прошедшими раньше — пропустит меньше, а то и никого.
   // Отказ виден до нажатия и гасит кнопку; мир откажет теми же словами.
-  const refused = men > 0 && refusedAtGate(fc.now);
+  // На машину — мимо рогаток: прохода у этого боя нет (`fights.machineFight`).
+  const target = machine ? siege.answers?.burn.find((m) => m.machine === machine) : undefined;
+  const refused = !machine && men > 0 && refusedAtGate(fc.now);
 
   const go = async (): Promise<void> => {
     setBusy(true);
-    const res = await sortie(picked);
+    const res = machine ? await burnMachine(machine, picked) : await sortie(picked);
     setBusy(false);
     if (res.error) {
       showToast(res.error);
@@ -131,7 +140,7 @@ export function SortiePanel() {
           <Icon name="letter-siege" glyph="⛺" />
         </div>
         <div className="body">
-          <div className="name">Вылазка</div>
+          <div className="name">{target ? `Вылазка: ${target.name.toLowerCase()}` : 'Вылазка'}</div>
           <div className="lvl">
             «{siege.byName}» у ворот · до голода {hungerLeft(siege.starvesAt, now)}
           </div>
@@ -144,6 +153,20 @@ export function SortiePanel() {
         значило бы, что решение «выйти сейчас или собраться» принимается вслепую,
         а непонятный проигрыш читается как несправедливый.
       */}
+      {machine && (
+        <div className="card danger">
+          <div className="ico">🔥</div>
+          <div className="body">
+            <div className="title">{target ? `${target.name}: ${target.ready ? 'готова' : 'строится'}` : 'Машины у лагеря нет'}</div>
+            <div className="desc">
+              {target
+                ? `Охрана — ${target.guard} ${plural(target.guard, 'боец', 'бойца', 'бойцов')} лагеря. Машина стоит у стены, перед рогатками: проход отряду не нужен. Победа сожжёт её вместе с лесом.`
+                : 'Её уже сожгли или пустили на штурм.'}
+            </div>
+          </div>
+        </div>
+      )}
+      {!machine && (
       <div className={`card${fc.now.works > 0 ? ' danger' : ''}`}>
         <div className="ico">⛺</div>
         <div className="body">
@@ -166,6 +189,7 @@ export function SortiePanel() {
           </div>
         </div>
       </div>
+      )}
 
       <h3>
         Кто выходит <small>{men} из {troopTotal(home)}</small>
@@ -235,8 +259,9 @@ export function SortiePanel() {
       </button>
 
       <p className="note">
-        Победа снимает осаду. После поражения потери несёт и лагерь, а срок голода считается заново по
-        оставшимся.
+        {machine
+          ? 'Победа сжигает машину, лагерь стоит. Потери несут обе стороны, а срок голода считается заново по оставшимся.'
+          : 'Победа снимает осаду. После поражения потери несёт и лагерь, а срок голода считается заново по оставшимся.'}
       </p>
     </div>
   );

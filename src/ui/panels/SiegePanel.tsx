@@ -30,6 +30,7 @@ import { Icon } from '@/ui/icons/Icon';
 import { CampStrike } from '@/ui/parts/CampStrike';
 import { plural } from '@/ui/parts/plural';
 import { SiegePhases } from '@/ui/parts/SiegePhases';
+import { SiegeAnswers } from '@/ui/parts/SiegeAnswers';
 import { bondedWord, townsWord } from '@/game/data/order';
 
 const byLevels = (n: number): string => `до ${n} ${plural(n, 'уровня', 'уровней', 'уровней')}`;
@@ -202,10 +203,9 @@ export function SiegePanel() {
       )}
       {/* Износ осады (дни под стенами и залпы лагеря) — тем числом, с которым гарнизон идёт в бой у мира и у сервера войны. */}
       {siege.wear !== undefined && <p className="note warn">{wearLine(siege.wear)}</p>}
-      {siege.towerIdle && <p className="note">{siege.towerIdle}</p>}
 
       <h3>Что делать</h3>
-      <button className="btn wide" disabled={sortieBlock !== null} onClick={openSortie}>
+      <button className="btn wide" disabled={sortieBlock !== null} onClick={() => openSortie()}>
         Вылазка{garrisonMen > 0 ? ` · ${all.passed} из ${all.went}` : ''}
       </button>
       {sortieBlock && <p className="note bad">{sortieBlock}</p>}
@@ -213,6 +213,8 @@ export function SiegePanel() {
       {garrisonMen === 0 && <p className="note">{NO_GARRISON}</p>}
       {homeId && <CampStrike target={homeId} />}
       <p className="note">Разбитый лагерь снимает осаду, и город снова ест.</p>
+      {/* Ответы осаждённого (docs/siege_v2.md, раздел 5): починка, паёк, вылазка на машину, выручка, наказы, сдача. */}
+      <SiegeAnswers siege={siege} now={now} />
     </div>
   );
 }
