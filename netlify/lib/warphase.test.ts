@@ -134,11 +134,14 @@ describe('фазы осады между игроками считает сер�
     const { file, sheets, ctx, w, since } = camped(priceOf('storm') + 1);
     expect(applyOrder(file, A, { op: 'orders', id: w.id, orders: { storm: 1 } }, phaseAt(since, 0) + 2, ctx)).toBeNull();
     advance(file, phaseAt(since, 1) + 1, sheets);
-    expect(w.phases?.[0].orders).toEqual(['storm']);
+    // Журнал фаз — в окне лагеря, пока он стоит, и у войны, когда лагеря не стало.
+    expect((w.camp?.phases ?? w.phases)?.[0].orders).toEqual(['storm']);
     const fight = w.battles[w.battles.length - 1];
     expect(fight.site).toBe('wall');
     expect(fight.at).toBe(phaseAt(since, 1));
     expect(fight.craft?.breach, 'штурм шёл через пролом фазы').toBe(1);
-    expect(w.phase === 'back' || w.phase === 'done').toBe(true);
+    // Исход — дело боя у стены (17.1): взяли — война кончилась, отбит — лагерь стоит (`STORM_HOLDS`).
+    if (fight.won) expect(w.phase === 'back' || w.phase === 'done').toBe(true);
+    else expect(w.camp, 'отбитый штурм лагерь не снимает').toBeTruthy();
   });
 });

@@ -142,13 +142,16 @@ describe('где стоит боец — одно правило', () => {
     // Совместный удар (03.10.2026, вариант А, docs/battle_tw.md, раздел 13) дописал `garrison` — кто из состава вышел из
     // ворот: часть `kinds`, а не раскладка и не люди сверх; ядро только кладёт её по секторам в итог для ролика, и исход от
     // неё не зависит (`world/battle.test.ts`, «происхождение бойцов не меняет исход»).
+    // Клещи (этап 2д осады, docs/siege_v2.md, 17.3) дописали `behind` — какая часть `kinds` стоит в тылу противника: тоже
+    // часть состава, и встаёт она тем же правилом, своей расстановкой (`sideSetup` — две расстановки `deploySetup`).
     const src = readFileSync(new URL('./battle.ts', import.meta.url), 'utf8')
       .replace(/\/\*[\s\S]*?\*\//g, '')
       .replace(/(^|[^:])\/\/.*$/gm, '$1');
     const body = src.slice(src.indexOf('export interface FieldSide {'), src.indexOf('}', src.indexOf('export interface FieldSide {')));
     const fields = [...body.matchAll(/^\s+(\w+)\??\s*:/gm)].map((m) => m[1]);
-    expect(fields, 'поля стороны боя').toEqual(['kinds', 'resolve', 'pips', 'rest', 'garrison']);
-    expect(src, 'обе стороны — правилом').toMatch(/const attacker = deploySetup\(input\.attacker\.kinds\);/);
+    expect(fields, 'поля стороны боя').toEqual(['kinds', 'resolve', 'pips', 'rest', 'garrison', 'behind']);
+    expect(src, 'обе стороны — правилом').toMatch(/const attacker = sideSetup\(input\.attacker\);/);
+    expect(src, 'клещи — тем же правилом').toMatch(/if \(!back\) return deploySetup\(side\.kinds\);[\s\S]*deploySetup\(own\);[\s\S]*deploySetup\(back\);/);
     expect(src, 'обе стороны — правилом').toMatch(/const defender = deploySetup\(input\.defender\.kinds\);/);
   });
 });
