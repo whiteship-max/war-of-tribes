@@ -105,6 +105,8 @@ function phaseText(item: NoticeItem, at: string): string {
   }
   if (order === 'volley') lines.push('По наказу лагерь дал залп этой фазы.');
   if (order === 'storm') lines.push('По наказу лагерь пошёл на штурм. Чем кончился бой, сказано в донесении.');
+  if (order === 'repair') lines.push('По наказу город заделывает пролом. К концу фазы стена будет цела.');
+  if (order === 'ration') lines.push('Хлеба меньше половины. По наказу город урезал паёк.');
   return lines.join(' ') || `В ${at} прошла ${k}-я фаза осады «${from}».`;
 }
 

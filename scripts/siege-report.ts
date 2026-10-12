@@ -25,11 +25,11 @@
 import { LocalWorld } from '@/world/local/LocalWorld';
 import type { WorldSave } from '@/world/local/state';
 import { resolveField } from '@/world/battle';
-import { wallFight } from '@/world/fights';
+import { guardKinds, machineFight, wallFight } from '@/world/fights';
 import { wallFront, type Assault } from '@/world/wall';
 import { WALL_BREACHES } from '@/world/data/wall';
 import { MACHINE_IDS, MACHINE_WOOD } from '@/world/data/machines';
-import { MACHINE_NAME } from '@/world/machines';
+import { MACHINE_NAME, guardShare } from '@/world/machines';
 import { machineWoodAt, playerWood } from '@/world/works';
 import { menOfPower, raidingParty } from '@/world/garrison';
 import { campPass, passKinds, sideWorks } from '@/world/works';
@@ -51,8 +51,8 @@ import {
   SIEGE_SORTIE_RATIO,
 } from '@/world/data/tuning';
 import type { PlayerProfile, Report, WorldPulse } from '@/world/types';
-import { siegeWear, type SiegeWindow } from '@/world/siege';
-import { phaseAt, rollPhase, rowsOf, type PhaseRow } from '@/world/siegeroll';
+import { siegeWear, starvesAt, starvesIfRation, type SiegeWindow } from '@/world/siege';
+import { phaseAt, repairAfter, repairBlock, rollPhase, rowsOf, type PhaseRow } from '@/world/siegeroll';
 import { CAMP_WASTE, CAMP_WASTE_DAYS, SIEGE_PHASE } from '@/world/data/siegeroll';
 import { militiaArchers, militiaMen, playerProfile } from '@/world/bridge';
 import { FATE_META } from '@/world/data/fates';
@@ -1442,4 +1442,79 @@ console.log('способ                      проломов 0      1      2 
   }
   console.log(`три пролома — весь фронт без штрафа, ополчение на стене: ×${field.toFixed(2)} (полевой бой с ополчением)`);
   console.log(`свойство 6 (10.3) — пролом удешевляет штурм: ровный штурм не дорожает от 0 к 3 проломам — ${rises === 0 ? 'да, у каждого способа' : `нет, ${rises} шагов с ростом`}`);
+}
+
+// ------------------------------------------------------- ответы осаждённого ---
+//
+// Этап 2г (docs/siege_v2.md, раздел 5 и 10.2, п. 6): на сколько фаз паёк и починка отодвигают падение и какую долю машин
+// сжигает вылазка. Те же замороженные осады, что «безразличие»; паёк — дверью окна (`siege.starvesIfRation`), починка —
+// дверью фаз (`siegeroll.repairAfter`, наказ «чинить каждую фазу»), вылазка — дверью боя (`fights.machineFight`).
+
+console.log('');
+console.log(`--- ответы: паёк, починка, вылазка на машину (docs/siege_v2.md, 10.2, п. 6; ${phaseFrozen.length} осад) ---`);
+{
+  // Паёк с минуты постановки: хлеба хватит на треть дольше — сколько это фаз.
+  const gain = phaseFrozen.map(({ fz }) => {
+    const { win } = frozenWindow(fz);
+    return (starvesIfRation(win, fz.since, true) - starvesAt(win)) / SIEGE_PHASE;
+  });
+  console.log(`паёк ×¾ с постановки: голод позже на ${meanOf(gain).toFixed(1)} фазы (от ${Math.min(...gain).toFixed(1)} до ${Math.max(...gain).toFixed(1)})`);
+
+  // Починка каждую фазу, пока есть пролом, против без починки — при залпе каждую фазу (деятельный осаждающий).
+  console.log('стена  починка         сдач   голодом   фаза падения (средняя)');
+  for (const wall of [0, 4, 8]) {
+    for (const repair of [false, true]) {
+      let gates = 0;
+      let n = 0;
+      const when: number[] = [];
+      for (const { fz } of phaseFrozen) {
+        for (let v = 0; v < 8; v++) {
+          const base = frozenWindow(fz).win;
+          const since = fz.since;
+          let w: SiegeWindow = { ...base, campId: `${base.campId}#${v}`, wall, log: [], phases: [] };
+          let fell = 0;
+          for (let k = 1; phaseAt(since, k) < fz.starvesAt; k++) {
+            w = { ...w, log: [...(w.log ?? []), { at: phaseAt(since, k - 1), act: 'volley' }] };
+            const row: PhaseRow = rollPhase(w, k);
+            w = { ...w, phases: [...rowsOf(w), row] };
+            if (row.out === 'gates') {
+              fell = k;
+              break;
+            }
+            // Наказ «чинить»: в минуту фазы, пока пролом есть и эта фаза ещё не чинится.
+            if (repair && repairBlock(w, row.at) === null) w = { ...w, ...repairAfter(w, row.at) };
+          }
+          n += 1;
+          if (fell > 0) gates += 1;
+          when.push(fell > 0 ? fell : phasesToHunger(fz) + 1);
+        }
+      }
+      console.log(`${String(wall).padStart(5)}  ${(repair ? 'каждую фазу' : 'нет').padEnd(14)}  ${pct(gates, n).padStart(5)}   ${pct(n - gates, n).padStart(6)}   ${meanOf(when).toFixed(1)}`);
+    }
+  }
+
+  // Вылазка всем гарнизоном на машину в середине осады: охрана — доля лагеря у неё (`machines.guardShare`).
+  console.log('машина            охрана (доля лагеря)   сожжено вылазкой всем гарнизоном');
+  for (const id of MACHINE_IDS) {
+    let burned = 0;
+    let n = 0;
+    for (const { fz } of phaseFrozen) {
+      const { camp, worldSeed } = frozenWindow(fz);
+      const span = fz.starvesAt - fz.since;
+      const mid = fz.since + span / 2;
+      const before = Math.floor((mid - fz.since) / SIEGE_PHASE);
+      const rate = CAMP_WASTE * (1 + camp.homeDays / CAMP_WASTE_DAYS);
+      const party = raidingParty(worldSeed, camp.id, camp.power * Math.pow(1 - rate, before));
+      for (let v = 0; v < STORM_VARIANTS; v++) {
+        const { field } = machineFight({
+          seed: fz.seed * 37 + v,
+          guard: { kinds: guardKinds(party.kinds, guardShare(id)), rest: 1 },
+          sortie: { kinds: kindsOf(fz.g.army), rest: siegeWear(fz.since, mid, span) },
+        });
+        n += 1;
+        if (field.won) burned += 1;
+      }
+    }
+    console.log(`${MACHINE_NAME[id].padEnd(17)} ${guardShare(id).toFixed(3).padStart(20)}   ${pct(burned, n).padStart(8)}`);
+  }
 }

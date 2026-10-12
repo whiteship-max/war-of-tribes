@@ -4,7 +4,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { readWarOrder, warRepairId, type CastleClaim, type RosterFile, type WarArmy, type WarSheet } from './contract.js';
 import { castleIdOf, emptyRoster, upsert } from './roster.js';
-import { advance, applyOrder, emptyWars, pacted, pactsOf, warsOf, type SheetAt, type WarFile, type WarRow } from './war.js';
+import { advance, applyOrder, emptyWars, newsOf, pacted, pactsOf, warsOf, type SheetAt, type WarFile, type WarRow } from './war.js';
 import { breachesOf, breadLeft, phaseAt, setPhaseDie, softerFate } from '../../src/world/siegeroll.js';
 import { siegeSince, starvesAt, type SiegeWindow } from '../../src/world/siege.js';
 import { machinesAt } from '../../src/world/machines.js';
@@ -149,6 +149,10 @@ describe('наказы осаждённого', () => {
     expect(row.orders).toEqual(['repair', 'ration']);
     expect(w.camp?.ration).toBe(true);
     expect((w.camp?.log ?? []).filter((d) => d.act === 'repair')).toHaveLength(1);
+    // Весть о сработавшем наказе — тому, чей он: осаждённому, а не лагерю.
+    const news = newsOf(w).filter((n) => n.item.kind === 'war-phase' && n.item.p.k === 1);
+    expect(news.find((n) => n.player === B)?.item.p.order).toBe('repair');
+    expect(news.find((n) => n.player === A)?.item.p.order).toBeUndefined();
   });
 });
 

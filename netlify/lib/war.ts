@@ -1570,16 +1570,19 @@ export function newsOf(w: WarRow): WarNews[] {
     }
   }
   // Фазы осады (docs/siege_v2.md, 8.3): весть — только о значимом. Пролом и мор — обеим сторонам; наказ, сработавший в
-  // минуту фазы, — нападающему, чей он. «Без перемен» и «нехватка в городе» без наказа молчат.
+  // минуту фазы, — той стороне, чей он. «Без перемен» и «нехватка в городе» без наказа молчат.
   const rows = w.camp ? rowsOf(w.camp as SiegeWindow) : (w.phases ?? []);
   let breaches = 0;
   rows.forEach((r, i) => {
     if (r.out === 'breach') breaches = Math.min(3, breaches + 1);
     if (r.out === 'gates') return;
-    const order = r.orders?.[0];
+    // Наказ — тому, чей он: залп и штурм — нападающему, починка и паёк — осаждённому (этап 2г).
+    const orderOf = (role: 'atk' | 'def') =>
+      r.orders?.find((o) => (role === 'atk' ? o === 'volley' || o === 'storm' : o === 'repair' || o === 'ration'));
     for (const role of ['atk', 'def'] as const) {
       const loud = r.out === 'breach' || r.out === 'plague';
-      if (!loud && !(role === 'atk' && order)) continue;
+      const order = orderOf(role);
+      if (!loud && !order) continue;
       out.push({
         player: role === 'atk' ? w.atk : w.def,
         item: {
@@ -1595,7 +1598,7 @@ export function newsOf(w: WarRow): WarNews[] {
             phase: r.out,
             k: i + 1,
             ...(r.out === 'breach' ? { breaches } : {}),
-            ...(role === 'atk' && order ? { order } : {}),
+            ...(order ? { order } : {}),
           },
         },
       });
