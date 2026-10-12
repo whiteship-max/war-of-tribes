@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { emptyStack, FRONT_WIDTH, type Stack } from '@/battle';
 import { horseHeld, wallFight, type WallDefence } from './fights';
 import { OPENING_IDS, SCALING, openingWords, openingsOf, wallFront, type Assault } from './wall';
-import { LADDER_FACES, RAM_ROUND } from './data/wall';
+import { LADDER_FACES, RAM_ROUND, WALL_FACES } from './data/wall';
 
 const W = FRONT_WIDTH;
 const stack = (s: Partial<Stack>): Stack => ({ ...emptyStack(), ...s });
@@ -15,11 +15,11 @@ const ALL: Assault[] = [0, 1, 2, 3].flatMap((breaches) =>
 );
 
 describe('проёмы стены', () => {
-  it('штурм с ходу: лестницы на себе — треть стены, −2 грани, конница не лезет', () => {
+  it('штурм с ходу: лестницы на себе — треть стены, оборона стены и лестничный штраф, конница не лезет', () => {
     const f = wallFront(SCALING);
     expect(f.openings.map((o) => o.id)).toEqual(['scaling']);
     expect(f.width).toBeCloseTo(W / 3, 9);
-    expect(f.wall).toBe(LADDER_FACES);
+    expect(f.wall).toBeCloseTo(WALL_FACES + LADDER_FACES, 9);
     expect(f.horse).toBe(false);
     expect(f.widen).toBeUndefined();
   });
@@ -27,18 +27,18 @@ describe('проёмы стены', () => {
   it('построенные лестницы — весь фронт со штрафом', () => {
     const f = wallFront({ ladders: true });
     expect(f.width).toBeCloseTo(W, 9);
-    expect(f.wall).toBe(LADDER_FACES);
+    expect(f.wall).toBeCloseTo(WALL_FACES + LADDER_FACES, 9);
   });
 
-  it('три пролома — вся стена без штрафа: штурм становится полевым боем с ополчением, конница идёт', () => {
+  it('три пролома — вся стена без лестниц: весь фронт, только оборона стены (17.1), конница идёт', () => {
     const f = wallFront({ breaches: 3, ladders: true, tower: true });
     expect(f.openings.map((o) => o.id)).toEqual(['breach']);
     expect(f.width).toBeCloseTo(W, 9);
-    expect(f.wall).toBe(0);
+    expect(f.wall).toBeCloseTo(WALL_FACES, 9);
     expect(f.horse).toBe(true);
   });
 
-  it('пролом снимает −2 грани ровно со своей доли: грань — средняя по фронту', () => {
+  it('пролом снимает лестничный штраф ровно со своей доли: грань — средняя по фронту', () => {
     for (const a of ALL) {
       const f = wallFront(a);
       const start = f.openings.filter((o) => o.round === 0);
@@ -67,14 +67,15 @@ describe('проёмы стены', () => {
   it('таран: ворота открываются со второго круга — фронт шире, грань меньше; конница идёт', () => {
     const f = wallFront({ ram: true });
     expect(f.width).toBeCloseTo(W / 3, 9);
-    expect(f.widen).toEqual({ round: RAM_ROUND, width: expect.closeTo((2 * W) / 3, 9), wall: expect.closeTo(1, 9) });
+    // Начало — лестницы на себе (оборона и лестницы), со второго круга половина фронта — ворота (только оборона стены).
+    expect(f.widen).toEqual({ round: RAM_ROUND, width: expect.closeTo((2 * W) / 3, 9), wall: expect.closeTo(WALL_FACES + LADDER_FACES / 2, 9) });
     expect(f.horse).toBe(true);
   });
 
-  it('башня — пролёт без штрафа с первого круга, но конница по ней не идёт', () => {
+  it('башня — пролёт без лестниц с первого круга, но конница по ней не идёт', () => {
     const f = wallFront({ tower: true });
     expect(f.width).toBeCloseTo((2 * W) / 3, 9);
-    expect(f.wall).toBeCloseTo(1, 9);
+    expect(f.wall).toBeCloseTo(WALL_FACES + LADDER_FACES / 2, 9);
     expect(f.horse).toBe(false);
   });
 
