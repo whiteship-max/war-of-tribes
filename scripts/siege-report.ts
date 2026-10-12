@@ -56,6 +56,9 @@ import { phaseAt, repairAfter, repairBlock, rollPhase, rowsOf, type PhaseRow } f
 import { CAMP_WASTE, CAMP_WASTE_DAYS, SIEGE_PHASE } from '@/world/data/siegeroll';
 import { militiaArchers, militiaMen, playerProfile } from '@/world/bridge';
 import { FATE_META } from '@/world/data/fates';
+import { FATE_DEFAULT, fate } from '@/world/spoils';
+import { bountyOf, fairTribute, siegeShare, tributeGoods } from '@/world/parley';
+import { stackCarry, stackEscort } from '@/world/data/units';
 import { createInitialState } from '@/game/state';
 import { autoAssign } from '@/game/sim/workers';
 import { buildingStat, defense, housingCapacity, productionPerDay, storageCap, hiddenStash, towerSeats, upgradeCost, wageOf } from '@/game/derived';
@@ -1549,5 +1552,64 @@ console.log(`--- ответы: паёк, починка, вылазка на м�
       }
     }
     console.log(`${MACHINE_NAME[id].padEnd(17)} ${guardShare(id).toFixed(3).padStart(20)}   ${pct(burned, n).padStart(8)}`);
+  }
+}
+
+// ------------------------------------------------------- переговоры у стен ---
+//
+// Этап 2е (docs/siege_v2.md, раздел 7): справедливая дань = добыча объявленной участи × доля пути осады. Те же замороженные
+// осады; ход осады — пассивный лагерь логова, кость своя (`siegeroll.rollPhase`), фаза, где город сдался, дальше не идёт;
+// добыча — дверью участи (`spoils.fate`) по складу деревни и обозу лагеря; доля пути и цена — дверью `world/parley`. Минута —
+// начало фазы: начатая фаза уже засчитана в долю пути.
+
+console.log('');
+console.log(`--- переговоры: доля пути и справедливая дань по фазам (docs/siege_v2.md, раздел 7; ${phaseFrozen.length} осад) ---`);
+{
+  const maxK = Math.max(0, ...phaseFrozen.map(({ fz }) => phasesToHunger(fz)));
+  console.log('фаза   осад   доля пути   дань / добыча падения   дань / открытый склад');
+  for (let k = 1; k <= maxK + 1; k++) {
+    const shares: number[] = [];
+    const ofBounty: number[] = [];
+    const ofOpen: number[] = [];
+    for (const { fz } of phaseFrozen) {
+      const { win } = frozenWindow(fz);
+      const at = phaseAt(fz.since, k - 1) + 1;
+      if (at >= fz.starvesAt) continue;
+      let w: SiegeWindow = { ...win, phases: [] };
+      let gave = false;
+      for (let j = 1; j < k; j++) {
+        const row = rollPhase(w, j);
+        w = { ...w, phases: [...rowsOf(w), row] };
+        if (row.out === 'gates') gave = true;
+      }
+      if (gave) continue;
+      const save = JSON.parse(fz.save);
+      const m = save.marches.find((x: { id: string }) => x.id === win.campId);
+      const p = playerProfile(fz.g);
+      const r = fate({
+        fate: win.fate ?? FATE_DEFAULT,
+        stock: p.stock ?? {},
+        gold: p.gold ?? 0,
+        stash: p.stash ?? 0,
+        pop: p.pop,
+        bonded: p.bonded ?? 0,
+        carry: stackCarry(m.units),
+        escort: stackEscort(m.units),
+        levels: {},
+        seed: fz.seed,
+      });
+      const bounty = bountyOf(r);
+      const share = siegeShare(w, at);
+      const fair = fairTribute(bounty, share);
+      const open = tributeGoods(p.stock ?? {}, p.gold ?? 0, p.stash ?? 0, Infinity).takenTotal;
+      shares.push(share);
+      if (bounty > 0) ofBounty.push(fair / bounty);
+      if (open > 0) ofOpen.push(fair / open);
+    }
+    if (!shares.length) continue;
+    const share = (xs: number[]): string => (xs.length ? `${Math.round(meanOf(xs) * 100)}%` : '—');
+    console.log(
+      `${String(k).padStart(4)}   ${String(shares.length).padStart(4)}   ${share(shares).padStart(9)}   ${share(ofBounty).padStart(21)}   ${share(ofOpen).padStart(21)}`,
+    );
   }
 }
