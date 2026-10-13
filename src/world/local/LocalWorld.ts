@@ -142,6 +142,7 @@ import {
   warFallId,
   warTributeId,
   warRepairId,
+  warTurnedId,
   WAR_SEEN_MAX,
   type Counts,
   type SpyMenu,
@@ -150,6 +151,7 @@ import {
   type WarBattle,
   type WarFall,
   type WarTribute,
+  type WarTurned,
   type WarOrder,
   type WarPact,
   type WarSheet,
@@ -331,6 +333,7 @@ import {
 import {
   WOOD_SHARES,
   machineShare,
+  gateBusyFor,
   gateBusyText,
   playerWood,
   rebaseWood,
@@ -8475,6 +8478,15 @@ export class LocalWorld implements WorldApi {
     const seen = new Set(this.save.warSeen ?? []);
     // Сервер отдаёт свежие сверху; применяется старое первым.
     for (const w of [...list].reverse()) {
+      // Удар из поля, не пробившийся через рогатки (docs/siege_v2.md, 19.2): у союзника — его выручка, у города — удар его
+      // полководца. Боя не было; донесение один раз.
+      for (const t of w.turned ?? []) {
+        const mine = w.role === 'ally' ? Boolean(w.me) && t.ally === w.me : w.role === 'def' && !t.ally;
+        const id = warTurnedId(w.id, t.at);
+        if (!mine || seen.has(id) || t.at > now) continue;
+        seen.add(id);
+        this.turnedReport(w, t);
+      }
       // Осада союзника (docs/siege_v2.md, раздел 5): из её боёв наш — только выручка нашей дружины.
       if (w.role === 'ally') {
         for (const b of w.battles) {
@@ -8576,6 +8588,37 @@ export class LocalWorld implements WorldApi {
       const spot = { id: w.defCastle, name, x: w.to.x, y: w.to.y };
       this.defeatGeneral(w.endAt ?? now, `разбит у города ${name}.`, `у города ${name}`, spot, mixSeed(w.battles.length, w.sentAt));
     }
+  }
+
+  /**
+   * Удар из поля, не пробившийся через рогатки в минуту прихода (docs/siege_v2.md, 19.2): проход был занят, боя не было,
+   * дружина цела и стоит в поле. Донесение — тому, чья дружина: союзнику о его выручке, городу — об ударе его полководца.
+   * Прежде такой удар пропадал молча.
+   */
+  private turnedReport(w: WarView, t: WarTurned): void {
+    const allied = w.role === 'ally';
+    const ally = this.warCity(w, 'def');
+    const enemy = this.warCity(w, 'atk');
+    const busy = `в ту минуту ${gateBusyFor(t.waitMs)}`;
+    this.addReport({
+      id: `war-${warTurnedId(w.id, t.at)}`,
+      at: t.at,
+      kind: allied ? 'raid' : 'defense',
+      title: allied ? `Выручка не пробилась: ${ally}` : `Удар не пробился: лагерь ${enemy}`,
+      target: allied ? { id: w.defCastle, name: ally, x: w.to.x, y: w.to.y } : this.homeSpot(),
+      won: false,
+      sent: { warrior: t.men },
+      lost: {},
+      enemyPower: null,
+      enemyLost: null,
+      loot: null,
+      intel: null,
+      battle: null,
+      text: allied
+        ? `Мы пришли на выручку союзнику, но к лагерю города ${enemy} через рогатки не пробились: ${busy} Боя не было, дружина цела и стоит в поле.`
+        : `Полководец подошёл к лагерю города ${enemy} с тыла, но через рогатки не пробился: ${busy} Боя не было, дружина цела и стоит в поле.`,
+      read: false,
+    });
   }
 
   /**
@@ -9901,7 +9944,7 @@ function fallHow(f: WarFall): string {
   return 'Город взят штурмом';
 }
 
-/** Номера итогов, которые сервер отдаёт в списке войн: бои, падения городов и дань. */
+/** Номера итогов, которые сервер отдаёт в списке войн: бои, падения городов, дань, починки и удары, не пробившиеся к лагерю. */
 function warSeenIds(list: readonly WarView[]): string[] {
   const ids: string[] = [];
   for (const w of list) {
@@ -9909,6 +9952,7 @@ function warSeenIds(list: readonly WarView[]): string[] {
     if (w.fall) ids.push(warFallId(w.id));
     if (w.tribute) ids.push(warTributeId(w.id));
     for (const d of w.camp?.log ?? []) if (d.act === 'repair') ids.push(warRepairId(w.id, d.at));
+    for (const t of w.turned ?? []) ids.push(warTurnedId(w.id, t.at));
   }
   return ids;
 }

@@ -321,6 +321,10 @@ export const cityOr = (raw: unknown): string => cityName(raw) ?? DEFAULT_CITY;
  *   `war-fall` — осаждённый соседом город пал от голода;
  * - `war-parley` — переговоры у стен (docs/siege_v2.md, раздел 7): пришло предложение (сдача на условиях или дань), его
  *   отклонили или дань приняли;
+ * - `war-pact` — пакт между игроками (docs/siege_v2.md, 19.2): пакт предложили — тому, кому предложили; приняли — тому, кто
+ *   предлагал;
+ * - `war-relief` — выручка союзника (19.2): идёт — осаждённому; бой выручки был — союзнику; не пробилась через рогатки —
+ *   союзнику и осаждённому;
  * - `war-spy` — чужой лазутчик напал на город: поджёг склад, обокрал или поднял смуту (docs/spy_pvp.md). Разведка и
  *   пойманный лазутчик нападением не считаются: город ничего не потерял.
  */
@@ -335,6 +339,8 @@ export const NOTICE_KINDS = [
   'war-spy',
   'war-phase',
   'war-parley',
+  'war-pact',
+  'war-relief',
 ] as const;
 export type NoticeKind = (typeof NOTICE_KINDS)[number];
 
@@ -386,6 +392,14 @@ export interface NoticeFacts {
    */
   offer?: 'terms' | 'tribute';
   answer?: 'yes' | 'no';
+  /** Бой войны — вылазка на машину лагеря (`WarBattle.burn`): на какую. Нет — бой не за машину. */
+  machine?: WarMachine;
+  /** Город союзника, пришедшего на выручку (`war-fight` выручки, `war-relief` осаждённому). Строка до `NOTICE_LIMITS.name`. */
+  ally?: string;
+  /** Пакт (`war-pact`, 19.2): получателю предложили пакт или его предложение приняли. */
+  pact?: 'offer' | 'made';
+  /** Выручка союзника (`war-relief`, 19.2): идёт (осаждённому), бой был (союзнику), не пробилась через рогатки (обоим). */
+  relief?: 'going' | 'fight' | 'turned';
 }
 
 /** Пункт исходящих. Ключ — имя момента, а не время: по нему не уходит второй раз. */
@@ -505,8 +519,9 @@ export function readNotices(v: unknown, now: number, kinds: readonly NoticeKind[
     // Поля войны — только у видов войны: клиент их не шлёт, а своя запись сервера их несёт.
     if (kind.startsWith('war')) {
       const role = oneOf(['atk', 'def'] as const, p.role);
-      if (!role) return null;
-      facts.role = role;
+      // Пакт и весть союзнику о его выручке — не о стороне войны: у союзника её нет (docs/siege_v2.md, 19.2).
+      if (role) facts.role = role;
+      else if (kind !== 'war-pact' && kind !== 'war-relief') return null;
       const mode = oneOf(WAR_MODES, p.mode);
       const site = oneOf(['wall', 'sortie', 'camp', 'joint'] as const, p.site);
       const by = oneOf(['atk', 'def'] as const, p.by);
@@ -515,6 +530,29 @@ export function readNotices(v: unknown, now: number, kinds: readonly NoticeKind[
       if (by) facts.by = by;
       if (typeof p.won === 'boolean') facts.won = p.won;
       if (p.taken === true) facts.taken = true;
+      const machine = oneOf(WAR_MACHINES, p.machine);
+      if (machine) facts.machine = machine;
+      const ally = str(p.ally, NOTICE_LIMITS.name);
+      if (ally && PLAIN.test(ally)) facts.ally = ally;
+    }
+    // Переговоры: какое предложение и чем кончилось. Без них своя запись сервера, перечитанная из хранилища, говорила бы о
+    // любом предложении «дань» и теряла бы отказ и взятую дань (docs/siege_v2.md, 19.2).
+    if (kind === 'war-parley') {
+      const offer = oneOf(['terms', 'tribute'] as const, p.offer);
+      if (!offer) return null;
+      facts.offer = offer;
+      const answer = oneOf(['yes', 'no'] as const, p.answer);
+      if (answer) facts.answer = answer;
+    }
+    if (kind === 'war-pact') {
+      const pact = oneOf(['offer', 'made'] as const, p.pact);
+      if (!pact) return null;
+      facts.pact = pact;
+    }
+    if (kind === 'war-relief') {
+      const relief = oneOf(['going', 'fight', 'turned'] as const, p.relief);
+      if (!relief) return null;
+      facts.relief = relief;
     }
     // Поля фазы осады — только у вестей о фазе и о падении.
     if (kind.endsWith('-phase')) {
@@ -962,6 +1000,8 @@ export interface WarView {
   strike?: WarStrike;
   /** Выручка соседей-союзников: идут на лагерь, бьют в минуту прихода (по одной от союзника). Нет — никто не идёт. */
   reliefs?: WarRelief[];
+  /** Удары из поля, не пробившиеся через рогатки в минуту прихода (`WarTurned`). Нет — таких не было. */
+  turned?: WarTurned[];
   /** Обратный путь: откуда и когда дома. */
   backFrom?: { x: number; y: number };
   backAt?: number;
@@ -978,8 +1018,26 @@ export interface WarRelief {
   /** Замок союзника и имя его города. */
   castle: string;
   city: string;
+  /** Когда вышла — с этой минуты осаждённому весть «союзник идёт» (docs/siege_v2.md, 19.2). Нет — выручка старше поля. */
+  sent?: number;
   at: number;
   army: WarArmy;
+}
+
+/**
+ * Удар из поля, не пробившийся через рогатки лагеря (docs/siege_v2.md, 19.2): в минуту прихода проход был занят, боя не было,
+ * дружина цела и стоит в поле. Донесение — у того, чья дружина: у союзника — его выручка (`ally`), у города — удар его
+ * полководца. Применяет каждая сторона сама, один раз, по отметке `warTurnedId`.
+ */
+export interface WarTurned {
+  at: number;
+  /** Сколько ещё проход был занят в ту минуту, мс (`works.gateBusyText`). */
+  waitMs: number;
+  /** Сколько бойцов шло. */
+  men: number;
+  /** Выручка союзника: его замок и имя его города. Нет поля — удар полководца самого города. */
+  ally?: string;
+  city?: string;
 }
 
 /** Пакт между игроками глазами спросившего: заключён, он предложил или предложили ему. */
@@ -1132,6 +1190,9 @@ export const warTributeId = (war: string): string => `${war}.tribute`;
  * раздел 5).
  */
 export const warRepairId = (war: string, at: number): string => `${war}.r${at}`;
+
+/** Отметка удара, не пробившегося через рогатки (`WarTurned`), в списке принятого: донесение о нём ложится один раз. */
+export const warTurnedId = (war: string, at: number): string => `${war}.t${at}`;
 
 /** Потолки слепка и приказа. Видов племени и припасов — десятки; больше — порча. */
 export const WAR_LIMITS = { keys: 64, count: 1e7 } as const;

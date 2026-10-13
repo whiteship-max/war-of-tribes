@@ -129,6 +129,11 @@ import { floorAt, townSheet, type TownBook } from './town.js';
 export interface WarRow extends Omit<WarView, 'role'> {
   atk: string;
   def: string;
+  /**
+   * Ключи союзников, ходивших на выручку, по их замкам (docs/siege_v2.md, 19.2): по ним весть о бое выручки и о выручке, не
+   * пробившейся через рогатки, уходит союзнику (`newsOf`). Пишет приказ `relief`; наружу не уходит (`viewOf`).
+   */
+  allies?: Record<string, { key: string; city: string }>;
 }
 
 /** Все войны одной записью — как реестр: читают целиком и целиком переписывают с условием по ETag. */
@@ -158,6 +163,8 @@ export interface PactRow {
   b: string;
   at: number;
   cities: Record<string, string>;
+  /** Кто принял предложение (ключ): весть «пакт заключён» уходит другому — предложившему (19.2). Нет — пакт старше поля. */
+  by?: string;
 }
 
 /** Предложение пакта. */
@@ -232,7 +239,7 @@ export function readWars(raw: unknown): WarFile {
   const pacts = Array.isArray(r.pacts)
     ? r.pacts
         .filter((x): x is PactRow => Boolean(x) && typeof x.a === 'string' && typeof x.b === 'string')
-        .map((x) => ({ a: x.a, b: x.b, at: Number(x.at) || 0, cities: names(x.cities) }))
+        .map((x) => ({ a: x.a, b: x.b, at: Number(x.at) || 0, cities: names(x.cities), ...(typeof x.by === 'string' ? { by: x.by } : {}) }))
     : [];
   const offers = Array.isArray(r.offers)
     ? r.offers
@@ -288,19 +295,20 @@ export function readStoredSheet(raw: unknown): SheetAt | null {
 
 /** Война глазами одной из сторон или союзника осаждённого: без ключей. */
 export function viewOf(row: WarRow, key: string): WarView {
-  const { atk, def, ...rest } = row;
+  const { atk, def, allies, ...rest } = row;
+  void allies;
   if (atk === key || def === key) return { ...rest, role: atk === key ? 'atk' : 'def' };
   return { ...rest, role: 'ally', me: castleIdOf(key) };
 }
 
 /**
  * Война, которую игрок видит союзником (docs/siege_v2.md, раздел 5): у его союзника по пакту под стенами лагерь — он может
- * прийти на выручку; или его выручка уже идёт либо дралась — итог её он применяет сам.
+ * прийти на выручку; или его выручка уже идёт, дралась либо не пробилась через рогатки — итог её он применяет сам.
  */
 function allyOf(file: WarFile, w: WarRow, key: string): boolean {
   if (w.atk === key || w.def === key) return false;
   const me = castleIdOf(key);
-  if (w.reliefs?.some((r) => r.castle === me) || w.battles.some((b) => b.ally === me)) return true;
+  if (w.reliefs?.some((r) => r.castle === me) || w.battles.some((b) => b.ally === me) || w.turned?.some((t) => t.ally === me)) return true;
   return w.phase === 'camp' && pacted(file, key, w.def);
 }
 
@@ -350,7 +358,7 @@ function pactOrder(file: WarFile, key: string, target: string, now: number, ctx:
   if (offers.some((o) => o.from === other && o.to === key)) {
     file.offers = offers.filter((o) => !(o.from === other && o.to === key));
     const [a, b] = key < other ? [key, other] : [other, key];
-    file.pacts = [...(file.pacts ?? []), { a, b, at: now, cities }];
+    file.pacts = [...(file.pacts ?? []), { a, b, at: now, cities, by: key }];
     return null;
   }
   if (offers.some((o) => o.from === key && o.to === other)) return 'Предложение уже у них. Ждём ответа.';
@@ -1041,7 +1049,7 @@ function hitCamp(
   w: WarRow,
   at: number,
   sheet: WarSheet,
-  hit: { front?: Counts; rear?: WarArmy; site: WarBattle['site']; ally?: string },
+  hit: { front?: Counts; rear?: WarArmy; site: WarBattle['site']; ally?: string; city?: string },
 ): string | null {
   const camp = w.camp;
   if (!camp) return 'Лагеря уже нет.';
@@ -1061,7 +1069,15 @@ function hitCamp(
   });
   if (fight.refused) {
     const waits = [fight.front, fight.rear].filter((t) => t && t.went > 0).map((t) => t?.waitMs ?? 0);
-    return gateBusyText(Math.min(...waits));
+    const waitMs = Math.min(...waits);
+    // Удар из поля — полководца города или выручки союзника — приходит назначенной минутой, и сказать «не пробиться» в ответ
+    // на приказ некому: боя нет, дружина цела и стоит в поле. Это запись войны, по ней донесение у того, чья дружина, и
+    // весть союзнику (docs/siege_v2.md, 19.2); прежде такой удар пропадал молча.
+    if (hit.rear) {
+      const men = troopTotal(asTroops(hit.rear.troops));
+      w.turned = [...(w.turned ?? []), { at, waitMs, men, ...(hit.ally ? { ally: hit.ally, city: hit.city ?? '' } : {}) }];
+    }
+    return gateBusyText(waitMs);
   }
   const { field, front, rear, lost } = fight;
   const homeLost = hit.front ? (troopLosses(asTroops(hit.front), lost.front) as Counts) : {};
@@ -1182,7 +1198,7 @@ export function advance(file: WarFile, now: number, sheets: ReadonlyMap<string, 
         if (strikeAt <= hungerAt && strikeAt <= phaseAt && relief) {
           w.reliefs = (w.reliefs ?? []).filter((r) => r !== relief);
           if (!w.reliefs.length) delete w.reliefs;
-          hitCamp(w, relief.at, sheet, { rear: relief.army, site: 'camp', ally: relief.castle });
+          hitCamp(w, relief.at, sheet, { rear: relief.army, site: 'camp', ally: relief.castle, city: relief.city });
           continue;
         }
         if (phaseAt < hungerAt) {
@@ -1492,7 +1508,9 @@ export function applyOrder(file: WarFile, key: string, order: WarOrder, now: num
       if (tired) return tired;
       const at = now + Math.round(order.walkMs / pace);
       if (at >= (w.starvesAt ?? Infinity)) return 'Не успеть: хлеб в городе кончится раньше.';
-      w.reliefs = [...(w.reliefs ?? []), { castle: me, city: cityOr(ctx.roster.rows[key]?.city), at, army: ruleArmy(order.army) }];
+      w.reliefs = [...(w.reliefs ?? []), { castle: me, city: cityOr(ctx.roster.rows[key]?.city), sent: now, at, army: ruleArmy(order.army) }];
+      // Ключ союзника — для вестей ему о его выручке (19.2); наружу не уходит.
+      w.allies = { ...(w.allies ?? {}), [me]: { key, city: cityOr(ctx.roster.rows[key]?.city) } };
       return null;
     }
     case 'pact':
@@ -1671,6 +1689,8 @@ export function newsOf(w: WarRow): WarNews[] {
   }
   for (const b of w.battles) {
     const taken = b.site === 'wall' && w.fall?.by === 'storm' && w.fall.at === b.at;
+    // Выручка союзника (docs/siege_v2.md, 19.2): осаждённому — чья она, союзнику — своя весть о своём бое.
+    const ally = b.ally ? w.allies?.[b.ally] : undefined;
     for (const role of ['atk', 'def'] as const) {
       out.push({
         player: role === 'atk' ? w.atk : w.def,
@@ -1689,10 +1709,53 @@ export function newsOf(w: WarRow): WarNews[] {
             // `won` боя — у того, кто в нём нападал; у получателя — своя сторона.
             won: b.by === role ? b.won : !b.won,
             ...(taken ? { taken: true as const } : {}),
+            // Вылазка на машину — бой за машину, а не за лагерь: слова другие (19.2).
+            ...(b.burn ? { machine: b.burn } : {}),
+            ...(ally && role === 'def' ? { ally: plainName(ally.city) } : {}),
           },
         },
       });
     }
+    if (ally) {
+      out.push({
+        player: ally.key,
+        item: {
+          key: `war-relief:${b.id}`,
+          kind: 'war-relief',
+          fireAt: b.at,
+          until: b.at + RESULT_KEEP,
+          p: { from: plainName(w.defCity), fate: w.fate, about: b.at, relief: 'fight', won: b.won },
+        },
+      });
+    }
+  }
+  // Выручка идёт — осаждённому, пока она в пути: с минуты выхода до минуты удара (19.2).
+  for (const r of w.reliefs ?? []) {
+    if (r.sent === undefined || r.sent >= r.at) continue;
+    out.push({
+      player: w.def,
+      item: {
+        key: `war-relief:${w.id}:go:${r.castle}:${r.at}`,
+        kind: 'war-relief',
+        fireAt: r.sent,
+        until: r.at,
+        p: { from: from('def'), fate: w.fate, about: r.at, role: 'def', relief: 'going', ally: plainName(r.city) },
+      },
+    });
+  }
+  // Выручка не пробилась через рогатки (`WarTurned`): союзнику — его дружина стоит в поле; осаждённому — что её не будет.
+  for (const t of w.turned ?? []) {
+    const ally = t.ally ? w.allies?.[t.ally] : undefined;
+    if (!ally) continue;
+    const item = (p: NoticeItem['p']): NoticeItem => ({
+      key: `war-relief:${w.id}:turned:${t.at}`,
+      kind: 'war-relief',
+      fireAt: t.at,
+      until: t.at + RESULT_KEEP,
+      p,
+    });
+    out.push({ player: ally.key, item: item({ from: plainName(w.defCity), fate: w.fate, about: t.at, relief: 'turned' }) });
+    out.push({ player: w.def, item: item({ from: from('def'), fate: w.fate, about: t.at, role: 'def', relief: 'turned', ally: plainName(ally.city) }) });
   }
   // Фазы осады (docs/siege_v2.md, 8.3): весть — только о значимом. Пролом и мор — обеим сторонам; наказ, сработавший в
   // минуту фазы, — той стороне, чей он. «Без перемен» и «нехватка в городе» без наказа молчат.
@@ -1787,11 +1850,47 @@ export function newsOf(w: WarRow): WarNews[] {
   return out;
 }
 
+/**
+ * Вести о пакте (docs/siege_v2.md, 19.2): предложение — тому, кому предложили, пока оно лежит; принятый пакт — тому, кто
+ * предлагал. Выводятся из записи, как вести войны: «один раз» держит разница до и после хода (`newsDiff`). Участи у пакта
+ * нет — поле `fate` у вести обязательно, и здесь оно формы ради.
+ */
+export function pactNewsOf(file: WarFile): WarNews[] {
+  const out: WarNews[] = [];
+  for (const o of file.offers ?? []) {
+    out.push({
+      player: o.to,
+      item: {
+        key: `war-pact:${castleIdOf(o.from)}:${o.at}`,
+        kind: 'war-pact',
+        fireAt: o.at,
+        until: o.at + RESULT_KEEP,
+        p: { from: plainName(cityOr(o.cities[o.from])), fate: 'plunder', about: o.at, pact: 'offer' },
+      },
+    });
+  }
+  for (const p of file.pacts ?? []) {
+    if (!p.by) continue;
+    out.push({
+      player: p.by === p.a ? p.b : p.a,
+      item: {
+        key: `war-pact:${castleIdOf(p.by)}:${p.at}:made`,
+        kind: 'war-pact',
+        fireAt: p.at,
+        until: p.at + RESULT_KEEP,
+        p: { from: plainName(cityOr(p.cities[p.by])), fate: 'plunder', about: p.at, pact: 'made' },
+      },
+    });
+  }
+  return out;
+}
+
 /** Все новости записи по ключу «игрок/пункт» — для сравнения до и после хода. */
 export function newsMap(file: WarFile): Map<string, WarNews> {
   const out = new Map<string, WarNews>();
   for (const w of file.wars) for (const n of newsOf(w)) out.set(`${n.player}/${n.item.key}`, n);
   for (const sp of file.spies ?? []) for (const n of spyNewsOf(sp)) out.set(`${n.player}/${n.item.key}`, n);
+  for (const n of pactNewsOf(file)) out.set(`${n.player}/${n.item.key}`, n);
   return out;
 }
 

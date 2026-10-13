@@ -358,9 +358,11 @@ export const refusedAtGate = (...ts: (Pick<Through, 'went' | 'passed'> | null | 
   return went > 0 && passed === 0;
 };
 
+/** Сколько ещё занят проход — словами (`gateBusyText` и донесение об ударе, не пробившемся в минуту прихода). */
+export const gateBusyFor = (waitMs: number): string => `проход занят ещё ${Math.max(1, Math.ceil(waitMs / 60_000))} мин.`;
+
 /** Слова отказа — одни на вылазку, удар полководца и панели. */
-export const gateBusyText = (waitMs: number): string =>
-  `К рогаткам сейчас не пробиться, проход занят ещё ${Math.max(1, Math.ceil(waitMs / 60_000))} мин.`;
+export const gateBusyText = (waitMs: number): string => `К рогаткам сейчас не пробиться, ${gateBusyFor(waitMs)}`;
 
 /** Как сторона называется в строке «пробились с тыла, со стороны города». */
 const FROM: Record<CampSide, string> = { front: 'со стороны города', rear: 'с тыла' };

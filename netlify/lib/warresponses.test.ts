@@ -4,7 +4,8 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { readWarOrder, warRepairId, type CastleClaim, type RosterFile, type WarArmy, type WarSheet } from './contract.js';
 import { castleIdOf, emptyRoster, upsert } from './roster.js';
-import { advance, applyOrder, emptyWars, newsOf, pacted, pactsOf, warsOf, type SheetAt, type WarFile, type WarRow } from './war.js';
+import { advance, applyOrder, emptyWars, newsDiff, newsMap, newsOf, pacted, pactsOf, warsOf, type SheetAt, type WarFile, type WarRow } from './war.js';
+import { CAMP_GATE_CLEAR } from '../../src/world/data/tuning.js';
 import { breachesOf, breadLeft, phaseAt, setPhaseDie, softerFate } from '../../src/world/siegeroll.js';
 import { siegeSince, starvesAt, type SiegeWindow } from '../../src/world/siege.js';
 import { GUARD_SHARE, machinesAt } from '../../src/world/machines.js';
@@ -237,5 +238,81 @@ describe('пакт и выручка', () => {
     expect(b.genTroops).toEqual(army.troops);
     expect(b.homeTroops, 'гарнизон города не выходил').toEqual({});
     expect(w.reliefs).toBeUndefined();
+  });
+
+  /**
+   * Вести о выручке (docs/siege_v2.md, 19.2): пока она в пути — осаждённому «союзник идёт», с минуты выхода до минуты удара;
+   * бой был — союзнику его весть, осаждённому — чья была выручка. Ключ союзника в вид войны не уходит.
+   */
+  it('выручка: осаждённому — «идёт» и чья; союзнику — его бой; ключа союзника в виде войны нет', () => {
+    setPhaseDie(() => 7);
+    const { file, sheets, ctx, w, since } = camped();
+    const army: WarArmy = { troops: { spearman: 60, swordsman: 30 }, resolve: 0, pips: {}, energy: { value: ENERGY_MAX, at: since, mode: 'hold' } };
+    expect(applyOrder(file, B, { op: 'pact', target: castleIdOf(C) }, since + 1, ctx)).toBeNull();
+    expect(applyOrder(file, C, { op: 'pact', target: castleIdOf(B) }, since + 2, ctx)).toBeNull();
+    const before = newsMap(file);
+    expect(applyOrder(file, C, { op: 'relief', id: w.id, army, walkMs: 3_600_000 }, since + 3, ctx)).toBeNull();
+    const at = w.reliefs?.[0].at ?? 0;
+    const going = newsDiff(before, newsMap(file)).get(B)?.add ?? [];
+    expect(going).toMatchObject([{ kind: 'war-relief', fireAt: since + 3, until: at, p: { relief: 'going', ally: 'Гамма', from: 'Альфа', about: at } }]);
+    expect(JSON.stringify(warsOf(file, C)), 'ключ союзника наружу не уходит').not.toContain(C);
+    expect(JSON.stringify(warsOf(file, B))).not.toContain(C);
+    advance(file, at + 1, sheets);
+    const b = w.battles[w.battles.length - 1];
+    expect(b.ally, 'точка внутри области: выручка дралась').toBe(castleIdOf(C));
+    const news = newsOf(w);
+    expect(news.filter((n) => n.player === C)).toMatchObject([
+      { item: { kind: 'war-relief', key: `war-relief:${b.id}`, p: { relief: 'fight', won: b.won, from: 'Бета' } } },
+    ]);
+    expect(news.find((n) => n.player === B && n.item.key === `war-fight:${b.id}`)?.item.p.ally).toBe('Гамма');
+    expect(news.find((n) => n.player === A && n.item.key === `war-fight:${b.id}`)?.item.p.ally, 'осаждающему имя выручки не нужно').toBeUndefined();
+    expect(news.some((n) => n.item.p.relief === 'going'), '«идёт» ушла вместе с выручкой').toBe(false);
+  });
+
+  /**
+   * Выручка, не пробившаяся через рогатки (19.2): проход тыла занят в минуту прихода — боя нет, дружина цела. Это запись
+   * войны: союзник видит её и кладёт донесение, весть — ему и осаждённому. Граница области — у тыла есть рогатки и проход
+   * занят на всю его ширину (под городом игрока лес рогаток идёт к воротам, `WOOD_FIXED`, — тыл здесь ставится руками).
+   */
+  it('выручка, не пробившаяся через рогатки: запись войны, вид союзника и весть ему и осаждённому', () => {
+    setPhaseDie(() => 7);
+    const { file, sheets, ctx, w, since } = camped();
+    const army: WarArmy = { troops: { spearman: 60, swordsman: 30 }, resolve: 0, pips: {}, energy: { value: ENERGY_MAX, at: since, mode: 'hold' } };
+    expect(applyOrder(file, B, { op: 'pact', target: castleIdOf(C) }, since + 1, ctx)).toBeNull();
+    expect(applyOrder(file, C, { op: 'pact', target: castleIdOf(B) }, since + 2, ctx)).toBeNull();
+    expect(applyOrder(file, C, { op: 'relief', id: w.id, army, walkMs: 3_600_000 }, since + 3, ctx)).toBeNull();
+    const at = w.reliefs?.[0].at ?? 0;
+    // Рогатки тыла и проход, занятый на всю ширину к минуте прихода.
+    w.camp = { ...w.camp!, wood: { front: 0.5, rear: 0.5 }, rearGateAt: at + CAMP_GATE_CLEAR };
+    const fights = w.battles.length;
+    const before = newsMap(file);
+    advance(file, at + 1, sheets);
+    expect(w.battles.length, 'боя не было').toBe(fights);
+    expect(w.turned).toEqual([{ at, waitMs: expect.any(Number), men: 90, ally: castleIdOf(C), city: 'Гамма' }]);
+    expect(w.turned?.[0].waitMs, 'точка внутри области: проход занят').toBeGreaterThan(0);
+    expect(w.phase, 'лагерь стоит').toBe('camp');
+    // Союзник видит войну и свою запись, даже если пакт уже разорван.
+    expect(applyOrder(file, B, { op: 'unpact', target: castleIdOf(C) }, at + 2, ctx)).toBeNull();
+    expect(warsOf(file, C).find((x) => x.id === w.id)?.turned?.[0].ally).toBe(castleIdOf(C));
+    const added = newsDiff(before, newsMap(file));
+    expect(added.get(C)?.add).toMatchObject([{ kind: 'war-relief', fireAt: at, p: { relief: 'turned', from: 'Бета' } }]);
+    expect(added.get(B)?.add).toMatchObject([{ kind: 'war-relief', fireAt: at, p: { relief: 'turned', ally: 'Гамма', role: 'def' } }]);
+  });
+
+  it('пакт: предложение — весть тому, кому предложили; принят — тому, кто предлагал; один раз', () => {
+    const { file, ctx } = setup();
+    const t0 = newsMap(file);
+    expect(applyOrder(file, B, { op: 'pact', target: castleIdOf(C) }, T0, ctx)).toBeNull();
+    const t1 = newsMap(file);
+    const offered = newsDiff(t0, t1);
+    expect([...offered.keys()]).toEqual([C]);
+    expect(offered.get(C)?.add).toMatchObject([{ kind: 'war-pact', fireAt: T0, p: { pact: 'offer', from: 'Бета' } }]);
+    expect(applyOrder(file, C, { op: 'pact', target: castleIdOf(B) }, T0 + 5, ctx)).toBeNull();
+    const made = newsDiff(t1, newsMap(file));
+    expect(made.get(B)?.add).toMatchObject([{ kind: 'war-pact', fireAt: T0 + 5, p: { pact: 'made', from: 'Гамма' } }]);
+    // Принявшему вести нет: он ответил сам. Его «предложили» снята — отвечать больше не на что.
+    expect(made.get(C)?.add ?? []).toEqual([]);
+    expect(made.get(C)?.drop).toHaveLength(1);
+    expect(newsDiff(newsMap(file), newsMap(file)).size, 'второй раз — ничего').toBe(0);
   });
 });

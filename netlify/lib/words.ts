@@ -8,7 +8,7 @@
  * («в 14:40», поясом игрока) и ничего больше: потери и добыча устаревают и лежат в донесении (правило 18 — числа
  * нет, и считать его нечем).
  */
-import { cityOr, type NoticeFate, type NoticeItem, type RatingRow } from './contract.js';
+import { cityOr, type NoticeFate, type NoticeItem, type RatingRow, type WarMachine } from './contract.js';
 import { localTime } from './notify.js';
 import { SICILY } from '../../src/world/spawn.js';
 import { count } from '../../src/ui/parts/plural.js';
@@ -83,8 +83,40 @@ export function noticeText(item: NoticeItem, tz: string): string {
       return SPY_DONE[p.fate].replace('{at}', at);
     case 'war-parley':
       return parleyText(item, at);
+    // Пакт между игроками (docs/siege_v2.md, 19.2): предложили — ответить можно в игре; приняли — вы союзники.
+    case 'war-pact':
+      return p.pact === 'made'
+        ? `«${p.from}» принял пакт. Теперь вы союзники: можно прийти на выручку, а походом друг на друга не ходят.`
+        : `Город «${p.from}» предлагает пакт: союзник может прийти на выручку, а походом друг на друга не ходят. Ответить можно в игре.`;
+    case 'war-relief':
+      return reliefText(item, at);
   }
 }
+
+/**
+ * Выручка союзника глазами получателя (docs/siege_v2.md, 19.2): осаждённому — кто идёт и когда ударит, и что не пробился;
+ * союзнику — его бой или что его дружина не пробилась через рогатки. Потерь в словах нет: они в донесении.
+ */
+function reliefText(item: NoticeItem, at: string): string {
+  const { from, relief, won, ally } = item.p;
+  if (relief === 'going') return `Союзник «${ally ?? '—'}» идёт на выручку. Ударит по лагерю «${from}» с тыла в ${at}.`;
+  if (relief === 'turned') {
+    return ally
+      ? `Выручка из «${ally}» не пробилась к лагерю «${from}»: проход в рогатках был занят.`
+      : `В ${at} наша дружина не пробилась к лагерю под «${from}»: проход в рогатках был занят. Отряд цел и стоит в поле.`;
+  }
+  return won
+    ? `В ${at} наша дружина ударила с тыла по лагерю под «${from}» и разбила его. Осада снята.`
+    : `В ${at} наша дружина ударила с тыла по лагерю под «${from}», но лагерь устоял. Чем кончился бой, сказано в донесении.`;
+}
+
+/** Машина лагеря в вести о вылазке на неё — кого сожгли. */
+const MACHINE_ACC: Record<WarMachine, string> = {
+  ladders: 'лестницы',
+  ram: 'таран',
+  tower: 'осадную башню',
+  mangonel: 'камнемёт',
+};
 
 /** Условия сдачи словами: что станет с городом, если откроет ворота. */
 const TERMS_FATE: Record<NoticeFate, string> = {
@@ -137,16 +169,24 @@ function phaseText(item: NoticeItem, at: string): string {
 
 /** Бой между игроками глазами получателя: `won` — победила ли его сторона. */
 function fightText(item: NoticeItem): string {
-  const { from, role, site, won, taken, fate } = item.p;
+  const { from, role, site, won, taken, fate, machine, ally } = item.p;
   if (site === 'wall') {
     if (role === 'atk') return won ? `Город «${from}» взят штурмом.` : `Штурм «${from}» отбит. Отряд отходит домой.`;
     if (won) return `Отряд из «${from}» пошёл на штурм. Стены выстояли.`;
     return taken ? `Отряд из «${from}» взял город штурмом. ${FATE_DONE[fate]}` : `Отряд из «${from}» пошёл на штурм, и стены не выстояли.`;
   }
+  // Вылазка на машину (docs/siege_v2.md, раздел 5): бой за машину, а не за лагерь — лагерь стоит при любом исходе.
+  if (site === 'sortie' && machine) {
+    const m = MACHINE_ACC[machine];
+    if (role === 'def') return won ? `Гарнизон вышел из ворот и сжёг ${m} лагеря «${from}».` : `Вылазку на ${m} отбили. Лагерь «${from}» стоит у ворот.`;
+    return won ? `Из «${from}» вышли на ${m}. Охрана отбилась.` : `Вылазка из «${from}» сожгла ${m} нашего лагеря.`;
+  }
   if (site === 'sortie') {
     if (role === 'def') return won ? `Гарнизон вышел из ворот и разбил лагерь «${from}».` : `Вылазку отбили. Лагерь «${from}» стоит у ворот.`;
     return won ? `Из «${from}» вышли на вылазку. Лагерь отбился и стоит.` : `Вылазка из «${from}» разбила наш лагерь.`;
   }
+  // Выручка союзника (19.2): по лагерю ударил не наш полководец, а союзник.
+  if (ally && role === 'def') return won ? `«${ally}» пришёл на выручку: ударил по лагерю «${from}» с тыла и разбил его.` : `Выручку из «${ally}» лагерь «${from}» отбил.`;
   // Удар полководца города по лагерю — один или с гарнизоном.
   if (role === 'def') return won ? `Ударили по лагерю «${from}» и разбили его.` : `Удар по лагерю «${from}» отбит.`;
   return won ? `По нашему лагерю под «${from}» ударили. Отбились.` : `Наш лагерь под «${from}» разбит ударом.`;
