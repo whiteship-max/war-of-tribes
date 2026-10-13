@@ -142,13 +142,16 @@ describe('где стоит боец — одно правило', () => {
     // Совместный удар (03.10.2026, вариант А, docs/battle_tw.md, раздел 13) дописал `garrison` — кто из состава вышел из
     // ворот: часть `kinds`, а не раскладка и не люди сверх; ядро только кладёт её по секторам в итог для ролика, и исход от
     // неё не зависит (`world/battle.test.ts`, «происхождение бойцов не меняет исход»).
+    // Клещи (этап 2д осады, docs/siege_v2.md, 17.3) дописали `behind` — какая часть `kinds` стоит в тылу противника: тоже
+    // часть состава, и встаёт она тем же правилом, своей расстановкой (`sideSetup` — две расстановки `deploySetup`).
     const src = readFileSync(new URL('./battle.ts', import.meta.url), 'utf8')
       .replace(/\/\*[\s\S]*?\*\//g, '')
       .replace(/(^|[^:])\/\/.*$/gm, '$1');
     const body = src.slice(src.indexOf('export interface FieldSide {'), src.indexOf('}', src.indexOf('export interface FieldSide {')));
     const fields = [...body.matchAll(/^\s+(\w+)\??\s*:/gm)].map((m) => m[1]);
-    expect(fields, 'поля стороны боя').toEqual(['kinds', 'resolve', 'pips', 'rest', 'garrison']);
-    expect(src, 'обе стороны — правилом').toMatch(/const attacker = deploySetup\(input\.attacker\.kinds\);/);
+    expect(fields, 'поля стороны боя').toEqual(['kinds', 'resolve', 'pips', 'rest', 'garrison', 'behind']);
+    expect(src, 'обе стороны — правилом').toMatch(/const attacker = sideSetup\(input\.attacker\);/);
+    expect(src, 'клещи — тем же правилом').toMatch(/if \(!back\) return deploySetup\(side\.kinds\);[\s\S]*deploySetup\(own\);[\s\S]*deploySetup\(back\);/);
     expect(src, 'обе стороны — правилом').toMatch(/const defender = deploySetup\(input\.defender\.kinds\);/);
   });
 });
@@ -624,9 +627,20 @@ describe('дома и в поле вместе не больше, чем ест�
 });
 
 describe('дружина в обороне: собрана и дома — один раз, в сборе и в деле — нисколько', () => {
-  /** Десять из четырнадцати при полководце, сбор кончился, полководец у ворот. */
-  const gathered = async (seed: number): Promise<Party> => {
-    const p = Party.start(seed, { clubman: 14 });
+  /**
+   * Предмет этих тестов — кто стоит у частокола в бою у ворот, а не осада. С правилом «садиться к дозревшим рогаткам»
+   * (docs/siege_v2.md, 1.3) набег, которого четырнадцать дубинщиков у стены не держат, садится лагерем в половине
+   * приходов, и боя у частокола тогда нет. Граница области — набег идёт на приступ: осада под этими стенами закрыта
+   * остыванием в сохранении (то самое поле, которым её закрывает мир).
+   */
+  const noSiege = (p: Party): Party => {
+    (p.world as unknown as { save: { siegeAgainAt: Record<string, number> } }).save.siegeAgainAt.home = Number.MAX_SAFE_INTEGER;
+    return p;
+  };
+  /** Десять из четырнадцати при полководце, сбор кончился, полководец у ворот. `siege` — осада под стенами открыта. */
+  const gathered = async (seed: number, siege = false): Promise<Party> => {
+    const start = Party.start(seed, { clubman: 14 });
+    const p = siege ? start : noSiege(start);
     await p.pulse('старт');
     expect(await p.setGarrison({ clubman: 10 }, 'сбор')).toBeNull();
     await p.settle('сбор');
@@ -649,7 +663,7 @@ describe('дружина в обороне: собрана и дома — од�
   }, 60_000);
 
   it('дома перевод мгновенный: отданные полководцу под самым набегом стоят у частокола', async () => {
-    const p = Party.start(42, { clubman: 14 });
+    const p = noSiege(Party.start(42, { clubman: 14 }));
     await p.pulse('старт');
     // Отдать дружину так, чтобы набег пришёл сразу после приказа: прежде это был сбор, и у частокола стоял гарнизон без них.
     const raid = await (async () => {
@@ -700,7 +714,7 @@ describe('дружина в обороне: собрана и дома — од�
   }, 60_000);
 
   it('осада: полководец в городе — его бойцы в гарнизоне один раз во всех ролях, и вылазка тоже', async () => {
-    const p = await gathered(11);
+    const p = await gathered(11, true);
     const siege = await until(p, 'ждём лагерь', (x) => Boolean(x.siege));
     // Граница области: полководец дома, дружина собрана, лагерь под стенами.
     expect(postureOf(p.known()), 'собрана и дома').toBe('stands');
@@ -718,7 +732,7 @@ describe('дружина в обороне: собрана и дома — од�
     expect(troopTotal(p.known().troops), 'из них при полководце пятеро: доля дружины — пять из семи').toBe(5);
 
     // Мир 7: роспуск под осадой разрешён — и пока он идёт, эти люди за стеной не едят.
-    const r = await gathered(7);
+    const r = await gathered(7, true);
     await until(r, 'ждём лагерь', (x) => Boolean(x.siege));
     expect(siegeOnHome(r)?.garrison, 'собрана — едят все').toBe(14);
     expect(await r.setGarrison(null, 'роспуск под осадой')).toBeNull();
@@ -728,7 +742,7 @@ describe('дружина в обороне: собрана и дома — од�
 
     // Мир 101: вылазка всем гарнизоном выводит и дружину — без отдельного приказа —
     // и павшие ложатся на дружину её долей, тем же правилом, что у частокола.
-    const q = await gathered(101);
+    const q = await gathered(101, true);
     await until(q, 'ждём лагерь', (x) => Boolean(x.siege));
     const res = await q.world.sortie({ clubman: 14 });
     expect(res.error, 'вылазка всем гарнизоном принята').toBeNull();
@@ -745,7 +759,7 @@ describe('дружина в обороне: собрана и дома — од�
   }, 60_000);
 
   it('удар из поля: дружина в строю ровно раз, гарнизон — со стороны города, домой она приходит гарнизоном', async () => {
-    const p = await gathered(11);
+    const p = await gathered(11, true);
     // Хлеба в городе на час: иначе голод кончает осаду раньше, чем полководец дойдёт.
     p.over = { food: 60_000 };
     const info = await p.world.info();

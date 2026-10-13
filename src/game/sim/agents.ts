@@ -49,6 +49,7 @@ import {
 import { ITEMS, slotName, type ItemId } from '../data/items';
 import { cityName } from '../../../netlify/lib/contract';
 import { perilText, veilAt } from '@/world/peril';
+import { SIEGE_PIPS_MAX } from '@/world/data/siegeroll';
 import { PIP_IDS, type Pips } from '@/battle';
 import { tradition } from '../derived';
 import { log } from './log';
@@ -106,7 +107,13 @@ export function mergeAgents(saved: unknown): Record<FigureId, AgentProgress> {
           : null,
       // Счёт дел появился позже опыта: у партии до черт его нет, и он начинается с
       // нуля — задним числом побед от поражений не отличить.
-      tally: { ok: count(t.ok), fail: count(t.fail), bled: count(t.bled), burned: count(t.burned) },
+      tally: {
+        ok: count(t.ok),
+        fail: count(t.fail),
+        bled: count(t.bled),
+        burned: count(t.burned),
+        ...(count(t.sieges) > 0 ? { sieges: count(t.sieges) } : {}),
+      },
     };
   }
   return out;
@@ -275,9 +282,36 @@ const onPlace = (s: GameState, agent: FigureId, value: (level: number) => number
 export const pipLevel = (s: GameState, level: number): number =>
   Math.min(MAX_AGENT_LEVEL, Math.max(1, Math.floor(level)) + tradition(s));
 
+/**
+ * Отметка «осада» по опыту осад (docs/siege_v2.md, 2.3, этап 2е): кружок той же лестницы опыта (`LEVEL_XP`), где дело — осада,
+ * доведённая до конца в нашу пользу, и стоит она как удачное дело (`DEED_XP.ok`). Кружков сверх первого — столько отметок,
+ * не больше трёх (`SIEGE_PIPS_MAX`): первая — с третьей осады, вторая — с девятой, третья — с восемнадцатой. Числа не новые —
+ * лестница агента; новое только то, что считается по осадам, а не по всем делам.
+ */
+export const siegePipsAt = (sieges: number): number =>
+  Math.min(SIEGE_PIPS_MAX, extra(levelOf(Math.max(0, Math.floor(sieges)) * DEED_XP.ok)));
+
 /** Отметки полководца на месте. Пустое место — ни одной: навык — свойство человека, а не должности. */
-export const pipsOf = (s: GameState): Pips =>
-  seated(s, 'general') ? pipsAt(s.seed, s.agents?.general?.person ?? 0, pipLevel(s, agentLevel(s, 'general'))) : {};
+export function pipsOf(s: GameState): Pips {
+  if (!seated(s, 'general')) return {};
+  const out = pipsAt(s.seed, s.agents?.general?.person ?? 0, pipLevel(s, agentLevel(s, 'general')));
+  const siege = siegePipsAt(s.agents?.general?.tally.sieges ?? 0);
+  return siege > 0 ? { ...out, siege } : out;
+}
+
+/**
+ * Лагерь полководца довёл осаду до конца в нашу пользу: город пал или дал дань (этап 2е). Счёт — без срока `DEED_GAP`:
+ * осада длится фазами, нафармить её нельзя, а падение часто приходит в ту же минуту, что бой штурма (дело боя). Выросла
+ * отметка «осада» — строка летописи. Пустое место — не засчитывается.
+ */
+export function recordSiege(s: GameState): void {
+  const p = s.agents?.general;
+  if (!p || p.vacant) return;
+  const was = siegePipsAt(p.tally.sieges ?? 0);
+  p.tally.sieges = (p.tally.sieges ?? 0) + 1;
+  const now = siegePipsAt(p.tally.sieges);
+  if (now > was) log(s, `${titled(s, 'general')} набрался осадного опыта: отметка «осада» ${'●'.repeat(now)}.`, 'good');
+}
 export const sightBonusOf = (s: GameState): number => onPlace(s, 'scout', sightBonusAt, 0);
 export const stealthOf = (s: GameState): number => onPlace(s, 'spy', stealthAt, 0);
 /** Скрытность лазутчика в гибели: во сколько раз реже он гибнет на деле (`world/peril.veilAt`). */

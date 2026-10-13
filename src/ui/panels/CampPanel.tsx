@@ -14,13 +14,17 @@ import { REST_WHY, restLine } from '@/ui/parts/restWords';
 import { hungerLeft } from '@/ui/parts/hunger';
 import { sideReady } from '@/ui/parts/campSide';
 import { formatEstimate } from '@/world/intel';
-import { CAMP_LEAVE, STORM_LIFTS } from '@/world/siege';
+import { CAMP_LEAVE, STORM_HOLDS } from '@/world/siege';
+import { MACHINE_SHARES, type MachineId } from '@/world/data/machines';
+import { SIEGE_PHASE } from '@/world/data/siegeroll';
 import { FATE_META } from '@/world/data/fates';
 import { CASTLE_ICON, STAGE_BY_ID } from '@/world/data/meta';
 import { SIDES, SIDE_NAME, WOOD_SHARES, campSides, playerWood, woodShare, worksRipeAt } from '@/world/works';
 import type { CampView, Fate } from '@/world/types';
 import { FatePick } from '@/ui/parts/FatePick';
 import { plural } from '@/ui/parts/plural';
+import { SiegePhases } from '@/ui/parts/SiegePhases';
+import { SiegeParley } from '@/ui/parts/SiegeParley';
 
 /**
  * Сроки из подсказки к долям — той же функцией, которой считаются стороны: при
@@ -30,6 +34,18 @@ const WOOD_ALL_FRONT = realMinutes(worksRipeAt(0, 'front', playerWood(1)));
 const WOOD_HALVES = realMinutes(worksRipeAt(0, 'front', playerWood(0.5)));
 
 /** Как доля фронту называется на кнопке. */
+/** Доля древесины машинам словами на кнопке. */
+const MACHINE_SHARE_NAME: Record<number, string> = { 0: 'Ничего', 0.25: 'Четверть', 0.5: 'Половину', 0.75: 'Три четверти', 1: 'Всё' };
+
+/** Состояние машины словами: стоит, строится (через сколько), не строится. */
+function machineState(e: NonNullable<CampView['machines']>['list'][number], now: number): string {
+  if (e.state === 'ready') return 'готова';
+  if (e.state === 'none') return 'не заказана';
+  if (e.readyAt === undefined || !Number.isFinite(e.readyAt)) return 'не строится: машинам не отдано леса';
+  const left = Math.max(0, e.readyAt - now);
+  return `готова через ${realLeft(left / 1000)} (${Math.max(1, Math.ceil(left / SIEGE_PHASE))} ${plural(Math.max(1, Math.ceil(left / SIEGE_PHASE)), 'фаза', 'фазы', 'фаз')})`;
+}
+
 const SHARE_NAME: Record<number, string> = {
   1: 'Всё к городу',
   0.75: 'Три четверти',
@@ -55,7 +71,11 @@ export function CampPanel() {
   const attack = useWorld((g) => g.attack);
   const retreat = useWorld((g) => g.retreat);
   const setWood = useWorld((g) => g.setWood);
+  const setMachineWood = useWorld((g) => g.setMachineWood);
+  const orderMachine = useWorld((g) => g.orderMachine);
+  const [use, setUse] = useState<MachineId[] | null>(null);
   const campCraft = useWorld((g) => g.campCraft);
+  const setOrders = useWorld((g) => g.setOrders);
   const [pick, setPick] = useState<Fate | null>(null);
   const [busy, setBusy] = useState(false);
   const [, retick] = useState(0);
@@ -181,12 +201,57 @@ export function CampPanel() {
           </div>
         </>
       )}
+      {/* Осадные машины из древесины лагеря (world/machines, docs/siege_v2.md, 4.3): доля леса, очередь, отказ — из мира. */}
+      {camp.machines && (
+        <>
+          <h3>Машины</h3>
+          <p className="note">Лес машинам: {MACHINE_SHARE_NAME[camp.machines.share] ?? `${Math.round(camp.machines.share * 100)} %`}. Остальное идёт на рогатки.</p>
+          <div className="fate-shares">
+            {MACHINE_SHARES.map((sh) => (
+              <button
+                key={sh}
+                className={`mini${camp.machines?.share === sh ? ' on' : ''}`}
+                disabled={busy || camp.machines?.share === sh}
+                onClick={() => void order(() => setMachineWood(sh), `Машинам: ${MACHINE_SHARE_NAME[sh].toLowerCase()}.`)}
+              >
+                {MACHINE_SHARE_NAME[sh]}
+              </button>
+            ))}
+          </div>
+          {camp.machines.list.map((e) => (
+            <div key={e.id}>
+              <button
+                className="btn wide"
+                disabled={busy || !e.can}
+                onClick={() => void order(() => orderMachine(e.id), `${e.name}: заказано.`)}
+              >
+                {e.name} · {machineState(e, now)}
+              </button>
+              <p className={`note${e.can || e.state !== 'none' ? '' : ' bad'}`}>{e.state === 'none' && e.reason ? e.reason : e.use}</p>
+            </div>
+          ))}
+        </>
+      )}
+
       {/* Мораль между боями (14.31): наш лагерь — дружина; после вылазки штурмовать сразу — уставшими. */}
       {camp.campRest && (
         <p className="note warn">
           {restLine(camp.campRest, 'Лагерь дрался', now)} {REST_WHY}
         </p>
       )}
+
+      {/* Ход осады фазами и наказы на отлучку (world/siegeroll): журнал, поправки и проломы — из мира. */}
+      {camp.phases && (
+        <SiegePhases
+          phases={camp.phases}
+          now={now}
+          busy={busy}
+          onOrders={(o) => void order(() => setOrders(o), 'Наказы поставлены.')}
+        />
+      )}
+
+      {/* Переговоры у стен (docs/siege_v2.md, раздел 7): условия сдачи, дань, наказ брать дань — числа из мира. */}
+      {camp.parley && <SiegeParley view={camp.parley} fate={camp.fate} now={now} orders={camp.phases?.orders} busy={busy} />}
 
       {/* Дела полководца в лагере (world/siegecraft): за энергию, не больше предела за осаду. Числа и отказ — из мира. */}
       {camp.crafts && camp.crafts.length > 0 && (
@@ -221,17 +286,45 @@ export function CampPanel() {
         Объявить
       </button>
       {sameFate && <p className="note">Эта участь уже объявлена</p>}
+      {/* Способ штурма (docs/siege_v2.md, 4.4): из готовых машин, проёмы складываются; строка — устройство, без прогноза. */}
+      {camp.machines?.walls && (
+        <>
+          <p className="note">
+            {camp.machines.breaches > 0
+              ? `Проломов ${camp.machines.breaches} из 3: столько стены без лестниц.`
+              : 'Проломов нет.'}{' '}
+            {camp.machines.methods.length === 0 ? 'Готовых машин нет: лестницы — те, что принесут на себе, на треть стены.' : ''}
+          </p>
+          {camp.machines.methods.map((m) => {
+            const on = (use ?? camp.machines!.methods.map((x) => x.machine)).includes(m.machine);
+            return (
+              <label key={m.machine} className="note">
+                <input
+                  type="checkbox"
+                  checked={on}
+                  disabled={busy}
+                  onChange={() => {
+                    const was = use ?? camp.machines!.methods.map((x) => x.machine);
+                    setUse(on ? was.filter((x) => x !== m.machine) : [...was, m.machine]);
+                  }}
+                />{' '}
+                {m.words}
+              </label>
+            );
+          })}
+        </>
+      )}
       <button
         className="btn wide"
         disabled={busy || camp.men === 0 || cantFate !== null || Boolean(camp.storm?.block)}
         onClick={() =>
-          void order(() => attack({ fate: chosen }), 'Отряд штурмует. Донесение в походах.', true)
+          void order(() => attack({ fate: chosen, ...(use ? { machines: use } : {}) }), 'Отряд штурмует. Донесение в походах.', true)
         }
       >
         Штурмовать · {camp.men}
         {camp.storm ? ` · энергия ${camp.storm.price}` : ''}
       </button>
-      <p className="note">{cantFate ?? camp.storm?.block ?? STORM_LIFTS}</p>
+      <p className="note">{cantFate ?? camp.storm?.block ?? STORM_HOLDS}</p>
       <button className="btn ghost wide" disabled={busy} onClick={() => void order(retreat, 'Осада снята.', true)}>
         Отступить
       </button>

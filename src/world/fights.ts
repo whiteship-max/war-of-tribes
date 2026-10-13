@@ -5,11 +5,14 @@
 //
 // Модуль чистый: ни состояния мира, ни часов, ни случайности — сид приходит снаружи. Его собирает и
 // сервер (`netlify/lib/war.ts`), поэтому DOM и хранилища здесь нет и быть не может.
-import { emptyStack, UNIT_KINDS, type GroundPenalty, type Pips, type Stack } from '@/battle';
+import { emptyStack, HORSE_KINDS, UNIT_KINDS, type GroundPenalty, type Pips, type Stack } from '@/battle';
 import { troopTotal, type TroopStack } from '@/game/battle/kinds';
 import { troopLosses } from '@/game/battle/price';
-import { resolveField, type FieldInput, type FieldOutcome } from './battle';
-import { refusedAtGate, splitLosses, strikeForecast, type CampSight, type Through } from './works';
+import { resolveField, type FieldInput, type FieldOutcome, type FieldSide } from './battle';
+import type { WallFront } from './wall';
+import { refusedAtGate, splitLosses, strikeForecast, worksRipeAt, type CampSight, type Through, type WoodPlan } from './works';
+import { siegeWear } from './siege';
+import { CAMP_WOOD, CAMP_WORKS_RIPE } from './data/tuning';
 import { mixRest } from './rest';
 import { weakest } from './muster';
 
@@ -27,6 +30,58 @@ export function defenceKinds(kinds: Stack, militia: number, archers: number): St
   return out;
 }
 
+/** Оборона у стены: гарнизон и дружина у ворот в родах боя, ополчение и стрелки башни среди него. */
+export interface WallDefence {
+  kinds: Stack;
+  militia: number;
+  archers: number;
+  resolve?: number;
+  pips?: Pips;
+  rest?: number;
+}
+
+/** Бой у стены: обе стороны, место и фронт штурма. Ни мира, ни часов. */
+export interface WallFightIn {
+  seed: number;
+  attacker: FieldSide;
+  defender: WallDefence;
+  ground?: GroundPenalty;
+  /** Фронт штурма (`wall.wallFront`); нет — бой в поле у ворот: стены между сторонами нет (волки — на выгоне). */
+  front?: WallFront | null;
+}
+
+/** Конница нападающего, которая в бой не входит: на лестницы и с башни кони не лезут (`WallFront.horse`). */
+export function horseHeld(kinds: Stack, front: WallFront | null | undefined): Stack {
+  const out = emptyStack();
+  if (!front || front.horse) return out;
+  for (const k of HORSE_KINDS) out[k] = kinds[k];
+  return out;
+}
+
+/**
+ * Бой у стены — **одна дверь** на набег логова и разбойников у ворот города игрока (мир) и на штурм города игрока войной
+ * (сервер): сторона обороны собирается здесь (`defenceKinds`), фронт штурма — проёмами стены (`world/wall`, docs/siege_v2.md,
+ * 4.1). Ядро получает ширину боя, грань стены нападающему поверх места и проём посреди боя; конница нападающего, если
+ * пройти ей некуда, стоит у стены и в бою её нет — ни убивает, ни гибнет. Весь, как он случится, и ничего не трогая.
+ */
+export function wallFight(input: WallFightIn): { input: FieldInput; field: FieldOutcome } {
+  const front = input.front ?? null;
+  const held = horseHeld(input.attacker.kinds, front);
+  const kinds = { ...input.attacker.kinds };
+  for (const k of UNIT_KINDS) kinds[k] -= held[k];
+  const ground: GroundPenalty | undefined = front && front.wall > 0 ? { ...(input.ground ?? {}), wall: front.wall } : input.ground;
+  const d = input.defender;
+  const fieldIn: FieldInput = {
+    seed: input.seed,
+    ...(ground ? { ground } : {}),
+    attacker: { ...input.attacker, kinds },
+    defender: { kinds: defenceKinds(d.kinds, d.militia, d.archers), resolve: d.resolve, pips: d.pips, rest: d.rest },
+    ...(front ? { width: front.width, fire: front.fire } : {}),
+    ...(front?.widen ? { widen: front.widen } : {}),
+  };
+  return { input: fieldIn, field: resolveField(fieldIn) };
+}
+
 /**
  * Кто из обороны пал у ворот, поимённо. Бой знает потери по родам; по видам их раскладывает
  * `troopLosses`. Не легло ни на один вид — называются со слабых (`muster.weakest`), числом от доли:
@@ -37,6 +92,42 @@ export function homeLosses(home: TroopStack, field: FieldOutcome): TroopStack {
   if (troopTotal(spread) > 0) return spread;
   const all = troopTotal(home);
   return weakest(home, Math.min(all, Math.round(all * field.defenderLoss)));
+}
+
+/** Вылазка на машину лагеря: охрана машины и вышедшие из ворот. Ни мира, ни часов. */
+export interface MachineFightIn {
+  seed: number;
+  /** Охрана машины — сторона лагеря у города (`machines.GUARD_SHARE`), в родах боя. */
+  guard: { kinds: Stack; resolve?: number; pips?: Pips; rest: number };
+  /** Кто вышел из ворот, с моралью между боями и износом осады. */
+  sortie: CampPartIn;
+  /** Стойкость и отметки вышедших — кто их ведёт. */
+  resolve?: number;
+  pips?: Pips;
+  ground?: GroundPenalty;
+}
+
+/** Охрана машины в родах боя: доля `share` каждого рода лагеря, вниз до целого. */
+export function guardKinds(camp: Stack, share: number): Stack {
+  const out = emptyStack();
+  const k = Math.min(1, Math.max(0, share));
+  for (const u of UNIT_KINDS) out[u] = Math.floor(camp[u] * k);
+  return out;
+}
+
+/**
+ * Вылазка на машину лагеря (docs/siege_v2.md, раздел 5) — одна дверь на мир и на сервер войны. Машина стоит перед лагерем,
+ * у стены: вышедшие из ворот бьются с её охраной в поле — без рогаток и без укреплений лагеря (они держат сам лагерь, а не
+ * машину). Победа сжигает машину; что с ней делать, решает тот, кто зовёт. Весь бой, как он случится, и ничего не трогая.
+ */
+export function machineFight(input: MachineFightIn): { input: FieldInput; field: FieldOutcome } {
+  const fieldIn: FieldInput = {
+    seed: input.seed,
+    ...(input.ground ? { ground: input.ground } : {}),
+    attacker: { kinds: input.sortie.kinds, resolve: input.resolve, pips: input.pips, rest: input.sortie.rest ?? 1 },
+    defender: { kinds: input.guard.kinds, resolve: input.guard.resolve, pips: input.guard.pips, rest: input.guard.rest },
+  };
+  return { input: fieldIn, field: resolveField(fieldIn) };
 }
 
 /** Часть нападающих на лагерь: кто вышел с этой стороны и с какой моралью. */
@@ -88,8 +179,9 @@ export type CampFightOut =
  * Бой у лагеря — одна дверь на вылазку, выручку, удар полководца с тыла и совместный удар, и у мира, и у
  * сервера. Укрепления действуют на всех одинаково: в бой входят только прошедшие через рогатки
  * (`works.strikeForecast`), остальные стоят у рогаток и в бою их нет. У лагеря две стороны, у каждой свой
- * проход; бой при этом один — прошедшие с обеих сторон складываются в одного нападающего, а потери
- * делятся между сторонами по родам (`works.splitLosses`). Вышли, а пробиться некому, — отказ до боя.
+ * проход; бой при этом один, а прошли с обеих сторон — это клещи: гарнизон бьёт фронт лагеря, дружина стоит у него в
+ * тылу (`FieldSide.behind`). Потери делятся между сторонами по родам (`works.splitLosses`). Вышли, а пробиться некому, —
+ * отказ до боя.
  */
 export function campFight(input: CampFightIn): CampFightOut {
   const cast = strikeForecast(input.sight, input.at, input.rear?.kinds ?? emptyStack(), input.front?.kinds ?? null);
@@ -104,9 +196,11 @@ export function campFight(input: CampFightIn): CampFightOut {
   for (const { t } of parts) for (const k of UNIT_KINDS) kinds[k] += t.kinds[k];
   const fought = parts.reduce((n, x) => n + x.t.passed, 0);
   const all = parts.reduce((n, x) => n + x.t.went, 0);
-  // Совместный удар — с обеих сторон: со стороны города вышел гарнизон. Кто из ворот, ядро только разложит по секторам
-  // для ролика (`FieldSide.garrison`, решение владельца 03.10.2026, вариант А) — бой один, исход от этого не зависит.
+  // Совместный удар — клещи (docs/siege_v2.md, 6.2; этап 2д): гарнизон из ворот бьёт лагерь со стороны города, дружина с
+  // поля стоит у него в тылу (`FieldSide.behind`) — ядро считает удар с двух сторон правилами обхода и тыла. Кто из ворот,
+  // ядро пишет и для ролика (`FieldSide.garrison`).
   const garrison = input.front && input.rear && front && rear ? front.kinds : undefined;
+  const behind = garrison && rear ? rear.kinds : undefined;
   // Укрепления — та же грань кости, что земля (`GroundPenalty.works`): у кого бы лагерь ни стоял, бьют его через них.
   const fort = input.fort !== undefined && input.fort > 0 ? input.fort : 0;
   const ground = fort > 0 ? { ...(input.ground ?? {}), works: fort } : input.ground;
@@ -120,6 +214,7 @@ export function campFight(input: CampFightIn): CampFightOut {
       // Мораль между боями (14.31): у каждой части своя, вместе — по прошедшим.
       rest: mixRest(parts.map(({ part, t }) => ({ rest: part.rest ?? 1, men: t.passed }))),
       ...(garrison ? { garrison } : {}),
+      ...(behind ? { behind } : {}),
     },
     defender: { kinds: input.camp.kinds, resolve: input.camp.resolve, pips: input.camp.pips, rest: input.camp.rest },
   };
@@ -127,4 +222,53 @@ export function campFight(input: CampFightIn): CampFightOut {
   const losses = field.result?.sides.attacker.losses ?? emptyStack();
   const lost = splitLosses(losses, front?.kinds ?? emptyStack(), rear?.kinds ?? emptyStack());
   return { refused: false, input: fieldIn, field, front, rear, lost, fought, all };
+}
+
+/**
+ * Минута, в которую решается «садиться ли» (`campHolds`): рогатки стороны города дозрели (`works.worksRipeAt`, по плану
+ * древесины лагеря). Фронт не дозреет никогда (весь лес в тыл) — через `CAMP_WORKS_RIPE` от постановки: позже рогатки
+ * фронта не станут крепче, чем сейчас.
+ */
+export function holdMinute(since: number, wood: WoodPlan = CAMP_WOOD): number {
+  const ripe = worksRipeAt(since, 'front', wood);
+  return ripe < Infinity ? ripe : since + CAMP_WORKS_RIPE;
+}
+
+/** Всё, чем решается «садиться ли»: лагерь в минуту дозревания и гарнизон, выходящий на вылазку весь. */
+export interface HoldIn extends Omit<CampFightIn, 'at' | 'front' | 'rear' | 'resolve' | 'pips'> {
+  /**
+   * Гарнизон на вылазке: все, кто дома, без ополчения — оно за ворота не выходит. Мораль — между боями, на минуту
+   * дозревания; износ осады к этой минуте дверь кладёт сама (`siege.siegeWear`).
+   */
+  sortie: CampPartIn & { resolve?: number; pips?: Pips };
+  /** Путь износа гарнизона до дна — срок голода окна, которое встало бы (`siege.wearSpan`). */
+  wearSpan: number;
+}
+
+/**
+ * **Садиться в осаду или штурмовать** (docs/siege_v2.md, 1.3, шаг 3) — одна дверь на лагерь логова у города игрока и у
+ * двора мира. Отряд, который стены с ходу не взял бы, садится, если его лагерь **удержится против вылазки всего гарнизона
+ * в минуту, когда рогатки со стороны города дозреют** (`holdMinute`); не удержится — штурмует, как прежде.
+ *
+ * Правило, а не порог: это сухой бой той же двери, что настоящая вылазка (`campFight`) — проход через дозревшие рогатки,
+ * укрепления, место, мораль, — в минуту дозревания и ничего не трогая. Почему дозревание, а не постановка: прежнее правило
+ * спрашивало вылазку на пустом поле, а рано вылазка сильна, поздно безнадёжна (docs/siege_audit.md, Б3), — и отсекало
+ * ровно те осады, где у защитника был бы ответ. Новое оставляет ему окно до дозревания: решение, которое надо успеть
+ * принять. Пробиться к рогаткам некому (проход закрыт) — лагерь держится.
+ */
+export function campHolds(input: HoldIn): boolean {
+  const at = holdMinute(input.sight.since, input.sight.wood);
+  const { sortie } = input;
+  const out = campFight({
+    seed: input.seed,
+    at,
+    sight: input.sight,
+    camp: input.camp,
+    front: { kinds: sortie.kinds, rest: (sortie.rest ?? 1) * siegeWear(input.sight.since, at, input.wearSpan) },
+    resolve: sortie.resolve,
+    pips: sortie.pips,
+    ground: input.ground,
+    fort: input.fort,
+  });
+  return out.refused || !out.field.won;
 }

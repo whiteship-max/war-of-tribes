@@ -19,6 +19,9 @@
 import { describe, expect, it } from 'vitest';
 import { withDiceStep } from '@/battle/bench';
 import { stackTotal } from '@/battle/setup';
+import { FRONT_WIDTH } from '@/battle/config';
+import { kindsOf } from '@/game/battle/price';
+import { militiaArchers, militiaMen } from './bridge';
 import { defense } from '@/game/derived';
 import { BATTLE_MAN } from '@/game/battle/kinds';
 import { TROOP_IDS } from '@/game/data/troops';
@@ -102,6 +105,14 @@ describe('один боец у ворот не двигает выдержива
         const g = townAt(level);
         g.faith.id = null;
         if (bare) g.army.rider = 0;
+        // Граница области 1-го уровня без всадников — края пусты и остаются пустыми с одним пешим сверх: пешие у ворот
+        // (гарнизон и ополчение без стрелков, `fights.defenceKinds`) помещаются в ширину фронта с запасом на самого тяжёлого
+        // бойца. При W 128 мерка помещалась как есть (114 пеших, запас 14); при W 94 (полная приёмка осады, docs/siege_v2.md,
+        // 19.4) — нет: лишние легионеры уходят, пока пешие не поместятся. Пешие ровно в ширину, когда +1 выпирает на край, —
+        // другая точка (находка 19.4: там «+1 щитоносец» держит на волка меньше).
+        const walkers = (): number => kindsOf(g.army).spear + kindsOf(g.army).infantry + militiaMen(g) - militiaArchers(g);
+        const heaviest = Math.max(...TROOP_IDS.map((id) => stackTotal(kindsOf({ [id]: 1 }))));
+        if (bare && level === 1) while ((g.army.legionary ?? 0) > 0 && walkers() + heaviest > FRONT_WIDTH) g.army.legionary -= 1;
         return g;
       };
       const base = await firstWin(town(), 1);

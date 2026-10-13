@@ -70,9 +70,14 @@ export function describeEvent(e: BattleEvent, us?: Side): string {
         e.land > 0 ? `земля −${e.land}` : '',
         e.crossing > 0 ? `переправа −${e.crossing}${e.lifted ? ', снята манёвром' : ''}` : '',
         (e.works ?? 0) > 0 ? `укрепления лагеря −${num(e.works ?? 0)}` : '',
+        (e.wall ?? 0) > 0 ? `стена −${num(e.wall ?? 0)}` : '',
       ].filter(Boolean);
       return `${who}: место боя против них, ${parts.join(', ')}`;
     }
+    case 'widen':
+      return e.wall > 0
+        ? `открылся проём: фронт ${e.width} на полосу, стена −${num(e.wall)}`
+        : `открылся проём: фронт ${e.width} на полосу, стены больше нет`;
     case 'weary':
       return `${who}: вышли в бой уставшими, мораль ${Math.round(e.rest * 100)}% от полной`;
     case 'volley':

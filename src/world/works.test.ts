@@ -1,7 +1,7 @@
 import '@/game/pace.minute';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
-import { describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { stackTotal, UNIT_KINDS, type Stack } from '@/battle';
 import { troopTotal, troopsAfter, type TroopStack } from '@/game/battle/kinds';
 import { kindsOf } from '@/game/battle/price';
@@ -34,6 +34,13 @@ import { STRIKE_FROM_TOWN } from './siege';
 import { worldSaveJson, type WorldSave } from './local/state';
 import type { PlayerProfile, WorldPulse } from './types';
 import { shieldVillagers } from './lairs';
+
+import { setPhaseDie } from './siegeroll';
+
+// Этот файл — о рогатках, проходе и башне: кость фаз здесь тихая — каждая фаза «без перемен», чтобы сдача и пролом не
+// падали поперёк правила, которое тест держит. Правило фаз — `siegeroll.test.ts` и `siegephase.test.ts`.
+beforeAll(() => setPhaseDie(() => 7));
+afterAll(() => setPhaseDie(null));
 
 // Энергия агентов здесь не предмет проверки (docs/agent_energy.md): сценарии этого файла водят агентов по карте помногу
 // — дорога здесь энергию не берёт. Цены дел и отдых дома остаются; энергию держат `energy.test.ts` и

@@ -2,12 +2,14 @@
 // компоненты читают этот стор, а он ходит в worldApi(). Ни один экран не знает,
 // что за интерфейсом сейчас стоит LocalWorld.
 import type { CraftAct } from './siegecraft';
+import type { MachineId } from './data/machines';
+import type { SiegeOrders } from './siegeroll';
 import { create } from 'zustand';
 import { partyNow, serverNow } from '@/net/clock';
 import { castleCell, castles, rosterReady, startPulling, stopPulling } from '@/net/roster';
 import { knownEra } from '@/net/era';
 import { NOTIFY_ON, notifyDrafts } from '@/net/notify';
-import { provideSheet, spies, spyLook, warBoot, warOrder, warPace, wars, warsKnown } from '@/net/war';
+import { pacts, provideSheet, spies, spyLook, warBoot, warOrder, warPace, wars, warsKnown } from '@/net/war';
 import { log } from '@/game/sim/log';
 import { useGame } from '@/game/store';
 import { haptic } from '@/telegram/webapp';
@@ -38,7 +40,10 @@ import {
   terrainAt,
 } from './cache';
 import type {
+  AssaultMode,
   AnchorId,
+  DefendOrder,
+  ParleyOrder,
   AttackOrder,
   CampView,
   Coord,
@@ -88,7 +93,7 @@ let notifying: NotifyingWorld | null = null;
 function openWorld(opts: LocalWorldOptions): LocalWorld {
   // Война между игроками (docs/pvp.md): мир получает свои войны и дверь приказа, как реестр замков, а
   // запись партии — слепок обороны от этого мира.
-  const full: LocalWorldOptions = { ...opts, wars, warsKnown, warOrder, warPace, spies, spyLook };
+  const full: LocalWorldOptions = { ...opts, wars, warsKnown, warOrder, warPace, spies, spyLook, pacts };
   let world: LocalWorld;
   if (NOTIFY_ON) world = notifying = new NotifyingWorld(full);
   else world = new LocalWorld(full);
@@ -268,20 +273,39 @@ export interface WorldStore {
   /** Дела лазутчика против города игрока (docs/spy_pvp.md): меню — с сервера, приказ — по его минуте. */
   spyMenu: (target: SettlementId) => Promise<RivalMenu>;
   spyRival: (target: SettlementId, deed: RivalDeedId, shownAt: number) => Promise<string | null>;
-  /** «Дойти и ударить»: по логову и по городу игрока одним приказом; бой — в минуту прихода. */
-  assault: (target: SettlementId, fate: Fate) => Promise<string | null>;
+  /**
+   * «Дойти и ударить» (`mode` 'storm', по умолчанию): по логову и по городу игрока одним приказом; бой — в минуту прихода.
+   * «Дойти и осадить» (`'siege'`): лагерь в минуту прихода (docs/siege_v2.md, 1.3).
+   */
+  assault: (target: SettlementId, fate: Fate, mode?: AssaultMode) => Promise<string | null>;
   /** Снять свою осаду. */
   retreat: () => Promise<string | null>;
   /** Поделить древесину своего лагеря: доля фронту. */
   setWood: (share: number) => Promise<string | null>;
+  /** Доля древесины лагеря осадным машинам (`world/machines`). */
+  setMachineWood: (share: number) => Promise<string | null>;
+  /** Заказать осадную машину в своём лагере. */
+  orderMachine: (id: MachineId) => Promise<string | null>;
   /** Дело полководца в своём лагере: укрепить лагерь, обстрел города (`world/siegecraft`). */
   campCraft: (act: CraftAct) => Promise<string | null>;
+  /** Наказы своему лагерю на отлучку (`world/siegeroll`, docs/siege_v2.md, 8.3). */
+  setOrders: (orders: SiegeOrders) => Promise<string | null>;
   /** Перечитать окно осаждающего. */
   loadCamp: () => Promise<void>;
   /**
    * Вылазка из осаждённой деревни выбранным составом. Возвращает номер отчёта —
    * его сразу и открывают: у боя всегда есть что показать.
    */
+  /** Ответ осаждённого (docs/siege_v2.md, раздел 5): починка, паёк, наказы, сдача. */
+  defend: (order: DefendOrder) => Promise<string | null>;
+  /** Переговоры у стен (docs/siege_v2.md, раздел 7): предложить или ответить. */
+  parley: (order: ParleyOrder) => Promise<string | null>;
+  /** Вылазка на машину лагеря. */
+  burnMachine: (id: MachineId, troops: TroopStack) => Promise<{ error: string | null; reportId: string | null }>;
+  /** Пакт с соседом-игроком: предложить/принять или разорвать. */
+  pact: (castle: SettlementId, on: boolean) => Promise<string | null>;
+  /** На выручку союзнику в осаде. */
+  relief: (castle: SettlementId) => Promise<string | null>;
   sortie: (troops: TroopStack) => Promise<{ error: string | null; reportId: string | null }>;
   negotiate: (deal: DealId) => Promise<string | null>;
   /** Открыть меню приказов агента по этой клетке. */
@@ -639,8 +663,8 @@ export const useWorld = create<WorldStore>((set, get) => ({
     return null;
   },
 
-  assault: async (target, fate) => {
-    const err = await worldApi().assault(target, fate);
+  assault: async (target, fate, mode) => {
+    const err = await worldApi().assault(target, fate, mode);
     if (err) {
       haptic('error');
       return err;
@@ -674,6 +698,28 @@ export const useWorld = create<WorldStore>((set, get) => ({
     return null;
   },
 
+  setMachineWood: async (share) => {
+    const err = await worldApi().setMachineWood(share);
+    if (err) {
+      haptic('error');
+      return err;
+    }
+    haptic('light');
+    await get().loadCamp();
+    return null;
+  },
+
+  orderMachine: async (id) => {
+    const err = await worldApi().orderMachine(id);
+    if (err) {
+      haptic('error');
+      return err;
+    }
+    haptic('light');
+    await get().loadCamp();
+    return null;
+  },
+
   campCraft: async (act) => {
     const err = await worldApi().campCraft(act);
     if (err) {
@@ -685,8 +731,77 @@ export const useWorld = create<WorldStore>((set, get) => ({
     return null;
   },
 
+  setOrders: async (orders) => {
+    const err = await worldApi().setOrders(orders);
+    if (err) {
+      haptic('error');
+      return err;
+    }
+    haptic('light');
+    await get().loadCamp();
+    return null;
+  },
+
   loadCamp: async () => {
     set({ camp: await worldApi().camp() });
+  },
+
+  defend: async (order) => {
+    const err = await worldApi().defend(order);
+    if (err) {
+      haptic('error');
+      return err;
+    }
+    haptic('light');
+    // Паёк и сдача меняют город сразу: панель и племя видят это в тот же миг, а не через пульс.
+    await get().pulse();
+    return null;
+  },
+
+  parley: async (order) => {
+    const err = await worldApi().parley(order);
+    if (err) {
+      haptic('error');
+      return err;
+    }
+    haptic('light');
+    // Принятая дань и сдача снимают лагерь сразу: панель и племя видят это в тот же миг.
+    await get().pulse();
+    return null;
+  },
+
+  burnMachine: async (id, troops) => {
+    const res = await worldApi().burnMachine(id, troops);
+    if (res.error) {
+      haptic('error');
+      return { error: res.error, reportId: null };
+    }
+    haptic('medium');
+    await get().pulse();
+    return { error: null, reportId: res.reportId };
+  },
+
+  pact: async (castle, on) => {
+    const err = await worldApi().pact(castle, on);
+    if (err) {
+      haptic('error');
+      return err;
+    }
+    haptic('light');
+    await get().refreshCard();
+    return null;
+  },
+
+  relief: async (castle) => {
+    const err = await worldApi().relief(castle);
+    if (err) {
+      haptic('error');
+      return err;
+    }
+    haptic('medium');
+    await get().pulse();
+    await get().refreshCard();
+    return null;
   },
 
   sortie: async (troops) => {

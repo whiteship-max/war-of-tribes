@@ -8,7 +8,7 @@
  * («в 14:40», поясом игрока) и ничего больше: потери и добыча устаревают и лежат в донесении (правило 18 — числа
  * нет, и считать его нечем).
  */
-import { cityOr, type NoticeFate, type NoticeItem, type RatingRow } from './contract.js';
+import { cityOr, type NoticeFate, type NoticeItem, type RatingRow, type WarMachine } from './contract.js';
 import { localTime } from './notify.js';
 import { SICILY } from '../../src/world/spawn.js';
 import { count } from '../../src/ui/parts/plural.js';
@@ -59,10 +59,20 @@ export function noticeText(item: NoticeItem, tz: string): string {
     case 'raid-fight':
       return `В ${at} набег из «${p.from}» дошёл до стен. Чем кончился бой, сказано в донесении.`;
     case 'siege-fall':
-      return `В ${at} в городе кончился хлеб. Лагерь «${p.from}» вошёл в ворота. ${FATE_DONE[p.fate]}`;
+      return p.gates
+        ? `В ${at} ворота открыли. Лагерь «${p.from}» вошёл в город, гарнизон ушёл живым. ${FATE_DONE[p.fate]}`
+        : `В ${at} в городе кончился хлеб. Лагерь «${p.from}» вошёл в ворота. ${FATE_DONE[p.fate]}`;
+    case 'siege-phase':
+    case 'war-phase':
+      return phaseText(item, at);
     case 'war':
       return `Из города «${p.from}» вышел отряд на твой город. У стен будут в ${at}. ${p.mode === 'storm' ? 'Идут на штурм.' : 'Идут встать лагерем у ворот.'}`;
     case 'war-fall':
+      if (p.gates) {
+        return p.role === 'atk'
+          ? `«${p.from}» открыл ворота, не дождавшись голода. Город наш.`
+          : `В ${at} ворота открыли. Отряд из «${p.from}» вошёл в город, гарнизон ушёл живым. ${FATE_DONE[p.fate]}`;
+      }
       return p.role === 'atk'
         ? `В «${p.from}» кончился хлеб, ворота открыты. Город наш.`
         : `В городе кончился хлеб. Отряд из «${p.from}» вошёл в ворота. ${FATE_DONE[p.fate]}`;
@@ -71,21 +81,112 @@ export function noticeText(item: NoticeItem, tz: string): string {
     // Тайное нападение (docs/spy_pvp.md): чей лазутчик, город не знает — имени в словах нет.
     case 'war-spy':
       return SPY_DONE[p.fate].replace('{at}', at);
+    case 'war-parley':
+      return parleyText(item, at);
+    // Пакт между игроками (docs/siege_v2.md, 19.2): предложили — ответить можно в игре; приняли — вы союзники.
+    case 'war-pact':
+      return p.pact === 'made'
+        ? `«${p.from}» принял пакт. Теперь вы союзники: можно прийти на выручку, а походом друг на друга не ходят.`
+        : `Город «${p.from}» предлагает пакт: союзник может прийти на выручку, а походом друг на друга не ходят. Ответить можно в игре.`;
+    case 'war-relief':
+      return reliefText(item, at);
   }
+}
+
+/**
+ * Выручка союзника глазами получателя (docs/siege_v2.md, 19.2): осаждённому — кто идёт и когда ударит, и что не пробился;
+ * союзнику — его бой или что его дружина не пробилась через рогатки. Потерь в словах нет: они в донесении.
+ */
+function reliefText(item: NoticeItem, at: string): string {
+  const { from, relief, won, ally } = item.p;
+  if (relief === 'going') return `Союзник «${ally ?? '—'}» идёт на выручку. Ударит по лагерю «${from}» с тыла в ${at}.`;
+  if (relief === 'turned') {
+    return ally
+      ? `Выручка из «${ally}» не пробилась к лагерю «${from}»: проход в рогатках был занят.`
+      : `В ${at} наша дружина не пробилась к лагерю под «${from}»: проход в рогатках был занят. Отряд цел и стоит в поле.`;
+  }
+  return won
+    ? `В ${at} наша дружина ударила с тыла по лагерю под «${from}» и разбила его. Осада снята.`
+    : `В ${at} наша дружина ударила с тыла по лагерю под «${from}», но лагерь устоял. Чем кончился бой, сказано в донесении.`;
+}
+
+/** Машина лагеря в вести о вылазке на неё — кого сожгли. */
+const MACHINE_ACC: Record<WarMachine, string> = {
+  ladders: 'лестницы',
+  ram: 'таран',
+  tower: 'осадную башню',
+  mangonel: 'камнемёт',
+};
+
+/** Условия сдачи словами: что станет с городом, если откроет ворота. */
+const TERMS_FATE: Record<NoticeFate, string> = {
+  plunder: 'склад ограбят, людей не тронут',
+  captives: 'склад ограбят и уведут людей, но город не сожгут',
+  burn: 'город сожгут',
+};
+
+/**
+ * Переговоры у стен глазами получателя (docs/siege_v2.md, 7.3): пришло предложение — до какой минуты отвечать; ответ на
+ * своё — отклонили или дань приняли. Цены дани в словах нет: она в окне осады (правило 18 — считать её здесь нечем).
+ */
+function parleyText(item: NoticeItem, at: string): string {
+  const { from, offer, answer, fate } = item.p;
+  if (answer === 'no') {
+    return offer === 'terms' ? `«${from}» отказался сдаться на наших условиях. Осада идёт.` : `Лагерь «${from}» отказался от дани. Осада идёт.`;
+  }
+  if (answer === 'yes') return `Лагерь «${from}» взял дань и снимается.`;
+  if (offer === 'terms') {
+    return `Лагерь «${from}» предлагает сдачу на условиях: гарнизон уйдёт живым, ${TERMS_FATE[fate]}. Ответить можно до ${at}.`;
+  }
+  return `«${from}» предлагает дань за снятие осады. Ответить можно до ${at}.`;
+}
+
+/**
+ * Фаза осады глазами получателя (docs/siege_v2.md, 8.3): пролом и мор — значимое; наказ, сработавший в эту минуту, —
+ * строкой следом. Своя сторона: `role` у войны, у осады логова получатель — всегда осаждённый.
+ */
+function phaseText(item: NoticeItem, at: string): string {
+  const { from, role, phase, k, breaches, order } = item.p;
+  const atk = role === 'atk';
+  const lines: string[] = [];
+  if (phase === 'breach') {
+    const count = breaches ? ` Проломов ${breaches} из 3.` : '';
+    lines.push(
+      atk
+        ? `В ${at}, на ${k}-й фазе осады, в стене «${from}» пролом.${count}`
+        : `В ${at}, на ${k}-й фазе осады, в стене пролом.${count} Лагерь «${from}» у ворот. Сдаться город может не раньше следующей фазы.`,
+    );
+  }
+  if (phase === 'plague') {
+    lines.push(atk ? `В ${at} в нашем лагере под «${from}» мор. Людей стало меньше.` : `В ${at} в лагере «${from}» мор. Лагерь тает.`);
+  }
+  if (order === 'volley') lines.push('По наказу лагерь дал залп этой фазы.');
+  if (order === 'storm') lines.push('По наказу лагерь пошёл на штурм. Чем кончился бой, сказано в донесении.');
+  if (order === 'repair') lines.push('По наказу город заделывает пролом. К концу фазы стена будет цела.');
+  if (order === 'ration') lines.push('Хлеба меньше половины. По наказу город урезал паёк.');
+  return lines.join(' ') || `В ${at} прошла ${k}-я фаза осады «${from}».`;
 }
 
 /** Бой между игроками глазами получателя: `won` — победила ли его сторона. */
 function fightText(item: NoticeItem): string {
-  const { from, role, site, won, taken, fate } = item.p;
+  const { from, role, site, won, taken, fate, machine, ally } = item.p;
   if (site === 'wall') {
     if (role === 'atk') return won ? `Город «${from}» взят штурмом.` : `Штурм «${from}» отбит. Отряд отходит домой.`;
     if (won) return `Отряд из «${from}» пошёл на штурм. Стены выстояли.`;
     return taken ? `Отряд из «${from}» взял город штурмом. ${FATE_DONE[fate]}` : `Отряд из «${from}» пошёл на штурм, и стены не выстояли.`;
   }
+  // Вылазка на машину (docs/siege_v2.md, раздел 5): бой за машину, а не за лагерь — лагерь стоит при любом исходе.
+  if (site === 'sortie' && machine) {
+    const m = MACHINE_ACC[machine];
+    if (role === 'def') return won ? `Гарнизон вышел из ворот и сжёг ${m} лагеря «${from}».` : `Вылазку на ${m} отбили. Лагерь «${from}» стоит у ворот.`;
+    return won ? `Из «${from}» вышли на ${m}. Охрана отбилась.` : `Вылазка из «${from}» сожгла ${m} нашего лагеря.`;
+  }
   if (site === 'sortie') {
     if (role === 'def') return won ? `Гарнизон вышел из ворот и разбил лагерь «${from}».` : `Вылазку отбили. Лагерь «${from}» стоит у ворот.`;
     return won ? `Из «${from}» вышли на вылазку. Лагерь отбился и стоит.` : `Вылазка из «${from}» разбила наш лагерь.`;
   }
+  // Выручка союзника (19.2): по лагерю ударил не наш полководец, а союзник.
+  if (ally && role === 'def') return won ? `«${ally}» пришёл на выручку: ударил по лагерю «${from}» с тыла и разбил его.` : `Выручку из «${ally}» лагерь «${from}» отбил.`;
   // Удар полководца города по лагерю — один или с гарнизоном.
   if (role === 'def') return won ? `Ударили по лагерю «${from}» и разбили его.` : `Удар по лагерю «${from}» отбит.`;
   return won ? `По нашему лагерю под «${from}» ударили. Отбились.` : `Наш лагерь под «${from}» разбит ударом.`;

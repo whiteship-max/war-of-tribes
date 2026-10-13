@@ -3,6 +3,10 @@
 // Единственная связь с симуляцией племени — словарь ресурсов: добыча и грабёж
 // говорят на одном языке со складом.
 import type { CraftAct } from './siegecraft';
+import type { DefendOrders, SiegeOrders } from './siegeroll';
+import type { MachineId } from './data/machines';
+import type { Opening } from './wall';
+import type { OfferKind } from './parley';
 import type { GameSec } from '@/game/pace';
 import type { FaithId, ResourceId } from '@/game/types';
 import type { TroopStack } from '@/game/battle/kinds';
@@ -254,13 +258,97 @@ export interface SiegeView {
    * лагерь стоит (docs/siege_audit.md, решение 5). Нет поля — осада только встала.
    */
   wear?: number;
-  /** Орудие на башне есть, а бить им нельзя — словами почему (`siege.TOWER_NOT_PVP`). Нет поля — башня бьёт или нечем. */
-  towerIdle?: string;
   /**
    * Что полководец сделал в лагере (`world/siegecraft`): лагерь укреплён, город обстреливают — словами той же двери, что
    * считает бой (`craftNote`). Нет поля — ничего не делали.
    */
   craftNote?: string;
+  /**
+   * Осадные машины лагеря — видны со стены (docs/siege_v2.md, 4.3): что стоит готовым и что строится (`machines.machinesNote`).
+   * Нет поля — машин нет.
+   */
+  machineNote?: string;
+  /** Ход осады фазами (docs/siege_v2.md, раздел 2): журнал, поправки следующей фазы, проломы. Нет поля — старое окно. */
+  phases?: SiegePhasesView;
+  /** Осадный паёк урезан (`SiegeWindow.ration`): племя ест по нему (`bridge.syncSiege`, `derived.siegeRation`). */
+  ration?: boolean;
+  /**
+   * Ответы осаждённого (docs/siege_v2.md, раздел 5; окно защитника — 9.2): что каждый стоит и что даёт — числами мира, той
+   * же дверью, что применит приказ. Нет поля — окно не осаждённого.
+   */
+  answers?: SiegeAnswers;
+  /** Переговоры у стен (docs/siege_v2.md, раздел 7; этап 2е): доля пути, цена дани, предложения сторон. Нет — окно без них. */
+  parley?: ParleyView;
+}
+
+/**
+ * Переговоры у стен глазами окна — осаждающему и осаждённому (docs/siege_v2.md, раздел 7). Числа — дверью `world/parley`
+ * (правило 18): доля пути, справедливая дань, условия на выбор. Прогноза исхода нет: доля пути — уже случившееся.
+ */
+export interface ParleyView {
+  /** Сторона смотрящего: осаждающий предлагает условия и отвечает на дань, осаждённый — наоборот. */
+  side: 'atk' | 'def';
+  /** Доля пути осады, 0..1 (`parley.siegeShare`): большее из хода к сдаче и прошедшего к голоду. */
+  share: number;
+  /** Справедливая дань сейчас — у осаждённого: он знает свой склад (`parley.fairTribute`). */
+  fair?: number;
+  /** Условия, которые можно предложить, — участи мягче объявленной (у осаждающего). */
+  terms?: Fate[];
+  /** Почему своё предложение сейчас не сделать; null — можно. */
+  block: string | null;
+  /** Предложение другой стороны, ждущее ответа: условия (участь) или дань (цена), до какой минуты стоит. */
+  incoming?: { kind: OfferKind; fate?: Fate; price?: number; until: number };
+  /** Своё последнее предложение этой осады: ждёт ответа, отклонено или истекло. */
+  mine?: { kind: OfferKind; fate?: Fate; price?: number; until: number; answer?: 'yes' | 'no' };
+  /** Другая сторона — логово или двор мира: отвечает сразу, правилом той же формулы. */
+  bot: boolean;
+}
+
+/** Переговоры приказом (`WorldApi.parley`): предложить своё или ответить на чужое. */
+export type ParleyOrder = { act: 'offer'; kind: OfferKind; fate?: Fate } | { act: 'answer'; kind: OfferKind; yes: boolean };
+
+/** Ответы осаждённого глазами окна осады (docs/siege_v2.md, 9.2). */
+export interface SiegeAnswers {
+  /** Починка пролома: цена со склада (треть уровня стен), почему нельзя и когда закроется начатая. */
+  repair: { cost: Partial<Record<ResourceId, number>>; reason: string | null; doneAt: number | null };
+  /** Паёк: урезан ли и когда кончится хлеб, если переключить сейчас (`siege.starvesIfRation`). */
+  ration: { on: boolean; starvesAt: number };
+  /** Сдача — открыть ворота самим: участь на ступень мягче объявленной, гарнизон уходит живым (ответ владельца 5). */
+  surrender: Fate;
+  /** Машины лагеря, на которые можно выйти вылазкой: какая и сколько бойцов строя её охраняет. */
+  burn: { machine: MachineId; name: string; ready: boolean; guard: number }[];
+  /** Наказы осаждённого на отлучку. Нет — не стоят. */
+  defend?: DefendOrders;
+  /** Выручка соседей-союзников, идущая на лагерь: чей город, сколько бойцов, когда ударят. */
+  reliefs: { from: string; men: number; at: number }[];
+}
+
+/** Ответ осаждённого приказом (`WorldApi.defend`): починка, паёк, наказы, сдача. */
+export type DefendOrder =
+  | { act: 'repair' }
+  | { act: 'ration'; on: boolean }
+  | { act: 'orders'; defend: DefendOrders }
+  | { act: 'surrender' };
+
+/**
+ * Ход осады фазами глазами окна — обеим сторонам одно (docs/siege_v2.md, 9.1–9.2). Слова и числа — дверью фаз
+ * (`world/siegeroll`, правило 18); прогноза исхода нет, поправки следующей фазы — описание состояния (ответ владельца 2).
+ */
+export interface SiegePhasesView {
+  /** Журнал брошенных фаз словами, новые сверху (`siegeroll.journalOf`). */
+  journal: string[];
+  /** Поправки следующей фазы словами: «+1 пролом, −2 стена» (`siegeroll.nextModsText`). */
+  next: string;
+  /** Минута следующего броска. */
+  nextAt: number;
+  /** Номер следующей фазы, с единицы. */
+  nextK: number;
+  /** Проломов в стене, 0..3. */
+  breaches: number;
+  /** Накопленный ход осады, ступеней. */
+  progress: number;
+  /** Наказы осаждающего — только в окне того, кто стоит лагерем. */
+  orders?: SiegeOrders;
 }
 
 /**
@@ -358,6 +446,43 @@ export interface CampView extends Omit<SiegeView, 'fall' | 'palisade' | 'garriso
   storm?: EnergyCost;
   /** Дела в лагере: укрепить лагерь, обстрел города (`world/siegecraft`). */
   crafts?: CraftOption[];
+  /** Осадные машины лагеря и способы штурма (`world/machines`, `world/wall`; docs/siege_v2.md, 4.3–4.4). */
+  machines?: MachinesView;
+}
+
+/** Машина в окне лагеря: что даёт, в каком она состоянии и можно ли её заказать. Числа — дверью `world/machines`. */
+export interface MachineOption {
+  id: MachineId;
+  name: string;
+  /** Что даёт — строкой устройства, без прогноза. */
+  use: string;
+  /** Сколько стоит древесины — доля стороны. */
+  wood: number;
+  /** Нет в очереди, строится, стоит готовая. */
+  state: 'none' | 'building' | 'ready';
+  /** Когда будет готова (строится); бесконечность — машинам не отдано леса. */
+  readyAt?: number;
+  /** Можно ли заказать ещё и почему нельзя. */
+  can: boolean;
+  reason: string | null;
+}
+
+/** Способ штурма у кнопки «Штурмовать»: машина и что она откроет во фронте (`wall.openingWords`). */
+export interface StormMethod {
+  machine: MachineId;
+  words: string;
+}
+
+export interface MachinesView {
+  /** Доля древесины машинам, одна из `MACHINE_SHARES`. */
+  share: number;
+  list: MachineOption[];
+  /** Есть ли у цели стена: без неё лестницы, таран и башня не нужны, а штурм идёт в поле. */
+  walls: boolean;
+  /** Готовые машины на штурм — выбор способа. */
+  methods: StormMethod[];
+  /** Проломы к этой минуте: из них и машин собирается фронт штурма. */
+  breaches: number;
 }
 
 /**
@@ -827,7 +952,16 @@ export interface SettlementCard extends SettlementView {
    * некому или нечего: свой город, пепелище, места полководца нет.
    */
   assault?: AssaultPlan;
+  /**
+   * «Дойти и осадить» (docs/siege_v2.md, 1.3): полководец идёт к этому двору и ставит лагерь в минуту прихода
+   * (`WorldApi.assault` с `'siege'`), цена осады — при приказе. У города игрока поля нет: осаду туда выбирают при выходе
+   * в блоке «Война» (`WarCard`, тот же `assault` с `'siege'` → `warMarch`).
+   */
+  invest?: AssaultPlan;
 }
+
+/** Что делает полководец, дойдя до цели: штурм с ходу или осада. */
+export type AssaultMode = 'storm' | 'siege';
 
 /**
  * «Дойти и ударить» глазами карточки и меню приказов (решение владельца 06.10.2026, docs/agent_energy.md): полководец
@@ -871,6 +1005,24 @@ export interface CardWar {
   ours?: { phase: 'march' | 'camp' | 'back'; mode: 'storm' | 'siege'; arriveAt: number; starvesAt?: number; backAt?: number };
   /** Этот город идёт на нас или стоит под нашими стенами. */
   theirs?: { phase: 'march' | 'camp'; arriveAt: number };
+  /**
+   * Пакт с этим городом (docs/siege_v2.md, раздел 5): заключён, предложен нами или предложен нам. Нет поля — пакта нет.
+   * Союзника можно выручить из осады, а походом на него не пойти.
+   */
+  pact?: 'pact' | 'offered' | 'asked';
+  /** Союзник в осаде: выручка нашим полководцем из поля — до приказа (та же проверка, что примет приказ). */
+  relief?: ReliefPlan;
+}
+
+/** Выручка союзника глазами карточки: можно ли, сколько идти, кого ведёт и цена в энергии; уже идёт — когда ударит. */
+export interface ReliefPlan {
+  can: boolean;
+  reason: string | null;
+  seconds: GameSec;
+  men: number;
+  energy?: EnergyCost;
+  /** Наша выручка уже идёт: минута удара. */
+  going?: number;
 }
 
 /**
@@ -1130,6 +1282,10 @@ export interface AttackOrder {
    * так ударили бы приказом, отданным до лестницы.
    */
   fate?: Fate;
+  /**
+   * Машины, пущенные в штурм из лагеря (`world/machines.stormMachines`): только готовые. Нет поля — все готовые.
+   */
+  machines?: MachineId[];
 }
 
 /**
@@ -1223,11 +1379,23 @@ export interface BattleRecord {
    */
   site?: BattleSite;
   /**
+   * Проёмы штурма у стены (`world/wall.Opening`; docs/siege_v2.md, 4.5) — только показ: ролик рисует выбранный способ —
+   * лестницы, таран и ворота, осадную башню, пролом. Исход от поля не зависит: ядро получило ширину и грань. Нет поля —
+   * бой не у стены или запись до стены-прохода.
+   */
+  openings?: Opening[];
+  /**
    * Сколько залпов обстрела легло перед этим штурмом (`world/siegecraft`, `Craft.shots`) — для показа, а не для счёта:
    * ролик TW начинается с обстрела (docs/battle_tw.md, раздел 15). Пролом и дух гарнизона ядро уже посчитало до боя
-   * (`wallMen`, `garrisonWear`), и исход от этого поля не зависит. Поля нет у боя без обстрела и у записей, сделанных раньше.
+   * (фронт штурма `world/wall`, `garrisonWear`), и исход от этого поля не зависит. Поля нет у боя без обстрела и у записей, сделанных раньше.
    */
   shots?: number;
+  /**
+   * Сколько проломов было в стене к этому штурму (`siegeroll.breachesOf`, 0..3) — тоже только показ: ролик рушит стену на
+   * их долю. Пролом даёт исход фазы, а не залп (docs/siege_v2.md, 2.5). Нет поля — запись до фаз: её залпы читаются
+   * прежними долями (`siegecraft.breachOf`).
+   */
+  breach?: number;
 }
 
 /**
@@ -1401,6 +1569,11 @@ export interface HomeEffect {
    * последствий и у записей до опыта — версию сохранения мира оно не поднимает.
    */
   deed?: { agent: FigureId; ok: boolean; at: number; person?: number };
+  /**
+   * Наш лагерь довёл осаду до конца в нашу пользу: город пал или дал дань (docs/siege_v2.md, этап 2е). Племя засчитывает её
+   * полководцу (`sim/agents.recordSiege`) — из счёта осад выводится его отметка «осада». Поля нет у прочих последствий.
+   */
+  siege?: boolean;
   /**
    * Агент погиб на деле. Племя освобождает его место (`sim/agents.recordDeath`) —
    * если на нём всё ещё тот же человек (`person`): весть приезжает поздно, и убить она

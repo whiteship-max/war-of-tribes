@@ -2,7 +2,7 @@ import '@/game/pace.minute';
 // Башня бьёт по лагерю — в настоящем мире и через одну дверь (`LocalWorld.campArmy`).
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { LocalWorld } from './local/LocalWorld';
 import { menOfPower } from './garrison';
 import { campSides, sideWorks } from './works';
@@ -10,6 +10,13 @@ import { CAMP_WOOD, CAMP_WORKS_RIPE } from './data/tuning';
 import type { PlayerProfile, WorldPulse } from './types';
 import type { TowerGun } from './bombard';
 import { shieldVillagers } from './lairs';
+
+import { setPhaseDie } from './siegeroll';
+
+// Этот файл — о рогатках, проходе и башне: кость фаз здесь тихая — каждая фаза «без перемен», чтобы сдача и пролом не
+// падали поперёк правила, которое тест держит. Правило фаз — `siegeroll.test.ts` и `siegephase.test.ts`.
+beforeAll(() => setPhaseDie(() => 7));
+afterAll(() => setPhaseDie(null));
 
 const START = 1_700_000_000_000;
 const MIN = 60_000;
@@ -101,8 +108,13 @@ describe('башня бьёт по лагерю', () => {
     // К дозреванию обстрела выбита десятая часть мощи — лагерь, которым бьются, тоньше.
     const save = JSON.parse(fired.save);
     const power = save.marches.find((x: { id: string }) => x.id === save.sieges.home.campId).power as number;
-    const ripe = (await thaw(fired, since + CAMP_WORKS_RIPE, gunned)).pulse.siege!;
-    expect(ripe.campMen, 'люди лагеря — из прорежённой мощи').toBe(menOfPower(power * 0.9));
+    const tr = await thaw(fired, since + CAMP_WORKS_RIPE, gunned);
+    const ripe = tr.pulse.siege!;
+    // Мощь лагеря на ту минуту — после истощения фаз (docs/siege_v2.md, раздел 3); обстрел прореживает её поверх.
+    const live = JSON.parse(tr.store.read() as string);
+    const powerNow = live.marches.find((x: { id: string }) => x.id === save.sieges.home.campId).power as number;
+    expect(powerNow, 'точка внутри области: фазы прошли и лагерь истощён').toBeLessThan(power);
+    expect(ripe.campMen, 'люди лагеря — из прорежённой мощи').toBe(menOfPower(powerNow * 0.9));
     expect(ripe.builders, 'а проход — от строивших').toBe(menOfPower(power));
   }, 120_000);
 
@@ -114,13 +126,17 @@ describe('башня бьёт по лагерю', () => {
     const end = fired.siege.starvesAt;
     expect(end - fired.siege.since, 'голод позже дозревания обстрела').toBeGreaterThan(CAMP_WORKS_RIPE);
     const t = await thaw(fired, end - 1000, gunned);
+    // Истощение фаз (docs/siege_v2.md, раздел 3) убавляет войско лагеря долями, каждой в свою фазу.
+    const rows = (JSON.parse(t.store.read() as string).sieges.home.phases ?? []) as { waste: number }[];
+    expect(rows.length, 'точка внутри области: фазы прошли').toBeGreaterThan(0);
+    const kept = rows.reduce((k, r) => k * (1 - r.waste), 1);
     t.set(end + 1000);
     await t.world.sync(gunned);
     const after = JSON.parse(t.store.read() as string);
     expect(after.sieges.home, 'осада снята').toBeUndefined();
     const camp = after.marches.find((x: { id: string }) => x.id === campId);
     expect(camp, 'лагерь ушёл домой').toBeTruthy();
-    expect(camp.power, 'в войско записано выбитое к минуте снятия').toBeCloseTo(before * 0.9, 9);
+    expect(camp.power, 'в войско записано выбитое к минуте снятия').toBeCloseTo(before * kept * 0.9, 9);
   }, 120_000);
 
   it('расчёт ушёл — башня замолкает, а выбитое остаётся выбитым', async () => {

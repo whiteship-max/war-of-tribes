@@ -46,6 +46,15 @@ export interface SiegeFacts {
   /** Когда лагерь встал. Пересчёт часов голода эту отметку не двигает. */
   since: number;
   starvesAt: number;
+  /**
+   * Ход осады фазами (docs/siege_v2.md, раздел 2), выведенный вперёд из окна той же дверью, что бросит фазы
+   * (`siegeroll.projectPhases`): у бота-осаждающего дел нет, и будущие фазы — то, что случится, пока никто не вмешался;
+   * вмешательство — разрыв. `fallAt` — минута падения, если город сдастся раньше голода (`gates`); значимые фазы до
+   * неё — пролом и мор, с номером фазы и проломами после неё. Нет полей — окно без фаз: падает голодом.
+   */
+  fallAt?: number;
+  gates?: boolean;
+  phases?: { at: number; k: number; out: 'breach' | 'plague'; breaches: number }[];
 }
 
 /**
@@ -141,15 +150,34 @@ export function draftNotices(w: NoticeWorld, now: number): Drafts {
 
   const siege = w.siege;
   if (siege) {
-    // Все пересчёты окна — разрывы: падение назначено концом хлеба, и пересчёт его двигает.
-    const gap = firstBreak(w.breaks, siege.starvesAt, () => true);
+    // Все пересчёты окна — разрывы: падение назначено концом хлеба или сдачей на фазе, и пересчёт его двигает.
+    const fallAt = siege.fallAt ?? siege.starvesAt;
+    const gap = firstBreak(w.breaks, fallAt, () => true);
     if (gap) silent.push({ kind: 'siege-fall', why: gap.kind });
     else
-      put('siege-fall', `siege-fall:${siege.campId}:${siege.since}`, siege.starvesAt, siege.starvesAt + RESULT_KEEP, {
+      put('siege-fall', `siege-fall:${siege.campId}:${siege.since}`, fallAt, fallAt + RESULT_KEEP, {
         from: plainName(siege.from),
         fate: siege.fate,
-        about: siege.starvesAt,
+        about: fallAt,
+        ...(siege.gates ? { gates: true as const } : {}),
       });
+    // Значимые фазы (docs/siege_v2.md, 8.3) — пролом и мор, каждая в свою минуту и со своим разрывом: пересчёт окна до
+    // фазы двигает её кость.
+    for (const ph of siege.phases ?? []) {
+      const cut = firstBreak(w.breaks, ph.at, () => true);
+      if (cut) {
+        silent.push({ kind: 'siege-phase', why: cut.kind });
+        continue;
+      }
+      put('siege-phase', `siege-phase:${siege.campId}:${siege.since}:${ph.k}`, ph.at, ph.at + RESULT_KEEP, {
+        from: plainName(siege.from),
+        fate: siege.fate,
+        about: ph.at,
+        phase: ph.out,
+        k: ph.k,
+        ...(ph.out === 'breach' ? { breaches: ph.breaches } : {}),
+      });
+    }
   }
   return { items, silent };
 }

@@ -44,7 +44,7 @@
 // осады — `gateAt` у фронта, `rearGateAt` у тыла; пишет их только бой у лагеря, в
 // самом событии, а свободная доля выводится при чтении. Тика нет.
 import { emptyStack, stackTotal, UNIT_KINDS, type Stack } from '@/battle';
-import { CAMP_GATE_CLEAR, CAMP_WOOD, CAMP_WORKS_PASS, CAMP_WORKS_RIPE, PLAYER_CAMP_WOOD } from './data/tuning';
+import { CAMP_GATE_CLEAR, CAMP_WOOD, CAMP_WORKS_PASS, CAMP_WORKS_RIPE, MACHINE_CAMP_WOOD, PLAYER_CAMP_WOOD } from './data/tuning';
 import { dec } from '@/game/num';
 
 /** Сторона лагеря. Фронт — к городу, тыл — в поле. Не путать с `Side` боя: там нападающий и защитник. */
@@ -64,10 +64,15 @@ export const SIDES: readonly CampSide[] = ['front', 'rear'];
 export interface WoodPlan {
   readonly front: number;
   readonly rear: number;
+  /**
+   * Сколько сторон за `CAMP_WORKS_RIPE` лагерь рубит на осадные машины (docs/siege_v2.md, 4.3; `world/machines`): древесина
+   * делится между рогатками и машинами. Нет поля — машинам ничего, как у лагеря до машин и у лагеря бота.
+   */
+  readonly machines?: number;
   /** С какой минуты идут эти доли. Нет поля — с постановки лагеря. */
   readonly at?: number;
-  /** Готовность сторон в минуту `at`. */
-  readonly base?: { readonly front: number; readonly rear: number };
+  /** Готовность сторон в минуту `at` и древесина машин, нарубленная к ней (в сторонах). */
+  readonly base?: { readonly front: number; readonly rear: number; readonly machines?: number };
 }
 
 /** Откуда растёт готовность и что в ней уже лежит. */
@@ -129,20 +134,50 @@ export function worksRipeAt(since: number, side: CampSide, plan: WoodPlan = CAMP
  */
 export const WOOD_SHARES: readonly number[] = [1, 0.75, 0.5, 0.25, 0];
 
-/** Доли лагеря игрока, если фронту отдана доля `share`. */
-export const playerWood = (share: number): WoodPlan => {
-  const f = Math.min(1, Math.max(0, share));
-  return { front: f * PLAYER_CAMP_WOOD, rear: (1 - f) * PLAYER_CAMP_WOOD };
+const share01 = (n: number): number => Math.min(1, Math.max(0, Number.isFinite(n) ? n : 0));
+
+/**
+ * Доли лагеря игрока: машинам — доля `machines` всей древесины, остальное рогаткам, и из него фронту — доля `share`. Без
+ * машин — прежние доли сторон. Доля машинам рубится выработкой лагеря бота (`MACHINE_CAMP_WOOD`): машины игрока строятся
+ * по той же таблице, что выведена на ней (docs/siege_v2.md, 17.2).
+ */
+export const playerWood = (share: number, machines = 0): WoodPlan => {
+  const f = share01(share);
+  const e = share01(machines);
+  const works = (1 - e) * PLAYER_CAMP_WOOD;
+  return { front: f * works, rear: (1 - f) * works, ...(e > 0 ? { machines: e * MACHINE_CAMP_WOOD } : {}) };
 };
+
+/** Какую долю всей древесины план отдаёт машинам, 0..1. Нет поля — ноль. */
+export const machineShare = (plan: WoodPlan | undefined): number => share01((plan?.machines ?? 0) / MACHINE_CAMP_WOOD);
 
 /** Какую долю фронту отдаёт этот план; null — план не из шагов игрока (лагерь бота, старое окно). */
 export const woodShare = (plan: WoodPlan | undefined): number | null => {
   if (!plan) return null;
   for (const share of WOOD_SHARES) {
-    const p = playerWood(share);
+    const p = playerWood(share, machineShare(plan));
     if (Math.abs(p.front - plan.front) < 1e-9 && Math.abs(p.rear - plan.rear) < 1e-9) return share;
   }
   return null;
+};
+
+/**
+ * Древесина машин, нарубленная к минуте `at`, в сторонах (`world/machines` тратит её очередью машин). Растёт от последней
+ * смены долей со вложенного к ней; нет доли машинам — стоит.
+ */
+export const machineWood = (since: number, at: number, plan: WoodPlan | undefined): number => {
+  if (!plan) return 0;
+  const from = Math.max(since, plan.at ?? since);
+  return Math.max(0, plan.base?.machines ?? 0) + Math.max(0, plan.machines ?? 0) * spans(from, at);
+};
+
+/** Минута, когда древесина машин дойдёт до `need` сторон; бесконечность — не дойдёт: машинам ничего не отдано. */
+export const machineWoodAt = (since: number, need: number, plan: WoodPlan | undefined): number => {
+  const from = Math.max(since, plan?.at ?? since);
+  const base = Math.max(0, plan?.base?.machines ?? 0);
+  if (need <= base + 1e-9) return from;
+  const rate = Math.max(0, plan?.machines ?? 0);
+  return rate > 0 ? from + ((need - base) / rate) * CAMP_WORKS_RIPE : Infinity;
 };
 
 /**
@@ -150,12 +185,13 @@ export const woodShare = (plan: WoodPlan | undefined): number | null => {
  * неё. Готовность ни одной стороны в эту минуту не меняется — меняется только то, как
  * она растёт дальше.
  */
-export function rebaseWood(since: number, at: number, from: WoodPlan | undefined, share: number): WoodPlan {
+export function rebaseWood(since: number, at: number, from: WoodPlan | undefined, share: number, machines: number = machineShare(from)): WoodPlan {
   const was = from ?? CAMP_WOOD;
+  const cut = machineWood(since, at, from);
   return {
-    ...playerWood(share),
+    ...playerWood(share, machines),
     at: Math.max(since, at),
-    base: { front: sideWorks(since, at, 'front', was), rear: sideWorks(since, at, 'rear', was) },
+    base: { front: sideWorks(since, at, 'front', was), rear: sideWorks(since, at, 'rear', was), ...(cut > 0 ? { machines: cut } : {}) },
   };
 }
 
@@ -322,9 +358,11 @@ export const refusedAtGate = (...ts: (Pick<Through, 'went' | 'passed'> | null | 
   return went > 0 && passed === 0;
 };
 
+/** Сколько ещё занят проход — словами (`gateBusyText` и донесение об ударе, не пробившемся в минуту прихода). */
+export const gateBusyFor = (waitMs: number): string => `проход занят ещё ${Math.max(1, Math.ceil(waitMs / 60_000))} мин.`;
+
 /** Слова отказа — одни на вылазку, удар полководца и панели. */
-export const gateBusyText = (waitMs: number): string =>
-  `К рогаткам сейчас не пробиться, проход занят ещё ${Math.max(1, Math.ceil(waitMs / 60_000))} мин.`;
+export const gateBusyText = (waitMs: number): string => `К рогаткам сейчас не пробиться, ${gateBusyFor(waitMs)}`;
 
 /** Как сторона называется в строке «пробились с тыла, со стороны города». */
 const FROM: Record<CampSide, string> = { front: 'со стороны города', rear: 'с тыла' };

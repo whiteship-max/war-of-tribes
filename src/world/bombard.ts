@@ -125,3 +125,24 @@ export function reaim(
 function clamp01(v: number): number {
   return Math.min(1, Math.max(0, Number.isFinite(v) ? v : 0));
 }
+
+/**
+ * Обстрел лагеря игрока глазами окна осады защитника (сервер войны прикладывает его сам, `war.campSide`): выбитое к минуте
+ * `at`, потолок и замедление рогаток. Мир на клиенте его не прикладывает — только показывает.
+ */
+export const fireView = (fire: Fire, at: number): { thin: number; cap: number; slow: number } => ({
+  thin: thinAt(fire, at),
+  cap: Math.max(fire.base, fire.thin),
+  slow: fire.slow,
+});
+
+/**
+ * Роды лагеря, прорежённые обстрелом: каждый род — доля `1 − thin`, до целого. Одна мерка на лагерь в бою у мира
+ * (`LocalWorld.campArmy`) и у сервера войны (`war.campSide`): в бою те, кого башня не выбила.
+ */
+export function thinKinds<K extends string>(kinds: Record<K, number>, thin: number): Record<K, number> {
+  if (thin <= 0) return kinds;
+  const out = { ...kinds };
+  for (const k of Object.keys(out) as K[]) out[k] = Math.round(out[k] * (1 - clamp01(thin)));
+  return out;
+}

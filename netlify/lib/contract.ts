@@ -319,14 +319,41 @@ export const cityOr = (raw: unknown): string => cityName(raw) ?? DEFAULT_CITY;
  *   (бой был, итог в игре); `siege-fall` — хлеб под лагерем логова кончился, город взят;
  * - `war` — отряд соседа идёт на город (нападают); `war-fight` — бой между игроками был;
  *   `war-fall` — осаждённый соседом город пал от голода;
+ * - `war-parley` — переговоры у стен (docs/siege_v2.md, раздел 7): пришло предложение (сдача на условиях или дань), его
+ *   отклонили или дань приняли;
+ * - `war-pact` — пакт между игроками (docs/siege_v2.md, 19.2): пакт предложили — тому, кому предложили; приняли — тому, кто
+ *   предлагал;
+ * - `war-relief` — выручка союзника (19.2): идёт — осаждённому; бой выручки был — союзнику; не пробилась через рогатки —
+ *   союзнику и осаждённому;
  * - `war-spy` — чужой лазутчик напал на город: поджёг склад, обокрал или поднял смуту (docs/spy_pvp.md). Разведка и
  *   пойманный лазутчик нападением не считаются: город ничего не потерял.
  */
-export const NOTICE_KINDS = ['raid', 'raid-fight', 'siege-fall', 'war', 'war-fight', 'war-fall', 'war-spy'] as const;
+export const NOTICE_KINDS = [
+  'raid',
+  'raid-fight',
+  'siege-fall',
+  'siege-phase',
+  'war',
+  'war-fight',
+  'war-fall',
+  'war-spy',
+  'war-phase',
+  'war-parley',
+  'war-pact',
+  'war-relief',
+] as const;
 export type NoticeKind = (typeof NOTICE_KINDS)[number];
 
 /** Что может прислать клиент. Войну знает только сервер: её поручения клиент составить не может. */
-export const CLIENT_KINDS = ['raid', 'raid-fight', 'siege-fall'] as const satisfies readonly NoticeKind[];
+export const CLIENT_KINDS = ['raid', 'raid-fight', 'siege-fall', 'siege-phase'] as const satisfies readonly NoticeKind[];
+
+/**
+ * Исход фазы осады в вести (docs/siege_v2.md, 8.3). Весть идёт о значимом — пролом, мор в лагере, сработавший наказ;
+ * «без перемен» и «нехватка в городе» бывают в вести только рядом с наказом. Сдача — падение (`siege-fall`, `war-fall`
+ * с `gates`).
+ */
+export const NOTICE_PHASES = ['breach', 'plague', 'short', 'calm'] as const;
+export type NoticePhase = (typeof NOTICE_PHASES)[number];
 
 /** Участь, объявленная городу, — теми же именами, что `Fate` мира. */
 export const NOTICE_FATES = ['plunder', 'captives', 'burn'] as const;
@@ -352,6 +379,27 @@ export interface NoticeFacts {
   by?: 'atk' | 'def';
   won?: boolean;
   taken?: true;
+  /** Фаза осады (`siege-phase`, `war-phase`): что выпало, номер фазы, сколько проломов стало, какой наказ сработал. */
+  phase?: NoticePhase;
+  k?: number;
+  breaches?: number;
+  order?: WarOrderId;
+  /** Падение сдачей — ворота открыли (`siege-fall`, `war-fall`), а не голодом. */
+  gates?: true;
+  /**
+   * Переговоры у стен (`war-parley`): какое предложение и чем кончилось. Нет `answer` — предложение пришло получателю, и
+   * `about` — минута, до которой оно стоит; есть — ответ на его собственное предложение. Участь условий — в `fate`.
+   */
+  offer?: 'terms' | 'tribute';
+  answer?: 'yes' | 'no';
+  /** Бой войны — вылазка на машину лагеря (`WarBattle.burn`): на какую. Нет — бой не за машину. */
+  machine?: WarMachine;
+  /** Город союзника, пришедшего на выручку (`war-fight` выручки, `war-relief` осаждённому). Строка до `NOTICE_LIMITS.name`. */
+  ally?: string;
+  /** Пакт (`war-pact`, 19.2): получателю предложили пакт или его предложение приняли. */
+  pact?: 'offer' | 'made';
+  /** Выручка союзника (`war-relief`, 19.2): идёт (осаждённому), бой был (союзнику), не пробилась через рогатки (обоим). */
+  relief?: 'going' | 'fight' | 'turned';
 }
 
 /** Пункт исходящих. Ключ — имя момента, а не время: по нему не уходит второй раз. */
@@ -471,8 +519,9 @@ export function readNotices(v: unknown, now: number, kinds: readonly NoticeKind[
     // Поля войны — только у видов войны: клиент их не шлёт, а своя запись сервера их несёт.
     if (kind.startsWith('war')) {
       const role = oneOf(['atk', 'def'] as const, p.role);
-      if (!role) return null;
-      facts.role = role;
+      // Пакт и весть союзнику о его выручке — не о стороне войны: у союзника её нет (docs/siege_v2.md, 19.2).
+      if (role) facts.role = role;
+      else if (kind !== 'war-pact' && kind !== 'war-relief') return null;
       const mode = oneOf(WAR_MODES, p.mode);
       const site = oneOf(['wall', 'sortie', 'camp', 'joint'] as const, p.site);
       const by = oneOf(['atk', 'def'] as const, p.by);
@@ -481,7 +530,43 @@ export function readNotices(v: unknown, now: number, kinds: readonly NoticeKind[
       if (by) facts.by = by;
       if (typeof p.won === 'boolean') facts.won = p.won;
       if (p.taken === true) facts.taken = true;
+      const machine = oneOf(WAR_MACHINES, p.machine);
+      if (machine) facts.machine = machine;
+      const ally = str(p.ally, NOTICE_LIMITS.name);
+      if (ally && PLAIN.test(ally)) facts.ally = ally;
     }
+    // Переговоры: какое предложение и чем кончилось. Без них своя запись сервера, перечитанная из хранилища, говорила бы о
+    // любом предложении «дань» и теряла бы отказ и взятую дань (docs/siege_v2.md, 19.2).
+    if (kind === 'war-parley') {
+      const offer = oneOf(['terms', 'tribute'] as const, p.offer);
+      if (!offer) return null;
+      facts.offer = offer;
+      const answer = oneOf(['yes', 'no'] as const, p.answer);
+      if (answer) facts.answer = answer;
+    }
+    if (kind === 'war-pact') {
+      const pact = oneOf(['offer', 'made'] as const, p.pact);
+      if (!pact) return null;
+      facts.pact = pact;
+    }
+    if (kind === 'war-relief') {
+      const relief = oneOf(['going', 'fight', 'turned'] as const, p.relief);
+      if (!relief) return null;
+      facts.relief = relief;
+    }
+    // Поля фазы осады — только у вестей о фазе и о падении.
+    if (kind.endsWith('-phase')) {
+      const phase = oneOf(NOTICE_PHASES, p.phase);
+      const k = num(p.k);
+      if (!phase || k === null || k < 1 || k > 99) return null;
+      facts.phase = phase;
+      facts.k = Math.floor(k);
+      const breaches = num(p.breaches);
+      if (breaches !== null) facts.breaches = Math.min(3, Math.max(0, Math.floor(breaches)));
+      const order = oneOf(WAR_ORDER_IDS, p.order);
+      if (order) facts.order = order;
+    }
+    if (kind.endsWith('-fall') && p.gates === true) facts.gates = true;
     keys.add(key);
     out.push({ key, kind, fireAt, until, p: facts });
   }
@@ -571,6 +656,19 @@ export interface WarSheet {
   watch?: SpyWatch;
   /** Игровое время деревни в минуту слепка, секунды (`GameState.time`): час и время года в городе — в гибели лазутчика. */
   time?: number;
+  /**
+   * Готовое орудие на башне (`world/bombard.TowerGun`, `PlayerProfile.tower`): башня бьёт по лагерю под городом — и по лагерю
+   * игрока тоже (docs/siege_v2.md, раздел 5). Нет поля — орудия нет или слепок старого клиента.
+   */
+  tower?: WarTowerGun;
+}
+
+/** Орудие башни в слепке обороны — та же форма, что у мира (`world/bombard.TowerGun`). */
+export interface WarTowerGun {
+  slow: number;
+  thin: number;
+  crew: number;
+  seats: number;
 }
 
 /** Тайная служба города в слепке обороны (`WarSheet.watch`). */
@@ -606,7 +704,8 @@ export interface WarArmy {
 export interface WarEnergy {
   value: number;
   at: number;
-  mode: 'drain' | 'fill' | 'hold';
+  /** `camp` — в осадном лагере копится залп за фазу (docs/siege_v2.md, 8.4). */
+  mode: 'drain' | 'fill' | 'camp' | 'hold';
   homeAt?: number;
   stopAt?: number;
 }
@@ -617,7 +716,7 @@ export function readEnergy(v: unknown): WarEnergy | undefined {
   const r = v as Record<string, unknown>;
   const value = num(r.value);
   const at = num(r.at);
-  const mode = r.mode === 'drain' || r.mode === 'fill' || r.mode === 'hold' ? r.mode : null;
+  const mode = r.mode === 'drain' || r.mode === 'fill' || r.mode === 'camp' || r.mode === 'hold' ? r.mode : null;
   if (value === null || at === null || mode === null) return undefined;
   const homeAt = num(r.homeAt);
   const stopAt = num(r.stopAt);
@@ -644,14 +743,73 @@ export interface WarInput {
   seed: number;
   attacker: WarSide;
   defender: WarSide;
-  /** Штраф кости нападающему (`battle.GroundPenalty`): у боя за лагерь — его укрепления (`works`). Нет — ноль. */
-  ground?: { land?: number; crossing?: number; works?: number };
+  /**
+   * Штраф кости нападающему (`battle.GroundPenalty`): у боя за лагерь — его укрепления (`works`), у штурма — стена
+   * (`wall`, `world/wall`). Нет — ноль.
+   */
+  ground?: { land?: number; crossing?: number; works?: number; wall?: number };
+  /** Ширина боя у стены и ворота посреди боя (`world/wall.wallFront`). Нет — ширина фронта, бой в поле. */
+  width?: number;
+  fire?: number;
+  widen?: { round: number; width: number; wall: number };
 }
 
 /** Что полководец сделал в своём лагере (`world/siegecraft.Craft`): сколько раз укрепил, сколько залпов дал. */
 export interface WarCraft {
   fort?: number;
   shots?: number;
+  /** Проломов в стене к минуте боя (0..3) — только в записи боя (`siegecraft.craftAt`). */
+  breach?: number;
+}
+
+/** Исход фазы осады (`world/siegeroll.PhaseOut`). */
+export const WAR_PHASE_OUTS = ['plague', 'calm', 'short', 'breach', 'gates'] as const;
+export type WarPhaseOut = (typeof WAR_PHASE_OUTS)[number];
+
+/** Брошенная фаза осады — строка журнала (`world/siegeroll.PhaseRow`). Пишет её сервер в минуту фазы. */
+export interface WarPhaseRow {
+  at: number;
+  die: number;
+  mods: Partial<Record<'breach' | 'volley' | 'machine' | 'general' | 'hunger' | 'progress' | 'wall', number>>;
+  out: WarPhaseOut;
+  waste: number;
+  orders?: WarOrderId[];
+}
+
+/** Наказ, сработавший в минуту фазы (`world/siegeroll.OrderId`; тест сверяет). */
+export const WAR_ORDER_IDS = ['volley', 'storm', 'repair', 'ration'] as const;
+export type WarOrderId = (typeof WAR_ORDER_IDS)[number];
+
+/** Наказы осаждённого на отлучку (`world/siegeroll.DefendOrders`): чинить пролом, урезать паёк. */
+export interface WarDefend {
+  repair?: boolean;
+  ration?: boolean;
+  /** Принять сдачу на условиях не хуже этой участи (docs/siege_v2.md, 8.3; этап 2е). */
+  terms?: NoticeFate;
+}
+
+/** Наказы осаждённого из приказа: только известные поля. */
+export function readDefend(v: unknown): WarDefend {
+  if (!v || typeof v !== 'object') return {};
+  const r = v as Record<string, unknown>;
+  const terms = NOTICE_FATES.find((f) => f === r.terms);
+  return { ...(r.repair === true ? { repair: true } : {}), ...(r.ration === true ? { ration: true } : {}), ...(terms ? { terms } : {}) };
+}
+
+/** Наказы осаждающего на отлучку (`world/siegeroll.SiegeOrders`): залп каждую фазу, штурм при N проломах. */
+export interface WarOrders {
+  volley?: boolean;
+  storm?: number;
+  /** Принять дань не меньше справедливой (docs/siege_v2.md, 8.3; этап 2е). */
+  tribute?: boolean;
+}
+
+/** Наказы из приказа: только известные поля, штурм — 1..3 пролома. */
+export function readOrders(v: unknown): WarOrders {
+  if (!v || typeof v !== 'object') return {};
+  const r = v as Record<string, unknown>;
+  const storm = typeof r.storm === 'number' && Number.isFinite(r.storm) ? Math.min(3, Math.max(0, Math.floor(r.storm))) : 0;
+  return { ...(r.volley === true ? { volley: true } : {}), ...(storm > 0 ? { storm } : {}), ...(r.tribute === true ? { tribute: true } : {}) };
 }
 
 /** Дела полководца в лагере — строки таблицы энергии (`world/siegecraft.CraftAct`). */
@@ -686,13 +844,23 @@ export interface WarBattle {
   rearThrough?: { went: number; passed: number };
   /** Что было сделано в лагере к этому бою: укрепления и обстрел. Нет — ничего. */
   craft?: WarCraft;
+  /** Проёмы штурма (`world/wall.Opening`) — только показ: ролик рисует выбранный способ. Нет — запись до стены-прохода. */
+  openings?: { id: 'breach' | 'gate' | 'tower' | 'ladders' | 'scaling'; share: number; faces: number; round: number; horse: boolean }[];
+  /** Вылазка на машину лагеря (docs/siege_v2.md, раздел 5): на какую. Победа её сожгла. Нет — бой не за машину. */
+  burn?: WarMachine;
+  /**
+   * Выручка: по лагерю ударил сосед-союзник осаждённого (замок), его дружина — `genTroops`/`genLost`. Нет поля — бил сам
+   * город. Свою дружину город с этого боя не списывает — списывает союзник.
+   */
+  ally?: string;
 }
 
 /** Участь взятого города — посчитана дверью `spoils.fate`, у обеих сторон одними числами. */
 export interface WarFall {
   at: number;
   fate: NoticeFate;
-  by: 'storm' | 'hunger';
+  /** Штурм, голод или сдача — ворота открыли на фазе осады (участь на ступень мягче, гарнизон уходит живым). */
+  by: 'storm' | 'hunger' | 'gates';
   /** Что увёз победитель (припасы и казна) и сколько людей увёл. */
   taken: Counts;
   led: number;
@@ -706,6 +874,8 @@ export interface WarFall {
   hidden: number;
   /** Гарнизон, разошедшийся при падении голодом. */
   routed: Counts;
+  /** Сдача на условиях (docs/siege_v2.md, 7.1): участь — из принятых условий, а не на ступень мягче объявленной. */
+  terms?: true;
 }
 
 /** Лагерь под городом — окно осады (`world/siege.SiegeWindow`) как есть. */
@@ -721,11 +891,62 @@ export interface WarCamp {
   gateAt?: number;
   rearGateAt?: number;
   fate?: NoticeFate;
-  wood?: { front: number; rear: number; at?: number; base?: { front: number; rear: number } };
+  wood?: { front: number; rear: number; machines?: number; at?: number; base?: { front: number; rear: number; machines?: number } };
   builders?: number;
   /** Дела полководца в этом лагере (`SiegeWindow.craft`). */
   craft?: WarCraft;
+  /** Ход осады фазами (`world/siegeroll`, docs/siege_v2.md, раздел 2): уровень частокола, дни пути лагеря от дома. */
+  wall?: number;
+  homeDays?: number;
+  /** Журнал дел с минутой — залпы и починки (`SiegeWindow.log`). Нет поля — лагерь до фаз. */
+  log?: { at: number; act: 'volley' | 'repair' }[];
+  /** Брошенные фазы (`SiegeWindow.phases`). */
+  phases?: WarPhaseRow[];
+  /** Наказы осаждающего (`SiegeWindow.orders`). */
+  orders?: WarOrders;
+  /** Осадные машины лагеря — очередь заказов (`SiegeWindow.machines`, `world/machines`). Нет поля — не заказывали. */
+  machines?: { id: WarMachine; at: number; spent?: number; burned?: true }[];
+  /** Обстрел лагеря с башни города (`SiegeWindow.fire`, `world/bombard`). Нет поля — башня не бьёт. */
+  fire?: { slow: number; thin: number; at: number; base: number };
+  /** Осадный паёк осаждённого (`SiegeWindow.ration`). Нет поля — обычный. */
+  ration?: boolean;
+  /** Наказы осаждённого (`SiegeWindow.defend`). */
+  defend?: WarDefend;
+  /** Отметки «осада» полководца похода, при постановке лагеря (`SiegeWindow.lead`, docs/siege_v2.md, 2.3). Нет — ноль. */
+  lead?: number;
+  /** Переговоры у стен (`SiegeWindow.offers`, `world/parley`, раздел 7). Нет поля — никто ничего не предлагал. */
+  offers?: WarOffer[];
 }
+
+/** Предложение у стен (`world/parley.SiegeOffer`): сдача на условиях от осаждающего, дань за снятие от осаждённого. */
+export interface WarOffer {
+  kind: 'terms' | 'tribute';
+  at: number;
+  until: number;
+  fate?: NoticeFate;
+  price?: number;
+  answer?: 'yes' | 'no';
+  answeredAt?: number;
+}
+
+/**
+ * Дань, принятая осаждающим (docs/siege_v2.md, 7.3): добро переходит от города походу той же дверью дележа, что добыча
+ * (`spoils.plunder`), — посчитано сервером, у обеих сторон одними числами. Применяет каждая сторона сама, один раз, по
+ * отметке `warTributeId` в списке принятого.
+ */
+export interface WarTribute {
+  at: number;
+  /** Что ушло данью: припасы и казна. */
+  taken: Counts;
+  /** Сколько осталось в тайнике. */
+  hidden: number;
+}
+
+/** Осадные машины (`world/data/machines.MACHINE_IDS`; тест сверяет). */
+export const WAR_MACHINES = ['ladders', 'ram', 'tower', 'mangonel'] as const;
+export type WarMachine = (typeof WAR_MACHINES)[number];
+/** Доли древесины машинам (`world/data/machines.MACHINE_SHARES`; тест сверяет). */
+export const WAR_MACHINE_SHARES: readonly number[] = [0, 0.25, 0.5, 0.75, 1];
 
 /** Удар полководца города по лагерю: идёт, бьётся в минуту прихода. */
 export interface WarStrike {
@@ -741,14 +962,19 @@ export interface WarStrike {
  */
 export type WarPhase = 'march' | 'camp' | 'back' | 'done';
 
-/** Чем кончилась: взяли город, отбили, отозвали, сняли осаду, город исчез из реестра. */
-export type WarEnd = 'taken' | 'beaten' | 'recalled' | 'retreat' | 'lifted' | 'gone';
+/** Чем кончилась: взяли город, отбили, отозвали, сняли осаду, город исчез из реестра, город дал дань (`paid`). */
+export type WarEnd = 'taken' | 'beaten' | 'recalled' | 'retreat' | 'lifted' | 'gone' | 'paid';
 
 /** Война глазами игрока. Ключей игроков в ней нет — только замки. */
 export interface WarView {
   id: string;
-  /** Чья это война для спросившего: он идёт (`atk`) или на него идут (`def`). */
-  role: 'atk' | 'def';
+  /**
+   * Чья это война для спросившего: он идёт (`atk`), на него идут (`def`) или осадили его союзника по пакту (`ally`) — тогда
+   * он может прийти на выручку (docs/siege_v2.md, раздел 5).
+   */
+  role: 'atk' | 'def' | 'ally';
+  /** Замок спросившего-союзника (`role: 'ally'`): по нему он узнаёт свою выручку и свои бои (`WarRelief.castle`, `WarBattle.ally`). */
+  me?: string;
   atkCastle: string;
   defCastle: string;
   atkCity: string;
@@ -767,22 +993,67 @@ export interface WarView {
    */
   went?: Counts;
   camp?: WarCamp;
+  /** Журнал фаз снятой осады (`WarCamp.phases`, переносится при снятии лагеря). Нет поля — осады не было или она идёт. */
+  phases?: WarPhaseRow[];
   /** Когда лагерь доедает город. */
   starvesAt?: number;
   strike?: WarStrike;
+  /** Выручка соседей-союзников: идут на лагерь, бьют в минуту прихода (по одной от союзника). Нет — никто не идёт. */
+  reliefs?: WarRelief[];
+  /** Удары из поля, не пробившиеся через рогатки в минуту прихода (`WarTurned`). Нет — таких не было. */
+  turned?: WarTurned[];
   /** Обратный путь: откуда и когда дома. */
   backFrom?: { x: number; y: number };
   backAt?: number;
   battles: WarBattle[];
   fall?: WarFall;
+  /** Дань, принятая лагерем (docs/siege_v2.md, 7.3): добро перешло, лагерь снят. Нет — дани не было. */
+  tribute?: WarTribute;
   end?: WarEnd;
   endAt?: number;
+}
+
+/** Выручка соседа-союзника (docs/siege_v2.md, раздел 5): идёт на лагерь с тыла, бьётся в минуту прихода. */
+export interface WarRelief {
+  /** Замок союзника и имя его города. */
+  castle: string;
+  city: string;
+  /** Когда вышла — с этой минуты осаждённому весть «союзник идёт» (docs/siege_v2.md, 19.2). Нет — выручка старше поля. */
+  sent?: number;
+  at: number;
+  army: WarArmy;
+}
+
+/**
+ * Удар из поля, не пробившийся через рогатки лагеря (docs/siege_v2.md, 19.2): в минуту прихода проход был занят, боя не было,
+ * дружина цела и стоит в поле. Донесение — у того, чья дружина: у союзника — его выручка (`ally`), у города — удар его
+ * полководца. Применяет каждая сторона сама, один раз, по отметке `warTurnedId`.
+ */
+export interface WarTurned {
+  at: number;
+  /** Сколько ещё проход был занят в ту минуту, мс (`works.gateBusyText`). */
+  waitMs: number;
+  /** Сколько бойцов шло. */
+  men: number;
+  /** Выручка союзника: его замок и имя его города. Нет поля — удар полководца самого города. */
+  ally?: string;
+  city?: string;
+}
+
+/** Пакт между игроками глазами спросившего: заключён, он предложил или предложили ему. */
+export interface WarPact {
+  castle: string;
+  city: string;
+  state: 'pact' | 'offered' | 'asked';
+  at: number;
 }
 
 /** Ответ войны: свои войны и серверное «сейчас»; у отказанного приказа — отказ словами. */
 export interface WarResponse {
   now: number;
   wars: WarView[];
+  /** Пакты и предложения пакта спросившего (docs/siege_v2.md, раздел 5: выручка). Нет — ни одного. */
+  pacts?: WarPact[];
   /** Темп войны (`TRIBE_WAR_PACE`): во сколько раз быстрее походы и голод. Нет — 1. */
   pace?: number;
   error?: string;
@@ -886,16 +1157,42 @@ export const spySeenId = (id: string): string => `${id}.spy`;
 export type WarOrder =
   | { op: 'march'; target: string; mode: WarMode; fate: NoticeFate; army: WarArmy }
   | { op: 'recall'; id: string }
-  | { op: 'storm'; id: string; fate?: NoticeFate }
+  | { op: 'storm'; id: string; fate?: NoticeFate; machines?: WarMachine[] }
+  | { op: 'wood'; id: string; machines: number }
+  | { op: 'machine'; id: string; machine: WarMachine }
   | { op: 'fate'; id: string; fate: NoticeFate }
   | { op: 'retreat'; id: string }
   | { op: 'sortie'; id: string; troops: Counts }
   | { op: 'craft'; id: string; act: WarCraftAct }
+  | { op: 'orders'; id: string; orders: WarOrders }
   | { op: 'strike'; id: string; army: WarArmy; joint: boolean; walkMs: number }
+  | { op: 'repair'; id: string }
+  | { op: 'ration'; id: string; on: boolean }
+  | { op: 'defend'; id: string; defend: WarDefend }
+  | { op: 'sally'; id: string; machine: WarMachine; troops: Counts }
+  | { op: 'surrender'; id: string }
+  | { op: 'offer'; id: string; kind: 'terms' | 'tribute'; fate?: NoticeFate }
+  | { op: 'answer'; id: string; kind: 'terms' | 'tribute'; yes: boolean }
+  | { op: 'relief'; id: string; army: WarArmy; walkMs: number }
+  | { op: 'pact'; target: string }
+  | { op: 'unpact'; target: string }
   | { op: 'spy'; target: string; deed: RivalDeed; energy?: WarEnergy; shown: { chance: number; peril: number }; at: number };
 
 /** Отметка падения города в списке принятого (`WarSheet.seen`): одна на клиент и на сервер. */
 export const warFallId = (war: string): string => `${war}.fall`;
+
+/** Отметка дани в списке принятого (`WarSheet.seen`): одна на клиент и на сервер (docs/siege_v2.md, 7.3). */
+export const warTributeId = (war: string): string => `${war}.tribute`;
+
+/**
+ * Отметка починки пролома в списке принятого (`WarSheet.seen`): защитник платит за неё деревом и камнем со своего склада
+ * один раз — когда увидел её в журнале лагеря (`LocalWorld.stepWars`); сервер до этого числит её цену за ним (docs/siege_v2.md,
+ * раздел 5).
+ */
+export const warRepairId = (war: string, at: number): string => `${war}.r${at}`;
+
+/** Отметка удара, не пробившегося через рогатки (`WarTurned`), в списке принятого: донесение о нём ложится один раз. */
+export const warTurnedId = (war: string, at: number): string => `${war}.t${at}`;
 
 /** Потолки слепка и приказа. Видов племени и припасов — десятки; больше — порча. */
 export const WAR_LIMITS = { keys: 64, count: 1e7 } as const;
@@ -966,6 +1263,21 @@ export function readSheet(v: unknown): WarSheet | null {
     ...(Array.isArray(r.out) ? { out: r.out.filter((x): x is string => typeof x === 'string' && x.length <= 48).slice(-WAR_OUT_MAX) } : {}),
     ...(readSpyWatch(r.watch) ? { watch: readSpyWatch(r.watch) } : {}),
     ...(num(r.time) !== null ? { time: real(r.time, 1e12) } : {}),
+    ...(readTower(r.tower) ? { tower: readTower(r.tower) } : {}),
+  };
+}
+
+/** Орудие башни из слепка: доли — 0..1, расчёт и места — целые до десятка. Нет или мусор — нет. */
+function readTower(v: unknown): WarTowerGun | undefined {
+  if (!v || typeof v !== 'object') return undefined;
+  const r = v as Record<string, unknown>;
+  const crew = num(r.crew);
+  if (crew === null || crew <= 0) return undefined;
+  return {
+    slow: Math.min(1, real(r.slow, 1)),
+    thin: Math.min(1, real(r.thin, 1)),
+    crew: Math.min(10, Math.floor(crew)),
+    seats: Math.min(10, Math.floor(real(r.seats, 10))),
   };
 }
 
@@ -1029,7 +1341,17 @@ export function readWarOrder(v: unknown): WarOrder | null {
       return id ? { op: r.op, id } : null;
     case 'storm': {
       const fate = NOTICE_FATES.find((f) => f === r.fate);
-      return id ? { op: 'storm', id, ...(fate ? { fate } : {}) } : null;
+      // Машины штурма — из списка, без повторов; нет поля — все готовые (старый клиент шлёт так).
+      const machines = Array.isArray(r.machines) ? WAR_MACHINES.filter((e) => (r.machines as unknown[]).includes(e)) : null;
+      return id ? { op: 'storm', id, ...(fate ? { fate } : {}), ...(machines ? { machines } : {}) } : null;
+    }
+    case 'wood': {
+      const share = WAR_MACHINE_SHARES.find((x) => x === r.machines);
+      return id && share !== undefined ? { op: 'wood', id, machines: share } : null;
+    }
+    case 'machine': {
+      const machine = WAR_MACHINES.find((e) => e === r.machine);
+      return id && machine ? { op: 'machine', id, machine } : null;
     }
     case 'fate': {
       const fate = NOTICE_FATES.find((f) => f === r.fate);
@@ -1041,12 +1363,44 @@ export function readWarOrder(v: unknown): WarOrder | null {
       const act = WAR_CRAFTS.find((a) => a === r.act);
       return id && act ? { op: 'craft', id, act } : null;
     }
+    case 'orders':
+      return id ? { op: 'orders', id, orders: readOrders(r.orders) } : null;
     case 'strike': {
       const army = readArmy(r.army);
       const walk = num(r.walkMs);
       return id && army && walk !== null
         ? { op: 'strike', id, army, joint: r.joint === true, walkMs: Math.min(24 * 3600_000, Math.max(0, walk)) }
         : null;
+    }
+    case 'repair':
+    case 'surrender':
+      return id ? { op: r.op, id } : null;
+    case 'ration':
+      return id && typeof r.on === 'boolean' ? { op: 'ration', id, on: r.on } : null;
+    case 'offer': {
+      const kind = r.kind === 'terms' || r.kind === 'tribute' ? r.kind : null;
+      const fate = NOTICE_FATES.find((f) => f === r.fate);
+      return id && kind ? { op: 'offer', id, kind, ...(kind === 'terms' && fate ? { fate } : {}) } : null;
+    }
+    case 'answer': {
+      const kind = r.kind === 'terms' || r.kind === 'tribute' ? r.kind : null;
+      return id && kind && typeof r.yes === 'boolean' ? { op: 'answer', id, kind, yes: r.yes } : null;
+    }
+    case 'defend':
+      return id ? { op: 'defend', id, defend: readDefend(r.defend) } : null;
+    case 'sally': {
+      const machine = WAR_MACHINES.find((e) => e === r.machine);
+      return id && machine ? { op: 'sally', id, machine, troops: readCounts(r.troops) } : null;
+    }
+    case 'relief': {
+      const army = readArmy(r.army);
+      const walk = num(r.walkMs);
+      return id && army && walk !== null ? { op: 'relief', id, army, walkMs: Math.min(24 * 3600_000, Math.max(0, walk)) } : null;
+    }
+    case 'pact':
+    case 'unpact': {
+      const target = str(r.target, 64);
+      return target ? { op: r.op, target } : null;
     }
     case 'spy': {
       const target = str(r.target, 64);

@@ -23,7 +23,7 @@ import { ORDER_TEXT } from '../data/order';
 import { addBonded, addPop, loseBonded, losePop } from './population';
 import { log } from './log';
 import { woundLine, woundsOfBattle } from './infirmary';
-import { recordDeath, recordDeed, recordRetire, reputeMorale, type Deed } from './agents';
+import { recordDeath, recordDeed, recordRetire, recordSiege, reputeMorale, type Deed } from './agents';
 import { hireWhere } from './hire';
 import type { HomeEffect } from '@/world/types';
 import { loseRelic } from './faith';
@@ -99,6 +99,8 @@ export interface ExpeditionOutcome {
   fallen?: { id: string; from: number; to: number }[];
   /** Дело агента карты: опыт запишет `sim/agents.recordDeed`. */
   deed?: Deed;
+  /** Наш лагерь довёл осаду до конца: опыт осад полководца (`sim/agents.recordSiege`). */
+  siege?: boolean;
   /** Агент карты погиб: `sim/agents.recordDeath`. Строка прежнего вида (до смертных агентов) не читается. */
   fell?: HomeEffect['fell'] | string;
   /** Агент карты ушёл на покой: `sim/agents.recordRetire`. */
@@ -370,6 +372,8 @@ export function applyExpedition(s: GameState, o: ExpeditionOutcome): void {
   // Дело — сразу после строки события: уровень, взятый боем, стоит рядом с самим боем.
   // Павшие и сожжённое логово едут в счёт дел вместе с делом: из них выводятся черты.
   if (o.deed) recordDeed(s, { ...o.deed, lost: o.warriorsLost, lair: o.lair });
+  // Осада, доведённая до конца нашим лагерем, — опыт осад полководца (отметка «осада», этап 2е).
+  if (o.siege) recordSiege(s);
   // Весть о гибели — объектом с номером человека. Строкой её слал мир до смертных
   // агентов, и значила она «выбыл на `FIGURE_DOWN`»: убивать по ней нельзя.
   if (o.fell && typeof o.fell === 'object') recordDeath(s, o.fell, (a) => hireWhere(s, a));

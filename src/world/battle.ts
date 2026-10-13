@@ -9,13 +9,18 @@
 // для деревни, и переписывать их из-за нового ядра незачем.
 import {
   deploySetup,
+  emptyStack,
   simulateBattle,
   stackTotal,
+  SECTORS,
+  UNIT_KINDS,
+  type ArmySetup,
   type BattleResult,
   type GroundPenalty,
   type Pips,
   type Side,
   type Stack,
+  type Widen,
 } from '@/battle';
 
 /**
@@ -48,6 +53,11 @@ export interface FieldSide {
    * раскладывает её по секторам в итог, чтобы ролик вывел гарнизон из ворот, а дружину с поля. Исход от поля не зависит.
    */
   garrison?: Partial<Stack>;
+  /**
+   * Клещи (docs/siege_v2.md, 6.2): какая часть `kinds` — вторая армия, вставшая в тылу противника (`ArmySetup.behind`).
+   * Встаёт тем же правилом развёртывания, что и строй, своей расстановкой. Нет поля — второй армии нет.
+   */
+  behind?: Stack;
   // Поля своей раскладки у стороны нет, и заводить его нельзя: обе стороны встают по правилу развёртывания
   // (`setup.deploySetup`), одной дверью. Последней раскладкой руками была оборона деревни — она ушла поставкой 2
   // (docs/battle_eu4.md, 14.27), и держит это тест по исходнику (`world/muster.test.ts`).
@@ -62,6 +72,14 @@ export interface FieldInput {
    * 14.5): поля у стороны нет нарочно, чтобы обороняющемуся его было неоткуда взять.
    */
   ground?: GroundPenalty;
+  /**
+   * Ширина боя и проём посреди боя (`BattleInput.width`, `.widen`): у боя у стены — фронт штурма (`world/wall.wallFront`).
+   * Нет поля — ширина фронта, бой в поле.
+   */
+  width?: number;
+  /** Ширина стрельбы (`BattleInput.fire`): у боя у стены — полная, стреляют со всей стены. Нет — ширина боя. */
+  fire?: number;
+  widen?: Widen;
 }
 
 export interface FieldOutcome {
@@ -82,6 +100,25 @@ export interface FieldOutcome {
  * Считает полевой бой. Пустая сторона в ядро не идёт: `validateSetup` требует
  * хотя бы одного бойца, а «пришёл никто» — это не ничья, а поражение пришедшего.
  */
+/**
+ * Сторона по правилу развёртывания (`setup.deploySetup`). Клещи — две расстановки тем же правилом: строй своей полосы и
+ * вторая армия в тылу противника; сектора — их сумма, `behind` — вторая.
+ */
+function sideSetup(side: FieldSide): ArmySetup {
+  const back = side.behind && stackTotal(side.behind) > 0 ? side.behind : null;
+  if (!back) return deploySetup(side.kinds);
+  const own = emptyStack();
+  for (const k of UNIT_KINDS) own[k] = Math.max(0, side.kinds[k] - back[k]);
+  const front = deploySetup(own);
+  const rear = deploySetup(back);
+  const sectors = {} as ArmySetup['sectors'];
+  for (const id of SECTORS) {
+    sectors[id] = emptyStack();
+    for (const k of UNIT_KINDS) sectors[id][k] = front.sectors[id][k] + rear.sectors[id][k];
+  }
+  return { sectors, behind: rear.sectors };
+}
+
 export function resolveField(input: FieldInput): FieldOutcome {
   const atk = stackTotal(input.attacker.kinds);
   const def = stackTotal(input.defender.kinds);
@@ -89,7 +126,7 @@ export function resolveField(input: FieldInput): FieldOutcome {
   if (atk <= 0) return { won: false, attackerLoss: 0, defenderLoss: 0, result: null, rest: fresh };
   if (def <= 0) return { won: true, attackerLoss: 0, defenderLoss: 1, result: null, rest: fresh };
 
-  const attacker = deploySetup(input.attacker.kinds);
+  const attacker = sideSetup(input.attacker);
   const defender = deploySetup(input.defender.kinds);
   // Доля морали кладётся, только если сторона не свежая: бой свежих сторон — тот же, что до морали между боями.
   const rested = (r: number | undefined): { rest?: number } => (r !== undefined && r < 1 ? { rest: r } : {});
@@ -105,6 +142,9 @@ export function resolveField(input: FieldInput): FieldOutcome {
       ...(input.attacker.garrison ? { garrison: input.attacker.garrison } : {}),
     },
     defender: { ...defender, resolve: input.defender.resolve ?? 0, pips: input.defender.pips ?? {}, ...rested(input.defender.rest) },
+    ...(input.width !== undefined ? { width: input.width } : {}),
+    ...(input.fire !== undefined ? { fire: input.fire } : {}),
+    ...(input.widen ? { widen: input.widen } : {}),
   });
 
   const a = result.sides.attacker.total;

@@ -4,7 +4,8 @@ import type { PlayerCastle, PlayerProfile } from './types';
 import { advance, applyOrder, emptyWars, liveSheet, warsOf, type SheetAt } from '../../netlify/lib/war';
 import { castleIdOf, emptyRoster, upsert } from '../../netlify/lib/roster';
 import { type CastleClaim, type RosterFile, type WarOrder } from '../../netlify/lib/contract';
-import { FATE_SAME, SIEGE_BLOCK, STRIKE_FROM_TOWN, TOWER_NOT_PVP, WOOD_FIXED, siegeSince, type SiegeWindow } from './siege';
+import { FATE_SAME, SIEGE_BLOCK, STRIKE_FROM_TOWN, WOOD_FIXED, type SiegeWindow } from './siege';
+import { thinAt, type Fire } from './bombard';
 import { garrisonWear } from './siegecraft';
 import { worldDays } from '@/game/pace';
 import { troopTotal, type TroopStack } from '@/game/battle/kinds';
@@ -125,7 +126,8 @@ describe('война между игроками: путь от похода д�
     expect((await g.b.reports()).some((r) => r.id === `war-${war.battles[0].id}`)).toBe(true);
 
     if (war.phase === 'camp') {
-      // Штурм из лагеря — тоже сервер; лагерь снимается, войско идёт домой.
+      // Штурм из лагеря — тоже сервер. Взяли — войско идёт домой; отбили — осада идёт дальше с теми, кто уцелел
+      // (docs/siege_v2.md, 4.4), а снимается лагерь, только если штурмовать стало некому.
       const storm = await g.a.attack({});
       expect(storm.error).toBeNull();
       ({ pa, pb } = await g.pulse());
@@ -133,7 +135,9 @@ describe('война между игроками: путь от похода д�
       expect(war.battles[1].site).toBe('wall');
       const wallB = (await g.b.reports()).find((r) => r.id === `war-${war.battles[1].id}`);
       expect(wallB?.battle?.us).toBe('defender');
-      expect(['taken', 'beaten']).toContain(war.end);
+      if (war.end === 'taken') expect(war.phase).not.toBe('camp');
+      else if (troopTotal(war.army.troops as TroopStack) > 0) expect(war.phase, 'отбитый штурм лагерь не снимает').toBe('camp');
+      else expect(war.end).toBe('beaten');
     }
 
     // Набор держит, что штурм из лагеря и правда случился: лагерь пережил вылазку.
@@ -340,21 +344,37 @@ describe('осада под городом игрока: окна обеих с�
     g.step(worldDays(6));
     let { pb } = await g.pulse();
     expect(pb.siege?.garrisonRest, 'боя не было — усталости после боя нет').toBeUndefined();
-    const since = siegeSince(war.camp as unknown as SiegeWindow);
-    const wear = (craft?: { fort?: number; shots?: number }) => Math.floor(garrisonWear(since, g.now(), craft) * 100) / 100;
-    expect(wear(), 'точка внутри области: шесть дней осады').toBeLessThan(1);
-    expect(pb.siege?.wear).toBe(wear());
+    // Износ — той же дверью, что у сервера (`garrisonWear` по окну: дни осады к голоду и залпы журнала).
+    const wear = () => Math.floor(garrisonWear(war.camp as unknown as SiegeWindow, g.now()) * 100) / 100;
+    const before = wear();
+    expect(before, 'точка внутри области: шесть дней осады').toBeLessThan(1);
+    expect(pb.siege?.wear).toBe(before);
     expect(await g.a.campCraft('bombard')).toBeNull();
     ({ pb } = await g.pulse());
     expect(war.camp?.craft?.shots).toBe(1);
-    expect(pb.siege?.wear).toBe(wear({ shots: 1 }));
-    expect(pb.siege!.wear!).toBeLessThan(wear());
+    expect(war.camp?.log?.length, 'залп лёг в журнал с минутой').toBe(1);
+    expect(pb.siege?.wear).toBe(wear());
+    expect(pb.siege!.wear!).toBeLessThan(before);
   }, 120_000);
 
-  it('башня с орудием по лагерю соседа молчит — и окно говорит это', async () => {
-    const tower = { slow: 0.3, thin: 0.2, crew: 4, seats: 6 } as unknown as PlayerProfile['tower'];
-    const { pb } = await camped({ b: { tower } });
-    expect(pb.siege?.towerIdle).toBe(TOWER_NOT_PVP);
+  it('башня бьёт по лагерю соседа (осада 2г): обстрел считает сервер той же дверью, окно защитника его показывает', async () => {
+    // Баллиста (`game/data/engines`: пятый уровень башни, расчёт 1) и лучники дома — башня бьёт в полную силу.
+    const tower = { slow: 0, thin: 0.2, crew: 1, seats: 1 };
+    const { g, war } = await camped({ b: { tower, levels: { tower: 5 } } });
+    const fire = war.camp?.fire as Fire | undefined;
+    expect(fire, 'обстрел лёг в лагерь сервера').toBeDefined();
+    expect(fire?.thin).toBe(0.2);
+    g.step(worldDays(8));
+    const { pb } = await g.pulse();
+    const thin = thinAt(war.camp?.fire as Fire, g.now());
+    expect(thin, 'точка внутри области: башня успела выбить').toBeGreaterThan(0);
+    expect(pb.siege?.fire?.thin).toBe(thin);
+  }, 120_000);
+
+  it('орудие, какого на башне этого уровня не бывает, сервер не принимает: обстрела нет', async () => {
+    const tower = { slow: 0.3, thin: 0.2, crew: 4, seats: 6 };
+    const { war, pb } = await camped({ b: { tower, levels: { tower: 5 } } });
+    expect(war.camp?.fire).toBeUndefined();
     expect(pb.siege?.fire).toBeUndefined();
   }, 120_000);
 

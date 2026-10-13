@@ -10,6 +10,7 @@
 // только это. Писать он не пишет ничего.
 import { LocalWorld, HOME_ID } from './LocalWorld';
 import { ourCamp, siegeSince, starvesAt } from '../siege';
+import { breachesOf, gatesAt, projectPhases, rowsOf, softerFate } from '../siegeroll';
 import { draftNotices, sightFrom, type Break, type Drafts, type NoticeWorld } from '../notice';
 
 export class NotifyingWorld extends LocalWorld {
@@ -74,12 +75,26 @@ export class NotifyingWorld extends LocalWorld {
     const w = this.homeSiege(now);
     let siege: NoticeWorld['siege'] = null;
     if (w && !ourCamp(w)) {
+      // Будущие фазы — той же дверью, что их бросит (`siegeroll.projectPhases`); сдача — участь на ступень мягче.
+      const ahead = projectPhases(w, starvesAt(w));
+      const gates = gatesAt(ahead);
+      const fallAt = gates ?? starvesAt(w);
+      const declared = this.fateFor(w.fate, HOME_ID, fallAt);
+      const done = rowsOf(w).length;
+      let breaches = breachesOf(w);
+      const phases: NonNullable<NonNullable<NoticeWorld['siege']>['phases']> = [];
+      ahead.forEach((r, i) => {
+        if (r.out === 'breach') breaches = Math.min(3, breaches + 1);
+        if (r.out === 'breach' || r.out === 'plague') phases.push({ at: r.at, k: done + i + 1, out: r.out, breaches });
+      });
       siege = {
         campId: w.campId,
         from: this.byId.get(w.byId)?.name ?? 'Враги',
-        fate: this.fateFor(w.fate, HOME_ID, starvesAt(w)),
+        fate: gates !== null ? softerFate(declared) : declared,
         since: siegeSince(w),
         starvesAt: starvesAt(w),
+        ...(gates !== null ? { fallAt: gates, gates: true } : {}),
+        ...(phases.length ? { phases } : {}),
       };
     }
     return { raid, siege, breaks };

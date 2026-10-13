@@ -8,7 +8,7 @@ import { STAND_GROUND, standBattle } from '../battle-stand';
 import { GROUND_CROSSING, GROUND_LAND, GROUND_RIDGE } from '@/world/place';
 import { twPlanOfRecord } from './record';
 import { TW_SPEC } from './spec';
-import { UNIT_STATS } from '@/battle/config';
+import { FRONT_WIDTH, UNIT_STATS } from '@/battle/config';
 import {
   CONTACT_HALF,
   FORM,
@@ -26,6 +26,9 @@ import {
   unitPose,
   type TwPlan,
 } from './plan';
+
+/** Число людей боя, записанное при W 128, — в той же глубине строя при нынешнем W. */
+const atW = (men: number): number => Math.round((men * FRONT_WIDTH) / 128);
 
 const planOf = (query: string, quality: Quality = 'medium'): TwPlan => {
   const b = standBattle(new URLSearchParams(query));
@@ -257,9 +260,12 @@ describe('ролик TW: показ не считает бой', () => {
 
 describe('ролик TW: хореография по журналу', () => {
   // Большой бой: у обеих армий резерв, и ядро вводит его понемногу, фаза за фазой.
-  const big = planOf('replay=tw&men=3000&foe=2600&seed=9&place=road&hour=13');
+  // Размеры боёв хореографии — от W (записаны при W 128, `atW`): глубина строя в ширинах та же, и бой — тот же по устройству.
+  // При W 94 (полная приёмка осады, docs/siege_v2.md, 19.4) те же числа ставили строй на треть глубже, резерв входил
+  // волнами, и бои уходили из области своих проверок (ходов в обход, погони, давления по полосе).
+  const big = planOf(`replay=tw&men=${atW(3000)}&foe=${atW(2600)}&seed=9&place=road&hour=13`);
   // Неровный бой: меньший ломается, и у большего есть кому гнать.
-  const uneven = planOf('replay=tw&men=900&foe=400&seed=4');
+  const uneven = planOf(`replay=tw&men=${atW(900)}&foe=${atW(400)}&seed=4`);
 
   it('резерв входит понемногу: фигур в полосы уходит не больше, чем людей ввёл журнал, и не разом', () => {
     for (const side of ['attacker', 'defender'] as const) {
@@ -279,7 +285,7 @@ describe('ролик TW: хореография по журналу', () => {
   });
 
   it('в обход уходят те, кого записал ход ядра, и встают у чужого фланга; без ходов обхода нет', () => {
-    const b = standBattle(new URLSearchParams('replay=tw&men=600&foe=560&seed=7&place=woods,road&hour=10'));
+    const b = standBattle(new URLSearchParams(`replay=tw&men=${atW(600)}&foe=${atW(560)}&seed=7&place=woods,road&hour=10`));
     // Граница области: ходы в обход у этого боя есть.
     expect(b.result.moves?.length ?? 0).toBeGreaterThan(0);
     const p = twPlanOfRecord(b.result, b.us, b.troops, 'medium', undefined, b.place, b.beastSide);
@@ -303,7 +309,7 @@ describe('ролик TW: хореография по журналу', () => {
   it('гонит только тот, кто быстрее бегущего (скорость рода ядра), и только недавно побежавших', () => {
     // Бой, где ближний к коннице отряд бежал раньше слома своей стороны больше чем на срок погони: правило «недавно» в
     // нём спрашивается (самопроверка: давно бежавший был бы ближней целью).
-    const early = planOf('replay=tw&men=600&foe=300&seed=7');
+    const early = planOf(`replay=tw&men=${atW(600)}&foe=${atW(300)}&seed=7`);
     const chasers = [big, uneven, early].flatMap((p) => p.units.filter((u) => u.chase).map((u) => ({ u, e: p.units[u.chase!.target] })));
     const stale = early.units.some((e) => e.fleeAt !== null && e.row !== 'general' && e.fleeAt < Math.min(early.brokenAt.attacker ?? Infinity, early.brokenAt.defender ?? Infinity) - CHASE_SECONDS);
     expect(stale, 'граница области: давно бежавший отряд в бою есть').toBe(true);
@@ -385,7 +391,11 @@ describe('ролик TW: хореография по журналу', () => {
             const down = list.reduce((n, u) => n + (u.figures - aliveFigures(p, u, t)) * p.k, 0);
             return men > 0 ? down / men : 0;
           };
-          if (Math.abs(lostShare(theirs) - lostShare(ours)) < 0.05) continue;
+          // Граница области: разница заметна и больше шага мерки — доля по фигурам у каждой стороны отстаёт от записи меньше
+          // чем на одну фигуру (`p.k` людей отряда), и знак двух долей различим, только если они разошлись больше суммы этих
+          // шагов. При W 128 фигура переднего отряда была меньше 5 %, при W 94 (отряд 94 человека на 16 фигур) — 6.25 %.
+          const grain = (list: typeof ours): number => p.k / Math.max(1, list.reduce((n, u) => n + u.men, 0));
+          if (Math.abs(lostShare(theirs) - lostShare(ours)) < Math.max(0.05, grain(ours) + grain(theirs))) continue;
           expect(Math.sign(v), `слот ${slot}, t ${t.toFixed(1)}`).toBe(Math.sign(lostShare(theirs) - lostShare(ours)));
           checked += 1;
         }

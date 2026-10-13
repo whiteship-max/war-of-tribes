@@ -106,6 +106,7 @@ function keyLine(e: BattleEvent, us: Side): ReportLine | null {
         e.land > 0 ? `земля −${e.land}` : '',
         e.crossing > 0 ? `переправа −${e.crossing}${e.lifted ? ', её снял манёвр полководца' : ''}` : '',
         (e.works ?? 0) > 0 ? `укрепления лагеря −${num(e.works ?? 0)}` : '',
+        (e.wall ?? 0) > 0 ? `стена −${num(e.wall ?? 0)}` : '',
       ]
         .filter(Boolean)
         .join(', ');

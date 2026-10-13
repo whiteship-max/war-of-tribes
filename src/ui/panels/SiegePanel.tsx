@@ -29,6 +29,9 @@ import type { FallForecast, Fate } from '@/world/types';
 import { Icon } from '@/ui/icons/Icon';
 import { CampStrike } from '@/ui/parts/CampStrike';
 import { plural } from '@/ui/parts/plural';
+import { SiegePhases } from '@/ui/parts/SiegePhases';
+import { SiegeAnswers } from '@/ui/parts/SiegeAnswers';
+import { SiegeParley } from '@/ui/parts/SiegeParley';
 import { bondedWord, townsWord } from '@/game/data/order';
 
 const byLevels = (n: number): string => `до ${n} ${plural(n, 'уровня', 'уровней', 'уровней')}`;
@@ -187,6 +190,9 @@ export function SiegePanel() {
       </p>
       {/* Дела полководца в лагере (world/siegecraft): лагерь укреплён, город обстреливают — словами мира. */}
       {siege.craftNote && <p className="note warn">{siege.craftNote}</p>}
+      {siege.machineNote && <p className="note warn">{siege.machineNote}</p>}
+      {/* Ход осады фазами (world/siegeroll): тот же журнал, что у осаждающего, и поправки следующей фазы. */}
+      {siege.phases && <SiegePhases phases={siege.phases} now={now} />}
       {/* Мораль между боями (14.31): уставший лагерь бить лучше сейчас, уставшему гарнизону — дать отдохнуть. */}
       {siege.campRest && (
         <p className="note">{restLine(siege.campRest, 'Лагерь дрался', now)} Бей, пока не отдохнул.</p>
@@ -198,10 +204,9 @@ export function SiegePanel() {
       )}
       {/* Износ осады (дни под стенами и залпы лагеря) — тем числом, с которым гарнизон идёт в бой у мира и у сервера войны. */}
       {siege.wear !== undefined && <p className="note warn">{wearLine(siege.wear)}</p>}
-      {siege.towerIdle && <p className="note">{siege.towerIdle}</p>}
 
       <h3>Что делать</h3>
-      <button className="btn wide" disabled={sortieBlock !== null} onClick={openSortie}>
+      <button className="btn wide" disabled={sortieBlock !== null} onClick={() => openSortie()}>
         Вылазка{garrisonMen > 0 ? ` · ${all.passed} из ${all.went}` : ''}
       </button>
       {sortieBlock && <p className="note bad">{sortieBlock}</p>}
@@ -209,6 +214,10 @@ export function SiegePanel() {
       {garrisonMen === 0 && <p className="note">{NO_GARRISON}</p>}
       {homeId && <CampStrike target={homeId} />}
       <p className="note">Разбитый лагерь снимает осаду, и город снова ест.</p>
+      {/* Ответы осаждённого (docs/siege_v2.md, раздел 5): починка, паёк, вылазка на машину, выручка, наказы, сдача. */}
+      <SiegeAnswers siege={siege} now={now} />
+      {/* Переговоры у стен (docs/siege_v2.md, раздел 7): дань за снятие, ответ на условия, наказ — числа из мира. */}
+      {siege.parley && <SiegeParley view={siege.parley} fate={siege.fate} now={now} defend={siege.answers?.defend} />}
     </div>
   );
 }

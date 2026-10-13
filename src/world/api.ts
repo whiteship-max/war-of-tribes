@@ -5,12 +5,16 @@
 // компонент интерфейса переписывать не придётся. Поэтому все методы асинхронные,
 // даже те, что сегодня отвечают мгновенно.
 import type { CraftAct } from './siegecraft';
+import type { SiegeOrders } from './siegeroll';
+import type { MachineId } from './data/machines';
 import type { TroopStack } from '@/game/battle/kinds';
 import type {
+  AssaultMode,
   AttackOrder,
   AttackResult,
   CampView,
   DealId,
+  DefendOrder,
   Fate,
   DealView,
   OrderActionId,
@@ -25,6 +29,7 @@ import type {
   MarchView,
   OrderOption,
   OrderResult,
+  ParleyOrder,
   PlayerProfile,
   Coord,
   Rect,
@@ -140,7 +145,7 @@ export interface WorldApi {
    * игрока, — по логову и по городу игрока одним приказом (город игрока — поход со штурмом с ходу, `warMarch`). Стоит у
    * ворот — бьёт сразу. Что будет до приказа — `SettlementCard.assault`. null — выступил или ударил, иначе причина.
    */
-  assault(target: SettlementId, fate: Fate): Promise<string | null>;
+  assault(target: SettlementId, fate: Fate, mode?: AssaultMode): Promise<string | null>;
 
   /** Снять свою осаду: полководец остаётся, где стоял. null — снята, иначе причина. */
   retreat(): Promise<string | null>;
@@ -152,11 +157,26 @@ export interface WorldApi {
   setWood(share: number): Promise<string | null>;
 
   /**
+   * Какую долю древесины лагеря отдать осадным машинам (одну из `data/engines.MACHINE_SHARES`; docs/siege_v2.md, 4.3).
+   * Вложенное к этой минуте остаётся вложенным — и в рогатках, и в машинах.
+   */
+  setMachineWood(share: number): Promise<string | null>;
+
+  /** Заказать осадную машину в своём лагере (`world/machines.machineBlock`): строится из древесины машин, очередью. */
+  orderMachine(id: MachineId): Promise<string | null>;
+
+  /**
    * Дело полководца в своём лагере (`world/siegecraft`): укрепить лагерь или обстрелять город — за энергию, не больше
    * предела за осаду. Лагерь под логовом — правилом мира, под городом игрока — приказом серверу войны той же дверью.
    * null — сделано, иначе причина.
    */
   campCraft(act: CraftAct): Promise<string | null>;
+
+  /**
+   * Наказы своему лагерю на отлучку (docs/siege_v2.md, 8.3): залп каждую фазу, штурм при N проломах. Срабатывают в минуту
+   * фазы той же дверью, что ручные приказы. Лагерь под городом игрока — приказом серверу войны. null — поставлены.
+   */
+  setOrders(orders: SiegeOrders): Promise<string | null>;
 
   /** Окно осаждающего: наш лагерь под чужим городом. null — лагеря нет. */
   camp(): Promise<CampView | null>;
@@ -171,6 +191,31 @@ export interface WorldApi {
    * ровно один раз, здесь, в самом событии.
    */
   sortie(troops: TroopStack): Promise<AttackResult>;
+
+  /**
+   * Ответ осаждённого (docs/siege_v2.md, раздел 5): починить пролом, урезать или вернуть паёк, поставить наказы, сдаться.
+   * Под логовом — правилом мира, под лагерем игрока — приказом серверу войны той же дверью. null — сделано, иначе причина.
+   */
+  defend(order: DefendOrder): Promise<string | null>;
+
+  /**
+   * Переговоры у стен (docs/siege_v2.md, раздел 7): осаждающий предлагает сдачу на условиях и отвечает на дань, осаждённый —
+   * наоборот. С логовом — правилом мира той же формулой, с игроком — приказом серверу войны. null — сделано, иначе причина
+   * (отказ логова — тоже строкой).
+   */
+  parley(order: ParleyOrder): Promise<string | null>;
+
+  /** Вылазка на машину лагеря (раздел 5): бой с её охраной, победа сжигает машину. Состав приходит приказом. */
+  burnMachine(id: MachineId, troops: TroopStack): Promise<AttackResult>;
+
+  /**
+   * Пакт с соседом-игроком (раздел 5): `on` — предложить или принять, иначе разорвать, отозвать, отклонить. null — принято,
+   * иначе причина.
+   */
+  pact(castle: SettlementId, on: boolean): Promise<string | null>;
+
+  /** На выручку союзнику в осаде (раздел 5): полководец из поля бьёт лагерь с тыла в минуту прихода. */
+  relief(castle: SettlementId): Promise<string | null>;
 
   /**
    * Где и когда полководец встретит чужой отряд, если приказать сейчас. Точка

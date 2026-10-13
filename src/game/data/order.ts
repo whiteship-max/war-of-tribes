@@ -70,6 +70,11 @@ export const ORDER_TEXT = {
       hint: (pop: number, per: number, morale: number): string =>
         `${pop} по ${per} при морали ${Math.round(morale)}`,
     },
+    ration: {
+      name: 'Осадный паёк',
+      icon: '🥣',
+      hint: (cut: number): string => `голодных держать труднее: надзор −${Math.round(cut * 100)}%`,
+    },
   },
 
   /**

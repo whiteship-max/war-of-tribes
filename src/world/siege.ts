@@ -13,8 +13,12 @@ import type { Fate, SettlementId } from './types';
 import type { WoodPlan } from './works';
 import type { Fire } from './bombard';
 import type { Craft } from './siegecraft';
-import { SIEGE_EAT_FLOOR, SIEGE_IMMUNE, SIEGE_TOWN_EAT, SIEGE_TOWN_LARDER, SIEGE_WEAR_FLOOR, SIEGE_WEAR_SPAN } from './data/tuning';
+import type { DefendOrders, PhaseRow, SiegeDeed, SiegeOrders } from './siegeroll';
+import type { MachineOrder } from './machines';
+import type { SiegeOffer } from './parley';
+import { SIEGE_EAT_FLOOR, SIEGE_IMMUNE, SIEGE_TOWN_EAT, SIEGE_TOWN_LARDER, SIEGE_WEAR_FLOOR } from './data/tuning';
 import { HOUR_MS as HOUR } from '../game/time';
+import { SIEGE_RATION } from '../game/constants';
 
 /**
  * Окно осады. Всё, что здесь лежит, заморожено в момент, когда окно открылось:
@@ -116,6 +120,48 @@ export interface SiegeWindow {
    * ничего не делали. Переносится при пересчёте часов голода той же осады; у новой осады его нет.
    */
   craft?: Craft;
+  /**
+   * Уровень частокола осаждённого города в минуту, когда встал лагерь (`siegeroll.wallFaces`: −1 к кости фазы за каждые
+   * два уровня). Нет поля — стены нет: логово, двор мира, окно из сохранения до фаз.
+   */
+  wall?: number;
+  /**
+   * Дни пути лагеря от своего дома — города игрока или логова отряда, игровые (`siegeroll.wasteOf`: истощение растёт с
+   * дальностью). Заморожено при постановке; нет поля — ноль.
+   */
+  homeDays?: number;
+  /**
+   * Журнал дел с минутой — входы фазы, которые должны быть известны задним числом (docs/siege_v2.md, 2.1): залп ложится
+   * сюда, и кость его фазы читает его отсюда. Нет поля — окно из сохранения до фаз: его прежние залпы переводятся в
+   * проломы (`siegeroll.breachesOf`).
+   */
+  log?: SiegeDeed[];
+  /** Брошенные фазы — журнал фаз (`siegeroll.PhaseRow`). Нет поля — ни одной. */
+  phases?: PhaseRow[];
+  /** Наказы осаждающего на отлучку (`siegeroll.SiegeOrders`). Нет поля — наказов нет. */
+  orders?: SiegeOrders;
+  /**
+   * Осадные машины лагеря — очередь заказов (`world/machines`): что, когда заказано и когда истрачено на штурм. Древесину
+   * им даёт план древесины (`wood.machines`). Нет поля — машин не заказывали.
+   */
+  machines?: MachineOrder[];
+  /**
+   * Осадный паёк осаждённого (docs/siege_v2.md, раздел 5): с минуты `startedAt` этого окна город ест ×¾ (`SIEGE_RATION`).
+   * Урезать и вернуть паёк — пересчёт часов голода от остатка хлеба, как смена гарнизона. Нет поля — паёк обычный.
+   */
+  ration?: boolean;
+  /** Наказы осаждённого на отлучку (`siegeroll.DefendOrders`): чинить пролом, урезать паёк. Нет поля — наказов нет. */
+  defend?: DefendOrders;
+  /**
+   * Отметки «осада» того, кто ведёт лагерь (`siegeroll.leadFaces`: +1 к кости фазы за каждую, до трёх; docs/siege_v2.md,
+   * 2.3, этап 2е) — заморожены при постановке. Нет поля — ноль: у логова и двора мира полководца нет.
+   */
+  lead?: number;
+  /**
+   * Переговоры у стен (`world/parley`, docs/siege_v2.md, раздел 7): предложения сторон — сдача на условиях и дань — и ответ
+   * на них. Нет поля — никто ничего не предлагал. Переносится при пересчёте часов голода той же осады.
+   */
+  offers?: SiegeOffer[];
 }
 
 /** Когда осада началась. Пересчёт часов голода эту отметку не двигает. */
@@ -130,7 +176,10 @@ export const siegeSince = (w: SiegeWindow): number => w.sinceAt ?? w.startedAt;
  * дольше, а еда кончится раньше.
  */
 export const consumptionPerHour = (w: SiegeWindow): number =>
-  Math.max(SIEGE_EAT_FLOOR, w.townPerHour + Math.max(0, w.garrisonAtStart) * w.perManPerHour);
+  Math.max(SIEGE_EAT_FLOOR, (w.townPerHour + Math.max(0, w.garrisonAtStart) * w.perManPerHour) * rationShare(w));
+
+/** Доля обычного расхода, которую ест город: осадный паёк — ×¾ (`SIEGE_RATION`), без него — единица. Без единиц времени. */
+export const rationShare = (w: Pick<SiegeWindow, 'ration'>): number => (w.ration ? SIEGE_RATION : 1);
 
 /**
  * Когда кончится еда. Чистая функция от окна и только от него: ни часов, ни
@@ -141,12 +190,25 @@ export const starvesAt = (w: SiegeWindow): number =>
   w.startedAt + (Math.max(0, w.foodAtStart) / consumptionPerHour(w)) * HOUR;
 
 /**
- * Во сколько раз мораль гарнизона в бою ниже от того, что осада идёт с минуты `since` (`SIEGE_WEAR_*`): единица
- * в минуту, когда лагерь встал, дальше прямой до дна. Одна дверь на осаду логова (`LocalWorld.garrisonRest`) и на
- * осаду игроком (`netlify/lib/war.ts`). Тика нет — считается при чтении.
+ * Во сколько раз мораль гарнизона в бою ниже от того, что осада идёт с минуты `since`: единица в минуту, когда лагерь
+ * встал, дальше прямой до дна (`SIEGE_WEAR_FLOOR`) за `span` — срок голода окна (`wearSpan`; docs/siege_v2.md, 2.6: к
+ * голоду гарнизон на дне). Одна дверь на осаду логова (`LocalWorld.garrisonRest`) и на осаду игроком
+ * (`netlify/lib/war.ts`). Тика нет — считается при чтении.
  */
-export const siegeWear = (since: number, at: number): number =>
-  1 - (1 - SIEGE_WEAR_FLOOR) * Math.min(1, Math.max(0, at - since) / SIEGE_WEAR_SPAN);
+export const siegeWear = (since: number, at: number, span: number): number =>
+  1 - (1 - SIEGE_WEAR_FLOOR) * Math.min(1, Math.max(0, at - since) / Math.max(1, span));
+
+/**
+ * Когда кончится хлеб, если с минуты `at` паёк станет `on` (docs/siege_v2.md, раздел 5): остаток хлеба к этой минуте, расход
+ * окна с пайком или без. Та же арифметика, что пересчёт часов голода при приказе, — окно говорит игроку пользу до нажатия.
+ */
+export function starvesIfRation(w: SiegeWindow, at: number, on: boolean): number {
+  const left = Math.max(0, w.foodAtStart - (consumptionPerHour(w) * Math.max(0, at - w.startedAt)) / HOUR);
+  return at + (left / consumptionPerHour({ ...w, ration: on })) * HOUR;
+}
+
+/** Путь износа гарнизона до дна — от начала осады до голода этого окна, мс (docs/siege_v2.md, 2.6). */
+export const wearSpan = (w: SiegeWindow): number => Math.max(1, starvesAt(w) - siegeSince(w));
 
 /** Осада идёт прямо сейчас? Считается при чтении, а не отмечается тиком. */
 export const siegeActive = (w: SiegeWindow | undefined, now: number): boolean =>
@@ -182,6 +244,21 @@ export function openSiege(at: {
   fire?: Fire;
   /** Дела полководца в лагере той же осады: переносятся при пересчёте. */
   craft?: Craft;
+  /** Ход осады фазами (`world/siegeroll`): стена, путь от дома, журнал дел и фаз, наказы — переносятся при пересчёте. */
+  wall?: number;
+  homeDays?: number;
+  log?: SiegeDeed[];
+  phases?: PhaseRow[];
+  orders?: SiegeOrders;
+  /** Паёк и наказы осаждённого той же осады: переносятся при пересчёте. */
+  ration?: boolean;
+  defend?: DefendOrders;
+  /** Очередь осадных машин той же осады (`world/machines`): переносится при пересчёте, как журнал дел. */
+  machines?: MachineOrder[];
+  /** Отметки «осада» полководца лагеря: у новой осады — при постановке, у той же — переносятся. */
+  lead?: number;
+  /** Переговоры той же осады (`world/parley`): переносятся при пересчёте. */
+  offers?: SiegeOffer[];
 }): SiegeWindow {
   return {
     byId: at.byId,
@@ -197,6 +274,16 @@ export function openSiege(at: {
     ...(at.builders !== undefined ? { builders: Math.max(0, Math.round(at.builders)) } : {}),
     ...(at.fire !== undefined ? { fire: at.fire } : {}),
     ...(at.craft !== undefined && (at.craft.fort || at.craft.shots) ? { craft: { ...at.craft } } : {}),
+    ...(at.wall ? { wall: Math.max(0, Math.floor(at.wall)) } : {}),
+    ...(at.homeDays ? { homeDays: Math.max(0, at.homeDays) } : {}),
+    ...(at.log !== undefined ? { log: at.log.map((d) => ({ ...d })) } : {}),
+    ...(at.phases?.length ? { phases: at.phases.map((r) => ({ ...r, mods: { ...r.mods }, ...(r.orders ? { orders: [...r.orders] } : {}) })) } : {}),
+    ...(at.orders ? { orders: { ...at.orders } } : {}),
+    ...(at.ration ? { ration: true } : {}),
+    ...(at.defend ? { defend: { ...at.defend } } : {}),
+    ...(at.machines?.length ? { machines: at.machines.map((m) => ({ ...m })) } : {}),
+    ...(at.lead ? { lead: Math.max(0, Math.floor(at.lead)) } : {}),
+    ...(at.offers?.length ? { offers: at.offers.map((o) => ({ ...o })) } : {}),
     foodAtStart: Math.max(0, at.food),
     garrisonAtStart: Math.max(0, Math.round(at.garrison)),
     townPerHour: Math.max(0, at.townPerHour),
@@ -277,32 +364,25 @@ export const CHASE_FROM_CAMP = 'Полководец держит осаду, п
  */
 export const STRIKE_FROM_TOWN = 'Полководец в городе. Его отряд выходит за ворота только вылазкой.';
 
-/** Почему «Осадить» погашено, пока полководец не у ворот: лагерь ставят на месте, похода «дойти и осадить» нет. */
-export const SIEGE_AT_GATES = 'Осаду ставит полководец у самых ворот. Доведи его сюда, тогда «Осадить».';
-
 /** Что случится, если увести полководца из лагеря. Одна строка на все точки. */
 export const CAMP_LEAVE = 'Уведёшь полководца, и осада снята.';
 
 /**
- * Что случится, если из лагеря пойти на приступ. Штурм — это бой с гарнизоном, а
- * не продолжение осады: лагерь снимается до боя, и сказано это до приказа.
+ * Что случится, если из лагеря пойти на приступ (docs/siege_v2.md, 4.4). Штурм с машинами — дело осады, а не отказ от
+ * неё: отбитый штурм лагерь не снимает, осада идёт дальше с теми, кто уцелел. Сказано это до приказа.
  */
-export const STORM_LIFTS = 'Штурм снимает осаду. Возьмёшь город, будет объявленная участь. Отобьют, лагеря не станет.';
+export const STORM_HOLDS = 'Возьмёшь город — будет объявленная участь. Отобьют — осада идёт дальше с теми, кто уцелел.';
 
 /** Отказ «Объявить» ту же участь — одна строка на лагерь под логовом (мир) и под городом игрока (сервер войны). */
 export const FATE_SAME = 'Осада и так идёт с этой участью.';
 
 /**
- * Под городом соседа древесину лагеря не делят: вся идёт к городу (`works.playerWood(1)`, сервер войны). Одна строка на
- * окно лагеря, где вместо пяти кнопок стоит она, и на отказ приказа (docs/siege_audit.md, решение 3).
+ * Под городом соседа древесину рогаток не делят между сторонами: вся идёт к городу (`works.playerWood(1, машинам)`, сервер
+ * войны), а делится она только с машинами (docs/siege_v2.md, 4.3). Одна строка на окно лагеря, где вместо пяти кнопок
+ * сторон стоит она, и на отказ приказа (docs/siege_audit.md, решение 3).
  */
-export const WOOD_FIXED = 'Под городом соседа весь лес идёт на укрепления к воротам.';
+export const WOOD_FIXED = 'Под городом соседа рогатки ставят только к воротам: лес, что не идёт на машины, — туда.';
 
-/**
- * Башня с орудием под лагерем соседа молчит: обстрел с башни (`world/bombard`) — правило мира против лагеря логова, у
- * сервера войны его нет (docs/pvp.md, раздел 4). Окно осады говорит это словами, а не молчит (docs/siege_audit.md, п. 12).
- */
-export const TOWER_NOT_PVP = 'Башня бьёт только по лагерям логов. По лагерю соседа она не стреляет.';
 
 /**
  * Пустой гарнизон в осаде (docs/siege_audit.md, решение 1): вылазку делать некем, а новобранцев в осаде не набрать

@@ -44,22 +44,78 @@ const away = (over: Partial<NotifyRecord> = {}): NotifyRecord => ({
 
 const verdict = (rec: NotifyRecord, now = NOW) => choose(rec, now).verdicts.map((v) => v.verdict);
 
+describe('своя запись сервера перечитывается без потерь', () => {
+  /**
+   * Вести войны лежат в исходящих и перед отправкой читаются из хранилища (`readNotify` → `contract.readNotices`): слова из
+   * перечитанной вести — те же, что из положенной (docs/siege_v2.md, 19.2). Прежде поля переговоров (`offer`, `answer`) при
+   * чтении отбрасывались, и любая весть о переговорах уходила словами «предлагает дань».
+   */
+  it('переговоры, пакт, выручка, вылазка на машину — те же поля и слова после хранилища', () => {
+    const war = (kind: NoticeItem['kind'], key: string, p: Partial<NoticeItem['p']>): NoticeItem => ({
+      key: `${kind}:${key}`,
+      kind,
+      fireAt: NOW - MIN,
+      until: NOW + 10 * MIN,
+      p: { from: 'Бета', fate: 'plunder', about: NOW + 5 * MIN, ...p },
+    });
+    const items = [
+      war('war-parley', 'w1:terms:1', { role: 'def', offer: 'terms', fate: 'captives' }),
+      war('war-parley', 'w1:tribute:1', { role: 'atk', offer: 'tribute' }),
+      war('war-parley', 'w1:terms:1:no', { role: 'atk', offer: 'terms', answer: 'no' }),
+      war('war-parley', 'w1:tribute:paid', { role: 'def', offer: 'tribute', answer: 'yes' }),
+      war('war-pact', 'c1:1', { pact: 'offer' }),
+      war('war-pact', 'c1:1:made', { pact: 'made' }),
+      war('war-relief', 'w1:go:c1:2', { role: 'def', relief: 'going', ally: 'Гамма' }),
+      war('war-relief', 'w1.3', { relief: 'fight', won: true }),
+      war('war-relief', 'w1:turned:4', { relief: 'turned' }),
+      war('war-relief', 'w1:turned:5', { role: 'def', relief: 'turned', ally: 'Гамма' }),
+      war('war-fight', 'w1.6', { role: 'def', site: 'sortie', by: 'def', won: true, machine: 'tower' }),
+      war('war-fight', 'w1.7', { role: 'def', site: 'camp', by: 'def', won: false, ally: 'Гамма' }),
+    ];
+    const texts = new Set<string>();
+    for (const it0 of items) {
+      const { record } = news(emptyNotify(), [it0], [], PLAYER, NOW);
+      const back = readNotify(JSON.parse(JSON.stringify(record)));
+      expect(back.srv, it0.key).toEqual([it0]);
+      expect(noticeText(back.srv[0], DEFAULT_PREFS.tz), it0.key).toBe(noticeText(it0, DEFAULT_PREFS.tz));
+      texts.add(noticeText(it0, DEFAULT_PREFS.tz));
+    }
+    expect(texts.size, 'у каждой вести свои слова').toBe(items.length);
+  });
+});
+
 describe('белый список видов', () => {
   /**
    * Решение владельца (05.10.2026): бот пишет о двух вещах — на город нападают и бой был. Шесть видов поимённо:
    * три о логове (мир на клиенте), три о войне между игроками и тайное нападение лазутчика соседа (сервер,
    * docs/spy_pvp.md). Вида «вернись в игру» быть не может.
    */
-  it('семь видов поимённо, вида «вернись в игру» быть не может', () => {
-    expect([...NOTICE_KINDS]).toEqual(['raid', 'raid-fight', 'siege-fall', 'war', 'war-fight', 'war-fall', 'war-spy']);
+  it('двенадцать видов поимённо, вида «вернись в игру» быть не может', () => {
+    // Фаза осады — пролом и мор (`siege-phase` у осады логова, `war-phase` у войны; docs/siege_v2.md, 8.3). Переговоры у стен
+    // (`war-parley`, раздел 7) — только у войны: с логовом переговоры идут в игре, без вестей.
+    // Пакт и выручка союзника (`war-pact`, `war-relief`, docs/siege_v2.md, 19.2) — слово владельца 13.10.2026.
+    expect([...NOTICE_KINDS]).toEqual([
+      'raid',
+      'raid-fight',
+      'siege-fall',
+      'siege-phase',
+      'war',
+      'war-fight',
+      'war-fall',
+      'war-spy',
+      'war-phase',
+      'war-parley',
+      'war-pact',
+      'war-relief',
+    ]);
     const put = accept(emptyNotify(), { computedAt: NOW, items: [item({ kind: 'come-back' as never, key: 'come-back:1' })] }, PLAYER, NOW);
     expect(put.fail).toEqual({ status: 400, error: 'bad-body' });
   });
 
   /** Войну знает только сервер: клиент, приславший «бой был» о войне, назвал бы исход, которого сервер не считал. */
   it('клиент не может прислать вид войны — отказ всему списку', () => {
-    expect([...CLIENT_KINDS]).toEqual(['raid', 'raid-fight', 'siege-fall']);
-    for (const kind of ['war', 'war-fight', 'war-fall', 'war-spy'] as const) {
+    expect([...CLIENT_KINDS]).toEqual(['raid', 'raid-fight', 'siege-fall', 'siege-phase']);
+    for (const kind of ['war', 'war-fight', 'war-fall', 'war-spy', 'war-phase', 'war-parley', 'war-pact', 'war-relief'] as const) {
       const fake = item({ kind, key: `${kind}:x`, p: { ...item().p, role: 'def', won: true } });
       expect(accept(emptyNotify(), { computedAt: NOW, items: [fake] }, PLAYER, NOW).fail, kind).toEqual({ status: 400, error: 'bad-body' });
     }

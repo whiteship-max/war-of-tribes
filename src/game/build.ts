@@ -5,7 +5,7 @@
 //
 // Потолки (`…_MAX`, `buildCeil`, `popGrowthCeil`) выводятся из таблиц игры, а не задаются числом: наибольшее, что дают
 // сезон, усилители вестей, мораль, вера, указ и рацион вместе. Больше этого у игрока не бывает никак.
-import type { BuildingTypeId } from './types';
+import type { BuildingTypeId, ResourceId } from './types';
 import {
   BASE_DEFENSE,
   BASE_HOUSING,
@@ -20,6 +20,7 @@ import {
   UPGRADE_GROWTH,
   MAX_BUILDING_LEVEL,
   VILLAGER_DEFENSE,
+  WALL_REPAIR_SHARE,
 } from './constants';
 import { BUILDING_BY_ID, slotsAt, type BuildingStats } from './data/buildings';
 import { SEASON_MODIFIERS } from './data/seasons';
@@ -150,3 +151,17 @@ export const crowdMax = (souls: number): number => Math.max(CROWD_MAX.min, Math.
 
 /** Наибольшая доля труда уровня, которую весть кладёт в стройку разом (`data/events.EVENT_WORK`: артель, день на стройке). */
 export const EVENT_WORK_MAX = 0.35;
+
+/**
+ * Цена починки пролома при стенах уровня `level` (docs/siege_v2.md, раздел 5): треть цены этого уровня
+ * (`WALL_REPAIR_SHARE`) — той же лестницей `UPGRADE_GROWTH`, что улучшение (`derived.upgradeCost`). Одна формула на игру
+ * (окно осады, починка у мира) и на сервер войны (проверка склада защитника). Стен нет — чинить нечего, цены нет.
+ */
+export function wallRepairCost(level: number): Partial<Record<ResourceId, number>> {
+  const lv = Math.max(0, Math.min(MAX_BUILDING_LEVEL, Math.floor(level)));
+  if (lv < 1) return {};
+  const k = Math.pow(UPGRADE_GROWTH, lv - 1) * WALL_REPAIR_SHARE;
+  const out: Partial<Record<ResourceId, number>> = {};
+  for (const [r, v] of Object.entries(BUILDING_BY_ID.palisade.cost) as [ResourceId, number][]) if (v) out[r] = Math.round(v * k);
+  return out;
+}

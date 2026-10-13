@@ -141,11 +141,12 @@ const siegeFacts = (over: Partial<NonNullable<NoticeWorld['siege']>> = {}): NonN
 const only = (items: NoticeItem[], kind: NoticeItem['kind']): NoticeItem[] => items.filter((i) => i.kind === kind);
 
 describe('черновики: вид, ключ, «когда» и «годно до»', () => {
-  it('клиент составляет три вида и только их: о войне между игроками говорит сервер', () => {
+  it('клиент составляет четыре вида и только их: о войне между игроками говорит сервер', () => {
     // Вида «вернись в игру», «стройка готова», «награда ждёт» здесь быть не может: это
     // напоминания игры о себе, и именно из-за них уведомления выключают целиком. Решение
     // владельца (05.10.2026): о двух вещах — нападают и бой был (docs/NOTIFY.md, раздел 12).
-    expect([...CLIENT_KINDS]).toEqual(['raid', 'raid-fight', 'siege-fall']);
+    // Фаза осады логова — пролом и мор (docs/siege_v2.md, 8.3): о значимом исходе, а не напоминание игры о себе.
+    expect([...CLIENT_KINDS]).toEqual(['raid', 'raid-fight', 'siege-fall', 'siege-phase']);
   });
 
   it('набег: «нападают» — с минуты, когда его видно, до прихода; «бой был» — в минуту прихода', () => {
@@ -457,11 +458,14 @@ describe('разрыв держит правду', () => {
           }
           const end = await runTo(w, t, about - 1000);
           const label = `сид ${seed}, ${kind}, черновик с +${dt / MINUTE} мин`;
-          expect(end.siege, `${label}: осада дожила до конца хлеба`).not.toBeNull();
-          expect(
-            Math.round((end.siege!.starvesAt - about) / 1000),
-            `${label}: окно уехало за прогон, с — черновик соврал бы`,
-          ).toBe(0);
+          expect(end.siege, `${label}: осада дожила до падения`).not.toBeNull();
+          // Падение — голодом в минуту конца хлеба или сдачей на фазе (`gates`, docs/siege_v2.md, 2.4) — раньше него.
+          if (points[0].p.gates) expect(end.siege!.starvesAt, `${label}: сдача раньше голода`).toBeGreaterThan(about);
+          else
+            expect(
+              Math.round((end.siege!.starvesAt - about) / 1000),
+              `${label}: окно уехало за прогон, с — черновик соврал бы`,
+            ).toBe(0);
           expect(end.siege!.since, `${label}: начало осады`).toBe(fz.since);
           expect(end.siege!.fate, `${label}: участь`).toBe(points[0].p.fate);
           // И правда: в минуту конца хлеба осада кончилась падением, а не чем-то другим.

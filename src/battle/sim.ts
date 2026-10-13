@@ -34,7 +34,7 @@ import {
   roundsCap,
 } from './config';
 import { seededRng, type Rng } from './rng';
-import { emptyStack, garrisonShare, reinforceInto, stackTotal, validateSetup } from './setup';
+import { emptyStack, frontOf, garrisonShare, reinforceInto, stackTotal, validateSetup } from './setup';
 import {
   FRONT,
   HORSE_KINDS,
@@ -95,6 +95,8 @@ interface Group {
   flankCover: number;
   /** Потери группы за тик, взвешенные для морали. */
   lostTick: number;
+  /** Вторая армия стороны, вставшая в тылу противника (`ArmySetup.behind`): дошла до тыла с первого контакта. */
+  behind?: boolean;
 }
 
 type Kills = Record<UnitKind, Record<UnitKind, number>>;
@@ -292,14 +294,15 @@ export const pipOf = (setup: ArmySetup, pip: PipId): number => {
 export function groundFaces(
   own: ArmySetup,
   enemy: ArmySetup,
-): { land: number; crossing: number; lifted: boolean; works: number; faces: number } {
+): { land: number; crossing: number; lifted: boolean; works: number; wall: number; faces: number } {
   const clean = (n: number | undefined): number => (n !== undefined && Number.isFinite(n) ? Math.max(0, n) : 0);
   const land = clean(own.ground?.land);
   const crossing = clean(own.ground?.crossing);
-  // Укрепления лагеря — как земля: манёвр их не снимает (`GroundPenalty.works`).
+  // Укрепления лагеря и стена — как земля: манёвр их не снимает (`GroundPenalty.works`, `.wall`).
   const works = clean(own.ground?.works);
+  const wall = clean(own.ground?.wall);
   const lifted = crossing > 0 && pipOf(own, 'maneuver') > pipOf(enemy, 'maneuver');
-  return { land, crossing, lifted, works, faces: land + works + (lifted ? 0 : crossing) };
+  return { land, crossing, lifted, works, wall, faces: land + works + wall + (lifted ? 0 : crossing) };
 }
 
 /**
@@ -347,10 +350,23 @@ function newGroup(side: Side, setup: ArmySetup, origin: Sector, stack: Stack, la
 /** Группа на сектор расстановки: где встал — там и стоит. Приказов, разводящих сектор на части, нет. */
 function buildGroups(side: Side, setup: ArmySetup): Group[] {
   const groups: Group[] = [];
+  const own = frontOf(setup);
   for (const sector of SECTORS) {
-    const stack = setup.sectors[sector];
+    const stack = own[sector];
     if (stackTotal(stack) <= 0) continue;
     groups.push(newGroup(side, setup, sector, stack, laneOf(sector), rowOf(sector)));
+  }
+  // Клещи (`ArmySetup.behind`): вторая армия стоит в тылу противника обходящими своей полосы — тот же ряд, что у ушедших в
+  // обход (`relocate`), только с первого тика и лицом к тылу (`prefer: 'rear'`). Её резерв — резерв стороны.
+  if (setup.behind) {
+    for (const sector of SECTORS) {
+      const stack = setup.behind[sector];
+      if (stackTotal(stack) <= 0) continue;
+      const lane = laneOf(sector);
+      const g = lane === null ? newGroup(side, setup, sector, stack, null, 'reserve') : newGroup(side, setup, sector, stack, lane, 'strike', { prefer: 'rear' });
+      g.behind = lane !== null;
+      groups.push(g);
+    }
   }
   return groups;
 }
@@ -373,7 +389,8 @@ class Battle {
    */
   luck: Record<Side, number> = { attacker: 1, defender: 1 };
   /** Ширина фронта полосы в этом бою: столько бьёт в одном ряду полосы с одной стороны. */
-  readonly width: number;
+  /** Ширина боя; меняется только проёмом посреди боя (`BattleInput.widen`), в начале его круга. */
+  width: number;
   /** Сколько живых стоит в ряду полосы в этот тик (`measureRows`): ключ — `rowKey`. */
   rowMen = new Map<string, number>();
   /** Сколько кругов прошло сверх первого (`run`); круг по счёту — на единицу больше. */
@@ -431,9 +448,10 @@ class Battle {
         kills: [zeroKills(), zeroKills(), zeroKills()],
         killsAtPhase: [zeroKills(), zeroKills(), zeroKills()],
         fired: new Set(),
+        // Места в ряду держит строй своей полосы; вторая армия в тылу противника (`behind`) их не держит.
         held: {
-          front: ([0, 1, 2] as Lane[]).map((lane) => stackTotal(setup.sectors[laneSector(lane, 'front')])),
-          rear: ([0, 1, 2] as Lane[]).map((lane) => stackTotal(setup.sectors[laneSector(lane, 'rear')])),
+          front: ([0, 1, 2] as Lane[]).map((lane) => stackTotal(frontOf(setup)[laneSector(lane, 'front')])),
+          rear: ([0, 1, 2] as Lane[]).map((lane) => stackTotal(frontOf(setup)[laneSector(lane, 'rear')])),
         },
       };
     };
@@ -474,6 +492,19 @@ class Battle {
     }
     // Поле штрафа — только когда он есть: у боя на ровном месте запись та же, что до поставки 1.
     this.emit(ground.attacker > 0 || ground.defender > 0 ? { id: 'dice', rolls, pips, ground } : { id: 'dice', rolls, pips });
+  }
+
+  /**
+   * Проём посреди боя (`BattleInput.widen`): в начале круга `round` ширина боя и штраф стены нападающего становятся
+   * такими, как сказал вход, — раз. Кость фазы читает штраф в начале фазы, так что новый круг бросает уже с ним.
+   */
+  widenAt(round: number): void {
+    const w = this.input.widen;
+    if (!w || round !== Math.max(1, Math.floor(w.round))) return;
+    this.width = w.width;
+    const atk = this.input.attacker;
+    this.ground.attacker = groundFaces({ ...atk, ground: { ...(atk.ground ?? {}), wall: w.wall } }, this.input.defender);
+    this.emit({ id: 'widen', width: w.width, wall: this.ground.attacker.wall });
   }
 
   emit(e: EventBody): void {
@@ -649,8 +680,16 @@ class Battle {
     if (this.tick === 1) {
       for (const side of SIDES) {
         const g = this.ground[side];
-        if (g.land > 0 || g.crossing > 0 || g.works > 0) {
-          this.emit({ id: 'ground', side, land: g.land, crossing: g.crossing, lifted: g.lifted, ...(g.works > 0 ? { works: g.works } : {}) });
+        if (g.land > 0 || g.crossing > 0 || g.works > 0 || g.wall > 0) {
+          this.emit({
+            id: 'ground',
+            side,
+            land: g.land,
+            crossing: g.crossing,
+            lifted: g.lifted,
+            ...(g.works > 0 ? { works: g.works } : {}),
+            ...(g.wall > 0 ? { wall: g.wall } : {}),
+          });
         }
       }
       // Сторона вышла в бой уставшей — раз, в начале боя: с какой долей полной морали (мораль между боями, 14.31).
@@ -659,6 +698,8 @@ class Battle {
         if (rest < 1) this.emit({ id: 'weary', side, rest });
       }
     }
+    // Проём посреди боя открывается в начале своего круга — до кости: новый круг бросает уже с новым штрафом.
+    if (this.opening) this.widenAt(this.round);
     this.rollDice();
     for (const side of SIDES) this.sides[side].killsAtPhase = cloneKills(this.sides[side].kills);
     if (this.opening) {
@@ -939,15 +980,23 @@ class Battle {
     }
   }
 
-  /** Какая доля группы бьёт в этот тик: ряд уже ширины — вся. Первый раз зажатый ряд пишется в журнал. */
-  widthShare(g: Group): number {
+  /**
+   * Какая доля группы бьёт в этот тик: ряд уже ширины — вся. Первый раз зажатый ряд пишется в журнал. Ширина — боя; у
+   * стрельбы своя (`BattleInput.fire`, нет — та же).
+   */
+  widthShare(g: Group, width: number = this.width): number {
     if (g.lane === null || (g.row !== 'front' && g.row !== 'rear' && g.row !== 'strike')) return 1;
     const men = this.rowMen.get(rowKey(g.side, g.lane, g.row)) ?? 0;
-    if (men <= this.width) return 1;
+    if (men <= width) return 1;
     const row = g.row;
     const sector = laneSector(g.lane, row === 'rear' ? 'rear' : 'front');
-    this.once(`depth:${row}:${sector}`, this.sides[g.side], { id: 'depth', side: g.side, sector, row, men: Math.round(men), width: this.width });
-    return this.width / men;
+    this.once(`depth:${row}:${sector}`, this.sides[g.side], { id: 'depth', side: g.side, sector, row, men: Math.round(men), width });
+    return width / men;
+  }
+
+  /** Ширина стрельбы: своя у боя у стены (`BattleInput.fire`), иначе — ширина боя. */
+  get fireWidth(): number {
+    return this.input.fire ?? this.width;
   }
 
   /** Пары позиций, которые сейчас дерутся. */
@@ -979,6 +1028,9 @@ class Battle {
           const cover = coverOf(occupied(aimed[row], this.width), occupied(rows[row], this.width));
           for (const g of aimed[row]) contacts.push({ a: [g], b: rows[row], aFlank: true, aRow: 'strike', bRow: row, aCover: cover });
           if (cover > 0) this.flankTurned(side, enemy, eLane, row, rows[row], cover);
+          // Клещи: вторая армия стоит в тылу и бьёт тыл полосы — противник дошёл до тыла (`reached`), тем же правилом, что
+          // строй, прорвавшийся сквозь фронт.
+          if (row === 'rear' && aimed.rear.some((g) => g.behind)) this.reached(enemy, eLane);
         }
       }
     }
@@ -1144,7 +1196,7 @@ class Battle {
     // Пока цель не в рукопашной, стрельба идёт в полную силу; после контакта — через головы своих (`FIRE_AFTER_CONTACT`).
     const m = targets.some((t) => engaged.has(t)) ? FIRE_AFTER_CONTACT : 1;
     // Стреляет не больше ширины ряда: лучники за строем шире фронта — та же глубина, что у пехоты.
-    const p = g.stack.archer * UNIT_STATS.archer.ranged * RANGED_RATE * this.dealtMult(g) * m * this.widthShare(g);
+    const p = g.stack.archer * UNIT_STATS.archer.ranged * RANGED_RATE * this.dealtMult(g) * m * this.widthShare(g, this.fireWidth);
     this.distribute(g, 'archer', p, targets, { flank: false, ranged: true }, g.lane, hits);
   }
 
@@ -1494,7 +1546,8 @@ class Battle {
     const s = this.sides[side];
     const sectors = {} as SideResult['sectors'];
     // Кто из ворот (совместный удар): наблюдение для показа, раскладка входа по секторам — бой его не читает.
-    const garrison = this.observe && s.setup.garrison ? garrisonShare(s.setup.sectors, s.setup.garrison) : null;
+    // При клещах (`behind`) из ворот — ровно строй своей полосы, а в тылу — дружина с поля.
+    const garrison = this.observe && s.setup.garrison ? (s.setup.behind ? frontOf(s.setup) : garrisonShare(s.setup.sectors, s.setup.garrison)) : null;
     const initial = emptyStack();
     const final = emptyStack();
     for (const sector of SECTORS) {
@@ -1562,5 +1615,9 @@ export function simulateBattle(input: BattleInput, opts: { observe?: boolean } =
   }
   // Ширина — положительное число; `Infinity` законна и значит «боя без ширины».
   if (input.width !== undefined && !(input.width > 0)) throw new Error(`battle: ширина фронта ${input.width}`);
+  if (input.fire !== undefined && !(input.fire > 0)) throw new Error(`battle: ширина стрельбы ${input.fire}`);
+  if (input.widen && !(input.widen.width > 0 && input.widen.round >= 1 && input.widen.wall >= 0)) {
+    throw new Error(`battle: проём посреди боя ${JSON.stringify(input.widen)}`);
+  }
   return new Battle(input, opts.observe ?? true).run();
 }

@@ -92,6 +92,35 @@ export interface TwLadder {
   raiseAt: number;
   /** Кто на ней — номера фигур, первый лезет первым. */
   queue: number[];
+  /** Это лестница осадной башни: её не несут — она внутри башни, и сама лестница не рисуется (`TwSite.tower`). */
+  tower?: boolean;
+}
+
+/**
+ * Проём штурма из записи боя (`BattleRecord.openings`, мир — `world/wall.Opening`): чем лезли и на какую долю стены. Своим
+ * типом: показ мира не читает (`plan.test.ts`, «режиссура не тянет мир»), а строки сверяет тест.
+ */
+export type TwOpeningId = 'breach' | 'gate' | 'tower' | 'ladders' | 'scaling';
+export const OPENING_KINDS: readonly TwOpeningId[] = ['breach', 'gate', 'tower', 'ladders', 'scaling'];
+export interface TwOpening {
+  id: TwOpeningId;
+  share: number;
+  round: number;
+}
+
+/**
+ * Чем идут на стену в каждом слоте фронта (0 — левый, 1 — середина, где ворота, 2 — правый): лестницы, пролом, ворота
+ * после тарана, осадная башня — или глухая стена, где не лезет никто. Режиссура, а не счёт: ядро сужает фронт всем
+ * полосам поровну, а ролик раскладывает проёмы по слотам, чтобы было видно, чем шли (`plan.slotUses`).
+ */
+export type SlotUse = 'ladders' | 'breach' | 'gate' | 'tower' | 'wall';
+
+/** Осадная башня: у какого отряда, где у стены по X и когда подкатили. */
+export interface TwSiegeTower {
+  unit: number;
+  x: number;
+  /** Секунда, когда башня у стены и мост опущен. */
+  at: number;
 }
 
 export interface TwRam {
@@ -147,6 +176,10 @@ export interface TwSite {
   square: { x: number; z: number; r: number } | null;
   street: { x: number; half: number; z0: number; z1: number } | null;
   camp: TwCamp | null;
+  /** Чем идут на стену по слотам фронта (`SlotUse`); нет — запись до стены-прохода: лестницы везде и таран у ворот. */
+  uses?: SlotUse[];
+  /** Осадная башня у стены; нет — не строили. */
+  tower?: TwSiegeTower | null;
 }
 
 /** Прямоугольник по плану (для «здесь стоят люди — дом не ставить»). */

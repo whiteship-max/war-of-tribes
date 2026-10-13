@@ -762,7 +762,8 @@ describe('круги сечи', () => {
     // никого. Пешему с края соседнюю полосу не достать, и ход (`relocate`) — только у того, чья полоса очищена в бою; если
     // центры бежали разом, одиночки стояли мимо друг друга до потолка кругов. Теперь нечётный остаток ждёт в резерве.
     const N = FRONT_WIDTH + 1;
-    const splits: Array<Partial<Stack>> = [0, 34, 68, 102, 136, N].map((spear) => ({ spear, infantry: N - spear }));
+    // Доли копий — те же, что при W 156 (0, 34, 68, 102, 136 из 157): числа идут от W.
+    const splits: Array<Partial<Stack>> = [0, 34, 68, 102, 136, 157].map((k) => Math.round((k * N) / 157)).map((spear) => ({ spear, infantry: N - spear }));
     // Граница области: у каждой армии пеших сверх центра нечётное число, а края не полны — прежнее правило поставило бы
     // одиночку на край.
     for (const a of splits) {
@@ -1110,13 +1111,15 @@ describe('журнал осмыслен', () => {
     // Истребляют в строю: бежавший уходит с поля, и достаёт его только погоня (мораль EU4, 14.15). Поэтому вход —
     // отряд, который вырубают раньше, чем он успевает побежать; граница области — в журнале слома сектора до
     // истребления нет.
-    const r = simulateBattle({ seed: 1, attacker: deploySetup({ infantry: 1000 }), defender: deploySetup({ spear: 2 }) });
+    // Один копейщик: двое при W 128 стоят в двух полосах, и одна успевает побежать (осада 2в, W заново) — вход за границей области.
+    const r = simulateBattle({ seed: 1, attacker: deploySetup({ infantry: 1000 }), defender: deploySetup({ spear: 1 }) });
     const wiped = r.log.find((e) => e.id === 'annihilated' && e.side === 'defender');
     expect(r.winner).toBe('attacker');
     expect(wiped, 'истребление в журнале').toBeDefined();
     expect(r.log.some((e) => e.id === 'sector-broken' && e.side === 'defender' && e.tick < wiped!.tick), 'бежали раньше истребления').toBe(false);
     expect(r.reason).toBe('annihilated');
-    expect(lossRatio(r, 'attacker')).toBeGreaterThan(1);
+    // Размен в пользу большей: у одного копейщика отношение потерь упирается в «меньше одного — один» (`lossRatio`).
+    expect(r.sides.defender.total.losses).toBeGreaterThan(r.sides.attacker.total.losses);
   });
 });
 
@@ -1323,7 +1326,8 @@ describe('автоматический резерв', () => {
     // одного волка больше проигрывала там, где меньшая брала верх (`world/gatemono.test.ts`).
     const foe = deploySetup({ infantry: 150, archer: 50 });
     let checked = 0;
-    for (const n of [101, 237, 239]) {
+    // Нечётная конница меньше двух W: края не полны (при W 128 — 237 и 239; числа идут от W).
+    for (const n of [101, 2 * FRONT_WIDTH - 19, 2 * FRONT_WIDTH - 17]) {
       const setup = deploySetup({ cavalry: n });
       // Граница области: центр при расстановке пуст, нечётный — в резерве.
       expect(stackTotal(setup.sectors.B), `${n}: центр при расстановке`).toBe(0);
@@ -1374,7 +1378,8 @@ describe('охват и край строя', () => {
     // чем встал, а не живыми: полк держит своё место, сколько бы в нём ни осталось, — иначе разница потерь делала бы
     // «край» из ничего.
     for (let seed = 1; seed <= 4; seed += 1) {
-      const wider = simulateBattle({ seed, attacker: setupOf({ B: { infantry: FRONT_WIDTH } }), defender: setupOf({ B: { infantry: 100 } }) });
+      // Ряд напротив уже W (при W 128 — 100): ряд шире W ядро в полосу не ставит, и свеса нет.
+      const wider = simulateBattle({ seed, attacker: setupOf({ B: { infantry: FRONT_WIDTH } }), defender: setupOf({ B: { infantry: FRONT_WIDTH - 28 } }) });
       expect(turnedBy(wider, 'attacker'), `сид ${seed}: ряд шире обошёл`).toBe(true);
       expect(turnedBy(wider, 'defender'), `сид ${seed}: ряд уже обошёл`).toBe(false);
     }
@@ -1433,7 +1438,8 @@ describe('охват и край строя', () => {
     const N = 20;
     let held = 0;
     for (let seed = 1; seed <= N; seed += 1) {
-      const r = simulateBattle({ seed, attacker: setupOf({ B: { infantry: 101 } }), defender: setupOf({ B: { infantry: 100 } }) });
+      // Оба ряда уже W (при W 128 — 101 и 100): ряд шире W ядро в полосу не ставит, и края бы не было.
+      const r = simulateBattle({ seed, attacker: setupOf({ B: { infantry: FRONT_WIDTH - 27 } }), defender: setupOf({ B: { infantry: FRONT_WIDTH - 28 } }) });
       // Граница области: край в одного человека правда есть и обходит.
       expect(turnedBy(r, 'attacker'), `сид ${seed}: край обошёл`).toBe(true);
       if (r.winner === 'attacker') held += 1;
@@ -1573,7 +1579,7 @@ describe('мораль EU4', () => {
       expect(collapsed?.tick, `сид ${seed}: строй пуст с ${fled!.tick}-го тика — сторона ломается в первый тик после минимума`).toBe(floor + 1);
     }
     // Истребление минимум не держит: перебитая сторона ломается сразу.
-    const wiped = simulateBattle({ seed: 1, attacker: deploySetup({ infantry: 1000 }), defender: deploySetup({ spear: 2 }) });
+    const wiped = simulateBattle({ seed: 1, attacker: deploySetup({ infantry: 1000 }), defender: deploySetup({ spear: 1 }) });
     const at = wiped.log.find((e) => e.id === 'annihilated' && e.side === 'defender');
     expect(at, 'истребление в журнале').toBeDefined();
     expect(at!.tick, `истреблены на ${at!.tick}-м тике при минимуме по ${floor}-й`).toBeLessThanOrEqual(floor);
@@ -1606,16 +1612,20 @@ describe('мораль EU4', () => {
   it('погоня без потолка: выбила всех бегущих — армия уничтожена, и журнал пишет это в погоне, а добитых — числом', () => {
     // Слово владельца по 14.35, п. 6: уничтожения стека отдельным правилом нет — оно следует из погони. Горстка копий против
     // пехоты, которая быстрее: до погони она бежит, сохранив людей, в погоне её выбивают до последнего.
+    // Горстка — двенадцать: погоня — та же рукопашная с шириной ряда, и при W 94 (полная приёмка осады, docs/siege_v2.md, 19.4)
+    // двадцати копьям двое-трое успевали уйти — вход вышел за границу области «погоня успевает выбить всех»; она — около
+    // пятнадцати копий против трёхсот.
+    const HANDFUL = 12;
     for (let seed = 1; seed <= 4; seed += 1) {
-      const r = simulateBattle({ seed, attacker: deploySetup({ infantry: 300 }), defender: deploySetup({ spear: 20 }) });
+      const r = simulateBattle({ seed, attacker: deploySetup({ infantry: 300 }), defender: deploySetup({ spear: HANDFUL }) });
       const at = r.phases.findIndex((p) => p.phase === 'pursuit');
       const before = r.phases.slice(0, at).reduce((n, p) => n + p.losses.defender, 0);
       // Граница области: к погоне у проигравшего были люди — перебили его не в бою, а в погоне.
       expect(r.winner, `сид ${seed}`).toBe('attacker');
-      expect(before, `сид ${seed}: к погоне горстка жива`).toBeLessThan(20 * (1 - ANNIHILATED_AT));
+      expect(before, `сид ${seed}: к погоне горстка жива`).toBeLessThan(HANDFUL * (1 - ANNIHILATED_AT));
       const wiped = r.log.find((e) => e.id === 'annihilated' && e.side === 'defender');
       expect(wiped?.phase, `сид ${seed}: погоня выбила всех бегущих`).toBe('pursuit');
-      expect(r.sides.defender.total.final, `сид ${seed}`).toBeLessThan(20 * ANNIHILATED_AT);
+      expect(r.sides.defender.total.final, `сид ${seed}`).toBeLessThan(HANDFUL * ANNIHILATED_AT);
       const chase = r.log.find((e) => e.id === 'pursuit');
       const inPursuit = r.phases[at].losses.defender;
       expect(chase?.id === 'pursuit' ? Math.abs(chase.losses - inPursuit) : Infinity, `сид ${seed}: в журнале — добитые погоней`).toBeLessThanOrEqual(0.55);
@@ -1733,9 +1743,13 @@ describe('мораль EU4', () => {
     // и не больше чем на тик сверх неё.
     const need = UNIT_STATS.archer.morale / MORALE.perLoss;
     let late = 0;
-    for (const n of [150, 300, 456]) {
+    // Граница области: резерва нет — все лучники в полосах, не больше трёх W (резерв встаёт в строй, и его слом — не про стрелы).
+    // Средняя — 240: кратно трём полосам и меньше трёх W (при W 94 прежние 300 больше трёх W — резерв; нечётное число
+    // оставляет одного в резерве).
+    for (const n of [150, 240, 3 * FRONT_WIDTH]) {
       for (let seed = 1; seed <= 4; seed += 1) {
         const r = simulateBattle({ seed, attacker: deploySetup({ archer: n }), defender: deploySetup({ archer: n }) });
+        expect(stackTotal(r.sides.defender.sectors.R.initial), `${n}: резерва нет`).toBe(0);
         for (const e of r.log) {
           if (e.id !== 'sector-broken') continue;
           const init = stackTotal(r.sides[e.side].sectors[e.sector].initial);
@@ -1746,8 +1760,11 @@ describe('мораль EU4', () => {
           }
           // Граница области: бежали после 8-го тика — там, где прежнее правило считало стрелы вполсилы.
           if (e.tick > 8) late += 1;
-          expect(lost / init, `${n}, сид ${seed}: ${e.side}/${e.sector} бежал на ${e.tick}-м тике, потеряв ${(lost / init).toFixed(3)} при доле морали ${need.toFixed(3)}`).toBeGreaterThanOrEqual(need - 0.005);
-          expect(lost / init, `${n}, сид ${seed}: ${e.side}/${e.sector} бежал на ${e.tick}-м тике, потеряв ${(lost / init).toFixed(3)} — стрелы пугали слабее своих потерь`).toBeLessThanOrEqual(need + 0.02);
+          // Допуск — округление записи: потери по секторам в журнале — до десятых на фазу (`PhaseSpan.bySector`).
+          const phases = r.phases.filter((p) => p.from <= e.tick).length;
+          const slack = Math.max(0.005, (0.05 * phases) / init);
+          expect(lost / init, `${n}, сид ${seed}: ${e.side}/${e.sector} бежал на ${e.tick}-м тике, потеряв ${(lost / init).toFixed(3)} при доле морали ${need.toFixed(3)}`).toBeGreaterThanOrEqual(need - slack);
+          expect(lost / init, `${n}, сид ${seed}: ${e.side}/${e.sector} бежал на ${e.tick}-м тике, потеряв ${(lost / init).toFixed(3)} — стрелы пугали слабее своих потерь`).toBeLessThanOrEqual(need + 0.02 + slack - 0.005);
         }
       }
     }

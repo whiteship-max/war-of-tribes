@@ -7,8 +7,11 @@ import { weakCity } from '../../src/world/lairs.js';
 import { inHomeTheatre } from '../../src/world/theatre/theatre.js';
 import { energyAt, energyBlock, priceOf, roadCost, roadOf } from '../../src/world/energy.js';
 import { warWalkMs } from '../../src/world/pvp.js';
-import { ENERGY_FILL, ENERGY_MAX } from '../../src/world/data/energy.js';
-import { craftBlock, fortFaces, wallMen } from '../../src/world/siegecraft.js';
+import { ENERGY_CAMP, ENERGY_FILL, ENERGY_MAX } from '../../src/world/data/energy.js';
+import { craftBlock, fortFaces } from '../../src/world/siegecraft.js';
+import { wallFront } from '../../src/world/wall.js';
+import { FRONT_WIDTH } from '../../src/battle/config.js';
+import type { SiegeWindow } from '../../src/world/siege.js';
 
 /**
  * Война между игроками (docs/pvp.md). Тесты только там, где без них можно подделать исход боя, начислить
@@ -229,17 +232,20 @@ describe('энергия полководца: поход, осада и уда�
     expect(energyAt(w.army.energy, T0 + walk / 2)).toBeCloseTo(10 + road / 2, 6);
     advance(file, w.arriveAt + 1, sheets);
     expect(w.phase, 'точка внутри области: лагерь встал').toBe('camp');
-    // У стен стоит, сколько бы ни ждал.
-    expect(energyAt(w.army.energy, w.arriveAt + 10 * ENERGY_FILL)).toBeCloseTo(10, 6);
+    // У стен — полудом: копится залп за фазу (ответ владельца 3, docs/siege_v2.md, 8.4), до полного запаса.
+    expect(w.army.energy?.mode).toBe('camp');
+    const wait = 10 * ENERGY_FILL;
+    expect(energyAt(w.army.energy, w.arriveAt + wait)).toBeCloseTo(Math.min(ENERGY_MAX, 10 + (ENERGY_MAX * wait) / ENERGY_CAMP), 6);
     // Штурм из лагеря стоит свою цену — без неё отказ.
     const have = energyAt(w.army.energy, w.arriveAt + 2);
     expect(applyOrder(file, A, { op: 'storm', id: w.id }, w.arriveAt + 2, ctx)).toBe(energyBlock(have, priceOf('storm')));
     expect(w.phase).toBe('camp');
     // Снял осаду — домой: назад дорога уходит той же ценой, с минуты возврата энергия копится.
+    const left = energyAt(w.army.energy, w.arriveAt + 3);
     expect(applyOrder(file, A, { op: 'retreat', id: w.id }, w.arriveAt + 3, ctx)).toBeNull();
     const back = w.backAt as number;
     expect(w.army.energy?.homeAt).toBe(back);
-    expect(energyAt(w.army.energy, back)).toBeCloseTo(Math.max(0, have - roadCost(back - (w.arriveAt + 3))), 6);
+    expect(energyAt(w.army.energy, back)).toBeCloseTo(Math.max(0, left - roadCost(back - (w.arriveAt + 3))), 6);
     expect(energyAt(w.army.energy, back + ENERGY_FILL)).toBe(ENERGY_MAX);
   });
 
@@ -292,7 +298,7 @@ describe('дела в лагере: укрепить лагерь и обстр�
     expect(have()).toBeCloseTo(start - 2 * priceOf('fortify'), 6);
     expect(w.camp?.craft?.fort).toBe(2);
     // Предел за осаду — отказ двери, энергия на месте.
-    expect(applyOrder(file, A, { op: 'craft', id: w.id, act: 'fortify' }, at, ctx)).toBe(craftBlock({ fort: 2 }, 'fortify'));
+    expect(applyOrder(file, A, { op: 'craft', id: w.id, act: 'fortify' }, at, ctx)).toBe(craftBlock(w.camp as unknown as SiegeWindow, 'fortify', at));
     expect(have()).toBeCloseTo(start - 2 * priceOf('fortify'), 6);
     // Пять энергии на залп в пятнадцать — отказ двери энергии, счётчик не тронут.
     expect(applyOrder(file, A, { op: 'craft', id: w.id, act: 'bombard' }, at, ctx)).toBe(energyBlock(have(), priceOf('bombard')));
@@ -310,13 +316,20 @@ describe('дела в лагере: укрепить лагерь и обстр�
     expect(sortie.craft?.fort).toBe(2);
     expect(w.phase, 'точка внутри области: лагерь устоял').toBe('camp');
     expect(applyOrder(file, A, { op: 'craft', id: w.id, act: 'bombard' }, at + 2, ctx)).toBeNull();
+    // Пролом даёт исход фазы, а не залп (docs/siege_v2.md, 2.5): здесь он вложен строкой журнала фаз, как его записал бы
+    // бросок, — тест держит путь пролома до стены при штурме, а не кость.
+    w.camp!.phases = [{ at: at + 2, die: 13, mods: {}, out: 'breach', waste: 0 }];
     advance(file, at + 3, sheets);
     expect(applyOrder(file, A, { op: 'storm', id: w.id }, at + 3, ctx)).toBeNull();
     const storm = w.battles[w.battles.length - 1];
     expect(storm.site).toBe('wall');
-    const wall = wallMen(sheet().militia, sheet().archers, { fort: 2, shots: 1 });
-    expect(wall.militia, 'точка внутри области: пролом снял людей со стены').toBeLessThan(sheet().militia);
-    expect(storm.militia).toEqual({ men: wall.militia, archers: wall.archers });
+    expect(storm.craft?.breach, 'в запись боя лёг пролом').toBe(1);
+    // Стена-проход (docs/siege_v2.md, 4.1–4.2): пролом открывает треть фронта без штрафа, ополчение стоит на стене всё.
+    const front = wallFront({ breaches: 1 });
+    expect(front.width, 'точка внутри области: фронт уже полного').toBeLessThan(FRONT_WIDTH);
+    expect(storm.input.width).toBe(front.width);
+    expect(storm.input.ground?.wall).toBe(front.wall);
+    expect(storm.militia).toEqual({ men: sheet().militia, archers: sheet().archers });
   });
 });
 

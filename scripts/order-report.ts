@@ -302,7 +302,7 @@ async function nearest(world: LocalWorld, skip: Set<string>): Promise<Settlement
 
 /**
  * Полководец, который не делает ничего, кроме осад: доводит дружину до
- * ближайшего живого логова, обкладывает, ждёт голода, идёт к следующему. Это
+ * ближайшего живого логова, обкладывает, ждёт падения (голод или сдача), идёт к следующему. Это
  * верхняя граница войны как источника невольников.
  */
 async function siegeRun(seed: number, hours: number) {
@@ -341,7 +341,8 @@ async function siegeRun(seed: number, hours: number) {
       now += 20_000;
       const pulse = await world.sync(p);
       for (const e of pulse.effects) if ((e.bonded ?? 0) > 0) captives += e.bonded ?? 0;
-      if (pulse.reports.some((r) => r.title.startsWith('Город взят голодом'))) {
+      // Город пал — голодом или сдачей на фазе (ворота открыли, docs/siege_v2.md, 2.4): одна дверь падения, два заголовка.
+      if (pulse.reports.some((r) => r.title.startsWith('Город взят голодом') || r.title.startsWith('Ворота открыли'))) {
         sieges++;
         break;
       }
@@ -357,7 +358,7 @@ async function siegeRun(seed: number, hours: number) {
 
 console.log('=== ВОЙНА ПРОТИВ ХОЗЯЙСТВА: откуда невольники дешевле ===');
 console.log('Мерка одна — невольников за реальный час. Полководец в прогоне ничего не делает, кроме');
-console.log('осад: идёт к ближайшему логову, берёт его голодом, идёт дальше. Это верхняя граница войны.');
+console.log('осад: идёт к ближайшему логову, берёт его голодом или сдачей, идёт дальше. Это верхняя граница войны.');
 console.log(`У бота невольники — доля его людей (AI_BONDED_SHARE = ${AI_BONDED_SHARE}). Полководец объявляет ступень`);
 console.log(`«увести людей» (FATES.captives): уводит невольников логова и ${pct(FATES.captives.ledPop)} его людей, скольких`);
 console.log(`устережёт дружина, и за каждого увозит на ${HEAD_CARRY} добра меньше. «Ограбить» не увёл бы никого.`);

@@ -2,6 +2,7 @@
 // как идут, но не кто и когда падает; ворота выбиты только по журналу; сквозь стену не ходят; тот же бой — тот же ролик.
 import { describe, expect, it } from 'vitest';
 import { standBattle } from '../battle-stand';
+import { FRONT_WIDTH } from '@/battle/config';
 import { MAN_HEIGHT } from '../units';
 import { twPlanOfRecord } from './record';
 import { SALLY_OUT, SALLY_START, bearerOf, figureFrame, figurePose, figureState, poseFigures, type TwPlan } from './plan';
@@ -262,10 +263,13 @@ describe('место боя: совместный удар — гарнизон 
   // Решение владельца 03.10.2026, вариант А (docs/battle_tw.md, раздел 13): ядро отдаёт, какая часть каждого отряда — гарнизон
   // (`SideResult.sectors[].garrison`), и ролик выводит гарнизон из ворот, а дружину — с поля; обе сходятся на лагере. Бой один:
   // кто и когда падает — журнальное. Набор — девять совместных ударов: лагерь разбит и устоял, доля гарнизона от 20 до 70 %,
-  // малый лагерь (120 пеших встают одной серединой — у крайних полос лагеря нет). Граница области — бой, где у нападающего
+  // малый лагерь (W − 8 пеших встают одной серединой — у крайних полос лагеря нет). Граница области — бой, где у нападающего
   // есть и гарнизон, и дружина, и лагерь стоит перед стеной (счётчики ниже).
+  // Малый лагерь — W − 8 пеших (при W 128 — 120): у W 94 (полная приёмка осады, docs/siege_v2.md, 19.4) прежние 120 шире
+  // полосы, у лагеря есть края, и случая «лагерь без крайних полос» в наборе не было бы.
+  const SMALL = FRONT_WIDTH - 8;
   const SET: [number, number, number, number][] = [
-    [500, 120, 3, 200],
+    [500, SMALL, 3, 200],
     [600, 420, 6, 240],
     [500, 460, 3, 100],
     [420, 560, 2, 300],
@@ -276,8 +280,8 @@ describe('место боя: совместный удар — гарнизон 
     [520, 380, 8, 360],
   ];
   const plans = SET.map(([men, foe, seed, garrison]) => {
-    // Малый лагерь — пешие одного рода (`foeKinds=1`): 120 встают одной серединой, у крайних полос лагеря нет.
-    const q = `replay=tw&men=${men}&foe=${foe}&seed=${seed}&site=joint&garrison=${garrison}${foe < 156 ? '&foeKinds=1' : ''}`;
+    // Малый лагерь — пешие одного рода (`foeKinds=1`): уже W, встают одной серединой, у крайних полос лагеря нет.
+    const q = `replay=tw&men=${men}&foe=${foe}&seed=${seed}&site=joint&garrison=${garrison}${foe === SMALL ? '&foeKinds=1' : ''}`;
     return { label: `${men} на ${foe}, сид ${seed}, из ворот ${garrison}`, q, p: planOf(q) };
   });
 
