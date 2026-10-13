@@ -1075,7 +1075,7 @@ function hitCamp(
     // весть союзнику (docs/siege_v2.md, 19.2); прежде такой удар пропадал молча.
     if (hit.rear) {
       const men = troopTotal(asTroops(hit.rear.troops));
-      w.turned = [...(w.turned ?? []), { at, waitMs, men, ...(hit.ally ? { ally: hit.ally, city: hit.city ?? '' } : {}) }];
+      w.turned = [...(w.turned ?? []), { at, waitMs, men, ...(hit.ally ? { ally: hit.ally, city: cityOr(hit.city) } : {}) }];
     }
     return gateBusyText(waitMs);
   }
@@ -1198,7 +1198,7 @@ export function advance(file: WarFile, now: number, sheets: ReadonlyMap<string, 
         if (strikeAt <= hungerAt && strikeAt <= phaseAt && relief) {
           w.reliefs = (w.reliefs ?? []).filter((r) => r !== relief);
           if (!w.reliefs.length) delete w.reliefs;
-          hitCamp(w, relief.at, sheet, { rear: relief.army, site: 'camp', ally: relief.castle, city: relief.city });
+          hitCamp(w, relief.at, sheet, { rear: relief.army, site: 'camp', ally: relief.castle, city: cityOr(relief.city) });
           continue;
         }
         if (phaseAt < hungerAt) {
@@ -1711,7 +1711,7 @@ export function newsOf(w: WarRow): WarNews[] {
             ...(taken ? { taken: true as const } : {}),
             // Вылазка на машину — бой за машину, а не за лагерь: слова другие (19.2).
             ...(b.burn ? { machine: b.burn } : {}),
-            ...(ally && role === 'def' ? { ally: plainName(ally.city) } : {}),
+            ...(ally && role === 'def' ? { ally: plainName(cityOr(ally.city)) } : {}),
           },
         },
       });
@@ -1739,7 +1739,7 @@ export function newsOf(w: WarRow): WarNews[] {
         kind: 'war-relief',
         fireAt: r.sent,
         until: r.at,
-        p: { from: from('def'), fate: w.fate, about: r.at, role: 'def', relief: 'going', ally: plainName(r.city) },
+        p: { from: from('def'), fate: w.fate, about: r.at, role: 'def', relief: 'going', ally: plainName(cityOr(r.city)) },
       },
     });
   }
@@ -1755,7 +1755,7 @@ export function newsOf(w: WarRow): WarNews[] {
       p,
     });
     out.push({ player: ally.key, item: item({ from: plainName(w.defCity), fate: w.fate, about: t.at, relief: 'turned' }) });
-    out.push({ player: w.def, item: item({ from: from('def'), fate: w.fate, about: t.at, role: 'def', relief: 'turned', ally: plainName(ally.city) }) });
+    out.push({ player: w.def, item: item({ from: from('def'), fate: w.fate, about: t.at, role: 'def', relief: 'turned', ally: plainName(cityOr(ally.city)) }) });
   }
   // Фазы осады (docs/siege_v2.md, 8.3): весть — только о значимом. Пролом и мор — обеим сторонам; наказ, сработавший в
   // минуту фазы, — той стороне, чей он. «Без перемен» и «нехватка в городе» без наказа молчат.
