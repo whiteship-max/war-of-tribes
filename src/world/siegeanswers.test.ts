@@ -23,10 +23,10 @@ import {
   type PhaseRow,
 } from './siegeroll';
 import { consumptionPerHour, openSiege, starvesAt, starvesIfRation, type SiegeWindow } from './siege';
-import { burnBlock, guardShare, machineAfter, machinesAt, machinesBurned } from './machines';
-import { MACHINE_WOOD } from './data/machines';
+import { GUARD_SHARE, burnBlock, machineAfter, machinesAt, machinesBurned } from './machines';
+import { CAMP_SIDES } from './data/machines';
 import { guardKinds, machineFight } from './fights';
-import { emptyStack } from '@/battle';
+import { emptyStack, stackTotal } from '@/battle';
 import { wallRepairCost } from '@/game/build';
 import { upgradeCost, foodConsumptionPerDay, moraleBreakdown, orderBreakdown, rationMorale } from '@/game/derived';
 import { BUILDING_BY_ID } from '@/game/data/buildings';
@@ -124,8 +124,7 @@ describe('осадный паёк — правило двери и деревн�
 });
 
 describe('вылазка на машину — правило двери', () => {
-  it('охрана — доля лагеря по древесине машины на две стороны; сожжённая не стоит и древесину не возвращает', () => {
-    expect(guardShare('ram')).toBeCloseTo(MACHINE_WOOD.ram / 2, 9);
+  it('сожжённая машина не стоит и древесину не возвращает', () => {
     const w0 = win({ wood: { front: 0, rear: 0, machines: 1 } });
     const ram0 = { ...w0, machines: machineAfter(w0, 'ram', T0) };
     const w1 = { ...w0, machines: machineAfter(ram0, 'ladders', T0) };
@@ -142,10 +141,35 @@ describe('вылазка на машину — правило двери', () =>
     expect(machinesAt(w2, late).find((m) => m.id === 'ladders')!.readyAt).toBe(before);
   });
 
+  /**
+   * Честный бой (docs/siege_v2.md, 19.1): охрана — сторона лагеря у города, половина лагеря у любой машины, и вылазка, равная
+   * охране по силе, берёт около половины боёв. Набор — 120 сидов (правило 17); граница области — машина у лагеря есть, охрана
+   * и вылазка не пусты, обе свежие: точки проверены утверждениями. Гарнизон взят вдвое меньше лагеря — тем же составом: он
+   * равен охране, только если охрана — половина лагеря. Прежняя охрана по древесине машины (таран — шестая часть лагеря)
+   * давала такой вылазке победу во всех 120 боях (мутация, docs/siege_v2.md, 19.1).
+   */
+  it('вылазка, равная охране по силе, берёт около половины боёв: гарнизон против лагеря вдвое больше себя', () => {
+    expect(GUARD_SHARE, 'охрана — одна сторона лагеря из двух').toBe(1 / CAMP_SIDES);
+    const garrison = { ...emptyStack(), infantry: 120, archer: 30, spear: 20 };
+    const camp = { ...emptyStack(), infantry: 240, archer: 60, spear: 40 };
+    const w0 = win({ wood: { front: 0, rear: 0, machines: 1 } });
+    const w1 = { ...w0, machines: machineAfter(w0, 'ram', T0) };
+    expect(burnBlock(w1, 'ram', T0 + 1), 'точка внутри области: машина у лагеря есть').toBeNull();
+    const guard = guardKinds(camp, GUARD_SHARE);
+    expect(stackTotal(guard), 'точка внутри области: охрана есть').toBeGreaterThan(0);
+    const N = 120;
+    let won = 0;
+    for (let s = 0; s < N; s++) {
+      if (machineFight({ seed: 9000 + s, guard: { kinds: guard, rest: 1 }, sortie: { kinds: garrison, rest: 1 } }).field.won) won += 1;
+    }
+    expect(won / N, 'вылазка, равная охране, — не меньше 35 % боёв').toBeGreaterThan(0.35);
+    expect(won / N, 'вылазка, равная охране, — не больше 65 % боёв').toBeLessThan(0.65);
+  });
+
   it('бой — с охраной в поле, без рогаток: больший отряд берёт верх над той же охраной', () => {
     const camp = { ...emptyStack(), infantry: 300, archer: 60 };
-    const guard = guardKinds(camp, guardShare('ram'));
-    expect(guard.infantry).toBe(Math.floor(300 * guardShare('ram')));
+    const guard = guardKinds(camp, GUARD_SHARE);
+    expect(guard.infantry).toBe(Math.floor(300 * GUARD_SHARE));
     const fight = (men: number) =>
       machineFight({ seed: 5, guard: { kinds: guard, rest: 1 }, sortie: { kinds: { ...emptyStack(), infantry: men } } }).field.won;
     expect(fight(guard.infantry * 4)).toBe(true);

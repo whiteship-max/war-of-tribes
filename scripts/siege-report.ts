@@ -29,7 +29,7 @@ import { guardKinds, machineFight, wallFight } from '@/world/fights';
 import { SCALING, wallFront, type Assault, type WallFront } from '@/world/wall';
 import { LADDER_FACES, WALL, WALL_BREACHES, WALL_FACES, WALL_TARGET_BREACHED, WALL_TARGET_SCALING, type WallFaces } from '@/world/data/wall';
 import { MACHINE_IDS, MACHINE_WOOD } from '@/world/data/machines';
-import { MACHINE_NAME, guardShare } from '@/world/machines';
+import { GUARD_SHARE, MACHINE_NAME } from '@/world/machines';
 import { machineWoodAt, playerWood } from '@/world/works';
 import { menOfPower, raidingParty } from '@/world/garrison';
 import { campPass, passKinds, sideWorks } from '@/world/works';
@@ -1529,30 +1529,37 @@ console.log(`--- ответы: паёк, починка, вылазка на м�
     }
   }
 
-  // Вылазка всем гарнизоном на машину в середине осады: охрана — доля лагеря у неё (`machines.guardShare`).
-  console.log('машина            охрана (доля лагеря)   сожжено вылазкой всем гарнизоном');
-  for (const id of MACHINE_IDS) {
-    let burned = 0;
-    let n = 0;
-    for (const { fz } of phaseFrozen) {
-      const { camp, worldSeed } = frozenWindow(fz);
-      const span = fz.starvesAt - fz.since;
-      const mid = fz.since + span / 2;
-      const before = Math.floor((mid - fz.since) / SIEGE_PHASE);
-      const rate = CAMP_WASTE * (1 + camp.homeDays / CAMP_WASTE_DAYS);
-      const party = raidingParty(worldSeed, camp.id, camp.power * Math.pow(1 - rate, before));
-      for (let v = 0; v < STORM_VARIANTS; v++) {
-        const { field } = machineFight({
-          seed: fz.seed * 37 + v,
-          guard: { kinds: guardKinds(party.kinds, guardShare(id)), rest: 1 },
-          sortie: { kinds: kindsOf(fz.g.army), rest: siegeWear(fz.since, mid, span) },
-        });
-        n += 1;
-        if (field.won) burned += 1;
-      }
+  // Вылазка на машину в середине осады (docs/siege_v2.md, 19.1): охрана — сторона лагеря у города (`machines.GUARD_SHARE`),
+  // одна на любую машину. Всем гарнизоном — с износом осады; «равная охране» — вылазка тем же составом и с той же моралью,
+  // что охрана: бой в поле, без рогаток и укреплений, — честный, если берёт около половины.
+  let burned = 0;
+  let even = 0;
+  let n = 0;
+  const ratio: number[] = [];
+  for (const { fz } of phaseFrozen) {
+    const { camp, worldSeed } = frozenWindow(fz);
+    const span = fz.starvesAt - fz.since;
+    const mid = fz.since + span / 2;
+    const before = Math.floor((mid - fz.since) / SIEGE_PHASE);
+    const rate = CAMP_WASTE * (1 + camp.homeDays / CAMP_WASTE_DAYS);
+    const party = raidingParty(worldSeed, camp.id, camp.power * Math.pow(1 - rate, before));
+    const guard = guardKinds(party.kinds, GUARD_SHARE);
+    const sortie = kindsOf(fz.g.army);
+    ratio.push(stackTotal(sortie) / Math.max(1, stackTotal(guard)));
+    for (let v = 0; v < STORM_VARIANTS; v++) {
+      const whole = machineFight({ seed: fz.seed * 37 + v, guard: { kinds: guard, rest: 1 }, sortie: { kinds: sortie, rest: siegeWear(fz.since, mid, span) } });
+      const mirror = machineFight({ seed: fz.seed * 37 + v, guard: { kinds: guard, rest: 1 }, sortie: { kinds: guard, rest: 1 } });
+      n += 1;
+      if (whole.field.won) burned += 1;
+      if (mirror.field.won) even += 1;
     }
-    console.log(`${MACHINE_NAME[id].padEnd(17)} ${guardShare(id).toFixed(3).padStart(20)}   ${pct(burned, n).padStart(8)}`);
   }
+  ratio.sort((a, b) => a - b);
+  console.log(`охрана машины — сторона лагеря у города, ${GUARD_SHARE.toFixed(3)} лагеря у любой машины`);
+  console.log(
+    `гарнизон к охране по бойцам строя: от ×${ratio[0].toFixed(2)} до ×${ratio[ratio.length - 1].toFixed(2)}, медиана ×${ratio[Math.floor(ratio.length / 2)].toFixed(2)}`,
+  );
+  console.log(`машину сжигает вылазка всем гарнизоном — ${pct(burned, n)}, вылазка, равная охране, — ${pct(even, n)} (${n} боёв)`);
 }
 
 // ------------------------------------------------------- переговоры у стен ---

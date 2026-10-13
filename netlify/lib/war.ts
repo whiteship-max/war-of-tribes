@@ -54,9 +54,9 @@ import { ENGINES } from '../../src/game/data/engines.js';
 import { campFight, guardKinds, homeLosses, machineFight, wallFight } from '../../src/world/fights.js';
 import { SCALING, wallFront } from '../../src/world/wall.js';
 import {
+  GUARD_SHARE,
   assaultOf,
   burnBlock,
-  guardShare,
   machineAfter,
   machineBlock,
   machinesBurned,
@@ -938,7 +938,7 @@ function repairShort(w: WarRow, sheet: WarSheet): string | null {
 
 /**
  * Вылазка на машину лагеря (docs/siege_v2.md, раздел 5) — той же дверью, что у мира (`fights.machineFight`): вышедшие из
- * ворот бьются с охраной машины — долей лагеря у неё (`machines.guardShare`). Победа сжигает машину вместе с древесиной;
+ * ворот бьются с охраной машины — стороной лагеря у города (`machines.GUARD_SHARE`). Победа сжигает машину вместе с древесиной;
  * лагерь стоит. Часы голода — от нового гарнизона, как после всякой вылазки.
  */
 function burnMachine(w: WarRow, at: number, sheet: WarSheet, id: MachineId, troops: Counts): string | null {
@@ -948,7 +948,7 @@ function burnMachine(w: WarRow, at: number, sheet: WarSheet, id: MachineId, troo
   const side = campSide(w, at);
   const { input, field } = machineFight({
     seed: warSeed(w.id, n),
-    guard: { kinds: guardKinds(side.kinds, guardShare(id)), resolve: side.resolve, pips: side.pips, rest: side.rest },
+    guard: { kinds: guardKinds(side.kinds, GUARD_SHARE), resolve: side.resolve, pips: side.pips, rest: side.rest },
     sortie: { kinds: kindsOf(asTroops(troops)), rest: garrisonRest(w, sheet, at) },
     resolve: sheet.resolve,
     pips: sheet.pips as Pips,

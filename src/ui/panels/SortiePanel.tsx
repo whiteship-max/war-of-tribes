@@ -160,7 +160,7 @@ export function SortiePanel({ machine }: { machine?: MachineId } = {}) {
             <div className="title">{target ? `${target.name}: ${target.ready ? 'готова' : 'строится'}` : 'Машины у лагеря нет'}</div>
             <div className="desc">
               {target
-                ? `Охрана — ${target.guard} ${plural(target.guard, 'боец', 'бойца', 'бойцов')} лагеря. Машина стоит у стены, перед рогатками: проход отряду не нужен. Победа сожжёт её вместе с лесом.`
+                ? `Охрана — ${target.guard} ${plural(target.guard, 'боец', 'бойца', 'бойцов')}: сторона лагеря у города. Машина стоит у стены, перед рогатками: проход отряду не нужен. Победа сожжёт её вместе с лесом.`
                 : 'Её уже сожгли или пустили на штурм.'}
             </div>
           </div>

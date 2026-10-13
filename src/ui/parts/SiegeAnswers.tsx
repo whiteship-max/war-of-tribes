@@ -81,7 +81,7 @@ export function SiegeAnswers({ siege, now }: { siege: SiegeView; now: number }) 
 
       {a.burn.length > 0 && (
         <>
-          <p className="note">Машина стоит у стены, перед рогатками. Вылазка на неё бьётся с охраной, а не со всем лагерем.</p>
+          <p className="note">Машина стоит у стены, перед рогатками. Вылазка на неё бьётся с охраной — стороной лагеря у города, а не со всем лагерем.</p>
           {a.burn.map((m) => (
             <button key={m.machine} className="btn wide" disabled={busy} onClick={() => openSortie(m.machine)}>
               Вылазка: {m.name.toLowerCase()} · охрана {m.guard} {plural(m.guard, 'боец', 'бойца', 'бойцов')}

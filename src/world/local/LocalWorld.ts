@@ -295,12 +295,12 @@ import { resolveField, type FieldInput, type FieldOutcome, type FieldSide } from
 import { campFight, campHolds, guardKinds, holdMinute, homeLosses, wallFight, type CampPartIn, type HoldIn } from '../fights';
 import { SCALING, openingWords, wallFront, type WallFront } from '../wall';
 import {
+  GUARD_SHARE,
   MACHINE_NAME,
   MACHINE_USE,
   assaultOf,
   burnBlock,
   burnTargets,
-  guardShare,
   machineAfter,
   machineBlock,
   machineReady,
@@ -1303,7 +1303,7 @@ export class LocalWorld implements WorldApi {
         machine: id,
         name: MACHINE_NAME[id],
         ready: machineReady(w, id, now),
-        guard: campKinds ? stackTotal(guardKinds(campKinds, guardShare(id))) : 0,
+        guard: campKinds ? stackTotal(guardKinds(campKinds, GUARD_SHARE)) : 0,
       })),
       ...(w.defend ? { defend: { ...w.defend } } : {}),
       reliefs,
@@ -8992,7 +8992,7 @@ export class LocalWorld implements WorldApi {
         c,
         now,
         w.fate,
-        // Охрана машины — доля лагеря, прорежённого башней: той же меркой, что у сервера (`war.campSide`).
+        // Охрана машины — сторона лагеря у города, прорежённого башней: той же меркой, что у сервера (`war.campSide`).
         thinKinds(kindsOf(w.army.troops as TroopStack), c.fire ? fireView(c.fire, now).thin : 0),
         (w.reliefs ?? []).map((r) => ({ from: cityOr(r.city), men: troopTotal(r.army.troops as TroopStack), at: r.at })),
       ),

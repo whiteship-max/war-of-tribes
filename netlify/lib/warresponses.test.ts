@@ -7,7 +7,9 @@ import { castleIdOf, emptyRoster, upsert } from './roster.js';
 import { advance, applyOrder, emptyWars, newsOf, pacted, pactsOf, warsOf, type SheetAt, type WarFile, type WarRow } from './war.js';
 import { breachesOf, breadLeft, phaseAt, setPhaseDie, softerFate } from '../../src/world/siegeroll.js';
 import { siegeSince, starvesAt, type SiegeWindow } from '../../src/world/siege.js';
-import { machinesAt } from '../../src/world/machines.js';
+import { GUARD_SHARE, machinesAt } from '../../src/world/machines.js';
+import { guardKinds } from '../../src/world/fights.js';
+import { kindsOf } from '../../src/game/battle/price.js';
 import { ENERGY_MAX } from '../../src/world/data/energy.js';
 import { wallRepairCost } from '../../src/game/build.js';
 import { SIEGE_RATION } from '../../src/game/constants.js';
@@ -174,10 +176,8 @@ describe('вылазка на машину', () => {
     const ram = machinesAt(w.camp as SiegeWindow, since + 4).find((m) => m.id === 'ram');
     expect(ram?.burned).toBe(true);
     expect(ram?.ready).toBe(false);
-    // Охрана — доля лагеря, а не весь лагерь.
-    const fought = Object.values(b.input.defender.kinds).reduce((n, v) => n + v, 0);
-    const camp = Object.values(b.atkTroops).reduce((n, v) => n + (v ?? 0), 0);
-    expect(fought).toBeLessThan(camp / 2);
+    // Охрана — сторона лагеря у города (`machines.GUARD_SHARE`), а не весь лагерь: дралась половина его строя.
+    expect(b.input.defender.kinds).toEqual(guardKinds(kindsOf(b.atkTroops), GUARD_SHARE));
   });
 });
 

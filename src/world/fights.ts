@@ -97,7 +97,7 @@ export function homeLosses(home: TroopStack, field: FieldOutcome): TroopStack {
 /** Вылазка на машину лагеря: охрана машины и вышедшие из ворот. Ни мира, ни часов. */
 export interface MachineFightIn {
   seed: number;
-  /** Охрана машины — доля лагеря у неё (`machines.guardShare`), в родах боя. */
+  /** Охрана машины — сторона лагеря у города (`machines.GUARD_SHARE`), в родах боя. */
   guard: { kinds: Stack; resolve?: number; pips?: Pips; rest: number };
   /** Кто вышел из ворот, с моралью между боями и износом осады. */
   sortie: CampPartIn;
