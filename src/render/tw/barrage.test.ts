@@ -73,7 +73,10 @@ describe('обстрел перед штурмом — пролог ролика
     const pre = p.barrage!.seconds;
     const all = cuesOf(p);
     const battle = all.filter((c) => !['engine', 'stone', 'impact', 'collapse'].includes(c.kind) && c.at >= pre);
-    expect(battle.map((c) => [c.kind, +(c.at - pre).toFixed(6)])).toEqual(bare.map((c) => [c.kind, +c.at.toFixed(6)]));
+    // Род — буква в букву, минута — с допуском плавающей точки: округление разности до шести знаков ложится на границу
+    // (19.339062 против 19.339063 на W 94, полная приёмка осады).
+    expect(battle.map((c) => c.kind)).toEqual(bare.map((c) => c.kind));
+    battle.forEach((c, i) => expect(Math.abs(c.at - pre - bare[i].at), `звук ${i}: ${c.kind}`).toBeLessThan(1e-6));
     const before = all.filter((c) => c.at < pre);
     expect(before.length).toBeGreaterThan(0);
     expect(before.every((c) => ['engine', 'stone', 'impact', 'collapse', 'wallcry'].includes(c.kind))).toBe(true);

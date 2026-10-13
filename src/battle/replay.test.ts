@@ -6,6 +6,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { simulateBattle } from './sim';
+import { FRONT_WIDTH } from './config';
 import { deploySetup } from './setup';
 import {
   ACTS,
@@ -395,7 +396,13 @@ describe('время ролика', () => {
   it('длину задаёт спорность боя, а не число строк в журнале', () => {
     // Был красным с поставки 1 до минимума боя EU4 (14.21): разгром кончался в первом круге, и строк в журнале у него
     // было 5 против 18–24 у ровного боя. С минимумом разгром идёт до конца сшибки второго круга, как всякий бой.
-    const even = evenFight();
+    // Ровный бой — в размере от W (числа `evenFight` — при W 128): на W 94 те же 600 на 600 — это 6.4 W, резерв входит
+    // волнами, и строки ввода резерва (12 из 30) делали журнал ровного боя втрое длиннее разгрома — вход вне области
+    // (полная приёмка осады, docs/siege_v2.md, 19.4).
+    const k = FRONT_WIDTH / 128;
+    const sized = (s: Partial<Stack>): Partial<Stack> =>
+      Object.fromEntries(Object.entries(s).map(([u, n]) => [u, Math.round((n ?? 0) * k)])) as Partial<Stack>;
+    const even = battle(sized({ spear: 150, infantry: 200, archer: 150, cavalry: 100 }), sized({ spear: 200, infantry: 200, archer: 150, cavalry: 50 }), 7);
     const rout = battle({ infantry: 500 }, { infantry: 20 });
     // У разгрома строк в журнале почти столько же — мерой они быть не могут.
     const marks = (r: BattleResult): number =>
