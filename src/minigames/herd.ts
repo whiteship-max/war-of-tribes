@@ -92,15 +92,17 @@ export function herdOf(seed: number, twists: HerdTwists = { rare: false }): Herd
   if (!twists.rare) return h;
   const rnd = seeded(mixSeed(seed >>> 0, 1));
   if (rnd() >= LAMB_P) return h;
-  // Скачет вокруг середины овечьей кучи: шире и чаще овцы, петлями — то к стогу, то к жердям.
+  // Скачет сбоку от овечьей кучи, а не в ней: на полшага кучи в сторону, петлями — то к стогу, то к жердям, чаще овцы.
+  // В куче он прятался за матерями (снимок `RARE=1`): ягнёнка, которого не видно, не накормят.
+  const side = rnd() < 0.5 ? -1 : 1;
   h.beasts.push({
     id: h.beasts.length,
     kind: 'lamb',
-    a0: (rnd() - 0.5) * 0.6,
-    r0: rnd() < 0.5 ? -0.9 : 0.9,
+    a0: side * (0.75 + 0.25 * rnd()),
+    r0: (rnd() - 0.5) * 0.6,
     drift: 0,
-    aw: [wave(rnd, 0.32, 0.42), wave(rnd, 0.1, 1.1)],
-    rw: [wave(rnd, 0.9, 0.38), wave(rnd, 0.3, 0.9)],
+    aw: [wave(rnd, 0.16, 0.42), wave(rnd, 0.05, 1.1)],
+    rw: [wave(rnd, 0.7, 0.38), wave(rnd, 0.25, 0.9)],
     flock: true,
   });
   return h;

@@ -138,7 +138,7 @@ describe('редкая добыча: поверх прежнего поля, н�
     expect(b2.streak.run).toBe(1);
   });
 
-  it('ягнёнок — раз в три выхода; остальное стадо прежнее; весь ход в загоне и не быстрее человека; сытый — сверху', () => {
+  it('ягнёнок — раз в три выхода; остальное стадо прежнее; весь ход в загоне, сбоку от кучи и не быстрее человека; сытый — сверху', () => {
     let hits = 0;
     for (const seed of SEEDS) {
       const old = herdOf(seed);
@@ -148,14 +148,21 @@ describe('редкая добыча: поверх прежнего поля, н�
       const lamb = h.beasts.find((b) => b.kind === 'lamb');
       if (!lamb) continue;
       hits++;
+      let gap = 0;
+      let n = 0;
       for (let t = 0; t <= GAME_SECONDS.herd; t += 0.25) {
         const p = roamAt(h, lamb, t);
+        // Сбоку от кучи, а не в ней: до ближней овцы.
+        gap += Math.min(...h.beasts.filter((b) => b.kind === 'sheep').map((b) => Math.hypot(roamAt(h, b, t).x - p.x, roamAt(h, b, t).z - p.z)));
+        n++;
         const r = Math.hypot(p.x, p.z);
         expect(r).toBeGreaterThanOrEqual(ROAM_IN + BEASTS.lamb.r - 1e-9);
         expect(r).toBeLessThanOrEqual(ROAM_OUT - BEASTS.lamb.r + 1e-9);
         expect(r).toBeLessThan(PEN_R);
         expect(roamSpeed(h, lamb, t)).toBeLessThan(WALK_SPEED);
       }
+      // В среднем за игру — не ближе метра к ближней овце: ягнёнка, спрятанного за матерями, не накормят.
+      expect(gap / n, `зерно ${seed}`).toBeGreaterThan(1);
     }
     near(hits, SEEDS.length, LAMB_P);
     const seed = SEEDS.find((s) => herdOf(s, { rare: true }).beasts.some((b) => b.kind === 'lamb'))!;
