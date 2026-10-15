@@ -102,10 +102,10 @@ describe('где стоит ловушка', () => {
   it('над каждым окном, которое едет по нажатию, над шторкой и над картой — в App.tsx', () => {
     const app = read('App.tsx');
     // Все куски, что `App` берёт через `lazy`, кроме частей, приезжающих при входе (строка, низ, подсказки), и окон шторки
-    // куска нового вида — карточки клетки, «Походов» и «Дружины» (UI-4, docs/ui_v2.md, 5.3): их держит ловушка над
-    // `SheetContent`, она проверяется ниже.
+    // куска нового вида — карточки клетки, «Походов», «Дружины» (UI-4, docs/ui_v2.md, 5.3) и «Жителей» (UI-5, 5.4): их держит
+    // ловушка над `SheetContent`, она проверяется ниже.
     const lazies = [...app.matchAll(/const (\w+) = lazy\(/g)].map((m) => m[1]);
-    const atEntry = new Set(['Hud', 'Alerts', 'Nav', 'TipLayer', 'Hints', 'CityNaming', 'WorldNew', 'MarchesNew', 'ArmyPanel']);
+    const atEntry = new Set(['Hud', 'Alerts', 'Nav', 'TipLayer', 'Hints', 'CityNaming', 'WorldNew', 'MarchesNew', 'ArmyPanel', 'PeoplePanel']);
     const onTap = lazies.filter((n) => !atEntry.has(n));
     expect(onTap.sort()).toEqual(['BugReport', 'Minigame', 'Prologue', 'RealmMenu', 'Trades', 'Treasury']);
     for (const name of [...onTap, 'SheetContent', 'WorldMap']) expect(guarded(app, name), name).toBe(true);
