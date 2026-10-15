@@ -7,6 +7,7 @@
 //                                                     постройки, стройка; `TAG` — приписка к имени снимка («до» и «после»)
 //   GROUP=army TAG=after npx vite-node docs/ui_v2/shots.ts — «Дружина» (UI-4): гарнизон и отряд, шаг передачи, итог
 //   GROUP=top TAG=after npx vite-node docs/ui_v2/shots.ts — подсказки верха и запасов (UI-3): разбор и двери
+//   GROUP=people TAG=after npx vite-node docs/ui_v2/shots.ts — «Жители» (UI-5): сводка, места работы, невольники в «Порядке»
 //
 // Снимки — 390×844 @2, JPEG, в `docs/ui_v2/` (имя — номер и экран). Кроме снимка стенд печатает высоту прокрутки
 // окна в экранах: `экранов 2.4` — содержимое окна выше экрана телефона в 2.4 раза (правило «окно — один экран»,
@@ -261,6 +262,37 @@ const GROUPS: Record<string, Step[]> = {
     { name: '104-army-tip', run: `(() => { const e = window.__ui.scroller(); if (e) e.scrollTop = 0; return JSON.stringify(window.__ui.click('Мощь отряда', '.sheet.open')); })()`, wait: 600 },
     // Касание вида — его карточка (прежде её открывал список «Состав»).
     { name: '105-army-card', run: `(() => { window.__ui.clickSel('.nx-tip-catch'); return JSON.stringify(window.__ui.clickSel('.sheet.open .ms-kind')); })()`, wait: 900 },
+  ],
+  // UI-5 (docs/ui_v2.md, 5.4): «Жители». Новая партия — 7 свободных рук без стройки: окно открывается на «Работах», как
+  // велит счётчик низа; затем «Сводка» (до UI-5 вкладок нет — конец того же окна), разбор строки «Оборона» и «Порядок» с
+  // невольниками (12, из них 5 на ферме): где стоят и отпуск.
+  people: [
+    { name: '110-people', run: ui(`reset(), window.__ui.click('Жители', '.nx-nav')`), wait: 900, full: true },
+    {
+      name: '111-people-sum',
+      run: `(() => {
+        const b = window.__ui.btn('Сводка', '.sheet.open .kit-tabs');
+        if (b) { b.click(); return JSON.stringify('ok'); }
+        const e = window.__ui.scroller();
+        if (e) e.scrollTop = e.scrollHeight;
+        return JSON.stringify('вкладок нет — конец окна');
+      })()`,
+      wait: 700,
+    },
+    { name: '112-people-tip', run: ui(`clickSel('.sheet.open .kit-table .kit-trow:last-child .kit-cells.tip')`), wait: 600 },
+    {
+      name: '113-order-bonded',
+      run: `(() => {
+        window.__ui.reset();
+        const g = window.__game.getState();
+        g.act((st) => { st.bonded = 12; st.bondedWork[st.buildings.find((b) => b.type === 'farm').id] = 5; });
+        window.__game.getState().openTab('order');
+        return JSON.stringify('ok');
+      })()`,
+      wait: 900,
+      full: true,
+    },
+    { name: '114-order-release', run: `(() => { const e = window.__ui.scroller(); if (!e) return JSON.stringify('нет окна'); e.scrollTop = e.scrollHeight; return JSON.stringify('ok'); })()`, wait: 600 },
   ],
   misc: [
     // Плашка алмазов с UI-3 открывает подсказку, а не окно (docs/ui_v2.md, 5.2): окно — его хранилищем.
