@@ -588,8 +588,9 @@ HEAD один на всех, см. правило 8). Значит развес�
   и уход `sim/upkeep`, мастера `sim/masters`, раненые `sim/infirmary`, вызов к воротам `sim/gate`, почта
   `sim/mail` (army, agents, realm).
 - **Раскладка** — кто в гарнизоне, кто с полководцем: приказ `setGarrison` и признак `FigureView.regroup` одной проверкой,
-  дома и не в осаде — мгновенно (`Regroup.instant`), окно одно — `ui/parts/Muster`; вставшие раненые его отряда — `GameState.risen` → `rejoinRisen`; свой поход в слепке
-  обороны сервер правит сам (`war.liveSheet`) (`Muster.test.ts`, `retinue.test.ts`, `pvp.test.ts`; army).
+  дома и не в осаде — мгновенно (`Regroup.instant`), передача одна — `ui/parts/Muster` в «Дружине»; отряд полководца в
+  городе — гарнизон, и во время сбора (`muster.inTown`); вставшие раненые его отряда — `GameState.risen` → `rejoinRisen`; свой поход в слепке
+  обороны сервер правит сам (`war.liveSheet`) (`Muster.test.ts`, `transfer.test.ts`, `agents.test.ts`, `retinue.test.ts`, `pvp.test.ts`; army).
 - **Вести и их следствия** — усилитель ответа `sim/boons` (поля сезона поверх `derived.seasonMods`, мораль — после
   шкалы), следствие `sim/chains`, на стол его кладёт почта; числа — `data/tidings.ts`, `data/boons.ts`
   (`sim/tidings.test.ts`; docs/events.md).

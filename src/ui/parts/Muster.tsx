@@ -67,8 +67,8 @@ export function musterDefense(
 }
 
 /**
- * Где полководец и его отряд — одной строкой: за разницу между «в городе» и «в поле» игрок платит обороной. В городе —
- * «защищает стены», и во время сбора тоже, а без отряда полководец ведёт оборону сам (`muster.inTown`).
+ * Где полководец и его отряд — одной строкой: за разницу между «в городе» и «в поле» игрок платит обороной. В городе
+ * отряд «защищает стены», и во время сбора тоже (`muster.inTown`).
  */
 export function postureLine(general: FigureView | undefined, now = worldNow()): string {
   if (!general) return 'Где полководец, пока неизвестно';
@@ -77,7 +77,7 @@ export function postureLine(general: FigureView | undefined, now = worldNow()): 
   if (general.phase === 'down') return n > 0 ? 'Полководец вне строя' : 'Полководец вне строя, отряда нет';
   const left = secondsLeft(general.readyAt, now);
   const gathering = general.readyAt > 0 && left > 0 ? ` · сбор ещё ${realSpanText(left)}` : '';
-  if (inTown(general)) return n > 0 ? `В городе — защищает стены${gathering}` : 'В городе — ведёт оборону, отряда нет';
+  if (inTown(general)) return n > 0 ? `В городе — защищает стены${gathering}` : 'В городе, отряда нет';
   if (postureOf(general) === 'gathering') return `Сбор ещё ${realSpanText(left)}, город не защищает`;
   return n > 0 ? 'В походе — город не защищает' : 'В походе, отряда нет';
 }
@@ -287,9 +287,11 @@ export function Muster({ onCard }: { onCard: (t: TroopId) => void }) {
         sub={here ? postureLine(general) : 'Отряд некому вести'}
         tip={() => ({
           title: town ? 'В городе — защищает стены' : 'Отряд вне города',
-          body: town
-            ? 'Пока полководец в городе, его отряд — гарнизон: стоит у стен, ест за стеной, выходит на вылазку. Оборону ведёт он сам.'
-            : 'Отряд вне города стен не защищает. Вернётся полководец — отряд снова встанет с гарнизоном.',
+          body: !town
+            ? 'Отряд вне города стен не защищает. Вернётся полководец — отряд снова встанет с гарнизоном.'
+            : troopTotal(held) > 0
+              ? 'Пока полководец в городе, его отряд — гарнизон: стоит у стен, ест за стеной, выходит на вылазку. Оборону ведёт он сам.'
+              : 'Оборону полководец ведёт со своим отрядом. Дай ему бойцов: в городе они встанут у стен с гарнизоном.',
         })}
         go={!here && statue ? () => openBuilding(statue.id) : undefined}
         goLabel="В Статую"

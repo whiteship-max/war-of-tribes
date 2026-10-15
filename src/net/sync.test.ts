@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { SaveRecord, WarSheet } from '../../netlify/lib/contract';
+import type { SaveRecord } from '../../netlify/lib/contract';
 
 /**
  * Правило встречи двух копий. Проверяется отдельно от всего остального, потому
@@ -427,20 +427,5 @@ describe('когда партия уходит на сервер', () => {
     // Ни одна запись ещё не ушла или слепка нет — сравнивать не с чем, ждём срока.
     expect(pushDue(HURRY_MS, 'b', null)).toBe(false);
     expect(pushDue(HURRY_MS, null, 'a')).toBe(false);
-  });
-
-  // Полководец в городе ведёт оборону и без отряда (правило владельца 15.10.2026, `world/muster.inTown`): его выход без
-  // бойцов отряда не меняет, а отметки у стен из слепка уходят — запись обязана уйти раньше минуты и тогда.
-  it('отметка раскладки меняется и с отметками полководца у стен, без отряда', async () => {
-    const { provideSheet, sheetMark } = await import('./war');
-    const base = { retinue: {}, out: [] } as unknown as WarSheet;
-    provideSheet(() => ({ ...base, pips: { shock: 1 } }));
-    const home = sheetMark();
-    provideSheet(() => ({ ...base, pips: {} }));
-    const gone = sheetMark();
-    expect(home, 'слепок есть — есть и отметка').not.toBeNull();
-    expect(gone, 'ушёл без отряда — отметка другая').not.toBe(home);
-    provideSheet(() => null);
-    expect(sheetMark(), 'слепка нет — отметки нет').toBeNull();
   });
 });
