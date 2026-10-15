@@ -1,0 +1,308 @@
+// Стенд снимков интерфейса для карты экранов (docs/ui_v2.md, раздел 1) — не отчёт, в приёмку не входит.
+//
+//   npx vite-node docs/ui_v2/shots.ts                 — список заходов
+//   GROUP=city npx vite-node docs/ui_v2/shots.ts      — один заход: город, верх, подсказки, низ
+//   GROUP=bld1 | bld2 | realm | map | misc            — постройки (две половины), держава, карта, прочее
+//
+// Снимки — 390×844 @2, JPEG, в `docs/ui_v2/` (имя — номер и экран). Кроме снимка стенд печатает высоту прокрутки
+// окна в экранах: `экранов 2.4` — содержимое окна выше экрана телефона в 2.4 раза (правило «окно — один экран»,
+// docs/ui_v2.md, раздел 2). Это вывод стенда, а не отчёта: число для глаз и для карты экранов, сверки с базой нет.
+//
+// Живёт в `docs/`, а не в `scripts/`, как щуп строк прежней описи (`docs/ui_audit_drafts/tools`): он ничего не
+// меряет для приёмки, а команда в `package.json` погнала бы приёмку целиком (правило 9, «изменился сам подсчёт»).
+//
+// Бюджет железа (CLAUDE.md, раздел ⛔): один заход — один браузер, с потолком кадров (город рисуется раз в секунду:
+// интерфейсу частота не нужна), не дольше двух минут (`BROWSER_MAX_MS`) — остальное следующим заходом; минута
+// остывания между заходами (`gpuCoolDown`); рядом с чужой тяжёлой работой стенд не запускается (`refuseIfBusy`).
+// Партия каждый раз новая (`localStorage` чистится), обучение снято — его затемнение не вид экрана.
+import { mkdir, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { fileURLToPath, URL } from 'node:url';
+import { createServer as createVite } from 'vite';
+import sharp from 'sharp';
+import { ENTER_GAME, launchChrome, sleep, Tab } from '../../scripts/lib/chrome';
+import { BROWSER_MAX_MS, gpuCoolDown, gpuStamp, refuseIfBusy } from '../../scripts/lib/budget';
+
+const OUT = fileURLToPath(new URL('.', import.meta.url));
+const ROOT = fileURLToPath(new URL('../..', import.meta.url));
+const PORT = Number(process.env.PORT ?? 4198);
+const DEBUG_PORT = Number(process.env.CDP_PORT ?? 9343);
+const SCREEN = { width: 390, height: 844, deviceScaleFactor: 2, mobile: true };
+/** Город рисуется раз в секунду: снимкам интерфейса кадры не нужны, а программная отрисовка в облаке дорога. */
+const FPS = 1;
+
+/** Шаг захода: что сделать на странице, сколько подождать и снять ли. */
+interface Step {
+  name: string;
+  /** Выражение на странице (может вернуть обещание); вернуло строку — она печатается. */
+  run?: string;
+  wait?: number;
+  /** Снять; по умолчанию — да. */
+  shot?: boolean;
+  /** Снять и вкладки окна (`[role=tab]` внутри шторки или державы) — каждую своим снимком. */
+  tabs?: boolean;
+}
+
+// ---------- помощники на странице ----------
+
+/** Свои помощники в окне страницы: найти кнопку по подписи, открыть постройку, закрыть всё. */
+const HELPERS = `(() => {
+  const g = () => window.__game.getState();
+  const txt = (el) => (el.getAttribute('aria-label') || '') + ' ' + (el.textContent || '');
+  window.__ui = {
+    btn(label, scope) {
+      const root = scope ? document.querySelector(scope) : document;
+      if (!root) return null;
+      const all = [...root.querySelectorAll('button, [role=tab], a')];
+      return all.find((b) => b.getAttribute('aria-label') === label) || all.find((b) => txt(b).trim().startsWith(label)) || all.find((b) => txt(b).includes(label)) || null;
+    },
+    click(label, scope) {
+      const b = window.__ui.btn(label, scope);
+      if (!b) return 'нет кнопки «' + label + '»';
+      b.click();
+      return 'ok';
+    },
+    clickSel(sel) {
+      const b = document.querySelector(sel);
+      if (!b) return 'нет ' + sel;
+      b.click();
+      return 'ok';
+    },
+    building(type) {
+      const b = g().s.buildings.find((x) => x.type === type);
+      if (!b) return 'нет постройки ' + type;
+      g().openBuilding(b.id);
+      return 'ok';
+    },
+    reset() {
+      if (document.querySelector('.nx-tip-catch')) document.querySelector('.nx-tip-catch').click();
+      if (g().mapOpen) g().closeMap();
+      // Закрыть шторку любого вида: \`openBuilding(null)\` закрывает только окно постройки, а \`openTab\` — переключатель.
+      if (g().sheet) g().closeSheet();
+      const x = document.querySelector('.nx-realm .nx-ibtn[aria-label="Закрыть"]');
+      if (x) x.click();
+      return 'ok';
+    },
+    /** Прокрутка открытого окна: шторка, держава или окно поверх. */
+    scroller() {
+      const cands = [...document.querySelectorAll('.sheet.open .sheet-body, .nx-realm .nx-rbody, .modal, .nx-am, .tw-legend')];
+      return cands.find((e) => e.scrollHeight > e.clientHeight + 2) || cands[0] || null;
+    },
+    measure() {
+      const e = window.__ui.scroller();
+      if (!e) return null;
+      return { h: e.scrollHeight, box: e.clientHeight, screens: Math.round((e.scrollHeight / innerHeight) * 10) / 10 };
+    },
+  };
+  return JSON.stringify('ok');
+})()`;
+
+const ui = (call: string): string => `JSON.stringify(window.__ui.${call})`;
+/**
+ * Выбрать на карте ближайшее к дому место, подходящее под условие над `s` (`SettlementView`), — тем же `select`, что тап
+ * по клетке. Стор мира и кэш кусков — те же модули, что у игры: сервер разработки отдаёт их по одному адресу.
+ */
+const place = (cond: string): string => `(async () => {
+  const W = (await import('/src/world/store.ts')).useWorld;
+  const C = await import('/src/world/cache.ts');
+  const h = W.getState().info && W.getState().info.home;
+  if (!h) return JSON.stringify('нет клетки дома');
+  const all = C.loadedIn({ x: h.x - 30, y: h.y - 30, w: 60, h: 60 }).flatMap((c) => c.settlements);
+  const fit = all.filter((s) => ${cond}).sort((a, b) => Math.hypot(a.x - h.x, a.y - h.y) - Math.hypot(b.x - h.x, b.y - h.y));
+  if (!fit.length) return JSON.stringify('места нет среди ' + all.length);
+  await W.getState().select({ x: fit[0].x, y: fit[0].y });
+  return JSON.stringify('ok');
+})()`;
+const tab = (t: string): string => `(() => { window.__ui.reset(); window.__game.getState().openTab('${t}'); return JSON.stringify('ok'); })()`;
+const building = (type: string, name: string): Step => ({ name, run: ui(`reset(), window.__ui.building('${type}')`), wait: 900, tabs: true });
+
+// ---------- заходы ----------
+
+const GROUPS: Record<string, Step[]> = {
+  city: [
+    { name: '01-city', run: ui('reset()'), wait: 1500 },
+    { name: '02-tip-gold', run: ui(`click('Золото', '.nx-top')`), wait: 400 },
+    { name: '03-tip-pop', run: ui(`reset(), window.__ui.click('Жители', '.nx-top')`), wait: 400 },
+    { name: '04-tip-morale', run: ui(`reset(), window.__ui.click('Мораль', '.nx-top')`), wait: 400 },
+    { name: '05-tip-army', run: ui(`reset(), window.__ui.click('Дружина', '.nx-top')`), wait: 400 },
+    { name: '06-tip-energy', run: ui(`reset(), window.__ui.click('Энергия', '.nx-top')`), wait: 400 },
+    { name: '07-tip-season', run: ui(`reset(), window.__ui.clickSel('.nx-season')`), wait: 400 },
+    { name: '08-tip-food', run: ui(`reset(), window.__ui.click('Еда', '.nx-res')`), wait: 400 },
+    { name: '09-alert', run: ui(`reset(), window.__ui.clickSel('.nx-alerts button')`), wait: 400 },
+    { name: '10-nav-townhall', run: ui(`reset(), window.__ui.click('Ратуша', '.nx-nav')`), wait: 900, tabs: true },
+    { name: '11-nav-people', run: ui(`reset(), window.__ui.click('Жители', '.nx-nav')`), wait: 900 },
+    { name: '12-nav-army', run: ui(`reset(), window.__ui.click('Дружина', '.nx-nav')`), wait: 900 },
+    { name: '13-nav-mail', run: ui(`reset(), window.__ui.click('Вести', '.nx-nav')`), wait: 1200 },
+  ],
+  bld1: [
+    building('campfire', '20-campfire'),
+    building('houses', '21-houses'),
+    building('storage', '22-storage'),
+    building('gathering', '23-gathering'),
+    building('sawmill', '24-sawmill'),
+    building('quarry', '25-quarry'),
+    building('hunter_hut', '26-hunter_hut'),
+    building('mine', '27-mine'),
+    building('workshop', '28-workshop'),
+    building('farm', '29-farm'),
+    building('pen', '30-pen'),
+    building('church', '31-church'),
+  ],
+  bld2: [
+    building('statue', '32-statue'),
+    building('infirmary', '33-infirmary'),
+    building('watch', '34-watch'),
+    building('stable', '35-stable'),
+    building('cache', '36-cache'),
+    building('tavern', '37-tavern'),
+    building('palisade', '38-palisade'),
+    building('tower', '39-tower'),
+    building('smithy', '40-smithy'),
+    building('market', '41-market'),
+    building('barracks', '42-barracks'),
+  ],
+  realm: [
+    { name: '50-realm', run: ui(`reset(), window.__ui.clickSel('.coat-btn')`), wait: 1500, tabs: true },
+    { name: '51-realm-settings', run: ui(`click('Профиль и настройки', '.nx-realm')`), wait: 800 },
+  ],
+  map: [
+    { name: '60-map', run: `(() => { window.__ui.reset(); window.__game.getState().openMap(); return JSON.stringify('ok'); })()`, wait: 6000 },
+    { name: '61-map-legend', run: ui(`click('Легенда', '.nx-mapnav')`), wait: 900 },
+    { name: '62-map-marches', run: ui(`click('Легенда', '.nx-mapnav'), window.__ui.click('Походы', '.nx-mapnav')`), wait: 1200 },
+    { name: '63-map-cell-own', run: place('s.mine'), wait: 2000 },
+    { name: '64-map-cell-lair', run: place('!s.mine && !s.castle'), wait: 2000 },
+    {
+      name: '65-map-orders',
+      run: `(async () => {
+        const W = (await import('/src/world/store.ts')).useWorld.getState();
+        const c = W.selected;
+        if (!c) return JSON.stringify('клетка не выбрана');
+        await W.openMenu('general', c);
+        return JSON.stringify('ok');
+      })()`,
+      wait: 2000,
+    },
+  ],
+  misc: [
+    { name: '70-treasury', run: ui(`reset(), window.__ui.clickSel('.nx-gems')`), wait: 1200, tabs: true },
+    { name: '71-trades', run: `(async () => { window.__ui.reset(); (await import('/src/ui/trades.ts')).useTrades.getState().show(); return JSON.stringify('ok'); })()`, wait: 1200 },
+    { name: '72-season', run: tab('season'), wait: 900 },
+    { name: '73-pop', run: tab('pop'), wait: 900 },
+    { name: '74-morale', run: tab('morale'), wait: 900 },
+    { name: '75-troop-card', run: `(async () => { window.__ui.reset(); window.__game.getState().openTab('army'); await new Promise((r) => setTimeout(r, 700)); const c = [...document.querySelectorAll('.sheet.open button.card.as-row')].find((b) => !b.textContent.includes('Раскладка')); if (!c) return JSON.stringify('нет карточки вида'); c.click(); return JSON.stringify('ok'); })()`, wait: 900 },
+    { name: '76-muster', run: `(async () => { window.__ui.reset(); await new Promise((r) => setTimeout(r, 500)); window.__game.getState().openTab('army'); await new Promise((r) => setTimeout(r, 700)); return JSON.stringify(window.__ui.click('Раскладка', '.sheet.open')); })()`, wait: 1200 },
+  ],
+};
+
+// ---------- съёмка ----------
+
+async function snap(tab: Tab, name: string): Promise<void> {
+  const png = await tab.send<{ data: string }>('Page.captureScreenshot', { format: 'png' });
+  const jpg = await sharp(Buffer.from(png.data, 'base64')).jpeg({ quality: 70, mozjpeg: true }).toBuffer();
+  await writeFile(join(OUT, `${name}.jpg`), jpg);
+}
+
+async function measure(tab: Tab): Promise<string> {
+  const m = await tab.eval<{ h: number; box: number; screens: number } | null>(ui('measure()')).catch(() => null);
+  return m ? `экранов ${m.screens} (прокрутка ${m.h} из ${m.box} px)` : 'окна нет';
+}
+
+/** Вкладки открытого окна — шторки, державы или сокровищницы, — кроме выбранной: она уже на снимке шага. */
+const TAB_SEL = `.sheet.open [role=tab], .nx-realm [role=tab], .sheet.open .tabs button, .sheet.open .nx-tabs button`;
+const TABS = `JSON.stringify([...document.querySelectorAll('${TAB_SEL}')].map((b, i) => (b.getAttribute('aria-selected') === 'true' || b.classList.contains('on') || b.classList.contains('active') ? -1 : i)).filter((i) => i >= 0))`;
+const TAB_CLICK = (i: number): string =>
+  `(() => { const b = [...document.querySelectorAll('${TAB_SEL}')][${i}]; if (!b) return JSON.stringify('нет'); b.click(); return JSON.stringify((b.getAttribute('aria-label') || b.textContent || '').trim().slice(0, 24)); })()`;
+
+async function group(name: string, steps: Step[]): Promise<void> {
+  const tab = await Tab.open(DEBUG_PORT, 'about:blank');
+  const began = Date.now();
+  try {
+    await tab.send('Emulation.setDeviceMetricsOverride', SCREEN);
+    await tab.send('Page.navigate', { url: `http://127.0.0.1:${PORT}/?probe=1&fpscap=${FPS}&quality=low` });
+    await sleep(1500);
+    await tab.eval<string>('(() => { try { localStorage.clear(); } catch (e) {} return JSON.stringify("ok"); })()');
+    await tab.send('Page.reload');
+    let up = false;
+    for (let i = 0; i < 150 && !up; i++) {
+      await sleep(300);
+      up = await tab.eval<boolean>('JSON.stringify(!!(window.__game && document.querySelector(".start-go, .start")))').catch(() => false);
+    }
+    if (!up) throw new Error('стартовый экран не встал за 45 с');
+    if (name === 'city') {
+      await sleep(1200);
+      await snap(tab, '00-start');
+      console.log('  00-start');
+    }
+    console.log(`  вход: ${await tab.eval<string>(ENTER_GAME)}`);
+    await sleep(2500);
+    // Обучение снято и вести не приходят: затемнение обучения и окно вести — не вид экрана, который снимаем.
+    await tab.eval<string>(`(() => {
+      const st = document.createElement('style');
+      st.textContent = '.trouble { display: none !important; }';
+      document.head.appendChild(st);
+      const s = window.__game.getState().s;
+      s.tutorialDone = true;
+      s.winterWarning = false;
+      window.__game.setState({ s: { ...s } });
+      return JSON.stringify('ok');
+    })()`);
+    await tab.eval<string>(HELPERS);
+    for (const step of steps) {
+      if (Date.now() - began > BROWSER_MAX_MS - 8000) {
+        console.log(`  срок захода (${BROWSER_MAX_MS / 1000} с) вышел — не сняты: ${steps.slice(steps.indexOf(step)).map((s) => s.name).join(', ')}`);
+        break;
+      }
+      const said = step.run ? await tab.eval<unknown>(step.run).catch((e: Error) => `ошибка: ${e.message}`) : 'ok';
+      await sleep(step.wait ?? 600);
+      if (step.shot === false) continue;
+      await snap(tab, step.name);
+      console.log(`  ${step.name}: ${said === 'ok' ? '' : `${String(said)}; `}${await measure(tab)}`);
+      if (!step.tabs) continue;
+      const tabs = await tab.eval<number[]>(TABS).catch(() => []);
+      for (const i of tabs) {
+        const label = await tab.eval<string>(TAB_CLICK(i));
+        await sleep(700);
+        const shot = `${step.name}-t${i}`;
+        await snap(tab, shot);
+        console.log(`  ${shot} «${label}»: ${await measure(tab)}`);
+      }
+    }
+  } finally {
+    tab.close();
+    await fetch(`http://127.0.0.1:${DEBUG_PORT}/json/close/${tab.target}`).catch(() => undefined);
+  }
+}
+
+async function main(): Promise<void> {
+  const name = process.env.GROUP;
+  if (!name || !GROUPS[name]) {
+    console.log(`Заходы: ${Object.keys(GROUPS).join(', ')}. Один заход — GROUP=<имя>.`);
+    return;
+  }
+  refuseIfBusy('Снимки интерфейса');
+  await mkdir(OUT, { recursive: true });
+  const vite = await createVite({
+    configFile: join(ROOT, 'vite.config.ts'),
+    root: ROOT,
+    server: { port: PORT, strictPort: true, host: '127.0.0.1' },
+    logLevel: 'warn',
+  });
+  await vite.listen();
+  try {
+    console.log(`\n=== интерфейс: заход ${name} (390×844 @2, потолок ${FPS} кадр/с) ===\n`);
+    await gpuCoolDown('снимками интерфейса');
+    const root = process.getuid?.() === 0 ? ['--no-sandbox', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] : [];
+    const chrome = await launchChrome(DEBUG_PORT, ['--use-gl=angle', '--window-size=500,900', ...root]);
+    try {
+      await group(name, GROUPS[name]);
+    } finally {
+      chrome.kill();
+      gpuStamp();
+    }
+  } finally {
+    await vite.close();
+    await sleep(300);
+  }
+}
+
+void main();
