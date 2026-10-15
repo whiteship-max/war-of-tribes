@@ -1,0 +1,167 @@
+/*
+ * Передача между гарнизоном и отрядом в «Дружине» (parts/Muster.tsx, docs/ui_v2.md, 5.3). Таблица — набора (`kit/Table`):
+ * слева вид и гарнизон, справа шаг с числом отряда. Шаг — общий ряд `parts/Steps`; здесь только его место в строке.
+ * Цели касания: вид — дверь в карточку, 44; кнопки шага — 44 (`--tap`); тест сверяет числа с порогами судьи.
+ */
+.ms {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ms-key {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.ms-key svg,
+.ms-key .icon {
+  width: 16px;
+  height: 16px;
+}
+.ms-key.gen {
+  color: var(--accent);
+}
+
+/* Вид: значок, имя 11 px и число гарнизона 15 px — дверь в карточку вида. */
+.ms-kind {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  min-width: 0;
+  min-height: var(--tap);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.ms-kind > svg,
+.ms-kind > .icon {
+  flex: none;
+  width: 20px;
+  height: 20px;
+}
+.ms-kind > span {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.ms-kind small {
+  font-size: 11px;
+  color: var(--muted);
+}
+.ms-kind b {
+  font-size: 15px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.ms-kind:active {
+  transform: scale(0.97);
+}
+
+/* Шаг: четыре кнопки по 44 и число отряда; ряд `Steps` растянут на всю ширину — здесь он ровно в свою колонку. */
+.ms-steps .stepper.wide-steps {
+  margin: 0;
+  gap: 4px;
+}
+.ms-steps .stepper.wide-steps button {
+  flex: 0 0 var(--tap);
+  width: var(--tap);
+  height: var(--tap);
+}
+.ms-steps .stepper.wide-steps .n {
+  min-width: 48px;
+  font-size: 15px;
+  color: var(--accent);
+}
+.ms-n {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.ms-all {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.ms-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ms-note {
+  font-size: 11px;
+  color: var(--warn, #d9a441);
+}
+
+/* Виды, которых в дружине нет, — значками-дверями в карточку вида (их прежде открывал список «Состав»). */
+.ms-more {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.ms-more-b {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--tap);
+  height: var(--tap);
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  opacity: 0.8;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.ms-more-b svg,
+.ms-more-b .icon {
+  width: 28px;
+  height: 28px;
+}
+.ms-more-b:active {
+  transform: scale(0.97);
+}
+
+/* Оборона, в обороне, не в обороне — три ячейки-справки одной строкой («Дружина»). */
+.ms-sum {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  margin: 0 0 8px;
+}
+.ms-sum .kit-num {
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 2px;
+  min-height: 44px;
+  padding: 4px 8px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  text-align: left;
+  text-decoration: none;
+}
+.ms-sum small {
+  font-size: 11px;
+  color: var(--muted);
+}
+.ms-sum b {
+  font-size: 15px;
+  font-weight: 600;
+  text-decoration: underline dotted rgba(255, 220, 170, 0.35);
+  text-underline-offset: 3px;
+}
+.ms-sum b.good {
+  color: var(--good);
+}
+.ms-sum b.bad {
+  color: var(--bad);
+}

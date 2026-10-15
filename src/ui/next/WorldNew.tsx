@@ -512,7 +512,7 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
         </div>
       )}
 
-      {/* Кто с полководцем — окно раскладки в «Дружине», одно на всю игру (docs/retinue.md). */}
+      {/* Кто с полководцем — передача в «Дружине», одна на всю игру (docs/retinue.md, docs/ui_v2.md, 5.3): здесь строка-вход. */}
       {card.mine && <MusterLink />}
 
       {lead(standing)}

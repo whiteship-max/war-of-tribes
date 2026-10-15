@@ -255,6 +255,10 @@ const GROUPS: Record<string, Step[]> = {
     // До UI-4 передача — окно «Раскладка» за строкой; с UI-4 строки нет, шаги — в самой «Дружине».
     { name: '101-army-step', run: `(() => { const r = window.__ui.btn('Раскладка', '.sheet.open'); if (r) r.click(); return JSON.stringify('ok'); })()`, wait: 900 },
     { name: '102-army-moved', run: ui(`clickSel('.sheet.open [aria-label="К полководцу 10"]')`), wait: 700 },
+    // Конец окна: «Всех в гарнизон / в отряд», виды без бойцов, мораль между боями.
+    { name: '103-army-end', run: `(() => { const e = window.__ui.scroller(); if (!e) return JSON.stringify('нет окна'); e.scrollTop = e.scrollHeight; return JSON.stringify('ok'); })()`, wait: 600 },
+    // Подсказка итога: мощь отряда по видам — до приказа и после.
+    { name: '104-army-tip', run: `(() => { const e = window.__ui.scroller(); if (e) e.scrollTop = 0; return JSON.stringify(window.__ui.click('Мощь отряда', '.sheet.open')); })()`, wait: 600 },
   ],
   misc: [
     // Плашка алмазов с UI-3 открывает подсказку, а не окно (docs/ui_v2.md, 5.2): окно — его хранилищем.
@@ -263,8 +267,9 @@ const GROUPS: Record<string, Step[]> = {
     { name: '72-season', run: tab('season'), wait: 900 },
     { name: '73-pop', run: tab('pop'), wait: 900 },
     { name: '74-morale', run: tab('morale'), wait: 900 },
-    { name: '75-troop-card', run: `(async () => { window.__ui.reset(); window.__game.getState().openTab('army'); await new Promise((r) => setTimeout(r, 700)); const c = [...document.querySelectorAll('.sheet.open button.card.as-row')].find((b) => !b.textContent.includes('Раскладка')); if (!c) return JSON.stringify('нет карточки вида'); c.click(); return JSON.stringify('ok'); })()`, wait: 900 },
-    { name: '76-muster', run: `(async () => { window.__ui.reset(); await new Promise((r) => setTimeout(r, 500)); window.__game.getState().openTab('army'); await new Promise((r) => setTimeout(r, 700)); return JSON.stringify(window.__ui.click('Раскладка', '.sheet.open')); })()`, wait: 1200 },
+    { name: '75-troop-card', run: `(async () => { window.__ui.reset(); window.__game.getState().openTab('army'); await new Promise((r) => setTimeout(r, 700)); const c = document.querySelector('.sheet.open button[aria-label$=": карточка вида"]'); if (!c) return JSON.stringify('нет карточки вида'); c.click(); return JSON.stringify('ok'); })()`, wait: 900 },
+    // С UI-4 передача — в самой «Дружине» (заход `army`); прежнее окно «Раскладка» за строкой снято.
+    { name: '76-muster', run: `(async () => { window.__ui.reset(); await new Promise((r) => setTimeout(r, 500)); window.__game.getState().openTab('army'); return JSON.stringify('ok'); })()`, wait: 1200 },
   ],
 };
 

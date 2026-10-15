@@ -1,44 +1,40 @@
-// Справка по дружине из строки состояния: состав, показатели каждого вида и его
-// карточка. Карточка живёт здесь же, а не отдельным разделом шторки, — это чтение
-// про то же самое войско, и возврат должен быть в один тап. Кольца контрров нет
+// «Дружина» из строки состояния и низа: оборона, кто в ней, передача между гарнизоном и отрядом полководца и вид бойцов
+// карточкой. Передача стоит здесь же, а не за строкой «Раскладка» (UI-4, docs/ui_v2.md, 5.3): решение о том, кто где, —
+// про всё войско, а всё войско видно здесь. Строка вида в передаче — дверь в его карточку; виды, которых в дружине нет,
+// — значками под ней: карточка вида одна, и прежде её открывал список «Состав» всех девяти видов. Кольца контров нет
 // (слово владельца по 14.35, docs/battle_eu4.md): кто кого бьёт, решают показатели.
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import type { TroopId } from '@/game/types';
 import { useGame } from '@/game/store';
 import { TROOPS } from '@/game/data/troops';
 import { armyPower, armySize, buildingOfType, defense, homeArmy, recruitsQueued } from '@/game/derived';
-import { KIND_META } from '@/battle';
-import { KIND_OF, profileOfTroop } from '@/game/battle/kinds';
-import { troopPower } from '@/game/battle/price';
 import { useWorld, worldNow } from '@/world/store';
-import { moraleOf } from '@/game/battle/describe';
 import { WOUND_DAYS } from '@/game/constants';
 import { REST_WHY, restLine } from '../parts/restWords';
 import { waitDays } from '../parts/wait';
 import { count } from '../parts/plural';
-import { tipAt } from '@/ui/next/tip';
 import { TroopCardView } from '../parts/TroopCardView';
-import { Muster, MusterOpen } from '../parts/Muster';
-import { useArmyView } from '../parts/armyView';
+import { Muster, inWallsTip, outWallsTip } from '../parts/Muster';
 import { Icon } from '@/ui/icons/Icon';
+import { Num } from '@/ui/kit/Num';
+import { fmtInt } from '@/ui/next/hudTips';
 import { dec } from '@/game/num';
 
 export function ArmyPanel() {
   const s = useGame((g) => g.s);
   const openBuilding = useGame((g) => g.openBuilding);
   const [open, setOpen] = useState<TroopId | null>(null);
+  const marches = useWorld((g) => g.marches);
+  const figures = useWorld((g) => g.figures);
   const barracks = buildingOfType(s, 'barracks');
   const home = homeArmy(s);
   const away = armySize(s) - home;
   const training = recruitsQueued(s);
-  const general = useWorld((g) => g.figures.find((f) => f.id === 'general'));
-  // Окно раскладки открыто здесь же (docs/retinue.md); ушли из «Дружины» — в следующий раз она открывается списком.
-  const muster = useArmyView((v) => v.muster);
-  const showMuster = useArmyView((v) => v.show);
-  useEffect(() => () => showMuster(false), [showMuster]);
+  const general = figures.find((f) => f.id === 'general');
 
-  if (muster) return <Muster onBack={() => showMuster(false)} />;
   if (open) return <TroopCardView troop={open} onBack={() => setOpen(null)} />;
+
+  const unhired = TROOPS.filter((d) => (s.army[d.id] ?? 0) <= 0);
 
   return (
     <div className="panel">
@@ -46,27 +42,20 @@ export function ArmyPanel() {
         ⚔️ Дружина <small>{count(armySize(s), 'боец', 'бойца', 'бойцов')} · мощь {Math.round(armyPower(s))}</small>
       </h2>
 
-      <div
-        className="mod total"
-        role="button"
-        tabIndex={0}
-        onClick={(e) =>
-          tipAt(e.currentTarget, { title: 'Оборона', body: 'Стены, башня, жители, гарнизон и собранный дома отряд.' })
-        }
-      >
-        <span className="ico">🛡️</span>
-        <span className="name">Оборона</span>
-        <span className="val pos">{dec(defense(s), 0)}</span>
-      </div>
-      <div className="mod">
-        <span className="ico"><Icon name="ui-home" glyph="🏠" /></span>
-        <span className="name">Гарнизон</span>
-        <span className="val">{home}</span>
-      </div>
-      <div className="mod">
-        <span className="ico"><Icon name="ui-banner" glyph="🚩" /></span>
-        <span className="name">Не в обороне</span>
-        <span className={`val${away > 0 ? ' neg' : ''}`}>{away}</span>
+      {/* Три числа одной строкой ячеек (docs/ui_v2.md, 2.1): оборона, кто в ней и кто нет — каждое с подсказкой. */}
+      <div className="ms-sum">
+        <Num label="Оборона" tip={() => ({ title: 'Оборона', body: 'Стены, башня, жители, гарнизон и отряд полководца в городе.' })}>
+          <small>Оборона</small>
+          <b className="good">{dec(defense(s), 0)}</b>
+        </Num>
+        <Num label="В обороне" tip={() => inWallsTip(s, marches, figures)}>
+          <small>В обороне</small>
+          <b>{fmtInt(home)}</b>
+        </Num>
+        <Num label="Не в обороне" tip={() => outWallsTip(s)}>
+          <small>Не в обороне</small>
+          <b className={away > 0 ? 'bad' : ''}>{fmtInt(away)}</b>
+        </Num>
       </div>
       {training > 0 && (
         <div className="mod">
@@ -75,42 +64,29 @@ export function ArmyPanel() {
           <span className="val">{training}</span>
         </div>
       )}
-      {/* Кто в обороне, кто с полководцем — окно раскладки (docs/retinue.md). */}
-      <MusterOpen />
+
+      {/* Кто в гарнизоне, кто с полководцем — передача здесь, одна на всю игру (docs/retinue.md, docs/ui_v2.md, 5.3). */}
+      <h3>Гарнизон и отряд</h3>
+      <Muster onCard={setOpen} />
+
+      {unhired.length > 0 && (
+        <>
+          <h3>Ещё виды</h3>
+          <div className="ms-more">
+            {unhired.map((d) => (
+              <button type="button" key={d.id} className="ms-more-b" onClick={() => setOpen(d.id)} aria-label={`${d.name}: карточка вида`}>
+                <Icon name={`troop-${d.id}`} glyph={d.icon} />
+              </button>
+            ))}
+          </div>
+        </>
+      )}
 
       <h3>Мораль между боями</h3>
       <div className="note">
         После боя мораль уцелевших проседает и за {waitDays(WOUND_DAYS)} возвращается к полной. {REST_WHY}
       </div>
       {general?.rest && <div className="note warn">{restLine(general.rest, 'Отряд дрался', worldNow())}</div>}
-
-      <h3>Состав дружины</h3>
-      {TROOPS.map((def) => {
-        const n = Math.max(0, s.army[def.id] ?? 0);
-        const kind = KIND_OF[def.id];
-        const m = moraleOf(def.id);
-        const p = profileOfTroop(def.id);
-        return (
-          <button className={`card as-row${n === 0 ? ' none' : ''}`} key={def.id} onClick={() => setOpen(def.id)}>
-            <div className="ico">
-              <Icon name={`troop-${def.id}`} glyph={def.icon} />
-            </div>
-            <div className="body">
-              <div className="title">
-                {def.name}
-                <span className="count">
-                  {n} · мощь {Math.round(troopPower({ [def.id]: n }))}
-                </span>
-              </div>
-              <div className="desc">
-                {KIND_META[kind].icon} {KIND_META[kind].name} · огонь {p.fireAtk}/{p.fireDef} · натиск {p.shockAtk}/{p.shockDef}
-                {' · '}мораль {m.total}
-              </div>
-            </div>
-            <div className="chev">›</div>
-          </button>
-        );
-      })}
 
       {barracks && (
         <button className="btn wide" onClick={() => openBuilding(barracks.id)}>

@@ -466,8 +466,9 @@ export const armyPower = (s: GameState): number => troopPower(s.army ?? {});
 export const homeTroops = (s: GameState): TroopStack => troopsAfter(s.army ?? {}, s.away ?? {});
 
 /**
- * Бойцы в обороне деревни: гарнизон и дружина, собранная у своих ворот. Отряды в
- * пути и дружина в сборе и в поле деревню не защищают (`world/muster`).
+ * Бойцы в обороне деревни: гарнизон и отряд полководца, пока он в городе (и во время
+ * сбора тоже). Отряды в пути, сбор вне города и отряд в поле деревню не защищают
+ * (`world/muster`).
  */
 export const homeArmy = (s: GameState): number => troopTotal(homeTroops(s));
 
