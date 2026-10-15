@@ -11,7 +11,7 @@ import { SHOP_DAILY, SHOP_GOODS, SHOP_LOT, shopBlocked, shopPrice, shopRoom } fr
 import { gemLine, shopResetAt } from '@/game/gemrules';
 import { buildingTitle } from '@/game/derived';
 import { BUILDING_BY_ID } from '@/game/data/buildings';
-import { gemsOffline, orderBuy, useGems } from '@/net/gems';
+import { gemsOffline, orderBuy, useGems, type GemsStore } from '@/net/gems';
 import { serverNow } from '@/net/clock';
 import type { BuildingTypeId } from '@/game/types';
 import { Icon } from '@/ui/icons/Icon';
@@ -22,6 +22,15 @@ import { useRealm } from '@/ui/realm/open';
 import { GemIcon } from './Rush';
 import { gemsTip } from './hudTips';
 import { tipAt } from './tip';
+
+/**
+ * Лавка сегодня по часам сервера — одни часы на лавку и подсказку плашки: «сейчас», от которого считают сутки (полночь
+ * UTC, `shopResetAt`) и связь (`gemsOffline`), и сколько покупок из `SHOP_DAILY` сделано (`ui/treasury.shopUsed`).
+ */
+function shopToday(shop: GemsStore['shop']): { now: number; used: number } {
+  const now = serverNow();
+  return { now, used: shopUsed(shop, now) };
+}
 
 /** Вкладка «Купить» — отдельным куском, с библиотекой кошелька. */
 const Buy = lazy(() => import('./TreasuryBuy'));
@@ -35,8 +44,8 @@ export function GemPlaque() {
   const show = useTreasury((t) => t.show);
   const tip = (e: { currentTarget: Element }): void => {
     const g = useGems.getState();
-    const now = serverNow();
-    tipAt(e.currentTarget, gemsTip(g.balance, shopUsed(g.shop, now), gemsOffline(g, now), () => show('buy')));
+    const { now, used } = shopToday(g.shop);
+    tipAt(e.currentTarget, gemsTip(g.balance, used, gemsOffline(g, now), () => show('buy')));
   };
   return (
     <button className="nx-gems" onClick={tip} aria-label={`Алмазы: ${balance ?? 'нет связи'}`}>
@@ -113,8 +122,7 @@ function Shop() {
   const at = useGems((g) => g.at);
   const why = useGems((g) => g.why);
   const busy = useGems((g) => g.busy);
-  const now = serverNow();
-  const used = shopUsed(shop, now);
+  const { now, used } = shopToday(shop);
   const left = Math.max(0, SHOP_DAILY - used);
   const offline = gemsOffline({ balance, at, why }, now);
   const buy = async (r: (typeof SHOP_GOODS)[number]): Promise<void> => {

@@ -367,7 +367,7 @@ describe('к источнику: двери из данных игры', () => {
   });
 
   it('у каждого запаса и показателя верха есть окно и слово двери', () => {
-    const keys: SourceKey[] = [...RESOURCE_IDS, 'gold', 'pop', 'morale', 'order', 'army', 'energy', 'season', 'gems'];
+    const keys: SourceKey[] = [...RESOURCE_IDS, 'gold', 'pop', 'morale', 'order', 'army', 'energy', 'season', 'treasury'];
     for (const k of keys) {
       expect(WINDOW[k], `${k}: окно`).toBeDefined();
       expect(sourceWord(WINDOW[k]).length, `${k}: слово`).toBeGreaterThan(0);
@@ -391,7 +391,7 @@ describe('к источнику: двери из данных игры', () => {
       ['army', () => armyTip(s, go)],
       ['season', () => seasonTip(s, go)],
       ['energy', () => energyTip(s, 0, () => (went = { kind: 'trades' }))],
-      ['gems', () => gemsTip(120, 0, null, () => (went = { kind: 'treasury' }))],
+      ['treasury', () => gemsTip(120, 0, null, () => (went = { kind: 'treasury' }))],
       ...RESOURCE_IDS.map((r): [SourceKey, () => ReturnType<typeof goldTip>] => [r, () => resTip(s, r, storage.id, go)]),
     ];
     for (const [key, make] of cases) {

@@ -361,7 +361,7 @@ describe('энергия и алмазы: копятся не постройко
     expect(g.body).toContain('3 из 10');
     g.link!.go();
     expect(opened).toBe('treasury');
-    expect(g.link!.label).toBe(sourceWord(WINDOW.gems));
+    expect(g.link!.label).toBe(sourceWord(WINDOW.treasury));
     expect(gemsTip(null, 0, 'Нет связи с Сокровищницей.', () => undefined).title).toBe('Алмазы · нет связи');
   });
 });

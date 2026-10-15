@@ -24,7 +24,8 @@ export type Source =
   | { kind: 'build' };
 
 /** Показатели верхней строки — у каждого свой источник (`WINDOW`). */
-export type Indicator = 'gold' | 'pop' | 'morale' | 'order' | 'army' | 'energy' | 'season' | 'gems';
+// Плашка алмазов — `treasury`: ключа `gems:` в объектах клиента нет нигде (замок `sim/gems.test.ts`).
+export type Indicator = 'gold' | 'pop' | 'morale' | 'order' | 'army' | 'energy' | 'season' | 'treasury';
 export type SourceKey = ResourceId | Indicator;
 
 /**
@@ -40,7 +41,7 @@ export const WINDOW: Readonly<Record<SourceKey, Source>> = {
   army: { kind: 'tab', tab: 'army' },
   energy: { kind: 'trades' },
   season: { kind: 'tab', tab: 'season' },
-  gems: { kind: 'treasury' },
+  treasury: { kind: 'treasury' },
 };
 
 /** Слова дверей, которые ведут не в постройку: подписи разделов — те же, что у ссылок подсказок верха. */
