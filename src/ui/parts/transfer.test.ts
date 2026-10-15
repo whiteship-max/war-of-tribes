@@ -37,7 +37,8 @@ vi.mock('@/world/store', async (orig) => {
 });
 
 import { ArmyPanel } from '@/ui/panels/ArmyPanel';
-import { inWallsTip, outWallsTip, postureLine, shift, sideOf, sideTip, transferSums } from './Muster';
+import { inWallsTip, outWallsTip, shift, sideOf, sideTip, transferSums } from './Muster';
+import { postureLine } from './MusterLink';
 
 const NOW = 1_700_000_000_000;
 const ARMY: TroopStack = { clubman: 40, archer: 16, spearman: 12, rider: 6 };
@@ -68,7 +69,7 @@ const march = (troops: TroopStack): MarchView =>
 /** Партия: войско `ARMY`, полководец `g`, отряды `marches`; `s.away` сведён тем же мостом, что у игры. */
 function party(g: FigureView, marches: MarchView[] = []): GameState {
   const s = createInitialState(7);
-  s.army = { ...ARMY };
+  Object.assign(s.army, ARMY);
   syncAway(s, marches, [g]);
   stores.game = { s, showToast: () => undefined, openBuilding: () => undefined };
   stores.world = { marches, figures: [g], setGarrison: async () => null };

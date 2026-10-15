@@ -3,8 +3,8 @@
 // одна кнопка «Подтвердить». Раскладка постоянная: часть полководца держится, пока бойцы живы, ходит с ним и с ним
 // возвращается; новые нанятые встают в гарнизон, к полководцу их переводят здесь.
 //
-// Блок один на всю игру и стоит в «Дружине» (`panels/ArmyPanel`). Статуя и карточка своего замка ведут сюда строкой
-// (`MusterLink`), а не держат вторую копию: две копии одного решения разошлись бы молча. Держит это тест по исходнику
+// Блок один на всю игру и стоит в «Дружине» (`panels/ArmyPanel`, кусок нового вида). Статуя и карточка своего замка ведут
+// сюда строкой (`MusterLink`, свой лёгкий файл), а не держат вторую копию: две копии одного решения разошлись бы молча. Держит это тест по исходнику
 // (`Muster.test.ts`): `setGarrison` мира зовёт ровно этот файл.
 //
 // Своей правды здесь нет. Можно ли менять раскладку, почему нет и мгновенно ли — словами мира (`FigureView.regroup`, та
@@ -17,11 +17,10 @@
 import './muster.css';
 import { useEffect, useState } from 'react';
 import { useGame } from '@/game/store';
-import { useWorld, worldNow } from '@/world/store';
+import { useWorld } from '@/world/store';
 import { armySize, buildingOfType, defense, homeArmy, homeTroops, wageOf } from '@/game/derived';
 import { personName, seated, traitNumbers } from '@/game/sim/agents';
 import { troopPower } from '@/game/battle/price';
-import { secondsLeft } from '@/world/geo';
 import { awayOf, inTown, musterMs, ownOf, plus, postureOf, roomOf, standingTroops, type Posture } from '@/world/muster';
 import { troopTotal, troopsAfter, type TroopStack } from '@/game/battle/kinds';
 import type { GameState, TroopId } from '@/game/types';
@@ -37,6 +36,7 @@ import { fmtInt, fmtRate } from '@/ui/next/hudTips';
 import type { TipContent } from '@/ui/next/tip';
 import { realSpanText } from './wait';
 import { Steps } from './Steps';
+import { postureLine } from './MusterLink';
 
 /**
  * Какой будет оборона, пока идёт сбор, и когда он кончится. Считает та же
@@ -64,51 +64,6 @@ export function musterDefense(
     during: defense({ ...s, away: plus(marches, onRoad) }),
     after: defense({ ...s, away: home ? marches : plus(marches, want) }),
   };
-}
-
-/**
- * Где полководец и его отряд — одной строкой: за разницу между «в городе» и «в поле» игрок платит обороной. В городе
- * отряд «защищает стены», и во время сбора тоже (`muster.inTown`).
- */
-export function postureLine(general: FigureView | undefined, now = worldNow()): string {
-  if (!general) return 'Где полководец, пока неизвестно';
-  if (general.gone) return 'Полководца нет';
-  const n = troopTotal(general.troops);
-  if (general.phase === 'down') return n > 0 ? 'Полководец вне строя' : 'Полководец вне строя, отряда нет';
-  const left = secondsLeft(general.readyAt, now);
-  const gathering = general.readyAt > 0 && left > 0 ? ` · сбор ещё ${realSpanText(left)}` : '';
-  if (inTown(general)) return n > 0 ? `В городе — защищает стены${gathering}` : 'В городе, отряда нет';
-  if (postureOf(general) === 'gathering') return `Сбор ещё ${realSpanText(left)}, город не защищает`;
-  return n > 0 ? 'В походе — город не защищает' : 'В походе, отряда нет';
-}
-
-/**
- * Строка-вход в Статуе и в карточке своего замка: сколько бойцов с полководцем и где они; касание ведёт в «Дружину», где
- * стоит передача. Своего окна у строки нет.
- */
-export function MusterLink() {
-  const s = useGame((g) => g.s);
-  const sheet = useGame((g) => g.sheet);
-  const mapOpen = useGame((g) => g.mapOpen);
-  const closeMap = useGame((g) => g.closeMap);
-  const openTab = useGame((g) => g.openTab);
-  const general = useWorld((g) => g.figures.find((f) => f.id === 'general'));
-  if (!seated(s, 'general')) return null;
-  const go = (): void => {
-    // Шторки живут над городом: из карты «Дружина» открывается в городе, как и с нижнего места.
-    if (mapOpen) closeMap();
-    if (!(sheet?.kind === 'tab' && sheet.tab === 'army')) openTab('army');
-  };
-  return (
-    <Row
-      icon={{ name: 'fig-general', glyph: '🎖️' }}
-      label="Гарнизон и отряд"
-      sub={postureLine(general)}
-      value={`отряд ${fmtInt(troopTotal(general?.troops ?? {}))}`}
-      go={go}
-      goLabel="В «Дружину»"
-    />
-  );
 }
 
 /** Мощь и жалованье одной колонки — функциями игры. */

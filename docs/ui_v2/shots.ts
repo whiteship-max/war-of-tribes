@@ -259,6 +259,8 @@ const GROUPS: Record<string, Step[]> = {
     { name: '103-army-end', run: `(() => { const e = window.__ui.scroller(); if (!e) return JSON.stringify('нет окна'); e.scrollTop = e.scrollHeight; return JSON.stringify('ok'); })()`, wait: 600 },
     // Подсказка итога: мощь отряда по видам — до приказа и после.
     { name: '104-army-tip', run: `(() => { const e = window.__ui.scroller(); if (e) e.scrollTop = 0; return JSON.stringify(window.__ui.click('Мощь отряда', '.sheet.open')); })()`, wait: 600 },
+    // Касание вида — его карточка (прежде её открывал список «Состав»).
+    { name: '105-army-card', run: `(() => { window.__ui.clickSel('.nx-tip-catch'); return JSON.stringify(window.__ui.clickSel('.sheet.open .ms-kind')); })()`, wait: 900 },
   ],
   misc: [
     // Плашка алмазов с UI-3 открывает подсказку, а не окно (docs/ui_v2.md, 5.2): окно — его хранилищем.

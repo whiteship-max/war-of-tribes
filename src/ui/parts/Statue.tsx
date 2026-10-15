@@ -1,7 +1,7 @@
 import { useGame } from '@/game/store';
 import { payGraceDays } from '@/game/derived';
 import { seated } from '@/game/sim/agents';
-import { MusterLink } from './Muster';
+import { MusterLink } from './MusterLink';
 import { AgentCard } from './AgentCard';
 import { Lineage } from './Lineage';
 import { waitDays } from './wait';

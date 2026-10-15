@@ -37,7 +37,7 @@ import { count } from '@/ui/parts/plural';
 import { EnergyPrice } from '@/ui/parts/Energy';
 import { signed } from '@/ui/parts/signed';
 import { realLeft, waitLeft, waitShort } from '@/ui/parts/wait';
-import { MusterLink } from '@/ui/parts/Muster';
+import { MusterLink } from '@/ui/parts/MusterLink';
 import { tipAt, type TipContent } from './tip';
 import { WarCard } from './WarCard';
 import { SpyRival } from './SpyRival';

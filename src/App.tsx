@@ -9,7 +9,6 @@ import { SeasonPanel } from './ui/panels/SeasonPanel';
 import { PopPanel } from './ui/panels/PopPanel';
 import { MoralePanel } from './ui/panels/MoralePanel';
 import { OrderPanel } from './ui/panels/OrderPanel';
-import { ArmyPanel } from './ui/panels/ArmyPanel';
 import { WinterModal } from './ui/WinterModal';
 import { OfflineModal } from './ui/OfflineModal';
 import { LegacyModal } from './ui/LegacyModal';
@@ -75,6 +74,8 @@ const MarchesNew = lazy(() => nextUi().then((m) => ({ default: m.MarchesNew })))
 /** Окно «Промыслы» — тем же куском (docs/minigames.md, 3). */
 const Trades = lazy(() => nextUi().then((m) => ({ default: m.Trades })));
 const Treasury = lazy(() => nextUi().then((m) => ({ default: m.Treasury })));
+/** «Дружина» с передачей полководец ↔ гарнизон — тем же куском (docs/ui_v2.md, 5.3): она стоит на наборе `kit`. */
+const ArmyPanel = lazy(() => nextUi().then((m) => ({ default: m.ArmyPanel })));
 
 /**
  * Промыслы — мини-игры от первого лица — свой кусок, как предыстория: качается по кнопке входа, и пока игра идёт,
@@ -119,7 +120,11 @@ function SheetContent({ view }: { view: SheetView }) {
     case 'order':
       return <OrderPanel />;
     case 'army':
-      return <ArmyPanel />;
+      return (
+        <Suspense fallback={null}>
+          <ArmyPanel />
+        </Suspense>
+      );
   }
 }
 
