@@ -9,9 +9,11 @@
  * кусту рядом обирает его целиком: спелые — в корзину, зелёные — пропали. Куст обирается один раз. Значит, умение —
  * порядок: сначала спелые, поздние под конец, и не опоздать.
  */
-import { seeded } from './rules';
+import { mixSeed } from '@/game/sim/random';
+import { Streak, seeded, streakMax } from './rules';
 
-export type BushKind = 'bilberry' | 'cowberry' | 'raspberry';
+/** Земляника — редкая (`STRAWBERRY_P`): её кустик встаёт на место одного низкого, и каждая её ягода идёт вдвойне. */
+export type BushKind = 'bilberry' | 'cowberry' | 'raspberry' | 'strawberry';
 
 export interface BushLook {
   /** Имя в подписи прицела — винительным: «собрать малину». */
@@ -30,9 +32,30 @@ export const BUSH_KINDS: Record<BushKind, BushLook> = {
   bilberry: { name: 'чернику', r: 0.5, h: 0.42, min: 7, max: 11 },
   cowberry: { name: 'бруснику', r: 0.45, h: 0.34, min: 6, max: 10 },
   raspberry: { name: 'малину', r: 0.55, h: 1.3, min: 9, max: 12 },
+  strawberry: { name: 'землянику', r: 0.42, h: 0.24, min: 7, max: 10 },
 };
 
+/**
+ * Редкая добыча «Ягод» — земляничная плешь: на поляне раз в три выхода (`STRAWBERRY_P`), на месте одного низкого куста
+ * (черники или брусники) — те же место, срок созревания и число ягод, другой вид. Каждая спелая земляника идёт в
+ * корзину вдвойне (`STRAWBERRY_WORTH`): вторая её доля — прибавка, и в знаменатель она легла вся (`rules.Tally`).
+ */
+export const STRAWBERRY_P = 1 / 3;
+export const STRAWBERRY_WORTH = 2;
+
+/**
+ * Серия «Ягод» — чисто обобранные кусты подряд: всё спелое, ни одной зелёной. С третьего такого подряд — по две ягоды
+ * сверху за куст. Рвёт серию куст, с которого пропала хоть одна зелёная. Умение то же, что и было, — порядок и
+ * терпение, — только теперь за него платят и сверху.
+ */
+export const BERRY_STREAK = { from: 2, step: 1 } as const;
+
 const KINDS: readonly BushKind[] = ['bilberry', 'cowberry', 'raspberry'];
+
+/** Что меняет поляну сверх прежнего: редкая земляника. По умолчанию — прежняя поляна; игра зовёт с `rare: true`. */
+export interface BerryTwists {
+  rare: boolean;
+}
 
 /** Сколько кустов на поляне. */
 export const BUSHES = 10;
@@ -81,8 +104,32 @@ export interface Field {
   total: number;
 }
 
-/** Поляна по зерну. */
-export function layBerries(seed: number): Field {
+/** Ягода в низком кусте — поверх шапки: эллипсоид чуть больше листвы (`models.bushesMesh`), иначе они в ней тонут. */
+function capBerry(rnd: () => number, look: BushLook): { x: number; y: number; z: number } {
+  const a = rnd() * Math.PI * 2;
+  const up = 0.15 + 1.0 * rnd();
+  return { x: Math.cos(a) * Math.cos(up) * look.r * 1.08, z: Math.sin(a) * Math.cos(up) * look.r * 1.08, y: look.h * (0.42 + 0.82 * Math.sin(up)) };
+}
+
+/**
+ * Поляна по зерну. Земляника кладётся после прежней раскладки своим генератором (`mixSeed(seed, 1)`): места, виды,
+ * числа ягод и сроки у каждого зерна прежние, меняется только вид одного низкого куста и места ягод на нём.
+ */
+export function layBerries(seed: number, twists: BerryTwists = { rare: false }): Field {
+  const field = layClassic(seed);
+  if (!twists.rare) return field;
+  const rnd = seeded(mixSeed(seed >>> 0, 1));
+  if (rnd() >= STRAWBERRY_P) return field;
+  const low = field.bushes.filter((b) => b.kind !== 'raspberry');
+  const bush = low[Math.floor(rnd() * low.length)];
+  bush.kind = 'strawberry';
+  const look = BUSH_KINDS.strawberry;
+  bush.berries = bush.berries.map((b) => ({ ripeAt: b.ripeAt, ...capBerry(rnd, look) }));
+  return field;
+}
+
+/** Прежняя раскладка: кусты, виды, ягоды и сроки. */
+function layClassic(seed: number): Field {
   const rnd = seeded(seed);
   const spots: { x: number; z: number }[] = [];
   // Места: случайные точки кольца с запретом тесноты; запрет слабеет, если на поляне не хватает места (не бывает,
@@ -157,18 +204,37 @@ export class Basket {
   readonly picked = new Map<number, { at: number; ripe: number; green: number }>();
   got = 0;
   lost = 0;
+  /** Сверху: вторая доля земляники и серия. */
+  bonus = 0;
+  readonly streak = new Streak(BERRY_STREAK.from, BERRY_STREAK.step);
+
+  /** `streaks: false` — серии нет: прежние правила (тесты прежних правил, щуп добычи). Игра зовёт с серией. */
+  constructor(private streaks = false) {}
 
   /** Обобрать куст. Второй раз — ничего: куст пуст. */
-  pick(bush: Bush, t: number): { ripe: number; green: number } | null {
+  pick(bush: Bush, t: number): { ripe: number; green: number; extra: number } | null {
     if (this.picked.has(bush.id)) return null;
     const y = yieldOf(bush, t);
     this.picked.set(bush.id, { at: t, ...y });
     this.got += y.ripe;
     this.lost += y.green;
-    return y;
+    let extra = bush.kind === 'strawberry' ? y.ripe * (STRAWBERRY_WORTH - 1) : 0;
+    if (this.streaks) {
+      if (y.ripe > 0 && y.green === 0) extra += this.streak.hit();
+      else this.streak.miss();
+    }
+    this.bonus += extra;
+    return { ...y, extra };
   }
 
   isPicked(id: number): boolean {
     return this.picked.has(id);
   }
+}
+
+/** Сколько прибавки было можно взять на поляне: вся земляника вдвойне и все кусты чисто и подряд. */
+export function berryBonusMax(field: Field, streaks = true): number {
+  let n = 0;
+  for (const b of field.bushes) if (b.kind === 'strawberry') n += b.berries.length * (STRAWBERRY_WORTH - 1);
+  return n + (streaks ? streakMax(field.bushes.length, BERRY_STREAK.from, BERRY_STREAK.step) : 0);
 }

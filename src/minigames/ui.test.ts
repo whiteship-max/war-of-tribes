@@ -12,7 +12,8 @@ import { realSpanText } from '@/ui/parts/wait';
 import { energyTip } from '@/ui/next/hudTips';
 import { TIP_MAX } from '@/ui/next/tip';
 import { BANNED, playerStrings } from '@/ui/next/voice.test';
-import { TAP_TARGET } from '@/gestures';
+import { TAP_SLIP, TAP_TARGET } from '@/gestures';
+import { STICK_DEAD, STICK_FULL } from '@/prologue/controls';
 import { HOW, verdictOf } from './Minigame';
 import { BEASTS } from './herd';
 import { PIN_DISTS } from './hunt';
@@ -98,6 +99,20 @@ describe('цели касания промыслов — не меньше по�
       expect(n, `${sel} ${prop}`).not.toBeNull();
       expect(n!, `${sel} ${prop}`).toBeGreaterThanOrEqual(TAP_TARGET);
     }
+  });
+
+  it('руки (docs/minigames.md, 18.1): кнопка действия и кружок пальца — не меньше порога; полный ход стика — в кружке', () => {
+    for (const sel of ['.mg-act', '.mg-pad']) {
+      for (const prop of ['width', 'height']) {
+        const n = value(sel, prop);
+        expect(n, `${sel} ${prop}`).not.toBeNull();
+        expect(n!, `${sel} ${prop}`).toBeGreaterThanOrEqual(TAP_TARGET);
+      }
+    }
+    // Палец, доведённый до полного хода (`STICK_FULL` от точки, где лёг), не уходит дальше кружка пальца.
+    expect(STICK_FULL).toBeLessThanOrEqual(value('.mg-pad', 'width')!);
+    // Мёртвая зона стика — меньше порога тапа: палец, ещё не пошедший, кнопку обхода жмёт как тап.
+    expect(STICK_DEAD).toBeLessThan(TAP_SLIP);
   });
 
   it('холст отдаёт пальцу вертикальную тягу: `touch-action: none`', () => {

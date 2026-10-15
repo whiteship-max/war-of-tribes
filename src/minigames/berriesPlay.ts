@@ -9,7 +9,7 @@ import * as THREE from 'three';
 import type { Surfaces } from '@/prologue/surface';
 import type { Shade } from '@/prologue/models';
 import type { Blocker } from '@/prologue/glade';
-import { BUSH_KINDS, Basket, blush, layBerries, type Field } from './berries';
+import { BUSH_KINDS, Basket, STRAWBERRY_WORTH, berryBonusMax, blush, layBerries, type Field } from './berries';
 import { BERRY_GREEN, BERRY_RIPE, BERRY_SIZE, berriesMesh, bushesMesh } from './models';
 import type { Tally, Target } from './rules';
 import type { Play } from './stage';
@@ -46,7 +46,8 @@ export class BerriesPlay implements Play {
   /** Кусты — до одиннадцати метров от середины. */
   readonly shadowHalf = 12;
   readonly field: Field;
-  private basket = new Basket();
+  /** С серией чисто обобранных кустов (`berries.BERRY_STREAK`) — правила этапа 6. */
+  private basket = new Basket(true);
   private mesh: THREE.InstancedMesh | null = null;
   private bushMesh: THREE.Mesh | null = null;
   /** Какая ступень цвета у каждой ягоды стоит сейчас (−1 — сорвана). */
@@ -66,7 +67,8 @@ export class BerriesPlay implements Play {
   private sound: FieldSound | null = null;
 
   constructor(seed: number) {
-    this.field = layBerries(seed);
+    // Редкая земляника — раз в три выхода (`berries.STRAWBERRY_P`).
+    this.field = layBerries(seed, { rare: true });
     this.blockers_ = this.field.bushes.map((b) => ({ x: b.x, z: b.z, r: BUSH_KINDS[b.kind].r * 0.85 }));
   }
 
@@ -146,7 +148,8 @@ export class BerriesPlay implements Play {
     const out: Target[] = [];
     for (const b of this.field.bushes) {
       if (this.basket.isPicked(b.id)) continue;
-      out.push({ id: b.id, x: b.x, z: b.z, r: BUSH_KINDS[b.kind].r, verb: `Собрать ${BUSH_KINDS[b.kind].name}` });
+      const twice = b.kind === 'strawberry' ? ` ×${STRAWBERRY_WORTH}` : '';
+      out.push({ id: b.id, x: b.x, z: b.z, r: BUSH_KINDS[b.kind].r, verb: `Собрать ${BUSH_KINDS[b.kind].name}${twice}` });
     }
     return out;
   }
@@ -164,7 +167,18 @@ export class BerriesPlay implements Play {
     if (y.green > 0) colors.push(BERRY_GREEN[bush.kind]);
     this.sparks.burst(bush.x, BUSH_KINDS[bush.kind].h * 0.7, bush.z, { colors, n: colors.length + 4, speed: 1.7, up: 0.75, gravity: 5.5, life: 1.1, drag: 1.5 });
     if (y.ripe === 0) return `Зелёных пропало ${y.green}`;
-    return y.green > 0 ? `+${y.ripe}, зелёных пропало ${y.green}` : `+${y.ripe}`;
+    if (y.green > 0) return `+${y.ripe}, зелёных пропало ${y.green}`;
+    // Сверху — земляника вдвойне и серия: отклик называет, за что.
+    const run = this.basket.streak.run;
+    return y.extra > 0 ? `+${y.ripe}${run > 1 ? ` · серия ${run}` : ''} · сверху +${y.extra}` : `+${y.ripe}`;
+  }
+
+  streak(): number {
+    return this.basket.streak.run;
+  }
+
+  rest(): string {
+    return 'Собрать';
   }
 
   frame(t: number, dt: number, walking = 0): void {
@@ -229,7 +243,7 @@ export class BerriesPlay implements Play {
   }
 
   tally(): Tally {
-    return { got: this.basket.got, total: this.field.total };
+    return { got: this.basket.got, total: this.field.total, bonus: this.basket.bonus, bonusMax: berryBonusMax(this.field, true) };
   }
 
   dispose(): void {

@@ -8,7 +8,7 @@ import * as THREE from 'three';
 import type { Surfaces } from '@/prologue/surface';
 import { Shade } from '@/prologue/models';
 import type { Blocker } from '@/prologue/glade';
-import { BEASTS, Feed, HAY, PEN_R, herdOf, roamAt, roamSpeed, roamYaw, type Herd } from './herd';
+import { BEASTS, Feed, HAY, LAMB_WORTH, PEN_R, herdBonusMax, herdOf, roamAt, roamSpeed, roamYaw, type Herd } from './herd';
 import { BACK, LEGS, armful, beast, hayMesh, penMesh } from './models';
 import type { Tally, Target } from './rules';
 import type { Play } from './stage';
@@ -69,8 +69,12 @@ export class HerdPlay implements Play {
   private sparks = new Sparks(0.055);
   private sound: FieldSound | null = null;
 
+  /** Отклики, случившиеся сами: ягнёнок в загоне — на «Начать». */
+  private notes: string[] = [];
+
   constructor(seed: number) {
-    this.herd = herdOf(seed);
+    // Редкий ягнёнок — раз в три выхода (`herd.LAMB_P`).
+    this.herd = herdOf(seed, { rare: true });
     this.feed = new Feed(this.herd);
     const flock = roamAt(this.herd, this.herd.beasts[0], 0);
     const a = Math.atan2(flock.z, flock.x) + Math.PI / 2;
@@ -123,6 +127,15 @@ export class HerdPlay implements Play {
   begin(): void {
     this.sound ??= fieldSound();
     this.sound.arm();
+    if (this.herd.beasts.some((b) => b.kind === 'lamb')) this.notes.push('В загоне ягнёнок — накорми и его');
+  }
+
+  say(): string {
+    return this.notes.shift() ?? '';
+  }
+
+  rest(): string {
+    return this.feed.carrying ? 'Накормить' : 'Взять охапку';
   }
 
   tick(): void {
@@ -162,6 +175,7 @@ export class HerdPlay implements Play {
     if (!b || !this.feed.feed(target.id, t)) return '';
     const left = BEASTS[b.kind].need - this.feed.given[target.id];
     this.sound?.feed(b.kind, left <= 0);
+    if (b.kind === 'lamb') return `Ягнёнок сыт · сверху +${LAMB_WORTH}`;
     // Сено у морды: где животное стоит в эту секунду, на высоте спины.
     const p = this.feed.at(target.id, t);
     this.sparks.burst(p.x, BACK[b.kind] * 0.75, p.z, { colors: HAY_BITS, n: 10, speed: 1.1, up: 0.7, gravity: 2.4, life: 1.1, drag: 2.2 });
@@ -214,7 +228,7 @@ export class HerdPlay implements Play {
   }
 
   tally(): Tally {
-    return { got: this.feed.got, total: this.herd.total };
+    return { got: this.feed.got, total: this.herd.total, bonus: this.feed.bonus, bonusMax: herdBonusMax(this.herd) };
   }
 
   dispose(): void {

@@ -414,7 +414,8 @@ describe('рыбалка: вываживание', () => {
   it('счёт — не выше цели: трофей больше цели засчитывается целью', () => {
     const g = new Fishing(1, { shore: 'river', zone: 'land', season: 'summer' });
     g.catches.push({ def: FISH[3], grams: g.goal * 3, trophy: true });
-    expect(g.tally()).toEqual({ got: g.goal, total: g.goal });
+    // Без серии (прежние правила) прибавки нет: только граммы до цели.
+    expect(g.tally()).toEqual({ got: g.goal, total: g.goal, bonus: 0, bonusMax: 0 });
   });
 
   it('тот же ряд вестей — та же рыба при кадре 1/60, 1/30, 1/45 и 1/144', () => {

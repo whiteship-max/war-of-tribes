@@ -6,7 +6,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { REACH as GLADE_REACH } from '@/prologue/glade';
-import { BUSHES, BUSH_GAP, BUSH_KINDS, Basket, FIELD_R, START_CLEAR, blush, layBerries, ripe, yieldOf } from './berries';
+import { BUSHES, BUSH_GAP, Basket, FIELD_R, START_CLEAR, blush, layBerries, ripe, yieldOf } from './berries';
 import { BEASTS, Feed, HAY, HERD, PEN_R, ROAM_IN, ROAM_OUT, herdOf, roamAt, roamSpeed } from './herd';
 import { GAME_SECONDS, REACH, nearestTarget, shareOf } from './rules';
 
@@ -34,7 +34,9 @@ describe('ягоды: раскладка от зерна', () => {
           expect(Math.hypot(a.x - b.x, a.z - b.z)).toBeGreaterThanOrEqual(BUSH_GAP * 0.9 ** 3);
         }
       const count = (k: string): number => f.bushes.filter((b) => b.kind === k).length;
-      for (const k of Object.keys(BUSH_KINDS)) expect([3, 4]).toContain(count(k));
+      // Прежняя поляна — три вида поровну; земляника — только у редкой (`layBerries(seed, { rare: true })`).
+      for (const k of ['bilberry', 'cowberry', 'raspberry']) expect([3, 4]).toContain(count(k));
+      expect(count('strawberry')).toBe(0);
       expect(f.total).toBe(f.bushes.reduce((n, b) => n + b.berries.length, 0));
     }
   });
@@ -67,7 +69,7 @@ describe('ягоды: раскладка от зерна', () => {
     expect(y.ripe).toBeGreaterThan(0);
     expect(y.green).toBeGreaterThan(0);
     const basket = new Basket();
-    expect(basket.pick(bush, mid)).toEqual(y);
+    expect(basket.pick(bush, mid)).toEqual({ ...y, extra: 0 });
     expect(basket.got).toBe(y.ripe);
     expect(basket.lost).toBe(y.green);
     expect(basket.pick(bush, ts[ts.length - 1] + 1)).toBeNull();
