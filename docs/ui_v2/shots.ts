@@ -5,6 +5,7 @@
 //   GROUP=bld1 | bld2 | realm | map | misc            — постройки (две половины), держава, карта, прочее
 //   GROUP=hall TAG=after npx vite-node docs/ui_v2/shots.ts — ратуша «Стройка» (UI-2): шторка во всю высоту, группы, лист
 //                                                     постройки, стройка; `TAG` — приписка к имени снимка («до» и «после»)
+//   GROUP=army TAG=after npx vite-node docs/ui_v2/shots.ts — «Дружина» (UI-4): гарнизон и отряд, шаг передачи, итог
 //   GROUP=top TAG=after npx vite-node docs/ui_v2/shots.ts — подсказки верха и запасов (UI-3): разбор и двери
 //
 // Снимки — 390×844 @2, JPEG, в `docs/ui_v2/` (имя — номер и экран). Кроме снимка стенд печатает высоту прокрутки
@@ -230,6 +231,30 @@ const GROUPS: Record<string, Step[]> = {
     { name: '97-res-charcoal', run: ui(`reset(), window.__ui.click('Уголь', '.nx-res')`), wait: 500 },
     { name: '98-res-iron', run: ui(`reset(), window.__ui.click('Железо', '.nx-res')`), wait: 500 },
     { name: '99-top-gems', run: ui(`reset(), window.__ui.clickSel('.nx-gems')`), wait: 900 },
+  ],
+  // UI-4 (docs/ui_v2.md, 5.3): «Дружина» — передача между гарнизоном и отрядом полководца. Перед снимками у города 74
+  // бойца четырёх видов, при полководце — 10 дубинщиков и 4 лучника (приказ мира, тот же, что у кнопки окна); затем
+  // шаг «+10 к полководцу» у первого вида — итог «было → станет» до приказа.
+  army: [
+    {
+      name: '100-army',
+      run: `(async () => {
+        window.__ui.reset();
+        const g = window.__game.getState();
+        g.act((st) => { st.army.clubman = 40; st.army.archer = 16; st.army.spearman = 12; st.army.rider = 6; });
+        const W = (await import('/src/world/store.ts')).useWorld.getState();
+        await W.pulse();
+        const err = await W.setGarrison({ clubman: 10, archer: 4 });
+        await W.pulse();
+        window.__game.getState().openTab('army');
+        return JSON.stringify(err ?? 'ok');
+      })()`,
+      wait: 1200,
+      full: true,
+    },
+    // До UI-4 передача — окно «Раскладка» за строкой; с UI-4 строки нет, шаги — в самой «Дружине».
+    { name: '101-army-step', run: `(() => { const r = window.__ui.btn('Раскладка', '.sheet.open'); if (r) r.click(); return JSON.stringify('ok'); })()`, wait: 900 },
+    { name: '102-army-moved', run: ui(`clickSel('.sheet.open [aria-label="К полководцу 10"]')`), wait: 700 },
   ],
   misc: [
     // Плашка алмазов с UI-3 открывает подсказку, а не окно (docs/ui_v2.md, 5.2): окно — его хранилищем.
