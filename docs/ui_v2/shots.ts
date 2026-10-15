@@ -8,6 +8,9 @@
 //   GROUP=army TAG=after npx vite-node docs/ui_v2/shots.ts — «Дружина» (UI-4): гарнизон и отряд, шаг передачи, итог
 //   GROUP=top TAG=after npx vite-node docs/ui_v2/shots.ts — подсказки верха и запасов (UI-3): разбор и двери
 //   GROUP=people TAG=after npx vite-node docs/ui_v2/shots.ts — «Жители» (UI-5): сводка, места работы, невольники в «Порядке»
+//   GROUP=decrees | mail | market | profile | siege TAG=after … — UI-7: указы ратуши и державы, вести с письмами, рынок с
+//                                                     телегой, профиль, окна осады, вылазки и лагеря (вид мира вложен
+//                                                     стендом: в новой партии осады нет); карта — заход `map`
 //
 // Снимки — 390×844 @2, JPEG, в `docs/ui_v2/` (имя — номер и экран). Кроме снимка стенд печатает высоту прокрутки
 // окна в экранах: `экранов 2.4` — содержимое окна выше экрана телефона в 2.4 раза (правило «окно — один экран»,
@@ -98,7 +101,7 @@ const HELPERS = `(() => {
     },
     /** Прокрутка открытого окна: шторка, держава или окно поверх. */
     scroller() {
-      const cands = [...document.querySelectorAll('.sheet.open .sheet-body, .nx-realm .nx-rbody, .modal, .nx-am, .tw-legend')];
+      const cands = [...document.querySelectorAll('.sheet.open .sheet-body, .nx-realm .nx-rbody, .modal, .nx-am, .nx-am-body, .wm-legend, .wm-rating')];
       return cands.find((e) => e.scrollHeight > e.clientHeight + 2) || cands[0] || null;
     },
     measure() {
@@ -294,6 +297,143 @@ const GROUPS: Record<string, Step[]> = {
     },
     { name: '114-order-release', run: `(() => { const e = window.__ui.scroller(); if (!e) return JSON.stringify('нет окна'); e.scrollTop = e.scrollHeight; return JSON.stringify('ok'); })()`, wait: 600 },
   ],
+  // UI-7 (docs/ui_v2.md, 5.6): указы. До UI-7 — вкладка ратуши «Указы» и держава «Указы» двумя копиями; после — одна.
+  decrees: [
+    {
+      name: '120-hall-decrees',
+      run: `(() => {
+        window.__ui.reset();
+        const g = window.__game.getState();
+        g.setTownTab('manage');
+        g.openBuilding(g.s.buildings.find((x) => x.type === 'town_hall').id);
+        return JSON.stringify('ok');
+      })()`,
+      wait: 1200,
+      full: true,
+    },
+    { name: '121-realm-decrees', run: `(async () => { window.__ui.reset(); (await import('/src/ui/realm/open.ts')).useRealm.getState().show('government'); return JSON.stringify('ok'); })()`, wait: 1500 },
+  ],
+  // UI-7: «Вести» — четыре вести города и два письма мира (дань и набег; вне Telegram соседей нет — письма вложены стендом,
+  // пульс мира остановлен, чтобы не снял их), затем открытая весть набега.
+  mail: [
+    {
+      name: '130-mail',
+      run: `(async () => {
+        window.__ui.reset();
+        const W = (await import('/src/world/store.ts')).useWorld;
+        const M = await import('/src/game/sim/mail.ts');
+        const now = (await import('/src/world/store.ts')).worldNow();
+        W.setState({ pulse: async () => {} });
+        window.__game.getState().act((st) => { for (const id of ['refugees', 'trade', 'festival', 'wanderers']) M.raiseEvent(st, id); });
+        const letter = (id, kind, title, body, choices, mins) => ({ id, kind, at: now, until: now + mins * 60000, fromId: 'l-' + id, fromName: 'Волчья падь', cost: kind === 'tribute' ? { food: 120, wood: 60 } : {}, title, icon: kind === 'raid' ? '⚔️' : '💰', body, from: null, choices, seconds: mins * 60, silence: kind === 'raid' ? 'Без ответа: отряд дойдёт до стен.' : 'Без ответа: откажем.', marchId: kind === 'raid' ? 'm-1' : undefined });
+        W.setState({ letters: [
+          letter('t1', 'tribute', 'Дань', 'Требуют припасов за мир.', [{ id: 'yes', label: 'Отдать', hint: 'Мир на сезон.', can: true, reason: null }, { id: 'no', label: 'Отказать', hint: 'Будет набег.', can: true, reason: null }], 90),
+          letter('r1', 'raid', 'Набег', 'Отряд логова идёт на город.', [], 25),
+        ] });
+        return JSON.stringify(window.__ui.click('Вести', '.nx-nav'));
+      })()`,
+      wait: 1500,
+      tabs: true,
+    },
+    { name: '131-mail-raid', run: `(async () => { (await import('/src/ui/realm/open.ts')).useRealm.getState().openMail('letter:r1'); return JSON.stringify('ok'); })()`, wait: 900 },
+  ],
+  // UI-7: рынок — золото на складе и одна телега в пути; прилавок целиком.
+  market: [
+    {
+      name: '140-market',
+      run: `(async () => {
+        window.__ui.reset();
+        const A = await import('/src/game/sim/actions.ts');
+        const D = await import('/src/game/derived.ts');
+        const g = window.__game.getState();
+        g.act((st) => { st.gold = 600; const o = D.marketOffer(st).find((x) => x.kind !== 'bonded'); if (o) A.buyGoods(st, o.id, 2); });
+        return JSON.stringify(window.__ui.building('market'));
+      })()`,
+      wait: 1200,
+      full: true,
+    },
+    { name: '141-market-end', run: `(() => { const e = window.__ui.scroller(); if (!e) return JSON.stringify('нет окна'); e.scrollTop = e.scrollHeight; return JSON.stringify('ok'); })()`, wait: 600 },
+  ],
+  // UI-7: профиль и настройки (держава, 👤) — шапка с именем города и 🐞, строки настроек, числа партии.
+  profile: [
+    { name: '150-profile', run: `(async () => { window.__ui.reset(); (await import('/src/ui/realm/open.ts')).useRealm.getState().show('settings'); return JSON.stringify('ok'); })()`, wait: 1500 },
+    { name: '151-profile-end', run: `(() => { const e = window.__ui.scroller(); if (!e) return JSON.stringify('нет окна'); e.scrollTop = e.scrollHeight; return JSON.stringify('ok'); })()`, wait: 600 },
+  ],
+  // UI-7: окна осады (обороняющийся), вылазки и лагеря (осаждающий). В новой партии осады нет — вид мира вкладывает стенд
+  // теми полями, что отдаёт пульс (`SiegeView`, `CampView`), а пульс и подгрузка лагеря остановлены, чтобы его не сняли.
+  siege: [
+    {
+      name: '160-siege',
+      run: `(async () => {
+        window.__ui.reset();
+        const S = await import('/src/world/store.ts');
+        const now = S.worldNow();
+        const H = 3600000;
+        window.__game.getState().act((st) => { st.army.clubman = 30; st.army.archer = 12; st.army.spearman = 8; });
+        S.useWorld.setState({
+          pulse: async () => {},
+          loadCamp: async () => {},
+          siege: {
+            byId: 'l-1', byName: 'Волчья падь', since: now - 5 * H, starvesAt: now + 14 * H, garrison: 50, foodAtStart: 900,
+            campMen: 120, builders: 120, fate: 'plunder', palisade: 2,
+            fall: { goods: 640, gold: 80, hidden: 60, ledBonded: 0, ledPop: 0, scatterPop: 0, scatterBonded: 0, buildings: 3, levels: 1, burnsWorks: false, routed: 0 },
+            fire: { thin: 0.06, cap: 0.2, slow: 0.15 },
+            phases: { journal: ['Фаза 2: кость 9 + 1 — пролом.', 'Фаза 1: кость 5 — стена держит.'], next: '+1 пролом, −2 стена', nextAt: now + 1.5 * H, nextK: 3, breaches: 1, progress: 2 },
+            answers: { repair: { cost: { wood: 80, stone: 40 }, reason: null, doneAt: null }, ration: { on: false, starvesAt: now + 20 * H }, surrender: 'captives', burn: [{ machine: 'ram', name: 'Таран', ready: true, guard: 40 }], reliefs: [], defend: { repair: true } },
+            parley: { side: 'def', share: 0.32, fair: 210, block: null, bot: true },
+          },
+        });
+        window.__game.getState().openSiege();
+        return JSON.stringify('ok');
+      })()`,
+      wait: 1200,
+      full: true,
+      tabs: true,
+    },
+    { name: '161-siege-end', run: `(() => { const e = window.__ui.scroller(); if (!e) return JSON.stringify('нет окна'); e.scrollTop = e.scrollHeight; return JSON.stringify('ok'); })()`, wait: 600 },
+    { name: '162-sortie', run: `(() => { window.__game.getState().openSortie(); return JSON.stringify('ok'); })()`, wait: 1000, full: true },
+    {
+      name: '163-camp',
+      run: `(async () => {
+        const S = await import('/src/world/store.ts');
+        const now = S.worldNow();
+        const H = 3600000;
+        S.useWorld.setState({
+          camp: {
+            byId: 'home', byName: 'Наша дружина', since: now - 6 * H, starvesAt: now + 11 * H, foodAtStart: 700, campMen: 90, builders: 90,
+            fate: 'plunder', targetId: 'l-2', targetName: 'Чёрный яр', castle: false, lair: true, stage: 'stronghold',
+            garrison: { value: 60, min: 50, max: 70, precision: 'rough' }, power: { value: 5000, min: 4200, max: 5800, precision: 'rough' },
+            fates: [
+              { id: 'plunder', can: true, reason: null, led: { min: 0, max: 0 }, less: { min: 0, max: 0 } },
+              { id: 'captives', can: true, reason: null, led: { min: 4, max: 8 }, less: { min: 30, max: 60 } },
+              { id: 'burn', can: true, reason: null, led: { min: 0, max: 0 }, less: { min: 0, max: 0 } },
+            ],
+            men: 90, storm: { price: 30, block: null },
+            phases: { journal: ['Фаза 1: кость 8 — пролом.'], next: '+1 пролом', nextAt: now + 2 * H, nextK: 2, breaches: 1, progress: 1, orders: { volley: true, storm: 2 } },
+            crafts: [
+              { act: 'fortify', name: 'укрепить лагерь', done: 1, max: 3, gain: 'Вылазка из города слабее на грань.', energy: { price: 10, block: null }, can: true, reason: null },
+              { act: 'bombard', name: 'обстрел города', done: 0, max: 4, gain: 'Гарнизон слабее на 5 %.', energy: { price: 10, block: null }, can: true, reason: null },
+            ],
+            machines: {
+              share: 0.25, walls: true, breaches: 1,
+              list: [
+                { id: 'ladders', name: 'Лестницы', use: 'Треть стены без пролома.', wood: 0.2, state: 'ready', can: false, reason: 'Уже стоят' },
+                { id: 'ram', name: 'Таран', use: 'Ворота в первую минуту штурма.', wood: 0.5, state: 'building', readyAt: now + 3 * H, can: false, reason: 'Строится' },
+              ],
+              methods: [{ machine: 'ladders', words: 'Лестницы — треть стены без пролома' }],
+            },
+            parley: { side: 'atk', share: 0.4, terms: ['captives'], block: null, bot: true },
+          },
+        });
+        window.__game.getState().openCamp();
+        return JSON.stringify('ok');
+      })()`,
+      wait: 1200,
+      full: true,
+      tabs: true,
+    },
+    { name: '164-camp-end', run: `(() => { const e = window.__ui.scroller(); if (!e) return JSON.stringify('нет окна'); e.scrollTop = e.scrollHeight; return JSON.stringify('ok'); })()`, wait: 600 },
+  ],
   misc: [
     // Плашка алмазов с UI-3 открывает подсказку, а не окно (docs/ui_v2.md, 5.2): окно — его хранилищем.
     { name: '70-treasury', run: `(async () => { window.__ui.reset(); (await import('/src/ui/treasury.ts')).useTreasury.getState().show(); return JSON.stringify('ok'); })()`, wait: 1200, tabs: true },
@@ -348,7 +488,7 @@ async function measure(tab: Tab): Promise<string> {
 }
 
 /** Вкладки открытого окна — шторки, державы или сокровищницы, — кроме выбранной: она уже на снимке шага. */
-const TAB_SEL = `.sheet.open [role=tab], .nx-realm [role=tab], .sheet.open .tabs button, .sheet.open .nx-tabs button`;
+const TAB_SEL = `.sheet.open [role=tab], .nx-realm [role=tab], .sheet.open .tabs button, .sheet.open .nx-tabs button, .wm-legend [role=tab]`;
 const TABS = `JSON.stringify([...document.querySelectorAll('${TAB_SEL}')].map((b, i) => (b.getAttribute('aria-selected') === 'true' || b.classList.contains('on') || b.classList.contains('active') ? -1 : i)).filter((i) => i >= 0))`;
 const TAB_CLICK = (i: number): string =>
   `(() => { const b = [...document.querySelectorAll('${TAB_SEL}')][${i}]; if (!b) return JSON.stringify('нет'); b.click(); return JSON.stringify((b.getAttribute('aria-label') || b.textContent || '').trim().slice(0, 24)); })()`;
