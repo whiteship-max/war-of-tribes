@@ -206,7 +206,7 @@ export function WorldMap() {
   }, [legendOpen, legendKit]);
   const [ratingOpen, setRatingOpen] = useState(false);
   const [feedOpen, setFeedOpen] = useState(false);
-  // Вести края (docs/feed.md): лента спрашивается, пока карта открыта, — точке новых на кнопке нужна и закрытой.
+  // Молва края (docs/feed.md): лента спрашивается, пока карта открыта, — точке новых на кнопке нужна и закрытой.
   const feed = useFeed(inTelegram());
   const [zoomedIn, setZoomedIn] = useState(modeFor(SCALE_START) === 'detail');
 
@@ -776,7 +776,7 @@ export function WorldMap() {
             </button>
           )}
           {CHEATS_ON && <SpeedButton className="nx-mbtn" />}
-          {/* Вести края и рейтинг игроков (docs/feed.md, docs/rating.md): вне Telegram сервера нет — и кнопок нет. */}
+          {/* Молва края и рейтинг игроков (docs/feed.md, docs/rating.md): вне Telegram сервера нет — и кнопок нет. */}
           {inTelegram() && (
             <button
               className={`nx-mbtn nx-mfeed${feedOpen ? ' on' : ''}`}
@@ -785,7 +785,7 @@ export function WorldMap() {
                 setRatingOpen(false);
                 setFeedOpen((v) => !v);
               }}
-              aria-label="Вести края"
+              aria-label="Молва края"
             >
               <Icon name="ui-scroll" glyph="📜" />
               {feed.unseen && !feedOpen && <em className="nx-dot" />}

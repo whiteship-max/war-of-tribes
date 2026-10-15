@@ -59,6 +59,11 @@ export interface Dispatch {
   silence: string;
   /** Предупреждение: выбора нет, решается на карте. */
   warning: boolean;
+  /**
+   * Беда: идёт само и сроком беды — набег и осада у письма, предупреждение без выбора, событие со своим словом о сроке
+   * (мятеж: `EventDef.waits`). В «Вестях» — группой «Беда» первой и сроком красным (UI-7, docs/ui_v2.md, 5.6).
+   */
+  urgent: boolean;
 }
 
 /** Событие племени, ждущее ответа, — донесением. null — вид события неизвестен. */
@@ -90,6 +95,7 @@ export function eventDispatch(s: GameState, ev: ActiveEvent, now: number): Dispa
     leftText: def.waits ?? 'Ждёт ответа',
     silence: `Без ответа: ${quiet.label.toLowerCase()}${quietHint ? `. ${quietHint}` : ''}.`,
     warning: false,
+    urgent: def.waits !== undefined,
   };
 }
 
@@ -115,6 +121,7 @@ export function letterDispatch(l: LetterView, now: number): Dispatch {
     leftText: l.kind === 'raid' ? 'До набега' : 'Гонец ждёт ответа',
     silence: l.silence,
     warning: l.choices.length === 0,
+    urgent: l.kind === 'raid' || l.kind === 'siege' || l.choices.length === 0,
   };
 }
 
@@ -136,3 +143,17 @@ export function dispatches(s: GameState, letters: LetterView[], now: { tribe: nu
 
 /** Срок словами: часы с минутами, пока их больше часа, потом минуты с секундами. */
 export const leftWords = realDue;
+
+/** Фильтр «Вестей»: все, вести города (события партии) или письма соседей и логов (мира). */
+export type MailFilter = 'all' | 'event' | 'letter';
+
+/** Вести под фильтром — по источнику; порядок — тот же, сроком. */
+export const filterMail = (list: readonly Dispatch[], f: MailFilter): Dispatch[] => (f === 'all' ? [...list] : list.filter((d) => d.source === f));
+
+/** Группы списка: сначала беда, потом то, что ждёт ответа; пустая группа не рисуется. */
+export function mailGroups(list: readonly Dispatch[]): { id: 'urgent' | 'wait'; title: string; items: Dispatch[] }[] {
+  return [
+    { id: 'urgent' as const, title: 'Беда', items: list.filter((d) => d.urgent) },
+    { id: 'wait' as const, title: 'Ждут ответа', items: list.filter((d) => !d.urgent) },
+  ].filter((g) => g.items.length > 0);
+}

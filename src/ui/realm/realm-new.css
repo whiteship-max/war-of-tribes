@@ -1033,3 +1033,36 @@
   font-size: 13px;
   font-weight: 600;
 }
+
+/* ---------- Вести: фильтры, группы, таблицы (UI-7, docs/ui_v2.md, 5.6) ---------- */
+.mail-v2 .kit-tabs {
+  margin-top: 4px;
+}
+.mail-group h3 .muted {
+  font-weight: 400;
+}
+.mail-what {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.mail-what svg {
+  flex: none;
+  width: 20px;
+  height: 20px;
+}
+.mail-what .ic {
+  flex: none;
+  font-size: 18px;
+  line-height: 1;
+}
+.mail-what.fresh .one-line {
+  font-weight: 600;
+}
+.mail-what .nx-new {
+  flex: none;
+}
+.mail-boons {
+  margin-bottom: 8px;
+}

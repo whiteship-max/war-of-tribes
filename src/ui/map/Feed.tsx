@@ -1,4 +1,5 @@
-// Вести края на карте (docs/feed.md): лента событий региона — кто чей город взял, где осада, где пожар, кто новый
+// Молва края на карте (docs/feed.md; до UI-7 — «Вести края»: слово «вести» словарь отдал почте державы — то, что ждёт
+// ответа, — а лента ничего не ждёт; Д9, docs/ui_v2.md, 5.6): лента событий региона — кто чей город взял, где осада, где пожар, кто новый
 // сосед, кто вышел на первое место. Записи пишет сервер (`/api/feed`); касание записи закрывает окно и наводит камеру
 // на место (та же лупа, что у рейтинга и письма — `useWorld.spotlight`).
 //
@@ -89,9 +90,9 @@ export function Feed({ feed, onClose }: { feed: FeedState; onClose: () => void }
   };
 
   return (
-    <div className="wm-rating" role="dialog" aria-label="Вести края">
+    <div className="wm-rating" role="dialog" aria-label="Молва края">
       <div className="wm-rhead">
-        <b>Вести края</b>
+        <b>Молва края</b>
         <button className="wm-rbtn" onClick={onClose} aria-label="Закрыть">
           <Icon name="ui-close" glyph="✕" />
         </button>

@@ -95,7 +95,8 @@ describe('весть нового вида', () => {
     const card = mail.slice(mail.indexOf('function DispatchCardNew'));
     expect(card).toContain('{d.silence}');
     expect(card).toContain('useRaidWords()');
-    expect(card).toContain("buildingOfType(s, 'statue')");
+    // «Дружина» — окно дружины: гарнизон и отряд полководца там с UI-4 (прежде — Статуя; docs/ui_v2.md, 5.6).
+    expect(card).toContain('goTo(WINDOW.army)');
     expect(card).toContain('openMap()');
   });
 });
