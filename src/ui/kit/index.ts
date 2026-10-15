@@ -6,6 +6,7 @@ export { Row, type RowProps } from './Row';
 export { Table, COL_W, tracks, type Col, type TableRow } from './Table';
 export { Bar, fillOf, type Mark } from './Bar';
 export { Btn, GoTo, type BtnProps } from './Btn';
+export { Toggle } from './Toggle';
 export { SheetPage, Tabs, badgeText, type TabDef } from './SheetPage';
 export { breakdown, restOf, REST_LABEL, type BreakdownSpec, type Part } from './breakdown';
 export { WINDOW, makersOf, producersOf, sourceWord, toBuilding, type Indicator, type Source, type SourceKey } from './sources';

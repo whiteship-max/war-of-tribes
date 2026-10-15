@@ -4,7 +4,6 @@ import { useGame } from '@/game/store';
 import { MORALE_GROWTH_ZERO } from '@/game/constants';
 import { GATE_MORALE_LOST, GATE_MORALE_WON } from '@/world/data/tuning';
 import {
-  buildingOfType,
   decreeOf,
   moraleBreakdown,
   moraleOutputMult,
@@ -16,6 +15,8 @@ import {
 } from '@/game/derived';
 import { moraleGrowthFactor } from '@/game/sim/population';
 import { Icon } from '@/ui/icons/Icon';
+import { goTo } from '@/ui/kit/nav';
+import { WINDOW } from '@/ui/kit/sources';
 import { dec } from '@/game/num';
 
 const sign = (n: number): string => `${n > 0 ? '+' : n < 0 ? '−' : ''}${Math.abs(Math.round(n * 10) / 10)}`;
@@ -40,7 +41,6 @@ function Lines({ lines }: { lines: MoraleLine[] }) {
 
 export function MoralePanel() {
   const s = useGame((g) => g.s);
-  const openTownHall = useGame((g) => g.openTownHall);
   const openTab = useGame((g) => g.openTab);
   const b = moraleBreakdown(s);
   const morale = Math.round(s.morale);
@@ -50,7 +50,6 @@ export function MoralePanel() {
   const decree = decreeOf(s);
   const ration = rationOf(s);
   const drift = policyMoralePerDay(s);
-  const hall = buildingOfType(s, 'town_hall');
 
   // Ноль тоже показываем сверху: это рычаг, которым игрок пока не воспользовался.
   const up = b.lines.filter((l) => l.value >= 0).sort((a, c) => c.value - a.value);
@@ -225,11 +224,10 @@ export function MoralePanel() {
           {s.stats.battlesWon} : {s.stats.battlesLost}
         </span>
       </div>
-      {hall && (
-        <button className="btn ghost wide" onClick={() => openTownHall('manage')}>
-          <Icon name="bld-town_hall" glyph="🏛️" /> Указы
-        </button>
-      )}
+      {/* Указ, паёк и налог — в «Указах» державы, одной копией (UI-7, docs/ui_v2.md, 5.6). */}
+      <button className="btn ghost wide" onClick={() => goTo(WINDOW.gold)}>
+        <Icon name="bld-town_hall" glyph="🏛️" /> Указы
+      </button>
     </div>
   );
 }

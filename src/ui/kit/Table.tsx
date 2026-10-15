@@ -3,6 +3,8 @@
 //
 // Касание — как у строки (`Row`): справка телом строки (`tip`) или дверь «›» кнопкой 44 у правого края (`go`). Ячейка
 // может держать `Num` — своё число с разбором; тогда у строки нет своей справки (кнопка в кнопке недопустима).
+// Таблица выбора (`pick`, UI-7): строка целиком — кнопка 44, касание выбирает её, выбранная — `on`. Так сравнивают
+// варианты, которые переключают даром в любой миг (указ, паёк, налог, товар прилавка): посмотреть — значит выбрать.
 // Таблица не прокручивается вбок: столбцы ужимаются, а не уезжают — палец, съехавший на касании, не листает её.
 //
 // Столбцы ровные во всех строках: у каждой строки своя сетка с одними и теми же дорожками, и все дорожки, кроме первой,
@@ -29,6 +31,8 @@ export interface TableRow {
   tip?: () => TipContent;
   go?: () => void;
   goLabel?: string;
+  /** Выбор: строка целиком — кнопка 44, касание выбирает её (`on` — выбрана). Со справкой и дверью не сочетается. */
+  pick?: () => void;
   on?: boolean;
   dim?: boolean;
 }
@@ -82,9 +86,14 @@ export function Table({ cols, rows, empty, total, label }: Props) {
       {rows.length === 0 && empty && <div className="kit-tempty">{empty}</div>}
       {rows.map((r) => {
         const tip = r.tip;
+        const pick = r.pick;
         return (
-          <div key={r.key} className={`kit-trow${r.go ? ' go' : ''}${r.on ? ' on' : ''}${r.dim ? ' dim' : ''}`} role="row">
-            {tip ? (
+          <div key={r.key} className={`kit-trow${r.go || pick ? ' go' : ''}${r.on ? ' on' : ''}${r.dim ? ' dim' : ''}`} role="row">
+            {pick ? (
+              <button type="button" className="kit-cells pick" style={grid} aria-pressed={Boolean(r.on)} onClick={pick}>
+                <Cells cols={cols} cells={r.cells} />
+              </button>
+            ) : tip ? (
               <button type="button" className="kit-cells tip" style={grid} onClick={(e) => tipAt(e.currentTarget, tip())}>
                 <Cells cols={cols} cells={r.cells} />
               </button>

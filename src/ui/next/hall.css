@@ -246,3 +246,14 @@
   justify-content: space-between;
   gap: 8px;
 }
+
+/* Под сеткой — что ратуша даёт городу и дверь в «Указы» державы (UI-7, docs/ui_v2.md, 5.6). */
+.hall-gives {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+.hall-gives .kit-row {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}

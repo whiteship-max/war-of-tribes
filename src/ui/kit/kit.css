@@ -8,7 +8,7 @@
  */
 
 /* ---------- Сброс кнопок набора ---------- */
-:where(.kit-num, .kit-row, .kit-row-tip, .kit-go, .kit-cells, .kit-bar, .kit-btn, .kit-tabs button, .kit-head-ico, .kit-close) {
+:where(.kit-num, .kit-row, .kit-row-tip, .kit-go, .kit-cells, .kit-bar, .kit-btn, .kit-tabs button, .kit-head-ico, .kit-close, .kit-toggle) {
   font: inherit;
   color: inherit;
   background: none;
@@ -173,6 +173,13 @@
 .kit-cells.tip {
   min-height: 33px;
 }
+/* Строка выбора (`pick`): касание выбирает её — действие, цель 44. */
+.kit-cells.pick {
+  min-height: 44px;
+}
+.kit-cells.pick:active {
+  filter: brightness(1.15);
+}
 .kit-c {
   min-width: 0;
   overflow: hidden;
@@ -193,6 +200,51 @@
   padding: 8px 12px;
   border-top: 1px solid var(--line);
   color: var(--muted);
+}
+
+/* ---------- Переключатель ---------- */
+/* «Да/нет» строкой 44 (UI-7): наказ на отлучку, наказ брать дань — вместо родного флажка с подписью 12 px (находка К5). */
+.kit-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 44px;
+  padding: 4px 12px;
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+  text-align: left;
+}
+.kit-toggle:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.kit-switch {
+  position: relative;
+  flex: none;
+  width: 36px;
+  height: 20px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.16);
+  transition: background 0.15s;
+}
+.kit-switch::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--text);
+  transition: transform 0.15s;
+}
+.kit-toggle.on .kit-switch {
+  background: var(--accent);
+}
+.kit-toggle.on .kit-switch::after {
+  transform: translateX(16px);
+  background: var(--accent-text, #1a120b);
 }
 
 /* ---------- Полоса ---------- */

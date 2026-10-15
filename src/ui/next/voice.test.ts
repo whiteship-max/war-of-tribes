@@ -38,6 +38,10 @@ export const STAGE2 = [
   'next/people.ts',
   'panels/PeoplePanel.tsx',
   'parts/Bonded.tsx',
+  // UI-7 (docs/ui_v2.md, 5.6): остальные экраны по общим правилам — указы одной копией, ратуша под сеткой.
+  'realm/decrees.ts',
+  'next/HallGives.tsx',
+  'parts/TownHall.tsx',
 ];
 
 /**

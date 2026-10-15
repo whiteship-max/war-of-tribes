@@ -632,6 +632,21 @@
 .nx-tgcell:active {
   background: rgba(255, 220, 170, 0.08);
 }
+/* Имя варианта в таблице указов (UI-7): значок и имя одной строкой. */
+.nx-dname {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.nx-dname svg {
+  flex: none;
+  width: 20px;
+  height: 20px;
+}
+.nx-tab .kit-table + .nx-pnote {
+  margin-top: 4px;
+}
 .nx-pnote {
   margin: 0;
   min-height: 15px;

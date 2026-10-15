@@ -52,9 +52,10 @@ describe('знак надписи — из числа', () => {
     expect(negative).toBeGreaterThan(0);
   });
 
-  it('ратуша не приписывает знак к деньгам руками', () => {
-    const src = readFileSync(join(__dirname, 'TownHall.tsx'), 'utf8');
-    expect(src).not.toMatch(/[+−-]\{[^}]*(gold|taxIncomePerDay)/);
-    expect(src).toContain('{signed(q.gold)}');
+  it('указы не приписывают знак к деньгам руками', () => {
+    // С UI-7 налог правят одной копией — в «Указах» державы (`realm/decrees.ts`); вкладки ратуши больше нет.
+    const src = readFileSync(join(__dirname, '..', 'realm', 'decrees.ts'), 'utf8');
+    expect(src).not.toMatch(/[+−-]\$?\{[^}]*(gold|taxIncomePerDay)/);
+    expect(src).toContain('perDay(q.gold)');
   });
 });

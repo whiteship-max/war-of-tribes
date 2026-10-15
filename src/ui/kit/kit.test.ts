@@ -56,6 +56,8 @@ const ACTIONS: [string, string][] = [
   ['.kit-go', 'width'],
   ['.kit-go', 'min-height'],
   ['.kit-trow.go', 'min-height'],
+  ['.kit-cells.pick', 'min-height'],
+  ['.kit-toggle', 'min-height'],
   ['.kit-btn', 'min-height'],
   ['.kit-btn', 'min-width'],
   ['.kit-tabs button', 'height'],

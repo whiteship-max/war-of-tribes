@@ -12,7 +12,7 @@ import { CHEATS_ON, CHEAT_MARK, HASTE_MARK } from '@/cheats';
 import { RESOURCE_IDS, RESOURCE_META } from '@/game/constants';
 import { RETIRE_AGE } from '@/game/data/agents';
 import { FAITH_BY_ID, OBSERVANCES } from '@/game/data/faiths';
-import { DECREES, RATIONS, TAXES, type TaxDef } from '@/game/data/policy';
+import { DECREES, RATIONS, TAXES } from '@/game/data/policy';
 import { ACHIEVEMENTS, QUESTS, questsDone } from '@/game/data/quests';
 import { REALM_BRANCHES } from '@/game/data/realm';
 import {
@@ -20,7 +20,6 @@ import {
   decreeOf,
   faithDef,
   faithTilt,
-  mastersCount,
   observanceOf,
   orderBreakdown,
   orderState,
@@ -38,13 +37,16 @@ import { rulerAge, rulerAging, rulerRestAt, rulerYears } from '@/game/sim/dynast
 import { baptismInfo, baptize, setObservance } from '@/game/sim/faith';
 import { rulerRate } from '@/game/sim/points';
 import { asGame } from '@/game/pace';
-import type { FaithId, GameState, ObservanceId, RealmBranch } from '@/game/types';
+import type { FaithId, ObservanceId, RealmBranch } from '@/game/types';
 import { Icon } from '@/ui/icons/Icon';
 import { iconName } from '@/ui/icons/registry';
 import { Confirm } from '@/ui/next/Confirm';
-import { fmtInt, perDay } from '@/ui/next/hudTips';
+import { fmtInt, goldTip, perDay } from '@/ui/next/hudTips';
 import { decreeLine, rationLine } from '@/ui/parts/policyWords';
 import { tipAt, type TipContent } from '@/ui/next/tip';
+import { Table } from '@/ui/kit/Table';
+import { tipGo } from '@/ui/kit/nav';
+import { DECREE_COLS, RATION_COLS, TAX_COLS, decreeCells, incomeTip, rationCells, taxCells, wagesTip } from './decrees';
 import { Chronicle } from '@/ui/parts/Chronicle';
 import { Cost } from '@/ui/parts/Cost';
 import { DailyPage } from '@/ui/parts/daily/DailyPage';
@@ -230,23 +232,11 @@ export function RulerNew() {
 
 // ---------- Указы ----------
 
-/** Подсказки золота — числами `derived` (правило 18). */
-export function ledgerTips(gold: number, income: number, wages: number, masters: boolean): Record<'gold' | 'income' | 'wages', TipContent> {
-  return {
-    gold: { title: `Золото · ${fmtInt(gold)}`, body: 'Из него платят дружине и мастерам. Кончится, и бойцы начнут уходить.' },
-    income: { title: `Сбор · ${perDay(income)}`, body: 'Чем больше жителей, тем больше сбор. Налог выше — мораль ниже.' },
-    wages: { title: `Жалованье · ${perDay(-wages)}`, body: masters ? 'Дружине и наёмным мастерам.' : 'Дружине.' },
-  };
-}
-
-/** Ячейки налога: сбор каждого — `taxQuote`, тем же числом, что считает игра (правило 18). */
-export function taxPicks(s: GameState): PickItem<TaxDef['id']>[] {
-  return TAXES.map((t) => {
-    const q = taxQuote(s, t.id);
-    return { id: t.id, icon: `tax-${t.id}`, glyph: t.icon, name: t.name, sub: perDay(q.gold), subBad: q.gold < 0 };
-  });
-}
-
+/**
+ * Указы — одна копия на игру (UI-7, docs/ui_v2.md, 5.6): прежде те же указ, паёк и налог стояли и вкладкой ратуши
+ * (`TownHall.Manage`, Д3). Варианты — строками таблицы с тем, что каждый даст (Ч14), касание строки выбирает; казна —
+ * тремя числами с разбором (`goldTip` верха, `decrees.incomeTip`, `decrees.wagesTip`). Числа — `ui/realm/decrees.ts`.
+ */
 export function DecreesNew() {
   const s = useGame((g) => g.s);
   const act = useGame((g) => g.act);
@@ -256,49 +246,72 @@ export function DecreesNew() {
   const tax = taxOf(s);
   const income = taxIncomePerDay(s);
   const wages = wagesDue(s);
-  const tips = ledgerTips(s.gold, income, wages, mastersCount(s) > 0);
   const quote = taxQuote(s, tax.id);
   const bonded = bondedTotal(s);
   const o = Math.round(orderBreakdown(s).value);
+  // Подсказка золота — та же, что у верха; её дверь «Указы» ведёт сюда же, и здесь её нет.
+  const goldInfo = (): TipContent => ({ ...goldTip(s, tipGo()), link: undefined });
+  const named = (icon: string, glyph: string, name: string): ReactNode => (
+    <span className="nx-dname">
+      <Icon name={icon} glyph={glyph} />
+      <span className="one-line">{name}</span>
+    </span>
+  );
 
   return (
     <div className="nx-tab">
       <div className="nx-ledger">
-        <button className="nx-lcell" onClick={(e) => tipAt(e.currentTarget, tips.gold)} aria-label="Золото">
+        <button className="nx-lcell" onClick={(e) => tipAt(e.currentTarget, goldInfo())} aria-label="Золото">
           <Icon name="res-gold" glyph="💰" />
           <b>{fmtInt(s.gold)}</b>
         </button>
-        <button className="nx-lcell" onClick={(e) => tipAt(e.currentTarget, tips.income)} aria-label="Сбор в день">
+        <button className="nx-lcell" onClick={(e) => tipAt(e.currentTarget, incomeTip(s))} aria-label="Сбор в день">
           <small>сбор</small>
           <b className={income < 0 ? 'bad' : 'good'}>{signedRate(income)}</b>
         </button>
-        <button className="nx-lcell" onClick={(e) => tipAt(e.currentTarget, tips.wages)} aria-label="Жалованье в день">
+        <button className="nx-lcell" onClick={(e) => tipAt(e.currentTarget, wagesTip(s))} aria-label="Жалованье в день">
           <small>жалованье</small>
           <b className={wages > income ? 'bad' : ''}>{signedRate(-wages)}</b>
         </button>
       </div>
 
-      <Pick
-        title="Указ"
-        value={decree.id}
-        onPick={(id) => act((st) => setDecree(st, id))}
-        items={DECREES.map((d) => ({ id: d.id, icon: `decree-${d.id}`, glyph: d.icon, name: d.name }))}
-        note={decreeLine(decree)}
+      <h3>Указ</h3>
+      <Table
+        label="Указ"
+        cols={DECREE_COLS}
+        rows={decreeCells().map((r) => {
+          const d = DECREES.find((x) => x.id === r.id)!;
+          return { key: r.id, cells: { ...r.cells, name: named(`decree-${d.id}`, d.icon, d.name) }, on: r.id === decree.id, pick: () => act((st) => setDecree(st, r.id)) };
+        })}
       />
-      <Pick
-        title="Паёк"
-        value={ration.id}
-        onPick={(id) => act((st) => setRation(st, id))}
-        items={RATIONS.map((r) => ({ id: r.id, icon: `ration-${r.id}`, glyph: r.icon, name: r.name }))}
-        note={rationLine(ration)}
+      <p className="nx-pnote">{decreeLine(decree)}</p>
+
+      <h3>Паёк</h3>
+      <Table
+        label="Паёк"
+        cols={RATION_COLS}
+        rows={rationCells().map((r) => {
+          const d = RATIONS.find((x) => x.id === r.id)!;
+          return { key: r.id, cells: { ...r.cells, name: named(`ration-${d.id}`, d.icon, d.name) }, on: r.id === ration.id, pick: () => act((st) => setRation(st, r.id)) };
+        })}
       />
-      <Pick
-        title="Налог"
-        value={tax.id}
-        onPick={(id) => act((st) => setTax(st, id))}
-        items={taxPicks(s)}
-        note={`Мораль станет ${Math.round(quote.morale)}, выработка ${`×${dec(quote.output, 2)}`}.`}
+      <p className="nx-pnote">{rationLine(ration)}</p>
+
+      <h3>Налог</h3>
+      <Table
+        label="Налог"
+        cols={TAX_COLS}
+        rows={taxCells(s).map((r) => {
+          const d = TAXES.find((x) => x.id === r.id)!;
+          return {
+            key: r.id,
+            cells: { ...r.cells, name: named(`tax-${d.id}`, d.icon, d.name), gold: <span className={r.gold < 0 ? 'bad' : 'good'}>{r.cells.gold}</span> },
+            on: r.id === tax.id,
+            pick: () => act((st) => setTax(st, r.id)),
+          };
+        })}
       />
+      <p className="nx-pnote">{`${tax.effect}. Мораль станет ${Math.round(quote.morale)}, выработка ×${dec(quote.output, 2)}.`}</p>
 
       {bonded > 0 && (
         <>
