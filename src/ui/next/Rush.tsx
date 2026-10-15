@@ -11,7 +11,7 @@ import { GEM_CONFIRM, rushBlocked, rushFree, rushPrice, rushWork } from '@/game/
 import { gemsOffline, orderRush, useGems } from '@/net/gems';
 import { SITE_TAGS_EVENT, siteTagHosts } from '@/render/sitetags';
 import { Icon } from '@/ui/icons/Icon';
-import { CONFIRM_MS } from './Confirm';
+import { useTwoTap } from '@/ui/kit/twotap';
 import { useTreasury } from '@/ui/treasury';
 import { useTrades } from '@/ui/trades';
 
@@ -28,12 +28,7 @@ export function RushButton({ b, tag = false }: { b: Building; tag?: boolean }) {
   const at = useGems((g) => g.at);
   const why = useGems((g) => g.why);
   const busy = useGems((g) => g.busy);
-  const [armed, setArmed] = useState(false);
-  useEffect(() => {
-    if (!armed) return;
-    const t = setTimeout(() => setArmed(false), CONFIRM_MS);
-    return () => clearTimeout(t);
-  }, [armed]);
+  const [armed, arm, disarm] = useTwoTap();
   if (!isSite(b)) return null;
 
   const price = rushPrice(b);
@@ -51,10 +46,10 @@ export function RushButton({ b, tag = false }: { b: Building; tag?: boolean }) {
       return;
     }
     if (price > GEM_CONFIRM && !armed) {
-      setArmed(true);
+      arm();
       return;
     }
-    setArmed(false);
+    disarm();
     const err = await orderRush(b.id, b.type, b.level + 1, rushWork(b), price);
     if (err) toast(err);
   };

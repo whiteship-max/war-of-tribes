@@ -52,11 +52,16 @@ export function fmtRate(n: number): string {
   return a >= 100 ? fmtInt(a) : dec(a, 1);
 }
 
-/** Ставка со знаком: «+12,4 в день», «−3,0 в день»; ноль — без знака. */
-export function perDay(n: number): string {
+/** Ставка со знаком без единицы: «+12,4», «−3,0»; ноль — без знака. Строки разбора числа (`ui/kit/breakdown`) — ею же. */
+export function rate(n: number): string {
   const s = signed(n);
   const sign = s.startsWith('+') || s.startsWith('−') ? s[0] : '';
-  return `${sign}${fmtRate(n)} в день`;
+  return `${sign}${fmtRate(n)}`;
+}
+
+/** Ставка со знаком: «+12,4 в день», «−3,0 в день»; ноль — без знака. */
+export function perDay(n: number): string {
+  return `${rate(n)} в день`;
 }
 
 export function goldTip(s: GameState, go: TipGo): TipContent {

@@ -448,6 +448,65 @@
 .nx-tip-go span {
   font-size: 18px;
 }
+/* Разбор числа строками (docs/ui_v2.md, раздел 2): имя слева, число справа цифрами одной ширины; итог — чертой сверху.
+   Строка с дверью к источнику — кнопка 44 со стрелкой, как ссылка внизу. Плашка не выше экрана: строки прокручиваются. */
+.nx-tip-rows {
+  margin: 8px 0 0;
+  max-height: calc(var(--room, 400px) - 120px);
+  overflow-y: auto;
+  font-size: 13px;
+}
+.nx-tip-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 24px;
+  color: var(--text);
+  text-align: left;
+}
+.nx-tip-row svg {
+  flex: none;
+  width: 16px;
+  height: 16px;
+}
+.nx-tip-row span {
+  flex: 1;
+  min-width: 0;
+  color: var(--muted);
+}
+.nx-tip-row b {
+  display: inline;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.nx-tip-row.good b {
+  color: var(--good);
+}
+.nx-tip-row.bad b {
+  color: var(--bad);
+}
+.nx-tip-row.muted b {
+  color: var(--muted);
+}
+.nx-tip .nx-tip-row.go {
+  min-height: 44px;
+  border-top: 1px solid var(--line);
+}
+.nx-tip-row.go i {
+  font-style: normal;
+  font-size: 18px;
+  color: var(--accent);
+}
+.nx-tip-row.sum {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid var(--line-2);
+}
+.nx-tip-row.sum span {
+  color: var(--text);
+  font-weight: 600;
+}
 /* Подсказка новичку: крестик в углу плашки, имя не заходит под него. */
 .nx-tip.free b {
   padding-right: 32px;

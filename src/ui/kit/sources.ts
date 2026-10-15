@@ -1,0 +1,87 @@
+// «К источнику» (docs/ui_v2.md, раздел 2): у каждого запаса и показателя есть дверь туда, где число делается и где его
+// меняют, — постройка или окно. Здесь только данные и слова, без хранилищ: куда вести, решает этот модуль, а ведёт
+// `kit/nav.goTo`. Тест сверяет и то и другое с данными игры и с подсказками верха (`kit.test.ts`).
+import type { BuildingTypeId, ResourceId } from '@/game/types';
+import type { Tab } from '@/game/store';
+import type { RealmView } from '@/ui/realm/open';
+import { RESOURCE_IDS } from '@/game/constants';
+import { JOBS } from '@/game/data/jobs';
+import { BUILDING_BY_ID } from '@/game/data/buildings';
+
+/** Куда ведёт дверь: постройка (по типу — их одна на город), раздел шторки, раздел державы или окно промыслов. */
+export type Source =
+  | { kind: 'building'; type: BuildingTypeId }
+  | { kind: 'tab'; tab: Tab }
+  | { kind: 'realm'; view: RealmView }
+  | { kind: 'trades' };
+
+/** Показатели верхней строки — у каждого свой источник (`WINDOW`). */
+export type Indicator = 'gold' | 'pop' | 'morale' | 'order' | 'army' | 'energy' | 'season';
+export type SourceKey = ResourceId | Indicator;
+
+/**
+ * Окно числа — где оно видно целиком и где его меняют. У запаса это склад: там весь список, вместимость и прирост; кто
+ * запас делает — `producersOf`. У показателя — его справочный раздел или окно рычагов. Слово двери — `sourceWord`.
+ */
+export const WINDOW: Readonly<Record<SourceKey, Source>> = {
+  ...(Object.fromEntries(RESOURCE_IDS.map((r) => [r, { kind: 'building', type: 'storage' }])) as Record<ResourceId, Source>),
+  gold: { kind: 'realm', view: 'government' },
+  pop: { kind: 'tab', tab: 'pop' },
+  morale: { kind: 'tab', tab: 'morale' },
+  order: { kind: 'tab', tab: 'order' },
+  army: { kind: 'tab', tab: 'army' },
+  energy: { kind: 'trades' },
+  season: { kind: 'tab', tab: 'season' },
+};
+
+/** Слова дверей, которые ведут не в постройку: подписи разделов — те же, что у ссылок подсказок верха. */
+const TAB_WORD: Readonly<Record<Tab, string>> = {
+  people: 'Жители',
+  quests: 'Задания',
+  season: 'Сезон',
+  pop: 'Прирост',
+  morale: 'Мораль',
+  order: 'Порядок',
+  army: 'Дружина',
+};
+const REALM_WORD: Readonly<Partial<Record<RealmView, string>>> = {
+  lineage: 'Правитель',
+  government: 'Указы',
+  tech: 'Технологии',
+  faith: 'Вера',
+  quests: 'Задания',
+  decisions: 'Вести',
+  settings: 'Настройки',
+};
+
+/** Подпись двери: имя постройки из данных игры, раздела — словом раздела. */
+export function sourceWord(src: Source): string {
+  switch (src.kind) {
+    case 'building':
+      return BUILDING_BY_ID[src.type].name;
+    case 'tab':
+      return TAB_WORD[src.tab];
+    case 'realm':
+      return REALM_WORD[src.view] ?? 'Держава';
+    case 'trades':
+      return 'Промыслы';
+  }
+}
+
+/**
+ * Какие постройки делают запас — из таблицы профессий (`JOBS`: выработка и профильное здание), а не списком рукой.
+ * Вольный сбор (`freeRange`) идёт и без двора — с площади, поэтому его профессии приводят и туда. Порядок — как в
+ * таблице профессий; повторов нет.
+ */
+export function producersOf(r: ResourceId): BuildingTypeId[] {
+  const out: BuildingTypeId[] = [];
+  for (const job of JOBS) {
+    if (!(job.yield[r] ?? 0)) continue;
+    if (job.building && !out.includes(job.building)) out.push(job.building);
+    if (job.freeRange && !out.includes('campfire')) out.push('campfire');
+  }
+  return out;
+}
+
+/** Дверь к постройке по типу. */
+export const toBuilding = (type: BuildingTypeId): Source => ({ kind: 'building', type });

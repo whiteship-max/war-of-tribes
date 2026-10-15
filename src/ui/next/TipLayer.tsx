@@ -1,6 +1,6 @@
 import { Icon } from '@/ui/icons/Icon';
 import { useCityBusy } from './Hints';
-import { modalUp, placeTip, useTip, type Rect, type TipContent } from './tip';
+import { modalUp, placeTip, tipRoom, useTip, type Rect, type TipContent, type TipRow } from './tip';
 
 /**
  * Слой подсказки: один на игру. Пока плашка числа открыта, под ней лежит прозрачный ловец во весь экран —
@@ -50,6 +50,9 @@ export function TipView({ tip, view, busy, modal, hide }: ViewProps) {
           width: place.width,
           top: place.top ?? undefined,
           bottom: place.bottom ?? undefined,
+          // Разбор строками бывает выше фразы: строки прокручиваются, а плашка не выходит за экран (`tipRoom`). Высота
+          // — не у самой плашки: обрезка её содержимого срезала бы и стрелку к элементу.
+          ['--room' as string]: `${tipRoom(place, view)}px`,
           ['--arrow' as string]: `${place.arrow}px`,
         }}
         onClick={hide}
@@ -57,6 +60,14 @@ export function TipView({ tip, view, busy, modal, hide }: ViewProps) {
         <b>{tip.title}</b>
         {tip.lore && <p className="nx-tip-lore">{tip.lore}</p>}
         {tip.body && <p>{tip.body}</p>}
+        {tip.rows && tip.rows.length > 0 && (
+          <div className="nx-tip-rows">
+            {tip.rows.map((r, i) => (
+              <TipLine key={i} row={r} go={modal ? undefined : r.go} hide={hide} />
+            ))}
+            {tip.sum && <TipLine row={tip.sum} sum hide={hide} />}
+          </div>
+        )}
         {tip.free && (
           <button
             className="nx-tip-x"
@@ -84,5 +95,34 @@ export function TipView({ tip, view, busy, modal, hide }: ViewProps) {
         )}
       </div>
     </>
+  );
+}
+
+/**
+ * Строка разбора в подсказке: значок, имя, число. С дверью к источнику — кнопка 44 со стрелкой: сначала закрывает
+ * подсказку, потом ведёт (как ссылка внизу). Пока поверх стоит окно, ждущее ответа, двери нет — как и у ссылки.
+ */
+function TipLine({ row, go, sum = false, hide }: { row: TipRow; go?: () => void; sum?: boolean; hide: () => void }) {
+  const cls = `nx-tip-row${sum ? ' sum' : ''}${row.tone ? ` ${row.tone}` : ''}`;
+  const inner = (
+    <>
+      {row.icon && <Icon name={row.icon.name} glyph={row.icon.glyph} />}
+      <span>{row.label}</span>
+      <b>{row.value}</b>
+    </>
+  );
+  if (!go) return <div className={cls}>{inner}</div>;
+  return (
+    <button
+      className={`${cls} go`}
+      onClick={(e) => {
+        e.stopPropagation();
+        hide();
+        go();
+      }}
+    >
+      {inner}
+      <i aria-hidden="true">›</i>
+    </button>
   );
 }

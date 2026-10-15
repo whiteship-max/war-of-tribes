@@ -29,6 +29,24 @@ export interface TipLink {
   go: () => void;
 }
 
+/** Сколько строк разбора помещает подсказка: дальше — уже окно, а не подсказка (docs/ui_v2.md, раздел 2). */
+export const TIP_ROWS_MAX = 8;
+
+/**
+ * Строка разбора числа (docs/ui_v2.md, раздел 2: «откуда +152 в день»): слагаемое со своим знаком и, если есть, дверь к
+ * его источнику — постройке или окну. Строку с дверью касаются (44, как всякое действие); без двери она — текст.
+ * Собирает строки `ui/kit/breakdown` из чисел игры: своей арифметики у подсказки нет (правило 18).
+ */
+export interface TipRow {
+  label: string;
+  /** Запись числа — уже со знаком и запятой (`kit/breakdown`). */
+  value: string;
+  tone?: 'good' | 'bad' | 'muted';
+  /** Значок листа и запасной знак — как у `Icon`. */
+  icon?: { name: string; glyph: string };
+  go?: () => void;
+}
+
 export interface TipContent {
   title: string;
   /**
@@ -38,6 +56,10 @@ export interface TipContent {
   lore?: string;
   /** Одна-две строки, не длиннее `TIP_MAX` вместе с именем. */
   body?: string;
+  /** Разбор числа строками — не больше `TIP_ROWS_MAX`; итог — `sum`. В `TIP_MAX` не входит: это таблица, не фраза. */
+  rows?: TipRow[];
+  /** Итог разбора — то самое число, которое объясняет подсказка, той же записью, что на экране. */
+  sum?: TipRow;
   link?: TipLink;
   /**
    * Подсказка новичку (`Hints`): касаний мимо плашки не ловит — город и постройки под ней отвечают, как без неё;
@@ -85,6 +107,11 @@ export function placeTip(anchor: Rect, view: { w: number; h: number }, width = T
     arrow,
     below,
   };
+}
+
+/** Сколько высоты у плашки до края экрана с полем: под элементом — вниз, над ним — вверх. */
+export function tipRoom(place: TipPlace, view: { w: number; h: number }): number {
+  return place.below ? view.h - (place.top ?? 0) - TIP_EDGE : view.h - (place.bottom ?? 0) - TIP_EDGE;
 }
 
 interface TipState {
