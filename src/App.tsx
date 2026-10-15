@@ -2,7 +2,6 @@ import { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import { useGame, type SheetView } from './game/store';
 import { GameCanvas } from './ui/GameCanvas';
 import { Sheet } from './ui/Sheet';
-import { PeoplePanel } from './ui/panels/PeoplePanel';
 import { BuildingPanel } from './ui/panels/BuildingPanel';
 import { QuestsPanel } from './ui/panels/QuestsPanel';
 import { SeasonPanel } from './ui/panels/SeasonPanel';
@@ -76,6 +75,8 @@ const Trades = lazy(() => nextUi().then((m) => ({ default: m.Trades })));
 const Treasury = lazy(() => nextUi().then((m) => ({ default: m.Treasury })));
 /** «Дружина» с передачей полководец ↔ гарнизон — тем же куском (docs/ui_v2.md, 5.3): она стоит на наборе `kit`. */
 const ArmyPanel = lazy(() => nextUi().then((m) => ({ default: m.ArmyPanel })));
+/** «Жители» (UI-5, docs/ui_v2.md, 5.4) — тем же куском: сводка и места работы стоят на наборе `kit` и подсказках верха. */
+const PeoplePanel = lazy(() => nextUi().then((m) => ({ default: m.PeoplePanel })));
 
 /**
  * Промыслы — мини-игры от первого лица — свой кусок, как предыстория: качается по кнопке входа, и пока игра идёт,
@@ -108,7 +109,11 @@ function SheetContent({ view }: { view: SheetView }) {
   if (view.kind === 'report') return <ReportPanel id={view.id} />;
   switch (view.tab) {
     case 'people':
-      return <PeoplePanel />;
+      return (
+        <Suspense fallback={null}>
+          <PeoplePanel />
+        </Suspense>
+      );
     case 'quests':
       return <QuestsPanel />;
     case 'season':

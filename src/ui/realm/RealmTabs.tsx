@@ -55,7 +55,6 @@ import { TouchDoctor } from '@/ui/parts/TouchDoctor';
 import { waitSpan } from '@/ui/parts/wait';
 import { count } from '@/ui/parts/plural';
 import { OrderPanel } from '@/ui/panels/OrderPanel';
-import { Bonded } from '@/ui/panels/PeoplePanel';
 import { BRANCH_ICON, BRANCH_WORD } from './branches';
 import { dec } from '@/game/num';
 
@@ -315,10 +314,8 @@ export function DecreesNew() {
           </button>
           {order && (
             <div className="nx-old">
+              {/* Невольники — где стоят и отпуск — в самом окне порядка (`parts/Bonded`, UI-5). */}
               <OrderPanel />
-              <div className="panel">
-                <Bonded />
-              </div>
             </div>
           )}
         </>

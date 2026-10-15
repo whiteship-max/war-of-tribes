@@ -18,11 +18,14 @@ import {
   buildingProduction,
   buildingStat,
   dayOf,
+  defense,
   faithDef,
   faithGoldPerDay,
+  faithTilt,
   freeRangeProduction,
   heatingWoodPerDay,
   homeArmy,
+  homeArmyPower,
   housingCapacity,
   mastersFoodPerDay,
   moraleBreakdown,
@@ -42,7 +45,7 @@ import {
   upkeepInfo,
   wageOf,
 } from '@/game/derived';
-import { BASE_HOUSING, ORDER_WARN, RESOURCE_META } from '@/game/constants';
+import { BASE_DEFENSE, BASE_HOUSING, ORDER_WARN, RESOURCE_META, VILLAGER_DEFENSE } from '@/game/constants';
 import { BUILDING_BY_ID } from '@/game/data/buildings';
 import { TROOP_BY_ID, TROOP_IDS } from '@/game/data/troops';
 import { SEASON_META, SEASON_SECONDS } from '@/game/data/seasons';
@@ -50,6 +53,7 @@ import { popGrowth } from '@/game/sim/population';
 import { asGame } from '@/game/pace';
 import { daysSpan } from '@/game/span';
 import { signed } from '@/ui/parts/signed';
+import { plural } from '@/ui/parts/plural';
 import { realSpanText, waitSpan } from '@/ui/parts/wait';
 import { ENERGY_MAX, MINIGAME_COST } from '@/game/data/minigames';
 import { SHOP_DAILY } from '@/game/gemrules';
@@ -58,7 +62,7 @@ import type { RealmView } from '@/ui/realm/open';
 import { breakdown, type Part } from '@/ui/kit/breakdown';
 import { makersOf, type Source } from '@/ui/kit/sources';
 import type { TipContent, TipMaker, TipSection } from './tip';
-import { dec } from '@/game/num';
+import { dec, num } from '@/game/num';
 import { weatherLine } from '@/ui/parts/weather';
 
 /**
@@ -124,7 +128,7 @@ function makers(s: GameState, types: readonly BuildingTypeId[], go: TipGo, weigh
 }
 
 /** Пассив постройки сейчас; постройки нет — ноль. */
-const statNow = (s: GameState, type: BuildingTypeId, key: 'housing' | 'morale'): number => {
+const statNow = (s: GameState, type: BuildingTypeId, key: 'housing' | 'morale' | 'defense'): number => {
   const b = buildingOfType(s, type);
   return b ? buildingStat(b, key) : 0;
 };
@@ -201,9 +205,22 @@ export function popTip(s: GameState, go: TipGo): TipContent {
     sumLabel: PER_DAY,
     link: { label: 'Прирост', go: () => go.tab('pop') },
   });
+  const roof = housingTip(s, go);
+  const more: TipSection = { title: 'Жильё', rows: roof.rows ?? [], sum: roof.sum };
+  return { ...tip, more, makers: roof.makers };
+}
+
+/**
+ * Жильё: предел жителей — основа и постройки с жильём (`makersOf('pop')`) с итогом «Мест» (`housingCapacity`). Им же
+ * разбирают жильё подсказка жителей верха (вторым разбором) и строка «Жильё» сводки «Жителей» (docs/ui_v2.md, 5.4).
+ * Главные кнопки — те же постройки, у кого больше мест — первой.
+ */
+export function housingTip(s: GameState, go: TipGo): TipContent {
+  const housing = housingCapacity(s);
   const types = makersOf('pop');
-  const roof = breakdown({
-    title: 'Жильё',
+  const tip = breakdown({
+    title: `Жильё · ${fmtInt(housing)} ${plural(housing, 'место', 'места', 'мест')}`,
+    body: `Занято ${fmtInt(s.pop)}, свободно ${fmtInt(Math.max(0, housing - s.pop))}.`,
     total: housing,
     parts: [
       { label: 'Основа', value: BASE_HOUSING },
@@ -214,8 +231,7 @@ export function popTip(s: GameState, go: TipGo): TipContent {
     sumLabel: 'Мест',
     eps: 0.5,
   });
-  const more: TipSection = { title: roof.title, rows: roof.rows ?? [], sum: roof.sum };
-  return { ...tip, more, makers: makers(s, types, go, (type) => statNow(s, type, 'housing')) };
+  return { ...tip, makers: makers(s, types, go, (type) => statNow(s, type, 'housing')) };
 }
 
 /**
@@ -292,6 +308,41 @@ export function armyTip(s: GameState, go: TipGo): TipContent {
   });
   const types = makersOf('army');
   return { ...tip, makers: makers(s, types, go, () => 0) };
+}
+
+/** Запись оборонного слагаемого: со знаком, без лишних нулей — «+40», «+7,5» (жители по четверти). */
+const defensePart = (n: number): string => (n > 0 ? '+' : n < 0 ? '−' : '') + num(Math.abs(n), 1);
+
+/**
+ * Оборона (`derived.defense`, формула одна — `game/build.defenseOf`): дружина дома (мощь тех, кто у стен), укрепления по
+ * постройкам, основа и жители с дубинами — всё под стойкостью веры. Вера — множитель, поэтому её строка — что она
+ * прибавила к набранному, как множители выхода двора (`productParts`). Итог — тем же округлением, что на экране
+ * (`dec(…, 0)`, «Дружина» и сводка «Жителей»). Главные кнопки — постройки с обороной; дверь — «Дружина», где гарнизон.
+ */
+export function defenseTip(s: GameState, go: TipGo): TipContent {
+  const villagers = Math.max(0, s.pop - Math.max(0, s.scoutsAway));
+  const types = makersOf('defense');
+  const base: Part[] = [
+    { label: 'Дружина дома', value: homeArmyPower(s) },
+    ...types.map((type) => ({ label: BUILDING_BY_ID[type].name, value: statNow(s, type, 'defense') })),
+    { label: 'Основа', value: BASE_DEFENSE },
+    { label: `Жители ${fmtInt(villagers)}`, value: villagers * VILLAGER_DEFENSE },
+  ];
+  const steadfast = faithTilt(s).steadfast;
+  const parts = productParts({ label: '', value: base.reduce((t, p) => t + p.value, 0) }, [
+    { label: faithDef(s)?.name ?? 'Вера', f: 1 + steadfast },
+  ]).slice(1);
+  const tip = breakdown({
+    title: `Оборона · ${dec(defense(s), 0)}`,
+    body: 'Стены, башня, жители, гарнизон и отряд полководца в городе.',
+    total: defense(s),
+    parts: [...base, ...parts],
+    fmt: defensePart,
+    sumFmt: (n) => dec(n, 0),
+    sumLabel: 'Оборона',
+    link: { label: 'Дружина', go: () => go.tab('army') },
+  });
+  return { ...tip, makers: makers(s, types, go, (type) => statNow(s, type, 'defense')) };
 }
 
 /** Сколько игровых секунд до следующего сезона. */

@@ -17,7 +17,8 @@ import { TroopCardView } from '../parts/TroopCardView';
 import { Muster, inWallsTip, outWallsTip } from '../parts/Muster';
 import { Icon } from '@/ui/icons/Icon';
 import { Num } from '@/ui/kit/Num';
-import { fmtInt } from '@/ui/next/hudTips';
+import { defenseTip, fmtInt, type TipGo } from '@/ui/next/hudTips';
+import { goTo } from '@/ui/kit/nav';
 import { dec } from '@/game/num';
 
 export function ArmyPanel() {
@@ -34,6 +35,13 @@ export function ArmyPanel() {
 
   if (open) return <TroopCardView troop={open} onBack={() => setOpen(null)} />;
 
+  const go: TipGo = {
+    tab: (t) => goTo({ kind: 'tab', tab: t }),
+    building: openBuilding,
+    realm: (v) => goTo({ kind: 'realm', view: v }),
+    to: goTo,
+  };
+
   const unhired = TROOPS.filter((d) => (s.army[d.id] ?? 0) <= 0);
 
   return (
@@ -44,7 +52,8 @@ export function ArmyPanel() {
 
       {/* Три числа одной строкой ячеек (docs/ui_v2.md, 2.1): оборона, кто в ней и кто нет — каждое с подсказкой. */}
       <div className="ms-sum">
-        <Num label="Оборона" tip={() => ({ title: 'Оборона', body: 'Стены, башня, жители, гарнизон и отряд полководца в городе.' })}>
+        {/* Разбор обороны — тот же, что у строки «Оборона» сводки «Жителей» (`hudTips.defenseTip`, UI-5). */}
+        <Num label="Оборона" tip={() => defenseTip(s, go)}>
           <small>Оборона</small>
           <b className="good">{dec(defense(s), 0)}</b>
         </Num>

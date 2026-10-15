@@ -23,9 +23,9 @@ export type Source =
   // «Стройка» ратуши: дверь «Построить» к постройке, которой в городе нет.
   | { kind: 'build' };
 
-/** Показатели верхней строки — у каждого свой источник (`WINDOW`). */
+/** Показатели верхней строки и сводки «Жителей» (оборона, docs/ui_v2.md, 5.4) — у каждого свой источник (`WINDOW`). */
 // Плашка алмазов — `treasury`: ключа `gems:` в объектах клиента нет нигде (замок `sim/gems.test.ts`).
-export type Indicator = 'gold' | 'pop' | 'morale' | 'order' | 'army' | 'energy' | 'season' | 'treasury';
+export type Indicator = 'gold' | 'pop' | 'morale' | 'order' | 'army' | 'energy' | 'season' | 'treasury' | 'defense';
 export type SourceKey = ResourceId | Indicator;
 
 /**
@@ -42,6 +42,8 @@ export const WINDOW: Readonly<Record<SourceKey, Source>> = {
   energy: { kind: 'trades' },
   season: { kind: 'tab', tab: 'season' },
   treasury: { kind: 'treasury' },
+  // Оборону видно целиком и меняют гарнизоном в «Дружине»; стены и башню — кнопками постройки (`makersOf`).
+  defense: { kind: 'tab', tab: 'army' },
 };
 
 /** Слова дверей, которые ведут не в постройку: подписи разделов — те же, что у ссылок подсказок верха. */
@@ -107,8 +109,8 @@ const withStat = (key: keyof BuildingStats): BuildingTypeId[] =>
 /**
  * Какие постройки делают число верхней строки — главные кнопки его подсказки (docs/ui_v2.md, 5.2). Из данных игры, а не
  * списком рукой: запас — `producersOf`; жители — постройки с жильём (жильё — их предел и рычаг); мораль — постройки с
- * моралью и пиром; дружина — где учат каждый вид (`hiredAt`). Золото, энергию, алмазы, порядок и сезон не делает ни одна
- * постройка: у них только окно (`WINDOW`).
+ * моралью и пиром; дружина — где учат каждый вид (`hiredAt`); оборона — постройки с обороной (стены, башня; 5.4).
+ * Золото, энергию, алмазы, порядок и сезон не делает ни одна постройка: у них только окно (`WINDOW`).
  */
 export function makersOf(key: SourceKey): BuildingTypeId[] {
   if ((RESOURCE_IDS as string[]).includes(key)) return producersOf(key as ResourceId);
@@ -121,6 +123,8 @@ export function makersOf(key: SourceKey): BuildingTypeId[] {
     }
     case 'army':
       return [...new Set(TROOP_IDS.map(hiredAt))];
+    case 'defense':
+      return withStat('defense');
     default:
       return [];
   }

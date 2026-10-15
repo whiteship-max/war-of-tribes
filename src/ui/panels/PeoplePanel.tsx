@@ -1,278 +1,192 @@
+// Окно «Жители» (UI-5, docs/ui_v2.md, 5.4). Прежде — набор полос без цели: свободные руки, прирост тремя полосами (вторая
+// копия окна «Прирост»), дружина карточками (вторая копия «Дружины»), невольники с отпуском и «кто чем занят». Теперь в нём
+// то, ради чего его открывают, — двумя вкладками (окно — один экран, docs/ui_v2.md, 2.1):
+//
+// - «Сводка» — одна таблица: люди, жильё, прирост, мораль, оборона. Касание строки — разбор числа (те же подсказки, что у
+//   верха), «›» — к источнику: окно числа или постройка, которая его делает. Ниже — строки-ссылки на то, что не про
+//   жителей: «Дружина» и «Невольники» (их окна — «Дружина» и «Порядок»).
+// - «Работы» — свободные руки и места работы: каждая постройка с местами — сколько жителей на местах и сколько мест
+//   свободно; касание строки открывает постройку, где людей ставят. «Кто чем занят» прежнего окна — те же строки.
+//
+// Счётчик низа «Жители» — свободные руки, пока нет стройки (`next/Nav`); с ним окно открывается на «Работах» — там, где
+// их ставят. Числа и разборы — `next/people.ts` (чистые функции, тест — `people.test.ts`). Окно едет в куске нового вида
+// (`ui/next/index.ts`): оно стоит на наборе `kit` и подсказках верха.
 import { useState } from 'react';
 import { useGame } from '@/game/store';
-import { BONDED_OUTPUT, GROWTH_FOOD_DAYS } from '@/game/constants';
-import { JOBS, JOB_BY_ID } from '@/game/data/jobs';
-import { BUILDING_BY_ID } from '@/game/data/buildings';
 import { ORDER_TEXT } from '@/game/data/order';
+import { BUILDING_BY_ID } from '@/game/data/buildings';
 import {
   armyPower,
   armySize,
-  bondedCount,
-  bondedIdle,
   bondedIncoming,
   bondedTotal,
-  buildingOfType,
-  buildingSlots,
   buildingTitle,
   currentSite,
-  defense,
-  freeJobCount,
   housingCapacity,
   idleCount,
-  jobCounts,
   orderValue,
-  workerCount,
+  recruitsQueued,
 } from '@/game/derived';
-import { popGrowth } from '@/game/sim/population';
-import { armyRoster, trainees } from '@/game/sim/army';
-import { troopPower } from '@/game/battle/price';
-import { releaseBonded } from '@/game/sim/actions';
-import { Factor } from '../parts/Factor';
-import { Steps } from '../parts/Steps';
 import { Icon } from '@/ui/icons/Icon';
-import { count as countOf } from '../parts/plural';
-import { signed } from '../parts/signed';
-import { waitDays } from '../parts/wait';
-import { dec } from '@/game/num';
+import { Table, type Col } from '@/ui/kit/Table';
+import { Row } from '@/ui/kit/Row';
+import { Tabs, type TabDef } from '@/ui/kit/SheetPage';
+import { goTo } from '@/ui/kit/nav';
+import { WINDOW, sourceWord } from '@/ui/kit/sources';
+import { fmtInt, type TipGo } from '@/ui/next/hudTips';
+import { idleTip, summaryLines, workplaces } from '@/ui/next/people';
+import { count } from '../parts/plural';
+import '@/ui/next/people.css';
 
-/**
- * Дружина. Бойцы — не жители с профессией «воин»: их нанимают в казармах,
- * и в списке работ их нет. Поэтому здесь отдельная строка, а не роль.
- */
-function Army() {
-  const s = useGame((g) => g.s);
-  const openBuilding = useGame((g) => g.openBuilding);
-  const roster = armyRoster(s);
-  const barracks = buildingOfType(s, 'barracks');
-  if (roster.length === 0) {
-    return (
-      <div className="note">Бойцов нет. Их нанимают в казармах за снаряжение.</div>
-    );
-  }
+type View = 'sum' | 'work';
+
+/** Имя строки таблицы: значок, имя и строка пояснения 11 px. */
+function Name({ icon, label, sub }: { icon: { name: string; glyph: string }; label: string; sub: string }) {
   return (
-    <>
-      <h3>
-        Дружина <span className="muted">мощь {Math.round(armyPower(s))} · бойцов {armySize(s)}</span>
-      </h3>
-      {roster.map(({ def, n }) => (
-        <button
-          className="card as-row"
-          key={def.id}
-          disabled={!barracks}
-          onClick={() => barracks && openBuilding(barracks.id)}
-        >
-          <div className="ico">
-            <Icon name={`bld-${def.id}`} glyph={def.icon} />
-          </div>
-          <div className="body">
-            <div className="title">
-              {def.name}
-              <span className="count">{n} · мощь {Math.round(troopPower({ [def.id]: n }))}</span>
-            </div>
-            <div className="desc">{def.description}</div>
-          </div>
-        </button>
-      ))}
-    </>
+    <span className="pp-name">
+      <span className="kit-ico">
+        <Icon name={icon.name} glyph={icon.glyph} />
+      </span>
+      <span>
+        <b>{label}</b>
+        {sub && <small>{sub}</small>}
+      </span>
+    </span>
   );
 }
 
-/**
- * Невольники: сколько их и куда направлены. Устроены они как жители — числом, а
- * не списком, — и на работы их ставят там же, где вольных: в панели двора, вторым
- * рядом шага. Здесь видно, где они стоят, и здесь же их отпускают: одно дело —
- * одно место.
- */
-export function Bonded() {
+const SUM_COLS: readonly Col[] = [
+  { key: 'what', title: 'Показатель' },
+  { key: 'now', title: 'Сейчас', align: 'right', w: '64px' },
+];
+
+const WORK_COLS: readonly Col[] = [
+  { key: 'what', title: 'Постройка' },
+  { key: 'people', title: 'Люди', align: 'right', w: '44px' },
+  { key: 'free', title: 'Мест', align: 'right', w: '44px' },
+];
+
+/** Сводка: пять чисел с разбором и дверью; ниже — то, что не про жителей, строками-ссылками в их окна. */
+function Summary({ go }: { go: TipGo }) {
   const s = useGame((g) => g.s);
-  const act = useGame((g) => g.act);
-  const openBuilding = useGame((g) => g.openBuilding);
-  const openTab = useGame((g) => g.openTab);
-  const [pick, setPick] = useState(10);
-  const total = bondedTotal(s);
+  const lines = summaryLines(s, go);
+  const army = armySize(s);
+  const training = recruitsQueued(s);
+  const bonded = bondedTotal(s);
   const incoming = bondedIncoming(s);
-  const market = buildingOfType(s, 'market');
-
-  if (total <= 0 && incoming <= 0) {
-    return (
-      <>
-        <h3>
-          {ORDER_TEXT.bondedName} <span className="muted">нет</span>
-        </h3>
-        <div className="note">{ORDER_TEXT.about(BONDED_OUTPUT)}</div>
-        <div className="note">{ORDER_TEXT.whereFrom}</div>
-        {market && (
-          <button className="btn ghost wide" onClick={() => openBuilding(market.id)}>
-            <Icon name="bld-market" glyph="🛒" /> На рынок
-          </button>
-        )}
-      </>
-    );
-  }
-
-  const places = s.buildings.filter((b) => bondedCount(s, b.id) > 0);
-  const idle = bondedIdle(s);
-  const site = currentSite(s);
-  const count = Math.max(1, Math.min(pick, total));
-
+  const armySub =
+    army > 0
+      ? `${count(army, 'боец', 'бойца', 'бойцов')} · мощь ${fmtInt(Math.round(armyPower(s)))}${training > 0 ? ` · учатся ${fmtInt(training)}` : ''}`
+      : training > 0
+        ? `учатся ${fmtInt(training)}`
+        : 'бойцов нет — их нанимают в казармах';
+  const bondedSub =
+    bonded > 0
+      ? `порядок ${Math.round(orderValue(s))}${incoming > 0 ? ` · ведут ещё ${fmtInt(incoming)}` : ''}`
+      : incoming > 0
+        ? `ведут торговцы ${fmtInt(incoming)}`
+        : 'нет — их приводят на рынок торговцы';
   return (
     <>
-      <h3>
-        {ORDER_TEXT.bondedName}{' '}
-        <span className="muted">
-          {total} · порядок {Math.round(orderValue(s))}
-        </span>
-      </h3>
-      <div className="note">{ORDER_TEXT.about(BONDED_OUTPUT)}</div>
-      {incoming > 0 && (
-        <div className="mod">
-          <span className="ico">🛒</span>
-          <span className="name">Ведут торговцы</span>
-          <span className="val">{incoming}</span>
-        </div>
-      )}
-      {places.map((b) => {
-        const job = BUILDING_BY_ID[b.type].job;
-        return (
-          <button className="card as-row" key={b.id} onClick={() => openBuilding(b.id)}>
-            <div className="ico">
-              <Icon name={`bld-${b.type}`} glyph={BUILDING_BY_ID[b.type].icon} />
-            </div>
-            <div className="body">
-              <div className="title">
-                {buildingTitle(s, b.type)}
-                <span className="count">{bondedCount(s, b.id)}</span>
-              </div>
-              <div className="desc">
-                {job ? `${JOB_BY_ID[job].name} · ` : ''}вольных {workerCount(s, b.id)} · мест {buildingSlots(b)}
-              </div>
-            </div>
-          </button>
-        );
-      })}
-      <div className="mod">
-        <span className="ico">🔨</span>
-        <span className="name">
-          {site ? 'Без места — на стройке' : 'Без места — не работают'}
-          <em className="sub">на работу ставят в окне здания</em>
-        </span>
-        <span className="val">{idle}</span>
-      </div>
-
-      {total > 0 && (
-        <>
-          <h3>
-            Отпустить <span className="muted">из {total}</span>
-          </h3>
-          <div className="note">{ORDER_TEXT.releaseAbout}</div>
-          <Steps
-            value={count}
-            max={total}
-            spare={total - count}
-            step={10}
-            onChange={(d) => setPick(Math.max(1, Math.min(total, count + d)))}
-          />
-          <button className="btn wide" onClick={() => act((st) => releaseBonded(st, count))}>
-            Отпустить {count}
-          </button>
-        </>
-      )}
-      <button className="btn ghost wide" onClick={() => openTab('order')}>
-        <Icon name="hud-order" glyph={ORDER_TEXT.icon} /> Порядок
-      </button>
+      <Table
+        label="Сводка"
+        cols={SUM_COLS}
+        rows={lines.map((l) => ({
+          key: l.key,
+          cells: {
+            what: <Name icon={l.icon} label={l.label} sub={l.sub} />,
+            now: <b className={`pp-val${l.tone ? ` ${l.tone}` : ''}`}>{l.value}</b>,
+          },
+          tip: l.tip,
+          go: () => goTo(l.to),
+          goLabel: `${l.label}: ${sourceWord(l.to)}`,
+        }))}
+      />
+      <h3>В своих окнах</h3>
+      <Row
+        icon={{ name: 'hud-army', glyph: '⚔️' }}
+        label="Дружина"
+        sub={armySub}
+        value={fmtInt(army)}
+        go={() => goTo(WINDOW.army)}
+        goLabel={sourceWord(WINDOW.army)}
+      />
+      <Row
+        icon={{ name: 'hud-order', glyph: ORDER_TEXT.bondedIcon }}
+        label={ORDER_TEXT.bondedName}
+        sub={bondedSub}
+        value={fmtInt(bonded)}
+        go={() => goTo(WINDOW.order)}
+        goLabel={sourceWord(WINDOW.order)}
+      />
     </>
   );
 }
 
-/**
- * Племя числами. Поимённых жителей нет: население — это счёт, а роль человека —
- * следствие места работы. Поэтому здесь не список людей, а список профессий и
- * причина, по которой племя растёт или разбегается.
- */
+/** Работы: свободные руки и места — куда их поставить. */
+function Work() {
+  const s = useGame((g) => g.s);
+  const openBuilding = useGame((g) => g.openBuilding);
+  const idle = idleCount(s);
+  const site = currentSite(s);
+  const places = workplaces(s);
+  return (
+    <>
+      <Row
+        icon={{ name: 'ui-hammer', glyph: '🔨' }}
+        label="Свободные руки"
+        sub={site ? `строят: ${buildingTitle(s, site.type)} до ур. ${site.level + 1}` : 'без стройки отдыхают на площади'}
+        value={fmtInt(idle)}
+        tone={idle > 0 && !site ? 'warn' : undefined}
+        tip={() => idleTip(s)}
+      />
+      <Table
+        label="Места работы"
+        cols={WORK_COLS}
+        rows={places.map((p) => ({
+          key: p.key,
+          cells: {
+            what: <Name icon={{ name: `bld-${p.type}`, glyph: BUILDING_BY_ID[p.type].icon }} label={p.name} sub={p.sub} />,
+            people: fmtInt(p.people),
+            free: p.free === null ? '∞' : p.free > 0 ? <b className="pp-free">{fmtInt(p.free)}</b> : '—',
+          },
+          go: p.id !== null ? () => openBuilding(p.id!) : undefined,
+          goLabel: `${p.name}: поставить людей`,
+        }))}
+        empty="Мест работы нет."
+      />
+      <div className="note">Людей ставят в окне постройки: строка ведёт туда. На площади — вольный сбор вполсилы, без предела мест.</div>
+    </>
+  );
+}
+
 export function PeoplePanel() {
   const s = useGame((g) => g.s);
   const openBuilding = useGame((g) => g.openBuilding);
   const idle = idleCount(s);
-  const housing = housingCapacity(s);
-  const counts = jobCounts(s);
-  const growth = popGrowth(s);
-  const training = trainees(s);
-  const working = JOBS.filter((j) => j.id !== 'idle' && counts[j.id] > 0);
-
+  const site = currentSite(s);
+  // С тем же счётчиком, что у низа, окно открывается там, где руки ставят; без него — на сводке.
+  const [view, setView] = useState<View>(() => (idle > 0 && !site ? 'work' : 'sum'));
+  const go: TipGo = {
+    tab: (t) => goTo({ kind: 'tab', tab: t }),
+    building: openBuilding,
+    realm: (v) => goTo({ kind: 'realm', view: v }),
+    to: goTo,
+  };
+  const tabs: readonly TabDef<View>[] = [
+    { id: 'sum', label: 'Сводка' },
+    { id: 'work', label: 'Работы', badge: site ? 0 : idle },
+  ];
   return (
-    <div className="panel">
+    <div className="panel pp">
       <h2>
-        Жители <small>{s.pop}/{housing} · оборона {dec(defense(s), 0)}</small>
+        Жители{' '}
+        <small>
+          {fmtInt(s.pop)} из {fmtInt(housingCapacity(s))}
+        </small>
       </h2>
-      <div className="note">Людей ставят на работу в окне здания. Свободные руки строят и отдыхают на площади.</div>
-
-      <div className="mod total">
-        <span className="ico"><Icon name="ui-hammer" glyph="🔨" /></span>
-        <span className="name">Свободные руки</span>
-        <span className="val">{idle}</span>
-      </div>
-      {training > 0 && (
-        <div className="mod">
-          <span className="ico">⚔️</span>
-          <span className="name">Новобранцы</span>
-          <span className="val">{training}</span>
-        </div>
-      )}
-
-      <h3>
-        Прирост{' '}
-        <span className={`muted${growth.perDay < 0 ? ' neg' : ''}`}>{signed(growth.perDay)} в день</span>
-      </h3>
-      <div className="note">{growth.blocked ?? 'Город растёт.'}</div>
-      <Factor
-        icon={growth.morale >= 0 ? '😊' : '😟'}
-        name="Мораль"
-        k={growth.morale}
-        hint={growth.morale < 0 ? 'жители уходят' : `${Math.round(s.morale)} из 100`}
-      />
-      <Factor
-        icon="🛏️"
-        name="Свободное жильё"
-        k={growth.housing}
-        hint={countOf(Math.max(0, housing - s.pop), 'место', 'места', 'мест')}
-      />
-      <Factor icon="🍖" name="Запас еды" k={growth.food} hint={`полный ход с ${waitDays(GROWTH_FOOD_DAYS)}`} />
-
-      <Army />
-
-      <Bonded />
-
-      <h3>Кто чем занят</h3>
-      {working.map((job) => {
-        const place = s.buildings.find((b) => BUILDING_BY_ID[b.type].job === job.id) ?? null;
-        const inside = place ? workerCount(s, place.id) : 0;
-        const wild = freeJobCount(s, job.id);
-        return (
-          <button
-            className="card as-row"
-            key={job.id}
-            disabled={!place}
-            onClick={() => place && openBuilding(place.id)}
-          >
-            <div className="ico">
-              <Icon name={`job-${job.id}`} glyph={job.icon} />
-            </div>
-            <div className="body">
-              <div className="title">
-                {job.name}
-                <span className="count">{counts[job.id]}</span>
-              </div>
-              <div className="desc">
-                {place ? `${buildingTitle(s, place.type)}: ${inside}` : 'без здания'}
-                {wild > 0 && ` · вольный сбор: ${wild}`}
-              </div>
-            </div>
-          </button>
-        );
-      })}
-      {working.length === 0 && (
-        <div className="note">Все руки свободны. Поставь людей в здания.</div>
-      )}
+      <Tabs tabs={tabs} value={view} onChange={setView} />
+      {view === 'sum' ? <Summary go={go} /> : <Work />}
     </div>
   );
 }

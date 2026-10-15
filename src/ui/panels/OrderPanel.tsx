@@ -5,6 +5,9 @@
 // Порядок устроен так, чтобы его цена стояла до того, как наступит, — как у
 // голода под осадой. Поэтому сверху не только число, но и срок ропота, и чем
 // кончится мятеж при нынешней страже, и рычаги, которыми это меняют.
+//
+// Невольники — где стоят и как их отпустить — здесь же (`parts/Bonded`): прежде это был раздел «Жителей», но невольники
+// не жители, и их окно — это (UI-5, docs/ui_v2.md, 5.4). «Отпустить» в «Что делать» — сам отпуск, а не дверь в другое окно.
 import { useGame } from '@/game/store';
 import {
   MUTINY_FUSE,
@@ -27,13 +30,13 @@ import { asGame } from '@/game/pace';
 import { EVENT_TTL } from '@/game/sim/mail';
 import { plural } from '../parts/plural';
 import { Icon } from '@/ui/icons/Icon';
+import { BondedPlaces, BondedRelease } from '../parts/Bonded';
 import { dec } from '@/game/num';
 
 const fmt = (n: number): string => (n >= 10 ? String(Math.round(n)) : dec(n, 1));
 
 export function OrderPanel() {
   const s = useGame((g) => g.s);
-  const openTab = useGame((g) => g.openTab);
   const openBuilding = useGame((g) => g.openBuilding);
   const openMap = useGame((g) => g.openMap);
   const o = orderBreakdown(s);
@@ -119,10 +122,10 @@ export function OrderPanel() {
         Ниже {ORDER_WARN} надзор держит не всех. Ниже {ORDER_UNREST} идёт ропот и срок до мятежа.
       </div>
 
+      <BondedPlaces />
+
       <h3>Что делать</h3>
-      <button className="btn ghost wide" onClick={() => openTab('people')}>
-        {ORDER_TEXT.bondedIcon} Отпустить
-      </button>
+      <BondedRelease />
       {market && (
         <button className="btn ghost wide" onClick={() => openBuilding(market.id)}>
           <Icon name="bld-market" glyph="🛒" /> Продать

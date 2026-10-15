@@ -34,6 +34,10 @@ export const STAGE2 = [
   'next/Hall.tsx',
   'next/hall.ts',
   'next/output.ts',
+  // UI-5 (docs/ui_v2.md, 5.4): окно «Жители» — сводка и места работы; невольники — в «Порядке».
+  'next/people.ts',
+  'panels/PeoplePanel.tsx',
+  'parts/Bonded.tsx',
 ];
 
 /**

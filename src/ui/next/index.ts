@@ -20,3 +20,5 @@ export { Treasury } from './Treasury';
 export { HallBuild } from './Hall';
 // «Дружина» с передачей (UI-4, docs/ui_v2.md, 5.3) — тем же куском: набор `kit` и подсказки верха, на которых она стоит, живут здесь.
 export { ArmyPanel } from '../panels/ArmyPanel';
+// «Жители» — сводка и места работы (UI-5, docs/ui_v2.md, 5.4) — тем же куском, по той же причине.
+export { PeoplePanel } from '../panels/PeoplePanel';

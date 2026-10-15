@@ -15,7 +15,7 @@ import { BUILDING_BY_ID } from '@/game/data/buildings';
 import type { Tab } from '@/game/store';
 import type { RealmView } from '@/ui/realm/open';
 import { TIP_EDGE, TIP_ROWS_MAX, placeTip, tipRoom } from '@/ui/next/tip';
-import { armyTip, energyTip, gemsTip, goldTip, moraleTip, orderTip, popTip, rate, resTip, seasonTip, type TipGo } from '@/ui/next/hudTips';
+import { armyTip, defenseTip, energyTip, gemsTip, goldTip, moraleTip, orderTip, popTip, rate, resTip, seasonTip, type TipGo } from '@/ui/next/hudTips';
 import { Num } from './Num';
 import { Row } from './Row';
 import { COL_W, Table, tracks } from './Table';
@@ -367,7 +367,7 @@ describe('к источнику: двери из данных игры', () => {
   });
 
   it('у каждого запаса и показателя верха есть окно и слово двери', () => {
-    const keys: SourceKey[] = [...RESOURCE_IDS, 'gold', 'pop', 'morale', 'order', 'army', 'energy', 'season', 'treasury'];
+    const keys: SourceKey[] = [...RESOURCE_IDS, 'gold', 'pop', 'morale', 'order', 'army', 'energy', 'season', 'treasury', 'defense'];
     for (const k of keys) {
       expect(WINDOW[k], `${k}: окно`).toBeDefined();
       expect(sourceWord(WINDOW[k]).length, `${k}: слово`).toBeGreaterThan(0);
@@ -389,6 +389,8 @@ describe('к источнику: двери из данных игры', () => {
       ['morale', () => moraleTip(s, go)],
       ['order', () => orderTip(s, go)],
       ['army', () => armyTip(s, go)],
+      // Оборона — строка сводки «Жителей» и число «Дружины» (UI-5, docs/ui_v2.md, 5.4).
+      ['defense', () => defenseTip(s, go)],
       ['season', () => seasonTip(s, go)],
       ['energy', () => energyTip(s, 0, () => (went = { kind: 'trades' }))],
       ['treasury', () => gemsTip(120, 0, null, () => (went = { kind: 'treasury' }))],

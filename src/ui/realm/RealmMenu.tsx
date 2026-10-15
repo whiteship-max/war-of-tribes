@@ -23,7 +23,6 @@ import { Manage } from '../parts/TownHall';
 import { TownBuild } from '../parts/TownBuild';
 import { RealmFaith } from '../parts/Temple';
 import { Upkeep } from '../parts/Barracks';
-import { Bonded } from '../panels/PeoplePanel';
 import { OrderPanel } from '../panels/OrderPanel';
 import { ArmyPanel } from '../panels/ArmyPanel';
 import { ProfilePanel } from '../panels/ProfilePanel';
@@ -104,7 +103,7 @@ function Closed({ tab }: { tab: RealmTab }) {
 /**
  * Правительство: указ, паёк, налог и казна (тот же `Manage`, что во вкладке
  * «Указы» ратуши), порядок с тревогой, ропотом, мятежом и стражей (та же
- * справка, что по ячейке порядка) и невольники (тот же раздел, что в «Племени»).
+ * справка, что по ячейке порядка) с невольниками — они в окне порядка (`parts/Bonded`, UI-5).
  */
 function Government() {
   const s = useGame((g) => g.s);
@@ -117,9 +116,6 @@ function Government() {
         </div>
       )}
       <OrderPanel />
-      <div className="panel">
-        <Bonded />
-      </div>
     </>
   );
 }
