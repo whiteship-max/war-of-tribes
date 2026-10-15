@@ -654,11 +654,14 @@ describe('осада: подкрепление и часы голода', () => 
     const alone = starvesAt(window({ now: w.now(), garrison: 0 })) - w.now();
     expect(held).toBeLessThan(alone);
 
-    // Роспуск в осаждённом городе: пока он идёт, эти люди не едят нигде, а
-    // вернувшись в гарнизон — едят снова.
+    // Роспуск в осаждённом городе идёт сбором, но внутри города: эти люди стоят у стен и едят за стеной (правило
+    // владельца 15.10.2026 — полководец и его отряд, пока внутри города, считаются гарнизоном; docs/ui_v2.md, 5.3).
+    // Прежде на срок роспуска они не ели нигде: здесь стояло «в роспуске за стеной не едят» = 0.
     expect(await w.world.setGarrison(null)).toBeNull();
-    expect((await w.world.sync(away)).siege!.garrison, 'в роспуске за стеной не едят').toBe(0);
     const back = (await w.world.figures()).find((f) => f.id === 'general') as FigureView;
+    expect(back.readyAt, 'точка внутри области: роспуск в осаде — сбором').toBeGreaterThan(w.now());
+    expect(back.phase, 'точка внутри области: полководец в городе').toBe('home');
+    expect((await w.world.sync(away)).siege!.garrison, 'в роспуске в городе едят за стеной').toBe(10);
     w.at(Math.max(w.now(), back.readyAt));
     expect((await w.world.sync(away)).siege!.garrison, 'вернулись в гарнизон').toBe(10);
   }, 60_000);
