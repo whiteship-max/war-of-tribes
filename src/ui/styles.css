@@ -2783,6 +2783,8 @@ body {
 .profile-head .name {
   display: block;
   max-width: 100%;
+  /* Имя — кнопка (сменить): цель 44 (находка К6, docs/ui_v2.md, 5.6). */
+  min-height: var(--tap);
   padding: 0;
   background: none;
   border: none;
@@ -2801,14 +2803,6 @@ body {
   color: var(--muted);
 }
 
-/* Имя города под именем вождя: мельче и приглушённее, в одну строку. */
-.profile-head .name.city {
-  margin-top: 2px;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--muted);
-}
-
 .profile-head .rename {
   display: flex;
   gap: 6px;
@@ -2817,7 +2811,7 @@ body {
 .profile-head .rename input {
   flex: 1 1 auto;
   min-width: 0;
-  height: 34px;
+  height: var(--tap);
   padding: 0 10px;
   background: var(--panel-2);
   border: 1px solid var(--line);
@@ -2842,7 +2836,8 @@ body {
   margin-top: 4px;
 }
 
-.profile-head .power b {
+.profile-head .power b,
+.profile-head .power .kit-num {
   font-size: 30px;
   line-height: 1.1;
   font-weight: 800;
@@ -2855,12 +2850,6 @@ body {
   color: var(--muted);
   text-transform: uppercase;
   letter-spacing: 0.06em;
-}
-
-.profile-head .split {
-  font-size: 11px;
-  color: var(--muted);
-  margin-top: 2px;
 }
 
 .trend {

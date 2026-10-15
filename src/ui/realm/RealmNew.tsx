@@ -127,7 +127,8 @@ export function RealmNew() {
                 </span>
                 <i className="one-line">{profileName(s.profile)}</i>
               </button>
-              {inTelegram() && (
+              {/* На профиле «Сообщить об ошибке» — строкой настроек; вторая дверь на том же экране — дубль (Д14, UI-7). */}
+              {inTelegram() && view !== 'settings' && (
                 <button className="nx-ibtn" onClick={report} aria-label="Сообщить об ошибке">
                   <Icon name="ui-bug" glyph="🐞" />
                 </button>
