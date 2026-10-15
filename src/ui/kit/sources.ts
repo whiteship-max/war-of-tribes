@@ -6,17 +6,25 @@ import type { Tab } from '@/game/store';
 import type { RealmView } from '@/ui/realm/open';
 import { RESOURCE_IDS } from '@/game/constants';
 import { JOBS } from '@/game/data/jobs';
-import { BUILDING_BY_ID } from '@/game/data/buildings';
+import { BUILDINGS, BUILDING_BY_ID, type BuildingStats } from '@/game/data/buildings';
+import { TROOP_IDS } from '@/game/data/troops';
+import { maxLevelFor } from '@/game/derived';
+import { hiredAt } from '@/game/sim/army';
+import { statAt } from '@/game/train';
 
 /** Куда ведёт дверь: постройка (по типу — их одна на город), раздел шторки, раздел державы или окно промыслов. */
 export type Source =
   | { kind: 'building'; type: BuildingTypeId }
   | { kind: 'tab'; tab: Tab }
   | { kind: 'realm'; view: RealmView }
-  | { kind: 'trades' };
+  | { kind: 'trades' }
+  // «Сокровищница» на вкладке «Купить»: алмазы город не добывает — их покупают.
+  | { kind: 'treasury' }
+  // «Стройка» ратуши: дверь «Построить» к постройке, которой в городе нет.
+  | { kind: 'build' };
 
 /** Показатели верхней строки — у каждого свой источник (`WINDOW`). */
-export type Indicator = 'gold' | 'pop' | 'morale' | 'order' | 'army' | 'energy' | 'season';
+export type Indicator = 'gold' | 'pop' | 'morale' | 'order' | 'army' | 'energy' | 'season' | 'gems';
 export type SourceKey = ResourceId | Indicator;
 
 /**
@@ -32,6 +40,7 @@ export const WINDOW: Readonly<Record<SourceKey, Source>> = {
   army: { kind: 'tab', tab: 'army' },
   energy: { kind: 'trades' },
   season: { kind: 'tab', tab: 'season' },
+  gems: { kind: 'treasury' },
 };
 
 /** Слова дверей, которые ведут не в постройку: подписи разделов — те же, что у ссылок подсказок верха. */
@@ -65,6 +74,10 @@ export function sourceWord(src: Source): string {
       return REALM_WORD[src.view] ?? 'Держава';
     case 'trades':
       return 'Промыслы';
+    case 'treasury':
+      return 'Сокровищница';
+    case 'build':
+      return 'Стройка';
   }
 }
 
@@ -85,3 +98,29 @@ export function producersOf(r: ResourceId): BuildingTypeId[] {
 
 /** Дверь к постройке по типу. */
 export const toBuilding = (type: BuildingTypeId): Source => ({ kind: 'building', type });
+
+/** Постройки, у которых этот пассив есть хоть на каком-то уровне (`statAt` на потолке), — порядком таблицы построек. */
+const withStat = (key: keyof BuildingStats): BuildingTypeId[] =>
+  BUILDINGS.filter((d) => statAt(d.id, key, maxLevelFor(d.id)) > 0).map((d) => d.id);
+
+/**
+ * Какие постройки делают число верхней строки — главные кнопки его подсказки (docs/ui_v2.md, 5.2). Из данных игры, а не
+ * списком рукой: запас — `producersOf`; жители — постройки с жильём (жильё — их предел и рычаг); мораль — постройки с
+ * моралью и пиром; дружина — где учат каждый вид (`hiredAt`). Золото, энергию, алмазы, порядок и сезон не делает ни одна
+ * постройка: у них только окно (`WINDOW`).
+ */
+export function makersOf(key: SourceKey): BuildingTypeId[] {
+  if ((RESOURCE_IDS as string[]).includes(key)) return producersOf(key as ResourceId);
+  switch (key) {
+    case 'pop':
+      return withStat('housing');
+    case 'morale': {
+      const lift = new Set([...withStat('morale'), ...withStat('feast')]);
+      return BUILDINGS.map((d) => d.id).filter((id) => lift.has(id));
+    }
+    case 'army':
+      return [...new Set(TROOP_IDS.map(hiredAt))];
+    default:
+      return [];
+  }
+}

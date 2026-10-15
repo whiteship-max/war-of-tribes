@@ -1,6 +1,6 @@
 import { Icon } from '@/ui/icons/Icon';
 import { useCityBusy } from './Hints';
-import { modalUp, placeTip, tipRoom, useTip, type Rect, type TipContent, type TipRow } from './tip';
+import { TIP_W, TIP_W_WIDE, modalUp, placeTip, tipRoom, useTip, type Rect, type TipContent, type TipMaker, type TipRow } from './tip';
 
 /**
  * Слой подсказки: один на игру. Пока плашка числа открыта, под ней лежит прозрачный ловец во весь экран —
@@ -32,7 +32,7 @@ interface ViewProps {
 /** Разметка слоя без хранилищ и окна — её сверяет тест (`next.test.ts`). */
 export function TipView({ tip, view, busy, modal, hide }: ViewProps) {
   if (tip.free && busy) return null;
-  const place = placeTip(tip.at, view);
+  const place = placeTip(tip.at, view, tip.makers?.length ? TIP_W_WIDE : TIP_W);
   const link = tip.link && !modal ? tip.link : null;
   const swallow = (e: { preventDefault(): void; stopPropagation(): void }): void => {
     e.preventDefault();
@@ -60,12 +60,29 @@ export function TipView({ tip, view, busy, modal, hide }: ViewProps) {
         <b>{tip.title}</b>
         {tip.lore && <p className="nx-tip-lore">{tip.lore}</p>}
         {tip.body && <p>{tip.body}</p>}
-        {tip.rows && tip.rows.length > 0 && (
+        {((tip.rows && tip.rows.length > 0) || tip.more) && (
           <div className="nx-tip-rows">
-            {tip.rows.map((r, i) => (
+            {tip.rows?.map((r, i) => (
               <TipLine key={i} row={r} go={modal ? undefined : r.go} hide={hide} />
             ))}
-            {tip.sum && <TipLine row={tip.sum} sum hide={hide} />}
+            {tip.rows && tip.rows.length > 0 && tip.sum && <TipLine row={tip.sum} sum hide={hide} />}
+            {tip.more && (
+              <>
+                <b className="nx-tip-sub">{tip.more.title}</b>
+                {tip.more.rows.map((r, i) => (
+                  <TipLine key={`m${i}`} row={r} go={modal ? undefined : r.go} hide={hide} />
+                ))}
+                {tip.more.sum && <TipLine row={tip.more.sum} sum hide={hide} />}
+              </>
+            )}
+          </div>
+        )}
+        {/* Главные кнопки — постройки, которые делают число; под окном с вопросом их нет, как и двери окна. */}
+        {tip.makers && tip.makers.length > 0 && !modal && (
+          <div className={`nx-tip-makers${tip.makers.length === 1 ? ' one' : ''}`}>
+            {tip.makers.map((m) => (
+              <TipMakerButton key={m.label} maker={m} hide={hide} />
+            ))}
           </div>
         )}
         {tip.free && (
@@ -123,6 +140,30 @@ function TipLine({ row, go, sum = false, hide }: { row: TipRow; go?: () => void;
     >
       {inner}
       <i aria-hidden="true">›</i>
+    </button>
+  );
+}
+
+/**
+ * Главная кнопка подсказки — постройка, которая делает число: значок и имя, 44. Постройки нет в городе — та же кнопка
+ * с подписью «построить» ведёт в «Стройку» ратуши. Сначала закрывает подсказку, потом ведёт — как дверь окна.
+ */
+function TipMakerButton({ maker, hide }: { maker: TipMaker; hide: () => void }) {
+  return (
+    <button
+      className={`nx-tip-maker${maker.build ? ' build' : ''}`}
+      aria-label={maker.build ? `Построить: ${maker.label}` : maker.label}
+      onClick={(e) => {
+        e.stopPropagation();
+        hide();
+        maker.go();
+      }}
+    >
+      <Icon name={maker.icon.name} glyph={maker.icon.glyph} />
+      <span>
+        {maker.label}
+        {maker.build && <small>построить</small>}
+      </span>
     </button>
   );
 }

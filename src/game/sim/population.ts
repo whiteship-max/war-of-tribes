@@ -150,6 +150,13 @@ export interface GrowthInfo {
    * начала бы называть узким местом веру, которая ничего не тормозит.
    */
   faith: number;
+  /**
+   * Основа — прирост без множителей: от числа жителей (`POP_GROWTH_PER_DAY`). `perDay` — она под множителями, и разбор «в
+   * день» жителей (`ui/next/hudTips`) пишет каждый множитель тем, что он прибавил к набранному.
+   */
+  base: number;
+  /** Множитель пайка (`RationDef.growth`): скудный паёк гасит рождения. */
+  ration: number;
   /** Что именно упирается; null — ничто. */
   blocked: string | null;
 }
@@ -177,7 +184,7 @@ export function popGrowth(s: GameState, mods?: SeasonModifiers): GrowthInfo {
   if (morale < 0) {
     // Уходящих вера не удерживает: она прибавляет к росту, а не гасит убыль, —
     // иначе высокий храм отменял бы цену низкой морали.
-    return { perDay: base * morale, morale, housing, food, faith, blocked: 'Мораль слишком низкая, жители уходят.' };
+    return { perDay: base * morale, morale, housing, food, faith, base, ration, blocked: 'Мораль слишком низкая, жители уходят.' };
   }
   const perDay = base * morale * housing * food * ration * faith;
   let blocked: string | null = null;
@@ -185,7 +192,7 @@ export function popGrowth(s: GameState, mods?: SeasonModifiers): GrowthInfo {
   else if (housing <= 0) blocked = 'Нет свободного жилья.';
   else if (food <= 0.01) blocked = 'Нет запаса еды.';
   else if (morale <= 0.01) blocked = 'Мораль слишком низкая.';
-  return { perDay, morale, housing, food, faith, blocked };
+  return { perDay, morale, housing, food, faith, base, ration, blocked };
 }
 
 /** Шаг прироста: накапливает дробную часть, целые головы применяет сразу. */

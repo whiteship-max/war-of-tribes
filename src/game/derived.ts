@@ -1041,13 +1041,18 @@ function yardYield(s: GameState, out: Resources, b: Building, mods: SeasonModifi
   addYield(out, job, bondedCount(s, b.id), mult * bondedShare(s));
 }
 
+/** Выработка вольного сбора без осады: свободные руки на работах без места в здании (`FREE_JOBS`). */
+function freeYield(s: GameState, out: Resources, mods: SeasonModifiers): void {
+  for (const job of FREE_JOBS) {
+    addYield(out, job, freeJobCount(s, job), workerMultiplier(s, job, null, mods));
+  }
+}
+
 /** Валовое производство за игровой день. */
 export function productionPerDay(s: GameState, mods: SeasonModifiers = seasonMods(s)): Resources {
   const out = emptyResources();
   for (const b of s.buildings) yardYield(s, out, b, mods);
-  for (const job of FREE_JOBS) {
-    addYield(out, job, freeJobCount(s, job), workerMultiplier(s, job, null, mods));
-  }
+  freeYield(s, out, mods);
   return cutBySiege(s, out);
 }
 
@@ -1055,6 +1060,16 @@ export function productionPerDay(s: GameState, mods: SeasonModifiers = seasonMod
 export function buildingProduction(s: GameState, b: Building, mods: SeasonModifiers = seasonMods(s)): Resources {
   const out = emptyResources();
   yardYield(s, out, b, mods);
+  return cutBySiege(s, out);
+}
+
+/**
+ * Что даёт за день вольный сбор — работы с Площади без места в здании. Валовое производство — сумма выработки зданий
+ * (`buildingProduction`) и этой; разбор «в день» запаса (`ui/next/hudTips`) пишет её строкой Площади.
+ */
+export function freeRangeProduction(s: GameState, mods: SeasonModifiers = seasonMods(s)): Resources {
+  const out = emptyResources();
+  freeYield(s, out, mods);
   return cutBySiege(s, out);
 }
 

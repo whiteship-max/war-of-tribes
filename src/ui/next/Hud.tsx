@@ -17,6 +17,7 @@ import { MINIGAME_COST } from '@/game/data/minigames';
 import { armyTip, energyTip, goldTip, isFull, moraleTip, orderTip, popTip, resTip, seasonTip, trendOf, type TipGo } from './hudTips';
 import { GemPlaque } from './Treasury';
 import { SiteTags } from './Rush';
+import { goTo } from '@/ui/kit/nav';
 
 /**
  * Верх нового интерфейса (docs/ui_audit.md, 6.0–6.1): одна строка 44 — герб, золото, жители, мораль,
@@ -105,7 +106,8 @@ export function Hud() {
   const order = bondedTotal(s) > 0 ? Math.round(orderValue(s)) : null;
   const net = netPerDay(s);
   const storage = buildingOfType(s, 'storage');
-  const go: TipGo = { tab: openTab, building: openBuilding, realm: showRealm };
+  // `to` — дверь набора: «Построить» ведёт в «Стройку» ратуши (`kit/nav.goTo`).
+  const go: TipGo = { tab: openTab, building: openBuilding, realm: showRealm, to: goTo };
   const showTrades = useTrades((t) => t.show);
   const lit = useYieldFlash();
   // Энергия — сутками игрока (`ui/trades.energyNow`); перерисовывается вместе с партией, раз в шаг цикла.

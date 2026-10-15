@@ -389,6 +389,11 @@
 .nx-tip {
   position: fixed;
   z-index: 41;
+  /* Колонкой и не выше экрана (`--room`, `tipRoom`): разбор прокручивается, кнопки к постройкам и дверь окна видны всегда.
+     Обрезки у самой плашки нет — она срезала бы стрелку к элементу. */
+  display: flex;
+  flex-direction: column;
+  max-height: var(--room, 100%);
   padding: 10px 12px;
   border-radius: 14px;
   background: rgba(30, 23, 17, 0.97);
@@ -451,10 +456,66 @@
 /* Разбор числа строками (docs/ui_v2.md, раздел 2): имя слева, число справа цифрами одной ширины; итог — чертой сверху.
    Строка с дверью к источнику — кнопка 44 со стрелкой, как ссылка внизу. Плашка не выше экрана: строки прокручиваются. */
 .nx-tip-rows {
+  flex: 0 1 auto;
+  min-height: 0;
   margin: 8px 0 0;
-  max-height: calc(var(--room, 400px) - 120px);
   overflow-y: auto;
   font-size: 13px;
+}
+.nx-tip > :not(.nx-tip-rows) {
+  flex: none;
+}
+/* Второй разбор (жильё под жителями): имя своим рядом над строками. */
+.nx-tip .nx-tip-sub {
+  margin: 10px 0 2px;
+}
+/* Главные кнопки — постройки, которые делают число (docs/ui_v2.md, 5.2): по две в ряд, одна — во всю ширину; над дверью
+   окна. Действие — 44. */
+.nx-tip-makers {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-top: 10px;
+}
+.nx-tip-makers.one {
+  grid-template-columns: 1fr;
+}
+.nx-tip .nx-tip-maker {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  min-height: var(--tap);
+  padding: 4px 8px;
+  border-radius: 10px;
+  background: var(--accent);
+  color: var(--accent-text);
+  font-weight: 600;
+  line-height: 1.15;
+  text-align: left;
+}
+.nx-tip-maker svg,
+.nx-tip-maker > span:first-child:not(:last-child) {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  font-size: 18px;
+  line-height: 20px;
+}
+.nx-tip-maker > span:last-child {
+  min-width: 0;
+  overflow-wrap: break-word;
+}
+.nx-tip-maker small {
+  display: block;
+  font-size: 11px;
+  font-weight: 400;
+}
+/* Постройки нет в городе: та же кнопка, но тише — она ведёт в «Стройку». */
+.nx-tip .nx-tip-maker.build {
+  background: var(--panel-3);
+  color: var(--text);
+  border: 1px dashed var(--accent);
 }
 .nx-tip-row {
   display: flex;

@@ -23,6 +23,11 @@ export const TIP_EDGE = 8;
 export const TIP_GAP = 8;
 /** Ширина плашки. */
 export const TIP_W = 272;
+/**
+ * Ширина плашки с кнопками построек (docs/ui_v2.md, 5.2): по две в ряд, и имя «Навес собирателей» на 272 рвалось посреди
+ * слова. На узком экране плашка всё равно не шире экрана с полями (`placeTip`).
+ */
+export const TIP_W_WIDE = 300;
 
 export interface TipLink {
   label: string;
@@ -47,6 +52,25 @@ export interface TipRow {
   go?: () => void;
 }
 
+/**
+ * Постройка, которая делает число (docs/ui_v2.md, 5.2): главная кнопка подсказки — над дверью окна («Склад ›»). Запас
+ * делают несколько построек — кнопок столько же. Постройки в городе нет — кнопка «Построить» (`build`) ведёт в «Стройку»
+ * ратуши.
+ */
+export interface TipMaker {
+  label: string;
+  icon: { name: string; glyph: string };
+  go: () => void;
+  build?: boolean;
+}
+
+/** Второй разбор той же подсказки — своё число со своим итогом (жильё под жителями). */
+export interface TipSection {
+  title: string;
+  rows: TipRow[];
+  sum?: TipRow;
+}
+
 export interface TipContent {
   title: string;
   /**
@@ -60,6 +84,10 @@ export interface TipContent {
   rows?: TipRow[];
   /** Итог разбора — то самое число, которое объясняет подсказка, той же записью, что на экране. */
   sum?: TipRow;
+  /** Второй разбор под первым. */
+  more?: TipSection;
+  /** Постройки, которые делают число, — главные кнопки над дверью окна (`link`). */
+  makers?: TipMaker[];
   link?: TipLink;
   /**
    * Подсказка новичку (`Hints`): касаний мимо плашки не ловит — город и постройки под ней отвечают, как без неё;

@@ -5,6 +5,7 @@
 //   GROUP=bld1 | bld2 | realm | map | misc            — постройки (две половины), держава, карта, прочее
 //   GROUP=hall TAG=after npx vite-node docs/ui_v2/shots.ts — ратуша «Стройка» (UI-2): шторка во всю высоту, группы, лист
 //                                                     постройки, стройка; `TAG` — приписка к имени снимка («до» и «после»)
+//   GROUP=top TAG=after npx vite-node docs/ui_v2/shots.ts — подсказки верха и запасов (UI-3): разбор и двери
 //
 // Снимки — 390×844 @2, JPEG, в `docs/ui_v2/` (имя — номер и экран). Кроме снимка стенд печатает высоту прокрутки
 // окна в экранах: `экранов 2.4` — содержимое окна выше экрана телефона в 2.4 раза (правило «окно — один экран»,
@@ -88,6 +89,9 @@ const HELPERS = `(() => {
       if (g().sheet) g().closeSheet();
       const x = document.querySelector('.nx-realm .nx-ibtn[aria-label="Закрыть"]');
       if (x) x.click();
+      // Сокровищница — своё окно поверх города: шторкой не закрывается.
+      const t = document.querySelector('.nx-treasury .nx-bclose');
+      if (t) t.click();
       return 'ok';
     },
     /** Прокрутка открытого окна: шторка, держава или окно поверх. */
@@ -214,8 +218,22 @@ const GROUPS: Record<string, Step[]> = {
     { name: '83-hall-card', run: then(`window.__ui.click('Все', '.sheet.open .kit-tabs')`, `window.__ui.clickSel('.sheet.open [data-tut="list-farm"]')`), wait: 900 },
     { name: '84-hall-site', run: then(`window.__ui.clickSel('.hall-veil')`, `window.__ui.clickSel('.sheet.open [data-tut="list-houses"]')`), wait: 900 },
   ],
+  // UI-3 (docs/ui_v2.md, 5.2): подсказки верха и запасов — разбор «в день» и двери к постройкам, «Склад» и окна.
+  top: [
+    { name: '90-top-gold', run: ui(`reset(), window.__ui.click('Золото', '.nx-top')`), wait: 500 },
+    { name: '91-top-pop', run: ui(`reset(), window.__ui.click('Жители', '.nx-top')`), wait: 500 },
+    { name: '92-top-morale', run: ui(`reset(), window.__ui.click('Мораль', '.nx-top')`), wait: 500 },
+    { name: '93-top-army', run: ui(`reset(), window.__ui.click('Дружина', '.nx-top')`), wait: 500 },
+    { name: '94-top-energy', run: ui(`reset(), window.__ui.click('Энергия', '.nx-top')`), wait: 500 },
+    { name: '95-res-food', run: ui(`reset(), window.__ui.click('Еда', '.nx-res')`), wait: 500 },
+    { name: '96-res-wood', run: ui(`reset(), window.__ui.click('Древесина', '.nx-res')`), wait: 500 },
+    { name: '97-res-charcoal', run: ui(`reset(), window.__ui.click('Уголь', '.nx-res')`), wait: 500 },
+    { name: '98-res-iron', run: ui(`reset(), window.__ui.click('Железо', '.nx-res')`), wait: 500 },
+    { name: '99-top-gems', run: ui(`reset(), window.__ui.clickSel('.nx-gems')`), wait: 900 },
+  ],
   misc: [
-    { name: '70-treasury', run: ui(`reset(), window.__ui.clickSel('.nx-gems')`), wait: 1200, tabs: true },
+    // Плашка алмазов с UI-3 открывает подсказку, а не окно (docs/ui_v2.md, 5.2): окно — его хранилищем.
+    { name: '70-treasury', run: `(async () => { window.__ui.reset(); (await import('/src/ui/treasury.ts')).useTreasury.getState().show(); return JSON.stringify('ok'); })()`, wait: 1200, tabs: true },
     { name: '71-trades', run: `(async () => { window.__ui.reset(); (await import('/src/ui/trades.ts')).useTrades.getState().show(); return JSON.stringify('ok'); })()`, wait: 1200 },
     { name: '72-season', run: tab('season'), wait: 900 },
     { name: '73-pop', run: tab('pop'), wait: 900 },

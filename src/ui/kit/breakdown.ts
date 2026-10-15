@@ -21,6 +21,8 @@ export interface BreakdownSpec {
   parts: readonly Part[];
   /** Запись слагаемого и итога; по умолчанию — ставка со знаком (`hudTips.rate`: «+43,4», запись одна на игру). */
   fmt?: (n: number) => string;
+  /** Запись итога, если она не та, что у слагаемых: цель морали — «72», а не «+72,0». По умолчанию — `fmt`. */
+  sumFmt?: (n: number) => string;
   /** Подпись итога. */
   sumLabel?: string;
   /** Одна строка над разбором — правило, а не числа. */
@@ -72,7 +74,7 @@ export function breakdown(spec: BreakdownSpec): TipContent {
     title: spec.title,
     body: spec.body,
     rows,
-    sum: { label: spec.sumLabel ?? 'Итого', value: fmt(spec.total), tone: toneOf(spec.total) },
+    sum: { label: spec.sumLabel ?? 'Итого', value: (spec.sumFmt ?? fmt)(spec.total), tone: toneOf(spec.total) },
     link: spec.link,
   };
 }

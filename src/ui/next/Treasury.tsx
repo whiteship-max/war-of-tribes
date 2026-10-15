@@ -8,7 +8,7 @@ import { Suspense, lazy, useEffect } from 'react';
 import { useGame } from '@/game/store';
 import { RESOURCE_META } from '@/game/constants';
 import { SHOP_DAILY, SHOP_GOODS, SHOP_LOT, shopBlocked, shopPrice, shopRoom } from '@/game/sim/gems';
-import { gemLine, shopDay, shopResetAt } from '@/game/gemrules';
+import { gemLine, shopResetAt } from '@/game/gemrules';
 import { buildingTitle } from '@/game/derived';
 import { BUILDING_BY_ID } from '@/game/data/buildings';
 import { gemsOffline, orderBuy, useGems } from '@/net/gems';
@@ -16,20 +16,30 @@ import { serverNow } from '@/net/clock';
 import type { BuildingTypeId } from '@/game/types';
 import { Icon } from '@/ui/icons/Icon';
 import { realSpanText } from '@/ui/parts/wait';
-import { useTreasury, type TreasuryTab } from '@/ui/treasury';
+import { shopUsed, useTreasury, type TreasuryTab } from '@/ui/treasury';
 import { useTrades } from '@/ui/trades';
 import { useRealm } from '@/ui/realm/open';
 import { GemIcon } from './Rush';
+import { gemsTip } from './hudTips';
+import { tipAt } from './tip';
 
 /** Вкладка «Купить» — отдельным куском, с библиотекой кошелька. */
 const Buy = lazy(() => import('./TreasuryBuy'));
 
-/** Плашка «💎 120 +» справа под строкой запасов: касание открывает Сокровищницу. */
+/**
+ * Плашка «💎 120 +» слева под строкой запасов: касание — подсказка алмазов, как у чисел верха (docs/ui_v2.md, 5.2): баланс,
+ * лавка сегодня и дверь «Сокровищница» на «Купить». Числа — в миг касания.
+ */
 export function GemPlaque() {
   const balance = useGems((g) => g.balance);
   const show = useTreasury((t) => t.show);
+  const tip = (e: { currentTarget: Element }): void => {
+    const g = useGems.getState();
+    const now = serverNow();
+    tipAt(e.currentTarget, gemsTip(g.balance, shopUsed(g.shop, now), gemsOffline(g, now), () => show('buy')));
+  };
   return (
-    <button className="nx-gems" onClick={() => show()} aria-label={`Сокровищница: ${balance ?? 'нет связи'}`}>
+    <button className="nx-gems" onClick={tip} aria-label={`Алмазы: ${balance ?? 'нет связи'}`}>
       <GemIcon />
       <b>{balance ?? '—'}</b>
       <i className="nx-gems-plus">+</i>
@@ -104,7 +114,7 @@ function Shop() {
   const why = useGems((g) => g.why);
   const busy = useGems((g) => g.busy);
   const now = serverNow();
-  const used = shop && shop.day === shopDay(now) ? shop.used : 0;
+  const used = shopUsed(shop, now);
   const left = Math.max(0, SHOP_DAILY - used);
   const offline = gemsOffline({ balance, at, why }, now);
   const buy = async (r: (typeof SHOP_GOODS)[number]): Promise<void> => {

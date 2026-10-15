@@ -4,6 +4,7 @@ import { useGame } from '@/game/store';
 import { buildingOfType } from '@/game/derived';
 import { useRealm } from '@/ui/realm/open';
 import { useTrades } from '@/ui/trades';
+import { useTreasury } from '@/ui/treasury';
 import type { Source } from './sources';
 
 /**
@@ -33,10 +34,24 @@ export function goTo(src: Source): void {
     case 'trades':
       useTrades.getState().show();
       return;
+    case 'treasury':
+      useTreasury.getState().show('buy');
+      return;
+    case 'build': {
+      // Вкладкой, а не `openTownHall`: тот переключатель закрыл бы ратушу, уже открытую на «Стройке».
+      const hall = buildingOfType(g.s, 'town_hall');
+      if (!hall) return;
+      g.setTownTab('build');
+      g.openBuilding(hall.id);
+      return;
+    }
   }
 }
 
-/** Есть ли куда вести: постройка стоит в городе (разделы и окна есть всегда). */
+/** Есть ли куда вести: постройка стоит в городе, «Стройка» — пока стоит ратуша (разделы и окна есть всегда). */
 export function reachable(src: Source): boolean {
-  return src.kind !== 'building' || buildingOfType(useGame.getState().s, src.type) !== null;
+  const s = useGame.getState().s;
+  if (src.kind === 'building') return buildingOfType(s, src.type) !== null;
+  if (src.kind === 'build') return buildingOfType(s, 'town_hall') !== null;
+  return true;
 }

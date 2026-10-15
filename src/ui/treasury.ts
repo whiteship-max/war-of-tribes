@@ -1,7 +1,9 @@
 // «Сокровищница» (docs/gems.md): открыто ли окно и какая вкладка. Своё маленькое хранилище, как у промыслов
 // (`ui/trades.ts`): это вид, а не партия, в сохранение он не едет. Окно встаёт вместо шторки, державы и промыслов.
 import { create } from 'zustand';
+import type { GemShop } from '../../netlify/lib/contract';
 import { useGame } from '@/game/store';
+import { shopDay } from '@/game/gemrules';
 import { refreshGems } from '@/net/gems';
 import { useRealm } from './realm/open';
 import { useTrades } from './trades';
@@ -33,3 +35,6 @@ export const useTreasury = create<TreasuryStore>((set, get) => ({
     if (tab === 'history') void refreshGems();
   },
 }));
+
+/** Сколько покупок лавки сделано сегодня: записка сервера о другом дне — ноль (лавка обновилась). */
+export const shopUsed = (shop: GemShop | null, now: number): number => (shop && shop.day === shopDay(now) ? shop.used : 0);
