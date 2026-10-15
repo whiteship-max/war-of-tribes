@@ -3863,39 +3863,6 @@ a.start-go {
 }
 
 /*
- * Невольничий ряд на рынке. Столбиком, а не строкой, как у товара: на 360 px в
- * строку не помещаются разом цена, ряд шага, кнопка и то, каким станет порядок, —
- * а порядок обязан стоять рядом с кнопкой, до нажатия.
- */
-.card.bonded-trade {
-  flex-direction: column;
-  align-items: stretch;
-  gap: 6px;
-}
-
-.bonded-trade .bonded-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.bonded-trade .bonded-line {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.bonded-trade .bonded-line .cost {
-  flex: 1 1 auto;
-  min-width: 0;
-  margin-top: 0;
-}
-
-.bonded-trade .note {
-  margin-bottom: 0;
-}
-
-/*
  * Строка состояния с ячейкой порядка. Шесть ячеек на 360 px не помещаются с
  * подписями: сжимался бы сезон, а подпись дня наезжала бы на него. Пока ячейка
  * порядка стоит (а стоит она только при невольниках), промежутки ужимаются, а

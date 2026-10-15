@@ -1819,6 +1819,12 @@
 .nx-trade-go {
   min-width: 88px;
 }
+/* Цена в таблице лавки — кнопкой покупки (UI-7): действие, цель 44. */
+.nx-shop-go {
+  min-width: 64px;
+  min-height: 44px;
+  padding: 0 8px;
+}
 .nx-top.crowded {
   gap: 0;
 }

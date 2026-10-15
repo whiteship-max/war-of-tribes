@@ -1,0 +1,69 @@
+/*
+ * Рынок (UI-7, docs/ui_v2.md, 5.6): прилавок таблицей выбора, телеги таблицей, покупка выбранного под ними. Шкалы —
+ * docs/ui_audit.md, раздел 3; отмена телеги — действие, цель 44 (`--tap`).
+ */
+.mk {
+  display: grid;
+  gap: 8px;
+}
+.mk h3 {
+  margin: 4px 0 0;
+}
+.mk h3 .muted {
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.mk > .kit-row {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.mk-x {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  min-height: 44px;
+  margin: 0 auto;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+.mk-x svg {
+  width: 16px;
+  height: 16px;
+}
+.mk-buy {
+  display: grid;
+  gap: 8px;
+  padding: 8px 12px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel-2);
+}
+.mk-act {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.mk-act .cost {
+  margin: 0;
+}
+.mk-gain {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 600;
+  color: var(--good);
+}
+.mk-gain svg {
+  width: 16px;
+  height: 16px;
+}
+.mk .note.order-after.warn {
+  color: var(--warn, #d9a441);
+}
+.mk .note.order-after.bad {
+  color: var(--bad);
+}

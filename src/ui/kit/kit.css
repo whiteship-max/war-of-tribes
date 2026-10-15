@@ -196,6 +196,23 @@
   flex: none;
   width: 44px;
 }
+/* Имя в ячейке таблицы (UI-7): значок и имя одной строкой — указ, весть, товар, запас лавки. */
+.kit-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.kit-name svg {
+  flex: none;
+  width: 20px;
+  height: 20px;
+}
+.kit-name .ic {
+  flex: none;
+  font-size: 18px;
+  line-height: 1;
+}
 .kit-tempty {
   padding: 8px 12px;
   border-top: 1px solid var(--line);

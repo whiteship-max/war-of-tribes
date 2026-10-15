@@ -252,7 +252,7 @@ export function DecreesNew() {
   // Подсказка золота — та же, что у верха; её дверь «Указы» ведёт сюда же, и здесь её нет.
   const goldInfo = (): TipContent => ({ ...goldTip(s, tipGo()), link: undefined });
   const named = (icon: string, glyph: string, name: string): ReactNode => (
-    <span className="nx-dname">
+    <span className="kit-name">
       <Icon name={icon} glyph={glyph} />
       <span className="one-line">{name}</span>
     </span>

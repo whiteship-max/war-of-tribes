@@ -632,18 +632,6 @@
 .nx-tgcell:active {
   background: rgba(255, 220, 170, 0.08);
 }
-/* Имя варианта в таблице указов (UI-7): значок и имя одной строкой. */
-.nx-dname {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-.nx-dname svg {
-  flex: none;
-  width: 20px;
-  height: 20px;
-}
 .nx-tab .kit-table + .nx-pnote {
   margin-top: 4px;
 }
@@ -1041,26 +1029,10 @@
 .mail-group h3 .muted {
   font-weight: 400;
 }
-.mail-what {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-.mail-what svg {
-  flex: none;
-  width: 20px;
-  height: 20px;
-}
-.mail-what .ic {
-  flex: none;
-  font-size: 18px;
-  line-height: 1;
-}
-.mail-what.fresh .one-line {
+.mail-v2 .kit-name.fresh .one-line {
   font-weight: 600;
 }
-.mail-what .nx-new {
+.mail-v2 .kit-name .nx-new {
   flex: none;
 }
 .mail-boons {

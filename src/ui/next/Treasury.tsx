@@ -22,6 +22,7 @@ import { useRealm } from '@/ui/realm/open';
 import { GemIcon } from './Rush';
 import { gemsTip } from './hudTips';
 import { tipAt } from './tip';
+import { Table, type Col } from '@/ui/kit/Table';
 
 /**
  * Лавка сегодня по часам сервера — одни часы на лавку и подсказку плашки: «сейчас», от которого считают сутки (полночь
@@ -113,7 +114,14 @@ export function Treasury() {
   );
 }
 
-/** Лавка: сто единиц припаса за алмазы, десять покупок в сутки. Войска нет. */
+/** Столбцы лавки (UI-7, docs/ui_v2.md, 5.6; П12): «+100» — в шапке, а не в каждой строке; цена — кнопкой покупки. */
+export const SHOP_COLS: readonly Col[] = [
+  { key: 'name', title: `Запас +${SHOP_LOT}` },
+  { key: 'room', title: 'Места', align: 'right', w: '56px' },
+  { key: 'buy', title: 'Цена', align: 'right', w: '76px' },
+];
+
+/** Лавка: сто единиц припаса за алмазы, десять покупок в сутки. Войска нет. Таблица — запас, места на складе, цена. */
 function Shop() {
   const s = useGame((g) => g.s);
   const toast = useGame((g) => g.showToast);
@@ -129,10 +137,11 @@ function Shop() {
     const err = await orderBuy(r);
     if (err) toast(err);
   };
-  const rows = SHOP_GOODS.map((r) => ({ r, price: shopPrice(r), blocked: shopBlocked(s, r, shopPrice(r), balance, left, offline) }));
+  const rows = SHOP_GOODS.map((r) => ({ r, price: shopPrice(r), room: shopRoom(s, r), blocked: shopBlocked(s, r, shopPrice(r), balance, left, offline) }));
   // Причина, общая для всех рядов («Алмазы тратятся только в игре внутри Telegram», «Нет связи…»), говорится один раз над
-  // списком: семь одинаковых строк подряд — повтор (docs/voice.md, 5).
+  // таблицей: семь одинаковых строк подряд — повтор (docs/voice.md, 5). Прочие — по разу под ней.
   const common = rows.every((x) => x.blocked !== null && x.blocked === rows[0].blocked) ? rows[0].blocked : null;
+  const own = [...new Set(rows.map((x) => x.blocked).filter((b): b is string => b !== null && b !== common))];
   return (
     <>
       <div className="nx-pay">
@@ -141,35 +150,48 @@ function Shop() {
         </span>
         {common && <small className="nx-why">{common}</small>}
       </div>
-      {rows.map(({ r, price, blocked }) => {
-        const waiting = busy === `buy:${r}`;
-        return (
-          <div className="nx-trade" key={r}>
-            <span className="nx-bico">
-              <Icon name={`res-${r}`} glyph={RESOURCE_META[r].icon} />
-            </span>
-            <div className="nx-trade-body">
-              <b>
-                {RESOURCE_META[r].name} +{SHOP_LOT}
-              </b>
-              {blocked && blocked !== common ? (
-                <small className="nx-why">{blocked}</small>
-              ) : (
-                <span className="nx-trade-haul">Места на складе: {shopRoom(s, r)}</span>
-              )}
-            </div>
-            <button className="nx-go nx-trade-go nx-gem-go" disabled={blocked !== null || waiting} onClick={() => void buy(r)}>
-              {waiting ? (
-                '…'
-              ) : (
-                <span>
-                  <GemIcon /> {price}
+      <Table
+        label="Лавка"
+        cols={SHOP_COLS}
+        rows={rows.map(({ r, price, room, blocked }) => {
+          const waiting = busy === `buy:${r}`;
+          return {
+            key: r,
+            dim: blocked !== null,
+            cells: {
+              name: (
+                <span className="kit-name">
+                  <Icon name={`res-${r}`} glyph={RESOURCE_META[r].icon} />
+                  <span className="one-line">{RESOURCE_META[r].name}</span>
                 </span>
-              )}
-            </button>
-          </div>
-        );
-      })}
+              ),
+              room: <span className={room < SHOP_LOT ? 'bad' : ''}>{room}</span>,
+              buy: (
+                <button
+                  type="button"
+                  className="nx-go nx-gem-go nx-shop-go"
+                  disabled={blocked !== null || waiting}
+                  aria-label={`${RESOURCE_META[r].name} +${SHOP_LOT} за ${price} алмазов`}
+                  onClick={() => void buy(r)}
+                >
+                  {waiting ? (
+                    '…'
+                  ) : (
+                    <span>
+                      <GemIcon /> {price}
+                    </span>
+                  )}
+                </button>
+              ),
+            },
+          };
+        })}
+      />
+      {own.map((w) => (
+        <small key={w} className="nx-why">
+          {w}
+        </small>
+      ))}
     </>
   );
 }

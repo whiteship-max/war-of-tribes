@@ -160,7 +160,7 @@ export function Mail() {
               goLabel: d.title,
               cells: {
                 what: (
-                  <span className={`mail-what${fresh(d) ? ' fresh' : ''}`}>
+                  <span className={`kit-name${fresh(d) ? ' fresh' : ''}`}>
                     <Icon name={d.iconName} glyph={d.icon} />
                     <span className="one-line">{d.title}</span>
                     {fresh(d) && <i className="nx-new" aria-label="новое" />}
@@ -290,7 +290,7 @@ function Boons({ s }: { s: GameState }) {
           tip: () => ({ title: def.name, body: boonWords(def) }),
           cells: {
             what: (
-              <span className="mail-what">
+              <span className="kit-name">
                 <span className="ic">{def.icon}</span>
                 <span className="one-line">{def.name}</span>
               </span>
