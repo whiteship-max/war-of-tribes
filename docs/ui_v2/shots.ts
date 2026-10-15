@@ -3,6 +3,8 @@
 //   npx vite-node docs/ui_v2/shots.ts                 — список заходов
 //   GROUP=city npx vite-node docs/ui_v2/shots.ts      — один заход: город, верх, подсказки, низ
 //   GROUP=bld1 | bld2 | realm | map | misc            — постройки (две половины), держава, карта, прочее
+//   GROUP=hall TAG=after npx vite-node docs/ui_v2/shots.ts — ратуша «Стройка» (UI-2): шторка во всю высоту, группы, лист
+//                                                     постройки, стройка; `TAG` — приписка к имени снимка («до» и «после»)
 //
 // Снимки — 390×844 @2, JPEG, в `docs/ui_v2/` (имя — номер и экран). Кроме снимка стенд печатает высоту прокрутки
 // окна в экранах: `экранов 2.4` — содержимое окна выше экрана телефона в 2.4 раза (правило «окно — один экран»,
@@ -41,7 +43,12 @@ interface Step {
   shot?: boolean;
   /** Снять и вкладки окна (`[role=tab]` внутри шторки или державы) — каждую своим снимком. */
   tabs?: boolean;
+  /** Поднять шторку во всю высоту (85 %) — рывком за хэндл вверх, как пальцем: снимок видит окно целиком. */
+  full?: boolean;
 }
+
+/** Приписка к имени снимка: `TAG=before` — «до», `TAG=after` — «после» (UI-2 и дальше). */
+const TAG = process.env.TAG ?? '';
 
 // ---------- помощники на странице ----------
 
@@ -113,6 +120,9 @@ const place = (cond: string): string => `(async () => {
   await W.getState().select({ x: fit[0].x, y: fit[0].y });
   return JSON.stringify('ok');
 })()`;
+/** Два касания подряд с паузой между ними: второе — по тому, что первое перерисовало. */
+const then = (a: string, b: string): string =>
+  `(async () => { const r1 = ${a}; await new Promise((r) => setTimeout(r, 300)); const r2 = ${b}; return JSON.stringify(r1 === 'ok' ? r2 : r1); })()`;
 const tab = (t: string): string => `(() => { window.__ui.reset(); window.__game.getState().openTab('${t}'); return JSON.stringify('ok'); })()`;
 const building = (type: string, name: string): Step => ({ name, run: ui(`reset(), window.__ui.building('${type}')`), wait: 900, tabs: true });
 
@@ -183,6 +193,27 @@ const GROUPS: Record<string, Step[]> = {
       wait: 2000,
     },
   ],
+  // UI-2 (docs/ui_v2.md, 5.1): ратуша «Стройка». Перед снимками одна постройка ставится в стройку — у сетки есть срок.
+  hall: [
+    {
+      name: '80-hall',
+      run: `(async () => {
+        window.__ui.reset();
+        const A = await import('/src/game/sim/actions.ts');
+        const g = window.__game.getState();
+        const b = g.s.buildings.find((x) => x.type === 'houses');
+        g.act((st) => A.startUpgrade(st, b.id));
+        return JSON.stringify(window.__ui.click('Ратуша', '.nx-nav'));
+      })()`,
+      wait: 1200,
+      full: true,
+    },
+    { name: '81-hall-groups', run: ui(`click('Порядок: Готовность', '.sheet.open')`), wait: 700 },
+    { name: '82-hall-war', run: ui(`click('Война', '.sheet.open .kit-tabs')`), wait: 700 },
+    // Касание плитки — после того, как вкладка «Все» перерисовала сетку: React кладёт её не в тот же миг.
+    { name: '83-hall-card', run: then(`window.__ui.click('Все', '.sheet.open .kit-tabs')`, `window.__ui.clickSel('.sheet.open [data-tut="list-farm"]')`), wait: 900 },
+    { name: '84-hall-site', run: then(`window.__ui.clickSel('.hall-veil')`, `window.__ui.clickSel('.sheet.open [data-tut="list-houses"]')`), wait: 900 },
+  ],
   misc: [
     { name: '70-treasury', run: ui(`reset(), window.__ui.clickSel('.nx-gems')`), wait: 1200, tabs: true },
     { name: '71-trades', run: `(async () => { window.__ui.reset(); (await import('/src/ui/trades.ts')).useTrades.getState().show(); return JSON.stringify('ok'); })()`, wait: 1200 },
@@ -199,7 +230,34 @@ const GROUPS: Record<string, Step[]> = {
 async function snap(tab: Tab, name: string): Promise<void> {
   const png = await tab.send<{ data: string }>('Page.captureScreenshot', { format: 'png' });
   const jpg = await sharp(Buffer.from(png.data, 'base64')).jpeg({ quality: 70, mozjpeg: true }).toBuffer();
-  await writeFile(join(OUT, `${name}.jpg`), jpg);
+  await writeFile(join(OUT, `${name}${TAG ? `-${TAG}` : ''}.jpg`), jpg);
+}
+
+/**
+ * Шторку — во всю высоту: рывок за хэндл вверх событиями указателя на самой странице (`ui/Sheet`: скорость вверх больше
+ * порога — ступень 85 %). Рывок мышью отладчика (`Input.dispatchMouseEvent`) шторку в виде телефона не поднял.
+ */
+async function pullUp(tab: Tab): Promise<void> {
+  await tab
+    .eval<string>(
+      `(async () => {
+        const grab = document.querySelector('.sheet.open .sheet-grab');
+        if (!grab) return JSON.stringify('нет шторки');
+        const r = grab.getBoundingClientRect();
+        const x = r.left + r.width / 2;
+        const y = r.top + r.height / 2;
+        const ev = (type, dy) => grab.dispatchEvent(new PointerEvent(type, { pointerId: 7, isPrimary: true, bubbles: true, clientX: x, clientY: y - dy }));
+        ev('pointerdown', 0);
+        for (const dy of [40, 120, 240]) {
+          await new Promise((res) => setTimeout(res, 16));
+          ev('pointermove', dy);
+        }
+        ev('pointerup', 240);
+        return JSON.stringify('ok');
+      })()`,
+    )
+    .catch(() => 'нет');
+  await sleep(700);
 }
 
 async function measure(tab: Tab): Promise<string> {
@@ -254,6 +312,7 @@ async function group(name: string, steps: Step[]): Promise<void> {
       }
       const said = step.run ? await tab.eval<unknown>(step.run).catch((e: Error) => `ошибка: ${e.message}`) : 'ok';
       await sleep(step.wait ?? 600);
+      if (step.full) await pullUp(tab);
       if (step.shot === false) continue;
       await snap(tab, step.name);
       console.log(`  ${step.name}: ${said === 'ok' ? '' : `${String(said)}; `}${await measure(tab)}`);

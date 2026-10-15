@@ -30,6 +30,10 @@ export const STAGE2 = [
   'next/Trades.tsx',
   'realm/RealmNew.tsx',
   'alertItems.ts',
+  // UI-2 (docs/ui_v2.md, раздел 5): ратуша «Стройка» одной сеткой и лист постройки.
+  'next/Hall.tsx',
+  'next/hall.ts',
+  'next/output.ts',
 ];
 
 /**

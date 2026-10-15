@@ -1,0 +1,296 @@
+// Ратуша «Стройка» одной сеткой (docs/ui_v2.md, раздел 5, UI-2; находки П1, Д4, Ч7): весь город — плитки в три столбца,
+// примерно квадрат экрана, а не лента карточек на четыре экрана. Плитка: значок с уровнем, имя, руки на местах, выход за
+// день, метка «можно улучшить» и срок стройки. Группы — вкладками (еда, сырьё, война, жильё), порядок — одной кнопкой по
+// кругу. Касание плитки открывает нижний лист постройки: рабочие, выход с разбором, улучшение и цена.
+//
+// Своих чисел нет (правило 18): плитка — `hall.ts`, разбор выхода — `output.ts`, цена и «можно ли» — `upgradeInfo`, что
+// даст уровень — `upgradeGains`, срок — `buildRate`. Ряд рабочих — тот же, что в окне постройки (`BuildingNew.WorkerRow`),
+// ускорение — тот же `RushButton`, отмена — тот же `Confirm`. Всё окно постройки — дверью «Открыть ›» (`kit/nav.goTo`).
+//
+// Обучение ищет постройку по `data-tut="list-<тип>"` (шаг «Открой казармы»): метка стоит на плитке, а пока открыт её
+// лист — на двери «Открыть ›» в нём, чтобы шаг вёл к окну, где нанимают.
+import './hall.css';
+import { create } from 'zustand';
+import { useState } from 'react';
+import type { Building } from '@/game/types';
+import { useGame } from '@/game/store';
+import { RESOURCE_META } from '@/game/constants';
+import { BUILDING_BY_ID } from '@/game/data/buildings';
+import { buildRate, buildingById, buildingSlots, buildingTitle, currentSite, isSite, maxLevelFor, townHallBuildMult, upgradeInfo } from '@/game/derived';
+import { cancelUpgrade, startUpgrade } from '@/game/sim/actions';
+import { asGame } from '@/game/pace';
+import { dec, num } from '@/game/num';
+import { Icon } from '@/ui/icons/Icon';
+import { iconName } from '@/ui/icons/registry';
+import { Cost } from '@/ui/parts/Cost';
+import { shortNum } from '@/ui/parts/shortNum';
+import { waitLeft, waitSpan } from '@/ui/parts/wait';
+import { gainText, upgradeGains } from '@/ui/parts/upgrade';
+import { Bar } from '@/ui/kit/Bar';
+import { Btn } from '@/ui/kit/Btn';
+import { Row } from '@/ui/kit/Row';
+import { SheetPage, Tabs } from '@/ui/kit/SheetPage';
+import { Table, type Col } from '@/ui/kit/Table';
+import { goTo } from '@/ui/kit/nav';
+import { toBuilding } from '@/ui/kit/sources';
+import { WorkerRow } from './BuildingNew';
+import { buildingFacts, buildingTip } from './buildingTips';
+import { Confirm } from './Confirm';
+import { RushButton } from './Rush';
+import { rate } from './hudTips';
+import { HALL_GROUPS, HALL_SORTS, hallTiles, nextSort, sortTiles, type HallGroup, type HallSort, type HallTile } from './hall';
+import { yardOutput, type YardOutput } from './output';
+
+/** Что показано: группа и порядок. Живёт, пока жива партия на экране: вернулся в ратушу — вид тот же. */
+export const useHallView = create<{ group: HallGroup | 'all'; sort: HallSort; setGroup: (g: HallGroup | 'all') => void; setSort: (s: HallSort) => void }>(
+  (set) => ({
+    group: 'all',
+    // Как в прежнем списке: что строится, потом что можно заложить сейчас — ратушу открывают ради улучшений.
+    sort: 'ready',
+    setGroup: (group) => set({ group }),
+    setSort: (sort) => set({ sort }),
+  }),
+);
+
+const GROUP_TABS = [{ id: 'all' as const, label: 'Все' }, ...HALL_GROUPS.map((g) => ({ id: g.id, label: g.label }))];
+
+export function HallBuild() {
+  const s = useGame((g) => g.s);
+  const group = useHallView((v) => v.group);
+  const sort = useHallView((v) => v.sort);
+  const setGroup = useHallView((v) => v.setGroup);
+  const setSort = useHallView((v) => v.setSort);
+  const [pick, setPick] = useState<number | null>(null);
+
+  const rateNow = buildRate(s);
+  const tiles = hallTiles(s);
+  const shown = sortTiles(group === 'all' ? tiles : tiles.filter((t) => t.group === group), sort);
+  // Подписи групп внутри сетки — только когда видны все группы их же порядком; иначе группа одна или порядок другой.
+  const heads = group === 'all' && sort === 'group';
+  const building = tiles.some((t) => t.state === 'site' || t.state === 'queued');
+  const label = HALL_SORTS.find((x) => x.id === sort)?.label ?? '';
+
+  return (
+    <div className="hall">
+      <div className="hall-top">
+        <Row
+          icon={{ name: 'ui-hammer', glyph: '🔨' }}
+          label="Скорость стройки"
+          sub={`ратуша ×${dec(townHallBuildMult(s), 2)}`}
+          value={dec(rateNow, 1)}
+          tone="good"
+          tip={() => ({
+            title: `Скорость стройки ${dec(rateNow, 1)}`,
+            body: `Строят свободные руки с площади и ремесленники Мастерской. Ратуша множит их труд: ×${dec(townHallBuildMult(s), 2)}.`,
+          })}
+        />
+        <Btn onClick={() => setSort(nextSort(sort))} sub={label.toLowerCase()} label={`Порядок: ${label}`}>
+          Порядок
+        </Btn>
+      </div>
+      <Tabs tabs={GROUP_TABS} value={group} onChange={setGroup} />
+      <div className="hall-grid">
+        {shown.map((t, i) => (
+          <HallCell key={t.b.id} t={t} head={heads && (i === 0 || shown[i - 1].group !== t.group)} tut={pick !== t.b.id} onPick={setPick} />
+        ))}
+      </div>
+      {building && rateNow === 0 && <div className="note bad">Свободных рук нет, стройка стоит.</div>}
+      {pick !== null && <HallCard id={pick} onClose={() => setPick(null)} />}
+    </div>
+  );
+}
+
+/** Подпись группы над её первой плиткой (во всю ширину сетки) и сама плитка. */
+function HallCell({ t, head, tut, onPick }: { t: HallTile; head: boolean; tut: boolean; onPick: (id: number) => void }) {
+  const g = HALL_GROUPS.find((x) => x.id === t.group)!;
+  return (
+    <>
+      {head && (
+        <div className="hall-head">
+          <Icon name={g.icon.name} glyph={g.icon.glyph} />
+          {g.label}
+        </div>
+      )}
+      <HallTileView t={t} tut={tut} onPick={onPick} />
+    </>
+  );
+}
+
+/** Выход на плитке — коротко: до сотни с десятой, дальше целым и тысячами (`shortNum`); ровно — в листе. */
+const outText = (n: number): string => (n >= 100 ? shortNum(n) : num(n, 1));
+
+/** Плитка постройки — кнопка 44+: касание открывает её лист. */
+export function HallTileView({ t, tut, onPick }: { t: HallTile; tut: boolean; onPick: (id: number) => void }) {
+  const def = BUILDING_BY_ID[t.b.type];
+  const site = t.state === 'site' || t.state === 'queued';
+  return (
+    <button
+      type="button"
+      className={`hall-tile ${t.state}`}
+      onClick={() => onPick(t.b.id)}
+      data-tut={tut ? `list-${def.id}` : undefined}
+      aria-label={`${t.name}, ур. ${t.level}${t.state === 'ready' ? ', можно улучшить' : ''}`}
+    >
+      <span className="hall-ico">
+        <Icon name={`bld-${def.id}`} glyph={def.icon} />
+        <b className="hall-lvl">{t.level}</b>
+      </span>
+      <span className="hall-name one-line">{t.name}</span>
+      {t.state === 'ready' && (
+        <i className="hall-up" aria-label="Можно улучшить">
+          <Icon name={iconName('attn', 'upgrade')} glyph="⬆️" />
+        </i>
+      )}
+      <span className="hall-nums">
+        {site ? (
+          <span className="hall-eta">
+            <Icon name="ui-site" glyph="🏗️" />
+            {t.state === 'queued' ? 'очередь' : t.eta !== null ? waitLeft(t.eta) : 'нет рук'}
+          </span>
+        ) : (
+          <>
+            {t.hands !== null && (
+              <span>
+                <Icon name="ui-person" glyph="👤" />
+                {t.hands}/{t.slots}
+              </span>
+            )}
+            {t.out && (
+              <span className={t.out.perDay > 0 ? 'pos' : ''}>
+                <Icon name={`res-${t.out.r}`} glyph={RESOURCE_META[t.out.r].icon} />
+                {outText(t.out.perDay)}
+              </span>
+            )}
+          </>
+        )}
+      </span>
+      {t.state === 'site' && (
+        <i className="hall-bar">
+          <i style={{ width: `${t.share}%` }} />
+        </i>
+      )}
+    </button>
+  );
+}
+
+// ---------- Нижний лист постройки ----------
+
+/**
+ * Лист постройки поверх сетки: рабочие, выход с разбором, улучшение и цена — то, ради чего в ратушу заходят. Остальное
+ * (найм, ковка, вера, оборона) — во всём окне постройки, дверью «Открыть ›».
+ */
+export function HallCard({ id, onClose }: { id: number; onClose: () => void }) {
+  const s = useGame((g) => g.s);
+  const sheet = useGame((g) => g.sheet);
+  const b = buildingById(s, id);
+  if (!b) return null;
+  const def = BUILDING_BY_ID[b.type];
+  const top = b.level >= maxLevelFor(b.type);
+  const gains = !top && !isSite(b) ? upgradeGains(s, b, b.level + 1) : null;
+  const out = yardOutput(s, b);
+  // Окно этой постройки уже открыто под листом (ратуша в ратуше) — двери в него нет.
+  const here = sheet?.kind === 'building' && sheet.id === b.id;
+
+  return (
+    <>
+      <div className="hall-veil" onClick={onClose} />
+      <div className="hall-card" role="dialog" aria-label={buildingTitle(s, b.type)}>
+        <SheetPage
+          icon={{ name: `bld-${def.id}`, glyph: def.icon }}
+          title={buildingTitle(s, b.type)}
+          sub={maxLevelFor(b.type) > 1 ? `ур. ${b.level}/${maxLevelFor(b.type)}` : `ур. ${b.level}`}
+          about={() => buildingTip(s, b)}
+          onClose={onClose}
+          action={
+            !here && (
+              <Btn kind="link" onClick={() => goTo(toBuilding(b.type))} tut={`list-${def.id}`}>
+                Открыть ›
+              </Btn>
+            )
+          }
+          foot={<UpgradeFoot b={b} />}
+        >
+          <WorkerRow b={b} gains={gains} />
+          {out ? <OutputTable out={out} /> : <Facts b={b} />}
+          {gains && <div className="hall-gain">{gainText(gains)}</div>}
+        </SheetPage>
+      </div>
+    </>
+  );
+}
+
+/** Полоса листа: цена и «Улучшить»; во время стройки — ход, ускорение и отмена; на потолке — слово. */
+function UpgradeFoot({ b }: { b: Building }) {
+  const s = useGame((g) => g.s);
+  const act = useGame((g) => g.act);
+  const rateNow = buildRate(s);
+  if (isSite(b)) {
+    const first = currentSite(s);
+    const queued = first !== null && first.id !== b.id;
+    const eta = rateNow > 0 ? asGame(Math.ceil(Math.max(0, b.workRequired - b.work) / rateNow)) : null;
+    const share = Math.floor((b.work / Math.max(1, b.workRequired)) * 100);
+    return (
+      <div className="hall-foot">
+        <Bar
+          value={share}
+          max={100}
+          label={`Стройка до ур. ${b.level + 1}`}
+          text={queued ? 'в очереди' : eta !== null ? `${share}% · ${waitSpan(eta)}` : `${share}% · нет строителей`}
+        />
+        <div className="hall-foot-acts">
+          <RushButton b={b} />
+          <Confirm label="Отменить" onConfirm={() => act((st) => cancelUpgrade(st, b.id))} />
+        </div>
+      </div>
+    );
+  }
+  const up = upgradeInfo(s, b);
+  if (b.level >= maxLevelFor(b.type)) return <div className="hall-foot note">{up.blocked ?? 'Высший уровень.'}</div>;
+  const eta = rateNow > 0 ? asGame(Math.ceil(up.work / rateNow)) : null;
+  return (
+    <div className="hall-foot row">
+      <Cost cost={up.cost} />
+      <Btn
+        kind="main"
+        onClick={() => act((st) => startUpgrade(st, b.id))}
+        sub={eta !== null ? waitSpan(eta) : 'нет строителей'}
+        why={up.blocked}
+        tut={`upgrade-${b.type}`}
+      >
+        Улучшить
+      </Btn>
+    </div>
+  );
+}
+
+/** Выход двора за игровой день: строки разбора складываются в итог (`output.ts`). */
+export function OutputTable({ out }: { out: YardOutput }) {
+  if (out.steps.length === 0) return <div className="note">Нет рабочих. Поставь людей на места.</div>;
+  const cols: Col[] = [
+    { key: 'name', title: 'Выход в день' },
+    { key: 'f', title: '×', align: 'right', w: '44px' },
+    ...out.res.map((r) => ({ key: r, title: <Icon name={`res-${r}`} glyph={RESOURCE_META[r].icon} />, align: 'right' as const })),
+  ];
+  const rows = out.steps.map((st, i) => ({
+    key: `${st.id}-${i}`,
+    cells: {
+      name: st.label,
+      f: st.factor === null ? '' : `×${dec(st.factor, 2)}`,
+      ...Object.fromEntries(out.res.map((r) => [r, rate(st.add[r] ?? 0)])),
+    },
+  }));
+  const total = { name: 'Итого', f: '', ...Object.fromEntries(out.res.map((r) => [r, rate(out.total[r] ?? 0)])) };
+  return <Table cols={cols} rows={rows} total={total} label="Выход в день" />;
+}
+
+/**
+ * Не двор и без мест: что постройка даёт городу — одной строкой чисел игры (`buildingFacts`), как в подсказке значка. У
+ * постройки с местами эта строка — «Рабочих: N/M», а их уже говорит ряд рабочих над ней.
+ */
+function Facts({ b }: { b: Building }) {
+  const s = useGame((g) => g.s);
+  if (buildingSlots(b) > 0) return null;
+  const facts = buildingFacts(s, b);
+  if (!facts) return null;
+  return <div className="hall-facts">{facts}</div>;
+}

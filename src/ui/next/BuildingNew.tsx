@@ -153,8 +153,9 @@ export function BuildingNew({ id, data }: { id: number; data: (b: Building) => R
   );
 }
 
-/** Рабочие одной строкой: значок (тап — свободные руки и места), «3/12», шаг. Невольники — второй строкой. */
-function WorkerRow({ b, gains }: { b: Building; gains: UpgradeGain[] | null }) {
+/** Рабочие одной строкой: значок (тап — свободные руки и места), «3/12», шаг. Невольники — второй строкой. Тот же ряд — в
+ * листе постройки ратуши (`Hall.HallCard`). */
+export function WorkerRow({ b, gains }: { b: Building; gains: UpgradeGain[] | null }) {
   const s = useGame((g) => g.s);
   const act = useGame((g) => g.act);
   const def = BUILDING_BY_ID[b.type];
