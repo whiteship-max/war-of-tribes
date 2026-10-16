@@ -68,7 +68,7 @@ describe('указы — одна копия: правят только в де�
     // Область: весь интерфейс, кроме тестов.
     const writers = walk(join(SRC, 'ui'))
       .filter((f) => /\b(setDecree|setRation|setTax)\(/.test(code(relative(SRC, f))))
-      .map((f) => relative(SRC, f));
+      .map((f) => relative(SRC, f).replace(/\\/g, '/'));
     expect(writers).toEqual(['ui/realm/RealmTabs.tsx']);
   });
 

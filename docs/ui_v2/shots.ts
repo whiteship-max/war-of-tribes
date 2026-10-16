@@ -451,7 +451,7 @@ const GROUPS: Record<string, Step[]> = {
         const A = await import('/src/game/sim/actions.ts');
         const g = window.__game.getState();
         g.act((st) => A.startUpgrade(st, st.buildings.find((x) => x.type === 'houses').id));
-        (await import('/src/ui/next/Hall.tsx')).useHallView.getState().setSort('group');
+        (await import('/src/ui/next/HallBuild.tsx')).useHallView.getState().setSort('group');
         return JSON.stringify(window.__ui.click('Ратуша', '.nx-nav'));
       })()`,
       wait: 1200,

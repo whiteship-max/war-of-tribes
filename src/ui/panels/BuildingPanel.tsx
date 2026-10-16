@@ -35,7 +35,7 @@ import { goTo, tipGo } from '@/ui/kit/nav';
 import { WINDOW, sourceWord } from '@/ui/kit/sources';
 import { BuildingNew } from '@/ui/next/BuildingNew';
 import { SmithyNew } from '@/ui/next/SmithyNew';
-import { OutputTable } from '@/ui/next/Hall';
+import { OutputTable } from '@/ui/next/HallBuild';
 import { buildingGives } from '@/ui/next/gives';
 import { moraleTip } from '@/ui/next/hudTips';
 import { yardOutput } from '@/ui/next/output';
@@ -302,7 +302,7 @@ function StorageData() {
 
 /**
  * Обычное здание: выход за день с разбором (двор) и что оно даёт городу — таблицами (UI-8, docs/ui_v2.md, 5.7). Выход —
- * тот же разбор, что в листе ратуши (`Hall.OutputTable`, `output.ts`): строки складываются в итог. «Что даёт городу» —
+ * тот же разбор, что в листе ратуши (`HallBuild.OutputTable`, `output.ts`): строки складываются в итог. «Что даёт городу» —
  * вклад постройки строкой с разбором всего числа города в подсказке и дверью «›» к его окну (`next/gives.ts`); итог
  * города вторым числом рядом не стоит (Д8). Число рабочих — в ряду рабочих выше, множитель уровня — в подсказке.
  */

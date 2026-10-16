@@ -15,7 +15,7 @@ export { WorldNew } from './WorldNew';
 export { ReportBodyNew } from './ReportNew';
 export { Trades } from './Trades';
 export { Treasury } from './Treasury';
-export { HallBuild } from './Hall';
+export { HallBuild } from './HallBuild';
 // Ратуша под сеткой: что даёт городу и дверь в «Указы» державы (UI-7, docs/ui_v2.md, 5.6).
 export { HallGives } from './HallGives';
 // Рынок — прилавок таблицей выбора (UI-7, docs/ui_v2.md, 5.6).

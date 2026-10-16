@@ -110,7 +110,7 @@ describe('Д1: подсказка новичку ведёт туда же, ку�
 describe('Д5, Д6: ускорение и промысел — одной копией, остальное ссылкой', () => {
   it('кнопка ускорения стоит только в окне постройки; ярлык у лесов — дверь в окно', () => {
     const users = walk(join(SRC, 'ui')).filter((f) => /<RushButton\b/.test(code(relative(SRC, f))));
-    expect(users.map((f) => relative(SRC, f))).toEqual(['ui/next/BuildingNew.tsx']);
+    expect(users.map((f) => relative(SRC, f).replace(/\\/g, '/'))).toEqual(['ui/next/BuildingNew.tsx']);
     const rush = code('ui/next/Rush.tsx');
     expect(rush, 'ярлык — дверь в окно постройки').toMatch(/function SiteTag[\s\S]*onClick=\{\(\) => openBuilding\(b\.id\)\}/);
     expect(rush).toMatch(/createPortal\(<SiteTag b=\{b\} \/>/);
@@ -118,7 +118,7 @@ describe('Д5, Д6: ускорение и промысел — одной коп
 
   it('промысел двора — строкой-дверью в «Промыслы»; строка игры с кнопкой — только в окне «Промыслы»', () => {
     const users = walk(join(SRC, 'ui')).filter((f) => /<TradeLine\b/.test(code(relative(SRC, f))));
-    expect(users.map((f) => relative(SRC, f))).toEqual(['ui/next/Trades.tsx']);
+    expect(users.map((f) => relative(SRC, f).replace(/\\/g, '/'))).toEqual(['ui/next/Trades.tsx']);
     expect(code('ui/next/BuildingNew.tsx')).toMatch(/function TradeLink[\s\S]*go=\{\(\) => goTo\(WINDOW\.energy\)\}/);
     expect(WINDOW.energy).toEqual({ kind: 'trades' });
   });

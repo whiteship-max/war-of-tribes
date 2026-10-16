@@ -31,7 +31,7 @@ export const STAGE2 = [
   'realm/RealmNew.tsx',
   'alertItems.ts',
   // UI-2 (docs/ui_v2.md, раздел 5): ратуша «Стройка» одной сеткой и лист постройки.
-  'next/Hall.tsx',
+  'next/HallBuild.tsx',
   'next/hall.ts',
   'next/output.ts',
   // UI-5 (docs/ui_v2.md, 5.4): окно «Жители» — сводка и места работы; невольники — в «Порядке».

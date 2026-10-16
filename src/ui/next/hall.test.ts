@@ -181,7 +181,7 @@ describe('окно ратуши: сетка всех построек в ква�
   });
 
   it('все постройки — плитками-кнопками, у каждой метка обучения; ленты карточек нет', async () => {
-    const { HallBuild } = await import('./Hall');
+    const { HallBuild } = await import('./HallBuild');
     const s = town();
     stores.game = { s, act: () => undefined, sheet: null, openBuilding: () => undefined };
     const html = renderToStaticMarkup(h(HallBuild));
@@ -196,7 +196,7 @@ describe('окно ратуши: сетка всех построек в ква�
   });
 
   it('лист постройки: рабочие, выход с разбором и итогом, цена и «Улучшить», дверь «Открыть ›» с меткой обучения', async () => {
-    const { HallCard } = await import('./Hall');
+    const { HallCard } = await import('./HallBuild');
     const s = createInitialState(7);
     for (const r of Object.keys(s.resources) as (keyof typeof s.resources)[]) s.resources[r] = 5000;
     const farm = buildingOfType(s, 'farm')!;
@@ -213,7 +213,7 @@ describe('окно ратуши: сетка всех построек в ква�
   });
 
   it('лист постройки с местами, но без запаса: рабочие — одним рядом, строки «Рабочих: N/M» под ним нет', async () => {
-    const { HallCard } = await import('./Hall');
+    const { HallCard } = await import('./HallBuild');
     const s = createInitialState(7);
     const shop = buildingOfType(s, 'workshop')!;
     // Область: у Мастерской места есть, а выработки ресурсов нет.
@@ -228,7 +228,7 @@ describe('окно ратуши: сетка всех построек в ква�
   // Д5 (UI-8, docs/ui_v2.md, 5.7): ускорение — одной копией в окне постройки; лист ведёт туда дверью «Открыть ›». Прежде
   // здесь стояло «ход, ускорение и отмена» — ускорение было в трёх местах (ярлык у лесов, окно, лист).
   it('лист стройки: ход и отмена вместо цены; ускорения нет — оно в окне, за дверью «Открыть ›»', async () => {
-    const { HallCard } = await import('./Hall');
+    const { HallCard } = await import('./HallBuild');
     const s = town();
     const farm = buildingOfType(s, 'farm')!;
     stores.game = { s, act: () => undefined, sheet: null, openBuilding: () => undefined };
@@ -243,7 +243,7 @@ describe('окно ратуши: сетка всех построек в ква�
   // Д4 (UI-8): ратуша в ратуше — лист постройки, чьё окно открыто под ним, «Улучшить» второй раз не рисует: кнопка — в
   // шапке окна. Область: окно ратуши открыто, ратушу можно улучшить (5000 каждого запаса).
   it('лист самой ратуши в её окне: «Улучшить» и цены нет — где их искать, сказано словами', async () => {
-    const { HallCard } = await import('./Hall');
+    const { HallCard } = await import('./HallBuild');
     const s = createInitialState(7);
     for (const r of Object.keys(s.resources) as (keyof typeof s.resources)[]) s.resources[r] = 5000;
     const hall = buildingOfType(s, 'town_hall')!;
@@ -258,7 +258,7 @@ describe('окно ратуши: сетка всех построек в ква�
   });
 
   it('лист открыт — метка обучения уходит с плитки на дверь: селектор шага находит одно место', async () => {
-    const { HallTileView } = await import('./Hall');
+    const { HallTileView } = await import('./HallBuild');
     const s = town();
     const t = hallTiles(s).find((x) => x.b.type === 'barracks')!;
     expect(renderToStaticMarkup(h(HallTileView, { t, tut: true, onPick: () => undefined }))).toContain('data-tut="list-barracks"');
