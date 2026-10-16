@@ -171,8 +171,11 @@ typecheck` — чистый; `npm run build` — прошёл, первая за
 ## Передача
 
 - Ветка `game/sec-1` от `69a00fb`, worktree. Коммиты — `git log origin/master..game/sec-1`.
-- Дома: слить в `master` после UI-8 или до — пересечений по файлам нет, кроме `CLAUDE.md` (разные места) и
-  `src/game/derived.ts` (UI-8 правит другие строки); прогнать `npm run reports -- --base 04b7e74` по бюджету железа.
+- Дома: слить в `master` после UI-8 или до — общих файлов три (`CLAUDE.md`, `docs/README.md`, `src/game/derived.ts`),
+  пробное слияние с `origin/game/ui-8` (`git merge-tree --write-tree`) — без конфликтов. Прогнать
+  `npm run reports -- --base 04b7e74` по бюджету железа: по диффу этой ветки (`npm run reports -- --plan`) нужны 17
+  отчётов — все тянет перенос `upgradeCost` из `derived.ts` в `labour.ts` (формула перенесена буква в букву, сдвигов от
+  неё не ждётся); серверные файлы ни в одно замыкание отчётов не входят.
 - Владельцу — раздел 5. Открыто — раздел 6.
 
 ЗЩ-1: ГОТОВО
