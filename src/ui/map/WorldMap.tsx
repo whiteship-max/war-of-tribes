@@ -26,22 +26,10 @@ import { cameraAnchor, figuresOn, marchOn, useWorld, worldNow } from '@/world/st
 import { freeCamera, frameCost, probe } from '@/debug';
 import { settlementAt } from '@/world/cache';
 import { formatCoord, parseCoord } from '@/world/geo';
-import { RELATION_META, RELATION_ORDER } from '@/world/data/meta';
 import { FIGURE_BY_ID } from '@/world/data/figures';
-import { TERRAIN_META, TERRAIN_ORDER } from '@/world/data/terrain';
-import {
-  COST_BRIDGE,
-  COST_FORD,
-  COST_PASS,
-  COST_RIDGE,
-  COST_RIVER,
-  FALL_MARK,
-  WORLD_ORIGIN,
-  WORLD_SIZE,
-} from '@/world/data/tuning';
-import { realSpanText } from '@/ui/parts/wait';
-import type { Coord, Fate } from '@/world/types';
-import { PALETTE, SCALE_DETAIL, SCALE_MIN, SCALE_OVERVIEW, SCALE_START, TILE_CELLS, TILE_MARGIN } from './const';
+import { WORLD_ORIGIN, WORLD_SIZE } from '@/world/data/tuning';
+import type { Coord } from '@/world/types';
+import { SCALE_DETAIL, SCALE_MIN, SCALE_OVERVIEW, SCALE_START, TILE_CELLS, TILE_MARGIN } from './const';
 import {
   type Camera,
   type Viewport,
@@ -61,12 +49,13 @@ import { homeTheatre } from '@/world/theatre/theatre';
 import { dropSprites } from './village';
 import { dropPaint } from './paint';
 import { dropParties } from './party';
-import { FELL_WORDS, WORKS_STEPS, dropSiegeMarks, fellUrl, worksUrl } from './siegemark';
+import { dropSiegeMarks } from './siegemark';
 import { bakeAgent } from './agent';
 import { dropFigures } from './figures';
 import { ActionMenu } from './ActionMenu';
 import { Rating } from './Rating';
 import { Feed, useFeed } from './Feed';
+import { Legend } from './Legend';
 import { cameraBox, changedBesides, restAfter } from './still';
 import { inTelegram } from '@/telegram/webapp';
 import { Gesture, WHEEL_STEP, swallowGhostClick, type Press } from '@/gestures';
@@ -76,7 +65,6 @@ import { QUALITY } from '@/render/quality';
 import { levelNow, subscribeGfx } from '@/render/gfx';
 import { onViewport } from '@/viewport';
 import { Icon } from '@/ui/icons/Icon';
-import { num } from '@/game/num';
 
 
 /** Отладочный обзор читается один раз: адрес по ходу партии не меняется. */
@@ -99,33 +87,6 @@ const PROBE = probe();
 const SPOT_REGION = 24;
 const SPOT_TRIES = 12;
 
-/**
- * Легенда говорит только о том, что на карте бывает сегодня. На ней логова и замки живых
- * игроков, и больше ничего: союзников и врагов нет (договариваться не с кем), разорённых
- * дворов нет (логово на победе сгорает), владений нет (зоны влияния считаются от станов, а
- * станов нет), сожжённых городов нет («сжечь» миру не предлагается), трактов нет (они
- * соединяли станы). Механики целы и спят (`grep -rn waitsForPlayers src`); строки о них
- * вернутся вместе с живыми соседями. Легенда, обещающая то, чего игрок не встретит, учит его
- * неправде — «Тракт ×0.62» висел в ней, когда трактов в мире не было ни одного.
- */
-const SHOWN_RELATIONS = RELATION_ORDER.filter((r) => r !== 'ally' && r !== 'enemy');
-const SHOWN_FATES = (Object.keys(FELL_WORDS) as Fate[]).filter((f) => f !== 'burn');
-
-/** Множитель дороги словами: дробь — запятой (docs/ui_audit.md, 4.5). */
-const frac = (x: number): string => num(x, 3);
-
-/**
- * Местность поверх ландшафта. Числа берутся из тех же констант, что и расчёт
- * пути: легенда, в которой множитель написан руками, врёт со следующей правки
- * баланса, и игрок учится неправде.
- */
-const TERRAIN_ROWS: { color: string; name: string; note: string }[] = [
-  { color: PALETTE.river, name: 'Река', note: `вплавь ×${frac(COST_RIVER)}` },
-  { color: PALETTE.bridge, name: 'Мост', note: `×${frac(COST_BRIDGE)}, мостов мало` },
-  { color: PALETTE.ford, name: 'Брод', note: `×${frac(COST_FORD)}, зато без крюка` },
-  { color: PALETTE.ridge, name: 'Хребет', note: `×${frac(COST_RIDGE)}, лучше перевалом` },
-  { color: PALETTE.pass, name: 'Перевал', note: `×${frac(COST_PASS)}, проход через хребет` },
-];
 
 /**
  * Стенд просит рисовать каждый кадр (`window.__mapAlways = true`, только под `?probe=1`): `map:report` меряет цену кадра
@@ -194,19 +155,9 @@ export function WorldMap() {
   const [jumpOpen, setJumpOpen] = useState(false);
   const [jumpText, setJumpText] = useState('');
   const [legendOpen, setLegendOpen] = useState(false);
-  // Легенда значками карты: кусок `tw/legend` тянется, когда её открыли (первая загрузка не растёт).
-  const [legendKit, setLegendKit] = useState<typeof import('./tw/legend') | null>(null);
-  useEffect(() => {
-    if (!legendOpen || legendKit) return;
-    let live = true;
-    void import('./tw/legend').then((m) => live && setLegendKit(m));
-    return () => {
-      live = false;
-    };
-  }, [legendOpen, legendKit]);
   const [ratingOpen, setRatingOpen] = useState(false);
   const [feedOpen, setFeedOpen] = useState(false);
-  // Вести края (docs/feed.md): лента спрашивается, пока карта открыта, — точке новых на кнопке нужна и закрытой.
+  // Молва края (docs/feed.md): лента спрашивается, пока карта открыта, — точке новых на кнопке нужна и закрытой.
   const feed = useFeed(inTelegram());
   const [zoomedIn, setZoomedIn] = useState(modeFor(SCALE_START) === 'detail');
 
@@ -776,7 +727,7 @@ export function WorldMap() {
             </button>
           )}
           {CHEATS_ON && <SpeedButton className="nx-mbtn" />}
-          {/* Вести края и рейтинг игроков (docs/feed.md, docs/rating.md): вне Telegram сервера нет — и кнопок нет. */}
+          {/* Молва края и рейтинг игроков (docs/feed.md, docs/rating.md): вне Telegram сервера нет — и кнопок нет. */}
           {inTelegram() && (
             <button
               className={`nx-mbtn nx-mfeed${feedOpen ? ' on' : ''}`}
@@ -785,7 +736,7 @@ export function WorldMap() {
                 setRatingOpen(false);
                 setFeedOpen((v) => !v);
               }}
-              aria-label="Вести края"
+              aria-label="Молва края"
             >
               <Icon name="ui-scroll" glyph="📜" />
               {feed.unseen && !feedOpen && <em className="nx-dot" />}
@@ -847,110 +798,7 @@ export function WorldMap() {
       {ratingOpen && <Rating onClose={() => setRatingOpen(false)} />}
       {feedOpen && <Feed feed={feed} onClose={() => setFeedOpen(false)} />}
 
-      {legendOpen && (
-        <div className="wm-legend">
-          {rosterOld && <div className="nx-stale">{roster.why || 'Соседи показаны по памяти.'}</div>}
-          <h3>Кто на карте</h3>
-          {SHOWN_RELATIONS.map((r) => (
-            <div className="wm-leg-row" key={r}>
-              {/* Форма несёт смысл, цвет её подтверждает: цветной квадратик,
-                  который стоял здесь раньше, на цветовую слепоту не рассчитан вовсе. */}
-              <Icon name={`rel-${r}`} glyph="▪" className="wm-leg-flag" />
-              <span>{RELATION_META[r].name}</span>
-            </div>
-          ))}
-          {/* Значками самой карты (`tw/legend.ts`): те же функции и та же кисть, что у значков на земле. Кусок
-              ленивый — приезжает, когда легенду открыли; до него строк нет, а не прежние картинки. */}
-          {legendKit && (
-            <>
-              <h3>Города и логова</h3>
-              {legendKit.PLACE_ROWS.map((row) => (
-                <div className="wm-leg-row wm-leg-shape wm-leg-mark" key={row.name}>
-                  <img src={legendKit.legendUrl(row)} alt="" />
-                  <span>
-                    {row.name} {row.note && <em>{row.note}</em>}
-                  </span>
-                </div>
-              ))}
-              <h3>Отряды и метки</h3>
-              {legendKit.HOST_ROWS.map((row) => (
-                <div className="wm-leg-row wm-leg-shape wm-leg-mark" key={row.name}>
-                  <img src={legendKit.legendUrl(row)} alt="" />
-                  <span>
-                    {row.name} {row.note && <em>{row.note}</em>}
-                  </span>
-                </div>
-              ))}
-            </>
-          )}
-          {/* Осада и взятые города — теми же картинками, что на полотне (`siegemark.ts`). */}
-          <h3>Осада и взятые города</h3>
-          <div className="wm-leg-row wm-leg-shape">
-            <img src={worksUrl(WORKS_STEPS, 0)} alt="" />
-            <span>
-              Рогатки со стороны города <em>ближний ряд, против вылазки</em>
-            </span>
-          </div>
-          <div className="wm-leg-row wm-leg-shape">
-            <img src={worksUrl(0, WORKS_STEPS)} alt="" />
-            <span>
-              Рогатки с тыла <em>дальний ряд, против удара из поля. Редкий ряд ещё строят.</em>
-            </span>
-          </div>
-          {SHOWN_FATES.map((fate) => (
-            <div className="wm-leg-row wm-leg-fell" key={fate}>
-              <img src={fellUrl(fate)} alt="" />
-              <span>
-                <em>
-                  город взят, {FELL_WORDS[fate]}. Знак сойдёт через {realSpanText(FALL_MARK / 1000)}
-                </em>
-              </span>
-            </div>
-          ))}
-          <h3>Туман войны</h3>
-          <div className="wm-leg-row">
-            <i style={{ background: '#120e0b' }} />
-            <span>
-              Не разведано <em>сюда никто не заходил</em>
-            </span>
-          </div>
-          <div className="wm-leg-row">
-            <i style={{ background: '#3a332b' }} />
-            <span>
-              Вне обзора <em>землю знаем, сейчас не видно</em>
-            </span>
-          </div>
-          <div className="wm-leg-row">
-            <i style={{ background: '#6b7a44' }} />
-            <span>
-              В обзоре <em>видно своими глазами</em>
-            </span>
-          </div>
-
-          <h3>Земля</h3>
-          {TERRAIN_ORDER.map((t) => (
-            <div className="wm-leg-row" key={t}>
-              <i style={{ background: TERRAIN_META[t].color }} />
-              <span>
-                {TERRAIN_META[t].name} <em>×{frac(TERRAIN_META[t].cost)}</em>
-              </span>
-            </div>
-          ))}
-          <h3>Реки и хребты</h3>
-          {TERRAIN_ROWS.map((row) => (
-            <div className="wm-leg-row" key={row.name}>
-              <i style={{ background: row.color }} />
-              <span>
-                {row.name} <em>{row.note}</em>
-              </span>
-            </div>
-          ))}
-
-          <button className="btn ghost wide" onClick={() => setLegendOpen(false)}>
-            Понятно
-          </button>
-        </div>
-      )}
+      {legendOpen && <Legend stale={rosterOld ? roster.why || 'Соседи показаны по памяти.' : null} onClose={() => setLegendOpen(false)} />}
 
       {/* Низ — порталом в корень игры: как в городе, он стоит над шторкой (походы, карточка клетки), а не под
           ней, внутри слоя карты. */}

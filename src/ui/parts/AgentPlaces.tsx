@@ -6,7 +6,7 @@
 // сработает, гаснет и говорит причину.
 import { useGame } from '@/game/store';
 import { RETIRE_AGE, RETIRE_WARN } from '@/game/data/agents';
-import { agentLevel, ageOf, personName, yearsOf } from '@/game/sim/agents';
+import { agentLevel, ageOf, personName, seated, yearsOf } from '@/game/sim/agents';
 import { hireAgent, hireInfo } from '@/game/sim/hire';
 import { placeBlock } from '@/game/sim/tech';
 import { FIGURE_BY_ID } from '@/world/data/figures';
@@ -115,11 +115,16 @@ function Place({ id }: { id: FigureId }) {
  * Раздел «Люди» здания. Что даёт уровень здания новичку — срок и возраст — стоит в строке
  * пустого места, почему — в её подсказке. Опыта здание не даёт — новичок начинает с нуля.
  */
-export function AgentPlaces({ ids }: { ids: FigureId[] }) {
+export function AgentPlaces({ ids, vacantOnly = false }: { ids: FigureId[]; vacantOnly?: boolean }) {
+  const s = useGame((g) => g.s);
+  // `vacantOnly` — у здания, где человек на месте показан своей карточкой целиком (Статуя, Д7): строка места нужна, только
+  // пока места нет, оно пустует или идёт найм.
+  const shown = vacantOnly ? ids.filter((id) => !seated(s, id)) : ids;
+  if (shown.length === 0) return null;
   return (
     <>
       <h3>Люди</h3>
-      {ids.map((id) => (
+      {shown.map((id) => (
         <Place key={id} id={id} />
       ))}
     </>

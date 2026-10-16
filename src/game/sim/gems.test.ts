@@ -364,10 +364,14 @@ describe('ратуша ускоряет стройку', () => {
     const withoutShop = buildRate(s) - 10 * BUILDER_RATE * seasonMods(s).build * townHallBuildMult(s);
     expect(full - withoutShop).toBeCloseTo(share, 6);
     expect(share).toBeGreaterThan(crafterBuildRate({ ...s, workers: { ...s.workers, [shop.id]: 10 } }));
-    // Панель мастерской пишет именно эту долю, а не голую выработку ремесленников.
+    // Панель мастерской пишет именно эту долю, а не голую выработку ремесленников. С UI-8 строки «Что даёт городу»
+    // собирает `ui/next/gives.ts` (docs/ui_v2.md, 5.7); окно постройки их только рисует.
     const panel = readFileSync(join(__dirname, '..', '..', 'ui', 'panels', 'BuildingPanel.tsx'), 'utf8');
+    const gives = readFileSync(join(__dirname, '..', '..', 'ui', 'next', 'gives.ts'), 'utf8');
     expect(panel, 'BuildingPanel.tsx: голый crafterBuildRate').not.toMatch(/\bcrafterBuildRate\b/);
-    expect(panel).toMatch(/\bcrafterBuildShare\(/);
+    expect(gives, 'gives.ts: голый crafterBuildRate').not.toMatch(/\bcrafterBuildRate\b/);
+    expect(gives).toMatch(/\bcrafterBuildShare\(/);
+    expect(panel, 'окно рисует строки «Что даёт городу» одной дверью').toMatch(/\bbuildingGives\(/);
   });
 
   it('с высокой ратушей то же улучшение строится заметно быстрее', () => {

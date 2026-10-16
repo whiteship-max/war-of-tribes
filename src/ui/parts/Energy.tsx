@@ -25,11 +25,11 @@ export function EnergyBar({ energy, spent }: { energy: EnergyView; spent: boolea
   );
 }
 
-/** Цена дела фишкой строки приказа: ладонь и число. */
+/** Цена дела фишкой строки приказа: ладонь, число и слово — «✋ 20» без подписи не читалось ценой (Ч15, UI-7). */
 export function EnergyPrice({ price }: { price: number }) {
   return (
-    <span>
-      <Icon name="ui-energy" glyph="✋" /> {price}
+    <span className="nx-eprice">
+      <Icon name="ui-energy" glyph="✋" /> {price} <small>энергии</small>
     </span>
   );
 }

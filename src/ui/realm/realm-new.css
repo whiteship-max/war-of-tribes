@@ -542,6 +542,11 @@
   grid-template-columns: repeat(3, 1fr);
   gap: 8px;
 }
+/* Таблицы указов без заголовка над ними (имя — шапкой таблицы): отступ вместо заголовка. */
+.nx-ledger + .kit-table,
+.nx-pnote + .kit-table {
+  margin-top: 8px;
+}
 .nx-lcell {
   display: flex;
   align-items: center;
@@ -631,6 +636,9 @@
 .nx-lcell:active,
 .nx-tgcell:active {
   background: rgba(255, 220, 170, 0.08);
+}
+.nx-tab .kit-table + .nx-pnote {
+  margin-top: 4px;
 }
 .nx-pnote {
   margin: 0;
@@ -1017,4 +1025,21 @@
   color: var(--muted);
   font-size: 13px;
   font-weight: 600;
+}
+
+/* ---------- Вести: фильтры, группы, таблицы (UI-7, docs/ui_v2.md, 5.6) ---------- */
+.mail-v2 .kit-tabs {
+  margin-top: 4px;
+}
+.mail-group h3 .muted {
+  font-weight: 400;
+}
+.mail-v2 .kit-name:not(.fresh) .kit-two b {
+  font-weight: 400;
+}
+.mail-v2 .kit-name .nx-new {
+  flex: none;
+}
+.mail-boons {
+  margin-bottom: 8px;
 }

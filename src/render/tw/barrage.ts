@@ -17,7 +17,7 @@
 import type { Side } from '@/battle/types';
 import type { Quality } from '../quality';
 import { PARAPET, outOf, type TwWall } from './site';
-import { hash, heightAt } from './terrain';
+import { hash, heightAt } from '../reel/terrain';
 import type { TwPlan, TwUnit } from './plan';
 
 /** Куда лёг камень: в кладку, недолёт, перелёт в город, в шалаш логова. */
@@ -32,7 +32,16 @@ export interface TwEngine {
   yaw: number;
   /** Секунды пролога, когда рычаг срывается. */
   shots: number[];
+  /**
+   * Ролик осады (`render/siege`): машина встаёт в эту секунду (готова по очереди машин лагеря) и пропадает в `gone` (сожгли
+   * вылазкой). Нет — стоит весь ролик, как в прологе обстрела.
+   */
+  from?: number;
+  gone?: number;
 }
+
+/** Стоит ли машина на секунде `t` (ролик осады: встала готовой, ещё не сгорела). */
+export const engineUp = (e: TwEngine, t: number): boolean => (e.from === undefined || t >= e.from) && (e.gone === undefined || t < e.gone);
 
 export interface TwStone {
   engine: number;
@@ -57,6 +66,13 @@ export interface TwStone {
 export interface TwChunk {
   spans: [number, number][];
   at: number;
+  /**
+   * Пролом заделан (ролик осады, починка — docs/siege_v2.md, раздел 5): с этой секунды кусок встаёт на место за
+   * `MEND_TIME`. Нет — лежит до конца ролика, как в прологе обстрела.
+   */
+  back?: number;
+  /** Заделанный кусок рухнул снова (и, может быть, снова заделан): те же пролёты, следующие обвалы по порядку. */
+  again?: { at: number; back?: number }[];
 }
 
 export interface TwBreach {
@@ -95,6 +111,8 @@ export interface TwSmoke {
   z: number;
   from: number;
   size: number;
+  /** Догорело (ролик осады: погребальный костёр, сожжённая машина): огонь гаснет с этой секунды, клубы уходят. Нет — горит до конца. */
+  to?: number;
 }
 
 /** Ключ камеры пролога: прямоугольник, который держать в кадре, азимут и наклон. */
@@ -140,6 +158,8 @@ export interface TwBarrage {
   cues: BarrageCue[];
   /** Фигуры-образцы для вида: расчёт — боец стреляющей стороны, сбитый — со стены. −1 — некого. */
   look: { crew: number; faller: number };
+  /** Пыль без камня (ролик осады: подкоп обрушил кусок стены, ворота рухнули): где, когда и какой ширины. Нет — нет. */
+  bursts?: { x: number; y: number; z: number; at: number; size: number }[];
 }
 
 /**
@@ -241,10 +261,18 @@ export function stoneAt(s: TwStone, t: number, out: { x: number; y: number; z: n
   return true;
 }
 
-/** Куда лёг кусок: обвал за `FALL_TIME * 0.8` — наружу и вниз; 0 — стоит, 1 — лёг. */
+/** Заделанный кусок встаёт на место за столько секунд (ролик осады — починка пролома). */
+export const MEND_TIME = 1.6;
+
+/** Куда лёг кусок: обвал за `FALL_TIME * 0.8` — наружу и вниз; 0 — стоит, 1 — лёг. Заделан — встаёт обратно. */
 export function chunkFall(c: TwChunk, t: number): number {
-  const u = (t - c.at) / (FALL_TIME * 0.8);
-  return u <= 0 ? 0 : u >= 1 ? 1 : u * u;
+  let cycle: { at: number; back?: number } = c;
+  for (const a of c.again ?? []) if (t >= a.at) cycle = a;
+  const u = (t - cycle.at) / (FALL_TIME * 0.8);
+  const down = u <= 0 ? 0 : u >= 1 ? 1 : u * u;
+  if (cycle.back === undefined || t <= cycle.back) return down;
+  const k = Math.min(1, (t - cycle.back) / MEND_TIME);
+  return down * (1 - k * k * (3 - 2 * k));
 }
 
 /**

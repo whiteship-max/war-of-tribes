@@ -17,7 +17,7 @@
  * КАДР — ТОЛЬКО ЧЕРЕЗ ДВЕРЬ `render/loop.ts`: потолок 60 кадров и плотности, остановка в скрытой странице. Цепочка одна.
  */
 import * as THREE from 'three';
-import { applyDayNight, configureRenderer, configureSky, createLightRig, fitShadow, type LightRig } from '@/render/lighting';
+import { applyDayNight, configureRenderer, configureSky, createLightRig, fitShadow, keyHolding, type LightRig } from '@/render/lighting';
 import { PALETTE } from '@/render/palette';
 import { SeasonVisuals } from '@/render/season';
 import { disposeGeometries } from '@/render/kit';
@@ -26,7 +26,7 @@ import { Steady } from '@/render/steady';
 import { VILLAGE_STEADY } from '@/render/quality';
 import { levelNow } from '@/render/gfx';
 import { miniTier } from './tier';
-import { swallowGhostClick } from '@/gestures';
+import { Press, swallowGhostClick } from '@/gestures';
 import { gestLog } from '@/gestlog';
 import { serverNow } from '@/net/clock';
 import { haptic } from '@/telegram/webapp';
@@ -58,7 +58,8 @@ import { ACES, Post, type Light } from '@/prologue/post';
 import { Dome, newTone, toneAt } from '@/prologue/dome';
 import { Surfaces } from '@/prologue/surface';
 import { aimRing } from './models';
-import { nearestTarget, type Tally, type Target } from './rules';
+import { nearestTarget, type Hour, type Tally, type Target } from './rules';
+import { aimRate, sticksWidth, turnRate, zoneAt, type Layout, type Zone } from './pad';
 import { furnish } from './world';
 import type { Shade } from '@/prologue/models';
 
@@ -99,7 +100,7 @@ export interface Play {
   readonly focus?: number;
   /** «Начать» — из жеста: открыть звук. */
   begin?(): void;
-  /** Палец лёг в половину взгляда (или пробел): тянуть тетиву. */
+  /** Палец лёг на кнопку действия (её половина экрана, `pad.ZONES`, или пробел): тянуть тетиву, замах, подсечка. */
   draw?(t: number): void;
   /** Палец снят: `shoot` — отпустить в цель; `false` — жест отобран, тетиву ослабить без выстрела. */
   loose?(t: number, shoot: boolean): void;
@@ -122,14 +123,23 @@ export interface Play {
   /** Пошла одна из последних секунд (`LAST_TICKS`): стукнуть. */
   tick?(): void;
 
-  // «Рыбалка» (docs/minigames.md, 17): удочка — весь экран, взгляд ведёт сама игра, у прицела — шкала.
+  // Руки (docs/minigames.md, 18.1, `pad.ts`): палец движения с одной стороны, кнопка действия — с другой.
 
-  /** Весь экран — одна рука: каждый палец — палец взгляда, стика шага нет. */
-  readonly oneHand?: boolean;
-  /** Сырой поворот пальца за кадр, рад, до множителей взгляда: удочке — сила замаха и удилище вбок. */
-  steer?(yaw: number, pitch: number, t: number): void;
-  /** Во сколько раз тише взгляд вверх-вниз (поверх `lookScale`): замах тянет вниз, а не опускает взгляд. */
-  pitchScale?(): number;
+  /** Как разложены руки: обход (по умолчанию), лук, удочка. */
+  readonly layout?: Layout;
+  /** Что на кнопке действия у лука и удочки: подпись, можно ли сейчас, держат ли её и держат ли сейчас. */
+  act?(): ActView;
+  /** Подпись кнопки обхода, когда рядом нечего тронуть: «Собрать», «Взять охапку». */
+  rest?(): string;
+  /** Натянут ли лук: палец движения вверх-вниз — прицел, а не шаг. */
+  aiming?(): boolean;
+  /** Палец движения вбок, −1..1, каждый кадр: удочке — удилище против рывка. */
+  pad?(strafe: number, t: number): void;
+  /** Сколько удач подряд — ячейке серии; нет серии у игры — не зовётся. */
+  streak?(): number;
+
+  // «Рыбалка» (docs/minigames.md, 17): взгляд ведёт сама игра, у прицела — шкала.
+
   /** Взгляд, который ведёт игра: куда смотреть в этот кадр (за поплавком, за рыбой); `null` — ведёт игрок. */
   lead?(yaw: number, pitch: number, dt: number): { yaw: number; pitch: number } | null;
   /** Шкала у прицела: сила заброса или натяжение лески, 0..1, и в красной ли она. `null` — шкалы нет. */
@@ -139,6 +149,14 @@ export interface Play {
 }
 
 export type Phase = 'brief' | 'play' | 'done';
+
+/** Кнопка действия: подпись, можно ли сейчас, держат ли её (тетива, замах, катушка) и держат ли сейчас. */
+export interface ActView {
+  label: string;
+  ready: boolean;
+  hold: boolean;
+  on: boolean;
+}
 
 /** Что показывает надстройка. Сцена присылает его, только когда что-то поменялось. */
 export interface StageView {
@@ -154,6 +172,12 @@ export interface StageView {
   aside: string;
   /** Что делать сейчас (`Play.cue`); нет — пусто. */
   cue: string;
+  /** Кнопка действия. */
+  act: ActView;
+  /** Сколько удач подряд (`Play.streak`); нет серии — ноль. */
+  streak: number;
+  /** Брал ли игрок палец движения и кнопку — подписи-указатели первого входа гаснут по делу. */
+  used: { pad: boolean; act: boolean };
 }
 
 /** Ступени промыслов — те же, что у поляны (`look.TIERS`): что умеет устройство, то и первая. */
@@ -183,6 +207,20 @@ const VIEW_EVERY = 100;
 
 /** Сколько последних секунд стучит отсчёт. */
 export const LAST_TICKS = 5;
+
+/**
+ * Свет часа промысла (docs/minigames.md, 18): доля круга солнца для рига. Утро — свой час каждой игры (`Play.solar`,
+ * подобранный снимками); день — солнце высоко; вечер — низкое золото; ночь — глубокие сумерки под луной: темнее, но
+ * оленя на сорока метрах и поплавок ещё видно. Сторона, откуда светит, — та же, что утром (`lighting.keyHolding`):
+ * берег рыбалки повёрнут к солнцу, охотник стоит к нему спиной в любой час.
+ */
+export const HOUR_SOLAR: Record<Exclude<Hour, 'dawn'>, number> = { day: 0.21, dusk: 0.43, night: 0.52 };
+
+/** Свет часа `hour` у игры с утренним часом `morning`. */
+export const solarOf = (hour: Hour, morning: number): number => (hour === 'dawn' ? morning : HOUR_SOLAR[hour]);
+
+/** Куда возвращается взгляд лучника, пока он идёт с опущенным луком: чуть ниже горизонта, рад. */
+const BOW_REST_PITCH = -0.05;
 
 /** Толчок взгляда на удачное действие, рад, и как быстро гаснет, с: рука дёрнула — голова чуть кивнула. */
 const JOLT = 0.007;
@@ -256,6 +294,15 @@ export class Stage {
   private target: Target | null = null;
   /** Последняя показанная секунда отсчёта — стуку последних секунд. */
   private lastLeft = -1;
+  /** Раскладка рук игры (`pad.ts`). */
+  private layout: Layout;
+  /** Палец на кнопке действия (половина `press`): один — рук две. Нажатие судит общий судья тапа. */
+  private presser: Press | null = null;
+  /** Брал ли игрок палец движения и кнопку — подписи-указатели первого входа гаснут по делу. */
+  private usedPad = false;
+  private usedAct = false;
+  /** Свет часа: доля круга солнца (`solarOf`). */
+  private solar: number;
   /** Когда был толчок взгляда, мс кадра. */
   private joltAt = -1e9;
 
@@ -285,7 +332,11 @@ export class Stage {
     season: Season,
     /** Сила ветра погоды города, 0..1 (`ui/parts/weather.weatherNow`); нет — средняя. */
     wind = 0.4,
+    /** Час города (`rules.hourOf`): свет промысла. Нет — утро, свой час игры. */
+    hour: Hour = 'dawn',
   ) {
+    this.layout = play.layout ?? 'walk';
+    this.solar = solarOf(hour, play.solar);
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
     configureRenderer(this.renderer);
     // Плёнка — та же, что у поляны (`post.ACES`): лес обязан выглядеть снятым, а не диорамой.
@@ -373,6 +424,7 @@ export class Stage {
     this.phase = 'done';
     this.sticks.clear();
     this.keys.clear();
+    this.presser = null;
     this.refresh(true);
     this.onEnd?.(this.play.tally());
   }
@@ -411,45 +463,87 @@ export class Stage {
       /* захват не обязателен */
     }
     const p = this.local(e);
-    // Одна рука (удочка): ширина ноль — любой палец ложится во взгляд.
-    const half = this.sticks.down(e.pointerId, p.x, p.y, performance.now(), this.play.oneHand ? 0 : p.w);
-    // Палец во взгляде тянет тетиву: ведёт он её тем же пальцем, отпускает — снимая.
-    if (half === 'look' && this.phase === 'play') this.play.draw?.(this.t);
+    const now = performance.now();
+    const zone: Zone = zoneAt(this.layout, p.x, p.w);
+    if (zone === 'press') {
+      // Кнопка действия — вся своя половина: тетиву, замах и катушку держат, подсечку жмут. Второй палец — мимо.
+      if (this.presser) return;
+      this.presser = new Press(e.pointerId, p.x, p.y, now);
+      if (this.phase === 'play') {
+        this.usedAct = true;
+        this.play.draw?.(this.t);
+        this.refresh(true);
+      }
+      return;
+    }
+    // Палец движения ложится «в ходьбу», взгляд — «во взгляд»: ширина — то, чем `Sticks` делит экран (`pad.sticksWidth`).
+    this.sticks.down(e.pointerId, p.x, p.y, now, sticksWidth(zone));
   };
 
   private onMove = (e: PointerEvent): void => {
     const p = this.local(e);
-    this.sticks.move(e.pointerId, p.x, p.y, performance.now());
+    const now = performance.now();
+    if (this.presser?.id === e.pointerId) {
+      this.presser.move(p.x, p.y, now);
+      return;
+    }
+    this.sticks.move(e.pointerId, p.x, p.y, now);
   };
 
   private onUp = (e: PointerEvent): void => {
     const now = performance.now();
-    const done = this.sticks.up(e.pointerId, now);
     try {
       if (this.canvas.hasPointerCapture(e.pointerId)) this.canvas.releasePointerCapture(e.pointerId);
     } catch {
       /* захвата могло и не быть */
     }
+    const pressed = this.presser?.id === e.pointerId ? this.presser : null;
+    if (pressed) {
+      this.presser = null;
+      const label = this.actView().label;
+      if (this.phase === 'play') this.play.loose?.(this.t, true);
+      // Журналу — как судил бы тап: кнопку держат, и «долгое» здесь не потеря, а тетива.
+      gestLog.add({
+        where: 'промыслы',
+        fingers: this.sticks.fingerCount + 1,
+        ms: now - pressed.t,
+        far: pressed.far,
+        path: pressed.path,
+        end: pressed.isTap(now) ? 'тап' : pressed.moved ? 'ведение' : 'долгое',
+        hit: label || null,
+        drift: null,
+      });
+      if (pressed.isTap(now)) swallowGhostClick();
+      this.refresh(true);
+      return;
+    }
+    const done = this.sticks.up(e.pointerId, now);
     if (!done) return;
-    if (done.half === 'look' && this.phase === 'play') this.play.loose?.(this.t, true);
-    const target = this.phase === 'play' ? this.target : null;
+    // Тап — кнопка обхода: она стоит в половине взгляда, и её судит тот же судья тапа. Палец движения не жмёт ничего.
+    const button = done.half === 'look';
+    const target = this.phase === 'play' && button ? this.target : null;
     gestLog.add({
       where: 'промыслы',
       fingers: this.sticks.fingerCount + 1,
       ms: now - done.press.t,
       far: done.press.far,
       path: done.press.path,
-      end: done.tap ? (target ? 'тап' : 'мимо') : 'ведение',
+      end: done.tap && button ? (target ? 'тап' : 'мимо') : 'ведение',
       hit: done.tap && target ? target.verb : null,
       drift: null,
     });
-    if (!done.tap) return;
+    if (!done.tap || !button) return;
     swallowGhostClick();
     this.act();
   };
 
   private onCancel = (e: PointerEvent): void => {
-    if (this.sticks.cancel(e.pointerId) === 'look') this.play.loose?.(this.t, false);
+    if (this.presser?.id === e.pointerId) {
+      this.presser = null;
+      if (this.phase === 'play') this.play.loose?.(this.t, false);
+      return;
+    }
+    this.sticks.cancel(e.pointerId);
   };
 
   private onKeyDown = (e: KeyboardEvent): void => {
@@ -460,9 +554,12 @@ export class Stage {
     }
     if (e.code === 'Space' || e.code === 'KeyE' || e.code === 'Enter') {
       e.preventDefault();
-      // С луком пробел — тетива: держишь — тянешь, отпустил — выстрел.
+      // У лука и удочки пробел — кнопка действия: держишь — тянешь, отпустил — выстрел (заброс, отдать леску).
       if (this.play.draw && e.code === 'Space') {
-        if (this.phase === 'play') this.play.draw(this.t);
+        if (this.phase === 'play') {
+          this.usedAct = true;
+          this.play.draw(this.t);
+        }
         return;
       }
       this.act();
@@ -477,6 +574,7 @@ export class Stage {
   private onBlur = (): void => {
     this.keys.clear();
     this.sticks.clear();
+    this.presser = null;
     if (this.phase === 'play') this.play.loose?.(this.t, false);
   };
 
@@ -491,6 +589,7 @@ export class Stage {
   /** Тап — по ближайшему в досягаемости, а не по прицелу: так же, как на поляне. */
   private act(): void {
     if (this.phase !== 'play' || !this.target) return;
+    this.usedAct = true;
     const said = this.play.tap(this.target, this.t);
     if (said) {
       this.note = said;
@@ -528,23 +627,36 @@ export class Stage {
     }
     const live = this.phase === 'play';
     const look = this.sticks.takeLook();
+    // Палец движения (`pad.ts`): вверх-вниз — шаг, а с натянутым луком — прицел; вбок — плавный поворот.
+    const pad: Walk = live ? mergeWalk(this.sticks.walk(), this.keys.walk()) : { forward: 0, strafe: 0 };
+    let walk: Walk = { forward: 0, strafe: 0 };
     if (live) {
-      this.play.steer?.(look.yaw, look.pitch, this.t);
+      if (pad.forward !== 0 || pad.strafe !== 0) this.usedPad = true;
       const k = this.play.lookScale?.() ?? 1;
-      this.yaw += look.yaw * k;
-      this.pitch = THREE.MathUtils.clamp(this.pitch + look.pitch * k * (this.play.pitchScale?.() ?? 1), -PITCH_LIMIT, PITCH_LIMIT);
+      const aiming = this.play.aiming?.() ?? false;
+      this.yaw += (look.yaw + turnRate(pad.strafe) * dt) * k;
+      let pitch = this.pitch + look.pitch * k;
+      // Прицел — своей скоростью (`pad.AIM_RATE`, уже для натянутого лука); поворот натянутого — тише (`lookScale`).
+      if (aiming) pitch += aimRate(pad.forward) * dt;
+      else {
+        walk = { forward: pad.forward, strafe: 0 };
+        // Лучник с опущенным луком смотрит туда, куда идёт: взгляд сам сходит к горизонту.
+        if (this.layout === 'bow' && pad.forward !== 0) pitch += (BOW_REST_PITCH - pitch) * (1 - Math.exp(-dt * 1.5));
+      }
+      this.pitch = THREE.MathUtils.clamp(pitch, -PITCH_LIMIT, PITCH_LIMIT);
+      this.play.pad?.(pad.strafe, this.t);
       const lead = this.play.lead?.(this.yaw, this.pitch, dt);
       if (lead) {
         this.yaw = lead.yaw;
         this.pitch = THREE.MathUtils.clamp(lead.pitch, -PITCH_LIMIT, PITCH_LIMIT);
       }
     }
-    const walk: Walk = live ? mergeWalk(this.sticks.walk(), this.keys.walk()) : { forward: 0, strafe: 0 };
-    const speed = Math.hypot(walk.forward, walk.strafe);
+    const stride = this.play.stride?.() ?? 1;
+    const speed = stride > 0 ? Math.hypot(walk.forward, walk.strafe) : 0;
     if (speed > 0) {
       const sin = Math.sin(this.yaw);
       const cos = Math.cos(this.yaw);
-      const pace = WALK_SPEED * (this.play.stride?.() ?? 1) * dt;
+      const pace = WALK_SPEED * stride * dt;
       const dx = (-sin * walk.forward + cos * walk.strafe) * pace;
       const dz = (-cos * walk.forward - sin * walk.strafe) * pace;
       const p = slide(this.px + dx, this.pz + dz, this.play.blockers(this.t));
@@ -603,16 +715,42 @@ export class Stage {
       note: this.note,
       aside: this.play.aside?.() ?? '',
       cue: this.phase === 'play' ? (this.play.cue?.() ?? '') : '',
+      act: this.actView(),
+      streak: this.play.streak?.() ?? 0,
+      used: { pad: this.usedPad, act: this.usedAct },
     };
-    const key = `${v.phase}|${v.left}|${v.tally.got}|${v.tally.total}|${v.verb}|${v.note}|${v.aside}|${v.cue}`;
+    const a = v.act;
+    const key = `${v.phase}|${v.left}|${v.tally.got}|${v.tally.total}|${v.tally.bonus ?? 0}|${v.verb}|${v.note}|${v.aside}|${v.cue}|${a.label}|${a.ready}|${a.on}|${v.streak}|${this.usedPad}|${this.usedAct}`;
     if (!force && key === this.shown) return;
     this.shown = key;
     this.onView?.(v);
   }
 
+  /**
+   * Кнопка действия: у лука и удочки — их подпись и состояние (`Play.act`); у обхода — что тронет тап рядом, а рядом
+   * нечего — подпись покоя (`Play.rest`) и погасшая кнопка.
+   */
+  private actView(): ActView {
+    const own = this.play.act?.();
+    if (own) return own;
+    const tg = this.phase === 'play' ? this.target : null;
+    return { label: tg?.verb ?? this.play.rest?.() ?? '', ready: !!tg, hold: false, on: false };
+  }
+
   /** Надпись сейчас — оболочке на первом кадре. */
   snapshot(): StageView {
-    return { phase: this.phase, left: Math.ceil(this.seconds - this.t), tally: this.play.tally(), verb: '', note: '', aside: this.play.aside?.() ?? '', cue: '' };
+    return {
+      phase: this.phase,
+      left: Math.ceil(this.seconds - this.t),
+      tally: this.play.tally(),
+      verb: '',
+      note: '',
+      aside: this.play.aside?.() ?? '',
+      cue: '',
+      act: this.actView(),
+      streak: 0,
+      used: { pad: false, act: false },
+    };
   }
 
   /**
@@ -751,8 +889,9 @@ export class Stage {
    * небо — доля рига цвета ясного зенита, снег отдаёт свет снизу, затвор привыкает к часу. Без погоды и огня.
    */
   private applyLight(noonSun: number, noonSky: number): void {
-    const solar = this.play.solar;
-    applyDayNight(this.rig, this.scene, solar, this.seasonLook);
+    const solar = this.solar;
+    // Час меняет высоту и цвет солнца, а не сторону: сторона — та, под которую поставлена игра (`Play.solar`).
+    applyDayNight(this.rig, this.scene, solar, this.seasonLook, keyHolding(solar, this.play.solar));
     const tone = toneAt(solar, this.tone);
     const elev = Math.sin(solar * Math.PI * 2);
     const k = Math.max(0, Math.min(1, -elev / 0.3));

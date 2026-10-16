@@ -9,9 +9,11 @@
  * Тап по стогу рядом — охапка в руках; тап по животному рядом с охапкой — оно ест. Овце и козе — одна охапка,
  * корове — три. Всё это кадр: в сохранение не попадает ничего, в партию уходит только счёт (`sim/minigames.harvest`).
  */
+import { mixSeed } from '@/game/sim/random';
 import { seeded } from './rules';
 
-export type BeastKind = 'sheep' | 'goat' | 'cow';
+/** Ягнёнок — редкий (`LAMB_P`): родился в эту ночь и бегает за овцами. */
+export type BeastKind = 'sheep' | 'goat' | 'cow' | 'lamb';
 
 export interface BeastLook {
   /** Имя в подписи прицела — винительным: «накормить овцу». */
@@ -26,7 +28,21 @@ export const BEASTS: Record<BeastKind, BeastLook> = {
   sheep: { name: 'овцу', need: 1, r: 0.42 },
   goat: { name: 'козу', need: 1, r: 0.38 },
   cow: { name: 'корову', need: 3, r: 0.75 },
+  lamb: { name: 'ягнёнка', need: 1, r: 0.28 },
 };
+
+/**
+ * Редкая добыча «Скота» — ягнёнок: в загоне раз в три выхода (`LAMB_P`). Скачет вокруг овечьей кучи шире и быстрее
+ * овец, но не быстрее человека; охапка одна, а идёт она вдвойне (`LAMB_WORTH`) — приплод стада. Вся его доля —
+ * прибавка, и в знаменатель она легла целиком (`rules.Tally`): основной счёт — прежние десять охапок.
+ */
+export const LAMB_P = 1 / 3;
+export const LAMB_WORTH = 2;
+
+/** Что меняет загон сверх прежнего: редкий ягнёнок. По умолчанию — прежний загон; игра зовёт с `rare: true`. */
+export interface HerdTwists {
+  rare: boolean;
+}
 
 /** Кто в загоне: четыре овцы, три козы и корова — десять охапок. */
 export const HERD: readonly BeastKind[] = ['sheep', 'sheep', 'sheep', 'sheep', 'goat', 'goat', 'goat', 'cow'];
@@ -67,8 +83,33 @@ export interface Herd {
 
 const wave = (rnd: () => number, amp: number, freq: number): Wave => [amp * (0.75 + 0.5 * rnd()), freq * (0.8 + 0.4 * rnd()), rnd() * Math.PI * 2];
 
-/** Стадо по зерну. */
-export function herdOf(seed: number): Herd {
+/**
+ * Стадо по зерну. Ягнёнок встаёт после прежнего стада своим генератором (`mixSeed(seed, 1)`): места и пути
+ * остальных у каждого зерна прежние.
+ */
+export function herdOf(seed: number, twists: HerdTwists = { rare: false }): Herd {
+  const h = herdClassic(seed);
+  if (!twists.rare) return h;
+  const rnd = seeded(mixSeed(seed >>> 0, 1));
+  if (rnd() >= LAMB_P) return h;
+  // Скачет сбоку от овечьей кучи, а не в ней: на полшага кучи в сторону, петлями — то к стогу, то к жердям, чаще овцы.
+  // В куче он прятался за матерями (снимок `RARE=1`): ягнёнка, которого не видно, не накормят.
+  const side = rnd() < 0.5 ? -1 : 1;
+  h.beasts.push({
+    id: h.beasts.length,
+    kind: 'lamb',
+    a0: side * (0.75 + 0.25 * rnd()),
+    r0: (rnd() - 0.5) * 0.6,
+    drift: 0,
+    aw: [wave(rnd, 0.16, 0.42), wave(rnd, 0.05, 1.1)],
+    rw: [wave(rnd, 0.7, 0.38), wave(rnd, 0.25, 0.9)],
+    flock: true,
+  });
+  return h;
+}
+
+/** Прежнее стадо: четыре овцы, три козы и корова. */
+function herdClassic(seed: number): Herd {
   const rnd = seeded(seed);
   const sign = (): number => (rnd() < 0.5 ? -1 : 1);
   const flock = {
@@ -80,6 +121,7 @@ export function herdOf(seed: number): Herd {
   };
   let total = 0;
   let sheep = 0;
+  // Знаменатель — прежние десять охапок: ягнёнок (`herdOf`) — прибавка, `herdBonusMax`.
   const beasts = HERD.map((kind, id): Beast => {
     total += BEASTS[kind].need;
     if (kind === 'sheep') {
@@ -147,6 +189,8 @@ export class Feed {
   /** Когда животное наелось, секунды сцены; не наелось — null. */
   readonly fedAt: (number | null)[];
   got = 0;
+  /** Сверху: накормленный ягнёнок. */
+  bonus = 0;
 
   constructor(private herd: Herd) {
     this.given = herd.beasts.map(() => 0);
@@ -166,7 +210,8 @@ export class Feed {
     if (!b || !this.carrying || this.given[id] >= BEASTS[b.kind].need) return false;
     this.carrying = false;
     this.given[id]++;
-    this.got++;
+    if (b.kind === 'lamb') this.bonus += LAMB_WORTH;
+    else this.got++;
     if (this.given[id] >= BEASTS[b.kind].need) this.fedAt[id] = t;
     return true;
   }
@@ -182,3 +227,6 @@ export class Feed {
     return this.fedAt[id] !== null;
   }
 }
+
+/** Сколько прибавки было можно взять в загоне: ягнёнок, если он есть. */
+export const herdBonusMax = (h: Herd): number => h.beasts.filter((b) => b.kind === 'lamb').length * LAMB_WORTH;

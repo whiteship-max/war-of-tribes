@@ -10,7 +10,7 @@ import { useEffect, useState } from 'react';
 import { useGame } from '@/game/store';
 import { partyNow } from '@/net/clock';
 import { useWorld, worldNow } from '@/world/store';
-import { activeBoons, buildingOfType } from '@/game/derived';
+import { activeBoons } from '@/game/derived';
 import { boonWords } from '@/game/data/boons';
 import { realSeconds } from '@/game/pace';
 import type { GameState } from '@/game/types';
@@ -19,7 +19,11 @@ import type { LetterView } from '@/world/types';
 import { Icon } from '@/ui/icons/Icon';
 import { Cost } from '@/ui/parts/Cost';
 import { useRaidWords } from '@/ui/parts/raidWords';
-import { dispatches, leftWords, type Dispatch } from './dispatch';
+import { dispatches, filterMail, leftWords, mailGroups, type Dispatch, type MailFilter } from './dispatch';
+import { Table, type Col } from '@/ui/kit/Table';
+import { Tabs, type TabDef } from '@/ui/kit/SheetPage';
+import { goTo } from '@/ui/kit/nav';
+import { WINDOW } from '@/ui/kit/sources';
 import { useRealm } from './open';
 import { mailKeys, useSeen } from './unread';
 
@@ -36,6 +40,12 @@ async function answerDispatch(d: Dispatch, choiceId: string): Promise<string | n
   return d.choices.find((c) => c.id === choiceId)?.hint ?? null;
 }
 
+/** Столбцы списка: весть со значком и точкой новой, кто прислал — строкой под ней, срок — до того, как решится сама. */
+const MAIL_COLS: readonly Col[] = [
+  { key: 'what', title: 'Весть' },
+  { key: 'left', title: 'Срок', align: 'right', w: '88px' },
+];
+
 export function Mail() {
   const s = useGame((g) => g.s);
   // Слова — пачки 14 (docs/ui_texts.md): «вести», «город»; «новое» — точкой.
@@ -45,6 +55,7 @@ export function Mail() {
   const seen = useSeen((u) => u.seen);
   const mark = useSeen((u) => u.mark);
   const [done, setDone] = useState<{ title: string; text: string } | null>(null);
+  const [filter, setFilter] = useState<MailFilter>('all');
   const [, retick] = useState(0);
 
   const list = dispatches(s, letters, { tribe: partyNow(), world: worldNow() });
@@ -119,29 +130,50 @@ export function Mail() {
     );
   }
 
+  // Фильтр — по источнику, счётчик вкладки — новые в ней (как у низа: новое ждёт, чтобы его прочли).
+  const fresh = (d: Dispatch): boolean => !seen.includes(d.key);
+  const unseen = (f: MailFilter): number => filterMail(list, f).filter(fresh).length;
+  const tabs: TabDef<MailFilter>[] = [
+    { id: 'all', label: 'Все', badge: unseen('all') },
+    { id: 'event', label: 'Город', badge: unseen('event') },
+    { id: 'letter', label: 'Соседи', badge: unseen('letter') },
+  ];
+  const inFilter = filterMail(list, filter);
+
   return (
-    <div className="panel">
+    <div className="panel mail-v2">
       <Boons s={s} />
-      <div className="mail-list">
-        {list.map((d) => {
-          const fresh = !seen.includes(d.key);
-          return (
-            <button key={d.key} className={`mail-row${fresh ? ' fresh' : ''}`} onClick={() => openMail(d.key)}>
-              <span className="ic">
-                <Icon name={d.iconName} glyph={d.icon} />
-              </span>
-              <span className="txt">
-                <b>{d.title}</b>
-                <small>
-                  <i className="who">{d.from ?? (d.warning ? 'Дозор' : 'Город')}</i>
-                  {d.left !== null && <em>{leftWords(d.left)}</em>}
-                </small>
-              </span>
-              {fresh && <span className="nx-new" aria-label="новое" />}
-            </button>
-          );
-        })}
-      </div>
+      <Tabs tabs={tabs} value={filter} onChange={setFilter} />
+      {inFilter.length === 0 && <p className="note">{filter === 'event' ? 'Вестей из города нет.' : 'Писем от соседей нет.'}</p>}
+      {mailGroups(inFilter).map((g) => (
+        <section key={g.id} className="mail-group">
+          <h3>
+            {g.title} <span className="muted">{g.items.length}</span>
+          </h3>
+          <Table
+            label={g.title}
+            cols={MAIL_COLS}
+            rows={g.items.map((d) => ({
+              key: d.key,
+              go: () => openMail(d.key),
+              goLabel: d.title,
+              cells: {
+                what: (
+                  <span className={`kit-name${fresh(d) ? ' fresh' : ''}`}>
+                    <Icon name={d.iconName} glyph={d.icon} />
+                    <span className="kit-two">
+                      <b className="one-line">{d.title}</b>
+                      <small className="one-line">{d.from ?? (d.warning ? 'Дозор' : 'Город')}</small>
+                    </span>
+                    {fresh(d) && <i className="nx-new" aria-label="новое" />}
+                  </span>
+                ),
+                left: d.left !== null ? <span className={d.urgent ? 'bad' : ''}>{leftWords(d.left)}</span> : '—',
+              },
+            }))}
+          />
+        </section>
+      ))}
     </div>
   );
 }
@@ -165,16 +197,13 @@ function DispatchCardNew({
 }) {
   const spot = useWorld((w) => w.spotLetter);
   const openMap = useGame((g) => g.openMap);
-  const openBuilding = useGame((g) => g.openBuilding);
-  const s = useGame((g) => g.s);
-  const statue = buildingOfType(s, 'statue');
   const raids = useRaidWords();
   const raid = letter?.kind === 'raid' ? (raids.find((w) => w.win.march.id === letter.marchId) ?? null) : null;
   const from = letter?.from ?? null;
   const where = letter && from && !from.cell ? `${RHUMB_WORDS[from.rhumb]}, ${from.cells} кл., не разведано` : null;
   const asks = Object.values(d.cost).some((n) => (n ?? 0) > 0);
-  // Набег идёт сам и сроком беды — красным; остальное ждёт ответа — охрой.
-  const urgent = letter?.kind === 'raid' || d.warning;
+  // Беда идёт сама и сроком беды — красным; остальное ждёт ответа — охрой. Признак — у донесения (`dispatch.urgent`).
+  const urgent = d.urgent;
 
   return (
     <div className="nx-mail">
@@ -220,17 +249,18 @@ function DispatchCardNew({
             </button>
           );
         })}
-        {/* Набег решается не здесь: перехватить в поле — на карте, полководец и раскладка — в Статуе. Окно ответа —
-            до прихода (`parts/raidWords`), и срок у кнопки тот же, что в строке набега. */}
+        {/* Набег решается не здесь: перехватить в поле — на карте, гарнизон и отряд полководца — в «Дружине» (передача
+            там с UI-4, docs/ui_v2.md, 5.3; прежде кнопка вела в Статую). Окно ответа — до прихода (`parts/raidWords`), и
+            срок у кнопки тот же, что в строке набега. */}
         {letter?.kind === 'raid' && (
           <>
             <button className="nx-ans" onClick={() => openMap()}>
               <b>На карту</b>
               <small>Перехватить в поле</small>
             </button>
-            <button className="nx-ans" disabled={!statue} onClick={() => statue && openBuilding(statue.id)}>
+            <button className="nx-ans" onClick={() => goTo(WINDOW.army)}>
               <b>Дружина</b>
-              <small>{['Полководец и раскладка', raid?.left].filter(Boolean).join(' · ')}</small>
+              <small>{['Гарнизон и отряд полководца', raid?.left].filter(Boolean).join(' · ')}</small>
             </button>
           </>
         )}
@@ -252,17 +282,32 @@ function Boons({ s }: { s: GameState }) {
   const on = activeBoons(s);
   if (on.length === 0) return null;
   return (
-    <div className="mail-boons">
-      {on.map(({ def, until }) => (
-        <div key={def.id} className="mail-boon">
-          <span className="ic">{def.icon}</span>
-          <span className="txt">
-            <b>{def.name}</b>
-            <small>{boonWords(def)}</small>
-          </span>
-          <em>{leftWords(realSeconds(until - s.time))}</em>
-        </div>
-      ))}
-    </div>
+    <section className="mail-boons">
+      <Table
+        label="Действует"
+        cols={BOON_COLS}
+        rows={on.map(({ def, until }) => ({
+          key: def.id,
+          tip: () => ({ title: def.name, body: boonWords(def) }),
+          cells: {
+            what: (
+              <span className="kit-name">
+                <span className="ic">{def.icon}</span>
+                <span className="one-line">{def.name}</span>
+              </span>
+            ),
+            gives: <span className="muted one-line">{boonWords(def)}</span>,
+            left: leftWords(realSeconds(until - s.time)),
+          },
+        }))}
+      />
+    </section>
   );
 }
+
+/** Столбцы «Действует»: усилитель, что даёт (целиком — касанием) и сколько ещё. */
+const BOON_COLS: readonly Col[] = [
+  { key: 'what', title: 'Действует' },
+  { key: 'gives', title: 'Даёт', w: '120px' },
+  { key: 'left', title: 'Ещё', align: 'right', w: '72px' },
+];

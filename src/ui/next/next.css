@@ -2,7 +2,7 @@
  * Новый интерфейс (docs/ui_audit.md, раздел 3 и «Новый интерфейс»). Всё — под `.ui-new` на корне игры или под
  * своими классами `nx-*`, которых нет в прежнем виде: прежний вид этот файл не задевает.
  * Шкалы: отступы 2·4·8·12·16·24; кегли 11·13·15·18; веса 400·600·700; радиусы 6·10·14·999; значки 16·20·28;
- * цели касания ≥ 44 (`--tap`), ячейки-справки запасов — 32.
+ * цели касания ≥ 44 (`--tap`), ячейки-справки запасов — 33 (решение владельца 16.10.2026, docs/ui_v2.md, 6.3).
  */
 .ui-new {
   --nav-h: 52px;
@@ -23,7 +23,7 @@
   cursor: pointer;
 }
 
-/* ---------- Верх: строка 44 и строка запасов 32 ---------- */
+/* ---------- Верх: строка 44 и строка запасов 33 ---------- */
 .nx-hud {
   position: absolute;
   top: 0;
@@ -143,10 +143,12 @@
   height: 100%;
   background: var(--good);
 }
+/* Ячейки запасов — справки 33: на шаг больше `gestures.TAP_SLIP` (32), за которым жест уже не тап (docs/ui_v2.md, 2.5 и
+   6.3, К1). Верх с ними — 44 + 2 + 33 = 79, в `--hud-h` (80) помещается. */
 .nx-res {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
-  height: 32px;
+  height: 33px;
   margin-top: 2px;
   border-radius: 10px;
   background: rgba(36, 27, 19, 0.8);
@@ -389,6 +391,11 @@
 .nx-tip {
   position: fixed;
   z-index: 41;
+  /* Колонкой и не выше экрана (`--room`, `tipRoom`): разбор прокручивается, кнопки к постройкам и дверь окна видны всегда.
+     Обрезки у самой плашки нет — она срезала бы стрелку к элементу. */
+  display: flex;
+  flex-direction: column;
+  max-height: var(--room, 100%);
   padding: 10px 12px;
   border-radius: 14px;
   background: rgba(30, 23, 17, 0.97);
@@ -447,6 +454,121 @@
 }
 .nx-tip-go span {
   font-size: 18px;
+}
+/* Разбор числа строками (docs/ui_v2.md, раздел 2): имя слева, число справа цифрами одной ширины; итог — чертой сверху.
+   Строка с дверью к источнику — кнопка 44 со стрелкой, как ссылка внизу. Плашка не выше экрана: строки прокручиваются. */
+.nx-tip-rows {
+  flex: 0 1 auto;
+  min-height: 0;
+  margin: 8px 0 0;
+  overflow-y: auto;
+  font-size: 13px;
+}
+.nx-tip > :not(.nx-tip-rows) {
+  flex: none;
+}
+/* Второй разбор (жильё под жителями): имя своим рядом над строками. */
+.nx-tip .nx-tip-sub {
+  margin: 10px 0 2px;
+}
+/* Главные кнопки — постройки, которые делают число (docs/ui_v2.md, 5.2): по две в ряд, одна — во всю ширину; над дверью
+   окна. Действие — 44. */
+.nx-tip-makers {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-top: 10px;
+}
+.nx-tip-makers.one {
+  grid-template-columns: 1fr;
+}
+.nx-tip .nx-tip-maker {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  min-height: var(--tap);
+  padding: 4px 8px;
+  border-radius: 10px;
+  background: var(--accent);
+  color: var(--accent-text);
+  font-weight: 600;
+  line-height: 1.15;
+  text-align: left;
+}
+.nx-tip-maker svg,
+.nx-tip-maker > span:first-child:not(:last-child) {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  font-size: 18px;
+  line-height: 20px;
+}
+.nx-tip-maker > span:last-child {
+  min-width: 0;
+  overflow-wrap: break-word;
+}
+.nx-tip-maker small {
+  display: block;
+  font-size: 11px;
+  font-weight: 400;
+}
+/* Постройки нет в городе: та же кнопка, но тише — она ведёт в «Стройку». */
+.nx-tip .nx-tip-maker.build {
+  background: var(--panel-3);
+  color: var(--text);
+  border: 1px dashed var(--accent);
+}
+.nx-tip-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 24px;
+  color: var(--text);
+  text-align: left;
+}
+.nx-tip-row svg {
+  flex: none;
+  width: 16px;
+  height: 16px;
+}
+.nx-tip-row span {
+  flex: 1;
+  min-width: 0;
+  color: var(--muted);
+}
+.nx-tip-row b {
+  display: inline;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.nx-tip-row.good b {
+  color: var(--good);
+}
+.nx-tip-row.bad b {
+  color: var(--bad);
+}
+.nx-tip-row.muted b {
+  color: var(--muted);
+}
+.nx-tip .nx-tip-row.go {
+  min-height: 44px;
+  border-top: 1px solid var(--line);
+}
+.nx-tip-row.go i {
+  font-style: normal;
+  font-size: 18px;
+  color: var(--accent);
+}
+.nx-tip-row.sum {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid var(--line-2);
+}
+.nx-tip-row.sum span {
+  color: var(--text);
+  font-weight: 600;
 }
 /* Подсказка новичку: крестик в углу плашки, имя не заходит под него. */
 .nx-tip.free b {
@@ -1176,7 +1298,7 @@
 }
 
 /* ---------- Карточка клетки карты (`WorldNew`) и «Походы» (`MarchesNew`) ---------- */
-:where(.nx-fact, .nx-sight, .nx-cact, .nx-leadb, .nx-crow, .nx-act, .nx-mrow, .nx-mico, .nx-mtap, .nx-ico44) {
+:where(.nx-fact, .nx-sight, .nx-cact, .nx-leadb, .nx-crow, .nx-act, .nx-ico44) {
   font: inherit;
   color: inherit;
   background: none;
@@ -1411,56 +1533,40 @@
   opacity: 0.45;
   cursor: default;
 }
-.nx-mrow {
+/* «Походы» таблицами (UI-7, docs/ui_v2.md, 5.6): имя ячейкой в две строки, числа столбцами, действия — значками 44. */
+.nx-marches .kit-table {
+  margin-bottom: 8px;
+}
+.mr-who {
   display: flex;
   align-items: center;
   gap: 8px;
   width: 100%;
-  min-height: 56px;
-  margin-bottom: 6px;
-  padding: 4px 8px 4px 4px;
-  border-radius: 10px;
-  background: var(--panel-2);
-  border: 1px solid var(--line);
-  text-align: left;
-}
-.nx-mrow.danger {
-  border-color: rgba(224, 107, 90, 0.6);
-}
-.nx-mrow.down,
-.nx-mrow.vacant {
-  opacity: 0.7;
-}
-.nx-mico {
-  flex: none;
-  display: grid;
-  place-items: center;
-  width: 44px;
-  height: 44px;
-  font-size: 22px;
-}
-.nx-mico svg {
-  width: 28px;
-  height: 28px;
-}
-.nx-mtap {
+  min-width: 0;
   min-height: 44px;
-  justify-content: center;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
   text-align: left;
+  cursor: pointer;
 }
-.nx-mright {
+.mr-who svg {
   flex: none;
-  display: flex;
-  align-items: center;
-  gap: 6px;
+  width: 24px;
+  height: 24px;
 }
-.nx-due {
-  font-style: normal;
-  font-size: 13px;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
+.mr-acts {
+  display: inline-flex;
+  gap: 4px;
 }
-.nx-due.bad,
+.nx-marches .kit-c.r .nx-ico44 {
+  display: inline-grid;
+}
+.nx-marches .kit-name.lost .kit-two b {
+  color: var(--bad);
+}
 .nx-marches .bad {
   color: var(--bad);
 }
@@ -1698,6 +1804,12 @@
 }
 .nx-trade-go {
   min-width: 88px;
+}
+/* Цена в таблице лавки — кнопкой покупки (UI-7): действие, цель 44. */
+.nx-shop-go {
+  min-width: 64px;
+  min-height: 44px;
+  padding: 0 8px;
 }
 .nx-top.crowded {
   gap: 0;
@@ -2115,8 +2227,7 @@
   flex: 1;
   font-size: 16px;
 }
-.wm-rbtn,
-.wm-rrow {
+.wm-rbtn {
   background: none;
   border: 0;
   font: inherit;
@@ -2140,58 +2251,6 @@
   color: var(--muted);
   font-size: 13px;
 }
-.wm-rrow {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  min-height: var(--tap);
-  padding: 6px 8px;
-  border-radius: 10px;
-  text-align: left;
-  color: var(--text);
-}
-.wm-rrow + .wm-rrow {
-  margin-top: 2px;
-}
-.wm-rrow.mine {
-  background: rgba(217, 164, 65, 0.14);
-  box-shadow: inset 0 0 0 1px var(--accent);
-}
-.wm-rplace {
-  flex: none;
-  width: 24px;
-  text-align: center;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  color: var(--muted);
-}
-.wm-rrow.mine .wm-rplace {
-  color: var(--accent);
-}
-.wm-rwho {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  min-width: 0;
-}
-.wm-rwho b {
-  font-size: 14px;
-}
-.wm-rwho i {
-  font-style: normal;
-  font-size: 12px;
-  color: var(--muted);
-}
-.wm-rwho small {
-  font-size: 11px;
-  color: var(--muted);
-}
-.wm-rpts {
-  flex: none;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-}
 .nx-mtop .nx-mrate {
   margin-left: auto;
 }
@@ -2206,36 +2265,6 @@
 .nx-mfeed .nx-dot {
   top: 4px;
   right: 4px;
-}
-.wm-frow {
-  align-items: flex-start;
-}
-.wm-fic {
-  flex: none;
-  display: grid;
-  place-items: center;
-  width: 24px;
-  height: 24px;
-  margin-top: 1px;
-  font-size: 20px;
-}
-.wm-ftop {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  min-width: 0;
-}
-.wm-ftop b {
-  flex: 1;
-  min-width: 0;
-}
-.wm-ftop i {
-  flex: none;
-}
-.wm-frow small {
-  margin-top: 1px;
-  font-size: 12px;
-  line-height: 1.3;
 }
 .nx-mbtn.on {
   box-shadow: inset 0 0 0 1px var(--accent);
@@ -2518,4 +2547,14 @@
 .nx-rshare {
   align-self: stretch;
   min-height: var(--tap);
+}
+
+/* Цена дела в энергии (UI-7, Ч15): ладонь, число и слово; слово мельче — оно подпись, а не число. */
+.nx-eprice {
+  white-space: nowrap;
+}
+.nx-eprice small {
+  font-size: 11px;
+  font-weight: 400;
+  opacity: 0.8;
 }

@@ -10,6 +10,8 @@ import { useGame } from '@/game/store';
 import { rationOf, seasonOf, winterForecast } from '@/game/derived';
 import { foodLeft } from './foodLeft';
 import { waitDays } from './wait';
+import { goTo } from '@/ui/kit/nav';
+import { WINDOW } from '@/ui/kit/sources';
 
 /**
  * «1 ч 42 мин»: срок без округления вверх — обещать лишнюю десятую дня нельзя. Паёк и зима считаются
@@ -20,7 +22,6 @@ const daysText = (d: number): string => waitDays(Math.floor(d * 10) / 10);
 /** Сколько дней ещё проживём на том, что в амбаре, — и где это меняют. */
 export function FoodLeft() {
   const s = useGame((g) => g.s);
-  const openTownHall = useGame((g) => g.openTownHall);
   const left = foodLeft(s);
   const ration = rationOf(s);
 
@@ -37,7 +38,7 @@ export function FoodLeft() {
           {left.days === null ? 'хватает' : daysText(left.days)}
         </span>
       </div>
-      <button className="btn ghost wide" onClick={() => openTownHall('manage')}>
+      <button className="btn ghost wide" onClick={() => goTo(WINDOW.gold)}>
         Изменить паёк
       </button>
     </>

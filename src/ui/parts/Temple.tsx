@@ -18,39 +18,54 @@ import { SEASON_META } from '@/game/data/seasons';
 import {
   faithDef,
   faithTilt,
-  jobCounts,
   observanceOf,
   pietyBreakdown,
   population,
   seasonOf,
   templeLevel,
-  type PietyLine,
+  type PietyBreakdown,
 } from '@/game/derived';
 import { baptismInfo, baptize, holdRite, riteInfo, setObservance, strainDaysLeft } from '@/game/sim/faith';
 import { Cost } from './Cost';
+import { Bar } from '@/ui/kit/Bar';
+import { Table, type Col, type TableRow } from '@/ui/kit/Table';
 import { useRealm } from '@/ui/realm/open';
 import { waitDays } from './wait';
-import { dec } from '@/game/num';
+import { dec, num } from '@/game/num';
 
-const sign = (n: number): string => `${n > 0 ? '+' : n < 0 ? '−' : ''}${Math.abs(Math.round(n * 10) / 10)}`;
+/** Знак и число с десятой без лишних нулей, запятой: «+55», «−1,1». */
+const sign = (n: number): string => `${n > 0 ? '+' : n < 0 ? '−' : ''}${num(Math.abs(n), 1)}`;
 const days = (sec: number): number => Math.ceil(sec / DAY_LENGTH);
 
-function Lines({ lines }: { lines: PietyLine[] }) {
-  if (lines.length === 0) return <div className="note">Ничего.</div>;
-  return (
-    <div className="mod-list">
-      {lines.map((l) => (
-        <div className="mod" key={l.id}>
-          <span className="ico">{l.icon}</span>
-          <span className="name">
-            {l.name}
-            <em className="sub">{l.hint}</em>
-          </span>
-          <span className={`val ${l.value > 0 ? 'pos' : l.value < 0 ? 'neg' : ''}`}>{sign(l.value)}</span>
-        </div>
-      ))}
-    </div>
-  );
+const PIETY_COLS: readonly Col[] = [
+  { key: 'what', title: 'Что держит веру' },
+  { key: 'n', title: '', align: 'right', w: '56px' },
+];
+
+/**
+ * Строки разбора набожности: основа, слагаемые `pietyBreakdown` и срез шкалы — они складываются в итог `value` ровно
+ * (шкала 0…100 — строкой «Предел шкалы», а не дырой). Своих чисел нет.
+ */
+export function pietyRows(b: PietyBreakdown): TableRow[] {
+  const cut = b.value - b.raw;
+  const parts: { id: string; icon: string; name: string; hint: string; value: number }[] = [
+    { id: 'base', icon: '⛪', name: 'Основа', hint: 'с этого начинает любой приход', value: b.base },
+    ...b.lines,
+    ...(Math.abs(cut) > 0.001 ? [{ id: 'cut', icon: '🚧', name: 'Предел шкалы', hint: 'набожность держится в 0…100', value: cut }] : []),
+  ];
+  return parts.map((l) => ({
+    key: l.id,
+    cells: {
+      what: (
+        <span className="kit-name">
+          <span className="ic">{l.icon}</span>
+          <span className="one-line">{l.name}</span>
+        </span>
+      ),
+      n: <b className={l.value > 0 ? 'pos' : l.value < 0 ? 'neg' : ''}>{sign(l.value)}</b>,
+    },
+    tip: () => ({ title: l.name, body: l.hint }),
+  }));
 }
 
 /** Вера ещё не названа: мир не сказал, где стоит замок. Одни слова на храм и меню. */
@@ -78,10 +93,6 @@ export function Temple() {
   const value = Math.round(b.value);
   const rite = riteInfo(s);
   const heretical = value < PIETY_HERESY;
-  const priests = jobCounts(s).priest;
-
-  const up = b.lines.filter((l) => l.value >= 0).sort((a, c) => c.value - a.value);
-  const down = b.lines.filter((l) => l.value < 0).sort((a, c) => a.value - c.value);
 
   return (
     <>
@@ -101,22 +112,12 @@ export function Temple() {
         ⛪ Вера державы
       </button>
 
-      <h3>
-        Набожность <span className="muted">{value}</span>
-      </h3>
-      <div className={`progress ${heretical ? '' : 'good'}`} style={{ marginBottom: 10 }}>
-        <div style={{ width: `${Math.max(0, Math.min(100, value))}%` }} />
-      </div>
-      {heretical ? (
-        <div className="note">В приходе раскол, мораль падает. Помогут обряд и строгий устав.</div>
-      ) : (
-        <div className="note">Ниже {PIETY_HERESY} начнётся раскол, и мораль упадёт.</div>
-      )}
-
-      <h3>Что добавляет</h3>
-      <Lines lines={up} />
-      <h3>Что отнимает</h3>
-      <Lines lines={down} />
+      {/* Набожность — шкала с порогом словом и разбор одной таблицей: слагаемые складываются в итог (docs/ui_v2.md, 2.2;
+          UI-8, 5.7). Прежде — «Что добавляет» и «Что отнимает» двумя списками без итога. */}
+      <h3>Набожность</h3>
+      <Bar value={value} max={100} tone={heretical ? 'bad' : 'good'} marks={[{ at: PIETY_HERESY, label: 'раскол' }]} text={`${value} из 100`} />
+      {heretical && <div className="note">В приходе раскол, мораль падает. Помогут обряд и строгий устав.</div>}
+      <Table label="Набожность" cols={PIETY_COLS} rows={pietyRows(b)} total={{ what: 'Набожность', n: <b>{value}</b> }} />
       {s.faith.strain > 0 && strainDaysLeft(s) > 0 && (
         <div className="note">
           Надлом затянется сам за {waitDays(Math.ceil(strainDaysLeft(s)))}.
@@ -155,10 +156,7 @@ export function Temple() {
         <div className="note">Святыни нет. Её приносит купец или поход, уносит набег.</div>
       )}
 
-      <h3>
-        {def.priests} <span className="muted">{priests}</span>
-      </h3>
-      <div className="note">Служители держат набожность и мораль. Их ставят в ряд рабочих выше.</div>
+      {/* Служители — в ряду рабочих выше (Д10): их число и места — там, вклад в набожность — строкой таблицы выше. */}
     </>
   );
 }

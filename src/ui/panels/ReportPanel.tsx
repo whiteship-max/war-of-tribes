@@ -17,6 +17,8 @@ import { battleMusic } from '@/sound/web';
 import type { BattleRecord, Report } from '@/world/types';
 import { Icon } from '@/ui/icons/Icon';
 import { SIDE_VARS } from '@/side';
+import type { SiegeRecord } from '@/world/siegerecord';
+import type { SiegeClip } from '@/ui/battle/siege';
 
 /** Итог — в куске нового интерфейса (`ui/next/ReportNew`), как окно постройки: первая загрузка его не несёт. */
 const ReportBodyNew = lazy(() => import('@/ui/next').then((m) => ({ default: m.ReportBodyNew })));
@@ -87,6 +89,91 @@ function Replay({ rec, report, onDone }: ReplayProps) {
       </div>
     </div>,
     document.body,
+  );
+}
+
+type SiegeProps = { rec: SiegeRecord; report: Report; clip: SiegeClip | null; onDone: () => void };
+
+/**
+ * Ролик осады (docs/gfx.md, ГФ-2) — своим ленивым куском по «Смотреть осаду» и ролику эпизода, как ролик боя: в первую
+ * загрузку не едет, не приехал — говорит это, а донесение под ним остаётся.
+ */
+function SiegeWatch({ rec, report, clip, onDone }: SiegeProps) {
+  const [play, setPlay] = useState<ComponentType<SiegeProps> | 'wait' | 'lost'>('wait');
+  useEffect(() => {
+    let live = true;
+    import('@/ui/battle/SiegeReplay').then(
+      (m) => live && setPlay(() => m.SiegeReplay as ComponentType<SiegeProps>),
+      () => live && setPlay('lost'),
+    );
+    return () => {
+      live = false;
+    };
+  }, []);
+  if (typeof play !== 'string') {
+    const Play = play;
+    return <Play rec={rec} report={report} clip={clip} onDone={onDone} />;
+  }
+  return createPortal(
+    <div className="replay">
+      <div className="replay-caption">{play === 'wait' ? 'Ролик открывается…' : 'Нет связи, ролик не открылся. Донесение на месте.'}</div>
+      <div className="replay-controls">
+        <button className="btn" onClick={onDone}>
+          {play === 'wait' ? 'Пропустить' : 'Закрыть'}
+        </button>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+/** Кнопки ролика осады: вся осада и короткие ролики её эпизодов (пролом, бой, развязка). */
+function SiegeButtons({ report }: { report: Report & { siege: SiegeRecord } }) {
+  // Короткие ролики считает перевод записи (`ui/battle/siege.ts`) дверями мира и землёй боя — он едет своим куском, как
+  // ролик: в первую загрузку ни земля боя, ни вход сцены осады не попадают. Не приехал — есть кнопка всей осады.
+  const [clips, setClips] = useState<SiegeClip[]>([]);
+  useEffect(() => {
+    let live = true;
+    import('@/ui/battle/siege').then(
+      (m) => live && setClips(m.clipsOfSiege(report.siege)),
+      () => undefined,
+    );
+    return () => {
+      live = false;
+    };
+  }, [report.siege]);
+  const [playing, setPlaying] = useState<SiegeClip | 'all' | null>(null);
+  return (
+    <>
+      <div className="nx-rbtns">
+        <button
+          className="btn"
+          onClick={() => {
+            battleMusic.arm();
+            setPlaying('all');
+          }}
+        >
+          ▶️ Смотреть осаду
+        </button>
+      </div>
+      {clips.length > 1 && (
+        <div className="nx-rbtns siege-clips">
+          {clips.map((c) => (
+            <button
+              className="btn ghost"
+              key={`${c.kind}:${c.k}`}
+              onClick={() => {
+                battleMusic.arm();
+                setPlaying(c);
+              }}
+            >
+              ▶ {c.label}
+            </button>
+          ))}
+        </div>
+      )}
+      {playing && <SiegeWatch key={typeof playing === 'string' ? playing : `${playing.kind}:${playing.k}`} rec={report.siege} report={report} clip={playing === 'all' ? null : playing} onDone={() => setPlaying(null)} />}
+    </>
   );
 }
 
@@ -177,6 +264,7 @@ export function ReportPanel({ id }: { id: string }) {
       <Suspense fallback={null}>
         <ReportBodyNew report={report} />
       </Suspense>
+      {report.siege && <SiegeButtons report={report as Report & { siege: SiegeRecord }} />}
       {rec && (
         <>
           <div className="nx-rbtns">
@@ -212,7 +300,9 @@ export function ReportPanel({ id }: { id: string }) {
               Силы были несопоставимы, смотреть нечего. Журнал ниже.
             </p>
           )}
-          {watch && (
+          {/* Журнал — при «Смотреть бой» и при несопоставимых силах: тогда смотреть нечего, и строка выше обещает журнал ниже
+              (находка О7: прежде при «Сразу итог» обещание было, а журнала не было; UI-7, docs/ui_v2.md, 5.6). */}
+          {(watch || lopsided) && (
             <>
               <h3>Как это было</h3>
               <Journal rec={rec} />

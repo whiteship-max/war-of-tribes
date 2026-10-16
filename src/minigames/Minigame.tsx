@@ -15,18 +15,20 @@ import { probe } from '@/debug';
 import { dec } from '@/game/num';
 import { useGame } from '@/game/store';
 import { RESOURCE_IDS, RESOURCE_META } from '@/game/constants';
-import { seasonOf } from '@/game/derived';
+import { dayPartAt, seasonOf } from '@/game/derived';
 import { ENERGY_MAX, MINIGAME_BY_ID, MINIGAME_COST, type MinigameId } from '@/game/data/minigames';
 import { beginMinigame, canPlay, energyReadyIn, harvest, minigameHaul, minigameSeed, type Harvest, type Haul, type Outing } from '@/game/sim/minigames';
 import { Icon } from '@/ui/icons/Icon';
+import { DAY_PARTS } from '@/ui/icons/registry';
 import { realSpanText } from '@/ui/parts/wait';
 import { energyNow } from '@/ui/trades';
 import { BerriesPlay } from './berriesPlay';
 import { HerdPlay } from './herdPlay';
 import { BEASTS } from './herd';
 import { PIN_DISTS } from './hunt';
-import { GAME_SECONDS, LATE_SECONDS, shareOf, type Tally } from './rules';
+import { GAME_SECONDS, HOUR_PART, HOUR_WORDS, LATE_SECONDS, hourOf, shareOf, type Hour, type Tally } from './rules';
 import { LAST_TICKS, Stage, type Play, type StageView } from './stage';
+import { LAYOUT_OF, ZONES, buttonSide } from './pad';
 import { homeWater, weatherNow } from '@/ui/parts/weather';
 import type { Season } from '@/game/types';
 import { watchContext } from '@/render/context';
@@ -41,6 +43,8 @@ interface Place {
   /** У воды: море в дне пути или река у города, и климатический пояс региона (`weather.homeWater`). */
   shore: 'river' | 'sea';
   zone: ReturnType<typeof homeWater>['zone'];
+  /** Час города (`derived.dayPartAt` → `rules.hourOf`): свет промысла, клёв и чуткость оленя. */
+  hour: Hour;
 }
 
 /**
@@ -51,8 +55,8 @@ interface Place {
 const PLAYS: Record<MinigameId, (seed: number, place: Place) => Promise<Play>> = {
   berries: async (seed) => new BerriesPlay(seed),
   herd: async (seed) => new HerdPlay(seed),
-  hunt: async (seed) => new (await import('./huntPlay')).HuntPlay(seed),
-  fish: async (seed, p) => new (await import('./fishPlay')).FishPlay(seed, { shore: p.shore, zone: p.zone, season: p.season, rain: p.rain }),
+  hunt: async (seed, p) => new (await import('./huntPlay')).HuntPlay(seed, p.hour),
+  fish: async (seed, p) => new (await import('./fishPlay')).FishPlay(seed, { shore: p.shore, zone: p.zone, season: p.season, rain: p.rain, hour: p.hour }),
 };
 
 /** Килограммы с запятой и одной цифрой после неё: «2,4» — дробь одной дверью (`game/num.dec`). */
@@ -61,14 +65,57 @@ const kg = (grams: number): string => dec(grams / 1000, 1);
 /** Сколько «Уйти» ждёт второго касания: столько же, сколько «Точно?» окна постройки (`next/Confirm`). */
 const LEAVE_MS = 3000;
 
-/** Что считает игра — подписью счёта и итога. */
-const TALLY_WORDS: Record<MinigameId, { short: (t: Tally) => string; done: (t: Tally) => string }> = {
-  berries: { short: (t) => `Ягод ${t.got}`, done: (t) => `Собрано ${t.got} из ${t.total}` },
-  herd: { short: (t) => `Охапок ${t.got} из ${t.total}`, done: (t) => `Отдано охапок ${t.got} из ${t.total}` },
-  hunt: { short: (t) => `Оленей ${t.got} из ${t.total}`, done: (t) => `Добыто оленей ${t.got} из ${t.total}` },
+/**
+ * Что считает игра — подписью счёта и итога; `bonus` — прибавка (серия и редкая добыча, `rules.Tally`), строкой итога,
+ * если на поле её было можно взять.
+ */
+const TALLY_WORDS: Record<MinigameId, { short: (t: Tally) => string; done: (t: Tally) => string; bonus: (t: Tally) => string }> = {
+  berries: { short: (t) => `Ягод ${t.got}`, done: (t) => `Собрано ${t.got} из ${t.total}`, bonus: (t) => `Сверху ягод ${t.bonus ?? 0} из ${t.bonusMax ?? 0}` },
+  herd: {
+    short: (t) => `Охапок ${t.got} из ${t.total}`,
+    done: (t) => `Отдано охапок ${t.got} из ${t.total}`,
+    bonus: (t) => ((t.bonus ?? 0) > 0 ? `Ягнёнок сыт, сверху ${t.bonus}` : 'Ягнёнок остался голодным'),
+  },
+  hunt: {
+    short: (t) => `Оленей ${t.got} из ${t.total}`,
+    done: (t) => `Добыто оленей ${t.got} из ${t.total}`,
+    bonus: (t) => ((t.bonus ?? 0) > 0 ? `Белый олень добыт, сверху ${t.bonus}` : 'Белый олень ушёл'),
+  },
   // Счёт рыбалки — граммы улова до цели (`fishing.Fishing.tally`): словами — килограммы.
-  fish: { short: (t) => `Улов ${kg(t.got)} из ${kg(t.total)} кг`, done: (t) => `Улов ${kg(t.got)} из ${kg(t.total)} кг` },
+  fish: {
+    short: (t) => `Улов ${kg(t.got)} из ${kg(t.total)} кг`,
+    done: (t) => `Улов ${kg(t.got)} из ${kg(t.total)} кг`,
+    bonus: (t) => `Серия сверху ${kg(t.bonus ?? 0)} из ${kg(t.bonusMax ?? 0)} кг`,
+  },
 };
+
+/**
+ * Час на карточке начала: что он значит для этой игры. У «Рыбалки» и «Охоты» час — дело (клёв, чуткость оленя:
+ * `fishing.HOUR_BITE`, `hunt.HOUR_EAR`), у «Ягод» и «Скота» — только свет.
+ */
+const HOUR_NOTE: Record<MinigameId, Record<Hour, string>> = {
+  berries: { dawn: 'роса на кустах', day: 'солнце высоко', dusk: 'низкое солнце', night: 'светит луна' },
+  herd: { dawn: 'стадо бодрое', day: 'солнце высоко', dusk: 'стадо ждёт корма', night: 'светит луна' },
+  hunt: { dawn: 'олени смелы', day: 'олени чутки', dusk: 'олени смелы', night: 'темно, олени смелы' },
+  fish: { dawn: 'клюёт бойко', day: 'клюёт лениво', dusk: 'клюёт бойко', night: 'клюёт вяло' },
+};
+
+/**
+ * Подписи-указатели первого входа (слово владельца, этап 6): у пальца движения и у кнопки действия — что они делают.
+ * Гаснут по делу — когда палец повели и кнопку нажали (`StageView.used`), — или по сроку (`COACH_MS`).
+ */
+export const COACH: Record<MinigameId, { pad: string; act: string }> = {
+  berries: { pad: 'Веди пальцем — шаг и поворот', act: 'У куста жми — собрать' },
+  herd: { pad: 'Веди пальцем — шаг и поворот', act: 'Жми у стога и у голодного' },
+  hunt: { pad: 'Веди — поворот и шаг, с луком — прицел', act: 'Держи — тетива, отпусти — выстрел' },
+  fish: { pad: 'Пальцем вбок — куда и удилище', act: 'Держи — замах, отпусти — заброс' },
+};
+
+/** Сколько подписи-указатели стоят, если игрок не тронул ни палец, ни кнопку. */
+const COACH_MS = 12000;
+
+/** Какие игры уже показывали подписи-указатели. Удобство одного устройства, как «как играть». */
+const COACH_KEY = 'tribe.minigames.coach';
 
 /** «15, 25 и 35» — числа списка словами, последнее через «и». */
 const listWords = (xs: readonly number[]): string =>
@@ -94,12 +141,12 @@ export const verdictOf = (game: MinigameId, share: number): string => {
   return v[3];
 };
 
-/** Подсказка на первые секунды: как ходить и как держать лук. */
+/** Подсказка на первые секунды: где палец движения и где кнопка. */
 const HINT: Record<MinigameId, string> = {
-  berries: 'Слева шаг, справа взгляд',
-  herd: 'Слева шаг, справа взгляд',
-  hunt: 'Справа прижми, веди и отпусти',
-  fish: 'Тяни вниз и отпусти — заброс',
+  berries: 'Слева шаг и поворот, справа кнопка',
+  herd: 'Слева шаг и поворот, справа кнопка',
+  hunt: 'Слева тетива, справа поворот и прицел',
+  fish: 'Справа заброс, слева куда',
 };
 
 /**
@@ -109,24 +156,24 @@ const HINT: Record<MinigameId, string> = {
  */
 export const HOW: Record<MinigameId, readonly string[]> = {
   berries: [
-    'Левый палец — шаг, правый — взгляд. Нажми у куста, и он обобран целиком',
-    'Сначала спелые кусты. Зелёная ягода в корзину не идёт и пропадёт',
-    'Ягоды зреют на глазах. Поздние кусты оставь под конец',
+    'Левый палец — шаг и поворот. У куста жми кнопку справа — он обобран целиком',
+    'Сначала спелые кусты. Зелёная ягода пропадёт, а чистые кусты подряд дают ягоду сверху',
+    'Ягоды зреют на глазах. Земляника редка, и каждая её ягода идёт вдвойне',
   ],
   herd: [
-    'Левый палец — шаг, правый — взгляд',
-    'Нажми у стога — возьмёшь охапку. Нажми у голодного — он поест',
-    `Овце и козе хватит охапки, корове надо ${BEASTS.cow.need}. Сытые ложатся`,
+    'Левый палец — шаг и поворот, кнопка справа — взять и отдать охапку',
+    'Жми у стога — возьмёшь охапку. Жми у голодного — он поест',
+    `Овце и козе хватит охапки, корове надо ${BEASTS.cow.need}. Ягнёнок — вдвойне`,
   ],
   hunt: [
-    'Левый палец — шаг. Пока олень щиплет траву, подкрадись ближе',
-    'Прижми справа и тяни тетиву, веди — прицел, отпусти — выстрел',
-    `Метки ${listWords(PIN_DISTS)} шагов — поправка на дальность. Держишь долго — дрожат руки`,
+    'Левой держи «Натянуть», отпусти — выстрел. Пока олень щиплет траву, подкрадись',
+    'Правый палец — поворот и шаг. С натянутым луком он ведёт прицел вверх и вниз',
+    `Метки ${listWords(PIN_DISTS)} шагов — поправка на дальность. Белый олень — вдвойне`,
   ],
   fish: [
-    'Тяни вниз — замах, веди вбок — куда, отпусти — заброс. Мимо травы и коряг',
-    'Поплавок дрожит — жди. Ушёл под воду — жми сразу, это подсечка',
-    'Держи — тянешь, отпусти на рывке — рыба возьмёт леску. На красной шкале леска лопнет',
+    'Держи «Заброс» справа — сила, отпусти — бросок. Левый палец вбок — куда. Мимо травы и коряг',
+    'Поплавок дрожит — жди. Ушёл под воду — сразу «Подсечь»',
+    'Держи «Тянуть», отпускай на рывке, пальцем вбок — удилище. Рыбы подряд — улов сверху',
   ],
 };
 
@@ -141,6 +188,24 @@ function howSeen(game: MinigameId): boolean {
   }
 }
 
+function coachSeen(game: MinigameId): boolean {
+  try {
+    return (localStorage.getItem(COACH_KEY) ?? '').split(',').includes(game);
+  } catch {
+    return false;
+  }
+}
+
+function markCoach(game: MinigameId): void {
+  try {
+    const seen = new Set((localStorage.getItem(COACH_KEY) ?? '').split(',').filter(Boolean));
+    seen.add(game);
+    localStorage.setItem(COACH_KEY, [...seen].join(','));
+  } catch {
+    // Приватное окно без хранилища: подписи покажутся снова — не беда.
+  }
+}
+
 function markHow(game: MinigameId): void {
   try {
     const seen = new Set((localStorage.getItem(HOW_KEY) ?? '').split(',').filter(Boolean));
@@ -150,6 +215,12 @@ function markHow(game: MinigameId): void {
     // Приватное окно без хранилища: подсказка покажется снова — не беда.
   }
 }
+
+/** Подпись кнопки действия: глагол — первым словом крупно, что тронет — строкой ниже («Накормить» · «овцу»). */
+export const actWords = (label: string): [string, string] => {
+  const i = label.indexOf(' ');
+  return i < 0 ? [label, ''] : [label.slice(0, i), label.slice(i + 1)];
+};
 
 /** Секунды отсчёта: «0:47». */
 const clock = (left: number): string => `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`;
@@ -183,6 +254,13 @@ export function Minigame({ game, onExit }: { game: MinigameId; onExit: () => voi
   const [result, setResult] = useState<Harvest | string | null>(null);
   const [hint, setHint] = useState(true);
   const [how, setHow] = useState(() => !howSeen(game));
+  // Подписи-указатели — при первом входе в игру; дальше — нет (`COACH_KEY`).
+  const [coach, setCoach] = useState(() => !coachSeen(game));
+  // Час — на входе, как зерно: свет и клёв не меняются посреди игры (`rules.hourOf`).
+  const [hour] = useState<Hour>(() => hourOf(dayPartAt(useGame.getState().s.time)));
+  const layout = LAYOUT_OF[game];
+  const padSide = ZONES[layout].left === 'pad' ? 'left' : 'right';
+  const actSide = buttonSide(layout);
   const [leave, setLeave] = useState(false);
   /**
    * Номер сборки сцены. Контекст WebGL умер и не вернулся в срок (`render/context.ts`): не начатая игра собирается
@@ -239,14 +317,15 @@ export function Minigame({ game, onExit }: { game: MinigameId; onExit: () => voi
     };
     const st0 = useGame.getState().s;
     const wx = weatherNow(st0);
-    const place: Place = { season: seasonOf(st0.time), wind: wx.wind, rain: wx.rain, ...homeWater() };
+    const place: Place = { season: seasonOf(st0.time), wind: wx.wind, rain: wx.rain, ...homeWater(), hour };
     void PLAYS[game](seed, place).then((play) => {
       if (!alive) {
         play.dispose();
         return;
       }
       // Ветер в траве и кронах — погоды города в эту минуту (`weather.weatherNow`), той же, что слышит фон.
-      wire(new Stage(canvas, play, GAME_SECONDS[game], place.season, place.wind));
+      // Час города — свет промысла (`stage.solarOf`): сторона солнца та же, меняются высота и цвет.
+      wire(new Stage(canvas, play, GAME_SECONDS[game], place.season, place.wind, place.hour));
     });
     canvas.addEventListener('pointerdown', drop, { once: true });
     ro.observe(wrap);
@@ -268,7 +347,15 @@ export function Minigame({ game, onExit }: { game: MinigameId; onExit: () => voi
       canvas.remove();
       stageRef.current = null;
     };
-  }, [game, seed, gen]);
+  }, [game, seed, gen, hour]);
+
+  // Подписи-указатели стоят, пока палец и кнопку не тронули, но не дольше `COACH_MS` от «Начать».
+  const playing = view?.phase === 'play';
+  useEffect(() => {
+    if (!playing || !coach) return;
+    const t = setTimeout(() => setCoach(false), COACH_MS);
+    return () => clearTimeout(t);
+  }, [playing, coach]);
 
   // «Уйти» ждёт второго касания три секунды.
   useEffect(() => {
@@ -294,10 +381,13 @@ export function Minigame({ game, onExit }: { game: MinigameId; onExit: () => voi
     if (!ok) return;
     g.save();
     markHow(game);
+    markCoach(game);
     stage.begin();
   };
 
   const phase = view?.phase ?? 'brief';
+  // Подписи-указатели ещё стоят: хоть палец, хоть кнопку игрок не трогал.
+  const coaching = coach && !!view && (!view.used.pad || !view.used.act);
   const words = TALLY_WORDS[game];
   const meter = probe() || new URLSearchParams(window.location.search).has('fps');
 
@@ -314,7 +404,7 @@ export function Minigame({ game, onExit }: { game: MinigameId; onExit: () => voi
           <i className="mg-ring" />
           <i className="mg-dot" />
           {/* Попал — крест вспыхивает на прицеле и гаснет: отклик в том месте, куда смотрит глаз. */}
-          {view?.note === 'Попал' && <i className="mg-hit" />}
+          {view?.note.startsWith('Попал') && <i className="mg-hit" />}
         </div>
       )}
 
@@ -334,11 +424,17 @@ export function Minigame({ game, onExit }: { game: MinigameId; onExit: () => voi
               {clock(view.left)}
             </span>
             {/* Счёт прыгает на каждое очко: ключ — само число, анимация играет заново. */}
-            <span className="mg-chip mg-score" key={`score-${view.tally.got}`}>
+            <span className="mg-chip mg-score" key={`score-${view.tally.got}-${view.tally.bonus ?? 0}`}>
               <Icon name={`mini-${game}`} glyph={def.glyph} />
               {words.short(view.tally)}
             </span>
             {view.aside && <span className="mg-chip">{view.aside}</span>}
+            {/* Серия удач — с двух подряд: ключ — длина, ячейка прыгает на каждую удачу. */}
+            {view.streak >= 2 && (
+              <span className="mg-chip mg-streak" key={`streak-${view.streak}`}>
+                Серия {view.streak}
+              </span>
+            )}
             <span className="mg-grow" />
             <button
               className={`mg-leave${leave ? ' armed' : ''}`}
@@ -351,15 +447,22 @@ export function Minigame({ game, onExit }: { game: MinigameId; onExit: () => voi
             </button>
           </div>
           {view.note && <div className="mg-note">{view.note}</div>}
-          <div className="mg-bottom">
-            {view.verb ? (
-              <span className="mg-chip mg-verb">Нажми — {view.verb.toLowerCase()}</span>
-            ) : view.cue ? (
-              <span className="mg-chip mg-verb">{view.cue}</span>
-            ) : (
-              hint && <span className="mg-hint">{HINT[game]}</span>
-            )}
+          {/* Строка «что делать» и подсказка первых секунд — когда подписей-указателей уже нет: те стоят на её месте. */}
+          {!coaching && <div className="mg-bottom">{view.cue ? <span className="mg-chip mg-verb">{view.cue}</span> : hint && <span className="mg-hint">{HINT[game]}</span>}</div>}
+          {/*
+            Руки (docs/minigames.md, 18.1, `pad.ts`): кружок пальца движения в своём углу и кнопка действия в другом.
+            Оба — рисунок: касание ловит холст всей половиной (`pad.zoneAt`), а судит — сцена; кнопку под большим
+            пальцем не ищут глазами.
+          */}
+          <div className={`mg-pad ${padSide}`} aria-hidden="true">
+            <i />
           </div>
+          <div className={`mg-act ${actSide}${view.act.ready ? '' : ' off'}${view.act.on ? ' on' : ''}${view.act.hold ? ' hold' : ''}`} aria-hidden="true">
+            <b>{actWords(view.act.label)[0]}</b>
+            {actWords(view.act.label)[1] && <small>{actWords(view.act.label)[1]}</small>}
+          </div>
+          {coaching && !view.used.pad && <div className={`mg-coach ${padSide}`}>{COACH[game].pad}</div>}
+          {coaching && !view.used.act && <div className={`mg-coach ${actSide} act`}>{COACH[game].act}</div>}
         </>
       )}
 
@@ -372,6 +475,10 @@ export function Minigame({ game, onExit }: { game: MinigameId; onExit: () => voi
             <b>{def.name}</b>
           </div>
           <p>{def.goal}</p>
+          <p className="mg-hour">
+            <Icon name={DAY_PARTS[HOUR_PART[hour]].name} glyph={DAY_PARTS[HOUR_PART[hour]].glyph} />
+            {HOUR_WORDS[hour]} — {HOUR_NOTE[game][hour]}
+          </p>
           {how ? (
             <ol className="mg-how" aria-label="Как играть">
               {HOW[game].map((line) => (
@@ -416,6 +523,7 @@ export function Minigame({ game, onExit }: { game: MinigameId; onExit: () => voi
             <b>{words.done(view.tally)}</b>
           </div>
           <i className="mg-verdict">{verdictOf(game, shareOf(view.tally))}</i>
+          {(view.tally.bonusMax ?? 0) > 0 && <small className="mg-muted">{words.bonus(view.tally)}</small>}
           {result && typeof result !== 'string' && (
             <>
               {/* Доля от предела — та же, что ушла в начисление (`shareOf` → `harvest`): полоса и число одной функцией. */}

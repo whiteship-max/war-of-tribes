@@ -30,9 +30,9 @@ describe('карточка клетки нового вида: за краем �
     }
   });
 
-  it('раскладка дружины — строкой-входом в окно «Дружины» в карточке своего замка', () => {
+  it('раскладка дружины — строкой-входом в «Дружину» в карточке своего замка', () => {
     // Прежняя карточка, через которую он шёл (`panels/WorldPanel.OwnGarrison`), удалена (docs/ui_audit.md, 16); прежний
-    // редактор здесь же (`parts/GarrisonEditor`) — тоже: окно раскладки одно, в «Дружине» (docs/retinue.md).
+    // редактор здесь же (`parts/GarrisonEditor`) — тоже: передача одна, в «Дружине» (docs/retinue.md, docs/ui_v2.md, 5.3).
     expect(src).toMatch(/card\.mine && <MusterLink \/>/);
     expect(src.match(/<MusterLink\b/g)?.length, 'показана один раз').toBe(1);
   });
@@ -95,7 +95,8 @@ describe('весть нового вида', () => {
     const card = mail.slice(mail.indexOf('function DispatchCardNew'));
     expect(card).toContain('{d.silence}');
     expect(card).toContain('useRaidWords()');
-    expect(card).toContain("buildingOfType(s, 'statue')");
+    // «Дружина» — окно дружины: гарнизон и отряд полководца там с UI-4 (прежде — Статуя; docs/ui_v2.md, 5.6).
+    expect(card).toContain('goTo(WINDOW.army)');
     expect(card).toContain('openMap()');
   });
 });

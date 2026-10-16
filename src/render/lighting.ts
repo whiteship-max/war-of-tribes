@@ -262,6 +262,19 @@ function setSun(out: THREE.Vector3, azimuth: number, elevation: number): void {
  *
  * `look` — числа ночи (`RIG`); без него — нынешние, и кадр тот же, что до выключателя.
  */
+/**
+ * На сколько радиан уходит азимут солнца на долю круга: от рассвета до заката — чуть больше полуоборота. Своим именем —
+ * ради тех, кто держит солнце на месте и меняет только час (`keyHolding`).
+ */
+export const AZIMUTH_PER_SOLAR = 1.25;
+
+/**
+ * Ключ азимута, при котором солнце часа `solar` стоит по ту же сторону, что солнце часа `anchor`: час меняет высоту и
+ * цвет солнца, а не сторону, откуда оно светит. Нужно сценам, поставленным под свет (берег рыбалки к солнцу, охотник
+ * спиной к нему), — промыслам в любой час города (docs/minigames.md, 18).
+ */
+export const keyHolding = (solar: number, anchor: number, key: number = KEY_AZIMUTH): number => key + (anchor - solar) * AZIMUTH_PER_SOLAR;
+
 export function applyDayNight(
   rig: LightRig,
   scene: THREE.Scene,
@@ -285,7 +298,7 @@ export function applyDayNight(
   // Предрассветная четверть — уже утро: солнце встаёт с той стороны, откуда взойдёт, а не
   // прыгает с вечерней за один кадр (у прежнего вида прыжок остаётся — его кадр не трогаем).
   const sp = look.smoothDay && solar > 0.75 ? solar - 1 : solar;
-  const azimuth = key + (sp - 0.25) * 1.25;
+  const azimuth = key + (sp - 0.25) * AZIMUTH_PER_SOLAR;
   setSun(SUN_POS, azimuth, elevation);
   setSun(MOON_POS, key + 0.6, look.moonElevation * DEG);
   rig.sun.position.copy(SUN_POS).lerp(MOON_POS, nightK);

@@ -3,7 +3,8 @@
 import { describe, expect, it } from 'vitest';
 import { standBattle } from '../battle-stand';
 import { twPlanOfRecord } from './record';
-import { figureFrame, poseFigures, slotUses, type TwPlan } from './plan';
+import { poseFigures, slotUses, type TwPlan } from './plan';
+import { figureFrame } from '../reel/troupe';
 import { OPENING_KINDS, inWallBody, type TwOpening } from './site';
 import { OPENING_IDS } from '@/world/wall';
 

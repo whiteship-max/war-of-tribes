@@ -5,8 +5,9 @@
 // перед сшибкой, грохот удара — там, где строи сошлись, залп — с лучников в миг срыва, свист — туча в полёте, стук — где она
 // ложится, крик бегущих — у отряда в миг слома, рог победителя — после слома побеждённых. Гул сечи, лязг и конский топот —
 // из кадра фигур (`ambienceAt`): сколько рубится, где и сколько коней в ходу. Тот же журнал — та же раскладка.
-import { ARROW_FLIGHT, CLIPS, RUN_LAST, figurePose, figureState, targetOf, unitPose, type FigureFrame, type TwPlan, type TwUnit } from './plan';
-import { hash } from './terrain';
+import { ARROW_FLIGHT, RUN_LAST, figurePose, figureState, targetOf, unitPose, type TwPlan, type TwUnit } from './plan';
+import { CLIPS, type FigureFrame } from '../reel/troupe';
+import { hash } from '../reel/terrain';
 
 export type CueKind =
   | 'horn'

@@ -30,6 +30,31 @@ export const STAGE2 = [
   'next/Trades.tsx',
   'realm/RealmNew.tsx',
   'alertItems.ts',
+  // UI-2 (docs/ui_v2.md, раздел 5): ратуша «Стройка» одной сеткой и лист постройки.
+  'next/Hall.tsx',
+  'next/hall.ts',
+  'next/output.ts',
+  // UI-5 (docs/ui_v2.md, 5.4): окно «Жители» — сводка и места работы; невольники — в «Порядке».
+  'next/people.ts',
+  'panels/PeoplePanel.tsx',
+  'parts/Bonded.tsx',
+  // UI-7 (docs/ui_v2.md, 5.6): остальные экраны по общим правилам — указы одной копией, ратуша под сеткой.
+  'realm/decrees.ts',
+  'realm/dispatch.ts',
+  'next/MarketNew.tsx',
+  'map/Legend.tsx',
+  'parts/SiegeAnswers.tsx',
+  'parts/SiegeParley.tsx',
+  'parts/SiegePhases.tsx',
+  'next/HallGives.tsx',
+  'parts/TownHall.tsx',
+  // UI-8 (docs/ui_v2.md, 5.7): «Что даёт городу» таблицей, «Мораль» одной таблицей цели, «Порядок» вкладками, Дозор и храм.
+  'next/gives.ts',
+  'next/morale.ts',
+  'panels/OrderPanel.tsx',
+  'parts/Watch.tsx',
+  'parts/Temple.tsx',
+  'parts/AgentPlaces.tsx',
 ];
 
 /**

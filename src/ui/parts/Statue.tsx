@@ -1,7 +1,7 @@
 import { useGame } from '@/game/store';
 import { payGraceDays } from '@/game/derived';
 import { seated } from '@/game/sim/agents';
-import { MusterLink } from './Muster';
+import { MusterLink } from './MusterLink';
 import { AgentCard } from './AgentCard';
 import { Lineage } from './Lineage';
 import { waitDays } from './wait';
@@ -42,7 +42,7 @@ export function Statue() {
         <div className="note">Полководца нет, и дружина не выходит из города. Найми его ниже.</div>
       )}
 
-      {/* Кто с полководцем — окно раскладки в «Дружине», одно на всю игру (docs/retinue.md). */}
+      {/* Кто с полководцем — передача в «Дружине», одна на всю игру (docs/retinue.md, docs/ui_v2.md, 5.3): здесь строка-вход. */}
       {here && <MusterLink />}
 
       <Lineage id="general" />

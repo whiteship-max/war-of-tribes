@@ -32,8 +32,13 @@ describe('город: сцена', () => {
     expect(from, 'общий сторож есть').toBeGreaterThan(0);
     const watch = shell.slice(from, shell.indexOf('\n  }\n', from));
     expect(watch, 'судит, когда город встал').toMatch(/if \(!this\.steady \|\| !this\.settled\(\)\) return;/);
-    expect(watch, 'плотность — сразу').toMatch(/this\.dprLevel = next;/);
-    expect(watch, 'уровень — в память устройства').toMatch(/rememberAutoCap\(next, serverNow\(\)\)/);
+    // Опускает одной дверью с роликом боя (`lowerTo`, ГФ-1): сторож ролика опускает тот же уровень города.
+    expect(watch, 'опускает дверью lowerTo').toMatch(/this\.lowerTo\(next\);/);
+    const at = shell.indexOf('  lowerTo(next: Quality): void {');
+    expect(at, 'дверь опускания есть').toBeGreaterThan(0);
+    const lower = shell.slice(at, shell.indexOf('\n  }\n', at));
+    expect(lower, 'плотность — сразу').toMatch(/this\.dprLevel = next;/);
+    expect(lower, 'уровень — в память устройства').toMatch(/rememberAutoCap\(next, serverNow\(\)\)/);
     // И читает её, когда собирается: уровень по устройству — не выше памяти сторожа.
     expect(shell, 'память читается при сборке').toMatch(/capQuality\(autoQuality\(deviceCaps\(gpuName\(this\.renderer\.getContext\(\)\)\)\), autoCap\(serverNow\(\)\)\)/);
   });

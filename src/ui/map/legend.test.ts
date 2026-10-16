@@ -16,6 +16,8 @@ import { HOST_ROWS, PLACE_ROWS } from './tw/legend';
 import { hostMarkOf, placeMarkOf } from './tw/scene';
 import { badgeLook, type BadgeKind, type MarkLook } from './tw/marks';
 import type { SettlementView } from '@/world/types';
+import { TERRAIN_META, TERRAIN_ORDER } from '@/world/data/terrain';
+import { landRows } from './Legend';
 
 const strip = (src: string): string =>
   src
@@ -23,8 +25,10 @@ const strip = (src: string): string =>
     .replace(/\{\/\*[\s\S]*?\*\/\}/g, ' ')
     .replace(/(^|[^:])\/\/.*$/gm, '$1');
 
-// Легенда — окно в `WorldMap.tsx` и строки значков в `tw/legend.ts`: обещания ищутся в обоих.
-const map = strip(readFileSync(join(__dirname, 'WorldMap.tsx'), 'utf8') + readFileSync(join(__dirname, 'tw/legend.ts'), 'utf8'));
+// Легенда — окно `Legend.tsx` (с UI-7; прежде — в `WorldMap.tsx`) и строки значков в `tw/legend.ts`: обещания ищутся во всех.
+const map = strip(
+  ['WorldMap.tsx', 'Legend.tsx', 'tw/legend.ts'].map((f) => readFileSync(join(__dirname, f), 'utf8')).join('\n'),
+);
 
 describe('легенда карты', () => {
   it('трактов в мире нет — и строки «Тракт» в легенде нет', () => {
@@ -67,5 +71,18 @@ describe('легенда карты', () => {
     for (const m of drawn) expect(shown.has(key(m)), `в легенде есть ${key(m)}`).toBe(true);
     // И не обещает разорённого: огня в углу (разорено) ни у одной строки нет.
     for (const r of [...PLACE_ROWS, ...HOST_ROWS]) expect(r.mark.corner, r.name).toBeNull();
+  });
+});
+
+describe('земля в легенде — одна цена, одна строка (UI-7, Л8)', () => {
+  it('каждая местность — ровно в одной строке; двух строк с одной ценой нет; холмы и горы — одной строкой', () => {
+    const rows = landRows();
+    const seen = rows.flatMap((r) => r.names);
+    expect([...seen].sort()).toEqual([...TERRAIN_ORDER].sort());
+    expect(new Set(rows.map((r) => r.cost)).size, 'цены строк разные').toBe(rows.length);
+    for (const r of rows) for (const t of r.names) expect(TERRAIN_META[t].cost, t).toBe(r.cost);
+    // Область: две местности одной цены в мире есть — нарочно (условие владельца, `world/data/terrain.ts`).
+    const hills = rows.find((r) => r.names.includes('hills'))!;
+    expect(hills.names).toEqual(['hills', 'mountains']);
   });
 });

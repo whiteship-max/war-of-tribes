@@ -5,8 +5,8 @@
 // Своего счёта здесь нет ни строки, и своих экранов тоже: каждый наполненный
 // раздел — те же компоненты, что стоят у зданий и в справках строки состояния.
 // Экран у решения один, входов к нему может быть несколько (docs/handbook/ui.md,
-// «Диегетический интерфейс»): налог в меню и налог в ратуше — один `Manage`,
-// состав войска — один `ArmyPanel`, жалованье — один `Upkeep`.
+// «Диегетический интерфейс»): указы — одни на игру (`RealmTabs.DecreesNew`; вкладка ратуши, их вторая копия, снята
+// в UI-7), состав войска — один `ArmyPanel`, жалованье — один `Upkeep`.
 //
 // Правило, что куда: **то, что относится к державе целиком, — здесь; то, что
 // игрок делает, стоя у здания, — у здания.** Заказать улучшение можно и отсюда,
@@ -19,12 +19,9 @@ import { useEffect, useRef } from 'react';
 import { useGame } from '@/game/store';
 import { buildingOfType, woundedStacks } from '@/game/derived';
 import { troopTotal } from '@/game/battle/kinds';
-import { Manage } from '../parts/TownHall';
 import { TownBuild } from '../parts/TownBuild';
 import { RealmFaith } from '../parts/Temple';
 import { Upkeep } from '../parts/Barracks';
-import { Bonded } from '../panels/PeoplePanel';
-import { OrderPanel } from '../panels/OrderPanel';
 import { ArmyPanel } from '../panels/ArmyPanel';
 import { ProfilePanel } from '../panels/ProfilePanel';
 import { Mail } from './Mail';
@@ -34,6 +31,7 @@ import { useRealm, type RealmView } from './open';
 import { REALM_TABS, type RealmTab } from './tabs';
 import { QuestsPanel } from '../panels/QuestsPanel';
 import { RealmNew } from './RealmNew';
+import { DecreesNew } from './RealmTabs';
 
 /** Меню державы (`RealmNew`); прежний вид удалён вместе с прежним интерфейсом (docs/ui_audit.md, 16). */
 export function RealmMenu() {
@@ -66,7 +64,7 @@ export function Section({ view }: { view: RealmView }) {
     case 'lineage':
       return <RulerTab />;
     case 'government':
-      return <Government />;
+      return <DecreesNew />;
     case 'building':
       return (
         <div className="panel">
@@ -98,29 +96,6 @@ function Closed({ tab }: { tab: RealmTab }) {
       <div className="big">{def.icon}</div>
       <h3>{def.name}</h3>
     </div>
-  );
-}
-
-/**
- * Правительство: указ, паёк, налог и казна (тот же `Manage`, что во вкладке
- * «Указы» ратуши), порядок с тревогой, ропотом, мятежом и стражей (та же
- * справка, что по ячейке порядка) и невольники (тот же раздел, что в «Племени»).
- */
-function Government() {
-  const s = useGame((g) => g.s);
-  const hall = buildingOfType(s, 'town_hall');
-  return (
-    <>
-      {hall && (
-        <div className="panel">
-          <Manage b={hall} />
-        </div>
-      )}
-      <OrderPanel />
-      <div className="panel">
-        <Bonded />
-      </div>
-    </>
   );
 }
 

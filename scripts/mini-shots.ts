@@ -13,9 +13,15 @@
 //   FIT=1 npm run mini:shots            — верхняя строка на 375 и 390 px одним заходом: обычные и четырёхзначные числа,
 //                                         с ячейкой порядка и без; влезает ли строка, не переполнена ли ячейка, и снимок
 //                                         строки на каждый случай
+//   RARE=1 npm run mini:shots           — сид партии, у которой редкое есть во всех трёх полях: земляника, ягнёнок,
+//                                         белый олень (`minigameSeed` новой партии, энергия полна)
+//   HOUR=night npm run mini:shots       — час города (`dawn`, `day`, `dusk`, `night`): свет промысла и строка часа на
+//                                         карточке начала (docs/minigames.md, 18)
 //   BUDGET=1 npm run mini:shots         — бюджет кадра счётом по графу сцены, без браузера (`world.frameCost`), дуга
-//                                         стрелы «Охоты»: метки прицела, полёт и падение на их далях, и рыбалка: цели по
-//                                         берегу, поясу и сезону, секунды вываживания средней рыбы каждого вида
+//                                         стрелы «Охоты»: метки прицела, полёт и падение на их далях, рыбалка: цели по
+//                                         берегу, поясу и сезону, секунды вываживания средней рыбы каждого вида, и щуп
+//                                         добычи за выход: прежние правила против этапа 6 у трёх рук на 200 зёрнах
+//                                         (`SEEDS=` — другой набор)
 //
 // Снимки — в `.mini-shots/` (в репозиторий не входит). Бюджет железа (CLAUDE.md, раздел ⛔): один прогон, браузер с
 // потолком кадров отчёта, не дольше двух минут на заход, минута остывания видеокарты перед заходом; рядом с чужой
@@ -47,6 +53,41 @@ const LOOK = process.env.LOOK ?? '';
 
 /** Сезон города — сдвигом игрового времени партии: у сезона своего поля нет, он выводится из `s.time`. */
 const SEASON_AT: Record<string, number> = { spring: 0, summer: 1, autumn: 2, winter: 3 };
+/** Час города (`rules.Hour`): время партии ставится в середину этой части суток — той же функцией, что у игры. */
+const HOUR = process.env.HOUR ?? '';
+
+/** Сид партии, у которой первый выход в «Ягоды», «Скот» и «Охоту» — с редким (`minigameSeed` при полной энергии). */
+async function rareSeed(): Promise<number> {
+  const { minigameSeed } = await import('../src/game/sim/minigames');
+  const { layBerries } = await import('../src/minigames/berries');
+  const { herdOf } = await import('../src/minigames/herd');
+  const { layHunt } = await import('../src/minigames/hunt');
+  type S = Parameters<typeof minigameSeed>[0];
+  for (let seed = 1; seed < 100000; seed++) {
+    const s = { seed } as S;
+    if (!layBerries(minigameSeed(s, 'berries'), { rare: true }).bushes.some((b) => b.kind === 'strawberry')) continue;
+    if (!herdOf(minigameSeed(s, 'herd'), { rare: true }).beasts.some((b) => b.kind === 'lamb')) continue;
+    if (!layHunt(minigameSeed(s, 'hunt'), true).deer.some((d) => d.white)) continue;
+    return seed;
+  }
+  throw new Error('RARE=1: сида с редким во всех трёх полях не нашлось');
+}
+
+/** Время партии: сезон `season` (по умолчанию — лето), середина части суток, где час промысла — `hour`. */
+async function timeAt(season: string, hour: string): Promise<number> {
+  const { dayPartAt } = await import('../src/game/derived');
+  const { hourOf } = await import('../src/minigames/rules');
+  const { DAY_LENGTH } = await import('../src/game/pace');
+  const { SEASON_DAYS } = await import('../src/game/data/seasons');
+  const base = ((SEASON_AT[season] ?? 1) * SEASON_DAYS + 1) * DAY_LENGTH;
+  const hits: number[] = [];
+  for (let k = 0; k < 200; k++) {
+    const t = base + ((k + 0.5) / 200) * DAY_LENGTH;
+    if (hourOf(dayPartAt(t)) === hour) hits.push(t);
+  }
+  if (!hits.length) throw new Error(`HOUR=${hour}: такого часа нет (dawn, day, dusk, night)`);
+  return hits[Math.floor(hits.length / 2)];
+}
 
 async function snap(tab: Tab, name: string, began: number): Promise<void> {
   if (Date.now() - began > BROWSER_MAX_MS) throw new Error(`срок стенда (${BROWSER_MAX_MS / 1000} с) вышел — остальное отдельным заходом`);
@@ -119,13 +160,47 @@ async function fitTop(tab: Tab, began: number): Promise<void> {
 }
 
 /**
- * «Охота»: обзор поля со старта, лук натянут на ближнего видимого оленя с поправкой дуги, настоящий выстрел мышью CDP
- * по правой половине холста (прижал — держит — отпустил: тот же путь, что у пальца, `Stage.onDown/onUp`), олень крупно.
+ * «Охота»: обзор поля со старта, руки (кнопка «Натянуть» слева, палец движения справа, подписи-указатели первого
+ * входа), настоящий поворот пальцем справа, лук натянут на ближнего видимого оленя с поправкой дуги, настоящий выстрел
+ * мышью CDP по левой половине холста — кнопке «Натянуть» (прижал — держит — отпустил: тот же путь, что у пальца,
+ * `Stage.onDown/onUp`), олень крупно.
  */
 async function hunt(tab: Tab, began: number): Promise<void> {
   await tab.eval<string>(`(() => { window.__mini.seek(2); return JSON.stringify('ok'); })()`);
   await sleep(1500);
   await snap(tab, 'hunt-3-field', began);
+  // Белый олень (`RARE=1`) — крупно, в двенадцати шагах; потом обратно на старт.
+  const white = await tab.eval<string>(`(() => {
+    const st = window.__mini;
+    const h = st.play.hunt;
+    const i = h.field.deer.findIndex((d) => d.white);
+    if (i < 0) return JSON.stringify('');
+    const p = h.pose(i, h.now);
+    const x = p.x + Math.cos(p.yaw) * 12, z = p.z - Math.sin(p.yaw) * 12;
+    st.place(x, z, Math.atan2(-(p.x - x), -(p.z - z)), -0.06);
+    return JSON.stringify('белый олень ' + i);
+  })()`);
+  if (white) {
+    await sleep(1500);
+    console.log(`  редкое: ${white}`);
+    await snap(tab, 'hunt-3d-rare', began);
+    await tab.eval<string>(`(() => { const st = window.__mini; st.place(st.play.start.x, st.play.start.z, st.play.start.yaw, -0.05); return JSON.stringify('ok'); })()`);
+  }
+  // Палец движения справа: повести вбок — плавный поворот (`pad.turnRate`), рыскание до и после.
+  const yawOf = 'JSON.stringify(window.__mini.yaw)';
+  const y0 = await tab.eval<number>(yawOf);
+  const px = SCREEN.width * 0.78;
+  const py = SCREEN.height * 0.8;
+  await mouse(tab, 'mouseMoved', px, py);
+  await mouse(tab, 'mousePressed', px, py);
+  for (let k = 1; k <= 6; k++) {
+    await mouse(tab, 'mouseMoved', px + k * 8, py);
+    await sleep(60);
+  }
+  await sleep(500);
+  await snap(tab, 'hunt-3-pad', began);
+  await mouse(tab, 'mouseReleased', px + 48, py);
+  console.log(`  палец справа вбок: рыскание ${y0.toFixed(3)} → ${(await tab.eval<number>(yawOf)).toFixed(3)}`);
   const aim = await tab.eval<string>(`(() => {
     const st = window.__mini;
     const h = st.play.hunt;
@@ -147,7 +222,8 @@ async function hunt(tab: Tab, began: number): Promise<void> {
   })()`);
   console.log(`  прицел: ${aim}`);
   const before = await tab.eval<{ got: number }>('JSON.stringify(window.__mini.play.tally())');
-  const pt = { x: Math.round(SCREEN.width * 0.75), y: Math.round(SCREEN.height * 0.62), button: 'left', clickCount: 1 };
+  // Кнопка «Натянуть» — левая половина холста.
+  const pt = { x: Math.round(SCREEN.width * 0.2), y: Math.round(SCREEN.height * 0.82), button: 'left', clickCount: 1 };
   await tab.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...pt });
   await tab.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...pt });
   // Держать, пока тетива не натянута до конца: время сцены идёт кадрами, а программная отрисовка даёт их мало.
@@ -206,23 +282,21 @@ interface FishState {
 }
 
 /**
- * «Рыбалка»: берег со старта, настоящий заброс мышью CDP (прижал, повёл вниз, отпустил), поплавок на воде, подсечка
- * в окне поклёвки, вываживание «держи, пока натяжение ниже трёх четвертей» и вытащенная рыба в руке.
+ * «Рыбалка»: берег со старта (руки и подписи-указатели первого входа), настоящий заброс мышью CDP — держит кнопку
+ * «Заброс» справа, пока сила не дойдёт до двух третей, и отпускает; поплавок на воде, подсечка той же кнопкой в окне
+ * поклёвки, вываживание «держи, пока натяжение ниже трёх четвертей» и вытащенная рыба в руке.
  */
 async function fishing(tab: Tab, began: number): Promise<void> {
   await sleep(1500);
   await snap(tab, 'fish-3-shore', began);
-  const x = SCREEN.width * 0.6;
-  const y0 = SCREEN.height * 0.42;
+  // Кнопка действия — правая половина холста.
+  const x = SCREEN.width * 0.8;
+  const y0 = SCREEN.height * 0.82;
   await mouse(tab, 'mouseMoved', x, y0);
   await mouse(tab, 'mousePressed', x, y0);
-  for (let k = 1; k <= 12; k++) {
-    await mouse(tab, 'mouseMoved', x - k * 2, y0 + k * 12);
-    await sleep(60);
-  }
-  await sleep(700);
+  await waitFor(tab, 'window.__mini.play.power() >= 0.66', 15000);
   await snap(tab, 'fish-3a-charge', began);
-  await mouse(tab, 'mouseReleased', x - 24, y0 + 144);
+  await mouse(tab, 'mouseReleased', x, y0);
   if (!(await waitFor(tab, "window.__mini.play.game.phase === 'wait'", 20000))) {
     console.log(`  заброс: ${JSON.stringify(await tab.eval<FishState>(fishState))}`);
     return;
@@ -233,6 +307,7 @@ async function fishing(tab: Tab, began: number): Promise<void> {
   await tab.eval<string>(`(() => { const st = window.__mini; const g = st.play.game; st.seek(g.since + g.plan.bite + 0.04); return JSON.stringify('ok'); })()`);
   await sleep(400);
   await snap(tab, 'fish-3b2-bite', began);
+  // Подсечка — та же кнопка: нажатие (держать её и значит тянуть).
   await mouse(tab, 'mousePressed', x, y0);
   let s = await tab.eval<FishState>(fishState);
   console.log(`  подсечка: ${s.phase}${s.fish ? ` — ${s.fish} г на ${s.dist.toFixed(1)} м` : ''}`);
@@ -322,6 +397,24 @@ async function near(tab: Tab, id: string, began: number): Promise<void> {
   console.log(`  у цели: ${at}`);
   await sleep(1500);
   await snap(tab, `${id}-3-play`, began);
+  // Палец движения слева: повести вверх — шаг вперёд, вбок — поворот; где стоял и куда смотрел — до и после.
+  const pose = 'JSON.stringify({ x: window.__mini.px, z: window.__mini.pz, yaw: window.__mini.yaw })';
+  const p0 = await tab.eval<{ x: number; z: number; yaw: number }>(pose);
+  const lx = SCREEN.width * 0.22;
+  const ly = SCREEN.height * 0.82;
+  await mouse(tab, 'mouseMoved', lx, ly);
+  await mouse(tab, 'mousePressed', lx, ly);
+  for (let k = 1; k <= 6; k++) {
+    await mouse(tab, 'mouseMoved', lx + k * 3, ly - k * 9);
+    await sleep(60);
+  }
+  await sleep(400);
+  await snap(tab, `${id}-3a-pad`, began);
+  await mouse(tab, 'mouseReleased', lx + 18, ly - 54);
+  const p1 = await tab.eval<{ x: number; z: number; yaw: number }>(pose);
+  console.log(`  палец слева: шаг ${Math.hypot(p1.x - p0.x, p1.z - p0.z).toFixed(2)} м, поворот ${(p1.yaw - p0.yaw).toFixed(3)} рад`);
+  // Назад к цели: тап ниже должен попасть по ней.
+  await tab.eval<string>(`(() => { window.__mini.place(${p0.x}, ${p0.z}, ${p0.yaw}); return JSON.stringify('ok'); })()`);
   // Настоящий тап по холсту — мышью CDP: тот же путь, что у пальца (разбор жеста `prologue/controls` → `Stage.act`).
   const before = await tab.eval<{ got: number }>('JSON.stringify(window.__mini.play.tally())');
   const pt = { x: Math.round(SCREEN.width * 0.7), y: Math.round(SCREEN.height * 0.6), button: 'left', clickCount: 1 };
@@ -333,6 +426,27 @@ async function near(tab: Tab, id: string, began: number): Promise<void> {
   const after = await tab.eval<{ got: number; total: number }>('JSON.stringify(window.__mini.play.tally())');
   console.log(`  тап по холсту: счёт ${before.got} → ${after.got} из ${after.total}`);
   await snap(tab, `${id}-3b-tap`, began);
+  // Редкое (`RARE=1`): земляника или ягнёнок крупно — в трёх шагах, лицом к нему.
+  const rare = await tab.eval<string>(`(() => {
+    const st = window.__mini;
+    const play = st.play;
+    const t = 31;
+    st.seek(t);
+    let p = null;
+    if (play.field) { const b = play.field.bushes.find((x) => x.kind === 'strawberry'); if (b) p = { x: b.x, z: b.z, what: 'земляника' }; }
+    if (play.herd) { const i = play.herd.beasts.findIndex((x) => x.kind === 'lamb'); if (i >= 0) { const q = play.feed.at(i, t); p = { x: q.x, z: q.z, what: 'ягнёнок' }; } }
+    if (!p) return JSON.stringify('');
+    const r = Math.hypot(p.x, p.z) || 1;
+    const k = (r - 2.6) / r;
+    const x = p.x * k, z = p.z * k;
+    st.place(x, z, Math.atan2(-(p.x - x), -(p.z - z)), -0.42);
+    return JSON.stringify(p.what);
+  })()`);
+  if (rare) {
+    await sleep(1500);
+    console.log(`  редкое: ${rare}`);
+    await snap(tab, `${id}-3d-rare`, began);
+  }
   if (id === 'herd') {
     // Стадо целиком: овцы накормлены и легли, корова — крупно, козы — как идут.
     const seen = await tab.eval<string>(`(() => {
@@ -433,14 +547,34 @@ async function fishNumbers(): Promise<void> {
   }
 }
 
+/**
+ * Щуп добычи (docs/minigames.md, 18.4): средняя доля за выход у трёх рук автоматов (`minigames/bots.ts`) — прежние
+ * правила против этапа 6, по каждой игре; новые правила — по каждому часу и средним по суткам города.
+ */
+async function yieldNumbers(): Promise<void> {
+  const { hourWeights, yieldSeeds, yieldTable } = await import('../src/minigames/bots');
+  const { HOURS } = await import('../src/minigames/rules');
+  const n = Number(process.env.SEEDS ?? 200);
+  const w = hourWeights();
+  console.log(`\n=== промыслы: добыча за выход — прежние правила против этапа 6 (${n} зёрен, руки автоматов) ===\n`);
+  console.log(`  часы суток города: ${HOURS.map((h) => `${h} ${(w[h] * 100).toFixed(1)} %`).join(', ')}`);
+  for (const r of yieldTable(yieldSeeds(n))) {
+    const hours = HOURS.map((h) => `${h} ${r.byHour[h].toFixed(3)}`).join(', ');
+    console.log(`  ${r.game.padEnd(8)} ${r.hand.padEnd(9)} до ${r.before.toFixed(3)} · после ${r.after.toFixed(3)} (${((r.after / r.before - 1) * 100).toFixed(1)} %) · ${hours}`);
+  }
+}
+
 async function main(): Promise<void> {
   await mkdir(OUT, { recursive: true });
   if (process.env.BUDGET === '1') {
     await budget();
     await arc();
     await fishNumbers();
+    await yieldNumbers();
     return;
   }
+  const hourTime = HOUR ? await timeAt(SEASON, HOUR) : null;
+  const seed = process.env.RARE === '1' ? await rareSeed() : null;
   refuseIfBusy('Снимки промыслов');
   const vite = await createVite({
     configFile: fileURLToPath(new URL('../vite.config.ts', import.meta.url)),
@@ -449,7 +583,7 @@ async function main(): Promise<void> {
   });
   await vite.listen();
   try {
-    console.log(`\n=== промыслы: снимки (${GAMES.join(', ')}${SEASON ? `; ${SEASON}` : ''}) ===\n`);
+    console.log(`\n=== промыслы: снимки (${GAMES.join(', ')}${SEASON ? `; ${SEASON}` : ''}${HOUR ? `; ${HOUR}` : ''}) ===\n`);
     await gpuCoolDown('стендом промыслов');
     // В облачном контейнере браузер идёт от root без видеокарты: песочница Chrome там не поднимается,
     // а WebGL даёт только программная отрисовка (SwiftShader).
@@ -476,6 +610,8 @@ async function main(): Promise<void> {
           s.winterWarning = false;
           s.nextEventAt = s.time + 1e9;
           ${SEASON in SEASON_AT ? `s.time = ${SEASON_AT[SEASON]} * 300 + 30;` : ''}
+          ${hourTime !== null ? `s.time = ${hourTime};` : ''}
+          ${seed !== null ? `s.seed = ${seed}; delete s.energyFull;` : ''}
           ${process.env.BONDED ? `s.bonded = ${Number(process.env.BONDED)};` : ''}
           window.__game.setState({ s: { ...s } });
           return JSON.stringify('ok');

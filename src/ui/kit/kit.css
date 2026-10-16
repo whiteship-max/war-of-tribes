@@ -1,0 +1,544 @@
+/*
+ * Набор интерфейса UI-1 (docs/ui_v2.md, разделы 2–3): таблица, строка, число с разбором, лист окна, кнопка, полоса.
+ * Шкалы — docs/ui_audit.md, раздел 3: отступы 2·4·8·12·16·24; кегли 11·13·15·18; веса 400·600·700; радиусы 6·10·14·999;
+ * значки 16·20·28; все числа — цифрами одной ширины.
+ * Касание (docs/ui_v2.md, раздел 2, «Касание»; держит `kit.test.ts`): действие — не меньше 44 (`--tap`); справка, которая
+ * только объясняет, — не меньше 33: на шаг больше `gestures.TAP_SLIP` (32), за которым жест уже не тап.
+ * Цвета — токены игры (`styles.css`, `next.css`); охра `--warn` заведена у нового вида, здесь — с запасным значением.
+ */
+
+/* ---------- Сброс кнопок набора ---------- */
+:where(.kit-num, .kit-row, .kit-row-tip, .kit-go, .kit-cells, .kit-bar, .kit-btn, .kit-tabs button, .kit-head-ico, .kit-close, .kit-toggle) {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  margin: 0;
+  padding: 0;
+  text-align: inherit;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+:where(.kit-num, .kit-row, .kit-cells, .kit-bar, .kit-btn) {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- Число с разбором ---------- */
+.kit-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 33px;
+  min-height: 33px;
+  font-weight: 600;
+  text-decoration: underline dotted rgba(255, 220, 170, 0.35);
+  text-underline-offset: 3px;
+}
+.kit-num.good,
+.kit-row-val.good {
+  color: var(--good);
+}
+.kit-num.bad,
+.kit-row-val.bad {
+  color: var(--bad);
+}
+.kit-num.warn,
+.kit-row-val.warn {
+  color: var(--warn, #d9a441);
+}
+.kit-num.muted,
+.kit-row-val.muted {
+  color: var(--muted);
+}
+
+/* ---------- Строка ---------- */
+.kit-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 33px;
+  padding: 4px 12px;
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+  text-align: left;
+}
+.kit-row.go {
+  min-height: 44px;
+}
+.kit-row.split {
+  padding: 0;
+}
+.kit-row-tip {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 33px;
+  padding: 4px 0 4px 12px;
+  text-align: left;
+}
+.kit-ico {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+}
+.kit-ico svg {
+  width: 20px;
+  height: 20px;
+}
+.kit-row-label {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.kit-row-label small {
+  font-size: 11px;
+  color: var(--muted);
+}
+.kit-row-val {
+  flex: none;
+  font-weight: 600;
+}
+.kit-chev,
+.kit-go {
+  flex: none;
+  font-style: normal;
+  font-size: 18px;
+  color: var(--accent);
+}
+.kit-go {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  min-height: 44px;
+}
+.kit-row.on,
+.kit-trow.on {
+  box-shadow: inset 0 0 0 1px var(--accent);
+  background: rgba(232, 164, 60, 0.12);
+}
+.kit-row.dim,
+.kit-trow.dim {
+  opacity: 0.45;
+}
+
+/* ---------- Таблица ---------- */
+.kit-table {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+  font-size: 13px;
+}
+.kit-trow {
+  display: flex;
+  align-items: stretch;
+  min-height: 33px;
+  border-top: 1px solid var(--line);
+}
+.kit-trow:nth-child(odd):not(.head) {
+  background: rgba(255, 255, 255, 0.025);
+}
+.kit-trow.head {
+  min-height: 24px;
+  border-top: 0;
+  background: var(--panel-2);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.kit-trow.go {
+  min-height: 44px;
+}
+.kit-trow.sum {
+  border-top: 1px solid var(--line-2, rgba(255, 220, 170, 0.22));
+  font-weight: 600;
+}
+.kit-cells {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: var(--cols);
+  align-items: center;
+  column-gap: 8px;
+  padding: 0 8px;
+  text-align: left;
+}
+.kit-cells.tip {
+  min-height: 33px;
+}
+/* Строка выбора (`pick`): касание выбирает её — действие, цель 44. */
+.kit-cells.pick {
+  min-height: 44px;
+}
+.kit-cells.pick:active {
+  filter: brightness(1.15);
+}
+.kit-c {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.kit-c.r {
+  text-align: right;
+}
+.kit-c.c {
+  text-align: center;
+}
+.kit-nogo {
+  flex: none;
+  width: 44px;
+}
+/* Имя в ячейке таблицы (UI-7): значок и имя одной строкой — указ, весть, товар, запас лавки. */
+.kit-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.kit-name svg {
+  flex: none;
+  width: 20px;
+  height: 20px;
+}
+.kit-name .ic {
+  flex: none;
+  font-size: 18px;
+  line-height: 1;
+}
+/* Две строки ячейки (UI-7): имя и пояснение 11 px — отряд и где он, сторона лагеря и её готовность. */
+.kit-two {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.2;
+}
+.kit-two b {
+  font-weight: 600;
+}
+.kit-two small {
+  font-size: 11px;
+  color: var(--muted);
+}
+.kit-tempty {
+  padding: 8px 12px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+}
+
+/* ---------- Переключатель ---------- */
+/* «Да/нет» строкой 44 (UI-7): наказ на отлучку, наказ брать дань — вместо родного флажка с подписью 12 px (находка К5). */
+.kit-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 44px;
+  padding: 4px 12px;
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+  text-align: left;
+}
+.kit-toggle:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.kit-switch {
+  position: relative;
+  flex: none;
+  width: 36px;
+  height: 20px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.16);
+  transition: background 0.15s;
+}
+.kit-switch::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--text);
+  transition: transform 0.15s;
+}
+.kit-toggle.on .kit-switch {
+  background: var(--accent);
+}
+.kit-toggle.on .kit-switch::after {
+  transform: translateX(16px);
+  background: var(--accent-text, #1a120b);
+}
+
+/* ---------- Полоса ---------- */
+.kit-bar {
+  display: block;
+  width: 100%;
+  min-height: 33px;
+  padding: 4px 0;
+  text-align: left;
+}
+.kit-bar-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.kit-bar-head b {
+  color: var(--text);
+  font-weight: 600;
+}
+.kit-bar-track {
+  position: relative;
+  display: block;
+  height: 6px;
+  margin-top: 4px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.12);
+}
+.kit-bar-fill {
+  display: block;
+  height: 100%;
+  border-radius: 6px;
+  background: var(--accent);
+}
+.kit-bar-fill.good {
+  background: var(--good);
+}
+.kit-bar-fill.bad {
+  background: var(--bad);
+}
+.kit-bar-fill.warn {
+  background: var(--warn, #d9a441);
+}
+.kit-bar-fill.muted {
+  background: var(--muted);
+}
+.kit-bar-mark {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--text);
+}
+.kit-bar-marks {
+  position: relative;
+  display: block;
+  height: 14px;
+}
+.kit-bar-marks small {
+  position: absolute;
+  top: 2px;
+  transform: translateX(-50%);
+  font-size: 11px;
+  line-height: 1;
+  color: var(--muted);
+  white-space: nowrap;
+}
+/* Подпись с одной стороны риски — у двух рисок рядом (`Mark.side`). Свои имена классов: голое `.start` занято стартовым
+   экраном (`styles.css`). */
+.kit-bar-marks small.kit-mark-end {
+  transform: translateX(calc(-100% - 3px));
+}
+.kit-bar-marks small.kit-mark-start {
+  transform: translateX(3px);
+}
+
+/* ---------- Кнопка ---------- */
+.kit-btn {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 4px 16px;
+  border-radius: 10px;
+  border: 1px solid var(--line-2, rgba(255, 220, 170, 0.22));
+  background: var(--panel-2);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.1;
+  text-align: center;
+}
+.kit-btn.main {
+  border-color: transparent;
+  background: var(--accent);
+  color: var(--accent-text);
+}
+.kit-btn.link {
+  border: 0;
+  background: none;
+  padding: 0 8px;
+  color: var(--accent);
+}
+.kit-btn.link i {
+  font-style: normal;
+  font-size: 18px;
+}
+.kit-btn small {
+  font-size: 11px;
+  font-weight: 600;
+  opacity: 0.75;
+}
+.kit-btn.armed {
+  border-color: transparent;
+  background: var(--bad);
+  color: #fff;
+}
+.kit-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.kit-btn:active:not(:disabled) {
+  transform: scale(0.97);
+  filter: brightness(0.92);
+}
+.kit-btn.wide,
+.kit-btn-wrap.wide {
+  width: 100%;
+}
+.kit-btn-wrap {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.kit-why {
+  font-size: 11px;
+  color: var(--bad);
+}
+
+/* ---------- Лист окна ---------- */
+.kit-page {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+.kit-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 56px;
+}
+.kit-head-ico {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  font-size: 24px;
+}
+.kit-head-ico svg {
+  width: 28px;
+  height: 28px;
+}
+.kit-head-title {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.kit-head-title b {
+  font-size: 15px;
+  font-weight: 600;
+}
+.kit-head-title small {
+  font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.kit-close {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  margin-right: -8px;
+  color: var(--muted);
+  font-size: 18px;
+}
+.kit-close svg {
+  width: 18px;
+  height: 18px;
+}
+/* У листа со своей шапкой «закрыть» — в шапке: хэндл шторки узкий, её кнопки нет (как у окна постройки, `next.css`). */
+.ui-new .sheet:has(.kit-head) .sheet-grab {
+  height: 16px;
+}
+.ui-new .sheet:has(.kit-head) .sheet-close {
+  display: none;
+}
+.kit-tabs {
+  display: flex;
+  gap: 4px;
+  margin: 0 0 8px;
+}
+.kit-tabs button {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 44px;
+  padding: 0 4px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  font-size: 13px;
+  color: var(--muted);
+}
+.kit-tabs button svg {
+  flex: none;
+  width: 20px;
+  height: 20px;
+}
+.kit-tabs button.on {
+  border-color: var(--accent);
+  background: rgba(232, 164, 60, 0.12);
+  color: var(--text);
+}
+.kit-badge {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-text);
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+}
+.kit-body {
+  flex: 1;
+}
+.kit-foot {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px -12px -8px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--line-2, rgba(255, 220, 170, 0.22));
+  background: rgba(25, 19, 14, 0.97);
+}

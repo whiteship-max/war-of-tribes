@@ -1,6 +1,7 @@
-// «Походы» нового интерфейса (docs/ui_audit.md, 6.2 и 13): свои люди, кто идёт на нас, свои отряды в пути и
-// донесения — строками 56 с одним действием справа. Строка человека касанием открывает его карточку; координата —
-// касанием по строке состояния (камера на клетку); «на карте» — человек в руку.
+// «Походы» нового интерфейса (docs/ui_audit.md, 6.2 и 13; UI-7 — docs/ui_v2.md, 5.6, П10): кто идёт на нас, свои люди,
+// свои отряды в пути и донесения — таблицами: имя с пояснением, числа столбцами (уровень, бойцы, энергия), действия —
+// значками 44 справа. Касание имени человека открывает его карточку; «📍» — камера к нему и человек в руку; донесений
+// видно восемь свежих, остальные — по «Ещё N».
 //
 // Своих чисел и слов о мире нет: где человек и когда вернётся — `figurePosition`, `secondsLeft` и `realLeft`, как в
 // прежнем списке (`panels/MarchesPanel`); мораль отряда — `restLine` (`parts/restWords`), отказ перехвата из лагеря —
@@ -13,15 +14,15 @@ import { postureOf } from '@/world/muster';
 import { formatCoord, secondsLeft } from '@/world/geo';
 import { CHASE_FROM_CAMP } from '@/world/siege';
 import { MISSION_BY_ID } from '@/world/data/meta';
-import type { FigureId, FigureView, MarchView, Report, ReportKind } from '@/world/types';
+import type { FigureId, FigureView, MarchView, ReportKind } from '@/world/types';
 import { agentLevel, personName, yearsOf, yearsWord } from '@/game/sim/agents';
 import { hireWhere } from '@/game/sim/hire';
 import { Icon } from '@/ui/icons/Icon';
 import { AgentCard } from '@/ui/parts/AgentCard';
 import { restLine } from '@/ui/parts/restWords';
-import { count } from '@/ui/parts/plural';
 import { lootText, unitsText } from '@/ui/parts/reportWords';
 import { realLeft } from '@/ui/parts/wait';
+import { Table, type Col } from '@/ui/kit/Table';
 
 /** Значок донесения по его виду: набег, разведка, поддержка, оборона дома. */
 export const REPORT_ART: Record<ReportKind, { name: string; glyph: string }> = {
@@ -30,6 +31,29 @@ export const REPORT_ART: Record<ReportKind, { name: string; glyph: string }> = {
   support: { name: 'deal-trade', glyph: '🤝' },
   defense: { name: 'ui-home', glyph: '🏠' },
 };
+
+/** Донесений видно сразу — свежие; остальные — по «Ещё N» (находка карты экранов: «донесения без предела», UI-7). */
+export const REPORTS_SHOWN = 8;
+
+// Столбцы таблиц (UI-7, docs/ui_v2.md, 5.6; П10): числа человека — столбцами, а не строкой 11 px через точки.
+const PEOPLE_COLS: readonly Col[] = [
+  { key: 'who', title: 'Человек' },
+  { key: 'lvl', title: 'Ур.', align: 'right', w: '28px' },
+  { key: 'men', title: 'Бойц.', align: 'right', w: '40px' },
+  { key: 'en', title: 'Эн.', align: 'right', w: '32px' },
+  { key: 'act', title: '', align: 'right', w: '92px' },
+];
+const INCOMING_COLS: readonly Col[] = [
+  { key: 'who', title: 'Кто' },
+  { key: 'left', title: 'Дойдут', align: 'right', w: '72px' },
+  { key: 'act', title: '', align: 'right', w: '44px' },
+];
+const MARCH_COLS: readonly Col[] = [
+  { key: 'who', title: 'Куда' },
+  { key: 'left', title: 'Через', align: 'right', w: '72px' },
+  { key: 'act', title: '', align: 'right', w: '44px' },
+];
+const REPORT_COLS: readonly Col[] = [{ key: 'what', title: 'Донесение' }];
 
 const PHASE: Record<MarchView['phase'], string> = {
   out: 'к цели',
@@ -72,6 +96,7 @@ export function MarchesNew() {
   const pickFigure = useWorld((g) => g.pick);
   // Карточка человека — страница этой же шторки, как в прежнем списке: закрытая шторка открывается на списке.
   const [card, setCard] = useState<FigureId | null>(null);
+  const [all, setAll] = useState(false);
   const [, tick] = useState(0);
 
   useEffect(() => {
@@ -109,141 +134,177 @@ export function MarchesNew() {
       {incoming.length > 0 && (
         <>
           <h3>Идут на нас</h3>
-          {incoming.map((m) => (
-            <div className="nx-mrow danger" key={m.id}>
-              <span className="nx-mico">
-                <Icon name="alert-raid" glyph="⚠️" />
-              </span>
-              <span className="nx-lbody">
-                <b className="one-line">{m.fromName}</b>
-                <small>
-                  {m.onCamp ? 'на наш лагерь' : `от ${formatCoord(m.from)}`}
-                  {m.rest ? ` · ${restLine(m.rest, 'Отряд дрался', now)}` : ''}
-                </small>
-                {!m.onCamp && inCamp && <small className="bad">{CHASE_FROM_CAMP}</small>}
-              </span>
-              <span className="nx-mright">
-                <em className="nx-due bad">{realLeft(secondsLeft(m.arriveAt, now))}</em>
-                {!m.onCamp && (
-                  <button className="nx-act" disabled={inCamp} onClick={() => void openChase(m)}>
-                    Перехватить
+          <Table
+            label="Идут на нас"
+            cols={INCOMING_COLS}
+            rows={incoming.map((m) => ({
+              key: m.id,
+              cells: {
+                who: (
+                  <Two
+                    top={m.fromName}
+                    sub={[m.onCamp ? 'на наш лагерь' : `от ${formatCoord(m.from)}`, m.rest ? restLine(m.rest, 'Отряд дрался', now) : ''].filter(Boolean).join(' · ')}
+                  />
+                ),
+                left: <b className="bad">{realLeft(secondsLeft(m.arriveAt, now))}</b>,
+                act: m.onCamp ? null : (
+                  <button
+                    type="button"
+                    className="nx-ico44"
+                    disabled={inCamp}
+                    onClick={() => void openChase(m)}
+                    aria-label={inCamp ? `Перехватить: ${CHASE_FROM_CAMP}` : `Перехватить: ${m.fromName}`}
+                  >
+                    <Icon name="ui-target" glyph="🏇" />
                   </button>
-                )}
-              </span>
-            </div>
-          ))}
+                ),
+              },
+            }))}
+          />
+          {inCamp && incoming.some((m) => !m.onCamp) && <p className="nx-tnote bad">{CHASE_FROM_CAMP}</p>}
         </>
       )}
 
       <h3>Люди</h3>
-      {figures.map((f) => {
-        const at = figurePosition(f, now);
-        const cell = { x: Math.round(at.x), y: Math.round(at.y) };
-        const men = troopTotal(f.troops);
-        const named = f.place !== 'vacant' && s.agents[f.id].name;
-        return (
-          <div className={`nx-mrow${f.place === 'down' ? ' down' : ''}${f.place === 'vacant' ? ' vacant' : ''}`} key={f.id}>
-            <button className="nx-mico" onClick={() => setCard(f.id)} aria-label={`${f.name}: карточка`}>
-              <Icon name={`fig-${f.id}`} glyph={f.icon} />
-            </button>
-            <button className="nx-lbody nx-mtap" onClick={() => (f.place === 'down' || f.place === 'vacant' ? setCard(f.id) : void select(cell))}>
-              <b className="one-line">
-                {f.name}
-                {named ? ` ${personName(s, f.id)}` : ''}
-              </b>
-              <small>
-                {f.place !== 'vacant' ? `ур. ${agentLevel(s, f.id)} · ${yearsWord(yearsOf(s, f.id))} · ` : ''}
-                {whereWords(f, now, hireWhere(s, f.id))}
-                {men > 0 ? ` · ${count(men, 'боец', 'бойца', 'бойцов')}${postureOf(f) === 'stands' ? ' · в гарнизоне' : ''}` : ''}
-                {f.watching ? ' · смотрит' : ''}
-                {/* Энергия числом двери (docs/agent_energy.md): шкала и сроки — в карточке человека. */}
-                {f.energy ? ` · энергия ${f.energy.value}` : ''}
-                {f.spent ? ' · выбился из сил' : ''}
-              </small>
-            </button>
-            <span className="nx-mright">
-              {f.place === 'map' && !f.atHome && (
-                <button className="nx-ico44" onClick={() => void recallFigure(f.id).then((err) => err && showToast(err))} aria-label={`${f.name}: домой`}>
-                  <Icon name="ui-home" glyph="🏠" />
+      <Table
+        label="Люди"
+        cols={PEOPLE_COLS}
+        rows={figures.map((f) => {
+          const at = figurePosition(f, now);
+          const cell = { x: Math.round(at.x), y: Math.round(at.y) };
+          const men = troopTotal(f.troops);
+          const named = f.place !== 'vacant' && s.agents[f.id].name;
+          const where = [
+            whereWords(f, now, hireWhere(s, f.id)),
+            men > 0 && postureOf(f) === 'stands' ? 'в гарнизоне' : '',
+            f.watching ? 'смотрит' : '',
+            f.spent ? 'выбился из сил' : '',
+            f.place !== 'vacant' ? yearsWord(yearsOf(s, f.id)) : '',
+          ]
+            .filter(Boolean)
+            .join(' · ');
+          return {
+            key: f.id,
+            dim: f.place === 'down' || f.place === 'vacant',
+            cells: {
+              who: (
+                <button type="button" className="mr-who" onClick={() => setCard(f.id)} aria-label={`${f.name}: карточка`}>
+                  <Icon name={`fig-${f.id}`} glyph={f.icon} />
+                  <Two top={`${f.name}${named ? ` ${personName(s, f.id)}` : ''}`} sub={where} />
                 </button>
-              )}
-              {f.place === 'map' && (
-                <button
-                  className="nx-act"
-                  onClick={() => {
-                    setAnchor(f.id);
-                    pickFigure(f.id);
-                    closeSheet();
-                  }}
-                >
-                  На карте
-                </button>
-              )}
-              {f.place === 'city' && (
-                <button
-                  className="nx-act"
-                  onClick={() => void shelter(f.id, false).then((err) => showToast(err ?? `${f.name} вышел из города.`))}
-                >
-                  Выйти
-                </button>
-              )}
-            </span>
-          </div>
-        );
-      })}
+              ),
+              lvl: f.place !== 'vacant' ? agentLevel(s, f.id) : '—',
+              men: men > 0 ? men : '—',
+              // Энергия числом двери (docs/agent_energy.md): шкала и сроки — в карточке человека.
+              en: f.energy ? f.energy.value : '—',
+              act: (
+                <span className="mr-acts">
+                  {f.place === 'map' && !f.atHome && (
+                    <button type="button" className="nx-ico44" onClick={() => void recallFigure(f.id).then((err) => err && showToast(err))} aria-label={`${f.name}: домой`}>
+                      <Icon name="ui-home" glyph="🏠" />
+                    </button>
+                  )}
+                  {f.place === 'map' && (
+                    <button
+                      type="button"
+                      className="nx-ico44"
+                      aria-label={`${f.name}: на карте`}
+                      onClick={() => {
+                        void select(cell);
+                        setAnchor(f.id);
+                        pickFigure(f.id);
+                        closeSheet();
+                      }}
+                    >
+                      <Icon name="ui-pin" glyph="📍" />
+                    </button>
+                  )}
+                  {f.place === 'city' && (
+                    <button
+                      type="button"
+                      className="nx-ico44"
+                      aria-label={`${f.name}: выйти из города`}
+                      onClick={() => void shelter(f.id, false).then((err) => showToast(err ?? `${f.name} вышел из города.`))}
+                    >
+                      <Icon name="ui-banner" glyph="🚪" />
+                    </button>
+                  )}
+                </span>
+              ),
+            },
+          };
+        })}
+      />
 
       <h3>В пути</h3>
-      {own.length === 0 && <p className="nx-tnote">Походов нет. Выбери цель на карте.</p>}
-      {own.map((m) => {
-        // У возвращающегося интересно место, откуда он идёт; отозванный стоит между клетками.
-        const at = m.phase === 'back' ? { x: Math.round(m.from.x), y: Math.round(m.from.y) } : { x: m.to.x, y: m.to.y };
-        return (
-          <div className="nx-mrow" key={m.id}>
-            <span className="nx-mico">
-              <Icon name={m.mission === 'scout' ? 'fig-scout' : 'ui-banner'} glyph={MISSION_BY_ID[m.mission].icon} />
-            </span>
-            <button className="nx-lbody nx-mtap" onClick={() => void select(at)}>
-              <b className="one-line">{m.toName}</b>
-              <small>
-                {PHASE[m.phase]} · {unitsText(m.units)}
-                {m.loot ? ` · везут ${lootText(m.loot)}` : ''}
-              </small>
-            </button>
-            <span className="nx-mright">
-              <em className="nx-due">{realLeft(secondsLeft(m.arriveAt, now))}</em>
-              {m.recallable && (
-                <button className="nx-act" onClick={() => void recall(m.id)}>
-                  Отозвать
+      <Table
+        label="В пути"
+        cols={MARCH_COLS}
+        empty="Походов нет. Выбери цель на карте."
+        rows={own.map((m) => {
+          // У возвращающегося интересно место, откуда он идёт; отозванный стоит между клетками.
+          const at = m.phase === 'back' ? { x: Math.round(m.from.x), y: Math.round(m.from.y) } : { x: m.to.x, y: m.to.y };
+          return {
+            key: m.id,
+            cells: {
+              who: (
+                <button type="button" className="mr-who" onClick={() => void select(at)} aria-label={`${m.toName}: на карте`}>
+                  <Icon name={m.mission === 'scout' ? 'fig-scout' : 'ui-banner'} glyph={MISSION_BY_ID[m.mission].icon} />
+                  <Two top={m.toName} sub={`${PHASE[m.phase]} · ${unitsText(m.units)}${m.loot ? ` · везут ${lootText(m.loot)}` : ''}`} />
                 </button>
-              )}
-            </span>
-          </div>
-        );
-      })}
+              ),
+              left: <b>{realLeft(secondsLeft(m.arriveAt, now))}</b>,
+              act: m.recallable ? (
+                <button type="button" className="nx-ico44" onClick={() => void recall(m.id)} aria-label={`Отозвать: ${m.toName}`}>
+                  <Icon name="ui-home" glyph="↩️" />
+                </button>
+              ) : null,
+            },
+          };
+        })}
+      />
 
-      <h3>Донесения</h3>
-      {reports.length === 0 && <p className="nx-tnote">Донесений нет.</p>}
-      {reports.map((r) => (
-        <ReportRow key={r.id} r={r} onOpen={() => openReport(r.id)} />
-      ))}
+      <h3>
+        Донесения {reports.length > REPORTS_SHOWN && <span className="muted">последние {all ? reports.length : REPORTS_SHOWN} из {reports.length}</span>}
+      </h3>
+      <Table
+        label="Донесения"
+        cols={REPORT_COLS}
+        empty="Донесений нет."
+        rows={(all ? reports : reports.slice(0, REPORTS_SHOWN)).map((r) => {
+          const art = REPORT_ART[r.kind];
+          return {
+            key: r.id,
+            go: () => openReport(r.id),
+            goLabel: r.title,
+            cells: {
+              what: (
+                <span className={`kit-name${r.won ? '' : ' lost'}`}>
+                  <Icon name={art.name} glyph={art.glyph} />
+                  <Two top={r.title} sub={r.text} />
+                  {!r.read && <i className="nx-new" aria-label="новое" />}
+                </span>
+              ),
+            },
+          };
+        })}
+      />
+      {reports.length > REPORTS_SHOWN && (
+        <button className="btn ghost wide" onClick={() => setAll(!all)}>
+          {all ? 'Свернуть' : `Ещё ${reports.length - REPORTS_SHOWN}`}
+        </button>
+      )}
     </div>
   );
 }
 
-/** Строка донесения: значок вида, исход, где; «новое» — точкой 8 px (3.8). */
-function ReportRow({ r, onOpen }: { r: Report; onOpen: () => void }) {
-  const art = REPORT_ART[r.kind];
+/** Две строки ячейки: имя и пояснение 11 px. */
+function Two({ top, sub }: { top: string; sub: string }) {
   return (
-    <button className={`nx-mrow nx-rrow${r.won ? '' : ' lost'}`} onClick={onOpen}>
-      <span className="nx-mico">
-        <Icon name={art.name} glyph={art.glyph} />
-      </span>
-      <span className="nx-lbody">
-        <b className="one-line">{r.title}</b>
-        <small className="one-line">{r.text}</small>
-      </span>
-      {!r.read && <span className="nx-new" aria-label="новое" />}
-      <span className="nx-chev">›</span>
-    </button>
+    <span className="kit-two">
+      <b className="one-line">{top}</b>
+      {sub && <small className="one-line">{sub}</small>}
+    </span>
   );
 }
+

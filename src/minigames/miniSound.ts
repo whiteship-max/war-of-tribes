@@ -195,6 +195,8 @@ const CALL: Record<BeastKind, { f0: number; f1: number; dur: number; vib: number
   sheep: { f0: 250, f1: 215, dur: 0.62, vib: 0.05, rate: 7.5, formant: 950, peak: 0.16 },
   goat: { f0: 360, f1: 300, dur: 0.48, vib: 0.08, rate: 11, formant: 1300, peak: 0.13 },
   cow: { f0: 118, f1: 96, dur: 1.05, vib: 0.012, rate: 4, formant: 520, peak: 0.24 },
+  // Ягнёнок — тоньше и короче матери, с частой дрожью.
+  lamb: { f0: 430, f1: 370, dur: 0.38, vib: 0.08, rate: 10, formant: 1450, peak: 0.12 },
 };
 
 class FieldVoice extends Voices implements FieldHost {

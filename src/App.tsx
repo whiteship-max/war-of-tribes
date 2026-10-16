@@ -2,14 +2,9 @@ import { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import { useGame, type SheetView } from './game/store';
 import { GameCanvas } from './ui/GameCanvas';
 import { Sheet } from './ui/Sheet';
-import { PeoplePanel } from './ui/panels/PeoplePanel';
-import { BuildingPanel } from './ui/panels/BuildingPanel';
 import { QuestsPanel } from './ui/panels/QuestsPanel';
 import { SeasonPanel } from './ui/panels/SeasonPanel';
 import { PopPanel } from './ui/panels/PopPanel';
-import { MoralePanel } from './ui/panels/MoralePanel';
-import { OrderPanel } from './ui/panels/OrderPanel';
-import { ArmyPanel } from './ui/panels/ArmyPanel';
 import { WinterModal } from './ui/WinterModal';
 import { OfflineModal } from './ui/OfflineModal';
 import { LegacyModal } from './ui/LegacyModal';
@@ -21,9 +16,6 @@ import { StartScreen, StartVeil } from './ui/StartScreen';
 import { SyncModal } from './ui/SyncModal';
 import { Frozen } from './ui/parts/Frozen';
 import { useBugReport } from './ui/parts/bugOpen';
-import { SortiePanel } from './ui/panels/SortiePanel';
-import { SiegePanel } from './ui/panels/SiegePanel';
-import { CampPanel } from './ui/panels/CampPanel';
 import { ReportPanel } from './ui/panels/ReportPanel';
 import { useWorld } from './world/store';
 import { cityAudio } from './sound/city';
@@ -75,6 +67,19 @@ const MarchesNew = lazy(() => nextUi().then((m) => ({ default: m.MarchesNew })))
 /** Окно «Промыслы» — тем же куском (docs/minigames.md, 3). */
 const Trades = lazy(() => nextUi().then((m) => ({ default: m.Trades })));
 const Treasury = lazy(() => nextUi().then((m) => ({ default: m.Treasury })));
+/** «Дружина» с передачей полководец ↔ гарнизон — тем же куском (docs/ui_v2.md, 5.3): она стоит на наборе `kit`. */
+const ArmyPanel = lazy(() => nextUi().then((m) => ({ default: m.ArmyPanel })));
+/** «Жители» (UI-5, docs/ui_v2.md, 5.4) — тем же куском: сводка и места работы стоят на наборе `kit` и подсказках верха. */
+const PeoplePanel = lazy(() => nextUi().then((m) => ({ default: m.PeoplePanel })));
+// Окна осады, вылазки и лагеря (UI-7, docs/ui_v2.md, 5.6) — тем же куском: вкладки, таблицы и переключатели набора `kit`.
+const SiegePanel = lazy(() => nextUi().then((m) => ({ default: m.SiegePanel })));
+const SortiePanel = lazy(() => nextUi().then((m) => ({ default: m.SortiePanel })));
+const CampPanel = lazy(() => nextUi().then((m) => ({ default: m.CampPanel })));
+// «Мораль» и «Порядок» (UI-8, docs/ui_v2.md, 5.7) — тем же куском: таблицы разбора, полоса с порогами и вкладки набора `kit`.
+// Окно постройки — тоже: «Что даёт городу» и выход — таблицами с разбором и дверью (5.7).
+const BuildingPanel = lazy(() => nextUi().then((m) => ({ default: m.BuildingPanel })));
+const MoralePanel = lazy(() => nextUi().then((m) => ({ default: m.MoralePanel })));
+const OrderPanel = lazy(() => nextUi().then((m) => ({ default: m.OrderPanel })));
 
 /**
  * Промыслы — мини-игры от первого лица — свой кусок, как предыстория: качается по кнопке входа, и пока игра идёт,
@@ -88,7 +93,12 @@ const BugReport = lazy(() => import('./ui/parts/BugReport').then((m) => ({ defau
 const MINI_WAIT = { position: 'fixed', inset: 0, zIndex: 80, background: 'var(--bg)' } as const;
 
 function SheetContent({ view }: { view: SheetView }) {
-  if (view.kind === 'building') return <BuildingPanel id={view.id} />;
+  if (view.kind === 'building')
+    return (
+      <Suspense fallback={null}>
+        <BuildingPanel id={view.id} />
+      </Suspense>
+    );
   if (view.kind === 'world')
     return (
       <Suspense fallback={null}>
@@ -101,13 +111,32 @@ function SheetContent({ view }: { view: SheetView }) {
         <MarchesNew />
       </Suspense>
     );
-  if (view.kind === 'sortie') return <SortiePanel machine={view.machine} />;
-  if (view.kind === 'siege') return <SiegePanel />;
-  if (view.kind === 'camp') return <CampPanel />;
+  if (view.kind === 'sortie')
+    return (
+      <Suspense fallback={null}>
+        <SortiePanel machine={view.machine} />
+      </Suspense>
+    );
+  if (view.kind === 'siege')
+    return (
+      <Suspense fallback={null}>
+        <SiegePanel />
+      </Suspense>
+    );
+  if (view.kind === 'camp')
+    return (
+      <Suspense fallback={null}>
+        <CampPanel />
+      </Suspense>
+    );
   if (view.kind === 'report') return <ReportPanel id={view.id} />;
   switch (view.tab) {
     case 'people':
-      return <PeoplePanel />;
+      return (
+        <Suspense fallback={null}>
+          <PeoplePanel />
+        </Suspense>
+      );
     case 'quests':
       return <QuestsPanel />;
     case 'season':
@@ -115,11 +144,23 @@ function SheetContent({ view }: { view: SheetView }) {
     case 'pop':
       return <PopPanel />;
     case 'morale':
-      return <MoralePanel />;
+      return (
+        <Suspense fallback={null}>
+          <MoralePanel />
+        </Suspense>
+      );
     case 'order':
-      return <OrderPanel />;
+      return (
+        <Suspense fallback={null}>
+          <OrderPanel />
+        </Suspense>
+      );
     case 'army':
-      return <ArmyPanel />;
+      return (
+        <Suspense fallback={null}>
+          <ArmyPanel />
+        </Suspense>
+      );
   }
 }
 

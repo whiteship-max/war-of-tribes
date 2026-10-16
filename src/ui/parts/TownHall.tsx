@@ -1,163 +1,26 @@
+import { Suspense, lazy } from 'react';
 import type { Building } from '@/game/types';
-import { useGame } from '@/game/store';
-import { DECREES, RATIONS, TAXES } from '@/game/data/policy';
-import { BUILDING_BY_ID } from '@/game/data/buildings';
-import { buildingHousing, buildingStat, decreeOf, mastersCount, rationOf, taxIncomePerDay, taxOf, taxQuote, townHallBuildMult, wagesDue } from '@/game/derived';
-import { setDecree, setRation, setTax } from '@/game/sim/actions';
 import { TownBuild } from './TownBuild';
-import { Icon } from '@/ui/icons/Icon';
-import { signed } from './signed';
-import { decreeLine, rationLine } from './policyWords';
-import { dec } from '@/game/num';
+
+/** Что ратуша даёт городу и дверь в «Указы» — в куске нового вида, рядом с сеткой стройки (`ui/next/HallGives.tsx`). */
+const HallGives = lazy(() => import('@/ui/next').then((m) => ({ default: m.HallGives })));
 
 /**
- * Ратуша — сердце города, и в ней два дела, а не одно, поэтому у неё вкладки:
- *
- * 1. «Стройка» — главная: весь город списком, уровни и очередь. Отдельного
- *    раздела «Здания» внизу нет, чтобы одно и то же не делалось в двух местах.
- * 2. «Указы» — то, чем правит правитель: указ, паёк, налог и золото. Слова — те же, что у
- *    вкладки «Указы» державы нового вида (`realm/RealmTabs.DecreesNew`; словарь — docs/ui_audit.md, 4.4).
+ * Ратуша — сердце города: вся стройка — сетка «Стройки» (`TownBuild`), под ней — что ратуша даёт городу и строка-дверь в
+ * «Указы» державы. Указ, паёк и налог прежде стояли и здесь вкладкой «Указы» — второй копией державы (находка Д3,
+ * docs/ui_v2.md, 5.6); с UI-7 их правят в одном месте — там, где казна, — и туда же ведут подсказка золота, «Мораль» и
+ * «Изменить паёк» склада.
  *
  * Алмазы ушли из ратуши в «Сокровищницу» — плашка под строкой запасов (docs/gems.md): баланс, покупка, лавка и история
  * живут на сервере и видны из любого места города, а не только из ратуши.
- *
- * Вкладка живёт в сторе, а не здесь (ключ `manage`): на «Указы» ведёт ссылка из справки
- * о морали, и вести ей некуда, если память о вкладке умирает вместе с панелью.
  */
 export function TownHall({ b }: { b: Building }) {
-  const tab = useGame((g) => g.townTab);
-  const setTab = useGame((g) => g.setTownTab);
-
   return (
     <>
-      <div className="tabs">
-        <button
-          data-tut="town-build"
-          className={tab === 'build' ? 'active' : ''}
-          onClick={() => setTab('build')}
-        >
-          Стройка
-        </button>
-        <button className={tab === 'manage' ? 'active' : ''} onClick={() => setTab('manage')}>
-          Указы
-        </button>
-      </div>
-
-      {tab === 'build' && <TownBuild />}
-      {tab === 'manage' && <Manage b={b} />}
-    </>
-  );
-}
-
-/**
- * Указы: чем правит правитель.
- *
- * Указ, паёк и налог переключаются в любой момент и действуют, пока выбраны,
- * поэтому последствия написаны прямо на кнопке — выбор делают, уже зная цену.
- */
-export function Manage({ b }: { b: Building }) {
-  const s = useGame((g) => g.s);
-  const act = useGame((g) => g.act);
-  const decree = decreeOf(s);
-  const ration = rationOf(s);
-  const tax = taxOf(s);
-  const housing = buildingHousing(b);
-  const morale = buildingStat(b, 'morale');
-
-  return (
-    <>
-      <h3>Ратуша</h3>
-      <div className="mod">
-        <span className="ico">🔨</span>
-        <span className="name">К скорости стройки</span>
-        <span className="val">×{dec(townHallBuildMult(s), 2)}</span>
-      </div>
-      {morale > 0 && (
-        <div className="mod">
-          <span className="ico">😊</span>
-          <span className="name">К морали</span>
-          <span className="val">+{morale}</span>
-        </div>
-      )}
-      <div className="mod">
-        <span className="ico">🛏️</span>
-        <span className="name">Жилых мест</span>
-        <span className="val">{housing > 0 ? housing : `с ур. ${BUILDING_BY_ID[b.type].since?.housing ?? 1}`}</span>
-      </div>
-
-      <h3>Указ</h3>
-      <div className="choice">
-        {DECREES.map((d) => (
-          <button
-            key={d.id}
-            className={`choice-opt${decree.id === d.id ? ' on' : ''}`}
-            onClick={() => act((st) => setDecree(st, d.id))}
-          >
-            <span className="ico">
-              <Icon name={`decree-${d.id}`} glyph={d.icon} />
-            </span>
-            <b>{d.name}</b>
-            <small>{decreeLine(d)}</small>
-          </button>
-        ))}
-      </div>
-
-      <h3>Паёк</h3>
-      <div className="choice">
-        {RATIONS.map((r) => (
-          <button
-            key={r.id}
-            className={`choice-opt${ration.id === r.id ? ' on' : ''}`}
-            onClick={() => act((st) => setRation(st, r.id))}
-          >
-            <span className="ico">
-              <Icon name={`ration-${r.id}`} glyph={r.icon} />
-            </span>
-            <b>{r.name}</b>
-            <small>{rationLine(r)}</small>
-          </button>
-        ))}
-      </div>
-
-      <h3>
-        Золото <span className="muted">сбор {signed(taxIncomePerDay(s))} в день</span>
-      </h3>
-      <div className="mod total">
-        <span className="ico"><Icon name="res-gold" glyph="💰" /></span>
-        <span className="name">Накоплено</span>
-        <span className="val pos">{Math.floor(s.gold)}</span>
-      </div>
-      <div className="mod">
-        <span className="ico">⚔️</span>
-        <span className="name">Жалованье дружине{mastersCount(s) > 0 ? ' и мастерам' : ''}</span>
-        <span className={`val${wagesDue(s) > taxIncomePerDay(s) ? ' neg' : ''}`}>{signed(-wagesDue(s))} в день</span>
-      </div>
-      <div className="note">
-        Чем больше жителей, тем больше сбор. Не хватит золота на жалованье, и дружина начнёт уходить.
-      </div>
-
-      <h3>Налог</h3>
-      <div className="choice">
-        {TAXES.map((t) => {
-          const q = taxQuote(s, t.id);
-          return (
-            <button
-              key={t.id}
-              className={`choice-opt${tax.id === t.id ? ' on' : ''}`}
-              onClick={() => act((st) => setTax(st, t.id))}
-            >
-              <span className="ico">
-                <Icon name={`tax-${t.id}`} glyph={t.icon} />
-              </span>
-              <b>{t.name}</b>
-              <small>
-                {t.effect}
-                <br />{signed(q.gold)} золота в день · мораль {Math.round(q.morale)} · выработка ×{dec(q.output, 2)}
-              </small>
-            </button>
-          );
-        })}
-      </div>
+      <TownBuild />
+      <Suspense fallback={null}>
+        <HallGives b={b} />
+      </Suspense>
     </>
   );
 }

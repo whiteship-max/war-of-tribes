@@ -9,6 +9,7 @@ import type { Quality } from '../quality';
 import { buildPlan, type TwPlan } from './plan';
 import { siteKindOf, type TwOpening } from './site';
 import { barrageOf } from './barrage';
+import type { SideCoats } from '../reel/heraldry';
 
 export function twPlanOfRecord(
   result: BattleResult,
@@ -21,11 +22,12 @@ export function twPlanOfRecord(
   site?: string,
   breach?: readonly number[],
   openings?: readonly TwOpening[],
+  coats?: SideCoats,
 ): TwPlan {
   const faces = facesOfRecord(result, troops, militia, beasts);
   const cast = buildCast(result, us, faces, groundOf(place, result.seed));
   // Проёмы штурма (`BattleRecord.openings`): чем лезли — лестницы, таран, башня, пролом; без них — как прежде.
-  const plan = buildPlan({ cast, result, faces, quality, site: siteKindOf(site), openings: openings ?? null });
+  const plan = buildPlan({ cast, result, faces, quality, site: siteKindOf(site), openings: openings ?? null, coats });
   // Обстрел перед штурмом — пролог поверх готового плана: бой от него не меняется ни в одном числе (`barrage.test.ts`).
   // `breach` — доля пробитой стены после каждого залпа (`siegecraft.breachOf`): мира ролик не читает, её даёт зовущий.
   plan.barrage = barrageOf(plan, breach);

@@ -3,13 +3,12 @@
 import { describe, expect, it } from 'vitest';
 import type { FaithId, GameState } from '@/game/types';
 import { createInitialState } from '@/game/state';
-import { TAXES } from '@/game/data/policy';
 import { REALM_BRANCHES } from '@/game/data/realm';
-import { faithTilt, population, taxIncomePerDay, taxQuote, wagesDue } from '@/game/derived';
+import { faithTilt, population } from '@/game/derived';
 import { rulerRate } from '@/game/sim/points';
-import { fmtInt, perDay } from '@/ui/next/hudTips';
+import { perDay } from '@/ui/next/hudTips';
 import { count } from '@/ui/parts/plural';
-import { ledgerTips, signedRate, skillTip, taxPicks, tiltCells } from './RealmTabs';
+import { signedRate, skillTip, tiltCells } from './RealmTabs';
 import { dec } from '@/game/num';
 
 /** Город с храмом десятого уровня: наклон веры — и закят, и десятина — в полную силу. */
@@ -23,35 +22,8 @@ function town(faith: FaithId | null): GameState {
 
 const FAITHS: (FaithId | null)[] = ['catholic', 'orthodox', 'islam', 'pagan', null];
 
-describe('указы: казна и налог — числами игры', () => {
-  it('золото, сбор и жалованье — `fmtInt`, `taxIncomePerDay`, `wagesDue`', () => {
-    for (const faith of FAITHS) {
-      const s = town(faith);
-      s.gold = 1234;
-      const t = ledgerTips(s.gold, taxIncomePerDay(s), wagesDue(s), false);
-      expect(t.gold.title).toBe(`Золото · ${fmtInt(1234)}`);
-      expect(t.income.title).toBe(`Сбор · ${perDay(taxIncomePerDay(s))}`);
-      expect(t.wages.title).toBe(`Жалованье · ${perDay(-wagesDue(s))}`);
-    }
-  });
-
-  it('ячейка налога — сбор `taxQuote` со знаком самого числа; убыток красный', () => {
-    let negative = 0;
-    for (const faith of FAITHS) {
-      const s = town(faith);
-      const picks = taxPicks(s);
-      expect(picks.map((p) => p.id)).toEqual(TAXES.map((t) => t.id));
-      for (const p of picks) {
-        const gold = taxQuote(s, p.id).gold;
-        expect(p.sub, `${faith}: ${p.id}`).toBe(perDay(gold));
-        expect(p.subBad, `${faith}: ${p.id} красный, если убыток`).toBe(gold < 0);
-        if (gold < -0.05) negative++;
-      }
-    }
-    // Область: закят без налога уводит сбор в минус — точка с убытком в наборе есть.
-    expect(negative).toBeGreaterThan(0);
-  });
-
+describe('указы: ставка без слов', () => {
+  // Казна, сбор, жалованье и таблицы вариантов — `decrees.test.ts` (UI-7).
   it('ставка без слов и дробь запятой', () => {
     expect(signedRate(19.94)).toBe('+19,9');
     expect(signedRate(-3)).toBe('−3,0');

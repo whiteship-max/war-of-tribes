@@ -318,7 +318,8 @@ describe('охота: счёт', () => {
       h.loose(1 + DRAW_S, EYE, aim);
       run(h, 1 + DRAW_S, 4, 1 / 60);
       expect(h.arrows[0].struck, `зерно ${seed}`).toBe('deer');
-      expect(h.tally()).toEqual({ got: 1, total: DEER });
+      // Без белого оленя (прежние правила) прибавки нет.
+      expect(h.tally()).toEqual({ got: 1, total: DEER, bonus: 0, bonusMax: 0 });
       const lay = h.pose(h.arrows[0].what, 4);
       expect(lay.kind).toBe('down');
       // Вторая стрела в тушу — в упор, сверху, с двух шагов: втыкается, но оленя не прибавляет.

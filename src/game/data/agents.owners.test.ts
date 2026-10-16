@@ -112,9 +112,10 @@ describe('навык не читает чисел, которыми владее
     for (const name of ['spyOptions', 'warningMs', 'homeReveal', 'sightDiscs', 'snapshot', 'ownResolve', 'ownGear']) {
       expect(bodyOf(world, name), `LocalWorld.${name}`).not.toMatch(SKILL);
     }
-    // Оборону деревни и вылазку полководец ведёт, только пока его дружина стоит у ворот (решение
-    // владельца 26.09.2026, docs/battle_eu4.md, вопрос 5): отметки туда идут одной дверью —
-    // `homePips`, которая спрашивает место дружины, — и никогда дверью боёв в поле (`generalPips`).
+    // Оборону деревни и вылазку полководец ведёт, только пока он в городе — с отрядом и без (решение
+    // владельца 16.10.2026, docs/ui_v2.md, 6.10; прежде — пока его дружина стоит у ворот, решение
+    // 26.09.2026, docs/battle_eu4.md, вопрос 5): отметки туда идут одной дверью — `homePips`, которая
+    // спрашивает место полководца (`muster.inTown`), — и никогда дверью боёв в поле (`generalPips`).
     for (const name of ['resolveIncoming', 'wallField', 'gateField', 'sortie']) {
       expect(bodyOf(world, name), `LocalWorld.${name}`).not.toMatch(/generalPips|general:\s*true/);
     }
@@ -123,7 +124,7 @@ describe('навык не читает чисел, которыми владее
     // напрямую; docs/battle_eu4.md, 14.28), и отметки берёт она.
     expect(bodyOf(world, 'wallField'), 'бой у стены — дверью у ворот').toMatch(/this\.gateField\(/);
     expect(bodyOf(world, 'gateField'), 'бой у стены берёт отметки дверью «у ворот»').toMatch(/this\.homePips\(at\)/);
-    expect(bodyOf(world, 'homePips'), 'дверь «у ворот» спрашивает, где стоит дружина').toMatch(/postureOf\(/);
+    expect(bodyOf(world, 'homePips'), 'дверь «у ворот» спрашивает, где полководец').toMatch(/inTown\(/);
     const bridge = read('world/bridge.ts');
     for (const name of ['militiaMen', 'militiaArchers']) expect(bodyOf(bridge, name), `bridge.${name}`).not.toMatch(SKILL);
   });

@@ -19,19 +19,25 @@ import { MACHINE_SHARES, type MachineId } from '@/world/data/machines';
 import { SIEGE_PHASE } from '@/world/data/siegeroll';
 import { FATE_META } from '@/world/data/fates';
 import { CASTLE_ICON, STAGE_BY_ID } from '@/world/data/meta';
-import { SIDES, SIDE_NAME, WOOD_SHARES, campSides, playerWood, woodShare, worksRipeAt } from '@/world/works';
+import { SIDES, SIDE_NAME, WOOD_SHARES, campSides, machineShare, playerWood, woodShare, worksRipeAt } from '@/world/works';
 import type { CampView, Fate } from '@/world/types';
 import { FatePick } from '@/ui/parts/FatePick';
 import { plural } from '@/ui/parts/plural';
 import { SiegePhases } from '@/ui/parts/SiegePhases';
 import { SiegeParley } from '@/ui/parts/SiegeParley';
+import { EnergyPrice } from '@/ui/parts/Energy';
+import { BREACH_MAX } from '@/world/data/siegeroll';
+import { Table, type Col } from '@/ui/kit/Table';
+import { Tabs, type TabDef } from '@/ui/kit/SheetPage';
+import { Btn } from '@/ui/kit/Btn';
+import { Toggle } from '@/ui/kit/Toggle';
+import './siege.css';
 
 /**
  * Сроки из подсказки к долям — той же функцией, которой считаются стороны: при
  * другой древесине подсказка поменяется сама, а не станет неправдой.
  */
 const WOOD_ALL_FRONT = realMinutes(worksRipeAt(0, 'front', playerWood(1)));
-const WOOD_HALVES = realMinutes(worksRipeAt(0, 'front', playerWood(0.5)));
 
 /** Как доля фронту называется на кнопке. */
 /** Доля древесины машинам словами на кнопке. */
@@ -62,6 +68,40 @@ export function reliefLine(r: NonNullable<CampView['relief']>, now: number): str
   }.`;
 }
 
+type View = 'camp' | 'machines' | 'phases' | 'storm';
+
+/** Столбцы окна лагеря (UI-7, docs/ui_v2.md, 5.6): строки `.mod` и ряды кнопок `.mini` — таблицами набора. */
+const TARGET_COLS: readonly Col[] = [
+  { key: 'what', title: 'Цель' },
+  { key: 'v', title: 'Сейчас', align: 'right', w: '104px' },
+];
+const SIDE_COLS: readonly Col[] = [{ key: 'side', title: 'Стороны лагеря' }];
+const WOOD_COLS: readonly Col[] = [
+  { key: 'share', title: 'Лес на рогатки' },
+  { key: 'front', title: 'Город за', align: 'right', w: '72px' },
+  { key: 'rear', title: 'Тыл за', align: 'right', w: '72px' },
+];
+const MSHARE_COLS: readonly Col[] = [{ key: 'share', title: 'Лес машинам' }];
+const MACHINE_COLS: readonly Col[] = [
+  { key: 'm', title: 'Машина' },
+  { key: 'act', title: '', align: 'right', w: '96px' },
+];
+const CRAFT_COLS: readonly Col[] = [
+  { key: 'c', title: 'Дело' },
+  { key: 'done', title: 'Сделано', align: 'right', w: '64px' },
+  { key: 'act', title: '', align: 'right', w: '96px' },
+];
+
+/** Срок дозревания стороны с нуля при этой доле — та же функция, что считает стороны (`worksRipeAt`); никогда — «—». */
+export function ripeWords(share: number, machines: number): { front: string; rear: string } {
+  const plan = playerWood(share, machines);
+  const at = (side: 'front' | 'rear'): string => {
+    const ms = worksRipeAt(0, side, plan);
+    return Number.isFinite(ms) ? realMinutes(ms) : '—';
+  };
+  return { front: at('front'), rear: at('rear') };
+}
+
 export function CampPanel() {
   const showToast = useGame((g) => g.showToast);
   const closeSheet = useGame((g) => g.closeSheet);
@@ -78,6 +118,7 @@ export function CampPanel() {
   const setOrders = useWorld((g) => g.setOrders);
   const [pick, setPick] = useState<Fate | null>(null);
   const [busy, setBusy] = useState(false);
+  const [view, setView] = useState<View>('camp');
   const [, retick] = useState(0);
 
   useEffect(() => {
@@ -107,6 +148,7 @@ export function CampPanel() {
   const now = worldNow();
   const sides = campSides(camp, now);
   const share = woodShare(camp.wood);
+  const machines = machineShare(camp.wood);
   const chosen = pick ?? camp.fate;
   const option = camp.fates.find((o) => o.id === chosen) ?? null;
   const stage = STAGE_BY_ID[camp.stage];
@@ -123,9 +165,20 @@ export function CampPanel() {
 
   const sameFate = chosen === camp.fate;
   const cantFate = option && !option.can ? option.reason : null;
+  // Вкладки (П4: окно лагеря было длиннейшим в игре — 2,6 экрана на стенде): лагерь и лес — первой, машины, ход фаз с
+  // переговорами и штурм — своими. Предложение, ждущее ответа, — счётчиком на «Ходе».
+  const tabs: TabDef<View>[] = [
+    { id: 'camp', label: 'Лагерь' },
+    ...(camp.machines ? [{ id: 'machines' as const, label: 'Машины' }] : []),
+    ...(camp.phases || camp.parley ? [{ id: 'phases' as const, label: 'Ход', badge: camp.parley?.incoming ? 1 : 0 }] : []),
+    { id: 'storm', label: 'Штурм' },
+  ];
+  const shown = tabs.some((t) => t.id === view) ? view : 'camp';
+  const methods = camp.machines?.methods ?? [];
+  const using = use ?? methods.map((x) => x.machine);
 
   return (
-    <div className="panel">
+    <div className="panel sg">
       <div className="bhead">
         <div className="ico">{camp.castle ? CASTLE_ICON : stage.icon}</div>
         <div className="body">
@@ -135,200 +188,201 @@ export function CampPanel() {
           </div>
         </div>
       </div>
+      <Tabs tabs={tabs} value={shown} onChange={setView} />
 
-      <h3>Цель</h3>
-      <div className="mod-list">
-        <div className="mod">
-          <span className="ico">🛡️</span>
-          <span className="name">Мощь гарнизона</span>
-          <span className={`val${camp.power.precision === 'unknown' ? ' neg' : ''}`}>{formatEstimate(camp.power)}</span>
-        </div>
-        <div className="mod total">
-          <span className="ico">⏳</span>
-          <span className="name">Еды хватит на</span>
-          <span className="val pos">{hungerLeft(camp.starvesAt, now)}</span>
-        </div>
-        {/* Гарнизон — той же точностью, что мощь: точное число знает только разведка (docs/siege_audit.md, 10). */}
-        <div className="mod">
-          <span className="ico">🍞</span>
-          <span className="name">Гарнизон ест вместе с городом</span>
-          <span className={`val${camp.garrison.precision === 'unknown' ? ' neg' : ''}`}>{formatEstimate(camp.garrison)}</span>
-        </div>
-        <div className="mod">
-          <span className="ico">⛺</span>
-          <span className="name">Лагерь стоит</span>
-          <span className="val">{realLeft(Math.max(0, (now - camp.since) / 1000))}</span>
-        </div>
-      </div>
-      {/* Выручка, идущая на лагерь (siege_audit, 6): у логова — отряд соседей по донесению, у города игрока — его полководец. */}
-      {camp.relief && <p className="note bad">{reliefLine(camp.relief, now)}</p>}
-
-      <h3>Лагерь</h3>
-      <div className="mod-list">
-        {SIDES.map((side) => {
-          const t = sides[side];
-          return (
-            <div className="mod" key={side}>
-              <span className="ico">{side === 'front' ? '🏘️' : '🌾'}</span>
-              <span className="name">{SIDE_NAME[side]}</span>
-              <span className="val">{sideReady(t, now)}</span>
-            </div>
-          );
-        })}
-      </div>
-      {/* Под городом соседа древесину не делят: кнопок, которые только отказывают, нет — есть строка (siege_audit, 3). */}
-      {camp.woodFixed ? (
-        <p className="note">
-          {camp.woodFixed} Сторона города дозреет за {WOOD_ALL_FRONT}.
-        </p>
-      ) : (
+      {shown === 'camp' && (
         <>
-          <p className="note">
-            Всё к городу — сторона города дозреет за {WOOD_ALL_FRONT}. Поровну — обе за {WOOD_HALVES}. Вложенное не
-            пропадает.
-          </p>
-          <div className="fate-shares">
-            {WOOD_SHARES.map((sh) => (
-              <button
-                key={sh}
-                className={`mini${share === sh ? ' on' : ''}`}
-                disabled={busy || share === sh}
-                onClick={() => void order(() => setWood(sh), `Древесина: ${SHARE_NAME[sh].toLowerCase()}.`)}
-              >
-                {SHARE_NAME[sh]}
-              </button>
-            ))}
-          </div>
+          <Table
+            label="Цель"
+            cols={TARGET_COLS}
+            rows={[
+              { key: 'power', cells: { what: 'Мощь гарнизона', v: <span className={camp.power.precision === 'unknown' ? 'bad' : ''}>{formatEstimate(camp.power)}</span> } },
+              { key: 'food', cells: { what: 'Еды хватит на', v: <b className="good">{hungerLeft(camp.starvesAt, now)}</b> } },
+              {
+                key: 'garrison',
+                // Гарнизон — той же точностью, что мощь: точное число знает только разведка (docs/siege_audit.md, 10).
+                tip: () => ({ title: 'Гарнизон ест вместе с городом', body: 'Чем больше гарнизон, тем быстрее кончится хлеб. Точное число — только с разведки.' }),
+                cells: { what: 'Гарнизон ест вместе с городом', v: <span className={camp.garrison.precision === 'unknown' ? 'bad' : ''}>{formatEstimate(camp.garrison)}</span> },
+              },
+              { key: 'since', cells: { what: 'Лагерь стоит', v: realLeft(Math.max(0, (now - camp.since) / 1000)) } },
+            ]}
+          />
+          {/* Выручка, идущая на лагерь (siege_audit, 6): у логова — отряд соседей по донесению, у города игрока — его полководец. */}
+          {camp.relief && <p className="note bad">{reliefLine(camp.relief, now)}</p>}
+          <Table
+            label="Стороны лагеря"
+            cols={SIDE_COLS}
+            rows={SIDES.map((side) => ({
+              key: side,
+              cells: {
+                side: (
+                  <span className="kit-two">
+                    <b className="one-line">{SIDE_NAME[side]}</b>
+                    <small className="one-line">{sideReady(sides[side], now)}</small>
+                  </span>
+                ),
+              },
+            }))}
+          />
+          {/* Под городом соседа древесину не делят: строк, которые только отказывают, нет — есть строка (siege_audit, 3). */}
+          {camp.woodFixed ? (
+            <p className="note">
+              {camp.woodFixed} Сторона города дозреет за {WOOD_ALL_FRONT}.
+            </p>
+          ) : (
+            <>
+              <Table
+                label="Лес на рогатки"
+                cols={WOOD_COLS}
+                rows={WOOD_SHARES.map((sh) => {
+                  const r = ripeWords(sh, machines);
+                  return {
+                    key: String(sh),
+                    on: share === sh,
+                    pick: () => share !== sh && !busy && void order(() => setWood(sh), `Древесина: ${SHARE_NAME[sh].toLowerCase()}.`),
+                    cells: { share: SHARE_NAME[sh], front: r.front, rear: r.rear },
+                  };
+                })}
+              />
+              <p className="note">Сроки — с пустого места при этой доле. Вложенное не пропадает.</p>
+            </>
+          )}
+          {/* Мораль между боями (14.31): наш лагерь — дружина; после вылазки штурмовать сразу — уставшими. */}
+          {camp.campRest && (
+            <p className="note warn">
+              {restLine(camp.campRest, 'Лагерь дрался', now)} {REST_WHY}
+            </p>
+          )}
         </>
       )}
+
       {/* Осадные машины из древесины лагеря (world/machines, docs/siege_v2.md, 4.3): доля леса, очередь, отказ — из мира. */}
-      {camp.machines && (
+      {shown === 'machines' && camp.machines && (
         <>
-          <h3>Машины</h3>
-          <p className="note">Лес машинам: {MACHINE_SHARE_NAME[camp.machines.share] ?? `${Math.round(camp.machines.share * 100)} %`}. Остальное идёт на рогатки.</p>
-          <div className="fate-shares">
-            {MACHINE_SHARES.map((sh) => (
-              <button
-                key={sh}
-                className={`mini${camp.machines?.share === sh ? ' on' : ''}`}
-                disabled={busy || camp.machines?.share === sh}
-                onClick={() => void order(() => setMachineWood(sh), `Машинам: ${MACHINE_SHARE_NAME[sh].toLowerCase()}.`)}
-              >
-                {MACHINE_SHARE_NAME[sh]}
-              </button>
-            ))}
-          </div>
-          {camp.machines.list.map((e) => (
-            <div key={e.id}>
-              <button
-                className="btn wide"
-                disabled={busy || !e.can}
-                onClick={() => void order(() => orderMachine(e.id), `${e.name}: заказано.`)}
-              >
-                {e.name} · {machineState(e, now)}
-              </button>
-              <p className={`note${e.can || e.state !== 'none' ? '' : ' bad'}`}>{e.state === 'none' && e.reason ? e.reason : e.use}</p>
-            </div>
-          ))}
+          <Table
+            label="Лес машинам"
+            cols={MSHARE_COLS}
+            rows={MACHINE_SHARES.map((sh) => ({
+              key: String(sh),
+              on: camp.machines?.share === sh,
+              pick: () => camp.machines?.share !== sh && !busy && void order(() => setMachineWood(sh), `Машинам: ${MACHINE_SHARE_NAME[sh].toLowerCase()}.`),
+              cells: { share: MACHINE_SHARE_NAME[sh] },
+            }))}
+          />
+          <p className="note">Остальное идёт на рогатки.</p>
+          <Table
+            label="Машины"
+            cols={MACHINE_COLS}
+            rows={camp.machines.list.map((e) => ({
+              key: e.id,
+              cells: {
+                m: (
+                  <span className="kit-two">
+                    <b className="one-line">
+                      {e.name} · {machineState(e, now)}
+                    </b>
+                    <small className={e.can || e.state !== 'none' ? '' : 'bad'}>{e.state === 'none' && e.reason ? e.reason : e.use}</small>
+                  </span>
+                ),
+                act:
+                  e.state === 'none' ? (
+                    <Btn why={!e.can ? 'Нельзя' : busy ? '…' : null} onClick={() => void order(() => orderMachine(e.id), `${e.name}: заказано.`)}>
+                      Заказать
+                    </Btn>
+                  ) : null,
+              },
+            }))}
+          />
         </>
       )}
 
-      {/* Мораль между боями (14.31): наш лагерь — дружина; после вылазки штурмовать сразу — уставшими. */}
-      {camp.campRest && (
-        <p className="note warn">
-          {restLine(camp.campRest, 'Лагерь дрался', now)} {REST_WHY}
-        </p>
-      )}
-
-      {/* Ход осады фазами и наказы на отлучку (world/siegeroll): журнал, поправки и проломы — из мира. */}
-      {camp.phases && (
-        <SiegePhases
-          phases={camp.phases}
-          now={now}
-          busy={busy}
-          onOrders={(o) => void order(() => setOrders(o), 'Наказы поставлены.')}
-        />
-      )}
-
-      {/* Переговоры у стен (docs/siege_v2.md, раздел 7): условия сдачи, дань, наказ брать дань — числа из мира. */}
-      {camp.parley && <SiegeParley view={camp.parley} fate={camp.fate} now={now} orders={camp.phases?.orders} busy={busy} />}
-
-      {/* Дела полководца в лагере (world/siegecraft): за энергию, не больше предела за осаду. Числа и отказ — из мира. */}
-      {camp.crafts && camp.crafts.length > 0 && (
+      {shown === 'phases' && (
         <>
-          <h3>Дела в лагере</h3>
-          {camp.crafts.map((c) => (
-            <div key={c.act}>
-              <button
-                className="btn wide"
-                disabled={busy || !c.can}
-                onClick={() => void order(() => campCraft(c.act), `${c.name[0].toUpperCase()}${c.name.slice(1)}: сделано.`)}
-              >
-                {c.name[0].toUpperCase()}
-                {c.name.slice(1)} · {c.done} из {c.max} · энергия {c.energy.price}
-              </button>
-              <p className={`note${c.can ? '' : ' bad'}`}>{c.can ? c.gain : c.reason}</p>
-            </div>
-          ))}
-          {camp.craftNote && <p className="note">{camp.craftNote}</p>}
+          {/* Ход осады фазами и наказы на отлучку (world/siegeroll): журнал, поправки и проломы — из мира. */}
+          {camp.phases && (
+            <SiegePhases phases={camp.phases} now={now} busy={busy} onOrders={(o) => void order(() => setOrders(o), 'Наказы поставлены.')} />
+          )}
+          {/* Переговоры у стен (docs/siege_v2.md, раздел 7): условия сдачи, дань, наказ брать дань — числа из мира. */}
+          {camp.parley && <SiegeParley view={camp.parley} fate={camp.fate} now={now} orders={camp.phases?.orders} busy={busy} />}
         </>
       )}
 
-      <h3>Участь</h3>
-      <FatePick options={camp.fates} value={chosen} onChange={setPick} />
-
-      <h3>Что делать</h3>
-      <button
-        className="btn wide"
-        disabled={busy || sameFate || cantFate !== null}
-        onClick={() => void order(() => besiege(chosen), `Объявлено: ${FATE_META[chosen].name.toLowerCase()}.`)}
-      >
-        Объявить
-      </button>
-      {sameFate && <p className="note">Эта участь уже объявлена</p>}
-      {/* Способ штурма (docs/siege_v2.md, 4.4): из готовых машин, проёмы складываются; строка — устройство, без прогноза. */}
-      {camp.machines?.walls && (
+      {shown === 'storm' && (
         <>
-          <p className="note">
-            {camp.machines.breaches > 0
-              ? `Проломов ${camp.machines.breaches} из 3: столько стены без лестниц.`
-              : 'Проломов нет.'}{' '}
-            {camp.machines.methods.length === 0 ? 'Готовых машин нет: лестницы — те, что принесут на себе, на треть стены.' : ''}
-          </p>
-          {camp.machines.methods.map((m) => {
-            const on = (use ?? camp.machines!.methods.map((x) => x.machine)).includes(m.machine);
-            return (
-              <label key={m.machine} className="note">
-                <input
-                  type="checkbox"
-                  checked={on}
-                  disabled={busy}
-                  onChange={() => {
-                    const was = use ?? camp.machines!.methods.map((x) => x.machine);
-                    setUse(on ? was.filter((x) => x !== m.machine) : [...was, m.machine]);
-                  }}
-                />{' '}
-                {m.words}
-              </label>
-            );
-          })}
+          {/* Дела полководца в лагере (world/siegecraft): за энергию, не больше предела за осаду. Числа и отказ — из мира. */}
+          {camp.crafts && camp.crafts.length > 0 && (
+            <>
+              <Table
+                label="Дела в лагере"
+                cols={CRAFT_COLS}
+                rows={camp.crafts.map((c) => ({
+                  key: c.act,
+                  cells: {
+                    c: (
+                      <span className="kit-two">
+                        <b className="one-line">{c.name[0].toUpperCase() + c.name.slice(1)}</b>
+                        <small className={c.can ? '' : 'bad'}>{c.can ? c.gain : c.reason}</small>
+                      </span>
+                    ),
+                    done: `${c.done} из ${c.max}`,
+                    act: (
+                      <Btn why={!c.can ? 'Нельзя' : busy ? '…' : null} onClick={() => void order(() => campCraft(c.act), `${c.name[0].toUpperCase()}${c.name.slice(1)}: сделано.`)} sub={<EnergyPrice price={c.energy.price} />}>
+                        Сделать
+                      </Btn>
+                    ),
+                  },
+                }))}
+              />
+              {camp.craftNote && <p className="note">{camp.craftNote}</p>}
+            </>
+          )}
+
+          <h3>Участь</h3>
+          <FatePick options={camp.fates} value={chosen} onChange={setPick} />
+          <Btn wide why={sameFate ? 'Эта участь уже объявлена' : cantFate ? 'Эту участь не объявить' : busy ? '…' : null} onClick={() => void order(() => besiege(chosen), `Объявлено: ${FATE_META[chosen].name.toLowerCase()}.`)}>
+            Объявить
+          </Btn>
+
+          <h3>Штурм</h3>
+          {/* Способ штурма (docs/siege_v2.md, 4.4): из готовых машин, проёмы складываются; строка — устройство, без прогноза. */}
+          {camp.machines?.walls && (
+            <>
+              <p className="note">
+                {camp.machines.breaches > 0 ? `Проломов ${camp.machines.breaches} из ${BREACH_MAX}: столько стены без лестниц.` : 'Проломов нет.'}{' '}
+                {methods.length === 0 ? 'Готовых машин нет: лестницы — те, что принесут на себе, на треть стены.' : ''}
+              </p>
+              {/* Машины на штурм — переключателями 44, а не родными флажками (К5, UI-7). */}
+              {methods.map((m) => {
+                const on = using.includes(m.machine);
+                return (
+                  <Toggle
+                    key={m.machine}
+                    label={m.words}
+                    on={on}
+                    disabled={busy}
+                    onChange={() => setUse(on ? using.filter((x) => x !== m.machine) : [...using, m.machine])}
+                  />
+                );
+              })}
+            </>
+          )}
+          <Btn
+            kind="main"
+            wide
+            why={busy ? '…' : camp.men === 0 ? 'В лагере никого' : cantFate ? 'Эту участь не объявить' : camp.storm?.block ? 'Не хватает энергии' : null}
+            sub={camp.storm ? <EnergyPrice price={camp.storm.price} /> : undefined}
+            onClick={() => void order(() => attack({ fate: chosen, ...(use ? { machines: use } : {}) }), 'Отряд штурмует. Донесение в походах.', true)}
+          >
+            Штурмовать · {camp.men}
+          </Btn>
+          <p className="note">{cantFate ?? camp.storm?.block ?? STORM_HOLDS}</p>
+          {/* Отступить — необратимо: осада снята, лагерь сгорает; двумя касаниями одной кнопки (`kit/twotap`, UI-7). */}
+          <Btn wide confirm onClick={() => void order(retreat, 'Осада снята.', true)}>
+            Отступить
+          </Btn>
+          <p className="note">{CAMP_LEAVE}</p>
         </>
       )}
-      <button
-        className="btn wide"
-        disabled={busy || camp.men === 0 || cantFate !== null || Boolean(camp.storm?.block)}
-        onClick={() =>
-          void order(() => attack({ fate: chosen, ...(use ? { machines: use } : {}) }), 'Отряд штурмует. Донесение в походах.', true)
-        }
-      >
-        Штурмовать · {camp.men}
-        {camp.storm ? ` · энергия ${camp.storm.price}` : ''}
-      </button>
-      <p className="note">{cantFate ?? camp.storm?.block ?? STORM_HOLDS}</p>
-      <button className="btn ghost wide" disabled={busy} onClick={() => void order(retreat, 'Осада снята.', true)}>
-        Отступить
-      </button>
-      <p className="note">{CAMP_LEAVE}</p>
     </div>
   );
 }

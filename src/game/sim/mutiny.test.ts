@@ -83,6 +83,7 @@ import {
 } from './workers';
 import { addBonded, loseBonded } from './population';
 import { buyGoods, cancelCaravan, marketCheck, saleCheck, sellBonded } from './market';
+import { unitWord } from '@/ui/next/MarketNew';
 import { mutinyFalls, mutinyRelease, mutinySuppress, releaseBonded, unrestTick } from './mutiny';
 import { applyExpedition } from './expedition';
 import { seeded, setRandom } from './random';
@@ -760,7 +761,9 @@ describe('тон: буднично, без одобрения и без глум
     ...words(),
     code('src/ui/panels/OrderPanel.tsx'),
     code('src/ui/panels/PeoplePanel.tsx', 'function Bonded', 'export function PeoplePanel'),
-    code('src/ui/parts/Market.tsx', 'function BondedRow', 'function GoodRow'),
+    // Рынок с UI-7 — таблица прилавка и покупка выбранного (`next/MarketNew.tsx`, docs/ui_v2.md, 5.6.3): слова о невольниках
+    // там — что станет с порядком (`orderAfter`); единица цены — `unitWord`, её держит тест ниже.
+    code('src/ui/next/MarketNew.tsx', 'export function orderAfter', 'export function MarketNew'),
     // Места рабочих и невольников — окно постройки (`next/BuildingNew`; прежние места удалены, docs/ui_audit.md, 16).
     code('src/ui/next/BuildingNew.tsx'),
     code('src/game/sim/mutiny.ts'),
@@ -786,9 +789,11 @@ describe('тон: буднично, без одобрения и без глум
 
   it('на рынке невольника продают «за человека», а не «за штуку»', () => {
     expect(ORDER_TEXT.market.unit).toBe('за человека');
-    const row = code('src/ui/parts/Market.tsx', 'function BondedRow', 'function GoodRow');
-    expect(row).toContain('ORDER_TEXT.market.unit');
-    expect(row).not.toContain('за штуку');
+    // Единица цены — одна функция на покупку и продажу (`next/MarketNew.unitWord`, UI-7); товар — «за штуку».
+    expect(unitWord(BONDED_GOOD)).toBe('за человека');
+    expect(unitWord(GOODS[0])).toBe('за штуку');
+    const src = code('src/ui/next/MarketNew.tsx');
+    expect(src.match(/\bunitWord\(def\)/g)?.length, 'покупка и продажа говорят одним словом').toBe(2);
   });
 
   it('все профессии невольников названы теми же словами, что у вольных', () => {

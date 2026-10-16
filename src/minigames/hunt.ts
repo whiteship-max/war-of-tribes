@@ -19,7 +19,8 @@
  *
  * В партию отсюда уходит только счёт — сколько оленей легло из скольких (`tally`), через `sim/minigames.harvest`.
  */
-import { seeded } from './rules';
+import { mixSeed } from '@/game/sim/random';
+import { seeded, type Hour } from './rules';
 
 // ---------- Поле ----------
 
@@ -210,6 +211,30 @@ export const HEAR = {
 } as const;
 export type NoiseKind = keyof typeof HEAR;
 
+/**
+ * Час и слух (docs/minigames.md, 18): на зорьке олени выходят на опушку смелыми — прежние числа `HEAR`; днём они
+ * чутче и слышат дальше. Ночь — прежний слух: темнота и так отнимает своё. Зорька — прежние числа, другие часы только
+ * отнимают: средний выход за сутки не выше прежнего (щуп добычи).
+ */
+export const HOUR_EAR: Record<Hour, number> = { dawn: 1, day: 1.1, dusk: 1, night: 1 };
+
+/**
+ * Редкая добыча «Охоты» — белый олень: на поле раз в четыре выхода (`WHITE_P`), рогач дальней кучки. Лёг — идёт вдвойне
+ * (`WHITE_WORTH`): вторая доля — прибавка, и в знаменатель она легла вся (`rules.Tally`). Чуток, как никто
+ * (`WHITE_EAR`), и стоит дальше всех — взять его труднее любого другого, и средний выход он поднять не может (щуп).
+ */
+export const WHITE_P = 1 / 4;
+export const WHITE_WORTH = 2;
+export const WHITE_EAR = 1.3;
+
+/** Что меняет охоту сверх прежнего: час и белый олень. По умолчанию — прежняя охота (зорька, без белого). */
+export interface HuntTwists {
+  hour: Hour;
+  rare: boolean;
+}
+
+export const HUNT_CLASSIC: HuntTwists = { hour: 'dawn', rare: false };
+
 /** Насторожившийся олень срывается от второй вести, если она ближе этой доли слышимости. */
 const SECOND_FLEE = 0.75;
 
@@ -244,6 +269,8 @@ export interface DeerSpec {
   veer: number;
   /** Оленуха — без рогов (`models.deer(false)`). Правила у неё те же: та же цель, тот же слух, тот же бег. */
   doe: boolean;
+  /** Белый олень — редкий (`WHITE_P`): светлая шкура, слух чутче (`WHITE_EAR`), лёг — вдвойне (`WHITE_WORTH`). */
+  white?: boolean;
 }
 
 export interface Field {
@@ -273,7 +300,7 @@ export function clearSight(cover: readonly Cover[], x0: number, y0: number, z0: 
  * прямых углов от взгляда на старте; укрытия — где угодно на поле, но не у ног охотника, не на оленях и не поперёк
  * линии от глаза к середине каждой кучки: на старте каждая кучка видна, а обходить приходится всё остальное.
  */
-export function layHunt(seed: number): Field {
+export function layHunt(seed: number, rare = false): Field {
   const rnd = seeded(seed);
   const order = [0, 1, 2];
   for (let i = order.length - 1; i > 0; i--) {
@@ -340,6 +367,12 @@ export function layHunt(seed: number): Field {
   // Оленухи (решение владельца 04.10.2026): в каждой кучке — олень и оленуха, кто из двоих — от зерна. Жребий — после
   // укрытий, чтобы места оленей и укрытий у каждого зерна остались прежними.
   for (let g = 0; g < GROUPS; g++) deer[g * (DEER / GROUPS) + Math.floor(rnd() * (DEER / GROUPS))].doe = true;
+  // Белый олень — своим генератором (`mixSeed(seed, 1)`): поле, оленухи и укрытия у каждого зерна прежние.
+  if (rare) {
+    const r2 = seeded(mixSeed(seed >>> 0, 1));
+    // Рогач дальней кучки (`BANDS` по порядку кучек: последняя — дальняя).
+    if (r2() < WHITE_P) deer.find((d) => d.group === GROUPS - 1 && !d.doe)!.white = true;
+  }
   return { cover, deer };
 }
 
@@ -635,9 +668,16 @@ export class Hunt {
   /** Когда наложена стрела: раньше этого тянуть нечего. */
   private nockAt = 0;
 
-  constructor(seed: number) {
-    this.field = layHunt(seed);
+  /** Во сколько раз слух этого оленя дальше `HEAR`: час и белая шкура. */
+  private ears: number[];
+
+  constructor(
+    seed: number,
+    readonly twists: HuntTwists = HUNT_CLASSIC,
+  ) {
+    this.field = layHunt(seed, twists.rare);
     this.segs = this.field.deer.map((d) => [{ kind: 'graze', t0: 0, x: d.x, z: d.z, yaw: d.yaw }]);
+    this.ears = this.field.deer.map((d) => HOUR_EAR[twists.hour] * (d.white ? WHITE_EAR : 1));
   }
 
   /** Сколько стрел в колчане. */
@@ -740,9 +780,21 @@ export class Hunt {
     return t >= last + 1.5;
   }
 
-  /** Счёт: сколько легло из скольких. */
-  tally(): { got: number; total: number } {
-    return { got: this.down, total: DEER };
+  /** Лёг ли олень к этой секунде. */
+  isDown(id: number, t = this.now): boolean {
+    return this.segs[id].some((g) => g.kind === 'down' && g.t0 <= t);
+  }
+
+  /** Счёт: сколько легло из скольких; белый олень — вдвойне, вторая доля — прибавка. */
+  tally(): { got: number; total: number; bonus: number; bonusMax: number } {
+    let bonus = 0;
+    let bonusMax = 0;
+    this.field.deer.forEach((d, i) => {
+      if (!d.white) return;
+      bonusMax += WHITE_WORTH - 1;
+      if (this.isDown(i)) bonus += WHITE_WORTH - 1;
+    });
+    return { got: this.down, total: DEER, bonus, bonusMax };
   }
 
   /**
@@ -875,9 +927,10 @@ export class Hunt {
       if (p.kind !== 'graze' && p.kind !== 'alert') continue;
       const dist = Math.hypot(p.x - n.x, p.z - n.z);
       const up = p.kind === 'alert' || p.head < (HEAD_DOWN + HEAD_UP) / 2;
-      // Шаг слышно по громкости, а поднявший голову олень видит идущего вдвое дальше.
-      const alert = n.kind === 'step' ? rule.alert * n.loud * (up ? 2 : 1) : rule.alert;
-      if (dist < rule.flee || (p.kind === 'alert' && dist < alert * SECOND_FLEE)) this.flee(i, n.t, n.x, n.z, { x: n.hx, z: n.hz });
+      // Шаг слышно по громкости, а поднявший голову олень видит идущего вдвое дальше. Час и белая шкура — дальше всё.
+      const ear = this.ears[i];
+      const alert = (n.kind === 'step' ? rule.alert * n.loud * (up ? 2 : 1) : rule.alert) * ear;
+      if (dist < rule.flee * ear || (p.kind === 'alert' && dist < alert * SECOND_FLEE)) this.flee(i, n.t, n.x, n.z, { x: n.hx, z: n.hz });
       else if (dist < alert) this.alert(i, n.t, n.x, n.z);
     }
   }
