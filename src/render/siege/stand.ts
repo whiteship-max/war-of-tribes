@@ -277,8 +277,9 @@ export function mountSiegeStand(p: URLSearchParams): void {
       dpr: renderer.getPixelRatio(),
     });
   }
-  // Крючок для `tw:shots` (замер цены кадра читает `player` и `plan.figures`).
-  const storm = reel.episodes.find((e) => e.kind === 'storm' || e.kind === 'breach');
+  // Крючок для `tw:shots` (замер цены кадра читает `player` и `plan.figures`): «сшибка» — штурм, самый тяжёлый эпизод; нет
+  // штурма — первый пролом.
+  const storm = reel.episodes.find((e) => e.kind === 'storm') ?? reel.episodes.find((e) => e.kind === 'breach');
   (window as unknown as { twStand?: unknown }).twStand = { player, reel, plan: { figures: reel.tracks.count, clashAt: storm?.at ?? 0 } };
   window.addEventListener('resize', () => {
     renderer.setSize(canvas.clientWidth || window.innerWidth, canvas.clientHeight || window.innerHeight, false);
