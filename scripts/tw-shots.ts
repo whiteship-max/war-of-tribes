@@ -170,7 +170,7 @@ const SHOTS: Shot[] = [
   { name: 'siege-wide', query: `${SIEGE('storm', 'pitch@0.2')}&cam=wide`, why: 'осада сверху: замок девятого уровня — башни чаще и выше' },
   { name: 'siege-ui-breach', query: `${SIEGE('gates', 'breach:4@0.8')}&layer=1`, why: 'ролик осады слоем игры: фаза, проломы, строка журнала фазы' },
   { name: 'siege-ui-gates', query: `${SIEGE('gates', 'gates@0.45')}&layer=1`, why: 'сдача слоем игры: подпись — донесение' },
-  { name: 'siege-ui-card', query: `${SIEGE('gates', 'gates')}&layer=1&at=card`, why: 'итог осады: фазы, проломы, машины, добыча' },
+  { name: 'siege-ui-card', query: `${SIEGE('gates', 'card')}&layer=1`, why: 'итог осады: фазы, проломы, машины, добыча' },
 ];
 
 const DEFAULT_SHOTS = ['deploy', 'volley', 'clash', 'clash-near', 'ford-clash'];

@@ -10,7 +10,7 @@ import { CITY } from '../city/palette';
 import { Builder, box, tint } from '../city/geom';
 import { log } from '../city/kit';
 import type { Quality } from '../quality';
-import { MERLON_STEP, geometryOf, m } from './fort';
+import { MERLON_STEP, courseU, geometryOf, m } from './fort';
 import type { Crowd, CrowdExtras } from '../reel/crowd';
 import { PARAPET, type TwWall } from './site';
 import { hash, heightAt } from '../reel/terrain';
@@ -257,6 +257,8 @@ export class Siegeworks {
     const band = m(BREACH_BAND);
     const top = m(w.base) + m(w.top);
     const par = m(PARAPET);
+    // Подножие целой стены: от него у неё идёт кладка и тень (`fort.ts`, тело стены).
+    const foot = m(w.base) - 1.6;
     // Частокол (ролик осады, стена до третьего уровня) рушится брёвнами, а не кладкой.
     const layer = w.wood ? 'wood' : 'ashlar';
     const T = w.wood ? tint(CITY.timberGrey, 1.4) : tint(CITY.stoneTints[0]);
@@ -273,13 +275,15 @@ export class Siegeworks {
           if (e - a < 0.02) continue;
           const y0 = top - m(c.drop);
           lowest = Math.min(lowest, y0);
-          box(cb, m((a + e) / 2), zo + s * (band / 2), 0, out, m(e - a), band, y0, top, layer, T, null);
+          // Камень — той же сеткой и с той же тенью у подножия, что целая стена (`fort.ts`): до обвала кусок не виден.
+          const shade = w.wood ? {} : { ...courseU(m((a + e) / 2), m(e - a), out), vBase: foot, aoBottom: 0.72 + 0.28 * ((y0 - foot) / (top - foot)), grimeBottom: 0.9 * (1 - (y0 - foot) / (top - foot)) };
+          box(cb, m((a + e) / 2), zo + s * (band / 2), 0, out, m(e - a), band, y0, top, layer, T, null, shade);
         }
         // Парапет и зубцы — как у целой стены, по толщине опущенной полосы.
         const xa = m(a0);
         const xb = m(a1);
         const pt = Math.min(par, band);
-        box(cb, (xa + xb) / 2, zo + s * (pt / 2), 0, out, xb - xa, pt, top, top + 1.05, layer, Tdark, layer);
+        box(cb, (xa + xb) / 2, zo + s * (pt / 2), 0, out, xb - xa, pt, top, top + 1.05, layer, Tdark, layer, w.wood ? {} : courseU((xa + xb) / 2, xb - xa, out));
         for (let x = Math.ceil(xa / MERLON_STEP) * MERLON_STEP + MERLON_STEP / 2; x < xb - 0.3; x += MERLON_STEP) {
           box(cb, x, zo + s * (pt / 2), 0, out, 0.85, pt, top + 1.05, top + 2.0, layer, T, layer);
         }

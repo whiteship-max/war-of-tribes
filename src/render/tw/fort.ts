@@ -8,10 +8,10 @@
 // как у земли поля. Неподвижное — одним мешем (вызов и тень); лестницы, таран и створки — своими, по кадру режиссуры.
 import * as THREE from 'three';
 import { CITY } from '../city/palette';
-import { Builder, box, cone, cylinder, flat, pyramid, tint, type V3 } from '../city/geom';
+import { Builder, box, cone, cylinder, flat, pyramid, tint, type V3, type WallFace } from '../city/geom';
 import { house, log, type Detail } from '../city/kit';
 import { hipRoof, tower } from '../city/forts';
-import { LAYERS } from '../city/tex';
+import { LAYERS, TILE_M } from '../city/tex';
 import type { Quality } from '../quality';
 import {
   CITY_M,
@@ -88,6 +88,14 @@ export function geometryOf(b: Builder): THREE.BufferGeometry {
 /** Метры набора от единиц ролика. */
 export const m = (u: number): number => u / CITY_M;
 
+/**
+ * Кладка по миру: развёртка лицевой грани стены (`box` лицом `out`) начинается с мировой X, а не с края куска — целая стена
+ * и куски будущего пролома (`Siegeworks`) кладут камни одной сеткой, и до обвала шва между ними не видно.
+ */
+export function courseU(cx: number, len: number, out: number): Partial<WallFace> {
+  return { u0: (out * (cx - (out * len) / 2)) / TILE_M.ashlar[0] };
+}
+
 /** Шаг зубцов парапета, единицы набора. */
 export const MERLON_STEP = 1.55;
 /** Осадную башню подкатывают к стене за столько секунд до сшибки. */
@@ -109,7 +117,7 @@ export function wallRun(b: Builder, w: TwWall, x0: number, x1: number, avoid: (x
   const cx = (x0 + x1) / 2;
   const len = x1 - x0;
   const czBody = zo + s * (thick / 2);
-  box(b, cx, czBody, 0, out, len, thick, base - 1.6, top, 'ashlar', T, null, { aoBottom: 0.72, grimeBottom: 0.9 });
+  box(b, cx, czBody, 0, out, len, thick, base - 1.6, top, 'ashlar', T, null, { aoBottom: 0.72, grimeBottom: 0.9, ...courseU(cx, len, out) });
   // Настил хода — дерево, от внутренней кромки до парапета.
   const par = m(PARAPET);
   const zIn = zo + s * thick;
@@ -130,7 +138,7 @@ export function wallRun(b: Builder, w: TwWall, x0: number, x1: number, avoid: (x
         ];
   flat(b, walk, top, 'wood', tint(CITY.timberGrey, 1.1), true, 0.9);
   // Парапет снаружи и зубцы на нём.
-  box(b, cx, zo + s * (par / 2), 0, out, len, par, top, top + 1.05, 'ashlar', Tdark, 'ashlar');
+  box(b, cx, zo + s * (par / 2), 0, out, len, par, top, top + 1.05, 'ashlar', Tdark, 'ashlar', courseU(cx, len, out));
   for (let x = x0 + MERLON_STEP / 2; x < x1; x += MERLON_STEP) {
     if (avoid(x)) continue;
     box(b, x, zo + s * (par / 2), 0, out, 0.85, par, top + 1.05, top + 2.0, 'ashlar', T, 'ashlar');
@@ -160,7 +168,7 @@ function breachRun(b: Builder, w: TwWall, x0: number, x1: number, cols: { x0: nu
     const a = Math.max(x0, m(c.x0));
     const e = Math.min(x1, m(c.x1));
     if (e - a < 0.02) continue;
-    box(b, (a + e) / 2, zo + s * (band / 2), 0, out, e - a, band, base - 1.6, top - m(c.drop), 'ashlar', T, 'rubble', { aoBottom: 0.72 });
+    box(b, (a + e) / 2, zo + s * (band / 2), 0, out, e - a, band, base - 1.6, top - m(c.drop), 'ashlar', T, 'rubble', { aoBottom: 0.72, grimeBottom: 0.9, ...courseU((a + e) / 2, e - a, out) });
     // Излом кладки — светлее и грубее над срезом: свежий камень на грани уцелевшей кладки.
     box(b, (a + e) / 2, zo + s * (band + 0.04), 0, out, e - a, 0.1, top - m(c.drop), top - 0.05, 'rubble', Tbroken, null);
   }
