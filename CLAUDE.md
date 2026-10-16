@@ -417,6 +417,9 @@ HEAD один на всех, см. правило 8). Значит развес�
 - `netlify/lib/pay.ts` и `netlify/lib/ton.ts` — оплата наборов USDT в сети TON (docs/payments.md): заказы, проверка
   перевода в сети, хранилища `tribe-pay` и `tribe-paid` (хеши оплаченных переводов — вечно) и единственный вызов
   `gems.settlePurchase`. Расхождение здесь — набор, начисленный дважды или за поддельный жетон, или деньги без алмазов;
+- `netlify/lib/tgpay.ts` — платежи Telegram в вебхуке бота (docs/security.md): счетов Telegram сервер не выставляет, и
+  предоплатной проверке — отказ, а `successful_payment` не начисляет ничего и хранилищ не трогает. Расхождение здесь —
+  алмазы за платёж, которого сервер не выставлял, или списанные деньги, о которых не узнал никто;
 - `netlify/lib/era.ts` и `src/net/era.ts` — эпоха мира и чистый старт (`/wipeworld ДА`, docs/test_world.md): номер эпохи
   на сервере и на устройстве. Расхождение здесь — стёртая партия, воскресшая с телефона, или живая, которую сервер
   отвергает как чужую эпоху.
@@ -566,6 +569,10 @@ HEAD один на всех, см. правило 8). Значит развес�
 - **Сервер хранит, а не судит;** личность — только из подписи `initData` (вебхук бота — из обновления Telegram с
   секретом вебхука); встреча двух копий —
   `net/sync.decide`; имя города — `contract.cityName` (sync).
+- **Правда о городе** — книги стройки, войска и жителей (`town.ts`, `book.ts`) пишет только запись партии; в войну, рейтинг,
+  реестр замков и `/player` идёт подтверждённое (`watch.confirmedOf`, `war.liveSheet`), а не опись клиента; таблица правил —
+  `watch.CITY_RULES`, формулы — общие с игрой (`game/labour`, `game/build`, `game/train`); невозможное — строка «внимание:»
+  в журнале города (`security.test.ts`; docs/security.md).
 - **Эпоха мира** — номер чистого старта (`/wipeworld ДА`): заголовок `x-tribe-era` ставит одна дверь `net/api.ts`, сервер
   сверяет его `era.eraGate` у партии, реестра, войны и уведомлений (410 — другая эпоха); данные прошлой эпохи на
   устройстве не читаются (`netlify/lib/era.test.ts`, `src/net/era.test.ts`; docs/test_world.md).
@@ -579,7 +586,8 @@ HEAD один на всех, см. правило 8). Значит развес�
 - **Алмазы** — на сервере (docs/gems.md): начисление одно, `netlify/lib/gems.creditGems` (стартовые эпохи и оплата набора,
   найденная сервером в сети TON, — `pay.ts` → `settlePurchase`, docs/payments.md);
   трата — приказом `/api/gems` с ключом повтора; в партии алмазов нет, дело ложится `sim/gems.applyGemDeeds` по номеру;
-  цены — `game/gemrules.ts` (`server.test.ts`, `sim/gems.test.ts`; economy).
+  платёж Telegram не засчитывается (`tgpay.ts`); цены — `game/gemrules.ts` (`server.test.ts`, `sim/gems.test.ts`,
+  `security.test.ts`; economy).
 - **Палец** — `src/gestures.ts`, один судья на деревню и карту (gestures).
 - **Плата со склада** — `sim/pay` (`pay`, `refund`); цена в интерфейсе — `ui/parts/Cost.tsx` (ui, economy).
 - **Держава** — очки `sim/points` (`bank`, `spend`), гейт `sim/tech` (поля `requiresTech` нет — тест),
