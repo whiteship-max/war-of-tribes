@@ -45,7 +45,12 @@ uniform float uTwTime;
 uniform float uTwCloud;
 uniform vec4 uTwScar;
 uniform float uTwBloom;
-float twHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+// Хеш без синуса (Хоскинс): на телефоне синус в каждом пикселе земли — заметная доля цены кадра.
+float twHash(vec2 p) {
+  vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+  p3 += dot(p3, p3.yzx + 33.33);
+  return fract((p3.x + p3.y) * p3.z);
+}
 float twNoise(vec2 p) {
   vec2 i = floor(p);
   vec2 f = fract(p);
@@ -75,16 +80,27 @@ const GROUND_GRAIN = /* glsl */ `
 float twFar = smoothstep(90.0, 30.0, length(vViewPosition));
 float twN = twNoise(vTwWorld.xz * 0.55) * 0.55 + twNoise(vTwWorld.xz * 2.3) * 0.45 * twFar;
 diffuseColor.rgb *= mix(0.88, 1.1, twN);
-float twScar = uTwScar.w * smoothstep(uTwScar.y, uTwScar.y * 0.35, abs(vTwWorld.z - uTwScar.x + (twNoise(vTwWorld.xz * 0.4) - 0.5) * 1.6))
-  * smoothstep(uTwScar.z + 4.0, uTwScar.z - 2.0, abs(vTwWorld.x)) * (0.55 + 0.45 * twNoise(vTwWorld.xz * 1.3));
-diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.36, 0.28, 0.19) * (0.85 + 0.3 * twN), clamp(twScar, 0.0, 0.85));
+// Ветвления — по месту и по числу на весь кадр: полосы нет или пиксель далеко от неё — её шум не считается вовсе.
+float twScar = 0.0;
+float twBand = abs(vTwWorld.z - uTwScar.x);
+if (uTwScar.w > 0.0 && twBand < uTwScar.y + 0.9) {
+  twScar = uTwScar.w * smoothstep(uTwScar.y, uTwScar.y * 0.35, abs(vTwWorld.z - uTwScar.x + (twNoise(vTwWorld.xz * 0.4) - 0.5) * 1.6))
+    * smoothstep(uTwScar.z + 4.0, uTwScar.z - 2.0, abs(vTwWorld.x)) * (0.55 + 0.45 * twNoise(vTwWorld.xz * 1.3));
+  diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.36, 0.28, 0.19) * (0.85 + 0.3 * twN), clamp(twScar, 0.0, 0.85));
+}
 // Цветок — круглая точка в своей клетке (клетка ~0.2 м), на случайном месте клетки; таких клеток — каждая шестидесятая.
-vec2 twCell = floor(vTwWorld.xz * 5.0);
-vec2 twIn = fract(vTwWorld.xz * 5.0) - 0.25 - 0.5 * vec2(twHash(twCell + 1.3), twHash(twCell + 2.9));
-float twSpeck = step(0.984, twHash(twCell)) * step(length(twIn), 0.2) * twFar * uTwBloom * (1.0 - twScar);
-vec3 twFlower = twHash(twCell + 7.1) < 0.5 ? vec3(0.93, 0.86, 0.42) : (twHash(twCell + 3.3) < 0.6 ? vec3(0.92, 0.92, 0.86) : vec3(0.62, 0.48, 0.78));
-diffuseColor.rgb = mix(diffuseColor.rgb, twFlower, twSpeck * 0.85);
-diffuseColor.rgb *= 1.0 - uTwCloud * twCloud(vTwWorld.xz, uTwTime);
+if (twFar * uTwBloom > 0.0) {
+  vec2 twCell = floor(vTwWorld.xz * 5.0);
+  float twPick = twHash(twCell);
+  if (twPick > 0.984) {
+    vec2 twIn = fract(vTwWorld.xz * 5.0) - 0.25 - 0.5 * vec2(twHash(twCell + 1.3), twHash(twCell + 2.9));
+    float twSpeck = step(length(twIn), 0.2) * twFar * uTwBloom * (1.0 - twScar);
+    float twKind = twHash(twCell + 7.1);
+    vec3 twFlower = twKind < 0.5 ? vec3(0.93, 0.86, 0.42) : (twKind < 0.8 ? vec3(0.92, 0.92, 0.86) : vec3(0.62, 0.48, 0.78));
+    diffuseColor.rgb = mix(diffuseColor.rgb, twFlower, twSpeck * 0.85);
+  }
+}
+if (uTwCloud > 0.0) diffuseColor.rgb *= 1.0 - uTwCloud * twCloud(vTwWorld.xz, uTwTime);
 `;
 
 /** Подстилка за полем: земля до горизонта, грубой сеткой; под плитой она опущена и не видна. */
@@ -386,9 +402,10 @@ export function buildField(plan: LandInput, spec: TwSpec): FieldView {
   // расстоянием — вдали она рябила бы.
   const uni = {
     uTwTime: { value: 0 },
-    uTwCloud: { value: plan.cloud ?? 0 },
+    // На низком уровне ни облаков, ни цветов: пиксель земли — без лишнего шума (`spec.clouds`, `spec.tufts`).
+    uTwCloud: { value: spec.clouds ? (plan.cloud ?? 0) : 0 },
     uTwScar: { value: new THREE.Vector4(plan.scar?.z ?? 0, plan.scar?.half ?? 1, plan.scar?.span ?? 0, 0) },
-    uTwBloom: { value: f.winter ? 0 : 1 },
+    uTwBloom: { value: f.winter || spec.tufts === 0 ? 0 : 1 },
   };
   groundMat.onBeforeCompile = (sh) => {
     Object.assign(sh.uniforms, uni);
@@ -533,7 +550,7 @@ export function buildField(plan: LandInput, spec: TwSpec): FieldView {
   // Деревья — модели прежнего ролика (`reel/flora.ts`) и его материал листвы (ветер, снег), инстансами.
   const shared: EnvShared = envShared();
   shared.snow.value = f.winter ? 1 : 0;
-  shared.cloud.value = plan.cloud ?? 0;
+  shared.cloud.value = spec.clouds ? (plan.cloud ?? 0) : 0;
   const color = (key: PaletteKey): THREE.Color => new THREE.Color(f.winter ? seasonColor('winter', key) : PALETTE[key]);
   const spots = treeSpots(f, plan, spec.trees);
   const trees: THREE.InstancedMesh[] = [];

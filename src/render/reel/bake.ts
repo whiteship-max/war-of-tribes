@@ -70,7 +70,17 @@ export interface BakedLook {
   rows: number;
   /** Сколько треугольников в меше вида. */
   triangles: number;
+  /**
+   * Дальний облик (`FAR_DROP`): тот же скелет и те же кадры, без предплечий, хвоста и мелочи — где боец меньше
+   * `crowd.LOD_PX` пикселей, их не разглядеть, а вершин в толпе они стоят столько же, сколько видимое.
+   */
+  far: THREE.BufferGeometry;
+  farTriangles: number;
 }
+
+/** Дальний облик: эти суставы не рисуются вовсе, и детали меньше `FAR_DETAIL` метров — тоже. */
+const FAR_DROP: ReadonlySet<JointId> = new Set<JointId>(['elbowL', 'elbowR', 'tail']);
+const FAR_DETAIL = 0.12;
 
 /** Одеть фигуру этого вида. Цвет стороны — метка: красит шейдер. */
 function dress(f: Figure, look: Look, variant: number): void {
@@ -187,6 +197,7 @@ function poseClip(f: Figure, look: Look, clip: ClipId, t: number, seconds: numbe
 }
 
 const _joint = new THREE.Matrix4();
+const _size = new THREE.Vector3();
 
 /**
  * Запечь виды боя: меш на вид и общая текстура суставов. `fps` — кадров клипа в секунду (уровень качества,
@@ -201,6 +212,7 @@ export function bakeLooks(looks: readonly Look[], fps: number): { baked: BakedLo
     f.phase = 0;
     dress(f, look, hashKey(look.key));
     const geometry = mergeSlots(f, look);
+    const far = mergeSlots(f, look, true);
     const secs = CLIP_SECONDS[look.body];
     const clips = {} as Record<ClipId, ClipSpec>;
     let rows = 0;
@@ -238,7 +250,17 @@ export function bakeLooks(looks: readonly Look[], fps: number): { baked: BakedLo
     }
     blocks.push(data);
     const index = geometry.getIndex();
-    baked.push({ look, geometry, clips, base, rows, triangles: (index ? index.count : geometry.attributes.position.count) / 3 });
+    const farIndex = far.getIndex();
+    baked.push({
+      look,
+      geometry,
+      clips,
+      base,
+      rows,
+      triangles: (index ? index.count : geometry.attributes.position.count) / 3,
+      far,
+      farTriangles: (farIndex ? farIndex.count : far.attributes.position.count) / 3,
+    });
     base += rows;
   }
   const all = new Float32Array(base * ROW_TEXELS * 4);
@@ -258,7 +280,7 @@ function hashKey(key: string): number {
 }
 
 /** Детали фигуры — в одну геометрию: вершина в системе своего сустава, цвет, номер сустава, доля цвета стороны. */
-function mergeSlots(f: Figure, look: Look): THREE.BufferGeometry {
+function mergeSlots(f: Figure, look: Look, farOnly = false): THREE.BufferGeometry {
   const pos: number[] = [];
   const nor: number[] = [];
   const col: number[] = [];
@@ -269,6 +291,14 @@ function mergeSlots(f: Figure, look: Look): THREE.BufferGeometry {
   for (const slot of f.slots) {
     const g = partGeometry(slot.part);
     g.applyMatrix4(slot.local);
+    if (farOnly) {
+      g.computeBoundingBox();
+      const size = g.boundingBox!.getSize(_size);
+      if (FAR_DROP.has(slot.joint) || Math.max(size.x, size.y, size.z) < FAR_DETAIL) {
+        g.dispose();
+        continue;
+      }
+    }
     const p = g.attributes.position;
     const n = g.attributes.normal;
     const off = pos.length / 3;

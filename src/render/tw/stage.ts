@@ -6,7 +6,7 @@ import { fitShadow, type LightRig } from '../lighting';
 import type { TwSpec } from '../reel/spec';
 import { Arrows } from './arrows';
 import { Banners } from '../reel/banners';
-import { Crowd, SHADOW_LAYER } from '../reel/crowd';
+import { Crowd, SHADOW_LAYER, lodDistance } from '../reel/crowd';
 import { Dust } from './dust';
 import { buildFort, type FortView } from './fort';
 import { buildField, fogFor, type FieldView, type LandInput } from '../reel/land';
@@ -22,7 +22,7 @@ import { Siegeworks } from './siegeworks';
 const SUN_DIST = 160;
 const SHADOW_HALF = { min: 28, max: 110, perDist: 0.6 };
 /** Кадр развязки режиссёра: бегущие и гонящие не дальше этого от линии соприкосновения, метры сцены. */
-const ROUT_FRAME = 18;
+const ROUT_FRAME = 15;
 /** В строю для режиссёра бегущий остаётся там, где был через столько секунд после слома (треть пути бегства). */
 const FLEE_HOLD = 2.6;
 /** Небо — купол прежнего ролика (`reel/light.buildSky`, радиус 150), растянутый до горизонта поля. */
@@ -94,7 +94,8 @@ export class TwStage {
    */
   apply(t: number, cam: TacticalCamera, clip = t): void {
     poseFigures(this.plan, t, this.frame);
-    this.crowd.update(this.frame);
+    // Дальние бойцы — в дальнем облике (`crowd.LOD_PX`): порог по полю зрения камеры, оно растёт с узостью экрана.
+    this.crowd.update(this.frame, cam.camera.position, lodDistance(cam.camera.fov));
     this.banners.update(this.frame, t, cam.camera, cam.now.dist);
     this.arrows.update(t);
     this.dust.update(t, cam.camera);
@@ -217,7 +218,7 @@ export function directorSceneOf(plan: TwPlan): DirectorScene {
         // (`FLEE_HOLD`); на развязке — прижат к краю её кадра. Иначе отряд, переступивший черту, дёргал бы камеру.
         const at = which !== 'rout' && u.fleeAt !== null ? Math.min(t, u.fleeAt + FLEE_HOLD) : t;
         const p = unitPose(plan, u, at);
-        const x = which === 'rout' ? Math.max(-ROUT_FRAME * 1.4, Math.min(ROUT_FRAME * 1.4, p.x)) : p.x;
+        const x = which === 'rout' ? Math.max(-ROUT_FRAME, Math.min(ROUT_FRAME, p.x)) : p.x;
         const z = which === 'rout' ? Math.max(-ROUT_FRAME, Math.min(ROUT_FRAME, p.z)) : p.z;
         const back = u.ours ? -1 : 1;
         minX = Math.min(minX, x - u.width / 2);

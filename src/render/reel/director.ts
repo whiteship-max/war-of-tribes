@@ -60,7 +60,7 @@ export const HOLD = 2.8;
 /** Кадр развязки после боя: полуширина по фронту, метры; переход к нему — `blendFor`, половина — к концу боя. */
 const CODA_HALF = 12;
 /** Ближний план: полуширина кадра по фронту и запас по глубине, метры сцены. */
-const NEAR = { clash: 11, turn: 10, depth: 7 };
+const NEAR = { clash: 11, turn: 10, depth: 7, rout: 11 };
 
 const sideways = (x: number): number => (x > 1 ? -1 : x < -1 ? 1 : 1);
 const clamp01 = (v: number): number => (v < 0 ? 0 : v > 1 ? 1 : v);
@@ -110,10 +110,13 @@ function turnShot(scene: DirectorScene, beat: Beat, t: number, aspect: number): 
   return around(p.x, p.z * 0.5, NEAR.turn, NEAR.depth + 2, aspect, 0.55 * sideways(p.x), SHOT_PITCH.turn);
 }
 
-/** Развязка: бегущие и погоня — выше и шире. */
+/**
+ * Развязка: бегущие и погоня — выше прочих близких планов, по середине бегства. Кадр — не весь разбег бегущих, а
+ * середина действия (`NEAR.rout`): в портрете фронт в тридцать метров увёл бы камеру на девяносто, и боец стал бы точкой.
+ */
 function routShot(scene: DirectorScene, t: number, aspect: number): CamState {
   const box = scene.box(t, 'rout') ?? scene.box(t, 'field') ?? { minX: -20, maxX: 20, minZ: -20, maxZ: 20 };
-  return overview(box, aspect, 0.1, SHOT_PITCH.rout);
+  return around((box.minX + box.maxX) / 2, (box.minZ + box.maxZ) / 2, NEAR.rout, NEAR.rout + 2, aspect, 0.22, SHOT_PITCH.rout);
 }
 
 /**
