@@ -51,7 +51,7 @@ export const SHELF_COLS: readonly Col[] = [
 
 const CART_COLS: readonly Col[] = [
   { key: 'name', title: 'В пути' },
-  { key: 'n', title: 'Сколько', align: 'right', w: '56px' },
+  { key: 'n', title: 'Везут', align: 'right', w: '56px' },
   { key: 'left', title: 'Через', align: 'right', w: '72px' },
   { key: 'x', title: '', align: 'center', w: '44px' },
 ];

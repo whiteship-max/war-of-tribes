@@ -186,7 +186,8 @@ const GROUPS: Record<string, Step[]> = {
   ],
   map: [
     { name: '60-map', run: `(() => { window.__ui.reset(); window.__game.getState().openMap(); return JSON.stringify('ok'); })()`, wait: 6000 },
-    { name: '61-map-legend', run: ui(`click('Легенда', '.nx-mapnav')`), wait: 900 },
+    // С UI-7 у легенды вкладки «Места · Метки · Земля» — каждая своим снимком.
+    { name: '61-map-legend', run: ui(`click('Легенда', '.nx-mapnav')`), wait: 900, tabs: true },
     { name: '62-map-marches', run: ui(`click('Легенда', '.nx-mapnav'), window.__ui.click('Походы', '.nx-mapnav')`), wait: 1200 },
     { name: '63-map-cell-own', run: place('s.mine'), wait: 2000 },
     { name: '64-map-cell-lair', run: place('!s.mine && !s.castle'), wait: 2000 },

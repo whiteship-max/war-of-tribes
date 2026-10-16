@@ -1029,8 +1029,8 @@
 .mail-group h3 .muted {
   font-weight: 400;
 }
-.mail-v2 .kit-name.fresh .one-line {
-  font-weight: 600;
+.mail-v2 .kit-name:not(.fresh) .kit-two b {
+  font-weight: 400;
 }
 .mail-v2 .kit-name .nx-new {
   flex: none;

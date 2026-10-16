@@ -40,11 +40,10 @@ async function answerDispatch(d: Dispatch, choiceId: string): Promise<string | n
   return d.choices.find((c) => c.id === choiceId)?.hint ?? null;
 }
 
-/** Столбцы списка: весть со значком и точкой новой, кто прислал, срок — до того, как решится сама. */
+/** Столбцы списка: весть со значком и точкой новой, кто прислал — строкой под ней, срок — до того, как решится сама. */
 const MAIL_COLS: readonly Col[] = [
   { key: 'what', title: 'Весть' },
-  { key: 'who', title: 'Кто', w: '104px' },
-  { key: 'left', title: 'Срок', align: 'right', w: '72px' },
+  { key: 'left', title: 'Срок', align: 'right', w: '88px' },
 ];
 
 export function Mail() {
@@ -162,11 +161,13 @@ export function Mail() {
                 what: (
                   <span className={`kit-name${fresh(d) ? ' fresh' : ''}`}>
                     <Icon name={d.iconName} glyph={d.icon} />
-                    <span className="one-line">{d.title}</span>
+                    <span className="kit-two">
+                      <b className="one-line">{d.title}</b>
+                      <small className="one-line">{d.from ?? (d.warning ? 'Дозор' : 'Город')}</small>
+                    </span>
                     {fresh(d) && <i className="nx-new" aria-label="новое" />}
                   </span>
                 ),
-                who: <span className="muted">{d.from ?? (d.warning ? 'Дозор' : 'Город')}</span>,
                 left: d.left !== null ? <span className={d.urgent ? 'bad' : ''}>{leftWords(d.left)}</span> : '—',
               },
             }))}

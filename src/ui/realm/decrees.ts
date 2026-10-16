@@ -25,20 +25,20 @@ export const growthCell = (g: number): string => (g === 0 ? 'нет' : g === 1 ?
 
 export const DECREE_COLS: readonly Col[] = [
   { key: 'name', title: 'Указ' },
-  { key: 'output', title: 'Выработка', align: 'right', w: '72px' },
-  { key: 'morale', title: 'Мораль/д', align: 'right', w: '64px' },
+  { key: 'output', title: 'Выработка', align: 'right', w: '88px' },
+  { key: 'morale', title: 'Мораль/д', align: 'right', w: '76px' },
 ];
 export const RATION_COLS: readonly Col[] = [
   { key: 'name', title: 'Паёк' },
   { key: 'food', title: 'Еда', align: 'right', w: '52px' },
-  { key: 'morale', title: 'Мораль/д', align: 'right', w: '64px' },
-  { key: 'growth', title: 'Рождения', align: 'right', w: '64px' },
+  { key: 'morale', title: 'Мораль/д', align: 'right', w: '76px' },
+  { key: 'growth', title: 'Рождения', align: 'right', w: '76px' },
 ];
 export const TAX_COLS: readonly Col[] = [
   { key: 'name', title: 'Налог' },
-  { key: 'gold', title: 'Золото/д', align: 'right', w: '64px' },
-  { key: 'morale', title: 'Мораль', align: 'right', w: '52px' },
-  { key: 'output', title: 'Выработка', align: 'right', w: '72px' },
+  { key: 'gold', title: 'Золото/д', align: 'right', w: '76px' },
+  { key: 'morale', title: 'Мораль', align: 'right', w: '60px' },
+  { key: 'output', title: 'Выработка', align: 'right', w: '88px' },
 ];
 
 /** Строки указа: что даст каждый — полями записи. */
