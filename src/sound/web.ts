@@ -1,5 +1,7 @@
-// Среда для звука на Web Audio. Единственное место в проекте, где есть
-// `AudioContext`, `fetch` за звуком и слово `mp3` в рантайме.
+// Среда для звука на Web Audio — движок: единственное место в проекте, где есть
+// `fetch` за звуком и слово `mp3` в рантайме. Сам контекст создаёт дверь из первой
+// загрузки (`sound/door.ts`, жестом), а движок едет докачкой (П-3: в первую загрузку
+// из звука — ничего).
 //
 // **Контекст один на всю игру, и это не экономия.** На iOS каждый новый
 // `AudioContext` — отдельный аппаратный поток, который вебвью в фоне усыпляет
@@ -10,15 +12,16 @@
 // выход (`openBus`) и живёт своим куском: в первую загрузку оно не едет.
 //
 // Выход идёт через три ступени (docs/audio.md, раздел 3): громкость рода
-// (музыка или звуки, `soundLevel`) → общий выход с паузой в фоне → ограничитель
+// (музыка, эффекты или окружение, `soundGain`) → общий выход с паузой в фоне → ограничитель
 // перед динамиком. Пауза — здесь же: свёрнутая аппка или скрытая страница
 // гасят выход за десятую долю секунды и усыпляют контекст, возврат будит его и
 // поднимает выход плавно, без щелчка (`watchAway` — тот же свод сигналов, что у
 // двери кадра).
 import { BattleMusic, type AudioHost } from './music';
-import { soundLevel, soundOn, subscribeSound, type SoundKind } from './settings';
+import { SOUND_KINDS, soundGain, soundOn, subscribeSound, type SoundKind } from './settings';
 import { watchAway } from '@/render/loop';
 import { outputChain } from './chain';
+import { gestureAudio } from './door';
 
 /** Громкость музыки боя. Она под роликом, а не вместо него. */
 const BATTLE_VOLUME = 0.55;
@@ -36,39 +39,30 @@ interface Voice {
 /** Контекст, выходы и загрузка — одни на весь звук игры. */
 class Engine {
   ctx: AudioContext | null = null;
-  /** Громкость рода: музыка и звуки. */
+  /** Громкость рода: музыка, эффекты, окружение. */
   private kinds: Record<SoundKind, GainNode> | null = null;
   /** Общий выход: на нём пауза в фоне. */
   private master: GainNode | null = null;
   /** Номер ухода в фон: возврат раньше, чем контекст уснул, отменяет сон. */
   private away = 0;
 
+  /**
+   * Контекст двери (`door.gestureAudio`): создан жестом или разбужен им — вебвью любит усыплять его на каждом
+   * сворачивании, поэтому будит каждый жест, а не только первый. Выход на нём собирается один раз.
+   */
   open(): boolean {
-    if (this.ctx) {
-      // Вебвью любит усыплять контекст на каждом сворачивании: будим при каждом
-      // жесте, а не только при первом.
-      void this.ctx.resume().catch(() => undefined);
-      return true;
+    const ctx = gestureAudio();
+    if (!ctx) return false;
+    if (this.ctx !== ctx) {
+      this.ctx = ctx;
+      this.wire(ctx);
     }
-    const Ctor: typeof AudioContext | undefined =
-      typeof window === 'undefined'
-        ? undefined
-        : window.AudioContext ??
-          (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-    if (!Ctor) return false;
-    try {
-      this.ctx = new Ctor();
-      void this.ctx.resume().catch(() => undefined);
-      this.wire(this.ctx);
-      return true;
-    } catch {
-      return false;
-    }
+    return true;
   }
 
   /** Ступени выхода — общая цепочка (`sound/chain.ts`), та же, что меряет офлайн-стенд. */
   private wire(ctx: AudioContext): void {
-    const chain = outputChain(ctx, { music: this.level('music'), fx: this.level('fx') });
+    const chain = outputChain(ctx, { music: this.level('music'), fx: this.level('fx'), amb: this.level('amb') });
     this.master = chain.master;
     this.kinds = chain.kinds;
     // Громкость из настроек — плавно: ползунок, который щёлкает на каждом шаге, хуже, чем никакого.
@@ -76,13 +70,13 @@ class Engine {
       const kinds = this.kinds;
       if (!kinds) return;
       const now = ctx.currentTime;
-      for (const k of ['music', 'fx'] as const) kinds[k].gain.setTargetAtTime(this.level(k), now, 0.05);
+      for (const k of SOUND_KINDS) kinds[k].gain.setTargetAtTime(this.level(k), now, 0.05);
     });
     watchAway((away) => this.sleep(away));
   }
 
   private level(kind: SoundKind): number {
-    return soundOn() ? soundLevel(kind) : 0;
+    return soundOn() ? soundGain(kind) : 0;
   }
 
   /** Свернули — погасить выход и усыпить контекст; развернули — разбудить и поднять выход без щелчка. */
@@ -151,14 +145,6 @@ const engine = new Engine();
 export function openBus(volume: number, kind: SoundKind = 'fx'): GainNode | null {
   if (!engine.open()) return null;
   return engine.bus(volume, kind);
-}
-
-/**
- * Разбудить звук жестом игрока: открыть контекст или поднять уснувший. Вебвью усыпляет контекст на сворачивании и по
- * своему усмотрению, поэтому каждое касание — повод разбудить, а не только первое. Зовётся ТОЛЬКО из жеста.
- */
-export function wakeSound(): boolean {
-  return engine.open();
 }
 
 /**

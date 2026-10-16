@@ -4,7 +4,7 @@
 // Отличается только время: вместо таймера игры — остановки офлайн-контекста каждые четверть секунды, с тем же шагом и
 // тем же окном упреждения, что у живой машинки (`sound/epoch/index.ts`).
 import { outputChain } from '@/sound/chain';
-import { SOUND_LEVEL_DEFAULT } from '@/sound/settings';
+import { DEFAULT_GAINS } from '@/sound/settings';
 import { makeKit } from '@/sound/epoch/synth';
 import { Ambience, type Hearing } from '@/sound/epoch/ambience';
 import { EpochMusic } from '@/sound/epoch/music';
@@ -26,8 +26,8 @@ export interface Sample {
   /** Звуки боя (условный бой: построение, рог, разбег, сшибка, сеча, залп, рог победителя). */
   battle: boolean;
   duck: { music: number; amb: number };
-  /** Громкости рода; без них — умолчания игры. */
-  levels?: { music: number; fx: number };
+  /** Силы родов на выходе; без них — умолчания игры (`settings.DEFAULT_GAINS`). */
+  levels?: { music: number; fx: number; amb: number };
   cues?: [number, Cue][];
   /** Гром: миг, сила и через сколько секунд после вспышки (docs/city.md, 15). */
   thunder?: [number, number, number][];
@@ -117,6 +117,26 @@ export const SAMPLES: Sample[] = [
     ],
   },
   {
+    name: 'rain-light',
+    title: 'Морось над городом, камера у улиц: шелест верхов, дробь по кровлям, капли с карнизов (П-3)',
+    seconds: 14,
+    seed: 61,
+    keys: [[0, day({ solar: 0.3, near: 0.7, wx: { rain: 0.25, snow: 0, storm: 0, wind: 0.4 } })]],
+    music: false,
+    battle: false,
+    duck: { music: 1, amb: 1 },
+  },
+  {
+    name: 'rain-heavy',
+    title: 'Ливень без грозы, камера с высоты: шум и низкий гул воды (П-3)',
+    seconds: 14,
+    seed: 67,
+    keys: [[0, day({ solar: 0.3, near: 0.2, wx: { rain: 0.95, snow: 0, storm: 0, wind: 0.6 } })]],
+    music: false,
+    battle: false,
+    duck: { music: 1, amb: 1 },
+  },
+  {
     name: 'map',
     title: 'Карта у Сицилии: ветер и море',
     seconds: 16,
@@ -182,7 +202,7 @@ export const SAMPLES: Sample[] = [
     music: true,
     battle: true,
     duck: { music: 1, amb: 1 },
-    levels: { music: 1, fx: 1 },
+    levels: { music: 1, fx: 1, amb: 1 },
     cues: [
       [3, 'alarm'],
       [8, 'built'],
@@ -227,13 +247,14 @@ export async function render(name: string, limit: boolean): Promise<string> {
   if (!s) throw new Error(`нет образца ${name}`);
   const sr = 32000;
   const ctx = new OfflineAudioContext(2, Math.round(sr * s.seconds), sr);
-  const chain = outputChain(ctx, s.levels ?? SOUND_LEVEL_DEFAULT, limit);
+  const chain = outputChain(ctx, s.levels ?? DEFAULT_GAINS, limit);
   const musicOut = ctx.createGain();
   musicOut.gain.value = s.duck.music;
   musicOut.connect(chain.kinds.music);
   const ambOut = ctx.createGain();
   ambOut.gain.value = s.duck.amb;
-  ambOut.connect(chain.kinds.fx);
+  // Фон — полосой «окружение», как в игре (`sound/epoch/index.ts`).
+  ambOut.connect(chain.kinds.amb);
   const kit = makeKit(ctx, seeded(s.seed), false, ambOut);
   const amb = s.keys ? new Ambience(kit, ambOut, 0, hearingAt(s.keys, 0)) : null;
   const music = s.music ? new EpochMusic(kit, musicOut, 0, false, 0.3) : null;

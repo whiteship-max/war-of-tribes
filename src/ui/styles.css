@@ -2640,7 +2640,8 @@ body {
 }
 
 .set-vol label span {
-  flex: 0 0 56px;
+  /* «Окружение» в 12 px — 62 px Golos: подписи трёх полос одной ширины, полосы — вровень. */
+  flex: 0 0 76px;
 }
 
 .set-vol input {

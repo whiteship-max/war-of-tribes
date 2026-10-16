@@ -265,7 +265,7 @@ describe('рычаг на музыку один на всю игру', () => {
     // значило бы платить мегабайтом за нажатие, которое о бое не просило.
     const src = read('ui/parts/Settings.tsx');
     expect(src).toMatch(/cityAudio\.toggle\(next\)/);
-    expect(src).toMatch(/if \(!next\) battleMusic\.toggle\(false\)/);
+    expect(src).toMatch(/if \(!next\) battleMusicDoor\.off\(\)/);
   });
 });
 

@@ -7,10 +7,11 @@
 //
 // Почему докачка после жеста законна, хотя справочник запрещает `import()` из обработчика жеста: запрет — про
 // открытие контекста (`await` теряет пользовательскую активацию). Контекст открывается здесь синхронно, в самом
-// обработчике (`openBus`); кусок приезжает потом и берёт готовые выходы, как звук боя (`sound/battlefx.ts`).
+// обработчике (`door.gestureAudio`); движок (`sound/web.ts`) и кусок звука приезжают потом и вешаются на уже открытый
+// контекст (П-3: движок — тоже докачкой, в первой загрузке из звука только дверь).
 
 import { soundOn } from './settings';
-import { openBus, wakeSound } from './web';
+import { audioEngine, gestureAudio } from './door';
 import type { Cue, Duck, EpochMachine } from './epoch';
 
 /** Почему город глушится: свои звуки поверх. */
@@ -35,30 +36,28 @@ class CityAudio {
    */
   arm(): void {
     if (!soundOn()) return;
-    if (this.machine || this.loading) {
-      wakeSound();
-      return;
-    }
-    const music = openBus(1, 'music');
-    const fx = openBus(1, 'fx');
-    if (!music || !fx) return;
+    // Контекст — сейчас, в обработчике: создать или разбудить уснувший (каждое касание).
+    if (!gestureAudio()) return;
+    if (this.machine || this.loading) return;
     this.loading = true;
-    void import('./epoch')
-      .then((m) => {
+    void Promise.all([audioEngine(), import('./epoch')])
+      .then(([web, m]) => {
         this.loading = false;
-        if (!soundOn()) {
-          music.disconnect();
-          fx.disconnect();
+        if (!soundOn() || this.machine) return;
+        // Три выхода — три полосы громкости: музыка эпохи, звуки интерфейса, фон города и погоды (П-3).
+        const music = web.openBus(1, 'music');
+        const fx = web.openBus(1, 'fx');
+        const amb = web.openBus(1, 'amb');
+        if (!music || !fx || !amb) {
+          for (const b of [music, fx, amb]) b?.disconnect();
           return;
         }
-        this.machine = m.startEpoch({ music, fx });
+        this.machine = m.startEpoch({ music, fx, amb });
         this.machine.duck(this.duck());
       })
       .catch(() => {
         // Кусок не доехал (сеть) — город молчит, следующее касание попробует снова.
         this.loading = false;
-        music.disconnect();
-        fx.disconnect();
       });
   }
 
