@@ -208,8 +208,8 @@ export function Muster({ onCard }: { onCard: (t: TroopId) => void }) {
   }
   const posture = general ? postureOf(general) : 'none';
   const town = general ? inTown(general) : false;
-  // Срок сбора — той же функцией, что у мира, с чертами полководца так, как их складывает слепок. Дома и не в осаде
-  // сбора нет: перевод мгновенный (`Regroup.instant`).
+  // Срок сбора — той же функцией, что у мира, с чертами полководца так, как их складывает слепок. В городе сбора нет, и
+  // в осаде: перевод мгновенный (`Regroup.instant`, docs/ui_v2.md, 6.11).
   const wait = moved > 0 && !regroup.instant ? musterMs(moved, traitNumbers(s).muster ?? 1) : 0;
   const why = !here ? null : (regroup.block ?? (grows ? regroup.grow : null) ?? (moved === 0 ? 'Раскладка та же' : null));
   const sums = transferSums(s, total, held, want);
@@ -246,7 +246,7 @@ export function Muster({ onCard }: { onCard: (t: TroopId) => void }) {
             ? 'Отряд вне города стен не защищает. Вернётся полководец — отряд снова встанет с гарнизоном.'
             : troopTotal(held) > 0
               ? 'Пока полководец в городе, его отряд — гарнизон: стоит у стен, ест за стеной, выходит на вылазку. Оборону ведёт он сам.'
-              : 'Оборону полководец ведёт со своим отрядом. Дай ему бойцов: в городе они встанут у стен с гарнизоном.',
+              : 'Пока полководец в городе, оборону ведёт он, и без отряда. Отряд в городе стоит у стен с гарнизоном.',
         })}
         go={!here && statue ? () => openBuilding(statue.id) : undefined}
         goLabel="В Статую"

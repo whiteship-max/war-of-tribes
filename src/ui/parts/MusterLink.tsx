@@ -15,7 +15,8 @@ import { realSpanText } from './wait';
 
 /**
  * Где полководец и его отряд — одной строкой: за разницу между «в городе» и «в поле» игрок платит обороной. В городе
- * отряд «защищает стены», и во время сбора тоже (`muster.inTown`).
+ * полководец «защищает стены» — с отрядом и без (решение владельца 16.10.2026, docs/ui_v2.md, 6.10), и во время сбора
+ * тоже (`muster.inTown`).
  */
 export function postureLine(general: FigureView | undefined, now = worldNow()): string {
   if (!general) return 'Где полководец, пока неизвестно';
@@ -24,7 +25,7 @@ export function postureLine(general: FigureView | undefined, now = worldNow()): 
   if (general.phase === 'down') return n > 0 ? 'Полководец вне строя' : 'Полководец вне строя, отряда нет';
   const left = secondsLeft(general.readyAt, now);
   const gathering = general.readyAt > 0 && left > 0 ? ` · сбор ещё ${realSpanText(left)}` : '';
-  if (inTown(general)) return n > 0 ? `В городе — защищает стены${gathering}` : 'В городе, отряда нет';
+  if (inTown(general)) return n > 0 ? `В городе — защищает стены${gathering}` : 'В городе — защищает стены, отряда нет';
   if (postureOf(general) === 'gathering') return `Сбор ещё ${realSpanText(left)}, город не защищает`;
   return n > 0 ? 'В походе — город не защищает' : 'В походе, отряда нет';
 }

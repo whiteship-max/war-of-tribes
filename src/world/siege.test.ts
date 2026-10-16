@@ -654,16 +654,16 @@ describe('осада: подкрепление и часы голода', () => 
     const alone = starvesAt(window({ now: w.now(), garrison: 0 })) - w.now();
     expect(held).toBeLessThan(alone);
 
-    // Роспуск в осаждённом городе идёт сбором, но внутри города: эти люди стоят у стен и едят за стеной (правило
-    // владельца 15.10.2026 — полководец и его отряд, пока внутри города, считаются гарнизоном; docs/ui_v2.md, 5.3).
-    // Прежде на срок роспуска они не ели нигде: здесь стояло «в роспуске за стеной не едят» = 0.
+    // Роспуск в осаждённом городе — мгновенный (решение владельца 16.10.2026, docs/ui_v2.md, 6.11: сбор в своём городе
+    // всегда мгновенный, и в осаде; срок сбора — только в поле). Прежде здесь шёл сбор внутри города, и до 15.10.2026
+    // на его срок эти люди не ели нигде («в роспуске за стеной не едят» = 0), потом ели за стеной (10).
     expect(await w.world.setGarrison(null)).toBeNull();
     const back = (await w.world.figures()).find((f) => f.id === 'general') as FigureView;
-    expect(back.readyAt, 'точка внутри области: роспуск в осаде — сбором').toBeGreaterThan(w.now());
     expect(back.phase, 'точка внутри области: полководец в городе').toBe('home');
-    expect((await w.world.sync(away)).siege!.garrison, 'в роспуске в городе едят за стеной').toBe(10);
-    w.at(Math.max(w.now(), back.readyAt));
-    expect((await w.world.sync(away)).siege!.garrison, 'вернулись в гарнизон').toBe(10);
+    expect((await w.world.sync(away)).siege, 'точка внутри области: лагерь под стенами').toBeTruthy();
+    expect(back.readyAt, 'роспуск в осаде — без сбора').toBe(0);
+    expect(troopTotal(back.troops), 'отряд распущен сразу').toBe(0);
+    expect((await w.world.sync(away)).siege!.garrison, 'вернулись в гарнизон — едят те же десять').toBe(10);
   }, 60_000);
 });
 

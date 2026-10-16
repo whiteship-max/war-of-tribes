@@ -11,6 +11,8 @@
 //   GROUP=decrees | mail | market | profile | siege TAG=after … — UI-7: указы ратуши и державы, вести с письмами, рынок с
 //                                                     телегой, профиль, окна осады, вылазки и лагеря (вид мира вложен
 //                                                     стендом: в новой партии осады нет); карта — заход `map`
+//   GROUP=ui8a | ui8b | ui8c TAG=after …            — UI-8: верх, ратуша, ярлык у лесов, подсказка новичку; окна построек
+//                                                     с дублями; «Мораль», «Порядок» вкладками, полководец без отряда
 //
 // Снимки — 390×844 @2, JPEG, в `docs/ui_v2/` (имя — номер и экран). Кроме снимка стенд печатает высоту прокрутки
 // окна в экранах: `экранов 2.4` — содержимое окна выше экрана телефона в 2.4 раза (правило «окно — один экран»,
@@ -133,6 +135,8 @@ const place = (cond: string): string => `(async () => {
 const then = (a: string, b: string): string =>
   `(async () => { const r1 = ${a}; await new Promise((r) => setTimeout(r, 300)); const r2 = ${b}; return JSON.stringify(r1 === 'ok' ? r2 : r1); })()`;
 const tab = (t: string): string => `(() => { window.__ui.reset(); window.__game.getState().openTab('${t}'); return JSON.stringify('ok'); })()`;
+/** Конец открытого окна: прокрутка до низа (UI-8; прежние заходы пишут то же выражение у себя). */
+const END = `(() => { const e = window.__ui.scroller(); if (!e) return JSON.stringify('нет окна'); e.scrollTop = e.scrollHeight; return JSON.stringify('ok'); })()`;
 const building = (type: string, name: string): Step => ({ name, run: ui(`reset(), window.__ui.building('${type}')`), wait: 900, tabs: true });
 
 // ---------- заходы ----------
@@ -434,6 +438,89 @@ const GROUPS: Record<string, Step[]> = {
       tabs: true,
     },
     { name: '164-camp-end', run: `(() => { const e = window.__ui.scroller(); if (!e) return JSON.stringify('нет окна'); e.scrollTop = e.scrollHeight; return JSON.stringify('ok'); })()`, wait: 600 },
+  ],
+  // UI-8 (docs/ui_v2.md, 5.7): решения владельца по 6.1–6.23 и оставшиеся дубли. Город — ячейки запасов (6.3); ратуша —
+  // группы порядком «Группы» («Город», мастерская — «Сырьё»), лист самой ратуши в её окне (Д4) и лист стройки (Д5);
+  // ярлык у лесов (Д5); подсказка новичку «Найми дружину» на кнопке «Дружина» (Д1).
+  ui8a: [
+    { name: '170-city', run: ui('reset()'), wait: 1500 },
+    {
+      name: '171-hall-groups',
+      run: `(async () => {
+        window.__ui.reset();
+        const A = await import('/src/game/sim/actions.ts');
+        const g = window.__game.getState();
+        g.act((st) => A.startUpgrade(st, st.buildings.find((x) => x.type === 'houses').id));
+        (await import('/src/ui/next/Hall.tsx')).useHallView.getState().setSort('group');
+        return JSON.stringify(window.__ui.click('Ратуша', '.nx-nav'));
+      })()`,
+      wait: 1200,
+      full: true,
+    },
+    { name: '172-hall-own', run: ui(`clickSel('.sheet.open [data-tut="list-town_hall"]')`), wait: 900 },
+    { name: '173-hall-site', run: then(`window.__ui.clickSel('.hall-veil')`, `window.__ui.clickSel('.sheet.open [data-tut="list-houses"]')`), wait: 900 },
+    { name: '174-site-tag', run: ui('reset()'), wait: 2500 },
+    {
+      name: '175-hint-army',
+      run: `(async () => {
+        window.__ui.reset();
+        const H = await import('/src/ui/next/Hints.tsx');
+        const D = await import('/src/game/data/hints.ts');
+        const T = await import('/src/ui/next/tip.ts');
+        const el = document.querySelector('[data-tut="nav-army"]');
+        if (!el) return JSON.stringify('нет кнопки «Дружина»');
+        T.useTip.getState().show(T.rectOf(el), H.hintTip(D.HINTS.find((h) => h.id === 'army')));
+        return JSON.stringify('ok');
+      })()`,
+      wait: 700,
+    },
+  ],
+  // UI-8: окна построек с дублями — двор с промыслом (Д6), Статуя (Д7), казармы (Д8), храм (Д10), Дозор (Д11) — и
+  // «Что даёт городу» у построек без своего раздела (дома, кузница).
+  ui8b: [
+    { ...building('gathering', '180-gathering'), full: true, tabs: false },
+    { ...building('statue', '181-statue'), full: true, tabs: false },
+    { ...building('barracks', '182-barracks'), full: true, tabs: false },
+    { name: '182-barracks-end', run: END, wait: 600 },
+    { ...building('church', '183-church'), full: true, tabs: false },
+    { name: '183-church-end', run: END, wait: 600 },
+    { ...building('watch', '184-watch'), full: true, tabs: false },
+    { name: '184-watch-end', run: END, wait: 600 },
+    { ...building('houses', '185-houses'), full: true, tabs: false },
+    { ...building('smithy', '186-smithy'), full: true, tabs: false },
+  ],
+  // UI-8: «Мораль» (Д13), «Порядок» с невольниками — вкладками «Надзор | Невольники» (6.13), строка полководца без отряда в
+  // «Дружине» и её подсказка (6.10).
+  ui8c: [
+    { name: '190-morale', run: tab('morale'), wait: 900, full: true },
+    { name: '191-morale-end', run: END, wait: 600 },
+    {
+      name: '192-order',
+      run: `(() => {
+        window.__ui.reset();
+        const g = window.__game.getState();
+        g.act((st) => { st.bonded = 12; st.bondedWork[st.buildings.find((b) => b.type === 'farm').id] = 5; });
+        window.__game.getState().openTab('order');
+        return JSON.stringify('ok');
+      })()`,
+      wait: 900,
+      full: true,
+      tabs: true,
+    },
+    { name: '193-order-end', run: END, wait: 600 },
+    {
+      name: '194-army-general',
+      run: `(async () => {
+        window.__ui.reset();
+        window.__game.getState().act((st) => { st.army.clubman = 30; st.army.archer = 10; });
+        await (await import('/src/world/store.ts')).useWorld.getState().pulse();
+        window.__game.getState().openTab('army');
+        return JSON.stringify('ok');
+      })()`,
+      wait: 1200,
+      full: true,
+    },
+    { name: '195-army-general-tip', run: ui(`clickSel('.sheet.open .ms > .kit-row.tip, .sheet.open .ms > .kit-row .kit-row-tip')`), wait: 600 },
   ],
   misc: [
     // Плашка алмазов с UI-3 открывает подсказку, а не окно (docs/ui_v2.md, 5.2): окно — его хранилищем.
