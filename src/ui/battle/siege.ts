@@ -8,8 +8,9 @@
 // Подписи эпизодов с числами — тоже словами мира: строка журнала фазы (`siegeroll.phaseText`), имена машин
 // (`MACHINE_NAME`), участь (`FATE_META`), донесение — своим заголовком и текстом (CLAUDE.md, правило 18).
 //
-// Из сцены осады отсюда берутся только типы: значения сцены лежат в её ленивом куске (`render/siege/play.ts`).
-import type { ShowFight, ShowMachine, ShowMachineState, ShowOpening, ShowPhase, SiegeShow } from '@/render/siege/show';
+// Из сцены осады отсюда берутся только типы и мерка эпизода боя (`show.fightEpisode`, крохотный модуль без сцены): значения
+// сцены лежат в её ленивом куске (`render/siege/play.ts`).
+import { fightEpisode, type ShowFight, type ShowMachine, type ShowMachineState, type ShowOpening, type ShowPhase, type SiegeShow } from '@/render/siege/show';
 import type { Episode } from '@/render/siege/reel';
 import { NOON, groundOf } from '@/game/battle/ground';
 import { gameSecondsOfMs } from '@/game/pace';
@@ -170,7 +171,7 @@ function fightWords(ep: Episode): string {
   const f = ep.fight;
   if (!f) return '';
   if (f.machine) return `Вылазка на машину «${MACHINE_NAME[f.machine].toLowerCase()}»: ${f.won ? 'сожгли' : 'отбита'}.`;
-  if (f.site === 'wall') return f.won ? 'Штурм: город взят.' : 'Штурм отбит, осада идёт дальше.';
+  if (fightEpisode(f.site) === 'assault') return f.won ? 'Штурм: город взят.' : 'Штурм отбит, осада идёт дальше.';
   if (f.site === 'joint') return f.won ? 'Клещи: гарнизон из ворот и дружина с поля — лагерь разбит.' : 'Клещи: лагерь устоял.';
   if (f.site === 'camp') return f.ally ? `Союзник пришёл на выручку: ${f.won ? 'лагерь разбит' : 'отбит'}.` : `Удар по лагерю с поля: ${f.won ? 'лагерь разбит' : 'лагерь устоял'}.`;
   return f.won ? 'Вылазка: лагерь разбит.' : 'Вылазка отбита.';
@@ -194,7 +195,7 @@ export function clipsOfSiege(rec: SiegeRecord): SiegeClip[] {
     before = p.breaches;
   }
   for (const f of show.fights.filter((x) => !x.end)) {
-    const kind = f.site === 'wall' ? 'assault' : f.site === 'camp' || f.site === 'joint' ? 'relief' : 'sortie';
+    const kind = fightEpisode(f.site);
     out.push({ kind, k: f.k, label: `${kind === 'assault' ? 'Штурм' : kind === 'relief' ? 'Удар по лагерю' : 'Вылазка'} · ${f.k}-я фаза` });
   }
   out.push({ kind: rec.end.how, k: show.end.k, label: END_WORDS[rec.end.how] });

@@ -69,6 +69,14 @@ export interface ShowFight {
   solar: number;
 }
 
+/**
+ * Каким эпизодом бой осады идёт в ролике: удар с поля по лагерю (и клещи с гарнизоном) — выручка, вылазка гарнизона —
+ * вылазка, остальное — штурм: стены города, частокола логова, ворот. Одна мерка у режиссуры и у коротких роликов донесения.
+ */
+export function fightEpisode(site: ShowSite): 'assault' | 'relief' | 'sortie' {
+  return site === 'camp' || site === 'joint' ? 'relief' : site === 'sortie' ? 'sortie' : 'assault';
+}
+
 /** Проём штурма — те же строки, что у записи боя (`BattleRecord.openings`). */
 export type ShowOpening = 'breach' | 'gate' | 'tower' | 'ladders' | 'scaling';
 

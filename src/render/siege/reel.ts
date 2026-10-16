@@ -22,7 +22,7 @@ import { ENGINE, breachWidth, type TwBarrage, type TwBreach, type TwCamKey, type
 import type { FortMotion } from '../tw/fort';
 import { STAKES_Z, layoutOf, type SiegeLayout } from './layout';
 import { Tracks } from './tracks';
-import type { ShowFight, ShowMachine, ShowPhase, SiegeShow } from './show';
+import { fightEpisode, type ShowFight, type ShowMachine, type ShowPhase, type SiegeShow } from './show';
 
 /** Эпизод ролика осады. */
 export type EpisodeKind =
@@ -1201,7 +1201,7 @@ function planOf(show: SiegeShow): Episode[] {
       eps.push({ kind: 'machines', k, at: 0, len: EPISODE_SECONDS.machines, solar: sol, machines: ready });
     }
     for (const f of show.fights.filter((x) => x.k === k && !x.end)) {
-      const kind: EpisodeKind = f.site === 'wall' ? 'assault' : f.site === 'camp' || f.site === 'joint' ? 'relief' : 'sortie';
+      const kind: EpisodeKind = fightEpisode(f.site);
       eps.push({ kind, k, at: 0, len: EPISODE_SECONDS[kind], solar: f.solar, fight: f });
     }
     const p = show.phases[k - 1];

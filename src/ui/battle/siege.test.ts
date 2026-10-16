@@ -11,11 +11,12 @@ import type { PlayerProfile, Report, WorldPulse } from '@/world/types';
 import type { SiegeEnd } from '@/world/siegerecord';
 import { distance } from '@/world/geo';
 import { shieldVillagers } from '@/world/lairs';
-import { phaseAt, setPhaseDie, softerFate } from '@/world/siegeroll';
+import { phaseAt, setPhaseDie, softerFate, type SiegeOrders } from '@/world/siegeroll';
 import { siegeShare } from '@/world/parley';
 import { LAIR_RANSOM_SHARE } from '@/world/data/parley';
 import type { Fate } from '@/world/spoils';
 import { FINALES, breachesAt, gateAt, machinesUp, siegeReel } from '@/render/siege/reel';
+import type { ShowSite } from '@/render/siege/show';
 import { clipsOfSiege, showOfSiege } from './siege';
 
 // Энергия дороги здесь не предмет проверки (как в `siegephase.test.ts`): полководец стоит у логова сразу.
@@ -77,6 +78,9 @@ interface Seen {
   fate: Fate;
 }
 
+/** Чем бой осады должен быть в ролике (`BattleSite` мира): штурм стены, частокола логова и ворот, вылазка, удар с поля. */
+const EPISODE_OF: Record<ShowSite, string> = { wall: 'assault', lair: 'assault', gate: 'assault', sortie: 'sortie', camp: 'relief', joint: 'relief' };
+
 /** Донесение с записью осады — одно на осаду. */
 async function siegeReport(w: W): Promise<Report> {
   const all = (await w.world.reports()).filter((r) => r.siege);
@@ -102,6 +106,13 @@ function filmMatches(report: Report, seen: Seen, how: SiegeEnd, fate: Fate | nul
   expect(show.end.fate, 'участь ролика — та, с которой пал город').toBe(fate);
   expect(reel.episodes.some((e) => e.kind === 'fate')).toBe(fate !== null);
   if (show.wall > 0 && (how === 'gates' || how === 'terms' || how === 'hunger')) expect(gateAt(reel, reel.seconds), 'ворота открыты').toBe(1);
+  // Бои осады — эпизоды ролика своей фазы: штурм, вылазка, удар с поля, с исходом боя.
+  for (const f of show.fights.filter((x) => !x.end)) {
+    const ep = reel.episodes.find((e) => e.fight === f);
+    expect(ep?.kind, `бой фазы ${f.k} (${f.site}) — эпизод ролика`).toBe(EPISODE_OF[f.site]);
+    expect(ep?.k).toBe(f.k);
+  }
+  expect(show.fights.length, 'бои ролика — бои записи').toBe(rec.fights?.length ?? 0);
   // Короткие ролики донесения — те же эпизоды ролика: у каждого клипа есть свой эпизод.
   for (const c of clipsOfSiege(rec)) expect(reel.episodes.some((e) => e.kind === c.kind && e.k === c.k), `клип «${c.label}»`).toBe(true);
 }
@@ -140,21 +151,34 @@ function standAt(w: W, s: { x: number; y: number }, troops: Record<string, numbe
   });
 }
 
-/** Наш лагерь под ближним логовом; `act` — дело полководца после броска фазы, вернёт ли оно конец. */
-async function ourSiege(w: W, act: (k: number, lair: GenSettlement) => Promise<void>, machine?: 'mangonel', fate: Fate = 'plunder'): Promise<Seen & { lair: GenSettlement }> {
+interface OurSiege {
+  /** Дело полководца после броска фазы `k`. */
+  act?: (k: number, lair: GenSettlement) => Promise<void>;
+  /** Машина в очередь с первой минуты, весь лес лагеря — ей. */
+  machine?: 'mangonel';
+  /** Объявленная участь. */
+  fate?: Fate;
+  /** Наказы лагеря с первой минуты (штурм по проломам). */
+  orders?: SiegeOrders;
+  /** Копейщиков с полководцем. */
+  troops?: number;
+}
+
+/** Наш лагерь под ближним логовом: фаза за фазой, пока осада стоит. */
+async function ourSiege(w: W, { act, machine, fate = 'plunder', orders, troops = 40 }: OurSiege = {}): Promise<Seen> {
   const p: PlayerProfile = {
     name: 'Тест',
     pop: shieldVillagers(0.1),
     defense: 30,
     units: { warrior: 10, scout: 4 },
-    army: { spearman: 40 },
+    army: { spearman: troops },
     stock: { food: 600, wood: 400 },
     stash: 0,
   };
   await w.world.sync(p);
   const home = w.inner.save.home;
   const lair = w.inner.gen.settlements.filter((s) => w.inner.alive(s, w.now())).sort((a, b) => distance(home, a) - distance(home, b))[0];
-  standAt(w, lair, { spearman: 40 });
+  standAt(w, lair, { spearman: troops });
   expect(await w.world.besiege(fate)).toBeNull();
   const win = w.inner.save.sieges[lair.id];
   // Вылазка и выручка логова — свои события; здесь держится запись, а не бой у рогаток.
@@ -165,8 +189,9 @@ async function ourSiege(w: W, act: (k: number, lair: GenSettlement) => Promise<v
     expect(await w.world.setMachineWood(1)).toBeNull();
     expect(await w.world.orderMachine(machine)).toBeNull();
   }
+  if (orders) expect(await w.world.setOrders(orders)).toBeNull();
   const since = win.sinceAt ?? win.startedAt;
-  const seen: Seen & { lair: GenSettlement } = { breaches: [], ready: [], fate, lair };
+  const seen: Seen = { breaches: [], ready: [], fate };
   for (let k = 1; k <= 60; k++) {
     w.at(phaseAt(since, k) + 1000);
     await w.world.sync(p);
@@ -174,7 +199,7 @@ async function ourSiege(w: W, act: (k: number, lair: GenSettlement) => Promise<v
     if (!camp || !w.inner.save.sieges[lair.id]) break;
     seen.breaches.push(camp.machines?.breaches ?? camp.phases?.breaches ?? 0);
     seen.ready = (camp.machines?.list ?? []).filter((m) => m.state === 'ready').map((m) => m.id);
-    await act(k, lair);
+    if (act) await act(k, lair);
     if (!w.inner.save.sieges[lair.id]) break;
   }
   return seen;
@@ -196,7 +221,8 @@ describe('ролик = донесение: логово у наших стен',
     setPhaseDie((_s, k) => (k === calm ? 7 : 14));
     const w = makeWorld();
     const seen = await homeSiege(w, holdout(4), async (k) => {
-      if (calm === Infinity && (w.inner.save.sieges.home?.phases?.at(-1)?.out === 'breach')) {
+      const rows = w.inner.save.sieges.home?.phases ?? [];
+      if (calm === Infinity && rows[rows.length - 1]?.out === 'breach') {
         expect(await w.world.defend({ act: 'repair' })).toBeNull();
         calm = k + 1;
       }
@@ -241,20 +267,15 @@ describe('ролик = донесение: наш лагерь под логов
   it('камнемёт построен и стоит, выкуп взят с половины пути', async () => {
     setPhaseDie(() => 7);
     const w = makeWorld(11);
-    let lairId = '';
-    const seen = await ourSiege(
-      w,
-      async (k, lair) => {
-        lairId = lair.id;
+    const seen = await ourSiege(w, {
+      machine: 'mangonel',
+      act: async (k, lair) => {
         const win = w.inner.save.sieges[lair.id];
-        const since = win.sinceAt ?? win.startedAt;
-        if (siegeShare(win, phaseAt(since, k) + 1000) < LAIR_RANSOM_SHARE) return;
+        if (siegeShare(win, phaseAt(win.sinceAt ?? win.startedAt, k) + 1000) < LAIR_RANSOM_SHARE) return;
         if (!(await w.world.camp())?.parley?.incoming) return;
         expect(await w.world.parley({ act: 'answer', kind: 'tribute', yes: true })).toBeNull();
       },
-      'mangonel',
-    );
-    expect(lairId).not.toBe('');
+    });
     expect(seen.ready, 'точка внутри области: камнемёт достроили до конца осады').toContain('mangonel');
     filmMatches(await siegeReport(w), seen, 'ransom', null);
   }, 120_000);
@@ -262,7 +283,7 @@ describe('ролик = донесение: наш лагерь под логов
   it('логово открыло ворота: участь — наша, на ступень мягче', async () => {
     setPhaseDie(() => 14);
     const w = makeWorld(11);
-    const seen = await ourSiege(w, async () => undefined);
+    const seen = await ourSiege(w);
     filmMatches(await siegeReport(w), seen, 'gates', softerFate('plunder'));
   }, 120_000);
 
@@ -270,15 +291,37 @@ describe('ролик = донесение: наш лагерь под логов
     setPhaseDie(() => 7);
     const w = makeWorld(11);
     let said: string | null = 'не предлагали';
-    const seen = await ourSiege(
-      w,
-      async (k) => {
+    const seen = await ourSiege(w, {
+      fate: 'captives',
+      act: async (k) => {
         if (k === 1) said = await w.world.parley({ act: 'offer', kind: 'terms', fate: 'plunder' });
       },
-      undefined,
-      'captives',
-    );
+    });
     expect(said, 'точка внутри области: логово согласилось').toBeNull();
     filmMatches(await siegeReport(w), seen, 'terms', 'plunder');
+  }, 120_000);
+
+  it('штурм по наказу отбит: осада идёт дальше, ворота открыли — в ролике отбитый штурм своей фазы', async () => {
+    // Кость 7 до второй фазы, 14 — дальше: во второй фазе пролом, наказ штурмует в ту же минуту малой дружиной.
+    setPhaseDie((_s, k) => (k >= 2 ? 14 : 7));
+    const w = makeWorld(11);
+    const seen = await ourSiege(w, { orders: { storm: 1 } });
+    const report = await siegeReport(w);
+    const storm = report.siege!.fights?.find((f) => f.at === phaseAt(report.siege!.sinceAt ?? report.siege!.startedAt, 2));
+    expect(storm, 'точка внутри области: штурм был').toBeTruthy();
+    expect(storm!.won, 'точка внутри области: штурм отбит').toBe(false);
+    filmMatches(report, seen, 'gates', softerFate('plunder'));
+  }, 120_000);
+
+  it('штурм по наказу взял логово: донесение о бое несёт осаду, ролик кончается штурмом', async () => {
+    setPhaseDie((_s, k) => (k >= 2 ? 14 : 7));
+    const w = makeWorld(11);
+    const seen = await ourSiege(w, { orders: { storm: 1 }, troops: 400 });
+    const report = await siegeReport(w);
+    expect(report.battle, 'точка внутри области: штурм был боем').toBeTruthy();
+    expect(report.won, 'точка внутри области: логово взято').toBe(true);
+    filmMatches(report, seen, 'storm', 'plunder');
+    const show = showOfSiege(report.siege!, report);
+    expect(show.fights.find((f) => f.end)?.report, 'бой развязки — это донесение').toBe(report.id);
   }, 120_000);
 });
