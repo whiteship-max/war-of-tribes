@@ -542,6 +542,11 @@
   grid-template-columns: repeat(3, 1fr);
   gap: 8px;
 }
+/* Таблицы указов без заголовка над ними (имя — шапкой таблицы): отступ вместо заголовка. */
+.nx-ledger + .kit-table,
+.nx-pnote + .kit-table {
+  margin-top: 8px;
+}
 .nx-lcell {
   display: flex;
   align-items: center;

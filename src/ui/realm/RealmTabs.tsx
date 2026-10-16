@@ -275,7 +275,7 @@ export function DecreesNew() {
         </button>
       </div>
 
-      <h3>Указ</h3>
+      {/* Имя выбора — шапкой таблицы («Указ», «Паёк», «Налог»): заголовок над ней повторял бы его. */}
       <Table
         label="Указ"
         cols={DECREE_COLS}
@@ -286,7 +286,6 @@ export function DecreesNew() {
       />
       <p className="nx-pnote">{decreeLine(decree)}</p>
 
-      <h3>Паёк</h3>
       <Table
         label="Паёк"
         cols={RATION_COLS}
@@ -297,7 +296,6 @@ export function DecreesNew() {
       />
       <p className="nx-pnote">{rationLine(ration)}</p>
 
-      <h3>Налог</h3>
       <Table
         label="Налог"
         cols={TAX_COLS}
