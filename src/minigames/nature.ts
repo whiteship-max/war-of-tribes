@@ -335,6 +335,48 @@ export function birch(detail: Detail, seed: number, season: Season): { bark: THR
   return finish(s);
 }
 
+/** Ива: короткий толстый ствол с развилкой, крона — свисающие до воды пряди вокруг шапки; серебристая зелень. */
+export function willow(detail: Detail, seed: number, season: Season): { bark: THREE.BufferGeometry; crown: THREE.BufferGeometry } {
+  const s = split();
+  const hi = detail === 'hi';
+  const leaf = WILLOW_LEAF[season];
+  s.bark.tube([V(0, -0.02, 0), V(0.01, 0.2, 0), V(0.02, 0.36, 0)], [0.07, 0.06, 0.05], { seg: hi ? 8 : 6, color: BARK.oak, skin: rigid(0), caps: [null, 0.4] });
+  for (const sx of [-1, 1]) s.bark.tube([V(0.02, 0.34, 0), V(sx * 0.1, 0.5, 0.02), V(sx * 0.14, 0.62, 0.03)], [0.035, 0.026, 0.014], { seg: hi ? 6 : 4, color: BARK.oak, skin: rigid(0), caps: [null, 0.4] });
+  const center = V(0, 0.62, 0);
+  const color = (p: THREE.Vector3): number => mix(leaf.deep, leaf.light, smooth(0.25, 0.85, p.y) * (0.6 + 0.4 * noise3(p.x * 7, p.y * 4 + seed, p.z * 7)));
+  puff(s, V(0, 0.74, 0), V(0.27, 0.16, 0.27), color, seed, hi ? 9 : 6, center);
+  const strands = hi ? 7 : 4;
+  for (let i = 0; i < strands; i++) {
+    const a = seed + (i / strands) * Math.PI * 2;
+    const r = 0.21 + 0.05 * rnd(seed, i);
+    // Прядь — вытянутая вниз купа: ива плачет к воде.
+    puff(s, V(Math.cos(a) * r, 0.52 - 0.06 * rnd(i, seed), Math.sin(a) * r), V(0.1, 0.26, 0.1), color, seed + i * 5, hi ? 7 : 5, center);
+  }
+  return finish(s);
+}
+
+/** Сосна-зонтик (тёплое море): высокий голый ствол с наклоном и плоская шапка наверху. */
+export function pine(detail: Detail, seed: number): { bark: THREE.BufferGeometry; crown: THREE.BufferGeometry } {
+  const s = split();
+  const hi = detail === 'hi';
+  const lean = 0.08 + 0.04 * rnd(seed, 1);
+  s.bark.tube([V(0, -0.02, 0), V(lean * 0.4, 0.45, 0), V(lean, 0.86, 0)], [0.035, 0.028, 0.018], { seg: hi ? 7 : 5, color: (u) => mix(0x4a3426, 0x7a5a40, u), skin: rigid(0), caps: [null, 0.4] });
+  const center = V(lean, 0.9, 0);
+  const color = (p: THREE.Vector3): number => mix(0x2e4a26, 0x5e7e3e, smooth(0.86, 0.98, p.y) * (0.6 + 0.4 * noise3(p.x * 6, p.y * 6 + seed, p.z * 6)));
+  for (let k = 0; k < (hi ? 4 : 3); k++) {
+    const a = seed + k * 2.1;
+    puff(s, V(lean + Math.cos(a) * 0.12, 0.9 + 0.02 * k, Math.sin(a) * 0.12), V(0.28, 0.08, 0.25), color, seed + k, hi ? 9 : 6, center);
+  }
+  return finish(s);
+}
+
+const WILLOW_LEAF: Record<Season, { deep: number; light: number }> = {
+  spring: { deep: 0x5a7a3a, light: 0xb4cc78 },
+  summer: { deep: 0x4e6e36, light: 0x9ab468 },
+  autumn: { deep: 0x8a7a34, light: 0xd8c060 },
+  winter: { deep: 0x5a5240, light: 0x7d6e52 },
+};
+
 /** Листва по сезону: глубь, середина и свет купы. */
 const LEAF: Record<Season, { deep: number; mid: number; light: number }> = {
   spring: { deep: 0x3e6a30, mid: 0x6a9a3e, light: 0xa8cc6a },

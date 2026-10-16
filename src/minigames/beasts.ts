@@ -140,7 +140,10 @@ function boundPose(ph: number, g: Stride): Pose {
   };
 }
 
-/** Лёжка: передние подогнуты в запястье под грудь, задние — бедром вперёд под брюхо. Две ступени каждой пары. */
+/**
+ * Лёжка: тело опущено до брюха (`lieOf`), и ноги ложатся под ним: плечо и бедро — назад, колено у земли; пясть подогнута
+ * в запястье под грудь, плюсна — вперёд под брюхо. Две ступени каждой пары.
+ */
 interface Fold {
   F1: Pose;
   F2: Pose;
@@ -417,7 +420,7 @@ function sheep(detail: Detail, young: boolean): Model {
   const ms: Moveset = {
     walk: { A: 0.3, B: 0.7, Ah: 0.28, Bh: 0.6 },
     run: young ? { kind: 'bound', stride: { A: 0.5, B: 0.9, Ah: 0.5, Bh: 0.8 } } : undefined,
-    fold: folds({ up: 0.55, knee: 2.5, hip: -0.75, hock: 2.0 }),
+    fold: folds({ up: 1.0, knee: 2.6, hip: 0.95, hock: -2.45 }),
     ears: { earL: [0, 0, 0.5], earR: [0, 0, -0.5] },
     chew: { jaw: [0.16, 0, 0] },
     chest: { z: 0.12, y: by, len: 0.3 },
@@ -428,10 +431,20 @@ function sheep(detail: Detail, young: boolean): Model {
     ...b,
     kind: young ? 'lamb' : 'sheep',
     back: (by + 0.3) * K,
-    lie: L * 0.78 * K,
+    lie: lieOf(b),
     side: 0.3 * K,
     core: V(0, by * K, -0.02 * K),
   };
+}
+
+/** На сколько опустить лежащее: до земли низом туловища — брюхо на траве, а не в земле и не над ней. */
+function lieOf(b: Baked): number {
+  const p = b.geometry.attributes.position;
+  let low = Infinity;
+  b.skins.forEach((s, i) => {
+    if (s.a === BONE.body && s.w === 0) low = Math.min(low, p.getY(i));
+  });
+  return Math.max(0, low - 0.02);
 }
 
 /** Сжать запечённую породу целиком: сетку, морфы и шарниры. */
@@ -597,13 +610,13 @@ function goat(detail: Detail): Model {
     channels({
       walk: { A: 0.32, B: 0.75, Ah: 0.3, Bh: 0.65 },
       run: { kind: 'trot', stride: { A: 0.55, B: 1.2, Ah: 0.5, Bh: 1.0 } },
-      fold: folds({ up: 0.55, knee: 2.5, hip: -0.8, hock: 2.1 }),
+      fold: folds({ up: 1.0, knee: 2.6, hip: 0.95, hock: -2.45 }),
       ears: { earL: [0, 0.3, 0.45], earR: [0, -0.3, -0.45] },
       chew: { jaw: [0.15, 0, 0] },
       chest: { z: 0.12, y: by, len: 0.28 },
     }),
   );
-  return { ...b, kind: 'goat', back: by + 0.2, lie: L * 0.75, side: 0.2, core: V(0, by, 0) };
+  return { ...b, kind: 'goat', back: by + 0.2, lie: lieOf(b), side: 0.2, core: V(0, by, 0) };
 }
 
 // ---------- Корова ----------
@@ -752,13 +765,13 @@ function cow(detail: Detail): Model {
     rig,
     channels({
       walk: { A: 0.24, B: 0.55, Ah: 0.22, Bh: 0.5 },
-      fold: folds({ up: 0.5, knee: 2.45, hip: -0.7, hock: 1.9 }),
+      fold: folds({ up: 1.0, knee: 2.6, hip: 0.95, hock: -2.45 }),
       ears: { earL: [0, 0.2, 0.4], earR: [0, -0.2, -0.4] },
       chew: { jaw: [0.12, 0, 0] },
       chest: { z: 0.2, y: by, len: 0.4 },
     }),
   );
-  return { ...b, kind: 'cow', back: by + 0.33, lie: L * 0.72, side: 0.32, core: V(0, by, -0.05) };
+  return { ...b, kind: 'cow', back: by + 0.33, lie: lieOf(b), side: 0.32, core: V(0, by, -0.05) };
 }
 
 // ---------- Олень ----------
@@ -943,7 +956,7 @@ function deerModel(detail: Detail, antlers: boolean): Model {
     channels({
       walk: { A: 0.3, B: 0.8, Ah: 0.3, Bh: 0.7 },
       run: { kind: 'bound', stride: { A: 0.75, B: 1.3, Ah: 0.7, Bh: 1.0 } },
-      fold: folds({ up: 0.6, knee: 2.6, hip: -0.85, hock: 2.2 }),
+      fold: folds({ up: 1.0, knee: 2.6, hip: 0.95, hock: -2.45 }),
       // Убитый: ноги вытянуты — перед вперёд, зад назад, — шея запрокинута поворотом шеи в кадре.
       dead: { fl: [-0.55, 0, 0], fr: [-0.35, 0, 0], flk: [0.25, 0, 0], frk: [0.5, 0, 0], bl: [0.55, 0, 0], br: [0.3, 0, 0], blk: [-0.15, 0, 0], brk: [-0.4, 0, 0] },
       ears: { earL: [0.5, 0.3, 0.2], earR: [0.5, -0.3, -0.2] },
@@ -951,7 +964,7 @@ function deerModel(detail: Detail, antlers: boolean): Model {
       chest: { z: 0.2, y: cy, len: 0.35 },
     }),
   );
-  return { ...b, kind: antlers ? 'stag' : 'doe', back: cy + 0.3, lie: 0.62, side: 0.27, core: V(0, cy, cz) };
+  return { ...b, kind: antlers ? 'stag' : 'doe', back: cy + 0.3, lie: lieOf(b), side: 0.27, core: V(0, cy, cz) };
 }
 
 // ---------- Склад ----------

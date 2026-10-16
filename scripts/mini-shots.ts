@@ -107,6 +107,24 @@ const click = (selector: string): string =>
 const press = (text: string): string =>
   `(() => { const e = [...document.querySelectorAll('button')].find((b) => b.textContent.trim() === ${JSON.stringify(text)} && !b.disabled); if (!e) return JSON.stringify('нет кнопки ' + ${JSON.stringify(text)}); e.click(); return JSON.stringify('ok'); })()`;
 
+/**
+ * Войти в партию. Страница посреди входа может перезагрузиться сама — dev-сервер дособрал зависимости и перезагрузил
+ * её, — и Chrome отвечает на вычисление «Promise was collected»: так стенд обрывался сразу после паузы остывания
+ * (docs/minigames.md, 18.6; причина найдена в П-4). Тогда — дождаться игры заново и войти ещё раз.
+ */
+async function enter(tab: Tab): Promise<string> {
+  for (let i = 0; ; i++) {
+    try {
+      return await tab.eval<string>(ENTER_GAME);
+    } catch (e) {
+      if (i >= 3 || !/collected/i.test((e as Error).message)) throw e;
+      console.log('  страница перезагрузилась посреди входа — вхожу заново');
+      await sleep(1500);
+      await waitFor(tab, 'window.__game', 60000);
+    }
+  }
+}
+
 async function waitFor(tab: Tab, expr: string, ms: number): Promise<boolean> {
   for (let t = 0; t < ms; t += 250) {
     if (await tab.eval<boolean>(`JSON.stringify(!!(${expr}))`).catch(() => false)) return true;
@@ -601,7 +619,7 @@ async function main(): Promise<void> {
           console.log('  игра не поднялась за 60 с');
           return;
         }
-        console.log(`  ${await tab.eval<string>(ENTER_GAME)}`);
+        console.log(`  ${await enter(tab)}`);
         // Обучение и вести сняты: их строка и окна — не вид промыслов. Сезон — сдвигом времени партии.
         await tab.eval<string>(`(() => {
           const g = window.__game.getState();

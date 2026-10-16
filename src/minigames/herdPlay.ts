@@ -400,7 +400,8 @@ export class HerdPlay implements Play {
     // Хвост: корова отмахивается, коза и овца — дёргают; испуг — вверх.
     const swish = kind === 'cow' ? 0.5 * Math.sin(clock * 1.6 + i) : 0.25 * Math.sin(clock * (5 + 3 * hash(i, 7))) * (0.3 + 0.7 * L.walk);
     pose.tailSwish = swish;
-    pose.tailUp = 0.6 * fright + (kind === 'goat' ? 0.15 : 0);
+    // Лёжа хвост не уходит в землю: кисть коровьего хвоста ложится на траву, а не сквозь неё.
+    pose.tailUp = 0.6 * fright + (kind === 'goat' ? 0.15 : 0) + (kind === 'cow' ? 0.75 : 0.3) * lie;
     pose.breathe = 0.5 + 0.5 * Math.sin(clock * (lie > 0.5 ? 1.4 : 1.9) + i);
     pose.fold = lie;
     posture(P.moves, pose);

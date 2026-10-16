@@ -22,6 +22,7 @@ import { hash } from '@/prologue/glade';
 import type { Season } from '@/game/types';
 import type { Zone } from '@/render/climate';
 import { Mesher, V } from './hands';
+import { broadleaf, pine, scatter, spruce, willow, type Detail, type NatureMats } from './nature';
 import { BANK_Z, FAR_BANK_Z, type FishId, type Shore } from './fishing';
 
 const tint = (hex: number): K.Paint => ({ mat: KIT.body, tint: new THREE.Color(hex) });
@@ -431,83 +432,33 @@ export interface Tree {
   yaw: number;
 }
 
-const TRUNK = 0x5a4532;
-const WILLOW: Record<Season, number> = { spring: 0x9ab865, summer: 0x8aa65f, autumn: 0xb5a24e, winter: 0x7d6e52 };
-const ALDER: Record<Season, number> = { spring: 0x6f9a48, summer: 0x5c8a3e, autumn: 0xa98a3c, winter: 0x6e604a };
-const NEEDLES = [0x2d5634, 0x37643a, 0x2a4d33] as const;
-const PINE = 0x47663a;
 
-function treeParts(t: Tree, parts: K.Part[], season: Season, n: number): void {
-  const s = t.s;
-  const ao = { base: [0.6, 0.64, 0.7] as [number, number, number], y0: 0, y1: 3 * s };
-  if (t.kind === 'spruce') {
-    const needles = tint(NEEDLES[n % NEEDLES.length]);
-    parts.push(K.cyl(0.08 * s, 0.13 * s, 1.2 * s, tint(TRUNK), 5, t.x, 0.6 * s, t.z));
-    for (const [r, y0, y1] of [
-      [1.25, 0.6, 2.8],
-      [0.95, 1.9, 3.9],
-      [0.6, 3.1, 4.9],
-    ] as const) {
-      const g = new THREE.ConeGeometry(r * s, (y1 - y0) * s, 7, 1, true);
-      parts.push(K.place(g, needles, t.x, ((y0 + y1) / 2) * s, t.z, { y: t.yaw }));
-    }
-    return;
-  }
-  if (t.kind === 'pine') {
-    // Сосна-зонтик: высокий голый ствол с наклоном и плоская шапка.
-    const lean = 0.12;
-    parts.push(K.cyl(0.1 * s, 0.17 * s, 4.2 * s, tint(0x6a4c36), 6, t.x, 2.1 * s, t.z, { z: lean, y: t.yaw }));
-    const cx = t.x - Math.sin(lean) * 4 * s * Math.cos(t.yaw);
-    const cz = t.z + Math.sin(lean) * 4 * s * Math.sin(t.yaw);
-    for (let k = 0; k < 3; k++) {
-      const g = new THREE.IcosahedronGeometry(1.5 * s, 1);
-      g.scale(1.25, 0.38, 1.1);
-      const a = t.yaw + k * 2.1;
-      parts.push(K.place(g, tint(PINE), cx + Math.cos(a) * 0.7 * s, 4.4 * s + k * 0.12 * s, cz + Math.sin(a) * 0.7 * s, { y: a }, ao));
-    }
-    return;
-  }
-  if (t.kind === 'willow') {
-    // Ива: короткий толстый ствол с развилкой и крона длинными свисающими прядями — до самой воды.
-    parts.push(K.cyl(0.16 * s, 0.26 * s, 1.6 * s, tint(TRUNK), 6, t.x, 0.8 * s, t.z, { z: 0.08 }));
-    parts.push(K.cyl(0.08 * s, 0.13 * s, 1.4 * s, tint(TRUNK), 5, t.x + 0.3 * s, 2.1 * s, t.z, { z: -0.4, y: t.yaw }));
-    parts.push(K.cyl(0.08 * s, 0.13 * s, 1.4 * s, tint(TRUNK), 5, t.x - 0.25 * s, 2.1 * s, t.z, { z: 0.45, y: t.yaw }));
-    const leaf = tint(WILLOW[season]);
-    const dark = tint(new THREE.Color(WILLOW[season]).multiplyScalar(0.8).getHex());
-    for (let k = 0; k < 7; k++) {
-      const a = t.yaw + k * 0.9 + hash(n, k) * 0.4;
-      const r = (0.6 + 0.6 * hash(k, n + 3)) * s;
-      const g = new THREE.IcosahedronGeometry(0.75 * s, 0);
-      g.scale(0.85, 1.9, 0.85);
-      parts.push(K.place(g, k % 2 ? leaf : dark, t.x + Math.cos(a) * r, (2.2 + 0.5 * hash(n, k + 7)) * s, t.z + Math.sin(a) * r, { y: a }, ao));
-    }
-    const top = new THREE.IcosahedronGeometry(1.1 * s, 0);
-    top.scale(1.2, 0.8, 1.2);
-    parts.push(K.place(top, leaf, t.x, 3.2 * s, t.z, { y: t.yaw }, ao));
-    return;
-  }
-  parts.push(K.cyl(0.1 * s, 0.16 * s, 2.4 * s, tint(0x4d4038), 6, t.x, 1.2 * s, t.z));
-  const leaf = tint(ALDER[season]);
-  for (const [x, y, z, r] of [
-    [0, 3.0, 0, 1.25],
-    [0.6, 2.5, 0.3, 0.9],
-    [-0.5, 2.6, -0.4, 0.95],
-    [0.1, 3.7, -0.2, 0.8],
-  ] as const) {
-    const g = new THREE.IcosahedronGeometry(r * s, 0);
-    const c = Math.cos(t.yaw);
-    const si = Math.sin(t.yaw);
-    parts.push(K.place(g, leaf, t.x + (x * c + z * si) * s, y * s, t.z + (-x * si + z * c) * s, { y: t.yaw + x }, ao));
-  }
-}
+/** Рост дерева берега на единицу `Tree.s`, м: та же высота, что у прежней лепки. */
+const TREE_H: Record<TreeKind, number> = { spruce: 4.9, pine: 4.9, willow: 4.1, alder: 4.5 };
 
-/** Деревья берегов одним мешем. */
-export function treesMesh(trees: readonly Tree[], season: Season): THREE.Mesh {
-  const parts: K.Part[] = [];
-  trees.forEach((t, n) => treeParts(t, parts, season, n));
-  const m = K.assemble(parts);
-  m.name = 'trees';
-  return m;
+/**
+ * Деревья берегов — мягкими (П-4, `nature.ts`): ива, ольха, ель и сосна-зонтик копиями по породам, кора и крона — по
+ * вызову. Стоят там же, где прежние (`layTrees`), того же роста.
+ */
+export function treesGroup(trees: readonly Tree[], season: Season, mats: NatureMats, shadow: boolean, detail: Detail): THREE.Group {
+  const g = new THREE.Group();
+  g.name = 'trees';
+  const make: Record<TreeKind, () => { bark: THREE.BufferGeometry; crown: THREE.BufferGeometry }> = {
+    spruce: () => spruce(detail, 3),
+    pine: () => pine(detail, 4),
+    willow: () => willow(detail, 5, season),
+    alder: () => broadleaf(detail, 6, season),
+  };
+  for (const kind of ['spruce', 'pine', 'willow', 'alder'] as const) {
+    const at = trees.filter((t) => t.kind === kind).map((t, n) => ({ x: t.x, z: t.z, yaw: t.yaw, h: TREE_H[kind] * t.s, w: TREE_H[kind] * t.s * (kind === 'spruce' ? 0.85 : 1.05), tint: n % 2 ? 0xffffff : 0xe8f0dc }));
+    if (!at.length) continue;
+    const t = make[kind]();
+    const bark = scatter(t.bark, mats.of('bark'), at.map((a) => ({ ...a, tint: 0xffffff })), `${kind}-bark`, shadow);
+    const crown = scatter(t.crown, mats.of(kind === 'spruce' || kind === 'pine' ? 'needle' : 'leaf'), at, `${kind}-crown`, shadow);
+    if (bark) g.add(bark);
+    if (crown) g.add(crown);
+  }
+  return g;
 }
 
 /**
@@ -557,9 +508,11 @@ export function forestBand(): THREE.Mesh {
   for (let i = 0; i < teeth; i++) {
     const x0 = -130 + (i / teeth) * 260;
     const x1 = -130 + ((i + 1) / teeth) * 260;
-    const h = 8 + hash(i, 91) * 7;
+    // Сплошная часть — до трёх четвертей роста: просвет неба между зубцами — выше крон ив и ольхи, а не под ними,
+    // где он читался белой «сосулькой» (снимок П-4).
+    const h = 9 + hash(i, 91) * 6;
     const y0 = 0.8;
-    const sh = y0 + h * 0.55;
+    const sh = y0 + h * 0.8;
     const xm = (x0 + x1) / 2;
     pos.push(x0, y0, z, x1, y0, z, x1, sh, z, x0, y0, z, x1, sh, z, x0, sh, z, x0, sh, z, x1, sh, z, xm, y0 + h, z);
   }

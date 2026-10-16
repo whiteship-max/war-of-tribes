@@ -26,7 +26,9 @@ import type { Season } from '@/game/types';
 import type { Zone } from '@/render/climate';
 import { haptic } from '@/telegram/webapp';
 import { dec } from '@/game/num';
-import { tufts } from './models';
+import { NatureMats, bloomSpots, flower, grassClump, grassSpots, scatter } from './nature';
+import { DENSITY } from './places';
+import type { Tier } from '@/prologue/look';
 import { Sparks, type Burst } from './sparks';
 import {
   BANK_Z,
@@ -59,7 +61,7 @@ import {
   reedsMesh,
   shoreRocks,
   snagMesh,
-  treesMesh,
+  treesGroup,
   bankGround,
   waterMesh,
   waterUniforms,
@@ -172,6 +174,9 @@ export class FishPlay implements Play {
   private linePos: Float32Array = new Float32Array(0);
   private marker: THREE.Mesh | null = null;
   private fish = new Map<FishId, THREE.Mesh>();
+  /** Ступень входа (`Play.dress`) и материалы берега (`nature.ts`). */
+  private tier: Tier = 'lite';
+  private mats: NatureMats | null = null;
   private shine = { value: 1 };
   /** Изгиб тела рыбы (`fishModels.fishMotion`): плывёт, бьётся на крючке, бьёт хвостом в руке. */
   private motion = fishMotion();
@@ -227,6 +232,11 @@ export class FishPlay implements Play {
 
   // ---------- Берег ----------
 
+  /** Подробность деревьев и травы берега по ступени входа (`places.DENSITY`). Зовётся до `land`. */
+  dress(tier: Tier): void {
+    this.tier = tier;
+  }
+
   land(scene: THREE.Scene, surfaces: Surfaces, _shade: Shade, season: Season): void {
     const { shore, zone } = this.ctx;
     const f = this.game.field;
@@ -249,13 +259,16 @@ export class FishPlay implements Play {
     // Деревья: ближние отбрасывают тень на свой берег, дальние — нет (тень за коробкой теней — пустая трата прохода).
     const trees = layTrees(shore, zone, 3);
     const nearTree = (t: { x: number; z: number }): boolean => t.z > BANK_Z && Math.hypot(t.x, t.z) < 22;
-    w.add(surfaces.adopt(treesMesh(trees.filter(nearTree), season), 'crown'));
-    const far = surfaces.adopt(treesMesh(trees.filter((t) => !nearTree(t)), season), 'crown');
-    far.castShadow = false;
-    w.add(far);
-    // Трава у ног — пучками, не у самой воды.
-    // Вода отрезана огромным кругом: его край у кромки почти прям — травы в воде нет.
-    w.add(surfaces.adopt(tufts(season, [{ x: 0, z: BANK_Z - 400, r: 400.9 }], { count: 260, from: 1.2, to: 15, x: 0, z: 5 }), 'tuft'));
+    // Мягкие деревья, трава и цветы — местами промыслов (`nature.ts`, П-4).
+    this.mats = new NatureMats(surfaces.u);
+    const d = DENSITY[this.tier];
+    w.add(treesGroup(trees.filter(nearTree), season, this.mats, true, d.near));
+    w.add(treesGroup(trees.filter((t) => !nearTree(t)), season, this.mats, false, d.far));
+    // Трава у ног — пучками, не у самой воды: вода отрезана огромным кругом, его край у кромки почти прям.
+    const water = [{ x: 0, z: BANK_Z - 400, r: 400.9 }];
+    const grass = scatter(grassClump(9, season, 3), this.mats.of('grass'), grassSpots(Math.round(d.grass * 0.5), 0, 5, 1.2, 15, 0.24, 0.5, water, 31), 'grass');
+    const bloom = scatter(flower(), this.mats.of('grass'), bloomSpots(Math.round(d.bloom * 0.4), 0, 6, 2, 14, season, water, 37), 'bloom');
+    for (const m of [grass, bloom]) if (m) w.add(m);
     w.add(waterMesh(shore, this.water));
     this.water.wSea.value = shore === 'sea' ? 1 : 0;
     this.water.wFlow.value.set(shore === 'river' ? 0.35 : 0, 0);
@@ -964,6 +977,7 @@ export class FishPlay implements Play {
   }
 
   dispose(): void {
+    this.mats?.dispose();
     this.sound?.stop();
     this.rig?.dispose();
     this.sparks.dispose();
