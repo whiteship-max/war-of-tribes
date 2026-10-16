@@ -18,7 +18,7 @@ import type { BattleRecord, Report } from '@/world/types';
 import { Icon } from '@/ui/icons/Icon';
 import { SIDE_VARS } from '@/side';
 import type { SiegeRecord } from '@/world/siegerecord';
-import { clipsOfSiege, type SiegeClip } from '@/ui/battle/siege';
+import type { SiegeClip } from '@/ui/battle/siege';
 
 /** Итог — в куске нового интерфейса (`ui/next/ReportNew`), как окно постройки: первая загрузка его не несёт. */
 const ReportBodyNew = lazy(() => import('@/ui/next').then((m) => ({ default: m.ReportBodyNew })));
@@ -129,7 +129,19 @@ function SiegeWatch({ rec, report, clip, onDone }: SiegeProps) {
 
 /** Кнопки ролика осады: вся осада и короткие ролики её эпизодов (пролом, бой, развязка). */
 function SiegeButtons({ report }: { report: Report & { siege: SiegeRecord } }) {
-  const clips = useMemo(() => clipsOfSiege(report.siege), [report.siege]);
+  // Короткие ролики считает перевод записи (`ui/battle/siege.ts`) дверями мира и землёй боя — он едет своим куском, как
+  // ролик: в первую загрузку ни земля боя, ни вход сцены осады не попадают. Не приехал — есть кнопка всей осады.
+  const [clips, setClips] = useState<SiegeClip[]>([]);
+  useEffect(() => {
+    let live = true;
+    import('@/ui/battle/siege').then(
+      (m) => live && setClips(m.clipsOfSiege(report.siege)),
+      () => undefined,
+    );
+    return () => {
+      live = false;
+    };
+  }, [report.siege]);
   const [playing, setPlaying] = useState<SiegeClip | 'all' | null>(null);
   return (
     <>
