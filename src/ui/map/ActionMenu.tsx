@@ -8,31 +8,25 @@
 // Правило показа одно: **недоступное действие показано и объяснено**, а не
 // спрятано. Игрок обязан видеть, чего ему не хватает — дойти, дождаться,
 // накопить, — а не гадать, куда делась кнопка.
-import { useEffect, useState, type ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import { useGame } from '@/game/store';
 import { useWorld, worldNow } from '@/world/store';
 import { FIGURE_BY_ID, FIGURES } from '@/world/data/figures';
-import { STANDING_META, TEMPER_BY_ID } from '@/world/data/diplomacy';
 import { actionsOf } from '@/world/data/spy';
-import { RELATION_META } from '@/world/data/meta';
 import { FATE_META } from '@/world/data/fates';
-import { FATE_DEFAULT } from '@/world/spoils';
 import { CAMP_LEAVE } from '@/world/siege';
 import { worksWords } from '@/world/works';
 import { distance, formatCoord, secondsLeft } from '@/world/geo';
 import { realLeft, realSpanText, waitLeft } from '@/ui/parts/wait';
 import { count } from '@/ui/parts/plural';
-import { signed } from '@/ui/parts/signed';
 import { perilShare, perilText, routPeril } from '@/world/peril';
 import { personName } from '@/game/sim/agents';
 import { hireWhere } from '@/game/sim/hire';
 import { RESOURCE_IDS } from '@/game/constants';
-import { troopTotal } from '@/game/battle/kinds';
-import type { Fate, LeadPlan, Loot, OrderActionId, OrderOption } from '@/world/types';
+import type { LeadPlan, Loot, OrderActionId, OrderOption } from '@/world/types';
 import { Icon } from '@/ui/icons/Icon';
 import { Cost } from '@/ui/parts/Cost';
 import { CampStrike } from '@/ui/parts/CampStrike';
-import { FatePick } from '@/ui/parts/FatePick';
 import { REST_WHY, restLine } from '@/ui/parts/restWords';
 import { EnergyBar, EnergyPrice } from '@/ui/parts/Energy';
 import { beyondText, reachable } from './twslot';
@@ -56,28 +50,18 @@ export function ActionMenu() {
   const closeMenu = useWorld((g) => g.closeMenu);
   const moveFigure = useWorld((g) => g.moveFigure);
   const order = useWorld((g) => g.order);
-  const attack = useWorld((g) => g.attack);
-  const assault = useWorld((g) => g.assault);
-  const besiege = useWorld((g) => g.besiege);
   const intercept = useWorld((g) => g.intercept);
   const watch = useWorld((g) => g.watch);
   const shelter = useWorld((g) => g.shelter);
   const showToast = useGame((g) => g.showToast);
   const openSiege = useGame((g) => g.openSiege);
   const openCamp = useGame((g) => g.openCamp);
-  // Участь объявляется приказом — ударом или осадой; новая цель — новый выбор.
-  const [fate, setFate] = useState<Fate>(FATE_DEFAULT);
-  const target = menu?.target ?? null;
-  useEffect(() => setFate(FATE_DEFAULT), [target]);
 
   if (!menu) return null;
   const def = FIGURE_BY_ID[menu.agent];
   const figure = figures.find((f) => f.id === menu.agent);
   const card = menu.card;
   const here = card ? card.figuresHere.includes(menu.agent) : false;
-  const diplo = card?.diplomacy ?? null;
-  const standing = diplo ? STANDING_META[diplo.standing] : null;
-  const temper = diplo ? TEMPER_BY_ID[diplo.temper] : null;
 
   // Полководец в лагере: увести его можно, но это и есть снятие осады.
   const leavingCamp = menu.agent === 'general' && Boolean(figure?.besieging) && !here;
@@ -149,7 +133,7 @@ export function ActionMenu() {
   // меню, открытое из карточки или списка походов, говорит об этом вместо приказов.
   if (!reachable(menu.cell)) {
     return (
-      <div className="am-wrap" onPointerDown={(e) => e.stopPropagation()}>
+      <div className="am-wrap" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => e.target === e.currentTarget && closeMenu()}>
         <div className="panel nx-bpanel nx-am">
           {head}
           <p className="nx-bwarn">{beyondText()}</p>
@@ -159,7 +143,7 @@ export function ActionMenu() {
   }
 
   return (
-    <div className="am-wrap" onPointerDown={(e) => e.stopPropagation()}>
+    <div className="am-wrap" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => e.target === e.currentTarget && closeMenu()}>
       <div className="panel nx-bpanel nx-am">
         {head}
 
@@ -196,41 +180,8 @@ export function ActionMenu() {
             </p>
           )}
 
-          {/* Отношения с этим двором: состояние и число; характер владельца — в подсказке. */}
-          {diplo && standing && temper && card && (
-            <>
-              <button className="nx-crow" onClick={tipOf(temper.name, temper.note)}>
-                <span className="nx-lico">
-                  <Icon name={`temper-${temper.id}`} glyph={temper.icon} />
-                </span>
-                <span className="nx-crow-t">
-                  <span style={{ color: standing.color }}>{standing.name}</span>
-                  {/* Чего нет, того строка не называет: у логова ни правителя, ни племени — и строки нет. */}
-                  {(card.owner || card.tribeName) && (
-                    <small>
-                      {card.owner && `Правитель ${card.owner}`}
-                      {card.owner && card.tribeName && ' · '}
-                      {card.tribeName && (
-                        <>
-                          {card.owner ? 'держава' : 'Держава'}{' '}
-                          <span style={{ color: RELATION_META[card.relation].color }}>{card.tribeName}</span>
-                        </>
-                      )}
-                    </small>
-                  )}
-                </span>
-                <b>
-                  {signed(diplo.attitude, 0)} · {diplo.mood}
-                </b>
-              </button>
-              {diplo.standing === 'pact' && diplo.breakAt > 0 && (
-                <p className="nx-bwarn bad">Пакт разорван. Война через {realLeft(secondsLeft(diplo.breakAt, worldNow()))}.</p>
-              )}
-              {diplo.standing === 'pact' && diplo.breakAt === 0 && diplo.until > 0 && (
-                <p className="nx-tnote">Пакт держится ещё {realLeft(secondsLeft(diplo.until, worldNow()))}.</p>
-              )}
-            </>
-          )}
+          {/* Отношения с этим двором и бунт — в карточке места, одной копией (Д17, UI-7, docs/ui_v2.md, 5.6): прежде они стояли
+              и здесь, и там. Шанс каждого дела, который от них зависит, — числом у самого приказа. */}
 
           {/* Чужой отряд в поле: точка и время встречи видны до подтверждения. Имена мест не склоняются, между ними — стрелка. */}
           {menu.march && (
@@ -281,14 +232,6 @@ export function ActionMenu() {
                 <p className="nx-tnote">Перехватывает только полководец.</p>
               )}
             </>
-          )}
-
-          {/* Бунт виден там же, где приказы: он и есть окно для удара. */}
-          {card?.revolt && (
-            <p className="nx-bwarn">
-              Бунт ещё {realLeft(secondsLeft(card.revolt.until, worldNow()))}. Работы стоят, гарнизон слабее на{' '}
-              {Math.round(card.revolt.power * 100)}%.
-            </p>
           )}
 
           {/* Приказы человека. Строка видна всегда: недоступное объяснено строкой под именем, описание — в подсказке. */}
@@ -382,113 +325,24 @@ export function ActionMenu() {
             </Order>
           )}
 
-          {/* Полководец: удар отсюда же, чтобы не гонять игрока по экранам. */}
+          {/*
+            Удар и осада с выбором участи — одним блоком в карточке места (Д16, UI-7, docs/ui_v2.md, 5.6): прежде их было три
+            копии — здесь, в карточке и в блоке войны, у каждой свой выбор участи. Здесь — дверь туда: карточка этого места.
+          */}
           {menu.agent === 'general' && menu.target !== null && card && !card.mine && !card.siege?.mine && (
-            <>
-              {/* Участь объявляется этим же приказом: и ударом, и осадой. Строки выбора — не приказы. */}
-              {card.fates.length > 0 && <h3>Участь при взятии</h3>}
-              <FatePick options={card.fates} value={fate} onChange={setFate} />
-              {/*
-                Стоит у ворот — «Ударить»: бой сейчас. Не стоит — «Дойти и ударить»: полководец идёт сюда и бьёт в
-                минуту прихода, не дожидаясь игрока (`assault`); по городу игрока — тот же приказ, поход со штурмом с ходу.
-              */}
-              {here || !card.assault ? (
-                <Order
-                  icon="hud-army"
-                  glyph="⚔️"
-                  name="Ударить"
-                  can={card.can.raid}
-                  why={card.note}
-                  tip={tipOf('Удар', 'Бой у ворот сейчас. Донесение ляжет в походы.', routLine(card))}
-                  onGo={() => {
-                    void (async () => {
-                      const err = await attack({ fate });
-                      showToast(err ?? 'Отряд ударил. Донесение в походах.');
-                      if (!err) closeMenu();
-                    })();
-                  }}
-                >
-                  {card.can.raid && <span>{count(troopTotal(figure?.troops ?? {}), 'боец', 'бойца', 'бойцов')}</span>}
-                  {card.energy && <EnergyPrice price={card.energy.raid.price} />}
-                </Order>
-              ) : (
-                <Order
-                  icon="hud-army"
-                  glyph="⚔️"
-                  name="Дойти и ударить"
-                  can={card.assault.can}
-                  why={card.assault.reason}
-                  tip={tipOf('Дойти и ударить', 'Полководец ведёт отряд сюда и бьёт в минуту прихода, даже если ты не в игре. Донесение ляжет в походы.', routLine(card))}
-                  onGo={() => {
-                    void (async () => {
-                      const walkMs = card.assault?.walkMs ?? 0;
-                      const err = await assault(card.id, fate);
-                      showToast(err ?? `Отряд вышел. Бой через ${realLeft(walkMs / 1000)}.`);
-                      if (!err) closeMenu();
-                    })();
-                  }}
-                >
-                  <span>{count(card.assault.men, 'боец', 'бойца', 'бойцов')}</span>
-                  <span>
-                    <Icon name="ui-time" glyph="⏳" /> {realLeft(card.assault.walkMs / 1000)}
-                  </span>
-                  <EnergyPrice price={card.assault.energy.price} />
-                </Order>
-              )}
-              {/*
-                Осада стоит рядом с ударом нарочно: это второй способ взять город, и выбирают
-                между ними в один и тот же миг. Цену увода из лагеря — снятую осаду — говорит
-                строка «Вести сюда» до нажатия (`CAMP_LEAVE`).
-              */}
-{here || !card.invest ? (
-                              <Order
-                  icon="ui-target"
-                  glyph="⛺"
-                  name="Осадить"
-                  can={card.can.besiege}
-                  why={
-                    card.siege
-                      ? 'Здесь уже стоит лагерь'
-                      : figure?.besieging
-                        ? 'Полководец уже держит осаду'
-                        : (card.energy?.besiege.block ?? card.note)
-                  }
-                  tip={tipOf('Осада', 'Встать лагерем и ждать, пока кончится хлеб. Пока лагерь стоит, энергия полководца не тратится.', routLine(card))}
-                  onGo={() => {
-                    void (async () => {
-                      const err = await besiege(fate);
-                      showToast(err ?? 'Отряд встал лагерем у стен.');
-                      if (!err) closeMenu();
-                    })();
-                  }}
-                >
-                  {card.energy && <EnergyPrice price={card.energy.besiege.price} />}
-                </Order>
-              ) : (
-                <Order
-                  icon="ui-target"
-                  glyph="⛺"
-                  name="Дойти и осадить"
-                  can={card.invest.can}
-                  why={card.invest.reason}
-                  tip={tipOf('Дойти и осадить', 'Полководец ведёт отряд сюда и встаёт лагерем в минуту прихода, даже если ты не в игре. Пока лагерь стоит, энергия полководца не тратится.', routLine(card))}
-                  onGo={() => {
-                    void (async () => {
-                      const walkMs = card.invest?.walkMs ?? 0;
-                      const err = await assault(card.id, fate, 'siege');
-                      showToast(err ?? `Отряд вышел. Лагерь встанет через ${realLeft(walkMs / 1000)}.`);
-                      if (!err) closeMenu();
-                    })();
-                  }}
-                >
-                  <span>{count(card.invest.men, 'боец', 'бойца', 'бойцов')}</span>
-                  <span>
-                    <Icon name="ui-time" glyph="⏳" /> {realLeft(card.invest.walkMs / 1000)}
-                  </span>
-                  <EnergyPrice price={card.invest.energy.price} />
-                </Order>
-              )}
-            </>
+            <Order
+              icon="hud-army"
+              glyph="⚔️"
+              name="Удар и осада"
+              can
+              tip={tipOf('Удар и осада', 'Ударить, осадить и участь города — в карточке места: там мощь, добыча и дорога.', routLine(card))}
+              onGo={() => {
+                closeMenu();
+                void useWorld.getState().select(menu.cell);
+              }}
+            >
+              <span>в карточке места</span>
+            </Order>
           )}
 
           {/* Разведчик: своё умение он делает сам, стоя у ворот. */}

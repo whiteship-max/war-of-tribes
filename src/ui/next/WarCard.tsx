@@ -1,15 +1,13 @@
 // Поход на город живого игрока — блок карточки чужого города (docs/pvp.md).
 //
 // Бой здесь не считается и не предсказывается: его считает сервер в минуту прихода, тем же ядром, что бой
-// с логовом. Карточка говорит три вещи — можно ли выступить и почему нет, сколько идти, что с войной сейчас
-// — и отдаёт приказ. Недоступное показано и объяснено, а не спрятано (правило меню приказов).
+// с логовом. Блок говорит, что с войной сейчас — их поход, наш поход, лагерь, — и держит пакт. Выступить — блоком удара
+// самой карточки, одним на логово и на город игрока (UI-7, docs/ui_v2.md, 5.6; Д16).
 import { useState } from 'react';
 import { useGame } from '@/game/store';
 import { useWorld, worldNow } from '@/world/store';
-import { FATE_DEFAULT } from '@/world/spoils';
-import type { Fate, SettlementCard } from '@/world/types';
+import type { SettlementCard } from '@/world/types';
 import { Icon } from '@/ui/icons/Icon';
-import { FatePick } from '@/ui/parts/FatePick';
 import { count } from '@/ui/parts/plural';
 import { realLeft } from '@/ui/parts/wait';
 import { hungerLeft } from '@/ui/parts/hunger';
@@ -18,27 +16,17 @@ import { EnergyPrice } from '@/ui/parts/Energy';
 const left = (at: number, now: number): string => realLeft(Math.max(0, (at - now) / 1000));
 
 export function WarCard({ card }: { card: SettlementCard }) {
-  const warMarch = useWorld((g) => g.warMarch);
-  const assault = useWorld((g) => g.assault);
   const recallFigure = useWorld((g) => g.recallFigure);
   const pact = useWorld((g) => g.pact);
   const relief = useWorld((g) => g.relief);
   const showToast = useGame((g) => g.showToast);
   const openCamp = useGame((g) => g.openCamp);
   const openSiege = useGame((g) => g.openSiege);
-  const [fate, setFate] = useState<Fate>(FATE_DEFAULT);
   const [busy, setBusy] = useState(false);
   const war = card.war;
   if (!war) return null;
   const now = worldNow();
 
-  // Штурм с ходу — тот же приказ «Дойти и ударить», что у логова (`assault`); осада — поход лагерем.
-  const go = async (mode: 'storm' | 'siege'): Promise<void> => {
-    setBusy(true);
-    const err = mode === 'storm' ? await assault(card.id, fate) : await warMarch(card.id, mode, fate);
-    setBusy(false);
-    showToast(err ?? `Отряд вышел на ${card.name}. В пути ${realLeft(war.walkMs / 1000)}.`);
-  };
   // Пакт и выручка (docs/siege_v2.md, раздел 5): пакт значит одно — союзник может прийти на выручку, а походом на него не пойти.
   const pactAct = async (on: boolean): Promise<void> => {
     setBusy(true);
@@ -108,33 +96,9 @@ export function WarCard({ card }: { card: SettlementCard }) {
             <p className="nx-tnote">Отряд возвращается. Дома через {left(war.ours.backAt ?? now, now)}.</p>
           )}
         </>
-      ) : (
-        <>
-          <p className="nx-tnote">
-            Полководец ведёт {count(war.men, 'бойца', 'бойцов', 'бойцов')} из своего города, в пути {realLeft(war.walkMs / 1000)}. Бой
-            будет в минуту прихода. Хозяин города увидит отряд сразу.
-          </p>
-          {!war.can && war.reason && <p className="nx-tnote bad">{war.reason}</p>}
-          {/* Штурм дороже осады: открыт поход вообще, а на штурм энергии не хватает — причина своей строкой. */}
-          {war.can && war.energy?.storm.block && <p className="nx-tnote bad">Штурм: {war.energy.storm.block}</p>}
-          <FatePick options={card.fates} value={fate} onChange={setFate} />
-          <div className="nx-cacts">
-            <button className="nx-go nx-cgo" disabled={busy || !war.can || Boolean(war.energy?.storm.block)} onClick={() => void go('storm')}>
-              Дойти и ударить · {count(war.men, 'боец', 'бойца', 'бойцов')}
-              {war.energy && <EnergyPrice price={war.energy.storm.price} />}
-            </button>
-            <button className="nx-cact" disabled={busy || !war.can} onClick={() => void go('siege')}>
-              <Icon name="ui-target" glyph="⛺" />
-              Осадить
-              {war.energy && <EnergyPrice price={war.energy.siege.price} />}
-            </button>
-          </div>
-          {/* Хватит ли после осады на штурм из лагеря — до выхода: в лагере энергия не копится (siege_audit, 9). */}
-          {war.can && war.campStorm && <p className="nx-tnote">{war.campStorm}</p>}
-          <p className="nx-tnote">Штурм с ходу решается одним боем у стены в минуту прихода. Осада ставит лагерь под стенами, и город голодает, пока не сдастся или не разобьёт лагерь.</p>
-          <p className="nx-tnote">Полководец тратит энергию в дороге, по дням пути. У стен она не уходит, дома копится снова.</p>
-        </>
-      )}
+      ) : null}
+      {/* Выступить — «Дойти и ударить» и «Осадить» с выбором участи — блоком удара карточки, один на логово и на город
+          игрока (Д16, UI-7, docs/ui_v2.md, 5.6): прежде здесь был второй выбор участи и свои кнопки. */}
       <h3>Пакт</h3>
       {war.pact === 'pact' ? (
         <>

@@ -42,8 +42,19 @@ import { tipAt, type TipContent } from './tip';
 import { WarCard } from './WarCard';
 import { SpyRival } from './SpyRival';
 import { num } from '@/game/num';
+import { Table, type Col } from '@/ui/kit/Table';
 
 const fmt = (n: number): string => (Math.abs(n) >= 100 ? String(Math.round(n)) : num(n, 1));
+
+/** Донесение о гарнизоне по видам и договоры — таблицами (UI-7, docs/ui_v2.md, 5.6), а не ячейками и строками. */
+const INTEL_COLS: readonly Col[] = [
+  { key: 'kind', title: 'Вид' },
+  { key: 'n', title: 'Сколько', align: 'right', w: '88px' },
+];
+const DEAL_COLS: readonly Col[] = [
+  { key: 'deal', title: 'Договор' },
+  { key: 'left', title: 'Ещё', align: 'right', w: '88px' },
+];
 
 /** Какие бойцы идут в миссию: набега гонцом нет — армию водит полководец (`LocalWorld.send`). */
 const ALLOWED: Record<Mission, ('warrior' | 'scout')[]> = { raid: [], scout: ['scout'], support: ['warrior'] };
@@ -102,7 +113,6 @@ function Row({ icon, glyph, name, value, tone, tip }: { icon: string; glyph: str
 
 export function WorldNew({ x, y }: { x: number; y: number }) {
   const s = useGame((g) => g.s);
-  const closeMap = useGame((g) => g.closeMap);
   const showToast = useGame((g) => g.showToast);
   const openSiege = useGame((g) => g.openSiege);
   const openCamp = useGame((g) => g.openCamp);
@@ -118,6 +128,7 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
   const assault = useWorld((g) => g.assault);
   const besiege = useWorld((g) => g.besiege);
   const negotiate = useWorld((g) => g.negotiate);
+  const warMarch = useWorld((g) => g.warMarch);
   const openMenu = useWorld((g) => g.openMenu);
   const home = useWorld((g) => g.info?.home ?? null);
   const [mission, setMission] = useState<Mission | null>(null);
@@ -330,7 +341,20 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
         ? 'Лазутчик здесь. Прикажи ему залечь, и станет видно.'
         : 'Своими глазами видно у своего города и вокруг залёгшего лазутчика. Доведи его сюда.',
   };
-  const raidable = (card.can.raid || card.can.besiege || Boolean(goStrike?.can)) && !card.siege?.mine;
+  // Поход на город живого игрока (docs/pvp.md) — тем же блоком удара, что у логова: участь выбирают один раз на карточку
+  // (Д16, UI-7; прежде у блока «Война» был свой выбор участи и свои кнопки). Пока наш отряд идёт или стоит лагерем —
+  // кнопок нет, их место в блоке «Война» занимает ход похода.
+  const war = card.castle && !card.mine && card.war && !card.war.ours ? card.war : null;
+  const warGo = async (mode: 'storm' | 'siege'): Promise<void> => {
+    if (!war) return;
+    setBusy(true);
+    const err = mode === 'storm' ? await assault(card.id, fate) : await warMarch(card.id, mode, fate);
+    setBusy(false);
+    showToast(err ?? `Отряд вышел на ${card.name}. В пути ${realLeft(war.walkMs / 1000)}.`);
+  };
+  const raidable = (card.can.raid || card.can.besiege || Boolean(goStrike?.can) || Boolean(war)) && !card.siege?.mine;
+  // Сколько идти отряду полководца (О8): прежде ячейка «Дорога» показывала путь разведчика, а удар шёл вдвое дольше.
+  const armyWalkMs = goStrike?.walkMs ?? goSiege?.walkMs ?? war?.walkMs ?? card.war?.walkMs;
   // Строка владельца — словами меню приказов и только то, что есть (docs/ui_audit.md, 14.1, 17). У своего города
   // владелец — заглушка слепка («Наше племя», `bridge.playerProfile`), и строки нет, как в меню приказов.
   const ownerLine = card.mine
@@ -369,9 +393,15 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
           <Fact label="Оборона" value={fmt(def)} tip={{ title: `Оборона · ${fmt(def)}`, body: 'Гарнизон, стены, башня, казармы и жители.' }} />
         ) : (
           <Fact
-            label="Дорога"
-            value={scoutWalk}
-            tip={{ title: `Дорога · ${fmt(card.distance)} кл.`, body: `Разведчик дойдёт за ${scoutWalk}. Отряд идёт медленнее.` }}
+            label={armyWalkMs !== undefined ? 'Поход' : 'Дорога'}
+            value={armyWalkMs !== undefined ? realLeft(armyWalkMs / 1000) : scoutWalk}
+            tip={{
+              title: `Дорога · ${fmt(card.distance)} кл.`,
+              body:
+                armyWalkMs !== undefined
+                  ? `Отряд полководца дойдёт за ${realLeft(armyWalkMs / 1000)}. Разведчик — за ${scoutWalk}.`
+                  : `Разведчик дойдёт за ${scoutWalk}. Отряд идёт медленнее.`,
+            }}
           />
         )}
       </div>
@@ -392,11 +422,7 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
               Приказы: {FIGURE_BY_ID[id].name.toLowerCase()}
             </button>
           ))}
-        {card.can.open && (
-          <button className="nx-go nx-cgo" onClick={closeMap}>
-            Открыть город
-          </button>
-        )}
+        {/* «Открыть город» здесь нет: в город ведёт «Город» низа карты, одна дверь (Д15, UI-7). */}
         {raidable && <FatePick options={card.fates} value={fate} onChange={setFate} />}
         {card.can.raid && !card.siege?.mine && (
           <button className="nx-go nx-cgo" disabled={busy} onClick={() => void strike()}>
@@ -435,6 +461,19 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
             <EnergyPrice price={goSiege.energy.price} />
           </button>
         )}
+        {war && (
+          <button className="nx-go nx-cgo" disabled={busy || !war.can || Boolean(war.energy?.storm.block)} onClick={() => void warGo('storm')}>
+            Дойти и ударить · {count(war.men, 'боец', 'бойца', 'бойцов')}
+            {war.energy && <EnergyPrice price={war.energy.storm.price} />}
+          </button>
+        )}
+        {war && (
+          <button className="nx-cact" disabled={busy || !war.can} onClick={() => void warGo('siege')}>
+            <Icon name="ui-target" glyph="⛺" />
+            Осадить · {realLeft(war.walkMs / 1000)}
+            {war.energy && <EnergyPrice price={war.energy.siege.price} />}
+          </button>
+        )}
         {MISSIONS.filter((m) => m.id !== 'raid' && card.can[m.id]).map((m) => (
           <button
             key={m.id}
@@ -451,6 +490,17 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
       {goStrike && !goStrike.can && goStrike.reason && <p className="nx-tnote bad">{goStrike.reason}</p>}
       {goSiege && !card.can.besiege && !goSiege.can && goSiege.reason && goSiege.reason !== goStrike?.reason && (
         <p className="nx-tnote bad">{goSiege.reason}</p>
+      )}
+      {war && !war.can && war.reason && <p className="nx-tnote bad">{war.reason}</p>}
+      {/* Штурм дороже осады: открыт поход вообще, а на штурм энергии не хватает — причина своей строкой. */}
+      {war?.can && war.energy?.storm.block && <p className="nx-tnote bad">Штурм: {war.energy.storm.block}</p>}
+      {/* Хватит ли после осады на штурм из лагеря — до выхода: в лагере энергия не копится (siege_audit, 9). */}
+      {war?.can && war.campStorm && <p className="nx-tnote">{war.campStorm}</p>}
+      {war && (
+        <p className="nx-tnote">
+          Бой будет в минуту прихода, даже если ты не в игре; хозяин города увидит отряд сразу. Штурм с ходу — один бой у стены,
+          осада — лагерь под стенами, пока город не сдастся или не разобьёт его. Энергия уходит в дороге, у стен — нет.
+        </p>
       )}
       {card.can.besiege && card.campStorm && <p className="nx-tnote">{card.campStorm}</p>}
       {card.can.besiege && <p className="nx-tnote">{CAMP_LEAVE}</p>}
@@ -616,16 +666,26 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
       {card.deals.length > 0 && (
         <>
           <h3>Договоры с державой</h3>
-          {card.deals.map((d) => (
-            <Row
-              key={d.id}
-              icon={`deal-${d.id}`}
-              glyph={DEALS.find((x) => x.id === d.id)?.icon ?? ''}
-              name={DEALS.find((x) => x.id === d.id)?.name ?? ''}
-              value={realLeft(secondsLeft(d.until, now))}
-              tone="good"
-            />
-          ))}
+          <Table
+            label="Договоры с державой"
+            cols={DEAL_COLS}
+            rows={card.deals.map((d) => {
+              const def = DEALS.find((x) => x.id === d.id);
+              return {
+                key: d.id,
+                tip: () => ({ title: def?.name ?? 'Договор', body: def?.description }),
+                cells: {
+                  deal: (
+                    <span className="kit-name">
+                      <Icon name={`deal-${d.id}`} glyph={def?.icon ?? ''} />
+                      <span className="one-line">{def?.name ?? ''}</span>
+                    </span>
+                  ),
+                  left: <span className="good">{realLeft(secondsLeft(d.until, now))}</span>,
+                },
+              };
+            })}
+          />
         </>
       )}
 
@@ -654,20 +714,26 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
           <h3>
             Донесение <span className="muted">{formatAge(card.intel.ageSeconds)}</span>
           </h3>
-          <div className="nx-facts">
-            {UNIT_KINDS.map((k) => {
+          <Table
+            label="Донесение"
+            cols={INTEL_COLS}
+            rows={UNIT_KINDS.map((k) => {
               const e = card.intel?.kinds?.[k];
-              return (
-                <Fact
-                  key={k}
-                  label={`${KIND_META[k].icon} ${KIND_META[k].name}`}
-                  value={e ? formatEstimate(e) : '?'}
-                  bad={!e}
-                  tip={{ title: KIND_META[k].name, body: e ? intelWord : 'Не разглядели.' }}
-                />
-              );
+              return {
+                key: k,
+                tip: () => ({ title: KIND_META[k].name, body: e ? intelWord : 'Не разглядели.' }),
+                cells: {
+                  kind: (
+                    <span className="kit-name">
+                      <span className="ic">{KIND_META[k].icon}</span>
+                      <span className="one-line">{KIND_META[k].name}</span>
+                    </span>
+                  ),
+                  n: <span className={e ? '' : 'bad'}>{e ? formatEstimate(e) : '?'}</span>,
+                },
+              };
             })}
-          </div>
+          />
           {card.intel.style && <p className="nx-tnote">Уклад: {card.intel.style}.</p>}
         </>
       )}

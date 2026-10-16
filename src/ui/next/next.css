@@ -2559,3 +2559,13 @@
   align-self: stretch;
   min-height: var(--tap);
 }
+
+/* Цена дела в энергии (UI-7, Ч15): ладонь, число и слово; слово мельче — оно подпись, а не число. */
+.nx-eprice {
+  white-space: nowrap;
+}
+.nx-eprice small {
+  font-size: 11px;
+  font-weight: 400;
+  opacity: 0.8;
+}
