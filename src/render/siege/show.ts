@@ -118,4 +118,9 @@ export interface SiegeShow {
   solar0: number;
   /** Земля места: равнина, холмы или берег, лес, зима (свет ролик берёт свой — по минутам осады). */
   ground: Ground;
+  /**
+   * Гербы на знамёнах строками (`heraldry/arms.armsCode`, П-2): наш и чужих — решает зовущий по донесению
+   * (`ui/battle/coats`). Нет — наша прежняя башня и разбойники (стенд).
+   */
+  coats?: { ours: string; theirs: string };
 }

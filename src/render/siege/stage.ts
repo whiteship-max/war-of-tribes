@@ -19,6 +19,7 @@ import { Siegeworks } from '../tw/siegeworks';
 import { siteBlocks, siteGround, standY, type TwSite } from '../tw/site';
 import { motionOf, solarAt, type SiegeReel } from './reel';
 import { poseAt, type TrackPose } from './tracks';
+import { BANDIT_ARMS, DEFAULT_ARMS, armsCode } from '@/heraldry/arms';
 
 const SUN_DIST = 160;
 const SHADOW_HALF = { min: 30, max: 110, perDist: 0.6 };
@@ -156,8 +157,10 @@ export class SiegeStage {
     }
     this.crowd = new Crowd(reel.troupe, spec);
     this.scene.add(this.crowd.group);
-    // Гербы: наша башня; у чужих — топоры разбойников (у логова) или та же башня в красном (город соседа).
-    this.banners = new Banners(reel.troupe, { ours: 'tower', theirs: lay.wall ? 'tower' : 'axes' });
+    // Гербы (П-2): по донесению (`SiegeShow.coats`) — наш герб державы, у чужих — сосед, логово или разбойники; без
+    // донесения (стенд) — прежняя башня против разбойников. Прежде чужой герб решала стена, и логово под нашим городом
+    // несло башню соседа.
+    this.banners = new Banners(reel.troupe, reel.show.coats ?? { ours: armsCode(DEFAULT_ARMS), theirs: armsCode(BANDIT_ARMS) });
     this.scene.add(this.banners.group);
     this.works = new Siegeworks({ quality: reel.quality, field: lay.field, wall: lay.wall, seed: reel.show.seed }, reel.barrage, this.crowd);
     this.scene.add(this.works.group);

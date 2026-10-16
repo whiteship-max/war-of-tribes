@@ -16,6 +16,8 @@ import { distSeg, heightAt, insidePoly, type CityPlan, type P } from './layout';
 import { wallTops } from './forts';
 import { hash3, rnd } from './noise';
 import { linear } from './palette';
+import { armsCode, armsOr } from '@/heraldry/arms';
+import { TINCTURE_HEX } from '@/heraldry/art';
 import { LIFE_CAP } from './spec';
 export { LIFE_CAP } from './spec';
 
@@ -1220,6 +1222,9 @@ export class CityLife {
   private smokeOn: (SmokeSource & { thr: number })[] = [];
   private work: SmokeSource[] = [];
   private flags: THREE.Mesh;
+  /** Вершины полотнищ флагов: номер и доля длины (`setLivery` перекрашивает их в ливрею герба). */
+  private flagCloth: { i: number; u: number }[] = [];
+  private livery = '';
   private birds: THREE.Mesh;
   private time = { value: 0 };
   /** Ветер погоды: куда дует (оси мира) и сила — флагам; дыму — его снос (`setWind`). */
@@ -1435,8 +1440,27 @@ export class CityLife {
 
   /**
    * Флаги на башнях: древко и полотнище, полотнище вьётся в шейдере (ветер один на всех). Один меш на
-   * все флаги; цвет — красное поле города с золотой бахромой.
+   * все флаги; цвет — красное поле города с золотой бахромой, пока не приехал герб: дальше — ливрея герба (`setLivery`).
    */
+  /**
+   * Ливрея герба на флагах башен (П-2): полотнище — первой краской поля, бахрома — краской фигуры (металл к цвету, правило
+   * герба держит контраст). Герб тот же — ничего не делает.
+   */
+  setLivery(code: string | null | undefined): void {
+    const arms = armsOr(code);
+    const key = armsCode(arms);
+    if (key === this.livery) return;
+    this.livery = key;
+    const body = linear(parseInt(TINCTURE_HEX[arms.field[0]].slice(1), 16));
+    const fringe = linear(parseInt(TINCTURE_HEX[arms.tint].slice(1), 16));
+    const col = this.flags.geometry.getAttribute('color') as THREE.BufferAttribute;
+    for (const v of this.flagCloth) {
+      const c = v.u > 0.84 ? fringe : body;
+      col.setXYZ(v.i, c[0], c[1], c[2]);
+    }
+    col.needsUpdate = true;
+  }
+
   private buildFlags(tops: V3[]): THREE.Mesh {
     const pos: number[] = [];
     const nor: number[] = [];
@@ -1490,6 +1514,7 @@ export class CityLife {
           nor.push(-wz, 0, wx);
           // Красное полотнище с золотой бахромой на конце: одно поле, без полос (полосы читались чужим флагом).
           const c = u > 0.84 ? gold : red;
+          this.flagCloth.push({ i: pos.length / 3 - 1, u });
           col.push(...c);
           flap.push(u);
         }

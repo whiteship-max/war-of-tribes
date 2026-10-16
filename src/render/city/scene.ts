@@ -357,6 +357,7 @@ export class CityScene extends TribeScene {
       .then(({ CityBustle }) => {
         if (this.disposed || this.town !== c) return;
         this.bustle = new CityBustle({ plan: c.plan, quality: this.quality });
+        this.bustle.setArms(this.lastState?.profile.arms);
         this.scene.add(this.bustle.group);
       })
       .catch(() => undefined);
@@ -458,6 +459,9 @@ export class CityScene extends TribeScene {
   // ---------- Постройки ----------
 
   protected override syncWorld(s: GameState): void {
+    // Герб державы на стягах башен (П-2): кусок оживления мог ещё не приехать — тогда возьмёт при следующем кадре стора.
+    this.bustle?.setArms(s.profile.arms);
+    this.folk?.setLivery(s.profile.arms);
     // Модели у города свои и одни навсегда (docs/city.md, раздел 5): уровни игры их не меняют. Здание
     // игры здесь — пустая группа на главном месте постройки: к ней цепляется значок, по её типу —
     // касание и подсветка.
