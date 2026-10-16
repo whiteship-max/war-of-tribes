@@ -23,6 +23,7 @@ import { TwPlayer } from './player';
 import { ADVANCE_FROM, type TwPlan } from './plan';
 import { OVERVIEW_PITCH, type CamState } from '../reel/camera';
 import { CueClock, ambienceAt, cuesOf } from './cues';
+import { beatsOf } from '../reel/beats';
 import type { BattleFx } from '@/sound/battlefx';
 
 /** Именованные моменты: по ним снимают кадры самопроверки. Ищутся по режиссуре, а не подбираются руками. */
@@ -57,7 +58,22 @@ function momentOf(plan: TwPlan, at: string): number {
 function moment(plan: TwPlan, at: string): number {
   const firstVolley = Math.min(...plan.units.flatMap((u) => u.volleys), Infinity);
   const broke = Math.min(...plan.units.map((u) => u.fleeAt ?? Infinity));
+  const beats = beatsOf(plan.cast, plan.result, plan.timing);
+  const beat = (id: string): number | null => beats.find((b) => b.id === id)?.at ?? null;
   switch (at) {
+    // Такты смысла (docs/gfx.md, «Такты»): кадр режиссёра на такте — общий план, сшибка, перелом, развязка, поле после боя.
+    case 'overview':
+      return Math.min(3, plan.clashAt - 2);
+    case 'turn': {
+      const b = beat('turn');
+      return b !== null ? b + 1.6 : plan.clashAt + 4;
+    }
+    case 'outcome': {
+      const b = beat('outcome');
+      return b !== null ? Math.min(plan.timing.end, b + 1.8) : plan.timing.rout[0] + 1;
+    }
+    case 'coda':
+      return plan.seconds - 0.2;
     case 'deploy':
       return 1.5;
     case 'volley':

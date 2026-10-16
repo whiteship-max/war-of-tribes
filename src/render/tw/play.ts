@@ -10,6 +10,7 @@ import { TW_SPEC } from '../reel/spec';
 import { twPlanOfRecord } from './record';
 import { TwPlayer, type TwPlayerOptions } from './player';
 import type { TwOpening } from './site';
+import type { SideCoats } from '../reel/heraldry';
 
 export { hudAt, type TwHud } from '../reel/hud';
 export { CueClock, ambienceAt, cuesOf } from './cues';
@@ -30,6 +31,8 @@ export interface TwRecord {
   breach?: readonly number[];
   /** Проёмы штурма (`BattleRecord.openings`): ролик рисует выбранный способ. Нет — лестницы по всему фронту и таран. */
   openings?: readonly TwOpening[];
+  /** Гербы сторон на знамёнах (`reel/heraldry`): решает зовущий по записи и донесению (`ui/battle/coats.ts`). */
+  coats?: SideCoats;
 }
 
 /**
@@ -37,7 +40,7 @@ export interface TwRecord {
  * сидит ввод сцены, и ведение пальцем в ролике двигало бы спрятанную камеру города.
  */
 export function playTw(renderer: THREE.WebGLRenderer, rec: TwRecord, quality: Quality, touch: HTMLElement, opts: TwPlayerOptions): TwPlayer {
-  const plan = twPlanOfRecord(rec.result, rec.us, rec.troops, quality, rec.militia, rec.place, rec.beasts, rec.site, rec.breach, rec.openings);
+  const plan = twPlanOfRecord(rec.result, rec.us, rec.troops, quality, rec.militia, rec.place, rec.beasts, rec.site, rec.breach, rec.openings, rec.coats);
   const player = new TwPlayer(renderer, plan, TW_SPEC[quality], opts);
   player.cam.attach(touch);
   return player;

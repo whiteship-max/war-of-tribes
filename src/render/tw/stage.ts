@@ -11,6 +11,7 @@ import { Dust } from './dust';
 import { buildFort, type FortView } from './fort';
 import { buildField, fogFor, type FieldView, type LandInput } from '../reel/land';
 import { OVERVIEW_PITCH, overview, type CamBounds, type CamState, type TacticalCamera } from '../reel/camera';
+import type { DirectorScene } from '../reel/director';
 import { poseFigures, unitPose, type TwPlan } from './plan';
 import { figureFrame, type FigureFrame } from '../reel/troupe';
 import { heightAt } from '../reel/terrain';
@@ -20,12 +21,18 @@ import { Siegeworks } from './siegeworks';
 /** Лампа стоит так далеко от цели по своему направлению; коробка теней — от расстояния камеры. */
 const SUN_DIST = 160;
 const SHADOW_HALF = { min: 28, max: 110, perDist: 0.6 };
+/** Кадр развязки режиссёра: бегущие и гонящие не дальше этого от линии соприкосновения, метры сцены. */
+const ROUT_FRAME = 18;
+/** В строю для режиссёра бегущий остаётся там, где был через столько секунд после слома (треть пути бегства). */
+const FLEE_HOLD = 2.6;
 /** Небо — купол прежнего ролика (`reel/light.buildSky`, радиус 150), растянутый до горизонта поля. */
 const SKY_SCALE = 7;
 
 export class TwStage {
   readonly scene = new THREE.Scene();
   readonly frame: FigureFrame;
+  /** Что режиссёр камеры спрашивает у плана (`directorScene`). */
+  readonly director: DirectorScene;
   readonly crowd: Crowd;
   readonly field: FieldView;
   private banners: Banners;
@@ -57,7 +64,8 @@ export class TwStage {
     this.scene.add(this.field.group);
     this.crowd = new Crowd(plan, spec);
     this.scene.add(this.crowd.group);
-    this.banners = new Banners(plan);
+    const them = plan.us === 'attacker' ? 'defender' : 'attacker';
+    this.banners = new Banners(plan, { ours: plan.coats[plan.us], theirs: plan.coats[them] });
     this.scene.add(this.banners.group);
     this.arrows = new Arrows(plan, spec.arrows);
     this.scene.add(this.arrows.mesh);
@@ -70,6 +78,7 @@ export class TwStage {
     this.siege = plan.barrage ? new Siegeworks(plan, plan.barrage, this.crowd) : null;
     if (this.siege) this.scene.add(this.siege.group);
     this.frame = figureFrame(plan.figures);
+    this.director = directorSceneOf(plan);
   }
 
   /**
@@ -166,5 +175,43 @@ export function landOf(plan: TwPlan): LandInput {
           lair: site.kind === 'lair' ? site.camp : null,
         }
       : null,
+  };
+}
+
+/**
+ * Что режиссёр камеры (`reel/director`) спрашивает у плана: прямоугольник строя и место сектора на секунде боя. В
+ * строю — бежавшие не дальше трети пути; с бегством — и бегущие, и гонящие, пока они на поле.
+ */
+export function directorSceneOf(plan: TwPlan): DirectorScene {
+  return {
+    us: plan.us,
+    box: (t, which) => {
+      let minX = Infinity;
+      let maxX = -Infinity;
+      let minZ = Infinity;
+      let maxZ = -Infinity;
+      for (const u of plan.units) {
+        if (which === 'lines' && (u.row === 'reserve' || u.row === 'general')) continue;
+        // Прямоугольник меняется непрерывно: бегущий не выпадает из него разом, а замирает там, где был к трети пути
+        // (`FLEE_HOLD`); на развязке — прижат к краю её кадра. Иначе отряд, переступивший черту, дёргал бы камеру.
+        const at = which !== 'rout' && u.fleeAt !== null ? Math.min(t, u.fleeAt + FLEE_HOLD) : t;
+        const p = unitPose(plan, u, at);
+        const x = which === 'rout' ? Math.max(-ROUT_FRAME * 1.4, Math.min(ROUT_FRAME * 1.4, p.x)) : p.x;
+        const z = which === 'rout' ? Math.max(-ROUT_FRAME, Math.min(ROUT_FRAME, p.z)) : p.z;
+        const back = u.ours ? -1 : 1;
+        minX = Math.min(minX, x - u.width / 2);
+        maxX = Math.max(maxX, x + u.width / 2);
+        minZ = Math.min(minZ, z, z + back * u.depth);
+        maxZ = Math.max(maxZ, z, z + back * u.depth);
+      }
+      return Number.isFinite(minX) ? { minX: minX - 3, maxX: maxX + 3, minZ: minZ - 3, maxZ: maxZ + 3 } : null;
+    },
+    spot: (side, sector, t) => {
+      let best: (typeof plan.units)[number] | null = null;
+      for (const u of plan.units) if (u.side === side && u.sector === sector && u.row !== 'general' && (!best || u.men > best.men)) best = u;
+      if (!best) return null;
+      const p = unitPose(plan, best, t);
+      return { x: p.x, z: p.z };
+    },
   };
 }

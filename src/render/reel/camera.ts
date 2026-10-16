@@ -40,8 +40,27 @@ export const PITCH_MAX = 72 * DEG;
 /** Общий вид — наклон и поле зрения по вертикали. */
 export const OVERVIEW_PITCH = 48 * DEG;
 export const FOV = 42;
+/**
+ * Поле зрения по горизонтали не уже этого (ГФ-1, docs/gfx.md, «Камера»). В портрете узкая сторона — горизонтальная, и
+ * при вертикальных 42° по горизонтали выходило 20°, как у длинного объектива: чтобы фронт в 36 м влез в ширину, камера
+ * отходила на 180 м, и боец был в шесть пикселей. Вертикальный угол растёт с узостью экрана, но не выше `FOV_MAX`.
+ */
+export const HFOV_MIN = 30;
+export const FOV_MAX = 62;
+
+/** Вертикальное поле зрения для экрана с таким соотношением сторон, градусы. */
+export function fovOf(aspect: number): number {
+  const need = (2 * Math.atan(Math.tan((HFOV_MIN / 2) * DEG) / Math.max(0.2, aspect))) / DEG;
+  return Math.max(FOV, Math.min(FOV_MAX, need));
+}
 /** Половина пути до желаемого — за столько секунд: плавно, но без вязкости. */
 const HALF_LIFE = 0.08;
+/**
+ * Камера сама (режиссёр, `director.ts`): половина пути — за столько секунд. Медленнее пальца нарочно: режиссёр ведёт
+ * ход камеры, а прямоугольник строя дышит — отряд погас за краем поля, и цель сдвинулась; камера переводит это в ход,
+ * а не в рывок (тест «склеек нет», `director.test.ts`).
+ */
+export const AUTO_HALF_LIFE = 0.32;
 /** Инерция ведения гаснет за столько секунд вдвое. */
 const GLIDE_HALF = 0.22;
 /** Защёлка двухпальцевого жеста: поворот — по углу, щипок — по доле расстояния, наклон — по общему ходу. */
@@ -76,7 +95,7 @@ export function clampState(s: CamState, b: CamBounds): CamState {
  * портрете она горизонтальная), а глубина — в высоту кадра под этим наклоном.
  */
 export function overview(box: { minX: number; maxX: number; minZ: number; maxZ: number }, aspect: number, yaw = 0, pitch = OVERVIEW_PITCH): CamState {
-  const vHalf = (FOV / 2) * DEG;
+  const vHalf = (fovOf(aspect) / 2) * DEG;
   const hHalf = Math.atan(Math.tan(vHalf) * aspect);
   const w = box.maxX - box.minX;
   const d = box.maxZ - box.minZ;
@@ -88,6 +107,20 @@ export function overview(box: { minX: number; maxX: number; minZ: number; maxZ: 
   // Глубина, видимая под наклоном, сжата синусом; запас — на дальний край, который перспектива уменьшает.
   const byD = ((along / 2) * Math.sin(pitch)) / Math.tan(vHalf) + (along / 2) * Math.cos(pitch);
   return { tx: (box.minX + box.maxX) / 2, tz: (box.minZ + box.maxZ) / 2, dist: Math.max(byW, byD) * 1.08, yaw, pitch };
+}
+
+const smooth = (u: number): number => (u <= 0 ? 0 : u >= 1 ? 1 : u * u * (3 - 2 * u));
+
+/** Между двумя положениями камеры, с плавным началом и концом; азимут — коротким путём. */
+export function blendCam(a: CamState, b: CamState, u: number): CamState {
+  const k = smooth(u);
+  return {
+    tx: a.tx + (b.tx - a.tx) * k,
+    tz: a.tz + (b.tz - a.tz) * k,
+    dist: a.dist + (b.dist - a.dist) * k,
+    yaw: a.yaw + wrap(b.yaw - a.yaw) * k,
+    pitch: a.pitch + (b.pitch - a.pitch) * k,
+  };
 }
 
 /** Указатель на холсте: где и с каких координат. */
@@ -130,6 +163,7 @@ export class TacticalCamera {
 
   setAspect(aspect: number): void {
     this.camera.aspect = aspect;
+    this.camera.fov = fovOf(aspect);
     this.camera.updateProjectionMatrix();
   }
 
@@ -159,7 +193,7 @@ export class TacticalCamera {
 
   /** Шаг сглаживания: к желаемому — экспонентой, после ведения — инерцией. */
   update(dt: number): void {
-    const k = 1 - Math.pow(0.5, dt / HALF_LIFE);
+    const k = 1 - Math.pow(0.5, dt / (this.auto ? AUTO_HALF_LIFE : HALF_LIFE));
     if (this.pointers.size === 0 && !this.drag) {
       this.goal.tx += this.glide.x * dt;
       this.goal.tz += this.glide.z * dt;

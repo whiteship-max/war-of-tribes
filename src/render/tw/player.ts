@@ -4,26 +4,16 @@
 import * as THREE from 'three';
 import { FrameLoop } from '../loop';
 import type { TwSpec } from '../reel/spec';
-import { TacticalCamera, overview, type CamState } from '../reel/camera';
+import { TacticalCamera, blendCam, overview, type CamState } from '../reel/camera';
 import { TwStage } from './stage';
-import { twToCast, type TwPlan } from './plan';
+import type { TwPlan } from './plan';
+import { reelToCast } from '../reel/clock';
+import { beatsOf, type Beat } from '../reel/beats';
+import { directorView } from '../reel/director';
 import type { TwBarrage } from './barrage';
 
 /** Переход камеры пролога от ключа к ключу и от последнего — к общему виду боя, секунды. */
 const CAM_MOVE = 1.3;
-const smooth = (u: number): number => (u <= 0 ? 0 : u >= 1 ? 1 : u * u * (3 - 2 * u));
-const wrap = (a: number): number => Math.atan2(Math.sin(a), Math.cos(a));
-
-function blendCam(a: CamState, b: CamState, u: number): CamState {
-  const k = smooth(u);
-  return {
-    tx: a.tx + (b.tx - a.tx) * k,
-    tz: a.tz + (b.tz - a.tz) * k,
-    dist: a.dist + (b.dist - a.dist) * k,
-    yaw: a.yaw + wrap(b.yaw - a.yaw) * k,
-    pitch: a.pitch + (b.pitch - a.pitch) * k,
-  };
-}
 
 /**
  * Камера пролога обстрела сама (docs/battle_tw.md, раздел 15): общий план машин и стены → удар → пролом, и к концу пролога
@@ -68,6 +58,8 @@ export class TwPlayer {
    * секунды `pre`, и до неё он стоит на своей нулевой секунде (строи построены).
    */
   readonly pre: number;
+  /** Такты смысла боя (`reel/beats`): по ним ведёт камеру режиссёр. */
+  readonly beats: readonly Beat[];
 
   constructor(
     private renderer: THREE.WebGLRenderer,
@@ -77,6 +69,8 @@ export class TwPlayer {
   ) {
     this.speed = opts.speed ?? 1;
     this.pre = plan.barrage?.seconds ?? 0;
+    this.beats = beatsOf(plan.cast, plan.result, plan.timing);
+
     this.stage = new TwStage(plan, spec);
     // Жёсткая тень — `BasicShadowMap` (0) числом, как у уровней сцены (`Scene`): имени в куске three первой загрузки нет.
     renderer.shadowMap.type = spec.shadowSoft ? THREE.PCFShadowMap : (0 as THREE.ShadowMapType);
@@ -112,9 +106,9 @@ export class TwPlayer {
     return this.t < this.pre;
   }
 
-  /** Общий вид на секунде ролика: в прологе — камера обстрела, в бою — строи (`TwStage.autoView`). */
+  /** Камера сама на секунде ролика: в прологе — камера обстрела, в бою — режиссёр по тактам журнала (`reel/director`). */
   view(t: number): CamState {
-    const battle = this.stage.autoView(this.battleTime(t), this.aspect);
+    const battle = directorView(this.stage.director, this.beats, this.plan.timing, this.battleTime(t), this.aspect);
     const b = this.plan.barrage;
     return b && t < this.pre ? barrageView(b, t, this.aspect, battle) : battle;
   }
@@ -197,7 +191,7 @@ export class TwPlayer {
     // Теневой проход — раз в `shadowEvery` кадров хода; кадр на месте (перемотка, снимок, подгонка) — со свежей тенью.
     this.renderer.shadowMap.needsUpdate = dt === 0 || this.drawn++ % this.shadowEvery === 0;
     this.renderer.render(this.stage.scene, this.cam.camera);
-    this.opts.onFrame?.(this.t, twToCast(this.plan.timing, bt));
+    this.opts.onFrame?.(this.t, reelToCast(this.plan.timing, bt));
   }
 
   /** Камера двигается и без хода ролика: цикл кадров нужен и на паузе, пока её ведут. */

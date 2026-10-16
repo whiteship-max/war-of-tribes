@@ -10,6 +10,8 @@
 // (`terrain.hash`), без `Math.random`.
 import type { TwBarrage } from './barrage';
 import { CLIP_INDEX, bearerOf, type ClipId, type FigureFrame } from '../reel/troupe';
+import { castTimeOfTick, castToReel, reelTiming, reelToCast, type ReelTiming } from '../reel/clock';
+import { coatsFor, type SideCoats } from '../reel/heraldry';
 import { lossProgress, sectorLost, type Cast, type Face } from '@/battle/replay';
 import { UNIT_STATS } from '@/battle/config';
 import { FRONT, SECTORS, UNIT_KINDS, type BattleResult, type Lane, type Sector, type Side, type UnitKind } from '@/battle/types';
@@ -137,7 +139,7 @@ export function ranksOf(form: Form, figures: number): number {
 // ---------- Поле ----------
 
 /** Передние шеренги стоят здесь от линии соприкосновения на построении. */
-export const DEPLOY_HALF = 15;
+export const DEPLOY_HALF = 12;
 /** Полузазор линии соприкосновения: передние шеренги сторон стоят на столько от неё в сече. */
 export const CONTACT_HALF = 0.42;
 /** Вторая линия за первой и резерв за второй — зазор от последней шеренги. */
@@ -153,13 +155,12 @@ export const HOLD_HALF = 3;
 
 // ---------- Время ----------
 
-/** Вступление ролика TW: построение и сближение. В раскадровке оно — 10 с, здесь — 12 (раздел 4). */
-export const INTRO_SECONDS = 12;
-/** Потолок ролика — прежний (docs/battle_tw.md, раздел 7). */
-export const MAX_SECONDS = 70;
-/** С какой секунды линии идут навстречу: до этого видно построение. Кому идти дальше — раньше. */
-export const ADVANCE_FROM = 2.5;
-export const ADVANCE_EARLY = 1;
+/**
+ * С какой секунды линии идут навстречу: до этого видно построение. Кому идти дальше — раньше. Вступление ролика — семь
+ * секунд (`reel/clock.INTRO_SECONDS`, docs/gfx.md, «Часы»): секунда с лишним строя, потом шаг и разбег.
+ */
+export const ADVANCE_FROM = 1.2;
+export const ADVANCE_EARLY = 0.5;
 /** Сколько секунд перед сшибкой идут бегом, и во сколько раз бег быстрее шага. */
 export const RUN_LAST = 2.2;
 export const RUN_FACTOR = 2.4;
@@ -174,6 +175,8 @@ export const RUN_SPEED = 3.2;
 export const WATER_SLOW = 0.5;
 /** Отход линий между кругами: на столько отступают передние шеренги в огне круга. */
 export const SEP = 1.6;
+/** Огонь круга не короче этого — отход на весь `SEP`; короче — пропорционально меньше. */
+export const SEP_FULL = 1.6;
 /** Бегущие: скорость и как быстро разворачиваются. */
 export const FLEE_SPEED = 3.4;
 export const TURN_SECONDS = 0.6;
@@ -197,65 +200,11 @@ export const GALLOP_SPEED = 7;
 /** Резерв уходит в дыру струйкой, растянутой на фазу метки: не короче `STREAM_GAP` и не дольше `STREAM_MAX` секунд. */
 export const STREAM_GAP = 0.05;
 export const STREAM_MAX = 2.5;
-/** Погоня: сколько секунд гонят, прежде чем встать; на сколько метров держатся за спиной бегущих. */
-export const CHASE_SECONDS = 7;
+/** Погоня: сколько секунд гонят, прежде чем встать (бегство ролика — 4 с, `reel/clock`); на сколько метров держатся за спиной бегущих. */
+export const CHASE_SECONDS = 4.5;
 export const CHASE_GAP = 1.6;
 /** Полководец въезжает в сечу через столько секунд после сшибки и за столько секунд. */
 export const GENERAL_IN = { after: 1, seconds: 3 };
-
-export interface TwTiming {
-  /** Конец вступления в секундах ролика TW и раскадровки. */
-  intro: number;
-  castIntro: number;
-  /** Сеча: в TW и в раскадровке. */
-  melee: [number, number];
-  castMelee: [number, number];
-  /** Бегство. */
-  rout: [number, number];
-  castRout: [number, number];
-  seconds: number;
-}
-
-/**
- * Время ролика TW: вступление растянуто с 10 с раскадровки до 12, сеча укорочена так, чтобы весь ролик не
- * превысил 70 с; бегство — как в раскадровке. Других перемен времени нет (решение 5).
- */
-export function twTiming(cast: Cast): TwTiming {
-  const melee = cast.acts.find((a) => a.act === 'melee')!;
-  const rout = cast.acts.find((a) => a.act === 'rout')!;
-  const routLen = rout.to - rout.from;
-  const meleeLen = Math.min(melee.to - melee.from, MAX_SECONDS - INTRO_SECONDS - routLen);
-  const intro = INTRO_SECONDS;
-  return {
-    intro,
-    castIntro: melee.from,
-    melee: [intro, intro + meleeLen],
-    castMelee: [melee.from, melee.to],
-    rout: [intro + meleeLen, intro + meleeLen + routLen],
-    castRout: [rout.from, rout.to],
-    seconds: intro + meleeLen + routLen,
-  };
-}
-
-/** Секунда раскадровки на секунде ролика TW. */
-export function twToCast(tm: TwTiming, t: number): number {
-  if (t <= tm.intro) return (Math.max(0, t) / tm.intro) * tm.castIntro;
-  if (t <= tm.melee[1]) {
-    const u = (t - tm.melee[0]) / Math.max(1e-6, tm.melee[1] - tm.melee[0]);
-    return tm.castMelee[0] + u * (tm.castMelee[1] - tm.castMelee[0]);
-  }
-  return Math.min(tm.castRout[1], tm.castRout[0] + (t - tm.rout[0]));
-}
-
-/** И обратно: секунда ролика TW на секунде раскадровки. */
-export function castToTw(tm: TwTiming, c: number): number {
-  if (c <= tm.castIntro) return (Math.max(0, c) / Math.max(1e-6, tm.castIntro)) * tm.intro;
-  if (c <= tm.castMelee[1]) {
-    const u = (c - tm.castMelee[0]) / Math.max(1e-6, tm.castMelee[1] - tm.castMelee[0]);
-    return tm.melee[0] + u * (tm.melee[1] - tm.melee[0]);
-  }
-  return Math.min(tm.seconds, tm.rout[0] + (c - tm.castRout[0]));
-}
 
 // ---------- Отряды ----------
 
@@ -345,7 +294,7 @@ export interface TwPlan {
   /** Одна фигура — `k` бойцов. */
   k: number;
   us: Side;
-  timing: TwTiming;
+  timing: ReelTiming;
   seconds: number;
   units: TwUnit[];
   field: TwField;
@@ -361,6 +310,15 @@ export interface TwPlan {
   crossing: Side | null;
   /** Сторона сломана — с этой секунды ролика бегут все её отряды; null — не ломалась. */
   brokenAt: Record<Side, number | null>;
+  /**
+   * Развязка (`reel/clock.CODA_SECONDS`): победитель ликует с конца боя — сторона, удержавшая поле по итогу ядра
+   * (`BattleResult.winner`), когда побеждённая бежала. Ничья или никто не бежал — ликовать некому (null).
+   */
+  cheer: { side: Side; at: number } | null;
+  /** Итог ядра — для тактов смысла (`reel/beats`): кто победил, когда сломан. Исход план не трогает. */
+  result: BattleResult;
+  /** Гербы сторон на знамёнах (`reel/heraldry`): наш — башня, у чужих — по тому, кто они. */
+  coats: SideCoats;
   cast: Cast;
   // Фигуры — плоскими массивами: по ним кадр раскладывается без мусора.
   /** Отряд фигуры. */
@@ -450,6 +408,8 @@ export interface PlanInput {
    * стены-прохода: лестницы по всему фронту и таран у ворот, как прежде.
    */
   openings?: readonly TwOpening[] | null;
+  /** Гербы сторон (`reel/heraldry`); нет — наша башня, у чужих топоры разбойников (`coatsFor`). */
+  coats?: SideCoats;
 }
 
 /**
@@ -518,13 +478,6 @@ function landPenalty(result: BattleResult): Side | null {
   return null;
 }
 
-/** Секунда раскадровки на тике боя: тик ищет фазу, в чьи тики попал, как метки журнала. */
-function castTimeOfTick(cast: Cast, tick: number): number {
-  const span = cast.spans.find((s) => tick >= s.from && tick <= s.to) ?? cast.spans[cast.spans.length - 1];
-  const len = Math.max(1, span.to - span.from + 1);
-  return span.t0 + (span.t1 - span.t0) * clamp01((tick - span.from) / len);
-}
-
 export function buildPlan(input: PlanInput): TwPlan {
   const { cast, result, faces, quality } = input;
   const kind = input.site ?? null;
@@ -533,7 +486,7 @@ export function buildPlan(input: PlanInput): TwPlan {
   const laneGap = kind === 'wall' ? LANE_GAP_WALL : LANE_GAP;
   const spec = TW_SPEC[quality];
   const us = cast.us;
-  const timing = twTiming(cast);
+  const timing = reelTiming(cast);
   const k = ratioOf(result.sides.attacker.total.initial, result.sides.defender.total.initial, spec.perSide);
   const seed = cast.seed | 0;
 
@@ -812,17 +765,17 @@ export function buildPlan(input: PlanInput): TwPlan {
   const brokenAt = { attacker: null, defender: null } as Record<Side, number | null>;
   for (const side of SIDES2) {
     const tick = result.sides[side].brokenAt;
-    if (tick !== null) brokenAt[side] = castToTw(timing, castTimeOfTick(cast, tick));
+    if (tick !== null) brokenAt[side] = castToReel(timing, castTimeOfTick(cast, tick));
   }
   for (const u of units) {
     const c = cast.sectors.find((x) => x.side === u.side && x.sector === u.sector);
-    const own = c?.brokenAt != null ? castToTw(timing, c.brokenAt) : null;
+    const own = c?.brokenAt != null ? castToReel(timing, c.brokenAt) : null;
     const all = brokenAt[u.side];
     u.fleeAt = own !== null && all !== null ? Math.min(own, all) : (own ?? all);
     if (u.row === 'general') u.fleeAt = all;
   }
   const clash = cast.spans.find((s) => s.phase === 'clash');
-  const clashAt = castToTw(timing, clash ? clash.t0 : timing.castIntro);
+  const clashAt = castToReel(timing, clash ? clash.t0 : timing.castIntro);
 
   // ---- фигуры ----
   const figures = units.reduce((n, u) => n + u.figures, 0);
@@ -913,6 +866,9 @@ export function buildPlan(input: PlanInput): TwPlan {
     deployZ,
     crossing,
     brokenAt,
+    result,
+    coats: input.coats ?? coatsFor(us),
+    cheer: result.winner !== 'draw' && brokenAt[other(result.winner)] !== null ? { side: result.winner, at: timing.end } : null,
     cast,
     unitOf,
     lx,
@@ -1218,7 +1174,7 @@ function siegeWall(plan: TwPlan, result: BattleResult): void {
   const guards = plan.units.filter((u) => u.side === w.side && u.row === 'front' && Math.abs(u.x - w.gateX) < u.width / 2 + GATE_HALF);
   const cands = [...guards.map((u) => u.fleeAt), plan.brokenAt[w.side]].filter((x): x is number => x !== null && x > plan.clashAt);
   const widen = result.log.find((e) => e.id === 'widen');
-  const opened = widen ? castToTw(plan.timing, castTimeOfTick(plan.cast, widen.tick)) : null;
+  const opened = widen ? castToReel(plan.timing, castTimeOfTick(plan.cast, widen.tick)) : null;
   const broke = !ramWanted ? null : uses ? opened : cands.length ? Math.min(...cands) : null;
   const leave = ramUnit ? (ramUnit.fleeAt ?? plan.brokenAt[att]) : plan.brokenAt[att];
   w.gateAt = broke !== null && broke < plan.seconds && (leave === null || broke < leave) ? broke : null;
@@ -1389,7 +1345,7 @@ function lineUp(list: TwUnit[], cx: number, outward: number, z: number): void {
  * (`sectorLost`), а не своя мерка; без потерь по секторам (старая запись) — общий ход потерь стороны. Отряд
  * несёт долю потерь сектора по своим людям, фигура падает, когда выбитых бойцов на ней набралось на `k`.
  */
-function deathTimes(u: TwUnit, pt: UnitPart, cast: Cast, tm: TwTiming, order: number[], out: Float32Array): void {
+function deathTimes(u: TwUnit, pt: UnitPart, cast: Cast, tm: ReelTiming, order: number[], out: Float32Array): void {
   if (u.row === 'general' || pt.men <= 0) return;
   const dead = pt.men - pt.finalMen;
   if (dead <= 0) return;
@@ -1400,11 +1356,11 @@ function deathTimes(u: TwUnit, pt: UnitPart, cast: Cast, tm: TwTiming, order: nu
     lostAll > 0 ? clamp01(sectorLost(cast.spans, u.side, u.sector, c) / lostAll) : lossProgress(cast.spans, u.side, c);
   // Выборка шагом в двадцатую секунды: падение — событие кадра, точнее не нужно.
   let j = 0;
-  for (let t = 0; t <= tm.seconds + 1e-6 && j < figsDead; t += 0.05) {
-    const down = Math.round(figsDead * share(twToCast(tm, t)));
+  for (let t = 0; t <= tm.end + 1e-6 && j < figsDead; t += 0.05) {
+    const down = Math.round(figsDead * share(reelToCast(tm, t)));
     while (j < down && j < figsDead) out[order[j++]] = t;
   }
-  while (j < figsDead) out[order[j++]] = tm.seconds;
+  while (j < figsDead) out[order[j++]] = tm.end;
 }
 
 /** Огонь стороны: окна фаз огня в секундах ролика TW (стрельба — `ranged` и `approach` в каждом круге). */
@@ -1412,8 +1368,8 @@ export function fireWindows(plan: TwPlan): [number, number][] {
   const out: [number, number][] = [];
   for (const s of plan.cast.spans) {
     if (s.phase !== 'ranged' && s.phase !== 'approach') continue;
-    const a = castToTw(plan.timing, s.t0);
-    const b = castToTw(plan.timing, s.t1);
+    const a = castToReel(plan.timing, s.t0);
+    const b = castToReel(plan.timing, s.t1);
     const last = out[out.length - 1];
     if (last && a - last[1] < 0.3) last[1] = Math.max(last[1], b);
     else out.push([a, b]);
@@ -1515,8 +1471,8 @@ function trickleReserve(plan: TwPlan): void {
       // фазу. До сшибки строй ещё идёт, и встать за ним некуда — резерв, введённый в огне первого круга (на место
       // выбитых стрелами), трогается с разбегом первой линии.
       const span = cast.spans.find((sp) => m.t >= sp.t0 && m.t <= sp.t1);
-      const at0 = Math.max(castToTw(timing, span ? span.t0 : m.t), plan.clashAt - RUN_LAST);
-      const at1 = Math.max(at0 + STREAM_GAP, Math.min(castToTw(timing, m.t), at0 + STREAM_MAX));
+      const at0 = Math.max(castToReel(timing, span ? span.t0 : m.t), plan.clashAt - RUN_LAST);
+      const at1 = Math.max(at0 + STREAM_GAP, Math.min(castToReel(timing, m.t), at0 + STREAM_MAX));
       const goes: Entry[] = [];
       while (next < queue.length && queue[next].u.men / queue[next].u.figures <= owed + 1e-6) {
         const e = queue[next++];
@@ -1583,7 +1539,7 @@ function flankMoves(plan: TwPlan, result: BattleResult): number {
   let gone = 0;
   const q = figureState();
   for (const m of moves) {
-    const at = castToTw(plan.timing, castTimeOfTick(plan.cast, m.tick));
+    const at = castToReel(plan.timing, castTimeOfTick(plan.cast, m.tick));
     if (at >= plan.seconds) continue;
     const ours = m.side === plan.us;
     const enemy = other(m.side);
@@ -1966,7 +1922,9 @@ export function separationOf(plan: TwPlan, t: number): number {
   if (t <= plan.clashAt) return 0;
   for (const [a, b] of plan.fire) {
     if (b <= plan.clashAt) continue;
-    if (t >= a && t <= b) return SEP * Math.sin(Math.PI * clamp01((t - a) / Math.max(0.1, b - a)));
+    // Огонь круга короче `SEP_FULL` — линии расходятся не на весь разбег: на сжатых часах ролика (docs/gfx.md, «Часы»)
+    // круг в полсекунды иначе дёргал бы строй взад-вперёд.
+    if (t >= a && t <= b) return SEP * clamp01((b - a) / SEP_FULL) * Math.sin(Math.PI * clamp01((t - a) / Math.max(0.1, b - a)));
   }
   return 0;
 }
@@ -1982,7 +1940,7 @@ const mounted = (u: TwUnit): boolean => u.form === 'horse' || u.form === 'heavy'
 export function pushOf(plan: TwPlan, slot: number, t: number): number {
   // На штурме линия — стена: её не сдвинуть.
   if (t <= plan.clashAt || plan.site?.kind === 'wall') return 0;
-  const c = twToCast(plan.timing, t);
+  const c = reelToCast(plan.timing, t);
   const share = (side: Side): number => {
     const lane = (side === plan.us ? slot : 2 - slot) as Lane;
     const sector = FRONT[lane];
@@ -2509,6 +2467,12 @@ export function poseFigures(plan: TwPlan, t: number, out: FigureFrame): void {
       out.y[i] = Number.isNaN(q.y) ? standY(plan.field, plan.site, q.x, q.z) : q.y;
       out.yaw[i] = q.yaw;
       out.shown[i] = q.shown ? 1 : 0;
+      // Развязка: стоящие победителя ликуют — каждый в свой миг, а не хором (`TwPlan.cheer`); стая не ликует.
+      const ch = plan.cheer;
+      if (ch && u.side === ch.side && u.form !== 'pack' && (q.clip === 'idle' || q.clip === 'guard') && t >= ch.at + hash(plan.cast.seed, i, 27) * 0.9) {
+        q.clip = 'cheer';
+        q.time = t + plan.phase[i];
+      }
       out.clip[i] = CLIP_INDEX[q.clip];
       out.time[i] = q.time;
     }

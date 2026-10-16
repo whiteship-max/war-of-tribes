@@ -5,19 +5,20 @@
 // На общем виде знамя — главное, по чему отряд читается, поэтому оно крупнее жизни и растёт с расстоянием камеры
 // (как значок отряда в Total War), а полотнище всегда повёрнуто к камере.
 //
-// Полотнище цвета стороны, на нём знак рода светлой краской — шейдером, без текстуры: копья — столб, пехота —
-// андреевский крест, лучники — шеврон, конница — пояс, латные — крест, ополчение — круг. У стяга полководца —
-// золотая кайма.
+// Полотнище цвета стороны, на нём герб стороны (`heraldry.ts`: наша башня, топоры разбойников) — шейдером, без
+// текстуры; под гербом, у хвоста, малый знак рода той же краской: копья — столб, пехота — андреевский крест, лучники —
+// шеврон, конница — пояс, латные — крест, ополчение — круг. У стяга полководца — герб без знака и золотая кайма.
 import * as THREE from 'three';
 import type { UnitKind } from '@/battle/types';
 import { PALETTE } from '../palette';
 import { SIDE_CLOTH } from './crowd';
+import { CHARGE_DARK, CHARGE_LIGHT, COAT_GLSL, COAT_INDEX, type Coat } from './heraldry';
 import { bearerOf, type FigureFrame, type Troupe, type TroupeUnit } from './troupe';
 
 /** Высота древка и размер полотнища, метры сцены: выше копий (копьё — 1.4 роста, `SPEAR_LEN`). */
 const POLE = 3.3;
-const CLOTH_W = 1.05;
-const CLOTH_H = 1.45;
+const CLOTH_W = 1.15;
+const CLOTH_H = 1.5;
 /** Стяг полководца крупнее знамени отряда во столько раз. */
 const STANDARD = 1.45;
 /** Знамя растёт с расстоянием камеры, но не меньше жизни и не больше этого. */
@@ -84,7 +85,8 @@ transformed.x += sin(uTime * 1.7 + aBan.z * 1.3) * 0.04 * twLoose * twLoose;
 const CLOTH_FRAG = /* glsl */ `
 uniform vec3 uSide0;
 uniform vec3 uSide1;
-uniform vec3 uPaint;
+uniform vec3 uDark;
+uniform vec3 uLight;
 uniform vec3 uGold;
 varying vec2 vBanUv;
 varying vec4 vBan;
@@ -103,9 +105,16 @@ const CLOTH_COLOR = /* glsl */ `
 vec2 twUv = vBanUv;
 // Ласточкин хвост внизу: полотнище читается знаменем, а не простынёй.
 if (twUv.y < 0.14 && abs(twUv.x - 0.5) < (0.14 - twUv.y) * 1.6) discard;
-vec3 twBase = mix(uSide0, uSide1, vBan.y);
-float twMark = twEmblem(twUv, vBan.x);
-vec3 twC = mix(twBase, uPaint, twMark);
+// Сторона и герб — одним числом: сторона + 2 × герб (\`Banners\`).
+float twSide = mod(vBan.y, 2.0);
+float twCoatId = floor(vBan.y / 2.0);
+vec3 twBase = mix(uSide0, uSide1, twSide);
+vec3 twInk = mix(uDark, uLight, twSide);
+// Герб — крупно, в верхних двух третях; знак рода — мал, у хвоста; у стяга полководца знака нет.
+float twArms = twCoat(vec2((twUv.x - 0.17) / 0.66, (twUv.y - 0.37) / 0.56), twCoatId);
+vec2 twKq = vec2((twUv.x - 0.37) / 0.26, (twUv.y - 0.15) / 0.21);
+float twKind = vBan.w > 0.5 || twKq.x < 0.0 || twKq.x > 1.0 || twKq.y < 0.0 || twKq.y > 1.0 ? 0.0 : twEmblem(twKq, vBan.x);
+vec3 twC = mix(twBase, twInk, max(twArms, twKind * 0.8));
 // Кайма: у стяга полководца — золотая и шире.
 float twEdge = min(min(twUv.x, 1.0 - twUv.x), 1.0 - twUv.y);
 twC = mix(twC, vBan.w > 0.5 ? uGold : twBase * 0.62, step(twEdge, vBan.w > 0.5 ? 0.09 : 0.035));
@@ -126,7 +135,10 @@ export class Banners {
   private v = new THREE.Vector3();
   private s = new THREE.Vector3();
 
-  constructor(private plan: Troupe) {
+  constructor(
+    private plan: Troupe,
+    coats: { ours: Coat; theirs: Coat },
+  ) {
     this.group.name = 'tw-banners';
     this.units = plan.units.filter((u) => u.banner !== null);
     const n = Math.max(1, this.units.length);
@@ -145,11 +157,12 @@ export class Banners {
       sh.uniforms.uTime = time;
       sh.uniforms.uSide0 = { value: new THREE.Color(SIDE_CLOTH.ours) };
       sh.uniforms.uSide1 = { value: new THREE.Color(SIDE_CLOTH.theirs) };
-      sh.uniforms.uPaint = { value: new THREE.Color(0xe6dcc2) };
+      sh.uniforms.uDark = { value: new THREE.Color(CHARGE_DARK) };
+      sh.uniforms.uLight = { value: new THREE.Color(CHARGE_LIGHT) };
       // Бахрома и навершие — светлое золото: на золотом полотнище своих (`side.ts`) тёмное золото пропало бы.
       sh.uniforms.uGold = { value: new THREE.Color(0xf0dfa8) };
       sh.vertexShader = CLOTH_VERT + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n' + CLOTH_WAVE);
-      sh.fragmentShader = CLOTH_FRAG + sh.fragmentShader.replace('#include <color_fragment>', '#include <color_fragment>\n' + CLOTH_COLOR);
+      sh.fragmentShader = CLOTH_FRAG + COAT_GLSL + sh.fragmentShader.replace('#include <color_fragment>', '#include <color_fragment>\n' + CLOTH_COLOR);
     };
     clothMat.customProgramCacheKey = () => 'tw-banner-cloth';
     const clothGeo = clothGeometry();
@@ -157,7 +170,8 @@ export class Banners {
     clothGeo.setAttribute('aBan', this.ban);
     this.units.forEach((u, k) => {
       const emblem = u.face === 'militia' ? FOLK_EMBLEM : EMBLEM[u.kind];
-      this.ban.setXYZW(k, emblem, u.ours ? 0 : 1, (u.id * 1.618) % 6.283, u.banner === 'standard' ? 1 : 0);
+      const coat = COAT_INDEX[u.ours ? coats.ours : coats.theirs];
+      this.ban.setXYZW(k, emblem, (u.ours ? 0 : 1) + 2 * coat, (u.id * 1.618) % 6.283, u.banner === 'standard' ? 1 : 0);
     });
     this.cloth = new THREE.InstancedMesh(clothGeo, clothMat, n);
     this.cloth.name = 'tw-banner-cloth';

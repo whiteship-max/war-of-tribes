@@ -28,7 +28,13 @@ import { createServer as createVite } from 'vite';
 import { launchChrome, sleep, Tab } from './lib/chrome';
 import { BROWSER_MAX_MS, REPORT_FPS, gpuCoolDown, gpuStamp, refuseIfBusy } from './lib/budget';
 
-const OUT = fileURLToPath(new URL('../.battle-shots', import.meta.url));
+/**
+ * Куда снимки: по умолчанию `.battle-shots/` (не в репозиторий); `OUT=docs/gfx` — ключевые кадры ролика в документ
+ * (docs/gfx.md, «Кадры»). `FORMAT=jpeg` — сжатый кадр (качество `QUALITY_JPEG`, 85): документу не нужны мегабайты PNG.
+ */
+const OUT = process.env.OUT ? fileURLToPath(new URL(`../${process.env.OUT}`, import.meta.url)) : fileURLToPath(new URL('../.battle-shots', import.meta.url));
+const FORMAT = process.env.FORMAT === 'jpeg' ? 'jpeg' : 'png';
+const QUALITY_JPEG = 85;
 const PORT = Number(process.env.PORT ?? 4198);
 const DEBUG_PORT = Number(process.env.CDP_PORT ?? 9341);
 const TAG = process.env.TAG ?? 'probe';
@@ -73,6 +79,13 @@ interface Shot {
 }
 
 const SHOTS: Shot[] = [
+  // Такты смысла — камера режиссёра (docs/gfx.md, «Камера»): что видит игрок, не трогая экрана.
+  { name: 'beat-overview', query: `${FIELD}&at=overview`, why: 'общий план: обе армии строем из-за наших, залпы, знамёна с гербами' },
+  { name: 'beat-clash', query: `${FIELD}&at=clash`, why: 'сшибка: камера наискось к полосе, где в первой сшибке выбили больше всех' },
+  { name: 'beat-turn', query: `${FIELD}&at=turn`, why: 'перелом: сектор побеждённого дрогнул и бежит, камера сбоку от его фланга' },
+  { name: 'beat-outcome', query: `${FIELD}&at=outcome`, why: 'развязка: бегство и погоня, камера выше и шире' },
+  { name: 'beat-coda', query: `${FIELD}&at=coda`, why: 'после боя: поле с павшими, победитель ликует, камера низко, лицом к нему' },
+  { name: 'chase-outcome', query: `${CHASE}&at=outcome`, why: 'развязка неровного боя: меньший бежит, конница гонит' },
   { name: 'deploy', query: `${FIELD}&at=deploy`, why: 'построение: общий вид, отряды строем, знамёна, конница на краях' },
   { name: 'volley', query: `${FIELD}&at=volley`, why: 'залп: туча стрел по дуге от лучников' },
   { name: 'advance', query: `${FIELD}&at=advance&cam=low`, why: 'сближение шагом, ниже общего вида' },
@@ -264,8 +277,8 @@ async function shoot(shot: Shot, quality: string): Promise<void> {
     // Кадр стоит: подгонка размера под экран телефона перерисовывает его; программной отрисовке нужно время.
     await sleep(Number(process.env.WAIT ?? 2500));
     stats = (await tab.eval<Stats | null>(`document.body.dataset.replay ?? 'null'`)) ?? stats;
-    const png = await tab.send<{ data: string }>('Page.captureScreenshot', { format: 'png' });
-    const name = `${TAG}-${shot.name}-${quality}.png`;
+    const png = await tab.send<{ data: string }>('Page.captureScreenshot', FORMAT === 'jpeg' ? { format: 'jpeg', quality: QUALITY_JPEG } : { format: 'png' });
+    const name = `${TAG}-${shot.name}-${quality}.${FORMAT === 'jpeg' ? 'jpg' : 'png'}`;
     await writeFile(join(OUT, name), Buffer.from(png.data, 'base64'));
     const b = stats.budget;
     const mark = (v: number, cap: number): string => (v <= cap ? '' : ' ⚠');
@@ -273,7 +286,7 @@ async function shoot(shot: Shot, quality: string): Promise<void> {
       `  ${shot.name.padEnd(13)} ${quality.padEnd(6)} t=${stats.t.toFixed(1).padStart(5)} · k ${stats.k} · фигур ${Object.values(stats.figures).join('/').padEnd(8)} · ` +
         `вызовов ${String(stats.calls).padStart(3)}/${b.calls}${mark(stats.calls, b.calls)} · ` +
         `треугольников ${stats.triangles.toLocaleString('ru').padStart(9)}/${b.triangles.toLocaleString('ru')}${mark(stats.triangles, b.triangles)} ` +
-        `(бойцы ${stats.crowdTriangles.toLocaleString('ru')}) · текстуры ${stats.textureMB}/${b.textureMB} МБ → .battle-shots/${name}`,
+        `(бойцы ${stats.crowdTriangles.toLocaleString('ru')}) · текстуры ${stats.textureMB}/${b.textureMB} МБ → ${process.env.OUT ?? '.battle-shots'}/${name}`,
     );
   } finally {
     tab.close();
