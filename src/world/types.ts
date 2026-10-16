@@ -17,6 +17,7 @@ import type { TowerGun } from './bombard';
 import type { FigurePlace } from './shelter';
 import type { EnergyView } from './energy';
 import type { TraitNumbers } from '@/game/data/traits';
+import type { SiegeRecord } from './siegerecord';
 
 /**
  * Участь взятого города — что выбрал победитель: ограбить, ограбить и увести людей,
@@ -1465,6 +1466,13 @@ export interface Report {
    * число, что легло в `WorldSave.captives`. Поля нет у прочих отчётов — версию сохранения оно не поднимает.
    */
   held?: number;
+  /**
+   * Осада, которой кончилось это донесение (`world/siegerecord`, ролик осады — docs/gfx.md, ГФ-2): журнал фаз, дела,
+   * машины, обстрел и исход — замороженное окно осады в минуту её конца. Только показ: ролик выводит из неё проломы, машины
+   * и итог теми же дверями мира, что окно осады. Поля нет у прочих донесений и у записей раньше — версию сохранения оно не
+   * поднимает.
+   */
+  siege?: SiegeRecord;
   text: string;
   read: boolean;
 }

@@ -14,8 +14,20 @@ import { MERLON_STEP, geometryOf, m } from './fort';
 import type { Crowd, CrowdExtras } from '../reel/crowd';
 import { PARAPET, type TwWall } from './site';
 import { hash, heightAt } from '../reel/terrain';
+import type { TwField } from '../reel/terrain';
 import type { TwPlan } from './plan';
 import { BREACH_BAND, ENGINE, FALL_TIME, armAngle, breachColumns, chunkFall, stoneAt, winching, type TwBarrage, type TwEngine, type TwStone } from './barrage';
+
+/** Что сцене обстрела нужно от зовущего: уровень, поле, стена и сид. Плана боя она не знает (ролик осады — без него). */
+export interface WorksInput {
+  quality: Quality;
+  field: TwField;
+  wall: TwWall | null;
+  seed: number;
+}
+
+/** Сцена обстрела из плана боя: пролог перед штурмом (`plan.barrage`). */
+export const worksOfPlan = (plan: TwPlan): WorksInput => ({ quality: plan.quality, field: plan.field, wall: plan.site?.wall ?? null, seed: plan.cast.seed });
 
 /** Что есть на уровне: обломков и клубов на удар, дым, трещины, тени машин. */
 interface Detail {
@@ -83,7 +95,7 @@ export class Siegeworks {
   private settled = false;
 
   constructor(
-    private plan: TwPlan,
+    private plan: WorksInput,
     private b: TwBarrage,
     crowd: Crowd,
   ) {
@@ -121,7 +133,7 @@ export class Siegeworks {
       fm.name = 'tw-fire';
       this.fire = this.instanced(new THREE.ConeGeometry(0.55, 1.4, 5).translate(0, 0.7, 0), fm, b.smoke.length * 3, 'tw-fire', false);
     }
-    const w = plan.site?.wall ?? null;
+    const w = plan.wall;
     if (w && b.breach) {
       if (this.detail.cracks) this.buildCracks();
       this.buildChunks(w, mat);
@@ -224,7 +236,7 @@ export class Siegeworks {
   /** Целые куски над проломом — по столбцам пролома, сверху опущенной половины; до обвала стоят, потом ложатся. */
   private buildChunks(w: TwWall, mat: THREE.Material): void {
     const br = this.b.breach!;
-    const cols = breachColumns(br, this.plan.cast.seed);
+    const cols = breachColumns(br, this.plan.seed);
     const s = w.inward;
     const out = -s;
     const zo = m(w.z);
@@ -357,7 +369,7 @@ export class Siegeworks {
     let n = 0;
     if (live) {
       const f = this.plan.field;
-      const w = this.plan.site?.wall ?? null;
+      const w = this.plan.wall ?? null;
       const outward = w ? -w.inward : 0;
       const C = this.C;
       for (const s of this.impactsNear(t, DEBRIS_LIFE, this.near)) {
@@ -412,7 +424,7 @@ export class Siegeworks {
         for (let j = 0; j < per; j++) n = this.puff(n, s.x1, s.y1 - 0.4, s.z1, age, PUFF_LIFE, s.hit === 'wall' ? 2.4 : 1.8, s.seed * 13 + j, cam);
       }
       // Обвал — облако во весь кусок и до земли.
-      const w = this.plan.site?.wall;
+      const w = this.plan.wall;
       for (const c of this.chunks) {
         const age = t - c.at;
         if (age < 0 || age > COLLAPSE_LIFE || !w) continue;
@@ -431,7 +443,7 @@ export class Siegeworks {
 
   private updateCracks(t: number): void {
     const cr = this.cracks;
-    const w = this.plan.site?.wall;
+    const w = this.plan.wall;
     if (!cr || !w) return;
     let n = 0;
     const faceZ = w.z - w.inward * 0.04;
@@ -454,7 +466,7 @@ export class Siegeworks {
   }
 
   private updateChunks(t: number): void {
-    const w = this.plan.site?.wall;
+    const w = this.plan.wall;
     if (!w) return;
     const outward = -w.inward;
     const rb = this.rubble;
@@ -495,6 +507,8 @@ export class Siegeworks {
     const per = this.detail.smoke;
     for (const col of this.b.smoke) {
       if (t < col.from) continue;
+      // Догорело: последние клубы уходят вверх, новых нет.
+      if (col.to !== undefined && t > col.to + SMOKE_LIFE) continue;
       const since = t - col.from;
       // Столб разгорается за четыре секунды и дальше стоит.
       const grow = Math.min(1, since / 4);
@@ -503,6 +517,7 @@ export class Siegeworks {
         const off = (j / per) * SMOKE_LIFE;
         if (since < off) continue;
         const born = col.from + off + Math.floor((since - off) / SMOKE_LIFE) * SMOKE_LIFE;
+        if (col.to !== undefined && born > col.to) continue;
         const age = t - born;
         const u = age / SMOKE_LIFE;
         const k = Math.round(born * 10) * 7 + j;
@@ -522,8 +537,8 @@ export class Siegeworks {
     if (fi) {
       let k = 0;
       for (const [ci, col] of this.b.smoke.entries()) {
-        if (t < col.from) continue;
-        const grow = Math.min(1, (t - col.from) / 1.5);
+        if (t < col.from || (col.to !== undefined && t > col.to + 1)) continue;
+        const grow = Math.min(1, (t - col.from) / 1.5) * (col.to !== undefined && t > col.to ? 1 - (t - col.to) : 1);
         for (let j = 0; j < 3; j++) {
           const fl = 0.75 + 0.25 * Math.sin(t * (9 + j * 3.7) + ci * 2.1 + j) * Math.sin(t * 4.3 + j);
           const r = grow * (j === 0 ? 1 : 0.65) * col.size;

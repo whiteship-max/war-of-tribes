@@ -8,7 +8,7 @@ import { Arrows } from './arrows';
 import { Banners } from '../reel/banners';
 import { Crowd, SHADOW_LAYER, lodDistance } from '../reel/crowd';
 import { Dust } from './dust';
-import { buildFort, type FortView } from './fort';
+import { buildFort, fortOfPlan, type FortView } from './fort';
 import { buildField, fogFor, type FieldView, type LandInput } from '../reel/land';
 import { OVERVIEW_PITCH, overview, type CamBounds, type CamState, type TacticalCamera } from '../reel/camera';
 import type { DirectorScene } from '../reel/director';
@@ -16,7 +16,7 @@ import { poseFigures, unitPose, type TwPlan } from './plan';
 import { figureFrame, type FigureFrame } from '../reel/troupe';
 import { heightAt } from '../reel/terrain';
 import { siteBlocks, siteGround } from './site';
-import { Siegeworks } from './siegeworks';
+import { Siegeworks, worksOfPlan } from './siegeworks';
 
 /** Лампа стоит так далеко от цели по своему направлению; коробка теней — от расстояния камеры. */
 const SUN_DIST = 160;
@@ -80,9 +80,9 @@ export class TwStage {
     this.dust = new Dust(plan);
     this.scene.add(this.dust.mesh);
     // Место боя: стена, ворота, город, лагерь, логово (docs/battle_tw.md, раздел 13); у поля — пустая группа.
-    this.fort = buildFort(plan, plan.quality);
+    this.fort = buildFort(fortOfPlan(plan));
     this.scene.add(this.fort.group);
-    this.siege = plan.barrage ? new Siegeworks(plan, plan.barrage, this.crowd) : null;
+    this.siege = plan.barrage ? new Siegeworks(worksOfPlan(plan), plan.barrage, this.crowd) : null;
     if (this.siege) this.scene.add(this.siege.group);
     this.frame = figureFrame(plan.figures);
     this.director = directorSceneOf(plan);

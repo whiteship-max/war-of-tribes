@@ -28,8 +28,9 @@ import {
   type TwWall,
 } from './site';
 import { unitPose, type TwPlan } from './plan';
-import { BREACH_BAND, breachColumns } from './barrage';
-import { heightAt } from '../reel/terrain';
+import { BREACH_BAND, breachColumns, type TwBreach } from './barrage';
+import { heightAt, type TwField } from '../reel/terrain';
+import type { TwLadder, TwSite } from './site';
 
 /** Средний тон слоя набора города (sRGB): то, во что слой красит тон вершины, если смотреть издали. */
 const LAYER_TONE: Record<(typeof LAYERS)[number], number> = {
@@ -249,6 +250,61 @@ function tent(b: Builder, x: number, z: number, yaw: number, size: number, hide:
   }
 }
 
+/**
+ * Где на секунде подвижное места: лестницы несут и ставят, осадную башню и таран катят, створки раскрыты или дрожат. В бою
+ * это знает план (`fortOfPlan`: отряд, что несёт и катит, — по `unitPose`); в ролике осады — его режиссура (`render/siege`).
+ */
+export interface FortMotion {
+  /** Где по Z стоит отряд, несущий лестницу `l`, на секунде `t`. */
+  ladderZ(l: TwLadder, t: number): number;
+  /** Где по Z стоит отряд, катящий осадную башню (до подката). */
+  towerZ(t: number): number;
+  /** Таран: где по Z его отряд и ход удара (`site.ramSwing`). */
+  ram(t: number): { z: number; swing: number };
+  /** Створки ворот: раскрыты (0..1) и дрожь от удара. */
+  gate(t: number): { open: number; shake: number };
+}
+
+/** Что место боя берёт у зовущего: место, поле, сид, пролом, уровень и подвижное. Плана боя оно не знает. */
+export interface FortInput {
+  site: TwSite | null;
+  field: TwField;
+  seed: number;
+  /** Пролом: пролёт стены над ним строится опущенным снаружи (`breachRun`); нет — стена цела. */
+  breach: TwBreach | null;
+  quality: Quality;
+  motion: FortMotion;
+}
+
+/** Место боя из плана боя: подвижное — по отрядам плана, пролом — пролога обстрела. */
+export function fortOfPlan(plan: TwPlan): FortInput {
+  const site = plan.site;
+  const w = site?.wall ?? null;
+  return {
+    site,
+    field: plan.field,
+    seed: plan.cast.seed,
+    breach: plan.barrage?.breach ?? null,
+    quality: plan.quality,
+    motion: {
+      ladderZ: (l, t) => {
+        const u = plan.units[l.unit];
+        return unitPose(plan, u, Math.min(t, u.fleeAt ?? t)).z;
+      },
+      towerZ: (t) => {
+        const u = plan.units[site!.tower!.unit];
+        return unitPose(plan, u, Math.min(t, u.fleeAt ?? t, site!.tower!.at)).z;
+      },
+      ram: (t) => {
+        const u = plan.units[site!.ram!.unit];
+        const until = Math.min(t, u.fleeAt ?? Infinity, w && w.gateAt !== null && w.gateAt > 0 ? w.gateAt + 0.3 : Infinity);
+        return { z: unitPose(plan, u, until).z, swing: t <= until ? ramSwing(site!.ram!, t) : 0 };
+      },
+      gate: (t) => ({ open: w ? gateOpen(w, t) : 0, shake: gateShake(site?.ram ?? null, t) }),
+    },
+  };
+}
+
 export interface FortView {
   group: THREE.Group;
   /** Треугольников неподвижного (тень — тот же меш ещё раз). */
@@ -258,17 +314,17 @@ export interface FortView {
 }
 
 /** Построить место боя. Нет места — пустая группа. */
-export function buildFort(plan: TwPlan, quality: Quality): FortView {
+export function buildFort(input: FortInput): FortView {
   const group = new THREE.Group();
   group.name = 'tw-fort';
-  const site = plan.site;
+  const { site, quality, motion } = input;
   const disposables: { dispose(): void }[] = [];
   const mat = new THREE.MeshLambertMaterial({ color: 0xffffff, vertexColors: true });
   mat.name = 'tw-fort';
   disposables.push(mat);
   if (!site) return { group, triangles: 0, update: () => {}, dispose: () => disposables.forEach((d) => d.dispose()) };
   const detail = DETAIL[quality];
-  const f = plan.field;
+  const f = input.field;
   const b = new Builder();
   const w = site.wall;
   if (w) {
@@ -277,10 +333,10 @@ export function buildFort(plan: TwPlan, quality: Quality): FortView {
     for (const t of w.towers) stops.push([m(t.x) - m(t.size) / 2 + 0.3, m(t.x) + m(t.size) / 2 - 0.3]);
     stops.sort((a, c) => a[0] - c[0]);
     // Пролом обстрела (`plan.barrage`): пролёт стены над ним строится опущенным снаружи (`breachRun`).
-    const br = plan.barrage?.breach ?? null;
+    const br = input.breach;
     const ba = br ? m(br.x - br.width / 2) : Infinity;
     const bb = br ? m(br.x + br.width / 2) : -Infinity;
-    const cols = br ? breachColumns(br, plan.cast.seed) : [];
+    const cols = br ? breachColumns(br, input.seed) : [];
     const nearTower = (x: number): boolean => stops.some(([a, c]) => x > a - 0.9 && x < c + 0.9) || (x > ba - 0.4 && x < bb + 0.4);
     const run = (x0: number, x1: number): void => {
       if (!br || x1 <= ba || x0 >= bb) return wallRun(b, w, x0, x1, nearTower);
@@ -506,11 +562,10 @@ export function buildFort(plan: TwPlan, quality: Quality): FortView {
           ladders!.setMatrixAt(k, M4.makeScale(0, 0, 0));
           return;
         }
-        const u = plan.units[l.unit];
-        const pose = unitPose(plan, u, Math.min(t, u.fleeAt ?? t));
+        const carryZ = motion.ladderZ(l, t);
         // Несут к стене стоймя перед строем, чуть наклонив вперёд; у стены — опускают верхом на боевой ход.
         const up = ladderUp(l, t);
-        const carried = Math.max(LADDER_FOOT, outOf(w, pose.z) + 0.9);
+        const carried = Math.max(LADDER_FOOT, outOf(w, carryZ) + 0.9);
         const foot = carried + (LADDER_FOOT - carried) * up;
         const lean = Math.atan2(LADDER_FOOT, w.top + 0.4);
         const tilt = CARRY_TILT * (1 - up) + lean * up;
@@ -526,10 +581,9 @@ export function buildFort(plan: TwPlan, quality: Quality): FortView {
     }
     if (siege && site.tower) {
       // Башню катят перед строем и к сшибке ставят мостом на боевой ход; отряд дрогнул — она остаётся, где стояла.
-      const u = plan.units[site.tower.unit];
-      const pose = unitPose(plan, u, Math.min(t, u.fleeAt ?? t, site.tower.at));
+      const towerZ = motion.towerZ(t);
       const roll = Math.min(1, Math.max(0, (t - (site.tower.at - TOWER_ROLL)) / TOWER_ROLL));
-      const far = Math.max(1.4, outOf(w, pose.z) + 1.2);
+      const far = Math.max(1.4, outOf(w, towerZ) + 1.2);
       const front = far + (0.15 - far) * roll;
       const z = w.z - s * front;
       V.set(site.tower.x, heightAt(f, site.tower.x, z), z);
@@ -537,12 +591,10 @@ export function buildFort(plan: TwPlan, quality: Quality): FortView {
       siege.quaternion.setFromAxisAngle(new THREE.Vector3(0, 1, 0), s > 0 ? Math.PI : 0);
     }
     if (ram && site.ram) {
-      const u = plan.units[site.ram.unit];
-      const until = Math.min(t, u.fleeAt ?? Infinity, w.gateAt !== null && w.gateAt > 0 ? w.gateAt + 0.3 : Infinity);
-      const pose = unitPose(plan, u, until);
-      const swing = t <= until ? ramSwing(site.ram, t) : 0;
+      const rp = motion.ram(t);
+      const swing = rp.swing;
       // Удар доходит до створок (они в проезде, на 0.45 за наружной гранью).
-      const head = Math.max(-0.4, Math.max(0.3, outOf(w, pose.z) - 0.8) - swing * 0.75);
+      const head = Math.max(-0.4, Math.max(0.3, outOf(w, rp.z) - 0.8) - swing * 0.75);
       const z = w.z - s * head;
       V.set(site.ram.x, heightAt(f, site.ram.x, z), z);
       // Тело тарана — наружу от головы: поворот на π, если город у +Z.
@@ -551,8 +603,9 @@ export function buildFort(plan: TwPlan, quality: Quality): FortView {
       ram.quaternion.copy(Q);
     }
     if (leaves) {
-      const open = gateOpen(w, t);
-      const shake = gateShake(site.ram, t) * 0.05;
+      const g = motion.gate(t);
+      const open = g.open;
+      const shake = g.shake * 0.05;
       const zH = w.z + s * 0.45;
       for (let k = 0; k < 2; k++) {
         const side = k === 0 ? 1 : -1;

@@ -57,6 +57,11 @@ export interface TwStone {
 export interface TwChunk {
   spans: [number, number][];
   at: number;
+  /**
+   * Пролом заделан (ролик осады, починка — docs/siege_v2.md, раздел 5): с этой секунды кусок встаёт на место за
+   * `MEND_TIME`. Нет — лежит до конца ролика, как в прологе обстрела.
+   */
+  back?: number;
 }
 
 export interface TwBreach {
@@ -95,6 +100,8 @@ export interface TwSmoke {
   z: number;
   from: number;
   size: number;
+  /** Догорело (ролик осады: погребальный костёр, сожжённая машина): огонь гаснет с этой секунды, клубы уходят. Нет — горит до конца. */
+  to?: number;
 }
 
 /** Ключ камеры пролога: прямоугольник, который держать в кадре, азимут и наклон. */
@@ -241,10 +248,16 @@ export function stoneAt(s: TwStone, t: number, out: { x: number; y: number; z: n
   return true;
 }
 
-/** Куда лёг кусок: обвал за `FALL_TIME * 0.8` — наружу и вниз; 0 — стоит, 1 — лёг. */
+/** Заделанный кусок встаёт на место за столько секунд (ролик осады — починка пролома). */
+export const MEND_TIME = 1.6;
+
+/** Куда лёг кусок: обвал за `FALL_TIME * 0.8` — наружу и вниз; 0 — стоит, 1 — лёг. Заделан — встаёт обратно. */
 export function chunkFall(c: TwChunk, t: number): number {
   const u = (t - c.at) / (FALL_TIME * 0.8);
-  return u <= 0 ? 0 : u >= 1 ? 1 : u * u;
+  const down = u <= 0 ? 0 : u >= 1 ? 1 : u * u;
+  if (c.back === undefined || t <= c.back) return down;
+  const k = Math.min(1, (t - c.back) / MEND_TIME);
+  return down * (1 - k * k * (3 - 2 * k));
 }
 
 /**
