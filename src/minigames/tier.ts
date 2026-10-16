@@ -16,3 +16,6 @@ export function miniTier(start: Tier, level: Quality, asked: boolean): Tier {
   const cap = TIER_OF_QUALITY[level];
   return TIERS.indexOf(cap) > TIERS.indexOf(start) ? cap : start;
 }
+
+/** Тень стены леса и всего, что стоит, — у ступеней с конвейером; у пола теней нет вовсе. */
+export const SHADOWS: Record<Tier, boolean> = { full: true, lite: true, base: false };

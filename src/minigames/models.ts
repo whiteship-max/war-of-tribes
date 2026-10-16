@@ -1,5 +1,5 @@
 /**
- * Модели промыслов: кусты с ягодами, загон, стог, охапка в руках, овца, коза и корова.
+ * Модели промыслов: кусты с ягодами, загон, стог и охапка в руках. Звери — свой модуль (`beasts.ts`).
  *
  * Тот же склад, что у поляны предыстории (`prologue/models.ts`): набор деталей (`render/kit.ts`), цвет в вершинах
  * на общем белом теле (`KIT.body`) и склейка `assemble` — один вызов отрисовки на материал, а не на доску. Цвета —
@@ -13,7 +13,7 @@ import * as THREE from 'three';
 import { KIT } from '@/render/materials';
 import * as K from '@/render/kit';
 import { BUSH_KINDS, type Bush, type BushKind } from './berries';
-import { BEASTS, HAY, PEN_R, type BeastKind } from './herd';
+import { HAY, PEN_R } from './herd';
 import { hash } from '@/prologue/glade';
 import type { Season } from '@/game/types';
 
@@ -154,106 +154,6 @@ export function armful(): THREE.Mesh {
   m.castShadow = false;
   m.receiveShadow = false;
   return m;
-}
-
-/** Масти: шерсть, голова и ноги, рога. */
-interface Coat {
-  body: number;
-  belly: number;
-  head: number;
-  legs: number;
-  horn: number;
-  patch?: number;
-}
-
-const COATS: Record<BeastKind, Coat> = {
-  sheep: { body: 0xe4dccb, belly: 0xcfc5b0, head: 0x2f2a2c, legs: 0x2f2a2c, horn: 0xcdbf9f },
-  goat: { body: 0x8b6a4c, belly: 0xd8cfbf, head: 0x7a5a40, legs: 0x4a3a2c, horn: 0xbfb08c },
-  // Ягнёнок белее матери: шерсть не отросла и не посерела.
-  lamb: { body: 0xf6f2e8, belly: 0xe6dfd0, head: 0x3a3234, legs: 0x3a3234, horn: 0xcdbf9f },
-  cow: { body: 0x7a4f33, belly: 0xe6dfd0, head: 0x6c452c, legs: 0x5a3b26, horn: 0xe0d6bc, patch: 0xe9e3d6 },
-};
-
-/** Высота спины — от неё стоит зверь; ноги — ниже. */
-export const BACK: Record<BeastKind, number> = { sheep: 0.72, goat: 0.74, cow: 1.3, lamb: 0.72 * 0.66 };
-/** Длина ног: столько опускается лёгшее. */
-export const LEGS: Record<BeastKind, number> = { sheep: 0.36, goat: 0.42, cow: 0.68, lamb: 0.36 * 0.66 };
-
-/** Ягнёнок — овца в две трети: та же лепка, сжатая целиком (`beast`). */
-const LAMB_K = 0.66;
-
-/**
- * Животное: туловище с головой — один меш, ноги — второй. Двух хватает: идущее качается туловищем, лёгшее опускает
- * его на длину ног, а ноги прячет. Голова смотрит вдоль +Z — сцена поворачивает зверя по ходу (`herd.roamYaw`).
- */
-export function beast(kind: BeastKind): THREE.Group {
-  const c = COATS[kind];
-  // Ягнёнка лепят овцой в полный рост и сжимают в конце: пропорции — её, высота спины и ног — его (`BACK`, `LEGS`).
-  const lamb = kind === 'lamb';
-  const shape: BeastKind = lamb ? 'sheep' : kind;
-  const back = BACK[shape];
-  const leg = LEGS[shape];
-  const body: K.Part[] = [];
-  const legs: K.Part[] = [];
-  const wool = tint(c.body);
-  if (shape === 'sheep') {
-    const g = new THREE.IcosahedronGeometry(0.36, 1);
-    g.scale(0.95, 0.85, 1.35);
-    body.push(K.place(g, wool, 0, back - 0.26, 0));
-    const tuft = new THREE.IcosahedronGeometry(0.17, 0);
-    body.push(K.place(tuft, wool, 0, back - 0.02, 0.32));
-    body.push(K.box(0.16, 0.2, 0.26, tint(c.head), 0, back - 0.12, 0.55, { x: 0.35 }));
-    for (const sx of [-1, 1]) body.push(K.box(0.12, 0.04, 0.06, tint(c.head), sx * 0.12, back - 0.04, 0.5, { z: sx * 0.4 }));
-  } else if (shape === 'goat') {
-    body.push(K.box(0.3, 0.32, 0.72, wool, 0, back - 0.18, 0));
-    body.push(K.box(0.26, 0.1, 0.62, tint(c.belly), 0, back - 0.36, 0.02));
-    body.push(K.cyl(0.08, 0.1, 0.36, wool, 5, 0, back - 0.02, 0.4, { x: -0.6 }));
-    body.push(K.box(0.15, 0.17, 0.3, tint(c.head), 0, back + 0.12, 0.56, { x: 0.5 }));
-    body.push(K.cone(0.04, 0.14, tint(0x3a2e24), 4, 0, back - 0.03, 0.66, { x: Math.PI }));
-    for (const sx of [-1, 1]) {
-      body.push(K.cyl(0.012, 0.028, 0.26, tint(c.horn), 4, sx * 0.05, back + 0.3, 0.48, { x: -0.7, z: sx * 0.15 }));
-      body.push(K.box(0.1, 0.035, 0.05, tint(c.head), sx * 0.11, back + 0.14, 0.5, { z: sx * 0.5 }));
-    }
-    body.push(K.box(0.05, 0.14, 0.05, wool, 0, back - 0.02, -0.38, { x: -0.6 }));
-  } else {
-    body.push(K.box(0.62, 0.62, 1.4, wool, 0, back - 0.32, 0));
-    body.push(K.box(0.5, 0.16, 1.1, tint(c.belly), 0, back - 0.62, 0.05));
-    // Пятна — белые доски поверх бока: пёстрая корова читается коровой с любого края загона.
-    if (c.patch !== undefined)
-      for (const [x, y, z, w, h, d] of [
-        [0.32, back - 0.25, 0.25, 0.02, 0.32, 0.42],
-        [-0.32, back - 0.35, -0.3, 0.02, 0.28, 0.36],
-        [0, back + 0.005, -0.15, 0.4, 0.02, 0.4],
-      ] as const)
-        body.push(K.box(w, h, d, tint(c.patch), x, y, z));
-    body.push(K.box(0.3, 0.34, 0.46, tint(c.head), 0, back - 0.2, 0.86, { x: 0.25 }));
-    body.push(K.box(0.24, 0.16, 0.12, tint(0xb9908a), 0, back - 0.34, 1.07, { x: 0.25 }));
-    for (const sx of [-1, 1]) {
-      body.push(K.cyl(0.02, 0.035, 0.24, tint(c.horn), 4, sx * 0.2, back - 0.02, 0.8, { z: sx * 1.2 }));
-      body.push(K.box(0.14, 0.05, 0.08, tint(c.head), sx * 0.21, back - 0.12, 0.78, { z: sx * 0.3 }));
-    }
-    body.push(K.cyl(0.02, 0.025, 0.7, wool, 4, 0, back - 0.5, -0.72, { x: 0.2 }));
-    body.push(K.box(0.2, 0.12, 0.2, tint(0xd4a6a0), 0, back - 0.7, -0.3));
-  }
-  const spread = shape === 'cow' ? 0.2 : 0.1;
-  const front = shape === 'cow' ? 0.5 : 0.26;
-  const rear = shape === 'cow' ? -0.5 : -0.24;
-  const thick = shape === 'cow' ? 0.065 : 0.032;
-  for (const sx of [-1, 1]) for (const z of [front, rear]) legs.push(K.cyl(thick, thick * 0.8, leg + 0.06, tint(c.legs), 5, sx * spread, leg / 2, z, undefined, K.GROUND_AO));
-  const g = new THREE.Group();
-  g.name = kind;
-  const torso = K.assemble(body);
-  torso.name = 'torso';
-  const feet = K.assemble(legs);
-  feet.name = 'legs';
-  if (lamb) {
-    torso.geometry.scale(LAMB_K, LAMB_K, LAMB_K);
-    feet.geometry.scale(LAMB_K, LAMB_K, LAMB_K);
-  }
-  feet.castShadow = false;
-  g.add(torso, feet);
-  g.userData.r = BEASTS[kind].r;
-  return g;
 }
 
 /** Где растут пучки: сколько их и в каком кольце вокруг какой точки. Поляна — до тринадцати метров от середины. */

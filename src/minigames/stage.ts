@@ -25,7 +25,7 @@ import { FrameLoop, deviceRatio, pixelRatio } from '@/render/loop';
 import { Steady } from '@/render/steady';
 import { VILLAGE_STEADY } from '@/render/quality';
 import { levelNow } from '@/render/gfx';
-import { miniTier } from './tier';
+import { SHADOWS, miniTier } from './tier';
 import { Press, swallowGhostClick } from '@/gestures';
 import { gestLog } from '@/gestlog';
 import { serverNow } from '@/net/clock';
@@ -73,6 +73,8 @@ export interface Play {
   readonly roam: number;
   /** Полуширина коробки теней, м: ровно то, что занято игрой, — тень тем чётче, чем коробка уже. */
   readonly shadowHalf: number;
+  /** Подробность лепки по ступени, с которой сцена встаёт (`beasts.Detail`): зовётся один раз, до `build`. */
+  dress?(tier: Tier): void;
   /** Положить своё в сцену: модели игры — копиями материалов поляны (`surfaces.adopt`), пятна тени — в `shade`. */
   build(scene: THREE.Scene, surfaces: Surfaces, shade: Shade, camera: THREE.Camera): void;
   /** Преграды тела в секунду `t`. */
@@ -189,8 +191,6 @@ export const MINI_LOOK_KEY = 'tribe.minigames.look';
  */
 export const DPR_OF: Record<Tier, number> = { full: 2, lite: 1.5, base: 1.25 };
 
-/** Тень стены леса и всего, что стоит, — у ступеней с конвейером; у пола теней нет вовсе. */
-const SHADOWS: Record<Tier, boolean> = { full: true, lite: true, base: false };
 
 /** Снег на ветках зимой — сколько, 0..1: та же мера, что у поляны в зиму (`scene.WINTER_SNOW`). */
 const WINTER_SNOW = 0.6;
@@ -368,6 +368,8 @@ export class Stage {
     this.surfaces.u.snow.value = season === 'winter' ? WINTER_SNOW : 0;
     this.surfaces.u.wind.value = windOf(wind);
 
+    // Лепка — по ступени входа: сторож потом опускает конвейер и плотность, а не перелепливает зверей посреди игры.
+    play.dress?.(tier);
     furnish(this.scene, this.surfaces, play, this.camera, this.dome, season);
     this.scene.add(this.aim);
     this.applyLight(noonSun, noonSky);

@@ -481,11 +481,12 @@ async function budget(): Promise<void> {
     ['fish', 'river'],
     ['fish', 'sea'],
   ] as const) {
-    for (const shadows of [true, false]) {
-      const c = budgetOf(id, shadows, shore);
-      const lim = MINI_BUDGET;
+    // По ступени (docs/polish.md, П-4): лепка и тень — те, с которыми сцена встаёт на этой ступени.
+    for (const tier of ['full', 'lite', 'base'] as const) {
+      const c = budgetOf(id, tier, shore);
+      const lim = MINI_BUDGET[tier];
       console.log(
-        `  ${(id === 'fish' ? `fish-${shore}` : id).padEnd(10)} тени ${shadows ? 'да ' : 'нет'}: вызовов ${c.calls + c.shadowCalls} (сцена ${c.calls}, тени ${c.shadowCalls}; ≤ ${lim.calls}), ` +
+        `  ${(id === 'fish' ? `fish-${shore}` : id).padEnd(10)} ${tier.padEnd(4)}: вызовов ${c.calls + c.shadowCalls} (сцена ${c.calls}, тени ${c.shadowCalls}; ≤ ${lim.calls}), ` +
           `треугольников ${Math.round(c.triangles + c.shadowTriangles)} (сцена ${Math.round(c.triangles)}, тени ${Math.round(c.shadowTriangles)}; ≤ ${lim.triangles})`,
       );
     }

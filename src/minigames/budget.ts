@@ -15,19 +15,29 @@ import type { Shore } from './fishing';
 import type { Play } from './stage';
 import { aimRing } from './models';
 import { frameCost, furnish, type FrameCost } from './world';
+import { SHADOWS } from './tier';
+import type { Tier } from '@/prologue/look';
 
 /**
- * Потолок кадра на обе игры. Мерка — кадр поляны предыстории на телефонной ступени (`lite`): таблица цены в
- * docs/prologue.md, раздел 20 (`npm run prologue:stand`, `LOOK=`). Промыслам нужно шестьдесят кадров, а не тридцать,
- * поэтому потолок не выше поляны: вызовов — 80, треугольников — 30 тысяч, тень включена.
+ * Потолок кадра по ступени (docs/polish.md, П-4, «Решения»). Прежде — один на всё: 80 вызовов и 30 тысяч треугольников
+ * с тенью, мерка — кадр поляны предыстории на телефонной ступени. Звери П-4 — мягкие тела с мехом, и одна овца весит
+ * как прежнее стадо целиком; поэтому потолок — по ступени, а не по поляне:
+ *
+ *   full  — настольный: 110 вызовов, 120 тысяч треугольников с тенью;
+ *   lite  — телефон: 80 вызовов (вызов — дорогое на телефоне, его не прибавлено), 60 тысяч треугольников с тенью.
+ *           Вершины телефону дёшевы рядом с заливкой: кадр промысла — восемь проходов конвейера по экрану в полтора
+ *           раза плотнее (`stage.DPR_OF`), а шестьдесят тысяч треугольников — это три с половиной миллиона в секунду;
+ *           не держит — сторож опускает ступень (`render/steady`);
+ *   base  — пол: та же лепка, что у телефона (сторож опускает ступень, не перелепливая зверей), но без тени —
+ *           и потолок без её прохода: 80 и 45 тысяч.
  */
-export const MINI_BUDGET = { calls: 80, triangles: 30_000 };
+export const MINI_BUDGET: Record<Tier, { calls: number; triangles: number }> = {
+  full: { calls: 110, triangles: 120_000 },
+  lite: { calls: 80, triangles: 60_000 },
+  base: { calls: 80, triangles: 45_000 },
+};
 
-/**
- * Цена кадра игры: сцена и тень. «Рыбалка» — у реки или у моря (`shore`): у реки дальний берег с лесом и камышом, у
- * моря — мыс; рыбы в графе — все виды берега, видна одна.
- */
-export function budgetOf(id: MinigameId, shadows: boolean, shore: Shore = 'river'): FrameCost {
+export function budgetOf(id: MinigameId, tier: Tier, shore: Shore = 'river', shadows = SHADOWS[tier]): FrameCost {
   const scene = new THREE.Scene();
   const surfaces = new Surfaces();
   const dome = new Dome();
@@ -40,6 +50,7 @@ export function budgetOf(id: MinigameId, shadows: boolean, shore: Shore = 'river
         : id === 'hunt'
           ? new HuntPlay(12345)
           : new FishPlay(12345, { shore, zone: shore === 'sea' ? 'med' : 'land', season: 'summer', rain: 0 });
+  play.dress?.(tier);
   furnish(scene, surfaces, play, camera, dome, 'summer');
   const aim = aimRing();
   aim.visible = true;

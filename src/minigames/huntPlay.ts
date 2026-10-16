@@ -14,7 +14,7 @@
  */
 import * as THREE from 'three';
 import type { Surfaces } from '@/prologue/surface';
-import { Shade, arrow as arrowModel, blob, carcass as carcassModel, deer as deerModel } from '@/prologue/models';
+import { Shade, arrow as arrowModel, blob } from '@/prologue/models';
 import type { Blocker } from '@/prologue/glade';
 import type { Season } from '@/game/types';
 import { haptic } from '@/telegram/webapp';
@@ -27,6 +27,8 @@ import {
   DEER,
   DEER_BODY,
   GRAVITY,
+  HEAD_DOWN as HEAD_DOWN_,
+  HEAD_UP as HEAD_UP_,
   HOP_S,
   Hunt,
   LOOSE_MIN,
@@ -46,14 +48,16 @@ import { huntSound, type Ear, type HuntSound, type ThudKind } from './huntSound'
 import type { Hour, Tally, Target } from './rules';
 import type { Play } from './stage';
 import { LAYOUT_OF } from './pad';
+import { Moves, Pack, placeBeast, smooth as ease } from './fauna';
+import { STILL, model, posture, type Detail, type Model, type Posture } from './beasts';
+import { HAIR, furMaterial } from './fur';
+import type { Tier } from '@/prologue/look';
 
 /** Насколько уже угол обзора в полную натяжку: приближение лука — олень на тридцати шагах крупнее, метки дальше. */
 const ZOOM = 0.3;
 /** Взгляд с натянутым луком тише вдвое с лишним; шаг — медленнее. */
 const AIM_LOOK = 0.45;
 const AIM_STRIDE = 0.4;
-/** Сколько длится падение подстреленного, прежде чем лечь тушей. */
-const FALL_S = 0.45;
 
 const _m = new THREE.Matrix4();
 const _q = new THREE.Quaternion();
@@ -62,11 +66,6 @@ const _s = new THREE.Vector3(1, 1, 1);
 const _d = new THREE.Vector3();
 const _fwd = new THREE.Vector3(0, 0, -1);
 const _e = new THREE.Euler();
-
-const smooth = (k: number): number => {
-  const c = Math.max(0, Math.min(1, k));
-  return c * c * (3 - 2 * c);
-};
 
 /** Горсть от стрелы: клок шерсти и пыль — от оленя, дёрн — от земли, щепа — от ствола, листья — от куста. */
 const PUFF: Record<'deer' | 'ground' | 'wood' | 'bush', Burst> = {
@@ -83,27 +82,34 @@ const TRAIL: Burst = { colors: [0xf2ecdc, 0xe0d8c4], n: 1, speed: 0.04, up: 0, g
 /** Скрип лука — на этих долях натяжки: тис отзывается по мере того, как его гнут. */
 const CREAKS = [0.3, 0.65, 0.97];
 
-/** Шкура белого оленя: цвета модели оленя предыстории, выбеленные к кости, — силуэт тот же, рога светлее. */
-const WHITE_COAT = new THREE.Color(0xf1ece2);
-const WHITE_K = 0.82;
+/** Падение подстреленного: подламываются передние, валится на бок, бьёт ногами и затихает, с. */
+const BUCKLE_S = 0.22;
+const ROLL_FROM = 0.12;
+const ROLL_TO = 0.62;
+const KICK_S = 2.4;
+/** Шаг брожения пасущегося, м на круг. */
+const GRAZE_STRIDE = 0.9;
+/** Поворот головы к охотнику у насторожившегося, рад: не больше — шары попадания правила поворота не знают. */
+const LOOK_MAX = 0.35;
 
-/**
- * Выбелить оленя или тушу: цвет в вершинах (`render/kit`, `assemble`) тянется к белой шкуре. Геометрия — копией: модель
- * предыстории свою не делит, но чужое тело править на месте нельзя.
- */
-function whiten(root: THREE.Object3D): void {
-  root.traverse((o) => {
-    const m = o as THREE.Mesh;
-    if (!m.isMesh) return;
-    m.geometry = m.geometry.clone();
-    const col = m.geometry.getAttribute('color') as THREE.BufferAttribute | undefined;
-    if (!col) return;
-    for (let i = 0; i < col.count; i++) {
-      col.setXYZ(i, col.getX(i) + (WHITE_COAT.r - col.getX(i)) * WHITE_K, col.getY(i) + (WHITE_COAT.g - col.getY(i)) * WHITE_K, col.getZ(i) + (WHITE_COAT.b - col.getZ(i)) * WHITE_K);
-    }
-    col.needsUpdate = true;
-  });
+/** Что вид помнит об олене между кадрами. В правило не идёт ничего. */
+interface DeerLife {
+  pack: 'stag' | 'doe';
+  slot: number;
+  phase: number;
+  headAt: number;
+  /** Когда насторожился — вздрогнуть один раз. */
+  alertAt: number;
+  was: string;
+  beat: number;
+  /** На какой бок валится: от зерна поля. */
+  side: number;
 }
+
+const hash = (i: number, k: number): number => {
+  const v = Math.sin(i * 61.3 + k * 17.9) * 43758.5453;
+  return v - Math.floor(v);
+};
 
 /** Что сказать над прицелом, когда стрела легла. */
 const LANDED: Record<string, string> = { ground: 'Мимо', cover: 'В дерево', bush: 'В куст', lost: 'Улетела', deer: 'В тушу' };
@@ -123,13 +129,13 @@ export class HuntPlay implements Play {
   readonly hunt: Hunt;
   private sound: HuntSound | null = null;
   private camera: THREE.Camera | null = null;
-  private deer: THREE.Group[] = [];
-  private heads: THREE.Object3D[] = [];
-  private legsF: THREE.Object3D[] = [];
-  private legsB: THREE.Object3D[] = [];
-  private carcasses: THREE.Mesh[] = [];
-  private headAt: number[] = [];
-  private beat: number[] = [];
+  /** Рогачи и оленухи — копиями двух сеток; белый олень — рогач с белой мастью (`fauna.Pack.setCoat`). */
+  private packs: Partial<Record<'stag' | 'doe', { pack: Pack; model: Model; moves: Moves }>> = {};
+  private lives: DeerLife[] = [];
+  private pose: Posture = { ...STILL };
+  private detail: Detail = 'lo';
+  /** Часы вида оленей: жвачка и уши идут и до «Начать». */
+  private deerClock = 0;
   private blobs: THREE.InstancedMesh | null = null;
   private arrows: THREE.InstancedMesh | null = null;
   /** Лучник у глаза: лук, руки, тетива и стрела на ней (`archer.ts`). */
@@ -178,26 +184,24 @@ export class HuntPlay implements Play {
   build(scene: THREE.Scene, surfaces: Surfaces, shade: Shade, camera: THREE.Camera): void {
     this.camera = camera;
     scene.add(surfaces.adopt(coverMesh(this.hunt.field.cover, this.season, shade), 'crown'));
+    const mat = furMaterial(HAIR, surfaces.u);
+    const counts = { stag: 0, doe: 0 };
+    for (const d of this.hunt.field.deer) counts[d.doe ? 'doe' : 'stag']++;
+    for (const kind of ['stag', 'doe'] as const) {
+      if (!counts[kind]) continue;
+      const m = model(kind, this.detail);
+      const pack = new Pack(m, mat, counts[kind], kind);
+      scene.add(pack.mesh);
+      this.packs[kind] = { pack, model: m, moves: new Moves(m.slots, m.count) };
+    }
+    const seen = { stag: 0, doe: 0 };
     for (let i = 0; i < DEER; i++) {
-      // Оленуха — без рогов (`DeerSpec.doe`): у неё та же модель и тот же корпус для стрелы, рогов стрела не видит.
-      const doe = this.hunt.field.deer[i].doe;
-      const white = !!this.hunt.field.deer[i].white;
-      const d = surfaces.adopt(deerModel(!doe));
-      if (white) whiten(d);
-      d.rotation.order = 'YXZ';
-      this.heads.push(d.getObjectByName('head') ?? new THREE.Object3D());
-      this.legsF.push(d.getObjectByName('legsFront') ?? new THREE.Object3D());
-      this.legsB.push(d.getObjectByName('legsBack') ?? new THREE.Object3D());
-      for (const leg of [this.legsF[i], this.legsB[i]]) (leg as THREE.Mesh).castShadow = false;
-      scene.add(d);
-      this.deer.push(d);
-      const c = surfaces.adopt(carcassModel(!doe));
-      if (white) whiten(c);
-      c.visible = false;
-      scene.add(c);
-      this.carcasses.push(c);
-      this.headAt.push(this.hunt.pose(i, 0).head);
-      this.beat.push(0);
+      // Оленуха — без рогов (`DeerSpec.doe`): у неё тот же корпус для стрелы, рогов стрела не видит.
+      const d = this.hunt.field.deer[i];
+      const kind = d.doe ? 'doe' : 'stag';
+      const slot = seen[kind]++;
+      if (d.white) this.packs[kind]?.pack.setCoat(slot, 1);
+      this.lives.push({ pack: kind, slot, phase: hash(i, 1), headAt: this.hunt.pose(i, 0).head, alertAt: -1e9, was: 'graze', beat: 0, side: hash(i, 2) < 0.5 ? -1 : 1 });
     }
     // Пятна тени под оленями — одним мешем копиями: шесть пятен — один вызов.
     const b = blob(0.42, 0.82);
@@ -220,6 +224,11 @@ export class HuntPlay implements Play {
   private buildBow(camera: THREE.Camera): void {
     this.archer = new Archer();
     camera.add(this.archer.root);
+  }
+
+  /** Подробность лепки по ступени: олени вдали — `lo`, на настольном — `hi`. Зовётся до `build`. */
+  dress(tier: Tier): void {
+    this.detail = tier === 'full' ? 'hi' : 'lo';
   }
 
   blockers(): Blocker[] {
@@ -375,62 +384,112 @@ export class HuntPlay implements Play {
     }
   }
 
-  /** Олени: место, поворот, голова, ноги, скачок; подстреленный падает и ложится тушей. */
+  /**
+   * Олени: правило решает, где олень, куда смотрит, на какой угол поднята голова и как высоко взлетел корпус; вид
+   * добавляет то, чего правило не решает: шаг и скачок ногами, жвачку, уши, хвост-флаг, вздрог, падение на бок.
+   */
   private syncDeer(t: number, dt: number): void {
     const ear = this.ear();
-    for (let i = 0; i < this.deer.length; i++) {
-      const g = this.deer[i];
+    this.deerClock += dt;
+    const clock = this.deerClock;
+    const pose = this.pose;
+    for (let i = 0; i < this.lives.length; i++) {
+      const L = this.lives[i];
+      const P = this.packs[L.pack];
+      if (!P) continue;
+      const m = P.model;
       const p = this.hunt.pose(i, t);
-      const c = this.carcasses[i];
       if (p.kind === 'gone') {
-        g.visible = false;
-        c.visible = false;
+        P.pack.hide(L.slot);
         this.blob(i, null);
         continue;
       }
-      if (p.kind === 'down') {
-        const seg = this.hunt.segs[i].find((s) => s.kind === 'down');
-        const k = seg ? (t - seg.t0) / FALL_S : 1;
-        if (k < 1) {
-          // Падает: валится на бок и оседает, потом ложится тушей.
-          g.visible = true;
-          c.visible = false;
-          g.position.set(p.x, -0.35 * smooth(k), p.z);
-          g.rotation.set(0, p.yaw, 1.45 * smooth(k));
-        } else {
-          g.visible = false;
-          c.visible = true;
-          c.position.set(p.x, 0, p.z);
-          c.rotation.y = p.yaw;
-        }
-        this.blob(i, p);
-        continue;
-      }
-      g.visible = true;
-      c.visible = false;
-      g.position.set(p.x, p.lift, p.z);
-      g.rotation.set(0, p.yaw, 0);
+      Object.assign(pose, STILL);
       // Голова догоняет правило за доли секунды: правило решает «вскинул», глаз видит, как он вскидывает.
-      this.headAt[i] += (p.head - this.headAt[i]) * Math.min(1, dt * 12);
-      this.heads[i].rotation.x = this.headAt[i];
-      const run = p.speed > 1.5;
-      // Бег — скачками: передние вперёд, задние назад и наоборот, раз за скачок. Пасётся — переступает.
-      const phase = run ? (p.ran / (RUN_SPEED * HOP_S)) * Math.PI * 2 : p.ran * 3;
-      const swing = Math.sin(phase) * (run ? 0.7 : Math.min(0.25, p.speed * 2));
-      this.legsF[i].rotation.x = swing;
-      this.legsB[i].rotation.x = -swing;
-      g.rotation.x = run ? Math.sin(phase) * 0.12 : 0;
-      // Топот: два удара на скачок — передние и задние.
-      if (run) {
-        const n = Math.floor(p.ran / ((RUN_SPEED * HOP_S) / 2));
-        if (n !== this.beat[i]) {
-          this.beat[i] = n;
+      L.headAt += (p.head - L.headAt) * Math.min(1, dt * 12);
+      const seg = this.segOf(i, t);
+      const since = seg ? t - seg.t0 : 0;
+      if (p.kind !== L.was) {
+        if (p.kind === 'alert') L.alertAt = clock;
+        L.was = p.kind;
+      }
+      let y = p.lift;
+      let pitch = 0;
+      let roll = 0;
+      if (p.kind === 'down') {
+        // Падение: подламываются передние, олень валится на бок, бьёт ногами и затихает.
+        const buckle = ease(0, BUCKLE_S, since) * (1 - ease(0.35, 0.7, since));
+        const rollK = ease(ROLL_FROM, ROLL_TO, since);
+        pose.fold = 0.5 * buckle;
+        pose.dead = ease(0.3, 0.7, since);
+        pose.neck = -0.55 * pose.dead + 0.3 * buckle;
+        pose.ears = 0.8 * pose.dead;
+        const kick = since > 0.55 && since < KICK_S ? Math.exp(-(since - 0.55) / 0.5) : 0;
+        pose.walk = 0.45 * kick;
+        pose.phase = since * 2.6;
+        pitch = 0.28 * buckle * (1 - rollK);
+        roll = L.side * (Math.PI / 2) * rollK;
+        y = -0.22 * buckle * (1 - rollK) + (m.side - m.core.y) * rollK;
+      } else if (p.kind === 'run') {
+        // Скачками: фаза — от начала бега тем же сроком скачка, что у правила (`HOP_S`), — ноги вытянуты в полёте.
+        const run = Math.min(1, p.speed / (RUN_SPEED * 0.35));
+        pose.run = run;
+        pose.walk = 1;
+        pose.phase = since / HOP_S;
+        pose.neck = L.headAt;
+        pose.tailUp = 1;
+        pose.ears = 0.45;
+        pose.breathe = 1;
+        pitch = 0.1 * Math.sin(Math.PI * 2 * pose.phase) * run;
+        // Топот: два удара на скачок — передние и задние.
+        const n = Math.floor(pose.phase * 2);
+        if (n !== L.beat && run > 0.5) {
+          L.beat = n;
           this.sound?.hoof(ear, p.x, p.z);
         }
+      } else {
+        // Пасётся или насторожился: переступает по брожению правила, голова — на угол правила.
+        L.phase += (p.speed * dt) / GRAZE_STRIDE;
+        pose.walk = ease(0.02, 0.35, p.speed);
+        pose.phase = L.phase;
+        pose.neck = L.headAt;
+        const down = Math.max(0, Math.min(1, (L.headAt - HEAD_UP_) / (HEAD_DOWN_ - HEAD_UP_)));
+        pose.head = 0.3 * down;
+        pose.chew = down > 0.7 ? 0.5 + 0.5 * Math.sin(clock * 8 + i) : 0;
+        const fl = (clock + hash(i, 5) * 5) % (3.5 + 3 * hash(i, 6));
+        pose.ears = fl < 0.22 ? Math.sin((fl / 0.22) * Math.PI) * 0.6 : 0;
+        pose.tailSwish = 0.2 * Math.sin(clock * 3.1 + i * 1.7);
+        pose.breathe = 0.5 + 0.5 * Math.sin(clock * 1.7 + i);
+        if (p.kind === 'alert') {
+          // Насторожился: уши торчком, хвост приподнят, голова — к шороху; в первую долю секунды — вздрог.
+          const cam = this.camera;
+          const look = cam ? Math.atan2(Math.cos(p.yaw) * (cam.position.x - p.x) - Math.sin(p.yaw) * (cam.position.z - p.z), Math.sin(p.yaw) * (cam.position.x - p.x) + Math.cos(p.yaw) * (cam.position.z - p.z)) : 0;
+          pose.turn = Math.max(-LOOK_MAX, Math.min(LOOK_MAX, look));
+          pose.ears = -1;
+          pose.tailUp = 0.35;
+          pose.chew = 0;
+          const jolt = clock - L.alertAt;
+          if (jolt < 0.35) {
+            y += Math.sin((jolt / 0.35) * Math.PI) * 0.05;
+            pitch = -0.05 * Math.sin((jolt / 0.35) * Math.PI);
+          }
+        }
       }
+      posture(P.moves, pose);
+      placeBeast(_m, p.x, y, p.z, p.yaw, pitch, roll, m.core);
+      P.pack.put(L.slot, _m, P.moves.k);
       this.blob(i, p);
     }
+    for (const k of ['stag', 'doe'] as const) this.packs[k]?.pack.commit();
     if (this.blobs) this.blobs.instanceMatrix.needsUpdate = true;
+  }
+
+  /** Отрезок правила, в котором олень в секунду `t`. */
+  private segOf(i: number, t: number): { t0: number } | null {
+    const segs = this.hunt.segs[i];
+    let out: { t0: number } | null = null;
+    for (const g of segs) if (g.t0 <= t) out = g;
+    return out;
   }
 
   private blob(i: number, p: { x: number; z: number; yaw: number; kind: string } | null): void {
@@ -539,6 +598,14 @@ export class HuntPlay implements Play {
 
   /** Геометрию разберёт сцена (`disposeGeometries` — лук висит на камере, камера в сцене); здесь — копии. */
   dispose(): void {
+    const mats = new Set<THREE.Material>();
+    for (const k of ['stag', 'doe'] as const) {
+      const p = this.packs[k];
+      if (!p) continue;
+      mats.add(p.pack.mesh.material as THREE.Material);
+      p.pack.dispose();
+    }
+    for (const m of mats) m.dispose();
     this.blobs?.dispose();
     this.arrows?.dispose();
     this.archer?.dispose();

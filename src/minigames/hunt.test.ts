@@ -10,7 +10,8 @@
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 import { EYE as GLADE_EYE } from '@/prologue/glade';
-import { carcass as carcassModel, deer as deerModel } from '@/prologue/models';
+import { BONE, FALLEN, bonePoints, fallenMatrix, model as beastModel, posture, torsoPoints } from './beasts';
+import { Moves } from './fauna';
 import {
   ALERT_S,
   ARROWS,
@@ -140,19 +141,11 @@ describe('охота: поле от зерна', () => {
       }
     }
     expect([...first].sort(), 'оленухой бывает и первый, и второй в кучке').toEqual([0, 1]);
-    // Модель: рогов у оленухи нет — голова и туша меньше на рога, корпус и ноги те же.
-    const verts = (o: THREE.Object3D, name?: string): number => {
-      let n = 0;
-      o.traverse((m) => {
-        if (m instanceof THREE.Mesh && (!name || m.name === name)) n += m.geometry.getAttribute('position').count;
-      });
-      return n;
-    };
-    const stag = deerModel();
-    const doe = deerModel(false);
-    expect(verts(doe, 'head')).toBeLessThan(verts(stag, 'head'));
-    for (const part of ['torso', 'legsFront', 'legsBack']) expect(verts(doe, part), part).toBe(verts(stag, part));
-    expect(verts(carcassModel(false))).toBeLessThan(verts(carcassModel()));
+    // Модель (`beasts.ts`): рогов у оленухи нет — голова меньше на рога, туловище и ноги те же.
+    const stag = beastModel('stag', 'hi');
+    const doe = beastModel('doe', 'hi');
+    expect(bonePoints(doe, BONE.head)).toBeLessThan(bonePoints(stag, BONE.head));
+    for (const bone of [BONE.body, BONE.fl, BONE.flk, BONE.bl, BONE.blk]) expect(bonePoints(doe, bone), `кость ${bone}`).toBe(bonePoints(stag, bone));
   });
 
   it('глаз охотника — того же роста, что у поляны; уйти можно не дальше поля', () => {
@@ -653,39 +646,57 @@ describe('охота: тот же ряд — те же олени и стрел�
 });
 
 describe('охота: форма попадания — по модели', () => {
-  it('корпус оленя — эллипсоид по туловищу модели предыстории; ось головы — там, где голова', () => {
-    const g = deerModel();
-    const torso = g.getObjectByName('torso') as THREE.Mesh;
-    torso.geometry.computeBoundingBox();
-    const box = torso.geometry.boundingBox!;
-    const c = box.getCenter(new THREE.Vector3());
-    const half = box.getSize(new THREE.Vector3()).multiplyScalar(0.5);
-    expect(Math.abs(c.y - DEER_BODY.y)).toBeLessThan(0.05);
-    expect(Math.abs(c.z - DEER_BODY.z)).toBeLessThan(0.05);
-    // Эллипсоид чуть шире рамки — иначе углы брусов были бы «мимо».
-    for (const [r, h] of [
-      [DEER_BODY.rx, half.x],
-      [DEER_BODY.ry, half.y],
-      [DEER_BODY.rz, half.z],
-    ]) {
-      expect(r).toBeGreaterThanOrEqual(h);
-      expect(r).toBeLessThanOrEqual(h * 1.3);
-    }
-    const head = g.getObjectByName('head')!;
-    expect(head.position.y).toBeCloseTo(DEER_NECK.y, 6);
-    expect(head.position.z).toBeCloseTo(DEER_NECK.z, 6);
-  });
+  /**
+   * Олень промыслов (`beasts.ts`, П-4): туловище — эллипсоид попадания, шея ходит вокруг оси правила. Область — обе
+   * подробности лепки (`hi` на настольном, `lo` на телефоне) и обе масти: стрела судит то, что нарисовано на любой ступени.
+   */
+  const boxOf = (pts: THREE.Vector3[]): THREE.Box3 => new THREE.Box3().setFromPoints(pts);
+  for (const kind of ['stag', 'doe'] as const)
+    for (const detail of ['hi', 'lo'] as const) {
+      it(`${kind} ${detail}: корпус — эллипсоид по туловищу модели; ось головы — ось правила`, () => {
+        const m = beastModel(kind, detail);
+        const box = boxOf(torsoPoints(m));
+        const c = box.getCenter(new THREE.Vector3());
+        const half = box.getSize(new THREE.Vector3()).multiplyScalar(0.5);
+        expect(Math.abs(c.y - DEER_BODY.y)).toBeLessThan(0.05);
+        expect(Math.abs(c.z - DEER_BODY.z)).toBeLessThan(0.05);
+        // Эллипсоид чуть шире рамки — иначе бока туловища были бы «мимо».
+        for (const [r, h] of [
+          [DEER_BODY.rx, half.x],
+          [DEER_BODY.ry, half.y],
+          [DEER_BODY.rz, half.z],
+        ]) {
+          expect(r).toBeGreaterThanOrEqual(h);
+          expect(r).toBeLessThanOrEqual(h * 1.3);
+        }
+        const neck = m.rig.bones[BONE.neck].at;
+        expect(neck[1]).toBeCloseTo(DEER_NECK.y, 6);
+        expect(neck[2]).toBeCloseTo(DEER_NECK.z, 6);
+      });
 
-  it('туша — эллипсоид по рамке туши: лежит на земле, по длине — от крупа до шеи', () => {
-    const m = carcassModel();
-    m.geometry.computeBoundingBox();
-    const box = m.geometry.boundingBox!;
-    // Рамка туши — с рогами, ногами и головой; корпус — нижняя её часть, от крупа (минимум по z) до шеи.
-    expect(CARCASS.y - CARCASS.ry).toBeLessThan(box.min.y + 0.05);
-    expect(CARCASS.y + CARCASS.ry).toBeLessThan(box.max.y);
-    expect(Math.abs(CARCASS.z - CARCASS.rz - box.min.z)).toBeLessThan(0.1);
-    expect(CARCASS.z + CARCASS.rz).toBeLessThan(box.max.z);
-  });
+      it(`${kind} ${detail}: упавший на бок лежит в эллипсоиде туши — на земле, от крупа до шеи`, () => {
+        const m = beastModel(kind, detail);
+        const mv = new Moves(m.slots, m.count);
+        posture(mv, FALLEN);
+        for (const side of [-1, 1]) {
+          const box = boxOf(torsoPoints(m, mv.k, fallenMatrix(m, side)));
+          const c = box.getCenter(new THREE.Vector3());
+          const half = box.getSize(new THREE.Vector3()).multiplyScalar(0.5);
+          // Лежит на земле: низ туловища у земли, середина — на высоте туши.
+          expect(box.min.y, 'на земле').toBeGreaterThan(-0.03);
+          expect(Math.abs(c.y - CARCASS.y), 'высота туши').toBeLessThan(0.05);
+          expect(Math.abs(c.z - CARCASS.z), 'середина по длине').toBeLessThan(0.05);
+          for (const [r, h] of [
+            [CARCASS.rx, half.x],
+            [CARCASS.ry, half.y],
+            [CARCASS.rz, half.z],
+          ]) {
+            expect(r).toBeGreaterThanOrEqual(h * 0.97);
+            expect(r).toBeLessThanOrEqual(h * 1.35);
+          }
+        }
+      });
+    }
 
   it('хвоя, кора и листва нарисованы там, где в них втыкается стрела', () => {
     const f = layHunt(77);
