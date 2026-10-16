@@ -27,6 +27,8 @@ import { mix, noise3 } from './beasts';
 export type NatureKind = 'leaf' | 'needle' | 'bark' | 'grass' | 'ground' | 'rock';
 
 interface NatureLook {
+  /** Рельеф по шуму места, м (купы листьев, лапы ели); нет — гладко. */
+  bump?: number;
   /** Ветер: откуда начинает качать (м над основой) и сколько на метр; трава — от корня квадратом. */
   swayFrom: number;
   swayGain: number;
@@ -42,12 +44,12 @@ interface NatureLook {
 }
 
 const LOOKS: Record<NatureKind, NatureLook> = {
-  leaf: { swayFrom: 1.4, swayGain: 0.012, wrap: 0.55, sss: 0.55, grain: 3.1, speckle: 0.28, snow: 0.85, wet: 0.16 },
-  needle: { swayFrom: 1.6, swayGain: 0.008, wrap: 0.4, sss: 0.25, grain: 5.5, speckle: 0.3, snow: 0.9, wet: 0.14 },
+  leaf: { bump: 0.09, swayFrom: 1.4, swayGain: 0.012, wrap: 0.55, sss: 0.55, grain: 3.1, speckle: 0.32, snow: 0.85, wet: 0.16 },
+  needle: { bump: 0.045, swayFrom: 1.6, swayGain: 0.008, wrap: 0.4, sss: 0.25, grain: 5.5, speckle: 0.3, snow: 0.9, wet: 0.14 },
   bark: { swayFrom: 99, swayGain: 0, wrap: 0.3, sss: 0, grain: 9, speckle: 0.3, snow: 0.45, wet: 0.3 },
   grass: { swayFrom: 0, swayGain: 0.55, wrap: 0.6, sss: 0.7, grain: 1.7, speckle: 0.22, snow: 0.35, wet: 0.2 },
   ground: { swayFrom: 99, swayGain: 0, wrap: 0.15, sss: 0, grain: 2.3, speckle: 0.26, snow: 0, wet: 0.45 },
-  rock: { swayFrom: 99, swayGain: 0, wrap: 0.15, sss: 0, grain: 7, speckle: 0.32, snow: 0.8, wet: 0.35 },
+  rock: { bump: 0.02, swayFrom: 99, swayGain: 0, wrap: 0.15, sss: 0, grain: 7, speckle: 0.32, snow: 0.8, wet: 0.35 },
 };
 
 const f = (x: number): string => (Number.isInteger(x) ? `${x}.0` : String(x));
@@ -92,6 +94,22 @@ diffuseColor.rgb *= 1.0 - NAT_SPECKLE * ( 0.5 - natN );
 diffuseColor.rgb *= 1.0 - natWet * NAT_WET;`;
 
 const FRAG_NORMAL = /* glsl */ `#include <normal_fragment_maps>
+#ifdef NAT_BUMP
+{
+  // Купы листьев и лап — рельефом по шуму места, без треугольников: крона ловит свет клоками, а не гладким шаром.
+  // Вдали гаснет: клок мельче точки экрана рябил бы.
+  float natFade = NAT_BUMP * ( 1.0 - smoothstep( 25.0, 60.0, length( vViewPosition ) ) );
+  if ( natFade > 0.0 ) {
+    vec3 sx = dFdx( - vViewPosition );
+    vec3 sy = dFdy( - vViewPosition );
+    vec2 dh = vec2( dFdx( natN ), dFdy( natN ) ) * natFade;
+    vec3 r1 = cross( sy, normal );
+    vec3 r2 = cross( normal, sx );
+    float det = dot( sx, r1 ) * faceDirection;
+    normal = normalize( abs( det ) * normal - sign( det ) * ( dh.x * r1 + dh.y * r2 ) );
+  }
+}
+#endif
 #ifdef NAT_ROOT
   // Травинка видна с обеих сторон, а светится одинаково: нормаль — вверх-наружу, без переворота изнанки.
   normal = normalize( vNormal );
@@ -116,6 +134,7 @@ export function natureMaterial(kind: NatureKind, u: SurfaceUniforms): THREE.Mesh
   if (kind === 'grass') mat.side = THREE.DoubleSide;
   mat.defines = {
     ...(kind === 'grass' ? { NAT_ROOT: '' } : {}),
+    ...(L.bump ? { NAT_BUMP: f(L.bump) } : {}),
     NAT_SWAY_FROM: f(L.swayFrom),
     NAT_SWAY_GAIN: f(L.swayGain),
     NAT_WRAP: f(L.wrap),
@@ -289,7 +308,8 @@ export function broadleaf(detail: Detail, seed: number, season: Season): { bark:
     const a = seed * 5 + i * 2.4;
     const rr = i === 0 ? 0 : 0.16 + 0.06 * rnd(seed, i);
     const y = i === 0 ? 0.72 : 0.6 + 0.2 * rnd(i, seed);
-    const r = 0.17 + 0.06 * rnd(seed + 3, i);
+    // Зимой листа нет: купа — голые ветви, меньше и темнее, снег ложится на них сверху.
+    const r = (0.17 + 0.06 * rnd(seed + 3, i)) * (season === 'winter' ? 0.72 : 1);
     puff(s, V(Math.cos(a) * rr, y, Math.sin(a) * rr), V(r * 1.2, r * 0.95, r * 1.2), color, seed + i, hi ? 8 : 6, center);
   }
   return finish(s);
@@ -330,7 +350,8 @@ export function birch(detail: Detail, seed: number, season: Season): { bark: THR
     const a = seed * 2 + i * 2.6;
     const rr = i === 0 ? 0 : 0.1 + 0.05 * rnd(seed, i + 9);
     const y = 0.56 + 0.22 * (i / puffs) + 0.05 * rnd(i, seed);
-    puff(s, V(center.x + Math.cos(a) * rr, y, Math.sin(a) * rr), V(0.12, 0.15, 0.12), color, seed + i * 3, hi ? 7 : 6, center);
+    const k = season === 'winter' ? 0.7 : 1;
+    puff(s, V(center.x + Math.cos(a) * rr, y, Math.sin(a) * rr), V(0.12 * k, 0.15 * k, 0.12 * k), color, seed + i * 3, hi ? 7 : 6, center);
   }
   return finish(s);
 }
@@ -382,13 +403,13 @@ const LEAF: Record<Season, { deep: number; mid: number; light: number }> = {
   spring: { deep: 0x3e6a30, mid: 0x6a9a3e, light: 0xa8cc6a },
   summer: { deep: 0x2c5428, mid: 0x4a7a34, light: 0x86a850 },
   autumn: { deep: 0x6a4a1e, mid: 0xb0742a, light: 0xe0b048 },
-  winter: { deep: 0x4a3e30, mid: 0x6a5a44, light: 0x8a7a60 },
+  winter: { deep: 0x2e2620, mid: 0x463a30, light: 0x5e5244 },
 };
 const BIRCH_LEAF: Record<Season, { deep: number; light: number }> = {
   spring: { deep: 0x4a7a30, light: 0xb4d470 },
   summer: { deep: 0x3e6a2e, light: 0x9ac05c },
   autumn: { deep: 0xa07a24, light: 0xf0c848 },
-  winter: { deep: 0x5a5040, light: 0x80705a },
+  winter: { deep: 0x3a3228, light: 0x5a4e40 },
 };
 
 /** Камень: шар с шумом, приплюснутый и наполовину в земле; сверху — мох. */
@@ -406,8 +427,8 @@ export function rock(seed: number, detail: Detail): THREE.BufferGeometry {
 
 /** Трава по сезону: корень, середина, кончик. Зимой — солома из-под снега. */
 const GRASS: Record<Season, { root: number; mid: number; tip: number }> = {
-  spring: { root: 0x3a5a24, mid: 0x6a9a3a, tip: 0xa8cc68 },
-  summer: { root: 0x34502a, mid: 0x5e8a36, tip: 0x9cba58 },
+  spring: { root: 0x34502a, mid: 0x5e8a3c, tip: 0x9cba66 },
+  summer: { root: 0x2e4626, mid: 0x547a38, tip: 0x8ca85a },
   autumn: { root: 0x4a4424, mid: 0x8a7a3a, tip: 0xc8b064 },
   winter: { root: 0x5a4a30, mid: 0x9a8458, tip: 0xd0bc8a },
 };
@@ -710,8 +731,8 @@ export function groundDisk(R: number, flat: number, paint: Paint, detail: Detail
 
 /** Земля по сезону: трава, сухая трава, лесная подстилка, вытоптанное, грязь. */
 export const SOIL: Record<Season, { lush: number; dry: number; litter: number; trodden: number; mud: number; moss: number }> = {
-  spring: { lush: 0x5e8a34, dry: 0x8a9a4a, litter: 0x5a4a30, trodden: 0x7a6a4a, mud: 0x5a4632, moss: 0x4a6a2a },
-  summer: { lush: 0x56802e, dry: 0x96944a, litter: 0x5a4a30, trodden: 0x86744e, mud: 0x5e4a34, moss: 0x46622a },
-  autumn: { lush: 0x7a7a34, dry: 0xa88a48, litter: 0x8a5a2a, trodden: 0x86704a, mud: 0x5a4632, moss: 0x5a6a2e },
+  spring: { lush: 0x527432, dry: 0x7c8448, litter: 0x564a32, trodden: 0x74664a, mud: 0x564634, moss: 0x44602c },
+  summer: { lush: 0x4b6c2e, dry: 0x86824c, litter: 0x564a32, trodden: 0x7e6e50, mud: 0x5a4a36, moss: 0x405a2c },
+  autumn: { lush: 0x6a6c36, dry: 0x96804a, litter: 0x7a5630, trodden: 0x7e6c4c, mud: 0x564634, moss: 0x52602e },
   winter: { lush: 0x8a8a6a, dry: 0xa89a76, litter: 0x6a5a44, trodden: 0x8a7a5e, mud: 0x5e5040, moss: 0x6a6a4a },
 };
