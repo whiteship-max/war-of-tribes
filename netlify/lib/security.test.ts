@@ -315,7 +315,10 @@ describe('платёж Telegram: счетов Telegram сервер не выс�
   function fakeTg() {
     const calls: string[] = [];
     const tg: Telegram = {
-      send: async () => 'ok',
+      letter: async () => ({ result: 'ok' }),
+      edit: async () => ({ result: 'ok' }),
+      panel: async () => 'ok',
+      repanel: async () => 'ok',
       answer: async () => 'ok',
       button: async () => 'ok',
       async say(chat, text) {
