@@ -26,7 +26,7 @@ import { cityAudio } from '@/sound/city';
 import { soundOn, subscribeSound } from '@/sound/settings';
 import { lootText, unitsText } from '@/ui/parts/reportWords';
 import type { BattleRecord, Report } from '@/world/types';
-import type { TwHud } from '@/render/tw/hud';
+import type { TwHud } from '@/render/reel/hud';
 import type { TwPlayer } from '@/render/tw/player';
 import type { BattleFx } from '@/sound/battlefx';
 import { freeTurn } from '@/orientation';

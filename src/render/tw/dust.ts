@@ -4,7 +4,7 @@
 // инстансом, один вызов на поле; разброс места и размера — от сида, без `Math.random`.
 import * as THREE from 'three';
 import { pushOf, separationOf, type TwPlan } from './plan';
-import { hash, heightAt } from './terrain';
+import { hash, heightAt } from '../reel/terrain';
 
 /** Клубов разом, не больше. */
 const CAP = 140;

@@ -17,7 +17,7 @@
 import type { Side } from '@/battle/types';
 import type { Quality } from '../quality';
 import { PARAPET, outOf, type TwWall } from './site';
-import { hash, heightAt } from './terrain';
+import { hash, heightAt } from '../reel/terrain';
 import type { TwPlan, TwUnit } from './plan';
 
 /** Куда лёг камень: в кладку, недолёт, перелёт в город, в шалаш логова. */

@@ -6,12 +6,12 @@ import type { BattleResult, Side } from '@/battle/types';
 import type { BattlePlace } from '@/game/battle/ground';
 import type { TroopStack } from '@/game/battle/kinds';
 import type { Quality } from '../quality';
-import { TW_SPEC } from './spec';
+import { TW_SPEC } from '../reel/spec';
 import { twPlanOfRecord } from './record';
 import { TwPlayer, type TwPlayerOptions } from './player';
 import type { TwOpening } from './site';
 
-export { hudAt, type TwHud } from './hud';
+export { hudAt, type TwHud } from '../reel/hud';
 export { CueClock, ambienceAt, cuesOf } from './cues';
 
 export interface TwRecord {

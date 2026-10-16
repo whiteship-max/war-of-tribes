@@ -11,7 +11,7 @@ import * as THREE from 'three';
 import { sidePaint } from '@/side';
 import type { TwSpec } from './spec';
 import { bakeLooks, frameRows, lookOf, type BakedLook, type BoneTexture } from './bake';
-import { CLIPS, type FigureFrame, type TwPlan } from './plan';
+import { CLIPS, type FigureFrame, type Troupe } from './troupe';
 
 /** Слой, который видит только камера тени: заместители тени бойцов. */
 export const SHADOW_LAYER = 1;
@@ -122,7 +122,7 @@ export class Crowd {
   private up = new THREE.Vector3(0, 1, 0);
 
   constructor(
-    private plan: TwPlan,
+    private plan: Troupe,
     spec: TwSpec,
   ) {
     this.group.name = 'tw-crowd';

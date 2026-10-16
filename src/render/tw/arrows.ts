@@ -6,7 +6,7 @@
 import * as THREE from 'three';
 import { PALETTE } from '../palette';
 import { ARROW_FLIGHT, aliveFigures, figurePose, figureState, targetOf, unitPose, volleysAt, type TwPlan } from './plan';
-import { hash, heightAt } from './terrain';
+import { hash, heightAt } from '../reel/terrain';
 import { standY } from './site';
 
 /** Стрела крупнее жизни: на общем виде залп должен читаться штрихами, а не пропадать. */

@@ -9,6 +9,7 @@
 // Тот же журнал — тот же ролик до фигуры: разброс места, роста, тона и фазы шага — от сида боя и номера фигуры
 // (`terrain.hash`), без `Math.random`.
 import type { TwBarrage } from './barrage';
+import { CLIP_INDEX, bearerOf, type ClipId, type FigureFrame } from '../reel/troupe';
 import { lossProgress, sectorLost, type Cast, type Face } from '@/battle/replay';
 import { UNIT_STATS } from '@/battle/config';
 import { FRONT, SECTORS, UNIT_KINDS, type BattleResult, type Lane, type Sector, type Side, type UnitKind } from '@/battle/types';
@@ -17,8 +18,8 @@ import { gearOfTroop } from '@/game/battle/kinds';
 import { TROOP_BY_ID } from '@/game/data/troops';
 import type { TroopId } from '@/game/types';
 import type { Quality } from '../quality';
-import { TW_SPEC } from './spec';
-import { hash, heightAt, inWater, type TwField } from './terrain';
+import { TW_SPEC } from '../reel/spec';
+import { hash, heightAt, inWater, type TwField } from '../reel/terrain';
 import {
   CLIMB_SPEED,
   GATEHOUSE,
@@ -885,7 +886,7 @@ export function buildPlan(input: PlanInput): TwPlan {
     let pos = 0;
     for (const f of stripes) for (let n = 0; n < f.n && pos < byCenter.length; n++) faceOf[byCenter[pos++]] = faceIndex(f.id, f.kind);
     // Гибель — по роду: у каждого рода свои потери в итоге боя, а темп — сектора.
-    const bearer = bearerAt(lx, lz, u);
+    const bearer = bearerOf({ lx, lz }, u);
     for (const pt of u.parts) {
       let mine = order.map((o) => o.i).filter((i) => faceIds[faceOf[i]].kind === pt.kind);
       // Совместный удар: доля рода из ворот — задние шеренги отряда (дружина встаёт передними), и гибнут обе части
@@ -1445,29 +1446,6 @@ function volleyTimes(plan: TwPlan, u: TwUnit): number[] {
 // ---------- Свой путь фигуры: резерв понемногу, обход, погоня ----------
 
 /**
- * Знаменосец отряда — фигура ближе всех к середине строя, во второй шеренге, если она есть. Одна дверь: знамя
- * (`banners.ts`) стоит над ним, а резерв и обход уводят его последним — знамя уходит с отрядом, а не с одиночкой.
- */
-export function bearerOf(plan: TwPlan, u: TwUnit): number {
-  return bearerAt(plan.lx, plan.lz, u);
-}
-
-/** Знаменосец по местам в строю — до того, как собран план (кто из ворот, выбирается мимо него). */
-function bearerAt(lx: Float32Array, lz: Float32Array, u: TwUnit): number {
-  const want = -Math.min(1, u.ranks - 1) * (u.depth / Math.max(1, u.ranks - 1));
-  let best = u.first;
-  let bestD = Infinity;
-  for (let i = u.first; i < u.first + u.figures; i++) {
-    const d = Math.abs(lx[i]) + Math.abs(lz[i] - want);
-    if (d < bestD) {
-      bestD = d;
-      best = i;
-    }
-  }
-  return best;
-}
-
-/**
  * Пустить фигуру своим путём с секунды `at`: от того места, где она в этот миг (строй отряда или прежний путь), по дуге
  * через `bend` к месту `x1, z1`, со скоростью `speed`; там она смотрит по `yaw1`. `bend` — null: дуга прямая.
  */
@@ -1906,10 +1884,6 @@ export function aliveFigures(plan: TwPlan, u: TwUnit, t: number): number {
 
 // ---------- Движение ----------
 
-/** Что делает фигура: запечённые клипы (`bake.ts`). Порядок — номер клипа в текстуре. */
-export type ClipId = 'idle' | 'march' | 'run' | 'guard' | 'strike' | 'shoot' | 'fall';
-export const CLIPS: readonly ClipId[] = ['idle', 'march', 'run', 'guard', 'strike', 'shoot', 'fall'];
-
 /** Положение отряда на секунде `t`: где середина передней шеренги, куда смотрит, что делает. */
 export interface UnitPose {
   x: number;
@@ -2194,32 +2168,6 @@ function perchPose(plan: TwPlan, u: TwUnit, t: number): UnitPose {
   const clip: ClipId = fire ? 'shoot' : fighting ? 'guard' : 'idle';
   return { x: u.x, z, yaw: u.yaw, clip, rate: 1, flee: 0, fleeRun: 0, loose: fighting ? 1.15 : 1, fighting: fighting && waver < 0.5, waver, funnel: 0 };
 }
-
-/** Кадр фигур: место, разворот, клип и время клипа — плоскими массивами, без мусора. */
-export interface FigureFrame {
-  x: Float32Array;
-  y: Float32Array;
-  z: Float32Array;
-  yaw: Float32Array;
-  clip: Uint8Array;
-  time: Float32Array;
-  /** Фигура видна: павшие лежат и видны; бежавшие за край поля гаснут. */
-  shown: Uint8Array;
-}
-
-export function figureFrame(n: number): FigureFrame {
-  return {
-    x: new Float32Array(n),
-    y: new Float32Array(n),
-    z: new Float32Array(n),
-    yaw: new Float32Array(n),
-    clip: new Uint8Array(n),
-    time: new Float32Array(n),
-    shown: new Uint8Array(n),
-  };
-}
-
-const CLIP_INDEX: Record<ClipId, number> = { idle: 0, march: 1, run: 2, guard: 3, strike: 4, shoot: 5, fall: 6 };
 
 /** Положение одной фигуры — для кадра и для места павшего. */
 export interface FigureState {

@@ -112,14 +112,14 @@ const LAZY_DOORS: { name: string; door: RegExp; owns: RegExp[] }[] = [
   {
     name: 'ролик о бое',
     door: /\/src\/ui\/battle\/BattleReplay\.tsx$/,
-    owns: [/\/src\/ui\/battle\/BattleReplay\.tsx$/, /\/src\/battle\/replay\.ts$/, /\/src\/render\/battle\//, /\/src\/game\/battle\/(cast|ground)\.ts$/],
+    owns: [/\/src\/ui\/battle\/BattleReplay\.tsx$/, /\/src\/battle\/replay\.ts$/, /\/src\/game\/battle\/(cast|ground)\.ts$/],
   },
   {
-    // Ролик боя в стиле Total War (docs/battle_tw.md): за переключателем `?battle=tw` и на стенде `?replay=tw` —
-    // свой кусок, в кусок прежнего ролика он не едет.
+    // Ролик боя в стиле Total War (docs/battle_tw.md) и его общий модуль (`render/reel`, docs/gfx.md: бойцы, земля, свет,
+    // камера, журнал → ролик) — свой кусок по «Смотреть бой» и на стенде `?replay=tw`; в первую загрузку не едет.
     name: 'ролик TW',
     door: /\/src\/render\/tw\/(play|stand)\.ts$/,
-    owns: [/\/src\/render\/tw\//],
+    owns: [/\/src\/render\/tw\//, /\/src\/render\/reel\//],
   },
   {
     // Звуки боя ролика TW (docs/battle_tw.md, «Звук») — своя докачка: тянет её только ролик TW после первого кадра, в
@@ -161,7 +161,7 @@ const LAZY_DOORS: { name: string; door: RegExp; owns: RegExp[] }[] = [
   {
     // Сцена игры — город (docs/city.md, «Город — единственный вид»): `main.tsx` везёт его кусок до игры,
     // в первую загрузку он не входит; стенд города — тем же куском. Окружение посёлка (`render/env`) ушло с
-    // посёлком; луг ролика взял своё в `render/battle/` — кусок ролика.
+    // посёлком; луг ролика взял своё в `render/reel/` — кусок ролика.
     name: 'город: стенд',
     door: /\/src\/render\/city\/stand\.ts$/,
     owns: [/\/src\/render\/city\//],

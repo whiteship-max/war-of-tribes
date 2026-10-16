@@ -7,12 +7,11 @@
 import * as THREE from 'three';
 import { CITY } from '../city/palette';
 import { PALETTE, seasonColor, type PaletteKey } from '../palette';
-import { envShared, vegMaterial, type EnvShared } from '../battle/veg';
-import { treeModel } from '../battle/flora';
+import { envShared, vegMaterial, type EnvShared } from './veg';
+import { treeModel } from './flora';
 import type { TwSpec } from './spec';
 import { WATER_Y, hash, heightAt, smoothstep, vnoise, type TwField } from './terrain';
-import type { TwPlan } from './plan';
-import { siteBlocks, siteGround } from './site';
+import type { Side } from '@/battle/types';
 
 /**
  * Краски земли: город и карта TW — одна гамма (`CITY` — трава, сухая трава, земля; вода — по глубине, как
@@ -80,6 +79,27 @@ const plateRect = (f: TwField): Rect => ({ halfX: f.halfX + PLATE_MARGIN, minZ: 
 const inside = (r: Rect, x: number, z: number): number =>
   smoothstep(0, EDGE_FADE, Math.min(r.halfX - Math.abs(x), z - r.minZ, r.maxZ - z));
 
+/**
+ * Что место боя (стена, город, лагерь, логово — план места, `tw/site.ts`) говорит земле: где утоптано и мощёно, где
+ * деревьев нет, где чаща логова. У поля места нет — `null`.
+ */
+export interface LandSite {
+  ground(x: number, z: number): { dirt: number; cobble: number };
+  blocks(x: number, z: number): boolean;
+  /** Логово — в лесу: чаща кольцом вокруг этого прямоугольника лагеря. */
+  lair: { x0: number; x1: number; z0: number; z1: number } | null;
+}
+
+/** Земля боя: поле плана места, где стоят строи на построении, и место боя. Её собирает план места. */
+export interface LandInput {
+  field: TwField;
+  /** Где стоит передняя шеренга стороны на построении: земля там чуть вытоптана. */
+  deployZ: Record<Side, number>;
+  /** Строй на построении: деревья леса-штрафа между отрядами не встают. */
+  units: readonly { x: number; z: number; width: number; depth: number; ours: boolean }[];
+  site: LandSite | null;
+}
+
 export interface FieldView {
   group: THREE.Group;
   /** Треугольников земли, воды и деревьев — сверке бюджета. */
@@ -90,9 +110,10 @@ export interface FieldView {
 
 const C = new THREE.Color();
 const C2 = new THREE.Color();
+const NO_SITE = { dirt: 0, cobble: 0 };
 
 /** Цвет земли в точке: трава пятнами, вытоптанное там, где стоят и сходятся строи, ил у воды, снег зимой. */
-function groundColor(f: TwField, plan: TwPlan, x: number, z: number, y: number, out: THREE.Color, detail = 1): THREE.Color {
+function groundColor(f: TwField, plan: LandInput, x: number, z: number, y: number, out: THREE.Color, detail = 1): THREE.Color {
   // Вся пестрота плиты гаснет к её краю до крупных пятен, которые грубая подстилка держит так же: шва нет.
   const far = vnoise(x / 70, z / 70, f.seed + 20);
   const n1 = far + (vnoise(x / 9, z / 9, f.seed + 21) - far) * detail;
@@ -111,7 +132,7 @@ function groundColor(f: TwField, plan: TwPlan, x: number, z: number, y: number, 
   const tramp = Math.max(contact, deploy) * across * smoothstep(0.25, 0.6, n1 + n2 * 0.4) * detail;
   out.lerp(C2.set(TONE.dirt), tramp * 0.7);
   // Место боя: утоптанная земля города и лагеря, мостовая улицы и площади.
-  const g = siteGround(plan.site, x, z);
+  const g = plan.site?.ground(x, z) ?? NO_SITE;
   if (g.dirt > 0) out.lerp(C2.set(TONE.dirt), g.dirt * (0.55 + 0.25 * n2));
   if (g.cobble > 0) out.lerp(C2.set(n1 > 0.5 ? TONE.cobbleWarm : TONE.cobble), g.cobble * 0.7);
   if (f.road) {
@@ -142,7 +163,7 @@ function groundColor(f: TwField, plan: TwPlan, x: number, z: number, y: number, 
 }
 
 /** Плита поля: сетка высот с цветом в вершинах. */
-function plate(f: TwField, plan: TwPlan, cells: number): THREE.BufferGeometry {
+function plate(f: TwField, plan: LandInput, cells: number): THREE.BufferGeometry {
   const r = plateRect(f);
   const w = r.halfX * 2;
   const d = r.maxZ - r.minZ;
@@ -170,7 +191,7 @@ function plate(f: TwField, plan: TwPlan, cells: number): THREE.BufferGeometry {
 }
 
 /** Подстилка до горизонта. Внутри поля она уходит вниз — плита закрывает её без зазора и без мерцания. */
-function skirt(f: TwField, plan: TwPlan): THREE.BufferGeometry {
+function skirt(f: TwField, plan: LandInput): THREE.BufferGeometry {
   const geo = new THREE.PlaneGeometry(SKIRT_HALF * 2, SKIRT_HALF * 2, SKIRT_CELLS, SKIRT_CELLS);
   geo.rotateX(-Math.PI / 2);
   const pos = geo.attributes.position;
@@ -248,7 +269,7 @@ interface TreeSpot {
  * Где стоят деревья. Лес (`woods`) — стеной по флангам и перелеском за обороной; без леса — редкие купы у края,
  * чтобы горизонт не был пуст. Строй, путь сближения и река — чистые.
  */
-function treeSpots(f: TwField, plan: TwPlan, cap: number): TreeSpot[] {
+function treeSpots(f: TwField, plan: LandInput, cap: number): TreeSpot[] {
   const out: TreeSpot[] = [];
   const armyHalf = f.halfX - 34;
   const want = f.woods ? cap : Math.round(cap * 0.35);
@@ -269,7 +290,7 @@ function treeSpots(f: TwField, plan: TwPlan, cap: number): TreeSpot[] {
     if (f.river && Math.abs(z - f.river.z) < f.river.half + 2.5) continue;
     if (f.road && Math.abs(x - (7 + Math.sin(z / 30 + f.seed) * 5)) < 3) continue;
     // Город за стеной и лагерь — без деревьев.
-    if (siteBlocks(plan.site, x, z)) continue;
+    if (plan.site?.blocks(x, z)) continue;
     out.push({ x, z, s: 2.2 + hash(f.seed, i, 34) * 1.4, rot: hash(f.seed, i, 35) * Math.PI * 2, tall: clump > 0.5 });
   }
   // Штраф за лес: нападающий стоит в лесу — деревья за его строем, между отрядами и по флангам, не на людях.
@@ -291,7 +312,7 @@ function treeSpots(f: TwField, plan: TwPlan, cap: number): TreeSpot[] {
     }
   }
   // Логово — в лесу: чаща кольцом за частоколом и по бокам, к полю — опушка (docs/battle_tw.md, раздел 13).
-  const c = plan.site?.kind === 'lair' ? plan.site.camp : null;
+  const c = plan.site?.lair ?? null;
   if (c) {
     const front = Math.abs(c.z0) < Math.abs(c.z1) ? c.z0 : c.z1;
     const dir = Math.sign(c.z1 + c.z0) || 1;
@@ -308,7 +329,8 @@ function treeSpots(f: TwField, plan: TwPlan, cap: number): TreeSpot[] {
   return out;
 }
 
-export function buildField(f: TwField, spec: TwSpec, plan: TwPlan): FieldView {
+export function buildField(plan: LandInput, spec: TwSpec): FieldView {
+  const f = plan.field;
   const group = new THREE.Group();
   group.name = 'tw-field';
   // Один белый Ламберт, весь цвет — в вершинах: общие материалы игры сцена боя не трогает.
@@ -397,7 +419,7 @@ export function buildField(f: TwField, spec: TwSpec, plan: TwPlan): FieldView {
     }
   }
 
-  // Деревья — модели прежнего ролика (`battle/flora.ts`) и его материал листвы (ветер, снег), инстансами.
+  // Деревья — модели прежнего ролика (`reel/flora.ts`) и его материал листвы (ветер, снег), инстансами.
   const shared: EnvShared = envShared();
   shared.snow.value = f.winter ? 1 : 0;
   const color = (key: PaletteKey): THREE.Color => new THREE.Color(f.winter ? seasonColor('winter', key) : PALETTE[key]);

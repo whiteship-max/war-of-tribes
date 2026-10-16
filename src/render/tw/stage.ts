@@ -1,24 +1,26 @@
 // Сцена ролика TW: поле, свет, толпа, знамёна, стрелы (docs/battle_tw.md, раздел 8). Своих решений о бое у неё нет:
 // кто где стоит и когда падает — режиссура (`plan.ts`); здесь кадр раскладывается по объектам three.
 import * as THREE from 'three';
-import { buildSky, setupFieldScene } from '../battle/field';
+import { buildSky, setupFieldScene } from '../reel/light';
 import { fitShadow, type LightRig } from '../lighting';
-import type { TwSpec } from './spec';
+import type { TwSpec } from '../reel/spec';
 import { Arrows } from './arrows';
-import { Banners } from './banners';
-import { Crowd, SHADOW_LAYER } from './crowd';
+import { Banners } from '../reel/banners';
+import { Crowd, SHADOW_LAYER } from '../reel/crowd';
 import { Dust } from './dust';
 import { buildFort, type FortView } from './fort';
-import { buildField, fogFor, type FieldView } from './field';
-import { OVERVIEW_PITCH, overview, type CamBounds, type CamState, type TacticalCamera } from './camera';
-import { figureFrame, poseFigures, unitPose, type FigureFrame, type TwPlan } from './plan';
-import { heightAt } from './terrain';
+import { buildField, fogFor, type FieldView, type LandInput } from '../reel/land';
+import { OVERVIEW_PITCH, overview, type CamBounds, type CamState, type TacticalCamera } from '../reel/camera';
+import { poseFigures, unitPose, type TwPlan } from './plan';
+import { figureFrame, type FigureFrame } from '../reel/troupe';
+import { heightAt } from '../reel/terrain';
+import { siteBlocks, siteGround } from './site';
 import { Siegeworks } from './siegeworks';
 
 /** Лампа стоит так далеко от цели по своему направлению; коробка теней — от расстояния камеры. */
 const SUN_DIST = 160;
 const SHADOW_HALF = { min: 28, max: 110, perDist: 0.6 };
-/** Небо — купол прежнего ролика (`battle/field.buildSky`, радиус 150), растянутый до горизонта поля. */
+/** Небо — купол прежнего ролика (`reel/light.buildSky`, радиус 150), растянутый до горизонта поля. */
 const SKY_SCALE = 7;
 
 export class TwStage {
@@ -51,7 +53,7 @@ export class TwStage {
     this.sky.scale.setScalar(SKY_SCALE);
     this.sky.renderOrder = -1;
     this.scene.add(this.sky);
-    this.field = buildField(plan.field, spec, plan);
+    this.field = buildField(landOf(plan), spec);
     this.scene.add(this.field.group);
     this.crowd = new Crowd(plan, spec);
     this.scene.add(this.crowd.group);
@@ -148,4 +150,21 @@ export class TwStage {
     this.rig.sun.shadow.map?.dispose();
     this.scene.clear();
   }
+}
+
+/** Земля плана места: поле, строи на построении и что место боя говорит земле (`site.ts`). */
+export function landOf(plan: TwPlan): LandInput {
+  const site = plan.site;
+  return {
+    field: plan.field,
+    deployZ: plan.deployZ,
+    units: plan.units,
+    site: site
+      ? {
+          ground: (x, z) => siteGround(site, x, z),
+          blocks: (x, z) => siteBlocks(site, x, z),
+          lair: site.kind === 'lair' ? site.camp : null,
+        }
+      : null,
+  };
 }

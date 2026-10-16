@@ -11,9 +11,9 @@ import { Builder, box, tint } from '../city/geom';
 import { log } from '../city/kit';
 import type { Quality } from '../quality';
 import { MERLON_STEP, geometryOf, m } from './fort';
-import type { Crowd, CrowdExtras } from './crowd';
+import type { Crowd, CrowdExtras } from '../reel/crowd';
 import { PARAPET, type TwWall } from './site';
-import { hash, heightAt } from './terrain';
+import { hash, heightAt } from '../reel/terrain';
 import type { TwPlan } from './plan';
 import { BREACH_BAND, ENGINE, FALL_TIME, armAngle, breachColumns, chunkFall, stoneAt, winching, type TwBarrage, type TwEngine, type TwStone } from './barrage';
 

@@ -3,8 +3,8 @@
 // снаружи (в игре его одалживает сцена, на стенде — стенд), как у прежнего ролика (`battle/player.ts`).
 import * as THREE from 'three';
 import { FrameLoop } from '../loop';
-import type { TwSpec } from './spec';
-import { TacticalCamera, overview, type CamState } from './camera';
+import type { TwSpec } from '../reel/spec';
+import { TacticalCamera, overview, type CamState } from '../reel/camera';
 import { TwStage } from './stage';
 import { twToCast, type TwPlan } from './plan';
 import type { TwBarrage } from './barrage';

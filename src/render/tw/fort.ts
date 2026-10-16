@@ -29,7 +29,7 @@ import {
 } from './site';
 import { unitPose, type TwPlan } from './plan';
 import { BREACH_BAND, breachColumns } from './barrage';
-import { heightAt } from './terrain';
+import { heightAt } from '../reel/terrain';
 
 /** Средний тон слоя набора города (sRGB): то, во что слой красит тон вершины, если смотреть издали. */
 const LAYER_TONE: Record<(typeof LAYERS)[number], number> = {

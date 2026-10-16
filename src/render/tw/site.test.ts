@@ -5,7 +5,8 @@ import { standBattle } from '../battle-stand';
 import { FRONT_WIDTH } from '@/battle/config';
 import { MAN_HEIGHT } from '../units';
 import { twPlanOfRecord } from './record';
-import { SALLY_OUT, SALLY_START, bearerOf, figureFrame, figurePose, figureState, poseFigures, type TwPlan } from './plan';
+import { SALLY_OUT, SALLY_START, figurePose, figureState, poseFigures, type TwPlan } from './plan';
+import { bearerOf, figureFrame } from '../reel/troupe';
 import { cuesOf } from './cues';
 import { CITY_M, SITE_KINDS, inWallBody, outOf, siteKindOf, type TwSiteKind } from './site';
 

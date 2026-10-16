@@ -17,11 +17,11 @@ import { groundName, hourName } from '@/game/battle/ground';
 import { configureRenderer } from '../lighting';
 import { nextFrame, pixelRatio } from '../loop';
 import { qualityOf } from '../quality';
-import { TW_BUDGET, TW_SPEC } from './spec';
+import { TW_BUDGET, TW_SPEC } from '../reel/spec';
 import { twPlanOfRecord } from './record';
 import { TwPlayer } from './player';
 import { ADVANCE_FROM, type TwPlan } from './plan';
-import { OVERVIEW_PITCH, type CamState } from './camera';
+import { OVERVIEW_PITCH, type CamState } from '../reel/camera';
 import { CueClock, ambienceAt, cuesOf } from './cues';
 import type { BattleFx } from '@/sound/battlefx';
 

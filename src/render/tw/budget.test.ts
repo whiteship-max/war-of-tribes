@@ -7,9 +7,9 @@ import * as THREE from 'three';
 import { QUALITIES, type Quality } from '../quality';
 import { standBattle } from '../battle-stand';
 import { twPlanOfRecord } from './record';
-import { TW_BUDGET, TW_SPEC } from './spec';
+import { TW_BUDGET, TW_SPEC } from '../reel/spec';
 import { TwStage } from './stage';
-import { SHADOW_LAYER } from './crowd';
+import { SHADOW_LAYER } from '../reel/crowd';
 
 interface Count {
   calls: number;

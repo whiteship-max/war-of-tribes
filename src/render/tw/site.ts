@@ -5,7 +5,7 @@
 // Ядро стен не знает: бой у стены — полевой бой (docs/siege.md), и место ему даёт показ по метке записи
 // (`BattleRecord.site`). Отсюда правило: место меняет, **где** стоят и **как** идут, но не **кто** и **когда** падает —
 // потери, слом и бегство остаются журнальными (`site.test.ts`, «место не меняет темпа потерь»).
-import { hash, heightAt, type TwField } from './terrain';
+import { hash, heightAt, type TwField } from '../reel/terrain';
 
 /**
  * Место боя — те же строки, что `BattleRecord.site` мира (`world/types.ts`). Своим типом: показ мира не читает

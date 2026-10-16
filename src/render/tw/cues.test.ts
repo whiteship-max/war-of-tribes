@@ -5,7 +5,8 @@ import { standBattle } from '../battle-stand';
 import { twPlanOfRecord } from './record';
 import { ARROW_FLIGHT } from './plan';
 import { CueClock, ambienceAt, cuesOf } from './cues';
-import { figureFrame, poseFigures } from './plan';
+import { poseFigures } from './plan';
+import { figureFrame } from '../reel/troupe';
 
 const planOf = (q: string) => {
   const b = standBattle(new URLSearchParams(q));

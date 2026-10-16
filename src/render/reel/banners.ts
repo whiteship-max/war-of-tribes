@@ -12,7 +12,7 @@ import * as THREE from 'three';
 import type { UnitKind } from '@/battle/types';
 import { PALETTE } from '../palette';
 import { SIDE_CLOTH } from './crowd';
-import { bearerOf, type FigureFrame, type TwPlan, type TwUnit } from './plan';
+import { bearerOf, type FigureFrame, type Troupe, type TroupeUnit } from './troupe';
 
 /** Высота древка и размер полотнища, метры сцены: выше копий (копьё — 1.4 роста, `SPEAR_LEN`). */
 const POLE = 3.3;
@@ -117,7 +117,7 @@ export class Banners {
   private kit: THREE.InstancedMesh;
   private cloth: THREE.InstancedMesh;
   private ban: THREE.InstancedBufferAttribute;
-  private units: TwUnit[];
+  private units: TroupeUnit[];
   private bearer: Int32Array;
   private time = { value: 0 };
   private m = new THREE.Matrix4();
@@ -126,7 +126,7 @@ export class Banners {
   private v = new THREE.Vector3();
   private s = new THREE.Vector3();
 
-  constructor(private plan: TwPlan) {
+  constructor(private plan: Troupe) {
     this.group.name = 'tw-banners';
     this.units = plan.units.filter((u) => u.banner !== null);
     const n = Math.max(1, this.units.length);

@@ -8,7 +8,7 @@ import { TROOP_IDS } from '@/game/data/troops';
 import { RELATION_META } from '@/world/data/meta';
 import { STANDING_META } from '@/world/data/diplomacy';
 import { FELL_MARK, PARTY_FOE, PARTY_OWN } from '@/ui/map/palette';
-import { SIDE_CLOTH } from '@/render/tw/crowd';
+import { SIDE_CLOTH } from '@/render/reel/crowd';
 import { Figure } from '@/render/figures';
 import { PALETTE } from '@/render/palette';
 import { dressSoldier, gearTier } from '@/render/units';
@@ -130,7 +130,7 @@ describe('цвет стороны: второй правды нет', () => {
   });
 
   it('прежний синий стороны в бою не живёт: ни ролики, ни их полоса не берут краску палитры за сторону', () => {
-    const battle = sources().filter((s) => /^(render\/battle|render\/tw|ui\/battle)\//.test(s.path) || s.path === 'render/units.ts' || s.path === 'render/showcase.ts');
+    const battle = sources().filter((s) => /^(render\/reel|render\/tw|ui\/battle)\//.test(s.path) || s.path === 'render/units.ts' || s.path === 'render/showcase.ts');
     // Область правила не пуста: оба ролика и одевание бойца на месте.
     expect(battle.length).toBeGreaterThan(20);
     for (const s of battle) expect(/paint(Blue|Red)/.test(s.text), s.path).toBe(false);

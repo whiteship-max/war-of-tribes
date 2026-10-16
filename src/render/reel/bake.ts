@@ -17,7 +17,7 @@ import { BEAT, poseFigure } from '../poses';
 import { FOLK_KINDS, dressSoldier, dressVillager } from '../units';
 import { CANINE_NECK, WOLF_DARK, darker, dressCanine, poseCanine, wolfLook } from '../beasts';
 import { FOLK_TINT } from '../palette';
-import { CLIPS, type ClipId } from './plan';
+import { CLIPS, type ClipId } from './troupe';
 
 /** Цвет-метка «здесь цвет стороны»: его нет в палитре, и спутать его не с чем. */
 const SENTINEL = 0x0f1e2d;
@@ -55,9 +55,9 @@ export interface ClipSpec {
 
 /** Длительности клипов. Шаг, удар — циклы игры (`poses.BEAT`); стойка и упор — период их дыхания. */
 const CLIP_SECONDS: Record<'man' | 'horse' | 'beast', Record<ClipId, number>> = {
-  man: { idle: (Math.PI * 2) / 1.7, march: BEAT.walk, run: 0.5, guard: (Math.PI * 2) / 2.1, strike: BEAT.strike, shoot: 3, fall: 0.9 },
-  horse: { idle: (Math.PI * 2) / 1.7, march: BEAT.walk, run: 0.46, guard: (Math.PI * 2) / 2.1, strike: BEAT.strike, shoot: 3, fall: 0.9 },
-  beast: { idle: (Math.PI * 2) / 0.7, march: (Math.PI * 2) / 13, run: 0.32, guard: (Math.PI * 2) / 3, strike: (Math.PI * 2) / 6, shoot: (Math.PI * 2) / 3, fall: 0.9 },
+  man: { idle: (Math.PI * 2) / 1.7, march: BEAT.walk, run: 0.5, guard: (Math.PI * 2) / 2.1, strike: BEAT.strike, shoot: 3, fall: 0.9, cheer: 1.1 },
+  horse: { idle: (Math.PI * 2) / 1.7, march: BEAT.walk, run: 0.46, guard: (Math.PI * 2) / 2.1, strike: BEAT.strike, shoot: 3, fall: 0.9, cheer: 1.1 },
+  beast: { idle: (Math.PI * 2) / 0.7, march: (Math.PI * 2) / 13, run: 0.32, guard: (Math.PI * 2) / 3, strike: (Math.PI * 2) / 6, shoot: (Math.PI * 2) / 3, fall: 0.9, cheer: (Math.PI * 2) / 0.7 },
 };
 
 /** Один вид, запечённый: меш в системе суставов и где его кадры в общей текстуре. */
@@ -116,6 +116,8 @@ function poseClip(f: Figure, look: Look, clip: ClipId, t: number, seconds: numbe
         return poseCanine(f, 'lunge', t);
       case 'fall':
         return poseCanine(f, 'fall', t, Math.min(1, t / seconds));
+      case 'cheer':
+        return poseCanine(f, 'stand', t);
     }
   }
   switch (clip) {
@@ -166,6 +168,20 @@ function poseClip(f: Figure, look: Look, clip: ClipId, t: number, seconds: numbe
       f.down = Math.min(1, t / seconds);
       poseFigure(f, 'fall', t);
       break;
+    case 'cheer': {
+      // Победа: оружие вскинуто над головой и качается в такт крику, вторая рука — вполвысоты, корпус чуть назад.
+      poseFigure(f, 'stand', t);
+      const pulse = 0.5 + 0.5 * Math.sin((t / seconds) * Math.PI * 2);
+      f.armMain = -2.45 - 0.4 * pulse;
+      f.elbowMain = 0.15 + 0.25 * (1 - pulse);
+      f.armOff = -0.9 - 0.3 * pulse;
+      f.armSpread = 0.22;
+      f.elbowOff = 0.5;
+      f.torsoTilt = -0.06 - 0.04 * pulse;
+      f.headNod = -0.18;
+      f.bob = 0.012 * pulse;
+      break;
+    }
   }
   return 0;
 }

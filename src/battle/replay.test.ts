@@ -113,16 +113,16 @@ const sample = (cast: Cast, step = 1 / 30): number[] => {
   return out;
 };
 
-/** Исходники модуля визуализации: сам режиссёр и весь проигрыватель. */
+/** Исходники модуля визуализации: сам режиссёр и общий модуль ролика (`render/reel`, docs/gfx.md) целиком. */
 function sources(): { file: string; code: string }[] {
   const out = [{ file: 'battle/replay.ts', code: readFileSync(join(SRC, 'battle/replay.ts'), 'utf8') }];
   out.push({ file: 'game/battle/faces.ts', code: readFileSync(join(SRC, 'game/battle/faces.ts'), 'utf8') });
   out.push({ file: 'game/battle/ground.ts', code: readFileSync(join(SRC, 'game/battle/ground.ts'), 'utf8') });
-  const dir = join(SRC, 'render/battle');
+  const dir = join(SRC, 'render/reel');
   for (const name of readdirSync(dir)) {
     if (!name.endsWith('.ts') && !name.endsWith('.tsx')) continue;
     if (name.endsWith('.test.ts')) continue;
-    out.push({ file: `render/battle/${name}`, code: readFileSync(join(dir, name), 'utf8') });
+    out.push({ file: `render/reel/${name}`, code: readFileSync(join(dir, name), 'utf8') });
   }
   return out;
 }

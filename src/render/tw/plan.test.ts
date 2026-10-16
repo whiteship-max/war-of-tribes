@@ -7,7 +7,7 @@ import { QUALITIES, type Quality } from '../quality';
 import { STAND_GROUND, standBattle } from '../battle-stand';
 import { GROUND_CROSSING, GROUND_LAND, GROUND_RIDGE } from '@/world/place';
 import { twPlanOfRecord } from './record';
-import { TW_SPEC } from './spec';
+import { TW_SPEC } from '../reel/spec';
 import { FRONT_WIDTH, UNIT_STATS } from '@/battle/config';
 import {
   CONTACT_HALF,
@@ -17,15 +17,14 @@ import {
   GALLOP_SPEED,
   WAVER_SECONDS,
   advanceOf,
-  bearerOf,
   pushOf,
   aliveFigures,
-  figureFrame,
   poseFigures,
   ratioOf,
   unitPose,
   type TwPlan,
 } from './plan';
+import { bearerOf, figureFrame } from '../reel/troupe';
 
 /** Число людей боя, записанное при W 128, — в той же глубине строя при нынешнем W. */
 const atW = (men: number): number => Math.round((men * FRONT_WIDTH) / 128);

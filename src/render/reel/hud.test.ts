@@ -1,7 +1,7 @@
 // Полоса ролика TW: фаза с кругом и мораль армий из журнала (docs/battle_tw.md, раздел 4).
 import { describe, expect, it } from 'vitest';
 import { standBattle } from '../battle-stand';
-import { twPlanOfRecord } from './record';
+import { twPlanOfRecord } from '../tw/record';
 import { fullMorale, hudAt } from './hud';
 
 const battle = standBattle(new URLSearchParams('replay=tw&men=600&foe=560&seed=7&place=woods,road&hour=10'));
