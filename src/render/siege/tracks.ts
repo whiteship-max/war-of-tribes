@@ -139,6 +139,9 @@ export function poseAt(tr: Tracks, i: number, t: number, phase: number, out: Tra
     out.y = a.y;
     out.yaw = a.yaw;
   }
-  out.time = a.clip === 'fall' ? Math.max(0, t - a.t) : t + phase;
+  // Гибель — с первого ключа падения подряд: летит со стены и лежит у подножия одним клипом, а не встаёт на втором ключе.
+  let from = k;
+  while (a.clip === 'fall' && from > 0 && list[from - 1].clip === 'fall') from--;
+  out.time = a.clip === 'fall' ? Math.max(0, t - list[from].t) : t + phase;
   return out;
 }

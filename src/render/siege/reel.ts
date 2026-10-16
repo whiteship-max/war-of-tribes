@@ -333,23 +333,39 @@ function cast(c: Ctx, n: ReturnType<typeof headcount>): Troupe {
     const z = lay.yard.z + Math.floor(j / cols) * 1.0;
     home(c, i, x, z, 'idle', FACE_OUT);
   });
-  // Лагерь: дозор у рогаток лицом к стене, остальные — у костров и шатров.
+  // Лагерь: дозор у рогаток лицом к стене; прочие — кольцами у костров (по шесть) и кучками у шатров (по трое), а кому
+  // места не хватило — строем между рогатками и шатрами, лицом к стене: лагерь войска, а не толпа у одного огня.
   const camp = lay.camp;
   const guards = Math.round(c.groups.camp.length * 0.32);
+  const rest: { x: number; z: number; yaw: number; clip: ClipId }[] = [];
+  camp.fires.forEach((f, fi) => {
+    for (let a = 0; a < 6; a++) {
+      const ang = a * 1.05 + fi;
+      const x = f.x + Math.cos(ang) * 1.7;
+      const z = f.z + Math.sin(ang) * 1.7;
+      rest.push({ x, z, yaw: Math.atan2(f.x - x, f.z - z), clip: 'idle' });
+    }
+  });
+  camp.tents.forEach((tt, ti) => {
+    for (let j = 0; j < 3; j++) {
+      const ang = r(c, ti, j, 15) * Math.PI * 2;
+      const d = tt.size + 1.1 + j * 0.5;
+      rest.push({ x: tt.x + Math.cos(ang) * d, z: tt.z + Math.sin(ang) * d, yaw: r(c, ti, j, 16) * Math.PI * 2, clip: 'idle' });
+    }
+  });
+  rest.sort((a, b) => hash(c.seed, Math.round(a.x * 10), Math.round(a.z * 10)) - hash(c.seed, Math.round(b.x * 10), Math.round(b.z * 10)));
+  let drill = 0;
   c.groups.camp.forEach((i, j) => {
     if (j < guards) {
       const x = -26 + ((j + 0.5) / guards) * 52 + (r(c, j, 1, 11) - 0.5) * 0.6;
       home(c, i, x, STAKES_Z - 2.2 - (j % 2) * 1.1, 'guard', FACE_IN);
       return;
     }
-    const fires = camp.fires.length > 0 ? camp.fires : [{ x: 0, z: -40 }];
-    const f = fires[j % fires.length];
-    const around = Math.floor(j / fires.length);
-    const a = around * 1.1 + r(c, j, 2, 12) * 0.5;
-    const rad = 1.6 + (around % 3) * 0.9;
-    const x = f.x + Math.cos(a) * rad;
-    const z = f.z + Math.sin(a) * rad;
-    home(c, i, x, z, 'idle', Math.atan2(f.x - x, f.z - z));
+    const sp = rest[j - guards];
+    if (sp) return home(c, i, sp.x, sp.z, sp.clip, sp.yaw);
+    const row = Math.floor(drill / 16);
+    home(c, i, -12 + (drill % 16) * 1.6, STAKES_Z - 6 - row * 1.3, 'idle', FACE_IN);
+    drill++;
   });
   // Народ города — на площади, пока не нужен, его не видно.
   c.groups.folk.forEach((i, j) => {
@@ -619,9 +635,12 @@ function key(c: Ctx, at: number, b: TwCamKey['box'], yaw: number, pitch: number)
   c.cam.push({ at, box: b, yaw, pitch });
 }
 
-/** Общий план: лагерь и стена вместе, из-за лагеря. */
-function wide(c: Ctx, at: number, yaw = 0.35, pitch = 0.5): void {
-  key(c, at, box(-38, 38, -54, c.lay.wall ? 10 : 20), yaw, pitch);
+/**
+ * Общий план: стена и ворота из-за лагеря — шатры на переднем плане. Рамки — под портрет телефона: по горизонтали в кадре
+ * 30°, и рамка шире тридцати метров уводит камеру за сотню — люди в точку (ГФ-1, `camera.fovOf`).
+ */
+function wide(c: Ctx, at: number, yaw = 0.3, pitch = 0.42): void {
+  key(c, at, box(-17, 17, -16, c.lay.wall ? 6 : 16), yaw, pitch);
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -635,8 +654,8 @@ function pitch(c: Ctx, t0: number, len: number): void {
     c.tr.go(i, t0 + 0.4 + j * 0.3, t0 + 2.6 + j * 0.3, x, STAKES_Z - 1.4, 'march', 'strike', FACE_IN);
     goHome(c, i, t0 + 3.8 + j * 0.2, t0 + len - 0.3);
   });
-  key(c, t0, box(-40, 40, -58, 10), 0.42, 0.52);
-  key(c, t0 + 3.2, box(-30, 30, -32, 6), 0.12, 0.38);
+  key(c, t0, box(-14, 14, -10, 6), 0.24, 0.32);
+  key(c, t0 + 3.4, box(-14, 14, -42, -24), -0.45, 0.32);
 }
 
 function fire(c: Ctx, t0: number, len: number): void {
@@ -658,8 +677,8 @@ function fire(c: Ctx, t0: number, len: number): void {
   });
   volleyOfArrows(c, archersOf(c, t0).slice(0, 10), t0 + 1.2, 0, STAKES_Z - 2, 30);
   const g = c.lay.spots.gun;
-  key(c, t0, box(g.x - 10, g.x + 10, -6, g.z + 8), Math.PI + 0.35, 0.42);
-  key(c, t0 + 2.6, box(-22, 22, -52, -26), Math.PI + 0.2, 0.4);
+  key(c, t0, box(g.x - 8, g.x + 8, -2, g.z + 6), Math.PI + 0.35, 0.4);
+  key(c, t0 + 2.6, box(-14, 14, -48, -30), Math.PI + 0.2, 0.36);
 }
 
 function machines(c: Ctx, t0: number, len: number, ids: ShowMachine[]): void {
@@ -682,8 +701,9 @@ function machines(c: Ctx, t0: number, len: number, ids: ShowMachine[]): void {
   if (xs.length === 0) return;
   const x0 = Math.min(...xs) - 7;
   const x1 = Math.max(...xs) + 7;
-  key(c, t0, box(x0, x1, Math.min(...zs) - 6, Math.max(...zs) + 4), 0.62, 0.3);
-  key(c, t0 + 2.6, box(x0 - 4, x1 + 4, Math.min(...zs) - 4, 4), 0.25, 0.4);
+  const mx = (Math.min(...xs) + Math.max(...xs)) / 2;
+  key(c, t0, box(Math.max(x0, mx - 14), Math.min(x1, mx + 14), Math.min(...zs) - 5, Math.max(...zs) + 4), 0.62, 0.3);
+  key(c, t0 + 2.6, box(mx - 16, mx + 16, Math.min(...zs) - 3, 2), 0.25, 0.36);
 }
 
 /** Чем бьют в эту фазу: камнемёт лагеря, требушет обстрела (залп). */
@@ -718,9 +738,12 @@ function breachEp(c: Ctx, t0: number, len: number, p: ShowPhase, before: number)
   if (fell) collapse(c, n, at);
   // Стрелки отвечают по машинам и подкопу.
   volleyOfArrows(c, archersOf(c, t0).slice(0, 8), t0 + 1.2, tx, -18, 14);
-  key(c, t0, box(-30, 30, -40, 4), 0.45, 0.46);
-  key(c, t0 + 2.2, box(br.x - 8, br.x + 8, -9, 3), 0.38, 0.42);
-  key(c, Math.max(t0 + 3.6, at - 1.1), box(br.x - 6, br.x + 6, -7, 3), -0.32, 0.38);
+  // Сначала машины, что бьют (или лагерь, где копают), потом стена у пролома и обвал вплотную.
+  const eng = guns.length > 0 ? c.engines[guns[0]] : null;
+  if (eng) key(c, t0, box(eng.x - 12, eng.x + 12, eng.z - 6, eng.z + 10), 0.42, 0.3);
+  else key(c, t0, box(br.x - 12, br.x + 12, -24, -8), 0.3, 0.32);
+  key(c, t0 + 2.2, box(br.x - 9, br.x + 9, -8, 3), 0.3, 0.34);
+  key(c, Math.max(t0 + 3.6, at - 1.1), box(br.x - 7, br.x + 7, -6, 2), -0.35, 0.3);
   return at;
 }
 
@@ -737,8 +760,8 @@ function volleyEp(c: Ctx, t0: number, p: ShowPhase): void {
       smokeAt(c, h.x, h.z, s.at + s.flight, 0.8, s.at + s.flight + 14, heightAt(c.lay.field, h.x, h.z) + 2.2);
     }
   });
-  key(c, t0, box(-26, 26, -40, 6), 0.4, 0.46);
-  key(c, t0 + 2.2, box(-14, 22, -8, 16), 0.3, 0.5);
+  key(c, t0, box(-14, 14, -40, -24), 0.4, 0.34);
+  key(c, t0 + 2.2, box(-12, 12, -6, 14), 0.3, 0.46);
 }
 
 function repair(c: Ctx, t0: number, len: number, n: number): void {
@@ -752,7 +775,7 @@ function repair(c: Ctx, t0: number, len: number, n: number): void {
     c.tr.go(i, t0, t0 + 1.2, br.x + (j - 2) * 1.2, w.thick + 0.9, 'run', 'strike', FACE_OUT);
     goHome(c, i, t0 + len - 0.8, t0 + len + LAPSE * 0.6);
   }
-  key(c, t0, box(br.x - 8, br.x + 8, -4, 8), Math.PI + 0.3, 0.42);
+  key(c, t0, box(br.x - 7, br.x + 7, -3, 8), Math.PI + 0.3, 0.4);
 }
 
 function plague(c: Ctx, t0: number, len: number, p: ShowPhase): void {
@@ -769,8 +792,8 @@ function plague(c: Ctx, t0: number, len: number, p: ShowPhase): void {
   const cz = c.lay.camp.z0 + 4;
   smokeAt(c, -10, cz, t0 + 0.4, 1, t0 + len + 4);
   smokeAt(c, 12, cz - 3, t0 + 1.1, 0.8, t0 + len + 4);
-  key(c, t0, box(-18, 18, -56, -30), 0.25, 0.34);
-  key(c, t0 + 2.4, box(-14, 14, -52, -36), -0.35, 0.3);
+  key(c, t0, box(-14, 14, -54, -34), 0.25, 0.32);
+  key(c, t0 + 2.4, box(-10, 10, -50, -38), -0.4, 0.28);
 }
 
 /** Истощение без эпизода: доля лагеря тихо уходит между эпизодами. */
@@ -793,7 +816,7 @@ function short(c: Ctx, t0: number, len: number): void {
     if (j % 3 === 0) c.tr.act(i, t0 + 1.2, 'guard');
     c.tr.hide(i, t0 + len + 0.2);
   });
-  key(c, t0, box(-16, 16, 10, 42), 0, 0.62);
+  key(c, t0, box(-12, 12, 14, 36), 0, 0.58);
 }
 
 /** Вылазка: из ворот к машине или к рогаткам, бой, назад. */
@@ -831,9 +854,9 @@ function sortie(c: Ctx, t0: number, len: number, f: ShowFight): void {
   }
   for (const i of guard) if (c.alive[i]) goHome(c, i, end + 0.3, t0 + len + 0.5);
   volleyOfArrows(c, archersOf(c, t0).slice(0, 12), t0 + 2.2, tx, tz - 6, 10);
-  key(c, t0, box(gx - 10, gx + 10, tz - 4, 8), Math.PI - 0.25, 0.5);
-  key(c, t0 + 2.6, box(tx - 9, tx + 9, tz - 7, tz + 6), Math.PI / 2 + 0.25, 0.32);
-  key(c, t0 + 5.2, box(-20, 20, tz - 10, 6), 0.3, 0.46);
+  key(c, t0, box(gx - 9, gx + 9, Math.max(tz, -16), 6), Math.PI - 0.25, 0.46);
+  key(c, t0 + 2.6, box(tx - 8, tx + 8, tz - 6, tz + 6), Math.PI / 2 + 0.25, 0.3);
+  key(c, t0 + 5.2, box(-14, 14, tz - 6, 6), 0.3, 0.42);
 }
 
 /** Удар по лагерю из поля — полководец, выручка союзника; совместный — ещё и гарнизон из ворот (клещи). */
@@ -872,9 +895,9 @@ function relief(c: Ctx, t0: number, len: number, f: ShowFight): void {
     for (const i of field) c.tr.hide(i, t0 + len + 0.1);
   }
   for (const i of back) if (c.alive[i]) goHome(c, i, t0 + 6, t0 + len + 0.6);
-  key(c, t0, box(-20, 20, -104, -60), 0.1, 0.42);
-  key(c, t0 + 3, box(-18, 18, rearZ - 8, rearZ + 8), Math.PI / 2 - 0.3, 0.34);
-  if (f.site === 'joint') key(c, t0 + 5, box(-24, 24, rearZ - 6, 4), 0.4, 0.52);
+  key(c, t0, box(-14, 14, -100, -76), 0.1, 0.38);
+  key(c, t0 + 3, box(-14, 14, rearZ - 8, rearZ + 8), Math.PI / 2 - 0.3, 0.32);
+  if (f.site === 'joint') key(c, t0 + 5, box(-16, 16, rearZ - 2, 2), 0.4, 0.5);
 }
 
 /** Штурм: таран к воротам, башня к стене, лестницы, лезут на ход. Отбитый — откатываются; взявший — город наш. */
@@ -889,8 +912,8 @@ function assault(c: Ctx, t0: number, len: number, won: boolean, use: ReadonlySet
     if (won) for (const i of def.slice(0, Math.ceil(def.length * 0.6))) die(c, i, t0 + 3.6 + r(c, i, 12, 31) * 2.4);
     else for (const i of attackers.slice(0, Math.ceil(attackers.length * 0.3))) die(c, i, t0 + 3.6 + r(c, i, 13, 32) * 2, t0 + len + LAPSE);
     if (!won) for (const i of attackers) if (c.alive[i]) goHome(c, i, t0 + 6, t0 + len + 0.6, 'run');
-    key(c, t0, box(-26, 26, -30, lair.z1), 0.25, 0.46);
-    key(c, t0 + 3, box(-18, 18, lair.z0 - 8, lair.z0 + 6), 0.5, 0.34);
+    key(c, t0, box(-16, 16, -12, lair.z1), 0.25, 0.42);
+    key(c, t0 + 3, box(-14, 14, lair.z0 - 8, lair.z0 + 6), 0.5, 0.32);
     return;
   }
   const attackers = c.groups.camp.filter((i) => c.alive[i]).slice(0, Math.round(c.groups.camp.length * 0.75));
@@ -961,10 +984,11 @@ function assault(c: Ctx, t0: number, len: number, won: boolean, use: ReadonlySet
     for (const i of attackers.slice(0, Math.ceil(attackers.length * 0.3))) die(c, i, climbAt - 0.6 + r(c, i, 15, 34) * 2.4, t0 + len + LAPSE);
     for (const i of attackers) if (c.alive[i]) goHome(c, i, t0 + len - 2.2, t0 + len + 0.8, 'run');
   }
-  key(c, t0, box(-34, 34, -34, 4), 0.05, 0.42);
-  if (use.has('gate')) key(c, t0 + 2.8, box(-9, 9, -12, 4), 0.55, 0.32);
-  key(c, t0 + 4.4, box(-30, 30, -10, 4), -0.42, 0.38);
-  if (won && c.gateBroken !== null) key(c, c.gateBroken - 0.4, box(-8, 8, -8, 10), 0.3, 0.4);
+  key(c, t0, box(-16, 16, -22, 2), 0.08, 0.36);
+  if (use.has('gate')) key(c, t0 + 2.8, box(-8, 8, -11, 3), 0.55, 0.3);
+  const lx0 = ladderX.length ? Math.min(...ladderX) : -16;
+  key(c, t0 + 4.4, box(Math.max(-22, lx0 - 4), Math.max(-22, lx0 - 4) + 26, -9, 3), -0.42, 0.34);
+  if (won && c.gateBroken !== null) key(c, c.gateBroken - 0.4, box(-8, 8, -7, 10), 0.3, 0.38);
 }
 
 const breachesUp = (c: Ctx, t: number): number =>
@@ -1013,9 +1037,9 @@ function surrender(c: Ctx, t0: number, len: number): void {
     const inn = passGate(c, i, at, 1.7, false, ((j % 3) - 1) * 0.8, 'march');
     c.tr.go(i, inn, inn + 2.4, gx + ((j % 4) - 1.5) * 1.6, lay.square.z - 4 + Math.floor(j / 4), 'march', 'cheer', FACE_IN);
   });
-  key(c, t0, box(gx - 12, gx + 12, -16, 7), 0.2, 0.3);
-  key(c, t0 + 3.6, box(-44, 10, -28, 6), 0.8, 0.42);
-  key(c, t0 + len * 0.62, box(gx - 10, gx + 10, -8, 26), 0.1, 0.5);
+  key(c, t0, box(gx - 10, gx + 10, -14, 6), 0.22, 0.3);
+  key(c, t0 + 3.2, box(gx - 16, gx + 2, -22, 0), 0.62, 0.32);
+  key(c, t0 + len * 0.62, box(gx - 9, gx + 9, -6, 24), 0.1, 0.46);
 }
 
 /** Голод: ворота настежь, гарнизон расходится в поле, лагерь входит в пустой город. */
@@ -1052,9 +1076,9 @@ function hunger(c: Ctx, t0: number, len: number): void {
     const inn = passGate(c, i, at, 1.7, false, ((j % 3) - 1) * 0.8, 'march');
     c.tr.go(i, inn, inn + 2.2, gx + ((j % 4) - 1.5) * 1.6, lay.square.z - 4 + Math.floor(j / 4), 'march', 'cheer', FACE_IN);
   });
-  key(c, t0, box(-36, 36, -40, 10), 0.3, 0.5);
-  key(c, t0 + 2.4, box(gx - 14, gx + 14, -14, 6), -0.2, 0.36);
-  key(c, t0 + len * 0.55, box(gx - 10, gx + 10, -8, 26), 0.1, 0.5);
+  key(c, t0, box(-16, 16, -18, 8), 0.3, 0.44);
+  key(c, t0 + 2.4, box(gx - 12, gx + 12, -12, 6), -0.2, 0.34);
+  key(c, t0 + len * 0.55, box(gx - 9, gx + 9, -6, 24), 0.1, 0.46);
 }
 
 /** Лагерь разбит: бегут в поле, шатры горят, на стене ликуют. */
@@ -1069,8 +1093,8 @@ function broken(c: Ctx, t0: number, len: number): void {
   }
   for (const [j, tt] of camp.tents.slice(0, 4).entries()) smokeAt(c, tt.x, tt.z, t0 + 0.8 + j * 0.5, 0.9);
   for (const i of [...c.groups.wall, ...c.groups.field]) if (c.alive[i] && c.tr.standing(i, t0)) c.tr.act(i, t0 + 2, 'cheer');
-  key(c, t0, box(-34, 34, -70, -20), Math.PI + 0.3, 0.5);
-  key(c, t0 + 3, box(-40, 40, -100, 6), Math.PI + 0.1, 0.56);
+  key(c, t0, box(-16, 16, -56, -26), Math.PI + 0.3, 0.44);
+  key(c, t0 + 3, box(-18, 18, -92, -40), Math.PI + 0.1, 0.5);
 }
 
 /** Лагерь растаял или ушёл: уцелевшие уходят в поле. */
@@ -1083,8 +1107,8 @@ function leave(c: Ctx, t0: number, len: number, pyres: boolean): void {
     c.alive[i] = 0;
   });
   if (pyres) smokeAt(c, 4, c.lay.camp.z0 + 3, t0 + 0.3, 0.8, t0 + len + 2);
-  key(c, t0, box(-30, 30, -70, -10), 0.05, 0.48);
-  key(c, t0 + 2.4, box(-26, 26, -110, -40), 0.2, 0.52);
+  key(c, t0, box(-16, 16, -58, -26), 0.05, 0.42);
+  key(c, t0 + 2.4, box(-16, 16, -104, -60), 0.2, 0.46);
 }
 
 /** Телеги дани или добычи: из ворот к лагерю (у выкупа логова — от частокола к нашему лагерю). */
@@ -1112,8 +1136,8 @@ function tribute(c: Ctx, t0: number, len: number, kind: 'paid' | 'ransom'): void
     c.tr.hide(i, at + 4);
     c.alive[i] = 0;
   });
-  key(c, t0, box(-12, 12, -14, 8), 0.25, 0.34);
-  key(c, t0 + 2.8, box(-24, 24, -40, 4), 0.45, 0.44);
+  key(c, t0, box(-10, 10, -14, 8), 0.25, 0.32);
+  key(c, t0 + 2.8, box(-14, 14, -36, -6), 0.45, 0.4);
 }
 
 /** Участь взятого города: обоз с добром, колонна уведённых, город в огне. */
@@ -1142,8 +1166,8 @@ function fate(c: Ctx, t0: number, len: number): void {
     const h = lay.site.houses[c.seed % Math.max(1, lay.site.houses.length)];
     if (h) smokeAt(c, h.x, h.z, t0 + 0.5, 0.6, t0 + len + 4, heightAt(lay.field, h.x, h.z) + 2.2);
   }
-  key(c, t0, box(-26, 26, -12, 40), 0.2, 0.55);
-  key(c, t0 + 2.8, box(-30, 30, -50, 10), 0.6, 0.46);
+  key(c, t0, box(-16, 16, 0, 34), 0.2, 0.5);
+  key(c, t0 + 2.8, box(-16, 16, -40, 0), 0.6, 0.42);
 }
 
 // ---------------------------------------------------------------------------------------------------------------------

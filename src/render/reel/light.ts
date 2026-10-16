@@ -116,6 +116,101 @@ export function setupFieldScene(scene: THREE.Scene, ground: Ground): LightRig {
   return rig;
 }
 
+/**
+ * Свет сцены на новый час (ролик осады, docs/gfx.md, ГФ-2: сутки идут между эпизодами — ночь и рассвет). Тот же расчёт, что у
+ * `setupFieldScene`, на уже собранном риге; ночью — луна рига (`applyDayNight`), тёплой поправки края дуги нет: она для
+ * солнца. Ролик боя света не меняет — у него один час на бой.
+ */
+export function relight(rig: LightRig, scene: THREE.Scene, ground: Ground): void {
+  const season = ground.winter ? 'winter' : 'spring';
+  applyDayNight(
+    rig,
+    scene,
+    ground.solar,
+    {
+      sky: new THREE.Color(seasonColor(season, 'sky')),
+      fog: new THREE.Color(seasonColor(season, 'fog')),
+      sun: new THREE.Color(seasonColor(season, 'sunDay')),
+      sunArc: SUN_ARC * (ground.winter ? 0.8 : 1),
+    },
+    SUN_AZIMUTH,
+    RIG.next,
+  );
+  // Тёплая поправка — на светлой дуге и в предрассветной четверти; глубокой ночью её нет.
+  if (ground.solar <= 0.5 || ground.solar >= 0.94) lowSun(rig, scene, ground);
+}
+
+const SKY_VERT = /* glsl */ `
+varying vec3 vTwDir;
+`;
+const SKY_FRAG = /* glsl */ `
+varying vec3 vTwDir;
+uniform vec3 uTwZenith;
+uniform vec3 uTwHorizon;
+uniform vec3 uTwWarm;
+uniform vec2 uTwSun;
+uniform float uTwGlow;
+uniform float uTwStars;
+float twStar(vec3 d) {
+  vec3 p = floor(d * 160.0);
+  float h = fract(sin(dot(p, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
+  return step(0.9975, h);
+}
+`;
+const SKY_COLOR = /* glsl */ `
+vec3 twD = normalize(vTwDir);
+float twT = clamp(twD.y, 0.0, 1.0);
+vec3 twC = mix(uTwHorizon, uTwZenith, twT * twT * (3.0 - 2.0 * twT));
+float twFlat = max(1e-4, length(twD.xz));
+float twToward = max(0.0, dot(twD.xz / twFlat, uTwSun));
+twC = mix(twC, uTwWarm, min(1.0, uTwGlow * twToward * twToward * (1.0 - twT) * (1.0 - twT)));
+twC += vec3(0.85, 0.88, 1.0) * twStar(twD) * uTwStars * smoothstep(0.08, 0.35, twD.y);
+diffuseColor = vec4(twC, 1.0);
+`;
+
+/**
+ * Купол неба, который меняет час на ходу (ролик осады): тот же градиент, что у `buildSky` — зенит от фона сцены, горизонт
+ * от дымки, тёплое пятно в стороне солнца, — но цвета в униформах, а не в вершинах; ночью — звёзды. `update` берёт цвета у
+ * сцены после `relight`.
+ */
+export function buildLiveSky(): { mesh: THREE.Mesh; update(scene: THREE.Scene, ground: Ground): void } {
+  const geo = new THREE.SphereGeometry(SKY_R, 32, 14, 0, Math.PI * 2, 0, Math.PI * 0.6);
+  geo.deleteAttribute('uv');
+  geo.deleteAttribute('normal');
+  const uni = {
+    uTwZenith: { value: new THREE.Color() },
+    uTwHorizon: { value: new THREE.Color() },
+    uTwWarm: { value: new THREE.Color() },
+    uTwSun: { value: new THREE.Vector2(Math.sin(SUN_AZIMUTH), Math.cos(SUN_AZIMUTH)) },
+    uTwGlow: { value: 0 },
+    uTwStars: { value: 0 },
+  };
+  const mat = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.BackSide, depthWrite: false, fog: false });
+  mat.name = 'battle-sky-live';
+  mat.onBeforeCompile = (sh) => {
+    Object.assign(sh.uniforms, uni);
+    sh.vertexShader = SKY_VERT + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\nvTwDir = position;');
+    sh.fragmentShader = SKY_FRAG + sh.fragmentShader.replace('#include <color_fragment>', '#include <color_fragment>\n' + SKY_COLOR);
+  };
+  mat.customProgramCacheKey = () => 'battle-sky-live';
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.name = 'sky';
+  mesh.frustumCulled = false;
+  return {
+    mesh,
+    update(scene: THREE.Scene, ground: Ground): void {
+      uni.uTwZenith.value.copy(scene.background as THREE.Color).multiplyScalar(ZENITH_MUL);
+      uni.uTwHorizon.value.copy((scene.fog as THREE.Fog).color).multiplyScalar(HORIZON_MUL);
+      const night = ground.solar > 0.5 && ground.solar < 1;
+      const low = night ? 0 : Math.min(1, Math.abs(ground.solar - 0.25) / 0.25);
+      uni.uTwWarm.value.set(seasonColor(ground.winter ? 'winter' : 'spring', 'sunDay')).lerp(C2.set(PALETTE.sunDusk), low);
+      uni.uTwGlow.value = GLOW * low * low;
+      // Звёзды — глубокой ночью, гаснут к рассвету и закату.
+      uni.uTwStars.value = night ? Math.max(0, Math.sin(((ground.solar - 0.5) / 0.5) * Math.PI)) : 0;
+    },
+  };
+}
+
 /** Тёплое солнце края дуги: см. `LOW`. Правит уже настроенный риг и цвета сцены. */
 function lowSun(rig: LightRig, scene: THREE.Scene, ground: Ground): void {
   const low = Math.min(1, Math.abs(ground.solar - 0.25) / 0.25);
@@ -249,7 +344,7 @@ diffuseColor = vec4(twC, twA * 0.9);
  * Облака над полем: купол, кучевые шумом в шейдере, свет — от солнца сцены (освещённые тёплые края на низком солнце,
  * серое брюхо). Один вызов; текстур нет. Идёт за камерой, как небо (`TwStage.apply`).
  */
-export function buildClouds(scene: THREE.Scene, ground: Ground, rig: LightRig): { mesh: THREE.Mesh; update(t: number): void } {
+export function buildClouds(scene: THREE.Scene, ground: Ground, rig: LightRig): { mesh: THREE.Mesh; update(t: number): void; relight(scene: THREE.Scene, ground: Ground, rig: LightRig): void } {
   const geo = new THREE.SphereGeometry(CLOUD_R, 32, 10, 0, Math.PI * 2, 0, Math.PI * 0.5);
   geo.deleteAttribute('uv');
   const low = Math.min(1, Math.abs(ground.solar - 0.25) / 0.25);
@@ -272,6 +367,13 @@ export function buildClouds(scene: THREE.Scene, ground: Ground, rig: LightRig): 
     mesh,
     update(t: number): void {
       uni.uTwTime.value = t + ground.seed % 97;
+    },
+    // Час сменился (ролик осады): верх — от солнца или луны рига, брюхо — от фона сцены.
+    relight(sc: THREE.Scene, g: Ground, r: LightRig): void {
+      const night = g.solar > 0.5 && g.solar < 1;
+      const lw = night ? 0 : Math.min(1, Math.abs(g.solar - 0.25) / 0.25);
+      lit.set(night ? 0x8a93a8 : 0xf6f2ea).lerp(r.sun.color, 0.35 + 0.35 * lw);
+      shade.copy(sc.background as THREE.Color).multiplyScalar(0.78).lerp(C2.set(night ? 0x2a3040 : 0x8c8f99), 0.4);
     },
   };
 }

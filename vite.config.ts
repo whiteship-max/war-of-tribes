@@ -122,6 +122,18 @@ const LAZY_DOORS: { name: string; door: RegExp; owns: RegExp[] }[] = [
     owns: [/\/src\/render\/tw\//, /\/src\/render\/reel\//],
   },
   {
+    // Ролик осады (docs/gfx.md, ГФ-2): слой игры и сцена — свои куски по «Смотреть осаду» и ролику фазы в донесении; общее с
+    // роликом боя (`render/reel`, кирпичики места `render/tw`) — в общем куске. В первую загрузку не едет.
+    name: 'ролик осады',
+    door: /\/src\/ui\/battle\/SiegeReplay\.tsx$/,
+    owns: [/\/src\/ui\/battle\/SiegeReplay\.tsx$/],
+  },
+  {
+    name: 'сцена осады',
+    door: /\/src\/render\/siege\/(play|stand)\.ts$/,
+    owns: [/\/src\/render\/siege\//],
+  },
+  {
     // Звуки боя ролика TW (docs/battle_tw.md, «Звук») — своя докачка: тянет её только ролик TW после первого кадра, в
     // кусок ролика и в первую загрузку она не едет.
     name: 'звук боя TW',

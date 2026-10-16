@@ -72,6 +72,9 @@ const CAMP = 'replay=tw&site=camp&men=500&foe=420&seed=6&hour=12';
 const JOINT = 'replay=tw&site=joint&men=600&foe=420&seed=6&hour=12';
 const LAIR = 'replay=tw&site=lair&men=300&foe=220&seed=8&place=woods&hour=17';
 
+/** Ролик осады (docs/gfx.md, ГФ-2): осады-образцы стенда `?replay=siege&case=…` (`render/siege/stand.ts`). */
+const SIEGE = (c: string, at: string): string => `replay=siege&case=${c}&at=${at}`;
+
 interface Shot {
   name: string;
   query: string;
@@ -144,6 +147,30 @@ const SHOTS: Shot[] = [
   { name: 'bombard-engine', query: `${WALL}&shots=3&at=loose&cam=engine`, why: 'требушет вблизи: рычаг вскинут, расчёт у ворота' },
   { name: 'bombard-lair', query: `${LAIR}&shots=2&at=impact`, why: 'обстрел логова: камни в шалаши, дым' },
   { name: 'bombard-lair-top', query: `${LAIR}&shots=2&at=smoke&cam=top`, why: 'обстрел логова сверху: куда легли камни, дым над шалашами' },
+  // Ролик осады (docs/gfx.md, ГФ-2): эпизоды по журналу фаз, свет — час осады.
+  { name: 'siege-pitch', query: SIEGE('gates', 'pitch@0.25'), why: 'осада: лагерь встал под стенами — шатры, рогатки, костры; гарнизон на стене' },
+  { name: 'siege-machines', query: SIEGE('storm', 'machines:2@0.7'), why: 'осада: машины готовы — таран у дороги, лестницы рядами, расчёт' },
+  { name: 'siege-breach', query: SIEGE('gates', 'breach:4@0.8'), why: 'осада: пролом — камень камнемёта рушит кусок кладки, облако до земли' },
+  { name: 'siege-breach-wide', query: SIEGE('gates', 'breach:2@0.35'), why: 'осада: камнемёт и требушет бьют по стене, камни дугой' },
+  { name: 'siege-fire', query: SIEGE('hunger', 'fire@0.55'), why: 'осада: орудие города бьёт по лагерю, шатёр горит, ночь' },
+  { name: 'siege-plague', query: SIEGE('hunger', 'plague@0.6'), why: 'осада: мор в лагере ночью — слёгшие, погребальные костры' },
+  { name: 'siege-sortie', query: SIEGE('hunger', 'sortie@0.55'), why: 'осада: вылазка из ворот на камнемёт — бой у машины' },
+  { name: 'siege-sortie-burn', query: SIEGE('hunger', 'sortie@0.85'), why: 'осада: вылазка сожгла камнемёт — огонь и дым, вышедшие уходят воротами' },
+  { name: 'siege-repair', query: SIEGE('repair', 'repair@0.7'), why: 'осада: пролом заделывают изнутри — леса, кладка встаёт' },
+  { name: 'siege-gates', query: SIEGE('gates', 'gates@0.45'), why: 'осада: сдача — ворота настежь, гарнизон уходит колонной, лагерь коридором' },
+  { name: 'siege-gates-enter', query: SIEGE('gates', 'gates@0.92'), why: 'осада: лагерь входит в город воротами' },
+  { name: 'siege-fate', query: SIEGE('gates', 'fate@0.7'), why: 'осада: участь «ограбить» — обоз с добром из ворот к лагерю' },
+  { name: 'siege-storm', query: SIEGE('storm', 'storm@0.5'), why: 'осада: штурм — таран в ворота, башня к стене, лестницы' },
+  { name: 'siege-storm-late', query: SIEGE('storm', 'storm@0.9'), why: 'осада: ворота выбиты, лезут на ход' },
+  { name: 'siege-burn', query: SIEGE('hunger', 'fate@0.85'), why: 'осада: голод и участь «сжечь» — город в огне и дыму' },
+  { name: 'siege-wood', query: SIEGE('broken', 'breach@0.85'), why: 'осада: частокол из брёвен второго уровня — пролом в брёвнах' },
+  { name: 'siege-broken', query: SIEGE('broken', 'broken@0.7'), why: 'осада: лагерь разбит клещами — шатры горят, бегут в поле' },
+  { name: 'siege-paid', query: SIEGE('paid', 'paid@0.5'), why: 'осада: дань — телеги из ворот к лагерю' },
+  { name: 'siege-lair', query: SIEGE('lair', 'fate@0.7'), why: 'осада логова: частокол и шалаши в огне' },
+  { name: 'siege-wide', query: `${SIEGE('storm', 'pitch@0.2')}&cam=wide`, why: 'осада сверху: замок девятого уровня — башни чаще и выше' },
+  { name: 'siege-ui-breach', query: `${SIEGE('gates', 'breach:4@0.8')}&layer=1`, why: 'ролик осады слоем игры: фаза, проломы, строка журнала фазы' },
+  { name: 'siege-ui-gates', query: `${SIEGE('gates', 'gates@0.45')}&layer=1`, why: 'сдача слоем игры: подпись — донесение' },
+  { name: 'siege-ui-card', query: `${SIEGE('gates', 'gates')}&layer=1&at=card`, why: 'итог осады: фазы, проломы, машины, добыча' },
 ];
 
 const DEFAULT_SHOTS = ['deploy', 'volley', 'clash', 'clash-near', 'ford-clash'];
@@ -153,6 +180,7 @@ const BENCH_BATTLES: Record<string, { query: string; why: string }> = {
   field: { query: FIELD, why: 'полевой бой 600 на 560, опушка и тракт' },
   wall: { query: WALL, why: 'штурм стены 420 на 560: лестницы, таран, город' },
   joint: { query: JOINT, why: 'совместный удар 600 на 420: гарнизон из ворот' },
+  siege: { query: 'replay=siege&case=storm', why: 'ролик осады: штурм машинами (с пролома второй фазы)' },
 };
 const BENCH = process.env.BENCH === '1';
 const BENCH_SECONDS = Number(process.env.SECONDS ?? 8);
