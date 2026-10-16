@@ -48,6 +48,13 @@ export const STAGE2 = [
   'parts/SiegePhases.tsx',
   'next/HallGives.tsx',
   'parts/TownHall.tsx',
+  // UI-8 (docs/ui_v2.md, 5.7): «Что даёт городу» таблицей, «Мораль» одной таблицей цели, «Порядок» вкладками, Дозор и храм.
+  'next/gives.ts',
+  'next/morale.ts',
+  'panels/OrderPanel.tsx',
+  'parts/Watch.tsx',
+  'parts/Temple.tsx',
+  'parts/AgentPlaces.tsx',
 ];
 
 /**

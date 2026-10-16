@@ -7,7 +7,8 @@
 //
 // Своих чисел нет: цена, срок, места и что даст уровень — `upgradeInfo`, `buildRate`, `upgradeGains`
 // (правило 18). Отмена стройки — двумя касаниями одной кнопки (3.10): первое превращает её в «Точно?». Под стройкой —
-// «Ускорить 💎N» (`Rush.tsx`, docs/gems.md).
+// «Ускорить 💎N» (`Rush.tsx`, docs/gems.md) — единственная копия ускорения (Д5, docs/ui_v2.md, 5.7): ярлык у лесов и
+// лист ратуши ведут сюда.
 import { type ReactNode } from 'react';
 import type { Building } from '@/game/types';
 import { useGame } from '@/game/store';
@@ -43,8 +44,10 @@ import { gainText, spareSlotsHelp, upgradeGains, type UpgradeGain } from '@/ui/p
 import { tipAt } from './tip';
 import { buildingTip, workerTip } from './buildingTips';
 import { Confirm } from './Confirm';
-import { TradeLine } from './Trades';
-import { MINIGAMES } from '@/game/data/minigames';
+import { MINIGAMES, MINIGAME_BY_ID, MINIGAME_COST, type MinigameId } from '@/game/data/minigames';
+import { Row } from '@/ui/kit/Row';
+import { goTo } from '@/ui/kit/nav';
+import { WINDOW, sourceWord } from '@/ui/kit/sources';
 import { RushButton } from './Rush';
 
 /** Кнопка «Точно?» живёт своим модулем (`Confirm.tsx`): ею пользуются и держава, и найм. */
@@ -144,12 +147,28 @@ export function BuildingNew({ id, data }: { id: number; data: (b: Building) => R
       {isOutsideWall(b.type) && <div className="nx-bwarn">Двор стоит за стеной. Прорвавшийся набег разгонит людей.</div>}
 
       <WorkerRow b={b} gains={gains} />
-      {/* Промысел этого двора — игра у своего двора (docs/minigames.md, 3). */}
+      {/* Промысел этого двора — строкой-дверью в окно «Промыслы» (Д6, docs/ui_v2.md, 5.7): игра, её добыча и энергия — там,
+          одной копией; здесь — что это за игра и куда идти. */}
       {MINIGAMES.filter((g) => g.yard === b.type).map((g) => (
-        <TradeLine key={g.id} id={g.id} />
+        <TradeLink key={g.id} id={g.id} />
       ))}
       {data(b)}
     </div>
+  );
+}
+
+/** Промысел двора — строка-дверь в «Промыслы»: имя игры, её цена в энергии и куда идти. */
+function TradeLink({ id }: { id: MinigameId }) {
+  const def = MINIGAME_BY_ID[id];
+  return (
+    <Row
+      icon={{ name: `mini-${id}`, glyph: def.glyph }}
+      label={`Промысел: ${def.name}`}
+      sub={def.goal}
+      value={`✋ ${MINIGAME_COST}`}
+      go={() => goTo(WINDOW.energy)}
+      goLabel={`${def.name}: ${sourceWord(WINDOW.energy)}`}
+    />
   );
 }
 

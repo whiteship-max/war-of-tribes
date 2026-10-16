@@ -2,7 +2,6 @@ import { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import { useGame, type SheetView } from './game/store';
 import { GameCanvas } from './ui/GameCanvas';
 import { Sheet } from './ui/Sheet';
-import { BuildingPanel } from './ui/panels/BuildingPanel';
 import { QuestsPanel } from './ui/panels/QuestsPanel';
 import { SeasonPanel } from './ui/panels/SeasonPanel';
 import { PopPanel } from './ui/panels/PopPanel';
@@ -77,6 +76,8 @@ const SiegePanel = lazy(() => nextUi().then((m) => ({ default: m.SiegePanel })))
 const SortiePanel = lazy(() => nextUi().then((m) => ({ default: m.SortiePanel })));
 const CampPanel = lazy(() => nextUi().then((m) => ({ default: m.CampPanel })));
 // «Мораль» и «Порядок» (UI-8, docs/ui_v2.md, 5.7) — тем же куском: таблицы разбора, полоса с порогами и вкладки набора `kit`.
+// Окно постройки — тоже: «Что даёт городу» и выход — таблицами с разбором и дверью (5.7).
+const BuildingPanel = lazy(() => nextUi().then((m) => ({ default: m.BuildingPanel })));
 const MoralePanel = lazy(() => nextUi().then((m) => ({ default: m.MoralePanel })));
 const OrderPanel = lazy(() => nextUi().then((m) => ({ default: m.OrderPanel })));
 
@@ -92,7 +93,12 @@ const BugReport = lazy(() => import('./ui/parts/BugReport').then((m) => ({ defau
 const MINI_WAIT = { position: 'fixed', inset: 0, zIndex: 80, background: 'var(--bg)' } as const;
 
 function SheetContent({ view }: { view: SheetView }) {
-  if (view.kind === 'building') return <BuildingPanel id={view.id} />;
+  if (view.kind === 'building')
+    return (
+      <Suspense fallback={null}>
+        <BuildingPanel id={view.id} />
+      </Suspense>
+    );
   if (view.kind === 'world')
     return (
       <Suspense fallback={null}>

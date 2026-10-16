@@ -26,7 +26,8 @@ vi.mock('@/game/store', async (orig) => {
   return { ...real, useGame: fake(real.useGame, () => stores.game) };
 });
 // Кнопка ускорения спрашивает Telegram (`net/gems.gemsOffline` → `window.Telegram`), которого в строке без браузера нет;
-// своё она проверяет сама (`next.test.ts`), здесь — только что лист её ставит.
+// своё она проверяет сама (`next.test.ts`). С UI-8 (Д5) лист её не ставит — подмена остаётся меткой: вернись кнопка в
+// лист, тест «ускорения нет» увидит её класс.
 vi.mock('./Rush', async (orig) => {
   const real = await orig<object>();
   return { ...real, RushButton: () => h('span', { className: 'nx-rush' }) };
@@ -224,7 +225,9 @@ describe('окно ратуши: сетка всех построек в ква�
     expect(html).not.toContain('Выход в день');
   });
 
-  it('лист стройки: ход, ускорение и отмена вместо цены', async () => {
+  // Д5 (UI-8, docs/ui_v2.md, 5.7): ускорение — одной копией в окне постройки; лист ведёт туда дверью «Открыть ›». Прежде
+  // здесь стояло «ход, ускорение и отмена» — ускорение было в трёх местах (ярлык у лесов, окно, лист).
+  it('лист стройки: ход и отмена вместо цены; ускорения нет — оно в окне, за дверью «Открыть ›»', async () => {
     const { HallCard } = await import('./Hall');
     const s = town();
     const farm = buildingOfType(s, 'farm')!;
@@ -232,8 +235,26 @@ describe('окно ратуши: сетка всех построек в ква�
     const html = renderToStaticMarkup(h(HallCard, { id: farm.id, onClose: () => undefined }));
     expect(html).toContain(`Стройка до ур. ${farm.level + 1}`);
     expect(html).toContain('Отменить');
-    expect(html).toContain('nx-rush');
+    expect(html).not.toContain('nx-rush');
+    expect(html).toContain('Открыть ›');
     expect(html).not.toContain('data-tut="upgrade-farm"');
+  });
+
+  // Д4 (UI-8): ратуша в ратуше — лист постройки, чьё окно открыто под ним, «Улучшить» второй раз не рисует: кнопка — в
+  // шапке окна. Область: окно ратуши открыто, ратушу можно улучшить (5000 каждого запаса).
+  it('лист самой ратуши в её окне: «Улучшить» и цены нет — где их искать, сказано словами', async () => {
+    const { HallCard } = await import('./Hall');
+    const s = createInitialState(7);
+    for (const r of Object.keys(s.resources) as (keyof typeof s.resources)[]) s.resources[r] = 5000;
+    const hall = buildingOfType(s, 'town_hall')!;
+    stores.game = { s, act: () => undefined, sheet: { kind: 'building', id: hall.id }, openBuilding: () => undefined };
+    const here = renderToStaticMarkup(h(HallCard, { id: hall.id, onClose: () => undefined }));
+    expect(here, 'в своём окне — без второй кнопки').not.toContain('data-tut="upgrade-town_hall"');
+    expect(here).not.toContain('class="cost"');
+    expect(here).toContain('в шапке этого окна');
+    stores.game = { s, act: () => undefined, sheet: null, openBuilding: () => undefined };
+    const away = renderToStaticMarkup(h(HallCard, { id: hall.id, onClose: () => undefined }));
+    expect(away, 'точка внутри области: в другом окне кнопка есть').toContain('data-tut="upgrade-town_hall"');
   });
 
   it('лист открыт — метка обучения уходит с плитки на дверь: селектор шага находит одно место', async () => {

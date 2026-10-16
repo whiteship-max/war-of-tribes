@@ -2,31 +2,28 @@ import { useState } from 'react';
 import type { TroopId } from '@/game/types';
 import { useGame } from '@/game/store';
 import { TROOPS } from '@/game/data/troops';
-import {
-  armyPower,
-  armySize,
-  buildingOfType,
-  defense,
-  idleCount,
-  upkeepInfo,
-} from '@/game/derived';
+import { armyPower, armySize, buildingOfType, upkeepInfo } from '@/game/derived';
 import { dismissCheck } from '@/game/sim/upkeep';
 import { dismissSoldiers } from '@/game/sim/actions';
 import { UPKEEP_TEXT } from '@/game/data/upkeep';
 import { Icon } from '@/ui/icons/Icon';
+import { Row } from '@/ui/kit/Row';
+import { Table, type Col } from '@/ui/kit/Table';
+import { goTo, tipGo } from '@/ui/kit/nav';
+import { WINDOW, sourceWord, toBuilding } from '@/ui/kit/sources';
+import { armyTip, fmtInt, goldTip } from '@/ui/next/hudTips';
 import { Recruit } from './Recruit';
 import { waitDays } from './wait';
 import { count } from './plural';
-import { tipAt } from '@/ui/next/tip';
 import { dec } from '@/game/num';
 
 /**
- * Казармы: дружина, найм пеших (`Recruit`; конницу нанимают в конюшне) и
- * роспуск — всех видов, конных тоже: распускают войско, а не здание.
+ * Казармы: найм пеших (`Recruit`; конницу нанимают в конюшне), жалованье и роспуск — всех видов, конных тоже:
+ * распускают войско, а не здание.
  *
- * Здесь же цена, которой держится войско: жалованье в день против того, что даёт
- * казна, долг и терпение, — и «распустить» для тех, кого казна не тянет. Своей
- * арифметики у панели нет: всё считает `derived.upkeepInfo`.
+ * Дружина и стены — строками-дверями в свои окна (Д8, docs/ui_v2.md, 5.7): прежде здесь стояли мощь, оборона второй раз
+ * (после «К обороне города» выше) и свободные руки второй раз (их число — в полосе найма, «👤 N из M»). Оборона целиком —
+ * в подсказке строки «К обороне города» и в «Дружине». Своей арифметики у панели нет: всё считает `derived.upkeepInfo`.
  */
 export function Barracks() {
   const s = useGame((g) => g.s);
@@ -34,35 +31,28 @@ export function Barracks() {
   const act = useGame((g) => g.act);
   const [release, setRelease] = useState<Partial<Record<TroopId, number>>>({});
   const palisade = buildingOfType(s, 'palisade');
-  const free = idleCount(s);
 
   return (
     <>
-      <h3>
-        Дружина <span className="muted">{count(armySize(s), 'боец', 'бойца', 'бойцов')}</span>
-      </h3>
-      <div className="mod total">
-        <span className="ico">⚔️</span>
-        <span className="name">Мощь</span>
-        <span className="val pos">{Math.round(armyPower(s))}</span>
-      </div>
-      <div className="mod">
-        <span className="ico">🛡️</span>
-        <span className="name">Оборона</span>
-        <span className="val">{dec(defense(s), 0)}</span>
-      </div>
-      {/* Что стена выводит в поле и кто идёт на деревню — у стены, в разделе «Оборона»,
-          и оттуда же дверь к донесению о набеге. Второго экрана здесь нет — только дверь туда. */}
+      <h3>Дружина</h3>
+      <Row
+        icon={{ name: 'hud-army', glyph: '⚔️' }}
+        label="Дружина"
+        sub={armySize(s) > 0 ? `${count(armySize(s), 'боец', 'бойца', 'бойцов')} · мощь ${fmtInt(Math.round(armyPower(s)))}` : 'бойцов нет'}
+        go={() => goTo(WINDOW.army)}
+        goLabel={sourceWord(WINDOW.army)}
+      />
+      {/* Что стена выводит в поле и кто идёт на деревню — у стены, в разделе «Оборона», и оттуда же дверь к донесению о
+          набеге. Второго экрана здесь нет — только дверь туда. */}
       {palisade && (
-        <button className="btn ghost wide" onClick={() => openBuilding(palisade.id)}>
-          <Icon name="bld-palisade" glyph="🛡️" /> Стены
-        </button>
+        <Row
+          icon={{ name: 'bld-palisade', glyph: '🛡️' }}
+          label="Стены"
+          sub="кто идёт на город и кто стоит у стен"
+          go={() => openBuilding(palisade.id)}
+          goLabel="Стены"
+        />
       )}
-      <div className="mod">
-        <span className="ico">🔨</span>
-        <span className="name">Свободные руки</span>
-        <span className={`val${free === 0 ? ' neg' : ''}`}>{free}</span>
-      </div>
 
       <Upkeep />
 
@@ -112,71 +102,67 @@ export function Barracks() {
 }
 
 /**
- * Жалованье: цена, которой держится войско, — в день против того, что даёт
- * казна, долг и терпение. Один компонент на два показа: в казармах и во
- * вкладке «Армия» меню державы. Своей арифметики нет: всё считает
- * `derived.upkeepInfo`.
+ * Жалованье: цена, которой держится войско, — в день против того, что даёт казна, долг и терпение. Один компонент на два
+ * показа: в казармах и во вкладке «Армия» меню державы. Таблицей (UI-8, docs/ui_v2.md, 5.7): жалованье — с разбором по
+ * видам (подсказка дружины верха), доход — разбором золота и дверью в «Указы», терпение — дверью в Статую: его число
+ * делает она (Д8). Своей арифметики нет: всё считает `derived.upkeepInfo`.
  */
 export function Upkeep() {
   const s = useGame((g) => g.s);
   const up = upkeepInfo(s);
+  const statue = buildingOfType(s, 'statue');
+  const go = tipGo();
+  const named = (glyph: string, name: string, icon?: string) => (
+    <span className="kit-name">
+      {icon ? <Icon name={icon} glyph={glyph} /> : <span className="ic">{glyph}</span>}
+      <span className="one-line">{name}</span>
+    </span>
+  );
+  const rows = [
+    {
+      key: 'army',
+      cells: {
+        what: named(UPKEEP_TEXT.icon, up.amnestyDays > 0 ? `Дружине · платить через ${waitDays(Math.ceil(up.amnestyDays))}` : 'Дружине'),
+        n: <b className={up.masters === 0 && up.wages > up.income ? 'neg' : ''}>{fmtInt(Math.round(up.armyWages))}</b>,
+      },
+      tip: () => armyTip(s, go),
+    },
+    ...(up.masters > 0
+      ? [
+          {
+            key: 'masters',
+            cells: { what: named('🔨', 'Мастерам'), n: dec(up.mastersWages, 1) },
+            tip: () => ({ title: 'Мастерам', body: 'Наёмным мастерам мастерской платят золотом, как дружине.' }),
+          },
+        ]
+      : []),
+    {
+      key: 'income',
+      cells: { what: named('💰', 'Доход', 'res-gold'), n: fmtInt(Math.round(up.income)) },
+      tip: () => goldTip(s, go),
+      go: () => goTo(WINDOW.gold),
+      goLabel: `Доход: ${sourceWord(WINDOW.gold)}`,
+    },
+    ...(up.debt > 0
+      ? [{ key: 'debt', cells: { what: named('📜', 'Долг дружине'), n: <b className="neg">{fmtInt(Math.round(up.debt))}</b> }, tip: () => ({ title: 'Долг', body: 'Недоплаченное жалованье дружине.' }) }]
+      : []),
+    {
+      key: 'grace',
+      cells: { what: named('🗿', 'Терпение'), n: waitDays(up.graceDays) },
+      tip: () => ({ title: 'Терпение', body: 'Сколько дружина ждёт жалованья и еды, потом уходит, даже без тебя. Растёт с уровнем Статуи.' }),
+      go: statue ? () => goTo(toBuilding('statue')) : undefined,
+      goLabel: 'Терпение: Статуя Героя',
+    },
+  ];
   return (
     <>
       <h3>Жалованье</h3>
-      <div className="mod">
-        <span className="ico">{UPKEEP_TEXT.icon}</span>
-        <span className="name">
-          Дружине в день
-          {up.amnestyDays > 0 && <em className="sub">платить начнут через {waitDays(Math.ceil(up.amnestyDays))}</em>}
-        </span>
-        <span className={`val${up.masters === 0 && up.wages > up.income ? ' neg' : ''}`}>{Math.round(up.armyWages)}</span>
-      </div>
-      {up.masters > 0 && (
-        <>
-          <div className="mod">
-            <span className="ico">🔨</span>
-            <span className="name">Мастерам в день</span>
-            <span className="val">{dec(up.mastersWages, 1)}</span>
-          </div>
-          <div className="mod">
-            <span className="ico">📜</span>
-            <span className="name">Всего в день</span>
-            <span className={`val${up.wages > up.income ? ' neg' : ''}`}>{dec(up.wages, 1)}</span>
-          </div>
-        </>
-      )}
-      <div
-        className="mod"
-        role="button"
-        tabIndex={0}
-        onClick={(e) => tipAt(e.currentTarget, { title: 'Доход в день', body: 'Золото от налога и веры.' })}
-      >
-        <span className="ico"><Icon name="res-gold" glyph="💰" /></span>
-        <span className="name">Доход в день</span>
-        <span className="val">{Math.round(up.income)}</span>
-      </div>
-      {up.debt > 0 && (
-        <div className="mod">
-          <span className="ico">📜</span>
-          <span className="name">Долг дружине</span>
-          <span className="val neg">{Math.round(up.debt)}</span>
-        </div>
-      )}
-      <div
-        className="mod"
-        role="button"
-        tabIndex={0}
-        onClick={(e) =>
-          tipAt(e.currentTarget, {
-            title: 'Терпение',
-            body: 'Сколько дружина ждёт жалованья и еды, потом уходит, даже без тебя. Растёт с уровнем Статуи.',
-          })
-        }
-      >
-        <span className="ico">🗿</span>
-        <span className="name">Терпение</span>
-        <span className="val">{waitDays(up.graceDays)}</span>
-      </div>
+      <Table
+        label="Жалованье"
+        cols={UPKEEP_COLS}
+        rows={rows}
+        total={up.masters > 0 ? { what: 'Всего жалованья', n: <b className={up.wages > up.income ? 'neg' : ''}>{dec(up.wages, 1)}</b> } : undefined}
+      />
       {up.why ? (
         <p className="note bad">
           {UPKEEP_TEXT.whoDat(up.armyWages > 0 || up.masters === 0, up.masters > 0)} {UPKEEP_TEXT.why[up.why]}.{' '}
@@ -193,3 +179,8 @@ export function Upkeep() {
     </>
   );
 }
+
+const UPKEEP_COLS: readonly Col[] = [
+  { key: 'what', title: 'Золото в день' },
+  { key: 'n', title: '', align: 'right', w: '72px' },
+];

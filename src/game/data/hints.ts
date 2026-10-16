@@ -9,8 +9,11 @@ import { armySize, currentSite, recruitsQueued, upgradeInfo } from '../derived';
 
 export type HintId = 'upgrade' | 'army' | 'neighbors' | 'march' | 'games';
 
-/** Куда ведёт ссылка подсказки — имя двери интерфейса, а не сама дверь: данные интерфейса не знают. */
-export type HintGo = 'townhall' | 'barracks' | 'map' | 'trades';
+/**
+ * Куда ведёт ссылка подсказки — имя двери интерфейса, а не сама дверь: данные интерфейса не знают. Ссылка ведёт туда же,
+ * куда кнопка, у которой подсказка встаёт (UI-8, Д1, docs/ui_v2.md, 5.7): одна кнопка — одно место.
+ */
+export type HintGo = 'townhall' | 'army' | 'map' | 'trades';
 
 /** Что интерфейс знает сверх партии. */
 export interface HintCtx {
@@ -49,9 +52,10 @@ export const HINTS: readonly HintDef[] = [
   {
     id: 'army',
     title: 'Найми дружину',
-    body: 'Бойцов нанимают в казармах, снаряжение куёт кузница. Без дружины не отбить набег и не выйти в поход.',
+    body: 'Бойцов нанимают в казармах — кнопка «Нанять» в окне дружины. Без дружины не отбить набег и не выйти в поход.',
     anchor: '[data-tut="nav-army"]',
-    link: { label: 'Казармы', go: 'barracks' },
+    // Прежде ссылка вела в казармы, а кнопка «Дружина», у которой подсказка стоит, — в «Дружину» (Д1).
+    link: { label: 'Дружина', go: 'army' },
     due: (s) => armySize(s) + recruitsQueued(s) < HINT_ARMY,
   },
   {

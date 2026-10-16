@@ -5,7 +5,8 @@
 //
 // Своих чисел нет (правило 18): плитка — `hall.ts`, разбор выхода — `output.ts`, цена и «можно ли» — `upgradeInfo`, что
 // даст уровень — `upgradeGains`, срок — `buildRate`. Ряд рабочих — тот же, что в окне постройки (`BuildingNew.WorkerRow`),
-// ускорение — тот же `RushButton`, отмена — тот же `Confirm`. Всё окно постройки — дверью «Открыть ›» (`kit/nav.goTo`).
+// отмена — тот же `Confirm`. Ускорение — одной копией в окне постройки, за дверью «Открыть ›» (`kit/nav.goTo`; Д5,
+// docs/ui_v2.md, 5.7). Лист самой ратуши в её окне «Улучшить» второй раз не рисует: кнопка — в шапке окна над ним (Д4).
 //
 // Обучение ищет постройку по `data-tut="list-<тип>"` (шаг «Открой казармы»): метка стоит на плитке, а пока открыт её
 // лист — на двери «Открыть ›» в нём, чтобы шаг вёл к окну, где нанимают.
@@ -36,7 +37,6 @@ import { toBuilding } from '@/ui/kit/sources';
 import { WorkerRow } from './BuildingNew';
 import { buildingFacts, buildingTip } from './buildingTips';
 import { Confirm } from './Confirm';
-import { RushButton } from './Rush';
 import { rate } from './hudTips';
 import { HALL_GROUPS, HALL_SORTS, hallTiles, nextSort, sortTiles, type HallGroup, type HallSort, type HallTile } from './hall';
 import { yardOutput, type YardOutput } from './output';
@@ -208,7 +208,7 @@ export function HallCard({ id, onClose }: { id: number; onClose: () => void }) {
               </Btn>
             )
           }
-          foot={<UpgradeFoot b={b} />}
+          foot={here ? <OwnFoot b={b} /> : <UpgradeFoot b={b} />}
         >
           <WorkerRow b={b} gains={gains} />
           {out ? <OutputTable out={out} /> : <Facts b={b} />}
@@ -219,7 +219,15 @@ export function HallCard({ id, onClose }: { id: number; onClose: () => void }) {
   );
 }
 
-/** Полоса листа: цена и «Улучшить»; во время стройки — ход, ускорение и отмена; на потолке — слово. */
+/**
+ * Полоса листа постройки, чьё окно открыто под листом (ратуша в ратуше, Д4): «Улучшить», цена, ускорение и отмена стоят в
+ * шапке этого окна — здесь только где их искать.
+ */
+function OwnFoot({ b }: { b: Building }) {
+  return <div className="hall-foot note">{isSite(b) ? 'Стройка, ускорение и отмена — выше, в этом окне.' : 'Улучшить — кнопкой выше, в шапке этого окна.'}</div>;
+}
+
+/** Полоса листа: цена и «Улучшить»; во время стройки — ход и отмена (ускорение — в окне, «Открыть ›»); на потолке — слово. */
 function UpgradeFoot({ b }: { b: Building }) {
   const s = useGame((g) => g.s);
   const act = useGame((g) => g.act);
@@ -238,7 +246,6 @@ function UpgradeFoot({ b }: { b: Building }) {
           text={queued ? 'в очереди' : eta !== null ? `${share}% · ${waitSpan(eta)}` : `${share}% · нет строителей`}
         />
         <div className="hall-foot-acts">
-          <RushButton b={b} />
           <Confirm label="Отменить" onConfirm={() => act((st) => cancelUpgrade(st, b.id))} />
         </div>
       </div>
