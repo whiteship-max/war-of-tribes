@@ -75,6 +75,10 @@ function fakeTg() {
       calls.push(`greet:${chat}:${text}`);
       return 'ok';
     },
+    async checkout(id, ok, error) {
+      calls.push(`checkout:${id}:${ok}:${error}`);
+      return 'ok';
+    },
   };
   return { tg, calls };
 }

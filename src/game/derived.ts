@@ -64,12 +64,11 @@ import {
   SMITH_WORK,
   SOLDIER_FOOD,
   STRAIN_DAYS,
-  UPGRADE_GROWTH,
   VILLAGER_DEFENSE,
   emptyResources,
 } from './constants';
 import { asGame, sessionSec, type GameSec } from './pace';
-import { BUILDING_BY_ID, MASTERS_AT, type BuildingDef, type BuildingStats, slotsAt } from './data/buildings';
+import { BUILDING_BY_ID, MASTERS_AT, type BuildingStats, slotsAt } from './data/buildings';
 import { surveyRadiusOf } from './data/survey';
 import { buildRateOf, defenseOf, hallBuildMult, housingOf, stashAt, storageOf, type Levels } from './build';
 import { FAITH_BY_ID, OBSERVANCE_BY_ID, tiltAt, type FaithDef, type FaithTilt } from './data/faiths';
@@ -80,7 +79,7 @@ import { DESERT_SHARE, MASTER_PAID_AS, UPKEEP_TEXT } from './data/upkeep';
 import { BATTLE_MAN, troopTotal, troopsAfter, type TroopStack } from './battle/kinds';
 import { baseWage, mouthsOf, troopPower } from './battle/price';
 import { levelOutputMult } from './selfcost';
-import { upgradeWork } from './labour';
+import { upgradeCost, upgradeWork } from './labour';
 import { statAt, trainRateAt } from './train';
 import { DECREE_BY_ID, RATION_BY_ID, TAX_BY_ID, TAX_PER_POP, type DecreeDef, type RationDef, type TaxDef } from './data/policy';
 import {
@@ -238,21 +237,8 @@ export function maxLevelFor(type: BuildingTypeId): number {
   return Math.min(def.maxLevel ?? MAX_BUILDING_LEVEL, MAX_BUILDING_LEVEL);
 }
 
-const scaleCost = (
-  cost: Partial<Record<ResourceId, number>>,
-  k: number,
-): Partial<Record<ResourceId, number>> => {
-  const out: Partial<Record<ResourceId, number>> = {};
-  for (const r of RESOURCE_IDS) if (cost[r]) out[r] = Math.round((cost[r] as number) * k);
-  return out;
-};
-
-/** Цена улучшения до уровня toLevel: базовая стоимость, умноженная на `UPGRADE_GROWTH` за каждый уровень. */
-export const upgradeCost = (def: BuildingDef, toLevel: number): Partial<Record<ResourceId, number>> =>
-  scaleCost(def.cost, Math.pow(UPGRADE_GROWTH, toLevel - 1));
-
-/** Работа строителей на улучшение — растёт так же, как цена. Формула одна на игру и сервер (`game/labour.ts`). */
-export { upgradeWork };
+/** Цена и работа улучшения — растут одной лестницей. Формулы одни на игру и сервер (`game/labour.ts`). */
+export { upgradeCost, upgradeWork };
 
 export interface UpgradeInfo {
   /** Уровень, до которого улучшаем. */

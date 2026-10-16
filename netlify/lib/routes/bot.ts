@@ -10,6 +10,10 @@
  * нажал кнопку (`callback_query.from.id`), и отметить канал по `my_chat_member` (заблокировал бота — закрыт,
  * вернул — открыт). Партию он не читает и не пишет, войн не знает (тест `server.test.ts`).
  *
+ * Платежи Telegram (`pre_checkout_query`, `successful_payment`) разбирает `tgpay.ts` раньше всего остального: счетов
+ * Telegram сервер не выставляет (алмазы — только за USDT в сети TON, docs/payments.md), поэтому проверке — отказ, а
+ * пришедший платёж не начисляет ничего; хранилищ эта дверь не трогает (docs/security.md).
+ *
  * Сообщения — команды админа (`commands.ts`, docs/admin.md): отвечает он только `ADMIN_IDS`, остальным молчит; что
  * написал админ, проверяется там раньше любого похода в хранилище. Исключение одно — `/start` (docs/rating.md): на него
  * бот отвечает любому приветствием с кнопкой «Открыть игру», не трогая хранилищ.
@@ -23,6 +27,8 @@ import { STORES } from '../kv.js';
 import { CALLBACK_OFF, CALLBACK_ON, SWITCHED_OFF, SWITCHED_ON, greeting } from '../words.js';
 import { telegram, type Telegram } from '../telegram.js';
 import { adminCommand } from '../commands.js';
+import { adminIds } from '../admin.js';
+import { paymentOf, refusePayment } from '../tgpay.js';
 
 /** Обновлений в минуту на игрока — нажатий кнопок больше не бывает. */
 const PER_MINUTE = 30;
@@ -98,6 +104,12 @@ export const botWith =
     const text = await readBody(req);
     if (text === null || Buffer.byteLength(text, 'utf8') > MAX_UPDATE_BYTES) return json({ ok: true });
     const update = parseJson<Record<string, unknown>>(text);
+    // Платёж Telegram — до команд админа: `successful_payment` приходит сообщением, и команды проглотили бы его молча.
+    const paid = update && typeof update === 'object' ? paymentOf(update) : null;
+    if (paid) {
+      if (allow(`pay-tg:${paid.from}`, START_PER_MINUTE, io.now)) await refusePayment(paid, tg(), adminIds());
+      return json({ ok: true });
+    }
     const start = update && typeof update === 'object' ? starter(update) : null;
     if (start !== null) {
       if (allow(`start:${start}`, START_PER_MINUTE, io.now)) await tg().greet(start, greeting(spawnMode() === 'sicily'));

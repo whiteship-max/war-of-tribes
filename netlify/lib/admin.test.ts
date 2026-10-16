@@ -85,6 +85,7 @@ function fakeTg() {
       greeted.push({ chat, text });
       return 'ok';
     },
+    checkout: async () => 'ok',
   };
   return { tg, said, files, greeted };
 }

@@ -455,6 +455,7 @@ describe('админ: /gems только читает', () => {
       },
       file: async () => 'ok',
       greet: async () => 'ok',
+      checkout: async () => 'ok',
     };
     return { tg, said };
   }

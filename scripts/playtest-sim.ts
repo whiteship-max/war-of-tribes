@@ -89,6 +89,7 @@ const tg: Telegram = {
   async greet() {
     return 'ok';
   },
+  checkout: async () => 'ok',
 };
 const botRoute = botWith(() => tg);
 

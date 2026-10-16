@@ -52,6 +52,7 @@ function fakeTg() {
     },
     file: async () => 'ok',
     greet: async () => 'ok',
+    checkout: async () => 'ok',
   };
   return { tg, said };
 }

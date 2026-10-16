@@ -14,7 +14,12 @@ import { CLOCK_SKEW_SECONDS } from './initdata.js';
 import { SAVE_HURRY_MS, SAVE_PUSH_MS, STOCK_KEYS, readWatch, type AdminGrant, type Counts, type WatchCard } from './contract.js';
 import { DAY_LENGTH, gameDaysOfMs, realMs } from '../../src/game/pace.js';
 import { ENERGY_MAX, ENERGY_REFILL, MINIGAME_COST } from '../../src/game/data/minigames.js';
-import { RESOURCE_META } from '../../src/game/constants.js';
+import { MAX_BUILDING_LEVEL, RESOURCE_IDS, RESOURCE_META } from '../../src/game/constants.js';
+import { BUILDING_BY_ID } from '../../src/game/data/buildings.js';
+import { upgradeCost } from '../../src/game/labour.js';
+import { storageOf } from '../../src/game/build.js';
+import { powerOfCounts } from '../../src/profile/power.js';
+import type { BuildingTypeId, ResourceId } from '../../src/game/types.js';
 import { rewrite } from './admin.js';
 import { bookAfter, readBook, seedBook, type ArmyBook } from './book.js';
 import { builtForged, buildStep, peopleStep, readTown, seedTown, type PaidLevel, type TownBook } from './town.js';
@@ -52,7 +57,22 @@ export const GROWTH_SLACK = 2;
 /** Тот же флаг второй раз за этот срок не дописывается, а считается в прежний: запись идёт раз в минуту. */
 const FLAG_QUIET = HOUR;
 
-export type FlagKind = 'cheat' | 'haste' | 'clock' | 'cap' | 'time' | 'stock' | 'army' | 'games' | 'haul' | 'often' | 'rollback' | 'forged' | 'built' | 'people';
+export type FlagKind =
+  | 'cheat'
+  | 'haste'
+  | 'clock'
+  | 'cap'
+  | 'time'
+  | 'stock'
+  | 'army'
+  | 'games'
+  | 'haul'
+  | 'often'
+  | 'rollback'
+  | 'forged'
+  | 'built'
+  | 'people'
+  | 'unpaid';
 
 export const FLAG_WORD: Record<FlagKind, string> = {
   cheat: 'коды проверки',
@@ -69,7 +89,37 @@ export const FLAG_WORD: Record<FlagKind, string> = {
   forged: 'войско сверх подтверждённого',
   built: 'стройка сверх подтверждённой',
   people: 'жители сверх подтверждённых',
+  unpaid: 'стройка без платы',
 };
+
+/** Начало строки журнала о невозможном: админ ищет его глазами в `/player` (docs/security.md). */
+export const WARN = 'внимание:';
+
+/** Одно правило города: что сервер проверяет, какой общей с игрой формулой, каким флагом и что делает с невозможным. */
+export interface CityRule {
+  id: 'level' | 'pace' | 'paid' | 'stock' | 'troops' | 'people';
+  rule: string;
+  /** Общая с игрой формула — одна дверь без `@/`, своей копии чисел у сервера нет. */
+  formula: string;
+  flag: FlagKind;
+  /** «не подтверждает» — книга не засчитывает заявленное; «флаг» — только строка админу. */
+  act: string;
+}
+
+/**
+ * Таблица правил города (docs/security.md, ЗЩ-1): что сервер проверяет в каждой принятой записи партии (`booked`,
+ * `flagsBetween`). Партия сохраняется всегда — сервер её не разбирает, и честный не теряет ничего; невозможное книги не
+ * засчитывают, и в войну, рейтинг, реестр замков и цену ускорения идёт только подтверждённое (`confirmedOf`). Каждое
+ * правило держит тест подделанного клиента (`security.test.ts`).
+ */
+export const CITY_RULES: readonly CityRule[] = [
+  { id: 'level', rule: 'уровень постройки не выше книги стройки и потолка постройки', formula: 'town.buildStep, data/buildings.maxLevel', flag: 'built', act: 'не подтверждает' },
+  { id: 'pace', rule: 'улучшение не раньше срока: труд уровня против потолка скорости стройки за серверное время', formula: 'labour.upgradeWork, build.buildCeil', flag: 'built', act: 'не подтверждает' },
+  { id: 'paid', rule: 'цена списана: начатая стройка уносит со склада цену уровня', formula: 'labour.upgradeCost', flag: 'unpaid', act: 'флаг' },
+  { id: 'stock', rule: 'запасы не выше вместимости склада подтверждённых построек', formula: 'build.storageOf', flag: 'cap', act: 'в войну — не больше вместимости; флаг' },
+  { id: 'troops', rule: 'войска не больше нанятых: обучение казарм и конюшни, указы, потери войны', formula: 'train.trainRateAt, book.bookAfter', flag: 'forged', act: 'не подтверждает; приказ войны — отказ' },
+  { id: 'people', rule: 'жители не больше прироста, жилья, вестей и вернувшихся из войска', formula: 'build.popGrowthCeil, build.housingOf', flag: 'people', act: 'не подтверждает' },
+];
 
 export interface WatchFlag {
   at: number;
@@ -281,6 +331,24 @@ export function flagsBetween(a: WatchCard, aAt: number, b: WatchCard, bAt: numbe
     if (grew > could) {
       out.push({ kind: 'army', text: `Войско ${signed(grew)} за ${span(realMs)} без разовых дел; казармы и конюшня выучили бы не больше ${big(could)}.` });
     }
+    // Цена списана (правило «paid», `CITY_RULES`): стройка, начатая между описями, унесла со склада цену уровня — ею платит
+    // `sim/actions.startUpgrade`, и другой двери, заводящей стройку, у игры нет. «Начатая» — только если на первой описи
+    // стройки не было вовсе: иначе в очереди могли стоять оплаченные раньше, а опись видит одну первую (`derived.currentSite`).
+    const started = a.site ? null : startedCost(a, b);
+    if (started) {
+      for (const k of RESOURCE_IDS) {
+        const need = started.cost[k] ?? 0;
+        if (need <= 0) continue;
+        const grew = (b.stock[k] ?? 0) - (a.stock[k] ?? 0);
+        const could = Math.max(a.prod[k] ?? 0, b.prod[k] ?? 0) * days * GROWTH_SLACK + 1;
+        // Рост сверх выработки уже сказан флагом «рост склада» — второй раз о том же не говорим.
+        if (grew > could || grew + need <= could) continue;
+        out.push({
+          kind: 'unpaid',
+          text: `Заложено ${big(started.levels)} ур. стройки: ${stockWord(k)} на ${big(need)}, а ${stockWord(k)} ${signed(grew)} за ${span(realMs)} без разовых дел — выработка позволяла не больше ${big(could)}, цена со склада не ушла.`,
+        });
+      }
+    }
   }
   const played = b.games - a.games;
   if (played > 0) {
@@ -296,10 +364,38 @@ export function flagsBetween(a: WatchCard, aAt: number, b: WatchCard, bAt: numbe
   return out;
 }
 
+/**
+ * Цена стройки, начатой между описями `a` и `b`: уровни выше первой описи — построенные ко второй и идущая на ней стройка.
+ * Тип, которого первая опись не называла, не считается: откуда он начинал, неизвестно. Уровни — не выше потолка постройки,
+ * чтобы подделанное число не гоняло цикл.
+ */
+export function startedCost(a: WatchCard, b: WatchCard): { cost: Partial<Record<ResourceId, number>>; levels: number } {
+  const cost: Partial<Record<ResourceId, number>> = {};
+  let levels = 0;
+  for (const type of Object.keys(BUILDING_BY_ID) as BuildingTypeId[]) {
+    if (!(type in a.buildings)) continue;
+    const def = BUILDING_BY_ID[type];
+    const top = Math.min(def.maxLevel ?? MAX_BUILDING_LEVEL, MAX_BUILDING_LEVEL);
+    const site = b.site?.type === type ? b.site.level : 0;
+    const to = Math.min(top, Math.max(b.buildings[type] ?? 0, site));
+    for (let l = Math.max(2, (a.buildings[type] ?? 0) + 1); l <= to; l++) {
+      for (const [r, v] of Object.entries(upgradeCost(def, l)) as [ResourceId, number][]) cost[r] = (cost[r] ?? 0) + v;
+      levels++;
+    }
+  }
+  return { cost, levels };
+}
+
+/**
+ * Строка журнала города о невозможном — с началом `WARN`, одна на флаги и отказ цены ускорения. Платёж Telegram говорит
+ * то же начало админу в чат (`tgpay.ts`): хранилищ вебхук не трогает.
+ */
+export const warned = (rec: WatchRecord, at: number, text: string): WatchRecord => noted(rec, at, 'flag', `${WARN} ${text}`);
+
 /** Положить флаги в запись: тот же вид за последний час не дописывается, а считается в прежний. */
 export function addFlags(rec: WatchRecord, at: number, found: { kind: FlagKind; text: string }[]): WatchRecord {
   const flags = [...rec.flags];
-  const journal = [...rec.journal];
+  let next: WatchRecord = rec;
   for (const f of found) {
     const prev = [...flags].reverse().find((x) => x.kind === f.kind);
     if (prev && at - prev.at < FLAG_QUIET) {
@@ -307,9 +403,9 @@ export function addFlags(rec: WatchRecord, at: number, found: { kind: FlagKind; 
       continue;
     }
     flags.push({ at, kind: f.kind, text: f.text, n: 1 });
-    journal.push({ at, kind: 'flag', text: `Флаг «${FLAG_WORD[f.kind]}»: ${f.text}` });
+    next = warned(next, at, `${FLAG_WORD[f.kind]} — ${f.text}`);
   }
-  return { ...rec, flags: flags.slice(-FLAGS_KEEP), journal: journal.slice(-JOURNAL_KEEP) };
+  return { ...next, flags: flags.slice(-FLAGS_KEEP) };
 }
 
 // ------------------------------------------------ события ---
@@ -449,8 +545,48 @@ export function booked(
   if (people.forged > 0) {
     found.push({ kind: 'people', text: `Жителей заявлено ${big(watch.pop)}, сервер подтверждает ${big(people.book.pop)} — сверх прироста, жилья, вестей и вернувшихся из войска на ${big(people.forged)}.` });
   }
+  // Запасы не выше предела (правило «stock», `CITY_RULES`): вместимость — подтверждённых уровней (`build.storageOf`, ею же
+  // считает игра, `derived.storageCap`). Опись, назвавшая вместимость не больше подтверждённой, уже сверена в `flagsOf`.
+  const cap = storageOf(people.book.levels);
+  if (watch.cap > cap) {
+    for (const k of RESOURCE_IDS) {
+      const have = watch.stock[k] ?? 0;
+      if (have > cap + 1) {
+        found.push({ kind: 'cap', text: `${upper(stockWord(k))} ${big(have)} при вместимости подтверждённых построек ${big(cap)} (опись называет ${big(watch.cap)}). В войну идёт не больше вместимости.` });
+        break;
+      }
+    }
+  }
   return found.length ? addFlags(next, at, found) : next;
 }
+
+/** По видам — меньшее из заявленного и подтверждённого. */
+function least(claim: Counts, book: Counts): Counts {
+  const out: Counts = {};
+  for (const [k, v] of Object.entries(claim)) {
+    const n = Math.min(v, book[k] ?? 0);
+    if (n > 0) out[k] = n;
+  }
+  return out;
+}
+
+/**
+ * Что сервер подтверждает у игрока по книгам (docs/security.md): уровни — не выше книги стройки, войско — не больше книги
+ * войска, жители — не больше книги жителей, и всё — не больше заявленного описью. Книги ещё нет — посёлок новой партии
+ * и пустое войско (`seedTown`, `seedBook`). Описи нет — `null`: подтверждать нечего. Читают рейтинг, реестр замков и `/player`.
+ */
+export function confirmedOf(rec: WatchRecord): { levels: Counts; troops: Counts; pop: number } | null {
+  const c = rec.card;
+  if (!c) return null;
+  const town = rec.town ?? seedTown(rec.first > 0 ? rec.first : 1);
+  return { levels: least(c.buildings, town.levels), troops: least(c.troops, rec.book?.bodies ?? {}), pop: Math.min(c.pop, town.pop) };
+}
+
+/** Мощь по подтверждённому (`profile/power.powerOfCounts` — формула игры). Описи нет — ноль. */
+export const confirmedPower = (rec: WatchRecord): number => {
+  const c = confirmedOf(rec);
+  return c ? powerOfCounts(c.levels, c.troops) : 0;
+};
 
 /** Отказ «слишком часто»: минута в окно часа; с `OFTEN_PER_HOUR` в окне — флаг. */
 export function tooFast(rec: WatchRecord, at: number): WatchRecord {

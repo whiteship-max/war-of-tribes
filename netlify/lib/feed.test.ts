@@ -6,6 +6,8 @@ import { WARS_KEY, emptyWars, type SpyRow, type WarFile, type WarRow } from './w
 import { FEED_KEEP_MS, FEED_KEY, LEADER_QUIET_MS, emptyLeaders, feedOf, nextLeaders, readLeaders, type LeaderFile } from './feed.js';
 import type { FeedItem, FeedResponse, RosterFile, WatchCard } from './contract.js';
 import { SICILY } from '../../src/world/spawn.js';
+import { seedTown } from './town.js';
+import { seedBook } from './book.js';
 import { theatreAt, theatres } from '../../src/world/theatre/theatre.js';
 import { TEST_TOKEN, signInit, sqliteHome, type Home } from '../vps/testkit.js';
 
@@ -248,8 +250,10 @@ describe('вести края: адрес', () => {
     const r = roster();
     await home.stores(STORES.world).setJSON(ROSTER_KEY, r);
     await home.stores(STORES.world).setJSON(WARS_KEY, { ...emptyWars(), wars: [war(r, {})] });
-    await home.stores(STORES.watch).setJSON(A, { v: 1, first: NOW, last: NOW, name: 'Андрей', power: 1, card: card({ spearman: 50 }), cardAt: NOW });
-    await home.stores(STORES.watch).setJSON(B, { v: 1, first: NOW, last: NOW, name: 'Борис', power: 1, card: card({}), cardAt: NOW });
+    // Книги сервера подтверждают войско описи — рейтинг считает по подтверждённому (docs/security.md).
+    const book = (troops: Record<string, number>) => ({ town: seedTown(NOW), book: { ...seedBook(NOW), bodies: troops } });
+    await home.stores(STORES.watch).setJSON(A, { v: 1, first: NOW, last: NOW, name: 'Андрей', power: 1, card: card({ spearman: 50 }), cardAt: NOW, ...book({ spearman: 50 }) });
+    await home.stores(STORES.watch).setJSON(B, { v: 1, first: NOW, last: NOW, name: 'Борис', power: 1, card: card({}), cardAt: NOW, ...book({}) });
 
     const got = await ask(2);
     expect(got.status).toBe(200);

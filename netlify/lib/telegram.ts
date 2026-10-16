@@ -1,7 +1,8 @@
 /**
  * Адаптер Telegram — **единственное место серверной части, которое ходит наружу** (тест «наружу ходит один
  * адаптер», `server.test.ts`). Вызовы Bot API: отправить сообщение, ответить на нажатие кнопки, сменить
- * кнопки под сообщением; для админки (docs/admin.md) — сообщение без кнопок и файл документом. Больше адаптер не
+ * кнопки под сообщением, ответить на предоплатную проверку платежа (отказом, `lib/tgpay.ts`); для админки
+ * (docs/admin.md) — сообщение без кнопок и файл документом. Больше адаптер не
  * знает ничего: ни записей, ни правил отправки.
  *
  * Токен — из одного места (`http.botToken`), в журнал не пишется ничего (журналов у обработчиков нет). Адресат
@@ -98,6 +99,8 @@ export interface Telegram {
   file(chatId: number, name: string, content: string, caption: string): Promise<SendResult>;
   /** Сообщение с одной кнопкой «Открыть игру»: приветствие на `/start` и итоговая таблица (docs/rating.md). */
   greet(chatId: number, text: string): Promise<SendResult>;
+  /** Ответ на предоплатную проверку платежа Telegram (`answerPreCheckoutQuery`); отказ — со строкой плательщику. */
+  checkout(queryId: string, ok: boolean, error: string): Promise<SendResult>;
 }
 
 /** Потолок текста сообщения Telegram — 4096 знаков; длиннее обрезается с пометкой. */
@@ -112,6 +115,8 @@ export const telegram = (go: Fetcher = live): Telegram => ({
     call('sendMessage', { chat_id: chatId, text: text.length > TEXT_MAX ? `${text.slice(0, TEXT_MAX)}\n…` : text, link_preview_options: { is_disabled: true } }, go),
   greet: (chatId, text) =>
     call('sendMessage', { chat_id: chatId, text: text.slice(0, TEXT_MAX), reply_markup: openOnly(), link_preview_options: { is_disabled: true } }, go),
+  checkout: (queryId, ok, error) =>
+    call('answerPreCheckoutQuery', { pre_checkout_query_id: queryId, ok, ...(ok ? {} : { error_message: error.slice(0, 255) }) }, go),
   file: (chatId, name, content, caption) =>
     post('sendDocument', `multipart/form-data; boundary=${BOUNDARY}`, fileBody(chatId, name, content, caption.slice(0, 1000)), go),
 });

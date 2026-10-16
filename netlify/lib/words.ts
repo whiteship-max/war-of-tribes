@@ -28,6 +28,15 @@ export const CALLBACK_ON = 'notify:on';
 export const SWITCHED_OFF = 'Уведомления выключены';
 export const SWITCHED_ON = 'Уведомления включены';
 
+/**
+ * Платёж Telegram (`lib/tgpay.ts`, docs/security.md): счетов Telegram игра не выставляет — алмазы покупают в Сокровищнице
+ * за USDT в сети TON. Отказ предоплатной проверке Telegram показывает плательщику (до 255 знаков), деньги не списываются.
+ */
+export const PAY_NOT_SOLD = 'Алмазы покупают только в игре: Сокровищница, USDT в сети TON. Деньги не списаны.';
+
+/** Платёж Telegram всё же пришёл — игра его не засчитала, и деньги вернут мастера игры. */
+export const PAY_NOT_COUNTED = 'Этот платёж игра не засчитала: алмазы покупают только в Сокровищнице, за USDT в сети TON. Мастера игры вернут деньги — напиши им.';
+
 /** «14:40» в поясе игрока. */
 export function clock(ms: number, tz: string): string {
   const m = localTime(ms, tz).minute;

@@ -409,6 +409,7 @@ function fakeTg(answer: SendResult = 'ok') {
     async greet() {
       return 'ok';
     },
+    checkout: async () => 'ok',
   };
   return tg;
 }

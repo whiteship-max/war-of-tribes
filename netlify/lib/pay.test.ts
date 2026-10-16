@@ -432,6 +432,7 @@ describe('админ: /payments только читает', () => {
       },
       file: async () => 'ok',
       greet: async () => 'ok',
+      checkout: async () => 'ok',
     };
     const req = new Request('https://x/api/bot', {
       method: 'POST',

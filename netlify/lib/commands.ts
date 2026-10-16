@@ -14,7 +14,7 @@
 import { allow, parseJson, type Io } from './http.js';
 import { STORES } from './kv.js';
 import { GRANT_MAX, STOCK_KEYS, TROOP_KEYS, cityName, cityOr, type StockKey, type TroopKey } from './contract.js';
-import { FLAG_WORD, big, blankWatch, noted, observe, readWatchRecord, signed, span, stockWord, type WatchRecord } from './watch.js';
+import { FLAG_WORD, big, blankWatch, confirmedOf, confirmedPower, noted, observe, readWatchRecord, signed, span, stockWord, type WatchRecord } from './watch.js';
 import {
   FROZEN_KEY,
   LOG_KEY,
@@ -350,6 +350,12 @@ async function player(io: Io, q: string): Promise<Reply> {
       `Промыслы: ${c.games} игр, добыча ${big(c.haul)}`,
       `Версия: ${c.build || '—'} · опись от ${when(rec.cardAt)}${c.cheated ? ' · коды проверки' : ''}${c.lead > 0 ? ` · ускорена на ${span(c.lead)}` : ''}`,
     );
+    // Правда сервера рядом со словами описи (docs/security.md): то, что идёт в войну, рейтинг и реестр замков.
+    const ok = confirmedOf(rec);
+    if (ok) {
+      const troops = Object.values(ok.troops).reduce((t, x) => t + x, 0);
+      lines.push(`Сервер подтверждает: ратуша ${ok.levels.town_hall ?? 0} · жителей ${big(ok.pop)} · войско ${big(troops)} · мощь ${big(confirmedPower(rec))}`);
+    }
   } else {
     lines.push('Описи партии ещё нет: игрок не сохранялся с новой версией игры.');
   }
