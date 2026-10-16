@@ -4,6 +4,8 @@
 //   THEME=light OS=ios npx vite-node docs/polish/shots.ts      — один заход: тема клиента и вид телефона
 //   THEME=dark OS=android npx vite-node docs/polish/shots.ts
 //   APP_ROOT=<другая копия> TAG=before THEME=light OS=ios …     — «до»: та же съёмка чужой копии (общий `node_modules`)
+//   SET=arms npx vite-node docs/polish/shots.ts                 — П-2: герб в шапке, профиль, конструктор, держава
+//   SET=arms MAP=1 …                                            — и карта: метка своего города и логова гербами
 //
 // Клиент Telegram подменён: SDK с telegram.org не грузится (адрес закрыт), вместо него — объект `Telegram.WebApp` с
 // палитрой темы (`themeParams`, `colorScheme`), платформой и вырезами, как их отдаёт настоящий клиент. Подпись запуска
@@ -101,6 +103,8 @@ interface Step {
   name: string;
   run?: string;
   wait?: number;
+  /** Ход без снимка: подготовка следующего кадра (окно должно успеть встать). */
+  quiet?: boolean;
 }
 
 const HELPERS = `(() => {
@@ -141,7 +145,31 @@ const HELPERS = `(() => {
 
 const ui = (call: string): string => `JSON.stringify(window.__ui.${call})`;
 
-const STEPS: Step[] = [
+/** Герб, собранный для кадров П-2 «после выбора»: четверочастный лазурь с золотом, червлёный лев, французский щит. */
+const P2_ARMS = 'french-quarterly-azure-or-lion-gules';
+
+const ARMS_STEPS: Step[] = [
+  { name: 'p2-01-city-default', run: ui('reset()'), wait: 1500 },
+  { name: 'open-realm', run: ui(`reset(), window.__ui.clickSel('.coat-btn')`), wait: 1200, quiet: true },
+  { name: 'p2-02-profile-default', run: ui(`click('Профиль и настройки')`), wait: 1200 },
+  { name: 'p2-03-maker', run: ui(`click('Сменить герб')`), wait: 1200 },
+  { name: 'p2-04-maker-lower', run: `(() => { document.querySelector('.am-foot')?.scrollIntoView({ block: 'end' }); return JSON.stringify('ok'); })()`, wait: 600 },
+  { name: 'p2-05-maker-random', run: ui(`click('Случайный герб')`), wait: 500 },
+  {
+    name: 'set-arms',
+    run: `(() => { window.__ui.reset(); const st = window.__game.getState(); const s = st.s; s.profile.arms = '${P2_ARMS}'; window.__game.setState({ s: { ...s } }); return JSON.stringify('ok'); })()`,
+    wait: 800,
+    quiet: true,
+  },
+  { name: 'p2-06-city-arms', run: ui('reset()'), wait: 1500 },
+  { name: 'p2-07-realm-arms', run: ui(`reset(), window.__ui.clickSel('.coat-btn')`), wait: 1500 },
+  { name: 'p2-08-profile-arms', run: ui(`click('Профиль и настройки')`), wait: 1200 },
+  ...(process.env.MAP === '1'
+    ? [{ name: 'p2-09-map', run: `(() => { window.__ui.reset(); window.__game.getState().openMap(); return JSON.stringify('ok'); })()`, wait: 7000 }]
+    : []),
+];
+
+const STEPS: Step[] = process.env.SET === 'arms' ? ARMS_STEPS : [
   { name: '01-city', run: ui('reset()'), wait: 1500 },
   { name: '02-tip-food', run: ui(`reset(), window.__ui.click('Еда', '.nx-res')`), wait: 500 },
   { name: '03-townhall', run: ui(`reset(), window.__ui.click('Ратуша', '.nx-nav')`), wait: 1000 },
@@ -205,7 +233,7 @@ async function run(): Promise<void> {
       }
       const said = step.run ? await tab.eval<unknown>(step.run).catch((e: Error) => `ошибка: ${e.message}`) : 'ok';
       await sleep(step.wait ?? 600);
-      await snap(tab, step.name);
+      if (!step.quiet) await snap(tab, step.name);
       console.log(`  ${step.name}${said === 'ok' ? '' : `: ${String(said)}`}`);
     }
     // Что увидел бы игрок: какие гарнитуры правда легли на экран и что игра сказала клиенту о цвете шапки.
