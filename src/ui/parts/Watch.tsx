@@ -70,10 +70,11 @@ export function Watch() {
   );
 }
 
+// Номер и округа — твёрдой ширины, тянется ход: срок и «Дозор ур. N» не режутся многоточием.
 const SURVEY_COLS: readonly Col[] = [
-  { key: 'n', title: 'Ур.', w: '40px' },
+  { key: 'n', title: 'Ур.', w: '36px' },
   { key: 'r', title: 'Округа', align: 'right', w: '96px' },
-  { key: 'state', title: 'Ход' },
+  { key: 'state', title: 'Ход', w: 'minmax(0, 1fr)' },
 ];
 
 type Info = ReturnType<typeof surveyInfo>;

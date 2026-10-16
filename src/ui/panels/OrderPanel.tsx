@@ -53,10 +53,13 @@ export const useOrderView = create<{ view: OrderView; set: (v: OrderView) => voi
   set: (view) => set({ view }),
 }));
 
-/** Пороги шкалы — словами: ниже `ORDER_WARN` надзор держит не всех, ниже `ORDER_UNREST` — ропот. */
+/**
+ * Пороги шкалы — словами: ниже `ORDER_WARN` надзор держит не всех, ниже `ORDER_UNREST` — ропот. Риски рядом — подписи по
+ * разные стороны: «ропот» кончается у своей, «надзора мало» начинается от своей.
+ */
 export const ORDER_MARKS = [
-  { at: ORDER_UNREST, label: 'ропот' },
-  { at: ORDER_WARN, label: 'надзора мало' },
+  { at: ORDER_UNREST, label: 'ропот', side: 'end' },
+  { at: ORDER_WARN, label: 'надзора мало', side: 'start' },
 ] as const;
 
 const HOLD_COLS: readonly Col[] = [
@@ -92,6 +95,8 @@ export function OrderPanel() {
         tone={state === 'unrest' ? 'bad' : state === 'shaky' ? 'warn' : 'good'}
         marks={ORDER_MARKS}
         label={ORDER_TEXT.state[state]}
+        // Чем порядок отличается от морали — касанием шкалы: полоса — тоже число (docs/ui_v2.md, 2.2).
+        tip={() => ({ title: `${ORDER_TEXT.name} · ${value} из 100`, body: ORDER_TEXT.notMorale })}
       />
 
       {left !== null && (
@@ -167,11 +172,14 @@ function Watch() {
           },
           tip: () => ({ title: l.name, body: l.hint }),
         }))}
-        total={{
-          who: `Надзор ${Math.floor(o.hold)} — держит ${ORDER_TEXT.bondedName.toLowerCase()}`,
-          n: <b className={o.bonded > o.hold ? 'neg' : ''}>{o.bonded}</b>,
-        }}
+        total={{ who: 'Надзор', n: <b>{fmt(o.hold)}</b> }}
       />
+      {/* Против надзора — сколько невольников он держит: больше надзора — красным. */}
+      <div className="mod total">
+        <span className="ico">{ORDER_TEXT.bondedIcon}</span>
+        <span className="name">{ORDER_TEXT.bondedName}</span>
+        <span className={`val${o.bonded > o.hold ? ' neg' : ''}`}>{o.bonded}</span>
+      </div>
 
       <h3>Что делать</h3>
       {home < all ? (
@@ -194,7 +202,6 @@ function Watch() {
           <Icon name="bld-tavern" glyph="🍺" /> Устроить пир
         </button>
       )}
-      <div className="note">{ORDER_TEXT.notMorale}</div>
     </>
   );
 }

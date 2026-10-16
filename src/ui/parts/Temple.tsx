@@ -31,9 +31,10 @@ import { Bar } from '@/ui/kit/Bar';
 import { Table, type Col, type TableRow } from '@/ui/kit/Table';
 import { useRealm } from '@/ui/realm/open';
 import { waitDays } from './wait';
-import { dec } from '@/game/num';
+import { dec, num } from '@/game/num';
 
-const sign = (n: number): string => `${n > 0 ? '+' : n < 0 ? '−' : ''}${Math.abs(Math.round(n * 10) / 10)}`;
+/** Знак и число с десятой без лишних нулей, запятой: «+55», «−1,1». */
+const sign = (n: number): string => `${n > 0 ? '+' : n < 0 ? '−' : ''}${num(Math.abs(n), 1)}`;
 const days = (sec: number): number => Math.ceil(sec / DAY_LENGTH);
 
 const PIETY_COLS: readonly Col[] = [

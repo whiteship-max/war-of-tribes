@@ -345,6 +345,14 @@
   color: var(--muted);
   white-space: nowrap;
 }
+/* Подпись с одной стороны риски — у двух рисок рядом (`Mark.side`). Свои имена классов: голое `.start` занято стартовым
+   экраном (`styles.css`). */
+.kit-bar-marks small.kit-mark-end {
+  transform: translateX(calc(-100% - 3px));
+}
+.kit-bar-marks small.kit-mark-start {
+  transform: translateX(3px);
+}
 
 /* ---------- Кнопка ---------- */
 .kit-btn {

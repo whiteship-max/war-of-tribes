@@ -12,6 +12,11 @@ export interface Mark {
   at: number;
   /** Что значит порог: «ропот», «мятеж», «рост встаёт». */
   label: string;
+  /**
+   * С какой стороны риски подпись: по умолчанию — посередине; `end` — кончается у риски (подпись слева), `start` — от риски
+   * вправо. Две риски рядом (порядок: 40 и 50) иначе накладывали подписи одна на другую (UI-8, снимок `192`).
+   */
+  side?: 'start' | 'end';
 }
 
 interface Props {
@@ -54,7 +59,7 @@ export function Bar({ value, max, label, text, tone = 'accent', marks = [], tip,
       {marks.length > 0 && (
         <span className="kit-bar-marks">
           {marks.map((m) => (
-            <small key={m.label} style={{ left: `${fillOf(m.at, max)}%` }}>
+            <small key={m.label} className={m.side ? `kit-mark-${m.side}` : undefined} style={{ left: `${fillOf(m.at, max)}%` }}>
               {m.label}
             </small>
           ))}
