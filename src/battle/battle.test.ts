@@ -1744,9 +1744,9 @@ describe('мораль EU4', () => {
     const need = UNIT_STATS.archer.morale / MORALE.perLoss;
     let late = 0;
     // Граница области: резерва нет — все лучники в полосах, не больше трёх W (резерв встаёт в строй, и его слом — не про стрелы).
-    // Средняя — 240: кратно трём полосам и меньше трёх W (при W 94 прежние 300 больше трёх W — резерв; нечётное число
-    // оставляет одного в резерве).
-    for (const n of [150, 240, 3 * FRONT_WIDTH]) {
+    // Лучники встают второй линией от центра: центр берёт W, остаток делится на два края поровну, нечётный ждёт в резерве, —
+    // поэтому малая и средняя — W плюс чётное: при W 94 это прежние 150 и 240, при нечётном W 97 те оставили бы одного в резерве.
+    for (const n of [FRONT_WIDTH + 56, FRONT_WIDTH + 146, 3 * FRONT_WIDTH]) {
       for (let seed = 1; seed <= 4; seed += 1) {
         const r = simulateBattle({ seed, attacker: deploySetup({ archer: n }), defender: deploySetup({ archer: n }) });
         expect(stackTotal(r.sides.defender.sectors.R.initial), `${n}: резерва нет`).toBe(0);
