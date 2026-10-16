@@ -8,6 +8,8 @@
 import type { Rect } from '@/world/types';
 import { type Camera, type Viewport, viewRect } from '../grid';
 import { makeCanvas } from '../paint';
+import { anyArms } from '@/heraldry/arms';
+import { ARMS_ASPECT, canPaintArms, paintArms } from '@/heraldry/paint';
 import { CELL_PAD, cellsFor, landAt, warpFor, warpX, warpY } from './field';
 import { gridLand, type LandGrid } from './landgrid';
 import { FEATURE_BITS } from './landcache';
@@ -339,11 +341,11 @@ function walkerSprite(color: string, frame: number, hPx: number, dpr: number): H
   });
 }
 
-/** Знамя колонны: древко и полотнище в цвете стороны. */
-function bannerSprite(color: string, hPx: number, dpr: number): HTMLCanvasElement {
+/** Знамя колонны: древко и полотнище в цвете стороны, на полотнище — щит герба хозяина (П-2, `ui/map/arms`). */
+function bannerSprite(color: string, arms: string | null, hPx: number, dpr: number): HTMLCanvasElement {
   const h = Math.max(10, Math.round(hPx * dpr));
   const w = Math.round(h * 0.7);
-  return sprite(`banner:${color}:${h}`, w, h, (c) => {
+  return sprite(`banner:${color}:${arms ?? '-'}:${h}`, w, h, (c) => {
     const u = h / 20;
     c.strokeStyle = 'rgba(40, 28, 18, 0.95)';
     c.lineWidth = 1.6 * u;
@@ -362,6 +364,12 @@ function bannerSprite(color: string, hPx: number, dpr: number): HTMLCanvasElemen
     c.lineTo(3.6 * u, 8.6 * u);
     c.closePath();
     c.fill();
+    if (arms && canPaintArms()) {
+      // Щит — в середине полотнища до хвоста, во всю его высоту без каймы.
+      const sh = 6.4 * u;
+      const sw = sh / ARMS_ASPECT;
+      paintArms(c, anyArms(arms), 7.4 * u - sw / 2, 2 * u, sw, { gloss: false });
+    }
   });
 }
 
@@ -381,7 +389,19 @@ export const columnAlpha = (scale: number): number => smooth(COLUMN_FROM, COLUMN
  * она сама (шаг живого стоящей карты, `still.ts`). Шаг — по часам
  * страницы; на «Низком» колонна стоит. Цель пальца — прежнее тело значка: колонна его не меняет.
  */
-export function drawColumn(ctx: CanvasRenderingContext2D, x: number, y: number, angle: number, size: number, color: string, scale: number, dpr: number, alpha: number, seed: number): boolean {
+export function drawColumn(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  angle: number,
+  size: number,
+  color: string,
+  scale: number,
+  dpr: number,
+  alpha: number,
+  seed: number,
+  arms: string | null = null,
+): boolean {
   if (alpha <= 0.01) return false;
   const q = twQuality();
   const n = Math.min(COLUMN_MAX[q], 3 + size * 2);
@@ -414,7 +434,7 @@ export function drawColumn(ctx: CanvasRenderingContext2D, x: number, y: number, 
       draw(walkerSprite(color, frame, hPx, dpr), px, py - bob);
     }
   }
-  draw(bannerSprite(color, hPx * 1.45, dpr), x + dx * gap * 0.2, y + dy * gap * 0.15);
+  draw(bannerSprite(color, arms, hPx * 1.45, dpr), x + dx * gap * 0.2, y + dy * gap * 0.15);
   ctx.restore();
   // Шагает колонна сама — кроме «Низкого», где она стоит.
   return q !== 'low';

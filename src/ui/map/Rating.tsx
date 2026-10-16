@@ -17,6 +17,8 @@ import { Table, type Col } from '@/ui/kit/Table';
 import { breakdown } from '@/ui/kit/breakdown';
 import { tipAt, type TipContent } from '@/ui/next/tip';
 import { num } from '@/game/num';
+import { armsOr } from '@/heraldry/arms';
+import { ArmsArt } from '@/ui/parts/Arms';
 
 /** Подсказка «откуда очки» — весами договора. */
 export const RATING_TIP = {
@@ -116,7 +118,13 @@ export function Rating({ onClose }: { onClose: () => void }) {
             tip: () => pointsTip(r, () => show(r)),
             cells: {
               place: r.place,
-              city: <b className="one-line">{cityOr(r.city)}</b>,
+              // Герб из реестра (П-2): соседей узнают по гербу так же, как на карте; нет — прежняя башня.
+              city: (
+                <span className="kit-name">
+                  <ArmsArt arms={armsOr(r.arms)} size={15} />
+                  <b className="one-line">{cityOr(r.city)}</b>
+                </span>
+              ),
               points: shortNum(r.points),
               power: shortNum(r.power),
               pop: shortNum(r.pop),

@@ -20,6 +20,7 @@ import { type PartySize, lookOf as partyLook } from '../party';
 import { type Spot, spotsOf } from '../figures';
 import { ANCHOR_X, ANCHOR_Y, FAN_STEP, SPAN_H, SPAN_W } from '../agent';
 import { settlementAt } from '@/world/cache';
+import { placeArms } from '../arms';
 import type { HostLook, PlaceKind, PlaceLook } from './mini';
 import { type MarkLook, STAGE_PIPS, markGeo, markPx } from './marks';
 import { SIDE_COLOR } from '@/side';
@@ -89,14 +90,18 @@ export const RUIN_RING = '#8c8478';
  * чужие города и неувиденные места — рисунком своей стадии (стоянка, деревня, острог, крепость); логово — разбойники;
  * пепелище — огонь, приглушённо. Плашка размера — настоящая стадия у всех, и у своего: размер соседа сравнивают со
  * своим. Кольцо — цвет стороны или отношения, у своего — золото (`side.ts`).
+ *
+ * В диске живого места — его герб (П-2, docs/polish.md; `ui/map/arms.placeArms`): свой — герб профиля (`own`), сосед — из
+ * реестра, логово — свой по номеру. Рисунок `glyph` остаётся запасным (нечем рисовать герб) и у пепелища.
  */
-export function placeMarkOf(s: SettlementView): MarkLook {
+export function placeMarkOf(s: SettlementView, own?: string | null): MarkLook {
   const pips = STAGE_PIPS[s.stage];
   if (s.ruin) return { glyph: 'evt-fire', ring: RUIN_RING, pips, own: false, dim: true, corner: null };
   const corner = s.sacked ? 'evt-fire' : null;
-  if (s.relation === 'barbarian') return { glyph: 'evt-raiders', ring: s.color, pips, own: false, dim: false, corner };
-  if (s.mine) return { glyph: 'stage-town', ring: SIDE_COLOR.ours, pips, own: true, dim: false, corner };
-  return { glyph: `stage-${s.stage}`, ring: s.color, pips, own: false, dim: false, corner };
+  const arms = placeArms(s, own);
+  if (s.relation === 'barbarian') return { glyph: 'evt-raiders', arms, ring: s.color, pips, own: false, dim: false, corner };
+  if (s.mine) return { glyph: 'stage-town', arms, ring: SIDE_COLOR.ours, pips, own: true, dim: false, corner };
+  return { glyph: `stage-${s.stage}`, arms, ring: s.color, pips, own: false, dim: false, corner };
 }
 
 /** Диаметр значка места на масштабе. */
@@ -121,7 +126,8 @@ export interface PlaceItem {
   body: Box;
 }
 
-export function placeItems(cam: Camera, vp: Viewport, list: SettlementView[], _dpr: number): PlaceItem[] {
+/** `own` — строка герба своего профиля (`ProfileState.arms`) для метки своего города. */
+export function placeItems(cam: Camera, vp: Viewport, list: SettlementView[], _dpr: number, own?: string | null): PlaceItem[] {
   const px = cam.scale;
   const out: PlaceItem[] = [];
   for (const s of list) {
@@ -131,7 +137,7 @@ export function placeItems(cam: Camera, vp: Viewport, list: SettlementView[], _d
     const pad = Math.max(48, px * 1.6);
     if (sx < -pad || sy < -pad || sx > vp.w + pad || sy > vp.h + pad) continue;
     const look = placeLookOf(s);
-    const mark = placeMarkOf(s);
+    const mark = placeMarkOf(s, own);
     const d = placeMarkPx(mark, px);
     out.push({ s, look, mark, d, sx, sy, body: markBox(mark, d, sx, sy) });
   }

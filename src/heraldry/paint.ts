@@ -5,6 +5,9 @@
 import { anyArms, armsCode, type Arms } from './arms';
 import { INK, RIM, SHIELD_PATH, armsLayers } from './art';
 
+/** Есть ли чем рисовать: без `Path2D` (тесты в узле) зовущий рисует свой запасной знак. */
+export const canPaintArms = (): boolean => typeof Path2D !== 'undefined';
+
 /** Отношение высоты герба к ширине. */
 export const ARMS_ASPECT = 1.2;
 
