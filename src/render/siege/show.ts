@@ -3,7 +3,7 @@
 // Ролик мира не читает (как ролик боя: тест «показ не считает бой»). Запись осады из донесения (`world/siegerecord`) в эти
 // числа переводит зовущий — слой игры (`ui/battle/siege.ts`) — теми же дверями мира, что окно осады: проломы после каждой
 // фазы — `siegeroll.breachesOf`, залп фазы — `volleyIn`, готовность машин — `machines.machinesAt`, выбитое башней —
-// `bombard.thinAt`, свет минуты — час племени. Здесь своих чисел исхода нет: только то, что дал зовущий.
+// запись (`SiegeRecord.thinned`, пишет мир), свет минуты — час племени. Здесь своих чисел исхода нет: только то, что дал зовущий.
 import type { Ground } from '@/battle/replay';
 
 /** Исход фазы — те же строки, что `siegeroll.PhaseOut` (тест сверяет). */
@@ -97,7 +97,7 @@ export interface SiegeShow {
   garrison: number;
   phases: ShowPhase[];
   machines: ShowMachineState[];
-  /** Доля лагеря, выбитая башней к концу осады, 0..1 (`bombard.thinAt`). */
+  /** Доля лагеря, выбитая башней к концу осады, 0..1 (`SiegeRecord.thinned`). */
   fire: number;
   /** Осаждённый урезал паёк. */
   ration: boolean;

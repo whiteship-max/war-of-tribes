@@ -3,7 +3,7 @@
 //   проломы после каждой фазы — `siegeroll.breachesOf` по фазам до неё включительно;
 //   залп фазы — `volleyIn`; камнемёт к броску — `machines.mangonelAt`;
 //   готовность, трата и пожар машин — `machines.machinesAt` (сожжённая — минута пожара в `MachineOrder.spent`);
-//   выбитое башней — `bombard.thinAt` в минуту конца;
+//   выбитое башней — запись (`SiegeRecord.thinned`: то же число, что мир списал с лагеря; считает его только мир);
 //   свет минуты — час племени (`derived.solarPhase` от игрового времени: минута раньше конца — время раньше на столько же).
 // Подписи эпизодов с числами — тоже словами мира: строка журнала фазы (`siegeroll.phaseText`), имена машин
 // (`MACHINE_NAME`), участь (`FATE_META`), донесение — своим заголовком и текстом (CLAUDE.md, правило 18).
@@ -20,7 +20,6 @@ import { siegeSince } from '@/world/siege';
 import { OUT_NAMES, breachesOf, phaseOf, phaseText, repairDoneAt, repairsOf, rowsOf, volleyIn } from '@/world/siegeroll';
 import { SIEGE_PHASE } from '@/world/data/siegeroll';
 import { MACHINE_NAME, machinesAt, mangonelAt } from '@/world/machines';
-import { thinAt } from '@/world/bombard';
 import { FATE_META } from '@/world/data/fates';
 import type { Report } from '@/world/types';
 
@@ -104,7 +103,7 @@ export function showOfSiege(rec: SiegeRecord, report?: Report): SiegeShow {
     garrison: rec.garrison,
     phases,
     machines,
-    fire: thinAt(rec.fire, rec.end.at),
+    fire: rec.thinned ?? 0,
     ration: Boolean(rec.ration),
     fights,
     end: {
@@ -144,7 +143,7 @@ export function captionOf(rec: SiegeRecord, ep: Episode, report?: Report): strin
         ? `Лагерь встал под стенами: частокол ${rec.wall}-го уровня, в гарнизоне ${rec.garrison}, в лагере ${rec.camp}.`
         : `Лагерь встал у частокола логова: в лагере ${rec.camp}.`;
     case 'fire':
-      return `Башня бьёт по лагерю: к концу осады выбила ${Math.round(thinAt(rec.fire, rec.end.at) * 100)} % лагеря.`;
+      return `Башня бьёт по лагерю: к концу осады выбила ${Math.round((rec.thinned ?? 0) * 100)} % лагеря.`;
     case 'machines':
       return `Готовы: ${(ep.machines ?? []).map((id) => MACHINE_NAME[id].toLowerCase()).join(', ')}.`;
     case 'repair':

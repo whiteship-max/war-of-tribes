@@ -2099,6 +2099,9 @@ export class LocalWorld implements WorldApi {
     // Запись осады для ролика — до того, как окно удалено и выбитое башней списано с лагеря: она и есть окно в минуту
     // конца. Война соседей между собой — не наша осада, донесения о ней нет.
     this.lifted = ourCamp(w) || id === HOME_ID ? { id, at, rec: this.siegeRecordAt(id, w, at, how) } : null;
+    // Выбитое обстрелом с башни — одно число на лагерь и на запись: ниже оно списывается с войска лагеря.
+    const thin = thinAt(w.fire, at);
+    if (this.lifted && thin > 0) this.lifted.rec.thinned = thin;
     // Наш лагерь снят — энергия полководца больше не стоит: с этой минуты она уходит, как у всякого в поле.
     const held = ourCamp(w) ? this.energyOf('general', at) : null;
     delete this.save.sieges[id];
@@ -2107,7 +2110,6 @@ export class LocalWorld implements WorldApi {
     const camp = this.save.marches.find((m) => m.id === w.campId);
     // Выбитое обстрелом с башни записывается в войско лагеря одним разом, здесь: до этой
     // минуты оно выводилось при чтении (`campArmy`), а окна, из которого выводить, больше нет.
-    const thin = thinAt(w.fire, at);
     if (camp && thin > 0) {
       camp.power = Math.max(1, camp.power * (1 - thin));
       camp.units = stackAfter(camp.units, stackLosses(camp.units, thin));

@@ -97,6 +97,8 @@ function cases(): Record<string, Case> {
         camp: 380,
         tower: 4,
         fire: { slow: 0.2, thin: 0.12, at: S, base: 0 },
+        // Выбитое башней к концу — образец стенда (в игре его пишет мир при снятии лагеря, `SiegeRecord.thinned`).
+        thinned: 0.12,
         wood: { front: 0.5, rear: 0, machines: 2 },
         phases: [row(1, 'plague', 2, { wall: -2 }, 0.08), row(2, 'breach', 13, { wall: -2 }), row(3, 'calm', 7, { breach: 1, machine: 1, wall: -2 }), row(4, 'short', 11, { breach: 1, hunger: 1, progress: 1, wall: -2 })],
         machines: [{ ...order('mangonel'), spent: at(4) + 3_600_000, burned: true }],

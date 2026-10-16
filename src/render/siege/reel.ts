@@ -672,7 +672,7 @@ function fire(c: Ctx, t0: number, len: number): void {
   const e = c.engineOf.gun;
   if (e === undefined) return;
   const tents = [...c.lay.camp.tents].sort((a, b) => Math.abs(a.x) + Math.abs(a.z + 36) - (Math.abs(b.x) + Math.abs(b.z + 36))).slice(0, 3);
-  // Сколько лагеря выбила башня за осаду — столько фигур у шатров, куда легло (`bombard.thinAt` у зовущего).
+  // Сколько лагеря выбила башня за осаду — столько фигур у шатров, куда легло (`SiegeRecord.thinned` у зовущего).
   const hit = clamp(Math.round(c.show.fire * c.groups.camp.length), 1, 6);
   let killed = 0;
   tents.forEach((tt, j) => {
