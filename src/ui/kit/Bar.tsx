@@ -23,6 +23,11 @@ interface Props {
   tone?: Tone | 'accent';
   marks?: readonly Mark[];
   tip?: () => TipContent;
+  /**
+   * Свои краски заливки и остатка — полоса двух сторон (шкала сил ролика боя: наши золотом, чужие красным, `side.ts`).
+   * Без них — тон набора на пустой дорожке.
+   */
+  paint?: { fill: string; rest: string };
 }
 
 /** Доля заполнения в процентах: в пределах 0…100, при пустом потолке — ноль. */
@@ -31,7 +36,7 @@ export function fillOf(value: number, max: number): number {
   return Math.min(100, Math.max(0, (value / max) * 100));
 }
 
-export function Bar({ value, max, label, text, tone = 'accent', marks = [], tip }: Props) {
+export function Bar({ value, max, label, text, tone = 'accent', marks = [], tip, paint }: Props) {
   const inner = (
     <>
       {(label !== undefined || text !== undefined) && (
@@ -40,8 +45,8 @@ export function Bar({ value, max, label, text, tone = 'accent', marks = [], tip 
           <b>{text}</b>
         </span>
       )}
-      <span className="kit-bar-track">
-        <i className={`kit-bar-fill ${tone}`} style={{ width: `${fillOf(value, max)}%` }} />
+      <span className="kit-bar-track" style={paint ? { background: paint.rest } : undefined}>
+        <i className={`kit-bar-fill ${tone}`} style={{ width: `${fillOf(value, max)}%`, ...(paint ? { background: paint.fill } : {}) }} />
         {marks.map((m) => (
           <i key={m.label} className="kit-bar-mark" style={{ left: `${fillOf(m.at, max)}%` }} />
         ))}

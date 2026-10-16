@@ -164,6 +164,8 @@ export interface LandInput {
 
 export interface FieldView {
   group: THREE.Group;
+  /** Сторож ролика опустил уровень: погасить то, чего у этого уровня нет (кустики, цветы, тень облаков). */
+  lower(spec: TwSpec): void;
   /** Треугольников земли, воды и деревьев — сверке бюджета. */
   triangles: number;
   update(t: number): void;
@@ -589,6 +591,16 @@ export function buildField(plan: LandInput, spec: TwSpec): FieldView {
   }, 0);
   return {
     group,
+    lower(next: TwSpec): void {
+      if (next.tufts === 0) {
+        for (const m of extra) if (m.name === 'tw-tufts') m.visible = false;
+        uni.uTwBloom.value = 0;
+      }
+      if (!next.clouds) {
+        uni.uTwCloud.value = 0;
+        shared.cloud.value = 0;
+      }
+    },
     triangles: tris + treeTris + reedTris + tuftTris,
     update(t: number): void {
       shared.time.value = t;

@@ -86,6 +86,12 @@ const SHOTS: Shot[] = [
   { name: 'beat-outcome', query: `${FIELD}&at=outcome`, why: 'развязка: бегство и погоня, камера выше и шире' },
   { name: 'beat-coda', query: `${FIELD}&at=coda`, why: 'после боя: поле с павшими, победитель ликует, камера низко, лицом к нему' },
   { name: 'chase-outcome', query: `${CHASE}&at=outcome`, why: 'развязка неровного боя: меньший бежит, конница гонит' },
+  // Слой игры поверх ролика (`&layer=1`, `TwReplay`): шкала сил внизу, «Пропустить» и «Итог», мораль сверху, карточка итога.
+  { name: 'ui-overview', query: `${FIELD}&layer=1&at=overview`, why: 'общий план со слоем игры: шкала сил, кнопки, мораль армий' },
+  { name: 'ui-clash', query: `${FIELD}&layer=1&at=clash`, why: 'сшибка со слоем игры' },
+  { name: 'ui-turn', query: `${FIELD}&layer=1&at=turn`, why: 'перелом со слоем игры: строка журнала, шкала сил сдвинулась' },
+  { name: 'ui-outcome', query: `${FIELD}&layer=1&at=outcome`, why: 'развязка со слоем игры: бегство, погоня' },
+  { name: 'ui-card', query: `${FIELD}&layer=1&at=card`, why: 'итог: поле после боя и карточка итога' },
   { name: 'deploy', query: `${FIELD}&at=deploy`, why: 'построение: общий вид, отряды строем, знамёна, конница на краях' },
   { name: 'volley', query: `${FIELD}&at=volley`, why: 'залп: туча стрел по дуге от лучников' },
   { name: 'advance', query: `${FIELD}&at=advance&cam=low`, why: 'сближение шагом, ниже общего вида' },

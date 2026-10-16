@@ -118,6 +118,17 @@ export class TwStage {
     fitShadow(this.rig, Math.min(SHADOW_HALF.max, Math.max(SHADOW_HALF.min, cam.now.dist * SHADOW_HALF.perDist)));
   }
 
+  /**
+   * Сторож ролика опустил уровень посреди боя (`TwPlayer`): гаснет то, чего у нового уровня нет, — тени бойцов, облака,
+   * кустики и цветы. Фигур не меньше: их число — `k` плана, одно на весь бой (соотношение сил видно глазами), и менять его
+   * посреди ролика нельзя; меньше фигур будет со следующего ролика — уровень помнится (`gfx.rememberAutoCap`).
+   */
+  lower(next: TwSpec): void {
+    if (next.shadow === 'none') this.crowd.shadows(false);
+    if (!next.clouds && this.clouds) this.clouds.mesh.visible = false;
+    this.field.lower(next);
+  }
+
   /** Высота земли под точкой — камере, чтобы не уходить под холм. */
   groundY(x: number, z: number): number {
     return heightAt(this.plan.field, x, z);

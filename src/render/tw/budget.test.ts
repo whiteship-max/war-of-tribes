@@ -122,6 +122,25 @@ describe('ролик TW: бюджет кадра по уровням', () => {
     }
   });
 
+  it('сторож опустил уровень посреди ролика: гаснут тени бойцов, облака и кустики — кадр дешевле, фигур столько же', () => {
+    const b = standBattle(new URLSearchParams('replay=tw&men=4000&foe=4000&seed=7&place=woods,road'));
+    const plan = twPlanOfRecord(b.result, b.us, b.troops, 'medium', b.militia, b.place, b.beastSide);
+    const stage = new TwStage(plan, TW_SPEC.medium);
+    const cam = { camera: new THREE.PerspectiveCamera(), now: { tx: 0, tz: 0, dist: 120, yaw: 0, pitch: 0.8 }, groundY: 0 };
+    stage.apply(1, cam as never, 1);
+    const before = countStage(stage);
+    stage.lower(TW_SPEC.low);
+    stage.apply(1, cam as never, 1);
+    const after = countStage(stage);
+    stage.dispose();
+    // Точка внутри области правила: у среднего есть что гасить — тени бойцов, облака, кустики.
+    expect(TW_SPEC.medium.shadow).toBe('proxy');
+    expect(TW_SPEC.medium.tufts).toBeGreaterThan(0);
+    expect(after.calls, 'вызовов').toBeLessThan(before.calls);
+    expect(after.triangles, 'треугольников').toBeLessThan(before.triangles);
+    expect(after.figures).toBe(before.figures);
+  });
+
   it('низкий дешевле среднего, средний — высокого', () => {
     expect(counts.low.triangles).toBeLessThan(counts.medium.triangles);
     expect(counts.medium.triangles).toBeLessThan(counts.high.triangles);

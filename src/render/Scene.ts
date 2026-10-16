@@ -555,8 +555,20 @@ export abstract class TribeScene {
     if (!this.steady || !this.settled()) return;
     const next = this.steady.feed(gap);
     if (!next) return;
+    this.lowerTo(next);
+  }
+
+  /**
+   * Опустить уровень: плотность — сразу (буфер пересчитает ближайший `resize`), остальное — со следующего захода, уровень
+   * помнится неделю (`gfx.rememberAutoCap`). Зовёт свой сторож и сторож ролика боя, когда холст одолжен ему
+   * (`render/tw/player`): мерка «тянет ли телефон» одна на игру — ролик, не потянувший кадра, опускает и город. Выше
+   * нынешнего не поднимает.
+   */
+  lowerTo(next: Quality): void {
+    if (QUALITIES.indexOf(next) <= QUALITIES.indexOf(this.dprLevel)) return;
     this.dprLevel = next;
     this.needSize = true;
+    this.steady?.set(next);
     rememberAutoCap(next, serverNow());
     noteSceneLevel(next);
   }

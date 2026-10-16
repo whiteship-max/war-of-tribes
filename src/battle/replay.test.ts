@@ -249,10 +249,12 @@ describe('«Пропустить» на каждом кадре', () => {
   });
 
   it('в разметке ролика кнопок не пишется: они приходят данными', () => {
-    // Ролик один — TW (прежний удалён, docs/ui_audit.md, 16): его кнопки — список данных, и «Пропустить» в нём та же.
+    // Ролик один — TW (прежний удалён, docs/ui_audit.md, 16): его кнопки — список данных. «Пропустить» — та же подпись
+    // раскадровки (`SKIP.label`), ведёт к следующему такту смысла; «Итог» — к карточке итога (ГФ-1, docs/gfx.md).
     const jsx = stripComments(readFileSync(join(SRC, 'ui/battle/TwReplay.tsx'), 'utf8'));
     expect(jsx).not.toContain(SKIP.label);
-    expect(jsx).toMatch(/const TW_CONTROLS = \[OVERVIEW, SKIP\] as const;/);
+    expect(jsx).toMatch(/const NEXT = \{ id: 'next', label: SKIP\.label \} as const;/);
+    expect(jsx).toMatch(/const TW_CONTROLS = \[NEXT, RESULT\] as const;/);
     expect(jsx).toMatch(/TW_CONTROLS\.map/);
   });
 

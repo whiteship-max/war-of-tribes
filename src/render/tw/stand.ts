@@ -5,6 +5,8 @@
 //   ?replay=tw&men=300&foe=300                 бой, ролик идёт сам, камера — общий вид
 //   &quality=low|medium|high                   уровень (по умолчанию средний)
 //   &t=12.5 | &at=deploy|volley|advance|charge|clash|melee|reserve|flank|waver|rout|pursuit|last   кадр стоит
+//   &at=overview|turn|outcome|coda                такты смысла: кадр режиссёра (docs/gfx.md, «Камера»)
+//   &layer=1 [&at=…|card]                       тем же слоем, что в игре (`TwReplay`: шкала сил, кнопки, карточка итога)
 //   &cam=auto|near|side|top|low                положение камеры для снимка
 //   &place=… &hour=… &winter=1 &beasts=1 &seed=… &clean=1 &dpr=2 &speed=2
 //   &sound=1                                   звук боя: первое касание холста открывает его (жест), настройку не трогает
@@ -26,6 +28,9 @@ import { CueClock, ambienceAt, cuesOf } from './cues';
 import { beatsOf } from '../reel/beats';
 import { beatCues } from '../reel/director';
 import type { BattleFx } from '@/sound/battlefx';
+import type { BattleRecord, BattleSite } from '@/world/types';
+import { createElement } from 'react';
+import { createRoot } from 'react-dom/client';
 
 /** Именованные моменты: по ним снимают кадры самопроверки. Ищутся по режиссуре, а не подбираются руками. */
 /**
@@ -183,6 +188,40 @@ function shot(base: CamState, cam: string, plan: TwPlan): CamState {
     default:
       return { ...base, pitch: OVERVIEW_PITCH };
   }
+}
+
+/**
+ * Стенд ролика тем же слоем, что в игре (`ui/battle/TwReplay`): шкала сил, кнопки, полоса морали, карточка итога. Запись
+ * боя — стенда; кадр стоит на моменте `&at=` (или `&t=`), камера — режиссёра. Холст — свой, как у ролика без города.
+ */
+export function mountTwStandUi(p: URLSearchParams): void {
+  const battle = standBattle(p);
+  const quality = qualityOf(p.get('quality')) ?? 'medium';
+  const rec = {
+    us: battle.us,
+    result: battle.result,
+    troops: battle.troops,
+    ...(battle.militia ? { militia: battle.militia } : {}),
+    ...(battle.place ? { place: battle.place } : {}),
+    ...(battle.beastSide ? { beasts: battle.beastSide } : {}),
+    ...(battle.site ? { site: battle.site as BattleSite } : {}),
+    ...(battle.shots ? { shots: battle.shots } : {}),
+    ...(battle.openings ? { openings: battle.openings } : {}),
+  } as BattleRecord;
+  const plan = twPlanOfRecord(battle.result, battle.us, battle.troops, quality, battle.militia, battle.place, battle.beastSide, battle.site, barrageShares(battle.shots), battle.openings);
+  const at = p.get('at');
+  // `card` — карточка итога на последнем кадре (поле после боя).
+  const freeze = p.has('t') ? Number(p.get('t')) : at === 'card' ? plan.barrage ? plan.barrage.seconds + plan.seconds : plan.seconds : at ? momentOf(plan, at) : null;
+  const root = document.getElementById('root') ?? document.body;
+  void import('@/ui/battle/TwReplay').then(({ TwReplay }) => {
+    createRoot(root).render(createElement(TwReplay, { rec, onDone: () => undefined, freeze, ended: at === 'card' }));
+    // Снимок стенда ждёт счёта кадра (`tw-shots`): слой ролика встал — кадр тот.
+    const ready = (): void => {
+      if (!document.querySelector('.replay-tw canvas, .canvas-wrap canvas')) return void setTimeout(ready, 200);
+      document.body.dataset.replay = JSON.stringify({ tw: true, ui: true, quality, t: freeze ?? 0, k: plan.k, calls: 0, triangles: 0, crowdTriangles: 0, textureMB: 0, figures: plan.sideFigures, budget: TW_BUDGET[quality] });
+    };
+    setTimeout(ready, 600);
+  });
 }
 
 export function mountTwStand(p: URLSearchParams): void {

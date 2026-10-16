@@ -342,6 +342,11 @@ export class Crowd {
     return extra;
   }
 
+  /** Тени бойцов заместителями — включить или погасить (сторож ролика опустил уровень, у которого их нет). */
+  shadows(on: boolean): void {
+    for (const g of this.groups) if (g.proxy) g.proxy.visible = on;
+  }
+
   /** Сколько треугольников у бойцов в кадре (без тени): по ним сверяется бюджет. */
   triangles(): number {
     return this.groups.reduce((n, g) => n + g.baked.triangles * g.mesh.count + g.baked.farTriangles * g.far.mesh.count, 0);
