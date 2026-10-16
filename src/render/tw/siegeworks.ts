@@ -259,8 +259,8 @@ export class Siegeworks {
     const par = m(PARAPET);
     // Частокол (ролик осады, стена до третьего уровня) рушится брёвнами, а не кладкой.
     const layer = w.wood ? 'wood' : 'ashlar';
-    const T = w.wood ? tint(CITY.oakLight, 0.8) : tint(CITY.stoneTints[0]);
-    const Tdark = w.wood ? tint(CITY.oakLight, 0.66) : tint(CITY.stoneTints[0], 0.86);
+    const T = w.wood ? tint(CITY.timberGrey, 1.4) : tint(CITY.stoneTints[0]);
+    const Tdark = w.wood ? tint(CITY.timberGrey, 1.15) : tint(CITY.stoneTints[0], 0.86);
     for (const ch of br.chunks) {
       const cb = new Builder();
       let lowest = Infinity;

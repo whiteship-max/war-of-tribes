@@ -203,7 +203,8 @@ function palisadeRun(b: Builder, w: TwWall, x0: number, x1: number, detail: Deta
   const step = detail === 0 ? 0.62 : 0.42;
   const zFace = zo + s * r;
   for (let x = x0 + step / 2, k = 0; x < x1; x += step, k++) {
-    const T = tint(CITY.oakLight, 0.78 + ((k * 37) % 9) * 0.03);
+    // Брёвна серые от погоды, через одно — свежее: дуб на земле в тени сливался с травой.
+    const T = tint(k % 3 === 0 ? CITY.oakLight : CITY.timberGrey, 1.45 + ((k * 37) % 9) * 0.05);
     stake(b, x, zFace, base - 0.6, top + 1.25 + ((k * 13) % 5) * 0.08, r, T, detail > 0 || k % 2 === 0);
   }
   // Настил хода изнутри и столбы под ним.
@@ -224,7 +225,7 @@ function palisadeRun(b: Builder, w: TwWall, x0: number, x1: number, detail: Deta
           [x0, zPar],
         ];
   flat(b, walk, top, 'wood', tint(CITY.timberGrey, 1.05), true, 0.9);
-  for (let x = x0 + 1.2; x < x1; x += 2.4) log(b, [x, base - 0.2, zIn - s * 0.15], [x, top, zIn - s * 0.15], 0.14, tint(CITY.oakLight, 0.7), 5, false);
+  for (let x = x0 + 1.2; x < x1; x += 2.4) log(b, [x, base - 0.2, zIn - s * 0.15], [x, top, zIn - s * 0.15], 0.14, tint(CITY.timberGrey, 1.2), 5, false);
 }
 
 /** Пролом частокола: брёвна над проломом обрублены и повалены — пеньки на высоту, что осталась (`breachColumns`). */
@@ -236,7 +237,7 @@ function palisadeBreach(b: Builder, w: TwWall, x0: number, x1: number, cols: { x
   for (const c of cols) {
     const a = Math.max(x0, m(c.x0));
     const e = Math.min(x1, m(c.x1));
-    for (let x = a + 0.21; x < e; x += 0.42) stake(b, x, zo + s * 0.2, base - 0.6, Math.max(base + 0.4, top - m(c.drop)), 0.2, tint(CITY.oakLight, 0.66), false);
+    for (let x = a + 0.21; x < e; x += 0.42) stake(b, x, zo + s * 0.2, base - 0.6, Math.max(base + 0.4, top - m(c.drop)), 0.2, tint(CITY.timberGrey, 1.25), false);
   }
 }
 
@@ -246,11 +247,11 @@ function woodTower(b: Builder, w: TwWall, x: number, size: number, h: number): v
   const z = m(w.z) + s * (m(w.thick) / 2);
   const base = m(w.base);
   const half = size / 2;
-  const T = tint(CITY.oakLight, 0.8);
+  const T = tint(CITY.timberGrey, 1.35);
   for (const [dx, dz] of [[-half, -half], [half, -half], [half, half], [-half, half]] as const) log(b, [x + dx, base - 0.4, z + dz], [x + dx, base + h, z + dz], 0.3, T, 6, false);
   // Обшивка — верхний ярус, выше хода стены.
   const y0 = base + m(w.top) + 0.4;
-  box(b, x, z, 0, -s, size, size, y0, base + h, 'wood', tint(CITY.oakLight, 0.72), 'wood');
+  box(b, x, z, 0, -s, size, size, y0, base + h, 'wood', tint(CITY.oakLight, 1.35), 'wood');
   pyramid(
     b,
     [
@@ -262,7 +263,7 @@ function woodTower(b: Builder, w: TwWall, x: number, size: number, h: number): v
     base + h,
     [x, base + h + size * 0.75, z],
     'wood',
-    tint(CITY.oakLight, 0.55),
+    tint(CITY.oakLight, 1.05),
     0.9,
   );
 }
@@ -277,8 +278,8 @@ function woodGate(b: Builder, w: TwWall): void {
   for (const side of [1, -1]) woodTower(b, w, cx + side * (half + size / 2), size, h);
   const z = m(w.z) + s * (m(w.thick) / 2);
   const base = m(w.base);
-  box(b, cx, z, 0, -s, half * 2, m(w.thick), base + m(GATE_ARCH), base + m(GATE_ARCH) + 0.9, 'wood', tint(CITY.oakLight, 0.75), 'wood');
-  box(b, cx, z, 0, -s, half * 2 + 1, m(w.thick) + 0.6, base + m(w.top) + 0.4, base + h - 0.6, 'wood', tint(CITY.oakLight, 0.68), 'wood');
+  box(b, cx, z, 0, -s, half * 2, m(w.thick), base + m(GATE_ARCH), base + m(GATE_ARCH) + 0.9, 'wood', tint(CITY.oakLight, 1.3), 'wood');
+  box(b, cx, z, 0, -s, half * 2 + 1, m(w.thick) + 0.6, base + m(w.top) + 0.4, base + h - 0.6, 'wood', tint(CITY.oakLight, 1.2), 'wood');
 }
 
 /** Надвратная башня с проездом: два устоя, свод над проездом, верх с поясом и шатром (как надвратная набора). */

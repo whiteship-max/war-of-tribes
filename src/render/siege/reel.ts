@@ -16,7 +16,8 @@ import { TW_SPEC } from '../reel/spec';
 import type { ClipId, Troupe, TroupeUnit } from '../reel/troupe';
 import { hash, heightAt } from '../reel/terrain';
 import type { UnitKind } from '@/battle/types';
-import { GATEHOUSE, RAM_PERIOD, type TwLadder, type TwRam, type TwSiegeTower } from '../tw/site';
+import { CITY_M, GATEHOUSE, RAM_PERIOD, type TwHouse, type TwLadder, type TwRam, type TwSiegeTower } from '../tw/site';
+import { STOREY_H } from '../city/kit';
 import { ENGINE, breachWidth, type TwBarrage, type TwBreach, type TwCamKey, type TwChunk, type TwEngine, type TwSmoke, type TwStone } from '../tw/barrage';
 import type { FortMotion } from '../tw/fort';
 import { STAKES_Z, layoutOf, type SiegeLayout } from './layout';
@@ -541,6 +542,9 @@ function smokeAt(c: Ctx, x: number, z: number, from: number, size: number, to?: 
   c.smoke.push({ x, y: y ?? heightAt(c.lay.field, x, z) + 0.4, z, from, size, ...(to !== undefined ? { to } : {}) });
 }
 
+/** Карниз дома: огонь горящего дома встаёт по крыше, а не внутри стен (этажи набора города масштабом сцены). */
+const eaveOf = (c: Ctx, h: TwHouse): number => heightAt(c.lay.field, h.x, h.z) + h.floors * STOREY_H * CITY_M;
+
 // ---------------------------------------------------------------------------------------------------------------------
 // Пролом
 
@@ -756,8 +760,8 @@ function volleyEp(c: Ctx, t0: number, p: ShowPhase): void {
     // Перелёт — в дом за стеной, он дымит.
     const h = c.lay.site.houses[(j * 7 + c.seed) % Math.max(1, c.lay.site.houses.length)];
     if (h) {
-      const s = throwStone(c, e, t0 + 2.1 + j * 0.6, h.x, heightAt(c.lay.field, h.x, h.z) + 2.2, h.z, 'over', -1);
-      smokeAt(c, h.x, h.z, s.at + s.flight, 0.8, s.at + s.flight + 14, heightAt(c.lay.field, h.x, h.z) + 2.2);
+      const s = throwStone(c, e, t0 + 2.1 + j * 0.6, h.x, eaveOf(c, h) + 0.8, h.z, 'over', -1);
+      smokeAt(c, h.x, h.z, s.at + s.flight, 0.8, s.at + s.flight + 14, eaveOf(c, h) + 0.6);
     }
   });
   key(c, t0, box(-14, 14, -40, -24), 0.4, 0.34);
@@ -1150,7 +1154,7 @@ function fate(c: Ctx, t0: number, len: number): void {
   for (const i of winners.slice(0, 12)) c.tr.act(i, t0 + 0.3, 'cheer');
   if (f === 'burn') {
     const houses = [...lay.site.houses].sort((a, b) => Math.hypot(a.x, a.z - lay.square.z) - Math.hypot(b.x, b.z - lay.square.z)).slice(0, c.quality === 'low' ? 5 : c.quality === 'medium' ? 10 : 14);
-    houses.forEach((h, j) => smokeAt(c, h.x, h.z, t0 + 0.3 + j * 0.3, 1.5 + (j % 3) * 0.3, undefined, heightAt(lay.field, h.x, h.z) + 2.4));
+    houses.forEach((h, j) => smokeAt(c, h.x, h.z, t0 + 0.3 + j * 0.3, 1.5 + (j % 3) * 0.3, undefined, eaveOf(c, h) + 0.6));
     if (!lay.wall && lay.lair) for (const [j, h] of lay.lair.tents.slice(0, 8).entries()) smokeAt(c, h.x, h.z, t0 + 0.3 + j * 0.3, 1.3);
   } else if (f === 'captives') {
     // Уводят людей: народ города колонной из ворот к лагерю, по бокам — конвой.
@@ -1165,7 +1169,7 @@ function fate(c: Ctx, t0: number, len: number): void {
     cartsOut(c, t0, 3, true);
     // Грабёж: из дома тянет дымом.
     const h = lay.site.houses[c.seed % Math.max(1, lay.site.houses.length)];
-    if (h) smokeAt(c, h.x, h.z, t0 + 0.5, 0.6, t0 + len + 4, heightAt(lay.field, h.x, h.z) + 2.2);
+    if (h) smokeAt(c, h.x, h.z, t0 + 0.5, 0.6, t0 + len + 4, eaveOf(c, h) + 0.6);
   }
   if (f === 'burn') {
     key(c, t0, box(-12, 12, 6, 30), 0.2, 0.4);
