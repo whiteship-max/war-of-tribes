@@ -9,7 +9,8 @@
 //                                                (сцена города в игре, не стенд), TAG и QUALITY те же
 //   GAME=1 WX=clear,rain,storm npm run city:shots — погода адресом (`?weather=`, docs/city.md, 15): кадр игры на каждую,
 //                                                `WXLOOK=market:70` — вблизи постройки (тип:расстояние), `WXMAP=1` —
-//                                                карта мира, `WXSEASON=winter` — сезон партии, `WXREGION=italy` — регион
+//                                                карта мира, `WXSEASON=winter` — сезон партии, `WXREGION=italy` — регион,
+//                                                `WXDAY=0.8` — доля суток партии (0.8 летом — глубокая ночь, docs/polish.md, П-3)
 //   LEGEND=1 npm run city:shots              — легенда карты листом: строки значков той же функцией, что окно легенды
 //                                                (docs/city.md, 16.5); `GAME=1 WXMAP=1 LEGEND=1` — окно в самой игре
 //   SIZE=540x900 VIEWS=game SOLAR=0.46 npm run city:shots — свой экран (точки CSS, плотность 2): кадры заставки
@@ -318,6 +319,16 @@ async function weatherShots(tab: Tab, q: Quality): Promise<void> {
       return JSON.stringify('ok');
     })()`);
   }
+  // Час партии (`WXDAY=0.8`): доля суток — ночь, утро, вечер; дождь ночью у фонарей.
+  const day = process.env.WXDAY;
+  if (day) {
+    await tab.eval<string>(`(() => {
+      const s = window.__game.getState().s;
+      s.time = s.time - (s.time % ${DAY_LENGTH}) + ${Number(day)} * ${DAY_LENGTH};
+      window.__game.setState({ s: { ...s } });
+      return JSON.stringify('ok');
+    })()`);
+  }
   // Карта мира (`WXMAP=1`): облака и их тени над регионом — та же погода.
   const map = process.env.WXMAP === '1';
   if (map) {
@@ -360,6 +371,8 @@ async function weatherShots(tab: Tab, q: Quality): Promise<void> {
       const u = new URL(location.href);
       u.searchParams.set('weather', ${JSON.stringify(wx)});
       history.replaceState(null, '', u.toString());
+      // Погода кадра переливается секундами (П-3), а программный кадр облака — секунда: ставим сразу.
+      window.__scene.jumpWeather?.();
       return JSON.stringify('ok');
     })()`);
     // Программный кадр в облаке — около секунды: ждём несколько кадров с новой погодой и докачку осадков.
@@ -371,10 +384,11 @@ async function weatherShots(tab: Tab, q: Quality): Promise<void> {
       }
     }
     const png = await tab.send<{ data: string }>('Page.captureScreenshot', { format: 'png' });
-    const name = `${TAG}-wx-${wx}${region ? '-' + region : ''}${map ? '-map' : near ? '-' + near.replace(':', '') : ''}-${q}.png`;
+    const name = `${TAG}-wx-${wx}${day ? '-d' + day : ''}${region ? '-' + region : ''}${map ? '-map' : near ? '-' + near.replace(':', '') : ''}-${q}.png`;
     await writeFile(join(OUT, name), Buffer.from(png.data, 'base64'));
     if (wx === 'storm') await tab.eval<string>(`(() => { window.__scene.resume(); return JSON.stringify('ok'); })()`);
-    console.log(`  погода ${q}: ${wx} → .city-shots/${name}`);
+    const pc = await tab.eval<string>('JSON.stringify(JSON.stringify(window.__scene.precip ? { поле: window.__scene.precip.grounded, ...window.__scene.precip.counts() } : null))').catch(() => '?');
+    console.log(`  погода ${q}: ${wx} → .city-shots/${name}; осадки ${pc}`);
   }
 }
 

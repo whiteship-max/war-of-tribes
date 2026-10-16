@@ -83,6 +83,14 @@ export interface CityUniforms {
   cRain: { value: number };
   cWindDir: { value: THREE.Vector2 };
   cWind: { value: number };
+  /**
+   * Пелена осадков вдали (docs/polish.md, П-3): сила (дождь и снег) и сдвиг её полос по ветру, м — функция часов сцены;
+   * тем же сдвигом медленнее ползут полосы утреннего тумана.
+   */
+  cVeil: { value: number };
+  cVeilAt: { value: THREE.Vector2 };
+  /** Солнце видно сквозь облака: блик на мокром (0 — ночь или сплошные тучи). */
+  cSunLit: { value: number };
 }
 
 /** Сколько огней видит шейдер: тёплые пятна без точечных ламп (их цена — на каждый пиксель). */
@@ -115,6 +123,9 @@ export function cityUniforms(): CityUniforms {
     cRain: { value: 0 },
     cWindDir: { value: new THREE.Vector2(CITY_WIND.x, CITY_WIND.z) },
     cWind: { value: WIND_CALM },
+    cVeil: { value: 0 },
+    cVeilAt: { value: new THREE.Vector2() },
+    cSunLit: { value: 0 },
   };
 }
 
@@ -140,6 +151,10 @@ uniform vec3 cSky;
 uniform float cWet;
 uniform float cCloud;
 uniform vec2 cCloudAt;
+uniform float cTime;
+uniform float cRain;
+uniform vec3 cSunDir;
+uniform float cSunLit;
 float cCloudShade(vec2 p) {
   if (cCloud < 0.02) return 1.0;
   vec2 q = (p - cCloudAt) * 0.0045;
@@ -156,8 +171,36 @@ vec3 cWetten(vec3 c, float up) {
 // Блик мокрого: небо в лужах и на кровлях — у края взгляда сильнее (нормаль и взгляд — в осях камеры).
 vec3 cSheen(vec3 n, vec3 v, float up, vec3 sky) {
   float ndv = max(dot(normalize(n), normalize(v)), 0.0);
-  float fres = 0.03 + 0.55 * pow(1.0 - ndv, 4.0);
-  return sky * fres * cWet * up;
+  // Мокрое у игры блестит сильнее, чем по физике: с высоты птичьего полёта Френель у кровли почти не работает, а
+  // глаз узнаёт дождь именно по отражённому небу.
+  float fres = 0.04 + 0.55 * pow(1.0 - ndv, 3.0);
+  return (sky * 1.4 + 0.03) * fres * cWet * up;
+}
+// Солнце на мокром: узкий блик там, где кровля или лужа отражает светило в камеру; в тучах и ночью его нет.
+vec3 cGlint(vec3 n, vec3 v, float up) {
+  if (cSunLit < 0.01) return vec3(0.0);
+  vec3 l = normalize((viewMatrix * vec4(cSunDir, 0.0)).xyz);
+  float s = pow(max(dot(normalize(n), normalize(l + normalize(v))), 0.0), 80.0);
+  return vec3(1.0, 0.95, 0.84) * s * 1.6 * cSunLit * cWet * up;
+}
+// Капли бьют по луже: в клетке 0.9 м своя капля, свой миг и место; круг расходится и гаснет. Возвращает наклон
+// поверхности воды в осях мира (x, z) — им блик неба и солнца рябит кругами.
+vec2 cRipples(vec2 wp) {
+  vec2 g = vec2(0.0);
+  vec2 rp = wp / 0.9;
+  vec2 ci = floor(rp);
+  for (int k = 0; k < 2; k++) {
+    vec2 cc = ci + vec2(float(k) * 0.5);
+    vec2 rf = rp - cc - 0.5;
+    float hs = fract(sin(dot(cc, vec2(41.3, 289.1))) * 43758.5453);
+    vec2 d = rf - (vec2(fract(hs * 13.7), fract(hs * 71.3)) - 0.5) * 0.5;
+    float r = length(d);
+    float ph = fract(cTime * (0.9 + 0.5 * hs) + hs * 7.0);
+    float on = step(hs, cRain * 0.95 + 0.03) * (1.0 - ph) * smoothstep(0.0, 0.06, ph);
+    float ring = sin((r - ph * 0.5) * 40.0) * (1.0 - smoothstep(0.0, 0.08, abs(r - ph * 0.5)));
+    g += d / max(r, 1e-3) * ring * on;
+  }
+  return g * 0.45;
 }
 `;
 
@@ -166,6 +209,7 @@ vec3 cSheen(vec3 n, vec3 v, float up, vec3 sky) {
  * −4 м, город стоит на +7). Своё мировое «y» вершины — в любом материале: кроны и камыш — экземплярами.
  */
 export function misted(shader: { vertexShader: string; fragmentShader: string }): void {
+  // Пелена и туман — своими ручками (`cVeil`, `cVeilAt`): у воды и камыша свои объявления часов и дождя.
   shader.vertexShader = 'varying vec3 vMistP;\n' + shader.vertexShader.replace(
     '#include <fog_vertex>',
     /* glsl */ `#include <fog_vertex>
@@ -181,15 +225,25 @@ export function misted(shader: { vertexShader: string; fragmentShader: string })
     #endif
     vMistP = cMistP.xyz;`,
   );
-  shader.fragmentShader = 'uniform float cMist;\nvarying vec3 vMistP;\n' + shader.fragmentShader.replace(
+  shader.fragmentShader = 'uniform float cMist;\nuniform float cVeil;\nuniform vec2 cVeilAt;\nvarying vec3 vMistP;\n' + shader.fragmentShader.replace(
     '#include <fog_fragment>',
     /* glsl */ `#ifdef USE_FOG
       float fogFactor = smoothstep(fogNear, fogFar, vFogDepth);
       if (cMist > 0.01) {
-        // Мгла — полосами по низине: густая у воды, редеет к склону; пятнами по миру, не ровной простынёй.
+        // Мгла — полосами по низине: густая у воды, редеет к склону; пятнами по миру, не ровной простынёй; полосы
+        // медленно ползут по ветру.
+        vec2 cMp = vMistP.xz - cVeilAt * 0.3;
         float cLow = 1.0 - smoothstep(-15.0, 0.0, vMistP.y);
-        float cBank = 0.55 + 0.45 * sin(vMistP.x * 0.021 + sin(vMistP.z * 0.017) * 2.0) * sin(vMistP.z * 0.026 + 1.3);
-        fogFactor = max(fogFactor, cMist * cLow * cBank * smoothstep(6.0, 160.0, vFogDepth) * 0.78);
+        // Над низиной — слой пожиже по улицам города: крыши и башни выходят из него, мостовая — в нём.
+        float cLayer = 1.0 - smoothstep(4.0, 30.0, vMistP.y);
+        float cBank = 0.55 + 0.45 * sin(cMp.x * 0.021 + sin(cMp.y * 0.017) * 2.0) * sin(cMp.y * 0.026 + 1.3);
+        fogFactor = max(fogFactor, cMist * max(cLow * 0.78, cLayer * 0.42) * cBank * smoothstep(6.0, 160.0, vFogDepth));
+      }
+      if (cVeil > 0.01) {
+        // Стены ливня вдали: светлые полосы дождя идут по ветру; у середины кадра их нет, к дымке — гуще.
+        vec2 cVq = (vMistP.xz - cVeilAt) * 0.0042;
+        float cCur = sin(cVq.x * 1.3 + sin(cVq.y * 0.9) * 1.7) * sin(cVq.y * 1.1 + sin(cVq.x * 0.7) * 1.4) * 0.5 + 0.5;
+        fogFactor = max(fogFactor, cVeil * smoothstep(fogNear * 0.35, fogFar, vFogDepth) * (0.25 + 0.6 * cCur));
       }
       gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, fogFactor);
     #endif`,
@@ -299,7 +353,10 @@ export function buildingMaterial(u: CityUniforms): THREE.MeshLambertMaterial {
         diffuseColor.rgb = mix(diffuseColor.rgb, cSnowCol * (0.85 + 0.15 * cTex.r), cUp * 0.9);
         // Дождь: мокрое темнее — кровли и карнизы сильнее стен; под снегом сырости нет.
         float cWetUp = smoothstep(0.2, 0.7, vCNy) * (1.0 - cUp);
-        diffuseColor.rgb = cWetten(diffuseColor.rgb, cWetUp);`,
+        diffuseColor.rgb = cWetten(diffuseColor.rgb, cWetUp);
+        // Мокрая черепица и солома густеют цветом: вода снимает белёсую пыль.
+        float cWl = dot(diffuseColor.rgb, vec3(0.2126, 0.7152, 0.0722));
+        diffuseColor.rgb = max(mix(vec3(cWl), diffuseColor.rgb, 1.0 + 0.3 * cWet * cWetUp), 0.0);`,
       )
       .replace(
         '#include <emissivemap_fragment>',
@@ -316,8 +373,9 @@ export function buildingMaterial(u: CityUniforms): THREE.MeshLambertMaterial {
         // Выбранная постройка светлеет пульсом — вся: все дома Жилищ, все башни, вся стена.
         float cIsSel = step(0.5, cSel) * (1.0 - step(0.5, abs(vOwner - cSel)));
         totalEmissiveRadiance += (diffuseColor.rgb * 0.55 + cWarm * 0.06) * cIsSel * cSelGlow;
-        // Мокрые кровли ловят небо.
-        totalEmissiveRadiance += cSheen(normal, vViewPosition, cWetUp, cSky) * 0.6 * (1.0 - 0.7 * cNight);`,
+        // Мокрые кровли ловят небо и солнце сквозь разрывы туч.
+        totalEmissiveRadiance += cSheen(normal, vViewPosition, cWetUp, cSky) * 0.6 * (1.0 - 0.7 * cNight);
+        totalEmissiveRadiance += cGlint(normal, vViewPosition, cWetUp);`,
       );
     shader.fragmentShader = clouded(graded(shader.fragmentShader));
     misted(shader);
@@ -412,18 +470,34 @@ export function groundMaterial(u: CityUniforms, map: THREE.Texture, at: GroundMa
         float cUp = smoothstep(0.6, 0.9, vCNy) * cSnow;
         col = mix(col, cSnowCol * (0.9 + 0.1 * tg.a), cUp * (0.85 - 0.3 * bw.x));
         // Дождь: мостовая и земля темнеют, в выбоинах — лужи (низкие места фактуры, крупные пятна по миру).
-        float cPud = smoothstep(0.55, 0.85, macro) * (1.0 - smoothstep(0.25, 0.5, mix(td.a, tc.a, bw.x))) * (bw.x + bw.y);
-        float cWetUp = (0.55 + 0.45 * bw.x + 0.6 * cPud) * (1.0 - cUp);
+        // Лужи — в низинах мостовой и дорог: пятна в несколько метров двух масштабов, в больших пятнах сырости их
+        // больше; чем дольше льёт, тем шире. По кромке из воды торчат камни (высота фактуры).
+        float cPz = cMacro(wp * 1.9 + 7.0) * 0.6 + cMacro(wp.yx * 4.3 + 3.0) * 0.4 + (macro - 0.5) * 0.25;
+        float cLvl = cPz - (0.8 - 0.1 * cWet) + (0.45 - mix(td.a, tc.a, bw.x)) * 0.08;
+        float cPud = smoothstep(0.0, 0.03, cLvl) * (bw.x + bw.y) * smoothstep(0.15, 0.5, cWet);
+        float cWetUp = min(1.0, 0.55 + 0.45 * bw.x + 0.6 * cPud) * (1.0 - cUp);
         col = cWetten(col, min(1.0, cWetUp));
+        // Лужа — вода поверх камня: камень под ней тёмный и гладкий, свет в ней — отражённый.
+        col = mix(col, col * 0.55 + vec3(0.004, 0.005, 0.006), cPud * (1.0 - cUp));
         diffuseColor.rgb *= col * cm4.a;`,
       ).replace(
         '#include <emissivemap_fragment>',
         /* glsl */ `#include <emissivemap_fragment>
         totalEmissiveRadiance += diffuseColor.rgb * cTorchCol * cTorch(vCWPos) * cNight * 1.8;
-        // Мокрая мостовая и лужи зеркалят небо, ночью — тёплые огни.
-        totalEmissiveRadiance += cSheen(normal, vViewPosition, cWetUp * (0.35 + 0.65 * max(bw.x, cPud)), cSky + cTorchCol * cTorch(vCWPos) * cNight) * (1.0 - 0.6 * cNight);
+        // В дождь лужа рябит кругами: её нормаль — от капель (вблизи; издали круги мельче пикселя и не считаются).
+        vec3 cPn = normal;
+        #ifdef USE_FOG
+          if (cRain > 0.01 && cPud > 0.05 && vFogDepth < 260.0) {
+            vec2 cRg = cRipples(vCWPos.xz) * (1.0 - smoothstep(140.0, 260.0, vFogDepth));
+            cPn = normalize(mix(normal, (viewMatrix * vec4(normalize(vec3(-cRg.x, 1.0, -cRg.y)), 0.0)).xyz, cPud));
+          }
+        #endif
+        // Мокрая мостовая и лужи зеркалят небо, ночью — тёплые огни; солнце в разрывах туч — бликом.
+        totalEmissiveRadiance += cSheen(cPn, vViewPosition, cWetUp * (0.35 + 0.65 * max(bw.x, cPud)), cSky + cTorchCol * cTorch(vCWPos) * cNight) * (1.0 - 0.6 * cNight);
+        totalEmissiveRadiance += cGlint(cPn, vViewPosition, cWetUp * (0.3 + 0.7 * cPud));
         // Лужа — зеркало и сверху: камера игры смотрит почти отвесно, и блик у края взгляда её бы не показал.
-        totalEmissiveRadiance += (cSky * 0.5 + cTorchCol * cTorch(vCWPos) * cNight) * cPud * cWet * 0.22 * (1.0 - cUp);`,
+        float cPv = 1.0 - max(dot(normalize(cPn), normalize(vViewPosition)), 0.0);
+        totalEmissiveRadiance += (cSky * 0.8 + cTorchCol * cTorch(vCWPos) * cNight * 1.4) * cPud * (0.25 + 0.75 * cPv * cPv) * 0.35 * (1.0 - cUp);`,
       );
     shader.fragmentShader = clouded(graded(shader.fragmentShader));
     misted(shader);
