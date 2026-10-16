@@ -231,7 +231,8 @@ async function deliverOne(io: PassIo, player: string, marks: string[], now: numb
   if (gate.paused && (p.letters.length > 0 || rec.out.length > 0)) return new Set(marks);
   const { record: claimed, taken } = claim(rec, p.letters, now);
   let final: NotifyRecord = claimed;
-  if ((taken.length > 0 || lost > 0) && found?.etag) {
+  // Писать есть что: взятые письма или очередь, из которой что-то выбыло само (`expire`).
+  if ((taken.length > 0 || rec !== stored) && found?.etag) {
     // Сперва письма в очередь, потом отправка — и запись условная. Два наложившихся прохода или повтор вызова
     // платформой не отправят дважды: второй проиграет запись.
     const written = await io.notify.setJSON(player, claimed, { onlyIfMatch: found.etag });

@@ -991,3 +991,119 @@ describe('ВС-1: очередь отправки без потерь', () => {
     t = NOW;
   });
 });
+
+/**
+ * Сутки типичной партии испытания (ВС-1, docs/NOTIFY.md, 13.6): сколько сообщений было и сколько стало. Число в документе
+ * — отсюда (правило 12): `npx vitest run netlify/lib/notify.test.ts -t "сутки"`.
+ *
+ * Сутки — с 08:00 до 08:00 по Москве; игрок заходит трижды (08:40–08:55, 12:30–12:40, 20:00–20:30). Сосед осаждает
+ * город лагерем с фазами раз в два часа, логово ночью шлёт набег, админ выдаёт три указа подряд, три стройки кончаются,
+ * чужой лазутчик дважды поджигает склад, сосед зовёт в союз. «Было» — прежнее правило: каждая весть прежних видов — своё
+ * сообщение, со звуком в любое время, не больше `DAY_CAP` в сутки игрока. «Стало» — проход доставки этой ветки,
+ * раз в минуту.
+ */
+describe('сутки типичной партии: было и стало', () => {
+  const d = (h: number, m = 0) => msk(h < 8 ? h + 24 : h, m, 0);
+  const sessions: [number, number][] = [
+    [d(8, 40), d(8, 55)],
+    [d(12, 30), d(12, 40)],
+    [d(20, 0), d(20, 30)],
+  ];
+  const w = (kind: NoticeItem['kind'], at: number, p: Partial<NoticeItem['p']>, until = at + 12 * 60 * MIN): NoticeItem => ({
+    key: `${kind}:${at}`,
+    kind,
+    fireAt: at,
+    until,
+    p: { from: 'Бета', fate: 'plunder', about: at, ...p },
+  });
+  const day: NoticeItem[] = [
+    w('war', d(9, 20), { role: 'def', mode: 'siege', about: d(10, 50) }, d(10, 50)),
+    w('war-pact', d(9, 45), { pact: 'offer' }),
+    w('war-spy', d(11, 15), { role: 'def', fate: 'burn' }),
+    w('war-spy', d(11, 20), { role: 'def', fate: 'burn' }),
+    grantItem(1, d(13, 5)),
+    grantItem(2, d(13, 6)),
+    grantItem(3, d(13, 7)),
+    w('build', d(14, 0), { from: 'стройка', building: 'smithy', level: 4 }),
+    w('war-phase', d(14, 50), { role: 'def', phase: 'breach', k: 2, breaches: 1 }),
+    w('war-fight', d(15, 5), { role: 'def', site: 'sortie', by: 'def', won: true }),
+    w('war-fight', d(15, 30), { role: 'def', site: 'camp', by: 'def', won: false }),
+    w('war-phase', d(16, 50), { role: 'def', phase: 'plague', k: 3 }),
+    w('war-parley', d(16, 55), { role: 'def', offer: 'terms', about: d(18, 50) }, d(18, 50)),
+    w('war-relief', d(17, 10), { role: 'def', relief: 'going', ally: 'Гамма', about: d(17, 40) }, d(17, 40)),
+    w('war-fight', d(17, 40), { role: 'def', site: 'camp', by: 'def', won: true, ally: 'Гамма' }),
+    w('war-phase', d(18, 50), { role: 'def', phase: 'breach', k: 5, breaches: 2 }),
+    w('war-phase', d(20, 50), { role: 'def', phase: 'short', k: 6, order: 'ration' }),
+    w('war-phase', d(22, 50), { role: 'def', phase: 'breach', k: 7, breaches: 3 }),
+    w('build', d(23, 30), { from: 'стройка', building: 'farm', level: 3 }),
+    w('raid', d(2, 10), { from: 'Волчья падь', about: d(2, 50) }, d(2, 50)),
+    w('raid-fight', d(2, 50), { from: 'Волчья падь' }),
+    w('build', d(6, 30), { from: 'стройка', building: 'walls', level: 5 }),
+  ];
+  const awayAt = (t: number): number | null => {
+    let last = msk(7, 0);
+    for (const [a, b] of sessions) {
+      if (t >= a && t < b) return null;
+      if (t >= b) last = b;
+    }
+    return last;
+  };
+
+  it('сутки осады: было 14 сообщений и 2 срезал потолок, ночью со звуком 2; стало 14 и 2 правки, ночью со звуком ни одного', async () => {
+    // Было: прежние виды, по сообщению на весть, ушедшему до вести; потолок `DAY_CAP` на сутки игрока.
+    const OLD = new Set(['raid', 'raid-fight', 'siege-fall', 'siege-phase', 'war', 'war-fight', 'war-fall', 'war-spy', 'war-phase', 'war-parley', 'war-pact', 'war-relief']);
+    const perDate = new Map<string, number>();
+    let before = 0;
+    let beforeNight = 0;
+    let cut = 0;
+    for (const i of day) {
+      const away = awayAt(i.fireAt);
+      if (!OLD.has(i.kind) || away === null || i.fireAt < away + SEEN_GRACE) continue;
+      const date = new Date(i.fireAt + 3 * 3600_000).toISOString().slice(0, 10);
+      if ((perDate.get(date) ?? 0) >= DAY_CAP) {
+        cut++;
+        continue;
+      }
+      perDate.set(date, (perDate.get(date) ?? 0) + 1);
+      before++;
+      if (inQuiet(i.fireAt, '', { from: 23 * 60, to: 8 * 60 })) beforeNight++;
+    }
+
+    // Стало: тот же день проходом доставки раз в минуту.
+    const tg = fakeTg('ok');
+    const io = world({ ...emptyNotify(), presence: { away: msk(7, 0), beatAt: msk(7, 0) } }, tg);
+    const at: number[] = [];
+    for (let t = d(8, 0); t <= d(8, 0) + 24 * 60 * MIN; t += MIN) {
+      const away = awayAt(t);
+      let rec = stored(io);
+      if ((away === null) !== (rec.presence.away === null)) {
+        rec = accept(rec, { present: away === null }, PLAYER, away === null ? t : away).record;
+        await io.notify.setJSON(PLAYER, rec);
+      }
+      const fresh = day.filter((i) => i.fireAt <= t && i.fireAt > t - MIN);
+      if (fresh.length) {
+        const n = news(stored(io), fresh, [], PLAYER, t);
+        await io.notify.setJSON(PLAYER, n.record);
+        for (const m of n.marks) await io.due.set(m, '1');
+      }
+      await deliverPass(io, t);
+      while (at.length < tg.sent.length) at.push(t);
+    }
+    const sent = tg.sent.map((m, i) => ({ ...m, at: at[i] }));
+    const fresh = sent.filter((m) => m.edit === undefined);
+    const edits = sent.filter((m) => m.edit !== undefined);
+    const after = {
+      fresh: fresh.length,
+      edits: edits.length,
+      urgent: fresh.filter((m) => day.some((i) => tierOf(i) === 'urgent' && m.text === noticeText(i, ''))).length,
+      // Новые роды — стройка и указы: их прежде не было вовсе.
+      newKinds: fresh.filter((m) => /^(\d+ указ|Пришёл указ|Достроили|Достроено)/.test(m.text)).length,
+      silent: fresh.filter((m) => m.silent).length,
+      loudNight: fresh.filter((m) => !m.silent && inQuiet(m.at, '', { from: 23 * 60, to: 8 * 60 })).length,
+    };
+    console.log(`СУТКИ: было ${before} (срезано потолком ${cut}, ночью со звуком ${beforeNight}); стало ${JSON.stringify(after)}`);
+    for (const m of sent) console.log(`  ${clock(m.at, '')} ${m.edit ? 'правка' : m.silent ? 'тихо ' : 'новое '} | ${m.text.split('\n')[0]}`);
+    expect({ before, cut, beforeNight }).toEqual({ before: 14, cut: 2, beforeNight: 2 });
+    expect(after).toEqual({ fresh: 14, edits: 2, urgent: 7, newKinds: 2, silent: 1, loudNight: 0 });
+  });
+});
