@@ -88,6 +88,9 @@ export function priceTip(s: GameState, def: GoodDef): TipContent {
   });
 }
 
+/** Единица цены словами: невольника продают «за человека», а не «за штуку» (`ORDER_TEXT.market.unit`). */
+export const unitWord = (def: GoodDef): string => (def.id === BONDED_GOOD.id ? ORDER_TEXT.market.unit : 'за штуку');
+
 /** Что покупка невольников сделает с порядком: число и слово порога (`ORDER_UNREST`, `ORDER_WARN`). */
 export function orderAfter(s: GameState, n: number): { value: number; tone: '' | 'warn' | 'bad'; words: string } {
   const value = Math.round(orderBreakdown(s, bondedIncoming(s) + n).value);
@@ -201,7 +204,7 @@ function Buy({ def }: { def: GoodDef }) {
       <h3>
         {def.name}{' '}
         <span className="muted">
-          по <Num tip={() => priceTip(s, def)} label="Цена за штуку">{marketPrice(s, def)}</Num> {bonded ? ORDER_TEXT.market.unit : 'за штуку'}
+          по <Num tip={() => priceTip(s, def)} label="Цена за штуку">{marketPrice(s, def)}</Num> {unitWord(def)}
         </span>
       </h3>
       <Steps value={n} max={left} spare={Math.max(0, left - n)} step={10} names={{ less: 'Меньше', more: 'Больше' }} onChange={(d) => setWant(Math.max(1, n + d))} />
@@ -215,7 +218,7 @@ function Buy({ def }: { def: GoodDef }) {
       {bonded && (
         <>
           <h3>
-            Продать торговцам <span className="muted">по {bondedSalePrice()} {ORDER_TEXT.market.unit}, сегодня ещё {sale.left}</span>
+            Продать торговцам <span className="muted">по {bondedSalePrice()} {unitWord(def)}, сегодня ещё {sale.left}</span>
           </h3>
           <Steps value={m} max={saleRoom} spare={Math.max(0, saleRoom - m)} step={10} names={{ less: 'Меньше', more: 'Больше' }} onChange={(d) => setSell(Math.max(1, m + d))} />
           <div className="mk-act">
