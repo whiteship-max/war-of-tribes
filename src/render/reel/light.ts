@@ -197,3 +197,77 @@ export function buildSky(scene: THREE.Scene, ground: Ground): THREE.Mesh {
   mesh.frustumCulled = false;
   return mesh;
 }
+
+/**
+ * Густота тени облаков на земле и кронах, 0..1 (`land.ts`): днём облака кладут на поле плывущие пятна, в сумерки
+ * тень облака на длинном низком свете не читается — реже; зимой небо ровнее. Тот же бой — та же густота.
+ */
+export function cloudShade(ground: Ground): number {
+  const low = Math.min(1, Math.abs(ground.solar - 0.25) / 0.25);
+  return 0.3 * (1 - 0.65 * low) * (ground.winter ? 0.7 : 1);
+}
+
+/** Облака: купол чуть меньше неба; кучевые — шумом по проекции на слой над землёй. */
+const CLOUD_R = 140;
+
+const CLOUD_FRAG = /* glsl */ `
+varying vec3 vTwSky;
+uniform float uTwTime;
+uniform vec3 uTwLit;
+uniform vec3 uTwShade;
+float twH(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float twV(vec2 p) {
+  vec2 i = floor(p);
+  vec2 f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(twH(i), twH(i + vec2(1.0, 0.0)), f.x), mix(twH(i + vec2(0.0, 1.0)), twH(i + vec2(1.0, 1.0)), f.x), f.y);
+}
+float twFbm(vec2 p) {
+  float s = 0.0;
+  float a = 0.55;
+  for (int i = 0; i < 4; i++) { s += a * twV(p); p = p * 2.03 + vec2(1.7, 9.2); a *= 0.5; }
+  return s;
+}
+`;
+
+const CLOUD_COLOR = /* glsl */ `
+vec3 twDir = normalize(vTwSky);
+// Слой облаков над землёй: точка неба — проекция на плоскость; у горизонта облака сжимаются в полосу и тают в дымке.
+vec2 twP = twDir.xz / max(0.06, twDir.y + 0.08) * 1.6 + vec2(uTwTime * 0.012, uTwTime * 0.004);
+float twD = twFbm(twP);
+float twA = smoothstep(0.5, 0.78, twD) * smoothstep(0.0, 0.12, twDir.y) * smoothstep(1.0, 0.55, twDir.y);
+// Освещённый верх и тёмное брюхо: чем гуще облако, тем темнее его низ.
+vec3 twC = mix(uTwLit, uTwShade, smoothstep(0.62, 0.95, twD));
+diffuseColor = vec4(twC, twA * 0.9);
+`;
+
+/**
+ * Облака над полем: купол, кучевые шумом в шейдере, свет — от солнца сцены (освещённые тёплые края на низком солнце,
+ * серое брюхо). Один вызов; текстур нет. Идёт за камерой, как небо (`TwStage.apply`).
+ */
+export function buildClouds(scene: THREE.Scene, ground: Ground, rig: LightRig): { mesh: THREE.Mesh; update(t: number): void } {
+  const geo = new THREE.SphereGeometry(CLOUD_R, 32, 10, 0, Math.PI * 2, 0, Math.PI * 0.5);
+  geo.deleteAttribute('uv');
+  const low = Math.min(1, Math.abs(ground.solar - 0.25) / 0.25);
+  const lit = new THREE.Color(0xf6f2ea).lerp(rig.sun.color, 0.35 + 0.35 * low);
+  const shade = new THREE.Color().copy(scene.background as THREE.Color).multiplyScalar(0.78).lerp(new THREE.Color(0x8c8f99), 0.4);
+  const uni = { uTwTime: { value: 0 }, uTwLit: { value: lit }, uTwShade: { value: shade } };
+  const mat = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.BackSide, transparent: true, depthWrite: false, fog: false });
+  mat.name = 'battle-clouds';
+  mat.onBeforeCompile = (sh) => {
+    Object.assign(sh.uniforms, uni);
+    sh.vertexShader = 'varying vec3 vTwSky;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\nvTwSky = position;');
+    sh.fragmentShader = CLOUD_FRAG + sh.fragmentShader.replace('#include <color_fragment>', '#include <color_fragment>\n' + CLOUD_COLOR);
+  };
+  mat.customProgramCacheKey = () => 'battle-clouds';
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.name = 'clouds';
+  mesh.frustumCulled = false;
+  mesh.renderOrder = -1;
+  return {
+    mesh,
+    update(t: number): void {
+      uni.uTwTime.value = t + ground.seed % 97;
+    },
+  };
+}

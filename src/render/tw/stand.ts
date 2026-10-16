@@ -24,6 +24,7 @@ import { ADVANCE_FROM, type TwPlan } from './plan';
 import { OVERVIEW_PITCH, type CamState } from '../reel/camera';
 import { CueClock, ambienceAt, cuesOf } from './cues';
 import { beatsOf } from '../reel/beats';
+import { beatCues } from '../reel/director';
 import type { BattleFx } from '@/sound/battlefx';
 
 /** Именованные моменты: по ним снимают кадры самопроверки. Ищутся по режиссуре, а не подбираются руками. */
@@ -65,8 +66,9 @@ function moment(plan: TwPlan, at: string): number {
     case 'overview':
       return Math.min(3, plan.clashAt - 2);
     case 'turn': {
-      const b = beat('turn');
-      return b !== null ? b + 1.6 : plan.clashAt + 4;
+      // Камера пришла к перелому: тронулась (`beatCues`) и прошла переход.
+      const i = beats.findIndex((b) => b.id === 'turn');
+      return i >= 0 ? Math.max(beats[i].at, beatCues(beats)[i]) + 2.6 : plan.clashAt + 4;
     }
     case 'outcome': {
       const b = beat('outcome');

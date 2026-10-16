@@ -41,6 +41,10 @@ const TONE = {
 
 const GROUND_FRAG = /* glsl */ `
 varying vec3 vTwWorld;
+uniform float uTwTime;
+uniform float uTwCloud;
+uniform vec4 uTwScar;
+uniform float uTwBloom;
 float twHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float twNoise(vec2 p) {
   vec2 i = floor(p);
@@ -50,10 +54,37 @@ float twNoise(vec2 p) {
 }
 `;
 
+/**
+ * Тень облака на земле — та же формула, что у крон (`veg.envCloud`), без расчистки посёлка: пятна плывут по полю боя
+ * и по лесу одной картой, и дерево с землёй под ним темнеют вместе.
+ */
+const GROUND_CLOUD = /* glsl */ `
+float twCloud(vec2 p, float t) {
+  float a = sin(p.x * 0.083 + t * 0.021) * sin(p.y * 0.071 - t * 0.017);
+  float b = sin((p.x + p.y) * 0.047 + t * 0.013 + 1.7);
+  return smoothstep(0.52, 0.74, 0.5 + 0.32 * a + 0.22 * b);
+}
+`;
+
+/**
+ * Зерно земли вблизи, цветы, вытоптанная полоса сечи и тень облаков. Вытоптанное растёт по ходу сечи (`LandScar`): к
+ * концу боя у линии соприкосновения — бурая полоса земли, где стояли и падали. Цветы — точками на траве, вблизи;
+ * зимой их нет (`uTwBloom` — ноль).
+ */
 const GROUND_GRAIN = /* glsl */ `
 float twFar = smoothstep(90.0, 30.0, length(vViewPosition));
 float twN = twNoise(vTwWorld.xz * 0.55) * 0.55 + twNoise(vTwWorld.xz * 2.3) * 0.45 * twFar;
 diffuseColor.rgb *= mix(0.88, 1.1, twN);
+float twScar = uTwScar.w * smoothstep(uTwScar.y, uTwScar.y * 0.35, abs(vTwWorld.z - uTwScar.x + (twNoise(vTwWorld.xz * 0.4) - 0.5) * 1.6))
+  * smoothstep(uTwScar.z + 4.0, uTwScar.z - 2.0, abs(vTwWorld.x)) * (0.55 + 0.45 * twNoise(vTwWorld.xz * 1.3));
+diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.36, 0.28, 0.19) * (0.85 + 0.3 * twN), clamp(twScar, 0.0, 0.85));
+// Цветок — круглая точка в своей клетке (клетка ~0.2 м), на случайном месте клетки; таких клеток — каждая шестидесятая.
+vec2 twCell = floor(vTwWorld.xz * 5.0);
+vec2 twIn = fract(vTwWorld.xz * 5.0) - 0.25 - 0.5 * vec2(twHash(twCell + 1.3), twHash(twCell + 2.9));
+float twSpeck = step(0.984, twHash(twCell)) * step(length(twIn), 0.2) * twFar * uTwBloom * (1.0 - twScar);
+vec3 twFlower = twHash(twCell + 7.1) < 0.5 ? vec3(0.93, 0.86, 0.42) : (twHash(twCell + 3.3) < 0.6 ? vec3(0.92, 0.92, 0.86) : vec3(0.62, 0.48, 0.78));
+diffuseColor.rgb = mix(diffuseColor.rgb, twFlower, twSpeck * 0.85);
+diffuseColor.rgb *= 1.0 - uTwCloud * twCloud(vTwWorld.xz, uTwTime);
 `;
 
 /** Подстилка за полем: земля до горизонта, грубой сеткой; под плитой она опущена и не видна. */
@@ -90,6 +121,17 @@ export interface LandSite {
   lair: { x0: number; x1: number; z0: number; z1: number } | null;
 }
 
+/**
+ * Вытоптанная полоса сечи: где линия соприкосновения (`z`), какой ширины (`half`) и до какой полуширины фронта (`span`),
+ * и сколько вытоптано к секунде ролика (`at`, 0..1) — её ведёт план места по ходу сечи.
+ */
+export interface LandScar {
+  z: number;
+  half: number;
+  span: number;
+  at(t: number): number;
+}
+
 /** Земля боя: поле плана места, где стоят строи на построении, и место боя. Её собирает план места. */
 export interface LandInput {
   field: TwField;
@@ -98,6 +140,10 @@ export interface LandInput {
   /** Строй на построении: деревья леса-штрафа между отрядами не встают. */
   units: readonly { x: number; z: number; width: number; depth: number; ours: boolean }[];
   site: LandSite | null;
+  /** Вытоптанная полоса сечи; нет — земля не меняется. */
+  scar?: LandScar | null;
+  /** Густота тени облаков, 0..1 (`light.cloudShade`: днём гуще, в сумерки и зимой — реже). */
+  cloud?: number;
 }
 
 export interface FieldView {
@@ -338,9 +384,16 @@ export function buildField(plan: LandInput, spec: TwSpec): FieldView {
   groundMat.name = 'tw-ground';
   // Мелкая зернистость земли шумом в шейдере: без текстуры поле вблизи читалось бы ровной заливкой. Гаснет с
   // расстоянием — вдали она рябила бы.
+  const uni = {
+    uTwTime: { value: 0 },
+    uTwCloud: { value: plan.cloud ?? 0 },
+    uTwScar: { value: new THREE.Vector4(plan.scar?.z ?? 0, plan.scar?.half ?? 1, plan.scar?.span ?? 0, 0) },
+    uTwBloom: { value: f.winter ? 0 : 1 },
+  };
   groundMat.onBeforeCompile = (sh) => {
+    Object.assign(sh.uniforms, uni);
     sh.vertexShader = 'varying vec3 vTwWorld;\n' + sh.vertexShader.replace('#include <worldpos_vertex>', '#include <worldpos_vertex>\nvTwWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;');
-    sh.fragmentShader = GROUND_FRAG + sh.fragmentShader.replace('#include <color_fragment>', '#include <color_fragment>\n' + GROUND_GRAIN);
+    sh.fragmentShader = GROUND_FRAG + GROUND_CLOUD + sh.fragmentShader.replace('#include <color_fragment>', '#include <color_fragment>\n' + GROUND_GRAIN);
   };
   groundMat.customProgramCacheKey = () => 'tw-ground';
   const meshes: THREE.Mesh[] = [];
@@ -419,9 +472,68 @@ export function buildField(plan: LandInput, spec: TwSpec): FieldView {
     }
   }
 
+  // Трава кустиками (`spec.tufts`): пятнами по шуму, не на тракте, не в воде и не в городе; цвет — в вершинах, у каждого
+  // кустика свой тон. Тени не дают: их много, а тень от травы на этом расстоянии не видна.
+  let tuftTris = 0;
+  if (spec.tufts > 0) {
+    const blades: number[] = [];
+    const bc: number[] = [];
+    const base = new THREE.Color(f.winter ? 0x9a9478 : 0x5d6e2f);
+    const tip = new THREE.Color(f.winter ? 0xd9d6c6 : 0x9fae55);
+    const BLADES = 5;
+    for (let k = 0; k < BLADES; k++) {
+      const a = (k / BLADES) * Math.PI * 2 + 0.4;
+      const lean = 0.08 + 0.05 * (k % 2);
+      const x0 = Math.cos(a) * 0.04;
+      const z0 = Math.sin(a) * 0.04;
+      blades.push(x0 - 0.025, 0, z0, x0 + 0.025, 0, z0, x0 + Math.cos(a) * lean, 0.28 + 0.12 * ((k * 7) % 3), z0 + Math.sin(a) * lean);
+      for (const c of [base, base, tip]) bc.push(c.r, c.g, c.b);
+    }
+    const tg = new THREE.BufferGeometry();
+    tg.setAttribute('position', new THREE.Float32BufferAttribute(blades, 3));
+    tg.setAttribute('color', new THREE.Float32BufferAttribute(bc, 3));
+    tg.computeVertexNormals();
+    const tuftMat = new THREE.MeshLambertMaterial({ color: 0xffffff, vertexColors: true, side: THREE.DoubleSide });
+    tuftMat.name = 'tw-tufts';
+    const spots: { x: number; z: number; s: number; rot: number }[] = [];
+    const r = plateRect(f);
+    for (let i = 0; spots.length < spec.tufts && i < spec.tufts * 5; i++) {
+      const x = (hash(f.seed, i, 121) * 2 - 1) * (f.halfX + 20);
+      const z = f.minZ - 20 + hash(f.seed, i, 122) * (f.maxZ - f.minZ + 40);
+      if (vnoise(x / 6, z / 6, f.seed + 123) < 0.42 || inside(r, x, z) < 0.5) continue;
+      if (f.road && Math.abs(x - (7 + Math.sin(z / 30 + f.seed) * 5)) < 1.6) continue;
+      if (f.river && Math.abs(z - f.river.z) < f.river.half + 0.4) continue;
+      if (plan.site?.blocks(x, z) || (plan.site?.ground(x, z).cobble ?? 0) > 0.2) continue;
+      spots.push({ x, z, s: 0.7 + hash(f.seed, i, 124) * 0.8, rot: hash(f.seed, i, 125) * Math.PI * 2 });
+    }
+    if (spots.length) {
+      const tufts = new THREE.InstancedMesh(tg, tuftMat, spots.length);
+      tufts.name = 'tw-tufts';
+      tufts.receiveShadow = true;
+      const m4 = new THREE.Matrix4();
+      const q = new THREE.Quaternion();
+      const v = new THREE.Vector3();
+      const sc = new THREE.Vector3();
+      const up = new THREE.Vector3(0, 1, 0);
+      spots.forEach((p, i) => {
+        q.setFromAxisAngle(up, p.rot);
+        v.set(p.x, heightAt(f, p.x, p.z) - 0.02, p.z);
+        sc.set(p.s, p.s * (0.8 + hash(f.seed, i, 126) * 0.5), p.s);
+        tufts.setMatrixAt(i, m4.compose(v, q, sc));
+        const tone = 0.82 + hash(f.seed, i, 127) * 0.3;
+        tufts.setColorAt(i, C.setRGB(tone * (0.95 + hash(f.seed, i, 128) * 0.1), tone, tone * 0.9));
+      });
+      tufts.computeBoundingSphere();
+      group.add(tufts);
+      extra.push(tufts);
+      tuftTris = BLADES * spots.length;
+    }
+  }
+
   // Деревья — модели прежнего ролика (`reel/flora.ts`) и его материал листвы (ветер, снег), инстансами.
   const shared: EnvShared = envShared();
   shared.snow.value = f.winter ? 1 : 0;
+  shared.cloud.value = plan.cloud ?? 0;
   const color = (key: PaletteKey): THREE.Color => new THREE.Color(f.winter ? seasonColor('winter', key) : PALETTE[key]);
   const spots = treeSpots(f, plan, spec.trees);
   const trees: THREE.InstancedMesh[] = [];
@@ -460,9 +572,11 @@ export function buildField(plan: LandInput, spec: TwSpec): FieldView {
   }, 0);
   return {
     group,
-    triangles: tris + treeTris + reedTris,
+    triangles: tris + treeTris + reedTris + tuftTris,
     update(t: number): void {
       shared.time.value = t;
+      uni.uTwTime.value = t;
+      uni.uTwScar.value.w = plan.scar ? plan.scar.at(t) : 0;
       shared.wind.value = 0.05 * (0.75 + 0.25 * Math.sin(t * 0.37) * Math.sin(t * 0.13 + 1));
     },
     dispose(): void {

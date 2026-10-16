@@ -1,7 +1,7 @@
 // Сцена ролика TW: поле, свет, толпа, знамёна, стрелы (docs/battle_tw.md, раздел 8). Своих решений о бое у неё нет:
 // кто где стоит и когда падает — режиссура (`plan.ts`); здесь кадр раскладывается по объектам three.
 import * as THREE from 'three';
-import { buildSky, setupFieldScene } from '../reel/light';
+import { buildClouds, buildSky, cloudShade, setupFieldScene } from '../reel/light';
 import { fitShadow, type LightRig } from '../lighting';
 import type { TwSpec } from '../reel/spec';
 import { Arrows } from './arrows';
@@ -42,6 +42,8 @@ export class TwStage {
   /** Обстрел перед штурмом (`plan.barrage`, docs/battle_tw.md, раздел 15); нет — null. */
   readonly siege: Siegeworks | null;
   private sky: THREE.Mesh;
+  /** Облака (`spec.clouds`); на низком уровне их нет. */
+  private clouds: ReturnType<typeof buildClouds> | null;
   private rig: LightRig;
   private sunDir = new THREE.Vector3();
 
@@ -60,6 +62,11 @@ export class TwStage {
     this.sky.scale.setScalar(SKY_SCALE);
     this.sky.renderOrder = -1;
     this.scene.add(this.sky);
+    this.clouds = spec.clouds ? buildClouds(this.scene, plan.cast.ground, this.rig) : null;
+    if (this.clouds) {
+      this.clouds.mesh.scale.setScalar(SKY_SCALE);
+      this.scene.add(this.clouds.mesh);
+    }
     this.field = buildField(landOf(plan), spec);
     this.scene.add(this.field.group);
     this.crowd = new Crowd(plan, spec);
@@ -96,6 +103,10 @@ export class TwStage {
     this.siege?.update(clip, cam.camera);
     // Небо идёт за камерой, туман — от её расстояния, коробка теней — вокруг её цели.
     this.sky.position.copy(cam.camera.position);
+    if (this.clouds) {
+      this.clouds.mesh.position.copy(cam.camera.position);
+      this.clouds.update(clip);
+    }
     const fog = this.scene.fog as THREE.Fog;
     const f = fogFor(cam.now.dist);
     fog.near = f.near;
@@ -155,6 +166,10 @@ export class TwStage {
     this.siege?.dispose();
     this.field.dispose();
     this.sky.geometry.dispose();
+    if (this.clouds) {
+      this.clouds.mesh.geometry.dispose();
+      (this.clouds.mesh.material as THREE.Material).dispose();
+    }
     (this.sky.material as THREE.Material).dispose();
     this.rig.sun.shadow.map?.dispose();
     this.scene.clear();
@@ -164,8 +179,14 @@ export class TwStage {
 /** Земля плана места: поле, строи на построении и что место боя говорит земле (`site.ts`). */
 export function landOf(plan: TwPlan): LandInput {
   const site = plan.site;
+  // Вытоптанная полоса сечи: у линии соприкосновения, во всю ширину сошедшихся полос, растёт от сшибки к концу сечи.
+  const span = Math.max(8, ...plan.slotX.map((x, i) => Math.abs(x) + plan.slotW[i] / 2));
+  const from = plan.clashAt;
+  const to = Math.max(from + 1, plan.timing.melee[1]);
   return {
     field: plan.field,
+    scar: { z: 0, half: 3.4, span, at: (t) => Math.min(1, Math.max(0, (t - from) / (to - from))) ** 0.7 },
+    cloud: cloudShade(plan.cast.ground),
     deployZ: plan.deployZ,
     units: plan.units,
     site: site

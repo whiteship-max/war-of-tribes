@@ -164,7 +164,7 @@ function shotOf(scene: DirectorScene, beat: Beat, start: number, t: number, tm: 
  * Когда камера трогается к каждому такту: за `LEAD` до него, но не раньше, чем прежний такт продержался `HOLD`. Общий
  * план — с нуля.
  */
-export function cuesOf(beats: readonly Beat[]): number[] {
+export function beatCues(beats: readonly Beat[]): number[] {
   const out: number[] = [];
   for (let i = 0; i < beats.length; i++) out.push(i === 0 ? 0 : Math.max(beats[i].at - LEAD, out[i - 1] + (i === 1 ? 0 : HOLD)));
   return out;
@@ -172,7 +172,7 @@ export function cuesOf(beats: readonly Beat[]): number[] {
 
 /** Положение камеры режиссёра на секунде ролика `t`. Тот же журнал — тот же ход камеры. */
 export function directorView(scene: DirectorScene, beats: readonly Beat[], tm: ReelTiming, t: number, aspect: number): CamState {
-  const cues = cuesOf(beats);
+  const cues = beatCues(beats);
   let cur = 0;
   for (let i = 0; i < beats.length; i++) if (t >= cues[i]) cur = i;
   const b = beats[cur];

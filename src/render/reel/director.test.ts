@@ -8,7 +8,7 @@ import { directorSceneOf } from '../tw/stage';
 import type { TwPlan } from '../tw/plan';
 import { TacticalCamera, cameraPosition, type CamBounds } from './camera';
 import { beatsOf } from './beats';
-import { BLEND_MAX, OPEN, cuesOf, directorView } from './director';
+import { BLEND_MAX, OPEN, beatCues, directorView } from './director';
 
 const ASPECT = 390 / 844;
 const BOUNDS: CamBounds = { minX: -200, maxX: 200, minZ: -200, maxZ: 200, minDist: 4.5, maxDist: 500 };
@@ -72,8 +72,8 @@ describe('камера-режиссёр', () => {
       const turn = beats[ti];
       if (turn) {
         turns++;
-        // Камера пришла к перелому: тронулась (`cuesOf`) и прошла переход, но ещё держит его (3.2 с от начала такта).
-        const at = Math.max(turn.at, cuesOf(beats)[ti]) + Math.min(BLEND_MAX, 3);
+        // Камера пришла к перелому: тронулась (`beatCues`) и прошла переход, но ещё держит его (3.2 с от начала такта).
+        const at = Math.max(turn.at, beatCues(beats)[ti]) + Math.min(BLEND_MAX, 3);
         const v = directorView(scene, beats, plan.timing, at, ASPECT);
         const spot = scene.spot(turn.focus!.side, turn.focus!.sector, turn.at + 0.5)!;
         expect(Math.abs(v.tx - spot.x), q).toBeLessThan(6);
