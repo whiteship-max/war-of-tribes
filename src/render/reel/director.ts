@@ -173,27 +173,50 @@ export function beatCues(beats: readonly Beat[]): number[] {
   return out;
 }
 
+/** Ход камеры, посчитанный один раз на журнал и экран: когда трогается к каждому такту и сколько идёт переход. */
+interface Route {
+  scene: DirectorScene;
+  aspect: number;
+  cues: number[];
+  /** Длина перехода к такту `i` (у общего плана — ноль). */
+  lens: number[];
+  /** Переход к полю после боя. */
+  coda: number;
+}
+
+/** Ход камеры по журналу — на такты и экран, без пересчёта в каждом кадре: тот же журнал — тот же ход. */
+const routes = new WeakMap<readonly Beat[], Route>();
+
+function routeOf(scene: DirectorScene, beats: readonly Beat[], tm: ReelTiming, aspect: number): Route {
+  const known = routes.get(beats);
+  if (known && known.scene === scene && known.aspect === aspect) return known;
+  const cues = beatCues(beats);
+  // Длина перехода — по пути камеры в миг, когда она тронулась.
+  const lens = beats.map((b, i) =>
+    i === 0 ? 0 : blendFor(shotOf(scene, beats[i - 1], cues[i - 1], cues[i], tm, beats, aspect), shotOf(scene, b, cues[i], cues[i], tm, beats, aspect)),
+  );
+  let last = 0;
+  for (let i = 0; i < beats.length; i++) if (tm.end >= cues[i]) last = i;
+  const coda = blendFor(shotOf(scene, beats[last], cues[last], tm.end, tm, beats, aspect), codaShot(scene, tm.end, aspect));
+  const route = { scene, aspect, cues, lens, coda };
+  routes.set(beats, route);
+  return route;
+}
+
 /** Положение камеры режиссёра на секунде ролика `t`. Тот же журнал — тот же ход камеры. */
 export function directorView(scene: DirectorScene, beats: readonly Beat[], tm: ReelTiming, t: number, aspect: number): CamState {
-  const cues = beatCues(beats);
+  const { cues, lens, coda } = routeOf(scene, beats, tm, aspect);
   let cur = 0;
   for (let i = 0; i < beats.length; i++) if (t >= cues[i]) cur = i;
   const b = beats[cur];
   let shot = shotOf(scene, b, cues[cur], t, tm, beats, aspect);
   if (cur > 0) {
-    // Длина перехода — по пути камеры в миг, когда она тронулась: тот же журнал — тот же переход.
-    const from = shotOf(scene, beats[cur - 1], cues[cur - 1], cues[cur], tm, beats, aspect);
-    const len = blendFor(from, shotOf(scene, b, cues[cur], cues[cur], tm, beats, aspect));
-    const k = clamp01((t - cues[cur]) / len);
+    const k = clamp01((t - cues[cur]) / lens[cur]);
     if (k < 1) shot = blendCam(shotOf(scene, beats[cur - 1], cues[cur - 1], t, tm, beats, aspect), shot, k);
   }
-  // Развязка после боя — свой кадр поверх такта развязки: половина перехода — к концу боя; длина — по пути камеры в миг,
-  // когда бой кончился (тот же журнал — тот же переход).
-  let last = 0;
-  for (let i = 0; i < beats.length; i++) if (tm.end >= cues[i]) last = i;
-  const len = blendFor(shotOf(scene, beats[last], cues[last], tm.end, tm, beats, aspect), codaShot(scene, tm.end, aspect));
-  if (t > tm.end - len * 0.5) {
-    const k = clamp01((t - (tm.end - len * 0.5)) / len);
+  // Развязка после боя — свой кадр поверх такта развязки: половина перехода — к концу боя.
+  if (t > tm.end - coda * 0.5) {
+    const k = clamp01((t - (tm.end - coda * 0.5)) / coda);
     shot = blendCam(shot, codaShot(scene, t, aspect), k);
   }
   return shot;
