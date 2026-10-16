@@ -631,6 +631,9 @@ HEAD один на всех, см. правило 8). Значит развес�
 - **Война между игроками** — бой считает только сервер (`/api/war`, `netlify/lib/war.ts`) дверью `world/fights`;
   в приказе поля исхода нет; клиент применяет итог своей стороны один раз (`LocalWorld.stepWars`); в бой идёт только
   войско, подтверждённое книгой (`netlify/lib/book.ts`, пишет её одна запись партии; `server.test.ts`) (docs/pvp.md).
+- **Вести в Telegram** — род и важность вести (`notify.topicOf`, `tierOf`), склейка, правка свежего письма и тихий час —
+  `notify.plan`; очередь отправки с арендой — `claim` / `settle` в проходе `deliver.ts`; слова — только `words.ts`; настройки
+  бота (`/notify`) правит только вебхук, игра шлёт лишь рычаг и пояс (`notify.test.ts`, `bot.test.ts`; docs/NOTIFY.md, 13).
 - **Сроки словами** — `game/span.ts` и `ui/parts/wait.ts`; голое «дн.» — только настоящие сутки `realSpan`, игровые —
   «игр. дн.» (time).
 - **Значок** — `ui/icons/Icon.tsx`; эмодзи — только Emoji 12.0 (`emoji.test.ts`; graphics).
