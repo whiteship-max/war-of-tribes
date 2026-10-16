@@ -41,7 +41,6 @@ interface Boot {
   FAIL_AFTER_MS: number;
   SAYINGS: string[];
   STAGES: Record<string, { at: number; text: string }>;
-  themeColors(win: unknown): { bg: string | null; text: string | null; accent: string | null };
   visitNo(store: unknown, nowMs: number): number;
   sayingOf(no: number): string;
   create(env: unknown): {
@@ -172,7 +171,7 @@ describe('экран загрузки', () => {
     // выглядеть кадром игры, а не белой вспышкой и не пустотой с подписью.
     const head = html.slice(0, html.indexOf('<div id="boot"'));
     expect(head).toMatch(/html\s*\{[^}]*background:/);
-    expect(head).toMatch(/#boot\s*\{[^}]*background:\s*var\(--boot-bg/);
+    expect(head).toMatch(/#boot\s*\{[^}]*background:\s*#1a1410/);
 
     // И по-прежнему ни одного адреса наружу: единственный внешний тег в документе —
     // SDK самого Telegram, он был здесь до экрана загрузки.
@@ -200,7 +199,7 @@ describe('экран загрузки', () => {
     expect(prop(rule(css, '\\.start-art'), 'object-position')).toBe(pos);
 
     // Название — на том же месте и теми же буквами на обоих экранах: смена экранов его не двигает.
-    for (const name of ['top', 'font-size', 'font-weight', 'letter-spacing', 'line-height']) {
+    for (const name of ['top', 'font-family', 'font-size', 'font-weight', 'letter-spacing', 'line-height']) {
       const boot = prop(rule(html, '#boot-name'), name);
       expect(boot, name).toBeTruthy();
       expect(prop(rule(css, '\\.start-name'), name), name).toBe(boot);
@@ -229,24 +228,15 @@ describe('экран загрузки', () => {
     expect(dom.els.get('boot')!.className).toBe('off');
   });
 
-  it('фон берётся из темы клиента, а не белый', () => {
-    const { dom } = boot({ theme: { bg_color: '#101820', text_color: '#e0e6ee', button_color: '#3a7bd5' } });
-    expect(dom.vars['--boot-bg']).toBe('#101820');
-    expect(dom.vars['--boot-text']).toBe('#e0e6ee');
-    expect(dom.vars['--boot-accent']).toBe('#3a7bd5');
-  });
-
-  it('мусор вместо цвета темы не применяется — остаётся свой тёмный', () => {
-    const { dom } = boot({ theme: { bg_color: 'javascript:void', text_color: '' } });
-    expect(dom.vars['--boot-bg']).toBeUndefined();
-    // Свой цвет стоит в CSS до всякого кода — вот он.
-    expect(html).toMatch(/background:\s*var\(--boot-bg, #1a1410\)/);
-  });
-
-  it('вне Telegram темы нет и код это переживает', () => {
-    const B = loadBoot();
-    expect(B.themeColors({}).bg).toBeNull();
-    expect(B.themeColors(undefined).bg).toBeNull();
+  it('тема клиента экран не перекрашивает: на светлой теме он тот же', () => {
+    // Палитра игры своя (docs/polish.md, П-1): прежде фон, текст и кнопка брались из `themeParams`, и на светлой
+    // теме Telegram экран загрузки становился белым под светлыми строками.
+    const { dom } = boot({ theme: { bg_color: '#ffffff', text_color: '#000000', button_color: '#3a7bd5' } });
+    expect(dom.vars).toEqual({});
+    expect(html).not.toMatch(/themeParams|--boot-(bg|text|accent)/);
+    const head = html.slice(0, html.indexOf('<div id="boot"'));
+    expect(head).toMatch(/html\s*\{[^}]*background:\s*#1a1410/);
+    expect(head).toMatch(/#boot\s*\{[^}]*color:\s*#f3e9d8/);
   });
 
   it('присказка детерминирована и меняется от захода к заходу', () => {

@@ -243,7 +243,7 @@ export function mountTwStand(p: URLSearchParams): void {
     const b = document.createElement('button');
     b.textContent = label;
     b.style.cssText =
-      'font:13px system-ui;padding:8px 12px;border:0;border-radius:8px;background:rgba(32,28,22,.72);color:#f4efe4;min-height:44px';
+      'font:13px var(--font-sans);padding:8px 12px;border:0;border-radius:8px;background:rgba(32,28,22,.72);color:#f4efe4;min-height:44px';
     b.addEventListener('click', on);
     bar.appendChild(b);
     return b;

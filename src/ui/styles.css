@@ -8,10 +8,16 @@
   --accent: #e8a43c;
   --accent-text: #241a0e;
   --accent-2: #c4652f;
+  /* Заливка второго акцента под тёмным текстом: на `--accent-2` он даёт 4,3 : 1 (docs/polish.md, П-1). */
+  --accent-2-fill: #d0733a;
   --good: #7cc47a;
   --bad: #e06b5a;
+  /* Красная заливка под белым текстом («Точно?», срочное): `--bad` светел для белого — 3,3 : 1 (docs/polish.md, П-1). */
+  --bad-fill: #c0402f;
   /* Красный алмаз: премиальная валюта, и цвет у неё свой, не акцентный. */
   --gem: #e0524f;
+  /* Алмаз словами и числами на тёмном: заливка `--gem` для текста темна — 4,0 : 1 на панели (docs/polish.md, П-1). */
+  --gem-ink: #f07672;
   --gem-text: #2a0e0d;
   --radius: 14px;
 
@@ -42,9 +48,43 @@
   --res-h: 28px;
   --res-row: calc(var(--res-h) + 6px);
 
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  /*
+   * Шрифты — свои, вшитые (`ui/fonts/fonts.css`, docs/polish.md, П-1): один и тот же набор на iOS, Android и ПК.
+   * Системные имена за ними — только на долю секунды до прихода файла и для знаков, которых в шрифте нет
+   * (эмодзи, ✕, ★). Основной текст — Golos Text, заголовки окон — Alegreya SC (капитель эпохи).
+   */
+  --font-sans: 'Tribe Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-title: 'Tribe Title', Georgia, 'Times New Roman', serif;
+
+  font-family: var(--font-sans);
   color: var(--text);
+  /* Палитра своя и всегда тёмная: тема клиента её не трогает (`telegram/webapp.applyPalette`). */
   color-scheme: dark;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+/* Поля и кнопки браузер набирает своим шрифтом — без этой строки половина подписей шла бы системным. */
+button,
+input,
+select,
+textarea {
+  font-family: inherit;
+}
+
+/* Заголовки окон — гарнитурой эпохи. Подзаголовки разделов (h3) и всё прочее — основным шрифтом. */
+.panel h2,
+.modal h2,
+.bhead .name,
+.kit-head-title b,
+.nx-btitle b,
+.nx-rtitle b,
+.nx-mtitle b,
+.profile-head .name,
+.trouble-title {
+  font-family: var(--font-title);
+  font-weight: 700;
+  letter-spacing: 0.01em;
 }
 
 @supports (height: 100dvh) {
@@ -189,10 +229,6 @@ body {
   background: rgba(0, 0, 0, 0.42);
 }
 
-:root[data-theme='light'] .sheet-backdrop {
-  background: rgba(0, 0, 0, 0.22);
-}
-
 .sheet {
   position: absolute;
   left: 0;
@@ -272,7 +308,7 @@ body {
 
 .panel h2 {
   margin: 0 0 8px;
-  font-size: 15px;
+  font-size: 17px;
   display: flex;
   justify-content: space-between;
   align-items: baseline;
@@ -401,7 +437,7 @@ body {
 }
 
 .btn.danger {
-  background: var(--bad);
+  background: var(--bad-fill);
   color: #fff;
 }
 
@@ -835,7 +871,7 @@ body {
   background: var(--panel-2);
   border: 1px solid var(--line);
   border-radius: 10px;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted);
 }
 
@@ -900,7 +936,7 @@ body {
 .stock small {
   display: block;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.35;
   text-align: left;
 }
@@ -1183,7 +1219,7 @@ body {
 }
 
 .res-line .delta {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted);
   min-width: 46px;
   text-align: right;
@@ -1252,7 +1288,7 @@ body {
 .cost .have {
   color: var(--muted);
   font-style: normal;
-  font-size: 11px;
+  font-size: 12px;
   margin-left: 5px;
 }
 
@@ -1405,7 +1441,7 @@ body {
   border-radius: 8px;
   background: var(--bad);
   color: var(--accent-text);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 700;
   line-height: 16px;
   text-align: center;
@@ -1511,7 +1547,7 @@ body {
 .dispatch .letter-from .who small {
   display: block;
   margin-top: 2px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 400;
   color: var(--muted);
 }
@@ -1832,7 +1868,7 @@ body {
 .bi-name {
   display: block;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.1;
   margin-bottom: 2px;
 }
@@ -1866,7 +1902,7 @@ body {
 
 .bl-cost {
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
   white-space: nowrap;
 }
 
@@ -1905,7 +1941,7 @@ body {
 .mod .name .sub {
   display: block;
   font-style: normal;
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1.3;
   color: var(--muted);
   white-space: normal;
@@ -1922,7 +1958,7 @@ body {
 
 .res-line .name .tag {
   font-style: normal;
-  font-size: 9px;
+  font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--bad);
@@ -1970,7 +2006,7 @@ body {
   top: calc(100% + 3px);
   left: 50%;
   transform: translateX(-50%);
-  font-size: 10px;
+  font-size: 12px;
   text-decoration: none;
   color: var(--muted);
 }
@@ -2030,7 +2066,7 @@ body {
 
 .counter small {
   display: block;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.35;
   color: var(--muted);
 }
@@ -2069,19 +2105,19 @@ body {
 
 .btn.gem {
   flex: 0 0 auto;
-  background: rgba(224, 82, 79, 0.16);
+  background: rgba(224, 82, 79, 0.1);
   border: 1px solid rgba(224, 82, 79, 0.55);
-  color: var(--gem);
+  color: var(--gem-ink);
   min-width: 72px;
 }
 
 .gem-ico {
-  color: var(--gem);
+  color: var(--gem-ink);
 }
 
 .tabs button .tab-count {
   font-style: normal;
-  color: var(--gem);
+  color: var(--gem-ink);
   margin-left: 4px;
 }
 
@@ -2282,7 +2318,7 @@ body {
 }
 
 .mg-side small {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted);
   margin-top: auto;
 }
@@ -2409,7 +2445,7 @@ body {
   border-radius: 9px;
   background: var(--bad);
   color: var(--accent-text);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   line-height: 18px;
   text-align: center;
@@ -2508,7 +2544,7 @@ body {
 
 .set-row .name .sub {
   font-style: normal;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted);
 }
 
@@ -2831,7 +2867,7 @@ body {
 .av span {
   display: block;
   padding: 4px 2px 5px;
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1.2;
   text-align: center;
   overflow: hidden;
@@ -2946,7 +2982,7 @@ body.replaying .app > *:not(.canvas-wrap) {
 }
 
 .am-row i {
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--muted);
   font-style: normal;
 }
@@ -2955,7 +2991,7 @@ body.replaying .app > *:not(.canvas-wrap) {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  font-size: 11.5px;
+  font-size: 12px;
   font-style: normal;
   color: var(--text);
   font-variant-numeric: tabular-nums;
@@ -2980,7 +3016,7 @@ body.replaying .app > *:not(.canvas-wrap) {
 .am-row .cost {
   margin-top: 2px;
   gap: 8px;
-  font-size: 11.5px;
+  font-size: 12px;
 }
 
 .am-row .cost .have {
@@ -3039,7 +3075,7 @@ body.replaying .app > *:not(.canvas-wrap) {
 
 .siege-who,
 .siege-fall {
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1.3;
   color: var(--muted);
 }
@@ -3064,7 +3100,7 @@ body.replaying .app > *:not(.canvas-wrap) {
 /* Счётчик — самое крупное число панели: он и есть вся осада. */
 .siege-clock {
   margin-top: 5px;
-  font-size: 10px;
+  font-size: 12px;
   color: var(--muted);
 }
 
@@ -3163,7 +3199,7 @@ body.replaying .app > *:not(.canvas-wrap) {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted);
   margin-bottom: 6px;
 }
@@ -3173,7 +3209,7 @@ body.replaying .app > *:not(.canvas-wrap) {
   overflow-y: auto;
   border-top: 1px solid var(--line);
   padding-top: 6px;
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .doctor-line {
@@ -3251,7 +3287,7 @@ body.replaying .app > *:not(.canvas-wrap) {
 }
 
 .trouble-title {
-  font-size: 16px;
+  font-size: 17px;
   font-weight: 600;
   margin-bottom: 6px;
 }
@@ -3263,7 +3299,7 @@ body.replaying .app > *:not(.canvas-wrap) {
 }
 
 .trouble-hint {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted);
   margin: 10px 0 6px;
 }
@@ -3302,7 +3338,7 @@ body.replaying .app > *:not(.canvas-wrap) {
 .modal small.muted {
   display: block;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.4;
   text-align: center;
 }
@@ -3443,6 +3479,7 @@ body.replaying .app > *:not(.canvas-wrap) {
   left: 0;
   right: 0;
   margin: 0;
+  font-family: 'Tribe Title', Georgia, 'Times New Roman', serif;
   font-size: 34px;
   font-weight: 700;
   line-height: 1.2;
@@ -3622,7 +3659,7 @@ a.start-go {
 }
 
 .cheat-btn.open {
-  background: var(--accent-2);
+  background: var(--accent-2-fill);
   color: var(--accent-text);
 }
 
@@ -3653,7 +3690,7 @@ a.start-go {
 .cheat-note,
 .cheat-said,
 .cheat-mark {
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.35;
   color: var(--muted);
 }
@@ -3694,7 +3731,7 @@ a.start-go {
   display: flex;
   flex-direction: column;
   gap: 1px;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted);
 }
 

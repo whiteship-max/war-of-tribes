@@ -66,6 +66,10 @@ const REQUIRED = [
   { file: 'icon-192.png', min: 300 },
   { file: 'icon-512.png', min: 300 },
   { file: 'manifest.webmanifest', min: 100 },
+  // Свой шрифт (`npm run fonts:build`, docs/polish.md, П-1): ядро основного текста ждёт первая загрузка.
+  { file: 'fonts/sans-400.woff2', min: 5000 },
+  { file: 'fonts/sans-600.woff2', min: 5000 },
+  { file: 'fonts/title.woff2', min: 5000 },
 ];
 
 /**
@@ -73,7 +77,7 @@ const REQUIRED = [
  * Текстуры предыстории (`assets/prologue`) — такие же: их собирает `npm run textures:build`, и
  * файл, не доехавший до dist, оставил бы поляну без коры и снега молча.
  */
-const MIRRORED = ['assets/music', 'assets/avatars', 'assets/prologue'];
+const MIRRORED = ['assets/music', 'assets/avatars', 'assets/prologue', 'fonts'];
 
 function run(stage) {
   process.stdout.write(`\n=== ${stage.name} ===\n`);
@@ -179,6 +183,9 @@ function manifest() {
     for (const m of code.matchAll(/\bimport\s*(?:[\w$*{}\s,]+from\s*)?"\.\/([^"]+\.js)"/g)) reach(`assets/${m[1]}`);
   };
   for (const link of linksOf(html)) if (/\.(js|css)$/.test(link)) reach(link);
+  // Шрифты: первая загрузка — те, что index.html предзагружает; остальные начертания и редкие знаки браузер берёт,
+  // когда они на экране (`unicode-range`, `src/ui/fonts/fonts.css`).
+  const preloaded = new Set(linksOf(html).filter((l) => l.startsWith('fonts/')));
 
   const rows = [];
   const walk = (dir, base) => {
@@ -192,20 +199,26 @@ function manifest() {
       const buf = readFileSync(file);
       // По сети сжимаемое едет gzip'ом, картинки и звук — как есть.
       const wire = /\.(js|css|html|svg|md)$/.test(name) ? gzipSync(buf).length : buf.length;
-      const first = /\.(js|css)$/.test(name) ? firstCode.has(rel) : !LATER.some((re) => re.test(rel));
+      const first = /\.(js|css)$/.test(name)
+        ? firstCode.has(rel)
+        : rel.startsWith('fonts/')
+          ? preloaded.has(rel)
+          : !LATER.some((re) => re.test(rel));
       rows.push({ name: rel, size: buf.length, gz: /\.(js|css|html|svg)$/.test(name) ? wire : 0, wire, first });
     }
   };
   walk(DIST, '');
 
-  // Музыка, лица и текстуры — десятки файлов, поимённо их читать незачем: показываем папку строкой.
+  // Музыка, лица, текстуры и шрифты по ходу — десятки файлов, поимённо их читать незачем: показываем папку строкой.
+  // Что из папки едет первой загрузкой (предзагруженные шрифты), стоит своей строкой.
+  const later = (r) => !r.first && MIRRORED.some((d) => r.name.startsWith(`${d}/`));
   const folded = [];
   for (const dir of MIRRORED) {
-    const inside = rows.filter((r) => r.name.startsWith(`${dir}/`));
+    const inside = rows.filter((r) => later(r) && r.name.startsWith(`${dir}/`));
     if (inside.length === 0) continue;
     folded.push({ name: `${dir}/ (${inside.length} файлов)`, size: inside.reduce((s, r) => s + r.size, 0), gz: 0, first: false });
   }
-  const shown = [...rows.filter((r) => !MIRRORED.some((d) => r.name.startsWith(`${d}/`))), ...folded];
+  const shown = [...rows.filter((r) => !later(r)), ...folded];
 
   process.stdout.write('\n=== опись сборки ===\n');
   console.log(`коммит: ${commit}${clean ? '' : '  (в дереве есть несохранённые правки)'}`);

@@ -23,6 +23,7 @@ import type { Fate, FellMark } from '@/world/types';
 import { FALL_MARK } from '@/world/data/tuning';
 import { FELL_MARK, SIEGE_WORKS } from './palette';
 import { SQUASH, TAU, pickBucket } from './village';
+import { CANVAS_SANS, onFontsLoaded } from '@/ui/fonts/canvas';
 
 type C = CanvasRenderingContext2D;
 
@@ -147,6 +148,9 @@ export function dropSiegeMarks(): void {
   fells.clear();
   labels.clear();
 }
+
+// Знак участи печётся с подписью: доехал свой шрифт — печь заново (`ui/fonts/canvas`).
+onFontsLoaded(dropSiegeMarks);
 
 function canvasOf(w: number, h: number): [HTMLCanvasElement, C | null] {
   const canvas = document.createElement('canvas');
@@ -326,7 +330,7 @@ export function drawFarRing(ctx: C, dpr: number, cx: number, cy: number, r: numb
 // ---------- Знак участи ----------
 
 const FELL_H = 16;
-const FELL_FONT = '600 10.5px system-ui, sans-serif';
+const FELL_FONT = `600 12px ${CANVAS_SANS}`;
 
 /** Рисунок участи в квадрате 1×1 с центром в нуле. */
 function fateGlyph(ctx: C, fate: Fate): void {

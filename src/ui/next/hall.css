@@ -37,7 +37,7 @@
   gap: 4px;
   height: 16px;
   margin-top: 4px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -103,7 +103,7 @@
   border-radius: 999px;
   border: 1px solid var(--line-2, rgba(255, 220, 170, 0.22));
   background: var(--bg);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   line-height: 12px;
   text-align: center;
@@ -135,7 +135,7 @@
   display: flex;
   flex-direction: column;
   min-width: 0;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 14px;
   color: var(--muted);
   white-space: nowrap;
@@ -211,7 +211,7 @@
 }
 .hall-gain {
   margin: 8px 0 0;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--good);
 }
 .hall-facts {
