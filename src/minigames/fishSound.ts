@@ -113,11 +113,14 @@ export class FishSound {
 class FishVoice extends Voices implements FishHost {
   private bedNodes: { stop(): void }[] = [];
   private strainGain: GainNode | null = null;
+  /** Вода и дождь у берега — полосой «окружение», как фон города (П-3); снасть и рыба — «эффекты». */
+  private ambOut: GainNode | null = null;
 
   open(): boolean {
     const out = openBus(MINI_VOLUME);
     if (!out) return false;
     this.attach(out);
+    this.ambOut = openBus(MINI_VOLUME, 'amb');
     return true;
   }
 
@@ -140,7 +143,7 @@ class FishVoice extends Voices implements FishHost {
       ld.connect(g.gain);
       n.connect(f);
       f.connect(g);
-      g.connect(this.out!);
+      g.connect(this.ambOut ?? this.out!);
       lfo.start(at);
       this.bedNodes.push(
         {

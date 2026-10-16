@@ -81,3 +81,15 @@ describe('осадки — цена и тишина', () => {
     p.dispose();
   });
 });
+
+describe('осадки и сторож плавности — одна мерка', () => {
+  it('сцена города, опуская уровень, режет осадки сразу; новые осадки встают на уже опущенный уровень', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const src = readFileSync(join(__dirname, 'scene.ts'), 'utf8');
+    // Свой сторож у осадков не заводится: их опускает `lowerTo` сцены — та же дверь, что у плотности и ролика.
+    expect(src).toMatch(/override lowerTo\(next: Quality\): void \{\s*super\.lowerTo\(next\);\s*this\.precip\?\.setLevel\(this\.dprLevel\);/);
+    expect(src).toMatch(/new CityPrecip\(this\.quality, c\.uniforms\);\s*p\.setLevel\(this\.dprLevel\);/);
+    expect(src).not.toMatch(/new Steady\(/);
+  });
+});
