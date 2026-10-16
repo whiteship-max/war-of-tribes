@@ -57,6 +57,14 @@
   width: auto;
   height: 16px;
 }
+/* Строка на всю ширину сетки: знак взятого города шире значка — место под него по ширине картинки. */
+.wm-leg-cell.wide {
+  grid-column: 1 / -1;
+}
+.wm-leg-cell.wide .wm-leg-art {
+  width: auto;
+  min-width: 44px;
+}
 .wm-leg-text {
   display: flex;
   flex-direction: column;

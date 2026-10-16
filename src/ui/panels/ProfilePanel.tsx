@@ -226,8 +226,8 @@ export function ProfilePanel() {
       <PowerTrend days={p.days} />
 
       {partyTables(s).map((tb) => (
+        // Имя раздела — шапкой таблицы: отдельный заголовок над ней повторял бы его.
         <section key={tb.title} className="pf-table">
-          <h3>{tb.title}</h3>
           <Table
             label={tb.title}
             cols={[

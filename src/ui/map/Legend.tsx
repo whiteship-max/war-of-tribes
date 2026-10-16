@@ -66,9 +66,9 @@ const TABS: readonly TabDef<View>[] = [
 ];
 
 /** Ячейка сетки: значок (картинка, вымпел или цвет), имя и пояснение строкой 11 px. */
-function Cell({ art, name, note }: { art: ReactNode; name: string; note?: string }) {
+function Cell({ art, name, note, wide }: { art: ReactNode; name: string; note?: string; wide?: boolean }) {
   return (
-    <div className="wm-leg-cell">
+    <div className={`wm-leg-cell${wide ? ' wide' : ''}`}>
       <span className="wm-leg-art">{art}</span>
       <span className="wm-leg-text">
         <b>{name}</b>
@@ -136,7 +136,8 @@ export function Legend({ stale, onClose }: { stale: string | null; onClose: () =
             <Cell art={<img src={worksUrl(WORKS_STEPS, 0)} alt="" />} name="Рогатки со стороны города" note="ближний ряд, против вылазки" />
             <Cell art={<img src={worksUrl(0, WORKS_STEPS)} alt="" />} name="Рогатки с тыла" note="против удара из поля; редкий ряд ещё строят" />
             {SHOWN_FATES.map((fate) => (
-              <Cell key={fate} art={<img className="wm-leg-fell" src={fellUrl(fate)} alt="" />} name={`Город взят, ${FELL_WORDS[fate]}`} note={`знак сойдёт через ${realSpanText(FALL_MARK / 1000)}`} />
+              // Знак взятого города — подпись на карте, шире значка: строкой на всю ширину сетки.
+              <Cell key={fate} wide art={<img className="wm-leg-fell" src={fellUrl(fate)} alt="" />} name={`Город взят, ${FELL_WORDS[fate]}`} note={`знак сойдёт через ${realSpanText(FALL_MARK / 1000)}`} />
             ))}
           </div>
           <h3>Туман войны</h3>

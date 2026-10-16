@@ -2768,6 +2768,11 @@ body {
   margin-bottom: 10px;
 }
 
+/* Числа партии таблицами (UI-7): шапка таблицы — имя раздела. */
+.pf-table {
+  margin-top: 12px;
+}
+
 .trend .bars {
   display: flex;
   align-items: flex-end;
