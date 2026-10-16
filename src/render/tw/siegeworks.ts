@@ -133,6 +133,9 @@ export class Siegeworks {
       sm.name = 'tw-smoke';
       this.smoke = this.instanced(new THREE.CircleGeometry(1, 10), sm, b.smoke.length * this.detail.smoke, 'tw-smoke', false);
       this.smoke.renderOrder = 3;
+    }
+    // Огонь — и на низком уровне: три конуса на столб стоят один вызов, а без них горящий город — просто город.
+    if (b.smoke.length > 0) {
       const fm = new THREE.MeshBasicMaterial({ color: FIRE });
       fm.name = 'tw-fire';
       this.fire = this.instanced(new THREE.ConeGeometry(0.55, 1.4, 5).translate(0, 0.7, 0), fm, b.smoke.length * 3, 'tw-fire', false);
@@ -533,7 +536,12 @@ export class Siegeworks {
 
   private updateSmoke(t: number, cam: THREE.Camera): void {
     const sm = this.smoke;
-    if (!sm) return;
+    if (sm) this.updateColumns(sm, t, cam);
+    this.updateFire(t);
+  }
+
+  /** Клубы дыма столбов: встают со сдвигом, растут, тают к верху. */
+  private updateColumns(sm: THREE.InstancedMesh, t: number, cam: THREE.Camera): void {
     let n = 0;
     const per = this.detail.smoke;
     for (const col of this.b.smoke) {
@@ -563,7 +571,10 @@ export class Siegeworks {
     sm.count = n;
     sm.visible = n > 0;
     sm.instanceMatrix.needsUpdate = true;
-    // Огонь: три языка на столб, дрожат каждый в своём такте.
+  }
+
+  /** Огонь: три языка на столб, дрожат каждый в своём такте. */
+  private updateFire(t: number): void {
     const fi = this.fire;
     if (fi) {
       let k = 0;
