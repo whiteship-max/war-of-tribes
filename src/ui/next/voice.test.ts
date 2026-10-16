@@ -42,6 +42,7 @@ export const STAGE2 = [
   'realm/decrees.ts',
   'realm/dispatch.ts',
   'next/MarketNew.tsx',
+  'map/Legend.tsx',
   'next/HallGives.tsx',
   'parts/TownHall.tsx',
 ];

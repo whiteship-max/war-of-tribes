@@ -312,10 +312,8 @@ describe('цели касания нового вида — не меньше п
       ['.nx-leadb', 'min-height'],
       ['.nx-crow', 'min-height'],
       ['.nx-act', 'height'],
-      ['.nx-mrow', 'min-height'],
-      ['.nx-mico', 'height'],
-      ['.nx-mico', 'width'],
-      ['.nx-mtap', 'min-height'],
+      // «Походы» таблицами (UI-7): имя человека и отряда — кнопка в ячейке.
+      ['.mr-who', 'min-height'],
       ['.nx-ico44', 'height'],
       ['.nx-ico44', 'width'],
       // Весть: лупа, ответы, «Отложить»; донесение о бое: «итог или бой».

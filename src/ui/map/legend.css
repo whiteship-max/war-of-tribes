@@ -1,0 +1,87 @@
+/*
+ * Легенда карты (UI-7, docs/ui_v2.md, 5.6): лист над строкой кнопок, вкладками «Места · Метки · Земля»; значки — сеткой в
+ * два столбца, земля — таблицей набора. Едет с куском карты (`Legend.tsx`), а не в первой загрузке: прежде эти правила
+ * лежали в `styles.css`.
+ */
+.wm-legend {
+  position: absolute;
+  left: calc(8px + var(--safe-left));
+  right: calc(8px + var(--safe-right));
+  bottom: calc(var(--safe-bottom) + var(--tap) + 18px);
+  max-height: 62%;
+  overflow-y: auto;
+  padding: 10px 12px 12px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+}
+.wm-legend h3 {
+  margin: 8px 0 4px;
+  font-size: 12px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.wm-legend .kit-tabs + h3 {
+  margin-top: 4px;
+}
+.wm-legend > .btn {
+  margin-top: 8px;
+}
+.wm-leg-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px 8px;
+}
+.wm-leg-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 44px;
+  font-size: 13px;
+}
+.wm-leg-art {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 40px;
+}
+.wm-leg-art img {
+  width: 44px;
+  height: 40px;
+  object-fit: contain;
+}
+.wm-leg-art img.wm-leg-fell {
+  width: auto;
+  height: 16px;
+}
+.wm-leg-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.wm-leg-text b {
+  font-weight: 600;
+  line-height: 1.2;
+}
+.wm-leg-text em,
+.wm-legend .kit-name small {
+  font-style: normal;
+  font-size: 11px;
+  line-height: 1.25;
+  color: var(--muted);
+}
+/* Вымпел отношений: форму на 14 px было бы не разобрать. */
+.wm-leg-flag {
+  width: 20px;
+  height: 20px;
+}
+.wm-leg-swatch {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  border: 1px solid rgba(0, 0, 0, 0.35);
+}
