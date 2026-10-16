@@ -109,14 +109,19 @@ export class Mesher {
     return this;
   }
 
-  /** Эллипсоид: середина, полуоси, поворот, цвет. */
-  blob(at: THREE.Vector3, radii: THREE.Vector3, rot: THREE.Euler, hex: number, w = 9, h = 6): this {
+  /** Эллипсоид: середина, полуоси, поворот, цвет (или цвет по точке до поворота — лучи плавника). */
+  blob(at: THREE.Vector3, radii: THREE.Vector3, rot: THREE.Euler, hex: number | ((p: THREE.Vector3) => number), w = 9, h = 6): this {
     const g = new THREE.SphereGeometry(1, w, h);
     g.scale(radii.x, radii.y, radii.z);
     g.applyMatrix4(_m.makeRotationFromEuler(rot).setPosition(at));
     const base = this.pos.length / 3;
     const p = g.attributes.position;
-    for (let i = 0; i < p.count; i++) this.vert(_p.fromBufferAttribute(p, i), hex);
+    const own = typeof hex === 'number' ? null : new THREE.SphereGeometry(1, w, h).scale(radii.x, radii.y, radii.z);
+    for (let i = 0; i < p.count; i++) {
+      _p.fromBufferAttribute(p, i);
+      this.vert(_p, typeof hex === 'number' ? hex : hex(_d.fromBufferAttribute(own!.attributes.position, i)));
+    }
+    own?.dispose();
     const ix = g.index!;
     for (let i = 0; i < ix.count; i++) this.idx.push(base + ix.getX(i));
     g.dispose();

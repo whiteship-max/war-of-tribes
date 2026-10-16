@@ -16,6 +16,10 @@ import type { Play } from './stage';
 import { Sparks } from './sparks';
 import { fieldSound, type FieldSound } from './miniSound';
 import { HEAP, basketGeometry, basketHand, heapSpots, viewMaterial } from './hands';
+import type { Season } from '@/game/types';
+import type { Tier } from '@/prologue/look';
+import { NatureMats } from './nature';
+import { DENSITY, gladeLand } from './places';
 
 /** Корзина в левой: внизу слева, наклонена к глазу — видно, сколько в ней. */
 const BASKET_AT = { x: -0.13, y: -0.48, z: -0.72 };
@@ -72,8 +76,24 @@ export class BerriesPlay implements Play {
     this.blockers_ = this.field.bushes.map((b) => ({ x: b.x, z: b.z, r: BUSH_KINDS[b.kind].r * 0.85 }));
   }
 
+  /** Ступень входа (`Play.dress`): сколько травы и подробность деревьев. */
+  private tier: Tier = 'lite';
+  private mats: NatureMats | null = null;
+
+  dress(tier: Tier): void {
+    this.tier = tier;
+  }
+
+  /** Лесная поляна (`places.gladeLand`): земля, лес кругом, трава, цветы, папоротник, камни. Трава — мимо кустов. */
+  land(scene: THREE.Scene, surfaces: Surfaces, shade: Shade, season: Season): void {
+    this.mats = new NatureMats(surfaces.u);
+    const keep = this.field.bushes.map((b) => ({ x: b.x, z: b.z, r: BUSH_KINDS[b.kind].r + 0.25 }));
+    gladeLand({ scene, mats: this.mats, shade, season, density: DENSITY[this.tier], seed: 4711, keep });
+  }
+
   build(scene: THREE.Scene, surfaces: Surfaces, shade: Shade, camera: THREE.Camera): void {
-    this.bushMesh = surfaces.adopt(bushesMesh(this.field.bushes));
+    this.mats ??= new NatureMats(surfaces.u);
+    this.bushMesh = bushesMesh(this.field.bushes, this.mats.of('leaf'));
     scene.add(this.bushMesh);
     for (const b of this.field.bushes) {
       const r = BUSH_KINDS[b.kind].r;
@@ -247,6 +267,7 @@ export class BerriesPlay implements Play {
   }
 
   dispose(): void {
+    this.mats?.dispose();
     this.sparks.dispose();
     this.basket_?.removeFromParent();
     this.basket_?.traverse((o) => (o as THREE.Mesh).geometry?.dispose());

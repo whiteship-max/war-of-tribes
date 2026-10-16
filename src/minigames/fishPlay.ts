@@ -51,6 +51,7 @@ import {
   fishGeometry,
   fishLength,
   fishMaterial,
+  fishMotion,
   floatMesh,
   forestBand,
   headland,
@@ -172,6 +173,8 @@ export class FishPlay implements Play {
   private marker: THREE.Mesh | null = null;
   private fish = new Map<FishId, THREE.Mesh>();
   private shine = { value: 1 };
+  /** Изгиб тела рыбы (`fishModels.fishMotion`): плывёт, бьётся на крючке, бьёт хвостом в руке. */
+  private motion = fishMotion();
   private sparks = new Sparks(0.05);
   /** Капли с рыбы в руке — мельче брызг: у самых глаз крупная точка читалась бы шаром. */
   private drips = new Sparks(0.008);
@@ -282,7 +285,7 @@ export class FishPlay implements Play {
     this.marker.visible = false;
     this.world.add(this.marker);
     // Рыбы этого берега — по мешу на вид; видна одна, та, что на крючке или в руке.
-    const mat = fishMaterial(this.shine);
+    const mat = fishMaterial(this.shine, this.motion);
     for (const def of poolOf(this.game.setting)) {
       const m = new THREE.Mesh(fishGeometry(def.id), mat);
       m.visible = false;
@@ -790,6 +793,9 @@ export class FishPlay implements Play {
   private syncFish(t: number, dt: number): void {
     const g = this.game;
     for (const m of this.fish.values()) m.visible = false;
+    // Изгиб тела: ось — вбок, у камбалы, лежащей плашмя, — вверх-вниз (`FishMotion.axis`).
+    const def = g.phase === 'show' ? this.shown?.def : g.fish?.def;
+    if (def) this.motion.axis.value.set(0, FISH_LOOK[def.id].flat ? 1 : 0, FISH_LOOK[def.id].flat ? 0 : 1);
     if (g.phase === 'show' && this.shown) {
       this.showFish(t);
       return;
@@ -819,7 +825,13 @@ export class FishPlay implements Play {
     let roll = Math.sin(this.clock * 11) * 0.25 * (0.4 + thrash);
     let pitch = 0;
     const j = this.clock - this.jumpAt;
+    // Плывёт и бьётся: волна по телу тем чаще и шире, чем сильнее рвётся; в прыжке — изо всех сил.
+    const fightBend = 0.35 + 0.55 * thrash;
+    this.motion.bend.value += (fightBend - this.motion.bend.value) * (1 - Math.exp(-dt * 6));
+    this.motion.phase.value += dt * (8 + 9 * thrash);
     if (j >= 0 && j < JUMP_S) {
+      this.motion.bend.value = 0.95;
+      this.motion.phase.value += dt * 10;
       // Прыжок: дуга над водой, рыба трясёт головой и падает боком.
       const u = j / JUMP_S;
       y = WATER_Y - 0.1 + (0.6 + len * 0.5) * 4 * u * (1 - u);
@@ -874,6 +886,9 @@ export class FishPlay implements Play {
     m.position.copy(_v);
     // Голова вверх (висит на крючке за губу), бок — к глазу, хвост бьёт.
     const flap = Math.sin(age * 13) * 0.35 * Math.exp(-age * 0.6);
+    // Тело бьётся волной вместе с хвостом: сильно сперва, потом изредка вздрагивает.
+    this.motion.bend.value = 0.2 + 0.8 * Math.exp(-age * 0.6) + 0.25 * Math.max(0, Math.sin(age * 1.7)) ** 8;
+    this.motion.phase.value = age * 13;
     _q.setFromEuler(_e.set(0, cam.rotation.y - SHORE_YAW + flap, Math.PI / 2 - 0.12, 'YXZ'));
     // Камбала плоская: к глазу — её широкая спина, а не ребро.
     if (FISH_LOOK[fish.def.id].flat) _q.multiply(_q2.setFromAxisAngle(_x, Math.PI / 2));

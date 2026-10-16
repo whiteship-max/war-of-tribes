@@ -6,7 +6,13 @@
  */
 import { describe, expect, it } from 'vitest';
 import { MINI_BUDGET, budgetOf } from './budget';
+import * as THREE from 'three';
 import { TIERS } from '@/prologue/look';
+import { Dome } from '@/prologue/dome';
+import { Surfaces } from '@/prologue/surface';
+import { BerriesPlay } from './berriesPlay';
+import { HerdPlay } from './herdPlay';
+import { furnish } from './world';
 
 describe('промыслы: бюджет кадра', () => {
   for (const [id, shore] of [
@@ -34,13 +40,29 @@ describe('промыслы: бюджет кадра', () => {
     expect(MINI_BUDGET.lite.calls).toBeLessThanOrEqual(MINI_BUDGET.full.calls);
   });
 
-  it('ягоды — одним вызовом на всю поляну, а не по вызову на ягоду; стадо — по вызову на породу', () => {
-    const berries = budgetOf('berries', 'lite', 'river', false);
-    const herd = budgetOf('herd', 'lite', 'river', false);
-    // Сотня ягод инстансами — один вызов: разница в вызовах между играми — стадо, загон и стог, а не ягоды.
-    expect(berries.calls).toBeLessThan(24);
-    expect(herd.calls).toBeGreaterThan(berries.calls);
-    // Стадо копиями: восемь-девять животных — четыре породы, а не девять вызовов на туловища и девять на ноги.
-    expect(herd.calls, 'стадо копиями').toBeLessThan(berries.calls + 22);
+  it('ягоды — одним вызовом на всю поляну, стадо — по вызову на породу, трава — одним вызовом', () => {
+    const graph = (id: 'berries' | 'herd'): THREE.Object3D[] => {
+      const scene = new THREE.Scene();
+      const play = id === 'berries' ? new BerriesPlay(12345) : new HerdPlay(12345);
+      play.dress('lite');
+      furnish(scene, new Surfaces(), play, new THREE.PerspectiveCamera(), new Dome(), 'summer');
+      const out: THREE.Object3D[] = [];
+      scene.traverse((o) => out.push(o));
+      return out;
+    };
+    const berries = graph('berries');
+    // Сотня ягод — копии одной сетки: один меш на всю поляну, а не по мешу на ягоду.
+    const b = berries.filter((o) => o.name === 'berries');
+    expect(b.length).toBe(1);
+    expect((b[0] as THREE.InstancedMesh).isInstancedMesh).toBe(true);
+    expect((b[0] as THREE.InstancedMesh).count).toBeGreaterThan(50);
+    const herd = graph('herd');
+    // Стадо копиями: девять животных — по мешу на породу, а не по мешу на туловище и ноги каждого.
+    const beasts = herd.filter((o) => ['sheep', 'goat', 'cow', 'lamb'].includes(o.name));
+    expect(beasts.length).toBeLessThanOrEqual(4);
+    for (const m of beasts) expect((m as THREE.InstancedMesh).isInstancedMesh, m.name).toBe(true);
+    expect(beasts.reduce((n, m) => n + (m as THREE.InstancedMesh).count, 0)).toBeGreaterThanOrEqual(8);
+    // Трава — тысяча пучков копиями: один меш на луг.
+    for (const g of [...berries, ...herd].filter((o) => o.name === 'grass')) expect((g as THREE.InstancedMesh).count).toBeGreaterThan(300);
   });
 });

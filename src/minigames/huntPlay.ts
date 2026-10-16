@@ -18,7 +18,6 @@ import { Shade, arrow as arrowModel, blob } from '@/prologue/models';
 import type { Blocker } from '@/prologue/glade';
 import type { Season } from '@/game/types';
 import { haptic } from '@/telegram/webapp';
-import { tufts } from './models';
 import { Archer } from './archer';
 import { Sparks, type Burst } from './sparks';
 import {
@@ -43,7 +42,9 @@ import {
   type Arrow,
   type HuntEvent,
 } from './hunt';
-import { arrowsMesh, coverMesh, forestWall, meadowGround } from './huntModels';
+import { MEADOW_FLAT, WALL_FROM, arrowsMesh, coverGroup } from './huntModels';
+import { NatureMats } from './nature';
+import { DENSITY, meadowLand } from './places';
 import { huntSound, type Ear, type HuntSound, type ThudKind } from './huntSound';
 import type { Hour, Tally, Target } from './rules';
 import type { Play } from './stage';
@@ -134,6 +135,9 @@ export class HuntPlay implements Play {
   private lives: DeerLife[] = [];
   private pose: Posture = { ...STILL };
   private detail: Detail = 'lo';
+  private tier: Tier = 'lite';
+  /** Материалы поля (`nature.ts`): земля, трава, лес, укрытия. */
+  private mats: NatureMats | null = null;
   /** Часы вида оленей: жвачка и уши идут и до «Начать». */
   private deerClock = 0;
   private blobs: THREE.InstancedMesh | null = null;
@@ -170,20 +174,17 @@ export class HuntPlay implements Play {
     this.blockers_ = this.hunt.field.cover.map((c) => ({ x: c.x, z: c.z, r: coverRadius(c) }));
   }
 
-  land(scene: THREE.Scene, surfaces: Surfaces, _shade: Shade, season: Season): void {
+  land(scene: THREE.Scene, surfaces: Surfaces, shade: Shade, season: Season): void {
     this.season = season;
+    this.mats = new NatureMats(surfaces.u);
     // Трава — вокруг охотника, где её видно; не в кустах и не под елями.
     const keep = this.blockers_.map((b) => ({ x: b.x, z: b.z, r: b.r * 0.8 }));
-    scene.add(
-      surfaces.adopt(meadowGround(season)),
-      surfaces.adopt(forestWall(), 'crown'),
-      surfaces.adopt(tufts(season, keep, { count: 520, from: 0.6, to: 24, x: START.x, z: START.z - 6 }), 'tuft'),
-    );
+    meadowLand({ scene, mats: this.mats, shade, season, density: DENSITY[this.tier], seed: 9013, keep }, MEADOW_FLAT, WALL_FROM, { x: START.x, z: START.z - 6 });
   }
 
   build(scene: THREE.Scene, surfaces: Surfaces, shade: Shade, camera: THREE.Camera): void {
     this.camera = camera;
-    scene.add(surfaces.adopt(coverMesh(this.hunt.field.cover, this.season, shade), 'crown'));
+    scene.add(coverGroup(this.hunt.field.cover, this.season, shade, this.mats ?? new NatureMats(surfaces.u), this.detail));
     const mat = furMaterial(HAIR, surfaces.u);
     const counts = { stag: 0, doe: 0 };
     for (const d of this.hunt.field.deer) counts[d.doe ? 'doe' : 'stag']++;
@@ -228,6 +229,7 @@ export class HuntPlay implements Play {
 
   /** Подробность лепки по ступени: олени вдали — `lo`, на настольном — `hi`. Зовётся до `build`. */
   dress(tier: Tier): void {
+    this.tier = tier;
     this.detail = tier === 'full' ? 'hi' : 'lo';
   }
 
@@ -598,6 +600,7 @@ export class HuntPlay implements Play {
 
   /** Геометрию разберёт сцена (`disposeGeometries` — лук висит на камере, камера в сцене); здесь — копии. */
   dispose(): void {
+    this.mats?.dispose();
     const mats = new Set<THREE.Material>();
     for (const k of ['stag', 'doe'] as const) {
       const p = this.packs[k];

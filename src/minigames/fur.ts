@@ -58,10 +58,8 @@ vFurP = position;
 }
 #endif`;
 
-const FRAG_HEAD = /* glsl */ `#include <common>
-uniform float furWet;
-uniform float furSnow;
-varying vec3 vFurP;
+/** Плавный шум в точке, 0..1 (значения на решётке, сглаженные), — общий у шерсти и мест (`nature.ts`). */
+export const GLSL_NOISE = /* glsl */ `
 float furHash( vec3 p ) {
   p = fract( p * 0.3183099 + 0.1 );
   p *= 17.0;
@@ -75,7 +73,13 @@ float furNoise( vec3 x ) {
     mix( mix( furHash( i ), furHash( i + vec3( 1, 0, 0 ) ), f.x ), mix( furHash( i + vec3( 0, 1, 0 ) ), furHash( i + vec3( 1, 1, 0 ) ), f.x ), f.y ),
     mix( mix( furHash( i + vec3( 0, 0, 1 ) ), furHash( i + vec3( 1, 0, 1 ) ), f.x ), mix( furHash( i + vec3( 0, 1, 1 ) ), furHash( i + vec3( 1, 1, 1 ) ), f.x ), f.y ),
     f.z );
-}
+}`;
+
+const FRAG_HEAD = /* glsl */ `#include <common>
+uniform float furWet;
+uniform float furSnow;
+varying vec3 vFurP;
+${GLSL_NOISE}
 float furHeight( vec3 p ) {
 #ifdef FUR_WOOL
   // Клоки: крупная кудря и мелкая поверх — руно, а не губка.

@@ -16,6 +16,7 @@
 import * as THREE from 'three';
 import { KIT } from '@/render/materials';
 import * as K from '@/render/kit';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { vnoise } from '@/render/terrain';
 import { hash } from '@/prologue/glade';
 import type { Season } from '@/game/types';
@@ -730,6 +731,24 @@ export const FISH_LOOK: Record<FishId, FishLook> = {
 /** Длина рыбы, м, по весу: вес растёт кубом длины, плотность — своя у вида. */
 export const fishLength = (id: FishId, grams: number): number => Math.cbrt(grams / 1000 / FISH_LOOK[id].k);
 
+/**
+ * Чешуя: ряды чешуек со сдвигом через ряд в осях покоя рыбы (`vFishP`), край каждой — темнее, середина ловит блик.
+ * Рисунок — по месту на теле, а не по экрану: рыба в руке крупная, и чешуя на ней видна; вдали гаснет, а не рябит.
+ * Плавники и глаза чешуи не несут (`skin` вершины — 0).
+ */
+const FISH_SCALES = /* glsl */ `#include <color_fragment>
+float fishEdge = 0.0;
+{
+  vec2 q = vec2( vFishP.x * 46.0, ( vFishP.y + vFishP.z ) * 46.0 );
+  float row = floor( q.x );
+  q.y += mod( row, 2.0 ) * 0.5;
+  vec2 f = fract( q ) - vec2( 0.15, 0.5 );
+  float d = length( f * vec2( 1.0, 1.25 ) );
+  float fade = 1.0 - smoothstep( 2.5, 9.0, length( vViewPosition ) );
+  fishEdge = smoothstep( 0.42, 0.62, d ) * fade * vFishSkin;
+  diffuseColor.rgb *= 1.0 - 0.16 * fishEdge;
+}`;
+
 const FISH_SHINE = /* glsl */ `
 #if NUM_DIR_LIGHTS > 0
 {
@@ -738,8 +757,9 @@ const FISH_SHINE = /* glsl */ `
   vec3 Hs = normalize(Ls + Vv);
   float ndh = max(dot(normal, Hs), 0.0);
   float ndv = max(dot(normal, Vv), 0.0);
-  // Чешуя: узкий блик солнца, перелив к краю силуэта и мелкая искра там, где грань смотрит на солнце.
-  vec3 shine = directionalLights[0].color * (pow(ndh, 48.0) * 0.9 + pow(ndh, 220.0) * 2.4);
+  // Чешуя: узкий блик солнца, перелив к краю силуэта и мелкая искра там, где грань смотрит на солнце; край чешуйки
+  // блестит меньше середины — блик рассыпается по рядам.
+  vec3 shine = directionalLights[0].color * (pow(ndh, 48.0) * 0.9 + pow(ndh, 220.0) * 2.4) * (1.0 - 0.6 * fishEdge);
   vec3 sheen = vec3(0.55, 0.75, 0.9) * pow(1.0 - ndv, 3.0) * 0.35;
   outgoingLight += (shine + sheen) * fishShine;
 }
@@ -747,17 +767,56 @@ const FISH_SHINE = /* glsl */ `
 #include <opaque_fragment>
 `;
 
-/** Материал рыбы: гладкий Ламберт с цветом в вершинах и блеском чешуи (`fishShine` — мокрая рыба блестит ярче). */
-export function fishMaterial(shine: { value: number }): THREE.MeshLambertMaterial {
+/**
+ * Изгиб тела: хвост ходит волной от головы к хвосту — рыба плывёт, бьётся на крючке и в руке. Ось изгиба — вбок
+ * (`fishAxis`; у камбалы, лежащей плашмя, — вверх-вниз). Голова почти не ходит: волна растёт к хвосту квадратом.
+ */
+const FISH_BEND = /* glsl */ `#include <begin_vertex>
+vFishP = position;
+vFishSkin = skin;
+{
+  float fishK = smoothstep( 0.32, -0.55, position.x );
+  transformed += fishAxis * ( fishBend * fishK * fishK * 0.22 * sin( fishPhase - position.x * 5.5 ) );
+}`;
+
+const FISH_VERT_HEAD = /* glsl */ `#include <common>
+uniform float fishBend;
+uniform float fishPhase;
+uniform vec3 fishAxis;
+attribute float skin;
+varying vec3 vFishP;
+varying float vFishSkin;`;
+
+const FISH_FRAG_HEAD = /* glsl */ `#include <common>
+uniform float fishShine;
+varying vec3 vFishP;
+varying float vFishSkin;`;
+
+/** Числа изгиба, общие на всех рыб берега: видна одна, и ведёт её сцена. */
+export interface FishMotion {
+  bend: { value: number };
+  phase: { value: number };
+  axis: { value: THREE.Vector3 };
+}
+
+export const fishMotion = (): FishMotion => ({ bend: { value: 0 }, phase: { value: 0 }, axis: { value: new THREE.Vector3(0, 0, 1) } });
+
+/** Материал рыбы: гладкий Ламберт с цветом в вершинах, чешуёй, блеском (`fishShine` — мокрая ярче) и изгибом тела. */
+export function fishMaterial(shine: { value: number }, motion: FishMotion = fishMotion()): THREE.MeshLambertMaterial {
   const mat = new THREE.MeshLambertMaterial({ vertexColors: true });
   mat.name = 'fishSkin';
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.fishShine = shine;
+    shader.uniforms.fishBend = motion.bend;
+    shader.uniforms.fishPhase = motion.phase;
+    shader.uniforms.fishAxis = motion.axis;
+    shader.vertexShader = shader.vertexShader.replace('#include <common>', FISH_VERT_HEAD).replace('#include <begin_vertex>', FISH_BEND);
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\nuniform float fishShine;')
+      .replace('#include <common>', FISH_FRAG_HEAD)
+      .replace('#include <color_fragment>', FISH_SCALES)
       .replace('#include <opaque_fragment>', FISH_SHINE);
   };
-  mat.customProgramCacheKey = () => 'fish-skin';
+  mat.customProgramCacheKey = () => 'fish-skin-2';
   return mat;
 }
 
@@ -768,8 +827,10 @@ export function fishMaterial(shine: { value: number }): THREE.MeshLambertMateria
  */
 export function fishGeometry(id: FishId): THREE.BufferGeometry {
   const L = FISH_LOOK[id];
+  // Тело — своей лепкой (несёт чешую), плавники, глаза и рот — своей (`skin` 0): чешуя на плавнике читалась бы сеткой.
   const m = new Mesher();
-  const N = 12;
+  const fins = new Mesher();
+  const N = 16;
   const path: THREE.Vector3[] = [];
   const radii: number[] = [];
   for (let i = 0; i < N; i++) {
@@ -784,38 +845,66 @@ export function fishGeometry(id: FishId): THREE.BufferGeometry {
     const a = Math.atan2(d.y, d.z);
     return Math.sin(u * 61 + a * 5.3) * Math.sin(u * 37 - a * 3.1) > 0.55;
   };
+  const back = new THREE.Color(L.back);
+  const flank = new THREE.Color(L.flank);
+  const belly = new THREE.Color(L.belly);
+  const dark = new THREE.Color(L.back).multiplyScalar(0.55);
   m.tube(
     path,
     radii,
     (u, d) => {
       const y = L.flat ? d.z : d.y;
-      let hex = y > 0.35 ? L.back : y < -0.45 ? L.belly : L.flank;
-      if (y > 0.05 && y <= 0.35) hex = _c.setHex(L.back).lerp(new THREE.Color(L.flank), 0.5).getHex();
-      if (L.bars && y > -0.35 && Math.sin(u * 38) > 0.55 && u > 0.2 && u < 0.85) hex = L.bars;
+      // Спина — бока — брюхо плавно, а не полосами: рыба круглая, свет по ней течёт.
+      if (y > 0) _c.copy(flank).lerp(back, Math.min(1, Math.max(0, (y - 0.05) / 0.55)) ** 0.8);
+      else _c.copy(flank).lerp(belly, Math.min(1, Math.max(0, (-y - 0.25) / 0.45)));
+      // Боковая линия — тонкая тёмная черта вдоль бока; жаберная крышка — тёмная дуга за головой; голова сверху темнее.
+      if (Math.abs(y - 0.04) < 0.05 && u > 0.12 && u < 0.72) _c.lerp(dark, 0.35);
+      if (Math.abs(u - 0.74) < 0.018 && y < 0.6) _c.lerp(dark, 0.55);
+      if (u > 0.76 && y > 0.2) _c.lerp(dark, 0.25);
+      let hex = _c.getHex();
+      if (L.bars && y > -0.35 && Math.sin(u * 38) > 0.55 && u > 0.2 && u < 0.72) hex = L.bars;
       if (L.spots && y > -0.3 && spotAt(u, d)) hex = L.spots;
       return hex;
     },
-    10,
+    12,
     L.width,
   );
+  // Лучи плавника: тёмные струны по длине, перепонка между ними светлее — плавник читается плавником, а не листом.
+  const fin = new THREE.Color(L.fin);
+  const ray = new THREE.Color(L.fin).multiplyScalar(0.6);
+  const web = new THREE.Color(L.fin).lerp(new THREE.Color(0xf0ece0), 0.3);
+  // Струны идут поперёк оси `axis` плавника (в его осях до поворота): у спинного — стоймя, у хвоста — вдоль лопасти.
+  const rays = (axis: 'x' | 'y' | 'z') => (p: THREE.Vector3): number => (Math.sin(p[axis] * 150) > 0.35 ? ray.getHex() : _c.copy(web).lerp(fin, 0.5).getHex());
   // Хвост: две лопасти вилкой от хвостового стебля назад и в стороны — длинные и узкие; у лопаты — шире и короче.
   const forkA = 0.32 + 0.38 * L.fork;
   const lobe = 0.11 + 0.04 * Math.max(0, L.fork);
   for (const s of [-1, 1]) {
     const a = s * forkA;
-    m.blob(V(-0.5 - Math.cos(a) * lobe * 0.8, Math.sin(a) * lobe * 0.8, 0), V(lobe, 0.022 + 0.02 * Math.max(0, -L.fork), 0.005), new THREE.Euler(0, 0, -a), L.fin, 8, 5);
+    fins.blob(V(-0.5 - Math.cos(a) * lobe * 0.8, Math.sin(a) * lobe * 0.8, 0), V(lobe, 0.024 + 0.02 * Math.max(0, -L.fork), 0.005), new THREE.Euler(0, 0, -a), rays('y'), 10, 5);
   }
-  // Спинной плавник, брюшные и грудные.
-  m.blob(V(-0.02, L.depth * 0.48, 0), V(0.14, 0.05, 0.006), new THREE.Euler(0, 0, -0.15), L.fin, 8, 5);
-  m.blob(V(-0.22, -L.depth * 0.42, 0), V(0.07, 0.03, 0.006), new THREE.Euler(0, 0, 0.3), L.fin, 7, 4);
-  for (const s of [-1, 1]) m.blob(V(0.2, -L.depth * 0.2, s * L.depth * L.width * 0.45), V(0.06, 0.012, 0.03), new THREE.Euler(0.3 * s, 0.4 * s, 0.2), L.fin, 7, 4);
-  // Глаза: белок-ободок и зрачок.
+  // Спинной плавник, анальный, брюшные и грудные.
+  fins.blob(V(-0.02, L.depth * 0.5, 0), V(0.15, 0.055, 0.005), new THREE.Euler(0, 0, -0.15), rays('x'), 10, 5);
+  fins.blob(V(-0.24, -L.depth * 0.42, 0), V(0.075, 0.032, 0.005), new THREE.Euler(0, 0, 0.3), rays('x'), 8, 4);
+  for (const s of [-1, 1]) {
+    fins.blob(V(0.04, -L.depth * 0.44, s * L.depth * L.width * 0.2), V(0.05, 0.022, 0.005), new THREE.Euler(0.4 * s, 0, 0.35), rays('x'), 7, 4);
+    fins.blob(V(0.2, -L.depth * 0.2, s * L.depth * L.width * 0.45), V(0.06, 0.012, 0.03), new THREE.Euler(0.3 * s, 0.4 * s, 0.2), rays('z'), 7, 4);
+  }
+  // Глаза: золотистая радужка в ободке, тёмный зрачок с бликом.
   for (const s of [-1, 1]) {
     const z = s * L.depth * L.width * 0.42;
-    m.blob(V(0.33, L.depth * 0.08, z), V(0.028, 0.028, 0.012), new THREE.Euler(), 0xe0d8a8, 7, 5);
-    m.blob(V(0.335, L.depth * 0.08, z + s * 0.006), V(0.016, 0.016, 0.008), new THREE.Euler(), 0x14110e, 6, 4);
+    fins.blob(V(0.33, L.depth * 0.08, z), V(0.03, 0.03, 0.012), new THREE.Euler(), 0xd8c070, 8, 5);
+    fins.blob(V(0.335, L.depth * 0.08, z + s * 0.007), V(0.017, 0.017, 0.008), new THREE.Euler(), 0x0e0c0a, 7, 4);
+    fins.blob(V(0.342, L.depth * 0.08 + 0.008, z + s * 0.012), V(0.005, 0.005, 0.003), new THREE.Euler(), 0xf4f2ea, 4, 3);
   }
-  const g = m.geometry();
+  // Рот — тёмная щель на конце морды.
+  fins.blob(V(0.41, -L.depth * 0.03, 0), V(0.012, 0.006, L.depth * L.width * 0.18), new THREE.Euler(0, 0, -0.2), 0x2a1c18, 6, 4);
+  const body = m.geometry();
+  const rest = fins.geometry();
+  body.setAttribute('skin', new THREE.Float32BufferAttribute(new Float32Array(body.attributes.position.count).fill(1), 1));
+  rest.setAttribute('skin', new THREE.Float32BufferAttribute(new Float32Array(rest.attributes.position.count), 1));
+  const g = mergeGeometries([body, rest]);
+  body.dispose();
+  rest.dispose();
   if (L.flat) g.rotateX(Math.PI / 2);
   return g;
 }

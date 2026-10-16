@@ -30,6 +30,9 @@ import { Moves, Pack, placeBeast, smooth } from './fauna';
 import { STILL, model, posture, type Detail, type Model, type Posture } from './beasts';
 import { HAIR, HIDE, WOOL, furMaterial, type FurLook } from './fur';
 import type { Tier } from '@/prologue/look';
+import type { Season } from '@/game/types';
+import { NatureMats } from './nature';
+import { DENSITY, penLand } from './places';
 
 /** Сено в горсти: соломенное, светлое и выгоревшее — как у стога (`models.hayMesh`). */
 const HAY_BITS = [0xd8b860, 0xc9a24a, 0xe8d08a, 0xb89440];
@@ -175,7 +178,8 @@ export class HerdPlay implements Play {
 
   build(scene: THREE.Scene, surfaces: Surfaces, shade: Shade, camera: THREE.Camera): void {
     this.camera = camera;
-    scene.add(surfaces.adopt(penMesh()), surfaces.adopt(hayMesh()));
+    this.mats ??= new NatureMats(surfaces.u);
+    scene.add(penMesh(this.mats.of('bark')), hayMesh(this.mats.of('bark')));
     shade.add(HAY.x, HAY.z, HAY.r * 1.5, HAY.r * 1.5);
     const browser = typeof document !== 'undefined';
     if (browser) for (let n = 1; n <= 3; n++) this.needTex.push(new THREE.CanvasTexture(needCanvas(n)));
@@ -234,9 +238,20 @@ export class HerdPlay implements Play {
     this.frame(0, 0, 0);
   }
 
+  /** Ступень входа: сколько травы и подробность деревьев (`places.DENSITY`). */
+  private tier: Tier = 'lite';
+  private mats: NatureMats | null = null;
+
   /** Подробность лепки по ступени: загон рядом — `hi`, пол телефона — `lo`. Зовётся до `build`. */
   dress(tier: Tier): void {
+    this.tier = tier;
     this.detail = tier === 'base' ? 'lo' : 'hi';
+  }
+
+  /** Луг вокруг загона (`places.penLand`): выбитая земля внутри, луг и лес снаружи, колода и навес за жердями. */
+  land(scene: THREE.Scene, surfaces: Surfaces, shade: Shade, season: Season): void {
+    this.mats = new NatureMats(surfaces.u);
+    penLand({ scene, mats: this.mats, shade, season, density: DENSITY[this.tier], seed: 2207, keep: [{ x: HAY.x, z: HAY.z, r: HAY.r + 0.2 }] }, PEN_R, HAY.r);
   }
 
   begin(): void {
@@ -428,6 +443,7 @@ export class HerdPlay implements Play {
   }
 
   dispose(): void {
+    this.mats?.dispose();
     this.sparks.dispose();
     for (const s of this.marks) s.material.dispose();
     for (const tex of this.needTex) tex.dispose();

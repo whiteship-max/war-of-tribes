@@ -58,7 +58,9 @@ import {
   type Hunter,
   type Shot,
 } from './hunt';
-import { coverMesh } from './huntModels';
+import { coverGroup } from './huntModels';
+import { NatureMats } from './nature';
+import { Surfaces } from '@/prologue/surface';
 import { Shade } from '@/prologue/models';
 import { GAME_SECONDS } from './rules';
 
@@ -702,19 +704,33 @@ describe('охота: форма попадания — по модели', () =
     const f = layHunt(77);
     for (const kind of ['spruce', 'birch', 'bush'] as const) {
       const c = f.cover.find((k) => k.kind === kind)!;
-      const m = coverMesh([c], 'summer', new Shade());
-      const pos = m.geometry.attributes.position;
-      // Середина укрытия по высоте: ель — хвоя, берёза — нижняя шапка кроны, куст — сам куст.
-      const mid = (kind === 'spruce' ? 1.6 : kind === 'birch' ? BIRCH.crowns[0].y : BUSH.y) * c.s;
-      let inside = 0;
-      for (let i = 0; i < pos.count; i++) {
-        // Точка чуть внутрь — к оси и к середине укрытия: вершины лежат на самой поверхности.
-        const x = c.x + (pos.getX(i) - c.x) * 0.9;
-        const z = c.z + (pos.getZ(i) - c.z) * 0.9;
-        const y = pos.getY(i) + (mid - pos.getY(i)) * 0.03;
-        if (inCover(c, x, y, z)) inside++;
+      // Мягкие укрытия П-4 — копии по породам (`coverGroup`): вершины берутся в мире, через матрицу каждой копии.
+      for (const detail of ['hi', 'lo'] as const) {
+        const g = coverGroup([c], 'summer', new Shade(), new NatureMats(new Surfaces().u), detail);
+        const pts: THREE.Vector3[] = [];
+        const m4 = new THREE.Matrix4();
+        g.traverse((o) => {
+          const im = o as THREE.InstancedMesh;
+          if (!im.isInstancedMesh) return;
+          const pos = im.geometry.attributes.position;
+          for (let k = 0; k < im.count; k++) {
+            im.getMatrixAt(k, m4);
+            for (let i = 0; i < pos.count; i++) pts.push(new THREE.Vector3().fromBufferAttribute(pos, i).applyMatrix4(m4));
+          }
+        });
+        expect(pts.length, `${kind} ${detail}: нарисовано`).toBeGreaterThan(50);
+        // Середина укрытия по высоте: ель — хвоя, берёза — нижняя шапка кроны, куст — сам куст.
+        const mid = (kind === 'spruce' ? 1.6 : kind === 'birch' ? BIRCH.crowns[0].y : BUSH.y) * c.s;
+        let inside = 0;
+        for (const p of pts) {
+          // Точка чуть внутрь — к оси и к середине укрытия: вершины лежат на самой поверхности.
+          const x = c.x + (p.x - c.x) * 0.9;
+          const z = c.z + (p.z - c.z) * 0.9;
+          const y = p.y + (mid - p.y) * 0.03;
+          if (inCover(c, x, y, z)) inside++;
+        }
+        expect(inside / pts.length, `${kind} ${detail}`).toBeGreaterThan(0.85);
       }
-      expect(inside / pos.count, kind).toBeGreaterThan(0.85);
     }
   });
 });

@@ -13,6 +13,9 @@ import * as THREE from 'three';
 import { KIT } from '@/render/materials';
 import * as K from '@/render/kit';
 import { BUSH_KINDS, type Bush, type BushKind } from './berries';
+import { Sculpt, rigid, smooth } from './fauna';
+import { mix, noise3 } from './beasts';
+import { soften } from './nature';
 import { HAY, PEN_R } from './herd';
 import { hash } from '@/prologue/glade';
 import type { Season } from '@/game/types';
@@ -30,48 +33,59 @@ export const BERRY_GREEN: Record<BushKind, number> = { bilberry: 0x8db55a, cowbe
 /** Ягода — сколько в поперечнике, м. Крупнее настоящей вдвое: с трёх шагов на телефоне она должна читаться точкой цвета. */
 export const BERRY_SIZE: Record<BushKind, number> = { bilberry: 0.07, cowberry: 0.065, raspberry: 0.085, strawberry: 0.08 };
 
-/** Кусты всей поляны — одним мешем. Ягоды — отдельно (`berriesMesh`): у них свой цвет на каждую. */
-export function bushesMesh(bushes: readonly Bush[]): THREE.Mesh {
-  const parts: K.Part[] = [];
+/**
+ * Кусты всей поляны — одним мешем, мягкими купами листвы (П-4): нормаль клонится к середине куста, и он светится
+ * облаком, а не гранями. Размер — тот же, что у правила (`berries.BUSH_KINDS`): ягоды сидят поверх шапки
+ * (`berries.capBerry`), купа — внутри их эллипсоида. Ягоды — отдельно (`berriesMesh`): у них свой цвет на каждую.
+ */
+export function bushesMesh(bushes: readonly Bush[], mat: THREE.Material): THREE.Mesh {
+  const s = new Sculpt();
+  const soft: [number, number, THREE.Vector3][] = [];
+  const leafOf = (kind: BushKind) => {
+    const base = LEAF[kind];
+    const deep = mix(base, 0x1a2a14, 0.45);
+    const light = mix(base, 0xd8e8a0, 0.3);
+    return (p: THREE.Vector3, y0: number, h: number): number => mix(deep, mix(base, light, noise3(p.x * 9, p.y * 9, p.z * 9)), Math.min(1, Math.max(0, (p.y - y0) / h)));
+  };
   for (const b of bushes) {
     const look = BUSH_KINDS[b.kind];
-    const leaf = tint(LEAF[b.kind]);
-    const ao = { base: [0.62, 0.66, 0.74] as [number, number, number], y0: 0, y1: look.h };
+    const leaf = leafOf(b.kind);
+    const center = new THREE.Vector3(b.x, look.h * 0.45, b.z);
+    const from = s.skins.length;
     if (b.kind === 'raspberry') {
-      // Малина — пучок стеблей и листва шапками по высоте: высокий силуэт виден с другого края поляны.
-      // Стебли — ниже верхней шапки и с пучком листьев на макушке: голая палка над кустом читалась прутом.
+      // Малина — пучок стеблей и листва купами по высоте: высокий силуэт виден с другого края поляны.
       for (let k = 0; k < 6; k++) {
         const a = b.yaw + k * 1.05;
         const lean = 0.18 + (k % 3) * 0.06;
         const len = look.h * (0.78 + (k % 2) * 0.08);
         const bx = b.x + Math.cos(a) * 0.12;
         const bz = b.z + Math.sin(a) * 0.12;
-        parts.push(K.cyl(0.011, 0.019, len, tint(CANE), 4, bx, len / 2, bz, { x: Math.sin(a) * lean, z: -Math.cos(a) * lean }));
-        // Макушка наклонённого стебля — куда увёл её тот же поворот, что у стебля (`K.place`: Эйлер X, Y, Z).
-        const tip = new THREE.Vector3(0, len / 2, 0).applyEuler(new THREE.Euler(Math.sin(a) * lean, 0, -Math.cos(a) * lean));
-        const g = new THREE.IcosahedronGeometry(0.11, 0);
-        g.scale(1.3, 0.7, 1.3);
-        parts.push(K.place(g, leaf, bx + tip.x, len / 2 + tip.y, bz + tip.z, { y: a }));
+        const top = new THREE.Vector3(bx + Math.cos(a) * lean * len * 0.6, len, bz + Math.sin(a) * lean * len * 0.6);
+        s.tube([new THREE.Vector3(bx, 0, bz), new THREE.Vector3((bx + top.x) / 2, len * 0.52, (bz + top.z) / 2), top], [0.016, 0.013, 0.008], { seg: 5, color: CANE, skin: rigid(0), caps: [null, 0.4] });
+        s.blob(top, new THREE.Vector3(0.12, 0.08, 0.12), new THREE.Euler(0, a, 0), (p) => leaf(p, 0, look.h), rigid(0), 7, 5, (p) => (noise3(p.x * 14, p.y * 14, p.z * 14) - 0.5) * 0.05);
       }
       for (let k = 0; k < 5; k++) {
         const a = b.yaw + k * 1.3;
-        const g = new THREE.IcosahedronGeometry(0.3 - k * 0.025, 0);
-        g.scale(1.1, 0.75, 1.1);
-        parts.push(K.place(g, leaf, b.x + Math.cos(a) * 0.3, 0.38 + k * 0.2, b.z + Math.sin(a) * 0.3, { y: a }, ao));
+        const r = 0.3 - k * 0.025;
+        s.blob(new THREE.Vector3(b.x + Math.cos(a) * 0.3, 0.38 + k * 0.2, b.z + Math.sin(a) * 0.3), new THREE.Vector3(r * 1.1, r * 0.75, r * 1.1), new THREE.Euler(0, a, 0), (p) => leaf(p, 0, look.h), rigid(0), 9, 6, (p) => (noise3(p.x * 6 + k, p.y * 6, p.z * 6) - 0.5) * r * 0.4);
       }
     } else {
-      // Низкий куст — три приплюснутые шапки: кочка, а не шар.
-      for (let k = 0; k < 3; k++) {
-        const a = b.yaw + k * 2.1;
-        const g = new THREE.IcosahedronGeometry(look.r * (0.78 - k * 0.12), 1);
-        g.scale(1.15, (look.h / look.r) * 0.95, 1.15);
+      // Низкий куст — кочка из трёх-четырёх куп внутри эллипсоида ягод: шапка, а не шар.
+      for (let k = 0; k < 4; k++) {
+        const a = b.yaw + k * 1.7;
         const off = k === 0 ? 0 : look.r * 0.45;
-        parts.push(K.place(g, leaf, b.x + Math.cos(a) * off, look.h * 0.42, b.z + Math.sin(a) * off, { y: a }, ao));
+        const rr = look.r * (k === 0 ? 0.8 : 0.58);
+        s.blob(new THREE.Vector3(b.x + Math.cos(a) * off, look.h * (k === 0 ? 0.46 : 0.36), b.z + Math.sin(a) * off), new THREE.Vector3(rr, look.h * (k === 0 ? 0.5 : 0.4), rr), new THREE.Euler(0, a, 0), (p) => leaf(p, 0, look.h), rigid(0), 10, 6, (p) => (noise3(p.x * 9 + k, p.y * 9, p.z * 9) - 0.5) * look.r * 0.22);
       }
     }
+    soft.push([from, s.skins.length, center]);
   }
-  const m = K.assemble(parts);
+  const g = s.geometry({ under: 0.55, ground: 0.6, groundUp: 0.2 });
+  for (const [from, to, c] of soft) soften(g, from, to, c, 0.55, 1.3);
+  const m = new THREE.Mesh(g, mat);
   m.name = 'bushes';
+  m.castShadow = true;
+  m.receiveShadow = true;
   return m;
 }
 
@@ -87,25 +101,45 @@ export function berriesMesh(count: number): THREE.InstancedMesh {
   return m;
 }
 
-/** Загон: столбы по кругу и две жерди между ними. Одним мешем. */
-export function penMesh(): THREE.Mesh {
-  const parts: K.Part[] = [];
+/**
+ * Загон: тёсаные столбы по кругу и две жерди между ними — одним мешем (П-4: мягко, а не гранями). Столб не свечка:
+ * чуть наклонён и разной высоты, низ темнее — мокнет; жердь — колотое бревно с провисом и обвязкой у столба.
+ */
+export function penMesh(mat: THREE.Material): THREE.Mesh {
+  const s = new Sculpt();
   const posts = 28;
-  const post = tint(0x5e4130);
-  const rail = tint(0x8a6444);
+  const wood = (dark: number, light: number) => (_u: number, _a: number, p: THREE.Vector3): number => mix(dark, light, noise3(p.x * 7, p.y * 3, p.z * 7));
+  const V = (x: number, y: number, z: number): THREE.Vector3 => new THREE.Vector3(x, y, z);
+  const tops: THREE.Vector3[] = [];
   for (let i = 0; i < posts; i++) {
     const a = (i / posts) * Math.PI * 2;
     const x = Math.cos(a) * PEN_R;
     const z = Math.sin(a) * PEN_R;
-    parts.push(K.cyl(0.06, 0.075, 1.25, post, 5, x, 0.62, z, undefined, K.GROUND_AO));
-    const b = ((i + 1) / posts) * Math.PI * 2;
-    const len = 2 * PEN_R * Math.sin(Math.PI / posts) + 0.12;
-    const mx = Math.cos((a + b) / 2) * PEN_R * Math.cos(Math.PI / posts);
-    const mz = Math.sin((a + b) / 2) * PEN_R * Math.cos(Math.PI / posts);
-    for (const y of [0.55, 1.0]) parts.push(K.cyl(0.035, 0.035, len, rail, 5, mx, y, mz, { z: Math.PI / 2, y: -(a + b) / 2 + Math.PI / 2 }));
+    const h = 1.18 + 0.14 * hash(i, 31);
+    const lx = (hash(i, 33) - 0.5) * 0.06;
+    const lz = (hash(i, 35) - 0.5) * 0.06;
+    s.tube([V(x, -0.05, z), V(x + lx * 0.5, h * 0.5, z + lz * 0.5), V(x + lx, h, z + lz)], [0.075, 0.066, 0.058], {
+      seg: 6,
+      color: (u, a2, p) => mix(0x3a2a20, wood(0x5a4434, 0x7a6450)(u, a2, p), smooth(0, 0.25, u)),
+      skin: rigid(0),
+      caps: [null, 0.5],
+    });
+    tops.push(V(x, 0, z));
   }
-  const m = K.assemble(parts);
+  for (let i = 0; i < posts; i++) {
+    const a0 = tops[i];
+    const a1 = tops[(i + 1) % posts];
+    for (const y of [0.55, 1.0]) {
+      const m = a0.clone().lerp(a1, 0.5);
+      const sag = 0.025 + 0.02 * hash(i, y * 10);
+      s.tube([V(a0.x, y, a0.z), V(m.x, y - sag, m.z), V(a1.x, y, a1.z)], [0.038, 0.036, 0.038], { seg: 5, up: V(0, 1, 0), color: wood(0x6a523c, 0x9a7e5c), skin: rigid(0), caps: [0.3, 0.3] });
+    }
+  }
+  const g = s.geometry({ under: 0.6, ground: 0.55, groundUp: 0.5 });
+  const m = new THREE.Mesh(g, mat);
   m.name = 'pen';
+  m.castShadow = true;
+  m.receiveShadow = true;
   return m;
 }
 
@@ -115,23 +149,40 @@ const HAY_DARK = 0x8f6a33;
 /** Шапка стога темнее: верх мокнет и выгорает. */
 const HAY_TOP = 0x9a7a45;
 
-/** Стог посредине загона: копна на жердях. */
-export function hayMesh(): THREE.Mesh {
-  const parts: K.Part[] = [];
-  // Копна — низкий купол и шапка: стог, а не яйцо. Жердь торчит из макушки.
-  const g = new THREE.CylinderGeometry(HAY.r * 0.8, HAY.r, 0.9, 9);
-  parts.push(K.place(g, tint(HAY_TINT), HAY.x, 0.45, HAY.z, undefined, { base: [0.72, 0.68, 0.62], y0: 0, y1: 0.9 }));
-  parts.push(K.cone(HAY.r * 0.82, 0.75, tint(HAY_TOP), 9, HAY.x, 0.9 + 0.37, HAY.z));
-  parts.push(K.cyl(0.025, 0.025, 0.6, tint(0x5e4130), 4, HAY.x, 1.6, HAY.z));
+/** Стог посредине загона: копна с торчащей соломой, шапка темнее, жердь из макушки, клочья у подножия. */
+export function hayMesh(mat: THREE.Material): THREE.Mesh {
+  const s = new Sculpt();
+  const V = (x: number, y: number, z: number): THREE.Vector3 => new THREE.Vector3(x, y, z);
+  // Копна — кольцами: широкий низ, покатые бока, шапка; солома — шумом по нормали, пучками.
+  const rings = [
+    [0.0, 0.95],
+    [0.3, 1.0],
+    [0.65, 0.92],
+    [0.95, 0.72],
+    [1.2, 0.45],
+    [1.38, 0.18],
+    [1.45, 0.04],
+  ].map(([y, r]) => ({ c: V(HAY.x, y, HAY.z), rx: r * HAY.r, ry: r * HAY.r }));
+  s.loft(rings, {
+    seg: 16,
+    up: V(1, 0, 0),
+    color: (u, _a, p) => mix(mix(HAY_DARK, HAY_TINT, smooth(0, 0.3, u) * (0.6 + 0.4 * noise3(p.x * 8, p.y * 8, p.z * 8))), HAY_TOP, smooth(0.55, 0.8, u)),
+    skin: rigid(0),
+    bump: (_u, _a, p) => (noise3(p.x * 11, p.y * 4, p.z * 11) - 0.45) * 0.07,
+    caps: [0, 0.3],
+  });
+  s.tube([V(HAY.x, 1.2, HAY.z), V(HAY.x + 0.02, 1.9, HAY.z)], [0.028, 0.022], { seg: 5, color: 0x5e4130, skin: rigid(0), caps: [null, 0.4] });
   // Клочья у подножия: из стога берут, и он это показывает.
-  for (let k = 0; k < 6; k++) {
-    const a = k * 1.1 + 0.3;
-    const t = new THREE.IcosahedronGeometry(0.16, 0);
-    t.scale(1.4, 0.45, 1);
-    parts.push(K.place(t, tint(k % 2 ? HAY_TINT : HAY_DARK), HAY.x + Math.cos(a) * (HAY.r + 0.15), 0.05, HAY.z + Math.sin(a) * (HAY.r + 0.15), { y: a }));
+  for (let k = 0; k < 7; k++) {
+    const a = k * 0.95 + 0.3;
+    const at = V(HAY.x + Math.cos(a) * (HAY.r + 0.2), 0.04, HAY.z + Math.sin(a) * (HAY.r + 0.2));
+    s.blob(at, V(0.24, 0.05, 0.14), new THREE.Euler(0, a, 0), k % 2 ? HAY_TINT : HAY_DARK, rigid(0), 7, 4, (p) => (noise3(p.x * 20, p.y * 20, p.z * 20) - 0.5) * 0.04);
   }
-  const m = K.assemble(parts);
+  const g = s.geometry({ under: 0.6, ground: 0.65, groundUp: 0.4 });
+  const m = new THREE.Mesh(g, mat);
   m.name = 'hay';
+  m.castShadow = true;
+  m.receiveShadow = true;
   return m;
 }
 

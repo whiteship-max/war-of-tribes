@@ -298,7 +298,8 @@ function weld(g: THREE.BufferGeometry): THREE.BufferGeometry {
   const remap: number[] = [];
   const pos: number[] = [];
   for (let i = 0; i < p.count; i++) {
-    const key = `${p.getX(i).toFixed(4)},${p.getY(i).toFixed(4)},${p.getZ(i).toFixed(4)}`;
+    // Ключ — место до десятой доли миллиметра (целыми, без строк дроби: их пишет только `game/num`).
+    const key = `${Math.round(p.getX(i) * 1e4)},${Math.round(p.getY(i) * 1e4)},${Math.round(p.getZ(i) * 1e4)}`;
     let j = map.get(key);
     if (j === undefined) {
       j = pos.length / 3;
