@@ -2,21 +2,31 @@ import { describe, expect, it } from 'vitest';
 import { CLIENT_KINDS, DEFAULT_PREFS, NOTICE_KINDS, type NoticeItem, type WarSheet } from './contract.js';
 import {
   DAY_CAP,
+  FRESH_MS,
+  GLUE_MS,
+  LEASE_MS,
   PACE,
   PRESENCE_STALE,
   SEEN_GRACE,
+  URGENT_CAP,
   accept,
-  choose,
+  applySwitch,
   emptyNotify,
+  inQuiet,
   markOf,
   news,
+  plan,
+  quietEnd,
+  readBotPrefs,
   readNotify,
+  tierOf,
+  topicOf,
   type NotifyRecord,
 } from './notify.js';
 import { deliverPass } from './deliver.js';
 import type { Kv } from './kv.js';
-import type { SendResult, Telegram } from './telegram.js';
-import { clock, noticeText } from './words.js';
+import type { Sent, SendResult, Telegram } from './telegram.js';
+import { clock, letterText, noticeText } from './words.js';
 import { emptyWars, WARS_KEY, type WarFile } from './war.js';
 
 const NOW = Date.UTC(2026, 8, 14, 12, 0, 0);
@@ -42,7 +52,9 @@ const away = (over: Partial<NotifyRecord> = {}): NotifyRecord => ({
   ...over,
 });
 
-const verdict = (rec: NotifyRecord, now = NOW) => choose(rec, now).verdicts.map((v) => v.verdict);
+const verdict = (rec: NotifyRecord, now = NOW) => plan(rec, now).verdicts.map((v) => v.verdict);
+/** Что уходит в этот проход: ключ первого пункта первого письма. */
+const pick = (rec: NotifyRecord, now = NOW) => plan(rec, now).letters[0]?.keys[0];
 
 describe('своя запись сервера перечитывается без потерь', () => {
   /**
@@ -90,7 +102,12 @@ describe('белый список видов', () => {
    * три о логове (мир на клиенте), три о войне между игроками и тайное нападение лазутчика соседа (сервер,
    * docs/spy_pvp.md). Вида «вернись в игру» быть не может.
    */
-  it('двенадцать видов поимённо, вида «вернись в игру» быть не может', () => {
+  /**
+   * Слово владельца 16.10.2026 (ВС-1): в настройках бота пять родов — бои, осады, стройка, указы, соседи. Родам «стройка» и
+   * «указы» дали свои вести — `build` (клиент, прогнозом стройки партии) и `grant` (сервер, указ админа); без них их
+   * переключатели ничего бы не переключали. Напоминаний «вернись в игру» по-прежнему нет.
+   */
+  it('четырнадцать видов поимённо, вида «вернись в игру» быть не может', () => {
     // Фаза осады — пролом и мор (`siege-phase` у осады логова, `war-phase` у войны; docs/siege_v2.md, 8.3). Переговоры у стен
     // (`war-parley`, раздел 7) — только у войны: с логовом переговоры идут в игре, без вестей.
     // Пакт и выручка союзника (`war-pact`, `war-relief`, docs/siege_v2.md, 19.2) — слово владельца 13.10.2026.
@@ -107,6 +124,8 @@ describe('белый список видов', () => {
       'war-parley',
       'war-pact',
       'war-relief',
+      'build',
+      'grant',
     ]);
     const put = accept(emptyNotify(), { computedAt: NOW, items: [item({ kind: 'come-back' as never, key: 'come-back:1' })] }, PLAYER, NOW);
     expect(put.fail).toEqual({ status: 400, error: 'bad-body' });
@@ -114,8 +133,9 @@ describe('белый список видов', () => {
 
   /** Войну знает только сервер: клиент, приславший «бой был» о войне, назвал бы исход, которого сервер не считал. */
   it('клиент не может прислать вид войны — отказ всему списку', () => {
-    expect([...CLIENT_KINDS]).toEqual(['raid', 'raid-fight', 'siege-fall', 'siege-phase']);
-    for (const kind of ['war', 'war-fight', 'war-fall', 'war-spy', 'war-phase', 'war-parley', 'war-pact', 'war-relief'] as const) {
+    // Стройку клиент знает сам (ВС-1); указ отдаёт админ на сервере — его клиент прислать не может, как войну.
+    expect([...CLIENT_KINDS]).toEqual(['raid', 'raid-fight', 'siege-fall', 'siege-phase', 'build']);
+    for (const kind of ['war', 'war-fight', 'war-fall', 'war-spy', 'war-phase', 'war-parley', 'war-pact', 'war-relief', 'grant'] as const) {
       const fake = item({ kind, key: `${kind}:x`, p: { ...item().p, role: 'def', won: true } });
       expect(accept(emptyNotify(), { computedAt: NOW, items: [fake] }, PLAYER, NOW).fail, kind).toEqual({ status: 400, error: 'bad-body' });
     }
@@ -174,7 +194,7 @@ describe('приём списка: форма, а не смысл', () => {
 
 describe('правила отправки', () => {
   it('созревший пункт ушедшему игроку — уходит', () => {
-    expect(choose(away(), NOW).pick?.key).toBe(item().key);
+    expect(pick(away())).toBe(item().key);
   });
 
   it('не уходит, пока игрок здесь', () => {
@@ -209,29 +229,23 @@ describe('правила отправки', () => {
     expect(verdict(away({ chan: { state: 'open', at: NOW - MIN } }))).toEqual(['send']);
   });
 
-  it('суточный потолок и темп: созрели два — уходит один, второй ждёт прохода', () => {
-    const two = away({ items: [item(), item({ key: 'raid:m4:1', kind: 'raid', fireAt: NOW - 30_000 })] });
-    const c = choose(two, NOW);
-    expect(c.pick?.key).toBe(item().key);
-    expect(c.verdicts.map((v) => v.verdict)).toEqual(['send', 'pace']);
-    expect(verdict(away({ lastAt: NOW - PACE + 1 }))).toEqual(['pace']);
-    expect(verdict(away({ day: { date: '2026-09-14', n: DAY_CAP } }))).toEqual(['cap']);
-    expect(verdict(away({ day: { date: '2026-09-14', n: DAY_CAP - 1 } }))).toEqual(['send']);
-    expect(verdict(away({ day: { date: '2026-09-13', n: DAY_CAP } }))).toEqual(['send']);
-  });
-
-  /** Тихих часов нет (решение владельца): о нападении и о бое — в любое время суток. */
-  it('ночью в поясе игрока пункт уходит так же', () => {
-    // 17:30 UTC — во Владивостоке (UTC+10) 03:30.
-    const t = Date.UTC(2026, 8, 14, 17, 30);
-    const night = away({ prefs: { on: true, tz: 'Asia/Vladivostok' }, items: [item({ fireAt: t - MIN, until: t + MIN })] });
-    expect(choose(night, t).pick?.key).toBe(item().key);
+  it('суточный потолок: обычное — `DAY_CAP` писем, срочное — `URGENT_CAP`; сутки — игрока', () => {
+    // 12:00 UTC — в Москве 15:00, тихий час не идёт. Сутки потолка — 14 сентября по Москве.
+    const grant = item({ key: 'grant:1', kind: 'grant', fireAt: NOW - GLUE_MS, p: { from: 'указ', fate: 'plunder', about: NOW - GLUE_MS, n: 1, stock: { wood: 5 } } });
+    const day = (n: number) => ({ date: '2026-09-14', n });
+    expect(verdict(away({ items: [grant], day: day(DAY_CAP) }))).toEqual(['cap']);
+    expect(verdict(away({ items: [grant], day: day(DAY_CAP - 1) }))).toEqual(['send']);
+    expect(verdict(away({ items: [grant], day: { date: '2026-09-13', n: DAY_CAP } }))).toEqual(['send']);
+    // Срочное потолком обычного не держится — только своим.
+    expect(verdict(away({ day: day(DAY_CAP) }))).toEqual(['send']);
+    expect(verdict(away({ day: day(URGENT_CAP - 1) }))).toEqual(['send']);
+    expect(verdict(away({ day: day(URGENT_CAP) }))).toEqual(['cap']);
   });
 
   it('сутки потолка — сутки игрока, а не UTC', () => {
     // 14:30 UTC — во Владивостоке уже 15 сентября: вчерашние не в счёт.
     const t = Date.UTC(2026, 8, 14, 14, 30);
-    const rec = away({ prefs: { ...away().prefs, tz: 'Asia/Vladivostok' }, day: { date: '2026-09-14', n: DAY_CAP }, items: [item({ fireAt: t - MIN, until: t + MIN })] });
+    const rec = away({ prefs: { ...away().prefs, tz: 'Asia/Vladivostok' }, day: { date: '2026-09-14', n: URGENT_CAP }, items: [item({ fireAt: t - MIN, until: t + MIN })] });
     expect(verdict(rec, t)).toEqual(['send']);
   });
 });
@@ -384,20 +398,33 @@ describe('проход доставки: вся цепочка', () => {
 
 // ---------- Поручения сервера, адаптер Telegram и ход войны (05.10.2026) ----------
 
-/** Подставной Telegram: что отправлено и чем ответить. Сети у тестов нет. */
-function fakeTg(answer: SendResult = 'ok') {
-  const sent: { chat: number; text: string }[] = [];
-  const tg: Telegram & { sent: typeof sent; next: SendResult } = {
+/** Подставной Telegram: что отправлено и чем ответить. Сети у тестов нет. Новое сообщение получает номер. */
+function fakeTg(answer: SendResult | 'gone' = 'ok') {
+  const sent: { chat: number; text: string; silent?: boolean; edit?: number }[] = [];
+  let id = 100;
+  const reply = (): Sent => (tg.next === 'ok' ? { result: 'ok', msg: ++id } : { result: tg.next, ...(tg.after !== undefined ? { after: tg.after } : {}) });
+  const tg: Telegram & { sent: typeof sent; next: SendResult | 'gone'; after: number | undefined } = {
     sent,
     next: answer,
-    async send(chat, text) {
-      sent.push({ chat, text });
-      return tg.next;
+    after: undefined,
+    async letter(chat, text, silent) {
+      sent.push({ chat, text, silent });
+      return reply();
+    },
+    async edit(chat, msg, text) {
+      sent.push({ chat, text, edit: msg });
+      return tg.next === 'ok' ? { result: 'ok' } : reply();
     },
     async answer() {
       return 'ok';
     },
     async button() {
+      return 'ok';
+    },
+    async panel() {
+      return 'ok';
+    },
+    async repanel() {
       return 'ok';
     },
     async say() {
@@ -432,7 +459,8 @@ describe('поручения сервера', () => {
     expect(again.marks).toEqual([markOf(warItem(), PLAYER)]);
     const replaced = accept(again.record, { computedAt: NOW, items: [] }, PLAYER, NOW).record;
     expect(replaced.srv.map((i) => i.key)).toEqual([warItem().key]);
-    expect(choose(replaced, NOW).pick?.key).toBe(warItem().key);
+    // «Бой был» — обычная весть: уходит, когда закрылось окно склейки.
+    expect(pick(replaced, warItem().fireAt + GLUE_MS)).toBe(warItem().key);
     expect(news(replaced, [], [warItem().key], PLAYER, NOW).record.srv).toEqual([]);
     // Ушедшее второй раз не кладётся.
     expect(news({ ...replaced, srv: [], sent: { [warItem().key]: NOW } }, [warItem()], [], PLAYER, NOW).record.srv).toEqual([]);
@@ -467,7 +495,7 @@ describe('проход доставки и Telegram', () => {
     const io = world(away(), tg);
     const t = await deliverPass(io, NOW);
     expect(t).toMatchObject({ wouldSend: 1, closed: 0, retried: 0 });
-    expect(tg.sent).toEqual([{ chat: 4242, text: noticeText(item(), DEFAULT_PREFS.tz) }]);
+    expect(tg.sent).toEqual([{ chat: 4242, text: noticeText(item(), DEFAULT_PREFS.tz), silent: false }]);
     expect(tg.sent[0].text).toContain('Логово разбойников');
   });
 
@@ -477,22 +505,28 @@ describe('проход доставки и Telegram', () => {
     const t = await deliverPass(io, NOW);
     expect(t).toMatchObject({ wouldSend: 0, closed: 1 });
     expect(stored(io).chan.state).toBe('closed');
+    // Второе срочное письмо того же прохода в Telegram не пошло: очередь пуста, его весть снова ждёт разрешения.
+    expect(stored(io).out).toEqual([]);
+    expect(stored(io).sent['raid:m4:1']).toBeUndefined();
     tg.next = 'ok';
     const next = await deliverPass(io, NOW + 2 * MIN);
-    expect(next).toMatchObject({ wouldSend: 0, dropped: { closed: 1 } });
+    expect(next).toMatchObject({ wouldSend: 0 });
     expect(tg.sent).toHaveLength(1);
+    expect(verdict(stored(io), NOW + 2 * MIN)).toEqual(['sent', 'closed']);
   });
 
-  it('Telegram просит подождать: отметка «ушло» снята, метка стоит, следующий проход отправляет', async () => {
+  it('Telegram просит подождать: письмо остаётся в очереди, метка стоит, следующий проход отправляет', async () => {
     const tg = fakeTg('retry');
     const io = world(away(), tg);
     const t = await deliverPass(io, NOW);
     expect(t).toMatchObject({ wouldSend: 0, retried: 1 });
-    expect(stored(io).sent[item().key]).toBeUndefined();
-    expect(io.due.data.size).toBe(1);
+    expect(stored(io).out).toHaveLength(1);
+    expect(stored(io).out[0]).toMatchObject({ lease: 0, tries: 1, keys: [item().key] });
+    expect(io.due.data.size).toBeGreaterThan(0);
     tg.next = 'ok';
     expect((await deliverPass(io, NOW + 2 * MIN)).wouldSend).toBe(1);
     expect(tg.sent).toHaveLength(2);
+    expect(stored(io).out).toEqual([]);
   });
 });
 
@@ -557,7 +591,7 @@ describe('проход доставки ведёт войну между игр�
     expect(pass.wars).toBeGreaterThan(0);
     const after = JSON.parse(io.world.data.get(WARS_KEY)!.value) as WarFile;
     expect(after.wars[0].battles).toHaveLength(1);
-    // Проход шлёт по одному в чат; оба созрели — нужны проходы до тишины.
+    // «Бой был» — обычная весть: уходит, когда закроется окно склейки (`GLUE_MS`), — нужны проходы до тишины.
     for (let i = 1; i <= 4; i++) await deliverPass(io, AT + i * 2 * MIN);
     const byChat = (id: number) => tg.sent.filter((m) => m.chat === id).map((m) => m.text);
     // Защитник: «идут на город» — устарело к проходу (до прихода), не уходит; «бой был» — уходит.
@@ -582,8 +616,378 @@ describe('слова сообщений: набег', () => {
     const arrive = NOW + 40 * MIN;
     const raid = item({ key: 'raid:m4:1', kind: 'raid', fireAt: NOW, until: arrive, p: { from: 'Волчья падь', fate: 'plunder', about: arrive } });
     const text = noticeText(raid, DEFAULT_PREFS.tz);
-    expect(text).toBe(`Набег из «Волчья падь». Идут на твой город, у стен будут в ${clock(arrive, DEFAULT_PREFS.tz)}.`);
+    // ВС-1: что случилось, чем грозит, что сделать — минута одна, приход.
+    expect(text).toBe(
+      `Набег из «Волчья падь» идёт на твой город. Идут за добром со склада. У стен будут в ${clock(arrive, DEFAULT_PREFS.tz)}. Успей поставить людей на стены.`,
+    );
     expect(text, 'о сборе ни слова').not.toMatch(/сбор|успеешь/i);
     expect(raid.until, 'годен до названной минуты').toBe(raid.p.about);
+  });
+});
+
+// ---------- ВС-1: склейка, важность, тихий час, настройки, очередь (16.10.2026, docs/NOTIFY.md, раздел 13) ----------
+
+/** Указ админа: обычная весть рода «указы». */
+const grantItem = (n: number, at: number): NoticeItem => ({
+  key: `grant:${n}`,
+  kind: 'grant',
+  fireAt: at,
+  until: at + 12 * 60 * MIN,
+  p: { from: 'указ', fate: 'plunder', about: at, n, stock: { wood: 100 * n } },
+});
+
+/** Бой у стены, отбитый защитником: обычная весть рода «бои». */
+const fightItem = (id: string, at: number): NoticeItem => ({
+  key: `war-fight:${id}`,
+  kind: 'war-fight',
+  fireAt: at,
+  until: at + 12 * 60 * MIN,
+  p: { from: 'Бета', fate: 'plunder', about: at, role: 'def', site: 'wall', by: 'atk', won: true },
+});
+
+/** Минута по Москве (UTC+3) 14 сентября; `day` — сдвиг в сутках. */
+const msk = (h: number, m = 0, day = 0) => Date.UTC(2026, 8, 14 + day, h - 3, m);
+
+describe('ВС-1: роды и важность', () => {
+  it('срочное — набег, осада, сдача, предложение условий или пакта; мелочь — фаза, где сработал только наказ', () => {
+    const w = (kind: NoticeItem['kind'], p: Partial<NoticeItem['p']>): NoticeItem => ({ ...warItem(), key: `${kind}:x`, kind, p: { from: 'Бета', fate: 'plunder', about: NOW, ...p } });
+    const urgent = [
+      item({ key: 'raid:x', kind: 'raid' }),
+      w('war', { role: 'def', mode: 'storm' }),
+      w('war', { role: 'def', mode: 'siege' }),
+      item(),
+      w('war-fall', { role: 'def' }),
+      w('war-fight', { role: 'def', site: 'wall', won: false, taken: true }),
+      w('war-phase', { role: 'def', phase: 'breach', k: 2 }),
+      item({ key: 'siege-phase:x', kind: 'siege-phase', p: { ...item().p, phase: 'breach', k: 1 } }),
+      w('war-parley', { role: 'def', offer: 'terms' }),
+      w('war-parley', { role: 'atk', offer: 'tribute' }),
+      w('war-pact', { pact: 'offer' }),
+    ];
+    for (const i of urgent) expect(tierOf(i), `${i.kind} ${JSON.stringify(i.p)}`).toBe('urgent');
+    const normal = [
+      item({ key: 'raid-fight:x', kind: 'raid-fight' }),
+      w('war-fight', { role: 'def', site: 'wall', won: true }),
+      w('war-fight', { role: 'atk', site: 'wall', won: true, taken: true }),
+      w('war-fall', { role: 'atk' }),
+      w('war-phase', { role: 'atk', phase: 'breach', k: 2 }),
+      w('war-phase', { role: 'def', phase: 'plague', k: 2 }),
+      w('war-parley', { role: 'atk', offer: 'terms', answer: 'no' }),
+      w('war-pact', { pact: 'made' }),
+      w('war-relief', { relief: 'going', role: 'def' }),
+      w('war-spy', { role: 'def' }),
+      grantItem(1, NOW),
+    ];
+    for (const i of normal) expect(tierOf(i), `${i.kind} ${JSON.stringify(i.p)}`).toBe('normal');
+    expect(tierOf(w('war-phase', { role: 'atk', phase: 'calm', k: 3, order: 'volley' }))).toBe('minor');
+    expect(tierOf(w('war-phase', { role: 'def', phase: 'short', k: 3, order: 'ration' }))).toBe('minor');
+  });
+
+  it('роды настроек: поход лагерем — осада, штурмом — бой; пакт и лазутчик — соседи', () => {
+    expect(topicOf({ ...warItem(), kind: 'war', p: { ...warItem().p, mode: 'siege' } })).toBe('sieges');
+    expect(topicOf({ ...warItem(), kind: 'war', p: { ...warItem().p, mode: 'storm' } })).toBe('fights');
+    expect(topicOf(item())).toBe('sieges');
+    expect(topicOf({ ...warItem(), kind: 'war-pact', p: { ...warItem().p, pact: 'offer' } })).toBe('neighbors');
+    expect(topicOf({ ...warItem(), kind: 'war-spy' })).toBe('neighbors');
+    expect(topicOf(grantItem(1, NOW))).toBe('grants');
+  });
+
+  it('мелочь не уходит вовсе: только в игре', () => {
+    const minor: NoticeItem = { ...warItem(), key: 'war-phase:w1:3', kind: 'war-phase', p: { ...warItem().p, phase: 'calm', k: 3, order: 'volley' } };
+    expect(verdict(away({ items: [], srv: [minor] }), NOW + GLUE_MS)).toEqual(['minor']);
+  });
+});
+
+describe('ВС-1: склейка', () => {
+  // 15:00 по Москве — тихий час не идёт; игрок ушёл в 14:45.
+  it('похожие вести за окно — одним письмом со сводкой: «3 указа: …»', () => {
+    const at = NOW - MIN;
+    const rec = away({ items: [], srv: [grantItem(1, at), grantItem(2, at + 20_000), grantItem(3, at + 2 * MIN)] });
+    // Окно самой ранней открыто: все ждут, проход вернётся, когда оно закроется.
+    const early = plan(rec, at + GLUE_MS - 1);
+    expect(early.letters).toEqual([]);
+    expect(early.verdicts.map((v) => v.verdict)).toEqual(['glue', 'glue', 'glue']);
+    expect(early.wake).toBe(at + GLUE_MS);
+    const ready = plan(rec, at + GLUE_MS);
+    expect(ready.letters).toHaveLength(1);
+    expect(ready.letters[0]).toMatchObject({ mode: 'new', head: 'grants', urgent: false, n: 3, keys: ['grant:1', 'grant:2', 'grant:3'] });
+    expect(letterText(ready.letters[0], '')).toBe(
+      ['3 указа:', '— древесина +100', '— древесина +200', '— древесина +300', 'Всё ляжет в город, как зайдёшь в игру.'].join('\n'),
+    );
+  });
+
+  it('новая весть того же рода правит свежее письмо, а не шлёт новое; несвежее — новое письмо', () => {
+    const sentAt = NOW - 10 * MIN;
+    const thread = { msg: 77, at: sentAt, n: 1, items: [fightItem('w1.1', sentAt - GLUE_MS)] };
+    const later = fightItem('w1.2', NOW - GLUE_MS);
+    const rec = away({ items: [], srv: [later], threads: { fights: thread }, sent: { 'war-fight:w1.1': sentAt } });
+    // Граница области: письмо свежее, пока от его отправки не прошло `FRESH_MS`.
+    expect(NOW - sentAt).toBeLessThan(FRESH_MS);
+    const edit = plan(rec, NOW).letters;
+    expect(edit).toHaveLength(1);
+    expect(edit[0]).toMatchObject({ mode: 'edit', msg: 77, head: 'fights', n: 2, keys: ['war-fight:w1.2'] });
+    expect(letterText(edit[0], '').split('\n')[0]).toBe('2 боя:');
+    const stale = plan(away({ ...rec, threads: { fights: { ...thread, at: NOW - FRESH_MS } } }), NOW).letters;
+    expect(stale[0]).toMatchObject({ mode: 'new', head: 'fights', n: 1 });
+    // Свежее письмо другого рода не правится: указ — новым письмом.
+    expect(plan(away({ ...rec, srv: [grantItem(1, NOW - GLUE_MS)] }), NOW).letters[0]).toMatchObject({ mode: 'new', head: 'grants' });
+  });
+
+  it('новое обычное письмо — не чаще `PACE` после прежнего; правка свежего — без паузы', () => {
+    const rec = away({ items: [], srv: [grantItem(1, NOW - GLUE_MS)] });
+    expect(verdict({ ...rec, lastAt: NOW - PACE + 1 })).toEqual(['pace']);
+    expect(plan({ ...rec, lastAt: NOW - PACE + 1 }, NOW).wake).toBe(NOW + 1);
+    expect(verdict({ ...rec, lastAt: NOW - PACE })).toEqual(['send']);
+    const thread = { msg: 5, at: NOW - MIN, n: 1, items: [grantItem(0, NOW - 2 * MIN)] };
+    expect(plan({ ...rec, lastAt: NOW - 1, threads: { grants: thread } }, NOW).letters[0]).toMatchObject({ mode: 'edit', msg: 5 });
+  });
+
+  it('разные роды, созревшие вместе, — одним письмом-сводкой', () => {
+    const rec = away({ items: [], srv: [fightItem('w1.1', NOW - GLUE_MS), grantItem(1, NOW - GLUE_MS + MIN)] });
+    const letters = plan(rec, NOW).letters;
+    expect(letters).toHaveLength(1);
+    expect(letters[0]).toMatchObject({ head: 'mix', n: 2 });
+    expect(letterText(letters[0], '').split('\n')[0]).toBe('Пока тебя не было — 2 вести:');
+  });
+
+  it('проход: три указа — одно сообщение; четвёртый через десять минут — правка того же сообщения', async () => {
+    const tg = fakeTg('ok');
+    const at = NOW - MIN;
+    const io = world(away({ items: [] }), tg);
+    const { record, marks } = news(stored(io), [grantItem(1, at), grantItem(2, at), grantItem(3, at + MIN)], [], PLAYER, at);
+    await io.notify.setJSON(PLAYER, record);
+    for (const m of marks) await io.due.set(m, '1');
+    // Проходы раз в минуту до закрытия окна: до него — ни одного сообщения.
+    for (let t = at; t < at + GLUE_MS; t += MIN) expect((await deliverPass(io, t)).wouldSend).toBe(0);
+    const done = await deliverPass(io, at + GLUE_MS);
+    expect(done).toMatchObject({ wouldSend: 1, edited: 0 });
+    expect(tg.sent).toHaveLength(1);
+    expect(tg.sent[0].text.startsWith('3 указа:')).toBe(true);
+    const msg = stored(io).threads.grants?.msg;
+    expect(msg).toBeGreaterThan(0);
+    // Четвёртый указ — в то же сообщение, правкой.
+    const t4 = at + GLUE_MS + 10 * MIN;
+    const more = news(stored(io), [grantItem(4, t4)], [], PLAYER, t4);
+    await io.notify.setJSON(PLAYER, more.record);
+    for (const m of more.marks) await io.due.set(m, '1');
+    for (let t = t4; t <= t4 + GLUE_MS; t += MIN) await deliverPass(io, t);
+    expect(tg.sent).toHaveLength(2);
+    expect(tg.sent[1]).toMatchObject({ edit: msg });
+    expect(tg.sent[1].text.startsWith('4 указа:')).toBe(true);
+    expect(stored(io).day.n, 'правка — не новое сообщение').toBe(1);
+  });
+});
+
+describe('ВС-1: тихий час', () => {
+  it('по умолчанию 23:00–08:00 по Москве, если игра пояса не прислала; границы — минута в минуту', () => {
+    const q = emptyNotify().bot.quiet;
+    expect(q).toEqual({ from: 23 * 60, to: 8 * 60 });
+    expect(inQuiet(msk(22, 59), '', q)).toBe(false);
+    expect(inQuiet(msk(23, 0), '', q)).toBe(true);
+    expect(inQuiet(msk(7, 59, 1), '', q)).toBe(true);
+    expect(inQuiet(msk(8, 0, 1), '', q)).toBe(false);
+    expect(quietEnd(msk(2, 30, 1), '', q)).toBe(msk(8, 0, 1));
+    // Пояс игрока двигает окно: 23:30 по Москве — во Владивостоке уже 06:30, тоже ночь; 15:00 по Москве там — 22:00.
+    expect(inQuiet(msk(15, 0), 'Asia/Vladivostok', q)).toBe(false);
+    expect(inQuiet(msk(16, 0), 'Asia/Vladivostok', q)).toBe(true);
+    expect(inQuiet(msk(2, 0, 1), 'Europe/Moscow', null)).toBe(false);
+  });
+
+  it('ночью срочное приходит сразу и без звука, обычное ждёт утра и уходит утренней сводкой', () => {
+    const night = msk(2, 0, 1);
+    const rec = away({
+      presence: { away: msk(22, 0), beatAt: msk(22, 0) },
+      items: [item({ key: 'raid:m1:1', kind: 'raid', fireAt: night - MIN, until: night + 60 * MIN })],
+      srv: [fightItem('w1.1', msk(23, 30)), grantItem(1, msk(1, 0, 1))],
+    });
+    const p = plan(rec, night);
+    expect(p.letters).toHaveLength(1);
+    expect(p.letters[0]).toMatchObject({ urgent: true, silent: true, keys: ['raid:m1:1'] });
+    expect(p.verdicts.filter((v) => v.verdict === 'quiet')).toHaveLength(2);
+    expect(p.wake).toBe(msk(8, 0, 1));
+    // Утро: обе вести ночи — одним письмом.
+    const morning = plan({ ...rec, items: [] }, msk(8, 0, 1)).letters;
+    expect(morning).toHaveLength(1);
+    expect(morning[0]).toMatchObject({ head: 'night', urgent: false, silent: false, n: 2 });
+    expect(letterText(morning[0], '').split('\n')).toEqual([
+      'За ночь — 2 вести:',
+      `— ${noticeText(fightItem('w1.1', msk(23, 30)), '')}`,
+      '— древесина +100',
+      'Всё ляжет в город, как зайдёшь в игру.',
+    ]);
+  });
+
+  it('без тихого часа ночью обычное идёт склейкой, как днём', () => {
+    const night = msk(2, 0, 1);
+    const rec = away({ presence: { away: msk(22, 0), beatAt: 0 }, items: [], srv: [grantItem(1, night - GLUE_MS)], bot: { mute: [], urgent: false, quiet: null } });
+    expect(plan(rec, night).letters[0]).toMatchObject({ head: 'grants', silent: false });
+  });
+});
+
+describe('ВС-1: настройки бота', () => {
+  it('выключенный род молчит, «только срочное» глушит обычное; остальное идёт', () => {
+    const rec = away({ items: [item()], srv: [grantItem(1, NOW - GLUE_MS), fightItem('w1.1', NOW - GLUE_MS)] });
+    // Порядок — по минуте: указ и бой (окно склейки закрыто), потом падение города (срочное).
+    expect(verdict({ ...rec, bot: { ...rec.bot, mute: ['grants'] } })).toEqual(['muted', 'send', 'send']);
+    expect(verdict({ ...rec, bot: { ...rec.bot, mute: ['sieges'] } })).toEqual(['send', 'send', 'muted']);
+    expect(verdict({ ...rec, bot: { ...rec.bot, urgent: true } })).toEqual(['filtered', 'filtered', 'send']);
+  });
+
+  it('кнопки: род туда и обратно, тихий час по кругу, рычаг; игра своими настройками их не затирает', () => {
+    let rec = emptyNotify();
+    rec = applySwitch(rec, { topic: 'build' }, NOW);
+    expect(rec.bot.mute).toEqual(['build']);
+    expect(applySwitch(rec, { topic: 'build' }, NOW).bot.mute).toEqual([]);
+    const seen: unknown[] = [];
+    let q = rec;
+    for (let i = 0; i < 4; i++) {
+      q = applySwitch(q, { quiet: true }, NOW);
+      seen.push(q.bot.quiet);
+    }
+    expect(seen).toEqual([{ from: 22 * 60, to: 7 * 60 }, { from: 0, to: 9 * 60 }, null, { from: 23 * 60, to: 8 * 60 }]);
+    expect(applySwitch(rec, { urgent: true }, NOW).bot.urgent).toBe(true);
+    expect(applySwitch(rec, { on: false }, NOW).prefs.on).toBe(false);
+    // Игра присылает свои настройки (рычаг и пояс) — настройки бота остаются.
+    const put = accept(applySwitch(rec, { urgent: true }, NOW), { prefs: { on: true, tz: 'Asia/Vladivostok' } }, PLAYER, NOW).record;
+    expect(put.bot).toEqual({ mute: ['build'], urgent: true, quiet: { from: 23 * 60, to: 8 * 60 } });
+    expect(put.prefs.tz).toBe('Asia/Vladivostok');
+    // И переживают хранилище.
+    expect(readNotify(JSON.parse(JSON.stringify(put))).bot).toEqual(put.bot);
+  });
+
+  it('кривые настройки — умолчание, а не отказ', () => {
+    expect(readBotPrefs('мусор')).toEqual(emptyNotify().bot);
+    expect(readBotPrefs({ mute: ['fights', 'всё', 'fights'], urgent: 'да', quiet: { from: 60, to: 60 } })).toEqual({
+      mute: ['fights'],
+      urgent: false,
+      quiet: { from: 23 * 60, to: 8 * 60 },
+    });
+    expect(readBotPrefs({ quiet: null }).quiet).toBeNull();
+  });
+});
+
+describe('ВС-1: срочное не задерживается', () => {
+  /**
+   * Срочное уходит в тот проход, в котором созрело, что бы ни держало обычное: окно склейки, тихий час, темп нового
+   * письма, суточный потолок обычного.
+   */
+  it('ни склейка, ни тихий час, ни темп, ни потолок обычного его не держат', () => {
+    const raid = item({ key: 'raid:m1:1', kind: 'raid', fireAt: NOW, until: NOW + 30 * MIN });
+    const waiting = grantItem(1, NOW - MIN);
+    const cases: Partial<NotifyRecord>[] = [
+      { srv: [waiting] },
+      { lastAt: NOW - 1 },
+      { day: { date: '2026-09-14', n: DAY_CAP } },
+    ];
+    for (const over of cases) {
+      const p = plan(away({ items: [raid], ...over }), NOW);
+      expect(p.letters.map((l) => l.keys), JSON.stringify(over)).toEqual([['raid:m1:1']]);
+      expect(p.letters[0].urgent).toBe(true);
+    }
+    // Ночь — без звука, но сразу.
+    const night = msk(3, 0, 1);
+    const n = plan(away({ presence: { away: msk(22, 0), beatAt: 0 }, items: [{ ...raid, fireAt: night, until: night + 30 * MIN }] }), night);
+    expect(n.letters[0]).toMatchObject({ urgent: true, silent: true });
+    // Обычное с тем же временем — ждёт.
+    expect(plan(away({ lastAt: NOW - 1, items: [], srv: [grantItem(1, NOW - GLUE_MS)] }), NOW).letters).toEqual([]);
+  });
+
+  it('проход: срочное уходит в минуту, когда созрело, обычное рядом — своим чередом', async () => {
+    const tg = fakeTg('ok');
+    const raid = item({ key: 'raid:m1:1', kind: 'raid', fireAt: NOW, until: NOW + 30 * MIN });
+    const io = world(away({ items: [raid], srv: [grantItem(1, NOW)] }), tg);
+    await io.due.set(markOf(grantItem(1, NOW), PLAYER), '1');
+    const t = await deliverPass(io, NOW);
+    expect(t.wouldSend).toBe(1);
+    expect(tg.sent).toEqual([{ chat: 4242, text: noticeText(raid, ''), silent: false }]);
+    for (let s = NOW + MIN; s <= NOW + GLUE_MS; s += MIN) await deliverPass(io, s);
+    expect(tg.sent).toHaveLength(2);
+    expect(tg.sent[1].text).toContain('Пришёл указ');
+  });
+});
+
+describe('ВС-1: очередь отправки без потерь', () => {
+  it('процесс упал после того, как взял письмо: аренда кончилась — следующий проход отправляет, ровно один раз', async () => {
+    const tg = fakeTg('ok');
+    const io = world(away(), tg);
+    // «Упавший» проход: письмо взято в очередь и метка аренды стоит, а до Telegram дело не дошло.
+    const { claim } = await import('./notify.js');
+    const rec = stored(io);
+    const taken = claim(rec, plan(rec, NOW).letters, NOW);
+    await io.notify.setJSON(PLAYER, taken.record);
+    io.due.data.clear();
+    await io.due.set(`${String(Math.floor((NOW + LEASE_MS) / MIN)).padStart(9, '0')}/${PLAYER}`, '1');
+    // Пока аренда идёт — письмо не трогают: его держит упавший проход.
+    expect((await deliverPass(io, NOW + MIN)).wouldSend).toBe(0);
+    expect(stored(io).out).toHaveLength(1);
+    const t = await deliverPass(io, NOW + LEASE_MS);
+    expect(t.wouldSend).toBe(1);
+    expect(tg.sent).toHaveLength(1);
+    expect(stored(io).out).toEqual([]);
+    for (let s = NOW + LEASE_MS + MIN; s < NOW + LEASE_MS + 5 * MIN; s += MIN) await deliverPass(io, s);
+    expect(tg.sent).toHaveLength(1);
+  });
+
+  it('429 с retry_after: проход перестаёт писать всем, письмо ждёт ровно столько, сколько просили', async () => {
+    const tg = fakeTg('retry');
+    tg.after = 90_000;
+    const io = world(away(), tg);
+    const other = 'tg-4343';
+    await io.notify.setJSON(other, away());
+    await io.due.set(markOf(item(), other), '1');
+    const t = await deliverPass(io, NOW);
+    expect(t).toMatchObject({ paused: true, retried: 1, wouldSend: 0 });
+    // Telegram спросили один раз: второму игроку в этом проходе не писали вовсе.
+    expect(tg.sent).toHaveLength(1);
+    tg.next = 'ok';
+    tg.after = undefined;
+    const waitingFor = (key: string) => readNotify(JSON.parse(io.notify.data.get(key)!.value)).out;
+    const first = waitingFor(tg.sent[0].chat === 4242 ? PLAYER : other)[0];
+    expect(first).toMatchObject({ next: NOW + 90_000, tries: 1, lease: 0 });
+    await deliverPass(io, NOW + MIN);
+    // Второй игрок ушёл, первый — ещё ждёт.
+    expect(tg.sent).toHaveLength(2);
+    await deliverPass(io, NOW + 90_000);
+    expect(tg.sent).toHaveLength(3);
+    expect(waitingFor(PLAYER)).toEqual([]);
+    expect(waitingFor(other)).toEqual([]);
+  });
+
+  it('правка не вышла (письма нет) — та же весть уходит новым сообщением, нить начинается заново', async () => {
+    const tg = fakeTg('gone');
+    const sentAt = NOW - 10 * MIN;
+    const io = world(
+      away({ items: [], srv: [fightItem('w1.2', NOW - GLUE_MS)], threads: { fights: { msg: 77, at: sentAt, n: 1, items: [fightItem('w1.1', sentAt)] } } }),
+      tg,
+    );
+    await io.due.set(markOf(fightItem('w1.2', NOW - GLUE_MS), PLAYER), '1');
+    await deliverPass(io, NOW);
+    expect(tg.sent[0]).toMatchObject({ edit: 77 });
+    expect(stored(io).threads.fights).toBeUndefined();
+    tg.next = 'ok';
+    await deliverPass(io, NOW + MIN);
+    expect(tg.sent).toHaveLength(2);
+    expect(tg.sent[1].edit).toBeUndefined();
+    expect(tg.sent[1].text.startsWith('2 боя:')).toBe(true);
+    expect(stored(io).threads.fights?.msg).toBeGreaterThan(100);
+  });
+
+  it('лимиты Telegram: между вызовами — зазор, между сообщениями одному игроку — секунда', async () => {
+    const { CHAT_GAP_MS, SEND_GAP_MS } = await import('./deliver.js');
+    const tg = fakeTg('ok');
+    const two = [item(), item({ key: 'raid:m4:1', kind: 'raid', fireAt: NOW - 30_000 })];
+    const io = world(away({ items: two }), tg);
+    const other = 'tg-4343';
+    await io.notify.setJSON(other, away());
+    await io.due.set(markOf(item(), other), '1');
+    const waits: number[] = [];
+    let t = NOW;
+    await deliverPass({ ...io, wait: async (ms) => void waits.push(ms) }, NOW, () => t);
+    expect(tg.sent).toHaveLength(3);
+    // Часы стоят: каждый следующий вызов ждёт свой зазор — тот же игрок секунду, другой — общий зазор.
+    expect(waits).toHaveLength(2);
+    expect(Math.max(...waits)).toBeGreaterThanOrEqual(CHAT_GAP_MS);
+    expect(Math.min(...waits)).toBeGreaterThanOrEqual(SEND_GAP_MS);
+    t = NOW;
   });
 });

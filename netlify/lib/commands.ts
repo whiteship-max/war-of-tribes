@@ -42,6 +42,7 @@ import { SHOP_DAILY, gemLine } from '../../src/game/gemrules.js';
 import { peekGems, shopToday } from './gems.js';
 import { peekPayments } from './pay.js';
 import { payConfig } from './ton.js';
+import { grantNotice, outboxOf, queueNews } from './outbox.js';
 
 /** Команд в минуту от одного админа — больше живой человек не набирает. */
 const PER_MINUTE = 30;
@@ -384,6 +385,9 @@ async function give(io: Io, args: string[], admin: number, now: number): Promise
     return { v: 1 as const, seq: n, list: [...cur.list, { n, at: now, by: admin, stock: parsed.stock, troops: parsed.troops }] };
   });
   if (!done) return say('Указ не записался: хранилище занято. Повтори.');
+  // Весть игроку в бот (ВС-1, род «указы»): что легло. Не легла весть — указ цел, игрок увидит его в летописи.
+  const grant = done.list.find((g) => g.n === done.seq);
+  if (grant) await queueNews(outboxOf(io.stores), new Map([[f.key, { add: [grantNotice(grant)], drop: [] }]]), now);
   const what = grantText(parsed.stock, parsed.troops);
   await logAdmin(io.stores, { at: now, by: admin, who: f.key, what: `Указ №${done.seq}: ${what}` });
   await journal(io, f.key, now, 'grant', `Указ админа №${done.seq}: ${what}.`);

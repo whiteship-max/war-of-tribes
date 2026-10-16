@@ -243,7 +243,10 @@ function fakeTg() {
   const greeted: { chat: number; text: string }[] = [];
   const said: { chat: number; text: string }[] = [];
   const tg: Telegram = {
-    send: async () => 'ok',
+    letter: async () => ({ result: 'ok' }),
+    edit: async () => ({ result: 'ok' }),
+    panel: async () => 'ok',
+    repanel: async () => 'ok',
     answer: async () => 'ok',
     button: async () => 'ok',
     file: async () => 'ok',

@@ -423,7 +423,10 @@ describe('админ: /payments только читает', () => {
   async function command(s: ReturnType<typeof memoryStores>, text: string): Promise<string> {
     const said: string[] = [];
     const tg: Telegram = {
-      send: async () => 'ok',
+      letter: async () => ({ result: 'ok' }),
+      edit: async () => ({ result: 'ok' }),
+      panel: async () => 'ok',
+      repanel: async () => 'ok',
       answer: async () => 'ok',
       button: async () => 'ok',
       async say(_c, t) {

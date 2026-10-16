@@ -9,6 +9,9 @@ import { partyNow, serverNow } from '@/net/clock';
 import { castleCell, castles, rosterReady, startPulling, stopPulling } from '@/net/roster';
 import { knownEra } from '@/net/era';
 import { NOTIFY_ON, notifyDrafts } from '@/net/notify';
+import { buildForecast } from '@/game/buildEta';
+import { realMs } from '@/game/pace';
+import { draftBuild } from './notice';
 import { pacts, provideSheet, spies, spyLook, warBoot, warOrder, warPace, wars, warsKnown } from '@/net/war';
 import { log } from '@/game/sim/log';
 import { useGame } from '@/game/store';
@@ -22,7 +25,7 @@ import { exploredReach, inSight, type Reach, type SightDisc } from './fog';
 import { CAMERA_LEASH, REACH_MAX } from './data/tuning';
 import { homeSight } from './sight';
 import { freshSeed } from '@/game/sim/random';
-import { cityName } from '../../netlify/lib/contract';
+import { cityName, NOTICE_LIMITS, type NoticeItem } from '../../netlify/lib/contract';
 import { marchPosition } from './geo';
 import {
   cachedChunk,
@@ -85,6 +88,18 @@ export const PULSE_MS = 2000;
 
 /** Мир, составляющий черновики уведомлений. Есть, только пока открыт замок `NOTIFY_ON`. */
 let notifying: NotifyingWorld | null = null;
+
+/**
+ * Список черновиков с вестью о стройке партии (ВС-1): прогноз — `game/buildEta`, минута — серверными часами пульса.
+ * Список полон — стройка молчит: весть о мире важнее, а лишний пункт стоил бы отказа всему списку.
+ */
+function withBuild(items: NoticeItem[], now: number): NoticeItem[] {
+  if (items.length >= NOTICE_LIMITS.items) return items;
+  const s = useGame.getState().s;
+  const f = buildForecast(s);
+  const item = draftBuild(f && { type: f.type, level: f.level, doneAt: now + realMs(f.sec), party: s.seed }, now);
+  return item ? [...items, item] : items;
+}
 
 /**
  * Завести мир. С открытым замком — тот, что умеет составлять черновики уведомлений; с
@@ -459,8 +474,8 @@ export const useWorld = create<WorldStore>((set, get) => ({
       unread: pulse.unread,
       now: pulse.now,
     });
-    // Черновики уведомлений — после пульса, из того, что он оставил в сохранении мира.
-    if (NOTIFY_ON) void notifying?.notices().then((d) => notifyDrafts(d.items, pulse.now));
+    // Черновики уведомлений — после пульса, из того, что он оставил в сохранении мира, и стройка партии (ВС-1).
+    if (NOTIFY_ON) void notifying?.notices().then((d) => notifyDrafts(withBuild(d.items, pulse.now), pulse.now));
     // Стол писем перечитывается тем же пульсом: срок письма разбирает мир в
     // момент, когда на стол посмотрели, и смотреть на него надо регулярно —
     // иначе протухшее висело бы в столбике до следующего действия игрока.

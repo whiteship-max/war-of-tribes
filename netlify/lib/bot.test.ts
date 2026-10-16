@@ -2,9 +2,25 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { botWith } from './routes/bot.js';
 import { readNotify } from './notify.js';
 import { STORES, type Kv, type Stores } from './kv.js';
-import { telegram, type Telegram } from './telegram.js';
+import { telegram, type PanelButton, type Telegram } from './telegram.js';
 import { APP_URL, appUrl } from './http.js';
-import { BUTTON_OFF, BUTTON_ON, BUTTON_OPEN, CALLBACK_OFF, CALLBACK_ON, SWITCHED_OFF, SWITCHED_ON } from './words.js';
+import {
+  BUTTON_OFF,
+  BUTTON_ON,
+  BUTTON_OPEN,
+  BUTTON_SETUP,
+  CALLBACK_MENU,
+  CALLBACK_OFF,
+  CALLBACK_ON,
+  CALLBACK_PANEL_OFF,
+  CALLBACK_PANEL_ON,
+  CALLBACK_QUIET,
+  CALLBACK_URGENT,
+  SAVED,
+  SWITCHED_OFF,
+  SWITCHED_ON,
+  callbackTopic,
+} from './words.js';
 
 /**
  * Вебхук бота (`/api/bot`) — дверь, где личность приходит не из подписи `initData`, а из обновления Telegram
@@ -50,17 +66,32 @@ function memoryStores() {
 
 function fakeTg() {
   const calls: string[] = [];
+  const panels: { chat: number; text: string; rows: PanelButton[][]; message?: number }[] = [];
   const tg: Telegram = {
-    async send() {
-      calls.push('send');
-      return 'ok';
+    async letter() {
+      calls.push('letter');
+      return { result: 'ok' };
+    },
+    async edit() {
+      calls.push('edit');
+      return { result: 'ok' };
     },
     async answer(_id, text) {
       calls.push(`answer:${text}`);
       return 'ok';
     },
-    async button(chat, message, on) {
-      calls.push(`button:${chat}:${message}:${on ? 'off-button' : 'on-button'}`);
+    async button(chat, message) {
+      calls.push(`button:${chat}:${message}`);
+      return 'ok';
+    },
+    async panel(chat, text, rows) {
+      calls.push(`panel:${chat}`);
+      panels.push({ chat, text, rows });
+      return 'ok';
+    },
+    async repanel(chat, message, text, rows) {
+      calls.push(`repanel:${chat}:${message}`);
+      panels.push({ chat, text, rows, message });
       return 'ok';
     },
     async say(chat, text) {
@@ -80,7 +111,7 @@ function fakeTg() {
       return 'ok';
     },
   };
-  return { tg, calls };
+  return { tg, calls, panels };
 }
 
 const press = (from: number, data: string) => ({
@@ -120,15 +151,19 @@ describe('вебхук бота', () => {
     expect(open.s.data.size).toBe(0);
   });
 
-  it('«Отключить» выключает рычаг нажавшего и меняет кнопку на «Включить»; «Включить» — обратно', async () => {
+  /**
+   * Прежний рычаг под старыми сообщениями (до ВС-1) по-прежнему работает: выключает и включает вести нажавшего. Ряд под
+   * сообщением после нажатия — нынешний: «Открыть игру» и «Настроить вести».
+   */
+  it('прежний «Отключить» под старой вестью выключает рычаг нажавшего; «Включить» — обратно', async () => {
     const off = await hit(press(77, CALLBACK_OFF), SECRET);
     expect(off.res.status).toBe(200);
     expect(off.record('tg-77')?.prefs.on).toBe(false);
-    expect(off.t.calls).toEqual([`answer:${SWITCHED_OFF}`, 'button:77:55:on-button']);
+    expect(off.t.calls).toEqual([`answer:${SWITCHED_OFF}`, 'button:77:55']);
     const on = await hit(press(77, CALLBACK_ON), SECRET, off.s);
     expect(on.record('tg-77')?.prefs.on).toBe(true);
     expect(on.record('tg-77')?.chan.state).toBe('open');
-    expect(on.t.calls).toEqual([`answer:${SWITCHED_ON}`, 'button:77:55:off-button']);
+    expect(on.t.calls).toEqual([`answer:${SWITCHED_ON}`, 'button:77:55']);
     // Ничьей другой записи не появилось.
     expect([...(on.s.data.get(STORES.notify)?.keys() ?? [])]).toEqual(['tg-77']);
   });
@@ -182,17 +217,33 @@ describe('кнопки под сообщением: «Открыть игру» 
     return got[0];
   }
 
-  it('сообщение — одним рядом: «Открыть игру» (web_app, HTTPS) и «Отключить»; смена рычага ряд не теряет', async () => {
-    const msg = await sent((t) => t.send(77, 'Набег идёт'));
+  it('весть — одним рядом: «Открыть игру» (web_app, HTTPS) и «Настроить вести»; правка и прежний рычаг ряд не теряют', async () => {
+    const row = { inline_keyboard: [[{ text: BUTTON_OPEN, web_app: { url: appUrl() } }, { text: BUTTON_SETUP, callback_data: CALLBACK_MENU }]] };
+    const msg = await sent((t) => t.letter(77, 'Набег идёт', false));
     expect(msg.method).toBe('sendMessage');
-    expect(msg.body.reply_markup).toEqual({
-      inline_keyboard: [[{ text: BUTTON_OPEN, web_app: { url: appUrl() } }, { text: BUTTON_OFF, callback_data: CALLBACK_OFF }]],
-    });
-    const off = await sent((t) => t.button(77, 55, false));
-    expect(off.method).toBe('editMessageReplyMarkup');
-    expect(off.body.reply_markup).toEqual({
-      inline_keyboard: [[{ text: BUTTON_OPEN, web_app: { url: appUrl() } }, { text: BUTTON_ON, callback_data: CALLBACK_ON }]],
-    });
+    expect(msg.body).toMatchObject({ chat_id: 77, text: 'Набег идёт', disable_notification: false, reply_markup: row });
+    const hush = await sent((t) => t.letter(77, 'Набег идёт', true));
+    expect(hush.body.disable_notification).toBe(true);
+    const edit = await sent((t) => t.edit(77, 55, '2 боя:'));
+    expect(edit.method).toBe('editMessageText');
+    expect(edit.body).toMatchObject({ chat_id: 77, message_id: 55, text: '2 боя:', reply_markup: row });
+    const legacy = await sent((t) => t.button(77, 55));
+    expect(legacy.method).toBe('editMessageReplyMarkup');
+    expect(legacy.body.reply_markup).toEqual(row);
+  });
+
+  /** Ответ Telegram читается: номер нового сообщения — для правки; `retry_after` — для очереди; «нечего менять» — не отказ. */
+  it('ответ Telegram: номер сообщения, retry_after, отказ правки', async () => {
+    const reply = (status: number, body: unknown) =>
+      telegram(async () => ({ status, json: async () => body }));
+    expect(await reply(200, { ok: true, result: { message_id: 901 } }).letter(77, 'x', false)).toEqual({ result: 'ok', msg: 901 });
+    expect(await reply(429, { ok: false, parameters: { retry_after: 7 } }).letter(77, 'x', false)).toEqual({ result: 'retry', after: 7000 });
+    expect(await reply(403, {}).letter(77, 'x', false)).toEqual({ result: 'closed' });
+    expect(await reply(400, { description: 'Bad Request: message is not modified: specified new message content' }).edit(77, 5, 'x')).toEqual({ result: 'ok' });
+    expect(await reply(400, { description: 'Bad Request: message to edit not found' }).edit(77, 5, 'x')).toEqual({ result: 'gone' });
+    // Тело не читается — итог по коду, без номера.
+    expect(await telegram(async () => ({ status: 200 })).letter(77, 'x', false)).toEqual({ result: 'ok' });
+    expect(await telegram(async () => Promise.reject(new Error('сеть'))).letter(77, 'x', false)).toEqual({ result: 'retry' });
   });
 
   it('адрес игры — из TRIBE_APP_URL, только HTTPS; нет или кривой — боевой адрес', () => {
@@ -202,5 +253,80 @@ describe('кнопки под сообщением: «Открыть игру» 
     expect(appUrl({ TRIBE_APP_URL: 'http://game.example.ru' })).toBe(APP_URL);
     expect(appUrl({ TRIBE_APP_URL: 'javascript:alert(1)' })).toBe(APP_URL);
     expect(appUrl({ TRIBE_APP_URL: '  ' })).toBe(APP_URL);
+  });
+});
+
+describe('настройки вестей в боте: /notify (ВС-1)', () => {
+  beforeEach(() => {
+    process.env.TELEGRAM_WEBHOOK_SECRET = SECRET;
+  });
+  afterEach(() => {
+    delete process.env.TELEGRAM_WEBHOOK_SECRET;
+  });
+
+  const say = (from: number, text: string, chat = from, type = 'private') => ({ update_id: 3, message: { text, from: { id: from }, chat: { id: chat, type } } });
+  const datas = (rows: PanelButton[][]) => rows.flat().map((b) => b.act);
+
+  it('/notify — настройки тому, кто написал, и только в личном чате; ничего не пишется', async () => {
+    const r = await hit(say(77, '/notify'), SECRET);
+    expect(r.t.calls).toEqual(['panel:77']);
+    expect(r.s.data.get(STORES.notify)?.size ?? 0).toBe(0);
+    const panel = r.t.panels[0];
+    expect(panel.text).toContain('Бот пишет о боях, осадах, стройке, указах и соседях.');
+    expect(panel.text).toContain('Тихий час: 23:00–08:00 (Europe/Moscow)');
+    expect(datas(panel.rows)).toEqual([
+      callbackTopic('fights'),
+      callbackTopic('sieges'),
+      callbackTopic('build'),
+      callbackTopic('grants'),
+      callbackTopic('neighbors'),
+      CALLBACK_QUIET,
+      CALLBACK_URGENT,
+      CALLBACK_PANEL_OFF,
+    ]);
+    // В группе и от чужого имени — тишина.
+    for (const body of [say(77, '/notify', -100, 'group'), say(77, '/notify', 78)]) {
+      const g = await hit(body, SECRET);
+      expect(g.t.calls).toEqual([]);
+      expect(g.s.data.size).toBe(0);
+    }
+  });
+
+  it('«Настроить вести» под вестью — настройки новым сообщением', async () => {
+    const r = await hit(press(77, CALLBACK_MENU), SECRET);
+    expect(r.t.calls).toEqual(['answer:', 'panel:77']);
+  });
+
+  it('кнопки настроек меняют запись нажавшего и то же сообщение: род, тихий час, только срочное, рычаг', async () => {
+    const a = await hit(press(77, callbackTopic('build')), SECRET);
+    expect(a.record('tg-77')?.bot.mute).toEqual(['build']);
+    expect(a.t.calls).toEqual([`answer:${SAVED}`, 'repanel:77:55']);
+    expect(a.t.panels[0].text).toContain('Бот пишет о боях, осадах, указах и соседях.');
+    expect(a.t.panels[0].rows[0][2].text).toBe('▫️ Стройка');
+    const b = await hit(press(77, CALLBACK_QUIET), SECRET, a.s);
+    expect(b.record('tg-77')?.bot.quiet).toEqual({ from: 22 * 60, to: 7 * 60 });
+    const c = await hit(press(77, CALLBACK_URGENT), SECRET, b.s);
+    expect(c.record('tg-77')?.bot.urgent).toBe(true);
+    expect(c.t.panels[0].text).toContain('Только срочное');
+    const d = await hit(press(77, CALLBACK_PANEL_OFF), SECRET, c.s);
+    expect(d.record('tg-77')?.prefs.on).toBe(false);
+    expect(d.t.calls).toEqual([`answer:${SWITCHED_OFF}`, 'repanel:77:55']);
+    expect(datas(d.t.panels[0].rows)).toContain(CALLBACK_PANEL_ON);
+    expect(d.t.panels[0].rows.flat().map((x) => x.text)).toContain(BUTTON_ON);
+    const e = await hit(press(77, CALLBACK_PANEL_ON), SECRET, d.s);
+    expect(e.record('tg-77')?.prefs.on).toBe(true);
+    expect(e.t.panels[0].rows.flat().map((x) => x.text)).toContain(BUTTON_OFF);
+    // Настройки остались у нажавшего, и только у него.
+    expect(e.record('tg-77')?.bot).toEqual({ mute: ['build'], urgent: true, quiet: { from: 22 * 60, to: 7 * 60 } });
+    expect([...(e.s.data.get(STORES.notify)?.keys() ?? [])]).toEqual(['tg-77']);
+  });
+
+  it('чужие данные кнопки — 200 и тишина', async () => {
+    for (const data of ['notify:t:all', 'notify:t:__proto__', 'notify:p:maybe', 'notify:quiet:3', 'constructor']) {
+      const r = await hit(press(77, data), SECRET);
+      expect(r.res.status, data).toBe(200);
+      expect(r.s.data.size, data).toBe(0);
+      expect(r.t.calls, data).toEqual([]);
+    }
   });
 });
