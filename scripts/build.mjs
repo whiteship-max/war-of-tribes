@@ -77,7 +77,7 @@ const REQUIRED = [
  * Текстуры предыстории (`assets/prologue`) — такие же: их собирает `npm run textures:build`, и
  * файл, не доехавший до dist, оставил бы поляну без коры и снега молча.
  */
-const MIRRORED = ['assets/music', 'assets/avatars', 'assets/prologue', 'fonts'];
+const MIRRORED = ['assets/music', 'assets/prologue', 'fonts'];
 
 function run(stage) {
   process.stdout.write(`\n=== ${stage.name} ===\n`);
@@ -166,11 +166,11 @@ function manifest() {
   // первая загрузка — это то, на что ссылается index.html, и всё, что оттуда достижимо
   // статическим `import` (ленивые куски — стенды, ролик о бое, предыстория с её стилями —
   // сюда не попадают сами). Что они не протекли в первую загрузку модулями, держит сборка
-  // (`lazyDoorsPlugin` в vite.config.ts). Остальное — по месту: музыка и лица качаются по
+  // (`lazyDoorsPlugin` в vite.config.ts). Остальное — по месту: музыка качается по
   // ходу партии, текстуры предыстории — по её кнопке, заставка входит — её тянет экран
   // загрузки, пусть и после первого кадра. Картинки историй (`assets/share`, docs/feed.md) игра не качает вовсе — их
   // забирает Telegram по кнопке «В историю».
-  const LATER = [/^assets\/(music|avatars|prologue|share)\//];
+  const LATER = [/^assets\/(music|prologue|share)\//];
   const html = readFileSync(path.join(DIST, 'index.html'), 'utf8');
   const firstCode = new Set();
   const reach = (rel) => {

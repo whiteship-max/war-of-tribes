@@ -2703,24 +2703,16 @@ body {
   line-height: 0;
 }
 
-.profile-head .pic > img {
-  display: block;
-  width: 100%;
-  aspect-ratio: 263 / 384;
-  object-fit: cover;
-}
-
-/* Маленькое лицо поверх карточки: ровно то, что видно в кружке кнопки. */
-.profile-head .pic .mini {
-  position: absolute;
-  right: 4px;
-  bottom: 4px;
-  width: 30px;
-  height: 30px;
-  aspect-ratio: auto;
-  border-radius: 50%;
-  border: 1px solid var(--line);
-  background: var(--panel);
+/* Герб державы вместо лица (П-2): щит и подпись — кнопка в конструктор. */
+.profile-head .pic.arms {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 6px 6px;
+  line-height: 1.2;
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .profile-head .who {
@@ -2838,50 +2830,6 @@ body {
 
 .trend .note b.down {
   color: var(--bad);
-}
-
-.av-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
-  margin-bottom: 12px;
-}
-
-.av {
-  padding: 0;
-  background: var(--panel-2);
-  border: 2px solid transparent;
-  border-radius: var(--radius);
-  overflow: hidden;
-  color: var(--muted);
-  line-height: 0;
-}
-
-.av img {
-  display: block;
-  width: 100%;
-  aspect-ratio: 263 / 384;
-  object-fit: cover;
-}
-
-.av span {
-  display: block;
-  padding: 4px 2px 5px;
-  font-size: 12px;
-  line-height: 1.2;
-  text-align: center;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.av.on {
-  border-color: var(--accent);
-}
-
-.av.on span {
-  color: var(--text);
-  font-weight: 600;
 }
 
 /* ---------- Ролик о бое ---------- */

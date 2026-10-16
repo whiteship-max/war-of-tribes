@@ -9,23 +9,21 @@
 //   — суточные корзины за `PROFILE_DAYS`, и лишь по трём показателям (производство,
 //     потери от грабежей, мощь).
 // Журнала событий здесь нет нарочно: он растёт без предела, и его никто не читает.
-import type { AvatarId } from '@/data/avatars';
-import { AVATARS } from '@/data/avatars';
+import { armsCode, readArms } from '@/heraldry/arms';
 import type { GameState, ResourceId } from '@/game/types';
 import { RESOURCE_IDS, emptyResources } from '@/game/constants';
 import { dayOf } from '@/game/derived';
 import type { ProfileDay, ProfileState } from './types';
-import { DEFAULT_AVATAR, cityName, cleanName, profileAvatar, profileName, profilePhoto } from './identity';
+import { cityName, cleanName, profileArms, profileName } from './identity';
 import { power } from './power';
 
 /** Сколько суточных корзин держим. Старше — выпадает; счёт по возрасту, не по числу. */
 export const PROFILE_DAYS = 30;
 
-/** Профиль новой партии: имени нет, лицо по умолчанию, счётчики в нулях. */
+/** Профиль новой партии: имени нет, герб по умолчанию, счётчики в нулях. */
 export function emptyProfile(): ProfileState {
   return {
     name: null,
-    avatarId: null,
     tgName: null,
     tgPhoto: null,
     totals: {
@@ -40,8 +38,7 @@ export function emptyProfile(): ProfileState {
     days: [],
     card: {
       name: '',
-      avatarId: DEFAULT_AVATAR,
-      photo: null,
+      arms: armsCode(profileArms({})),
       power: 0,
       battlesWon: 0,
       battlesLost: 0,
@@ -150,8 +147,7 @@ export function refreshCard(s: GameState): void {
   const now = power(s);
   p.card = {
     name: profileName(p),
-    avatarId: profileAvatar(p).id,
-    photo: profilePhoto(p),
+    arms: armsCode(profileArms(p)),
     power: now,
     battlesWon: s.stats.battlesWon,
     battlesLost: s.stats.battlesLost,
@@ -160,7 +156,7 @@ export function refreshCard(s: GameState): void {
   bucket(s).power = now;
 }
 
-// ---------- Имя и лицо ----------
+// ---------- Имя и герб ----------
 //
 // Пишутся здесь, а не в identity.ts, по той же причине, по какой здесь пишется
 // статистика: любая правка обязана пересобрать визитку. Оставь запись рядом с
@@ -184,20 +180,14 @@ export function setCity(s: GameState, raw: string): string | null {
   return null;
 }
 
-/** Выбор из набора. Он перебивает фото Telegram — на то и выбор. */
-export function setAvatar(s: GameState, id: AvatarId): string | null {
-  if (!AVATARS.some((a) => a.id === id)) return 'Такого аватара нет.';
-  s.profile.avatarId = id;
-  refreshCard(s);
-  return null;
-}
-
 /**
- * Отказ от своего выбора: вернуть фото Telegram. Без этого выбор был бы
- * необратимым — а необратимая развилка в игре одна, и это крещение.
+ * Герб державы из конструктора (docs/polish.md, П-2). Строка — только правильный герб набора (`readArms`: части из набора,
+ * металл на цвет); иначе отказ словами, и прежний герб остаётся. Визитку пересобирает: герб в ней видят соседи.
  */
-export function clearAvatar(s: GameState): string | null {
-  s.profile.avatarId = null;
+export function setArms(s: GameState, code: string): string | null {
+  const a = readArms(code);
+  if (!a) return 'Такого герба нет в гербовнике.';
+  s.profile.arms = armsCode(a);
   refreshCard(s);
   return null;
 }

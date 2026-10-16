@@ -76,6 +76,7 @@ export async function ratingNow(stores: Stores): Promise<Ranked[]> {
         y: row.y,
         city: cityOr(rec.card?.city || row.city),
         name: row.name,
+        ...(row.arms ? { arms: row.arms } : {}),
         points: ratingPoints(power, won, taken),
         power,
         pop: confirmedOf(rec)?.pop ?? 0,

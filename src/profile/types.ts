@@ -1,7 +1,6 @@
 // Профиль игрока: кто он, чем силён и что с ним происходило. Живёт в сохранении
 // отдельным куском, потому что из него потом соберётся «визитка» для чужих глаз
 // на карте мира — там не будет ни зданий, ни армии, ни склада, только эти числа.
-import type { AvatarId } from '@/data/avatars';
 import type { Resources } from '@/game/types';
 
 /**
@@ -49,10 +48,8 @@ export interface ProfileDay {
  */
 export interface ProfileCard {
   name: string;
-  /** Аватар из набора. Он есть всегда: фото Telegram — только поверх него. */
-  avatarId: AvatarId;
-  /** Фото из Telegram, если оно было и игрок не выбрал своё. */
-  photo: string | null;
+  /** Герб державы строкой (`heraldry/arms.armsCode`) — всегда правильный: не выбран — герб по умолчанию. */
+  arms: string;
   power: number;
   battlesWon: number;
   battlesLost: number;
@@ -70,8 +67,13 @@ export interface ProfileState {
    * умолчанию.
    */
   city?: string | null;
-  /** Аватар, выбранный игроком. null — фото Telegram, нет и его — `DEFAULT_AVATAR`. */
-  avatarId: AvatarId | null;
+  /**
+   * Герб державы строкой (`heraldry/arms.armsCode`), выбранный игроком в конструкторе (docs/polish.md, П-2).
+   * Необязательное: партия до гербов приезжает без поля и показывает прежний герб-башню (`DEFAULT_ARMS`); `SAVE_VERSION`
+   * от него не растёт — читается оно только через `identity.profileArms`, которое проверяет строку по набору (сохранение
+   * могло прийти с сервера от другой сборки). Прежнее поле лица `avatarId` в старых сохранениях лежит и не читается.
+   */
+  arms?: string | null;
   /**
    * Что отдал Telegram при запуске. Кладёт сюда интерфейс: симуляция про Telegram
    * не знает и знать не должна, а визитке нужны готовые значения.
