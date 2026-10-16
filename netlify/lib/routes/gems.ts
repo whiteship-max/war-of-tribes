@@ -14,7 +14,7 @@ import { allow, botToken, deny, json, parseJson, readBody, type Route } from '..
 import { readGemOrder, type GemOrder, type GemsResponse } from '../contract.js';
 import { FROZEN_ORDER, frozenNow, isFrozen } from '../admin.js';
 import { gemNoteOf, listOf, settleGems, shown } from '../gems.js';
-import { noted, observe, readWatchRecord, townOf } from '../watch.js';
+import { noted, observe, readWatchRecord, townOf, warned } from '../watch.js';
 import { rushFloor } from '../town.js';
 import { STORES } from '../kv.js';
 import { BUILDING_BY_ID } from '../../../src/game/data/buildings.js';
@@ -66,6 +66,9 @@ export const gems: Route = async (req, io) => {
     const line = gemLine(done.entry);
     await observe(io.stores, key, (rec) => noted(rec, now, 'deed', `Алмазы: ${line}.`));
   }
+  // Невозможное — отказ и строка «внимание:» в журнале города (docs/security.md): цена ниже той, что оставляет книга стройки.
+  const warn = done.warn;
+  if (warn) await observe(io.stores, key, (rec) => warned(rec, now, warn));
   return json(body);
 };
 

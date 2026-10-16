@@ -17,6 +17,7 @@ import {
   awayMen,
   awayOf,
   homeOf,
+  inTown,
   postureOf,
   roomOf,
   standingShare,
@@ -60,10 +61,13 @@ const march = (over: Partial<MarchView>): MarchView => ({
 });
 
 describe('где стоит боец — одно правило', () => {
-  it('дружина в гарнизоне ровно тогда, когда собрана и дома, — и ровно в одном из двух списков', () => {
+  // Правило владельца 15.10.2026 (docs/ui_v2.md, 5.3): полководец и его отряд, пока внутри города, в оборонительных
+  // боях считаются гарнизоном — и во время сбора (в осаде роспуск идёт сбором). Прежде строка «дома, сбор» ждала
+  // `gathering`: отряд в сборе в городе не защищал никого.
+  it('дружина в гарнизоне ровно тогда, когда полководец в городе, — и ровно в одном из двух списков', () => {
     const cases = [
       { phase: 'home', readyAt: 0, posture: 'stands' },
-      { phase: 'home', readyAt: START + 5000, posture: 'gathering' },
+      { phase: 'home', readyAt: START + 5000, posture: 'stands' },
       { phase: 'moving', readyAt: 0, posture: 'engaged' },
       { phase: 'field', readyAt: 0, posture: 'engaged' },
       { phase: 'field', readyAt: START + 5000, posture: 'gathering' },
@@ -88,9 +92,14 @@ describe('где стоит боец — одно правило', () => {
     expect(postureOf({ phase: 'home', troops: {} }), 'пустая дружина').toBe('none');
   });
 
-  it('минута спрашивается честно: сбор кончился — стоит, встал позже боя — не стоял', () => {
+  it('минута спрашивается честно: в городе — стоит и в сборе, встал позже боя — не стоял', () => {
     const f = { phase: 'home' as const, departAt: START + 10_000, handover: { until: START + 20_000 }, troops: { clubman: 3 } };
-    expect(postureOf(f, START + 15_000)).toBe('gathering');
+    expect(postureOf(f, START + 15_000), 'сбор в городе — у стен').toBe('stands');
+    expect(postureOf(f, START + 5_000), 'до прихода в город шёл сбор — не у стен').toBe('gathering');
+    expect(inTown(f, START + 5_000), 'до прихода — не в городе').toBe(false);
+    expect(inTown({ phase: 'home', departAt: START + 10_000 }, START + 15_000), 'в городе и без отряда').toBe(true);
+    expect(inTown({ phase: 'field', departAt: START }, START + 15_000), 'в поле — не в городе').toBe(false);
+    expect(inTown({ phase: 'down', departAt: START }, START + 15_000), 'выбывший — не в городе').toBe(false);
     expect(postureOf({ ...f, handover: null }, START + 5_000), 'встал у ворот после этой минуты').toBe('engaged');
     expect(postureOf({ ...f, handover: null }, START + 10_000)).toBe('stands');
     expect(postureOf({ ...f, readyAt: START + 20_000, handover: undefined }, START + 25_000), 'сбор кончился').toBe('stands');
@@ -626,7 +635,7 @@ describe('дома и в поле вместе не больше, чем ест�
   }, 180_000);
 });
 
-describe('дружина в обороне: собрана и дома — один раз, в сборе и в деле — нисколько', () => {
+describe('дружина в обороне: полководец в городе — один раз, в сборе вне города и в деле — нисколько', () => {
   /**
    * Предмет этих тестов — кто стоит у частокола в бою у ворот, а не осада. С правилом «садиться к дозревшим рогаткам»
    * (docs/siege_v2.md, 1.3) набег, которого четырнадцать дубинщиков у стены не держат, садится лагерем в половине
@@ -731,14 +740,18 @@ describe('дружина в обороне: собрана и дома — од�
     expect(p.s.army.clubman, 'осталось семеро').toBe(7);
     expect(troopTotal(p.known().troops), 'из них при полководце пятеро: доля дружины — пять из семи').toBe(5);
 
-    // Мир 7: роспуск под осадой разрешён — и пока он идёт, эти люди за стеной не едят.
+    // Мир 7: роспуск под осадой разрешён и — мгновенный (решение владельца 16.10.2026, docs/ui_v2.md, 6.11: сбор в своём
+    // городе всегда мгновенный, и в осаде). Прежде он шёл сбором внутри города: до 15.10.2026 на его срок эти люди не ели
+    // нигде («в сборе не едят» = 4), потом стояли у стен (14).
     const r = await gathered(7, true);
     await until(r, 'ждём лагерь', (x) => Boolean(x.siege));
     expect(siegeOnHome(r)?.garrison, 'собрана — едят все').toBe(14);
+    expect(r.known().phase, 'точка внутри области: полководец в городе').toBe('home');
     expect(await r.setGarrison(null, 'роспуск под осадой')).toBeNull();
-    expect(siegeOnHome(r)?.garrison, 'в сборе не едят').toBe(4);
-    await r.settle('роспуск');
-    expect(siegeOnHome(r)?.garrison, 'вернулись в гарнизон — снова едят').toBe(14);
+    expect(r.known().readyAt, 'в осаде роспуск — без сбора').toBe(0);
+    expect(troopTotal(r.known().troops), 'отряд распущен сразу').toBe(0);
+    expect(siegeOnHome(r)?.garrison, 'вернулись в гарнизон — едят те же').toBe(14);
+    expect(homeOf(r.s.army, awayOf(r.marches, r.figures)), 'гарнизон — все четырнадцать ровно раз').toEqual({ clubman: 14 });
 
     // Мир 101: вылазка всем гарнизоном выводит и дружину — без отдельного приказа —
     // и павшие ложатся на дружину её долей, тем же правилом, что у частокола.

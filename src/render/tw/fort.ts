@@ -8,10 +8,10 @@
 // как у земли поля. Неподвижное — одним мешем (вызов и тень); лестницы, таран и створки — своими, по кадру режиссуры.
 import * as THREE from 'three';
 import { CITY } from '../city/palette';
-import { Builder, box, cone, cylinder, flat, pyramid, tint, type V3 } from '../city/geom';
+import { Builder, box, cone, cylinder, flat, pyramid, tint, type V3, type WallFace } from '../city/geom';
 import { house, log, type Detail } from '../city/kit';
 import { hipRoof, tower } from '../city/forts';
-import { LAYERS } from '../city/tex';
+import { LAYERS, TILE_M } from '../city/tex';
 import type { Quality } from '../quality';
 import {
   CITY_M,
@@ -28,8 +28,9 @@ import {
   type TwWall,
 } from './site';
 import { unitPose, type TwPlan } from './plan';
-import { BREACH_BAND, breachColumns } from './barrage';
-import { heightAt } from './terrain';
+import { BREACH_BAND, breachColumns, type TwBreach } from './barrage';
+import { heightAt, type TwField } from '../reel/terrain';
+import type { TwLadder, TwSite } from './site';
 
 /** Средний тон слоя набора города (sRGB): то, во что слой красит тон вершины, если смотреть издали. */
 const LAYER_TONE: Record<(typeof LAYERS)[number], number> = {
@@ -87,6 +88,14 @@ export function geometryOf(b: Builder): THREE.BufferGeometry {
 /** Метры набора от единиц ролика. */
 export const m = (u: number): number => u / CITY_M;
 
+/**
+ * Кладка по миру: развёртка лицевой грани стены (`box` лицом `out`) начинается с мировой X, а не с края куска — целая стена
+ * и куски будущего пролома (`Siegeworks`) кладут камни одной сеткой, и до обвала шва между ними не видно.
+ */
+export function courseU(cx: number, len: number, out: number): Partial<WallFace> {
+  return { u0: (out * (cx - (out * len) / 2)) / TILE_M.ashlar[0] };
+}
+
 /** Шаг зубцов парапета, единицы набора. */
 export const MERLON_STEP = 1.55;
 /** Осадную башню подкатывают к стене за столько секунд до сшибки. */
@@ -108,7 +117,7 @@ export function wallRun(b: Builder, w: TwWall, x0: number, x1: number, avoid: (x
   const cx = (x0 + x1) / 2;
   const len = x1 - x0;
   const czBody = zo + s * (thick / 2);
-  box(b, cx, czBody, 0, out, len, thick, base - 1.6, top, 'ashlar', T, null, { aoBottom: 0.72, grimeBottom: 0.9 });
+  box(b, cx, czBody, 0, out, len, thick, base - 1.6, top, 'ashlar', T, null, { aoBottom: 0.72, grimeBottom: 0.9, ...courseU(cx, len, out) });
   // Настил хода — дерево, от внутренней кромки до парапета.
   const par = m(PARAPET);
   const zIn = zo + s * thick;
@@ -129,7 +138,7 @@ export function wallRun(b: Builder, w: TwWall, x0: number, x1: number, avoid: (x
         ];
   flat(b, walk, top, 'wood', tint(CITY.timberGrey, 1.1), true, 0.9);
   // Парапет снаружи и зубцы на нём.
-  box(b, cx, zo + s * (par / 2), 0, out, len, par, top, top + 1.05, 'ashlar', Tdark, 'ashlar');
+  box(b, cx, zo + s * (par / 2), 0, out, len, par, top, top + 1.05, 'ashlar', Tdark, 'ashlar', courseU(cx, len, out));
   for (let x = x0 + MERLON_STEP / 2; x < x1; x += MERLON_STEP) {
     if (avoid(x)) continue;
     box(b, x, zo + s * (par / 2), 0, out, 0.85, par, top + 1.05, top + 2.0, 'ashlar', T, 'ashlar');
@@ -159,7 +168,7 @@ function breachRun(b: Builder, w: TwWall, x0: number, x1: number, cols: { x0: nu
     const a = Math.max(x0, m(c.x0));
     const e = Math.min(x1, m(c.x1));
     if (e - a < 0.02) continue;
-    box(b, (a + e) / 2, zo + s * (band / 2), 0, out, e - a, band, base - 1.6, top - m(c.drop), 'ashlar', T, 'rubble', { aoBottom: 0.72 });
+    box(b, (a + e) / 2, zo + s * (band / 2), 0, out, e - a, band, base - 1.6, top - m(c.drop), 'ashlar', T, 'rubble', { aoBottom: 0.72, grimeBottom: 0.9, ...courseU((a + e) / 2, e - a, out) });
     // Излом кладки — светлее и грубее над срезом: свежий камень на грани уцелевшей кладки.
     box(b, (a + e) / 2, zo + s * (band + 0.04), 0, out, e - a, 0.1, top - m(c.drop), top - 0.05, 'rubble', Tbroken, null);
   }
@@ -180,6 +189,105 @@ function breachRun(b: Builder, w: TwWall, x0: number, x1: number, cols: { x0: nu
           [x0, mid],
         ];
   flat(b, walk, top, 'wood', tint(CITY.timberGrey, 1.1), true, 0.9);
+}
+
+/** Бревно частокола: от земли выше хода, с заострённым верхом. Метры набора. */
+function stake(b: Builder, x: number, z: number, y0: number, y1: number, r: number, T: V3, tip: boolean): void {
+  log(b, [x, y0, z], [x, y1, z], r, T, 5, false);
+  if (tip) cone(b, x, z, r, y1, y1 + r * 2.6, 5, 'wood', T, 0.9);
+}
+
+/**
+ * Пролёт частокола (ролик осады, стена до третьего уровня): брёвна стоймя по наружной грани выше хода, настил хода на
+ * столбах изнутри. Та же ширина и тот же ход, что у каменной: защитники стоят там же (`site.onWalk`).
+ */
+function palisadeRun(b: Builder, w: TwWall, x0: number, x1: number, detail: Detail): void {
+  if (x1 - x0 < 0.2) return;
+  const s = w.inward;
+  const zo = m(w.z);
+  const base = m(w.base);
+  const top = base + m(w.top);
+  const r = 0.2;
+  const step = detail === 0 ? 0.62 : 0.42;
+  const zFace = zo + s * r;
+  for (let x = x0 + step / 2, k = 0; x < x1; x += step, k++) {
+    // Брёвна серые от погоды, через одно — свежее: дуб на земле в тени сливался с травой.
+    const T = tint(k % 3 === 0 ? CITY.oakLight : CITY.timberGrey, 1.45 + ((k * 37) % 9) * 0.05);
+    stake(b, x, zFace, base - 0.6, top + 1.25 + ((k * 13) % 5) * 0.08, r, T, detail > 0 || k % 2 === 0);
+  }
+  // Настил хода изнутри и столбы под ним.
+  const zIn = zo + s * m(w.thick);
+  const zPar = zo + s * 2 * r;
+  const walk: [number, number][] =
+    s < 0
+      ? [
+          [x0, zPar],
+          [x1, zPar],
+          [x1, zIn],
+          [x0, zIn],
+        ]
+      : [
+          [x0, zIn],
+          [x1, zIn],
+          [x1, zPar],
+          [x0, zPar],
+        ];
+  flat(b, walk, top, 'wood', tint(CITY.timberGrey, 1.05), true, 0.9);
+  for (let x = x0 + 1.2; x < x1; x += 2.4) log(b, [x, base - 0.2, zIn - s * 0.15], [x, top, zIn - s * 0.15], 0.14, tint(CITY.timberGrey, 1.2), 5, false);
+}
+
+/** Пролом частокола: брёвна над проломом обрублены и повалены — пеньки на высоту, что осталась (`breachColumns`). */
+function palisadeBreach(b: Builder, w: TwWall, x0: number, x1: number, cols: { x0: number; x1: number; drop: number }[]): void {
+  const s = w.inward;
+  const zo = m(w.z);
+  const base = m(w.base);
+  const top = base + m(w.top);
+  for (const c of cols) {
+    const a = Math.max(x0, m(c.x0));
+    const e = Math.min(x1, m(c.x1));
+    for (let x = a + 0.21; x < e; x += 0.42) stake(b, x, zo + s * 0.2, base - 0.6, Math.max(base + 0.4, top - m(c.drop)), 0.2, tint(CITY.timberGrey, 1.25), false);
+  }
+}
+
+/** Башня частокола: сруб на четырёх столбах, площадка, шатёр из досок. Метры набора. */
+function woodTower(b: Builder, w: TwWall, x: number, size: number, h: number): void {
+  const s = w.inward;
+  const z = m(w.z) + s * (m(w.thick) / 2);
+  const base = m(w.base);
+  const half = size / 2;
+  const T = tint(CITY.timberGrey, 1.35);
+  for (const [dx, dz] of [[-half, -half], [half, -half], [half, half], [-half, half]] as const) log(b, [x + dx, base - 0.4, z + dz], [x + dx, base + h, z + dz], 0.3, T, 6, false);
+  // Обшивка — верхний ярус, выше хода стены.
+  const y0 = base + m(w.top) + 0.4;
+  box(b, x, z, 0, -s, size, size, y0, base + h, 'wood', tint(CITY.oakLight, 1.35), 'wood');
+  pyramid(
+    b,
+    [
+      [x - half - 0.5, z - half - 0.5],
+      [x - half - 0.5, z + half + 0.5],
+      [x + half + 0.5, z + half + 0.5],
+      [x + half + 0.5, z - half - 0.5],
+    ],
+    base + h,
+    [x, base + h + size * 0.75, z],
+    'wood',
+    tint(CITY.oakLight, 1.05),
+    0.9,
+  );
+}
+
+/** Ворота частокола: две башни-сруба по бокам проезда, перекладина и шатёр над ним. */
+function woodGate(b: Builder, w: TwWall): void {
+  const s = w.inward;
+  const half = m(w.gateHalf);
+  const cx = m(w.gateX);
+  const size = 3.4;
+  const h = m(GATEHOUSE_H) * 0.82;
+  for (const side of [1, -1]) woodTower(b, w, cx + side * (half + size / 2), size, h);
+  const z = m(w.z) + s * (m(w.thick) / 2);
+  const base = m(w.base);
+  box(b, cx, z, 0, -s, half * 2, m(w.thick), base + m(GATE_ARCH), base + m(GATE_ARCH) + 0.9, 'wood', tint(CITY.oakLight, 1.3), 'wood');
+  box(b, cx, z, 0, -s, half * 2 + 1, m(w.thick) + 0.6, base + m(w.top) + 0.4, base + h - 0.6, 'wood', tint(CITY.oakLight, 1.2), 'wood');
 }
 
 /** Надвратная башня с проездом: два устоя, свод над проездом, верх с поясом и шатром (как надвратная набора). */
@@ -249,6 +357,63 @@ function tent(b: Builder, x: number, z: number, yaw: number, size: number, hide:
   }
 }
 
+/**
+ * Где на секунде подвижное места: лестницы несут и ставят, осадную башню и таран катят, створки раскрыты или дрожат. В бою
+ * это знает план (`fortOfPlan`: отряд, что несёт и катит, — по `unitPose`); в ролике осады — его режиссура (`render/siege`).
+ */
+export interface FortMotion {
+  /** Где по Z стоит отряд, несущий лестницу `l`, на секунде `t`. */
+  ladderZ(l: TwLadder, t: number): number;
+  /** Где по Z стоит отряд, катящий осадную башню (до подката). */
+  towerZ(t: number): number;
+  /** Таран: где по Z его отряд и ход удара (`site.ramSwing`). */
+  ram(t: number): { z: number; swing: number };
+  /** Створки ворот: раскрыты (0..1) и дрожь от удара. */
+  gate(t: number): { open: number; shake: number };
+  /** Видны ли лестницы, башня, таран (ролик осады: встали готовыми, не сгорели). Нет — видны всегда, как в бою. */
+  shown?(what: 'ladders' | 'tower' | 'ram', t: number): boolean;
+}
+
+/** Что место боя берёт у зовущего: место, поле, сид, пролом, уровень и подвижное. Плана боя оно не знает. */
+export interface FortInput {
+  site: TwSite | null;
+  field: TwField;
+  seed: number;
+  /** Пролом: пролёт стены над ним строится опущенным снаружи (`breachRun`); нет — стена цела. */
+  breach: TwBreach | null;
+  quality: Quality;
+  motion: FortMotion;
+}
+
+/** Место боя из плана боя: подвижное — по отрядам плана, пролом — пролога обстрела. */
+export function fortOfPlan(plan: TwPlan): FortInput {
+  const site = plan.site;
+  const w = site?.wall ?? null;
+  return {
+    site,
+    field: plan.field,
+    seed: plan.cast.seed,
+    breach: plan.barrage?.breach ?? null,
+    quality: plan.quality,
+    motion: {
+      ladderZ: (l, t) => {
+        const u = plan.units[l.unit];
+        return unitPose(plan, u, Math.min(t, u.fleeAt ?? t)).z;
+      },
+      towerZ: (t) => {
+        const u = plan.units[site!.tower!.unit];
+        return unitPose(plan, u, Math.min(t, u.fleeAt ?? t, site!.tower!.at)).z;
+      },
+      ram: (t) => {
+        const u = plan.units[site!.ram!.unit];
+        const until = Math.min(t, u.fleeAt ?? Infinity, w && w.gateAt !== null && w.gateAt > 0 ? w.gateAt + 0.3 : Infinity);
+        return { z: unitPose(plan, u, until).z, swing: t <= until ? ramSwing(site!.ram!, t) : 0 };
+      },
+      gate: (t) => ({ open: w ? gateOpen(w, t) : 0, shake: gateShake(site?.ram ?? null, t) }),
+    },
+  };
+}
+
 export interface FortView {
   group: THREE.Group;
   /** Треугольников неподвижного (тень — тот же меш ещё раз). */
@@ -258,17 +423,17 @@ export interface FortView {
 }
 
 /** Построить место боя. Нет места — пустая группа. */
-export function buildFort(plan: TwPlan, quality: Quality): FortView {
+export function buildFort(input: FortInput): FortView {
   const group = new THREE.Group();
   group.name = 'tw-fort';
-  const site = plan.site;
+  const { site, quality, motion } = input;
   const disposables: { dispose(): void }[] = [];
   const mat = new THREE.MeshLambertMaterial({ color: 0xffffff, vertexColors: true });
   mat.name = 'tw-fort';
   disposables.push(mat);
   if (!site) return { group, triangles: 0, update: () => {}, dispose: () => disposables.forEach((d) => d.dispose()) };
   const detail = DETAIL[quality];
-  const f = plan.field;
+  const f = input.field;
   const b = new Builder();
   const w = site.wall;
   if (w) {
@@ -277,16 +442,19 @@ export function buildFort(plan: TwPlan, quality: Quality): FortView {
     for (const t of w.towers) stops.push([m(t.x) - m(t.size) / 2 + 0.3, m(t.x) + m(t.size) / 2 - 0.3]);
     stops.sort((a, c) => a[0] - c[0]);
     // Пролом обстрела (`plan.barrage`): пролёт стены над ним строится опущенным снаружи (`breachRun`).
-    const br = plan.barrage?.breach ?? null;
+    const br = input.breach;
     const ba = br ? m(br.x - br.width / 2) : Infinity;
     const bb = br ? m(br.x + br.width / 2) : -Infinity;
-    const cols = br ? breachColumns(br, plan.cast.seed) : [];
+    const cols = br ? breachColumns(br, input.seed) : [];
     const nearTower = (x: number): boolean => stops.some(([a, c]) => x > a - 0.9 && x < c + 0.9) || (x > ba - 0.4 && x < bb + 0.4);
+    // Частокол из брёвен (ролик осады, стена до третьего уровня) — свои пролёты, пролом и башни, та же раскладка.
+    const solid = (x0: number, x1: number): void => (w.wood ? palisadeRun(b, w, x0, x1, detail) : wallRun(b, w, x0, x1, nearTower));
     const run = (x0: number, x1: number): void => {
-      if (!br || x1 <= ba || x0 >= bb) return wallRun(b, w, x0, x1, nearTower);
-      if (x0 < ba) wallRun(b, w, x0, ba, nearTower);
-      breachRun(b, w, Math.max(x0, ba), Math.min(x1, bb), cols);
-      if (x1 > bb) wallRun(b, w, bb, x1, nearTower);
+      if (!br || x1 <= ba || x0 >= bb) return solid(x0, x1);
+      if (x0 < ba) solid(x0, ba);
+      if (w.wood) palisadeBreach(b, w, Math.max(x0, ba), Math.min(x1, bb), cols);
+      else breachRun(b, w, Math.max(x0, ba), Math.min(x1, bb), cols);
+      if (x1 > bb) solid(bb, x1);
     };
     let x = -m(w.halfX);
     for (const [a, c] of stops) {
@@ -299,11 +467,14 @@ export function buildFort(plan: TwPlan, quality: Quality): FortView {
     for (const e of [1, -1]) {
       const cx = e * m(w.halfX - w.thick / 2);
       const len = m(18);
-      const T = tint(CITY.stoneTints[0], 0.95);
-      box(b, cx, m(w.z) + s * (m(w.thick) + len / 2), e, 0, len, m(w.thick), m(w.base) - 1.6, m(w.base + w.top) + 1.05, 'ashlar', T, 'ashlar', { aoBottom: 0.72 });
+      const T = w.wood ? tint(CITY.oak, 0.9) : tint(CITY.stoneTints[0], 0.95);
+      box(b, cx, m(w.z) + s * (m(w.thick) + len / 2), e, 0, len, m(w.thick), m(w.base) - 1.6, m(w.base + w.top) + 1.05, w.wood ? 'wood' : 'ashlar', T, w.wood ? 'wood' : 'ashlar', { aoBottom: 0.72 });
     }
-    gatehouse(b, w, detail);
-    for (const t of w.towers) {
+    if (w.wood) {
+      woodGate(b, w);
+      for (const t of w.towers) woodTower(b, w, m(t.x), m(t.size), m(t.h));
+    } else gatehouse(b, w, detail);
+    for (const t of w.wood ? [] : w.towers) {
       tower(
         b,
         {
@@ -500,17 +671,18 @@ export function buildFort(plan: TwPlan, quality: Quality): FortView {
     if (!w) return;
     const s = w.inward;
     if (ladders) {
-      site.ladders.forEach((l, k) => {
+      const up = motion.shown ? motion.shown('ladders', t) : true;
+      ladders.visible = up;
+      if (up) site.ladders.forEach((l, k) => {
         // Лестница осадной башни — внутри сруба: её не несут и не видно.
         if (l.tower) {
           ladders!.setMatrixAt(k, M4.makeScale(0, 0, 0));
           return;
         }
-        const u = plan.units[l.unit];
-        const pose = unitPose(plan, u, Math.min(t, u.fleeAt ?? t));
+        const carryZ = motion.ladderZ(l, t);
         // Несут к стене стоймя перед строем, чуть наклонив вперёд; у стены — опускают верхом на боевой ход.
         const up = ladderUp(l, t);
-        const carried = Math.max(LADDER_FOOT, outOf(w, pose.z) + 0.9);
+        const carried = Math.max(LADDER_FOOT, outOf(w, carryZ) + 0.9);
         const foot = carried + (LADDER_FOOT - carried) * up;
         const lean = Math.atan2(LADDER_FOOT, w.top + 0.4);
         const tilt = CARRY_TILT * (1 - up) + lean * up;
@@ -524,12 +696,13 @@ export function buildFort(plan: TwPlan, quality: Quality): FortView {
       });
       ladders.instanceMatrix.needsUpdate = true;
     }
+    if (siege) siege.visible = motion.shown ? motion.shown('tower', t) : true;
+    if (ram) ram.visible = motion.shown ? motion.shown('ram', t) : true;
     if (siege && site.tower) {
       // Башню катят перед строем и к сшибке ставят мостом на боевой ход; отряд дрогнул — она остаётся, где стояла.
-      const u = plan.units[site.tower.unit];
-      const pose = unitPose(plan, u, Math.min(t, u.fleeAt ?? t, site.tower.at));
+      const towerZ = motion.towerZ(t);
       const roll = Math.min(1, Math.max(0, (t - (site.tower.at - TOWER_ROLL)) / TOWER_ROLL));
-      const far = Math.max(1.4, outOf(w, pose.z) + 1.2);
+      const far = Math.max(1.4, outOf(w, towerZ) + 1.2);
       const front = far + (0.15 - far) * roll;
       const z = w.z - s * front;
       V.set(site.tower.x, heightAt(f, site.tower.x, z), z);
@@ -537,12 +710,10 @@ export function buildFort(plan: TwPlan, quality: Quality): FortView {
       siege.quaternion.setFromAxisAngle(new THREE.Vector3(0, 1, 0), s > 0 ? Math.PI : 0);
     }
     if (ram && site.ram) {
-      const u = plan.units[site.ram.unit];
-      const until = Math.min(t, u.fleeAt ?? Infinity, w.gateAt !== null && w.gateAt > 0 ? w.gateAt + 0.3 : Infinity);
-      const pose = unitPose(plan, u, until);
-      const swing = t <= until ? ramSwing(site.ram, t) : 0;
+      const rp = motion.ram(t);
+      const swing = rp.swing;
       // Удар доходит до створок (они в проезде, на 0.45 за наружной гранью).
-      const head = Math.max(-0.4, Math.max(0.3, outOf(w, pose.z) - 0.8) - swing * 0.75);
+      const head = Math.max(-0.4, Math.max(0.3, outOf(w, rp.z) - 0.8) - swing * 0.75);
       const z = w.z - s * head;
       V.set(site.ram.x, heightAt(f, site.ram.x, z), z);
       // Тело тарана — наружу от головы: поворот на π, если город у +Z.
@@ -551,8 +722,9 @@ export function buildFort(plan: TwPlan, quality: Quality): FortView {
       ram.quaternion.copy(Q);
     }
     if (leaves) {
-      const open = gateOpen(w, t);
-      const shake = gateShake(site.ram, t) * 0.05;
+      const g = motion.gate(t);
+      const open = g.open;
+      const shake = g.shake * 0.05;
       const zH = w.z + s * 0.45;
       for (let k = 0; k < 2; k++) {
         const side = k === 0 ? 1 : -1;

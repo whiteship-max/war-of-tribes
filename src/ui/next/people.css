@@ -1,0 +1,59 @@
+/*
+ * Окно «Жители» (UI-5, docs/ui_v2.md, 5.4): таблицы набора (`kit/Table`) со своим именем строки — значок, имя и строка
+ * пояснения 11 px в одной ячейке. Ячейка таблицы — в одну строку с многоточием (`kit.css`, `.kit-c`); здесь имя и пояснение
+ * стоят столбцом, каждое со своим многоточием. Строка с дверью — 44 (`kit.css`, `.kit-trow.go`): двух строк текста хватает.
+ */
+.pp .kit-tabs {
+  margin: 0 0 8px;
+}
+.pp .kit-table + h3 {
+  margin-top: 16px;
+}
+.pp-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.pp-name > span:last-child {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.pp-name b,
+.pp-name small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pp-name b {
+  font-weight: 600;
+}
+.pp-name small {
+  font-size: 11px;
+  line-height: 1.25;
+  color: var(--muted);
+}
+.pp-val {
+  font-size: 15px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.pp-val.good {
+  color: var(--good);
+}
+.pp-val.bad {
+  color: var(--bad);
+}
+.pp-val.warn {
+  color: var(--warn, #d9a441);
+}
+.pp-val.muted {
+  color: var(--muted);
+}
+.pp-free {
+  color: var(--accent);
+  font-weight: 700;
+}
+.pp > .kit-row {
+  margin-bottom: 8px;
+}

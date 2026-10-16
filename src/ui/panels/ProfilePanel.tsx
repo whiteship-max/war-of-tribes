@@ -16,19 +16,85 @@
 import { useState } from 'react';
 import { useGame } from '@/game/store';
 import { RESOURCE_IDS, RESOURCE_META } from '@/game/constants';
-import type { ResourceId } from '@/game/types';
-import { NAME_MAX, cardSrc, cityName, faceSrc, profileAvatar, profileCity, profileName } from '@/profile/identity';
-import { PROFILE_DAYS, setCity, setName } from '@/profile/stats';
-import { CITY_MAX } from '../../../netlify/lib/contract';
+import { NAME_MAX, cardSrc, faceSrc, profileAvatar, profileName } from '@/profile/identity';
+import { PROFILE_DAYS, setName } from '@/profile/stats';
 import { buildingsPower, power, troopsPower } from '@/profile/power';
 import { AvatarPicker } from '../parts/AvatarPicker';
 import { Icon } from '@/ui/icons/Icon';
 import { Settings } from '../parts/Settings';
 import { SyncStatus } from '../parts/Sync';
 import { waitDays } from '../parts/wait';
+import { Table } from '@/ui/kit/Table';
+import { Num } from '@/ui/kit/Num';
+import { breakdown } from '@/ui/kit/breakdown';
+import type { TipContent } from '@/ui/next/tip';
+import type { GameState } from '@/game/types';
 
 /** Число покрупнее словами: 12 400 вместо 12400 — на 390 px это читается. */
 const big = (n: number): string => Math.round(n).toLocaleString('ru-RU');
+
+/** Мощь с разбором: город (уровни построек) и дружина (бойцы по весу вида) — `profile/power`, итог — `power`. */
+export function powerTip(s: GameState): TipContent {
+  return breakdown({
+    title: `Мощь · ${big(power(s))}`,
+    body: 'Её видят соседи в рейтинге. Растёт со стройкой и наймом.',
+    total: power(s),
+    parts: [
+      { label: 'Город', value: buildingsPower(s) },
+      { label: 'Дружина', value: troopsPower(s) },
+    ],
+    fmt: big,
+    // Итог округлён (`power`): дробь слагаемых — запись, а не дыра в разборе.
+    eps: 0.5,
+  });
+}
+
+interface PartyRow {
+  key: string;
+  icon: string;
+  name: string;
+  v: string;
+  tone?: 'good' | 'bad';
+  body?: string;
+}
+
+/**
+ * Числа партии таблицами (UI-7, docs/ui_v2.md, 5.6): битвы, потери, хозяйство — строкой на число, а не карточкой `.mod`;
+ * пояснение — касанием строки. Числа — счётчики профиля (`profile.totals`) и партии (`stats`), своей арифметики нет.
+ */
+export function partyTables(s: GameState): { title: string; rows: PartyRow[]; empty?: string }[] {
+  const t = s.profile.totals;
+  const lost = RESOURCE_IDS.filter((r) => t.raidLoss[r] > 0);
+  const lostTotal = lost.reduce((n, r) => n + t.raidLoss[r], 0);
+  const loot = `${big(t.lootResources)}${t.lootGold > 0 ? ` · ${big(t.lootGold)} 💰` : ''}`;
+  const losses: PartyRow[] = [
+    ...lost.map((r) => ({ key: r, icon: RESOURCE_META[r].icon, name: RESOURCE_META[r].name, v: `−${big(t.raidLoss[r])}`, tone: 'bad' as const })),
+    ...(lost.length > 1 ? [{ key: 'all', icon: '📉', name: 'Всего унесено', v: `−${big(lostTotal)}`, tone: 'bad' as const }] : []),
+    ...(t.raids > 0 ? [{ key: 'raids', icon: '🔥', name: 'Набегов с уроном', v: big(t.raids) }] : []),
+    ...(t.troopsLost > 0
+      ? [{ key: 'men', icon: '⚔️', name: 'Бойцов не вернулось', v: big(t.troopsLost), tone: 'bad' as const, body: 'Из походов и от своих ворот.' }]
+      : []),
+  ];
+  return [
+    {
+      title: 'Битвы',
+      rows: [
+        { key: 'won', icon: '🏆', name: 'Выиграно', v: big(s.stats.battlesWon), tone: 'good' },
+        { key: 'lost', icon: '💀', name: 'Проиграно', v: big(s.stats.battlesLost), tone: s.stats.battlesLost > 0 ? 'bad' : undefined },
+        { key: 'lairs', icon: '🔥', name: 'Сожжено логов', v: big(s.stats.lairs ?? 0) },
+        { key: 'loot', icon: '🧺', name: 'Добыча', v: loot, body: 'Из походов и взятых городов: припасы и золото.' },
+      ],
+    },
+    { title: 'Потери', rows: losses, empty: 'Потерь нет.' },
+    {
+      title: 'Хозяйство',
+      rows: [
+        { key: 'made', icon: '📦', name: 'Добыто всего', v: big(t.produced), tone: 'good' },
+        { key: 'spent', icon: '🔨', name: 'Потрачено', v: big(t.spent), body: 'На стройку, ковку и найм.' },
+      ],
+    },
+  ];
+}
 
 /**
  * Мощь за последние `PROFILE_DAYS`, столбиками. Ради этого и хранятся суточные корзины:
@@ -67,15 +133,8 @@ export function ProfilePanel() {
   const [picking, setPicking] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [draft, setDraft] = useState('');
-  const [naming, setNaming] = useState(false);
-  const [cityDraft, setCityDraft] = useState('');
 
   const p = s.profile;
-  const t = p.totals;
-  const village = buildingsPower(s);
-  const army = troopsPower(s);
-  const lost = RESOURCE_IDS.filter((r) => t.raidLoss[r] > 0);
-  const lostTotal = lost.reduce((n, r) => n + t.raidLoss[r], 0);
 
   const startRename = (): void => {
     setDraft(p.name ?? '');
@@ -86,20 +145,6 @@ export function ProfilePanel() {
     act((st) => setName(st, draft));
     save();
     setRenaming(false);
-  };
-
-  // Имя города правится рядом с именем вождя тем же приёмом. Черновик — сырой ввод,
-  // очищает его одна дверь (`setCity` → `contract.cityName`), а в поле ввода подставлено
-  // ровно то, что лежит в сохранении: правят своё, а не «Безымянный город».
-  const startCity = (): void => {
-    setCityDraft(cityName(p.city) ?? '');
-    setNaming(true);
-  };
-
-  const commitCity = (): void => {
-    act((st) => setCity(st, cityDraft));
-    save();
-    setNaming(false);
   };
 
   // Выбор лица — не отдельный раздел шторки: снаружи на него ничего не ведёт,
@@ -156,39 +201,13 @@ export function ProfilePanel() {
               </em>
             </button>
           )}
-          {/* Имя города видят все — на карте, в отчётах, в письмах и соседи через реестр
-              замков. Поэтому оно под именем вождя, а не в настройках. */}
-          {naming ? (
-            <div className="rename">
-              <input
-                value={cityDraft}
-                maxLength={CITY_MAX}
-                autoFocus
-                placeholder={profileCity(p)}
-                onChange={(e) => setCityDraft(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') commitCity();
-                  if (e.key === 'Escape') setNaming(false);
-                }}
-              />
-              <button className="btn" onClick={commitCity}>
-                Готово
-              </button>
-            </div>
-          ) : (
-            <button className="name city one-line" onClick={startCity} aria-label="Назвать город">
-              {profileCity(p)}{' '}
-              <em>
-                <Icon name="ui-edit" glyph="✏️" /> город
-              </em>
-            </button>
-          )}
+          {/* Имя города правят в шапке державы — она стоит и над профилем (находка Д14: прежде здесь была вторая дверь
+              к тому же имени, UI-7, docs/ui_v2.md, 5.6). */}
           <div className="power">
-            <b>{big(power(s))}</b>
+            <Num tip={() => powerTip(s)} label="Мощь">
+              {big(power(s))}
+            </Num>
             <i>мощь</i>
-          </div>
-          <div className="split">
-            город {big(village)} · дружина {big(army)}
           </div>
         </div>
       </div>
@@ -206,82 +225,32 @@ export function ProfilePanel() {
 
       <PowerTrend days={p.days} />
 
-      <h3>Битвы</h3>
-      <div className="mod">
-        <span className="ico">🏆</span>
-        <span className="name">Выиграно</span>
-        <span className="val pos">{s.stats.battlesWon}</span>
-      </div>
-      <div className="mod">
-        <span className="ico">💀</span>
-        <span className="name">Проиграно</span>
-        <span className={`val${s.stats.battlesLost > 0 ? ' neg' : ''}`}>{s.stats.battlesLost}</span>
-      </div>
-      <div className="mod">
-        <span className="ico">🔥</span>
-        <span className="name">Сожжено логов</span>
-        <span className={`val${(s.stats.lairs ?? 0) > 0 ? ' pos' : ''}`}>{s.stats.lairs ?? 0}</span>
-      </div>
-      <div className="mod">
-        <span className="ico">🧺</span>
-        <span className="name">
-          Добыча
-          <em className="sub">из походов и взятых городов</em>
-        </span>
-        <span className="val">
-          {big(t.lootResources)}
-          {t.lootGold > 0 && (
-            <>
-              {' '}
-              · {big(t.lootGold)} <Icon name="res-gold" glyph="💰" />
-            </>
-          )}
-        </span>
-      </div>
-
-      <h3>Потери</h3>
-      {lostTotal === 0 && t.troopsLost === 0 ? (
-        <div className="note">Потерь нет.</div>
-      ) : (
-        <div className="note">Набегов с уроном: {t.raids}.</div>
-      )}
-      {lost.map((r: ResourceId) => (
-        <div className="mod" key={r}>
-          <span className="ico">{RESOURCE_META[r].icon}</span>
-          <span className="name">{RESOURCE_META[r].name}</span>
-          <span className="val neg">−{big(t.raidLoss[r])}</span>
-        </div>
+      {partyTables(s).map((tb) => (
+        // Имя раздела — шапкой таблицы: отдельный заголовок над ней повторял бы его.
+        <section key={tb.title} className="pf-table">
+          <Table
+            label={tb.title}
+            cols={[
+              { key: 'name', title: tb.title },
+              { key: 'v', title: 'Всего', align: 'right', w: '96px' },
+            ]}
+            empty={tb.empty}
+            rows={tb.rows.map((r) => ({
+              key: r.key,
+              tip: r.body ? () => ({ title: `${r.name} · ${r.v}`, body: r.body }) : undefined,
+              cells: {
+                name: (
+                  <span className="kit-name">
+                    <span className="ic">{r.icon}</span>
+                    <span className="one-line">{r.name}</span>
+                  </span>
+                ),
+                v: <span className={r.tone ?? ''}>{r.v}</span>,
+              },
+            }))}
+          />
+        </section>
       ))}
-      {lost.length > 1 && (
-        <div className="mod total">
-          <span className="ico">📉</span>
-          <span className="name">Всего унесено</span>
-          <span className="val neg">−{big(lostTotal)}</span>
-        </div>
-      )}
-      <div className="mod">
-        <span className="ico">⚔️</span>
-        <span className="name">
-          Бойцов не вернулось
-          <em className="sub">из походов и от своих ворот</em>
-        </span>
-        <span className={`val${t.troopsLost > 0 ? ' neg' : ''}`}>{big(t.troopsLost)}</span>
-      </div>
-
-      <h3>Хозяйство</h3>
-      <div className="mod total">
-        <span className="ico">📦</span>
-        <span className="name">Добыто всего</span>
-        <span className="val pos">{big(t.produced)}</span>
-      </div>
-      <div className="mod">
-        <span className="ico">🔨</span>
-        <span className="name">
-          Потрачено
-          <em className="sub">на стройку, ковку и найм</em>
-        </span>
-        <span className="val">{big(t.spent)}</span>
-      </div>
     </div>
   );
 }

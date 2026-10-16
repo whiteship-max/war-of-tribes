@@ -5,7 +5,9 @@ import { standBattle } from '../battle-stand';
 import { twPlanOfRecord } from './record';
 import { ARROW_FLIGHT } from './plan';
 import { CueClock, ambienceAt, cuesOf } from './cues';
-import { figureFrame, poseFigures } from './plan';
+import { poseFigures, separationOf } from './plan';
+import { castToReel } from '../reel/clock';
+import { figureFrame } from '../reel/troupe';
 
 const planOf = (q: string) => {
   const b = standBattle(new URLSearchParams(q));
@@ -64,7 +66,13 @@ describe('звук ролика TW из журнала', () => {
     const frame = figureFrame(plan.figures);
     poseFigures(plan, 1, frame);
     expect(ambienceAt(plan, frame).roar).toBe(0);
-    poseFigures(plan, plan.clashAt + 3, frame);
+    // Середина первой фазы натиска — точка внутри области правила (правило 11): на часах ролика круг короток, и через
+    // три секунды после сшибки линии уже могут разойтись на огонь следующего круга.
+    const clash = plan.cast.spans.find((sp) => sp.phase === 'clash')!;
+    const mid = castToReel(plan.timing, (clash.t0 + clash.t1) / 2);
+    expect(mid).toBeGreaterThan(plan.clashAt);
+    expect(separationOf(plan, mid)).toBeLessThan(0.3);
+    poseFigures(plan, mid, frame);
     const a = ambienceAt(plan, frame);
     expect(a.roar).toBeGreaterThan(0);
     expect(a.fight.reduce((n, f) => n + f.n, 0)).toBeGreaterThan(10);

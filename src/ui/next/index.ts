@@ -8,12 +8,28 @@ export { Alerts } from './Alerts';
 export { Nav } from './Nav';
 export { TipLayer } from './TipLayer';
 export { Hints } from './Hints';
-export { BuildingNew } from './BuildingNew';
-export { SmithyNew } from './SmithyNew';
 export { RecruitNew } from './RecruitNew';
 export { CityNaming } from './CityNaming';
 export { MarchesNew } from './MarchesNew';
 export { WorldNew } from './WorldNew';
 export { ReportBodyNew } from './ReportNew';
-export { Trades, TradeLine } from './Trades';
+export { Trades } from './Trades';
 export { Treasury } from './Treasury';
+export { HallBuild } from './HallBuild';
+// Ратуша под сеткой: что даёт городу и дверь в «Указы» державы (UI-7, docs/ui_v2.md, 5.6).
+export { HallGives } from './HallGives';
+// Рынок — прилавок таблицей выбора (UI-7, docs/ui_v2.md, 5.6).
+export { MarketNew } from './MarketNew';
+// «Дружина» с передачей (UI-4, docs/ui_v2.md, 5.3) — тем же куском: набор `kit` и подсказки верха, на которых она стоит, живут здесь.
+export { ArmyPanel } from '../panels/ArmyPanel';
+// «Жители» — сводка и места работы (UI-5, docs/ui_v2.md, 5.4) — тем же куском, по той же причине.
+export { PeoplePanel } from '../panels/PeoplePanel';
+// Окна осады, вылазки и лагеря (UI-7, docs/ui_v2.md, 5.6) — тем же куском: вкладки, таблицы и переключатели набора.
+export { SiegePanel } from '../panels/SiegePanel';
+export { SortiePanel } from '../panels/SortiePanel';
+export { CampPanel } from '../panels/CampPanel';
+// «Мораль» — одна таблица цели (Д13) — и «Порядок» вкладками «Надзор | Невольники» (6.13) — тем же куском (UI-8, 5.7), и окно
+// постройки: его данные стоят на наборе `kit`.
+export { BuildingPanel } from '../panels/BuildingPanel';
+export { MoralePanel } from '../panels/MoralePanel';
+export { OrderPanel } from '../panels/OrderPanel';

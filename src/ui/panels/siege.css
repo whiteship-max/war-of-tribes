@@ -1,0 +1,33 @@
+/*
+ * Окна осады, вылазки и лагеря (UI-7, docs/ui_v2.md, 5.6): вкладки, таблицы набора, переключатели наказов. Едут с куском
+ * нового вида вместе с окнами — в первой загрузке их нет.
+ */
+.sg .kit-tabs {
+  margin-top: 8px;
+}
+.sg .kit-table,
+.sg .kit-toggle,
+.sg .kit-btn.wide,
+.sg .kit-btn-wrap.wide {
+  margin-bottom: 8px;
+}
+.sg .kit-toggle {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.sg h3 {
+  margin: 12px 0 6px;
+}
+.sg .card {
+  margin-bottom: 8px;
+}
+.sg-steps .stepper.wide-steps {
+  margin: 0;
+}
+.sg-row-act {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}

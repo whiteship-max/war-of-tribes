@@ -43,7 +43,10 @@ afterEach(async () => {
 function fakeTg() {
   const said: string[] = [];
   const tg: Telegram = {
-    send: async () => 'ok',
+    letter: async () => ({ result: 'ok' }),
+    edit: async () => ({ result: 'ok' }),
+    panel: async () => 'ok',
+    repanel: async () => 'ok',
     answer: async () => 'ok',
     button: async () => 'ok',
     async say(_chat, text) {
@@ -52,6 +55,7 @@ function fakeTg() {
     },
     file: async () => 'ok',
     greet: async () => 'ok',
+    checkout: async () => 'ok',
   };
   return { tg, said };
 }

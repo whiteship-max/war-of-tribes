@@ -8,28 +8,48 @@ import { Suspense, lazy, useEffect } from 'react';
 import { useGame } from '@/game/store';
 import { RESOURCE_META } from '@/game/constants';
 import { SHOP_DAILY, SHOP_GOODS, SHOP_LOT, shopBlocked, shopPrice, shopRoom } from '@/game/sim/gems';
-import { gemLine, shopDay, shopResetAt } from '@/game/gemrules';
+import { gemLine, shopResetAt } from '@/game/gemrules';
 import { buildingTitle } from '@/game/derived';
 import { BUILDING_BY_ID } from '@/game/data/buildings';
-import { gemsOffline, orderBuy, useGems } from '@/net/gems';
+import { gemsOffline, orderBuy, useGems, type GemsStore } from '@/net/gems';
 import { serverNow } from '@/net/clock';
 import type { BuildingTypeId } from '@/game/types';
 import { Icon } from '@/ui/icons/Icon';
 import { realSpanText } from '@/ui/parts/wait';
-import { useTreasury, type TreasuryTab } from '@/ui/treasury';
+import { shopUsed, useTreasury, type TreasuryTab } from '@/ui/treasury';
 import { useTrades } from '@/ui/trades';
 import { useRealm } from '@/ui/realm/open';
 import { GemIcon } from './Rush';
+import { gemsTip } from './hudTips';
+import { tipAt } from './tip';
+import { Table, type Col } from '@/ui/kit/Table';
+
+/**
+ * Лавка сегодня по часам сервера — одни часы на лавку и подсказку плашки: «сейчас», от которого считают сутки (полночь
+ * UTC, `shopResetAt`) и связь (`gemsOffline`), и сколько покупок из `SHOP_DAILY` сделано (`ui/treasury.shopUsed`).
+ */
+function shopToday(shop: GemsStore['shop']): { now: number; used: number } {
+  const now = serverNow();
+  return { now, used: shopUsed(shop, now) };
+}
 
 /** Вкладка «Купить» — отдельным куском, с библиотекой кошелька. */
 const Buy = lazy(() => import('./TreasuryBuy'));
 
-/** Плашка «💎 120 +» справа под строкой запасов: касание открывает Сокровищницу. */
+/**
+ * Плашка «💎 120 +» слева под строкой запасов: касание — подсказка алмазов, как у чисел верха (docs/ui_v2.md, 5.2): баланс,
+ * лавка сегодня и дверь «Сокровищница» на «Купить». Числа — в миг касания.
+ */
 export function GemPlaque() {
   const balance = useGems((g) => g.balance);
   const show = useTreasury((t) => t.show);
+  const tip = (e: { currentTarget: Element }): void => {
+    const g = useGems.getState();
+    const { now, used } = shopToday(g.shop);
+    tipAt(e.currentTarget, gemsTip(g.balance, used, gemsOffline(g, now), () => show('buy')));
+  };
   return (
-    <button className="nx-gems" onClick={() => show()} aria-label={`Сокровищница: ${balance ?? 'нет связи'}`}>
+    <button className="nx-gems" onClick={tip} aria-label={`Алмазы: ${balance ?? 'нет связи'}`}>
       <GemIcon />
       <b>{balance ?? '—'}</b>
       <i className="nx-gems-plus">+</i>
@@ -94,7 +114,14 @@ export function Treasury() {
   );
 }
 
-/** Лавка: сто единиц припаса за алмазы, десять покупок в сутки. Войска нет. */
+/** Столбцы лавки (UI-7, docs/ui_v2.md, 5.6; П12): «+100» — в шапке, а не в каждой строке; цена — кнопкой покупки. */
+export const SHOP_COLS: readonly Col[] = [
+  { key: 'name', title: `Запас +${SHOP_LOT}` },
+  { key: 'room', title: 'Места', align: 'right', w: '56px' },
+  { key: 'buy', title: 'Цена', align: 'right', w: '76px' },
+];
+
+/** Лавка: сто единиц припаса за алмазы, десять покупок в сутки. Войска нет. Таблица — запас, места на складе, цена. */
 function Shop() {
   const s = useGame((g) => g.s);
   const toast = useGame((g) => g.showToast);
@@ -103,18 +130,18 @@ function Shop() {
   const at = useGems((g) => g.at);
   const why = useGems((g) => g.why);
   const busy = useGems((g) => g.busy);
-  const now = serverNow();
-  const used = shop && shop.day === shopDay(now) ? shop.used : 0;
+  const { now, used } = shopToday(shop);
   const left = Math.max(0, SHOP_DAILY - used);
   const offline = gemsOffline({ balance, at, why }, now);
   const buy = async (r: (typeof SHOP_GOODS)[number]): Promise<void> => {
     const err = await orderBuy(r);
     if (err) toast(err);
   };
-  const rows = SHOP_GOODS.map((r) => ({ r, price: shopPrice(r), blocked: shopBlocked(s, r, shopPrice(r), balance, left, offline) }));
+  const rows = SHOP_GOODS.map((r) => ({ r, price: shopPrice(r), room: shopRoom(s, r), blocked: shopBlocked(s, r, shopPrice(r), balance, left, offline) }));
   // Причина, общая для всех рядов («Алмазы тратятся только в игре внутри Telegram», «Нет связи…»), говорится один раз над
-  // списком: семь одинаковых строк подряд — повтор (docs/voice.md, 5).
+  // таблицей: семь одинаковых строк подряд — повтор (docs/voice.md, 5). Прочие — по разу под ней.
   const common = rows.every((x) => x.blocked !== null && x.blocked === rows[0].blocked) ? rows[0].blocked : null;
+  const own = [...new Set(rows.map((x) => x.blocked).filter((b): b is string => b !== null && b !== common))];
   return (
     <>
       <div className="nx-pay">
@@ -123,35 +150,48 @@ function Shop() {
         </span>
         {common && <small className="nx-why">{common}</small>}
       </div>
-      {rows.map(({ r, price, blocked }) => {
-        const waiting = busy === `buy:${r}`;
-        return (
-          <div className="nx-trade" key={r}>
-            <span className="nx-bico">
-              <Icon name={`res-${r}`} glyph={RESOURCE_META[r].icon} />
-            </span>
-            <div className="nx-trade-body">
-              <b>
-                {RESOURCE_META[r].name} +{SHOP_LOT}
-              </b>
-              {blocked && blocked !== common ? (
-                <small className="nx-why">{blocked}</small>
-              ) : (
-                <span className="nx-trade-haul">Места на складе: {shopRoom(s, r)}</span>
-              )}
-            </div>
-            <button className="nx-go nx-trade-go nx-gem-go" disabled={blocked !== null || waiting} onClick={() => void buy(r)}>
-              {waiting ? (
-                '…'
-              ) : (
-                <span>
-                  <GemIcon /> {price}
+      <Table
+        label="Лавка"
+        cols={SHOP_COLS}
+        rows={rows.map(({ r, price, room, blocked }) => {
+          const waiting = busy === `buy:${r}`;
+          return {
+            key: r,
+            dim: blocked !== null,
+            cells: {
+              name: (
+                <span className="kit-name">
+                  <Icon name={`res-${r}`} glyph={RESOURCE_META[r].icon} />
+                  <span className="one-line">{RESOURCE_META[r].name}</span>
                 </span>
-              )}
-            </button>
-          </div>
-        );
-      })}
+              ),
+              room: <span className={room < SHOP_LOT ? 'bad' : ''}>{room}</span>,
+              buy: (
+                <button
+                  type="button"
+                  className="nx-go nx-gem-go nx-shop-go"
+                  disabled={blocked !== null || waiting}
+                  aria-label={`${RESOURCE_META[r].name} +${SHOP_LOT} за ${price} алмазов`}
+                  onClick={() => void buy(r)}
+                >
+                  {waiting ? (
+                    '…'
+                  ) : (
+                    <span>
+                      <GemIcon /> {price}
+                    </span>
+                  )}
+                </button>
+              ),
+            },
+          };
+        })}
+      />
+      {own.map((w) => (
+        <small key={w} className="nx-why">
+          {w}
+        </small>
+      ))}
     </>
   );
 }

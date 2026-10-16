@@ -7,25 +7,24 @@ import { QUALITIES, type Quality } from '../quality';
 import { STAND_GROUND, standBattle } from '../battle-stand';
 import { GROUND_CROSSING, GROUND_LAND, GROUND_RIDGE } from '@/world/place';
 import { twPlanOfRecord } from './record';
-import { TW_SPEC } from './spec';
+import { TW_SPEC } from '../reel/spec';
 import { FRONT_WIDTH, UNIT_STATS } from '@/battle/config';
 import {
   CONTACT_HALF,
   FORM,
-  MAX_SECONDS,
   CHASE_SECONDS,
   GALLOP_SPEED,
   WAVER_SECONDS,
   advanceOf,
-  bearerOf,
   pushOf,
   aliveFigures,
-  figureFrame,
   poseFigures,
   ratioOf,
   unitPose,
   type TwPlan,
 } from './plan';
+import { bearerOf, figureFrame } from '../reel/troupe';
+import { MAX_SECONDS, MIN_SECONDS } from '../reel/clock';
 
 /** Число людей боя, записанное при W 128, — в той же глубине строя при нынешнем W. */
 const atW = (men: number): number => Math.round((men * FRONT_WIDTH) / 128);
@@ -177,9 +176,11 @@ describe('ролик TW: гибель и время', () => {
     }
   });
 
-  it('ролик не длиннее 70 с', () => {
+  it('ролик в поле — от 15 до 40 с', () => {
     for (const q of ['replay=tw&men=500&foe=500&seed=1', 'replay=tw&men=60&foe=60&seed=2', 'replay=tw&men=900&foe=40&seed=3']) {
-      expect(planOf(q).seconds).toBeLessThanOrEqual(MAX_SECONDS);
+      const s = planOf(q).seconds;
+      expect(s).toBeLessThanOrEqual(MAX_SECONDS);
+      expect(s).toBeGreaterThanOrEqual(MIN_SECONDS);
     }
   });
 

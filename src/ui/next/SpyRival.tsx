@@ -74,11 +74,13 @@ export function SpyRival({ card }: { card: SettlementCard }) {
         <>
           {menu.options.map((o) => (
             <div key={o.deed} className="nx-spyrow">
-              <button className="nx-cact" disabled={busy || !o.can} onClick={() => void go(o.deed)} title={o.description}>
+              <button className="nx-cact" disabled={busy || !o.can} onClick={() => void go(o.deed)}>
                 <Icon name={`spy-${o.deed}`} glyph={o.icon} />
                 {o.name}
                 <EnergyPrice price={o.energy.price} />
               </button>
+              {/* Что делает дело — строкой, а не в `title=`, которого на телефоне не увидеть (О9, UI-7). */}
+              <p className="nx-tnote">{o.description}</p>
               <p className="nx-tnote">
                 <span className="good">удастся {Math.round(o.chance * 100)}%</span> · <span className="bad">гибель {perilText(o.peril)}</span> ·{' '}
                 <span className="bad">при провале схватят на {realSpanText(o.held)}</span>

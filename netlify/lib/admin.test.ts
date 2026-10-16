@@ -11,6 +11,8 @@ import { FROZEN_ORDER, adminIds, grantsKey, readAdminLog, readFrozen, readGrants
 import { cell, kindOf, parseGive, statsCsv } from './commands.js';
 import { readWatchRecord, flagsBetween, flagsOf } from './watch.js';
 import { GEM_GOODS, REPORT_LIMITS, readAdminNote, readGrant, type WatchCard } from './contract.js';
+import { readNotify, topicOf } from './notify.js';
+import { noticeText } from './words.js';
 
 /**
  * Админка (docs/admin.md). Тесты там, где без них можно открыть админку чужому, начислить из ничего или потерять
@@ -70,7 +72,10 @@ function fakeTg() {
   const files: { chat: number; name: string; content: string }[] = [];
   const greeted: { chat: number; text: string }[] = [];
   const tg: Telegram = {
-    send: async () => 'ok',
+    letter: async () => ({ result: 'ok' }),
+    edit: async () => ({ result: 'ok' }),
+    panel: async () => 'ok',
+    repanel: async () => 'ok',
     answer: async () => 'ok',
     button: async () => 'ok',
     async say(chat, text) {
@@ -85,6 +90,7 @@ function fakeTg() {
       greeted.push({ chat, text });
       return 'ok';
     },
+    checkout: async () => 'ok',
   };
   return { tg, said, files, greeted };
 }
@@ -465,5 +471,31 @@ describe('/stats: имя игрока не становится формулой
     expect(cell('Город; с точкой')).toBe('"Город; с точкой"');
     expect(cell(-5)).toBe('-5');
     expect(cell(0)).toBe('0');
+  });
+});
+
+describe('указ — весть игроку в бот (ВС-1)', () => {
+  /**
+   * ВС-1 (род «указы»): указ кладёт игроку весть в исходящие — что прибавлено и убавлено, с номером указа. Ключ — номер:
+   * два указа — две вести, одну и ту же весть второй раз не положить. Идёт она обычной: склейкой, если указов несколько.
+   */
+  it('/give кладёт игроку весть об указе — в его исходящие и только в его', async () => {
+    const s = memoryStores();
+    const t = fakeTg();
+    // Своя минута, позже всех в файле: предел команд админа в минуту (`commands.PER_MINUTE`) — общий на файл тестов, и
+    // часы назад его ведро не пускают. Поэтому и блок — последним.
+    const at = NOW + 30 * 60_000;
+    await saveCall(s, 'PUT', { baseEtag: null, record: record(card()) }, at);
+    await command(s, t, ADMIN, '/give 7001 дерево 500 копейщики -3', at);
+    await command(s, t, ADMIN, '/give 7001 золото 50', at);
+    const rec = readNotify(s.json(STORES.notify, 'tg-7001'));
+    expect(rec.srv.map((i) => [i.key, i.kind, i.p.n, i.p.stock, i.p.troops])).toEqual([
+      ['grant:1', 'grant', 1, { wood: 500 }, { spearman: -3 }],
+      ['grant:2', 'grant', 2, { gold: 50 }, undefined],
+    ]);
+    expect(rec.srv.map(topicOf)).toEqual(['grants', 'grants']);
+    expect([...(s.data.get(STORES.notify)?.keys() ?? [])]).toEqual(['tg-7001']);
+    expect([...(s.data.get(STORES.due)?.keys() ?? [])].every((k) => k.endsWith('/tg-7001'))).toBe(true);
+    expect(noticeText(rec.srv[0], '')).toBe('Пришёл указ: древесина +500, копейщики −3. Всё ляжет в город, как зайдёшь в игру.');
   });
 });

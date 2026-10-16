@@ -6,9 +6,10 @@
  * дугой и шлёпается, по воде идут круги, поплавок вздрагивает и тонет, удилище гнётся дугой к рыбе, рыба бьётся у
  * поверхности и выпрыгивает, катушка трещит, а вытащенная рыба висит перед глазами и блестит.
  *
- * ВЕСЬ ЭКРАН — ОДНА РУКА (`Play.oneHand`): ходить на берегу некуда. Палец тянет вниз — замах (сила), ведёт вбок —
- * куда бросить, снят — заброс. На ожидании касание — подсечка. На вываживании держишь — подтягиваешь, отпустил — рыба
- * берёт леску, ведёшь вбок — удилище против рывка. Взгляд ведёт игра (`Play.lead`): за поплавком и за рыбой.
+ * РУКИ (docs/minigames.md, 18.1): слева — палец движения, справа — кнопка. Ходить на берегу некуда: палец вбок —
+ * куда бросить, на вываживании — удилище против рывка. Кнопку держат — замах, сила растёт (`CHARGE_S`), отпустили —
+ * заброс; на ожидании нажатие — подсечка; на вываживании держишь — подтягиваешь, отпустил — рыба берёт леску. Взгляд
+ * ведёт игра (`Play.lead`): за поплавком и за рыбой.
  *
  * БЕРЕГ ПОВЁРНУТ К СОЛНЦУ. Правило считает в своих осях (вода — к −Z); сцена ставит весь берег одной группой так, чтобы
  * утреннее солнце стояло слева-спереди (`SHORE_YAW`): по воде бежит его блик, а поплавок не теряется в нём.
@@ -20,7 +21,6 @@ import type { Surfaces } from '@/prologue/surface';
 import type { Shade } from '@/prologue/models';
 import type { Blocker } from '@/prologue/glade';
 import { EYE } from '@/prologue/glade';
-import { LOOK_RAD_PER_PX } from '@/prologue/controls';
 import { KEY_AZIMUTH } from '@/render/lighting';
 import type { Season } from '@/game/types';
 import type { Zone } from '@/render/climate';
@@ -32,6 +32,7 @@ import {
   BANK_Z,
   CAST_ARC,
   CAST_WEAK,
+  FISH_STREAK,
   Fishing,
   castPoint,
   dirOf,
@@ -67,8 +68,9 @@ import {
 } from './fishModels';
 import { FishRig } from './fishRig';
 import { fishSound, type Ear, type FishSound } from './fishSound';
-import type { Tally, Target } from './rules';
+import type { Hour, Tally, Target } from './rules';
 import type { Play } from './stage';
+import { LAYOUT_OF } from './pad';
 
 /** Где ловят: берег, пояс, сезон и дождь — оболочка выводит их из города (`ui/parts/weather`). */
 export interface FishContext {
@@ -77,6 +79,8 @@ export interface FishContext {
   season: Season;
   /** Дождь сейчас, 0..1: круги на воде и мокрый берег. */
   rain: number;
+  /** Час города: на зорьке клюёт бойко, днём — лениво (`fishing.HOUR_BITE`). Нет — утро. */
+  hour?: Hour;
 }
 
 /**
@@ -94,9 +98,12 @@ export const sunYaw = (solar: number): number => KEY_AZIMUTH + (solar - 0.25) * 
 /** Поворот берега: вода правила (−Z) — туда, где солнце слева-спереди. */
 export const SHORE_YAW = sunYaw(SOLAR) - SUN_LEFT;
 
-/** Полный замах — палец ушёл вниз на столько точек экрана; удилище вбок до упора — на столько вбок. */
-export const PULL_FULL = 170 * LOOK_RAD_PER_PX;
-export const ROD_FULL = 130 * LOOK_RAD_PER_PX;
+/**
+ * Замах — кнопкой (docs/minigames.md, 18.1): держишь «Заброс» — удилище уходит за плечо и сила растёт, полная — за
+ * столько секунд; отпустил — бросок. Полторы секунды — чтобы ближний заброс и дальний различались на глаз, а не на
+ * кадр: метка на воде бежит от берега, и отпускают, когда она легла, куда надо.
+ */
+export const CHARGE_S = 1.4;
 
 /** Брызги: от поплавка — горсть, от рыбы — веер, от вытащенной — капли. */
 const SPLASH: Record<'float' | 'fish' | 'drip' | 'jump', Burst> = {
@@ -145,7 +152,8 @@ export class FishPlay implements Play {
   /** На берегу не ходят: удочка — весь экран. */
   readonly roam = 0.01;
   readonly shadowHalf = 16;
-  readonly oneHand = true;
+  /** Слева — палец движения (куда бросить, удилище вбок), справа — кнопка: заброс, подсечка, тянуть. */
+  readonly layout = LAYOUT_OF.fish;
   readonly fog: { near: number; far: number };
   readonly far: number;
   readonly focus = 60;
@@ -175,7 +183,8 @@ export class FishPlay implements Play {
   private rings: { x: number; z: number; t0: number; a: number }[] = [];
   private ringNext = 0;
   /** Замах: сколько протянул палец, рад взгляда; сила — доля полного. */
-  private pull = 0;
+  /** С какой секунды часов рига держат «Заброс»; не держат — `null`. */
+  private chargeFrom: number | null = null;
   /** Удилище вбок, −1..1 — копится от пальца на вываживании. */
   private rodSide = 0;
   private rodSent = 0;
@@ -204,7 +213,8 @@ export class FishPlay implements Play {
 
   constructor(seed: number, ctx: FishContext) {
     this.ctx = ctx;
-    this.game = new Fishing(seed, { shore: ctx.shore, zone: ctx.zone, season: ctx.season });
+    // С серией рыб подряд (`fishing.FISH_STREAK`) — правила этапа 6.
+    this.game = new Fishing(seed, { shore: ctx.shore, zone: ctx.zone, season: ctx.season, hour: ctx.hour }, true);
     const sea = ctx.shore === 'sea';
     this.fog = sea ? { near: 40, far: 420 } : { near: 30, far: 150 };
     this.far = sea ? 800 : 260;
@@ -310,7 +320,7 @@ export class FishPlay implements Play {
   draw(t: number): void {
     const was = this.game.phase;
     this.game.press(t);
-    if (was === 'idle' && this.game.phase === 'charge') this.pull = 0;
+    if (was === 'idle' && this.game.phase === 'charge') this.chargeFrom = this.clock;
   }
 
   loose(t: number, shoot: boolean): void {
@@ -319,27 +329,40 @@ export class FishPlay implements Play {
       const power = this.power();
       this.flyFrom.copy(this.tipLocal());
       this.game.release(t, power, this.aimYaw(), shoot);
-      this.pull = 0;
     } else this.game.release(t, 0, 0);
+    this.chargeFrom = null;
   }
 
-  steer(yaw: number, pitch: number, t: number): void {
-    const phase = this.game.phase;
-    if (phase === 'charge') {
-      // Вниз — замах сильнее, вверх — слабее: палец тянет удилище за плечо, как рогатку.
-      this.pull = Math.max(0, Math.min(PULL_FULL * 1.05, this.pull - pitch));
-    } else if (phase === 'fight' && this.game.line?.reeling !== undefined) {
-      if (yaw !== 0) this.rodSide = Math.max(-1, Math.min(1, this.rodSide - yaw / ROD_FULL));
-      if (Math.abs(this.rodSide - this.rodSent) > 0.03) {
-        this.rodSent = this.rodSide;
-        this.game.steer(t, this.rodSide);
-      }
+  /** Палец движения вбок на вываживании — удилище против рывка (−1 влево, 1 вправо); в замахе он водит взглядом. */
+  pad(strafe: number, t: number): void {
+    if (this.game.phase !== 'fight' || !this.game.line) return;
+    this.rodSide = Math.max(-1, Math.min(1, strafe));
+    if (Math.abs(this.rodSide - this.rodSent) > 0.03) {
+      this.rodSent = this.rodSide;
+      this.game.steer(t, this.rodSide);
     }
   }
 
-  /** Сила замаха, 0..1. */
+  /** Сила замаха, 0..1: сколько держат «Заброс». */
   power(): number {
-    return Math.max(0, Math.min(1, this.pull / PULL_FULL));
+    return this.chargeFrom === null || this.game.phase !== 'charge' ? 0 : Math.max(0, Math.min(1, (this.clock - this.chargeFrom) / CHARGE_S));
+  }
+
+  /** Кнопка действия по фазе: заброс держат, подсечку жмут, катушку держат. */
+  act(): { label: string; ready: boolean; hold: boolean; on: boolean } {
+    const g = this.game;
+    switch (g.phase) {
+      case 'idle':
+        return { label: 'Заброс', ready: true, hold: true, on: false };
+      case 'charge':
+        return { label: 'Заброс', ready: true, hold: true, on: true };
+      case 'wait':
+        return { label: 'Подсечь', ready: true, hold: false, on: false };
+      case 'fight':
+        return { label: 'Тянуть', ready: true, hold: true, on: !!g.line?.reeling };
+      default:
+        return { label: g.phase === 'show' ? 'Тянуть' : 'Подсечь', ready: false, hold: false, on: false };
+    }
   }
 
   /** Куда бросает: рыскание камеры в осях правила. */
@@ -351,10 +374,6 @@ export class FishPlay implements Play {
   lookScale(): number {
     // Взгляд за пальцем — только в замахе: вбок — куда бросить. Дальше палец — удочка, а взгляд ведёт игра.
     return this.game.phase === 'charge' || this.game.phase === 'idle' ? 1 : 0;
-  }
-
-  pitchScale(): number {
-    return 0;
   }
 
   stride(): number {
@@ -392,7 +411,8 @@ export class FishPlay implements Play {
       case 'show':
         return { yaw, pitch: pitch + (-0.22 - pitch) * k };
       default:
-        return { yaw, pitch: pitch + (-0.1 - pitch) * (1 - Math.exp(-dt * 1.5)) };
+        // Готовая удочка: взгляд водит палец, но не дальше дуги заброса — бросать за неё некуда.
+        return { yaw: SHORE_YAW + Math.max(-CAST_ARC, Math.min(CAST_ARC, wrap(yaw - SHORE_YAW))), pitch: pitch + (-0.1 - pitch) * (1 - Math.exp(-dt * 1.5)) };
     }
   }
 
@@ -406,17 +426,21 @@ export class FishPlay implements Play {
   cue(): string {
     switch (this.game.phase) {
       case 'idle':
-        return 'Тяни вниз и отпусти — заброс';
+        return 'Держи «Заброс» и отпусти';
       case 'charge':
-        return this.power() < CAST_WEAK ? 'Тяни вниз — сильнее' : 'Веди вбок — куда, отпусти — заброс';
+        return this.power() < CAST_WEAK ? 'Держи — сильнее' : 'Пальцем вбок — куда, отпусти — заброс';
       case 'flight':
       case 'wait':
-        return 'Утонет поплавок — жми';
+        return 'Утонет поплавок — «Подсечь»';
       case 'fight':
-        return 'Держи — тянуть, отпусти — дать леску';
+        return 'Держи — тянуть, пальцем вбок — удилище';
       default:
         return '';
     }
+  }
+
+  streak(): number {
+    return this.game.streak?.run ?? 0;
   }
 
   aside(): string {
@@ -560,7 +584,9 @@ export class FishPlay implements Play {
         case 'caught': {
           this.shown = e.fish;
           const kg = weightText(e.fish.grams);
-          this.notes.push(e.fish.trophy ? `Трофей · ${e.fish.def.big}, ${kg}` : `${e.fish.def.name}, ${kg}`);
+          const run = this.game.streak?.run ?? 0;
+          const more = run >= FISH_STREAK.from ? ` · серия ${run}` : '';
+          this.notes.push(e.fish.trophy ? `Трофей · ${e.fish.def.big}, ${kg}${more}` : `${e.fish.def.name}, ${kg}${more}`);
           this.splash(0, BANK_Z - 0.6, SPLASH.fish);
           this.ring(0, BANK_Z - 0.8, 1.2);
           this.sound?.caught(e.fish.trophy);

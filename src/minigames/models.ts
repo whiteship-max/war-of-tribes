@@ -20,14 +20,15 @@ import type { Season } from '@/game/types';
 const tint = (hex: number): K.Paint => ({ mat: KIT.body, tint: new THREE.Color(hex) });
 
 /** Листва кустов по виду: черника светлее и мельче, брусника тёмная и глянцевая, малина — светлая зелень на бурых стеблях. */
-const LEAF: Record<BushKind, number> = { bilberry: 0x5d8f45, cowberry: 0x417a3e, raspberry: 0x6aa04d };
+const LEAF: Record<BushKind, number> = { bilberry: 0x5d8f45, cowberry: 0x417a3e, raspberry: 0x6aa04d, strawberry: 0x4c8f3a };
 const CANE = 0x6f4a35;
 
 /** Спелая ягода по виду и зелёная — от неё ягода краснеет (синеет) по ходу игры (`berries.blush`). */
-export const BERRY_RIPE: Record<BushKind, number> = { bilberry: 0x26326e, cowberry: 0xbd2235, raspberry: 0xd23a52 };
-export const BERRY_GREEN: Record<BushKind, number> = { bilberry: 0x8db55a, cowberry: 0xb7c76a, raspberry: 0xd4d98a };
+// Земляника — алая, ярче брусники и малины, а зелёная — белёсая: редкий куст читается с края поляны.
+export const BERRY_RIPE: Record<BushKind, number> = { bilberry: 0x26326e, cowberry: 0xbd2235, raspberry: 0xd23a52, strawberry: 0xf0301e };
+export const BERRY_GREEN: Record<BushKind, number> = { bilberry: 0x8db55a, cowberry: 0xb7c76a, raspberry: 0xd4d98a, strawberry: 0xe8e4c2 };
 /** Ягода — сколько в поперечнике, м. Крупнее настоящей вдвое: с трёх шагов на телефоне она должна читаться точкой цвета. */
-export const BERRY_SIZE: Record<BushKind, number> = { bilberry: 0.07, cowberry: 0.065, raspberry: 0.085 };
+export const BERRY_SIZE: Record<BushKind, number> = { bilberry: 0.07, cowberry: 0.065, raspberry: 0.085, strawberry: 0.08 };
 
 /** Кусты всей поляны — одним мешем. Ягоды — отдельно (`berriesMesh`): у них свой цвет на каждую. */
 export function bushesMesh(bushes: readonly Bush[]): THREE.Mesh {
@@ -168,13 +169,18 @@ interface Coat {
 const COATS: Record<BeastKind, Coat> = {
   sheep: { body: 0xe4dccb, belly: 0xcfc5b0, head: 0x2f2a2c, legs: 0x2f2a2c, horn: 0xcdbf9f },
   goat: { body: 0x8b6a4c, belly: 0xd8cfbf, head: 0x7a5a40, legs: 0x4a3a2c, horn: 0xbfb08c },
+  // Ягнёнок белее матери: шерсть не отросла и не посерела.
+  lamb: { body: 0xf6f2e8, belly: 0xe6dfd0, head: 0x3a3234, legs: 0x3a3234, horn: 0xcdbf9f },
   cow: { body: 0x7a4f33, belly: 0xe6dfd0, head: 0x6c452c, legs: 0x5a3b26, horn: 0xe0d6bc, patch: 0xe9e3d6 },
 };
 
 /** Высота спины — от неё стоит зверь; ноги — ниже. */
-export const BACK: Record<BeastKind, number> = { sheep: 0.72, goat: 0.74, cow: 1.3 };
+export const BACK: Record<BeastKind, number> = { sheep: 0.72, goat: 0.74, cow: 1.3, lamb: 0.72 * 0.66 };
 /** Длина ног: столько опускается лёгшее. */
-export const LEGS: Record<BeastKind, number> = { sheep: 0.36, goat: 0.42, cow: 0.68 };
+export const LEGS: Record<BeastKind, number> = { sheep: 0.36, goat: 0.42, cow: 0.68, lamb: 0.36 * 0.66 };
+
+/** Ягнёнок — овца в две трети: та же лепка, сжатая целиком (`beast`). */
+const LAMB_K = 0.66;
 
 /**
  * Животное: туловище с головой — один меш, ноги — второй. Двух хватает: идущее качается туловищем, лёгшее опускает
@@ -182,12 +188,15 @@ export const LEGS: Record<BeastKind, number> = { sheep: 0.36, goat: 0.42, cow: 0
  */
 export function beast(kind: BeastKind): THREE.Group {
   const c = COATS[kind];
-  const back = BACK[kind];
-  const leg = LEGS[kind];
+  // Ягнёнка лепят овцой в полный рост и сжимают в конце: пропорции — её, высота спины и ног — его (`BACK`, `LEGS`).
+  const lamb = kind === 'lamb';
+  const shape: BeastKind = lamb ? 'sheep' : kind;
+  const back = BACK[shape];
+  const leg = LEGS[shape];
   const body: K.Part[] = [];
   const legs: K.Part[] = [];
   const wool = tint(c.body);
-  if (kind === 'sheep') {
+  if (shape === 'sheep') {
     const g = new THREE.IcosahedronGeometry(0.36, 1);
     g.scale(0.95, 0.85, 1.35);
     body.push(K.place(g, wool, 0, back - 0.26, 0));
@@ -195,7 +204,7 @@ export function beast(kind: BeastKind): THREE.Group {
     body.push(K.place(tuft, wool, 0, back - 0.02, 0.32));
     body.push(K.box(0.16, 0.2, 0.26, tint(c.head), 0, back - 0.12, 0.55, { x: 0.35 }));
     for (const sx of [-1, 1]) body.push(K.box(0.12, 0.04, 0.06, tint(c.head), sx * 0.12, back - 0.04, 0.5, { z: sx * 0.4 }));
-  } else if (kind === 'goat') {
+  } else if (shape === 'goat') {
     body.push(K.box(0.3, 0.32, 0.72, wool, 0, back - 0.18, 0));
     body.push(K.box(0.26, 0.1, 0.62, tint(c.belly), 0, back - 0.36, 0.02));
     body.push(K.cyl(0.08, 0.1, 0.36, wool, 5, 0, back - 0.02, 0.4, { x: -0.6 }));
@@ -226,10 +235,10 @@ export function beast(kind: BeastKind): THREE.Group {
     body.push(K.cyl(0.02, 0.025, 0.7, wool, 4, 0, back - 0.5, -0.72, { x: 0.2 }));
     body.push(K.box(0.2, 0.12, 0.2, tint(0xd4a6a0), 0, back - 0.7, -0.3));
   }
-  const spread = kind === 'cow' ? 0.2 : 0.1;
-  const front = kind === 'cow' ? 0.5 : 0.26;
-  const rear = kind === 'cow' ? -0.5 : -0.24;
-  const thick = kind === 'cow' ? 0.065 : 0.032;
+  const spread = shape === 'cow' ? 0.2 : 0.1;
+  const front = shape === 'cow' ? 0.5 : 0.26;
+  const rear = shape === 'cow' ? -0.5 : -0.24;
+  const thick = shape === 'cow' ? 0.065 : 0.032;
   for (const sx of [-1, 1]) for (const z of [front, rear]) legs.push(K.cyl(thick, thick * 0.8, leg + 0.06, tint(c.legs), 5, sx * spread, leg / 2, z, undefined, K.GROUND_AO));
   const g = new THREE.Group();
   g.name = kind;
@@ -237,6 +246,10 @@ export function beast(kind: BeastKind): THREE.Group {
   torso.name = 'torso';
   const feet = K.assemble(legs);
   feet.name = 'legs';
+  if (lamb) {
+    torso.geometry.scale(LAMB_K, LAMB_K, LAMB_K);
+    feet.geometry.scale(LAMB_K, LAMB_K, LAMB_K);
+  }
   feet.castShadow = false;
   g.add(torso, feet);
   g.userData.r = BEASTS[kind].r;

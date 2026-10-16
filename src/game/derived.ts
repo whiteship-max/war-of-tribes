@@ -64,12 +64,11 @@ import {
   SMITH_WORK,
   SOLDIER_FOOD,
   STRAIN_DAYS,
-  UPGRADE_GROWTH,
   VILLAGER_DEFENSE,
   emptyResources,
 } from './constants';
 import { asGame, sessionSec, type GameSec } from './pace';
-import { BUILDING_BY_ID, MASTERS_AT, type BuildingDef, type BuildingStats, slotsAt } from './data/buildings';
+import { BUILDING_BY_ID, MASTERS_AT, type BuildingStats, slotsAt } from './data/buildings';
 import { surveyRadiusOf } from './data/survey';
 import { buildRateOf, defenseOf, hallBuildMult, housingOf, stashAt, storageOf, type Levels } from './build';
 import { FAITH_BY_ID, OBSERVANCE_BY_ID, tiltAt, type FaithDef, type FaithTilt } from './data/faiths';
@@ -80,7 +79,7 @@ import { DESERT_SHARE, MASTER_PAID_AS, UPKEEP_TEXT } from './data/upkeep';
 import { BATTLE_MAN, troopTotal, troopsAfter, type TroopStack } from './battle/kinds';
 import { baseWage, mouthsOf, troopPower } from './battle/price';
 import { levelOutputMult } from './selfcost';
-import { upgradeWork } from './labour';
+import { upgradeCost, upgradeWork } from './labour';
 import { statAt, trainRateAt } from './train';
 import { DECREE_BY_ID, RATION_BY_ID, TAX_BY_ID, TAX_PER_POP, type DecreeDef, type RationDef, type TaxDef } from './data/policy';
 import {
@@ -238,21 +237,8 @@ export function maxLevelFor(type: BuildingTypeId): number {
   return Math.min(def.maxLevel ?? MAX_BUILDING_LEVEL, MAX_BUILDING_LEVEL);
 }
 
-const scaleCost = (
-  cost: Partial<Record<ResourceId, number>>,
-  k: number,
-): Partial<Record<ResourceId, number>> => {
-  const out: Partial<Record<ResourceId, number>> = {};
-  for (const r of RESOURCE_IDS) if (cost[r]) out[r] = Math.round((cost[r] as number) * k);
-  return out;
-};
-
-/** Цена улучшения до уровня toLevel: базовая стоимость, умноженная на `UPGRADE_GROWTH` за каждый уровень. */
-export const upgradeCost = (def: BuildingDef, toLevel: number): Partial<Record<ResourceId, number>> =>
-  scaleCost(def.cost, Math.pow(UPGRADE_GROWTH, toLevel - 1));
-
-/** Работа строителей на улучшение — растёт так же, как цена. Формула одна на игру и сервер (`game/labour.ts`). */
-export { upgradeWork };
+/** Цена и работа улучшения — растут одной лестницей. Формулы одни на игру и сервер (`game/labour.ts`). */
+export { upgradeCost, upgradeWork };
 
 export interface UpgradeInfo {
   /** Уровень, до которого улучшаем. */
@@ -466,8 +452,9 @@ export const armyPower = (s: GameState): number => troopPower(s.army ?? {});
 export const homeTroops = (s: GameState): TroopStack => troopsAfter(s.army ?? {}, s.away ?? {});
 
 /**
- * Бойцы в обороне деревни: гарнизон и дружина, собранная у своих ворот. Отряды в
- * пути и дружина в сборе и в поле деревню не защищают (`world/muster`).
+ * Бойцы в обороне деревни: гарнизон и отряд полководца, пока он в городе (и во время
+ * сбора тоже). Отряды в пути, сбор вне города и отряд в поле деревню не защищают
+ * (`world/muster`).
  */
 export const homeArmy = (s: GameState): number => troopTotal(homeTroops(s));
 
@@ -1041,13 +1028,18 @@ function yardYield(s: GameState, out: Resources, b: Building, mods: SeasonModifi
   addYield(out, job, bondedCount(s, b.id), mult * bondedShare(s));
 }
 
+/** Выработка вольного сбора без осады: свободные руки на работах без места в здании (`FREE_JOBS`). */
+function freeYield(s: GameState, out: Resources, mods: SeasonModifiers): void {
+  for (const job of FREE_JOBS) {
+    addYield(out, job, freeJobCount(s, job), workerMultiplier(s, job, null, mods));
+  }
+}
+
 /** Валовое производство за игровой день. */
 export function productionPerDay(s: GameState, mods: SeasonModifiers = seasonMods(s)): Resources {
   const out = emptyResources();
   for (const b of s.buildings) yardYield(s, out, b, mods);
-  for (const job of FREE_JOBS) {
-    addYield(out, job, freeJobCount(s, job), workerMultiplier(s, job, null, mods));
-  }
+  freeYield(s, out, mods);
   return cutBySiege(s, out);
 }
 
@@ -1055,6 +1047,16 @@ export function productionPerDay(s: GameState, mods: SeasonModifiers = seasonMod
 export function buildingProduction(s: GameState, b: Building, mods: SeasonModifiers = seasonMods(s)): Resources {
   const out = emptyResources();
   yardYield(s, out, b, mods);
+  return cutBySiege(s, out);
+}
+
+/**
+ * Что даёт за день вольный сбор — работы с Площади без места в здании. Валовое производство — сумма выработки зданий
+ * (`buildingProduction`) и этой; разбор «в день» запаса (`ui/next/hudTips`) пишет её строкой Площади.
+ */
+export function freeRangeProduction(s: GameState, mods: SeasonModifiers = seasonMods(s)): Resources {
+  const out = emptyResources();
+  freeYield(s, out, mods);
   return cutBySiege(s, out);
 }
 

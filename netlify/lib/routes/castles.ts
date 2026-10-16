@@ -9,10 +9,12 @@
  * уведомления (`routes/notify.ts`), и больше их нет: разбирающих записей
  * ровно две, это тест.
  *
- * Судьёй он от этого не стал. Имя, мощь и население он принимает как есть: что
- * игрок о себе написал, то и раздаётся соседям, и проверить это нечем — ни
- * ресурсов, ни построек он не видит. Он делает одну вещь, которую клиенту
- * доверить нельзя: **выбирает клетку**. Клиент, выбирающий себе место, — это
+ * Судьёй он от этого не стал. Имя он принимает как есть. Мощь и население — не
+ * больше того, что подтверждают книги стройки, войска и жителей в наблюдении
+ * игрока (`watch.confirmedOf`, docs/security.md): приписанная мощь пугала бы
+ * соседей войском, которого нет. Партию он по-прежнему не разбирает — книги
+ * пишет запись партии. И одного он клиенту не доверяет вовсе: **клетку
+ * выбирает сам**. Клиент, выбирающий себе место, — это
  * клиент, выбирающий себе соседей: сесть вплотную к слабому, подальше от
  * сильного, за морем от всех сразу. Поэтому поля с координатами в теле запроса
  * нет вовсе, и завести его — не «изменить проверку», а сломать замысел.
@@ -28,9 +30,13 @@
 import { readInitData, saveKeyOf } from '../initdata.js';
 import { eraGate } from '../era.js';
 import { WRITE_TRIES, allow, botToken, deny, json, parseJson, readBody, spawnMode, type Route } from '../http.js';
-import { readClaim, type RosterFile, type RosterResponse } from '../contract.js';
+import { readClaim, type CastleClaim, type RosterFile, type RosterResponse } from '../contract.js';
 import { ROSTER_KEY, prune, readRoster, rosterEpoch, upsert, viewOf, worthWriting } from '../roster.js';
 import { STORES } from '../kv.js';
+import { confirmedOf, readWatchRecord } from '../watch.js';
+import { seedTown } from '../town.js';
+import { powerOfCounts } from '../../../src/profile/power.js';
+import { START_POP } from '../../../src/game/constants.js';
 
 /** Весь реестр лежит одним значением: его читают целиком и целиком переписывают. */
 const KEY = ROSTER_KEY;
@@ -103,8 +109,11 @@ export const castles: Route = async (req, io) => {
   const text = await readBody(req);
   if (text === null) return deny(413, 'too-big');
   const sent = parseJson<unknown>(text);
-  const claim = readClaim(sent);
-  if (!claim) return deny(400, 'bad-body');
+  const said = readClaim(sent);
+  if (!said) return deny(400, 'bad-body');
+  // Мощь и население — не больше подтверждённого (docs/security.md). Наблюдение не прочиталось — реестр подождёт.
+  const claim = await confirmedClaim(io, key, said);
+  if (!claim) return deny(503, 'busy', { 'retry-after': '10' });
 
   // Режим появления (docs/test_world.md): места острова или обычное расселение — один на весь запрос.
   const mode = spawnMode();
@@ -134,3 +143,24 @@ export const castles: Route = async (req, io) => {
   // писал в него быстрее. Игра попробует ещё раз своим чередом.
   return deny(429, 'slow-down', { 'retry-after': '10' });
 };
+
+/**
+ * Что игрок сообщил о себе, приведённое к подтверждённому книгами: мощь — формулой игры по подтверждённым уровням и войску,
+ * население — подтверждённые жители, войско и ученики (`derived.population`). Записи наблюдения ещё нет (первый заход до
+ * первой записи партии) — посёлок новой партии: всё первого уровня, войска нет, `START_POP` жителей. `null` — хранилище
+ * наблюдения не ответило.
+ */
+async function confirmedClaim(io: Parameters<Route>[1], player: string, said: CastleClaim): Promise<CastleClaim | null> {
+  let conf: ReturnType<typeof confirmedOf>;
+  try {
+    const found = await io.stores(STORES.watch, 'strong').getWithMetadata(player);
+    const rec = readWatchRecord(found ? parseJson(String(found.data)) : null);
+    conf = confirmedOf(rec);
+    if (conf) conf = { ...conf, pop: conf.pop + Object.values(conf.troops).reduce((t, x) => t + x, 0) + Math.min(rec.card?.queued ?? 0, rec.town?.queued ?? 0) };
+  } catch {
+    return null;
+  }
+  const power = conf ? powerOfCounts(conf.levels, conf.troops) : powerOfCounts(seedTown(1).levels, {});
+  const pop = conf ? conf.pop : START_POP;
+  return { ...said, power: Math.min(said.power, power), pop: Math.min(said.pop, pop) };
+}

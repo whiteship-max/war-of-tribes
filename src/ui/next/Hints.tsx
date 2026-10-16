@@ -8,7 +8,6 @@
 // входа, следующая — не раньше `HINT_GAP_MS` после предыдущей: подсказки не сыплются подряд, а приходят по ходу игры.
 import { useEffect } from 'react';
 import { useGame } from '@/game/store';
-import { buildingOfType } from '@/game/derived';
 import { tutorialActive } from '@/game/data/tutorial';
 import { HINTS, type HintCtx, type HintDef, type HintGo } from '@/game/data/hints';
 import { hintSeen, hintsOff, markHint } from '@/game/sim/hints';
@@ -17,6 +16,8 @@ import { castleCell, castles } from '@/net/roster';
 import { useRealm } from '@/ui/realm/open';
 import { energyNow, useTrades } from '@/ui/trades';
 import { modalUp, rectOf, useTip, type TipContent } from './tip';
+import { goTo as goToSource } from '@/ui/kit/nav';
+import { WINDOW } from '@/ui/kit/sources';
 import type { GameState } from '@/game/types';
 
 /** Первая подсказка — не раньше этого после входа в партию: сперва игрок смотрит на город сам. */
@@ -66,11 +67,9 @@ function goTo(go: HintGo): () => void {
   switch (go) {
     case 'townhall':
       return () => g.openTownHall();
-    case 'barracks':
-      return () => {
-        const b = buildingOfType(useGame.getState().s, 'barracks');
-        if (b) useGame.getState().openBuilding(b.id);
-      };
+    case 'army':
+      // Туда же, куда кнопка низа «Дружина» (`next/Nav`): одна кнопка — одно место (Д1).
+      return () => goToSource(WINDOW.army);
     case 'map':
       return () => g.openMap();
     case 'trades':

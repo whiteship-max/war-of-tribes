@@ -14,7 +14,7 @@
 import { allow, parseJson, type Io } from './http.js';
 import { STORES } from './kv.js';
 import { GRANT_MAX, STOCK_KEYS, TROOP_KEYS, cityName, cityOr, type StockKey, type TroopKey } from './contract.js';
-import { FLAG_WORD, big, blankWatch, noted, observe, readWatchRecord, signed, span, stockWord, type WatchRecord } from './watch.js';
+import { FLAG_WORD, big, blankWatch, confirmedOf, confirmedPower, noted, observe, readWatchRecord, signed, span, stockWord, type WatchRecord } from './watch.js';
 import {
   FROZEN_KEY,
   LOG_KEY,
@@ -42,6 +42,7 @@ import { SHOP_DAILY, gemLine } from '../../src/game/gemrules.js';
 import { peekGems, shopToday } from './gems.js';
 import { peekPayments } from './pay.js';
 import { payConfig } from './ton.js';
+import { grantNotice, outboxOf, queueNews } from './outbox.js';
 
 /** Команд в минуту от одного админа — больше живой человек не набирает. */
 const PER_MINUTE = 30;
@@ -350,6 +351,12 @@ async function player(io: Io, q: string): Promise<Reply> {
       `Промыслы: ${c.games} игр, добыча ${big(c.haul)}`,
       `Версия: ${c.build || '—'} · опись от ${when(rec.cardAt)}${c.cheated ? ' · коды проверки' : ''}${c.lead > 0 ? ` · ускорена на ${span(c.lead)}` : ''}`,
     );
+    // Правда сервера рядом со словами описи (docs/security.md): то, что идёт в войну, рейтинг и реестр замков.
+    const ok = confirmedOf(rec);
+    if (ok) {
+      const troops = Object.values(ok.troops).reduce((t, x) => t + x, 0);
+      lines.push(`Сервер подтверждает: ратуша ${ok.levels.town_hall ?? 0} · жителей ${big(ok.pop)} · войско ${big(troops)} · мощь ${big(confirmedPower(rec))}`);
+    }
   } else {
     lines.push('Описи партии ещё нет: игрок не сохранялся с новой версией игры.');
   }
@@ -378,6 +385,9 @@ async function give(io: Io, args: string[], admin: number, now: number): Promise
     return { v: 1 as const, seq: n, list: [...cur.list, { n, at: now, by: admin, stock: parsed.stock, troops: parsed.troops }] };
   });
   if (!done) return say('Указ не записался: хранилище занято. Повтори.');
+  // Весть игроку в бот (ВС-1, род «указы»): что легло. Не легла весть — указ цел, игрок увидит его в летописи.
+  const grant = done.list.find((g) => g.n === done.seq);
+  if (grant) await queueNews(outboxOf(io.stores), new Map([[f.key, { add: [grantNotice(grant)], drop: [] }]]), now);
   const what = grantText(parsed.stock, parsed.troops);
   await logAdmin(io.stores, { at: now, by: admin, who: f.key, what: `Указ №${done.seq}: ${what}` });
   await journal(io, f.key, now, 'grant', `Указ админа №${done.seq}: ${what}.`);

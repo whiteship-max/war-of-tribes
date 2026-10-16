@@ -5,7 +5,7 @@
 // Ядро стен не знает: бой у стены — полевой бой (docs/siege.md), и место ему даёт показ по метке записи
 // (`BattleRecord.site`). Отсюда правило: место меняет, **где** стоят и **как** идут, но не **кто** и **когда** падает —
 // потери, слом и бегство остаются журнальными (`site.test.ts`, «место не меняет темпа потерь»).
-import { hash, heightAt, type TwField } from './terrain';
+import { hash, heightAt, type TwField } from '../reel/terrain';
 
 /**
  * Место боя — те же строки, что `BattleRecord.site` мира (`world/types.ts`). Своим типом: показ мира не читает
@@ -82,6 +82,11 @@ export interface TwWall {
   towers: TwTower[];
   /** Кто стоит за стеной: город этой стороны. */
   side: 'attacker' | 'defender';
+  /**
+   * Частокол из брёвен, а не камень (ролик осады: стена до третьего уровня, docs/gfx.md, ГФ-2). Нет — камень, как у всякого
+   * боя у стены: ролик боя уровня стены не знает.
+   */
+  wood?: boolean;
 }
 
 export interface TwLadder {

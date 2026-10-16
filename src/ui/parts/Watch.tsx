@@ -2,7 +2,8 @@ import { useGame } from '@/game/store';
 import { SURVEY_MAX, SURVEY_STEPS } from '@/game/data/survey';
 import { cancelSurvey, startSurvey, surveyInfo } from '@/game/sim/actions';
 import { surveySeconds } from '@/game/sim/survey';
-import { Icon } from '@/ui/icons/Icon';
+import { Bar } from '@/ui/kit/Bar';
+import { Table, type Col, type TableRow } from '@/ui/kit/Table';
 import { Cost } from './Cost';
 import { count } from './plural';
 import { waitShort } from './wait';
@@ -16,7 +17,11 @@ import { waitShort } from './wait';
  * происходит, — за живыми данными идут лазутчик и деревенский круг.
  *
  * Уровень Дозора — потолок ступени, и недоступная ступень не прячется, а стоит
- * в списке с причиной: игрок обязан видеть, чего ему не хватает.
+ * в таблице с причиной: игрок обязан видеть, чего ему не хватает.
+ *
+ * Ход разведки — одной таблицей уровней (UI-8, Д11 и П7, docs/ui_v2.md, 5.7): прежде он стоял трижды — строкой «Округа
+ * разведана на» в «Что даёт городу», заголовком «ур. N из 10» с карточкой разъездов и десятью карточками уровней. Теперь
+ * в таблице видно, что пройдено, что идёт и что заперто; под ней — дело: разведать следующий уровень или отозвать разъезды.
  */
 export function Watch() {
   const s = useGame((g) => g.s);
@@ -25,33 +30,22 @@ export function Watch() {
 
   return (
     <>
-      <h3>
-        Разведка округи <span className="muted">ур. {info.done} из {SURVEY_MAX}</span>
-      </h3>
-      {/* Сколько клеток уже разведано, стоит строкой «Округа разведана на» в общих данных здания выше (`BuildingPanel.GenericData`). */}
+      <h3>Разведка округи</h3>
       <div className="note">Разведанная земля остаётся на карте навсегда. Что на ней происходит, видит лазутчик.</div>
+      <Table label="Уровни разведки" cols={SURVEY_COLS} rows={surveyRows(info, SURVEY_STEPS)} />
 
       {info.running ? (
-        <div className="card">
-          <div className="ico">🐎</div>
-          <div className="body">
-            <div className="title">
-              Ур. {info.running.n} · {count(info.running.radius, 'клетка', 'клетки', 'клеток')}
-              <span className="count">~{waitShort(info.left)}</span>
-            </div>
-            <div className="desc">Разъезды в поле</div>
-            <div className="progress">
-              <div style={{ width: `${Math.floor(info.progress * 100)}%` }} />
-            </div>
-          </div>
-          <button
-            className="btn ghost"
-            onClick={() => act((st) => cancelSurvey(st))}
-            aria-label="Отозвать разъезды"
-          >
-            ✕
+        <>
+          <Bar
+            value={Math.floor(info.progress * 100)}
+            max={100}
+            label={`Разъезды: ур. ${info.running.n}`}
+            text={`~${waitShort(info.left)}`}
+          />
+          <button className="btn ghost wide" onClick={() => act((st) => cancelSurvey(st))}>
+            Отозвать разъезды
           </button>
-        </div>
+        </>
       ) : info.next ? (
         <div className="upgrade">
           <Cost
@@ -65,42 +59,41 @@ export function Watch() {
             disabled={info.blocked !== null}
             onClick={() => act((st) => startSurvey(st))}
           >
-            Разведать
+            Разведать ур. {info.next.n}
           </button>
           <div className="hint">{info.blocked ?? info.next.effect}</div>
         </div>
       ) : (
-        <div className="note">Вся округа разведана</div>
+        <div className="note">Вся округа разведана — {SURVEY_MAX} из {SURVEY_MAX}.</div>
       )}
-
-      <h3>Уровни разведки</h3>
-      {SURVEY_STEPS.map((step) => {
-        const done = step.n <= info.done;
-        const now = info.running?.n === step.n;
-        const locked = step.n > info.level;
-        return (
-          <div className={`card as-row${done ? ' done' : ''}`} key={step.n}>
-            <div className="ico">{done ? '✅' : now ? '🐎' : locked ? '🔒' : '·'}</div>
-            <div className="body">
-              <div className="title">
-                Ур. {step.n}
-                <span className="count">{count(step.radius, 'клетка', 'клетки', 'клеток')}</span>
-              </div>
-              <div className="desc">
-                {done ? (
-                  step.effect
-                ) : locked ? (
-                  `Нужен Дозор ур. ${step.n}`
-                ) : (
-                  <>
-                    <Icon name="ui-time" glyph="⏱" /> {waitShort(surveySeconds(step, info.learning))}
-                  </>
-                )}
-              </div>
-            </div>
-          </div>
-        );
-      })}
     </>
   );
+}
+
+// Номер и округа — твёрдой ширины, тянется ход: срок и «Дозор ур. N» не режутся многоточием.
+const SURVEY_COLS: readonly Col[] = [
+  { key: 'n', title: 'Ур.', w: '36px' },
+  { key: 'r', title: 'Округа', align: 'right', w: '96px' },
+  { key: 'state', title: 'Ход', w: 'minmax(0, 1fr)' },
+];
+
+type Info = ReturnType<typeof surveyInfo>;
+
+/**
+ * Строки таблицы уровней: каждая ступень — номер, радиус и где она: «пройдено» (касание — что дала), «идёт» со сроком,
+ * срок следующей или «нужен Дозор ур. N». Чистая — её сверяет тест (`ui8.test.ts`).
+ */
+export function surveyRows(info: Info, steps: typeof SURVEY_STEPS): TableRow[] {
+  return steps.map((step) => {
+    const done = step.n <= info.done;
+    const now = info.running?.n === step.n;
+    const locked = step.n > info.level;
+    const state = done ? '✅ пройдено' : now ? `🐎 идёт, ~${waitShort(info.left)}` : locked ? `🔒 Дозор ур. ${step.n}` : `⏱ ${waitShort(surveySeconds(step, info.learning))}`;
+    return {
+      key: String(step.n),
+      cells: { n: step.n, r: count(step.radius, 'клетка', 'клетки', 'клеток'), state },
+      tip: () => ({ title: `Разведка, ур. ${step.n}`, body: step.effect }),
+      dim: locked && !done,
+    };
+  });
 }

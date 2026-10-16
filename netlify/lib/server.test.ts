@@ -292,7 +292,8 @@ describe('исходящие: ключ только из подписи или �
     expect(assigns).toEqual(['blob.key.slice(minute.length + 1)']);
     expect(deliver).toMatch(/if \(!PLAYER_KEY\.test\(player\)\)/);
     const calls = [...deliver.matchAll(/io\.notify\s*\.\s*\w+\(\s*([A-Za-z_$][\w$]*)/g)].map((m) => m[1]);
-    expect(calls.length).toBe(3);
+    // Четыре похода (ВС-1, очередь без потерь): прочесть, взять письма условно, перечитать и записать итог отправки.
+    expect(calls.length).toBe(4);
     expect([...new Set(calls)]).toEqual(['player']);
   });
 
@@ -331,8 +332,11 @@ describe('исходящие: ключ только из подписи или �
   it('хранилища исходящих трогают ровно приём, доставка, война (новости) и вебхук бота (рычаг)', () => {
     const uses = (re: RegExp): string[] => files().filter((f) => re.test(strip(readFileSync(f, 'utf8')))).map(rel).sort();
     expect(uses(/tribe-notify/)).toEqual(['lib/kv.ts']);
-    // Чистый старт (`era.ts`, docs/test_world.md) стирает их целиком и больше ничего с ними не делает.
-    expect(uses(/STORES\.(?:notify|due)\b/)).toEqual(['lib/deliver.ts', 'lib/era.ts', 'lib/routes/bot.ts', 'lib/routes/notify.ts', 'lib/routes/war.ts']);
+    // Чистый старт (`era.ts`, docs/test_world.md) стирает их целиком и больше ничего с ними не делает. Указ админа (ВС-1,
+    // род «указы») кладёт весть дверью исходящих (`outbox.outboxOf` → `queueNews`): команды хранилищ не называют сами.
+    expect(uses(/STORES\.(?:notify|due)\b/)).toEqual(['lib/deliver.ts', 'lib/era.ts', 'lib/outbox.ts', 'lib/routes/bot.ts', 'lib/routes/notify.ts', 'lib/routes/war.ts']);
+    expect([...read('lib/commands.ts').matchAll(/\b(?:queueNews|outboxOf)\(/g)].length).toBe(2);
+    expect(read('lib/commands.ts')).toMatch(/await queueNews\(outboxOf\(io\.stores\), new Map\(\[\[f\.key, \{ add: \[grantNotice\(grant\)\], drop: \[\] \}\]\]\), now\);/);
     expect(uses(/STORES\.stats\b/)).toEqual(['lib/deliver.ts', 'lib/era.ts']);
     expect(read('lib/era.ts')).not.toMatch(/STORES\.(?:notify|due|stats)\)/);
   });

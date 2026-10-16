@@ -10,12 +10,24 @@ import { CITY } from '../city/palette';
 import { Builder, box, tint } from '../city/geom';
 import { log } from '../city/kit';
 import type { Quality } from '../quality';
-import { MERLON_STEP, geometryOf, m } from './fort';
-import type { Crowd, CrowdExtras } from './crowd';
+import { MERLON_STEP, courseU, geometryOf, m } from './fort';
+import type { Crowd, CrowdExtras } from '../reel/crowd';
 import { PARAPET, type TwWall } from './site';
-import { hash, heightAt } from './terrain';
+import { hash, heightAt } from '../reel/terrain';
+import type { TwField } from '../reel/terrain';
 import type { TwPlan } from './plan';
-import { BREACH_BAND, ENGINE, FALL_TIME, armAngle, breachColumns, chunkFall, stoneAt, winching, type TwBarrage, type TwEngine, type TwStone } from './barrage';
+import { BREACH_BAND, ENGINE, FALL_TIME, armAngle, breachColumns, chunkFall, engineUp, stoneAt, winching, type TwBarrage, type TwEngine, type TwStone } from './barrage';
+
+/** Что сцене обстрела нужно от зовущего: уровень, поле, стена и сид. Плана боя она не знает (ролик осады — без него). */
+export interface WorksInput {
+  quality: Quality;
+  field: TwField;
+  wall: TwWall | null;
+  seed: number;
+}
+
+/** Сцена обстрела из плана боя: пролог перед штурмом (`plan.barrage`). */
+export const worksOfPlan = (plan: TwPlan): WorksInput => ({ quality: plan.quality, field: plan.field, wall: plan.site?.wall ?? null, seed: plan.cast.seed });
 
 /** Что есть на уровне: обломков и клубов на удар, дым, трещины, тени машин. */
 interface Detail {
@@ -57,13 +69,16 @@ export class Siegeworks {
   private disposables: { dispose(): void }[] = [];
   private detail: Detail;
   private arms: Partial<Record<TwEngine['kind'], THREE.InstancedMesh>> = {};
+  /** Рама каждой машины своим мешем, если машины встают и пропадают (ролик осады); иначе — одна на все. */
+  private frames: THREE.Mesh[] = [];
+  private timed: boolean;
   private stones: THREE.InstancedMesh;
   private debris: THREE.InstancedMesh | null = null;
   private puffs: THREE.InstancedMesh;
   private smoke: THREE.InstancedMesh | null = null;
   private fire: THREE.InstancedMesh | null = null;
   private cracks: THREE.InstancedMesh | null = null;
-  private chunks: { mesh: THREE.Mesh; pivot: THREE.Vector3; ground: number; at: number; spans: [number, number][] }[] = [];
+  private chunks: { mesh: THREE.Mesh; pivot: THREE.Vector3; ground: number; at: number; spans: [number, number][]; back?: number; again?: { at: number; back?: number }[] }[] = [];
   /** Осыпь у подножия пролома: камни встают с обвалом своего куска и лежат весь бой. */
   private rubble: THREE.InstancedMesh | null = null;
   private crew: CrowdExtras | null = null;
@@ -83,12 +98,13 @@ export class Siegeworks {
   private settled = false;
 
   constructor(
-    private plan: TwPlan,
+    private plan: WorksInput,
     private b: TwBarrage,
     crowd: Crowd,
   ) {
     this.group.name = 'tw-siegeworks';
     this.detail = DETAIL[plan.quality];
+    this.timed = b.engines.some((e) => e.from !== undefined || e.gone !== undefined);
     const mat = new THREE.MeshLambertMaterial({ color: 0xffffff, vertexColors: true });
     mat.name = 'tw-siegeworks';
     this.disposables.push(mat);
@@ -110,18 +126,21 @@ export class Siegeworks {
     const pg = new THREE.CircleGeometry(1, 9);
     const pm = new THREE.MeshBasicMaterial({ color: DUST, transparent: true, opacity: 0.32, depthWrite: false });
     pm.name = 'tw-barrage-dust';
-    this.puffs = this.instanced(pg, pm, b.stones.length * this.detail.puffs + (b.breach?.chunks.length ?? 0) * this.detail.puffs * 3, 'tw-barrage-dust', false);
+    this.puffs = this.instanced(pg, pm, b.stones.length * this.detail.puffs + (b.breach?.chunks.length ?? 0) * this.detail.puffs * 3 + (b.bursts?.length ?? 0) * this.detail.puffs * 2, 'tw-barrage-dust', false);
     this.puffs.renderOrder = 2;
     if (this.detail.smoke > 0 && b.smoke.length > 0) {
       const sm = new THREE.MeshBasicMaterial({ color: SMOKE, transparent: true, opacity: 0.42, depthWrite: false });
       sm.name = 'tw-smoke';
       this.smoke = this.instanced(new THREE.CircleGeometry(1, 10), sm, b.smoke.length * this.detail.smoke, 'tw-smoke', false);
       this.smoke.renderOrder = 3;
+    }
+    // Огонь — и на низком уровне: три конуса на столб стоят один вызов, а без них горящий город — просто город.
+    if (b.smoke.length > 0) {
       const fm = new THREE.MeshBasicMaterial({ color: FIRE });
       fm.name = 'tw-fire';
       this.fire = this.instanced(new THREE.ConeGeometry(0.55, 1.4, 5).translate(0, 0.7, 0), fm, b.smoke.length * 3, 'tw-fire', false);
     }
-    const w = plan.site?.wall ?? null;
+    const w = plan.wall;
     if (w && b.breach) {
       if (this.detail.cracks) this.buildCracks();
       this.buildChunks(w, mat);
@@ -142,12 +161,16 @@ export class Siegeworks {
     return mesh;
   }
 
-  /** Рамы машин — одним мешем; рычаги — инстансами по виду, поворотом по кадру. */
+  /**
+   * Рамы машин — одним мешем; рычаги — инстансами по виду, поворотом по кадру. Машины ролика осады встают и пропадают по
+   * своим секундам (`TwEngine.from`, `gone`): у них рама — своим мешем на машину, иначе их не спрятать порознь.
+   */
   private buildEngines(mat: THREE.Material): void {
-    const fb = new Builder();
+    let fb = new Builder();
     const oak = tint(CITY.oak, 0.95);
     const oakL = tint(CITY.oakLight, 1.0);
     for (const e of this.b.engines) {
+      if (this.timed) fb = new Builder();
       const s = Math.sin(e.yaw);
       const c = Math.cos(e.yaw);
       // Точка в осях машины (поперёк, вверх, вперёд), метры → единицы набора.
@@ -178,14 +201,9 @@ export class Siegeworks {
         // Скрутка жил на оси ложки.
         log(fb, P(-0.8, g.pivot, 0), P(0.8, g.pivot, 0), 0.26, tint(0x8a7656, 0.9), 6, true);
       }
+      if (this.timed) this.addFrame(fb, mat);
     }
-    const frames = geometryOf(fb);
-    const mesh = new THREE.Mesh(frames, mat);
-    mesh.name = 'tw-engines';
-    mesh.castShadow = this.detail.shadow;
-    mesh.receiveShadow = true;
-    this.group.add(mesh);
-    this.disposables.push(frames);
+    if (!this.timed) this.addFrame(fb, mat);
     // Рычаги: плечо вдоль +Z от оси (в начале координат), противовес у требушета — на коротком плече.
     for (const kind of ['trebuchet', 'mangonel'] as const) {
       const n = this.b.engines.filter((e) => e.kind === kind).length;
@@ -211,6 +229,17 @@ export class Siegeworks {
     }
   }
 
+  private addFrame(fb: Builder, mat: THREE.Material): void {
+    const frames = geometryOf(fb);
+    const mesh = new THREE.Mesh(frames, mat);
+    mesh.name = 'tw-engines';
+    mesh.castShadow = this.detail.shadow;
+    mesh.receiveShadow = true;
+    this.group.add(mesh);
+    this.frames.push(mesh);
+    this.disposables.push(frames);
+  }
+
   /** Трещины по наружной грани: зубцы от точки удара, видны с секунды удара. */
   private buildCracks(): void {
     const hits = this.b.stones.filter((s) => s.hit === 'wall' && s.chunk < 0);
@@ -224,15 +253,19 @@ export class Siegeworks {
   /** Целые куски над проломом — по столбцам пролома, сверху опущенной половины; до обвала стоят, потом ложатся. */
   private buildChunks(w: TwWall, mat: THREE.Material): void {
     const br = this.b.breach!;
-    const cols = breachColumns(br, this.plan.cast.seed);
+    const cols = breachColumns(br, this.plan.seed);
     const s = w.inward;
     const out = -s;
     const zo = m(w.z);
     const band = m(BREACH_BAND);
     const top = m(w.base) + m(w.top);
     const par = m(PARAPET);
-    const T = tint(CITY.stoneTints[0]);
-    const Tdark = tint(CITY.stoneTints[0], 0.86);
+    // Подножие целой стены: от него у неё идёт кладка и тень (`fort.ts`, тело стены).
+    const foot = m(w.base) - 1.6;
+    // Частокол (ролик осады, стена до третьего уровня) рушится брёвнами, а не кладкой.
+    const layer = w.wood ? 'wood' : 'ashlar';
+    const T = w.wood ? tint(CITY.timberGrey, 1.4) : tint(CITY.stoneTints[0]);
+    const Tdark = w.wood ? tint(CITY.timberGrey, 1.15) : tint(CITY.stoneTints[0], 0.86);
     for (const ch of br.chunks) {
       const cb = new Builder();
       let lowest = Infinity;
@@ -245,15 +278,17 @@ export class Siegeworks {
           if (e - a < 0.02) continue;
           const y0 = top - m(c.drop);
           lowest = Math.min(lowest, y0);
-          box(cb, m((a + e) / 2), zo + s * (band / 2), 0, out, m(e - a), band, y0, top, 'ashlar', T, null);
+          // Камень — той же сеткой и с той же тенью у подножия, что целая стена (`fort.ts`): до обвала кусок не виден.
+          const shade = w.wood ? {} : { ...courseU(m((a + e) / 2), m(e - a), out), vBase: foot, aoBottom: 0.72 + 0.28 * ((y0 - foot) / (top - foot)), grimeBottom: 0.9 * (1 - (y0 - foot) / (top - foot)) };
+          box(cb, m((a + e) / 2), zo + s * (band / 2), 0, out, m(e - a), band, y0, top, layer, T, null, shade);
         }
         // Парапет и зубцы — как у целой стены, по толщине опущенной полосы.
         const xa = m(a0);
         const xb = m(a1);
         const pt = Math.min(par, band);
-        box(cb, (xa + xb) / 2, zo + s * (pt / 2), 0, out, xb - xa, pt, top, top + 1.05, 'ashlar', Tdark, 'ashlar');
+        box(cb, (xa + xb) / 2, zo + s * (pt / 2), 0, out, xb - xa, pt, top, top + 1.05, layer, Tdark, layer, w.wood ? {} : courseU((xa + xb) / 2, xb - xa, out));
         for (let x = Math.ceil(xa / MERLON_STEP) * MERLON_STEP + MERLON_STEP / 2; x < xb - 0.3; x += MERLON_STEP) {
-          box(cb, x, zo + s * (pt / 2), 0, out, 0.85, pt, top + 1.05, top + 2.0, 'ashlar', T, 'ashlar');
+          box(cb, x, zo + s * (pt / 2), 0, out, 0.85, pt, top + 1.05, top + 2.0, layer, T, layer);
         }
         sumX += (a0 + a1) / 2;
         cnt++;
@@ -270,7 +305,7 @@ export class Siegeworks {
       mesh.position.copy(pivot);
       this.group.add(mesh);
       this.disposables.push(geo);
-      this.chunks.push({ mesh, pivot, ground: heightAt(this.plan.field, pivot.x, w.z - s * 2), at: ch.at, spans: ch.spans });
+      this.chunks.push({ mesh, pivot, ground: heightAt(this.plan.field, pivot.x, w.z - s * 2), at: ch.at, spans: ch.spans, back: ch.back, again: ch.again });
     }
     const n = this.chunks.length * this.detail.rubble;
     if (n > 0) {
@@ -293,7 +328,8 @@ export class Siegeworks {
     const still = t > b.seconds + COLLAPSE_LIFE && this.settled;
     // Рычаги (улеглось — стоят опущенными, не грузятся).
     const idx: Record<string, number> = { trebuchet: 0, mangonel: 0 };
-    for (const e of still ? [] : b.engines) {
+    if (this.timed) b.engines.forEach((e, k) => (this.frames[k].visible = engineUp(e, t)));
+    for (const e of still && !this.timed ? [] : b.engines) {
       const am = this.arms[e.kind]!;
       const g = ENGINE[e.kind];
       const th = armAngle(e, t);
@@ -301,9 +337,10 @@ export class Siegeworks {
       this.Q2.setFromAxisAngle(this.X, -th);
       this.Q.multiply(this.Q2);
       this.V.set(e.x, e.y + g.pivot, e.z);
-      am.setMatrixAt(idx[e.kind]++, this.M.compose(this.V, this.Q, this.S.set(1, 1, 1)));
+      const k = engineUp(e, t) ? 1 : 0;
+      am.setMatrixAt(idx[e.kind]++, this.M.compose(this.V, this.Q, this.S.set(k, k, k)));
     }
-    if (!still) for (const am of Object.values(this.arms)) am!.instanceMatrix.needsUpdate = true;
+    if (!still || this.timed) for (const am of Object.values(this.arms)) am!.instanceMatrix.needsUpdate = true;
     // Камни: в полёте; и на конце плеча взведённой машины, пока следующий её камень ещё не сорвался.
     let n = 0;
     const st = this.stones;
@@ -316,7 +353,7 @@ export class Siegeworks {
     }
     for (const e of b.engines) {
       const next = e.shots.find((s) => s > t);
-      if (next === undefined || armAngle(e, t) !== ENGINE[e.kind].cocked) continue;
+      if (next === undefined || !engineUp(e, t) || armAngle(e, t) !== ENGINE[e.kind].cocked) continue;
       const g = ENGINE[e.kind];
       const th = g.cocked;
       const r = g.arm;
@@ -357,7 +394,7 @@ export class Siegeworks {
     let n = 0;
     if (live) {
       const f = this.plan.field;
-      const w = this.plan.site?.wall ?? null;
+      const w = this.plan.wall ?? null;
       const outward = w ? -w.inward : 0;
       const C = this.C;
       for (const s of this.impactsNear(t, DEBRIS_LIFE, this.near)) {
@@ -411,13 +448,22 @@ export class Siegeworks {
         const age = t - (s.at + s.flight);
         for (let j = 0; j < per; j++) n = this.puff(n, s.x1, s.y1 - 0.4, s.z1, age, PUFF_LIFE, s.hit === 'wall' ? 2.4 : 1.8, s.seed * 13 + j, cam);
       }
+      // Пыль без камня (ролик осады: подкоп под стену, ворота рухнули): клубы с секунды `at`.
+      for (const bu of this.b.bursts ?? []) {
+        const age = t - bu.at;
+        if (age < 0 || age > COLLAPSE_LIFE) continue;
+        for (let j = 0; j < per * 2; j++) n = this.puff(n, bu.x + (hash(j, 7, 80) - 0.5) * bu.size, bu.y, bu.z, age - j * 0.04, COLLAPSE_LIFE, 2.6 * bu.size * 0.4 + 1.2, Math.round(bu.at * 100) * 31 + j, cam);
+      }
       // Обвал — облако во весь кусок и до земли.
-      const w = this.plan.site?.wall;
+      const w = this.plan.wall;
       for (const c of this.chunks) {
-        const age = t - c.at;
+        // Обвал и каждый следующий обвал того же куска (ролик осады: заделали — рухнул снова).
+        let at = c.at;
+        for (const a of c.again ?? []) if (t >= a.at) at = a.at;
+        const age = t - at;
         if (age < 0 || age > COLLAPSE_LIFE || !w) continue;
         for (let j = 0; j < per * 3; j++) {
-          const k = Math.round(c.at * 100) * 17 + j;
+          const k = Math.round(at * 100) * 17 + j;
           const x = c.pivot.x + (hash(k, 4, 87) - 0.5) * 6;
           const z = w.z - w.inward * (1 + hash(k, 5, 88) * 3);
           n = this.puff(n, x, c.ground + 0.5 + hash(k, 6, 89) * 3, z, age - j * 0.03, COLLAPSE_LIFE, 3.2, k, cam);
@@ -431,7 +477,7 @@ export class Siegeworks {
 
   private updateCracks(t: number): void {
     const cr = this.cracks;
-    const w = this.plan.site?.wall;
+    const w = this.plan.wall;
     if (!cr || !w) return;
     let n = 0;
     const faceZ = w.z - w.inward * 0.04;
@@ -454,7 +500,7 @@ export class Siegeworks {
   }
 
   private updateChunks(t: number): void {
-    const w = this.plan.site?.wall;
+    const w = this.plan.wall;
     if (!w) return;
     const outward = -w.inward;
     const rb = this.rubble;
@@ -490,11 +536,18 @@ export class Siegeworks {
 
   private updateSmoke(t: number, cam: THREE.Camera): void {
     const sm = this.smoke;
-    if (!sm) return;
+    if (sm) this.updateColumns(sm, t, cam);
+    this.updateFire(t);
+  }
+
+  /** Клубы дыма столбов: встают со сдвигом, растут, тают к верху. */
+  private updateColumns(sm: THREE.InstancedMesh, t: number, cam: THREE.Camera): void {
     let n = 0;
     const per = this.detail.smoke;
     for (const col of this.b.smoke) {
       if (t < col.from) continue;
+      // Догорело: последние клубы уходят вверх, новых нет.
+      if (col.to !== undefined && t > col.to + SMOKE_LIFE) continue;
       const since = t - col.from;
       // Столб разгорается за четыре секунды и дальше стоит.
       const grow = Math.min(1, since / 4);
@@ -503,6 +556,7 @@ export class Siegeworks {
         const off = (j / per) * SMOKE_LIFE;
         if (since < off) continue;
         const born = col.from + off + Math.floor((since - off) / SMOKE_LIFE) * SMOKE_LIFE;
+        if (col.to !== undefined && born > col.to) continue;
         const age = t - born;
         const u = age / SMOKE_LIFE;
         const k = Math.round(born * 10) * 7 + j;
@@ -517,13 +571,16 @@ export class Siegeworks {
     sm.count = n;
     sm.visible = n > 0;
     sm.instanceMatrix.needsUpdate = true;
-    // Огонь: три языка на столб, дрожат каждый в своём такте.
+  }
+
+  /** Огонь: три языка на столб, дрожат каждый в своём такте. */
+  private updateFire(t: number): void {
     const fi = this.fire;
     if (fi) {
       let k = 0;
       for (const [ci, col] of this.b.smoke.entries()) {
-        if (t < col.from) continue;
-        const grow = Math.min(1, (t - col.from) / 1.5);
+        if (t < col.from || (col.to !== undefined && t > col.to + 1)) continue;
+        const grow = Math.min(1, (t - col.from) / 1.5) * (col.to !== undefined && t > col.to ? 1 - (t - col.to) : 1);
         for (let j = 0; j < 3; j++) {
           const fl = 0.75 + 0.25 * Math.sin(t * (9 + j * 3.7) + ci * 2.1 + j) * Math.sin(t * 4.3 + j);
           const r = grow * (j === 0 ? 1 : 0.65) * col.size;

@@ -4,10 +4,10 @@ import { LocalWorld, HOME_ID } from './local/LocalWorld';
 import { NotifyingWorld } from './local/NotifyingWorld';
 import type { StoredMarch, WorldSave } from './local/state';
 import type { PlayerProfile, WorldPulse } from './types';
-import { draftNotices, sightFrom, type NoticeWorld } from './notice';
+import { draftBuild, draftNotices, sightFrom, type NoticeWorld } from './notice';
 import { inSight } from './fog';
 import { marchPosition } from './geo';
-import { CLIENT_KINDS, RESULT_KEEP, plainName, readNotices, type NoticeItem } from '../../netlify/lib/contract';
+import { CLIENT_KINDS, NOTICE_LIMITS, RESULT_KEEP, plainName, readNotices, type NoticeItem } from '../../netlify/lib/contract';
 import { shieldVillagers } from './lairs';
 import { SIEGE_IMMUNE } from './data/tuning';
 
@@ -141,12 +141,13 @@ const siegeFacts = (over: Partial<NonNullable<NoticeWorld['siege']>> = {}): NonN
 const only = (items: NoticeItem[], kind: NoticeItem['kind']): NoticeItem[] => items.filter((i) => i.kind === kind);
 
 describe('черновики: вид, ключ, «когда» и «годно до»', () => {
-  it('клиент составляет четыре вида и только их: о войне между игроками говорит сервер', () => {
-    // Вида «вернись в игру», «стройка готова», «награда ждёт» здесь быть не может: это
-    // напоминания игры о себе, и именно из-за них уведомления выключают целиком. Решение
-    // владельца (05.10.2026): о двух вещах — нападают и бой был (docs/NOTIFY.md, раздел 12).
-    // Фаза осады логова — пролом и мор (docs/siege_v2.md, 8.3): о значимом исходе, а не напоминание игры о себе.
-    expect([...CLIENT_KINDS]).toEqual(['raid', 'raid-fight', 'siege-fall', 'siege-phase']);
+  it('клиент составляет пять видов и только их: о войне между игроками и об указе говорит сервер', () => {
+    // Вида «вернись в игру», «награда ждёт» здесь быть не может: это напоминания игры о себе, и именно из-за них
+    // уведомления выключают целиком. Решение владельца (05.10.2026): о двух вещах — нападают и бой был (docs/NOTIFY.md,
+    // раздел 12). Фаза осады логова — пролом и мор (docs/siege_v2.md, 8.3): о значимом исходе.
+    // Стройка — слово владельца 16.10.2026 (ВС-1, раздел 13): в настройках бота есть род «стройка», и без вести
+    // «достроили» его переключатель не переключал бы ничего; выключается он там же, отдельно от боёв и осад.
+    expect([...CLIENT_KINDS]).toEqual(['raid', 'raid-fight', 'siege-fall', 'siege-phase', 'build']);
   });
 
   it('набег: «нападают» — с минуты, когда его видно, до прихода; «бой был» — в минуту прихода', () => {
@@ -579,4 +580,32 @@ describe('разрыв держит правду', () => {
     }
     expect(checked, 'точек внутри области').toBeGreaterThan(0);
   }, 60_000);
+});
+
+describe('черновик стройки (ВС-1)', () => {
+  it('«достроили»: минута — прогноз вверх до целой минуты, ключ — постройка, уровень и партия; сервер его принимает', () => {
+    const doneAt = T0 + 37 * MINUTE + 1;
+    const item = draftBuild({ type: 'smithy', level: 4, doneAt, party: 77 }, T0);
+    const at = Math.ceil(doneAt / MINUTE) * MINUTE;
+    expect(at).toBeGreaterThanOrEqual(doneAt);
+    expect(at - doneAt).toBeLessThan(MINUTE);
+    expect(item).toEqual({
+      key: 'build:smithy:4:77',
+      kind: 'build',
+      fireAt: at,
+      until: at + RESULT_KEEP,
+      p: { from: 'стройка', fate: 'plunder', about: at, building: 'smithy', level: 4 },
+    });
+    expect(readNotices([item], T0)).toEqual([item]);
+    // Пульс через секунды с тем же прогнозом — тот же пункт: список не дёргается.
+    expect(draftBuild({ type: 'smithy', level: 4, doneAt: at - 1, party: 77 }, T0 + 20_000)).toEqual(item);
+  });
+
+  it('стройки нет или она кончится дальше потолка списка — пункта нет', () => {
+    expect(draftBuild(null, T0)).toBeNull();
+    const far = draftBuild({ type: 'smithy', level: 4, doneAt: T0 + NOTICE_LIMITS.ahead, party: 1 }, T0);
+    expect(far).toBeNull();
+    const near = draftBuild({ type: 'smithy', level: 4, doneAt: T0 + NOTICE_LIMITS.ahead - NOTICE_LIMITS.skew - MINUTE, party: 1 }, T0);
+    expect(near && readNotices([near], T0)).toEqual([near]);
+  });
 });

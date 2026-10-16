@@ -139,4 +139,41 @@ describe('множитель из слепка доходит до действ�
     const g = (await w.figures()).find((f) => f.id === 'general')!;
     expect(g.readyAt - NOW).toBe(Math.round(Math.min(HANDOVER_MAX, HANDOVER_BASE + 10 * HANDOVER_PER_MAN) * TRAITS.muster));
   });
+
+  /**
+   * Решение владельца 16.10.2026 (docs/ui_v2.md, 6.11): сбор войска в своём городе всегда мгновенный — и в осаде; черта
+   * сбора («Мясник», ×1,5) — только для сбора в поле. Прежде роспуск в осаде шёл сбором с чертой. Точки области: осада
+   * под стенами открыта, полководец в городе с отрядом, черта не единица.
+   */
+  it('сбор в своём городе — мгновенный и в осаде; черта сбора — только в поле у своих ворот', async () => {
+    // Хлеба вдоволь: без него окно осады кончилось бы в ту же минуту (как `fed` в `agents.test`).
+    const { w } = await worldWith({ ...base, traits: TRAITS, food: 100_000, foodPerHour: 10, soldierFoodPerHour: 1 });
+    const inner = w as unknown as {
+      save: { home: { x: number; y: number }; marches: object[]; sieges: Record<string, unknown>; figures: { general: { troops?: object; phase: string } } };
+      gen: { settlements: { id: string; x: number; y: number; name: string }[] };
+      openSiegeAt(id: string, by: string, campId: string, at: number): void;
+    };
+    expect(TRAITS.muster, 'точка внутри области: черта сбора не единица').not.toBe(1);
+    // Отряд — дома, мгновенно; потом под стенами встаёт лагерь (как в `agents.test`, `campAtHome`).
+    expect(await w.setGarrison({ spearman: 20 })).toBeNull();
+    const home = inner.save.home;
+    const lair = inner.gen.settlements[0];
+    inner.save.marches.push({
+      id: 'camp-test', seed: 3, mission: 'raid', units: { warrior: 30 }, own: false, fromId: lair.id, targetId: 'home',
+      from: { x: lair.x, y: lair.y }, to: { ...home }, fromName: lair.name, toName: 'дом', departAt: NOW - 60_000,
+      arriveAt: NOW, phase: 'stay', power: 60, loot: null,
+    });
+    inner.openSiegeAt('home', lair.id, 'camp-test', NOW);
+    expect(inner.save.sieges.home, 'точка внутри области: лагерь под стенами').toBeTruthy();
+    expect((await w.sync({ ...base, traits: TRAITS, food: 100_000, foodPerHour: 10, soldierFoodPerHour: 1 })).siege, 'точка внутри области: осада идёт').toBeTruthy();
+    const before = (await w.figures()).find((f) => f.id === 'general')!;
+    expect(before.phase, 'точка внутри области: полководец в городе').toBe('home');
+    expect(before.regroup?.instant, 'в осаде своего города перевод мгновенный').toBe(true);
+    expect(before.regroup?.grow, 'добавить бойцов в осаде по-прежнему нельзя').toBeTruthy();
+    expect(await w.setGarrison({ spearman: 30 }), 'добавить — отказ осады').toBeTruthy();
+    expect(await w.setGarrison({ spearman: 5 })).toBeNull();
+    const after = (await w.figures()).find((f) => f.id === 'general')!;
+    expect(after.readyAt, 'роспуск в осаде — без срока и без черты').toBe(0);
+    expect(after.troops, 'отряд стал тем, что велели, сразу').toEqual({ spearman: 5 });
+  });
 });

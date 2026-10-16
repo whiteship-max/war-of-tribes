@@ -116,15 +116,23 @@ describe('правило развёртывания', () => {
     for (const unit of units) {
       const heads = foot(unit) + horse(unit);
       if (heads === 0) continue;
-      const least = Math.floor((3 * W) / heads) + 1;
-      const lines = [least, least + 1, 2 * least + 3, 10 * least].map((n) => {
-        const a = times(unit, n);
+      // Граница области, вторая: меньшая армия может поставить ту же линию — пеших и конных у неё не меньше, чем их стоит в
+      // первой линии большей. У самой малой армии полного строя этого может не быть: при нечётном W 97 у состава «пехота,
+      // лучники ×2, латные» на ней 146 пеших, а линия большей — 147 (W в центре и по 25 на краю), — повторить её она не может
+      // ничем. При W 94 та же точка попадала в область по чётности. Поэтому наименьшая — вдвое за границей полного строя;
+      // саму границу держит тест (б). Проверка — после свойства: мутация правила падает его утверждением, а не этим.
+      const full = Math.floor((3 * W) / heads) + 1;
+      const least = 2 * full;
+      const armies = [least, least + 1, 2 * least + 3, 10 * least].map((n) => times(unit, n));
+      const lines = armies.map((a) => {
         // Граница области: строй полон — пеших и конных больше, чем мест в первой линии; правило доли здесь и решает.
         expect(foot(a) + horse(a), `${JSON.stringify(a)}: строй полон`).toBeGreaterThan(3 * W);
         return deploy(a, W);
       });
       for (const s of lines.slice(1)) for (const id of FRONT) expect(s[id], `${JSON.stringify(unit)}: ряд ${id} у большей армии`).toEqual(lines[0][id]);
       const big = lines[lines.length - 1];
+      const inLine = (f: (x: Stack) => number): number => FRONT.reduce((n, id: Sector) => n + f(big[id]), 0);
+      expect(foot(armies[0]) >= inLine(foot) && horse(armies[0]) >= inLine(horse), `${JSON.stringify(unit)}: у меньшей людей на линию большей хватает`).toBe(true);
       // Правилу есть что решать: у большей армии конница ждёт в резерве, а края она делит с пешими.
       if (horse(big.R) > 0 && foot(big.A) > 0) decided += 1;
       if (foot(unit) > 0 && horse(big.B) > 0) center += 1;

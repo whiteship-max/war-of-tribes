@@ -6,8 +6,9 @@
  * падает; лук поднимается, тетива тянется к скуле, стрела летит дугой и остаётся торчать там, где легла, —
  * по воткнувшимся и учатся брать поправку.
  *
- * Палец во взгляде — тетива: лёг — тянет, ведёт — целится (взгляд вдвое тише), снят — выстрел. Сцена отдаёт эти
- * касания сюда (`Play.draw`, `Play.loose`); стик шага остаётся у левой руки — подкрадываться.
+ * Руки (docs/minigames.md, 18.1): слева — кнопка «Натянуть» — лёг палец — тянет, снят — выстрел; справа — палец движения:
+ * вбок — плавный поворот, вверх-вниз — шаг, а с натянутым луком — прицел (поворот вдвое с лишним тише). Сцена отдаёт
+ * касания кнопки сюда (`Play.draw`, `Play.loose`), а натяжку спрашивает (`Play.aiming`).
  *
  * Своим куском (`Minigame.tsx` грузит его по «На охоту»): «Ягоды» и «Скот» его не качают.
  */
@@ -28,10 +29,12 @@ import {
   GRAVITY,
   HOP_S,
   Hunt,
+  LOOSE_MIN,
   NOCK_S,
   ROAM_R,
   RUN_SPEED,
   START,
+  WHITE_WORTH,
   coverRadius,
   flightAt,
   pins,
@@ -40,8 +43,9 @@ import {
 } from './hunt';
 import { arrowsMesh, coverMesh, forestWall, meadowGround } from './huntModels';
 import { huntSound, type Ear, type HuntSound, type ThudKind } from './huntSound';
-import type { Tally, Target } from './rules';
+import type { Hour, Tally, Target } from './rules';
 import type { Play } from './stage';
+import { LAYOUT_OF } from './pad';
 
 /** Насколько уже угол обзора в полную натяжку: приближение лука — олень на тридцати шагах крупнее, метки дальше. */
 const ZOOM = 0.3;
@@ -79,12 +83,36 @@ const TRAIL: Burst = { colors: [0xf2ecdc, 0xe0d8c4], n: 1, speed: 0.04, up: 0, g
 /** Скрип лука — на этих долях натяжки: тис отзывается по мере того, как его гнут. */
 const CREAKS = [0.3, 0.65, 0.97];
 
+/** Шкура белого оленя: цвета модели оленя предыстории, выбеленные к кости, — силуэт тот же, рога светлее. */
+const WHITE_COAT = new THREE.Color(0xf1ece2);
+const WHITE_K = 0.82;
+
+/**
+ * Выбелить оленя или тушу: цвет в вершинах (`render/kit`, `assemble`) тянется к белой шкуре. Геометрия — копией: модель
+ * предыстории свою не делит, но чужое тело править на месте нельзя.
+ */
+function whiten(root: THREE.Object3D): void {
+  root.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (!m.isMesh) return;
+    m.geometry = m.geometry.clone();
+    const col = m.geometry.getAttribute('color') as THREE.BufferAttribute | undefined;
+    if (!col) return;
+    for (let i = 0; i < col.count; i++) {
+      col.setXYZ(i, col.getX(i) + (WHITE_COAT.r - col.getX(i)) * WHITE_K, col.getY(i) + (WHITE_COAT.g - col.getY(i)) * WHITE_K, col.getZ(i) + (WHITE_COAT.b - col.getZ(i)) * WHITE_K);
+    }
+    col.needsUpdate = true;
+  });
+}
+
 /** Что сказать над прицелом, когда стрела легла. */
 const LANDED: Record<string, string> = { ground: 'Мимо', cover: 'В дерево', bush: 'В куст', lost: 'Улетела', deer: 'В тушу' };
 
 export class HuntPlay implements Play {
   /** Утро: солнце над лесом, роса — тот час, когда выходят на опушку. */
   readonly solar = 0.13;
+  /** Слева — кнопка «Натянуть», справа — палец движения: повороты и шаг, с натянутым луком — прицел. */
+  readonly layout = LAYOUT_OF.hunt;
   readonly start = { ...START };
   readonly roam = ROAM_R;
   /** Тени — у ближних укрытий и оленей; дальше их съедает дымка, а коробка вдвое шире размыла бы ближние. */
@@ -130,8 +158,9 @@ export class HuntPlay implements Play {
   /** Сезон города — от земли (`land`): листва берёз и кустов. */
   private season: Season = 'summer';
 
-  constructor(seed: number) {
-    this.hunt = new Hunt(seed);
+  constructor(seed: number, hour: Hour = 'dawn') {
+    // Час города — слух оленей (`hunt.HOUR_EAR`); белый олень — раз в четыре выхода (`hunt.WHITE_P`).
+    this.hunt = new Hunt(seed, { hour, rare: true });
     this.blockers_ = this.hunt.field.cover.map((c) => ({ x: c.x, z: c.z, r: coverRadius(c) }));
   }
 
@@ -152,7 +181,9 @@ export class HuntPlay implements Play {
     for (let i = 0; i < DEER; i++) {
       // Оленуха — без рогов (`DeerSpec.doe`): у неё та же модель и тот же корпус для стрелы, рогов стрела не видит.
       const doe = this.hunt.field.deer[i].doe;
+      const white = !!this.hunt.field.deer[i].white;
       const d = surfaces.adopt(deerModel(!doe));
+      if (white) whiten(d);
       d.rotation.order = 'YXZ';
       this.heads.push(d.getObjectByName('head') ?? new THREE.Object3D());
       this.legsF.push(d.getObjectByName('legsFront') ?? new THREE.Object3D());
@@ -161,6 +192,7 @@ export class HuntPlay implements Play {
       scene.add(d);
       this.deer.push(d);
       const c = surfaces.adopt(carcassModel(!doe));
+      if (white) whiten(c);
       c.visible = false;
       scene.add(c);
       this.carcasses.push(c);
@@ -206,6 +238,7 @@ export class HuntPlay implements Play {
   begin(): void {
     this.sound ??= huntSound();
     this.sound.arm();
+    if (this.hunt.field.deer.some((d) => d.white)) this.notes.push(`В дальней кучке белый олень — ×${WHITE_WORTH}`);
   }
 
   draw(t: number): void {
@@ -240,6 +273,18 @@ export class HuntPlay implements Play {
 
   stride(): number {
     return this.hunt.pulling ? AIM_STRIDE : 1;
+  }
+
+  /** Натянут — палец движения вверх-вниз ведёт прицел, а не шаг (`pad.ts`). */
+  aiming(): boolean {
+    return this.hunt.pulling;
+  }
+
+  /** Кнопка «Натянуть»: держат — тянут (натянул — «Выстрел»: отпусти), отпустили — выстрел. Колчан пуст — гаснет. */
+  act(): { label: string; ready: boolean; hold: boolean; on: boolean } {
+    const pulling = this.hunt.pulling;
+    const ready = this.hunt.quiver > 0;
+    return { label: pulling && this.hunt.drawn() >= LOOSE_MIN ? 'Выстрел' : 'Натянуть', ready, hold: true, on: pulling && ready };
   }
 
   zoom(): number {
@@ -310,7 +355,8 @@ export class HuntPlay implements Play {
     const ear = this.ear();
     for (const e of events) {
       if (e.kind === 'hit') {
-        this.notes.push('Попал');
+        // Отметка попадания на прицеле — по «Попал» в начале отклика (`Minigame.tsx`); белый олень — с прибавкой.
+        this.notes.push(this.hunt.field.deer[e.id]?.white ? `Попал · белый олень ×${WHITE_WORTH}` : 'Попал');
         haptic('medium');
         this.sound?.thud('deer', ear, e.x, e.z);
         this.sparks.burst(e.x, DEER_BODY.y, e.z, PUFF.deer);

@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest';
 import { createInitialState } from '@/game/state';
 import { armyPower, housingCapacity, netPerDay, storageCap, upkeepInfo } from '@/game/derived';
 import { popGrowth } from '@/game/sim/population';
-import { TAP_TARGET } from '@/gestures';
+import { TAP_SLIP, TAP_TARGET } from '@/gestures';
 import { waitSpan } from '@/ui/parts/wait';
 import { shortNum } from '@/ui/parts/shortNum';
 import { count } from '@/ui/parts/plural';
@@ -18,12 +18,13 @@ import {
   TREND_DEAD,
   armyTip,
   fmtInt,
-  fmtRate,
   goldTip,
   isFull,
   moraleTip,
   perDay,
+  popRate,
   popTip,
+  rate,
   resTip,
   seasonLeft,
   seasonTip,
@@ -109,24 +110,32 @@ describe('числа подсказок верха — функциями игр
   const s = createInitialState(7);
   const text = (t: { title: string; body?: string }): string => `${t.title} ${t.body ?? ''}`;
 
-  it('золото: казна, сбор и жалованье — из `upkeepInfo`', () => {
+  // Разбор «в день» строками и двери к постройкам — `hudTips.test.ts`; здесь — заголовок и итог той же функцией игры.
+  it('золото: итог «в день» — сбор минус причитающееся жалованье (`upkeepInfo`)', () => {
     s.gold = 1234;
     const up = upkeepInfo(s);
     const t = goldTip(s, go);
     expect(t.title).toBe(`Золото · ${fmtInt(1234)}`);
-    expect(t.body).toBe(`Сбор ${fmtRate(up.income)} в день, жалованье ${fmtRate(up.wages)} в день.`);
+    expect(t.sum!.value).toBe(rate(up.income - up.due));
   });
 
   it('жители: число, крыши и прирост — из `housingCapacity` и `popGrowth`', () => {
     const t = popTip(s, go);
     expect(t.title).toBe(`Жители · ${fmtInt(s.pop)} из ${fmtInt(housingCapacity(s))}`);
     const g = popGrowth(s);
-    expect(t.body).toBe(g.blocked ?? `Прирост ${perDay(g.perDay)}.`);
+    expect(t.body).toBe(g.blocked ?? undefined);
+    expect(t.sum!.value).toBe(popRate(g.perDay));
+    expect(t.more!.sum!.value).toBe(fmtInt(housingCapacity(s)));
   });
 
-  it('дружина: мощь — из `armyPower`, жалованье войску — из `upkeepInfo`', () => {
-    const t = armyTip(s, go);
-    expect(t.body).toBe(`Мощь ${fmtInt(Math.round(armyPower(s)))}. Жалованье ${fmtRate(upkeepInfo(s).armyWages)} в день.`);
+  it('дружина: мощь — из `armyPower`, жалованье дружине — из `upkeepInfo`', () => {
+    const a = createInitialState(7);
+    a.army.spearman = 12;
+    const t = armyTip(a, go);
+    expect(t.body).toContain(`Мощь ${fmtInt(Math.round(armyPower(a)))}.`);
+    expect(t.sum!.value).toBe(rate(-upkeepInfo(a).armyWages));
+    // Область: жалованье не ноль — иначе итог «0» совпал бы с любой ошибкой.
+    expect(upkeepInfo(a).armyWages).toBeGreaterThan(0);
   });
 
   it('сезон: до следующего — словами `waitSpan`', () => {
@@ -143,7 +152,8 @@ describe('числа подсказок верха — функциями игр
     const t = resTip(half, r, 1, go);
     expect(t.title).toContain(fmtInt(storageCap(half)));
     expect(t.title).toContain(fmtInt(half.resources[r]));
-    expect(t.body).toBe(perDay(netPerDay(half)[r]));
+    expect(t.body).toBeUndefined();
+    expect(t.sum!.value).toBe(rate(netPerDay(half)[r]));
     const full = createInitialState(7);
     full.resources[r] = storageCap(full);
     expect(isFull(full, r)).toBe(true);
@@ -248,6 +258,8 @@ describe('цели касания нового вида — не меньше п
       ['.nx-alert', 'min-width'],
       ['.nx-nav button', 'height'],
       ['.nx-tip .nx-tip-go', 'height'],
+      // Главные кнопки подсказки — постройки, которые делают число (docs/ui_v2.md, 5.2).
+      ['.nx-tip .nx-tip-maker', 'min-height'],
       ['.nx-tip .nx-tip-x', 'height'],
       ['.nx-tip .nx-tip-x', 'width'],
       ['.ui-new .nx-top .coat-btn', 'height'],
@@ -300,10 +312,8 @@ describe('цели касания нового вида — не меньше п
       ['.nx-leadb', 'min-height'],
       ['.nx-crow', 'min-height'],
       ['.nx-act', 'height'],
-      ['.nx-mrow', 'min-height'],
-      ['.nx-mico', 'height'],
-      ['.nx-mico', 'width'],
-      ['.nx-mtap', 'min-height'],
+      // «Походы» таблицами (UI-7): имя человека и отряда — кнопка в ячейке.
+      ['.mr-who', 'min-height'],
       ['.nx-ico44', 'height'],
       ['.nx-ico44', 'width'],
       // Весть: лупа, ответы, «Отложить»; донесение о бое: «итог или бой».
@@ -320,8 +330,12 @@ describe('цели касания нового вида — не меньше п
     }
   });
 
-  it('ячейки-справки запасов — 32: промах попадает в соседнюю такую же и стоит одной подсказки', () => {
-    expect(px('.nx-res', 'height')).toBeGreaterThanOrEqual(32);
+  // Решение владельца 16.10.2026 (docs/ui_v2.md, 6.3, К1): 32 → 33 — справка не меньше первого схода, который судья уже
+  // не считает тапом (`TAP_SLIP` + 1). Прежде тест держал 32 (ui_audit.md, 3.6).
+  it('ячейки-справки запасов — 33: промах попадает в соседнюю такую же и стоит одной подсказки', () => {
+    expect(px('.nx-res', 'height')).toBeGreaterThanOrEqual(TAP_SLIP + 1);
+    // Верх целиком — в своей высоте: строка 44, просвет 2 и запасы.
+    expect(44 + 2 + px('.nx-res', 'height')!, 'верх помещается в --hud-h').toBeLessThanOrEqual(Number(CSS.match(/--hud-h:\s*(\d+)px/)![1]));
   });
 });
 

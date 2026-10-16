@@ -2,9 +2,12 @@
 //
 // Области правил, и каждая проверяется утверждением в самом тесте (правило 11):
 // - отметки полководца — бой, в котором ведёт полководец: удар по двору, наш лагерь,
-//   удар по лагерю из поля; и у своих стен и на вылазке — только пока его дружина
-//   стоит у ворот (решение владельца 26.09.2026). Дружина не у ворот — там
-//   утверждается обратное: отметок нет. Каждая точка утверждает, что бой
+//   удар по лагерю из поля; и у своих стен и на вылазке — только пока он в городе
+//   (`muster.inTown`): с отрядом (решение владельца 26.09.2026), во время сбора внутри
+//   города (правило владельца 15.10.2026: полководец и его отряд, пока внутри города, в
+//   оборонительных боях считаются гарнизоном) и без отряда (решение владельца
+//   16.10.2026, docs/ui_v2.md, 6.10). Полководец в поле — там утверждается
+//   обратное: отметок нет. Каждая точка утверждает, что бой
 //   **состоялся** (ядро позвали), иначе «отметок нет» получалось бы даром, и что
 //   отметки у полководца есть, иначе «отметки есть» проверялось бы на пустом;
 // - скрытность — только провалы: у удачи она не спрашивается;
@@ -157,7 +160,7 @@ beforeEach(() => {
   H.inputs.length = 0;
 });
 
-describe('отметки полководца: его бои — всегда, свои стены и вылазка — только с дружиной у ворот', () => {
+describe('отметки полководца: его бои — всегда, свои стены и вылазка — только пока он в городе', () => {
   const FERVOUR = 4;
   const LEVEL = 4;
 
@@ -309,6 +312,69 @@ describe('отметки полководца: его бои — всегда, �
     const input = battleSince(raidAtWall(w));
     expect(input.defender.pips, 'у стены — все отметки, и манёвр').toEqual(ALL_PIPS);
     expect(input.defender.resolve).toBe(FERVOUR);
+  });
+
+  // Решение владельца 16.10.2026 (docs/ui_v2.md, 6.10): полководец в городе без отряда защищает стены — правило
+  // владельца 15.10.2026 «полководец и его отряд, пока внутри города, в оборонительных боях считаются гарнизоном»
+  // прочитано и так. Прежде здесь стояло обратное (решение 5, docs/battle_eu4.md, 7.1: «ведёт, если его дружина у
+  // ворот») — «без отряда отметок у стен нет». Таблица сил у ворот и W от этого выводятся заново на полной приёмке
+  // (правило 16; docs/ui_v2.md, раздел 7, «Передача» UI-8).
+  it('оборона деревни, полководец в городе без отряда, — ведёт он: у ворот и укрывшись', async () => {
+    for (const sheltered of [false, true]) {
+      const w = makeWorld();
+      const p = tribeProfile(5, { fervour: FERVOUR, pips: ALL_PIPS });
+      await w.world.sync(p);
+      atGates(w, {});
+      const g = w.inner.save.figures.general;
+      if (sheltered) g.sheltered = g.departAt;
+      // Граница области: полководец дома и не выбыл, отряда при нём нет.
+      expect(g.phase, 'точка внутри области: дома').toBe('home');
+      expect(Object.values(g.troops ?? {}).reduce((n, x) => n + (x ?? 0), 0), 'точка внутри области: отряда нет').toBe(0);
+      const input = battleSince(raidAtWall(w));
+      expect(input.defender.pips, `${sheltered ? 'укрывшись' : 'у ворот'}: без отряда оборону ведёт полководец`).toEqual(ALL_PIPS);
+      expect(w.world.warSheet()?.pips, 'слепок для войны — те же отметки').toEqual(ALL_PIPS);
+    }
+  });
+
+  it('вылазка из осаждённого города, полководец в городе без отряда, — ведёт он', async () => {
+    const w = makeWorld();
+    const p = tribeProfile(LEVEL, fed);
+    await w.world.sync(p);
+    campAtHome(w);
+    atGates(w, {});
+    const g = w.inner.save.figures.general;
+    // Граница области: полководец дома, отряда нет, лагерь под стенами.
+    expect(g.phase, 'точка внутри области: дома').toBe('home');
+    expect(Object.values(g.troops ?? {}).reduce((n, x) => n + (x ?? 0), 0), 'точка внутри области: отряда нет').toBe(0);
+    expect(w.inner.save.sieges[HOME_ID], 'точка внутри области: лагерь под стенами').toBeTruthy();
+    const mark = H.inputs.length;
+    const res = await w.world.sortie({ spearman: 20 });
+    expect(res.error).toBeNull();
+    expect(battleSince(mark).attacker.pips, 'вылазку без отряда ведёт полководец').toEqual(ALL_PIPS);
+  });
+
+  it('вылазка во время сбора в осаждённом городе: отряд выходит с гарнизоном, ведёт полководец', async () => {
+    const w = makeWorld();
+    const p = tribeProfile(LEVEL, fed);
+    await w.world.sync(p);
+    campAtHome(w);
+    // Сбор в городе из сохранения прежних правил (до решения владельца 16.10.2026, docs/ui_v2.md, 6.11, роспуск под
+    // осадой шёл сбором; теперь в городе перевод мгновенный): при полководце числятся все, кого сбор касается (20
+    // копейщиков и 10 лучников), а станет 5 копейщиков.
+    atGates(w);
+    const g = w.inner.save.figures.general;
+    g.handover = { troops: { spearman: 5 }, until: w.now() + 60 * MIN };
+    // Граница области: полководец в городе, сбор идёт, лагерь под стенами.
+    expect(g.phase, 'точка внутри области: дома').toBe('home');
+    expect(g.handover.until, 'точка внутри области: сбор идёт').toBeGreaterThan(w.now());
+    expect(w.inner.save.sieges[HOME_ID], 'точка внутри области: лагерь под стенами').toBeTruthy();
+    const sheet = w.world.warSheet();
+    expect(sheet?.home, 'в слепке обороны — всё войско: отряд в сборе стоит у стен').toEqual({ spearman: 60, archer: 20, rider: 20 });
+    const mark = H.inputs.length;
+    const res = await w.world.sortie({ spearman: 60, archer: 20 });
+    expect(res.error, 'вылазка всем гарнизоном с отрядом в сборе принята').toBeNull();
+    const input = battleSince(mark);
+    expect(input.attacker.pips, 'вылазку ведёт полководец').toEqual(ALL_PIPS);
   });
 });
 

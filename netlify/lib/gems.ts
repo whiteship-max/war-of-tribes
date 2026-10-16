@@ -156,6 +156,11 @@ export interface OrderStep {
   ledger: GemLedger | null;
   entry?: StoredGem;
   error?: string;
+  /**
+   * Отказ невозможному: игра назвала остаток или цену, которых у честной партии не бывает. Строка — журналу города с
+   * началом «внимание:» (docs/security.md); игроку уходит только `error`.
+   */
+  warn?: string;
 }
 
 /**
@@ -185,7 +190,12 @@ export function applyGemOrder(ledger: GemLedger, order: GemOrder, at: number, le
   const work = Math.min(Math.max(order.work, left ?? 0), full);
   const price = rushPriceOfWork(work);
   if (price === 0) return { ledger: null, error: 'Последние пять минут стройка ускоряется даром.' };
-  if (price > order.price) return { ledger: null, error: `Ускорение стоит ${price}, а не ${order.price}. Посмотри цену ещё раз.` };
+  if (price > order.price) {
+    // Цена со временем только падает: показанная раньше не меньше нынешней. Дороже показанной — значит, игра назвала
+    // остаток меньше, чем оставляет книга стройки, или цену ниже своего остатка.
+    const warn = `ускорение ${order.building} до ур. ${order.level}: игра назвала ${order.price} алм. за остаток ${Math.round(order.work)}, сервер считает ${price} алм. за ${Math.round(work)}. Отказ, алмазы не списаны.`;
+    return { ledger: null, error: `Ускорение стоит ${price}, а не ${order.price}. Посмотри цену ещё раз.`, warn };
+  }
   const twin = ledger.list.find((e) => e.kind === 'rush' && e.building === order.building && e.level === order.level && at - e.at < RUSH_REPEAT_MS);
   if (twin) return { ledger: null, error: 'Эта стройка уже ускорена.' };
   const done = spendGems(ledger, price, { at, kind: 'rush', key: order.key, building: order.building, level: order.level });
@@ -230,7 +240,7 @@ export function settleGems(
   at: number,
   order: GemOrder | null = null,
   left?: number | null,
-): Promise<{ ledger: GemLedger; entry?: StoredGem; error?: string } | null> {
+): Promise<{ ledger: GemLedger; entry?: StoredGem; error?: string; warn?: string } | null> {
   return settle(stores, player, at, (cur) => (order ? applyGemOrder(cur, order, at, left) : { ledger: null }));
 }
 
@@ -248,7 +258,7 @@ export function settlePurchase(stores: Stores, player: string, grant: Omit<GemGr
 }
 
 /** Одна дверь записи хранилища алмазов: прочитать (открыть со стартовыми), сделать шаг, записать условно. */
-async function settle(stores: Stores, player: string, at: number, act: (cur: GemLedger) => OrderStep): Promise<{ ledger: GemLedger; entry?: StoredGem; error?: string } | null> {
+async function settle(stores: Stores, player: string, at: number, act: (cur: GemLedger) => OrderStep): Promise<{ ledger: GemLedger; entry?: StoredGem; error?: string; warn?: string } | null> {
   const kv: Kv = stores(STORES.gems, 'strong');
   try {
     for (let tries = 0; tries < WRITE_TRIES; tries++) {
@@ -259,9 +269,9 @@ async function settle(stores: Stores, player: string, at: number, act: (cur: Gem
       const cur = stored ?? openLedger(at);
       const step = act(cur);
       const next = step.ledger ?? (stored ? null : cur);
-      if (!next) return { ledger: cur, ...(step.entry ? { entry: step.entry } : {}), ...(step.error ? { error: step.error } : {}) };
+      if (!next) return { ledger: cur, ...(step.entry ? { entry: step.entry } : {}), ...(step.error ? { error: step.error } : {}), ...(step.warn ? { warn: step.warn } : {}) };
       const written = await kv.setJSON(player, next, found?.etag ? { onlyIfMatch: found.etag } : { onlyIfNew: true });
-      if (written.modified) return { ledger: next, ...(step.entry ? { entry: step.entry } : {}), ...(step.error ? { error: step.error } : {}) };
+      if (written.modified) return { ledger: next, ...(step.entry ? { entry: step.entry } : {}), ...(step.error ? { error: step.error } : {}), ...(step.warn ? { warn: step.warn } : {}) };
     }
   } catch {
     /* хранилище не ответило: ничего не списано */

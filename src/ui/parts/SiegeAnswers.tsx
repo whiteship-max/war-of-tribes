@@ -13,6 +13,9 @@ import { secondsLeft } from '@/world/geo';
 import { cleanDefend, type DefendOrders } from '@/world/siegeroll';
 import type { SiegeView } from '@/world/types';
 import { Cost } from '@/ui/parts/Cost';
+import { BREACH_MAX } from '@/world/data/siegeroll';
+import { Btn } from '@/ui/kit/Btn';
+import { Toggle } from '@/ui/kit/Toggle';
 import { hungerLeft } from '@/ui/parts/hunger';
 import { realLeft } from '@/ui/parts/wait';
 import { plural } from '@/ui/parts/plural';
@@ -27,7 +30,6 @@ export function SiegeAnswers({ siege, now }: { siege: SiegeView; now: number }) 
   const openSortie = useGame((g) => g.openSortie);
   const defend = useWorld((g) => g.defend);
   const [busy, setBusy] = useState(false);
-  const [sure, setSure] = useState(false);
   const a = siege.answers;
   if (!a) return null;
 
@@ -53,16 +55,15 @@ export function SiegeAnswers({ siege, now }: { siege: SiegeView; now: number }) 
             {a.repair.doneAt !== null
               ? `Пролом заделывают: к концу фазы, через ${realLeft(secondsLeft(a.repair.doneAt, now))}, стена будет цела.`
               : breaches > 0
-                ? `К концу фазы проломов станет ${breaches - 1} из 3: меньше пролома — меньше кости осаждающим и фронта без стены.`
+                ? `К концу фазы проломов станет ${breaches - 1} из ${BREACH_MAX}: меньше пролома — меньше кости осаждающим и фронта без стены.`
                 : 'Проломов нет.'}
           </div>
           <Cost cost={a.repair.cost} />
         </div>
       </div>
-      <button className="btn wide" disabled={busy || a.repair.reason !== null} onClick={() => void run(() => defend({ act: 'repair' }))}>
+      <Btn wide why={a.repair.doneAt === null && breaches > 0 ? a.repair.reason : null} onClick={() => void run(() => defend({ act: 'repair' }))}>
         Заделать пролом
-      </button>
-      {a.repair.reason && a.repair.doneAt === null && breaches > 0 && <p className="note bad">{a.repair.reason}</p>}
+      </Btn>
 
       <div className="card">
         <div className="ico">🥣</div>
@@ -75,17 +76,17 @@ export function SiegeAnswers({ siege, now }: { siege: SiegeView; now: number }) 
           </div>
         </div>
       </div>
-      <button className="btn wide" disabled={busy} onClick={() => void run(() => defend({ act: 'ration', on: !a.ration.on }))}>
+      <Btn wide onClick={() => void run(() => defend({ act: 'ration', on: !a.ration.on }))}>
         {a.ration.on ? 'Вернуть паёк' : 'Урезать паёк'}
-      </button>
+      </Btn>
 
       {a.burn.length > 0 && (
         <>
           <p className="note">Машина стоит у стены, перед рогатками. Вылазка на неё бьётся с охраной — стороной лагеря у города, а не со всем лагерем.</p>
           {a.burn.map((m) => (
-            <button key={m.machine} className="btn wide" disabled={busy} onClick={() => openSortie(m.machine)}>
-              Вылазка: {m.name.toLowerCase()} · охрана {m.guard} {plural(m.guard, 'боец', 'бойца', 'бойцов')}
-            </button>
+            <Btn key={m.machine} wide onClick={() => openSortie(m.machine)} sub={`охрана ${m.guard} ${plural(m.guard, 'боец', 'бойца', 'бойцов')}`}>
+              Вылазка: {m.name.toLowerCase()}
+            </Btn>
           ))}
         </>
       )}
@@ -97,36 +98,32 @@ export function SiegeAnswers({ siege, now }: { siege: SiegeView; now: number }) 
         </p>
       ))}
 
+      {/* Наказы на отлучку — переключателями 44, а не родными флажками с подписью 12 px (К5, UI-7). */}
       <h3>Наказы на отлучку</h3>
-      <p className="note">Срабатывают в минуту фазы, как кнопка, пока тебя нет.</p>
-      <label className="note">
-        <input type="checkbox" checked={Boolean(orders.repair)} disabled={busy} onChange={(e) => void setOrders({ ...orders, repair: e.target.checked })} />{' '}
-        Заделывать пролом, пока хватает дерева и камня
-      </label>
-      <label className="note">
-        <input type="checkbox" checked={Boolean(orders.ration)} disabled={busy} onChange={(e) => void setOrders({ ...orders, ration: e.target.checked })} />{' '}
-        Урезать паёк, когда хлеба меньше половины
-      </label>
+      <Toggle
+        label="Заделывать пролом"
+        sub="Пока хватает дерева и камня; срабатывает в минуту фазы"
+        on={Boolean(orders.repair)}
+        disabled={busy}
+        onChange={(on) => void setOrders({ ...orders, repair: on })}
+      />
+      <Toggle
+        label="Урезать паёк"
+        sub="Когда хлеба меньше половины"
+        on={Boolean(orders.ration)}
+        disabled={busy}
+        onChange={(on) => void setOrders({ ...orders, ration: on })}
+      />
 
       <h3>Сдача</h3>
       <p className="note">
         Откроешь ворота сам — участь «{FATE_META[a.surrender].name.toLowerCase()}» вместо «{FATE_META[siege.fate].name.toLowerCase()}», гарнизон
         уйдёт живым.
       </p>
-      {sure ? (
-        <div className="cost">
-          <button className="btn danger" disabled={busy} onClick={() => void run(() => defend({ act: 'surrender' }))}>
-            Открыть ворота
-          </button>
-          <button className="btn" disabled={busy} onClick={() => setSure(false)}>
-            Держаться
-          </button>
-        </div>
-      ) : (
-        <button className="btn wide" disabled={busy} onClick={() => setSure(true)}>
-          Сдать город
-        </button>
-      )}
+      {/* Необратимое — двумя касаниями одной кнопки (`kit/twotap`): прежде здесь была своя пара «Открыть ворота · Держаться». */}
+      <Btn wide confirm onClick={() => void run(() => defend({ act: 'surrender' }))}>
+        Сдать город
+      </Btn>
     </>
   );
 }

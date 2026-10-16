@@ -15,19 +15,39 @@
 import type { Season } from '@/game/types';
 import type { Zone } from '@/render/climate';
 import { mixSeed } from '@/game/sim/random';
-import { seeded } from './rules';
+import { Streak, seeded, type Hour } from './rules';
 
 // ---------- Берег ----------
 
 /** У воды: река у города или берег моря. */
 export type Shore = 'river' | 'sea';
 
-/** Где ловят: берег, климатический пояс региона (`render/climate.zoneOf`) и сезон города. */
+/** Где ловят: берег, климатический пояс региона (`render/climate.zoneOf`), сезон и час города. */
 export interface Setting {
   shore: Shore;
   zone: Zone;
   season: Season;
+  /** Час (docs/minigames.md, 18): на зорьке клюёт бойко, днём — лениво (`HOUR_BITE`). Нет — зорька, прежние числа. */
+  hour?: Hour;
 }
+
+/**
+ * Час и клёв: во сколько раз дольше ждать поклёвки. Зорька — прежние числа; днём рыба стоит в глубине и клюёт
+ * лениво, ночью — вяло. Другие часы только отнимают: средний выход за сутки не выше прежнего (щуп добычи).
+ */
+export const HOUR_BITE: Record<Hour, number> = { dawn: 1, day: 1.15, dusk: 1, night: 1.08 };
+
+/**
+ * Серия «Рыбалки» — рыбы подряд без схода и пустой подсечки: со второй подряд к улову сверху идёт доля её веса
+ * (`FISH_STREAK.k`), всего не больше той же доли цели (`FISH_STREAK.max`). Рвёт серию сошедшая или оборвавшая леску
+ * рыба, подсечка раньше поклёвки или поздно и зацеп.
+ *
+ * ДОЛЯ ВЕСА И ДОЛЯ ЦЕЛИ — ОДНО ЧИСЛО, И ЭТО НЕ СОВПАДЕНИЕ. Прибавка серии — та же доля граммов, что и знаменатель цели,
+ * а граммы в серии считаются без первой рыбы. Поэтому на одном и том же улове доля прибавки (прибавка к её пределу)
+ * никогда не больше доли основного счёта (граммы к цели), и серия не поднимает выход ни одного выхода — только
+ * перекладывает его к тем, кто ловит подряд (тест «серия не поднимает выход», `yield.test.ts`).
+ */
+export const FISH_STREAK = { from: 2, k: 0.08, max: 0.08 } as const;
 
 /** Линия воды у своего берега, м по Z: игрок стоит в нуле лицом к −Z, вода — с этой черты (в два шага: кромка — в кадре). */
 export const BANK_Z = -2.4;
@@ -429,11 +449,24 @@ export class Fishing {
   fish: Hooked | null = null;
   readonly catches: Catch[] = [];
 
-  constructor(seed: number, setting: Setting) {
+  /** Серия рыб подряд; прибавка — граммы (`FISH_STREAK`). Нет серии — `null`: прежние правила. */
+  readonly streak: Streak | null;
+  private bonusGrams = 0;
+
+  constructor(seed: number, setting: Setting, streaks = false) {
     this.seed = seed >>> 0;
     this.setting = setting;
     this.field = layField(this.seed);
     this.goal = goalGrams(setting);
+    this.streak = streaks ? new Streak(FISH_STREAK.from, 1) : null;
+  }
+
+  /** Удача или неудача заброса — серии. Удача кладёт сверху долю веса рыбы, пока серия не короче `from`. */
+  private mark(fish: Hooked | null): void {
+    const s = this.streak;
+    if (!s) return;
+    if (fish && s.hit() > 0) this.bonusGrams += fish.grams * FISH_STREAK.k;
+    if (!fish) s.miss();
   }
 
   // ---------- Вести игрока ----------
@@ -536,6 +569,7 @@ export class Fishing {
     const tags = spotAt(this.field, land.x, land.z);
     if (tags.hang) {
       this.events.push({ kind: 'hang', t, x: land.x, z: land.z });
+      this.mark(null);
       this.enter('hang', t);
       return;
     }
@@ -561,7 +595,8 @@ export class Fishing {
     }
     const fish = hookedOf(def, rnd(), rnd());
     // Ждать дольше зимой и в омуте: в холод рыба вялая, в глубине — осторожная.
-    const slow = (this.setting.season === 'winter' ? 1.35 : 1) * (tags.deep ? 1.12 : 1);
+    // Час — ещё множитель (`HOUR_BITE`): днём ждать дольше, чем на зорьке.
+    const slow = (this.setting.season === 'winter' ? 1.35 : 1) * (tags.deep ? 1.12 : 1) * HOUR_BITE[this.setting.hour ?? 'dawn'];
     const bite = (def.wait[0] + (def.wait[1] - def.wait[0]) * rnd()) * slow;
     const n = def.nibble[0] + Math.floor(rnd() * (def.nibble[1] - def.nibble[0] + 1));
     const nibbles: number[] = [];
@@ -585,6 +620,7 @@ export class Fishing {
     if (age >= plan.bite && age - STEP < plan.bite) this.events.push({ kind: 'bite', t, x: at.x, z: at.z });
     if (age >= plan.bite + plan.window) {
       this.events.push({ kind: 'missed', t });
+      this.mark(null);
       this.enter('back', t);
     }
   }
@@ -596,6 +632,7 @@ export class Fishing {
     const age = t - this.since;
     if (age < plan.bite) {
       this.events.push({ kind: 'early', t });
+      this.mark(null);
       this.enter('back', t);
       return;
     }
@@ -659,12 +696,14 @@ export class Fishing {
       this.lose(t);
     } else if (L.dist <= LAND_D) {
       this.catches.push({ def: fish.def, grams: fish.grams, trophy: fish.trophy });
+      this.mark(fish);
       this.events.push({ kind: 'caught', t, fish });
       this.enter('show', t);
     }
   }
 
   private lose(t: number): void {
+    this.mark(null);
     this.line = null;
     this.fish = null;
     this.enter('back', t);
@@ -694,8 +733,18 @@ export class Fishing {
     return this.catches.reduce((n, c) => n + c.grams, 0);
   }
 
-  /** Счёт: граммы в садке до цели — доля, что уйдёт в начисление, не выше единицы. */
-  tally(): { got: number; total: number } {
-    return { got: Math.min(this.grams, this.goal), total: this.goal };
+  /** Сколько прибавки серии можно взять на этом берегу: четверть цели. Без серии — ноль. */
+  get bonusMax(): number {
+    return this.streak ? Math.round(this.goal * FISH_STREAK.max) : 0;
+  }
+
+  /** Прибавка серии, граммами, не выше `bonusMax`. */
+  get bonus(): number {
+    return Math.min(Math.round(this.bonusGrams), this.bonusMax);
+  }
+
+  /** Счёт: граммы в садке до цели и прибавка серии — доля, что уйдёт в начисление, не выше единицы. */
+  tally(): { got: number; total: number; bonus: number; bonusMax: number } {
+    return { got: Math.min(this.grams, this.goal), total: this.goal, bonus: this.bonus, bonusMax: this.bonusMax };
   }
 }

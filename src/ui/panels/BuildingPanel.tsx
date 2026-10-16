@@ -1,37 +1,16 @@
 import type { Building, JobId } from '@/game/types';
 import { useGame } from '@/game/store';
 import { FREE_RANGE_MULT, RESOURCE_IDS, RESOURCE_META } from '@/game/constants';
-import { BUILDING_BY_ID } from '@/game/data/buildings';
 import { EQUIPMENT } from '@/game/data/equipment';
 import { FREE_JOBS, JOB_BY_ID } from '@/game/data/jobs';
 import {
-  armyPower,
-  buildingHousing,
-  buildingProduction,
-  buildingStat,
   buildingTitle,
-  cavalryTrain,
-  handsCount,
-  healShare,
-  bedsTaken,
-  infirmaryBeds,
-  woundedStacks,
-  intelKeen,
   currentSite,
-  defense,
-  crafterBuildShare,
   freeJobCount,
-  housingCapacity,
   idleCount,
   jobMultiplier,
-  maxLevelFor,
-  stalls,
-  stallsTaken,
   netPerDay,
-  stashAt,
   storageCap,
-  surveyRadius,
-  warningSeconds,
 } from '@/game/derived';
 import { changeFreeJob } from '@/game/sim/actions';
 import { Steps } from '../parts/Steps';
@@ -48,33 +27,30 @@ import { Walls } from '../parts/Walls';
 import { TowerEngine } from '../parts/TowerEngine';
 import { Masters } from '../parts/Masters';
 import { FoodLeft, WinterForecast } from '../parts/Provisions';
-import { waitMinSec } from '../parts/wait';
-import { count } from '../parts/plural';
-import { troopBlock, troopOpen } from '@/game/sim/tech';
 import { Icon } from '@/ui/icons/Icon';
 import { moodOf } from '@/ui/icons/registry';
-import { troopTotal } from '@/game/battle/kinds';
-import { asGame } from '@/game/pace';
-import { lazy, Suspense } from 'react';
 import { dec } from '@/game/num';
-
-/** Шаблон окна нового интерфейса и заказ кузницы — в куске нового вида (`ui/next/index.ts`). */
-const BuildingNew = lazy(() => import('@/ui/next').then((m) => ({ default: m.BuildingNew })));
-const SmithyNew = lazy(() => import('@/ui/next').then((m) => ({ default: m.SmithyNew })));
+import { Table, type Col } from '@/ui/kit/Table';
+import { goTo, tipGo } from '@/ui/kit/nav';
+import { WINDOW, sourceWord } from '@/ui/kit/sources';
+import { BuildingNew } from '@/ui/next/BuildingNew';
+import { SmithyNew } from '@/ui/next/SmithyNew';
+import { OutputTable } from '@/ui/next/HallBuild';
+import { buildingGives } from '@/ui/next/gives';
+import { moraleTip } from '@/ui/next/hudTips';
+import { yardOutput } from '@/ui/next/output';
 
 const fmt = (n: number): string => (Math.abs(n) >= 100 ? String(Math.round(n)) : dec(n, 1));
 const fmtDelta = (n: number): string => `${n >= 0 ? '+' : '−'}${fmt(Math.abs(n))}`;
 
 /**
  * Одинаковая для всех зданий панель: шапка, цена и рабочие — шаблон нового интерфейса (`next/BuildingNew`), данные
- * здания — свои (`BuildingData`). Прежний шаблон удалён вместе с прежним интерфейсом (docs/ui_audit.md, 16).
+ * здания — свои (`BuildingData`). Прежний шаблон удалён вместе с прежним интерфейсом (docs/ui_audit.md, 16). С UI-8 окно
+ * едет в куске нового вида (`ui/next/index.ts`, `App` берёт его через `lazy`): «Что даёт городу», выход и разборы стоят
+ * на наборе `kit` (docs/ui_v2.md, 5.7).
  */
 export function BuildingPanel({ id }: { id: number }) {
-  return (
-    <Suspense fallback={null}>
-      <BuildingNew id={id} data={(b) => <BuildingData b={b} />} />
-    </Suspense>
-  );
+  return <BuildingNew id={id} data={(b) => <BuildingData b={b} />} />;
 }
 
 // ---------- Данные конкретного здания ----------
@@ -98,9 +74,7 @@ function BuildingData({ b }: { b: Building }) {
       return (
         <>
           <GenericData b={b} />
-          <Suspense fallback={null}>
-            <SmithyNew b={b} />
-          </Suspense>
+          <SmithyNew b={b} />
         </>
       );
     case 'barracks':
@@ -147,11 +121,13 @@ function BuildingData({ b }: { b: Building }) {
         </>
       );
     case 'statue':
+      // Полководец на месте — его карточка в `Statue` целиком; строка места — только пока места нет, оно пустует или идёт
+      // найм (Д7: прежде на одном экране стояли и карточка, и строка «Люди» с тем же человеком).
       return (
         <>
           <GenericData b={b} />
           <Statue />
-          <AgentPlaces ids={['general']} />
+          <AgentPlaces ids={['general']} vacantOnly />
         </>
       );
     case 'watch':
@@ -198,19 +174,42 @@ function CampfireData() {
         <FreeJobRow key={jobId} job={jobId} />
       ))}
 
+      {/* Мораль — разбором цели и дверью в «Мораль» (одна копия разбора — там); слава — словами. */}
       <h3>Мораль и слава</h3>
-      <div className="mod">
-        <span className="ico">
-          <Icon name={moodOf(s.morale).name} glyph={moodOf(s.morale).glyph} />
-        </span>
-        <span className="name">Мораль</span>
-        <span className="val">{Math.round(s.morale)}</span>
-      </div>
-      <div className="mod">
-        <span className="ico">🏅</span>
-        <span className="name">Слава</span>
-        <span className="val">{Math.round(s.prestige)}</span>
-      </div>
+      <Table
+        label="Мораль и слава"
+        cols={GIVE_COLS}
+        rows={[
+          {
+            key: 'morale',
+            cells: {
+              what: (
+                <span className="kit-name">
+                  <Icon name={moodOf(s.morale).name} glyph={moodOf(s.morale).glyph} />
+                  <span className="one-line">Мораль</span>
+                </span>
+              ),
+              n: String(Math.round(s.morale)),
+            },
+            tip: () => moraleTip(s, tipGo()),
+            go: () => goTo(WINDOW.morale),
+            goLabel: `Мораль: ${sourceWord(WINDOW.morale)}`,
+          },
+          {
+            key: 'prestige',
+            cells: {
+              what: (
+                <span className="kit-name">
+                  <span className="ic">🏅</span>
+                  <span className="one-line">Слава</span>
+                </span>
+              ),
+              n: String(Math.round(s.prestige)),
+            },
+            tip: () => ({ title: 'Слава', body: 'Её приносят задания, походы и вести, поражения отнимают. К цели морали — до +10.' }),
+          },
+        ]}
+      />
     </>
   );
 }
@@ -301,122 +300,54 @@ function StorageData() {
   );
 }
 
-/** Частокол и башня: итог обороны у них показывает раздел «Оборона», а не список ниже. */
-const WALLS: Building['type'][] = ['palisade', 'tower'];
-
-/** Обычное здание: что оно производит и что даёт городу. */
+/**
+ * Обычное здание: выход за день с разбором (двор) и что оно даёт городу — таблицами (UI-8, docs/ui_v2.md, 5.7). Выход —
+ * тот же разбор, что в листе ратуши (`HallBuild.OutputTable`, `output.ts`): строки складываются в итог. «Что даёт городу» —
+ * вклад постройки строкой с разбором всего числа города в подсказке и дверью «›» к его окну (`next/gives.ts`); итог
+ * города вторым числом рядом не стоит (Д8). Число рабочих — в ряду рабочих выше, множитель уровня — в подсказке.
+ */
 function GenericData({ b }: { b: Building }) {
   const s = useGame((g) => g.s);
-  // Число рабочих стоит в строке рабочих, множитель уровня — в подсказке; здесь — только выработка и что здание
-  // даёт городу (docs/ui_audit.md, 6.3: число не повторяется трижды).
-  const def = BUILDING_BY_ID[b.type];
-  const prod = buildingProduction(s, b);
-  const produced = RESOURCE_IDS.filter((r) => prod[r] > 0.01);
-  const jobDef = def.job ? JOB_BY_ID[def.job] : null;
-
-  // Строка «что даёт городу»: имя значка, эмодзи на его месте, название, величина.
-  // Имя стоит рядом с эмодзи, а не вместо: пока значка нет, показывается эмодзи.
-  const stats: [string, string, string, string][] = [];
-  const housing = buildingHousing(b);
-  if (housing) stats.push(['bld-houses', '🛏️', 'Жилых мест', `${housing}`]);
-  const storage = buildingStat(b, 'storage');
-  if (storage) stats.push(['bld-storage', '🧺', 'К вместимости склада', `+${storage}`]);
-  const def_ = buildingStat(b, 'defense');
-  if (def_) stats.push(['gear-shield', '🛡️', 'К обороне города', `+${def_}`]);
-  const morale = buildingStat(b, 'morale');
-  if (morale) stats.push(['mood-good', '😊', 'К морали', `+${morale}`]);
-  // Службы посёлка: у каждой одно число, и лучше показать его словами игрока,
-  // а не названием поля. Числа берутся из тех же функций, что и логика.
-  // Стрелки башни и итог обороны у частокола и башни — в разделе «Оборона»
-  // (`parts/Walls`): там они стоят рядом с ополчением и дверью к донесению о набеге.
-  if (b.type === 'infirmary') {
-    // Числа — из тех же чтений, что кладут раненых (`sim/infirmary`): доля, места, кто лежит, кто при полководце.
-    const { lying, carried } = woundedStacks(s);
-    const heads = troopTotal(lying);
-    const soon = (s.wounded ?? []).reduce((m, g) => (g.until === null ? m : Math.min(m, g.until)), Infinity);
-    stats.push(['ui-bandage', '🩹', 'Раненых среди павших', `${Math.round(healShare(s) * 100)}%`]);
-    // Место — боец строя: всадник занимает столько, сколько весит в бою (docs/stable.md).
-    stats.push(['ui-bandage', '🛏️', 'Мест занято', `${Math.round(bedsTaken(s))} из ${infirmaryBeds(s)}`]);
-    if (heads > 0) stats.push(['ui-bandage', '🩹', 'Лежит раненых', `${heads}`]);
-    if (Number.isFinite(soon)) stats.push(['ui-time', '⏳', 'Первые встанут через', waitMinSec(asGame(soon - s.time))]);
-    if (troopTotal(carried) > 0) stats.push(['ui-bandage', '🩹', 'Раненых в отряде полководца', `${troopTotal(carried)}`]);
-  }
-  if (b.type === 'watch') {
-    stats.push(['ui-spyglass', '🔭', 'Сведения стареют', `в ${dec(intelKeen(s), 2)} раза медленнее`]);
-    // Минуты с секундами, а не округлённые минуты: округление и было враньём
-    // кнопки — девять уровней обещали девять минут, а давали шесть.
-    stats.push(['ui-time', '⏳', 'Набег виден дольше на', waitMinSec(warningSeconds(s))]);
-    stats.push([
-      'hud-map',
-      '🗺️',
-      'Округа разведана на',
-      surveyRadius(s) > 0 ? count(surveyRadius(s), 'клетку', 'клетки', 'клеток') : 'только вокруг города',
-    ]);
-  }
-  if (b.type === 'stable') {
-    stats.push(['troop-horse', '🐎', 'Стойла заняты', `${stallsTaken(s)} из ${stalls(s)}`]);
-    stats.push(['troop-horse', '🐎', 'Конница учится быстрее', `×${dec(cavalryTrain(s), 2)}`]);
-    // Латных всадников конюшня больше не открывает — их открывает доспех в военной ветви
-    // (решение владельца 3). Строка про это стоит там, где игрок нажимает, — в самом найме,
-    // и говорит её гейт; второй правды об открытии здесь быть не должно.
-    stats.push(['troop-knight', '🏇', 'Латные всадники', troopOpen(s, 'knight') ? 'нанимают здесь' : (troopBlock(s, 'knight') ?? '')]);
-  }
-  // Тайник. Главный довод его строить — не «сколько прячет сейчас», а «сколько
-  // будет», и оба числа стоят рядом, чтобы игроку не считать в уме. Всё, что
-  // сверх спрятанного, победитель уносит целиком (`world/spoils.plunder`), и
-  // сказано об этом прямо: иначе тайник читается как мелкая прибавка.
-  if (b.type === 'cache') {
-    const now = stashAt(b.level);
-    stats.push(['ui-loot', '🧰', 'Прячет сейчас', `по ${now} каждого запаса`]);
-    if (b.level < maxLevelFor(b.type)) {
-      const next = stashAt(b.level + 1);
-      stats.push(['ui-crate', '📦', `На ур. ${b.level + 1}`, `${next} · +${next - now}`]);
-    }
-  }
-  if (b.type === 'workshop') stats.push(['ui-hammer', '🔨', 'К скорости стройки', `+${dec(crafterBuildShare(s), 1)}`]);
-  if (b.type === 'smithy') stats.push(['hud-army', '⚔️', 'Мощь дружины', dec(armyPower(s), 0)]);
-  if (housing) stats.push(['hud-pop', '👥', 'Жители', `${s.pop} из ${housingCapacity(s)}`]);
-  if (def_ && !WALLS.includes(b.type)) stats.push(['hud-army', '⚔️', 'Оборона города', dec(defense(s), 0)]);
-
+  const out = yardOutput(s, b);
+  const gives = buildingGives(s, b, tipGo());
   return (
     <>
-      {jobDef && (
+      {out && (
         <>
           <h3>Выработка</h3>
-          {produced.length > 0 ? (
-            <div className="mod total">
-              <span className="ico">
-                <Icon name="ui-loot" glyph="📦" />
-              </span>
-              <span className="name">Всего за день</span>
-              <span className="val pos">
-                {produced.map((r) => `${RESOURCE_META[r].icon}${fmt(prod[r])}`).join('  ')}
-              </span>
-            </div>
-          ) : (
-            <div className="note">
-              {handsCount(s, b.id) === 0
-                ? 'Нет рабочих. Поставь людей на места.'
-                : 'Здание не пополняет склад.'}
-            </div>
-          )}
+          <OutputTable out={out} />
         </>
       )}
-
-      {stats.length > 0 && (
+      {gives.length > 0 && (
         <>
           <h3>Что даёт городу</h3>
-          {stats.map(([art, glyph, name, val], i) => (
-            <div className="mod" key={i}>
-              <span className="ico">
-                <Icon name={art} glyph={glyph} />
-              </span>
-              <span className="name">{name}</span>
-              <span className="val">{val}</span>
-            </div>
-          ))}
+          <Table
+            label="Что даёт городу"
+            cols={GIVE_COLS}
+            rows={gives.map((r) => ({
+              key: r.key,
+              cells: {
+                what: (
+                  <span className="kit-name">
+                    <Icon name={r.icon.name} glyph={r.icon.glyph} />
+                    <span className="one-line">{r.label}</span>
+                  </span>
+                ),
+                n: r.value,
+              },
+              tip: r.tip,
+              // Дверь — в окно числа, но не в ту же постройку, что открыта.
+              go: r.to && !(r.to.kind === 'building' && r.to.type === b.type) ? () => goTo(r.to!) : undefined,
+              goLabel: r.to ? `${r.label}: ${sourceWord(r.to)}` : undefined,
+            }))}
+          />
         </>
       )}
     </>
   );
 }
+
+const GIVE_COLS: readonly Col[] = [
+  { key: 'what', title: 'Что даёт' },
+  { key: 'n', title: 'Сколько', align: 'right', w: '128px' },
+];
