@@ -2,10 +2,11 @@
  * Рейтинг игроков (docs/rating.md): место, очки, мощь, жители, победы и взятые города всех игроков мира. Один счёт на
  * экран рейтинга (`routes/rating.ts`) и на итоговую рассылку админа (`/final`, `commands.ts`).
  *
- * **Очки считает сервер, клиент их не присылает.** Мощь — из описи наблюдения (`WatchCard`: уровни построек и войско)
- * той же формулой, что игра (`profile/power.powerOfCounts`); цифра мощи из описи партии (`SaveCard.power`) в рейтинг не
- * идёт вовсе. Победы и взятые города — из записи войн (`war.warTally`), которую пишет только сервер войны. Жители — из
- * описи наблюдения.
+ * **Очки считает сервер, клиент их не присылает.** Мощь — той же формулой, что игра (`profile/power.powerOfCounts`), но
+ * только из подтверждённого (`watch.confirmedOf`, docs/security.md): уровни — не выше книги стройки, войско — не больше
+ * книги войска. Опись, приписавшая себе уровни и войско, мест в рейтинге не получает; цифра мощи из описи партии
+ * (`SaveCard.power`) в рейтинг не идёт вовсе. Победы и взятые города — из записи войн (`war.warTally`), которую пишет только
+ * сервер войны. Жители — не больше книги жителей.
  *
  * Кто в рейтинге — замки реестра этой эпохи. Замороженного нет: заморозка — подозрение в подделке, и чужое место он
  * занимать не должен.
@@ -13,19 +14,18 @@
 import { cityOr, ratingPoints, type RatingRow } from './contract.js';
 import { ROSTER_KEY, castleIdOf, readRoster } from './roster.js';
 import { WARS_KEY, readWars, warTally } from './war.js';
-import { readWatchRecord, type WatchRecord } from './watch.js';
+import { confirmedOf, confirmedPower, readWatchRecord, type WatchRecord } from './watch.js';
 import { frozenNow, isFrozen } from './admin.js';
 import { parseJson } from './http.js';
 import { STORES, type Stores } from './kv.js';
-import { powerOfCounts } from '../../src/profile/power.js';
 
 /** Строка рейтинга с ключом игрока: ключ нужен рассылке, наружу он не уходит (`publicRow`). */
 export interface Ranked extends RatingRow {
   key: string;
 }
 
-/** Мощь по описи наблюдения: уровни построек и войско. Описи нет — ноль: числу клиента рейтинг не верит. */
-export const cardPower = (rec: WatchRecord): number => (rec.card ? powerOfCounts(rec.card.buildings, rec.card.troops) : 0);
+/** Мощь по подтверждённому книгами (`watch.confirmedPower`). Описи нет — ноль: числу клиента рейтинг не верит. */
+export const cardPower = (rec: WatchRecord): number => confirmedPower(rec);
 
 /**
  * Места по очкам. Равные очки делят место («1, 1, 3»); внутри равных — выше мощь, потом имя города, чтобы порядок не
@@ -78,7 +78,7 @@ export async function ratingNow(stores: Stores): Promise<Ranked[]> {
         name: row.name,
         points: ratingPoints(power, won, taken),
         power,
-        pop: rec.card?.pop ?? 0,
+        pop: confirmedOf(rec)?.pop ?? 0,
         won,
         taken,
       };

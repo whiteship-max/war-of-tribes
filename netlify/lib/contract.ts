@@ -327,6 +327,16 @@ export const cityOr = (raw: unknown): string => cityName(raw) ?? DEFAULT_CITY;
  *   союзнику и осаждённому;
  * - `war-spy` — чужой лазутчик напал на город: поджёг склад, обокрал или поднял смуту (docs/spy_pvp.md). Разведка и
  *   пойманный лазутчик нападением не считаются: город ничего не потерял.
+ *
+ * **Слово владельца 16.10.2026 (ВС-1, docs/NOTIFY.md, раздел 13): в настройках бота пять родов — бои, осады, стройка,
+ * указы, соседи.** Родам «стройка» и «указы» нужны свои вести, иначе их переключатели ничего бы не переключали:
+ *
+ * - `build` — стройка кончена: улучшение постройки дошло до нового уровня. Минуту составляет клиент из партии
+ *   осторожным прогнозом (`world/notice.draftBuild`);
+ * - `grant` — указ админа лёг в журнал игрока (`/give`, docs/admin.md): что прибавлено или убавлено. Составляет сервер
+ *   в минуту указа (`commands.ts`).
+ *
+ * Напоминаний «вернись в игру» и «награда ждёт» по-прежнему нет и быть не может.
  */
 export const NOTICE_KINDS = [
   'raid',
@@ -341,11 +351,16 @@ export const NOTICE_KINDS = [
   'war-parley',
   'war-pact',
   'war-relief',
+  'build',
+  'grant',
 ] as const;
 export type NoticeKind = (typeof NOTICE_KINDS)[number];
 
-/** Что может прислать клиент. Войну знает только сервер: её поручения клиент составить не может. */
-export const CLIENT_KINDS = ['raid', 'raid-fight', 'siege-fall', 'siege-phase'] as const satisfies readonly NoticeKind[];
+/**
+ * Что может прислать клиент. Войну знает только сервер: её поручения клиент составить не может; указ — тоже: его отдаёт
+ * админ на сервере.
+ */
+export const CLIENT_KINDS = ['raid', 'raid-fight', 'siege-fall', 'siege-phase', 'build'] as const satisfies readonly NoticeKind[];
 
 /**
  * Исход фазы осады в вести (docs/siege_v2.md, 8.3). Весть идёт о значимом — пролом, мор в лагере, сработавший наказ;
@@ -400,6 +415,13 @@ export interface NoticeFacts {
   pact?: 'offer' | 'made';
   /** Выручка союзника (`war-relief`, 19.2): идёт (осаждённому), бой был (союзнику), не пробилась через рогатки (обоим). */
   relief?: 'going' | 'fight' | 'turned';
+  /** Стройка (`build`): какая постройка (`BuildingTypeId`) и до какого уровня дошла. */
+  building?: string;
+  level?: number;
+  /** Указ (`grant`): номер у игрока и что он прибавил (+) или убавил (−) — те же виды, что у `AdminGrant`. */
+  n?: number;
+  stock?: Partial<Record<StockKey, number>>;
+  troops?: Partial<Record<TroopKey, number>>;
 }
 
 /** Пункт исходящих. Ключ — имя момента, а не время: по нему не уходит второй раз. */
@@ -414,13 +436,14 @@ export interface NoticeItem {
 }
 
 /**
- * Настройки игрока. Рычаг один — пишет бот или нет (решение владельца: кнопка «Отключить уведомления» под
- * каждым сообщением и «Включить», когда выключены). Тихих часов нет: о нападении и о бое бот пишет в любое
- * время суток. Пояс нужен для «в 14:40» в словах.
+ * Настройки игрока, которые знает игра: рычаг — пишет бот или нет — и пояс. Пояс нужен для «в 14:40» в словах и для
+ * тихого часа. Остальное — какие роды вестей, тихий час, «только срочное» — правится только в боте (`/notify`, ВС-1,
+ * docs/NOTIFY.md, раздел 13) и лежит рядом в записи исходящих (`notify.BotPrefs`): игра его не присылает и затереть не
+ * может.
  */
 export interface NotifyPrefs {
   on: boolean;
-  /** Пояс игрока (`Intl…timeZone`). Пустая строка — UTC. */
+  /** Пояс игрока (`Intl…timeZone`). Пустая строка — пояс по умолчанию (`notify.DEFAULT_TZ`, Москва). */
   tz: string;
 }
 
@@ -567,13 +590,29 @@ export function readNotices(v: unknown, now: number, kinds: readonly NoticeKind[
       if (order) facts.order = order;
     }
     if (kind.endsWith('-fall') && p.gates === true) facts.gates = true;
+    if (kind === 'build') {
+      const building = str(p.building, 32);
+      const level = num(p.level);
+      if (!building || !/^[a-z_]+$/.test(building) || level === null || level < 2 || level > 99) return null;
+      facts.building = building;
+      facts.level = Math.floor(level);
+    }
+    if (kind === 'grant') {
+      const n = num(p.n);
+      const stock = readDeltas(p.stock, STOCK_KEYS);
+      const troops = readDeltas(p.troops, TROOP_KEYS);
+      if (n === null || n < 1 || Object.keys(stock).length + Object.keys(troops).length === 0) return null;
+      facts.n = Math.floor(n);
+      if (Object.keys(stock).length) facts.stock = stock;
+      if (Object.keys(troops).length) facts.troops = troops;
+    }
     keys.add(key);
     out.push({ key, kind, fireAt, until, p: facts });
   }
   return out;
 }
 
-/** Разбор настроек: неизвестное и кривое — умолчание, а не отказ. Прежние настройки (виды, тихие часы) не читаются. */
+/** Разбор настроек игры: неизвестное и кривое — умолчание, а не отказ. Настройки бота — `notify.readBotPrefs`. */
 export function readPrefs(v: unknown): NotifyPrefs {
   const r = (v && typeof v === 'object' ? v : {}) as Record<string, unknown>;
   return {

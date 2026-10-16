@@ -17,7 +17,7 @@
 // деревню рождается только на пульсе. Значит, «ближайшие набеги» на время отсутствия — это
 // ровно тот, что уже в пути: нового без игрока не родится. Правдивость — на правиле разрыва
 // ниже.
-import { plainName, RESULT_KEEP, type NoticeFacts, type NoticeItem, type NoticeKind } from '../../netlify/lib/contract';
+import { NOTICE_LIMITS, plainName, RESULT_KEEP, type NoticeFacts, type NoticeItem, type NoticeKind } from '../../netlify/lib/contract';
 import type { Fate } from './types';
 
 /**
@@ -180,6 +180,38 @@ export function draftNotices(w: NoticeWorld, now: number): Drafts {
     }
   }
   return { items, silent };
+}
+
+/**
+ * Стройка, идущая в минуту составления (ВС-1, род «стройка»): что и до какого уровня, когда кончится по осторожному
+ * прогнозу партии (`game/buildEta`, серверными часами) и номер партии — чтобы «начать заново» не наткнулось на отметку
+ * «ушло» прежней партии той же постройки.
+ */
+export interface BuildFacts {
+  type: string;
+  level: number;
+  doneAt: number;
+  party: number;
+}
+
+/** Срок вести дальше этого от составления сервер не принимает (`NOTICE_LIMITS.ahead`); с запасом на расхождение часов. */
+const BUILD_AHEAD = NOTICE_LIMITS.ahead - NOTICE_LIMITS.skew;
+
+/**
+ * Черновик «достроили». Минута — прогноз с запасом, вверх до целой минуты: список не меняется от пульса к пульсу, пока
+ * прогноз не сдвинулся на минуту. Дальше потолка списка — молчание: стройка кончится, а весть о ней — нет.
+ */
+export function draftBuild(b: BuildFacts | null, now: number): NoticeItem | null {
+  if (!b) return null;
+  const fireAt = Math.ceil(b.doneAt / 60_000) * 60_000;
+  if (fireAt > now + BUILD_AHEAD) return null;
+  return {
+    key: `build:${b.type}:${b.level}:${b.party}`,
+    kind: 'build',
+    fireAt,
+    until: fireAt + RESULT_KEEP,
+    p: { from: 'стройка', fate: 'plunder', about: fireAt, building: b.type, level: b.level },
+  };
 }
 
 /**

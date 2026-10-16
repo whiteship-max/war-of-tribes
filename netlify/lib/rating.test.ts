@@ -7,6 +7,8 @@ import { WARS_KEY, emptyWars, pruneWars, warTally, WAR_KEEP_MS, type WarFile, ty
 import { FROZEN_KEY } from './admin.js';
 import { RATING_WEIGHTS, ratingPoints, type RatingResponse, type WatchCard, type WarBattle } from './contract.js';
 import { rank } from './rating.js';
+import { seedTown } from './town.js';
+import { seedBook } from './book.js';
 import type { Telegram } from './telegram.js';
 import { powerOfCounts } from '../../src/profile/power.js';
 import { SICILY } from '../../src/world/spawn.js';
@@ -70,15 +72,22 @@ const watch = (over: Partial<WatchCard> = {}): WatchCard => ({
   ...over,
 });
 
-/** Игроки в реестре, у каждого опись наблюдения. */
-async function world(players: { id: number; city: string; card?: WatchCard }[], wars: WarFile = emptyWars()): Promise<void> {
+/** Книги, подтверждающие опись целиком, — как у честного игрока после записи партии (`watch.booked`). */
+const booksOf = (card: WatchCard) => ({
+  town: { ...seedTown(NOW), levels: { ...seedTown(NOW).levels, ...card.buildings }, pop: card.pop },
+  book: { ...seedBook(NOW), bodies: card.troops },
+});
+
+/** Игроки в реестре, у каждого опись наблюдения; книги — подтверждают опись, если не названы свои (`books`). */
+async function world(players: { id: number; city: string; card?: WatchCard; books?: object }[], wars: WarFile = emptyWars()): Promise<void> {
   let roster = emptyRoster();
   for (const p of players) roster = upsert(roster, `tg-${p.id}`, { name: `Вождь ${p.id}`, city: p.city, power: 1, pop: 1 }, NOW);
   await home.stores(STORES.world).setJSON(ROSTER_KEY, roster);
   await home.stores(STORES.world).setJSON(WARS_KEY, wars);
   for (const p of players) {
     if (!p.card) continue;
-    await home.stores(STORES.watch).setJSON(`tg-${p.id}`, { v: 1, first: NOW, last: NOW, name: `Вождь ${p.id}`, power: 1e9, card: { ...p.card, city: p.city }, cardAt: NOW });
+    const books = p.books ?? booksOf(p.card);
+    await home.stores(STORES.watch).setJSON(`tg-${p.id}`, { v: 1, first: NOW, last: NOW, name: `Вождь ${p.id}`, power: 1e9, card: { ...p.card, city: p.city }, cardAt: NOW, ...books });
   }
 }
 
@@ -138,6 +147,22 @@ describe('очки считает сервер', () => {
     // В записи наблюдения лежит «мощь» 1e9 — её прислал клиент описью партии. Рейтинг её не читает.
     expect(body.rows[0].power).toBe(want);
     expect(body.rows[0].points).toBe(ratingPoints(want, 0, 0));
+  });
+
+  it('опись, приписавшая себе уровни, войско и жителей сверх книг сервера, места не получает (docs/security.md)', async () => {
+    const forged = watch({ buildings: { town_hall: 20, houses: 20 }, troops: { spearman: 100_000 }, pop: 90_000 });
+    const honest = watch();
+    // Подделка: книги — посёлок новой партии, войска сервер не видел. Честный: книги подтверждают опись.
+    await world([
+      { id: 31, city: 'Энна', card: forged, books: { town: seedTown(NOW), book: seedBook(NOW) } },
+      { id: 32, city: 'Ното', card: honest },
+    ]);
+    const { body } = await ask(31);
+    const mine = body.rows.find((r) => r.mine)!;
+    // Подтверждено — первый уровень тех же построек и ни одного бойца.
+    expect(mine.power).toBe(powerOfCounts({ town_hall: 1, houses: 1 }, {}));
+    expect(mine.pop).toBe(seedTown(NOW).pop);
+    expect(body.rows.map((r) => r.city)).toEqual(['Ното', 'Энна']);
   });
 
   it('мощь описи та же, что у игры: формула одна (`power`)', async () => {
@@ -218,7 +243,10 @@ function fakeTg() {
   const greeted: { chat: number; text: string }[] = [];
   const said: { chat: number; text: string }[] = [];
   const tg: Telegram = {
-    send: async () => 'ok',
+    letter: async () => ({ result: 'ok' }),
+    edit: async () => ({ result: 'ok' }),
+    panel: async () => 'ok',
+    repanel: async () => 'ok',
     answer: async () => 'ok',
     button: async () => 'ok',
     file: async () => 'ok',
@@ -230,6 +258,7 @@ function fakeTg() {
       greeted.push({ chat, text });
       return 'ok';
     },
+    checkout: async () => 'ok',
   };
   return { tg, greeted, said };
 }

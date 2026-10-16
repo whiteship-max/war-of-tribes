@@ -1,5 +1,6 @@
 /**
- * Поручения сервера в исходящие игроков — новости войны между игроками (docs/NOTIFY.md, раздел 12).
+ * Поручения сервера в исходящие игроков — новости войны между игроками (docs/NOTIFY.md, раздел 12) и указы админа
+ * (раздел 13).
  *
  * Бой между игроками считает сервер (`war.advance`), значит и сказать о нём может только он: клиента в минуту боя
  * может не быть ни у одной стороны. Новости выводятся из записи войн (`war.newsOf`), а кладутся сюда тем, кто
@@ -11,8 +12,8 @@
  * ключей здесь не собирается, и вида ключа проверяется тот же, что у метки индекса (`PLAYER_KEY`).
  */
 import { parseJson, WRITE_TRIES } from './http.js';
-import type { Kv } from './kv.js';
-import type { NoticeItem } from './contract.js';
+import { STORES, type Kv, type Stores } from './kv.js';
+import { RESULT_KEEP, type AdminGrant, type NoticeItem } from './contract.js';
 import { news, PLAYER_KEY, readNotify } from './notify.js';
 
 export interface OutboxIo {
@@ -21,6 +22,29 @@ export interface OutboxIo {
   /** Индекс по минутам. */
   due: Kv;
 }
+
+/** Двери исходящих из хранилищ дома — для тех, кто кладёт весть сам, не будучи проходом: указ админа (`commands.ts`). */
+export const outboxOf = (stores: Stores): OutboxIo => ({ notify: stores(STORES.notify), due: stores(STORES.due) });
+
+/**
+ * Весть об указе админа (ВС-1, род «указы»): что прибавлено и убавлено, в минуту указа. Ключ — номер указа у игрока:
+ * повтор той же команды кладёт новый номер, а та же запись второй раз не задваивается. Участи у указа нет — поле
+ * `fate` у вести обязательно, и здесь оно формы ради; имя — тоже.
+ */
+export const grantNotice = (g: AdminGrant): NoticeItem => ({
+  key: `grant:${g.n}`,
+  kind: 'grant',
+  fireAt: g.at,
+  until: g.at + RESULT_KEEP,
+  p: {
+    from: 'указ',
+    fate: 'plunder',
+    about: g.at,
+    n: g.n,
+    ...(Object.keys(g.stock).length ? { stock: g.stock } : {}),
+    ...(Object.keys(g.troops).length ? { troops: g.troops } : {}),
+  },
+});
 
 /** Положить новости войны игрокам. Ошибка одного игрока не мешает другим: новость — не партия. */
 export async function queueNews(io: OutboxIo, diff: Map<string, { add: NoticeItem[]; drop: string[] }>, now: number): Promise<void> {
