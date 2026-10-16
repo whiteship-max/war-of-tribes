@@ -16,7 +16,7 @@ import { TW_SPEC } from '../reel/spec';
 import type { ClipId, Troupe, TroupeUnit } from '../reel/troupe';
 import { hash, heightAt } from '../reel/terrain';
 import type { UnitKind } from '@/battle/types';
-import { CITY_M, GATEHOUSE, RAM_PERIOD, type TwHouse, type TwLadder, type TwRam, type TwSiegeTower } from '../tw/site';
+import { CITY_M, GATEHOUSE, RAM_PERIOD, type TwHouse, type TwLadder, type TwRam, type TwSiegeTower, type TwTent } from '../tw/site';
 import { STOREY_H } from '../city/kit';
 import { ENGINE, breachWidth, type TwBarrage, type TwBreach, type TwCamKey, type TwChunk, type TwEngine, type TwSmoke, type TwStone } from '../tw/barrage';
 import type { FortMotion } from '../tw/fort';
@@ -542,8 +542,14 @@ function smokeAt(c: Ctx, x: number, z: number, from: number, size: number, to?: 
   c.smoke.push({ x, y: y ?? heightAt(c.lay.field, x, z) + 0.4, z, from, size, ...(to !== undefined ? { to } : {}) });
 }
 
-/** Карниз дома: огонь горящего дома встаёт по крыше, а не внутри стен (этажи набора города масштабом сцены). */
-const eaveOf = (c: Ctx, h: TwHouse): number => heightAt(c.lay.field, h.x, h.z) + h.floors * STOREY_H * CITY_M;
+/** Где горит шатёр или шалаш: на середине ската (высота шатра — полторы его ширины, `fort.tent`), а не под полотном. */
+const tentFire = (c: Ctx, t: TwTent): number => heightAt(c.lay.field, t.x, t.z) + 0.8 * t.size + 0.6;
+
+/**
+ * Где горит дом: над скатами кровли, а не внутри стен — карниз (этажи набора города масштабом сцены) и ещё две пятых
+ * узкой стороны дома (кровля набора — 48–60°, конёк выше карниза на полторы трети ширины).
+ */
+const roofOf = (c: Ctx, h: TwHouse): number => heightAt(c.lay.field, h.x, h.z) + h.floors * STOREY_H * CITY_M + 0.4 * Math.min(h.w, h.d);
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Пролом
@@ -672,7 +678,7 @@ function fire(c: Ctx, t0: number, len: number): void {
   tents.forEach((tt, j) => {
     const s = throwStone(c, e, t0 + 0.9 + j * 1.5, tt.x, heightAt(c.lay.field, tt.x, tt.z) + 0.6, tt.z, 'hut', -1);
     const land = s.at + s.flight;
-    smokeAt(c, tt.x, tt.z, land, 1.25, t0 + len + LAPSE * 2);
+    smokeAt(c, tt.x, tt.z, land, 1.25, t0 + len + LAPSE * 2, tentFire(c, tt));
     for (const i of nearest(c, c.groups.camp, tt.x, tt.z, Math.ceil(hit / tents.length), land)) {
       if (killed >= hit) break;
       die(c, i, land + 0.1 + killed * 0.07, t0 + len + LAPSE);
@@ -760,8 +766,8 @@ function volleyEp(c: Ctx, t0: number, p: ShowPhase): void {
     // Перелёт — в дом за стеной, он дымит.
     const h = c.lay.site.houses[(j * 7 + c.seed) % Math.max(1, c.lay.site.houses.length)];
     if (h) {
-      const s = throwStone(c, e, t0 + 2.1 + j * 0.6, h.x, eaveOf(c, h) + 0.8, h.z, 'over', -1);
-      smokeAt(c, h.x, h.z, s.at + s.flight, 0.8, s.at + s.flight + 14, eaveOf(c, h) + 0.6);
+      const s = throwStone(c, e, t0 + 2.1 + j * 0.6, h.x, roofOf(c, h) + 0.2, h.z, 'over', -1);
+      smokeAt(c, h.x, h.z, s.at + s.flight, 0.8, s.at + s.flight + 14, roofOf(c, h) + 0.6);
     }
   });
   key(c, t0, box(-14, 14, -40, -24), 0.4, 0.34);
@@ -860,7 +866,9 @@ function sortie(c: Ctx, t0: number, len: number, f: ShowFight): void {
   volleyOfArrows(c, archersOf(c, t0).slice(0, 12), t0 + 2.2, tx, tz - 6, 10);
   key(c, t0, box(gx - 9, gx + 9, Math.max(tz, -16), 6), Math.PI - 0.25, 0.46);
   key(c, t0 + 2.6, box(tx - 8, tx + 8, tz - 6, tz + 6), Math.PI / 2 + 0.25, 0.3);
-  key(c, t0 + 5.2, box(-14, 14, tz - 6, 6), 0.3, 0.42);
+  // Сожгли машину — камера остаётся у огня, пока вышедшие уходят воротами; отбиты — смотрим, как отходят к стене.
+  if (f.won && m) key(c, t0 + 5.2, box(tx - 9, tx + 9, tz - 7, tz + 9), 0.35, 0.34);
+  else key(c, t0 + 5.2, box(-14, 14, tz - 6, 6), 0.3, 0.42);
 }
 
 /** Удар по лагерю из поля — полководец, выручка союзника; совместный — ещё и гарнизон из ворот (клещи). */
@@ -1096,10 +1104,10 @@ function broken(c: Ctx, t0: number, len: number): void {
     c.alive[i] = 0;
   }
   const burning = [...camp.tents].sort((a, b) => Math.abs(a.x) - Math.abs(b.x)).slice(0, c.quality === 'low' ? 3 : 6);
-  for (const [j, tt] of burning.entries()) smokeAt(c, tt.x, tt.z, t0 + 0.8 + j * 0.4, 1.35 + (j % 2) * 0.25);
+  for (const [j, tt] of burning.entries()) smokeAt(c, tt.x, tt.z, t0 + 0.8 + j * 0.4, 1.35 + (j % 2) * 0.25, undefined, tentFire(c, tt));
   for (const i of [...c.groups.wall, ...c.groups.field]) if (c.alive[i] && c.tr.standing(i, t0)) c.tr.act(i, t0 + 2, 'cheer');
   key(c, t0, box(-14, 14, -48, -24), Math.PI + 0.3, 0.4);
-  key(c, t0 + 3, box(-16, 16, -84, -40), Math.PI + 0.1, 0.46);
+  key(c, t0 + 3, box(-13, 13, -72, -38), Math.PI + 0.15, 0.4);
 }
 
 /** Лагерь растаял или ушёл: уцелевшие уходят в поле. */
@@ -1154,8 +1162,8 @@ function fate(c: Ctx, t0: number, len: number): void {
   for (const i of winners.slice(0, 12)) c.tr.act(i, t0 + 0.3, 'cheer');
   if (f === 'burn') {
     const houses = [...lay.site.houses].sort((a, b) => Math.hypot(a.x, a.z - lay.square.z) - Math.hypot(b.x, b.z - lay.square.z)).slice(0, c.quality === 'low' ? 5 : c.quality === 'medium' ? 10 : 14);
-    houses.forEach((h, j) => smokeAt(c, h.x, h.z, t0 + 0.3 + j * 0.3, 1.5 + (j % 3) * 0.3, undefined, eaveOf(c, h) + 0.6));
-    if (!lay.wall && lay.lair) for (const [j, h] of lay.lair.tents.slice(0, 8).entries()) smokeAt(c, h.x, h.z, t0 + 0.3 + j * 0.3, 1.3);
+    houses.forEach((h, j) => smokeAt(c, h.x, h.z, t0 + 0.3 + j * 0.3, 1.5 + (j % 3) * 0.3, undefined, roofOf(c, h) + 0.6));
+    if (!lay.wall && lay.lair) for (const [j, h] of lay.lair.tents.slice(0, 8).entries()) smokeAt(c, h.x, h.z, t0 + 0.3 + j * 0.3, 1.3, undefined, tentFire(c, h));
   } else if (f === 'captives') {
     // Уводят людей: народ города колонной из ворот к лагерю, по бокам — конвой.
     c.groups.folk.forEach((i, j) => {
@@ -1169,7 +1177,7 @@ function fate(c: Ctx, t0: number, len: number): void {
     cartsOut(c, t0, 3, true);
     // Грабёж: из дома тянет дымом.
     const h = lay.site.houses[c.seed % Math.max(1, lay.site.houses.length)];
-    if (h) smokeAt(c, h.x, h.z, t0 + 0.5, 0.6, t0 + len + 4, eaveOf(c, h) + 0.6);
+    if (h) smokeAt(c, h.x, h.z, t0 + 0.5, 0.6, t0 + len + 4, roofOf(c, h) + 0.6);
   }
   if (f === 'burn') {
     key(c, t0, box(-12, 12, 6, 30), 0.2, 0.4);
