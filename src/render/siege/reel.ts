@@ -668,7 +668,7 @@ function fire(c: Ctx, t0: number, len: number): void {
   tents.forEach((tt, j) => {
     const s = throwStone(c, e, t0 + 0.9 + j * 1.5, tt.x, heightAt(c.lay.field, tt.x, tt.z) + 0.6, tt.z, 'hut', -1);
     const land = s.at + s.flight;
-    smokeAt(c, tt.x, tt.z, land, 0.75, t0 + len + LAPSE * 2);
+    smokeAt(c, tt.x, tt.z, land, 1.25, t0 + len + LAPSE * 2);
     for (const i of nearest(c, c.groups.camp, tt.x, tt.z, Math.ceil(hit / tents.length), land)) {
       if (killed >= hit) break;
       die(c, i, land + 0.1 + killed * 0.07, t0 + len + LAPSE);
@@ -790,8 +790,8 @@ function plague(c: Ctx, t0: number, len: number, p: ShowPhase): void {
   }
   // Погребальные костры за шатрами.
   const cz = c.lay.camp.z0 + 4;
-  smokeAt(c, -10, cz, t0 + 0.4, 1, t0 + len + 4);
-  smokeAt(c, 12, cz - 3, t0 + 1.1, 0.8, t0 + len + 4);
+  smokeAt(c, -10, cz, t0 + 0.4, 1.2, t0 + len + 4);
+  smokeAt(c, 12, cz - 3, t0 + 1.1, 1, t0 + len + 4);
   key(c, t0, box(-14, 14, -54, -34), 0.25, 0.32);
   key(c, t0 + 2.4, box(-10, 10, -50, -38), -0.4, 0.28);
 }
@@ -842,7 +842,7 @@ function sortie(c: Ctx, t0: number, len: number, f: ShowFight): void {
     if (m) {
       m.gone = Math.min(m.gone, t0 + 5.6);
       if (m.id === 'mangonel' && c.engineOf.mangonel !== undefined) c.engines[c.engineOf.mangonel].gone = m.gone;
-      smokeAt(c, m.x, m.z, t0 + 4.4, 1.15, t0 + len + LAPSE * 3);
+      smokeAt(c, m.x, m.z, t0 + 4.4, 1.7, t0 + len + LAPSE * 3);
     }
   } else {
     for (const i of goers.slice(0, Math.ceil(goers.length * 0.35))) die(c, i, t0 + 3.9 + r(c, i, 9, 28) * 1.2, t0 + len + LAPSE);
@@ -888,7 +888,7 @@ function relief(c: Ctx, t0: number, len: number, f: ShowFight): void {
   }
   if (f.won) {
     for (const i of back.slice(0, Math.ceil(back.length * 0.6))) die(c, i, t0 + 3.9 + r(c, i, 10, 29) * 1.5, t0 + len + LAPSE);
-    smokeAt(c, -6, camp.z0 + 2, t0 + 4.2, 0.9, t0 + len + LAPSE * 4);
+    smokeAt(c, -6, camp.z0 + 2, t0 + 4.2, 1.4, t0 + len + LAPSE * 4);
   } else {
     for (const i of field.slice(0, Math.ceil(field.length * 0.35))) die(c, i, t0 + 4 + r(c, i, 11, 30) * 1.4, t0 + len + LAPSE);
     for (const i of field) if (c.alive[i]) c.tr.go(i, t0 + 5.6, t0 + len, c.tr.last(i).x, -112, 'run', 'run');
@@ -1091,10 +1091,11 @@ function broken(c: Ctx, t0: number, len: number): void {
     c.tr.hide(i, at + 4.2);
     c.alive[i] = 0;
   }
-  for (const [j, tt] of camp.tents.slice(0, 4).entries()) smokeAt(c, tt.x, tt.z, t0 + 0.8 + j * 0.5, 0.9);
+  const burning = [...camp.tents].sort((a, b) => Math.abs(a.x) - Math.abs(b.x)).slice(0, c.quality === 'low' ? 3 : 6);
+  for (const [j, tt] of burning.entries()) smokeAt(c, tt.x, tt.z, t0 + 0.8 + j * 0.4, 1.35 + (j % 2) * 0.25);
   for (const i of [...c.groups.wall, ...c.groups.field]) if (c.alive[i] && c.tr.standing(i, t0)) c.tr.act(i, t0 + 2, 'cheer');
-  key(c, t0, box(-16, 16, -56, -26), Math.PI + 0.3, 0.44);
-  key(c, t0 + 3, box(-18, 18, -92, -40), Math.PI + 0.1, 0.5);
+  key(c, t0, box(-14, 14, -48, -24), Math.PI + 0.3, 0.4);
+  key(c, t0 + 3, box(-16, 16, -84, -40), Math.PI + 0.1, 0.46);
 }
 
 /** Лагерь растаял или ушёл: уцелевшие уходят в поле. */
@@ -1148,9 +1149,9 @@ function fate(c: Ctx, t0: number, len: number): void {
   const winners = c.groups.camp.filter((i) => c.alive[i] && c.tr.standing(i, t0));
   for (const i of winners.slice(0, 12)) c.tr.act(i, t0 + 0.3, 'cheer');
   if (f === 'burn') {
-    const houses = [...lay.site.houses].sort((a, b) => Math.hypot(a.x, a.z - lay.square.z) - Math.hypot(b.x, b.z - lay.square.z)).slice(0, c.quality === 'low' ? 4 : 8);
-    houses.forEach((h, j) => smokeAt(c, h.x, h.z, t0 + 0.3 + j * 0.35, 0.9 + (j % 3) * 0.15, undefined, heightAt(lay.field, h.x, h.z) + 2.4));
-    if (!lay.wall && lay.lair) for (const [j, h] of lay.lair.tents.slice(0, 6).entries()) smokeAt(c, h.x, h.z, t0 + 0.3 + j * 0.3, 0.8);
+    const houses = [...lay.site.houses].sort((a, b) => Math.hypot(a.x, a.z - lay.square.z) - Math.hypot(b.x, b.z - lay.square.z)).slice(0, c.quality === 'low' ? 5 : c.quality === 'medium' ? 10 : 14);
+    houses.forEach((h, j) => smokeAt(c, h.x, h.z, t0 + 0.3 + j * 0.3, 1.5 + (j % 3) * 0.3, undefined, heightAt(lay.field, h.x, h.z) + 2.4));
+    if (!lay.wall && lay.lair) for (const [j, h] of lay.lair.tents.slice(0, 8).entries()) smokeAt(c, h.x, h.z, t0 + 0.3 + j * 0.3, 1.3);
   } else if (f === 'captives') {
     // Уводят людей: народ города колонной из ворот к лагерю, по бокам — конвой.
     c.groups.folk.forEach((i, j) => {
@@ -1166,8 +1167,13 @@ function fate(c: Ctx, t0: number, len: number): void {
     const h = lay.site.houses[c.seed % Math.max(1, lay.site.houses.length)];
     if (h) smokeAt(c, h.x, h.z, t0 + 0.5, 0.6, t0 + len + 4, heightAt(lay.field, h.x, h.z) + 2.2);
   }
-  key(c, t0, box(-16, 16, 0, 34), 0.2, 0.5);
-  key(c, t0 + 2.8, box(-16, 16, -40, 0), 0.6, 0.42);
+  if (f === 'burn') {
+    key(c, t0, box(-12, 12, 6, 30), 0.2, 0.4);
+    key(c, t0 + 3, box(-16, 16, -6, 32), -0.35, 0.46);
+  } else {
+    key(c, t0, box(-12, 12, -6, 20), 0.2, 0.42);
+    key(c, t0 + 2.8, box(-14, 14, -36, -2), 0.6, 0.4);
+  }
 }
 
 // ---------------------------------------------------------------------------------------------------------------------

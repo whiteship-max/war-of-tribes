@@ -92,6 +92,8 @@ export class SiegeStage {
   private arrows: THREE.InstancedMesh;
   private carts: THREE.InstancedMesh[] = [];
   private torches: THREE.InstancedMesh | null = null;
+  /** Огни, что светятся ночью: факелы на стене (`reel.torches`) и костры лагеря; `k` — величина. */
+  private flames: { x: number; y: number; z: number; k: number }[] = [];
   private scaffolds: THREE.Mesh[] = [];
   private disposables: { dispose(): void }[] = [];
   private M = new THREE.Matrix4();
@@ -190,12 +192,14 @@ export class SiegeStage {
       this.disposables.push(g, mesh);
     }
 
-    // Факелы на стене — видны ночью.
-    if (reel.torches.length > 0) {
+    // Факелы на стене и костры лагеря — светятся сами ночью (лампа на сцене одна: огонь — без света, своим цветом).
+    for (const f of lay.camp.fires) this.flames.push({ x: f.x, y: heightAt(lay.field, f.x, f.z) + 0.15, z: f.z, k: 2.4 });
+    for (const p of reel.torches) this.flames.push({ ...p, k: 1 });
+    if (this.flames.length > 0) {
       const tg = new THREE.ConeGeometry(0.16, 0.5, 5).translate(0, 0.25, 0);
       const tm = new THREE.MeshBasicMaterial({ color: FLAME });
       tm.name = 'siege-torches';
-      this.torches = new THREE.InstancedMesh(tg, tm, reel.torches.length);
+      this.torches = new THREE.InstancedMesh(tg, tm, this.flames.length);
       this.torches.name = 'siege-torches';
       this.torches.frustumCulled = false;
       this.scene.add(this.torches);
@@ -231,6 +235,10 @@ export class SiegeStage {
     this.lastSolar = solar;
     const g = { ...this.reel.show.ground, solar };
     relight(this.rig, this.scene, g);
+    // Ночь осады темнее ночи города: город держит жителей различимыми, а ролику нужны огни на тёмной земле.
+    const night = nightOf(solar);
+    this.rig.hemi.intensity *= 1 - 0.38 * night;
+    this.rig.sun.intensity *= 1 - 0.22 * night;
     this.sunDir.copy(this.rig.sun.position).normalize();
     this.sky.update(this.scene, g);
     this.clouds?.relight(this.scene, g, this.rig);
@@ -309,9 +317,9 @@ export class SiegeStage {
     const night = nightOf(this.lastSolar);
     tm.visible = night > 0.05;
     if (!tm.visible) return;
-    this.reel.torches.forEach((p, k) => {
+    this.flames.forEach((p, k) => {
       const fl = 0.8 + 0.2 * Math.sin(t * 11 + k * 1.7) * Math.sin(t * 5.3 + k);
-      const s = night * fl;
+      const s = night * fl * p.k;
       tm.setMatrixAt(k, this.M.compose(this.V.set(p.x, p.y, p.z), this.Q.identity(), this.S.set(s, s * 1.2, s)));
     });
     tm.instanceMatrix.needsUpdate = true;
