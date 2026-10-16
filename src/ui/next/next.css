@@ -1555,19 +1555,6 @@
   width: 24px;
   height: 24px;
 }
-.mr-two {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  line-height: 1.2;
-}
-.mr-two b {
-  font-weight: 600;
-}
-.mr-two small {
-  font-size: 11px;
-  color: var(--muted);
-}
 .mr-acts {
   display: inline-flex;
   gap: 4px;
@@ -1575,7 +1562,7 @@
 .nx-marches .kit-c.r .nx-ico44 {
   display: inline-grid;
 }
-.nx-marches .kit-name.lost .mr-two b {
+.nx-marches .kit-name.lost .kit-two b {
   color: var(--bad);
 }
 .nx-marches .bad {

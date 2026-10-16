@@ -11,6 +11,9 @@ import { cleanDefend, cleanOrders, type DefendOrders, type SiegeOrders } from '@
 import type { Fate, ParleyView } from '@/world/types';
 import { termsChoices } from '@/world/parley';
 import { realLeft } from '@/ui/parts/wait';
+import { Btn } from '@/ui/kit/Btn';
+import { Toggle } from '@/ui/kit/Toggle';
+import { Table, type Col } from '@/ui/kit/Table';
 
 const fateName = (f: Fate): string => `«${FATE_META[f].name.toLowerCase()}»`;
 
@@ -22,6 +25,8 @@ function mineLine(m: NonNullable<ParleyView['mine']>, now: number): string {
   if (now >= m.until) return `Наше предложение — ${what} — осталось без ответа.`;
   return `Наше предложение — ${what} — ждёт ответа ещё ${realLeft(secondsLeft(m.until, now))}.`;
 }
+
+const TERMS_COLS: readonly Col[] = [{ key: 'fate', title: 'Участь' }];
 
 export interface SiegeParleyProps {
   view: ParleyView;
@@ -71,18 +76,20 @@ export function SiegeParley(props: SiegeParleyProps) {
                 : `Дань ${inc.price ?? 0} — припасы и золото с их склада. Возьмёшь — лагерь снимется, осада кончена.`}{' '}
               {view.bot ? '' : `Ответить можно ещё ${realLeft(secondsLeft(inc.until, now))}.`}
             </div>
-            <div className="cost">
-              <button
-                className="btn"
-                disabled={busy}
+            <div className="sg-row-act">
+              {/* Открыть ворота — необратимо: двумя касаниями (`kit/twotap`); взять дань — нет. */}
+              <Btn
+                kind="main"
+                confirm={inc.kind === 'terms'}
+                why={busy ? 'Ждём ответа' : null}
                 onClick={() => void run(() => parley({ act: 'answer', kind: inc.kind, yes: true }), inc.kind === 'terms' ? 'Ворота открыты.' : 'Дань взята.')}
               >
                 {inc.kind === 'terms' ? 'Открыть ворота' : 'Взять'}
-              </button>
+              </Btn>
               {!view.bot && (
-                <button className="btn" disabled={busy} onClick={() => void run(() => parley({ act: 'answer', kind: inc.kind, yes: false }), 'Отказано.')}>
+                <Btn why={busy ? 'Ждём ответа' : null} onClick={() => void run(() => parley({ act: 'answer', kind: inc.kind, yes: false }), 'Отказано.')}>
                   Отказать
-                </button>
+                </Btn>
               )}
             </div>
           </div>
@@ -92,66 +99,61 @@ export function SiegeParley(props: SiegeParleyProps) {
       {atk ? (
         <>
           {(view.terms ?? []).map((f) => (
-            <button
+            <Btn
               key={f}
-              className="btn wide"
-              disabled={busy || view.block !== null}
+              wide
+              why={busy ? 'Ждём ответа' : view.block !== null ? 'Сейчас нельзя: причина ниже' : null}
               onClick={() => void run(() => parley({ act: 'offer', kind: 'terms', fate: f }), view.bot ? 'Ворота открыты.' : 'Условия отправлены.')}
+              sub={`${fateName(f)} вместо ${fateName(fate)}`}
             >
-              Предложить сдачу: {fateName(f)} вместо {fateName(fate)}
-            </button>
+              Предложить сдачу
+            </Btn>
           ))}
           <p className="note">
             {view.block ?? 'Гарнизон уйдёт живым, город — нашим на этих условиях. Предложение стоит до конца следующей фазы, одно за фазу.'}
           </p>
-          {(
-            <label className="note">
-              <input
-                type="checkbox"
-                checked={Boolean(props.orders?.tribute)}
-                disabled={busy}
-                onChange={(e) =>
-                  void run(() => setOrders(cleanOrders({ ...(props.orders ?? {}), tribute: e.target.checked }) ?? {}), 'Наказы поставлены.')
-                }
-              />{' '}
-              Брать дань, как только предложат: её цена — справедливая на минуту предложения
-            </label>
-          )}
+          {/* Наказ — переключателем 44, а не флажком с подписью 12 px (К5, UI-7). */}
+          <Toggle
+            label="Брать дань, как только предложат"
+            sub="Её цена — справедливая на минуту предложения"
+            on={Boolean(props.orders?.tribute)}
+            disabled={busy}
+            onChange={(on) => void run(() => setOrders(cleanOrders({ ...(props.orders ?? {}), tribute: on }) ?? {}), 'Наказы поставлены.')}
+          />
         </>
       ) : (
         <>
-          <button
-            className="btn wide"
-            disabled={busy || view.block !== null}
+          <Btn
+            wide
+            why={busy ? 'Ждём ответа' : view.block !== null ? 'Сейчас нельзя: причина ниже' : null}
             onClick={() => void run(() => parley({ act: 'offer', kind: 'tribute' }), view.bot ? 'Дань отдана. Лагерь уходит.' : 'Дань предложена.')}
+            sub={`${view.fair ?? 0} припасов и золота`}
           >
-            {view.bot ? 'Откупиться' : 'Предложить дань'} · {view.fair ?? 0}
-          </button>
+            {view.bot ? 'Откупиться' : 'Предложить дань'}
+          </Btn>
           <p className="note">
             {view.block ??
               `Припасы и золото с открытого склада, поровну тому, что лежит. Что в тайнике, останется. Возьмут — лагерь уйдёт, и город на время под защитой от осады.${view.bot ? ' Лагерь логова берёт дань по этой цене сразу.' : ''}`}
           </p>
+          {/* Наказ — таблицей выбора 44, а не родным выпадающим списком (К5, UI-7). */}
           {!view.bot && (
-            <div className="note">
-              Наказ: открыть ворота на условиях не хуже{' '}
-              <select
-                value={props.defend?.terms ?? ''}
-                disabled={busy}
-                onChange={(e) =>
-                  void run(
-                    () => defend({ act: 'orders', defend: cleanDefend({ ...(props.defend ?? {}), terms: (e.target.value || undefined) as Fate | undefined }) ?? {} }),
-                    'Наказы поставлены.',
-                  )
-                }
-              >
-                <option value="">— не открывать —</option>
-                {termsChoices('burn').map((f) => (
-                  <option key={f} value={f}>
-                    {FATE_META[f].name.toLowerCase()}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <>
+              <p className="note">Наказ на отлучку: открыть ворота на условиях не хуже —</p>
+              <Table
+                label="Наказ сдачи"
+                cols={TERMS_COLS}
+                rows={[null, ...termsChoices('burn')].map((f) => ({
+                  key: f ?? 'none',
+                  on: (props.defend?.terms ?? null) === f,
+                  pick: () =>
+                    void run(
+                      () => defend({ act: 'orders', defend: cleanDefend({ ...(props.defend ?? {}), terms: f ?? undefined }) ?? {} }),
+                      'Наказы поставлены.',
+                    ),
+                  cells: { fate: f ? FATE_META[f].name : 'Не открывать' },
+                }))}
+              />
+            </>
           )}
         </>
       )}

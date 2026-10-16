@@ -6,6 +6,9 @@
 // Главная строка — объявленная участь. По ней осаждённый решает, спасать город или
 // махнуть рукой, и стоит она первой после шапки.
 //
+// С UI-7 (docs/ui_v2.md, 5.6; П4) окно — вкладками «Осада · Ответы · Переговоры · Ход», строки — таблицами набора; едет в
+// куске нового вида, а не в первой загрузке.
+//
 // Своей арифметики у окна нет ни в одном числе. Срок — мировые часы (`starvesAt`),
 // потеря при падении — та же дверь участи, что у падения (`SiegeView.fall`), стороны
 // лагеря — та же `throughWorks`, что у боя (`works.campSides`, `works.sortieForecast`),
@@ -33,6 +36,10 @@ import { SiegePhases } from '@/ui/parts/SiegePhases';
 import { SiegeAnswers } from '@/ui/parts/SiegeAnswers';
 import { SiegeParley } from '@/ui/parts/SiegeParley';
 import { bondedWord, townsWord } from '@/game/data/order';
+import { Table, type Col } from '@/ui/kit/Table';
+import { Tabs, type TabDef } from '@/ui/kit/SheetPage';
+import { Btn } from '@/ui/kit/Btn';
+import './siege.css';
 
 const byLevels = (n: number): string => `до ${n} ${plural(n, 'уровня', 'уровней', 'уровней')}`;
 const goodsAndGold = (f: FallForecast): string => `${f.goods} запасов${f.gold > 0 ? ` и ${f.gold} золота` : ''}`;
@@ -62,6 +69,18 @@ export function fallWords(fate: Fate, f: FallForecast): string[] {
   return out;
 }
 
+type View = 'siege' | 'answers' | 'parley' | 'phases';
+
+/** Столбцы «Хлеб и оборона» и «Лагерь у ворот» (UI-7, docs/ui_v2.md, 5.6): строки `.mod` — таблицами набора. */
+const HOLD_COLS: readonly Col[] = [
+  { key: 'what', title: 'Хлеб и оборона' },
+  { key: 'v', title: 'Сейчас', align: 'right', w: '96px' },
+];
+const SIDE_COLS: readonly Col[] = [
+  { key: 'side', title: 'Лагерь у ворот' },
+  { key: 'pass', title: 'Пройдут', align: 'right', w: '112px' },
+];
+
 export function SiegePanel() {
   const s = useGame((g) => g.s);
   const openSortie = useGame((g) => g.openSortie);
@@ -70,6 +89,7 @@ export function SiegePanel() {
   const marches = useWorld((g) => g.marches);
   const figures = useWorld((g) => g.figures);
   const home = useMemo(() => homeOf(s.army, awayOf(marches, figures)), [s, marches, figures]);
+  const [view, setView] = useState<View>('siege');
   const [, retick] = useState(0);
 
   // Часы голода и рогатки идут сами: замерший отсчёт читается как сломанный экран.
@@ -96,6 +116,8 @@ export function SiegePanel() {
 
   const now = worldNow();
   const meta = FATE_META[siege.fate];
+  // Третий ответ на осаду: башня бьёт по лагерю, не выходя за стены. Числа — из мира.
+  const fire = siege.fire;
   const sides = campSides(siege, now);
   const weak = weakSide(siege.since, now, siege.wood);
   // Весь гарнизон через фронт — сколько пробьётся, если выйти сейчас.
@@ -103,9 +125,18 @@ export function SiegePanel() {
   const garrisonMen = troopTotal(home);
   const sortieBlock =
     garrisonMen === 0 ? 'В гарнизоне никого' : refusedAtGate(all) ? gateBusyText(all.waitMs) : null;
+  // Вкладки (П4: окно осады было длиннейшим в игре — 2,3 экрана на стенде): осада и главное действие — первой; ответы,
+  // переговоры и ход фаз — своими, если мир их прислал. Предложение, ждущее ответа, — счётчиком на «Переговорах».
+  const tabs: TabDef<View>[] = [
+    { id: 'siege', label: 'Осада' },
+    ...(siege.answers ? [{ id: 'answers' as const, label: 'Ответы' }] : []),
+    ...(siege.parley ? [{ id: 'parley' as const, label: 'Переговоры', badge: siege.parley.incoming ? 1 : 0 }] : []),
+    ...(siege.phases ? [{ id: 'phases' as const, label: 'Ход' }] : []),
+  ];
+  const shown = tabs.some((t) => t.id === view) ? view : 'siege';
 
   return (
-    <div className="panel">
+    <div className="panel sg">
       <div className="bhead">
         <div className="ico">
           <Icon name="letter-siege" glyph="⛺" />
@@ -117,107 +148,104 @@ export function SiegePanel() {
           </div>
         </div>
       </div>
+      {tabs.length > 1 && <Tabs tabs={tabs} value={shown} onChange={setView} />}
 
-      {/* Главная строка окна: что с городом сделают, если его доедят. */}
-      <div className="card danger">
-        <div className="ico">{meta.icon}</div>
-        <div className="body">
-          <div className="title">Объявлено: {meta.name.toLowerCase()}</div>
-          <div className="desc">Кончится хлеб — {fallWords(siege.fate, siege.fall).join(' ')} Случится и без тебя.</div>
-        </div>
-      </div>
-
-      <h3>Хлеб и оборона</h3>
-      <div className="mod-list">
-        <div className="mod total">
-          <span className="ico">⏳</span>
-          <span className="name">Своей еды хватит на</span>
-          <span className="val neg">{hungerLeft(siege.starvesAt, now)}</span>
-        </div>
-        <div className="mod">
-          <span className="ico">🍞</span>
-          <span className="name">Гарнизон {siege.garrison} тоже ест</span>
-          <span className="val">
-            хлеб {SIEGE_FOOD_YIELD === 0 ? 'не идёт' : `×${SIEGE_FOOD_YIELD}`}, прочее −{Math.round((1 - SIEGE_YIELD) * 100)}%
-          </span>
-        </div>
-        <div className="mod">
-          <span className="ico">
-            <Icon name="bld-palisade" glyph="🧱" />
-          </span>
-          <span className="name">Стены</span>
-          <span className="val">ур. {siege.palisade}</span>
-        </div>
-      </div>
-
-      <h3>Лагерь у ворот</h3>
-      <div className="mod-list">
-        {SIDES.map((side) => {
-          const t = sides[side];
-          return (
-            <div className="mod" key={side}>
-              <span className="ico">{side === 'front' ? '🏘️' : '🌾'}</span>
-              <span className="name">
-                {SIDE_NAME[side]}: {sideReady(t, now)}
-              </span>
-              <span className="val">
-                {t.room >= 1 ? `пройдут ${t.room < Infinity ? t.room : 'все'}` : `свободно через ${realLeft(t.waitMs / 1000)}`}
-              </span>
+      {shown === 'siege' && (
+        <>
+          {/* Главная строка окна: что с городом сделают, если его доедят. */}
+          <div className="card danger">
+            <div className="ico">{meta.icon}</div>
+            <div className="body">
+              <div className="title">Объявлено: {meta.name.toLowerCase()}</div>
+              <div className="desc">Кончится хлеб — {fallWords(siege.fate, siege.fall).join(' ')} Случится и без тебя.</div>
             </div>
-          );
-        })}
-      </div>
-      {/* Третий ответ на осаду: башня бьёт по лагерю, не выходя за стены. Числа — из мира. */}
-      {siege.fire && (
-        <div className="mod-list">
-          <div className="mod">
-            <span className="ico">🗼</span>
-            <span className="name">
-              Башня бьёт по лагерю
-              {siege.fire.slow > 0 && (
-                <em className="sub">рогатки со стороны города растут медленнее на {Math.round(siege.fire.slow * 100)}%</em>
-              )}
-            </span>
-            <span className="val pos">
-              выбито {Math.round(siege.fire.thin * 100)}% из {Math.round(siege.fire.cap * 100)}%
-            </span>
           </div>
-        </div>
-      )}
-      <p className="note">
-        Кто не пройдёт, встанет у рогаток.
-        {weak ? ` ${WEAK_HINT[weak]}` : ''}
-      </p>
-      {/* Дела полководца в лагере (world/siegecraft): лагерь укреплён, город обстреливают — словами мира. */}
-      {siege.craftNote && <p className="note warn">{siege.craftNote}</p>}
-      {siege.machineNote && <p className="note warn">{siege.machineNote}</p>}
-      {/* Ход осады фазами (world/siegeroll): тот же журнал, что у осаждающего, и поправки следующей фазы. */}
-      {siege.phases && <SiegePhases phases={siege.phases} now={now} />}
-      {/* Мораль между боями (14.31): уставший лагерь бить лучше сейчас, уставшему гарнизону — дать отдохнуть. */}
-      {siege.campRest && (
-        <p className="note">{restLine(siege.campRest, 'Лагерь дрался', now)} Бей, пока не отдохнул.</p>
-      )}
-      {siege.garrisonRest && (
-        <p className="note warn">
-          {restLine(siege.garrisonRest, 'Гарнизон дрался', now)} {REST_WHY}
-        </p>
-      )}
-      {/* Износ осады (дни под стенами и залпы лагеря) — тем числом, с которым гарнизон идёт в бой у мира и у сервера войны. */}
-      {siege.wear !== undefined && <p className="note warn">{wearLine(siege.wear)}</p>}
 
-      <h3>Что делать</h3>
-      <button className="btn wide" disabled={sortieBlock !== null} onClick={() => openSortie()}>
-        Вылазка{garrisonMen > 0 ? ` · ${all.passed} из ${all.went}` : ''}
-      </button>
-      {sortieBlock && <p className="note bad">{sortieBlock}</p>}
-      {/* Пустой гарнизон: в осаде новобранцев не набрать — в казармы окно не зовёт, а говорит, что есть (siege_audit, 1). */}
-      {garrisonMen === 0 && <p className="note">{NO_GARRISON}</p>}
-      {homeId && <CampStrike target={homeId} />}
-      <p className="note">Разбитый лагерь снимает осаду, и город снова ест.</p>
+          <Table
+            label="Хлеб и оборона"
+            cols={HOLD_COLS}
+            rows={[
+              {
+                key: 'food',
+                tip: () => ({
+                  title: `Своей еды хватит на ${hungerLeft(siege.starvesAt, now)}`,
+                  body: `Гарнизон ${siege.garrison} тоже ест. В осаде хлеб ${SIEGE_FOOD_YIELD === 0 ? 'не идёт' : `×${SIEGE_FOOD_YIELD}`}, прочее −${Math.round((1 - SIEGE_YIELD) * 100)}%.`,
+                }),
+                cells: { what: 'Своей еды хватит на', v: <b className="bad">{hungerLeft(siege.starvesAt, now)}</b> },
+              },
+              { key: 'garrison', cells: { what: 'Гарнизон ест с городом', v: `${siege.garrison} ${plural(siege.garrison, 'боец', 'бойца', 'бойцов')}` } },
+              { key: 'walls', cells: { what: 'Стены', v: `ур. ${siege.palisade}` } },
+              ...(fire
+                ? [
+                    {
+                      key: 'fire',
+                      tip: () => ({
+                        title: 'Башня бьёт по лагерю',
+                        body: fire.slow > 0 ? `Рогатки со стороны города растут медленнее на ${Math.round(fire.slow * 100)}%.` : undefined,
+                      }),
+                      cells: {
+                        what: 'Башня бьёт по лагерю',
+                        v: <span className="good">{`${Math.round(fire.thin * 100)}% из ${Math.round(fire.cap * 100)}%`}</span>,
+                      },
+                    },
+                  ]
+                : []),
+            ]}
+          />
+
+          <Table
+            label="Лагерь у ворот"
+            cols={SIDE_COLS}
+            rows={SIDES.map((side) => {
+              const t = sides[side];
+              return {
+                key: side,
+                cells: {
+                  side: (
+                    <span className="kit-two">
+                      <b className="one-line">{SIDE_NAME[side]}</b>
+                      <small className="one-line">{sideReady(t, now)}</small>
+                    </span>
+                  ),
+                  pass: t.room >= 1 ? `${t.room < Infinity ? t.room : 'все'}` : `через ${realLeft(t.waitMs / 1000)}`,
+                },
+              };
+            })}
+          />
+          <p className="note">
+            Кто не пройдёт, встанет у рогаток.
+            {weak ? ` ${WEAK_HINT[weak]}` : ''}
+          </p>
+          {/* Дела полководца в лагере (world/siegecraft): лагерь укреплён, город обстреливают — словами мира. */}
+          {siege.craftNote && <p className="note warn">{siege.craftNote}</p>}
+          {siege.machineNote && <p className="note warn">{siege.machineNote}</p>}
+          {/* Мораль между боями (14.31): уставший лагерь бить лучше сейчас, уставшему гарнизону — дать отдохнуть. */}
+          {siege.campRest && <p className="note">{restLine(siege.campRest, 'Лагерь дрался', now)} Бей, пока не отдохнул.</p>}
+          {siege.garrisonRest && (
+            <p className="note warn">
+              {restLine(siege.garrisonRest, 'Гарнизон дрался', now)} {REST_WHY}
+            </p>
+          )}
+          {/* Износ осады (дни под стенами и залпы лагеря) — тем числом, с которым гарнизон идёт в бой у мира и у сервера войны. */}
+          {siege.wear !== undefined && <p className="note warn">{wearLine(siege.wear)}</p>}
+
+          <h3>Что делать</h3>
+          <Btn kind="main" wide why={sortieBlock} onClick={() => openSortie()}>
+            Вылазка{garrisonMen > 0 ? ` · ${all.passed} из ${all.went}` : ''}
+          </Btn>
+          {/* Пустой гарнизон: в осаде новобранцев не набрать — в казармы окно не зовёт, а говорит, что есть (siege_audit, 1). */}
+          {garrisonMen === 0 && <p className="note">{NO_GARRISON}</p>}
+          {homeId && <CampStrike target={homeId} />}
+          <p className="note">Разбитый лагерь снимает осаду, и город снова ест.</p>
+        </>
+      )}
+
       {/* Ответы осаждённого (docs/siege_v2.md, раздел 5): починка, паёк, вылазка на машину, выручка, наказы, сдача. */}
-      <SiegeAnswers siege={siege} now={now} />
+      {shown === 'answers' && <SiegeAnswers siege={siege} now={now} />}
       {/* Переговоры у стен (docs/siege_v2.md, раздел 7): дань за снятие, ответ на условия, наказ — числа из мира. */}
-      {siege.parley && <SiegeParley view={siege.parley} fate={siege.fate} now={now} defend={siege.answers?.defend} />}
+      {shown === 'parley' && siege.parley && <SiegeParley view={siege.parley} fate={siege.fate} now={now} defend={siege.answers?.defend} />}
+      {/* Ход осады фазами (world/siegeroll): тот же журнал, что у осаждающего, и поправки следующей фазы. */}
+      {shown === 'phases' && siege.phases && <SiegePhases phases={siege.phases} now={now} />}
     </div>
   );
 }

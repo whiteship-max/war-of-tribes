@@ -26,3 +26,7 @@ export { MarketNew } from './MarketNew';
 export { ArmyPanel } from '../panels/ArmyPanel';
 // «Жители» — сводка и места работы (UI-5, docs/ui_v2.md, 5.4) — тем же куском, по той же причине.
 export { PeoplePanel } from '../panels/PeoplePanel';
+// Окна осады, вылазки и лагеря (UI-7, docs/ui_v2.md, 5.6) — тем же куском: вкладки, таблицы и переключатели набора.
+export { SiegePanel } from '../panels/SiegePanel';
+export { SortiePanel } from '../panels/SortiePanel';
+export { CampPanel } from '../panels/CampPanel';

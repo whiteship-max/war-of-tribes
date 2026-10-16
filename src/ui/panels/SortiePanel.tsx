@@ -13,7 +13,7 @@
 // увидеть со стены: сколько людей в лагере и насколько он укрепился — а значит,
 // сколько из выбранных пробьются к рогаткам. Это не исход, а условие боя, и
 // считает его та же функция, что и сам бой (`world/works.sortieForecast`).
-import { Fragment, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useGame } from '@/game/store';
 import type { MachineId } from '@/world/data/machines';
 import { plural } from '@/ui/parts/plural';
@@ -29,43 +29,20 @@ import { hungerLeft } from '@/ui/parts/hunger';
 import { gateBusyText, refusedAtGate, sortieForecast } from '@/world/works';
 import type { TroopId } from '@/game/types';
 import { Icon } from '@/ui/icons/Icon';
-
-/**
- * Ряд шага, как у рабочих в здании: числом, а не карточкой на человека.
- *
- * Разметка здесь ровно та же, что у `Steps` в `BuildingPanel` — `.stepper
- * wide-steps` на всю ширину, — и это не вкусовщина. Своих классов у ряда шага
- * нет: единственный, кто его красит, — эти два правила в стилях, и ряд,
- * названный по-своему, остаётся без стилей вовсе. Так и вышло в первый раз:
- * пять кнопок `.mini` (каждая `display: flex` шириной в палец) встали друг под
- * друга, строка вида выросла до 211 px, а список из пяти видов — до 1108 px в
- * шторке высотой 413.
- */
-function Steps({ value, max, onChange }: { value: number; max: number; onChange: (n: number) => void }) {
-  const set = (n: number): void => onChange(Math.max(0, Math.min(max, n)));
-  return (
-    <div className="stepper wide-steps">
-      <button disabled={value <= 0} onClick={() => set(value - 10)} aria-label="Убрать 10">
-        −10
-      </button>
-      <button disabled={value <= 0} onClick={() => set(value - 1)} aria-label="Убрать">
-        −1
-      </button>
-      <span className="n">{value}</span>
-      <button disabled={value >= max} onClick={() => set(value + 1)} aria-label="Добавить">
-        +1
-      </button>
-      <button disabled={value >= max} onClick={() => set(value + 10)} aria-label="Добавить 10">
-        +10
-      </button>
-    </div>
-  );
-}
+import { Steps } from '@/ui/parts/Steps';
+import { Table, type Col } from '@/ui/kit/Table';
+import { Btn } from '@/ui/kit/Btn';
+import './siege.css';
 
 /**
  * `machine` — вылазка на машину лагеря (docs/siege_v2.md, раздел 5): бой с её охраной у стены, перед рогатками; победа сжигает
  * машину. Без него — вылазка на лагерь через рогатки.
  */
+const SORTIE_COLS: readonly Col[] = [
+  { key: 'kind', title: 'Вид' },
+  { key: 'steps', title: 'Выходят', align: 'right', w: '196px' },
+];
+
 export function SortiePanel({ machine }: { machine?: MachineId } = {}) {
   const s = useGame((g) => g.s);
   const showToast = useGame((g) => g.showToast);
@@ -134,7 +111,7 @@ export function SortiePanel({ machine }: { machine?: MachineId } = {}) {
   };
 
   return (
-    <div className="panel">
+    <div className="panel sg">
       <div className="bhead">
         <div className="ico">
           <Icon name="letter-siege" glyph="⛺" />
@@ -191,56 +168,59 @@ export function SortiePanel({ machine }: { machine?: MachineId } = {}) {
       </div>
       )}
 
+      {/* Кто выходит — таблицей: вид, сколько из скольких и ряд шага в строке (`parts/Steps` — один на игру; прежде здесь
+          была своя копия ряда). Последняя строка — кто останется за стеной (UI-7, docs/ui_v2.md, 5.6). */}
       <h3>
         Кто выходит <small>{men} из {troopTotal(home)}</small>
       </h3>
       {troopTotal(home) === 0 ? (
-        <div className="desc">
-          В гарнизоне никого. Найми бойцов в казармах.
-        </div>
+        <div className="desc">В гарнизоне никого. Найми бойцов в казармах.</div>
       ) : (
-        <div className="mod-list">
-          {/*
-            Вид и ряд шага — две строки, а не одна. Ряд шага занимает всю
-            ширину нарочно (см. `Steps`): пять кнопок в палец шириной — это
-            220 px, а на 375 px рядом с именем вида их не поставить.
-          */}
-          {TROOP_IDS.filter((t) => (home[t] ?? 0) > 0).map((t) => (
-            <Fragment key={t}>
-              <div className="mod">
-                <span className="ico">
-                  <Icon name={`troop-${t}`} glyph={TROOP_BY_ID[t].icon} />
-                </span>
-                <span className="name">{TROOP_BY_ID[t].name}</span>
-                <span className={(picked[t] ?? 0) > 0 ? 'val pos' : 'val'}>
-                  {picked[t] ?? 0} из {home[t] ?? 0}
-                </span>
-              </div>
-              <Steps
-                value={picked[t] ?? 0}
-                max={home[t] ?? 0}
-                onChange={(n) => setPicked({ ...picked, [t as TroopId]: n })}
-              />
-            </Fragment>
-          ))}
-          <div className="mod total">
-            <span className="ico">🏠</span>
-            <span className="name">Останется за стеной</span>
-            <span className={stay > 0 ? 'val' : 'val neg'}>{stay}</span>
-          </div>
-        </div>
+        <Table
+          label="Кто выходит"
+          cols={SORTIE_COLS}
+          rows={TROOP_IDS.filter((t) => (home[t] ?? 0) > 0).map((t) => {
+            const n = picked[t] ?? 0;
+            const max = home[t] ?? 0;
+            return {
+              key: t,
+              cells: {
+                kind: (
+                  <span className="kit-name">
+                    <Icon name={`troop-${t}`} glyph={TROOP_BY_ID[t].icon} />
+                    <span className="kit-two">
+                      <b className="one-line">{TROOP_BY_ID[t].name}</b>
+                      <small>из {max}</small>
+                    </span>
+                  </span>
+                ),
+                steps: (
+                  <span className="sg-steps">
+                    <Steps
+                      value={n}
+                      max={max}
+                      spare={max - n}
+                      step={10}
+                      names={{ less: 'Оставить', more: 'Вывести' }}
+                      onChange={(d) => setPicked({ ...picked, [t as TroopId]: Math.max(0, Math.min(max, n + d)) })}
+                    />
+                  </span>
+                ),
+              },
+            };
+          })}
+          total={{ kind: 'Останется за стеной', steps: <b className={stay > 0 ? '' : 'bad'}>{stay}</b> }}
+        />
       )}
-      {standing > 0 && (
-        <p className="note">Отряд полководца стоит дома и выходит со всеми.</p>
-      )}
+      {standing > 0 && <p className="note">Отряд полководца стоит дома и выходит со всеми.</p>}
 
-      <div className="cost">
-        <button className="mini text" onClick={() => setPicked({ ...home })}>
+      <div className="sg-row-act">
+        <Btn kind="link" onClick={() => setPicked({ ...home })}>
           Вывести всех
-        </button>
-        <button className="mini text" onClick={() => setPicked({})}>
+        </Btn>
+        <Btn kind="link" onClick={() => setPicked({})}>
           Никого
-        </button>
+        </Btn>
       </div>
 
       {/* Мораль между боями (14.31): кто и с чем выйдет за ворота и против кого — до нажатия. */}
@@ -254,9 +234,9 @@ export function SortiePanel({ machine }: { machine?: MachineId } = {}) {
       {siege.wear !== undefined && <p className="note warn">{wearLine(siege.wear)}</p>}
       {siege.craftNote && <p className="note warn">{siege.craftNote}</p>}
       {refused && <p className="note bad">{gateBusyText(fc.now.waitMs)}</p>}
-      <button className="btn wide" disabled={busy || men === 0 || refused} onClick={() => void go()}>
+      <Btn kind="main" wide why={busy ? 'Выходят…' : men === 0 ? 'Никого не выбрано' : refused ? 'Проход занят' : null} onClick={() => void go()}>
         Выйти{men > 0 ? ` · ${men}` : ''}
-      </button>
+      </Btn>
 
       <p className="note">
         {machine

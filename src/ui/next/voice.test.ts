@@ -43,6 +43,9 @@ export const STAGE2 = [
   'realm/dispatch.ts',
   'next/MarketNew.tsx',
   'map/Legend.tsx',
+  'parts/SiegeAnswers.tsx',
+  'parts/SiegeParley.tsx',
+  'parts/SiegePhases.tsx',
   'next/HallGives.tsx',
   'parts/TownHall.tsx',
 ];

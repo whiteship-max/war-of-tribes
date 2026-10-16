@@ -301,7 +301,7 @@ export function MarchesNew() {
 /** Две строки ячейки: имя и пояснение 11 px. */
 function Two({ top, sub }: { top: string; sub: string }) {
   return (
-    <span className="mr-two">
+    <span className="kit-two">
       <b className="one-line">{top}</b>
       {sub && <small className="one-line">{sub}</small>}
     </span>

@@ -213,6 +213,20 @@
   font-size: 18px;
   line-height: 1;
 }
+/* Две строки ячейки (UI-7): имя и пояснение 11 px — отряд и где он, сторона лагеря и её готовность. */
+.kit-two {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.2;
+}
+.kit-two b {
+  font-weight: 600;
+}
+.kit-two small {
+  font-size: 11px;
+  color: var(--muted);
+}
 .kit-tempty {
   padding: 8px 12px;
   border-top: 1px solid var(--line);

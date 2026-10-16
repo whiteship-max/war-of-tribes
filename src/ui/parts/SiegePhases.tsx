@@ -5,9 +5,15 @@ import type { SiegePhasesView } from '@/world/types';
 import type { SiegeOrders } from '@/world/siegeroll';
 import { BREACH_MAX } from '@/world/data/siegeroll';
 import { realLeft } from './wait';
+import { Toggle } from '@/ui/kit/Toggle';
+import { Tabs, type TabDef } from '@/ui/kit/SheetPage';
 
-/** Сколько проломов можно назвать наказу штурма: 1..3. */
-const STORM_AT = Array.from({ length: BREACH_MAX }, (_, i) => i + 1);
+/** Наказ штурма вкладками: «нет» и сколько проломов можно назвать — 1..`BREACH_MAX`. */
+type StormTab = `${number}`;
+const STORM_TABS: TabDef<StormTab>[] = [
+  { id: '0', label: 'нет' },
+  ...Array.from({ length: BREACH_MAX }, (_, i) => ({ id: String(i + 1) as StormTab, label: String(i + 1) })),
+];
 
 export function SiegePhases(props: {
   phases: SiegePhasesView;
@@ -37,33 +43,21 @@ export function SiegePhases(props: {
       )}
       {onOrders && (
         <>
+          {/* Наказы на отлучку — переключателем и вкладками 44, а не флажком и кнопками `.mini` (К5, UI-7). */}
           <h3>Наказы на отлучку</h3>
-          <p className="note">Срабатывают в минуту фазы, как кнопка, пока тебя нет.</p>
-          <label className="note">
-            <input
-              type="checkbox"
-              checked={Boolean(orders.volley)}
-              disabled={busy}
-              onChange={(e) => onOrders({ ...orders, volley: e.target.checked })}
-            />{' '}
-            Залп каждую фазу, пока энергии хватает и на штурм
-          </label>
-          <div className="fate-shares">
-            <span className="note">Штурм при проломах:</span>
-            <button className={`mini${orders.storm ? '' : ' on'}`} disabled={busy || !orders.storm} onClick={() => onOrders({ ...orders, storm: 0 })}>
-              нет
-            </button>
-            {STORM_AT.map((n) => (
-              <button
-                key={n}
-                className={`mini${orders.storm === n ? ' on' : ''}`}
-                disabled={busy || orders.storm === n}
-                onClick={() => onOrders({ ...orders, storm: n })}
-              >
-                {n}
-              </button>
-            ))}
-          </div>
+          <Toggle
+            label="Залп каждую фазу"
+            sub="Пока энергии хватает и на штурм; срабатывает в минуту фазы"
+            on={Boolean(orders.volley)}
+            disabled={busy}
+            onChange={(on) => onOrders({ ...orders, volley: on })}
+          />
+          <p className="note">Штурм при проломах — сам, в минуту фазы, когда их столько:</p>
+          <Tabs
+            tabs={STORM_TABS}
+            value={String(orders.storm ?? 0) as StormTab}
+            onChange={(id) => !busy && onOrders({ ...orders, storm: Number(id) })}
+          />
         </>
       )}
     </>
