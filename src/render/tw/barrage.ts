@@ -32,7 +32,16 @@ export interface TwEngine {
   yaw: number;
   /** Секунды пролога, когда рычаг срывается. */
   shots: number[];
+  /**
+   * Ролик осады (`render/siege`): машина встаёт в эту секунду (готова по очереди машин лагеря) и пропадает в `gone` (сожгли
+   * вылазкой). Нет — стоит весь ролик, как в прологе обстрела.
+   */
+  from?: number;
+  gone?: number;
 }
+
+/** Стоит ли машина на секунде `t` (ролик осады: встала готовой, ещё не сгорела). */
+export const engineUp = (e: TwEngine, t: number): boolean => (e.from === undefined || t >= e.from) && (e.gone === undefined || t < e.gone);
 
 export interface TwStone {
   engine: number;
@@ -62,6 +71,8 @@ export interface TwChunk {
    * `MEND_TIME`. Нет — лежит до конца ролика, как в прологе обстрела.
    */
   back?: number;
+  /** Заделанный кусок рухнул снова (и, может быть, снова заделан): те же пролёты, следующие обвалы по порядку. */
+  again?: { at: number; back?: number }[];
 }
 
 export interface TwBreach {
@@ -147,6 +158,8 @@ export interface TwBarrage {
   cues: BarrageCue[];
   /** Фигуры-образцы для вида: расчёт — боец стреляющей стороны, сбитый — со стены. −1 — некого. */
   look: { crew: number; faller: number };
+  /** Пыль без камня (ролик осады: подкоп обрушил кусок стены, ворота рухнули): где, когда и какой ширины. Нет — нет. */
+  bursts?: { x: number; y: number; z: number; at: number; size: number }[];
 }
 
 /**
@@ -253,10 +266,12 @@ export const MEND_TIME = 1.6;
 
 /** Куда лёг кусок: обвал за `FALL_TIME * 0.8` — наружу и вниз; 0 — стоит, 1 — лёг. Заделан — встаёт обратно. */
 export function chunkFall(c: TwChunk, t: number): number {
-  const u = (t - c.at) / (FALL_TIME * 0.8);
+  let cycle: { at: number; back?: number } = c;
+  for (const a of c.again ?? []) if (t >= a.at) cycle = a;
+  const u = (t - cycle.at) / (FALL_TIME * 0.8);
   const down = u <= 0 ? 0 : u >= 1 ? 1 : u * u;
-  if (c.back === undefined || t <= c.back) return down;
-  const k = Math.min(1, (t - c.back) / MEND_TIME);
+  if (cycle.back === undefined || t <= cycle.back) return down;
+  const k = Math.min(1, (t - cycle.back) / MEND_TIME);
   return down * (1 - k * k * (3 - 2 * k));
 }
 

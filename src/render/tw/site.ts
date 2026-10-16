@@ -82,6 +82,11 @@ export interface TwWall {
   towers: TwTower[];
   /** Кто стоит за стеной: город этой стороны. */
   side: 'attacker' | 'defender';
+  /**
+   * Частокол из брёвен, а не камень (ролик осады: стена до третьего уровня, docs/gfx.md, ГФ-2). Нет — камень, как у всякого
+   * боя у стены: ролик боя уровня стены не знает.
+   */
+  wood?: boolean;
 }
 
 export interface TwLadder {

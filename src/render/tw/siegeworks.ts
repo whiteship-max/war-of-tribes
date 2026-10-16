@@ -16,7 +16,7 @@ import { PARAPET, type TwWall } from './site';
 import { hash, heightAt } from '../reel/terrain';
 import type { TwField } from '../reel/terrain';
 import type { TwPlan } from './plan';
-import { BREACH_BAND, ENGINE, FALL_TIME, armAngle, breachColumns, chunkFall, stoneAt, winching, type TwBarrage, type TwEngine, type TwStone } from './barrage';
+import { BREACH_BAND, ENGINE, FALL_TIME, armAngle, breachColumns, chunkFall, engineUp, stoneAt, winching, type TwBarrage, type TwEngine, type TwStone } from './barrage';
 
 /** Что сцене обстрела нужно от зовущего: уровень, поле, стена и сид. Плана боя она не знает (ролик осады — без него). */
 export interface WorksInput {
@@ -69,13 +69,16 @@ export class Siegeworks {
   private disposables: { dispose(): void }[] = [];
   private detail: Detail;
   private arms: Partial<Record<TwEngine['kind'], THREE.InstancedMesh>> = {};
+  /** Рама каждой машины своим мешем, если машины встают и пропадают (ролик осады); иначе — одна на все. */
+  private frames: THREE.Mesh[] = [];
+  private timed: boolean;
   private stones: THREE.InstancedMesh;
   private debris: THREE.InstancedMesh | null = null;
   private puffs: THREE.InstancedMesh;
   private smoke: THREE.InstancedMesh | null = null;
   private fire: THREE.InstancedMesh | null = null;
   private cracks: THREE.InstancedMesh | null = null;
-  private chunks: { mesh: THREE.Mesh; pivot: THREE.Vector3; ground: number; at: number; spans: [number, number][] }[] = [];
+  private chunks: { mesh: THREE.Mesh; pivot: THREE.Vector3; ground: number; at: number; spans: [number, number][]; back?: number; again?: { at: number; back?: number }[] }[] = [];
   /** Осыпь у подножия пролома: камни встают с обвалом своего куска и лежат весь бой. */
   private rubble: THREE.InstancedMesh | null = null;
   private crew: CrowdExtras | null = null;
@@ -101,6 +104,7 @@ export class Siegeworks {
   ) {
     this.group.name = 'tw-siegeworks';
     this.detail = DETAIL[plan.quality];
+    this.timed = b.engines.some((e) => e.from !== undefined || e.gone !== undefined);
     const mat = new THREE.MeshLambertMaterial({ color: 0xffffff, vertexColors: true });
     mat.name = 'tw-siegeworks';
     this.disposables.push(mat);
@@ -122,7 +126,7 @@ export class Siegeworks {
     const pg = new THREE.CircleGeometry(1, 9);
     const pm = new THREE.MeshBasicMaterial({ color: DUST, transparent: true, opacity: 0.32, depthWrite: false });
     pm.name = 'tw-barrage-dust';
-    this.puffs = this.instanced(pg, pm, b.stones.length * this.detail.puffs + (b.breach?.chunks.length ?? 0) * this.detail.puffs * 3, 'tw-barrage-dust', false);
+    this.puffs = this.instanced(pg, pm, b.stones.length * this.detail.puffs + (b.breach?.chunks.length ?? 0) * this.detail.puffs * 3 + (b.bursts?.length ?? 0) * this.detail.puffs * 2, 'tw-barrage-dust', false);
     this.puffs.renderOrder = 2;
     if (this.detail.smoke > 0 && b.smoke.length > 0) {
       const sm = new THREE.MeshBasicMaterial({ color: SMOKE, transparent: true, opacity: 0.42, depthWrite: false });
@@ -154,12 +158,16 @@ export class Siegeworks {
     return mesh;
   }
 
-  /** Рамы машин — одним мешем; рычаги — инстансами по виду, поворотом по кадру. */
+  /**
+   * Рамы машин — одним мешем; рычаги — инстансами по виду, поворотом по кадру. Машины ролика осады встают и пропадают по
+   * своим секундам (`TwEngine.from`, `gone`): у них рама — своим мешем на машину, иначе их не спрятать порознь.
+   */
   private buildEngines(mat: THREE.Material): void {
-    const fb = new Builder();
+    let fb = new Builder();
     const oak = tint(CITY.oak, 0.95);
     const oakL = tint(CITY.oakLight, 1.0);
     for (const e of this.b.engines) {
+      if (this.timed) fb = new Builder();
       const s = Math.sin(e.yaw);
       const c = Math.cos(e.yaw);
       // Точка в осях машины (поперёк, вверх, вперёд), метры → единицы набора.
@@ -190,14 +198,9 @@ export class Siegeworks {
         // Скрутка жил на оси ложки.
         log(fb, P(-0.8, g.pivot, 0), P(0.8, g.pivot, 0), 0.26, tint(0x8a7656, 0.9), 6, true);
       }
+      if (this.timed) this.addFrame(fb, mat);
     }
-    const frames = geometryOf(fb);
-    const mesh = new THREE.Mesh(frames, mat);
-    mesh.name = 'tw-engines';
-    mesh.castShadow = this.detail.shadow;
-    mesh.receiveShadow = true;
-    this.group.add(mesh);
-    this.disposables.push(frames);
+    if (!this.timed) this.addFrame(fb, mat);
     // Рычаги: плечо вдоль +Z от оси (в начале координат), противовес у требушета — на коротком плече.
     for (const kind of ['trebuchet', 'mangonel'] as const) {
       const n = this.b.engines.filter((e) => e.kind === kind).length;
@@ -223,6 +226,17 @@ export class Siegeworks {
     }
   }
 
+  private addFrame(fb: Builder, mat: THREE.Material): void {
+    const frames = geometryOf(fb);
+    const mesh = new THREE.Mesh(frames, mat);
+    mesh.name = 'tw-engines';
+    mesh.castShadow = this.detail.shadow;
+    mesh.receiveShadow = true;
+    this.group.add(mesh);
+    this.frames.push(mesh);
+    this.disposables.push(frames);
+  }
+
   /** Трещины по наружной грани: зубцы от точки удара, видны с секунды удара. */
   private buildCracks(): void {
     const hits = this.b.stones.filter((s) => s.hit === 'wall' && s.chunk < 0);
@@ -243,8 +257,10 @@ export class Siegeworks {
     const band = m(BREACH_BAND);
     const top = m(w.base) + m(w.top);
     const par = m(PARAPET);
-    const T = tint(CITY.stoneTints[0]);
-    const Tdark = tint(CITY.stoneTints[0], 0.86);
+    // Частокол (ролик осады, стена до третьего уровня) рушится брёвнами, а не кладкой.
+    const layer = w.wood ? 'wood' : 'ashlar';
+    const T = w.wood ? tint(CITY.oak, 0.85) : tint(CITY.stoneTints[0]);
+    const Tdark = w.wood ? tint(CITY.oak, 0.7) : tint(CITY.stoneTints[0], 0.86);
     for (const ch of br.chunks) {
       const cb = new Builder();
       let lowest = Infinity;
@@ -257,15 +273,15 @@ export class Siegeworks {
           if (e - a < 0.02) continue;
           const y0 = top - m(c.drop);
           lowest = Math.min(lowest, y0);
-          box(cb, m((a + e) / 2), zo + s * (band / 2), 0, out, m(e - a), band, y0, top, 'ashlar', T, null);
+          box(cb, m((a + e) / 2), zo + s * (band / 2), 0, out, m(e - a), band, y0, top, layer, T, null);
         }
         // Парапет и зубцы — как у целой стены, по толщине опущенной полосы.
         const xa = m(a0);
         const xb = m(a1);
         const pt = Math.min(par, band);
-        box(cb, (xa + xb) / 2, zo + s * (pt / 2), 0, out, xb - xa, pt, top, top + 1.05, 'ashlar', Tdark, 'ashlar');
+        box(cb, (xa + xb) / 2, zo + s * (pt / 2), 0, out, xb - xa, pt, top, top + 1.05, layer, Tdark, layer);
         for (let x = Math.ceil(xa / MERLON_STEP) * MERLON_STEP + MERLON_STEP / 2; x < xb - 0.3; x += MERLON_STEP) {
-          box(cb, x, zo + s * (pt / 2), 0, out, 0.85, pt, top + 1.05, top + 2.0, 'ashlar', T, 'ashlar');
+          box(cb, x, zo + s * (pt / 2), 0, out, 0.85, pt, top + 1.05, top + 2.0, layer, T, layer);
         }
         sumX += (a0 + a1) / 2;
         cnt++;
@@ -282,7 +298,7 @@ export class Siegeworks {
       mesh.position.copy(pivot);
       this.group.add(mesh);
       this.disposables.push(geo);
-      this.chunks.push({ mesh, pivot, ground: heightAt(this.plan.field, pivot.x, w.z - s * 2), at: ch.at, spans: ch.spans });
+      this.chunks.push({ mesh, pivot, ground: heightAt(this.plan.field, pivot.x, w.z - s * 2), at: ch.at, spans: ch.spans, back: ch.back, again: ch.again });
     }
     const n = this.chunks.length * this.detail.rubble;
     if (n > 0) {
@@ -305,7 +321,8 @@ export class Siegeworks {
     const still = t > b.seconds + COLLAPSE_LIFE && this.settled;
     // Рычаги (улеглось — стоят опущенными, не грузятся).
     const idx: Record<string, number> = { trebuchet: 0, mangonel: 0 };
-    for (const e of still ? [] : b.engines) {
+    if (this.timed) b.engines.forEach((e, k) => (this.frames[k].visible = engineUp(e, t)));
+    for (const e of still && !this.timed ? [] : b.engines) {
       const am = this.arms[e.kind]!;
       const g = ENGINE[e.kind];
       const th = armAngle(e, t);
@@ -313,9 +330,10 @@ export class Siegeworks {
       this.Q2.setFromAxisAngle(this.X, -th);
       this.Q.multiply(this.Q2);
       this.V.set(e.x, e.y + g.pivot, e.z);
-      am.setMatrixAt(idx[e.kind]++, this.M.compose(this.V, this.Q, this.S.set(1, 1, 1)));
+      const k = engineUp(e, t) ? 1 : 0;
+      am.setMatrixAt(idx[e.kind]++, this.M.compose(this.V, this.Q, this.S.set(k, k, k)));
     }
-    if (!still) for (const am of Object.values(this.arms)) am!.instanceMatrix.needsUpdate = true;
+    if (!still || this.timed) for (const am of Object.values(this.arms)) am!.instanceMatrix.needsUpdate = true;
     // Камни: в полёте; и на конце плеча взведённой машины, пока следующий её камень ещё не сорвался.
     let n = 0;
     const st = this.stones;
@@ -328,7 +346,7 @@ export class Siegeworks {
     }
     for (const e of b.engines) {
       const next = e.shots.find((s) => s > t);
-      if (next === undefined || armAngle(e, t) !== ENGINE[e.kind].cocked) continue;
+      if (next === undefined || !engineUp(e, t) || armAngle(e, t) !== ENGINE[e.kind].cocked) continue;
       const g = ENGINE[e.kind];
       const th = g.cocked;
       const r = g.arm;
@@ -423,13 +441,22 @@ export class Siegeworks {
         const age = t - (s.at + s.flight);
         for (let j = 0; j < per; j++) n = this.puff(n, s.x1, s.y1 - 0.4, s.z1, age, PUFF_LIFE, s.hit === 'wall' ? 2.4 : 1.8, s.seed * 13 + j, cam);
       }
+      // Пыль без камня (ролик осады: подкоп под стену, ворота рухнули): клубы с секунды `at`.
+      for (const bu of this.b.bursts ?? []) {
+        const age = t - bu.at;
+        if (age < 0 || age > COLLAPSE_LIFE) continue;
+        for (let j = 0; j < per * 2; j++) n = this.puff(n, bu.x + (hash(j, 7, 80) - 0.5) * bu.size, bu.y, bu.z, age - j * 0.04, COLLAPSE_LIFE, 2.6 * bu.size * 0.4 + 1.2, Math.round(bu.at * 100) * 31 + j, cam);
+      }
       // Обвал — облако во весь кусок и до земли.
       const w = this.plan.wall;
       for (const c of this.chunks) {
-        const age = t - c.at;
+        // Обвал и каждый следующий обвал того же куска (ролик осады: заделали — рухнул снова).
+        let at = c.at;
+        for (const a of c.again ?? []) if (t >= a.at) at = a.at;
+        const age = t - at;
         if (age < 0 || age > COLLAPSE_LIFE || !w) continue;
         for (let j = 0; j < per * 3; j++) {
-          const k = Math.round(c.at * 100) * 17 + j;
+          const k = Math.round(at * 100) * 17 + j;
           const x = c.pivot.x + (hash(k, 4, 87) - 0.5) * 6;
           const z = w.z - w.inward * (1 + hash(k, 5, 88) * 3);
           n = this.puff(n, x, c.ground + 0.5 + hash(k, 6, 89) * 3, z, age - j * 0.03, COLLAPSE_LIFE, 3.2, k, cam);
