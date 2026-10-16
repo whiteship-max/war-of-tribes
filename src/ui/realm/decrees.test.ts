@@ -80,6 +80,8 @@ describe('указы — одна копия: правят только в де�
       expect(code(f), f).toContain('goTo(WINDOW.gold)');
     }
     for (const f of walk(join(SRC, 'ui'))) expect(code(relative(SRC, f)), relative(SRC, f)).not.toContain("openTownHall('manage')");
+    // Вопрос 6.22 (решение владельца 16.10.2026): мёртвой вкладки нет и в типе ядра.
+    expect(code('game/store.ts'), 'game/store.ts: TownTab').toMatch(/export type TownTab = 'build';/);
   });
 
   it('ратуша говорит, что даёт городу: скорость стройки, мораль, жильё — «с ур. N», пока его нет', () => {

@@ -20,14 +20,17 @@ import { asGame, type GameSec } from '@/game/pace';
 
 // ---------- Группы ----------
 
-export type HallGroup = 'food' | 'raw' | 'war' | 'home';
+export type HallGroup = 'food' | 'raw' | 'war' | 'city';
 
-/** Группы — порядком сетки. «Жильё» — жильё и службы города: всё, что не двор и не война. */
+/**
+ * Группы — порядком сетки. «Город» — жильё и службы города: всё, что не двор и не война (решение владельца 16.10.2026,
+ * docs/ui_v2.md, 6.4: прежде группа звалась «Жильё», а в ней стояли и площадь, ратуша, склад, храм, рынок).
+ */
 export const HALL_GROUPS: readonly { id: HallGroup; label: string; icon: { name: string; glyph: string } }[] = [
   { id: 'food', label: 'Еда', icon: { name: 'res-food', glyph: '🍖' } },
   { id: 'raw', label: 'Сырьё', icon: { name: 'res-wood', glyph: '🌲' } },
   { id: 'war', label: 'Война', icon: { name: 'hud-army', glyph: '⚔️' } },
-  { id: 'home', label: 'Жильё', icon: { name: 'bld-houses', glyph: '🏘️' } },
+  { id: 'city', label: 'Город', icon: { name: 'bld-houses', glyph: '🏘️' } },
 ];
 
 /**
@@ -53,12 +56,19 @@ export function yieldsOf(type: BuildingTypeId): ResourceId[] {
   return RESOURCE_IDS.filter((r) => (y[r] ?? 0) > 0);
 }
 
-/** Группа постройки: двор с едой — «Еда», прочий двор — «Сырьё»; не двор — «Война» или «Жильё». */
+/**
+ * Не двор, но в «Сырье»: мастерская — служба стройки, её мастера ускоряют стройку, а склада не пополняют (решение
+ * владельца 16.10.2026, docs/ui_v2.md, 6.4: прежде — в «Жильё»). Список, а не вывод: запаса у неё нет, и по выработке её
+ * от храма не отличить.
+ */
+export const RAW_SERVICES: ReadonlySet<BuildingTypeId> = new Set<BuildingTypeId>(['workshop']);
+
+/** Группа постройки: двор с едой — «Еда», прочий двор и мастерская — «Сырьё»; не двор — «Война» или «Город». */
 export function groupOf(type: BuildingTypeId): HallGroup {
   const res = yieldsOf(type);
   if (res.includes('food')) return 'food';
-  if (res.length > 0) return 'raw';
-  return WAR.has(type) ? 'war' : 'home';
+  if (res.length > 0 || RAW_SERVICES.has(type)) return 'raw';
+  return WAR.has(type) ? 'war' : 'city';
 }
 
 // ---------- Плитка ----------

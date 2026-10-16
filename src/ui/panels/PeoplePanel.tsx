@@ -36,6 +36,7 @@ import { WINDOW, sourceWord } from '@/ui/kit/sources';
 import { fmtInt, type TipGo } from '@/ui/next/hudTips';
 import { idleTip, summaryLines, workplaces } from '@/ui/next/people';
 import { count } from '../parts/plural';
+import { useOrderView } from './OrderPanel';
 import '@/ui/next/people.css';
 
 type View = 'sum' | 'work';
@@ -116,7 +117,11 @@ function Summary({ go }: { go: TipGo }) {
         label={ORDER_TEXT.bondedName}
         sub={bondedSub}
         value={fmtInt(bonded)}
-        go={() => goTo(WINDOW.order)}
+        go={() => {
+          // Слово строки — «Невольники»: окно «Порядка» открывается на их вкладке (UI-8, docs/ui_v2.md, 6.13).
+          useOrderView.getState().set('bonded');
+          goTo(WINDOW.order);
+        }}
         goLabel={sourceWord(WINDOW.order)}
       />
     </>

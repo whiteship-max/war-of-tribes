@@ -6,8 +6,6 @@ import { BuildingPanel } from './ui/panels/BuildingPanel';
 import { QuestsPanel } from './ui/panels/QuestsPanel';
 import { SeasonPanel } from './ui/panels/SeasonPanel';
 import { PopPanel } from './ui/panels/PopPanel';
-import { MoralePanel } from './ui/panels/MoralePanel';
-import { OrderPanel } from './ui/panels/OrderPanel';
 import { WinterModal } from './ui/WinterModal';
 import { OfflineModal } from './ui/OfflineModal';
 import { LegacyModal } from './ui/LegacyModal';
@@ -78,6 +76,9 @@ const PeoplePanel = lazy(() => nextUi().then((m) => ({ default: m.PeoplePanel })
 const SiegePanel = lazy(() => nextUi().then((m) => ({ default: m.SiegePanel })));
 const SortiePanel = lazy(() => nextUi().then((m) => ({ default: m.SortiePanel })));
 const CampPanel = lazy(() => nextUi().then((m) => ({ default: m.CampPanel })));
+// «Мораль» и «Порядок» (UI-8, docs/ui_v2.md, 5.7) — тем же куском: таблицы разбора, полоса с порогами и вкладки набора `kit`.
+const MoralePanel = lazy(() => nextUi().then((m) => ({ default: m.MoralePanel })));
+const OrderPanel = lazy(() => nextUi().then((m) => ({ default: m.OrderPanel })));
 
 /**
  * Промыслы — мини-игры от первого лица — свой кусок, как предыстория: качается по кнопке входа, и пока игра идёт,
@@ -137,9 +138,17 @@ function SheetContent({ view }: { view: SheetView }) {
     case 'pop':
       return <PopPanel />;
     case 'morale':
-      return <MoralePanel />;
+      return (
+        <Suspense fallback={null}>
+          <MoralePanel />
+        </Suspense>
+      );
     case 'order':
-      return <OrderPanel />;
+      return (
+        <Suspense fallback={null}>
+          <OrderPanel />
+        </Suspense>
+      );
     case 'army':
       return (
         <Suspense fallback={null}>

@@ -106,7 +106,8 @@ describe('где стоит ловушка', () => {
     // ловушка над `SheetContent`, она проверяется ниже.
     const lazies = [...app.matchAll(/const (\w+) = lazy\(/g)].map((m) => m[1]);
     // С UI-7 (5.6) — и окна осады, вылазки и лагеря.
-    const atEntry = new Set(['Hud', 'Alerts', 'Nav', 'TipLayer', 'Hints', 'CityNaming', 'WorldNew', 'MarchesNew', 'ArmyPanel', 'PeoplePanel', 'SiegePanel', 'SortiePanel', 'CampPanel']);
+    // С UI-8 (5.7) — и «Мораль» с «Порядком».
+    const atEntry = new Set(['Hud', 'Alerts', 'Nav', 'TipLayer', 'Hints', 'CityNaming', 'WorldNew', 'MarchesNew', 'ArmyPanel', 'PeoplePanel', 'SiegePanel', 'SortiePanel', 'CampPanel', 'MoralePanel', 'OrderPanel']);
     const onTap = lazies.filter((n) => !atEntry.has(n));
     expect(onTap.sort()).toEqual(['BugReport', 'Minigame', 'Prologue', 'RealmMenu', 'Trades', 'Treasury']);
     for (const name of [...onTap, 'SheetContent', 'WorldMap']) expect(guarded(app, name), name).toBe(true);

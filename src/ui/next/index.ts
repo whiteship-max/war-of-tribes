@@ -30,3 +30,6 @@ export { PeoplePanel } from '../panels/PeoplePanel';
 export { SiegePanel } from '../panels/SiegePanel';
 export { SortiePanel } from '../panels/SortiePanel';
 export { CampPanel } from '../panels/CampPanel';
+// «Мораль» — одна таблица цели (Д13) — и «Порядок» вкладками «Надзор | Невольники» (6.13) — тем же куском (UI-8, 5.7).
+export { MoralePanel } from '../panels/MoralePanel';
+export { OrderPanel } from '../panels/OrderPanel';

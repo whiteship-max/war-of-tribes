@@ -15,7 +15,7 @@ import { JOB_BY_ID } from '@/game/data/jobs';
 import { buildRate, buildingOfType, buildingProduction, currentSite, handsCount, upgradeInfo } from '@/game/derived';
 import { startUpgrade } from '@/game/sim/actions';
 import { TAP_TARGET } from '@/gestures';
-import { HALL_GROUPS, HALL_SORTS, WAR, groupOf, hallTiles, nextSort, readyCount, sortTiles, yieldsOf, type HallSort } from './hall';
+import { HALL_GROUPS, HALL_SORTS, RAW_SERVICES, WAR, groupOf, hallTiles, nextSort, readyCount, sortTiles, yieldsOf, type HallSort } from './hall';
 
 const { stores, fake } = vi.hoisted(() => ({
   stores: { game: {} as Record<string, unknown> },
@@ -54,9 +54,14 @@ describe('группы построек — из данных игры', () => {
       expect(HALL_GROUPS.map((x) => x.id), d.id).toContain(g);
       const y = d.job ? JOB_BY_ID[d.job].yield : {};
       if ((y.food ?? 0) > 0) expect(g, `${d.id}: двор с едой`).toBe('food');
-      else if (yieldsOf(d.id).length > 0) expect(g, `${d.id}: двор с сырьём`).toBe('raw');
-      else expect(g, `${d.id}: не двор`).toBe(WAR.has(d.id) ? 'war' : 'home');
+      else if (yieldsOf(d.id).length > 0 || RAW_SERVICES.has(d.id)) expect(g, `${d.id}: двор с сырьём или мастерская`).toBe('raw');
+      else expect(g, `${d.id}: не двор`).toBe(WAR.has(d.id) ? 'war' : 'city');
     }
+    // Решение владельца 16.10.2026 (docs/ui_v2.md, 6.4): мастерская — в «Сырье», службы и жильё — группой «Город».
+    expect(groupOf('workshop'), 'мастерская — «Сырьё»').toBe('raw');
+    expect(yieldsOf('workshop'), 'точка внутри области: мастерская запаса не делает').toEqual([]);
+    expect(HALL_GROUPS.map((x) => x.label), 'слова групп').toEqual(['Еда', 'Сырьё', 'Война', 'Город']);
+    expect(groupOf('houses'), 'дома — «Город»').toBe('city');
     for (const t of WAR) {
       expect(BUILDINGS.some((d) => d.id === t), `${t}: такая постройка есть`).toBe(true);
       expect(yieldsOf(t), `${t}: война — не двор`).toEqual([]);

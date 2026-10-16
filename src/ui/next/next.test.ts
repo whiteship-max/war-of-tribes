@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest';
 import { createInitialState } from '@/game/state';
 import { armyPower, housingCapacity, netPerDay, storageCap, upkeepInfo } from '@/game/derived';
 import { popGrowth } from '@/game/sim/population';
-import { TAP_TARGET } from '@/gestures';
+import { TAP_SLIP, TAP_TARGET } from '@/gestures';
 import { waitSpan } from '@/ui/parts/wait';
 import { shortNum } from '@/ui/parts/shortNum';
 import { count } from '@/ui/parts/plural';
@@ -330,8 +330,12 @@ describe('цели касания нового вида — не меньше п
     }
   });
 
-  it('ячейки-справки запасов — 32: промах попадает в соседнюю такую же и стоит одной подсказки', () => {
-    expect(px('.nx-res', 'height')).toBeGreaterThanOrEqual(32);
+  // Решение владельца 16.10.2026 (docs/ui_v2.md, 6.3, К1): 32 → 33 — справка не меньше первого схода, который судья уже
+  // не считает тапом (`TAP_SLIP` + 1). Прежде тест держал 32 (ui_audit.md, 3.6).
+  it('ячейки-справки запасов — 33: промах попадает в соседнюю такую же и стоит одной подсказки', () => {
+    expect(px('.nx-res', 'height')).toBeGreaterThanOrEqual(TAP_SLIP + 1);
+    // Верх целиком — в своей высоте: строка 44, просвет 2 и запасы.
+    expect(44 + 2 + px('.nx-res', 'height')!, 'верх помещается в --hud-h').toBeLessThanOrEqual(Number(CSS.match(/--hud-h:\s*(\d+)px/)![1]));
   });
 });
 

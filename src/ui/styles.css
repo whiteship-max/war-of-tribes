@@ -3721,37 +3721,6 @@ a.start-go {
  * решают, глядя на срок, и цена обязана стоять рядом с ним.
  */
 
-/* Шкала порядка с двумя метками — порогами тревоги и ропота. */
-.progress.order-bar {
-  position: relative;
-  overflow: visible;
-  height: 8px;
-  margin: 4px 0 10px;
-}
-
-.progress.order-bar > div {
-  background: var(--good);
-}
-
-.progress.order-bar.shaky > div {
-  background: var(--accent);
-}
-
-.progress.order-bar.unrest > div {
-  background: var(--bad);
-}
-
-.progress.order-bar .mark {
-  position: absolute;
-  top: -3px;
-  bottom: -3px;
-  width: 2px;
-  margin-left: -1px;
-  border-radius: 1px;
-  background: var(--text);
-  opacity: 0.45;
-}
-
 .mod.order-clock .val {
   font-variant-numeric: tabular-nums;
   font-size: 16px;

@@ -48,7 +48,7 @@ vi.mock('@/game/store', async (orig) => {
 });
 
 import { PeoplePanel } from '@/ui/panels/PeoplePanel';
-import { OrderPanel } from '@/ui/panels/OrderPanel';
+import { OrderPanel, useOrderView } from '@/ui/panels/OrderPanel';
 
 const SRC = join(__dirname, '..');
 
@@ -344,6 +344,8 @@ describe('ничего не потеряно: прежнее — в своих �
   it('невольники — в «Порядке»: где стоят, без места, отпуск шагом; прежней двери в «Жители» нет', () => {
     const s = busy();
     stores.game = { s, openBuilding: () => undefined, act: () => undefined, openMap: () => undefined };
+    // С UI-8 (6.13) невольники — вкладкой «Невольники» окна «Порядка».
+    useOrderView.setState({ view: 'bonded' });
     const html = renderToStaticMarkup(h(OrderPanel));
     expect(html).toContain(`Где невольники <span class="muted">${s.bonded}</span>`);
     expect(html).toContain(buildingTitle(s, 'farm'));
@@ -356,10 +358,36 @@ describe('ничего не потеряно: прежнее — в своих �
   it('пусто — откуда невольники берутся, и дверь на рынок', () => {
     const s = fresh();
     stores.game = { s, openBuilding: () => undefined, act: () => undefined, openMap: () => undefined };
+    useOrderView.setState({ view: 'bonded' });
     const html = renderToStaticMarkup(h(OrderPanel));
     expect(html).toContain('Невольники <span class="muted">нет</span>');
     expect(html).toContain('На рынок');
     expect(html).not.toContain('Отпустить');
+  });
+
+  // Решение владельца 16.10.2026 (docs/ui_v2.md, 6.13): «Порядок» — вкладками «Надзор | Невольники», каждая меньше экрана
+  // (стенд, заход `ui8c`). Область: невольники есть (12, на ферме 5), стройка идёт.
+  it('«Порядок» — вкладки «Надзор | Невольники»: надзор и рычаги на одной, где стоят и отпуск — на другой', () => {
+    const s = busy();
+    expect(s.bonded, 'точка внутри области: невольники есть').toBeGreaterThan(0);
+    stores.game = { s, openBuilding: () => undefined, act: () => undefined, openMap: () => undefined };
+    useOrderView.setState({ view: 'watch' });
+    const watch = renderToStaticMarkup(h(OrderPanel));
+    expect([...watch.matchAll(/role="tab"[^>]*>(?:<[^>]+>)*([^<]+)</g)].map((m) => m[1]), 'вкладки').toEqual(['Надзор', 'Невольники']);
+    expect(watch, 'выбрана «Надзор»').toMatch(/aria-selected="true" class="on"><span class="one-line">Надзор</);
+    expect(watch, 'надзор — таблицей').toContain('aria-label="Кто держит невольников"');
+    expect(watch, 'пороги шкалы — словами (Ч12)').toContain('>ропот<');
+    expect(watch).toContain('>надзора мало<');
+    expect(watch, 'на «Надзоре» отпуска нет').not.toContain('Отпустить');
+    expect(watch, 'и где стоят — тоже').not.toContain('Где невольники');
+    useOrderView.setState({ view: 'bonded' });
+    const bonded = renderToStaticMarkup(h(OrderPanel));
+    expect(bonded, 'на «Невольниках» — где стоят').toContain('Где невольники');
+    expect(bonded, 'и отпуск').toContain(`Отпустить 10 из ${s.bonded}`);
+    expect(bonded, 'надзора там нет').not.toContain('aria-label="Кто держит невольников"');
+    // Дверь «Невольники» из «Жителей» открывает их вкладку.
+    const people = readFileSync(join(SRC, 'panels/PeoplePanel.tsx'), 'utf8');
+    expect(people).toMatch(/useOrderView\.getState\(\)\.set\('bonded'\);\s*goTo\(WINDOW\.order\)/);
   });
 
   it('отпуск — двумя касаниями: окно «Точно?» одно на игру (`kit/twotap`), своего таймера нет', () => {
