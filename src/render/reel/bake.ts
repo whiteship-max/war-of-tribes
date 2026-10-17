@@ -280,6 +280,8 @@ function poseClip(f: Figure, look: Look, clip: ClipId, t: number, seconds: numbe
         f.headTurn = 1.1 * Math.max(0, Math.sin(w - 0.4));
         f.headNod = -0.1;
         f.torsoTwist = 0.35 * Math.max(0, Math.sin(w - 0.4));
+        // Копьё бегущий не бросает, а несёт: древко отклонено назад, руки машут — оно не крутится.
+        if (look.weapon === 'spear') f.wristMain = -0.5 - f.armMain + f.elbowMain;
       }
       break;
     }
@@ -373,6 +375,8 @@ function poseClip(f: Figure, look: Look, clip: ClipId, t: number, seconds: numbe
         f.elbowMain = 1.3;
         f.armSpread = 0.3;
         f.torsoTilt = 0.38;
+        // Копьё в поднятых руках — древком над головой, а не остриём в землю.
+        if (look.weapon === 'spear') f.wristMain = 1.45 - f.armMain + f.elbowMain;
       }
       if (horse) {
         f.kneeL = 0.7;
@@ -398,6 +402,8 @@ function poseClip(f: Figure, look: Look, clip: ClipId, t: number, seconds: numbe
       f.torsoTilt = -0.06 - 0.04 * pulse;
       f.headNod = -0.18;
       f.bob = 0.012 * pulse;
+      // Копьё над головой — остриём вверх: кисть перехватывает древко (у пешего; конный держит наперевес).
+      if (look.weapon === 'spear' && !horse) f.wristMain = 0.25 - f.armMain + f.elbowMain;
       if (horse) horse.neckPitch = neck - 0.1 * pulse;
       break;
     }
