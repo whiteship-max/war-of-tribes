@@ -276,7 +276,7 @@ export class FishPlay implements Play {
     // Течение реки — вдоль берега (ось x правила); море стоит. Ступень промысла — уровень воды (`render/water`).
     this.water.wFlow.value = shore === 'river' ? 0.35 : 0;
     this.water.wYaw.value = SHORE_YAW;
-    this.water.wRain.value = Math.min(1, this.ctx.rain);
+    this.water.wRainK.value = Math.min(1, this.ctx.rain);
     this.water.wCloud.value = Math.min(1, this.ctx.rain * 1.4);
     this.water.wLod.value = WATER_LOD[this.tier];
     scene.add(w);

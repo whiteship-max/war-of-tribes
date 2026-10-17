@@ -5,7 +5,7 @@
 //
 // Хеш — без синуса: `fract(sin(x) · 43758)` на видеокартах телефонов при больших x вырождается в ступени, и узор,
 // зависящий от него, ложится квадратами.
-import { FOAM_DEPTH, GLINT_KNEE, LIGHT, RAIN_CELL, RAIN_PX, RAIN_RATE, RAIN_RING, RIPPLE, RIPPLE_FADE, RIPPLE_OCTAVES, RIPPLE_WARP } from './shape';
+import { FOAM_DEPTH, GLINT_KNEE, LIGHT, RAIN_CELL, RAIN_PX, RAIN_RATE, RAIN_RING, RIPPLE, RIPPLE_FADE, RIPPLE_OCTAVES, RIPPLE_WARP, SWELL } from './shape';
 
 const f = (x: number): string => (Number.isInteger(x) ? `${x}.0` : String(x));
 const v2 = (a: readonly number[]): string => `vec2(${a.map(f).join(', ')})`;
@@ -61,6 +61,16 @@ vec2 wRipple(vec2 fq, float t, float flow, float lod, inout float rough) {
   // Стоячая вода тоже рябит: ветер гонит рябь поперёк.
   float drift = max(flow, 0.25);
   vec2 g = vec2(0.0);
+  // Волны ветра: гряды, изогнутые искривлением; гаснут, когда короче нескольких пикселей.
+${SWELL.map(
+  (w) => `  {
+    vec2 d = vec2(${f(Math.cos(w[0]))}, ${f(Math.sin(w[0]))});
+    float k = ${f(6.2832 / w[1])};
+    float fade = 1.0 - smoothstep(${f(RIPPLE_FADE[0])}, ${f(RIPPLE_FADE[1])}, px / ${f(w[1])});
+    g += d * (${f(w[2])} * gust * fade * cos(dot(q, d) * k - t * sqrt(9.81 * k) * ${f(0.5 * w[3])}));
+    rough += ${f(w[2] * w[2])} * (1.0 - fade);
+  }`,
+).join('\n')}
   for (int i = 0; i < ${RIPPLE.length}; i++) {
     vec4 o = W_OCT[i];
     float a = o.y * gust;
@@ -126,7 +136,8 @@ vec3 wBody(float depth, vec3 shallow, vec3 deep) { return mix(shallow, deep, smo
 // Небо в воде: у горизонта — дымка, к зениту — синее; по небу — облака (cloud — облачность, 0..1, и у ясного неба
 // чуть-чуть; night — доля ночи). Рябь гнёт отражённые облака — так она и видна сверху: зеркало неба, а не ровная заливка.
 vec3 wSkyOf(vec3 R, vec3 zen, vec3 hor, float cloud, float night, float t) {
-  vec3 sky = mix(hor, zen, smoothstep(0.02, 0.75, R.y));
+  // Небо светлеет к горизонту круто, у зенита — ровно: с берега рябь меняет наклон луча — и цвет вместе с ним.
+  vec3 sky = mix(hor, zen, smoothstep(0.0, 0.42, R.y));
   vec2 at = R.xz / max(R.y, 0.12) * 1.6 + vec2(t * 0.01, t * 0.004);
   float c = wNoise(at) * 0.6 + wNoise(at * 2.3 + 7.1) * 0.4;
   float k = smoothstep(0.42, 0.85, c) * (0.18 + 0.62 * cloud);
@@ -135,10 +146,12 @@ vec3 wSkyOf(vec3 R, vec3 zen, vec3 hor, float cloud, float night, float t) {
 }
 
 // Наклон к камере: склоны ряби, обращённые к зрителю, ловят небо у горизонта, обращённые прочь — небо у зенита. Сверху
-// Френель почти не меняется, и рябь читается только этим множителем отражения.
+// Френель почти не меняется, и рябь читается этим множителем отражения.
 float wTilt(vec2 gw, vec3 V) {
   vec2 fwd = -V.xz / max(length(V.xz), 1e-3);
-  return clamp(1.0 + 7.0 * dot(gw, fwd), 0.4, 1.9);
+  // Низко над водой (рыбалка) рябь видна и так — по отражению берега; там множителя нет, иначе он выбелил бы воду.
+  float k = smoothstep(0.25, 0.6, V.y);
+  return clamp(1.0 + 7.0 * k * dot(gw, fwd), 0.4, 1.9);
 }
 
 // Доля отражения: Френель с полом — и сверху вода зеркалит небо, иначе с ракурса игры читалась бы дорогой.

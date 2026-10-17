@@ -69,7 +69,7 @@ export function waterMesh(shore: Shore, u: WaterUniforms): THREE.Mesh {
       pos.push(x, WATER_Y, z);
       const fromNear = near - z;
       const fromFar = sea ? 1e9 : z - far;
-      depth.push(0.26 + 1.6 * Math.min(1, Math.min(fromNear / (sea ? 9 : 5), fromFar / 4)));
+      depth.push(0.45 + 1.6 * Math.min(1, Math.min(fromNear / (sea ? 9 : 5), fromFar / 4)));
     }
   }
   const idx: number[] = [];
@@ -93,9 +93,13 @@ export function waterMesh(shore: Shore, u: WaterUniforms): THREE.Mesh {
   g.setIndex(idx);
   g.computeBoundingSphere();
   toneWater(u, shore);
+  // Лес за рекой встаёт над водой градусов на восемь: в воде у горизонта — он; у моря берега нет.
+  u.wShoreY.value = sea ? 0 : 0.14;
   const m = waterSurface(g, u, 'water');
-  // Вода непрозрачна: под ней ничего нет, и кромку прячет берег.
-  (m.material as THREE.MeshLambertMaterial).transparent = false;
+  // Вода непрозрачна и пишет глубину: дно у берега под ней не должно проступать поверх.
+  const mat = m.material as THREE.MeshLambertMaterial;
+  mat.transparent = false;
+  mat.depthWrite = true;
   m.frustumCulled = false;
   return m;
 }

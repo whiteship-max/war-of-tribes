@@ -480,6 +480,8 @@ export function buildField(plan: LandInput, spec: TwSpec): FieldView {
   const water = town ? null : riverRibbon(f);
   // Река — общая вода игры (`render/water`): та же, что у реки города и рыбалки; течёт вдоль ленты.
   const look = waterLook('river', spec.water);
+  // Низкая камера ролика видит в воде у горизонта дальнюю гряду и опушку.
+  look.wShoreY.value = 0.06;
   let waterMat: THREE.Material | null = null;
   if (water) {
     const m = waterMesh(water, look, 'tw-river');

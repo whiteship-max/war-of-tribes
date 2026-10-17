@@ -16,7 +16,8 @@ export interface WaterLook {
   wTime: { value: number };
   /** Уровень: 0 — низкий, 1 — средний, 2 — высокий; сторож плавности опускает его на ходу. */
   wLod: { value: number };
-  wRain: { value: number };
+  /** Сила дождя, 0..1 (имя — не `wRain`: так зовётся функция кругов). */
+  wRainK: { value: number };
   wCloud: { value: number };
   wNight: { value: number };
   wSunDir: { value: THREE.Vector3 };
@@ -24,8 +25,13 @@ export interface WaterLook {
   wMoonDir: { value: THREE.Vector3 };
   wSkyZen: { value: THREE.Color };
   wSkyHor: { value: THREE.Color };
-  /** Что отражается у самого берега: зелень и земля, темнее неба. */
+  /** Что отражается у самого берега и дальний берег у горизонта: зелень и земля, темнее неба. */
   wBank: { value: THREE.Color };
+  /**
+   * Докуда над горизонтом встаёт дальний берег, синус угла: луч, отражённый ниже, видит лес и берег, а не небо (рыбалка —
+   * лес за рекой; у моря и сверху — ноль).
+   */
+  wShoreY: { value: number };
   wShallow: { value: THREE.Color };
   wDeep: { value: THREE.Color };
   wFoamCol: { value: THREE.Color };
@@ -45,7 +51,7 @@ export function waterLook(kind: 'river' | 'sea', lod: number): WaterLook {
   return {
     wTime: { value: 0 },
     wLod: { value: lod },
-    wRain: { value: 0 },
+    wRainK: { value: 0 },
     wCloud: { value: 0 },
     wNight: { value: 0 },
     wSunDir: { value: new THREE.Vector3(0.3, 0.8, 0.5).normalize() },
@@ -54,6 +60,7 @@ export function waterLook(kind: 'river' | 'sea', lod: number): WaterLook {
     wSkyZen: { value: new THREE.Color(0x6d93c4) },
     wSkyHor: { value: new THREE.Color(0xc9d8e2) },
     wBank: { value: new THREE.Color(0x26301c) },
+    wShoreY: { value: 0 },
     wShallow: { value: new THREE.Color(tone.shallow) },
     wDeep: { value: new THREE.Color(tone.deep) },
     wFoamCol: { value: new THREE.Color(tone.foam) },
@@ -90,7 +97,7 @@ export function syncWaterLight(
   look.wSkyZen.value.copy(o.zenith);
   look.wSkyHor.value.copy(o.horizon);
   look.wNight.value = o.night;
-  look.wRain.value = o.rain ?? 0;
+  look.wRainK.value = o.rain ?? 0;
   look.wCloud.value = o.cloud ?? 0;
 }
 
@@ -117,7 +124,7 @@ vWWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;
 const FRAG_HEAD = /* glsl */ `#include <common>
 uniform float wTime;
 uniform float wLod;
-uniform float wRain;
+uniform float wRainK;
 uniform float wCloud;
 uniform float wNight;
 uniform vec3 wSunDir;
@@ -126,6 +133,7 @@ uniform vec3 wMoonDir;
 uniform vec3 wSkyZen;
 uniform vec3 wSkyHor;
 uniform vec3 wBank;
+uniform float wShoreY;
 uniform vec3 wShallow;
 uniform vec3 wDeep;
 uniform vec3 wFoamCol;
@@ -154,7 +162,7 @@ float rough = 0.0;
 vec2 g = wRipple(fq, wTime, wFlow, wLod, rough);
 float wdeep = smoothstep(0.05, 1.1, vWDepth);
 g *= mix(0.5, 1.0, wdeep);
-vec2 gl = fdir * g.x + fside * g.y + wRain(vWLocal, wTime, wRain, wLod, rough);
+vec2 gl = fdir * g.x + fside * g.y + wRain(vWLocal, wTime, wRainK, wLod, rough);
 for (int i = 0; i < ${SPLASHES}; i++) {
   vec4 r = wSplash[i];
   float age = wTime - r.z;
@@ -173,17 +181,20 @@ float fres = wFres(wn, wv);
 float foam = wFoam(fq, vWDepth, wTime, wFlow);
 vec3 body = wBody(vWDepth, wShallow, wDeep) * (0.9 + 0.2 * wNoise(vWLocal * 0.025));
 // Пена — краска под светом сцены: ночью она серая, а не белая.
-diffuseColor.rgb = mix(body * (1.0 - fres * 0.6), wFoamCol * 0.85, foam);
+diffuseColor.rgb = mix(body * (1.0 - fres), wFoamCol * 0.85, foam);
 diffuseColor.a = max(smoothstep(0.0, 0.25, vWDepth), foam * 0.85 * smoothstep(0.0, 0.06, vWDepth));
 `;
 
 const FRAG_LIGHT = /* glsl */ `#include <emissivemap_fragment>
 vec3 R = reflect(-wv, wn);
-vec3 skyR = mix(wBank * (1.0 - 0.65 * wNight), wSkyOf(R, wSkyZen, wSkyHor, wCloud, wNight, wTime), smoothstep(0.1, 0.9, wdeep));
+vec3 bank = wBank * (1.0 - 0.65 * wNight);
+vec3 skyR = mix(bank, wSkyOf(R, wSkyZen, wSkyHor, wCloud, wNight, wTime), smoothstep(0.1, 0.9, wdeep));
+// Дальний берег в воде: луч ниже его кромки видит лес; рябь дробит кромку — она дрожит, а не режет воду линейкой.
+skyR = mix(bank * 0.85, skyR, smoothstep(wShoreY * 0.7, wShoreY * 1.3 + 0.01, R.y));
 float clear = 1.0 / (1.0 + rough * 60.0);
 vec3 em = skyR * fres * clear * wTilt(gw, wv);
-vec3 moonCol = vec3(0.62, 0.7, 0.95) * wNight * (1.0 - 0.9 * wRain);
-vec3 glint = wSun(R, normalize(wSunDir), wSunCol * (1.0 - 0.8 * wRain), rough) + wMoon(R, wMoonDir, moonCol, rough);
+vec3 moonCol = vec3(0.62, 0.7, 0.95) * wNight * (1.0 - 0.9 * wRainK);
+vec3 glint = wSun(R, normalize(wSunDir), wSunCol * (1.0 - 0.8 * wRainK), rough) + wMoon(R, wMoonDir, moonCol, rough);
 totalEmissiveRadiance += em + wKnee(glint) * (1.0 - foam * 0.7);
 `;
 

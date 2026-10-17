@@ -10,7 +10,7 @@ export interface WaterTone {
 
 /** Река — бурая зелень: ил и песок на мелком, тёмная толща на стрежне. Море — бирюза у берега, синь вдали. */
 export const WATER_TONE: Record<'river' | 'sea', WaterTone> = {
-  river: { shallow: '#7a7560', deep: '#2c4240', foam: '#d9ddd2' },
+  river: { shallow: '#615c45', deep: '#283e3a', foam: '#d9ddd2' },
   sea: { shallow: '#3f8a8c', deep: '#1d4057', foam: '#d8e2d6' },
 };
 
