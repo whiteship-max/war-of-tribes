@@ -76,7 +76,7 @@ export class TwStage {
     }
     const site = plan.site;
     const land = landOf(plan);
-    if (town && site?.wall && site.town) land.town = townLand(frameOf(site.wall), site.town.inside, site.town.outside, town.cleared, town.road);
+    if (town && site?.wall && site.town) land.town = townLand(frameOf(site.wall), site.town.paint, site.town.outside, town.cleared, town.road);
     this.field = buildField(land, spec);
     this.scene.add(this.field.group);
     if (town) {

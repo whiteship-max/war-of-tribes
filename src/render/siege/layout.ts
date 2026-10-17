@@ -86,7 +86,7 @@ export interface SiegeLayout {
    * Где за стеной ходят люди ролика (двор у ворот, полоса вдоль стены, улица, площадь, орудие) и поле перед стеной —
    * там настоящий город уступает место бою (`tw/town.townCut`). Логово — null.
    */
-  town: { inside: Box2[]; outside: Box2 } | null;
+  town: { inside: Box2[]; outside: Box2; paint: Box2[] } | null;
 }
 
 /** Башни стены: по уровню — сколько и какой высоты; у концов стены — круглые. */
@@ -184,16 +184,18 @@ export function layoutOf(show: SiegeShow, quality: Quality, houses: readonly TwH
   const gun = spots.gun;
   // Где за стеной ходят люди ролика: двор у ворот, полоса вдоль стены (чинят пролом, стоят у ворот), улица до площади,
   // площадь, орудие города; перед стеной — лагерь, машины и подход войска с поля (`field` группа — от края поля).
+  const paint: Box2[] = wall
+    ? [
+        { x0: -10, x1: 10, z0: wall.thick, z1: wall.thick + POMERIUM + 6 },
+        { x0: -STREET_HALF - 0.6, x1: STREET_HALF + 0.6, z0: wall.thick, z1: square.z },
+        { x0: square.x - square.r - 1, x1: square.x + square.r + 1, z0: square.z - square.r - 1, z1: square.z + square.r + 1 },
+      ]
+    : [];
   const town = wall
     ? {
-        inside: [
-          { x0: -10, x1: 10, z0: wall.thick, z1: wall.thick + POMERIUM + 6 },
-          { x0: -WALL_HALF + 2, x1: WALL_HALF - 2, z0: wall.thick, z1: wall.thick + POMERIUM },
-          { x0: -STREET_HALF - 0.6, x1: STREET_HALF + 0.6, z0: wall.thick, z1: square.z },
-          { x0: square.x - square.r - 1, x1: square.x + square.r + 1, z0: square.z - square.r - 1, z1: square.z + square.r + 1 },
-          { x0: gun.x - 3, x1: gun.x + 3, z0: gun.z - 3, z1: gun.z + 3 },
-        ],
+        inside: [...paint, { x0: -WALL_HALF + 2, x1: WALL_HALF - 2, z0: wall.thick, z1: wall.thick + POMERIUM }, { x0: gun.x - 3, x1: gun.x + 3, z0: gun.z - 3, z1: gun.z + 3 }],
         outside: { x0: -CAMP_HALF - 14, x1: CAMP_HALF + 14, z0: field.minZ, z1: -0.5 },
+        paint,
       }
     : null;
   return {

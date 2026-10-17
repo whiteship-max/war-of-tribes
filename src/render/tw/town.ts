@@ -144,20 +144,21 @@ export function houseOfTown(f: TownFrame, h: TownHouse): TwHouse {
 }
 
 /**
- * Земля ролика над землёй города (`reel/land.LandInput.town`): где лежит плита поля — поле перед стеной, где ходят люди
- * ролика, места убранных домов, — и как далеко точка от дороги города. Всё в единицах ролика; на входе — то, что отдали
- * раскладка (`inside`, `outside` ролика) и город (`cleared`, `road` — метры города).
+ * Земля ролика над землёй города (`reel/land.LandInput.town`): где лежит плита поля — поле перед стеной, двор у ворот,
+ * улица и площадь ролика, места убранных домов, — и как далеко точка от дороги города. Всё в единицах ролика; на входе —
+ * то, что отдали раскладка (`paint`, `outside` ролика) и город (`cleared`, `road` — метры города). Где за стеной просто
+ * ходят, земля — города: его улицы и дворы.
  */
 export function townLand(
   f: TownFrame,
-  inside: readonly Box2[],
+  paint: readonly Box2[],
   outside: Box2,
   cleared: readonly Box2[],
   road: readonly { x: number; z: number }[],
 ): { keep(x: number, z: number): number; road(x: number, z: number): number } {
   const zones: { b: Box2; fade: number }[] = [
     { b: outside, fade: 7 },
-    ...inside.map((b) => ({ b, fade: 2.5 })),
+    ...paint.map((b) => ({ b, fade: 2.5 })),
     ...cleared.map((b) => ({ b: boxToReel(f, b), fade: 2 })),
   ];
   const pts = road.map((p) => toReel(f, p.x, p.z));

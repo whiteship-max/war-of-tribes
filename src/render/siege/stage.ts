@@ -146,7 +146,7 @@ export class SiegeStage {
         },
         scar: null,
         cloud: cloudShade(ground0),
-        town: town && lay.wall && lay.town ? townLand(frameOf(lay.wall), lay.town.inside, lay.town.outside, town.cleared, town.road) : null,
+        town: town && lay.wall && lay.town ? townLand(frameOf(lay.wall), lay.town.paint, lay.town.outside, town.cleared, town.road) : null,
       },
       spec,
     );

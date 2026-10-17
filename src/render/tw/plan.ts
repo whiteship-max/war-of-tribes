@@ -9,7 +9,7 @@
 // Тот же журнал — тот же ролик до фигуры: разброс места, роста, тона и фазы шага — от сида боя и номера фигуры
 // (`terrain.hash`), без `Math.random`.
 import type { TwBarrage } from './barrage';
-import { CLIP_INDEX, bearerOf, type ClipId, type FigureFrame } from '../reel/troupe';
+import { CLIP_INDEX, bearerOf, figureFrame, type ClipId, type FigureFrame } from '../reel/troupe';
 import { castTimeOfTick, castToReel, reelTiming, reelToCast, type ReelTiming } from '../reel/clock';
 import { coatsFor, type SideCoats } from '../reel/heraldry';
 import { lossProgress, sectorLost, type Cast, type Face } from '@/battle/replay';
@@ -927,7 +927,52 @@ export function buildPlan(input: PlanInput): TwPlan {
     // Павший из ворот, не дошедший до поля (в городе, в проезде, у самых ворот), на виду не лежит.
     if (fromGate[i] && site?.wall) plan.deadShown[i] = q.shown && outOf(site.wall, q.z) >= SALLY_OUT ? 1 : 0;
   }
+  // Город уступает место бою там, где за стеной за весь бой бывают фигуры (П-6): строи, резерв, бегство и погоня.
+  if (site?.wall && site.town) site.town.inside.push(...townTrail(plan, site.wall));
   return plan;
+}
+
+/** Клетка следа за стеной, единицы сцены: дом, задевший её, уходит. */
+const TRAIL_CELL = 2.5;
+
+/**
+ * Где за стеной бывают фигуры боя — по кадрам каждые полсекунды, клетками `TRAIL_CELL`, слитыми в полосы вдоль X. Это и
+ * есть место, которое город отдаёт бою: не больше (дома, где никто не ходит, стоят) и не меньше (никто не проходит сквозь
+ * дом — `town.test.ts`).
+ */
+function townTrail(plan: TwPlan, w: TwWall): Rect[] {
+  const frame = figureFrame(plan.figures);
+  const cells = new Set<number>();
+  const key = (i: number, j: number): number => (i + 4096) * 8192 + (j + 4096);
+  for (let t = 0; t <= plan.timing.end + 0.01; t += 0.5) {
+    poseFigures(plan, t, frame);
+    for (let k = 0; k < plan.figures; k++) {
+      if (!frame.shown[k] || outOf(w, frame.z[k]) > -w.thick) continue;
+      const i = Math.floor(frame.x[k] / TRAIL_CELL);
+      const j = Math.floor(frame.z[k] / TRAIL_CELL);
+      // Фигура — со своим размахом: клетка и её соседи.
+      for (let di = -1; di <= 1; di++) for (let dj = -1; dj <= 1; dj++) cells.add(key(i + di, j + dj));
+    }
+  }
+  const rows = new Map<number, number[]>();
+  for (const c of cells) {
+    const i = Math.floor(c / 8192) - 4096;
+    const j = (c % 8192) - 4096;
+    const row = rows.get(j) ?? [];
+    row.push(i);
+    rows.set(j, row);
+  }
+  const out: Rect[] = [];
+  for (const [j, row] of rows) {
+    row.sort((a, b) => a - b);
+    let a = row[0];
+    for (let k = 1; k <= row.length; k++) {
+      if (k < row.length && row[k] === row[k - 1] + 1) continue;
+      out.push({ x0: a * TRAIL_CELL, x1: (row[k - 1] + 1) * TRAIL_CELL, z0: j * TRAIL_CELL, z1: (j + 1) * TRAIL_CELL });
+      if (k < row.length) a = row[k];
+    }
+  }
+  return out;
 }
 
 // ---------- Место боя (docs/battle_tw.md, раздел 13) ----------
@@ -1082,24 +1127,20 @@ function fitSite(site: TwSite, field: TwField, units: readonly TwUnit[]): void {
     // стоят и ходят люди ролика (`town.townCut`).
     field.town = townGround(frameOf(w), field);
     w.base = heightAt(field, w.gateX, w.z + w.inward * (w.thick / 2));
-    site.town = { inside: townInside(site, w, units), outside: townOutside(field, w) };
+    const paint = townInside(site, w);
+    site.town = { inside: [...paint], outside: townOutside(field, w), paint };
   }
+  void units;
 }
 
 /**
- * Где за стеной ходят люди ролика: строи своих города (каждый — от стены до своего тыла: резерв идёт к стене по своей
- * полосе), двор у ворот, улица до площади и площадь — туда ломятся через ворота.
+ * Земля ролика за стеной: двор у ворот, улица до площади и площадь — туда ломятся через ворота и оттуда выходят. Где
+ * за стеной стоят и бегут строи — по кадрам боя (`townTrail`, в конце плана).
  */
-function townInside(site: TwSite, w: TwWall, units: readonly TwUnit[]): Rect[] {
+function townInside(site: TwSite, w: TwWall): Rect[] {
   const s = w.inward;
   const inner = w.z + s * w.thick;
   const out: Rect[] = [];
-  for (const u of units) {
-    const r = unitRect(u);
-    // Строй заходит за внутреннюю грань стены — в город: от стены до его дальнего края.
-    if (s > 0 ? r.z1 <= inner + 0.2 : r.z0 >= inner - 0.2) continue;
-    out.push(s > 0 ? { x0: r.x0 - 1.5, x1: r.x1 + 1.5, z0: inner, z1: r.z1 + 1.5 } : { x0: r.x0 - 1.5, x1: r.x1 + 1.5, z0: r.z0 - 1.5, z1: inner });
-  }
   const yard = POMERIUM + 6;
   out.push({ x0: w.gateX - 10, x1: w.gateX + 10, z0: Math.min(inner, inner + s * yard), z1: Math.max(inner, inner + s * yard) });
   const st = site.street;
