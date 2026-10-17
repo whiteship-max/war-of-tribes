@@ -1292,7 +1292,7 @@ CHROME=/opt/pw-browsers/chromium-1194/chrome-linux/chrome DIR=polish GROUP=p7 TA
 ### Передача
 
 - Коммиты — `git log origin/game/p-6..game/p-7`: стенд (заход `p7`), снимки «до» и значок `alert-siege` `876c44b`; значки
-  тревог войны вместо плашки `21dc7e0`; документ `a5f3a1e`… (следом); снимки «после» и реестры двух тестов (значок — кусок
+  тревог войны вместо плашки `21dc7e0`; документ `d4b3b5c` и передача — последним коммитом; снимки «после» и реестры двух тестов (значок — кусок
   при входе, `crash.test.ts`; вход к донесению о набеге, `raidWords.test.ts`) `385033a`.
 - Ядро не тронуто: сохранение, договор, мир и данные — как были; `CLAUDE.md` не правился. Новые файлы — `ui/warSigns.ts`,
   `ui/next/WarSigns.tsx`, `ui/warSigns.test.ts`, `assets-src/icons/alert-siege.svg`; снят `ui/SiegeBanner.tsx`.
