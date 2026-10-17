@@ -302,10 +302,9 @@ export abstract class TribeScene {
   constructor(protected canvas: HTMLCanvasElement, protected pixelRatio: number | null = null, opts: SceneLook = {}) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
     this.beat.place = 'city';
-    const gpu = gpuName(this.renderer.getContext());
     // Видеокарту для замеров с телефонов называет только сцена города: контекст WebGL есть у неё (docs/telemetry.md).
-    perfGpu(gpu);
-    this.quality = opts.quality ?? capQuality(autoQuality(deviceCaps(gpu)), autoCap(serverNow()));
+    perfGpu(gpuName(this.renderer.getContext()));
+    this.quality = opts.quality ?? capQuality(autoQuality(deviceCaps(gpuName(this.renderer.getContext()))), autoCap(serverNow()));
     this.dprLevel = this.quality;
     // Карта, ролик и промысел берут уровень у города (`gfx.levelNow`): одна мерка на всю игру.
     noteSceneLevel(this.quality);

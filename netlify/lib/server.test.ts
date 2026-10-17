@@ -424,6 +424,8 @@ describe('сервер разбирает ровно названные запи
       // оплата алмазов (docs/payments.md): заказы игрока и метка оплаченного перевода
       'readPaidMark',
       'readPayFile',
+      // замеры с телефонов (docs/telemetry.md): сутки устройства замка
+      'readPerfDay',
       'readRoster',
       'readStoredReport',
       'readStoredSheet',

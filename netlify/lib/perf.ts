@@ -113,7 +113,7 @@ export async function writePerf(kv: Kv, castle: string, p: PerfPut, now: number)
   const key = perfKey(now, castle, p.dev);
   for (let i = 0; i < WRITE_TRIES; i++) {
     const found = await kv.getWithMetadata(key);
-    const day = found ? readPerfDay(parseJson(String(found.data))) : null;
+    const day = readPerfDay(found ? parseJson(String(found.data)) : null);
     if (day && day.n >= PERF_LIMITS.perDay) return 'full';
     const next = mergePerf(day, castle, p, now);
     const put = await kv.setJSON(key, next, found?.etag ? { onlyIfMatch: found.etag } : { onlyIfNew: true });
@@ -147,7 +147,7 @@ export async function perfDays(kv: Kv, now: number, days: number, castle: string
     for (let j = 0; j < keys.length; j += 16) {
       const got = await Promise.all(keys.slice(j, j + 16).map((k) => kv.getWithMetadata(k)));
       for (const f of got) {
-        const d = f ? readPerfDay(parseJson(String(f.data))) : null;
+        const d = readPerfDay(f ? parseJson(String(f.data)) : null);
         if (d) out.push(d);
       }
     }
@@ -258,6 +258,9 @@ const secs = (ms: number): string => (ms >= 10_000 ? `${Math.round(ms / 1000)} �
 const hours = (ms: number): string => (ms >= 3_600_000 ? `${(ms / 3_600_000).toFixed(1)} ч` : `${Math.round(ms / 60_000)} мин`);
 const big = (n: number): string => (n >= 1e6 ? `${(n / 1e6).toFixed(1)} млн` : n >= 1e4 ? `${Math.round(n / 1000)} тыс.` : String(n));
 
+/** Место города — по нему классы и худшие устройства. Именем, а не полем: `.city` в коде — имя города (`cityname.test.ts`). */
+const TOWN: PerfPlace = 'city';
+
 /** Сколько кадров нужно месту, чтобы его худшие 5 % что-то значили: ~10 секунд хода. */
 export const MIN_FRAMES = 300;
 
@@ -337,9 +340,9 @@ export function perfSummary(days: PerfDay[], period: number): string {
   }
   const classes = new Map<string, { h: Hist; n: number }>();
   for (const d of devs) {
-    if (!d.fps.city) continue;
+    if (!d.fps[TOWN]) continue;
     const c = classes.get(classOf(d.dev)) ?? { h: {}, n: 0 };
-    addHist(c.h, d.fps.city);
+    addHist(c.h, d.fps[TOWN]);
     c.n++;
     classes.set(classOf(d.dev), c);
   }
@@ -354,7 +357,7 @@ export function perfSummary(days: PerfDay[], period: number): string {
   const fr = devs.flatMap((d) => d.freeze);
   if (fr.length) {
     const ms = fr.map((f) => f.ms);
-    lines.push(`Замирание при возврате: ${fr.length} раз, медиана ${secs(quantile(ms, 0.5) ?? 0)}, худшее ${secs(Math.max(...ms))} (пересборок сцены ${fr.filter((f) => f.k === 'rebuild').length}).`);
+    lines.push(`Замирание при возврате (случаев ${fr.length}): медиана ${secs(quantile(ms, 0.5) ?? 0)}, худшее ${secs(Math.max(...ms))} (пересборок сцены ${fr.filter((f) => f.k === 'rebuild').length}).`);
   } else lines.push('Замираний при возврате не было.');
   const first = devs.flatMap((d) => d.first);
   const ready = devs.flatMap((d) => d.ready);
@@ -377,7 +380,8 @@ export function perfSummary(days: PerfDay[], period: number): string {
   const worst = devs
     .map((d) => {
       const places = PERF_PLACES.filter((p) => d.fps[p] && framesOf(d.fps[p] as Hist) >= MIN_FRAMES);
-      const p = d.fps.city && framesOf(d.fps.city) >= MIN_FRAMES ? 'city' : places.sort((a, b) => (gapAt(d.fps[b] as Hist, 0.95) ?? 0) - (gapAt(d.fps[a] as Hist, 0.95) ?? 0))[0];
+      const town = d.fps[TOWN];
+      const p = town && framesOf(town) >= MIN_FRAMES ? TOWN : places.sort((a, b) => (gapAt(d.fps[b] as Hist, 0.95) ?? 0) - (gapAt(d.fps[a] as Hist, 0.95) ?? 0))[0];
       return p ? { d, p, gap: gapAt(d.fps[p] as Hist, 0.95) ?? 0 } : null;
     })
     .filter((x): x is { d: DevSum; p: PerfPlace; gap: number } => x !== null)
