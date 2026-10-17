@@ -153,6 +153,8 @@ export function sellBonded(s: GameState, count = 1): string | null {
   const gone = loseBonded(s, check.count);
   const gold = bondedSalePrice() * gone;
   s.gold += gold;
+  // Выручка — разовое дело описи: золото легло разом, мимо налога (`stats.windfalls`, docs/security.md, раздел 8).
+  if (gold > 0) s.stats.windfalls = (s.stats.windfalls ?? 0) + 1;
   s.market.sold = { ...(s.market.sold ?? {}), bonded: marketSold(s, 'bonded') + gone };
   log(s, ORDER_TEXT.market.sold(gone, gold), 'info', 'market:sold:bonded');
   return null;

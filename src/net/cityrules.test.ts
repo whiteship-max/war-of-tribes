@@ -1,10 +1,25 @@
 import { describe, expect, it } from 'vitest';
 import { createInitialState } from '@/game/state';
 import { RESOURCE_IDS } from '@/game/constants';
-import { currentSite, maxLevelFor, storageCap, upgradeInfo } from '@/game/derived';
-import { startUpgrade } from '@/game/sim/actions';
+import { bondedSaleLeft, currentSite, maxLevelFor, storageCap, upgradeInfo } from '@/game/derived';
+import { cancelUpgrade, startUpgrade } from '@/game/sim/actions';
+import { cancelRecruit, recruitCheck, startRecruit } from '@/game/sim/army';
+import { cancelForge, forgeCheck, startForge } from '@/game/sim/smithy';
+import { cancelSurvey, startSurvey } from '@/game/sim/survey';
+import { sellBonded } from '@/game/sim/market';
+import { addBonded } from '@/game/sim/population';
 import { tick } from '@/game/sim/tick';
+import { creditTech } from '@/game/sim/tech';
+import { EQUIPMENT_IDS } from '@/game/data/equipment';
+import { TROOP_IDS } from '@/game/data/troops';
+import type { GameState } from '@/game/types';
 import { DAY_LENGTH, gameSeconds, realMs } from '@/game/pace';
+import { LocalWorld } from '@/world/local/LocalWorld';
+import type { WorldSave } from '@/world/local/state';
+import { DEAL_PAYOUT } from '@/world/data/tuning';
+import { applyEffects, playerProfile, syncAway } from '@/world/bridge';
+import { awayOf } from '@/world/muster';
+import type { FigureView, HomeEffect, MarchView } from '@/world/types';
 import { STOCK_KEYS, type WatchCard } from '../../netlify/lib/contract';
 import { flagsBetween, startedCost } from '../../netlify/lib/watch';
 import { watchOf } from './snapshot';
@@ -84,5 +99,158 @@ describe('рост склада: часы описи — целые игровы
     }
     expect(asked, 'правило спрошено').toBeGreaterThanOrEqual(20);
     expect(caught).toBe(asked);
+  });
+});
+
+/**
+ * Добро без дела (docs/security.md, раздел 8; docs/bughunt.md, «Сервер», п. 2): отмена заказа возвращает цену на склад
+ * разом (`sim/pay.refund`), продажа невольников — золото (`sim/market.sellBonded`), договор — дань и торговлю
+ * последствием мира без боя (`sim/expedition.applyExpedition`). Прежде ни одно не входило в разовые дела описи, и честная
+ * отмена через минуту давала админу «Древесина +128 за 1 мин без разовых дел». Теперь это дело (`stats.windfalls`):
+ * флага нет, а та же запись без дела — флаг.
+ */
+describe('рост склада: добро без дела', () => {
+  /** Флаги записи и её подделки: те же числа, а разовых дел — сколько было на первой описи. */
+  const judge = (a: WatchCard, aAt: number, b: WatchCard, bAt: number): { honest: string[]; forged: string[] } => ({
+    honest: flagsBetween(a, aAt, b, bAt).map((f) => f.kind),
+    forged: flagsBetween(a, aAt, { ...b, deeds: a.deeds }, bAt).map((f) => f.kind),
+  });
+
+  /**
+   * Посёлок, которому есть чем платить и куда принять возврат: склад наполовину, снаряжение в запасе, и военная ступень
+   * засчитана по нему той же дверью, что приведённой партии (`sim/tech.creditTech`), — иначе кузнице нечего ковать.
+   */
+  const town = (): GameState => {
+    const s = createInitialState(5);
+    for (const r of RESOURCE_IDS) s.resources[r] = Math.floor(storageCap(s) / 2);
+    for (const id of EQUIPMENT_IDS) s.equipment[id] = 100;
+    creditTech(s);
+    s.morale = 100;
+    return s;
+  };
+
+  /** Заказ и его отмена: первый вызов ставит заказ, возвращённый — отменяет. */
+  const deeds: [string, (s: GameState) => () => string | null][] = [
+    [
+      'отмена стройки',
+      (s) => {
+        const b = s.buildings.filter((x) => x.level < maxLevelFor(x.type) && !upgradeInfo(s, x).blocked)[0];
+        expect(startUpgrade(s, b.id)).toBeNull();
+        return () => cancelUpgrade(s, b.id);
+      },
+    ],
+    [
+      'отмена найма',
+      (s) => {
+        const troop = TROOP_IDS.find((t) => !recruitCheck(s, t, 5).blocked)!;
+        expect(startRecruit(s, troop, 5)).toBeNull();
+        return () => cancelRecruit(s, s.recruits[s.recruits.length - 1].id);
+      },
+    ],
+    [
+      'отмена ковки',
+      (s) => {
+        const item = EQUIPMENT_IDS.find((id) => !forgeCheck(s, id, 40).blocked)!;
+        expect(startForge(s, item, 40)).toBeNull();
+        return () => cancelForge(s, s.forge[s.forge.length - 1].id);
+      },
+    ],
+    [
+      'отмена разведки округи',
+      (s) => {
+        expect(startSurvey(s)).toBeNull();
+        return () => cancelSurvey(s);
+      },
+    ],
+    [
+      'продажа невольников',
+      (s) => {
+        addBonded(s, 20);
+        return () => sellBonded(s, Math.min(5, bondedSaleLeft(s)));
+      },
+    ],
+  ];
+
+  it.each(deeds)('%s: флага нет, та же запись без дела — флаг', (name, order) => {
+    const s = town();
+    const deed = order(s);
+    // Заказ постоял, как в живой игре: заложили — через минуту отменили.
+    tick(s, gameSeconds(30));
+    const a = watchOf(s);
+    tick(s, gameSeconds(30));
+    expect(deed(), name).toBeNull();
+    const b = watchOf(s);
+    const { honest, forged } = judge(a, 0, b, 30_000);
+    expect(honest, `${name}: честная запись`).not.toContain('stock');
+    // Точка внутри правила: без дела склад вырос сильнее, чем позволяла выработка полуминуты, — правило спрошено.
+    expect(forged, `${name}: та же запись без дела`).toContain('stock');
+    expect(b.deeds - a.deeds, `${name}: одно разовое дело`).toBe(1);
+  });
+
+  it('дань и торговля по договору: последствие мира без боя — флага нет, та же запись без дела — флаг', async () => {
+    let now = 1_700_000_000_000;
+    const world = new LocalWorld({ seed: 7, now: () => now, storage: null });
+    const s = createInitialState(7);
+    for (const r of RESOURCE_IDS) s.resources[r] = 0;
+    s.gold = 0;
+    s.morale = 100;
+    const last = { marches: [] as MarchView[], figures: [] as FigureView[] };
+    // Пульс мира, как в `world/store`: слепок → мир → последствия → ушедшие.
+    const pulse = async (): Promise<void> => {
+      const p = await world.sync(playerProfile(s, awayOf(last.marches, last.figures)));
+      applyEffects(s, p.effects);
+      syncAway(s, p.marches, p.figures);
+      last.marches = p.marches;
+      last.figures = p.figures;
+    };
+    await pulse();
+    // Договоры с державой, выплата — через полсекунды: подписать их — дело дипломата у чужих стен, здесь меряют выплату.
+    // Держав в нынешнем мире нет — генерация ставит одни логова (`gen.makeLair`), — и выплата считает от одного двора.
+    const tribeId = 'test';
+    const paidAt = now - DEAL_PAYOUT + 500;
+    (world as unknown as { save: WorldSave }).save.pacts[tribeId] = { tribute: { until: now + DEAL_PAYOUT * 4, paidAt }, trade: { until: now + DEAL_PAYOUT * 4, paidAt } };
+    const a = watchOf(s);
+    tick(s, gameSeconds(1));
+    now += 1_000;
+    await pulse();
+    const b = watchOf(s);
+    const { honest, forged } = judge(a, 0, b, 1_000);
+    expect(s.log.some((e) => /Дань от державы/.test(e.text)), 'дань пришла').toBe(true);
+    expect(s.log.some((e) => /Торговля с державой/.test(e.text)), 'торговля принесла золото').toBe(true);
+    expect(honest, 'честная запись').not.toContain('stock');
+    // Точка внутри правила: без дела добро выросло сильнее выработки секунды — правило спрошено.
+    expect(forged, 'та же запись без дела').toContain('stock');
+    expect(b.deeds - a.deeds, 'два разовых дела: дань и торговля').toBe(2);
+  });
+
+  it('кража лазутчика у соседа: последствие с делом агента, но без счётчика дел — флага нет, та же запись без дела — флаг', () => {
+    const s = town();
+    // Первый шаг закрывает задания, которые посёлок уже выполнил: их награды — свои разовые дела.
+    tick(s, gameSeconds(30));
+    const a = watchOf(s);
+    tick(s, gameSeconds(30));
+    // Последствие той формы, что кладёт мир по итогу сервера войны (`LocalWorld`, «spy-…-eff»): дело агента идёт в его
+    // опыт, а не в разовые дела описи. Шкуры — как во флаге боевого сервера 16.10 («Шкуры +204 за 1 мин»).
+    const stolen: HomeEffect['resources'] = { hides: 204 };
+    applyEffects(s, [
+      { id: 'spy-1-eff', lost: {}, resources: stolen, prestige: 2, morale: 1, battle: null, deed: { agent: 'spy', ok: true, at: 1 }, text: 'Кража.', good: true },
+    ]);
+    const b = watchOf(s);
+    const { honest, forged } = judge(a, 0, b, 30_000);
+    expect((b.stock.hides ?? 0) - (a.stock.hides ?? 0), 'шкуры легли на склад').toBeGreaterThanOrEqual(204);
+    expect(honest, 'честная запись').not.toContain('stock');
+    // Точка внутри правила: без дела шкуры выросли сильнее выработки полуминуты — правило спрошено.
+    expect(forged, 'та же запись без дела').toContain('stock');
+    expect(b.deeds - a.deeds, 'одно разовое дело').toBe(1);
+  });
+
+  it('последствие с боем: дело уже засчитано победой, второй раз не считается', () => {
+    const s = town();
+    tick(s, gameSeconds(30));
+    const a = watchOf(s);
+    applyEffects(s, [{ id: 'win-1', lost: {}, resources: { hides: 204 }, prestige: 0, morale: 0, battle: 'won', text: 'Победа.', good: true }]);
+    const b = watchOf(s);
+    expect(b.won - a.won).toBe(1);
+    expect(b.deeds - a.deeds, 'одно дело — победа').toBe(1);
   });
 });

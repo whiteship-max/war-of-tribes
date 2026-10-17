@@ -26,11 +26,17 @@ export function pay(s: GameState, cost: Price): void {
  * вместимости. `k` — доля (половина начатого) или число (нетронутые предметы
  * заказа), или то и другое сразу: целые цены делятся на целое без остатка, и
  * округляется только половина.
+ *
+ * Возврат — разовое дело описи (`stats.windfalls`): добро легло на склад разом, мимо выработки, и сервер не должен
+ * счесть его флагом «рост склада» (docs/security.md, раздел 8).
  */
 export function refund(s: GameState, cost: Price, k: number): void {
   const cap = storageCap(s);
+  let back = false;
   for (const r of RESOURCE_IDS) {
     const n = cost[r];
     if (n) s.resources[r] = Math.min(cap, s.resources[r] + Math.floor(n * k));
+    if (n && Math.floor(n * k) > 0) back = true;
   }
+  if (back) s.stats.windfalls = (s.stats.windfalls ?? 0) + 1;
 }

@@ -121,10 +121,12 @@ export function watchOf(s: GameState): WatchCard {
     ...(site ? { site: { type: site.type, level: site.level + 1, done: Math.max(0, site.work) } } : {}),
     train: Math.ceil(train),
     // Закрытое задание — тоже разовое дело: награда ложится на склад разом (`sim/tick`, шаг «Задания»), и без него
-    // честный игрок получал флаг «рост склада» на награде (прогон 25 ботов, docs/playtest_sim.md).
+    // честный игрок получал флаг «рост склада» на награде (прогон 25 ботов, docs/playtest_sim.md). Так же — добро без дела
+    // (`stats.windfalls`): возврат цены отменённого заказа, дань по договору, кража лазутчика, продажа невольников
+    // (docs/security.md, раздел 8).
     deeds:
       st.hunts + st.battlesWon + st.battlesLost + st.eventsResolved + st.scouted + st.raids + st.castles + st.lairs + st.purchases + st.dailyWins + games + seen + gemmed +
-      s.completedQuests.length,
+      s.completedQuests.length + (st.windfalls ?? 0),
     won: st.battlesWon,
     lost: st.battlesLost,
     lairs: st.lairs,

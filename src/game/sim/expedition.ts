@@ -356,6 +356,11 @@ export function applyExpedition(s: GameState, o: ExpeditionOutcome): void {
   if (o.morale || repute) s.morale = Math.max(0, Math.min(100, s.morale + o.morale + repute));
   if (o.battle === 'won') recordBattle(s, 'won');
   if (o.battle === 'lost') recordBattle(s, 'lost');
+  // Добро без дела: последствие положило добро, а ни боя, ни логова, ни замка — счётчиков дел этой двери — в нём нет
+  // (дань по договору, кража лазутчика). Оно — разовое дело описи (`stats.windfalls`): иначе рост склада сервер счёл бы
+  // флагом (docs/security.md, раздел 8). С боем, логовом или замком дело уже засчитано, второй раз его не считают.
+  const counted = !!o.battle || o.lair || o.castle;
+  if (!counted && (Object.keys(brought).length > 0 || o.gold > 0)) s.stats.windfalls = (s.stats.windfalls ?? 0) + 1;
 
   // Прорвавшийся набег хозяйничает в поле: до того, что за стеной, он не дошёл.
   const sacked = o.sacked ? sackOutskirts(s, o.sacked) : [];
