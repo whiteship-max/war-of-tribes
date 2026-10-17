@@ -6,7 +6,6 @@
 // Чистая сборка без three и без DOM: её зовёт поток (`town.worker.ts`), стенд и тест бюджета. План — тот же, что у окна
 // города (его отдаёт сцена игры, `CityBuild.plan`; нет сцены — свой, `cityPlan`): дома не переставляются, только уходят.
 import type { Quality } from '../quality';
-import type { V3 } from './geom';
 import { GROUND_H, STOREY_H, type Detail } from './kit';
 import { cityPlan, distSeg, type CityPlan, type House, type P, type Tower } from './layout';
 import { buildStatic } from './budget';
@@ -14,6 +13,7 @@ import { groundGrid, groundMap } from './ground';
 import { landMap, placeTrees, treeModel, type Species, type TreeInst } from './nature';
 import { groundWet } from './banks';
 import { CITY_SPEC } from './spec';
+import type { Lamp } from '../glow/lamps';
 import { arraysOf, type MeshArrays } from './world';
 import type { Box2, TownCut, TownHouse } from '../tw/town';
 
@@ -47,8 +47,8 @@ export interface TownWorld {
   near: Uint32Array;
   far: Uint32Array;
   buildingTris: number;
-  /** Огни ночи: факелы башен и ворот, фонари площади, окна дворов. */
-  lights: V3[];
+  /** Огни ночи: факелы башен и ворот, фонари у дверей, жаровня площади (docs/polish.md, П-9). */
+  lamps: Lamp[];
   trees: Record<Species, TreeInst[]>;
   treeTris: number;
   /** Дома, что остались у ролика (ближе `TOWN_LOD.houses` к воротам): под огонь, дым и перелёт камня. */
@@ -245,7 +245,7 @@ export function townWorld(input: TownInput): TownWorld {
     near: new Uint32Array(near),
     far: new Uint32Array(far),
     buildingTris: st.b.triangleCount,
-    lights: st.lights,
+    lamps: st.lamps,
     trees,
     treeTris,
     houses,

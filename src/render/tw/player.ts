@@ -226,7 +226,7 @@ export class TwPlayer {
     this.cam.groundY = this.stage.groundY(this.cam.now.tx, this.cam.now.tz);
     if (dt > 0) this.cam.update(dt);
     const bt = this.battleTime();
-    this.stage.apply(bt, this.cam, this.t);
+    this.stage.apply(bt, this.cam, this.t, this.renderer.domElement.height);
     // Вызовы и треугольники — честно, вместе с теневым проходом (счётчик сбрасывается руками, как у диорамы).
     this.renderer.info.reset();
     // Теневой проход — раз в `shadowEvery` кадров хода; кадр на месте (перемотка, снимок, подгонка) — со свежей тенью.

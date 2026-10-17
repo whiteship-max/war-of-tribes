@@ -325,6 +325,16 @@ export class Siegeworks {
    * Разложить кадр на секунде ролика `t` (с прологом: бой идёт с `b.seconds`). После пролога машины стоят опущенными,
    * сбитые лежат, трещины и дым — на месте; камней, обломков и клубов удара нет.
    */
+  /**
+   * Ночь (docs/polish.md, П-9): дым и пыль — не светятся сами, ночью они тёмные; у огня дым подсвечивает свет костра
+   * (`glow`), а не своя краска. `night` — доля ночи 0..1.
+   */
+  night(night: number): void {
+    const k = 1 - 0.72 * night;
+    (this.puffs.material as THREE.MeshBasicMaterial).color.setHex(DUST).multiplyScalar(k);
+    if (this.smoke) (this.smoke.material as THREE.MeshBasicMaterial).color.setHex(SMOKE).multiplyScalar(k);
+  }
+
   update(t: number, cam: THREE.Camera): void {
     const b = this.b;
     const live = t < b.seconds + DEBRIS_LIFE;

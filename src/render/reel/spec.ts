@@ -5,6 +5,7 @@
 // числами уровня у ролика нет: две правды о том, сколько фигур стоит «средний», разошлись бы молча — и заметил бы
 // это телефон, переставший держать кадр.
 import type { Quality } from '../quality';
+import { LAMP_SPEC } from '../glow/lamps';
 
 export interface TwSpec {
   /**
@@ -53,12 +54,14 @@ export interface TwSpec {
   crowdLod: 1 | 2;
   /** Уровень воды (`render/water`, docs/polish.md, П-8): 0 — две октавы ряби, без кругов; 1 — четыре; 2 — шесть. */
   water: 0 | 1 | 2;
+  /** Настоящих огней ночью (костры лагеря, факелы стены, огни города за ней) — `glow/lamps.LAMP_SPEC`, docs/polish.md, П-9. */
+  lamps: number;
 }
 
 export const TW_SPEC: Record<Quality, TwSpec> = {
-  low: { perSide: 150, shadow: 'none', shadowMap: 1024, shadowSoft: false, shadowEvery: 2, bakeFps: 12, trees: 90, grid: 72, arrows: 240, houses: 18, tents: 16, reeds: 120, tufts: 0, clouds: false, crowdLod: 1, water: 0 },
-  medium: { perSide: 360, shadow: 'proxy', shadowMap: 2048, shadowSoft: true, shadowEvery: 1, bakeFps: 16, trees: 200, grid: 96, arrows: 480, houses: 34, tents: 28, reeds: 260, tufts: 2600, clouds: true, crowdLod: 2, water: 1 },
-  high: { perSide: 720, shadow: 'proxy', shadowMap: 2048, shadowSoft: true, shadowEvery: 1, bakeFps: 20, trees: 360, grid: 128, arrows: 900, houses: 56, tents: 44, reeds: 420, tufts: 5200, clouds: true, crowdLod: 2, water: 2 },
+  low: { perSide: 150, shadow: 'none', shadowMap: 1024, shadowSoft: false, shadowEvery: 2, bakeFps: 12, trees: 90, grid: 72, arrows: 240, houses: 18, tents: 16, reeds: 120, tufts: 0, clouds: false, crowdLod: 1, water: 0, lamps: LAMP_SPEC.low.real },
+  medium: { perSide: 360, shadow: 'proxy', shadowMap: 2048, shadowSoft: true, shadowEvery: 1, bakeFps: 16, trees: 200, grid: 96, arrows: 480, houses: 34, tents: 28, reeds: 260, tufts: 2600, clouds: true, crowdLod: 2, water: 1, lamps: LAMP_SPEC.medium.real },
+  high: { perSide: 720, shadow: 'proxy', shadowMap: 2048, shadowSoft: true, shadowEvery: 1, bakeFps: 20, trees: 360, grid: 128, arrows: 900, houses: 56, tents: 44, reeds: 420, tufts: 5200, clouds: true, crowdLod: 2, water: 2, lamps: LAMP_SPEC.high.real },
 };
 
 /** Бюджет кадра по уровням — слово владельца (docs/battle_tw.md, раздел 7): вызовы, треугольники, текстуры. */

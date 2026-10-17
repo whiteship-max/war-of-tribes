@@ -26,6 +26,8 @@ import { disposeGeometries } from '../kit';
 import type { HitBox } from '../pick';
 import { buildCity, CITY_SPEC, type CityBuild, type CityShare } from './index';
 import { lowerWater } from './water';
+import { LAMP_SPEC } from '../glow/lamps';
+import { lightScene } from '../glow/rig';
 import { CITY_KEY, CITY_AZIMUTH, CITY_STEP_MAX, cityFog, cityFraming, cityLeash, cityShadowHalf, citySunAt } from './camera';
 import { cityPick, screenBox, type Pickable } from './pick';
 import { mainSite, ownerCode, type Site } from './sites';
@@ -167,6 +169,8 @@ export class CityScene extends TribeScene {
     this.scene.add(c.group);
     this.folk = new CityLife({ plan: c.plan, chimneys: c.chimneys, flagTops: c.flagTops, quality: this.quality });
     this.scene.add(this.folk.group);
+    // Люди, стража и суета — под огнями ночи: у факела ворот стража тёплая, а не синяя (docs/polish.md, П-9).
+    lightScene(this.folk.group, c.uniforms);
     this.folk.set(this.crowd.people, this.crowd.guards, this.workSmoke());
     this.bustleWanted = true;
     for (const view of this.buildings.values()) this.place3(view);
@@ -268,6 +272,8 @@ export class CityScene extends TribeScene {
     this.precip?.setLevel(this.dprLevel);
     // Вода — тем же уровнем: рябь, круги дождя и огни в ней режутся сразу, без пересборки (docs/polish.md, П-8).
     lowerWater(this.scene, CITY_SPEC[this.dprLevel].detail);
+    // Огни — тем же уровнем: настоящих меньше, остальные гаснут наплывом в пятна.
+    this.town?.rig.setCap(LAMP_SPEC[this.dprLevel].real);
   }
 
   /**
@@ -319,6 +325,7 @@ export class CityScene extends TribeScene {
       const u = c.uniforms;
       const night = windowNight(this.light);
       u.cNight.value = night;
+      u.cBlue.value = this.light.nightK;
       // Зима сезона партии — голые кроны и сухой камыш; снег на кровлях и земле — по климату региона; лёд — по холоду пояса.
       const winter = this.seasonVis.snow;
       const ice = winter * ZONES[zoneOf(this.region)].frost;
@@ -378,13 +385,8 @@ export class CityScene extends TribeScene {
           fogFar: fog.far,
         });
       }
-      const fl = c.group.getObjectByName('city-flames') as THREE.Points | undefined;
-      if (fl) {
-        const fm = fl.material as THREE.PointsMaterial;
-        fm.opacity = night;
-        fl.visible = night > 0.01;
-        fm.size = 3.6 * (1 + Math.sin(t * 11) * 0.08);
-      }
+      // Огни ночи (docs/polish.md, П-9): загораются по одному, мерцают; настоящие — ближние к взгляду.
+      c.rig.update(t, dt, night, this.target.x, this.target.z, this.camera, this.renderer.domElement.height);
       this.folk?.update(dt, t, night, this.seasonVis.snow);
       this.garrison?.update(t, this.camera);
       // Колесо лесопилки крутится и брызжет — от времени (ручей не мёрзнет).
@@ -429,6 +431,7 @@ export class CityScene extends TribeScene {
         if (this.disposed || this.town !== c) return;
         this.bustle = new CityBustle({ plan: c.plan, quality: this.quality });
         this.bustle.setArms(this.lastState?.profile.arms);
+        lightScene(this.bustle.group, c.uniforms);
         this.scene.add(this.bustle.group);
       })
       .catch(() => undefined);
@@ -437,6 +440,7 @@ export class CityScene extends TribeScene {
       .then(({ CityGarrison }) => {
         if (this.disposed || this.town !== c || !this.folk) return;
         this.garrison = new CityGarrison(this.folk, this.quality, this.lastState?.profile.arms);
+        lightScene(this.garrison.group, c.uniforms);
         this.scene.add(this.garrison.group);
       })
       .catch(() => undefined);

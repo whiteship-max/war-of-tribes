@@ -17,6 +17,8 @@
 // Уровни (`PRECIP_CAP`): на «Низком» — меньше струй и хлопьев, без брызг и без поля высот (капля гаснет по возрасту);
 // сторож плавности, опустив уровень, режет счёт сразу (`setLevel`) — одна мерка «тянет ли телефон» на всю сцену.
 import * as THREE from 'three';
+import { glowUniforms, type GlowUniforms } from '../glow/rig';
+import { MAX_LAMPS } from '../glow/lamps';
 import type { Quality } from '../quality';
 import { HeightRaster, NO_HEIGHT, SPLASH_KINK, type HeightField, type Surface } from './heights';
 
@@ -77,11 +79,8 @@ export interface PrecipFrame {
   fogFar: number;
 }
 
-/** Огни города для капель ночью — те же, что у шейдеров города (`material.cLights`). */
-export interface PrecipLights {
-  cLights: { value: THREE.Vector4[] };
-  cTorchCol: { value: THREE.Color };
-}
+/** Огни города для капель ночью — те же настоящие огни, что у шейдеров города (`glow/rig.ts`, docs/polish.md, П-9). */
+export type PrecipLights = GlowUniforms;
 
 interface PrecipUniforms {
   [k: string]: THREE.IUniform;
@@ -104,8 +103,9 @@ interface PrecipUniforms {
   pHeight: { value: THREE.Texture | null };
   pHeightAt: { value: THREE.Vector4 };
   pHeightOn: { value: number };
-  pLights: { value: THREE.Vector4[] };
-  pTorch: { value: THREE.Color };
+  pLampPos: { value: THREE.Vector4[] };
+  pLampCol: { value: THREE.Vector4[] };
+  pLampN: { value: number };
 }
 
 const COMMON = (lights: number): string => /* glsl */ `
@@ -128,8 +128,9 @@ uniform vec2 pFog;
 uniform sampler2D pHeight;
 uniform vec4 pHeightAt;
 uniform float pHeightOn;
-uniform vec4 pLights[${lights}];
-uniform vec3 pTorch;
+uniform vec4 pLampPos[${lights}];
+uniform vec4 pLampCol[${lights}];
+uniform int pLampN;
 float pHash(vec2 p) {
   vec3 q = fract(vec3(p.xyx) * 0.1031);
   q += dot(q, q.yzx + 33.33);
@@ -147,15 +148,16 @@ float pBand(vec2 xz) {
   float n = sin(q.x * 1.7 + sin(q.y * 1.3) * 1.5) * sin(q.y * 1.9 + sin(q.x * 0.9) * 1.2);
   return 0.62 + 0.48 * n;
 }
-// Ночью у фонарей капля и хлопья ловят тёплый свет.
-float pGlow(vec3 p) {
-  float acc = 0.0;
+// Ночью у огней капля и хлопья ловят их тёплый свет — цвет и мерцание огня.
+vec3 pGlow(vec3 p) {
+  vec3 acc = vec3(0.0);
   for (int i = 0; i < ${lights}; i++) {
-    vec3 d = p - pLights[i].xyz;
-    float a = max(0.0, 1.0 - dot(d, d) / (pLights[i].w * 3.0));
-    acc += a * a;
+    if (i >= pLampN) break;
+    vec3 d = p - pLampPos[i].xyz;
+    float a = max(0.0, 1.0 - dot(d, d) / (pLampPos[i].w * pLampPos[i].w * 2.0));
+    acc += pLampCol[i].rgb * a * a;
   }
-  return min(acc, 1.2);
+  return min(acc, vec3(2.0));
 }
 `;
 
@@ -221,10 +223,10 @@ void main() {
   // Капля — линза: светлее тёмной кровли и темнее неба; от неба и берёт цвет.
   vec3 col = (pSky * 1.12 + 0.07) * pLight;
 #ifndef NEAR
-  if (pNight > 0.05) {
-    float gl = pGlow(head) * pNight;
-    col += pTorch * gl * 0.9;
-    alpha *= 1.0 + gl * 0.7;
+  if (pLampN > 0) {
+    vec3 gl = pGlow(head);
+    col += gl * 0.45;
+    alpha *= 1.0 + max(gl.r, max(gl.g, gl.b)) * 0.35;
   }
 #endif
   vCol = col + pFlash * 0.9;
@@ -305,7 +307,7 @@ void main() {
   vA = ok * pow(1.0 - f, 0.7) * clamp(size / 2.2, 0.8, 1.0) * (1.0 - 0.7 * smoothstep(pFog.x, pFog.y, d));
   vF = f;
   vec3 col = (pSky * 1.6 + 0.2) * pLight;
-  if (pNight > 0.05) col += pTorch * pGlow(p) * pNight * 1.8;
+  if (pLampN > 0) col += pGlow(p) * 0.9;
   vCol = col + pFlash;
   gl_Position = projectionMatrix * viewMatrix * vec4(p, 1.0);
 }
@@ -381,7 +383,7 @@ void main() {
   }
   gl_PointSize = s;
   vec3 col = vec3(0.94, 0.95, 0.98) * (0.12 + 0.88 * pLight);
-  if (pNight > 0.05) col += pTorch * pGlow(p) * pNight * 1.4;
+  if (pLampN > 0) col += pGlow(p) * 0.7;
   vCol = col + pFlash * 0.8;
   vA = alpha;
   gl_Position = projectionMatrix * viewMatrix * vec4(p, 1.0);
@@ -534,7 +536,7 @@ export class CityPrecip {
     this.built = cap;
     this.level = quality;
     this.group.name = 'city-precip';
-    const lamps = lights?.cLights.value ?? [new THREE.Vector4(0, -1e4, 0, 1)];
+    const glow = lights ?? glowUniforms();
     this.u = {
       pTime: { value: 0 },
       pRain: { value: 0 },
@@ -555,11 +557,12 @@ export class CityPrecip {
       pHeight: { value: null },
       pHeightAt: { value: new THREE.Vector4(HEIGHT_AREA.x0, HEIGHT_AREA.z0, 1 / HEIGHT_AREA.span, Math.max(1, cap.map)) },
       pHeightOn: { value: 0 },
-      pLights: { value: lamps },
-      pTorch: { value: lights?.cTorchCol.value ?? new THREE.Color(1, 0.6, 0.3) },
+      pLampPos: glow.gLampPos,
+      pLampCol: glow.gLampCol,
+      pLampN: glow.gLampN,
     };
     const u = this.u;
-    const n = lamps.length;
+    const n = MAX_LAMPS;
     this.rain = cap.rain > 0 ? rainMesh(cap.rain, u, n, false) : null;
     this.nearRain = cap.near > 0 ? rainMesh(cap.near, u, n, true) : null;
     this.splash =

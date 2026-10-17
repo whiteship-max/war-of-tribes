@@ -169,7 +169,7 @@ describe('город: вода ночью и уровни', () => {
     const got = waterLights(lights).map(lightToWater);
     expect(got).toEqual([0, 2, 5, 12]);
     // У настоящего города огонь у воды есть — фонарь мельницы: отблески не мёртвые.
-    const real = waterLights(buildStatic(plan, 'medium').lights);
+    const real = waterLights(buildStatic(plan, 'medium').lamps.map((l): [number, number, number] => [l.x, l.y, l.z]));
     expect(real.length, 'огни у воды в городе').toBeGreaterThanOrEqual(1);
     expect(real.length).toBeLessThanOrEqual(WATER_LIGHTS);
     for (const l of real) expect(lightToWater(l)).toBeLessThan(WATER_LIGHT_REACH);

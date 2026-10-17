@@ -184,7 +184,7 @@ export class SiegePlayer {
     if (this.cam.auto) this.cam.follow(this.view(this.t));
     this.cam.groundY = this.stage.groundY(this.cam.now.tx, this.cam.now.tz);
     if (dt > 0) this.cam.update(dt);
-    this.stage.apply(this.t, this.cam);
+    this.stage.apply(this.t, this.cam, this.renderer.domElement.height);
     this.renderer.info.reset();
     this.renderer.shadowMap.needsUpdate = dt === 0 || this.drawn++ % this.shadowEvery === 0;
     this.renderer.render(this.stage.scene, this.cam.camera);

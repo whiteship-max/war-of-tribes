@@ -22,6 +22,8 @@ import { poseAt, type TrackPose } from './tracks';
 import { BANDIT_ARMS, DEFAULT_ARMS, armsCode } from '@/heraldry/arms';
 import { frameOf, townLand } from '../tw/town';
 import type { TownBackdrop } from '../city/backdrop';
+import { LampRig, glowUniforms, lightScene, type WorldLamp } from '../glow/rig';
+import { CITY_M } from '../tw/site';
 
 const SUN_DIST = 160;
 const SHADOW_HALF = { min: 30, max: 110, perDist: 0.6 };
@@ -93,6 +95,9 @@ export class SiegeStage {
   /** Огни, что светятся ночью: факелы на стене (`reel.torches`) и костры лагеря; `k` — величина. */
   private flames: { x: number; y: number; z: number; k: number }[] = [];
   private scaffolds: THREE.Mesh[] = [];
+  /** Свет ночи (docs/polish.md, П-9): костры лагеря, факелы стены, огни города за ней и огонь пожаров — настоящими огнями. */
+  private glow: LampRig;
+  private lampT = 0;
   private disposables: { dispose(): void }[] = [];
   private M = new THREE.Matrix4();
   private Q = new THREE.Quaternion();
@@ -231,6 +236,30 @@ export class SiegeStage {
         this.disposables.push(g);
       }
     }
+    // Огни ночи: костёр и факел светят на землю, шатры, людей и камень стены; пожары — пока горят.
+    const lamps: WorldLamp[] = [
+      ...lay.camp.fires.map((f): WorldLamp => {
+        const g = heightAt(lay.field, f.x, f.z);
+        return { x: f.x, y: g + 0.7, z: f.z, kind: 'fire', dx: 0, dz: 0, lift: 0.7 / CITY_M, s: CITY_M };
+      }),
+      ...reel.torches.map((p): WorldLamp => ({ x: p.x, y: p.y + 0.3, z: p.z, kind: 'torch', dx: 0, dz: 0, lift: (p.y + 0.3 - heightAt(lay.field, p.x, p.z)) / CITY_M, s: CITY_M })),
+      ...reel.barrage.smoke.map((c): WorldLamp => ({ x: c.x, y: c.y, z: c.z, kind: 'fire', dx: 0, dz: 0, lift: (c.y - heightAt(lay.field, c.x, c.z)) / CITY_M, s: CITY_M * c.size, from: c.from, to: c.to })),
+      ...(town?.lamps ?? []),
+    ];
+    this.glow = new LampRig(lamps, spec.lamps, town?.glow ?? glowUniforms());
+    this.scene.add(this.glow.group);
+    // Древко под факелом стены: огонь не висит в воздухе.
+    if (reel.torches.length > 0) {
+      const sg = new THREE.CylinderGeometry(0.035, 0.045, 1.3, 5).translate(0, -0.55, 0);
+      const smat = new THREE.MeshLambertMaterial({ color: 0x3a2a1c });
+      smat.name = 'siege-torch-staff';
+      const staffs = new THREE.InstancedMesh(sg, smat, reel.torches.length);
+      reel.torches.forEach((p, k) => staffs.setMatrixAt(k, this.M.makeTranslation(p.x, p.y, p.z)));
+      staffs.name = 'siege-torch-staffs';
+      this.scene.add(staffs);
+      this.disposables.push(sg, smat, staffs);
+    }
+    lightScene(this.scene, this.glow.uniforms);
     this.frame = figureFrame(reel.tracks.count);
     this.relightAt(0);
   }
@@ -251,11 +280,16 @@ export class SiegeStage {
     this.clouds?.relight(this.scene, g, this.rig);
     this.town?.light(night, this.sunDir, (this.scene.fog as THREE.Fog).color);
     this.field.light(this.rig.sun, this.scene, night);
+    this.works.night(night);
   }
 
-  apply(t: number, cam: TacticalCamera): void {
+  /** Кадр на секунде `t`; `bufferHeight` — высота буфера в пикселях (огонькам — размер на экране). */
+  apply(t: number, cam: TacticalCamera, bufferHeight = 1688): void {
     const reel = this.reel;
     this.relightAt(t);
+    const dt = Math.max(0, Math.min(0.1, t - this.lampT));
+    this.lampT = t;
+    this.glow.update(t, dt, nightOf(this.lastSolar), cam.now.tx, cam.now.tz, cam.camera, bufferHeight);
     poseSiege(reel, t, this.frame, this.pose);
     this.crowd.update(this.frame, cam.camera);
     this.banners.update(this.frame, t, cam.camera, cam.now.dist);
@@ -339,6 +373,7 @@ export class SiegeStage {
     // Бойцы вблизи — средним обликом, если у нового уровня ближнего нет (`TwSpec.crowdLod`).
     this.crowd.detail(next.crowdLod);
     if (next.shadow === 'none') this.crowd.shadows(false);
+    this.glow.setCap(next.lamps);
     if (!next.clouds && this.clouds) this.clouds.mesh.visible = false;
     this.field.lower(next);
   }
@@ -359,6 +394,7 @@ export class SiegeStage {
   }
 
   dispose(): void {
+    this.glow.dispose();
     this.crowd.dispose();
     this.banners.dispose();
     this.works.dispose();

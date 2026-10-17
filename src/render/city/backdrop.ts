@@ -6,8 +6,8 @@ import * as THREE from 'three';
 import type { Quality } from '../quality';
 import type { Builder } from './geom';
 import { arraysOf } from './world';
-import { flames, geometryFrom, geometryOf, groundGeometry, paintLayers, type CityShare } from './index';
-import { buildingMaterial, cityUniforms, CITY_LIGHTS, foliageMaterial, groundMaterial, LayerTexture, MapTexture, type CityUniforms } from './material';
+import { geometryFrom, geometryOf, groundGeometry, paintLayers, type CityShare } from './index';
+import { buildingMaterial, cityUniforms, foliageMaterial, groundMaterial, LayerTexture, MapTexture, type CityUniforms } from './material';
 import { MAP_AT } from './ground';
 import { LAND_AT, treeModel, type Species } from './nature';
 import { CITY_SPEC, SHORE_CAP } from './spec';
@@ -17,6 +17,8 @@ import { waterLights } from './banks';
 import { TOWN_LOD, townFocus, townWorld, type TownInput, type TownWorld } from './town';
 import { CITY_M } from '../tw/site';
 import { TOWN_H0, toReel, type Box2, type TownCut, type TownFrame, type TownHouse } from '../tw/town';
+import { glowUniforms, lampsToWorld, type GlowUniforms, type WorldLamp } from '../glow/rig';
+import type { V3 } from './geom';
 
 export interface TownBackdrop {
   /** Город в единицах ролика: ставится в сцену ролика как есть. */
@@ -29,6 +31,12 @@ export interface TownBackdrop {
   road: { x: number; z: number }[];
   /** Камень и дерево места ролика — тем же материалом, что город (стена спереди не беднее стен по кругу). */
   skin: { material: THREE.Material; geometry: (b: Builder) => THREE.BufferGeometry };
+  /**
+   * Огни города в мире ролика (docs/polish.md, П-9) и униформы, по которым их свет ложится на камень города: сцена ролика
+   * зажигает их вместе с кострами своего лагеря одной сборкой (`glow/rig.LampRig`).
+   */
+  lamps: WorldLamp[];
+  glow: GlowUniforms;
   /** Свет кадра ролика: доля ночи, снег, направление на солнце, цвет неба. */
   light(night: number, sunDir: THREE.Vector3, sky: THREE.Color): void;
   /** Треугольники кадра (без тени) и байты своих текстур — сверке бюджета. */
@@ -78,7 +86,8 @@ export async function townBackdrop(frame: TownFrame, cut: TownCut, quality: Qual
   const w = await townWorldOf({ quality, cut, ...(share ? { plan: share.plan } : {}), ground: own });
   const disposables: { dispose(): void }[] = [];
 
-  const u: CityUniforms = cityUniforms();
+  const glow = glowUniforms();
+  const u: CityUniforms = cityUniforms(glow);
   let layers: THREE.Texture;
   let map: THREE.Texture;
   let land: THREE.Texture;
@@ -118,10 +127,10 @@ export async function townBackdrop(frame: TownFrame, cut: TownCut, quality: Qual
   group.add(inner);
   u.cFrame.value.copy(inner.matrix).invert();
 
-  // Огни ночи: ближние к середине ролика — пятнами в шейдер, все — огоньками.
   const focus = townFocus(cut);
-  const lit = [...w.lights].sort((a, c) => Math.hypot(a[0] - focus.x, a[2] - focus.z) - Math.hypot(c[0] - focus.x, c[2] - focus.z));
-  lit.slice(0, CITY_LIGHTS).forEach((p, k) => u.cLights.value[k].set(p[0], p[1] - 0.8, p[2], 9.5 * 9.5));
+  // Огни ночи — в мир ролика: светит их сцена ролика (`LampRig`), камень города берёт свет по общим униформам.
+  inner.updateMatrixWorld(true);
+  const lamps = lampsToWorld(w.lamps, inner.matrixWorld, CITY_M);
 
   const bMat = buildingMaterial(u);
   const gMat = groundMaterial(u, map, MAP_AT, land, LAND_AT);
@@ -161,17 +170,11 @@ export async function townBackdrop(frame: TownFrame, cut: TownCut, quality: Qual
 
   if (TOWN_LOD[quality].water) {
     // Река в ролике — даль за полем: лента в семь столбцов (как у «Низкого» окна города), рябь — уровня.
-    const water = buildWater(u, SHORE_CAP.low.cols, spec.detail, waterLights(w.lights));
+    const water = buildWater(u, SHORE_CAP.low.cols, spec.detail, waterLights(w.lamps.map((l): V3 => [l.x, l.y, l.z])));
     water.name = 'town-water';
     inner.add(water);
     disposables.push(water.geometry, water.material as THREE.Material);
   }
-
-  const fl = flames(w.lights);
-  const flMat = fl.material as THREE.PointsMaterial;
-  flMat.size *= CITY_M;
-  inner.add(fl);
-  disposables.push(fl.geometry, flMat, ...(flMat.map ? [flMat.map] : []));
 
   // Деревья: тот же лес, что у окна города; ближние к ролику — моделями с тенью, дальние — проще и без тени.
   const m4 = new THREE.Matrix4();
@@ -221,12 +224,13 @@ export async function townBackdrop(frame: TownFrame, cut: TownCut, quality: Qual
     cleared: w.cleared,
     road: w.road,
     skin: { material: bMat, geometry: skinGeometry },
+    lamps,
+    glow,
     light(night: number, sunDir: THREE.Vector3, sky: THREE.Color): void {
       u.cNight.value = night;
+      u.cBlue.value = night;
       u.cSunDir.value.copy(sunDir);
       u.cSky.value.copy(sky);
-      flMat.opacity = Math.min(1, night * 1.4);
-      fl.visible = night > 0.02;
     },
     triangles,
     textureBytes,

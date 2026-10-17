@@ -17,7 +17,8 @@ import type { DirectorScene } from '../reel/director';
 import { poseFigures, unitPose, type TwPlan } from './plan';
 import { figureFrame, type FigureFrame } from '../reel/troupe';
 import { heightAt } from '../reel/terrain';
-import { siteBlocks, siteGround } from './site';
+import { CITY_M, siteBlocks, siteGround } from './site';
+import { LampRig, glowUniforms, lightScene, type WorldLamp } from '../glow/rig';
 import { Siegeworks, worksOfPlan } from './siegeworks';
 
 /** Лампа стоит так далеко от цели по своему направлению; коробка теней — от расстояния камеры. */
@@ -48,6 +49,10 @@ export class TwStage {
   private clouds: ReturnType<typeof buildClouds> | null;
   private rig: LightRig;
   private sunDir = new THREE.Vector3();
+  /** Свет ночи (docs/polish.md, П-9): костры лагеря, пожары обстрела, огни города за стеной. */
+  private glow: LampRig;
+  private night: number;
+  private lampT = 0;
 
   /**
    * `town` — настоящий город за стеной места боя (docs/polish.md, П-6, `city/backdrop.ts`): его дома, стены по кругу, лес и
@@ -103,6 +108,19 @@ export class TwStage {
     this.scene.add(this.fort.group);
     this.siege = plan.barrage ? new Siegeworks({ ...worksOfPlan(plan), skin: town ? town.skin : null }, plan.barrage, this.crowd) : null;
     if (this.siege) this.scene.add(this.siege.group);
+    // Огни ночи: костры лагеря и пожары обстрела (пока горят — по часам пролога) и огни города за стеной.
+    const f = plan.field;
+    const ground = (x: number, z: number): number => heightAt(f, x, z);
+    const lamps: WorldLamp[] = [
+      ...(site?.camp?.fires ?? []).map((c): WorldLamp => ({ x: c.x, y: ground(c.x, c.z) + 0.55, z: c.z, kind: 'fire', dx: 0, dz: 0, lift: 0.55 / CITY_M, s: CITY_M * 0.8 })),
+      ...(plan.barrage?.smoke ?? []).map((c): WorldLamp => ({ x: c.x, y: c.y, z: c.z, kind: 'fire', dx: 0, dz: 0, lift: (c.y - ground(c.x, c.z)) / CITY_M, s: CITY_M * c.size, from: c.from, to: c.to })),
+      ...(town?.lamps ?? []),
+    ];
+    this.night = nightOf(plan.cast.ground.solar);
+    this.siege?.night(this.night);
+    this.glow = new LampRig(lamps, spec.lamps, town?.glow ?? glowUniforms());
+    this.scene.add(this.glow.group);
+    lightScene(this.scene, this.glow.uniforms);
     this.frame = figureFrame(plan.figures);
     this.director = directorSceneOf(plan);
   }
@@ -111,8 +129,12 @@ export class TwStage {
    * Разложить кадр на секунде боя `t`; `clip` — секунда ролика с прологом обстрела (`TwPlayer.pre`), по ней идут машины,
    * камни и дым. Камера — уже поставлена (её ведёт игрок или общий вид).
    */
-  apply(t: number, cam: TacticalCamera, clip = t): void {
+  apply(t: number, cam: TacticalCamera, clip = t, bufferHeight = 1688): void {
     poseFigures(this.plan, t, this.frame);
+    // Огни — по часам ролика с прологом: пожары обстрела горят по ним.
+    const dt = Math.max(0, Math.min(0.1, clip - this.lampT));
+    this.lampT = clip;
+    this.glow.update(clip, dt, this.night, cam.now.tx, cam.now.tz, cam.camera, bufferHeight);
     // Облик бойца — по дальности (`crowd.LOD_PX`, `NEAR_PX`): порог по полю зрения камеры, оно растёт с узостью экрана;
     // вне кадра бойцы не пишутся.
     this.crowd.update(this.frame, cam.camera);
@@ -147,6 +169,7 @@ export class TwStage {
     // Бойцы вблизи — средним обликом, если у нового уровня ближнего нет (`TwSpec.crowdLod`).
     this.crowd.detail(next.crowdLod);
     if (next.shadow === 'none') this.crowd.shadows(false);
+    this.glow.setCap(next.lamps);
     if (!next.clouds && this.clouds) this.clouds.mesh.visible = false;
     this.field.lower(next);
   }
@@ -192,6 +215,7 @@ export class TwStage {
   }
 
   dispose(): void {
+    this.glow.dispose();
     this.crowd.dispose();
     this.banners.dispose();
     this.arrows.dispose();

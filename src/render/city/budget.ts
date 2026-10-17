@@ -16,6 +16,8 @@ import { placeTrees, treeModel, type Species } from './nature';
 import { LAYERS } from './tex';
 import { CITY_SPEC, GATE_GUARDS, LIFE_CAP, LIFE_TRIS, SHORE_CAP, figureTris, peopleTris, shoreTris } from './spec';
 import { shoreItems, waterTriangles } from './banks';
+import { fixture, forge, mounted, standing, streetLamps } from './lamps';
+import type { Lamp, LampKind } from '../glow/lamps';
 
 /** Границы владельца по уровням (задание ночи 1): вызовы, треугольники, МБ текстур, МБ докачки. */
 export const CITY_BUDGET: Record<Quality, { calls: number; triangles: number; textureMb: number; downloadMb: number }> = {
@@ -27,7 +29,8 @@ export const CITY_BUDGET: Record<Quality, { calls: number; triangles: number; te
 /** Что собрано в меш зданий: построитель, огни ночи, трубы, места построек и где кончилась каждая часть. */
 export interface StaticBuild {
   b: Builder;
-  lights: V3[];
+  /** Огни ночи (docs/polish.md, П-9): у каждого — железо в меше (факел, фонарь, жаровня, горн). */
+  lamps: Lamp[];
   chimneys: V3[];
   /** Верхушки башен — под флаги. */
   flagTops: V3[];
@@ -74,7 +77,12 @@ export function buildStatic(plan: CityPlan, q: Quality, opts?: StaticOpts): Stat
   const d = CITY_SPEC[q].detail;
   const dAt = opts?.detailAt ?? ((): Detail => d);
   const b = new Builder();
-  const lights: V3[] = [];
+  const lamps: Lamp[] = [];
+  /** Огни постройки, только что нарисованной `own`: вид и стена — по её коробке; железо — ничьё, как ступени. */
+  const lit = (pts: readonly V3[], kind: LampKind): void => {
+    const s = sites[sites.length - 1] ?? null;
+    for (const p of pts) lamps.push(mounted(p, kind, s));
+  };
   const chimneys: V3[] = [];
   const flagTops: V3[] = [];
   const sites: Site[] = [];
@@ -103,18 +111,30 @@ export function buildStatic(plan: CityPlan, q: Quality, opts?: StaticOpts): Stat
     const td = dAt(t.x, t.z);
     // Башни кольца частокола — срубы; башни замка (за рвом) — камень.
     const timber = wood && t.z > MOAT_Z[1];
-    own(towerOwner(t.kind), t.x, t.z, Math.cos(t.out), Math.sin(t.out), () => lights.push(...(timber ? timberTower(b, t, td) : tower(b, t, td))));
+    let pts: V3[] = [];
+    own(towerOwner(t.kind), t.x, t.z, Math.cos(t.out), Math.sin(t.out), () => (pts = timber ? timberTower(b, t, td) : tower(b, t, td)));
+    // Дозор — фонарь под шатром; прочие башни — факелы на стене.
+    if (t.kind === 'watch' && !timber) lamps.push(...pts.map((p) => standing(p, 'lantern')));
+    else lit(pts, 'torch');
     // Флаг — над верхом башни, посередине (`life.ts`).
     const s = sites[sites.length - 1];
     flagTops.push([t.x, s.y1, t.z]);
   }
   const forts = b.mark().t;
   for (const c of plan.civic) {
+    let pts: V3[] = [];
     own(CIVIC_OWNER[c.kind], c.x, c.z, Math.cos(c.rot), Math.sin(c.rot), () => {
       const r = civic(b, c, dAt(c.x, c.z));
       chimneys.push(...r.chimneys);
-      lights.push(...r.lights);
+      pts = r.lights;
     });
+    // У храма — факел у входа, у прочих — фонарь над дверью; у кузницы ещё и горн у входа.
+    lit(pts, c.kind === 'church' ? 'torch' : 'lantern');
+    if (c.kind === 'smithy') {
+      const fx = Math.cos(c.rot);
+      const fz = Math.sin(c.rot);
+      lamps.push(forge(b, c.x + fx * (c.d / 2 + 1.3) + fz * (c.w / 4), c.z + fz * (c.d / 2 + 1.3) - fx * (c.w / 4), fx, fz));
+    }
     // Ступени — ничьи, как у домов; у храма вход — в башне и с площади через двор.
     if (c.kind !== 'church') civicStoop(b, c);
     // Ограда двора — храму, но коробкой не служит: двор — земля, а не здание.
@@ -135,7 +155,7 @@ export function buildStatic(plan: CityPlan, q: Quality, opts?: StaticOpts): Stat
   const bowl = { x: plan.well.x + 3.2, z: plan.well.z + 1.5 };
   own('campfire', plan.well.x, plan.well.z, 1, 0, () => {
     well(b, plan.well, d);
-    lights.push(fireBowl(b, bowl));
+    lamps.push(standing(fireBowl(b, bowl), 'brazier'));
   });
   own('statue', plan.statue.x, plan.statue.z, 1, 0, () => statue(b, plan.statue, 0));
   const civicT = b.mark().t;
@@ -143,16 +163,24 @@ export function buildStatic(plan: CityPlan, q: Quality, opts?: StaticOpts): Stat
   for (const h of plan.suburb) own('houses', h.x, h.z, h.fx, h.fz, () => chimneys.push(...house(b, h, dAt(h.x, h.z)).chimneys));
   for (const h of plan.suburb) houseStoop(b, h);
   for (const y of plan.yards) {
+    let pts: V3[] = [];
     own(y.kind, y.x, y.z, Math.cos(y.rot), Math.sin(y.rot), () => {
       const r = yard(b, y, dAt(y.x, y.z));
-      lights.push(...r.lights);
+      pts = r.lights;
       chimneys.push(...r.chimneys);
     });
+    // Каменоломня и рудник — факел у входа, прочие дворы — фонарь у двери.
+    lit(pts, y.kind === 'quarry' || y.kind === 'mine' ? 'torch' : 'lantern');
     for (const h of yardHalls(y)) civicStoop(b, h);
   }
+  // Фонари улиц и площади — в городе; ролику у стены их не нужно (его улицы — за стеной ролика, вдали).
+  if (!opts) lamps.push(...streetLamps(b, plan, lamps));
+  // Железо огней — ничьё: тап по факелу — не тап по башне.
+  b.owner = 0;
+  for (const l of lamps) fixture(b, l);
   const mill = d > 0 ? plan.yards.find((y) => y.kind === 'sawmill') : undefined;
   const wheel = mill ? millWheel(mill, d) : null;
-  return { b, lights, chimneys, flagTops, sites, marks: { houses, forts, civic: civicT, outside: b.mark().t }, wheel };
+  return { b, lamps, chimneys, flagTops, sites, marks: { houses, forts, civic: civicT, outside: b.mark().t }, wheel };
 }
 
 export interface CityCounts {
