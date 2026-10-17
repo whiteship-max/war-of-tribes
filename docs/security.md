@@ -234,6 +234,15 @@ expected [ 'stock' ] to not include 'stock'»; мутация «край втр�
 | M4: `sellBonded` не считает | продажа невольников: «честная запись: expected [ 'stock' ] to not include 'stock'» |
 | M5: бой без стража (`counted = false`) | «одно дело — победа: expected 2 to be 1» |
 
+**Приёмка — точка сохранения (правило 14), отчётов не было.** Пол правила 9 на `8ae9d41` (дома, worktree
+`claude/kind-shaw-20e8a8`, по одному): `npm test` — 339 файлов, 4105 прошли, 43 пропущены, 329 с; `npm run typecheck` —
+чистый; `npm run build` — прошёл, первая загрузка 620.6 КБ. `npm run reports -- --plan --base 24ca361` выбирает 16
+отчётов: pop, time, raid-growth, raid-hiring, raid-mix, raid-stable, siege, notify, lair, sack, order, log и браузерные
+tap, map, scene, revive — всех тянут `sim/expedition.ts`, `sim/market.ts`, `sim/pay.ts` и `state.ts`; пропущены battle,
+world, settle, raid, figure. **Последний принятый — `24ca361`**, следующая приёмка — `--base 24ca361`. Сдвиг вывода от
+правки не измерен: игровые числа она не трогает, но в сохранение партии лёг новый счётчик, и строки отчётов о размере
+сохранения могут сдвинуться на его байты.
+
 ## Приёмка
 
 Пол правила 9 на ветке (облако, 4 ядра, по одному, каждый под потолком 15 минут): `npm test` — 299 файлов, 3648 прошли,
