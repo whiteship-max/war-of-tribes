@@ -91,19 +91,18 @@ export interface CityBuild {
   mill: MillWheel | null;
   /**
    * Что город одалживает ролику осады и боя у города (docs/polish.md, П-6, `backdrop.ts`): уровень, план, карты покрытий и
-   * земель, сетку земли; слои текстур — `uniforms.cityTex` (сначала мелкие, потом полные). Ролик их не освобождает.
+   * земель; слои текстур — `uniforms.cityTex` (сначала мелкие, потом полные). Ролик их не освобождает.
    */
   share: CityShare;
 }
 
-/** Город игры для ролика: тот же план, те же текстуры и земля — ни памяти сверх, ни второй сборки. */
+/** Город игры для ролика: тот же план, те же текстуры и карты — ни памяти сверх, ни второй сборки плана. */
 export interface CityShare {
   quality: Quality;
   plan: CityPlan;
   uniforms: CityUniforms;
   map: THREE.Texture;
   land: THREE.Texture;
-  ground: THREE.BufferGeometry;
 }
 
 /** Сетка земли города в буферы: положение, нормаль, сырость берега; тон, UV и `cfg` — пустые (их берёт карта). */
@@ -125,10 +124,13 @@ export function groundGeometry(grid: { positions: Float32Array; normals: Float32
 export function flames(lights: V3[]): THREE.Points {
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(lights.flat()), 3));
-  const c = document.createElement('canvas');
-  c.width = 64;
-  c.height = 64;
-  const x = c.getContext('2d');
+  // Без DOM (счёт бюджета ролика в тесте, docs/polish.md, П-6) — точки без пятна: считать их можно, рисовать некому.
+  const c = typeof document === 'undefined' ? null : document.createElement('canvas');
+  if (c) {
+    c.width = 64;
+    c.height = 64;
+  }
+  const x = c?.getContext('2d');
   if (x) {
     const grd = x.createRadialGradient(32, 32, 0, 32, 32, 32);
     grd.addColorStop(0, 'rgba(255,240,200,1)');
@@ -139,7 +141,7 @@ export function flames(lights: V3[]): THREE.Points {
   }
   const m = new THREE.PointsMaterial({
     size: 3.6,
-    map: new THREE.CanvasTexture(c),
+    map: c ? new THREE.CanvasTexture(c) : null,
     transparent: true,
     depthWrite: false,
     blending: THREE.AdditiveBlending,
@@ -317,6 +319,6 @@ export async function buildCity(q: Quality): Promise<CityBuild> {
     },
     full,
     mill,
-    share: { quality: q, plan, uniforms: u, map: mapTex, land: landTex, ground: gg },
+    share: { quality: q, plan, uniforms: u, map: mapTex, land: landTex },
   };
 }

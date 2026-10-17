@@ -26,15 +26,26 @@ export interface TownInput {
   ground: boolean;
 }
 
-/** Уровни детализации города в ролике (docs/polish.md, П-6, «Скорость»): числа — метры от середины ролика. */
-export const TOWN_LOD: Record<Quality, { near: number; mid: number; trees: number; reach: number; houses: number }> = {
-  low: { near: 90, mid: 180, trees: 110, reach: 420, houses: 70 },
-  medium: { near: 140, mid: 260, trees: 150, reach: 560, houses: 90 },
-  high: { near: 190, mid: 340, trees: 200, reach: 700, houses: 110 },
+/**
+ * Уровни детализации города в ролике (docs/polish.md, П-6, «Скорость»), метры от середины ролика: дома подробно (`near`),
+ * проще (`mid`), дальше — грубо; тень бросают здания ближе `shade`; деревья — моделями ближе `trees` (тень — ближе
+ * `treeShade`), дальше — дальним комом, за `thin` — каждое второе, за `reach` — нет (там дымка и полог леса на земле).
+ * Сетка земли — своя: `cells` клеток, шаг `cell` у ворот, край — в километре.
+ */
+export const TOWN_LOD: Record<Quality, { near: number; mid: number; shade: number; trees: number; treeShade: number; thin: number; reach: number; houses: number; cells: number; cell: number; water: boolean }> = {
+  low: { near: 90, mid: 170, shade: 110, trees: 90, treeShade: 60, thin: 200, reach: 360, houses: 70, cells: 64, cell: 4.6, water: false },
+  medium: { near: 130, mid: 210, shade: 115, trees: 130, treeShade: 90, thin: 210, reach: 400, houses: 90, cells: 76, cell: 3.6, water: true },
+  high: { near: 180, mid: 300, shade: 170, trees: 180, treeShade: 130, thin: 290, reach: 540, houses: 110, cells: 104, cell: 2.9, water: true },
 };
+
+/** Где густа сетка земли города в ролике: между воротами и серединой южной части города — и стан, и дома у ворот. */
+const GRID_REACH = 1100;
 
 export interface TownWorld {
   buildings: MeshArrays;
+  /** Треугольники зданий у ролика (бросают тень) — индексы того же меша; остальные — `far`. */
+  near: Uint32Array;
+  far: Uint32Array;
   buildingTris: number;
   /** Огни ночи: факелы башен и ворот, фонари площади, окна дворов. */
   lights: V3[];
@@ -46,8 +57,11 @@ export interface TownWorld {
   cleared: Box2[];
   /** Дорога от главных ворот в долину (`layout.roadsOf`): ролик продолжает её по своей плите. */
   road: P[];
-  /** Своя земля — когда города игры нет (`TownInput.ground`). */
-  ground: { map: Uint8Array; land: Uint8Array; grid: { positions: Float32Array; normals: Float32Array; index: Uint32Array }; wet: Float32Array } | null;
+  /** Сетка земли ролика — густая у ворот, редкая к краю (своя, а не города игры: та — на весь мыс и дорога ролику). */
+  grid: { positions: Float32Array; normals: Float32Array; index: Uint32Array };
+  wet: Float32Array;
+  /** Карты покрытий и земель — свои, когда города игры нет (`TownInput.ground`). */
+  ground: { map: Uint8Array; land: Uint8Array } | null;
   ms: { plan: number; build: number; trees: number; ground: number };
 }
 
@@ -137,7 +151,26 @@ export function townPlan(plan: CityPlan, cut: TownCut): { plan: CityPlan; cleare
   });
   const yards = plan.yards.filter((y) => !(y.x > field.x0 && y.x < field.x1 && y.z > field.z0 && y.z < field.z1));
   const towers = plan.towers.filter((t) => !(t.kind !== 'keep' && t.kind !== 'castleGate' && t.z > 0 && nearFront(cut, t)));
-  return { plan: { ...plan, wall: townContour(plan.wall, cut), towers, houses, suburb, stalls, yardTrees, yards }, cleared };
+  // Желоб мощёной улицы (`civic.gutter`) — не через расчищенное: там земля ролика, а не мостовая.
+  const inZone = (p: P): boolean => zones.some((z) => p.x > z.x0 && p.x < z.x1 && p.z > z.z0 && p.z < z.z1);
+  const streets: CityPlan['streets'] = [];
+  for (const st of plan.streets) {
+    if (st.surface !== 'cobble' || st.half < 3) {
+      streets.push(st);
+      continue;
+    }
+    let run: P[] = [];
+    for (const p of st.pts) {
+      if (!inZone(p)) {
+        run.push(p);
+        continue;
+      }
+      if (run.length > 1) streets.push({ ...st, pts: run });
+      run = [];
+    }
+    if (run.length > 1) streets.push({ ...st, pts: run });
+  }
+  return { plan: { ...plan, wall: townContour(plan.wall, cut), towers, houses, suburb, stalls, yardTrees, yards, streets }, cleared };
 }
 
 /** Деревья под ролик: тот же лес, что у окна города, — ближние моделями у середины ролика, дальние проще, за дымкой — нет. */
@@ -153,6 +186,8 @@ function townTrees(plan: CityPlan, q: Quality, cut: TownCut, focus: P): Record<S
       if (!free(t)) continue;
       const d = Math.hypot(t.x - focus.x, t.z - focus.z);
       if (d > lod.reach) continue;
+      // Дальше `thin` — каждое второе: лес вдали держат полог на земле (`landMap`) и дымка.
+      if (d > lod.thin && (Math.round(t.x * 7 + t.z * 13) & 1) === 1) continue;
       if (sp === 'fruit') out.fruit.push(t);
       else if (sp === 'broad' || sp === 'broadFar') (d < lod.trees ? out.broad : out.broadFar).push(t);
       else (d < lod.trees ? out.spruce : out.spruceFar).push(t);
@@ -182,24 +217,33 @@ export function townWorld(input: TownInput): TownWorld {
   const t2 = performance.now();
   const trees = townTrees(plan, q, cut, focus);
   let treeTris = 0;
-  for (const sp of Object.keys(trees) as Species[]) if (trees[sp].length) treeTris += treeModel(sp, spec.detail).triangleCount * trees[sp].length;
+  for (const sp of Object.keys(trees) as Species[]) if (trees[sp].length) treeTris += treeModel(sp, spec.detail, true).triangleCount * trees[sp].length;
   const t3 = performance.now();
   const houses: TownHouse[] = plan.houses
     .filter((h) => Math.hypot(h.x - focus.x, h.z - focus.z) < lod.houses)
     .map((h) => ({ x: h.x, z: h.z, fx: h.fx, fz: h.fz, w: h.w, d: h.d, floors: h.floors, top: houseTop(h), seed: h.seed }));
-  let ground: TownWorld['ground'] = null;
-  if (input.ground) {
-    // Карта покрытий — по плану окна города, как у города игры: убранное закрывает земля ролика.
-    const map = groundMap(base, spec.map);
-    const land = landMap(base, spec.land);
-    const grid = groundGrid(spec.groundCells, spec.groundCell, { x: 0, z: -20 }, 1400);
-    const wet = new Float32Array(grid.positions.length / 3);
-    for (let k = 0; k < wet.length; k++) wet[k] = groundWet(grid.positions[k * 3], grid.positions[k * 3 + 2]);
-    ground = { map, land, grid: { positions: grid.positions, normals: grid.normals, index: grid.index }, wet };
+  // Тень бросают только здания у ролика: коробка теней — вокруг кадра, дальние в неё не попадают, а проход теней их
+  // всё равно рисовал бы (меш один).
+  const near: number[] = [];
+  const far: number[] = [];
+  const P = st.b.pos;
+  const I = st.b.idx;
+  for (let k = 0; k < I.length; k += 3) {
+    const cx = (P[I[k] * 3] + P[I[k + 1] * 3] + P[I[k + 2] * 3]) / 3;
+    const cz = (P[I[k] * 3 + 2] + P[I[k + 1] * 3 + 2] + P[I[k + 2] * 3 + 2]) / 3;
+    (Math.hypot(cx - focus.x, cz - focus.z) < lod.shade ? near : far).push(I[k], I[k + 1], I[k + 2]);
   }
+  const gc = { x: (cut.west.x + cut.east.x) / 2, z: (cut.west.z + cut.east.z) / 2 - 60 };
+  const grid = groundGrid(lod.cells, lod.cell, gc, GRID_REACH);
+  const wet = new Float32Array(grid.positions.length / 3);
+  for (let k = 0; k < wet.length; k++) wet[k] = groundWet(grid.positions[k * 3], grid.positions[k * 3 + 2]);
+  // Карта покрытий — по плану окна города, как у города игры: убранное закрывает земля ролика.
+  const ground: TownWorld['ground'] = input.ground ? { map: groundMap(base, spec.map), land: landMap(base, spec.land) } : null;
   const t4 = performance.now();
   return {
     buildings: arraysOf(st.b),
+    near: new Uint32Array(near),
+    far: new Uint32Array(far),
     buildingTris: st.b.triangleCount,
     lights: st.lights,
     trees,
@@ -207,6 +251,8 @@ export function townWorld(input: TownInput): TownWorld {
     houses,
     cleared,
     road: (base.roads[0]?.pts ?? []).map((p) => ({ x: p.x, z: p.z })),
+    grid: { positions: grid.positions, normals: grid.normals, index: grid.index },
+    wet,
     ground,
     ms: { plan: t1 - t0, build: t2 - t1, trees: t3 - t2, ground: t4 - t3 },
   };
@@ -215,7 +261,7 @@ export function townWorld(input: TownInput): TownWorld {
 /** Буферы, которые поток передаёт, а не копирует. */
 export function townTransferables(w: TownWorld): ArrayBuffer[] {
   const m = (a: MeshArrays): ArrayBufferLike[] => [a.pos.buffer, a.nor.buffer, a.uv.buffer, a.col.buffer, a.cfg.buffer, a.idx.buffer];
-  const out: ArrayBufferLike[] = [...m(w.buildings)];
-  if (w.ground) out.push(w.ground.map.buffer, w.ground.land.buffer, w.ground.grid.positions.buffer, w.ground.grid.normals.buffer, w.ground.grid.index.buffer, w.ground.wet.buffer);
+  const out: ArrayBufferLike[] = [...m(w.buildings), w.near.buffer, w.far.buffer, w.grid.positions.buffer, w.grid.normals.buffer, w.grid.index.buffer, w.wet.buffer];
+  if (w.ground) out.push(w.ground.map.buffer, w.ground.land.buffer);
   return out as ArrayBuffer[];
 }

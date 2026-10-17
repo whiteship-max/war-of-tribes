@@ -126,8 +126,7 @@ function roundNormals(b: Builder, cx: number, cy: number, cz: number): void {
 }
 
 /** Ствол: шестигранник с сужением. */
-function trunk(b: Builder, h: number, r0: number, r1: number, t: V3): void {
-  const seg = 6;
+function trunk(b: Builder, h: number, r0: number, r1: number, t: V3, seg = 6): void {
   const [tw, th] = [TILE_M.wood[0] / UV_SCALE, TILE_M.wood[1] / UV_SCALE];
   for (let i = 0; i < seg; i++) {
     const a0 = (i / seg) * Math.PI * 2;
@@ -161,7 +160,11 @@ function tier(b: Builder, y0: number, y1: number, r: number, seg: number, t: V3,
 export type Species = 'broad' | 'broadFar' | 'spruce' | 'spruceFar' | 'fruit';
 
 /** Модель вида дерева, высота — 1 (экземпляр растягивает до своей высоты). */
-export function treeModel(sp: Species, detail: number): Builder {
+/**
+ * Модель дерева вокруг начала координат, рост — около 1. `low` — смотрят снизу (ролик осады и боя у города, docs/polish.md,
+ * П-6): у дальнего кома есть ствол, иначе ком висит над землёй.
+ */
+export function treeModel(sp: Species, detail: number, low = false): Builder {
   const b = new Builder();
   const bark = tint(CITY.timberGrey, 1.0);
   const leaf = tint(0xe8ecd8);
@@ -176,7 +179,8 @@ export function treeModel(sp: Species, detail: number): Builder {
     blob(b, -0.15, 0.52, -0.12, 0.22, seg, rings, 17, leaf, true, 0.9);
     if (detail > 1) blob(b, -0.04, 0.76, 0.14, 0.18, seg, rings, 19, leaf, true, 1.05);
   } else if (sp === 'broadFar') {
-    // Дальнее: ком без ствола — ствол под кроной с высоты камеры не виден.
+    // Дальнее: ком без ствола — ствол под кроной с высоты камеры не виден; снизу (ролик) — со стволом.
+    if (low) trunk(b, 0.34, 0.035, 0.022, bark, 4);
     blob(b, 0, 0.6, 0, 0.34, 5, 3, 23, leaf, true);
   } else if (sp === 'spruce') {
     trunk(b, 0.25, 0.03, 0.02, bark);

@@ -14,7 +14,7 @@ import { CITY_SPEC, SHORE_CAP } from './spec';
 import { LAYERS } from './tex';
 import { buildWater } from './water';
 import { waterLights } from './banks';
-import { townFocus, townWorld, type TownInput, type TownWorld } from './town';
+import { TOWN_LOD, townFocus, townWorld, type TownInput, type TownWorld } from './town';
 import { CITY_M } from '../tw/site';
 import { TOWN_H0, toReel, type Box2, type TownCut, type TownFrame, type TownHouse } from '../tw/town';
 
@@ -79,23 +79,23 @@ export async function townBackdrop(frame: TownFrame, cut: TownCut, quality: Qual
   let layers: THREE.Texture;
   let map: THREE.Texture;
   let land: THREE.Texture;
-  let ground: THREE.BufferGeometry;
   let textureBytes = 0;
   if (share) {
     layers = share.uniforms.cityTex.value as THREE.Texture;
     map = share.map;
     land = share.land;
-    ground = share.ground;
   } else {
     const g = w.ground!;
     const data = await layersP!;
     layers = new LayerTexture(data, spec.tex, LAYERS.length, spec.anisotropy);
     map = new MapTexture(g.map, spec.map);
     land = new MapTexture(g.land, spec.land);
-    ground = groundGeometry(g.grid, g.wet);
-    disposables.push(layers, map, land, ground);
+    disposables.push(layers, map, land);
     textureBytes = Math.round(spec.tex * spec.tex * 4 * LAYERS.length * (4 / 3) + (spec.map * spec.map + spec.land * spec.land) * 4 * (4 / 3));
   }
+  // Сетка земли — своя (густая у ворот): сетка города игры — на весь мыс, ролику она дорога.
+  const ground = groundGeometry(w.grid, w.wet);
+  disposables.push(ground);
   u.cityTex.value = layers;
   if (winter) {
     u.cSnow.value = 1;
@@ -126,13 +126,24 @@ export async function townBackdrop(frame: TownFrame, cut: TownCut, quality: Qual
   disposables.push(bMat, gMat, fMat);
   let triangles = 0;
 
+  // Здания — одни вершины, два списка треугольников: у ролика — с тенью, дальше — без (`TOWN_LOD.shade`).
   const bGeo = geometryFrom(w.buildings);
-  disposables.push(bGeo);
-  const bMesh = new THREE.Mesh(bGeo, bMat);
-  bMesh.name = 'town-buildings';
-  bMesh.castShadow = true;
-  bMesh.receiveShadow = true;
-  inner.add(bMesh);
+  for (const [idx, near] of [
+    [w.near, true],
+    [w.far, false],
+  ] as const) {
+    if (idx.length === 0) continue;
+    const g = new THREE.BufferGeometry();
+    for (const [name, attr] of Object.entries(bGeo.attributes)) g.setAttribute(name, attr);
+    g.setIndex(new THREE.BufferAttribute(idx, 1));
+    g.computeBoundingSphere();
+    disposables.push(g);
+    const mesh = new THREE.Mesh(g, bMat);
+    mesh.name = near ? 'town-buildings' : 'town-buildings-far';
+    mesh.castShadow = near;
+    mesh.receiveShadow = true;
+    inner.add(mesh);
+  }
   triangles += w.buildingTris;
 
   const gMesh = new THREE.Mesh(ground, gMat);
@@ -143,16 +154,19 @@ export async function townBackdrop(frame: TownFrame, cut: TownCut, quality: Qual
   inner.add(gMesh);
   triangles += (ground.index ? ground.index.count : 0) / 3;
 
-  const water = buildWater(u, SHORE_CAP[quality].cols, spec.detail, waterLights(w.lights));
-  water.name = 'town-water';
-  inner.add(water);
-  disposables.push(water.geometry, water.material as THREE.Material);
+  if (TOWN_LOD[quality].water) {
+    // Река в ролике — даль за полем: лента в семь столбцов (как у «Низкого» окна города), рябь — уровня.
+    const water = buildWater(u, SHORE_CAP.low.cols, spec.detail, waterLights(w.lights));
+    water.name = 'town-water';
+    inner.add(water);
+    disposables.push(water.geometry, water.material as THREE.Material);
+  }
 
   const fl = flames(w.lights);
   const flMat = fl.material as THREE.PointsMaterial;
   flMat.size *= CITY_M;
   inner.add(fl);
-  disposables.push(fl.geometry, flMat, flMat.map!);
+  disposables.push(fl.geometry, flMat, ...(flMat.map ? [flMat.map] : []));
 
   // Деревья: тот же лес, что у окна города; ближние к ролику — моделями с тенью, дальние — проще и без тени.
   const m4 = new THREE.Matrix4();
@@ -161,29 +175,39 @@ export async function townBackdrop(frame: TownFrame, cut: TownCut, quality: Qual
   const pos = new THREE.Vector3();
   const scl = new THREE.Vector3();
   const col = new THREE.Color();
+  const shadeR = TOWN_LOD[quality].treeShade;
   for (const sp of ['broad', 'broadFar', 'spruce', 'spruceFar', 'fruit'] as Species[]) {
-    const list = w.trees[sp];
-    if (list.length === 0) continue;
-    const model = treeModel(sp, spec.detail);
+    const all = w.trees[sp];
+    if (all.length === 0) continue;
+    const model = treeModel(sp, spec.detail, true);
     const geo = geometryOf(model);
     disposables.push(geo);
-    const im = new THREE.InstancedMesh(geo, fMat, list.length);
-    list.forEach((t, k) => {
-      const wide = 0.9 + ((k * 7919) % 100) / 500;
-      q4.setFromAxisAngle(up, t.rot);
-      m4.compose(pos.set(t.x, t.y, t.z), q4, scl.set(t.h * wide, t.h, t.h * wide));
-      im.setMatrixAt(k, m4);
-      im.setColorAt(k, col.setRGB(t.t[0], t.t[1], t.t[2]));
-    });
-    im.instanceMatrix.needsUpdate = true;
-    im.computeBoundingSphere();
     const far = sp === 'broadFar' || sp === 'spruceFar';
-    im.castShadow = !far;
-    im.receiveShadow = !far;
-    im.name = `town-trees-${sp}`;
-    inner.add(im);
-    disposables.push(im);
-    triangles += model.triangleCount * list.length;
+    // Ближние модели — с тенью только у самого ролика (коробка теней — вокруг кадра); дальше — без.
+    const near = far ? [] : all.filter((t) => Math.hypot(t.x - focus.x, t.z - focus.z) < shadeR);
+    const rest = far ? all : all.filter((t) => Math.hypot(t.x - focus.x, t.z - focus.z) >= shadeR);
+    for (const [list, shade] of [
+      [near, true],
+      [rest, false],
+    ] as const) {
+      if (list.length === 0) continue;
+      const im = new THREE.InstancedMesh(geo, fMat, list.length);
+      list.forEach((t, k) => {
+        const wide = 0.9 + ((k * 7919) % 100) / 500;
+        q4.setFromAxisAngle(up, t.rot);
+        m4.compose(pos.set(t.x, t.y, t.z), q4, scl.set(t.h * wide, t.h, t.h * wide));
+        im.setMatrixAt(k, m4);
+        im.setColorAt(k, col.setRGB(t.t[0], t.t[1], t.t[2]));
+      });
+      im.instanceMatrix.needsUpdate = true;
+      im.computeBoundingSphere();
+      im.castShadow = shade;
+      im.receiveShadow = !far;
+      im.name = `town-trees-${sp}${shade ? '' : '-flat'}`;
+      inner.add(im);
+      disposables.push(im);
+      triangles += model.triangleCount * list.length;
+    }
   }
 
   return {
