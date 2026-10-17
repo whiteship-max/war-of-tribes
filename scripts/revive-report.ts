@@ -19,7 +19,8 @@
  *   2) потеря без возврата — расширение обезврежено (так ведёт себя настоящая
  *      потеря: вернуть её `restoreContext` не может), и сцена обязана пересобрать
  *      себя целиком, не требуя перезахода в игру;
- *   3) скрытая страница — кадров нет, при возвращении идут снова;
+ *   3) скрытая страница — кадров нет, при возвращении идут снова; мерится на достроенной сцене
+ *      (docs/scene-revive.md, раздел 10): иначе кадр после возвращения собирал бы стройку города, а не возврат;
  *   4) чужой размер — холст, поменявшийся, пока страница была скрыта, догоняется
  *      к первому же кадру после возвращения.
  *
@@ -72,6 +73,11 @@ const PORT = Number(process.env.PORT ?? 4193);
 const DEBUG_PORT = Number(process.env.CDP_PORT ?? 9336);
 const WIDTH = 390;
 const HEIGHT = 844;
+/**
+ * Сколько ждать, пока сцена достроится, мс. Не порог проверки, а срок: город встаёт за секунды, и полминуты — это уже
+ * «не достроилась», то есть находка, а не медленный прогон.
+ */
+const BUILD_WAIT = 30_000;
 
 /**
  * Что подкладывается в страницу.
@@ -113,6 +119,14 @@ const PROBE = `
     return saved;
   };
 
+  /** Длинные задачи страницы (дольше 50 мс): по ним видно, чем занята страница, когда кадров мало. */
+  const longs = [];
+  try {
+    new PerformanceObserver((l) => {
+      for (const e of l.getEntries()) longs.push({ at: e.startTime, ms: e.duration });
+    }).observe({ entryTypes: ['longtask'] });
+  } catch (e) {}
+
   window.__revive = {
     /** Показания сцены плюс её номер: по номеру видно пересборку. */
     state: () => JSON.stringify({ ...scene().vitals(), tag: tagOf(), dpr: window.devicePixelRatio }),
@@ -145,7 +159,34 @@ const PROBE = `
     hide: (on) => {
       Object.defineProperty(document, 'visibilityState', { get: () => (on ? 'hidden' : 'visible'), configurable: true });
       document.dispatchEvent(new Event('visibilitychange'));
-      return JSON.stringify('ok');
+      return JSON.stringify(performance.now());
+    },
+
+    /** Самая долгая задача страницы, кончившаяся после минуты страницы from, мс; 0 — таких не было. */
+    longest: (from) => JSON.stringify(Math.round(longs.filter((x) => x.at + x.ms >= from).reduce((m, x) => Math.max(m, x.ms), 0))),
+
+    /**
+     * Дождаться, пока сцена достроится: город встал и полные слои пришли (ready сцены), и полсекунды идущих кадров
+     * программ не прибавлялось — всё, что легло докачкой после первого кадра города, уже собрано. Ответ — сколько
+     * ждали, мс, или -1: не достроилась за ms.
+     */
+    settle: async (ms) => {
+      const s = scene();
+      const t0 = performance.now();
+      const nap = (t) => new Promise((ok) => setTimeout(ok, t));
+      const ready = await Promise.race([s.ready.then(() => true, () => false), nap(ms).then(() => false)]);
+      if (!ready) return JSON.stringify(-1);
+      let was = -1;
+      let frames = s.vitals().frames;
+      while (performance.now() - t0 < ms) {
+        const n = s.renderer.info.programs.length;
+        const f = s.vitals().frames;
+        if (n === was && f > frames) return JSON.stringify(Math.round(performance.now() - t0));
+        was = n;
+        frames = f;
+        await nap(500);
+      }
+      return JSON.stringify(-1);
     },
 
     /** Согнать холст в ноль и вернуть обратно — так он ведёт себя, возвращаясь из фона. */
@@ -281,6 +322,17 @@ async function report(): Promise<void> {
 
   // ---------- 3. Скрытая страница ----------
   console.log('\n3. Скрытая страница (подменой visibilityState — см. шапку файла)');
+  // Мерится возврат, а не стройка. Сцена №2 из раздела 2 к этой минуте ещё достраивается: город приходит из потока
+  // через секунды после пересборки, суета, стража, отклик и погода — докачкой после его первого кадра, полные слои —
+  // следом. Пришедшее, пока страница скрыта, собирается первым кадром после возврата, и раздел мерил первый кадр нового
+  // города: с 08.10.2026 (докачки «живого города») кадров после возврата стало меньше, 17.10 — три
+  // (docs/scene-revive.md, раздел 10).
+  const built = await tab.eval<number>(`window.__revive.settle(${BUILD_WAIT})`);
+  check(
+    'сцена достроена к проверке',
+    built >= 0,
+    built >= 0 ? `город встал, программ не прибавлялось — ждали ${live((built / 1000).toFixed(1))} с` : `не достроилась за ${BUILD_WAIT / 1000} с`,
+  );
   await go('hide(true)');
   await sleep(200);
   const hidden = await state();
@@ -288,10 +340,15 @@ async function report(): Promise<void> {
   check('кадров в скрытой странице нет', hiddenFrames === 0, `кадров за 500 мс: ${live(hiddenFrames)}`);
   check('причина названа', hidden.blocks.includes('hidden'), `луп: ${hidden.blocks.join(',') || 'идёт'}`);
 
-  await go('hide(false)');
+  const backAt = await tab.eval<number>('window.__revive.hide(false)');
   await sleep(300);
   const shown = await drawing();
-  check('при возвращении кадры идут снова', shown > 5, `кадров за 400 мс: ${live(shown)}`);
+  const busy = await tab.eval<number>(`window.__revive.longest(${backAt})`);
+  check(
+    'при возвращении кадры идут снова',
+    shown > 5,
+    `кадров за 400 мс: ${live(shown)}, самая долгая задача страницы после возврата — ${live(busy)} мс`,
+  );
 
   // ---------- 4. Размер, поменявшийся в фоне ----------
   console.log('\n4. Холст поменялся, пока страница была скрыта');
