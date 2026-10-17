@@ -44,7 +44,7 @@ function countStage(stage: SiegeStage): Omit<Count, 'at'> {
   return { calls, triangles, bytes: stage.textureBytes() };
 }
 
-/** Худший кадр осады на уровне: начало и середина каждого эпизода. */
+/** Худший кадр осады на уровне: начало и середина каждого эпизода; бойцы — все в кадре, в среднем облике. */
 function heaviest(name: string, q: Quality): Count & { seconds: number; samples: number } {
   const { rec, report } = standSiege(new URLSearchParams(`replay=siege&case=${name}`));
   const reel = siegeReel(showOfSiege(rec, report), q);
@@ -57,6 +57,8 @@ function heaviest(name: string, q: Quality): Count & { seconds: number; samples:
   for (const ep of reel.episodes) {
     for (const t of [ep.at + 0.2, ep.at + ep.len * 0.5]) {
       stage.apply(t, cam as never);
+      // Бойцы — все и в среднем облике: толпа без камеры никого не отсекает (худший кадр, как у ролика боя).
+      stage.crowd.update(stage.frame, null);
       samples++;
       const c = countStage(stage);
       if (!worst || c.calls + c.triangles / 1e4 > worst.calls + worst.triangles / 1e4) worst = { ...c, at: `${t.toFixed(1)} с, ${ep.kind}` };

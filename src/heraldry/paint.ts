@@ -72,6 +72,37 @@ export function paintArms(ctx: CanvasRenderingContext2D, a: Arms, x: number, y: 
   ctx.restore();
 }
 
+/**
+ * Поле герба без щита: деление и фигура на всё окно `w × h` — без обвода, блика и полей. Им крашены щиты и сюрко бойцов
+ * ролика (`reel/crowd.ts`, docs/polish.md, П-5): форму щита там задаёт сама доска, а не рисунок.
+ */
+export function paintField(ctx: CanvasRenderingContext2D, a: Arms, x: number, y: number, w: number, h: number): void {
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(x, y, w, h);
+  ctx.clip();
+  ctx.translate(x, y);
+  ctx.scale(w / 100, h / 120);
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  for (const l of armsLayers(a)) {
+    ctx.save();
+    if (l.m) ctx.transform(l.m[0], l.m[1], l.m[2], l.m[3], l.m[4], l.m[5]);
+    const p = path2d(l.d);
+    if (l.fill) {
+      ctx.fillStyle = l.fill;
+      ctx.fill(p, 'evenodd');
+    }
+    if (l.stroke) {
+      ctx.strokeStyle = l.stroke;
+      ctx.lineWidth = l.width ?? 1;
+      ctx.stroke(p);
+    }
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
 const canvases = new Map<string, HTMLCanvasElement>();
 
 /**

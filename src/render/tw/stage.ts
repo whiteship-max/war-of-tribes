@@ -6,7 +6,7 @@ import { fitShadow, type LightRig } from '../lighting';
 import type { TwSpec } from '../reel/spec';
 import { Arrows } from './arrows';
 import { Banners } from '../reel/banners';
-import { Crowd, SHADOW_LAYER, lodDistance } from '../reel/crowd';
+import { Crowd, SHADOW_LAYER } from '../reel/crowd';
 import { Dust } from './dust';
 import { buildFort, fortOfPlan, type FortView } from './fort';
 import { buildField, fogFor, type FieldView, type LandInput } from '../reel/land';
@@ -69,10 +69,12 @@ export class TwStage {
     }
     this.field = buildField(landOf(plan), spec);
     this.scene.add(this.field.group);
-    this.crowd = new Crowd(plan, spec);
-    this.scene.add(this.crowd.group);
     const them = plan.us === 'attacker' ? 'defender' : 'attacker';
-    this.banners = new Banners(plan, { ours: plan.coats[plan.us], theirs: plan.coats[them] });
+    const coats = { ours: plan.coats[plan.us], theirs: plan.coats[them] };
+    // Гербы сторон — на знамёнах и на щитах и сюрко бойцов (docs/polish.md, П-5).
+    this.crowd = new Crowd(plan, spec, coats);
+    this.scene.add(this.crowd.group);
+    this.banners = new Banners(plan, coats);
     this.scene.add(this.banners.group);
     this.arrows = new Arrows(plan, spec.arrows);
     this.scene.add(this.arrows.mesh);
@@ -94,8 +96,9 @@ export class TwStage {
    */
   apply(t: number, cam: TacticalCamera, clip = t): void {
     poseFigures(this.plan, t, this.frame);
-    // Дальние бойцы — в дальнем облике (`crowd.LOD_PX`): порог по полю зрения камеры, оно растёт с узостью экрана.
-    this.crowd.update(this.frame, cam.camera.position, lodDistance(cam.camera.fov));
+    // Облик бойца — по дальности (`crowd.LOD_PX`, `NEAR_PX`): порог по полю зрения камеры, оно растёт с узостью экрана;
+    // вне кадра бойцы не пишутся.
+    this.crowd.update(this.frame, cam.camera);
     this.banners.update(this.frame, t, cam.camera, cam.now.dist);
     this.arrows.update(t);
     this.dust.update(t, cam.camera);

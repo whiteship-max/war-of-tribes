@@ -903,7 +903,8 @@ function relief(c: Ctx, t0: number, len: number, f: ShowFight): void {
     smokeAt(c, -6, camp.z0 + 2, t0 + 4.2, 1.4, t0 + len + LAPSE * 4);
   } else {
     for (const i of field.slice(0, Math.ceil(field.length * 0.35))) die(c, i, t0 + 4 + r(c, i, 11, 30) * 1.4, t0 + len + LAPSE);
-    for (const i of field) if (c.alive[i]) c.tr.go(i, t0 + 5.6, t0 + len, c.tr.last(i).x, -112, 'run', 'run');
+    // Выручка разбита: бегут прочь с оглядкой (клип бегства, docs/polish.md, П-5) — путь тот же.
+    for (const i of field) if (c.alive[i]) c.tr.go(i, t0 + 5.6, t0 + len, c.tr.last(i).x, -112, 'flee', 'flee');
     for (const i of field) c.tr.hide(i, t0 + len + 0.1);
   }
   for (const i of back) if (c.alive[i]) goHome(c, i, t0 + 6, t0 + len + 0.6);
@@ -923,7 +924,7 @@ function assault(c: Ctx, t0: number, len: number, won: boolean, use: ReadonlySet
     const def = c.groups.wall.filter((i) => c.alive[i]);
     if (won) for (const i of def.slice(0, Math.ceil(def.length * 0.6))) die(c, i, t0 + 3.6 + r(c, i, 12, 31) * 2.4);
     else for (const i of attackers.slice(0, Math.ceil(attackers.length * 0.3))) die(c, i, t0 + 3.6 + r(c, i, 13, 32) * 2, t0 + len + LAPSE);
-    if (!won) for (const i of attackers) if (c.alive[i]) goHome(c, i, t0 + 6, t0 + len + 0.6, 'run');
+    if (!won) for (const i of attackers) if (c.alive[i]) goHome(c, i, t0 + 6, t0 + len + 0.6, 'flee');
     key(c, t0, box(-16, 16, -12, lair.z1), 0.25, 0.42);
     key(c, t0 + 3, box(-14, 14, lair.z0 - 8, lair.z0 + 6), 0.5, 0.32);
     return;
@@ -994,7 +995,7 @@ function assault(c: Ctx, t0: number, len: number, won: boolean, use: ReadonlySet
   } else {
     // Отбили: со стены и с лестниц падают нападающие, остальные откатываются.
     for (const i of attackers.slice(0, Math.ceil(attackers.length * 0.3))) die(c, i, climbAt - 0.6 + r(c, i, 15, 34) * 2.4, t0 + len + LAPSE);
-    for (const i of attackers) if (c.alive[i]) goHome(c, i, t0 + len - 2.2, t0 + len + 0.8, 'run');
+    for (const i of attackers) if (c.alive[i]) goHome(c, i, t0 + len - 2.2, t0 + len + 0.8, 'flee');
   }
   key(c, t0, box(-16, 16, -22, 2), 0.08, 0.36);
   if (use.has('gate')) key(c, t0 + 2.8, box(-8, 8, -11, 3), 0.55, 0.3);
@@ -1099,7 +1100,7 @@ function broken(c: Ctx, t0: number, len: number): void {
   for (const [j, i] of c.groups.camp.entries()) {
     if (!c.alive[i]) continue;
     const at = t0 + 0.4 + (j % 10) * 0.08;
-    c.tr.go(i, at, at + 4.2, c.tr.last(i).x * 1.3 + (r(c, j, 16, 35) - 0.5) * 8, -114, 'run', 'run');
+    c.tr.go(i, at, at + 4.2, c.tr.last(i).x * 1.3 + (r(c, j, 16, 35) - 0.5) * 8, -114, 'flee', 'flee');
     c.tr.hide(i, at + 4.2);
     c.alive[i] = 0;
   }

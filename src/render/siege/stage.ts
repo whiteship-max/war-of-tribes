@@ -8,7 +8,7 @@ import { log } from '../city/kit';
 import { fitShadow, type LightRig } from '../lighting';
 import { buildClouds, buildLiveSky, cloudShade, relight, setupFieldScene } from '../reel/light';
 import type { TwSpec } from '../reel/spec';
-import { Crowd, SHADOW_LAYER, lodDistance } from '../reel/crowd';
+import { Crowd, SHADOW_LAYER } from '../reel/crowd';
 import { Banners } from '../reel/banners';
 import { buildField, fogFor, type FieldView } from '../reel/land';
 import { overview, type CamBounds, type TacticalCamera } from '../reel/camera';
@@ -155,7 +155,7 @@ export class SiegeStage {
       this.lairFort = buildFort({ site: { ...site, kind: 'lair', wall: null, ladders: [], ram: null, tower: null, houses: [], camp: lair }, field: lay.field, seed: reel.show.seed + 3, breach: null, quality: reel.quality, motion: still });
       this.scene.add(this.lairFort.group);
     }
-    this.crowd = new Crowd(reel.troupe, spec);
+    this.crowd = new Crowd(reel.troupe, spec, reel.show.coats ?? { ours: armsCode(DEFAULT_ARMS), theirs: armsCode(BANDIT_ARMS) });
     this.scene.add(this.crowd.group);
     // Гербы (П-2): по донесению (`SiegeShow.coats`) — наш герб державы, у чужих — сосед, логово или разбойники; без
     // донесения (стенд) — прежняя башня против разбойников. Прежде чужой герб решала стена, и логово под нашим городом
@@ -251,7 +251,7 @@ export class SiegeStage {
     const reel = this.reel;
     this.relightAt(t);
     poseSiege(reel, t, this.frame, this.pose);
-    this.crowd.update(this.frame, cam.camera.position, lodDistance(cam.camera.fov));
+    this.crowd.update(this.frame, cam.camera);
     this.banners.update(this.frame, t, cam.camera, cam.now.dist);
     this.field.update(t);
     this.fort.update(t);

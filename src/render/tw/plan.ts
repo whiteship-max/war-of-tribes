@@ -2353,9 +2353,11 @@ export function figurePose(plan: TwPlan, i: number, t: number, pose: UnitPose | 
   if (clip === 'guard' && q.fighting && rank < 2) clip = 'strike';
   const site = plan.site;
   if (site?.kind === 'wall' && clip === 'strike') {
-    // Штурм: под стеной рубить некого — держат щиты; на стене рубят там, где к ней встала лестница.
+    // Штурм: под стеной рубить некого — держат щиты над головой (камни и стрелы со стены, клип щита); на стене рубят там,
+    // где к ней встала лестница.
     const w = site.wall!;
-    if (u.side !== w.side || !onWalk(w, out.x, out.z)) clip = 'guard';
+    if (u.side !== w.side) clip = 'block';
+    else if (!onWalk(w, out.x, out.z)) clip = 'guard';
     else if (!site.ladders.some((l) => Math.abs(l.x - out.x) < 2.2 && t > l.raiseAt)) clip = 'guard';
   }
   out.clip = clip;
@@ -2441,6 +2443,7 @@ const scratch = figureState();
  */
 export function poseFigures(plan: TwPlan, t: number, out: FigureFrame): void {
   const poses = plan.units.map((u) => unitPose(plan, u, t));
+  const under = arrowsOver(plan, t);
   for (const u of plan.units) {
     const p = poses[u.id];
     for (let i = u.first; i < u.first + u.figures; i++) {
@@ -2467,6 +2470,7 @@ export function poseFigures(plan: TwPlan, t: number, out: FigureFrame): void {
       out.y[i] = Number.isNaN(q.y) ? standY(plan.field, plan.site, q.x, q.z) : q.y;
       out.yaw[i] = q.yaw;
       out.shown[i] = q.shown ? 1 : 0;
+      q.clip = styled(plan, u, t, q.clip, under);
       // Развязка: стоящие победителя ликуют — каждый в свой миг, а не хором (`TwPlan.cheer`); стая не ликует.
       const ch = plan.cheer;
       if (ch && u.side === ch.side && u.form !== 'pack' && (q.clip === 'idle' || q.clip === 'guard') && t >= ch.at + hash(plan.cast.seed, i, 27) * 0.9) {
@@ -2478,6 +2482,43 @@ export function poseFigures(plan: TwPlan, t: number, out: FigureFrame): void {
     }
   }
 }
+
+/**
+ * Отряды под стрелами на секунде `t`: цели залпов, чьи стрелы в воздухе (`targetOf` — та же цель, что у стрел в кадре,
+ * `volleysAt`).
+ */
+function arrowsOver(plan: TwPlan, t: number): Set<number> {
+  const out = new Set<number>();
+  for (const u of plan.units) {
+    if (u.form !== 'bow') continue;
+    for (const v of u.volleys) {
+      if (t < v || t > v + ARROW_FLIGHT) continue;
+      const target = targetOf(plan, u, v);
+      if (target) out.add(target.id);
+    }
+  }
+  return out;
+}
+
+/**
+ * Облик хода (docs/polish.md, П-5): тот же ход фигуры — место, разворот, время клипа — другим клипом. Сломанный отряд
+ * бежит клипом бегства (оглядка, руки болтаются); разбег первой линии на сшибку и конница в погоне — натиском (копьё
+ * ежом, у конных — наперевес); отряд под стрелами в упоре и в стойке — щитом. Кто где и когда — по-прежнему план.
+ */
+function styled(plan: TwPlan, u: TwUnit, t: number, clip: ClipId, under: Set<number>): ClipId {
+  const fled = u.fleeAt !== null && t > u.fleeAt;
+  if (fled) return clip === 'run' || clip === 'march' ? 'flee' : clip;
+  if (clip === 'run') {
+    if ((u.row === 'front' || u.row === 'general') && t <= plan.clashAt + 0.6 && t >= plan.clashAt - CHARGE_LEAD) return 'charge';
+    if (u.chase && mounted(u) && t < u.chase.from + CHASE_SECONDS) return 'charge';
+    return clip;
+  }
+  if ((clip === 'guard' || clip === 'idle') && under.has(u.id) && u.form !== 'pack') return 'block';
+  return clip;
+}
+
+/** Натиск — последние секунды разбега перед сшибкой (`styled`): раньше бегут, а не бросаются. */
+const CHARGE_LEAD = 2.4;
 
 /** Время клипа стрельбы: стрела срывается в мгновение залпа отряда (`SHOOT_RELEASE` цикла), а не своё. */
 function shootTime(plan: TwPlan, u: TwUnit, t: number, i: number): number {
