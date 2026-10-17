@@ -2,7 +2,7 @@
 // брусчатка, земля, пашня и затенение у подножий (docs/city.md, раздел 4). Чистый модуль без three:
 // сетка и карта — массивы, сцена заворачивает их в буферы и текстуру.
 import { clamp01, fbm, sstep, vnoise } from './noise';
-import { distSeg, heightAt, insidePoly, RACE, RACE_HALF, riverX, RIVER_HALF, smoothPath, type CityPlan, type P, type YardKind } from './layout';
+import { CLOSE, distSeg, heightAt, insidePoly, RACE, RACE_HALF, riverX, RIVER_HALF, smoothPath, type CityPlan, type P, type YardKind } from './layout';
 
 /** Где лежит карта покрытий: квадрат в метрах. */
 export const MAP_AT = { x0: -256, z0: -300, size: 512 } as const;
@@ -84,6 +84,17 @@ export function groundMap(plan: CityPlan, size: number): Uint8Array {
     // Огороды во дворах: грядки (фактура пашни) пятнами за домами.
     const g = sstep(0.56, 0.64, fbm(x / 26 + 5, z / 26 + 5, 1e6, 3, 25)) * 0.9;
     if (g > f[i]) f[i] = g;
+  });
+  // Двор храма — ухоженная трава кладбища и сада, без огородов и вытоптанных пятен; у коновязи и поилки за оградой —
+  // земля, вытоптанная копытами (docs/city_v3.md).
+  each(CLOSE.x0, CLOSE.z1, CLOSE.x1, CLOSE.z0, (x, z, i) => {
+    d[i] = Math.min(d[i], 0.1);
+    f[i] = 0;
+  });
+  each(CLOSE.x1 + 0.5, CLOSE.z0 - 26, CLOSE.x1 + 8, CLOSE.z0 - 1, (x, z, i) => {
+    const edge = Math.min(x - CLOSE.x1 - 0.5, CLOSE.x1 + 8 - x, z - (CLOSE.z0 - 26), CLOSE.z0 - 1 - z);
+    const w = sstep(0, 2.5, edge + (vnoise(x / 3, z / 3, 1e6, 37) - 0.5) * 1.6) * 0.8;
+    if (w > d[i]) d[i] = w;
   });
   // Двор замка — утоптанная земля.
   const cw = plan.castleWall;

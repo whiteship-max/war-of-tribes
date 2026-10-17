@@ -82,7 +82,7 @@ export function fixture(b: Builder, l: Lamp): void {
 }
 
 /** Фонарь на столбе у края улицы: столб, рука к середине улицы, клетка. `nx`, `nz` — к середине улицы. */
-function lanternPost(b: Builder, px: number, pz: number, nx: number, nz: number): Lamp {
+export function lanternPost(b: Builder, px: number, pz: number, nx: number, nz: number): Lamp {
   const g = heightAt(px, pz);
   const top = g + 3.5;
   log(b, [px, g - 0.3, pz], [px, top, pz], 0.075, STAFF(), 6, true);
