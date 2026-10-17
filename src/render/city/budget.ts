@@ -17,7 +17,7 @@ import { LAYERS } from './tex';
 import { CITY_SPEC, GATE_GUARDS, LIFE_CAP, LIFE_TRIS, SHORE_CAP, figureTris, peopleTris, shoreTris } from './spec';
 import { shoreItems, waterTriangles } from './banks';
 import { fixture, forge, mounted, standing, streetLamps } from './lamps';
-import type { Lamp, LampKind } from '../glow/lamps';
+import { pooled, type Lamp, type LampKind } from '../glow/lamps';
 
 /** Границы владельца по уровням (задание ночи 1): вызовы, треугольники, МБ текстур, МБ докачки. */
 export const CITY_BUDGET: Record<Quality, { calls: number; triangles: number; textureMb: number; downloadMb: number }> = {
@@ -202,13 +202,14 @@ const FAR: readonly Species[] = ['broadFar', 'spruceFar'];
 
 export function cityCounts(q: Quality, plan: CityPlan = cityPlan()): CityCounts {
   const spec = CITY_SPEC[q];
-  const { b, wheel } = buildStatic(plan, q);
+  const { b, wheel, lamps } = buildStatic(plan, q);
   const ground = spec.groundCells * spec.groundCells * 2;
   const trees = placeTrees(plan, spec.treeNear, spec.nearStep, spec.farStep, spec.treeReach);
   let treeTris = 0;
   let treeShadow = 0;
-  // Здания, их тень, земля, огоньки ночью; вода; люди, стража, скот, дым, флаги, птицы, факелы стражи (тени у них нет).
-  let calls = 1 + 1 + 1 + 1 + 1 + 7;
+  // Здания, их тень, земля, огоньки и пятна огней ночью (`glow/rig.ts`); вода; люди, стража, скот, дым, флаги, птицы,
+  // факелы стражи (тени у них нет).
+  let calls = 1 + 1 + 1 + 2 + 1 + 7;
   // Берег: камыш и камни — по вызову, тени не бросают.
   const sc = SHORE_CAP[q];
   const items = shoreItems(plan, q);
@@ -253,7 +254,7 @@ export function cityCounts(q: Quality, plan: CityPlan = cityPlan()): CityCounts 
   const shadowBytes = spec.shadowMap * spec.shadowMap * 8;
   return {
     calls,
-    triangles: (b.triangleCount + (wheel?.b.triangleCount ?? 0)) * 2 + ground + treeTris + treeShadow + life + shore,
+    triangles: (b.triangleCount + (wheel?.b.triangleCount ?? 0)) * 2 + ground + treeTris + treeShadow + life + shore + lamps.filter(pooled).length * 2,
     buildings: b.triangleCount,
     ground,
     trees: treeTris,

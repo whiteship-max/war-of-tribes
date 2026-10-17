@@ -4,7 +4,7 @@
 // Цена: огоньки — один вызов точками на всё место, пятна — один вызов экземплярами; настоящий свет — цикл до
 // `LAMP_SPEC.real` огней в шейдерах, что его берут (здания, земля, люди ролика). Кадр пишет только веса и цвета.
 import * as THREE from 'three';
-import { LAMP, LampSlots, MAX_LAMPS, lampFlicker, lampLife, lampLinear, lampOn, type Lamp } from './lamps';
+import { LAMP, LampSlots, MAX_LAMPS, lampFlicker, lampLife, lampLinear, lampOn, pooled, type Lamp } from './lamps';
 import { LAMP_GLSL } from './glsl';
 
 /** Униформы огней: одни на все материалы сцены. Места — в мире сцены. */
@@ -49,8 +49,6 @@ export function lampsToWorld(lamps: readonly Lamp[], m: THREE.Matrix4 | null, s 
 /** `THREE.DynamicDrawUsage` числом: см. смешивание пятен ниже. */
 const DYNAMIC = 35048;
 
-/** Пятно на земле — у огней ниже этой доли досягаемости над землёй: высокий факел башни земли не достаёт. */
-const POOL_LIFT = 0.6;
 /** Сила пятна: оно множит землю, как свет (`src·dst + dst`), и стоит вместо настоящего света низкого огня. */
 const POOL_POWER = 1.35;
 
@@ -177,7 +175,7 @@ export class LampRig {
     this.group.add(this.flames);
 
     lamps.forEach((l, i) => {
-      if (l.lift < LAMP[l.kind].reach * POOL_LIFT) this.pooled.push(i);
+      if (pooled(l)) this.pooled.push(i);
     });
     if (this.pooled.length > 0) {
       const pg = new THREE.PlaneGeometry(2, 2).rotateX(-Math.PI / 2);

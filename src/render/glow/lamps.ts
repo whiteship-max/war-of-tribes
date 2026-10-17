@@ -165,6 +165,12 @@ export class LampSlots {
   }
 }
 
+/** Пятно на земле — у огней ниже этой доли досягаемости над землёй: высокий факел башни земли не достаёт. */
+export const POOL_LIFT = 0.6;
+
+/** Ложится ли под огнём пятно (дешёвый свет на земле, пока огонь не настоящий). */
+export const pooled = (l: Lamp): boolean => l.lift < LAMP[l.kind].reach * POOL_LIFT;
+
 /** Цвет огня в линейном виде (0..1 на канал): униформам и огонькам. */
 export function lampLinear(kind: LampKind): [number, number, number] {
   const c = LAMP[kind].color;

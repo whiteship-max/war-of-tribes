@@ -55,19 +55,22 @@ export function drawSparks(ctx: CanvasRenderingContext2D, scale: number, places:
   ctx.globalCompositeOperation = 'lighter';
   const dot = spark(dpr);
   for (const it of places) {
-    // Свет места — огоньки окон и факелов кольцом вокруг значка (под ним они спрятаны), у логова — костёр у края; пятна
-    // на всё место нет (docs/polish.md, П-9). Чем больше место, тем шире кольцо.
+    // Свет места — огоньки окон и факелов кольцом вокруг значка, снаружи его тела (корона и отметки уровня — не огни), у
+    // логова — костёр у края; пятна на всё место нет (docs/polish.md, П-9). Чем больше место, тем шире кольцо.
     const n = sparksOf(it);
     const id = String(it.s.id);
     const ring = Math.max(5, scale * 0.06 * n);
+    const b = it.body;
+    const cx = (b.x0 + b.x1) / 2;
+    const cy = (b.y0 + b.y1) / 2;
     for (let j = 0; j < n; j++) {
       const on = smooth((amount - sparkThreshold(id, j)) / 0.14);
       if (on <= 0) continue;
       const a = spark01(id, j, 1) * Math.PI * 2;
-      const d = it.d * 0.5 + 1 + spark01(id, j, 2) * ring;
+      const d = 4 + spark01(id, j, 2) * ring;
       const size = (it.look.kind === 'lair' ? 13 : 7) + 4 * spark01(id, j, 4);
       ctx.globalAlpha = on;
-      ctx.drawImage(dot, it.sx + Math.cos(a) * d - size / 2, it.sy + Math.sin(a) * d * 0.75 - size / 2, size, size);
+      ctx.drawImage(dot, cx + Math.cos(a) * ((b.x1 - b.x0) / 2 + d) - size / 2, cy + Math.sin(a) * ((b.y1 - b.y0) / 2 + d * 0.75) - size / 2, size, size);
     }
   }
   ctx.restore();
