@@ -36,11 +36,13 @@ function strings(code: string): string {
 
 describe('свой шрифт', () => {
   it('буквы и знаки текстов игры есть в основном шрифте — подмены нет', () => {
-    // Атлас и списки — данные, а не текст; музыка называет фразы для себя (A′, A″), игроку они не пишутся.
-    const skip = [join('world', 'atlas', 'data.ts'), join('ui', 'icons', 'emoji12.ts'), join('ui', 'fonts', 'glyphs.ts'), join('src', 'sound')];
+    // Атлас и списки — данные, а не текст; музыка называет фразы для себя (A′, A″), игроку они не пишутся. Пути — через
+    // `/`: на Windows `join` даёт `\`, и пропуск папки `${s}/` не срабатывал.
+    const skip = ['world/atlas/data.ts', 'ui/icons/emoji12.ts', 'ui/fonts/glyphs.ts', 'src/sound'];
     const missing = new Map<string, string>();
     for (const f of files(SRC)) {
-      if (skip.some((s) => f.endsWith(s) || f.includes(`${s}/`))) continue;
+      const path = f.replace(/\\/g, '/');
+      if (skip.some((s) => path.endsWith(s) || path.includes(`${s}/`))) continue;
       for (const ch of strings(readFileSync(f, 'utf8'))) {
         const cp = ch.codePointAt(0)!;
         if (cp < 0x80 || has(SANS, cp) || SYMBOL(cp)) continue;
