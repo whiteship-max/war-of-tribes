@@ -37,6 +37,9 @@ export interface TownBackdrop {
   dispose(): void;
 }
 
+/** На столько (м) земля города в ролике ниже рельефа: плита ролика — сверху. */
+const GROUND_SINK = 0.18;
+
 /** Мир города под ролик — в потоке; нет потока — здесь же. */
 function townWorldOf(input: TownInput): Promise<TownWorld> {
   try {
@@ -149,8 +152,10 @@ export async function townBackdrop(frame: TownFrame, cut: TownCut, quality: Qual
   const gMesh = new THREE.Mesh(ground, gMat);
   gMesh.name = 'town-ground';
   gMesh.receiveShadow = true;
-  // Земля города — под плитой ролика: рисуется после неё и отсекается глубиной.
+  // Земля города — под плитой ролика: рисуется после неё и отсекается глубиной. Сетка у неё реже плиты, и между узлами
+  // она выходит выше рельефа — опущена на ладонь, чтобы плита (по рельефу точно) лежала сверху без полос.
   gMesh.renderOrder = 1;
+  gMesh.position.y = -GROUND_SINK;
   inner.add(gMesh);
   triangles += (ground.index ? ground.index.count : 0) / 3;
 

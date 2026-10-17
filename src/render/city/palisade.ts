@@ -18,7 +18,8 @@ const STAKE_R = 0.2;
 /** Ближе этого к середине ролика — бревно к бревну; дальше — щит из досок с зубцами по верху: издали его не отличить. */
 const NEAR_R = 110;
 
-const stakeT = (k: number): V3 => tint(k % 3 === 0 ? CITY.oakLight : CITY.timberGrey, 1.15 + ((k * 37) % 9) * 0.04);
+// Брёвна серые от погоды, через одно — свежее (как у частокола ролика): слой «дерево» тёмен, тон — светлее досок хода.
+const stakeT = (k: number): V3 => tint(k % 3 === 0 ? CITY.oakLight : CITY.timberGrey, 2.6 + ((k * 37) % 9) * 0.07);
 
 /** Звено частокола: брёвна или щит, ход изнутри. */
 function palisadePiece(b: Builder, c: WallPiece, near: boolean, detail: Detail, k0: number): void {
@@ -61,7 +62,7 @@ function palisadePiece(b: Builder, c: WallPiece, near: boolean, detail: Detail, 
   } else {
     // Щит: наружная и внутренняя грани брёвнами слоя «дерево», по верху — зубцы острий.
     const [tw, th] = TILE_M.wood;
-    const T = tint(CITY.timberGrey, 1.2);
+    const T = tint(CITY.timberGrey, 2.6);
     const t0 = w0 + STAKE_OVER;
     const t1 = w1 + STAKE_OVER;
     for (const side of [0, 1]) {
@@ -130,7 +131,7 @@ export function timberTower(b: Builder, t: Tower, detail: Detail): V3[] {
   const lights: V3[] = [];
   const one = (x: number, z: number, size: number, h: number): void => {
     const half = size / 2;
-    const T = tint(CITY.timberGrey, 1.3);
+    const T = tint(CITY.timberGrey, 2.3);
     const rx = fz;
     const rz = -fx;
     for (const [a, c] of [[-1, -1], [1, -1], [1, 1], [-1, 1]] as const) {
@@ -138,7 +139,7 @@ export function timberTower(b: Builder, t: Tower, detail: Detail): V3[] {
       const pz = z + (fz * a + rz * c) * half;
       log(b, [px, foot, pz], [px, ground + h, pz], 0.3, T, detail > 0 ? 6 : 4, false);
     }
-    box(b, x, z, fx, fz, size, size, walk + 0.4, ground + h, 'wood', tint(CITY.oakLight, 1.2), 'wood');
+    box(b, x, z, fx, fz, size, size, walk + 0.4, ground + h, 'wood', tint(CITY.oakLight, 2.2), 'wood');
     const o = half + 0.55;
     const corners: [number, number][] = [
       [x + (fx + rx) * o, z + (fz + rz) * o],
@@ -146,7 +147,7 @@ export function timberTower(b: Builder, t: Tower, detail: Detail): V3[] {
       [x + (-fx - rx) * o, z + (-fz - rz) * o],
       [x + (fx - rx) * o, z + (fz - rz) * o],
     ];
-    pyramid(b, corners, ground + h, [x, ground + h + size * 0.75, z], 'wood', tint(CITY.oakLight, 0.95), 0.9);
+    pyramid(b, corners, ground + h, [x, ground + h + size * 0.75, z], 'wood', tint(CITY.oakLight, 1.8), 0.9);
     if (detail > 0) {
       // Площадка под шатром: выступ настила за обшивку.
       flat(b, corners, walk + 0.4, 'wood', tint(CITY.timberGrey, 0.9), false, 0.6);

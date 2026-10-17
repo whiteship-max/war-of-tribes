@@ -201,7 +201,7 @@ function stake(b: Builder, x: number, z: number, y0: number, y1: number, r: numb
  * Пролёт частокола (ролик осады, стена до третьего уровня): брёвна стоймя по наружной грани выше хода, настил хода на
  * столбах изнутри. Та же ширина и тот же ход, что у каменной: защитники стоят там же (`site.onWalk`).
  */
-function palisadeRun(b: Builder, w: TwWall, x0: number, x1: number, detail: Detail, foot = 0.6): void {
+function palisadeRun(b: Builder, w: TwWall, x0: number, x1: number, detail: Detail, foot = 0.6, light = 1): void {
   if (x1 - x0 < 0.2) return;
   const s = w.inward;
   const zo = m(w.z);
@@ -212,7 +212,7 @@ function palisadeRun(b: Builder, w: TwWall, x0: number, x1: number, detail: Deta
   const zFace = zo + s * r;
   for (let x = x0 + step / 2, k = 0; x < x1; x += step, k++) {
     // Брёвна серые от погоды, через одно — свежее: дуб на земле в тени сливался с травой.
-    const T = tint(k % 3 === 0 ? CITY.oakLight : CITY.timberGrey, 1.45 + ((k * 37) % 9) * 0.05);
+    const T = tint(k % 3 === 0 ? CITY.oakLight : CITY.timberGrey, (1.45 + ((k * 37) % 9) * 0.05) * light);
     stake(b, x, zFace, base - foot, top + 1.25 + ((k * 13) % 5) * 0.08, r, T, detail > 0 || k % 2 === 0);
   }
   // Настил хода изнутри и столбы под ним.
@@ -250,16 +250,16 @@ function palisadeBreach(b: Builder, w: TwWall, x0: number, x1: number, cols: { x
 }
 
 /** Башня частокола: сруб на четырёх столбах, площадка, шатёр из досок. Метры набора. */
-function woodTower(b: Builder, w: TwWall, x: number, size: number, h: number, deep = 0.4): void {
+function woodTower(b: Builder, w: TwWall, x: number, size: number, h: number, deep = 0.4, light = 1): void {
   const s = w.inward;
   const z = m(w.z) + s * (m(w.thick) / 2);
   const base = m(w.base);
   const half = size / 2;
-  const T = tint(CITY.timberGrey, 1.35);
+  const T = tint(CITY.timberGrey, 1.35 * light);
   for (const [dx, dz] of [[-half, -half], [half, -half], [half, half], [-half, half]] as const) log(b, [x + dx, base - deep, z + dz], [x + dx, base + h, z + dz], 0.3, T, 6, false);
   // Обшивка — верхний ярус, выше хода стены.
   const y0 = base + m(w.top) + 0.4;
-  box(b, x, z, 0, -s, size, size, y0, base + h, 'wood', tint(CITY.oakLight, 1.35), 'wood');
+  box(b, x, z, 0, -s, size, size, y0, base + h, 'wood', tint(CITY.oakLight, 1.35 * light), 'wood');
   pyramid(
     b,
     [
@@ -277,17 +277,17 @@ function woodTower(b: Builder, w: TwWall, x: number, size: number, h: number, de
 }
 
 /** Ворота частокола: две башни-сруба по бокам проезда, перекладина и шатёр над ним. */
-function woodGate(b: Builder, w: TwWall): void {
+function woodGate(b: Builder, w: TwWall, deep = 0.4, light = 1): void {
   const s = w.inward;
   const half = m(w.gateHalf);
   const cx = m(w.gateX);
   const size = 3.4;
   const h = m(GATEHOUSE_H) * 0.82;
-  for (const side of [1, -1]) woodTower(b, w, cx + side * (half + size / 2), size, h);
+  for (const side of [1, -1]) woodTower(b, w, cx + side * (half + size / 2), size, h, deep, light);
   const z = m(w.z) + s * (m(w.thick) / 2);
   const base = m(w.base);
-  box(b, cx, z, 0, -s, half * 2, m(w.thick), base + m(GATE_ARCH), base + m(GATE_ARCH) + 0.9, 'wood', tint(CITY.oakLight, 1.3), 'wood');
-  box(b, cx, z, 0, -s, half * 2 + 1, m(w.thick) + 0.6, base + m(w.top) + 0.4, base + h - 0.6, 'wood', tint(CITY.oakLight, 1.2), 'wood');
+  box(b, cx, z, 0, -s, half * 2, m(w.thick), base + m(GATE_ARCH), base + m(GATE_ARCH) + 0.9, 'wood', tint(CITY.oakLight, 1.3 * light), 'wood');
+  box(b, cx, z, 0, -s, half * 2 + 1, m(w.thick) + 0.6, base + m(w.top) + 0.4, base + h - 0.6, 'wood', tint(CITY.oakLight, 1.2 * light), 'wood');
 }
 
 /** Надвратная башня с проездом: два устоя, свод над проездом, верх с поясом и шатром (как надвратная набора). */
@@ -456,7 +456,8 @@ export function buildFort(input: FortInput): FortView {
     const cols = br ? breachColumns(br, input.seed) : [];
     const nearTower = (x: number): boolean => stops.some(([a, c]) => x > a - 0.9 && x < c + 0.9) || (x > ba - 0.4 && x < bb + 0.4);
     // Частокол из брёвен (ролик осады, стена до третьего уровня) — свои пролёты, пролом и башни, та же раскладка.
-    const solid = (x0: number, x1: number): void => (w.wood ? palisadeRun(b, w, x0, x1, detail, town ? 2.2 : 0.6) : wallRun(b, w, x0, x1, nearTower, foot));
+    // С городом брёвна — слоем «дерево» окна города (он темнее среднего тона): тон светлее, как у частокола по кругу.
+    const solid = (x0: number, x1: number): void => (w.wood ? palisadeRun(b, w, x0, x1, detail, town ? 2.2 : 0.6, town ? 1.8 : 1) : wallRun(b, w, x0, x1, nearTower, foot));
     const run = (x0: number, x1: number): void => {
       if (!br || x1 <= ba || x0 >= bb) return solid(x0, x1);
       if (x0 < ba) solid(x0, ba);
@@ -483,8 +484,8 @@ export function buildFort(input: FortInput): FortView {
     const corner = (t: { x: number }): boolean => !!town && (t.x === Math.min(...xs) || t.x === Math.max(...xs));
     const tall = (t: { x: number; h: number }): number => (corner(t) ? Math.max(m(t.h), w.wood ? 10.6 : 14) : m(t.h));
     if (w.wood) {
-      woodGate(b, w);
-      for (const t of w.towers) woodTower(b, w, m(t.x), m(t.size), tall(t), town ? 2.2 : 0.4);
+      woodGate(b, w, town ? 2.2 : 0.4, town ? 1.6 : 1);
+      for (const t of w.towers) woodTower(b, w, m(t.x), m(t.size), tall(t), town ? 2.2 : 0.4, town ? 1.6 : 1);
     } else gatehouse(b, w, detail);
     for (const t of w.wood ? [] : w.towers) {
       tower(

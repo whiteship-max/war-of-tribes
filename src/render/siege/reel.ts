@@ -638,12 +638,14 @@ export function breachesAt(reel: SiegeReel, t: number): number {
 
 const box = (x0: number, x1: number, z0: number, z1: number): TwCamKey['box'] => ({ minX: x0, maxX: x1, minZ: z0, maxZ: z1 });
 
-function key(c: Ctx, at: number, b: TwCamKey['box'], yaw: number, pitch: number): void {
+function key(c: Ctx, at: number, b: TwCamKey['box'], yaw: number, pitch: number, out = false): void {
   // Ключи — не ближе 1.3 с друг к другу (переход не рвётся на полпути, как у пролога).
   const prev = c.cam[c.cam.length - 1];
   if (prev && at < prev.at + 1.3) at = prev.at + 1.3;
   const w = c.lay.wall;
-  if (c.show.us === 'def' && w && b.minZ < -2) {
+  // Что в кадре — в поле (лагерь, машины, подход) или кадр общий (`out`): защитник смотрит туда со своей стены. Кадр у стены
+  // и в городе (пролом, ворота, улица, огонь) — из города, вписанный в экран.
+  if (c.show.us === 'def' && w && (out || (b.minZ + b.maxZ) / 2 < -8)) {
     // Защитник смотрит на поле со своей стены: камера — над ходом за спинами своих, цель — середина кадра эпизода.
     const yawD = roleYaw('def', yaw) - Math.PI;
     const tilt = Math.max(-0.35, Math.min(0.35, yawD));
@@ -706,7 +708,7 @@ function pitch(c: Ctx, t0: number, len: number): void {
     c.tr.go(i, t0 + 0.4 + j * 0.3, t0 + 2.6 + j * 0.3, x, STAKES_Z - 1.4, 'march', 'strike', FACE_IN);
     goHome(c, i, t0 + 3.8 + j * 0.2, t0 + len - 0.3);
   });
-  key(c, t0, box(-14, 14, -10, 6), 0.24, 0.32);
+  key(c, t0, box(-14, 14, -10, 6), 0.24, 0.32, true);
   key(c, t0 + 3.4, box(-14, 14, -42, -24), -0.45, 0.32);
 }
 
