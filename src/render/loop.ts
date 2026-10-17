@@ -36,6 +36,8 @@
  * Поэтому при возврате видимости цепочка заводится заново, а не «продолжается».
  */
 
+import type { PerfPlace } from '../../netlify/lib/contract';
+
 // ---------- Бюджет железа ----------
 
 /**
@@ -186,6 +188,25 @@ export function watchAway(cb: (away: boolean) => void): () => void {
   };
 }
 
+// ---------- Замер кадров (docs/telemetry.md) ----------
+
+/**
+ * Места, где игра рисует кадр за кадром и меряет плавность для сервера: город, карта, ролики боя и осады, предыстория и
+ * каждый промысел. Цепочка без места (проводка, ежедневки, стенды) не меряется. Список — договор (`contract.PERF_PLACES`):
+ * сервер берёт только эти имена, и второго списка нет.
+ */
+export type FramePlace = PerfPlace;
+
+/**
+ * Слушатель промежутков между кадрами — один на игру: его ставит сборщик замеров (`perf/telemetry`), и выключенный
+ * игроком замер снимает его, так что выключенный не стоит ни одного вызова.
+ */
+let frameGap: ((place: FramePlace, ms: number) => void) | null = null;
+
+export function onFrameGap(fn: ((place: FramePlace, ms: number) => void) | null): void {
+  frameGap = fn;
+}
+
 // ---------- Цепочка кадров ----------
 
 type Raf = (cb: (now: number) => void) => number;
@@ -252,6 +273,13 @@ export class FrameLoop<B extends string> {
   private armed = false;
   /** Будильник сна (`rest`): цепочка жива, но заявки кадра не подано до срока или до `wake`. */
   private nap: number | null = null;
+  /**
+   * Где цепочка рисует — для замера плавности (`onFrameGap`); нет — не меряется. Меряется промежуток между двумя кадрами
+   * одного непрерывного хода: новая цепочка, сон (`rest`) и остановка начинают ход заново, и пауза кадром не считается.
+   */
+  place: FramePlace | null = null;
+  /** Отметка прошлого нарисованного кадра этого хода; 0 — хода нет. */
+  private drewAt = 0;
 
   /**
    * @param tick    один кадр;
@@ -303,6 +331,7 @@ export class FrameLoop<B extends string> {
     this.unnap();
     if (this.id) this.clock.caf(this.id);
     this.id = 0;
+    this.drewAt = 0;
     const wait = this.clock.wait ?? ((cb: () => void, t: number): number => setTimeout(cb, t) as unknown as number);
     this.nap = wait(() => {
       this.nap = null;
@@ -377,6 +406,7 @@ export class FrameLoop<B extends string> {
     if (this.id) this.clock.caf(this.id);
     this.id = 0;
     this.pending = false;
+    this.drewAt = 0;
   }
 
   private start(): void {
@@ -407,7 +437,10 @@ export class FrameLoop<B extends string> {
       return;
     }
     this.schedule();
-    if (paced.draw) this.tick();
+    if (!paced.draw) return;
+    if (this.place && frameGap && this.drewAt > 0) frameGap(this.place, now - this.drewAt);
+    this.drewAt = now;
+    this.tick();
   };
 }
 

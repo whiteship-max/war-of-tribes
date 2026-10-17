@@ -9,6 +9,7 @@ import { Crash } from './ui/Crash';
 import { telegramOnly } from './telegram/gate';
 import { TelegramOnly } from './ui/TelegramOnly';
 import { probe } from './debug';
+import { startPerf } from './perf/telemetry';
 
 const params = new URLSearchParams(location.search);
 if (params.has('replay')) {
@@ -32,6 +33,8 @@ if (params.has('replay')) {
   bootDone();
 } else {
   initTelegram();
+  // Замеры плавности с телефона (docs/telemetry.md): только в Telegram, выключаются строкой настроек.
+  startPerf();
   // Вид у игры один — новый интерфейс, карта по регионам, ролик TW (docs/ui_audit.md, 16): прежние удалены вместе со
   // своими переключателями, и старые адреса (`?ui=old`, `?map=old`, `?battle=old`) и выбор, записанный на устройстве,
   // не читает никто (`ui/oldviews.test.ts`).

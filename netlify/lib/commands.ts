@@ -43,6 +43,9 @@ import { peekGems, shopToday } from './gems.js';
 import { peekPayments } from './pay.js';
 import { payConfig } from './ton.js';
 import { grantNotice, outboxOf, queueNews } from './outbox.js';
+import { castleIdOf } from './roster.js';
+import { perfDays, perfOfPlayer, perfSummary } from './perf.js';
+import { PERF_LIMITS } from './contract.js';
 
 /** Команд в минуту от одного админа — больше живой человек не набирает. */
 const PER_MINUTE = 30;
@@ -85,6 +88,8 @@ export const HELP = [
   '/flags — подозрительные игроки.',
   '/reports — последние отчёты об ошибках.',
   '/report <номер> — отчёт целиком.',
+  '/perf — плавность игры на телефонах за неделю: кадры по местам и классам устройств, уровни графики, замирания, худшие устройства.',
+  '/perf <кто> — устройство игрока и его цифры за 30 дней.',
   '/spawns — места появления (Сицилия, потом материк до Флоренции): кто какое занял.',
   '/wipeworld ДА — чистый старт: стереть все партии, замки, войну, журналы, отчёты и статистику; номер эпохи мира +1.',
   '/final — итоговый рейтинг: как его увидят игроки. /final ДА — разослать всем игрокам в бот.',
@@ -599,6 +604,23 @@ async function reportOne(io: Io, id: string): Promise<Reply> {
   );
 }
 
+// ------------------------------------------------ замеры с телефонов (docs/telemetry.md) ---
+
+/** Сводка `/perf` — за неделю: свежее, чем срок хранения, и сутки одного захода в ней не тонут. */
+export const PERF_DAYS = 7;
+
+/**
+ * `/perf` — сводка по всем устройствам за `PERF_DAYS`; `/perf <кто>` — устройство игрока и его цифры за весь срок хранения.
+ * Только чтение. Игрок в замерах — номер замка: команда выводит его из ключа тем же `castleIdOf`, что приём пачки.
+ */
+async function perfCmd(io: Io, q: string): Promise<Reply> {
+  const kv = io.stores(STORES.perf);
+  if (!q) return say(perfSummary(await perfDays(kv, io.now, PERF_DAYS), PERF_DAYS));
+  const f = await one(io, q);
+  if (typeof f === 'string') return say(f);
+  return say(perfOfPlayer(await perfDays(kv, io.now, PERF_LIMITS.keepDays, castleIdOf(f.key)), label(f.key, f.rec), PERF_LIMITS.keepDays, when));
+}
+
 // ------------------------------------------------ тест с игроками (docs/test_world.md) ---
 
 /** Места теста — остров, потом материк: кто какое занял, и кто встал вне мест (места кончились). */
@@ -743,6 +765,9 @@ export async function adminCommand(update: Record<string, unknown>, io: Io, tg: 
       break;
     case '/report':
       reply = await reportOne(io, rest.trim());
+      break;
+    case '/perf':
+      reply = await perfCmd(io, rest.trim());
       break;
     case '/spawns':
       reply = await spawns(io);

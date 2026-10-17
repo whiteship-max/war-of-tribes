@@ -75,6 +75,12 @@ export const STORES = {
    * `lib/pay.ts`, условной записью в пустое место.
    */
   paid: 'tribe-paid',
+  /**
+   * Замеры плавности с телефонов (docs/telemetry.md): сутки устройства замка, ключ `<ГГГГММДД>/<замок>.<устройство>`.
+   * Пишет только `/api/perf` (`lib/perf.ts`), читает команда админа `/perf`; держится `PERF_LIMITS.keepDays` суток и
+   * чистым стартом не стирается — замеры про телефоны, а не про партию.
+   */
+  perf: 'tribe-perf',
 } as const;
 
 export type StoreName = (typeof STORES)[keyof typeof STORES];

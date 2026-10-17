@@ -299,6 +299,8 @@ export function WorldMap() {
      * партия, уровень графики, шрифт и размер окна. Возвращение из фона заводит цепочку заново — первый кадр сразу.
      */
     const loop = new FrameLoop<'covered'>(() => frame());
+    // Плавность карты меряется только на ходу: сон стоящей карты (`rest`) начинает ход заново (docs/telemetry.md).
+    loop.place = 'map';
     const wake = (): void => loop.wake();
     cam.onMove = wake;
 
