@@ -529,6 +529,8 @@ function treeSpots(f: TwField, plan: LandInput, cap: number): TreeSpot[] {
       const x = (hash(f.seed, i, 96) * 2 - 1) * (f.halfX + 10);
       const z = fo.from + fo.side * hash(f.seed, i, 97) * 70;
       if (rects.some((r) => x > r.x0 && x < r.x1 && z > r.z0 && z < r.z1)) continue;
+      // Тракт и тропа — сквозь лес просекой: прежде лес-штраф ставил деревья прямо на тракт (Г-3, «Косяки»).
+      if ((f.road && Math.abs(x - roadX(f, z)) < 3) || onTrail(plan, x, z, 1.5)) continue;
       // Опушка — реже у строя, гуще в глубине леса.
       if (hash(f.seed, i, 98) > 0.35 + 0.65 * smoothstep(0, 18, (z - fo.from) * fo.side)) continue;
       n++;
@@ -545,6 +547,7 @@ function treeSpots(f: TwField, plan: LandInput, cap: number): TreeSpot[] {
       const z = front + dir * (-2 + hash(f.seed, i, 92) * (Math.abs(c.z1 - c.z0) + 20));
       const inCamp = x > c.x0 - 4 && x < c.x1 + 4 && z > c.z0 - 4 && z < c.z1 + 4;
       if (inCamp || (z - front) * dir < 3 && Math.abs(x) < c.x1 + 4) continue;
+      if ((f.road && Math.abs(x - roadX(f, z)) < 3) || onTrail(plan, x, z, 1.5)) continue;
       n++;
       out.push({ x, z, s: 2.4 + hash(f.seed, i, 93) * 1.6, rot: hash(f.seed, i, 94) * Math.PI * 2, tall: hash(f.seed, i, 95) < 0.7 });
     }
