@@ -13,6 +13,9 @@ import { figure, figureMaterial, gaitOf, legs, pathOf, at, heightOnPath, LEGS, S
 import { rnd } from './noise';
 import { linear } from './palette';
 import { LIFE_CAP } from './spec';
+import { DEFAULT_ARMS, armsCode, armsOr, type Arms } from '@/heraldry/arms';
+import { TINCTURE_HEX } from '@/heraldry/art';
+import { canPaintArms, paintArms } from '@/heraldry/paint';
 
 // ---------------------------------------------------------------------------------------------
 // Модели: лицом на +x, правый бок — +z, метры.
@@ -251,43 +254,43 @@ export function bannerSpots(towers: readonly Tower[]): { x: number; y: number; z
 }
 
 /**
- * Полотнище стяга на холсте: тёмно-красное поле со складками, золотая кайма и герб города — золотая башня с тремя
- * зубцами и воротами. Без документа (тест) — нет: стяг красится цветом вершин.
+ * Полотнище стяга на холсте (П-2, docs/polish.md): поле — первая краска герба державы со складками, золотая кайма и пояс под
+ * верхом, посередине — щит герба (`heraldry/paint`, тот же рисунок, что в шапке игры). Без документа (тест) — нет: стяг
+ * красится цветом вершин. Герб сменился — холст перерисовывается на месте (`paintBanner`), текстура та же.
  */
-function bannerTexture(): THREE.CanvasTexture | null {
-  if (typeof document === 'undefined') return null;
+function bannerTexture(arms: Arms): THREE.CanvasTexture | null {
+  if (typeof document === 'undefined' || !canPaintArms()) return null;
   const c = document.createElement('canvas');
-  c.width = 64;
-  c.height = 160;
-  const x = c.getContext('2d');
-  if (!x) return null;
-  const g = x.createLinearGradient(0, 0, 64, 0);
-  // Складки: поле темнеет и светлеет полосами вдоль.
-  for (let i = 0; i <= 8; i++) g.addColorStop(i / 8, i % 2 ? '#8a201c' : '#6a1614');
-  x.fillStyle = g;
-  x.fillRect(0, 0, 64, 160);
-  x.strokeStyle = '#b8903a';
-  x.lineWidth = 4;
-  x.strokeRect(5, 5, 54, 150);
-  x.fillStyle = '#b8903a';
-  x.fillRect(5, 26, 54, 3);
-  // Башня: тело, три зубца, ворота тёмным.
-  x.fillRect(20, 62, 24, 40);
-  for (const zx of [18, 28.5, 39]) x.fillRect(zx, 54, 7, 9);
-  x.fillStyle = '#5a1210';
-  x.beginPath();
-  x.moveTo(27, 102);
-  x.lineTo(27, 88);
-  x.arc(32, 88, 5, Math.PI, 0);
-  x.lineTo(37, 102);
-  x.fill();
-  x.fillRect(30, 70, 4, 7);
+  c.width = 128;
+  c.height = 320;
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 4;
+  paintBanner(t, arms);
   return t;
 }
 
-function bannerMesh(towers: readonly Tower[], time: { value: number }): THREE.Mesh {
+function paintBanner(t: THREE.CanvasTexture, arms: Arms): void {
+  const c = t.image as HTMLCanvasElement;
+  const x = c.getContext('2d');
+  if (!x) return;
+  x.fillStyle = TINCTURE_HEX[arms.field[0]];
+  x.fillRect(0, 0, 128, 320);
+  // Складки: полосы светлее и темнее вдоль.
+  const g = x.createLinearGradient(0, 0, 128, 0);
+  for (let i = 0; i <= 8; i++) g.addColorStop(i / 8, i % 2 ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.22)');
+  x.fillStyle = g;
+  x.fillRect(0, 0, 128, 320);
+  x.strokeStyle = '#b8903a';
+  x.lineWidth = 8;
+  x.strokeRect(10, 10, 108, 300);
+  x.fillStyle = '#b8903a';
+  x.fillRect(10, 52, 108, 6);
+  paintArms(x, arms, 22, 92, 84);
+  t.needsUpdate = true;
+}
+
+function bannerMesh(towers: readonly Tower[], time: { value: number }, map: THREE.CanvasTexture | null): THREE.Mesh {
   const NX = 4;
   const NY = 8;
   const pos: number[] = [];
@@ -296,7 +299,6 @@ function bannerMesh(towers: readonly Tower[], time: { value: number }): THREE.Me
   const drape: number[] = [];
   const uv: number[] = [];
   const idx: number[] = [];
-  const map = bannerTexture();
   const red = map ? WHITE : linear(0x7e1e1a);
   const gold = map ? WHITE : linear(0xb8903a);
   for (const b of bannerSpots(towers)) {
@@ -486,6 +488,9 @@ export class CityBustle {
   private boatGait: THREE.InstancedBufferAttribute | null = null;
   private boatOut: boolean[] = [];
   private banners: THREE.Mesh | null = null;
+  /** Холст стягов и чей герб на нём (`setArms`). */
+  private bannerMap: THREE.CanvasTexture | null = null;
+  private armsKey = '';
   private pigeons: THREE.Mesh | null = null;
   private light = { value: 1 };
   private river = riverTable();
@@ -542,7 +547,9 @@ export class CityBustle {
       this.group.add(this.pigeons);
     }
     if (this.cap.banners > 0) {
-      this.banners = bannerMesh(plan.towers, this.time);
+      this.armsKey = armsCode(DEFAULT_ARMS);
+      this.bannerMap = bannerTexture(DEFAULT_ARMS);
+      this.banners = bannerMesh(plan.towers, this.time, this.bannerMap);
       this.group.add(this.banners);
     }
   }
@@ -645,6 +652,15 @@ export class CityBustle {
       this.boatGait.needsUpdate = true;
     }
     this.first = false;
+  }
+
+  /** Герб державы на стягах (строка `ProfileState.arms`): сменился — холст перерисовывается, текстура та же. */
+  setArms(code: string | null | undefined): void {
+    const arms = armsOr(code);
+    const key = armsCode(arms);
+    if (key === this.armsKey || !this.bannerMap) return;
+    this.armsKey = key;
+    paintBanner(this.bannerMap, arms);
   }
 
   dispose(): void {

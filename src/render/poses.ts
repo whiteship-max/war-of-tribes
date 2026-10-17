@@ -37,13 +37,17 @@ function rest(f: Figure): void {
   f.torsoTilt = 0;
   f.torsoTwist = 0;
   f.headNod = 0;
+  f.headTurn = 0;
   f.legSwing = 0;
   f.gait = 0;
+  f.hoofMode = 0;
+  f.hoofPhase = 0;
   f.armMain = 0;
   f.armOff = 0;
   f.armSpread = 0.06;
   f.elbowMain = 0.08;
   f.elbowOff = 0.08;
+  f.wristMain = 0;
   f.kneeL = 0;
   f.kneeR = 0;
 }

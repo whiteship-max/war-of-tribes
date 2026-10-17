@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Season } from '@/game/types';
 import { realMs } from '@/game/pace';
-import { BLEND, SNOW_HOLD_DAYS, SNOW_MELT_DAYS, SPELL_DAYS, WEATHER_LOOKS, flashAt, flashGlow, flashes, lyingSnow, snowCover, weatherAt, weatherWords, windTo, zoneOf, type Weather } from './climate';
+import { BLEND, SNOW_HOLD_DAYS, easeWeather, SNOW_MELT_DAYS, SPELL_DAYS, WEATHER_LOOKS, flashAt, flashGlow, flashes, lyingSnow, snowCover, weatherAt, weatherWords, windTo, zoneOf, type Weather } from './climate';
 
 /** Миг середины полосы `i` в мс общих часов — внутри полосы, вдали от перехода. */
 const mid = (i: number): number => realMs((i + 0.4) * SPELL_DAYS * 60);
@@ -168,5 +168,20 @@ describe('погода — функция региона и общих часо�
     // Ветер с запада дует на восток.
     expect(windTo(270).x).toBeCloseTo(1);
     expect(windTo(0).z).toBeCloseTo(1);
+  });
+});
+
+describe('перелив погоды кадра (П-3)', () => {
+  it('доля 0 — прежняя погода, 1 — цель; посередине — середина, ветер — по короткой дуге через север', () => {
+    const from: Weather = { cloud: 0, rain: 0, snow: 0, storm: 0, fog: 0, wind: 0.2, from: 350 };
+    const to: Weather = { cloud: 1, rain: 0.8, snow: 0, storm: 0.4, fog: 0, wind: 0.6, from: 10 };
+    expect(easeWeather(from, to, 0)).toEqual(from);
+    expect(easeWeather(from, to, 1)).toEqual(to);
+    const mid = easeWeather(from, to, 0.5);
+    expect(mid.rain).toBeCloseTo(0.4, 9);
+    expect(mid.cloud).toBeCloseTo(0.5, 9);
+    expect(mid.wind).toBeCloseTo(0.4, 9);
+    // С 350° на 10° — через север (0°), а не через юг (180°): поворот на двадцать градусов, а не на триста сорок.
+    expect(Math.min(mid.from, 360 - mid.from)).toBeLessThan(1);
   });
 });

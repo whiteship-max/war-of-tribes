@@ -63,12 +63,13 @@ function hearing(): Hearing {
  * (`gfx.levelNow`, docs/perf.md, решение 3): меньше слоёв — без свиста ветра, пены, отзвука, видов птиц, второй ноты
  * бурдона.
  */
-export function startEpoch(out: { music: GainNode; fx: GainNode }, lite = levelNow(location.search) === 'low'): EpochMachine {
+export function startEpoch(out: { music: GainNode; fx: GainNode; amb: GainNode }, lite = levelNow(location.search) === 'low'): EpochMachine {
   const ctx = out.fx.context;
   const musicOut = ctx.createGain();
   musicOut.connect(out.music);
+  // Фон города, карты и погоды — своей полосой «окружение»; звуки интерфейса — «эффекты».
   const ambOut = ctx.createGain();
-  ambOut.connect(out.fx);
+  ambOut.connect(out.amb);
   const uiOut = ctx.createGain();
   uiOut.connect(out.fx);
   // Зерно на сеанс — случайное: пьесы и фон каждый раз свои (случайность устройства в звуке законна).

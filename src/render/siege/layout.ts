@@ -20,14 +20,19 @@ import {
   campOf,
   townHouses,
   type TwCamp,
+  type TwHouse,
   type TwSite,
   type TwTower,
   type TwWall,
 } from '../tw/site';
+import { TOWN_HALF, frameOf, townGround, type Box2 } from '../tw/town';
 import type { SiegeShow, ShowMachine } from './show';
 
-/** Стена ролика — от −`WALL_HALF` до `WALL_HALF` по X, наружная грань на z = 0, город — к +Z, лагерь — к −Z. */
-export const WALL_HALF = 44;
+/**
+ * Стена ролика — от −`WALL_HALF` до `WALL_HALF` по X, наружная грань на z = 0, город — к +Z, лагерь — к −Z. Это южная стена
+ * настоящего города (docs/polish.md, П-6): от главных ворот до углов, где её встречают боковые стены (`tw/town.TOWN_HALF`).
+ */
+export const WALL_HALF = TOWN_HALF;
 /** Рогатки лагеря — на этой линии; шатры — дальше от стены. */
 export const STAKES_Z = -24;
 export const CAMP_BACK = -30;
@@ -77,6 +82,11 @@ export interface SiegeLayout {
   /** Ход стены: z, на котором стоят защитники, и высота над землёй. */
   walkZ: number;
   walkY: number;
+  /**
+   * Где за стеной ходят люди ролика (двор у ворот, полоса вдоль стены, улица, площадь, орудие) и поле перед стеной —
+   * там настоящий город уступает место бою (`tw/town.townCut`). Логово — null.
+   */
+  town: { inside: Box2[]; outside: Box2; paint: Box2[] } | null;
 }
 
 /** Башни стены: по уровню — сколько и какой высоты; у концов стены — круглые. */
@@ -101,7 +111,11 @@ function towersOf(look: CastleLook, seed: number): TwTower[] {
     }));
 }
 
-export function layoutOf(show: SiegeShow, quality: Quality): SiegeLayout {
+/**
+ * Раскладка осады. `houses` — дома настоящего города у ворот (`city/town.ts`, уже без тех, что мешают бою): под огонь, дым и
+ * перелёт камня; нет (тест, город не собран) — дома ролика по своей раскладке.
+ */
+export function layoutOf(show: SiegeShow, quality: Quality, houses: readonly TwHouse[] | null = null): SiegeLayout {
   const spec = TW_SPEC[quality];
   const seed = show.seed >>> 0;
   const field: TwField = {
@@ -141,13 +155,15 @@ export function layoutOf(show: SiegeShow, quality: Quality): SiegeLayout {
       side: 'defender',
       ...(look.wood ? { wood: true } : {}),
     };
+    // Под стеной — земля настоящего города (П-6): тот же мыс, что в окне города.
+    field.town = townGround(frameOf(wall), field);
     wall.base = heightAt(field, 0, wall.thick / 2);
     site.wall = wall;
     site.square = square;
     site.street = { x: 0, half: STREET_HALF, z0: 0, z1: square.z };
     // Дома — не на дворе у ворот, где ждёт гарнизон (`yard`).
     const yard = { x0: -9, x1: 9, z0: wall.thick, z1: wall.thick + POMERIUM + 6 };
-    site.houses = townHouses(wall, square.z + SQUARE_R + 14 - wall.thick - POMERIUM, [yard], square, spec.houses, seed);
+    site.houses = houses ? [...houses] : townHouses(wall, square.z + SQUARE_R + 14 - wall.thick - POMERIUM, [yard], square, spec.houses, seed);
   } else {
     // Логово: шалаши за частоколом, проход к полю — к лагерю.
     lair = campOf('lair', 26, 6, 1, 0, spec.tents, seed + 5);
@@ -165,6 +181,23 @@ export function layoutOf(show: SiegeShow, quality: Quality): SiegeLayout {
     // Орудие города — на дворе за стеной, у башни: бьёт через стену навесом.
     gun: { id: 'gun', x: 12, z: wall ? wall.thick + 3.4 : 12 },
   };
+  const gun = spots.gun;
+  // Где за стеной ходят люди ролика: двор у ворот, полоса вдоль стены (чинят пролом, стоят у ворот), улица до площади,
+  // площадь, орудие города; перед стеной — лагерь, машины и подход войска с поля (`field` группа — от края поля).
+  const paint: Box2[] = wall
+    ? [
+        { x0: -10, x1: 10, z0: wall.thick, z1: wall.thick + POMERIUM + 6 },
+        { x0: -STREET_HALF - 0.6, x1: STREET_HALF + 0.6, z0: wall.thick, z1: square.z },
+        { x0: square.x - square.r - 1, x1: square.x + square.r + 1, z0: square.z - square.r - 1, z1: square.z + square.r + 1 },
+      ]
+    : [];
+  const town = wall
+    ? {
+        inside: [...paint, { x0: -WALL_HALF + 2, x1: WALL_HALF - 2, z0: wall.thick, z1: wall.thick + POMERIUM }, { x0: gun.x - 3, x1: gun.x + 3, z0: gun.z - 3, z1: gun.z + 3 }],
+        outside: { x0: -CAMP_HALF - 14, x1: CAMP_HALF + 14, z0: field.minZ, z1: -0.5 },
+        paint,
+      }
+    : null;
   return {
     field,
     site,
@@ -177,5 +210,6 @@ export function layoutOf(show: SiegeShow, quality: Quality): SiegeLayout {
     square,
     walkZ,
     walkY,
+    town,
   };
 }

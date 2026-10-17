@@ -103,6 +103,8 @@ export interface TelegramWebApp {
   shareToStory?(mediaUrl: string, params?: { text?: string; widget_link?: { url: string; name?: string } }): void;
   setHeaderColor?(color: string): void;
   setBackgroundColor?(color: string): void;
+  /** Bot API 7.10: цвет нижней полосы клиента. */
+  setBottomBarColor?(color: string): void;
   disableVerticalSwipes?(): void;
   requestFullscreen?(): void;
   /** Bot API 8.0: закрепить текущую ориентацию и отпустить её (`src/orientation.ts`). */
@@ -171,82 +173,34 @@ function askViewport(app: TelegramWebApp): void {
 
 // ---------- Тема ----------
 
-const root = (): CSSStyleDeclaration => document.documentElement.style;
+/**
+ * Свой цвет фона игры — тот же, что `--bg` в `ui/styles.css` и `theme-color` в index.html (сверяет
+ * `ui/palette.test.ts`). Им красятся шапка, фон и нижняя полоса клиента: аппка от края до края — кадр игры.
+ */
+export const GAME_BG = '#1a1410';
 
-const HEX = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i;
-
-function toRgb(hex: string): [number, number, number] | null {
-  if (!HEX.test(hex)) return null;
-  let h = hex.slice(1);
-  if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
-  const n = parseInt(h, 16);
-  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
-}
-
-const rgba = (hex: string, a: number): string | null => {
-  const c = toRgb(hex);
-  return c ? `rgba(${c[0]}, ${c[1]}, ${c[2]}, ${a})` : null;
-};
-
-/** Смешивает цвет с другим: 0 — только a, 1 — только b. */
-function mix(a: string, b: string, t: number): string | null {
-  const ca = toRgb(a);
-  const cb = toRgb(b);
-  if (!ca || !cb) return null;
-  const v = ca.map((x, i) => Math.round(x + (cb[i] - x) * t));
-  return `rgb(${v[0]}, ${v[1]}, ${v[2]})`;
-}
-
-const setVar = (name: string, value: string | null): void => {
-  if (value) root().setProperty(name, value);
-};
-
-/** Подтягивает цвета интерфейса из themeParams клиента поверх дефолтной палитры. */
-export function applyTheme(): void {
+/**
+ * Палитра игры своя и от темы Telegram не зависит (docs/polish.md, П-1). Прежде `applyTheme` переписывал
+ * `--text`, `--panel`, `--muted` и `--accent` цветами `themeParams`: на светлой теме текст становился чёрным,
+ * а тёмные плашки, рисованные поверх сцены своими цветами, оставались тёмными — тёмное на тёмном. Тема клиента
+ * здесь только слушается: её смена (`themeChanged`) возвращает клиенту наш цвет шапки, который он мог сбросить.
+ */
+export function applyPalette(): void {
   const app = tg();
-  const t = app?.themeParams;
-  if (!t) return;
-
-  const bg = t.bg_color && HEX.test(t.bg_color) ? t.bg_color : null;
-  const text = t.text_color && HEX.test(t.text_color) ? t.text_color : null;
-  const hint = t.hint_color && HEX.test(t.hint_color) ? t.hint_color : null;
-  const button = t.button_color && HEX.test(t.button_color) ? t.button_color : null;
-  const buttonText = t.button_text_color && HEX.test(t.button_text_color) ? t.button_text_color : null;
-  const secondary =
-    (t.secondary_bg_color && HEX.test(t.secondary_bg_color) && t.secondary_bg_color) ||
-    (t.section_bg_color && HEX.test(t.section_bg_color) && t.section_bg_color) ||
-    bg;
-
-  setVar('--bg', bg);
-  setVar('--text', text);
-  setVar('--muted', hint);
-  setVar('--accent', button);
-  setVar('--accent-text', buttonText);
-  if (secondary) {
-    // Панели полупрозрачные — под ними видно 3D-сцену.
-    setVar('--panel', rgba(secondary, 0.92));
-    if (text) setVar('--panel-2', mix(secondary, text, 0.09));
-  }
-  if (text) setVar('--line', rgba(text, 0.16));
-
-  const scheme = app?.colorScheme === 'light' ? 'light' : 'dark';
-  root().setProperty('color-scheme', scheme);
-  document.documentElement.dataset.theme = scheme;
-
-  if (bg) {
-    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', bg);
+  const el = document.documentElement;
+  el.style.setProperty('color-scheme', 'dark');
+  el.dataset.theme = 'dark';
+  if (!app) return;
+  const paint = (f: ((c: string) => void) | undefined): void => {
     try {
-      app?.setBackgroundColor?.(bg);
-      app?.setHeaderColor?.(bg);
+      f?.call(app, GAME_BG);
     } catch {
-      // Старые клиенты принимают только ключевые слова.
-      try {
-        app?.setHeaderColor?.('bg_color');
-      } catch {
-        /* ignore */
-      }
+      // Старые клиенты (до Bot API 6.9) берут только ключевые слова — шапку оставляем их цвету.
     }
-  }
+  };
+  paint(app.setHeaderColor);
+  paint(app.setBackgroundColor);
+  paint(app.setBottomBarColor);
 }
 
 export function initTelegram(): void {
@@ -264,7 +218,7 @@ export function initTelegram(): void {
   } catch {
     // Старые клиенты могут не поддерживать часть методов.
   }
-  applyTheme();
+  applyPalette();
   startViewport(app, () => askViewport(app));
   // Город и меню — вертикально, промысел и ролик — как держат (дверь поворота).
   startOrientation(app);
@@ -299,7 +253,7 @@ export function initTelegram(): void {
     setAppAsleep(false);
   });
   on('themeChanged', () => {
-    applyTheme();
+    applyPalette();
     measureViewport('тема');
   });
 }

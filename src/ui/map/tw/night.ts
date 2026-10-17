@@ -2,10 +2,9 @@
 // солнца из игрового времени партии (`derived.solarPhase`, `dayFraction`, `seasonOf`) — «один источник правды
 // и для HUD, и для освещения сцены»; своих часов дня у карты нет и заводить их нельзя.
 //
-// Цена — одна заливка «умножением» на весь кадр и по копированию испечённого огня на место. Заливки днём нет
+// Цена — одна заливка «умножением» на весь кадр и огоньки мест (`sparks.ts`, свой кусок — при первой ночи). Заливки днём нет
 // вовсе. Подписи, сроки и метки ложатся поверх ночи: ночь темнит землю, а не то, что игрок читает.
 import { dayFraction, seasonOf, solarPhase } from '@/game/derived';
-import { makeCanvas } from '../paint';
 import type { PlaceItem } from './scene';
 
 /** Ночь целиком — от и до, в фазе солнца (0 — рассвет, 0.25 — полдень, 0.5 — закат, 0.75 — полночь). */
@@ -34,37 +33,16 @@ export const nightAt = (time: number): number => nightOf(solarPhase(dayFraction(
  */
 const DEEP: readonly [number, number, number] = [86, 98, 140];
 
-const glows = new Map<number, HTMLCanvasElement>();
-const GLOW_PX = 64;
+type Sparks = typeof import('./sparks');
+let lights: Sparks | null = null;
+let loading = false;
 
-/** Тёплое пятно огня, испечённое один раз на плотность. */
-function glow(dpr: number): HTMLCanvasElement {
-  const have = glows.get(dpr);
-  if (have) return have;
-  const n = Math.ceil(GLOW_PX * dpr);
-  const c = makeCanvas(n, n);
-  const ctx = c.getContext('2d');
-  if (ctx) {
-    const g = ctx.createRadialGradient(n / 2, n / 2, 0, n / 2, n / 2, n / 2);
-    g.addColorStop(0, 'rgba(255, 178, 92, 0.62)');
-    g.addColorStop(0.35, 'rgba(255, 150, 70, 0.3)');
-    g.addColorStop(1, 'rgba(255, 140, 60, 0)');
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, n, n);
-  }
-  glows.set(dpr, c);
-  return c;
-}
-
-/** Сила огня места: город светит окнами и факелами на стенах, логово — костром, пепелище — нет. */
-function lightOf(it: PlaceItem): number {
-  if (it.look.kind === 'ruin') return 0;
-  if (it.look.kind === 'lair') return 0.75;
-  return it.look.stage === 'town' ? 1.35 : it.look.stage === 'stronghold' ? 1.15 : 0.95;
-}
-
-export function drawNight(ctx: CanvasRenderingContext2D, w: number, h: number, scale: number, places: PlaceItem[], amount: number, dpr: number): void {
-  if (amount <= 0) return;
+/**
+ * Ночь: синий сумрак умножением на весь кадр, сверху огоньки мест (`sparks.ts`, свой кусок). Вернёт `true`, пока кусок
+ * огней едет: карте — нарисовать ещё кадр.
+ */
+export function drawNight(ctx: CanvasRenderingContext2D, w: number, h: number, scale: number, places: PlaceItem[], amount: number, dpr: number): boolean {
+  if (amount <= 0) return false;
   ctx.save();
   ctx.globalCompositeOperation = 'multiply';
   const r = Math.round(255 + (DEEP[0] - 255) * amount);
@@ -72,19 +50,20 @@ export function drawNight(ctx: CanvasRenderingContext2D, w: number, h: number, s
   const b = Math.round(255 + (DEEP[2] - 255) * amount);
   ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
   ctx.fillRect(0, 0, w, h);
-  ctx.globalCompositeOperation = 'lighter';
-  ctx.globalAlpha = amount;
-  const spot = glow(dpr);
-  for (const it of places) {
-    const k = lightOf(it);
-    if (k <= 0) continue;
-    // Огонь с поселение размером, но не меньше значка: издали город — тёплая точка, как на ночной карте.
-    const rr = Math.max(12, scale * 0.95 * k);
-    ctx.drawImage(spot, it.sx - rr, it.sy - rr * 0.8, rr * 2, rr * 2);
-  }
   ctx.restore();
+  if (lights) {
+    lights.drawSparks(ctx, scale, places, amount, dpr);
+    return false;
+  }
+  if (!loading) {
+    loading = true;
+    import('./sparks')
+      .then((m) => (lights = m))
+      .catch(() => (loading = false));
+  }
+  return true;
 }
 
 export function dropNight(): void {
-  glows.clear();
+  lights?.dropSparks();
 }

@@ -2,6 +2,7 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './App';
 import { initTelegram, tgInitData } from './telegram/webapp';
+import './ui/fonts/fonts.css';
 import './ui/styles.css';
 import { bootDone } from './boot/stage';
 import { Crash } from './ui/Crash';

@@ -92,6 +92,9 @@ const C2 = new THREE.Color();
  * свет, всегда. Числа света — `lighting.RIG.next`, те же, что у города: тёплая полусфера и
  * золотой час (docs/graphics_world.md, 11.5).
  */
+/** Ночь на этой доле суток (ролик осады, огни города в роликах) — одна мерка с водой (`water/moon.nightOf`). */
+export { nightOf } from '../water/moon';
+
 export function setupFieldScene(scene: THREE.Scene, ground: Ground): LightRig {
   configureSky(scene);
   scene.fog = new THREE.Fog(PALETTE.fog, FOG.near, FOG.far);

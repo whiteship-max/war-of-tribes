@@ -1,39 +1,95 @@
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 import { QUALITIES } from '../quality';
-import { CityPrecip, PRECIP_CAP } from './precip';
+import { CityPrecip, PRECIP_CAP, type PrecipFrame } from './precip';
 
-const at = new THREE.Vector3(0, 7, 0);
+const camera = new THREE.PerspectiveCamera(36, 390 / 844, 1, 2000);
+camera.position.set(0, 400, 300);
+camera.lookAt(0, 7, 0);
+
+const frame = (t: number, rain: number, snow: number): PrecipFrame => ({
+  t,
+  rain,
+  snow,
+  windX: 1,
+  windZ: 0,
+  wind: 0.4,
+  center: new THREE.Vector3(0, 7, 0),
+  dist: 500,
+  camera,
+  bufferHeight: 1266,
+  light: 1,
+  flash: 0,
+  night: 0,
+  sky: new THREE.Color(0.5, 0.55, 0.6),
+  fogNear: 400,
+  fogFar: 1200,
+});
+
+/** Видимые вызовы осадков: что нарисует кадр. */
+const drawn = (p: CityPrecip): string[] => p.group.children.filter((o) => o.visible).map((o) => o.name).sort();
 
 describe('осадки — цена и тишина', () => {
-  it('на «Низком» частиц нет; выше — дождь и снег по одному вызову, не больше потолка уровня', () => {
-    expect(PRECIP_CAP.low).toEqual({ rain: 0, snow: 0 });
+  it('каждый уровень с дождём и снегом; брызги — со среднего; счёт — по потолку уровня', () => {
     for (const q of QUALITIES) {
       const p = new CityPrecip(q);
-      const meshes = p.group.children as (THREE.LineSegments | THREE.Points)[];
-      expect(meshes.length, q).toBe(q === 'low' ? 0 : 2);
-      for (const m of meshes) {
-        const n = m.geometry.attributes.position.count;
-        if (m instanceof THREE.LineSegments) expect(n, `${q} дождь`).toBe(PRECIP_CAP[q].rain * 2);
-        else expect(n, `${q} снег`).toBe(PRECIP_CAP[q].snow);
-      }
+      const cap = PRECIP_CAP[q];
+      expect(p.counts(), q).toEqual({ rain: cap.rain, near: cap.near, splash: q === 'low' ? 0 : cap.splash, snow: cap.snow, flakes: cap.flakes });
+      expect(p.group.children.length, q).toBe(q === 'low' ? 4 : 5);
       p.dispose();
     }
-    // Средний — не больше трёх тысяч струй и двух тысяч хлопьев: телефону.
-    expect(PRECIP_CAP.medium.rain).toBeLessThanOrEqual(3000);
-    expect(PRECIP_CAP.medium.snow).toBeLessThanOrEqual(2000);
+    // «Низкий» — проще, но дождь есть (П-3): струи и хлопья, без брызг и поля высот.
+    expect(PRECIP_CAP.low.rain).toBeGreaterThan(0);
+    expect([PRECIP_CAP.low.splash, PRECIP_CAP.low.map]).toEqual([0, 0]);
+    // Средний — телефону: не больше трёх тысяч струй, двух тысяч хлопьев и полутора тысяч брызг.
+    expect(PRECIP_CAP.medium.rain + PRECIP_CAP.medium.near).toBeLessThanOrEqual(3000);
+    expect(PRECIP_CAP.medium.snow + PRECIP_CAP.medium.flakes).toBeLessThanOrEqual(2000);
+    expect(PRECIP_CAP.medium.splash).toBeLessThanOrEqual(1500);
   });
 
-  it('сухо — ни одного вызова; дождь — только дождь, снег — только снег', () => {
+  it('сухо — ни одного вызова; дождь — только струи (и брызги, когда поле высот готово); снег — только хлопья', () => {
     const p = new CityPrecip('medium');
-    const rain = p.group.getObjectByName('city-rain')!;
-    const snow = p.group.getObjectByName('city-snowfall')!;
-    p.update(10, 0, 0, 1, 0, 0.4, at, 300, 1);
-    expect([rain.visible, snow.visible]).toEqual([false, false]);
-    p.update(11, 0.7, 0, 1, 0, 0.4, at, 300, 1);
-    expect([rain.visible, snow.visible]).toEqual([true, false]);
-    p.update(12, 0, 0.7, 1, 0, 0.4, at, 300, 1);
-    expect([rain.visible, snow.visible]).toEqual([false, true]);
+    p.update(frame(10, 0, 0));
+    expect(drawn(p)).toEqual([]);
+    // Поля высот ещё нет (поверхностей не дали) — брызгам не на что лечь.
+    p.update(frame(11, 0.7, 0));
+    expect(drawn(p)).toEqual(['city-rain', 'city-rain-near']);
+    p.update(frame(12, 0, 0.7));
+    expect(drawn(p)).toEqual(['city-snow-near', 'city-snowfall']);
     p.dispose();
+  });
+
+  it('брызги встают, когда поле высот готово, и только в дождь', () => {
+    const p = new CityPrecip('medium');
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(200, 200).rotateX(-Math.PI / 2));
+    p.ground([ground]);
+    p.update(frame(1, 0.7, 0));
+    expect(p.grounded).toBe(true);
+    expect(drawn(p)).toEqual(['city-rain', 'city-rain-near', 'city-splash']);
+    p.update(frame(2, 0, 0.7));
+    expect(drawn(p)).not.toContain('city-splash');
+    p.dispose();
+  });
+
+  it('сторож опустил уровень — счёт сразу по новому уровню; вверх не поднимает', () => {
+    const p = new CityPrecip('medium');
+    p.setLevel('low');
+    const low = PRECIP_CAP.low;
+    expect(p.counts()).toEqual({ rain: low.rain, near: low.near, splash: 0, snow: low.snow, flakes: low.flakes });
+    p.setLevel('high');
+    expect(p.counts().rain).toBe(low.rain);
+    p.dispose();
+  });
+});
+
+describe('осадки и сторож плавности — одна мерка', () => {
+  it('сцена города, опуская уровень, режет осадки сразу; новые осадки встают на уже опущенный уровень', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const src = readFileSync(join(__dirname, 'scene.ts'), 'utf8');
+    // Свой сторож у осадков не заводится: их опускает `lowerTo` сцены — та же дверь, что у плотности и ролика.
+    expect(src).toMatch(/override lowerTo\(next: Quality\): void \{\s*super\.lowerTo\(next\);\s*this\.precip\?\.setLevel\(this\.dprLevel\);/);
+    expect(src).toMatch(/new CityPrecip\(this\.quality, c\.uniforms\);\s*p\.setLevel\(this\.dprLevel\);/);
+    expect(src).not.toMatch(/new Steady\(/);
   });
 });

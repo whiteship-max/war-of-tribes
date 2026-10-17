@@ -124,6 +124,11 @@ export class Tab {
         const d = msg.params?.exceptionDetails;
         console.error('  в странице:', d?.exception?.description ?? d?.text);
       }
+      // Ошибки консоли страницы (сборка шейдера, отказ WebGL) — стенду по просьбе (`CONSOLE=1`): отчёты их не печатают.
+      if (msg.method === 'Runtime.consoleAPICalled' && process.env.CONSOLE === '1') {
+        const c = (msg.params as { type?: string; args?: { value?: unknown; description?: string }[] } | undefined) ?? {};
+        if (c.type === 'error' || c.type === 'warning') console.error(`  консоль (${c.type}):`, (c.args ?? []).map((a) => String(a.value ?? a.description ?? '')).join(' ').slice(0, 1500));
+      }
       if (msg.id === undefined) return;
       const slot = this.waiting.get(msg.id);
       if (!slot) return;

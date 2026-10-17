@@ -141,6 +141,13 @@ const LAZY_DOORS: { name: string; door: RegExp; owns: RegExp[] }[] = [
     owns: [/\/src\/sound\/battlefx\.ts$/],
   },
   {
+    // Движок звука (П-3, docs/sound.md): цепочка выхода, музыка боя и её манифест — докачкой после первого касания; в
+    // первой загрузке из звука только дверь (`sound/door.ts`: контекст жестом) и настройки громкости.
+    name: 'звук: движок',
+    door: /\/src\/sound\/web\.ts$/,
+    owns: [/\/src\/sound\/(web|music|manifest|chain)\.ts$/],
+  },
+  {
     // Звук города и карты — фон, музыка эпохи, звуки интерфейса (docs/audio.md): тянет его `sound/city.ts` после первого
     // касания, в первую загрузку он не едет.
     name: 'звук города',
@@ -184,11 +191,32 @@ const LAZY_DOORS: { name: string; door: RegExp; owns: RegExp[] }[] = [
     owns: [/\/src\/render\/city\//],
   },
   {
+    // Вода — одна на игру (docs/polish.md, П-8): шейдер, материал и луна над водой едут с городом, роликами и рыбалкой,
+    // каждым их куском; в первую загрузку — только краски (`water/tone.ts`, у карты) и уровень (`water/lod.ts`).
+    name: 'вода',
+    door: /\/src\/render\/city\/scene\.ts$/,
+    owns: [/\/src\/render\/water\/(glsl|material|moon|shape|model)\.ts$/],
+  },
+  {
+    // Огни мест на ночной карте (docs/polish.md, П-9): огоньки едут своим куском при первой ночи; в первой загрузке —
+    // только синяя заливка ночи (`tw/night.ts`).
+    name: 'огни карты',
+    door: /\/src\/ui\/map\/tw\/sparks\.ts$/,
+    owns: [/\/src\/ui\/map\/tw\/sparks\.ts$/],
+  },
+  {
     // Живой город (docs/city.md, 13): телеги, утки, лодки, стяги — своя докачка, сцена и стенд тянут её после первого
     // кадра города; в кусок города и в первую загрузку она не едет.
     name: 'город: суета',
     door: /\/src\/render\/city\/alive\.ts$/,
     owns: [/\/src\/render\/city\/alive\.ts$/],
+  },
+  {
+    // Стража города бойцами роликов (docs/polish.md, П-5): лучники на стене и копейщики у ворот — толпа роликов
+    // (`render/reel`); своя докачка вместе с суетой, после первого кадра города. В кусок города и в первую загрузку не едет.
+    name: 'город: стража',
+    door: /\/src\/render\/city\/garrison\.ts$/,
+    owns: [/\/src\/render\/city\/garrison\.ts$/],
   },
   {
     // Отклик на дела игрока (docs/city.md, 14): леса стройки, праздник готовности, найм строем, слой добычи — своя
@@ -199,7 +227,7 @@ const LAZY_DOORS: { name: string; door: RegExp; owns: RegExp[] }[] = [
   },
   {
     // Погода (docs/city.md, 15): струи дождя и снегопад — своя докачка вместе с суетой, после первого кадра города; на
-    // «Низком» её не тянут вовсе.
+    // «Низком» её не тянут вовсе. Тот же кусок тянет промысел, когда у города дождь или снег (`minigames/stage`, П-4).
     name: 'город: погода',
     door: /\/src\/render\/city\/precip\.ts$/,
     owns: [/\/src\/render\/city\/precip\.ts$/],
@@ -258,6 +286,9 @@ export default defineConfig({
           three: ['three'],
           react: ['react', 'react-dom'],
           atlas: ['./src/world/atlas/data.ts'],
+          // Вода и свет ночи — один общий кусок города, роликов и промыслов (docs/polish.md, П-8 и П-9): свой кусок света
+          // добавил бы имена в карту предзагрузки первой загрузки.
+          moon: ['./src/render/water/glsl.ts', './src/render/water/moon.ts', './src/render/water/shape.ts', './src/render/glow/lamps.ts', './src/render/glow/glsl.ts', './src/render/glow/rig.ts'],
         },
       },
     },

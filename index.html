@@ -9,6 +9,11 @@
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="manifest" href="/manifest.webmanifest" />
+    <!-- Свой шрифт (docs/polish.md, П-1): обычный и полужирный основного текста едут вместе с бандлом, чтобы первый
+         кадр игры был набран им, а не системным. Остальные начертания и редкие знаки браузер берёт по ходу
+         (`src/ui/fonts/fonts.css`). Экран загрузки их не ждёт: шрифт у него с подменой (`font-display: swap`). -->
+    <link rel="preload" href="/fonts/sans-400.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="/fonts/sans-600.woff2" as="font" type="font/woff2" crossorigin />
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
 
     <!--
@@ -23,7 +28,7 @@
       Из этого же правила выведена картинка, и вывод у неё обратный: она лежит
       отдельным файлом, а не строкой внутри документа. Вложенная строкой, она
       отодвинула бы первый кадр экрана на полсекунды, появляясь при этом в тот же
-      момент (замер — docs/loading.md). Экран поэтому показывается на теме клиента,
+      момент (замер — docs/loading.md). Экран поэтому показывается на своём тёмном фоне,
       а арт проявляется поверх, когда доедет: ждать его экран не имеет права —
       он и заведён затем, чтобы закрывать ожидание, а не добавлять своё.
 
@@ -32,10 +37,10 @@
       копии правил нет нигде.
     -->
     <style>
-      /* Никакой белой вспышки: цвет стоит на html до всякой разметки, а через
-         несколько строк его перебьёт цвет темы клиента. */
+      /* Никакой белой вспышки: цвет стоит на html до всякой разметки. Цвета свои, не из темы клиента:
+         палитра игры от темы Telegram не зависит (docs/polish.md, П-1) — на светлой теме экран тот же. */
       html {
-        background: var(--boot-bg, #1a1410);
+        background: #1a1410;
       }
       #boot {
         position: fixed;
@@ -47,15 +52,13 @@
         justify-content: flex-end;
         gap: 14px;
         padding: 24px 24px 15vh;
-        background: var(--boot-bg, #1a1410);
+        background: #1a1410;
         /* Тёплый отсвет заката, если не доехал даже предпросмотр (см. #boot-blur). */
         background-image: radial-gradient(60% 34% at 50% 74%, rgba(255, 154, 58, 0.22), rgba(255, 154, 58, 0) 70%);
         overflow: hidden;
-        /* Не из темы: строки лежат на тёмном арте, и светлый тон здесь —
-           читаемость, а не оформление. У светлой темы клиента текст тёмный,
-           и на пламени он утонул бы. Фон под артом и кнопку тема красит. */
+        /* Строки лежат на тёмном арте: светлый тон здесь — читаемость, а не оформление. */
         color: #f3e9d8;
-        font: 14px/1.45 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+        font: 14px/1.45 'Tribe Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
         text-align: center;
         /* Показываемся не сразу: короткую загрузку игрок не должен увидеть вовсе.
            Класс `on` ставит код, когда порог пройден. */
@@ -128,6 +131,7 @@
         top: 14%;
         left: 0;
         right: 0;
+        font-family: 'Tribe Title', Georgia, 'Times New Roman', serif;
         font-size: 34px;
         font-weight: 700;
         line-height: 1.2;
@@ -156,7 +160,7 @@
         height: 100%;
         width: 0;
         border-radius: 999px;
-        background: var(--boot-accent, #e8a43c);
+        background: #e8a43c;
         transition: width 0.28s ease-out;
       }
       #boot-stage {
@@ -188,8 +192,8 @@
         border-radius: 14px;
         font: inherit;
         font-weight: 600;
-        color: var(--boot-accent-text, #241a0e);
-        background: var(--boot-accent, #e8a43c);
+        color: #241a0e;
+        background: #e8a43c;
       }
       #boot-why {
         font-size: 12px;
@@ -301,30 +305,6 @@
         ];
 
         /**
-         * Цвет фона до всякого JavaScript игры. Telegram отдаёт палитру клиента
-         * в themeParams, и белый экран на тёмной теме выглядит поломкой ещё до
-         * запуска. Нет клиента или нет цвета — остаётся наш тёмный.
-         */
-        function themeColors(win) {
-          var p = null;
-          try {
-            p = win && win.Telegram && win.Telegram.WebApp && win.Telegram.WebApp.themeParams;
-          } catch (e) {
-            p = null;
-          }
-          var hex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i;
-          var pick = function (v) {
-            return typeof v === 'string' && hex.test(v) ? v : null;
-          };
-          return {
-            bg: p ? pick(p.bg_color) : null,
-            text: p ? pick(p.text_color) : null,
-            accent: p ? pick(p.button_color) : null,
-            accentText: p ? pick(p.button_text_color) : null
-          };
-        }
-
-        /**
          * Номер захода. Детерминированный: счётчик в localStorage, а не
          * Math.random. Нет хранилища — берём номер дня по UTC: он одинаков для
          * всех запусков этого дня, но от заглушки «всегда первая» избавляет.
@@ -367,19 +347,6 @@
             if (!(id in el)) el[id] = doc.getElementById(id);
             return el[id];
           };
-
-          var css = function (name, value) {
-            if (value) doc.documentElement.style.setProperty(name, value);
-          };
-
-          function paintTheme() {
-            var c = themeColors(env.win);
-            css('--boot-bg', c.bg);
-            css('--boot-text', c.text);
-            css('--boot-accent', c.accent);
-            css('--boot-accent-text', c.accentText);
-            return c;
-          }
 
           function show() {
             showTimer = null;
@@ -460,8 +427,6 @@
             fail('Проверь связь.');
           }, 0);
 
-          paintTheme();
-          if (env.onTheme) env.onTheme(paintTheme);
           var no = visitNo(env.store, Date.now ? Date.now() : 0);
           pending = sayingOf(no);
           showTimer = env.delay(show, debug ? 0 : SHOW_AFTER_MS);
@@ -501,7 +466,6 @@
           COUNT_KEY: COUNT_KEY,
           STAGES: STAGES,
           SAYINGS: SAYINGS,
-          themeColors: themeColors,
           visitNo: visitNo,
           sayingOf: sayingOf,
           create: create
@@ -514,7 +478,6 @@
       if (typeof document !== 'undefined') {
         window.__boot = TribeBoot.create({
           doc: document,
-          win: window,
           now: function () {
             return performance.now();
           },
@@ -547,13 +510,6 @@
               performance.mark('tribe-ready');
             } catch (e) {
               /* нет performance — не беда */
-            }
-          },
-          onTheme: function (repaint) {
-            try {
-              window.Telegram.WebApp.onEvent('themeChanged', repaint);
-            } catch (e) {
-              /* нет клиента — нечего слушать */
             }
           }
         });

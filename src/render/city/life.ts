@@ -16,8 +16,19 @@ import { distSeg, heightAt, insidePoly, type CityPlan, type P } from './layout';
 import { wallTops } from './forts';
 import { hash3, rnd } from './noise';
 import { linear } from './palette';
+import { armsCode, armsOr } from '@/heraldry/arms';
+import { TINCTURE_HEX } from '@/heraldry/art';
 import { LIFE_CAP } from './spec';
 export { LIFE_CAP } from './spec';
+
+/** Места стражи в кадре (`CityLife.guardsInto`): плоскими массивами, без мусора. */
+export interface GuardSpots {
+  x: Float32Array;
+  y: Float32Array;
+  z: Float32Array;
+  yaw: Float32Array;
+  moving: Uint8Array;
+}
 
 // ---------------------------------------------------------------------------------------------
 // Модели: фигура стоит в начале координат лицом на +x; масштаб — метры.
@@ -1207,6 +1218,10 @@ export class CityLife {
   /** Копейщики у ворот: по двое с каждой стороны проезда, стоят. */
   private gateGuards: THREE.InstancedMesh;
   private gatePosts: { x: number; y: number; z: number; yaw: number }[] = [];
+  /** Посты стражи у ворот: место и разворот — стенду, чтобы снять стражу вблизи (`?showcase=city&guard=N`). */
+  get posts(): readonly { x: number; y: number; z: number; yaw: number }[] {
+    return this.gatePosts;
+  }
   private beatStops: { s: number; half: number }[] = [];
   private beasts: THREE.InstancedMesh;
   private guardGait: THREE.InstancedBufferAttribute;
@@ -1220,6 +1235,9 @@ export class CityLife {
   private smokeOn: (SmokeSource & { thr: number })[] = [];
   private work: SmokeSource[] = [];
   private flags: THREE.Mesh;
+  /** Вершины полотнищ флагов: номер и доля длины (`setLivery` перекрашивает их в ливрею герба). */
+  private flagCloth: { i: number; u: number }[] = [];
+  private livery = '';
   private birds: THREE.Mesh;
   private time = { value: 0 };
   /** Ветер погоды: куда дует (оси мира) и сила — флагам; дыму — его снос (`setWind`). */
@@ -1435,8 +1453,27 @@ export class CityLife {
 
   /**
    * Флаги на башнях: древко и полотнище, полотнище вьётся в шейдере (ветер один на всех). Один меш на
-   * все флаги; цвет — красное поле города с золотой бахромой.
+   * все флаги; цвет — красное поле города с золотой бахромой, пока не приехал герб: дальше — ливрея герба (`setLivery`).
    */
+  /**
+   * Ливрея герба на флагах башен (П-2): полотнище — первой краской поля, бахрома — краской фигуры (металл к цвету, правило
+   * герба держит контраст). Герб тот же — ничего не делает.
+   */
+  setLivery(code: string | null | undefined): void {
+    const arms = armsOr(code);
+    const key = armsCode(arms);
+    if (key === this.livery) return;
+    this.livery = key;
+    const body = linear(parseInt(TINCTURE_HEX[arms.field[0]].slice(1), 16));
+    const fringe = linear(parseInt(TINCTURE_HEX[arms.tint].slice(1), 16));
+    const col = this.flags.geometry.getAttribute('color') as THREE.BufferAttribute;
+    for (const v of this.flagCloth) {
+      const c = v.u > 0.84 ? fringe : body;
+      col.setXYZ(v.i, c[0], c[1], c[2]);
+    }
+    col.needsUpdate = true;
+  }
+
   private buildFlags(tops: V3[]): THREE.Mesh {
     const pos: number[] = [];
     const nor: number[] = [];
@@ -1490,6 +1527,7 @@ export class CityLife {
           nor.push(-wz, 0, wx);
           // Красное полотнище с золотой бахромой на конце: одно поле, без полос (полосы читались чужим флагом).
           const c = u > 0.84 ? gold : red;
+          this.flagCloth.push({ i: pos.length / 3 - 1, u });
           col.push(...c);
           flap.push(u);
         }
@@ -1754,6 +1792,45 @@ export class CityLife {
     const from = a.s + a.half;
     const to = b.s - b.half;
     return { mid: (from + to) / 2, reach: Math.max(0.3, Math.min(22, (to - from) / 2)) };
+  }
+
+  /**
+   * Стража — бойцами роликов (`city/garrison.ts`, docs/polish.md, П-5): здесь остаются места и дозор, а рисует их толпа
+   * роликов, когда её кусок приехал. До того — прежние фигуры стражи; после — гаснут (факелы остаются здесь).
+   */
+  hideGuards(): void {
+    this.sentries.visible = false;
+    this.gateGuards.visible = false;
+  }
+
+  /**
+   * Где стоит стража в этом кадре: лучники на стене, потом копейщики у ворот. Разворот — как у фигур города (лицом на +x
+   * при нуле), `moving` — идёт ли дозорный. Возвращает, сколько записано; `wall` — сколько из них на стене.
+   */
+  guardsInto(out: GuardSpots): { count: number; wall: number } {
+    const wall = this.sentries.count;
+    const gate = this.gateGuards.count;
+    const gait = this.guardGait.array as Float32Array;
+    let n = 0;
+    const put = (im: THREE.InstancedMesh, i: number, moving: number): void => {
+      if (n >= out.x.length) return;
+      im.getMatrixAt(i, this.m4);
+      const e = this.m4.elements;
+      out.x[n] = e[12];
+      out.y[n] = e[13];
+      out.z[n] = e[14];
+      out.yaw[n] = Math.atan2(-e[2], e[0]);
+      out.moving[n] = moving;
+      n++;
+    };
+    for (let i = 0; i < wall; i++) put(this.sentries, i, gait[i * 2 + 1] > 0.5 ? 1 : 0);
+    for (let i = 0; i < gate; i++) put(this.gateGuards, i, 0);
+    return { count: n, wall };
+  }
+
+  /** Сколько мест стражи может понадобиться: лучники на стене и посты у ворот. */
+  get guardCap(): { wall: number; gate: number } {
+    return { wall: this.cap.guards, gate: this.gatePosts.length };
   }
 
   private place(im: THREE.InstancedMesh, k: number, x: number, y: number, z: number, yaw: number, scale: number): void {

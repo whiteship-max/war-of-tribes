@@ -10,6 +10,7 @@
 import type { Fate, Stage } from '@/world/types';
 import { makeCanvas } from '../paint';
 import { FRONT_R, FRONT_STAKES, REAR_R, REAR_STAKES, stakeOrder, stakesAt } from '../siegemark';
+import { CANVAS_TITLE, onFontsLoaded } from '@/ui/fonts/canvas';
 
 type C = CanvasRenderingContext2D;
 const TAU = Math.PI * 2;
@@ -204,6 +205,9 @@ export function dropMinis(): void {
   cacheBytes = 0;
 }
 
+// Знак участи печётся с подписью: доехал свой шрифт — печь заново (`ui/fonts/canvas`).
+onFontsLoaded(dropMinis);
+
 // ---------- Виды мест и войск: договор сцены, касания и ночи ----------
 
 /** Что за место: город или двор игрока, замок, логово, пепелище. */
@@ -248,7 +252,7 @@ export function worksSprite(front: number, rear: number, half: WorksHalf, cellPx
 // ---------- Знак участи ----------
 
 const FELL_H = 18;
-const FELL_FONT = "600 11px Georgia, 'Times New Roman', serif";
+const FELL_FONT = `600 12px ${CANVAS_TITLE}`;
 /** Светлые чернила знака участи на тёмной плашке. */
 const FELL_INK = '#efe3c8';
 

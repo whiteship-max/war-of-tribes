@@ -6,6 +6,7 @@ import { WORLD_ORIGIN, WORLD_SIZE } from '@/world/data/tuning';
 import { GRID } from './palette';
 import { type Camera, type Viewport, toScreen, viewRect } from './grid';
 import { type MarkerKind } from './village';
+import { CANVAS_SANS } from '@/ui/fonts/canvas';
 
 /** Сетка подписана только по пятёркам: на каждой клетке цифры сливаются в шум. */
 const GRID_STEP = 5;
@@ -46,7 +47,7 @@ export function drawGrid(
   }
   ctx.stroke();
 
-  ctx.font = '10px system-ui, sans-serif';
+  ctx.font = `12px ${CANVAS_SANS}`;
   ctx.textBaseline = 'middle';
   const plate = (text: string, cx: number, cy: number): void => {
     const w = ctx.measureText(text).width + 8;

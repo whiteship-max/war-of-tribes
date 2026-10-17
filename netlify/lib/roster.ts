@@ -21,6 +21,7 @@ import { botToken } from './http.js';
 import { placeCastle, settleRandom, type Spot } from '../../src/world/settle.js';
 import { SPAWNS, inSicilyTheatre, type SpawnMode } from '../../src/world/spawn.js';
 import { ATLAS_HASH } from '../../src/world/atlas/data.js';
+import { readArms } from '../../src/heraldry/arms.js';
 import { cityName, type CastleClaim, type CastleRow, type CastleView, type RosterFile } from './contract.js';
 
 /**
@@ -70,6 +71,8 @@ export function readRoster(raw: unknown): RosterFile {
       name: typeof c.name === 'string' ? c.name : '',
       // Имя города чистится и на чтении: строка могла лечь до правила об имени.
       ...(cityName(c.city) ? { city: cityName(c.city) as string } : {}),
+      // Герб — тоже: строка не из набора соседям не уедет (набор мог сузиться новой сборкой).
+      ...(readArms(c.arms) ? { arms: c.arms as string } : {}),
       power: Math.max(0, Math.floor(Number(c.power) || 0)),
       pop: Math.max(0, Math.floor(Number(c.pop) || 0)),
       seenAt: Math.max(0, Math.floor(Number(c.seenAt) || 0)),
@@ -139,6 +142,7 @@ export function upsert(file: RosterFile, key: string, claim: CastleClaim, now: n
         y: at.y,
         name: claim.name,
         ...(cityName(claim.city) ? { city: cityName(claim.city) as string } : {}),
+        ...(readArms(claim.arms) ? { arms: claim.arms } : {}),
         power: claim.power,
         pop: claim.pop,
         seenAt: now,
@@ -196,7 +200,7 @@ export function prune(file: RosterFile, now: number, keep: string): RosterFile {
 }
 
 /**
- * Стоит ли вообще писать. Строка переписывается ради трёх вещей — имени, мощи и
+ * Стоит ли вообще писать. Строка переписывается ради имени, герба, мощи и
  * отметки «был в игре»; если ничего из этого не сдвинулось заметно, а с
  * прошлой записи прошло меньше срока, запись не нужна вовсе.
  *
@@ -207,7 +211,8 @@ export function worthWriting(file: RosterFile, key: string, claim: CastleClaim, 
   const had = file.rows[key];
   if (!had) return true;
   const sameCity = (cityName(had.city) ?? '') === (cityName(claim.city) ?? '');
-  if (had.name !== claim.name || !sameCity || had.power !== claim.power || had.pop !== claim.pop) {
+  const sameArms = (had.arms ?? '') === (readArms(claim.arms) ? claim.arms : '');
+  if (had.name !== claim.name || !sameCity || !sameArms || had.power !== claim.power || had.pop !== claim.pop) {
     return true;
   }
   return now - had.seenAt >= quiet;

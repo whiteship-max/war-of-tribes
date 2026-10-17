@@ -34,7 +34,7 @@
 import { useSyncExternalStore } from 'react';
 import { setSoundLevel, setSoundOn, soundLevel, soundOn, subscribeSound, type SoundKind } from '@/sound/settings';
 import { GFX_QUALITIES, gfx, levelNow, setGfx, subscribeGfx } from '@/render/gfx';
-import { battleMusic } from '@/sound/web';
+import { battleMusicDoor } from '@/sound/door';
 import { cityAudio } from '@/sound/city';
 import { Icon } from '@/ui/icons/Icon';
 import { NOTIFY_ON, notifyState, setNotifyOn, subscribeNotify } from '@/net/notify';
@@ -68,6 +68,7 @@ import { hintsOff, setHintsOff } from '@/game/sim/hints';
  */
 const musicLevel = (): number => soundLevel('music');
 const fxLevel = (): number => soundLevel('fx');
+const ambLevel = (): number => soundLevel('amb');
 
 export function Settings() {
   const on = useSyncExternalStore(subscribeSound, soundOn, soundOn);
@@ -77,12 +78,13 @@ export function Settings() {
     const next = !on;
     setSoundOn(next);
     cityAudio.toggle(next);
-    if (!next) battleMusic.toggle(false);
+    if (!next) battleMusicDoor.off();
   };
   // Громкости — тоже подпиской: снимок `soundOn` от них не меняется, и без своих снимков полоса не двигалась бы.
   const levels: Record<SoundKind, number> = {
     music: useSyncExternalStore(subscribeSound, musicLevel, musicLevel),
     fx: useSyncExternalStore(subscribeSound, fxLevel, fxLevel),
+    amb: useSyncExternalStore(subscribeSound, ambLevel, ambLevel),
   };
   const level = (kind: SoundKind): number => Math.round(levels[kind] * 100);
 
@@ -128,13 +130,14 @@ export function Settings() {
             </span>
             <span className="name">
               Громкость
-              <em className="sub">Своя для музыки и для звуков</em>
+              <em className="sub">Своя для музыки, эффектов и окружения</em>
             </span>
             <div className="set-vol">
               {(
                 [
                   ['music', 'Музыка'],
-                  ['fx', 'Звуки'],
+                  ['fx', 'Эффекты'],
+                  ['amb', 'Окружение'],
                 ] as const
               ).map(([kind, label]) => (
                 <label key={kind}>

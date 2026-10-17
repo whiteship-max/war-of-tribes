@@ -13,7 +13,7 @@ import { useWorld } from '@/world/store';
 import { PHASE_NAME, describeEvent, type Side } from '@/battle';
 import { setBattleWatch } from '@/game/battle/actions';
 import { beastWords } from '@/game/battle/beasts';
-import { battleMusic } from '@/sound/web';
+import { battleMusicDoor } from '@/sound/door';
 import type { BattleRecord, Report } from '@/world/types';
 import { Icon } from '@/ui/icons/Icon';
 import { SIDE_VARS } from '@/side';
@@ -53,7 +53,8 @@ type ReplayProps = { rec: BattleRecord; report?: Report; onDone: () => void };
  * сборка падает.
  *
  * Музыка боя сюда не переезжает: её контекст открывается прямо в обработчике
- * нажатия (`battleMusic.arm()`), а `import()` жест теряет.
+ * нажатия (`battleMusicDoor.arm()`, дверь звука из первой загрузки), а `import()` жест
+ * теряет; сам движок с музыкой — докачкой после нажатия (П-3).
  *
  * Не `lazy`, а своя загрузка — потому что кусок может не приехать: игра работает без
  * сети, и бой без сети случается. Упавший `lazy` без границы ошибок уронил бы всё
@@ -149,7 +150,7 @@ function SiegeButtons({ report }: { report: Report & { siege: SiegeRecord } }) {
         <button
           className="btn"
           onClick={() => {
-            battleMusic.arm();
+            battleMusicDoor.arm();
             setPlaying('all');
           }}
         >
@@ -163,7 +164,7 @@ function SiegeButtons({ report }: { report: Report & { siege: SiegeRecord } }) {
               className="btn ghost"
               key={`${c.kind}:${c.k}`}
               onClick={() => {
-                battleMusic.arm();
+                battleMusicDoor.arm();
                 setPlaying(c);
               }}
             >
@@ -283,7 +284,7 @@ export function ReportPanel({ id }: { id: string }) {
                 // Единственный жест, на котором звук вообще может открыться:
                 // в вебвью Telegram он сам не заиграет, а другого нажатия перед
                 // роликом нет. Открыть контекст надо прямо здесь, в обработчике.
-                battleMusic.arm();
+                battleMusicDoor.arm();
                 setWatch(true);
                 act((g) => setBattleWatch(g, true));
                 setPlaying(true);

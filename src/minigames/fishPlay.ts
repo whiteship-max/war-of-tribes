@@ -26,7 +26,9 @@ import type { Season } from '@/game/types';
 import type { Zone } from '@/render/climate';
 import { haptic } from '@/telegram/webapp';
 import { dec } from '@/game/num';
-import { tufts } from './models';
+import { NatureMats, bloomSpots, flower, grassClump, grassSpots, scatter } from './nature';
+import { DENSITY } from './places';
+import type { Tier } from '@/prologue/look';
 import { Sparks, type Burst } from './sparks';
 import {
   BANK_Z,
@@ -51,6 +53,7 @@ import {
   fishGeometry,
   fishLength,
   fishMaterial,
+  fishMotion,
   floatMesh,
   forestBand,
   headland,
@@ -58,7 +61,7 @@ import {
   reedsMesh,
   shoreRocks,
   snagMesh,
-  treesMesh,
+  treesGroup,
   bankGround,
   waterMesh,
   waterUniforms,
@@ -69,7 +72,9 @@ import {
 import { FishRig } from './fishRig';
 import { fishSound, type Ear, type FishSound } from './fishSound';
 import type { Hour, Tally, Target } from './rules';
-import type { Play } from './stage';
+import { WATER_OF, solarOf, type Play } from './stage';
+import { nightOf } from '@/render/water/moon';
+import { syncWaterLight } from '@/render/water/material';
 import { LAYOUT_OF } from './pad';
 
 /** Где ловят: берег, пояс, сезон и дождь — оболочка выводит их из города (`ui/parts/weather`). */
@@ -137,6 +142,7 @@ const _q2 = new THREE.Quaternion();
 const _x = new THREE.Vector3(1, 0, 0);
 const _e = new THREE.Euler();
 const _col = new THREE.Color();
+const _col2 = new THREE.Color();
 const _la = new THREE.Vector3();
 const _lb = new THREE.Vector3();
 const smooth = (k: number): number => {
@@ -171,7 +177,12 @@ export class FishPlay implements Play {
   private linePos: Float32Array = new Float32Array(0);
   private marker: THREE.Mesh | null = null;
   private fish = new Map<FishId, THREE.Mesh>();
+  /** Ступень входа (`Play.dress`) и материалы берега (`nature.ts`). */
+  private tier: Tier = 'lite';
+  private mats: NatureMats | null = null;
   private shine = { value: 1 };
+  /** Изгиб тела рыбы (`fishModels.fishMotion`): плывёт, бьётся на крючке, бьёт хвостом в руке. */
+  private motion = fishMotion();
   private sparks = new Sparks(0.05);
   /** Капли с рыбы в руке — мельче брызг: у самых глаз крупная точка читалась бы шаром. */
   private drips = new Sparks(0.008);
@@ -224,12 +235,15 @@ export class FishPlay implements Play {
 
   // ---------- Берег ----------
 
+  /** Подробность деревьев и травы берега по ступени входа (`places.DENSITY`). Зовётся до `land`. */
+  dress(tier: Tier): void {
+    this.tier = tier;
+  }
+
   land(scene: THREE.Scene, surfaces: Surfaces, _shade: Shade, season: Season): void {
     const { shore, zone } = this.ctx;
     const f = this.game.field;
     const w = this.world;
-    // Дождь мочит берег: та же сырость, что у поляны предыстории в дождь.
-    surfaces.u.wet.value = Math.min(0.5, this.ctx.rain * 0.6);
     w.add(surfaces.adopt(bankGround(shore, season)));
     if (shore === 'river') {
       w.add(surfaces.adopt(farBank(season)), surfaces.adopt(forestBand()));
@@ -246,18 +260,23 @@ export class FishPlay implements Play {
     // Деревья: ближние отбрасывают тень на свой берег, дальние — нет (тень за коробкой теней — пустая трата прохода).
     const trees = layTrees(shore, zone, 3);
     const nearTree = (t: { x: number; z: number }): boolean => t.z > BANK_Z && Math.hypot(t.x, t.z) < 22;
-    w.add(surfaces.adopt(treesMesh(trees.filter(nearTree), season), 'crown'));
-    const far = surfaces.adopt(treesMesh(trees.filter((t) => !nearTree(t)), season), 'crown');
-    far.castShadow = false;
-    w.add(far);
-    // Трава у ног — пучками, не у самой воды.
-    // Вода отрезана огромным кругом: его край у кромки почти прям — травы в воде нет.
-    w.add(surfaces.adopt(tufts(season, [{ x: 0, z: BANK_Z - 400, r: 400.9 }], { count: 260, from: 1.2, to: 15, x: 0, z: 5 }), 'tuft'));
+    // Мягкие деревья, трава и цветы — местами промыслов (`nature.ts`, П-4).
+    this.mats = new NatureMats(surfaces.u);
+    const d = DENSITY[this.tier];
+    w.add(treesGroup(trees.filter(nearTree), season, this.mats, true, d.near));
+    w.add(treesGroup(trees.filter((t) => !nearTree(t)), season, this.mats, false, d.far));
+    // Трава у ног — пучками, не у самой воды: вода отрезана огромным кругом, его край у кромки почти прям.
+    const water = [{ x: 0, z: BANK_Z - 400, r: 400.9 }];
+    const grass = scatter(grassClump(9, season, 3), this.mats.of('grass'), grassSpots(Math.round(d.grass * 0.5), 0, 5, 1.2, 15, 0.24, 0.5, water, 31), 'grass');
+    const bloom = scatter(flower(), this.mats.of('grass'), bloomSpots(Math.round(d.bloom * 0.4), 0, 6, 2, 14, season, water, 37), 'bloom');
+    for (const m of [grass, bloom]) if (m) w.add(m);
     w.add(waterMesh(shore, this.water));
-    this.water.wSea.value = shore === 'sea' ? 1 : 0;
-    this.water.wFlow.value.set(shore === 'river' ? 0.35 : 0, 0);
-    this.water.wRot.value = SHORE_YAW;
-    this.water.wRain.value = Math.min(1, this.ctx.rain);
+    // Течение реки — вдоль берега (ось x правила); море стоит. Ступень промысла — уровень воды (`render/water`).
+    this.water.wFlow.value = shore === 'river' ? 0.35 : 0;
+    this.water.wYaw.value = SHORE_YAW;
+    this.water.wRainK.value = Math.min(1, this.ctx.rain);
+    this.water.wCloud.value = Math.min(1, this.ctx.rain * 1.4);
+    this.water.wLod.value = WATER_OF[this.tier];
     scene.add(w);
   }
 
@@ -282,7 +301,7 @@ export class FishPlay implements Play {
     this.marker.visible = false;
     this.world.add(this.marker);
     // Рыбы этого берега — по мешу на вид; видна одна, та, что на крючке или в руке.
-    const mat = fishMaterial(this.shine);
+    const mat = fishMaterial(this.shine, this.motion);
     for (const def of poolOf(this.game.setting)) {
       const m = new THREE.Mesh(fishGeometry(def.id), mat);
       m.visible = false;
@@ -494,7 +513,7 @@ export class FishPlay implements Play {
     this.sparks.frame(dt);
     this.drips.frame(dt);
     this.water.wTime.value = this.clock;
-    const rv = this.water.wRings.value;
+    const rv = this.water.wSplash.value;
     for (let i = 0; i < RINGS; i++) {
       const r = this.rings[i];
       if (r) rv[i].set(r.x, r.z, r.t0, r.a);
@@ -610,10 +629,16 @@ export class FishPlay implements Play {
     const bg = this.scene.background as THREE.Color | null;
     if (!sun || !bg) return;
     const s = sun as THREE.DirectionalLight;
-    this.water.wSun.value.copy(s.position).sub(s.target.position).normalize();
-    this.water.wSunCol.value.copy(s.color).multiplyScalar(Math.min(1.6, s.intensity));
-    this.water.wHor.value.copy(bg);
-    this.water.wSky.value.copy(bg).lerp(_col.setHex(0x5f8fc4), 0.55);
+    // Ночь — по часу города (`stage.solarOf`): после заката солнце рига уже луна, и блик в воде — лунная дорожка.
+    const night = nightOf(solarOf(this.ctx.hour ?? 'dawn', this.solar));
+    syncWaterLight(this.water, {
+      sun: s,
+      zenith: _col.copy(bg).lerp(_col2.setHex(0x5f8fc4), 0.55 * (1 - night)),
+      horizon: bg,
+      night,
+      rain: Math.min(1, this.ctx.rain),
+      cloud: Math.min(1, this.ctx.rain * 1.4),
+    });
     this.sunRead = this.clock > 0;
   }
 
@@ -790,6 +815,9 @@ export class FishPlay implements Play {
   private syncFish(t: number, dt: number): void {
     const g = this.game;
     for (const m of this.fish.values()) m.visible = false;
+    // Изгиб тела: ось — вбок, у камбалы, лежащей плашмя, — вверх-вниз (`FishMotion.axis`).
+    const def = g.phase === 'show' ? this.shown?.def : g.fish?.def;
+    if (def) this.motion.axis.value.set(0, FISH_LOOK[def.id].flat ? 1 : 0, FISH_LOOK[def.id].flat ? 0 : 1);
     if (g.phase === 'show' && this.shown) {
       this.showFish(t);
       return;
@@ -819,7 +847,13 @@ export class FishPlay implements Play {
     let roll = Math.sin(this.clock * 11) * 0.25 * (0.4 + thrash);
     let pitch = 0;
     const j = this.clock - this.jumpAt;
+    // Плывёт и бьётся: волна по телу тем чаще и шире, чем сильнее рвётся; в прыжке — изо всех сил.
+    const fightBend = 0.35 + 0.55 * thrash;
+    this.motion.bend.value += (fightBend - this.motion.bend.value) * (1 - Math.exp(-dt * 6));
+    this.motion.phase.value += dt * (8 + 9 * thrash);
     if (j >= 0 && j < JUMP_S) {
+      this.motion.bend.value = 0.95;
+      this.motion.phase.value += dt * 10;
       // Прыжок: дуга над водой, рыба трясёт головой и падает боком.
       const u = j / JUMP_S;
       y = WATER_Y - 0.1 + (0.6 + len * 0.5) * 4 * u * (1 - u);
@@ -874,6 +908,9 @@ export class FishPlay implements Play {
     m.position.copy(_v);
     // Голова вверх (висит на крючке за губу), бок — к глазу, хвост бьёт.
     const flap = Math.sin(age * 13) * 0.35 * Math.exp(-age * 0.6);
+    // Тело бьётся волной вместе с хвостом: сильно сперва, потом изредка вздрагивает.
+    this.motion.bend.value = 0.2 + 0.8 * Math.exp(-age * 0.6) + 0.25 * Math.max(0, Math.sin(age * 1.7)) ** 8;
+    this.motion.phase.value = age * 13;
     _q.setFromEuler(_e.set(0, cam.rotation.y - SHORE_YAW + flap, Math.PI / 2 - 0.12, 'YXZ'));
     // Камбала плоская: к глазу — её широкая спина, а не ребро.
     if (FISH_LOOK[fish.def.id].flat) _q.multiply(_q2.setFromAxisAngle(_x, Math.PI / 2));
@@ -949,6 +986,7 @@ export class FishPlay implements Play {
   }
 
   dispose(): void {
+    this.mats?.dispose();
     this.sound?.stop();
     this.rig?.dispose();
     this.sparks.dispose();

@@ -10,7 +10,7 @@
 
 import type { Season } from '@/game/types';
 import { pick, span, type Rng } from './rng';
-import { anvil, bell, bird, cricket, noiseLoop, voice, type BirdKind, type Kit } from './synth';
+import { anvil, bell, bird, cricket, drip, noiseLoop, voice, type BirdKind, type Kit } from './synth';
 
 /** Что слышит игрок. */
 export interface Hearing {
@@ -43,6 +43,9 @@ export const CALM: WeatherSound = { rain: 0, snow: 0, storm: 0, wind: 0.4 };
 export type Layer = 'wind' | 'whistle' | 'hum' | 'sea' | 'market' | 'forge' | 'birds' | 'crickets' | 'bells' | 'rain';
 
 export const LAYERS: readonly Layer[] = ['wind', 'whistle', 'hum', 'sea', 'market', 'forge', 'birds', 'crickets', 'bells', 'rain'];
+
+/** Карта тише: её постели — во всю ширину кадра, без городского гомона поверх (П-3). */
+const MAP_LEVEL = 0.66;
 
 /** Плавная ступенька: 0 до `a`, 1 после `b`. */
 const step = (x: number, a: number, b: number): number => {
@@ -99,11 +102,12 @@ export function mixOf(h: Hearing): Record<Layer, number> {
     };
   }
   if (h.view === 'map') {
+    // Карта — вровень с городом (П-3: её ветер и море стояли на 4 дБ громче фона города, `npm run audio:samples`).
     return {
-      wind: cap((0.55 + (winter ? 0.2 : 0)) * gust),
-      whistle: cap((winter ? 0.35 : 0.12) * gust * (1 + wx.storm)),
+      wind: cap((0.55 + (winter ? 0.2 : 0)) * gust) * MAP_LEVEL,
+      whistle: cap((winter ? 0.35 : 0.12) * gust * (1 + wx.storm)) * MAP_LEVEL,
       hum: 0,
-      sea: Math.min(1, h.sea * 1.3),
+      sea: Math.min(1, h.sea * 1.3) * MAP_LEVEL,
       market: 0,
       forge: 0,
       birds: 0,
@@ -124,9 +128,43 @@ export function mixOf(h: Hearing): Record<Layer, number> {
     birds: BIRDS[h.season] * Math.max(morning(h.solar), 0.3 * work) * dry,
     crickets: CRICKETS[h.season] * nite * dry,
     bells: 1 - nite,
-    rain: wx.rain * (0.7 + 0.3 * h.near),
+    rain: wx.rain,
   };
 }
+
+/** Слои дождя по его силе (`rainLayers`): что звучит при мороси, при дожде и в ливень. */
+export interface RainLayers {
+  /** Морось — тонкий шелест верхов: слышна в слабый дождь, в ливне тонет. */
+  drizzle: number;
+  /** Дождь — шум середины полосы, тело дождя. */
+  steady: number;
+  /** Ливень — низкий гул воды. */
+  heavy: number;
+  /** Дробь капель по кровлям — вблизи улиц. */
+  patter: number;
+  /** Капли с карнизов в лужи — вблизи и в некрупный дождь (в ливне их не слышно). */
+  drips: number;
+}
+
+/**
+ * Дождь слоями по силе (docs/polish.md, П-3): не один шум громче и тише, а смена тембра — морось шелестит верхами, дождь
+ * шумит серединой, ливень гудит низом; вблизи улиц — дробь по кровлям и капли с карнизов. `rain` — сила дождя 0..1,
+ * `near` — близость камеры к улицам (на карте 0).
+ */
+export function rainLayers(rain: number, near: number): RainLayers {
+  const r = Math.min(1, Math.max(0, rain));
+  return {
+    // Морось стихает, пока входит гул ливня, — так, чтобы общая сила не проседала (тест «громче с силой ровно»).
+    drizzle: step(r, 0.02, 0.22) * (1 - 0.6 * step(r, 0.5, 1)),
+    steady: step(r, 0.15, 0.7),
+    heavy: step(r, 0.4, 1),
+    patter: step(r, 0.08, 0.5) * (0.2 + 0.8 * near),
+    drips: step(r, 0.02, 0.15) * (1 - 0.75 * step(r, 0.45, 0.9)) * (0.15 + 0.85 * near),
+  };
+}
+
+/** Доли слоёв дождя на выходе — выставлены офлайн-отрисовкой (`npm run audio:samples`: `rain-light`, `rain-heavy`). */
+export const RAIN_MIX: Record<keyof RainLayers, number> = { drizzle: 0.85, steady: 1, heavy: 0.9, patter: 0.55, drips: 0.65 };
 
 /** Снег глушит город: срез верхов на всём городском — пока снег лежит (на Сицилии зимой — только после снегопада). */
 export const muffleOf = (h: Hearing): number =>
@@ -165,11 +203,11 @@ export const AMB_MIX: Record<Layer, number> = {
   birds: 0.06,
   crickets: 0.025,
   bells: 0.12,
-  rain: 0.14,
+  rain: 0.085,
 };
 
-/** Гром — громче фона, но не пугает: на уровне колокола. */
-export const THUNDER_MIX = 0.16;
+/** Гром — громче фона, но не пугает: на уровне колокола (П-3: пик близкого грома около −18 дБ при умолчаниях). */
+export const THUNDER_MIX = 0.13;
 
 /** Постоянная перелива слоёв, с: приблизил камеру — за пару секунд, сменилось время суток — ещё мягче. */
 export const GLIDE = 1.2;
@@ -183,12 +221,12 @@ interface Bed {
 export class Ambience {
   private mix: Record<Layer, number>;
   private hearing: Hearing;
-  private beds: Partial<Record<'wind' | 'whistle' | 'hum' | 'sea' | 'foam' | 'rain' | 'patter', Bed>> = {};
+  private beds: Partial<Record<'wind' | 'whistle' | 'hum' | 'sea' | 'foam' | 'drizzle' | 'rain' | 'heavy' | 'patter', Bed>> = {};
   /** Всё городское — сквозь срез «снега». */
   private muffle: BiquadFilterNode;
   /** Голоса рынка — сквозь срез дали: издали гомон, вблизи разборчивее. */
   private marketTone: BiquadFilterNode;
-  private next: Record<'forge' | 'birds' | 'crickets' | 'market' | 'gust' | 'swell', number>;
+  private next: Record<'forge' | 'birds' | 'crickets' | 'market' | 'gust' | 'swell' | 'patter' | 'drips', number>;
   /** У кузнеца своя наковальня: высота удара одна на игру. */
   private anvilHz: number;
   private rnd: Rng;
@@ -229,14 +267,17 @@ export class Ambience {
     this.beds.wind = bed(true, 'lowpass', 500, 0.7, out);
     this.beds.hum = bed(true, 'lowpass', 260, 0.5, this.muffle);
     this.beds.sea = bed(true, 'lowpass', 650, 0.5, out);
-    // Дождь: шелест — белый шум в середине полосы; крупные капли по крышам — его верх отдельно (не на слабом).
-    this.beds.rain = bed(false, 'bandpass', 1500, 0.45, out);
+    // Дождь слоями (`rainLayers`): морось — верхи белого шума, дождь — середина полосы, ливень — бурый низ; дробь по
+    // кровлям — верх с дрожью громкости (не на слабом).
+    this.beds.drizzle = bed(false, 'highpass', 4800, 0.5, out);
+    this.beds.rain = bed(false, 'bandpass', 1200, 0.35, out);
+    this.beds.heavy = bed(true, 'lowpass', 520, 0.4, out);
     if (!kit.lite) {
       this.beds.whistle = bed(false, 'bandpass', 900, 9, out);
       this.beds.foam = bed(false, 'highpass', 2600, 0.5, out);
-      this.beds.patter = bed(false, 'highpass', 4200, 0.6, out);
+      this.beds.patter = bed(false, 'highpass', 2800, 0.6, out);
     }
-    this.next = { forge: at + span(this.rnd, 1, 4), birds: at + span(this.rnd, 0.5, 3), crickets: at + 0.5, market: at + 0.3, gust: at, swell: at };
+    this.next = { forge: at + span(this.rnd, 1, 4), birds: at + span(this.rnd, 0.5, 3), crickets: at + 0.5, market: at + 0.3, gust: at, swell: at, patter: at, drips: at + 0.5 };
     this.level(at, 0.4);
   }
 
@@ -257,18 +298,26 @@ export class Ambience {
     for (let i = 0; i < strikes; i++) bell(this.kit, this.muffle, at + i * 2.6, base, AMB_MIX.bells * this.mix.bells);
   }
 
+  /** Слои дождя сейчас: на карте дроби и капель с карнизов нет — улиц не слышно. */
+  private rainNow(): RainLayers {
+    return rainLayers(this.mix.rain, this.hearing.view === 'city' ? this.hearing.near : 0);
+  }
+
   private level(at: number, glide: number): void {
     const m = this.mix;
     const set = (b: Bed | undefined, v: number): void => {
       b?.gain.gain.setTargetAtTime(v, at, glide);
     };
+    const r = this.rainNow();
     set(this.beds.wind, m.wind * AMB_MIX.wind);
     set(this.beds.whistle, m.whistle * AMB_MIX.whistle);
     set(this.beds.hum, m.hum * AMB_MIX.hum);
     set(this.beds.sea, m.sea * AMB_MIX.sea);
     set(this.beds.foam, m.sea * AMB_MIX.sea * 0.12);
-    set(this.beds.rain, m.rain * AMB_MIX.rain);
-    set(this.beds.patter, m.rain * AMB_MIX.rain * 0.35);
+    set(this.beds.drizzle, r.drizzle * RAIN_MIX.drizzle * AMB_MIX.rain);
+    set(this.beds.rain, r.steady * RAIN_MIX.steady * AMB_MIX.rain);
+    set(this.beds.heavy, r.heavy * RAIN_MIX.heavy * AMB_MIX.rain);
+    set(this.beds.patter, r.patter * RAIN_MIX.patter * AMB_MIX.rain);
   }
 
   /**
@@ -332,8 +381,10 @@ export class Ambience {
       }
       this.beds.whistle?.filter.frequency.setTargetAtTime(span(rnd, 600, 1300), t, 2.5);
       this.beds.whistle?.gain.gain.setTargetAtTime(m.whistle * AMB_MIX.whistle * gust, t, 1.5);
-      // Порыв гонит и дождь: шелест крепнет и стихает с ветром.
-      this.beds.rain?.gain.gain.setTargetAtTime(m.rain * AMB_MIX.rain * (0.75 + 0.25 * gust), t, 1.5);
+      // Порыв гонит и дождь: шум крепнет и стихает с ветром.
+      const r = this.rainNow();
+      this.beds.rain?.gain.gain.setTargetAtTime(r.steady * RAIN_MIX.steady * AMB_MIX.rain * (0.75 + 0.25 * gust), t, 1.5);
+      this.beds.heavy?.gain.gain.setTargetAtTime(r.heavy * RAIN_MIX.heavy * AMB_MIX.rain * (0.7 + 0.3 * gust), t, 1.5);
       this.next.gust = t + span(rnd, 2.5, 6);
     }
     // Волна: набегает за пару секунд и отходит.
@@ -348,6 +399,25 @@ export class Ambience {
         this.beds.foam?.gain.gain.setTargetAtTime(m.sea * AMB_MIX.sea * 0.05, t + len * 0.55, 1.2);
       }
       this.next.swell = t + len;
+    }
+    // Дробь по кровлям: громкость дрожит каждую десятую долю секунды — отдельные капли, а не ровный шум.
+    while (due('patter')) {
+      const t = at('patter');
+      const p = this.beds.patter;
+      const r = this.rainNow();
+      if (p && r.patter > 0.01) {
+        p.gain.gain.setTargetAtTime(r.patter * RAIN_MIX.patter * AMB_MIX.rain * span(rnd, 0.35, 1.4), t, 0.025);
+        this.next.patter = t + span(rnd, 0.05, 0.16);
+      } else this.next.patter = t + 0.5;
+    }
+    // Капли с карнизов: «плинк» в лужу то тут, то там — в некрупный дождь вблизи улиц.
+    while (due('drips')) {
+      const t = at('drips');
+      const r = this.rainNow();
+      if (!kit.lite && r.drips > 0.03) {
+        drip(kit, this.muffle, t, RAIN_MIX.drips * AMB_MIX.rain * r.drips * span(rnd, 0.4, 1), span(rnd, -0.8, 0.8));
+        this.next.drips = t + span(rnd, 0.12, 0.9) / Math.max(0.25, r.drips);
+      } else this.next.drips = t + 0.6;
     }
     // Кузница: два-четыре удара, передышка. Чем ближе камера, тем чаще слышно.
     while (due('forge')) {

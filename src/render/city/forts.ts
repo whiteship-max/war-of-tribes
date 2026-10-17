@@ -113,7 +113,14 @@ export interface Merlon {
  * без щели, потому что соседний кусок кончается в той же точке, внутри башни. Зубец стоит, только если весь
  * вне башен: наполовину в стене башни он торчал бы из неё, над пустым — висел бы.
  */
-export function wallPlan(pts: readonly P[], center: P, towers: readonly Tower[], detail: Detail, covered: (s: number, p: P) => boolean): { pieces: WallPiece[]; merlons: Merlon[] } {
+export function wallPlan(
+  pts: readonly P[],
+  center: P,
+  towers: readonly Tower[],
+  detail: Detail,
+  covered: (s: number, p: P) => boolean,
+  skip: (p: P, q: P) => boolean = () => false,
+): { pieces: WallPiece[]; merlons: Merlon[] } {
   const n = pts.length;
   // Нормали наружу в вершинах.
   const nx: number[] = [];
@@ -189,7 +196,8 @@ export function wallPlan(pts: readonly P[], center: P, towers: readonly Tower[],
       const o1: [number, number] = [B.pt.x + B.n[0] * half, B.pt.z + B.n[1] * half];
       const i0: [number, number] = [A.pt.x - A.n[0] * half, A.pt.z - A.n[1] * half];
       const i1: [number, number] = [B.pt.x - B.n[0] * half, B.pt.z - B.n[1] * half];
-      const hidden = towers.some((t) => [o0, o1, i0, i1].every(([x, z]) => inTowerShape(t, x, z, -0.05)));
+      // Звено, которого нет (`skip`: стену там рисует ролик, docs/polish.md, П-6), — как звено в башне: не рисуется.
+      const hidden = skip(A.pt, B.pt) || towers.some((t) => [o0, o1, i0, i1].every(([x, z]) => inTowerShape(t, x, z, -0.05)));
       // Низ — ниже самой низкой земли куска по обеим кромкам и оси: между концами земля бывает ниже (ров).
       let lo = Infinity;
       for (let u = 0; u <= 4; u++) {
@@ -317,8 +325,16 @@ export const MERLON_FOOT = [MERLON_W, PARAPET_T] as const;
  * Стена по замкнутому контуру. `center` — точка внутри (куда смотрит «внутрь»). `covered(s)` —
  * крыт ли ход на длине `s` по контуру. Раскладка — `wallPlan`.
  */
-export function cityWall(b: Builder, pts: readonly P[], center: P, towers: readonly Tower[], detail: Detail, covered: (s: number, p: P) => boolean): void {
-  const { pieces, merlons } = wallPlan(pts, center, towers, detail, covered);
+export function cityWall(
+  b: Builder,
+  pts: readonly P[],
+  center: P,
+  towers: readonly Tower[],
+  detail: Detail,
+  covered: (s: number, p: P) => boolean,
+  skip?: (p: P, q: P) => boolean,
+): void {
+  const { pieces, merlons } = wallPlan(pts, center, towers, detail, covered, skip);
   const T = stoneT();
   const Tdark = stoneT(0.92);
   const up: V3 = [0, 1, 0];
@@ -517,7 +533,8 @@ export function tower(b: Builder, t: Tower, detail: Detail): V3[] {
       }
     }
   }
-  lights.push([t.x - fx * (s / 2 + 0.3), t.base + 3.5, t.z - fz * (s / 2 + 0.3)]);
+  // От пола проезда, а не от подножия: на склоне пол ворот выше, и факел от подножия лежал бы на земле или под ней.
+  lights.push([t.x - fx * (s / 2 + 0.3), Math.max(t.base, t.floor ?? t.base) + 3.5, t.z - fz * (s / 2 + 0.3)]);
   return lights;
 }
 

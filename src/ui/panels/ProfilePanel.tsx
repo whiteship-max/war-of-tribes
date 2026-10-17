@@ -16,10 +16,11 @@
 import { useState } from 'react';
 import { useGame } from '@/game/store';
 import { RESOURCE_IDS, RESOURCE_META } from '@/game/constants';
-import { NAME_MAX, cardSrc, faceSrc, profileAvatar, profileName } from '@/profile/identity';
+import { NAME_MAX, profileArms, profileName } from '@/profile/identity';
 import { PROFILE_DAYS, setName } from '@/profile/stats';
 import { buildingsPower, power, troopsPower } from '@/profile/power';
-import { AvatarPicker } from '../parts/AvatarPicker';
+import { ArmsArt } from '../parts/Arms';
+import { ArmsMaker } from '../parts/ArmsMaker';
 import { Icon } from '@/ui/icons/Icon';
 import { Settings } from '../parts/Settings';
 import { SyncStatus } from '../parts/Sync';
@@ -147,33 +148,16 @@ export function ProfilePanel() {
     setRenaming(false);
   };
 
-  // Выбор лица — не отдельный раздел шторки: снаружи на него ничего не ведёт,
+  // Конструктор герба — не отдельный раздел шторки: снаружи на него ничего не ведёт,
   // а возврат к профилю должен быть в один тап (как карточка вида в дружине).
-  if (picking) return <AvatarPicker onBack={() => setPicking(false)} />;
+  if (picking) return <ArmsMaker onBack={() => setPicking(false)} />;
 
   return (
     <div className="panel">
       <div className="profile-head">
-        <button className="pic" onClick={() => setPicking(true)} aria-label="Сменить лицо">
-          <img
-            src={cardSrc(p)}
-            alt=""
-            draggable={false}
-            onError={(e) => {
-              const fallback = profileAvatar(p).card;
-              if (!e.currentTarget.src.endsWith(fallback)) e.currentTarget.src = fallback;
-            }}
-          />
-          <img
-            className="mini"
-            src={faceSrc(p)}
-            alt=""
-            draggable={false}
-            onError={(e) => {
-              const fallback = profileAvatar(p).face;
-              if (!e.currentTarget.src.endsWith(fallback)) e.currentTarget.src = fallback;
-            }}
-          />
+        <button className="pic arms" onClick={() => setPicking(true)} aria-label="Сменить герб">
+          <ArmsArt arms={profileArms(p)} size={72} />
+          <span>Герб</span>
         </button>
         <div className="who">
           {renaming ? (

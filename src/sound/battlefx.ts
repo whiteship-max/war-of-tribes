@@ -88,8 +88,8 @@ export interface FxBed {
 
 const SILENT: FxBed = { roar: 0, clash: 0, clashPan: 0, hooves: 0, hoovesPan: 0 };
 
-/** Громкость звуков боя: под музыкой боя (0.55, `web.ts`) — рядом с ней, не поверх. */
-export const FX_VOLUME = 0.5;
+/** Громкость звуков боя: под музыкой боя (0.55, `web.ts`) — рядом с ней, не поверх (П-3: 0.5 → 0.4, пик сшибки −14 дБ). */
+export const FX_VOLUME = 0.4;
 /** Расстояние, на котором звук звучит в полную силу; дальше — тише обратно расстоянию. */
 export const FX_NEAR = 18;
 /** Звуков за кадр, не больше: на ×4 залпы идут вчетверо гуще, а ухо разбирает не больше этого. */
@@ -295,6 +295,9 @@ class FxVoice implements FxHost {
   }
 
   private env(g: AudioParam, at: number, peak: number, attack: number, hold: number, release: number): void {
+    // Атака не короче 3 мс (П-3): на 1–2 мс широкополосный удар на полной громкости рвал волну щелчком; 3 мс ухо
+    // атакой не слышит — удар остаётся ударом.
+    attack = Math.max(attack, 0.003);
     g.setValueAtTime(0, at);
     g.linearRampToValueAtTime(peak, at + attack);
     g.setValueAtTime(peak, at + attack + hold);

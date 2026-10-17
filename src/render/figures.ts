@@ -24,6 +24,7 @@
 // `Figure`, а матрицы всех инстансов раз в кадр пишет пул.
 import * as THREE from 'three';
 import { INSTANCED } from './materials';
+import type { Mat, Shape } from './gear';
 
 export type PartName = 'limb' | 'body' | 'head' | 'cap' | 'shaft' | 'plate' | 'shield';
 
@@ -136,7 +137,27 @@ export interface Slot {
   /** Положение детали относительно сустава — считается один раз при одевании. */
   local: THREE.Matrix4;
   color: THREE.Color;
+  /**
+   * Точная форма вместо примитива — её рисует только толпа ролика (`reel/bake.ts`, `gear.ts`): каплевидный щит, шлем с
+   * наносником, клинок. Пул посёлка и обмер силуэта берут примитив `part` — то же место той же величины.
+   */
+  shape?: Shape;
+  /** Чем деталь разнится у бойцов одного вида: кожа, волосы, шерсть, железо (`gear.Mat`); нет — по цвету. */
+  mat?: Mat;
+  /**
+   * Вариант детали — разброс в строю (шейдер толпы): 0 — у всех; `10·n + k` — один из `n` вариантов (k от 1 до n) одного
+   * места, у каждого бойца свой; `BEARD` — борода, не у всех.
+   */
+  variant?: number;
+  /**
+   * С какого облика толпы деталь рисуется (`gear.Detail`): 0 — с дальнего (по умолчанию), 1 — со среднего, 2 — только
+   * вблизи (копыта, борода). Пул посёлка и обмер силуэта рисуют все.
+   */
+  lod?: 1 | 2;
 }
+
+/** Вариант детали «борода»: есть у части бойцов (`Slot.variant`). */
+export const BEARD = 9;
 
 /**
  * Поза одной фигурки. Агент правит поля, пул читает их раз в кадр.
@@ -167,10 +188,18 @@ export class Figure {
   torsoTwist = 0;
   /** Кивок головы. */
   headNod = 0;
+  /** Поворот головы вбок: бегущий оглядывается через плечо. */
+  headTurn = 0;
   /** Мах ног: левая на +swing, правая на −swing. */
   legSwing = 0;
   /** Переступ коня — свой: у всадника ноги в стременах не машут. */
   gait = 0;
+  /**
+   * Ход коня по ногам (`HOOF_GAITS`): 0 — прежний переступ диагоналями от `gait`; 1 — шаг в четыре такта; 2 — галоп.
+   * Тогда каждая нога идёт в своей фазе цикла `hoofPhase` (0..1), а `gait` не читается.
+   */
+  hoofMode = 0;
+  hoofPhase = 0;
   /** Рука с оружием: замах назад — минус, удар вперёд — плюс. */
   armMain = 0;
   /** Свободная рука (или со щитом). */
@@ -180,6 +209,11 @@ export class Figure {
   /** Сгиб локтей и коленей: положительное колено уходит назад. */
   elbowMain = 0;
   elbowOff = 0;
+  /**
+   * Поворот кисти с оружием (вокруг поперечной оси): копьё перехватывают остриём вперёд — укол и ёж (`reel/bake`). Без
+   * него древко, растущее из кисти к плечу, при вскинутой вперёд руке смотрело бы назад.
+   */
+  wristMain = 0;
   kneeL = 0;
   kneeR = 0;
   /** Доля падения, 0..1. Двигает её тот, кто роняет, — поза только читает. */
@@ -332,21 +366,37 @@ function poseJoints(f: Figure): void {
     put('neck', 'root', 0, m.neckY, m.neckZ, m.neckPitch);
     // Хвост висит вниз и назад; своё смещение по времени — чтобы кони не были близнецами.
     put('tail', 'root', 0, m.tailY, m.tailZ, 0.55 + Math.sin(f.phase) * 0.12);
-    // Ноги коня переступают в противофазе по диагоналям — рысь, а не прыжки.
-    const gait = f.gait;
-    put('legFL', 'root', m.legX, m.legY, m.legZ, gait);
-    put('legFR', 'root', -m.legX, m.legY, m.legZ, -gait);
-    put('legBL', 'root', m.legX, m.legY, -m.legZ, -0.18 - gait);
-    put('legBR', 'root', -m.legX, m.legY, -m.legZ, -0.18 + gait);
-    put('hockFL', 'legFL', 0, -m.legLen * 0.44, 0, -Math.max(0, gait) * 1.2);
-    put('hockFR', 'legFR', 0, -m.legLen * 0.44, 0, -Math.max(0, -gait) * 1.2);
-    put('hockBL', 'legBL', 0, -m.legLen * 0.44, 0, 0.32 + Math.max(0, -gait));
-    put('hockBR', 'legBR', 0, -m.legLen * 0.44, 0, 0.32 + Math.max(0, gait));
+    if (f.hoofMode > 0) {
+      // Ход по ногам: у каждой ноги своя фаза цикла — шаг в четыре такта или галоп (`HOOF_GAITS`).
+      const g = HOOF_GAITS[f.hoofMode as 1 | 2];
+      const legs = ['legFL', 'legFR', 'legBL', 'legBR'] as const;
+      const hocks = ['hockFL', 'hockFR', 'hockBL', 'hockBR'] as const;
+      for (let k = 0; k < 4; k++) {
+        const hind = k >= 2;
+        const { swing, flex } = hoofLeg(f.hoofPhase - g.offset[k], g);
+        const sx = k % 2 === 0 ? m.legX : -m.legX;
+        // Плюс уводит висящую ногу назад: вынос вперёд — минус.
+        put(legs[k], 'root', sx, m.legY, hind ? -m.legZ : m.legZ, (hind ? -0.12 : 0) - swing * g.amp);
+        // Сгиб: передняя — запястье назад, задняя — скакательный сустав вперёд.
+        put(hocks[k], legs[k], 0, -m.legLen * 0.44, 0, hind ? 0.28 + flex * g.flex * 0.8 : -flex * g.flex);
+      }
+    } else {
+      // Ноги коня переступают в противофазе по диагоналям — рысь, а не прыжки.
+      const gait = f.gait;
+      put('legFL', 'root', m.legX, m.legY, m.legZ, gait);
+      put('legFR', 'root', -m.legX, m.legY, m.legZ, -gait);
+      put('legBL', 'root', m.legX, m.legY, -m.legZ, -0.18 - gait);
+      put('legBR', 'root', -m.legX, m.legY, -m.legZ, -0.18 + gait);
+      put('hockFL', 'legFL', 0, -m.legLen * 0.44, 0, -Math.max(0, gait) * 1.2);
+      put('hockFR', 'legFR', 0, -m.legLen * 0.44, 0, -Math.max(0, -gait) * 1.2);
+      put('hockBL', 'legBL', 0, -m.legLen * 0.44, 0, 0.32 + Math.max(0, -gait));
+      put('hockBR', 'legBR', 0, -m.legLen * 0.44, 0, 0.32 + Math.max(0, gait));
+    }
   }
 
   put('hips', 'root', 0, r.hipY + f.bob, 0, 0);
   put('torso', 'hips', 0, 0, 0, f.torsoTilt, f.torsoTwist);
-  put('head', 'torso', 0, r.neckY - r.hipY, 0, f.headNod);
+  put('head', 'torso', 0, r.neckY - r.hipY, 0, f.headNod, f.headTurn);
   // Поворот вокруг +Z уводит висящую конечность в сторону +x, поэтому левая
   // (она стоит на +x) разводится плюсом, правая — минусом.
   put('armL', 'torso', r.shoulderX, r.shoulderY - r.hipY, 0, f.armOff, 0, f.armSpread);
@@ -357,10 +407,30 @@ function poseJoints(f: Figure): void {
   put('elbowL', 'armL', 0, -halfArm, 0, -f.elbowOff);
   put('elbowR', 'armR', 0, -halfArm, 0, -f.elbowMain);
   put('handL', 'elbowL', 0, -halfArm, 0, 0);
-  put('handR', 'elbowR', 0, -halfArm, 0, 0);
+  put('handR', 'elbowR', 0, -halfArm, 0, f.wristMain);
   const thigh = r.legLen * 0.5;
   put('kneeL', 'legL', 0, -thigh, 0, f.kneeL);
   put('kneeR', 'legR', 0, -thigh, 0, f.kneeR);
+}
+
+/**
+ * Ходы коня по ногам (docs/polish.md, П-5). Фаза ноги — доля цикла от её удара о землю: опора (`duty`) — нога идёт под
+ * корпусом назад, перенос — сгибается и выносится вперёд. Шаг — четыре такта по четверти цикла (левая задняя, левая
+ * передняя, правая задняя, правая передняя); галоп — с правой передней ноги: задние почти вместе, передние за ними, потом
+ * подвисание. Числа — на глаз по записям хода лошади; держит их стенд (`?showcase=units`) и кадры ролика.
+ */
+export const HOOF_GAITS: Record<1 | 2, { offset: readonly [number, number, number, number]; duty: number; amp: number; flex: number }> = {
+  1: { offset: [0.25, 0.75, 0, 0.5], duty: 0.62, amp: 0.32, flex: 0.85 },
+  2: { offset: [0.42, 0.54, 0.04, 0.14], duty: 0.36, amp: 0.62, flex: 1.35 },
+};
+
+/** Нога в фазе `ph`: мах (+1 — вперёд, −1 — назад) и сгиб (0..1). */
+function hoofLeg(ph: number, g: { duty: number }): { swing: number; flex: number } {
+  const p = ph - Math.floor(ph);
+  if (p < g.duty) return { swing: 1 - (2 * p) / g.duty, flex: 0 };
+  const s = (p - g.duty) / (1 - g.duty);
+  const e = s * s * (3 - 2 * s);
+  return { swing: -1 + 2 * e, flex: Math.sin(Math.PI * s) };
 }
 
 /** Матрица детали — одна на весь обход, наружу она не отдаётся. */

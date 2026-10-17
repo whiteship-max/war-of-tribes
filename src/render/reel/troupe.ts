@@ -6,9 +6,13 @@
 // фигуры у модуля нет: план и толпа говорят одними словами, и разойтись им негде.
 import type { UnitKind } from '@/battle/types';
 
-/** Что делает фигура: запечённые клипы (`bake.ts`). Порядок — номер клипа в текстуре. */
-export type ClipId = 'idle' | 'march' | 'run' | 'guard' | 'strike' | 'shoot' | 'fall' | 'cheer';
-export const CLIPS: readonly ClipId[] = ['idle', 'march', 'run', 'guard', 'strike', 'shoot', 'fall', 'cheer'];
+/**
+ * Что делает фигура: запечённые клипы (`bake.ts`). Порядок — номер клипа в текстуре. Щит (`block`) — под стрелами и
+ * камнями; бегство (`flee`) — бег сломанного отряда с оглядкой; натиск (`charge`) — разбег на сшибку оружием вперёд,
+ * у конницы — копьё наперевес (docs/polish.md, П-5). У коня `run` — галоп, `march` — шаг в четыре такта.
+ */
+export type ClipId = 'idle' | 'march' | 'run' | 'guard' | 'strike' | 'shoot' | 'fall' | 'cheer' | 'block' | 'flee' | 'charge';
+export const CLIPS: readonly ClipId[] = ['idle', 'march', 'run', 'guard', 'strike', 'shoot', 'fall', 'cheer', 'block', 'flee', 'charge'];
 export const CLIP_INDEX = Object.fromEntries(CLIPS.map((c, i) => [c, i])) as Record<ClipId, number>;
 
 /** Кадр фигур: место, разворот, клип и время клипа — плоскими массивами, без мусора. */

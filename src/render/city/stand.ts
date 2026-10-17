@@ -1,5 +1,6 @@
 // Стенд вида «город»: `?showcase=city&quality=high|medium|low&view=game|street|gate|square|top|house&t=секунды
-// &solar=0.25&season=summer`. Свой рендерер, свет — общий риг (`lighting.ts`, числа ночи `next`),
+// &solar=0.25&season=summer` (`&guard=N` — страж поста N у ворот вблизи, `&sentry=N` — лучник N на стене, `&lift=`,
+// `&turn=` — высота цели и поворот, `&garrison=0` — прежние фигуры стражи, `&freeze=1` — время стоит на `t=`). Свой рендерер, свет — общий риг (`lighting.ts`, числа ночи `next`),
 // кадр — только через дверь `render/loop.ts`. Крючки для снимков: `window.__stand` (счётчики) и
 // `document.body.dataset.ready = '1'`, когда город собран.
 import * as THREE from 'three';
@@ -46,6 +47,8 @@ export function mountCity(root: HTMLElement, p: URLSearchParams): void {
   const num = (k: string, d: number): number => (p.has(k) ? Number(p.get(k)) : d);
   // Миг жизни города, секунды (`t=`): жизнь — функция времени, снимок любого мига без ожидания.
   const tShift = num('t', 0);
+  // Время стоит на `t=` (`freeze=1`): снимок дозорного там, куда навели камеру.
+  const freeze = p.get('freeze') === '1';
   // Дымка (`haze=`): во сколько раз дальше встаёт туман — у низкого ракурса заставки (docs/loading.md) дальний лес
   // иначе тонет в молоке. По умолчанию 1 — кадр прежний.
   const haze = num('haze', 1);
@@ -111,6 +114,7 @@ export function mountCity(root: HTMLElement, p: URLSearchParams): void {
   let city: CityBuild | null = null;
   let life: CityLife | null = null;
   let bustle: import('./alive').CityBustle | null = null;
+  let garrison: import('./garrison').CityGarrison | null = null;
   const t0 = performance.now();
   let tPrev = t0;
   const sunAt = new THREE.Vector3();
@@ -149,8 +153,10 @@ export function mountCity(root: HTMLElement, p: URLSearchParams): void {
         city.uniforms.cTime.value = (performance.now() - t0) / 1000;
         city.uniforms.cAutumn.value = season === 'autumn' ? 1 : 0;
         const now = performance.now();
-        life?.update(Math.min(0.1, (now - tPrev) / 1000), (now - t0) / 1000 + tShift, windowNight(light), seasonVis.snow);
-        bustle?.update((now - t0) / 1000 + tShift, windowNight(light), seasonVis.snow);
+        const at = freeze ? tShift : (now - t0) / 1000 + tShift;
+        life?.update(Math.min(0.1, (now - tPrev) / 1000), at, windowNight(light), seasonVis.snow);
+        bustle?.update(at, windowNight(light), seasonVis.snow);
+        garrison?.update(at, camera);
         city.mill?.update((now - t0) / 1000 + tShift);
         tPrev = now;
       }
@@ -205,10 +211,39 @@ export function mountCity(root: HTMLElement, p: URLSearchParams): void {
       bustle = new CityBustle({ plan: c.plan, quality: q });
       scene.add(bustle.group);
     });
+    // Стража бойцами роликов (docs/polish.md, П-5): `garrison=0` — прежние фигуры стражи (кадр «до»).
+    const guards =
+      p.get('garrison') === '0'
+        ? Promise.resolve()
+        : import('./garrison').then(({ CityGarrison }) => {
+            garrison = new CityGarrison(life!, q, p.get('arms'));
+            scene.add(garrison.group);
+          });
     target.y = view.at[1] || heightAt(view.at[0], view.at[2]);
+    // Страж у ворот вблизи (`guard=N`): цель — пост N на высоте плеча, камера — перед ним наискось (облик бойцов,
+    // docs/polish.md, П-5).
+    const post = p.has('guard') ? life.posts[num('guard', 0)] : undefined;
+    if (post) {
+      target.set(post.x, post.y + num('lift', 1.2), post.z);
+      view.azim = Math.atan2(Math.cos(post.yaw), -Math.sin(post.yaw)) / DEG + num('turn', 28);
+    }
+    // Лучник на стене вблизи (`sentry=N`): цель — дозорный N в миг `t=` (жизнь — функция времени), камера — со стороны
+    // города, наискось к ходу стены.
+    if (p.has('sentry')) {
+      life.update(0, tShift, 0, 0);
+      const n = life.guardCap.wall + life.guardCap.gate;
+      const spots = { x: new Float32Array(n), y: new Float32Array(n), z: new Float32Array(n), yaw: new Float32Array(n), moving: new Uint8Array(n) };
+      const { wall } = life.guardsInto(spots);
+      const k = Math.min(Math.max(0, num('sentry', 0)), Math.max(0, wall - 1));
+      if (wall > 0) {
+        target.set(spots.x[k], spots.y[k] + num('lift', 1.1), spots.z[k]);
+        // Наружу от города — от середины к дозорному; камера — со стороны города, повёрнута на `turn`.
+        view.azim = Math.atan2(-spots.x[k], -spots.z[k]) / DEG + num('turn', 30);
+      }
+    }
     place();
     // Снимок — на полных слоях: сначала город встаёт на мелких (256²).
-    void Promise.all([c.full, alive]).then(() => {
+    void Promise.all([c.full, alive, guards]).then(() => {
       document.body.dataset.ready = '1';
     });
   });

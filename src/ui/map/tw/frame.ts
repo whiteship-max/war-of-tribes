@@ -35,6 +35,8 @@ import { TW } from './palette';
 import { SIDE_COLOR, sideRgba } from '@/side';
 import { withinActive } from './theatre/active';
 import { drawAgent } from '../agent';
+import { marchArms } from '../arms';
+import { armsCode, armsOr } from '@/heraldry/arms';
 import type { MarkerKind } from '../village';
 import { FELL_WORDS, LABEL_MAX_PX, fellShown, fitLabel, worksStand, worksStep } from '../siegemark';
 import { type Mini, drawMini, fellSprite, miniBucket, worksSprite } from './mini';
@@ -178,6 +180,9 @@ const FORCED_SMOKE = typeof location !== 'undefined' && new URLSearchParams(loca
 /** Дым и огонь мест кадра: собирает `drawPlaces`, рисует кадр — дым под ночью, огонь над ней. */
 const smokes: { x: number; y: number; weight: number; seed: number; siege: boolean }[] = [];
 
+/** Герб своего профиля строкой (`ProfileState.arms`): метка своего города и знамёна своих колонн (П-2). */
+const ownArms = (): string | null | undefined => useGame.getState().s.profile.arms;
+
 /** Число от имени места: у каждого столба своя доля такта и свои огни. */
 function seedOf(id: string): number {
   let h = 7;
@@ -292,7 +297,7 @@ function drawHosts(ctx: CanvasRenderingContext2D, cam: Camera, items: HostItem[]
       blit(ctx, markSprite(it.mark, it.d, dpr), sx, sy);
       ctx.globalAlpha = 1;
     }
-    if (col > 0 && drawColumn(ctx, sx, sy, angle, look.size, look.color, px, dpr, col, seedOf(m.id))) motion.decor = true;
+    if (col > 0 && drawColumn(ctx, sx, sy, angle, look.size, look.color, px, dpr, col, seedOf(m.id), marchArms(m, ownArms()))) motion.decor = true;
     busy.push(body);
     if (!standing) {
       // Впереди значка — не на нём: шеврон у кольца показывает, куда идёт отряд, и издали.
@@ -341,7 +346,7 @@ function drawFigures(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport, i
         blit(ctx, markSprite(it.hostMark, it.hostD, dpr), hx, py);
         ctx.globalAlpha = 1;
       }
-      if (col > 0 && it.host && drawColumn(ctx, hx, py, Math.atan2(ty - py, tx - hx), it.host.size, it.host.color, px, dpr, col, seedOf(f.id))) {
+      if (col > 0 && it.host && drawColumn(ctx, hx, py, Math.atan2(ty - py, tx - hx), it.host.size, it.host.color, px, dpr, col, seedOf(f.id), armsCode(armsOr(ownArms())))) {
         motion.decor = true;
       }
       busy.push(it.hostBox);
@@ -583,7 +588,7 @@ export function drawTwFrame(ctx: CanvasRenderingContext2D, cam: Camera, vp: View
   marks.length = 0;
   timers.length = 0;
   busy.length = 0;
-  const items = placeItems(cam, vp, settlementsIn(placesRect(rect)), dpr);
+  const items = placeItems(cam, vp, settlementsIn(placesRect(rect)), dpr, ownArms());
   places.length = 0;
   for (const it of items) places.push(it.body);
   smokes.length = 0;
@@ -604,7 +609,7 @@ export function drawTwFrame(ctx: CanvasRenderingContext2D, cam: Camera, vp: View
 
   // Ночь — по часам партии, как у сцены города (`tw/night.ts`); подписи и сроки — поверх неё.
   const night = nightNow();
-  drawNight(ctx, vp.w, vp.h, cam.scale, items, night, dpr);
+  if (drawNight(ctx, vp.w, vp.h, cam.scale, items, night, dpr)) motion.decor = true;
   // Огни осадного лагеря — поверх ночи: их и видно только ночью.
   for (const sm of smokes) if (sm.siege && drawCampFires(ctx, sm.x, sm.y, cam.scale, night, sm.seed)) motion.decor = true;
   for (const draw of marks) draw();

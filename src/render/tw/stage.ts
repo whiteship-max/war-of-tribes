@@ -1,12 +1,14 @@
 // Сцена ролика TW: поле, свет, толпа, знамёна, стрелы (docs/battle_tw.md, раздел 8). Своих решений о бое у неё нет:
 // кто где стоит и когда падает — режиссура (`plan.ts`); здесь кадр раскладывается по объектам three.
 import * as THREE from 'three';
-import { buildClouds, buildSky, cloudShade, setupFieldScene } from '../reel/light';
+import { buildClouds, buildSky, cloudShade, nightOf, setupFieldScene } from '../reel/light';
+import { frameOf, townLand } from './town';
+import type { TownBackdrop } from '../city/backdrop';
 import { fitShadow, type LightRig } from '../lighting';
 import type { TwSpec } from '../reel/spec';
 import { Arrows } from './arrows';
 import { Banners } from '../reel/banners';
-import { Crowd, SHADOW_LAYER, lodDistance } from '../reel/crowd';
+import { Crowd, SHADOW_LAYER } from '../reel/crowd';
 import { Dust } from './dust';
 import { buildFort, fortOfPlan, type FortView } from './fort';
 import { buildField, fogFor, type FieldView, type LandInput } from '../reel/land';
@@ -15,7 +17,8 @@ import type { DirectorScene } from '../reel/director';
 import { poseFigures, unitPose, type TwPlan } from './plan';
 import { figureFrame, type FigureFrame } from '../reel/troupe';
 import { heightAt } from '../reel/terrain';
-import { siteBlocks, siteGround } from './site';
+import { CITY_M, siteBlocks, siteGround } from './site';
+import { LampRig, glowUniforms, lightScene, type WorldLamp } from '../glow/rig';
 import { Siegeworks, worksOfPlan } from './siegeworks';
 
 /** Лампа стоит так далеко от цели по своему направлению; коробка теней — от расстояния камеры. */
@@ -46,10 +49,19 @@ export class TwStage {
   private clouds: ReturnType<typeof buildClouds> | null;
   private rig: LightRig;
   private sunDir = new THREE.Vector3();
+  /** Свет ночи (docs/polish.md, П-9): костры лагеря, пожары обстрела, огни города за стеной. */
+  private glow: LampRig;
+  private night: number;
+  private lampT = 0;
 
+  /**
+   * `town` — настоящий город за стеной места боя (docs/polish.md, П-6, `city/backdrop.ts`): его дома, стены по кругу, лес и
+   * земля до горизонта; сцена его освобождает. Нет (поле, логово, город не собрался) — дома ролика на его поле.
+   */
   constructor(
     readonly plan: TwPlan,
     readonly spec: TwSpec,
+    readonly town: TownBackdrop | null = null,
   ) {
     // Свет и небо — прежнего ролика: час и сезон из записи боя (`Cast.ground`), низкое тёплое солнце.
     this.rig = setupFieldScene(this.scene, plan.cast.ground);
@@ -67,12 +79,24 @@ export class TwStage {
       this.clouds.mesh.scale.setScalar(SKY_SCALE);
       this.scene.add(this.clouds.mesh);
     }
-    this.field = buildField(landOf(plan), spec);
+    const site = plan.site;
+    const land = landOf(plan);
+    if (town && site?.wall && site.town) land.town = townLand(frameOf(site.wall), site.town.paint, site.town.outside, town.cleared, town.road);
+    this.field = buildField(land, spec);
     this.scene.add(this.field.group);
-    this.crowd = new Crowd(plan, spec);
-    this.scene.add(this.crowd.group);
+    // Свет боя — один на весь ролик (час записи): вода берёт солнце или луну рига, небо и ночь — раз.
+    this.field.light(this.rig.sun, this.scene, nightOf(plan.cast.ground.solar));
+    if (town) {
+      this.scene.add(town.group);
+      // Свет боя — один на весь ролик (час записи): ночь города, солнце и небо — раз.
+      town.light(nightOf(plan.cast.ground.solar), this.sunDir, (this.scene.fog as THREE.Fog).color);
+    }
     const them = plan.us === 'attacker' ? 'defender' : 'attacker';
-    this.banners = new Banners(plan, { ours: plan.coats[plan.us], theirs: plan.coats[them] });
+    const coats = { ours: plan.coats[plan.us], theirs: plan.coats[them] };
+    // Гербы сторон — на знамёнах и на щитах и сюрко бойцов (docs/polish.md, П-5).
+    this.crowd = new Crowd(plan, spec, coats);
+    this.scene.add(this.crowd.group);
+    this.banners = new Banners(plan, coats);
     this.scene.add(this.banners.group);
     this.arrows = new Arrows(plan, spec.arrows);
     this.scene.add(this.arrows.mesh);
@@ -80,10 +104,23 @@ export class TwStage {
     this.dust = new Dust(plan);
     this.scene.add(this.dust.mesh);
     // Место боя: стена, ворота, город, лагерь, логово (docs/battle_tw.md, раздел 13); у поля — пустая группа.
-    this.fort = buildFort(fortOfPlan(plan));
+    this.fort = buildFort({ ...fortOfPlan(plan), town: town ? town.skin : null });
     this.scene.add(this.fort.group);
-    this.siege = plan.barrage ? new Siegeworks(worksOfPlan(plan), plan.barrage, this.crowd) : null;
+    this.siege = plan.barrage ? new Siegeworks({ ...worksOfPlan(plan), skin: town ? town.skin : null }, plan.barrage, this.crowd) : null;
     if (this.siege) this.scene.add(this.siege.group);
+    // Огни ночи: костры лагеря и пожары обстрела (пока горят — по часам пролога) и огни города за стеной.
+    const f = plan.field;
+    const ground = (x: number, z: number): number => heightAt(f, x, z);
+    const lamps: WorldLamp[] = [
+      ...(site?.camp?.fires ?? []).map((c): WorldLamp => ({ x: c.x, y: ground(c.x, c.z) + 0.55, z: c.z, kind: 'fire', dx: 0, dz: 0, lift: 0.55 / CITY_M, s: CITY_M * 0.8 })),
+      ...(plan.barrage?.smoke ?? []).map((c): WorldLamp => ({ x: c.x, y: c.y, z: c.z, kind: 'fire', dx: 0, dz: 0, lift: (c.y - ground(c.x, c.z)) / CITY_M, s: CITY_M * c.size, from: c.from, to: c.to })),
+      ...(town?.lamps ?? []),
+    ];
+    this.night = nightOf(plan.cast.ground.solar);
+    this.siege?.night(this.night);
+    this.glow = new LampRig(lamps, spec.lamps, town?.glow ?? glowUniforms());
+    this.scene.add(this.glow.group);
+    lightScene(this.scene, this.glow.uniforms);
     this.frame = figureFrame(plan.figures);
     this.director = directorSceneOf(plan);
   }
@@ -92,10 +129,15 @@ export class TwStage {
    * Разложить кадр на секунде боя `t`; `clip` — секунда ролика с прологом обстрела (`TwPlayer.pre`), по ней идут машины,
    * камни и дым. Камера — уже поставлена (её ведёт игрок или общий вид).
    */
-  apply(t: number, cam: TacticalCamera, clip = t): void {
+  apply(t: number, cam: TacticalCamera, clip = t, bufferHeight = 1688): void {
     poseFigures(this.plan, t, this.frame);
-    // Дальние бойцы — в дальнем облике (`crowd.LOD_PX`): порог по полю зрения камеры, оно растёт с узостью экрана.
-    this.crowd.update(this.frame, cam.camera.position, lodDistance(cam.camera.fov));
+    // Огни — по часам ролика с прологом: пожары обстрела горят по ним.
+    const dt = Math.max(0, Math.min(0.1, clip - this.lampT));
+    this.lampT = clip;
+    this.glow.update(clip, dt, this.night, cam.now.tx, cam.now.tz, cam.camera, bufferHeight);
+    // Облик бойца — по дальности (`crowd.LOD_PX`, `NEAR_PX`): порог по полю зрения камеры, оно растёт с узостью экрана;
+    // вне кадра бойцы не пишутся.
+    this.crowd.update(this.frame, cam.camera);
     this.banners.update(this.frame, t, cam.camera, cam.now.dist);
     this.arrows.update(t);
     this.dust.update(t, cam.camera);
@@ -124,7 +166,10 @@ export class TwStage {
    * посреди ролика нельзя; меньше фигур будет со следующего ролика — уровень помнится (`gfx.rememberAutoCap`).
    */
   lower(next: TwSpec): void {
+    // Бойцы вблизи — средним обликом, если у нового уровня ближнего нет (`TwSpec.crowdLod`).
+    this.crowd.detail(next.crowdLod);
     if (next.shadow === 'none') this.crowd.shadows(false);
+    this.glow.setCap(next.lamps);
     if (!next.clouds && this.clouds) this.clouds.mesh.visible = false;
     this.field.lower(next);
   }
@@ -166,10 +211,11 @@ export class TwStage {
 
   /** Байт текстур ролика: суставы и карта теней лампы (глубина — четыре байта на тексель). */
   textureBytes(): number {
-    return this.crowd.bones.bytes + this.spec.shadowMap * this.spec.shadowMap * 4;
+    return this.crowd.bones.bytes + this.spec.shadowMap * this.spec.shadowMap * 4 + (this.town?.textureBytes ?? 0);
   }
 
   dispose(): void {
+    this.glow.dispose();
     this.crowd.dispose();
     this.banners.dispose();
     this.arrows.dispose();
@@ -177,6 +223,7 @@ export class TwStage {
     this.fort.dispose();
     this.siege?.dispose();
     this.field.dispose();
+    this.town?.dispose();
     this.sky.geometry.dispose();
     if (this.clouds) {
       this.clouds.mesh.geometry.dispose();

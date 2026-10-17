@@ -97,7 +97,7 @@
   flex-direction: column;
 }
 .kit-row-label small {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted);
 }
 .kit-row-val {
@@ -147,10 +147,10 @@
   min-height: 24px;
   border-top: 0;
   background: var(--panel-2);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  /* Строчными, а не капителью: в 12 px заглавные с разрядкой шире столбца («РОЖДЕН…»), строчные читаются легче
+     (docs/polish.md, П-1, «Решения»). */
+  font-size: 12px;
+  font-weight: 600;
   color: var(--muted);
 }
 .kit-trow.go {
@@ -224,7 +224,7 @@
   font-weight: 600;
 }
 .kit-two small {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted);
 }
 .kit-tempty {
@@ -290,7 +290,7 @@
   display: flex;
   justify-content: space-between;
   gap: 8px;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted);
 }
 .kit-bar-head b {
@@ -340,7 +340,7 @@
   position: absolute;
   top: 2px;
   transform: translateX(-50%);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1;
   color: var(--muted);
   white-space: nowrap;
@@ -388,13 +388,13 @@
   font-size: 18px;
 }
 .kit-btn small {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   opacity: 0.75;
 }
 .kit-btn.armed {
   border-color: transparent;
-  background: var(--bad);
+  background: var(--bad-fill);
   color: #fff;
 }
 .kit-btn:disabled {
@@ -415,7 +415,7 @@
   gap: 2px;
 }
 .kit-why {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--bad);
 }
 
@@ -454,11 +454,11 @@
   gap: 2px;
 }
 .kit-head-title b {
-  font-size: 15px;
+  font-size: 17px;
   font-weight: 600;
 }
 .kit-head-title small {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
@@ -521,7 +521,7 @@
   border-radius: 999px;
   background: var(--accent);
   color: var(--accent-text);
-  font-size: 11px;
+  font-size: 12px;
   font-style: normal;
   font-weight: 700;
   line-height: 18px;

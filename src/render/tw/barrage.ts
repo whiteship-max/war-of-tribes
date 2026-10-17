@@ -121,6 +121,11 @@ export interface TwCamKey {
   box: { minX: number; maxX: number; minZ: number; maxZ: number };
   yaw: number;
   pitch: number;
+  /**
+   * Камера на месте (ролик осады глазами защитника, П-6: со стены на лагерь): цель — середина прямоугольника, расстояние —
+   * это, а не «вписать прямоугольник в экран». Нет — вписать.
+   */
+  dist?: number;
 }
 
 export type BarrageCueKind = 'engine' | 'stone' | 'impact' | 'collapse' | 'wallcry';

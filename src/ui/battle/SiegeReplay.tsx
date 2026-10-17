@@ -29,6 +29,7 @@ import type { Episode, SiegeReel } from '@/render/siege/reel';
 import type { SiegePlayer } from '@/render/siege/player';
 import { freeTurn } from '@/orientation';
 import { END_WORDS, captionOf, showOfSiege, type SiegeClip } from './siege';
+import { townShare } from './townShare';
 import './tw.css';
 
 const NEXT = { id: 'next', label: SKIP.label } as const;
@@ -117,13 +118,15 @@ export function SiegeReplay({ rec, report, clip = null, onDone, freeze = null, e
     let dispose: () => void = () => undefined;
     let release: () => void = () => undefined;
     void import('@/render/siege/play')
-      .then((m) => {
+      .then(async (m) => {
         if (!alive || !layer.current) return;
         // Уровень — тот же, что у города и ролика боя (`gfx.levelNow`); по устройству его сторожит и сам ролик.
         const quality = levelNow(location.search);
         const asked = sceneGfx(gfx(), location.search).asked;
         const pick = clip ? (reel: SiegeReel): Episode | null => reel.episodes.find((e) => e.kind === clip.kind && e.k === clip.k) ?? null : undefined;
-        const p = m.playSiege(renderer, show, quality, layer.current, {
+        // За стеной — город игры (П-6): тот же план, текстуры и земля, что в окне города; ролик ждёт его сборки.
+        const p = await m.playSiege(renderer, show, quality, layer.current, {
+          share: townShare(scene),
           ...(asked ? {} : { watch: quality }),
           ...(pick ? { clip: pick } : {}),
           onLower: (q) => {
@@ -144,6 +147,11 @@ export function SiegeReplay({ rec, report, clip = null, onDone, freeze = null, e
           },
           onEnd: () => setEnded(true),
         });
+        // Пока город собирался, ролик могли закрыть.
+        if (!alive) {
+          p.dispose();
+          return;
+        }
         player.current = p;
         p.cam.onTake = () => setTaken(true);
         release = holdReplayCanvas(renderer, scene, () => p.fit(), () => done.current());

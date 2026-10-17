@@ -13,6 +13,7 @@ import { Figure, FigurePool, PARTS, figureBox, forEachPart } from './figures';
 import { ACTIONS, poseFigure } from './poses';
 import { TURNS, above, area, overlap, projY, silhouette, widthAt } from './silhouette';
 import { FOLK_KINDS, MAN_HEIGHT, dressMount, dressSoldier, dressVillager, gearTier } from './units';
+import { HEAD_DEPTH, headRadiusAt } from './gear';
 
 function soldier(troop: TroopId): Figure {
   const f = new Figure();
@@ -308,21 +309,38 @@ describe('посадка одежды', () => {
     const pool = new FigurePool();
     const geometry = (part: string): THREE.BufferGeometry =>
       (pool.group.children.find((m) => m.name === part) as THREE.InstancedMesh).geometry;
-    // Берём реальные вершины черепа: одна проверка верхней границы конуса
-    // не поймала бы голову, торчащую сквозь его наклонные стороны.
-    for (const f of [...TROOP_IDS.map(soldier), ...[0, 1, 2].map(villager)]) {
+    // Берём реальные вершины черепа: одна проверка верхней границы убора
+    // не поймала бы голову, торчащую сквозь его наклонные стороны. Убор — его
+    // профиль (`gear.headRadiusAt`: шлем с наносником, шапель, топхелм; без формы —
+    // конус примитива), с разбросом в строю — каждый вариант головы.
+    const figures = [
+      ...TROOP_IDS.map(soldier),
+      ...TROOP_IDS.map((id) => {
+        const f = new Figure();
+        dressSoldier(f, id, undefined, { variants: true });
+        return f;
+      }),
+      ...[0, 1, 2].map(villager),
+    ];
+    let shaped = 0;
+    for (const f of figures) {
       const head = f.slots.find((s) => s.part === 'head' && s.joint === 'head')!;
-      const cap = f.slots.find((s) => s.part === 'cap')!;
-      const toCap = cap.local.clone().invert().multiply(head.local);
-      const pos = geometry('head').getAttribute('position');
-      for (let i = 0; i < pos.count; i++) {
-        const point = new THREE.Vector3().fromBufferAttribute(pos, i).applyMatrix4(toCap);
-        if (point.y < 0) continue;
-        expect(point.y).toBeLessThanOrEqual(1);
-        // Вписанный круг шестигранника — консервативная граница покрытия.
-        expect(Math.hypot(point.x, point.z)).toBeLessThanOrEqual((1 - point.y) * Math.sqrt(3) / 4 + 0.001);
+      for (const cap of f.slots.filter((s) => s.part === 'cap' && s.joint === 'head')) {
+        if (cap.shape) shaped++;
+        const toCap = cap.local.clone().invert().multiply(head.local);
+        const pos = geometry('head').getAttribute('position');
+        const depth = (cap.shape && HEAD_DEPTH[cap.shape]) || 1;
+        for (let i = 0; i < pos.count; i++) {
+          const point = new THREE.Vector3().fromBufferAttribute(pos, i).applyMatrix4(toCap);
+          if (point.y < 0) continue;
+          expect(point.y, cap.shape).toBeLessThanOrEqual(1);
+          // Вписанный круг шестигранника (средний уровень формы) — консервативная граница покрытия.
+          expect(Math.hypot(point.x, point.z / depth), cap.shape).toBeLessThanOrEqual(headRadiusAt(cap.shape, point.y) * Math.cos(Math.PI / 6) + 0.001);
+        }
       }
     }
+    // Область правила: уборов с формой проверено больше, чем видов, — каждый вариант головы.
+    expect(shaped).toBeGreaterThan(TROOP_IDS.length);
   });
 });
 

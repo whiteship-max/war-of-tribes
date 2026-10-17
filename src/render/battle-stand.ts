@@ -148,19 +148,21 @@ export function standBattle(p: URLSearchParams): StandBattle {
     return { men, foe, seed, beasts, us, result, troops: { attacker: {}, defender: mine }, place, beastSide: 'attacker', site, militia, shots };
   }
   if (home) {
-    // Штурм стены и бой у ворот: пришедшие нападают, мы обороняем — `men` наш гарнизон, `foe` пришедшие.
+    // Штурм стены и бой у ворот: пришедшие нападают, мы обороняем — `men` наш гарнизон, `foe` пришедшие. `&us=attacker` на
+    // штурме — наоборот (снимки П-6: город глазами нападающего): `men` — наши на стену, `foe` — гарнизон с ополчением.
     const raiders = theirs ?? armyOf(foe);
     const assault = site === 'wall' ? assaultOf(p.get('open')) : null;
     const front = assault ? wallFront(assault) : null;
-    const result = fight(kindsOf(raiders), withMilitia(kindsOf(mine)), seed, ground, undefined, front);
+    const storming = site === 'wall' && p.get('us') === 'attacker';
+    const result = storming ? fight(kindsOf(mine), withMilitia(kindsOf(raiders)), seed, ground, undefined, front) : fight(kindsOf(raiders), withMilitia(kindsOf(mine)), seed, ground, undefined, front);
     return {
       men,
       foe,
       seed,
       beasts,
-      us: 'defender',
+      us: storming ? 'attacker' : 'defender',
       result,
-      troops: { attacker: raiders, defender: mine },
+      troops: storming ? { attacker: mine, defender: raiders } : { attacker: raiders, defender: mine },
       place,
       beastSide: undefined,
       site,

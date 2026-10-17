@@ -15,6 +15,7 @@ import { WORK_SIGN, workBusy } from '../worksigns';
 import type { V3 } from './geom';
 import { CityLife } from './life';
 import type { CityBustle } from './alive';
+import type { CityGarrison } from './garrison';
 import type { CityDeeds } from './deeds';
 import type { SiteTags } from './tags';
 import { newsOf, seenOf, waveAfter, WAVE_REAL, type CityPops, type Seen, type Yard, type YieldTally } from './pops';
@@ -23,13 +24,17 @@ import { markerSvg, SCENES, TribeScene, type BuildingView, type SceneLook } from
 import { RIG, applyDayNight, fitShadow, windowNight } from '../lighting';
 import { disposeGeometries } from '../kit';
 import type { HitBox } from '../pick';
-import { buildCity, CITY_SPEC, type CityBuild } from './index';
+import { buildCity, CITY_SPEC, type CityBuild, type CityShare } from './index';
+import { lowerWater } from './water';
+import { LAMP_SPEC } from '../glow/lamps';
+import { lightScene } from '../glow/rig';
 import { CITY_KEY, CITY_AZIMUTH, CITY_STEP_MAX, cityFog, cityFraming, cityLeash, cityShadowHalf, citySunAt } from './camera';
 import { cityPick, screenBox, type Pickable } from './pick';
 import { mainSite, ownerCode, type Site } from './sites';
 import { heightAt } from './layout';
 import type { CityPrecip } from './precip';
-import { CLEAR, ZONES, flashAt, lyingSnow, forcedFlashes, forcedWeather, flashGlow, weatherAt, windTo, zoneOf, type Weather } from '../climate';
+import { CLEAR, ZONES, easeWeather, flashAt, lyingSnow, forcedFlashes, forcedWeather, flashGlow, weatherAt, windTo, zoneOf, type Weather } from '../climate';
+import type { Quality } from '../quality';
 import { serverNow } from '@/net/clock';
 
 /** Облака над городом бегут со скоростью верхнего ветра, м/с: пятно тени в двести метров проходит за полминуты. */
@@ -40,6 +45,13 @@ const DRY: readonly (readonly [number, number])[] = [
   [180, 0.6],
   [360, 0.35],
 ];
+/**
+ * Постоянная перелива погоды в кадре, с (docs/polish.md, П-3): погода региона и так переходит за минуты (`climate.BLEND`),
+ * а скачок — смена погоды адресом, региона или вход в игру — не щёлкает, а наплывает за несколько секунд.
+ */
+const WX_EASE = 2.5;
+/** Пелена дождя вдали идёт по ветру: скорость её полос, м/с, — от силы ветра. */
+const VEIL_SPEED = 3;
 const FLASH_SKY = new THREE.Color(0.78, 0.82, 0.95);
 const MIST_SKY = new THREE.Color(0.86, 0.86, 0.84);
 const TMP_C = new THREE.Color();
@@ -66,6 +78,14 @@ export class CityScene extends TribeScene {
   /** Город встал в сцену на полных слоях — стенду, чтобы снимать. */
   readonly ready: Promise<void>;
   protected stepMax = CITY_STEP_MAX;
+
+  /**
+   * Город для ролика осады и боя у города (docs/polish.md, П-6): тот же план, текстуры и карты; пока город не встал —
+   * ничего. Спрашивают ролики (`ui/battle/townShare`) — у общей оболочки сцены этого метода нет: первая загрузка не растёт.
+   */
+  cityShare(): CityShare | null {
+    return this.town?.share ?? null;
+  }
   /** Люди, стража, дым, флаги, птицы, скот — встают вместе с городом. */
   private folk: CityLife | null = null;
   /**
@@ -73,6 +93,8 @@ export class CityScene extends TribeScene {
    * (docs/city.md, 13): город встаёт, не дожидаясь их.
    */
   private bustle: CityBustle | null = null;
+  /** Стража бойцами роликов (`garrison.ts`, docs/polish.md, П-5) — своим куском вместе с суетой. */
+  private garrison: CityGarrison | null = null;
   private bustleWanted = false;
   /**
    * Отклик на дела игрока — стройка лесами, праздник готовности, найм строем, добыча над дворами (docs/city.md, 14):
@@ -91,6 +113,10 @@ export class CityScene extends TribeScene {
   /** Погода (docs/city.md, 15): регион игрока, погода этого кадра, вспышка и осадки (своей докачкой). */
   private region: string | null = null;
   private wx: Weather = CLEAR;
+  /** Когда погода кадра последний раз шла к погоде часов (мс страницы); 0 — следующий кадр встаёт сразу. */
+  private wxAt = 0;
+  /** Сдвиг полос пелены по ветру, м: копится кадрами — поворот ветра не прыгает всем полем. */
+  private veilAt = new THREE.Vector2();
   private wet = 0;
   private flash = 0;
   /** Снег на земле зимой (`climate.lyingSnow`): в поясе севера — всю зиму, на Сицилии — после снегопада. */
@@ -143,6 +169,8 @@ export class CityScene extends TribeScene {
     this.scene.add(c.group);
     this.folk = new CityLife({ plan: c.plan, chimneys: c.chimneys, flagTops: c.flagTops, quality: this.quality });
     this.scene.add(this.folk.group);
+    // Люди, стража и суета — под огнями ночи: у факела ворот стража тёплая, а не синяя (docs/polish.md, П-9).
+    lightScene(this.folk.group, c.uniforms);
     this.folk.set(this.crowd.people, this.crowd.guards, this.workSmoke());
     this.bustleWanted = true;
     for (const view of this.buildings.values()) this.place3(view);
@@ -232,6 +260,22 @@ export class CityScene extends TribeScene {
     this.region = region;
   }
 
+  /** Погода кадра встаёт на погоду часов сразу, без перелива: стенду — снять её, не дожидаясь. */
+  jumpWeather(): void {
+    this.wxAt = 0;
+    this.precip?.groundNow();
+  }
+
+  /** Сторож плавности опустил уровень: осадки режут счёт сразу, вместе с плотностью (`precip.setLevel`). */
+  override lowerTo(next: Quality): void {
+    super.lowerTo(next);
+    this.precip?.setLevel(this.dprLevel);
+    // Вода — тем же уровнем: рябь, круги дождя и огни в ней режутся сразу, без пересборки (docs/polish.md, П-8).
+    lowerWater(this.scene, CITY_SPEC[this.dprLevel].detail);
+    // Огни — тем же уровнем: настоящих меньше, остальные гаснут наплывом в пятна.
+    this.town?.rig.setCap(LAMP_SPEC[this.dprLevel].real);
+  }
+
   /**
    * Погода кадра — функция региона и общих часов (`climate.weatherAt`): тучи гасят солнце и серят небо, дождь темнит,
    * утренний туман белит дымку, молния мягко высвечивает небо и город. Сырость — тоже от часов: дождь последних минут.
@@ -239,8 +283,12 @@ export class CityScene extends TribeScene {
   private weather(solar: number): void {
     const now = serverNow();
     const f = this.forced;
-    const w = f ?? weatherAt(this.region, now, this.season, solar);
-    this.wx = w;
+    const goal = f ?? weatherAt(this.region, now, this.season, solar);
+    // Погода кадра идёт к погоде часов плавно: скачок цели наплывает за несколько секунд.
+    const real = performance.now();
+    const k = this.wxAt === 0 ? 1 : 1 - Math.exp(-Math.min(1, (real - this.wxAt) / 1000) / WX_EASE);
+    this.wxAt = real;
+    const w = (this.wx = easeWeather(this.wx, goal, k));
     let wet = w.rain;
     if (!f) for (const [back, keep] of DRY) wet = Math.max(wet, weatherAt(this.region, now - back * 1000, this.season, solar).rain * keep);
     this.wet = wet;
@@ -251,10 +299,11 @@ export class CityScene extends TribeScene {
       : flashAt(this.region, this.season, now);
     const dim = Math.max(w.rain, w.snow);
     this.rig.sun.intensity *= 1 - 0.6 * w.cloud - 0.15 * dim;
-    this.rig.hemi.intensity *= 1 - 0.1 * dim;
+    // Под тучами свет рассеянный: прямого меньше, неба — больше (тени мягчеют, кадр не проваливается в темень).
+    this.rig.hemi.intensity *= 1 + 0.18 * w.cloud - 0.1 * dim;
     const bg = this.scene.background as THREE.Color;
     const fog = (this.scene.fog as THREE.Fog).color;
-    for (const c of [bg, fog]) greyen(c, 0.65 * w.cloud, 1 - 0.32 * w.rain - 0.1 * w.storm + 0.05 * w.snow);
+    for (const c of [bg, fog]) greyen(c, 0.65 * w.cloud, 1 - 0.24 * w.rain - 0.1 * w.storm + 0.05 * w.snow);
     if (w.fog > 0) fog.lerp(TMP_C.copy(MIST_SKY).multiplyScalar(0.35 + 0.65 * this.light.daylight), w.fog * 0.55);
     if (this.flash > 0) {
       this.rig.hemi.intensity += this.flash * 1.3;
@@ -276,6 +325,7 @@ export class CityScene extends TribeScene {
       const u = c.uniforms;
       const night = windowNight(this.light);
       u.cNight.value = night;
+      u.cBlue.value = this.light.nightK;
       // Зима сезона партии — голые кроны и сухой камыш; снег на кровлях и земле — по климату региона; лёд — по холоду пояса.
       const winter = this.seasonVis.snow;
       const ice = winter * ZONES[zoneOf(this.region)].frost;
@@ -298,6 +348,12 @@ export class CityScene extends TribeScene {
       u.cCloudAt.value.set(aloft.x * CLOUD_SPEED * t, aloft.z * CLOUD_SPEED * t);
       u.cMist.value = w.fog;
       u.cRain.value = lo ? 0 : w.rain;
+      // Пелена вдали — дождь и снег; её полосы идут по ветру. Блик солнца на мокром — где солнце видно сквозь тучи.
+      u.cVeil.value = Math.max(w.rain * 0.9, w.snow * 0.7);
+      this.veilAt.x += dir.x * VEIL_SPEED * (0.5 + w.wind) * dt;
+      this.veilAt.y += dir.z * VEIL_SPEED * (0.5 + w.wind) * dt;
+      u.cVeilAt.value.copy(this.veilAt);
+      u.cSunLit.value = this.light.daylight * Math.max(0, 1 - 1.1 * w.cloud) * (1 - night);
       u.cWindDir.value.set(dir.x, dir.z);
       u.cWind.value = w.wind;
       this.folk?.setWind(dir.x, dir.z, w.wind);
@@ -306,18 +362,33 @@ export class CityScene extends TribeScene {
       if (fog) {
         const base = cityFog(this.dist);
         const dim = Math.max(w.rain, w.snow);
-        fog.near = base.near * (1 - 0.25 * dim - 0.3 * w.fog);
-        fog.far = base.far * (1 - 0.2 * dim - 0.15 * w.fog);
+        fog.near = base.near * (1 - 0.25 * dim - 0.5 * w.fog);
+        fog.far = base.far * (1 - 0.2 * dim - 0.35 * w.fog);
       }
-      this.precip?.update(t, w.rain, w.snow, dir.x, dir.z, w.wind, this.target, this.dist, Math.max(0.22, this.light.daylight) + this.flash);
-      const fl = c.group.getObjectByName('city-flames') as THREE.Points | undefined;
-      if (fl) {
-        const fm = fl.material as THREE.PointsMaterial;
-        fm.opacity = night;
-        fl.visible = night > 0.01;
-        fm.size = 3.6 * (1 + Math.sin(t * 11) * 0.08);
+      if (this.precip && fog) {
+        this.precip.update({
+          t,
+          rain: w.rain,
+          snow: w.snow,
+          windX: dir.x,
+          windZ: dir.z,
+          wind: w.wind,
+          center: this.target,
+          dist: this.dist,
+          camera: this.camera,
+          bufferHeight: this.renderer.domElement.height,
+          light: Math.max(0.22, this.light.daylight),
+          flash: this.flash,
+          night,
+          sky: fog.color,
+          fogNear: fog.near,
+          fogFar: fog.far,
+        });
       }
+      // Огни ночи (docs/polish.md, П-9): загораются по одному, мерцают; настоящие — ближние к взгляду.
+      c.rig.update(t, dt, night, this.target.x, this.target.z, this.camera, this.renderer.domElement.height);
       this.folk?.update(dt, t, night, this.seasonVis.snow);
+      this.garrison?.update(t, this.camera);
       // Колесо лесопилки крутится и брызжет — от времени (ручей не мёрзнет).
       c.mill?.update(t);
       // Суета судит о льде: на реке без льда утки и лодки остаются и зимой.
@@ -343,21 +414,34 @@ export class CityScene extends TribeScene {
 
   /** Кусок суеты: пришёл, когда сцену ещё не выгрузили и город тот же, — встаёт; не пришёл — город живёт без него. */
   private loadBustle(c: CityBuild): void {
-    // Осадки — своей докачкой; на «Низком» частиц нет, и кусок не нужен.
-    if (this.quality !== 'low') {
-      import('./precip')
-        .then(({ CityPrecip }) => {
-          if (this.disposed || this.town !== c) return;
-          this.precip = new CityPrecip(this.quality);
-          this.scene.add(this.precip.group);
-        })
-        .catch(() => undefined);
-    }
+    // Осадки — своей докачкой, на каждом уровне (на «Низком» — проще: меньше струй, без брызг). Поле высот — из кровель,
+    // земли и воды: на них кончается капля и ложатся брызги.
+    import('./precip')
+      .then(({ CityPrecip }) => {
+        if (this.disposed || this.town !== c) return;
+        const p = new CityPrecip(this.quality, c.uniforms);
+        p.setLevel(this.dprLevel);
+        p.ground(['city-buildings', 'city-ground', 'city-water'].map((n) => c.group.getObjectByName(n)).filter((m): m is THREE.Mesh => m instanceof THREE.Mesh));
+        this.precip = p;
+        this.scene.add(p.group);
+      })
+      .catch(() => undefined);
     import('./alive')
       .then(({ CityBustle }) => {
         if (this.disposed || this.town !== c) return;
         this.bustle = new CityBustle({ plan: c.plan, quality: this.quality });
+        this.bustle.setArms(this.lastState?.profile.arms);
+        lightScene(this.bustle.group, c.uniforms);
         this.scene.add(this.bustle.group);
+      })
+      .catch(() => undefined);
+    // Стража — те же бойцы, что в роликах: своим куском; не пришёл — стоят прежние фигуры стражи.
+    import('./garrison')
+      .then(({ CityGarrison }) => {
+        if (this.disposed || this.town !== c || !this.folk) return;
+        this.garrison = new CityGarrison(this.folk, this.quality, this.lastState?.profile.arms);
+        lightScene(this.garrison.group, c.uniforms);
+        this.scene.add(this.garrison.group);
       })
       .catch(() => undefined);
     // Отклик — своим куском, тем же правилом: не пришёл — город стоит без лесов и надписей, игра идёт как шла.
@@ -458,6 +542,10 @@ export class CityScene extends TribeScene {
   // ---------- Постройки ----------
 
   protected override syncWorld(s: GameState): void {
+    // Герб державы на стягах башен (П-2): кусок оживления мог ещё не приехать — тогда возьмёт при следующем кадре стора.
+    this.bustle?.setArms(s.profile.arms);
+    this.folk?.setLivery(s.profile.arms);
+    this.garrison?.setArms(s.profile.arms);
     // Модели у города свои и одни навсегда (docs/city.md, раздел 5): уровни игры их не меняют. Здание
     // игры здесь — пустая группа на главном месте постройки: к ней цепляется значок, по её типу —
     // касание и подсветка.
@@ -571,6 +659,8 @@ export class CityScene extends TribeScene {
   }
 
   override dispose(): void {
+    this.garrison?.dispose();
+    this.garrison = null;
     this.folk?.dispose();
     this.folk = null;
     this.bustle?.dispose();

@@ -7,8 +7,11 @@
 import { compose, pauseAfter, DRONE_LEAD, DRONE_TAIL, type Piece } from './compose';
 import { drone, flute, pluck, type Kit } from './synth';
 
-/** Уровни голосов на выходе музыки — выставлены офлайн-отрисовкой (docs/audio.md, раздел 6). */
-export const MUSIC_MIX = { lute: 0.42, flute: 0.3, drone: 1 } as const;
+/**
+ * Уровни голосов на выходе музыки — выставлены офлайн-отрисовкой (docs/audio.md, раздел 6). П-3: на 2.3 дБ тише —
+ * музыка под городом, вровень с его фоном, а не поверх него.
+ */
+export const MUSIC_MIX = { lute: 0.32, flute: 0.23, drone: 0.77 } as const;
 
 /** Пауза перед первой пьесой: сначала слышен город, потом входит музыка. */
 export const FIRST_PIECE_AFTER = 6;
@@ -20,6 +23,8 @@ export class EpochMusic {
   private nextAt: number;
   /** Корпус лютни: щипок без лишней звонкости. */
   private body: BiquadFilterNode;
+  /** Бурдон — своей ступенью громкости (`MUSIC_MIX.drone`). */
+  private droneOut: GainNode;
   /** Сколько пьес начато — образцам и тесту. */
   started = 0;
 
@@ -36,6 +41,9 @@ export class EpochMusic {
     this.body.frequency.value = 3400;
     this.body.Q.value = 0.6;
     this.body.connect(out);
+    this.droneOut = kit.ctx.createGain();
+    this.droneOut.gain.value = MUSIC_MIX.drone;
+    this.droneOut.connect(out);
   }
 
   /** Поставить всё, что начинается до `now + horizon`. Ноты, опоздавшие больше чем на 50 мс, пропускаются. */
@@ -68,7 +76,7 @@ export class EpochMusic {
     this.pieceAt = at;
     this.cursor = 0;
     this.started++;
-    drone(this.kit, this.out, at, at + p.length, p.drone, DRONE_LEAD - 1, DRONE_TAIL - 1);
+    drone(this.kit, this.droneOut, at, at + p.length, p.drone, DRONE_LEAD - 1, DRONE_TAIL - 1);
   }
 
   /** Что играет — образцам. */

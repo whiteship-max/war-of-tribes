@@ -145,6 +145,8 @@ export interface TwHouse {
   yaw: number;
   floors: number;
   seed: number;
+  /** Конёк кровли — высота ролика (дом настоящего города, `town.houseOfTown`); нет — по этажам (дом ролика). */
+  top?: number;
 }
 
 export interface TwTent {
@@ -185,6 +187,12 @@ export interface TwSite {
   uses?: SlotUse[];
   /** Осадная башня у стены; нет — не строили. */
   tower?: TwSiegeTower | null;
+  /**
+   * Где настоящий город уступает место бою (П-6, `town.townCut`): за стеной — где стоят и ходят люди ролика (`inside`),
+   * перед ней — поле; `paint` — где за стеной земля ролика (двор у ворот, улица, площадь), а не города. Есть только у места
+   * со стеной.
+   */
+  town?: { inside: Rect[]; outside: Rect; paint: Rect[] };
 }
 
 /** Прямоугольник по плану (для «здесь стоят люди — дом не ставить»). */

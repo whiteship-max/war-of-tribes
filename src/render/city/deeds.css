@@ -30,7 +30,7 @@
   background: rgba(26, 20, 16, 0.72);
   border: 1px solid rgba(230, 190, 110, 0.45);
   color: #f6dd9a;
-  font: 700 13px/18px system-ui, sans-serif;
+  font: 700 13px/18px var(--font-sans);
   white-space: nowrap;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
   opacity: 0;

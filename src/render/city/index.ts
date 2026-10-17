@@ -7,8 +7,7 @@ import type { Builder, V3 } from './geom';
 import type { CityPlan } from './layout';
 import { arraysOf, buildWorld, type CityWorld, type MeshArrays } from './world';
 import { LAYERS, paintLayer, TEX_SEED } from './tex';
-import { buildingMaterial, cityUniforms, CITY_LIGHTS, foliageMaterial, groundMaterial, LayerTexture, MapTexture, type CityUniforms } from './material';
-import { CITY } from './palette';
+import { buildingMaterial, cityUniforms, foliageMaterial, groundMaterial, LayerTexture, MapTexture, type CityUniforms } from './material';
 import { MAP_AT } from './ground';
 import { LAND_AT, treeModel, type Species } from './nature';
 import type { Quality } from '../quality';
@@ -18,6 +17,8 @@ import { buildWater } from './water';
 import { buildShore } from './shore';
 import { waterLights } from './banks';
 import { MillWheel } from './mill';
+import { LampRig, lampsToWorld } from '../glow/rig';
+import { LAMP_SPEC, type Lamp } from '../glow/lamps';
 export { CITY_SPEC, type CitySpec } from './spec';
 
 /** Слои текстур в потоке: кадр не ждёт генерации. Нет потока — считаем здесь же. */
@@ -79,8 +80,10 @@ export interface CityBuild {
   chimneys: V3[];
   /** Верхушки башен — под флаги. */
   flagTops: V3[];
-  /** Огни ночи: факелы стены и ворот, фонари площади. */
-  lights: V3[];
+  /** Огни ночи (docs/polish.md, П-9): факелы стены и ворот, фонари улиц и дверей, жаровня площади, горн кузницы. */
+  lamps: Lamp[];
+  /** Свет огней на кадр: огоньки, пятна у земли, настоящие огни в шейдерах (`glow/rig.ts`). */
+  rig: LampRig;
   /** Коробки 24 построек игры (`sites.ts`). */
   sites: Site[];
   /** Отдать материалы и текстуры (геометрию отдаёт сцена обходом). */
@@ -89,37 +92,35 @@ export interface CityBuild {
   full: Promise<void>;
   /** Колесо лесопилки, что крутится, и брызги (docs/city.md, 16.4); на «Низком» — нет, колесо стоит в меше зданий. */
   mill: MillWheel | null;
+  /**
+   * Что город одалживает ролику осады и боя у города (docs/polish.md, П-6, `backdrop.ts`): уровень, план, карты покрытий и
+   * земель; слои текстур — `uniforms.cityTex` (сначала мелкие, потом полные). Ролик их не освобождает.
+   */
+  share: CityShare;
 }
 
-/** Огоньки факелов: точки с мягким пятном, видны ночью (прозрачность — доля ночи). */
-function flames(lights: V3[]): THREE.Points {
-  const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(lights.flat()), 3));
-  const c = document.createElement('canvas');
-  c.width = 64;
-  c.height = 64;
-  const x = c.getContext('2d');
-  if (x) {
-    const grd = x.createRadialGradient(32, 32, 0, 32, 32, 32);
-    grd.addColorStop(0, 'rgba(255,240,200,1)');
-    grd.addColorStop(0.25, 'rgba(255,170,80,0.85)');
-    grd.addColorStop(1, 'rgba(255,120,40,0)');
-    x.fillStyle = grd;
-    x.fillRect(0, 0, 64, 64);
-  }
-  const m = new THREE.PointsMaterial({
-    size: 3.6,
-    map: new THREE.CanvasTexture(c),
-    transparent: true,
-    depthWrite: false,
-    blending: THREE.AdditiveBlending,
-    color: CITY.torch,
-    opacity: 0,
-  });
-  const p = new THREE.Points(g, m);
-  p.name = 'city-flames';
-  p.frustumCulled = false;
-  return p;
+/** Город игры для ролика: тот же план, те же текстуры и карты — ни памяти сверх, ни второй сборки плана. */
+export interface CityShare {
+  quality: Quality;
+  plan: CityPlan;
+  uniforms: CityUniforms;
+  map: THREE.Texture;
+  land: THREE.Texture;
+}
+
+/** Сетка земли города в буферы: положение, нормаль, сырость берега; тон, UV и `cfg` — пустые (их берёт карта). */
+export function groundGeometry(grid: { positions: Float32Array; normals: Float32Array; index: Uint32Array }, wet: Float32Array): THREE.BufferGeometry {
+  const gg = new THREE.BufferGeometry();
+  gg.setAttribute('position', new THREE.BufferAttribute(grid.positions, 3));
+  gg.setAttribute('normal', new THREE.BufferAttribute(grid.normals, 3));
+  const nv = grid.positions.length / 3;
+  gg.setAttribute('color', new THREE.BufferAttribute(new Float32Array(nv * 3).fill(1), 3));
+  gg.setAttribute('cuv', new THREE.BufferAttribute(new Float32Array(nv * 2), 2));
+  gg.setAttribute('cfg', new THREE.BufferAttribute(new Uint8Array(nv * 4), 4));
+  gg.setAttribute('cwet', new THREE.BufferAttribute(wet, 1));
+  gg.setIndex(new THREE.BufferAttribute(grid.index, 1));
+  gg.computeBoundingSphere();
+  return gg;
 }
 
 /** Мир города в потоке: план, меш зданий, карты, расстановка. Нет потока — здесь же. */
@@ -152,46 +153,35 @@ export async function buildCity(q: Quality): Promise<CityBuild> {
   const layersP = paintLayers(progressive ? FIRST : spec.tex);
   const w = await worldOf(q);
   const tWorld = performance.now();
-  const { plan, lights, chimneys, flagTops, marks, sites, map, land, grid, trees, wet, shore } = w;
+  const { plan, lamps, chimneys, flagTops, marks, sites, map, land, grid, trees, wet, shore } = w;
   const u = cityUniforms();
   const group = new THREE.Group();
   group.name = 'city';
 
   // Здания — один меш; та же дорога, что у счёта бюджета (`budget.buildStatic`, в потоке).
-  // Огни ночи: ближние к середине города — в шейдер пятнами, все — огоньками.
-  const center = { x: 0, z: -10 };
-  const lit = [...lights].sort((a, c) => Math.hypot(a[0] - center.x, a[2] - center.z) - Math.hypot(c[0] - center.x, c[2] - center.z));
-  lit.slice(0, CITY_LIGHTS).forEach((p, k) => u.cLights.value[k].set(p[0], p[1] - 0.8, p[2], 9.5 * 9.5));
   const bMat = buildingMaterial(u);
   const bMesh = new THREE.Mesh(geometryFrom(w.buildings), bMat);
   bMesh.name = 'city-buildings';
   bMesh.castShadow = true;
   bMesh.receiveShadow = true;
   group.add(bMesh);
-  group.add(flames(lights));
+  // Огни ночи: ближние к взгляду — настоящим светом в шейдерах, все — огоньками, низкие — ещё и пятном на земле.
+  const rig = new LampRig(lampsToWorld(lamps, null), LAMP_SPEC[q].real, u);
+  group.add(rig.group);
   const mill = w.wheel ? new MillWheel(w.wheel, new THREE.Mesh(geometryFrom(w.wheel.mesh), bMat)) : null;
   if (mill) group.add(mill.group);
 
   // Земля.
   const mapTex = new MapTexture(map, spec.map);
   const landTex = new MapTexture(land, spec.land);
-  const gg = new THREE.BufferGeometry();
-  gg.setAttribute('position', new THREE.BufferAttribute(grid.positions, 3));
-  gg.setAttribute('normal', new THREE.BufferAttribute(grid.normals, 3));
-  const nv = grid.positions.length / 3;
-  gg.setAttribute('color', new THREE.BufferAttribute(new Float32Array(nv * 3).fill(1), 3));
-  gg.setAttribute('cuv', new THREE.BufferAttribute(new Float32Array(nv * 2), 2));
-  gg.setAttribute('cfg', new THREE.BufferAttribute(new Uint8Array(nv * 4), 4));
-  gg.setAttribute('cwet', new THREE.BufferAttribute(wet, 1));
-  gg.setIndex(new THREE.BufferAttribute(grid.index, 1));
-  gg.computeBoundingSphere();
+  const gg = groundGeometry(grid, wet);
   const gMesh = new THREE.Mesh(gg, groundMaterial(u, mapTex, MAP_AT, landTex, LAND_AT));
   gMesh.name = 'city-ground';
   gMesh.receiveShadow = true;
   group.add(gMesh);
   // Вода: река и мельничный ручей — одна лента до кромки; огни у воды отражаются в ней ночью. Берег — камыш и камни.
   const cap = SHORE_CAP[q];
-  const water = buildWater(u, cap.cols, spec.detail, waterLights(lights));
+  const water = buildWater(u, cap.cols, spec.detail, waterLights(lamps.map((l): V3 => [l.x, l.y, l.z])));
   group.add(water);
   const shoreGroup = buildShore(u, shore.reeds, shore.stones, cap.reedBlades);
   group.add(shoreGroup);
@@ -261,7 +251,7 @@ export async function buildCity(q: Quality): Promise<CityBuild> {
       fortTris: marks.forts - marks.houses,
       civicTris: marks.civic - marks.forts,
       outsideTris: marks.outside - marks.civic,
-      lights: lights.length,
+      lights: lamps.length,
       buildingTris: w.buildingTris,
       buildingVerts: w.buildings.pos.length / 3,
       groundTris: grid.index.length / 3,
@@ -279,15 +269,13 @@ export async function buildCity(q: Quality): Promise<CityBuild> {
     textureBytes: texBytes,
     chimneys,
     flagTops,
-    lights,
+    lamps,
+    rig,
     sites,
     dispose(): void {
       const shoreMats = shoreGroup.children.map((c) => (c as THREE.Mesh).material as THREE.Material);
-      for (const m of [bMat, fMat, gMesh.material as THREE.Material, water.material as THREE.Material, ...shoreMats, (group.getObjectByName('city-flames') as THREE.Points).material as THREE.PointsMaterial]) {
-        const map = (m as THREE.PointsMaterial).map;
-        map?.dispose();
-        m.dispose();
-      }
+      for (const m of [bMat, fMat, gMesh.material as THREE.Material, water.material as THREE.Material, ...shoreMats]) m.dispose();
+      rig.dispose();
       gone = true;
       mill?.dispose();
       tex.dispose();
@@ -296,5 +284,6 @@ export async function buildCity(q: Quality): Promise<CityBuild> {
     },
     full,
     mill,
+    share: { quality: q, plan, uniforms: u, map: mapTex, land: landTex },
   };
 }

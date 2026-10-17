@@ -1046,18 +1046,15 @@ describe('осада: частота от ИИ', () => {
 });
 
 describe('осада: цена падения известна заранее', () => {
-  const banner = readFileSync(path.join(process.cwd(), 'src/ui/SiegeBanner.tsx'), 'utf8');
+  const sign = readFileSync(path.join(process.cwd(), 'src/ui/warSigns.ts'), 'utf8');
   const panel = readFileSync(path.join(process.cwd(), 'src/ui/panels/SiegePanel.tsx'), 'utf8');
 
-  it('плашка говорит, чем кончится голод, рядом с часами, а окно — подробно и до действий', () => {
+  it('значок осады — часы голода и вход в окно; окно говорит, чем кончится голод, первым и до действий', () => {
     // Падение случается и в отсутствие игрока, и цена обязана стоять там, где
-    // принимают решение уходить, — под счётчиком голода. Плашка — вход в окно: в ней
-    // объявленная участь; в окне — что именно город потеряет.
-    expect(banner).toContain('siege-fall');
-    expect(banner).toMatch(/Объявлено/);
-    // Порядок: сначала «сколько осталось», потом «чем кончится», потом вход в окно.
-    expect(banner.indexOf('siege-clock')).toBeLessThan(banner.indexOf('siege-fall'));
-    expect(banner.indexOf('siege-fall')).toBeLessThan(banner.indexOf('siege-open'));
+    // принимают решение уходить. С П-7 плашки нет (docs/polish.md): значок держит часы голода и
+    // одним касанием открывает окно, а в окне участь — первая строка. Имя значка для чтеца экрана
+    // говорит и часы, и участь — в этом порядке.
+    expect(sign).toMatch(/до голода \$\{left\}`, `объявлено:/);
     // В окне цена стоит первой после шапки, раньше часов и раньше действий.
     expect(panel).toMatch(/Кончится хлеб/);
     expect(panel).toMatch(/тайник/);

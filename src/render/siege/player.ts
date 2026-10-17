@@ -10,6 +10,7 @@ import { TacticalCamera, blendCam, overview, type CamState } from '../reel/camer
 import type { TwCamKey } from '../tw/barrage';
 import { SiegeStage } from './stage';
 import { episodeAt, type Episode, type SiegeReel } from './reel';
+import type { TownBackdrop } from '../city/backdrop';
 
 /** Переход камеры от ключа к ключу, секунды (как у пролога обстрела). */
 const CAM_MOVE = 1.3;
@@ -19,11 +20,17 @@ export function keyView(keys: readonly TwCamKey[], t: number, aspect: number): C
   if (keys.length === 0) return overview({ minX: -30, maxX: 30, minZ: -40, maxZ: 10 }, aspect);
   let i = 0;
   while (i + 1 < keys.length && keys[i + 1].at <= t) i++;
-  const a = overview(keys[i].box, aspect, keys[i].yaw, keys[i].pitch);
+  const a = viewOfKey(keys[i], aspect);
   const next = keys[i + 1];
   if (!next) return a;
-  const b = overview(next.box, aspect, next.yaw, next.pitch);
+  const b = viewOfKey(next, aspect);
   return blendCam(a, b, (t - (next.at - CAM_MOVE)) / CAM_MOVE);
+}
+
+/** Кадр ключа: камера на месте (`dist`) или прямоугольник, вписанный в экран. */
+function viewOfKey(k: TwCamKey, aspect: number): CamState {
+  if (k.dist === undefined) return overview(k.box, aspect, k.yaw, k.pitch);
+  return { tx: (k.box.minX + k.box.maxX) / 2, tz: (k.box.minZ + k.box.maxZ) / 2, dist: k.dist, yaw: k.yaw, pitch: k.pitch };
 }
 
 export interface SiegePlayerOptions {
@@ -36,6 +43,8 @@ export interface SiegePlayerOptions {
   onLower?: (q: Quality) => void;
   /** Кусок ролика (короткий ролик фазы, `reel.clipOf`); нет — весь. */
   range?: { from: number; to: number };
+  /** Настоящий город за стеной (docs/polish.md, П-6); проигрыватель отдаёт его сцене, она — освобождает. */
+  town?: TownBackdrop | null;
 }
 
 export class SiegePlayer {
@@ -66,7 +75,7 @@ export class SiegePlayer {
     this.to = opts.range?.to ?? reel.seconds;
     this.t = this.from;
     this.steady = opts.watch ? new Steady(QUALITIES, opts.watch, VILLAGE_STEADY) : null;
-    this.stage = new SiegeStage(reel, spec);
+    this.stage = new SiegeStage(reel, spec, opts.town ?? null);
     renderer.shadowMap.type = spec.shadowSoft ? THREE.PCFShadowMap : (0 as THREE.ShadowMapType);
     this.shadowEvery = Math.max(1, spec.shadowEvery);
     this.shadowAuto = renderer.shadowMap.autoUpdate;
@@ -175,7 +184,7 @@ export class SiegePlayer {
     if (this.cam.auto) this.cam.follow(this.view(this.t));
     this.cam.groundY = this.stage.groundY(this.cam.now.tx, this.cam.now.tz);
     if (dt > 0) this.cam.update(dt);
-    this.stage.apply(this.t, this.cam);
+    this.stage.apply(this.t, this.cam, this.renderer.domElement.height);
     this.renderer.info.reset();
     this.renderer.shadowMap.needsUpdate = dt === 0 || this.drawn++ % this.shadowEvery === 0;
     this.renderer.render(this.stage.scene, this.cam.camera);

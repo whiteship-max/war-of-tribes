@@ -1,7 +1,8 @@
-// Цепочка выхода звука: громкость рода (музыка, звуки) → общий выход (на нём пауза в фоне) → ограничитель → динамик.
+// Цепочка выхода звука: громкость рода (музыка, эффекты, окружение) → общий выход (на нём пауза в фоне) → ограничитель →
+// динамик.
 // Одна на игру (`sound/web.ts`) и на офлайн-отрисовку образцов и уровней (`npm run audio:samples`): стенд меряет ровно
 // ту цепочку, что звучит у игрока (docs/audio.md, раздел 6).
-import type { SoundKind } from './settings';
+import { SOUND_KINDS, type SoundKind } from './settings';
 
 /** Ограничитель — страховка от перегруза, а не звук: на выставленных уровнях он почти не работает. */
 export const LIMITER = { threshold: -6, knee: 4, ratio: 12, attack: 0.003, release: 0.25 } as const;
@@ -11,7 +12,7 @@ export interface OutputChain {
   kinds: Record<SoundKind, GainNode>;
 }
 
-/** Собрать цепочку на контексте. `limit: false` — без ограничителя: стенд так меряет запас до перегруза. */
+/** Собрать цепочку на контексте; `levels` — силы родов (`settings.levelGain`). `limit: false` — без ограничителя: стенд так меряет запас до перегруза. */
 export function outputChain(ctx: BaseAudioContext, levels: Record<SoundKind, number>, limit = true): OutputChain {
   const master = ctx.createGain();
   if (limit) {
@@ -30,5 +31,7 @@ export function outputChain(ctx: BaseAudioContext, levels: Record<SoundKind, num
     g.connect(master);
     return g;
   };
-  return { master, kinds: { music: kind('music'), fx: kind('fx') } };
+  const kinds = {} as Record<SoundKind, GainNode>;
+  for (const k of SOUND_KINDS) kinds[k] = kind(k);
+  return { master, kinds };
 }
