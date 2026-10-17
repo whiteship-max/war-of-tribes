@@ -294,6 +294,8 @@ export class Crowd {
   private viewProj = new THREE.Matrix4();
   /** Бойцов в кадре по обликам (вдали, средний, вблизи) — стенду и замеру. */
   readonly shown: [number, number, number] = [0, 0, 0];
+  /** Самый подробный облик уровня (`TwSpec.crowdLod`): сторож опускает его вместе с уровнем (`detail`). */
+  private top: 1 | 2;
 
   constructor(
     private plan: Troupe,
@@ -301,6 +303,7 @@ export class Crowd {
     coats: { ours: string; theirs: string } | null = null,
   ) {
     this.group.name = 'tw-crowd';
+    this.top = spec.crowdLod;
     // Виды боя: что надето, по отрядам; один набор обликов на вид.
     const byKey = new Map<string, number[]>();
     const looks = new Map<string, ReturnType<typeof lookOf>>();
@@ -408,7 +411,7 @@ export class Crowd {
           const dy = cy - eye.y;
           const dz = cz - eye.z;
           const d2 = (dx * dx + dy * dy + dz * dz) / (scale * scale);
-          lod = d2 > far2 ? 0 : d2 < near2 ? 2 : 1;
+          lod = d2 > far2 ? 0 : d2 < near2 ? this.top : 1;
         }
         const set = sets[lod];
         const m = cursor[lod]++;
@@ -505,6 +508,11 @@ export class Crowd {
     };
     this.extraMeshes.push(mesh);
     return extra;
+  }
+
+  /** Самый подробный облик: сторож ролика опустил уровень (`TwSpec.crowdLod`) — ближние бойцы средним обликом. */
+  detail(top: 1 | 2): void {
+    this.top = top;
   }
 
   /** Гербы сторон сменились (герб державы в городе): поле на щитах и сюрко — заново. */

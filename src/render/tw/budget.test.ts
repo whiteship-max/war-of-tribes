@@ -176,13 +176,29 @@ describe('ролик TW: бюджет кадра по уровням', () => {
       if (process.env.TW_BUDGET_SHOW === '1') {
         console.log(`вблизи ${q}: в кадре вдали/средн/вблизи ${shown.join('/')} из ${count.figures} · вызовов ${count.calls} · треугольников ${count.triangles}`);
       }
-      // Точка внутри области правила: вблизи есть бойцы в ближнем облике, а часть поля — за кадром.
-      expect(shown[2], `${q}: ближних`).toBeGreaterThan(0);
+      // Точка внутри области правила: вблизи есть бойцы в ближнем облике (на низком его нет — средний), часть поля — за кадром.
+      if (TW_SPEC[q].crowdLod === 2) expect(shown[2], `${q}: ближних`).toBeGreaterThan(0);
+      else expect(shown[2], `${q}: ближних на низком`).toBe(0);
       expect(shown[0] + shown[1] + shown[2], `${q}: в кадре`).toBeLessThan(count.figures);
       expect(count.calls, `${q}: вызовов`).toBeLessThanOrEqual(b.calls);
       expect(count.triangles, `${q}: треугольников`).toBeLessThanOrEqual(b.triangles);
       stage.dispose();
     }
+  });
+
+  it('сторож опустил уровень на кадре вблизи: ближние бойцы — средним обликом, кадр дешевле, бойцов в кадре столько же', () => {
+    const { stage, cam, count: before, shown } = closeUp('medium');
+    // Точка внутри области: у среднего ближний облик есть, и в кадре он есть.
+    expect(TW_SPEC.medium.crowdLod).toBe(2);
+    expect(shown[2]).toBeGreaterThan(0);
+    stage.lower(TW_SPEC.low);
+    const t = stage.plan.clashAt + 0.5;
+    stage.apply(t, cam as never, t);
+    const after = countStage(stage);
+    expect(stage.crowd.shown[2], 'ближних').toBe(0);
+    expect(stage.crowd.shown[0] + stage.crowd.shown[1], 'в кадре').toBe(shown[0] + shown[1] + shown[2]);
+    expect(after.triangles, 'треугольников').toBeLessThan(before.triangles);
+    stage.dispose();
   });
 
   it('отсечение: всякий боец в пирамиде обзора нарисован, всякий за спиной камеры — нет', () => {

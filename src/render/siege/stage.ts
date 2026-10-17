@@ -330,6 +330,8 @@ export class SiegeStage {
 
   /** Сторож ролика опустил уровень: гаснут тени бойцов, облака, кустики (как у ролика боя, `TwStage.lower`). */
   lower(next: TwSpec): void {
+    // Бойцы вблизи — средним обликом, если у нового уровня ближнего нет (`TwSpec.crowdLod`).
+    this.crowd.detail(next.crowdLod);
     if (next.shadow === 'none') this.crowd.shadows(false);
     if (!next.clouds && this.clouds) this.clouds.mesh.visible = false;
     this.field.lower(next);
