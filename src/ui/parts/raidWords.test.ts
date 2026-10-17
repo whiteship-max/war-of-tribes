@@ -36,8 +36,11 @@ function sources(dir: string): string[] {
 
 const rel = (base: string, abs: string): string => path.relative(base, abs).split(path.sep).join('/');
 
-/** Входы к донесению о набеге. Тревога у обоих видов интерфейса одна — `alertItems` (строки и значки рисуют по ней). */
-const ENTRIES = ['alertItems.ts', 'parts/Walls.tsx'];
+/**
+ * Входы к донесению о набеге. Тревога у обоих видов интерфейса одна — `alertItems` (строки и значки рисуют по ней); с П-7
+ * набег стоит значком войны справа снизу — `warSigns` (docs/polish.md), окно читает той же дверью.
+ */
+const ENTRIES = ['alertItems.ts', 'parts/Walls.tsx', 'warSigns.ts'];
 /** Кто показывает окно ответа: оба входа и само донесение. */
 const READERS = [...ENTRIES, 'realm/Mail.tsx'];
 
