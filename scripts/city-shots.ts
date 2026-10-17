@@ -4,7 +4,7 @@
 //   QUALITY=high,low VIEWS=game,street SOLAR=0.2,0.75 TAG=r2 npm run city:shots
 //   EXTRA="at=4,5,70&dist=30" VIEWS=street npm run city:shots   — свой ракурс поверх названного
 //   TEX=1 npm run city:shots                   — слои текстур листом (без браузера)
-//   BUDGET=1 npm run city:shots                — бюджет по уровням счётом (без браузера)
+//   BUDGET=1 npm run city:shots                — бюджет по уровням счётом (без браузера); `BUILD_MS=1` — и цена сборки мира
 //   GAME=1 QUALITY=medium npm run city:shots   — сама игра по адресу `?look=city`: стартовый кадр
 //                                                (сцена города в игре, не стенд), TAG и QUALITY те же
 //   GAME=1 WX=clear,rain,storm npm run city:shots — погода адресом (`?weather=`, docs/city.md, 15): кадр игры на каждую,
@@ -30,6 +30,7 @@ import { BROWSER_MAX_MS, REPORT_FPS, gpuCoolDown, gpuStamp, refuseIfBusy } from 
 import { QUALITY, qualityOf, type Quality } from '../src/render/quality';
 import { LAYERS, paintLayer } from '../src/render/city/tex';
 import { cityCounts, CITY_BUDGET } from '../src/render/city/budget';
+import { buildWorld } from '../src/render/city/world';
 import { QUALITIES as ALL_QUALITIES } from '../src/render/quality';
 import { SEASON_SECONDS } from '../src/game/data/seasons';
 import { DAY_LENGTH } from '../src/game/pace';
@@ -570,6 +571,12 @@ async function main(): Promise<void> {
         `  ${q.padEnd(6)} вызовов ${c.calls} (≤ ${lim.calls}), треугольников ${c.triangles} (≤ ${lim.triangles}; здания ${c.buildings}, ` +
           `земля ${c.ground}, деревья ${c.trees}, жизнь ${c.life}, вода и берег ${c.shore}), текстуры ${c.textureMb.toFixed(1)} МБ (≤ ${lim.textureMb})`,
       );
+      // `BUILD_MS=1` — сколько стоит сборка мира в потоке (`world.buildWorld`): план, здания, земля (карты покрытий и
+      // земель, сетка, сырость и грязь, берег) и деревья — в node, одним прогоном; телефон медленнее (docs/city_v3.md, Г-3).
+      if (process.env.BUILD_MS === '1') {
+        const ms = buildWorld(q).ms;
+        console.log(`         сборка мира, мс: план ${ms.plan.toFixed(0)}, здания ${ms.build.toFixed(0)}, земля ${ms.ground.toFixed(0)}, деревья ${ms.trees.toFixed(0)}`);
+      }
     }
     return;
   }
