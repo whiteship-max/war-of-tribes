@@ -267,16 +267,40 @@ export function hamlets(plan: CityPlan): (P & { r: number })[] {
  * 440 м, с ролика у ворот — полоса поперёк, Г-3, «Косяки»).
  */
 function fieldCell(cx: number, cz: number, plan: CityPlan): boolean {
-  const x = (cx + 0.5) * FIELD_CELL.x - FIELD_CELL.off;
-  const z = (cz + 0.5) * FIELD_CELL.z - FIELD_CELL.off;
+  const x0 = cx * FIELD_CELL.x - FIELD_CELL.off;
+  const z0 = cz * FIELD_CELL.z - FIELD_CELL.off;
+  const x1 = x0 + FIELD_CELL.x;
+  const z1 = z0 + FIELD_CELL.z;
   const r = vnoise(cx * 7.3, cz * 3.1, 1e6, 11);
   if (r < 0.28) return false;
-  // Запас клетки: край угодий — не линейка.
-  const j = (vnoise(cx * 3.7 + 0.5, cz * 5.3 + 0.5, 1e6, 15) - 0.5) * 70;
-  if (x > 125 + j && x < 330 + j && z > -170 && z < 190 + j) return true;
-  if (z > 175 + j && z < 330 + j && Math.abs(x) < 220 + j) return true;
-  for (const h of hamlets(plan)) if (Math.hypot(x - h.x, z - h.z) < h.r + j - (r - 0.28) * 90) return true;
+  // Угодья у города — не меньше прежних прямоугольников: клетка — поле, если хоть краем заходит в них; край — наружу на
+  // запас клетки, не линейкой.
+  const j = vnoise(cx * 3.7 + 0.5, cz * 5.3 + 0.5, 1e6, 15) * 60;
+  if (x1 > 125 && x0 < 330 + j && z1 > -170 && z0 < 190 + j) return true;
+  if (z1 > 175 && z0 < 330 + j && x1 > -220 - j && x0 < 220 + j) return true;
+  const mx = (x0 + x1) / 2;
+  const mz = (z0 + z1) / 2;
+  for (const h of hamlets(plan)) if (Math.hypot(mx - h.x, mz - h.z) < h.r + j - (r - 0.28) * 90) return true;
   return false;
+}
+
+/** Поля — за гласисом: ближе к стене луг (обстрел со стены, `nature.GLACIS`, и запас до опушки). */
+const FIELD_GLACIS = 34;
+
+const boxOf = new WeakMap<CityPlan, { x0: number; x1: number; z0: number; z1: number }>();
+/** Рамка стены города и замка с запасом гласиса полей. */
+function wallBox(plan: CityPlan): { x0: number; x1: number; z0: number; z1: number } {
+  const had = boxOf.get(plan);
+  if (had) return had;
+  const all = [...plan.wall, ...plan.castleWall];
+  const b = {
+    x0: Math.min(...all.map((q) => q.x)) - FIELD_GLACIS,
+    x1: Math.max(...all.map((q) => q.x)) + FIELD_GLACIS,
+    z0: Math.min(...all.map((q) => q.z)) - FIELD_GLACIS,
+    z1: Math.max(...all.map((q) => q.z)) + FIELD_GLACIS,
+  };
+  boxOf.set(plan, b);
+  return b;
 }
 
 /** Вне стены и гласиса: восточный склон и шея мыса, поля у деревень — полосами. */
@@ -290,9 +314,14 @@ export function fieldAt(x: number, z: number, plan: CityPlan): number {
   // Межа — трава между клетками.
   if (Math.min(ux, 1 - ux) * FIELD_CELL.x <= 1.6 || Math.min(uz, 1 - uz) * FIELD_CELL.z <= 1.6) return 0;
   if (!fieldCell(cx, cz, plan)) return 0;
-  if (insidePoly({ x, z }, plan.wall) || insidePoly({ x, z }, plan.castleWall)) return 0;
   if (Math.abs(x - riverX(z)) < RIVER_HALF + 14) return 0;
-  return openLand(x, z, plan, 2) ? 1 : 0;
+  if (!openLand(x, z, plan, 2)) return 0;
+  // Дальше рамки стены с гласисом — ни стены, ни гласиса: обход контура не нужен.
+  const b = wallBox(plan);
+  if (x < b.x0 || x > b.x1 || z < b.z0 || z > b.z1) return 1;
+  const p = { x, z };
+  if (insidePoly(p, plan.wall) || insidePoly(p, plan.castleWall)) return 0;
+  return distPoly(p, plan.wall, true) < FIELD_GLACIS ? 0 : 1;
 }
 
 /** Вода: река в западной долине. */
