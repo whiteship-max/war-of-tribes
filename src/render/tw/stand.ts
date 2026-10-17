@@ -7,7 +7,7 @@
 //   &t=12.5 | &at=deploy|volley|advance|charge|clash|melee|reserve|flank|waver|rout|pursuit|last   кадр стоит
 //   &at=overview|turn|outcome|coda                такты смысла: кадр режиссёра (docs/gfx.md, «Камера»)
 //   &layer=1 [&at=…|card]                       тем же слоем, что в игре (`TwReplay`: шкала сил, кнопки, карточка итога)
-//   &cam=auto|near|side|top|low                положение камеры для снимка
+//   &cam=auto|near|side|top|low|line|cav       положение камеры для снимка (line, cav — вплотную к своему строю и коннице)
 //   &place=… &hour=… &winter=1 &beasts=1 &seed=… &clean=1 &dpr=2 &speed=2
 //   &sound=1                                   звук боя: первое касание холста открывает его (жест), настройку не трогает
 //
@@ -22,7 +22,7 @@ import { qualityOf } from '../quality';
 import { TW_BUDGET, TW_SPEC } from '../reel/spec';
 import { twPlanOfRecord } from './record';
 import { TwPlayer } from './player';
-import { ADVANCE_FROM, type TwPlan } from './plan';
+import { ADVANCE_FROM, unitPose, type TwPlan } from './plan';
 import { OVERVIEW_PITCH, type CamState } from '../reel/camera';
 import { CueClock, ambienceAt, cuesOf } from './cues';
 import { beatsOf } from '../reel/beats';
@@ -149,8 +149,24 @@ function moment(plan: TwPlan, at: string): number {
 }
 
 /** Положения камеры для снимков: от общего вида — ниже, сбоку, сверху, вплотную к сшибке. */
-function shot(base: CamState, cam: string, plan: TwPlan): CamState {
+function shot(base: CamState, cam: string, plan: TwPlan, t = 0): CamState {
   switch (cam) {
+    // Вплотную к своему отряду на секунде кадра (облик бойцов, docs/polish.md, П-5): к середине первой линии наших
+    // пеших — строй; к нашей коннице (иначе — к чужой) — всадники.
+    case 'line':
+    case 'cav': {
+      const horse = (u: TwPlan['units'][number]): boolean => u.form === 'horse' || u.form === 'heavy';
+      const pick = (ours: boolean): TwPlan['units'][number] | undefined =>
+        plan.units.filter((u) => u.ours === ours && (cam === 'cav' ? horse(u) : u.row === 'front' && !horse(u) && u.form !== 'bow')).sort((a, b) => Math.abs(a.x) - Math.abs(b.x))[0];
+      const u = pick(true) ?? pick(false);
+      if (!u) return base;
+      const at = unitPose(plan, u, t);
+      // Камера — перед строем наискось, к лицам (наши смотрят на +z, чужие — на −z); цель — в первых шеренгах.
+      const fwd = u.ours ? 1 : -1;
+      return cam === 'cav'
+        ? { tx: at.x, tz: at.z - fwd * 1.2, dist: 7.5, yaw: (u.ours ? Math.PI : 0) + 0.6, pitch: 0.2 }
+        : { tx: at.x, tz: at.z + fwd * 0.4, dist: 5.5, yaw: (u.ours ? Math.PI : 0) + 0.5, pitch: 0.16 };
+    }
     case 'near':
       return { tx: base.tx * 0.3, tz: 0, dist: 15, yaw: 0.35, pitch: 0.36 };
     case 'low':
@@ -327,7 +343,7 @@ export function mountTwStand(p: URLSearchParams): void {
     player.seek(frozen ?? 0);
     if (cam !== 'auto') {
       player.cam.auto = false;
-      Object.assign(player.cam.goal, shot(player.view(frozen ?? 0), cam, plan));
+      Object.assign(player.cam.goal, shot(player.view(frozen ?? 0), cam, plan, frozen ?? 0));
       player.cam.snap();
     }
     player.draw();

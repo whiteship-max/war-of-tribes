@@ -1,5 +1,5 @@
 // Стенд вида «город»: `?showcase=city&quality=high|medium|low&view=game|street|gate|square|top|house&t=секунды
-// &solar=0.25&season=summer`. Свой рендерер, свет — общий риг (`lighting.ts`, числа ночи `next`),
+// &solar=0.25&season=summer` (`&guard=N` — страж поста N у ворот вблизи, `&lift=`, `&turn=` — высота цели и поворот). Свой рендерер, свет — общий риг (`lighting.ts`, числа ночи `next`),
 // кадр — только через дверь `render/loop.ts`. Крючки для снимков: `window.__stand` (счётчики) и
 // `document.body.dataset.ready = '1'`, когда город собран.
 import * as THREE from 'three';
@@ -206,6 +206,13 @@ export function mountCity(root: HTMLElement, p: URLSearchParams): void {
       scene.add(bustle.group);
     });
     target.y = view.at[1] || heightAt(view.at[0], view.at[2]);
+    // Страж у ворот вблизи (`guard=N`): цель — пост N на высоте плеча, камера — перед ним наискось (облик бойцов,
+    // docs/polish.md, П-5).
+    const post = p.has('guard') ? life.posts[num('guard', 0)] : undefined;
+    if (post) {
+      target.set(post.x, post.y + num('lift', 1.2), post.z);
+      view.azim = Math.atan2(Math.cos(post.yaw), -Math.sin(post.yaw)) / DEG + num('turn', 28);
+    }
     place();
     // Снимок — на полных слоях: сначала город встаёт на мелких (256²).
     void Promise.all([c.full, alive]).then(() => {

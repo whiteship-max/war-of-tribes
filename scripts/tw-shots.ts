@@ -95,6 +95,10 @@ const SHOTS: Shot[] = [
   { name: 'ui-turn', query: `${FIELD}&layer=1&at=turn`, why: 'перелом со слоем игры: строка журнала, шкала сил сдвинулась' },
   { name: 'ui-outcome', query: `${FIELD}&layer=1&at=outcome`, why: 'развязка со слоем игры: бегство, погоня' },
   { name: 'ui-card', query: `${FIELD}&layer=1&at=card`, why: 'итог: поле после боя и карточка итога' },
+  // Облик бойцов вблизи (docs/polish.md, П-5): свой строй и конница — камера у отряда на секунде кадра.
+  { name: 'army-line', query: `${FIELD}&at=deploy&cam=line`, why: 'строй вблизи: доспех, оружие и щиты с гербом, разброс в рядах' },
+  { name: 'army-cav', query: `${CHASE}&at=pursuit&cam=cav`, why: 'конница вблизи в погоне: галоп, копья наперевес' },
+  { name: 'army-cav-deploy', query: `${FIELD}&at=deploy&cam=cav`, why: 'конница вблизи на построении: кони, попоны, всадники' },
   { name: 'deploy', query: `${FIELD}&at=deploy`, why: 'построение: общий вид, отряды строем, знамёна, конница на краях' },
   { name: 'volley', query: `${FIELD}&at=volley`, why: 'залп: туча стрел по дуге от лучников' },
   { name: 'advance', query: `${FIELD}&at=advance&cam=low`, why: 'сближение шагом, ниже общего вида' },

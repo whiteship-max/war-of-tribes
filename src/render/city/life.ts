@@ -1209,6 +1209,10 @@ export class CityLife {
   /** Копейщики у ворот: по двое с каждой стороны проезда, стоят. */
   private gateGuards: THREE.InstancedMesh;
   private gatePosts: { x: number; y: number; z: number; yaw: number }[] = [];
+  /** Посты стражи у ворот: место и разворот — стенду, чтобы снять стражу вблизи (`?showcase=city&guard=N`). */
+  get posts(): readonly { x: number; y: number; z: number; yaw: number }[] {
+    return this.gatePosts;
+  }
   private beatStops: { s: number; half: number }[] = [];
   private beasts: THREE.InstancedMesh;
   private guardGait: THREE.InstancedBufferAttribute;
