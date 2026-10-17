@@ -115,15 +115,16 @@ describe('«Отправлять замеры» выключено — выкл�
     perf.setPerfOn(false);
     expect(store.get(perf.PERF_KEY)).toBe('0');
     expect(perf.perfOn()).toBe(false);
-    // Выключено: кадры, сворачивание, первый кадр и замирание — ни одной пачки.
+    // Выключено: не считает — слушатель двери кадра снят, за минуту кадров сказать нечего.
+    await play(60);
+    expect(perf.take(clock)).toBeNull();
+    // И не шлёт: кадры, сворачивание, первый кадр и замирание — ни одной пачки.
     await play(60);
     perf.perfCity('first');
     perf.perfRestore(700);
     setAppAsleep(true);
     setAppAsleep(false);
     expect(sent).toHaveLength(n);
-    // И не считает: слушатель двери кадра снят — за минуту кадров сказать нечего.
-    expect(perf.take(clock)).toBeNull();
     // Включили снова: старое не воскресло — до включения сказать нечего.
     perf.setPerfOn(true);
     expect(perf.take(clock)).toBeNull();
