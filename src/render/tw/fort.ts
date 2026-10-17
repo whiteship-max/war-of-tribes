@@ -104,7 +104,7 @@ const TOWER_ROLL = 3;
 const CARRY_TILT = 0.22;
 
 /** Прямой пролёт стены по X (метры): тело до боевого хода, деревянный настил, парапет с зубцами снаружи. */
-export function wallRun(b: Builder, w: TwWall, x0: number, x1: number, avoid: (x: number) => boolean): void {
+export function wallRun(b: Builder, w: TwWall, x0: number, x1: number, avoid: (x: number) => boolean, foot = 1.6): void {
   if (x1 - x0 < 0.2) return;
   const s = w.inward;
   const out = -s;
@@ -117,7 +117,7 @@ export function wallRun(b: Builder, w: TwWall, x0: number, x1: number, avoid: (x
   const cx = (x0 + x1) / 2;
   const len = x1 - x0;
   const czBody = zo + s * (thick / 2);
-  box(b, cx, czBody, 0, out, len, thick, base - 1.6, top, 'ashlar', T, null, { aoBottom: 0.72, grimeBottom: 0.9, ...courseU(cx, len, out) });
+  box(b, cx, czBody, 0, out, len, thick, base - foot, top, 'ashlar', T, null, { aoBottom: 0.72, grimeBottom: 0.9, ...courseU(cx, len, out) });
   // Настил хода — дерево, от внутренней кромки до парапета.
   const par = m(PARAPET);
   const zIn = zo + s * thick;
@@ -201,7 +201,7 @@ function stake(b: Builder, x: number, z: number, y0: number, y1: number, r: numb
  * Пролёт частокола (ролик осады, стена до третьего уровня): брёвна стоймя по наружной грани выше хода, настил хода на
  * столбах изнутри. Та же ширина и тот же ход, что у каменной: защитники стоят там же (`site.onWalk`).
  */
-function palisadeRun(b: Builder, w: TwWall, x0: number, x1: number, detail: Detail): void {
+function palisadeRun(b: Builder, w: TwWall, x0: number, x1: number, detail: Detail, foot = 0.6): void {
   if (x1 - x0 < 0.2) return;
   const s = w.inward;
   const zo = m(w.z);
@@ -213,7 +213,7 @@ function palisadeRun(b: Builder, w: TwWall, x0: number, x1: number, detail: Deta
   for (let x = x0 + step / 2, k = 0; x < x1; x += step, k++) {
     // Брёвна серые от погоды, через одно — свежее: дуб на земле в тени сливался с травой.
     const T = tint(k % 3 === 0 ? CITY.oakLight : CITY.timberGrey, 1.45 + ((k * 37) % 9) * 0.05);
-    stake(b, x, zFace, base - 0.6, top + 1.25 + ((k * 13) % 5) * 0.08, r, T, detail > 0 || k % 2 === 0);
+    stake(b, x, zFace, base - foot, top + 1.25 + ((k * 13) % 5) * 0.08, r, T, detail > 0 || k % 2 === 0);
   }
   // Настил хода изнутри и столбы под ним.
   const zIn = zo + s * m(w.thick);
@@ -250,13 +250,13 @@ function palisadeBreach(b: Builder, w: TwWall, x0: number, x1: number, cols: { x
 }
 
 /** Башня частокола: сруб на четырёх столбах, площадка, шатёр из досок. Метры набора. */
-function woodTower(b: Builder, w: TwWall, x: number, size: number, h: number): void {
+function woodTower(b: Builder, w: TwWall, x: number, size: number, h: number, deep = 0.4): void {
   const s = w.inward;
   const z = m(w.z) + s * (m(w.thick) / 2);
   const base = m(w.base);
   const half = size / 2;
   const T = tint(CITY.timberGrey, 1.35);
-  for (const [dx, dz] of [[-half, -half], [half, -half], [half, half], [-half, half]] as const) log(b, [x + dx, base - 0.4, z + dz], [x + dx, base + h, z + dz], 0.3, T, 6, false);
+  for (const [dx, dz] of [[-half, -half], [half, -half], [half, half], [-half, half]] as const) log(b, [x + dx, base - deep, z + dz], [x + dx, base + h, z + dz], 0.3, T, 6, false);
   // Обшивка — верхний ярус, выше хода стены.
   const y0 = base + m(w.top) + 0.4;
   box(b, x, z, 0, -s, size, size, y0, base + h, 'wood', tint(CITY.oakLight, 1.35), 'wood');
@@ -383,6 +383,11 @@ export interface FortInput {
   breach: TwBreach | null;
   quality: Quality;
   motion: FortMotion;
+  /**
+   * За стеной — настоящий город (docs/polish.md, П-6, `city/backdrop.ts`): дома рисует он, концы стены — его стены, а
+   * неподвижное места — тем же материалом, что город (слои текстур окна города). Нет — дома ролика и свой материал.
+   */
+  town?: { material: THREE.Material; geometry: (b: Builder) => THREE.BufferGeometry } | null;
 }
 
 /** Место боя из плана боя: подвижное — по отрядам плана, пролом — пролога обстрела. */
@@ -436,6 +441,9 @@ export function buildFort(input: FortInput): FortView {
   const f = input.field;
   const b = new Builder();
   const w = site.wall;
+  const town = input.town ?? null;
+  // Под стеной с городом — земля мыса: у углов она ниже, чем у ворот, — подошва глубже, как у стен города (`forts.WALL_FOOT`).
+  const foot = town ? 2.4 : 1.6;
   if (w) {
     // Пролёты стены между башнями и надвратной; концы стены уходят углом назад, к городу.
     const stops: [number, number][] = [[m(w.gateX) - m(GATEHOUSE) / 2, m(w.gateX) + m(GATEHOUSE) / 2]];
@@ -448,7 +456,7 @@ export function buildFort(input: FortInput): FortView {
     const cols = br ? breachColumns(br, input.seed) : [];
     const nearTower = (x: number): boolean => stops.some(([a, c]) => x > a - 0.9 && x < c + 0.9) || (x > ba - 0.4 && x < bb + 0.4);
     // Частокол из брёвен (ролик осады, стена до третьего уровня) — свои пролёты, пролом и башни, та же раскладка.
-    const solid = (x0: number, x1: number): void => (w.wood ? palisadeRun(b, w, x0, x1, detail) : wallRun(b, w, x0, x1, nearTower));
+    const solid = (x0: number, x1: number): void => (w.wood ? palisadeRun(b, w, x0, x1, detail, town ? 2.2 : 0.6) : wallRun(b, w, x0, x1, nearTower, foot));
     const run = (x0: number, x1: number): void => {
       if (!br || x1 <= ba || x0 >= bb) return solid(x0, x1);
       if (x0 < ba) solid(x0, ba);
@@ -462,17 +470,21 @@ export function buildFort(input: FortInput): FortView {
       x = Math.max(x, c);
     }
     if (x < m(w.halfX)) run(x, m(w.halfX));
-    // Угол: стена у концов уходит внутрь, к городу (кольцо стены, а не забор).
+    // Угол: стена у концов уходит внутрь, к городу (кольцо стены, а не забор). С настоящим городом кольцо — его стены.
     const s = w.inward;
-    for (const e of [1, -1]) {
+    for (const e of town ? [] : [1, -1]) {
       const cx = e * m(w.halfX - w.thick / 2);
       const len = m(18);
       const T = w.wood ? tint(CITY.oak, 0.9) : tint(CITY.stoneTints[0], 0.95);
       box(b, cx, m(w.z) + s * (m(w.thick) + len / 2), e, 0, len, m(w.thick), m(w.base) - 1.6, m(w.base + w.top) + 1.05, w.wood ? 'wood' : 'ashlar', T, w.wood ? 'wood' : 'ashlar', { aoBottom: 0.72 });
     }
+    // Крайние башни с городом — углы, где в них входят его стены: не ниже стен города (`forts.WALL_H`, частокол — `palisade`).
+    const xs = w.towers.map((t) => t.x);
+    const corner = (t: { x: number }): boolean => !!town && (t.x === Math.min(...xs) || t.x === Math.max(...xs));
+    const tall = (t: { x: number; h: number }): number => (corner(t) ? Math.max(m(t.h), w.wood ? 10.6 : 14) : m(t.h));
     if (w.wood) {
       woodGate(b, w);
-      for (const t of w.towers) woodTower(b, w, m(t.x), m(t.size), m(t.h));
+      for (const t of w.towers) woodTower(b, w, m(t.x), m(t.size), tall(t), town ? 2.2 : 0.4);
     } else gatehouse(b, w, detail);
     for (const t of w.wood ? [] : w.towers) {
       tower(
@@ -482,15 +494,16 @@ export function buildFort(input: FortInput): FortView {
           x: m(t.x),
           z: m(w.z) + s * (m(w.thick) / 2) - s * 1.2,
           out: Math.atan2(-s, 0),
-          size: m(t.size),
-          height: m(t.h),
+          size: m(t.size) * (corner(t) ? 1.15 : 1),
+          height: tall(t),
           base: m(w.base),
+          ...(town ? { foot: m(w.base) - foot } : {}),
           seed: t.seed,
         },
         detail,
       );
     }
-    for (const h of site.houses) {
+    for (const h of town ? [] : site.houses) {
       const floor = m(heightAt(f, h.x, h.z));
       house(
         b,
@@ -561,9 +574,9 @@ export function buildFort(input: FortInput): FortView {
       log(b, [m(p.x), y - 0.3, m(p.z)], [m(p.x), y + h, m(p.z)], 0.16, tint(CITY.oak, 0.85 + (((p.x * 13.7) % 1) + 1) % 1 * 0.2), 5, true);
     }
   }
-  const geo = geometryOf(b);
+  const geo = town ? town.geometry(b) : geometryOf(b);
   disposables.push(geo);
-  const mesh = new THREE.Mesh(geo, mat);
+  const mesh = new THREE.Mesh(geo, town ? town.material : mat);
   mesh.name = 'tw-fort-static';
   mesh.castShadow = true;
   mesh.receiveShadow = true;

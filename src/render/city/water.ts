@@ -9,6 +9,7 @@ import { GRADE_GLSL, graded, misted, type CityUniforms } from './material';
 import type { V3 } from './geom';
 
 const VERT = /* glsl */ `
+uniform mat4 cFrame;
 attribute float wdepth;
 attribute vec2 wflow;
 attribute float wrun;
@@ -77,7 +78,7 @@ export function buildWater(u: CityUniforms, cols: readonly number[], detail: 0 |
       vFlow = wflow;
       vRun = wrun;
       vRace = wrace;
-      vWPos = (modelMatrix * vec4(transformed, 1.0)).xyz;`,
+      vWPos = (cFrame * (modelMatrix * vec4(transformed, 1.0))).xyz;`,
       );
     shader.fragmentShader = graded(
       FRAG +

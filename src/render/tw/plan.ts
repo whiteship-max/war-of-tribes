@@ -22,6 +22,7 @@ import type { TroopId } from '@/game/types';
 import type { Quality } from '../quality';
 import { TW_SPEC } from '../reel/spec';
 import { hash, heightAt, inWater, type TwField } from '../reel/terrain';
+import { TOWN_HALF, frameOf, townGround } from './town';
 import {
   CLIMB_SPEED,
   GATEHOUSE,
@@ -962,7 +963,8 @@ function placeSite(
 ): TwSite {
   const sign = (side: Side): number => (side === us ? -1 : 1);
   const armyHalf = Math.max(12, ...units.map((u) => Math.abs(u.x) + u.width / 2));
-  const halfX = armyHalf + 18;
+  // Стена — не короче южной стены настоящего города (П-6, `town.TOWN_HALF`): её концы — углы города, к ним идут его стены.
+  const halfX = Math.max(armyHalf + 18, TOWN_HALF);
   const site: TwSite = { kind, wall: null, ladders: [], ram: null, houses: [], square: null, street: null, camp: null };
   // Где стоит город (за чьим строем) и чей он: у удара по лагерю город наш, а стоит он за лагерем.
   const town: Side | null = kind === 'sortie' ? 'attacker' : kind === 'lair' ? null : 'defender';
@@ -1069,14 +1071,47 @@ function fitSite(site: TwSite, field: TwField, units: readonly TwUnit[]): void {
     const far = (site.square?.z ?? w.z) + w.inward * (SQUARE_R + 10);
     field.minZ = Math.min(field.minZ, far - 4, w.z - 4);
     field.maxZ = Math.max(field.maxZ, far + 4, w.z + 4);
-    w.base = heightAt(field, w.gateX, w.z + w.inward * (w.thick / 2));
   }
   const c = site.camp;
   if (c) {
     field.minZ = Math.min(field.minZ, c.z0 - 10);
     field.maxZ = Math.max(field.maxZ, c.z1 + 10);
   }
-  void units;
+  if (w) {
+    // Под стеной — земля настоящего города (П-6): тот же мыс, что в окне города; город уступает место бою там, где
+    // стоят и ходят люди ролика (`town.townCut`).
+    field.town = townGround(frameOf(w), field);
+    w.base = heightAt(field, w.gateX, w.z + w.inward * (w.thick / 2));
+    site.town = { inside: townInside(site, w, units), outside: townOutside(field, w) };
+  }
+}
+
+/**
+ * Где за стеной ходят люди ролика: строи своих города (каждый — от стены до своего тыла: резерв идёт к стене по своей
+ * полосе), двор у ворот, улица до площади и площадь — туда ломятся через ворота.
+ */
+function townInside(site: TwSite, w: TwWall, units: readonly TwUnit[]): Rect[] {
+  const s = w.inward;
+  const inner = w.z + s * w.thick;
+  const out: Rect[] = [];
+  for (const u of units) {
+    const r = unitRect(u);
+    // Строй заходит за внутреннюю грань стены — в город: от стены до его дальнего края.
+    if (s > 0 ? r.z1 <= inner + 0.2 : r.z0 >= inner - 0.2) continue;
+    out.push(s > 0 ? { x0: r.x0 - 1.5, x1: r.x1 + 1.5, z0: inner, z1: r.z1 + 1.5 } : { x0: r.x0 - 1.5, x1: r.x1 + 1.5, z0: r.z0 - 1.5, z1: inner });
+  }
+  const yard = POMERIUM + 6;
+  out.push({ x0: w.gateX - 10, x1: w.gateX + 10, z0: Math.min(inner, inner + s * yard), z1: Math.max(inner, inner + s * yard) });
+  const st = site.street;
+  if (st) out.push({ x0: st.x - st.half - 0.6, x1: st.x + st.half + 0.6, z0: Math.min(inner, st.z1), z1: Math.max(inner, st.z1) });
+  const sq = site.square;
+  if (sq) out.push({ x0: sq.x - sq.r - 1, x1: sq.x + sq.r + 1, z0: sq.z - sq.r - 1, z1: sq.z + sq.r + 1 });
+  return out;
+}
+
+/** Поле перед стеной: строи, лагерь, подход — леса, предместья и дворов города там нет. */
+function townOutside(field: TwField, w: TwWall): Rect {
+  return w.inward > 0 ? { x0: -field.halfX, x1: field.halfX, z0: field.minZ, z1: w.z - 0.5 } : { x0: -field.halfX, x1: field.halfX, z0: w.z + 0.5, z1: field.maxZ };
 }
 
 /** Мировое место фигуры в строю отряда на построении. */

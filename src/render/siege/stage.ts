@@ -6,7 +6,7 @@ import { CITY } from '../city/palette';
 import { Builder, box, tint } from '../city/geom';
 import { log } from '../city/kit';
 import { fitShadow, type LightRig } from '../lighting';
-import { buildClouds, buildLiveSky, cloudShade, relight, setupFieldScene } from '../reel/light';
+import { buildClouds, buildLiveSky, cloudShade, nightOf, relight, setupFieldScene } from '../reel/light';
 import type { TwSpec } from '../reel/spec';
 import { Crowd, SHADOW_LAYER } from '../reel/crowd';
 import { Banners } from '../reel/banners';
@@ -20,6 +20,8 @@ import { siteBlocks, siteGround, standY, type TwSite } from '../tw/site';
 import { motionOf, solarAt, type SiegeReel } from './reel';
 import { poseAt, type TrackPose } from './tracks';
 import { BANDIT_ARMS, DEFAULT_ARMS, armsCode } from '@/heraldry/arms';
+import { frameOf, townLand } from '../tw/town';
+import type { TownBackdrop } from '../city/backdrop';
 
 const SUN_DIST = 160;
 const SHADOW_HALF = { min: 30, max: 110, perDist: 0.6 };
@@ -27,12 +29,7 @@ const SKY_SCALE = 7;
 /** Огонь факела и костра — тёплый, без света: лампа на сцене одна (docs/handbook/graphics.md). */
 const FLAME = 0xf6a347;
 
-/** Ночь на этой доле суток: 0 — день, 1 — глубокая ночь; в сумерках — между. */
-export function nightOf(solar: number): number {
-  if (solar > 0.5 && solar < 1) return Math.min(1, Math.sin(((solar - 0.5) / 0.5) * Math.PI) * 1.6);
-  const edge = Math.min(Math.abs(solar - 0.5), Math.abs(solar), Math.abs(solar - 1));
-  return Math.max(0, 0.6 - edge * 12);
-}
+export { nightOf } from '../reel/light';
 
 /** Кадр фигур ролика осады на секунде `t`. */
 export function poseSiege(reel: SiegeReel, t: number, out: FigureFrame, scratch: TrackPose): void {
@@ -105,9 +102,14 @@ export class SiegeStage {
   private D = new THREE.Vector3();
   private Z = new THREE.Vector3(0, 0, 1);
 
+  /**
+   * `town` — настоящий город за стеной (docs/polish.md, П-6, `city/backdrop.ts`): его дома, стены по кругу, лес и земля до
+   * горизонта; сцена его освобождает. Нет (логово, город не собрался) — дома ролика на его поле.
+   */
   constructor(
     readonly reel: SiegeReel,
     readonly spec: TwSpec,
+    readonly town: TownBackdrop | null = null,
   ) {
     const lay = reel.layout;
     const ground0 = { ...reel.show.ground, solar: reel.show.solar0 };
@@ -144,12 +146,14 @@ export class SiegeStage {
         },
         scar: null,
         cloud: cloudShade(ground0),
+        town: town && lay.wall && lay.town ? townLand(frameOf(lay.wall), lay.town.inside, lay.town.outside, town.cleared, town.road) : null,
       },
       spec,
     );
     this.scene.add(this.field.group);
-    this.fort = buildFort({ site, field: lay.field, seed: reel.show.seed, breach: reel.breach, quality: reel.quality, motion: motionOf(reel) });
+    this.fort = buildFort({ site, field: lay.field, seed: reel.show.seed, breach: reel.breach, quality: reel.quality, motion: motionOf(reel), town: town ? town.skin : null });
     this.scene.add(this.fort.group);
+    if (town) this.scene.add(town.group);
     if (lair) {
       const still = { ladderZ: () => 0, towerZ: () => 0, ram: () => ({ z: 0, swing: 0 }), gate: () => ({ open: 0, shake: 0 }) };
       this.lairFort = buildFort({ site: { ...site, kind: 'lair', wall: null, ladders: [], ram: null, tower: null, houses: [], camp: lair }, field: lay.field, seed: reel.show.seed + 3, breach: null, quality: reel.quality, motion: still });
@@ -162,7 +166,7 @@ export class SiegeStage {
     // несло башню соседа.
     this.banners = new Banners(reel.troupe, reel.show.coats ?? { ours: armsCode(DEFAULT_ARMS), theirs: armsCode(BANDIT_ARMS) });
     this.scene.add(this.banners.group);
-    this.works = new Siegeworks({ quality: reel.quality, field: lay.field, wall: lay.wall, seed: reel.show.seed }, reel.barrage, this.crowd);
+    this.works = new Siegeworks({ quality: reel.quality, field: lay.field, wall: lay.wall, seed: reel.show.seed, skin: town ? town.skin : null }, reel.barrage, this.crowd);
     this.scene.add(this.works.group);
 
     // Стрелы со стены.
@@ -245,6 +249,7 @@ export class SiegeStage {
     this.sunDir.copy(this.rig.sun.position).normalize();
     this.sky.update(this.scene, g);
     this.clouds?.relight(this.scene, g, this.rig);
+    this.town?.light(night, this.sunDir, (this.scene.fog as THREE.Fog).color);
   }
 
   apply(t: number, cam: TacticalCamera): void {
@@ -349,7 +354,7 @@ export class SiegeStage {
   }
 
   textureBytes(): number {
-    return this.crowd.bones.bytes + this.spec.shadowMap * this.spec.shadowMap * 4;
+    return this.crowd.bones.bytes + this.spec.shadowMap * this.spec.shadowMap * 4 + (this.town?.textureBytes ?? 0);
   }
 
   dispose(): void {
@@ -359,6 +364,7 @@ export class SiegeStage {
     this.fort.dispose();
     this.lairFort?.dispose();
     this.field.dispose();
+    this.town?.dispose();
     for (const d of this.disposables) d.dispose();
     this.sky.mesh.geometry.dispose();
     (this.sky.mesh.material as THREE.Material).dispose();

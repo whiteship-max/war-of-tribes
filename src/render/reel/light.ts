@@ -92,6 +92,13 @@ const C2 = new THREE.Color();
  * свет, всегда. Числа света — `lighting.RIG.next`, те же, что у города: тёплая полусфера и
  * золотой час (docs/graphics_world.md, 11.5).
  */
+/** Ночь на этой доле суток: 0 — день, 1 — глубокая ночь; в сумерках — между (ролик осады, огни города в роликах). */
+export function nightOf(solar: number): number {
+  if (solar > 0.5 && solar < 1) return Math.min(1, Math.sin(((solar - 0.5) / 0.5) * Math.PI) * 1.6);
+  const edge = Math.min(Math.abs(solar - 0.5), Math.abs(solar), Math.abs(solar - 1));
+  return Math.max(0, 0.6 - edge * 12);
+}
+
 export function setupFieldScene(scene: THREE.Scene, ground: Ground): LightRig {
   configureSky(scene);
   scene.fog = new THREE.Fog(PALETTE.fog, FOG.near, FOG.far);

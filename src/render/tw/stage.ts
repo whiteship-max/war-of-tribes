@@ -1,7 +1,9 @@
 // Сцена ролика TW: поле, свет, толпа, знамёна, стрелы (docs/battle_tw.md, раздел 8). Своих решений о бое у неё нет:
 // кто где стоит и когда падает — режиссура (`plan.ts`); здесь кадр раскладывается по объектам three.
 import * as THREE from 'three';
-import { buildClouds, buildSky, cloudShade, setupFieldScene } from '../reel/light';
+import { buildClouds, buildSky, cloudShade, nightOf, setupFieldScene } from '../reel/light';
+import { frameOf, townLand } from './town';
+import type { TownBackdrop } from '../city/backdrop';
 import { fitShadow, type LightRig } from '../lighting';
 import type { TwSpec } from '../reel/spec';
 import { Arrows } from './arrows';
@@ -47,9 +49,14 @@ export class TwStage {
   private rig: LightRig;
   private sunDir = new THREE.Vector3();
 
+  /**
+   * `town` — настоящий город за стеной места боя (docs/polish.md, П-6, `city/backdrop.ts`): его дома, стены по кругу, лес и
+   * земля до горизонта; сцена его освобождает. Нет (поле, логово, город не собрался) — дома ролика на его поле.
+   */
   constructor(
     readonly plan: TwPlan,
     readonly spec: TwSpec,
+    readonly town: TownBackdrop | null = null,
   ) {
     // Свет и небо — прежнего ролика: час и сезон из записи боя (`Cast.ground`), низкое тёплое солнце.
     this.rig = setupFieldScene(this.scene, plan.cast.ground);
@@ -67,8 +74,16 @@ export class TwStage {
       this.clouds.mesh.scale.setScalar(SKY_SCALE);
       this.scene.add(this.clouds.mesh);
     }
-    this.field = buildField(landOf(plan), spec);
+    const site = plan.site;
+    const land = landOf(plan);
+    if (town && site?.wall && site.town) land.town = townLand(frameOf(site.wall), site.town.inside, site.town.outside, town.cleared, town.road);
+    this.field = buildField(land, spec);
     this.scene.add(this.field.group);
+    if (town) {
+      this.scene.add(town.group);
+      // Свет боя — один на весь ролик (час записи): ночь города, солнце и небо — раз.
+      town.light(nightOf(plan.cast.ground.solar), this.sunDir, (this.scene.fog as THREE.Fog).color);
+    }
     const them = plan.us === 'attacker' ? 'defender' : 'attacker';
     const coats = { ours: plan.coats[plan.us], theirs: plan.coats[them] };
     // Гербы сторон — на знамёнах и на щитах и сюрко бойцов (docs/polish.md, П-5).
@@ -82,9 +97,9 @@ export class TwStage {
     this.dust = new Dust(plan);
     this.scene.add(this.dust.mesh);
     // Место боя: стена, ворота, город, лагерь, логово (docs/battle_tw.md, раздел 13); у поля — пустая группа.
-    this.fort = buildFort(fortOfPlan(plan));
+    this.fort = buildFort({ ...fortOfPlan(plan), town: town ? town.skin : null });
     this.scene.add(this.fort.group);
-    this.siege = plan.barrage ? new Siegeworks(worksOfPlan(plan), plan.barrage, this.crowd) : null;
+    this.siege = plan.barrage ? new Siegeworks({ ...worksOfPlan(plan), skin: town ? town.skin : null }, plan.barrage, this.crowd) : null;
     if (this.siege) this.scene.add(this.siege.group);
     this.frame = figureFrame(plan.figures);
     this.director = directorSceneOf(plan);
@@ -171,7 +186,7 @@ export class TwStage {
 
   /** Байт текстур ролика: суставы и карта теней лампы (глубина — четыре байта на тексель). */
   textureBytes(): number {
-    return this.crowd.bones.bytes + this.spec.shadowMap * this.spec.shadowMap * 4;
+    return this.crowd.bones.bytes + this.spec.shadowMap * this.spec.shadowMap * 4 + (this.town?.textureBytes ?? 0);
   }
 
   dispose(): void {
@@ -182,6 +197,7 @@ export class TwStage {
     this.fort.dispose();
     this.siege?.dispose();
     this.field.dispose();
+    this.town?.dispose();
     this.sky.geometry.dispose();
     if (this.clouds) {
       this.clouds.mesh.geometry.dispose();

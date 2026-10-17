@@ -24,7 +24,7 @@ import { markerSvg, SCENES, TribeScene, type BuildingView, type SceneLook } from
 import { RIG, applyDayNight, fitShadow, windowNight } from '../lighting';
 import { disposeGeometries } from '../kit';
 import type { HitBox } from '../pick';
-import { buildCity, CITY_SPEC, type CityBuild } from './index';
+import { buildCity, CITY_SPEC, type CityBuild, type CityShare } from './index';
 import { CITY_KEY, CITY_AZIMUTH, CITY_STEP_MAX, cityFog, cityFraming, cityLeash, cityShadowHalf, citySunAt } from './camera';
 import { cityPick, screenBox, type Pickable } from './pick';
 import { mainSite, ownerCode, type Site } from './sites';
@@ -75,6 +75,11 @@ export class CityScene extends TribeScene {
   /** Город встал в сцену на полных слоях — стенду, чтобы снимать. */
   readonly ready: Promise<void>;
   protected stepMax = CITY_STEP_MAX;
+
+  /** Город для ролика осады и боя у города (П-6): тот же план, текстуры и земля; пока город не встал — ничего. */
+  override cityShare(): CityShare | null {
+    return this.town?.share ?? null;
+  }
   /** Люди, стража, дым, флаги, птицы, скот — встают вместе с городом. */
   private folk: CityLife | null = null;
   /**

@@ -3,6 +3,7 @@
 // картинку и выстрадано: потеря контекста и её лечение, возвращение из фона, сторож кадров и плавности, дверь
 // кадра, общий судья пальца, панорама и щипок, значки внимания и кольцо выбора, одалживание холста ролику о
 // бое. Получает состояние через sync(), анимирует сама.
+import type { CityShare } from './city/index';
 import * as THREE from 'three';
 import type { BuildingTypeId, GameState, Season } from '@/game/types';
 import { dayFraction, seasonOf, solarPhase, type Attention } from '@/game/derived';
@@ -659,6 +660,14 @@ export abstract class TribeScene {
    * ничего, — две цепочки разом. Причина своя, а не `map`: ролик открывают и с
    * карты, и его конец не должен снимать остановку, поставленную картой.
    */
+  /**
+   * Город игры для ролика осады и боя у города (docs/polish.md, П-6): план, текстуры и земля, чтобы в ролике стоял тот же
+   * город, без второй сборки и без памяти сверх. У сцены без города — ничего.
+   */
+  cityShare(): CityShare | null {
+    return null;
+  }
+
   lend(on: boolean): THREE.WebGLRenderer {
     this.lent = on;
     this.beat.block('lent', on);

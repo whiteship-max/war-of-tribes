@@ -89,10 +89,40 @@ export interface CityBuild {
   full: Promise<void>;
   /** Колесо лесопилки, что крутится, и брызги (docs/city.md, 16.4); на «Низком» — нет, колесо стоит в меше зданий. */
   mill: MillWheel | null;
+  /**
+   * Что город одалживает ролику осады и боя у города (docs/polish.md, П-6, `backdrop.ts`): уровень, план, карты покрытий и
+   * земель, сетку земли; слои текстур — `uniforms.cityTex` (сначала мелкие, потом полные). Ролик их не освобождает.
+   */
+  share: CityShare;
+}
+
+/** Город игры для ролика: тот же план, те же текстуры и земля — ни памяти сверх, ни второй сборки. */
+export interface CityShare {
+  quality: Quality;
+  plan: CityPlan;
+  uniforms: CityUniforms;
+  map: THREE.Texture;
+  land: THREE.Texture;
+  ground: THREE.BufferGeometry;
+}
+
+/** Сетка земли города в буферы: положение, нормаль, сырость берега; тон, UV и `cfg` — пустые (их берёт карта). */
+export function groundGeometry(grid: { positions: Float32Array; normals: Float32Array; index: Uint32Array }, wet: Float32Array): THREE.BufferGeometry {
+  const gg = new THREE.BufferGeometry();
+  gg.setAttribute('position', new THREE.BufferAttribute(grid.positions, 3));
+  gg.setAttribute('normal', new THREE.BufferAttribute(grid.normals, 3));
+  const nv = grid.positions.length / 3;
+  gg.setAttribute('color', new THREE.BufferAttribute(new Float32Array(nv * 3).fill(1), 3));
+  gg.setAttribute('cuv', new THREE.BufferAttribute(new Float32Array(nv * 2), 2));
+  gg.setAttribute('cfg', new THREE.BufferAttribute(new Uint8Array(nv * 4), 4));
+  gg.setAttribute('cwet', new THREE.BufferAttribute(wet, 1));
+  gg.setIndex(new THREE.BufferAttribute(grid.index, 1));
+  gg.computeBoundingSphere();
+  return gg;
 }
 
 /** Огоньки факелов: точки с мягким пятном, видны ночью (прозрачность — доля ночи). */
-function flames(lights: V3[]): THREE.Points {
+export function flames(lights: V3[]): THREE.Points {
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(lights.flat()), 3));
   const c = document.createElement('canvas');
@@ -175,16 +205,7 @@ export async function buildCity(q: Quality): Promise<CityBuild> {
   // Земля.
   const mapTex = new MapTexture(map, spec.map);
   const landTex = new MapTexture(land, spec.land);
-  const gg = new THREE.BufferGeometry();
-  gg.setAttribute('position', new THREE.BufferAttribute(grid.positions, 3));
-  gg.setAttribute('normal', new THREE.BufferAttribute(grid.normals, 3));
-  const nv = grid.positions.length / 3;
-  gg.setAttribute('color', new THREE.BufferAttribute(new Float32Array(nv * 3).fill(1), 3));
-  gg.setAttribute('cuv', new THREE.BufferAttribute(new Float32Array(nv * 2), 2));
-  gg.setAttribute('cfg', new THREE.BufferAttribute(new Uint8Array(nv * 4), 4));
-  gg.setAttribute('cwet', new THREE.BufferAttribute(wet, 1));
-  gg.setIndex(new THREE.BufferAttribute(grid.index, 1));
-  gg.computeBoundingSphere();
+  const gg = groundGeometry(grid, wet);
   const gMesh = new THREE.Mesh(gg, groundMaterial(u, mapTex, MAP_AT, landTex, LAND_AT));
   gMesh.name = 'city-ground';
   gMesh.receiveShadow = true;
@@ -296,5 +317,6 @@ export async function buildCity(q: Quality): Promise<CityBuild> {
     },
     full,
     mill,
+    share: { quality: q, plan, uniforms: u, map: mapTex, land: landTex, ground: gg },
   };
 }

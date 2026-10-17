@@ -1,6 +1,7 @@
 // Проигрыватель ролика TW: часы, камера, рендерер (docs/battle_tw.md, раздел 8). Ни одного решения о бое: кадр —
 // режиссура на секунде, камера — у игрока или общий вид. Своего контекста WebGL он не создаёт — рендерер приходит
 // снаружи (в игре его одалживает сцена, на стенде — стенд), как у прежнего ролика (`battle/player.ts`).
+import type { TownBackdrop } from '../city/backdrop';
 import * as THREE from 'three';
 import { FrameLoop } from '../loop';
 import { TW_SPEC, type TwSpec } from '../reel/spec';
@@ -44,6 +45,8 @@ export interface TwPlayerOptions {
   watch?: Quality;
   /** Сторож опустил уровень: плотность пикселей у холста — дело зовущего (город одалживает свой, `Scene.lowerTo`). */
   onLower?: (q: Quality) => void;
+  /** Настоящий город за стеной места боя (docs/polish.md, П-6); проигрыватель отдаёт его сцене, она — освобождает. */
+  town?: TownBackdrop | null;
 }
 
 export class TwPlayer {
@@ -83,7 +86,7 @@ export class TwPlayer {
     this.pre = plan.barrage?.seconds ?? 0;
     this.beats = beatsOf(plan.cast, plan.result, plan.timing);
 
-    this.stage = new TwStage(plan, spec);
+    this.stage = new TwStage(plan, spec, opts.town ?? null);
     // Жёсткая тень — `BasicShadowMap` (0) числом, как у уровней сцены (`Scene`): имени в куске three первой загрузки нет.
     renderer.shadowMap.type = spec.shadowSoft ? THREE.PCFShadowMap : (0 as THREE.ShadowMapType);
     // Тень — по просьбе кадра, а не сама: так её можно рисовать реже (`spec.shadowEvery`) и на своём холсте.

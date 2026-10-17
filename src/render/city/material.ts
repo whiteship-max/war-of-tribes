@@ -91,6 +91,11 @@ export interface CityUniforms {
   cVeilAt: { value: THREE.Vector2 };
   /** Солнце видно сквозь облака: блик на мокром (0 — ночь или сплошные тучи). */
   cSunLit: { value: number };
+  /**
+   * Мир сцены → метры города: у окна города единица, в ролике (docs/polish.md, П-6) — обратный переход ролика в город. Всё,
+   * что шейдер считает по месту (карта покрытий, пятна, окна, факелы, тени облаков), — в метрах города, где бы он ни стоял.
+   */
+  cFrame: { value: THREE.Matrix4 };
 }
 
 /** Сколько огней видит шейдер: тёплые пятна без точечных ламп (их цена — на каждый пиксель). */
@@ -126,10 +131,12 @@ export function cityUniforms(): CityUniforms {
     cVeil: { value: 0 },
     cVeilAt: { value: new THREE.Vector2() },
     cSunLit: { value: 0 },
+    cFrame: { value: new THREE.Matrix4() },
   };
 }
 
 const COMMON_VERT = /* glsl */ `
+uniform mat4 cFrame;
 attribute vec2 cuv;
 attribute vec4 cfg;
 varying vec2 vCUv;
@@ -323,7 +330,7 @@ function patchVertex(shader: { vertexShader: string }): void {
       cwn = mat3(instanceMatrix) * cwn;
       vSeed = fract(sin(dot(instanceMatrix[3].xz, vec2(12.9898, 78.233))) * 43758.5453);
     #endif
-    cwp = modelMatrix * cwp;
+    cwp = cFrame * (modelMatrix * cwp);
     vCWPos = cwp.xyz;
     vCNy = normalize(mat3(modelMatrix) * cwn).y;`,
   );

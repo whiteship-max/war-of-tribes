@@ -4,7 +4,9 @@
 import type { Quality } from '../quality';
 import type { BuildingTypeId } from '@/game/types';
 import { Builder, type V3 } from './geom';
-import { cityPlan, type CityPlan, type Civic, type TowerKind } from './layout';
+import { cityPlan, MOAT_Z, type CityPlan, type Civic, type P, type TowerKind } from './layout';
+import type { Detail } from './kit';
+import { palisadeRing, timberTower } from './palisade';
 import { ownerCode, siteOf, wallSites, type Site } from './sites';
 import { millWheel, yard, yardHalls } from './outskirts';
 import { house, houseStoop } from './kit';
@@ -53,9 +55,24 @@ const CIVIC_OWNER: Record<Civic['kind'], BuildingTypeId> = {
 /** Чья постройка — башня: Дозор, донжон-тайник, остальные — Башня игры. */
 const towerOwner = (k: TowerKind): BuildingTypeId => (k === 'watch' ? 'watch' : k === 'keep' ? 'cache' : 'tower');
 
+/**
+ * Как строить город в ролике (docs/polish.md, П-6); вид «город» зовёт без них. Кольцо стены — камень или частокол по уровню
+ * стены, звенья перед роликом пропущены (там стена ролика), дальние дома — проще ближних.
+ */
+export interface StaticOpts {
+  ring: 'stone' | 'wood';
+  /** Звенья стены города, которых нет: их место — стена ролика. */
+  skip: (p: P, q: P) => boolean;
+  /** Подробность здания по месту: дальше от ролика — проще (уровни детализации города в ролике). */
+  detailAt: (x: number, z: number) => Detail;
+  /** Середина ролика: у неё частокол — бревно к бревну. */
+  near: P;
+}
+
 /** Здания, стены и убранство в построитель — одна дорога для сборки сцены и для счёта бюджета. */
-export function buildStatic(plan: CityPlan, q: Quality): StaticBuild {
+export function buildStatic(plan: CityPlan, q: Quality, opts?: StaticOpts): StaticBuild {
   const d = CITY_SPEC[q].detail;
+  const dAt = opts?.detailAt ?? ((): Detail => d);
   const b = new Builder();
   const lights: V3[] = [];
   const chimneys: V3[] = [];
@@ -69,17 +86,24 @@ export function buildStatic(plan: CityPlan, q: Quality): StaticBuild {
     sites.push(siteOf(type, b.extent(from, cx, cz, fx, fz), cx, cz, fx, fz));
     b.owner = 0;
   };
-  for (const h of plan.houses) own('houses', h.x, h.z, h.fx, h.fz, () => chimneys.push(...house(b, h, d).chimneys));
+  for (const h of plan.houses) own('houses', h.x, h.z, h.fx, h.fz, () => chimneys.push(...house(b, h, dAt(h.x, h.z)).chimneys));
   // Ступени домов на склоне — ничьи: они на улице, коробка касания дома ими не растёт.
   for (const h of plan.houses) houseStoop(b, h);
   const houses = b.mark().t;
   // Стена города: крытый ход — на южной и западной сторонах через пролёт.
   b.owner = ownerCode('palisade');
-  cityWall(b, plan.wall, { x: 0, z: 0 }, plan.towers, d, (s, p) => (p.z > 100 || p.x < -40) && Math.floor(s / 70) % 2 === 0);
+  const covered = (s: number, p: P): boolean => (p.z > 100 || p.x < -40) && Math.floor(s / 70) % 2 === 0;
+  // Частокол — кольцо города в ролике, когда стена ниже четвёртого уровня; замок — камень всегда (docs/polish.md, П-6).
+  const wood = opts?.ring === 'wood';
+  if (wood) palisadeRing(b, plan.wall, { x: 0, z: 0 }, plan.towers, d, opts.skip, opts.near);
+  else cityWall(b, plan.wall, { x: 0, z: 0 }, plan.towers, d, covered, opts?.skip);
   cityWall(b, plan.castleWall, { x: -4, z: -150 }, plan.towers, d, () => false);
   sites.push(...wallSites(plan.wall), ...wallSites(plan.castleWall));
   for (const t of plan.towers) {
-    own(towerOwner(t.kind), t.x, t.z, Math.cos(t.out), Math.sin(t.out), () => lights.push(...tower(b, t, d)));
+    const td = dAt(t.x, t.z);
+    // Башни кольца частокола — срубы; башни замка (за рвом) — камень.
+    const timber = wood && t.z > MOAT_Z[1];
+    own(towerOwner(t.kind), t.x, t.z, Math.cos(t.out), Math.sin(t.out), () => lights.push(...(timber ? timberTower(b, t, td) : tower(b, t, td))));
     // Флаг — над верхом башни, посередине (`life.ts`).
     const s = sites[sites.length - 1];
     flagTops.push([t.x, s.y1, t.z]);
@@ -87,7 +111,7 @@ export function buildStatic(plan: CityPlan, q: Quality): StaticBuild {
   const forts = b.mark().t;
   for (const c of plan.civic) {
     own(CIVIC_OWNER[c.kind], c.x, c.z, Math.cos(c.rot), Math.sin(c.rot), () => {
-      const r = civic(b, c, d);
+      const r = civic(b, c, dAt(c.x, c.z));
       chimneys.push(...r.chimneys);
       lights.push(...r.lights);
     });
@@ -116,11 +140,11 @@ export function buildStatic(plan: CityPlan, q: Quality): StaticBuild {
   own('statue', plan.statue.x, plan.statue.z, 1, 0, () => statue(b, plan.statue, 0));
   const civicT = b.mark().t;
   // За стеной: предместье (дома Жилищ) и семь дворов.
-  for (const h of plan.suburb) own('houses', h.x, h.z, h.fx, h.fz, () => chimneys.push(...house(b, h, d).chimneys));
+  for (const h of plan.suburb) own('houses', h.x, h.z, h.fx, h.fz, () => chimneys.push(...house(b, h, dAt(h.x, h.z)).chimneys));
   for (const h of plan.suburb) houseStoop(b, h);
   for (const y of plan.yards) {
     own(y.kind, y.x, y.z, Math.cos(y.rot), Math.sin(y.rot), () => {
-      const r = yard(b, y, d);
+      const r = yard(b, y, dAt(y.x, y.z));
       lights.push(...r.lights);
       chimneys.push(...r.chimneys);
     });

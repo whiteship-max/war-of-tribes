@@ -160,6 +160,12 @@ export interface LandInput {
   scar?: LandScar | null;
   /** Густота тени облаков, 0..1 (`light.cloudShade`: днём гуще, в сумерки и зимой — реже). */
   cloud?: number;
+  /**
+   * За стеной — настоящий город (docs/polish.md, П-6, `city/backdrop.ts`): его земля, лес и река до горизонта. Плита поля
+   * тогда — только там, где бой: `keep` — 1 там, где она лежит, 0 — где земля города, между ними плита тает зерном. Своей
+   * подстилки, деревьев и реки у поля нет.
+   */
+  town?: { keep(x: number, z: number): number; road(x: number, z: number): number } | null;
 }
 
 export interface FieldView {
@@ -199,7 +205,11 @@ function groundColor(f: TwField, plan: LandInput, x: number, z: number, y: numbe
   const g = plan.site?.ground(x, z) ?? NO_SITE;
   if (g.dirt > 0) out.lerp(C2.set(TONE.dirt), g.dirt * (0.55 + 0.25 * n2));
   if (g.cobble > 0) out.lerp(C2.set(n1 > 0.5 ? TONE.cobbleWarm : TONE.cobble), g.cobble * 0.7);
-  if (f.road) {
+  if (plan.town) {
+    // Дорога города от ворот в долину (`layout.roadsOf`, «Дорога в долину»): та же, что уходит за плиту по земле города.
+    const d = plan.town.road(x, z);
+    if (d < 2.4) out.lerp(C2.set(TONE.dirtLight), smoothstep(2.3, 1.2, d) * 0.85);
+  } else if (f.road) {
     const rx = 7 + Math.sin(z / 30 + f.seed) * 5;
     const k = smoothstep(2.2, 1.1, Math.abs(x - rx));
     out.lerp(C2.set(TONE.dirtLight), k * 0.85);
@@ -226,7 +236,7 @@ function groundColor(f: TwField, plan: LandInput, x: number, z: number, y: numbe
   return out;
 }
 
-/** Плита поля: сетка высот с цветом в вершинах. */
+/** Плита поля: сетка высот с цветом в вершинах; с городом — только там, где её держит `town.keep` (`twKeep` вершины). */
 function plate(f: TwField, plan: LandInput, cells: number): THREE.BufferGeometry {
   const r = plateRect(f);
   const w = r.halfX * 2;
@@ -243,7 +253,7 @@ function plate(f: TwField, plan: LandInput, cells: number): THREE.BufferGeometry
     const z = pos.getZ(i);
     const y = heightAt(f, x, z);
     pos.setY(i, y);
-    groundColor(f, plan, x, z, y, C, inside(r, x, z));
+    groundColor(f, plan, x, z, y, C, plan.town ? 1 : inside(r, x, z));
     col[i * 3] = C.r;
     col[i * 3 + 1] = C.g;
     col[i * 3 + 2] = C.b;
@@ -251,6 +261,22 @@ function plate(f: TwField, plan: LandInput, cells: number): THREE.BufferGeometry
   geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
   geo.deleteAttribute('uv');
   geo.computeVertexNormals();
+  const town = plan.town;
+  if (town) {
+    // Плита — только под боем: треугольники, где её нет ни в одной вершине, уходят; в остальных доля — зерном в шейдере.
+    const keep = new Float32Array(pos.count);
+    for (let i = 0; i < pos.count; i++) keep[i] = town.keep(pos.getX(i), pos.getZ(i));
+    geo.setAttribute('twKeep', new THREE.BufferAttribute(keep, 1));
+    const idx = geo.getIndex()!;
+    const out: number[] = [];
+    for (let k = 0; k < idx.count; k += 3) {
+      const a = idx.getX(k);
+      const b = idx.getX(k + 1);
+      const c = idx.getX(k + 2);
+      if (keep[a] > 0 || keep[b] > 0 || keep[c] > 0) out.push(a, b, c);
+    }
+    geo.setIndex(out);
+  }
   return geo;
 }
 
@@ -409,12 +435,21 @@ export function buildField(plan: LandInput, spec: TwSpec): FieldView {
     uTwScar: { value: new THREE.Vector4(plan.scar?.z ?? 0, plan.scar?.half ?? 1, plan.scar?.span ?? 0, 0) },
     uTwBloom: { value: f.winter || spec.tufts === 0 ? 0 : 1 },
   };
+  const town = plan.town ?? null;
   groundMat.onBeforeCompile = (sh) => {
     Object.assign(sh.uniforms, uni);
     sh.vertexShader = 'varying vec3 vTwWorld;\n' + sh.vertexShader.replace('#include <worldpos_vertex>', '#include <worldpos_vertex>\nvTwWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;');
     sh.fragmentShader = GROUND_FRAG + GROUND_CLOUD + sh.fragmentShader.replace('#include <color_fragment>', '#include <color_fragment>\n' + GROUND_GRAIN);
+    if (town) {
+      // Край плиты над землёй города тает зерном (шум с перемешанной сеткой — без полос и без прозрачности).
+      sh.vertexShader = 'attribute float twKeep;\nvarying float vTwKeep;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\nvTwKeep = twKeep;');
+      sh.fragmentShader = 'varying float vTwKeep;\n' + sh.fragmentShader.replace(
+        'void main() {',
+        'void main() {\n  if (vTwKeep < 0.999 && vTwKeep < fract(52.9829189 * fract(dot(floor(gl_FragCoord.xy), vec2(0.06711056, 0.00583715))))) discard;',
+      );
+    }
   };
-  groundMat.customProgramCacheKey = () => 'tw-ground';
+  groundMat.customProgramCacheKey = () => (town ? 'tw-ground-town' : 'tw-ground');
   const meshes: THREE.Mesh[] = [];
   const add = (geo: THREE.BufferGeometry, mat: THREE.Material, name: string, receive = true): THREE.Mesh => {
     const m = new THREE.Mesh(geo, mat);
@@ -424,10 +459,16 @@ export function buildField(plan: LandInput, spec: TwSpec): FieldView {
     meshes.push(m);
     return m;
   };
-  add(plate(f, plan, spec.grid), groundMat, 'tw-plate');
-  add(skirt(f, plan), groundMat, 'tw-skirt', false);
+  const plateMesh = add(plate(f, plan, spec.grid), groundMat, 'tw-plate');
+  if (town) {
+    // Плита — над землёй города: чуть ближе к камере (без мерцания на стыке) и раньше неё (земля под плитой не красится).
+    groundMat.polygonOffset = true;
+    groundMat.polygonOffsetFactor = -1;
+    groundMat.polygonOffsetUnits = -2;
+    plateMesh.renderOrder = -0.5;
+  } else add(skirt(f, plan), groundMat, 'tw-skirt', false);
 
-  const water = riverRibbon(f);
+  const water = town ? null : riverRibbon(f);
   let waterMat: THREE.MeshLambertMaterial | null = null;
   if (water) {
     waterMat = new THREE.MeshLambertMaterial({ color: 0xffffff, vertexColors: true, transparent: true, opacity: 0.8, depthWrite: false });
@@ -439,7 +480,7 @@ export function buildField(plan: LandInput, spec: TwSpec): FieldView {
   // Камыш по берегам реки: пучки тонких листьев, цвет в вершинах, без тени; у брода — нет (там переходят).
   let reedTris = 0;
   const extra: THREE.InstancedMesh[] = [];
-  if (f.river) {
+  if (f.river && !town) {
     const r = f.river;
     const blades: number[] = [];
     const bc: number[] = [];
@@ -519,8 +560,8 @@ export function buildField(plan: LandInput, spec: TwSpec): FieldView {
     for (let i = 0; spots.length < spec.tufts && i < spec.tufts * 5; i++) {
       const x = (hash(f.seed, i, 121) * 2 - 1) * (f.halfX + 20);
       const z = f.minZ - 20 + hash(f.seed, i, 122) * (f.maxZ - f.minZ + 40);
-      if (vnoise(x / 6, z / 6, f.seed + 123) < 0.42 || inside(r, x, z) < 0.5) continue;
-      if (f.road && Math.abs(x - (7 + Math.sin(z / 30 + f.seed) * 5)) < 1.6) continue;
+      if (vnoise(x / 6, z / 6, f.seed + 123) < 0.42 || (town ? town.keep(x, z) < 0.9 : inside(r, x, z) < 0.5)) continue;
+      if (town ? town.road(x, z) < 1.6 : f.road && Math.abs(x - (7 + Math.sin(z / 30 + f.seed) * 5)) < 1.6) continue;
       if (f.river && Math.abs(z - f.river.z) < f.river.half + 0.4) continue;
       if (plan.site?.blocks(x, z) || (plan.site?.ground(x, z).cobble ?? 0) > 0.2) continue;
       spots.push({ x, z, s: 0.7 + hash(f.seed, i, 124) * 0.8, rot: hash(f.seed, i, 125) * Math.PI * 2 });
@@ -554,7 +595,8 @@ export function buildField(plan: LandInput, spec: TwSpec): FieldView {
   shared.snow.value = f.winter ? 1 : 0;
   shared.cloud.value = spec.clouds ? (plan.cloud ?? 0) : 0;
   const color = (key: PaletteKey): THREE.Color => new THREE.Color(f.winter ? seasonColor('winter', key) : PALETTE[key]);
-  const spots = treeSpots(f, plan, spec.trees);
+  // С городом лес — его (`city/backdrop.ts`): своих деревьев у поля нет.
+  const spots = town ? [] : treeSpots(f, plan, spec.trees);
   const trees: THREE.InstancedMesh[] = [];
   let treeTris = 0;
   for (const species of ['spruce', 'oak'] as const) {

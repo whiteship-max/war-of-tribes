@@ -22,6 +22,7 @@ import { qualityOf } from '../quality';
 import { TW_BUDGET, TW_SPEC } from '../reel/spec';
 import { twPlanOfRecord } from './record';
 import { TwPlayer } from './player';
+import { twTown } from './play';
 import { ADVANCE_FROM, unitPose, type TwPlan } from './plan';
 import { OVERVIEW_PITCH, type CamState } from '../reel/camera';
 import { CueClock, ambienceAt, cuesOf } from './cues';
@@ -240,7 +241,7 @@ export function mountTwStandUi(p: URLSearchParams): void {
   });
 }
 
-export function mountTwStand(p: URLSearchParams): void {
+export async function mountTwStand(p: URLSearchParams): Promise<void> {
   const root = document.getElementById('root') ?? document.body;
   root.innerHTML = '';
   document.body.style.margin = '0';
@@ -282,7 +283,9 @@ export function mountTwStand(p: URLSearchParams): void {
   renderer.info.autoReset = false;
   renderer.setSize(canvas.clientWidth || window.innerWidth, canvas.clientHeight || window.innerHeight, false);
 
-  const opts = { speed: Number(p.get('speed') ?? 1) } as { speed: number; onFrame?: (t: number) => void; onEnd?: () => void };
+  // Город за стеной (П-6): на стенде города игры нет — свой, той же сборкой (`&town=0` — прежний вид, без города).
+  const town = p.get('town') === '0' ? null : await twTown(plan, quality, null);
+  const opts = { speed: Number(p.get('speed') ?? 1), town } as { speed: number; town: typeof town; onFrame?: (t: number) => void; onEnd?: () => void };
   const player = new TwPlayer(renderer, plan, spec, opts);
   player.cam.attach(canvas);
   const play = button('Пауза', () => {

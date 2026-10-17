@@ -16,7 +16,7 @@ import { TW_SPEC } from '../reel/spec';
 import type { ClipId, Troupe, TroupeUnit } from '../reel/troupe';
 import { hash, heightAt } from '../reel/terrain';
 import type { UnitKind } from '@/battle/types';
-import { CITY_M, GATEHOUSE, RAM_PERIOD, type TwHouse, type TwLadder, type TwRam, type TwSiegeTower, type TwTent } from '../tw/site';
+import { CITY_M, GATEHOUSE, RAM_PERIOD, type TwHouse, type TwLadder, type TwRam, type TwSiegeTower, type TwTent, type TwWall } from '../tw/site';
 import { STOREY_H } from '../city/kit';
 import { ENGINE, breachWidth, type TwBarrage, type TwBreach, type TwCamKey, type TwChunk, type TwEngine, type TwSmoke, type TwStone } from '../tw/barrage';
 import type { FortMotion } from '../tw/fort';
@@ -549,7 +549,7 @@ const tentFire = (c: Ctx, t: TwTent): number => heightAt(c.lay.field, t.x, t.z) 
  * Где горит дом: над скатами кровли, а не внутри стен — карниз (этажи набора города масштабом сцены) и ещё две пятых
  * узкой стороны дома (кровля набора — 48–60°, конёк выше карниза на полторы трети ширины).
  */
-const roofOf = (c: Ctx, h: TwHouse): number => heightAt(c.lay.field, h.x, h.z) + h.floors * STOREY_H * CITY_M + 0.4 * Math.min(h.w, h.d);
+const roofOf = (c: Ctx, h: TwHouse): number => h.top ?? heightAt(c.lay.field, h.x, h.z) + h.floors * STOREY_H * CITY_M + 0.4 * Math.min(h.w, h.d);
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Пролом
@@ -642,7 +642,49 @@ function key(c: Ctx, at: number, b: TwCamKey['box'], yaw: number, pitch: number)
   // Ключи — не ближе 1.3 с друг к другу (переход не рвётся на полпути, как у пролога).
   const prev = c.cam[c.cam.length - 1];
   if (prev && at < prev.at + 1.3) at = prev.at + 1.3;
-  c.cam.push({ at, box: b, yaw, pitch });
+  const w = c.lay.wall;
+  if (c.show.us === 'def' && w && b.minZ < -2) {
+    // Защитник смотрит на поле со своей стены: камера — над ходом за спинами своих, цель — середина кадра эпизода.
+    const yawD = roleYaw('def', yaw) - Math.PI;
+    const tilt = Math.max(-0.35, Math.min(0.35, yawD));
+    // Кадр у самой стены (пролом, ворота, лагерь у рогаток) — защитник смотрит с неё в поле, не себе под ноги.
+    const tz = Math.min((b.minZ + b.maxZ) / 2, DEF_EYE.near);
+    const flat = (w.z + w.inward * (w.thick + DEF_EYE.back) - tz) / Math.cos(tilt);
+    // Глаз — не за надвратной и не за башней (их верх закрыл бы поле): на ходу между ними, ближе к середине кадра.
+    const want = clamp((b.minX + b.maxX) / 2 + Math.sin(tilt) * flat, -w.halfX + 6, w.halfX - 6);
+    const ex = eyeX(w, want);
+    const cx = ex - Math.sin(tilt) * flat;
+    const rise = c.lay.walkY + DEF_EYE.up - heightAt(c.lay.field, cx, tz);
+    c.cam.push({ at, box: { minX: cx - 1, maxX: cx + 1, minZ: tz - 1, maxZ: tz + 1 }, yaw: Math.PI + tilt, pitch: Math.atan2(rise, flat), dist: Math.hypot(flat, rise) });
+    return;
+  }
+  c.cam.push({ at, box: b, yaw: roleYaw(c.show.us, yaw), pitch });
+}
+
+/** Глаз защитника: за наружной гранью стены на столько внутрь и выше хода на столько (над головами своих), единицы сцены. */
+const DEF_EYE = { back: 3.5, up: 5.5, near: -20 };
+
+/** Ближайшее к `want` место на ходу стены, откуда не заслоняет надвратная и башни (с запасом на их шатры). */
+function eyeX(w: TwWall, want: number): number {
+  const stops = [{ x: w.gateX, half: GATEHOUSE / 2 + 5 }, ...w.towers.map((t) => ({ x: t.x, half: t.size / 2 + 4 }))];
+  const blocked = (x: number): boolean => stops.some((st) => Math.abs(x - st.x) < st.half);
+  if (!blocked(want)) return want;
+  for (let d = 1; d < w.halfX; d += 1) {
+    for (const x of [want + d, want - d]) if (Math.abs(x) < w.halfX - 4 && !blocked(x)) return x;
+  }
+  return want;
+}
+
+/**
+ * Камера по роли зрителя (docs/polish.md, П-6): нападающий смотрит на город от своего лагеря (камера снаружи, азимут у 0),
+ * защитник — со своих стен на лагерь (камера в городе, у π). Ключ эпизода задаёт кадр и наклон к оси — сторону решает
+ * роль; кадр вдоль стены (сбоку) — как есть, он ничей.
+ */
+export function roleYaw(us: 'atk' | 'def', yaw: number): number {
+  if (Math.abs(Math.sin(yaw)) > 0.82) return yaw;
+  const d = Math.atan2(Math.sin(yaw), Math.cos(yaw));
+  const tilt = Math.abs(d) > Math.PI / 2 ? (d > 0 ? d - Math.PI : d + Math.PI) : d;
+  return (us === 'def' ? Math.PI : 0) + tilt;
 }
 
 /**
@@ -1234,9 +1276,12 @@ function planOf(show: SiegeShow): Episode[] {
   return eps;
 }
 
-/** Ролик осады целиком. Короткий ролик эпизода — кусок того же ролика (`clipOf`). */
-export function siegeReel(show: SiegeShow, quality: Quality): SiegeReel {
-  const lay = layoutOf(show, quality);
+/**
+ * Ролик осады целиком. Короткий ролик эпизода — кусок того же ролика (`clipOf`). `houses` — дома настоящего города у ворот
+ * (П-6, `layoutOf`): огонь и дым — над их крышами; нет — над домами ролика.
+ */
+export function siegeReel(show: SiegeShow, quality: Quality, houses: readonly TwHouse[] | null = null): SiegeReel {
+  const lay = layoutOf(show, quality, houses);
   const seed = show.seed >>> 0;
   const tr = new Tracks(0);
   const c: Ctx = {

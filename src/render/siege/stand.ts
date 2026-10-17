@@ -21,6 +21,7 @@ import { qualityOf } from '../quality';
 import { TW_BUDGET, TW_SPEC } from '../reel/spec';
 import { siegeReel, clipOf, episodeAt, type Episode, type SiegeReel } from './reel';
 import { SiegePlayer } from './player';
+import { siegeTown } from './play';
 import { showOfSiege, clipsOfSiege, type SiegeClip } from '@/ui/battle/siege';
 import { SIEGE_PHASE } from '@/world/data/siegeroll';
 import { worldDays } from '@/game/pace';
@@ -245,7 +246,7 @@ export function mountSiegeStandUi(p: URLSearchParams): void {
   });
 }
 
-export function mountSiegeStand(p: URLSearchParams): void {
+export async function mountSiegeStand(p: URLSearchParams): Promise<void> {
   const root = document.getElementById('root') ?? document.body;
   root.innerHTML = '';
   document.body.style.margin = '0';
@@ -262,7 +263,9 @@ export function mountSiegeStand(p: URLSearchParams): void {
   const quality = qualityOf(p.get('quality')) ?? 'medium';
   const show = showOfSiege(rec, report);
   if (p.has('solar')) forceSolar(show, Number(p.get('solar')));
-  const reel = siegeReel(show, quality);
+  // Город за стеной (П-6): на стенде города игры нет — свой, той же сборкой (`&town=0` — прежний вид, без города).
+  const town = p.get('town') === '0' ? null : await siegeTown(show, quality, null);
+  const reel = siegeReel(show, quality, town?.houses ?? null);
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance', preserveDrawingBuffer: true });
   renderer.setPixelRatio(pixelRatio(Number(p.get('dpr') ?? 2)));
   configureRenderer(renderer);
@@ -272,7 +275,7 @@ export function mountSiegeStand(p: URLSearchParams): void {
   const clipEp = pickEpisode(reel, clipSpec);
   // Первый кадр рисует сам конструктор — счёт кадра пишется со второго, когда проигрыватель уже есть.
   let made = false;
-  const player = new SiegePlayer(renderer, reel, TW_SPEC[quality], { speed: Number(p.get('speed') ?? 1), ...(clipEp ? { range: clipOf(reel, clipEp.ep) } : {}), onFrame: () => made && publish() });
+  const player = new SiegePlayer(renderer, reel, TW_SPEC[quality], { speed: Number(p.get('speed') ?? 1), town: town?.backdrop ?? null, ...(clipEp ? { range: clipOf(reel, clipEp.ep) } : {}), onFrame: () => made && publish() });
   made = true;
   player.cam.attach(canvas);
   const budget = TW_BUDGET[quality];
