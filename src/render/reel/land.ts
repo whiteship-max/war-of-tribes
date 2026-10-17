@@ -11,6 +11,7 @@ import { envShared, vegMaterial, type EnvShared } from './veg';
 import { treeModel } from './flora';
 import type { TwSpec } from './spec';
 import { WATER_Y, hash, heightAt, smoothstep, vnoise, type TwField } from './terrain';
+import { lowerWaterLook, syncWaterLight, waterLook, waterMesh } from '../water/material';
 import type { Side } from '@/battle/types';
 
 /**
@@ -31,13 +32,13 @@ const TONE = {
   rockDark: CITY.rockDark,
   bank: 0x4d5f34,
   ford: 0xc9bf9e,
-  water: 0x4f8592,
-  waterDeep: 0x2b5b72,
   cobble: CITY.cobble,
   cobbleWarm: CITY.cobbleWarm,
   snow: CITY.snow,
   snowShade: 0xb4c0cc,
 } as const;
+
+const _zen = new THREE.Color();
 
 const GROUND_FRAG = /* glsl */ `
 varying vec3 vTwWorld;
@@ -174,6 +175,8 @@ export interface FieldView {
   lower(spec: TwSpec): void;
   /** Треугольников земли, воды и деревьев — сверке бюджета. */
   triangles: number;
+  /** Свет часа — воде: солнце (или луна) рига, небо сцены и доля ночи (`light.nightOf`). */
+  light(sun: THREE.DirectionalLight, scene: THREE.Scene, night: number): void;
   update(t: number): void;
   dispose(): void;
 }
@@ -308,28 +311,31 @@ function skirt(f: TwField, plan: LandInput): THREE.BufferGeometry {
   return geo;
 }
 
-/** Лента реки поперёк поля до горизонта: тёмная середина, светлые отмели у берегов. */
+/**
+ * Лента реки поперёк поля до горизонта: в вершинах — глубина (стрежень посередине, у берегов мелко и вода тает к кромке;
+ * на броде — по колено, там пена). Вид — общая вода игры (`render/water`).
+ */
 function riverRibbon(f: TwField): THREE.BufferGeometry | null {
   const r = f.river;
   if (!r) return null;
   const segs = 220;
-  const across = 6;
+  const across = 10;
   const half = r.half + 0.9;
   const pos: number[] = [];
-  const col: number[] = [];
+  const depth: number[] = [];
   const idx: number[] = [];
   for (let i = 0; i <= segs; i++) {
     const x = -SKIRT_HALF + (i / segs) * SKIRT_HALF * 2;
     const zc = r.z - Math.sin(x / 17 + f.seed) * 0.6;
+    const ford = r.ford ? smoothstep(r.fordHalf + 3, r.fordHalf - 1, Math.abs(x - r.fordX)) : 0;
     for (let j = 0; j <= across; j++) {
       const v = j / across;
       const z = zc - half + v * half * 2;
       pos.push(x, WATER_Y, z);
       const edge = Math.abs(v - 0.5) * 2;
-      C.set(TONE.waterDeep).lerp(C2.set(TONE.water), smoothstep(0.2, 0.95, edge));
-      if (r.ford) C.lerp(C2.set(TONE.ford), smoothstep(r.fordHalf + 3, r.fordHalf - 1, Math.abs(x - r.fordX)) * 0.35);
-      if (f.winter) C.lerp(C2.set(TONE.snowShade), 0.35);
-      col.push(C.r, C.g, C.b);
+      // Стрежень — полтора метра; к краю ленты — ноль (вода тает в берег); брод — по колено.
+      const d = 1.5 * (1 - smoothstep(0.45, 1, edge));
+      depth.push(d + (Math.min(d, 0.12) - d) * ford);
     }
   }
   for (let i = 0; i < segs; i++) {
@@ -341,9 +347,12 @@ function riverRibbon(f: TwField): THREE.BufferGeometry | null {
   }
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  geo.setAttribute('wdepth', new THREE.Float32BufferAttribute(depth, 1));
+  const nor = new Float32Array(pos.length);
+  for (let k = 1; k < nor.length; k += 3) nor[k] = 1;
+  geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
   geo.setIndex(idx);
-  geo.computeVertexNormals();
+  geo.computeBoundingSphere();
   return geo;
 }
 
@@ -469,11 +478,14 @@ export function buildField(plan: LandInput, spec: TwSpec): FieldView {
   } else add(skirt(f, plan), groundMat, 'tw-skirt', false);
 
   const water = town ? null : riverRibbon(f);
-  let waterMat: THREE.MeshLambertMaterial | null = null;
+  // Река — общая вода игры (`render/water`): та же, что у реки города и рыбалки; течёт вдоль ленты.
+  const look = waterLook('river', spec.water);
+  let waterMat: THREE.Material | null = null;
   if (water) {
-    waterMat = new THREE.MeshLambertMaterial({ color: 0xffffff, vertexColors: true, transparent: true, opacity: 0.8, depthWrite: false });
-    waterMat.name = 'tw-water';
-    const m = add(water, waterMat, 'tw-river');
+    const m = waterMesh(water, look, 'tw-river');
+    waterMat = m.material as THREE.Material;
+    group.add(m);
+    meshes.push(m);
     m.renderOrder = 2;
   }
 
@@ -634,6 +646,7 @@ export function buildField(plan: LandInput, spec: TwSpec): FieldView {
   return {
     group,
     lower(next: TwSpec): void {
+      lowerWaterLook(group, next.water);
       if (next.tufts === 0) {
         for (const m of extra) if (m.name === 'tw-tufts') m.visible = false;
         uni.uTwBloom.value = 0;
@@ -644,7 +657,14 @@ export function buildField(plan: LandInput, spec: TwSpec): FieldView {
       }
     },
     triangles: tris + treeTris + reedTris + tuftTris,
+    light(sun: THREE.DirectionalLight, scene: THREE.Scene, night: number): void {
+      // Небо в воде — то же, что над полем: зенит темнее фона (`light.ZENITH_MUL`), горизонт — дымка.
+      const bg = scene.background as THREE.Color;
+      const fog = (scene.fog as THREE.Fog).color;
+      syncWaterLight(look, { sun, zenith: _zen.copy(bg).multiplyScalar(0.72), horizon: fog, night, cloud: plan.cloud ?? 0 });
+    },
     update(t: number): void {
+      look.wTime.value = t;
       shared.time.value = t;
       uni.uTwTime.value = t;
       uni.uTwScar.value.w = plan.scar ? plan.scar.at(t) : 0;

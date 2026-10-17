@@ -72,7 +72,9 @@ import {
 import { FishRig } from './fishRig';
 import { fishSound, type Ear, type FishSound } from './fishSound';
 import type { Hour, Tally, Target } from './rules';
-import type { Play } from './stage';
+import { solarOf, type Play } from './stage';
+import { nightOf } from '@/render/water/moon';
+import { syncWaterLight } from '@/render/water/material';
 import { LAYOUT_OF } from './pad';
 
 /** Где ловят: берег, пояс, сезон и дождь — оболочка выводит их из города (`ui/parts/weather`). */
@@ -140,6 +142,9 @@ const _q2 = new THREE.Quaternion();
 const _x = new THREE.Vector3(1, 0, 0);
 const _e = new THREE.Euler();
 const _col = new THREE.Color();
+const _col2 = new THREE.Color();
+/** Уровень воды по ступени промысла: подробно, телефон, пол (`render/water`). */
+const WATER_LOD: Record<Tier, number> = { full: 2, lite: 1, base: 0 };
 const _la = new THREE.Vector3();
 const _lb = new THREE.Vector3();
 const smooth = (k: number): number => {
@@ -268,10 +273,12 @@ export class FishPlay implements Play {
     const bloom = scatter(flower(), this.mats.of('grass'), bloomSpots(Math.round(d.bloom * 0.4), 0, 6, 2, 14, season, water, 37), 'bloom');
     for (const m of [grass, bloom]) if (m) w.add(m);
     w.add(waterMesh(shore, this.water));
-    this.water.wSea.value = shore === 'sea' ? 1 : 0;
-    this.water.wFlow.value.set(shore === 'river' ? 0.35 : 0, 0);
-    this.water.wRot.value = SHORE_YAW;
+    // Течение реки — вдоль берега (ось x правила); море стоит. Ступень промысла — уровень воды (`render/water`).
+    this.water.wFlow.value = shore === 'river' ? 0.35 : 0;
+    this.water.wYaw.value = SHORE_YAW;
     this.water.wRain.value = Math.min(1, this.ctx.rain);
+    this.water.wCloud.value = Math.min(1, this.ctx.rain * 1.4);
+    this.water.wLod.value = WATER_LOD[this.tier];
     scene.add(w);
   }
 
@@ -508,7 +515,7 @@ export class FishPlay implements Play {
     this.sparks.frame(dt);
     this.drips.frame(dt);
     this.water.wTime.value = this.clock;
-    const rv = this.water.wRings.value;
+    const rv = this.water.wSplash.value;
     for (let i = 0; i < RINGS; i++) {
       const r = this.rings[i];
       if (r) rv[i].set(r.x, r.z, r.t0, r.a);
@@ -624,10 +631,16 @@ export class FishPlay implements Play {
     const bg = this.scene.background as THREE.Color | null;
     if (!sun || !bg) return;
     const s = sun as THREE.DirectionalLight;
-    this.water.wSun.value.copy(s.position).sub(s.target.position).normalize();
-    this.water.wSunCol.value.copy(s.color).multiplyScalar(Math.min(1.6, s.intensity));
-    this.water.wHor.value.copy(bg);
-    this.water.wSky.value.copy(bg).lerp(_col.setHex(0x5f8fc4), 0.55);
+    // Ночь — по часу города (`stage.solarOf`): после заката солнце рига уже луна, и блик в воде — лунная дорожка.
+    const night = nightOf(solarOf(this.ctx.hour ?? 'dawn', this.solar));
+    syncWaterLight(this.water, {
+      sun: s,
+      zenith: _col.copy(bg).lerp(_col2.setHex(0x5f8fc4), 0.55 * (1 - night)),
+      horizon: bg,
+      night,
+      rain: Math.min(1, this.ctx.rain),
+      cloud: Math.min(1, this.ctx.rain * 1.4),
+    });
     this.sunRead = this.clock > 0;
   }
 

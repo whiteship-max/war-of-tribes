@@ -6,9 +6,9 @@
  * нуле, вода — к −Z. Сцена поворачивает берег целиком одной группой так, чтобы солнце светило сбоку-спереди
  * (`fishPlay.SHORE_YAW`), — модели об этом не знают.
  *
- * ВОДА — ЛАМБЕРТ С ВСТАВКОЙ, А НЕ СВОЙ ШЕЙДЕР. Тень и туман у неё общие с поляной; вставка (`onBeforeCompile`) кладёт
- * рябь по течению, круги от поплавка и рыбы, круги дождя, отражение неба по Френелю и блик солнца. Нового имени
- * `three` нет (`prologue/post.test.ts`).
+ * ВОДА — ОБЩАЯ ВОДА ИГРЫ (`render/water`, docs/polish.md, П-8): Ламберт со вставкой, тень и туман общие с поляной; рябь
+ * по течению, круги от поплавка и рыбы, круги дождя, пена, отражение неба по Френелю, блик солнца и лунная дорожка —
+ * тем же кодом, что у реки города и роликов. Нового имени `three` нет (`prologue/post.test.ts`).
  *
  * РЫБА БЛЕСТИТ. Чешуя — тот же Ламберт с цветом в вершинах, гладкий, а вставка добавляет зеркальный блик солнца и
  * перелив по углу взгляда: вытащенная из воды рыба играет на свету — ради этого её и тащили.
@@ -24,6 +24,7 @@ import type { Zone } from '@/render/climate';
 import { Mesher, V } from './hands';
 import { broadleaf, pine, scatter, spruce, willow, type Detail, type NatureMats } from './nature';
 import { BANK_Z, FAR_BANK_Z, type FishId, type Shore } from './fishing';
+import { SPLASHES, toneWater, waterLook, waterMesh as waterSurface, type WaterLook } from '@/render/water/material';
 
 const tint = (hex: number): K.Paint => ({ mat: KIT.body, tint: new THREE.Color(hex) });
 const _c = new THREE.Color();
@@ -33,154 +34,19 @@ export const WATER_Y = -0.3;
 
 // ---------- Вода ----------
 
-/** Сколько кругов на воде держит вставка разом: поплавок, рыба, брызги. Круги дождя — свои, из шума, без счёта. */
-export const RINGS = 10;
+/** Сколько кругов на воде держит вставка разом: поплавок, рыба, брызги. Круги дождя — общей водой, без счёта. */
+export const RINGS = SPLASHES;
 
-/** Числа воды, общие у меша и сцены: сцена двигает их каждый кадр. */
-export interface WaterUniforms {
-  wTime: { value: number };
-  /** Круги: x, z в осях правила, секунда начала и сила. */
-  wRings: { value: THREE.Vector4[] };
-  wRain: { value: number };
-  wSun: { value: THREE.Vector3 };
-  wSunCol: { value: THREE.Color };
-  wSky: { value: THREE.Color };
-  wHor: { value: THREE.Color };
-  /** Течение, м/с, в осях правила. */
-  wFlow: { value: THREE.Vector2 };
-  /** Море: зыбь и волны крупнее. */
-  wSea: { value: number };
-  /** Поворот берега — нормаль ряби из осей правила в оси мира. */
-  wRot: { value: number };
-  /** Сила блика: ступень без конвейера — тише (без свечения он резал бы глаз). */
-  wGlint: { value: number };
-}
+/** Числа воды — общие у меша и сцены (`render/water`): сцена двигает их каждый кадр. */
+export type WaterUniforms = WaterLook;
 
-const WATER_VERT_HEAD = /* glsl */ `
-uniform float wTime;
-uniform float wSea;
-varying vec3 vWorld;
-varying vec2 vLocal;
-`;
-
-/** Зыбь моря: вершины поднимаются медленными волнами; у реки — ровно. */
-const WATER_VERT_BODY = /* glsl */ `
-#include <begin_vertex>
-transformed.y += wSea * (0.07 * sin(dot(position.xz, vec2(0.11, 0.21)) + wTime * 0.9) + 0.04 * sin(dot(position.xz, vec2(-0.23, 0.13)) + wTime * 1.3));
-vLocal = position.xz;
-`;
-
-const WATER_VERT_WORLD = /* glsl */ `
-#include <project_vertex>
-vWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;
-`;
-
-const WATER_FRAG_HEAD = /* glsl */ `
-#include <common>
-uniform float wTime;
-uniform vec4 wRings[${RINGS}];
-uniform float wRain;
-uniform vec3 wSun;
-uniform vec3 wSunCol;
-uniform vec3 wSky;
-uniform vec3 wHor;
-uniform vec2 wFlow;
-uniform float wSea;
-uniform float wRot;
-uniform float wGlint;
-varying vec3 vWorld;
-varying vec2 vLocal;
-float wHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
-// Волна: наклон поверхности (градиент высоты) от синуса направления d, частоты k и скорости s.
-vec2 wWave(vec2 q, vec2 d, float k, float s, float a) { return a * k * cos(dot(q, d) * k + wTime * s) * d; }
-// Круг на воде: бегущее кольцо радиуса R с затуханием — наклон по радиусу.
-vec2 wRing(vec2 p, vec2 c, float age, float amp, float speed) {
-  vec2 d = p - c;
-  float dist = length(d) + 1e-4;
-  float R = 0.12 + age * speed;
-  float x = dist - R;
-  float env = exp(-x * x / (0.02 + 0.03 * age)) * amp;
-  return d / dist * env * cos(x * 26.0);
-}
-`;
+/** Числа воды берега: уровень — высокий, ступень промысла опускает его (`fishPlay`). */
+export const waterUniforms = (): WaterUniforms => waterLook('river', 2);
 
 /**
- * Свет воды: рябь — четыре волны по течению (у моря крупнее) и круги; наклон даёт нормаль, нормаль — отражение неба
- * по Френелю и блик солнца. Рябь вдали тише: на тридцати метрах мелкая волна — мерцание, а не вода.
- */
-const WATER_FRAG_BODY = /* glsl */ `
-vec2 wp = vLocal;
-float camD = length(cameraPosition - vWorld);
-float fade = 1.0 / (1.0 + camD / 26.0);
-vec2 q = wp - wFlow * wTime;
-vec2 g = vec2(0.0);
-float big = 1.0 + 2.2 * wSea;
-g += wWave(q, vec2(0.81, 0.59), 1.7, 1.3, 0.016 * big);
-g += wWave(q, vec2(-0.45, 0.89), 2.9, 1.9, 0.009 * big);
-g += wWave(q, vec2(0.96, -0.28), 5.3, 2.7, 0.0045 * big);
-g += wWave(q, vec2(-0.7, -0.71), 8.1, 3.6, 0.0028);
-g *= fade;
-for (int i = 0; i < ${RINGS}; i++) {
-  vec4 r = wRings[i];
-  float age = wTime - r.z;
-  if (r.w > 0.0 && age > 0.0 && age < 3.0) {
-    float k = 1.0 - age / 3.0;
-    g += wRing(wp, r.xy, age, r.w * k * k * 0.09, 0.85);
-  }
-}
-if (wRain > 0.0 && camD < 32.0) {
-  vec2 cell = floor(wp / 0.8);
-  for (int dx = 0; dx <= 1; dx++) {
-    for (int dy = 0; dy <= 1; dy++) {
-      vec2 c = cell + vec2(float(dx), float(dy)) - 0.5;
-      float h = wHash(c);
-      float age = fract(wTime * 1.1 + h * 7.0);
-      vec2 at = (c + vec2(h, wHash(c + 3.1))) * 0.8;
-      if (wHash(c + 7.7) < wRain) g += wRing(wp, at, age * 0.6, (1.0 - age) * 0.05, 0.6);
-    }
-  }
-  g *= 1.0;
-}
-vec3 nl = normalize(vec3(-g.x, 1.0, -g.y));
-float cr = cos(wRot);
-float sr = sin(wRot);
-vec3 wn = vec3(nl.x * cr + nl.z * sr, nl.y, -nl.x * sr + nl.z * cr);
-vec3 Vw = normalize(cameraPosition - vWorld);
-float ndv = max(dot(wn, Vw), 0.0);
-float fres = 0.02 + 0.98 * pow(1.0 - ndv, 5.0);
-vec3 Rw = reflect(-Vw, wn);
-vec3 skyc = mix(wHor, wSky, smoothstep(0.0, 0.45, Rw.y));
-float sunR = max(dot(Rw, normalize(wSun)), 0.0);
-vec3 glint = wSunCol * (pow(sunR, 260.0) * 5.0 + pow(sunR, 30.0) * 0.18) * wGlint;
-outgoingLight = mix(outgoingLight, skyc, clamp(fres * 0.9, 0.0, 0.92)) + glint;
-#include <opaque_fragment>
-`;
-
-export function waterUniforms(): WaterUniforms {
-  return {
-    wTime: { value: 0 },
-    wRings: { value: Array.from({ length: RINGS }, () => new THREE.Vector4(0, 0, -99, 0)) },
-    wRain: { value: 0 },
-    wSun: { value: new THREE.Vector3(0, 1, 0) },
-    wSunCol: { value: new THREE.Color(1, 0.95, 0.85) },
-    wSky: { value: new THREE.Color(0x8fb3d9) },
-    wHor: { value: new THREE.Color(0xc9d8e2) },
-    wFlow: { value: new THREE.Vector2(0, 0) },
-    wSea: { value: 0 },
-    wRot: { value: 0 },
-    wGlint: { value: 1 },
-  };
-}
-
-/** Цвет толщи: у реки — бурая зелень, у моря — бирюза у берега и синь вдали. */
-const WATER_TINT: Record<Shore, { shallow: number; deep: number }> = {
-  river: { shallow: 0x55603f, deep: 0x22372d },
-  sea: { shallow: 0x3f8f8a, deep: 0x16405a },
-};
-
-/**
- * Зеркало воды: сетка с рядами чаще у берега. Река — от своей кромки до дальней; море — до горизонта. Цвет в вершинах
- * — толща: мелко у берегов, глубоко посередине.
+ * Зеркало воды: сетка с рядами чаще у берега. Река — от своей кромки до дальней; море — до горизонта. В вершинах —
+ * глубина: мелко у берегов, глубоко посередине; у самой кромки берега вода уже непрозрачна — кромку прячет трава.
+ * Вид — общая вода игры (`render/water`): та же, что у реки города и роликов.
  */
 export function waterMesh(shore: Shore, u: WaterUniforms): THREE.Mesh {
   const sea = shore === 'sea';
@@ -196,19 +62,14 @@ export function waterMesh(shore: Shore, u: WaterUniforms): THREE.Mesh {
     const k = (i / nc) * 2 - 1;
     cols.push(Math.sign(k) * Math.abs(k) ** 1.6 * half);
   }
-  const tone = WATER_TINT[shore];
-  const sh = new THREE.Color(tone.shallow);
-  const dp = new THREE.Color(tone.deep);
   const pos: number[] = [];
-  const col: number[] = [];
+  const depth: number[] = [];
   for (const z of rows) {
     for (const x of cols) {
       pos.push(x, WATER_Y, z);
       const fromNear = near - z;
       const fromFar = sea ? 1e9 : z - far;
-      const depth = Math.min(1, Math.min(fromNear / (sea ? 9 : 5), fromFar / 4));
-      _c.copy(sh).lerp(dp, depth);
-      col.push(_c.r, _c.g, _c.b);
+      depth.push(0.26 + 1.6 * Math.min(1, Math.min(fromNear / (sea ? 9 : 5), fromFar / 4)));
     }
   }
   const idx: number[] = [];
@@ -225,26 +86,16 @@ export function waterMesh(shore: Shore, u: WaterUniforms): THREE.Mesh {
   }
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  g.setAttribute('wdepth', new THREE.Float32BufferAttribute(depth, 1));
   const nor = new Float32Array(pos.length);
   for (let k = 1; k < nor.length; k += 3) nor[k] = 1;
   g.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
   g.setIndex(idx);
   g.computeBoundingSphere();
-  const mat = new THREE.MeshLambertMaterial({ vertexColors: true });
-  mat.name = 'fishWater';
-  mat.onBeforeCompile = (shader) => {
-    Object.assign(shader.uniforms, u);
-    shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', `#include <common>${WATER_VERT_HEAD}`)
-      .replace('#include <begin_vertex>', WATER_VERT_BODY)
-      .replace('#include <project_vertex>', WATER_VERT_WORLD);
-    shader.fragmentShader = shader.fragmentShader.replace('#include <common>', WATER_FRAG_HEAD).replace('#include <opaque_fragment>', WATER_FRAG_BODY);
-  };
-  mat.customProgramCacheKey = () => 'fish-water';
-  const m = new THREE.Mesh(g, mat);
-  m.name = 'water';
-  m.receiveShadow = true;
+  toneWater(u, shore);
+  const m = waterSurface(g, u, 'water');
+  // Вода непрозрачна: под ней ничего нет, и кромку прячет берег.
+  (m.material as THREE.MeshLambertMaterial).transparent = false;
   m.frustumCulled = false;
   return m;
 }

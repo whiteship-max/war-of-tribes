@@ -250,6 +250,7 @@ export class SiegeStage {
     this.sky.update(this.scene, g);
     this.clouds?.relight(this.scene, g, this.rig);
     this.town?.light(night, this.sunDir, (this.scene.fog as THREE.Fog).color);
+    this.field.light(this.rig.sun, this.scene, night);
   }
 
   apply(t: number, cam: TacticalCamera): void {

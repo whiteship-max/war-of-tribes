@@ -35,7 +35,7 @@ import {
 import { type Canvas, type Ctx, ctxOf, makeCanvas } from './canvas';
 import { land } from './land';
 import { TW } from './palette';
-import { GROVE_CELLS, GROVE_MAX, GROVE_VARIANTS, RIPPLE_PX, grove, ripplePattern } from './sprites';
+import { GROVE_CELLS, GROVE_MAX, GROVE_VARIANTS, grove, paintRippleArcs } from './sprites';
 import { TW_SPEC, type TwSpec } from './spec';
 
 // ---------- Шаги ----------
@@ -539,22 +539,11 @@ function openSea(rect: Rect): boolean {
   return true;
 }
 
-/** Сдвиг узора ряби: у `DOMMatrix` в старом потоке Safari может не быть — тогда узор без сдвига (шов в рябь). */
-function shiftPattern(pat: CanvasPattern, dx: number, dy: number): void {
-  if (typeof DOMMatrix === 'undefined') return;
-  pat.setTransform(new DOMMatrix([1, 0, 0, 1, dx, dy]));
-}
-
 function paintRipples(ctx: Ctx, ox: number, oy: number, alpha: number): void {
   if (!spec().ripples) return;
-  const pat = ctx.createPattern(ripplePattern(), 'repeat');
-  if (!pat) return;
-  // Узор привязан к миру, а не к тайлу: у соседей он продолжается, а не начинается заново.
-  const shift = (v: number): number => -(((v * TILE_BAKE) % RIPPLE_PX) + RIPPLE_PX) % RIPPLE_PX;
-  shiftPattern(pat, shift(ox), shift(oy));
+  // Рябь привязана к миру клетками (`sprites.rippleArcs`): у соседей она продолжается, нигде не повторяется.
   ctx.globalAlpha = alpha;
-  ctx.fillStyle = pat;
-  ctx.fillRect(0, 0, TILE_PX, TILE_PX);
+  paintRippleArcs(ctx, ox * TILE_BAKE, oy * TILE_BAKE, TILE_PX);
   ctx.globalAlpha = 1;
 }
 

@@ -1,6 +1,7 @@
 // Палитра карты в духе карты кампании (docs/map_tw.md, раздел 3). Одно место на все цвета нового вида:
 // земля, вода, снег, свет, чернила и пергамент. Гамма — та же, что у города (`render/city/palette.ts`):
 // тёплая, приглушённая, «под солнцем»; чистого белого и чёрного нет ни в одном канале — правило города.
+import { SEA_MID, WATER_TONE } from '@/render/water/tone';
 
 export type RGB = readonly [number, number, number];
 
@@ -36,11 +37,11 @@ export const TW = {
   light: '#f3e2b8',
   shade: '#2c3346',
 
-  // ---- вода ----
-  deep: '#1d4057',
-  sea: '#2b5b72',
-  shallow: '#3f8a8c',
-  foam: '#d8e2d6',
+  // ---- вода ---- (море — тон общей воды игры, `render/water/tone.ts`: то же море, что у рыбалки)
+  deep: WATER_TONE.sea.deep,
+  sea: SEA_MID,
+  shallow: WATER_TONE.sea.shallow,
+  foam: WATER_TONE.sea.foam,
   beach: '#c8b88c',
   river: '#5a8f9c',
   riverDeep: '#467a8a',

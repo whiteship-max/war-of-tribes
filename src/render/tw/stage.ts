@@ -79,6 +79,8 @@ export class TwStage {
     if (town && site?.wall && site.town) land.town = townLand(frameOf(site.wall), site.town.paint, site.town.outside, town.cleared, town.road);
     this.field = buildField(land, spec);
     this.scene.add(this.field.group);
+    // Свет боя — один на весь ролик (час записи): вода берёт солнце или луну рига, небо и ночь — раз.
+    this.field.light(this.rig.sun, this.scene, nightOf(plan.cast.ground.solar));
     if (town) {
       this.scene.add(town.group);
       // Свет боя — один на весь ролик (час записи): ночь города, солнце и небо — раз.

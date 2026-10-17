@@ -5,14 +5,14 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import type * as THREE from 'three';
+import * as THREE from 'three';
 import { cityPlan, heightAt, raceRibbon, riverLevel, riverRibbon, riverX, RIVER_HALF } from './layout';
 import { groundWet, lightToWater, shoreItems, shoreOffset, SHORE_FIT, SHORE_Z, waterDepth, waterGeometry, waterLights, waterTriangles, WATER_LIGHT_REACH, WATER_LIGHTS, WET_RISE } from './banks';
 import { buildStatic } from './budget';
 import { cityUniforms } from './material';
 import { shoreModelTris } from './shore';
 import { SHORE_CAP, shoreTris } from './spec';
-import { buildWater } from './water';
+import { buildWater, lowerWater, type WaterUniforms } from './water';
 import { QUALITIES } from '../quality';
 import { openLand } from './ground';
 
@@ -175,29 +175,30 @@ describe('город: вода ночью и уровни', () => {
     for (const l of real) expect(lightToWater(l)).toBeLessThan(WATER_LIGHT_REACH);
   });
 
-  it('уровень качества доходит до шейдера воды: низкий — без отблесков огней, средний — без искр', () => {
+  it('уровень качества доходит до шейдера воды числом, сторож опускает его на ходу; вода — общая (render/water)', () => {
     const u = cityUniforms();
-    const frag = (detail: 0 | 1 | 2): { text: string; key: string; def: unknown } => {
-      const m = buildWater(u, SHORE_CAP.low.cols, detail, []).material as THREE.MeshLambertMaterial;
+    const water = (detail: 0 | 1 | 2): { mesh: THREE.Mesh; text: string; lod: number } => {
+      const mesh = buildWater(u, SHORE_CAP.low.cols, detail, []);
       const shader = {
-        uniforms: {},
+        uniforms: {} as Record<string, { value: unknown }>,
         vertexShader: '#include <begin_vertex>',
         fragmentShader: '#include <map_fragment>\n#include <emissivemap_fragment>\n#include <opaque_fragment>',
       };
-      m.onBeforeCompile(shader as never, undefined as never);
-      return { text: shader.fragmentShader, key: m.customProgramCacheKey(), def: m.defines?.WATER_DETAIL };
+      (mesh.material as THREE.MeshLambertMaterial).onBeforeCompile(shader as never, undefined as never);
+      return { mesh, text: shader.fragmentShader, lod: shader.uniforms.wLod.value as number };
     };
-    const [low, medium, high] = [frag(0), frag(1), frag(2)];
-    expect([low.def, medium.def, high.def]).toEqual([0, 1, 2]);
-    expect(new Set([low.key, medium.key, high.key]).size, 'у каждого уровня своя программа').toBe(3);
-    // Обход огней — только под WATER_DETAIL ≥ 1, искры — только под ≥ 2: шейдер один, лишнее вырезает уровень.
-    const guarded = (text: string, what: RegExp, level: number): boolean => {
-      const at = text.search(what);
-      const open = text.lastIndexOf(`#if WATER_DETAIL >= ${level}`, at);
-      return at > 0 && open >= 0 && text.indexOf('#endif', open) > at;
-    };
-    expect(guarded(low.text, /for \(int i = 0; i < \d+; i\+\+\)/, 1), 'огни в воде — со среднего').toBe(true);
-    expect(guarded(low.text, /pow\(max\(dot\(fn, wh\), 0\.0\), 900\.0\)/, 2), 'искры — на высоком').toBe(true);
+    const [low, medium, high] = [water(0), water(1), water(2)];
+    expect([low.lod, medium.lod, high.lod]).toEqual([0, 1, 2]);
+    // Программа одна на все уровни: сторож меняет число, а не пересобирает шейдер посреди кадра.
+    expect(low.text).toBe(high.text);
+    // Огни в воде — со среднего: обход под условием уровня.
+    expect(low.text).toMatch(/if \(wLod > 0\.5 && cNight > 0\.02\) \{\s*\/\/[^\n]*\n\s*for \(int i = 0; i < \d+; i\+\+\) glint \+= wTorch/);
+    // Рябь, круги, пена и свет — общей водой.
+    for (const fn of ['wRipple(', 'wRain(', 'wFoam(', 'wSun(', 'wMoon(', 'wKnee(']) expect(low.text, fn).toContain(fn);
+    // Сторож опустил город до низкого — вода тоже, и не выше, чем была.
+    const g = new THREE.Group().add(high.mesh, low.mesh);
+    lowerWater(g, 1);
+    expect([(high.mesh.userData.water as WaterUniforms).wLod.value, (low.mesh.userData.water as WaterUniforms).wLod.value]).toEqual([1, 0]);
     // Сборка города отдаёт воде уровень сцены, а не своё число.
     const index = readFileSync(join(__dirname, 'index.ts'), 'utf8');
     expect(index).toMatch(/buildWater\(u, cap\.cols, spec\.detail, waterLights\(lights\)\)/);

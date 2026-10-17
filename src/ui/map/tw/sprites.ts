@@ -1,4 +1,4 @@
-// Кисти нового вида: кроны, тень кроны, рябь моря. Печётся один раз на запуск, в выпечке тайла — только
+// Кисти нового вида: кроны, тень кроны, рябь моря (рябь — дужками от хеша клетки мира, без спрайта). Печётся один раз на запуск, в выпечке тайла — только
 // копирование (закон кадра, docs/world-map.md). Пути и градиенты живут здесь, а не в тайле. Холсты — из
 // `canvas.ts`: кисти пекутся там же, где выпечка, — в странице или в рабочем потоке.
 import { type Canvas, type Ctx, ctxOf, makeCanvas } from './canvas';
@@ -11,7 +11,6 @@ export const CROWN_KINDS = 6;
 
 const crowns: (Canvas | null)[] = Array(CROWN_KINDS * 2).fill(null);
 let shadowSprite: Canvas | null = null;
-let ripple: Canvas | null = null;
 
 /** Детерминированный шум кисти: спрайт одинаков на каждом запуске. */
 function rng(seed: number): () => number {
@@ -157,41 +156,74 @@ export function crownShadow(): Canvas {
   return c;
 }
 
-/** Сторона узора ряби в пикселях выпечки; узор бесшовный и привязан к миру (`bake.ts`). */
-export const RIPPLE_PX = 256;
+/** Клетка ряби в пикселях выпечки: в каждой — свои дужки, место и число — от хеша клетки мира (`rippleArcs`). */
+export const RIPPLE_CELL = 28;
+
+/** Дужка ряби: середина и полуширина в пикселях выпечки мира, толщина, светлая или тёмная. */
+export interface RippleArc {
+  x: number;
+  y: number;
+  w: number;
+  lw: number;
+  light: boolean;
+}
+
+/** Хеш клетки ряби: целые числа, без синуса — одинаков в странице и в рабочем потоке. */
+function cellHash(i: number, j: number, k: number): number {
+  let h = Math.imul(i, 0x27d4eb2d) ^ Math.imul(j, 0x165667b1) ^ Math.imul(k + 1, 0x9e3779b1);
+  h = Math.imul(h ^ (h >>> 15), 0x85ebca6b);
+  h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35);
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+}
 
 /**
- * Рябь моря: короткие светлые дужки вразброс — так море читается водой, а не синей заливкой. Узор
- * бесшовный: дужка у края повторяется у противоположного края.
+ * Рябь моря (docs/polish.md, П-8): короткие светлые и тёмные дужки — так море читается водой, а не заливкой. Узора-плитки
+ * нет: дужки клетки мира `(i, j)` выводятся из её хеша, и ни одна часть моря не повторяет другую; соседние тайлы рисуют
+ * одни и те же дужки у общего края — шва нет. Прежде узор был плиткой в 256 пикселей: повтор читался глазом, а без
+ * сдвига узора (старый Safari в рабочем потоке) каждый тайл начинал его заново — по морю шли квадраты.
  */
-export function ripplePattern(): Canvas {
-  if (ripple) return ripple;
-  const s = RIPPLE_PX;
-  const c = makeCanvas(s, s);
-  const ctx = ctxOf(c);
-  const rnd = rng(4242);
+export function rippleArcs(i: number, j: number): RippleArc[] {
+  const out: RippleArc[] = [];
+  const n = Math.floor(cellHash(i, j, 0) * 3.2);
+  for (let k = 0; k < n; k++) {
+    out.push({
+      x: (i + cellHash(i, j, 1 + k * 5)) * RIPPLE_CELL,
+      y: (j + cellHash(i, j, 2 + k * 5)) * RIPPLE_CELL,
+      w: 6 + cellHash(i, j, 3 + k * 5) * 14,
+      lw: 0.9 + cellHash(i, j, 4 + k * 5) * 0.8,
+      light: cellHash(i, j, 5 + k * 5) < 0.7,
+    });
+  }
+  return out;
+}
+
+/**
+ * Дужки ряби на холст тайла: `ox`, `oy` — левый верхний угол тайла в пикселях выпечки мира, `size` — сторона тайла.
+ * Клетки — с запасом в одну: дужка соседа, заходящая на тайл, рисуется и здесь.
+ */
+export function paintRippleArcs(ctx: Ctx, ox: number, oy: number, size: number): void {
   ctx.lineCap = 'round';
-  for (let i = 0; i < 140; i++) {
-    const x = rnd() * s;
-    const y = rnd() * s;
-    const w = 6 + rnd() * 14;
-    const light = rnd() < 0.7;
+  const i0 = Math.floor(ox / RIPPLE_CELL) - 1;
+  const j0 = Math.floor(oy / RIPPLE_CELL) - 1;
+  const i1 = Math.floor((ox + size) / RIPPLE_CELL) + 1;
+  const j1 = Math.floor((oy + size) / RIPPLE_CELL) + 1;
+  for (const light of [true, false]) {
     ctx.strokeStyle = light ? 'rgba(220, 236, 232, 0.55)' : 'rgba(14, 34, 48, 0.45)';
-    ctx.lineWidth = 0.9 + rnd() * 0.8;
-    for (const ox of [-s, 0, s]) {
-      for (const oy of [-s, 0, s]) {
-        const cx = x + ox;
-        const cy = y + oy;
-        if (cx + w < 0 || cx - w > s || cy + 4 < 0 || cy - 4 > s) continue;
-        ctx.beginPath();
-        ctx.moveTo(cx - w / 2, cy);
-        ctx.quadraticCurveTo(cx, cy - 2.2, cx + w / 2, cy);
-        ctx.stroke();
+    for (let j = j0; j <= j1; j++) {
+      for (let i = i0; i <= i1; i++) {
+        for (const a of rippleArcs(i, j)) {
+          if (a.light !== light) continue;
+          const x = a.x - ox;
+          const y = a.y - oy;
+          ctx.lineWidth = a.lw;
+          ctx.beginPath();
+          ctx.moveTo(x - a.w / 2, y);
+          ctx.quadraticCurveTo(x, y - 2.2, x + a.w / 2, y);
+          ctx.stroke();
+        }
       }
     }
   }
-  ripple = c;
-  return c;
 }
 
 /** Новый мир или уход с карты: спрайты дешёвые, пусть пекутся заново. */
@@ -199,5 +231,4 @@ export function dropTwSprites(): void {
   crowns.fill(null);
   groves.clear();
   shadowSprite = null;
-  ripple = null;
 }

@@ -25,6 +25,7 @@ import { RIG, applyDayNight, fitShadow, windowNight } from '../lighting';
 import { disposeGeometries } from '../kit';
 import type { HitBox } from '../pick';
 import { buildCity, CITY_SPEC, type CityBuild, type CityShare } from './index';
+import { lowerWater } from './water';
 import { CITY_KEY, CITY_AZIMUTH, CITY_STEP_MAX, cityFog, cityFraming, cityLeash, cityShadowHalf, citySunAt } from './camera';
 import { cityPick, screenBox, type Pickable } from './pick';
 import { mainSite, ownerCode, type Site } from './sites';
@@ -265,6 +266,8 @@ export class CityScene extends TribeScene {
   override lowerTo(next: Quality): void {
     super.lowerTo(next);
     this.precip?.setLevel(this.dprLevel);
+    // Вода — тем же уровнем: рябь, круги дождя и огни в ней режутся сразу, без пересборки (docs/polish.md, П-8).
+    lowerWater(this.scene, CITY_SPEC[this.dprLevel].detail);
   }
 
   /**
