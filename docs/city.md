@@ -196,6 +196,7 @@
 | `material.ts` | массив слоёв как `Texture` с признаком массива (имени `DataArrayTexture` нет — кусок three первой загрузки не растёт); Ламберт с правкой шейдера: здания, земля, листва; ночь, снег, осень, цветокоррекция, огни пятнами |
 | `spec.ts`, `budget.ts` | уровни качества города и счёт бюджета без браузера — та же дорога сборки, что у сцены (`buildStatic`) |
 | `index.ts`, `stand.ts` | сборка и стенд |
+| `town.ts`, `town.worker.ts`, `backdrop.ts`, `palisade.ts` | тот же город в роликах осады и боя у города (docs/polish.md, П-6): вырез под бой, кольцо частоколом или камнем по уровню, уровни детализации; текстуры и карты — у сцены города (`cityShare`), места в шейдере — в метрах города (`material.cFrame`) |
 
 Стенд — `?showcase=city&quality=high|medium|low&view=game|street|gate|square|house|top&solar=0.2&season=summer`,
 плюс `at=x,y,z&dist=&elev=&azim=&fov=`. Снимки — `npm run city:shots` (`QUALITY=`, `VIEWS=`, `SOLAR=`, `TAG=`,
