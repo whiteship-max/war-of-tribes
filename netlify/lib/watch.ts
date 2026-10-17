@@ -54,6 +54,16 @@ export const OFTEN_PER_HOUR = 3;
  */
 export const GROWTH_SLACK = 2;
 
+/**
+ * Точность часов описи, игровые дни: `WatchCard.time` — целые игровые секунды (дробь отбрасывают и `snapshot.watchOf`,
+ * и `contract.readWatch`). Истинный промежуток между описями поэтому короче разности их часов плюс одна игровая секунда,
+ * и выработку сверяют за этот верхний край. Без него две записи внутри одной игровой секунды (при шкале ×30 — полминуты
+ * настоящего времени: быстрая запись после смены раскладки, перезапуск) показывали ноль времени, и честная выработка
+ * этой секунды — 1/60 дневной — читалась ростом без разовых дел (16.10.2026: «Древесина +29 за 21 с … не больше 1»,
+ * docs/security.md, раздел 8).
+ */
+export const CARD_TICK_DAYS = 1 / DAY_LENGTH;
+
 /** Тот же флаг второй раз за этот срок не дописывается, а считается в прежний: запись идёт раз в минуту. */
 const FLAG_QUIET = HOUR;
 
@@ -316,7 +326,8 @@ export function flagsBetween(a: WatchCard, aAt: number, b: WatchCard, bAt: numbe
   if (b.deeds < a.deeds) {
     out.push({ kind: 'rollback', text: `Партия откатилась назад: разовых дел было ${big(a.deeds)}, стало ${big(b.deeds)} (другое устройство, восстановленная копия или правка сохранения).` });
   }
-  const days = Math.max(0, Math.min(wentDays, canDays));
+  // Рост сверяют за верхний край истинного промежутка: часы описи — целые игровые секунды (`CARD_TICK_DAYS`).
+  const days = Math.max(0, Math.min(wentDays + CARD_TICK_DAYS, canDays));
   const quiet = a.deeds === b.deeds && a.seen === b.seen && a.games === b.games && a.away === b.away && a.caravans === b.caravans;
   if (quiet) {
     for (const k of STOCK_KEYS) {
