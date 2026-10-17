@@ -46,6 +46,9 @@ export function lampsToWorld(lamps: readonly Lamp[], m: THREE.Matrix4 | null, s 
   });
 }
 
+/** `THREE.DynamicDrawUsage` числом: см. смешивание пятен ниже. */
+const DYNAMIC = 35048;
+
 /** Пятно на земле — у огней ниже этой доли досягаемости над землёй: высокий факел башни земли не достаёт. */
 const POOL_LIFT = 0.6;
 /** Сила пятна: оно множит землю, как свет (`src·dst + dst`), и стоит вместо настоящего света низкого огня. */
@@ -156,7 +159,7 @@ export class LampRig {
     g.setAttribute('gSize', new THREE.Float32BufferAttribute(lamps.flatMap((l) => [LAMP[l.kind].core * l.s, LAMP[l.kind].halo * l.s]), 2));
     g.setAttribute('gCol', new THREE.Float32BufferAttribute(this.col.flat(), 3));
     this.flameK = new THREE.Float32BufferAttribute(new Float32Array(lamps.length), 1);
-    this.flameK.setUsage(THREE.DynamicDrawUsage);
+    this.flameK.setUsage(DYNAMIC);
     g.setAttribute('gK', this.flameK);
     const fm = new THREE.ShaderMaterial({
       uniforms: this.flameU,
@@ -179,7 +182,7 @@ export class LampRig {
     if (this.pooled.length > 0) {
       const pg = new THREE.PlaneGeometry(2, 2).rotateX(-Math.PI / 2);
       this.poolK = new THREE.InstancedBufferAttribute(new Float32Array(this.pooled.length), 1);
-      this.poolK.setUsage(THREE.DynamicDrawUsage);
+      this.poolK.setUsage(DYNAMIC);
       pg.setAttribute('pK', this.poolK);
       pg.setAttribute('pCol', new THREE.InstancedBufferAttribute(new Float32Array(this.pooled.flatMap((i) => this.col[i])), 3));
       const pm = new THREE.ShaderMaterial({
@@ -187,10 +190,12 @@ export class LampRig {
         fragmentShader: POOL_FRAG,
         transparent: true,
         depthWrite: false,
-        blending: THREE.CustomBlending,
-        blendEquation: THREE.AddEquation,
-        blendSrc: THREE.DstColorFactor,
-        blendDst: THREE.OneFactor,
+        // Пятно множит землю, как свет: src·dst + dst. Числа констант three (CustomBlending, AddEquation, DstColorFactor,
+        // OneFactor), а не их имена: имя тянуло бы их в общий кусок three первой загрузки.
+        blending: 5,
+        blendEquation: 100,
+        blendSrc: 208,
+        blendDst: 201,
         polygonOffset: true,
         polygonOffsetFactor: -2,
         polygonOffsetUnits: -4,

@@ -609,7 +609,7 @@ export function drawTwFrame(ctx: CanvasRenderingContext2D, cam: Camera, vp: View
 
   // Ночь — по часам партии, как у сцены города (`tw/night.ts`); подписи и сроки — поверх неё.
   const night = nightNow();
-  drawNight(ctx, vp.w, vp.h, cam.scale, items, night, dpr);
+  if (drawNight(ctx, vp.w, vp.h, cam.scale, items, night, dpr)) motion.decor = true;
   // Огни осадного лагеря — поверх ночи: их и видно только ночью.
   for (const sm of smokes) if (sm.siege && drawCampFires(ctx, sm.x, sm.y, cam.scale, night, sm.seed)) motion.decor = true;
   for (const draw of marks) draw();

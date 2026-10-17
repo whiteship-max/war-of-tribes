@@ -7,7 +7,7 @@ import { buildStatic } from '../city/budget';
 import { cityPlan } from '../city/layout';
 import { TW_SPEC } from '../reel/spec';
 import { QUALITIES } from '../quality';
-import { sparkThreshold, sparksOf } from '@/ui/map/tw/night';
+import { sparkThreshold, sparksOf } from '@/ui/map/tw/sparks';
 
 const KINDS = Object.keys(LAMP) as LampKind[];
 const plan = cityPlan();

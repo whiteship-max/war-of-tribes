@@ -201,6 +201,6 @@ describe('город: вода ночью и уровни', () => {
     expect([(high.mesh.userData.water as WaterUniforms).wLod.value, (low.mesh.userData.water as WaterUniforms).wLod.value]).toEqual([1, 0]);
     // Сборка города отдаёт воде уровень сцены, а не своё число.
     const index = readFileSync(join(__dirname, 'index.ts'), 'utf8');
-    expect(index).toMatch(/buildWater\(u, cap\.cols, spec\.detail, waterLights\(lights\)\)/);
+    expect(index).toMatch(/buildWater\(u, cap\.cols, spec\.detail, waterLights\(/);
   });
 });
