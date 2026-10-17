@@ -8,6 +8,8 @@
 //   &clip=<эпизод>[:фаза]         короткий ролик эпизода
 //   &layer=1 [&at=…|card]         тем же слоем, что в игре (`SiegeReplay`): фаза, проломы, подпись, кнопки, карточка
 //   &cam=auto|top|wide            положение камеры для снимка; &clean=1 &dpr=2 &speed=2
+//   &us=atk|def &wall=N           чья осада и уровень частокола поверх образца (снимки П-6: роль зрителя, дерево и камень)
+//   &solar=0.3                    свет всех эпизодов — эта доля суток (0.25 — полдень, 0.75 — полночь), без стенда — час осады
 //
 // Счёт кадра — в `document.body.dataset.replay` (его читает `npm run tw:shots`), отладочный крючок — `window.twStand`.
 import * as THREE from 'three';
@@ -26,6 +28,7 @@ import type { SiegeRecord } from '@/world/siegerecord';
 import type { PhaseOut, PhaseRow, SiegeDeed } from '@/world/siegeroll';
 import type { MachineOrder } from '@/world/machines';
 import type { Report } from '@/world/types';
+import type { SiegeShow } from './show';
 
 const S = 1_760_000_000_000;
 const at = (k: number): number => S + k * SIEGE_PHASE;
@@ -173,6 +176,15 @@ function cases(): Record<string, Case> {
   };
 }
 
+/** Свет всех эпизодов — одна доля суток (снимки дня и ночи одной осады): стенд, не игра. */
+function forceSolar(show: SiegeShow, solar: number): void {
+  show.solar0 = solar;
+  show.end.solar = solar;
+  for (const ph of show.phases) ph.solar = solar;
+  for (const mc of show.machines) mc.solar = solar;
+  for (const f of show.fights) f.solar = solar;
+}
+
 /** Эпизод из адреса: `kind[:k][@доля]`. */
 function pickEpisode(reel: SiegeReel, spec: string | null): { ep: Episode; share: number } | null {
   if (!spec) return null;
@@ -185,7 +197,11 @@ function pickEpisode(reel: SiegeReel, spec: string | null): { ep: Episode; share
 export function standSiege(p: URLSearchParams): { rec: SiegeRecord; report: Report; name: string } {
   const all = cases();
   const name = p.get('case') ?? 'gates';
-  const c = all[name] ?? all.gates;
+  const base = all[name] ?? all.gates;
+  // Роль и стена поверх образца (П-6): та же осада глазами другой стороны, частоколом или камнем.
+  const us = p.get('us');
+  const wall = p.has('wall') ? Math.max(0, Math.round(Number(p.get('wall')))) : null;
+  const c: Case = { ...base, rec: { ...base.rec, ...(us === 'atk' || us === 'def' ? { us } : {}), ...(wall !== null ? { wall } : {}) } };
   const report: Report = {
     id: `stand-${name}`,
     at: c.rec.end.at,
@@ -244,7 +260,9 @@ export function mountSiegeStand(p: URLSearchParams): void {
 
   const { rec, report, name } = standSiege(p);
   const quality = qualityOf(p.get('quality')) ?? 'medium';
-  const reel = siegeReel(showOfSiege(rec, report), quality);
+  const show = showOfSiege(rec, report);
+  if (p.has('solar')) forceSolar(show, Number(p.get('solar')));
+  const reel = siegeReel(show, quality);
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance', preserveDrawingBuffer: true });
   renderer.setPixelRatio(pixelRatio(Number(p.get('dpr') ?? 2)));
   configureRenderer(renderer);

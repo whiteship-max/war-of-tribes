@@ -188,6 +188,18 @@ const SHOTS: Shot[] = [
   { name: 'siege-paid', query: SIEGE('paid', 'paid@0.5'), why: 'осада: дань — телеги из ворот к лагерю' },
   { name: 'siege-lair', query: SIEGE('lair', 'fate@0.7'), why: 'осада логова: частокол и шалаши в огне' },
   { name: 'siege-wide', query: `${SIEGE('storm', 'pitch@0.2')}&cam=wide`, why: 'осада сверху: замок девятого уровня — башни чаще и выше' },
+  // Город в ролике (docs/polish.md, П-6): роль зрителя, день и ночь, частокол и камень — лагерь встал под стенами.
+  ...(['atk', 'def'] as const).flatMap((us) =>
+    ([['day', 0.3], ['night', 0.74]] as const).flatMap(([when, solar]) =>
+      ([['stone', 6], ['wood', 2]] as const).map(([look, wall]) => ({
+        name: `town-${us}-${when}-${look}`,
+        query: `${SIEGE('gates', 'pitch@0.3')}&us=${us}&wall=${wall}&solar=${solar}`,
+        why: `осада глазами ${us === 'atk' ? 'нападающего' : 'защитника'}: ${when === 'day' ? 'день' : 'ночь'}, ${look === 'stone' ? 'каменная стена' : 'частокол'}; город целиком`,
+      })),
+    ),
+  ),
+  { name: 'town-tw-atk', query: `${WALL}&us=attacker&at=overview`, why: 'штурм стены глазами нападающего: город за стеной целиком' },
+  { name: 'town-tw-def', query: `${WALL}&us=defender&at=overview`, why: 'штурм стены глазами защитника: со стены на поле, даль закрыта' },
   { name: 'siege-ui-breach', query: `${SIEGE('gates', 'breach:4@0.8')}&layer=1`, why: 'ролик осады слоем игры: фаза, проломы, строка журнала фазы' },
   { name: 'siege-ui-gates', query: `${SIEGE('gates', 'gates@0.45')}&layer=1`, why: 'сдача слоем игры: подпись — донесение' },
   { name: 'siege-ui-card', query: `${SIEGE('gates', 'card')}&layer=1`, why: 'итог осады: фазы, проломы, машины, добыча' },
