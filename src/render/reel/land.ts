@@ -447,7 +447,7 @@ function riverRibbon(f: TwField): THREE.BufferGeometry | null {
  * Где лежат камни: валуны (до единицы) — там, где земля крута (откос гребня, холмы, обрыв), и за краем строя по флангам;
  * мелкие (до трети) — в траве по всему полю. Не в воде, не на тракте и тропе, не в городе и лагере.
  */
-function stoneSpots(f: TwField, plan: LandInput, cap: number): { x: number; z: number; s: number; rot: number }[] {
+export function stoneSpots(f: TwField, plan: LandInput, cap: number): { x: number; z: number; s: number; rot: number }[] {
   const out: { x: number; z: number; s: number; rot: number }[] = [];
   for (let i = 0; out.length < cap && i < cap * 14; i++) {
     // Там, куда смотрит камера ролика: поле боя и его кромка, а не поля отступа плиты.

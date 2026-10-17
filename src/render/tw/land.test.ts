@@ -6,7 +6,7 @@ import { standBattle } from '../battle-stand';
 import { twPlanOfRecord } from './record';
 import { TW_SPEC } from '../reel/spec';
 import { TwStage } from './stage';
-import { roadX, trailX } from '../reel/land';
+import { roadX, stoneSpots, trailX } from '../reel/land';
 import type { TwPlan } from './plan';
 
 function stageOf(query: string): { plan: TwPlan; stage: TwStage } {
@@ -84,8 +84,15 @@ describe('ролик: земля вне города (Г-3)', () => {
     for (const s of big) {
       expect(Math.abs(s.x) < f.halfX + 24 + 4 && s.z > f.minZ - 18 - 4 && s.z < f.maxZ + 18 + 4, `камень за кромкой поля (${s.x.toFixed(0)}, ${s.z.toFixed(0)})`).toBe(true);
     }
-    // Спутник гнезда может лечь у края строя (в трёх единицах запаса); под серединой строя валунов нет.
-    for (const s of big) for (const u of plan.units) expect(Math.abs(s.x - u.x) < u.width / 2 - 2 && Math.abs(s.z - u.z) < u.depth - 2, `валун под строем (${s.x.toFixed(0)}, ${s.z.toFixed(0)})`).toBe(false);
+    // Строй во всю середину поля: валуны его обходят. Граница области: вне строя валуны есть, и строй стоит там, где без
+    // правила их было бы много (холмы — гнёзда по всему полю).
+    const wide = [{ x: 0, z: (f.minZ + f.maxZ) / 2, width: f.halfX, depth: (f.maxZ - f.minZ) / 4, ours: true }];
+    const rocks = stoneSpots(f, { field: f, deployZ: { attacker: f.minZ, defender: f.maxZ }, units: wide, site: null }, 400).filter((r) => r.s >= 0.45);
+    const u = wide[0];
+    const inside = (r: { x: number; z: number }, pad: number): boolean => Math.abs(r.x - u.x) < u.width / 2 - pad && Math.abs(r.z - u.z) < u.depth - pad;
+    expect(rocks.filter((r) => !inside(r, -3)).length, 'валуны вне строя').toBeGreaterThan(10);
+    // Спутник гнезда может лечь у края строя (до 4,3 единицы от валуна за краем); глубже — валунов нет.
+    for (const r of rocks) expect(inside(r, 4.5), `валун под строем (${r.x.toFixed(0)}, ${r.z.toFixed(0)})`).toBe(false);
     // Пашни на холмах нет: пастбище и камень.
     expect((groundUniforms(stage).uTwFarm.value as THREE.Vector4).x).toBe(0);
     stage.dispose();
