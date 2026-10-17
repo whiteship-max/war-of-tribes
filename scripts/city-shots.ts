@@ -8,7 +8,8 @@
 //   GAME=1 QUALITY=medium npm run city:shots   — сама игра по адресу `?look=city`: стартовый кадр
 //                                                (сцена города в игре, не стенд), TAG и QUALITY те же
 //   GAME=1 WX=clear,rain,storm npm run city:shots — погода адресом (`?weather=`, docs/city.md, 15): кадр игры на каждую,
-//                                                `WXLOOK=market:70` — вблизи постройки (тип:расстояние), `WXMAP=1` —
+//                                                `WXLOOK=market:70` — вблизи постройки (тип:расстояние; `-4,10,-30:60` —
+//                                                точка плана), `WXMAP=1` —
 //                                                карта мира, `WXSEASON=winter` — сезон партии, `WXREGION=italy` — регион,
 //                                                `WXDAY=0.8` — доля суток партии (0.8 летом — глубокая ночь, docs/polish.md, П-3)
 //   LEGEND=1 npm run city:shots              — легенда карты листом: строки значков той же функцией, что окно легенды
@@ -355,11 +356,15 @@ async function weatherShots(tab: Tab, q: Quality): Promise<void> {
   const near = process.env.WXLOOK;
   if (near && !map) {
     const [type, dist] = near.split(':');
+    // `WXLOOK=x,y,z:расстояние` — точка плана вместо постройки (паперть храма, docs/city_v3.md).
+    const at = type.includes(',') ? type.split(',').map(Number) : null;
     await tab.eval<string>(`(() => {
       const sc = window.__scene;
+      const at = ${JSON.stringify(at)};
       const own = sc.sites.filter((x) => x.type === ${JSON.stringify(type)});
-      const m = own.reduce((a, b) => (a.hf * a.hr >= b.hf * b.hr ? a : b));
-      sc.target.set(m.x, m.y0 + 3, m.z);
+      const m = at ? null : own.reduce((a, b) => (a.hf * a.hr >= b.hf * b.hr ? a : b));
+      if (at) sc.target.set(at[0], at[1], at[2]);
+      else sc.target.set(m.x, m.y0 + 3, m.z);
       sc.dist = ${Number(dist) || 60};
       sc.userMoved = true;
       sc.place();
