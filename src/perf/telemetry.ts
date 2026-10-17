@@ -12,14 +12,10 @@
  * **Выключено игроком — выключено сразу:** слушатели снимаются, накопленное выбрасывается, и не уходит ничего
  * (строка «Отправлять замеры» в настройках, `setPerfOn`). Вне Telegram подписи нет, и сборщик не заводится вовсе.
  */
-import { deviceRatio, onFrameGap, watchAway, type FramePlace } from '@/render/loop';
+import { onFrameGap, watchAway, type FramePlace } from '@/render/loop';
 import { onSteadyDrop } from '@/render/steady';
-import { tgClassOf } from '@/render/quality';
-import { deviceCaps, gfx, levelNow } from '@/render/gfx';
-import { apiPut } from '@/net/api';
-import { buildId } from '@/net/snapshot';
-import { inTelegram, tg } from '@/telegram/webapp';
-import { PERF_LIMITS as L, perfDropOk, type PerfDevice, type PerfDrop, type PerfFreeze, type PerfPut } from '../../netlify/lib/contract';
+import { inTelegram } from '@/telegram/webapp';
+import { PERF_LIMITS as L, type PerfDrop, type PerfFreeze } from '../../netlify/lib/contract';
 
 /** Пачка — раз в пять минут: сводке хватает, а запросов у сервера — дюжина в час на игрока. */
 export const BATCH_MS = 5 * 60_000;
@@ -55,7 +51,7 @@ export function setPerfOn(next: boolean): void {
   }
   if (next === on) return;
   on = next;
-  take(now());
+  drain(now());
   if (started) arm(on);
   for (const cb of listeners) cb();
 }
@@ -90,7 +86,7 @@ const gap = (p: FramePlace, ms: number): void => {
 };
 
 const drop = (f: string, t: string): void => {
-  if (drops.length < L.drops && perfDropOk(f, t)) drops.push({ p: place, f, t });
+  if (drops.length < L.drops) drops.push({ p: place, f, t });
 };
 
 const fault = (): void => {
@@ -136,109 +132,45 @@ export function perfCity(what: 'first' | 'ready'): void {
   }
 }
 
-// ---------- устройство ----------
-
-const pick = (s: string | undefined, re: RegExp): string => (s && re.test(s) ? s : '');
-
-function device(): PerfDevice {
-  const ua = navigator.userAgent;
-  const caps = deviceCaps(gpu || null);
-  const ios = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
-  const os: PerfDevice['os'] = ios
-    ? 'ios'
-    : /Android/.test(ua)
-      ? 'android'
-      : /Windows/.test(ua)
-        ? 'windows'
-        : /Mac OS X/.test(ua)
-          ? 'mac'
-          : /Linux|X11|CrOS/.test(ua)
-            ? 'linux'
-            : 'other';
-  const v = (ios ? /OS (\d+)[_.](\d+)/ : os === 'android' ? /Android (\d+)()/ : os === 'mac' ? /Mac OS X (\d+)[_.](\d+)/ : /Windows NT (\d+)\.(\d+)/).exec(ua);
-  const osv = v && os !== 'linux' && os !== 'other' ? (v[2] ? `${v[1]}.${v[2]}` : v[1]).slice(0, 7) : '';
-  const s = [screen.width, screen.height].map((x) => Math.min(8000, Math.max(100, Math.round(x)))).sort((a, b) => a - b);
-  const app = tg();
-  const inTg = inTelegram();
-  return {
-    kind: !caps.coarse ? 'desktop' : s[0] >= 600 ? 'tablet' : 'phone',
-    os,
-    osv: /^\d{1,3}(\.\d{1,3})?$/.test(osv) ? osv : '',
-    app: inTg ? 'tg' : 'web',
-    tgp: inTg ? pick(app?.platform, /^[a-z_]{0,16}$/) : '',
-    tgv: inTg ? pick(app?.version, /^\d{1,2}(\.\d{1,2}){0,2}$/) : '',
-    br: /YaBrowser/.test(ua)
-      ? 'yandex'
-      : /SamsungBrowser/.test(ua)
-        ? 'samsung'
-        : /Edg\//.test(ua)
-          ? 'edge'
-          : /Firefox|FxiOS/.test(ua)
-            ? 'firefox'
-            : /Chrome|CriOS/.test(ua)
-              ? 'chrome'
-              : /AppleWebKit/.test(ua)
-                ? 'safari'
-                : 'other',
-    gpu,
-    w: s[0],
-    h: s[1],
-    dpr: Math.min(8, Math.max(0.5, Math.round(deviceRatio() * 100) / 100)),
-    mem: caps.memory !== null && caps.memory >= 0.25 && caps.memory <= 64 ? caps.memory : null,
-    cores: caps.cores !== null && caps.cores >= 1 && caps.cores <= 256 ? Math.round(caps.cores) : null,
-    tgc: os === 'android' ? tgClassOf(ua) : null,
-  };
-}
-
 // ---------- пачка ----------
 
+/** Сырой счёт с прошлой пачки — из него пачку договора собирает догружаемый кусок (`perf/batch`). */
+export interface Drained {
+  span: number;
+  hist: Map<FramePlace, Uint32Array>;
+  drops: PerfDrop[];
+  freeze: PerfFreeze[];
+  first?: number;
+  ready?: number;
+  long: { n: number; ms: number; max: number } | null;
+  err: number;
+  gpu: string;
+}
+
 /**
- * Собрать пачку и начать счёт заново. Сказать нечего (ни кадра, ни события) — `null`. Охват — время с прошлой пачки,
- * не дольше потолка договора.
+ * Забрать накопленное и начать счёт заново. Сказать нечего (ни кадра, ни события) или охват короче потолка договора —
+ * `null`. Охват — время с прошлой пачки, не дольше потолка договора.
  */
-export function take(at: number): PerfPut | null {
-  const span = Math.min(L.spanMax, Math.round(at - since));
+export function drain(at: number): Drained | null {
+  const out: Drained = { span: Math.min(L.spanMax, Math.round(at - since)), hist: new Map(hist), drops, freeze, first, ready, long: longOk ? long : null, err, gpu };
   since = at;
-  const fps: PerfPut['fps'] = {};
-  let frames = 0;
-  for (const [p, h] of hist) {
-    const o: Record<string, number> = {};
-    h.forEach((c, i) => {
-      if (c) o[i] = c;
-    });
-    fps[p] = o;
-    frames++;
-  }
-  const out: PerfPut = {
-    v: 1,
-    build: buildId().replace(/[\u0000-\u001f\u007f]/g, '').slice(0, L.build),
-    span,
-    dev: device(),
-    q: levelNow(location.search),
-    set: gfx().quality,
-    fps,
-    drops,
-    freeze,
-    long: longOk ? { n: long.n, ms: Math.round(long.ms), max: Math.round(long.max) } : null,
-    err: Math.min(L.errors, err),
-  };
-  if (first !== undefined) out.first = first;
-  if (ready !== undefined) out.ready = ready;
-  const said = frames || drops.length || freeze.length || first !== undefined || ready !== undefined || err;
+  const said = hist.size || drops.length || freeze.length || first !== undefined || ready !== undefined || err;
   hist.clear();
   drops = [];
   freeze = [];
   first = ready = undefined;
   long = { n: 0, ms: 0, max: 0 };
   err = 0;
-  return said && span >= L.spanMin ? out : null;
+  return said && out.span >= L.spanMin ? out : null;
 }
 
+/** Сборка пачки и отправка — своим куском (`perf/batch`): в первую загрузку едет только счёт. */
+const batch = (): Promise<typeof import('./batch')> => import('./batch');
+
+/** Счёт забирается сразу, в минуту пачки или сворачивания, — кусок отправки получает его готовым, когда догрузится. */
 function flush(away: boolean): void {
-  if (!on) return;
-  const batch = take(now());
-  // При сворачивании — `keepalive`: запрос обязан пережить выгрузку страницы. Ответ не нужен — пачка не повторяется.
-  if (batch) void apiPut('/api/perf', batch, { keepalive: away });
+  const d = on ? drain(now()) : null;
+  if (d) void batch().then((b) => b.send(d, away));
 }
 
 // ---------- заводка ----------
@@ -270,6 +202,8 @@ export function startPerf(): void {
     }).observe({ type: 'longtask', buffered: true });
   }
   setInterval(() => flush(false), BATCH_MS);
+  // Кусок отправки — заранее, после старта: при сворачивании ждать сети за ним поздно.
+  setTimeout(() => void batch(), 20_000);
   watchAway((away) => {
     if (away) flush(true);
     // Время в фоне — не охват пачки: кадров там нет, и пачка не делится на него.

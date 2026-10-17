@@ -40,6 +40,12 @@ afterAll(() => {
   vi.restoreAllMocks();
 });
 
+/** Отправка — догружаемым куском: дождаться его и запроса. */
+const settle = async (): Promise<void> => {
+  await vi.dynamicImportSettled();
+  await new Promise((r) => setTimeout(r, 0));
+};
+
 /** Пять минут города ровными шестьюдесятью — через настоящую дверь кадра и подставной экран. */
 async function play(seconds: number): Promise<void> {
   const { FrameLoop } = await import('@/render/loop');
@@ -63,6 +69,7 @@ async function play(seconds: number): Promise<void> {
 describe('пачка игры', () => {
   it('проходит договор сервера целиком', async () => {
     const perf = await import('./telemetry');
+    const { take } = await import('./batch');
     perf.startPerf();
     perf.perfGpu('Mali-G52 MC2');
     perf.perfCity('first');
@@ -75,7 +82,7 @@ describe('пачка игры', () => {
     for (let i = 0; i < 200 && s.tier === 'high'; i++) s.feed(60);
     expect(s.tier).toBe('medium');
     perf.perfRestore(640);
-    const batch = perf.take(clock);
+    const batch = take(clock);
     expect(batch).not.toBeNull();
     const read = readPerf(JSON.parse(JSON.stringify(batch)));
     expect(read).toEqual(batch);
@@ -89,7 +96,7 @@ describe('пачка игры', () => {
     expect(b.span).toBe(300_000);
     // Сказанное уходит один раз: следующая пачка пуста.
     clock += 300_000;
-    expect(perf.take(clock)).toBeNull();
+    expect(take(clock)).toBeNull();
   });
 
   it('при сворачивании пачка уходит с keepalive и тоже проходит договор', async () => {
@@ -98,6 +105,7 @@ describe('пачка игры', () => {
     await play(10);
     setAppAsleep(true);
     setAppAsleep(false);
+    await settle();
     expect(sent).toHaveLength(1);
     expect(sent[0].keepalive).toBe(true);
     expect(typeof readPerf(JSON.parse(JSON.stringify(sent[0].body)))).toBe('object');
@@ -108,6 +116,7 @@ describe('пачка игры', () => {
 describe('«Отправлять замеры» выключено — выключено сразу', () => {
   it('не считает, не шлёт, и накопленное до выключения не уходит', async () => {
     const perf = await import('./telemetry');
+    const { take } = await import('./batch');
     const { setAppAsleep } = await import('@/render/loop');
     const n = sent.length;
     await play(20);
@@ -117,19 +126,20 @@ describe('«Отправлять замеры» выключено — выкл�
     expect(perf.perfOn()).toBe(false);
     // Выключено: не считает — слушатель двери кадра снят, за минуту кадров сказать нечего.
     await play(60);
-    expect(perf.take(clock)).toBeNull();
+    expect(take(clock)).toBeNull();
     // И не шлёт: кадры, сворачивание, первый кадр и замирание — ни одной пачки.
     await play(60);
     perf.perfCity('first');
     perf.perfRestore(700);
     setAppAsleep(true);
     setAppAsleep(false);
+    await settle();
     expect(sent).toHaveLength(n);
     // Включили снова: старое не воскресло — до включения сказать нечего.
     perf.setPerfOn(true);
-    expect(perf.take(clock)).toBeNull();
+    expect(take(clock)).toBeNull();
     await play(5);
-    const b = perf.take(clock);
+    const b = take(clock);
     expect(b?.fps.city).toBeDefined();
     expect(b?.freeze).toEqual([]);
   });

@@ -110,6 +110,13 @@ function bootMinifyPlugin(): Plugin {
  */
 const LAZY_DOORS: { name: string; door: RegExp; owns: RegExp[] }[] = [
   {
+    // Замеры с телефонов (docs/telemetry.md): в первую загрузку едет только счёт кадров (`perf/telemetry`), а сборка пачки
+    // и описание устройства — своим куском после старта (бюджет задания Г-1: не больше 2 КБ к первой загрузке).
+    name: 'пачка замеров',
+    door: /\/src\/perf\/batch\.ts$/,
+    owns: [/\/src\/perf\/batch\.ts$/],
+  },
+  {
     name: 'ролик о бое',
     door: /\/src\/ui\/battle\/BattleReplay\.tsx$/,
     owns: [/\/src\/ui\/battle\/BattleReplay\.tsx$/, /\/src\/battle\/replay\.ts$/, /\/src\/game\/battle\/(cast|ground)\.ts$/],
