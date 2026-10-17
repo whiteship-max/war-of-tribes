@@ -500,13 +500,16 @@ async function budget(): Promise<void> {
     ['fish', 'sea'],
   ] as const) {
     // По ступени (docs/polish.md, П-4): лепка и тень — те, с которыми сцена встаёт на этой ступени.
+    // Погода — поверх (`stage.loadPrecip`): под дождём и снегом — осадки ступени и без прохода теней (`stage.castsShadow`).
     for (const tier of ['full', 'lite', 'base'] as const) {
-      const c = budgetOf(id, tier, shore);
-      const lim = MINI_BUDGET[tier];
-      console.log(
-        `  ${(id === 'fish' ? `fish-${shore}` : id).padEnd(10)} ${tier.padEnd(4)}: вызовов ${c.calls + c.shadowCalls} (сцена ${c.calls}, тени ${c.shadowCalls}; ≤ ${lim.calls}), ` +
-          `треугольников ${Math.round(c.triangles + c.shadowTriangles)} (сцена ${Math.round(c.triangles)}, тени ${Math.round(c.shadowTriangles)}; ≤ ${lim.triangles})`,
-      );
+      for (const wx of [null, 'rain', 'snow'] as const) {
+        const c = budgetOf(id, tier, shore, wx);
+        const lim = MINI_BUDGET[tier];
+        console.log(
+          `  ${(id === 'fish' ? `fish-${shore}` : id).padEnd(10)} ${tier.padEnd(4)} ${(wx ?? 'ясно').padEnd(5)}: вызовов ${c.calls + c.shadowCalls} (сцена ${c.calls}, тени ${c.shadowCalls}; ≤ ${lim.calls}), ` +
+            `треугольников ${Math.round(c.triangles + c.shadowTriangles)} (сцена ${Math.round(c.triangles)}, тени ${Math.round(c.shadowTriangles)}; ≤ ${lim.triangles})`,
+        );
+      }
     }
   }
 }

@@ -60,6 +60,16 @@ const TINTS: Record<BeastKind, readonly number[]> = {
   cow: [0xffffff],
 };
 
+/**
+ * Подробная лепка — ближним (docs/polish.md, П-4, «Решения»): на телефоне у породы подробно (`detail: 'hi'`) лепятся
+ * `NEAR_HI` ближних к человеку, остальные — простой лепкой (`'lo'`). Дальние на экране телефона мелки, а вершин у простой
+ * лепки меньше — и в кадре, и в проходе теней (счёт по ступеням — `BUDGET=1 npm run mini:shots`); тело в морфах
+ * читает доли морфов на каждой вершине. Подробная переходит к другой, только когда та ближе на `SWAP_M`: две соседние
+ * в шаге друг от друга не мигают лепкой, пока человек идёт.
+ */
+export const NEAR_HI = 2;
+export const SWAP_M = 0.75;
+
 /** Ближе этого человек бегом — испуг; не чаще раза в столько секунд. */
 const SCARE_R = 1.05;
 const SCARE_EVERY = 6;
@@ -112,7 +122,22 @@ interface Life {
   scareFrom: { x: number; z: number };
   /** Когда ела последнюю охапку, секунды сцены. */
   ateAt: number;
+  /** Место копии в своём меше: в подробном (`near`) или в простом. */
   slot: number;
+  near: boolean;
+  /** До человека в этом кадре, м: кому подробная лепка (`nearest`). */
+  d: number;
+  /** Тон шерсти — свой у животного, а не у места копии: место меняется, когда меняется лепка. */
+  tint: number;
+}
+
+/** Порода в сцене: подробные копии и простые (`far`; нет — все подробные), кто из стада её и чем он леплен сейчас. */
+interface Kind {
+  pack: Pack;
+  far: Pack | null;
+  model: Model;
+  moves: Moves;
+  who: number[];
 }
 
 const _m = new THREE.Matrix4();
@@ -142,7 +167,7 @@ export class HerdPlay implements Play {
   readonly shadowHalf = PEN_R + 1;
   readonly herd: Herd;
   private feed: Feed;
-  private packs = new Map<BeastKind, { pack: Pack; model: Model; moves: Moves }>();
+  private packs = new Map<BeastKind, Kind>();
   private lives: Life[] = [];
   private blobs: THREE.InstancedMesh | null = null;
   private marks: THREE.Sprite[] = [];
@@ -194,18 +219,28 @@ export class HerdPlay implements Play {
         mat = furMaterial(look, surfaces.u);
         mats.set(look, mat);
       }
+      // Подробных на телефоне — не больше `NEAR_HI`; простая лепка — та же кость и те же морфы (`beasts.model`),
+      // меняется сетка. Настольная ступень лепит подробно всех (её потолок держит), пол — всех просто.
       const m = model(kind, this.detail);
-      const pack = new Pack(m, mat, n, kind);
-      this.packs.set(kind, { pack, model: m, moves: new Moves(m.slots, m.count) });
+      const near = this.tier === 'lite' ? Math.min(n, NEAR_HI) : n;
+      const pack = new Pack(m, mat, near, kind);
+      const far = near < n ? new Pack(model(kind, 'lo'), mat, n - near, `${kind}-far`) : null;
+      this.packs.set(kind, { pack, far, model: m, moves: new Moves(m.slots, m.count), who: [] });
       scene.add(pack.mesh);
+      if (far) scene.add(far.mesh);
     }
     const seen = new Map<BeastKind, number>();
     this.herd.beasts.forEach((b, i) => {
-      const slot = seen.get(b.kind) ?? 0;
-      seen.set(b.kind, slot + 1);
+      const k = seen.get(b.kind) ?? 0;
+      seen.set(b.kind, k + 1);
+      const P = this.packs.get(b.kind)!;
       const tints = TINTS[b.kind];
-      this.packs.get(b.kind)!.pack.setTint(slot, _c.setHex(tints[slot % tints.length]));
-      this.lives.push({ phase: hash(i, 1), walk: 0, run: 0, graze: 0, turn: 0, neck: 0, scaredAt: -1e9, scareFrom: { x: 0, z: 0 }, ateAt: -1e9, slot });
+      const tint = tints[k % tints.length];
+      const near = k < P.pack.mesh.count;
+      const slot = near ? k : k - P.pack.mesh.count;
+      (near ? P.pack : P.far!).setTint(slot, _c.setHex(tint));
+      P.who.push(i);
+      this.lives.push({ phase: hash(i, 1), walk: 0, run: 0, graze: 0, turn: 0, neck: 0, scaredAt: -1e9, scareFrom: { x: 0, z: 0 }, ateAt: -1e9, slot, near, d: 0, tint });
       // Без страницы (счёт бюджета в тесте) холста нет — значок встаёт без рисунка, но встаёт: вызов тот же.
       const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.needTex[BEASTS[b.kind].need - 1] ?? null, depthWrite: false, fog: false, toneMapped: false }));
       s.scale.set(0.62, 0.23, 1);
@@ -322,8 +357,12 @@ export class HerdPlay implements Play {
     const hz = cam?.position.z ?? this.start.z;
     // Время вида — кадровое, а не игровое: до «Начать» стадо живёт так же (пасётся, дышит), а `t` стоит.
     const clock = (this.lastT += dt);
+    for (const P of this.packs.values()) if (P.far) this.nearest(P, t, hx, hz);
     this.herd.beasts.forEach((b, i) => this.beast(b.kind, i, t, dt, clock, hx, hz));
-    for (const p of this.packs.values()) p.pack.commit();
+    for (const p of this.packs.values()) {
+      p.pack.commit();
+      p.far?.commit();
+    }
     if (this.blobs) this.blobs.instanceMatrix.needsUpdate = true;
     this.sparks.frame(dt);
     const h = this.hands;
@@ -332,6 +371,34 @@ export class HerdPlay implements Play {
       this.sway += dt * 9 * walking;
       h.position.y = ARMFUL_AT.y - Math.abs(Math.sin(this.sway * 0.5)) * 0.02 * walking;
       h.position.x = ARMFUL_AT.x + Math.sin(this.sway * 0.5) * 0.014 * walking;
+    }
+  }
+
+  /**
+   * Подробная лепка — ближним породы: дальняя подробная меняется местом с ближней простой, пока та ближе на `SWAP_M`.
+   * Обмен — местами копий: подробных всегда `NEAR_HI`, простых — остальные, и счёт кадра не плавает.
+   */
+  private nearest(P: Kind, t: number, hx: number, hz: number): void {
+    const far = P.far;
+    if (!far) return;
+    for (const i of P.who) {
+      const p = this.feed.at(i, t);
+      this.lives[i].d = Math.hypot(p.x - hx, p.z - hz);
+    }
+    for (;;) {
+      let a: Life | null = null;
+      let b: Life | null = null;
+      for (const i of P.who) {
+        const L = this.lives[i];
+        if (L.near && (!a || L.d > a.d)) a = L;
+        if (!L.near && (!b || L.d < b.d)) b = L;
+      }
+      if (!a || !b || b.d + SWAP_M >= a.d) return;
+      [a.slot, b.slot] = [b.slot, a.slot];
+      a.near = false;
+      b.near = true;
+      P.pack.setTint(b.slot, _c.setHex(b.tint));
+      far.setTint(a.slot, _c.setHex(a.tint));
     }
   }
 
@@ -412,7 +479,7 @@ export class HerdPlay implements Play {
     const low = m.lie * (front * 0.55 + rear * 0.45);
     const pitch = 0.16 * (front - rear) - 0.05 * fright + 0.04 * L.run * Math.sin(L.phase * Math.PI * 4);
     placeBeast(_m, p.x, bob + hop - low, p.z, yaw, pitch, 0.02 * Math.sin(L.phase * Math.PI * 2) * L.walk, m.core);
-    P.pack.put(L.slot, _m, P.moves.k);
+    (L.near || !P.far ? P.pack : P.far).put(L.slot, _m, P.moves.k);
     // Пятно тени — по толщине породы; у лежащей шире.
     if (this.blobs) {
       const r = BEASTS[kind].r;
@@ -453,6 +520,7 @@ export class HerdPlay implements Play {
     for (const p of this.packs.values()) {
       mats.add(p.pack.mesh.material as THREE.Material);
       p.pack.dispose();
+      p.far?.dispose();
     }
     for (const m of mats) m.dispose();
     this.blobs?.dispose();

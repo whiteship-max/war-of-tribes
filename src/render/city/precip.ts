@@ -59,6 +59,11 @@ export interface PrecipFrame {
   /** Цель камеры и её расстояние: коробка дождя у города растёт с ним. */
   center: THREE.Vector3;
   dist: number;
+  /**
+   * Сторона коробки, м, — когда её задаёт сцена, а не расстояние камеры: промысел смотрит от первого лица, и капли
+   * нужны у глаз, а не по всей коробке города (`minigames/stage`). Нет — от расстояния, как у города.
+   */
+  box?: number;
   camera: THREE.PerspectiveCamera;
   /** Высота буфера в пикселях: толщина струи — не тоньше пикселя. */
   bufferHeight: number;
@@ -519,8 +524,13 @@ export class CityPrecip {
   private built: PrecipCap;
   private level: Quality;
 
-  constructor(quality: Quality, lights?: PrecipLights) {
-    const cap = PRECIP_CAP[quality];
+  /**
+   * `surfaces` — капля кончается на поверхностях и даёт брызги (поле высот). Промысел от первого лица берёт осадки без
+   * них (`minigames/stage`): земля там непрозрачна и прячет каплю сама, в траве брызг не видно, а на воде у рыбалки —
+   * свои круги; поле высот на телефоне — лишняя память.
+   */
+  constructor(quality: Quality, lights?: PrecipLights, surfaces = true) {
+    const cap = surfaces ? PRECIP_CAP[quality] : { ...PRECIP_CAP[quality], splash: 0, map: 0 };
     this.built = cap;
     this.level = quality;
     this.group.name = 'city-precip';
@@ -635,7 +645,7 @@ export class CityPrecip {
     u.pRain.value = f.rain;
     u.pSnow.value = f.snow;
     u.pCenter.value.copy(f.center);
-    u.pBox.value = Math.min(420, Math.max(70, f.dist * 0.9));
+    u.pBox.value = f.box ?? Math.min(420, Math.max(70, f.dist * 0.9));
     u.pSplashBox.value = Math.min(u.pBox.value, 240);
     // Ближний слой — перед камерой: глубина кадра и параллакс.
     const near = Math.min(60, Math.max(8, f.dist * 0.1));

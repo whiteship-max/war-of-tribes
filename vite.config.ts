@@ -206,7 +206,7 @@ const LAZY_DOORS: { name: string; door: RegExp; owns: RegExp[] }[] = [
   },
   {
     // Погода (docs/city.md, 15): струи дождя и снегопад — своя докачка вместе с суетой, после первого кадра города; на
-    // «Низком» её не тянут вовсе.
+    // «Низком» её не тянут вовсе. Тот же кусок тянет промысел, когда у города дождь или снег (`minigames/stage`, П-4).
     name: 'город: погода',
     door: /\/src\/render\/city\/precip\.ts$/,
     owns: [/\/src\/render\/city\/precip\.ts$/],

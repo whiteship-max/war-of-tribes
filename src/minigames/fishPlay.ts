@@ -241,8 +241,6 @@ export class FishPlay implements Play {
     const { shore, zone } = this.ctx;
     const f = this.game.field;
     const w = this.world;
-    // Дождь мочит берег: та же сырость, что у поляны предыстории в дождь.
-    surfaces.u.wet.value = Math.min(0.5, this.ctx.rain * 0.6);
     w.add(surfaces.adopt(bankGround(shore, season)));
     if (shore === 'river') {
       w.add(surfaces.adopt(farBank(season)), surfaces.adopt(forestBand()));

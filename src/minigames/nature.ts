@@ -48,7 +48,8 @@ const LOOKS: Record<NatureKind, NatureLook> = {
   needle: { bump: 0.045, swayFrom: 1.6, swayGain: 0.008, wrap: 0.4, sss: 0.25, grain: 5.5, speckle: 0.3, snow: 0.9, wet: 0.14 },
   bark: { swayFrom: 99, swayGain: 0, wrap: 0.3, sss: 0, grain: 9, speckle: 0.3, snow: 0.45, wet: 0.3 },
   grass: { swayFrom: 0, swayGain: 0.55, wrap: 0.6, sss: 0.7, grain: 1.7, speckle: 0.22, snow: 0.35, wet: 0.2 },
-  ground: { swayFrom: 99, swayGain: 0, wrap: 0.15, sss: 0, grain: 2.3, speckle: 0.26, snow: 0, wet: 0.45 },
+  // Земля белеет раньше веток: снег на ней лежит, а не держится; пятнами — по шуму, а не ровной скатертью.
+  ground: { swayFrom: 99, swayGain: 0, wrap: 0.15, sss: 0, grain: 2.3, speckle: 0.26, snow: 1.6, wet: 0.45 },
   rock: { bump: 0.02, swayFrom: 99, swayGain: 0, wrap: 0.15, sss: 0, grain: 7, speckle: 0.32, snow: 0.8, wet: 0.35 },
 };
 

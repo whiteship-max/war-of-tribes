@@ -29,7 +29,7 @@ import { PIN_DISTS } from './hunt';
 import { GAME_SECONDS, HOUR_PART, HOUR_WORDS, LATE_SECONDS, hourOf, shareOf, type Hour, type Tally } from './rules';
 import { LAST_TICKS, Stage, type Play, type StageView } from './stage';
 import { LAYOUT_OF, ZONES, buttonSide } from './pad';
-import { homeWater, weatherNow } from '@/ui/parts/weather';
+import { coverNow, homeWater, weatherNow } from '@/ui/parts/weather';
 import type { Season } from '@/game/types';
 import { watchContext } from '@/render/context';
 import { freeTurn } from '@/orientation';
@@ -37,8 +37,7 @@ import { freeTurn } from '@/orientation';
 /** Что игре нужно знать о городе: сезон, погода, берег и пояс — на входе, один раз. */
 interface Place {
   season: Season;
-  /** Сила ветра и дождь погоды города, 0..1 (`weather.weatherNow`). */
-  wind: number;
+  /** Дождь погоды города, 0..1 (`weather.weatherNow`): рыбалке — круги на воде и шум. Вся погода — сцене (`Stage`). */
   rain: number;
   /** У воды: море в дне пути или река у города, и климатический пояс региона (`weather.homeWater`). */
   shore: 'river' | 'sea';
@@ -317,15 +316,16 @@ export function Minigame({ game, onExit }: { game: MinigameId; onExit: () => voi
     };
     const st0 = useGame.getState().s;
     const wx = weatherNow(st0);
-    const place: Place = { season: seasonOf(st0.time), wind: wx.wind, rain: wx.rain, ...homeWater(), hour };
+    const place: Place = { season: seasonOf(st0.time), rain: wx.rain, ...homeWater(), hour };
     void PLAYS[game](seed, place).then((play) => {
       if (!alive) {
         play.dispose();
         return;
       }
-      // Ветер в траве и кронах — погоды города в эту минуту (`weather.weatherNow`), той же, что слышит фон.
-      // Час города — свет промысла (`stage.solarOf`): сторона солнца та же, меняются высота и цвет.
-      wire(new Stage(canvas, play, GAME_SECONDS[game], place.season, place.wind, place.hour));
+      // Погода — города в эту минуту (`weather.weatherNow`), та же, что слышит фон: ветер в траве и кронах, тучи в свете,
+      // дождь и снег осадками города, снег на земле и ветках — тот, что лежит у города (`coverNow`; `stage.gloomOf`,
+      // docs/polish.md, П-4). Час города — свет промысла (`stage.solarOf`): сторона солнца та же, меняются высота и цвет.
+      wire(new Stage(canvas, play, GAME_SECONDS[game], place.season, wx, place.hour, coverNow(st0)));
     });
     canvas.addEventListener('pointerdown', drop, { once: true });
     ro.observe(wrap);

@@ -44,11 +44,12 @@ const trisOf = (g: THREE.BufferGeometry, start = 0, count = Infinity): number =>
 /**
  * Сколько стоит кадр: каждый видимый меш — вызов на группу материалов (одна, если групп нет), инстансы — один вызов
  * на все, точки и спрайты — по вызову. Теневой проход — то же по тем, кто отбрасывает тень, если тени есть.
- * Отсечение по взгляду не учитывается: счёт — верхняя граница, а не среднее.
+ * Отсечение по взгляду не учитывается: счёт — верхняя граница, а не среднее. `every` — и спрятанное до поры: то, что
+ * игра показывает по ходу (руки с охапкой, рыба на крючке), стоит в худшем кадре.
  */
-export function frameCost(scene: THREE.Scene, shadows: boolean): FrameCost {
+export function frameCost(scene: THREE.Scene, shadows: boolean, every = false): FrameCost {
   const out: FrameCost = { calls: 0, triangles: 0, shadowCalls: 0, shadowTriangles: 0 };
-  scene.traverseVisible((o) => {
+  (every ? scene.traverse : scene.traverseVisible).call(scene, (o) => {
     const mesh = o as THREE.Mesh;
     if ((o as THREE.Points).isPoints) {
       out.calls += 1;
@@ -61,7 +62,9 @@ export function frameCost(scene: THREE.Scene, shadows: boolean): FrameCost {
     }
     if (!mesh.isMesh) return;
     const g = mesh.geometry;
-    const copies = (mesh as THREE.InstancedMesh).isInstancedMesh ? (mesh as THREE.InstancedMesh).count : 1;
+    // Копии — у копий меша и у копий геометрии (струи дождя города, `render/city/precip`).
+    const inst = g as THREE.InstancedBufferGeometry;
+    const copies = (mesh as THREE.InstancedMesh).isInstancedMesh ? (mesh as THREE.InstancedMesh).count : inst.isInstancedBufferGeometry ? inst.instanceCount : 1;
     const groups = Array.isArray(mesh.material) && g.groups.length > 0 ? g.groups : [{ start: 0, count: Infinity }];
     for (const grp of groups) {
       const tris = trisOf(g, grp.start, grp.count) * copies;

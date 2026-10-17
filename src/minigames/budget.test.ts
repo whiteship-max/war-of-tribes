@@ -11,7 +11,7 @@ import { TIERS } from '@/prologue/look';
 import { Dome } from '@/prologue/dome';
 import { Surfaces } from '@/prologue/surface';
 import { BerriesPlay } from './berriesPlay';
-import { HerdPlay } from './herdPlay';
+import { HerdPlay, NEAR_HI } from './herdPlay';
 import { furnish } from './world';
 
 describe('промыслы: бюджет кадра', () => {
@@ -23,14 +23,24 @@ describe('промыслы: бюджет кадра', () => {
     ['fish', 'sea'],
   ] as const) {
     for (const tier of TIERS) {
-      it(`${id}${id === 'fish' ? ` (${shore})` : ''}, ${tier}: вызовов и треугольников не больше потолка ступени`, () => {
-        const c = budgetOf(id, tier, shore);
-        const lim = MINI_BUDGET[tier];
-        expect(c.calls, 'в графе что-то есть').toBeGreaterThan(5);
-        expect(c.calls + c.shadowCalls, `${id} вызовов`).toBeLessThanOrEqual(lim.calls);
-        expect(c.triangles + c.shadowTriangles, `${id} треугольников`).toBeLessThanOrEqual(lim.triangles);
-        if (tier === 'base') expect(c.shadowCalls, 'у пола теней нет').toBe(0);
-      });
+      // Погода — поверх сцены (`stage.loadPrecip`): потолок держит и кадр под дождём с брызгами, и под снегом.
+      for (const wx of [null, 'rain', 'snow'] as const) {
+        const under = wx ? ` под ${wx === 'rain' ? 'дождём' : 'снегом'}` : '';
+        it(`${id}${id === 'fish' ? ` (${shore})` : ''}, ${tier}${under}: вызовов и треугольников не больше потолка ступени`, () => {
+          const c = budgetOf(id, tier, shore, wx);
+          const lim = MINI_BUDGET[tier];
+          expect(c.calls, 'в графе что-то есть').toBeGreaterThan(5);
+          expect(c.calls + c.shadowCalls, `${id} вызовов`).toBeLessThanOrEqual(lim.calls);
+          expect(c.triangles + c.shadowTriangles, `${id} треугольников`).toBeLessThanOrEqual(lim.triangles);
+          if (tier === 'base') expect(c.shadowCalls, 'у пола теней нет').toBe(0);
+          // Точка внутри области: осадки в счёте есть — дождь струями, снег хлопьями (тень сравнивается без прохода теней:
+          // под осадками её нет, `stage.castsShadow`).
+          if (wx) {
+            expect(c.calls, 'осадки в кадре').toBeGreaterThan(budgetOf(id, tier, shore, null, false).calls);
+            expect(c.shadowCalls, 'под осадками тени нет').toBe(0);
+          }
+        });
+      }
     }
   }
 
@@ -57,11 +67,20 @@ describe('промыслы: бюджет кадра', () => {
     expect((b[0] as THREE.InstancedMesh).isInstancedMesh).toBe(true);
     expect((b[0] as THREE.InstancedMesh).count).toBeGreaterThan(50);
     const herd = graph('herd');
-    // Стадо копиями: девять животных — по мешу на породу, а не по мешу на туловище и ноги каждого.
-    const beasts = herd.filter((o) => ['sheep', 'goat', 'cow', 'lamb'].includes(o.name));
-    expect(beasts.length).toBeLessThanOrEqual(4);
+    // Стадо копиями: восемь-девять животных — по мешу на породу и лепку (подробные ближние и простые дальние,
+    // `herdPlay.NEAR_HI`), а не по мешу на туловище и ноги каждого.
+    const kinds = ['sheep', 'goat', 'cow', 'lamb'];
+    const beasts = herd.filter((o) => kinds.some((k) => o.name === k || o.name === `${k}-far`));
+    expect(beasts.length).toBeLessThanOrEqual(kinds.length * 2);
     for (const m of beasts) expect((m as THREE.InstancedMesh).isInstancedMesh, m.name).toBe(true);
     expect(beasts.reduce((n, m) => n + (m as THREE.InstancedMesh).count, 0)).toBeGreaterThanOrEqual(8);
+    // Подробных у породы — не больше `NEAR_HI`: точка внутри области — овец и коз больше, чем подробных мест.
+    for (const k of ['sheep', 'goat']) {
+      const near = herd.find((o) => o.name === k) as THREE.InstancedMesh;
+      const far = herd.find((o) => o.name === `${k}-far`) as THREE.InstancedMesh | undefined;
+      expect(near.count, k).toBe(NEAR_HI);
+      expect(far?.count ?? 0, `${k}: простых — остальные`).toBeGreaterThan(0);
+    }
     // Трава — тысяча пучков копиями: один меш на луг.
     for (const g of [...berries, ...herd].filter((o) => o.name === 'grass')) expect((g as THREE.InstancedMesh).count).toBeGreaterThan(300);
   });
