@@ -41,6 +41,7 @@ import type { BattleFx } from '@/sound/battlefx';
 import { freeTurn } from '@/orientation';
 import { barrageCaption, barrageShares } from './barrage';
 import { coatsOfRecord } from './coats';
+import { townShare } from './townShare';
 import './tw.css';
 
 /**
@@ -183,7 +184,7 @@ export function TwReplay({ rec, report, onDone, freeze = null, ended: endedAtSta
           quality,
           layer.current,
           {
-            share: scene?.cityShare() ?? null,
+            share: townShare(scene),
             ...(asked ? {} : { watch: quality }),
             onLower: (q) => {
               if (!scene) return;

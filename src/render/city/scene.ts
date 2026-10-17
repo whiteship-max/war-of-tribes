@@ -76,8 +76,11 @@ export class CityScene extends TribeScene {
   readonly ready: Promise<void>;
   protected stepMax = CITY_STEP_MAX;
 
-  /** Город для ролика осады и боя у города (П-6): тот же план, текстуры и земля; пока город не встал — ничего. */
-  override cityShare(): CityShare | null {
+  /**
+   * Город для ролика осады и боя у города (docs/polish.md, П-6): тот же план, текстуры и карты; пока город не встал —
+   * ничего. Спрашивают ролики (`ui/battle/townShare`) — у общей оболочки сцены этого метода нет: первая загрузка не растёт.
+   */
+  cityShare(): CityShare | null {
     return this.town?.share ?? null;
   }
   /** Люди, стража, дым, флаги, птицы, скот — встают вместе с городом. */
