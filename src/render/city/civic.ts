@@ -611,8 +611,10 @@ export function gutter(b: Builder, pts: readonly P[], gates: readonly P[] = [], 
     const cur = { l: at(-w, 0.06), c: at(0, 0.035), r: at(w, 0.06), v: s / th };
     if (prev) {
       const u = w / tw;
-      b.quad(prev.l, prev.c, cur.c, cur.l, [-u, prev.v, 0, prev.v, 0, cur.v, -u, cur.v], L.ashlar, T, [1, 0.4, 0.4, 1], 0, [0.3, 1, 1, 0.3]);
-      b.quad(prev.c, prev.r, cur.r, cur.c, [0, prev.v, u, prev.v, u, cur.v, 0, cur.v], L.ashlar, T, [0.4, 1, 1, 0.4], 0, [1, 0.3, 0.3, 1]);
+      // Середина темнее краёв — сырая, но не чёрная: с камеры игры желоб в 0,4 тени и полной грязи читался тёмной дорожкой
+      // вдоль улицы (docs/city_v3.md, Г-3, «Косяки»).
+      b.quad(prev.l, prev.c, cur.c, cur.l, [-u, prev.v, 0, prev.v, 0, cur.v, -u, cur.v], L.ashlar, T, [1, 0.68, 0.68, 1], 0, [0.3, 0.6, 0.6, 0.3]);
+      b.quad(prev.c, prev.r, cur.r, cur.c, [0, prev.v, u, prev.v, u, cur.v, 0, cur.v], L.ashlar, T, [0.68, 1, 1, 0.68], 0, [0.6, 0.3, 0.3, 0.6]);
     }
     prev = cur;
   }

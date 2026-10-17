@@ -315,7 +315,18 @@ export function fieldAt(x: number, z: number, plan: CityPlan): number {
   if (Math.min(ux, 1 - ux) * FIELD_CELL.x <= 1.6 || Math.min(uz, 1 - uz) * FIELD_CELL.z <= 1.6) return 0;
   if (!fieldCell(cx, cz, plan)) return 0;
   if (Math.abs(x - riverX(z)) < RIVER_HALF + 14) return 0;
-  if (!openLand(x, z, plan, 2)) return 0;
+  // Двор пашня обходит прямоугольником по оси двора, как изгородь, а не ровным кругом поляны (Г-3, «Косяки»): круг вокруг
+  // хутора читался вырезом в полях.
+  for (const y of plan.yards) {
+    const dx = x - y.x;
+    const dz = z - y.z;
+    if (Math.abs(dx) > y.r + 4 || Math.abs(dz) > y.r + 4) continue;
+    const c = Math.cos(y.rot);
+    const sn = Math.sin(y.rot);
+    if (Math.abs(dx * c + dz * sn) < y.r * 0.8 + 2 && Math.abs(-dx * sn + dz * c) < y.r * 0.62 + 2) return 0;
+  }
+  for (const h of plan.suburb) if (Math.hypot(x - h.x, z - h.z) < Math.max(h.w, h.d) + 6) return 0;
+  if (nearRoad(x, z, plan, 4)) return 0;
   // Дальше рамки стены с гласисом — ни стены, ни гласиса: обход контура не нужен.
   const b = wallBox(plan);
   if (x < b.x0 || x > b.x1 || z < b.z0 || z > b.z1) return 1;
