@@ -70,9 +70,9 @@ export const LIGHT = {
   reflectFloor: 0.1,
   sunCore: [900, 5.0] as const,
   sunSheen: [42, 0.14] as const,
-  moonPath: [160, 0.075] as const,
-  moonCore: [1400, 0.8] as const,
-  torch: [26, 1.15] as const,
+  moonPath: [160, 0.06] as const,
+  moonCore: [1400, 0.55] as const,
+  torch: [22, 1.7] as const,
 };
 
 /** Мягкий предел отблеска: `c / (1 + c / k)` — до `k` растёт почти прямо, выше не поднимается. */

@@ -191,6 +191,13 @@ const LAZY_DOORS: { name: string; door: RegExp; owns: RegExp[] }[] = [
     owns: [/\/src\/render\/city\//],
   },
   {
+    // Вода — одна на игру (docs/polish.md, П-8): шейдер, материал и луна над водой едут с городом, роликами и рыбалкой,
+    // каждым их куском; в первую загрузку — только краски (`water/tone.ts`, у карты) и уровень (`water/lod.ts`).
+    name: 'вода',
+    door: /\/src\/render\/city\/scene\.ts$/,
+    owns: [/\/src\/render\/water\/(glsl|material|moon|shape|model)\.ts$/],
+  },
+  {
     // Живой город (docs/city.md, 13): телеги, утки, лодки, стяги — своя докачка, сцена и стенд тянут её после первого
     // кадра города; в кусок города и в первую загрузку она не едет.
     name: 'город: суета',

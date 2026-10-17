@@ -72,7 +72,7 @@ import {
 import { FishRig } from './fishRig';
 import { fishSound, type Ear, type FishSound } from './fishSound';
 import type { Hour, Tally, Target } from './rules';
-import { solarOf, type Play } from './stage';
+import { WATER_OF, solarOf, type Play } from './stage';
 import { nightOf } from '@/render/water/moon';
 import { syncWaterLight } from '@/render/water/material';
 import { LAYOUT_OF } from './pad';
@@ -143,8 +143,6 @@ const _x = new THREE.Vector3(1, 0, 0);
 const _e = new THREE.Euler();
 const _col = new THREE.Color();
 const _col2 = new THREE.Color();
-/** Уровень воды по ступени промысла: подробно, телефон, пол (`render/water`). */
-const WATER_LOD: Record<Tier, number> = { full: 2, lite: 1, base: 0 };
 const _la = new THREE.Vector3();
 const _lb = new THREE.Vector3();
 const smooth = (k: number): number => {
@@ -278,7 +276,7 @@ export class FishPlay implements Play {
     this.water.wYaw.value = SHORE_YAW;
     this.water.wRainK.value = Math.min(1, this.ctx.rain);
     this.water.wCloud.value = Math.min(1, this.ctx.rain * 1.4);
-    this.water.wLod.value = WATER_LOD[this.tier];
+    this.water.wLod.value = WATER_OF[this.tier];
     scene.add(w);
   }
 

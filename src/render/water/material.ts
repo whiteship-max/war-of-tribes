@@ -228,10 +228,4 @@ export function waterMesh(geo: THREE.BufferGeometry, look: WaterLook, name: stri
   return mesh;
 }
 
-/** Сторож плавности опустил уровень: вода под `root` считает не больше `lod`, без пересборки. */
-export function lowerWaterLook(root: THREE.Object3D, lod: number): void {
-  root.traverse((o) => {
-    const w = o.userData.water as { wLod: { value: number } } | undefined;
-    if (w) w.wLod.value = Math.min(w.wLod.value, lod);
-  });
-}
+export { lowerWaterLook } from './lod';

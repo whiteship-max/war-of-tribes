@@ -27,6 +27,7 @@ import { SeasonVisuals } from '@/render/season';
 import { disposeGeometries } from '@/render/kit';
 import { FrameLoop, deviceRatio, pixelRatio } from '@/render/loop';
 import { Steady } from '@/render/steady';
+import { lowerWaterLook } from '@/render/water/lod';
 import { VILLAGE_STEADY } from '@/render/quality';
 import { levelNow } from '@/render/gfx';
 import { SHADOWS, miniTier } from './tier';
@@ -269,6 +270,9 @@ export const MIST_K = 0.35;
 
 /** Осадки по ступени: та же мерка, что у города, — ступень промысла в уровень осадков (`precip.PRECIP_CAP`). */
 export const PRECIP_OF: Record<Tier, Quality> = { full: 'high', lite: 'medium', base: 'low' };
+
+/** Уровень воды по ступени (`render/water`): подробно — все октавы ряби, телефон — четыре и круги дождя, пол — две. */
+export const WATER_OF: Record<Tier, number> = { full: 2, lite: 1, base: 0 };
 
 /**
  * Коробка осадков у человека, м. Город берёт её от расстояния камеры — не меньше семидесяти метров, и смотрит на неё
@@ -998,6 +1002,7 @@ export class Stage {
   private applyTier(tier: Tier): void {
     this.post.setTier(tier);
     this.precip?.setLevel(PRECIP_OF[tier]);
+    lowerWaterLook(this.scene, WATER_OF[tier]);
     this.scene.fog = tier === 'base' ? this.fog : null;
     const shadows = castsShadow(tier, this.weather);
     if (this.renderer.shadowMap.enabled !== shadows) {

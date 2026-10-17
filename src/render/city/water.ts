@@ -81,7 +81,7 @@ export function buildWater(u: CityUniforms, cols: readonly number[], detail: 0 |
   // Огни у воды — свои числа: шейдер воды не обходит всех огней города, только ближние к ней.
   const wl = {
     value: Array.from({ length: WATER_LIGHTS }, (_, k) =>
-      lights[k] ? new THREE.Vector4(lights[k][0], lights[k][1], lights[k][2], 9 * 9) : new THREE.Vector4(0, -1000, 0, 1),
+      lights[k] ? new THREE.Vector4(lights[k][0], lights[k][1], lights[k][2], 13 * 13) : new THREE.Vector4(0, -1000, 0, 1),
     ),
   };
   const tone = WATER_TONE.river;
@@ -120,16 +120,16 @@ export function buildWater(u: CityUniforms, cols: readonly number[], detail: 0 |
             float flowV = mix(0.45, 1.3, vRace);
             float rough = 0.0;
             vec2 g = wRipple(fq, cTime, flowV, wLod, rough);
-            // На мелководье у берега тише, в стрежне — живее; ручей у мельницы бежит быстрее и рябит сильнее.
+            // На мелководье у берега тише, в стрежне — живее; ручей у мельницы бежит быстро, но рябь у него мельче (узкое русло).
             float deep = smoothstep(0.05, 1.1, vDepth);
-            g *= mix(0.45, 1.0, deep) * mix(1.0, 1.4, vRace);
+            g *= mix(0.45, 1.0, deep) * mix(1.0, 0.6, vRace);
             vec2 gw = fdir * g.x + fside * g.y + wRain(vWPos.xz, cTime, cRain, wLod, rough);
             vec3 wn = normalize(vec3(-gw.x, 1.0, -gw.y));
             vec3 wv = normalize(cameraPosition - vWPos);
             float fres = wFres(wn, wv);
             // Пятна омутов и отмелей крупным шумом по миру: толща не ровная заливка.
             vec3 body = wBody(vDepth, wShallow, wDeep) * (0.9 + 0.2 * wNoise(vWPos.xz * 0.025));
-            float foam = wFoam(fq, vDepth, cTime, flowV) + vRace * smoothstep(0.72, 0.95, wNoise(fq * vec2(0.4, 2.2) - vec2(cTime * 1.6, 0.0))) * 0.18;
+            float foam = wFoam(fq, vDepth, cTime, flowV) + vRace * smoothstep(0.72, 0.95, wNoise(fq * vec2(0.4, 2.2) - vec2(cTime * 1.6, 0.0))) * 0.1;
             // Зима: река замерзает от берегов, кромка льда — неровными заберегами по течению; стрежень остаётся тёмной
             // открытой водой, ручей у мельницы бежит и не мёрзнет.
             float iceN = 0.5 + 0.5 * sin(vRun * 0.07 + 1.3 * sin(vRun * 0.023)) * sin(vRun * 0.031 + fq.y * 0.05 + 0.7);
@@ -160,7 +160,8 @@ export function buildWater(u: CityUniforms, cols: readonly number[], detail: 0 |
             float clear = 1.0 / (1.0 + rough * 60.0);
             vec3 em = skyR * fres * clear * wTilt(gw, wv);
             // Светила: днём — солнце (тучи его гасят), ночью — луна над водой; в дождь луны нет.
-            vec3 sunCol = vec3(1.0, 0.95, 0.84) * 1.5 * (1.0 - cNight) * (1.0 - 0.8 * cRain);
+            // Низкое солнце — тёплое: на закате дорожка в воде золотая, а не белая.
+            vec3 sunCol = mix(vec3(1.0, 0.95, 0.84), vec3(1.0, 0.62, 0.3), smoothstep(0.05, 0.6, cNight)) * 1.5 * (1.0 - cNight) * (1.0 - 0.8 * cRain);
             vec3 moonCol = vec3(0.62, 0.7, 0.95) * cNight * (1.0 - 0.9 * cRain);
             vec3 glint = wSun(R, normalize(cSunDir), sunCol, rough) + wMoon(R, wMoonDir, moonCol, rough);
             if (wLod > 0.5 && cNight > 0.02) {
@@ -188,4 +189,4 @@ export function buildWater(u: CityUniforms, cols: readonly number[], detail: 0 |
 }
 
 /** Сторож плавности опустил уровень: вода под `root` считает не больше `detail` — та же дверь, что у воды роликов. */
-export { lowerWaterLook as lowerWater } from '../water/material';
+export { lowerWaterLook as lowerWater } from '../water/lod';
