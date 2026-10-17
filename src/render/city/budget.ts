@@ -79,9 +79,9 @@ export function buildStatic(plan: CityPlan, q: Quality, opts?: StaticOpts): Stat
   const b = new Builder();
   const lamps: Lamp[] = [];
   /** Огни постройки, только что нарисованной `own`: вид и стена — по её коробке; железо — ничьё, как ступени. */
-  const lit = (pts: readonly V3[], kind: LampKind): void => {
+  const lit = (pts: readonly V3[], kind: LampKind, floor?: number): void => {
     const s = sites[sites.length - 1] ?? null;
-    for (const p of pts) lamps.push(mounted(p, kind, s));
+    for (const p of pts) lamps.push(mounted(p, kind, s, floor));
   };
   const chimneys: V3[] = [];
   const flagTops: V3[] = [];
@@ -115,7 +115,8 @@ export function buildStatic(plan: CityPlan, q: Quality, opts?: StaticOpts): Stat
     own(towerOwner(t.kind), t.x, t.z, Math.cos(t.out), Math.sin(t.out), () => (pts = timber ? timberTower(b, t, td) : tower(b, t, td)));
     // Дозор — фонарь под шатром; прочие башни — факелы на стене.
     if (t.kind === 'watch' && !timber) lamps.push(...pts.map((p) => standing(p, 'lantern')));
-    else lit(pts, 'torch');
+    // У ворот земля под факелом — пол проезда (мост над рвом), а не рельеф.
+    else lit(pts, 'torch', t.kind === 'gate' || t.kind === 'castleGate' ? (t.floor ?? t.base) : undefined);
     // Флаг — над верхом башни, посередине (`life.ts`).
     const s = sites[sites.length - 1];
     flagTops.push([t.x, s.y1, t.z]);

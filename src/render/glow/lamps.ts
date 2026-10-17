@@ -119,7 +119,6 @@ export function lampFlicker(l: Lamp, t: number): number {
 export class LampSlots {
   /** Вес каждого огня: доля настоящего света. */
   readonly w: Float32Array;
-  private rank: number[] = [];
   private fresh = true;
 
   constructor(readonly lamps: readonly Lamp[]) {
@@ -128,32 +127,41 @@ export class LampSlots {
 
   /**
    * Шаг: `fx`, `fz` — куда смотрит камера (в тех же единицах, что огни), `on` — сколько горит каждый огонь, `cap` — сколько
-   * настоящих на уровне, `dt` — секунды кадра. Возвращает огни мест шейдера (по убыванию веса), не больше `MAX_LAMPS`.
+   * настоящих на уровне, `dt` — секунды кадра. Возвращает огни мест шейдера (по убыванию веса), не больше `MAX_LAMPS`:
+   * новый огонь занимает место, только когда оно свободно.
    */
   step(fx: number, fz: number, on: Float32Array, cap: number, dt: number): number[] {
     const n = this.lamps.length;
-    const want = new Uint8Array(n);
+    const want: number[] = [];
     if (cap > 0) {
       const lit: number[] = [];
       for (let i = 0; i < n; i++) if (on[i] > 0.01) lit.push(i);
       const score = (i: number): number => Math.hypot(this.lamps[i].x - fx, this.lamps[i].z - fz) / LAMP[this.lamps[i].kind].weight;
       lit.sort((a, b) => score(a) - score(b));
-      for (let k = 0; k < Math.min(cap, lit.length); k++) want[lit[k]] = 1;
+      want.push(...lit.slice(0, cap));
     }
+    const wanted = new Uint8Array(n);
+    for (const i of want) wanted[i] = 1;
     const k = this.fresh ? 1 : Math.min(1, dt / LAMP_FADE_S);
     this.fresh = false;
-    const active: number[] = [];
+    // Сначала гаснут ненужные; новые наплывают, только пока есть свободное место в шейдере: смена на полном уровне идёт
+    // вдвое дольше, но без щелчка.
+    let busy = 0;
     for (let i = 0; i < n; i++) {
-      const goal = want[i];
-      const v = this.w[i];
-      this.w[i] = goal > v ? Math.min(goal, v + k) : Math.max(goal, v - k);
-      if (this.w[i] > 0) active.push(i);
+      if (!wanted[i]) this.w[i] = Math.max(0, this.w[i] - k);
+      if (this.w[i] > 0) busy++;
     }
-    // Мест не хватает (уровень опустили, взгляд метнулся): лишние гаснут сразу — сначала самые слабые.
+    for (const i of want) {
+      if (this.w[i] === 0) {
+        if (busy >= MAX_LAMPS) continue;
+        busy++;
+      }
+      this.w[i] = Math.min(1, this.w[i] + k);
+    }
+    const active: number[] = [];
+    for (let i = 0; i < n; i++) if (this.w[i] > 0) active.push(i);
     active.sort((a, b) => this.w[b] - this.w[a]);
-    for (let j = MAX_LAMPS; j < active.length; j++) this.w[active[j]] = 0;
-    this.rank = active.slice(0, MAX_LAMPS);
-    return this.rank;
+    return active;
   }
 }
 

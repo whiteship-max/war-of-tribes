@@ -12,8 +12,11 @@ const IRON = (): V3 => tint(CITY.iron, 1.25);
 const TAR = (): V3 => tint(CITY.iron, 0.7);
 const STAFF = (): V3 => tint(CITY.oak, 0.75);
 
-/** Огонь у стены постройки `s`: наружу — по той грани коробки, к которой он ближе всего (в долях полуширины). */
-export function mounted(p: V3, kind: LampKind, s: Site | null): Lamp {
+/**
+ * Огонь у стены постройки `s`: наружу — по той грани коробки, к которой он ближе всего (в долях полуширины). `floor` — земля
+ * под огнём, если она не рельеф (проезд ворот на мосту).
+ */
+export function mounted(p: V3, kind: LampKind, s: Site | null, floor?: number): Lamp {
   let dx = 0;
   let dz = 0;
   if (s) {
@@ -29,7 +32,7 @@ export function mounted(p: V3, kind: LampKind, s: Site | null): Lamp {
       dz = -Math.sign(r) * s.fx;
     }
   }
-  return { x: p[0], y: p[1], z: p[2], kind, dx, dz, lift: p[1] - heightAt(p[0], p[2]) };
+  return { x: p[0], y: p[1], z: p[2], kind, dx, dz, lift: p[1] - (floor ?? heightAt(p[0], p[2])) };
 }
 
 /** Свободно стоящий огонь (жаровня, фонарь на столбе, фонарь под шатром дозора). */

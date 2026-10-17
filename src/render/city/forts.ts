@@ -533,7 +533,8 @@ export function tower(b: Builder, t: Tower, detail: Detail): V3[] {
       }
     }
   }
-  lights.push([t.x - fx * (s / 2 + 0.3), t.base + 3.5, t.z - fz * (s / 2 + 0.3)]);
+  // От пола проезда, а не от подножия: на склоне пол ворот выше, и факел от подножия лежал бы на земле или под ней.
+  lights.push([t.x - fx * (s / 2 + 0.3), Math.max(t.base, t.floor ?? t.base) + 3.5, t.z - fz * (s / 2 + 0.3)]);
   return lights;
 }
 
