@@ -31,6 +31,9 @@ import { troopTotal } from '@/game/battle/kinds';
 import { FELL_WORDS } from '@/ui/map/siegemark';
 import { beyondText, reachable } from '@/ui/map/twslot';
 import { Icon } from '@/ui/icons/Icon';
+import { ArmsArt } from '@/ui/parts/Arms';
+import { placeArms } from '@/ui/map/arms';
+import { anyArms, blazon, type Arms } from '@/heraldry/arms';
 import { FatePick } from '@/ui/parts/FatePick';
 import { hungerLeft } from '@/ui/parts/hunger';
 import { count } from '@/ui/parts/plural';
@@ -63,12 +66,13 @@ const ALLOWED: Record<Mission, ('warrior' | 'scout')[]> = { raid: [], scout: ['s
 export const cellEstimate = (e: Estimate): string => (e.precision === 'unknown' ? '?' : formatEstimate(e));
 
 /** Шапка карточки: значок (касание — что это), имя, строка «ступень · отношение · координата», «закрыть». */
-function Head({ icon, glyph, title, sub, tip }: { icon: string; glyph: string; title: ReactNode; sub: ReactNode; tip: TipContent }) {
+function Head({ icon, glyph, title, sub, tip, arms }: { icon: string; glyph: string; title: ReactNode; sub: ReactNode; tip: TipContent; arms?: Arms }) {
   const closeSheet = useGame((g) => g.closeSheet);
   return (
     <div className="nx-bhead">
       <button className="nx-bico" onClick={(e) => tipAt(e.currentTarget, tip)} aria-label="Что это за место">
-        <Icon name={icon} glyph={glyph} />
+        {/* Живое место — его гербом (П-2, `ui/map/arms.placeArms`): свой город, сосед, логово. */}
+        {arms ? <ArmsArt arms={arms} size={26} /> : <Icon name={icon} glyph={glyph} />}
       </button>
       <div className="nx-btitle">
         <b className="one-line">{title}</b>
@@ -357,6 +361,7 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
   const armyWalkMs = goStrike?.walkMs ?? goSiege?.walkMs ?? war?.walkMs ?? card.war?.walkMs;
   // Строка владельца — словами меню приказов и только то, что есть (docs/ui_audit.md, 14.1, 17). У своего города
   // владелец — заглушка слепка («Наше племя», `bridge.playerProfile`), и строки нет, как в меню приказов.
+  const arms = anyArms(placeArms(card, s.profile.arms));
   const ownerLine = card.mine
     ? ''
     : [card.owner ? `Правитель ${card.owner}` : '', card.tribeName ? `${card.owner ? 'держава' : 'Держава'} ${card.tribeName}` : '']
@@ -370,7 +375,8 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
         glyph={card.castle ? CASTLE_ICON : stage.icon}
         title={<span className="one-line">{card.name}</span>}
         sub={sub}
-        tip={{ title: kindWord, body: ownerLine || undefined }}
+        arms={arms}
+        tip={{ title: kindWord, body: [ownerLine, blazon(arms)].filter(Boolean).join('. ') }}
       />
 
       <div className="nx-facts">

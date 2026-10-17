@@ -24,6 +24,8 @@ export interface WorksInput {
   field: TwField;
   wall: TwWall | null;
   seed: number;
+  /** Камень стены — тем же материалом, что город за ней (П-6, `fort.FortInput.town`): кусок до обвала не отличить от стены. */
+  skin?: { material: THREE.Material; geometry: (b: Builder) => THREE.BufferGeometry } | null;
 }
 
 /** Сцена обстрела из плана боя: пролог перед штурмом (`plan.barrage`). */
@@ -294,11 +296,12 @@ export class Siegeworks {
         cnt++;
       }
       if (!Number.isFinite(lowest)) continue;
-      const geo = geometryOf(cb);
+      const skin = this.plan.skin ?? null;
+      const geo = skin ? skin.geometry(cb) : geometryOf(cb);
       // Ось обвала — нижняя наружная кромка куска: геометрия — от неё.
       const pivot = new THREE.Vector3(sumX / cnt, lowest * (1 / m(1)), w.z);
       geo.translate(-pivot.x, -pivot.y, -pivot.z);
-      const mesh = new THREE.Mesh(geo, mat);
+      const mesh = new THREE.Mesh(geo, skin ? skin.material : mat);
       mesh.name = 'tw-breach-chunk';
       mesh.castShadow = this.detail.shadow;
       mesh.receiveShadow = true;
@@ -322,6 +325,16 @@ export class Siegeworks {
    * Разложить кадр на секунде ролика `t` (с прологом: бой идёт с `b.seconds`). После пролога машины стоят опущенными,
    * сбитые лежат, трещины и дым — на месте; камней, обломков и клубов удара нет.
    */
+  /**
+   * Ночь (docs/polish.md, П-9): дым и пыль — не светятся сами, ночью они тёмные; у огня дым подсвечивает свет костра
+   * (`glow`), а не своя краска. `night` — доля ночи 0..1.
+   */
+  night(night: number): void {
+    const k = 1 - 0.72 * night;
+    (this.puffs.material as THREE.MeshBasicMaterial).color.setHex(DUST).multiplyScalar(k);
+    if (this.smoke) (this.smoke.material as THREE.MeshBasicMaterial).color.setHex(SMOKE).multiplyScalar(k);
+  }
+
   update(t: number, cam: THREE.Camera): void {
     const b = this.b;
     const live = t < b.seconds + DEBRIS_LIFE;

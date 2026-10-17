@@ -41,6 +41,7 @@ import type { BattleFx } from '@/sound/battlefx';
 import { freeTurn } from '@/orientation';
 import { barrageCaption, barrageShares } from './barrage';
 import { coatsOfRecord } from './coats';
+import { townShare } from './townShare';
 import './tw.css';
 
 /**
@@ -155,7 +156,7 @@ export function TwReplay({ rec, report, onDone, freeze = null, ended: endedAtSta
     };
     document.addEventListener('visibilitychange', onHide);
     void import('@/render/tw/play')
-      .then((m) => {
+      .then(async (m) => {
         if (!alive || !layer.current) return;
         // Уровень — тот же, что у города, и опущенный сторожем, если телефон не потянул (`gfx.levelNow`, docs/perf.md):
         // ролик рисует в холст города с его плотностью, и фигур ему не больше, чем тянет этот телефон. Уровень по устройству
@@ -165,7 +166,8 @@ export function TwReplay({ rec, report, onDone, freeze = null, ended: endedAtSta
         const asked = sceneGfx(gfx(), location.search).asked;
         let clock: InstanceType<typeof m.CueClock> | null = null;
         let lastT = 0;
-        const p = m.playTw(
+        // За стеной места боя — город игры (П-6): тот же план, текстуры и земля, что в окне города; ролик ждёт его сборки.
+        const p = await m.playTw(
           renderer,
           {
             result: rec.result,
@@ -182,6 +184,7 @@ export function TwReplay({ rec, report, onDone, freeze = null, ended: endedAtSta
           quality,
           layer.current,
           {
+            share: townShare(scene),
             ...(asked ? {} : { watch: quality }),
             onLower: (q) => {
               if (!scene) return;
@@ -219,6 +222,11 @@ export function TwReplay({ rec, report, onDone, freeze = null, ended: endedAtSta
             },
           },
         );
+        // Пока город собирался, ролик могли закрыть.
+        if (!alive) {
+          p.dispose();
+          return;
+        }
         player.current = p;
         p.cam.onTake = () => setTaken(true);
         clock = new m.CueClock(m.cuesOf(p.plan));

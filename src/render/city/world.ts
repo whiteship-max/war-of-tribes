@@ -11,6 +11,7 @@ import { landMap, placeTrees, type Species, type TreeInst } from './nature';
 import { groundWet, shoreItems, type Reed, type Stone } from './banks';
 import type { Site } from './sites';
 import { CITY_SPEC } from './spec';
+import type { Lamp } from '../glow/lamps';
 
 /** Меш из построителя — плоскими массивами, которые поток отдаёт без копии. */
 export interface MeshArrays {
@@ -35,7 +36,8 @@ export interface CityWorld {
   plan: CityPlan;
   buildings: MeshArrays;
   buildingTris: number;
-  lights: V3[];
+  /** Огни ночи с видом и стеной (docs/polish.md, П-9). */
+  lamps: Lamp[];
   chimneys: V3[];
   flagTops: V3[];
   sites: Site[];
@@ -74,7 +76,7 @@ export function buildWorld(q: Quality): CityWorld {
     plan,
     buildings: arraysOf(st.b),
     buildingTris: st.b.triangleCount,
-    lights: st.lights,
+    lamps: st.lamps,
     chimneys: st.chimneys,
     flagTops: st.flagTops,
     sites: st.sites,

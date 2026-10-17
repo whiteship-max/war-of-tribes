@@ -763,6 +763,7 @@ export class LocalWorld implements WorldApi {
       color: RELATION_META.neutral.color,
       mine: false,
       castle: true,
+      ...(c.arms ? { arms: c.arms } : {}),
       visible,
       seenAt: visible ? now : (seen?.at ?? null),
       stale: !visible && seen !== null,

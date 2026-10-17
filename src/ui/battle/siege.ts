@@ -22,6 +22,7 @@ import { SIEGE_PHASE } from '@/world/data/siegeroll';
 import { MACHINE_NAME, machinesAt, mangonelAt } from '@/world/machines';
 import { FATE_META } from '@/world/data/fates';
 import type { Report } from '@/world/types';
+import { foeArmsCode, ownArmsCode } from './coats';
 
 /** Свет минуты осады: час племени в эту минуту — доля суток рига. Места нет — полдень. */
 function solarOf(rec: SiegeRecord, ms: number): number {
@@ -116,6 +117,8 @@ export function showOfSiege(rec: SiegeRecord, report?: Report): SiegeShow {
     },
     solar0: solarOf(rec, since),
     ground: groundOf(rec.place, rec.startedAt % 100003),
+    // Гербы на знамёнах (П-2): наш — герб державы; чужие — по донесению (сосед, логово, разбойники), не по стене.
+    coats: { ours: ownArmsCode(), theirs: foeArmsCode(report) },
   };
 }
 

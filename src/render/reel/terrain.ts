@@ -70,6 +70,37 @@ export interface TwField {
    * его строем и по флангам начинается от `from` в сторону `side`. null — штрафа за лес нет.
    */
   forest: { side: 1 | -1; from: number } | null;
+  /**
+   * Земля настоящего города под полем (docs/polish.md, П-6, `tw/town.ts`): высоты растром в единицах ролика, город — тот же,
+   * что в окне города. Есть — рельеф поля (волны, холм, обрыв, река) не считается: стоит та земля, на которой стоит город.
+   */
+  town?: TownGround | null;
+}
+
+/** Растр высот земли города: `nx × nz` точек с шагом `step` от (`x0`, `z0`), между точками — по двум осям прямо. */
+export interface TownGround {
+  x0: number;
+  z0: number;
+  step: number;
+  nx: number;
+  nz: number;
+  h: Float32Array;
+}
+
+/** Высота по растру земли города; за краем растра — его край. */
+export function townHeight(g: TownGround, x: number, z: number): number {
+  const fx = Math.min(g.nx - 1.0001, Math.max(0, (x - g.x0) / g.step));
+  const fz = Math.min(g.nz - 1.0001, Math.max(0, (z - g.z0) / g.step));
+  const i = Math.floor(fx);
+  const j = Math.floor(fz);
+  const u = fx - i;
+  const v = fz - j;
+  const k = j * g.nx + i;
+  const a = g.h[k];
+  const b = g.h[k + 1];
+  const c = g.h[k + g.nx];
+  const d = g.h[k + g.nx + 1];
+  return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v;
 }
 
 /** Вода реки стоит здесь: ниже кромки берега, выше дна. */
@@ -85,6 +116,7 @@ const BANK = 1.6;
  * русло и обрыв — по месту боя.
  */
 export function heightAt(f: TwField, x: number, z: number): number {
+  if (f.town) return townHeight(f.town, x, z);
   // Пологие волны: две октавы, крупная и мелкая. Под городом и стеной — гаснут.
   const calm = f.calm ? 1 - 0.92 * smoothstep(-6, 0, (z - f.calm.z) * f.calm.dir) : 1;
   let y = ((vnoise(x / 23, z / 23, f.seed) - 0.5) * 0.9 + (vnoise(x / 7, z / 7, f.seed + 7) - 0.5) * 0.18) * calm;

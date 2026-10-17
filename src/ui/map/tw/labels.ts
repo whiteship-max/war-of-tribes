@@ -1,14 +1,14 @@
 // Подписи карты нового вида (docs/map_tw.md, раздел 4; docs/ui_audit.md, 13): имя поселения — на тёмной плашке, как
 // таблички городов на карте кампании Total War и панели нового интерфейса; цвет стороны — полосой у левого края (свой
 // город — золотом и золотой рамкой). Крупные места (моря, горы) — по-прежнему чернилами по земле: это карта, а не
-// метки. Шрифт не качается: средневековых гарнитур с кириллицей под CC0 нет, а загрузка шрифта ради подписи —
-// докачка (раздел 9).
+// метки. Шрифт — свой, гарнитура заголовков игры (`ui/fonts`, docs/polish.md, П-1): одна на всех устройствах.
 import { SIDE_COLOR, sideRgba } from '@/side';
+import { CANVAS_SANS, CANVAS_TITLE, onFontsLoaded } from '@/ui/fonts/canvas';
 
 type C = CanvasRenderingContext2D;
 
-/** Гарнитура: антиква, какая есть в системе. */
-export const SERIF = "Georgia, 'Times New Roman', 'Noto Serif', serif";
+/** Гарнитура подписей — заголовков игры (капитель эпохи). */
+export const SERIF = CANVAS_TITLE;
 
 /** Плашка — тёмная панель нового вида с тёплой кромкой; текст — светлые чернила. */
 const PLATE = 'rgba(22, 16, 11, 0.86)';
@@ -79,12 +79,12 @@ export function placeLabel(ctx: C, text: string, x: number, y: number, own: bool
   ctx.restore();
 }
 
-/** Имя крупного места — моря, гор — разрядкой и курсивом, светлыми чернилами по воде. */
+/** Имя крупного места — моря, гор — разрядкой капителью, светлыми чернилами по воде. */
 export function regionLabel(ctx: C, text: string, x: number, y: number, size: number, onWater: boolean): void {
   ctx.save();
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.font = `italic ${size}px ${SERIF}`;
+  ctx.font = `${size}px ${SERIF}`;
   spaced(ctx, size * 0.35);
   ctx.fillStyle = onWater ? 'rgba(214, 228, 222, 0.78)' : 'rgba(59, 42, 28, 0.78)';
   ctx.fillText(text, x, y);
@@ -159,7 +159,7 @@ export function regionSprite(text: string, size: number, onWater: boolean, dpr: 
   const probe = document.createElement('canvas').getContext('2d');
   let tw = text.length * size * 0.8;
   if (probe) {
-    probe.font = `italic ${size}px ${SERIF}`;
+    probe.font = `${size}px ${SERIF}`;
     spaced(probe, size * 0.35);
     tw = probe.measureText(text).width;
   }
@@ -184,8 +184,8 @@ export function regionSprite(text: string, size: number, onWater: boolean, dpr: 
 // меняется раз в секунду и пишется в кадре (как и прежде), а пилюля печётся раз на (ширину, сторону, плотность): путь
 // со скруглением в кадре не строится.
 
-/** Шрифт срока: системный, цифры ровные. */
-export const TIMER_FONT = '700 11px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+/** Шрифт срока: свой, цифры одной ширины. */
+export const TIMER_FONT = `700 12px ${CANVAS_SANS}`;
 /** Высота пилюли срока, CSS px. */
 export const TIMER_H = 16;
 /** Ширина пилюли — ступенями по 6 px: строка срока меняется каждую секунду, а пилюль печётся считанное число. */
@@ -239,3 +239,6 @@ export function dropLabels(): void {
   labels.clear();
   widths.clear();
 }
+
+// Доехал свой шрифт — подписи, испечённые подменой, печёт заново; кадр будит `WorldMap` тем же событием.
+onFontsLoaded(dropLabels);

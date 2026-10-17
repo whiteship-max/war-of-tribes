@@ -70,12 +70,12 @@
   flex-direction: column;
 }
 .nx-rtitle b {
-  font-size: 15px;
+  font-size: 17px;
   font-weight: 600;
 }
 .nx-rtitle i {
   font-style: normal;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted);
 }
 /* Имя города в шапке — кнопка: касание открывает поле, «✓» пишет имя (docs/ui_audit.md, 13). */
@@ -156,7 +156,7 @@
   height: 20px;
 }
 .nx-pcell small {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 400;
   color: var(--muted);
 }
@@ -166,9 +166,10 @@
 .nx-rtabs {
   display: grid;
   grid-template-columns: repeat(5, 1fr);
-  gap: 4px;
+  /* Пять подписей по 12 px своим шрифтом — «Технологии» шириной 70 px: зазоры по 2, а не по 4 (docs/polish.md, П-1). */
+  gap: 2px;
   margin: 8px 0;
-  padding: 4px;
+  padding: 2px;
   border-radius: 14px;
   background: rgba(36, 27, 19, 0.8);
   border: 1px solid var(--line);
@@ -183,7 +184,7 @@
   min-width: 0;
   height: 48px;
   border-radius: 10px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--muted);
 }
@@ -196,6 +197,7 @@
 }
 .nx-rtabs button > span:last-child {
   max-width: 100%;
+  letter-spacing: -0.01em;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -232,12 +234,12 @@
   justify-content: space-between;
   align-items: baseline;
   padding: 0 2px 2px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   color: var(--muted);
 }
 .nx-thead small {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
@@ -250,7 +252,7 @@
   border-radius: 10px;
   background: var(--panel-2);
   border: 1px solid var(--line);
-  font-size: 11px;
+  font-size: 12px;
   text-align: left;
   min-width: 0;
 }
@@ -313,7 +315,7 @@
   font-weight: 600;
 }
 .nx-tsel small {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted);
 }
 .nx-tprice {
@@ -330,7 +332,7 @@
 .nx-tprice i {
   font-style: normal;
   font-weight: 400;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted);
 }
 .nx-tprice.no {
@@ -370,7 +372,7 @@
 }
 .nx-tab h3 {
   margin: 8px 0 0;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -418,7 +420,7 @@
   font-weight: 600;
 }
 .nx-pname small {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted);
 }
 .nx-pname small.warn {
@@ -448,7 +450,7 @@
   line-height: 20px;
 }
 .nx-skill small {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted);
 }
 .nx-dots {
@@ -522,7 +524,7 @@
 }
 .nx-lrow > small {
   flex: none;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted);
 }
 .nx-lrow > small.bad {
@@ -564,7 +566,7 @@
   height: 16px;
 }
 .nx-lcell small {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted);
 }
 .nx-lcell b {
@@ -603,12 +605,12 @@
   text-align: center;
 }
 .nx-opt b {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   line-height: 1.25;
 }
 .nx-opt small {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   color: var(--good);
@@ -643,7 +645,7 @@
 .nx-pnote {
   margin: 0;
   min-height: 15px;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.35;
   color: var(--muted);
 }
@@ -688,7 +690,7 @@
   display: grid;
   grid-template-columns: auto 1fr;
   gap: 4px 8px;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.35;
 }
 .nx-gift .good,
@@ -716,7 +718,7 @@
 }
 .nx-tgcell small {
   max-width: 100%;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted);
 }
 .nx-tgcell b {
@@ -726,7 +728,7 @@
 }
 .nx-why-line {
   margin: 0;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--bad);
 }
 /* Задания: две страницы переключателем, строки заданий, значки достижений, служебное — свёрнутым. */
@@ -761,7 +763,7 @@
 }
 .nx-qsum {
   margin: 0;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted);
 }
 .nx-quest {
@@ -785,7 +787,7 @@
 }
 .nx-qbar em {
   font-style: normal;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
@@ -795,7 +797,7 @@
   flex-direction: column;
   align-items: flex-end;
   gap: 2px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
@@ -910,7 +912,7 @@
   line-height: 1.2;
 }
 .nx-mtitle small {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted);
 }
 .nx-mspot {
@@ -969,7 +971,7 @@
   gap: 8px;
 }
 .nx-mcost small {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted);
 }
 .nx-answers {
@@ -995,7 +997,7 @@
   font-weight: 600;
 }
 .nx-ans small {
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.35;
   color: var(--muted);
 }
@@ -1014,7 +1016,7 @@
 }
 .nx-msilence {
   margin: 0;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.4;
   color: var(--muted);
 }

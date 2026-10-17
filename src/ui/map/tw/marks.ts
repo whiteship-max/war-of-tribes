@@ -9,6 +9,8 @@
 // подписи обходят (`tw/scene.ts`). Две правды о том, где кончается значок, разошлись бы ровно там, где палец
 // промахивается.
 import { SIDE_COLOR } from '@/side';
+import { anyArms } from '@/heraldry/arms';
+import { ARMS_ASPECT, canPaintArms, paintArms } from '@/heraldry/paint';
 import { makeCanvas } from '../paint';
 import type { Mini } from './mini';
 import { drawGlyph, glyphShapes, glyphStamp } from './glyph';
@@ -30,11 +32,16 @@ export interface MarkLook {
   dim: boolean;
   /** Малый рисунок в углу (разорено — огонь). null — нет. */
   corner: string | null;
+  /**
+   * Герб места строкой (`ui/map/arms.placeArms`, docs/polish.md, П-2): щит в диске вместо рисунка. Нет — рисунок `glyph`
+   * (пепелище, отряд); рисовать нечем (тест в узле) — тоже рисунок.
+   */
+  arms?: string | null;
 }
 
 /** Ключ спрайта: каждое поле вида, размер диска, плотность и есть ли уже лист. */
 export function markKey(l: MarkLook, d: number, dpr: number): string {
-  return `mark:${l.glyph}:${l.ring}:${l.pips}:${l.own ? 1 : 0}:${l.dim ? 1 : 0}:${l.corner ?? '-'}:${d}:${dpr}:${glyphStamp()}`;
+  return `mark:${l.glyph}:${l.arms ?? '-'}:${l.ring}:${l.pips}:${l.own ? 1 : 0}:${l.dim ? 1 : 0}:${l.corner ?? '-'}:${d}:${dpr}:${glyphStamp()}`;
 }
 
 /** Гнёзд на плашке размера: четыре стадии места и четыре размера отряда — одна мерка на оба. */
@@ -128,8 +135,18 @@ function drawMark(ctx: C, l: MarkLook, d: number): void {
   ctx.arc(0, 0, g.r, 0, TAU);
   ctx.fillStyle = grad;
   ctx.fill();
-  const shapes = glyphShapes(l.glyph);
-  if (shapes) drawGlyph(ctx, shapes, -g.glyph / 2, -g.glyph / 2, g.glyph, l.dim ? 0.5 : 1);
+  if (l.arms && canPaintArms()) {
+    // Щит герба — чуть выше рисунка (герб узкий): высота — 1.1 рисунка, ширина — по пропорции щита.
+    const h = g.glyph * 1.1;
+    const w = h / ARMS_ASPECT;
+    ctx.save();
+    if (l.dim) ctx.globalAlpha = 0.5;
+    paintArms(ctx, anyArms(l.arms), -w / 2, -h / 2, w, { gloss: d >= 30 });
+    ctx.restore();
+  } else {
+    const shapes = glyphShapes(l.glyph);
+    if (shapes) drawGlyph(ctx, shapes, -g.glyph / 2, -g.glyph / 2, g.glyph, l.dim ? 0.5 : 1);
+  }
   ctx.lineWidth = g.ring;
   ctx.strokeStyle = l.dim ? mute(l.ring) : l.ring;
   ctx.beginPath();

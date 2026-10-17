@@ -169,12 +169,16 @@ export function pluckBuffer(kit: Kit, midi: number): AudioBuffer {
   return buf;
 }
 
-/** Щипок лютни. */
+/**
+ * Щипок лютни. Атака — 3 мс подъёма громкости: буфер струны начинается с шума, и без подъёма первый отсчёт прыгал на
+ * четверть шкалы — щелчок (образец `ui`, «стройка готова», П-3). Щипок от этого не мягче: 3 мс ухо атакой не слышит.
+ */
 export function pluck(kit: Kit, dest: AudioNode, at: number, midi: number, vel: number, pan = 0): void {
   const src = kit.ctx.createBufferSource();
   src.buffer = pluckBuffer(kit, midi);
   const g = kit.ctx.createGain();
-  g.gain.value = vel;
+  g.gain.setValueAtTime(0, at);
+  g.gain.linearRampToValueAtTime(vel, at + 0.003);
   src.connect(g);
   g.connect(panned(kit, dest, pan));
   src.start(at);
@@ -504,6 +508,25 @@ export function tap(kit: Kit, dest: AudioNode, at: number): void {
   ng.connect(dest);
   n.start(at, span(kit.rnd, 0, 1.5));
   n.stop(at + 0.03);
+}
+
+/**
+ * Капля с карниза в лужу: короткий «плинк» — тон взлетает (пузырёк воздуха, захваченный каплей), гаснет за десятую
+ * долю секунды; атака 4 мс — без щелчка.
+ */
+export function drip(kit: Kit, dest: AudioNode, at: number, vel: number, pan: number): void {
+  const ctx = kit.ctx;
+  const f = span(kit.rnd, 1500, 3000);
+  const o = ctx.createOscillator();
+  o.type = 'sine';
+  o.frequency.setValueAtTime(f * 0.78, at);
+  o.frequency.exponentialRampToValueAtTime(f, at + 0.035);
+  const g = ctx.createGain();
+  strike(g.gain, at, vel, 0.004, 0.09);
+  o.connect(g);
+  g.connect(panned(kit, dest, pan));
+  o.start(at);
+  o.stop(at + 0.12);
 }
 
 /** Рог тревоги: две пилы с расстройкой, фильтр раскрывается на атаке; губы чуть недотягивают начало ноты. */

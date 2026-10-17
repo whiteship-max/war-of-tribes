@@ -1,9 +1,7 @@
 /**
- * Модели «Охоты»: поле, укрытия, стена леса и стрелы копиями (docs/minigames.md, раздел 13).
- *
- * Тот же склад, что у остальных промыслов (`minigames/models.ts`): набор деталей (`render/kit.ts`), цвет в вершинах на
- * общем белом теле и склейка `assemble` — одно поле, один вызов отрисовки на материал. Олень, туша, лук, тетива и
- * стрела — модели поляны предыстории (`prologue/models.ts`) как есть: второй раз их не рисуем.
+ * Модели «Охоты»: укрытия и стрелы копиями (docs/minigames.md, раздел 13; мягкий вид — docs/polish.md, П-4). Поле и
+ * лес — общие места промыслов (`places.meadowLand`), олени — свои звери (`beasts.ts`), стрела — модель поляны
+ * предыстории (`prologue/models.arrow`) как есть.
  *
  * ФОРМА УКРЫТИЙ ВЫВЕДЕНА ИЗ ТЕХ ЖЕ ЧИСЕЛ, ЧТО ИХ ПОПАДАНИЕ (`hunt.SPRUCE`, `BIRCH`, `BUSH`): стрела втыкается туда,
  * где нарисована хвоя, а не туда, где её задумали. Держит это тест.
@@ -11,208 +9,178 @@
  * Имена `three` — только те, что игра уже берёт (`prologue/post.test.ts`): своих классов у промыслов нет.
  */
 import * as THREE from 'three';
-import { KIT } from '@/render/materials';
-import * as K from '@/render/kit';
-import { vnoise } from '@/render/terrain';
-import { hash } from '@/prologue/glade';
 import type { Shade } from '@/prologue/models';
 import type { Season } from '@/game/types';
 import { BIRCH, BUSH, FOREST_IN, SPRUCE, type Cover } from './hunt';
-
-const tint = (hex: number): K.Paint => ({ mat: KIT.body, tint: new THREE.Color(hex) });
+import { Sculpt, rigid } from './fauna';
+import { mix, noise3 } from './beasts';
+import { scatter, type Detail, type NatureMats, type Spot } from './nature';
 
 /** Докуда тянется земля: за стену леса, чтобы края диска не было видно. */
 export const MEADOW_R = 72;
 /** Стена леса: с какого радиуса стоят стволы опушки — там же в них втыкается стрела (`hunt.FOREST_IN`), число одно. */
 export const WALL_FROM = FOREST_IN;
-/** Тёмная гребёнка дальнего леса: на этом радиусе, за последним рядом елей. */
-const BAND_R = 63;
+/** Докуда поле ровное: там ходят олени и втыкаются стрелы (`hunt.ESCAPE_R` и чуть дальше), холмы — за ним. */
+export const MEADOW_FLAT = 46;
 
-/** Хвоя: тёмная и светлее — у соседних ёлок разная. Берёза — кора, кора в отметинах и листва по сезону. */
-const NEEDLES = [0x2d5634, 0x37643a, 0x2a4d33] as const;
+/** Береста: белая кора и чёрные полосы. */
 const BIRCH_BARK = 0xe6e1d3;
-const BIRCH_MARK = 0x3a3530;
-const BIRCH_LEAF: Record<Season, number> = { spring: 0x86b257, summer: 0x6f9a48, autumn: 0xc9a23c, winter: 0x8c7a5a };
-const BUSH_LEAF: Record<Season, number> = { spring: 0x5f8f45, summer: 0x4f7d3c, autumn: 0x8f7a3a, winter: 0x6a5f48 };
-const TRUNK = 0x5a4030;
+const BIRCH_MARK = 0x2a2622;
 
-/** Земля поля: травяной цвет пятнами, ровная — по ней ходят и на ней стоят олени. */
-const GRASS: Record<Season, [number, number, number]> = {
-  spring: [1.0, 1.04, 0.96],
-  summer: [1, 1, 1],
-  autumn: [1.12, 1.0, 0.8],
-  winter: [1.08, 1.04, 0.92],
+/**
+ * Укрытия «Охоты» — мягкие, но в числах попадания (`hunt.SPRUCE`, `BIRCH`, `BUSH`): ель — ярусы лап зубцами внутри
+ * конусов правила, берёза — белый ствол и купы внутри шаров кроны, куст — купы внутри его эллипсоида. Порода — одна
+ * сетка ростом 1 (рост `s` и поворот — у копии), по вызову на кору, хвою и листву. Держит это тест: 85 % вершин — в
+ * том, во что втыкается стрела.
+ */
+const V3 = (x: number, y: number, z: number): THREE.Vector3 => new THREE.Vector3(x, y, z);
+
+function spruceCover(detail: Detail): { bark: THREE.BufferGeometry; crown: THREE.BufferGeometry } {
+  const bark = new Sculpt();
+  const crown = new Sculpt();
+  const hi = detail === 'hi';
+  bark.tube([V3(0, -0.02, 0), V3(0, SPRUCE.trunkH * 0.6, 0), V3(0, SPRUCE.trunkH, 0)], [SPRUCE.trunkR, SPRUCE.trunkR * 0.85, SPRUCE.trunkR * 0.6], {
+    seg: hi ? 7 : 5,
+    color: (u) => mix(0x2e2018, 0x4a3426, u),
+    skin: rigid(0),
+    caps: [null, 0.4],
+  });
+  const seg = hi ? 16 : 10;
+  const soft: [number, number, number][] = [];
+  SPRUCE.tiers.forEach((t, k) => {
+    const h = t.y1 - t.y0;
+    const from = crown.skins.length;
+    // Лапы — зубцами по кругу внутри конуса правила: длинная и короткая через одну, конец лапы чуть ниже середины яруса.
+    const tip = crown.vert(V3(0, t.y1, 0), NEEDLES_HI.mid, rigid(0));
+    const mid: number[] = [];
+    const out: number[] = [];
+    const under: number[] = [];
+    for (let j = 0; j < seg; j++) {
+      const a = (j / seg) * Math.PI * 2 + k * 0.7;
+      const jag = j % 2 ? 0.86 : 1;
+      const c = Math.cos(a);
+      const sn = Math.sin(a);
+      const ym = t.y0 + h * 0.42;
+      const rm = t.r * (1 - 0.42) * 0.96;
+      mid.push(crown.vert(V3(c * rm, ym, sn * rm), mix(NEEDLES_HI.deep, NEEDLES_HI.mid, 0.55), rigid(0)));
+      out.push(crown.vert(V3(c * t.r * jag * 0.97, t.y0 + h * 0.03, sn * t.r * jag * 0.97), mix(NEEDLES_HI.mid, NEEDLES_HI.tip, 0.4 + 0.5 * ((j * 7 + k) % 5) / 4), rigid(0)));
+      under.push(crown.vert(V3(c * t.r * 0.45, t.y0 + h * 0.1, sn * t.r * 0.45), NEEDLES_HI.under, rigid(0)));
+    }
+    const core = crown.vert(V3(0, t.y0 + h * 0.14, 0), NEEDLES_HI.under, rigid(0));
+    for (let j = 0; j < seg; j++) {
+      const n = (j + 1) % seg;
+      crown.idx.push(tip, mid[n], mid[j]);
+      crown.idx.push(mid[j], mid[n], out[j], mid[n], out[n], out[j]);
+      crown.idx.push(out[j], out[n], under[j], out[n], under[n], under[j]);
+      crown.idx.push(under[j], under[n], core);
+    }
+    soft.push([from, crown.skins.length, t.y0 + h * 0.25]);
+  });
+  const b = bark.geometry({ under: 0.7, ground: 0.6, groundUp: 0.6 });
+  const g = crown.geometry({ under: 0.55, ground: 1, groundUp: 1 });
+  for (const [from, to, cy] of soft) softenTo(g, from, to, V3(0, cy, 0), 0.55, 1.6);
+  return { bark: b, crown: g };
+}
+
+function birchCover(detail: Detail, season: Season): { bark: THREE.BufferGeometry; crown: THREE.BufferGeometry } {
+  const bark = new Sculpt();
+  const crown = new Sculpt();
+  const hi = detail === 'hi';
+  bark.tube([V3(0, -0.02, 0), V3(0, BIRCH.trunkH * 0.6, 0), V3(0, BIRCH.trunkH, 0), V3(0.02, BIRCH.crowns[2].y, 0)], [BIRCH.trunkR, BIRCH.trunkR * 0.85, BIRCH.trunkR * 0.6, 0.02], {
+    seg: hi ? 8 : 6,
+    color: (u, a, p) => {
+      // Чёрные полосы поперёк и тёмный низ: берёзу узнают по коре.
+      const band = Math.sin(p.y * 22 + Math.sin(a * 3) * 2) > 0.8 || noise3(p.x * 30, p.y * 12, p.z * 30) > 0.78;
+      return u < 0.06 ? 0x3a3530 : band ? BIRCH_MARK : BIRCH_BARK;
+    },
+    skin: rigid(0),
+    caps: [null, 0.5],
+  });
+  const soft: [number, number, THREE.Vector3][] = [];
+  const leaf = BIRCH_LEAF_HI[season];
+  for (const k of BIRCH.crowns) {
+    const from = crown.skins.length;
+    const at = V3(k.x, k.y, k.z);
+    crown.blob(at, V3(k.r * 0.86, k.r * 0.8, k.r * 0.86), new THREE.Euler(0, k.x * 3, 0), (p) => mix(leaf.deep, leaf.light, Math.min(1, Math.max(0, (p.y - k.y + k.r) / (2 * k.r))) * (0.65 + 0.35 * noise3(p.x * 5, p.y * 5, p.z * 5))), rigid(0), hi ? 11 : 8, hi ? 7 : 5, (p) => (noise3(p.x * 3.2 + k.x * 9, p.y * 3.2, p.z * 3.2) - 0.55) * k.r * 0.28);
+    soft.push([from, crown.skins.length, at]);
+  }
+  const b = bark.geometry({ under: 0.7, ground: 0.6, groundUp: 0.5 });
+  const g = crown.geometry({ under: 0.55, ground: 1, groundUp: 1 });
+  for (const [from, to, c] of soft) softenTo(g, from, to, c, 0.6, 1.2);
+  return { bark: b, crown: g };
+}
+
+function bushCover(detail: Detail, season: Season): THREE.BufferGeometry {
+  const s = new Sculpt();
+  const hi = detail === 'hi';
+  const leaf = BUSH_LEAF_HI[season];
+  const parts: [number, number, number, number][] = [
+    [0, BUSH.y, 0, 0.62],
+    [BUSH.rx * 0.36, BUSH.y * 0.82, 0.18, 0.5],
+    [-BUSH.rx * 0.32, BUSH.y * 0.84, -0.2, 0.5],
+    [0.1, BUSH.y * 0.8, -BUSH.rx * 0.38, 0.46],
+  ];
+  const soft: [number, number][] = [];
+  for (const [x, y, z, k] of parts) {
+    const from = s.skins.length;
+    s.blob(V3(x, y, z), V3(BUSH.rx * k, BUSH.ry * k * 1.25, BUSH.rx * k), new THREE.Euler(0, x * 4, 0), (p) => mix(leaf.deep, leaf.light, Math.min(1, Math.max(0, p.y / (BUSH.y * 2))) * (0.6 + 0.4 * noise3(p.x * 6, p.y * 6, p.z * 6))), rigid(0), hi ? 10 : 7, hi ? 6 : 5, (p) => (noise3(p.x * 4 + x * 9, p.y * 4, p.z * 4) - 0.55) * 0.12);
+    soft.push([from, s.skins.length]);
+  }
+  const g = s.geometry({ under: 0.5, ground: 0.6, groundUp: 0.25 });
+  for (const [from, to] of soft) softenTo(g, from, to, V3(0, BUSH.y * 0.7, 0), 0.6, 1.4);
+  return g;
+}
+
+/** Склонить нормали к середине купы — тот же приём, что у рощи (`nature.ts`). */
+function softenTo(g: THREE.BufferGeometry, from: number, to: number, c: THREE.Vector3, k: number, sy: number): void {
+  const p = g.attributes.position;
+  const n = g.attributes.normal;
+  const d = new THREE.Vector3();
+  const m = new THREE.Vector3();
+  for (let i = from; i < to; i++) {
+    d.fromBufferAttribute(p, i).sub(c);
+    d.y *= sy;
+    d.normalize();
+    m.fromBufferAttribute(n, i).lerp(d, k).normalize();
+    n.setXYZ(i, m.x, m.y, m.z);
+  }
+}
+
+const NEEDLES_HI = { deep: 0x1e3a26, mid: 0x2f5a35, tip: 0x5a8a4a, under: 0x16281c };
+const BIRCH_LEAF_HI: Record<Season, { deep: number; light: number }> = {
+  spring: { deep: 0x4a7a30, light: 0xb4d470 },
+  summer: { deep: 0x3e6a2e, light: 0x9ac05c },
+  autumn: { deep: 0xa07a24, light: 0xf0c848 },
+  winter: { deep: 0x5a5040, light: 0x80705a },
+};
+const BUSH_LEAF_HI: Record<Season, { deep: number; light: number }> = {
+  spring: { deep: 0x3a6a2a, light: 0x88b058 },
+  summer: { deep: 0x2e5a26, light: 0x6e9a44 },
+  autumn: { deep: 0x6a4a1e, light: 0xb08a3a },
+  winter: { deep: 0x4a4234, light: 0x6a5f48 },
 };
 
-export function meadowGround(season: Season): THREE.Mesh {
-  const SEG = 72;
-  const radii: number[] = [0];
-  let r = 0;
-  while (r < 24) radii.push((r += 2.4));
-  while (r < MEADOW_R) radii.push((r += 4));
-  const k = GRASS[season];
-  const pos: number[] = [];
-  const col: number[] = [];
-  const at = (i: number, j: number): [number, number, number, number, number, number] => {
-    const rr = radii[i];
-    const a = ((j + (i === 0 ? 0 : (hash(i * 7, j * 13) - 0.5) * 0.35)) / SEG) * Math.PI * 2;
-    const x = Math.cos(a) * rr;
-    const z = Math.sin(a) * rr;
-    // Пятна: светлее на прогалинах, темнее у кустов — поле не должно быть ровным зелёным столом.
-    const w = 0.6 * vnoise(x / 6.5, z / 6.5) + 0.4 * vnoise(x / 2.2 + 11, z / 2.2 + 5);
-    const t = Math.max(0, Math.min(1, (w + 1) / 2));
-    const m = 0.8 + 0.34 * t;
-    return [x, 0, z, m * k[0], m * k[1], m * k[2]];
+/** Все укрытия поля — копиями по породам; пятна тени под ними — в общую тень поляны. */
+export function coverGroup(cover: readonly Cover[], season: Season, shade: Shade, mats: NatureMats, detail: Detail): THREE.Group {
+  const g = new THREE.Group();
+  g.name = 'cover';
+  const spot = (c: Cover, n: number): Spot => ({ x: c.x, z: c.z, yaw: c.yaw, h: c.s, tint: n % 3 === 0 ? 0xe8f0e0 : n % 3 === 1 ? 0xffffff : 0xd8e4d0 });
+  const by = (k: Cover['kind']): Cover[] => cover.filter((c) => c.kind === k);
+  const sp = spruceCover(detail);
+  const bi = birchCover(detail, season);
+  const add = (m: THREE.Object3D | null): void => {
+    if (m) g.add(m);
   };
-  const put = (v: [number, number, number, number, number, number]): void => {
-    pos.push(v[0], v[1], v[2]);
-    col.push(v[3], v[4], v[5]);
-  };
-  for (let i = 0; i < radii.length - 1; i++) {
-    for (let j = 0; j < SEG; j++) {
-      const a = at(i, j);
-      const b = at(i, (j + 1) % SEG);
-      const c = at(i + 1, (j + 1) % SEG);
-      const d = at(i + 1, j);
-      if (i === 0) {
-        put(a);
-        put(c);
-        put(d);
-        continue;
-      }
-      put(a);
-      put(c);
-      put(d);
-      put(a);
-      put(b);
-      put(c);
-    }
-  }
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
-  geo.computeVertexNormals();
-  const mesh = new THREE.Mesh(geo, KIT.grass);
-  mesh.name = 'ground';
-  mesh.receiveShadow = true;
-  return mesh;
-}
-
-/** Ярус хвои: конус от `y0` до `y1` радиусом `r` у основания. Открытый — донца снизу не видно, а оно треугольники. */
-function tier(r: number, y0: number, y1: number, paint: K.Paint, x: number, z: number, seg = 7): K.Part {
-  const h = y1 - y0;
-  const g = new THREE.ConeGeometry(r, h, seg, 1, true);
-  return K.place(g, paint, x, y0 + h / 2, z);
-}
-
-/** Ель по числам попадания: ствол и три яруса. */
-function spruceParts(c: Cover, parts: K.Part[], n: number): void {
-  const s = c.s;
-  const needles = tint(NEEDLES[n % NEEDLES.length]);
-  parts.push(K.cyl(SPRUCE.trunkR * s * 0.7, SPRUCE.trunkR * s, SPRUCE.trunkH * s, tint(TRUNK), 5, c.x, (SPRUCE.trunkH * s) / 2, c.z, undefined, K.GROUND_AO));
-  for (const t of SPRUCE.tiers) parts.push(tier(t.r * s, t.y0 * s, t.y1 * s, needles, c.x, c.z));
-}
-
-/** Берёза по числам попадания: белый ствол в отметинах и три шапки кроны. */
-function birchParts(c: Cover, parts: K.Part[], season: Season): void {
-  const s = c.s;
-  parts.push(K.cyl(BIRCH.trunkR * s * 0.65, BIRCH.trunkR * s, BIRCH.trunkH * s, tint(BIRCH_BARK), 6, c.x, (BIRCH.trunkH * s) / 2, c.z, undefined, K.GROUND_AO));
-  for (let k = 0; k < 4; k++) {
-    const a = c.yaw + k * 1.7;
-    const y = (0.25 + k * 0.28) * s;
-    // Отметины на коре — заподлицо: чуть выступают из ствола, но не за его круг попадания.
-    const r = BIRCH.trunkR * s * (1 - (y / (BIRCH.trunkH * s)) * 0.35) - 0.008 * s;
-    parts.push(K.box(0.02 * s, 0.025 * s, 0.06 * s, tint(BIRCH_MARK), c.x + Math.cos(a) * r, y, c.z + Math.sin(a) * r, { y: -a }));
-  }
-  const cos = Math.cos(c.yaw);
-  const sin = Math.sin(c.yaw);
-  const leaf = tint(BIRCH_LEAF[season]);
-  for (const k of BIRCH.crowns) {
-    const g = new THREE.IcosahedronGeometry(k.r * s, 0);
-    parts.push(K.place(g, leaf, c.x + (k.x * cos + k.z * sin) * s, k.y * s, c.z + (-k.x * sin + k.z * cos) * s, { y: c.yaw + k.x }));
-  }
-}
-
-/** Куст: три приплюснутые шапки внутри эллипсоида попадания. */
-function bushParts(c: Cover, parts: K.Part[], season: Season): void {
-  const s = c.s;
-  const leaf = tint(BUSH_LEAF[season]);
-  const ao = { base: [0.62, 0.66, 0.74] as [number, number, number], y0: 0, y1: BUSH.ry * 2 * s };
-  for (let k = 0; k < 3; k++) {
-    const a = c.yaw + k * 2.1;
-    const off = k === 0 ? 0 : BUSH.rx * s * 0.38;
-    const rr = BUSH.rx * s * (k === 0 ? 0.68 : 0.55);
-    const g = new THREE.IcosahedronGeometry(rr, 1);
-    g.scale(1, (BUSH.ry / BUSH.rx) * 1.15, 1);
-    parts.push(K.place(g, leaf, c.x + Math.cos(a) * off, BUSH.y * s * (k === 0 ? 1 : 0.85), c.z + Math.sin(a) * off, { y: a }, ao));
-  }
-}
-
-/** Все укрытия поля — одним мешем; пятна тени под ними — в общую тень поляны. */
-export function coverMesh(cover: readonly Cover[], season: Season, shade: Shade): THREE.Mesh {
-  const parts: K.Part[] = [];
-  cover.forEach((c, n) => {
-    if (c.kind === 'spruce') spruceParts(c, parts, n);
-    else if (c.kind === 'birch') birchParts(c, parts, season);
-    else bushParts(c, parts, season);
+  add(scatter(sp.bark, mats.of('bark'), by('spruce').map(spot), 'spruce-bark', true));
+  add(scatter(sp.crown, mats.of('needle'), by('spruce').map(spot), 'spruce-crown', true));
+  add(scatter(bi.bark, mats.of('bark'), by('birch').map((c) => ({ ...spot(c, 1), tint: 0xffffff })), 'birch-bark', true));
+  add(scatter(bi.crown, mats.of('leaf'), by('birch').map(spot), 'birch-crown', true));
+  add(scatter(bushCover(detail, season), mats.of('leaf'), by('bush').map(spot), 'bushes', true));
+  cover.forEach((c) => {
     const r = c.kind === 'spruce' ? SPRUCE.tiers[0].r * c.s * 0.85 : c.kind === 'birch' ? 0.5 * c.s : BUSH.rx * c.s * 1.1;
     shade.add(c.x, c.z, r, r, c.yaw);
   });
-  const m = K.assemble(parts);
-  m.name = 'cover';
-  return m;
-}
-
-/**
- * Стена леса вокруг поля: два ряда елей и тёмная гребёнка за ними. Тени ей не положено (за коробкой теней), донец у
- * конусов нет — снизу их не видно. Ряды редкие нарочно: дальше тридцати метров ель — силуэт, и гуще его делает
- * гребёнка, а не треугольники.
- */
-export function forestWall(): THREE.Mesh {
-  const parts: K.Part[] = [];
-  let n = 0;
-  for (const [r0, step] of [
-    [WALL_FROM, 3.4],
-    [WALL_FROM + 5, 3.8],
-  ] as const) {
-    const count = Math.round((Math.PI * 2 * r0) / step);
-    for (let i = 0; i < count; i++) {
-      const a = ((i + hash(r0, i * 7) * 0.8) / count) * Math.PI * 2;
-      const rr = r0 + (hash(i * 3, r0) - 0.5) * 2;
-      const x = Math.cos(a) * rr;
-      const z = Math.sin(a) * rr;
-      const s = 2.6 + hash(i * 5, r0 * 9) * 1.6;
-      const needles = tint(NEEDLES[n++ % NEEDLES.length]);
-      parts.push(tier(0.75 * s, 0.4 * s, 2.1 * s, needles, x, z, 6));
-      parts.push(tier(0.5 * s, 1.5 * s, 3.1 * s, needles, x, z, 6));
-    }
-  }
-  // Гребёнка: зубцы разной высоты по кругу — дальний ельник, которому хватает силуэта.
-  const teeth = 200;
-  const pos: number[] = [];
-  for (let i = 0; i < teeth; i++) {
-    const a0 = (i / teeth) * Math.PI * 2;
-    const a1 = ((i + 1) / teeth) * Math.PI * 2;
-    const am = (a0 + a1) / 2;
-    const h = 9 + hash(i, 77) * 7;
-    const low = 0;
-    const p0 = [Math.cos(a0) * BAND_R, low, Math.sin(a0) * BAND_R];
-    const p1 = [Math.cos(a1) * BAND_R, low, Math.sin(a1) * BAND_R];
-    const pt = [Math.cos(am) * BAND_R, h, Math.sin(am) * BAND_R];
-    const sh = h * 0.55;
-    const q0 = [Math.cos(a0) * BAND_R, sh, Math.sin(a0) * BAND_R];
-    const q1 = [Math.cos(a1) * BAND_R, sh, Math.sin(a1) * BAND_R];
-    // Изнутри поля: обход такой, что лицо треугольника смотрит к середине.
-    pos.push(...p0, ...p1, ...q1, ...p0, ...q1, ...q0, ...q0, ...q1, ...pt);
-  }
-  const band = new THREE.BufferGeometry();
-  band.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  band.computeVertexNormals();
-  parts.push({ geo: band, paint: tint(0x253f2b) });
-  const m = K.assemble(parts);
-  m.name = 'wall';
-  m.castShadow = false;
-  return m;
+  return g;
 }
 
 /**

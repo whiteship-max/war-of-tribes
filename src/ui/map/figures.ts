@@ -28,6 +28,7 @@ import type { FigureView } from '@/world/types';
 import { type Camera, type Viewport, toScreen } from './grid';
 import { agentUnit, drawAgent, dropAgents, fanOffsets } from './agent';
 import { drawHeading, drawParty, lookOf as partyLook, partyMen } from './party';
+import { CANVAS_SANS } from '@/ui/fonts/canvas';
 
 /** Цвет фигуры — тот же, что у своего поселения: это всё «своё». */
 const OWN = RELATION_META.self.color;
@@ -89,7 +90,7 @@ function drawRoute(
   ctx.restore();
 
   const left = realLeft(secondsLeft(f.arriveAt, now));
-  ctx.font = '11px system-ui, sans-serif';
+  ctx.font = `12px ${CANVAS_SANS}`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'bottom';
   ctx.lineWidth = 3;

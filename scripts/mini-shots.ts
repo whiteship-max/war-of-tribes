@@ -107,6 +107,24 @@ const click = (selector: string): string =>
 const press = (text: string): string =>
   `(() => { const e = [...document.querySelectorAll('button')].find((b) => b.textContent.trim() === ${JSON.stringify(text)} && !b.disabled); if (!e) return JSON.stringify('нет кнопки ' + ${JSON.stringify(text)}); e.click(); return JSON.stringify('ok'); })()`;
 
+/**
+ * Войти в партию. Страница посреди входа может перезагрузиться сама — dev-сервер дособрал зависимости и перезагрузил
+ * её, — и Chrome отвечает на вычисление «Promise was collected»: так стенд обрывался сразу после паузы остывания
+ * (docs/minigames.md, 18.6; причина найдена в П-4). Тогда — дождаться игры заново и войти ещё раз.
+ */
+async function enter(tab: Tab): Promise<string> {
+  for (let i = 0; ; i++) {
+    try {
+      return await tab.eval<string>(ENTER_GAME);
+    } catch (e) {
+      if (i >= 3 || !/collected/i.test((e as Error).message)) throw e;
+      console.log('  страница перезагрузилась посреди входа — вхожу заново');
+      await sleep(1500);
+      await waitFor(tab, 'window.__game', 60000);
+    }
+  }
+}
+
 async function waitFor(tab: Tab, expr: string, ms: number): Promise<boolean> {
   for (let t = 0; t < ms; t += 250) {
     if (await tab.eval<boolean>(`JSON.stringify(!!(${expr}))`).catch(() => false)) return true;
@@ -481,13 +499,17 @@ async function budget(): Promise<void> {
     ['fish', 'river'],
     ['fish', 'sea'],
   ] as const) {
-    for (const shadows of [true, false]) {
-      const c = budgetOf(id, shadows, shore);
-      const lim = MINI_BUDGET;
-      console.log(
-        `  ${(id === 'fish' ? `fish-${shore}` : id).padEnd(10)} тени ${shadows ? 'да ' : 'нет'}: вызовов ${c.calls + c.shadowCalls} (сцена ${c.calls}, тени ${c.shadowCalls}; ≤ ${lim.calls}), ` +
-          `треугольников ${Math.round(c.triangles + c.shadowTriangles)} (сцена ${Math.round(c.triangles)}, тени ${Math.round(c.shadowTriangles)}; ≤ ${lim.triangles})`,
-      );
+    // По ступени (docs/polish.md, П-4): лепка и тень — те, с которыми сцена встаёт на этой ступени.
+    // Погода — поверх (`stage.loadPrecip`): под дождём и снегом — осадки ступени и без прохода теней (`stage.castsShadow`).
+    for (const tier of ['full', 'lite', 'base'] as const) {
+      for (const wx of [null, 'rain', 'snow'] as const) {
+        const c = budgetOf(id, tier, shore, wx);
+        const lim = MINI_BUDGET[tier];
+        console.log(
+          `  ${(id === 'fish' ? `fish-${shore}` : id).padEnd(10)} ${tier.padEnd(4)} ${(wx ?? 'ясно').padEnd(5)}: вызовов ${c.calls + c.shadowCalls} (сцена ${c.calls}, тени ${c.shadowCalls}; ≤ ${lim.calls}), ` +
+            `треугольников ${Math.round(c.triangles + c.shadowTriangles)} (сцена ${Math.round(c.triangles)}, тени ${Math.round(c.shadowTriangles)}; ≤ ${lim.triangles})`,
+        );
+      }
     }
   }
 }
@@ -600,7 +622,7 @@ async function main(): Promise<void> {
           console.log('  игра не поднялась за 60 с');
           return;
         }
-        console.log(`  ${await tab.eval<string>(ENTER_GAME)}`);
+        console.log(`  ${await enter(tab)}`);
         // Обучение и вести сняты: их строка и окна — не вид промыслов. Сезон — сдвигом времени партии.
         await tab.eval<string>(`(() => {
           const g = window.__game.getState();

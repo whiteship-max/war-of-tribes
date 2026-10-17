@@ -87,20 +87,32 @@ export function setSoundOn(on: boolean): void {
   for (const listener of listeners) listener();
 }
 
-// ---------- Громкость: музыка и звуки ----------
+// ---------- Громкость: музыка, эффекты, окружение ----------
 //
-// Две громкости, а не два рычага (docs/audio.md, решение 3). Рычаг по-прежнему один — `soundOn`: выключен — молчит всё и
-// не открывается ничего. Громкость лишь делит то, что звучит, на два рода: **музыка** (музыка эпохи в городе и на карте,
-// музыка боя) и **звуки** (фон города и карты, касания, тревога, звуки боя, промыслов и вой). Это то самое «появятся
-// звуки другого рода — тогда и разделим», которое справочник оставил на потом (docs/handbook/music.md).
+// Три громкости, а не три рычага (docs/audio.md, решение 3; docs/polish.md, П-3). Рычаг по-прежнему один — `soundOn`:
+// выключен — молчит всё и не открывается ничего. Громкость лишь делит то, что звучит, на три рода: **музыка** (музыка
+// эпохи в городе и на карте, музыка боя), **эффекты** (касания, стройка, тревога, звуки боя, промыслов и вой) и
+// **окружение** (фон города, карты и поляны: ветер, гул, рынок, птицы, море, дождь и гром). Это то самое «появятся звуки
+// другого рода — тогда и разделим», которое справочник оставил на потом (docs/handbook/music.md).
 
 /** Род звука: на каждый — своя громкость. */
-export type SoundKind = 'music' | 'fx';
+export type SoundKind = 'music' | 'fx' | 'amb';
 
-/** Умолчания — негромко: фон и музыка под игру, а не вместо неё. */
-export const SOUND_LEVEL_DEFAULT: Record<SoundKind, number> = { music: 0.6, fx: 0.8 };
+export const SOUND_KINDS: readonly SoundKind[] = ['music', 'fx', 'amb'];
 
-const LEVEL_KEY: Record<SoundKind, string> = { music: 'tribe.sound.music', fx: 'tribe.sound.fx' };
+/**
+ * Умолчания — положение полосы, а не сила: фон и музыка под игру, а не вместо неё (П-3: тише прежнего — на выходе
+ * музыка −10.4 дБ против −4.4, эффекты −6.2 против −1.9; уровни родов меряет `npm run audio:samples`).
+ */
+export const SOUND_LEVEL_DEFAULT: Record<SoundKind, number> = { music: 0.55, fx: 0.7, amb: 0.6 };
+
+/**
+ * Сила звука по положению полосы — квадрат: ухо слышит громкость в децибелах, и прямая полоса отдавала бы всю тишину
+ * последней десятой хода (половина хода — −12 дБ, десятая — −40 дБ).
+ */
+export const levelGain = (v: number): number => (v <= 0 ? 0 : Math.min(1, v) ** 2);
+
+const LEVEL_KEY: Record<SoundKind, string> = { music: 'tribe.sound.music', fx: 'tribe.sound.fx', amb: 'tribe.sound.amb' };
 
 /** Хранилище громкостей. Подменяется в тестах. */
 export interface LevelStorage {
@@ -132,12 +144,35 @@ export function setLevelStorage(next: LevelStorage): void {
   levels = next;
 }
 
-/** Громкость рода, 0..1. Испорченная запись — умолчание, а не тишина. */
-export function soundLevel(kind: SoundKind): number {
-  const saved = levels.read(LEVEL_KEY[kind]);
+const readLevel = (key: string): number => {
+  const saved = levels.read(key);
   const v = saved === null ? NaN : Number(saved);
-  return Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : SOUND_LEVEL_DEFAULT[kind];
+  return Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : NaN;
+};
+
+/**
+ * Положение полосы рода, 0..1. Испорченная запись — умолчание, а не тишина. Окружения прежде не было — фон шёл со
+ * «звуками»: кто их убавил, у того и фон остаётся убавленным, пока он не тронет свою полосу.
+ */
+export function soundLevel(kind: SoundKind): number {
+  const v = readLevel(LEVEL_KEY[kind]);
+  if (Number.isFinite(v)) return v;
+  if (kind === 'amb') {
+    const was = readLevel(LEVEL_KEY.fx);
+    if (Number.isFinite(was)) return was;
+  }
+  return SOUND_LEVEL_DEFAULT[kind];
 }
+
+/** Сила рода на выходе (`levelGain` от полосы). */
+export const soundGain = (kind: SoundKind): number => levelGain(soundLevel(kind));
+
+/** Силы родов при умолчаниях — офлайн-стенду (`npm run audio:samples`): он меряет то, что слышит новый игрок. */
+export const DEFAULT_GAINS: Record<SoundKind, number> = {
+  music: levelGain(SOUND_LEVEL_DEFAULT.music),
+  fx: levelGain(SOUND_LEVEL_DEFAULT.fx),
+  amb: levelGain(SOUND_LEVEL_DEFAULT.amb),
+};
 
 /** Записать громкость рода. Пишет её тот же раздел настроек, что и рычаг. */
 export function setSoundLevel(kind: SoundKind, value: number): void {

@@ -5,14 +5,16 @@
 // На общем виде знамя — главное, по чему отряд читается, поэтому оно крупнее жизни и растёт с расстоянием камеры
 // (как значок отряда в Total War), а полотнище всегда повёрнуто к камере.
 //
-// Полотнище цвета стороны, на нём герб стороны (`heraldry.ts`: наша башня, топоры разбойников) — шейдером, без
-// текстуры; под гербом, у хвоста, малый знак рода той же краской: копья — столб, пехота — андреевский крест, лучники —
-// шеврон, конница — пояс, латные — крест, ополчение — круг. У стяга полководца — герб без знака и золотая кайма.
+// Полотнище цвета стороны, на нём щит герба стороны (`heraldry.ts`: герб державы игрока, соседа, логова, разбойников) —
+// одной текстурой на обе стороны (`coatsTexture`, П-2); под гербом, у хвоста, малый знак рода краской стороны: копья —
+// столб, пехота — андреевский крест, лучники — шеврон, конница — пояс, латные — крест, ополчение — круг. У стяга полководца — герб без знака и золотая кайма.
 import * as THREE from 'three';
 import type { UnitKind } from '@/battle/types';
 import { PALETTE } from '../palette';
 import { SIDE_CLOTH } from './crowd';
-import { CHARGE_DARK, CHARGE_LIGHT, COAT_GLSL, COAT_INDEX, type Coat } from './heraldry';
+import { CHARGE_DARK, CHARGE_LIGHT, COAT_BOX } from './heraldry';
+import { anyArms } from '@/heraldry/arms';
+import { ARMS_ASPECT, canPaintArms, paintArms } from '@/heraldry/paint';
 import { bearerOf, type FigureFrame, type Troupe, type TroupeUnit } from './troupe';
 
 /** Высота древка и размер полотнища, метры сцены: выше копий (копьё — 1.4 роста, `SPEAR_LEN`). */
@@ -27,6 +29,29 @@ const GROW_MAX = 2.0;
 /** Знак рода. */
 const EMBLEM: Record<UnitKind, number> = { spear: 0, infantry: 1, archer: 2, cavalry: 3, heavy: 4 };
 const FOLK_EMBLEM = 5;
+
+/** Клетка текстуры гербов: ширина щита с полями, высота — по пропорции щита. */
+const CELL_W = 128;
+const CELL_H = Math.ceil(CELL_W * ARMS_ASPECT);
+
+/**
+ * Текстура гербов: наша клетка слева (`u` 0…0.5), их — справа. Без холста (тест в узле) — `null`: полотнище без герба,
+ * знак рода и цвет стороны остаются.
+ */
+export function coatsTexture(coats: { ours: string; theirs: string }): THREE.CanvasTexture | null {
+  if (typeof document === 'undefined' || !canPaintArms()) return null;
+  const c = document.createElement('canvas');
+  c.width = CELL_W * 2;
+  c.height = CELL_H;
+  const ctx = c.getContext('2d');
+  if (!ctx) return null;
+  paintArms(ctx, anyArms(coats.ours), 0, 0, CELL_W);
+  paintArms(ctx, anyArms(coats.theirs), CELL_W, 0, CELL_W);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 4;
+  return t;
+}
 
 /** Древко с перекладиной и навершием — одной геометрией с цветом в вершинах. */
 function kitGeometry(): THREE.BufferGeometry {
@@ -88,6 +113,8 @@ uniform vec3 uSide1;
 uniform vec3 uDark;
 uniform vec3 uLight;
 uniform vec3 uGold;
+uniform sampler2D uArms;
+uniform float uHasArms;
 varying vec2 vBanUv;
 varying vec4 vBan;
 float twEmblem(vec2 p, float id) {
@@ -105,16 +132,19 @@ const CLOTH_COLOR = /* glsl */ `
 vec2 twUv = vBanUv;
 // Ласточкин хвост внизу: полотнище читается знаменем, а не простынёй.
 if (twUv.y < 0.14 && abs(twUv.x - 0.5) < (0.14 - twUv.y) * 1.6) discard;
-// Сторона и герб — одним числом: сторона + 2 × герб (\`Banners\`).
-float twSide = mod(vBan.y, 2.0);
-float twCoatId = floor(vBan.y / 2.0);
+float twSide = vBan.y;
 vec3 twBase = mix(uSide0, uSide1, twSide);
 vec3 twInk = mix(uDark, uLight, twSide);
-// Герб — крупно, в верхних двух третях; знак рода — мал, у хвоста; у стяга полководца знака нет.
-float twArms = twCoat(vec2((twUv.x - 0.17) / 0.66, (twUv.y - 0.37) / 0.56), twCoatId);
+// Знак рода — мал, у хвоста; у стяга полководца знака нет.
 vec2 twKq = vec2((twUv.x - 0.37) / 0.26, (twUv.y - 0.15) / 0.21);
 float twKind = vBan.w > 0.5 || twKq.x < 0.0 || twKq.x > 1.0 || twKq.y < 0.0 || twKq.y > 1.0 ? 0.0 : twEmblem(twKq, vBan.x);
-vec3 twC = mix(twBase, twInk, max(twArms, twKind * 0.8));
+vec3 twC = mix(twBase, twInk, twKind * 0.8);
+// Щит герба — крупно, в верхних двух третях: своя клетка текстуры (наша слева, их справа), краски как есть.
+vec2 twAq = vec2((twUv.x - ${COAT_BOX.x0.toFixed(4)}) / ${COAT_BOX.w.toFixed(4)}, (twUv.y - ${COAT_BOX.y0.toFixed(4)}) / ${COAT_BOX.h.toFixed(4)});
+if (uHasArms > 0.5 && twAq.x >= 0.0 && twAq.x <= 1.0 && twAq.y >= 0.0 && twAq.y <= 1.0) {
+  vec4 twA = texture2D(uArms, vec2((twAq.x + twSide) * 0.5, twAq.y));
+  twC = mix(twC, twA.rgb, twA.a);
+}
 // Кайма: у стяга полководца — золотая и шире.
 float twEdge = min(min(twUv.x, 1.0 - twUv.x), 1.0 - twUv.y);
 twC = mix(twC, vBan.w > 0.5 ? uGold : twBase * 0.62, step(twEdge, vBan.w > 0.5 ? 0.09 : 0.035));
@@ -129,6 +159,7 @@ export class Banners {
   private units: TroupeUnit[];
   private bearer: Int32Array;
   private time = { value: 0 };
+  private arms: THREE.CanvasTexture | null;
   private m = new THREE.Matrix4();
   private q = new THREE.Quaternion();
   private e = new THREE.Euler();
@@ -137,7 +168,7 @@ export class Banners {
 
   constructor(
     private plan: Troupe,
-    coats: { ours: Coat; theirs: Coat },
+    coats: { ours: string; theirs: string },
   ) {
     this.group.name = 'tw-banners';
     this.units = plan.units.filter((u) => u.banner !== null);
@@ -153,6 +184,8 @@ export class Banners {
     const clothMat = new THREE.MeshLambertMaterial({ color: 0xffffff, side: THREE.DoubleSide });
     clothMat.name = 'tw-banner-cloth';
     const time = this.time;
+    const arms = coatsTexture(coats);
+    this.arms = arms;
     clothMat.onBeforeCompile = (sh) => {
       sh.uniforms.uTime = time;
       sh.uniforms.uSide0 = { value: new THREE.Color(SIDE_CLOTH.ours) };
@@ -161,8 +194,10 @@ export class Banners {
       sh.uniforms.uLight = { value: new THREE.Color(CHARGE_LIGHT) };
       // Бахрома и навершие — светлое золото: на золотом полотнище своих (`side.ts`) тёмное золото пропало бы.
       sh.uniforms.uGold = { value: new THREE.Color(0xf0dfa8) };
+      sh.uniforms.uArms = { value: arms };
+      sh.uniforms.uHasArms = { value: arms ? 1 : 0 };
       sh.vertexShader = CLOTH_VERT + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n' + CLOTH_WAVE);
-      sh.fragmentShader = CLOTH_FRAG + COAT_GLSL + sh.fragmentShader.replace('#include <color_fragment>', '#include <color_fragment>\n' + CLOTH_COLOR);
+      sh.fragmentShader = CLOTH_FRAG + sh.fragmentShader.replace('#include <color_fragment>', '#include <color_fragment>\n' + CLOTH_COLOR);
     };
     clothMat.customProgramCacheKey = () => 'tw-banner-cloth';
     const clothGeo = clothGeometry();
@@ -170,8 +205,7 @@ export class Banners {
     clothGeo.setAttribute('aBan', this.ban);
     this.units.forEach((u, k) => {
       const emblem = u.face === 'militia' ? FOLK_EMBLEM : EMBLEM[u.kind];
-      const coat = COAT_INDEX[u.ours ? coats.ours : coats.theirs];
-      this.ban.setXYZW(k, emblem, (u.ours ? 0 : 1) + 2 * coat, (u.id * 1.618) % 6.283, u.banner === 'standard' ? 1 : 0);
+      this.ban.setXYZW(k, emblem, u.ours ? 0 : 1, (u.id * 1.618) % 6.283, u.banner === 'standard' ? 1 : 0);
     });
     this.cloth = new THREE.InstancedMesh(clothGeo, clothMat, n);
     this.cloth.name = 'tw-banner-cloth';
@@ -217,6 +251,7 @@ export class Banners {
     this.kit.dispose();
     this.cloth.geometry.dispose();
     (this.cloth.material as THREE.Material).dispose();
+    this.arms?.dispose();
     this.cloth.dispose();
   }
 }

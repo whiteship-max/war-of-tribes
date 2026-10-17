@@ -39,6 +39,7 @@ import { gemSeen } from '@/game/sim/gems';
 import { deviceNow, leadAt } from './clock';
 import { power } from '@/profile/power';
 import { cityName, profileName } from '@/profile/identity';
+import { readArms } from '@/heraldry/arms';
 import { browserStorage } from '@/world/local/state';
 import { device } from './session';
 import { warSheet } from './war';
@@ -177,6 +178,8 @@ export function snapshotOf(s: GameState): SaveRecord {
 export function claimOf(s: GameState): CastleClaim {
   const card = cardOf(s);
   // Имя города едет очищенным, а не названное — пустой строкой: «Безымянный город» соседи
-  // подставят сами тем же умолчанием, и в реестре не лягут тысячи одинаковых имён.
-  return { name: card.name, city: cityName(s.profile.city) ?? '', power: card.power, pop: card.pop };
+  // подставят сами тем же умолчанием, и в реестре не лягут тысячи одинаковых имён. Герб — так же: только собранный
+  // игроком и прошедший набор (`readArms`, та же проверка, что у сервера); не собирал — поля нет, соседи покажут башню.
+  const arms = readArms(s.profile.arms) ? (s.profile.arms as string) : null;
+  return { name: card.name, city: cityName(s.profile.city) ?? '', ...(arms ? { arms } : {}), power: card.power, pop: card.pop };
 }

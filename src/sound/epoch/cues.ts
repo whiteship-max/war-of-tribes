@@ -10,7 +10,7 @@ export type Cue = 'tap' | 'built' | 'alarm';
  * Уровни: касание едва слышно, рог — заметно громче фона, но не пугает. Выставлены офлайн-отрисовкой (образец `ui`,
  * docs/audio.md, раздел 6): при 0.32 второй зов рога вставал на 16 дБ над фоном.
  */
-export const UI_MIX = { tap: 0.35, built: 0.22, alarm: 0.14 } as const;
+export const UI_MIX = { tap: 0.3, built: 0.18, alarm: 0.09 } as const;
 
 /** Сыграть звук интерфейса в `at`. */
 export function playCue(kit: Kit, out: AudioNode, name: Cue, at: number): void {

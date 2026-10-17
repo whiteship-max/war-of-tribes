@@ -6,7 +6,7 @@
 // задним числом.
 import { describe, expect, it } from 'vitest';
 import { MODES, PAUSE_MAX, PAUSE_MIN, compose, midiOf, pauseAfter, type Piece } from './compose';
-import { BELL_HOURS, LAYERS, bellBetween, mixOf, morning, muffleOf, night, workday, type Hearing } from './ambience';
+import { BELL_HOURS, LAYERS, RAIN_MIX, bellBetween, mixOf, morning, muffleOf, night, rainLayers, workday, type Hearing } from './ambience';
 import { seeded } from './rng';
 
 const SEEDS = Array.from({ length: 60 }, (_, i) => i * 7919 + 13);
@@ -217,6 +217,35 @@ describe('фон города: слои от того, что видит игр�
               expect(m[l], `${view} ${season} ${solar} ${near} ${l}`).toBeLessThanOrEqual(1);
             }
           }
+  });
+});
+
+describe('дождь слоями по силе (П-3)', () => {
+  it('морось — шелест верхов без гула; ливень — гул, морось в нём тонет; дробь и капли — у улиц', () => {
+    // Область правила — сила 0..1: точки 0.2 (морось), 0.6, 1 (ливень) и 0 (сухо) — внутри неё.
+    const dry = rainLayers(0, 1);
+    const light = rainLayers(0.2, 1);
+    const heavy = rainLayers(1, 1);
+    expect(Object.values(dry).every((v) => v === 0), 'сухо — тишина').toBe(true);
+    expect(light.drizzle, 'морось шелестит').toBeGreaterThan(0.9);
+    expect(light.heavy, 'в морось гула нет').toBe(0);
+    expect(heavy.heavy, 'в ливень гул в полную силу').toBe(1);
+    expect(heavy.drizzle, 'в ливне морось тонет').toBeLessThan(light.drizzle * 0.5);
+    expect(heavy.drips, 'капли с карнизов в ливне не слышны').toBeLessThan(light.drips * 0.5);
+    // Камера над картой (близость 0): дроби по кровлям и капель с карнизов почти нет.
+    expect(rainLayers(0.6, 0).patter).toBeLessThan(rainLayers(0.6, 1).patter * 0.3);
+    expect(rainLayers(0.2, 0).drips).toBeLessThan(rainLayers(0.2, 1).drips * 0.3);
+  });
+
+  it('громче с силой ровно: сила звука слоёв не убывает от мороси к ливню', () => {
+    let prev = -1;
+    for (let k = 0; k <= 20; k++) {
+      const r = k / 20;
+      const l = rainLayers(r, 0.5);
+      const power = (l.drizzle * RAIN_MIX.drizzle) ** 2 + (l.steady * RAIN_MIX.steady) ** 2 + (l.heavy * RAIN_MIX.heavy) ** 2 + (l.patter * RAIN_MIX.patter) ** 2;
+      expect(power, `сила ${r}`).toBeGreaterThanOrEqual(prev);
+      prev = power;
+    }
   });
 });
 

@@ -11,6 +11,10 @@ import { twPlanOfRecord } from './record';
 import { TwPlayer, type TwPlayerOptions } from './player';
 import type { TwOpening } from './site';
 import type { SideCoats } from '../reel/heraldry';
+import type { TwPlan } from './plan';
+import { loadTown } from './townload';
+import type { CityShare } from '../city/index';
+import type { TownBackdrop } from '../city/backdrop';
 
 export { hudAt, type TwHud } from '../reel/hud';
 export { CueClock, ambienceAt, cuesOf } from './cues';
@@ -39,9 +43,18 @@ export interface TwRecord {
  * Поставить ролик на рендерер. Ввод камеры вешается на `touch` — свой слой поверх холста, а не сам холст: на холсте
  * сидит ввод сцены, и ведение пальцем в ролике двигало бы спрятанную камеру города.
  */
-export function playTw(renderer: THREE.WebGLRenderer, rec: TwRecord, quality: Quality, touch: HTMLElement, opts: TwPlayerOptions): TwPlayer {
+export async function playTw(renderer: THREE.WebGLRenderer, rec: TwRecord, quality: Quality, touch: HTMLElement, opts: TwPlayerOptions & { share?: CityShare | null }): Promise<TwPlayer> {
   const plan = twPlanOfRecord(rec.result, rec.us, rec.troops, quality, rec.militia, rec.place, rec.beasts, rec.site, rec.breach, rec.openings, rec.coats);
-  const player = new TwPlayer(renderer, plan, TW_SPEC[quality], opts);
+  // За стеной — настоящий город (П-6): тот же, что в окне города; ролик ждёт его сборки.
+  const town = await twTown(plan, quality, opts.share ?? null);
+  const player = new TwPlayer(renderer, plan, TW_SPEC[quality], { ...opts, town });
   player.cam.attach(touch);
   return player;
+}
+
+/** Город за стеной места боя (стена, ворота, вылазка, лагерь); поле и логово — ничего. */
+export async function twTown(plan: TwPlan, quality: Quality, share: CityShare | null): Promise<TownBackdrop | null> {
+  const site = plan.site;
+  if (!site?.wall || !site.town) return null;
+  return loadTown(site.wall, site.town, quality, share, plan.field.winter);
 }

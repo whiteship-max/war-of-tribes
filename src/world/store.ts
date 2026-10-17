@@ -25,6 +25,7 @@ import { exploredReach, inSight, type Reach, type SightDisc } from './fog';
 import { CAMERA_LEASH, REACH_MAX } from './data/tuning';
 import { homeSight } from './sight';
 import { freshSeed } from '@/game/sim/random';
+import { readArms } from '@/heraldry/arms';
 import { cityName, NOTICE_LIMITS, type NoticeItem } from '../../netlify/lib/contract';
 import { marchPosition } from './geo';
 import {
@@ -131,6 +132,8 @@ const worldCastles = (): PlayerCastle[] =>
     name: c.name,
     // Строка реестра — чужие руки: имя города очищается ещё раз на входе в мир.
     ...(cityName(c.city) ? { city: cityName(c.city) as string } : {}),
+    // Герб — так же: только из набора (`readArms`), чужая строка сырой в мир не входит.
+    ...(readArms(c.arms) ? { arms: c.arms as string } : {}),
     power: c.power,
     pop: c.pop,
     seenAt: c.seenAt,

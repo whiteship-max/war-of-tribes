@@ -1170,7 +1170,7 @@ describe('доли древесины: смена посреди осады, и 
   }, 120_000);
 
   it('окна осады своей арифметики не держат: зовут расчёт мира и только его', () => {
-    for (const where of ['src/ui/panels/SiegePanel.tsx', 'src/ui/panels/CampPanel.tsx', 'src/ui/SiegeBanner.tsx']) {
+    for (const where of ['src/ui/panels/SiegePanel.tsx', 'src/ui/panels/CampPanel.tsx', 'src/ui/warSigns.ts', 'src/ui/next/WarSigns.tsx']) {
       const code = readFileSync(path.join(process.cwd(), where), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
       expect(code, `${where}: арифметика прохода`).not.toMatch(/\b(sideWorks|campPass|passKinds|throughWorks|gateFree|gateRoom|passPerMan)\(/);
       expect(code, `${where}: арифметика голода и участи`).not.toMatch(/\b(starvesAt|consumptionPerHour|plunder|fate|lead)\(/);

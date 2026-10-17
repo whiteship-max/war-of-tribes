@@ -14,7 +14,9 @@ import { cityAudio } from '@/sound/city';
  * прочитан. Потом она сворачивается в значок, и тап открывает подсказку — текст, срок и «К делу ›».
  */
 export function Alerts() {
-  const items = useAlertItems();
+  const all = useAlertItems();
+  // Тревоги войны — набеги — стоят значками справа снизу (`WarSigns`, П-7): ряд под верхом их не повторяет.
+  const items = all.filter((a) => !a.war);
   const mapOpen = useGame((g) => g.mapOpen);
   const closeMap = useGame((g) => g.closeMap);
   // Дела тревог живут в городе: вести, здания, справки. С карты тревога сначала возвращает в город — иначе
@@ -37,12 +39,13 @@ export function Alerts() {
   // Рог — когда встала новая беда по сроку (красное кольцо): набег, мятеж. Те, что были при входе, не трубят — о них
   // игрок узнаёт с экрана, а не с первого касания; заметки (охра) молчат вовсе (docs/audio.md, раздел 7).
   const urgent = useRef<Set<string> | null>(null);
+  // Рог слушает весь список, и набеги тоже: их значок стоит в другом столбце, а беда та же.
   useEffect(() => {
-    const keys = new Set(items.filter((a) => a.urgent).map((a) => a.key));
+    const keys = new Set(all.filter((a) => a.urgent).map((a) => a.key));
     const was = urgent.current;
     urgent.current = keys;
     if (was && [...keys].some((k) => !was.has(k))) cityAudio.cue('alarm');
-  }, [items]);
+  }, [all]);
   if (items.length === 0) return null;
 
   const open = (a: AlertItem, el: Element): void =>

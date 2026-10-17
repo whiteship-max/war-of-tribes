@@ -1,7 +1,5 @@
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { AVATARS } from '@/data/avatars';
+import { DEFAULT_ARMS, armsBone, armsCode, randomArms } from '@/heraldry/arms';
 import { createInitialState, SAVE_VERSION } from '@/game/state';
 import { MIN_SAVE_VERSION, deserialize, enter, serialize } from '@/game/save';
 import { tick } from '@/game/sim/tick';
@@ -9,14 +7,14 @@ import { startUpgrade } from '@/game/sim/actions';
 import { applyExpedition } from '@/game/sim/expedition';
 import { buildingOfType } from '@/game/derived';
 import { DAY_LENGTH } from '@/game/constants';
-import { DEFAULT_AVATAR, DEFAULT_NAME, faceSrc, profileName } from './identity';
+import { DEFAULT_NAME, profileArms, profileName } from './identity';
 import {
   PROFILE_DAYS,
   recordBattle,
   recordProduced,
   recordRaidLoss,
   refreshCard,
-  setAvatar,
+  setArms,
   setName,
   setTelegramIdentity,
 } from './stats';
@@ -156,8 +154,9 @@ describe('сейв профиля', () => {
     expect(p.card.battlesWon).toBe(3);
     expect(p.card.battlesLost).toBe(1);
 
-    expect(p.avatarId).toBeNull();
-    expect(p.card.avatarId).toBe(DEFAULT_AVATAR);
+    expect(p.arms).toBeUndefined();
+    expect(profileArms(p)).toEqual(DEFAULT_ARMS);
+    expect(p.card.arms).toBe(armsCode(DEFAULT_ARMS));
     expect(p.card.name).toBe(DEFAULT_NAME);
 
     // Приведение не проходит молча: о нём сказано в летописи. Строки ступеней ложатся в летопись при входе, после догона отлучки (`save.enter`); вход — сразу после записи.
@@ -170,13 +169,16 @@ describe('сейв профиля', () => {
   it('сейв текущей версии читается как есть, без записи о приведении', () => {
     const s = createInitialState();
     setName(s, 'Ольга');
-    setAvatar(s, '13_queen');
+    const arms = armsCode(randomArms(armsBone('Ольга')));
+    expect(setArms(s, arms)).toBeNull();
     recordProduced(s, 250);
     recordBattle(s, 'won');
     const back = deserialize(serialize(s))!;
 
     expect(back.profile.name).toBe('Ольга');
-    expect(back.profile.avatarId).toBe('13_queen');
+    expect(back.profile.arms).toBe(arms);
+    expect(armsCode(profileArms(back.profile))).toBe(arms);
+    expect(back.profile.card.arms).toBe(arms);
     expect(back.profile.totals.produced).toBe(250);
     expect(back.profile.card.battlesWon).toBe(1);
     enter(back, back.lastSaved);
@@ -273,21 +275,17 @@ describe('сбор статистики', () => {
   });
 });
 
-describe('имя и лицо', () => {
-  it('порядок источников: свой выбор, потом Telegram, потом умолчание', () => {
+describe('имя и герб', () => {
+  it('имя: свой выбор, потом Telegram, потом умолчание', () => {
     const s = createInitialState();
     expect(profileName(s.profile)).toBe(DEFAULT_NAME);
-    expect(faceSrc(s.profile)).toBe(AVATARS.find((a) => a.id === DEFAULT_AVATAR)!.face);
 
     setTelegramIdentity(s, 'Мария', 'https://t.me/i/userpic/320/x.jpg');
     expect(profileName(s.profile)).toBe('Мария');
-    expect(faceSrc(s.profile)).toBe('https://t.me/i/userpic/320/x.jpg');
 
-    // Переопределение приоритетнее Telegram — и имя, и лицо.
+    // Переопределение приоритетнее Telegram.
     expect(setName(s, '  Ярослава  ')).toBeNull();
-    expect(setAvatar(s, '18_duchess')).toBeNull();
     expect(profileName(s.profile)).toBe('Ярослава');
-    expect(faceSrc(s.profile)).toBe(AVATARS.find((a) => a.id === '18_duchess')!.face);
 
     // Отказ от своего имени возвращает телеграмное, а не пустую строку.
     setName(s, '   ');
@@ -301,27 +299,24 @@ describe('имя и лицо', () => {
     const s = createInitialState();
     setName(s, 'Всеволод');
     expect(s.profile.card.name).toBe('Всеволод');
-    setAvatar(s, '17_duke');
-    expect(s.profile.card.avatarId).toBe('17_duke');
+    const arms = 'french-quarterly-azure-or-lion-gules';
+    expect(setArms(s, arms)).toBeNull();
+    expect(s.profile.card.arms).toBe(arms);
     setTelegramIdentity(s, 'Пётр', null);
     expect(s.profile.card.name).toBe('Всеволод');
     setName(s, '');
     expect(s.profile.card.name).toBe('Пётр');
   });
 
-  it('экран выбора строится из набора, а не из прописанных карточек', () => {
-    // Двадцать четыре карточки руками — это двадцать четыре места, которые
-    // разъедутся с набором при первой же перегенерации листов.
-    const src = readFileSync(join(__dirname, '..', 'ui', 'parts', 'AvatarPicker.tsx'), 'utf8');
-    const named = AVATARS.filter((a) => src.includes(a.id)).map((a) => a.id);
-    expect(named).toEqual([]);
-    expect(src).toMatch(/AVATARS\.map/);
-  });
-
-  it('несуществующий аватар не принимается, а умолчание есть в наборе', () => {
+  it('герб новой и старой партии — прежняя башня; подделанный не принимается', () => {
     const s = createInitialState();
-    expect(setAvatar(s, '99_nobody' as (typeof AVATARS)[number]['id'])).not.toBeNull();
-    expect(s.profile.avatarId).toBeNull();
-    expect(AVATARS.some((a) => a.id === DEFAULT_AVATAR)).toBe(true);
+    expect(profileArms(s.profile)).toEqual(DEFAULT_ARMS);
+    for (const bad of ['heater-plain-or-or-dragon-sable', 'heater-plain-or-or-tower-argent', 'kite-plain-sable-sable-axes-argent', '']) {
+      expect(setArms(s, bad), bad).not.toBeNull();
+      expect(s.profile.arms).toBeUndefined();
+    }
+    // Строка, пришедшая в сохранении от чужой сборки, не читается — показывается герб по умолчанию.
+    const back = deserialize(serialize({ ...s, profile: { ...s.profile, arms: 'heater-plain-or-or-dragon-sable' } }))!;
+    expect(profileArms(back.profile)).toEqual(DEFAULT_ARMS);
   });
 });

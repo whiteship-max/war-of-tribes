@@ -110,7 +110,7 @@ export const ICON_GROUPS: readonly IconGroup[] = [
   { prefix: 'hud', ids: ['pop', 'army', 'map', 'order'], source: 'TopBar' },
   { prefix: 'mood', ids: ['good', 'mid', 'bad'], source: 'ступени морали в TopBar' },
   { prefix: 'day', ids: ['morning', 'evening', 'night'], source: 'время суток в TopBar' },
-  { prefix: 'alert', ids: ['starving', 'freezing', 'raid'], source: 'AlertBar' },
+  { prefix: 'alert', ids: ['starving', 'freezing', 'raid', 'siege'], source: 'тревоги: ряд под верхом и значки войны (П-7)' },
   {
     prefix: 'ui',
     ids: [

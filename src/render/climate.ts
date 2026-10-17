@@ -227,6 +227,25 @@ function mixAngle(a: number, b: number, k: number): number {
 }
 
 /**
+ * Погода, сдвинутая к цели на долю `k` (0..1): числа — прямой, ветер — по короткой дуге. Ею сцена переливает погоду
+ * кадра к погоде часов (docs/polish.md, П-3): скачок цели (адрес, регион, вход) наплывает, а не щёлкает.
+ */
+export function easeWeather(from: Weather, to: Weather, k: number): Weather {
+  if (k >= 1) return to;
+  if (k <= 0) return from;
+  const m = (a: number, b: number): number => a + (b - a) * k;
+  return {
+    cloud: m(from.cloud, to.cloud),
+    rain: m(from.rain, to.rain),
+    snow: m(from.snow, to.snow),
+    storm: m(from.storm, to.storm),
+    fog: m(from.fog, to.fog),
+    wind: m(from.wind, to.wind),
+    from: mixAngle(from.from, to.from, k),
+  };
+}
+
+/**
  * Погода региона `region` в миг `ms` общих часов (`serverNow`) при сезоне партии `season`; `solar` — фаза солнца партии
  * (туман — по утрам её суток).
  */

@@ -40,6 +40,7 @@
     "textures:build": "vite-node scripts/build-textures.ts",
     "icons:build": "vite-node scripts/build-icons.ts",
     "emoji:build": "node scripts/build-emoji.mjs",
+    "fonts:build": "python3 -I scripts/build-fonts.py",
     "world:build": "node scripts/build-world.mjs",
     "theatres:build": "vite-node scripts/build-theatres.ts",
     "map:shots": "vite-node scripts/map-shots.ts",

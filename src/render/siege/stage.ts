@@ -6,9 +6,9 @@ import { CITY } from '../city/palette';
 import { Builder, box, tint } from '../city/geom';
 import { log } from '../city/kit';
 import { fitShadow, type LightRig } from '../lighting';
-import { buildClouds, buildLiveSky, cloudShade, relight, setupFieldScene } from '../reel/light';
+import { buildClouds, buildLiveSky, cloudShade, nightOf, relight, setupFieldScene } from '../reel/light';
 import type { TwSpec } from '../reel/spec';
-import { Crowd, SHADOW_LAYER, lodDistance } from '../reel/crowd';
+import { Crowd, SHADOW_LAYER } from '../reel/crowd';
 import { Banners } from '../reel/banners';
 import { buildField, fogFor, type FieldView } from '../reel/land';
 import { overview, type CamBounds, type TacticalCamera } from '../reel/camera';
@@ -19,6 +19,11 @@ import { Siegeworks } from '../tw/siegeworks';
 import { siteBlocks, siteGround, standY, type TwSite } from '../tw/site';
 import { motionOf, solarAt, type SiegeReel } from './reel';
 import { poseAt, type TrackPose } from './tracks';
+import { BANDIT_ARMS, DEFAULT_ARMS, armsCode } from '@/heraldry/arms';
+import { frameOf, townLand } from '../tw/town';
+import type { TownBackdrop } from '../city/backdrop';
+import { LampRig, glowUniforms, lightScene, type WorldLamp } from '../glow/rig';
+import { CITY_M } from '../tw/site';
 
 const SUN_DIST = 160;
 const SHADOW_HALF = { min: 30, max: 110, perDist: 0.6 };
@@ -26,12 +31,7 @@ const SKY_SCALE = 7;
 /** Огонь факела и костра — тёплый, без света: лампа на сцене одна (docs/handbook/graphics.md). */
 const FLAME = 0xf6a347;
 
-/** Ночь на этой доле суток: 0 — день, 1 — глубокая ночь; в сумерках — между. */
-export function nightOf(solar: number): number {
-  if (solar > 0.5 && solar < 1) return Math.min(1, Math.sin(((solar - 0.5) / 0.5) * Math.PI) * 1.6);
-  const edge = Math.min(Math.abs(solar - 0.5), Math.abs(solar), Math.abs(solar - 1));
-  return Math.max(0, 0.6 - edge * 12);
-}
+export { nightOf } from '../reel/light';
 
 /** Кадр фигур ролика осады на секунде `t`. */
 export function poseSiege(reel: SiegeReel, t: number, out: FigureFrame, scratch: TrackPose): void {
@@ -95,6 +95,9 @@ export class SiegeStage {
   /** Огни, что светятся ночью: факелы на стене (`reel.torches`) и костры лагеря; `k` — величина. */
   private flames: { x: number; y: number; z: number; k: number }[] = [];
   private scaffolds: THREE.Mesh[] = [];
+  /** Свет ночи (docs/polish.md, П-9): костры лагеря, факелы стены, огни города за ней и огонь пожаров — настоящими огнями. */
+  private glow: LampRig;
+  private lampT = 0;
   private disposables: { dispose(): void }[] = [];
   private M = new THREE.Matrix4();
   private Q = new THREE.Quaternion();
@@ -104,9 +107,14 @@ export class SiegeStage {
   private D = new THREE.Vector3();
   private Z = new THREE.Vector3(0, 0, 1);
 
+  /**
+   * `town` — настоящий город за стеной (docs/polish.md, П-6, `city/backdrop.ts`): его дома, стены по кругу, лес и земля до
+   * горизонта; сцена его освобождает. Нет (логово, город не собрался) — дома ролика на его поле.
+   */
   constructor(
     readonly reel: SiegeReel,
     readonly spec: TwSpec,
+    readonly town: TownBackdrop | null = null,
   ) {
     const lay = reel.layout;
     const ground0 = { ...reel.show.ground, solar: reel.show.solar0 };
@@ -143,23 +151,27 @@ export class SiegeStage {
         },
         scar: null,
         cloud: cloudShade(ground0),
+        town: town && lay.wall && lay.town ? townLand(frameOf(lay.wall), lay.town.paint, lay.town.outside, town.cleared, town.road) : null,
       },
       spec,
     );
     this.scene.add(this.field.group);
-    this.fort = buildFort({ site, field: lay.field, seed: reel.show.seed, breach: reel.breach, quality: reel.quality, motion: motionOf(reel) });
+    this.fort = buildFort({ site, field: lay.field, seed: reel.show.seed, breach: reel.breach, quality: reel.quality, motion: motionOf(reel), town: town ? town.skin : null });
     this.scene.add(this.fort.group);
+    if (town) this.scene.add(town.group);
     if (lair) {
       const still = { ladderZ: () => 0, towerZ: () => 0, ram: () => ({ z: 0, swing: 0 }), gate: () => ({ open: 0, shake: 0 }) };
       this.lairFort = buildFort({ site: { ...site, kind: 'lair', wall: null, ladders: [], ram: null, tower: null, houses: [], camp: lair }, field: lay.field, seed: reel.show.seed + 3, breach: null, quality: reel.quality, motion: still });
       this.scene.add(this.lairFort.group);
     }
-    this.crowd = new Crowd(reel.troupe, spec);
+    this.crowd = new Crowd(reel.troupe, spec, reel.show.coats ?? { ours: armsCode(DEFAULT_ARMS), theirs: armsCode(BANDIT_ARMS) });
     this.scene.add(this.crowd.group);
-    // Гербы: наша башня; у чужих — топоры разбойников (у логова) или та же башня в красном (город соседа).
-    this.banners = new Banners(reel.troupe, { ours: 'tower', theirs: lay.wall ? 'tower' : 'axes' });
+    // Гербы (П-2): по донесению (`SiegeShow.coats`) — наш герб державы, у чужих — сосед, логово или разбойники; без
+    // донесения (стенд) — прежняя башня против разбойников. Прежде чужой герб решала стена, и логово под нашим городом
+    // несло башню соседа.
+    this.banners = new Banners(reel.troupe, reel.show.coats ?? { ours: armsCode(DEFAULT_ARMS), theirs: armsCode(BANDIT_ARMS) });
     this.scene.add(this.banners.group);
-    this.works = new Siegeworks({ quality: reel.quality, field: lay.field, wall: lay.wall, seed: reel.show.seed }, reel.barrage, this.crowd);
+    this.works = new Siegeworks({ quality: reel.quality, field: lay.field, wall: lay.wall, seed: reel.show.seed, skin: town ? town.skin : null }, reel.barrage, this.crowd);
     this.scene.add(this.works.group);
 
     // Стрелы со стены.
@@ -224,6 +236,30 @@ export class SiegeStage {
         this.disposables.push(g);
       }
     }
+    // Огни ночи: костёр и факел светят на землю, шатры, людей и камень стены; пожары — пока горят.
+    const lamps: WorldLamp[] = [
+      ...lay.camp.fires.map((f): WorldLamp => {
+        const g = heightAt(lay.field, f.x, f.z);
+        return { x: f.x, y: g + 0.7, z: f.z, kind: 'fire', dx: 0, dz: 0, lift: 0.7 / CITY_M, s: CITY_M };
+      }),
+      ...reel.torches.map((p): WorldLamp => ({ x: p.x, y: p.y + 0.3, z: p.z, kind: 'torch', dx: 0, dz: 0, lift: (p.y + 0.3 - heightAt(lay.field, p.x, p.z)) / CITY_M, s: CITY_M })),
+      ...reel.barrage.smoke.map((c): WorldLamp => ({ x: c.x, y: c.y, z: c.z, kind: 'fire', dx: 0, dz: 0, lift: (c.y - heightAt(lay.field, c.x, c.z)) / CITY_M, s: CITY_M * c.size, from: c.from, to: c.to })),
+      ...(town?.lamps ?? []),
+    ];
+    this.glow = new LampRig(lamps, spec.lamps, town?.glow ?? glowUniforms());
+    this.scene.add(this.glow.group);
+    // Древко под факелом стены: огонь не висит в воздухе.
+    if (reel.torches.length > 0) {
+      const sg = new THREE.CylinderGeometry(0.035, 0.045, 1.3, 5).translate(0, -0.55, 0);
+      const smat = new THREE.MeshLambertMaterial({ color: 0x3a2a1c });
+      smat.name = 'siege-torch-staff';
+      const staffs = new THREE.InstancedMesh(sg, smat, reel.torches.length);
+      reel.torches.forEach((p, k) => staffs.setMatrixAt(k, this.M.makeTranslation(p.x, p.y, p.z)));
+      staffs.name = 'siege-torch-staffs';
+      this.scene.add(staffs);
+      this.disposables.push(sg, smat, staffs);
+    }
+    lightScene(this.scene, this.glow.uniforms);
     this.frame = figureFrame(reel.tracks.count);
     this.relightAt(0);
   }
@@ -242,13 +278,20 @@ export class SiegeStage {
     this.sunDir.copy(this.rig.sun.position).normalize();
     this.sky.update(this.scene, g);
     this.clouds?.relight(this.scene, g, this.rig);
+    this.town?.light(night, this.sunDir, (this.scene.fog as THREE.Fog).color);
+    this.field.light(this.rig.sun, this.scene, night);
+    this.works.night(night);
   }
 
-  apply(t: number, cam: TacticalCamera): void {
+  /** Кадр на секунде `t`; `bufferHeight` — высота буфера в пикселях (огонькам — размер на экране). */
+  apply(t: number, cam: TacticalCamera, bufferHeight = 1688): void {
     const reel = this.reel;
     this.relightAt(t);
+    const dt = Math.max(0, Math.min(0.1, t - this.lampT));
+    this.lampT = t;
+    this.glow.update(t, dt, nightOf(this.lastSolar), cam.now.tx, cam.now.tz, cam.camera, bufferHeight);
     poseSiege(reel, t, this.frame, this.pose);
-    this.crowd.update(this.frame, cam.camera.position, lodDistance(cam.camera.fov));
+    this.crowd.update(this.frame, cam.camera);
     this.banners.update(this.frame, t, cam.camera, cam.now.dist);
     this.field.update(t);
     this.fort.update(t);
@@ -327,7 +370,10 @@ export class SiegeStage {
 
   /** Сторож ролика опустил уровень: гаснут тени бойцов, облака, кустики (как у ролика боя, `TwStage.lower`). */
   lower(next: TwSpec): void {
+    // Бойцы вблизи — средним обликом, если у нового уровня ближнего нет (`TwSpec.crowdLod`).
+    this.crowd.detail(next.crowdLod);
     if (next.shadow === 'none') this.crowd.shadows(false);
+    this.glow.setCap(next.lamps);
     if (!next.clouds && this.clouds) this.clouds.mesh.visible = false;
     this.field.lower(next);
   }
@@ -344,16 +390,18 @@ export class SiegeStage {
   }
 
   textureBytes(): number {
-    return this.crowd.bones.bytes + this.spec.shadowMap * this.spec.shadowMap * 4;
+    return this.crowd.bones.bytes + this.spec.shadowMap * this.spec.shadowMap * 4 + (this.town?.textureBytes ?? 0);
   }
 
   dispose(): void {
+    this.glow.dispose();
     this.crowd.dispose();
     this.banners.dispose();
     this.works.dispose();
     this.fort.dispose();
     this.lairFort?.dispose();
     this.field.dispose();
+    this.town?.dispose();
     for (const d of this.disposables) d.dispose();
     this.sky.mesh.geometry.dispose();
     (this.sky.mesh.material as THREE.Material).dispose();

@@ -1,20 +1,18 @@
-// Кто игрок: имя и лицо. Три источника, и порядок между ними жёсткий —
+// Кто игрок: имя и герб. У имени три источника, и порядок между ними жёсткий —
 // свой выбор, потом Telegram, потом умолчание. Переопределение живёт в
 // сохранении и приоритетнее данных Telegram: игрок, назвавшийся сам, не должен
 // переименовываться обратно при следующем запуске.
 //
-// Здесь только чтение. Пишут имя и лицо там же, где пишут всё остальное про
+// Здесь только чтение. Пишут имя и герб там же, где пишут всё остальное про
 // профиль, — в stats.ts: любая правка обязана пересобрать визитку, а знать про
 // визитку этому модулю незачем (и нельзя: вышел бы круг импортов).
-import type { Avatar, AvatarId } from '@/data/avatars';
-import { AVATARS } from '@/data/avatars';
+import { armsOr, type Arms } from '@/heraldry/arms';
 import type { ProfileState } from './types';
 import { DEFAULT_CITY, cityName, cityOr } from '../../netlify/lib/contract';
 
 export { DEFAULT_CITY, cityName };
 
-/** Кем игрок выходит, пока не выбрал сам и пока Telegram молчит. */
-export const DEFAULT_AVATAR: AvatarId = '01_swordsman';
+/** Как игрок зовётся, пока не назвался сам и пока Telegram молчит. */
 export const DEFAULT_NAME = 'Правитель';
 
 /** Длиннее имя не влезает ни в кружок, ни в визитку. */
@@ -33,27 +31,11 @@ export const cleanName = (v: string | null | undefined): string | null => {
  */
 export const profileCity = (p: Pick<ProfileState, 'city'>): string => cityOr(p.city);
 
-/** Вид из набора по идентификатору. Набор непустой, поэтому что-то вернётся всегда. */
-export const avatarById = (id: AvatarId | null): Avatar =>
-  AVATARS.find((a) => a.id === (id ?? DEFAULT_AVATAR)) ?? AVATARS[0];
-
 /** Имя игрока: своё → из Telegram → «Правитель». */
 export const profileName = (p: ProfileState): string => cleanName(p.name) ?? cleanName(p.tgName) ?? DEFAULT_NAME;
 
 /**
- * Аватар из набора. Он есть всегда — даже когда показывается фото Telegram:
- * фото ложится поверх, а на карточке и в визитке нужен вид из набора.
+ * Герб державы: выбранный в конструкторе или прежний герб-башня (`DEFAULT_ARMS`). Поле читается только здесь и только через
+ * проверку набора (`armsOr`) — сохранение могло прийти с сервера от другой сборки, и доверять строке в нём нельзя.
  */
-export const profileAvatar = (p: ProfileState): Avatar => avatarById(p.avatarId);
-
-/**
- * Фото Telegram — только пока игрок не выбрал своё. Выбрал — фото уходит:
- * иначе выбор из набора не имел бы видимого следствия.
- */
-export const profilePhoto = (p: ProfileState): string | null => (p.avatarId ? null : p.tgPhoto);
-
-/** Что рисовать в маленьком кружке. */
-export const faceSrc = (p: ProfileState): string => profilePhoto(p) ?? profileAvatar(p).face;
-
-/** Что рисовать крупно. У фото Telegram карточки нет — тогда карточка из набора. */
-export const cardSrc = (p: ProfileState): string => profileAvatar(p).card;
+export const profileArms = (p: Pick<ProfileState, 'arms'>): Arms => armsOr(p.arms);

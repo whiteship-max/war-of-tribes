@@ -6,8 +6,12 @@
  * (`prologue/dome`), формулы света (`prologue/look`), копии материалов с ветром и снегом (`prologue/surface`) и
  * конвейер кадра со ступенями (`prologue/post`). Своего — склейка: час один на игру, и свет раскладывается один раз.
  *
- * ЧЕГО ЗДЕСЬ НЕТ — ЭТО И ЕСТЬ ОБЛЕГЧЕНИЕ: круга суток, погоды, текстур, огня с точечной лампой, дыма и искр. Плотность
+ * ЧЕГО ЗДЕСЬ НЕТ — ЭТО И ЕСТЬ ОБЛЕГЧЕНИЕ: круга суток, текстур, огня с точечной лампой, дыма и искр. Плотность
  * буфера — по ступени (`DPR_OF`), у пола (`base`) нет теней.
+ *
+ * ПОГОДА — ГОРОДА, НА ВХОДЕ (docs/polish.md, П-4): та же, что над городом в эту минуту (`weather.weatherNow`), и одна на
+ * игру, как час. Тучи гасят солнце формулами поляны (`gloomOf`), дождь мочит, снегопад белит ветки, туман — в дымку
+ * конвейера; дождь и снег — осадками города (`render/city/precip`), его же докачкой и только когда идут.
  *
  * ВРЕМЕНИ ДВА, КАК У ПРЕДЫСТОРИИ. Кадровое (`performance.now()`) — шаг, взгляд, качание. Игровое `t` — секунды с
  * «Начать»: кадр прибавляет к нему прошедшее (не больше 50 мс за кадр), и всё, что решает игра — раскладка, зрелость
@@ -23,9 +27,10 @@ import { SeasonVisuals } from '@/render/season';
 import { disposeGeometries } from '@/render/kit';
 import { FrameLoop, deviceRatio, pixelRatio } from '@/render/loop';
 import { Steady } from '@/render/steady';
+import { lowerWaterLook } from '@/render/water/lod';
 import { VILLAGE_STEADY } from '@/render/quality';
 import { levelNow } from '@/render/gfx';
-import { miniTier } from './tier';
+import { SHADOWS, miniTier } from './tier';
 import { Press, swallowGhostClick } from '@/gestures';
 import { gestLog } from '@/gestlog';
 import { serverNow } from '@/net/clock';
@@ -62,6 +67,9 @@ import { nearestTarget, type Hour, type Tally, type Target } from './rules';
 import { aimRate, sticksWidth, turnRate, zoneAt, type Layout, type Zone } from './pad';
 import { furnish } from './world';
 import type { Shade } from '@/prologue/models';
+import { windTo, type Weather } from '@/render/climate';
+import type { CityPrecip } from '@/render/city/precip';
+import type { Quality } from '@/render/quality';
 
 /** Что сцена спрашивает у игры. Одна сцена — две игры (`BerriesPlay`, `HerdPlay`). */
 export interface Play {
@@ -73,6 +81,8 @@ export interface Play {
   readonly roam: number;
   /** Полуширина коробки теней, м: ровно то, что занято игрой, — тень тем чётче, чем коробка уже. */
   readonly shadowHalf: number;
+  /** Подробность лепки по ступени, с которой сцена встаёт (`beasts.Detail`): зовётся один раз, до `build`. */
+  dress?(tier: Tier): void;
   /** Положить своё в сцену: модели игры — копиями материалов поляны (`surfaces.adopt`), пятна тени — в `shade`. */
   build(scene: THREE.Scene, surfaces: Surfaces, shade: Shade, camera: THREE.Camera): void;
   /** Преграды тела в секунду `t`. */
@@ -189,8 +199,6 @@ export const MINI_LOOK_KEY = 'tribe.minigames.look';
  */
 export const DPR_OF: Record<Tier, number> = { full: 2, lite: 1.5, base: 1.25 };
 
-/** Тень стены леса и всего, что стоит, — у ступеней с конвейером; у пола теней нет вовсе. */
-const SHADOWS: Record<Tier, boolean> = { full: true, lite: true, base: false };
 
 /** Снег на ветках зимой — сколько, 0..1: та же мера, что у поляны в зиму (`scene.WINTER_SNOW`). */
 const WINTER_SNOW = 0.6;
@@ -233,14 +241,71 @@ const JOLT_S = 0.11;
  */
 export const windOf = (w: number): number => 0.6 * (0.45 + 1.375 * Math.max(0, Math.min(1, w)));
 
+/** Погода, когда её не назвали: ясно, ветер средний. */
+export const CALM: Weather = { cloud: 0, rain: 0, snow: 0, storm: 0, fog: 0, wind: 0.4, from: 270 };
+
+/**
+ * Хмурость неба промысла 0..1 — доля ненастья в свете, как у поляны (`prologue/sky.gloom`: дождь — 1, снег — 0.6):
+ * тучи погоды города гасят солнце, дождь — до конца, снегопад — на ступень мягче. Сплошные тучи без дождя — 0.8.
+ */
+export const gloomOf = (w: Weather): number => Math.min(1, Math.max(0, 0.8 * w.cloud, 1.25 * w.rain, 0.75 * w.snow));
+
+/**
+ * Снег на ветках и земле, 0..1: зима, снег лежит у города (`climate.lyingSnow`) — мера поляны (`WINTER_SNOW`); идёт
+ * снегопад — свежего больше. Не зима — снега нет: снегопад весной тает на лету.
+ */
+export const snowOf = (season: Season, cover: number, falling: number): number =>
+  season === 'winter' ? Math.min(1, WINTER_SNOW * Math.max(0, Math.min(1, cover)) + 0.4 * Math.max(0, falling)) : 0;
+
+/** Сырость материалов в дождь: та же мера, что у берега рыбалки до П-4. */
+export const wetOf = (rain: number): number => Math.min(0.5, Math.max(0, rain) * 0.6);
+
+/**
+ * Какая доля дымки ненастья поляны (`look.mistAt`, у поляны в дождь — 0.06 на метр) ложится на промысел. Поляна —
+ * двадцать шесть метров, а олень стоит до сорока (`hunt.FIELD_R`): полная дымка спрятала бы его вовсе. Треть с
+ * небольшим — дождливый день туманнее ясного, а олень на сорока метрах виден больше чем на треть (`weather.test`):
+ * добыча не меняется, правило задания.
+ */
+export const MIST_K = 0.35;
+
+/** Осадки по ступени: та же мерка, что у города, — ступень промысла в уровень осадков (`precip.PRECIP_CAP`). */
+export const PRECIP_OF: Record<Tier, Quality> = { full: 'high', lite: 'medium', base: 'low' };
+
+/** Уровень воды по ступени (`render/water`): подробно — все октавы ряби, телефон — четыре и круги дождя, пол — две. */
+export const WATER_OF: Record<Tier, number> = { full: 2, lite: 1, base: 0 };
+
+/**
+ * Коробка осадков у человека, м. Город берёт её от расстояния камеры — не меньше семидесяти метров, и смотрит на неё
+ * снаружи, а промысел — изнутри: в кадр от первого лица попадает только та часть коробки, что перед глазами, и в
+ * семидесяти метрах капли редели (снимки `EXTRA='&weather=rain'`). Сорок — капли у глаз и до двадцати метров, дальше
+ * дождь — дымкой (`MIST_K`). Ближний слой — в восьми метрах перед глазами, как у города на ближней камере
+ * (`PRECIP_DIST`).
+ */
+export const PRECIP_BOX = 40;
+export const PRECIP_DIST = 78;
+
+/**
+ * Сплошное ненастье: с этой хмурости (`gloomOf`) солнце не даёт тени. Под тучей, из которой идёт дождь или снег, тени нет
+ * при любой хмурости — серый день теней не даёт (как у поляны: в ненастье неба больше, чем солнца). Проход теней — второй
+ * проход по всему, что отбрасывает тень, и его место занимают осадки (`budget.test`).
+ */
+export const OVERCAST = 0.7;
+
+/** Тень солнца на ступени `tier` в погоду `w`. */
+export const castsShadow = (tier: Tier, w: Weather): boolean => SHADOWS[tier] && w.rain <= 0.01 && w.snow <= 0.01 && gloomOf(w) < OVERCAST;
+
 const DEG = Math.PI / 180;
 const lum = (c: THREE.Color): number => 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
 const SKY_CLEAR = new THREE.Color(PALETTE.sky);
+/** Небо ненастья — те же краски, что у поляны (`prologue/scene`): дождь серит его камнем, снег — дымом. */
+const RAIN_TINT = new THREE.Color(PALETTE.stoneDark);
+const SNOW_TINT = new THREE.Color(PALETTE.smoke);
 const SNOW_WHITE = new THREE.Color(PALETTE.snowflake);
 const TINT: [number, number, number] = [1, 1, 1];
 const _bounce = new THREE.Color();
 const _size = new THREE.Vector2();
 const _dir = new THREE.Vector3();
+const _center = new THREE.Vector3();
 
 export class Stage {
   private renderer: THREE.WebGLRenderer;
@@ -324,16 +389,22 @@ export class Stage {
   private meterN = 0;
   private meterMs = 0;
   private meterWorst = 0;
+  private gloom: number;
+  private precip: CityPrecip | null = null;
+  private disposed = false;
+  private readonly windDir = new THREE.Vector2();
 
   constructor(
     private canvas: HTMLCanvasElement,
     private play: Play,
     private seconds: number,
     season: Season,
-    /** Сила ветра погоды города, 0..1 (`ui/parts/weather.weatherNow`); нет — средняя. */
-    wind = 0.4,
+    /** Погода города на входе (`ui/parts/weather.weatherNow`); нет — ясно, ветер средний. */
+    private weather: Weather = CALM,
     /** Час города (`rules.hourOf`): свет промысла. Нет — утро, свой час игры. */
     hour: Hour = 'dawn',
+    /** Снег на земле у города, 0..1 (`weather.coverNow`): зимой на юге его может не быть вовсе. Нет — зима бела. */
+    cover = season === 'winter' ? 1 : 0,
   ) {
     this.layout = play.layout ?? 'walk';
     this.solar = solarOf(hour, play.solar);
@@ -347,6 +418,14 @@ export class Stage {
       this.fog.near = play.fog.near;
       this.fog.far = play.fog.far;
     }
+    // В дождь и туман край видимости придвигается — тем же счётом, что у города (`city/scene.weather`).
+    const dim = Math.max(weather.rain, weather.snow);
+    this.fog.near *= 1 - 0.25 * dim - 0.5 * weather.fog;
+    this.fog.far *= 1 - 0.2 * dim - 0.35 * weather.fog;
+    this.gloom = gloomOf(weather);
+    // Куда сносит капли — та же сторона, что у города (`climate.windTo`).
+    const to = windTo(weather.from);
+    this.windDir.set(to.x, to.z);
     this.scene.fog = this.fog;
     this.camera = new THREE.PerspectiveCamera(72, 1, 0.05, play.far ?? 90);
     this.px = play.start.x;
@@ -363,11 +442,15 @@ export class Stage {
     this.post = new Post(this.renderer, tier);
     if (play.focus !== undefined) this.post.setFocus(play.focus);
     this.steady = new Steady<Tier>(TIERS, tier, VILLAGE_STEADY('high'));
-    // Сезон города: цвета материалов — его, снег на ветках — только зимой.
+    // Сезон города: цвета материалов — его; снег на ветках и земле — только зимой и тот, что лежит у города (`cover`),
+    // снегопад его прибавляет; дождь мочит.
     this.seasonLook.jump(season);
-    this.surfaces.u.snow.value = season === 'winter' ? WINTER_SNOW : 0;
-    this.surfaces.u.wind.value = windOf(wind);
+    this.surfaces.u.snow.value = snowOf(season, cover, weather.snow);
+    this.surfaces.u.wet.value = wetOf(weather.rain);
+    this.surfaces.u.wind.value = windOf(weather.wind);
 
+    // Лепка — по ступени входа: сторож потом опускает конвейер и плотность, а не перелепливает зверей посреди игры.
+    play.dress?.(tier);
     furnish(this.scene, this.surfaces, play, this.camera, this.dome, season);
     this.scene.add(this.aim);
     this.applyLight(noonSun, noonSky);
@@ -376,6 +459,25 @@ export class Stage {
     this.wire();
     this.loop();
     this.frameLoop.restart();
+    if (weather.rain > 0.01 || weather.snow > 0.01) this.loadPrecip(tier);
+  }
+
+  /**
+   * Дождь и снег — осадки города (`render/city/precip`), его же куском (`LAZY_DOORS` «город: погода»): первая загрузка и
+   * кусок промысла от них не растут, а ясный промысел их не тянет вовсе. Без поля высот и брызг: земля непрозрачна и
+   * прячет каплю сама, в траве брызг не видно и в жизни, на воде у рыбалки — свои круги (`fishModels`, `wRain`). Не
+   * пришёл кусок — промысел идёт без осадков: свет и сырость уже легли.
+   */
+  private loadPrecip(tier: Tier): void {
+    import('@/render/city/precip')
+      .then(({ CityPrecip }) => {
+        if (this.disposed) return;
+        const p = new CityPrecip(PRECIP_OF[tier], undefined, false);
+        p.setLevel(PRECIP_OF[this.post.getTier()]);
+        this.precip = p;
+        this.scene.add(p.group);
+      })
+      .catch(() => undefined);
   }
 
   // ---------- Ход игры ----------
@@ -696,11 +798,40 @@ export class Stage {
       this.aim.scale.setScalar(tg.r + 0.25);
     }
     this.dome.follow(this.camera.position);
+    this.rain(now);
     this.stick();
     if (now - this.viewedAt >= VIEW_EVERY) {
       this.viewedAt = now;
       this.refresh(false);
     }
+  }
+
+  /** Осадки кадра: коробка — у человека, цвет капли — от дымки, сила и ветер — погоды входа. */
+  private rain(now: number): void {
+    const p = this.precip;
+    if (!p) return;
+    const w = this.weather;
+    const day = this.light.zenith;
+    _center.set(this.camera.position.x, 0, this.camera.position.z);
+    p.update({
+      t: now / 1000,
+      rain: w.rain,
+      snow: w.snow,
+      windX: this.windDir.x,
+      windZ: this.windDir.y,
+      wind: w.wind,
+      center: _center,
+      dist: PRECIP_DIST,
+      box: PRECIP_BOX,
+      camera: this.camera,
+      bufferHeight: this.renderer.domElement.height,
+      light: Math.max(0.22, day),
+      flash: 0,
+      night: 0,
+      sky: this.dome.haze,
+      fogNear: this.fog.near,
+      fogFar: this.fog.far,
+    });
   }
 
   /** Собрать надпись и отдать её, если изменилась. */
@@ -870,8 +1001,10 @@ export class Stage {
   /** Ступень: конвейер, туман материалов, тени, плотность буфера. Меняется редко — при входе и по сторожу. */
   private applyTier(tier: Tier): void {
     this.post.setTier(tier);
+    this.precip?.setLevel(PRECIP_OF[tier]);
+    lowerWaterLook(this.scene, WATER_OF[tier]);
     this.scene.fog = tier === 'base' ? this.fog : null;
-    const shadows = SHADOWS[tier];
+    const shadows = castsShadow(tier, this.weather);
     if (this.renderer.shadowMap.enabled !== shadows) {
       this.renderer.shadowMap.enabled = shadows;
       // Тени — определение шейдера: материалы собираются заново.
@@ -886,7 +1019,8 @@ export class Stage {
 
   /**
    * Свет одной минуты — раз на игру. Те же формулы, что у поляны (`scene.applySky`): солнце сквозь толщу воздуха,
-   * небо — доля рига цвета ясного зенита, снег отдаёт свет снизу, затвор привыкает к часу. Без погоды и огня.
+   * небо — доля рига цвета ясного зенита, снег отдаёт свет снизу, затвор привыкает к часу. Ненастье — поверх, как у
+   * поляны: под тучами прямого солнца меньше, а доля неба возвращается к ригу — серый день теней не даёт. Без огня.
    */
   private applyLight(noonSun: number, noonSky: number): void {
     const solar = this.solar;
@@ -903,13 +1037,17 @@ export class Stage {
     const noon = (12 + 40 * this.seasonLook.sunArc) * DEG;
     sunTransmit(Math.max(0, Math.asin(Math.min(1, lamp.y))), noon, TINT);
     sun.color.setRGB(sun.color.r * (1 + (TINT[0] - 1) * day), sun.color.g * (1 + (TINT[1] - 1) * day), sun.color.b * (1 + (TINT[2] - 1) * day));
-    this.rig.hemi.intensity *= 1 - (1 - SKY_FILL) * day;
-    this.rig.hemi.color.lerp(SKY_CLEAR, SKY_BLUE * day);
+    const g = this.gloom;
+    sun.intensity *= 1 - 0.55 * g;
+    this.rig.hemi.intensity *= 1 - 0.2 * g;
+    const fillK = day * (1 - g);
+    this.rig.hemi.intensity *= 1 - (1 - SKY_FILL) * fillK;
+    this.rig.hemi.color.lerp(SKY_CLEAR, SKY_BLUE * fillK);
     const fall = sun.intensity * lum(sun.color) * Math.max(0, lamp.y) + this.rig.hemi.intensity * lum(this.rig.hemi.color);
     const bounce = (SNOW_BOUNCE * fall) / Math.max(0.05, this.rig.hemi.intensity);
     // Снег под ногами отдаёт свет только зимой: летом снизу светит трава рига.
     if (this.surfaces.u.snow.value > 0) this.rig.hemi.groundColor.lerp(_bounce.copy(SNOW_WHITE).multiplyScalar(bounce), day);
-    this.dome.paint(tone, lamp, dark, 0, SKY_CLEAR);
+    this.dome.paint(tone, lamp, dark, g, this.weather.snow > this.weather.rain ? SNOW_TINT : RAIN_TINT);
     this.fog.color.copy(this.dome.haze);
     (this.scene.background as THREE.Color).copy(this.dome.horizon);
     const li = this.light;
@@ -919,7 +1057,7 @@ export class Stage {
     li.sunUp = Math.min(1, Math.max(0, (lamp.y + 0.02) / 0.12)) * day;
     li.air = airLit(Math.asin(Math.max(-1, Math.min(1, lamp.y))));
     li.zenith = day;
-    mistAt(solar, 0, li.mist);
+    mistAt(solar, MIST_K * Math.max(g, this.weather.fog), li.mist);
     const seen = sceneLight(sun.intensity * lum(sun.color), lamp.y * day, this.rig.hemi.intensity * lum(this.rig.hemi.color), 0);
     const noonSeen = sceneLight(noonSun, Math.sin(noon), noonSky, 0);
     li.exposure = EXPOSE_BASE * exposure(seen, noonSeen);
@@ -941,7 +1079,13 @@ export class Stage {
   }
 
   dispose(): void {
+    this.disposed = true;
     this.frameLoop.stop();
+    if (this.precip) {
+      this.scene.remove(this.precip.group);
+      this.precip.dispose();
+      this.precip = null;
+    }
     const c = this.canvas;
     c.removeEventListener('pointerdown', this.onDown);
     c.removeEventListener('pointermove', this.onMove);

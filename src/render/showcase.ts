@@ -618,5 +618,7 @@ export function mountShowcase(p: URLSearchParams): void {
   // Стенд карты нового вида (docs/map_tw.md) — тоже свой кусок: 2D-карта, сцены здесь нет.
   else if (mode === 'map-tw') void import('@/ui/map/tw/stand').then((m) => m.mountMapTw(root, p));
   else if (mode === 'units') mountUnits(root, p, c);
+  // Шеренга бойцов обликом толпы роликов (docs/polish.md, П-5) — свой кусок, как стенд города.
+  else if (mode === 'army') void import('./reel/lineup').then((m) => m.mountArmyLineup(root, p));
   else mountVillage(root, p, c);
 }
