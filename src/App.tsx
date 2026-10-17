@@ -10,7 +10,6 @@ import { OfflineModal } from './ui/OfflineModal';
 import { LegacyModal } from './ui/LegacyModal';
 import { PaceModal } from './ui/PaceModal';
 import { TutorialOverlay } from './ui/TutorialOverlay';
-import { SiegeBanner } from './ui/SiegeBanner';
 import { WorldMap } from './ui/map/WorldMap';
 import { StartScreen, StartVeil } from './ui/StartScreen';
 import { SyncModal } from './ui/SyncModal';
@@ -56,6 +55,7 @@ const RealmMenu = lazy(() => import('./ui/realm/RealmMenu').then((m) => ({ defau
 const nextUi = () => import('./ui/next');
 const Hud = lazy(() => nextUi().then((m) => ({ default: m.Hud })));
 const Alerts = lazy(() => nextUi().then((m) => ({ default: m.Alerts })));
+const WarSigns = lazy(() => nextUi().then((m) => ({ default: m.WarSigns })));
 const Nav = lazy(() => nextUi().then((m) => ({ default: m.Nav })));
 const TipLayer = lazy(() => nextUi().then((m) => ({ default: m.TipLayer })));
 const Hints = lazy(() => nextUi().then((m) => ({ default: m.Hints })));
@@ -293,13 +293,14 @@ export function App() {
       )}
       {!mapOpen && <Suspense fallback={null}><Hud /></Suspense>}
       <Suspense fallback={null}><Alerts /></Suspense>
-      {/* Осада — в правом низу деревни: её не разбирают, из-под неё выходят.
+      {/* Тревоги войны — осада, набеги, свой лагерь — значками справа внизу, над нижней панелью (П-7): её не
+          разбирают, из-под неё выходят. На карте столбец стоит внутри её слоя (`WorldMap`), под меню приказов.
           Письма и события ждут в почте державы («Решения» за гербом). */}
-      {/* Кнопка кодов — раньше осады нарочно: по этому порядку стиль и отодвигает
-          осадную панель вверх (`.cheat ~ .siege`), а выключенные коды не рисуют
-          ничего, и панель возвращается на своё место сама. */}
+      {/* Кнопка кодов — раньше значков нарочно: по этому порядку стиль и отодвигает
+          столбец вверх (`.cheat ~ .nx-signs`), а выключенные коды не рисуют
+          ничего, и столбец возвращается на своё место сам. */}
       {!mapOpen && <CheatPanel where="village" marked={cheated} onApply={cheat} />}
-      {!mapOpen && <SiegeBanner />}
+      {!mapOpen && <Suspense fallback={null}><WarSigns where="city" /></Suspense>}
       <Sheet open={sheet !== null} onClose={closeSheet}>
         {shown && (
           <Crash key={JSON.stringify(shown)} where={`шторка ${shown.kind}`} onClose={closeSheet} inline>

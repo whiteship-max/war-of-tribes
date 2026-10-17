@@ -5,6 +5,8 @@
 // Кусок просит `App`, как только выбран новый вид, — пока стоит стартовый экран, он успевает приехать.
 export { Hud } from './Hud';
 export { Alerts } from './Alerts';
+// Тревоги войны значками справа снизу — осада, набеги, свой лагерь (П-7, docs/polish.md).
+export { WarSigns } from './WarSigns';
 export { Nav } from './Nav';
 export { TipLayer } from './TipLayer';
 export { Hints } from './Hints';

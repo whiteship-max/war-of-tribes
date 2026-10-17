@@ -39,6 +39,11 @@ export interface AlertItem {
   urgent: boolean;
   /** Строка прежнего вида красная, как у набега. */
   raid?: boolean;
+  /**
+   * Тревога войны: её значок стоит в столбце справа снизу (`ui/warSigns`, П-7), и ряд под верхом её не рисует. В списке
+   * она остаётся — по ней краснеет счётчик «Вестей» и трубит рог.
+   */
+  war?: boolean;
   /** Куда ведёт: в донесение, в здание, в справку. `null` — вести некуда. */
   go: (() => void) | null;
   /** Новый вид: слово ссылки «К вести», «Казармы». */
@@ -93,6 +98,7 @@ export function useAlertItems(): AlertItem[] {
       timer: left,
       urgent: true,
       raid: true,
+      war: true,
       go: () => openRaid(m.id),
       goWord: 'К вести',
     });
