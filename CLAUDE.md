@@ -125,6 +125,7 @@ npm run prologue:stand # предыстория: числа круга, кадр
 npm run splash:build # заставка экрана загрузки из assets-src/splash в public/assets/splash (WebP)
 npm run share:build  # картинки «Поделиться» для историй Telegram в public/assets/share (docs/feed.md)
 npm run emoji:build  # белый список эмодзи (Emoji 12.0) из таблицы Unicode в src/ui/icons/emoji12.ts
+npm run fonts:build  # свой шрифт: подмножества WOFF2 в public/fonts (docs/polish.md, П-1)
 ```
 
 ## Работа с ветками
@@ -647,7 +648,8 @@ HEAD один на всех, см. правило 8). Значит развес�
 - **Значок** — `ui/icons/Icon.tsx`; эмодзи — только Emoji 12.0 (`emoji.test.ts`; graphics).
 - **Цвет стороны** — `src/side.ts`: игрок — золото, враг — красный, в обоих роликах боя, на карте и в отчёте о бое;
   тень и краска — функцией из него, записи цвета мимо двери нет (`side.test.ts`; battle).
-- **Звук** — один `AudioContext` (`sound/web.ts`) и один рычаг — `ui/parts/Settings.tsx` (music).
+- **Звук** — один `AudioContext`, рождается в жесте дверью `sound/door.ts` (движок `sound/web.ts` — докачкой, П-3), и один
+  рычаг — `ui/parts/Settings.tsx`; список звуков — docs/sound.md (music).
 - **Экран загрузки** — целиком в `index.html`, дверь из игры одна — `boot/stage.ts` (scene).
 - **Коды проверки и зеркальное логово** — для игроков `CHEATS_ON` и `MIRROR_ON` опущены (cheats, battle).
 - **Текст игрока с числом** — функциями мира (правило 18).
@@ -773,7 +775,7 @@ docker compose за прокси Coolify (docs/SERVER.md, «Вариант с Co
 | [cheats.md](docs/handbook/cheats.md) | «Коды проверки» | cheats.md |
 | [graphics.md](docs/handbook/graphics.md) | «Визуальный рост зданий», «Графика: палитра, свет, набор деталей», «Значки интерфейса», «У костра стоят свободные руки», «Планировка поселения», «Зона расчистки вокруг поселения» | figures.md, icons.md |
 | [gestures.md](docs/handbook/gestures.md) | «Палец: тап по зданию и обзор деревни», «Стенд следа пальца» | — |
-| [music.md](docs/handbook/music.md) | «Музыка» | `assets-src/MUSIC.md` |
+| [music.md](docs/handbook/music.md) | «Музыка» | `assets-src/MUSIC.md`, sound.md |
 | [structure.md](docs/handbook/structure.md) | «Структура» — что где лежит | — |
 | [world.md](docs/handbook/world.md) | «Карта мира» | world-map.md, fog-and-figures.md, geography.md, atlas.md, siege.md, sack.md, lairs.md, lair_growth.md, letters.md, DEFEAT_LADDER.md, tower.md, MAP_ACTIONS.md |
 | [agents.md](docs/handbook/agents.md) | «Агенты: люди на местах»; энергия агентов (с 05.10.2026) | AGENTS.md, agent_energy.md |

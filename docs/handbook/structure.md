@@ -145,7 +145,7 @@
   `models.ts` и `scene.ts` (three), `save.ts` (свой ключ в localStorage), `Prologue.tsx` (оболочка),
   `prologue.css`. Про игру не знает ничего — это тест.
 - `src/sound/` — музыка: `village.ts` (круг деревни с переливом), `music.ts` (слои боя),
-  `web.ts` (единственный `AudioContext` на всю игру), `howl.ts` (вой волка синтезом; едет
+  `door.ts` (единственный `AudioContext` на всю игру — из жеста, П-3), `web.ts` (движок звука, докачкой), `howl.ts` (вой волка синтезом; едет
   чанком предыстории), `manifest.ts` (список дорожек и режим боя),
   `settings.ts` (переключатель в localStorage). Дорожки — в `public/assets/music/`, сборка —
   `npm run music:build`.
