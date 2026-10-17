@@ -15,6 +15,7 @@ import { WORK_SIGN, workBusy } from '../worksigns';
 import type { V3 } from './geom';
 import { CityLife } from './life';
 import type { CityBustle } from './alive';
+import type { CityGarrison } from './garrison';
 import type { CityDeeds } from './deeds';
 import type { SiteTags } from './tags';
 import { newsOf, seenOf, waveAfter, WAVE_REAL, type CityPops, type Seen, type Yard, type YieldTally } from './pops';
@@ -81,6 +82,8 @@ export class CityScene extends TribeScene {
    * (docs/city.md, 13): город встаёт, не дожидаясь их.
    */
   private bustle: CityBustle | null = null;
+  /** Стража бойцами роликов (`garrison.ts`, docs/polish.md, П-5) — своим куском вместе с суетой. */
+  private garrison: CityGarrison | null = null;
   private bustleWanted = false;
   /**
    * Отклик на дела игрока — стройка лесами, праздник готовности, найм строем, добыча над дворами (docs/city.md, 14):
@@ -372,6 +375,7 @@ export class CityScene extends TribeScene {
         fm.size = 3.6 * (1 + Math.sin(t * 11) * 0.08);
       }
       this.folk?.update(dt, t, night, this.seasonVis.snow);
+      this.garrison?.update(t, this.camera);
       // Колесо лесопилки крутится и брызжет — от времени (ручей не мёрзнет).
       c.mill?.update(t);
       // Суета судит о льде: на реке без льда утки и лодки остаются и зимой.
@@ -415,6 +419,14 @@ export class CityScene extends TribeScene {
         this.bustle = new CityBustle({ plan: c.plan, quality: this.quality });
         this.bustle.setArms(this.lastState?.profile.arms);
         this.scene.add(this.bustle.group);
+      })
+      .catch(() => undefined);
+    // Стража — те же бойцы, что в роликах: своим куском; не пришёл — стоят прежние фигуры стражи.
+    import('./garrison')
+      .then(({ CityGarrison }) => {
+        if (this.disposed || this.town !== c || !this.folk) return;
+        this.garrison = new CityGarrison(this.folk, this.quality, this.lastState?.profile.arms);
+        this.scene.add(this.garrison.group);
       })
       .catch(() => undefined);
     // Отклик — своим куском, тем же правилом: не пришёл — город стоит без лесов и надписей, игра идёт как шла.
@@ -518,6 +530,7 @@ export class CityScene extends TribeScene {
     // Герб державы на стягах башен (П-2): кусок оживления мог ещё не приехать — тогда возьмёт при следующем кадре стора.
     this.bustle?.setArms(s.profile.arms);
     this.folk?.setLivery(s.profile.arms);
+    this.garrison?.setArms(s.profile.arms);
     // Модели у города свои и одни навсегда (docs/city.md, раздел 5): уровни игры их не меняют. Здание
     // игры здесь — пустая группа на главном месте постройки: к ней цепляется значок, по её типу —
     // касание и подсветка.
@@ -631,6 +644,8 @@ export class CityScene extends TribeScene {
   }
 
   override dispose(): void {
+    this.garrison?.dispose();
+    this.garrison = null;
     this.folk?.dispose();
     this.folk = null;
     this.bustle?.dispose();

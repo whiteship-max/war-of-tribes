@@ -180,8 +180,11 @@ function crowdMaterial(bones: BoneTexture, arms: THREE.Texture | null, far = fal
     sh.uniforms.uSide0 = { value: ours };
     sh.uniforms.uSide1 = { value: theirs };
     Object.assign(sh.uniforms, tints);
-    sh.uniforms.uArms = { value: arms };
-    sh.uniforms.uHasArms = { value: arms ? 1 : 0 };
+    // Поле гербов может смениться после сборки программы (`Crowd.setCoats`): берётся последнее.
+    const now = (mat.userData.arms as THREE.Texture | null | undefined) ?? arms;
+    sh.uniforms.uArms = { value: now };
+    sh.uniforms.uHasArms = { value: now ? 1 : 0 };
+    mat.userData.shader = sh;
     sh.vertexShader = VERT_HEAD + sh.vertexShader;
     sh.vertexShader = sh.vertexShader
       .replace('#include <beginnormal_vertex>', '#include <beginnormal_vertex>\n' + VERT_BODY)
@@ -502,6 +505,21 @@ export class Crowd {
     };
     this.extraMeshes.push(mesh);
     return extra;
+  }
+
+  /** Гербы сторон сменились (герб державы в городе): поле на щитах и сюрко — заново. */
+  setCoats(coats: { ours: string; theirs: string }): void {
+    const next = fieldTexture(coats);
+    if (!next) return;
+    const prev = this.arms;
+    this.arms = next;
+    const shader = this.material.userData.shader as { uniforms: Record<string, { value: unknown }> } | undefined;
+    if (shader) {
+      shader.uniforms.uArms.value = next;
+      shader.uniforms.uHasArms.value = 1;
+    }
+    this.material.userData.arms = next;
+    prev?.dispose();
   }
 
   /** Тени бойцов заместителями — включить или погасить (сторож ролика опустил уровень, у которого их нет). */
