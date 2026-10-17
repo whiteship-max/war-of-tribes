@@ -13,6 +13,8 @@
 //                                                     стендом: в новой партии осады нет); карта — заход `map`
 //   GROUP=ui8a | ui8b | ui8c TAG=after …            — UI-8: верх, ратуша, ярлык у лесов, подсказка новичку; окна построек
 //                                                     с дублями; «Мораль», «Порядок» вкладками, полководец без отряда
+//   DIR=polish GROUP=p7 TAG=before|after …          — П-7 (docs/polish.md): тревоги войны значками справа снизу — осада
+//                                                     тихая и срочная, набеги, свой лагерь, карта, вход в окно, город без осады
 //
 // Снимки — 390×844 @2, JPEG, в `docs/ui_v2/` (имя — номер и экран). Кроме снимка стенд печатает высоту прокрутки
 // окна в экранах: `экранов 2.4` — содержимое окна выше экрана телефона в 2.4 раза (правило «окно — один экран»,
@@ -33,8 +35,9 @@ import sharp from 'sharp';
 import { ENTER_GAME, launchChrome, sleep, Tab } from '../../scripts/lib/chrome';
 import { BROWSER_MAX_MS, gpuCoolDown, gpuStamp, refuseIfBusy } from '../../scripts/lib/budget';
 
-const OUT = fileURLToPath(new URL('.', import.meta.url));
 const ROOT = fileURLToPath(new URL('../..', import.meta.url));
+/** Папка снимков: по умолчанию `docs/ui_v2/`; `DIR=polish` — `docs/polish/` (заходы полировки, docs/polish.md). */
+const OUT = process.env.DIR ? join(ROOT, 'docs', process.env.DIR) : fileURLToPath(new URL('.', import.meta.url));
 const PORT = Number(process.env.PORT ?? 4198);
 const DEBUG_PORT = Number(process.env.CDP_PORT ?? 9343);
 const SCREEN = { width: 390, height: 844, deviceScaleFactor: 2, mobile: true };
@@ -140,6 +143,38 @@ const END = `(() => { const e = window.__ui.scroller(); if (!e) return JSON.stri
 const building = (type: string, name: string): Step => ({ name, run: ui(`reset(), window.__ui.building('${type}')`), wait: 900, tabs: true });
 
 // ---------- заходы ----------
+
+/**
+ * П-7: вид мира для значков тревог. `calm` — одна осада без срочного; `urgent` — осада с проломом, готовым тараном и
+ * предложением условий, два набега и свой лагерь под чужими стенами с выручкой на подходе: четыре тревоги — больше трёх
+ * мест столбца. `camp` — класть ли свой лагерь (карте его не дают: окно лагеря стенду не нужно).
+ */
+function P7_BODY(kind: 'calm' | 'urgent', camp = true): string {
+  return `
+    window.__ui.reset();
+    const S = await import('/src/world/store.ts');
+    const now = S.worldNow();
+    const H = 3600000;
+    const homeId = S.useWorld.getState().info?.homeId ?? 'home';
+    const urgent = ${kind === 'urgent'};
+    const raid = (id, from, at) => ({ id, mission: 'raid', units: {}, own: false, hostile: true, phase: 'out', from: { x: 0, y: 0 }, to: { x: 1, y: 1 }, fromName: from, toName: '', targetId: homeId, departAt: now - H, arriveAt: now + at * H, loot: null, recallable: false });
+    S.useWorld.setState({
+      pulse: async () => {},
+      loadCamp: async () => {},
+      marches: urgent ? [raid('m-p7-1', 'Чёрный брод', 0.3), raid('m-p7-2', 'Сухая балка', 0.9)] : [],
+      camp: urgent && ${camp} ? { targetId: 'l-2', targetName: 'Каменный яр', starvesAt: now + 9 * H, since: now - 3 * H, campMen: 80, builders: 80, fate: 'plunder', relief: { from: 'Соседи', men: 40, at: now + 0.5 * H, joint: false } } : null,
+      siege: {
+        byId: 'l-1', byName: 'Волчья падь', since: now - 5 * H, starvesAt: now + 14 * H, garrison: 50, foodAtStart: 900,
+        campMen: 120, builders: 120, fate: 'plunder', palisade: 2,
+        fall: { goods: 640, gold: 80, hidden: 60, ledBonded: 0, ledPop: 0, scatterPop: 0, scatterBonded: 0, buildings: 3, levels: 1, burnsWorks: false, routed: 0 },
+        phases: { journal: urgent ? ['Фаза 2: кость 9 + 1 — пролом.'] : ['Фаза 1: кость 5 — стена держит.'], next: '', nextAt: now + 1.5 * H, nextK: urgent ? 3 : 2, breaches: urgent ? 1 : 0, progress: urgent ? 2 : 0 },
+        answers: { repair: { cost: { wood: 80, stone: 40 }, reason: null, doneAt: null }, ration: { on: false, starvesAt: now + 20 * H }, surrender: 'captives', burn: [{ machine: 'ram', name: 'Таран', ready: urgent, guard: 40 }], reliefs: [] },
+        parley: { side: 'def', share: 0.32, fair: 210, block: null, bot: true, ...(urgent ? { incoming: { kind: 'terms', fate: 'captives', until: now + H } } : {}) },
+      },
+    });
+  `;
+}
+const P7 = (kind: 'calm' | 'urgent'): string => `(async () => { ${P7_BODY(kind)} return JSON.stringify('ok'); })()`;
 
 const GROUPS: Record<string, Step[]> = {
   city: [
@@ -521,6 +556,19 @@ const GROUPS: Record<string, Step[]> = {
       full: true,
     },
     { name: '195-army-general-tip', run: ui(`clickSel('.sheet.open .ms > .kit-row.tip, .sheet.open .ms > .kit-row .kit-row-tip')`), wait: 600 },
+  ],
+  // П-7 (docs/polish.md): тревоги войны — значки справа снизу вместо плашки осады. Вид мира вкладывает стенд, как в заходе
+  // `siege`: пульс остановлен, осада, набеги и свой лагерь — полями пульса. `DIR=polish TAG=before|after`.
+  p7: [
+    { name: 'p7-01-city-siege', run: P7('calm'), wait: 1500 },
+    { name: 'p7-02-city-urgent', run: P7('urgent'), wait: 1500 },
+    { name: 'p7-03-map-siege', run: `(async () => { ${P7_BODY('urgent', false)} window.__game.getState().openMap(); return JSON.stringify('ok'); })()`, wait: 6000 },
+    {
+      name: 'p7-04-siege-window',
+      run: `(async () => { ${P7_BODY('calm', false)} await new Promise((r) => setTimeout(r, 600)); const b = document.querySelector('.nx-sign.siege, .siege-open'); if (!b) return JSON.stringify('нет входа в осаду'); b.click(); return JSON.stringify('ok'); })()`,
+      wait: 1200,
+    },
+    { name: 'p7-05-city-free', run: `(async () => { window.__ui.reset(); const S = await import('/src/world/store.ts'); S.useWorld.setState({ siege: null, camp: null, marches: [] }); return JSON.stringify('ok'); })()`, wait: 1200 },
   ],
   misc: [
     // Плашка алмазов с UI-3 открывает подсказку, а не окно (docs/ui_v2.md, 5.2): окно — его хранилищем.
