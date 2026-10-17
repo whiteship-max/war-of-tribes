@@ -312,6 +312,8 @@ function groundColor(f: TwField, plan: LandInput, x: number, z: number, y: numbe
       out.lerp(C2.set(TONE.ford), fk);
     }
   }
+  // Холмы каменисты: под выходами валунов (`stoneSpots`, тот же шум) — осыпь и щебень в траве.
+  if (f.land === 'hills') out.lerp(C2.set(n2 > 0.5 ? TONE.rock : TONE.rockDark), smoothstep(0.5, 0.66, vnoise(x / 18, z / 18, f.seed + 133)) * 0.42 * (0.6 + 0.4 * n2));
   // Откос гребня и холмы — камень там, где круто.
   const steep = Math.abs(heightAt(f, x, z + 0.8) - heightAt(f, x, z - 0.8)) + Math.abs(heightAt(f, x + 0.8, z) - heightAt(f, x - 0.8, z));
   out.lerp(C2.set(n2 > 0.5 ? TONE.rock : TONE.rockDark), smoothstep(0.9, 2.2, steep));
@@ -447,22 +449,33 @@ function riverRibbon(f: TwField): THREE.BufferGeometry | null {
  */
 function stoneSpots(f: TwField, plan: LandInput, cap: number): { x: number; z: number; s: number; rot: number }[] {
   const out: { x: number; z: number; s: number; rot: number }[] = [];
-  const r = plateRect(f);
   for (let i = 0; out.length < cap && i < cap * 14; i++) {
-    const x = (hash(f.seed, i, 131) * 2 - 1) * (r.halfX - 6);
-    const z = r.minZ + 6 + hash(f.seed, i, 132) * (r.maxZ - r.minZ - 12);
+    // Там, куда смотрит камера ролика: поле боя и его кромка, а не поля отступа плиты.
+    const x = (hash(f.seed, i, 131) * 2 - 1) * (f.halfX + 24);
+    const z = f.minZ - 18 + hash(f.seed, i, 132) * (f.maxZ - f.minZ + 36);
     const steep = Math.abs(heightAt(f, x, z + 0.8) - heightAt(f, x, z - 0.8)) + Math.abs(heightAt(f, x + 0.8, z) - heightAt(f, x - 0.8, z));
     const flank = Math.abs(x) > f.halfX - 20 || z < f.minZ + 6 || z > f.maxZ - 6;
-    const big = steep > 0.55 || (f.land === 'hills' && flank && vnoise(x / 18, z / 18, f.seed + 133) > 0.55);
-    // Мелкие — редко и гнёздами; валуны — где круто.
-    if (!big && (hash(f.seed, i, 134) > 0.22 || vnoise(x / 9, z / 9, f.seed + 135) < 0.5)) continue;
+    // Валун не ложится под строй на построении: отряд стоял бы на камне.
+    const underUnit = plan.units.some((u) => Math.abs(x - u.x) < u.width / 2 + 3 && Math.abs(z - u.z) < u.depth + 3);
+    const big = !underUnit && (steep > 0.3 || (f.land === 'hills' && vnoise(x / 18, z / 18, f.seed + 133) > 0.52) || (flank && vnoise(x / 14, z / 14, f.seed + 138) > 0.68));
+    // Мелкие — редко и гнёздами; валуны — где круто и на холмах.
+    if (!big && (hash(f.seed, i, 134) > 0.1 || vnoise(x / 9, z / 9, f.seed + 135) < 0.5)) continue;
     if (f.river && Math.abs(z - f.river.z) < f.river.half + 1.2) continue;
     if (f.road && Math.abs(x - roadX(f, z)) < 2.6) continue;
     if (onTrail(plan, x, z, 0.4)) continue;
     if (plan.site?.blocks(x, z) || (plan.site?.ground(x, z).cobble ?? 0) > 0.2) continue;
     const h = hash(f.seed, i, 136);
-    const s = big && (flank || steep > 0.9) ? 0.35 + h * h * 0.7 : 0.1 + h * 0.2;
+    const s = big ? 0.45 + h * h * 1.1 : 0.1 + h * 0.22;
     out.push({ x, z, s, rot: hash(f.seed, i, 137) * Math.PI * 2 });
+    // Валун — не один: выход камня гнездом из двух-четырёх, мельче к краю.
+    if (big) {
+      const n = 1 + Math.floor(hash(f.seed, i, 139) * 3);
+      for (let k = 0; k < n && out.length < cap; k++) {
+        const a = hash(f.seed, i * 7 + k, 147) * Math.PI * 2;
+        const d = s * (1.2 + hash(f.seed, i * 7 + k, 148) * 1.6);
+        out.push({ x: x + Math.cos(a) * d, z: z + Math.sin(a) * d, s: s * (0.35 + hash(f.seed, i * 7 + k, 149) * 0.45), rot: a * 3.1 });
+      }
+    }
   }
   return out;
 }
@@ -744,7 +757,7 @@ export function buildField(plan: LandInput, spec: TwSpec): FieldView {
       const e = new THREE.Euler();
       spotsS.forEach((p, i) => {
         q.setFromEuler(e.set((hash(f.seed, i, 141) - 0.5) * 0.5, p.rot, (hash(f.seed, i, 142) - 0.5) * 0.5));
-        v.set(p.x, heightAt(f, p.x, p.z) - p.s * 0.28, p.z);
+        v.set(p.x, heightAt(f, p.x, p.z) - p.s * 0.14, p.z);
         sc.set(p.s * (0.8 + hash(f.seed, i, 143) * 0.5), p.s, p.s * (0.8 + hash(f.seed, i, 144) * 0.5));
         stones.setMatrixAt(i, m4.compose(v, q, sc));
         stones.setColorAt(i, C.set(hash(f.seed, i, 145) < 0.5 ? TONE.rock : TONE.rockDark).multiplyScalar(f.winter ? 1.05 : 0.9 + hash(f.seed, i, 146) * 0.2));
