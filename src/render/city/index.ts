@@ -108,7 +108,7 @@ export interface CityShare {
   land: THREE.Texture;
 }
 
-/** Сетка земли города в буферы: положение, нормаль, сырость берега и грязь (`roads.wetAndMud`); тон, UV и `cfg` — пустые (их берёт карта). */
+/** Сетка земли города в буферы: положение, нормаль, сырость берега и грязь (`world.wetAndMud`); тон, UV и `cfg` — пустые (их берёт карта). */
 export function groundGeometry(grid: { positions: Float32Array; normals: Float32Array; index: Uint32Array }, wet: Float32Array): THREE.BufferGeometry {
   const gg = new THREE.BufferGeometry();
   gg.setAttribute('position', new THREE.BufferAttribute(grid.positions, 3));
@@ -183,7 +183,7 @@ export async function buildCity(q: Quality): Promise<CityBuild> {
   const cap = SHORE_CAP[q];
   const water = buildWater(u, cap.cols, spec.detail, waterLights(lamps.map((l): V3 => [l.x, l.y, l.z])));
   group.add(water);
-  const shoreGroup = buildShore(u, shore.reeds, shore.stones, cap.reedBlades);
+  const shoreGroup = buildShore(u, shore.reeds, [...shore.stones, ...shore.rocks], cap.reedBlades);
   group.add(shoreGroup);
 
   // Деревья: экземплярами по видам; ближние отбрасывают тень, дальние — нет.
@@ -244,7 +244,7 @@ export async function buildCity(q: Quality): Promise<CityBuild> {
     plan,
     counts: {
       reeds: shore.reeds.length,
-      stones: shore.stones.length,
+      stones: shore.stones.length + shore.rocks.length,
       houses: plan.houses.length,
       suburb: plan.suburb.length,
       houseTris: marks.houses,

@@ -2,7 +2,7 @@
 // брусчатка, земля, пашня и затенение у подножий (docs/city.md, раздел 4). Чистый модуль без three:
 // сетка и карта — массивы, сцена заворачивает их в буферы и текстуру.
 import { clamp01, fbm, sstep, vnoise } from './noise';
-import { CLOSE, distSeg, heightAt, insidePoly, RACE, RACE_HALF, riverX, RIVER_HALF, smoothPath, type CityPlan, type P, type YardKind } from './layout';
+import { CLOSE, distPoly, distSeg, heightAt, insidePoly, RACE, RACE_HALF, riverX, RIVER_HALF, smoothPath, type CityPlan, type P, type YardKind } from './layout';
 import { deadEnds, mudAt, nearRoad } from './roads';
 
 /** Где лежит карта покрытий: квадрат в метрах. */
@@ -57,8 +57,15 @@ export function groundMap(plan: CityPlan, size: number): Uint8Array {
   const sq = plan.square;
   const xs = sq.map((p) => p.x);
   const zs = sq.map((p) => p.z);
-  each(Math.min(...xs) - 2, Math.min(...zs) - 2, Math.max(...xs) + 2, Math.max(...zs) + 2, (x, z, i) => {
-    if (insidePoly({ x, z }, sq)) c[i] = 1;
+  // Мостовая площади выходит за её край на полтора метра, к фасадам: у южной кромки, где кончается Главная, оставался клин
+  // травы, и прохожие с Главной на площадь шли по нему (Г-3, «Косяки»).
+  each(Math.min(...xs) - 3, Math.min(...zs) - 3, Math.max(...xs) + 3, Math.max(...zs) + 3, (x, z, i) => {
+    const p = { x, z };
+    if (insidePoly(p, sq)) c[i] = 1;
+    else {
+      const w = 1 - sstep(0.4, 2.2, distPoly(p, sq, true) + (vnoise(x * 0.9, z * 0.9, 1e6, 3) - 0.5) * 0.7);
+      if (w > c[i]) c[i] = w;
+    }
   });
   // Полоса между оградой двора храма и Верхней улицей — мостовая до ограды: там коновязь, поилка и сено. Прежде — вытоптанный
   // прямоугольник 7 × 25 м, и с камеры игры он читался короткой тёмной дорожкой справа от храма (Г-3, «Косяки»).

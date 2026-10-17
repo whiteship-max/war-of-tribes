@@ -8,8 +8,8 @@ import { cityPlan, type CityPlan } from './layout';
 import { buildStatic } from './budget';
 import { groundGrid, groundMap } from './ground';
 import { landMap, placeTrees, type Species, type TreeInst } from './nature';
-import { shoreItems, type Reed, type Stone } from './banks';
-import { wetAndMud } from './roads';
+import { groundWet, shoreItems, type Reed, type Stone } from './banks';
+import { mudAt } from './roads';
 import type { Site } from './sites';
 import { CITY_SPEC } from './spec';
 import type { Lamp } from '../glow/lamps';
@@ -46,11 +46,11 @@ export interface CityWorld {
   map: Uint8Array;
   land: Uint8Array;
   grid: { positions: Float32Array; normals: Float32Array; index: Uint32Array };
-  /** Пара на вершину сетки (`roads.wetAndMud`): сырость у воды (ил, сырая земля, влажная трава) и грязь у ворот и конюшен. */
+  /** Пара на вершину сетки (`world.wetAndMud`): сырость у воды (ил, сырая земля, влажная трава) и грязь у ворот и конюшен. */
   wet: Float32Array;
   trees: Record<Species, TreeInst[]>;
-  /** Камыш у кромки и камни на берегу (`banks.shoreItems`). */
-  shore: { reeds: Reed[]; stones: Stone[] };
+  /** Камыш у кромки, камни на берегу и на склонах (`banks.shoreItems`). */
+  shore: { reeds: Reed[]; stones: Stone[]; rocks: Stone[] };
   /** Колесо лесопилки, что крутится (docs/city.md, 16.4): модель вокруг оси и где стоит; на «Низком» — нет. */
   wheel: { mesh: MeshArrays; at: V3; fx: number; fz: number; R: number; water: number } | null;
   /** Сколько стоила каждая часть, мс — подписи стенда и таблице бюджета. */
@@ -90,6 +90,22 @@ export function buildWorld(q: Quality): CityWorld {
     wheel: st.wheel ? { mesh: arraysOf(st.wheel.b), at: st.wheel.at, fx: st.wheel.fx, fz: st.wheel.fz, R: st.wheel.R, water: st.wheel.water } : null,
     ms: { plan: t1 - t0, build: t2 - t1, ground: t3 - t2, trees: t4 - t3 },
   };
+}
+
+/**
+ * Вершинам сетки земли — пара на вершину: сырость берега (`banks.groundWet`) и грязь (`roads.mudAt`); шейдер земли читает её
+ * атрибутом `cwet` (`material.groundMaterial`).
+ */
+export function wetAndMud(positions: Float32Array, plan: CityPlan): Float32Array {
+  const n = positions.length / 3;
+  const out = new Float32Array(n * 2);
+  for (let k = 0; k < n; k++) {
+    const x = positions[k * 3];
+    const z = positions[k * 3 + 2];
+    out[k * 2] = groundWet(x, z);
+    out[k * 2 + 1] = mudAt(x, z, plan);
+  }
+  return out;
 }
 
 /** Буферы, которые поток передаёт, а не копирует. */

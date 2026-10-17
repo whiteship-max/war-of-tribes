@@ -15,6 +15,7 @@ import type { V3 } from './geom';
 import { CHURCH, PARVIS, distSeg, heightAt, insidePoly, type CityPlan, type P } from './layout';
 import { wallTops } from './forts';
 import { hash3, rnd } from './noise';
+import { headOf } from './roads';
 import { linear } from './palette';
 import { armsCode, armsOr } from '@/heraldry/arms';
 import { TINCTURE_HEX } from '@/heraldry/art';
@@ -971,6 +972,12 @@ export function tangentAt(path: Path, s: number): typeof TAN {
  * Пути через площадь и меж рядов рынка (docs/city.md, 13.1): улицы кончаются у краёв площади, и без этих путей прохожие
  * поворачивали бы назад у её кромки. Обходят ряды, колодец с чашей, бочки и статую; к паперти — сквозь проход ограды.
  */
+/** Сколько дороги от ворот ходят люди, метры: дальше — дымка (`camera.cityFog`). */
+export const TRAVEL_REACH = 760;
+/** Людная часть дороги у ворот, метры; дальше вес пути на метр — `TRAVEL_FAR`: редкие путники. */
+const TRAVEL_BUSY = 170;
+const TRAVEL_FAR = 0.05;
+
 export const SQUARE_PATHS: readonly { name: string; pts: P[]; half: number; weight: number }[] = [
   { name: 'от Главной к Верхней', pts: [{ x: 1, z: 30 }, { x: 14, z: 25.8 }, { x: 26, z: 23.5 }, { x: 28.5, z: 12 }, { x: 27, z: -4 }, { x: 25, z: -24 }], half: 2.5, weight: 2 },
   { name: 'от Восточной к Западной', pts: [{ x: 31, z: 0 }, { x: 12, z: -1 }, { x: -10, z: -2 }, { x: -23, z: -10 }, { x: -27, z: -24 }], half: 2.5, weight: 2 },
@@ -1358,9 +1365,14 @@ export class CityLife {
       this.paths.push(pathOf(st.pts, st.half, ground));
       weight.push(this.paths[this.paths.length - 1].len * (0.25 + st.rich * 1.5));
     }
-    for (const r of plan.roads.slice(0, 2)) {
-      this.paths.push(pathOf(r.pts.slice(0, Math.min(r.pts.length, 18)), r.half, ground));
-      weight.push(this.paths[this.paths.length - 1].len * 0.5);
+    // Дороги от ворот — до дымки (`TRAVEL_REACH`): у ворот людно, дальше — редкие путники (docs/city_v3.md, Г-3); лесная
+    // дорога на север — путники к деревне за лесом. Число людей уровня не растёт: путники — из тех же идущих.
+    for (const r of plan.roads) {
+      const main = r.name === 'Дорога в долину' || r.name === 'Восточная дорога';
+      if (!main && r.name !== 'Лесная дорога') continue;
+      this.paths.push(pathOf(headOf(r.pts, TRAVEL_REACH), r.half, ground));
+      const len = this.paths[this.paths.length - 1].len;
+      weight.push(main ? Math.min(len, TRAVEL_BUSY) * 0.5 + Math.max(0, len - TRAVEL_BUSY) * TRAVEL_FAR : len * TRAVEL_FAR);
     }
     for (const sq of SQUARE_PATHS) {
       this.paths.push(pathOf(sq.pts, sq.half, ground));

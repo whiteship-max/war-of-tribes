@@ -11,10 +11,9 @@ import { cityPlan, distSeg, type CityPlan, type House, type P, type Tower } from
 import { buildStatic } from './budget';
 import { groundGrid, groundMap } from './ground';
 import { landMap, placeTrees, treeModel, type Species, type TreeInst } from './nature';
-import { wetAndMud } from './roads';
 import { CITY_SPEC } from './spec';
 import type { Lamp } from '../glow/lamps';
-import { arraysOf, type MeshArrays } from './world';
+import { arraysOf, wetAndMud, type MeshArrays } from './world';
 import type { Box2, TownCut, TownHouse } from '../tw/town';
 
 /** Что городу знать о ролике: уровень, вырез под бой, план города игры (нет — свой), нужна ли своя земля. */

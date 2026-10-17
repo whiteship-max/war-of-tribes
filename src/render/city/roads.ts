@@ -3,7 +3,6 @@
 // (`world.ts`, `town.ts`) и тесты.
 import { distSeg, insidePoly, type CityPlan, type P, type Street } from './layout';
 import { fbm, sstep, vnoise } from './noise';
-import { groundWet } from './banks';
 
 /** Отрезок дороги с полушириной и знаком стороны: левее хода — минус, правее — плюс. */
 interface Seg {
@@ -193,22 +192,6 @@ function mudBlobs(plan: CityPlan): (readonly [number, number, number, number])[]
   // Колодец площади: отмостку мочит расплёсканное.
   out.push([plan.well.x + 0.6, plan.well.z + 0.8, 4.2, 0.45]);
   blobsOf.set(plan, out);
-  return out;
-}
-
-/**
- * Вершинам сетки земли — пара на вершину: сырость берега (`banks.groundWet`) и грязь (`mudAt`); шейдер земли читает её
- * атрибутом `cwet` (`material.groundMaterial`).
- */
-export function wetAndMud(positions: Float32Array, plan: CityPlan): Float32Array {
-  const n = positions.length / 3;
-  const out = new Float32Array(n * 2);
-  for (let k = 0; k < n; k++) {
-    const x = positions[k * 3];
-    const z = positions[k * 3 + 2];
-    out[k * 2] = groundWet(x, z);
-    out[k * 2 + 1] = mudAt(x, z, plan);
-  }
   return out;
 }
 

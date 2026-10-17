@@ -221,8 +221,8 @@ export function cityCounts(q: Quality, plan: CityPlan = cityPlan()): CityCounts 
   const items = shoreItems(plan, q);
   const st = shoreTris(sc.reedBlades);
   if (items.reeds.length > 0) calls += 1;
-  if (items.stones.length > 0) calls += 1;
-  const shore = waterTriangles(sc.cols) + items.reeds.length * st.reed + items.stones.length * st.stone;
+  if (items.stones.length + items.rocks.length > 0) calls += 1;
+  const shore = waterTriangles(sc.cols) + items.reeds.length * st.reed + (items.stones.length + items.rocks.length) * st.stone;
   for (const sp of Object.keys(trees) as Species[]) {
     const n = trees[sp].length;
     if (n === 0) continue;
