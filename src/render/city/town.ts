@@ -11,7 +11,7 @@ import { cityPlan, distSeg, type CityPlan, type House, type P, type Tower } from
 import { buildStatic } from './budget';
 import { groundGrid, groundMap } from './ground';
 import { landMap, placeTrees, treeModel, type Species, type TreeInst } from './nature';
-import { groundWet } from './banks';
+import { wetAndMud } from './roads';
 import { CITY_SPEC } from './spec';
 import type { Lamp } from '../glow/lamps';
 import { arraysOf, type MeshArrays } from './world';
@@ -235,8 +235,7 @@ export function townWorld(input: TownInput): TownWorld {
   }
   const gc = { x: (cut.west.x + cut.east.x) / 2, z: (cut.west.z + cut.east.z) / 2 - 60 };
   const grid = groundGrid(lod.cells, lod.cell, gc, GRID_REACH);
-  const wet = new Float32Array(grid.positions.length / 3);
-  for (let k = 0; k < wet.length; k++) wet[k] = groundWet(grid.positions[k * 3], grid.positions[k * 3 + 2]);
+  const wet = wetAndMud(grid.positions, base);
   // Карта покрытий — по плану окна города, как у города игры: убранное закрывает земля ролика.
   const ground: TownWorld['ground'] = input.ground ? { map: groundMap(base, spec.map), land: landMap(base, spec.land) } : null;
   const t4 = performance.now();

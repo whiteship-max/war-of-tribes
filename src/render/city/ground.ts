@@ -3,6 +3,7 @@
 // сетка и карта — массивы, сцена заворачивает их в буферы и текстуру.
 import { clamp01, fbm, sstep, vnoise } from './noise';
 import { CLOSE, distSeg, heightAt, insidePoly, RACE, RACE_HALF, riverX, RIVER_HALF, smoothPath, type CityPlan, type P, type YardKind } from './layout';
+import { deadEnds, mudAt, nearRoad } from './roads';
 
 /** Где лежит карта покрытий: квадрат в метрах. */
 export const MAP_AT = { x0: -256, z0: -300, size: 512 } as const;
@@ -27,7 +28,8 @@ export function groundMap(plan: CityPlan, size: number): Uint8Array {
     const j1 = Math.min(size - 1, Math.ceil(toJ(z1)));
     for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) fn(X(i), Z(j), j * size + i);
   };
-  const stampLine = (pts: readonly P[], half: number, into: Float32Array, soft = 0.6): void => {
+  // `ruts` — дорога за стеной: две колеи темнее (затенением карты, альфа) и травяной горб между ними.
+  const stampLine = (pts: readonly P[], half: number, into: Float32Array, soft = 0.6, ruts = false): void => {
     for (let k = 0; k < pts.length - 1; k++) {
       const a = pts[k];
       const b = pts[k + 1];
@@ -35,13 +37,22 @@ export function groundMap(plan: CityPlan, size: number): Uint8Array {
       each(Math.min(a.x, b.x) - pad, Math.min(a.z, b.z) - pad, Math.max(a.x, b.x) + pad, Math.max(a.z, b.z) + pad, (x, z, i) => {
         const dd = distSeg({ x, z }, a, b).d;
         const ragged = (vnoise(x * 0.9, z * 0.9, 1e6, 3) - 0.5) * 0.7;
-        const w = 1 - sstep(half - soft, half + soft, dd + ragged);
+        let w = 1 - sstep(half - soft, half + soft, dd + ragged);
+        if (ruts && w > 0) {
+          const u = dd / half;
+          w *= 1 - 0.4 * (1 - sstep(0.08, 0.26, u + ragged * 0.1));
+          const rut = (1 - sstep(0.07, 0.17, Math.abs(u - 0.45))) * w;
+          const s = 1 - 0.22 * rut;
+          if (s < ao[i]) ao[i] = s;
+        }
         if (w > into[i]) into[i] = w;
       });
     }
   };
-  // Улицы: мостовая и земля.
-  for (const s of plan.streets) stampLine(s.pts, s.half, s.surface === 'cobble' ? c : d);
+  // Улицы: мостовая и земля. Грунт переулка у мостовой кончается: переулок, доведённый до середины Главной, ложился поперёк
+  // мостовой бурой полосой (docs/city_v3.md, Г-3, «Косяки») — земля улиц собирается отдельно и гаснет там, где мостовая.
+  const ds = new Float32Array(n);
+  for (const s of plan.streets) stampLine(s.pts, s.half, s.surface === 'cobble' ? c : ds);
   // Площадь — брусчатка целиком.
   const sq = plan.square;
   const xs = sq.map((p) => p.x);
@@ -49,6 +60,28 @@ export function groundMap(plan: CityPlan, size: number): Uint8Array {
   each(Math.min(...xs) - 2, Math.min(...zs) - 2, Math.max(...xs) + 2, Math.max(...zs) + 2, (x, z, i) => {
     if (insidePoly({ x, z }, sq)) c[i] = 1;
   });
+  // Полоса между оградой двора храма и Верхней улицей — мостовая до ограды: там коновязь, поилка и сено. Прежде — вытоптанный
+  // прямоугольник 7 × 25 м, и с камеры игры он читался короткой тёмной дорожкой справа от храма (Г-3, «Косяки»).
+  each(CLOSE.x1, CLOSE.z0 - 30, CLOSE.x1 + 10, CLOSE.z0 + 11, (x, z, i) => {
+    const edge = Math.min(x - CLOSE.x1 - 0.3, z - (CLOSE.z0 - 28));
+    const w = sstep(-0.4, 1.2, edge + (vnoise(x * 0.9, z * 0.9, 1e6, 3) - 0.5) * 0.7);
+    if (w > c[i]) c[i] = w;
+  });
+  // Тупик переулка — утоптанный дворик у задних стен домов, а не полоса, оборванная в траве.
+  for (const e of deadEnds(plan)) {
+    const cx = e.x + e.tx * 2.5;
+    const cz = e.z + e.tz * 2.5;
+    const r = e.half + 3.2;
+    each(cx - r - 2, cz - r - 2, cx + r + 2, cz + r + 2, (x, z, i) => {
+      const k = Math.hypot(x - cx, z - cz) / r;
+      const w = 1 - sstep(0.55, 1.05, k + (vnoise(x / 2.2, z / 2.2, 1e6, 71) - 0.5) * 0.4);
+      if (w > ds[i]) ds[i] = w;
+    });
+  }
+  for (let k = 0; k < n; k++) {
+    const w = ds[k] * (1 - c[k]);
+    if (w > d[k]) d[k] = w;
+  }
   // Мостовая не одним серым полем: грязь пятнами в швах и вдоль краёв, вытоптанное посередине.
   for (let k = 0; k < n; k++) {
     if (c[k] < 0.5) continue;
@@ -62,7 +95,7 @@ export function groundMap(plan: CityPlan, size: number): Uint8Array {
   // (docs/city.md, 12.3). Канава мельничного ручья — работа людей: её берега — земля.
   stampLine(smoothPath(RACE, 2), RACE_HALF + 1.6, d, 1.4);
   // Дороги и тропы за стеной — земля; дворы — вытоптанная поляна пятнами.
-  for (const r of plan.roads) stampLine(r.pts, r.half, d, 1.2);
+  for (const r of plan.roads) stampLine(r.pts, r.half, d, 1.2, r.half >= 2.5);
   for (const y of plan.yards) {
     // Вытоптано по ремеслу: у забоя и пилорамы — вся поляна, у загона и хутора — пятнами, выгон — луг.
     const [reach, k0] = YARD_TRAMPLE[y.kind];
@@ -72,30 +105,34 @@ export function groundMap(plan: CityPlan, size: number): Uint8Array {
       if (w > d[i]) d[i] = w;
     });
   }
-  // Внутри стены, вне улиц: дворы — трава с вытоптанными пятнами земли.
+  // Внутри стены, вне улиц: дворы — трава; вытоптано пятнами и тропками, ровной бурой подстилки нет (Г-3: прежде весь город
+  // между улицами лежал на трети земли, и переулки в нём не читались).
   const wall = plan.wall;
   const wx = wall.map((p) => p.x);
   const wz = wall.map((p) => p.z);
   each(Math.min(...wx), Math.min(...wz), Math.max(...wx), Math.max(...wz), (x, z, i) => {
     if (!insidePoly({ x, z }, wall)) return;
-    const n = fbm(x / 70 + 10, z / 70 + 10, 1e6, 3, 21);
-    const w = 0.28 + sstep(0.45, 0.8, n) * 0.35;
+    const n = fbm(x / 40 + 10, z / 40 + 10, 1e6, 3, 21);
+    const w = 0.06 + sstep(0.55, 0.82, n) * 0.4 + sstep(0.6, 0.75, vnoise(x / 6, z / 6, 1e6, 23)) * 0.12;
     if (w > d[i]) d[i] = w;
     // Огороды во дворах: грядки (фактура пашни) пятнами за домами.
     const g = sstep(0.56, 0.64, fbm(x / 26 + 5, z / 26 + 5, 1e6, 3, 25)) * 0.9;
     if (g > f[i]) f[i] = g;
   });
   // Двор храма — ухоженная трава кладбища и сада, без огородов и вытоптанных пятен; у коновязи и поилки за оградой —
-  // земля, вытоптанная копытами (docs/city_v3.md).
+  // мостовая (выше) и грязь пятнами (`roads.mudAt`).
   each(CLOSE.x0, CLOSE.z1, CLOSE.x1, CLOSE.z0, (x, z, i) => {
     d[i] = Math.min(d[i], 0.1);
     f[i] = 0;
   });
-  each(CLOSE.x1 + 0.5, CLOSE.z0 - 26, CLOSE.x1 + 8, CLOSE.z0 - 1, (x, z, i) => {
-    const edge = Math.min(x - CLOSE.x1 - 0.5, CLOSE.x1 + 8 - x, z - (CLOSE.z0 - 26), CLOSE.z0 - 1 - z);
-    const w = sstep(0, 2.5, edge + (vnoise(x / 3, z / 3, 1e6, 37) - 0.5) * 1.6) * 0.8;
-    if (w > d[i]) d[i] = w;
-  });
+  // Грязь у ворот, конюшни, кузницы, загона (`roads.mudAt`) лежит на земле: темнит и мочит её шейдер по вершинам.
+  for (let j = 0; j < size; j++) {
+    for (let i = 0; i < size; i++) {
+      const k = j * size + i;
+      const w = mudAt(X(i), Z(j), plan) * 0.95;
+      if (w > d[k]) d[k] = w;
+    }
+  }
   // Двор замка — утоптанная земля.
   const cw = plan.castleWall;
   each(Math.min(...cw.map((p) => p.x)), Math.min(...cw.map((p) => p.z)), Math.max(...cw.map((p) => p.x)), Math.max(...cw.map((p) => p.z)), (x, z, i) => {
@@ -118,6 +155,9 @@ export function groundMap(plan: CityPlan, size: number): Uint8Array {
       }
       const s = 1 - k * (1 - sstep(0, reach, out));
       if (s < ao[i]) ao[i] = s;
+      // Вокруг стен трава вытоптана тропкой: к двери, к поленнице, под капелью с кровли.
+      const t = (1 - sstep(0.3, 1.6, out + (vnoise(x / 1.7, z / 1.7, 1e6, 27) - 0.5) * 0.9)) * 0.55;
+      if (t > d[i]) d[i] = t;
     });
   };
   for (const h of [...plan.houses, ...plan.suburb]) shadeBox(h.x, h.z, -h.fz, h.fx, h.w / 2 + 0.1, h.d / 2 + 0.1, 1.6, 0.42);
@@ -176,29 +216,76 @@ const YARD_TRAMPLE: Record<YardKind, [number, number]> = {
 export function openLand(x: number, z: number, plan: CityPlan, pad = 0): boolean {
   for (const y of plan.yards) if (Math.hypot(x - y.x, z - y.z) < y.r + pad) return false;
   for (const h of plan.suburb) if (Math.hypot(x - h.x, z - h.z) < Math.max(h.w, h.d) + 4 + pad) return false;
-  for (const r of plan.roads) {
-    const pts = r.pts;
-    for (let k = 0; k < pts.length - 1; k++) if (distSeg({ x, z }, pts[k], pts[k + 1]).d < r.half + 2 + pad) return false;
-  }
-  return true;
+  return !nearRoad(x, z, plan, 2 + pad);
 }
 
-/** Вне стены и гласиса: восточный склон и шея мыса — поля полосами. */
-export function fieldAt(x: number, z: number, plan: CityPlan): number {
-  if (insidePoly({ x, z }, plan.wall) || insidePoly({ x, z }, plan.castleWall)) return 0;
-  const east = x > 125 && x < 330 && z > -170 && z < 190;
-  const south = z > 175 && z < 330 && Math.abs(x) < 220;
-  if (!east && !south) return 0;
-  if (!openLand(x, z, plan, 2)) return 0;
-  // Поля — клетки 40×90 м со своим направлением полос; межи — трава.
-  const cx = Math.floor((x + 1000) / 46);
-  const cz = Math.floor((z + 1000) / 88);
+/** Поле: клетка 46 × 88 м со своим направлением полос; межи — трава. Клетку и её семя читает и шейдер земли (`material.ts`). */
+export const FIELD_CELL = { x: 46, z: 88, off: 1000 } as const;
+
+/**
+ * Деревни на дорогах вдали (docs/city_v3.md, Г-3): у каждой — поля кругом. Дома не строятся — до них 600–900 м, и в дымке
+ * деревню читает пашня у дороги; точка — на длине `s` метров по дороге от ворот.
+ */
+const HAMLETS: readonly { road: string; s: number; r: number }[] = [
+  { road: 'Дорога в долину', s: 620, r: 230 },
+  { road: 'Восточная дорога', s: 720, r: 250 },
+  { road: 'Лесная дорога', s: 560, r: 170 },
+];
+
+const hamletsOf = new WeakMap<CityPlan, (P & { r: number })[]>();
+export function hamlets(plan: CityPlan): (P & { r: number })[] {
+  const had = hamletsOf.get(plan);
+  if (had) return had;
+  const out: (P & { r: number })[] = [];
+  for (const h of HAMLETS) {
+    const r = plan.roads.find((x) => x.name === h.road);
+    if (!r) continue;
+    let s = h.s;
+    for (let k = 0; k < r.pts.length - 1; k++) {
+      const l = Math.hypot(r.pts[k + 1].x - r.pts[k].x, r.pts[k + 1].z - r.pts[k].z);
+      if (s <= l) {
+        out.push({ x: r.pts[k].x + ((r.pts[k + 1].x - r.pts[k].x) * s) / l, z: r.pts[k].z + ((r.pts[k + 1].z - r.pts[k].z) * s) / l, r: h.r });
+        break;
+      }
+      s -= l;
+    }
+  }
+  hamletsOf.set(plan, out);
+  return out;
+}
+
+/**
+ * Где пашня: восточный склон и шея мыса у города, кругом деревень вдали. Решает клетка целиком — по своей середине и своему
+ * зерну: край пашни идёт межами клеток, ступенями, а не прямой через весь склон (прежде южный край — прямая z 175 через
+ * 440 м, с ролика у ворот — полоса поперёк, Г-3, «Косяки»).
+ */
+function fieldCell(cx: number, cz: number, plan: CityPlan): boolean {
+  const x = (cx + 0.5) * FIELD_CELL.x - FIELD_CELL.off;
+  const z = (cz + 0.5) * FIELD_CELL.z - FIELD_CELL.off;
   const r = vnoise(cx * 7.3, cz * 3.1, 1e6, 11);
-  if (r < 0.28) return 0;
-  const fx = (x + 1000) / 46 - cx;
-  const fz = (z + 1000) / 88 - cz;
-  const edge = Math.min(fx, 1 - fx) * 46 > 1.6 && Math.min(fz, 1 - fz) * 88 > 1.6;
-  return edge ? 1 : 0;
+  if (r < 0.28) return false;
+  // Запас клетки: край угодий — не линейка.
+  const j = (vnoise(cx * 3.7 + 0.5, cz * 5.3 + 0.5, 1e6, 15) - 0.5) * 70;
+  if (x > 125 + j && x < 330 + j && z > -170 && z < 190 + j) return true;
+  if (z > 175 + j && z < 330 + j && Math.abs(x) < 220 + j) return true;
+  for (const h of hamlets(plan)) if (Math.hypot(x - h.x, z - h.z) < h.r + j - (r - 0.28) * 90) return true;
+  return false;
+}
+
+/** Вне стены и гласиса: восточный склон и шея мыса, поля у деревень — полосами. */
+export function fieldAt(x: number, z: number, plan: CityPlan): number {
+  const fx = (x + FIELD_CELL.off) / FIELD_CELL.x;
+  const fz = (z + FIELD_CELL.off) / FIELD_CELL.z;
+  const cx = Math.floor(fx);
+  const cz = Math.floor(fz);
+  const ux = fx - cx;
+  const uz = fz - cz;
+  // Межа — трава между клетками.
+  if (Math.min(ux, 1 - ux) * FIELD_CELL.x <= 1.6 || Math.min(uz, 1 - uz) * FIELD_CELL.z <= 1.6) return 0;
+  if (!fieldCell(cx, cz, plan)) return 0;
+  if (insidePoly({ x, z }, plan.wall) || insidePoly({ x, z }, plan.castleWall)) return 0;
+  if (Math.abs(x - riverX(z)) < RIVER_HALF + 14) return 0;
+  return openLand(x, z, plan, 2) ? 1 : 0;
 }
 
 /** Вода: река в западной долине. */

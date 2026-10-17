@@ -8,7 +8,8 @@ import { cityPlan, type CityPlan } from './layout';
 import { buildStatic } from './budget';
 import { groundGrid, groundMap } from './ground';
 import { landMap, placeTrees, type Species, type TreeInst } from './nature';
-import { groundWet, shoreItems, type Reed, type Stone } from './banks';
+import { shoreItems, type Reed, type Stone } from './banks';
+import { wetAndMud } from './roads';
 import type { Site } from './sites';
 import { CITY_SPEC } from './spec';
 import type { Lamp } from '../glow/lamps';
@@ -45,7 +46,7 @@ export interface CityWorld {
   map: Uint8Array;
   land: Uint8Array;
   grid: { positions: Float32Array; normals: Float32Array; index: Uint32Array };
-  /** Сырость земли у воды в каждой вершине сетки (`banks.groundWet`): ил, сырая земля, влажная трава. */
+  /** Пара на вершину сетки (`roads.wetAndMud`): сырость у воды (ил, сырая земля, влажная трава) и грязь у ворот и конюшен. */
   wet: Float32Array;
   trees: Record<Species, TreeInst[]>;
   /** Камыш у кромки и камни на берегу (`banks.shoreItems`). */
@@ -66,8 +67,7 @@ export function buildWorld(q: Quality): CityWorld {
   const map = groundMap(plan, spec.map);
   const land = landMap(plan, spec.land);
   const grid = groundGrid(spec.groundCells, spec.groundCell, { x: 0, z: -20 }, 1400);
-  const wet = new Float32Array(grid.positions.length / 3);
-  for (let k = 0; k < wet.length; k++) wet[k] = groundWet(grid.positions[k * 3], grid.positions[k * 3 + 2]);
+  const wet = wetAndMud(grid.positions, plan);
   const shore = shoreItems(plan, q);
   const t3 = performance.now();
   const trees = placeTrees(plan, spec.treeNear, spec.nearStep, spec.farStep, spec.treeReach);

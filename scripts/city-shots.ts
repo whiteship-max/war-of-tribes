@@ -9,7 +9,7 @@
 //                                                (сцена города в игре, не стенд), TAG и QUALITY те же
 //   GAME=1 WX=clear,rain,storm npm run city:shots — погода адресом (`?weather=`, docs/city.md, 15): кадр игры на каждую,
 //                                                `WXLOOK=market:70` — вблизи постройки (тип:расстояние; `-4,10,-30:60` —
-//                                                точка плана), `WXMAP=1` —
+//                                                точка плана; `…:60:150` — камера повёрнута на 150°), `WXMAP=1` —
 //                                                карта мира, `WXSEASON=winter` — сезон партии, `WXREGION=italy` — регион,
 //                                                `WXDAY=0.8` — доля суток партии (0.8 летом — глубокая ночь, docs/polish.md, П-3)
 //   LEGEND=1 npm run city:shots              — легенда карты листом: строки значков той же функцией, что окно легенды
@@ -355,7 +355,7 @@ async function weatherShots(tab: Tab, q: Quality): Promise<void> {
   }
   const near = process.env.WXLOOK;
   if (near && !map) {
-    const [type, dist] = near.split(':');
+    const [type, dist, yaw] = near.split(':');
     // `WXLOOK=x,y,z:расстояние` — точка плана вместо постройки (паперть храма, docs/city_v3.md).
     const at = type.includes(',') ? type.split(',').map(Number) : null;
     await tab.eval<string>(`(() => {
@@ -366,6 +366,8 @@ async function weatherShots(tab: Tab, q: Quality): Promise<void> {
       if (at) sc.target.set(at[0], at[1], at[2]);
       else sc.target.set(m.x, m.y0 + 3, m.z);
       sc.dist = ${Number(dist) || 60};
+      // Третье число — поворот камеры вокруг цели, градусы (…:220:150 — ворота с дорогой вдаль, docs/city_v3.md, Г-3).
+      sc.spinTurn = ${(Number(yaw) || 0) * Math.PI / 180};
       sc.userMoved = true;
       sc.place();
       return JSON.stringify('ok');
@@ -389,7 +391,7 @@ async function weatherShots(tab: Tab, q: Quality): Promise<void> {
       }
     }
     const png = await tab.send<{ data: string }>('Page.captureScreenshot', { format: 'png' });
-    const name = `${TAG}-wx-${wx}${day ? '-d' + day : ''}${region ? '-' + region : ''}${map ? '-map' : near ? '-' + near.replace(':', '') : ''}-${q}.png`;
+    const name = `${TAG}-wx-${wx}${day ? '-d' + day : ''}${region ? '-' + region : ''}${map ? '-map' : near ? '-' + near.replace(/:/g, '') : ''}-${q}.png`;
     await writeFile(join(OUT, name), Buffer.from(png.data, 'base64'));
     if (wx === 'storm') await tab.eval<string>(`(() => { window.__scene.resume(); return JSON.stringify('ok'); })()`);
     const pc = await tab.eval<string>('JSON.stringify(JSON.stringify(window.__scene.precip ? { поле: window.__scene.precip.grounded, ...window.__scene.precip.counts() } : null))').catch(() => '?');
