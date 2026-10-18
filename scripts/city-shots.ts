@@ -381,7 +381,10 @@ async function weatherShots(tab: Tab, q: Quality): Promise<void> {
   const ch = process.env.CHAMBERS;
   if (ch) {
     const [poi, dy, dp, hold, hover] = ch.split(':');
+    // Подписи-указатели первого входа на снимках не нужны (`COACH=1` — снять и их).
+    const coach = process.env.COACH ? '' : "try { localStorage.setItem('tribe.chambers.coach', '1'); } catch {}";
     const said = await tab.eval<string>(`new Promise((ok) => {
+      ${coach}
       window.__chambersOpen.getState().show();
       let n = 0;
       const t = setInterval(() => {

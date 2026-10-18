@@ -1,6 +1,6 @@
-// Покои правителя (docs/city_v3.md, Г-5): подписи предметов стола — видны, пока предмет на экране, при любом повороте
-// головы; не налезают друг на друга, не выходят за край, вдали мельче. Чистая раскладка без DOM и three: на вход —
-// где на экране предмет и как он далеко, на выход — где встать подписи. Её же сверяет тест.
+// Покои правителя (docs/city_v3.md, Г-5, Г-6): раскладка подписей — не налезают друг на друга, не выходят за край, вдали
+// мельче. Кому подпись нужна (подошёл и смотрит, сидя — предметы стола), решает комната (`room.ts`, `labelWants`). Чистая
+// раскладка без DOM и three: на вход — где на экране вещь и как она далеко, на выход — где встать подписям. Её же сверяет тест.
 
 /** Предмет на экране: точка над ним (`ax`, `ay`, точки CSS), расстояние от глаза, м; `on` — в кадре и перед глазом. */
 export interface TagIn {
@@ -10,6 +10,8 @@ export interface TagIn {
   ay: number;
   dist: number;
   on: boolean;
+  /** Очередь раскладки: меньше — раньше (уже видимые — первыми, чтобы не прыгали); нет — по расстоянию. */
+  rank?: number;
 }
 
 /** Где подпись: середина плашки, размер с масштабом, видна ли и сдвинута ли от предмета (тогда к нему — черта). */
@@ -25,6 +27,8 @@ export interface TagOut {
   ay: number;
   /** Плашка ушла от своего места над предметом — к предмету ведёт черта. */
   led: boolean;
+  /** Насколько проступила (0…1) — ставит комната (`room.fadeLabels`). */
+  alpha?: number;
 }
 
 /** Кегль подписи вблизи, точки CSS; вдали — до `TAG_MIN` доли (не мельче 12: правило кегля, docs/polish.md, П-1). */
@@ -52,7 +56,7 @@ export function tagSize(text: string, scale: number): { w: number; h: number } {
 export function layoutTags(items: readonly TagIn[], view: { left: number; top: number; right: number; bottom: number }): TagOut[] {
   const placed: { x0: number; y0: number; x1: number; y1: number }[] = [];
   const out = new Map<string, TagOut>();
-  const order = [...items].sort((a, b) => a.dist - b.dist);
+  const order = [...items].sort((a, b) => (a.rank ?? a.dist) - (b.rank ?? b.dist));
   for (const it of order) {
     const scale = tagScale(it.dist);
     const { w, h } = tagSize(it.text, scale);

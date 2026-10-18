@@ -146,9 +146,9 @@ export const DOOR = { x: 3.85, w: 1.15, h: 2.35 };
 
 /** Стол: трапезный стол на козлах, лицом к окну; кресло за ним. */
 export const DESK = { x: 0, z: 3.05, w: 2.3, d: 1.0, top: 0.78 };
-export const CHAIR = { x: 0, z: 2.12 };
+export const CHAIR = { x: 0, z: 2.22 };
 /** Подлокотники кресла: от середины в стороны, верх и докуда вперёд (концы — навершия, на них лежат руки). */
-export const ARMREST = { x: 0.24, y: 0.7, end: 2.46 };
+export const ARMREST = { x: 0.24, y: 0.7, end: 2.52 };
 
 /** Кровать под пологом в северо-западном углу, изголовьем к северу. */
 export const BED = { x0: -5.0, x1: -3.15, z0: -5.05, z1: -2.85, top: 0.62, canopy: 2.55 };
@@ -201,13 +201,13 @@ export const POIS: readonly Poi[] = [
     id: 'desk',
     name: 'Кресло',
     verb: 'Сесть за стол',
-    // Сидя: глаз над сиденьем, колени под столом, руки на подлокотниках (`acts.ts`).
-    pose: { x: 0, y: 1.25, z: 1.99, yaw: 0, pitch: -0.45, fov: 62 },
-    // Подходят сбоку: между креслом и столом 18 см — правитель встаёт у восточного подлокотника и садится вбок.
-    approach: { x: 0.76, z: 2.02, yaw: 0 },
+    // Сидя, подавшись к столу (Г-6): глаз над передом сиденья — внизу кадра край стола и руки, а не колени и подушка.
+    pose: { x: 0, y: 1.24, z: 2.13, yaw: 0, pitch: -0.47, fov: 62 },
+    // Подходят сбоку: кресло придвинуто к столу — правитель встаёт у восточного подлокотника и садится вбок.
+    approach: { x: 0.76, z: 2.12, yaw: 0 },
     yaw: [-1.35, 1.35],
     pitch: [-1.2, 0.45],
-    hits: [box(-0.45, 0, 1.75, 0.45, 1.5, 2.45), box(-1.2, 0, 2.5, 1.2, 0.8, 3.6)],
+    hits: [box(-0.45, 0, 1.85, 0.45, 1.5, 2.52), box(-1.2, 0, 2.53, 1.2, 0.8, 3.6)],
   },
   {
     id: 'window',
@@ -246,8 +246,8 @@ export const POIS: readonly Poi[] = [
     id: 'arms',
     name: 'Оружие',
     verb: 'Взять меч',
-    // Меч — в руке: стоя у сундука лицом к стене оружия.
-    pose: { x: 4.02, y: 1.62, z: -1.95, yaw: Math.PI / 2, pitch: -0.08, fov: 64 },
+    // Меч — в руке: взял со стены и отступил на шаг, лицом к стене оружия (Г-6).
+    pose: { x: 3.45, y: 1.62, z: -1.95, yaw: Math.PI / 2, pitch: -0.04, fov: 64 },
     approach: { x: 4.02, z: -1.95, yaw: Math.PI / 2 },
     yaw: null,
     pitch: [-1.2, 1.1],
@@ -292,15 +292,27 @@ export interface Trinket extends Thing {
   id: TrinketId;
   /** Размер предмета, м — коробка касания у глаза. */
   size: number;
-  /** Как держать: расстояние от глаза, м, и наклон к глазу (радианы; меч — наискось плоскостью к глазу). */
-  hold: number;
-  tilt: number;
   /** Где встать, чтобы взять стоя (`null` — только сидя за столом или с места дела). */
   stand: Stand | null;
-  /** Где рука держит предмет — в его осях (`build.trinket`), м: ножка кубка, рукоять меча. */
+  /**
+   * Как держать (Г-6): `fist` — кулаком вокруг рукояти или ножки (ось `axis` в осях предмета — к указательному пальцу,
+   * толщина `gripR`); `palm` — на раскрытой ладони (предмет стоит на ней низом, `axis` — его верх).
+   */
+  hold: 'fist' | 'palm';
+  /** Где рука держит предмет — в его осях (`build.trinket`), м: ножка кубка, рукоять меча, низ короны. */
   grip: readonly [number, number, number];
+  axis: readonly [number, number, number];
+  gripR: number;
+  /**
+   * Как предмет встаёт перед глазом: `tilt` — верх к глазу (радианы); у меча — клинок наискось вверх и от глаза
+   * (`room.holdBase`). Палец взгляда медленно крутит предмет вокруг `axis` и наклоняет в пределах `tilts`.
+   */
+  tilt: number;
+  tilts: readonly [number, number];
+  /** Ближе всего к глазу, м: рука не подносит предмет к самому носу, — и дальше всего (длина руки). */
+  near: number;
+  far: number;
 }
-
 const top = DESK.top;
 /** Предметы стола: из кресла лицом на юг восток — слева; здесь — с запада на восток. */
 export const DESK_THINGS: readonly DeskThing[] = [
@@ -320,12 +332,13 @@ export const DESK_THINGS: readonly DeskThing[] = [
 
 /** Безделушки: взять в руки и покрутить. Механики у них нет — только вид. */
 export const TRINKETS: readonly Trinket[] = [
-  { id: 'goblet', name: 'Кубок', hint: 'Серебро с позолотой, вино с юга', poi: 'desk', code: 9, size: 0.2, hold: 0.42, tilt: 0.45, stand: { x: 0.76, z: 2.02, yaw: 0 }, grip: [0, 0.06, 0], box: box(0.5, top, 2.62, 0.66, top + 0.21, 2.78) },
-  { id: 'candle', name: 'Свеча', hint: 'Воск, а не сало, — свеча правителя', poi: 'desk', code: 10, size: 0.3, hold: 0.52, tilt: 0.15, stand: { x: -0.76, z: 2.02, yaw: 0 }, grip: [0, 0.05, 0], box: box(-0.66, top, 2.62, -0.5, top + 0.36, 2.78) },
+  { id: 'goblet', name: 'Кубок', hint: 'Серебро с позолотой, вино с юга', poi: 'desk', code: 9, size: 0.2, stand: { x: 0.76, z: 2.02, yaw: 0 }, hold: 'fist', grip: [0, 0.06, 0], axis: [0, 1, 0], gripR: 0.012, tilt: 0.42, tilts: [-0.35, 0.45], near: 0.36, far: 0.5, box: box(0.5, top, 2.62, 0.66, top + 0.21, 2.78) },
+  { id: 'candle', name: 'Свеча', hint: 'Воск, а не сало, — свеча правителя', poi: 'desk', code: 10, size: 0.3, stand: { x: -0.76, z: 2.02, yaw: 0 }, hold: 'fist', grip: [0, 0.06, 0], axis: [0, 1, 0], gripR: 0.013, tilt: 0.12, tilts: [-0.25, 0.35], near: 0.4, far: 0.55, box: box(-0.66, top, 2.62, -0.5, top + 0.36, 2.78) },
   // Белый король — на своей клетке доски (e1, `build.chessTable`): доска 0.5 м, клетка 1/16 м.
-  { id: 'chess', name: 'Шахматная фигура', hint: 'Король из моржовой кости', poi: 'hall', code: 11, size: 0.12, hold: 0.3, tilt: 0.3, stand: { x: 2.2, z: -2.02, yaw: Math.PI }, grip: [0, 0.035, 0], box: box(CHESS.x + 0.001, CHESS.top + 0.012, CHESS.z + 0.189, CHESS.x + 0.061, CHESS.top + 0.14, CHESS.z + 0.249) },
-  { id: 'sword', name: 'Меч', hint: 'Клинок отца, перекрестье в позолоте', poi: 'arms', code: 12, size: 1.0, hold: 0.8, tilt: 0, stand: null, grip: [0, 0, -0.035], box: box(5.0, 1.45, -3.0, 5.2, 1.66, -1.7) },
-  { id: 'crown', name: 'Корона', hint: 'Венец державы, на подушке', poi: 'hall', code: 13, size: 0.24, hold: 0.46, tilt: 0.55, stand: { x: 3.98, z: -2.35, yaw: Math.PI / 2 }, grip: [0.1, 0.012, 0], box: box(4.4, 0.66, -2.62, 4.84, 0.86, -2.18) },
+  { id: 'chess', name: 'Шахматная фигура', hint: 'Король из моржовой кости', poi: 'hall', code: 11, size: 0.12, stand: { x: 2.2, z: -2.02, yaw: Math.PI }, hold: 'palm', grip: [0, 0, 0], axis: [0, 1, 0], gripR: 0.02, tilt: 0.3, tilts: [-0.3, 0.5], near: 0.32, far: 0.45, box: box(CHESS.x + 0.001, CHESS.top + 0.012, CHESS.z + 0.189, CHESS.x + 0.061, CHESS.top + 0.14, CHESS.z + 0.249) },
+  // Меч: 0,86 м целиком (клинок 0,66), рукоять под кулак.
+  { id: 'sword', name: 'Меч', hint: 'Клинок отца, перекрестье в позолоте', poi: 'arms', code: 12, size: 0.86, stand: null, hold: 'fist', grip: [0, 0, 0.035], axis: [0, 0, 1], gripR: 0.016, tilt: 0, tilts: [-0.22, 0.22], near: 0.42, far: 0.62, box: box(5.0, 1.45, -2.8, 5.2, 1.66, -1.86) },
+  { id: 'crown', name: 'Корона', hint: 'Венец державы, на подушке', poi: 'hall', code: 13, size: 0.24, stand: { x: 3.98, z: -2.35, yaw: Math.PI / 2 }, hold: 'palm', grip: [0, 0, 0], axis: [0, 1, 0], gripR: 0.03, tilt: 0.5, tilts: [-0.2, 0.55], near: 0.38, far: 0.55, box: box(4.4, 0.66, -2.62, 4.84, 0.86, -2.18) },
 ];
 
 export const THINGS: readonly Thing[] = [...DESK_THINGS, ...TRINKETS];
@@ -371,3 +384,69 @@ export const inBox = (b: Box, x: number, y: number, z: number, pad = 0): boolean
 
 
 export { DEG };
+
+/**
+ * Подпись вещи покоев (Г-6, слово владельца): видна, только когда правитель подошёл (`near`, м до ближней точки
+ * коробки) и смотрит на неё (точка `at` у середины кадра); сидя за столом — подписи предметов стола (`desk`). Не видна
+ * сквозь мебель (`OCCLUDERS`): своя коробка `box` подпись не заслоняет.
+ */
+export interface Label {
+  id: string;
+  name: string;
+  box: Box;
+  at: readonly [number, number, number];
+  near: number;
+  desk: boolean;
+}
+
+/** Подходить к мелочи — на шаг, к мебели — на два, к окну — к нише. */
+export const NEAR_SMALL = 1.4;
+export const NEAR_BIG = 2.1;
+export const NEAR_WINDOW = 2.3;
+
+const topOf = (b: Box): [number, number, number] => [(b.x0 + b.x1) / 2, b.y1, (b.z0 + b.z1) / 2];
+const deskBox = box(-DESK.w / 2, 0, DESK.z - DESK.d / 2, DESK.w / 2, DESK.top, DESK.z + DESK.d / 2);
+const chairBox = box(CHAIR.x - 0.3, 0, CHAIR.z - 0.27, CHAIR.x + 0.3, 1.52, CHAIR.z + 0.27);
+const bedBox = box(BED.x0, 0, BED.z0, BED.x1, BED.top + 0.12, BED.z1);
+const hearthBox = box(HEARTH.x - HEARTH.hoodW / 2, 0, -HALF, HEARTH.x + HEARTH.hoodW / 2, HEARTH.hoodTop, HEARTH.hoodFront);
+const armsBox = box(HALF - 0.3, 0.95, ARMS.z - 1.1, HALF, 3.3, ARMS.z + 1.1);
+const sideWindow = (o: Opening): Box => {
+  const s = o.wall === 'west' ? -1 : 1;
+  return box(s < 0 ? -HALF - 1.0 : HALF, o.inSill, o.at - o.inW / 2, s < 0 ? -HALF : HALF + 1.0, o.inSpring + o.inW / 2, o.at + o.inW / 2);
+};
+const south = OPENINGS[0];
+
+export const LABELS: readonly Label[] = [
+  ...THINGS.map((t) => ({ id: t.id, name: t.name, box: t.box, at: topOf(t.box), near: NEAR_SMALL, desk: t.poi === 'desk' })),
+  { id: 'deskTop', name: 'Стол', box: deskBox, at: [0.62, DESK.top + 0.02, DESK.z + 0.32], near: NEAR_BIG, desk: false },
+  { id: 'chair', name: 'Кресло', box: chairBox, at: [CHAIR.x, 1.56, CHAIR.z - 0.22], near: NEAR_BIG, desk: false },
+  { id: 'bed', name: 'Кровать', box: bedBox, at: [(BED.x0 + BED.x1) / 2, BED.top + 0.16, (BED.z0 + BED.z1) / 2 + 0.3], near: NEAR_BIG, desk: false },
+  { id: 'hearth', name: 'Камин', box: hearthBox, at: [HEARTH.x, HEARTH.hoodLow + 0.1, HEARTH.hoodFront - 0.05], near: NEAR_BIG, desk: false },
+  { id: 'armsWall', name: 'Щит и копья', box: armsBox, at: [HALF - 0.05, ARMS.y + 0.55, ARMS.z], near: NEAR_BIG, desk: false },
+  { id: 'windowS', name: 'Окно на город', box: box(-south.inW / 2, 0, HALF, south.inW / 2, south.inSpring + 1, HALF + WALL_T), at: [0, 2.05, HALF + 0.2], near: NEAR_WINDOW, desk: false },
+  ...OPENINGS.filter((o) => o.wall !== 'south').map((o) => ({
+    id: o.wall === 'west' ? 'windowW' : 'windowE',
+    name: o.wall === 'west' ? 'Окно на реку' : 'Окно на мыс',
+    box: sideWindow(o),
+    at: [(o.wall === 'west' ? -1 : 1) * (HALF + 0.15), (o.sill + o.spring) / 2, o.at] as const,
+    near: NEAR_WINDOW,
+    desk: false,
+  })),
+  ...CHESTS.map((c) => ({ id: c.id, name: 'Сундук', box: box(c.x0, 0, c.z0, c.x1, c.h, c.z1), at: [(c.x0 + c.x1) / 2, c.h + 0.02, (c.z0 + c.z1) / 2] as const, near: NEAR_BIG, desk: false })),
+];
+
+/**
+ * Что заслоняет подпись: мебель телом (столешница, кресло, кровать с пологом, камин, сундуки, полки, шахматный столик).
+ * Стены не нужны: комната выпуклая, а точки подписей окон — на внутренней грани стены.
+ */
+export const OCCLUDERS: readonly { id: string; box: Box }[] = [
+  { id: 'deskTop', box: box(-DESK.w / 2, DESK.top - 0.07, DESK.z - DESK.d / 2, DESK.w / 2, DESK.top, DESK.z + DESK.d / 2) },
+  { id: 'chair', box: box(CHAIR.x - 0.3, 0.55, CHAIR.z - 0.27, CHAIR.x + 0.3, 1.47, CHAIR.z - 0.18) },
+  { id: 'chair', box: box(CHAIR.x - 0.3, 0, CHAIR.z - 0.27, CHAIR.x + 0.3, 0.55, CHAIR.z + 0.25) },
+  { id: 'bed', box: bedBox },
+  { id: 'bed', box: box(BED.x0, BED.canopy - 0.35, BED.z0, BED.x1, BED.canopy + 0.15, BED.z1) },
+  { id: 'hearth', box: box(HEARTH.x - HEARTH.hoodW / 2, HEARTH.hoodLow, -HALF, HEARTH.x + HEARTH.hoodW / 2, HEARTH.hoodTop, HEARTH.hoodFront) },
+  ...CHESTS.map((c) => ({ id: c.id, box: box(c.x0, 0, c.z0, c.x1, c.h, c.z1) })),
+  ...SHELVES.map((c) => ({ id: c.id, box: box(c.x0, 0, c.z0, c.x1, c.h, c.z1) })),
+  { id: 'chessTable', box: box(CHESS.x - 0.3, 0, CHESS.z - 0.3, CHESS.x + 0.3, CHESS.top, CHESS.z + 0.3) },
+];

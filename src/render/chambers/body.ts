@@ -37,20 +37,32 @@ const TRIM = tint(0xece4d4);
 const HOSE = tint(0x2a2230);
 const SHOE = tint(0x3a2416);
 const GOLD = tint(0xd8ac52);
-const TRIM_GOLD = tint(0xb8913c);
-const ROBE_DARK = tint(0x4a1014);
+const TRIM_GOLD = tint(0x8a6a2c);
+const ROBE_DARK = tint(0x2e0a0c);
+/** Подол на коленях — тот же бархат в тени. */
+const LAP = tint(0x3c0d11);
 
-/** Длины руки, м: плечо и предплечье; ладонь до костяшек; пальцы — указательный, средний, безымянный, мизинец. */
+/** Длины руки, м: плечо и предплечье; ладонь от запястья до костяшек. */
 const UPPER = 0.29;
 const FORE = 0.27;
-const PALM = 0.088;
+const PALM = 0.104;
+/**
+ * Пальцы взрослой мужской кисти (Г-6): указательный, средний, безымянный, мизинец — смещение корня поперёк ладони,
+ * длина, толщина у корня, насколько корень отступает к запястью и доля сгиба (к мизинцу пальцы гнутся сильнее — «каскад»
+ * живой кисти, а не гребёнка). Фаланги — 0,45 / 0,29 / 0,26 длины.
+ */
 const FINGERS = [
-  { off: -0.025, len: 0.07, r: 0.0086, back: 0 },
-  { off: -0.0075, len: 0.078, r: 0.0089, back: 0.002 },
-  { off: 0.0095, len: 0.073, r: 0.0085, back: 0.004 },
-  { off: 0.0255, len: 0.058, r: 0.0075, back: 0.012 },
+  { off: -0.0285, len: 0.08, r: 0.0098, back: 0.003, bend: 0.88 },
+  { off: -0.0095, len: 0.088, r: 0.0101, back: 0, bend: 1 },
+  { off: 0.0095, len: 0.083, r: 0.0096, back: 0.003, bend: 1.07 },
+  { off: 0.0275, len: 0.066, r: 0.0085, back: 0.012, bend: 1.16 },
 ] as const;
+const PHALANX = [0.45, 0.29, 0.26] as const;
 const SIDES = 8;
+/** Кожа: тыл кисти, костяшки и складки темнее, подушечки розовее, ногти светлее. */
+const SKIN_K = tint(0xb58068);
+const SKIN_TIP = tint(0xd29a86);
+const NAIL = tint(0xe2c2b4);
 
 type P = [number, number, number];
 const add = (a: P, b: P, k = 1): P => [a[0] + b[0] * k, a[1] + b[1] * k, a[2] + b[2] * k];
@@ -131,6 +143,12 @@ class Emit {
     }
   }
 
+  /** Плашка с двух сторон (ноготь): четыре точки по кругу. */
+  patch(q: readonly [P, P, P, P], col: V3, shine: number): void {
+    const i = q.map((p) => this.point(p, col, shine));
+    this.idx.push(i[0], i[1], i[2], i[0], i[2], i[3], i[0], i[2], i[1], i[0], i[3], i[2]);
+  }
+
   /** Труба по точкам с радиусами; концы — крышками. */
   tube(pts: readonly P[], radii: readonly number[], hint: P, col: V3 | readonly V3[], shine: number, sides = SIDES, caps: [boolean, boolean] = [true, true], flat = 1): void {
     const rings: number[] = [];
@@ -167,65 +185,157 @@ export function elbowOf(s: P, w: P, pole: P): P {
   return add(add(s, dir, a), side, h);
 }
 
-/** Кисть: ладонь, четыре пальца по три сустава, большой палец; на безымянном правой — перстень. */
-function hand(e: Emit, h: HandPose, right: boolean): void {
+/** Оси кисти: пальцы (`f`), тыл (`u`), к мизинцу (`l`). */
+function handAxes(h: HandPose, right: boolean): { f: P; u: P; l: P } {
   const f = norm(h.f as P);
   const u = norm(sub(h.u as P, scale(f, dot(h.u as P, f))));
   // К мизинцу: у правой кисти тыльной стороной вверх и пальцами вперёд большой палец смотрит внутрь, мизинец — наружу.
-  const toLittle = scale(cross(f, u), right ? 1 : -1);
+  return { f, u, l: scale(cross(f, u), right ? 1 : -1) };
+}
+
+/**
+ * Суставы кисти: четыре пальца (корень, два сустава, кончик) и большой (основание, два сустава, кончик). Чистая
+ * функция: по ней строится сетка (`hand`) и тест «пальцы обхватывают рукоять».
+ */
+export function fingerChains(h: HandPose, right: boolean): { fingers: P[][]; thumb: P[] } {
+  const { f, u, l } = handAxes(h, right);
   const w = h.w as P;
-  const curl = Math.min(1, Math.max(0, h.curl));
-  const spread = h.spread ?? 0.08;
-  // Ладонь: от запястья к костяшкам шире, тыльная сторона чуть выгнута.
-  const palm: P[] = [w, add(w, f, PALM * 0.5), add(w, f, PALM)];
-  const pr = [0.026, 0.037, 0.039];
-  const rings: number[] = [];
-  for (let i = 0; i < 3; i++) rings.push(e.ring(add(palm[i], toLittle, 0.003), toLittle, u, pr[i], 0.0135, SKIN, 0.12, 9));
-  for (let i = 0; i < 2; i++) e.band(rings[i], rings[i + 1], 9);
-  e.fan(rings[0], e.point(add(w, f, -0.008), SKIN, 0.12), 9, true);
-  e.fan(rings[2], e.point(add(palm[2], f, 0.01), SKIN, 0.12), 9);
-  FINGERS.forEach((g, i) => {
-    // Сгиб: пястно-фаланговый, средний и ногтевой — к ладони (против тыльной стороны).
-    const fan = (i - 1.5) * spread * (1 - curl * 0.6);
-    const fd = norm(add(f, toLittle, fan));
+  const curl = Math.min(1.2, Math.max(0, h.curl));
+  const spread = h.spread ?? 0.07;
+  const fingers = FINGERS.map((g, i) => {
+    // Каскад — у полусогнутой кисти; в кулаке пальцы обнимают рукоять все разом.
+    const c = curl * (g.bend + (1 - g.bend) * Math.min(1, Math.max(0, (curl - 0.5) * 2)) * 0.85);
+    const fan = (i - 1.5) * spread * (1 - Math.min(1, c) * 0.7);
+    const fd = norm(add(f, l, fan));
     const fu = norm(sub(u, scale(fd, dot(u, fd))));
-    const root = add(add(add(w, f, PALM - g.back), toLittle, g.off), u, 0.004);
-    // Пальцы в покое слегка согнуты; сгиб — больше в средних суставах, чем у основания (не «когти»).
-    const angles = [0.12 + curl * 0.95, 0.18 + curl * 1.35, 0.1 + curl * 0.85];
-    const parts = [0.45, 0.3, 0.25];
+    const root = add(add(add(w, f, PALM - g.back), l, g.off), u, 0.002);
+    // Пальцы в покое слегка согнуты; сгиб — больше в среднем суставе, чем у корня и у ногтя (не «когти»).
+    const angles = [0.06 + c * 0.9, 0.1 + c * 1.32, 0.05 + c * 0.82];
     const pts: P[] = [root];
     let th = 0;
     for (let j = 0; j < 3; j++) {
       th += angles[j];
-      const d = add(scale(fd, Math.cos(th)), fu, -Math.sin(th));
-      pts.push(add(pts[j], d, g.len * parts[j]));
+      pts.push(add(pts[j], add(scale(fd, Math.cos(th)), fu, -Math.sin(th)), g.len * PHALANX[j]));
     }
-    const radii = [g.r * 1.05, g.r, g.r * 0.88, g.r * 0.78];
-    e.tube(pts, radii, fu, SKIN, 0.12, 7, [false, true], 0.9);
+    return pts;
+  });
+  // Большой палец: пястная кость от основания ладони к указательному и к ладони (противопоставлен), две фаланги; в кулак
+  // он ложится поперёк пальцев.
+  const ts = scale(l, -1);
+  const base = add(add(add(w, f, 0.017), ts, 0.024), u, -0.007);
+  const c = Math.min(1, curl);
+  // Раскрытая кисть — большой палец почти в плоскости ладони, отведён; в кулаке — к ладони и поперёк пальцев.
+  const meta = norm(add(add(f, ts, 0.55 - c * 0.3), u, -0.2 - c * 0.45));
+  const m1 = add(base, meta, 0.046);
+  const td = norm(add(add(add(f, ts, 0.08 - c * 0.7), u, -0.12 - c * 0.55), l, c * 0.25));
+  const tu = norm(sub(u, scale(td, dot(u, td))));
+  const thumb: P[] = [base, m1];
+  let th = 0;
+  for (const [a, len0] of [
+    [0.04 + c * 0.35, 0.035],
+    [0.08 + c * 0.55, 0.03],
+  ] as const) {
+    th += a;
+    const d = add(scale(td, Math.cos(th)), tu, -Math.sin(th));
+    thumb.push(add(thumb[thumb.length - 1], d, len0));
+  }
+  return { fingers, thumb };
+}
+
+/** Кисть: ладонь с подушкой у большого пальца, четыре пальца по три фаланги с ногтями, большой; на безымянном правой — перстень. */
+function hand(e: Emit, h: HandPose, right: boolean): void {
+  const { f, u, l } = handAxes(h, right);
+  const w = h.w as P;
+  // Ладонь — от запястья к костяшкам шире и тоньше; к большому пальцу — подушка (сечение сдвинуто к нему и к ладони).
+  const st = [0, 0.3, 0.65, 0.92, 1.0];
+  const half = [0.028, 0.037, 0.0435, 0.0445, 0.04];
+  const thick = [0.0145, 0.0165, 0.0158, 0.0136, 0.012];
+  const shift = [0.001, -0.003, -0.002, 0.001, 0.0015];
+  const cols = [SKIN, SKIN, SKIN, SKIN_K, SKIN_K];
+  const rings: number[] = [];
+  for (let i = 0; i < st.length; i++) {
+    const c = add(add(add(w, f, PALM * st[i]), l, shift[i]), u, i === 1 || i === 2 ? -0.0015 : 0);
+    rings.push(e.ring(c, l, u, half[i], thick[i], cols[i], 0.14, 10));
+  }
+  for (let i = 0; i + 1 < rings.length; i++) e.band(rings[i], rings[i + 1], 10);
+  e.fan(rings[0], e.point(add(w, f, -0.006), SKIN, 0.14), 10, true);
+  e.fan(rings[rings.length - 1], e.point(add(w, f, PALM + 0.004), SKIN_K, 0.14), 10);
+  const { fingers, thumb } = fingerChains(h, right);
+  fingers.forEach((pts, i) => {
+    const g = FINGERS[i];
+    // Кольца: корень, середина фаланги, сустав… — суставы чуть толще, к кончику тоньше; костяшки и складки темнее.
+    const P7: P[] = [];
+    const R7: number[] = [];
+    const C7: V3[] = [];
+    const rr = [1.04, 0.95, 0.97, 0.86, 0.86, 0.8, 0.66];
+    for (let j = 0; j < 3; j++) {
+      P7.push(pts[j]);
+      P7.push(add(pts[j], sub(pts[j + 1], pts[j]), 0.5));
+    }
+    P7.push(pts[3]);
+    for (let j = 0; j < P7.length; j++) {
+      R7.push(g.r * rr[j]);
+      C7.push(j === 0 || j === 2 || j === 4 ? SKIN_K : j >= 5 ? SKIN_TIP : SKIN);
+    }
+    const fu = norm(sub(u, scale(norm(sub(pts[1], pts[0])), dot(u, norm(sub(pts[1], pts[0]))))));
+    e.tube(P7, R7, fu, C7, 0.14, 7, [false, true], 0.86);
+    // Ноготь — на тыле последней фаланги.
+    const d3 = norm(sub(pts[3], pts[2]));
+    const nu = norm(sub(fu, scale(d3, dot(fu, d3))));
+    const nside = cross(d3, nu);
+    const nc = add(add(pts[2], d3, g.len * PHALANX[2] * 0.55), nu, g.r * 0.62);
+    const hl = g.len * PHALANX[2] * 0.36;
+    const hw = g.r * 0.62;
+    e.patch([add(add(nc, d3, -hl), nside, -hw), add(add(nc, d3, -hl), nside, hw), add(add(nc, d3, hl), nside, hw * 0.9), add(add(nc, d3, hl), nside, -hw * 0.9)], NAIL, 0.5);
     if (right && i === 2) {
       // Перстень державы: золотой обод на основной фаланге безымянного.
       const c = add(pts[0], sub(pts[1], pts[0]), 0.55);
       const d = norm(sub(pts[1], pts[0]));
-      e.tube([add(c, d, -0.005), add(c, d, 0.005)], [g.r * 1.32, g.r * 1.32], fu, GOLD, 0.95, 8, [false, false]);
+      e.tube([add(c, d, -0.005), add(c, d, 0.005)], [g.r * 1.18, g.r * 1.18], fu, GOLD, 0.95, 8, [false, false]);
     }
   });
-  // Большой палец: от основания ладони к указательному, сгиб — тот же доли.
-  const thumbSide = scale(toLittle, -1);
-  const base = add(add(w, f, 0.022), thumbSide, 0.026);
-  const td = norm(add(add(f, thumbSide, 0.55 - curl * 0.25), u, -0.35 - curl * 0.4));
-  const tu = norm(sub(u, scale(td, dot(u, td))));
-  const tp: P[] = [base];
-  let th = 0;
-  for (const [a, l] of [
-    [0.1 + curl * 0.5, 0.034],
-    [curl * 0.7, 0.03],
-  ] as const) {
-    th += a;
-    const d = add(scale(td, Math.cos(th)), tu, -Math.sin(th));
-    tp.push(add(tp[tp.length - 1], d, l));
-  }
-  e.tube(tp, [0.0125, 0.0108, 0.0092], tu, SKIN, 0.12, 7, [false, true], 0.92);
+  // Большой палец: у основания — подушка ладони, к кончику тоньше.
+  const tr = [0.0175, 0.0135, 0.0114, 0.0082];
+  const tcols = [SKIN, SKIN_K, SKIN, SKIN_TIP];
+  e.tube(thumb, tr, u, tcols, 0.14, 8, [false, true], 0.9);
+  const d3 = norm(sub(thumb[3], thumb[2]));
+  const nu = norm(sub(u, scale(d3, dot(u, d3))));
+  const nside = cross(d3, nu);
+  const nc = add(add(thumb[2], d3, 0.016), nu, 0.0068);
+  e.patch([add(add(nc, d3, -0.009), nside, -0.0068), add(add(nc, d3, -0.009), nside, 0.0068), add(add(nc, d3, 0.009), nside, 0.006), add(add(nc, d3, 0.009), nside, -0.006)], NAIL, 0.5);
 }
+
+/**
+ * Кисть, держащая предмет (Г-6): `fist` — кулак вокруг рукояти толщиной `gripR` с осью `axis` (к указательному): ось
+ * проходит поперёк ладони, пальцы обнимают её, большой ложится сверху; тыл кисти — наружу, вправо от глаза. `palm` —
+ * предмет стоит на раскрытой ладони (`axis` — его верх), пальцы чуть подогнуты. `g` — точка хвата, `cf`/`cr` — куда
+ * смотрит глаз и где у него право. Числа хвата подобраны так, что суставы пальцев лежат на рукояти (тест).
+ */
+export function holdHand(kind: 'fist' | 'palm', g: V3, axis: V3, cf: V3, cr: V3, gripR: number): HandPose {
+  const A = norm(axis as P);
+  const G = g as P;
+  if (kind === 'palm') {
+    const f0 = add(cf as P, cr as P, -0.25);
+    const f = norm(sub(f0, scale(A, dot(f0, A))));
+    const u = scale(A, -1);
+    return { w: add(add(G, f, -PALM * 0.55), A, -0.0135), f, u, curl: 0.2, spread: 0.1 };
+  }
+  // Кулак: мизинец — от указательного вдоль оси вниз; пальцы — от глаза и чуть влево. Рукоять лежит в ладони наискось:
+  // у мизинца ближе к запястью (`FIST_SLANT`), как в живом кулаке.
+  const fk = add(cf as P, cr as P, -0.55);
+  const f0 = norm(sub(fk, scale(A, dot(fk, A))));
+  const L = add(scale(A, -Math.cos(FIST_SLANT)), f0, Math.sin(FIST_SLANT));
+  const f = add(scale(f0, Math.cos(FIST_SLANT)), A, Math.sin(FIST_SLANT));
+  const u = cross(L, f);
+  const k = FIST(gripR);
+  return { w: add(add(G, f, -k.along), u, k.up), f, u, curl: k.curl, spread: 0.02 };
+}
+
+/** Наклон рукояти в ладони, радианы. */
+const FIST_SLANT = 0.15;
+
+/** Хват кулаком под толщину рукояти: насколько ось рукояти впереди запястья, насколько ниже тыла, сгиб пальцев. */
+export const FIST = (r: number): { along: number; up: number; curl: number } => ({ along: 0.096 - (r - 0.012) * 0.5, up: 0.016 - (r - 0.012), curl: 1.14 - (r - 0.012) * 10 });
 
 /** Рука: рукав от плеча до локтя и до запястья, опушка, запястье кожей и кисть. */
 function arm(e: Emit, s: P, h: HandPose, right: boolean, out: P): void {
@@ -233,22 +343,26 @@ function arm(e: Emit, s: P, h: HandPose, right: boolean, out: P): void {
   const el = elbowOf(s, w, add(out, [0, -1, 0], 1.2));
   const fore = norm(sub(w, el));
   // Рукав кончается опушкой на ладонь от запястья: из-под неё — кожа запястья.
-  const cuffEnd = add(w, fore, -0.035);
-  const cuffStart = add(w, fore, -0.075);
-  e.tube([add(s, norm(sub(el, s)), 0.04), el, cuffStart], [0.062, 0.058, 0.05], out, ROBE, 0.04, 10, [true, false]);
-  e.tube([cuffStart, add(cuffStart, fore, 0.006), add(cuffEnd, fore, -0.006), cuffEnd], [0.05, 0.06, 0.06, 0.05], out, TRIM, 0.02, 10, [false, true]);
-  e.tube([add(cuffStart, fore, 0.01), add(w, fore, 0.004)], [0.028, 0.026], out, SKIN, 0.12, 8, [false, false]);
+  // Опушка — узкая, по руке (Г-6: широкое кольцо закрывало кисть).
+  const cuffEnd = add(w, fore, -0.04);
+  const cuffStart = add(w, fore, -0.072);
+  e.tube([add(s, norm(sub(el, s)), 0.04), el, cuffStart], [0.056, 0.048, 0.041], out, ROBE, 0.04, 10, [true, false]);
+  e.tube([cuffStart, add(cuffStart, fore, 0.006), add(cuffEnd, fore, -0.006), cuffEnd], [0.042, 0.045, 0.044, 0.038], out, TRIM, 0.02, 10, [false, true]);
+  e.tube([add(cuffStart, fore, 0.01), add(w, fore, 0.006)], [0.029, 0.026], out, SKIN, 0.14, 8, [false, false], 0.78);
   hand(e, h, right);
 }
 
 /** Нога сидя: бедро в полах кафтана, колено, голень в чулке, сапог. */
 function leg(e: Emit, hip: P, knee: P, ankle: P, toe: P, side: P): void {
-  e.tube([hip, add(hip, sub(knee, hip), 0.5), add(knee, sub(hip, knee), 0.08), knee], [0.072, 0.07, 0.062, 0.055], side, ROBE, 0.04, 10, [false, true]);
+  e.tube([hip, add(hip, sub(knee, hip), 0.5), add(knee, sub(hip, knee), 0.08), knee], [0.066, 0.063, 0.057, 0.052], side, LAP, 0.04, 10, [false, true]);
   e.tube([add(knee, [0, -0.02, 0]), add(knee, sub(ankle, knee), 0.45), ankle], [0.05, 0.046, 0.036], side, HOSE, 0.08, 9, [true, false]);
   e.tube([add(ankle, [0, 0.01, -0.02]), add(ankle, sub(toe, ankle), 0.5), toe], [0.042, 0.04, 0.028], side, SHOE, 0.35, 9, [true, true], 0.75);
 }
 
-/** Подол кафтана на коленях: полотно между бёдрами, провисает посередине и спадает за колени. */
+/**
+ * Подол кафтана на коленях: полотно между бёдрами, провисает посередине и спадает за колени. Тёмный бархат в тени стола
+ * и узкая кайма (Г-6): сидя внизу кадра — край стола и руки, а колени лишь угадываются.
+ */
 function lap(e: Emit, hips: [P, P], knees: [P, P]): void {
   const rows: P[][] = [];
   for (const t of [0, 0.35, 0.7, 1]) {
@@ -257,18 +371,17 @@ function lap(e: Emit, hips: [P, P], knees: [P, P]): void {
     const row: P[] = [];
     for (const u of [0, 0.25, 0.5, 0.75, 1]) {
       const p = add(a, sub(b, a), u);
-      const sag = Math.sin(u * Math.PI) * 0.035 * (0.4 + t);
-      const edge = u === 0 || u === 1 ? 0.06 : 0.068;
+      const sag = Math.sin(u * Math.PI) * 0.04 * (0.4 + t);
+      const edge = u === 0 || u === 1 ? 0.045 : 0.052;
       row.push([p[0], p[1] + edge - sag, p[2]]);
     }
     rows.push(row);
   }
-  // За коленями подол спадает вниз; по краю — золотая кайма.
   const last = rows[rows.length - 1];
-  const hem = last.map((p) => [p[0], p[1] - 0.03, p[2] + 0.035] as P);
-  const fall = last.map((p) => [p[0], p[1] - 0.17, p[2] + 0.07] as P);
-  e.grid(rows, ROBE, 0.04);
-  e.grid([last, hem], TRIM_GOLD, 0.7);
+  const hem = last.map((p) => [p[0], p[1] - 0.02, p[2] + 0.025] as P);
+  const fall = last.map((p) => [p[0], p[1] - 0.17, p[2] + 0.06] as P);
+  e.grid(rows, LAP, 0.04);
+  e.grid([last, hem], TRIM_GOLD, 0.5);
   e.grid([hem, fall], ROBE_DARK, 0.04);
 }
 
@@ -313,7 +426,7 @@ export class Body {
     const hips: P[] = [];
     const knees: P[] = [];
     for (const sgn of [1, -1]) {
-      const o = scale(rightV, sgn * 0.1);
+      const o = scale(rightV, sgn * 0.09);
       const standHip = add([eye[0], 0.92, eye[2]], o);
       const sitHip = add([seat.x, seat.y + 0.08, seat.z + 0.02], o);
       const hip = mix(standHip, sitHip, k);

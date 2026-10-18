@@ -26,7 +26,8 @@ import { LIGHTS_AT, roomMaterial, roomUniforms, type RoomUniforms } from './mate
 import { RoomFire } from './fire';
 import { ATLAS_PX, paintAtlas } from './paint';
 import { paintStone } from './stone';
-import { Body, type HandPose } from './body';
+import { Body, holdHand, type HandPose } from './body';
+import { TURN_PER_LOOK, holdFit, holdRotation } from './hold';
 import { ACTS, GRAB_AT, actLength, frameAt, type Act, type Frame } from './acts';
 import { AUTO_SPEED, BODY_R, EYE_STAND, WALK_SPEED, pathLength, pathTo, step } from './walk';
 import { layoutTags, TAG_FONT, type TagOut } from './tags';
@@ -36,6 +37,8 @@ import {
   CHAIR,
   DESK_THINGS,
   HALF,
+  LABELS,
+  OCCLUDERS,
   HEARTH,
   OPENINGS,
   POIS,
@@ -49,6 +52,7 @@ import {
   wrap,
   type Box,
   type Door,
+  type Label,
   type Poi,
   type PoiId,
   type SpotId,
@@ -64,6 +68,9 @@ const DETAIL: Record<Quality, Detail> = { low: 0, medium: 1, high: 2 };
 
 /** Что делает правитель: ходит сам, идёт к месту дела, садится (встаёт), сидит в деле. */
 export type Mode = 'free' | 'walk' | 'act' | 'in';
+
+/** Звук дела (Г-6): шаг по доскам и по ковру, скрип кресла, шорох постели, звон меча, взял и положил безделушку. */
+export type Cue = 'step' | 'stepSoft' | 'creak' | 'rustle' | 'ring' | 'take' | 'put';
 
 /** Что видит слой интерфейса покоев: что делает правитель, в каком деле, что в руках, вдаль ли у окна. */
 export interface ChambersView {
@@ -90,22 +97,22 @@ const SILL = OPENINGS.find((o) => o.wall === 'south')!.sill;
 export const REACH = 0.9;
 /** Поле зрения стоя, градусы: как у входа Г-4. */
 const FREE_FOV = 70;
+/** Подпись проступает, когда вещь ближе к середине кадра этого угла, и гаснет дальше второго (радианы); за столько секунд. */
+export const GAZE_IN = 0.28;
+export const GAZE_OUT = 0.38;
+const LABEL_FADE = 0.25;
 /** Наклон головы стоя: пределы. */
 const FREE_PITCH: readonly [number, number] = [-1.2, 1.1];
 
 const V = new THREE.Vector3();
 const V2 = new THREE.Vector3();
 const Q = new THREE.Quaternion();
-const E = new THREE.Euler();
 const BOX = new THREE.Box3();
 const C = new THREE.Color();
 const HOLD = new THREE.Quaternion();
 const REST = new THREE.Quaternion();
-const BASE = new THREE.Quaternion();
 const POS = new THREE.Vector3();
 const UP = new THREE.Vector3(0, 1, 0);
-const RIGHT = new THREE.Vector3(1, 0, 0);
-const ZERO = new THREE.Vector3();
 
 /** Свет огня камина и свечей (линейный, × сила лампы `ROOM_LIGHTS.power`). */
 const FIRE = new THREE.Color(1.0, 0.42, 0.13).multiplyScalar(5.0);
@@ -117,6 +124,29 @@ const DEEP = new THREE.Color(0.2, 0.36, 0.78);
 
 const easeInOut = (k: number): number => k * k * (3 - 2 * k);
 const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
+
+/** Луч `o + t·d` и коробка: доля `t` входа (0…1 — до конца отрезка) или `null`. */
+function rayBox(ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, b: Box): number | null {
+  let t0 = 0;
+  let t1 = 1;
+  for (const [o, d, lo, hi] of [
+    [ox, dx, b.x0, b.x1],
+    [oy, dy, b.y0, b.y1],
+    [oz, dz, b.z0, b.z1],
+  ] as const) {
+    if (Math.abs(d) < 1e-9) {
+      if (o < lo || o > hi) return null;
+      continue;
+    }
+    let a = (lo - o) / d;
+    let c = (hi - o) / d;
+    if (a > c) [a, c] = [c, a];
+    t0 = Math.max(t0, a);
+    t1 = Math.min(t1, c);
+    if (t0 > t1) return null;
+  }
+  return t0;
+}
 
 /** Покои: комната, её свет, глаз и тело. Ставит их сцена города (`CityScene.enterInside`), рисует — в своём кадре. */
 export class ChambersRoom implements Inside {
@@ -164,12 +194,17 @@ export class ChambersRoom implements Inside {
   private rect: { left: number; top: number; width: number; height: number } = { left: 0, top: 0, width: 1, height: 1 };
 
   // Руки.
-  private held: { id: TrinketId; t: number; dir: 1 | -1; yaw: number; pitch: number } | null = null;
+  /** Безделушка в руке: доля пути к глазу, туда или обратно; поворот пальцем — цель и где он сейчас (плавно). */
+  private held: { id: TrinketId; t: number; dir: 1 | -1; spin: number; tilt: number; spinGoal: number; tiltGoal: number } | null = null;
+  /** Где держать предмет перед глазом — по полю зрения кадра (`holdFit`); считается заново, когда поле меняется. */
+  private fit: { key: string; at: THREE.Vector3 } | null = null;
 
   // Подписи и стик.
   private labelHost: HTMLElement | null = null;
   private label: HTMLDivElement | null = null;
   private tagEls: { box: HTMLDivElement; dot: HTMLDivElement; line: HTMLDivElement }[] = [];
+  /** Подписи вещей: насколько проступила (0…1) и нужна ли сейчас — плавно появляются и гаснут (Г-6). */
+  private tagFade = LABELS.map(() => ({ a: 0, want: false }));
   private stickEl: HTMLDivElement | null = null;
   /** Раскладка подписей последнего кадра — тестам и стенду. */
   tagsNow: TagOut[] = [];
@@ -179,6 +214,8 @@ export class ChambersRoom implements Inside {
   onChange: (() => void) | null = null;
   /** Предмет стола тронут сидя за столом: открыть окно игры. */
   onUse: ((door: Door, id: ThingId) => void) | null = null;
+  /** Звук дела: шаг по доскам или ковру, скрип кресла, шорох постели, меч и безделушка в руке (`sound.ts`, `cue`). */
+  onCue: ((cue: Cue) => void) | null = null;
   /** Ухо: где глаз (до огня, с какой он стороны, до окна) и погода у окна — звуку покоев (`sound.ts`). */
   onEar: ((ear: ChambersEar, dt: number) => void) | null = null;
 
@@ -287,7 +324,7 @@ export class ChambersRoom implements Inside {
     l.style.visibility = 'hidden';
     host.appendChild(l);
     this.label = l;
-    for (const t of DESK_THINGS) {
+    for (const t of LABELS) {
       const line = document.createElement('div');
       line.className = 'ch-tag-line';
       const dot = document.createElement('div');
@@ -339,11 +376,21 @@ export class ChambersRoom implements Inside {
     }
     // Дело «Оружие» и есть меч в руке.
     const inHand = hold ?? (id === 'arms' ? 'sword' : null);
-    this.held = inHand ? { id: inHand, t: 1, dir: 1, yaw: 0, pitch: 0 } : null;
+    this.held = inHand ? { id: inHand, t: 1, dir: 1, spin: 0, tilt: 0, spinGoal: 0, tiltGoal: 0 } : null;
     const h = hover ? THINGS.find((t) => t.id === hover) ?? null : null;
     this.hover = h ? { kind: 'thing', thing: h } : null;
     this.placeCamera();
     this.stepHands(0);
+    this.stepBody();
+    this.changed();
+  }
+
+  /** Тестам и стенду: встать стоя в точку пола и смотреть так (без перехода, подписи — с нуля). */
+  standAtPoint(x: number, z: number, yaw: number, pitch: number): void {
+    this.standAt({ ...POI_BY_ID.hall, pose: { ...POI_BY_ID.hall.pose, x, z, yaw, pitch } });
+    this.held = null;
+    this.hover = null;
+    this.placeCamera();
     this.stepBody();
     this.changed();
   }
@@ -400,7 +447,7 @@ export class ChambersRoom implements Inside {
     this.placeCamera();
     this.stepBody();
     this.light(t, sky);
-    this.labels();
+    this.labels(dt);
     if (this.onEar) {
       // Ухо: до огня и с какой он стороны, до большого окна; ветер и дождь — у окна этого кадра.
       const e = this.pose;
@@ -428,8 +475,10 @@ export class ChambersRoom implements Inside {
     const moving = walk.forward !== 0 || walk.strafe !== 0;
     // Безделушка в руке: палец взгляда крутит её, а не голову; палец движения кладёт её на место.
     if (this.held && this.held.dir > 0) {
-      this.held.yaw -= look.yaw * 1.6;
-      this.held.pitch = clamp(this.held.pitch - look.pitch * 1.6, -1.4, 1.4);
+      // Медленно: пол-оборота — на ширину экрана; наклон — в пределах предмета.
+      const tr = TRINKETS.find((x) => x.id === this.held!.id)!;
+      this.held.spinGoal -= look.yaw * TURN_PER_LOOK;
+      this.held.tiltGoal = clamp(this.held.tiltGoal - look.pitch * TURN_PER_LOOK, tr.tilts[0], tr.tilts[1]);
       look.yaw = 0;
       look.pitch = 0;
       if (moving) this.drop();
@@ -465,6 +514,8 @@ export class ChambersRoom implements Inside {
           a.grabbed = true;
           this.take('sword');
         }
+        // Меч кладут, вернувшись к стене: рука отпускает его там же, где брала.
+        if (a.a.id === 'arms' && a.dir < 0 && this.held?.id === 'sword' && this.held.dir > 0 && a.t <= GRAB_AT) this.release();
         if (a.dir > 0 && a.t >= actLength(a.a)) {
           this.mode = 'in';
           this.used.act = true;
@@ -588,7 +639,7 @@ export class ChambersRoom implements Inside {
   leave(after: Then | null = null): void {
     const a = this.act;
     if (!a) return;
-    if (this.held) this.drop();
+    if (this.held && !(a.a.id === 'arms' && this.held.id === 'sword')) this.release();
     this.zoomFov = null;
     a.dir = -1;
     a.after = after;
@@ -687,16 +738,26 @@ export class ChambersRoom implements Inside {
   /** Взять безделушку: подлетает к руке у глаза, палец взгляда крутит её вместо головы. */
   take(id: TrinketId): void {
     if (this.held?.id === id && this.held.dir > 0) return;
-    if (this.held) this.drop();
-    this.held = { id, t: 0, dir: 1, yaw: 0, pitch: 0 };
+    if (this.held) this.release();
+    this.held = { id, t: 0, dir: 1, spin: 0, tilt: 0, spinGoal: 0, tiltGoal: 0 };
     this.hover = null;
     this.used.act = true;
+    this.onCue?.(id === 'sword' ? 'ring' : 'take');
     this.changed();
   }
 
-  /** Положить на место. Меч кладут, наклонившись к стене: дело «Оружие» уходит назад вместе с ним (`stepEye`). */
+  /** Положить на место. Меч кладут на стену: правитель сперва шагает к ней (дело «Оружие» — назад), там рука отпускает. */
   drop(): void {
     if (!this.held) return;
+    if (this.held.id === 'sword' && this.act?.a.id === 'arms' && this.mode === 'in') {
+      this.leave();
+      return;
+    }
+    this.release();
+  }
+
+  private release(): void {
+    if (!this.held || this.held.dir < 0) return;
     this.held.dir = -1;
     this.changed();
   }
@@ -708,45 +769,41 @@ export class ChambersRoom implements Inside {
     if (!tr) return;
     h.t = Math.min(1, Math.max(0, h.t + (dt / 0.55) * h.dir));
     const k = h.t * h.t * (3 - 2 * h.t);
+    // Поворот пальцем догоняет цель плавно — предмет поворачивают, а не дёргают.
+    const ease = 1 - Math.exp(-dt * 6);
+    h.spin += (h.spinGoal - h.spin) * ease;
+    h.tilt += (h.tiltGoal - h.tilt) * ease;
     const thing = TRINKETS.find((x) => x.id === h.id)!;
     const cam = this.camera;
-    // Как держать: поворот пальцем поверх положения предмета в руке (`base`), в осях глаза.
-    E.set(h.pitch, h.yaw, 0, 'YXZ');
-    Q.setFromEuler(E);
-    HOLD.copy(cam.quaternion).multiply(Q).multiply(this.base(thing));
+    // Как держать: предмет повёрнут в осях глаза (`holdRotation`), середина хвата — там, где он целиком в кадре.
+    holdRotation(thing, h.spin, h.tilt, Q);
+    HOLD.copy(cam.quaternion).multiply(Q);
     REST.setFromAxisAngle(UP, tr.restYaw);
     tr.mesh.quaternion.copy(REST).slerp(HOLD, k);
-    // Рука: середина предмета — на оси взгляда, чуть ниже и правее середины кадра (держит правая рука).
-    cam.getWorldDirection(V);
-    V2.copy(cam.position).addScaledVector(V, thing.hold);
-    V.set(0, 1, 0).applyQuaternion(cam.quaternion);
-    V2.addScaledVector(V, -0.05);
-    V.set(1, 0, 0).applyQuaternion(cam.quaternion);
-    V2.addScaledVector(V, thing.id === 'sword' ? 0.06 : 0.02);
-    const mid = tr.mesh.geometry.boundingSphere?.center ?? ZERO;
-    V.copy(mid).applyQuaternion(tr.mesh.quaternion);
+    const at = this.holdAt(thing, tr.mesh);
+    V2.copy(at).applyQuaternion(cam.quaternion).add(cam.position);
+    V.set(thing.grip[0], thing.grip[1], thing.grip[2]).applyQuaternion(HOLD);
     POS.copy(tr.rest).lerp(V2.sub(V), k);
     tr.mesh.position.copy(POS);
     if (h.dir < 0 && h.t <= 0) {
       tr.mesh.position.copy(tr.rest);
       tr.mesh.quaternion.copy(REST);
       this.held = null;
+      this.onCue?.('put');
       this.changed();
     }
   }
 
-  /**
-   * Предмет в руке, в осях глаза: стоймя с наклоном к глазу (видно чашу кубка и ленту короны); меч — наискось снизу справа
-   * вверх налево, плоскостью клинка к глазу (у меча клинок — по оси z своих осей, плоскость — по оси x).
-   */
-  private base(t: Trinket): THREE.Quaternion {
-    if (t.id === 'sword') {
-      const z = new THREE.Vector3(-0.35, 0.94, 0).normalize();
-      const x = new THREE.Vector3(0, 0, 1);
-      const y = new THREE.Vector3().crossVectors(z, x);
-      return BASE.setFromRotationMatrix(new THREE.Matrix4().makeBasis(x, y, z));
-    }
-    return BASE.setFromAxisAngle(RIGHT, t.tilt);
+  /** Где хват предмета в осях глаза: считается под поле зрения кадра и не меняется, пока оно то же. */
+  private holdAt(thing: Trinket, mesh: THREE.Mesh): THREE.Vector3 {
+    const cam = this.camera;
+    const key = `${thing.id}:${cam.fov.toFixed(2)}:${cam.aspect.toFixed(3)}`;
+    if (this.fit?.key === key) return this.fit.at;
+    const g = mesh.geometry;
+    if (!g.boundingBox) g.computeBoundingBox();
+    const at = holdFit(thing, g.boundingBox!, cam.fov, cam.aspect);
+    this.fit = { key, at };
+    return at;
   }
 
   // ---------- Тело ----------
@@ -778,28 +835,21 @@ export class ChambersRoom implements Inside {
       const target: HandPose = { w: [V.x - 0.07, V.y - 0.01, V.z + 0.05], f: [1, 0.05, -0.35], u: [0, 1, 0.2], curl: 0.3 + reach * 0.5 };
       rightH = blendHand(low(1), target, easeInOut(reach));
     }
-    // Предмет в руке: правая кисть держит его за `grip`.
+    // Предмет в руке: правая кисть держит его за `grip` — кулаком вокруг рукояти или на ладони (`body.holdHand`).
     if (this.held) {
       const h = this.held;
       const tr = this.trinkets.get(h.id)!;
       const thing = TRINKETS.find((t) => t.id === h.id)!;
       V.set(thing.grip[0], thing.grip[1], thing.grip[2]).applyQuaternion(tr.mesh.quaternion).add(tr.mesh.position).sub(this.origin);
+      V2.set(thing.axis[0], thing.axis[1], thing.axis[2]).applyQuaternion(tr.mesh.quaternion);
       const cam = this.camera;
-      const cu = V2.set(0, 1, 0).applyQuaternion(cam.quaternion).clone();
-      const cr = V2.set(1, 0, 0).applyQuaternion(cam.quaternion).clone();
-      const cf = cam.getWorldDirection(V2).clone();
-      const sword = thing.id === 'sword';
-      const w: [number, number, number] = sword
-        ? [V.x - cf.x * 0.02 + cr.x * 0.045, V.y - cf.y * 0.02 + cr.y * 0.045, V.z - cf.z * 0.02 + cr.z * 0.045]
-        : [V.x - cu.x * 0.075 + cr.x * 0.03 - cf.x * 0.02, V.y - cu.y * 0.075 + cr.y * 0.03 - cf.y * 0.02, V.z - cu.z * 0.075 + cr.z * 0.03 - cf.z * 0.02];
-      const target: HandPose = sword
-        ? { w, f: [-cr.x, -cr.y, -cr.z], u: [cf.x * -0.3 + cu.x, cf.y * -0.3 + cu.y, cf.z * -0.3 + cu.z], curl: 0.82 }
-        : { w, f: [cu.x * 0.85 - cr.x * 0.35 + cf.x * 0.2, cu.y * 0.85 - cr.y * 0.35 + cf.y * 0.2, cu.z * 0.85 - cr.z * 0.35 + cf.z * 0.2], u: [cr.x * 0.8 - cf.x * 0.4, cr.y * 0.8 - cf.y * 0.4, cr.z * 0.8 - cf.z * 0.4], curl: 0.62 };
-      const kk = easeInOut(h.t);
-      rightH = blendHand(rightH ?? low(1), target, kk);
+      const cf = cam.getWorldDirection(new THREE.Vector3());
+      const cr = new THREE.Vector3(1, 0, 0).applyQuaternion(cam.quaternion);
+      const target = holdHand(thing.hold, [V.x, V.y, V.z], [V2.x, V2.y, V2.z], [cf.x, cf.y, cf.z], [cr.x, cr.y, cr.z], thing.gripR);
+      rightH = blendHand(rightH ?? low(1), target, easeInOut(h.t));
     }
     const sit = a?.a.id === 'desk' && f ? f.sit : 0;
-    this.body.update(rightH || left || sit > 0.02 ? { eye, yaw, left, right: rightH, sit, seat: { x: CHAIR.x, z: 1.98, y: 0.55 } } : null, this.origin);
+    this.body.update(rightH || left || sit > 0.02 ? { eye, yaw, left, right: rightH, sit, seat: { x: CHAIR.x, z: CHAIR.z - 0.14, y: 0.55 } } : null, this.origin);
   }
 
   /** Руки в деле — куда кладутся кисти (в осях комнаты). */
@@ -807,12 +857,13 @@ export class ChambersRoom implements Inside {
     const t = this.time;
     switch (kind) {
       case 'armrests': {
-        // Кисти на концах подлокотников, пальцы охватывают навершие (`plan.ARMREST`), чуть внутрь — к столу.
+        // Предплечья на подлокотниках, кисть легла на точёное навершие (`plan.ARMREST`) и чуть внутрь — к столу: пальцы
+        // обняли его спереди, большой — сбоку.
         const hand = (side: 1 | -1): HandPose => ({
-          w: [CHAIR.x - side * (ARMREST.x + 0.005), ARMREST.y + 0.04, ARMREST.end - 0.15],
-          f: [side * 0.22, -0.2, 1],
-          u: [-side * 0.12, 1, 0.2],
-          curl: 0.34 + 0.02 * Math.sin(t * 0.7 + side),
+          w: [CHAIR.x - side * (ARMREST.x - 0.005), ARMREST.y + 0.048, ARMREST.end - 0.1],
+          f: [side * 0.3, -0.42, 1],
+          u: [side * 0.2, 1, 0.38],
+          curl: 0.58 + 0.03 * Math.sin(t * 0.7 + side),
           spread: 0.05,
         });
         return { right: hand(1), left: hand(-1) };
@@ -820,8 +871,8 @@ export class ChambersRoom implements Inside {
       case 'sill':
         // Ладони на подоконнике большого окна (`plan.OPENINGS`: плита подоконника выходит из доски в комнату).
         return {
-          right: { w: [-0.17, SILL + 0.035, HALF + 0.84], f: [0.22, -0.08, 1], u: [0, 1, 0.08], curl: 0.22 },
-          left: { w: [0.17, SILL + 0.035, HALF + 0.84], f: [-0.22, -0.08, 1], u: [0, 1, 0.08], curl: 0.22 },
+          right: { w: [-0.17, SILL + 0.04, HALF + 0.8], f: [0.22, -0.16, 1], u: [0, 1, 0.16], curl: 0.12, spread: 0.1 },
+          left: { w: [0.17, SILL + 0.04, HALF + 0.8], f: [-0.22, -0.16, 1], u: [0, 1, 0.16], curl: 0.12, spread: 0.1 },
         };
       case 'warm': {
         // Ладони к огню, пальцы вверх; кисти чуть трутся одна о другую.
@@ -1020,8 +1071,9 @@ export class ChambersRoom implements Inside {
   // ---------- Подписи ----------
 
   /** Точка на экране (точки CSS слоя): середина коробки или её верх. */
-  private screenOf(b: Box | THREE.Box3, top = true): { x: number; y: number; on: boolean; dist: number } {
-    if (b instanceof THREE.Box3) {
+  private screenOf(b: Box | THREE.Box3 | THREE.Vector3, top = true): { x: number; y: number; on: boolean; dist: number } {
+    if (b instanceof THREE.Vector3) V.copy(b);
+    else if (b instanceof THREE.Box3) {
       b.getCenter(V);
       if (top) V.y = b.max.y;
     } else V.set((b.x0 + b.x1) / 2, top ? b.y1 : (b.y0 + b.y1) / 2, (b.z0 + b.z1) / 2).add(this.origin);
@@ -1036,23 +1088,85 @@ export class ChambersRoom implements Inside {
   }
 
   /**
-   * Раскладка подписей предметов стола этого кадра: видны, пока предмет на экране и перед глазом, при любом повороте;
-   * верх — ниже шапки, низ — выше кружка пальца. Подписи под пальцем у предмета — свой ярлык (`ch-label`), его имя не
-   * повторяется.
+   * Кому из вещей нужна подпись этим кадром (Г-6, слово владельца): подошёл близко (`Label.near` до ближней точки вещи)
+   * и смотрит — точка подписи у середины кадра (`GAZE_IN`, уйдя дальше `GAZE_OUT` — гаснет; между ними — как была);
+   * сидя за столом — все предметы стола на экране. Сквозь мебель (`OCCLUDERS`) — нет; с предметом в руке, в переходе
+   * дела и у вещи под пальцем (у неё своя подпись) — нет.
    */
-  layoutDeskTags(): TagOut[] {
-    const { w, h } = this.viewSize();
-    const holding = !!(this.held && this.held.dir > 0);
+  labelWants(): boolean[] {
+    const seated = this.mode === 'in' && this.act?.a.id === 'desk';
+    const quiet = !!(this.held && this.held.dir > 0) || this.mode === 'act';
     const hoverId = this.hover?.kind === 'thing' ? this.hover.thing.id : null;
-    const items = DESK_THINGS.map((t) => {
-      const s = this.screenOf(t.box);
-      return { id: t.id, text: t.name, ax: s.x, ay: s.y, dist: s.dist, on: s.on && !holding && t.id !== hoverId };
+    const eye = this.camera.position;
+    this.camera.getWorldDirection(V2);
+    return LABELS.map((l, i) => {
+      if (quiet || l.id === hoverId) return false;
+      V.set(l.at[0], l.at[1], l.at[2]).add(this.origin);
+      const s = this.screenOf(V);
+      if (!s.on) return false;
+      if (!(seated && l.desk)) {
+        const b = l.box;
+        const dx = Math.max(b.x0 - (eye.x - this.origin.x), 0, eye.x - this.origin.x - b.x1);
+        const dy = Math.max(b.y0 - (eye.y - this.origin.y), 0, eye.y - this.origin.y - b.y1);
+        const dz = Math.max(b.z0 - (eye.z - this.origin.z), 0, eye.z - this.origin.z - b.z1);
+        if (Math.hypot(dx, dy, dz) > l.near) return false;
+        V.set(l.at[0], l.at[1], l.at[2]).add(this.origin).sub(eye).normalize();
+        const ang = Math.acos(clamp(V.dot(V2), -1, 1));
+        if (ang > (this.tagFade[i].want ? GAZE_OUT : GAZE_IN)) return false;
+      }
+      return !this.occluded(l);
     });
-    return layoutTags(items, { left: 6, top: 64, right: w - 6, bottom: h - 8 });
   }
 
-  private labels(): void {
-    this.tagsNow = this.layoutDeskTags();
+  /** Заслоняет ли мебель точку подписи от глаза: луч до неё проходит сквозь чужую коробку. */
+  private occluded(l: Label): boolean {
+    const e = this.camera.position;
+    const ex = e.x - this.origin.x;
+    const ey = e.y - this.origin.y;
+    const ez = e.z - this.origin.z;
+    const dx = l.at[0] - ex;
+    const dy = l.at[1] - ey;
+    const dz = l.at[2] - ez;
+    for (const o of OCCLUDERS) {
+      if (o.id === l.id) continue;
+      const t = rayBox(ex, ey, ez, dx, dy, dz, o.box);
+      if (t !== null && t < 0.985) return true;
+    }
+    return false;
+  }
+
+  /** Подписи этого кадра: кому нужны, раскладка без наложений в рамке экрана (ниже шапки, выше нижнего края). */
+  layoutLabels(): TagOut[] {
+    const { w, h } = this.viewSize();
+    const wants = this.labelWants();
+    const items = LABELS.map((l, i) => {
+      V.set(l.at[0], l.at[1], l.at[2]).add(this.origin);
+      const s = this.screenOf(V);
+      const f = this.tagFade[i];
+      // Уже видимые — первыми: пришедшая подпись не сгоняет стоящую.
+      return { id: l.id, text: l.name, ax: s.x, ay: s.y, dist: s.dist, on: s.on && (wants[i] || f.a > 0.01), rank: (f.a > 0.5 ? 0 : 100) + s.dist };
+    });
+    const out = layoutTags(items, { left: 6, top: 64, right: w - 6, bottom: h - 8 });
+    out.forEach((t, i) => {
+      this.tagFade[i].want = wants[i] && t.visible;
+    });
+    return out;
+  }
+
+  /** Подписи — плавно: проступают и гаснут за четверть секунды; не уместилась — гаснет сразу (поверх не ложится). */
+  private fadeLabels(dt: number): void {
+    this.tagsNow = this.layoutLabels();
+    this.tagsNow.forEach((t, i) => {
+      const f = this.tagFade[i];
+      if (!t.visible) f.a = 0;
+      else f.a = clamp(f.a + (f.want ? 1 : -1) * (dt / LABEL_FADE), 0, 1);
+      t.visible = t.visible && f.a > 0.01;
+      t.alpha = f.a;
+    });
+  }
+
+  private labels(dt: number): void {
+    this.fadeLabels(dt);
     const l = this.label;
     if (!l) return;
     const aim = this.hover;
@@ -1081,6 +1195,8 @@ export class ChambersRoom implements Inside {
         for (const e of [el.box, el.dot, el.line]) if (e.style.visibility !== 'hidden') e.style.visibility = 'hidden';
         return;
       }
+      const op = (t.alpha ?? 1).toFixed(2);
+      for (const e of [el.box, el.dot, el.line]) e.style.opacity = op;
       el.box.style.visibility = '';
       el.box.style.fontSize = `${(TAG_FONT * t.scale).toFixed(1)}px`;
       el.box.style.transform = `translate3d(${Math.round(t.x - t.w / 2)}px, ${Math.round(t.y - t.h / 2)}px, 0)`;
@@ -1165,6 +1281,7 @@ export class ChambersRoom implements Inside {
     this.onChange = null;
     this.onUse = null;
     this.onEar = null;
+    this.onCue = null;
   }
 }
 

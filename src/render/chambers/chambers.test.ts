@@ -2,13 +2,14 @@
 // подписи, звук и огонь — числами, без WebGL (геометрия и касания three считаются в узле; атлас без страницы — пустой).
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
-import { ChambersRoom } from './room';
+import { ChambersRoom, GAZE_OUT } from './room';
 import { buildRoom } from './build';
 import { FIRE_SPEC } from './fire';
 import { earGains } from './sound';
+import { fingerChains, holdHand } from './body';
 import { ACTS, actLength, frameAt, sampleAct } from './acts';
 import { BODY_R, OBSTACLES, free, onFloor, pathTo, step, clear, NICHE_END, NICHE_HALF } from './walk';
-import { layoutTags, TAG_MIN } from './tags';
+import { layoutTags, type TagOut } from './tags';
 import { DEFAULT_ARMS } from '@/heraldry/arms';
 import { STICK_FULL } from '@/prologue/controls';
 import {
@@ -18,6 +19,7 @@ import {
   DESK,
   DESK_THINGS,
   HALF,
+  LABELS,
   OPENINGS,
   POIS,
   POI_BY_ID,
@@ -28,6 +30,7 @@ import {
   fitFov,
   type Door,
   type SpotId,
+  type TrinketId,
 } from './plan';
 
 /** Донжон города (`layout.ts`, `keep`): 13 м, 30 м высоты; подножие — любое, покои считаются от него. */
@@ -426,11 +429,10 @@ describe('покои: стол из кресла', () => {
   });
 });
 
-describe('покои: подписи предметов стола', () => {
+describe('покои: подписи вещей (Г-6)', () => {
   /** Подписи кадра: видимые — в рамке экрана и не налезают друг на друга. */
-  function checkTags(room: ChambersRoom, what: string): number {
-    const tags = room.layoutDeskTags();
-    const vis = tags.filter((t) => t.visible);
+  function checkTags(room: ChambersRoom, what: string): TagOut[] {
+    const vis = room.tagsNow.filter((t) => t.visible);
     for (const t of vis) {
       expect(t.x - t.w / 2, `${what}: ${t.id} не за левым краем`).toBeGreaterThanOrEqual(0);
       expect(t.x + t.w / 2, `${what}: ${t.id} не за правым краем`).toBeLessThanOrEqual(PHONE.width);
@@ -444,45 +446,159 @@ describe('покои: подписи предметов стола', () => {
         const overlap = Math.abs(a.x - b.x) < (a.w + b.w) / 2 && Math.abs(a.y - b.y) < (a.h + b.h) / 2;
         expect(overlap, `${what}: «${a.id}» налезает на «${b.id}»`).toBe(false);
       }
-    return vis.length;
+    return vis;
   }
 
-  it('сидя за столом — все восемь, при повороте головы — каждая, чей предмет на экране, на месте у предмета', () => {
+  /** Своя мерка «близко»: от глаза до ближней точки коробки вещи. */
+  const boxDist = (b: { x0: number; y0: number; z0: number; x1: number; y1: number; z1: number }, x: number, y: number, z: number): number =>
+    Math.hypot(Math.max(b.x0 - x, 0, x - b.x1), Math.max(b.y0 - y, 0, y - b.y1), Math.max(b.z0 - z, 0, z - b.z1));
+
+  /** Своя мерка «заслонено»: отрезок от глаза до точки подписи входит в коробку мебели теста (`SOLID`), не свою. */
+  function blocked(id: string, x: number, y: number, z: number, at: readonly [number, number, number]): string | null {
+    for (const b of SOLID) {
+      if (b.id === id || (id === 'chair' && b.id.includes('кресла')) || (id === 'bed' && (b.id === 'кровать' || b.id === 'полог'))) continue;
+      if (b.id === 'стол' || b.id === 'сиденье кресла') continue;
+      for (let k = 1; k < 60; k++) {
+        const t = k / 60;
+        const px = x + (at[0] - x) * t;
+        const py = y + (at[1] - y) * t;
+        const pz = z + (at[2] - z) * t;
+        if (px > b.x0 && px < b.x1 && py > b.y0 && py < b.y1 && pz > b.z0 && pz < b.z1) return b.id;
+      }
+    }
+    return null;
+  }
+
+  /** Встать в точку и смотреть прямо на точку подписи. */
+  function lookAt(room: ChambersRoom, x: number, z: number, at: readonly [number, number, number]): void {
+    const yaw = Math.atan2(at[0] - x, at[2] - z);
+    const pitch = Math.atan2(at[1] - 1.62, Math.hypot(at[0] - x, at[2] - z));
+    room.standAtPoint(x, z, yaw, pitch);
+  }
+
+  it('сидя за столом — подписи всех предметов стола, при повороте головы — каждая, чей предмет на экране, у предмета', () => {
     const room = phoneRoom();
-    // Область: повороты головы сидя, при которых предмет стола в кадре (точка над ним — внутри экрана).
+    // Область: повороты головы сидя, при которых точка подписи предмета стола — в кадре.
     let checked = 0;
     for (const dyaw of [0, -0.12, 0.12, -0.3, 0.3]) {
       for (const dp of [0, -0.15, 0.12]) {
         room.snap('desk', dyaw, dp);
-        run(room, 0.05);
-        const n = checkTags(room, `поворот ${dyaw}/${dp}`);
-        const tags = room.layoutDeskTags();
-        for (const t of tags) {
+        run(room, 0.5);
+        checkTags(room, `поворот ${dyaw}/${dp}`);
+        for (const t of room.tagsNow) {
+          if (!DESK_THINGS.some((d) => d.id === t.id)) continue;
           const inFrame = t.ax > 0 && t.ax < PHONE.width && t.ay > 64 && t.ay < PHONE.height;
           if (!inFrame) continue;
           checked++;
           expect(t.visible, `поворот ${dyaw}/${dp}: «${t.id}» на экране — подпись видна`).toBe(true);
+          expect(t.alpha, `«${t.id}»: проступила целиком`).toBeCloseTo(1, 5);
           expect(Math.abs(t.x - t.ax), `«${t.id}»: подпись у предмета по ширине`).toBeLessThan(t.w);
           expect(Math.abs(t.y - t.ay), `«${t.id}»: подпись у предмета по высоте`).toBeLessThan(3.5 * t.h);
         }
-        if (dyaw === 0 && dp === 0) expect(n, 'сидя прямо — все восемь').toBe(DESK_THINGS.length);
+        if (dyaw === 0 && dp === 0)
+          for (const d of DESK_THINGS) expect(room.tagsNow.find((t) => t.id === d.id)!.visible, `сидя прямо — «${d.id}»`).toBe(true);
       }
     }
     expect(checked).toBeGreaterThan(60);
     room.dispose();
   });
 
-  it('вдали подписи мельче, но не мельче кегля 12, и тоже не налезают', () => {
+  it('издали подписей нет совсем: где бы ни стоял и куда бы ни смотрел — видна только та, к чьей вещи подошёл и на которую смотрит', () => {
     const room = phoneRoom();
-    room.snap('desk');
-    const near = room.layoutDeskTags().filter((t) => t.visible).map((t) => t.scale);
+    const r = bone(611);
+    let far = 0;
+    let shown = 0;
+    // Область: свободный пол комнаты стоя (не в деле), взгляд кругом и вниз-вверх; правило спрашивается везде.
+    for (let n = 0; n < 220; n++) {
+      const x = -HALF + 0.3 + r() * (2 * HALF - 0.6);
+      const z = -HALF + 0.3 + r() * (2 * HALF - 0.6);
+      if (!free(x, z, BODY_R)) continue;
+      // Взгляд — около случайной вещи (±0,45 рад), а то и мимо: правило спрашивается и на краю взгляда.
+      const aim = LABELS[Math.floor(r() * LABELS.length)].at;
+      const yaw = Math.atan2(aim[0] - x, aim[2] - z) + (r() - 0.5) * 0.9;
+      const pitch = Math.atan2(aim[1] - 1.62, Math.hypot(aim[0] - x, aim[2] - z)) + (r() - 0.5) * 0.9;
+      room.standAtPoint(x, z, yaw, Math.max(-1.1, Math.min(1, pitch)));
+      run(room, 0.4);
+      const s = room.state();
+      expect(s.mode, 'стоя').toBe('free');
+      for (const t of checkTags(room, `точка ${n}`)) {
+        const l = LABELS.find((q) => q.id === t.id)!;
+        const d = boxDist(l.box, s.x, s.y, s.z);
+        expect(d, `«${l.id}» видна только вблизи: ${d.toFixed(2)} м`).toBeLessThanOrEqual(l.near + 1e-6);
+        const dir = new THREE.Vector3(l.at[0] - s.x, l.at[1] - s.y, l.at[2] - s.z).normalize();
+        const look = new THREE.Vector3(Math.sin(s.yaw) * Math.cos(s.pitch), Math.sin(s.pitch), Math.cos(s.yaw) * Math.cos(s.pitch));
+        expect(Math.acos(dir.dot(look)), `«${l.id}» — только когда смотрит на неё`).toBeLessThanOrEqual(GAZE_OUT + 0.02);
+        expect(blocked(l.id, s.x, s.y, s.z, l.at), `«${l.id}» не сквозь мебель`).toBe(null);
+        shown++;
+      }
+      if (LABELS.every((l) => boxDist(l.box, s.x, s.y, s.z) > l.near)) {
+        far++;
+        expect(room.tagsNow.filter((t) => t.visible).length, `точка ${n} — вдали ото всего`).toBe(0);
+      }
+    }
+    expect(far, 'точки вдали ото всего были').toBeGreaterThan(5);
+    expect(shown, 'и вблизи подписи были').toBeGreaterThan(10);
+    // Из глубины покоев (вход) на стол — пусто.
     room.snap('hall');
-    run(room, 0.05);
-    checkTags(room, 'из глубины покоев');
-    const far = room.layoutDeskTags().filter((t) => t.visible).map((t) => t.scale);
-    expect(far.length, 'издали подписи есть').toBeGreaterThan(0);
-    expect(Math.max(...far)).toBeLessThan(Math.min(...near));
-    expect(Math.min(...far)).toBeGreaterThanOrEqual(TAG_MIN - 1e-9);
+    run(room, 0.5);
+    expect(room.tagsNow.filter((t) => t.visible).map((t) => t.id), 'со входа подписей нет').toEqual([]);
+    room.dispose();
+  });
+
+  it('вблизи при взгляде — есть: у каждой вещи (мебель, окна, сундуки, оружие, безделушки, предметы стола)', () => {
+    const room = phoneRoom();
+    for (const l of LABELS) {
+      let tried = 0;
+      // Точки пола у вещи: свободные, ближе её `near` и с чистым видом на точку подписи (своя мерка).
+      for (let gx = -HALF + 0.3; gx < HALF + 1 && tried < 4; gx += 0.3)
+        for (let gz = -HALF + 0.3; gz < HALF + 1 && tried < 4; gz += 0.3) {
+          if (!free(gx, gz, BODY_R)) continue;
+          const d = boxDist(l.box, gx, 1.62, gz);
+          if (d > l.near - 0.2 || d < 0.35 || blocked(l.id, gx, 1.62, gz, l.at)) continue;
+          lookAt(room, gx, gz, l.at);
+          run(room, 0.5);
+          const t = room.tagsNow.find((q) => q.id === l.id)!;
+          expect(t.visible, `«${l.id}» с (${gx.toFixed(1)}, ${gz.toFixed(1)}) — видна`).toBe(true);
+          checkTags(room, l.id);
+          tried++;
+        }
+      expect(tried, `«${l.id}»: к ней можно подойти`).toBeGreaterThan(0);
+    }
+    room.dispose();
+  });
+
+  it('сквозь мебель — нет: за спинкой кресла письма на столе не подписаны, сбоку — подписаны', () => {
+    const room = phoneRoom();
+    const letters = LABELS.find((l) => l.id === 'letters')!;
+    // Граница области: вблизи (ближе `near`) и взгляд прямо на письма — без спинки подпись была бы.
+    for (const [x, z, hidden] of [
+      [0, 1.55, true],
+      [0.75, 1.75, false],
+    ] as const) {
+      expect(boxDist(letters.box, x, 1.62, z)).toBeLessThan(letters.near);
+      expect(!!blocked('letters', x, 1.62, z, letters.at), `своя мерка: спинка ${hidden ? '' : 'не '}заслоняет`).toBe(hidden);
+      lookAt(room, x, z, letters.at);
+      run(room, 0.5);
+      expect(room.tagsNow.find((t) => t.id === 'letters')!.visible, `(${x}, ${z})`).toBe(!hidden);
+    }
+    room.dispose();
+  });
+
+  it('подпись проступает и гаснет плавно, а не щелчком', () => {
+    const room = phoneRoom();
+    const crown = LABELS.find((l) => l.id === 'crown')!;
+    lookAt(room, 3.7, -2.35, crown.at);
+    run(room, 1 / 60);
+    const a1 = room.tagsNow.find((t) => t.id === 'crown')!.alpha ?? 0;
+    expect(a1, 'первый кадр — только начала').toBeGreaterThan(0);
+    expect(a1).toBeLessThan(0.2);
+    run(room, 0.5);
+    expect(room.tagsNow.find((t) => t.id === 'crown')!.alpha).toBeCloseTo(1, 5);
+    // Отвернулся — гаснет за четверть секунды, не сразу.
+    room.standAtPoint(3.7, -2.35, -Math.PI / 2, 0);
+    run(room, 1 / 60);
+    const fading = room.tagsNow.find((t) => t.id === 'crown')!;
+    expect(fading.visible || fading.alpha === 0).toBe(true);
     room.dispose();
   });
 
@@ -492,6 +608,147 @@ describe('покои: подписи предметов стола', () => {
     const vis = out.filter((t) => t.visible);
     expect(vis.length).toBeGreaterThan(2);
     expect(vis.length).toBeLessThan(12);
+  });
+});
+
+describe('покои: предмет в руке (Г-6)', () => {
+  /** Где на экране телефона свободно от шапки («Покои») и нижней полосы («Положить»): граница области «в кадре». */
+  const FREE_TOP = 64;
+  const FREE_BOTTOM = 770;
+
+  /** Взять безделушку там, где её берут в игре: меч — делом «Оружие», кубок и свеча — сидя, корону и фигуру — стоя у них. */
+  function takeIt(room: ChambersRoom, id: TrinketId): void {
+    const t = TRINKETS.find((x) => x.id === id)!;
+    if (id === 'sword') room.snap('arms');
+    else if (t.poi === 'desk') {
+      room.snap('desk');
+      room.take(id);
+    } else {
+      room.standAtPoint(t.stand!.x, t.stand!.z, t.stand!.yaw, -0.3);
+      room.take(id);
+    }
+    run(room, 1.2);
+    expect(room.view().held, `${id}: в руке`).toBe(id);
+  }
+
+  /** Вершины предмета на экране: самые крайние — и где они в комнате. */
+  function extent(room: ChambersRoom, id: TrinketId): { x0: number; x1: number; y0: number; y1: number; world: THREE.Vector3[] } {
+    const mesh = room.scene.getObjectByName(`chambers-${id}`) as THREE.Mesh;
+    mesh.updateMatrixWorld();
+    const pos = mesh.geometry.getAttribute('position');
+    const out = { x0: Infinity, x1: -Infinity, y0: Infinity, y1: -Infinity, world: [] as THREE.Vector3[] };
+    const v = new THREE.Vector3();
+    for (let i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos, i).applyMatrix4(mesh.matrixWorld);
+      out.world.push(v.clone().sub(room.origin));
+      v.project(room.camera);
+      expect(v.z, `${id}: перед глазом`).toBeLessThan(1);
+      const x = ((v.x + 1) / 2) * PHONE.width;
+      const y = ((1 - v.y) / 2) * PHONE.height;
+      out.x0 = Math.min(out.x0, x);
+      out.x1 = Math.max(out.x1, x);
+      out.y0 = Math.min(out.y0, y);
+      out.y1 = Math.max(out.y1, y);
+    }
+    return out;
+  }
+
+  /** Повести пальцем взгляда (правая половина): на `dx`, `dy` точек. */
+  function drag(room: ChambersRoom, dx: number, dy: number): void {
+    room.down(7, 300, 420, PHONE);
+    room.move(7, 300 + dx, 420 + dy);
+    run(room, 1 / 60);
+    room.up(7);
+  }
+
+  it('меч и безделушки целиком в кадре — при любом повороте пальцем, между шапкой и нижней полосой', () => {
+    for (const t of TRINKETS) {
+      const room = phoneRoom();
+      takeIt(room, t.id);
+      let checked = 0;
+      // Область: повороты пальцем — оборот вокруг оси хвата и наклон до упора в обе стороны.
+      for (const [dx, dy] of [
+        [0, 0],
+        [40, 0],
+        [40, 0],
+        [40, 0],
+        [40, 0],
+        [0, 120],
+        [40, 0],
+        [0, -240],
+        [40, 0],
+        [40, 0],
+      ] as const) {
+        if (dx || dy) drag(room, dx, dy);
+        run(room, 0.8);
+        expect(room.view().held, `${t.id}: ведение пальцем не кладёт`).toBe(t.id);
+        const e = extent(room, t.id);
+        const what = `${t.id} после поворота ${checked}`;
+        expect(e.x0, `${what}: не за левым краем`).toBeGreaterThanOrEqual(0);
+        expect(e.x1, `${what}: не за правым краем`).toBeLessThanOrEqual(PHONE.width);
+        expect(e.y0, `${what}: ниже шапки`).toBeGreaterThanOrEqual(FREE_TOP);
+        expect(e.y1, `${what}: выше нижней полосы`).toBeLessThanOrEqual(FREE_BOTTOM);
+        // «В удобном размере»: не крошка и не во весь экран.
+        const size = Math.max(e.x1 - e.x0, e.y1 - e.y0);
+        expect(size, `${what}: размер на экране`).toBeGreaterThan(90);
+        expect(size, `${what}: размер на экране`).toBeLessThan(t.id === 'sword' ? 640 : 420);
+        checked++;
+      }
+      expect(checked).toBe(10);
+      room.dispose();
+    }
+  });
+
+  it('меч в руке не упирается в стену: правитель отступил, клинок — в комнате, в метре с лишним от стены оружия', () => {
+    const room = phoneRoom();
+    takeIt(room, 'sword');
+    const s = room.state();
+    expect(HALF - s.x, 'от стены оружия').toBeGreaterThan(1.5);
+    const e = extent(room, 'sword');
+    for (const p of e.world) {
+      expect(p.x, 'клинок не в стене').toBeLessThan(HALF - 0.5);
+      for (const b of SOLID) expect(p.x > b.x0 && p.x < b.x1 && p.y > b.y0 && p.y < b.y1 && p.z > b.z0 && p.z < b.z1, `меч в «${b.id}»`).toBe(false);
+    }
+    room.dispose();
+  });
+
+  it('пальцы обхватывают рукоять: суставы лежат на ней — не внутри и не поодаль; кубок — за ножку, меч — за рукоять', () => {
+    const r = bone(77);
+    for (const t of TRINKETS.filter((x) => x.hold === 'fist')) {
+      for (let n = 0; n < 20; n++) {
+        // Ось хвата и взгляд — любые (как предмет повернули пальцем).
+        const axis = new THREE.Vector3(r() - 0.5, r() * 0.8 + 0.2, r() - 0.5).normalize();
+        const cf = new THREE.Vector3(r() - 0.5, -0.3, -1).normalize();
+        const cr = new THREE.Vector3(1, 0, 0).sub(cf.clone().multiplyScalar(cf.x)).normalize();
+        const g: [number, number, number] = [r(), 1 + r(), r()];
+        const h = holdHand('fist', g, [axis.x, axis.y, axis.z], [cf.x, cf.y, cf.z], [cr.x, cr.y, cr.z], t.gripR);
+        const { fingers } = fingerChains(h, true);
+        fingers.forEach((pts, i) =>
+          pts.slice(1).forEach((p, j) => {
+            const d = new THREE.Vector3(p[0] - g[0], p[1] - g[1], p[2] - g[2]);
+            const off = d.sub(axis.clone().multiplyScalar(d.dot(axis))).length();
+            expect(off, `${t.id}: палец ${i}, сустав ${j + 1} — не внутри рукояти`).toBeGreaterThan(t.gripR + 0.002);
+            expect(off, `${t.id}: палец ${i}, сустав ${j + 1} — на рукояти, а не поодаль`).toBeLessThan(t.gripR + 0.03);
+          }),
+        );
+      }
+    }
+  });
+
+  it('предмет поворачивают медленно и плавно: ведение на пол-экрана — меньше пол-оборота, и поворот догоняет палец, а не прыгает', () => {
+    const room = phoneRoom();
+    takeIt(room, 'goblet');
+    const mesh = room.scene.getObjectByName('chambers-goblet') as THREE.Mesh;
+    const q0 = mesh.quaternion.clone();
+    drag(room, 190, 0);
+    const q1 = mesh.quaternion.clone();
+    run(room, 1.5);
+    const q2 = mesh.quaternion.clone();
+    const total = q0.angleTo(q2);
+    expect(total, 'повернулся').toBeGreaterThan(0.4);
+    expect(total, 'медленно: меньше пол-оборота').toBeLessThan(Math.PI / 2);
+    expect(q0.angleTo(q1), 'за кадр — малая доля').toBeLessThan(total * 0.25);
+    room.dispose();
   });
 });
 
