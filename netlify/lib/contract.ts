@@ -332,7 +332,7 @@ export const cityOr = (raw: unknown): string => cityName(raw) ?? DEFAULT_CITY;
  * и теста, и никак иначе.
  *
  * - `raid` — набег логова идёт на город (нападают); `raid-fight` — набег дошёл до города
- *   (бой был, итог в игре); `siege-fall` — хлеб под лагерем логова кончился, город взят;
+ *   (бой был, итог в игре), с `field` — полководец встретил его в поле перехватом; `siege-fall` — хлеб под лагерем логова кончился, город взят;
  * - `war` — отряд соседа идёт на город (нападают); `war-fight` — бой между игроками был;
  *   `war-fall` — осаждённый соседом город пал от голода;
  * - `war-parley` — переговоры у стен (docs/siege_v2.md, раздел 7): пришло предложение (сдача на условиях или дань), его
@@ -417,6 +417,11 @@ export interface NoticeFacts {
   order?: WarOrderId;
   /** Падение сдачей — ворота открыли (`siege-fall`, `war-fall`), а не голодом. */
   gates?: true;
+  /**
+   * Бой набега был не у стен, а в поле: полководец вышел на перехват (`raid-fight`, `world/notice`). Прежде о погоне
+   * молчало всё (отзыв тестеров 18.10, docs/feedback.md). Старый сервер поле отбросит — и скажет «ударил в стены».
+   */
+  field?: true;
   /**
    * Переговоры у стен (`war-parley`): какое предложение и чем кончилось. Нет `answer` — предложение пришло получателю, и
    * `about` — минута, до которой оно стоит; есть — ответ на его собственное предложение. Участь условий — в `fate`.
@@ -606,6 +611,7 @@ export function readNotices(v: unknown, now: number, kinds: readonly NoticeKind[
       if (order) facts.order = order;
     }
     if (kind.endsWith('-fall') && p.gates === true) facts.gates = true;
+    if (kind === 'raid-fight' && p.field === true) facts.field = true;
     if (kind === 'build') {
       const building = str(p.building, 32);
       const level = num(p.level);
