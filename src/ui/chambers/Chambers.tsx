@@ -1,4 +1,5 @@
-// Покои правителя (docs/city_v3.md, Г-4): слой поверх холста города — палец, подписи, выход, точки интереса, руки.
+// Покои правителя (docs/city_v3.md, Г-4, Г-5): слой поверх холста города — палец (слева — идти, справа — смотреть),
+// подписи, выход, «Встать» из дела, руки и подписи-указатели первого входа.
 // Свой кусок: его тянет верх города (`next/Hud`), когда покои открыты (`open.ts`), — в первую загрузку не едет ни байта.
 //
 // Комната живёт, пока покои открыты, а не пока стоит этот слой: карта мира прячет верх города и слой с ним, а глаз в
@@ -12,7 +13,7 @@ import type { Tower } from '@/render/city/layout';
 import type { CityShare } from '@/render/city/index';
 import { ChambersRoom, type ChambersView } from '@/render/chambers/room';
 import { ChambersSound } from '@/render/chambers/sound';
-import { POIS, TRINKETS, type TrinketId } from '@/render/chambers/plan';
+import { TRINKETS, type SpotId, type TrinketId } from '@/render/chambers/plan';
 import { armsOr } from '@/heraldry/arms';
 import { cityAudio } from '@/sound/city';
 import { probe } from '@/debug';
@@ -105,12 +106,44 @@ function useView(): ChambersView | null {
 
 const TRINKET_BY_ID = Object.fromEntries(TRINKETS.map((t) => [t.id, t])) as Record<TrinketId, (typeof TRINKETS)[number]>;
 
+/** Кнопка выхода из дела: сидя и лёжа — «Встать», у окна и огня — «Отойти». */
+const LEAVE: Record<SpotId, string> = { desk: 'Встать', bed: 'Встать', window: 'Отойти', hearth: 'Отойти', arms: 'Отойти' };
+
+/**
+ * Подписи-указатели первого входа (как в промыслах, docs/minigames.md, 18.1): над пальцем движения, у взгляда и о мебели.
+ * Гаснут по делу — пошёл, посмотрел, сделал дело — или через `COACH_MS`; что игрок уже видел, помнит устройство.
+ */
+export const COACH = {
+  walk: 'Веди пальцем — идти и поворачивать',
+  look: 'Веди — смотреть',
+  act: 'Коснись кресла, кровати, окна, камина или оружия',
+} as const;
+const COACH_MS = 14000;
+const COACH_KEY = 'tribe.chambers.coach';
+
+function coachSeen(): boolean {
+  try {
+    return localStorage.getItem(COACH_KEY) === '1';
+  } catch {
+    return true;
+  }
+}
+
+function coachDone(): void {
+  try {
+    localStorage.setItem(COACH_KEY, '1');
+  } catch {
+    /* память устройства недоступна — покажем ещё раз */
+  }
+}
+
 export function Chambers() {
   const hide = useChambers((c) => c.hide);
   const ruler = useGame((g) => g.s.realm.ruler.name ?? 'Без имени');
   const layer = useRef<HTMLDivElement>(null);
   const tags = useRef<HTMLDivElement>(null);
   const [ready, setReady] = useState(() => live !== null);
+  const [coach, setCoach] = useState(() => !coachSeen());
   const [, bump] = useState(0);
   const view = useView();
 
@@ -134,13 +167,33 @@ export function Chambers() {
     };
   }, []);
 
+  // Клавиши: Esc — в город; W/A/S/D и стрелки — шаг и поворот (как в промыслах).
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') hide();
+      if (e.key === 'Escape') {
+        hide();
+        return;
+      }
+      if (live?.room.keyDown(e.code, e.target)) e.preventDefault();
     };
+    const onUp = (e: KeyboardEvent): void => live?.room.keyUp(e.code);
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    window.addEventListener('keyup', onUp);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('keyup', onUp);
+    };
   }, [hide]);
+
+  // Подписи-указатели стоят, пока игрок не прошёлся, не огляделся и не сделал дело, но не дольше `COACH_MS`.
+  const used = view?.used;
+  const coaching = coach && ready && !!used && !(used.walk && used.look && used.act);
+  useEffect(() => {
+    if (!coach || !ready) return;
+    coachDone();
+    const t = window.setTimeout(() => setCoach(false), COACH_MS);
+    return () => window.clearTimeout(t);
+  }, [coach, ready]);
 
   const room = live?.room ?? null;
   const rect = (): DOMRect => (layer.current ?? document.body).getBoundingClientRect();
@@ -183,6 +236,15 @@ export function Chambers() {
 
       {v && !held && (
         <>
+          {/* Палец движения — рисунок: касание ловит вся левая половина (`prologue/controls.Sticks`), стик встаёт под палец. */}
+          <div className="ch-pad" aria-hidden="true">
+            <i />
+          </div>
+          {v.mode === 'in' && v.spot && (
+            <button className="ch-leave" onClick={() => room?.leave()}>
+              {LEAVE[v.spot]}
+            </button>
+          )}
           {v.zoom !== null && (
             <div className="ch-zoom" role="group" aria-label="Смотреть вдаль">
               <button disabled={v.zoom <= 0.01} onClick={() => room?.zoomBy(1 / 1.6)}>
@@ -193,13 +255,14 @@ export function Chambers() {
               </button>
             </div>
           )}
-          <nav className="ch-pois" aria-label="Куда подойти">
-            {POIS.map((p) => (
-              <button key={p.id} className={p.id === v.poi ? 'on' : ''} aria-label={p.verb} aria-pressed={p.id === v.poi} onClick={() => room?.go(p.id)}>
-                {p.name}
-              </button>
-            ))}
-          </nav>
+        </>
+      )}
+
+      {coaching && used && (
+        <>
+          {!used.walk && <div className="ch-coach walk">{COACH.walk}</div>}
+          {!used.look && <div className="ch-coach look">{COACH.look}</div>}
+          {!used.act && <div className="ch-coach act">{COACH.act}</div>}
         </>
       )}
 

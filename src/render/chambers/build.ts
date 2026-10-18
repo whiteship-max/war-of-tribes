@@ -13,6 +13,7 @@ import { cellUv, type AtlasCell } from './paint';
 import {
   APEX,
   ARMS,
+  ARMREST,
   BED,
   CHAIR,
   CHESS,
@@ -760,32 +761,54 @@ function chair(m: Mesher, seg: number): void {
   const O = T(HUE.oak, 0.95);
   const { x, z } = CHAIR;
   const sy = 0.48;
-  const hw = 0.32;
+  const hw = 0.3;
   const z0 = z - 0.27;
   const z1 = z + 0.25;
   m.cuboid(x - hw, sy - 0.07, z0, x + hw, sy, z1, 'wood', O, {});
   for (const [px, pz, h] of [
-    [x - hw + 0.04, z1 - 0.04, 0.78],
-    [x + hw - 0.04, z1 - 0.04, 0.78],
+    [x - hw + 0.04, z1 - 0.04, ARMREST.y - 0.02],
+    [x + hw - 0.04, z1 - 0.04, ARMREST.y - 0.02],
     [x - hw + 0.04, z0 + 0.04, 1.52],
     [x + hw - 0.04, z0 + 0.04, 1.52],
   ] as const) {
     m.cuboid(px - 0.045, 0, pz - 0.045, px + 0.045, h, pz + 0.045, 'wood', O, { aoLow: 0.55 });
-    m.at(px, h, pz).lathe(
+    if (h > 1) {
+      m.at(px, h, pz).lathe(
+        [
+          [0.05, 0],
+          [0.065, 0.04],
+          [0.035, 0.09],
+          [0.0, 0.12],
+        ],
+        seg,
+        'plain',
+        T(HUE.gold, 0.9),
+      );
+      m.reset();
+    }
+  }
+  // Подлокотники — от спинки вперёд за передние ножки, концы — точёными навершиями: на них лежат руки правителя.
+  for (const s of [-1, 1]) {
+    const ax = x + s * ARMREST.x;
+    m.beam([ax, ARMREST.y - 0.025, z0 + 0.04], [ax, ARMREST.y - 0.025, ARMREST.end - 0.03], 0.075, 0.05, 'wood', O);
+    m.shine = 0.85;
+    m.at(ax, ARMREST.y - 0.06, ARMREST.end - 0.03).lathe(
       [
-        [0.05, 0],
-        [0.065, 0.04],
-        [0.035, 0.09],
-        [0.0, 0.12],
+        [0.0, 0],
+        [0.03, 0.005],
+        [0.042, 0.03],
+        [0.038, 0.055],
+        [0.02, 0.07],
+        [0.0, 0.075],
       ],
       seg,
-      'wood',
-      T(HUE.gold, 0.9),
+      'plain',
+      T(HUE.gold, 0.85),
     );
+    m.shine = 0;
     m.reset();
   }
-  // Подлокотники, спинка филёнкой, перекладины.
-  for (const s of [-1, 1]) m.beam([x + s * (hw - 0.04), 0.74, z0 + 0.04], [x + s * (hw - 0.04), 0.74, z1 - 0.02], 0.07, 0.05, 'wood', O);
+  // Спинка филёнкой, перекладины.
   m.cuboid(x - hw + 0.08, sy + 0.08, z0 + 0.0, x + hw - 0.08, 1.42, z0 + 0.06, 'wood', T(HUE.oak, 0.85), {});
   m.cuboid(x - hw + 0.02, 1.36, z0 - 0.01, x + hw - 0.02, 1.47, z0 + 0.07, 'wood', O, {});
   m.beam([x - hw + 0.04, 0.16, z0 + 0.04], [x + hw - 0.04, 0.16, z0 + 0.04], 0.05, 0.05, 'wood', O);
