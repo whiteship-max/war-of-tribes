@@ -58,7 +58,7 @@ describe('шаг разведчика — подтверждением (отзы
   it('разведчик на пустую землю: куда, сколько идти, «Отправить» и «Отмена»', () => {
     const html = render({ agent: 'scout' });
     expect(html).toContain(formatCoord(CELL));
-    expect(html).toContain(`Идти ${waitLeft(420)}.`);
+    expect(html).toContain(`Идти ${waitLeft(LEAD!.seconds)}.`);
     expect(html).toContain('>Отправить<');
     expect(html).toContain('>Отмена<');
   });
