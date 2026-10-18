@@ -35,7 +35,7 @@ export function startUpgrade(s: GameState, buildingId: number): string | null {
   pay(s, info.cost);
   b.work = 0;
   b.workRequired = info.work;
-  log(s, `Заложили стройку: ${BUILDING_BY_ID[b.type].name.toLowerCase()}, до ур. ${info.level}.`);
+  log(s, `Заложили стройку: ${BUILDING_BY_ID[b.type].name.toLowerCase()}, до ур. ${info.level}.`, 'info', undefined, 'build');
   return null;
 }
 
@@ -48,7 +48,7 @@ export function cancelUpgrade(s: GameState, buildingId: number): string | null {
   refund(s, upgradeCost(def, b.level + 1), b.work === 0 ? 1 : 0.5);
   b.work = 0;
   b.workRequired = 0;
-  log(s, `Стройку остановили: ${def.name.toLowerCase()}.`);
+  log(s, `Стройку остановили: ${def.name.toLowerCase()}.`, 'info', undefined, 'build');
   return null;
 }
 
@@ -67,7 +67,7 @@ export function throwFeast(s: GameState): string | null {
   s.gold -= info.cost;
   s.feastUntil = s.time + feastSeconds();
   s.feastAt = s.time;
-  log(s, `Правитель созвал город на пир, ушло ${info.cost} золота. Мораль +${info.bonus} на ${daysSpan(FEAST_DAYS)}.`, 'good');
+  log(s, `Правитель созвал город на пир, ушло ${info.cost} золота. Мораль +${info.bonus} на ${daysSpan(FEAST_DAYS)}.`, 'good', undefined, 'decree');
   return null;
 }
 
@@ -80,7 +80,7 @@ export function setDecree(s: GameState, id: DecreeId): string | null {
   if (!def) return 'Такого указа нет.';
   if (s.decree === id) return null;
   s.decree = id;
-  log(s, `Объявлен указ «${def.name}».`);
+  log(s, `Объявлен указ «${def.name}».`, 'info', undefined, 'decree');
   return null;
 }
 
@@ -90,7 +90,7 @@ export function setRation(s: GameState, id: RationId): string | null {
   if (!def) return 'Такого пайка нет.';
   if (s.ration === id) return null;
   s.ration = id;
-  log(s, `Паёк сменили: «${def.name}».`);
+  log(s, `Паёк сменили: «${def.name}».`, 'info', undefined, 'decree');
   return null;
 }
 
@@ -103,6 +103,6 @@ export function setTax(s: GameState, id: TaxId): string | null {
   if (!def) return 'Такого налога нет.';
   if (s.tax === id) return null;
   s.tax = id;
-  log(s, `Налог сменили: «${def.name}».`);
+  log(s, `Налог сменили: «${def.name}».`, 'info', undefined, 'decree');
   return null;
 }

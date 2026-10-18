@@ -38,6 +38,7 @@ import { fateLocks } from '@/game/sim/tech';
 import { syncFaith } from '@/game/sim/faith';
 import { woundsHome } from '@/game/sim/infirmary';
 import { dropGates, gateCalls, settleGate } from '@/game/sim/gate';
+import { tagSince } from '@/game/sim/log';
 import { FIGURE_IDS } from './data/figures';
 import { NOBODY_AWAY, awayOf, homeOf, type Away } from './muster';
 import { profileCity } from '@/profile/identity';
@@ -350,6 +351,8 @@ export function toOutcome(e: HomeEffect): ExpeditionOutcome {
     fell: e.fell,
     retired: e.retired,
     text: e.text,
+    // Ключ последствия — для летописи «Вестей»: строки одного события и его донесение (ВС-2).
+    ref: e.id,
     kind: e.good ? 'good' : 'bad',
   };
 }
@@ -405,9 +408,11 @@ export async function tribePulse(
   tribe.apply((s) => {
     for (const e of pulse.effects) {
       hooks.before?.(e, pulse.now);
+      const head = s.log[0];
       applyEffects(s, [e]);
-      // Бой у ворот по событию: при победе — трофеи события.
+      // Бой у ворот по событию: при победе — трофеи события. Строка трофеев — того же события летописи (ВС-2).
       if (e.gate) settleGate(s, e);
+      tagSince(s, head, e.id);
       hooks.after?.(e, s);
     }
     // Посчитанные вызовы снимаются по списку мира — и сегодняшние, и те, чьё последствие до партии не дошло.

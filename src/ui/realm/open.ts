@@ -13,6 +13,7 @@ import { currentStep } from '@/game/data/tutorial';
 import type { GameState } from '@/game/types';
 import { letterKey } from './unread';
 import type { RealmTab } from './tabs';
+import type { MailFilter } from './dispatch';
 
 /**
  * Раздел меню или страница настроек (шестерёнка в шапке меню). `quests` — задания: в новом интерфейсе они
@@ -31,7 +32,17 @@ interface RealmStore {
   mail: string | null;
   /** Открыть «Решения» на донесении; null — на списке. */
   openMail: (key: string | null) => void;
+  /** Вкладка «Вестей»: фильтр почты или летопись (ВС-2). Помнится, как раздел меню. */
+  mailTab: MailTab;
+  setMailTab: (tab: MailTab) => void;
+  /** Донесение мира, открытое из летописи «Вестей» (`Report.id`). null — летопись. */
+  report: string | null;
+  /** Открыть «Вести» на летописи; с ключом — на донесении события (ВС-2). */
+  openChronicle: (report?: string | null) => void;
 }
+
+/** Вкладки «Вестей»: почта по источнику и летопись (ВС-2, docs/ui_v2.md, 5.8). */
+export type MailTab = MailFilter | 'chron';
 
 export const useRealm = create<RealmStore>((set) => ({
   open: false,
@@ -47,7 +58,15 @@ export const useRealm = create<RealmStore>((set) => ({
   mail: null,
   openMail: (key) => {
     useRealm.getState().show('decisions');
-    set({ mail: key });
+    // Весть — вкладкой почты: «Отложить» возвращает к списку вестей, а не в летопись, где игрока оставили (ВС-2).
+    set((r) => ({ mail: key, report: null, mailTab: r.mailTab === 'chron' ? 'all' : r.mailTab }));
+  },
+  mailTab: 'all',
+  setMailTab: (mailTab) => set({ mailTab, mail: null, report: null }),
+  report: null,
+  openChronicle: (report = null) => {
+    useRealm.getState().show('decisions');
+    set({ mail: null, mailTab: 'chron', report });
   },
 }));
 

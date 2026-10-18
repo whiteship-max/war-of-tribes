@@ -1,8 +1,11 @@
 // Таблица (docs/ui_v2.md, раздел 2): вместо ленты карточек — строки по 33 px со столбцами, цифры одной ширины,
 // числа выровнены вправо, шапка столбцов 11 px. Как лист в EU4: на экран телефона ложится 12–14 строк, а не 3 карточки.
 //
-// Касание — как у строки (`Row`): справка телом строки (`tip`) или дверь «›» кнопкой 44 у правого края (`go`). Ячейка
-// может держать `Num` — своё число с разбором; тогда у строки нет своей справки (кнопка в кнопке недопустима).
+// Касание — как у строки (`Row`): справка телом строки (`tip`) или дверь «›» (`go`). Строка с одной дверью — целиком
+// кнопка 44 со стрелкой: касание по любому месту плашки открывает то же, что «›» (ВС-2, отзыв тестера: в «Вестях» строка
+// не открывалась ничем, кроме стрелки). Справка и дверь вместе — справка телом, дверь отдельной кнопкой 44 у правого края
+// (кнопка в кнопке недопустима). Ячейка может держать `Num` — своё число с разбором; тогда у строки нет своей справки, а
+// ячейки строки-двери кнопок не держат вовсе.
 // Таблица выбора (`pick`, UI-7): строка целиком — кнопка 44, касание выбирает её, выбранная — `on`. Так сравнивают
 // варианты, которые переключают даром в любой миг (указ, паёк, налог, товар прилавка): посмотреть — значит выбрать.
 // Таблица не прокручивается вбок: столбцы ужимаются, а не уезжают — палец, съехавший на касании, не листает её.
@@ -89,7 +92,16 @@ export function Table({ cols, rows, empty, total, label }: Props) {
         const pick = r.pick;
         return (
           <div key={r.key} className={`kit-trow${r.go || pick ? ' go' : ''}${r.on ? ' on' : ''}${r.dim ? ' dim' : ''}`} role="row">
-            {pick ? (
+            {r.go && !tip && !pick ? (
+              <button type="button" className="kit-tgo" onClick={r.go} aria-label={r.goLabel}>
+                <span className="kit-cells" style={grid}>
+                  <Cells cols={cols} cells={r.cells} />
+                </span>
+                <i className="kit-go" aria-hidden="true">
+                  ›
+                </i>
+              </button>
+            ) : pick ? (
               <button type="button" className="kit-cells pick" style={grid} aria-pressed={Boolean(r.on)} onClick={pick}>
                 <Cells cols={cols} cells={r.cells} />
               </button>
@@ -102,7 +114,7 @@ export function Table({ cols, rows, empty, total, label }: Props) {
                 <Cells cols={cols} cells={r.cells} />
               </div>
             )}
-            {r.go ? (
+            {r.go && !tip && !pick ? null : r.go ? (
               <button type="button" className="kit-go" onClick={r.go} aria-label={r.goLabel ?? 'К источнику'}>
                 ›
               </button>

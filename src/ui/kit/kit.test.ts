@@ -56,6 +56,7 @@ const ACTIONS: [string, string][] = [
   ['.kit-go', 'width'],
   ['.kit-go', 'min-height'],
   ['.kit-trow.go', 'min-height'],
+  ['.kit-tgo', 'min-height'],
   ['.kit-cells.pick', 'min-height'],
   ['.kit-toggle', 'min-height'],
   ['.kit-btn', 'min-height'],
@@ -174,6 +175,49 @@ describe('части набора: разметка', () => {
     // Дорожки: первый тянется, остальные твёрдые — столбцы ровные во всех строках.
     expect(tracks(cols)).toBe(`minmax(0, 1fr) 40px ${COL_W}`);
     expect(tracks(cols).split(' ').slice(1).some((t) => t === 'auto' || t.includes('content'))).toBe(false);
+  });
+
+  it('строка с одной дверью — целиком кнопка: касание по плашке открывает то же, что «›» (ВС-2, отзыв тестера)', () => {
+    const cols = [
+      { key: 'what', title: 'Весть' },
+      { key: 'left', title: 'Срок', align: 'right' as const },
+    ];
+    const opened: string[] = [];
+    const rows = [
+      { key: 'a', cells: { what: 'Набег', left: '25 мин' }, go: () => void opened.push('a'), goLabel: 'Набег' },
+      { key: 'b', cells: { what: 'Ярмарка', left: '1 ч' }, tip },
+      { key: 'c', cells: { what: 'Мораль', left: '60' }, tip, go: () => void opened.push('c') },
+    ];
+    // Дерево строки — без браузера: ищем кнопку, в которой лежат ячейки строки, и жмём её.
+    type El = { type: unknown; props: { className?: string; onClick?: () => void; children?: unknown; cells?: Record<string, unknown> } };
+    const all: El[] = [];
+    const walk = (n: unknown): void => {
+      if (Array.isArray(n)) return n.forEach(walk);
+      if (!n || typeof n !== 'object' || !('props' in n)) return;
+      all.push(n as El);
+      walk((n as El).props.children);
+    };
+    walk(Table({ cols, rows }));
+    const whole = all.filter((e) => e.type === 'button' && e.props.className === 'kit-tgo');
+    expect(whole, 'строка-дверь — одна кнопка').toHaveLength(1);
+    // Ячейки — внутри кнопки: касание по имени вести — касание кнопки.
+    const inside: El[] = [];
+    const walkIn = (n: unknown): void => {
+      if (Array.isArray(n)) return n.forEach(walkIn);
+      if (!n || typeof n !== 'object' || !('props' in n)) return;
+      inside.push(n as El);
+      walkIn((n as El).props.children);
+    };
+    walkIn(whole[0].props.children);
+    expect(inside.some((e) => e.props.cells?.what === 'Набег'), 'имя вести — в кнопке').toBe(true);
+    expect(inside.some((e) => e.type === 'button'), 'кнопки в кнопке нет').toBe(false);
+    whole[0].props.onClick!();
+    expect(opened).toEqual(['a']);
+    // Справка и дверь вместе — по-прежнему две кнопки: справка телом, дверь «›» (кнопка в кнопке недопустима).
+    const html = renderToStaticMarkup(h(Table, { cols, rows }));
+    expect(html.match(/class="kit-tgo"/g)?.length).toBe(1);
+    expect(html.match(/<button type="button" class="kit-go"/g)?.length).toBe(1);
+    expect(html.match(/class="kit-cells tip"/g)?.length).toBe(2);
   });
 
   it('пустая таблица говорит словами', () => {

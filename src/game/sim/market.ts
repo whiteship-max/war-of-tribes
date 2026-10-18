@@ -107,7 +107,7 @@ export function buyGoods(s: GameState, good: GoodId, count = 1): string | null {
     def.kind === 'bonded'
       ? ORDER_TEXT.market.ordered(check.count)
       : `Заказано: ${def.name.toLowerCase()}, ${check.count}. Телега вышла за ворота.`;
-  log(s, text, 'info', `market:order:${def.id}`);
+  log(s, text, 'info', `market:order:${def.id}`, 'trade');
   return null;
 }
 
@@ -156,7 +156,7 @@ export function sellBonded(s: GameState, count = 1): string | null {
   // Выручка — разовое дело описи: золото легло разом, мимо налога (`stats.windfalls`, docs/security.md, раздел 8).
   if (gold > 0) s.stats.windfalls = (s.stats.windfalls ?? 0) + 1;
   s.market.sold = { ...(s.market.sold ?? {}), bonded: marketSold(s, 'bonded') + gone };
-  log(s, ORDER_TEXT.market.sold(gone, gold), 'info', 'market:sold:bonded');
+  log(s, ORDER_TEXT.market.sold(gone, gold), 'info', 'market:sold:bonded', 'trade');
   return null;
 }
 
@@ -178,6 +178,9 @@ export function cancelCaravan(s: GameState, id: number): string | null {
     def?.kind === 'bonded'
       ? ORDER_TEXT.market.cancelled(c.gold)
       : `Заказ отменён: ${(def?.name ?? 'товар').toLowerCase()}, ${c.gold} золота вернулось.`,
+    'info',
+    undefined,
+    'trade',
   );
   return null;
 }
@@ -216,6 +219,7 @@ function unload(s: GameState, c: Caravan): void {
         `Караван привёз ${def.name.toLowerCase()}, ${c.count}, но склад полон: влезло ${fit}.`,
         'bad',
         `market:full:${def.id}`,
+        'trade',
       );
     }
     return;
