@@ -229,7 +229,7 @@ void main() {
       vec4 st = vLayer > 251.5 ? texture2D(dressed, vUv) : texture2D(masonry, vUv);
       tex = vec4(st.rgb, 1.0);
       relief = st.a;
-      depth = vLayer > 251.5 ? 0.012 : 0.03;
+      depth = vLayer > 251.5 ? 0.006 : 0.03;
     } else {
       // Ровный тон (металл, воск, кость) — без рисунка слоя, geo.PLAIN_LAYER.
       tex = vLayer > 249.5 ? vec4(1.0) : texture(cityTex, vec3(vUv, vLayer));
