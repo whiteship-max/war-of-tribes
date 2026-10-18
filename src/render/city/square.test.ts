@@ -206,11 +206,30 @@ describe('город: Соборная площадь (Г-8)', () => {
       }
     }
     expect(tested, 'точек граней над проездом').toBeGreaterThan(1000);
-    console.log([...found.entries()].map(([k, v]) => k + ' ' + v).join('\n'));
-    expect([...found.keys()], 'посторонние на проезде').toEqual([]);
+    expect([...found.entries()].map(([k, v]) => `${k}: ${v}`), 'посторонние на проезде').toEqual([]);
     // Кроны деревьев дворов — не над улицей.
     for (const tr of plan.yardTrees) {
       for (const s of plan.streets) expect(distPoly(tr, s.pts) - s.half, `крона над «${s.name}» (${tr.x.toFixed(0)}, ${tr.z.toFixed(0)})`).toBeGreaterThan(yardCrown(tr.r));
     }
+  });
+
+  it('ни один дом не стоит на улице: весь обвод дома — за её краем', () => {
+    // Граница области: обвод через полметра — переулок в 4–4,5 м не пройдёт между точками, как проходил между девятью.
+    let n = 0;
+    const bad: string[] = [];
+    for (const h of plan.houses) {
+      const vx = -h.fz;
+      const vz = h.fx;
+      for (let a = -1; a <= 1.0001; a += 1 / Math.ceil(h.w)) {
+        for (let c = -1; c <= 1.0001; c += 1 / Math.ceil(h.d)) {
+          if (Math.abs(a) < 0.999 && Math.abs(c) < 0.999) continue;
+          const q = { x: h.x + vx * (h.w / 2) * a + h.fx * (h.d / 2) * c, z: h.z + vz * (h.w / 2) * a + h.fz * (h.d / 2) * c };
+          n++;
+          for (const s of plan.streets) if (distPoly(q, s.pts) < s.half) bad.push(`(${h.x.toFixed(0)}, ${h.z.toFixed(0)}) на «${s.name}»`);
+        }
+      }
+    }
+    expect(n, 'точек обвода').toBeGreaterThan(plan.houses.length * 20);
+    expect([...new Set(bad)]).toEqual([]);
   });
 });
