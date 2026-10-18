@@ -12,6 +12,8 @@
 //                                                точка плана; `…:60:150` — камера повёрнута на 150°), `WXMAP=1` —
 //                                                карта мира, `WXSEASON=winter` — сезон партии, `WXREGION=italy` — регион,
 //                                                `WXDAY=0.8` — доля суток партии (0.8 летом — глубокая ночь, docs/polish.md, П-3)
+//   GAME=1 WX=clear CHAMBERS=desk npm run city:shots — покои правителя (docs/city_v3.md, Г-4): точка интереса
+//                                                (hall, desk, window, hearth, bed, arms), `:доворот:наклон:безделушка`
 //   LEGEND=1 npm run city:shots              — легенда карты листом: строки значков той же функцией, что окно легенды
 //                                                (docs/city.md, 16.5); `GAME=1 WXMAP=1 LEGEND=1` — окно в самой игре
 //   SIZE=540x900 VIEWS=game SOLAR=0.46 npm run city:shots — свой экран (точки CSS, плотность 2): кадры заставки
@@ -374,6 +376,39 @@ async function weatherShots(tab: Tab, q: Quality): Promise<void> {
       return JSON.stringify('ok');
     })()`);
   }
+  // Покои правителя (`CHAMBERS=desk` к `GAME=1 WX=…`, docs/city_v3.md, Г-4): точка интереса, поворот головы от её
+  // взгляда (`:доворот:наклон`, радианы) и безделушка в руке (`:…:…:goblet`) — глаз встаёт сразу, без перехода.
+  const ch = process.env.CHAMBERS;
+  if (ch) {
+    const [poi, dy, dp, hold] = ch.split(':');
+    const said = await tab.eval<string>(`new Promise((ok) => {
+      window.__chambersOpen.getState().show();
+      let n = 0;
+      const t = setInterval(() => {
+        const r = window.__chambers;
+        if (r) {
+          clearInterval(t);
+          r.snap(${JSON.stringify(poi)}, ${Number(dy) || 0}, ${Number(dp) || 0}, ${JSON.stringify(hold || null)});
+          ok(JSON.stringify('покои: ' + ${JSON.stringify(poi)} + ', треугольников ' + r.counts().triangles));
+        } else if (++n > 300) {
+          clearInterval(t);
+          ok(JSON.stringify('покои не поднялись'));
+        }
+      }, 200);
+    })`);
+    console.log(`  ${said}`);
+    const diag = await tab.eval<string>(`JSON.stringify((() => {
+      const r = window.__scene.renderer;
+      const out = (r.info.programs || []).filter((p) => p.diagnostics && !p.diagnostics.runnable).map((p) => p.name + ': ' + (p.diagnostics.fragmentShader.log || '') + (p.diagnostics.vertexShader.log || '') + p.diagnostics.programLog);
+      const room = window.__chambers;
+      out.push('cam ' + room.camera.position.toArray().map((x) => x.toFixed(1)).join(',') + ' origin ' + room.origin.toArray().map((x) => x.toFixed(1)).join(','));
+      out.push('meshes ' + room.scene.children.length);
+      return out.join(' | ');
+    })())`);
+    console.log(`  диагностика: ${diag}`);
+    // Затемнение входа гаснет за 0.7 с настоящего времени, а программный кадр облака — около секунды.
+    await sleep(5000);
+  }
   for (const wx of list(process.env.WX, 'clear')) {
     await tab.eval<string>(`(() => {
       const u = new URL(location.href);
@@ -392,7 +427,7 @@ async function weatherShots(tab: Tab, q: Quality): Promise<void> {
       }
     }
     const png = await tab.send<{ data: string }>('Page.captureScreenshot', { format: 'png' });
-    const name = `${TAG}-wx-${wx}${day ? '-d' + day : ''}${region ? '-' + region : ''}${map ? '-map' : near ? '-' + near.replace(/:/g, '') : ''}-${q}.png`;
+    const name = `${TAG}-wx-${wx}${day ? '-d' + day : ''}${region ? '-' + region : ''}${map ? '-map' : near ? '-' + near.replace(/:/g, '') : ''}${ch ? '-ch-' + ch.replace(/:/g, '_') : ''}-${q}.png`;
     await writeFile(join(OUT, name), Buffer.from(png.data, 'base64'));
     if (wx === 'storm') await tab.eval<string>(`(() => { window.__scene.resume(); return JSON.stringify('ok'); })()`);
     const pc = await tab.eval<string>('JSON.stringify(JSON.stringify(window.__scene.precip ? { поле: window.__scene.precip.grounded, ...window.__scene.precip.counts() } : null))').catch(() => '?');

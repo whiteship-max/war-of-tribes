@@ -169,6 +169,13 @@ const LAZY_DOORS: { name: string; door: RegExp; owns: RegExp[] }[] = [
     owns: [/\/src\/minigames\//],
   },
   {
+    // Покои правителя (docs/city_v3.md, Г-4): вид от первого лица из главной башни — свой кусок, его тянет верх города,
+    // когда покои открыты; в первую загрузку и в кусок интерфейса не едет (в них только рычаг `ui/chambers/open.ts`).
+    name: 'покои',
+    door: /\/src\/ui\/chambers\/Chambers\.tsx$/,
+    owns: [/\/src\/ui\/chambers\/(Chambers\.tsx|doors\.ts|chambers\.css)$/, /\/src\/render\/chambers\//],
+  },
+  {
     name: 'охота',
     door: /\/src\/minigames\/huntPlay\.ts$/,
     owns: [/\/src\/minigames\/hunt/],

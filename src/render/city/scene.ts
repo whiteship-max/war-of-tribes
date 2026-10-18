@@ -34,8 +34,10 @@ import { mainSite, ownerCode, type Site } from './sites';
 import { heightAt } from './layout';
 import type { CityPrecip } from './precip';
 import { CLEAR, ZONES, easeWeather, flashAt, lyingSnow, forcedFlashes, forcedWeather, flashGlow, weatherAt, windTo, zoneOf, type Weather } from '../climate';
-import type { Quality } from '../quality';
+import { lowerQuality, type Quality } from '../quality';
 import { serverNow } from '@/net/clock';
+import type { Inside, InsideSky } from './inside';
+import type { Tower } from './layout';
 
 /** Облака над городом бегут со скоростью верхнего ветра, м/с: пятно тени в двести метров проходит за полминуты. */
 const CLOUD_SPEED = 7;
@@ -55,6 +57,7 @@ const VEIL_SPEED = 3;
 const FLASH_SKY = new THREE.Color(0.78, 0.82, 0.95);
 const MIST_SKY = new THREE.Color(0.86, 0.86, 0.84);
 const TMP_C = new THREE.Color();
+const TMP_V = new THREE.Vector3();
 
 /** Небо и дымка под облаками: к серому и темнее в дождь. */
 function greyen(c: THREE.Color, k: number, dark: number): void {
@@ -68,6 +71,14 @@ function greyen(c: THREE.Color, k: number, dark: number): void {
  * (касание берёт постройка, `cityPick`), он только говорит, где забота, — и не закрывает крыши.
  */
 const MARKER_SCREEN = 0.017;
+
+/**
+ * Вид изнутри покоев (docs/city_v3.md, Г-4): город за окном — как с камеры в стольких метрах (дымка, коробка теней, дождь
+ * вокруг), взгляд — на столько метров вперёд по земле, тень — раз в столько кадров (из окна видны дома, а не шаг прохожего).
+ */
+const INSIDE_DIST = 190;
+const INSIDE_AIM = 130;
+const INSIDE_SHADOW_EVERY = 6;
 
 
 export class CityScene extends TribeScene {
@@ -133,6 +144,30 @@ export class CityScene extends TribeScene {
     }
     return this.forcedWx;
   }
+  /**
+   * Покои правителя (`inside.ts`): пока стоят, кадр — изнутри донжона, камера — камера комнаты, город за окнами — упрощённым
+   * уровнем (`simplify`). `aim` — точка взгляда на земле: за ней идут солнце с коробкой теней, огни и дождь.
+   */
+  private inside: Inside | null = null;
+  private aim = new THREE.Vector3();
+  private sky: InsideSky = {
+    daylight: 1,
+    night: 0,
+    nightK: 0,
+    sky: new THREE.Color(),
+    haze: new THREE.Color(),
+    sunDir: new THREE.Vector3(0, 1, 0),
+    sun: new THREE.Color(),
+    hemi: new THREE.Color(),
+    rain: 0,
+    snow: 0,
+    mist: 0,
+    cloud: 0,
+    wind: 0,
+    windX: 1,
+    windZ: 0,
+    flash: 0,
+  };
   /** Сколько народу на улицах и стражи на стене и какие дворы работают — из партии (`sync`). */
   private crowd: { people: number; guards: number; busy: BuildingTypeId[] } = { people: 40, guards: 6, busy: [] };
 
@@ -203,6 +238,10 @@ export class CityScene extends TribeScene {
   // ---------- Камера ----------
 
   protected override applyFraming(aspect: number): void {
+    if (this.inside) {
+      this.inside.camera.aspect = aspect;
+      this.inside.camera.updateProjectionMatrix();
+    }
     const f = cityFraming(aspect);
     this.camera.fov = f.fov;
     this.camera.near = 1;
@@ -218,6 +257,10 @@ export class CityScene extends TribeScene {
 
   /** Камера по своим числам; дымка, дальняя плоскость и коробка теней идут за расстоянием и целью. */
   protected override place(): void {
+    if (this.inside) {
+      this.placeInside(this.inside);
+      return;
+    }
     this.camera.position.setFromSpherical(new THREE.Spherical(this.dist, this.polar, CITY_AZIMUTH + this.spinTurn)).add(this.target);
     this.camera.lookAt(this.target);
     const fog = this.scene.fog as THREE.Fog | null;
@@ -234,6 +277,115 @@ export class CityScene extends TribeScene {
     hearCity(this.dist, this.zoom.min, this.zoom.max);
   }
 
+  /**
+   * Камера города — на месте и взгляде камеры комнаты, со своей ближней плоскостью в метре (`inside.INSIDE_DEPTH`); дымка,
+   * коробка теней и ухо — как у камеры в `INSIDE_DIST` метрах от цели (улицы издали — ветер и гул).
+   */
+  private placeInside(room: Inside): void {
+    const rc = room.camera;
+    rc.updateMatrixWorld();
+    this.camera.position.copy(rc.position);
+    this.camera.quaternion.copy(rc.quaternion);
+    this.camera.fov = rc.fov;
+    this.camera.near = 1;
+    const fwd = rc.getWorldDirection(TMP_V);
+    const len = Math.hypot(fwd.x, fwd.z) || 1;
+    this.aim.set(rc.position.x + (fwd.x / len) * INSIDE_AIM, 0, rc.position.z + (fwd.z / len) * INSIDE_AIM);
+    const f = cityFog(INSIDE_DIST);
+    const fog = this.scene.fog as THREE.Fog | null;
+    if (fog) {
+      fog.near = f.near;
+      fog.far = f.far;
+    }
+    this.camera.far = f.far + 200;
+    this.camera.updateProjectionMatrix();
+    this.camera.updateMatrixWorld();
+    fitShadow(this.rig, cityShadowHalf(INSIDE_DIST));
+    hearCity(this.zoom.max, this.zoom.min, this.zoom.max);
+  }
+
+  /** Куда смотрит кадр по земле: цель камеры города или точка взгляда из покоев. */
+  private get eye(): THREE.Vector3 {
+    return this.inside ? this.aim : this.target;
+  }
+
+  /** На каком расстоянии смотрит кадр: дымке, дождю и огням. */
+  private get seeDist(): number {
+    return this.inside ? INSIDE_DIST : this.dist;
+  }
+
+  /** Донжон города — в нём покои (`render/chambers`); пока город не встал — нет. */
+  keep(): Tower | null {
+    return this.town?.plan.towers.find((t) => t.kind === 'keep') ?? null;
+  }
+
+  /**
+   * Войти в покои: кадр — изнутри, пальцы берёт слой покоев поверх холста, город за окнами — упрощённым уровнем. Пока
+   * город не встал, входить некуда (`false`).
+   */
+  enterInside(room: Inside): boolean {
+    if (this.disposed || !this.town) return false;
+    this.inside = room;
+    room.camera.aspect = this.camera.aspect;
+    room.camera.updateProjectionMatrix();
+    room.setLevel(this.dprLevel);
+    this.simplify();
+    // Ярлыки «Ускорить» и надписи добычи — вид города сверху: в покоях их нет (`deeds.css`).
+    this.canvas.parentElement?.classList.add('city-inside');
+    this.place();
+    return true;
+  }
+
+  /** Выйти из покоев: камера города — на прежних цели и расстоянии, уровни города — свои. */
+  leaveInside(room: Inside): void {
+    if (this.inside !== room) return;
+    this.inside = null;
+    this.simplify();
+    this.canvas.parentElement?.classList.remove('city-inside');
+    this.applyFraming(this.camera.aspect);
+  }
+
+  /**
+   * Город за окном — упрощённым видом: заливка — только в проёмах окон (`draw`), тень — реже (`INSIDE_SHADOW_EVERY`),
+   * настоящих огней — уровнем ниже (из окна они в десятках метров, а кадр несёт ещё и комнату). Осадки и вода опускаются
+   * только сторожем и только вниз (`precip.setLevel`, `lowerWater`) — их покои не трогают, чтобы выход вернул город как был.
+   */
+  private simplify(): void {
+    const level = this.inside ? (lowerQuality(this.dprLevel) ?? 'low') : this.dprLevel;
+    this.town?.rig.setCap(LAMP_SPEC[level].real);
+  }
+
+  protected override shadowEvery(): number {
+    return this.inside ? INSIDE_SHADOW_EVERY : super.shadowEvery();
+  }
+
+  /**
+   * Кадр изнутри — двумя проходами (`inside.ts`): буфер — небом города, комната, потом город без фона (фон-цвет three
+   * чистит буфер сам) и без значков над крышами и кольца выбора — вида сверху. Город встаёт только в проёмах окон.
+   */
+  protected override draw(): void {
+    const room = this.inside;
+    if (!room) {
+      super.draw();
+      return;
+    }
+    const r = this.renderer;
+    const bg = this.scene.background as THREE.Color;
+    r.setClearColor(bg, 1);
+    r.clear(true, true, false);
+    r.autoClear = false;
+    r.render(room.scene, room.camera);
+    const ring = this.selection.visible;
+    this.selection.visible = false;
+    for (const v of this.buildings.values()) if (v.marker) v.marker.visible = false;
+    this.scene.background = null;
+    r.render(this.scene, this.camera);
+    this.scene.background = bg;
+    for (const v of this.buildings.values()) if (v.marker) v.marker.visible = true;
+    this.selection.visible = ring;
+    r.autoClear = true;
+  }
+
   protected override leash = (): void => {
     const p = cityLeash(this.target.x, this.target.z);
     this.target.x = p.x;
@@ -247,9 +399,9 @@ export class CityScene extends TribeScene {
     // Риг посёлка ставит лампу в сорока единицах от середины: городу — над целью камеры, далеко,
     // чтобы коробка теней шла за кадром.
     const sun = this.rig.sun;
-    const at = citySunAt(this.target, sun.position);
+    const at = citySunAt(this.eye, sun.position);
     sun.position.set(at.x, at.y, at.z);
-    sun.target.position.copy(this.target);
+    sun.target.position.copy(this.eye);
     sun.target.updateMatrixWorld();
     // Узкие улицы глубже открытого посёлка: заполняющему свету — треть сверху (стенд, круг 2).
     this.rig.hemi.intensity *= 1.35;
@@ -272,8 +424,10 @@ export class CityScene extends TribeScene {
     this.precip?.setLevel(this.dprLevel);
     // Вода — тем же уровнем: рябь, круги дождя и огни в ней режутся сразу, без пересборки (docs/polish.md, П-8).
     lowerWater(this.scene, CITY_SPEC[this.dprLevel].detail);
-    // Огни — тем же уровнем: настоящих меньше, остальные гаснут наплывом в пятна.
-    this.town?.rig.setCap(LAMP_SPEC[this.dprLevel].real);
+    // Огни — тем же уровнем: настоящих меньше, остальные гаснут наплывом в пятна; в покоях — ещё на ступень ниже
+    // (`simplify`). Покои — тем же уровнем: сторож у сцены один.
+    this.simplify();
+    this.inside?.setLevel(this.dprLevel);
   }
 
   /**
@@ -321,6 +475,11 @@ export class CityScene extends TribeScene {
   /** Шейдер города за кадром (ночь, снег, осень, солнце, подсветка выбранного), огни, жизнь и значки. */
   protected override animate(dt: number, t: number): void {
     const c = this.town;
+    // Покои: камера комнаты шагает первой — город берёт её место и взгляд (`placeInside`).
+    if (this.inside && c) {
+      this.inside.frame(dt, t, this.skyNow());
+      this.placeInside(this.inside);
+    }
     if (c) {
       const u = c.uniforms;
       const night = windowNight(this.light);
@@ -334,7 +493,7 @@ export class CityScene extends TribeScene {
       u.cIce.value = ice;
       u.cAutumn.value = Math.max(0, Math.min(1, this.seasonVis.turn));
       u.cTime.value = t;
-      u.cSunDir.value.copy(this.rig.sun.position).sub(this.target).normalize();
+      u.cSunDir.value.copy(this.rig.sun.position).sub(this.eye).normalize();
       u.cSky.value.copy((this.scene.fog as THREE.Fog).color);
       u.cSel.value = this.selected !== null ? ownerCode(this.buildings.get(this.selected)?.type ?? 'campfire') : 0;
       u.cSelGlow.value = 0.18 + Math.sin(t * 3) * 0.1;
@@ -360,7 +519,7 @@ export class CityScene extends TribeScene {
       // Дождь и снег прячут даль, туман — ещё и ближнее.
       const fog = this.scene.fog as THREE.Fog | null;
       if (fog) {
-        const base = cityFog(this.dist);
+        const base = cityFog(this.seeDist);
         const dim = Math.max(w.rain, w.snow);
         fog.near = base.near * (1 - 0.25 * dim - 0.5 * w.fog);
         fog.far = base.far * (1 - 0.2 * dim - 0.35 * w.fog);
@@ -373,8 +532,8 @@ export class CityScene extends TribeScene {
           windX: dir.x,
           windZ: dir.z,
           wind: w.wind,
-          center: this.target,
-          dist: this.dist,
+          center: this.eye,
+          dist: this.seeDist,
           camera: this.camera,
           bufferHeight: this.renderer.domElement.height,
           light: Math.max(0.22, this.light.daylight),
@@ -386,7 +545,7 @@ export class CityScene extends TribeScene {
         });
       }
       // Огни ночи (docs/polish.md, П-9): загораются по одному, мерцают; настоящие — ближние к взгляду.
-      c.rig.update(t, dt, night, this.target.x, this.target.z, this.camera, this.renderer.domElement.height);
+      c.rig.update(t, dt, night, this.eye.x, this.eye.z, this.camera, this.renderer.domElement.height);
       this.folk?.update(dt, t, night, this.seasonVis.snow);
       this.garrison?.update(t, this.camera);
       // Колесо лесопилки крутится и брызжет — от времени (ручей не мёрзнет).
@@ -410,6 +569,30 @@ export class CityScene extends TribeScene {
     for (const view of this.buildings.values()) {
       if (view.marker) view.marker.position.y = view.markerY + Math.sin(t * 2.2 + view.markerY) * 0.6;
     }
+  }
+
+  /** Что город видит этим кадром — покоям: свет в окна и погода у окна (числа прошлого кадра света и погоды). */
+  private skyNow(): InsideSky {
+    const k = this.sky;
+    const w = this.wx;
+    k.daylight = this.light.daylight;
+    k.night = windowNight(this.light);
+    k.nightK = this.light.nightK;
+    k.sky.copy(this.scene.background as THREE.Color);
+    k.haze.copy((this.scene.fog as THREE.Fog).color);
+    k.sunDir.copy(this.rig.sun.position).sub(this.eye).normalize();
+    k.sun.copy(this.rig.sun.color).multiplyScalar(this.rig.sun.intensity);
+    k.hemi.copy(this.rig.hemi.color).multiplyScalar(this.rig.hemi.intensity);
+    const dir = windTo(w.from);
+    k.rain = w.rain;
+    k.snow = w.snow;
+    k.mist = w.fog;
+    k.cloud = w.cloud;
+    k.wind = w.wind;
+    k.windX = dir.x;
+    k.windZ = dir.z;
+    k.flash = this.flash;
+    return k;
   }
 
   /** Кусок суеты: пришёл, когда сцену ещё не выгрузили и город тот же, — встаёт; не пришёл — город живёт без него. */

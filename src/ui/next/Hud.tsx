@@ -1,5 +1,5 @@
 import './next.css';
-import { useEffect, useRef, useState } from 'react';
+import { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import { useGame } from '@/game/store';
 import { armySize, bondedTotal, buildingOfType, housingCapacity, netPerDay, orderValue, seasonOf, seasonProgress } from '@/game/derived';
 import { ORDER_WARN, RESOURCE_IDS, RESOURCE_META } from '@/game/constants';
@@ -18,6 +18,15 @@ import { armyTip, energyTip, goldTip, isFull, moraleTip, orderTip, popTip, resTi
 import { GemPlaque } from './Treasury';
 import { SiteTags } from './Rush';
 import { goTo } from '@/ui/kit/nav';
+import { useChambers } from '@/ui/chambers/open';
+
+/**
+ * Покои правителя (docs/city_v3.md, Г-4) — своим куском: пока они открыты, вместо верха города стоит их слой, и в первую
+ * загрузку и в кусок интерфейса покои не едут.
+ */
+const Chambers = lazy(() => import('@/ui/chambers/Chambers').then((m) => ({ default: m.Chambers })));
+/** Пока едет кусок покоев — темнота подъёма по лестнице, а не город под ним. */
+const CH_WAIT = { position: 'fixed', inset: 0, zIndex: 7, background: '#0d0906' } as const;
 
 /**
  * Верх нового интерфейса (docs/ui_audit.md, 6.0–6.1): одна строка 44 — герб, золото, жители, мораль,
@@ -91,7 +100,18 @@ function useYieldFlash(): ReadonlySet<ResourceId> {
   return lit;
 }
 
+/** Верх города — или покои правителя, когда игрок в них (`ui/chambers`). */
 export function Hud() {
+  const inside = useChambers((c) => c.open);
+  if (!inside) return <CityHud />;
+  return (
+    <Suspense fallback={<div style={CH_WAIT} />}>
+      <Chambers />
+    </Suspense>
+  );
+}
+
+function CityHud() {
   const s = useGame((g) => g.s);
   const openTab = useGame((g) => g.openTab);
   const openBuilding = useGame((g) => g.openBuilding);
