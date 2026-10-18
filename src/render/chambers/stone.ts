@@ -187,8 +187,8 @@ export function paintStone(kind: 'masonry' | 'dressed', px: number, seed = 1207)
   const grid = new Float32Array(G * G);
   for (let i = 0; i < grid.length; i++) grid[i] = nr() - 0.5;
   const at = (gx: number, gy: number): number => grid[(((gy % G) + G) % G) * G + (((gx % G) + G) % G)];
-  const amp = kind === 'masonry' ? 0.14 : 0.07;
-  const hamp = kind === 'masonry' ? 46 : 26;
+  const amp = kind === 'masonry' ? 0.12 : 0.05;
+  const hamp = kind === 'masonry' ? 30 : 9;
   for (let y = 0; y < px; y++) {
     const fy = y / 8;
     const y0 = Math.floor(fy);

@@ -1130,7 +1130,10 @@ export class ChambersRoom implements Inside {
     this.level = q;
     for (const m of [this.stone, this.cloth]) {
       m.defines.LIGHTS = LIGHTS_AT[q];
-      if (q === 'low') delete m.defines.FIRE_SHADOW;
+      if (q === 'low') {
+        delete m.defines.FIRE_SHADOW;
+        delete m.defines.BUMP;
+      }
       m.needsUpdate = true;
     }
     this.fire.setLevel(q);

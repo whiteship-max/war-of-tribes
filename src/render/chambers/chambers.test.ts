@@ -195,7 +195,15 @@ describe('покои: ходьба', () => {
         const d = 1.5 / 60;
         const want = { x: p.x + Math.sin(yaw) * d, z: p.z + Math.cos(yaw) * d };
         const q = step(p, want.x, want.z);
-        expect(free(q.x, q.z), `шаг ${n}:${k} — на полу и вне мебели (${q.x.toFixed(2)}, ${q.z.toFixed(2)})`).toBe(true);
+        // Своей меркой, а не судьёй ходьбы: стены — по полуширине комнаты (и ниша окна), мебель — коробками `SOLID`.
+        const inNiche = Math.abs(q.x) <= NICHE_HALF - BODY_R + 1e-6 && q.z > 0 && q.z <= NICHE_END - BODY_R + 1e-6;
+        const inRoom = Math.abs(q.x) <= HALF - BODY_R + 1e-6 && Math.abs(q.z) <= HALF - BODY_R + 1e-6;
+        expect(inRoom || inNiche, `шаг ${n}:${k} — не в стене (${q.x.toFixed(2)}, ${q.z.toFixed(2)})`).toBe(true);
+        for (const b of SOLID) {
+          const dx = q.x - Math.min(Math.max(q.x, b.x0), b.x1);
+          const dz = q.z - Math.min(Math.max(q.z, b.z0), b.z1);
+          expect(Math.hypot(dx, dz), `шаг ${n}:${k} — тело в «${b.id}» (${q.x.toFixed(2)}, ${q.z.toFixed(2)})`).toBeGreaterThan(BODY_R - 1e-6);
+        }
         if (Math.hypot(q.x - want.x, q.z - want.z) > 1e-3) blocked++;
         p = q;
         steps++;
@@ -523,6 +531,18 @@ describe('покои: модель, огонь, звук', () => {
     room.snap('hall');
     run(room, 0.05);
     expect((room.scene.getObjectByName('chambers-body') as THREE.Mesh).visible, 'стоя — рук нет').toBe(false);
+    room.dispose();
+  });
+
+  it('сторож плавности опускает покои: на «Низком» — меньше ламп, без тени огня и без рельефа камня', () => {
+    const room = new ChambersRoom(KEEP, DEFAULT_ARMS, 'medium', () => null);
+    const mats = () => room.scene.children.filter((o): o is THREE.Mesh => (o as THREE.Mesh).isMesh && o.name === 'chambers-stone').map((m) => m.material as THREE.ShaderMaterial);
+    expect(mats()[0].defines.BUMP, 'на «Среднем» камень с рельефом').toBe(1);
+    const before = mats()[0].defines.LIGHTS as number;
+    room.setLevel('low');
+    expect(mats()[0].defines.BUMP).toBeUndefined();
+    expect(mats()[0].defines.FIRE_SHADOW).toBeUndefined();
+    expect(mats()[0].defines.LIGHTS as number).toBeLessThan(before);
     room.dispose();
   });
 

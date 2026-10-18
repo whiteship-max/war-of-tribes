@@ -241,7 +241,9 @@ void main() {
   vec3 v = normalize(cameraPosition - uOrigin - p);
   // Грань, повёрнутая от зрителя (двусторонняя ткань, ставни), — светом своей лицевой стороны.
   if (dot(n, v) < 0.0) n = -n;
-  if (depth > 0.0) n = bumped(n, p, relief, depth);
+  #ifdef BUMP
+    if (depth > 0.0) n = bumped(n, p, relief, depth);
+  #endif
   // Швы и впадины темнее: раствор глубже камня.
   float ao = roomAo(p, n) * mix(0.62, 1.0, smoothstep(0.1, 0.75, relief));
   // Материал — по блеску вершины: до 0,6 — дерево, кожа, ткань, кость (блик белый); 0,6…0,96 — металл (блик цветом
@@ -316,14 +318,15 @@ void main() {
 }
 `;
 
-/** Материал покоев: слои текстур города (`atlas = false`) или атлас покоев с обрезкой по альфе. */
-export function roomMaterial(u: RoomUniforms, lights: number, atlas: boolean, fireShadow: boolean): THREE.ShaderMaterial {
+/** Материал покоев: слои текстур города и свой камень (`atlas = false`) или атлас покоев с обрезкой по альфе. */
+export function roomMaterial(u: RoomUniforms, lights: number, atlas: boolean, fireShadow: boolean, bump = fireShadow): THREE.ShaderMaterial {
   const m = new THREE.ShaderMaterial({
     uniforms: u,
     vertexShader: VERT,
     fragmentShader: FRAG,
     vertexColors: true,
-    defines: { LIGHTS: lights, ...(atlas ? { ATLAS: 1 } : {}), ...(fireShadow ? { FIRE_SHADOW: 1 } : {}) },
+    // Рельеф камня (`BUMP`) — со «Среднего»: на «Низком» камень ровный, цвет и швы те же (docs/city_v3.md, Г-5).
+    defines: { LIGHTS: lights, ...(atlas ? { ATLAS: 1 } : {}), ...(fireShadow ? { FIRE_SHADOW: 1 } : {}), ...(bump && !atlas ? { BUMP: 1 } : {}) },
   });
   m.name = atlas ? 'chambers-cloth' : 'chambers-stone';
   return m;
