@@ -64,6 +64,7 @@ function rise(scene: CityLike | null = asCity(activeScene())): Live | null {
   room.onChange = notify;
   room.onUse = (door) => openDoor(door);
   room.onEar = (ear, dt) => sound.update(dt, ear);
+  room.onCue = (c) => sound.cue(c);
   if (!scene.enterInside(room)) {
     room.dispose();
     live = null;

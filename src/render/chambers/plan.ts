@@ -172,6 +172,14 @@ export const SHELVES = [
   { id: 'scrolls', x0: HALF - 0.36, z0: 3.62, x1: HALF, z1: 4.98, h: 2.15 },
 ] as const;
 
+/** Мягкий пол: ковёр посреди покоев, медвежья шкура у огня, овчина у кровати (`build.floorCloths`) — шаг по ним тише. */
+export const SOFT_FLOOR = [
+  { x0: -1.6, z0: -1.4, x1: 1.6, z1: 1.05 },
+  { x0: -1.35, z0: -4.35, x1: 1.35, z1: -2.55 },
+  { x0: -3.05, z0: -4.45, x1: -2.15, z1: -3.35 },
+] as const;
+export const softFloor = (x: number, z: number): boolean => SOFT_FLOOR.some((r) => x >= r.x0 && x <= r.x1 && z >= r.z0 && z <= r.z1);
+
 /** Подсвечники на полу: у стола и у кровати (основание — круг). */
 export const STANDS = [
   { id: 'standW', x: -1.6, z: 3.45, r: 0.18 },

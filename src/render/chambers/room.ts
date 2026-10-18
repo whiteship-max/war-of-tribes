@@ -32,6 +32,7 @@ import { ACTS, GRAB_AT, actLength, frameAt, type Act, type Frame } from './acts'
 import { AUTO_SPEED, BODY_R, EYE_STAND, WALK_SPEED, pathLength, pathTo, step } from './walk';
 import { layoutTags, TAG_FONT, type TagOut } from './tags';
 import type { ChambersEar } from './sound';
+import type { ChamberCue } from './cues';
 import {
   ARMREST,
   CHAIR,
@@ -49,6 +50,7 @@ import {
   floorOf,
   isTrinket,
   lookDir,
+  softFloor,
   wrap,
   type Box,
   type Door,
@@ -70,7 +72,7 @@ const DETAIL: Record<Quality, Detail> = { low: 0, medium: 1, high: 2 };
 export type Mode = 'free' | 'walk' | 'act' | 'in';
 
 /** Звук дела (Г-6): шаг по доскам и по ковру, скрип кресла, шорох постели, звон меча, взял и положил безделушку. */
-export type Cue = 'step' | 'stepSoft' | 'creak' | 'rustle' | 'ring' | 'take' | 'put';
+export type Cue = ChamberCue;
 
 /** Что видит слой интерфейса покоев: что делает правитель, в каком деле, что в руках, вдаль ли у окна. */
 export interface ChambersView {
@@ -101,6 +103,19 @@ const FREE_FOV = 70;
 export const GAZE_IN = 0.28;
 export const GAZE_OUT = 0.38;
 const LABEL_FADE = 0.25;
+/** Качание головы на метр пути: полшага — π (шаг 0,68 м). */
+const BOB_PER_M = Math.PI / 0.68;
+/** Звуки дел на их мигах (с от начала дела): сел — скрип кресла, лёг и встал — шорох постели. */
+const ACT_CUES: Record<SpotId, readonly (readonly [number, Cue])[]> = {
+  desk: [[1.12, 'creak']],
+  bed: [
+    [0.8, 'rustle'],
+    [1.8, 'rustle'],
+  ],
+  window: [],
+  hearth: [],
+  arms: [],
+};
 /** Наклон головы стоя: пределы. */
 const FREE_PITCH: readonly [number, number] = [-1.2, 1.1];
 
@@ -422,9 +437,11 @@ export class ChambersRoom implements Inside {
     const p = this.pose;
     const idle = this.held || this.mode === 'walk' ? 0 : 1 - this.walkK;
     const br = Math.sin(this.time * 1.1) * 0.005 * idle;
-    const bob = Math.sin(this.bob) * 0.011 * this.walkK;
+    // Голова ниже всего, когда ступня встаёт на пол (шаг — на кратном π, `pace`), и чуть качается с ноги на ногу.
+    const bob = -(1 + Math.cos(2 * this.bob)) * 0.0065 * this.walkK;
+    const sway = Math.sin(this.bob) * 0.005 * this.walkK;
     const lying = this.act?.a.id === 'bed' && this.mode === 'in' ? 0.4 : 1;
-    this.camera.position.set(this.origin.x + p.x, this.origin.y + p.y + br * lying + bob, this.origin.z + p.z);
+    this.camera.position.set(this.origin.x + p.x - Math.cos(p.yaw) * sway, this.origin.y + p.y + br * lying + bob, this.origin.z + p.z + Math.sin(p.yaw) * sway);
     const d = lookDir(p.yaw + Math.sin(this.time * 0.37) * 0.003 * idle, p.pitch + br * 0.2);
     V.set(this.camera.position.x + d.x, this.camera.position.y + d.y, this.camera.position.z + d.z);
     this.camera.up.set(0, 1, 0);
@@ -504,7 +521,10 @@ export class ChambersRoom implements Inside {
       case 'act': {
         const a = this.act!;
         if (moving && a.dir > 0) a.dir = -1;
+        const was = a.t;
         a.t = clamp(a.t + dt * a.dir, 0, actLength(a.a));
+        // Звук дела — на своём миге, туда и обратно: кресло скрипнуло, постель зашуршала.
+        for (const [at, cue] of ACT_CUES[a.a.id]) if ((was < at) !== (a.t < at)) this.onCue?.(cue);
         // В переходе поворот головы гаснет: глаз садится (встаёт) к взгляду дела, а не рывком.
         const keep = Math.exp(-dt * 5);
         this.off.yaw *= keep;
@@ -543,8 +563,18 @@ export class ChambersRoom implements Inside {
     this.pose.x = got.x;
     this.pose.z = got.z;
     const speed = dt > 0 ? moved / dt : 0;
-    this.bob += speed * dt * 6.5;
+    this.pace(moved);
     this.walkK += (Math.min(1, speed / WALK_SPEED) - this.walkK) * Math.min(1, dt * 6);
+  }
+
+  /**
+   * Шаг: голова качается в такт (шаг — 0,68 м, два в секунду на ходу), на каждый шаг — его звук: по доскам или, тише, по
+   * ковру и шкурам (`plan.SOFT_FLOOR`).
+   */
+  private pace(d: number): void {
+    const before = Math.floor(this.bob / Math.PI);
+    this.bob += d * BOB_PER_M;
+    if (Math.floor(this.bob / Math.PI) !== before) this.onCue?.(softFloor(this.pose.x, this.pose.z) ? 'stepSoft' : 'step');
   }
 
   /** Повернуть голову в пределах: стоя — кругом, в деле — от взгляда дела. */
@@ -605,7 +635,7 @@ export class ChambersRoom implements Inside {
     this.pose.yaw += clamp(turn * (1 - Math.exp(-dt * 7)), -2.4 * dt, 2.4 * dt);
     this.pose.pitch += (-0.12 - this.pose.pitch) * (1 - Math.exp(-dt * 4));
     this.pose.y += (EYE_STAND - this.pose.y) * (1 - Math.exp(-dt * 8));
-    this.bob += p.v * dt * 6.5;
+    this.pace(p.v * dt);
     this.walkK += (Math.min(1, p.v / WALK_SPEED) - this.walkK) * Math.min(1, dt * 6);
     if (!p.pts.length && Math.abs(wrap(p.face.yaw - this.pose.yaw)) < 0.03) {
       this.pose.yaw = p.face.yaw;

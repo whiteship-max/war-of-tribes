@@ -11,6 +11,7 @@ import { EpochMusic } from '@/sound/epoch/music';
 import { playCue, type Cue } from '@/sound/epoch/cues';
 import { seeded } from '@/sound/epoch/rng';
 import { battleFx, type FxAmbience, type FxCue } from '@/sound/battlefx';
+import { cueBone, playChamberCue, type ChamberCue } from '../../src/render/chambers/cues';
 
 /** Опорная точка того, что слышит игрок; между точками близость и фаза солнца идут линейно. */
 type Key = [number, Hearing];
@@ -29,6 +30,8 @@ export interface Sample {
   /** Силы родов на выходе; без них — умолчания игры (`settings.DEFAULT_GAINS`). */
   levels?: { music: number; fx: number; amb: number };
   cues?: [number, Cue][];
+  /** Звуки дел в покоях (docs/city_v3.md, Г-6): шаги, кресло, постель, меч. */
+  chambers?: [number, ChamberCue][];
   /** Гром: миг, сила и через сколько секунд после вспышки (docs/city.md, 15). */
   thunder?: [number, number, number][];
   /** Только замер: в образцы не пишется. */
@@ -209,6 +212,145 @@ export const SAMPLES: Sample[] = [
     ],
     probe: true,
   },
+  {
+    name: 'chambers',
+    title: 'Покои: шаги по доскам, по ковру, сел в кресло, лёг, взял меч, взял и положил кубок',
+    seconds: 14,
+    seed: 17,
+    keys: null,
+    music: false,
+    battle: false,
+    duck: { music: 1, amb: 1 },
+    chambers: [
+      [0.3, 'step'],
+      [0.8, 'step'],
+      [1.3, 'step'],
+      [1.8, 'step'],
+      [2.3, 'step'],
+      [2.8, 'step'],
+      [3.4, 'stepSoft'],
+      [3.9, 'stepSoft'],
+      [4.4, 'stepSoft'],
+      [4.9, 'stepSoft'],
+      [5.8, 'creak'],
+      [7.3, 'rustle'],
+      [9.0, 'ring'],
+      [11.2, 'take'],
+      [12.4, 'put'],
+    ],
+  },
+  {
+    name: 'ch-step',
+    title: 'Замер покоев: ch-step',
+    seconds: 3.5,
+    seed: 17,
+    keys: null,
+    music: false,
+    battle: false,
+    duck: { music: 1, amb: 1 },
+    chambers: [
+      [0.3, 'step'],
+      [0.8, 'step'],
+      [1.3, 'step'],
+      [1.8, 'step'],
+      [2.3, 'step'],
+      [2.8, 'step'],
+    ],
+    probe: true,
+  },
+  {
+    name: 'ch-soft',
+    title: 'Замер покоев: ch-soft',
+    seconds: 3.5,
+    seed: 17,
+    keys: null,
+    music: false,
+    battle: false,
+    duck: { music: 1, amb: 1 },
+    chambers: [
+      [0.3, 'stepSoft'],
+      [0.8, 'stepSoft'],
+      [1.3, 'stepSoft'],
+      [1.8, 'stepSoft'],
+      [2.3, 'stepSoft'],
+      [2.8, 'stepSoft'],
+    ],
+    probe: true,
+  },
+  {
+    name: 'ch-creak',
+    title: 'Замер покоев: ch-creak',
+    seconds: 3.5,
+    seed: 17,
+    keys: null,
+    music: false,
+    battle: false,
+    duck: { music: 1, amb: 1 },
+    chambers: [
+      [0.5, 'creak'],
+      [2, 'creak'],
+    ],
+    probe: true,
+  },
+  {
+    name: 'ch-rustle',
+    title: 'Замер покоев: ch-rustle',
+    seconds: 3.5,
+    seed: 17,
+    keys: null,
+    music: false,
+    battle: false,
+    duck: { music: 1, amb: 1 },
+    chambers: [
+      [0.5, 'rustle'],
+      [2, 'rustle'],
+    ],
+    probe: true,
+  },
+  {
+    name: 'ch-ring',
+    title: 'Замер покоев: ch-ring',
+    seconds: 3.5,
+    seed: 17,
+    keys: null,
+    music: false,
+    battle: false,
+    duck: { music: 1, amb: 1 },
+    chambers: [
+      [0.5, 'ring'],
+    ],
+    probe: true,
+  },
+  {
+    name: 'ch-take',
+    title: 'Замер покоев: ch-take',
+    seconds: 3.5,
+    seed: 17,
+    keys: null,
+    music: false,
+    battle: false,
+    duck: { music: 1, amb: 1 },
+    chambers: [
+      [0.5, 'take'],
+      [1.5, 'put'],
+    ],
+    probe: true,
+  },
+  {
+    name: 'ch-tap',
+    title: 'Замер: касание кнопки — мерка для шагов',
+    seconds: 3.5,
+    seed: 17,
+    keys: null,
+    music: false,
+    battle: false,
+    duck: { music: 1, amb: 1 },
+    cues: [
+      [0.5, 'tap'],
+      [1.5, 'tap'],
+    ],
+    probe: true,
+  },
 ];
 
 function hearingAt(keys: Key[], t: number): Hearing {
@@ -262,6 +404,7 @@ export async function render(name: string, limit: boolean): Promise<string> {
   const fx = s.battle ? battleFx(false, () => true) : null;
   fx?.arm();
   const ear = { x: 0, y: 25, z: 35, rx: 1, rz: 0 };
+  const cueR = cueBone(s.seed);
   const STEP = 0.25;
   const step = (t: number): void => {
     if (amb && s.keys) {
@@ -270,6 +413,7 @@ export async function render(name: string, limit: boolean): Promise<string> {
     }
     music?.tick(t, 1);
     for (const [at, c] of s.cues ?? []) if (at >= t && at < t + STEP) playCue(kit, chain.kinds.fx, c, at);
+    for (const [at, c] of s.chambers ?? []) if (at >= t && at < t + STEP) playChamberCue(ctx, chain.kinds.fx, c, at, cueR);
     for (const [at, power, delay] of s.thunder ?? []) if (amb && at >= t && at < t + STEP) amb.thunder(at, power, delay);
     if (fx) fx.frame(BATTLE.filter(([at]) => at >= t && at < t + STEP).map(([, c]) => c), battleBed(t), ear, STEP);
   };

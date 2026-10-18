@@ -809,6 +809,39 @@ describe('покои: модель, огонь, звук', () => {
     expect(FIRE_SPEC.low.embers + FIRE_SPEC.low.dust).toBe(0);
   });
 
+  it('звуки дел: шаги по доскам и (тише) по ковру — по шагу на 0,68 м, скрип кресла, шорох постели, звон меча', () => {
+    const room = phoneRoom();
+    const heard: string[] = [];
+    room.onCue = (c) => heard.push(c);
+    // По доскам: у южной стены за столом, на запад — шагов по пути 1,36 м — два.
+    room.standAtPoint(1.4, 4.3, -Math.PI / 2, 0);
+    room.keyDown('KeyW');
+    run(room, 1.6, () => room.state().x < 0.4 - 0.68 * 2);
+    room.keyUp('KeyW');
+    expect(heard.filter((c) => c === 'step').length, 'по доскам').toBeGreaterThanOrEqual(2);
+    expect(heard.includes('stepSoft'), 'у южной стены ковра нет').toBe(false);
+    heard.length = 0;
+    // По ковру посреди покоев.
+    room.standAtPoint(-1.2, -0.2, Math.PI / 2, 0);
+    room.keyDown('KeyW');
+    run(room, 1.2);
+    room.keyUp('KeyW');
+    expect(heard.filter((c) => c === 'stepSoft').length, 'по ковру').toBeGreaterThanOrEqual(2);
+    expect(heard.includes('step'), 'по ковру — не доски').toBe(false);
+    for (const [id, cue] of [
+      ['desk', 'creak'],
+      ['bed', 'rustle'],
+      ['arms', 'ring'],
+    ] as const) {
+      heard.length = 0;
+      room.snap('hall');
+      room.touch({ kind: 'poi', poi: POI_BY_ID[id] });
+      run(room, 20, () => room.state().mode === 'in');
+      expect(heard, `${id}: ${cue}`).toContain(cue);
+    }
+    room.dispose();
+  });
+
   it('звук: у огня огонь громче, у окна — ветер и город; всё в пределах 0…1', () => {
     const at = (fire: number, win: number) => earGains({ fire, firePan: 0, window: win, wind: 0.6, rain: 0.5 });
     const hearth = at(1.5, 9);

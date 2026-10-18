@@ -7,6 +7,7 @@
 // игра молчит сама: движок гасит выход и усыпляет контекст (П-3, «В свёрнутой игре — тишина»).
 import { audioEngine } from '@/sound/door';
 import { soundOn } from '@/sound/settings';
+import { cueBone, playChamberCue, type ChamberCue } from './cues';
 
 /** Громкость покоев на полосе «Окружение»: вровень с фоном города (П-3: фон около −37 дБ RMS). */
 export const CHAMBERS_VOLUME = 0.55;
@@ -52,6 +53,9 @@ function noise(ctx: BaseAudioContext, seconds: number, seed: number): AudioBuffe
 export class ChambersSound {
   private ctx: AudioContext | null = null;
   private out: GainNode | null = null;
+  /** Звуки дел — полосой «Эффекты» (шаги, кресло, постель, меч). */
+  private fx: GainNode | null = null;
+  private cueR = cueBone(1209);
   private nodes: AudioNode[] = [];
   private srcs: AudioBufferSourceNode[] = [];
   private fireGain: GainNode | null = null;
@@ -80,6 +84,7 @@ export class ChambersSound {
     const ctx = out.context as AudioContext;
     this.ctx = ctx;
     this.out = out;
+    this.fx = web.openBus(1, 'fx');
     const loop = (buf: AudioBuffer): AudioBufferSourceNode => {
       const s = ctx.createBufferSource();
       s.buffer = buf;
@@ -157,6 +162,13 @@ export class ChambersSound {
     for (const s of this.srcs) s.start();
   }
 
+  /** Звук дела: шаг, скрип кресла, шорох постели, меч, взял и положил (`cues.ts`). */
+  cue(c: ChamberCue): void {
+    const ctx = this.ctx;
+    if (!ctx || !this.fx) return;
+    playChamberCue(ctx, this.fx, c, ctx.currentTime + 0.01, this.cueR);
+  }
+
   /** Шаг кадра: громкости по уху, порывы ветра, треск огня. */
   update(dt: number, e: ChambersEar): void {
     const ctx = this.ctx;
@@ -222,6 +234,8 @@ export class ChambersSound {
     if (this.out && ctx) {
       this.out.gain.setTargetAtTime(0, ctx.currentTime, 0.15);
       const out = this.out;
+      const fx = this.fx;
+      fx?.gain.setTargetAtTime(0, ctx.currentTime, 0.15);
       const srcs = this.srcs;
       const nodes = this.nodes;
       // Затихает, а не обрывается: узлы отпускаются после спада.
@@ -236,9 +250,11 @@ export class ChambersSound {
         }
         for (const n of nodes) n.disconnect();
         out.disconnect();
+        fx?.disconnect();
       }, 700);
     }
     this.ctx = null;
     this.out = null;
+    this.fx = null;
   }
 }
