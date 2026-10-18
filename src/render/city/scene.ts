@@ -7,7 +7,7 @@
 // Ленивый кусок: едет до игры (`main.tsx`) и кладёт свой класс в `SCENES`.
 import * as THREE from 'three';
 import type { BuildingTypeId, GameState, ResourceId } from '@/game/types';
-import { armySize, buildingAttention, buildingProduction, population, productionPerDay, storageCap, type Attention } from '@/game/derived';
+import { armySize, buildingAttention, buildingProduction, buildingTitle, population, productionPerDay, storageCap, type Attention } from '@/game/derived';
 import { RESOURCE_IDS } from '@/game/constants';
 import type { SmokeSource } from '../weather';
 import { hearCity } from '@/sound/ear';
@@ -18,6 +18,8 @@ import type { CityBustle } from './alive';
 import type { CityGarrison } from './garrison';
 import type { CityDeeds } from './deeds';
 import type { SiteTags } from './tags';
+import type { CityLabels, LabelSpot } from './labels';
+import { labelsOn, setCityCam } from '../citycam';
 import { newsOf, seenOf, waveAfter, WAVE_REAL, type CityPops, type Seen, type Yard, type YieldTally } from './pops';
 import { TAP_TARGET } from '@/gestures';
 import { markerSvg, SCENES, TribeScene, type BuildingView, type SceneLook } from '../Scene';
@@ -28,7 +30,24 @@ import { buildCity, CITY_SPEC, type CityBuild, type CityShare } from './index';
 import { lowerWater } from './water';
 import { LAMP_SPEC } from '../glow/lamps';
 import { lightScene } from '../glow/rig';
-import { CITY_KEY, CITY_AZIMUTH, CITY_STEP_MAX, cityFog, cityFraming, cityLeash, cityShadowHalf, citySunAt, INSIDE_SHADOW_AHEAD, shadowSnap } from './camera';
+import {
+  CITY_KEY,
+  CITY_AZIMUTH,
+  CITY_STEP_MAX,
+  FLY_S,
+  SHOW_GLOW_S,
+  awayFrom,
+  cityFog,
+  cityFraming,
+  cityLeash,
+  cityShadowHalf,
+  citySunAt,
+  flyAt,
+  INSIDE_SHADOW_AHEAD,
+  shadowSnap,
+  showDist,
+  type CamPose,
+} from './camera';
 import { cityPick, screenBox, type Pickable } from './pick';
 import { mainSite, ownerCode, type Site } from './sites';
 import { heightAt } from './layout';
@@ -115,6 +134,18 @@ export class CityScene extends TribeScene {
   private pops: CityPops | null = null;
   /** Ярлыки у лесов: места кнопки «Ускорить» над стройками (`tags.ts`, docs/gems.md). */
   private tags: SiteTags | null = null;
+  /** Подписи построек и спокойные метки над крышами (`labels.ts`, ОР-1) — тем же куском, что отклик. */
+  private labels: CityLabels | null = null;
+  /**
+   * Полёт камеры (ОР-1): «Показать в городе» и «Домой». `at` — начало по часам сцены, с (полёт идёт настоящим временем, а
+   * не суммой шагов кадра: у шага кадра потолок, и на редких кадрах полёт растянулся бы); `was` — где полёт поставил камеру
+   * прошлым кадром: палец её сдвинул — полёт уступает ему.
+   */
+  private fly: { from: CamPose; to: CamPose; at: number; was: CamPose } | null = null;
+  /** Показанная постройка подсвечивается до этой минуты часов сцены, с. */
+  private shown: { type: BuildingTypeId; until: number } | null = null;
+  /** Показать просили до того, как город встал: покажется, когда встанет. */
+  private showDue: BuildingTypeId | null = null;
   private tally: YieldTally | null = null;
   /** Что отклик видел в прошлом чтении партии (`pops.seenOf`) и когда это было настоящим временем, мс. */
   private seen: { was: Seen; real: number } | null = null;
@@ -214,6 +245,7 @@ export class CityScene extends TribeScene {
     this.bustleWanted = true;
     for (const view of this.buildings.values()) this.place3(view);
     if (this.selected !== null) this.setSelected(this.selected);
+    if (this.showDue) this.showBuilding(this.showDue);
   }
 
   /** Дым работы: над трубой работающей кузницы (`worksigns.workBusy`, правило посёлка). */
@@ -484,6 +516,7 @@ export class CityScene extends TribeScene {
 
   /** Шейдер города за кадром (ночь, снег, осень, солнце, подсветка выбранного), огни, жизнь и значки. */
   protected override animate(dt: number, t: number): void {
+    this.stepFly(t);
     const c = this.town;
     // Покои: камера комнаты шагает первой — город берёт её место и взгляд (`placeInside`).
     if (this.inside && c) {
@@ -505,8 +538,15 @@ export class CityScene extends TribeScene {
       u.cTime.value = t;
       u.cSunDir.value.copy(this.rig.sun.position).sub(this.rig.sun.target.position).normalize();
       u.cSky.value.copy((this.scene.fog as THREE.Fog).color);
-      u.cSel.value = this.selected !== null ? ownerCode(this.buildings.get(this.selected)?.type ?? 'campfire') : 0;
-      u.cSelGlow.value = 0.18 + Math.sin(t * 3) * 0.1;
+      // Показанная постройка («Показать в городе») светится сильнее и чаще выбранной — пока не кончилась подсветка.
+      const shown = this.shown && t < this.shown.until ? this.shown.type : null;
+      if (this.shown && !shown) {
+        this.shown = null;
+        this.labels?.light(null);
+      }
+      const sel = shown ?? (this.selected !== null ? (this.buildings.get(this.selected)?.type ?? 'campfire') : null);
+      u.cSel.value = sel !== null ? ownerCode(sel) : 0;
+      u.cSelGlow.value = shown ? 0.42 + Math.sin(t * 6) * 0.22 : 0.18 + Math.sin(t * 3) * 0.1;
       // Погода в шейдерах: на «Низком» — без теней облаков и кругов на воде (сырость и туман — даром).
       const w = this.wx;
       const lo = this.quality === 'low';
@@ -569,6 +609,7 @@ export class CityScene extends TribeScene {
       }
       this.pops?.update(this.camera, this.canvas.clientWidth, this.canvas.clientHeight, t);
       this.tags?.update(this.camera, this.canvas.clientWidth, this.canvas.clientHeight);
+      if (!this.inside) this.labels?.update(this.camera, this.canvas.clientWidth, this.canvas.clientHeight, labelsOn());
       // Первый кадр города нарисован — теперь докачка суеты.
       if (this.bustleWanted) {
         this.bustleWanted = false;
@@ -639,12 +680,14 @@ export class CityScene extends TribeScene {
       .catch(() => undefined);
     // Отклик — своим куском, тем же правилом: не пришёл — город стоит без лесов и надписей, игра идёт как шла.
     import('./deeds')
-      .then(({ CityDeeds, CityPops, SiteTags, YieldTally }) => {
+      .then(({ CityDeeds, CityPops, SiteTags, CityLabels, YieldTally }) => {
         if (this.disposed || this.town !== c || !this.folk) return;
         this.deeds = new CityDeeds({ sites: this.sites, quality: this.quality, street: this.folk.street() });
         this.scene.add(this.deeds.group);
         this.pops = new CityPops(this.canvas.parentElement, this.quality, markerSvg, new THREE.Vector3());
         this.tags = new SiteTags(this.canvas.parentElement, new THREE.Vector3());
+        this.labels = new CityLabels(this.canvas.parentElement, new THREE.Vector3());
+        this.labels.light(this.shown?.type ?? null);
         this.tally = new YieldTally();
         if (this.lastState) this.respond(this.lastState);
         if (this.welcomeDue > 0) this.welcome(this.welcomeDue);
@@ -671,6 +714,7 @@ export class CityScene extends TribeScene {
           return m ? [{ type: b.type, x: m.x, y: m.y1 + 1.2, z: m.z }] : [];
         }),
     );
+    this.labels?.set(this.labelSpots(s));
     const prev = this.seen;
     const real = performance.now();
     this.seen = { was: seenOf(s), real };
@@ -813,6 +857,95 @@ export class CityScene extends TribeScene {
     this.selection.visible = true;
   }
 
+  // ---------- Ориентация (ОР-1, docs/ui_v2.md, 5.9) ----------
+
+  /**
+   * Подписи и метки построек: имя — на теле главного места (`mainSite`), метка — над крышей, на месте значка беды. Метка —
+   * того, что ждёт игрока и не беда (`labels.Mark`); беда — бляхой (`ROOF_NEW`), и метки у неё нет.
+   */
+  private labelSpots(s: GameState): LabelSpot[] {
+    return s.buildings.flatMap((b) => {
+      const m = mainSite(this.sites, b.type);
+      if (!m) return [];
+      const kind = buildingAttention(s, b);
+      return [
+        {
+          type: b.type,
+          name: buildingTitle(s, b.type),
+          mark: kind === 'upgrade' || kind === 'slot' ? kind : null,
+          body: { x: m.x, y: (m.y0 + m.y1) / 2, z: m.z },
+          roof: { x: m.x, y: m.y1 + 4, z: m.z },
+        },
+      ];
+    });
+  }
+
+  /** Камера сейчас и дома — на стартовом кадре (`cityFraming`). */
+  private pose(): CamPose {
+    return { x: this.target.x, z: this.target.z, dist: this.dist };
+  }
+
+  private homePose(): CamPose {
+    const f = cityFraming(this.camera.aspect);
+    return { x: f.target.x, z: f.target.z, dist: f.dist };
+  }
+
+  private flyTo(to: CamPose): void {
+    const from = this.pose();
+    this.fly = { from, to: { ...to, dist: Math.min(Math.max(to.dist, this.zoom.min), this.zoom.max) }, at: this.sceneNow(), was: from };
+    this.userMoved = true;
+  }
+
+  /**
+   * Шаг полёта камеры (`camera.flyAt`): цель и расстояние — к концу полёта, через поводок панорамы. Палец сдвинул камеру
+   * между кадрами — полёт уступает ему: игрок ведёт сам. И каждый кадр — доске, ушла ли камера с дома (кнопка «Домой»).
+   */
+  private stepFly(t: number): void {
+    const f = this.fly;
+    if (f && !this.inside) {
+      const p = this.pose();
+      if (p.x !== f.was.x || p.z !== f.was.z || p.dist !== f.was.dist) this.fly = null;
+      else {
+        const k = (t - f.at) / FLY_S;
+        const next = flyAt(f.from, f.to, k);
+        this.target.x = next.x;
+        this.target.z = next.z;
+        this.dist = next.dist;
+        this.leash();
+        this.place();
+        f.was = this.pose();
+        if (k >= 1) this.fly = null;
+      }
+    }
+    setCityCam({ moved: !this.inside && awayFrom(this.pose(), this.homePose()) });
+  }
+
+  /**
+   * «Показать в городе»: камера летит к главному месту постройки (`showDist` — по её размеру) и подсвечивает её — вся
+   * постройка светится (`cSel`) и подпись золотом, пока не кончится `SHOW_GLOW_S` после полёта. Город не встал — покажет,
+   * когда встанет; в покоях — нет.
+   */
+  override showBuilding(type: BuildingTypeId): boolean {
+    if (this.disposed || this.inside) return false;
+    if (!this.town) {
+      this.showDue = type;
+      return true;
+    }
+    this.showDue = null;
+    const m = mainSite(this.sites, type);
+    if (!m) return false;
+    this.flyTo({ x: m.x, z: m.z, dist: showDist(m) });
+    this.shown = { type, until: this.sceneNow() + FLY_S + SHOW_GLOW_S };
+    this.labels?.light(type);
+    return true;
+  }
+
+  /** «Домой»: тем же полётом — на стартовый кадр. */
+  override cameraHome(): void {
+    if (this.disposed || this.inside) return;
+    this.flyTo(this.homePose());
+  }
+
   // ---------- Касание ----------
 
   private pickables(): Pickable[] {
@@ -866,6 +999,9 @@ export class CityScene extends TribeScene {
     this.pops = null;
     this.tags?.dispose();
     this.tags = null;
+    this.labels?.dispose();
+    this.labels = null;
+    setCityCam({ moved: false });
     this.town?.dispose();
     this.town = null;
     super.dispose();

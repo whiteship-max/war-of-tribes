@@ -16,6 +16,8 @@
 //   DIR=city_v3 GROUP=g5 TAG=before|after …       — Г-5 (docs/city_v3.md): подсказка с разбором над окном ратуши и её крестик
 //   DIR=feedback GROUP=fb1 TAG=before|after …       — ОТ-1 (docs/feedback.md): «Дружина», найм из карточки, ряд рабочих,
 //                                                     шаг разведчика, полководец на дороге набега
+//   GROUP=or1 WEATHER=clear TAG=before|after …     — ОР-1: подписи построек, «Показать в городе», метки и «Домой»;
+//                                                     `WEATHER` — погода адресом (`?weather=`), чтобы туман не съел подписи
 //   DIR=polish GROUP=p7 TAG=before|after …          — П-7 (docs/polish.md): тревоги войны значками справа снизу — осада
 //                                                     тихая и срочная, набеги, свой лагерь, карта, вход в окно, город без осады
 //
@@ -564,6 +566,22 @@ const GROUPS: Record<string, Step[]> = {
   ],
   // П-7 (docs/polish.md): тревоги войны — значки справа снизу вместо плашки осады. Вид мира вкладывает стенд, как в заходе
   // `siege`: пульс остановлен, осада, набеги и свой лагерь — полями пульса. `DIR=polish TAG=before|after`.
+  // ОР-1 (docs/ui_v2.md, 5.9): ориентация в городе — метки того, что ждёт игрока, подписи ближних при приближении, рычаг
+  // «Подписи», «Показать в городе» из ратуши и из подсказки, «Домой». На «до» кнопок ещё нет — шаги печатают «нет кнопки».
+  or1: [
+    { name: 'or1-01-city', run: ui('reset()'), wait: 2500 },
+    { name: 'or1-02-near', run: `(() => { window.__ui.reset(); window.__scene.standView(0, -30, 150); return JSON.stringify('ok'); })()`, wait: 2500 },
+    { name: 'or1-03-labels', run: ui(`reset(), window.__ui.click('Домой', '.nx-cam'), window.__ui.click('Подписи', '.nx-cam')`), wait: 2500 },
+    {
+      name: 'or1-04-hall-card',
+      run: then(ui(`click('Подписи', '.nx-cam'), window.__ui.click('Ратуша', '.nx-nav')`), ui(`clickSel('.hall-tile[data-tut="list-farm"]')`)),
+      wait: 1200,
+    },
+    { name: 'or1-05-show-farm', run: ui(`click('Показать в городе', '.hall-card')`), wait: 2000 },
+    { name: 'or1-06-tip-food', run: ui(`reset(), window.__ui.click('Еда', '.nx-res')`), wait: 600 },
+    { name: 'or1-07-show-tip', run: ui(`clickSel('.nx-tip-show')`), wait: 2000 },
+    { name: 'or1-08-home', run: ui(`click('Домой', '.nx-cam')`), wait: 4000 },
+  ],
   p7: [
     { name: 'p7-01-city-siege', run: P7('calm'), wait: 1500 },
     { name: 'p7-02-city-urgent', run: P7('urgent'), wait: 1500 },
@@ -815,7 +833,7 @@ async function group(name: string, steps: Step[]): Promise<void> {
   const began = Date.now();
   try {
     await tab.send('Emulation.setDeviceMetricsOverride', SCREEN);
-    await tab.send('Page.navigate', { url: `http://127.0.0.1:${PORT}/?probe=1&fpscap=${FPS}&quality=low` });
+    await tab.send('Page.navigate', { url: `http://127.0.0.1:${PORT}/?probe=1&fpscap=${FPS}&quality=low${process.env.WEATHER ? `&weather=${process.env.WEATHER}` : ''}` });
     await sleep(1500);
     await tab.eval<string>('(() => { try { localStorage.clear(); } catch (e) {} return JSON.stringify("ok"); })()');
     await tab.send('Page.reload');

@@ -17,7 +17,8 @@ import { MINIGAME_COST } from '@/game/data/minigames';
 import { armyTip, energyTip, goldTip, isFull, moraleTip, orderTip, popTip, resTip, seasonTip, trendOf, type TipGo } from './hudTips';
 import { GemPlaque } from './Treasury';
 import { SiteTags } from './Rush';
-import { goTo } from '@/ui/kit/nav';
+import { CityCam } from './CityCam';
+import { goTo, showInCity } from '@/ui/kit/nav';
 import { useChambers } from '@/ui/chambers/open';
 
 /**
@@ -126,8 +127,8 @@ function CityHud() {
   const order = bondedTotal(s) > 0 ? Math.round(orderValue(s)) : null;
   const net = netPerDay(s);
   const storage = buildingOfType(s, 'storage');
-  // `to` — дверь набора: «Построить» ведёт в «Стройку» ратуши (`kit/nav.goTo`).
-  const go: TipGo = { tab: openTab, building: openBuilding, realm: showRealm, to: goTo };
+  // `to` — дверь набора: «Построить» ведёт в «Стройку» ратуши (`kit/nav.goTo`); `show` — «Показать в городе» (ОР-1).
+  const go: TipGo = { tab: openTab, building: openBuilding, realm: showRealm, to: goTo, show: showInCity };
   const showTrades = useTrades((t) => t.show);
   const lit = useYieldFlash();
   // Энергия — сутками игрока (`ui/trades.energyNow`); перерисовывается вместе с партией, раз в шаг цикла.
@@ -204,6 +205,8 @@ function CityHud() {
           docs/voice.md, 12. */}
       {!realmOpen && <GemPlaque />}
       <SiteTags />
+      {/* Камера города — «Подписи» и «Домой» столбцом под плашкой (ОР-1, docs/ui_v2.md, 5.9). */}
+      <CityCam />
     </div>
   );
 }

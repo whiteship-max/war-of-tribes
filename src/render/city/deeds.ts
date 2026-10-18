@@ -681,3 +681,4 @@ export class CityDeeds {
 
 export { CityPops, YieldTally, type Pop, type Yard } from './pops';
 export { SiteTags } from './tags';
+export { CityLabels } from './labels';

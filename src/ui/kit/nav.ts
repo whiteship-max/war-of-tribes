@@ -1,7 +1,9 @@
 // Дверь «к источнику» в действии: открыть постройку, раздел шторки, раздел державы или промыслы (`kit/sources`).
 // Одна на набор: строки разбора, ссылки подсказок и кнопки «Склад ›» ведут через неё, и каждая ведёт одинаково.
+import type { BuildingTypeId } from '@/game/types';
 import { useGame } from '@/game/store';
 import { buildingOfType } from '@/game/derived';
+import { activeScene } from '@/render/Scene';
 import { useRealm } from '@/ui/realm/open';
 import { useTrades } from '@/ui/trades';
 import { useTreasury } from '@/ui/treasury';
@@ -49,6 +51,22 @@ export function goTo(src: Source): void {
   }
 }
 
+/**
+ * «Показать в городе» (ОР-1, docs/ui_v2.md, 5.9): окна над городом уходят — шторка, держава, промыслы, сокровищница, карта, —
+ * и камера летит к постройке и подсвечивает её (`TribeScene.showBuilding`). Окна закрываются, потому что иначе показывать
+ * было бы некуда: шторка во весь рост закрыла бы ту самую постройку. Постройки в городе нет — дверь молчит (`reachable`).
+ */
+export function showInCity(type: BuildingTypeId): void {
+  const g = useGame.getState();
+  if (!buildingOfType(g.s, type)) return;
+  if (g.mapOpen) g.closeMap();
+  if (g.sheet) g.closeSheet();
+  useRealm.getState().hide();
+  useTrades.getState().hide();
+  useTreasury.getState().hide();
+  activeScene()?.showBuilding(type);
+}
+
 /** Есть ли куда вести: постройка стоит в городе, «Стройка» — пока стоит ратуша (разделы и окна есть всегда). */
 export function reachable(src: Source): boolean {
   const s = useGame.getState().s;
@@ -67,5 +85,6 @@ export function tipGo(): TipGo {
     building: (id) => useGame.getState().openBuilding(id),
     realm: (v) => goTo({ kind: 'realm', view: v }),
     to: goTo,
+    show: showInCity,
   };
 }

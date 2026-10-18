@@ -110,3 +110,39 @@ export function shadowSnap(at: { x: number; y: number; z: number }, from: { x: n
   const db = Math.round(b / texel) * texel - b;
   return { x: at.x + rx * da + ux * db, y: at.y + uy * db, z: at.z + rz * da + uz * db };
 }
+
+// ---------- Полёт камеры (ОР-1, docs/ui_v2.md, 5.9) ----------
+
+/** Где камера: цель на земле и расстояние до неё (ракурс один — `cityFraming.polar`). */
+export interface CamPose {
+  x: number;
+  z: number;
+  dist: number;
+}
+
+/** Полёт «Показать в городе» и «Домой», с: заметно, что камера летит, и не ждёшь. */
+export const FLY_S = 0.9;
+
+/** Подсветка показанной постройки, с — считая с конца полёта: глаз успевает найти её и прочесть подпись. */
+export const SHOW_GLOW_S = 2.6;
+
+/**
+ * Расстояние камеры до показанной постройки: по её размеру — постройка крупно, а соседи вокруг видны, чтобы понять, где
+ * она. Пол — ближе улица уже не читается кварталом; потолок — дальше постройка теряется среди крыш.
+ */
+export const SHOW_DIST = { min: 120, max: 230, k: 5 } as const;
+
+export function showDist(site: { hf: number; hr: number; y0: number; y1: number }): number {
+  const size = Math.max(site.hf, site.hr, site.y1 - site.y0);
+  return Math.min(SHOW_DIST.max, Math.max(SHOW_DIST.min, size * SHOW_DIST.k));
+}
+
+/** Плавный шаг полёта: от `a` к `b` на доле `k` (0..1), разгон и торможение — `smoothstep`. */
+export function flyAt(a: CamPose, b: CamPose, k: number): CamPose {
+  const t = Math.min(1, Math.max(0, k));
+  const e = t * t * (3 - 2 * t);
+  return { x: a.x + (b.x - a.x) * e, z: a.z + (b.z - a.z) * e, dist: a.dist + (b.dist - a.dist) * e };
+}
+
+/** Ушла ли камера с дома — стартового кадра (`cityFraming`): на метры, а не на дрожь дробей. */
+export const awayFrom = (p: CamPose, home: CamPose): boolean => Math.hypot(p.x - home.x, p.z - home.z) > 4 || Math.abs(p.dist - home.dist) > 8;
