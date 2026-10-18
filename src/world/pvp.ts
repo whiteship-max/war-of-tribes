@@ -55,8 +55,11 @@ export const fieldWalkFloorMs = (from: Coord, to: Coord): number => Math.round(r
  * Как далеко полководец мог уйти за `ms` настоящего времени — клеток, той же формулой пути по самой быстрой клетке.
  * Место, откуда приказ ведёт удар, сервер сверяет с местом полководца в последнем слепке обороны (`WarSheet.gen`).
  */
-export const fieldReach = (ms: number): number =>
-  (Math.max(0, gameSecondsOfMs(Math.max(0, ms))) * FIGURE_BY_ID.general.speed) / (60 * CELL_COST_MIN) + AT_GATES;
+export const fieldReach = (ms: number): number => (gameSecondsOfMs(Math.max(0, ms)) * REACH_SPAN) / reachSeconds() + AT_GATES;
+
+/** Мерная дорога для `fieldReach`: путь линеен по длине, а длинная мерка не упирается в наименьший срок пути (`MARCH_MIN_SECONDS`). */
+const REACH_SPAN = 1000;
+const reachSeconds = (): number => travelTime(REACH_SPAN, CELL_COST_MIN, FIGURE_BY_ID.general.speed);
 
 /** Где войско на пути из `from` в `to` в минуту `at`. */
 export function warAt(from: Coord, to: Coord, departAt: number, arriveAt: number, at: number): Coord {
