@@ -97,6 +97,9 @@ export function gableTri(b: Builder, fr: Frame, a: [number, number], e: [number,
 
 const pick = <T>(arr: readonly T[], k: number): T => arr[((k % arr.length) + arr.length) % arr.length];
 
+/** Толщина кровли, м: на столько ниже ската лежит его изнанка (`gableRoof`). */
+const ROOF_T = 0.1;
+
 /**
  * Кровля над прямоугольником рамки: `f0..f1` вперёд, `r0..r1` вправо, карниз на `y`.
  * `alongF` — конёк вдоль «вперёд» (щипцы спереди и сзади), иначе — вдоль «вправо».
@@ -155,6 +158,19 @@ export function gableRoof(
     if (n[1] >= 0) b.quad(a, bb, c, d, uv, L[layer], t, [0.92, 0.92, 1, 1]);
     else b.quad(bb, a, d, c, [uv[2], uv[3], uv[0], uv[1], uv[6], uv[7], uv[4], uv[5]], L[layer], t, [0.92, 0.92, 1, 1]);
   };
+  // Изнанка ската — тёмная, лицом вниз, на толщину кровли ниже: под свесом у щипца и карниза её видно сбоку и сверху вдоль
+  // фасада (из покоев донжона — вдоль домов Соборной площади, docs/city_v3.md, Г-8), а без неё сквозь свес видно мостовую за
+  // домом. Ниже, а не в плоскости ската: в тени изнанка — заслон, и на самом скате ей не лечь пятнами.
+  const under: V3 = [t[0] * 0.42, t[1] * 0.4, t[2] * 0.38];
+  const quadDown = (q: readonly [V3, V3, V3, V3], uv: readonly [number, number, number, number, number, number, number, number]): void => {
+    const n = cross(sub(q[1], q[0]), sub(q[3], q[0]));
+    const l = Math.hypot(n[0], n[1], n[2]) || 1;
+    const s = (n[1] >= 0 ? -ROOF_T : ROOF_T) / l;
+    const [a, bb, c, d] = q.map((p): V3 => [p[0] + n[0] * s, p[1] + n[1] * s, p[2] + n[2] * s]);
+    // Та же диагональ a–c, что у ската (`Builder.quad`), обход обратный: изнанка повторяет излом провисшего ската.
+    if (n[1] >= 0) b.quad(a, d, c, bb, [uv[0], uv[1], uv[6], uv[7], uv[4], uv[5], uv[2], uv[3]], L[layer], under, [0.6, 0.75, 0.75, 0.6]);
+    else b.quad(a, bb, c, d, uv, L[layer], under, [0.6, 0.6, 0.75, 0.75]);
+  };
   const slant = (h0: number, h1: number): number => (h1 - h0) / Math.sin(pitch) / th;
   for (const side of [1, -1]) {
     const ce = side > 0 ? c1 + oe : c0 - oe;
@@ -164,7 +180,9 @@ export function gableRoof(
         const ua = u + (la - L0) / tw;
         const ub = u + (lb - L0) / tw;
         const v1 = slant(yEave, ridge);
-        quadUp(P(la, ce, yEave - sa * 0.5), P(lb, ce, yEave - sb * 0.5), P(lb, mid, ridge - sb), P(la, mid, ridge - sa), [ua, 0, ub, 0, ub, v1, ua, v1]);
+        const q: [V3, V3, V3, V3] = [P(la, ce, yEave - sa * 0.5), P(lb, ce, yEave - sb * 0.5), P(lb, mid, ridge - sb), P(la, mid, ridge - sa)];
+        quadUp(q[0], q[1], q[2], q[3], [ua, 0, ub, 0, ub, v1, ua, v1]);
+        quadDown(q, [ua, 0, ub, 0, ub, v1, ua, v1]);
       }
     } else {
       // Полоса от карниза до среза — во всю длину, выше — трапеция до укороченного конька.

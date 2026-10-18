@@ -4,7 +4,7 @@
 // three: модели — построители, расстановка — массивы.
 import { CITY } from './palette';
 import { Builder, tint, type V3 } from './geom';
-import { distPoly, heightAt, insidePoly, riverX, RIVER_HALF, type CityPlan, type P } from './layout';
+import { distPoly, heightAt, insidePoly, riverX, RIVER_HALF, yardTreeHeight, type CityPlan, type P } from './layout';
 import { fieldAt, openLand } from './ground';
 import { L, TILE_M } from './tex';
 import { fbm, hash3, rnd, sstep, vnoise } from './noise';
@@ -239,10 +239,9 @@ export function placeTrees(plan: CityPlan, near: number, nearStep: number, farSt
   };
   pass(nearStep, 0, near, false);
   pass(farStep, near, reach, true);
-  // Дворы: плодовые, ниже и светлее; липа на площади — большая.
+  // Дворы: плодовые, ниже и светлее.
   for (const t of plan.yardTrees) {
-    const big = t.r > 4;
-    out.fruit.push({ x: t.x, y: heightAt(t.x, t.z), z: t.z, h: big ? 15 : 6 + t.r * 1.2, rot: rnd(t.seed, 1, 3) * 6.28, t: tint(big ? 0xd0d8b0 : 0xe0e4c0) });
+    out.fruit.push({ x: t.x, y: heightAt(t.x, t.z), z: t.z, h: yardTreeHeight(t.r), rot: rnd(t.seed, 1, 3) * 6.28, t: tint(0xe0e4c0) });
   }
   return out;
 }

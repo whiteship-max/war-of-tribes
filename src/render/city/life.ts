@@ -12,7 +12,7 @@ import * as THREE from 'three';
 import type { Quality } from '../quality';
 import { HEARTH_LOOK, type SmokeLook, type SmokeSource } from '../weather';
 import type { V3 } from './geom';
-import { CHURCH, PARVIS, distSeg, heightAt, insidePoly, type CityPlan, type P } from './layout';
+import { CHURCH, CLOSE, PARVIS, distSeg, heightAt, insidePoly, type CityPlan, type P } from './layout';
 import { wallTops } from './forts';
 import { hash3, rnd } from './noise';
 import { headOf } from './roads';
@@ -982,6 +982,10 @@ export const SQUARE_PATHS: readonly { name: string; pts: P[]; half: number; weig
   { name: 'от Главной к Верхней', pts: [{ x: 1, z: 30 }, { x: 14, z: 25.8 }, { x: 26, z: 23.5 }, { x: 28.5, z: 12 }, { x: 27, z: -4 }, { x: 25, z: -24 }], half: 2.5, weight: 2 },
   { name: 'от Восточной к Западной', pts: [{ x: 31, z: 0 }, { x: 12, z: -1 }, { x: -10, z: -2 }, { x: -23, z: -10 }, { x: -27, z: -24 }], half: 2.5, weight: 2 },
   { name: 'к паперти', pts: [{ x: -2, z: -1.8 }, { x: -4, z: -14 }, { x: -4, z: -24 }, { x: -4, z: PARVIS.foot + 0.6 }], half: 2, weight: 2.5 },
+  // Вокруг храма по Соборной площади (docs/city_v3.md, Г-8): от места сбора перед лестницей вдоль нефа и за апсидой — к
+  // переулкам квартала; посередине полосы между храмом и фасадами.
+  { name: 'вокруг храма, запад', pts: [{ x: -4, z: -22 }, { x: CLOSE.x0 + 3.25, z: -28 }, { x: CLOSE.x0 + 3.25, z: CLOSE.z1 + 3 }, { x: -4, z: CLOSE.z1 + 3 }], half: 1.6, weight: 1 },
+  { name: 'вокруг храма, восток', pts: [{ x: -4, z: -22 }, { x: CLOSE.x1 - 3.25, z: -28 }, { x: CLOSE.x1 - 3.25, z: CLOSE.z1 + 3 }, { x: -4, z: CLOSE.z1 + 3 }], half: 1.6, weight: 1 },
   { name: 'меж рядов, южный проход', pts: [{ x: -15, z: 8.25 }, { x: 28.3, z: 8.25 }], half: 1.2, weight: 4 },
   { name: 'меж рядов, северный проход', pts: [{ x: -15, z: 14.75 }, { x: 28.2, z: 14.75 }], half: 1.2, weight: 3 },
 ];

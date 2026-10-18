@@ -1,7 +1,7 @@
 // Сеть дорог вида «город» (docs/city_v3.md, Г-3): дороги за стеной до края мира, тупики переулков, грязь у ворот и
 // конюшен. Чистый модуль без three: его читают карта покрытий (`ground.ts`), карта земель (`nature.ts`), сетка земли
 // (`world.ts`, `town.ts`) и тесты.
-import { distSeg, insidePoly, type CityPlan, type P, type Street } from './layout';
+import { SQUARE_PROPS, distSeg, insidePoly, type CityPlan, type P, type Street } from './layout';
 import { fbm, sstep, vnoise } from './noise';
 
 /** Отрезок дороги с полушириной и знаком стороны: левее хода — минус, правее — плюс. */
@@ -187,8 +187,9 @@ function mudBlobs(plan: CityPlan): (readonly [number, number, number, number])[]
     const k = y.kind === 'pen' ? 0.85 : y.kind === 'farm' ? 0.6 : 0;
     if (k > 0) out.push([y.x, y.z, y.r * 0.75, k]);
   }
-  // Коновязь и поилка у Верхней улицы (`precinct.churchSquare`): копыта и пролитая вода.
-  out.push([20.6, -44, 3.6, 0.8], [21, -50, 3, 0.9]);
+  // Коновязь и поилка у западного края рынка (`precinct.SQUARE_PROPS`): копыта и пролитая вода — пятнами на мостовой.
+  const { rail, trough } = SQUARE_PROPS;
+  out.push([rail.x, (rail.z0 + rail.z1) / 2, 3, 0.55], [trough.x, trough.z, 2.2, 0.7]);
   // Колодец площади: отмостку мочит расплёсканное.
   out.push([plan.well.x + 0.6, plan.well.z + 0.8, 4.2, 0.45]);
   blobsOf.set(plan, out);

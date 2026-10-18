@@ -11,8 +11,8 @@ import { ownerCode, siteOf, wallSites, type Site } from './sites';
 import { millWheel, yard, yardHalls } from './outskirts';
 import { house, houseStoop } from './kit';
 import { cityWall, tower } from './forts';
-import { civic, civicStoop, fireBowl, gutter, marketProps, stall, statue, well } from './civic';
-import { churchClose, churchSquare, parvis } from './precinct';
+import { civic, civicStoop, fireBowl, marketProps, stall, statue, well } from './civic';
+import { churchSquare, parvis } from './precinct';
 import { placeTrees, treeModel, type Species } from './nature';
 import { LAYERS } from './tex';
 import { CITY_SPEC, GATE_GUARDS, LIFE_CAP, LIFE_TRIS, SHORE_CAP, figureTris, peopleTris, shoreTris } from './spec';
@@ -141,16 +141,12 @@ export function buildStatic(plan: CityPlan, q: Quality, opts?: StaticOpts): Stat
     if (c.kind !== 'church') civicStoop(b, c);
     else {
       parvis(b, c, dAt(c.x, c.z));
-      // Двор за оградой — храму (подсветка выбора), но коробкой не служит: двор — земля, а не здание.
-      b.owner = ownerCode('church');
-      churchClose(b, c, dAt(c.x, c.z));
-      b.owner = 0;
-      // Площадка перед храмом и полоса у Верхней улицы — ничьи: доска, колодки, лотки, коновязь, сено.
+      // Убранство Соборной площади — ничьё: доска, лотки, колодки, коновязь (docs/city_v3.md, Г-8).
       if (!opts) churchSquare(b, c, d);
     }
   }
-  // Желоб посреди мощёных улиц — ничей: улица не постройка.
-  for (const st of plan.streets) if (st.surface === 'cobble' && st.half >= 3) gutter(b, st.pts, plan.gates);
+  // Желоба посреди мощёных улиц больше нет (docs/city_v3.md, Г-8, 4а): полоса плит поверх мостовой с камеры игры читалась
+  // тёмной нитью вдоль Верхней, Главной и Восточной. На мостовой — только земля (тест «на дорогах нет посторонних»).
   // Ряды — одной коробкой на весь рынок: тап между прилавками — тоже рынок.
   b.owner = ownerCode('market');
   const marketFrom = b.mark().v;

@@ -2,7 +2,7 @@
 // карте земель, тупики — дворики, переулок не ложится на мостовую, мостовая у коновязи, грязь у ворот, жители — не по траве.
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
-import { CHURCH, PARVIS, WORLD_EDGE, cityPlan, distSeg, insidePoly, type P, type Street } from './layout';
+import { CHURCH, PARVIS, SQUARE_PROPS, WORLD_EDGE, cityPlan, distSeg, insidePoly, type P, type Street } from './layout';
 import { fieldAt, groundMap, hamlets, MAP_AT } from './ground';
 import { LAND_AT, landMap } from './nature';
 import { deadEnds, joins, mudAt, roadU, ROAD_U_MAX } from './roads';
@@ -155,10 +155,11 @@ describe('город: дороги и земля (Г-3)', () => {
     expect(checked, 'стыков с мостовой').toBeGreaterThan(0);
   });
 
-  it('у коновязи двора храма — мостовая до ограды, грязь — пятнами у поилки; у ворот — грязь, посреди площади — нет', () => {
-    for (const z of [-40, -46, -52, -58]) expect(cover(18.5, z).c, `мостовая у ограды (18.5, ${z})`).toBeGreaterThan(0.8);
-    expect(mudAt(21, -50, plan), 'у поилки').toBeGreaterThan(0.5);
-    expect(mudAt(18.5, -60, plan), 'дальше от поилки').toBeLessThan(0.3);
+  it('у коновязи у рынка — мостовая, грязь — пятнами у поилки; у ворот — грязь, посреди площади — нет', () => {
+    const { rail, trough } = SQUARE_PROPS;
+    for (const z of [rail.z0, rail.z1, trough.z]) expect(cover(rail.x, z).c, `мостовая у коновязи (${rail.x}, ${z})`).toBeGreaterThan(0.8);
+    expect(mudAt(trough.x, trough.z, plan), 'у поилки').toBeGreaterThan(0.5);
+    expect(mudAt(rail.x + 8, rail.z0, plan), 'дальше от поилки').toBeLessThan(0.3);
     for (const g of plan.gates) {
       const out = { x: g.x + Math.cos(g.out) * 9, z: g.z + Math.sin(g.out) * 9 };
       expect(mudAt(out.x, out.z, plan), `за воротами (${g.x.toFixed(0)}, ${g.z.toFixed(0)})`).toBeGreaterThan(0.5);
