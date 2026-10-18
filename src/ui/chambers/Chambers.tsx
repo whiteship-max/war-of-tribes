@@ -182,7 +182,7 @@ const firstName = (n: string | null): string | null => (n ? n.split(' ')[0] : nu
 const TRINKET_BY_ID = Object.fromEntries(TRINKETS.map((t) => [t.id, t])) as Record<TrinketId, (typeof TRINKETS)[number]>;
 
 /** Кнопка выхода из дела: сидя и лёжа — «Встать», у окна и огня — «Отойти». */
-const LEAVE: Record<SpotId, string> = { desk: 'Встать', bed: 'Встать', window: 'Отойти', hearth: 'Отойти', arms: 'Отойти', door: 'Отойти' };
+const LEAVE: Record<SpotId, string> = { desk: 'Встать', bed: 'Встать', window: 'Отойти', windowE: 'Отойти', windowW: 'Отойти', hearth: 'Отойти', arms: 'Отойти', door: 'Отойти' };
 
 /**
  * Подписи-указатели первого входа (как в промыслах, docs/minigames.md, 18.1): над пальцем движения, у взгляда и о мебели.

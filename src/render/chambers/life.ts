@@ -15,7 +15,7 @@ import { tint } from '../city/geom';
 import type { Arms } from '@/heraldry/arms';
 import type { Quality } from '../quality';
 import { geometryOf } from '../city/index';
-import { DOOR, DESK, BED, HALF, softFloor, type SpotId } from './plan';
+import { DOOR, DESK, BED, HALF, isWindowSpot, softFloor, type SpotId } from './plan';
 import { DOOR_HINGE, doorLeaf } from './build';
 import { Person, buildPerson, gripOf, type FolkId } from './folk';
 import { Cat, buildCat, type CatSpot } from './cat';
@@ -353,7 +353,7 @@ export class ChambersLife {
     this.busyN++;
     const r = this.host.ruler();
     // У окна, у огня и у стены оружия правитель встаёт, чтобы обернуться к пришедшему.
-    if (r.inAct && (r.spot === 'window' || r.spot === 'hearth' || r.spot === 'arms')) this.host.stand();
+    if (r.inAct && (isWindowSpot(r.spot) || r.spot === 'hearth' || r.spot === 'arms')) this.host.stand();
     const at = this.talkSpot(p);
     const route = this.route(p, at);
     p.go(route, null);

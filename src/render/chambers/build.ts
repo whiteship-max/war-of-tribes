@@ -248,20 +248,22 @@ function opening(m: Mesher, o: Opening, detail: Detail): void {
   const lights: [number, number][][] = o.twin
     ? [-1, 1].map((sgn) => {
         const h = (o.outW - 0.16) / 4;
-        return archOutline(h, o.sill, o.spring, h, 8).map(([x, y]) => [x + sgn * (h + 0.08), y] as [number, number]);
+        return archOutline(h, o.sill - SILL_SLAB, o.spring, h, 8).map(([x, y]) => [x + sgn * (h + 0.08), y] as [number, number]);
       })
-    : // Низ проёма одиночного окна — под плитой подоконника (Г-9): лежал с её верхом в одной плоскости, и видеокарта при
-      // каждом шаге взгляда выбирала то плиту, то откос — подоконник мерцал.
-      [archOutline(o.outW / 2, o.sill - SILL_SLAB, o.spring, o.outW / 2, 12)];
+    : [archOutline(o.outW / 2, o.sill - SILL_SLAB, o.spring, o.outW / 2, 12)];
+  // Низ проёма — под плитой подоконника (Г-9): лежал с её верхом в одной плоскости, и видеокарта при каждом шаге взгляда
+  // выбирала то плиту, то откос — подоконник мерцал.
   // Доска: грань к комнате, проёмы — дырами.
   const { u } = WALL_AXES[w];
   const po = wallPoint(w, 0, 0, o.plate);
   m.plane(po, [-u[0], 0, -u[2]], [0, 1, 0], mid.map(([x, y]) => [-(x + a), y]), lights.map((l) => l.map(([x, y]) => [-(x + a), y])), 'dressed', T(HUE.ashlar, 0.82));
   for (const l of lights) m.loft(pt(l, o.plate), pt(l, WALL_T + 0.04), 'dressed', T(HUE.ashlar, 0.86), true, 0.9);
-  // Подоконник проёма — плита с выносом в комнату и наружу за грань стены (слив): на неё кладут руки (дело «Окно»).
-  if (!o.twin) {
-    const s0 = wallPoint(w, a - o.outW / 2 - 0.08, 0, o.plate - 0.07);
-    const s1 = wallPoint(w, a + o.outW / 2 + 0.08, 0, WALL_T + 0.08);
+  // Подоконник проёма — плита с выносом в комнату и наружу за грань стены (слив): на неё кладут руки (дело «Окно»). У
+  // парного (Г-9) — одна плита под оба проёма и столбик: в нишу выходит на ладонь, концами — в откосы ниши.
+  {
+    const half = o.twin ? o.midW / 2 + 0.02 : o.outW / 2 + 0.08;
+    const s0 = wallPoint(w, a - half, 0, o.plate - (o.twin ? 0.12 : 0.07));
+    const s1 = wallPoint(w, a + half, 0, WALL_T + 0.08);
     m.cuboid(Math.min(s0[0], s1[0]), o.sill - SILL_SLAB, Math.min(s0[2], s1[2]), Math.max(s0[0], s1[0]), o.sill, Math.max(s0[2], s1[2]), 'dressed', T(HUE.ashlar, 0.95), { aoLow: 0.8 });
   }
   if (o.twin) {

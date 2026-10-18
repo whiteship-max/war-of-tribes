@@ -7,7 +7,7 @@ import { buildRoom } from './build';
 import { FIRE_SPEC } from './fire';
 import { earGains } from './sound';
 import { fingerChains, holdHand } from './body';
-import { ACTS, actLength, frameAt, sampleAct } from './acts';
+import { ACTS, actLength, frameAt, inRoom, sampleAct } from './acts';
 import { BODY_R, OBSTACLES, free, onFloor, pathTo, step, clear, NICHE_END, NICHE_HALF } from './walk';
 import { layoutTags, type TagOut } from './tags';
 import { DEFAULT_ARMS } from '@/heraldry/arms';
@@ -288,7 +288,7 @@ describe('покои: дела касанием мебели', () => {
   }
 
   it('каждое дело — касанием своей мебели: подходит сам, делает дело, глаз — в позе дела', () => {
-    for (const id of ['desk', 'window', 'hearth', 'bed', 'arms'] as SpotId[]) {
+    for (const id of ['desk', 'window', 'windowE', 'windowW', 'hearth', 'bed', 'arms'] as SpotId[]) {
       const room = phoneRoom();
       const at = aimAt(room, id);
       tap(room, at.x, at.y);
@@ -300,6 +300,44 @@ describe('покои: дела касанием мебели', () => {
       const pose = POI_BY_ID[id].pose;
       expect(Math.hypot(s.x - pose.x, s.y - pose.y, s.z - pose.z), `${id}: глаз в позе дела`).toBeLessThan(0.01);
       if (id === 'arms') expect(room.view().held, 'меч в руке').toBe('sword');
+      room.dispose();
+    }
+  });
+
+  it('окно на мыс и на реку (Г-9): касание подписи — подходит, наклоняется, ладони на подоконнике, «Вдаль» и «Ближе»', () => {
+    for (const id of ['windowE', 'windowW'] as const) {
+      const room = phoneRoom();
+      // Касание — по подписи окна: подошёл на шаг-два и смотрит на неё (как игрок, увидевший «Окно на мыс»).
+      const label = LABELS.find((l) => l.id === (id === 'windowE' ? 'windowE' : 'windowW'))!;
+      const s = Math.sign(label.at[0]);
+      room.standAtPoint(s * (HALF - 1.6), label.at[2], (s * Math.PI) / 2, Math.atan2(label.at[1] - 1.62, 1.6));
+      tap(room, PHONE.width / 2, PHONE.height / 2);
+      run(room, 20, () => room.state().mode === 'in');
+      const st = room.state();
+      expect(st.spot, `${label.name}: дело окна`).toBe(id);
+      const pose = POI_BY_ID[id].pose;
+      expect(Math.hypot(st.x - pose.x, st.y - pose.y, st.z - pose.z), 'глаз — наклонившись в нишу').toBeLessThan(0.01);
+      expect(Math.abs(st.x), 'глаз в нише, за гранью стены').toBeGreaterThan(HALF);
+      // Ладони — на плите подоконника проёма, по обе стороны от взгляда.
+      const sill = OPENINGS.find((o) => o.wall === (id === 'windowE' ? 'east' : 'west'))!.sill;
+      const hands = room.handsNow();
+      expect(hands, 'руки в деле').not.toBeNull();
+      for (const h of [hands!.left, hands!.right]) {
+        expect(h.w[1], 'ладонь на подоконнике').toBeCloseTo(sill + 0.04, 2);
+        expect(Math.abs(h.w[0]), 'ладонь — в проёме, у доски').toBeGreaterThan(HALF + 0.7);
+      }
+      expect(Math.sign(hands!.left.w[2] - st.z), 'ладони по обе стороны').not.toBe(Math.sign(hands!.right.w[2] - st.z));
+      // «Вдаль» — уже поле зрения, «Ближе» — назад.
+      const v = room.view();
+      expect(v.zoom, 'кнопки «Вдаль» и «Ближе»').toBe(0);
+      const wide = room.camera.fov;
+      room.zoomBy(1.6);
+      run(room, 0.2);
+      expect(room.view().zoom!, 'вдаль').toBeGreaterThan(0);
+      expect(room.camera.fov, 'поле зрения уже').toBeLessThan(wide);
+      room.zoomBy(1 / 1.6);
+      run(room, 0.2);
+      expect(room.camera.fov).toBeCloseTo(wide, 3);
       room.dispose();
     }
   });
@@ -321,7 +359,8 @@ describe('покои: дела касанием мебели', () => {
   it('глаз в деле не проходит сквозь мебель и стены: каждые 20 мс пути — вне мебели и в комнате', () => {
     for (const a of Object.values(ACTS)) {
       for (const f of sampleAct(a)) {
-        expect(Math.abs(f.x) < HALF && f.z > -HALF && f.z < NICHE_END, `${a.id}: в комнате`).toBe(true);
+        // В комнате или в нише своего окна (у парных — до 0,6 м в толщу стены, Г-9).
+        expect((Math.abs(f.x) < HALF && f.z > -HALF && f.z < NICHE_END) || inRoom(f), `${a.id}: в комнате`).toBe(true);
         for (const b of SOLID) {
           const inside = f.x > b.x0 && f.x < b.x1 && f.y > b.y0 && f.y < b.y1 && f.z > b.z0 && f.z < b.z1;
           expect(inside, `${a.id}: глаз в «${b.id}» (${f.x.toFixed(2)}, ${f.y.toFixed(2)}, ${f.z.toFixed(2)})`).toBe(false);

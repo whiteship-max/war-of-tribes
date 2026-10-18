@@ -5,7 +5,7 @@
 // `detail` — уровень подробности по качеству: 0 — низкий (без слуховых окон, досок свесов, конька и
 // прогиба), 1 — средний, 2 — высокий.
 import { CITY } from './palette';
-import { Builder, box, tint, wall, type V3 } from './geom';
+import { Builder, box, flat, tint, wall, type V3 } from './geom';
 import type { House } from './layout';
 import { L, TILE_M, type LayerName } from './tex';
 import { rnd } from './noise';
@@ -165,8 +165,11 @@ export function gableRoof(
   const quadDown = (q: readonly [V3, V3, V3, V3], uv: readonly [number, number, number, number, number, number, number, number]): void => {
     const n = cross(sub(q[1], q[0]), sub(q[3], q[0]));
     const l = Math.hypot(n[0], n[1], n[2]) || 1;
-    const s = (n[1] >= 0 ? -ROOF_T : ROOF_T) / l;
-    const [a, bb, c, d] = q.map((p): V3 => [p[0] + n[0] * s, p[1] + n[1] * s, p[2] + n[2] * s]);
+    // Отвесно вниз на толщину кровли (Г-9), а не по нормали: по нормали край изнанки выходил из-под края ската на
+    // `ROOF_T · sin(уклона)`, и сверху, из окон донжона, вдоль карниза сквозила полоса изнанки — дыра в кровле. Отвесно край
+    // изнанки — под краем ската, щель между ними снаружи закрывают доски карниза и ветровые.
+    const dy = -ROOF_T / Math.max(0.3, Math.abs(n[1]) / l);
+    const [a, bb, c, d] = q.map((p): V3 => [p[0], p[1] + dy, p[2]]);
     // Та же диагональ a–c, что у ската (`Builder.quad`), обход обратный: изнанка повторяет излом провисшего ската.
     if (n[1] >= 0) b.quad(a, d, c, bb, [uv[0], uv[1], uv[6], uv[7], uv[4], uv[5], uv[2], uv[3]], L[layer], under, [0.6, 0.75, 0.75, 0.6]);
     else b.quad(a, bb, c, d, uv, L[layer], under, [0.6, 0.6, 0.75, 0.75]);
@@ -295,7 +298,20 @@ export function chimney(b: Builder, x: number, z: number, y0: number, y1: number
   const fz = Math.sin(rot);
   box(b, x, z, fx, fz, 0.62, 0.74, y0, y1, 'rubble', t, null);
   box(b, x, z, fx, fz, 0.82, 0.94, y1, y1 + 0.12, 'ashlar', tint(CITY.limestoneGrey, 0.9), 'ashlar');
-  if (detail > 0) box(b, x, z, fx, fz, 0.42, 0.5, y1 + 0.12, y1 + 0.3, 'rubble', t, null);
+  if (detail > 0) {
+    box(b, x, z, fx, fz, 0.42, 0.5, y1 + 0.12, y1 + 0.3, 'rubble', t, null);
+    // Дымоход — сажей в двух сантиметрах под краем трубы (Г-9): открытый верх сверху, из окон донжона, глядел изнанкой
+    // дальней стенки, и сквозь трубу было видно кровлю за ней.
+    const rx = fz;
+    const rz = -fx;
+    const c = [
+      [x + fx * 0.25 - rx * 0.21, z + fz * 0.25 - rz * 0.21],
+      [x + fx * 0.25 + rx * 0.21, z + fz * 0.25 + rz * 0.21],
+      [x - fx * 0.25 + rx * 0.21, z - fz * 0.25 + rz * 0.21],
+      [x - fx * 0.25 - rx * 0.21, z - fz * 0.25 - rz * 0.21],
+    ] as [number, number][];
+    flat(b, c, y1 + 0.28, 'rubble', tint(CITY.rubbleDark, 0.22));
+  }
 }
 
 // ---------------------------------------------------------------------------------------------

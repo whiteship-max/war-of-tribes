@@ -47,8 +47,15 @@ export interface Pose {
   fov: number;
 }
 
-/** Место действия: сесть за стол, лечь, к окну, к огню, к оружию. `hall` — стоя посреди покоев (вход и снимки стенда). */
-export type SpotId = 'desk' | 'window' | 'hearth' | 'bed' | 'arms' | 'door';
+/**
+ * Место действия: сесть за стол, лечь, к окну, к огню, к оружию; к окнам на мыс и на реку (Г-9). `hall` — стоя посреди
+ * покоев (вход и снимки стенда).
+ */
+export type SpotId = 'desk' | 'window' | 'windowE' | 'windowW' | 'hearth' | 'bed' | 'arms' | 'door';
+/** Окна, к которым подходят и смотрят вдаль: большое на город и парные на мыс и на реку. */
+export const WINDOW_SPOTS = ['window', 'windowE', 'windowW'] as const;
+export type WindowSpot = (typeof WINDOW_SPOTS)[number];
+export const isWindowSpot = (id: PoiId | null | undefined): id is WindowSpot => id === 'window' || id === 'windowE' || id === 'windowW';
 export type PoiId = 'hall' | SpotId;
 
 /** Где тело стоит перед действием: место на полу и куда лицом. */
@@ -136,6 +143,20 @@ export function wallPoint(w: keyof typeof WALL_AXES, along: number, y: number, d
 export const alongOf = (o: Opening): number => {
   const u = WALL_AXES[o.wall].u;
   return o.at * (u[0] + u[2]);
+};
+
+/** Парное окно стены: на мыс — восточное, на реку — западное. */
+export const sideOpening = (id: 'windowE' | 'windowW'): Opening => OPENINGS.find((o) => o.wall === (id === 'windowE' ? 'east' : 'west'))!;
+
+/**
+ * Проём парного окна, в который глядят (Г-9): правитель наклоняется к южному из двух — столбик между ними не встаёт
+ * посреди взгляда, а «Вдаль» смотрит в проём, а не в камень. Вдоль стены (`U`) от середины окна.
+ */
+export const sideLight = (o: Opening): number => {
+  const h = (o.outW - 0.16) / 4;
+  const off = h + 0.08;
+  // Южный проём: у восточной стены ось `U` смотрит на север (−z), у западной — на юг (+z).
+  return alongOf(o) + (o.wall === 'east' ? -off : off);
 };
 
 /** Камин у северной стены: устье, колпак, очаг. Огонь светит отсюда. */
@@ -229,6 +250,23 @@ export const POIS: readonly Poi[] = [
     zoom: [16, 62],
     hits: [box(-1.35, 0.4, 5.1, 1.35, 3.9, 6.5)],
   },
+  ...(['windowE', 'windowW'] as const).map((id): Poi => {
+    const o = sideOpening(id);
+    const s = o.wall === 'east' ? 1 : -1;
+    const [, , z] = wallPoint(o.wall, sideLight(o), 0, 0);
+    return {
+      id,
+      name: id === 'windowE' ? 'Окно на мыс' : 'Окно на реку',
+      verb: id === 'windowE' ? 'Подойти к окну на мыс' : 'Подойти к окну на реку',
+      // Наклонившись в нишу парного окна, ладони на подоконнике проёма: глаз — над низом ниши, у южного проёма (Г-9).
+      pose: { x: s * (HALF + 0.36), y: 1.47, z, yaw: (s * Math.PI) / 2, pitch: -0.3, fov: 62 },
+      approach: { x: s * (HALF - 0.48), z, yaw: (s * Math.PI) / 2 },
+      yaw: [-0.75, 0.75],
+      pitch: [-0.9, 0.45],
+      zoom: [16, 62],
+      hits: [box(s < 0 ? -HALF - 1.0 : HALF - 0.05, o.inSill, o.at - o.inW / 2, s < 0 ? -HALF + 0.05 : HALF + 1.0, o.inSpring + o.inW / 2, o.at + o.inW / 2)],
+    };
+  }),
   {
     id: 'hearth',
     name: 'Камин',

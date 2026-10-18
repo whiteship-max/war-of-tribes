@@ -165,6 +165,11 @@ describe('покои: вид из окна (Г-7)', () => {
     const views: { eye: [number, number, number]; yaw: number; yaws: readonly [number, number]; pitches: readonly [number, number]; o: Opening }[] = [
       { eye: [win.pose.x, win.pose.y, win.pose.z], yaw: win.pose.yaw, yaws: win.yaw!, pitches: win.pitch, o: south },
       { eye: [0, 1.62, 3.9], yaw: 0, yaws: [-0.6, 0.6], pitches: [-0.6, 0.3], o: south },
+      // Г-9: дела «Окно на мыс» и «Окно на реку» — глаз в нише парного окна, в пределах поворота головы дела.
+      ...(['windowE', 'windowW'] as const).map((id) => {
+        const p = POI_BY_ID[id];
+        return { eye: [p.pose.x, p.pose.y, p.pose.z] as [number, number, number], yaw: p.pose.yaw, yaws: p.yaw!, pitches: p.pitch, o: OPENINGS.find((o) => o.wall === (id === 'windowE' ? 'east' : 'west'))! };
+      }),
       ...OPENINGS.filter((o) => o.wall !== 'south').map((o) => ({
         eye: [(o.wall === 'west' ? -1 : 1) * (HALF - 0.8), 1.62, o.at] as [number, number, number],
         yaw: o.wall === 'west' ? -Math.PI / 2 : Math.PI / 2,

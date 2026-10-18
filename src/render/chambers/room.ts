@@ -55,7 +55,12 @@ import {
   floorOf,
   isSmall,
   isTrinket,
+  isWindowSpot,
   lookDir,
+  sideLight,
+  sideOpening,
+  WALL_AXES,
+  wallPoint,
   softFloor,
   wrap,
   type Box,
@@ -131,6 +136,8 @@ const ACT_CUES: Record<SpotId, readonly (readonly [number, Cue])[]> = {
     [1.8, 'rustle'],
   ],
   window: [],
+  windowE: [],
+  windowW: [],
   hearth: [],
   arms: [],
   door: [],
@@ -240,6 +247,7 @@ export class ChambersRoom implements Inside {
   private fit: { key: string; at: THREE.Vector3 } | null = null;
 
   // Подписи и стик.
+  private handsLast: { left: HandPose; right: HandPose } | null = null;
   private labelHost: HTMLElement | null = null;
   private label: HTMLDivElement | null = null;
   private tagEls: { box: HTMLDivElement; dot: HTMLDivElement; line: HTMLDivElement }[] = [];
@@ -359,7 +367,7 @@ export class ChambersRoom implements Inside {
   // ---------- Что видит интерфейс ----------
 
   view(): ChambersView {
-    const z = this.mode === 'in' && this.act?.a.id === 'window' ? POI_BY_ID.window.zoom! : null;
+    const z = this.mode === 'in' && isWindowSpot(this.act?.a.id) ? POI_BY_ID[this.act!.a.id].zoom! : null;
     const wide = z ? fitFov(z[1], this.camera.aspect) : 0;
     return {
       mode: this.mode,
@@ -477,8 +485,8 @@ export class ChambersRoom implements Inside {
 
   /** Приближение у окна: шаг ±1 (кнопка) или множитель колеса. */
   zoomBy(k: number): void {
-    if (!(this.mode === 'in' && this.act?.a.id === 'window')) return;
-    const z = POI_BY_ID.window.zoom!;
+    if (!(this.mode === 'in' && isWindowSpot(this.act?.a.id))) return;
+    const z = POI_BY_ID[this.act!.a.id].zoom!;
     const wide = fitFov(z[1], this.camera.aspect);
     const cur = this.zoomFov ?? wide;
     this.zoomFov = Math.min(wide, Math.max(z[0], cur / k));
@@ -1130,7 +1138,13 @@ export class ChambersRoom implements Inside {
       rightH = blendHand(rightH ?? low(1), target, pk);
     }
     const sit = a?.a.id === 'desk' && f ? f.sit : 0;
+    this.handsLast = left && rightH ? { left, right: rightH } : null;
     this.body.update(rightH || left || sit > 0.02 ? { eye, yaw, left, right: rightH, sit, seat: { x: CHAIR.x, z: CHAIR.z - 0.14, y: 0.55 } } : null, this.origin);
+  }
+
+  /** Обе кисти этого кадра (в осях комнаты), когда руки в деле, — тестам: ладони на подоконнике, на крышке сундука. */
+  handsNow(): { left: HandPose; right: HandPose } | null {
+    return this.handsLast;
   }
 
   /** Руки в деле — куда кладутся кисти (в осях комнаты). */
@@ -1149,12 +1163,23 @@ export class ChambersRoom implements Inside {
         });
         return { right: hand(1), left: hand(-1) };
       }
-      case 'sill':
-        // Ладони на подоконнике большого окна (`plan.OPENINGS`: плита подоконника выходит из доски в комнату).
-        return {
-          right: { w: [-0.17, SILL + 0.04, HALF + 0.8], f: [0.22, -0.16, 1], u: [0, 1, 0.16], curl: 0.12, spread: 0.1 },
-          left: { w: [0.17, SILL + 0.04, HALF + 0.8], f: [-0.22, -0.16, 1], u: [0, 1, 0.16], curl: 0.12, spread: 0.1 },
-        };
+      case 'sill': {
+        // Ладони на подоконнике (`plan.OPENINGS`: плита выходит из доски в комнату) — большого окна или южного проёма
+        // парного (Г-9): пальцы — наружу и чуть к середине, ладонь — плашмя.
+        const id = this.act?.a.id;
+        const side = id === 'windowE' || id === 'windowW' ? sideOpening(id) : null;
+        const c: [number, number, number] = side ? wallPoint(side.wall, sideLight(side), side.sill + 0.04, side.plate - 0.05) : [0, SILL + 0.04, HALF + 0.8];
+        const n = side ? WALL_AXES[side.wall].n : ([0, 0, 1] as const);
+        const half = side ? 0.15 : 0.17;
+        const hand = (k: 1 | -1): HandPose => ({
+          w: [c[0] + right[0] * k * half, c[1], c[2] + right[2] * k * half],
+          f: [n[0] - right[0] * k * 0.22, -0.16, n[2] - right[2] * k * 0.22],
+          u: [n[0] * 0.16, 1, n[2] * 0.16],
+          curl: 0.12,
+          spread: 0.1,
+        });
+        return { right: hand(1), left: hand(-1) };
+      }
       case 'knock': {
         // Стук (Г-7): правая — кулаком к доске двери, на ударах касается её и отдёргивается; левая опущена.
         const at = this.act?.t ?? 0;

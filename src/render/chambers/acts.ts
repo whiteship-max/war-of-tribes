@@ -5,7 +5,7 @@
 // Каждое дело — ключи от места подхода (`plan.Poi.approach`, стоя) до позы дела (`plan.Poi.pose`). Между ключами —
 // монотонная кубическая кривая по каждому числу (Фритч — Карлсон): скорость непрерывна, на концах — ноль, и ни одно
 // число не перелетает ключ — камера не качается и не дёргается. Встать — те же ключи назад.
-import { CHAIR, DOOR, HALF, POI_BY_ID, type PoiId, type SpotId } from './plan';
+import { CHAIR, DOOR, HALF, OPENINGS, POI_BY_ID, type PoiId, type SpotId } from './plan';
 import { EYE_STAND } from './walk';
 
 /** Числа ключа: глаз (место, поворот, наклон), доля рук в деле `hands` и доля посадки `sit` (ноги под столом). */
@@ -44,6 +44,21 @@ const rest = (id: SpotId, t: number, hands: number, sit = 0): Key => {
 };
 
 /**
+ * Парное окно (Г-9): шаг к нише, наклон в неё над низом ниши, ладони — на подоконник южного проёма. Как у большого окна:
+ * взгляд сперва к проёму, потом вниз, на город и даль.
+ */
+function sideWindow(id: 'windowE' | 'windowW'): Act {
+  const a = POI_BY_ID[id].approach!;
+  const p = POI_BY_ID[id].pose;
+  const s = Math.sign(p.x);
+  return {
+    id,
+    hands: 'sill',
+    keys: [start(id, -0.1), k(0.7, a.x + s * 0.42, 1.59, a.z, a.yaw, -0.18, 0.35), k(1.3, p.x - s * 0.06, 1.5, p.z, p.yaw, -0.32, 0.95), rest(id, 1.75, 1)],
+  };
+}
+
+/**
  * Ключи дел. Глаз сидя — над сиденьем (`CHAIR`), лёжа — над подушкой; путь глаза не задевает мебель (тест «глаз не
  * проходит сквозь мебель»): кресло подходят сбоку, над подлокотником, спинка остаётся за глазом.
  */
@@ -66,6 +81,8 @@ export const ACTS: Record<SpotId, Act> = {
     hands: 'sill',
     keys: [start('window', -0.12), k(0.7, 0, 1.6, 5.22, 0, -0.22, 0.35), k(1.3, 0, 1.48, 5.58, 0, -0.44, 0.95), rest('window', 1.75, 1)],
   },
+  windowE: sideWindow('windowE'),
+  windowW: sideWindow('windowW'),
   hearth: {
     id: 'hearth',
     hands: 'warm',
@@ -158,5 +175,6 @@ export function sampleAct(a: Act, dt = 0.02): Frame[] {
 /** Дело точки (у `hall` — нет). */
 export const actOf = (id: PoiId): Act | null => (id === 'hall' ? null : ACTS[id]);
 
-/** Глаз — в комнате (с нишей южного окна): числа для тестов и для стенда. */
-export const inRoom = (f: Pick<Frame, 'x' | 'z'>): boolean => Math.abs(f.x) < HALF && f.z > -HALF && f.z < HALF + 1.0;
+/** Глаз — в комнате (с нишей южного окна и нишами парных — до 0,6 м в толщу, Г-9): числа для тестов и для стенда. */
+export const inRoom = (f: Pick<Frame, 'x' | 'z'>): boolean =>
+  f.z > -HALF && f.z < HALF + 1.0 && (Math.abs(f.x) < HALF || (Math.abs(f.x) < HALF + 0.6 && OPENINGS.some((o) => o.wall !== 'south' && Math.abs(f.z - o.at) < o.inW / 2 - 0.25)));
