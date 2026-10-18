@@ -34,6 +34,7 @@ import { Table, type Col } from '@/ui/kit/Table';
 import { Row } from '@/ui/kit/Row';
 import { useChambers } from '@/ui/chambers/open';
 import { goTo, tipGo } from '@/ui/kit/nav';
+import { withShow } from '@/ui/next/show';
 import { WINDOW, sourceWord } from '@/ui/kit/sources';
 import { BuildingNew } from '@/ui/next/BuildingNew';
 import { SmithyNew } from '@/ui/next/SmithyNew';
@@ -207,7 +208,7 @@ function CampfireData() {
               ),
               n: String(Math.round(s.morale)),
             },
-            tip: () => moraleTip(s, tipGo()),
+            tip: () => withShow(moraleTip(s, tipGo())),
             go: () => goTo(WINDOW.morale),
             goLabel: `Мораль: ${sourceWord(WINDOW.morale)}`,
           },

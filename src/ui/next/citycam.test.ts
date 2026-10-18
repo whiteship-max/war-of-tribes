@@ -1,10 +1,10 @@
 // Ориентация в городе (ОР-1, docs/ui_v2.md, 5.9): «Показать в городе» в подсказке и в ратуше ведёт одной дверью
-// (`kit/nav.showInCity`), кнопки камеры — «Подписи» и «Домой» — цели 44, «Домой» — только когда есть куда возвращаться.
+// (`next/show.showInCity`), кнопки камеры — «Подписи» и «Домой» — цели 44, «Домой» — только когда есть куда возвращаться.
 import { readFileSync } from 'node:fs';
 import { fileURLToPath, URL } from 'node:url';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import type { BuildingTypeId, GameState } from '@/game/types';
 import { createInitialState } from '@/game/state';
 import { producersOf } from '@/ui/kit/sources';
@@ -12,16 +12,20 @@ import type { TipGo } from './hudTips';
 
 (globalThis as { window?: unknown }).window ??= {};
 
-/** Живая сцена — подставная: дверь зовёт её `showBuilding`, а WebGL тесту не нужен. */
+/** Что дверь попросила у камеры: просьбу берёт сцена (`sitetags.takeCamAsk`), здесь — тест вместо неё. */
+const { takeCamAsk } = await import('@/render/sitetags');
 const shown: BuildingTypeId[] = [];
-vi.mock('@/render/Scene', () => ({
-  activeScene: () => ({ showBuilding: (t: BuildingTypeId) => (shown.push(t), true), cameraHome: () => undefined }),
-}));
+const take = (): void => {
+  const a = takeCamAsk();
+  if (a?.kind === 'show') shown.push(a.type as BuildingTypeId);
+};
 
 const { useGame } = await import('@/game/store');
 const { useRealm } = await import('@/ui/realm/open');
-const { showInCity, tipGo } = await import('@/ui/kit/nav');
-const { resTip } = await import('./hudTips');
+const { showInCity, withShow } = await import('./show');
+const { tipGo } = await import('@/ui/kit/nav');
+const { armyTip, moraleTip, popTip, resTip } = await import('./hudTips');
+const { RESOURCE_IDS } = await import('@/game/constants');
 const { TipView } = await import('./TipLayer');
 const { CityCamView } = await import('./CityCam');
 
@@ -40,6 +44,7 @@ describe('«Показать в городе» — одна дверь', () => {
     // Шторка (ратуша) — без карты и державы: и то и другое закрыло бы шторку само (`useRealm.show` встаёт вместо неё).
     useGame.setState({ sheet: { kind: 'building', id: hall.id } });
     showInCity('farm');
+    take();
     expect(useGame.getState().sheet).toBeNull();
     expect(shown).toEqual(['farm']);
   });
@@ -47,6 +52,7 @@ describe('«Показать в городе» — одна дверь', () => {
   it('держава уходит', () => {
     useRealm.getState().show('decisions');
     showInCity('farm');
+    take();
     expect(useRealm.getState().open).toBe(false);
     expect(shown).toEqual(['farm']);
   });
@@ -54,6 +60,7 @@ describe('«Показать в городе» — одна дверь', () => {
   it('с карты — в город', () => {
     useGame.setState({ mapOpen: true });
     showInCity('farm');
+    take();
     expect(useGame.getState().mapOpen).toBe(false);
     expect(shown).toEqual(['farm']);
   });
@@ -64,6 +71,7 @@ describe('«Показать в городе» — одна дверь', () => {
     const hall = s.buildings.find((b) => b.type === 'town_hall')!;
     useGame.setState({ s: { ...s }, sheet: { kind: 'building', id: hall.id } });
     showInCity('farm');
+    take();
     expect(shown).toEqual([]);
     expect(useGame.getState().sheet).not.toBeNull();
   });
@@ -71,7 +79,7 @@ describe('«Показать в городе» — одна дверь', () => {
 
 describe('подсказка: рядом с главной кнопкой постройки — метка места', () => {
   // Область: подсказка еды на новой партии — все её постройки стоят (`createInitialState`), и одна снесена.
-  const tipOf = (s: GameState, go: TipGo) => resTip(s, 'food', null, go);
+  const tipOf = (s: GameState, go: TipGo) => withShow(resTip(s, 'food', null, go));
 
   it('у каждой стоящей постройки — своя кнопка, и ведёт она в эту постройку', () => {
     const s = createInitialState();
@@ -81,6 +89,7 @@ describe('подсказка: рядом с главной кнопкой пос
     for (const m of t.makers!) expect(m.show, m.label).toBeTypeOf('function');
     shown.length = 0;
     t.makers![0].show!();
+    take();
     expect(shown).toHaveLength(1);
     expect(t.makers![0].label).toContain(t.rows![0].label);
   });
@@ -94,10 +103,19 @@ describe('подсказка: рядом с главной кнопкой пос
     expect(build[0].show).toBeUndefined();
   });
 
-  it('без двери показа — главные кнопки как прежде, без метки', () => {
+  it('у всех подсказок верха с кнопками построек — метка у каждой: имя кнопки находит постройку', () => {
+    // Область: все подсказки с главными кнопками (`hudTips.makers`) — семь запасов, жители, мораль, дружина.
     const s = createInitialState();
-    const bare: TipGo = { tab: () => undefined, building: () => undefined, realm: () => undefined };
-    expect(tipOf(s, bare).makers!.every((m) => m.show === undefined)).toBe(true);
+    const go = tipGo();
+    const tips = [...RESOURCE_IDS.map((r) => resTip(s, r, null, go)), popTip(s, go), moraleTip(s, go), armyTip(s, go)];
+    let n = 0;
+    for (const t of tips.map(withShow)) {
+      for (const m of t.makers ?? []) {
+        expect(m.show, `${t.title}: ${m.label}`).toBeTypeOf('function');
+        n++;
+      }
+    }
+    expect(n).toBeGreaterThan(10);
   });
 
   it('разметка: метка — отдельная кнопка рядом, не внутри главной; столбцом', () => {

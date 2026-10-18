@@ -62,7 +62,7 @@ export interface TipMaker {
   icon: { name: string; glyph: string };
   go: () => void;
   build?: boolean;
-  /** «Показать в городе» (ОР-1): постройка стоит — кнопка с меткой места рядом с главной. */
+  /** «Показать в городе» (ОР-1): постройка стоит — кнопка с меткой места рядом с главной (`next/show.withShow`). */
   show?: () => void;
 }
 

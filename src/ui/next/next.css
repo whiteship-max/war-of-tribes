@@ -2512,7 +2512,7 @@
   align-items: center;
   justify-content: center;
   gap: 2px;
-  width: 52px;
+  width: 60px;
   min-height: var(--tap);
   padding: 4px 0;
   border-radius: 12px;
@@ -2529,7 +2529,7 @@
   height: 20px;
 }
 .nx-cam small {
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
   line-height: 1;
 }

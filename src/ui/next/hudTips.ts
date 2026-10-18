@@ -74,8 +74,6 @@ export interface TipGo {
   building(id: number): void;
   realm(v: RealmView): void;
   to?(src: Source): void;
-  /** «Показать в городе» (ОР-1): у главной кнопки постройки — своя кнопка с меткой места (`kit/nav.showInCity`). */
-  show?(type: BuildingTypeId): void;
 }
 
 /** Целое с узким пробелом в разрядах: «4 800» (docs/ui_audit.md, 4.5). */
@@ -122,11 +120,11 @@ function makers(s: GameState, types: readonly BuildingTypeId[], go: TipGo, weigh
     const def = BUILDING_BY_ID[type];
     const icon = { name: `bld-${type}`, glyph: def.icon };
     const b = buildingOfType(s, type);
-    if (b) out.push({ label: def.name, icon, go: () => go.building(b.id), ...(go.show ? { show: () => go.show!(type) } : {}), w: weight(type), i });
+    if (b) out.push({ label: def.name, icon, go: () => go.building(b.id), w: weight(type), i });
     else if (go.to) out.push({ label: def.name, icon, build: true, go: () => go.to!({ kind: 'build' }), w: -Infinity, i });
   });
   out.sort((a, b) => b.w - a.w || a.i - b.i);
-  return out.map(({ label, icon, go: open, build, show }) => ({ label, icon, go: open, ...(build ? { build } : {}), ...(show ? { show } : {}) }));
+  return out.map(({ label, icon, go: open, build }) => ({ label, icon, go: open, ...(build ? { build } : {}) }));
 }
 
 /** Пассив постройки сейчас; постройки нет — ноль. */

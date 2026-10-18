@@ -19,7 +19,7 @@ import type { CityGarrison } from './garrison';
 import type { CityDeeds } from './deeds';
 import type { SiteTags } from './tags';
 import type { CityLabels, LabelSpot } from './labels';
-import { labelsOn, setCityCam } from '../citycam';
+import { labelsOn, setCityCam, takeCamAsk } from '../sitetags';
 import { newsOf, seenOf, waveAfter, WAVE_REAL, type CityPops, type Seen, type Yard, type YieldTally } from './pops';
 import { TAP_TARGET } from '@/gestures';
 import { markerSvg, SCENES, TribeScene, type BuildingView, type SceneLook } from '../Scene';
@@ -146,6 +146,7 @@ export class CityScene extends TribeScene {
   private shown: { type: BuildingTypeId; until: number } | null = null;
   /** Показать просили до того, как город встал: покажется, когда встанет. */
   private showDue: BuildingTypeId | null = null;
+
   private tally: YieldTally | null = null;
   /** Что отклик видел в прошлом чтении партии (`pops.seenOf`) и когда это было настоящим временем, мс. */
   private seen: { was: Seen; real: number } | null = null;
@@ -901,6 +902,10 @@ export class CityScene extends TribeScene {
    * между кадрами — полёт уступает ему: игрок ведёт сам. И каждый кадр — доске, ушла ли камера с дома (кнопка «Домой»).
    */
   private stepFly(t: number): void {
+    // Просьба интерфейса (`sitetags.askCam`): в покоях её нет — кнопки города там не стоят.
+    const ask = this.inside ? null : takeCamAsk();
+    if (ask?.kind === 'show') this.showBuilding(ask.type as BuildingTypeId);
+    else if (ask?.kind === 'home') this.flyTo(this.homePose());
     const f = this.fly;
     if (f && !this.inside) {
       const p = this.pose();
@@ -923,27 +928,19 @@ export class CityScene extends TribeScene {
   /**
    * «Показать в городе»: камера летит к главному месту постройки (`showDist` — по её размеру) и подсвечивает её — вся
    * постройка светится (`cSel`) и подпись золотом, пока не кончится `SHOW_GLOW_S` после полёта. Город не встал — покажет,
-   * когда встанет; в покоях — нет.
+   * когда встанет. «Домой» — тем же полётом на стартовый кадр (`stepFly`).
    */
-  override showBuilding(type: BuildingTypeId): boolean {
-    if (this.disposed || this.inside) return false;
+  private showBuilding(type: BuildingTypeId): void {
     if (!this.town) {
       this.showDue = type;
-      return true;
+      return;
     }
     this.showDue = null;
     const m = mainSite(this.sites, type);
-    if (!m) return false;
+    if (!m) return;
     this.flyTo({ x: m.x, z: m.z, dist: showDist(m) });
     this.shown = { type, until: this.sceneNow() + FLY_S + SHOW_GLOW_S };
     this.labels?.light(type);
-    return true;
-  }
-
-  /** «Домой»: тем же полётом — на стартовый кадр. */
-  override cameraHome(): void {
-    if (this.disposed || this.inside) return;
-    this.flyTo(this.homePose());
   }
 
   // ---------- Касание ----------

@@ -18,7 +18,8 @@ import { armyTip, energyTip, goldTip, isFull, moraleTip, orderTip, popTip, resTi
 import { GemPlaque } from './Treasury';
 import { SiteTags } from './Rush';
 import { CityCam } from './CityCam';
-import { goTo, showInCity } from '@/ui/kit/nav';
+import { goTo } from '@/ui/kit/nav';
+import { withShow } from './show';
 import { useChambers } from '@/ui/chambers/open';
 
 /**
@@ -127,17 +128,18 @@ function CityHud() {
   const order = bondedTotal(s) > 0 ? Math.round(orderValue(s)) : null;
   const net = netPerDay(s);
   const storage = buildingOfType(s, 'storage');
-  // `to` — дверь набора: «Построить» ведёт в «Стройку» ратуши (`kit/nav.goTo`); `show` — «Показать в городе» (ОР-1).
-  const go: TipGo = { tab: openTab, building: openBuilding, realm: showRealm, to: goTo, show: showInCity };
+  // `to` — дверь набора: «Построить» ведёт в «Стройку» ратуши (`kit/nav.goTo`).
+  const go: TipGo = { tab: openTab, building: openBuilding, realm: showRealm, to: goTo };
   const showTrades = useTrades((t) => t.show);
   const lit = useYieldFlash();
   // Энергия — сутками игрока (`ui/trades.energyNow`); перерисовывается вместе с партией, раз в шаг цикла.
   const energy = energyShown(s, energyNow());
-  // Подсказка считается в миг касания: числа в ней — на эту секунду, а не на последнюю перерисовку.
+  // Подсказка считается в миг касания: числа в ней — на эту секунду, а не на последнюю перерисовку. У главных кнопок —
+  // «Показать в городе» (ОР-1, `show.withShow`).
   const tip =
     (content: () => TipContent) =>
     (e: { currentTarget: Element }): void =>
-      tipAt(e.currentTarget, content());
+      tipAt(e.currentTarget, withShow(content()));
 
   return (
     <div className="nx-hud">

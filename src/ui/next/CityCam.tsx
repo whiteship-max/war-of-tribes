@@ -3,12 +3,11 @@
 // алмазов: там над городом лес, ни одной постройки (`.nx-gems`, `SPOTS=1 npm run tap:report`), и касание кнопки не спорит с
 // касанием постройки. Пока город занят — шторкой, картой, державой, промыслами, — столбца нет: он вёл бы к городу под окном.
 //
-// Сцена и кнопки говорят через доску `render/citycam` — рычаг подписей и «ушла ли камера с дома»; полёт — `cameraHome`
-// живой сцены. Рычаг помнится устройством (`localStorage`): это удобство зрителя, не партия.
+// Сцена и кнопки говорят через доску `render/sitetags` — рычаг подписей, просьба «Домой» и «ушла ли камера с дома». Рычаг
+// помнится устройством (`localStorage`): это удобство зрителя, не партия.
 import { useEffect, useState } from 'react';
 import { create } from 'zustand';
-import { CITY_CAM_EVENT, cityCam, setLabelsOn } from '@/render/citycam';
-import { activeScene } from '@/render/Scene';
+import { CITY_CAM_EVENT, askCam, cityCam, setLabelsOn } from '@/render/sitetags';
 import { Icon } from '@/ui/icons/Icon';
 import { useCityBusy } from './Hints';
 
@@ -59,7 +58,7 @@ export function CityCam() {
   const toggle = useLabels((l) => l.toggle);
   const moved = useMoved();
   if (busy) return null;
-  return <CityCamView on={on} moved={moved} toggle={toggle} home={() => activeScene()?.cameraHome()} />;
+  return <CityCamView on={on} moved={moved} toggle={toggle} home={() => askCam({ kind: 'home' })} />;
 }
 
 /** Разметка столбца без хранилищ и сцены — её сверяет тест (`citycam.test.ts`). */
