@@ -5,6 +5,7 @@ import { Icon } from '@/ui/icons/Icon';
 import { mailKeys, unreadCount, useSeen } from '@/ui/realm/unread';
 import { useRealm } from '@/ui/realm/open';
 import { useAlertItems } from '@/ui/alertItems';
+import { useChambers } from '@/ui/chambers/open';
 
 /**
  * Низ нового интерфейса (docs/ui_audit.md, 6.0): пять мест — Ратуша · Племя · Карта · Дружина · Вести; карта
@@ -18,7 +19,13 @@ import { useAlertItems } from '@/ui/alertItems';
  * `click`), и касание у кромки низа достаётся тому, на ком лежит палец, — городу или кнопке, — а не ближайшей
  * кнопке, как прежде (docs/city.md, 12.4).
  */
+/** В покоях правителя (docs/city_v3.md, Г-4) низа города нет: у покоев свой слой (`ui/chambers`). */
 export function Nav() {
+  const inside = useChambers((c) => c.open);
+  return inside ? null : <CityNav />;
+}
+
+function CityNav() {
   const s = useGame((g) => g.s);
   const sheet = useGame((g) => g.sheet);
   const mapOpen = useGame((g) => g.mapOpen);

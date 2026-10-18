@@ -36,6 +36,7 @@ import { gestLog } from '@/gestlog';
 import { serverNow } from '@/net/clock';
 import { haptic } from '@/telegram/webapp';
 import type { Season } from '@/game/types';
+import type { MinigameId } from '@/game/data/minigames';
 import { Keys, PITCH_LIMIT, STICK_FULL, Sticks, mergeWalk, typing, type Walk } from '@/prologue/controls';
 import { EYE, WALK_SPEED, slide, viewFov, type Blocker } from '@/prologue/glade';
 import {
@@ -343,6 +344,10 @@ export class Stage {
     () => void (this.last = performance.now()),
   );
   private last = performance.now();
+  /** Место замера кадров (docs/telemetry.md): промысел называет зовущий — сцена своего вида не знает. */
+  measureAs(id: MinigameId): void {
+    this.frameLoop.place = id;
+  }
   private px: number;
   private pz: number;
   private yaw: number;

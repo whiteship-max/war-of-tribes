@@ -82,6 +82,7 @@ export class TwPlayer {
     private opts: TwPlayerOptions = {},
   ) {
     this.speed = opts.speed ?? 1;
+    this.beat.place = 'battle';
     this.steady = opts.watch ? new Steady(QUALITIES, opts.watch, VILLAGE_STEADY) : null;
     this.pre = plan.barrage?.seconds ?? 0;
     this.beats = beatsOf(plan.cast, plan.result, plan.timing);

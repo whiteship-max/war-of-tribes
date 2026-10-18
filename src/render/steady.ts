@@ -12,6 +12,16 @@
  * телефон, у которого одна сцена опустила графику, а другая — нет.
  */
 
+/**
+ * Слушатель понижений — один на игру: сборщик замеров (`perf/telemetry`) пишет, с какой ступени на какую сторож опустил
+ * графику. Только понижение сторожем: смена ступени рукой (`set` — стенд, адрес) им не считается.
+ */
+let dropped: ((from: string, to: string) => void) | null = null;
+
+export function onSteadyDrop(fn: ((from: string, to: string) => void) | null): void {
+  dropped = fn;
+}
+
 /** Что сторож считает провалом и сколько терпит. */
 export interface SteadyRule {
   /** Кадр дольше этого, мс, — медленный. */
@@ -74,6 +84,7 @@ export class Steady<T> {
     if (!failing) return null;
     const next = this.ladder[this.ladder.indexOf(this.tier) + 1];
     if (next === undefined) return null;
+    dropped?.(String(this.tier), String(next));
     this.set(next);
     return next;
   }

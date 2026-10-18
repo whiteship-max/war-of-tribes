@@ -1,0 +1,258 @@
+/* Покои правителя (docs/city_v3.md, Г-4): слой поверх холста города. Под шторками, державой и картой (z 8–19): окна
+   игры, открытые предметами стола, встают поверх покоев, закрыл — снова в покоях. */
+.ch {
+  position: fixed;
+  inset: 0;
+  height: var(--app-h);
+  z-index: 7;
+  pointer-events: none;
+  font-family: var(--font-sans);
+  color: var(--text);
+}
+
+.ch-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: auto;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.ch-tags {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+/* Подпись предмета под пальцем: имя и строка — над предметом, середина по нему. */
+.ch-label,
+.ch-tag {
+  position: absolute;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+  white-space: nowrap;
+  will-change: transform;
+}
+
+.ch-label {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  margin: -58px 0 0 -110px;
+  width: 220px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: rgba(22, 15, 10, 0.86);
+  border: 1px solid rgba(232, 164, 60, 0.45);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+  text-align: center;
+}
+
+.ch-label b {
+  font-family: var(--font-title);
+  font-size: 16px;
+  color: #f6dfb0;
+}
+
+.ch-label small {
+  font-size: 12px;
+  color: var(--muted);
+  white-space: normal;
+}
+
+.ch-tag {
+  margin: -30px 0 0 -60px;
+  width: 120px;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 600;
+  color: #f6dfb0;
+  text-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.95),
+    0 0 6px rgba(0, 0, 0, 0.8);
+  transition: opacity 0.3s;
+}
+
+.ch-top {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  padding: calc(var(--safe-top) + 8px) calc(var(--safe-right) + 12px) 0 calc(var(--safe-left) + 12px);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  pointer-events: none;
+}
+
+.ch-exit,
+.ch-pois button,
+.ch-zoom button,
+.ch-put {
+  pointer-events: auto;
+  font-family: inherit;
+  min-height: var(--tap);
+  border: 1px solid rgba(255, 220, 170, 0.22);
+  border-radius: 12px;
+  background: rgba(24, 17, 12, 0.78);
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.ch-exit {
+  flex: none;
+  padding: 0 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.ch-exit span {
+  font-size: 22px;
+  line-height: 1;
+  margin-top: -2px;
+}
+
+.ch-title {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
+}
+
+.ch-title b {
+  font-family: var(--font-title);
+  font-size: 20px;
+  color: #f6dfb0;
+}
+
+.ch-title small {
+  max-width: 100%;
+  font-size: 13px;
+  color: #e3d3b6;
+}
+
+.ch-pois {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 0 calc(var(--safe-right) + 8px) calc(var(--safe-bottom) + 10px) calc(var(--safe-left) + 8px);
+  display: flex;
+  gap: 6px;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.ch-pois button {
+  flex: 1 1 0;
+  min-width: 0;
+  max-width: 96px;
+  padding: 0 4px;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ch-pois button.on {
+  background: linear-gradient(#f3bd5c, var(--accent));
+  color: var(--accent-text);
+  border-color: transparent;
+}
+
+.ch-zoom {
+  position: absolute;
+  right: calc(var(--safe-right) + 12px);
+  bottom: calc(var(--safe-bottom) + 66px);
+  display: flex;
+  gap: 6px;
+  pointer-events: none;
+}
+
+.ch-zoom button {
+  padding: 0 14px;
+}
+
+.ch-zoom button:disabled,
+.ch-pois button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.ch-hand {
+  position: absolute;
+  left: calc(var(--safe-left) + 12px);
+  right: calc(var(--safe-right) + 12px);
+  bottom: calc(var(--safe-bottom) + 10px);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 8px 8px 14px;
+  border-radius: 14px;
+  background: rgba(22, 15, 10, 0.86);
+  border: 1px solid rgba(232, 164, 60, 0.4);
+  pointer-events: auto;
+}
+
+.ch-hand-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.ch-hand-text b {
+  font-family: var(--font-title);
+  font-size: 17px;
+  color: #f6dfb0;
+}
+
+.ch-hand-text small {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.ch-put {
+  flex: none;
+  padding: 0 16px;
+  background: linear-gradient(#f3bd5c, var(--accent));
+  color: var(--accent-text);
+  border-color: transparent;
+}
+
+.ch-wait {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: #0d0906;
+  color: #e3d3b6;
+  font-family: var(--font-title);
+  font-size: 18px;
+  pointer-events: auto;
+}
+
+/* Затемнение входа: покои проступают из темноты за полсекунды. */
+.ch-veil {
+  position: absolute;
+  inset: 0;
+  background: #0d0906;
+  opacity: 1;
+  pointer-events: none;
+  transition: opacity 0.6s ease-out 0.1s;
+}
+
+.ch[data-ready='1'] .ch-veil {
+  opacity: 0;
+}

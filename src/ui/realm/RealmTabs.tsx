@@ -46,6 +46,8 @@ import { decreeLine, rationLine } from '@/ui/parts/policyWords';
 import { tipAt, type TipContent } from '@/ui/next/tip';
 import { Table } from '@/ui/kit/Table';
 import { tipGo } from '@/ui/kit/nav';
+import { Btn } from '@/ui/kit/Btn';
+import { useChambers } from '@/ui/chambers/open';
 import { DECREE_COLS, RATION_COLS, TAX_COLS, decreeCells, incomeTip, rationCells, taxCells, wagesTip } from './decrees';
 import { Chronicle } from '@/ui/parts/Chronicle';
 import { Cost } from '@/ui/parts/Cost';
@@ -163,6 +165,10 @@ export function RulerNew() {
             {yearsWord(rulerYears(s))} · {rulerAge(s) < RETIRE_AGE ? `на покой через ${waitSpan(asGame(restIn))}` : 'уходит на покой'}
           </small>
         </div>
+        {/* Покои правителя — вид от первого лица из главной башни (docs/city_v3.md, Г-4). */}
+        <Btn kind="link" onClick={() => useChambers.getState().show()} label="Подняться в покои правителя">
+          В покои
+        </Btn>
       </div>
       <div className="nx-skills">
         {REALM_BRANCHES.map((b) => (

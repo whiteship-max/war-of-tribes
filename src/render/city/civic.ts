@@ -1,9 +1,9 @@
 // Большие здания и убранство площади вида «город» (docs/city.md, разделы 2 и 5): храм с западной
 // башней и шпилем, ратуша с аркадой и ступенчатыми щипцами, Хлебный дом, цеховой дом, кузница,
 // конюшня, трактир, госпиталь, палас и казармы замка; торговые ряды, колодец, огненная чаша, «Роланд»,
-// ограда церковного двора. Один вид навсегда: уровни игры модель не меняют.
+// паперть и двор храма — `precinct.ts`. Один вид навсегда: уровни игры модель не меняют.
 import { CITY } from './palette';
-import { Builder, box, cone, cylinder, pyramid, tint, wall, type V3 } from './geom';
+import { Builder, box, cone, cylinder, disc, pyramid, ring, tint, type V3 } from './geom';
 import { Frame, GROUND_H, STOREY_H, chimney, face, gableRoof, gableTri, log, pushQuadOut, stoop, type Detail } from './kit';
 import { footSpan, heightAt, type Civic, type P, type Stall } from './layout';
 import { L, TILE_M, type LayerName } from './tex';
@@ -163,19 +163,23 @@ function ventDormer(b: Builder, p: V3, toward: V3, roofT: V3): void {
   pushQuadOut(b, R0, R1, R2, R2, 'roofTile', roofT, [p[0] + fx * 2, p[1] + 2, p[2] + fz * 2], 0.95);
 }
 
-/** Храм: западная башня со шпилем, неф с контрфорсами, апсида на восток. */
+/**
+ * Храм лицом к площади (docs/city_v3.md, Г-2): западная башня со шпилем и порталом — к фасаду (`c.rot`, к площади и
+ * камере), неф с контрфорсами уходит вглубь, апсида — в дальнем конце. `c.w` — ширина фасада, `c.d` — длина храма.
+ */
 function church(b: Builder, c: Civic, detail: Detail): V3[] {
-  const fr = new Frame(c.x, c.z, Math.cos(c.rot), Math.sin(c.rot));
+  // Рамка нефа: ось r — от фасада вглубь (r < 0 — башня у площади, r > 0 — апсида), f — поперёк нефа.
+  const fr = new Frame(c.x, c.z, Math.sin(c.rot), -Math.cos(c.rot));
+  const len = c.d;
   const T = tint(CITY.stoneTints[0]);
   const base = c.base;
-  const low = lowUnder(fr, c.w, c.d);
-  // По оси «вправо» (r) — запад→восток: r < 0 — запад (башня), r > 0 — восток (апсида).
+  const low = footSpan(c.x, c.z, fr.fx, fr.fz, len, c.w).lo;
   const tw = 9.5;
-  const westEnd = -c.w / 2;
+  const westEnd = -len / 2;
   const naveW = 15;
   const naveH = 13;
   const r0 = westEnd + tw;
-  const r1 = c.w / 2 - 6.5;
+  const r1 = len / 2 - 6.5;
   const hd = naveW / 2;
   // Цоколь нефа.
   const [nx, nz] = fr.q(0, (r0 + r1) / 2);
@@ -260,7 +264,94 @@ function church(b: Builder, c: Civic, detail: Detail): V3[] {
     }
     cone(b, tx, tz, 0.12, towerTop + 23.5, towerTop + 26, 4, 'wood', tint(CITY.stainGold, 1.3), 1);
   }
-  return [fr.p(hd + 0.3, r0 - 1, base + 3.5)];
+  portal(b, fr, westEnd, base, low, T, detail);
+  // Факелы по сторонам портала, на лице башни.
+  return [fr.p(-3.75, westEnd - 0.12, base + 3.3), fr.p(3.75, westEnd - 0.12, base + 3.3)];
+}
+
+/** Стрельчатый проём в плоскости `r` рамки: полуширина `hw`, пята арки на `ys`, вершина на `ya` (от `y0`). */
+function archOutline(hw: number, ys: number, ya: number): [number, number][] {
+  return [
+    [-hw, 0],
+    [hw, 0],
+    [hw, ys],
+    [0, ya],
+    [-hw, ys],
+  ];
+}
+
+/**
+ * Портал башни храма: выступ кладки с щипцом-вимпергом, стрельчатый проём в два уступа с колонками, в проёме — тёмная
+ * глубина храма (ночью — свет свечей, плиткой проезда ворот) и распахнутая правая створка; левая закрыта. Лицом — к `−r`.
+ */
+function portal(b: Builder, fr: Frame, westEnd: number, base: number, low: number, T: V3, detail: Detail): void {
+  const dep = 0.9;
+  const hw = 3;
+  const ph = 7.2;
+  const face0 = westEnd - dep;
+  const [bx, bz] = fr.q(0, westEnd - dep / 2);
+  // Лицо выступа смотрит к площади: «вперёд» коробки — по −r рамки.
+  const ox = -fr.fz;
+  const oz = fr.fx;
+  box(b, bx, bz, ox, oz, hw * 2, dep, low - 0.3, base + ph, 'ashlar', T, 'ashlar', { aoBottom: 0.72, grimeBottom: 0.6 });
+  // Вимперг над порталом: щипец в плоскости лица и два ската до стены башни.
+  const apex = base + ph + 3.1;
+  gableTri(b, fr, [-hw - 0.15, face0 - 0.02], [hw + 0.15, face0 - 0.02], base + ph, apex, 'ashlar', T, base, 4, 0);
+  const A = fr.p(-hw - 0.15, face0 - 0.02, base + ph);
+  const E = fr.p(hw + 0.15, face0 - 0.02, base + ph);
+  const M = fr.p(0, face0 - 0.02, apex);
+  const A2 = fr.p(-hw - 0.15, westEnd, base + ph);
+  const E2 = fr.p(hw + 0.15, westEnd, base + ph);
+  const M2 = fr.p(0, westEnd, apex);
+  const up: V3 = [M[0], M[1] + 5, M[2]];
+  pushQuadOut(b, A, M, M2, A2, 'roofSlate', tint(CITY.slateTint), up, 0.85);
+  pushQuadOut(b, M, E, E2, M2, 'roofSlate', tint(CITY.slateTint), up, 0.85);
+  if (detail > 0) cone(b, M[0], M[2], 0.22, apex - 0.1, apex + 0.9, 4, 'ashlar', T, 0.9);
+  // Проём: тёмная глубина и створки — чуть впереди лица выступа.
+  const P = (f: number, y: number, d: number): V3 => fr.p(f, face0 - d, base + y);
+  const ow = 1.45;
+  const ys = 3.4;
+  const ya = 4.95;
+  const [, th] = TILE_M.gateArch;
+  // UV — кусок хода плитки проезда ворот ниже решётки (u 0.38..0.62, v до 3.5 м плитки).
+  const v1 = 3.5 / th;
+  const vs = (ys / ya) * v1;
+  b.quad(P(-ow, 0, 0.03), P(ow, 0, 0.03), P(ow, ys, 0.03), P(-ow, ys, 0.03), [0.38, 0.01, 0.62, 0.01, 0.62, vs, 0.38, vs], L.gateArch, T, [0.6, 0.6, 0.9, 0.9], 0.4);
+  b.tri(P(-ow, ys, 0.03), P(ow, ys, 0.03), P(0, ya, 0.03), [0.38, vs, 0.62, vs, 0.5, v1], L.gateArch, T, [0.9, 0.9, 1], 0.4);
+  // Левая створка — закрыта, дуб с полосами железа; правая распахнута внутрь (её не видно).
+  const oak = tint(CITY.oak, 0.85);
+  b.quad(P(-ow, 0, 0.05), P(0, 0, 0.05), P(0, ys, 0.05), P(-ow, ys, 0.05), [0, 0, 0.7, 0, 0.7, 1.7, 0, 1.7], L.wood, oak, [0.7, 0.7, 0.95, 0.95]);
+  b.tri(P(-ow, ys, 0.05), P(0, ys, 0.05), P(0, ya, 0.05), [0, 1.7, 0.7, 1.7, 0.7, 2.5], L.wood, oak, [0.95, 0.95, 1]);
+  // Уступы обрамления: два ряда клинчатых камней по контуру проёма, внешний выступает сильнее.
+  for (const [off, d, k] of [
+    [0.38, 0.1, 1.08],
+    [0.78, 0.18, 0.96],
+  ] as const) {
+    const inner = archOutline(ow + off - 0.38, ys, ya + off - 0.38);
+    const outer = archOutline(ow + off, ys, ya + off + 0.1);
+    const t2 = tint(CITY.stoneTints[0], k);
+    // Косяки и два ската арки: от внутреннего контура к внешнему.
+    for (const [i, j] of [
+      [1, 2],
+      [2, 3],
+      [3, 4],
+      [4, 0],
+    ] as const) {
+      const a0 = P(inner[i][0], inner[i][1], d);
+      const a1 = P(inner[j][0], inner[j][1], d);
+      const e1 = P(outer[j][0], outer[j][1], d);
+      const e0 = P(outer[i][0], outer[i][1], d);
+      const toward = fr.p(0, face0 - 5, base + 2);
+      pushQuadOut(b, e0, e1, a1, a0, 'ashlar', t2, toward, 0.92);
+    }
+  }
+  // Колонки в уступах — со среднего уровня.
+  if (detail > 0) {
+    for (const s of [-1, 1]) {
+      const [cx, cz] = fr.q(s * (ow + 0.58), face0 - 0.2);
+      cylinder(b, cx, cz, 0.13, base, base + ys, 6, 'ashlar', tint(CITY.stoneTints[2], 1.05));
+    }
+  }
 }
 
 /** Ратуша: аркада к площади, верхний этаж с окнами, высокая кровля, ступенчатые щипцы, башенка. */
@@ -408,7 +499,7 @@ export function stall(b: Builder, s: Stall, detail: Detail): void {
 }
 
 /** Бочка: клёпка, крышка и два железных обруча (обручи — со среднего уровня). */
-function barrel(b: Builder, x: number, z: number, y: number, seed: number, detail: Detail): void {
+export function barrel(b: Builder, x: number, z: number, y: number, seed: number, detail: Detail): void {
   const seg = detail === 0 ? 6 : 8;
   const t = tint(CITY.oakLight, 0.85 + rnd(seed, 1, 7) * 0.3);
   cylinder(b, x, z, 0.36, y, y + 0.9, seg, 'wood', t, { aoBottom: 0.6 });
@@ -418,7 +509,7 @@ function barrel(b: Builder, x: number, z: number, y: number, seed: number, detai
 }
 
 /** Повозка у рядов: короб на двух колёсах, оглобли опущены к земле, в коробе — мешки. */
-function cart(b: Builder, x: number, z: number, rot: number, seed: number, detail: Detail): void {
+export function cart(b: Builder, x: number, z: number, rot: number, seed: number, detail: Detail): void {
   const fx = Math.cos(rot);
   const fz = Math.sin(rot);
   const rx = fz;
@@ -520,23 +611,79 @@ export function gutter(b: Builder, pts: readonly P[], gates: readonly P[] = [], 
     const cur = { l: at(-w, 0.06), c: at(0, 0.035), r: at(w, 0.06), v: s / th };
     if (prev) {
       const u = w / tw;
-      b.quad(prev.l, prev.c, cur.c, cur.l, [-u, prev.v, 0, prev.v, 0, cur.v, -u, cur.v], L.ashlar, T, [1, 0.4, 0.4, 1], 0, [0.3, 1, 1, 0.3]);
-      b.quad(prev.c, prev.r, cur.r, cur.c, [0, prev.v, u, prev.v, u, cur.v, 0, cur.v], L.ashlar, T, [0.4, 1, 1, 0.4], 0, [1, 0.3, 0.3, 1]);
+      // Середина темнее краёв — сырая, но не чёрная: с камеры игры желоб в 0,4 тени и полной грязи читался тёмной дорожкой
+      // вдоль улицы (docs/city_v3.md, Г-3, «Косяки»).
+      b.quad(prev.l, prev.c, cur.c, cur.l, [-u, prev.v, 0, prev.v, 0, cur.v, -u, cur.v], L.ashlar, T, [1, 0.68, 0.68, 1], 0, [0.3, 0.6, 0.6, 0.3]);
+      b.quad(prev.c, prev.r, cur.r, cur.c, [0, prev.v, u, prev.v, u, cur.v, 0, cur.v], L.ashlar, T, [0.68, 1, 1, 0.68], 0, [0.6, 0.3, 0.3, 0.6]);
     }
     prev = cur;
   }
 }
 
-/** Колодец: каменное кольцо, два столба и двускатный навес. */
+/**
+ * Колодец площади (docs/city_v3.md, Г-2): каменный сруб с плитой-венцом и тёмной водой в жерле, мокрая отмостка вокруг, два
+ * дубовых столба с распорками и навес из дранки, ворот с рукоятью, верёвка с ведром над жерлом, второе ведро у сруба и
+ * каменная колода. Ночью рядом — фонарь на столбе (`budget.buildStatic`, свет П-9).
+ */
 export function well(b: Builder, p: P, detail: Detail): void {
   const y = heightAt(p.x, p.z);
-  const T = tint(CITY.stoneTints[1]);
-  cylinder(b, p.x, p.z, 1.35, y - 0.3, y + 0.85, detail === 0 ? 8 : 12, 'rubble', T, { aoBottom: 0.65 });
-  cylinder(b, p.x, p.z, 1.5, y + 0.85, y + 1.0, detail === 0 ? 8 : 12, 'ashlar', T);
-  for (const s of [-1, 1]) box(b, p.x + s * 1.2, p.z, 1, 0, 0.18, 0.18, y + 0.9, y + 3.0, 'wood', tint(CITY.oak), null);
-  box(b, p.x, p.z, 1, 0, 0.12, 2.6, y + 2.5, y + 2.62, 'wood', tint(CITY.oak), 'wood');
+  const seg = detail === 0 ? 8 : 12;
+  const T = tint(CITY.stoneTints[1], 0.95);
+  // Отмостка: плиты вокруг сруба, тёмные от воды, — пятно расплёсканного у ведра темнее.
+  disc(b, ring(p.x, p.z, 2.7, seg), y + 0.05, 'cobble', tint(CITY.stoneTints[2], 0.5));
+  if (detail > 0) disc(b, ring(p.x + 0.9, p.z + 1.1, 1.0, 8), y + 0.06, 'cobble', tint(CITY.stoneTints[2], 0.36));
+  // Сруб: бутовая кладка, венец тёсаного камня, внутри — тёмная вода.
+  cylinder(b, p.x, p.z, 1.25, y - 0.3, y + 0.82, seg, 'rubble', T, { aoBottom: 0.6, grimeBottom: 0.9 });
+  cylinder(b, p.x, p.z, 1.38, y + 0.82, y + 0.98, seg, 'ashlar', tint(CITY.stoneTints[0]));
+  const rim = ring(p.x, p.z, 1.38, seg);
+  const hole = ring(p.x, p.z, 0.92, seg);
+  for (let k = 0; k < seg; k++) {
+    const a = rim[k];
+    const e = rim[(k + 1) % seg];
+    const hA = hole[k];
+    const hE = hole[(k + 1) % seg];
+    pushQuadOut(b, [a[0], y + 0.98, a[1]], [e[0], y + 0.98, e[1]], [hE[0], y + 0.98, hE[1]], [hA[0], y + 0.98, hA[1]], 'ashlar', tint(CITY.stoneTints[0], 0.95), [p.x, y + 5, p.z], 0.95);
+  }
+  disc(b, hole, y + 0.55, 'rubble', tint(0x1c262a, 0.5));
+  // Столбы на венце, распорки и навес.
+  const oak = tint(CITY.oak);
+  for (const s of [-1, 1]) {
+    box(b, p.x + s * 1.12, p.z, 1, 0, 0.2, 0.2, y + 0.9, y + 3.15, 'wood', oak, null);
+    if (detail > 0) log(b, [p.x + s * 1.12, y + 2.55, p.z - 0.05], [p.x + s * 0.55, y + 3.12, p.z - 0.05], 0.05, oak, 4, false);
+  }
+  box(b, p.x, p.z, 1, 0, 0.14, 2.7, y + 3.05, y + 3.18, 'wood', oak, 'wood');
   const fr = new Frame(p.x, p.z, 0, 1);
-  gableRoof(b, fr, -1.3, 1.3, -1.0, 1.0, y + 2.9, (40 * Math.PI) / 180, true, 'roofSlate', tint(CITY.shingleTint), detail, 7, { eave: 0.3, verge: 0.2 });
+  gableRoof(b, fr, -1.25, 1.25, -1.55, 1.55, y + 3.12, (42 * Math.PI) / 180, false, 'roofSlate', tint(CITY.shingleTint), detail, 7, { eave: 0.35, verge: 0.25 });
+  // Ворот между столбами, рукоять снаружи восточного; верёвка с ведром над жерлом.
+  const wy = y + 2.05;
+  log(b, [p.x - 1.02, wy, p.z], [p.x + 1.02, wy, p.z], 0.13, tint(CITY.oakLight), detail === 0 ? 5 : 8, true);
+  log(b, [p.x + 1.22, wy, p.z], [p.x + 1.42, wy, p.z], 0.04, tint(CITY.iron, 1.5), 4, false);
+  log(b, [p.x + 1.42, wy, p.z], [p.x + 1.42, wy - 0.38, p.z + 0.12], 0.035, tint(CITY.iron, 1.5), 4, false);
+  log(b, [p.x + 1.42, wy - 0.38, p.z + 0.12], [p.x + 1.62, wy - 0.38, p.z + 0.12], 0.04, oak, 4, false);
+  log(b, [p.x + 0.15, wy - 0.12, p.z], [p.x + 0.15, y + 1.38, p.z], 0.022, tint(0xc8b890, 0.75), 3, false);
+  bucket(b, p.x + 0.15, p.z, y + 1.05, detail);
+  // Второе ведро — на земле у сруба, полное; колода для воды — с запада.
+  bucket(b, p.x + 1.25, p.z + 1.55, y + 0.05, detail);
+  const tx = p.x - 2.35;
+  const tz = p.z - 0.4;
+  box(b, tx, tz, 1, 0, 1.9, 0.7, y - 0.15, y + 0.55, 'rubble', T, null, { aoBottom: 0.65 });
+  disc(b, [
+    [tx - 0.24, tz - 0.8],
+    [tx + 0.24, tz - 0.8],
+    [tx + 0.24, tz + 0.8],
+    [tx - 0.24, tz + 0.8],
+  ], y + 0.46, 'rubble', tint(0x24343a, 0.6));
+}
+
+/** Ведро: дубовые клёпки, железный обруч, тёмная вода; дужка — со среднего уровня. */
+function bucket(b: Builder, x: number, z: number, y: number, detail: Detail): void {
+  const seg = detail === 0 ? 5 : 7;
+  cylinder(b, x, z, 0.2, y, y + 0.32, seg, 'wood', tint(CITY.oakLight, 1.1), { aoBottom: 0.7 });
+  disc(b, ring(x, z, 0.19, seg), y + 0.27, 'rubble', tint(0x24343a, 0.6));
+  if (detail === 0) return;
+  cylinder(b, x, z, 0.21, y + 0.22, y + 0.27, seg, 'wood', tint(CITY.iron, 1.6));
+  log(b, [x - 0.2, y + 0.32, z], [x, y + 0.5, z], 0.012, tint(CITY.iron, 1.6), 3, false);
+  log(b, [x, y + 0.5, z], [x + 0.2, y + 0.32, z], 0.012, tint(CITY.iron, 1.6), 3, false);
 }
 
 /** Огненная чаша у колодца — «Костёр» игры. */
@@ -567,55 +714,4 @@ export function statue(b: Builder, p: P, facing: number): void {
   const rz = -fx;
   box(b, p.x - rx * 0.55 + fx * 0.35, p.z - rz * 0.55 + fz * 0.35, fx, fz, 0.7, 0.12, top + 1.3, top + 2.4, 'ashlar', tint(CITY.stoneTints[3], 0.9), 'ashlar');
   box(b, p.x + rx * 0.5 + fx * 0.3, p.z + rz * 0.5 + fz * 0.3, fx, fz, 0.1, 0.1, top + 1.6, top + 3.9, 'ashlar', tint(CITY.iron, 1.8), 'ashlar');
-}
-
-/** Ограда церковного двора: низкая каменная стенка по прямоугольнику с проходом к площади. */
-export function churchyard(b: Builder, c: Civic): void {
-  const fr = new Frame(c.x, c.z, Math.cos(c.rot), Math.sin(c.rot));
-  const hw = c.w / 2 + 6;
-  const hd = c.d / 2 + 4.5;
-  const T = tint(CITY.stoneTints[1], 0.92);
-  const sides: [[number, number], [number, number]][] = [
-    [
-      [hd, -hw],
-      [hd, -3],
-    ],
-    [
-      [hd, 3],
-      [hd, hw],
-    ],
-    [
-      [hd, hw],
-      [-hd, hw],
-    ],
-    [
-      [-hd, hw],
-      [-hd, -hw],
-    ],
-    [
-      [-hd, -hw],
-      [hd, -hw],
-    ],
-  ];
-  for (const [a, e] of sides) {
-    const [ax, az] = fr.q(a[0], a[1]);
-    const [ex, ez] = fr.q(e[0], e[1]);
-    const len = Math.hypot(ex - ax, ez - az);
-    const steps = Math.max(1, Math.ceil(len / 6));
-    for (let k = 0; k < steps; k++) {
-      const f0 = k / steps;
-      const f1 = (k + 1) / steps;
-      const x0 = ax + (ex - ax) * f0;
-      const z0 = az + (ez - az) * f0;
-      const x1 = ax + (ex - ax) * f1;
-      const z1 = az + (ez - az) * f1;
-      const mx = (x0 + x1) / 2;
-      const mz = (z0 + z1) / 2;
-      const y = heightAt(mx, mz);
-      const dx = (x1 - x0) / (len / steps);
-      const dz = (z1 - z0) / (len / steps);
-      box(b, mx, mz, -dz, dx, len / steps + 0.05, 0.5, y - 0.4, y + 1.1, 'rubble', T, 'ashlar', { aoBottom: 0.65, grimeBottom: 0.7 });
-    }
-  }
-  void wall;
 }

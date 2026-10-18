@@ -15,7 +15,7 @@ import { audioEngine, gestureAudio } from './door';
 import type { Cue, Duck, EpochMachine } from './epoch';
 
 /** Почему город глушится: свои звуки поверх. */
-export type DuckReason = 'battle' | 'mini' | 'prologue';
+export type DuckReason = 'battle' | 'mini' | 'prologue' | 'chambers';
 
 /** Насколько глушить по причине: музыка уступает звукам боя и промыслов, фон города в предыстории не к месту вовсе. */
 const DUCKS: Record<DuckReason, Duck> = {
@@ -23,6 +23,8 @@ const DUCKS: Record<DuckReason, Duck> = {
   // Промысел: фон не глушится, а становится его поляной — лес, ветер и птицы (`glade`, docs/minigames.md, 16.2).
   mini: { music: 0.15, amb: 1 },
   prologue: { music: 0.3, amb: 0 },
+  // Покои правителя (docs/city_v3.md, Г-4): город за толстой стеной — глуше; музыка остаётся.
+  chambers: { music: 0.7, amb: 0.4 },
 };
 
 class CityAudio {

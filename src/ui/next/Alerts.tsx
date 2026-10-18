@@ -5,6 +5,7 @@ import { useAlertItems, type AlertItem } from '@/ui/alertItems';
 import { tipAt } from './tip';
 import { ALERT_FRESH_MS, isFresh } from './fresh';
 import { cityAudio } from '@/sound/city';
+import { useChambers } from '@/ui/chambers/open';
 
 /**
  * Тревоги нового интерфейса (docs/ui_audit.md, 6.0): ряд круглых значков 44 под верхом при любом их числе —
@@ -13,7 +14,13 @@ import { cityAudio } from '@/sound/city';
  * Новая тревога первые четыре секунды стоит пилюлей с текстом, и тап по ней ведёт к делу сразу: текст уже
  * прочитан. Потом она сворачивается в значок, и тап открывает подсказку — текст, срок и «К делу ›».
  */
+/** В покоях правителя (docs/city_v3.md, Г-4) ряда тревог нет: у покоев свой слой (`ui/chambers`). */
 export function Alerts() {
+  const inside = useChambers((c) => c.open);
+  return inside ? null : <CityAlerts />;
+}
+
+function CityAlerts() {
   const all = useAlertItems();
   // Тревоги войны — набеги — стоят значками справа снизу (`WarSigns`, П-7): ряд под верхом их не повторяет.
   const items = all.filter((a) => !a.war);

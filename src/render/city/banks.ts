@@ -3,8 +3,9 @@
 // `Math.random`: их считают поток мира (`world.ts`), счёт бюджета (`budget.ts`) и тесты (`water.test.ts`).
 import type { Quality } from '../quality';
 import type { V3 } from './geom';
-import { distPoly, heightAt, RACE, RACE_HALF, RACE_LEVEL, raceRibbon, riverLevel, riverRibbon, riverX, RIVER_HALF, smoothPath, type CityPlan } from './layout';
-import { openLand } from './ground';
+import { distPoly, heightAt, insidePoly, RACE, RACE_HALF, RACE_LEVEL, raceRibbon, riverLevel, riverRibbon, riverX, RIVER_HALF, smoothPath, type CityPlan } from './layout';
+import { fieldAt, openLand } from './ground';
+import { forestAt } from './nature';
 import { rnd, vnoise } from './noise';
 import { SHORE_CAP } from './spec';
 
@@ -95,7 +96,7 @@ const nearRace = (x: number, z: number): boolean => x > -175 && x < -105 && z > 
  * растёт куртинами: густота — крупный шум вдоль реки, каменистые плёсы — где камыша нет. Не на дорогах, не во
  * дворах и не у устьев ручья (`ground.openLand`); не глубже метра.
  */
-export function shoreItems(plan: CityPlan, q: Quality, seed = 4243): { reeds: Reed[]; stones: Stone[] } {
+export function shoreItems(plan: CityPlan, q: Quality, seed = 4243): { reeds: Reed[]; stones: Stone[]; rocks: Stone[] } {
   const cap = SHORE_CAP[q];
   const reeds: Reed[] = [];
   const stones: Stone[] = [];
@@ -123,7 +124,38 @@ export function shoreItems(plan: CityPlan, q: Quality, seed = 4243): { reeds: Re
       }
     }
   }
-  return { reeds: thin(reeds, cap.reeds), stones: thin(stones, cap.stones) };
+  return { reeds: thin(reeds, cap.reeds), stones: thin(stones, cap.stones), rocks: slopeRocks(plan, q, seed + 7) };
+}
+
+/**
+ * Камни на склонах мыса (docs/city_v3.md, Г-3): там, где земля круче 13°, — россыпью, гнёздами по крупному шуму (осыпь под
+ * бровкой, валуны в траве); не на полях, дорогах и дворах, не в реке и не в чаще (в лесу их не видно). Модель и меш — те же,
+ * что у камней берега: вызова не прибавляют. Сколько — `SHORE_CAP.rocks`.
+ */
+export function slopeRocks(plan: CityPlan, q: Quality, seed: number): Stone[] {
+  const cap = SHORE_CAP[q].rocks;
+  if (cap === 0) return [];
+  const out: Stone[] = [];
+  const STEP = 5;
+  for (let j = -64; j <= 64; j++) {
+    for (let i = -48; i <= 48; i++) {
+      const x = i * STEP + (rnd(i, j, seed) - 0.5) * STEP;
+      const z = -20 + j * STEP + (rnd(i, j, seed + 1) - 0.5) * STEP;
+      const e = 1.2;
+      const g = Math.hypot(heightAt(x + e, z) - heightAt(x - e, z), heightAt(x, z + e) - heightAt(x, z - e)) / (2 * e);
+      if (g < 0.23) continue;
+      // Гнёзда: осыпь там, где крупный шум высок; чем круче, тем гуще.
+      const nest = vnoise(x / 26 + 3, z / 26 + 3, 1e6, seed + 2);
+      if (rnd(i, j, seed + 3) > (nest - 0.42) * 1.6 * Math.min(1, g * 2.2)) continue;
+      if (Math.abs(x - riverX(z)) < RIVER_HALF + 3) continue;
+      if (insidePoly({ x, z }, plan.wall) || insidePoly({ x, z }, plan.castleWall)) continue;
+      if (distPoly({ x, z }, plan.wall, true) < 3 || distPoly({ x, z }, plan.castleWall, true) < 3) continue;
+      if (!openLand(x, z, plan, 1) || fieldAt(x, z, plan) > 0 || forestAt(x, z, plan) > 0.6) continue;
+      const s = 0.3 + Math.pow(rnd(i, j, seed + 4), 2.2) * 1.3;
+      out.push({ x, y: heightAt(x, z) - s * 0.32, z, rot: rnd(i, j, seed + 5) * Math.PI * 2, s });
+    }
+  }
+  return thin(out, cap);
 }
 
 /** Не больше `max` — равномерной выборкой по реке, а не первыми: куртины остаются по всей длине. */

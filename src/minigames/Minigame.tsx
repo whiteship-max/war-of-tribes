@@ -325,7 +325,9 @@ export function Minigame({ game, onExit }: { game: MinigameId; onExit: () => voi
       // Погода — города в эту минуту (`weather.weatherNow`), та же, что слышит фон: ветер в траве и кронах, тучи в свете,
       // дождь и снег осадками города, снег на земле и ветках — тот, что лежит у города (`coverNow`; `stage.gloomOf`,
       // docs/polish.md, П-4). Час города — свет промысла (`stage.solarOf`): сторона солнца та же, меняются высота и цвет.
-      wire(new Stage(canvas, play, GAME_SECONDS[game], place.season, wx, place.hour, coverNow(st0)));
+      const stage = new Stage(canvas, play, GAME_SECONDS[game], place.season, wx, place.hour, coverNow(st0));
+      stage.measureAs(game);
+      wire(stage);
     });
     canvas.addEventListener('pointerdown', drop, { once: true });
     ro.observe(wrap);

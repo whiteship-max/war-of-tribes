@@ -46,6 +46,12 @@ uniform float uTwTime;
 uniform float uTwCloud;
 uniform vec4 uTwScar;
 uniform float uTwBloom;
+uniform vec4 uTwRoad;
+uniform vec4 uTwTrail;
+uniform vec4 uTwFarm;
+uniform vec3 uTwPlate;
+uniform vec3 uTwRoadCol;
+uniform vec3 uTwRutCol;
 // Хеш без синуса (Хоскинс): на телефоне синус в каждом пикселе земли — заметная доля цены кадра.
 float twHash(vec2 p) {
   vec3 p3 = fract(vec3(p.xyx) * 0.1031);
@@ -89,6 +95,58 @@ if (uTwScar.w > 0.0 && twBand < uTwScar.y + 0.9) {
     * smoothstep(uTwScar.z + 4.0, uTwScar.z - 2.0, abs(vTwWorld.x)) * (0.55 + 0.45 * twNoise(vTwWorld.xz * 1.3));
   diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.36, 0.28, 0.19) * (0.85 + 0.3 * twN), clamp(twScar, 0.0, 0.85));
 }
+// Пашня вдали (docs/city_v3.md, Г-3): за полосой леса кругом поля — клетки полос (средневековые наделы по 5 единиц), у
+// каждой полосы своя культура: спелое, зелёное, пар, пахота; межи — трава. Гуще у тракта: деревни стоят на дороге.
+float twField = 0.0;
+if (uTwFarm.x > 0.0) {
+  vec2 twP = vTwWorld.xz;
+  float twOut = max(abs(twP.x) - uTwPlate.x, max(twP.y - uTwPlate.z, uTwPlate.y - twP.y));
+  float twK = smoothstep(uTwFarm.w, uTwFarm.w + 30.0, twOut);
+  if (twK > 0.0) {
+    vec2 twC = floor((twP + 3000.0) / vec2(26.0, 46.0));
+    float twH = twHash(twC + uTwFarm.y);
+    float twRoadNear = uTwRoad.x > 0.0 ? smoothstep(260.0, 60.0, abs(twP.x - 7.0 - sin(twP.y / 30.0 + uTwRoad.y) * 5.0)) : 0.4;
+    if (twH < 0.25 + 0.6 * twRoadNear) {
+      vec2 twL = fract((twP + 3000.0) / vec2(26.0, 46.0)) * vec2(26.0, 46.0);
+      bool twAlong = twHash(twC + 5.3) > 0.5;
+      float twS = floor((twAlong ? twL.x : twL.y) / 5.2);
+      float twCrop = twHash(twC * 3.1 + twS + 0.7);
+      vec3 twCol = twCrop < 0.3 ? vec3(0.62, 0.52, 0.28) : (twCrop < 0.55 ? vec3(0.4, 0.47, 0.22) : (twCrop < 0.8 ? vec3(0.33, 0.26, 0.18) : vec3(0.46, 0.46, 0.26)));
+      // Зимой пашня под снегом: полосы проступают едва.
+      twCol = mix(twCol, diffuseColor.rgb * 1.04, uTwFarm.z * 0.78);
+      float twEdge = min(min(twL.x, 26.0 - twL.x), min(twL.y, 46.0 - twL.y));
+      float twMeze = smoothstep(0.6, 1.4, twEdge) * smoothstep(0.1, 0.5, abs(fract((twAlong ? twL.x : twL.y) / 5.2) - 0.5) * 5.2);
+      twField = twK * (0.75 + 0.25 * twMeze) * smoothstep(0.6, 1.4, twEdge);
+      diffuseColor.rgb = mix(diffuseColor.rgb, twCol * (0.92 + 0.16 * twN), twField * 0.85);
+    }
+  }
+}
+// Тракт и тропа к логову — по своей оси, в пикселе: край ровный и на редкой сетке подстилки, до горизонта; колеи и травяной
+// горб — вблизи (прежде тракт был цветом вершин и на подстилке в клетку 25 единиц расплывался и кончался).
+if (uTwRoad.x > 0.0 || uTwTrail.x > 0.0) {
+  vec2 twP = vTwWorld.xz;
+  float twNear = smoothstep(160.0, 40.0, length(vViewPosition));
+  float twRag = (twNoise(twP * 0.9) - 0.5) * 0.5;
+  float twW = 0.0;
+  float twRut = 0.0;
+  float twHump = 0.0;
+  if (uTwRoad.x > 0.0) {
+    float twA = twP.y / 30.0 + uTwRoad.y;
+    float twD = abs(twP.x - 7.0 - sin(twA) * 5.0) / sqrt(1.0 + pow(cos(twA) * 5.0 / 30.0, 2.0));
+    twW = 1.0 - smoothstep(1.8, 2.5, twD + twRag);
+    twRut = (1.0 - smoothstep(0.08, 0.2, abs(twD - 0.5))) * twW;
+    twHump = (1.0 - smoothstep(0.12, 0.3, twD)) * twW;
+  }
+  if (uTwTrail.x > 0.0 && (twP.y - uTwTrail.z) * uTwTrail.w < 1.0) {
+    float twD = abs(twP.x - uTwTrail.y - sin(twP.y / 23.0 + 1.3) * 3.0 - sin(twP.y / 61.0) * 6.0);
+    float twT = (1.0 - smoothstep(0.55, 1.1, twD + twRag * 0.6)) * (0.7 + 0.3 * twNoise(twP * 0.3));
+    twW = max(twW, twT);
+  }
+  twW *= 1.0 - twField * 0.5;
+  diffuseColor.rgb = mix(diffuseColor.rgb, uTwRoadCol * (0.86 + 0.24 * twN), twW * 0.88);
+  diffuseColor.rgb = mix(diffuseColor.rgb, uTwRutCol, twRut * 0.5 * twNear);
+  diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(0.78, 0.92, 0.6), twHump * 0.5 * twNear);
+}
 // Цветок — круглая точка в своей клетке (клетка ~0.2 м), на случайном месте клетки; таких клеток — каждая шестидесятая.
 if (twFar * uTwBloom > 0.0) {
   vec2 twCell = floor(vTwWorld.xz * 5.0);
@@ -122,6 +180,25 @@ interface Rect {
 }
 
 const plateRect = (f: TwField): Rect => ({ halfX: f.halfX + PLATE_MARGIN, minZ: f.minZ - PLATE_MARGIN, maxZ: f.maxZ + PLATE_MARGIN });
+
+/** Ось тракта (`TwField.road`): одна на землю, деревья, кустики и шейдер (`GROUND_GRAIN`). */
+export const roadX = (f: TwField, z: number): number => 7 + Math.sin(z / 30 + f.seed) * 5;
+
+/** Логово: где у лагеря выход в поле и куда уходит лагерь (`dir`, по z). */
+function lairFront(c: NonNullable<LandSite['lair']>): { front: number; dir: number } {
+  return { front: Math.abs(c.z0) < Math.abs(c.z1) ? c.z0 : c.z1, dir: Math.sign(c.z1 + c.z0) || 1 };
+}
+
+/** Тропа от ворот логова в поле и за край (docs/city_v3.md, Г-3): ось по z — та же у шейдера и у деревьев. */
+export const trailX = (c: NonNullable<LandSite['lair']>, z: number): number => (c.x0 + c.x1) / 2 + Math.sin(z / 23 + 1.3) * 3 + Math.sin(z / 61) * 6;
+
+/** На тропе ли точка (с запасом `pad`): деревья и кустики на неё не встают. */
+function onTrail(plan: LandInput, x: number, z: number, pad: number): boolean {
+  const c = plan.site?.lair;
+  if (!c) return false;
+  const { front, dir } = lairFront(c);
+  return (z - front) * dir < 1 && Math.abs(x - trailX(c, z)) < 1.1 + pad;
+}
 
 /** Насколько точка внутри плиты: 0 — на её краю и снаружи, 1 — дальше `EDGE_FADE` от края. */
 const inside = (r: Rect, x: number, z: number): number =>
@@ -181,6 +258,17 @@ export interface FieldView {
   dispose(): void;
 }
 
+/** Цвет в линейном пространстве — униформе шейдера (вершины красятся так же: `THREE.Color.set` переводит из sRGB). */
+const linearOf = (hex: number): THREE.Color => new THREE.Color(hex);
+
+/** Тропа к логову — униформа шейдера: есть ли, середина лагеря по x, перед лагеря и куда он уходит. */
+function trailUniform(plan: LandInput): THREE.Vector4 {
+  const c = plan.site?.lair;
+  if (!c || plan.town) return new THREE.Vector4(0, 0, 0, 1);
+  const { front, dir } = lairFront(c);
+  return new THREE.Vector4(1, (c.x0 + c.x1) / 2, front, dir);
+}
+
 const C = new THREE.Color();
 const C2 = new THREE.Color();
 const NO_SITE = { dirt: 0, cobble: 0 };
@@ -212,11 +300,8 @@ function groundColor(f: TwField, plan: LandInput, x: number, z: number, y: numbe
     // Дорога города от ворот в долину (`layout.roadsOf`, «Дорога в долину»): та же, что уходит за плиту по земле города.
     const d = plan.town.road(x, z);
     if (d < 2.4) out.lerp(C2.set(TONE.dirtLight), smoothstep(2.3, 1.2, d) * 0.85);
-  } else if (f.road) {
-    const rx = 7 + Math.sin(z / 30 + f.seed) * 5;
-    const k = smoothstep(2.2, 1.1, Math.abs(x - rx));
-    out.lerp(C2.set(TONE.dirtLight), k * 0.85);
   }
+  // Тракт и тропа к логову рисует шейдер земли по своей оси (`GROUND_GRAIN`): цветом вершин на подстилке они расплывались.
   if (f.river) {
     const r = f.river;
     const d = Math.abs(z - r.z + Math.sin(x / 17 + f.seed) * 0.6);
@@ -227,6 +312,8 @@ function groundColor(f: TwField, plan: LandInput, x: number, z: number, y: numbe
       out.lerp(C2.set(TONE.ford), fk);
     }
   }
+  // Холмы каменисты: под выходами валунов (`stoneSpots`, тот же шум) — осыпь и щебень в траве.
+  if (f.land === 'hills') out.lerp(C2.set(n2 > 0.5 ? TONE.rock : TONE.rockDark), smoothstep(0.5, 0.66, vnoise(x / 18, z / 18, f.seed + 133)) * 0.42 * (0.6 + 0.4 * n2));
   // Откос гребня и холмы — камень там, где круто.
   const steep = Math.abs(heightAt(f, x, z + 0.8) - heightAt(f, x, z - 0.8)) + Math.abs(heightAt(f, x + 0.8, z) - heightAt(f, x - 0.8, z));
   out.lerp(C2.set(n2 > 0.5 ? TONE.rock : TONE.rockDark), smoothstep(0.9, 2.2, steep));
@@ -356,6 +443,43 @@ function riverRibbon(f: TwField): THREE.BufferGeometry | null {
   return geo;
 }
 
+/**
+ * Где лежат камни: валуны (до единицы) — там, где земля крута (откос гребня, холмы, обрыв), и за краем строя по флангам;
+ * мелкие (до трети) — в траве по всему полю. Не в воде, не на тракте и тропе, не в городе и лагере.
+ */
+export function stoneSpots(f: TwField, plan: LandInput, cap: number): { x: number; z: number; s: number; rot: number }[] {
+  const out: { x: number; z: number; s: number; rot: number }[] = [];
+  for (let i = 0; out.length < cap && i < cap * 14; i++) {
+    // Там, куда смотрит камера ролика: поле боя и его кромка, а не поля отступа плиты.
+    const x = (hash(f.seed, i, 131) * 2 - 1) * (f.halfX + 24);
+    const z = f.minZ - 18 + hash(f.seed, i, 132) * (f.maxZ - f.minZ + 36);
+    const steep = Math.abs(heightAt(f, x, z + 0.8) - heightAt(f, x, z - 0.8)) + Math.abs(heightAt(f, x + 0.8, z) - heightAt(f, x - 0.8, z));
+    const flank = Math.abs(x) > f.halfX - 20 || z < f.minZ + 6 || z > f.maxZ - 6;
+    // Валун не ложится под строй на построении: отряд стоял бы на камне.
+    const underUnit = plan.units.some((u) => Math.abs(x - u.x) < u.width / 2 + 3 && Math.abs(z - u.z) < u.depth + 3);
+    const big = !underUnit && (steep > 0.3 || (f.land === 'hills' && vnoise(x / 18, z / 18, f.seed + 133) > 0.52) || (flank && vnoise(x / 14, z / 14, f.seed + 138) > 0.68));
+    // Мелкие — редко и гнёздами; валуны — где круто и на холмах.
+    if (!big && (hash(f.seed, i, 134) > 0.1 || vnoise(x / 9, z / 9, f.seed + 135) < 0.5)) continue;
+    if (f.river && Math.abs(z - f.river.z) < f.river.half + 1.2) continue;
+    if (f.road && Math.abs(x - roadX(f, z)) < 2.6) continue;
+    if (onTrail(plan, x, z, 0.4)) continue;
+    if (plan.site?.blocks(x, z) || (plan.site?.ground(x, z).cobble ?? 0) > 0.2) continue;
+    const h = hash(f.seed, i, 136);
+    const s = big ? 0.45 + h * h * 1.1 : 0.1 + h * 0.22;
+    out.push({ x, z, s, rot: hash(f.seed, i, 137) * Math.PI * 2 });
+    // Валун — не один: выход камня гнездом из двух-четырёх, мельче к краю.
+    if (big) {
+      const n = 1 + Math.floor(hash(f.seed, i, 139) * 3);
+      for (let k = 0; k < n && out.length < cap; k++) {
+        const a = hash(f.seed, i * 7 + k, 147) * Math.PI * 2;
+        const d = s * (1.2 + hash(f.seed, i * 7 + k, 148) * 1.6);
+        out.push({ x: x + Math.cos(a) * d, z: z + Math.sin(a) * d, s: s * (0.35 + hash(f.seed, i * 7 + k, 149) * 0.45), rot: a * 3.1 });
+      }
+    }
+  }
+  return out;
+}
+
 interface TreeSpot {
   x: number;
   z: number;
@@ -387,7 +511,8 @@ function treeSpots(f: TwField, plan: LandInput, cap: number): TreeSpot[] {
     const p = Math.max(dense, behind) * smoothstep(0.3, 0.6, clump);
     if (hash(f.seed, i, 33) > p) continue;
     if (f.river && Math.abs(z - f.river.z) < f.river.half + 2.5) continue;
-    if (f.road && Math.abs(x - (7 + Math.sin(z / 30 + f.seed) * 5)) < 3) continue;
+    if (f.road && Math.abs(x - roadX(f, z)) < 3) continue;
+    if (onTrail(plan, x, z, 1.5)) continue;
     // Город за стеной и лагерь — без деревьев.
     if (plan.site?.blocks(x, z)) continue;
     out.push({ x, z, s: 2.2 + hash(f.seed, i, 34) * 1.4, rot: hash(f.seed, i, 35) * Math.PI * 2, tall: clump > 0.5 });
@@ -404,6 +529,8 @@ function treeSpots(f: TwField, plan: LandInput, cap: number): TreeSpot[] {
       const x = (hash(f.seed, i, 96) * 2 - 1) * (f.halfX + 10);
       const z = fo.from + fo.side * hash(f.seed, i, 97) * 70;
       if (rects.some((r) => x > r.x0 && x < r.x1 && z > r.z0 && z < r.z1)) continue;
+      // Тракт и тропа — сквозь лес просекой: прежде лес-штраф ставил деревья прямо на тракт (Г-3, «Косяки»).
+      if ((f.road && Math.abs(x - roadX(f, z)) < 3) || onTrail(plan, x, z, 1.5)) continue;
       // Опушка — реже у строя, гуще в глубине леса.
       if (hash(f.seed, i, 98) > 0.35 + 0.65 * smoothstep(0, 18, (z - fo.from) * fo.side)) continue;
       n++;
@@ -413,14 +540,14 @@ function treeSpots(f: TwField, plan: LandInput, cap: number): TreeSpot[] {
   // Логово — в лесу: чаща кольцом за частоколом и по бокам, к полю — опушка (docs/battle_tw.md, раздел 13).
   const c = plan.site?.lair ?? null;
   if (c) {
-    const front = Math.abs(c.z0) < Math.abs(c.z1) ? c.z0 : c.z1;
-    const dir = Math.sign(c.z1 + c.z0) || 1;
+    const { front, dir } = lairFront(c);
     const ring = Math.round(cap * 0.45);
     for (let i = 0, n = 0; n < ring && i < ring * 10; i++) {
       const x = c.x0 - 16 + hash(f.seed, i, 91) * (c.x1 - c.x0 + 32);
       const z = front + dir * (-2 + hash(f.seed, i, 92) * (Math.abs(c.z1 - c.z0) + 20));
       const inCamp = x > c.x0 - 4 && x < c.x1 + 4 && z > c.z0 - 4 && z < c.z1 + 4;
       if (inCamp || (z - front) * dir < 3 && Math.abs(x) < c.x1 + 4) continue;
+      if ((f.road && Math.abs(x - roadX(f, z)) < 3) || onTrail(plan, x, z, 1.5)) continue;
       n++;
       out.push({ x, z, s: 2.4 + hash(f.seed, i, 93) * 1.6, rot: hash(f.seed, i, 94) * Math.PI * 2, tall: hash(f.seed, i, 95) < 0.7 });
     }
@@ -443,6 +570,13 @@ export function buildField(plan: LandInput, spec: TwSpec): FieldView {
     uTwCloud: { value: spec.clouds ? (plan.cloud ?? 0) : 0 },
     uTwScar: { value: new THREE.Vector4(plan.scar?.z ?? 0, plan.scar?.half ?? 1, plan.scar?.span ?? 0, 0) },
     uTwBloom: { value: f.winter || spec.tufts === 0 ? 0 : 1 },
+    // Тракт, тропа к логову и пашня вдали (Г-3). С городом — его земля: дорога, поля и лес города (`city/backdrop.ts`).
+    uTwRoad: { value: new THREE.Vector4(f.road && !plan.town ? 1 : 0, f.seed, 0, 0) },
+    uTwTrail: { value: trailUniform(plan) },
+    uTwFarm: { value: new THREE.Vector4(plan.town || f.land === 'hills' || f.ridge ? 0 : 1, (f.seed % 97) * 1.37, f.winter ? 1 : 0, f.woods ? 110 : 70) },
+    uTwPlate: { value: new THREE.Vector3(plateRect(f).halfX, plateRect(f).minZ, plateRect(f).maxZ) },
+    uTwRoadCol: { value: linearOf(f.winter ? 0x9b9286 : TONE.dirtLight) },
+    uTwRutCol: { value: linearOf(f.winter ? 0x5f5040 : TONE.dirtDark) },
   };
   const town = plan.town ?? null;
   groundMat.onBeforeCompile = (sh) => {
@@ -575,7 +709,8 @@ export function buildField(plan: LandInput, spec: TwSpec): FieldView {
       const x = (hash(f.seed, i, 121) * 2 - 1) * (f.halfX + 20);
       const z = f.minZ - 20 + hash(f.seed, i, 122) * (f.maxZ - f.minZ + 40);
       if (vnoise(x / 6, z / 6, f.seed + 123) < 0.42 || (town ? town.keep(x, z) < 0.9 : inside(r, x, z) < 0.5)) continue;
-      if (town ? town.road(x, z) < 1.6 : f.road && Math.abs(x - (7 + Math.sin(z / 30 + f.seed) * 5)) < 1.6) continue;
+      if (town ? town.road(x, z) < 1.6 : f.road && Math.abs(x - roadX(f, z)) < 2.2) continue;
+      if (onTrail(plan, x, z, 0.3)) continue;
       if (f.river && Math.abs(z - f.river.z) < f.river.half + 0.4) continue;
       if (plan.site?.blocks(x, z) || (plan.site?.ground(x, z).cobble ?? 0) > 0.2) continue;
       spots.push({ x, z, s: 0.7 + hash(f.seed, i, 124) * 0.8, rot: hash(f.seed, i, 125) * Math.PI * 2 });
@@ -601,6 +736,39 @@ export function buildField(plan: LandInput, spec: TwSpec): FieldView {
       group.add(tufts);
       extra.push(tufts);
       tuftTris = BLADES * spots.length;
+    }
+  }
+
+  // Камни (Г-3): валуны — на откосах и холмах, где земля крута, за краем строя; мелкие — россыпью в траве по всему полю.
+  // Модель — икосаэдр, приплюснутый, цвет — от скалы к тёмному камню; тени не дают (кадр ролика их не различит), только
+  // принимают. С городом — его камни склонов (`banks.slopeRocks`).
+  let stoneTris = 0;
+  if (spec.stones > 0 && !town) {
+    const spotsS = stoneSpots(f, plan, spec.stones);
+    if (spotsS.length) {
+      const sg = new THREE.IcosahedronGeometry(1, 0);
+      sg.scale(1, 0.62, 0.9);
+      const stoneMat = new THREE.MeshLambertMaterial({ color: 0xffffff, flatShading: true });
+      stoneMat.name = 'tw-stones';
+      const stones = new THREE.InstancedMesh(sg, stoneMat, spotsS.length);
+      stones.name = 'tw-stones';
+      stones.receiveShadow = true;
+      const m4 = new THREE.Matrix4();
+      const q = new THREE.Quaternion();
+      const v = new THREE.Vector3();
+      const sc = new THREE.Vector3();
+      const e = new THREE.Euler();
+      spotsS.forEach((p, i) => {
+        q.setFromEuler(e.set((hash(f.seed, i, 141) - 0.5) * 0.5, p.rot, (hash(f.seed, i, 142) - 0.5) * 0.5));
+        v.set(p.x, heightAt(f, p.x, p.z) - p.s * 0.14, p.z);
+        sc.set(p.s * (0.8 + hash(f.seed, i, 143) * 0.5), p.s, p.s * (0.8 + hash(f.seed, i, 144) * 0.5));
+        stones.setMatrixAt(i, m4.compose(v, q, sc));
+        stones.setColorAt(i, C.set(hash(f.seed, i, 145) < 0.5 ? TONE.rock : TONE.rockDark).multiplyScalar(f.winter ? 1.05 : 0.9 + hash(f.seed, i, 146) * 0.2));
+      });
+      stones.computeBoundingSphere();
+      group.add(stones);
+      extra.push(stones);
+      stoneTris = 20 * spotsS.length;
     }
   }
 
@@ -658,7 +826,7 @@ export function buildField(plan: LandInput, spec: TwSpec): FieldView {
         shared.cloud.value = 0;
       }
     },
-    triangles: tris + treeTris + reedTris + tuftTris,
+    triangles: tris + treeTris + reedTris + tuftTris + stoneTris,
     light(sun: THREE.DirectionalLight, scene: THREE.Scene, night: number): void {
       // Небо в воде — то же, что над полем: зенит темнее фона (`light.ZENITH_MUL`), горизонт — дымка.
       const bg = scene.background as THREE.Color;

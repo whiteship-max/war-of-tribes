@@ -2145,3 +2145,248 @@ export function readPayResponse(v: unknown): PayResponse | null {
   }
   return out;
 }
+
+// ---------- Замеры плавности с телефонов (docs/telemetry.md) ----------
+//
+// Игра сама сообщает, как она идёт на настоящих телефонах: пачка раз в пять минут и при сворачивании (`/api/perf`, PUT,
+// подписью `initData`, как сохранение). Только техническое: кадры по местам, уровень графики и его понижения, замирание
+// при возврате, первый кадр города, длинные задачи, число ошибок, устройство без имени и строки браузера. Игрок для
+// сервера — номер замка (`roster.castleIdOf` из подписи); имени, ключа `tg-…` и координат в замерах нет.
+//
+// **Сервер не верит пачке ни в чём** (правило ЗЩ-1, docs/security.md): незнакомое поле на любом уровне, чужое слово или
+// число вне разумного — отказ всей пачке (400), а не обрезка. Подделка ничего не даёт игроку, но засоряла бы сводку
+// `/perf`, по которой решают, что чинить.
+
+/** Места замера кадров — то же, что `render/loop.FramePlace` (тест «места одни»). */
+export const PERF_PLACES = ['city', 'map', 'battle', 'siege', 'prologue', 'berries', 'herd', 'hunt', 'fish'] as const;
+export type PerfPlace = (typeof PERF_PLACES)[number];
+
+/**
+ * Лестницы сторожа плавности (`render/steady`): уровни сцены города и роликов (`render/quality`) и ступени предыстории и
+ * промыслов (`prologue/look`). Понижение — шаг вниз по одной лестнице.
+ */
+export const PERF_LADDERS = [
+  ['high', 'medium', 'low'],
+  ['full', 'lite', 'base'],
+] as const;
+
+/**
+ * Потолки пачки. Кадров на место — не больше `fps` в секунду охваченного времени (потолок двери кадра 60 и запас на
+ * дрожь отметок), на все места — вдвое больше (две цепочки могут идти разом). Промежуток кадра — корзинами по
+ * миллисекунде от 0 до `bucket`; последняя — «столько и дольше».
+ */
+export const PERF_LIMITS = {
+  spanMin: 1000,
+  spanMax: 20 * 60_000,
+  bucket: 100,
+  fps: 62,
+  drops: 8,
+  freeze: 4,
+  freezeMs: 120_000,
+  firstMs: 600_000,
+  /** Длинная задача — от 50 мс (Long Tasks API): больше одной на 50 мс времени не бывает. */
+  longMs: 50,
+  errors: 1000,
+  gpu: 96,
+  build: 64,
+  /** Пачек в минуту с одного игрока — сито поверх `perDay`. */
+  perMinute: 4,
+  /** Пачек в сутки на одно устройство игрока: пять минут круглые сутки — 288, остальное — сворачивания. */
+  perDay: 400,
+  /** Сколько дней сервер хранит замеры. */
+  keepDays: 30,
+} as const;
+
+/** Устройство — классом, без имён: ни строки браузера, ни модели, ни координат. */
+export interface PerfDevice {
+  kind: 'phone' | 'tablet' | 'desktop';
+  os: 'ios' | 'android' | 'windows' | 'mac' | 'linux' | 'other';
+  /** Главная версия ОС: `17.4`, `14`; не узнали — пусто. */
+  osv: string;
+  /** Telegram (WebView мини-аппы) или браузер. */
+  app: 'tg' | 'web';
+  /** Платформа клиента Telegram (`ios`, `android`, `tdesktop`, `weba`…) и версия Bot API; вне Telegram — пусто. */
+  tgp: string;
+  tgv: string;
+  br: 'chrome' | 'safari' | 'firefox' | 'samsung' | 'yandex' | 'edge' | 'other';
+  /** Видеокарта (`WEBGL_debug_renderer_info`); браузер скрыл — пусто. */
+  gpu: string;
+  /** Экран в точках CSS (короткая сторона — `w`) и плотность. */
+  w: number;
+  h: number;
+  dpr: number;
+  /** Память, ГБ (`navigator.deviceMemory`), и ядра; не говорит — `null`. */
+  mem: number | null;
+  cores: number | null;
+  /** Класс Telegram на Android (`quality.tgClassOf`). */
+  tgc: 'LOW' | 'AVERAGE' | 'HIGH' | null;
+}
+
+/** Понижение сторожем: где и с какой ступени на какую. */
+export interface PerfDrop {
+  p: PerfPlace;
+  f: string;
+  t: string;
+}
+
+/** Замирание при возврате: первый кадр после возврата контекста (`restore`) или пересборка сцены (`rebuild`), мс. */
+export interface PerfFreeze {
+  k: 'restore' | 'rebuild';
+  ms: number;
+}
+
+/** Тело `/api/perf`. */
+export interface PerfPut {
+  v: 1;
+  /** Версия игры — та же строка, что в описи (`snapshot.buildId`). */
+  build: string;
+  /** Сколько настоящего времени охватывает пачка, мс. */
+  span: number;
+  dev: PerfDevice;
+  /** Уровень графики, на котором стоит город сейчас (`gfx.levelNow`), и выбор игрока в настройках. */
+  q: 'high' | 'medium' | 'low' | null;
+  set: 'auto' | 'high' | 'medium' | 'low';
+  /** Промежутки между кадрами по местам: корзина (мс) → сколько кадров. */
+  fps: Partial<Record<PerfPlace, Record<string, number>>>;
+  drops: PerfDrop[];
+  freeze: PerfFreeze[];
+  /** От начала страницы до первого кадра города и до города, вставшего целиком, мс; раз за заход. */
+  first?: number;
+  ready?: number;
+  /** Длинные задачи главного потока: сколько, сумма и самая долгая, мс; браузер не умеет мерить — `null`. */
+  long: { n: number; ms: number; max: number } | null;
+  /** Ошибок JS (`error`, `unhandledrejection`). Только число — текст ошибки может нести чужое. */
+  err: number;
+}
+
+export interface PerfResponse {
+  now: number;
+}
+
+const own = (v: unknown, keys: readonly string[], need: readonly string[] = keys): Record<string, unknown> | null => {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return null;
+  const r = v as Record<string, unknown>;
+  for (const k of Object.keys(r)) if (!keys.includes(k)) return null;
+  for (const k of need) if (!(k in r)) return null;
+  return r;
+};
+const int = (v: unknown, lo: number, hi: number): v is number => typeof v === 'number' && Number.isInteger(v) && v >= lo && v <= hi;
+const isOneOf = <T extends string>(v: unknown, list: readonly T[]): v is T => typeof v === 'string' && (list as readonly string[]).includes(v);
+
+const DEVICE_KEYS = ['kind', 'os', 'osv', 'app', 'tgp', 'tgv', 'br', 'gpu', 'w', 'h', 'dpr', 'mem', 'cores', 'tgc'] as const;
+
+function readPerfDevice(v: unknown): PerfDevice | string {
+  const d = own(v, DEVICE_KEYS);
+  if (!d) return 'устройство: поля';
+  if (!isOneOf(d.kind, ['phone', 'tablet', 'desktop'] as const)) return 'устройство: вид';
+  if (!isOneOf(d.os, ['ios', 'android', 'windows', 'mac', 'linux', 'other'] as const)) return 'устройство: ОС';
+  if (typeof d.osv !== 'string' || !/^(\d{1,3}(\.\d{1,3})?)?$/.test(d.osv)) return 'устройство: версия ОС';
+  if (!isOneOf(d.app, ['tg', 'web'] as const)) return 'устройство: клиент';
+  if (typeof d.tgp !== 'string' || !/^[a-z_]{0,16}$/.test(d.tgp)) return 'устройство: платформа Telegram';
+  if (typeof d.tgv !== 'string' || !/^(\d{1,2}(\.\d{1,2}){0,2})?$/.test(d.tgv)) return 'устройство: версия Telegram';
+  if (!isOneOf(d.br, ['chrome', 'safari', 'firefox', 'samsung', 'yandex', 'edge', 'other'] as const)) return 'устройство: браузер';
+  if (typeof d.gpu !== 'string' || d.gpu.length > PERF_LIMITS.gpu || !/^[\x20-\x7e]*$/.test(d.gpu)) return 'устройство: видеокарта';
+  if (!int(d.w, 100, 8000) || !int(d.h, 100, 8000) || d.w > d.h) return 'устройство: экран';
+  if (typeof d.dpr !== 'number' || !(d.dpr >= 0.5 && d.dpr <= 8)) return 'устройство: плотность';
+  if (d.mem !== null && !(typeof d.mem === 'number' && d.mem >= 0.25 && d.mem <= 64)) return 'устройство: память';
+  if (d.cores !== null && !int(d.cores, 1, 256)) return 'устройство: ядра';
+  if (d.tgc !== null && !isOneOf(d.tgc, ['LOW', 'AVERAGE', 'HIGH'] as const)) return 'устройство: класс Telegram';
+  if (d.tgc !== null && d.os !== 'android') return 'устройство: класс Telegram не на Android';
+  return {
+    kind: d.kind,
+    os: d.os,
+    osv: d.osv,
+    app: d.app,
+    tgp: d.tgp,
+    tgv: d.tgv,
+    br: d.br,
+    gpu: d.gpu,
+    w: d.w,
+    h: d.h,
+    dpr: d.dpr,
+    mem: d.mem as number | null,
+    cores: d.cores as number | null,
+    tgc: d.tgc as PerfDevice['tgc'],
+  };
+}
+
+/** Шаг вниз по одной лестнице сторожа. */
+export const perfDropOk = (f: string, t: string): boolean =>
+  PERF_LADDERS.some((l) => (l as readonly string[]).includes(f) && (l as readonly string[]).indexOf(t) > (l as readonly string[]).indexOf(f));
+
+/**
+ * Пачка из тела запроса — целиком или причина отказа словами. Новый объект: лишнего из тела в нём нет. Числа не
+ * обрезаются, а проверяются — обрезанная подделка выглядела бы честной.
+ */
+export function readPerf(v: unknown): PerfPut | string {
+  const r = own(v, ['v', 'build', 'span', 'dev', 'q', 'set', 'fps', 'drops', 'freeze', 'first', 'ready', 'long', 'err'], ['v', 'build', 'span', 'dev', 'q', 'set', 'fps', 'drops', 'freeze', 'long', 'err']);
+  if (!r) return 'поля';
+  if (r.v !== 1) return 'версия';
+  if (typeof r.build !== 'string' || r.build.length > PERF_LIMITS.build || /[\u0000-\u001f\u007f]/.test(r.build)) return 'версия игры';
+  if (!int(r.span, PERF_LIMITS.spanMin, PERF_LIMITS.spanMax)) return 'охват';
+  const span = r.span;
+  const dev = readPerfDevice(r.dev);
+  if (typeof dev === 'string') return dev;
+  if (r.q !== null && !isOneOf(r.q, ['high', 'medium', 'low'] as const)) return 'уровень';
+  if (!isOneOf(r.set, ['auto', 'high', 'medium', 'low'] as const)) return 'выбор';
+
+  const cap = Math.ceil((span / 1000) * PERF_LIMITS.fps);
+  const places = own(r.fps, PERF_PLACES, []);
+  if (!places) return 'кадры: места';
+  const fps: PerfPut['fps'] = {};
+  let total = 0;
+  for (const p of PERF_PLACES) {
+    if (!(p in places)) continue;
+    const h = places[p];
+    if (!h || typeof h !== 'object' || Array.isArray(h)) return `кадры: ${p}`;
+    const out: Record<string, number> = {};
+    let n = 0;
+    for (const [k, c] of Object.entries(h as Record<string, unknown>)) {
+      if (!/^(0|[1-9]\d{0,2})$/.test(k) || Number(k) > PERF_LIMITS.bucket) return `кадры: ${p}: корзина`;
+      if (!int(c, 1, cap)) return `кадры: ${p}: счёт`;
+      out[k] = c;
+      n += c;
+    }
+    if (n > cap) return `кадры: ${p}: больше, чем успевает дверь кадра`;
+    // Кадры идут друг за другом: сумма промежутков не длиннее охвата (корзина — нижний край промежутка).
+    // Первый промежуток пачки мог начаться до её начала — отсюда секунда запаса.
+    if (Object.entries(out).reduce((a, [k, c]) => a + Number(k) * c, 0) > span + 1000) return `кадры: ${p}: дольше охвата`;
+    total += n;
+    if (n) fps[p] = out;
+  }
+  if (total > cap * 2) return 'кадры: всего';
+
+  if (!Array.isArray(r.drops) || r.drops.length > PERF_LIMITS.drops) return 'понижения';
+  const drops: PerfDrop[] = [];
+  for (const x of r.drops) {
+    const d = own(x, ['p', 'f', 't']);
+    if (!d || !isOneOf(d.p, PERF_PLACES) || typeof d.f !== 'string' || typeof d.t !== 'string' || !perfDropOk(d.f, d.t)) return 'понижения: шаг';
+    drops.push({ p: d.p, f: d.f, t: d.t });
+  }
+  if (!Array.isArray(r.freeze) || r.freeze.length > PERF_LIMITS.freeze) return 'замирания';
+  const freeze: PerfFreeze[] = [];
+  for (const x of r.freeze) {
+    const f = own(x, ['k', 'ms']);
+    if (!f || !isOneOf(f.k, ['restore', 'rebuild'] as const) || !int(f.ms, 0, PERF_LIMITS.freezeMs)) return 'замирания: число';
+    freeze.push({ k: f.k, ms: f.ms });
+  }
+  let long: PerfPut['long'] = null;
+  if (r.long !== null) {
+    const l = own(r.long, ['n', 'ms', 'max']);
+    // Задача, начатая до пачки, засчитывается ей целиком — отсюда запас одной долгой задачи сверх охвата.
+    const room = span + PERF_LIMITS.freezeMs;
+    if (!l || !int(l.n, 0, Math.ceil(span / PERF_LIMITS.longMs) + 1) || !int(l.ms, 0, room) || !int(l.max, 0, PERF_LIMITS.freezeMs)) return 'длинные задачи';
+    if (l.max > l.ms || l.ms < l.n * PERF_LIMITS.longMs || (l.n === 0) !== (l.ms === 0)) return 'длинные задачи: сумма';
+    long = { n: l.n, ms: l.ms, max: l.max };
+  }
+  if (!int(r.err, 0, PERF_LIMITS.errors)) return 'ошибки';
+
+  const out: PerfPut = { v: 1, build: r.build, span, dev, q: r.q as PerfPut['q'], set: r.set, fps, drops, freeze, long, err: r.err };
+  for (const k of ['first', 'ready'] as const) {
+    if (!(k in r)) continue;
+    if (!int(r[k], 1, PERF_LIMITS.firstMs)) return k === 'first' ? 'первый кадр' : 'город встал';
+    out[k] = r[k] as number;
+  }
+  if (out.first !== undefined && out.ready !== undefined && out.ready < out.first) return 'город встал раньше первого кадра';
+  return out;
+}

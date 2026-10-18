@@ -12,9 +12,10 @@ import * as THREE from 'three';
 import type { Quality } from '../quality';
 import { HEARTH_LOOK, type SmokeLook, type SmokeSource } from '../weather';
 import type { V3 } from './geom';
-import { distSeg, heightAt, insidePoly, type CityPlan, type P } from './layout';
+import { CHURCH, PARVIS, distSeg, heightAt, insidePoly, type CityPlan, type P } from './layout';
 import { wallTops } from './forts';
 import { hash3, rnd } from './noise';
+import { headOf } from './roads';
 import { linear } from './palette';
 import { armsCode, armsOr } from '@/heraldry/arms';
 import { TINCTURE_HEX } from '@/heraldry/art';
@@ -971,13 +972,113 @@ export function tangentAt(path: Path, s: number): typeof TAN {
  * Пути через площадь и меж рядов рынка (docs/city.md, 13.1): улицы кончаются у краёв площади, и без этих путей прохожие
  * поворачивали бы назад у её кромки. Обходят ряды, колодец с чашей, бочки и статую; к паперти — сквозь проход ограды.
  */
+/** Сколько дороги от ворот ходят люди, метры: дальше — дымка (`camera.cityFog`). */
+export const TRAVEL_REACH = 760;
+/** Людная часть дороги у ворот, метры; дальше вес пути на метр — `TRAVEL_FAR`: редкие путники. */
+const TRAVEL_BUSY = 170;
+const TRAVEL_FAR = 0.05;
+
 export const SQUARE_PATHS: readonly { name: string; pts: P[]; half: number; weight: number }[] = [
   { name: 'от Главной к Верхней', pts: [{ x: 1, z: 30 }, { x: 14, z: 25.8 }, { x: 26, z: 23.5 }, { x: 28.5, z: 12 }, { x: 27, z: -4 }, { x: 25, z: -24 }], half: 2.5, weight: 2 },
   { name: 'от Восточной к Западной', pts: [{ x: 31, z: 0 }, { x: 12, z: -1 }, { x: -10, z: -2 }, { x: -23, z: -10 }, { x: -27, z: -24 }], half: 2.5, weight: 2 },
-  { name: 'к паперти', pts: [{ x: -2, z: -1.8 }, { x: -6, z: -14 }, { x: -9, z: -24 }, { x: -9, z: -31 }], half: 2, weight: 2.5 },
+  { name: 'к паперти', pts: [{ x: -2, z: -1.8 }, { x: -4, z: -14 }, { x: -4, z: -24 }, { x: -4, z: PARVIS.foot + 0.6 }], half: 2, weight: 2.5 },
   { name: 'меж рядов, южный проход', pts: [{ x: -15, z: 8.25 }, { x: 28.3, z: 8.25 }], half: 1.2, weight: 4 },
   { name: 'меж рядов, северный проход', pts: [{ x: -15, z: 14.75 }, { x: 28.2, z: 14.75 }], half: 1.2, weight: 3 },
 ];
+
+/**
+ * Прихожанин (docs/city_v3.md, Г-2): стоит на площадке перед храмом, идёт к лестнице, поднимается на паперть, входит в
+ * открытую створку портала и пропадает внутри; выходит тем же путём и снова стоит на своём месте лицом к храму. Положение
+ * — функция времени, как у прохожих: пришёл из фона — прихожанин там, где ему быть.
+ */
+export interface Visit {
+  /** Путь от места на площадке до порога: точки с высотой. */
+  pts: V3[];
+  acc: number[];
+  len: number;
+  v: number;
+  /** Сколько стоит в храме и на своём месте, с. */
+  inside: number;
+  stay: number;
+  phase: number;
+}
+
+/** Где прихожанин в миг `t`; `hidden` — он в храме (фигура не рисуется), `moving` — идёт. */
+export const VISIT = { x: 0, y: 0, z: 0, yaw: 0, dist: 0, moving: 0, hidden: false };
+
+export function visitOf(plan: CityPlan, k: number, salt: number): Visit {
+  const r = (j: number): number => rnd(k, j, salt);
+  const ch = plan.civic.find((c) => c.kind === 'church');
+  const base = ch ? ch.base : heightAt(CHURCH.x, CHURCH.front);
+  // Место — на площадке перед лестницей; ход по лестнице — своей полосой; порог — в открытой (правой) створке.
+  const sx = CHURCH.x + (r(1) - 0.5) * 26;
+  const sz = PARVIS.foot + 1.6 + r(2) * 3.6;
+  const lane = CHURCH.x + (r(3) - 0.5) * 2 * (PARVIS.half - 1.4);
+  const doorX = CHURCH.x + 0.45 + r(4) * 0.7;
+  const doorZ = CHURCH.front + 0.75;
+  const pts: V3[] = [
+    [sx, heightAt(sx, sz), sz],
+    [lane, heightAt(lane, PARVIS.foot + 0.4), PARVIS.foot + 0.4],
+    [lane, base, PARVIS.top - 0.3],
+    [doorX, base, doorZ + 0.6],
+    [doorX, base, doorZ],
+  ];
+  const acc = [0];
+  for (let i = 1; i < pts.length; i++) acc.push(acc[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][2] - pts[i - 1][2]));
+  const len = acc[acc.length - 1];
+  const v = 0.8 + r(5) * 0.4;
+  const inside = 18 + r(6) * 40;
+  const stay = 10 + r(7) * 30;
+  return { pts, acc, len, v, inside, stay, phase: r(8) * (2 * len / v + inside + stay) };
+}
+
+export function visitAt(w: Visit, t: number): typeof VISIT {
+  const walk = w.len / w.v;
+  const period = 2 * walk + w.inside + w.stay;
+  const m = (((t + w.phase) % period) + period) % period;
+  const P = w.pts;
+  // Стоит на месте лицом к храму (храм смотрит на юг: лицом — на север).
+  const standYaw = Math.atan2(1, 0);
+  if (m < w.stay) {
+    VISIT.x = P[0][0];
+    VISIT.y = P[0][1];
+    VISIT.z = P[0][2];
+    VISIT.yaw = standYaw;
+    VISIT.moving = 0;
+    VISIT.hidden = false;
+    VISIT.dist = 0;
+    return VISIT;
+  }
+  const inTo = m < w.stay + walk;
+  const inChurch = !inTo && m < w.stay + walk + w.inside;
+  if (inChurch) {
+    const e = P[P.length - 1];
+    VISIT.x = e[0];
+    VISIT.y = e[1];
+    VISIT.z = e[2] - 1.5;
+    VISIT.yaw = standYaw;
+    VISIT.moving = 0;
+    VISIT.hidden = true;
+    VISIT.dist = 0;
+    return VISIT;
+  }
+  const d = inTo ? (m - w.stay) * w.v : w.len - (m - w.stay - walk - w.inside) * w.v;
+  let i = 0;
+  while (i < w.acc.length - 2 && w.acc[i + 1] <= d) i++;
+  const a = P[i];
+  const e = P[i + 1];
+  const f = Math.min(1, Math.max(0, (d - w.acc[i]) / (w.acc[i + 1] - w.acc[i] || 1)));
+  VISIT.x = a[0] + (e[0] - a[0]) * f;
+  VISIT.y = a[1] + (e[1] - a[1]) * f;
+  VISIT.z = a[2] + (e[2] - a[2]) * f;
+  const go = inTo ? 1 : -1;
+  // Фигура смотрит по +x, поворот — вокруг вертикали (как у прохожих).
+  VISIT.yaw = Math.atan2(-(e[2] - a[2]) * go, (e[0] - a[0]) * go);
+  VISIT.moving = 1;
+  VISIT.hidden = false;
+  VISIT.dist = inTo ? d : 2 * w.len - d;
+  return VISIT;
+}
 
 // ---------------------------------------------------------------------------------------------
 
@@ -1210,6 +1311,8 @@ export class CityLife {
   /** Маршруты идущих и места стоящих; порядок экземпляров перемешан — ночью пустеет равномерно. */
   private routes: (Route | null)[] = [];
   private idle: (Idle | null)[] = [];
+  /** Прихожане храма: у кого есть — тот не прохожий и не стоящий (`visitAt`). */
+  private visits: (Visit | null)[] = [];
   /** Горожане — по мешу на вид (`TOWNSFOLK`; на низком — один прежний); прохожий `k` — в меше `k % видов`. */
   private crowd: THREE.InstancedMesh[] = [];
   private crowdGait: THREE.InstancedBufferAttribute[] = [];
@@ -1262,9 +1365,14 @@ export class CityLife {
       this.paths.push(pathOf(st.pts, st.half, ground));
       weight.push(this.paths[this.paths.length - 1].len * (0.25 + st.rich * 1.5));
     }
-    for (const r of plan.roads.slice(0, 2)) {
-      this.paths.push(pathOf(r.pts.slice(0, Math.min(r.pts.length, 18)), r.half, ground));
-      weight.push(this.paths[this.paths.length - 1].len * 0.5);
+    // Дороги от ворот — до дымки (`TRAVEL_REACH`): у ворот людно, дальше — редкие путники (docs/city_v3.md, Г-3); лесная
+    // дорога на север — путники к деревне за лесом. Число людей уровня не растёт: путники — из тех же идущих.
+    for (const r of plan.roads) {
+      const main = r.name === 'Дорога в долину' || r.name === 'Восточная дорога';
+      if (!main && r.name !== 'Лесная дорога') continue;
+      this.paths.push(pathOf(headOf(r.pts, TRAVEL_REACH), r.half, ground));
+      const len = this.paths[this.paths.length - 1].len;
+      weight.push(main ? Math.min(len, TRAVEL_BUSY) * 0.5 + Math.max(0, len - TRAVEL_BUSY) * TRAVEL_FAR : len * TRAVEL_FAR);
     }
     for (const sq of SQUARE_PATHS) {
       this.paths.push(pathOf(sq.pts, sq.half, ground));
@@ -1383,24 +1491,30 @@ export class CityLife {
   }
 
   /**
-   * Прохожие: идущие — по маршрутам графа улиц, стоящие — кружками у рядов, колодца, паперти и ратуши. Раскладка от
-   * зерна — одна на город; порядок перемешан, чтобы при малом населении и ночью стояли и шли в той же доле.
+   * Прохожие: идущие — по маршрутам графа улиц, прихожане — от площадки перед храмом в храм и обратно (`visitAt`),
+   * стоящие — кружками у рядов, паперти и ратуши и лицом к колодцу вокруг него. Раскладка от зерна — одна на город; порядок перемешан, чтобы при малом населении и ночью стояли и шли в той же доле.
    */
   private seedPeople(): void {
     const total = this.cap.people;
-    const spots = [
+    const well = this.input.plan.well;
+    // `ring` — кружок вокруг колодца лицом к нему: берут воду, крутят ворот; места — мимо колоды, ведра и огненной чаши.
+    const spots: { x: number; z: number; rx: number; rz: number; w: number; ring?: number }[] = [
       { x: 4, z: 8.3, rx: 15, rz: 0.4, w: 4 },
       { x: 4, z: 14.8, rx: 15, rz: 0.4, w: 3 },
-      { x: 2, z: -7, rx: 5, rz: 4.5, w: 3 },
-      { x: -9, z: -29.5, rx: 8, rz: 1.6, w: 2 },
+      { x: well.x, z: well.z, rx: 0, rz: 0, w: 3, ring: 2.05 },
+      { x: CHURCH.x, z: PARVIS.foot + 2.7, rx: 11, rz: 1.5, w: 3 },
       { x: -23, z: -2, rx: 1.6, rz: 9, w: 2 },
       { x: -19, z: 9, rx: 2, rz: 2, w: 1 },
     ];
+    const WELL_ARC = [-1.85, -1.25, -0.2, 1.75, 2.35, -2.5];
     const wsum = spots.reduce((a, b) => a + b.w, 0);
-    let group: { x: number; z: number; left: number; k: number } | null = null;
+    let group: { x: number; z: number; left: number; k: number; ring?: number; arc: number } | null = null;
     for (let k = 0; k < total; k++) {
       if (rnd(k, 6, 72) >= 0.32) {
-        this.routes.push(routeOf(this.paths, this.junctions, this.weight, k, 71));
+        // Каждый седьмой из идущих — прихожанин храма: ходит от площадки в храм и обратно.
+        const visit = rnd(k, 14, 72) < 0.14;
+        this.visits.push(visit ? visitOf(this.input.plan, k, 74) : null);
+        this.routes.push(visit ? null : routeOf(this.paths, this.junctions, this.weight, k, 71));
         this.idle.push(null);
         continue;
       }
@@ -1410,15 +1524,23 @@ export class CityLife {
         let i = 0;
         while (i < spots.length - 1 && r > spots[i].w) r -= spots[i++].w;
         const c = spots[i];
-        group = { x: c.x + (rnd(k, 8, 73) - 0.5) * 2 * c.rx, z: c.z + (rnd(k, 9, 73) - 0.5) * 2 * c.rz, left: 2 + Math.floor(rnd(k, 10, 73) * 3), k: 0 };
+        group = {
+          x: c.x + (rnd(k, 8, 73) - 0.5) * 2 * c.rx,
+          z: c.z + (rnd(k, 9, 73) - 0.5) * 2 * c.rz,
+          left: 2 + Math.floor(rnd(k, 10, 73) * 3),
+          k: 0,
+          ring: c.ring,
+          arc: Math.floor(rnd(k, 15, 73) * WELL_ARC.length),
+        };
       }
-      const a = rnd(k, 11, 73) * 0.6 + (group.k * Math.PI * 2) / 3.2;
-      const rr = 0.55 + rnd(k, 12, 73) * 0.25;
+      const a = group.ring ? WELL_ARC[(group.arc + group.k) % WELL_ARC.length] + (rnd(k, 11, 73) - 0.5) * 0.25 : rnd(k, 11, 73) * 0.6 + (group.k * Math.PI * 2) / 3.2;
+      const rr = group.ring ? group.ring + rnd(k, 12, 73) * 0.3 : 0.55 + rnd(k, 12, 73) * 0.25;
       const x = group.x + Math.cos(a) * rr;
       const z = group.z + Math.sin(a) * rr;
       // Лицом к середине кружка: фигура смотрит по +x, поворот — вокруг вертикали.
       this.idle.push({ x, z, y: heightAt(x, z), yaw: Math.atan2(-(group.z - z), group.x - x) });
       this.routes.push(null);
+      this.visits.push(null);
       group.left--;
       group.k++;
     }
@@ -1695,7 +1817,14 @@ export class CityLife {
       const i = Math.floor(k / kinds);
       const pg = this.crowdGait[k % kinds].array as Float32Array;
       const r = this.routes[k];
-      if (r) {
+      const vis = this.visits[k];
+      if (vis) {
+        const p = visitAt(vis, t);
+        // В храме фигуры нет: она стоит за порогом в нулевом масштабе.
+        this.place(im, i, p.x, p.y + p.moving * (1 - Math.cos(p.dist * 8.976)) * 0.018, p.z, p.yaw, p.hidden ? 0 : 1);
+        pg[i * 2] = p.dist;
+        pg[i * 2 + 1] = p.moving;
+      } else if (r) {
         const p = poseAt(this.paths, r, t);
         // Шаг: лёгкое подпрыгивание в такт ног — дважды за шаг, мягко.
         this.place(im, i, p.x, p.y + (1 - Math.cos(p.dist * 8.976)) * 0.018, p.z, p.yaw, 1);

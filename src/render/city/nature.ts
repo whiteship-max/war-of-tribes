@@ -8,6 +8,7 @@ import { distPoly, heightAt, insidePoly, riverX, RIVER_HALF, type CityPlan, type
 import { fieldAt, openLand } from './ground';
 import { L, TILE_M } from './tex';
 import { fbm, hash3, rnd, sstep, vnoise } from './noise';
+import { roadU, ROAD_U_MAX } from './roads';
 
 /** Гласис: луг под стеной, на котором лес не растёт, — метры от стены. */
 export const GLACIS = 26;
@@ -37,7 +38,11 @@ export function forestAt(x: number, z: number, plan: CityPlan): number {
   return Math.min(1, base * clear * glacis * bank);
 }
 
-/** Карта земель для дальнего плана: r — полог леса, g — пашня вне ближней карты. */
+/**
+ * Карта земель для дальнего плана: r — полог леса, g — пашня вне ближней карты, b — дороги: расстояние до ближайшей в её
+ * полуширинах со знаком стороны (`roads.roadU`, 0,5 — на оси, края — `ROAD_U_MAX`). Дорога за краем ближней карты держится
+ * этим каналом до края мира (docs/city_v3.md, Г-3).
+ */
 export const LAND_AT = { x0: -1100, z0: -1200, size: 2200 } as const;
 
 export function landMap(plan: CityPlan, size: number): Uint8Array {
@@ -50,7 +55,7 @@ export function landMap(plan: CityPlan, size: number): Uint8Array {
       const k = (j * size + i) * 4;
       out[k] = Math.round(forestAt(x, z, plan) * 255);
       out[k + 1] = Math.round(fieldAt(x, z, plan) * 255);
-      out[k + 2] = 0;
+      out[k + 2] = Math.round((roadU(x, z, plan) / ROAD_U_MAX) * 127.5 + 127.5);
       out[k + 3] = 255;
     }
   }

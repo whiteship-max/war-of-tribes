@@ -7,7 +7,7 @@
 // Отсюда же следует, что содержимое у обоих показов одинаковое. Соблазн
 // «на стартовом экране покажем только звук» — это и есть начало второй копии.
 //
-// Строк здесь шесть — звук (с громкостью музыки и звуков под ним, пока он включён), графика, подсказки, вести в Telegram (только в Telegram), «Сообщить об ошибке» (тоже
+// Строк здесь семь — звук (с громкостью музыки и звуков под ним, пока он включён), графика, подсказки, вести в Telegram (только в Telegram), «Отправлять замеры» и «Сообщить об ошибке» (тоже
 // только в Telegram), язык, — и это не заготовка под список.
 // Свалкой раздел становится с той строки, которую добавили «раз уж всё равно
 // открыли»: игрок перестаёт читать и начинает пролистывать. Новая строка
@@ -29,6 +29,9 @@
 // Подсказки — такая же (решение владельца 06.10.2026, docs/rating.md): игроку, которому они мешают, выключить их больше
 // негде.
 //
+// «Отправлять замеры» — такая же (задание Г-1, 17.10.2026, docs/telemetry.md): игра сама шлёт серверу, как она идёт на
+// телефоне, и выключить это игрок может только здесь. Только в Telegram — вне его замеры не уходят вовсе.
+//
 // Чего здесь нет и быть не может: ничего про алмазы. Премиальная валюта живёт в
 // ратуше, где ею платят, и настройкой не является ни в каком виде.
 import { useSyncExternalStore } from 'react';
@@ -42,6 +45,7 @@ import { inTelegram } from '@/telegram/webapp';
 import { useBugReport } from './bugOpen';
 import { useGame } from '@/game/store';
 import { hintsOff, setHintsOff } from '@/game/sim/hints';
+import { perfOn, setPerfOn, subscribePerf } from '@/perf/telemetry';
 
 /**
  * Переключатель звука — **единственный рычаг на весь звук игры**: город, карта, музыка эпохи, бой, промыслы, вой.
@@ -97,6 +101,7 @@ export function Settings() {
   // Подсказки новичку — поле партии (`sim/hints`), как и то, какие уже показаны (docs/rating.md).
   const hintsOn = useGame((g) => !hintsOff(g.s));
   const flipHints = (): void => useGame.getState().world((s) => setHintsOff(s, hintsOn));
+  const perf = useSyncExternalStore(subscribePerf, perfOn, perfOn);
 
   return (
     <>
@@ -206,6 +211,21 @@ export function Settings() {
             <span className="name">
               Вести в Telegram
               <em className="sub">{shut ? 'Нажми, чтобы разрешить боту' : 'О набеге и о бое'}</em>
+            </span>
+            <span className="sw">
+              <i />
+            </span>
+          </button>
+        )}
+
+        {inTelegram() && (
+          <button className={`set-row${perf ? ' on' : ''}`} onClick={() => setPerfOn(!perf)} aria-pressed={perf}>
+            <span className="ico">
+              <Icon name="ui-perf" glyph="📊" />
+            </span>
+            <span className="name">
+              Отправлять замеры
+              <em className="sub">Плавность и устройство, без имён — чтобы игра шла ровнее</em>
             </span>
             <span className="sw">
               <i />
