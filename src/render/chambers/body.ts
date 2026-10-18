@@ -37,16 +37,18 @@ const TRIM = tint(0xece4d4);
 const HOSE = tint(0x2a2230);
 const SHOE = tint(0x3a2416);
 const GOLD = tint(0xd8ac52);
+const TRIM_GOLD = tint(0xb8913c);
+const ROBE_DARK = tint(0x4a1014);
 
 /** Длины руки, м: плечо и предплечье; ладонь до костяшек; пальцы — указательный, средний, безымянный, мизинец. */
 const UPPER = 0.29;
 const FORE = 0.27;
 const PALM = 0.088;
 const FINGERS = [
-  { off: -0.026, len: 0.072, r: 0.0095, back: 0 },
-  { off: -0.008, len: 0.08, r: 0.0098, back: 0.002 },
-  { off: 0.01, len: 0.075, r: 0.0093, back: 0.004 },
-  { off: 0.027, len: 0.06, r: 0.0082, back: 0.012 },
+  { off: -0.025, len: 0.07, r: 0.0086, back: 0 },
+  { off: -0.0075, len: 0.078, r: 0.0089, back: 0.002 },
+  { off: 0.0095, len: 0.073, r: 0.0085, back: 0.004 },
+  { off: 0.0255, len: 0.058, r: 0.0075, back: 0.012 },
 ] as const;
 const SIDES = 8;
 
@@ -188,7 +190,8 @@ function hand(e: Emit, h: HandPose, right: boolean): void {
     const fd = norm(add(f, toLittle, fan));
     const fu = norm(sub(u, scale(fd, dot(u, fd))));
     const root = add(add(add(w, f, PALM - g.back), toLittle, g.off), u, 0.004);
-    const angles = [0.15 + curl * 1.25, curl * 1.55, curl * 0.95];
+    // Пальцы в покое слегка согнуты; сгиб — больше в средних суставах, чем у основания (не «когти»).
+    const angles = [0.12 + curl * 0.95, 0.18 + curl * 1.35, 0.1 + curl * 0.85];
     const parts = [0.45, 0.3, 0.25];
     const pts: P[] = [root];
     let th = 0;
@@ -260,10 +263,13 @@ function lap(e: Emit, hips: [P, P], knees: [P, P]): void {
     }
     rows.push(row);
   }
-  // За коленями подол спадает вниз.
+  // За коленями подол спадает вниз; по краю — золотая кайма.
   const last = rows[rows.length - 1];
-  rows.push(last.map((p) => [p[0], p[1] - 0.17, p[2] + 0.07] as P));
+  const hem = last.map((p) => [p[0], p[1] - 0.03, p[2] + 0.035] as P);
+  const fall = last.map((p) => [p[0], p[1] - 0.17, p[2] + 0.07] as P);
   e.grid(rows, ROBE, 0.04);
+  e.grid([last, hem], TRIM_GOLD, 0.7);
+  e.grid([hem, fall], ROBE_DARK, 0.04);
 }
 
 /** Рука убрана: все её вершины — в одну точку под ногами (раскладка та же, треугольники пустые). */

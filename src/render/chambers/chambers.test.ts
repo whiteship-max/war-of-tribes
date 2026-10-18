@@ -495,10 +495,10 @@ describe('покои: модель, огонь, звук', () => {
     });
     expect(tris[0]).toBeLessThan(tris[1]);
     expect(tris[1]).toBeLessThanOrEqual(tris[2]);
-    // Потолок покоев: 14 / 20 / 26 тысяч — город за окном несёт свои (docs/city_v3.md, Г-5, «Скорость»).
-    expect(tris[0]).toBeLessThan(14000);
-    expect(tris[1]).toBeLessThan(20000);
-    expect(tris[2]).toBeLessThan(26000);
+    // Потолок покоев — тот же, что у Г-4: 12 / 16 / 20 тысяч; город за окном несёт свои (docs/city_v3.md, Г-5, «Скорость»).
+    expect(tris[0]).toBeLessThan(12000);
+    expect(tris[1]).toBeLessThan(16000);
+    expect(tris[2]).toBeLessThan(20000);
   });
 
   it('тело: руки на подлокотниках сидя, у огня, на подоконнике; стоя — тела нет', () => {

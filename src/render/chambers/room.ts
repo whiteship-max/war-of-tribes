@@ -25,6 +25,7 @@ import { buildRoom, ROOM_LIGHTS, type RoomModel } from './build';
 import { LIGHTS_AT, roomMaterial, roomUniforms, type RoomUniforms } from './material';
 import { RoomFire } from './fire';
 import { ATLAS_PX, paintAtlas } from './paint';
+import { paintStone } from './stone';
 import { Body, type HandPose } from './body';
 import { ACTS, GRAB_AT, actLength, frameAt, type Act, type Frame } from './acts';
 import { AUTO_SPEED, BODY_R, EYE_STAND, WALK_SPEED, pathLength, pathTo, step } from './walk';
@@ -34,7 +35,9 @@ import {
   ARMREST,
   CHAIR,
   DESK_THINGS,
+  HALF,
   HEARTH,
+  OPENINGS,
   POIS,
   POI_BY_ID,
   THINGS,
@@ -80,6 +83,9 @@ export type Aim = { kind: 'thing'; thing: Thing } | { kind: 'poi'; poi: Poi };
 /** Куда правитель идёт и что делает, придя. */
 type Then = { kind: 'spot'; id: SpotId } | { kind: 'take'; id: TrinketId };
 
+/** Подоконник большого окна, м: на него кладут руки. */
+const SILL = OPENINGS.find((o) => o.wall === 'south')!.sill;
+
 /** Дотянуться стоя, м: от глаза по полу до середины предмета. */
 export const REACH = 0.9;
 /** Поле зрения стоя, градусы: как у входа Г-4. */
@@ -106,6 +112,8 @@ const FIRE = new THREE.Color(1.0, 0.42, 0.13).multiplyScalar(5.0);
 const CANDLE = new THREE.Color(1.0, 0.6, 0.27).multiplyScalar(2.2);
 /** Отражённый свет дня от пола, дерева и камня — тёплый. */
 const BOUNCE = new THREE.Color(0.16, 0.12, 0.085);
+/** Синева зенита днём (линейная, доля яркости неба). */
+const DEEP = new THREE.Color(0.2, 0.36, 0.78);
 
 const easeInOut = (k: number): number => k * k * (3 - 2 * k);
 const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
@@ -122,6 +130,8 @@ export class ChambersRoom implements Inside {
   private stone: THREE.ShaderMaterial;
   private cloth: THREE.ShaderMaterial;
   private atlas: THREE.CanvasTexture;
+  private stoneTex: THREE.DataTexture[] = [];
+  private sky: { mesh: THREE.Mesh; mat: THREE.ShaderMaterial };
   private fire: RoomFire;
   private handFire: RoomFire;
   private body: Body;
@@ -186,6 +196,14 @@ export class ChambersRoom implements Inside {
     this.atlas.anisotropy = quality === 'low' ? 1 : 4;
     this.u.atlas.value = this.atlas;
     this.u.cityTex.value = cityTex();
+    // Камень покоев (`stone.ts`): бут стен и тёсаный — рисуются здесь же, при входе.
+    const mas = stoneTexture(paintStone('masonry', quality === 'low' ? 512 : 1024), quality === 'low' ? 512 : 1024, quality);
+    const dre = stoneTexture(paintStone('dressed', 512), 512, quality);
+    this.stoneTex.push(mas, dre);
+    this.u.masonry.value = mas;
+    this.u.dressed.value = dre;
+    this.sky = skyDome();
+    this.scene.add(this.sky.mesh);
     const lights = LIGHTS_AT[quality];
     this.stone = roomMaterial(this.u, lights, false, quality !== 'low');
     this.cloth = roomMaterial(this.u, lights, true, quality !== 'low');
@@ -319,7 +337,9 @@ export class ChambersRoom implements Inside {
       this.applyAct();
       this.look(dyaw, dpitch);
     }
-    this.held = hold ? { id: hold, t: 1, dir: 1, yaw: 0, pitch: 0 } : null;
+    // Дело «Оружие» и есть меч в руке.
+    const inHand = hold ?? (id === 'arms' ? 'sword' : null);
+    this.held = inHand ? { id: inHand, t: 1, dir: 1, yaw: 0, pitch: 0 } : null;
     const h = hover ? THINGS.find((t) => t.id === hover) ?? null : null;
     this.hover = h ? { kind: 'thing', thing: h } : null;
     this.placeCamera();
@@ -368,6 +388,7 @@ export class ChambersRoom implements Inside {
       this.camera.updateProjectionMatrix();
     }
     this.camera.updateMatrixWorld();
+    this.sky.mesh.position.copy(this.camera.position);
   }
 
   // ---------- Кадр ----------
@@ -638,13 +659,24 @@ export class ChambersRoom implements Inside {
     u.uAmb.value
       .setRGB(0.012, 0.01, 0.009)
       .add(C.copy(FIRE).multiplyScalar(0.006 * flick))
-      .add(C.copy(u.uSky.value).multiplyScalar(0.03 + 0.05 * sky.daylight))
-      .add(C.copy(BOUNCE).multiplyScalar(sky.daylight))
+      .add(C.copy(u.uSky.value).multiplyScalar(0.03 + 0.075 * sky.daylight))
+      .add(C.copy(BOUNCE).multiplyScalar(1.5 * sky.daylight))
       .add(C.copy(CANDLE).multiplyScalar(0.008 * lit));
     const h = this.hover?.kind === 'thing' ? this.hover.thing : null;
     const sel = h && (!this.held || h.id === this.held.id) ? h.code : 0;
     u.uSel.value = sel;
     u.uSelGlow.value = 0.65 + Math.sin(t * 4) * 0.25;
+    // Небо за окнами — своё, а не плоский цвет фона: к горизонту — дымка города (на ней тает даль города), к зениту —
+    // синева, у солнца — сияние, ночью — звёзды. Днём окно не уходит в белое.
+    const su = this.sky.mat.uniforms;
+    const lum = sky.sky.r * 0.2126 + sky.sky.g * 0.7152 + sky.sky.b * 0.0722;
+    const clear = (1 - sky.cloud) * (1 - sky.mist * 0.7);
+    su.uHaze.value.copy(sky.haze);
+    // Зенит днём — синева без пересвета (небо фона города — выше единицы и в окне ушло бы в белое).
+    su.uZen.value.copy(sky.sky).multiplyScalar(0.55).lerp(C.copy(DEEP).multiplyScalar(Math.min(1, lum) * 0.95), 0.85 * clear * sky.daylight).multiplyScalar(1 - 0.35 * sky.night);
+    su.uSunDir.value.copy(sky.sunDir);
+    su.uSunCol.value.copy(sky.sun).multiplyScalar(0.35 * clear);
+    su.uNight.value = sky.night * clear;
     const sunLum = sky.sun.r * 0.3 + sky.sun.g * 0.6 + sky.sun.b * 0.1;
     this.fire.update(t, lit, Math.min(1, sunLum / 2.2) * (1 - sky.night));
     this.handFire.update(t, Math.max(lit, this.held?.id === 'candle' ? 1 : 0), 0);
@@ -777,34 +809,35 @@ export class ChambersRoom implements Inside {
       case 'armrests': {
         // Кисти на концах подлокотников, пальцы охватывают навершие (`plan.ARMREST`), чуть внутрь — к столу.
         const hand = (side: 1 | -1): HandPose => ({
-          w: [CHAIR.x - side * (ARMREST.x - 0.005), ARMREST.y + 0.035, ARMREST.end - 0.13],
-          f: [side * 0.32, -0.42, 1],
-          u: [-side * 0.25, 1, 0.35],
-          curl: 0.6 + 0.03 * Math.sin(t * 0.7 + side),
+          w: [CHAIR.x - side * (ARMREST.x + 0.005), ARMREST.y + 0.04, ARMREST.end - 0.15],
+          f: [side * 0.22, -0.2, 1],
+          u: [-side * 0.12, 1, 0.2],
+          curl: 0.34 + 0.02 * Math.sin(t * 0.7 + side),
+          spread: 0.05,
         });
         return { right: hand(1), left: hand(-1) };
       }
       case 'sill':
-        // Ладони на подоконнике большого окна (`plan.OPENINGS`: подоконник 0.95 на доске в 0.95 от комнаты).
+        // Ладони на подоконнике большого окна (`plan.OPENINGS`: плита подоконника выходит из доски в комнату).
         return {
-          right: { w: [-0.25, 0.985, 6.04], f: [0.16, -0.08, 1], u: [0, 1, 0.08], curl: 0.22 },
-          left: { w: [0.25, 0.985, 6.04], f: [-0.16, -0.08, 1], u: [0, 1, 0.08], curl: 0.22 },
+          right: { w: [-0.25, SILL + 0.035, HALF + 0.86], f: [0.16, -0.08, 1], u: [0, 1, 0.08], curl: 0.22 },
+          left: { w: [0.25, SILL + 0.035, HALF + 0.86], f: [-0.16, -0.08, 1], u: [0, 1, 0.08], curl: 0.22 },
         };
       case 'warm': {
         // Ладони к огню, пальцы вверх; кисти чуть трутся одна о другую.
         const hand = (side: 1 | -1): HandPose => {
           const rub = Math.sin(t * 1.9 + (side > 0 ? 0 : Math.PI)) * 0.012;
           const w: [number, number, number] = [
-            eye[0] + fwd[0] * 0.36 + right[0] * side * (0.115 + rub),
-            eye[1] - 0.37 + Math.sin(t * 1.3 + side) * 0.006,
-            eye[2] + fwd[2] * 0.36 + right[2] * side * (0.115 + rub),
+            eye[0] + fwd[0] * 0.4 + right[0] * side * (0.11 + rub),
+            eye[1] - 0.42 + Math.sin(t * 1.3 + side) * 0.006,
+            eye[2] + fwd[2] * 0.4 + right[2] * side * (0.11 + rub),
           ];
           return {
             w,
-            f: [fwd[0] * 0.45 - right[0] * side * 0.14, 0.88, fwd[2] * 0.45 - right[2] * side * 0.14],
-            u: [-fwd[0], 0.25, -fwd[2]],
-            curl: 0.16 + 0.07 * Math.sin(t * 1.1 + side),
-            spread: 0.14,
+            f: [fwd[0] * 0.6 - right[0] * side * 0.16, 0.8, fwd[2] * 0.6 - right[2] * side * 0.16],
+            u: [-fwd[0], 0.35, -fwd[2]],
+            curl: 0.22 + 0.06 * Math.sin(t * 1.1 + side),
+            spread: 0.08,
           };
         };
         return { right: hand(1), left: hand(-1) };
@@ -1118,6 +1151,9 @@ export class ChambersRoom implements Inside {
     this.stone.dispose();
     this.cloth.dispose();
     this.atlas.dispose();
+    for (const t of this.stoneTex) t.dispose();
+    this.sky.mesh.geometry.dispose();
+    this.sky.mat.dispose();
     this.fire.dispose();
     this.handFire.dispose();
     this.scene.clear();
@@ -1127,6 +1163,98 @@ export class ChambersRoom implements Inside {
     this.onUse = null;
     this.onEar = null;
   }
+}
+
+/** Плитка камня покоев: цвет и рельеф в одной текстуре, повтор без шва, мипы. Без страницы — один тон. */
+function stoneTexture(data: Uint8Array<ArrayBuffer> | null, px: number, q: Quality): THREE.DataTexture {
+  const t = data ? new THREE.DataTexture(data, px, px, THREE.RGBAFormat) : new THREE.DataTexture(new Uint8Array([150, 140, 128, 200]), 1, 1, THREE.RGBAFormat);
+  t.wrapS = THREE.RepeatWrapping;
+  t.wrapT = THREE.RepeatWrapping;
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.generateMipmaps = true;
+  t.minFilter = THREE.LinearMipmapLinearFilter;
+  t.magFilter = THREE.LinearFilter;
+  t.anisotropy = q === 'low' ? 1 : 4;
+  t.needsUpdate = true;
+  return t;
+}
+
+/**
+ * Небо за окнами покоев: купол вокруг глаза, рисуется первым и без глубины — комната ложится поверх, город за окнами
+ * встаёт поверх неба там, где он есть (`city/scene.draw`: второй проход без фона). Своя сфера, а не `SphereGeometry`:
+ * новое имя три легло бы в кусок three первой загрузки (docs/city_v3.md, Г-4, решение 13).
+ */
+function skyDome(): { mesh: THREE.Mesh; mat: THREE.ShaderMaterial } {
+  const R = 40;
+  const pos: number[] = [];
+  const idx: number[] = [];
+  const W = 24;
+  const H = 12;
+  for (let j = 0; j <= H; j++) {
+    const v = (j / H) * Math.PI;
+    for (let i = 0; i <= W; i++) {
+      const u = (i / W) * Math.PI * 2;
+      pos.push(Math.sin(v) * Math.cos(u) * R, Math.cos(v) * R, Math.sin(v) * Math.sin(u) * R);
+    }
+  }
+  for (let j = 0; j < H; j++)
+    for (let i = 0; i < W; i++) {
+      const a = j * (W + 1) + i;
+      idx.push(a, a + 1, a + W + 1, a + 1, a + W + 2, a + W + 1);
+    }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pos), 3));
+  g.setIndex(idx);
+  const mat = new THREE.ShaderMaterial({
+    uniforms: {
+      uZen: { value: new THREE.Color(0.3, 0.45, 0.8) },
+      uHaze: { value: new THREE.Color(0.7, 0.75, 0.8) },
+      uSunDir: { value: new THREE.Vector3(0, 1, 0) },
+      uSunCol: { value: new THREE.Color(0, 0, 0) },
+      uNight: { value: 0 },
+    },
+    vertexShader: /* glsl */ `
+      varying vec3 vDir;
+      void main() {
+        vDir = position;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: /* glsl */ `
+      uniform vec3 uZen;
+      uniform vec3 uHaze;
+      uniform vec3 uSunDir;
+      uniform vec3 uSunCol;
+      uniform float uNight;
+      varying vec3 vDir;
+      float hash(vec3 p) {
+        p = fract(p * 0.3183099 + 0.1);
+        p *= 17.0;
+        return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
+      }
+      void main() {
+        vec3 d = normalize(vDir);
+        float h = d.y;
+        // У горизонта — дымка города (на ней тает его даль), выше — быстро в синеву.
+        vec3 col = mix(uHaze, uZen, pow(smoothstep(-0.01, 0.32, h), 0.75));
+        float s = max(dot(d, uSunDir), 0.0);
+        col += uSunCol * (pow(s, 900.0) * 2.5 + pow(s, 24.0) * 0.16 + pow(s, 4.0) * 0.04);
+        // Звёзды: ночью и в ясную погоду, выше дымки горизонта.
+        float st = step(0.9972, hash(floor(d * 260.0)));
+        col += vec3(0.85, 0.9, 1.0) * st * uNight * smoothstep(0.06, 0.3, h) * 0.9;
+        gl_FragColor = vec4(col, 1.0);
+        #include <colorspace_fragment>
+      }
+    `,
+    side: THREE.BackSide,
+    depthWrite: false,
+    depthTest: false,
+  });
+  const mesh = new THREE.Mesh(g, mat);
+  mesh.name = 'chambers-sky';
+  mesh.renderOrder = -10;
+  mesh.frustumCulled = false;
+  return { mesh, mat };
 }
 
 /** Смешать две позы кисти: запястье и оси — линейно, сгиб — долей. */

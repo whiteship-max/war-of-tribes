@@ -1,6 +1,7 @@
-// Модель покоев (docs/city_v3.md, Г-4): каменная коробка верхнего яруса донжона с нишами окон, шатёр стропил, камин с
-// колпаком, дверь к лестнице, кровать под пологом, стол на козлах с документами, кресло правителя, сундуки, оружие на
-// стене, шахматы у огня, люстра-обруч и свечи. Всё — в осях комнаты (`plan.ts`), числа — оттуда же.
+// Модель покоев (docs/city_v3.md, Г-4, Г-5): каменная коробка верхнего яруса донжона — бутовая кладка с раствором,
+// тёсаный камень у проёмов, ниши окон в толще стены, — потолок на балках, камин с колпаком, дверь к лестнице, кровать под
+// пологом, стол на козлах с документами, кресло правителя, сундуки, полки с книгами и свитками, знамёна и гобелены с
+// гербом державы, оружие на стене, шахматы у огня, шкуры, люстра-обруч и свечи. Всё — в осях комнаты (`plan.ts`).
 //
 // Выход — три построителя: камень и дерево слоями текстур города (`stone`), нарисованное атласом покоев (`cloth`) — и по
 // построителю на каждую безделушку: их берут в руки, они двигаются сами. Где горят свечи и огонь — списком, им светит
@@ -11,12 +12,14 @@ import type { Detail } from '../city/kit';
 import { Mesher, archOutline, type RoomLayer } from './geo';
 import { cellUv, type AtlasCell } from './paint';
 import {
-  APEX,
   ARMS,
   ARMREST,
+  BANNERS,
   BED,
   CHAIR,
   CHESS,
+  CHESTS,
+  SHELVES,
   DESK,
   DESK_THINGS,
   DOOR,
@@ -59,6 +62,12 @@ const HUE = {
   leather: 0x6a4428,
   steel: 0x9aa0a6,
   ember: 0x3a1a0c,
+  /** Камень покоев (`stone.ts`) — плитка уже в цвете, тон вершин только греет и глушит. */
+  wall: 0xf4ebe0,
+  ashlar: 0xfaf0e2,
+  green: 0x23452c,
+  glass: 0xbfd2d0,
+  sand: 0xc8a165,
 } as const;
 const T = (hex: number, k = 1): V3 => tint(hex, k);
 
@@ -112,7 +121,7 @@ export function buildRoom(detail: Detail): RoomModel {
   const flames: Flame[] = [];
   const seg = detail === 0 ? 8 : detail === 1 ? 12 : 16;
   shell(stone, detail);
-  roof(stone, detail);
+  ceiling(stone, detail);
   hearth(stone, cloth);
   door(stone);
   bed(stone, cloth, detail);
@@ -121,10 +130,12 @@ export function buildRoom(detail: Detail): RoomModel {
   chests(stone, seg);
   arms(stone, cloth, seg);
   chessTable(stone, cloth, seg, detail);
+  shelves(stone, seg, detail);
+  banners(stone, cloth);
   lights(stone, flames, seg);
   floorCloths(cloth);
   const trinkets = {} as RoomModel['trinkets'];
-  for (const t of TRINKETS) trinkets[t.id] = trinket(t.id, seg, flames);
+  for (const t of TRINKETS) trinkets[t.id] = trinket(t.id, seg + 4 + detail * 2, flames);
   return { stone, cloth, trinkets, flames };
 }
 
@@ -159,20 +170,36 @@ function shell(m: Mesher, detail: Detail): void {
     const { u } = WALL_AXES[w];
     const o = wallPoint(w, 0, 0, 0);
     // Низ контура — под полом: проёмы от пола (ниша окна, камин, дверь) лежат внутри контура, а не на его краю. Стены —
-    // известковая побелка с проступающим бутом; тёсаный камень — у проёмов (откосы, арки, камин).
-    m.uvK = 1.15;
-    m.plane(o, [-u[0], 0, -u[2]], [0, 1, 0], rect(-HALF, -0.02, HALF, WALL_H + 0.05), holes, 'plaster', T(HUE.lime, 0.9));
-    m.uvK = 1.6;
+    // живая бутовая кладка с раствором (`stone.ts`, рельеф — в шейдере); тёсаный камень — у проёмов. Побелки с пятнами
+    // бута (зубцы на снимках с телефона, Г-5) больше нет.
+    m.uvK = 1;
+    m.plane(o, [-u[0], 0, -u[2]], [0, 1, 0], rect(-HALF, -0.02, HALF, WALL_H + 0.05), holes, 'masonry', T(HUE.wall));
   }
-  // Пояс под стропилами: известь, а не камень, — так держится балка в гнезде.
+  // Плинтус-цоколь: ряд тёсаного камня у пола — стена стоит, а не висит над досками.
   for (const w of ['south', 'north', 'west', 'east'] as const) {
-    const { u } = WALL_AXES[w];
-    const a = wallPoint(w, -HALF, WALL_H - 0.32, -0.02);
-    const b = wallPoint(w, HALF, WALL_H - 0.32, -0.02);
-    m.quad([b[0], b[1], b[2]], [a[0], a[1], a[2]], [a[0], WALL_H + 0.05, a[2]], [b[0], WALL_H + 0.05, b[2]], 'plaster', T(HUE.lime, 0.8));
-    void u;
+    const plinth = (x0: number, x1: number): void => {
+      const a = wallPoint(w, x0, 0, -0.035);
+      const b = wallPoint(w, x1, 0, -0.035);
+      const a0 = wallPoint(w, x0, 0, 0);
+      const b0 = wallPoint(w, x1, 0, 0);
+      m.quad([b[0], 0, b[2]], [a[0], 0, a[2]], [a[0], 0.2, a[2]], [b[0], 0.2, b[2]], 'dressed', T(HUE.ashlar, 0.78), [0.7, 0.7, 1, 1]);
+      m.quad([b[0], 0.2, b[2]], [a[0], 0.2, a[2]], [a0[0], 0.2, a0[2]], [b0[0], 0.2, b0[2]], 'dressed', T(HUE.ashlar, 0.85));
+    };
+    // Разрывы — под проёмами от пола: ниша южного окна, камин и дверь.
+    const gaps: [number, number][] = [];
+    if (w === 'south') gaps.push([-1.32, 1.32]);
+    if (w === 'north') {
+      gaps.push([-HEARTH.mouthW / 2 - 0.55, HEARTH.mouthW / 2 + 0.55]);
+      gaps.push([-DOOR.x - DOOR.w / 2 - 0.02, -DOOR.x + DOOR.w / 2 + 0.02]);
+    }
+    gaps.sort((p, q) => p[0] - q[0]);
+    let from = -HALF;
+    for (const [g0, g1] of gaps) {
+      if (g0 > from) plinth(from, g0);
+      from = g1;
+    }
+    plinth(from, HALF);
   }
-  m.uvK = 1;
 }
 
 /** Арка ниши — тёсаный камень светлее кладки, чуть вперёд от стены: проём читается рамой. */
@@ -193,9 +220,9 @@ function archRing(m: Mesher, o: Opening): void {
     const o0 = ao[k];
     const o1 = ao[k + 1];
     // Лицо к комнате (на 4 см вперёд) и торец к стене — по обходу контура.
-    m.quad(P(o0[0], o0[1], -0.04), P(i0[0], i0[1], -0.04), P(i1[0], i1[1], -0.04), P(o1[0], o1[1], -0.04), 'ashlar', T(HUE.lime, 0.82));
-    m.quad(P(o0[0], o0[1], 0), P(o0[0], o0[1], -0.04), P(o1[0], o1[1], -0.04), P(o1[0], o1[1], 0), 'ashlar', T(HUE.lime, 0.7));
-    m.quad(P(i1[0], i1[1], 0), P(i1[0], i1[1], -0.04), P(i0[0], i0[1], -0.04), P(i0[0], i0[1], 0), 'ashlar', T(HUE.lime, 0.75));
+    m.quad(P(o0[0], o0[1], -0.04), P(i0[0], i0[1], -0.04), P(i1[0], i1[1], -0.04), P(o1[0], o1[1], -0.04), 'dressed', T(HUE.ashlar, 1));
+    m.quad(P(o0[0], o0[1], 0), P(o0[0], o0[1], -0.04), P(o1[0], o1[1], -0.04), P(o1[0], o1[1], 0), 'dressed', T(HUE.ashlar, 0.8));
+    m.quad(P(i1[0], i1[1], 0), P(i1[0], i1[1], -0.04), P(i0[0], i0[1], -0.04), P(i0[0], i0[1], 0), 'dressed', T(HUE.ashlar, 0.88));
   }
 }
 
@@ -203,12 +230,13 @@ function archRing(m: Mesher, o: Opening): void {
 function opening(m: Mesher, o: Opening, detail: Detail): void {
   const w = o.wall;
   const a = alongOf(o);
-  const S = T(HUE.stone, 0.96);
+  const S = T(HUE.ashlar, 0.92);
   const n = 10;
   const inner = archOutline(o.inW / 2, o.inSill, o.inSpring, o.inW * 0.24, n);
   const mid = archOutline(o.midW / 2, o.inSill, o.inSpring - 0.08, o.midW * 0.3, n);
   const pt = (pts: [number, number][], depth: number): V3[] => pts.map(([x, y]) => wallPoint(w, x + a, y, depth) as V3);
-  m.loft(pt(inner, 0), pt(mid, o.plate), 'ashlar', S, true, 0.8);
+  // Откос ниши — толща стены тёсаным камнем; к доске темнее (свет из комнаты туда не доходит).
+  m.loft(pt(inner, 0), pt(mid, o.plate), 'dressed', S, true, 0.72);
   const lights: [number, number][][] = o.twin
     ? [-1, 1].map((sgn) => {
         const h = (o.outW - 0.16) / 4;
@@ -218,8 +246,14 @@ function opening(m: Mesher, o: Opening, detail: Detail): void {
   // Доска: грань к комнате, проёмы — дырами.
   const { u } = WALL_AXES[w];
   const po = wallPoint(w, 0, 0, o.plate);
-  m.plane(po, [-u[0], 0, -u[2]], [0, 1, 0], mid.map(([x, y]) => [-(x + a), y]), lights.map((l) => l.map(([x, y]) => [-(x + a), y])), 'ashlar', T(HUE.stone, 0.9));
-  for (const l of lights) m.loft(pt(l, o.plate), pt(l, WALL_T + 0.04), 'ashlar', T(HUE.stone, 0.86), true, 0.9);
+  m.plane(po, [-u[0], 0, -u[2]], [0, 1, 0], mid.map(([x, y]) => [-(x + a), y]), lights.map((l) => l.map(([x, y]) => [-(x + a), y])), 'dressed', T(HUE.ashlar, 0.82));
+  for (const l of lights) m.loft(pt(l, o.plate), pt(l, WALL_T + 0.04), 'dressed', T(HUE.ashlar, 0.86), true, 0.9);
+  // Подоконник проёма — плита с выносом в комнату: на неё кладут руки (дело «Окно»).
+  if (!o.twin) {
+    const s0 = wallPoint(w, a - o.outW / 2 - 0.08, 0, o.plate - 0.07);
+    const s1 = wallPoint(w, a + o.outW / 2 + 0.08, 0, WALL_T + 0.02);
+    m.cuboid(Math.min(s0[0], s1[0]), o.sill - 0.06, Math.min(s0[2], s1[2]), Math.max(s0[0], s1[0]), o.sill, Math.max(s0[2], s1[2]), 'dressed', T(HUE.ashlar, 0.95), { aoLow: 0.8 });
+  }
   if (o.twin) {
     // Столбик между проёмами: ствол, капитель, база.
     const [x, , z] = wallPoint(w, a, 0, o.plate + 0.08);
@@ -232,9 +266,9 @@ function opening(m: Mesher, o: Opening, detail: Detail): void {
         [0.085, o.spring - 0.02],
         [0.085, o.spring + 0.02],
       ],
-      8,
-      'ashlar',
-      T(HUE.lime, 0.9),
+      10,
+      'dressed',
+      T(HUE.ashlar, 0.95),
     );
     m.reset();
   }
@@ -247,7 +281,7 @@ function opening(m: Mesher, o: Opening, detail: Detail): void {
       const x1 = Math.max(p0[0], p1[0]) + 0.18;
       const z0 = Math.min(p0[2], p1[2]);
       const z1 = Math.max(p0[2], p1[2]);
-      m.cuboid(sgn < 0 ? x0 : x0 + 0.02, 0, z0, sgn < 0 ? x1 - 0.02 : x1, 0.46, z1, 'ashlar', T(HUE.stone, 0.92), { aoLow: 0.6 });
+      m.cuboid(sgn < 0 ? x0 : x0 + 0.02, 0, z0, sgn < 0 ? x1 - 0.02 : x1, 0.46, z1, 'dressed', T(HUE.ashlar, 0.9), { aoLow: 0.6 });
       // Подушка на сиденье.
       m.cuboid(x0 + 0.04, 0.46, z0 + 0.06, x1 - 0.04, 0.53, z1 - 0.06, 'cloth', T(HUE.red, 0.9));
     }
@@ -298,50 +332,43 @@ function rect(x0: number, y0: number, x1: number, y1: number): [number, number][
   ];
 }
 
-// ---------- Шатёр ----------
+// ---------- Потолок ----------
 
-function roof(m: Mesher, detail: Detail): void {
-  const B = T(HUE.beam);
-  const eave = WALL_H + 0.05;
-  const corners: V3[] = [
-    [HALF, eave, HALF],
-    [-HALF, eave, HALF],
-    [-HALF, eave, -HALF],
-    [HALF, eave, -HALF],
-  ];
-  const apex: V3 = [0, APEX, 0];
-  // Обшивка — тёмные доски по скату, грани к комнате.
-  for (let k = 0; k < 4; k++) {
-    const a = corners[k];
-    const b = corners[(k + 1) % 4];
-    m.quad(a, b, apex, apex, 'wood', T(HUE.beam, 0.62), [0.7, 0.7, 0.45, 0.45]);
-  }
-  // Мауэрлат по стенам, затяжки с востока на запад, бабка и подкосы.
-  for (let k = 0; k < 4; k++) {
-    const a = corners[k];
-    const b = corners[(k + 1) % 4];
-    const ia: V3 = [a[0] * 0.97, eave - 0.18, a[2] * 0.97];
-    const ib: V3 = [b[0] * 0.97, eave - 0.18, b[2] * 0.97];
-    m.beam(ia, ib, 0.3, 0.26, 'wood', B);
-  }
-  for (const z of [-3.4, 0, 3.4]) m.beam([-HALF, 4.56, z], [HALF, 4.56, z], 0.3, 0.34, 'wood', B);
-  m.beam([0, 4.7, 0], [0, APEX - 0.1, 0], 0.26, 0.26, 'wood', B);
-  for (const s of [-1, 1]) m.beam([0, 6.2, 0], [s * 2.1, 4.75, 0], 0.16, 0.18, 'wood', B);
-  // Рёбра шатра и стропила к ним.
-  const drop = 0.12;
-  for (const c of corners) m.beam([c[0] * 0.98, eave - 0.05, c[2] * 0.98], [0, APEX - drop, 0], 0.22, 0.24, 'wood', B);
-  const step = detail === 0 ? 1.0 : 0.62;
-  const slope = (APEX - eave) / HALF;
-  for (let k = 0; k < 4; k++) {
-    const { n, u } = WALL_AXES[(['south', 'east', 'north', 'west'] as const)[k]];
-    for (let x = -HALF + step; x < HALF - step * 0.5; x += step) {
-      const e = HALF - Math.abs(x);
-      const p0: V3 = [n[0] * (HALF - 0.1) + u[0] * x, eave - 0.06, n[2] * (HALF - 0.1) + u[2] * x];
-      const reach = (HALF - Math.abs(x)) * 0.98;
-      const p1: V3 = [n[0] * (HALF - reach) + u[0] * x, eave + e * slope * 0.98 - drop, n[2] * (HALF - reach) + u[2] * x];
-      m.beam(p0, p1, 0.13, 0.16, 'wood', T(HUE.beam, 0.9));
+/**
+ * Потолок на балках (Г-5): три тяжёлые балки с запада на восток на каменных консолях, по ним — поперечные балки потолка,
+ * сверху — доски настила. Тёплое дерево ловит свет люстры и огня; прежний шатёр стропил уходил во тьму.
+ */
+function ceiling(m: Mesher, detail: Detail): void {
+  const top = WALL_H + 0.05;
+  const B = T(HUE.beam, 1.15);
+  // Настил — доски с севера на юг, чуть темнее балок.
+  m.quad([-HALF, top, -HALF], [HALF, top, -HALF], [HALF, top, HALF], [-HALF, top, HALF], 'wood', T(HUE.oak, 0.78), [0.8, 0.8, 0.8, 0.8], [
+    -HALF / 2,
+    -HALF / 2,
+    HALF / 2,
+    -HALF / 2,
+    HALF / 2,
+    HALF / 2,
+    -HALF / 2,
+    HALF / 2,
+  ]);
+  const beamH = 0.34;
+  const beams = [-3.4, 0, 3.4];
+  for (const z of beams) {
+    m.beam([-HALF, top - beamH / 2, z], [HALF, top - beamH / 2, z], 0.3, beamH, 'wood', B);
+    // Консоли: тёсаный камень под концами балок, ступенями.
+    for (const sx of [-1, 1]) {
+      const x = sx * HALF;
+      m.cuboid(Math.min(x, x - sx * 0.32), top - beamH - 0.16, z - 0.2, Math.max(x, x - sx * 0.32), top - beamH, z + 0.2, 'dressed', T(HUE.ashlar, 0.9), {});
+      m.cuboid(Math.min(x, x - sx * 0.18), top - beamH - 0.34, z - 0.17, Math.max(x, x - sx * 0.18), top - beamH - 0.16, z + 0.17, 'dressed', T(HUE.ashlar, 0.85), {});
     }
   }
+  // Поперечные балки потолка — с юга на север между большими, частым шагом.
+  const step = detail === 0 ? 0.9 : 0.55;
+  for (let x = -HALF + step / 2; x < HALF; x += step) m.beam([x, top - 0.07, -HALF], [x, top - 0.07, HALF], 0.12, 0.14, 'wood', T(HUE.beam, 1.05));
+  // Лежни вдоль всех четырёх стен: на южном и северном лежат концы поперечных балок — край стены ровный, без зубцов.
+  for (const sx of [-1, 1]) m.beam([sx * (HALF - 0.11), top - 0.11, -HALF], [sx * (HALF - 0.11), top - 0.11, HALF], 0.22, 0.22, 'wood', B);
+  for (const sz of [-1, 1]) m.beam([-HALF, top - 0.13, sz * (HALF - 0.12)], [HALF, top - 0.13, sz * (HALF - 0.12)], 0.24, 0.26, 'wood', B);
 }
 
 // ---------- Камин ----------
@@ -352,20 +379,20 @@ function hearth(m: Mesher, cloth: Mesher): void {
   // Устье: откос в толщу стены и задняя плита в копоти.
   const mouth = rect(-hw, 0, hw, HEARTH.mouthH).map(([x, y]) => wallPoint('north', x, y, 0) as V3);
   const back = rect(-hw + 0.18, 0, hw - 0.18, HEARTH.mouthH - 0.05).map(([x, y]) => wallPoint('north', x, y, HEARTH.depth) as V3);
-  m.loft(mouth, back, 'ashlar', T(HUE.soot, 1.1), true, 0.55);
-  m.quad(back[1], back[0], back[3], back[2], 'ashlar', T(HUE.soot, 0.8), [0.8, 0.8, 0.4, 0.4]);
+  m.loft(mouth, back, 'dressed', T(HUE.soot, 1.6), true, 0.55);
+  m.quad(back[1], back[0], back[3], back[2], 'dressed', T(HUE.soot, 1.2), [0.8, 0.8, 0.4, 0.4]);
   // Очаг: плита до комнаты.
-  m.cuboid(-hw - 0.45, 0, z0 - HEARTH.depth, hw + 0.45, 0.07, z0 + 0.75, 'ashlar', T(HUE.stoneDark, 1.1), { aoLow: 0.8 });
+  m.cuboid(-hw - 0.45, 0, z0 - HEARTH.depth, hw + 0.45, 0.07, z0 + 0.75, 'dressed', T(HUE.ashlar, 0.62), { aoLow: 0.8 });
   // Косяки-колонны с капителями, балка, колпак до свода.
   for (const s of [-1, 1]) {
     const x = s * (hw + 0.2);
-    m.cuboid(x - 0.16, 0.07, z0 + 0.05, x + 0.16, HEARTH.hoodLow - 0.18, z0 + 0.5, 'ashlar', T(HUE.stone, 0.95), { aoLow: 0.7 });
-    m.cuboid(x - 0.22, HEARTH.hoodLow - 0.18, z0 + 0.0, x + 0.22, HEARTH.hoodLow, z0 + 0.62, 'ashlar', T(HUE.lime, 0.9));
+    m.cuboid(x - 0.16, 0.07, z0 + 0.05, x + 0.16, HEARTH.hoodLow - 0.18, z0 + 0.5, 'dressed', T(HUE.ashlar, 0.95), { aoLow: 0.7 });
+    m.cuboid(x - 0.22, HEARTH.hoodLow - 0.18, z0 + 0.0, x + 0.22, HEARTH.hoodLow, z0 + 0.62, 'dressed', T(HUE.ashlar, 1));
   }
   const fz = HEARTH.hoodFront;
   const lo = HEARTH.hoodLow;
   const hw2 = HEARTH.hoodW / 2;
-  m.cuboid(-hw2, lo, z0, hw2, lo + 0.22, fz + 0.02, 'ashlar', T(HUE.lime, 0.95));
+  m.cuboid(-hw2, lo, z0, hw2, lo + 0.22, fz + 0.02, 'dressed', T(HUE.ashlar, 1));
   // Колпак: сужается к стене и вверх; копоть снизу.
   const y1 = lo + 0.22;
   const top = HEARTH.hoodTop;
@@ -374,11 +401,9 @@ function hearth(m: Mesher, cloth: Mesher): void {
   const fr: V3 = [hw2, y1, fz];
   const tl: V3 = [-tw, top, z0];
   const tr: V3 = [tw, top, z0];
-  m.uvK = 1.6;
-  m.quad(fl, fr, tr, tl, 'ashlar', T(HUE.stone, 0.95), [0.5, 0.5, 0.95, 0.95]);
-  m.quad([-hw2, y1, z0], fl, tl, tl, 'ashlar', T(HUE.stone, 0.88), [0.45, 0.5, 0.9, 0.9]);
-  m.quad(fr, [hw2, y1, z0], tr, tr, 'ashlar', T(HUE.stone, 0.88), [0.5, 0.45, 0.9, 0.9]);
-  m.uvK = 1;
+  m.quad(fl, fr, tr, tl, 'dressed', T(HUE.ashlar, 0.92), [0.45, 0.45, 0.95, 0.95]);
+  m.quad([-hw2, y1, z0], fl, tl, tl, 'dressed', T(HUE.ashlar, 0.85), [0.42, 0.45, 0.9, 0.9]);
+  m.quad(fr, [hw2, y1, z0], tr, tr, 'dressed', T(HUE.ashlar, 0.85), [0.45, 0.42, 0.9, 0.9]);
   // Таганы и поленья: низ поленьев тлеет (свечение), верх обуглен.
   const fz0 = HEARTH.fire.z;
   for (const s of [-1, 1]) {
@@ -448,7 +473,7 @@ function door(m: Mesher): void {
   const hw = DOOR.w / 2;
   const out = archOutline(hw, 0, DOOR.h - hw, hw, 8);
   const pts = (d: number, k: number): V3[] => out.map(([x, y]) => wallPoint('north', x * k + a, y * (k < 1 ? 0.97 : 1), d) as V3);
-  m.loft(pts(0, 1), pts(0.32, 0.94), 'ashlar', T(HUE.stone, 0.88), true, 0.7);
+  m.loft(pts(0, 1), pts(0.32, 0.94), 'dressed', T(HUE.ashlar, 0.88), true, 0.7);
   const leaf = pts(0.32, 0.94);
   const { u } = WALL_AXES.north;
   const o = wallPoint('north', 0, 0, 0.32);
@@ -667,23 +692,26 @@ function desk(m: Mesher, cloth: Mesher): void {
   m.beam([plb.x1 - 0.22, y + 0.02, plb.z1 - 0.05], [plb.x1 - 0.12, y + 0.02, plb.z0 + 0.06], 0.008, 0.008, 'plain', T(HUE.brass));
   m.beam([plb.x1 - 0.22, y + 0.02, plb.z1 - 0.05], [plb.x1 - 0.3, y + 0.02, plb.z0 + 0.07], 0.008, 0.008, 'plain', T(HUE.brass));
   m.shine = 0;
-  // Кошель: кожаный мешочек, монеты рядом.
+  // Кошель: кожаный мешок осел на столе, горловина стянута шнуром, рядом — монеты.
   const ub = by('purse');
   m.code = code('purse');
-  m.at((ub.x0 + ub.x1) / 2, y, (ub.z0 + ub.z1) / 2 + 0.02).lathe(
+  m.shine = 0.22;
+  m.at((ub.x0 + ub.x1) / 2, y, (ub.z0 + ub.z1) / 2 + 0.01).lathe(
     [
-      [0.032, 0],
-      [0.06, 0.028],
-      [0.056, 0.065],
-      [0.025, 0.095],
-      [0.03, 0.115],
-      [0.0, 0.12],
+      [0.0, 0],
+      [0.05, 0.004],
+      [0.066, 0.022],
+      [0.06, 0.045],
+      [0.03, 0.058],
+      [0.018, 0.062],
+      [0.026, 0.072],
+      [0.0, 0.075],
     ],
-    10,
-    'cloth',
-    T(HUE.leather),
+    14,
+    'plain',
+    T(HUE.leather, 1.05),
   );
-  m.shine = 1;
+  m.shine = 0.95;
   for (let i = 0; i < 5; i++) {
     m.at(ub.x1 + 0.02 + (i % 2) * 0.025, y + 0.002 + i * 0.004, ub.z0 + 0.01 + i * 0.011).lathe(
       [
@@ -692,35 +720,111 @@ function desk(m: Mesher, cloth: Mesher): void {
         [0.016, 0.004],
         [0.0, 0.004],
       ],
-      8,
+      10,
       'plain',
       T(HUE.gold),
     );
   }
   m.shine = 0;
   m.reset();
-  // Печать: рукоять дуба, лицо — медь с гербом (атлас снизу не виден — лицо смотрит вверх, печать лежит на боку).
+  // Печать лежит на боку: рукоять дуба к востоку, лицо — медь с гербом.
   const eb = by('seal');
-  const ex = (eb.x0 + eb.x1) / 2;
   const ez = (eb.z0 + eb.z1) / 2;
   m.code = code('seal');
-  m.at(ex, y, ez).lathe(
+  m.at(eb.x0 + 0.005, y + 0.025, ez, Math.PI / 2, Math.PI / 2).lathe(
     [
-      [0.035, 0],
-      [0.035, 0.015],
-      [0.02, 0.03],
-      [0.014, 0.06],
-      [0.024, 0.1],
-      [0.02, 0.12],
-      [0.0, 0.125],
+      [0.0, 0],
+      [0.024, 0],
+      [0.024, 0.012],
+      [0.016, 0.025],
+      [0.012, 0.06],
+      [0.02, 0.1],
+      [0.016, 0.125],
+      [0.0, 0.13],
     ],
-    10,
+    12,
     'wood',
     T(HUE.dark, 1.1),
   );
   m.reset();
+  m.shine = 0.85;
+  m.at(eb.x0 + 0.002, y + 0.025, ez, Math.PI / 2, Math.PI / 2).lathe(
+    [
+      [0.0, -0.004],
+      [0.026, -0.004],
+      [0.026, 0.004],
+      [0.0, 0.004],
+    ],
+    14,
+    'plain',
+    T(HUE.brass),
+  );
+  m.shine = 0;
+  m.reset();
+  // Мелочи стола (Г-5): песочные часы у карты, две книги стопкой у планов, песочница для чернил.
+  m.code = 0;
+  hourglass(m, 0.36, y, 3.18);
+  m.cuboid(-0.62, y, 3.28, -0.4, y + 0.045, 3.46, 'cloth', T(0x4a1f30, 0.9), {});
+  m.cuboid(-0.6, y + 0.045, 3.3, -0.42, y + 0.08, 3.44, 'cloth', T(0x24402c, 0.9), {});
+  m.shine = 0.7;
+  m.at(0.52, y, 2.98).lathe(
+    [
+      [0.0, 0],
+      [0.026, 0],
+      [0.03, 0.01],
+      [0.022, 0.045],
+      [0.03, 0.05],
+      [0.0, 0.052],
+    ],
+    12,
+    'plain',
+    T(HUE.brass, 0.9),
+  );
+  m.reset();
+  m.shine = 0;
   m.code = 0;
   cloth.code = 0;
+}
+
+/** Песочные часы: две колбы стекла в точёной оправе, песок в нижней. */
+function hourglass(m: Mesher, x: number, y: number, z: number): void {
+  m.at(x, y, z).cuboid(-0.035, 0, -0.035, 0.035, 0.012, 0.035, 'wood', T(HUE.oak), {});
+  m.cuboid(-0.035, 0.148, -0.035, 0.035, 0.16, 0.035, 'wood', T(HUE.oak), {});
+  for (const [px, pz] of [
+    [-0.028, -0.028],
+    [0.028, -0.028],
+    [-0.028, 0.028],
+    [0.028, 0.028],
+  ])
+    m.cuboid(px - 0.004, 0.012, pz - 0.004, px + 0.004, 0.148, pz + 0.004, 'wood', T(HUE.oak), {});
+  m.shine = 0.5;
+  m.lathe(
+    [
+      [0.0, 0.012],
+      [0.024, 0.016],
+      [0.026, 0.05],
+      [0.005, 0.08],
+      [0.026, 0.11],
+      [0.024, 0.144],
+      [0.0, 0.148],
+    ],
+    12,
+    'plain',
+    T(HUE.glass, 0.9),
+  );
+  m.shine = 0;
+  m.lathe(
+    [
+      [0.0, 0.016],
+      [0.022, 0.02],
+      [0.02, 0.042],
+      [0.0, 0.05],
+    ],
+    10,
+    'plain',
+    T(HUE.sand),
+  );
+  m.reset();
 }
 
 /** Номер предмета по имени — для подсветки. */
@@ -748,9 +852,9 @@ function roll(m: Mesher, a: V3, e: V3, r: number): void {
       [r, len / 2],
       [0, len / 2],
     ],
-    10,
-    'plaster',
-    T(0xdcc89c),
+    16,
+    'plain',
+    T(0xdcc89c, 0.92),
   );
   m.reset();
 }
@@ -822,29 +926,42 @@ function chair(m: Mesher, seg: number): void {
 
 function chests(m: Mesher, seg: number): void {
   const one = (x0: number, z0: number, x1: number, z1: number, h: number): void => {
-    m.cuboid(x0, 0, z0, x1, h - 0.08, z1, 'wood', T(HUE.oak, 0.9), { aoLow: 0.55 });
-    m.cuboid(x0 - 0.015, h - 0.08, z0 - 0.015, x1 + 0.015, h, z1 + 0.015, 'wood', T(HUE.oak, 1.0), {});
-    // Железные полосы и замок.
+    // Короб, крышка с выносом, железные полосы с заклёпками и замок; низ — на брусках.
+    m.cuboid(x0, 0.04, z0, x1, h - 0.09, z1, 'wood', T(HUE.oak, 0.95), { aoLow: 0.55 });
+    m.cuboid(x0 + 0.03, 0, z0 + 0.03, x1 - 0.03, 0.04, z1 - 0.03, 'wood', T(HUE.oak, 0.6), {});
+    m.cuboid(x0 - 0.02, h - 0.09, z0 - 0.02, x1 + 0.02, h, z1 + 0.02, 'wood', T(HUE.oakLight, 0.95), {});
     const along = x1 - x0 > z1 - z0;
-    for (const t of [0.12, 0.5, 0.88]) {
+    m.shine = 0.7;
+    for (const t of [0.1, 0.5, 0.9]) {
       if (along) {
         const x = x0 + (x1 - x0) * t;
-        m.cuboid(x - 0.025, 0.02, z0 - 0.02, x + 0.025, h + 0.005, z1 + 0.02, 'plain', T(HUE.iron), {});
+        m.cuboid(x - 0.028, 0.04, z0 - 0.022, x + 0.028, h + 0.006, z1 + 0.022, 'plain', T(HUE.iron, 1.2), {});
       } else {
         const z = z0 + (z1 - z0) * t;
-        m.cuboid(x0 - 0.02, 0.02, z - 0.025, x1 + 0.02, h + 0.005, z + 0.025, 'plain', T(HUE.iron), {});
+        m.cuboid(x0 - 0.022, 0.04, z - 0.028, x1 + 0.022, h + 0.006, z + 0.028, 'plain', T(HUE.iron, 1.2), {});
       }
     }
+    // Замок — на лицевой стороне к середине комнаты.
+    const cx = (x0 + x1) / 2;
+    const cz = (z0 + z1) / 2;
+    const fx = along ? cx : Math.abs(x0) > Math.abs(x1) ? x1 : x0;
+    const fz = along ? (Math.abs(z0) > Math.abs(z1) ? z1 : z0) : cz;
+    const nx = along ? 0 : Math.sign(-fx) * 0.025;
+    const nz = along ? Math.sign(-fz) * 0.025 : 0;
+    m.cuboid(fx - 0.05 + nx, h - 0.24, fz - 0.05 + nz, fx + 0.05 + nx, h - 0.1, fz + 0.05 + nz, 'plain', T(HUE.brass, 0.9), {});
+    m.shine = 0;
     void seg;
   };
-  one(BED.x0 + 0.25, BED.z1 + 0.12, BED.x1 - 0.2, BED.z1 + 0.62, 0.55);
-  one(4.32, ARMS.z - 0.62, 4.95, ARMS.z + 0.62, 0.58);
-  one(-4.95, 3.65, -3.95, 4.6, 0.52);
-  // Подушка под короной на восточном сундуке.
-  m.cuboid(4.42, 0.58, ARMS.z - 0.26, 4.86, 0.66, ARMS.z + 0.26, 'cloth', T(HUE.red, 1.0), {});
-  // Шлем на сундуке у юго-западного угла.
-  m.shine = 0.6;
-  m.at(-4.45, 0.52, 4.12).lathe(
+  for (const c of CHESTS) one(c.x0, c.z0, c.x1, c.z1, c.h);
+  // Подушка под короной на сундуке у оружия.
+  const ca = CHESTS.find((c) => c.id === 'chestArms')!;
+  m.cuboid(4.42, ca.h, ARMS.z - 0.26, 4.86, ca.h + 0.08, ARMS.z + 0.26, 'cloth', T(HUE.red, 1.0), {});
+  // Шлем на южном сундуке.
+  const cs = CHESTS.find((c) => c.id === 'chestSouth')!;
+  const hx = cs.x0 + 0.28;
+  const hz = (cs.z0 + cs.z1) / 2;
+  m.shine = 0.8;
+  m.at(hx, cs.h, hz).lathe(
     [
       [0.13, 0],
       [0.135, 0.06],
@@ -853,12 +970,12 @@ function chests(m: Mesher, seg: number): void {
       [0.03, 0.3],
       [0.0, 0.31],
     ],
-    12,
+    14,
     'plain',
     T(HUE.steel, 0.8),
   );
   m.reset();
-  m.cuboid(-4.47, 0.54, 4.24, -4.43, 0.72, 4.26, 'plain', T(HUE.steel, 0.8), {});
+  m.cuboid(hx - 0.02, cs.h + 0.02, hz - 0.135, hx + 0.02, cs.h + 0.2, hz - 0.115, 'plain', T(HUE.steel, 0.8), {});
   m.shine = 0;
 }
 
@@ -935,7 +1052,7 @@ function chessTable(m: Mesher, cloth: Mesher, seg: number, detail: Detail): void
       const pz = z + h - sq * (r + 0.5);
       const pawn = r === 1 || r === 6;
       const hgt = pawn ? 0.045 : c === 3 || c === 4 ? 0.085 : c === 0 || c === 7 ? 0.06 : 0.068;
-      m.at(px, top + 0.012, pz).lathe(piece(hgt), detail === 0 ? 6 : 8, 'plain', white ? T(HUE.ivory) : T(HUE.dark, 1.1));
+      m.at(px, top + 0.012, pz).lathe(piece(hgt), detail === 2 ? 8 : 6, 'plain', white ? T(HUE.ivory) : T(HUE.dark, 1.1));
     }
   }
   m.reset();
@@ -966,15 +1083,163 @@ function chessTable(m: Mesher, cloth: Mesher, seg: number, detail: Detail): void
 /** Шахматная фигура — профилем: основание, стан, голова. */
 function piece(h: number): [number, number][] {
   return [
-    [0.0, 0],
     [0.017, 0],
     [0.018, h * 0.12],
-    [0.01, h * 0.25],
-    [0.008, h * 0.6],
-    [0.013, h * 0.72],
-    [0.011, h * 0.88],
+    [0.009, h * 0.3],
+    [0.008, h * 0.62],
+    [0.013, h * 0.76],
     [0.0, h],
   ];
+}
+
+// ---------- Полки ----------
+
+/**
+ * Полки у стен по сторонам южного угла (Г-5): на западе — книжный шкаф (книги корешками, стопки, подсвечник), на
+ * востоке — гнёзда со свитками. Дуб, книги — кожей разных цветов с золотыми бинтами.
+ */
+function shelves(m: Mesher, seg: number, detail: Detail): void {
+  const r = bone(91);
+  const O = T(HUE.oak, 0.9);
+  for (const sh of SHELVES) {
+    const west = sh.id === 'books';
+    // Наружу (в комнату) — по x; стенка — у стены.
+    const inX = west ? sh.x1 : sh.x0;
+    const wallX = west ? sh.x0 : sh.x1;
+    const out = west ? 1 : -1;
+    const z0 = sh.z0;
+    const z1 = sh.z1;
+    const h = sh.h;
+    // Боковины, верх с карнизом, цоколь.
+    for (const z of [z0, z1 - 0.05]) m.cuboid(Math.min(inX, wallX), 0, z, Math.max(inX, wallX), h, z + 0.05, 'wood', O, { aoLow: 0.6 });
+    m.cuboid(Math.min(inX + out * 0.03, wallX), h, z0 - 0.03, Math.max(inX + out * 0.03, wallX), h + 0.07, z1 + 0.03, 'wood', T(HUE.oak, 1), {});
+    m.cuboid(Math.min(inX, wallX), 0, z0, Math.max(inX, wallX), 0.1, z1, 'wood', T(HUE.oak, 0.7), {});
+    const levels = west ? [0.1, 0.62, 1.12, 1.62] : [0.1, 0.5, 0.9, 1.3, 1.7];
+    for (const y of levels.slice(1)) m.cuboid(Math.min(inX, wallX), y - 0.035, z0 + 0.05, Math.max(inX, wallX), y, z1 - 0.05, 'wood', O, {});
+    if (west) {
+      // Книги корешками к комнате: ряд за рядом, иногда стопка лёжа.
+      const covers = [0x5a1c16, 0x3b2a1c, 0x24402c, 0x2a3354, 0x6a4a26, 0x4a1f30, 0x7a5c34];
+      for (let k = 0; k < levels.length; k++) {
+        const y = levels[k];
+        const room = (levels[k + 1] ?? h) - y - 0.04;
+        let z = z0 + 0.06;
+        while (z < z1 - 0.1) {
+          const lying = r() < 0.12 && detail > 0;
+          const t = 0.035 + r() * 0.045;
+          const bh = Math.min(room - 0.02, 0.2 + r() * 0.12);
+          const depth = 0.2 + r() * 0.08;
+          const col = T(covers[Math.floor(r() * covers.length)], 0.85 + r() * 0.3);
+          const x0 = inX - out * 0.02 - out * depth;
+          const x1 = inX - out * 0.02;
+          if (lying) {
+            let yy = y;
+            for (let i = 0; i < 3; i++) {
+              const tt = 0.04 + r() * 0.02;
+              m.cuboid(Math.min(x0, x1), yy, z, Math.max(x0, x1), yy + tt, z + bh * 0.9, 'cloth', T(covers[Math.floor(r() * covers.length)], 0.9), {});
+              yy += tt;
+            }
+            z += bh * 0.9 + 0.03;
+            continue;
+          }
+          // Книга корешком к комнате: без донца и без задней грани у стены — их не видно.
+          m.cuboid(Math.min(x0, x1), y, z, Math.max(x0, x1), y + bh, z + t, 'cloth', col, { skip: `-y ${west ? '-x' : '+x'}` });
+          // Золотые бинты по корешку.
+          if (detail > 1) {
+            m.shine = 0.8;
+            for (const by of [0.22, 0.78]) m.cuboid(Math.min(x1, x1 + out * 0.004), y + bh * by - 0.006, z - 0.001, Math.max(x1, x1 + out * 0.004), y + bh * by + 0.006, z + t + 0.001, 'plain', T(HUE.gold, 0.85), {});
+            m.shine = 0;
+          }
+          z += t + (r() < 0.15 ? 0.01 : 0.002);
+        }
+      }
+      // Подсвечник на шкафу.
+      candle(m, inX - out * 0.18, h + 0.07, (z0 + z1) / 2, 0.16, seg);
+    } else {
+      // Гнёзда со свитками: решётка, в каждом — свитки торцами к комнате.
+      const cols = 4;
+      const cw = (z1 - z0 - 0.1) / cols;
+      for (let i = 1; i < cols; i++) m.cuboid(Math.min(inX, wallX), 0.1, z0 + 0.05 + i * cw - 0.012, Math.max(inX, wallX), h, z0 + 0.05 + i * cw + 0.012, 'wood', O, {});
+      for (let k = 0; k + 1 < levels.length; k++) {
+        const y = levels[k];
+        const rowH = levels[k + 1] - y - 0.04;
+        for (let i = 0; i < cols; i++) {
+          const n = 2 + Math.floor(r() * 3);
+          for (let j = 0; j < n; j++) {
+            const rr = 0.03 + r() * 0.012;
+            const cz = z0 + 0.05 + i * cw + cw * (0.25 + 0.5 * ((j + 0.5) / n)) + (r() - 0.5) * 0.02;
+            const cy = y + rr + (j % 2 ? 0.0 : 0) + (j > 1 ? rr * 1.6 : 0);
+            if (cy + rr > y + rowH) continue;
+            // Свиток виден торцом: короткий цилиндр с завитком на торце (глубже — темнота гнезда).
+            m.at(inX - out * 0.01, cy, cz, out > 0 ? -Math.PI / 2 : Math.PI / 2, Math.PI / 2).lathe(
+              [
+                [0, 0.002],
+                [rr, 0.006],
+                [rr, 0.09],
+              ],
+              detail === 2 ? 9 : 6,
+              'plain',
+              T(0xdcc59a, 0.85 + r() * 0.2),
+            );
+            m.reset();
+            // Тесьма.
+            if (detail > 1) m.cuboid(Math.min(inX - out * 0.05, inX - out * 0.07), cy - rr - 0.002, cz - rr - 0.002, Math.max(inX - out * 0.05, inX - out * 0.07), cy + rr + 0.002, cz + rr + 0.002, 'cloth', T(r() < 0.5 ? HUE.red : HUE.green, 0.9), {});
+          }
+        }
+      }
+    }
+  }
+}
+
+/** Сеяная кость модели — книги и свитки у всех одни. */
+function bone(seed: number): () => number {
+  let x = seed >>> 0 || 1;
+  return () => {
+    x ^= x << 13;
+    x ^= x >>> 17;
+    x ^= x << 5;
+    return (x >>> 0) / 4294967296;
+  };
+}
+
+// ---------- Знамёна ----------
+
+/** Знамёна с гербом державы по сторонам большого окна: на кованых прутах, полотнище складками (атлас `banner`). */
+function banners(m: Mesher, cloth: Mesher): void {
+  cloth.code = 0;
+  for (const b of BANNERS) {
+    const z = HALF - 0.06;
+    // Прут на двух кронштейнах, навершия.
+    m.shine = 0.6;
+    m.beam([b.x - b.w / 2 - 0.08, b.top + 0.04, z - 0.03], [b.x + b.w / 2 + 0.08, b.top + 0.04, z - 0.03], 0.025, 0.025, 'plain', T(HUE.iron, 1.2));
+    for (const s of [-1, 1]) {
+      m.beam([b.x + s * (b.w / 2 + 0.05), b.top + 0.04, z - 0.03], [b.x + s * (b.w / 2 + 0.05), b.top + 0.04, HALF], 0.02, 0.02, 'plain', T(HUE.iron, 1.2));
+      m.at(b.x + s * (b.w / 2 + 0.1), b.top + 0.04, z - 0.03, 0, s * Math.PI / 2).lathe(
+        [
+          [0.0, 0],
+          [0.02, 0.0],
+          [0.028, 0.02],
+          [0.0, 0.05],
+        ],
+        8,
+        'plain',
+        T(HUE.gold, 0.9),
+      );
+      m.reset();
+    }
+    m.shine = 0;
+    // Полотнище: пять полос с изломом — складки висящей ткани; низ — ласточкин хвост (вырез — альфой атласа).
+    const n = 5;
+    for (let i = 0; i < n; i++) {
+      const u0 = i / n;
+      const u1 = (i + 1) / n;
+      const x0 = b.x - b.w / 2 + b.w * u0;
+      const x1 = b.x - b.w / 2 + b.w * u1;
+      const d0 = i % 2 ? 0.035 : 0;
+      const d1 = i % 2 ? 0 : 0.035;
+      const sh0 = i % 2 ? 0.86 : 1;
+      cloth.quad([x1, b.bottom, z - d1], [x0, b.bottom, z - d0], [x0, b.top, z - d0], [x1, b.top, z - d1], 'cloth', T(0xffffff), [0.8 * sh0, 0.8 * sh0, sh0, sh0], cellUv('banner', 1 - u1, 0, 1 - u0, 1));
+    }
+  }
 }
 
 // ---------- Свет ----------
@@ -1087,6 +1352,9 @@ function lights(m: Mesher, flames: Flame[], seg: number): void {
 /** Свеча: столбик воска с наплывом; низ темнее, верх у фитиля светлее (свечение). */
 function candle(m: Mesher, x: number, y: number, z: number, h: number, seg: number): void {
   const W = T(HUE.wax);
+  // Воск — свой материал шейдера (блеск выше 0,965): свет пламени проходит в тело свечи.
+  const sh = m.shine;
+  m.shine = 0.98;
   m.at(x, y, z).lathe(
     [
       [0.026, 0],
@@ -1095,10 +1363,11 @@ function candle(m: Mesher, x: number, y: number, z: number, h: number, seg: numb
       [0.018, h],
       [0.0, h + 0.004],
     ],
-    Math.max(6, seg - 4),
+    seg >= 12 ? seg - 2 : 6,
     'plain',
     W,
   );
+  m.shine = sh;
   m.reset();
 }
 
@@ -1111,6 +1380,8 @@ function floorCloths(c: Mesher): void {
   c.quad([-1.6, y, 1.05], [1.6, y, 1.05], [1.6, y, -1.4], [-1.6, y, -1.4], 'cloth', T(0xffffff), [1, 1, 1, 1], cellUv('rug'));
   // Медвежья шкура у огня (обрезка по альфе).
   c.quad([-1.35, y + 0.004, -2.55], [1.35, y + 0.004, -2.55], [1.35, y + 0.004, -4.35], [-1.35, y + 0.004, -4.35], 'cloth', T(0xffffff), [1, 1, 1, 1], cellUv('fur'));
+  // Овчина у кровати — ступить босиком с постели.
+  c.quad([-3.05, y + 0.006, -3.35], [-2.15, y + 0.006, -3.35], [-2.15, y + 0.006, -4.45], [-3.05, y + 0.006, -4.45], 'cloth', T(0xffffff), [1, 1, 1, 1], cellUv('sheep'));
   // Гобелен на западной стене — на шесте.
   c.quad([-HALF + 0.04, 0.85, 0.65], [-HALF + 0.04, 0.85, -1.95], [-HALF + 0.04, 3.55, -1.95], [-HALF + 0.04, 3.55, 0.65], 'cloth', T(0xffffff), [0.8, 0.8, 1, 1], cellUv('tapB'));
 }
@@ -1219,7 +1490,7 @@ function trinket(id: TrinketId, seg: number, flames: Flame[]): RoomModel['trinke
     case 'sword': {
       // Меч лежит на колышках вдоль стены: клинок — к северу (−z). Оси предмета: длина — z.
       yaw = Math.PI;
-      m.shine = 1;
+      m.shine = 0.95;
       const blade = 0.82;
       // Клинок — плоскостью к стене (ширина — по y), обе стороны; дол — тёмной полосой; перекрестье — поперёк по y.
       m.quad([0, -0.025, 0.12], [0, 0.025, 0.12], [0, 0.006, 0.12 + blade], [0, -0.006, 0.12 + blade], 'plain', T(HUE.steel, 1.1));
@@ -1238,7 +1509,7 @@ function trinket(id: TrinketId, seg: number, flames: Flame[]): RoomModel['trinke
         'cloth',
         T(HUE.leather),
       );
-      m.shine = 1;
+      m.shine = 0.95;
       m.at(0, 0, -0.07, 0, Math.PI / 2).lathe(
         [
           [0.0, 0],
@@ -1257,7 +1528,7 @@ function trinket(id: TrinketId, seg: number, flames: Flame[]): RoomModel['trinke
       break;
     }
     case 'crown': {
-      m.shine = 1;
+      m.shine = 0.95;
       const G = T(HUE.gold);
       m.lathe(
         [

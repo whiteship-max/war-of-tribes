@@ -107,7 +107,9 @@ export interface Opening {
 }
 
 export const OPENINGS: readonly Opening[] = [
-  { wall: 'south', at: 0, inW: 2.6, inSill: 0, inSpring: 3.0, midW: 2.15, plate: 0.95, outW: 1.7, sill: 0.95, spring: 2.65, twin: false, seats: true },
+  // Южное — большое (Г-5): подоконник ниже и арка выше прежних (0,95 и 2,65) — из покоев видно город, а не одно небо, и
+  // солнце ложится на пол и на стол.
+  { wall: 'south', at: 0, inW: 2.6, inSill: 0, inSpring: 3.15, midW: 2.15, plate: 0.95, outW: 1.8, sill: 0.8, spring: 2.85, twin: false, seats: true },
   { wall: 'west', at: 2.3, inW: 1.9, inSill: 0.62, inSpring: 2.75, midW: 1.5, plate: 0.95, outW: 1.15, sill: 1.05, spring: 2.45, twin: true, seats: false },
   { wall: 'east', at: 2.3, inW: 1.9, inSill: 0.62, inSpring: 2.75, midW: 1.5, plate: 0.95, outW: 1.15, sill: 1.05, spring: 2.45, twin: true, seats: false },
 ];
@@ -200,7 +202,7 @@ export const POIS: readonly Poi[] = [
     name: 'Кресло',
     verb: 'Сесть за стол',
     // Сидя: глаз над сиденьем, колени под столом, руки на подлокотниках (`acts.ts`).
-    pose: { x: 0, y: 1.22, z: 1.99, yaw: 0, pitch: -0.45, fov: 62 },
+    pose: { x: 0, y: 1.25, z: 1.99, yaw: 0, pitch: -0.45, fov: 62 },
     // Подходят сбоку: между креслом и столом 18 см — правитель встаёт у восточного подлокотника и садится вбок.
     approach: { x: 0.76, z: 2.02, yaw: 0 },
     yaw: [-1.35, 1.35],
@@ -212,7 +214,7 @@ export const POIS: readonly Poi[] = [
     name: 'Окно',
     verb: 'Подойти к окну',
     // Наклонившись к окну, руки на подоконнике.
-    pose: { x: 0, y: 1.53, z: 5.6, yaw: 0, pitch: -0.3, fov: 62 },
+    pose: { x: 0, y: 1.44, z: 5.62, yaw: 0, pitch: -0.42, fov: 62 },
     approach: { x: 0, z: 4.72, yaw: 0 },
     yaw: [-0.95, 0.95],
     pitch: [-0.95, 0.45],
@@ -223,8 +225,8 @@ export const POIS: readonly Poi[] = [
     id: 'hearth',
     name: 'Камин',
     verb: 'Погреть руки у огня',
-    pose: { x: 0, y: 1.47, z: -3.95, yaw: Math.PI, pitch: -0.22, fov: 64 },
-    approach: { x: 0, z: -3.62, yaw: Math.PI },
+    pose: { x: 0, y: 1.5, z: -3.72, yaw: Math.PI, pitch: -0.42, fov: 64 },
+    approach: { x: 0, z: -3.45, yaw: Math.PI },
     yaw: [-1.6, 1.6],
     pitch: [-1.0, 0.6],
     hits: [box(-1.6, 0, -5.2, 1.6, 3.9, -4.2)],
@@ -233,8 +235,8 @@ export const POIS: readonly Poi[] = [
     id: 'bed',
     name: 'Кровать',
     verb: 'Лечь в кровать',
-    // Лёжа, голова на подушке: в ногах — покрывало, за ним покои и огонь камина; вверху — подбой полога.
-    pose: { x: -4.12, y: 1.0, z: -4.55, yaw: 0.62, pitch: 0.12, fov: 70 },
+    // Лёжа, голова на подушке: взгляд — в открытый бок кровати, между столбами полога, на покои (шахматы, оружие, дверь).
+    pose: { x: -4.12, y: 1.0, z: -4.55, yaw: 1.12, pitch: 0.06, fov: 70 },
     approach: { x: -2.62, z: -3.9, yaw: -Math.PI / 2 },
     yaw: [-1.35, 1.35],
     pitch: [-0.4, 1.35],
