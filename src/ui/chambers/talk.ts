@@ -12,7 +12,7 @@ export type Daypart = 'morning' | 'day' | 'evening' | 'night';
 export type Temper = 'meek' | 'merry' | 'stern' | 'pious' | 'proud';
 export const TEMPER_NAME: Record<Temper, string> = { meek: 'кроткая', merry: 'весёлая', stern: 'строгая', pious: 'набожная', proud: 'гордая' };
 /** О чём говорить с супругой. */
-export type Topic = 'city' | 'war' | 'children' | 'home';
+export type Topic = 'town' | 'war' | 'children' | 'home';
 
 export type OptionId = 'cat' | 'uncat' | 'wine' | 'wife' | 'castle' | 'dismiss' | 'pour' | 'chat' | Topic | 'night' | 'leave';
 
@@ -28,7 +28,7 @@ export interface TalkMemory {
   house: string;
   servant: { cat: number; uncat: number; wine: number; wife: number; castle: number };
   maid: { pours: number; chat: number; nights: number };
-  wife: { city: number; war: number; children: number; home: number; nights: number; visits: number };
+  wife: { town: number; war: number; children: number; home: number; nights: number; visits: number };
   /** Отказала в этот приход — второй раз не спрашивают (номер прихода). */
   refused: { maid: number; wife: number };
   visits: number;
@@ -39,7 +39,7 @@ export const freshMemory = (house: string): TalkMemory => ({
   house,
   servant: { cat: 0, uncat: 0, wine: 0, wife: 0, castle: 0 },
   maid: { pours: 0, chat: 0, nights: 0 },
-  wife: { city: 0, war: 0, children: 0, home: 0, nights: 0, visits: 0 },
+  wife: { town: 0, war: 0, children: 0, home: 0, nights: 0, visits: 0 },
   refused: { maid: -1, wife: -1 },
   visits: 0,
 });
@@ -181,7 +181,7 @@ function maidOptions(c: TalkCtx): TalkOption[] {
 
 function wifeOptions(c: TalkCtx): TalkOption[] {
   const o: TalkOption[] = [
-    { id: 'city', text: 'Что говорят в городе?' },
+    { id: 'town', text: 'Что говорят в городе?' },
     { id: 'war', text: war(c) ? 'О войне.' : 'Спокойно ли на границах?' },
     { id: 'children', text: c.heir ? `Как ${c.heir}?` : 'Как дети?' },
     { id: 'home', text: 'Как дом?' },
@@ -190,7 +190,7 @@ function wifeOptions(c: TalkCtx): TalkOption[] {
   o.push({ id: 'leave', text: 'Ступай, отдохни.' });
   // Не больше пяти: из тем — те, о которых меньше говорили.
   if (o.length > 5) {
-    const topics = o.filter((x) => x.id === 'city' || x.id === 'war' || x.id === 'children' || x.id === 'home');
+    const topics = o.filter((x) => x.id === 'town' || x.id === 'war' || x.id === 'children' || x.id === 'home');
     topics.sort((a, b) => c.mem.wife[a.id as Topic] - c.mem.wife[b.id as Topic]);
     const drop = topics[topics.length - 1].id;
     return o.filter((x) => x.id !== drop);
@@ -327,12 +327,12 @@ export function reply(c: TalkCtx, id: OptionId): TalkTurn {
   const t = c.wife.temper;
   const again = (k: Topic): number => mem.wife[k];
   switch (id) {
-    case 'city': {
-      mem.wife.city++;
+    case 'town': {
+      mem.wife.town++;
       const m = mood(c);
       const lines = m === 'low' ? ['На торгу ропщут, {r}. Хлеб дорог, а подати — те же. Неспокойно мне.', 'Люди хмурые, {r}. Я раздала милостыню у церкви — мало этого.'] : m === 'high' ? ['В городе праздник за праздником, {r}. Тебя хвалят — я слышала сама.', 'Купцы довольны, мастера при деле. Хорошо ты правишь, {r}.'] : ['Город живёт, {r}. Купцы торгуются, мастера стучат — как всегда.', 'Тихо в городе. Говорят, к ярмарке подвоз будет.'];
-      const pre = again('city') > 1 ? 'Мы ведь говорили… но скажу ещё: ' : '';
-      return turn(pre + pick(lines, c.roll), wifeOptions({ ...c, mem }).filter((o) => o.id !== 'city'));
+      const pre = again('town') > 1 ? 'Мы ведь говорили… но скажу ещё: ' : '';
+      return turn(pre + pick(lines, c.roll), wifeOptions({ ...c, mem }).filter((o) => o.id !== 'town'));
     }
     case 'war': {
       mem.wife.war++;

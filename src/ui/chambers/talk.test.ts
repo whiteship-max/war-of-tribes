@@ -120,14 +120,14 @@ describe('покои: разговоры (Г-7)', () => {
 
   it('супруга помнит, о чём говорили; реплики — по часу, морали и войне', () => {
     let c = ctx({ who: 'wife' });
-    const a = reply(c, 'city');
+    const a = reply(c, 'town');
     c = { ...c, mem: a.mem };
-    const b = reply(c, 'city');
-    expect(a.mem.wife.city).toBe(1);
+    const b = reply(c, 'town');
+    expect(a.mem.wife.town).toBe(1);
     expect(b.line).toMatch(/говорили/);
     // Мораль: низкая — ропщут, высокая — хвалят.
-    const low = reply(ctx({ who: 'wife', morale: 20, roll: 0 }), 'city').line;
-    const high = reply(ctx({ who: 'wife', morale: 90, roll: 0 }), 'city').line;
+    const low = reply(ctx({ who: 'wife', morale: 20, roll: 0 }), 'town').line;
+    const high = reply(ctx({ who: 'wife', morale: 90, roll: 0 }), 'town').line;
     expect(low).not.toBe(high);
     // Война: под стенами — о враге.
     expect(reply(ctx({ who: 'wife', besieged: true }), 'war').line).toMatch(/стен/);

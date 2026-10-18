@@ -25,7 +25,12 @@ export function loadMemory(house: string): ChambersMemory {
     catSpot: r.life?.catSpot === 'hearth' || r.life?.catSpot === 'bed' || r.life?.catSpot === 'sill' ? r.life.catSpot : null,
   };
   const t = r.talk;
-  const talk = t && t.v === 1 && t.house === house ? { ...freshMemory(house), ...t } : freshMemory(house);
+  const f = freshMemory(house);
+  // Группы — по отдельности: запись старше нового поля не оставит его пустым.
+  const talk: TalkMemory =
+    t && t.v === 1 && t.house === house
+      ? { ...f, ...t, servant: { ...f.servant, ...t.servant }, maid: { ...f.maid, ...t.maid }, wife: { ...f.wife, ...t.wife }, refused: { ...f.refused, ...t.refused } }
+      : f;
   return { life, talk };
 }
 
