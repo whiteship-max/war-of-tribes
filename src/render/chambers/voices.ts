@@ -6,16 +6,16 @@ import type { LifeCue, Who } from './life';
 
 /** Уровни на полосе «Эффекты» (образец `life`): стук — заметно, но ниже звона меча; кот и вино — тихо. */
 export const LIFE_MIX: Record<LifeCue, number> = {
-  knock: 0.42,
-  doorOpen: 0.2,
-  doorShut: 0.34,
+  knock: 0.31,
+  doorOpen: 0.14,
+  doorShut: 0.125,
   stepFolk: 0.2,
   stepFolkSoft: 0.075,
   catStep: 0.05,
   catLand: 0.12,
   meow: 0.12,
-  pour: 0.16,
-  gulp: 0.18,
+  pour: 0.1,
+  gulp: 0.045,
   night: 0.1,
 };
 /** Голос: громкость речи без слов — под текстом, а не поверх него. */
@@ -396,6 +396,15 @@ export class Purr {
     const breath = 0.75 + 0.25 * Math.sin(t * 4.2);
     this.lfo.frequency.setTargetAtTime(24 + 4 * Math.sin(t * 4.2), this.ctx.currentTime, 0.1);
     this.out.gain.setTargetAtTime(PURR_MIX * Math.max(0, Math.min(1, level)) * breath, this.ctx.currentTime, 0.12);
+  }
+
+  /** Мурчать полной громкостью с `at` на `len` секунд (офлайн-отрисовка образцов: кадра там нет). */
+  hold(at: number, len: number): void {
+    const g = this.out.gain;
+    g.setValueAtTime(0, at);
+    g.linearRampToValueAtTime(PURR_MIX, at + 0.25);
+    for (let t = at + 0.25; t < at + len; t += 0.75) g.linearRampToValueAtTime(PURR_MIX * (t % 1.5 < 0.75 ? 0.8 : 1), t + 0.75);
+    g.linearRampToValueAtTime(0, at + len + 0.3);
   }
 
   stop(): void {

@@ -191,7 +191,7 @@ const LEAVE: Record<SpotId, string> = { desk: 'Встать', bed: 'Встать
 export const COACH = {
   walk: 'Веди пальцем — идти и поворачивать',
   look: 'Веди — смотреть',
-  act: 'Коснись кресла, кровати, окна, камина или оружия',
+  act: 'Коснись кресла, кровати, окна, камина — или постучи в дверь',
 } as const;
 const COACH_MS = 14000;
 const COACH_KEY = 'tribe.chambers.coach';

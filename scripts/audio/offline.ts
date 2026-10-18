@@ -12,6 +12,8 @@ import { playCue, type Cue } from '@/sound/epoch/cues';
 import { seeded } from '@/sound/epoch/rng';
 import { battleFx, type FxAmbience, type FxCue } from '@/sound/battlefx';
 import { cueBone, playChamberCue, type ChamberCue } from '../../src/render/chambers/cues';
+import { Purr, playLifeCue, speak } from '../../src/render/chambers/voices';
+import type { LifeCue, Who } from '../../src/render/chambers/life';
 
 /** Опорная точка того, что слышит игрок; между точками близость и фаза солнца идут линейно. */
 type Key = [number, Hearing];
@@ -32,6 +34,8 @@ export interface Sample {
   cues?: [number, Cue][];
   /** Звуки дел в покоях (docs/city_v3.md, Г-6): шаги, кресло, постель, меч. */
   chambers?: [number, ChamberCue][];
+  /** Жизнь покоев (docs/city_v3.md, Г-7): стук, дверь, кот, вино, музыка ночи; голос — `say:кто:секунд`; мурчание — `purr:секунд`. */
+  life?: [number, LifeCue | `say:${Who}:${number}` | `purr:${number}`][];
   /** Гром: миг, сила и через сколько секунд после вспышки (docs/city.md, 15). */
   thunder?: [number, number, number][];
   /** Только замер: в образцы не пишется. */
@@ -337,6 +341,107 @@ export const SAMPLES: Sample[] = [
     probe: true,
   },
   {
+    name: 'life',
+    title: 'Покои, жизнь: стук, скрип двери, слуга говорит, кот мяукает и мурчит, вино в кубок, глоток, дверь затворили',
+    seconds: 22,
+    seed: 19,
+    keys: null,
+    music: false,
+    battle: false,
+    duck: { music: 1, amb: 1 },
+    chambers: [
+      [3.6, 'step'],
+      [4.2, 'step'],
+      [4.8, 'step'],
+    ],
+    life: [
+      [0.3, 'knock'],
+      [0.56, 'knock'],
+      [0.82, 'knock'],
+      [2.2, 'doorOpen'],
+      [5.4, 'say:servant:2.6'],
+      [8.4, 'meow'],
+      [9.2, 'purr:3'],
+      [12.6, 'say:maid:2.2'],
+      [15.2, 'pour'],
+      [17.8, 'gulp'],
+      [19.2, 'say:wife:1.6'],
+      [21.0, 'doorShut'],
+    ],
+  },
+  {
+    name: 'lf-knock',
+    title: 'Замер: стук в дверь',
+    seconds: 3.5,
+    seed: 19,
+    keys: null,
+    music: false,
+    battle: false,
+    duck: { music: 1, amb: 1 },
+    life: [[0.3, 'knock'], [0.56, 'knock'], [0.82, 'knock']],
+    probe: true,
+  },
+  {
+    name: 'lf-door',
+    title: 'Замер: дверь открыли и затворили',
+    seconds: 4,
+    seed: 19,
+    keys: null,
+    music: false,
+    battle: false,
+    duck: { music: 1, amb: 1 },
+    life: [[0.3, 'doorOpen'], [3.0, 'doorShut']],
+    probe: true,
+  },
+  {
+    name: 'lf-voice',
+    title: 'Замер: голоса слуги, служанки и супруги',
+    seconds: 8,
+    seed: 19,
+    keys: null,
+    music: false,
+    battle: false,
+    duck: { music: 1, amb: 1 },
+    life: [[0.2, 'say:servant:2.2'], [2.8, 'say:maid:2.2'], [5.4, 'say:wife:2.2']],
+    probe: true,
+  },
+  {
+    name: 'lf-cat',
+    title: 'Замер: мяу, шаги кота, прыжок, мурчание у уха',
+    seconds: 6,
+    seed: 19,
+    keys: null,
+    music: false,
+    battle: false,
+    duck: { music: 1, amb: 1 },
+    life: [[0.3, 'meow'], [1.2, 'catStep'], [1.4, 'catStep'], [1.6, 'catStep'], [2.0, 'catLand'], [2.6, 'purr:3']],
+    probe: true,
+  },
+  {
+    name: 'lf-wine',
+    title: 'Замер: вино в кубок и глоток',
+    seconds: 4.5,
+    seed: 19,
+    keys: null,
+    music: false,
+    battle: false,
+    duck: { music: 1, amb: 1 },
+    life: [[0.3, 'pour'], [3.0, 'gulp']],
+    probe: true,
+  },
+  {
+    name: 'lf-night',
+    title: 'Замер: тихая музыка ночи',
+    seconds: 8,
+    seed: 19,
+    keys: null,
+    music: false,
+    battle: false,
+    duck: { music: 1, amb: 1 },
+    life: [[0.3, 'night']],
+    probe: true,
+  },
+  {
     name: 'ch-tap',
     title: 'Замер: касание кнопки — мерка для шагов',
     seconds: 3.5,
@@ -414,6 +519,17 @@ export async function render(name: string, limit: boolean): Promise<string> {
     music?.tick(t, 1);
     for (const [at, c] of s.cues ?? []) if (at >= t && at < t + STEP) playCue(kit, chain.kinds.fx, c, at);
     for (const [at, c] of s.chambers ?? []) if (at >= t && at < t + STEP) playChamberCue(ctx, chain.kinds.fx, c, at, cueR);
+    for (const [at, c] of s.life ?? []) {
+      if (at < t || at >= t + STEP) continue;
+      if (c.startsWith('say:')) {
+        const [, who, sec] = c.split(':');
+        speak(ctx, chain.kinds.fx, who as Who, at, Number(sec), cueR);
+      } else if (c.startsWith('purr:')) {
+        // Мурчание у самого уха (кот под рукой): полная громкость на столько секунд, с дыханием.
+        new Purr(ctx, chain.kinds.fx).hold(at, Number(c.split(':')[1]));
+      } else if (c === 'night') playLifeCue(ctx, chain.kinds.music, c, at, cueR);
+      else playLifeCue(ctx, chain.kinds.fx, c as LifeCue, at, cueR);
+    }
     for (const [at, power, delay] of s.thunder ?? []) if (amb && at >= t && at < t + STEP) amb.thunder(at, power, delay);
     if (fx) fx.frame(BATTLE.filter(([at]) => at >= t && at < t + STEP).map(([, c]) => c), battleBed(t), ear, STEP);
   };

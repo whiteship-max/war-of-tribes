@@ -232,6 +232,30 @@ describe('покои: кот (Г-7)', () => {
     room.dispose();
   });
 
+  it('кот за клубком — прямо к нему, но не сквозь мебель: клубок брошен в стол и сундук', () => {
+    // Граница области — игра с клубком (кот бежит прямо на клубок, без пути в обход); броски — в стол и в сундук у стены.
+    // Кот — по ту сторону стола и столика с шахматами: прямой путь к клубку лежит сквозь них.
+    for (const [x, z, yaw, cx, cz] of [
+      [0, 1.3, 0, 0.2, 4.0],
+      [2.15, -1.5, Math.PI, 2.2, -3.6],
+    ] as const) {
+      const room = phoneRoom();
+      room.life.stage({ catAt: { x: cx, z: cz, yaw: yaw + Math.PI } });
+      room.standAtPoint(x, z, yaw, -0.3);
+      room.life.throwBall();
+      const c = room.life.cat!;
+      let played = 0;
+      for (let i = 0; i < 60 * 8; i++) {
+        clock += 1 / 60;
+        room.frame(1 / 60, clock, SKY);
+        if (c.mind === 'play') played++;
+        expect(free(c.x, c.z, CAT_R * 0.9), `кот за клубком на свободном полу (${c.x.toFixed(2)}, ${c.z.toFixed(2)})`).toBe(true);
+      }
+      expect(played, 'играл').toBeGreaterThan(60);
+      room.dispose();
+    }
+  });
+
   it('кот далеко: касание — зовёт, подойдёт — гладит', () => {
     const room = phoneRoom({ cat: true, catSpot: 'bed' });
     const c = room.life.cat!;
@@ -285,5 +309,23 @@ describe('покои: тамбур и случайность кота', () => {
     const a = catRandom(5);
     const b = catRandom(5);
     for (let i = 0; i < 20; i++) expect(a()).toBe(b());
+  });
+});
+
+describe('покои: бюджет живых (Г-7)', () => {
+  it('люди и кот — в потолках по уровням; строятся, только когда понадобились; в покоях разом — не больше двух людей и кота', async () => {
+    const { buildPerson } = await import('./folk');
+    const { buildCat } = await import('./cat');
+    // Потолки: человек — 2,6 / 3,0 / 3,5 тысячи треугольников («Низкий», «Средний», «Высокий»), кот — 1,3 / 1,6 / 1,9.
+    const PERSON = [2600, 3000, 3500];
+    const CAT = [1300, 1600, 1900];
+    for (const d of [0, 1, 2] as const) {
+      for (const who of ['servant', 'maid', 'wife'] as const) expect(buildPerson(who, DEFAULT_ARMS, d, 1).m.b.triangleCount, `${who} @${d}`).toBeLessThanOrEqual(PERSON[d]);
+      expect(buildCat(d, 1).m.b.triangleCount, `кот @${d}`).toBeLessThanOrEqual(CAT[d]);
+    }
+    // Вход без кота: живых нет ни одного — сетки строятся по делу, а не при входе.
+    const room = phoneRoom();
+    expect(room.life.counts().triangles).toBe(0);
+    room.dispose();
   });
 });
