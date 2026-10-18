@@ -1,18 +1,21 @@
 // Подсказки окна постройки нового интерфейса — чистые функции (правило 18: числа — из функций игры, тест
 // сверяет строку с ними, `building.test.ts`).
-import type { Building, GameState } from '@/game/types';
+import type { Building, GameState, ResourceId } from '@/game/types';
 import { BUILDING_BY_ID } from '@/game/data/buildings';
 import { ORDER_TEXT } from '@/game/data/order';
 import {
   bondedCount,
   buildingHousing,
+  buildingProduction,
   buildingSlots,
   buildingStat,
   buildingTitle,
   handsCount,
+  idleCount,
   townHallBuildMult,
   workerCount,
 } from '@/game/derived';
+import { RESOURCE_IDS } from '@/game/constants';
 import { dec } from '@/game/num';
 import type { UpgradeGain } from '@/ui/parts/upgrade';
 import { count } from '@/ui/parts/plural';
@@ -68,4 +71,17 @@ export function workerTip(job: string, hands: number, slots: number, free: numbe
   const more = gains?.find((g) => g.id === 'slots');
   if (more) parts.push(`Следующий уровень даст ещё ${count(more.after - more.before, 'место', 'места', 'мест')}.`);
   return { title: `${job} · ${hands} из ${slots}`, body: parts.join(' ') };
+}
+
+/**
+ * Выработка постройки в день сейчас и с ещё одним рабочим — под шагом «+1 / +10» (отзыв тестеров 11.10, docs/feedback.md:
+ * «непонятно, что добавляется»). Обе — `buildingProduction` (правило 18): «с ещё одним» — то же состояние, где на этом
+ * месте на одного вольного больше. `more` нет — добавить нельзя (мест или свободных рук нет). Пусто — работа постройки
+ * не ложится на склад (стройка, кузня, найм): строки нет.
+ */
+export function workerYield(s: GameState, b: Building): { id: ResourceId; now: number; more: number | null }[] {
+  const now = buildingProduction(s, b);
+  const room = buildingSlots(b) - handsCount(s, b.id);
+  const more = room > 0 && idleCount(s) > 0 ? buildingProduction({ ...s, workers: { ...s.workers, [b.id]: workerCount(s, b.id) + 1 } }, b) : null;
+  return RESOURCE_IDS.filter((r) => now[r] > 0.005 || (more?.[r] ?? 0) > 0.005).map((r) => ({ id: r, now: now[r], more: more ? more[r] : null }));
 }

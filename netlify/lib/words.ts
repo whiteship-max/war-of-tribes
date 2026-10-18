@@ -106,6 +106,8 @@ export function noticeText(item: NoticeItem, tz: string): string {
     case 'raid':
       return `Набег из «${p.from}» идёт на твой город. ${THREAT[p.fate]} У стен будут в ${at}. ${TO_WALLS}`;
     case 'raid-fight':
+      // Перехват: бой был в поле, до стен (`field`); кто победил, посчитает мир при заходе.
+      if (p.field) return `В ${at} полководец встретил набег из «${p.from}» в поле. Чем кончился бой, сказано в донесении.`;
       return `В ${at} набег из «${p.from}» ударил в стены. Чем кончился бой, сказано в донесении.`;
     case 'siege-fall':
       return p.gates

@@ -259,6 +259,8 @@ export class HuntPlay implements Play {
   loose(t: number, shoot: boolean): void {
     const cam = this.camera;
     if (!shoot || !cam) {
+      // Ослабили натянутое — сказать: выстрела не было, и стрела цела (отзыв тестеров 11.10).
+      if (!shoot && this.hunt.pulling && this.hunt.drawn(t) > 0) this.notes.push('Тетива ослаблена');
       this.hunt.slack();
       return;
     }

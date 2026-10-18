@@ -22,6 +22,9 @@ export interface RoomUniforms {
   [k: string]: THREE.IUniform;
   cityTex: { value: THREE.Texture | null };
   atlas: { value: THREE.Texture | null };
+  /** Свой камень покоев (`stone.ts`): бут стен и тёсаный — цвет и рельеф. */
+  masonry: { value: THREE.Texture | null };
+  dressed: { value: THREE.Texture | null };
   uOrigin: { value: THREE.Vector3 };
   uLight: { value: THREE.Vector4[] };
   uLightCol: { value: THREE.Color[] };
@@ -61,6 +64,8 @@ export function roomUniforms(): RoomUniforms {
   return {
     cityTex: { value: null },
     atlas: { value: null },
+    masonry: { value: null },
+    dressed: { value: null },
     uOrigin: { value: new THREE.Vector3() },
     uLight: { value: ROOM_LIGHTS.map((l) => new THREE.Vector4(l.x, l.y, l.z, l.power)) },
     uLightCol: { value: ROOM_LIGHTS.map(() => new THREE.Color(0, 0, 0)) },
@@ -161,6 +166,8 @@ precision highp float;
 precision highp sampler2DArray;
 uniform sampler2DArray cityTex;
 uniform sampler2D atlas;
+uniform sampler2D masonry;
+uniform sampler2D dressed;
 uniform vec3 uOrigin;
 uniform vec4 uLight[${MAX_LIGHTS}];
 uniform vec3 uLightCol[${MAX_LIGHTS}];
@@ -198,13 +205,35 @@ float roomAo(vec3 p, vec3 n) {
   return ao;
 }
 
+// Рельеф камня: нормаль гнётся по высоте из альфы плитки (производные по экрану, без касательных; Микельсен).
+vec3 bumped(vec3 n, vec3 p, float h, float depth) {
+  vec3 dpx = dFdx(p);
+  vec3 dpy = dFdy(p);
+  vec3 r1 = cross(dpy, n);
+  vec3 r2 = cross(n, dpx);
+  float det = dot(dpx, r1);
+  vec3 g = sign(det) * (dFdx(h) * r1 + dFdy(h) * r2) * depth;
+  return normalize(abs(det) * n - g);
+}
+
 void main() {
+  float relief = 1.0;
+  float depth = 0.0;
   #ifdef ATLAS
     vec4 tex = texture2D(atlas, vUv);
     if (tex.a < 0.5) discard;
   #else
-    // Ровный тон (металл, воск, кость) — без рисунка слоя, geo.PLAIN_LAYER.
-    vec4 tex = vLayer > 249.5 ? vec4(1.0) : texture(cityTex, vec3(vUv, vLayer));
+    vec4 tex;
+    if (vLayer > 250.5) {
+      // Свой камень покоев: бут стен (251) и тёсаный (252); рельеф — в альфе (geo.MASONRY_LAYER, DRESSED_LAYER).
+      vec4 st = vLayer > 251.5 ? texture2D(dressed, vUv) : texture2D(masonry, vUv);
+      tex = vec4(st.rgb, 1.0);
+      relief = st.a;
+      depth = vLayer > 251.5 ? 0.006 : 0.03;
+    } else {
+      // Ровный тон (металл, воск, кость) — без рисунка слоя, geo.PLAIN_LAYER.
+      tex = vLayer > 249.5 ? vec4(1.0) : texture(cityTex, vec3(vUv, vLayer));
+    }
   #endif
   vec3 albedo = tex.rgb * vCol;
   vec3 n = normalize(vN);
@@ -212,16 +241,27 @@ void main() {
   vec3 v = normalize(cameraPosition - uOrigin - p);
   // Грань, повёрнутая от зрителя (двусторонняя ткань, ставни), — светом своей лицевой стороны.
   if (dot(n, v) < 0.0) n = -n;
-  float ao = roomAo(p, n);
-  vec3 light = uAmb * (0.75 + 0.25 * n.y) * ao;
-  vec3 spec = vec3(0.0);
+  #ifdef BUMP
+    if (depth > 0.0) n = bumped(n, p, relief, depth);
+  #endif
+  // Швы и впадины темнее: раствор глубже камня.
+  float ao = roomAo(p, n) * mix(0.62, 1.0, smoothstep(0.1, 0.75, relief));
+  // Материал — по блеску вершины: до 0,6 — дерево, кожа, ткань, кость (блик белый); 0,6…0,96 — металл (блик цветом
+  // металла, отражение покоев); выше — воск (свет свечи проходит сквозь).
   float shine = vShine;
-  float gloss = mix(18.0, 70.0, shine);
+  float metal = step(0.6, shine) * (1.0 - step(0.965, shine));
+  float wax = step(0.965, shine);
+  float gloss = metal > 0.5 ? mix(36.0, 150.0, (shine - 0.6) / 0.36) : mix(14.0, 64.0, shine / 0.6);
+  float specK = metal > 0.5 ? 1.6 : wax > 0.5 ? 0.25 : shine * 2.2;
+  float wrap = mix(0.15, 0.85, wax);
+  // Рассеянный свет: сверху — небо окон и огонь, снизу — пол и стол отдают его потолку и балкам (тёплым).
+  vec3 light = uAmb * (0.8 + 0.2 * n.y + 0.35 * max(-n.y, 0.0)) * ao;
+  vec3 spec = vec3(0.0);
   for (int i = 0; i < LIGHTS; i++) {
     vec3 L = uLight[i].xyz - p;
     float d2 = dot(L, L);
     vec3 l = L * inversesqrt(d2);
-    float ndl = max((dot(n, l) + 0.15) / 1.15, 0.0);
+    float ndl = max((dot(n, l) + wrap) / (1.0 + wrap), 0.0);
     // Мягкое ядро и спад по квадрату: у огня ярко, через комнату — тёплый отсвет, а не темень.
     float att = uLight[i].w / (0.6 + 0.5 * d2);
     float sh = 1.0;
@@ -230,7 +270,7 @@ void main() {
     #endif
     light += uLightCol[i] * ndl * att * sh;
     vec3 h = normalize(l + v);
-    spec += uLightCol[i] * att * sh * pow(max(dot(n, h), 0.0), gloss) * shine * 3.0;
+    spec += uLightCol[i] * att * sh * pow(max(dot(n, h), 0.0), gloss) * specK;
   }
   // Небо из окон: площадью проёма по нормали внутрь.
   for (int i = 0; i < 3; i++) {
@@ -253,9 +293,15 @@ void main() {
     float s = sunThrough(p) * (1.0 - occluded(p + n * 0.02, uSunDir));
     light += uSun * sunNdl * s;
     vec3 h = normalize(uSunDir + v);
-    spec += uSun * s * pow(max(dot(n, h), 0.0), gloss) * shine * 2.0;
+    spec += uSun * s * pow(max(dot(n, h), 0.0), gloss) * specK;
   }
-  vec3 col = albedo * light + spec * mix(vec3(1.0), albedo * 2.2, 0.55);
+  // Металл: свет почти не рассеивает, а отражает — покои (тёплый полумрак, огонь) и небо южного окна.
+  vec3 r = reflect(-v, n);
+  vec3 env = uAmb * (3.0 + 2.0 * max(r.y, 0.0)) + uSky * 0.22 * smoothstep(0.35, 0.95, r.z) + uLightCol[0] * 0.012 * smoothstep(0.2, 0.9, -r.z);
+  vec3 tintSpec = metal > 0.5 ? albedo * 2.4 : vec3(1.0);
+  vec3 col = albedo * light * (1.0 - 0.72 * metal) + spec * tintSpec + albedo * env * metal * 1.6;
+  // Воск у огня: свет проходит в тело свечи — тёплый, мягкий.
+  col += albedo * light * vec3(0.35, 0.18, 0.06) * wax;
   // Тлеющее (угли поленьев): своим светом, дышит.
   float breath = 0.75 + 0.25 * sin(uTime * 2.3 + p.x * 9.0) * sin(uTime * 3.7 + p.z * 7.0);
   col += uEmber * vGlow * breath * (0.4 + 0.6 * smoothstep(0.2, 0.0, abs(n.y + 0.2))) * 1.6;
@@ -272,14 +318,15 @@ void main() {
 }
 `;
 
-/** Материал покоев: слои текстур города (`atlas = false`) или атлас покоев с обрезкой по альфе. */
-export function roomMaterial(u: RoomUniforms, lights: number, atlas: boolean, fireShadow: boolean): THREE.ShaderMaterial {
+/** Материал покоев: слои текстур города и свой камень (`atlas = false`) или атлас покоев с обрезкой по альфе. */
+export function roomMaterial(u: RoomUniforms, lights: number, atlas: boolean, fireShadow: boolean, bump = fireShadow): THREE.ShaderMaterial {
   const m = new THREE.ShaderMaterial({
     uniforms: u,
     vertexShader: VERT,
     fragmentShader: FRAG,
     vertexColors: true,
-    defines: { LIGHTS: lights, ...(atlas ? { ATLAS: 1 } : {}), ...(fireShadow ? { FIRE_SHADOW: 1 } : {}) },
+    // Рельеф камня (`BUMP`) — со «Среднего»: на «Низком» камень ровный, цвет и швы те же (docs/city_v3.md, Г-5).
+    defines: { LIGHTS: lights, ...(atlas ? { ATLAS: 1 } : {}), ...(fireShadow ? { FIRE_SHADOW: 1 } : {}), ...(bump && !atlas ? { BUMP: 1 } : {}) },
   });
   m.name = atlas ? 'chambers-cloth' : 'chambers-stone';
   return m;

@@ -385,10 +385,10 @@ describe('подсказка новичку: касание мимо плашк�
     }
   });
 
-  it('подсказка числа — прежняя: ловец под плашкой, крестика нет', async () => {
+  it('подсказка числа — ловец под плашкой и свой крестик (Г-5)', async () => {
     const html = await draw(NUMBER, false);
     expect(html).toContain('nx-tip-catch');
-    expect(html).not.toContain('nx-tip-x');
+    expect(html).toContain('nx-tip-x');
   });
 
   it('город занят — подсказка новичку прячется и ждёт, подсказка числа стоит', async () => {
@@ -396,6 +396,79 @@ describe('подсказка новичку: касание мимо плашк�
     const { HINTS } = await import('@/game/data/hints');
     expect(await draw(hintTip(HINTS[0]), true)).toBe('');
     expect(await draw(NUMBER, true)).toContain('role="tooltip"');
+  });
+});
+
+// ---------- Крестик подсказки (Г-5) ----------
+
+describe('крестик подсказки: закрывает её и не трогает окно под ней', () => {
+  // Отзыв тестера: на телефоне подсказку с разбором числа не умели убрать и жали крестик окна под ней. Область — каждая
+  // подсказка: числа (с ловцом мимо), с разбором и дверями, новичку (без ловца); окно под ней — шторка постройки.
+  type El = { type: unknown; props: Record<string, unknown> & { children?: unknown } };
+  const walk = (n: unknown, out: El[] = []): El[] => {
+    if (Array.isArray(n)) for (const c of n) walk(c, out);
+    else if (n && typeof n === 'object' && 'props' in n) {
+      const e = n as El;
+      out.push(e);
+      walk(e.props.children, out);
+    }
+    return out;
+  };
+  const at: Rect = { x: 160, y: 300, w: 70, h: 44 };
+  const ROWS: TipContent = {
+    title: 'Еда · +152 в день',
+    rows: [
+      { label: 'Поля', value: '+180', go: () => undefined },
+      { label: 'Жители', value: '−28', tone: 'bad' },
+    ],
+    sum: { label: 'Итого', value: '+152' },
+    link: { label: 'Склад', go: () => undefined },
+  };
+
+  it('у каждой подсказки × в правом верхнем углу, касание — 44 и больше', async () => {
+    const { TipView } = await import('./TipLayer');
+    const { hintTip } = await import('./Hints');
+    const { HINTS } = await import('@/game/data/hints');
+    for (const tip of [{ title: 'Золото · 120', body: 'Казна города.' }, ROWS, hintTip(HINTS[0])] as TipContent[]) {
+      const html = renderToStaticMarkup(createElement(TipView, { tip: { ...tip, at }, view: PHONE, busy: false, modal: false, hide: () => {} }));
+      expect(html, `${tip.title}: крестик есть`).toMatch(/class="nx-tip-x"[^>]*aria-label="Закрыть подсказку"/);
+    }
+    const css = readFileSync(join(__dirname, 'next.css'), 'utf8');
+    const rule = css.match(/\.nx-tip \.nx-tip-x \{([^}]*)\}/)?.[1] ?? '';
+    expect(rule, 'в правом верхнем углу плашки').toMatch(/position:\s*absolute/);
+    expect(rule).toMatch(/top:\s*-?\d+px/);
+    expect(rule).toMatch(/right:\s*-?\d+px/);
+    for (const k of ['width', 'height']) expect(Number(rule.match(new RegExp(`\\b${k}:\\s*(\\d+)px`))?.[1]), k).toBeGreaterThanOrEqual(TAP_TARGET);
+  });
+
+  it('× закрывает подсказку, касание до окна под ней не доходит; касание мимо — по-прежнему закрывает', async () => {
+    const { TipView } = await import('./TipLayer');
+    const { useGame } = await import('@/game/store');
+    // Окно под подсказкой — шторка постройки: она открыта до касания и должна остаться открытой после.
+    useGame.setState({ sheet: { kind: 'building', id: 'smithy' } as never });
+    const sheet = useGame.getState().sheet;
+    expect(sheet, 'окно под подсказкой открыто').not.toBeNull();
+    let hidden = 0;
+    const tree = TipView({ tip: { ...ROWS, at }, view: PHONE, busy: false, modal: false, hide: () => void hidden++ });
+    const els = walk(tree);
+    const x = els.find((e) => e.props.className === 'nx-tip-x');
+    expect(x, 'крестик найден').toBeTruthy();
+    let stopped = 0;
+    let prevented = 0;
+    const ev = { stopPropagation: () => void stopped++, preventDefault: () => void prevented++ };
+    (x!.props.onPointerDown as (e: typeof ev) => void)(ev);
+    (x!.props.onClick as (e: typeof ev) => void)(ev);
+    expect(hidden, 'подсказка закрыта').toBe(1);
+    expect(stopped, 'касание дальше крестика не идёт — ни нажатие, ни щелчок').toBe(2);
+    expect(prevented, 'и не доходит до окна под ней призрачным щелчком').toBe(1);
+    expect(useGame.getState().sheet, 'окно под подсказкой осталось открытым').toEqual(sheet);
+    // Касание мимо плашки — ловец: закрывает подсказку, а не окно.
+    const catcher = els.find((e) => e.props.className === 'nx-tip-catch');
+    expect(catcher, 'ловец касания мимо — на месте').toBeTruthy();
+    (catcher!.props.onPointerDown as (e: typeof ev) => void)(ev);
+    expect(hidden).toBe(2);
+    expect(useGame.getState().sheet).toEqual(sheet);
+    useGame.setState({ sheet: null });
   });
 });
 
@@ -424,6 +497,37 @@ describe('подсказка рабочих окна постройки — чи
       }
     }
     expect(checked, 'здания, где уровень прибавляет места, есть').toBeGreaterThan(2);
+  });
+
+  // Отзыв тестеров 11.10 (docs/feedback.md): у шага «+1 / +10» было непонятно, что добавляется. Под рядом — выработка в
+  // день сейчас и с ещё одним рабочим, обе — `buildingProduction` состояния, где на месте на одного больше.
+  it('выработка под рядом: сейчас — `buildingProduction`; с ещё одним — её же, после `assignWorker`; некуда — без «→»', async () => {
+    const { workerYield } = await import('./buildingTips');
+    const { buildingProduction, buildingSlots, idleCount, handsCount } = await import('@/game/derived');
+    const { assignWorker } = await import('@/game/sim/actions');
+    const s = createInitialState(7);
+    let grows = 0;
+    for (const b of s.buildings) {
+      const rows = workerYield(s, b);
+      if (rows.length === 0) continue;
+      const now = buildingProduction(s, b);
+      for (const r of rows) expect(r.now, `${b.type} ${r.id}: сейчас`).toBe(now[r.id]);
+      const room = buildingSlots(b) - handsCount(s, b.id);
+      // Область: есть место и свободные руки — «→» есть и равно выработке после найма одного.
+      if (room > 0 && idleCount(s) > 0) {
+        const t = structuredClone(s);
+        expect(assignWorker(t, b.id, 1)).toBeNull();
+        const after = buildingProduction(t, t.buildings.find((x) => x.id === b.id)!);
+        for (const r of rows) expect(r.more, `${b.type} ${r.id}: с ещё одним`).toBeCloseTo(after[r.id], 9);
+        if (rows.some((r) => (r.more ?? 0) > r.now)) grows++;
+      } else for (const r of rows) expect(r.more).toBeNull();
+    }
+    expect(grows, 'постройки, где ещё один рабочий прибавляет выработку, есть').toBeGreaterThan(2);
+    // Свободных рук нет — «→» нет нигде.
+    const busy = structuredClone(s);
+    for (const b of busy.buildings) while (idleCount(busy) > 0 && assignWorker(busy, b.id, 99) === null);
+    expect(idleCount(busy), 'точка внутри области: рук не осталось').toBe(0);
+    for (const b of busy.buildings) for (const r of workerYield(busy, b)) expect(r.more).toBeNull();
   });
 });
 
@@ -465,5 +569,27 @@ describe('найм нового вида: какой вид выбран', () =>
     expect(firstTroop([...here], null, null, (id) => id === 'archer')).toBe('archer');
     // Вид обучения не из этого здания (конница в казармах) — не выбирается.
     expect(firstTroop([...here], 'knight' as never, null, all)).toBe('clubman');
+  });
+
+  // Отзыв тестеров 11.10 (docs/feedback.md): «Нанять» в карточке копейщиков открывал найм с дубинщиками — верхней строкой.
+  it('«Нанять» из карточки вида — выбран этот вид; просьба одна, на одно открытие', async () => {
+    const { firstTroop } = await import('./RecruitNew');
+    const { askRecruit, dropRecruitAsk, recruitAsked } = await import('./recruitAsk');
+    const here = ['clubman', 'spearman', 'archer'] as const;
+    const all = (): boolean => true;
+    expect(firstTroop([...here], null, 'archer', all, 'spearman'), 'позванный вид сильнее последнего нанятого').toBe('spearman');
+    expect(firstTroop([...here], 'archer', null, all, 'spearman'), 'шаг обучения сильнее всего').toBe('archer');
+    // Закрытый гейтом — тоже он: «Нанять» гаснет с причиной, а не нанимает дубинщиков молча (в новой партии копейщики закрыты).
+    expect(firstTroop([...here], null, 'archer', (id) => id !== 'spearman', 'spearman'), 'позванный закрыт — всё равно он').toBe('spearman');
+    expect(firstTroop([...here], null, null, all, 'rider'), 'вид не этого здания — прежнее правило').toBe('clubman');
+    askRecruit('spearman');
+    expect(recruitAsked()).toBe('spearman');
+    expect(recruitAsked(), 'прочитать дважды можно: начальное значение React зовёт в разработке дважды').toBe('spearman');
+    dropRecruitAsk();
+    expect(recruitAsked(), 'найм встал — просьбы нет').toBeNull();
+    // Сам найм снимает её, встав на экран, а выбирает по ней до того.
+    const src = readFileSync(join(__dirname, 'RecruitNew.tsx'), 'utf8');
+    expect(src).toMatch(/useState<TroopId>\(\(\) => firstTroop\(here, tut, last, open, recruitAsked\(\)\)\)/);
+    expect(src).toContain('useEffect(dropRecruitAsk, []);');
   });
 });

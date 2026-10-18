@@ -200,6 +200,8 @@ export class CityScene extends TribeScene {
       return;
     }
     this.town = c;
+    // Покои — вид изнутри: город пересобран, пока они открыты, — им же и правится (`Inside.attach`).
+    if (this.inside) this.inside.attach?.(c.group);
     this.sites = c.sites;
     this.scene.add(c.group);
     this.folk = new CityLife({ plan: c.plan, chimneys: c.chimneys, flagTops: c.flagTops, quality: this.quality });
@@ -297,7 +299,8 @@ export class CityScene extends TribeScene {
       fog.near = f.near;
       fog.far = f.far;
     }
-    this.camera.far = f.far + 200;
+    // Изнутри даль открыта до края земли (`Inside.far`, Г-7).
+    this.camera.far = Math.max(f.far + 200, room.far ?? 0);
     this.camera.updateProjectionMatrix();
     this.camera.updateMatrixWorld();
     fitShadow(this.rig, cityShadowHalf(INSIDE_DIST));
@@ -330,6 +333,7 @@ export class CityScene extends TribeScene {
     room.camera.updateProjectionMatrix();
     room.setLevel(this.dprLevel);
     this.simplify();
+    room.attach?.(this.town.group);
     // Ярлыки «Ускорить» и надписи добычи — вид города сверху: в покоях их нет (`deeds.css`).
     this.canvas.parentElement?.classList.add('city-inside');
     this.place();
@@ -341,6 +345,7 @@ export class CityScene extends TribeScene {
     if (this.inside !== room) return;
     this.inside = null;
     this.simplify();
+    room.detach?.();
     this.canvas.parentElement?.classList.remove('city-inside');
     this.applyFraming(this.camera.aspect);
   }

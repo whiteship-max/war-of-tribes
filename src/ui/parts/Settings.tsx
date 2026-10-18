@@ -34,7 +34,8 @@
 //
 // Чего здесь нет и быть не может: ничего про алмазы. Премиальная валюта живёт в
 // ратуше, где ею платят, и настройкой не является ни в каком виде.
-import { useSyncExternalStore } from 'react';
+import { useState, useSyncExternalStore } from 'react';
+import { adultScenes, setAdultScenes } from '@/ui/chambers/adult';
 import { setSoundLevel, setSoundOn, soundLevel, soundOn, subscribeSound, type SoundKind } from '@/sound/settings';
 import { GFX_QUALITIES, gfx, levelNow, setGfx, subscribeGfx } from '@/render/gfx';
 import { battleMusicDoor } from '@/sound/door';
@@ -102,6 +103,8 @@ export function Settings() {
   const hintsOn = useGame((g) => !hintsOff(g.s));
   const flipHints = (): void => useGame.getState().world((s) => setHintsOff(s, hintsOn));
   const perf = useSyncExternalStore(subscribePerf, perfOn, perfOn);
+  // Сцены для взрослых в покоях (docs/city_v3.md, Г-7): память устройства.
+  const [adult, setAdult] = useState(adultScenes);
 
   return (
     <>
@@ -197,6 +200,26 @@ export function Settings() {
           <span className="name">
             Подсказки
             <em className="sub">Коротко о главном, по ходу игры</em>
+          </span>
+          <span className="sw">
+            <i />
+          </span>
+        </button>
+
+        <button
+          className={`set-row${adult ? ' on' : ''}`}
+          onClick={() => {
+            setAdultScenes(!adult);
+            setAdult(!adult);
+          }}
+          aria-pressed={adult}
+        >
+          <span className="ico">
+            <Icon name="ui-heart" glyph="❤️" />
+          </span>
+          <span className="name">
+            Сцены для взрослых
+            <em className="sub">В покоях — ночь вдвоём, только затемнение</em>
           </span>
           <span className="sw">
             <i />

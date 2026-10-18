@@ -22,7 +22,7 @@ import { LocalWorld, type LocalWorldOptions } from './local/LocalWorld';
 import { NotifyingWorld } from './local/NotifyingWorld';
 import { tribePulse } from './bridge';
 import { exploredReach, inSight, type Reach, type SightDisc } from './fog';
-import { CAMERA_LEASH, REACH_MAX } from './data/tuning';
+import { CAMERA_LEASH, FIGURE_TOUCH, REACH_MAX } from './data/tuning';
 import { homeSight } from './sight';
 import { freshSeed } from '@/game/sim/random';
 import { readArms } from '@/heraldry/arms';
@@ -161,6 +161,11 @@ export interface ActionMenuState {
    * заранее, до подтверждения приказа.
    */
   march: MarchView | null;
+  /**
+   * Отряд найден не под пальцем, а впереди него на дороге: клетка лежит на пути набега (`raidAcross`). Тогда меню говорит
+   * вслух, что встать здесь мало — набег пройдёт мимо, — и даёт перехват (отзыв тестеров 18.10, docs/feedback.md).
+   */
+  across?: boolean;
   /** Где и когда встретимся, если приказать сейчас. null — цели нет. */
   plan: InterceptPlan | null;
   /**
@@ -856,15 +861,19 @@ export const useWorld = create<WorldStore>((set, get) => ({
     // иначе шторка легла бы поверх и меню оказалось бы под ней.
     useGame.getState().closeSheet();
     const view = settlementAt(cell.x, cell.y);
-    const march = marchOn(get().marches, cell, worldNow());
+    const under = marchOn(get().marches, cell, worldNow());
+    // Полководцу на дороге набега — тот же набег: встречать его выходят на путь, а не ловят пальцем движущийся отряд.
+    const ahead = !under && !view && agent === 'general' ? raidAcross(get().marches, cell, worldNow(), get().info?.homeId) : null;
+    const march = under ?? ahead;
     set({
       menu: {
         agent,
         cell,
         target: view?.id ?? null,
-        name: view?.name ?? (march ? `Отряд · ${march.fromName}` : 'Пустая земля'),
+        name: view?.name ?? (ahead ? `Путь набега · ${ahead.fromName}` : march ? `Отряд · ${march.fromName}` : 'Пустая земля'),
         card: null,
         march,
+        ...(ahead ? { across: true } : {}),
         plan: null,
         lead: null,
       },
@@ -1226,6 +1235,26 @@ export function marchOn(marches: MarchView[], cell: Coord, now: number): MarchVi
     if (m.own || m.phase !== 'out') continue;
     const at = marchPosition(m, now);
     if (Math.round(at.x) === cell.x && Math.round(at.y) === cell.y) return m;
+  }
+  return null;
+}
+
+/** Насколько близко к дороге набега должна лечь клетка, чтобы считаться «на пути»: касание фигур (`FIGURE_TOUCH`). */
+const PATH_NEAR = FIGURE_TOUCH;
+
+/**
+ * Набег на деревню, чья оставшаяся дорога проходит через эту клетку: от того места, где отряд сейчас, до ворот. Полководец,
+ * поставленный сюда приказом «идти», боя не даст — отряды мира идут сквозь фигуры (отзыв тестеров 18.10, docs/feedback.md);
+ * бой в поле даёт перехват. Ближайший по времени первым.
+ */
+export function raidAcross(marches: MarchView[], cell: Coord, now: number, homeId: SettlementId | undefined): MarchView | null {
+  for (const m of marchesOnHome(marches, homeId)) {
+    const a = marchPosition(m, now);
+    const dx = m.to.x - a.x;
+    const dy = m.to.y - a.y;
+    const len2 = dx * dx + dy * dy;
+    const k = len2 > 0 ? Math.max(0, Math.min(1, ((cell.x - a.x) * dx + (cell.y - a.y) * dy) / len2)) : 0;
+    if (Math.hypot(a.x + dx * k - cell.x, a.y + dy * k - cell.y) <= PATH_NEAR) return m;
   }
   return null;
 }

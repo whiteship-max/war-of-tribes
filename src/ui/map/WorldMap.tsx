@@ -24,7 +24,7 @@ import { useRoster } from '@/net/roster';
 import { useGame } from '@/game/store';
 import { CHEATS_ON } from '@/cheats';
 import { SpeedButton } from '../SpeedButton';
-import { cameraAnchor, figuresOn, marchOn, useWorld, worldNow } from '@/world/store';
+import { cameraAnchor, figuresOn, marchOn, raidAcross, useWorld, worldNow } from '@/world/store';
 import { freeCamera, frameCost, probe } from '@/debug';
 import { settlementAt } from '@/world/cache';
 import { formatCoord, parseCoord } from '@/world/geo';
@@ -604,9 +604,11 @@ export function WorldMap() {
    * браузере это масштабирование, — поэтому все три смысла разведены по тому,
    * что под пальцем и есть ли агент в руке:
    *
-   * - агент в руке и под пальцем цель (или он сам) — меню приказов;
-   * - агент в руке и под пальцем земля — приказ идти (прежнее поведение, и
-   *   трогать его нельзя: разведка — это десяток шагов подряд в темноту);
+   * - агент в руке и под пальцем цель (или он сам) — меню приказов; у полководца целью считается и дорога набега на
+   *   деревню (`raidAcross`): встать на ней мало, бой даёт перехват;
+   * - агент в руке и под пальцем земля — приказ идти. У разведчика — через меню: куда, сколько идти, «Отправить» или
+   *   «Отмена» (отзыв тестеров 11.10, docs/feedback.md). Прежде шаг разведчика шёл сразу — «десяток шагов подряд в
+   *   темноту»; теперь шаг — два касания, зато промах пальцем не уводит его на полдня пути;
    * - без агента в руке — своя фигура в поле берётся в руку, а поселение
    *   открывает карточку.
    */
@@ -618,7 +620,10 @@ export function WorldMap() {
     // Чужой отряд в поле — такая же цель, как поселение: по нему тоже приказ.
     const enemy = marchOn(g.marches, c, worldNow());
     if (hand) {
-      if (target || enemy || standing.some((f) => f.id === hand)) {
+      // Полководец и дорога набега на деревню: молча вести его сюда нельзя — отряд пройдёт мимо, и боя не будет (отзыв
+      // тестеров 18.10). Меню скажет это и даст перехват.
+      const across = hand === 'general' && !target && raidAcross(g.marches, c, worldNow(), g.info?.homeId) !== null;
+      if (target || enemy || across || hand === 'scout' || standing.some((f) => f.id === hand)) {
         void g.openMenu(hand, c);
         return;
       }
