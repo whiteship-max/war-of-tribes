@@ -11,7 +11,7 @@
  * (указ, заморозка). Запись наблюдения — попутная: не легла — партия всё равно сохранена, а ответ игроку тот же.
  */
 import { CLOCK_SKEW_SECONDS } from './initdata.js';
-import { SAVE_HURRY_MS, SAVE_PUSH_MS, STOCK_KEYS, readWatch, type AdminGrant, type Counts, type WatchCard } from './contract.js';
+import { SAVE_HURRY_MS, SAVE_PUSH_MS, STOCK_KEYS, readWatch, type AdminGrant, type Counts, type WarSheet, type WatchCard } from './contract.js';
 import { DAY_LENGTH, gameDaysOfMs, realMs } from '../../src/game/pace.js';
 import { ENERGY_MAX, ENERGY_REFILL, MINIGAME_COST } from '../../src/game/data/minigames.js';
 import { MAX_BUILDING_LEVEL, RESOURCE_IDS, RESOURCE_META } from '../../src/game/constants.js';
@@ -22,7 +22,8 @@ import { powerOfCounts } from '../../src/profile/power.js';
 import type { BuildingTypeId, ResourceId } from '../../src/game/types.js';
 import { rewrite } from './admin.js';
 import { bookAfter, readBook, seedBook, type ArmyBook } from './book.js';
-import { builtForged, buildStep, peopleStep, readTown, seedTown, type PaidLevel, type TownBook } from './town.js';
+import { builtForged, buildStep, eatFloorOf, peopleStep, readTown, seedTown, type PaidLevel, type TownBook } from './town.js';
+import { goodsStep, readGoods, sheetShort, type GoodsBook } from './goods.js';
 import { troopPower } from '../../src/game/battle/price.js';
 import type { TroopStack } from '../../src/game/battle/kinds.js';
 import type { WarFile } from './war.js';
@@ -82,7 +83,10 @@ export type FlagKind =
   | 'forged'
   | 'built'
   | 'people'
-  | 'unpaid';
+  | 'unpaid'
+  | 'hidden'
+  | 'eat'
+  | 'walk';
 
 export const FLAG_WORD: Record<FlagKind, string> = {
   cheat: 'коды проверки',
@@ -100,6 +104,9 @@ export const FLAG_WORD: Record<FlagKind, string> = {
   built: 'стройка сверх подтверждённой',
   people: 'жители сверх подтверждённых',
   unpaid: 'стройка без платы',
+  hidden: 'склад меньше подтверждённого',
+  eat: 'расход хлеба ниже правил',
+  walk: 'срок пути',
 };
 
 /** Начало строки журнала о невозможном: админ ищет его глазами в `/player` (docs/security.md). */
@@ -107,7 +114,7 @@ export const WARN = 'внимание:';
 
 /** Одно правило города: что сервер проверяет, какой общей с игрой формулой, каким флагом и что делает с невозможным. */
 export interface CityRule {
-  id: 'level' | 'pace' | 'paid' | 'stock' | 'troops' | 'people';
+  id: 'level' | 'pace' | 'paid' | 'stock' | 'troops' | 'people' | 'goods' | 'eat';
   rule: string;
   /** Общая с игрой формула — одна дверь без `@/`, своей копии чисел у сервера нет. */
   formula: string;
@@ -129,6 +136,14 @@ export const CITY_RULES: readonly CityRule[] = [
   { id: 'stock', rule: 'запасы не выше вместимости склада подтверждённых построек', formula: 'build.storageOf', flag: 'cap', act: 'в войну — не больше вместимости; флаг' },
   { id: 'troops', rule: 'войска не больше нанятых: обучение казарм и конюшни, указы, потери войны', formula: 'train.trainRateAt, book.bookAfter', flag: 'forged', act: 'не подтверждает; приказ войны — отказ' },
   { id: 'people', rule: 'жители не больше прироста, жилья, вестей и вернувшихся из войска', formula: 'build.popGrowthCeil, build.housingOf', flag: 'people', act: 'не подтверждает' },
+  {
+    id: 'goods',
+    rule: 'склад, казна и невольники защитника — из описи, а не из слепка обороны; между описями без дел и трат убывают только расходом',
+    formula: 'goods.drainCeil: build.headsFoodPerDay, build.heatingWood, battle/price.baseWage',
+    flag: 'hidden',
+    act: 'в войну — книга запасов, не меньше; флаг',
+  },
+  { id: 'eat', rule: 'расход хлеба в осаде не ниже пайка жителей, невольников и бойца при самом скудном рационе', formula: 'build.eatFloorPerDay', flag: 'eat', act: 'в войну — не ниже пола; флаг' },
 ];
 
 export interface WatchFlag {
@@ -179,6 +194,8 @@ export interface WatchRecord {
   book?: ArmyBook;
   /** Книга стройки и жителей (`town.ts`, docs/pvp.md, раздел 7): уровни и жители, которые сервер подтверждает. */
   town?: TownBook;
+  /** Книга запасов (`goods.ts`, docs/security.md, ЗЩ-2): склад, казна и невольники, которые сервер подтверждает для войны. */
+  goods?: GoodsBook;
   /**
    * Кто привёл: ключ игрока, по чьей ссылке был первый заход (`invitedBy`, docs/feed.md, раздел 3). Только статистика
    * админа, наград за это нет. Нет — пришёл сам или запись старше поля.
@@ -242,6 +259,8 @@ export function readWatchRecord(v: unknown): WatchRecord {
   if (book) out.book = book;
   const town = readTown(r.town);
   if (town) out.town = town;
+  const goods = readGoods(r.goods);
+  if (goods) out.goods = goods;
   if (Array.isArray(r.journal)) {
     for (const e of r.journal as Record<string, unknown>[]) {
       if (e && ENTRY_KINDS.includes(e.kind as EntryKind)) out.journal.push({ at: n0(e.at), kind: e.kind as EntryKind, text: s0(e.text, 400) });
@@ -527,6 +546,7 @@ export function booked(
   wars: WarFile | null,
   key: string,
   gems: readonly PaidLevel[] = [],
+  prior: Prior = { at: 0 },
 ): WatchRecord {
   if (!watch) return rec;
   const town0 = townOf(rec, at);
@@ -542,8 +562,38 @@ export function booked(
     deadPower: troopPower(step.dead as TroopStack),
   };
   const people = peopleStep(built.book, town0.at, claim, army, wars, key);
-  const next = { ...rec, book: step.book, town: people.book };
+  // Книга запасов (docs/security.md, ЗЩ-2): склад и казна — из описи, «не меньше» объяснимой убыли; бойцы — тела книги
+  // войска и ученики книги жителей.
+  const goods = goodsStep(rec.goods ?? null, prior.card, prior.at, watch, at, {
+    levels: people.book.levels,
+    pop: people.book.pop,
+    soldiers: army.after + people.book.queued,
+  });
+  const next = { ...rec, book: step.book, town: people.book, goods: goods.book };
   const found: { kind: FlagKind; text: string }[] = [];
+  if (goods.hidden.length) {
+    const parts = goods.hidden.map((h) => `${stockWord(h.kind)} −${big(h.drop)} (расход позволял ${big(h.could)})`);
+    found.push({
+      kind: 'hidden',
+      text: `Склад убыл без разовых дел и трат за ${span(Math.max(0, at - prior.at))}: ${parts.join(', ')}. В войну идёт не меньше того, что объясняет расход.`,
+    });
+  }
+  const sheet = prior.sheet;
+  if (sheet) {
+    const short = sheetShort(sheet, goods.book, watch.prod);
+    if (short.length) {
+      const parts = short.map((x) => `${x.kind === 'bonded' ? 'невольники' : stockWord(x.kind)} ${big(x.sheet)} против ${big(x.book)}`);
+      found.push({ kind: 'hidden', text: `Слепок обороны называет меньше, чем опись той же записи: ${parts.join(', ')}. В войну идёт опись.` });
+    }
+    const eat = eatFloorOf(Math.min(sheet.pop, people.book.pop), sheet.bonded);
+    const low = (said: number, floor: number): boolean => said < floor * (1 - 1e-9) - 1e-9;
+    if (low(sheet.townPerHour, eat.townPerHour) || low(sheet.perManPerHour, eat.perManPerHour)) {
+      found.push({
+        kind: 'eat',
+        text: `Расход хлеба в слепке обороны: город ${sheet.townPerHour.toFixed(2)} и боец ${sheet.perManPerHour.toFixed(3)} в час, а при самом скудном пайке — не меньше ${eat.townPerHour.toFixed(2)} и ${eat.perManPerHour.toFixed(3)}. В осаду идёт не меньше пола.`,
+      });
+    }
+  }
   if (step.forged > 0) {
     found.push({
       kind: 'forged',
@@ -569,6 +619,13 @@ export function booked(
     }
   }
   return found.length ? addFlags(next, at, found) : next;
+}
+
+/** Что было до записи: прежняя опись и её минута (книга запасов сверяет убыль между ними) и слепок обороны той же записи. */
+export interface Prior {
+  card?: WatchCard;
+  at: number;
+  sheet?: WarSheet;
 }
 
 /** По видам — меньшее из заявленного и подтверждённого. */

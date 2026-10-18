@@ -19,11 +19,12 @@ import {
   TOWN_HALL_BUILD_STEP,
   UPGRADE_GROWTH,
   MAX_BUILDING_LEVEL,
+  SOLDIER_FOOD,
   VILLAGER_DEFENSE,
   WALL_REPAIR_SHARE,
 } from './constants';
 import { BUILDING_BY_ID, slotsAt, type BuildingStats } from './data/buildings';
-import { SEASON_MODIFIERS } from './data/seasons';
+import { HEATING_CAMPFIRE, HEATING_SHELTERED, SEASON_MODIFIERS } from './data/seasons';
 import { BOONS } from './data/boons';
 import { DECREES, RATIONS } from './data/policy';
 import { FAITHS, OBSERVANCES, tiltAt } from './data/faiths';
@@ -164,4 +165,60 @@ export function wallRepairCost(level: number): Partial<Record<ResourceId, number
   const out: Partial<Record<ResourceId, number>> = {};
   for (const [r, v] of Object.entries(BUILDING_BY_ID.palisade.cost) as [ResourceId, number][]) if (v) out[r] = Math.round(v * k);
   return out;
+}
+
+// ---------- Паёк ----------
+
+const least = (xs: number[]): number => Math.min(1, ...xs);
+const cut = (xs: (number | undefined)[]): number => xs.reduce<number>((m, x) => (x !== undefined && x < 1 ? m * x : m), 1);
+
+/** Сколько за игровой день съедают `heads` голов посёлка — жители, невольники, наёмные мастера (`derived.townFoodPerDay`, `mastersFoodPerDay`). */
+export const headsFoodPerDay = (heads: number, seasonFood: number, rationFood: number): number => heads * seasonFood * rationFood;
+
+/** Паёк бойца за игровой день — новобранца и раненого тоже (`derived.soldierFoodPerDay`). */
+export const soldierFoodPerDay = (seasonFood: number, rationFood: number): number => SOLDIER_FOOD * seasonFood * rationFood;
+
+/**
+ * Наименьший множитель пайка: самый сытый сезон, усилители вестей, что урезают паёк, все разом, и самый скудный рацион.
+ * Меньше этого посёлок не ест никак — пол расхода хлеба в слепке обороны (`town.townSheet`, docs/security.md, ЗЩ-2).
+ */
+export const FOOD_MOD_MIN = least(SEASONS.map((m) => m.food)) * cut(BOONS.map((b) => b.food)) * least(RATIONS.map((r) => r.food));
+
+/**
+ * Пол расхода хлеба в осаде, за игровой день: голов посёлка `heads` (жители и невольники) и одного бойца при наименьшем
+ * пайке (`FOOD_MOD_MIN`). Честный расход (`world/bridge.playerProfile`: `foodPerHour`, `soldierFoodPerHour`) не меньше:
+ * та же формула, мастера сверх голов, паёк не скуднее.
+ */
+export const eatFloorPerDay = (heads: number): { town: number; man: number } => ({
+  town: headsFoodPerDay(Math.max(0, heads), FOOD_MOD_MIN, 1),
+  man: soldierFoodPerDay(FOOD_MOD_MIN, 1),
+});
+
+/**
+ * Наибольший множитель пайка: самый голодный сезон, усилители вестей, что прибавляют паёк, все разом, и самый щедрый
+ * рацион. Больше этого посёлок не ест никак — потолок расхода без дела (`netlify/lib/goods.ts`, docs/security.md, ЗЩ-2).
+ */
+export const FOOD_MOD_MAX = most(SEASONS.map((m) => m.food)) * boost(BOONS.map((b) => b.food)) * most(RATIONS.map((r) => r.food));
+
+/** Сколько дров за игровой день жгут очаги: под крышей вполовину (`HEATING_SHELTERED`), всем посёлком со скидкой — `derived.heatingWoodPerDay`. */
+export const heatingWood = (roofed: number, open: number, heating: number): number =>
+  (roofed * HEATING_SHELTERED + open) * heating * HEATING_CAMPFIRE;
+
+/** Наибольший множитель отопления: самый холодный сезон и усилители вестей, что прибавляют дров, все разом. */
+export const HEAT_MOD_MAX = most(SEASONS.map((m) => m.heating)) * boost(BOONS.map((b) => b.heating));
+
+/**
+ * Наибольшая раздача казны с головы за игровой день — закят веры (`derived.faithGoldPerDay`, отрицательная доля
+ * `goldPerPop`); налог казну только пополняет. Нет такой веры — ноль.
+ */
+export const GOLD_OUT_PER_POP_MAX = Math.max(0, -Math.min(0, ...FAITHS.flatMap((f) => OBSERVANCES.flatMap((o) => [0, MAX_BUILDING_LEVEL].map((l) => tiltAt(f.id, l, o.id).goldPerPop)))));
+
+/**
+ * Наёмных мастеров у Мастерской этих уровней — не больше её мест (`derived`: мастер встаёт на место ремесленника), и
+ * сколько рук стройки даёт один при наибольшем множителе ремесленника (`derived.masterHands`): его жалованье — столько бойцов.
+ */
+export function mastersCeil(levels: Levels): { masters: number; hands: number } {
+  const shop = levelIn(levels, 'workshop');
+  if (shop < 1) return { masters: 0, hands: 0 };
+  return { masters: slotsAt(BUILDING_BY_ID.workshop, shop), hands: (CRAFTER_BUILD * CRAFTER_MULT_MAX * levelOutputMult(shop)) / BUILDER_RATE };
 }

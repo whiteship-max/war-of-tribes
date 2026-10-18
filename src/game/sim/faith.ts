@@ -22,7 +22,7 @@ import {
 import { FAITH_BY_ID, OBSERVANCE_BY_ID, type FeastDef } from '../data/faiths';
 import { faithOf, heresy, population, seasonIndex, seasonOf, strainNow } from '../derived';
 import { log } from './log';
-import { pay } from './pay';
+import { outlay, pay } from './pay';
 
 // ---------- Обряд ----------
 
@@ -83,6 +83,7 @@ export function holdRite(s: GameState): string | null {
   if (info.blocked) return info.blocked;
   pay(s, { food: info.food });
   s.gold -= info.gold;
+  if (info.gold > 0) outlay(s);
   beginRite(s);
   const feast = info.feast as FeastDef;
   log(s, `${feast.name}: ${feast.text}`, 'good');
@@ -175,6 +176,7 @@ export function baptize(s: GameState, to: FaithId): string | null {
   if (!info.options.includes(to)) return 'В эту веру не крестят.';
   const was = FAITH_BY_ID[faithOf(s) as FaithId];
   s.gold -= info.gold;
+  if (info.gold > 0) outlay(s);
   s.faith.id = to;
   s.faith.converted = true;
   // Реликвия старой веры остаётся при старой вере: громовой камень в костёле не

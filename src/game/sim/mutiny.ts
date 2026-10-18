@@ -21,6 +21,7 @@ import { bondedTotal, hiddenStash, mutinyForecast, mutinyOpen, orderState } from
 import { plunder } from '@/world/spoils';
 import { loseBonded, losePop } from './population';
 import { log } from './log';
+import { outlay } from './pay';
 import { recordRaidLoss } from '@/profile/stats';
 
 /** Что шаг ропота велит сделать тику: поднять мятеж или ничего. */
@@ -82,6 +83,8 @@ export function mutinyFalls(s: GameState): string {
     taken[r] = n;
   }
   recordRaidLoss(s, taken);
+  // Унесённое мятежниками — убыль склада без дела: книга запасов сервера не должна счесть её спрятанным добром.
+  if (Object.keys(taken).length > 0) outlay(s);
   const bonded = loseBonded(s, f.bonded);
   settle(s);
   return ORDER_TEXT.mutiny.fell({ left, bonded, taken: spoils.takenTotal, hidden: spoils.hiddenTotal });

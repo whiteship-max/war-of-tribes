@@ -62,7 +62,6 @@ import {
   SIEGE_YIELD,
   STARVING_MORALE,
   SMITH_WORK,
-  SOLDIER_FOOD,
   STRAIN_DAYS,
   VILLAGER_DEFENSE,
   emptyResources,
@@ -70,7 +69,7 @@ import {
 import { asGame, sessionSec, type GameSec } from './pace';
 import { BUILDING_BY_ID, MASTERS_AT, type BuildingStats, slotsAt } from './data/buildings';
 import { surveyRadiusOf } from './data/survey';
-import { buildRateOf, defenseOf, hallBuildMult, housingOf, stashAt, storageOf, type Levels } from './build';
+import { buildRateOf, defenseOf, hallBuildMult, headsFoodPerDay, heatingWood, housingOf, soldierFoodPerDay as soldierFoodAt, stashAt, storageOf, type Levels } from './build';
 import { FAITH_BY_ID, OBSERVANCE_BY_ID, tiltAt, type FaithDef, type FaithTilt } from './data/faiths';
 import { FREE_JOBS, JOBS, JOB_BY_ID } from './data/jobs';
 import { EQUIPMENT_BY_ID, type EquipmentDef } from './data/equipment';
@@ -100,8 +99,6 @@ import {
   DAY_PART_UNTIL,
   FIRST_WINTER_SOFTEN,
   FREEZING_MORALE_PENALTY,
-  HEATING_CAMPFIRE,
-  HEATING_SHELTERED,
   SEASONS,
   SEASON_DAYLIGHT,
   type DayPart,
@@ -1086,7 +1083,7 @@ export const rationMorale = (): number => STARVING_MORALE * SIEGE_RATION_CUT;
  * заперты в городе и едят из того же амбара (`world/bridge`, `foodPerHour`).
  */
 export const mastersFoodPerDay = (s: GameState, mods: SeasonModifiers = seasonMods(s)): number =>
-  mastersCount(s) * mods.food * rationOf(s).food;
+  headsFoodPerDay(mastersCount(s), mods.food, rationOf(s).food);
 
 /**
  * Сколько съедает за день сам посёлок — без единого бойца. Отдельно от общего
@@ -1102,7 +1099,7 @@ export function townFoodPerDay(s: GameState, mods: SeasonModifiers = seasonMods(
   // с тем же зимним множителем. Под осадой они заперты в городе вместе со всеми
   // и едят из осаждённого амбара — часы голода от них короче.
   total += bondedTotal(s);
-  return total * mods.food * rationOf(s).food;
+  return headsFoodPerDay(total, mods.food, rationOf(s).food);
 }
 
 /**
@@ -1110,7 +1107,7 @@ export function townFoodPerDay(s: GameState, mods: SeasonModifiers = seasonMods(
  * как и всё остальное, — иначе зимняя осада считалась бы по летним числам.
  */
 export const soldierFoodPerDay = (s: GameState, mods: SeasonModifiers = seasonMods(s)): number =>
-  SOLDIER_FOOD * mods.food * rationOf(s).food;
+  soldierFoodAt(mods.food, rationOf(s).food);
 
 /** Чистый баланс за день (производство минус потребление еды и дрова на очаг). */
 export function netPerDay(s: GameState): Resources {
@@ -1289,7 +1286,7 @@ export function heatingWoodPerDay(s: GameState, mods: SeasonModifiers = seasonMo
   const roofed = Math.min(pop, roofCapacity(s));
   const open = pop - roofed;
   // Скидка на весь посёлок (`HEATING_CAMPFIRE`) — всегда: костра она не спрашивает.
-  return (roofed * HEATING_SHELTERED + open) * mods.heating * HEATING_CAMPFIRE;
+  return heatingWood(roofed, open, mods.heating);
 }
 
 export interface ResourceForecast {

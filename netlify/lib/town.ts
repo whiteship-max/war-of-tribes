@@ -23,7 +23,7 @@
 import { BUILDING_BY_ID } from '../../src/game/data/buildings.js';
 import type { BuildingTypeId } from '../../src/game/types.js';
 import { MAX_BUILDING_LEVEL, START_POP } from '../../src/game/constants.js';
-import { gameDaysOfMs, gameSecondsOfMs } from '../../src/game/pace.js';
+import { gameDaysOfMs, gameDaysPerHour, gameSecondsOfMs } from '../../src/game/pace.js';
 import { upgradeWork } from '../../src/game/labour.js';
 import { rushFreeWork } from '../../src/game/gemrules.js';
 import {
@@ -33,6 +33,7 @@ import {
   buildCeil,
   crowdMax,
   defenseOf,
+  eatFloorPerDay,
   housingOf,
   levelIn,
   militiaOf,
@@ -343,7 +344,8 @@ export function floorAt(book: TownBook, at: number): { pop: number; power: numbe
  * Слепок обороны, приведённый к книге стройки (`war.liveSheet`): уровни — не выше подтверждённых; жители — не больше
  * подтверждённых; склад и хлеб — не больше склада, тайник — не больше тайника подтверждённых уровней; ополчение — не
  * больше обороны подтверждённых построек и жителей при наибольшей стойкости веры (`build.defenseOf`), башня — не больше
- * мест подтверждённой башни. `homePower` — мощь подтверждённого войска дома.
+ * мест подтверждённой башни; расход хлеба — не меньше пола игры (`eatFloorOf`). `homePower` — мощь подтверждённого
+ * войска дома.
  */
 export function townSheet(sheet: WarSheet, book: TownBook, homePower: number): WarSheet {
   const levels: Counts = {};
@@ -357,8 +359,11 @@ export function townSheet(sheet: WarSheet, book: TownBook, homePower: number): W
   const pop = Math.min(sheet.pop, book.pop);
   const ceil = militiaOf(defenseOf(book.levels, book.pop, homePower, STEADFAST_MAX), homePower);
   const militia = Math.min(sheet.militia, ceil);
+  const eat = eatFloorOf(pop, sheet.bonded);
   return {
     ...sheet,
+    townPerHour: Math.max(sheet.townPerHour, eat.townPerHour),
+    perManPerHour: Math.max(sheet.perManPerHour, eat.perManPerHour),
     levels,
     stock,
     food: Math.min(sheet.food, cap),
@@ -367,6 +372,17 @@ export function townSheet(sheet: WarSheet, book: TownBook, homePower: number): W
     militia,
     archers: Math.min(sheet.archers, militia, towerArchersAt(levelIn(book.levels, 'tower'))),
   };
+}
+
+/**
+ * Пол расхода хлеба в осаде, в час мира (docs/security.md, ЗЩ-2): жители и невольники слепка и один боец при наименьшем
+ * пайке игры (`build.eatFloorPerDay`), тем же переводом в час, что у моста (`world/bridge`: `gameDaysPerHour`). Расход
+ * слепка ниже — невозможное: слепок обороны берёт пол (`townSheet`), запись партии — флаг «расход хлеба ниже правил».
+ */
+export function eatFloorOf(pop: number, bonded: number): { townPerHour: number; perManPerHour: number } {
+  const day = eatFloorPerDay(Math.max(0, pop) + Math.max(0, bonded));
+  const hour = gameDaysPerHour();
+  return { townPerHour: day.town * hour, perManPerHour: day.man * hour };
 }
 
 // ------------------------------------------------ ускорение за алмазы ---

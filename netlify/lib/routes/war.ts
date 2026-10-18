@@ -112,10 +112,10 @@ export const war: Route = async (req, io) => {
     // книги с этой минуты: войска, которое сервер не видел ни разу, он не подтверждает, а посёлок — новой партии.
     const seen = await watched.getWithMetadata(player);
     const rec = readWatchRecord(seen ? parseJson(String(seen.data)) : null);
-    sheets.set(player, { ...sheet, book: bookOf(rec, now), town: townOf(rec, now) });
+    sheets.set(player, { ...sheet, book: bookOf(rec, now), town: townOf(rec, now), ...(rec.goods ? { goods: rec.goods } : {}) });
   };
   // Приказ сверх подтверждённого — флаг в описи наблюдения приказавшего (docs/admin.md, «Флаги»).
-  const forged: { text: string | null; told: boolean } = { text: null, told: false };
+  const forged: { text: string | null; kind: 'forged' | 'walk'; told: boolean } = { text: null, kind: 'forged', told: false };
 
   const byTarget =
     order?.op === 'march' || order?.op === 'spy' || order?.op === 'pact' || order?.op === 'unpact' ? order.target : spyAsk;
@@ -157,8 +157,9 @@ export const war: Route = async (req, io) => {
           roster,
           sheet: (player) => sheets.get(player) ?? null,
           noShield: spawnMode() !== null,
-          forged: (text) => {
+          forged: (text, kind = 'forged') => {
             forged.text = text;
+            forged.kind = kind;
           },
         });
         if (!error) changed = true;
@@ -193,7 +194,8 @@ export const war: Route = async (req, io) => {
       const flag = forged.text;
       if (flag && !forged.told) {
         forged.told = true;
-        await observe(io.stores, key, (rec) => addFlags(rec, now, [{ kind: 'forged', text: flag }]));
+        const kind = forged.kind;
+        await observe(io.stores, key, (rec) => addFlags(rec, now, [{ kind, text: flag }]));
       }
       if (!changed) return json(body);
       const written = await hot.setJSON(KEY, file, etag === null ? { onlyIfNew: true } : { onlyIfMatch: etag });

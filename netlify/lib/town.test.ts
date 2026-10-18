@@ -41,10 +41,10 @@ import {
 } from '../../src/game/derived.js';
 import { BUILDING_BY_ID } from '../../src/game/data/buildings.js';
 import { RESOURCE_IDS, START_POP } from '../../src/game/constants.js';
-import { gameSeconds, gameSecondsOfMs } from '../../src/game/pace.js';
+import { gameDaysPerHour, gameSeconds, gameSecondsOfMs } from '../../src/game/pace.js';
 import { upgradeWork } from '../../src/game/labour.js';
 import { fullWork, rushFreeWork, rushPriceOfWork } from '../../src/game/gemrules.js';
-import { BUILD_MOD_MAX, CRAFTER_MULT_MAX, CROWD_MAX, EVENT_WORK_MAX, buildCeil, crowdMax, housingOf, storageOf } from '../../src/game/build.js';
+import { BUILD_MOD_MAX, CRAFTER_MULT_MAX, CROWD_MAX, EVENT_WORK_MAX, buildCeil, crowdMax, headsFoodPerDay, housingOf, soldierFoodPerDay, storageOf } from '../../src/game/build.js';
 import { EVENT_WORK } from '../../src/game/data/events.js';
 import { LETTER_PAUSE_MIN, LETTER_SLOTS } from '../../src/world/data/tuning.js';
 import { weakCity } from '../../src/world/lairs.js';
@@ -335,7 +335,9 @@ describe('слепок обороны и защита слабого — из к
     const s: SheetAt = { sheet: bigSheet(), at: T0, town: book };
     expect(liveSheet(emptyWars(), A, s, T0).militia).toBe(out.militia);
     // Честный слепок книга не трогает.
-    const honest = bigSheet({ militia: 3, archers: 0, stock: { wood: 100 }, food: 100, stash: 0, pop: 20, levels: { palisade: 1 } });
+    // Расход хлеба честного — формулой игры при обычном пайке (`world/bridge.playerProfile`): не ниже пола (ЗЩ-2).
+    const eat = { townPerHour: headsFoodPerDay(20, 1, 1) * gameDaysPerHour(), perManPerHour: soldierFoodPerDay(1, 1) * gameDaysPerHour() };
+    const honest = bigSheet({ militia: 3, archers: 0, stock: { wood: 100 }, food: 100, stash: 0, pop: 20, levels: { palisade: 1 }, ...eat });
     expect(townSheet(honest, book, 0)).toEqual(honest);
   });
 

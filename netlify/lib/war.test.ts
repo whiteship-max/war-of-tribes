@@ -256,7 +256,7 @@ describe('энергия полководца: поход, осада и уда�
     advance(file, w.arriveAt + 1, sheets);
     expect(w.phase, 'точка внутри области: лагерь встал').toBe('camp');
     const strike = (value: number) =>
-      applyOrder(file, B, { op: 'strike', id: w.id, army: { ...withEnergy(value, { spearman: 20 }), energy: { value, at: w.arriveAt + 2, mode: 'drain' } }, joint: false, walkMs: 0 }, w.arriveAt + 2, ctx);
+      applyOrder(file, B, { op: 'strike', id: w.id, army: { ...withEnergy(value, { spearman: 20 }), energy: { value, at: w.arriveAt + 2, mode: 'drain' } }, joint: false, walkMs: 0, from: w.to }, w.arriveAt + 2, ctx);
     expect(strike(priceOf('strike') - 1)).toBe(energyBlock(priceOf('strike') - 1, priceOf('strike')));
     expect(w.strike).toBeUndefined();
     expect(strike(priceOf('strike'))).toBeNull();
@@ -535,7 +535,7 @@ describe('осада под городом игрока: находки отчё
     advance(file, w.arriveAt + 1, sheets);
     expect(w.phase, 'точка внутри области: лагерь у стен Беты').toBe('camp');
     expect(['march', 'camp'], 'точка внутри области: Бета в походе').toContain(file.wars[0].phase);
-    const strike = { op: 'strike' as const, id: w.id, army: army({ spearman: 10 }), joint: false, walkMs: 0 };
+    const strike = { op: 'strike' as const, id: w.id, army: army({ spearman: 10 }), joint: false, walkMs: 0, from: w.to };
     expect(applyOrder(file, B, strike, w.arriveAt + 2, ctx)).toBe('Полководец в походе на соседа.');
     expect(w.strike).toBeUndefined();
   });
@@ -567,7 +567,7 @@ describe('осада под городом игрока: находки отчё
     const walkMs = roadOf(Math.max(0, own - priceOf('strike') / 2));
     expect(energyBlock(ENERGY_MAX, priceOf('strike'), walkMs), 'точка внутри области: полного хватило бы').toBeNull();
     const forged: WarArmy = { ...army({ spearman: 10 }), energy: { value: ENERGY_MAX, at, mode: 'fill' } };
-    expect(applyOrder(file, B, { op: 'strike', id: w.id, army: forged, joint: false, walkMs }, at, ctx)).toBe(energyBlock(own, priceOf('strike'), walkMs));
+    expect(applyOrder(file, B, { op: 'strike', id: w.id, army: forged, joint: false, walkMs, from: w.to }, at, ctx)).toBe(energyBlock(own, priceOf('strike'), walkMs));
     expect(w.strike).toBeUndefined();
   });
 });

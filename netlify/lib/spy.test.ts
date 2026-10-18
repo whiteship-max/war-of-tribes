@@ -5,7 +5,7 @@ import { advance, applyOrder, emptyWars, liveSheet, newsMap, spiesOf, spyMenuOf,
 import { weakCity } from '../../src/world/lairs.js';
 import { inHomeTheatre } from '../../src/world/theatre/theatre.js';
 import { energyAt, priceOf, roadCost } from '../../src/world/energy.js';
-import { ENERGY_MAX } from '../../src/world/data/energy.js';
+import { ENERGY_FILL, ENERGY_MAX } from '../../src/world/data/energy.js';
 import { rivalFate, rivalGuard, rivalHarm, rivalRolls, theftCarry } from '../../src/world/rivalspy.js';
 import { RIVAL_POWER } from '../../src/world/data/spy.js';
 
@@ -69,8 +69,8 @@ function send(g: ReturnType<typeof setup>, deed: RivalDeed, now = T0, energy = {
 }
 
 /** Строка дела с заданными костями — чтобы держать исход, а не надеяться на кость. */
-function forced(g: ReturnType<typeof setup>, deed: RivalDeed, chance: number, peril = 0): SpyRow {
-  expect(send(g, deed)).toBeNull();
+function forced(g: ReturnType<typeof setup>, deed: RivalDeed, chance: number, peril = 0, now = T0): SpyRow {
+  expect(send(g, deed, now)).toBeNull();
   const row = g.file.spies!.at(-1)!;
   row.chance = chance;
   row.peril = peril;
@@ -168,7 +168,8 @@ describe('кража — переход, а не начисление; алма�
     advance(g.file, first.arriveAt, g.sheets);
     advance(g.file, first.backAt!, g.sheets);
     const took1 = first.out!.stolen!.food;
-    first = forced(g, 'theft', 1);
+    // Второе дело — когда лазутчик дома и отдохнул: энергию сервер берёт не выше своей отметки (`war.spyCap`, ЗЩ-2).
+    first = forced(g, 'theft', 1, 0, first.backAt! + ENERGY_FILL);
     advance(g.file, first.arriveAt, g.sheets);
     const took2 = first.out!.stolen!.food;
     expect(took2).toBe(Math.floor((600 - took1) * RIVAL_POWER.theftShare));
