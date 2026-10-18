@@ -65,7 +65,7 @@ import { Dome, newTone, toneAt } from '@/prologue/dome';
 import { Surfaces } from '@/prologue/surface';
 import { aimRing } from './models';
 import { nearestTarget, type Hour, type Tally, type Target } from './rules';
-import { aimRate, sticksWidth, turnRate, zoneAt, type Layout, type Zone } from './pad';
+import { aimRate, slidOff, sticksWidth, turnRate, zoneAt, type Layout, type Zone } from './pad';
 import { furnish } from './world';
 import type { Shade } from '@/prologue/models';
 import { windTo, type Weather } from '@/render/climate';
@@ -368,6 +368,8 @@ export class Stage {
   private layout: Layout;
   /** Палец на кнопке действия (половина `press`): один — рук две. Нажатие судит общий судья тапа. */
   private presser: Press | null = null;
+  /** Палец увели с «Натянуть» (`pad.slidOff`): тетива уже ослаблена, и отпускание не стреляет. */
+  private slid = false;
   /** Брал ли игрок палец движения и кнопку — подписи-указатели первого входа гаснут по делу. */
   private usedPad = false;
   private usedAct = false;
@@ -576,6 +578,7 @@ export class Stage {
       // Кнопка действия — вся своя половина: тетиву, замах и катушку держат, подсечку жмут. Второй палец — мимо.
       if (this.presser) return;
       this.presser = new Press(e.pointerId, p.x, p.y, now);
+      this.slid = false;
       if (this.phase === 'play') {
         this.usedAct = true;
         this.play.draw?.(this.t);
@@ -592,6 +595,13 @@ export class Stage {
     const now = performance.now();
     if (this.presser?.id === e.pointerId) {
       this.presser.move(p.x, p.y, now);
+      // Лук: палец увели с кнопки — тетива ослабевает без выстрела (отзыв тестеров 11.10). Удочку это не касается: её
+      // замах и катушку держат, не глядя на кнопку.
+      if (this.layout === 'bow' && !this.slid && slidOff(this.layout, this.presser.x, this.presser.y, p.x, p.y, p.w)) {
+        this.slid = true;
+        if (this.phase === 'play') this.play.loose?.(this.t, false);
+        this.refresh(true);
+      }
       return;
     }
     this.sticks.move(e.pointerId, p.x, p.y, now);
@@ -608,7 +618,8 @@ export class Stage {
     if (pressed) {
       this.presser = null;
       const label = this.actView().label;
-      if (this.phase === 'play') this.play.loose?.(this.t, true);
+      if (this.phase === 'play' && !this.slid) this.play.loose?.(this.t, true);
+      this.slid = false;
       // Журналу — как судил бы тап: кнопку держат, и «долгое» здесь не потеря, а тетива.
       gestLog.add({
         where: 'промыслы',
