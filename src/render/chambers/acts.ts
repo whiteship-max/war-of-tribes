@@ -23,7 +23,7 @@ export interface Key {
 export type Frame = Omit<Key, 't'>;
 
 /** Руки дела: что делают, когда доля рук — единица (`body.ts` ставит кисти и сгибает пальцы). */
-export type HandsKind = 'none' | 'desk' | 'sill' | 'warm' | 'knock';
+export type HandsKind = 'none' | 'desk' | 'sill' | 'warm' | 'knock' | 'lid';
 
 export interface Act {
   id: SpotId;
@@ -59,6 +59,33 @@ function sideWindow(id: 'windowE' | 'windowW'): Act {
 }
 
 /**
+ * Сундук (Г-9): шаг к сундуку, руки берут крышку за передний край и поднимают её (`LID_FROM`…`LID_TO`), крышка
+ * откидывается к стене, правитель склоняется над сундуком — руки опускаются. Закрыть — те же ключи назад: руки снова на
+ * крышке, она опускается, стук.
+ */
+function chestAct(id: 'chest' | 'chestS'): Act {
+  const a = POI_BY_ID[id].approach!;
+  const p = POI_BY_ID[id].pose;
+  const mx = (k: number): number => a.x + (p.x - a.x) * k;
+  const mz = (k: number): number => a.z + (p.z - a.z) * k;
+  return {
+    id,
+    hands: 'lid',
+    keys: [start(id, -0.45), k(0.55, mx(0.35), 1.56, mz(0.35), a.yaw, -0.72, 0.65), k(1.1, mx(0.75), 1.49, mz(0.75), a.yaw, -0.86, 1), rest(id, 1.8, 0)],
+  };
+}
+
+/** Крышка сундука поднимается с этого мига дела «Сундук» до того, с. */
+export const LID_FROM = 0.62;
+export const LID_TO = 1.38;
+
+/** Доля открытой крышки на миге дела «Сундук» (0 — закрыта): плавно с места и до места. */
+export function lidOpen(t: number): number {
+  const k = Math.min(1, Math.max(0, (t - LID_FROM) / (LID_TO - LID_FROM)));
+  return k * k * (3 - 2 * k);
+}
+
+/**
  * Ключи дел. Глаз сидя — над сиденьем (`CHAIR`), лёжа — над подушкой; путь глаза не задевает мебель (тест «глаз не
  * проходит сквозь мебель»): кресло подходят сбоку, над подлокотником, спинка остаётся за глазом.
  */
@@ -83,6 +110,8 @@ export const ACTS: Record<SpotId, Act> = {
   },
   windowE: sideWindow('windowE'),
   windowW: sideWindow('windowW'),
+  chest: chestAct('chest'),
+  chestS: chestAct('chestS'),
   hearth: {
     id: 'hearth',
     hands: 'warm',
@@ -104,9 +133,10 @@ export const ACTS: Record<SpotId, Act> = {
   arms: {
     id: 'arms',
     hands: 'none',
-    // Наклон над сундуком к мечу; рука берёт рукоять (`room.ts` зовёт `take('sword')` на `GRAB_AT`), меч — к глазу, и
-    // правитель отступает от стены на шаг: клинок целиком перед глазом, а не упёрт в камень (Г-6).
-    keys: [start('arms', -0.1), k(0.6, 4.34, 1.58, -1.95, Math.PI / 2, -0.14), k(1.3, 3.8, 1.61, -1.95, Math.PI / 2, -0.06), rest('arms', 1.9, 0)],
+    // Шаг к стене над сундуком короля, к мечу; рука берёт рукоять (`room.ts` зовёт `take('sword')` на `GRAB_AT`), меч — к
+    // глазу, и правитель отступает от стены на шаг: клинок целиком перед глазом, а не упёрт в камень (Г-6). Меч — над
+    // полочкой короны, почти вровень с глазом (Г-9).
+    keys: [start('arms', -0.02), k(0.6, 4.34, 1.6, -1.95, Math.PI / 2, -0.02), k(1.3, 3.8, 1.61, -1.95, Math.PI / 2, 0.01), rest('arms', 1.9, 0)],
   },
   door: {
     id: 'door',

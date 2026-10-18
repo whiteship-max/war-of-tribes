@@ -1,16 +1,17 @@
 // Звуки дел в покоях (docs/city_v3.md, Г-6; docs/sound.md): шаг по доскам и по ковру, скрип кресла, шорох постели,
-// звон меча, взял и положил безделушку. Синтез на Web Audio, ни одного файла: шум из своего сида, осцилляторы и фильтры.
+// звон меча, взял и положил безделушку; петли и крышка сундука (Г-9). Синтез на Web Audio, ни одного файла: шум из своего
+// сида, осцилляторы и фильтры.
 // Чистый модуль без игры — его же рисует офлайн-отрисовка образцов (`npm run audio:samples`, образец `chambers`), по ней
 // выставлены уровни (`CUE_MIX`). Атака каждого звука — не короче 3 мс (П-3: без щелчков).
 
 /** Звук дела. */
-export type ChamberCue = 'step' | 'stepSoft' | 'creak' | 'rustle' | 'ring' | 'take' | 'put';
+export type ChamberCue = 'step' | 'stepSoft' | 'creak' | 'rustle' | 'ring' | 'take' | 'put' | 'hinge' | 'lidShut';
 
 /**
  * Уровни звуков дел на полосе «Эффекты» — офлайн-отрисовкой (образец `chambers`, docs/city_v3.md, Г-6, «Звук»): шаг по
  * доскам заметно тише касания кнопки, по ковру — ещё тише; звон меча — громче всего, но ниже рога тревоги.
  */
-export const CUE_MIX: Record<ChamberCue, number> = { step: 0.27, stepSoft: 0.1, creak: 0.14, rustle: 0.088, ring: 0.11, take: 0.11, put: 0.16 };
+export const CUE_MIX: Record<ChamberCue, number> = { step: 0.27, stepSoft: 0.1, creak: 0.14, rustle: 0.088, ring: 0.11, take: 0.11, put: 0.16, hinge: 0.12, lidShut: 0.2 };
 
 function bone(seed: number): () => number {
   let x = seed >>> 0 || 3;
@@ -168,6 +169,52 @@ export function playChamberCue(ctx: BaseAudioContext, out: AudioNode, cue: Chamb
     case 'put':
       burst(ctx, g, at, 'lowpass', 420, 1, 0.9 * k, 0.004, 0.08, r());
       burst(ctx, g, at + 0.004, 'bandpass', 1600, 2, 0.35 * k, 0.003, 0.04, r());
+      break;
+    case 'hinge': {
+      // Петли крышки сундука (Г-9): железо по железу — протяжный скрип, тон гуляет вверх и вниз, громкость рвётся
+      // (зацеп — срыв), длиннее скрипа кресла; под конец — сухое дерево.
+      const o = ctx.createOscillator();
+      o.type = 'sawtooth';
+      const f = 170 + r() * 40;
+      o.frequency.setValueAtTime(f, at);
+      o.frequency.linearRampToValueAtTime(f * 1.35, at + 0.32);
+      o.frequency.linearRampToValueAtTime(f * 1.1, at + 0.7);
+      const b1 = ctx.createBiquadFilter();
+      b1.type = 'bandpass';
+      b1.frequency.value = 980 + r() * 220;
+      b1.Q.value = 4;
+      const b2 = ctx.createBiquadFilter();
+      b2.type = 'bandpass';
+      b2.frequency.value = 2300 + r() * 300;
+      b2.Q.value = 6;
+      const e = ctx.createGain();
+      e.gain.setValueAtTime(0, at);
+      let t = at;
+      for (let i = 0; i < 16; i++) {
+        e.gain.linearRampToValueAtTime(0.3 + r() * 0.7, t + 0.01);
+        t += 0.035 + r() * 0.025;
+        e.gain.linearRampToValueAtTime(0.1 + r() * 0.25, t);
+      }
+      e.gain.linearRampToValueAtTime(0, t + 0.06);
+      o.connect(b1).connect(e);
+      o.connect(b2).connect(e);
+      e.connect(g);
+      o.start(at);
+      o.stop(t + 0.12);
+      o.onended = () => {
+        o.disconnect();
+        b1.disconnect();
+        b2.disconnect();
+        e.disconnect();
+      };
+      burst(ctx, g, t - 0.05, 'bandpass', 1300, 1.5, 0.25 * k, 0.01, 0.1, r());
+      break;
+    }
+    case 'lidShut':
+      // Крышка легла: глухой удар дуба, железо полос звякнуло.
+      burst(ctx, g, at, 'lowpass', 260, 0.9, 1.0 * k, 0.004, 0.16, r());
+      tone(ctx, g, at, 'sine', 92, 64, 0.5, 0.004, 0.18);
+      burst(ctx, g, at + 0.006, 'bandpass', 3100, 3, 0.22 * k, 0.003, 0.06, r());
       break;
   }
   // Узел силы отпускается после самого долгого звука.

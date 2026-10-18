@@ -25,11 +25,11 @@ const sub = (p: P3, q: P3): P3 => [p[0] - q[0], p[1] - q[1], p[2] - q[2]];
 const dot = (p: P3, q: P3): number => p[0] * q[0] + p[1] * q[1] + p[2] * q[2];
 const cross = (p: P3, q: P3): P3 => [p[1] * q[2] - p[2] * q[1], p[2] * q[0] - p[0] * q[2], p[0] * q[1] - p[1] * q[0]];
 
-function trisOf(...ms: Mesher[]): Tri[] {
+function trisOf(ms: Mesher[], at: P3 = [0, 0, 0]): Tri[] {
   const out: Tri[] = [];
   for (const m of ms) {
     const { pos, idx } = m.b;
-    const v = (i: number): P3 => [pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2]];
+    const v = (i: number): P3 => [pos[i * 3] + at[0], pos[i * 3 + 1] + at[1], pos[i * 3 + 2] + at[2]];
     for (let t = 0; t < idx.length; t += 3) {
       const a = v(idx[t]);
       const b = v(idx[t + 1]);
@@ -139,7 +139,8 @@ describe('покои: свет у окна ровный (Г-9)', () => {
   it('в модели покоев нет граней, лежащих друг на друге лицом в одну сторону — у окон и всюду, на каждом уровне', () => {
     for (const detail of [0, 1, 2] as const) {
       const room = buildRoom(detail);
-      const tris = trisOf(room.stone, room.cloth);
+      // С крышками сундуков, закрытыми (Г-9): в осях петли — сдвиг на петлю.
+      const tris = [...trisOf([room.stone, room.cloth]), ...Object.values(room.lids).flatMap((l) => trisOf([l.stone, l.cloth], l.hinge))];
       // Граница области — вся комната с нишами окон и тамбуром; подоконник южного окна (там сидит кот) — внутри неё.
       expect(tris.some((t) => t.n[1] > 0.99 && Math.abs(t.a[1] - 0.8) < 1e-6 && t.a[2] > 6.0), 'плита подоконника в модели').toBe(true);
       // Видимое глазу: грань лицом вверх выше глаза (стоя — 1,62 м) и лицом вниз ниже глаза лёжа (1,0 м) не видна никогда.
