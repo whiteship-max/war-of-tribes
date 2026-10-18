@@ -668,24 +668,44 @@
   color: var(--text);
   font-weight: 600;
 }
-/* Подсказка новичку: крестик в углу плашки, имя не заходит под него. */
-.nx-tip.free b {
-  padding-right: 32px;
+/* Крестик плашки — у каждой подсказки (Г-5): касание 44 в правом верхнем углу, видимый кружок — меньше; имя не заходит под
+   него. Свой вид — светлый кружок на плашке, а не квадрат окна: его не путают с крестиком окна под ней. */
+.nx-tip .nx-tip-title {
+  padding-right: 30px;
 }
 .nx-tip .nx-tip-x {
   position: absolute;
-  top: 0;
-  right: 0;
+  top: -2px;
+  right: -2px;
+  z-index: 1;
   display: grid;
   place-items: center;
   width: 44px;
   height: 44px;
-  color: var(--muted);
-  font-size: 14px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.nx-tip .nx-tip-x::before {
+  content: '';
+  position: absolute;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: rgba(255, 236, 205, 0.1);
+  border: 1px solid var(--line-2);
+}
+.nx-tip .nx-tip-x:active::before {
+  background: rgba(255, 236, 205, 0.22);
 }
 .nx-tip-x svg {
-  width: 14px;
-  height: 14px;
+  position: relative;
+  width: 12px;
+  height: 12px;
 }
 
 /* ---------- Обучение: строка под верхом нового вида ---------- */

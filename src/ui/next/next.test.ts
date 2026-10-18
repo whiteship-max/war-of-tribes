@@ -385,10 +385,10 @@ describe('подсказка новичку: касание мимо плашк�
     }
   });
 
-  it('подсказка числа — прежняя: ловец под плашкой, крестика нет', async () => {
+  it('подсказка числа — ловец под плашкой и свой крестик (Г-5)', async () => {
     const html = await draw(NUMBER, false);
     expect(html).toContain('nx-tip-catch');
-    expect(html).not.toContain('nx-tip-x');
+    expect(html).toContain('nx-tip-x');
   });
 
   it('город занят — подсказка новичку прячется и ждёт, подсказка числа стоит', async () => {
@@ -396,6 +396,79 @@ describe('подсказка новичку: касание мимо плашк�
     const { HINTS } = await import('@/game/data/hints');
     expect(await draw(hintTip(HINTS[0]), true)).toBe('');
     expect(await draw(NUMBER, true)).toContain('role="tooltip"');
+  });
+});
+
+// ---------- Крестик подсказки (Г-5) ----------
+
+describe('крестик подсказки: закрывает её и не трогает окно под ней', () => {
+  // Отзыв тестера: на телефоне подсказку с разбором числа не умели убрать и жали крестик окна под ней. Область — каждая
+  // подсказка: числа (с ловцом мимо), с разбором и дверями, новичку (без ловца); окно под ней — шторка постройки.
+  type El = { type: unknown; props: Record<string, unknown> & { children?: unknown } };
+  const walk = (n: unknown, out: El[] = []): El[] => {
+    if (Array.isArray(n)) for (const c of n) walk(c, out);
+    else if (n && typeof n === 'object' && 'props' in n) {
+      const e = n as El;
+      out.push(e);
+      walk(e.props.children, out);
+    }
+    return out;
+  };
+  const at: Rect = { x: 160, y: 300, w: 70, h: 44 };
+  const ROWS: TipContent = {
+    title: 'Еда · +152 в день',
+    rows: [
+      { label: 'Поля', value: '+180', go: () => undefined },
+      { label: 'Жители', value: '−28', tone: 'bad' },
+    ],
+    sum: { label: 'Итого', value: '+152' },
+    link: { label: 'Склад', go: () => undefined },
+  };
+
+  it('у каждой подсказки × в правом верхнем углу, касание — 44 и больше', async () => {
+    const { TipView } = await import('./TipLayer');
+    const { hintTip } = await import('./Hints');
+    const { HINTS } = await import('@/game/data/hints');
+    for (const tip of [{ title: 'Золото · 120', body: 'Казна города.' }, ROWS, hintTip(HINTS[0])] as TipContent[]) {
+      const html = renderToStaticMarkup(createElement(TipView, { tip: { ...tip, at }, view: PHONE, busy: false, modal: false, hide: () => {} }));
+      expect(html, `${tip.title}: крестик есть`).toMatch(/class="nx-tip-x"[^>]*aria-label="Закрыть подсказку"/);
+    }
+    const css = readFileSync(join(__dirname, 'next.css'), 'utf8');
+    const rule = css.match(/\.nx-tip \.nx-tip-x \{([^}]*)\}/)?.[1] ?? '';
+    expect(rule, 'в правом верхнем углу плашки').toMatch(/position:\s*absolute/);
+    expect(rule).toMatch(/top:\s*-?\d+px/);
+    expect(rule).toMatch(/right:\s*-?\d+px/);
+    for (const k of ['width', 'height']) expect(Number(rule.match(new RegExp(`\\b${k}:\\s*(\\d+)px`))?.[1]), k).toBeGreaterThanOrEqual(TAP_TARGET);
+  });
+
+  it('× закрывает подсказку, касание до окна под ней не доходит; касание мимо — по-прежнему закрывает', async () => {
+    const { TipView } = await import('./TipLayer');
+    const { useGame } = await import('@/game/store');
+    // Окно под подсказкой — шторка постройки: она открыта до касания и должна остаться открытой после.
+    useGame.setState({ sheet: { kind: 'building', id: 'smithy' } as never });
+    const sheet = useGame.getState().sheet;
+    expect(sheet, 'окно под подсказкой открыто').not.toBeNull();
+    let hidden = 0;
+    const tree = TipView({ tip: { ...ROWS, at }, view: PHONE, busy: false, modal: false, hide: () => void hidden++ });
+    const els = walk(tree);
+    const x = els.find((e) => e.props.className === 'nx-tip-x');
+    expect(x, 'крестик найден').toBeTruthy();
+    let stopped = 0;
+    let prevented = 0;
+    const ev = { stopPropagation: () => void stopped++, preventDefault: () => void prevented++ };
+    (x!.props.onPointerDown as (e: typeof ev) => void)(ev);
+    (x!.props.onClick as (e: typeof ev) => void)(ev);
+    expect(hidden, 'подсказка закрыта').toBe(1);
+    expect(stopped, 'касание дальше крестика не идёт — ни нажатие, ни щелчок').toBe(2);
+    expect(prevented, 'и не доходит до окна под ней призрачным щелчком').toBe(1);
+    expect(useGame.getState().sheet, 'окно под подсказкой осталось открытым').toEqual(sheet);
+    // Касание мимо плашки — ловец: закрывает подсказку, а не окно.
+    const catcher = els.find((e) => e.props.className === 'nx-tip-catch');
+    expect(catcher, 'ловец касания мимо — на месте').toBeTruthy();
+    (catcher!.props.onPointerDown as (e: typeof ev) => void)(ev);
+    expect(hidden).toBe(2);
+    expect(useGame.getState().sheet).toEqual(sheet);
+    useGame.setState({ sheet: null });
   });
 });
 
