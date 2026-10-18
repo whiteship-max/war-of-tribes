@@ -130,13 +130,17 @@ export function goodsStep(prev: GoodsBook | null, a: WatchCard | undefined, aAt:
   return { book: { at: bAt, have, bonded }, hidden };
 }
 
+/** Насколько профиль мира может отстать от партии, прежде чем слепок ниже описи — флаг: пульс идёт раз в 2 с, с запасом. */
+export const SHEET_LAG_MS = 10 * 60_000;
+
 /**
- * Слепок обороны той же записи против книги: какие виды слепок называет меньше, чем книга, сверх выработки минуты
- * (профиль мира отстаёт от партии на пульс). Пусто — слепок честен.
+ * Слепок обороны той же записи против книги: какие виды слепок называет меньше, чем книга, сверх выработки за
+ * `SHEET_LAG_MS` с запасом и двадцатой доли книги. Флаг — только строка админу: в войну книга идёт и без него
+ * (`goodsSheet`), поэтому порог щедрый — отставший профиль честного флагом не становится. Пусто — слепок честен.
  */
 export function sheetShort(sheet: WarSheet, book: GoodsBook, prod: Counts): { kind: string; sheet: number; book: number }[] {
   const out: { kind: string; sheet: number; book: number }[] = [];
-  const tol = (k: string): number => Math.max(0, prod[k] ?? 0) * gameDaysOfMs(60_000) * GOODS_SLACK + 1;
+  const tol = (k: string): number => Math.max(0, prod[k] ?? 0) * gameDaysOfMs(SHEET_LAG_MS) * GOODS_SLACK + 0.05 * (book.have[k] ?? 0) + 1;
   for (const k of STOCK_KEYS) {
     const want = book.have[k] ?? 0;
     const said = k === 'gold' ? sheet.gold : k === 'food' ? Math.max(sheet.food, sheet.stock.food ?? 0) : (sheet.stock[k] ?? 0);
