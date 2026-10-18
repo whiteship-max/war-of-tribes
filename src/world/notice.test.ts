@@ -197,11 +197,32 @@ describe('черновики: вид, ключ, «когда» и «годно �
     const other = draftNotices({ raid, siege: null, breaks: [{ kind: 'chase', at: T0 + 5 * MINUTE, march: 'm7' }] }, T0);
     expect(other.items.length).toBe(2);
     const own = draftNotices({ raid, siege: null, breaks: [{ kind: 'chase', at: T0 + 5 * MINUTE, march: 'm4' }] }, T0);
-    expect(own.items).toEqual([]);
     expect(own.silent).toEqual([
       { kind: 'raid', why: 'chase' },
       { kind: 'raid-fight', why: 'chase' },
     ]);
+    // Сама погоня — бой в поле в минуту встречи (отзыв тестеров 18.10): о ней весть, своим ключом, а не «бой у стен».
+    expect(own.items).toEqual([
+      {
+        key: `raid-fight:m4:${raid.departAt}:field`,
+        kind: 'raid-fight',
+        fireAt: T0 + 5 * MINUTE,
+        until: T0 + 5 * MINUTE + RESULT_KEEP,
+        p: { from: raid.from, fate: raid.fate, about: T0 + 5 * MINUTE, field: true },
+      },
+    ]);
+    // Сервер принимает её как есть — с пометкой поля.
+    expect(readNotices(own.items, T0)).toEqual(own.items);
+  });
+
+  it('логово набега сгорит раньше встречи — о погоне молчание: набега к минуте встречи не будет', () => {
+    const raid = raidFacts();
+    const d = draftNotices(
+      { raid, siege: null, breaks: [{ kind: 'chase', at: T0 + 9 * MINUTE, march: 'm4' }, { kind: 'burn', at: T0 + 5 * MINUTE, target: raid.source }] },
+      T0,
+    );
+    expect(T0 + 9 * MINUTE).toBeLessThan(raid.arriveAt);
+    expect(d.items).toEqual([]);
   });
 
   /**

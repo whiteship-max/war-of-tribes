@@ -7,6 +7,9 @@
 // игра молчит сама: движок гасит выход и усыпляет контекст (П-3, «В свёрнутой игре — тишина»).
 import { audioEngine } from '@/sound/door';
 import { soundOn } from '@/sound/settings';
+import { cueBone, playChamberCue, type ChamberCue } from './cues';
+import { Purr, playLifeCue, speak } from './voices';
+import type { LifeCue, Who } from './life';
 
 /** Громкость покоев на полосе «Окружение»: вровень с фоном города (П-3: фон около −37 дБ RMS). */
 export const CHAMBERS_VOLUME = 0.55;
@@ -52,6 +55,9 @@ function noise(ctx: BaseAudioContext, seconds: number, seed: number): AudioBuffe
 export class ChambersSound {
   private ctx: AudioContext | null = null;
   private out: GainNode | null = null;
+  /** Звуки дел — полосой «Эффекты» (шаги, кресло, постель, меч). */
+  private fx: GainNode | null = null;
+  private cueR = cueBone(1209);
   private nodes: AudioNode[] = [];
   private srcs: AudioBufferSourceNode[] = [];
   private fireGain: GainNode | null = null;
@@ -69,6 +75,11 @@ export class ChambersSound {
   private gust = 0;
   private stopped = false;
   private fireK = 0;
+  /** Музыка ночи — полосой «Музыка»; мурчание кота — своим узлом (Г-7). */
+  private music: GainNode | null = null;
+  private purrNode: Purr | null = null;
+  private lifeR = cueBone(1213);
+  private openMusic: (() => GainNode | null) | null = null;
 
   /** Открыть выход и завести слои. Звук выключен или движка нет — молчит. */
   async start(): Promise<void> {
@@ -80,6 +91,8 @@ export class ChambersSound {
     const ctx = out.context as AudioContext;
     this.ctx = ctx;
     this.out = out;
+    this.fx = web.openBus(1, 'fx');
+    this.openMusic = () => web.openBus(0.7, 'music');
     const loop = (buf: AudioBuffer): AudioBufferSourceNode => {
       const s = ctx.createBufferSource();
       s.buffer = buf;
@@ -157,6 +170,66 @@ export class ChambersSound {
     for (const s of this.srcs) s.start();
   }
 
+  /** Звук дела: шаг, скрип кресла, шорох постели, меч, взял и положил (`cues.ts`). */
+  cue(c: ChamberCue): void {
+    const ctx = this.ctx;
+    if (!ctx || !this.fx) return;
+    playChamberCue(ctx, this.fx, c, ctx.currentTime + 0.01, this.cueR);
+  }
+
+  /** Узел места: громкость по расстоянию и сторона (−1 слева … 1 справа). */
+  private spot(gain: number, pan: number, dest: AudioNode): GainNode | null {
+    const ctx = this.ctx;
+    if (!ctx) return null;
+    const g = ctx.createGain();
+    g.gain.value = Math.max(0, Math.min(1.2, gain));
+    let node: AudioNode = g;
+    const p = ctx.createStereoPanner?.();
+    if (p) {
+      p.pan.value = Math.max(-0.85, Math.min(0.85, pan));
+      g.connect(p);
+      node = p;
+    }
+    node.connect(dest);
+    setTimeout(() => {
+      g.disconnect();
+      p?.disconnect();
+    }, 9000);
+    return g;
+  }
+
+  /** Звук жизни покоев (Г-7): стук, дверь, шаги людей и кота, мяу, вино, глоток, музыка ночи; где он — по уху. */
+  life(c: LifeCue, gain = 1, pan = 0): void {
+    const ctx = this.ctx;
+    if (!ctx || !this.fx) return;
+    const at = ctx.currentTime + 0.01;
+    if (c === 'night') {
+      if (!this.music) this.music = this.openMusic?.() ?? null;
+      if (this.music) playLifeCue(ctx, this.music, c, at, this.lifeR);
+      return;
+    }
+    const g = this.spot(gain, pan, this.fx);
+    if (!g) return;
+    if (c === 'stepFolk' || c === 'stepFolkSoft') playChamberCue(ctx, g, c === 'stepFolk' ? 'step' : 'stepSoft', at, this.cueR);
+    else playLifeCue(ctx, g, c, at, this.lifeR);
+  }
+
+  /** Голос: речь без слов на `seconds` (слова — текстом). */
+  speak(who: Who, seconds: number, gain = 1, pan = 0): void {
+    const ctx = this.ctx;
+    if (!ctx || !this.fx) return;
+    const g = this.spot(gain, pan, this.fx);
+    if (g) speak(ctx, g, who, ctx.currentTime + 0.02, seconds, this.lifeR);
+  }
+
+  /** Мурчание кота: громкость 0…1 по уху (кадр). */
+  purr(level: number): void {
+    const ctx = this.ctx;
+    if (!ctx || !this.fx) return;
+    if (!this.purrNode && level > 0.01) this.purrNode = new Purr(ctx, this.fx);
+    this.purrNode?.set(level, this.t);
+  }
+
   /** Шаг кадра: громкости по уху, порывы ветра, треск огня. */
   update(dt: number, e: ChambersEar): void {
     const ctx = this.ctx;
@@ -222,6 +295,8 @@ export class ChambersSound {
     if (this.out && ctx) {
       this.out.gain.setTargetAtTime(0, ctx.currentTime, 0.15);
       const out = this.out;
+      const fx = this.fx;
+      fx?.gain.setTargetAtTime(0, ctx.currentTime, 0.15);
       const srcs = this.srcs;
       const nodes = this.nodes;
       // Затихает, а не обрывается: узлы отпускаются после спада.
@@ -236,9 +311,16 @@ export class ChambersSound {
         }
         for (const n of nodes) n.disconnect();
         out.disconnect();
+        fx?.disconnect();
       }, 700);
     }
+    this.purrNode?.stop();
+    this.purrNode = null;
+    const music = this.music;
+    if (music) setTimeout(() => music.disconnect(), 8000);
+    this.music = null;
     this.ctx = null;
     this.out = null;
+    this.fx = null;
   }
 }

@@ -204,6 +204,10 @@ function church(b: Builder, c: Civic, detail: Detail): V3[] {
   const roofT = tint(CITY.slateTint);
   const rr = gableRoof(b, fr, -hd, hd, r0, r1, base + naveH, (56 * Math.PI) / 180, false, 'roofSlate', roofT, detail, c.seed, { eave: 0.6, verge: 0.2 });
   gableTri(b, fr, [-hd, r0], [hd, r0], base + naveH, rr.ridge, 'ashlar', T, base, 4, 0);
+  // Восточный торец нефа над апсидой (Г-7): пояс кладки от низа полушатра апсиды до карниза и щипец до конька. Без него
+  // неф с востока открыт — сверху от ворот этого не видно, а из покоев донжона храм просвечивал насквозь.
+  face(b, fr, [hd, r1], [-hd, r1], base + naveH - 1.75, base + naveH, 'ashlar', T, o);
+  gableTri(b, fr, [hd, r1], [-hd, r1], base + naveH, rr.ridge, 'ashlar', T, base, 4, 0);
   // Апсида: половина восьмиугольника на восток, стены с окнами и полушатёр.
   const ar = hd;
   const segs = 4;

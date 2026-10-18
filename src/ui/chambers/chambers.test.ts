@@ -75,7 +75,7 @@ describe('покои: двери стола', () => {
     room.snap('desk');
     calm();
     const letters = DESK_THINGS.find((t) => t.id === 'letters')!;
-    room.act({ kind: 'thing', thing: letters });
+    room.touch({ kind: 'thing', thing: letters });
     expect(openWindow()).toBe('Вести');
   });
 });

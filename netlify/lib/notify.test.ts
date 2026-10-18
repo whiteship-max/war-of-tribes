@@ -623,6 +623,16 @@ describe('слова сообщений: набег', () => {
     expect(text, 'о сборе ни слова').not.toMatch(/сбор|успеешь/i);
     expect(raid.until, 'годен до названной минуты').toBe(raid.p.about);
   });
+
+  // Перехват (отзыв тестеров 18.10, docs/feedback.md): бой был в поле, а не у стен — и слова это говорят.
+  it('«бой был» перехватом — «встретил в поле», а не «ударил в стены»', () => {
+    const at = NOW + 20 * MIN;
+    const base = { from: 'Волчья падь', fate: 'plunder' as const, about: at };
+    const wall = noticeText(item({ key: 'raid-fight:m4:1', kind: 'raid-fight', fireAt: at, until: at + MIN, p: base }), DEFAULT_PREFS.tz);
+    const field = noticeText(item({ key: 'raid-fight:m4:1:field', kind: 'raid-fight', fireAt: at, until: at + MIN, p: { ...base, field: true } }), DEFAULT_PREFS.tz);
+    expect(wall).toContain('ударил в стены');
+    expect(field).toBe(`В ${clock(at, DEFAULT_PREFS.tz)} полководец встретил набег из «Волчья падь» в поле. Чем кончился бой, сказано в донесении.`);
+  });
 });
 
 // ---------- ВС-1: склейка, важность, тихий час, настройки, очередь (16.10.2026, docs/NOTIFY.md, раздел 13) ----------

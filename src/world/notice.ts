@@ -66,7 +66,8 @@ export interface SiegeFacts {
  * - `general-home` — полководец встаёт у своих ворот (`stepFigures` → `resiege`);
  * - `strike` — полководец приходит бить лагерь под своим городом (`resolveStrike`);
  * - `chase` — полководец настигает отряд (`resolveChase`): у набега это его судьба, у
- *   осады — возможная остановка у своих ворот (`breakChase` → `resiege`);
+ *   осады — возможная остановка у своих ворот (`breakChase` → `resiege`). О набеге после
+ *   неё молчание, но сама встреча — бой в поле, и о ней весть (`raid-fight` с `field`);
  * - `burn` — свой поход доходит до логова, откуда вышел набег: сожжённое логово снимает
  *   свои отряды в пути (`burnLair`). Нижняя граница — приход, а не победа.
  */
@@ -131,15 +132,27 @@ export function draftNotices(w: NoticeWorld, now: number): Drafts {
       raid.arriveAt,
       (b) => (b.kind === 'chase' && b.march === raid.id) || (b.kind === 'burn' && b.target === raid.source),
     );
-    if (gap) silent.push({ kind: 'raid', why: gap.kind }, { kind: 'raid-fight', why: gap.kind });
-    else {
+    // Ключ — имя момента: этот отряд, вышедший в эту минуту. Номер один не годится:
+    // «начать заново» заводит мир со счёта походов с нуля, и первый набег новой партии
+    // молчал бы `SENT_KEEP` (`netlify/lib/notify.ts`), наткнувшись на отметку первого набега прежней.
+    const name = `${raid.id}:${raid.departAt}`;
+    if (gap) {
+      silent.push({ kind: 'raid', why: gap.kind }, { kind: 'raid-fight', why: gap.kind });
+      // Погоня за этим набегом — сама бой: в минуту встречи полководец бьётся в поле (`LocalWorld.resolveChase`). Прежде
+      // о нём молчало всё — и «нападают», и «бой был», — и игрок, выведший полководца ночью, не узнавал ничего (отзыв
+      // тестеров 18.10, docs/feedback.md). Разрыв первый, значит, логово набега до встречи не сгорит.
+      if (gap.kind === 'chase') {
+        put('raid-fight', `raid-fight:${name}:field`, gap.at, gap.at + RESULT_KEEP, {
+          from: plainName(raid.from),
+          fate: raid.fate,
+          about: gap.at,
+          field: true,
+        });
+      }
+    } else {
       // Годен до прихода: ответить на набег можно до самой этой минуты — дома перевод дружины мгновенный (решение
       // владельца 06.10.2026), а войне между игроками сервер ставит тот же срок (`war.newsOf`). Прежде пункт был годен,
       // пока полный сбор дома ещё успевал (`musterBy`), а сбора дома больше нет.
-      // Ключ — имя момента: этот отряд, вышедший в эту минуту. Номер один не годится:
-      // «начать заново» заводит мир со счёта походов с нуля, и первый набег новой партии
-      // молчал бы `SENT_KEEP` (`netlify/lib/notify.ts`), наткнувшись на отметку первого набега прежней.
-      const name = `${raid.id}:${raid.departAt}`;
       const facts: NoticeFacts = { from: plainName(raid.from), fate: raid.fate, about: raid.arriveAt };
       put('raid', `raid:${name}`, raid.seenFrom, raid.arriveAt, facts);
       // Бой у города — в минуту прихода. Чем кончился (отбили, прорвались, встали лагерем), посчитает мир при

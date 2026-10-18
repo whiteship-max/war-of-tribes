@@ -377,18 +377,23 @@ async function weatherShots(tab: Tab, q: Quality): Promise<void> {
     })()`);
   }
   // Покои правителя (`CHAMBERS=desk` к `GAME=1 WX=…`, docs/city_v3.md, Г-4): точка интереса, поворот головы от её
-  // взгляда (`:доворот:наклон`, радианы) и безделушка в руке (`:…:…:goblet`) — глаз встаёт сразу, без перехода.
+  // взгляда (`:доворот:наклон`, радианы) и безделушка в руке (`:…:…:goblet`) — глаз встаёт сразу, без перехода;
+  // `at:x:z:поворот:наклон` — встать стоя в точку пола (Г-6: подписи вблизи).
   const ch = process.env.CHAMBERS;
   if (ch) {
     const [poi, dy, dp, hold, hover] = ch.split(':');
+    // Подписи-указатели первого входа на снимках не нужны (`COACH=1` — снять и их).
+    const coach = process.env.COACH ? '' : "try { localStorage.setItem('tribe.chambers.coach', '1'); } catch {}";
     const said = await tab.eval<string>(`new Promise((ok) => {
+      ${coach}
       window.__chambersOpen.getState().show();
       let n = 0;
       const t = setInterval(() => {
         const r = window.__chambers;
         if (r) {
           clearInterval(t);
-          r.snap(${JSON.stringify(poi)}, ${Number(dy) || 0}, ${Number(dp) || 0}, ${JSON.stringify(hold || null)}, ${JSON.stringify(hover || null)});
+          if (${JSON.stringify(poi)} === 'at') r.standAtPoint(${Number(dy) || 0}, ${Number(dp) || 0}, ${Number(hold) || 0}, ${Number(hover) || 0});
+          else r.snap(${JSON.stringify(poi)}, ${Number(dy) || 0}, ${Number(dp) || 0}, ${JSON.stringify(hold || null)}, ${JSON.stringify(hover || null)});
           ok(JSON.stringify('покои: ' + ${JSON.stringify(poi)} + ', треугольников ' + r.counts().triangles));
         } else if (++n > 300) {
           clearInterval(t);
@@ -397,6 +402,12 @@ async function weatherShots(tab: Tab, q: Quality): Promise<void> {
       }, 200);
     })`);
     console.log(`  ${said}`);
+    // Жизнь покоев (Г-7): `LIFE='{"who":"servant","at":{"x":3.75,"z":-4.6,"yaw":3.1},"talk":true}'` — поставить людей и кота
+    // сразу (`ChambersLife.stage`); списком — несколько (`LIFE='[{"who":"maid"},{"cat":"floor"}]'`).
+    if (process.env.LIFE) {
+      const r = await tab.eval<string>(`JSON.stringify((() => { const l = window.__chambers.life; for (const s of [].concat(${process.env.LIFE})) l.stage(s); return 'жизнь: ' + JSON.stringify(l.view()); })())`);
+      console.log(`  ${r}`);
+    }
     await sleep(2500);
     const diag = await tab.eval<string>(`JSON.stringify((() => {
       const r = window.__scene.renderer;

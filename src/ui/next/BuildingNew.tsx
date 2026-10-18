@@ -12,7 +12,8 @@
 import { type ReactNode } from 'react';
 import type { Building } from '@/game/types';
 import { useGame } from '@/game/store';
-import { MAX_BUILDING_LEVEL } from '@/game/constants';
+import { MAX_BUILDING_LEVEL, RESOURCE_META } from '@/game/constants';
+import { dec } from '@/game/num';
 import { BUILDING_BY_ID } from '@/game/data/buildings';
 import { JOB_BY_ID } from '@/game/data/jobs';
 import { ORDER_TEXT } from '@/game/data/order';
@@ -42,7 +43,7 @@ import { Steps } from '@/ui/parts/Steps';
 import { waitSpan } from '@/ui/parts/wait';
 import { gainText, spareSlotsHelp, upgradeGains, type UpgradeGain } from '@/ui/parts/upgrade';
 import { tipAt } from './tip';
-import { buildingTip, workerTip } from './buildingTips';
+import { buildingTip, workerTip, workerYield } from './buildingTips';
 import { Confirm } from './Confirm';
 import { MINIGAMES, MINIGAME_BY_ID, MINIGAME_COST, type MinigameId } from '@/game/data/minigames';
 import { Row } from '@/ui/kit/Row';
@@ -188,6 +189,8 @@ export function WorkerRow({ b, gains }: { b: Building; gains: UpgradeGain[] | nu
   const hands = workers + bonded + masters;
   const bondedRow = takesBonded(b) && (bondedTotal(s) > 0 || bonded > 0);
   const tip = workerTip(job.name, hands, slots, free, gains, spareSlotsHelp(s, b, hands));
+  // Что даёт шаг (отзыв тестеров 11.10): выработка в день сейчас и с ещё одним — под рядом.
+  const yields = workerYield(s, b);
 
   return (
     <>
@@ -196,6 +199,7 @@ export function WorkerRow({ b, gains }: { b: Building; gains: UpgradeGain[] | nu
           <Icon name={`job-${job.id}`} glyph={job.icon} />
         </button>
         <span className="nx-wcount">
+          <small className="nx-wlbl">Рабочие</small>
           <b>{workers}</b>
           {bonded + masters > 0 && <i>+{bonded + masters}</i>}
           <small>/{slots}</small>
@@ -209,6 +213,18 @@ export function WorkerRow({ b, gains }: { b: Building; gains: UpgradeGain[] | nu
           onChange={(d) => act((st) => (d > 0 ? assignWorker(st, b.id, d) : unassignWorker(st, b.id, -d)))}
         />
       </div>
+      {yields.length > 0 && (
+        <p className="nx-wgain">
+          В день:
+          {yields.map((y) => (
+            <span key={y.id}>
+              <Icon name={`res-${y.id}`} glyph={RESOURCE_META[y.id].icon} /> {dec(y.now, 1)}
+              {y.more !== null && <b> → {dec(y.more, 1)}</b>}
+            </span>
+          ))}
+          {yields.some((y) => y.more !== null) && <small>с ещё одним рабочим</small>}
+        </p>
+      )}
       {bondedRow && (
         <div className="nx-wrow">
           <button

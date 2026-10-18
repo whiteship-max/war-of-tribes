@@ -49,6 +49,17 @@ export const zoneAt = (layout: Layout, x: number, width: number): Zone => (x < w
  */
 export const sticksWidth = (zone: Exclude<Zone, 'press'>): number => (zone === 'pad' ? Infinity : 0);
 
+/**
+ * Отмена натянутого выстрела (отзыв тестеров 11.10, docs/feedback.md): палец увели с кнопки «Натянуть» — тетива
+ * ослабевает без выстрела. «С кнопки» — дальше её размера от места, где палец лёг (кнопка — 88 px, `minigames.css`),
+ * или в другую половину экрана. Дрожь держащего пальца (до `TAP_SLIP`) кнопки не покидает.
+ */
+export const SLIDE_OFF = 88;
+
+/** Увёл ли держащий палец с кнопки: `x0, y0` — где лёг, `x, y` — где сейчас. */
+export const slidOff = (layout: Layout, x0: number, y0: number, x: number, y: number, width: number): boolean =>
+  zoneAt(layout, x, width) !== 'press' || Math.hypot(x - x0, y - y0) > SLIDE_OFF;
+
 /** С какой стороны кнопка действия — с другой стороны от пальца движения. */
 export const buttonSide = (layout: Layout): 'left' | 'right' => (ZONES[layout].left === 'pad' ? 'right' : 'left');
 

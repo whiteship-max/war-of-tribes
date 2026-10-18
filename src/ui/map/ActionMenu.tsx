@@ -99,6 +99,9 @@ export function ActionMenu() {
       ? `Если отряд перебьют до последнего, ${personName(s, 'general')} погибнет с шансом ${perilText(perilShare(routPeril(distance(info.home, spot))))}.`
       : null;
   const vacant = figure?.place === 'vacant';
+  // Разведчик на пустую землю — подтверждением: куда (шапка), сколько идти (низ), «Отправить» или «Отмена» (отзыв тестеров
+  // 11.10, docs/feedback.md). Карта открывает это меню на каждый шаг разведчика (`WorldMap.openAt`).
+  const confirmGo = menu.agent === 'scout' && menu.target === null && menu.march === null;
 
   const give = async (id: OrderActionId): Promise<void> => {
     const res = await order(id);
@@ -186,6 +189,10 @@ export function ActionMenu() {
           {/* Чужой отряд в поле: точка и время встречи видны до подтверждения. Имена мест не склоняются, между ними — стрелка. */}
           {menu.march && (
             <>
+              {/* Клетка на дороге набега (`raidAcross`): встать здесь — не бой, отряды идут сквозь фигуры (отзыв 18.10). */}
+              {menu.across && menu.agent === 'general' && (
+                <p className="nx-bwarn">Здесь пройдёт набег. Просто встать на пути мало: пройдут мимо, и боя не будет. Дать бой в поле — «Перехватить».</p>
+              )}
               <div className="nx-crow">
                 <span className="nx-lico">
                   <Icon name="ui-banner" glyph="🚩" />
@@ -433,8 +440,13 @@ export function ActionMenu() {
               </button>
             )}
           </div>
+          {confirmGo && !here && (
+            <button className="nx-go nx-go-ghost" onClick={closeMenu}>
+              Отмена
+            </button>
+          )}
           <button className="nx-go" disabled={here || homeInside || Boolean(figure?.spent) || Boolean(menu.lead?.energy?.block)} onClick={() => void lead()}>
-            {here || homeInside ? 'Уже здесь' : 'Вести сюда'}
+            {here || homeInside ? 'Уже здесь' : confirmGo ? 'Отправить' : 'Вести сюда'}
           </button>
         </div>
       </div>

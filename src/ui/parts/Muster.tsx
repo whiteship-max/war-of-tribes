@@ -116,8 +116,8 @@ export function inWallsTip(s: GameState, marches: readonly MarchView[], figures:
   const where = awayOf(marches, figures);
   const home = homeArmy(s);
   return breakdown({
-    title: `В обороне · ${fmtInt(home)}`,
-    body: 'Пока полководец в городе, его отряд стоит у стен с гарнизоном.',
+    title: `Бойцов в городе · ${fmtInt(home)}`,
+    body: 'Они и держат оборону. Пока полководец в городе, его отряд стоит у стен с гарнизоном.',
     total: home,
     parts: [
       { label: 'Гарнизон', value: troopTotal(ownOf(s.army, where)), icon: { name: 'ui-home', glyph: '🏠' } },
@@ -133,7 +133,7 @@ export function outWallsTip(s: GameState): TipContent {
   const home = homeTroops(s);
   const away = armySize(s) - homeArmy(s);
   return breakdown({
-    title: `Не в обороне · ${fmtInt(away)}`,
+    title: `Бойцов в походе · ${fmtInt(away)}`,
     body: 'Отряды в пути и отряд полководца вне города стен не защищают.',
     total: away,
     parts: TROOP_IDS.map((id) => ({
@@ -164,6 +164,10 @@ const KEY_GEN = (
     <Icon name="fig-general" glyph="🎖️" /> Отряд
   </span>
 );
+
+/** Подсказки передачи (отзыв тестеров 18.10): у пустого отряда — откуда он берётся, у колонок — что делает шаг. */
+export const EMPTY_HINT = 'Отряд пуст — полководец пойдёт один. Бойцов ему дают из гарнизона, ниже.';
+export const STEP_HINT = 'Гарнизон → Отряд: «+» отдаёт бойцов полководцу, «−» возвращает. Затем «Подтвердить».';
 
 /**
  * Передача. `onCard` — карточка вида: касание вида в строке открывает её (та же, что прежде открывал список «Состав»).
@@ -251,6 +255,8 @@ export function Muster({ onCard }: { onCard: (t: TroopId) => void }) {
         go={!here && statue ? () => openBuilding(statue.id) : undefined}
         goLabel="В Статую"
       />
+      {/* Отряд пуст — где его взять (отзыв тестеров 18.10, docs/feedback.md: «как полководцу взять войско?»). */}
+      {can && rows.length > 0 && troopTotal(held) === 0 && <p className="nx-tnote">{EMPTY_HINT}</p>}
       {/* Почему раскладку сейчас не поменять — словами мира; идущий сбор строка полководца уже назвала. */}
       {here && regroup.block && !(general && general.readyAt > 0) && rows.length > 0 && <p className="nx-bwarn">{regroup.block}</p>}
 
@@ -264,6 +270,7 @@ export function Muster({ onCard }: { onCard: (t: TroopId) => void }) {
         />
       ) : (
         <>
+          {can && <p className="nx-tnote">{STEP_HINT}</p>}
           <Table
             label="Гарнизон и отряд"
             cols={cols}

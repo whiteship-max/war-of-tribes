@@ -5,7 +5,9 @@ import { describe, expect, it } from 'vitest';
 import { MINIGAMES } from '@/game/data/minigames';
 import { Sticks } from '@/prologue/controls';
 import { TAP_MS, TAP_SLIP } from '@/gestures';
-import { AIM_RATE, LAYOUT_OF, TURN_RATE, ZONES, aimRate, buttonSide, sticksWidth, turnRate, zoneAt } from './pad';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { AIM_RATE, LAYOUT_OF, SLIDE_OFF, TURN_RATE, ZONES, aimRate, buttonSide, slidOff, sticksWidth, turnRate, zoneAt } from './pad';
 
 describe('руки промыслов', () => {
   it('слово владельца: ягоды, скот, рыбалка — палец движения слева, кнопка справа; охота — «Натянуть» слева, палец справа', () => {
@@ -65,5 +67,27 @@ describe('руки промыслов', () => {
     expect(s.down(3, 10, 700, 0, sticksWidth('look'))).toBe('look');
     s.move(1, 380, 700 - 56, 10);
     expect(s.walk().forward).toBeCloseTo(1, 9);
+  });
+});
+
+// Отзыв тестеров 11.10 (docs/feedback.md): натянутый выстрел нечем было отменить. Палец, уведённый с «Натянуть», ослабляет
+// тетиву без выстрела; дрожь держащего пальца — не уход.
+describe('отмена натянутого выстрела — палец увели с кнопки', () => {
+  it('дрожь до `TAP_SLIP` и сход в размер кнопки — на кнопке; дальше кнопки или в другую половину — ушёл', () => {
+    const W = 390;
+    const [x0, y0] = [60, 760];
+    expect(TAP_SLIP, 'дрожь меньше кнопки').toBeLessThan(SLIDE_OFF);
+    expect(zoneAt('bow', x0, W), 'точка внутри области: палец лёг на «Натянуть»').toBe('press');
+    expect(slidOff('bow', x0, y0, x0 + TAP_SLIP, y0, W)).toBe(false);
+    expect(slidOff('bow', x0, y0, x0, y0 - SLIDE_OFF, W), 'ровно размер кнопки — ещё на ней').toBe(false);
+    expect(slidOff('bow', x0, y0, x0, y0 - SLIDE_OFF - 2, W), 'дальше кнопки — ушёл').toBe(true);
+    // Лёг у самой середины: шаг через неё — уже другая половина, хоть и ближе размера кнопки.
+    expect(slidOff('bow', W / 2 - 10, y0, W / 2 + 10, y0, W), 'в половину пальца движения — ушёл').toBe(true);
+  });
+
+  it('сцена: ушёл — тетива ослаблена сразу, отпускание после этого не стреляет; только у лука', () => {
+    const stage = readFileSync(join(__dirname, 'stage.ts'), 'utf8');
+    expect(stage).toMatch(/this\.layout === 'bow' && !this\.slid && slidOff\([\s\S]{0,120}\)\) \{\s*this\.slid = true;\s*if \(this\.phase === 'play'\) this\.play\.loose\?\.\(this\.t, false\);/);
+    expect(stage).toMatch(/if \(this\.phase === 'play' && !this\.slid\) this\.play\.loose\?\.\(this\.t, true\);/);
   });
 });

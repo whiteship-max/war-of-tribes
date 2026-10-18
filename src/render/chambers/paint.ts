@@ -34,6 +34,8 @@ export const ATLAS = {
   seal: { x: 640, y: 672, w: 64, h: 64 },
   parch: { x: 704, y: 672, w: 64, h: 64 },
   wax: { x: 768, y: 672, w: 64, h: 64 },
+  banner: { x: 640, y: 768, w: 128, h: 256 },
+  sheep: { x: 768, y: 768, w: 256, h: 256 },
 } as const satisfies Record<string, Cell>;
 
 export type AtlasCell = keyof typeof ATLAS;
@@ -94,7 +96,88 @@ export function paintAtlas(arms: Arms, px: number, seed = 1200): HTMLCanvasEleme
   sealFace(ctx, ATLAS.seal, arms);
   parchment(ctx, ATLAS.parch, r, 0.6);
   wax(ctx, ATLAS.wax, arms);
+  banner(ctx, ATLAS.banner, arms, r);
+  sheep(ctx, ATLAS.sheep, r);
   return cv;
+}
+
+/**
+ * Знамя державы (Г-5): поле и фигура герба во всю ширину полотнища, ниже — продолжение поля, золотая кайма, бахрома и
+ * ласточкин хвост (вырез — прозрачностью). Полотнище на стене втрое выше ширины, клетка — вдвое: герб рисуется сжатым по
+ * высоте, на стене он встаёт в свою меру (`build.banners`).
+ */
+function banner(ctx: CanvasRenderingContext2D, c: Cell, arms: Arms, r: () => number): void {
+  ctx.clearRect(c.x, c.y, c.w, c.h);
+  const stretch = 2.7 / 0.86 / (c.h / c.w);
+  const fh = Math.round((c.w * 1.2) / stretch);
+  const top = c.y + 14;
+  paintField(ctx, arms, c.x, top, c.w, fh);
+  // Ниже герба — поле продолжается нижней строкой герба: деление идёт до хвоста.
+  ctx.drawImage(ctx.canvas, c.x * (ctx.canvas.width / ATLAS_PX), (top + fh - 3) * (ctx.canvas.width / ATLAS_PX), c.w * (ctx.canvas.width / ATLAS_PX), 2 * (ctx.canvas.width / ATLAS_PX), c.x, top + fh - 1, c.w, c.h - fh - 14);
+  // Рукав под древко наверху — тёмная ткань.
+  ctx.fillStyle = '#3a1810';
+  ctx.fillRect(c.x, c.y, c.w, 15);
+  // Шерсть: уток штрихами поверх герба.
+  for (let y = c.y; y < c.y + c.h; y += 1.6) {
+    ctx.fillStyle = r() < 0.5 ? 'rgba(255,240,210,0.05)' : 'rgba(0,0,0,0.07)';
+    ctx.fillRect(c.x, y, c.w, 0.7);
+  }
+  // Кайма золотом по краям.
+  ctx.strokeStyle = '#c9a24a';
+  ctx.lineWidth = 4;
+  ctx.strokeRect(c.x + 4, c.y + 17, c.w - 8, c.h - 21);
+  // Ласточкин хвост: вырез посередине низа.
+  ctx.save();
+  ctx.globalCompositeOperation = 'destination-out';
+  ctx.beginPath();
+  ctx.moveTo(c.x + c.w * 0.5, c.y + c.h - 46);
+  ctx.lineTo(c.x + c.w * 0.82, c.y + c.h + 1);
+  ctx.lineTo(c.x + c.w * 0.18, c.y + c.h + 1);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+  // Бахрома по нижним краям хвоста.
+  ctx.fillStyle = '#d8b25a';
+  for (let x = c.x + 2; x < c.x + c.w * 0.18; x += 3) ctx.fillRect(x, c.y + c.h - 8, 1.6, 8);
+  for (let x = c.x + c.w * 0.82; x < c.x + c.w - 1; x += 3) ctx.fillRect(x, c.y + c.h - 8, 1.6, 8);
+}
+
+/** Овчина у кровати: светлая шерсть завитками, неровный край (обрезка по альфе). */
+function sheep(ctx: CanvasRenderingContext2D, c: Cell, r: () => number): void {
+  ctx.clearRect(c.x, c.y, c.w, c.h);
+  const cx = c.x + c.w / 2;
+  const cy = c.y + c.h / 2;
+  ctx.save();
+  ctx.beginPath();
+  const n = 48;
+  for (let i = 0; i <= n; i++) {
+    const a = (i / n) * Math.PI * 2;
+    const k = 0.42 + 0.05 * Math.sin(a * 3 + 1) + 0.035 * Math.sin(a * 7) + (r() - 0.5) * 0.03;
+    const x = cx + Math.cos(a) * c.w * k;
+    const y = cy + Math.sin(a) * c.h * k * 0.92;
+    if (i) ctx.lineTo(x, y);
+    else ctx.moveTo(x, y);
+  }
+  ctx.closePath();
+  ctx.clip();
+  ctx.fillStyle = '#cdbfa6';
+  ctx.fillRect(c.x, c.y, c.w, c.h);
+  for (let i = 0; i < 1400; i++) {
+    const x = c.x + r() * c.w;
+    const y = c.y + r() * c.h;
+    const rad = 2 + r() * 4;
+    ctx.strokeStyle = r() < 0.5 ? 'rgba(255,250,236,0.55)' : 'rgba(120,100,76,0.35)';
+    ctx.lineWidth = 1 + r() * 0.8;
+    ctx.beginPath();
+    ctx.arc(x, y, rad, r() * 6, r() * 6 + 3.5);
+    ctx.stroke();
+  }
+  const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, c.w * 0.5);
+  g.addColorStop(0, 'rgba(0,0,0,0)');
+  g.addColorStop(1, 'rgba(60,44,28,0.35)');
+  ctx.fillStyle = g;
+  ctx.fillRect(c.x, c.y, c.w, c.h);
+  ctx.restore();
 }
 
 // ---------- Ткани ----------

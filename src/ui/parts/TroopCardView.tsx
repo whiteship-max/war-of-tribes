@@ -6,7 +6,8 @@ import { useGame } from '@/game/store';
 import { RESOURCE_META } from '@/game/constants';
 import { EQUIPMENT_BY_ID } from '@/game/data/equipment';
 import { buildingOfType } from '@/game/derived';
-import { recruitCheck } from '@/game/sim/army';
+import { hiredAt, recruitCheck } from '@/game/sim/army';
+import { askRecruit } from '@/ui/next/recruitAsk';
 import { temperOf, troopCard } from '@/game/battle/describe';
 import { Icon } from '@/ui/icons/Icon';
 import { waitShort } from './wait';
@@ -50,7 +51,8 @@ export function TroopCardView({ troop, onBack }: { troop: TroopId; onBack: () =>
   // Срок одного бойца — тем же расчётом, что у кнопки найма: с его видом, а у
   // всадника, значит, и с конюшней.
   const eta = recruitCheck(s, troop, 1).eta;
-  const barracks = buildingOfType(s, 'barracks');
+  // Нанимают там, где учат этот вид (`army.hiredAt`): конницу — в конюшне. Прежде кнопка вела в казармы всегда.
+  const hall = buildingOfType(s, hiredAt(troop));
   const smithy = buildingOfType(s, 'smithy');
 
   return (
@@ -177,8 +179,15 @@ export function TroopCardView({ troop, onBack }: { troop: TroopId; onBack: () =>
         </div>
       </div>
 
-      {barracks && (
-        <button className="btn wide" onClick={() => openBuilding(barracks.id)}>
+      {hall && (
+        <button
+          className="btn wide"
+          onClick={() => {
+            // Найм откроется с этим видом, а не с верхней строкой (отзыв тестеров 11.10).
+            askRecruit(troop);
+            openBuilding(hall.id);
+          }}
+        >
           ⚔️ Нанять
         </button>
       )}

@@ -7,6 +7,7 @@
 // зовущий задаёт сам.
 import { Builder, type V3 } from '../city/geom';
 import { L, TILE_M, type LayerName } from '../city/tex';
+import { DRESSED_M, MASONRY_M } from './stone';
 
 type Ao4 = readonly [number, number, number, number];
 
@@ -14,11 +15,16 @@ type Ao4 = readonly [number, number, number, number];
  * Слой покоев: слой текстур города или `plain` — ровный тон без рисунка (металл, воск, кость, камни): у слоёв города на
  * мелочи с метра видны чужие следы — гнёзда клиньев каменоломни, трещины штукатурки. Шейдер покоев берёт для него белое.
  */
-export type RoomLayer = LayerName | 'plain';
+export type RoomLayer = LayerName | 'plain' | 'masonry' | 'dressed';
 /** Номер ровного тона в `cfg.x` — за последним слоем города. */
 export const PLAIN_LAYER = 250;
-const layerNo = (l: RoomLayer): number => (l === 'plain' ? PLAIN_LAYER : L[l]);
-const tileOf = (l: RoomLayer): readonly [number, number] => (l === 'plain' ? [1, 1] : TILE_M[l]);
+/** Свой камень покоев (`stone.ts`, Г-5): бутовая кладка стен и тёсаный камень проёмов — с рельефом в альфе. */
+export const MASONRY_LAYER = 251;
+export const DRESSED_LAYER = 252;
+const OWN: Record<'plain' | 'masonry' | 'dressed', number> = { plain: PLAIN_LAYER, masonry: MASONRY_LAYER, dressed: DRESSED_LAYER };
+const layerNo = (l: RoomLayer): number => (l in OWN ? OWN[l as keyof typeof OWN] : L[l as LayerName]);
+const tileOf = (l: RoomLayer): readonly [number, number] =>
+  l === 'plain' ? [1, 1] : l === 'masonry' ? [MASONRY_M, MASONRY_M] : l === 'dressed' ? [DRESSED_M, DRESSED_M] : TILE_M[l];
 type Uv4 = readonly [number, number, number, number, number, number, number, number];
 
 /** Построитель с переносом и поворотом вокруг вертикали: модель предмета пишется в своих осях. */
@@ -137,10 +143,56 @@ export class Mesher {
   }
 
   /**
+   * Сгладить нормали вершин с номера `from`: вершины в одной точке с гранями не круче `deg` друг к другу получают общую
+   * нормаль — точёное тело круглое, а не гранёное (кубок, свиток, свеча), рёбра круче — остаются рёбрами.
+   */
+  smoothFrom(from: number, deg = 50): void {
+    const pos = this.b.pos;
+    const nor = this.b.nor;
+    const n = this.b.vertexCount;
+    const cos = Math.cos((deg * Math.PI) / 180);
+    const buckets = new Map<string, number[]>();
+    for (let i = from; i < n; i++) {
+      const key = `${Math.round(pos[i * 3] * 2e4)},${Math.round(pos[i * 3 + 1] * 2e4)},${Math.round(pos[i * 3 + 2] * 2e4)}`;
+      const b = buckets.get(key);
+      if (b) b.push(i);
+      else buckets.set(key, [i]);
+    }
+    const out = nor.slice(from * 3, n * 3);
+    for (const b of buckets.values()) {
+      if (b.length < 2) continue;
+      for (const i of b) {
+        let x = 0;
+        let y = 0;
+        let z = 0;
+        for (const j of b) {
+          const d = nor[i * 3] * nor[j * 3] + nor[i * 3 + 1] * nor[j * 3 + 1] + nor[i * 3 + 2] * nor[j * 3 + 2];
+          if (d < cos) continue;
+          x += nor[j * 3];
+          y += nor[j * 3 + 1];
+          z += nor[j * 3 + 2];
+        }
+        const l = Math.hypot(x, y, z) || 1;
+        const o = (i - from) * 3;
+        out[o] = x / l;
+        out[o + 1] = y / l;
+        out[o + 2] = z / l;
+      }
+    }
+    for (let i = 0; i < out.length; i++) nor[from * 3 + i] = out[i];
+  }
+
+  /**
    * Точёное тело (кубок, свеча, ножка, фигура): профиль `[r, y]` снизу вверх, `seg` граней по кругу, середина — начало.
-   * Нулевой радиус — вершина или донце.
+   * Нулевой радиус — вершина или донце. Нормали сглажены (`smoothFrom`): тело круглое, перегибы профиля круче 50° — рёбра.
    */
   lathe(profile: readonly (readonly [number, number])[], seg: number, layer: RoomLayer, tint: V3, aoBottom = 1): void {
+    const from = this.b.vertexCount;
+    this.latheFaces(profile, seg, layer, tint, aoBottom);
+    this.smoothFrom(from);
+  }
+
+  private latheFaces(profile: readonly (readonly [number, number])[], seg: number, layer: RoomLayer, tint: V3, aoBottom: number): void {
     const [tw, th] = tileOf(layer);
     for (let i = 0; i + 1 < profile.length; i++) {
       const [r0, y0] = profile[i];

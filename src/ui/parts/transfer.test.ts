@@ -37,7 +37,7 @@ vi.mock('@/world/store', async (orig) => {
 });
 
 import { ArmyPanel } from '@/ui/panels/ArmyPanel';
-import { inWallsTip, outWallsTip, shift, sideOf, sideTip, transferSums } from './Muster';
+import { EMPTY_HINT, STEP_HINT, inWallsTip, outWallsTip, shift, sideOf, sideTip, transferSums } from './Muster';
 import { postureLine } from './MusterLink';
 
 const NOW = 1_700_000_000_000;
@@ -143,6 +143,25 @@ describe('передача: две колонки, шаг по видам, ит�
     expect(count(html, '>Подтвердить<'), 'и кнопки нет').toBe(0);
   });
 
+  // Отзыв тестеров 18.10 (docs/feedback.md): как полководцу взять отряд, было не понять. Подсказка у передачи — там, где
+  // её можно сделать (в городе); у пустого отряда — ещё строка, откуда он берётся. В поле шага нет — и подсказки нет.
+  it('подсказка передачи — в городе всегда, «отряд пуст» — только у пустого; в поле — ни одной', () => {
+    const empty = general({ troops: {} });
+    expect(inTown(empty), 'точка внутри области: в городе').toBe(true);
+    party(empty);
+    const bare = renderToStaticMarkup(h(ArmyPanel));
+    expect(bare).toContain(EMPTY_HINT);
+    expect(bare).toContain(STEP_HINT);
+    party(general({}));
+    const full = renderToStaticMarkup(h(ArmyPanel));
+    expect(full, 'отряд есть — «пуст» не говорим').not.toContain(EMPTY_HINT);
+    expect(full).toContain(STEP_HINT);
+    party(general({ troops: {}, phase: 'field', regroup: { block: 'Отряд собирают только у своего города.', grow: null, instant: false } }));
+    const out = renderToStaticMarkup(h(ArmyPanel));
+    expect(out).not.toContain(STEP_HINT);
+    expect(out).not.toContain(EMPTY_HINT);
+  });
+
   // Сбор в городе — из сохранения прежних правил: с 16.10.2026 перевод в городе мгновенный и в осаде (6.11).
   it('в городе во время сбора (роспуск в осаде по прежним правилам) — «защищает стены», и срок сбора виден', () => {
     const g = general({ readyAt: NOW + 3_600_000, regroup: { block: 'Отряд ещё в сборе: 1 ч.', grow: null, instant: false } });
@@ -208,6 +227,18 @@ describe('итог передачи — функциями игры, разбо�
     expect(tip2.rows?.map((r) => r.label)).not.toContain(REST_LABEL);
     expect(tip2.rows?.some((r) => r.label === 'Отряд в городе'), 'в поле — отряда в обороне нет').toBe(false);
     expect(outWallsTip(t).sum?.value, 'отряд в поле — не в обороне').toBe(fmtInt(troopTotal(HELD)));
+  });
+
+  // Отзыв тестеров 18.10 (docs/feedback.md): верх «Дружины» ставил мощь в ряд с головами — «Оборона 1264 | В обороне 127 |
+  // Не в обороне 980». Единица теперь в подписи ячейки и в заголовке её разбора.
+  it('верх «Дружины»: мощь названа мощью, бойцы — бойцами, и разборы говорят те же слова', () => {
+    const src = readFileSync(join(__dirname, '../panels/ArmyPanel.tsx'), 'utf8');
+    const row = src.slice(src.indexOf('className="ms-sum"'), src.indexOf('</div>', src.indexOf('className="ms-sum"')));
+    const cells = [...row.matchAll(/<small>([^<]+)<\/small>/g)].map((m) => m[1]);
+    expect(cells).toEqual(['Мощь обороны', 'Бойцов в городе', 'Бойцов в походе']);
+    const s = party(general({}), [march({ spearman: 5 })]);
+    expect(inWallsTip(s, [], []).title).toMatch(/^Бойцов в городе · /);
+    expect(outWallsTip(s).title).toMatch(/^Бойцов в походе · /);
   });
 });
 

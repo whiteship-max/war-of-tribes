@@ -7,6 +7,10 @@ import { TIP_W, TIP_W_WIDE, modalUp, placeTip, tipRoom, useTip, type Rect, type 
  * следующее касание где угодно закрывает плашку и до игры не доходит (3.7: «это касание ничего больше не
  * делает»). Касание по самой плашке тоже закрывает её; ссылка внизу сначала закрывает, потом ведёт.
  *
+ * У каждой плашки — свой крестик в правом верхнем углу, касание 44 (Г-5, отзыв тестера): на телефоне не догадывались, что
+ * плашку убирает касание мимо, и жали крестик окна под ней. Крестик плашки закрывает только её — касание до окна под ней
+ * не доходит.
+ *
  * Подсказка новичку (`TipContent.free`) ловца не кладёт: касание мимо плашки доходит до города, как без неё, — тап по
  * постройке открывает постройку. Закрывает её касание по ней самой или крестик; пока город занят (`useCityBusy`), она
  * спрятана и ждёт возвращения.
@@ -57,7 +61,7 @@ export function TipView({ tip, view, busy, modal, hide }: ViewProps) {
         }}
         onClick={hide}
       >
-        <b>{tip.title}</b>
+        <b className="nx-tip-title">{tip.title}</b>
         {tip.lore && <p className="nx-tip-lore">{tip.lore}</p>}
         {tip.body && <p>{tip.body}</p>}
         {((tip.rows && tip.rows.length > 0) || tip.more) && (
@@ -85,18 +89,19 @@ export function TipView({ tip, view, busy, modal, hide }: ViewProps) {
             ))}
           </div>
         )}
-        {tip.free && (
-          <button
-            className="nx-tip-x"
-            aria-label="Закрыть"
-            onClick={(e) => {
-              e.stopPropagation();
-              hide();
-            }}
-          >
-            <Icon name="ui-close" glyph="✕" />
-          </button>
-        )}
+        <button
+          type="button"
+          className="nx-tip-x"
+          aria-label="Закрыть подсказку"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            hide();
+          }}
+        >
+          <Icon name="ui-close" glyph="✕" />
+        </button>
         {link && (
           <button
             className="nx-tip-go"

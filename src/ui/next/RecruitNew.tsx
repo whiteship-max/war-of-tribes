@@ -2,7 +2,7 @@
 // внизу закреплённая полоса «Нанять». Где учат вид, решает одна дверь (`army.hiredAt`); цена, снаряжение, срок и
 // причина отказа — `recruitCheck`; закрыт ли вид — `troopBlock` (дверь гейта); мощь — `powerOf`, жалованье —
 // `wageOf` (правило 18).
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { TroopId } from '@/game/types';
 import { useGame } from '@/game/store';
 import { RESOURCE_IDS, RESOURCE_META } from '@/game/constants';
@@ -20,14 +20,24 @@ import { waitSpan } from '@/ui/parts/wait';
 import { tipAt } from './tip';
 import { Confirm } from './Confirm';
 import { clampCount } from './SmithyNew';
+import { dropRecruitAsk, recruitAsked } from './recruitAsk';
 import { dec } from '@/game/num';
 
 /**
  * Какой вид выбран при открытии: тот, к которому ведёт шаг обучения (его метка — на кнопке «Нанять» выбранного
- * вида), иначе последний нанятый, если открыт, иначе первый открытый, иначе первый.
+ * вида), иначе тот, чью карточку игрок открыл и нажал «Нанять» (`asked`, `recruitAsk`) — и закрытый, иначе последний
+ * нанятый, если открыт, иначе первый открытый, иначе первый.
  */
-export function firstTroop(here: readonly TroopId[], tutorial: TroopId | null, last: TroopId | null, open: (id: TroopId) => boolean): TroopId {
+export function firstTroop(
+  here: readonly TroopId[],
+  tutorial: TroopId | null,
+  last: TroopId | null,
+  open: (id: TroopId) => boolean,
+  asked: TroopId | null = null,
+): TroopId {
   if (tutorial && here.includes(tutorial)) return tutorial;
+  // Позванный вид выбран и закрытым: «Нанять» гаснет с причиной (`recruitCheck` — гейт), а не нанимает другой вид молча.
+  if (asked && here.includes(asked)) return asked;
   if (last && here.includes(last) && open(last)) return last;
   return here.find(open) ?? here[0];
 }
@@ -49,7 +59,9 @@ export function RecruitNew({ at }: { at: 'barracks' | 'stable' }) {
   const step = currentStep(s);
   const tut = tutorialTroop(step?.target.kind === 'dom' ? step.target.sel : null);
   const last = queue.length > 0 ? queue[queue.length - 1].troop : null;
-  const [pick, setPick] = useState<TroopId>(() => firstTroop(here, tut, last, open));
+  const [pick, setPick] = useState<TroopId>(() => firstTroop(here, tut, last, open, recruitAsked()));
+  // Просьба карточки вида прочитана — снять, чтобы следующее открытие найма шло прежним правилом.
+  useEffect(dropRecruitAsk, []);
   const [n, setN] = useState(1);
   if (here.length === 0) return null;
   const check = recruitCheck(s, pick, n);
