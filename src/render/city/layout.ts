@@ -670,9 +670,13 @@ function streetsOf(wall: P[]): Street[] {
     const w = Math.min(sstep(-38, -26, z), 1 - sstep(30, 42, z));
     return w * Math.max(0, EAST_LANE_X - laneX(z, 1));
   };
+  // Севернее −40 Восточный переулок шёл в трёх-пяти метрах от Верхней, параллельно ей, до самой стены: между ними дому не
+  // встать, и с камеры игры это была бурая полоса вдоль мостовой (Г-8, 4а). Теперь он вливается в Верхнюю, а её восточную
+  // сторону занимают дома фасадами на неё.
   const lane = (side: -1 | 1): P[] => {
     const pts: P[] = [];
-    for (let z = 104; z >= -88; z -= 8) pts.push({ x: laneX(z, side) + (side > 0 ? detour(z) : 0), z });
+    for (let z = 104; z >= (side > 0 ? -40 : -88); z -= 8) pts.push({ x: laneX(z, side) + (side > 0 ? detour(z) : 0), z });
+    if (side > 0) pts.push({ x: 29, z: -48 });
     return pts;
   };
   // Улица вдоль стены — контур стены, сжатый к середине на 7 м.
