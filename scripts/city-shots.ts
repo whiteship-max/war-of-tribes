@@ -402,6 +402,12 @@ async function weatherShots(tab: Tab, q: Quality): Promise<void> {
       }, 200);
     })`);
     console.log(`  ${said}`);
+    // Жизнь покоев (Г-7): `LIFE='{"who":"servant","at":{"x":3.75,"z":-4.6,"yaw":3.1},"talk":true}'` — поставить людей и кота
+    // сразу (`ChambersLife.stage`); списком — несколько (`LIFE='[{"who":"maid"},{"cat":"floor"}]'`).
+    if (process.env.LIFE) {
+      const r = await tab.eval<string>(`JSON.stringify((() => { const l = window.__chambers.life; for (const s of [].concat(${process.env.LIFE})) l.stage(s); return 'жизнь: ' + JSON.stringify(l.view()); })())`);
+      console.log(`  ${r}`);
+    }
     await sleep(2500);
     const diag = await tab.eval<string>(`JSON.stringify((() => {
       const r = window.__scene.renderer;

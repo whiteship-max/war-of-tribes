@@ -112,6 +112,8 @@ export interface RoomModel {
   /** Безделушки: свой построитель в своих осях (начало — где предмет стоит) и где он лежит в комнате. */
   trinkets: Record<TrinketId, { stone: Mesher; at: V3; yaw: number }>;
   flames: Flame[];
+  /** Створка двери в осях петли (Г-7). */
+  leaf: Mesher;
 }
 
 /** Собрать покои. `detail` — уровень мелочи (`city/kit.Detail`): стропил, складок, шахмат, граней точёного. */
@@ -136,7 +138,7 @@ export function buildRoom(detail: Detail): RoomModel {
   floorCloths(cloth);
   const trinkets = {} as RoomModel['trinkets'];
   for (const t of TRINKETS) trinkets[t.id] = trinket(t.id, seg + 4 + detail * 2, flames);
-  return { stone, cloth, trinkets, flames };
+  return { stone, cloth, trinkets, flames, leaf: doorLeaf() };
 }
 
 // ---------- Оболочка ----------
@@ -468,18 +470,80 @@ function cyl(m: Mesher, a: V3, e: V3, r: number, layer: RoomLayer, t: V3, seg: n
 
 // ---------- Дверь ----------
 
+/** Петля двери (Г-7): восточный косяк, в толще стены у доски створки; створка открывается внутрь, к восточной стене. */
+export const DOOR_HINGE: V3 = [DOOR.x + (DOOR.w / 2) * 0.94, 0, -HALF - 0.32];
+/** Ширина створки, м: от петли на запад. */
+export const LEAF_W = DOOR.w * 0.94;
+
 function door(m: Mesher): void {
   const a = -DOOR.x;
   const hw = DOOR.w / 2;
   const out = archOutline(hw, 0, DOOR.h - hw, hw, 8);
   const pts = (d: number, k: number): V3[] => out.map(([x, y]) => wallPoint('north', x * k + a, y * (k < 1 ? 0.97 : 1), d) as V3);
   m.loft(pts(0, 1), pts(0.32, 0.94), 'dressed', T(HUE.ashlar, 0.88), true, 0.7);
-  const leaf = pts(0.32, 0.94);
-  const { u } = WALL_AXES.north;
-  const o = wallPoint('north', 0, 0, 0.32);
-  m.plane(o, [-u[0], 0, -u[2]], [0, 1, 0], leaf.map((p) => [p[0], p[1]] as [number, number]), [], 'wood', T(HUE.oak, 0.9));
-  for (const y of [0.45, 1.25, 1.95]) m.beam([DOOR.x - hw * 0.9, y, -HALF - 0.3], [DOOR.x + hw * 0.9, y, -HALF - 0.3], 0.025, 0.07, 'plain', T(HUE.iron));
-  m.at(DOOR.x - hw * 0.55, 1.05, -HALF - 0.28, 0, Math.PI / 2).lathe(
+  vestibule(m);
+}
+
+/**
+ * Тамбур за дверью (Г-7): в толще стены донжона — площадка у двери и лестница вниз на запад, в темноту. Пока дверь
+ * закрыта, его не видно; открыта — в проёме камень и ступени, а не город (покои — верхний ярус, за стеной — небо).
+ */
+function vestibule(m: Mesher): void {
+  const z0 = -HALF - 0.32;
+  const z1 = -HALF - 1.18;
+  const xe = DOOR.x + DOOR.w / 2 + 0.1;
+  const xs = DOOR.x - DOOR.w / 2 - 0.05;
+  const xw = 1.6;
+  const top = 2.5;
+  const low = -1.6;
+  const W = T(HUE.wall, 0.62);
+  const D = T(HUE.ashlar, 0.7);
+  // Пол площадки и ступени вниз к западу.
+  m.quad([xs, 0, z0], [xe, 0, z0], [xe, 0, z1], [xs, 0, z1], 'dressed', D);
+  const n = 6;
+  for (let i = 0; i < n; i++) {
+    const x1 = xs - 0.24 * i;
+    const x0 = x1 - 0.24;
+    const y = -0.19 * (i + 1);
+    // Подступенок (к двери, на восток) и проступь.
+    m.quad([x1, y, z0], [x1, y, z1], [x1, y + 0.19, z1], [x1, y + 0.19, z0], 'dressed', T(HUE.ashlar, 0.62 - i * 0.06));
+    m.quad([x0, y, z0], [x1, y, z0], [x1, y, z1], [x0, y, z1], 'dressed', T(HUE.ashlar, 0.66 - i * 0.07));
+  }
+  const xb = xs - 0.24 * n;
+  // Дальше — темнота лестницы: торец в саже.
+  m.quad([xw, low, z0], [xw, low, z1], [xw, top, z1], [xw, top, z0], 'masonry', T(HUE.soot, 0.8));
+  m.quad([xw, low, z0], [xb, low, z0], [xb, low, z1], [xw, low, z1], 'dressed', T(HUE.soot, 0.9));
+  // Задняя стена (к двери), восточный торец, свод.
+  m.quad([xw, low, z1], [xe, low, z1], [xe, top, z1], [xw, top, z1], 'masonry', W);
+  m.quad([xe, low, z0], [xe, top, z0], [xe, top, z1], [xe, low, z1], 'masonry', W);
+  m.quad([xw, top, z1], [xe, top, z1], [xe, top, z0], [xw, top, z0], 'masonry', T(HUE.wall, 0.45));
+  // Под площадкой — камень до низа (сбоку его видно над ступенями).
+  m.quad([xs, low, z0], [xs, low, z1], [xs, -0.19, z1], [xs, -0.19, z0], 'dressed', T(HUE.ashlar, 0.5));
+}
+
+/**
+ * Створка двери (Г-7): своя сетка в осях петли — дубовые доски с двух сторон, торец, железные полосы и кольцо. Комната
+ * поворачивает её вокруг петли (`DOOR_HINGE`): 0 — закрыта, к +π/2 — открыта внутрь.
+ */
+export function doorLeaf(): Mesher {
+  const m = new Mesher();
+  const hw = LEAF_W / 2;
+  const out = archOutline(hw, 0, (DOOR.h - DOOR.w / 2) * 0.97, hw, 8).map(([x, y]) => [x - hw, y] as [number, number]);
+  const th = 0.055;
+  m.plane([0, 0, 0], [1, 0, 0], [0, 1, 0], out, [], 'wood', T(HUE.oak, 0.9));
+  m.plane([0, 0, -th], [-1, 0, 0], [0, 1, 0], out.map(([x, y]) => [-x, y] as [number, number]), [], 'wood', T(HUE.oak, 0.7));
+  m.loft(
+    out.map(([x, y]) => [x, y, 0] as V3),
+    out.map(([x, y]) => [x, y, -th] as V3),
+    'wood',
+    T(HUE.oak, 0.6),
+    true,
+  );
+  for (const y of [0.45, 1.25, 1.95]) {
+    m.beam([-LEAF_W * 0.95, y, 0.012], [-0.02, y, 0.012], 0.025, 0.07, 'plain', T(HUE.iron));
+    m.beam([-LEAF_W * 0.95, y, -th - 0.012], [-0.02, y, -th - 0.012], 0.025, 0.07, 'plain', T(HUE.iron));
+  }
+  m.at(-LEAF_W + 0.13, 1.05, 0.03, 0, Math.PI / 2).lathe(
     [
       [0.0, -0.02],
       [0.06, -0.02],
@@ -492,6 +556,7 @@ function door(m: Mesher): void {
     T(HUE.iron),
   );
   m.reset();
+  return m;
 }
 
 // ---------- Кровать ----------

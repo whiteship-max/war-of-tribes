@@ -21,6 +21,8 @@ import { TAP_TARGET, swallowGhostClick } from '@/gestures';
 import { Keys, Sticks, mergeWalk, typing, type Walk } from '@/prologue/controls';
 import { turnRate } from '@/minigames/pad';
 import { geometryOf } from '../city/index';
+import { tint } from '../city/geom';
+import { Mesher } from './geo';
 import { buildRoom, ROOM_LIGHTS, type RoomModel } from './build';
 import { LIGHTS_AT, roomMaterial, roomUniforms, type RoomUniforms } from './material';
 import { RoomFire } from './fire';
@@ -28,7 +30,8 @@ import { ATLAS_PX, paintAtlas } from './paint';
 import { paintStone } from './stone';
 import { Body, holdHand, type HandPose } from './body';
 import { TURN_PER_LOOK, holdFit, holdRotation } from './hold';
-import { ACTS, GRAB_AT, actLength, frameAt, type Act, type Frame } from './acts';
+import { ACTS, GRAB_AT, KNOCKS, actLength, frameAt, type Act, type Frame } from './acts';
+import { ChambersLife, LIFE_CODE, type LifeCue, type LifeMemory, type Who } from './life';
 import { AUTO_SPEED, BODY_R, EYE_STAND, WALK_SPEED, pathLength, pathTo, step } from './walk';
 import { layoutTags, TAG_FONT, type TagOut } from './tags';
 import type { ChambersEar } from './sound';
@@ -36,6 +39,7 @@ import type { ChamberCue } from './cues';
 import {
   CHAIR,
   DESK,
+  DOOR,
   DESK_THINGS,
   HALF,
   LABELS,
@@ -85,10 +89,15 @@ export interface ChambersView {
   zoom: number | null;
   /** Что игрок уже делал — подписи-указатели первого входа гаснут по делу. */
   used: { walk: boolean; look: boolean; act: boolean };
+  /** Кубок с вином в руке — можно выпить (Г-7). */
+  drink: boolean;
 }
 
-/** Что под пальцем: предмет или место дела. */
-export type Aim = { kind: 'thing'; thing: Thing } | { kind: 'poi'; poi: Poi };
+/** Что под пальцем: предмет, место дела, человек покоев или кот (Г-7). */
+export type Aim = { kind: 'thing'; thing: Thing } | { kind: 'poi'; poi: Poi } | { kind: 'folk'; who: Who } | { kind: 'cat' };
+
+/** Имена людей покоев на подписи касания. */
+export const FOLK_NAME: Record<Who, string> = { servant: 'Слуга', maid: 'Служанка', wife: 'Супруга' };
 
 /** Куда правитель идёт и что делает, придя. */
 type Then = { kind: 'spot'; id: SpotId } | { kind: 'take'; id: TrinketId };
@@ -116,7 +125,14 @@ const ACT_CUES: Record<SpotId, readonly (readonly [number, Cue])[]> = {
   window: [],
   hearth: [],
   arms: [],
+  door: [],
 };
+/** Гладить кота: сколько длится, с; присесть — глаз на этой высоте. */
+const PET_LEN = 4.2;
+const PET_EYE = 1.02;
+/** Глоток вина из кубка: длится, с; сколько вина за глоток. */
+const SIP_LEN = 1.7;
+const SIP = 0.34;
 /** Наклон головы стоя: пределы. */
 const FREE_PITCH: readonly [number, number] = [-1.2, 1.1];
 
@@ -225,6 +241,7 @@ export class ChambersRoom implements Inside {
   /** Раскладка подписей последнего кадра — тестам и стенду. */
   tagsNow: TagOut[] = [];
   private lastView = '';
+  private skyLast = { night: 0, sunY: 0.6, sunX: 0 };
 
   /** Интерфейс: переменилось то, что он показывает (`view`). */
   onChange: (() => void) | null = null;
@@ -234,8 +251,23 @@ export class ChambersRoom implements Inside {
   onCue: ((cue: Cue) => void) | null = null;
   /** Ухо: где глаз (до огня, с какой он стороны, до окна) и погода у окна — звуку покоев (`sound.ts`). */
   onEar: ((ear: ChambersEar, dt: number) => void) | null = null;
+  /** Звук жизни покоев (Г-7): стук, дверь, шаги людей и кота, мяу, вино, музыка ночи; где звучит (оси комнаты). */
+  onLifeCue: ((cue: LifeCue, at: readonly [number, number, number] | null) => void) | null = null;
 
-  constructor(keep: Pick<Tower, 'x' | 'z' | 'base' | 'height'>, arms: Arms, quality: Quality, cityTex: () => THREE.Texture | null) {
+  /** Жизнь покоев (Г-7): дверь, слуга, служанка, супруга, кот, клубок, вино в кубке. */
+  readonly life: ChambersLife;
+  /** Гладит кота: сколько прошло; позвал — ждёт, пока подойдёт. */
+  private pet: { t: number } | null = null;
+  private petWant = 0;
+  /** Глоток из кубка: сколько прошло, глотнул ли. */
+  private sip: { t: number; gulped: boolean } | null = null;
+  private wineMesh: THREE.Mesh;
+  /** Сколько секунд палец взгляда не вёл: столько — и голова сама оборачивается к собеседнику. */
+  private idleLook = 0;
+  /** Разговор или ночь: палец движения не ведёт (смотреть можно). */
+  frozen = false;
+
+  constructor(keep: Pick<Tower, 'x' | 'z' | 'base' | 'height'>, arms: Arms, quality: Quality, cityTex: () => THREE.Texture | null, memory: LifeMemory = { cat: false, catSpot: null }) {
     this.level = quality;
     this.cityTex = cityTex;
     this.origin = new THREE.Vector3(keep.x, floorOf(keep), keep.z);
@@ -279,6 +311,27 @@ export class ChambersRoom implements Inside {
     this.trinkets.get('candle')?.mesh.add(this.handFire.mesh);
     this.body = new Body(this.stone);
     this.scene.add(this.body.mesh);
+    // Вино в кубке: гладь в чаше, поднимается с уровнем (`wine`).
+    this.wineMesh = wineSurface(this.stone);
+    this.trinkets.get('goblet')?.mesh.add(this.wineMesh);
+    this.life = new ChambersLife(
+      {
+        scene: this.scene,
+        material: this.stone,
+        origin: this.origin,
+        arms,
+        quality,
+        ruler: () => this.rulerNow(),
+        cue: (c, at) => this.onLifeCue?.(c, at),
+        intend: (spot) => this.intend({ kind: 'spot', id: spot }),
+        stand: () => this.leave(),
+        goblet: () => this.gobletAt(),
+        dropGoblet: () => {
+          if (this.held?.id === 'goblet') this.release();
+        },
+      },
+      memory,
+    );
     this.camera.near = 0.05;
     this.standAt(POI_BY_ID.hall);
     this.placeCamera();
@@ -304,6 +357,7 @@ export class ChambersRoom implements Inside {
       held: this.held && this.held.dir > 0 ? this.held.id : null,
       zoom: z ? (this.zoomFov !== null ? (wide - this.zoomFov) / (wide - z[0]) : 0) : null,
       used: { ...this.used },
+      drink: this.canDrink,
     };
   }
 
@@ -461,8 +515,13 @@ export class ChambersRoom implements Inside {
   frame(dt: number, t: number, sky: InsideSky): void {
     this.time = t;
     this.stepEye(Math.min(dt, 0.1));
+    this.life.step(Math.min(dt, 0.1));
+    this.stepPet(Math.min(dt, 0.1));
+    this.attendTalk(Math.min(dt, 0.1));
     this.stepHands(dt);
     this.placeCamera();
+    this.life.draw();
+    this.stepWine();
     this.stepBody();
     this.light(t, sky);
     this.labels(dt);
@@ -481,10 +540,13 @@ export class ChambersRoom implements Inside {
 
   /** Палец и клавиши этого кадра: куда идти и на сколько повернуть голову. */
   private input(): { walk: Walk; look: { yaw: number; pitch: number } } {
-    const walk = mergeWalk(this.sticks.walk(), this.keys.walk());
+    const walk = this.frozen ? { forward: 0, strafe: 0 } : mergeWalk(this.sticks.walk(), this.keys.walk());
     const look = this.sticks.takeLook();
     if (walk.forward !== 0 || walk.strafe !== 0) this.used.walk = true;
-    if (look.yaw !== 0 || look.pitch !== 0) this.used.look = true;
+    if (look.yaw !== 0 || look.pitch !== 0) {
+      this.used.look = true;
+      this.idleLook = 0;
+    }
     return { walk, look };
   }
 
@@ -503,10 +565,15 @@ export class ChambersRoom implements Inside {
     }
     switch (this.mode) {
       case 'free': {
+        // Пошёл — гладить бросил.
+        if (moving && this.pet) this.stopPet();
+        if (moving) this.petWant = 0;
         this.pose.yaw += look.yaw + turnRate(walk.strafe) * dt;
         this.pose.pitch = clamp(this.pose.pitch + look.pitch, FREE_PITCH[0], FREE_PITCH[1]);
         this.stride(walk.forward * WALK_SPEED * dt, dt);
-        this.pose.y += (EYE_STAND - this.pose.y) * (1 - Math.exp(-dt * 8));
+        // Гладит кота — присел; иначе стоит.
+        const eyeY = this.pet ? EYE_STAND + (PET_EYE - EYE_STAND) * this.petK() : EYE_STAND;
+        this.pose.y += (eyeY - this.pose.y) * (1 - Math.exp(-dt * 8));
         return;
       }
       case 'walk': {
@@ -526,6 +593,12 @@ export class ChambersRoom implements Inside {
         a.t = clamp(a.t + dt * a.dir, 0, actLength(a.a));
         // Звук дела — на своём миге, туда и обратно: кресло скрипнуло, постель зашуршала.
         for (const [at, cue] of ACT_CUES[a.a.id]) if ((was < at) !== (a.t < at)) this.onCue?.(cue);
+        // Дверь: костяшки о доску — стук; после третьего удара за дверью слышат (слуга поднимается).
+        if (a.a.id === 'door' && a.dir > 0) {
+          for (const at of KNOCKS) if (was < at && a.t >= at) this.onLifeCue?.('knock', [DOOR_AT[0], 1.4, DOOR_AT[2]]);
+          const heard = KNOCKS[KNOCKS.length - 1] + 0.2;
+          if (was < heard && a.t >= heard) this.life.knocked();
+        }
         // В переходе поворот головы гаснет: глаз садится (встаёт) к взгляду дела, а не рывком.
         const keep = Math.exp(-dt * 5);
         this.off.yaw *= keep;
@@ -708,11 +781,139 @@ export class ChambersRoom implements Inside {
     this.changed();
   }
 
+  // ---------- Жизнь покоев (Г-7) ----------
+
+  /** Правитель — режиссёру жизни: где стоит, куда смотрит, в каком деле. */
+  private rulerNow(): { x: number; z: number; yaw: number; eye: [number, number, number]; spot: SpotId | null; inAct: boolean } {
+    const p = this.pose;
+    return { x: p.x, z: p.z, yaw: p.yaw, eye: [p.x, p.y, p.z], spot: this.act?.a.id ?? null, inAct: this.mode === 'in' || this.mode === 'act' };
+  }
+
+  /** Кубок: середина чаши (оси комнаты) и в руке ли он. */
+  private gobletAt(): { at: [number, number, number]; held: boolean } {
+    const g = this.trinkets.get('goblet')!;
+    V.set(0, 0.19, 0).applyQuaternion(g.mesh.quaternion).add(g.mesh.position).sub(this.origin);
+    return { at: [V.x, V.y, V.z], held: this.held?.id === 'goblet' };
+  }
+
+  /** Касание кота: рядом — присесть и погладить; далеко или в деле — позвать: подойдёт — погладит. */
+  petCat(): void {
+    const c = this.life.cat;
+    if (!c?.visible || this.pet) return;
+    if (this.held && this.held.dir > 0) this.drop();
+    if (this.act) this.leave();
+    const near = Math.hypot(c.x - this.pose.x, c.z - this.pose.z) < 0.95 && c.y < 0.05;
+    if (near && this.mode === 'free') {
+      this.pet = { t: 0 };
+      c.pet(true);
+      this.used.act = true;
+    } else {
+      this.petWant = 6;
+      c.come(this.pose.x + Math.sin(this.pose.yaw) * 0.5, this.pose.z + Math.cos(this.pose.yaw) * 0.5);
+    }
+  }
+
+  /** Доля присеста (0 — стоит, 1 — присел у кота): вниз за полсекунды, вверх — к концу. */
+  private petK(): number {
+    const t = this.pet?.t ?? 0;
+    return easeInOut(clamp(t / 0.55, 0, 1)) * (1 - easeInOut(clamp((t - (PET_LEN - 0.55)) / 0.55, 0, 1)));
+  }
+
+  private stopPet(): void {
+    this.pet = null;
+    this.life.cat?.pet(false);
+  }
+
+  /** Гладить: позвал — ждёт; подошёл — присел, взгляд на кота, рука по спине; кончил — встал. */
+  private stepPet(dt: number): void {
+    const c = this.life.cat;
+    if (this.petWant > 0) {
+      this.petWant -= dt;
+      if (c?.visible && this.mode === 'free' && Math.hypot(c.x - this.pose.x, c.z - this.pose.z) < 0.85 && c.y < 0.05) {
+        this.petWant = 0;
+        this.pet = { t: 0 };
+        c.pet(true);
+      }
+    }
+    if (!this.pet) return;
+    if (!c?.visible || this.mode !== 'free') {
+      this.stopPet();
+      return;
+    }
+    this.pet.t += dt;
+    // Глаз — на кота (если палец взгляда не ведёт).
+    if (this.idleLook > 0.3) {
+      const dx = c.x - this.pose.x;
+      const dz = c.z - this.pose.z;
+      const want = Math.atan2(dx, dz);
+      this.pose.yaw += wrap(want - this.pose.yaw) * (1 - Math.exp(-dt * 4));
+      const pitch = Math.atan2(c.y + 0.22 - this.pose.y, Math.hypot(dx, dz));
+      this.pose.pitch += (clamp(pitch, FREE_PITCH[0], FREE_PITCH[1]) - this.pose.pitch) * (1 - Math.exp(-dt * 4));
+    }
+    if (this.pet.t >= PET_LEN) this.stopPet();
+  }
+
+  /** Голова сама оборачивается к собеседнику, пока палец взгляда не ведёт. */
+  private attendTalk(dt: number): void {
+    this.idleLook += dt;
+    const head = this.life.focus();
+    if (!head || this.idleLook < 0.9 || this.pet || this.held) return;
+    const dx = head[0] - this.pose.x;
+    const dz = head[2] - this.pose.z;
+    const want = Math.atan2(dx, dz);
+    const pitch = Math.atan2(head[1] - this.pose.y, Math.hypot(dx, dz));
+    const k = 1 - Math.exp(-dt * 2.2);
+    if (this.mode === 'free') {
+      this.pose.yaw += wrap(want - this.pose.yaw) * k;
+      this.pose.pitch += (clamp(pitch, FREE_PITCH[0], FREE_PITCH[1]) - this.pose.pitch) * k;
+    } else if (this.mode === 'in' && this.act) {
+      this.look(wrap(want - this.pose.yaw) * k, (pitch - this.pose.pitch) * k);
+    }
+  }
+
+  /** Гладь вина в кубке — по уровню: выше и шире к краю чаши; пустой — гладь не видна. */
+  private stepWine(): void {
+    const w = this.life.wine;
+    this.wineMesh.visible = w > 0.01;
+    const r = 0.0502 + 0.0036 * w;
+    this.wineMesh.scale.set(r, 1, r);
+    this.wineMesh.position.y = 0.1712 + 0.029 * w;
+  }
+
+  /** Свет города последнего кадра — часу разговоров (ночь, солнце над горизонтом и с какой стороны). */
+  skyNow(): { night: number; sunY: number; sunX: number } {
+    return this.skyLast;
+  }
+
+  /** Громкость и сторона звука в точке (оси комнаты) для уха глаза; за закрытой дверью — глуше. */
+  hear(at: readonly [number, number, number]): { gain: number; pan: number } {
+    V.set(at[0], at[1], at[2]).add(this.origin).sub(this.camera.position);
+    const d = V.length();
+    V2.set(1, 0, 0).applyQuaternion(this.camera.quaternion);
+    const pan = d > 0.01 ? V.dot(V2) / d : 0;
+    let gain = Math.min(1, 1.6 / Math.max(1, d));
+    if (at[2] < -HALF - 0.2) gain *= 0.35 + 0.65 * this.life.doorOpen;
+    return { gain, pan };
+  }
+
+  /** Выпить из кубка в руке: к губам, наклон, глоток, назад. */
+  drink(): void {
+    if (this.held?.id !== 'goblet' || this.held.dir < 0 || this.life.wine < 0.02 || this.sip) return;
+    this.sip = { t: 0, gulped: false };
+    this.changed();
+  }
+
+  /** Есть ли что выпить (кубок в руке и в нём вино) — кнопке «Выпить». */
+  get canDrink(): boolean {
+    return this.held?.id === 'goblet' && this.held.dir > 0 && this.held.t > 0.95 && this.life.wine > 0.02 && !this.sip;
+  }
+
   // ---------- Свет ----------
 
   /** Свет кадра: огонь дышит, свечи горят ночью, небо и солнце — из города. */
   private light(t: number, sky: InsideSky): void {
     const u = this.u;
+    this.skyLast = { night: sky.night, sunY: sky.sunDir.y, sunX: sky.sunDir.x };
     u.uTime.value = t;
     const tex = this.cityTex();
     if (tex && u.cityTex.value !== tex) u.cityTex.value = tex;
@@ -745,7 +946,8 @@ export class ChambersRoom implements Inside {
       .add(C.copy(BOUNCE).multiplyScalar(1.5 * sky.daylight))
       .add(C.copy(CANDLE).multiplyScalar(0.008 * lit));
     const h = this.hover?.kind === 'thing' ? this.hover.thing : null;
-    const sel = h && (!this.held || h.id === this.held.id) ? h.code : 0;
+    const hv = this.hover;
+    const sel = h && (!this.held || h.id === this.held.id) ? h.code : hv?.kind === 'folk' ? LIFE_CODE[hv.who] : hv?.kind === 'cat' ? LIFE_CODE.cat : hv?.kind === 'poi' && hv.poi.id === 'door' ? LIFE_CODE.door : 0;
     u.uSel.value = sel;
     u.uSelGlow.value = 0.65 + Math.sin(t * 4) * 0.25;
     // Небо за окнами — своё, а не плоский цвет фона: к горизонту — дымка города (на ней тает даль города), к зениту —
@@ -816,6 +1018,27 @@ export class ChambersRoom implements Inside {
     V.set(thing.grip[0], thing.grip[1], thing.grip[2]).applyQuaternion(HOLD);
     POS.copy(tr.rest).lerp(V2.sub(V), k);
     tr.mesh.position.copy(POS);
+    // Глоток: кубок к губам и наклон к себе; на середине — глоток, вина меньше.
+    if (this.sip && h.id === 'goblet') {
+      const s = this.sip;
+      s.t += dt;
+      const up = easeInOut(clamp(s.t / 0.55, 0, 1)) * (1 - easeInOut(clamp((s.t - 1.2) / 0.5, 0, 1)));
+      V.set(0, -0.085, -0.12).applyQuaternion(cam.quaternion).add(cam.position);
+      V2.set(0, 0.19, 0).applyQuaternion(tr.mesh.quaternion);
+      tr.mesh.position.lerp(V.sub(V2), up);
+      V.set(1, 0, 0).applyQuaternion(cam.quaternion);
+      Q.setFromAxisAngle(V, 1.05 * up);
+      tr.mesh.quaternion.premultiply(Q);
+      if (!s.gulped && s.t > 0.85) {
+        s.gulped = true;
+        this.life.wine = Math.max(0, this.life.wine - SIP);
+        this.onLifeCue?.('gulp', null);
+      }
+      if (s.t >= SIP_LEN) {
+        this.sip = null;
+        this.changed();
+      }
+    }
     if (h.dir < 0 && h.t <= 0) {
       tr.mesh.position.copy(tr.rest);
       tr.mesh.quaternion.copy(REST);
@@ -879,6 +1102,18 @@ export class ChambersRoom implements Inside {
       const target = holdHand(thing.hold, [V.x, V.y, V.z], [V2.x, V2.y, V2.z], [cf.x, cf.y, cf.z], [cr.x, cr.y, cr.z], thing.gripR);
       rightH = blendHand(rightH ?? low(1), target, easeInOut(h.t));
     }
+    // Гладит кота: ладонь вниз, пальцы к хвосту, рука идёт от шеи к спине и обратно (Г-7).
+    const cat = this.life.cat;
+    if (this.pet && cat?.visible) {
+      const pk = this.petK();
+      const s = (Math.sin(this.pet.t * 2.4 - Math.PI / 2) + 1) / 2;
+      const a = cat.rig.at('neck');
+      const b = cat.rig.at('pelvis');
+      const w: [number, number, number] = [a[0] + (b[0] - a[0]) * s, a[1] + (b[1] - a[1]) * s + 0.075, a[2] + (b[2] - a[2]) * s];
+      const dl = Math.hypot(b[0] - a[0], b[2] - a[2]) || 1;
+      const target: HandPose = { w, f: [(b[0] - a[0]) / dl, -0.25, (b[2] - a[2]) / dl], u: [0, 1, 0], curl: 0.18, spread: 0.1 };
+      rightH = blendHand(rightH ?? low(1), target, pk);
+    }
     const sit = a?.a.id === 'desk' && f ? f.sit : 0;
     this.body.update(rightH || left || sit > 0.02 ? { eye, yaw, left, right: rightH, sit, seat: { x: CHAIR.x, z: CHAIR.z - 0.14, y: 0.55 } } : null, this.origin);
   }
@@ -905,6 +1140,17 @@ export class ChambersRoom implements Inside {
           right: { w: [-0.17, SILL + 0.04, HALF + 0.8], f: [0.22, -0.16, 1], u: [0, 1, 0.16], curl: 0.12, spread: 0.1 },
           left: { w: [0.17, SILL + 0.04, HALF + 0.8], f: [-0.22, -0.16, 1], u: [0, 1, 0.16], curl: 0.12, spread: 0.1 },
         };
+      case 'knock': {
+        // Стук (Г-7): правая — кулаком к доске двери, на ударах касается её и отдёргивается; левая опущена.
+        const at = this.act?.t ?? 0;
+        let hit = 0;
+        for (const k of KNOCKS) hit = Math.max(hit, Math.max(0, 1 - Math.abs(at - k) / 0.11));
+        const leafZ = -HALF - 0.32 + 0.11;
+        return {
+          right: { w: [DOOR_AT[0] + 0.06, 1.38, leafZ + 0.1 - 0.085 * hit], f: [0.05, 0.25, -1], u: [-0.15, 0.95, 0.2], curl: 0.92 },
+          left: { w: [eye[0] - right[0] * 0.24, eye[1] - 0.9, eye[2] - right[2] * 0.24 + fwd[2] * 0.05], f: [0, -1, 0], u: [-right[0], 0, -right[2]], curl: 0.25 },
+        };
+      }
       case 'warm': {
         // Ладони к огню, пальцы вверх; кисти чуть трутся одна о другую.
         const hand = (side: 1 | -1): HandPose => {
@@ -1012,6 +1258,14 @@ export class ChambersRoom implements Inside {
       return;
     }
     if (!aim) return;
+    if (aim.kind === 'folk') {
+      this.life.callOver(aim.who);
+      return;
+    }
+    if (aim.kind === 'cat') {
+      this.petCat();
+      return;
+    }
     if (this.mode === 'act') return;
     if (aim.kind === 'poi') {
       if (aim.poi.id !== 'hall') this.intend({ kind: 'spot', id: aim.poi.id });
@@ -1084,6 +1338,9 @@ export class ChambersRoom implements Inside {
         if (hit) consider({ kind: 'poi', poi: p }, V.distanceTo(RAY.origin) + 0.6, false);
       }
     }
+    // Люди и кот (Г-7): точнее мебели — тело перед ней.
+    const lp = this.life.pick(RAY);
+    if (lp) consider(lp.kind === 'folk' ? { kind: 'folk', who: lp.who } : { kind: 'cat' }, lp.d, true);
     const found = best as { aim: Aim } | null;
     return found ? found.aim : null;
   }
@@ -1204,7 +1461,8 @@ export class ChambersRoom implements Inside {
     if (aim && this.mode !== 'act' && !(this.held && this.held.dir > 0)) {
       const box = aim.kind === 'thing' ? this.worldBox(aim.thing) : null;
       const hb = aim.kind === 'poi' ? aim.poi.hits[0] : null;
-      const s = box ? this.screenOf(box) : hb ? this.screenOf(hb) : { x: 0, y: 0, on: false, dist: 0 };
+      const lv = aim.kind === 'folk' || aim.kind === 'cat' ? this.lifeTop(aim) : null;
+      const s = box ? this.screenOf(box) : hb ? this.screenOf(hb) : lv ? this.screenOf(lv) : { x: 0, y: 0, on: false, dist: 0 };
       if (s.on) {
         const [name, small] = this.aimWords(aim);
         const key = `${name}:${small}`;
@@ -1260,6 +1518,12 @@ export class ChambersRoom implements Inside {
   /** Подпись того, что под пальцем: имя и что будет от касания. */
   private aimWords(aim: Aim): [string, string] {
     if (aim.kind === 'poi') return [aim.poi.name, aim.poi.verb];
+    if (aim.kind === 'folk') return [FOLK_NAME[aim.who], 'Поговорить'];
+    if (aim.kind === 'cat') {
+      const c = this.life.cat;
+      const near = !!c && Math.hypot(c.x - this.pose.x, c.z - this.pose.z) < 0.95;
+      return ['Кот', near ? 'Погладить' : 'Позвать и погладить'];
+    }
     const t = aim.thing;
     const seated = this.mode === 'in' && this.act?.a.id === 'desk';
     if (!isTrinket(t)) return [t.name, seated ? t.hint : 'Сесть за стол'];
@@ -1287,11 +1551,22 @@ export class ChambersRoom implements Inside {
     this.handFire.setLevel(q);
   }
 
-  /** Треугольники и вызовы комнаты — стенду и бюджету. */
+  /** Над головой человека или над котом — подписи касания (мир). */
+  private lifeTop(aim: Aim): THREE.Vector3 | null {
+    if (aim.kind === 'folk') {
+      const p = this.life.personOf(aim.who);
+      return p ? new THREE.Vector3(...p.rig.at('head', [0, 0.26, 0])).add(this.origin) : null;
+    }
+    const c = this.life.cat;
+    return c?.visible ? new THREE.Vector3(c.x, c.y + 0.42, c.z).add(this.origin) : null;
+  }
+
+  /** Треугольники и вызовы комнаты — стенду и бюджету (с живыми, что сейчас в покоях). */
   counts(): { triangles: number; meshes: number } {
     let tris = 0;
     for (const m of this.meshes) tris += (m.geometry.index?.count ?? 0) / 3;
-    return { triangles: Math.round(tris + this.body.triangles), meshes: this.meshes.length + 3 };
+    const l = this.life.counts();
+    return { triangles: Math.round(tris + this.body.triangles + l.triangles), meshes: this.meshes.length + 3 + l.meshes };
   }
 
   dispose(): void {
@@ -1306,6 +1581,8 @@ export class ChambersRoom implements Inside {
     this.sky.mat.dispose();
     this.fire.dispose();
     this.handFire.dispose();
+    this.life.dispose();
+    this.wineMesh.geometry.dispose();
     this.scene.clear();
     this.sticks.clear();
     this.keys.clear();
@@ -1313,7 +1590,27 @@ export class ChambersRoom implements Inside {
     this.onUse = null;
     this.onEar = null;
     this.onCue = null;
+    this.onLifeCue = null;
   }
+}
+
+/** Дверь в осях комнаты: середина проёма у пола внутренней грани. */
+const DOOR_AT: [number, number, number] = [DOOR.x, 0, -HALF];
+
+/** Гладь вина: диск радиуса 1 (масштаб — по уровню), лицом вверх; тёмно-красное, с бликом. */
+function wineSurface(m: THREE.Material): THREE.Mesh {
+  const b = new Mesher();
+  b.shine = 0.55;
+  const n = 14;
+  for (let k = 0; k < n; k++) {
+    const a0 = (k / n) * Math.PI * 2;
+    const a1 = ((k + 1) / n) * Math.PI * 2;
+    b.tri([0, 0, 0], [Math.cos(a1), 0, Math.sin(a1)], [Math.cos(a0), 0, Math.sin(a0)], 'plain', tint(0x4a0a14));
+  }
+  const mesh = new THREE.Mesh(geometryOf(b.b), m);
+  mesh.name = 'chambers-wine';
+  mesh.visible = false;
+  return mesh;
 }
 
 /** Плитка камня покоев: цвет и рельеф в одной текстуре, повтор без шва, мипы. Без страницы — один тон. */

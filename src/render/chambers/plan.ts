@@ -48,7 +48,7 @@ export interface Pose {
 }
 
 /** Место действия: сесть за стол, лечь, к окну, к огню, к оружию. `hall` — стоя посреди покоев (вход и снимки стенда). */
-export type SpotId = 'desk' | 'window' | 'hearth' | 'bed' | 'arms';
+export type SpotId = 'desk' | 'window' | 'hearth' | 'bed' | 'arms' | 'door';
 export type PoiId = 'hall' | SpotId;
 
 /** Где тело стоит перед действием: место на полу и куда лицом. */
@@ -261,6 +261,17 @@ export const POIS: readonly Poi[] = [
     pitch: [-1.2, 1.1],
     hits: [box(4.6, 0, -3.9, 5.2, 3.4, -0.8)],
   },
+  {
+    id: 'door',
+    name: 'Дверь',
+    verb: 'Постучать — позвать слугу',
+    // Постучал и отступил на шаг (Г-7): створка открывается внутрь, к восточной стене, — слуга входит.
+    pose: { x: DOOR.x - 0.1, y: 1.62, z: -3.62, yaw: Math.PI, pitch: -0.06, fov: 64 },
+    approach: { x: DOOR.x - 0.1, z: -3.78, yaw: Math.PI },
+    yaw: [-1.5, 1.5],
+    pitch: [-1.0, 0.8],
+    hits: [box(DOOR.x - DOOR.w / 2 - 0.05, 0, -HALF - 0.4, DOOR.x + DOOR.w / 2 + 0.05, DOOR.h, -HALF + 0.05)],
+  },
 ];
 
 export const POI_BY_ID = Object.fromEntries(POIS.map((p) => [p.id, p])) as Record<PoiId, Poi>;
@@ -434,6 +445,7 @@ export const LABELS: readonly Label[] = [
   { id: 'bed', name: 'Кровать', box: bedBox, at: [(BED.x0 + BED.x1) / 2, BED.top + 0.16, (BED.z0 + BED.z1) / 2 + 0.3], near: NEAR_BIG, desk: false },
   { id: 'hearth', name: 'Камин', box: hearthBox, at: [HEARTH.x, HEARTH.hoodLow + 0.1, HEARTH.hoodFront - 0.05], near: NEAR_BIG, desk: false },
   { id: 'armsWall', name: 'Щит и копья', box: armsBox, at: [HALF - 0.05, ARMS.y + 0.55, ARMS.z], near: NEAR_BIG, desk: false },
+  { id: 'door', name: 'Дверь', box: box(DOOR.x - DOOR.w / 2, 0, -HALF - 0.35, DOOR.x + DOOR.w / 2, DOOR.h, -HALF), at: [DOOR.x, 1.95, -HALF - 0.02], near: NEAR_BIG, desk: false },
   { id: 'windowS', name: 'Окно на город', box: box(-south.inW / 2, 0, HALF, south.inW / 2, south.inSpring + 1, HALF + WALL_T), at: [0, 2.05, HALF + 0.2], near: NEAR_WINDOW, desk: false },
   ...OPENINGS.filter((o) => o.wall !== 'south').map((o) => ({
     id: o.wall === 'west' ? 'windowW' : 'windowE',

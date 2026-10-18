@@ -5,7 +5,7 @@
 // Каждое дело — ключи от места подхода (`plan.Poi.approach`, стоя) до позы дела (`plan.Poi.pose`). Между ключами —
 // монотонная кубическая кривая по каждому числу (Фритч — Карлсон): скорость непрерывна, на концах — ноль, и ни одно
 // число не перелетает ключ — камера не качается и не дёргается. Встать — те же ключи назад.
-import { CHAIR, HALF, POI_BY_ID, type PoiId, type SpotId } from './plan';
+import { CHAIR, DOOR, HALF, POI_BY_ID, type PoiId, type SpotId } from './plan';
 import { EYE_STAND } from './walk';
 
 /** Числа ключа: глаз (место, поворот, наклон), доля рук в деле `hands` и доля посадки `sit` (ноги под столом). */
@@ -23,7 +23,7 @@ export interface Key {
 export type Frame = Omit<Key, 't'>;
 
 /** Руки дела: что делают, когда доля рук — единица (`body.ts` ставит кисти и сгибает пальцы). */
-export type HandsKind = 'none' | 'desk' | 'sill' | 'warm';
+export type HandsKind = 'none' | 'desk' | 'sill' | 'warm' | 'knock';
 
 export interface Act {
   id: SpotId;
@@ -91,7 +91,16 @@ export const ACTS: Record<SpotId, Act> = {
     // правитель отступает от стены на шаг: клинок целиком перед глазом, а не упёрт в камень (Г-6).
     keys: [start('arms', -0.1), k(0.6, 4.34, 1.58, -1.95, Math.PI / 2, -0.14), k(1.3, 3.8, 1.61, -1.95, Math.PI / 2, -0.06), rest('arms', 1.9, 0)],
   },
+  door: {
+    id: 'door',
+    hands: 'knock',
+    // Шаг к двери, три удара костяшками (`KNOCKS`), шаг назад: створка открывается внутрь (Г-7).
+    keys: [start('door', -0.05), k(0.85, DOOR.x - 0.1, 1.62, -4.62, Math.PI, -0.02, 1), k(1.95, DOOR.x - 0.1, 1.62, -4.66, Math.PI, -0.02, 1), k(2.65, DOOR.x - 0.1, 1.62, -3.95, Math.PI, -0.05, 0), rest('door', 3.1, 0)],
+  },
 };
+
+/** Удары в дверь — миги дела «Дверь», с: костяшки касаются доски (звук стука — на них же). */
+export const KNOCKS = [1.08, 1.34, 1.6] as const;
 
 /** На каком ключе дела «Оружие» рука берёт меч, с. */
 export const GRAB_AT = 0.6;
