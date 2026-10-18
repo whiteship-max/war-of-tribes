@@ -557,3 +557,21 @@ CHROME=… WXDAY=0.85 CHAMBERS=desk:0:0:goblet …     # кубок в руке
 - Брошенного замка машины не было (`~/.heavy-job.lock` нет). Временный worktree `game/c-3` для описи «до» снят.
 
 Г-4: ГОТОВО
+
+## Слияние Г-1…Г-4: полная приёмка и выкладка (18.10.2026, дома)
+
+Задание владельца: влить `game/c-4` (в ней Г-1…Г-4 подряд: `c-1` ⊂ `c-2` ⊂ `c-3` ⊂ `c-4`), пол, полная приёмка
+`--all --base 6296398`, слияние в `master`, выкладка сервера и игры вместе.
+
+### Передача
+
+- Ветка `game/merge-18` от `master` `ed9cd0f`, worktree `%TEMP%/tribe-merge-18` (`node_modules` — junction на общую
+  копию). Слияние `git merge --no-ff origin/game/c-4` — `2441b58`, **конфликтов нет** (база `game/c-1` — сам `ed9cd0f`).
+- Ядро игры слиянием не тронуто: `src/game`, `src/world`, `src/battle`, `src/net` — без правок; из ядра сервера — только
+  Г-1 (`/api/perf`: `contract.ts`, `kv.ts`, `routes/`, `functions/perf.mts`), его разбор — docs/telemetry.md, раздел 8.
+- **Пол** на `2441b58` (дома, по одному, под замком): `npm test` — 346 файлов, 4162 прошли, 43 пропущены, `fan.test`
+  зелёный, красных только-на-Windows нет (360 с); `npm run typecheck` — чисто; `npm run build` — первая загрузка 622.1 КБ.
+- Вывод базы `6296398` — в кэше у всех 21 (щуп `closureKey`/`load`), `--before` не нужен.
+- Дальше: `npm run reports -- --all --base 6296398` в worktree, под замком; потом слияние в `master`, push, выкладка
+  (`sh deploy/update.sh`: Caddyfile запекается в образ `web` — `Dockerfile`, `COPY deploy/Caddyfile`, — пересборка его
+  подхватывает), проверки, уборка веток `game/c-1`…`c-4` и служебных `claude/*`.
