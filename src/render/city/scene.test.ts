@@ -19,8 +19,9 @@ describe('город: сцена', () => {
     citySunAt(target, from);
     expect(from).toEqual({ x: 3, y: 4, z: 0 });
     const src = strip(readFileSync(join(__dirname, 'scene.ts'), 'utf8'));
-    // Над тем, куда смотрит кадр по земле: в городе — цель камеры, в покоях (docs/city_v3.md, Г-4) — точка взгляда из окна.
-    expect(src).toMatch(/citySunAt\(this\.eye, sun\.position\)/);
+    // Над тем, куда смотрит кадр по земле: в городе — цель камеры; в покоях (docs/city_v3.md, Г-4, Г-9) — середина коробки
+    // теней от стены донжона вперёд, на сетке её текселей.
+    expect(src).toMatch(/const c = this\.inside \? shadowSnap\(this\.shadowAt, sun\.position, [^;]+\) : this\.eye;\s*const at = citySunAt\(c, sun\.position\);/);
     expect(src, 'в городе — цель камеры').toMatch(/get eye\(\): THREE\.Vector3 \{\s*return this\.inside \? this\.aim : this\.target;/);
   });
 

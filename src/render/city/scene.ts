@@ -28,7 +28,7 @@ import { buildCity, CITY_SPEC, type CityBuild, type CityShare } from './index';
 import { lowerWater } from './water';
 import { LAMP_SPEC } from '../glow/lamps';
 import { lightScene } from '../glow/rig';
-import { CITY_KEY, CITY_AZIMUTH, CITY_STEP_MAX, cityFog, cityFraming, cityLeash, cityShadowHalf, citySunAt } from './camera';
+import { CITY_KEY, CITY_AZIMUTH, CITY_STEP_MAX, cityFog, cityFraming, cityLeash, cityShadowHalf, citySunAt, INSIDE_SHADOW_AHEAD, shadowSnap } from './camera';
 import { cityPick, screenBox, type Pickable } from './pick';
 import { mainSite, ownerCode, type Site } from './sites';
 import { heightAt } from './layout';
@@ -150,6 +150,8 @@ export class CityScene extends TribeScene {
    */
   private inside: Inside | null = null;
   private aim = new THREE.Vector3();
+  /** Середина коробки теней изнутри (`INSIDE_SHADOW_AHEAD`), до сетки текселей. */
+  private shadowAt = new THREE.Vector3();
   private sky: InsideSky = {
     daylight: 1,
     night: 0,
@@ -293,6 +295,7 @@ export class CityScene extends TribeScene {
     const fwd = rc.getWorldDirection(TMP_V);
     const len = Math.hypot(fwd.x, fwd.z) || 1;
     this.aim.set(rc.position.x + (fwd.x / len) * INSIDE_AIM, 0, rc.position.z + (fwd.z / len) * INSIDE_AIM);
+    this.shadowAt.set(rc.position.x + (fwd.x / len) * INSIDE_SHADOW_AHEAD, 0, rc.position.z + (fwd.z / len) * INSIDE_SHADOW_AHEAD);
     const f = cityFog(INSIDE_DIST);
     const fog = this.scene.fog as THREE.Fog | null;
     if (fog) {
@@ -404,9 +407,11 @@ export class CityScene extends TribeScene {
     // Риг посёлка ставит лампу в сорока единицах от середины: городу — над целью камеры, далеко,
     // чтобы коробка теней шла за кадром.
     const sun = this.rig.sun;
-    const at = citySunAt(this.eye, sun.position);
+    // Изнутри покоев — коробка от стены донжона вперёд и на сетке текселей (Г-9); снаружи — над целью камеры, как было.
+    const c = this.inside ? shadowSnap(this.shadowAt, sun.position, (2 * cityShadowHalf(INSIDE_DIST)) / sun.shadow.mapSize.x) : this.eye;
+    const at = citySunAt(c, sun.position);
     sun.position.set(at.x, at.y, at.z);
-    sun.target.position.copy(this.eye);
+    sun.target.position.set(c.x, c.y, c.z);
     sun.target.updateMatrixWorld();
     // Узкие улицы глубже открытого посёлка: заполняющему свету — треть сверху (стенд, круг 2).
     this.rig.hemi.intensity *= 1.35;
@@ -498,7 +503,7 @@ export class CityScene extends TribeScene {
       u.cIce.value = ice;
       u.cAutumn.value = Math.max(0, Math.min(1, this.seasonVis.turn));
       u.cTime.value = t;
-      u.cSunDir.value.copy(this.rig.sun.position).sub(this.eye).normalize();
+      u.cSunDir.value.copy(this.rig.sun.position).sub(this.rig.sun.target.position).normalize();
       u.cSky.value.copy((this.scene.fog as THREE.Fog).color);
       u.cSel.value = this.selected !== null ? ownerCode(this.buildings.get(this.selected)?.type ?? 'campfire') : 0;
       u.cSelGlow.value = 0.18 + Math.sin(t * 3) * 0.1;
@@ -585,7 +590,7 @@ export class CityScene extends TribeScene {
     k.nightK = this.light.nightK;
     k.sky.copy(this.scene.background as THREE.Color);
     k.haze.copy((this.scene.fog as THREE.Fog).color);
-    k.sunDir.copy(this.rig.sun.position).sub(this.eye).normalize();
+    k.sunDir.copy(this.rig.sun.position).sub(this.rig.sun.target.position).normalize();
     k.sun.copy(this.rig.sun.color).multiplyScalar(this.rig.sun.intensity);
     k.hemi.copy(this.rig.hemi.color).multiplyScalar(this.rig.hemi.intensity);
     const dir = windTo(w.from);

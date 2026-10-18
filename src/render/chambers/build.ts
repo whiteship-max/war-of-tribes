@@ -195,12 +195,15 @@ function shell(m: Mesher, detail: Detail): void {
       gaps.push([-DOOR.x - DOOR.w / 2 - 0.02, -DOOR.x + DOOR.w / 2 + 0.02]);
     }
     gaps.sort((p, q) => p[0] - q[0]);
-    let from = -HALF;
+    // У западной и восточной стен цоколь не доходит до углов на свою толщину: угол — цоколя южной и северной (Г-9: верхи
+    // двух цоколей в углу лежали друг на друге).
+    const end = w === 'west' || w === 'east' ? HALF - 0.035 : HALF;
+    let from = -end;
     for (const [g0, g1] of gaps) {
       if (g0 > from) plinth(from, g0);
       from = g1;
     }
-    plinth(from, HALF);
+    plinth(from, end);
   }
 }
 
@@ -228,6 +231,9 @@ function archRing(m: Mesher, o: Opening): void {
   }
 }
 
+/** Толщина плиты подоконника одиночного окна, м. */
+const SILL_SLAB = 0.06;
+
 /** Ниша окна: откос от комнаты до доски, доска с проёмом (у парного — двумя), короткий откос проёма до наружной грани. */
 function opening(m: Mesher, o: Opening, detail: Detail): void {
   const w = o.wall;
@@ -244,17 +250,19 @@ function opening(m: Mesher, o: Opening, detail: Detail): void {
         const h = (o.outW - 0.16) / 4;
         return archOutline(h, o.sill, o.spring, h, 8).map(([x, y]) => [x + sgn * (h + 0.08), y] as [number, number]);
       })
-    : [archOutline(o.outW / 2, o.sill, o.spring, o.outW / 2, 12)];
+    : // Низ проёма одиночного окна — под плитой подоконника (Г-9): лежал с её верхом в одной плоскости, и видеокарта при
+      // каждом шаге взгляда выбирала то плиту, то откос — подоконник мерцал.
+      [archOutline(o.outW / 2, o.sill - SILL_SLAB, o.spring, o.outW / 2, 12)];
   // Доска: грань к комнате, проёмы — дырами.
   const { u } = WALL_AXES[w];
   const po = wallPoint(w, 0, 0, o.plate);
   m.plane(po, [-u[0], 0, -u[2]], [0, 1, 0], mid.map(([x, y]) => [-(x + a), y]), lights.map((l) => l.map(([x, y]) => [-(x + a), y])), 'dressed', T(HUE.ashlar, 0.82));
   for (const l of lights) m.loft(pt(l, o.plate), pt(l, WALL_T + 0.04), 'dressed', T(HUE.ashlar, 0.86), true, 0.9);
-  // Подоконник проёма — плита с выносом в комнату: на неё кладут руки (дело «Окно»).
+  // Подоконник проёма — плита с выносом в комнату и наружу за грань стены (слив): на неё кладут руки (дело «Окно»).
   if (!o.twin) {
     const s0 = wallPoint(w, a - o.outW / 2 - 0.08, 0, o.plate - 0.07);
-    const s1 = wallPoint(w, a + o.outW / 2 + 0.08, 0, WALL_T + 0.02);
-    m.cuboid(Math.min(s0[0], s1[0]), o.sill - 0.06, Math.min(s0[2], s1[2]), Math.max(s0[0], s1[0]), o.sill, Math.max(s0[2], s1[2]), 'dressed', T(HUE.ashlar, 0.95), { aoLow: 0.8 });
+    const s1 = wallPoint(w, a + o.outW / 2 + 0.08, 0, WALL_T + 0.08);
+    m.cuboid(Math.min(s0[0], s1[0]), o.sill - SILL_SLAB, Math.min(s0[2], s1[2]), Math.max(s0[0], s1[0]), o.sill, Math.max(s0[2], s1[2]), 'dressed', T(HUE.ashlar, 0.95), { aoLow: 0.8 });
   }
   if (o.twin) {
     // Столбик между проёмами: ствол, капитель, база.
@@ -265,8 +273,9 @@ function opening(m: Mesher, o: Opening, detail: Detail): void {
         [0.075, o.sill + 0.08],
         [0.05, o.sill + 0.1],
         [0.05, o.spring - 0.1],
-        [0.085, o.spring - 0.02],
-        [0.085, o.spring + 0.02],
+        // Капитель — уже промежутка между проёмами (±0,08): грань в 0,085 ложилась на откос проёма (Г-9).
+        [0.072, o.spring - 0.02],
+        [0.072, o.spring + 0.02],
       ],
       10,
       'dressed',
@@ -291,23 +300,32 @@ function opening(m: Mesher, o: Opening, detail: Detail): void {
     for (const sgn of [-1, 1]) {
       const p = wallPoint(w, a + sgn * (o.midW / 2 - 0.06), 0, o.plate - 0.04);
       const q = wallPoint(w, a + sgn * (o.midW / 2 + 0.14), 0, o.plate - 0.9);
-      shutter(m, p, q, o.sill + 0.05, o.spring + 0.55);
+      shutter(m, p, q, o.sill + 0.05, o.spring + 0.55, wallPoint(w, a, 0, o.plate - 0.45));
     }
   }
   if (detail > 0 && !o.seats) {
     for (const sgn of [-1, 1]) {
       const p = wallPoint(w, a + sgn * (o.midW / 2 - 0.05), 0, o.plate - 0.03);
       const q = wallPoint(w, a + sgn * (o.midW / 2 + 0.06), 0, o.plate - 0.55);
-      shutter(m, p, q, o.sill, o.spring + 0.3);
+      shutter(m, p, q, o.sill, o.spring + 0.3, wallPoint(w, a, 0, o.plate - 0.3));
     }
   }
 }
 
-/** Ставня: доски на шпонках, петли — железом; лежит от петли `p` к краю `q` от низа до верха. */
-function shutter(m: Mesher, p: V3, q: V3, y0: number, y1: number): void {
+/**
+ * Ставня: доски на шпонках, петли — железом; лежит от петли `p` к краю `q` от низа до верха, толщей и петлями — к `to`
+ * (к середине проёма). Г-9: у парных окон одна ставня каждой пары стояла толщей в откосе, и её петли спорили с камнем за
+ * пиксель.
+ */
+function shutter(m: Mesher, p: V3, q: V3, y0: number, y1: number, to: V3): void {
   const W = T(HUE.oak, 0.95);
-  const dx = q[0] - p[0];
-  const dz = q[2] - p[2];
+  let dx = q[0] - p[0];
+  let dz = q[2] - p[2];
+  if (-dz * (to[0] - p[0]) + dx * (to[2] - p[2]) < 0) {
+    [p, q] = [q, p];
+    dx = -dx;
+    dz = -dz;
+  }
   const len = Math.hypot(dx, dz) || 1;
   const nx = -dz / len;
   const nz = dx / len;
@@ -704,7 +722,8 @@ function desk(m: Mesher, cloth: Mesher): void {
     const cx = (lb.x0 + lb.x1) / 2 + (i - 1) * 0.015;
     const cz = (lb.z0 + lb.z1) / 2 + (i - 1) * 0.01;
     m.code = code('letters');
-    m.at(cx, y + i * 0.008, cz, -0.14 + i * 0.12).cuboid(-0.125, 0, -0.085, 0.125, 0.0075, 0.085, 'plain', T(0xd8c49a), { skip: '-y' });
+    // Верх листа — грань с письмом (`cloth`); своего верха у бруска нет (Г-9: две грани в одной плоскости мерцали).
+    m.at(cx, y + i * 0.008, cz, -0.14 + i * 0.12).cuboid(-0.125, 0, -0.085, 0.125, 0.0075, 0.085, 'plain', T(0xd8c49a), { skip: '-y +y' });
     cloth.at(cx, y + i * 0.008, cz, -0.14 + i * 0.12);
     cloth.quad([0.125, 0.0075, -0.085], [-0.125, 0.0075, -0.085], [-0.125, 0.0075, 0.085], [0.125, 0.0075, 0.085], 'cloth', T(0xffffff), [1, 1, 1, 1], cellUv('letter'));
   }
@@ -738,7 +757,7 @@ function desk(m: Mesher, cloth: Mesher): void {
   m.code = code('people');
   m.cuboid(pb.x0, y, pb.z0, pb.x1, y + 0.035, pb.z1, 'cloth', T(HUE.leather, 0.8), {});
   cloth.code = code('people');
-  sheet(cloth, { ...pb, x0: pb.x0 + 0.02, x1: pb.x1 - 0.02, z0: pb.z0 + 0.02, z1: pb.z1 - 0.02 }, y + 0.037, 'ledger');
+  sheet(cloth, { ...pb, x0: pb.x0 + 0.02, x1: pb.x1 - 0.02, z0: pb.z0 + 0.02, z1: pb.z1 - 0.02 }, y + 0.04, 'ledger');
   // Перечень войска — длинный лист.
   const ab = by('army');
   cloth.code = code('army');
@@ -1000,10 +1019,10 @@ function chests(m: Mesher, seg: number): void {
     for (const t of [0.1, 0.5, 0.9]) {
       if (along) {
         const x = x0 + (x1 - x0) * t;
-        m.cuboid(x - 0.028, 0.04, z0 - 0.022, x + 0.028, h + 0.006, z1 + 0.022, 'plain', T(HUE.iron, 1.2), {});
+        m.cuboid(x - 0.028, 0.04, z0 - 0.026, x + 0.028, h + 0.006, z1 + 0.026, 'plain', T(HUE.iron, 1.2), {});
       } else {
         const z = z0 + (z1 - z0) * t;
-        m.cuboid(x0 - 0.022, 0.04, z - 0.028, x1 + 0.022, h + 0.006, z + 0.028, 'plain', T(HUE.iron, 1.2), {});
+        m.cuboid(x0 - 0.026, 0.04, z - 0.028, x1 + 0.026, h + 0.006, z + 0.028, 'plain', T(HUE.iron, 1.2), {});
       }
     }
     // Замок — на лицевой стороне к середине комнаты.
@@ -1104,7 +1123,15 @@ function chessTable(m: Mesher, cloth: Mesher, seg: number, detail: Detail): void
   cloth.code = 0;
   const h = board / 2;
   cloth.quad([x - h, top + 0.012, z + h], [x + h, top + 0.012, z + h], [x + h, top + 0.012, z - h], [x - h, top + 0.012, z - h], 'cloth', T(0xffffff), [1, 1, 1, 1], cellUv('chess'));
-  m.cuboid(x - h - 0.01, top, z - h - 0.01, x + h + 0.01, top + 0.011, z + h + 0.01, 'wood', T(HUE.dark), {});
+  // Доска: верх — клетки (`cloth`), вокруг них — рамка; своего верха под клетками у доски нет (Г-9: клетки в миллиметре над
+  // ним мерцали издали).
+  m.cuboid(x - h - 0.01, top, z - h - 0.01, x + h + 0.01, top + 0.012, z + h + 0.01, 'wood', T(HUE.dark), { skip: '+y' });
+  const rim = (x0: number, z0: number, x1: number, z1: number): void =>
+    m.quad([x0, top + 0.012, z1], [x1, top + 0.012, z1], [x1, top + 0.012, z0], [x0, top + 0.012, z0], 'wood', T(HUE.dark));
+  rim(x - h - 0.01, z - h - 0.01, x + h + 0.01, z - h);
+  rim(x - h - 0.01, z + h, x + h + 0.01, z + h + 0.01);
+  rim(x - h - 0.01, z - h, x - h, z + h);
+  rim(x + h, z - h, x + h + 0.01, z + h);
   // Фигуры: две последние горизонтали у каждой стороны (у «Низкого» — только старшие).
   const sq = board / 8;
   const rows = detail === 0 ? [0, 7] : [0, 1, 6, 7];
@@ -1178,7 +1205,8 @@ function shelves(m: Mesher, seg: number, detail: Detail): void {
     // Боковины, верх с карнизом, цоколь.
     for (const z of [z0, z1 - 0.05]) m.cuboid(Math.min(inX, wallX), 0, z, Math.max(inX, wallX), h, z + 0.05, 'wood', O, { aoLow: 0.6 });
     m.cuboid(Math.min(inX + out * 0.03, wallX), h, z0 - 0.03, Math.max(inX + out * 0.03, wallX), h + 0.07, z1 + 0.03, 'wood', T(HUE.oak, 1), {});
-    m.cuboid(Math.min(inX, wallX), 0, z0, Math.max(inX, wallX), 0.1, z1, 'wood', T(HUE.oak, 0.7), {});
+    // Цоколь — между боковинами: торцы вровень с ними спорили бы за пиксель (Г-9).
+    m.cuboid(Math.min(inX, wallX), 0, z0 + 0.05, Math.max(inX, wallX), 0.1, z1 - 0.05, 'wood', T(HUE.oak, 0.7), {});
     const levels = west ? [0.1, 0.62, 1.12, 1.62] : [0.1, 0.5, 0.9, 1.3, 1.7];
     for (const y of levels.slice(1)) m.cuboid(Math.min(inX, wallX), y - 0.035, z0 + 0.05, Math.max(inX, wallX), y, z1 - 0.05, 'wood', O, {});
     if (west) {
@@ -1223,7 +1251,9 @@ function shelves(m: Mesher, seg: number, detail: Detail): void {
       // Гнёзда со свитками: решётка, в каждом — свитки торцами к комнате.
       const cols = 4;
       const cw = (z1 - z0 - 0.1) / cols;
-      for (let i = 1; i < cols; i++) m.cuboid(Math.min(inX, wallX), 0.1, z0 + 0.05 + i * cw - 0.012, Math.max(inX, wallX), h, z0 + 0.05 + i * cw + 0.012, 'wood', O, {});
+      // Стойки решётки — на 4 мм глубже полок: лица вровень спорили бы за пиксель (Г-9).
+      const inner = inX - out * 0.004;
+      for (let i = 1; i < cols; i++) m.cuboid(Math.min(inner, wallX), 0.1, z0 + 0.05 + i * cw - 0.012, Math.max(inner, wallX), h, z0 + 0.05 + i * cw + 0.012, 'wood', O, {});
       for (let k = 0; k + 1 < levels.length; k++) {
         const y = levels[k];
         const rowH = levels[k + 1] - y - 0.04;
@@ -1247,7 +1277,9 @@ function shelves(m: Mesher, seg: number, detail: Detail): void {
             );
             m.reset();
             // Тесьма.
-            if (detail > 1) m.cuboid(Math.min(inX - out * 0.05, inX - out * 0.07), cy - rr - 0.002, cz - rr - 0.002, Math.max(inX - out * 0.05, inX - out * 0.07), cy + rr + 0.002, cz + rr + 0.002, 'cloth', T(r() < 0.5 ? HUE.red : HUE.green, 0.9), {});
+            // Тесьма у соседних свитков — на разной глубине: вровень их торцы спорили бы за пиксель (Г-9).
+            const td = 0.04 + (j % 3) * 0.008;
+            if (detail > 1) m.cuboid(Math.min(inX - out * td, inX - out * (td + 0.02)), Math.max(y + 0.001, cy - rr - 0.002), cz - rr - 0.002, Math.max(inX - out * td, inX - out * (td + 0.02)), cy + rr + 0.002, cz + rr + 0.002, 'cloth', T(r() < 0.5 ? HUE.red : HUE.green, 0.9), {});
           }
         }
       }
@@ -1393,7 +1425,8 @@ function lights(m: Mesher, flames: Flame[], seg: number): void {
   flames.push({ x: CHESS.x + 0.33, y: CHESS.top + 0.14, z: CHESS.z - 0.12, light: 6, size: 0.045 });
   const sconce = (x: number, y: number, z: number, nz: number, light: number): void => {
     m.beam([x, y - 0.25, z + nz * 0.04], [x, y - 0.02, z + nz * 0.22], 0.025, 0.025, 'plain', I);
-    m.cuboid(x - 0.07, y - 0.32, z - 0.02 * nz - 0.02, x + 0.07, y - 0.12, z - 0.02 * nz + 0.02, 'plain', I, {});
+    // Щиток — на стене, лицом в комнату (Г-9: лежал в толще стены лицом вровень с ней и спорил с кладкой за пиксель).
+    m.cuboid(x - 0.07, y - 0.32, z + 0.02 * nz - 0.02, x + 0.07, y - 0.12, z + 0.02 * nz + 0.02, 'plain', I, {});
     m.at(x, y - 0.02, z + nz * 0.22).lathe(
       [
         [0.06, 0],

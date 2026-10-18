@@ -60,6 +60,13 @@ export function cityFog(dist: number): { near: number; far: number } {
   return { near: dist * 0.8, far: dist * 2.1 + 150 };
 }
 
+/**
+ * Середина коробки теней изнутри покоев, м вперёд от донжона по взгляду (Г-9): коробка (±`cityShadowHalf` вида изнутри)
+ * берёт город от стены донжона до точки взгляда, а не вокруг точки в 130 м, и стоит на сетке своих текселей
+ * (`shadowSnap`): качание головы её не двигает, и тень под окном не перескакивает при каждом теневом проходе.
+ */
+export const INSIDE_SHADOW_AHEAD = 72;
+
 /** Коробка теней вокруг цели: чем ближе камера, тем меньше коробка и чётче тень. */
 export const cityShadowHalf = (dist: number): number => Math.min(190, Math.max(55, dist * 0.42));
 
@@ -71,4 +78,35 @@ export const cityShadowHalf = (dist: number): number => Math.min(190, Math.max(5
 export function citySunAt(target: { x: number; y: number; z: number }, from: { x: number; y: number; z: number }, dist = 600): { x: number; y: number; z: number } {
   const l = Math.hypot(from.x, from.y, from.z) || 1;
   return { x: target.x + (from.x / l) * dist, y: target.y + (from.y / l) * dist, z: target.z + (from.z / l) * dist };
+}
+
+/**
+ * Середина коробки теней — на сетке её текселей (Г-9, мерцание у окна): в плоскости поперёк светила (оси камеры тени —
+ * `lookAt` вдоль светила, верх — небо) точка встаёт на ближний узел шага `texel`. Сдвиг меньше полутекселя коробку не
+ * двигает, больший — на целые тексели, и тени не переливаются с каждым шагом взгляда. Вдоль светила — как была.
+ */
+export function shadowSnap(at: { x: number; y: number; z: number }, from: { x: number; y: number; z: number }, texel: number): { x: number; y: number; z: number } {
+  const l = Math.hypot(from.x, from.y, from.z) || 1;
+  const zx = from.x / l;
+  const zy = from.y / l;
+  const zz = from.z / l;
+  // Право = верх × к светилу, верх камеры = к светилу × право (как у `Object3D.lookAt` камеры с верхом +y).
+  let rx = zz;
+  let rz = -zx;
+  const rl = Math.hypot(rx, rz);
+  if (rl < 1e-6) {
+    rx = 1;
+    rz = 0;
+  } else {
+    rx /= rl;
+    rz /= rl;
+  }
+  const ux = zy * rz;
+  const uy = zz * rx - zx * rz;
+  const uz = -zy * rx;
+  const a = at.x * rx + at.z * rz;
+  const b = at.x * ux + at.y * uy + at.z * uz;
+  const da = Math.round(a / texel) * texel - a;
+  const db = Math.round(b / texel) * texel - b;
+  return { x: at.x + rx * da + ux * db, y: at.y + uy * db, z: at.z + rz * da + uz * db };
 }
