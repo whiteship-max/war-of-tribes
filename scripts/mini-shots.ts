@@ -15,6 +15,7 @@
 //                                         строки на каждый случай
 //   RARE=1 npm run mini:shots           — сид партии, у которой редкое есть во всех трёх полях: земляника, ягнёнок,
 //                                         белый олень (`minigameSeed` новой партии, энергия полна)
+//   SLIDE=1 GAMES=hunt npm run mini:shots — «Охота»: палец увели с «Натянуть» — тетива ослаблена без выстрела (ОТ-1)
 //   HOUR=night npm run mini:shots       — час города (`dawn`, `day`, `dusk`, `night`): свет промысла и строка часа на
 //                                         карточке начала (docs/minigames.md, 18)
 //   BUDGET=1 npm run mini:shots         — бюджет кадра счётом по графу сцены, без браузера (`world.frameCost`), дуга
@@ -178,12 +179,42 @@ async function fitTop(tab: Tab, began: number): Promise<void> {
 }
 
 /**
+ * `SLIDE=1` — отмена натянутого выстрела (ОТ-1, docs/feedback.md): подписи первого входа, тетива натянута мышью CDP на
+ * кнопке «Натянуть», палец уведён вверх дальше кнопки (`pad.SLIDE_OFF`), отпущен. Печатает, ушла ли стрела и сколько их
+ * в колчане до и после: у кода до ОТ-1 стрела уходит, после — нет.
+ */
+async function slide(tab: Tab, began: number): Promise<void> {
+  await sleep(800);
+  await snap(tab, 'hunt-4-coach', began);
+  const quiver = 'JSON.stringify(window.__mini.play.hunt.quiver)';
+  const q0 = await tab.eval<number>(quiver);
+  const x = SCREEN.width * 0.2;
+  const y = SCREEN.height * 0.82;
+  await mouse(tab, 'mouseMoved', x, y);
+  await mouse(tab, 'mousePressed', x, y);
+  await waitFor(tab, 'window.__mini.play.drawn() >= 0.6', 15000);
+  await snap(tab, 'hunt-4-held', began);
+  for (let k = 1; k <= 7; k++) {
+    await mouse(tab, 'mouseMoved', x, y - k * 20);
+    await sleep(60);
+  }
+  await sleep(700);
+  await snap(tab, 'hunt-4-slid', began);
+  await mouse(tab, 'mouseReleased', x, y - 140);
+  await sleep(1500);
+  await snap(tab, 'hunt-4-up', began);
+  const arrows = await tab.eval<number>('JSON.stringify(window.__mini.play.hunt.arrows.length)');
+  console.log(`  палец увели с «Натянуть» и отпустили: стрел в полёте и на земле ${arrows}, в колчане ${q0} → ${await tab.eval<number>(quiver)}`);
+}
+
+/**
  * «Охота»: обзор поля со старта, руки (кнопка «Натянуть» слева, палец движения справа, подписи-указатели первого
  * входа), настоящий поворот пальцем справа, лук натянут на ближнего видимого оленя с поправкой дуги, настоящий выстрел
  * мышью CDP по левой половине холста — кнопке «Натянуть» (прижал — держит — отпустил: тот же путь, что у пальца,
  * `Stage.onDown/onUp`), олень крупно.
  */
 async function hunt(tab: Tab, began: number): Promise<void> {
+  if (process.env.SLIDE) return slide(tab, began);
   await tab.eval<string>(`(() => { window.__mini.seek(2); return JSON.stringify('ok'); })()`);
   await sleep(1500);
   await snap(tab, 'hunt-3-field', began);

@@ -574,15 +574,22 @@ describe('найм нового вида: какой вид выбран', () =>
   // Отзыв тестеров 11.10 (docs/feedback.md): «Нанять» в карточке копейщиков открывал найм с дубинщиками — верхней строкой.
   it('«Нанять» из карточки вида — выбран этот вид; просьба одна, на одно открытие', async () => {
     const { firstTroop } = await import('./RecruitNew');
-    const { askRecruit, takeRecruitAsk } = await import('./recruitAsk');
+    const { askRecruit, dropRecruitAsk, recruitAsked } = await import('./recruitAsk');
     const here = ['clubman', 'spearman', 'archer'] as const;
     const all = (): boolean => true;
     expect(firstTroop([...here], null, 'archer', all, 'spearman'), 'позванный вид сильнее последнего нанятого').toBe('spearman');
     expect(firstTroop([...here], 'archer', null, all, 'spearman'), 'шаг обучения сильнее всего').toBe('archer');
-    expect(firstTroop([...here], null, null, (id) => id !== 'spearman', 'spearman'), 'позванный закрыт — прежнее правило').toBe('clubman');
+    // Закрытый гейтом — тоже он: «Нанять» гаснет с причиной, а не нанимает дубинщиков молча (в новой партии копейщики закрыты).
+    expect(firstTroop([...here], null, 'archer', (id) => id !== 'spearman', 'spearman'), 'позванный закрыт — всё равно он').toBe('spearman');
     expect(firstTroop([...here], null, null, all, 'rider'), 'вид не этого здания — прежнее правило').toBe('clubman');
     askRecruit('spearman');
-    expect(takeRecruitAsk()).toBe('spearman');
-    expect(takeRecruitAsk(), 'второе открытие — без просьбы').toBeNull();
+    expect(recruitAsked()).toBe('spearman');
+    expect(recruitAsked(), 'прочитать дважды можно: начальное значение React зовёт в разработке дважды').toBe('spearman');
+    dropRecruitAsk();
+    expect(recruitAsked(), 'найм встал — просьбы нет').toBeNull();
+    // Сам найм снимает её, встав на экран, а выбирает по ней до того.
+    const src = readFileSync(join(__dirname, 'RecruitNew.tsx'), 'utf8');
+    expect(src).toMatch(/useState<TroopId>\(\(\) => firstTroop\(here, tut, last, open, recruitAsked\(\)\)\)/);
+    expect(src).toContain('useEffect(dropRecruitAsk, []);');
   });
 });

@@ -14,6 +14,8 @@
 //   GROUP=ui8a | ui8b | ui8c TAG=after …            — UI-8: верх, ратуша, ярлык у лесов, подсказка новичку; окна построек
 //                                                     с дублями; «Мораль», «Порядок» вкладками, полководец без отряда
 //   DIR=city_v3 GROUP=g5 TAG=before|after …       — Г-5 (docs/city_v3.md): подсказка с разбором над окном ратуши и её крестик
+//   DIR=feedback GROUP=fb1 TAG=before|after …       — ОТ-1 (docs/feedback.md): «Дружина», найм из карточки, ряд рабочих,
+//                                                     шаг разведчика, полководец на дороге набега
 //   DIR=polish GROUP=p7 TAG=before|after …          — П-7 (docs/polish.md): тревоги войны значками справа снизу — осада
 //                                                     тихая и срочная, набеги, свой лагерь, карта, вход в окно, город без осады
 //
@@ -572,6 +574,96 @@ const GROUPS: Record<string, Step[]> = {
       wait: 1200,
     },
     { name: 'p7-05-city-free', run: `(async () => { window.__ui.reset(); const S = await import('/src/world/store.ts'); S.useWorld.setState({ siege: null, camp: null, marches: [] }); return JSON.stringify('ok'); })()`, wait: 1200 },
+  ],
+  // ОТ-1 (docs/feedback.md): правки по отзывам тестеров — «до» и «после» на одной партии. Касание карты стенд повторяет
+  // тем же, что делает `WorldMap.openAt` своей версии: у кода «до» (нет `raidAcross`) человек в руке по земле идёт сразу —
+  // приказ и тост; у кода «после» разведчик и полководец на дороге набега открывают меню.
+  fb1: [
+    {
+      name: '01-army',
+      run: `(async () => {
+        window.__ui.reset();
+        const g = window.__game.getState();
+        g.act((st) => { st.army.clubman = 40; st.army.archer = 16; st.army.spearman = 12; st.army.rider = 6; });
+        const W = (await import('/src/world/store.ts')).useWorld.getState();
+        await W.pulse();
+        const err = await W.setGarrison({});
+        await W.pulse();
+        window.__game.getState().openTab('army');
+        return JSON.stringify(err ?? 'ok');
+      })()`,
+      wait: 1200,
+      full: true,
+    },
+    {
+      name: '02-hire',
+      run: `(async () => {
+        window.__ui.reset();
+        const T = await import('/src/game/data/troops.ts');
+        window.__game.getState().openTab('army');
+        await new Promise((r) => setTimeout(r, 700));
+        const c = document.querySelector('.sheet.open button[aria-label="' + T.TROOP_BY_ID.spearman.name + ': карточка вида"]');
+        if (!c) return JSON.stringify('нет карточки копейщиков');
+        c.click();
+        await new Promise((r) => setTimeout(r, 700));
+        const r = window.__ui.click('⚔️ Нанять', '.sheet.open');
+        // Найм — ниже окна казарм: прокрутить к выбранной строке вида (её и проверяем).
+        await new Promise((res) => setTimeout(res, 1200));
+        const on = document.querySelector('.sheet.open .nx-grow-row.on');
+        if (on) on.scrollIntoView({ block: 'center' });
+        return JSON.stringify(r === 'ok' ? 'выбран: ' + (on ? on.textContent.trim().slice(0, 24) : 'нет') : r);
+      })()`,
+      wait: 1500,
+    },
+    { name: '03-farm', run: ui(`reset(), window.__ui.building('farm')`), wait: 900 },
+    {
+      name: '04-scout',
+      run: `(async () => {
+        window.__ui.reset();
+        window.__game.getState().openMap();
+        await new Promise((r) => setTimeout(r, 4000));
+        const S = await import('/src/world/store.ts');
+        const C = await import('/src/world/cache.ts');
+        const W = S.useWorld.getState();
+        const h = W.info.home;
+        let c = null;
+        for (let d = 3; d < 9 && !c; d++) if (!C.settlementAt(h.x + d, h.y - 2)) c = { x: h.x + d, y: h.y - 2 };
+        if (!c) return JSON.stringify('нет пустой клетки');
+        if (typeof S.raidAcross === 'function') { await W.openMenu('scout', c); return JSON.stringify('меню'); }
+        const err = await W.moveFigure('scout', c);
+        window.__game.getState().showToast(err ?? 'Разведчик пошёл к ' + c.x + ':' + c.y + '.');
+        return JSON.stringify('шаг сразу');
+      })()`,
+      wait: 1500,
+    },
+    {
+      name: '05-raid-path',
+      run: `(async () => {
+        const S = await import('/src/world/store.ts');
+        const A = await import('/src/world/api.ts');
+        const W = S.useWorld.getState();
+        W.closeMenu();
+        const g = window.__game.getState();
+        g.act((st) => { st.army.clubman = 40; st.army.archer = 16; st.army.spearman = 12; st.army.rider = 6; });
+        await W.pulse();
+        await W.setGarrison({ clubman: 20, archer: 8, spearman: 6 });
+        const info = W.info;
+        const now = S.worldNow();
+        const h = info.home;
+        A.worldApi().save.marches.push({
+          id: 'raid-fb1', seed: 5, mission: 'raid', units: { warrior: 12 }, own: false, fromId: 'lair-fb1', targetId: info.homeId,
+          from: { x: h.x + 9, y: h.y }, to: { x: h.x, y: h.y }, fromName: 'Волчья падь', toName: 'дом',
+          departAt: now - 600000, arriveAt: now + 3000000, phase: 'out', power: 40, loot: null,
+        });
+        await W.pulse();
+        const c = { x: h.x + 4, y: h.y };
+        if (typeof S.raidAcross === 'function') { await W.openMenu('general', c); return JSON.stringify('меню, набегов на карте: ' + S.useWorld.getState().marches.length); }
+        const err = await W.moveFigure('general', c);
+        window.__game.getState().showToast(err ?? 'Полководец пошёл к ' + c.x + ':' + c.y + '.');
+        return JSON.stringify('шаг сразу');
+      })()`,
+      wait: 2000,
+    },
   ],
   misc: [
     // Плашка алмазов с UI-3 открывает подсказку, а не окно (docs/ui_v2.md, 5.2): окно — его хранилищем.
