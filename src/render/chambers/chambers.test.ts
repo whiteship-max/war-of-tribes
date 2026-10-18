@@ -680,17 +680,16 @@ describe('покои: предмет в руке (Г-6)', () => {
       takeIt(room, t.id);
       let checked = 0;
       // Область: повороты пальцем — оборот вокруг оси хвата и наклон до упора в обе стороны.
+      // Полный оборот (12 ведений по 75 точек — по 30°) посередине наклона, потом по полуобороту у обоих упоров наклона.
+      const turn = Array.from({ length: 12 }, () => [75, 0] as const);
+      const half = Array.from({ length: 6 }, () => [75, 0] as const);
       for (const [dx, dy] of [
-        [0, 0],
-        [40, 0],
-        [40, 0],
-        [40, 0],
-        [40, 0],
-        [0, 120],
-        [40, 0],
-        [0, -240],
-        [40, 0],
-        [40, 0],
+        [0, 0] as const,
+        ...turn,
+        [0, 200] as const,
+        ...half,
+        [0, -400] as const,
+        ...half,
       ] as const) {
         if (dx || dy) drag(room, dx, dy);
         run(room, 0.8);
@@ -707,7 +706,7 @@ describe('покои: предмет в руке (Г-6)', () => {
         expect(size, `${what}: размер на экране`).toBeLessThan(t.id === 'sword' ? 640 : 420);
         checked++;
       }
-      expect(checked).toBe(10);
+      expect(checked).toBe(27);
       room.dispose();
     }
   });

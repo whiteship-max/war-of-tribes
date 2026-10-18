@@ -407,6 +407,9 @@ export interface Label {
   desk: boolean;
 }
 
+/** Мелочь (предмет стола, безделушка) — её подпись раскладывается раньше подписи мебели под ней. */
+export const isSmall = (l: Label): boolean => l.near === NEAR_SMALL;
+
 /** Подходить к мелочи — на шаг, к мебели — на два, к окну — к нише. */
 export const NEAR_SMALL = 1.4;
 export const NEAR_BIG = 2.1;
@@ -440,7 +443,14 @@ export const LABELS: readonly Label[] = [
     near: NEAR_WINDOW,
     desk: false,
   })),
-  ...CHESTS.map((c) => ({ id: c.id, name: 'Сундук', box: box(c.x0, 0, c.z0, c.x1, c.h, c.z1), at: [(c.x0 + c.x1) / 2, c.h + 0.02, (c.z0 + c.z1) / 2] as const, near: NEAR_BIG, desk: false })),
+  // Подпись сундука — у переднего края крышки (к середине покоев): посреди крышки стоит корона со своей подписью.
+  ...CHESTS.map((c) => {
+    const cx = (c.x0 + c.x1) / 2;
+    const cz = (c.z0 + c.z1) / 2;
+    const side = Math.abs(cx) > Math.abs(cz);
+    const at = side ? ([cx > 0 ? c.x0 : c.x1, c.h + 0.02, cz] as const) : ([cx, c.h + 0.02, cz > 0 ? c.z0 : c.z1] as const);
+    return { id: c.id, name: 'Сундук', box: box(c.x0, 0, c.z0, c.x1, c.h, c.z1), at, near: NEAR_BIG, desk: false };
+  }),
 ];
 
 /**

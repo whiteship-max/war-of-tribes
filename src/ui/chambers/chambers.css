@@ -39,6 +39,9 @@
 }
 
 .ch-label {
+  /* Подпись под пальцем проступает и гаснет, а не щёлкает (Г-6). */
+  opacity: 0;
+  transition: opacity 0.18s ease-out;
   display: flex;
   flex-direction: column;
   align-items: center;

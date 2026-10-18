@@ -48,6 +48,7 @@ import {
   TRINKETS,
   fitFov,
   floorOf,
+  isSmall,
   isTrinket,
   lookDir,
   softFloor,
@@ -336,7 +337,7 @@ export class ChambersRoom implements Inside {
     if (!host) return;
     const l = document.createElement('div');
     l.className = 'ch-label';
-    l.style.visibility = 'hidden';
+    l.style.opacity = '0';
     host.appendChild(l);
     this.label = l;
     for (const t of LABELS) {
@@ -1173,8 +1174,8 @@ export class ChambersRoom implements Inside {
       V.set(l.at[0], l.at[1], l.at[2]).add(this.origin);
       const s = this.screenOf(V);
       const f = this.tagFade[i];
-      // Уже видимые — первыми: пришедшая подпись не сгоняет стоящую.
-      return { id: l.id, text: l.name, ax: s.x, ay: s.y, dist: s.dist, on: s.on && (wants[i] || f.a > 0.01), rank: (f.a > 0.5 ? 0 : 100) + s.dist };
+      // Уже видимые — первыми: пришедшая подпись не сгоняет стоящую; мелочь — раньше мебели под ней.
+      return { id: l.id, text: l.name, ax: s.x, ay: s.y, dist: s.dist, on: s.on && (wants[i] || f.a > 0.01), rank: (f.a > 0.5 ? 0 : 100) + (isSmall(l) ? 0 : 10) + s.dist };
     });
     const out = layoutTags(items, { left: 6, top: 64, right: w - 6, bottom: h - 8 });
     out.forEach((t, i) => {
@@ -1215,9 +1216,9 @@ export class ChambersRoom implements Inside {
         const w = this.viewSize().w;
         const x = Math.min(Math.max(s.x, 118), Math.max(118, w - 118));
         l.style.transform = `translate3d(${Math.round(x)}px, ${Math.round(Math.max(s.y, 120))}px, 0)`;
-        l.style.visibility = '';
-      } else l.style.visibility = 'hidden';
-    } else l.style.visibility = 'hidden';
+        l.style.opacity = '1';
+      } else l.style.opacity = '0';
+    } else l.style.opacity = '0';
     this.tagsNow.forEach((t, i) => {
       const el = this.tagEls[i];
       if (!el) return;
