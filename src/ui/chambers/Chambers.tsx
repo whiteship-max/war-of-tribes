@@ -223,20 +223,29 @@ export function Chambers() {
   const view = useView();
   const lv = useLife();
   // Разговор (Г-7): кто подошёл и ждёт слова — окно стоит, пока разговор не кончился (последняя реплика — ещё миг).
+  // Каждый подход — свой номер (`LifeView.talk.n`, Г-9): тот же человек с тем же «зачем» начинает новый разговор, даже
+  // если плашка прошлого ещё не погасла.
   const [talk, setTalk] = useState<{ who: Who; why: Why; n: number } | null>(null);
   const lvTalk = lv?.talk ?? null;
   useEffect(() => {
-    if (lvTalk && (!talk || talk.who !== lvTalk.who || talk.why !== lvTalk.why)) setTalk({ ...lvTalk, n: (talk?.n ?? 0) + 1 });
-  }, [lvTalk?.who, lvTalk?.why]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (lvTalk && talk?.n !== lvTalk.n) setTalk({ ...lvTalk });
+  }, [lvTalk?.n]); // eslint-disable-line react-hooks/exhaustive-deps
   // Пока говорят и пока ночь — ноги стоят (смотреть можно): держит режиссёр жизни (`life.holdsLegs`).
   const night = lv?.night ?? null;
+  // Ночь гасит плашку реплики сразу (`plate.Plate.gone`): утром внизу — ничего.
+  useEffect(() => {
+    if (night) setTalk(null);
+  }, [!!night]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Комната встаёт, когда город готов: пока он собирается, слой показывает подъём в покои.
   useEffect(() => {
     let t = 0;
+    let up: Live | null = null;
     const tryRise = (): void => {
       const l = rise();
-      if (l) {
+      // Перерисовка — только когда комната встала, а не каждые 400 мс (Г-9: она перезаводила срок последней реплики).
+      if (l && l !== up) {
+        up = l;
         setReady(true);
         bump((n) => n + 1);
         l.room.attachLabels(tags.current);
@@ -374,7 +383,7 @@ export function Chambers() {
         </button>
       )}
 
-      {talk && live && (
+      {talk && live && !night && (
         <Talk
           key={talk.n}
           life={live.room.life}

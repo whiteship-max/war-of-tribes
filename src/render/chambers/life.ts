@@ -69,8 +69,8 @@ export interface LifeMemory {
 
 /** Что видит слой интерфейса. */
 export interface LifeView {
-  /** Кто подошёл и ждёт слова правителя. */
-  talk: { who: Who; why: Why } | null;
+  /** Кто подошёл и ждёт слова правителя; `n` — номер подхода (окно разговора — новое на каждый, Г-9). */
+  talk: { who: Who; why: Why; n: number } | null;
   /** Кто сейчас в покоях (люди). */
   here: Who[];
   /** Сцена идёт (слуга несёт, служанка наливает): просьбы ждут. */
@@ -122,7 +122,8 @@ export class ChambersLife {
   private leaf: THREE.Mesh;
   private door = { a: 0, goal: 0 };
   private jobs: { s: Script; c: Cond | null }[] = [];
-  private talking: { who: Who; why: Why } | null = null;
+  private talking: { who: Who; why: Why; n: number } | null = null;
+  private talkN = 0;
   private busyN = 0;
   wine = 0;
   private night: { k: number; who: Who; t: number } | null = null;
@@ -368,7 +369,7 @@ export class ChambersLife {
     p.want.curtsy = 0;
     yield wait(0.35, this.clock);
     this.busyN--;
-    this.talking = { who, why };
+    this.talking = { who, why, n: ++this.talkN };
     this.changed();
   }
 
@@ -847,7 +848,7 @@ export class ChambersLife {
       p.place(at.x, at.z, (at as { yaw?: number }).yaw ?? 0);
       if (what.gesture) Object.assign(p.g, what.gesture), Object.assign(p.want, what.gesture);
       if (what.carry) p.carry = what.carry;
-      if (what.talk) this.talking = { who: what.who, why: what.why ?? 'arrive' };
+      if (what.talk) this.talking = { who: what.who, why: what.why ?? 'arrive', n: ++this.talkN };
     }
     if (what.cat) {
       const c = this.ensureCat();

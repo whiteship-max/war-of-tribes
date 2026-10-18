@@ -447,6 +447,28 @@ async function weatherShots(tab: Tab, q: Quality): Promise<void> {
     const name = `${TAG}-wx-${wx}${day ? '-d' + day : ''}${region ? '-' + region : ''}${map ? '-map' : near ? '-' + near.replace(/:/g, '') : ''}${ch ? '-ch-' + ch.replace(/:/g, '_') : ''}-${q}.png`;
     await writeFile(join(OUT, name), Buffer.from(png.data, 'base64'));
     if (wx === 'storm') await tab.eval<string>(`(() => { window.__scene.resume(); return JSON.stringify('ok'); })()`);
+    // Ровен ли свет между кадрами (Г-9, мерцание у окна): `BURST=12 BURSTBOX=0.05,0.76,0.3,0.82` — столько снимков подряд,
+    // средняя яркость прямоугольника кадра (доли ширины и высоты) по каждому и наибольший скачок между соседними.
+    const burst = Number(process.env.BURST ?? 0);
+    if (burst > 0) {
+      const [bx0, by0, bx1, by1] = (process.env.BURSTBOX ?? '0.05,0.76,0.3,0.82').split(',').map(Number);
+      const lum: number[] = [];
+      for (let i = 0; i < burst; i++) {
+        const shot = Buffer.from((await tab.send<{ data: string }>('Page.captureScreenshot', { format: 'png' })).data, 'base64');
+        const img = sharp(shot);
+        const { width = 1, height = 1 } = await img.metadata();
+        const left = Math.round(bx0 * width);
+        const top = Math.round(by0 * height);
+        const { channels } = await img
+          .extract({ left, top, width: Math.max(1, Math.round((bx1 - bx0) * width)), height: Math.max(1, Math.round((by1 - by0) * height)) })
+          .stats();
+        lum.push(0.2126 * channels[0].mean + 0.7152 * channels[1].mean + 0.0722 * channels[2].mean);
+        if (process.env.BURSTU) console.log('    ' + (await tab.eval<string>(`JSON.stringify((() => { const r = window.__chambers; if (!r) return ''; const u = r.u; const l = (c) => (0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b).toFixed(3); return 'солнце ' + l(u.uSun.value) + ' небо ' + l(u.uSky.value) + ' рассеянный ' + l(u.uAmb.value) + ' к солнцу ' + u.uSunDir.value.toArray().map((x) => x.toFixed(3)).join(',') + ' кадр ' + window.__scene.frameNo; })())`)));
+        await sleep(120);
+      }
+      const jumps = lum.slice(1).map((v, i) => Math.abs(v - lum[i]));
+      console.log(`  ровность ${q}: яркость ${lum.map((v) => v.toFixed(1)).join(' ')}; наибольший скачок ${Math.max(0, ...jumps).toFixed(1)}`);
+    }
     const pc = await tab.eval<string>('JSON.stringify(JSON.stringify(window.__scene.precip ? { поле: window.__scene.precip.grounded, ...window.__scene.precip.counts() } : null))').catch(() => '?');
     console.log(`  погода ${q}: ${wx} → .city-shots/${name}; осадки ${pc}`);
   }
