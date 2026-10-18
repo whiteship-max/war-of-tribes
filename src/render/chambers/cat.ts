@@ -292,7 +292,9 @@ export function catPosture(w: Partial<Record<CatBody, number>>, l: CatLook, t: n
   // обвит вокруг морды.
   const curl = W('curl');
   if (curl > 0) {
-    lift[1] += -0.135 * curl;
+    // Наполовину на боку: клубок круглее, белое брюшко и лапы видно сверху.
+    lift[1] += -0.125 * curl;
+    tilt[2] += 0.55 * curl;
     for (const s of ['L', 'R']) {
       add(o, `arm${s}`, 1.1 * curl);
       add(o, `fore${s}`, -2.0 * curl);

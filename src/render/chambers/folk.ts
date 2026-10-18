@@ -664,9 +664,9 @@ export function posture(id: FolkId, t: number, phase: number, walk: number, g: G
     add(o, 'neck', 0.12 * b);
     add(o, 'head', 0.18 * b);
     // Правая рука — к сердцу: плечо чуть вперёд и к телу, локоть согнут до упора.
-    add(o, 'armR', -0.42 * b, 0, 0.3 * b);
-    add(o, 'foreR', -1.95 * b, -0.35 * b, 0);
-    add(o, 'handR', 0.15 * b, 0, -0.2 * b);
+    add(o, 'armR', -0.3 * b, 0, 0.14 * b);
+    add(o, 'foreR', -1.85 * b, 0.95 * b, 0);
+    add(o, 'handR', 0.1 * b, 0, 0.35 * b);
     add(o, 'armL', 0.18 * b, 0, 0.05 * b);
     lift[2] -= 0.05 * b;
   }
