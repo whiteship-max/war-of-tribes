@@ -264,8 +264,6 @@ export class ChambersRoom implements Inside {
   private wineMesh: THREE.Mesh;
   /** Сколько секунд палец взгляда не вёл: столько — и голова сама оборачивается к собеседнику. */
   private idleLook = 0;
-  /** Разговор или ночь: палец движения не ведёт (смотреть можно). */
-  frozen = false;
 
   constructor(keep: Pick<Tower, 'x' | 'z' | 'base' | 'height'>, arms: Arms, quality: Quality, cityTex: () => THREE.Texture | null, memory: LifeMemory = { cat: false, catSpot: null }) {
     this.level = quality;
@@ -540,7 +538,8 @@ export class ChambersRoom implements Inside {
 
   /** Палец и клавиши этого кадра: куда идти и на сколько повернуть голову. */
   private input(): { walk: Walk; look: { yaw: number; pitch: number } } {
-    const walk = this.frozen ? { forward: 0, strafe: 0 } : mergeWalk(this.sticks.walk(), this.keys.walk());
+    // Разговор и ночь держат ноги (`life.holdsLegs`); кончились — палец движения снова ведёт.
+    const walk = this.life.holdsLegs ? { forward: 0, strafe: 0 } : mergeWalk(this.sticks.walk(), this.keys.walk());
     const look = this.sticks.takeLook();
     if (walk.forward !== 0 || walk.strafe !== 0) this.used.walk = true;
     if (look.yaw !== 0 || look.pitch !== 0) {
@@ -768,7 +767,11 @@ export class ChambersRoom implements Inside {
   private intend(then: Then): void {
     const spot = then.kind === 'spot' ? then.id : null;
     if (this.act) {
-      if (this.mode === 'in' && spot === this.act.a.id) return;
+      if (this.mode === 'in' && spot === this.act.a.id) {
+        // У двери постучать ещё раз: шаг назад — и снова к двери (Г-7).
+        if (spot === 'door') this.leave(then);
+        return;
+      }
       this.leave(then);
       return;
     }
@@ -808,7 +811,7 @@ export class ChambersRoom implements Inside {
       c.pet(true);
       this.used.act = true;
     } else {
-      this.petWant = 6;
+      this.petWant = 14;
       c.come(this.pose.x + Math.sin(this.pose.yaw) * 0.5, this.pose.z + Math.cos(this.pose.yaw) * 0.5);
     }
   }

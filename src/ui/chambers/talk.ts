@@ -164,8 +164,8 @@ function servantNews(c: TalkCtx): string {
 function servantOptions(c: TalkCtx): TalkOption[] {
   return [
     c.cat ? { id: 'uncat', text: 'Унеси кота.' } : { id: 'cat', text: 'Приведи кота.' },
-    { id: 'wine', text: `Позови ${c.maid} с вином.` },
-    { id: 'wife', text: `Пригласи госпожу ${c.wife.name}.` },
+    { id: 'wine', text: `Позови ${femCase(c.maid, 'acc')} с вином.` },
+    { id: 'wife', text: `Пригласи госпожу ${femCase(c.wife.name, 'acc')}.` },
     { id: 'castle', text: 'Что слышно в замке?' },
     { id: 'dismiss', text: 'Ступай.' },
   ];
@@ -213,10 +213,25 @@ export function agreeChance(c: TalkCtx, who: 'maid' | 'wife'): number {
   return p;
 }
 
+/**
+ * Женское имя в винительном («позови Марту», «пригласи Иду») и дательном («вели Марте») падеже: на -а — -у и -е, на -я —
+ * -ю и -е, на -ия — -ию и -ии; на согласную и на -о, -у, -е (Нур, Айно, Ану, Эгле) — не склоняются.
+ */
+export function femCase(name: string, c: 'acc' | 'dat'): string {
+  if (/ия$/.test(name)) return name.slice(0, -1) + (c === 'acc' ? 'ю' : 'и');
+  if (/[кгх]а$/.test(name)) return name.slice(0, -1) + (c === 'acc' ? 'у' : 'е');
+  if (/а$/.test(name)) return name.slice(0, -1) + (c === 'acc' ? 'у' : 'е');
+  if (/я$/.test(name)) return name.slice(0, -1) + (c === 'acc' ? 'ю' : 'е');
+  return name;
+}
+
 const fill = (s: string, c: TalkCtx): string =>
   s
     .replace(/\{t\}/g, TITLE[c.faith])
     .replace(/\{r\}/g, c.ruler)
+    .replace(/\{wA\}/g, femCase(c.wife.name, 'acc'))
+    .replace(/\{mA\}/g, femCase(c.maid, 'acc'))
+    .replace(/\{mD\}/g, femCase(c.maid, 'dat'))
     .replace(/\{w\}/g, c.wife.name)
     .replace(/\{m\}/g, c.maid)
     .replace(/\{s\}/g, c.servant)
@@ -266,10 +281,10 @@ export function reply(c: TalkCtx, id: OptionId): TalkTurn {
         return turn(mem.servant.uncat > 1 ? 'Унесу, {t}. Он и сам туда просится.' : 'Унесу, {t}. Кис-кис…', [], { order: 'uncat', end: true });
       case 'wine':
         mem.servant.wine++;
-        return turn(mem.servant.wine > 2 ? 'Опять вина? Велю {m} нести кувшин побольше.' : mem.servant.wine > 1 ? 'Ещё вина? Кликну {m}.' : 'Кликну {m}, {t}. Вина с юга?', [], { order: 'wine', end: true });
+        return turn(mem.servant.wine > 2 ? 'Опять вина? Велю {mD} нести кувшин побольше.' : mem.servant.wine > 1 ? 'Ещё вина? Кликну {mA}.' : 'Кликну {mA}, {t}. Вина с юга?', [], { order: 'wine', end: true });
       case 'wife':
         mem.servant.wife++;
-        return turn(mem.servant.wife > 1 ? 'Позову госпожу, {t}. Она нынче в добром духе, кажись.' : 'Позову госпожу {w}, {t}.', [], { order: 'wife', end: true });
+        return turn(mem.servant.wife > 1 ? 'Позову госпожу, {t}. Она нынче в добром духе, кажись.' : 'Позову госпожу {wA}, {t}.', [], { order: 'wife', end: true });
       case 'castle':
         mem.servant.castle++;
         return turn(servantNews(c), servantOptions(c).filter((o) => o.id !== 'castle'));

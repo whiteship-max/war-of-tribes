@@ -182,6 +182,11 @@ export class ChambersLife {
     return this.cat;
   }
 
+  /** Ноги правителя стоят: с ним говорят (окно разговора) или ночь — смотреть можно, ходить нет. */
+  get holdsLegs(): boolean {
+    return this.talking !== null || this.night !== null;
+  }
+
   /** Человек в покоях (виден) — касанию и тестам. */
   personOf(who: Who): Person | null {
     const p = this.folk.get(who);
@@ -741,7 +746,7 @@ export class ChambersLife {
       if (c.place !== before) this.remember();
     }
     this.stepBall(dt);
-    if (this.night) {
+    if (this.night && this.night.t > -1e8) {
       this.night.t += dt;
       this.night.k = Math.min(1, this.night.t / NIGHT_LEN);
     }
@@ -834,7 +839,7 @@ export class ChambersLife {
   }
 
   /** Стенду и тестам: поставить людей и кота сразу (без сцен). */
-  stage(what: { who?: Who; at?: { x: number; z: number; yaw: number }; gesture?: Partial<Person['g']>; cat?: CatSpot['id'] | 'floor'; catAt?: { x: number; z: number; yaw: number }; door?: number; wine?: number; carry?: Person['carry']; talk?: boolean }): void {
+  stage(what: { who?: Who; at?: { x: number; z: number; yaw: number }; gesture?: Partial<Person['g']>; cat?: CatSpot['id'] | 'floor'; catAt?: { x: number; z: number; yaw: number }; door?: number; wine?: number; carry?: Person['carry']; talk?: boolean; why?: Why; pouring?: boolean; night?: { k: number; who: Who } }): void {
     if (what.who) {
       const p = this.person(what.who);
       p.visible = true;
@@ -842,7 +847,7 @@ export class ChambersLife {
       p.place(at.x, at.z, (at as { yaw?: number }).yaw ?? 0);
       if (what.gesture) Object.assign(p.g, what.gesture), Object.assign(p.want, what.gesture);
       if (what.carry) p.carry = what.carry;
-      if (what.talk) this.talking = { who: what.who, why: 'arrive' };
+      if (what.talk) this.talking = { who: what.who, why: what.why ?? 'arrive' };
     }
     if (what.cat) {
       const c = this.ensureCat();
@@ -856,6 +861,9 @@ export class ChambersLife {
       this.placeLeaf();
     }
     if (what.wine !== undefined) this.wine = what.wine;
+    if (what.pouring !== undefined) this.pouring = what.pouring ? 1 : 0;
+    // Ночь стоит на доле (стенд снимает затемнение с сердцем): часы ночи не идут.
+    if (what.night) this.night = { k: what.night.k, who: what.night.who, t: -1e9 };
     this.changed();
   }
 

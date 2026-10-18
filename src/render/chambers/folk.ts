@@ -257,7 +257,7 @@ export function buildPerson(id: FolkId, arms: Arms, detail: Detail, code: number
     const along = (a: V3, e: V3, k: number): V3 => [a[0] + (e[0] - a[0]) * k, a[1] + (e[1] - a[1]) * k, a[2] + (e[2] - a[2]) * k];
     sb.bone(`arm${side}`);
     // Плечо — шаром: дельта круглая, рука уходит из-под неё, а не торчит коробкой.
-    sb.ball([arm[0] - 0.006 * sx, arm[1] + 0.008, arm[2]], 0.06 * s, seg, 'plain', L.cloth, 1, 1.05);
+    sb.ball([arm[0] - 0.012 * sx, arm[1] - 0.004, arm[2]], 0.052 * s, seg, 'plain', L.cloth, 1, 1.05);
     const sh: V3 = [arm[0] - 0.012 * sx, arm[1] + 0.0, arm[2]];
     sb.loft(
       [
@@ -663,9 +663,10 @@ export function posture(id: FolkId, t: number, phase: number, walk: number, g: G
     add(o, 'chest', 0.32 * b);
     add(o, 'neck', 0.12 * b);
     add(o, 'head', 0.18 * b);
-    add(o, 'armR', -0.75 * b, 0, -0.12 * b);
-    add(o, 'foreR', -1.35 * b, 0.3 * b, 0);
-    add(o, 'handR', 0.2 * b, 0, 0.3 * b);
+    // Правая рука — к сердцу: плечо чуть вперёд и к телу, локоть согнут до упора.
+    add(o, 'armR', -0.42 * b, 0, 0.3 * b);
+    add(o, 'foreR', -1.95 * b, -0.35 * b, 0);
+    add(o, 'handR', 0.15 * b, 0, -0.2 * b);
     add(o, 'armL', 0.18 * b, 0, 0.05 * b);
     lift[2] -= 0.05 * b;
   }

@@ -166,14 +166,18 @@ function talkBase(): Omit<TalkCtx, 'who' | 'why' | 'mem' | 'roll'> {
     cat: l.life.cat,
     wine: l.life.wine,
     adult: adultScenes(),
-    ruler: g.realm.ruler.name ?? 'Правитель',
+    // Супруга и слуги зовут по имени, без прозвища («Бертран», а не «Бертран Хромой»).
+    ruler: firstName(g.realm.ruler.name) ?? 'Правитель',
     faith: g.faith.id ?? 'catholic',
     wife: l.house.wife,
     maid: l.house.maid,
     servant: l.house.servant,
-    heir: g.realm.heir.name,
+    heir: firstName(g.realm.heir.name),
   };
 }
+
+/** Имя без прозвища: первое слово (у составных имён — «Кей-Хосров» — дефис внутри слова). */
+const firstName = (n: string | null): string | null => (n ? n.split(' ')[0] : null);
 
 const TRINKET_BY_ID = Object.fromEntries(TRINKETS.map((t) => [t.id, t])) as Record<TrinketId, (typeof TRINKETS)[number]>;
 
@@ -224,11 +228,8 @@ export function Chambers() {
   useEffect(() => {
     if (lvTalk && (!talk || talk.who !== lvTalk.who || talk.why !== lvTalk.why)) setTalk({ ...lvTalk, n: (talk?.n ?? 0) + 1 });
   }, [lvTalk?.who, lvTalk?.why]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Пока говорят и пока ночь — ноги стоят (смотреть можно): держит режиссёр жизни (`life.holdsLegs`).
   const night = lv?.night ?? null;
-  // Пока говорят и пока ночь — ноги стоят (смотреть можно); кончилось — палец движения снова ведёт.
-  useEffect(() => {
-    if (live) live.room.frozen = !!talk || !!night;
-  }, [talk, night]);
 
   // Комната встаёт, когда город готов: пока он собирается, слой показывает подъём в покои.
   useEffect(() => {

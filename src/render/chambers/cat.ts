@@ -288,23 +288,23 @@ export function catPosture(w: Partial<Record<CatBody, number>>, l: CatLook, t: n
     add(o, 'neck', -0.2 * loaf);
     for (let i = 1; i <= 5; i++) add(o, `tail${i}`, -0.08 * loaf, 0.35 * loaf);
   }
-  // Клубком: на боку, тело изогнуто дугой, нос в хвост.
+  // Клубком: лапы под собой, тело дугой (сверху — буква «С»), голова повёрнута к хвосту и лежит на лапах, хвост
+  // обвит вокруг морды.
   const curl = W('curl');
   if (curl > 0) {
-    lift[1] += -0.145 * curl;
-    tilt[2] += 1.3 * curl;
-    add(o, 'chest', 0.1 * curl, 0.55 * curl);
-    add(o, 'pelvis', -0.1 * curl, -0.6 * curl);
-    add(o, 'neck', 0.35 * curl, 0.55 * curl);
-    add(o, 'head', 0.25 * curl, 0.3 * curl);
+    lift[1] += -0.135 * curl;
     for (const s of ['L', 'R']) {
-      add(o, `arm${s}`, -0.7 * curl);
-      add(o, `fore${s}`, 0.9 * curl);
-      add(o, `thigh${s}`, -0.9 * curl);
-      add(o, `hock${s}`, 1.4 * curl);
+      add(o, `arm${s}`, 1.1 * curl);
+      add(o, `fore${s}`, -2.0 * curl);
+      add(o, `thigh${s}`, -1.25 * curl);
+      add(o, `hock${s}`, 2.3 * curl);
     }
-    add(o, 'tail1', 0, -0.9 * curl);
-    for (let i = 2; i <= 5; i++) add(o, `tail${i}`, 0, -0.45 * curl);
+    add(o, 'chest', 0.05 * curl, 0.6 * curl);
+    add(o, 'pelvis', 0, -0.55 * curl);
+    add(o, 'neck', 0.55 * curl, 0.75 * curl);
+    add(o, 'head', 0.35 * curl, 0.45 * curl, 0.25 * curl);
+    add(o, 'tail1', -0.2 * curl, -0.9 * curl);
+    for (let i = 2; i <= 5; i++) add(o, `tail${i}`, 0.04 * curl, -0.5 * curl);
   }
   // Припал перед прыжком: грудь к полу, зад приподнят и виляет.
   const crouch = W('crouch');
@@ -370,7 +370,7 @@ const south = OPENINGS.find((o) => o.wall === 'south')!;
 /** Места кота: шкура у огня (спит клубком), подоконник южного окна (сидит, на город), кровать (лежит буханкой). */
 export const CAT_SPOTS: readonly CatSpot[] = [
   { id: 'hearth', x: 0.25, y: 0, z: -3.35, yaw: Math.PI + 0.4, body: 'curl' },
-  { id: 'sill', x: 0.6, y: south.sill, z: HALF + south.plate + 0.25, yaw: 0.25, from: { x: 0.4, z: 5.4 }, body: 'sit' },
+  { id: 'sill', x: 0.6, y: south.sill, z: HALF + south.plate + 0.25, yaw: -1.4, from: { x: 0.4, z: 5.4 }, body: 'sit' },
   { id: 'bed', x: (BED.x0 + BED.x1) / 2 + 0.2, y: BED.top + 0.1, z: BED.z1 - 0.45, yaw: -2.2, from: { x: BED.x1 + 0.35, z: BED.z1 - 0.3 }, body: 'loaf' },
 ];
 
@@ -698,7 +698,7 @@ export class Cat {
 
   private move(dt: number): void {
     const q = this.path[0];
-    const want = this.mind === 'play' ? 1.4 : this.mind === 'rub' ? 0.35 : 0.55;
+    const want = this.mind === 'play' ? 1.4 : this.mind === 'rub' ? 0.35 : this.mind === 'come' ? 0.85 : 0.55;
     if (q) {
       const dx = q.x - this.x;
       const dz = q.z - this.z;
