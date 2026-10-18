@@ -41,7 +41,7 @@ const HUE = {
   stoneDark: 0x6e6252,
   soot: 0x2a221c,
   lime: 0xd6cab2,
-  floor: 0x7a5636,
+  floor: 0x9c7552,
   beam: 0x4f3826,
   oak: 0x5e3f28,
   oakLight: 0x7d5a3c,

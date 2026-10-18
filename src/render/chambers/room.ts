@@ -64,7 +64,6 @@ const V = new THREE.Vector3();
 const V2 = new THREE.Vector3();
 const Q = new THREE.Quaternion();
 const E = new THREE.Euler();
-const RAY = new THREE.Ray();
 const BOX = new THREE.Box3();
 const C = new THREE.Color();
 const HOLD = new THREE.Quaternion();
@@ -366,7 +365,8 @@ export class ChambersRoom implements Inside {
     // Небо в окнах: цвет фона города, днём ярче; вспышка молнии — в нём же.
     u.uSky.value.copy(sky.sky).multiplyScalar(1.3 + 1.2 * sky.daylight).add(C.copy(sky.hemi).multiplyScalar(0.12));
     u.uSunDir.value.copy(sky.sunDir);
-    u.uSun.value.copy(sky.sun).multiplyScalar(0.85);
+    // Солнце сквозь проём ярче всего в комнате: пятно на полу читается рядом с огнём и небом окон.
+    u.uSun.value.copy(sky.sun).multiplyScalar(1.25);
     // Отражённый свет: днём комната светла и в углах — окна отдают небо, пол и дерево возвращают его тёплым.
     u.uAmb.value
       .setRGB(0.012, 0.01, 0.009)
@@ -569,9 +569,9 @@ export class ChambersRoom implements Inside {
     const r = this.rect;
     if (r.width < 1 || r.height < 1) return null;
     const ndc = new THREE.Vector2(((x - r.left) / r.width) * 2 - 1, -(((y - r.top) / r.height) * 2 - 1));
-    const ray = new THREE.Raycaster();
-    ray.setFromCamera(ndc, this.camera);
-    RAY.copy(ray.ray);
+    const caster = new THREE.Raycaster();
+    caster.setFromCamera(ndc, this.camera);
+    const RAY = caster.ray;
     let best: { aim: Aim; d: number; exact: boolean } | null = null;
     const consider = (aim: Aim, d: number, exact: boolean): void => {
       if (!best || (exact && !best.exact) || (exact === best.exact && d < best.d)) best = { aim, d, exact };
@@ -644,7 +644,10 @@ export class ChambersRoom implements Inside {
           l.innerHTML = text;
           l.dataset.k = `${h.id}:${near}`;
         }
-        l.style.transform = `translate3d(${Math.round(s.x)}px, ${Math.round(s.y)}px, 0)`;
+        // Подпись не выходит за край экрана: середина — не ближе полуширины плашки (220 px, `chambers.css`) к краю.
+        const w = this.labelHost?.clientWidth ?? this.rect.width;
+        const x = Math.min(Math.max(s.x, 118), Math.max(118, w - 118));
+        l.style.transform = `translate3d(${Math.round(x)}px, ${Math.round(Math.max(s.y, 120))}px, 0)`;
         l.style.visibility = '';
       } else l.style.visibility = 'hidden';
     } else l.style.visibility = 'hidden';

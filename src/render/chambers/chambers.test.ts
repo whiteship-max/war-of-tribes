@@ -122,7 +122,7 @@ describe('покои: стол из кресла', () => {
       const s = onScreen(room, t.box);
       room.down(1, s.x, s.y, PHONE);
       room.up(1);
-      expect(used.at(-1), `${t.id}: окно ${t.door}`).toEqual([t.door, t.id]);
+      expect(used[used.length - 1], `${t.id}: окно ${t.door}`).toEqual([t.door, t.id]);
     }
     expect(used.length).toBe(DESK_THINGS.length);
     // Из середины покоев: касание письма — шаг к столу, а не окно.

@@ -5,7 +5,6 @@
 //
 // UV — плоской проекцией по главной оси грани в метрах плитки слоя; у холста покоев (`paint.ts`) — доли атласа, их
 // зовущий задаёт сам.
-import { ShapeUtils, Vector2 } from 'three';
 import { Builder, type V3 } from '../city/geom';
 import { L, TILE_M, type LayerName } from '../city/tex';
 
@@ -171,32 +170,42 @@ export class Mesher {
 
   /**
    * Плоская грань с дырами в плоскости с началом `o`, осями `u`, `v` (нормаль — u × v, к зрителю): контур и дыры —
-   * многоугольники в метрах плоскости. Режет на треугольники триангуляция three.
+   * многоугольники в метрах плоскости. Режется вертикальными полосами по углам контура и дыр: в каждой полосе — грань под
+   * дырой и над ней (или во всю высоту). Поэтому контур и дыры — выпуклые (прямоугольник стены, арка ниши и проёма), а
+   * дыры по ширине не заходят друг на друга. Триангуляцию three (`ShapeUtils`) покои не зовут: её имя легло бы в кусок
+   * three первой загрузки (docs/city_v3.md, Г-4, «Вес загрузки»).
    */
   plane(o: V3, u: V3, v: V3, outer: readonly (readonly [number, number])[], holes: readonly (readonly (readonly [number, number])[])[], layer: RoomLayer, tint: V3): void {
     const at = (x: number, y: number): V3 => [o[0] + u[0] * x + v[0] * y, o[1] + u[1] * x + v[1] * y, o[2] + u[2] * x + v[2] * y];
-    const contour = outer.map(([x, y]) => new Vector2(x, y));
-    const hs = holes.map((h) => h.map(([x, y]) => new Vector2(x, y)));
-    const all = [...outer, ...holes.flat()];
-    const tris = ShapeUtils.triangulateShape(contour, hs);
+    const xs = [...new Set([...outer, ...holes.flat()].map((p) => p[0]))].sort((a, b) => a - b);
     const [tw, th] = tileOf(layer);
-    for (const [i, j, k] of tris) {
-      const pa = all[i];
-      const pb = all[j];
-      const pc = all[k];
-      // Триангуляция отдаёт обход контура; грань — к зрителю по u × v.
-      const ccw = (pb[0] - pa[0]) * (pc[1] - pa[1]) - (pb[1] - pa[1]) * (pc[0] - pa[0]) > 0;
-      const [p0, p1, p2] = ccw ? [pa, pb, pc] : [pa, pc, pb];
-      this.quad(at(p0[0], p0[1]), at(p1[0], p1[1]), at(p2[0], p2[1]), at(p2[0], p2[1]), layer, tint, [1, 1, 1, 1], [
-        p0[0] / tw,
-        p0[1] / th,
-        p1[0] / tw,
-        p1[1] / th,
-        p2[0] / tw,
-        p2[1] / th,
-        p2[0] / tw,
-        p2[1] / th,
-      ]);
+    const k = this.uvK;
+    const face = (x0: number, a0: number, b0: number, x1: number, a1: number, b1: number): void => {
+      if (b0 - a0 < 1e-5 && b1 - a1 < 1e-5) return;
+      this.b.owner = this.code;
+      const sh = this.shine;
+      const uv = [x0 / tw, a0 / th, x1 / tw, a1 / th, x1 / tw, b1 / th, x0 / tw, b0 / th].map((q) => q * k) as unknown as Uv4;
+      this.b.quad(this.p(...at(x0, a0)), this.p(...at(x1, a1)), this.p(...at(x1, b1)), this.p(...at(x0, b0)), uv, layerNo(layer), tint, [1, 1, 1, 1], this.glow, [sh, sh, sh, sh]);
+    };
+    for (let i = 0; i + 1 < xs.length; i++) {
+      // Края полосы — чуть внутрь: отвесная сторона дыры на краю принадлежит соседней полосе.
+      const x0 = xs[i] + 1e-6;
+      const x1 = xs[i + 1] - 1e-6;
+      if (x1 - x0 < 1e-5) continue;
+      const c0 = slice(outer, x0);
+      const c1 = slice(outer, x1);
+      if (!c0 || !c1) continue;
+      const mid = (x0 + x1) / 2;
+      const hole = holes.find((h) => {
+        const r = slice(h, mid);
+        return r !== null;
+      });
+      const h0 = hole ? slice(hole, x0) : null;
+      const h1 = hole ? slice(hole, x1) : null;
+      if (h0 && h1) {
+        face(x0, c0[0], h0[0], x1, c1[0], h1[0]);
+        face(x0, h0[1], c0[1], x1, h1[1], c1[1]);
+      } else face(x0, c0[0], c0[1], x1, c1[0], c1[1]);
     }
   }
 
@@ -213,6 +222,21 @@ export class Mesher {
       run += seg;
     }
   }
+}
+
+/** Срез выпуклого многоугольника отвесной прямой `x`: низ и верх, или `null`, если прямая мимо. */
+function slice(poly: readonly (readonly [number, number])[], x: number): [number, number] | null {
+  let lo = Infinity;
+  let hi = -Infinity;
+  for (let i = 0; i < poly.length; i++) {
+    const [ax, ay] = poly[i];
+    const [bx, by] = poly[(i + 1) % poly.length];
+    if (x < Math.min(ax, bx) || x > Math.max(ax, bx) || ax === bx) continue;
+    const y = ay + ((by - ay) * (x - ax)) / (bx - ax);
+    if (y < lo) lo = y;
+    if (y > hi) hi = y;
+  }
+  return lo <= hi ? [lo, hi] : null;
 }
 
 /** UV плоской проекцией по главной оси нормали, в плитках слоя. */
