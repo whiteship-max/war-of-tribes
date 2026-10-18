@@ -312,6 +312,23 @@ export const SAMPLES: Sample[] = [
     probe: true,
   },
   {
+    // Г-9: сундук короля — крышка поднимается (петли), опускается (петли и стук).
+    name: 'ch-chest',
+    title: 'Замер покоев: ch-chest',
+    seconds: 4,
+    seed: 17,
+    keys: null,
+    music: false,
+    battle: false,
+    duck: { music: 1, amb: 1 },
+    chambers: [
+      [0.5, 'hinge'],
+      [2.2, 'hinge'],
+      [2.9, 'lidShut'],
+    ],
+    probe: true,
+  },
+  {
     name: 'ch-ring',
     title: 'Замер покоев: ch-ring',
     seconds: 3.5,

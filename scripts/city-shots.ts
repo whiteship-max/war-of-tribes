@@ -384,8 +384,11 @@ async function weatherShots(tab: Tab, q: Quality): Promise<void> {
     const [poi, dy, dp, hold, hover] = ch.split(':');
     // Подписи-указатели первого входа на снимках не нужны (`COACH=1` — снять и их).
     const coach = process.env.COACH ? '' : "try { localStorage.setItem('tribe.chambers.coach', '1'); } catch {}";
+    // `RULER=Бертран` — имя правителя до входа (Г-9): дом и нрав супруги — из имени, разговор повторяется от прогона к прогону.
+    const ruler = process.env.RULER ? `(() => { const g = window.__game.getState(); g.s.realm.ruler.name = ${JSON.stringify(process.env.RULER)}; window.__game.setState({ s: { ...g.s } }); })();` : '';
     const said = await tab.eval<string>(`new Promise((ok) => {
       ${coach}
+      ${ruler}
       window.__chambersOpen.getState().show();
       let n = 0;
       const t = setInterval(() => {
@@ -406,6 +409,32 @@ async function weatherShots(tab: Tab, q: Quality): Promise<void> {
     // сразу (`ChambersLife.stage`); списком — несколько (`LIFE='[{"who":"maid"},{"cat":"floor"}]'`).
     if (process.env.LIFE) {
       const r = await tab.eval<string>(`JSON.stringify((() => { const l = window.__chambers.life; for (const s of [].concat(${process.env.LIFE})) l.stage(s); return 'жизнь: ' + JSON.stringify(l.view()); })())`);
+      console.log(`  ${r}`);
+    }
+    // Ответ в окне разговора (Г-9): `TALKPICK=Останься` — коснуться ответа с этими словами, когда реплика проступила
+    // (через «|» — несколько подряд); `LIFE_AFTER='{"night":{"k":0.95,"who":"wife"}}'` — что поставить после ответа (утро
+    // после ночи — без ожидания сцены).
+    for (const pick of (process.env.TALKPICK ?? '').split('|').filter(Boolean)) {
+      const said = await tab.eval<string>(`new Promise((ok) => {
+        let n = 0;
+        const t = setInterval(() => {
+          const line = document.querySelector('.ch-talk-line');
+          if (line) line.click();
+          const b = [...document.querySelectorAll('.ch-talk-opts button')].find((x) => x.textContent.includes(${JSON.stringify(pick)}) && !x.disabled);
+          if (b) {
+            clearInterval(t);
+            b.click();
+            setTimeout(() => ok(JSON.stringify('ответ: ' + b.textContent + ' → ' + (document.querySelector('.ch-talk-line')?.textContent ?? '—'))), 600);
+          } else if (++n > 60) {
+            clearInterval(t);
+            ok(JSON.stringify('ответа «' + ${JSON.stringify(pick)} + '» нет'));
+          }
+        }, 250);
+      })`);
+      console.log(`  ${said}`);
+    }
+    if (process.env.LIFE_AFTER) {
+      const r = await tab.eval<string>(`JSON.stringify((() => { const l = window.__chambers.life; for (const s of [].concat(${process.env.LIFE_AFTER})) l.stage(s); return 'жизнь после: ' + JSON.stringify(l.view()); })())`);
       console.log(`  ${r}`);
     }
     await sleep(2500);
