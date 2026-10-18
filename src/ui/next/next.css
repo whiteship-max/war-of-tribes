@@ -975,7 +975,7 @@
 /* Подпись ряда «Рабочие» над «3/12» и выработка под рядом: сейчас → с ещё одним (отзыв тестеров 11.10). */
 .nx-wcount .nx-wlbl {
   display: block;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 500;
 }
 .nx-wgain {
