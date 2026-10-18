@@ -79,12 +79,6 @@ const MARKER_SCREEN = 0.017;
 const INSIDE_DIST = 190;
 const INSIDE_AIM = 130;
 const INSIDE_SHADOW_EVERY = 6;
-/**
- * Дальняя плоскость изнутри, м (Г-7): за край земли города (сетка — до 1,4 км от середины, углы — до 2 км). С высоты глаза
- * в донжоне горизонт открыт, и при прежних 749 м земля кончалась на 3–4° ниже него: в полосе под горизонтом было небо, а
- * кроны дальнего леса висели в нём. Дальше дымки всё одного цвета с ней — цена только в заливке, которая и так была небом.
- */
-export const INSIDE_FAR = 2300;
 
 
 export class CityScene extends TribeScene {
@@ -206,7 +200,8 @@ export class CityScene extends TribeScene {
       return;
     }
     this.town = c;
-    if (this.inside) c.lowTrees(true);
+    // Покои — вид изнутри: город пересобран, пока они открыты, — им же и правится (`Inside.attach`).
+    if (this.inside) this.inside.attach?.(c.group);
     this.sites = c.sites;
     this.scene.add(c.group);
     this.folk = new CityLife({ plan: c.plan, chimneys: c.chimneys, flagTops: c.flagTops, quality: this.quality });
@@ -304,7 +299,8 @@ export class CityScene extends TribeScene {
       fog.near = f.near;
       fog.far = f.far;
     }
-    this.camera.far = Math.max(f.far + 200, INSIDE_FAR);
+    // Изнутри даль открыта до края земли (`Inside.far`, Г-7).
+    this.camera.far = Math.max(f.far + 200, room.far ?? 0);
     this.camera.updateProjectionMatrix();
     this.camera.updateMatrixWorld();
     fitShadow(this.rig, cityShadowHalf(INSIDE_DIST));
@@ -337,7 +333,7 @@ export class CityScene extends TribeScene {
     room.camera.updateProjectionMatrix();
     room.setLevel(this.dprLevel);
     this.simplify();
-    this.town.lowTrees(true);
+    room.attach?.(this.town.group);
     // Ярлыки «Ускорить» и надписи добычи — вид города сверху: в покоях их нет (`deeds.css`).
     this.canvas.parentElement?.classList.add('city-inside');
     this.place();
@@ -349,7 +345,7 @@ export class CityScene extends TribeScene {
     if (this.inside !== room) return;
     this.inside = null;
     this.simplify();
-    this.town?.lowTrees(false);
+    room.detach?.();
     this.canvas.parentElement?.classList.remove('city-inside');
     this.applyFraming(this.camera.aspect);
   }

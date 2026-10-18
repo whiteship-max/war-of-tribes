@@ -54,4 +54,9 @@ export interface Inside {
   frame(dt: number, t: number, sky: InsideSky): void;
   /** Уровень качества — сторож плавности сцены опустил его (`CityScene.lowerTo`); второго сторожа у покоев нет. */
   setLevel(q: Quality): void;
+  /** Дальняя плоскость камеры города изнутри, м (Г-7): из окна даль открыта до края земли. */
+  readonly far?: number;
+  /** Вход (и город пересобран при открытых покоях) и выход: вид изнутри правит город своими средствами (Г-7). */
+  attach?(group: THREE.Group): void;
+  detach?(): void;
 }

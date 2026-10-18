@@ -10,7 +10,10 @@ import { buildStatic } from '../city/budget';
 import { groundGrid } from '../city/ground';
 import { CITY_SPEC } from '../city/spec';
 import { treeModel } from '../city/nature';
-import { INSIDE_FAR } from '../city/scene';
+import * as THREE from 'three';
+import { ChambersRoom, INSIDE_FAR } from './room';
+import { DEFAULT_ARMS } from '@/heraldry/arms';
+import { geometryOf } from '../city/index';
 import { HALF, OPENINGS, POI_BY_ID, WALL_T, floorOf, wallPoint, alongOf, type Opening } from './plan';
 
 const strip = (src: string): string => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*$/gm, '$1');
@@ -213,7 +216,10 @@ describe('покои: вид из окна (Г-7)', () => {
     // И камера изнутри её берёт: дальняя плоскость покоев — не ближе `INSIDE_FAR`.
     const src = strip(readFileSync(join(__dirname, '../city/scene.ts'), 'utf8'));
     const place = src.slice(src.indexOf('private placeInside('), src.indexOf('\n  }\n', src.indexOf('private placeInside(')));
-    expect(place, 'дальняя плоскость в покоях').toMatch(/this\.camera\.far = Math\.max\([^)]*, INSIDE_FAR\);/);
+    expect(place, 'дальняя плоскость в покоях').toMatch(/this\.camera\.far = Math\.max\([^)]*, room\.far \?\? 0\);/);
+    const room = new ChambersRoom({ x: -4, z: -147, base: 16, height: 30 }, DEFAULT_ARMS, 'low', () => null);
+    expect(room.far).toBe(INSIDE_FAR);
+    room.dispose();
   });
 
   it('дальнее дерево из покоев — со стволом до земли, сверху — ком без ствола', () => {
@@ -228,11 +234,24 @@ describe('покои: вид из окна (Г-7)', () => {
     for (let i = 1; i < top.pos.length; i += 3) lo = Math.min(lo, top.pos[i]);
     // Без ствола ком кроны висит над землёй — потому изнутри и нужен ствол.
     expect(lo).toBeGreaterThan(0.2);
-    // Вход в покои ставит стволы, выход — снимает (в городе сверху ствол не виден).
+    // Вход в покои ставит стволы, выход — снимает (в городе сверху ствол не виден): сцена зовёт `attach` и `detach`.
     const src = strip(readFileSync(join(__dirname, '../city/scene.ts'), 'utf8'));
     const enter = src.slice(src.indexOf('enterInside(room: Inside): boolean {'), src.indexOf('leaveInside(room: Inside): void {'));
-    expect(enter, 'вход — стволы').toMatch(/this\.town\.lowTrees\(true\)/);
+    expect(enter, 'вход — стволы').toMatch(/room\.attach\?\.\(this\.town\.group\)/);
     const leave = src.slice(src.indexOf('leaveInside(room: Inside): void {'), src.indexOf('private simplify(): void {'));
-    expect(leave, 'выход — без стволов').toMatch(/this\.town\?\.lowTrees\(false\)/);
+    expect(leave, 'выход — без стволов').toMatch(/room\.detach\?\.\(\)/);
+    // И покои их правда меняют: дальний ком — на дерево со стволом, выход — обратно.
+    const group = new THREE.Group();
+    const comb = geometryOf(treeModel('broadFar', 0));
+    const im = new THREE.InstancedMesh(comb, new THREE.MeshBasicMaterial(), 1);
+    im.name = 'city-trees-broadFar';
+    group.add(im);
+    const room = new ChambersRoom({ x: -4, z: -147, base: 16, height: 30 }, DEFAULT_ARMS, 'low', () => null);
+    room.attach(group);
+    im.geometry.computeBoundingBox();
+    expect(im.geometry.boundingBox!.min.y, 'изнутри — до земли').toBeLessThan(0.06);
+    room.detach();
+    expect(im.geometry, 'выход — прежний ком').toBe(comb);
+    room.dispose();
   });
 });

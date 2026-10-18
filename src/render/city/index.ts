@@ -86,11 +86,6 @@ export interface CityBuild {
   rig: LampRig;
   /** Коробки 24 построек игры (`sites.ts`). */
   sites: Site[];
-  /**
-   * Дальние деревья со стволом (Г-7): из покоев донжона даль видна с высоты глаза, и ком кроны без ствола висел бы над
-   * землёй (сверху ствол не виден — там его нет ради треугольников). Вход в покои ставит стволы, выход снимает.
-   */
-  lowTrees(on: boolean): void;
   /** Отдать материалы и текстуры (геометрию отдаёт сцена обходом). */
   dispose(): void;
   /** Полные слои текстур встали (сначала город стоит на слоях 256²). */
@@ -200,8 +195,6 @@ export async function buildCity(q: Quality): Promise<CityBuild> {
   const scl = new THREE.Vector3();
   const col = new THREE.Color();
   const treeCounts: Record<string, number> = {};
-  const farTrees: THREE.InstancedMesh[] = [];
-  const lowGeo = new Map<Species, { low: THREE.BufferGeometry; top: THREE.BufferGeometry }>();
   let treeTris = 0;
   for (const sp of ['broad', 'broadFar', 'spruce', 'spruceFar', 'fruit'] as Species[]) {
     const list = trees[sp];
@@ -223,7 +216,6 @@ export async function buildCity(q: Quality): Promise<CityBuild> {
     im.receiveShadow = !far;
     im.name = `city-trees-${sp}`;
     group.add(im);
-    if (far) farTrees.push(im);
     treeTris += model.triangleCount * list.length;
   }
   const tMain = performance.now();
@@ -280,19 +272,7 @@ export async function buildCity(q: Quality): Promise<CityBuild> {
     lamps,
     rig,
     sites,
-    lowTrees(on: boolean): void {
-      for (const im of farTrees) {
-        const sp = im.name.slice('city-trees-'.length) as Species;
-        if (on && !lowGeo.has(sp)) lowGeo.set(sp, { low: geometryOf(treeModel(sp, spec.detail, true)), top: im.geometry });
-        const pair = lowGeo.get(sp);
-        if (pair) im.geometry = on ? pair.low : pair.top;
-      }
-    },
     dispose(): void {
-      for (const p of lowGeo.values()) {
-        p.low.dispose();
-        p.top.dispose();
-      }
       const shoreMats = shoreGroup.children.map((c) => (c as THREE.Mesh).material as THREE.Material);
       for (const m of [bMat, fMat, gMesh.material as THREE.Material, water.material as THREE.Material, ...shoreMats]) m.dispose();
       rig.dispose();

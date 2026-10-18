@@ -21,6 +21,7 @@ import { TAP_TARGET, swallowGhostClick } from '@/gestures';
 import { Keys, Sticks, mergeWalk, typing, type Walk } from '@/prologue/controls';
 import { turnRate } from '@/minigames/pad';
 import { geometryOf } from '../city/index';
+import { treeModel } from '../city/nature';
 import { tint } from '../city/geom';
 import { Mesher } from './geo';
 import { buildRoom, ROOM_LIGHTS, type RoomModel } from './build';
@@ -69,6 +70,13 @@ import {
   type Trinket,
   type TrinketId,
 } from './plan';
+
+/**
+ * Дальняя плоскость камеры города изнутри, м (Г-7): за край земли города (сетка — до 1,4 км от середины, углы — до 2 км).
+ * С высоты глаза в донжоне горизонт открыт, и при прежних 749 м земля кончалась на 3–4° ниже него: в полосе под горизонтом
+ * было небо, а кроны дальнего леса висели в нём. Дальше дымки всё одного цвета с ней — цена только в заливке.
+ */
+export const INSIDE_FAR = 2300;
 
 /** Мелочь модели по уровню (`city/kit.Detail`). */
 const DETAIL: Record<Quality, Detail> = { low: 0, medium: 1, high: 2 };
@@ -256,6 +264,10 @@ export class ChambersRoom implements Inside {
 
   /** Жизнь покоев (Г-7): дверь, слуга, служанка, супруга, кот, клубок, вино в кубке. */
   readonly life: ChambersLife;
+  /** Камере города изнутри — даль до края земли (`Inside.far`). */
+  readonly far = INSIDE_FAR;
+  /** Дальние деревья города со стволом, пока покои открыты: сетка сверху и своя (`attach`). */
+  private trunks: { im: THREE.InstancedMesh; top: THREE.BufferGeometry; low: THREE.BufferGeometry }[] = [];
   /** Гладит кота: сколько прошло; позвал — ждёт, пока подойдёт. */
   private pet: { t: number } | null = null;
   private petWant = 0;
@@ -1535,6 +1547,31 @@ export class ChambersRoom implements Inside {
     return [t.name, near ? t.hint : 'Подойти и взять'];
   }
 
+  // ---------- Город за окном (Г-7) ----------
+
+  /**
+   * Вошли в город: дальние деревья — со стволом. Ком кроны без ствола (вид сверху, ствола там не видно) из окна донжона
+   * висел над землёй; изнутри ставится модель со стволом (`nature.treeModel`, `low`), выход возвращает прежнюю.
+   */
+  attach(group: THREE.Group): void {
+    this.detach();
+    for (const sp of ['broadFar', 'spruceFar'] as const) {
+      const im = group.getObjectByName(`city-trees-${sp}`);
+      if (!(im instanceof THREE.InstancedMesh)) continue;
+      const low = geometryOf(treeModel(sp, DETAIL[this.level], true));
+      this.trunks.push({ im, top: im.geometry, low });
+      im.geometry = low;
+    }
+  }
+
+  detach(): void {
+    for (const t of this.trunks) {
+      t.im.geometry = t.top;
+      t.low.dispose();
+    }
+    this.trunks = [];
+  }
+
   // ---------- Уровень и уборка ----------
 
   /** Сторож плавности опустил уровень (`CityScene.lowerTo`): меньше ламп и плашек огня. */
@@ -1585,6 +1622,7 @@ export class ChambersRoom implements Inside {
     this.fire.dispose();
     this.handFire.dispose();
     this.life.dispose();
+    this.detach();
     this.wineMesh.geometry.dispose();
     this.scene.clear();
     this.sticks.clear();
