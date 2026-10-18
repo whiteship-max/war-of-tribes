@@ -11,6 +11,7 @@ import type { V3 } from './geom';
 import { RIVER_HALF, heightAt, riverLevel, riverX, type CityPlan, type P, type Tower } from './layout';
 import { figure, figureMaterial, gaitOf, legs, pathOf, at, heightOnPath, LEGS, SKIN, SHAFT, type Part, type Path } from './life';
 import { rnd } from './noise';
+import { headOf } from './roads';
 import { linear } from './palette';
 import { LIFE_CAP } from './spec';
 import { DEFAULT_ARMS, armsCode, armsOr, type Arms } from '@/heraldry/arms';
@@ -128,13 +129,18 @@ export const CART_KEEP_RIGHT = 1.0;
 export const CART_SPEED = 1.0;
 export const CART_DWELL = 45;
 export const CART_AWAY = 20;
+/**
+ * Сколько дороги в долину телега проходит от ворот, метры: дальше дорога уходит за край мира (docs/city_v3.md, Г-3), а
+ * упряжка появляется и пропадает в дымке, как прежде, — у прежнего конца дороги.
+ */
+export const CART_ROAD = 340;
 
 /** Путь упряжки: дорога (с горизонта), Главная, круг по площади, обратно — ломаной, сдвинутой вправо от хода. */
 export function cartRoute(plan: CityPlan): { path: Path; stop: number } | null {
   const road = plan.roads.find((r) => r.name === 'Дорога в долину');
   const main = plan.streets.find((s) => s.name === 'Главная');
   if (!road || !main) return null;
-  const inbound = [...[...road.pts].reverse(), ...main.pts];
+  const inbound = [...headOf(road.pts, CART_ROAD).reverse(), ...main.pts];
   const center: P[] = [...inbound, ...CART_LOOP.slice(1), ...[...inbound].reverse().slice(1)];
   // Сдвиг вправо от хода по биссектрисе соседних отрезков: на изломе без скачка.
   const pts: P[] = center.map((p, k) => {

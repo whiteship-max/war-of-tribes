@@ -351,3 +351,22 @@ export function quadToward(
   if (nx * want[0] + ny * want[1] + nz * want[2] >= 0) b.quad(a, bb, c, d, uv, layer, t, ao, glow, grime);
   else b.quad(bb, a, d, c, [uv[2], uv[3], uv[0], uv[1], uv[6], uv[7], uv[4], uv[5]], layer, t, [ao[1], ao[0], ao[3], ao[2]], glow, [grime[1], grime[0], grime[3], grime[2]]);
 }
+
+/** Плоский многоугольник лицом вверх: веер из первой точки. */
+export function disc(b: Builder, pts: readonly [number, number][], y: number, layer: LayerName, t: V3, ao = 1): void {
+  const tile = 4;
+  for (let k = 1; k < pts.length - 1; k++) {
+    const A: V3 = [pts[0][0], y, pts[0][1]];
+    const B: V3 = [pts[k][0], y, pts[k][1]];
+    const C: V3 = [pts[k + 1][0], y, pts[k + 1][1]];
+    const uv = (p: V3): [number, number] => [p[0] / tile, p[2] / tile];
+    // Нормаль вверх: обход против часовой сверху.
+    const up = (B[2] - A[2]) * (C[0] - A[0]) - (B[0] - A[0]) * (C[2] - A[2]) >= 0;
+    const [P, Q] = up ? [B, C] : [C, B];
+    b.tri(A, P, Q, [...uv(A), ...uv(P), ...uv(Q)], L[layer], t, [ao, ao, ao]);
+  }
+}
+
+/** Круг точками плана. */
+export const ring = (x: number, z: number, r: number, n: number): [number, number][] =>
+  Array.from({ length: n }, (_, k) => [x + Math.cos((k / n) * Math.PI * 2) * r, z + Math.sin((k / n) * Math.PI * 2) * r] as [number, number]);

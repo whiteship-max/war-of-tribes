@@ -6,6 +6,8 @@
 import * as THREE from 'three';
 import { CITY, linear } from './palette';
 import { L, LAYERS, TILE_M } from './tex';
+import { FIELD_CELL } from './ground';
+import { ROAD_U_MAX } from './roads';
 import { CITY_WIND, WIND_CALM } from './life';
 import { LAMP_GLSL } from '../glow/glsl';
 import { glowUniforms, type GlowUniforms } from '../glow/rig';
@@ -417,7 +419,7 @@ export interface GroundMap {
  * Земля: смешение травы, земли, брусчатки и пашни по карте покрытий и по высоте фактуры (камни
  * брусчатки торчат из грязи), скала на крутом, затенение у подножий из альфы карты.
  */
-export function groundMaterial(u: CityUniforms, map: THREE.Texture, at: GroundMap, land: THREE.Texture, landAt: GroundMap): THREE.MeshLambertMaterial {
+export function groundMaterial(u: CityUniforms, map: THREE.Texture, at: GroundMap, land: THREE.Texture, landAt: GroundMap, detail = 1): THREE.MeshLambertMaterial {
   const m = new THREE.MeshLambertMaterial({ vertexColors: true });
   const extra = {
     cityMap: { value: map },
@@ -428,8 +430,11 @@ export function groundMaterial(u: CityUniforms, map: THREE.Texture, at: GroundMa
   m.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, u, extra);
     patchVertex(shader);
-    // Сырость берега — в вершинах земли (`banks.groundWet`: по высоте над водой); между вершинами — плавно.
-    shader.vertexShader = 'attribute float cwet;\nvarying float vWet;\n' + shader.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n    vWet = cwet;');
+    // Сырость берега и грязь — в вершинах земли (`banks.groundWet` по высоте над водой, `roads.mudAt` у ворот и конюшен);
+    // между вершинами — плавно.
+    shader.vertexShader =
+      'attribute vec2 cwet;\nvarying float vWet;\nvarying float vMud;\n' +
+      shader.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n    vWet = cwet.x;\n    vMud = cwet.y;');
     const T = (n: (typeof LAYERS)[number]): string => `vec2(${(1 / TILE_M[n][0]).toFixed(5)}, ${(1 / TILE_M[n][1]).toFixed(5)})`;
     shader.fragmentShader =
       /* glsl */ `uniform sampler2D cityMap;
@@ -437,6 +442,8 @@ export function groundMaterial(u: CityUniforms, map: THREE.Texture, at: GroundMa
       uniform sampler2D cityLand;
       uniform vec3 cLandAt;
       varying float vWet;
+      varying float vMud;
+      #define C_DETAIL ${detail}
       ` +
       COMMON_FRAG +
       shader.fragmentShader.replace(
@@ -445,17 +452,36 @@ export function groundMaterial(u: CityUniforms, map: THREE.Texture, at: GroundMa
         vec2 wp = vCWPos.xz;
         vec2 muv = (wp - cMapAt.xy) / cMapAt.z;
         vec4 cm4 = texture(cityMap, muv);
-        float inMap = step(0.0, muv.x) * step(muv.x, 1.0) * step(0.0, muv.y) * step(muv.y, 1.0);
+        // Ближняя карта тает в дальнюю за 16 м до своего края: дороги, пашня и трава лежат на обеих, и шва нет
+        // (прежде край был ступенькой — поперёк дороги в долину полосой, docs/city_v3.md, Г-3).
+        vec2 cEdge = min(muv, 1.0 - muv) * cMapAt.z;
+        float inMap = smoothstep(0.0, 16.0, min(cEdge.x, cEdge.y));
         vec4 land = texture(cityLand, (wp - cLandAt.xy) / cLandAt.z);
-        cm4 = mix(vec4(0.0, 0.0, land.g, 1.0), cm4, inMap);
+        float macro = cMacro(wp * 0.35);
+        // Дороги вдали — по расстоянию до оси со знаком (канал b, roads.roadU): край ровный и на редкой карте, колеи и
+        // травяной горб между ними — как у ближних дорог.
+        float fu = abs(land.b * 2.0 - 1.0) * ${ROAD_U_MAX.toFixed(1)} + (macro - 0.5) * 0.3;
+        float fRoad = 1.0 - smoothstep(0.82, 1.22, fu);
+        float fRut = (1.0 - smoothstep(0.07, 0.18, abs(fu - 0.45))) * fRoad;
+        float fHump = (1.0 - smoothstep(0.08, 0.26, fu)) * fRoad;
+        cm4 = mix(vec4(0.0, fRoad * (1.0 - 0.4 * fHump), land.g * (1.0 - fRoad), 1.0 - 0.22 * fRut), cm4, inMap);
         // Поворот плитки по клеткам 37 м — повтор травы не складывается в решётку.
         vec4 tg = texture(cityTex, vec3(wp * ${T('grass')}, ${L.grass}.0));
         vec4 tg2 = texture(cityTex, vec3(wp.yx * ${T('grass')} * 0.37 + 0.3, ${L.grass}.0));
         vec4 td = texture(cityTex, vec3(wp * ${T('dirt')}, ${L.dirt}.0));
         vec4 tc = texture(cityTex, vec3(wp * ${T('cobble')}, ${L.cobble}.0));
-        vec4 tf = texture(cityTex, vec3(wp * ${T('field')}, ${L.field}.0));
+        #if C_DETAIL > 0
+          // Земля и мостовая без повтора: второй слой той же фактуры, повёрнутый и в другом масштабе, — пятнами в десятки
+          // метров; узор плитки не складывается в решётку вдоль улицы.
+          float cMix = smoothstep(0.38, 0.62, cMacro(wp * 0.11 + 5.0));
+          td = mix(td, texture(cityTex, vec3(wp.yx * ${T('dirt')} * 0.71 + 0.13, ${L.dirt}.0)), cMix);
+          tc = mix(tc, texture(cityTex, vec3(wp.yx * ${T('cobble')} * 0.83 + 0.41, ${L.cobble}.0)), 1.0 - cMix);
+        #endif
+        // Пашня клетками (ground.FIELD_CELL): у каждой своя культура и свой ход борозды — спелое, зелёное, пар, пахота.
+        vec2 cFc = floor((wp + ${FIELD_CELL.off.toFixed(1)}) / vec2(${FIELD_CELL.x.toFixed(1)}, ${FIELD_CELL.z.toFixed(1)}));
+        float cFh = cHash(cFc + 3.7);
+        vec4 tf = texture(cityTex, vec3((cFh > 0.5 ? wp : wp.yx) * ${T('field')}, ${L.field}.0));
         vec4 tr = texture(cityTex, vec3(vec2(wp.x + wp.y, vCWPos.y * 2.0) * ${T('rock')}, ${L.rock}.0));
-        float macro = cMacro(wp * 0.35);
         vec3 grass = mix(tg.rgb, tg2.rgb, 0.4) * (0.9 + 0.16 * macro);
         // Веса: карта + высота фактуры; трава — остаток.
         float wc = cm4.r;
@@ -475,7 +501,15 @@ export function groundMaterial(u: CityUniforms, map: THREE.Texture, at: GroundMa
         vec3 cob = tc.rgb * vec3(0.92, 0.88, 0.82) * (0.62 + 0.3 * cmac) * mix(0.72, 1.0, cm4.a);
         // У стен домов в швах больше грязи.
         cob = mix(cob, td.rgb * 0.8, (1.0 - cm4.a) * 0.35);
-        vec3 col = cob * bw.x + td.rgb * bw.y + tf.rgb * bw.z + grass * bw.w;
+        vec3 crop = tf.rgb;
+        float cFk = fract(cFh * 13.7);
+        // Пахота темнее, спелое — к золоту, зелёное — к траве, пар — трава с землёй; осенью всё — к жнивью.
+        crop = cFk < 0.3 ? crop * vec3(0.78, 0.74, 0.7) : cFk < 0.58 ? crop * vec3(1.22, 1.08, 0.62) : cFk < 0.82 ? mix(crop, grass * 1.12, 0.62) : mix(crop, grass, 0.42);
+        crop = mix(crop, tf.rgb * vec3(1.12, 0.98, 0.7), cAutumn * 0.7);
+        crop *= 0.92 + 0.16 * cHash(cFc + 9.1);
+        // Грязь у ворот и конюшен — тёмная сырая земля (roads.mudAt, в вершинах).
+        vec3 dirt = mix(td.rgb, td.rgb * vec3(0.56, 0.52, 0.47), smoothstep(0.1, 0.8, vMud));
+        vec3 col = cob * bw.x + dirt * bw.y + crop * bw.z + grass * bw.w;
         col = mix(col, tr.rgb, wr);
         // Полог дальнего леса: листва слоя в масштабе крон (клетка — 5–6 м) и пятна пород.
         vec4 cp1 = texture(cityTex, vec3(wp / 170.0, ${L.foliage}.0));
@@ -490,13 +524,21 @@ export function groundMaterial(u: CityUniforms, map: THREE.Texture, at: GroundMa
         // Осень и зима: трава желтеет, на горизонталях снег.
         col = mix(col, col * vec3(1.15, 0.95, 0.6), cAutumn * bw.w);
         float cUp = smoothstep(0.6, 0.9, vCNy) * cSnow;
-        col = mix(col, cSnowCol * (0.9 + 0.1 * tg.a), cUp * (0.85 - 0.3 * bw.x));
+        // Снег на улицах и дорогах утоптан: колеи и тропа бурые, по краям — серая каша; грязь не белеет вовсе.
+        float cTr = clamp(bw.x + bw.y, 0.0, 1.0);
+        float cTrk = smoothstep(0.4, 0.62, cMacro(wp * 2.1 + 1.7) + (1.0 - cm4.a) * 0.8);
+        float cSnowK = cUp * (0.88 - 0.28 * bw.x) * (1.0 - cTr * (0.25 + 0.4 * cTrk)) * (1.0 - 0.6 * smoothstep(0.2, 0.7, vMud));
+        col = mix(col, cSnowCol * (0.9 + 0.1 * tg.a), cSnowK);
+        // Утоптанное — не чёрная грязь, а серо-бурая каша: снег, перемешанный с землёй.
+        col = mix(col, mix(col, cSnowCol * vec3(0.66, 0.63, 0.6), 0.55), cUp * cTr * (1.0 - cSnowK) * 0.75);
         // Дождь: мостовая и земля темнеют, в выбоинах — лужи (низкие места фактуры, крупные пятна по миру).
         // Лужи — в низинах мостовой и дорог: пятна в несколько метров двух масштабов, в больших пятнах сырости их
         // больше; чем дольше льёт, тем шире. По кромке из воды торчат камни (высота фактуры).
         float cPz = cMacro(wp * 1.9 + 7.0) * 0.6 + cMacro(wp.yx * 4.3 + 3.0) * 0.4 + (macro - 0.5) * 0.25;
-        float cLvl = cPz - (0.8 - 0.1 * cWet) + (0.45 - mix(td.a, tc.a, bw.x)) * 0.08;
-        float cPud = smoothstep(0.0, 0.03, cLvl) * (bw.x + bw.y) * smoothstep(0.15, 0.5, cWet);
+        // Грязь сырая и без дождя: лужи в ней держатся, после дождя — дольше и шире.
+        float cWetM = max(cWet, vMud * 0.55 * bw.y);
+        float cLvl = cPz - (0.8 - 0.1 * cWetM - 0.12 * vMud) + (0.45 - mix(td.a, tc.a, bw.x)) * 0.08 + (1.0 - cm4.a) * 0.25 * fRoad;
+        float cPud = smoothstep(0.0, 0.03, cLvl) * (bw.x + bw.y) * smoothstep(0.15, 0.5, cWetM);
         float cWetUp = min(1.0, 0.55 + 0.45 * bw.x + 0.6 * cPud) * (1.0 - cUp);
         col = cWetten(col, min(1.0, cWetUp));
         // Лужа — вода поверх камня: камень под ней тёмный и гладкий, свет в ней — отражённый.

@@ -7,7 +7,7 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { awayNow, capFrom, DPR_CAP, FPS_CAP, FrameLoop, pace, pixelRatio, setAppAsleep } from './loop';
+import { awayNow, capFrom, DPR_CAP, FPS_CAP, FrameLoop, onFrameGap, pace, pixelRatio, setAppAsleep, type FramePlace } from './loop';
 
 /**
  * Поддельные часы: кадр случается только тогда, когда его позовут. Каждый кадр
@@ -611,5 +611,69 @@ describe('дверь кадра одна', () => {
     expect(setters.length).toBeGreaterThanOrEqual(4);
     const bare = setters.filter((f) => !/\bpixelRatio\s*\(/.test(strip(readFileSync(f, 'utf8')))).map(rel);
     expect(bare).toEqual([]);
+  });
+});
+
+describe('замер плавности: промежутки между кадрами одного хода (docs/telemetry.md)', () => {
+  afterEach(() => onFrameGap(null));
+
+  it('цепочка с местом отдаёт промежуток каждого кадра, кроме первого; без места — ничего', () => {
+    const gaps: [FramePlace, number][] = [];
+    onFrameGap((p, ms) => gaps.push([p, ms]));
+    const fake = new FakeClock(60);
+    const city = new FrameLoop<never>(() => undefined, undefined, { raf: fake.raf, caf: fake.caf, away: fake.away });
+    city.place = 'city';
+    city.restart();
+    fake.run(11);
+    city.stop();
+    expect(gaps).toHaveLength(10);
+    for (const [p, ms] of gaps) {
+      expect(p).toBe('city');
+      expect(ms).toBeCloseTo(1000 / 60, 5);
+    }
+    const plain = new FrameLoop<never>(() => undefined, undefined, { raf: fake.raf, caf: fake.caf, away: fake.away });
+    plain.restart();
+    fake.run(5);
+    plain.stop();
+    expect(gaps).toHaveLength(10);
+  });
+
+  it('пауза — не кадр: остановка, скрытая страница и сон начинают ход заново', () => {
+    const gaps: number[] = [];
+    onFrameGap((_p, ms) => gaps.push(ms));
+    const fake = new FakeClock(60);
+    let napMs = 0;
+    const loop: FrameLoop<'map'> = new FrameLoop<'map'>(
+      () => {
+        if (napMs > 0) loop.rest(napMs);
+      },
+      undefined,
+      { raf: fake.raf, caf: fake.caf, away: fake.away, wait: fake.wait, unwait: fake.unwait },
+    );
+    loop.place = 'map';
+    loop.restart();
+    fake.run(3);
+    expect(gaps).toHaveLength(2);
+    // Карта под полотном: причина остановки, секунда стоянки, снятие — первый кадр после неё промежутка не даёт.
+    loop.block('map', true);
+    fake.run(60);
+    loop.block('map', false);
+    fake.run(3);
+    expect(gaps).toHaveLength(4);
+    // Скрытая страница — то же.
+    fake.hidden = true;
+    fake.run(30);
+    fake.hidden = false;
+    loop.restart();
+    fake.run(3);
+    expect(gaps).toHaveLength(6);
+    // Стоящая карта спит между кадрами: её редкий шаг — не провал плавности.
+    napMs = 200;
+    fake.run(1);
+    const before = gaps.length;
+    fake.run(60);
+    expect(gaps.length).toBe(before);
+    loop.stop();
+    expect(Math.max(...gaps)).toBeLessThan(20);
   });
 });

@@ -12,6 +12,7 @@ import { feed } from './feed.js';
 import { gems } from './gems.js';
 import { notify } from './notify.js';
 import { pay } from './pay.js';
+import { perf } from './perf.js';
 import { rating } from './rating.js';
 import { report } from './report.js';
 import { save } from './save.js';
@@ -30,4 +31,5 @@ export const ROUTES: Readonly<Record<string, Route>> = {
   '/api/gems': gems,
   '/api/pay': pay,
   '/api/feed': feed,
+  '/api/perf': perf,
 };

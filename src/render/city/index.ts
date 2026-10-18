@@ -108,7 +108,7 @@ export interface CityShare {
   land: THREE.Texture;
 }
 
-/** Сетка земли города в буферы: положение, нормаль, сырость берега; тон, UV и `cfg` — пустые (их берёт карта). */
+/** Сетка земли города в буферы: положение, нормаль, сырость берега и грязь (`world.wetAndMud`); тон, UV и `cfg` — пустые (их берёт карта). */
 export function groundGeometry(grid: { positions: Float32Array; normals: Float32Array; index: Uint32Array }, wet: Float32Array): THREE.BufferGeometry {
   const gg = new THREE.BufferGeometry();
   gg.setAttribute('position', new THREE.BufferAttribute(grid.positions, 3));
@@ -117,7 +117,7 @@ export function groundGeometry(grid: { positions: Float32Array; normals: Float32
   gg.setAttribute('color', new THREE.BufferAttribute(new Float32Array(nv * 3).fill(1), 3));
   gg.setAttribute('cuv', new THREE.BufferAttribute(new Float32Array(nv * 2), 2));
   gg.setAttribute('cfg', new THREE.BufferAttribute(new Uint8Array(nv * 4), 4));
-  gg.setAttribute('cwet', new THREE.BufferAttribute(wet, 1));
+  gg.setAttribute('cwet', new THREE.BufferAttribute(wet, 2));
   gg.setIndex(new THREE.BufferAttribute(grid.index, 1));
   gg.computeBoundingSphere();
   return gg;
@@ -175,7 +175,7 @@ export async function buildCity(q: Quality): Promise<CityBuild> {
   const mapTex = new MapTexture(map, spec.map);
   const landTex = new MapTexture(land, spec.land);
   const gg = groundGeometry(grid, wet);
-  const gMesh = new THREE.Mesh(gg, groundMaterial(u, mapTex, MAP_AT, landTex, LAND_AT));
+  const gMesh = new THREE.Mesh(gg, groundMaterial(u, mapTex, MAP_AT, landTex, LAND_AT, spec.detail));
   gMesh.name = 'city-ground';
   gMesh.receiveShadow = true;
   group.add(gMesh);
@@ -183,7 +183,7 @@ export async function buildCity(q: Quality): Promise<CityBuild> {
   const cap = SHORE_CAP[q];
   const water = buildWater(u, cap.cols, spec.detail, waterLights(lamps.map((l): V3 => [l.x, l.y, l.z])));
   group.add(water);
-  const shoreGroup = buildShore(u, shore.reeds, shore.stones, cap.reedBlades);
+  const shoreGroup = buildShore(u, shore.reeds, [...shore.stones, ...shore.rocks], cap.reedBlades);
   group.add(shoreGroup);
 
   // Деревья: экземплярами по видам; ближние отбрасывают тень, дальние — нет.
@@ -244,7 +244,7 @@ export async function buildCity(q: Quality): Promise<CityBuild> {
     plan,
     counts: {
       reeds: shore.reeds.length,
-      stones: shore.stones.length,
+      stones: shore.stones.length + shore.rocks.length,
       houses: plan.houses.length,
       suburb: plan.suburb.length,
       houseTris: marks.houses,

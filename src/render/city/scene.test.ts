@@ -19,7 +19,9 @@ describe('город: сцена', () => {
     citySunAt(target, from);
     expect(from).toEqual({ x: 3, y: 4, z: 0 });
     const src = strip(readFileSync(join(__dirname, 'scene.ts'), 'utf8'));
-    expect(src).toMatch(/citySunAt\(this\.target, sun\.position\)/);
+    // Над тем, куда смотрит кадр по земле: в городе — цель камеры, в покоях (docs/city_v3.md, Г-4) — точка взгляда из окна.
+    expect(src).toMatch(/citySunAt\(this\.eye, sun\.position\)/);
+    expect(src, 'в городе — цель камеры').toMatch(/get eye\(\): THREE\.Vector3 \{\s*return this\.inside \? this\.aim : this\.target;/);
   });
 
   it('сторож плавности города — общий сторож сцены: судит встающий город, опускает плотность и помнит уровень неделю', () => {

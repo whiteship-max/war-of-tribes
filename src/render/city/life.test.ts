@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 import { QUALITIES } from '../quality';
-import { cityPlan, distPoly, insidePoly } from './layout';
+import { CHURCH, PARVIS, cityPlan, distPoly, insidePoly } from './layout';
 import { buildStatic } from './budget';
 import { inTowerShape, wallTops } from './forts';
 import { CITY_SMOKE, CITY_WIND, CityLife, CitySmoke, GATE_POSTS, NIGHT_SHARE, ROUTE_MAX, SMOKE_PUFFS, TOWNSFOLK, archerGeometry, beastGeometry, guardGeometry, patrolAt, personGeometry, poseAt, townsGeometry, type Route } from './life';
@@ -33,6 +33,12 @@ const crowd = (life: CityLife): THREE.InstancedMesh[] =>
   life.group.children.filter((c): c is THREE.InstancedMesh => c instanceof THREE.InstancedMesh && c.name.startsWith('city-people'));
 const crowdCount = (life: CityLife): number => crowd(life).reduce((n, im) => n + im.count, 0);
 const crowdPlaced = (life: CityLife): THREE.Vector3[] => crowd(life).flatMap((im) => placed(im));
+/** Масштаб экземпляров горожан: ноль — прихожанин в храме (`life.visitAt`). */
+const crowdScale = (life: CityLife): number[] =>
+  crowd(life).flatMap((im) => {
+    const m = new THREE.Matrix4();
+    return Array.from({ length: im.count }, (_, k) => (im.getMatrixAt(k, m), new THREE.Vector3().setFromMatrixColumn(m, 1).length()));
+  });
 
 describe('город: жизнь', () => {
   it('фигуры той цены, что считает бюджет', () => {
@@ -96,12 +102,20 @@ describe('город: жизнь', () => {
       expect(Math.abs(g.y - top(g)), 'страж на высоте хода').toBeLessThan(1.5);
     }
     const streets = [...plan.streets, ...plan.roads];
-    for (const p of people) {
+    const scale = crowdScale(life);
+    people.forEach((p, k) => {
       const q = { x: p.x, z: p.z };
+      // Прихожанин в храме не рисуется (масштаб ноль) и стоит за порогом портала.
+      if (scale[k] < 0.01) {
+        expect(Math.abs(q.x - CHURCH.x) < CHURCH.width / 2 && q.z < CHURCH.front && q.z > CHURCH.front - CHURCH.len, `прихожанин в храме (${q.x.toFixed(0)}, ${q.z.toFixed(0)})`).toBe(true);
+        return;
+      }
       const onStreet = streets.some((s) => distPoly(q, s.pts) < s.half + 1);
-      const onSquare = insidePoly(q, plan.square) || Math.hypot(q.x - plan.well.x, q.z - plan.well.z) < 8 || (Math.abs(q.x + 9) < 13 && Math.abs(q.z + 29) < 5);
-      expect(onStreet || onSquare, `прохожий на улице или площади (${q.x.toFixed(0)}, ${q.z.toFixed(0)})`).toBe(true);
-    }
+      const onSquare = insidePoly(q, plan.square) || Math.hypot(q.x - plan.well.x, q.z - plan.well.z) < 8;
+      // Паперть: лестница и площадка у портала до порога.
+      const onParvis = Math.abs(q.x - CHURCH.x) < PARVIS.half && q.z > CHURCH.front && q.z < PARVIS.foot + 1;
+      expect(onStreet || onSquare || onParvis, `прохожий на улице, площади или паперти (${q.x.toFixed(0)}, ${q.z.toFixed(0)})`).toBe(true);
+    });
     life.dispose();
   });
 

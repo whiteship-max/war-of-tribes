@@ -6,6 +6,7 @@ import { useRealm } from '@/ui/realm/open';
 import { useTrades } from '@/ui/trades';
 import { useTreasury } from '@/ui/treasury';
 import { tipAt } from './tip';
+import { useChambers } from '@/ui/chambers/open';
 
 /**
  * Тревоги войны — столбец квадратных значков справа снизу, над нижней панелью (П-7, docs/polish.md): осада, набеги,
@@ -16,7 +17,13 @@ import { tipAt } from './tip';
  * Стоит в двух местах одним компонентом: в городе — в корне игры, на карте — внутри её слоя, под меню приказов и
  * листами карты (`where="map"`), чтобы не закрывать их; `lift` — над полосой «человек в руке».
  */
+/** Тревоги войны значками; в покоях правителя (docs/city_v3.md, Г-4) их нет — вести ждут на столе, в письмах. */
 export function WarSigns({ where, lift = false }: { where: 'city' | 'map'; lift?: boolean }) {
+  const inside = useChambers((c) => c.open);
+  return inside && where === 'city' ? null : <CitySigns where={where} lift={lift} />;
+}
+
+function CitySigns({ where, lift }: { where: 'city' | 'map'; lift: boolean }) {
   const s = useGame((g) => g.s);
   const sheet = useGame((g) => g.sheet);
   const realm = useRealm((r) => r.open);

@@ -123,3 +123,9 @@
   translate: -50% -100%;
   pointer-events: auto;
 }
+
+/* Покои правителя (docs/city_v3.md, Г-4): изнутри донжона ярлыков и надписей вида сверху нет. */
+.city-inside > .city-pops,
+.city-inside > .city-tags {
+  display: none;
+}

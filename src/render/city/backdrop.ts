@@ -133,7 +133,7 @@ export async function townBackdrop(frame: TownFrame, cut: TownCut, quality: Qual
   const lamps = lampsToWorld(w.lamps, inner.matrixWorld, CITY_M);
 
   const bMat = buildingMaterial(u);
-  const gMat = groundMaterial(u, map, MAP_AT, land, LAND_AT);
+  const gMat = groundMaterial(u, map, MAP_AT, land, LAND_AT, spec.detail);
   const fMat = foliageMaterial(u, spec.detail === 2);
   disposables.push(bMat, gMat, fMat);
   let triangles = 0;

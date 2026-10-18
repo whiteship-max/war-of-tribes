@@ -31,6 +31,8 @@ import { Icon } from '@/ui/icons/Icon';
 import { moodOf } from '@/ui/icons/registry';
 import { dec } from '@/game/num';
 import { Table, type Col } from '@/ui/kit/Table';
+import { Row } from '@/ui/kit/Row';
+import { useChambers } from '@/ui/chambers/open';
 import { goTo, tipGo } from '@/ui/kit/nav';
 import { WINDOW, sourceWord } from '@/ui/kit/sources';
 import { BuildingNew } from '@/ui/next/BuildingNew';
@@ -144,6 +146,20 @@ function BuildingData({ b }: { b: Building }) {
           <GenericData b={b} />
           <Temple />
           <AgentPlaces ids={['diplomat']} />
+        </>
+      );
+    case 'cache':
+      // Тайник — подвал донжона; над ним, на верхнем ярусе, — покои правителя (docs/city_v3.md, Г-4).
+      return (
+        <>
+          <Row
+            icon={{ name: 'ui-crown', glyph: '👑' }}
+            label="Покои правителя"
+            sub="Верхний ярус донжона: стол, письма, вид на город"
+            go={() => useChambers.getState().show()}
+            goLabel="Подняться в покои"
+          />
+          <GenericData b={b} />
         </>
       );
     default:

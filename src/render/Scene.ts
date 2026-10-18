@@ -20,6 +20,7 @@ import { Steady } from './steady';
 import { serverNow } from '@/net/clock';
 import { sceneLog, sizeNote, type Block, type Vitals } from '@/scenelog';
 import { gestLog, type End } from '@/gestlog';
+import { perfCity, perfGpu, perfRebuild, perfRestore } from '@/perf/telemetry';
 
 export interface BuildingView {
   /**
@@ -190,6 +191,10 @@ export abstract class TribeScene {
     () => this.frame(),
     () => this.rewind(),
   );
+  /** Контекст вернулся: с какой минуты меряется замирание до конца первого кадра (docs/telemetry.md); 0 — не ждём. */
+  private revivedAt = 0;
+  /** Город встал целиком — сказано замерам (`perf.perfCity`). */
+  private readySaid = false;
   /** Сколько кадров нарисовано за жизнь сцены и когда был последний. */
   protected drawn = 0;
   protected lastFrame = 0;
@@ -296,6 +301,9 @@ export abstract class TribeScene {
    */
   constructor(protected canvas: HTMLCanvasElement, protected pixelRatio: number | null = null, opts: SceneLook = {}) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+    this.beat.place = 'city';
+    // Видеокарту для замеров с телефонов называет только сцена города: контекст WebGL есть у неё (docs/telemetry.md).
+    perfGpu(gpuName(this.renderer.getContext()));
     this.quality = opts.quality ?? capQuality(autoQuality(deviceCaps(gpuName(this.renderer.getContext()))), autoCap(serverNow()));
     this.dprLevel = this.quality;
     // Карта, ролик и промысел берут уровень у города (`gfx.levelNow`): одна мерка на всю игру.
@@ -448,6 +456,7 @@ export abstract class TribeScene {
    */
   private onContextRestored = (): void => {
     this.clearWait();
+    this.revivedAt = performance.now();
     sceneLog.mark('restored', this.sizeLine());
     this.beat.block('lost', false);
     this.sized = { w: 0, h: 0, dpr: 0 };
@@ -489,6 +498,7 @@ export abstract class TribeScene {
     // Скрытой странице контекст возвращать некуда: срок пойдёт заново с `wake`.
     if (pageHidden()) return;
     sceneLog.mark('watch', `контекст не вернулся за ${RESTORE_WAIT} мс`);
+    perfRebuild();
     this.onLost?.();
   };
 
@@ -1182,10 +1192,34 @@ export abstract class TribeScene {
     this.renderer.info.reset();
     // Теневой проход через кадр (на низком — раз в четыре, `QUALITY.shadowEvery`): двигаются только фигурки,
     // отставание тени на кадр не видно.
-    this.renderer.shadowMap.needsUpdate = this.frameNo++ % QUALITY[this.quality].shadowEvery === 0;
+    this.renderer.shadowMap.needsUpdate = this.frameNo++ % this.shadowEvery() === 0;
     this.beforeRender?.();
-    this.renderer.render(this.scene, this.camera);
+    this.draw();
     this.afterRender?.();
+    // Замеры с телефонов (docs/telemetry.md): первый кадр города, город встал, замирание после возврата контекста —
+    // до конца первого кадра, который собрал программы и слои заново.
+    if (this.drawn === 1) perfCity('first');
+    if (!this.readySaid && this.settled()) {
+      this.readySaid = true;
+      perfCity('ready');
+    }
+    if (this.revivedAt) {
+      perfRestore(performance.now() - this.revivedAt);
+      this.revivedAt = 0;
+    }
+  }
+
+  /**
+   * Отрисовка кадра. У города есть второй вид — изнутри покоев (`city/inside.ts`): комната и город двумя проходами той же
+   * цепочки; кадр по-прежнему один на кадр экрана.
+   */
+  protected draw(): void {
+    this.renderer.render(this.scene, this.camera);
+  }
+
+  /** Теневой проход — раз в столько кадров (`QUALITY.shadowEvery`); вид изнутри покоев проходит реже. */
+  protected shadowEvery(): number {
+    return QUALITY[this.quality].shadowEvery;
   }
 
   /** Анимация картинки за кадр: `dt` — шаг, `t` — часы сцены. Рисует оболочка. */

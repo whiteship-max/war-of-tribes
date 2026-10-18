@@ -11,12 +11,13 @@ import { ownerCode, siteOf, wallSites, type Site } from './sites';
 import { millWheel, yard, yardHalls } from './outskirts';
 import { house, houseStoop } from './kit';
 import { cityWall, tower } from './forts';
-import { churchyard, civic, civicStoop, fireBowl, gutter, marketProps, stall, statue, well } from './civic';
+import { civic, civicStoop, fireBowl, gutter, marketProps, stall, statue, well } from './civic';
+import { churchClose, churchSquare, parvis } from './precinct';
 import { placeTrees, treeModel, type Species } from './nature';
 import { LAYERS } from './tex';
 import { CITY_SPEC, GATE_GUARDS, LIFE_CAP, LIFE_TRIS, SHORE_CAP, figureTris, peopleTris, shoreTris } from './spec';
 import { shoreItems, waterTriangles } from './banks';
-import { fixture, forge, mounted, standing, streetLamps } from './lamps';
+import { fixture, forge, lanternPost, mounted, standing, streetLamps } from './lamps';
 import { pooled, type Lamp, type LampKind } from '../glow/lamps';
 
 /** Границы владельца по уровням (задание ночи 1): вызовы, треугольники, МБ текстур, МБ докачки. */
@@ -136,13 +137,16 @@ export function buildStatic(plan: CityPlan, q: Quality, opts?: StaticOpts): Stat
       const fz = Math.sin(c.rot);
       lamps.push(forge(b, c.x + fx * (c.d / 2 + 1.3) + fz * (c.w / 4), c.z + fz * (c.d / 2 + 1.3) - fx * (c.w / 4), fx, fz));
     }
-    // Ступени — ничьи, как у домов; у храма вход — в башне и с площади через двор.
+    // Ступени — ничьи, как у домов; у храма — паперть с лестницей на площадь (docs/city_v3.md).
     if (c.kind !== 'church') civicStoop(b, c);
-    // Ограда двора — храму, но коробкой не служит: двор — земля, а не здание.
-    if (c.kind === 'church') {
+    else {
+      parvis(b, c, dAt(c.x, c.z));
+      // Двор за оградой — храму (подсветка выбора), но коробкой не служит: двор — земля, а не здание.
       b.owner = ownerCode('church');
-      churchyard(b, c);
+      churchClose(b, c, dAt(c.x, c.z));
       b.owner = 0;
+      // Площадка перед храмом и полоса у Верхней улицы — ничьи: доска, колодки, лотки, коновязь, сено.
+      if (!opts) churchSquare(b, c, d);
     }
   }
   // Желоб посреди мощёных улиц — ничей: улица не постройка.
@@ -158,6 +162,8 @@ export function buildStatic(plan: CityPlan, q: Quality, opts?: StaticOpts): Stat
     well(b, plan.well, d);
     lamps.push(standing(fireBowl(b, bowl), 'brazier'));
   });
+  // Фонарь на столбе у колодца — ничей, как фонари улиц: ночью у воды светло (свет П-9).
+  if (!opts) lamps.push(lanternPost(b, plan.well.x - 2.1, plan.well.z - 2.2, 0.69, 0.72));
   own('statue', plan.statue.x, plan.statue.z, 1, 0, () => statue(b, plan.statue, 0));
   const civicT = b.mark().t;
   // За стеной: предместье (дома Жилищ) и семь дворов.
@@ -215,8 +221,8 @@ export function cityCounts(q: Quality, plan: CityPlan = cityPlan()): CityCounts 
   const items = shoreItems(plan, q);
   const st = shoreTris(sc.reedBlades);
   if (items.reeds.length > 0) calls += 1;
-  if (items.stones.length > 0) calls += 1;
-  const shore = waterTriangles(sc.cols) + items.reeds.length * st.reed + items.stones.length * st.stone;
+  if (items.stones.length + items.rocks.length > 0) calls += 1;
+  const shore = waterTriangles(sc.cols) + items.reeds.length * st.reed + (items.stones.length + items.rocks.length) * st.stone;
   for (const sp of Object.keys(trees) as Species[]) {
     const n = trees[sp].length;
     if (n === 0) continue;

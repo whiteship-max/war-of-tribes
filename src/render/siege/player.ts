@@ -71,6 +71,7 @@ export class SiegePlayer {
     private opts: SiegePlayerOptions = {},
   ) {
     this.speed = opts.speed ?? 1;
+    this.loopFrame.place = 'siege';
     this.from = opts.range?.from ?? 0;
     this.to = opts.range?.to ?? reel.seconds;
     this.t = this.from;

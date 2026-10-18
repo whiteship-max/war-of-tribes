@@ -4,13 +4,16 @@
 //   QUALITY=high,low VIEWS=game,street SOLAR=0.2,0.75 TAG=r2 npm run city:shots
 //   EXTRA="at=4,5,70&dist=30" VIEWS=street npm run city:shots   — свой ракурс поверх названного
 //   TEX=1 npm run city:shots                   — слои текстур листом (без браузера)
-//   BUDGET=1 npm run city:shots                — бюджет по уровням счётом (без браузера)
+//   BUDGET=1 npm run city:shots                — бюджет по уровням счётом (без браузера); `BUILD_MS=1` — и цена сборки мира
 //   GAME=1 QUALITY=medium npm run city:shots   — сама игра по адресу `?look=city`: стартовый кадр
 //                                                (сцена города в игре, не стенд), TAG и QUALITY те же
 //   GAME=1 WX=clear,rain,storm npm run city:shots — погода адресом (`?weather=`, docs/city.md, 15): кадр игры на каждую,
-//                                                `WXLOOK=market:70` — вблизи постройки (тип:расстояние), `WXMAP=1` —
+//                                                `WXLOOK=market:70` — вблизи постройки (тип:расстояние; `-4,10,-30:60` —
+//                                                точка плана; `…:60:150` — камера повёрнута на 150°), `WXMAP=1` —
 //                                                карта мира, `WXSEASON=winter` — сезон партии, `WXREGION=italy` — регион,
 //                                                `WXDAY=0.8` — доля суток партии (0.8 летом — глубокая ночь, docs/polish.md, П-3)
+//   GAME=1 WX=clear CHAMBERS=desk npm run city:shots — покои правителя (docs/city_v3.md, Г-4): точка интереса
+//                                                (hall, desk, window, hearth, bed, arms), `:доворот:наклон:безделушка:подсветка`
 //   LEGEND=1 npm run city:shots              — легенда карты листом: строки значков той же функцией, что окно легенды
 //                                                (docs/city.md, 16.5); `GAME=1 WXMAP=1 LEGEND=1` — окно в самой игре
 //   SIZE=540x900 VIEWS=game SOLAR=0.46 npm run city:shots — свой экран (точки CSS, плотность 2): кадры заставки
@@ -29,6 +32,7 @@ import { BROWSER_MAX_MS, REPORT_FPS, gpuCoolDown, gpuStamp, refuseIfBusy } from 
 import { QUALITY, qualityOf, type Quality } from '../src/render/quality';
 import { LAYERS, paintLayer } from '../src/render/city/tex';
 import { cityCounts, CITY_BUDGET } from '../src/render/city/budget';
+import { buildWorld } from '../src/render/city/world';
 import { QUALITIES as ALL_QUALITIES } from '../src/render/quality';
 import { SEASON_SECONDS } from '../src/game/data/seasons';
 import { DAY_LENGTH } from '../src/game/pace';
@@ -354,17 +358,62 @@ async function weatherShots(tab: Tab, q: Quality): Promise<void> {
   }
   const near = process.env.WXLOOK;
   if (near && !map) {
-    const [type, dist] = near.split(':');
+    const [type, dist, yaw] = near.split(':');
+    // `WXLOOK=x,y,z:расстояние` — точка плана вместо постройки (паперть храма, docs/city_v3.md).
+    const at = type.includes(',') ? type.split(',').map(Number) : null;
     await tab.eval<string>(`(() => {
       const sc = window.__scene;
+      const at = ${JSON.stringify(at)};
       const own = sc.sites.filter((x) => x.type === ${JSON.stringify(type)});
-      const m = own.reduce((a, b) => (a.hf * a.hr >= b.hf * b.hr ? a : b));
-      sc.target.set(m.x, m.y0 + 3, m.z);
+      const m = at ? null : own.reduce((a, b) => (a.hf * a.hr >= b.hf * b.hr ? a : b));
+      if (at) sc.target.set(at[0], at[1], at[2]);
+      else sc.target.set(m.x, m.y0 + 3, m.z);
       sc.dist = ${Number(dist) || 60};
+      // Третье число — поворот камеры вокруг цели, градусы (…:220:150 — ворота с дорогой вдаль, docs/city_v3.md, Г-3).
+      sc.spinTurn = ${(Number(yaw) || 0) * Math.PI / 180};
       sc.userMoved = true;
       sc.place();
       return JSON.stringify('ok');
     })()`);
+  }
+  // Покои правителя (`CHAMBERS=desk` к `GAME=1 WX=…`, docs/city_v3.md, Г-4): точка интереса, поворот головы от её
+  // взгляда (`:доворот:наклон`, радианы) и безделушка в руке (`:…:…:goblet`) — глаз встаёт сразу, без перехода.
+  const ch = process.env.CHAMBERS;
+  if (ch) {
+    const [poi, dy, dp, hold, hover] = ch.split(':');
+    const said = await tab.eval<string>(`new Promise((ok) => {
+      window.__chambersOpen.getState().show();
+      let n = 0;
+      const t = setInterval(() => {
+        const r = window.__chambers;
+        if (r) {
+          clearInterval(t);
+          r.snap(${JSON.stringify(poi)}, ${Number(dy) || 0}, ${Number(dp) || 0}, ${JSON.stringify(hold || null)}, ${JSON.stringify(hover || null)});
+          ok(JSON.stringify('покои: ' + ${JSON.stringify(poi)} + ', треугольников ' + r.counts().triangles));
+        } else if (++n > 300) {
+          clearInterval(t);
+          ok(JSON.stringify('покои не поднялись'));
+        }
+      }, 200);
+    })`);
+    console.log(`  ${said}`);
+    await sleep(2500);
+    const diag = await tab.eval<string>(`JSON.stringify((() => {
+      const r = window.__scene.renderer;
+      const out = (r.info.programs || []).filter((p) => p.diagnostics && !p.diagnostics.runnable).map((p) => p.name + ': ' + (p.diagnostics.fragmentShader.log || '') + (p.diagnostics.vertexShader.log || '') + p.diagnostics.programLog);
+      const room = window.__chambers;
+      out.push('cam ' + room.camera.position.toArray().map((x) => x.toFixed(1)).join(',') + ' origin ' + room.origin.toArray().map((x) => x.toFixed(1)).join(','));
+      out.push('meshes ' + room.scene.children.length);
+      const st = window.__scene.stats();
+      out.push('кадр: вызовов ' + st.calls + ', треугольников ' + st.triangles);
+      const u = room.u;
+      const c3 = (c) => [c.r, c.g, c.b].map((x) => x.toFixed(2)).join(',');
+      out.push('небо ' + c3(u.uSky.value) + ' солнце ' + c3(u.uSun.value) + ' к солнцу ' + u.uSunDir.value.toArray().map((x) => x.toFixed(2)).join(','));
+      return out.join(' | ');
+    })())`);
+    console.log(`  диагностика: ${diag}`);
+    // Затемнение входа гаснет за 0.7 с настоящего времени, а программный кадр облака — около секунды.
+    await sleep(5000);
   }
   for (const wx of list(process.env.WX, 'clear')) {
     await tab.eval<string>(`(() => {
@@ -384,7 +433,7 @@ async function weatherShots(tab: Tab, q: Quality): Promise<void> {
       }
     }
     const png = await tab.send<{ data: string }>('Page.captureScreenshot', { format: 'png' });
-    const name = `${TAG}-wx-${wx}${day ? '-d' + day : ''}${region ? '-' + region : ''}${map ? '-map' : near ? '-' + near.replace(':', '') : ''}-${q}.png`;
+    const name = `${TAG}-wx-${wx}${day ? '-d' + day : ''}${region ? '-' + region : ''}${map ? '-map' : near ? '-' + near.replace(/:/g, '') : ''}${ch ? '-ch-' + ch.replace(/:/g, '_') : ''}-${q}.png`;
     await writeFile(join(OUT, name), Buffer.from(png.data, 'base64'));
     if (wx === 'storm') await tab.eval<string>(`(() => { window.__scene.resume(); return JSON.stringify('ok'); })()`);
     const pc = await tab.eval<string>('JSON.stringify(JSON.stringify(window.__scene.precip ? { поле: window.__scene.precip.grounded, ...window.__scene.precip.counts() } : null))').catch(() => '?');
@@ -563,6 +612,12 @@ async function main(): Promise<void> {
         `  ${q.padEnd(6)} вызовов ${c.calls} (≤ ${lim.calls}), треугольников ${c.triangles} (≤ ${lim.triangles}; здания ${c.buildings}, ` +
           `земля ${c.ground}, деревья ${c.trees}, жизнь ${c.life}, вода и берег ${c.shore}), текстуры ${c.textureMb.toFixed(1)} МБ (≤ ${lim.textureMb})`,
       );
+      // `BUILD_MS=1` — сколько стоит сборка мира в потоке (`world.buildWorld`): план, здания, земля (карты покрытий и
+      // земель, сетка, сырость и грязь, берег) и деревья — в node, одним прогоном; телефон медленнее (docs/city_v3.md, Г-3).
+      if (process.env.BUILD_MS === '1') {
+        const ms = buildWorld(q).ms;
+        console.log(`         сборка мира, мс: план ${ms.plan.toFixed(0)}, здания ${ms.build.toFixed(0)}, земля ${ms.ground.toFixed(0)}, деревья ${ms.trees.toFixed(0)}`);
+      }
     }
     return;
   }

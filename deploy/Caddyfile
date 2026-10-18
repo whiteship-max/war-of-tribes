@@ -9,7 +9,7 @@
 
 	# Адреса API — ровно те, что объявлены у функций Netlify и в netlify/lib/routes/index.ts; сверяет
 	# их тест (netlify/vps/deploy.test.ts). Всё остальное — статика, как и на Netlify.
-	@api path /api/save /api/castles /api/notify /api/time /api/war /api/bot /api/report /api/rating /api/gems /api/pay /api/feed
+	@api path /api/save /api/castles /api/notify /api/time /api/war /api/bot /api/report /api/rating /api/gems /api/pay /api/feed /api/perf
 	handle @api {
 		request_body {
 			max_size 1MB

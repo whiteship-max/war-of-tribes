@@ -44,6 +44,8 @@ export interface TwSpec {
   reeds: number;
   /** Кустиков травы на поле (`land.ts`): земля вблизи — трава, а не крашеная плита. На низком их нет. */
   tufts: number;
+  /** Камней на поле (`land.ts`, Г-3): валуны на откосах и холмах, мелкие — россыпью в траве. Без тени, одним вызовом. */
+  stones: number;
   /** Облака в небе (`light.buildClouds`): слой над горизонтом; на низком нет — небо градиентом. */
   clouds: boolean;
   /**
@@ -59,9 +61,9 @@ export interface TwSpec {
 }
 
 export const TW_SPEC: Record<Quality, TwSpec> = {
-  low: { perSide: 150, shadow: 'none', shadowMap: 1024, shadowSoft: false, shadowEvery: 2, bakeFps: 12, trees: 90, grid: 72, arrows: 240, houses: 18, tents: 16, reeds: 120, tufts: 0, clouds: false, crowdLod: 1, water: 0, lamps: LAMP_SPEC.low.real },
-  medium: { perSide: 360, shadow: 'proxy', shadowMap: 2048, shadowSoft: true, shadowEvery: 1, bakeFps: 16, trees: 200, grid: 96, arrows: 480, houses: 34, tents: 28, reeds: 260, tufts: 2600, clouds: true, crowdLod: 2, water: 1, lamps: LAMP_SPEC.medium.real },
-  high: { perSide: 720, shadow: 'proxy', shadowMap: 2048, shadowSoft: true, shadowEvery: 1, bakeFps: 20, trees: 360, grid: 128, arrows: 900, houses: 56, tents: 44, reeds: 420, tufts: 5200, clouds: true, crowdLod: 2, water: 2, lamps: LAMP_SPEC.high.real },
+  low: { perSide: 150, shadow: 'none', shadowMap: 1024, shadowSoft: false, shadowEvery: 2, bakeFps: 12, trees: 90, grid: 72, arrows: 240, houses: 18, tents: 16, reeds: 120, tufts: 0, stones: 40, clouds: false, crowdLod: 1, water: 0, lamps: LAMP_SPEC.low.real },
+  medium: { perSide: 360, shadow: 'proxy', shadowMap: 2048, shadowSoft: true, shadowEvery: 1, bakeFps: 16, trees: 200, grid: 96, arrows: 480, houses: 34, tents: 28, reeds: 260, tufts: 2600, stones: 110, clouds: true, crowdLod: 2, water: 1, lamps: LAMP_SPEC.medium.real },
+  high: { perSide: 720, shadow: 'proxy', shadowMap: 2048, shadowSoft: true, shadowEvery: 1, bakeFps: 20, trees: 360, grid: 128, arrows: 900, houses: 56, tents: 44, reeds: 420, tufts: 5200, stones: 220, clouds: true, crowdLod: 2, water: 2, lamps: LAMP_SPEC.high.real },
 };
 
 /** Бюджет кадра по уровням — слово владельца (docs/battle_tw.md, раздел 7): вызовы, треугольники, текстуры. */

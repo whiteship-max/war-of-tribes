@@ -1583,6 +1583,7 @@ export class PrologueScene {
     private canvas: HTMLCanvasElement,
     private save: PrologueSave,
   ) {
+    this.frameLoop.place = 'prologue';
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(pixelRatio());
     configureRenderer(this.renderer);
