@@ -50,19 +50,21 @@ export function ArmyPanel() {
         ⚔️ Дружина <small>{count(armySize(s), 'боец', 'бойца', 'бойцов')} · мощь {Math.round(armyPower(s))}</small>
       </h2>
 
-      {/* Три числа одной строкой ячеек (docs/ui_v2.md, 2.1): оборона, кто в ней и кто нет — каждое с подсказкой. */}
+      {/* Три числа одной строкой ячеек (docs/ui_v2.md, 2.1): мощь обороны, бойцы в городе и в походе — каждое с подсказкой.
+          Единица названа в подписи: прежде «Оборона 1264 | В обороне 127 | Не в обороне 980» ставило мощь в ряд с головами
+          (отзыв тестеров 18.10, docs/feedback.md). */}
       <div className="ms-sum">
         {/* Разбор обороны — тот же, что у строки «Оборона» сводки «Жителей» (`hudTips.defenseTip`, UI-5). */}
-        <Num label="Оборона" tip={() => defenseTip(s, go)}>
-          <small>Оборона</small>
+        <Num label="Мощь обороны" tip={() => defenseTip(s, go)}>
+          <small>Мощь обороны</small>
           <b className="good">{dec(defense(s), 0)}</b>
         </Num>
-        <Num label="В обороне" tip={() => inWallsTip(s, marches, figures)}>
-          <small>В обороне</small>
+        <Num label="Бойцов в городе" tip={() => inWallsTip(s, marches, figures)}>
+          <small>Бойцов в городе</small>
           <b>{fmtInt(home)}</b>
         </Num>
-        <Num label="Не в обороне" tip={() => outWallsTip(s)}>
-          <small>Не в обороне</small>
+        <Num label="Бойцов в походе" tip={() => outWallsTip(s)}>
+          <small>Бойцов в походе</small>
           <b className={away > 0 ? 'bad' : ''}>{fmtInt(away)}</b>
         </Num>
       </div>
