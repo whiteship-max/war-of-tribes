@@ -44,7 +44,11 @@ import { RESOURCE_IDS, START_POP } from '../../src/game/constants.js';
 import { gameDaysPerHour, gameSeconds, gameSecondsOfMs } from '../../src/game/pace.js';
 import { upgradeWork } from '../../src/game/labour.js';
 import { fullWork, rushFreeWork, rushPriceOfWork } from '../../src/game/gemrules.js';
-import { BUILD_MOD_MAX, CRAFTER_MULT_MAX, CROWD_MAX, EVENT_WORK_MAX, buildCeil, crowdMax, headsFoodPerDay, housingOf, soldierFoodPerDay, storageOf } from '../../src/game/build.js';
+import { BUILD_MOD_MAX, CRAFTER_MULT_MAX, CROWD_MAX, EVENT_WORK_MAX, buildCeil, crowdMax, headsFoodPerDay, housingOf, keenAt, soldierFoodPerDay, storageOf, towerSeatsAt } from '../../src/game/build.js';
+import { ENGINES } from '../../src/game/data/engines.js';
+import { MAX_AGENT_LEVEL } from '../../src/game/data/agents.js';
+import { stealthAt } from '../../src/game/sim/agents.js';
+import { veilAt } from '../../src/world/peril.js';
 import { EVENT_WORK } from '../../src/game/data/events.js';
 import { LETTER_PAUSE_MIN, LETTER_SLOTS } from '../../src/world/data/tuning.js';
 import { weakCity } from '../../src/world/lairs.js';
@@ -407,3 +411,38 @@ describe('ускорение за алмазы: остаток стройки з
   });
 });
 
+
+/**
+ * Тайная служба и орудие башни слепка (docs/security.md, ЗЩ-2): клиент называл их сам, и сервер брал любое число в пределах
+ * разбора — Дозор до ста, бессмертного лазутчика, орудие любой силы. Теперь — не лучше, чем дают подтверждённые уровни,
+ * высший уровень агента и таблица орудий игры.
+ */
+describe('тайная служба и орудие башни — в пределах правил', () => {
+  it('Дозор выше уровня, бессмертный и незаметный лазутчик, короткий плен — к пределам правил; честная служба не меняется', () => {
+    const book = seedTown(T0);
+    const watchLevel = book.levels.watch ?? 0;
+    const forged = townSheet(bigSheet({ watch: { keen: 100, veil: 0, stealth: 1, held: 0.1, home: true } }), book, 0).watch!;
+    expect(forged.keen).toBe(keenAt(watchLevel));
+    expect(forged.veil).toBe(veilAt(MAX_AGENT_LEVEL));
+    expect(forged.stealth).toBe(stealthAt(MAX_AGENT_LEVEL));
+    expect(forged.held).toBe(1);
+    // Точки внутри области: пределы правил строже подделки.
+    expect(keenAt(watchLevel)).toBeLessThan(100);
+    expect(veilAt(MAX_AGENT_LEVEL)).toBeGreaterThan(0);
+    expect(stealthAt(MAX_AGENT_LEVEL)).toBeLessThan(1);
+    const honest = { keen: keenAt(watchLevel), veil: veilAt(3), stealth: stealthAt(3), held: 1.5, home: false };
+    expect(townSheet(bigSheet({ watch: honest }), book, 0).watch).toEqual(honest);
+  });
+
+  it('орудие не из таблицы игры — нет орудия; из таблицы при подтверждённой башне — то же, мест не больше башни', () => {
+    const def = ENGINES[0];
+    const book = { ...seedTown(T0), levels: { ...seedTown(T0).levels, tower: def.level } };
+    const fake = { slow: 1, thin: 1, crew: 1, seats: 10 };
+    expect(townSheet(bigSheet({ tower: fake }), book, 0).tower).toBeUndefined();
+    const real = { slow: def.slow, thin: def.thin, crew: def.crew, seats: 99 };
+    expect(townSheet(bigSheet({ tower: real }), book, 0).tower).toEqual({ ...real, seats: towerSeatsAt(def.level) });
+    // Башня ниже уровня орудия — орудия нет.
+    expect(townSheet(bigSheet({ tower: real }), seedTown(T0), 0).tower).toBeUndefined();
+    expect(def.level, 'точка внутри области: орудию нужна башня выше первой').toBeGreaterThan(1);
+  });
+});

@@ -83,6 +83,12 @@ export const militiaOf = (defense: number, homePower: number): number => Math.ma
 /** Мест лучников на башне этого уровня (`world/bridge.militiaArchers`: из ополчения, не больше его). */
 export const towerArchersAt = (level: number): number => Math.max(0, Math.round(statAt('tower', 'archers', level)));
 
+/** Мест на башне этого уровня: поле здания целым вниз, малая прибавка гасит ошибку дроби (`derived.towerSeats`). */
+export const towerSeatsAt = (level: number): number => Math.floor(statAt('tower', 'seats', level) + 1e-9);
+
+/** Дозор этого уровня — во сколько раз острее глаз и охрана (`derived.intelKeen`); Дозора нет — единица. */
+export const keenAt = (level: number): number => 1 + statAt('watch', 'intel', level) / 100;
+
 /** Множитель стройки от уровня ратуши — `derived.townHallBuildMult`. Ратуши нет (0) — единица. */
 export const hallBuildMult = (level: number): number => 1 + TOWN_HALL_BUILD_STEP * Math.max(0, level - 1);
 

@@ -69,7 +69,7 @@ import {
 import { asGame, sessionSec, type GameSec } from './pace';
 import { BUILDING_BY_ID, MASTERS_AT, type BuildingStats, slotsAt } from './data/buildings';
 import { surveyRadiusOf } from './data/survey';
-import { buildRateOf, defenseOf, hallBuildMult, headsFoodPerDay, heatingWood, housingOf, soldierFoodPerDay as soldierFoodAt, stashAt, storageOf, type Levels } from './build';
+import { buildRateOf, defenseOf, hallBuildMult, headsFoodPerDay, heatingWood, housingOf, keenAt, towerSeatsAt, soldierFoodPerDay as soldierFoodAt, stashAt, storageOf, type Levels } from './build';
 import { FAITH_BY_ID, OBSERVANCE_BY_ID, tiltAt, type FaithDef, type FaithTilt } from './data/faiths';
 import { FREE_JOBS, JOBS, JOB_BY_ID } from './data/jobs';
 import { EQUIPMENT_BY_ID, type EquipmentDef } from './data/equipment';
@@ -490,7 +490,7 @@ export function statOf(s: GameState, type: BuildingTypeId, key: keyof BuildingSt
  * Мест лучников на башне: поле здания целым вниз. Малая прибавка гасит ошибку дроби —
  * три трети в числах с плавающей точкой не всегда единица.
  */
-export const towerSeats = (s: GameState): number => Math.floor(statOf(s, 'tower', 'seats') + 1e-9);
+export const towerSeats = (s: GameState): number => towerSeatsAt(buildingOfType(s, 'tower')?.level ?? 0);
 
 /**
  * Какая доля павших в бою ранена и ляжет в лазарет, 0..`INFIRMARY_HEAL_CAP`.
@@ -557,7 +557,7 @@ export function mouthCount(s: GameState): number {
  * Снимок запоминает это число в момент разведки: данные, собранные хорошим
  * дозором, и остаются хорошими (см. world/intel.readIntel).
  */
-export const intelKeen = (s: GameState): number => 1 + statOf(s, 'watch', 'intel') / 100;
+export const intelKeen = (s: GameState): number => keenAt(buildingOfType(s, 'watch')?.level ?? 0);
 
 /**
  * Насколько Дозор удлиняет предупреждение о чужой армии, **игровых** секунд: мир прибавляет их к

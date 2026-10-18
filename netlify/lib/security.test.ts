@@ -2,19 +2,22 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ROUTES } from './routes/index.js';
 import { botWith } from './routes/bot.js';
 import { STORES } from './kv.js';
-import { CITY_RULES, WARN, confirmedPower, flagsBetween, readWatchRecord, type FlagKind, type WatchRecord } from './watch.js';
+import { CITY_RULES, WARN, bookOf, confirmedPower, flagsBetween, readWatchRecord, townOf, type FlagKind, type WatchRecord } from './watch.js';
 import { readLedger, settlePurchase } from './gems.js';
 import { ROSTER_KEY, readRoster } from './roster.js';
-import { seedTown } from './town.js';
+import { eatFloorOf, seedTown } from './town.js';
+import { emptyWars, liveSheet, readStoredSheet } from './war.js';
 import type { Telegram } from './telegram.js';
 import { PAY_NOT_COUNTED, PAY_NOT_SOLD } from './words.js';
-import type { GemsResponse, RatingResponse, WatchCard } from './contract.js';
+import type { GemsResponse, RatingResponse, WarSheet, WatchCard } from './contract.js';
 import { BUILDING_BY_ID } from '../../src/game/data/buildings.js';
 import { START_POP } from '../../src/game/constants.js';
 import { START_GEMS, fullWork, rushPriceOfWork } from '../../src/game/gemrules.js';
 import { upgradeCost } from '../../src/game/labour.js';
-import { gameSecondsOfMs } from '../../src/game/pace.js';
-import { storageOf } from '../../src/game/build.js';
+import { gameDaysOfMs, gameDaysPerHour, gameSecondsOfMs } from '../../src/game/pace.js';
+import { GOODS_SLACK, drainCeil } from './goods.js';
+import { CLOCK_SKEW_SECONDS } from './initdata.js';
+import { headsFoodPerDay, soldierFoodPerDay, storageOf } from '../../src/game/build.js';
 import { powerOfCounts } from '../../src/profile/power.js';
 import { TEST_TOKEN, signInit, sqliteHome, type Home } from '../vps/testkit.js';
 
@@ -377,5 +380,101 @@ describe('платёж Telegram: счетов Telegram сервер не выс�
     const t = fakeTg();
     expect(await hook(t, paid('ch-2'), 'wrong-secret')).toBe(401);
     expect(t.calls).toEqual([]);
+  });
+});
+
+/**
+ * ЗЩ-2 (docs/security.md): склад и казна защитника — из книги запасов, а не из слепка обороны; расход хлеба — не ниже пола
+ * игры. Запись партии принимается (200), невозможное — флаг и строка «внимание:», в войну идёт подтверждённое: слепок,
+ * собранный так, как его собирает обработчик войны (`readStoredSheet` + книги из наблюдения).
+ */
+describe('ЗЩ-2: склад, казна и хлеб защитника — из подтверждённого', () => {
+  const sheet = (over: Partial<WarSheet> = {}): WarSheet => ({
+    army: {},
+    home: {},
+    militia: 0,
+    archers: 0,
+    resolve: 0,
+    pips: {},
+    rest: 1,
+    food: 0,
+    townPerHour: eat.townPerHour,
+    perManPerHour: eat.perManPerHour,
+    stock: { wood: 1000, stone: 1000 },
+    stash: 0,
+    gold: 10,
+    pop: START_POP,
+    bonded: 0,
+    levels: {},
+    power: 0,
+    locks: {},
+    seen: [],
+    ...over,
+  });
+  // Честный расход посёлка новой партии — формулой игры при обычном пайке; пол — при самом скудном.
+  const eat = { townPerHour: headsFoodPerDay(START_POP, 1, 1) * gameDaysPerHour(), perManPerHour: soldierFoodPerDay(1, 1) * gameDaysPerHour() };
+
+  /** Слепок обороны так, как его видит война: лежащая запись партии и книги из наблюдения. */
+  async function warSide(p: ReturnType<typeof player>): Promise<WarSheet> {
+    const found = await home.stores(STORES.saves).getWithMetadata(p.key);
+    const s = readStoredSheet(found ? JSON.parse(String(found.data)) : null)!;
+    const rec = await p.watch();
+    return liveSheet(emptyWars(), p.key, { ...s, book: bookOf(rec, NOW), town: townOf(rec, NOW), ...(rec.goods ? { goods: rec.goods } : {}) }, s.at);
+  }
+
+  it('слепок прячет склад и казну, опись — нет: флаг, «внимание:», в войну — опись; честный — без флагов', async () => {
+    const honest = player(5201);
+    expect(await honest.push(card({ outlays: 0 }), NOW, { war: sheet() })).toBe(200);
+    expect(kinds(await honest.watch())).toEqual([]);
+    expect((await warSide(honest)).stock).toEqual({ wood: 1000, stone: 1000 });
+
+    const p = player(5202);
+    expect(await p.push(card({ outlays: 0 }), NOW, { war: sheet({ stock: {}, gold: 0 }) })).toBe(200);
+    const rec = await p.watch();
+    expect(kinds(rec)).toEqual(['hidden']);
+    expect(warnings(rec).join('\n')).toMatch(/Слепок обороны называет меньше/);
+    const war = await warSide(p);
+    expect(war.stock).toEqual({ wood: 1000, stone: 1000 });
+    expect(war.gold).toBe(10);
+  });
+
+  it('склад опустел в минуту без дел и трат: книга держит, флаг; с тратой — не держит', async () => {
+    const full = { wood: 1000, stone: 1000, gold: 5000 };
+    const p = player(5203);
+    expect(await p.push(card({ outlays: 0, stock: full }), NOW, { war: sheet({ gold: 5000 }) })).toBe(200);
+    expect(await p.push(card({ outlays: 0, stock: { gold: 0 } }), NOW + MIN, { war: sheet({ stock: {}, gold: 0 }) })).toBe(200);
+    const rec = await p.watch();
+    expect(kinds(rec)).toContain('hidden');
+    expect(warnings(rec).join('\n')).toMatch(/Склад убыл без разовых дел и трат/);
+    // Казна без дела убывает только закятом с голов посёлка (войска нет): книга держит прежнее за вычетом потолка расхода
+    // за минуту с допуском часов; камень без дела не убывает вовсе — единица на дробь.
+    const could = drainCeil(rec.town!.levels, START_POP, 0, 0).gold * gameDaysOfMs(MIN + CLOCK_SKEW_SECONDS * 1000) * GOODS_SLACK + 1;
+    expect(could, 'точка внутри области: убыль больше позволенного').toBeLessThan(5000);
+    expect(rec.goods?.have.gold).toBe(Math.floor(5000 - could));
+    const war = await warSide(p);
+    expect(war.gold).toBe(Math.floor(5000 - could));
+    expect(war.stock.stone).toBe(999);
+
+    const q = player(5204);
+    expect(await q.push(card({ outlays: 0, stock: full }), NOW, { war: sheet({ gold: 5000 }) })).toBe(200);
+    expect(await q.push(card({ outlays: 1, stock: { gold: 0 } }), NOW + MIN, { war: sheet({ stock: {}, gold: 0 }) })).toBe(200);
+    const fair = await q.watch();
+    expect(kinds(fair)).toEqual([]);
+    expect((await warSide(q)).gold).toBe(0);
+  });
+
+  it('расход хлеба ниже самого скудного пайка: флаг «расход хлеба ниже правил», в осаду — пол', async () => {
+    const p = player(5205);
+    expect(await p.push(card({ outlays: 0 }), NOW, { war: sheet({ townPerHour: 0, perManPerHour: 0 }) })).toBe(200);
+    const rec = await p.watch();
+    expect(kinds(rec)).toEqual(['eat']);
+    expect(warnings(rec).join('\n')).toMatch(/Расход хлеба в слепке обороны/);
+    const war = await warSide(p);
+    const floor = eatFloorOf(START_POP, 0);
+    expect(war.townPerHour).toBeCloseTo(floor.townPerHour, 9);
+    expect(war.perManPerHour).toBeCloseTo(floor.perManPerHour, 9);
+    // Точка внутри области: пол ниже честного расхода, но не ноль.
+    expect(floor.townPerHour).toBeGreaterThan(0);
+    expect(floor.townPerHour).toBeLessThan(eat.townPerHour);
   });
 });

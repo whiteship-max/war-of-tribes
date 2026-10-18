@@ -35,15 +35,22 @@ import {
   defenseOf,
   eatFloorPerDay,
   housingOf,
+  keenAt,
   levelIn,
   militiaOf,
   popGrowthCeil,
   stashAt,
   storageOf,
   towerArchersAt,
+  towerSeatsAt,
 } from '../../src/game/build.js';
+import { ENGINES } from '../../src/game/data/engines.js';
+import { MAX_AGENT_LEVEL } from '../../src/game/data/agents.js';
+import { TRAITS } from '../../src/game/data/traits.js';
+import { stealthAt } from '../../src/game/sim/agents.js';
+import { veilAt } from '../../src/world/peril.js';
 import { LETTER_PAUSE_MIN, LETTER_SLOTS } from '../../src/world/data/tuning.js';
-import { readCounts, type Counts, type WarSheet } from './contract.js';
+import { readCounts, type Counts, type SpyWatch, type WarSheet, type WarTowerGun } from './contract.js';
 import type { WarFile } from './war.js';
 
 /** Стройка, идущая сейчас: тип, до какого уровня и сколько работы на ней сервер подтверждает. */
@@ -360,8 +367,12 @@ export function townSheet(sheet: WarSheet, book: TownBook, homePower: number): W
   const ceil = militiaOf(defenseOf(book.levels, book.pop, homePower, STEADFAST_MAX), homePower);
   const militia = Math.min(sheet.militia, ceil);
   const eat = eatFloorOf(pop, sheet.bonded);
+  const tower = ruleTower(sheet.tower, levelIn(book.levels, 'tower'));
+  const { tower: _claimed, ...rest } = sheet;
   return {
-    ...sheet,
+    ...rest,
+    ...(tower ? { tower } : {}),
+    ...(sheet.watch ? { watch: ruleWatch(sheet.watch, levelIn(book.levels, 'watch')) } : {}),
     townPerHour: Math.max(sheet.townPerHour, eat.townPerHour),
     perManPerHour: Math.max(sheet.perManPerHour, eat.perManPerHour),
     levels,
@@ -383,6 +394,39 @@ export function eatFloorOf(pop: number, bonded: number): { townPerHour: number; 
   const day = eatFloorPerDay(Math.max(0, pop) + Math.max(0, bonded));
   const hour = gameDaysPerHour();
   return { townPerHour: day.town * hour, perManPerHour: day.man * hour };
+}
+
+/** Самая скрытная гибель, самая незаметная неудача и самый короткий плен лазутчика, какие дают навыки и черты игры. */
+const VEIL_MIN = veilAt(MAX_AGENT_LEVEL);
+const STEALTH_MAX = stealthAt(MAX_AGENT_LEVEL);
+const HELD_MIN = TRAITS.reduce((m, t) => (t.effect.held !== undefined && t.effect.held < 1 ? m * t.effect.held : m), 1);
+
+/**
+ * Тайная служба слепка в пределах правил (docs/security.md, ЗЩ-2): Дозор — не выше подтверждённого уровня (`build.keenAt`),
+ * скрытность, незаметность и плен своего лазутчика — не лучше, чем дают высший уровень агента и черты (`world/peril.veilAt`,
+ * `sim/agents.stealthAt`, черта «сколько держат»). Честная служба не меняется: её числа — те же двери.
+ */
+export function ruleWatch(w: SpyWatch, watchLevel: number): SpyWatch {
+  return {
+    ...w,
+    keen: Math.min(w.keen, keenAt(watchLevel)),
+    veil: Math.max(w.veil, VEIL_MIN),
+    stealth: Math.min(w.stealth, STEALTH_MAX),
+    held: Math.max(w.held, HELD_MIN),
+  };
+}
+
+/**
+ * Орудие башни в пределах правил (docs/security.md, ЗЩ-2): только орудие из таблицы игры (`data/engines`), которому хватает
+ * подтверждённого уровня башни, с его силой и расчётом; мест — не больше, чем у башни этого уровня (`build.towerSeatsAt`).
+ * Не из таблицы — орудия нет: башня бьёт по лагерю только тем, что игра могла поставить.
+ */
+export function ruleTower(gun: WarTowerGun | undefined, towerLevel: number): WarTowerGun | undefined {
+  if (!gun) return undefined;
+  const same = (a: number, b: number): boolean => Math.abs(a - b) < 1e-9;
+  const def = ENGINES.find((e) => e.level <= towerLevel && same(e.slow, gun.slow) && same(e.thin, gun.thin) && e.crew === gun.crew);
+  if (!def) return undefined;
+  return { ...gun, seats: Math.min(gun.seats, towerSeatsAt(towerLevel)) };
 }
 
 // ------------------------------------------------ ускорение за алмазы ---

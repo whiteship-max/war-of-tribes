@@ -12,6 +12,7 @@ import { GUARD_SHARE, machinesAt } from '../../src/world/machines.js';
 import { guardKinds } from '../../src/world/fights.js';
 import { kindsOf } from '../../src/game/battle/price.js';
 import { ENERGY_MAX } from '../../src/world/data/energy.js';
+import { fieldWalkFloorMs } from '../../src/world/pvp.js';
 import { wallRepairCost } from '../../src/game/build.js';
 import { SIEGE_RATION } from '../../src/game/constants.js';
 
@@ -192,6 +193,26 @@ describe('сдача', () => {
     expect(w.fall?.fate).toBe(softerFate('captives'));
     expect(w.fall?.routed).toEqual({});
     expect(w.end).toBe('taken');
+  });
+});
+
+describe('выручка: срок пути — по расстоянию и скорости (ЗЩ-2)', () => {
+  it('из своего замка к союзнику «за ноль» — отказ и флаг «срок пути»; честный срок — принят', () => {
+    const { file, ctx, w, since } = camped();
+    const roster = ctx.roster;
+    const warned: string[] = [];
+    const told = { ...ctx, forged: (_: string, kind?: string) => warned.push(kind ?? 'forged') };
+    expect(applyOrder(file, B, { op: 'pact', target: castleIdOf(C) }, since + 1, told)).toBeNull();
+    expect(applyOrder(file, C, { op: 'pact', target: castleIdOf(B) }, since + 2, told)).toBeNull();
+    const army: WarArmy = { troops: { spearman: 60 }, resolve: 0, pips: {}, energy: { value: ENERGY_MAX, at: since, mode: 'hold' } };
+    const from = { x: roster.rows[C].x, y: roster.rows[C].y };
+    const floor = fieldWalkFloorMs(from, w.to);
+    expect(floor, 'точка внутри области: союзник не у ворот').toBeGreaterThan(60_000);
+    expect(applyOrder(file, C, { op: 'relief', id: w.id, army, walkMs: 0, from }, since + 3, told)).toBe('Так быстро полководцу не дойти. Обнови игру и попробуй снова.');
+    expect(w.reliefs ?? []).toEqual([]);
+    expect(warned).toEqual(['walk']);
+    expect(applyOrder(file, C, { op: 'relief', id: w.id, army, walkMs: floor, from }, since + 4, told)).toBeNull();
+    expect(w.reliefs?.[0].at).toBe(since + 4 + floor);
   });
 });
 

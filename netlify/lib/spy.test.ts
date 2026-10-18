@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { readWarOrder, spySeenId, type CastleClaim, type RivalDeed, type RosterFile, type SpyWatch, type WarOrder, type WarSheet } from './contract.js';
 import { castleIdOf, emptyRoster, upsert } from './roster.js';
-import { advance, applyOrder, emptyWars, liveSheet, newsMap, spiesOf, spyMenuOf, type SheetAt, type SpyRow, type WarFile } from './war.js';
+import { advance, applyOrder, emptyWars, liveSheet, newsMap, spiesOf, spyCap, spyMenuOf, type SheetAt, type SpyRow, type WarFile } from './war.js';
 import { weakCity } from '../../src/world/lairs.js';
 import { inHomeTheatre } from '../../src/world/theatre/theatre.js';
 import { energyAt, priceOf, roadCost } from '../../src/world/energy.js';
@@ -179,6 +179,20 @@ describe('кража — переход, а не начисление; алма�
     expect(left).toBe(600 - took1 - took2);
     const seen = { sheet: { ...s.sheet, stock: { food: left }, seen: g.file.spies!.map((x) => spySeenId(x.id)) }, at: s.at };
     expect(liveSheet(g.file, B, seen).stock.food).toBe(left);
+  });
+
+  it('энергия лазутчика — не выше отметки сервера (ЗЩ-2): сразу после дела «полный» запас — отказ, отдохнувший — идёт', () => {
+    const g = setup({ b: { stock: { food: 600 }, gold: 0, stash: 0 } });
+    const first = forced(g, 'theft', 1);
+    advance(g.file, first.arriveAt, g.sheets);
+    advance(g.file, first.backAt!, g.sheets);
+    const back = first.backAt! + 1;
+    // Точка внутри области: по отметке обратного пути, которую сервер ведёт сам, лазутчик не отдохнул.
+    expect(energyAt(first.energy, back), 'точка внутри области: лазутчик не отдохнул').toBeLessThan(ENERGY_MAX - priceOf('theft'));
+    expect(send(g, 'theft', back)).toMatch(/^Не хватит энергии/);
+    expect(g.file.spies!.length).toBe(1);
+    expect(spyCap(g.file, A, back)).toBe(energyAt(first.energy, back));
+    expect(spyCap(g.file, A, first.backAt! + ENERGY_FILL)).toBe(ENERGY_MAX);
   });
 
   it('пустой склад — красть нечего: ничего не приходит', () => {
