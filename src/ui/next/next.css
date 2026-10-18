@@ -964,6 +964,37 @@
   font-weight: 600;
   color: var(--muted);
 }
+/* Подпись ряда «Рабочие» над «3/12» и выработка под рядом: сейчас → с ещё одним (отзыв тестеров 11.10). */
+.nx-wcount .nx-wlbl {
+  display: block;
+  font-size: 11px;
+  font-weight: 500;
+}
+.nx-wgain {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 8px;
+  margin: -4px 0 8px;
+  padding: 0 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.nx-wgain span {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.nx-wgain svg {
+  width: 14px;
+  height: 14px;
+}
+.nx-wgain b {
+  color: var(--good);
+  font-weight: 600;
+}
 .nx-wrow .stepper.wide-steps {
   flex: 1;
   margin: 0;

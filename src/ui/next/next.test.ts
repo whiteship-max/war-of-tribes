@@ -498,6 +498,37 @@ describe('подсказка рабочих окна постройки — чи
     }
     expect(checked, 'здания, где уровень прибавляет места, есть').toBeGreaterThan(2);
   });
+
+  // Отзыв тестеров 11.10 (docs/feedback.md): у шага «+1 / +10» было непонятно, что добавляется. Под рядом — выработка в
+  // день сейчас и с ещё одним рабочим, обе — `buildingProduction` состояния, где на месте на одного больше.
+  it('выработка под рядом: сейчас — `buildingProduction`; с ещё одним — её же, после `assignWorker`; некуда — без «→»', async () => {
+    const { workerYield } = await import('./buildingTips');
+    const { buildingProduction, buildingSlots, idleCount, handsCount } = await import('@/game/derived');
+    const { assignWorker } = await import('@/game/sim/actions');
+    const s = createInitialState(7);
+    let grows = 0;
+    for (const b of s.buildings) {
+      const rows = workerYield(s, b);
+      if (rows.length === 0) continue;
+      const now = buildingProduction(s, b);
+      for (const r of rows) expect(r.now, `${b.type} ${r.id}: сейчас`).toBe(now[r.id]);
+      const room = buildingSlots(b) - handsCount(s, b.id);
+      // Область: есть место и свободные руки — «→» есть и равно выработке после найма одного.
+      if (room > 0 && idleCount(s) > 0) {
+        const t = structuredClone(s);
+        expect(assignWorker(t, b.id, 1)).toBeNull();
+        const after = buildingProduction(t, t.buildings.find((x) => x.id === b.id)!);
+        for (const r of rows) expect(r.more, `${b.type} ${r.id}: с ещё одним`).toBeCloseTo(after[r.id], 9);
+        if (rows.some((r) => (r.more ?? 0) > r.now)) grows++;
+      } else for (const r of rows) expect(r.more).toBeNull();
+    }
+    expect(grows, 'постройки, где ещё один рабочий прибавляет выработку, есть').toBeGreaterThan(2);
+    // Свободных рук нет — «→» нет нигде.
+    const busy = structuredClone(s);
+    for (const b of busy.buildings) while (idleCount(busy) > 0 && assignWorker(busy, b.id, 99) === null);
+    expect(idleCount(busy), 'точка внутри области: рук не осталось').toBe(0);
+    for (const b of busy.buildings) for (const r of workerYield(busy, b)) expect(r.more).toBeNull();
+  });
 });
 
 describe('кузница нового вида: выбор вещи и шаг заказа', () => {
@@ -538,5 +569,20 @@ describe('найм нового вида: какой вид выбран', () =>
     expect(firstTroop([...here], null, null, (id) => id === 'archer')).toBe('archer');
     // Вид обучения не из этого здания (конница в казармах) — не выбирается.
     expect(firstTroop([...here], 'knight' as never, null, all)).toBe('clubman');
+  });
+
+  // Отзыв тестеров 11.10 (docs/feedback.md): «Нанять» в карточке копейщиков открывал найм с дубинщиками — верхней строкой.
+  it('«Нанять» из карточки вида — выбран этот вид; просьба одна, на одно открытие', async () => {
+    const { firstTroop } = await import('./RecruitNew');
+    const { askRecruit, takeRecruitAsk } = await import('./recruitAsk');
+    const here = ['clubman', 'spearman', 'archer'] as const;
+    const all = (): boolean => true;
+    expect(firstTroop([...here], null, 'archer', all, 'spearman'), 'позванный вид сильнее последнего нанятого').toBe('spearman');
+    expect(firstTroop([...here], 'archer', null, all, 'spearman'), 'шаг обучения сильнее всего').toBe('archer');
+    expect(firstTroop([...here], null, null, (id) => id !== 'spearman', 'spearman'), 'позванный закрыт — прежнее правило').toBe('clubman');
+    expect(firstTroop([...here], null, null, all, 'rider'), 'вид не этого здания — прежнее правило').toBe('clubman');
+    askRecruit('spearman');
+    expect(takeRecruitAsk()).toBe('spearman');
+    expect(takeRecruitAsk(), 'второе открытие — без просьбы').toBeNull();
   });
 });

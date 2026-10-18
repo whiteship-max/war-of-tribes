@@ -20,14 +20,23 @@ import { waitSpan } from '@/ui/parts/wait';
 import { tipAt } from './tip';
 import { Confirm } from './Confirm';
 import { clampCount } from './SmithyNew';
+import { takeRecruitAsk } from './recruitAsk';
 import { dec } from '@/game/num';
 
 /**
  * Какой вид выбран при открытии: тот, к которому ведёт шаг обучения (его метка — на кнопке «Нанять» выбранного
- * вида), иначе последний нанятый, если открыт, иначе первый открытый, иначе первый.
+ * вида), иначе тот, чью карточку игрок открыл и нажал «Нанять» (`asked`, `recruitAsk`), если открыт, иначе последний
+ * нанятый, если открыт, иначе первый открытый, иначе первый.
  */
-export function firstTroop(here: readonly TroopId[], tutorial: TroopId | null, last: TroopId | null, open: (id: TroopId) => boolean): TroopId {
+export function firstTroop(
+  here: readonly TroopId[],
+  tutorial: TroopId | null,
+  last: TroopId | null,
+  open: (id: TroopId) => boolean,
+  asked: TroopId | null = null,
+): TroopId {
   if (tutorial && here.includes(tutorial)) return tutorial;
+  if (asked && here.includes(asked) && open(asked)) return asked;
   if (last && here.includes(last) && open(last)) return last;
   return here.find(open) ?? here[0];
 }
@@ -49,7 +58,7 @@ export function RecruitNew({ at }: { at: 'barracks' | 'stable' }) {
   const step = currentStep(s);
   const tut = tutorialTroop(step?.target.kind === 'dom' ? step.target.sel : null);
   const last = queue.length > 0 ? queue[queue.length - 1].troop : null;
-  const [pick, setPick] = useState<TroopId>(() => firstTroop(here, tut, last, open));
+  const [pick, setPick] = useState<TroopId>(() => firstTroop(here, tut, last, open, takeRecruitAsk()));
   const [n, setN] = useState(1);
   if (here.length === 0) return null;
   const check = recruitCheck(s, pick, n);
