@@ -192,7 +192,7 @@ describe('покои: память устройства (Г-7)', () => {
   });
 
   it('окно разговора: крестик кончает разговор (ноги отпускает режиссёр, `life.endTalk`)', () => {
-    const src = readFileSync(join(__dirname, 'Talk.tsx'), 'utf8');
+    const src = readFileSync(join(__dirname, 'TalkWindow.tsx'), 'utf8');
     const close = src.slice(src.indexOf('const close = (): void => {'), src.indexOf('if (!turn) return null;'));
     expect(close).toMatch(/life\.endTalk\(\);/);
     expect(close).toMatch(/onDone\(\);/);

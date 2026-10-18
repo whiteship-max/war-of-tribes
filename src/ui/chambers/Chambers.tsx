@@ -21,7 +21,7 @@ import { useChambers } from './open';
 import { openDoor } from './doors';
 import { useWorld, marchesOnUs } from '@/world/store';
 import type { LifeView, Who, Why } from '@/render/chambers/life';
-import { Talk } from './Talk';
+import { Talk } from './TalkWindow';
 import { daypartOf, household, type TalkCtx } from './talk';
 import { loadMemory, saveMemory, type ChambersMemory } from './memory';
 import { adultScenes } from './adult';
