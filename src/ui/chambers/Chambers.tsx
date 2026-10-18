@@ -47,9 +47,8 @@ function notify(): void {
   for (const f of live.subs) f();
 }
 
-/** Поднять комнату в сцене города, если её ещё нет и город встал. */
-function rise(): Live | null {
-  const scene = asCity(activeScene());
+/** Поднять комнату в сцене города, если её ещё нет и город встал. Сцена — живая сцена игры (довод — тестам). */
+function rise(scene: CityLike | null = asCity(activeScene())): Live | null {
   if (live) {
     // Сцену пересобрали (потерянный контекст, `ui/GameCanvas`): войти в новую той же комнатой.
     if (scene && live.scene !== scene && scene.keep() && scene.enterInside(live.room)) live.scene = scene;

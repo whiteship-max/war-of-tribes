@@ -183,7 +183,8 @@ export const POIS: readonly Poi[] = [
     id: 'bed',
     name: 'Кровать',
     verb: 'Лечь в кровать',
-    pose: { x: -4.08, y: 0.98, z: -4.45, yaw: 0.15, pitch: 0.62, fov: 70 },
+    // Лёжа, голова на подушке: в ногах — покрывало, за ним покои и огонь камина; вверху — подбой полога.
+    pose: { x: -4.08, y: 1.08, z: -4.5, yaw: 0.42, pitch: 0.12, fov: 70 },
     yaw: [-1.35, 1.35],
     pitch: [-0.35, 1.35],
     hits: [box(BED.x0, 0, BED.z0, BED.x1, BED.canopy, BED.z1)],
@@ -241,22 +242,23 @@ export interface Trinket extends Thing {
 const top = DESK.top;
 /** Предметы стола: из кресла лицом на юг восток — слева; здесь — с запада на восток. */
 export const DESK_THINGS: readonly DeskThing[] = [
-  // Сзади: книга людей, планы, перечень войска; посередине — карта; спереди — письма, печать, кошель, свиток. Всё — в полосе
-  // 0.9 м: столько видно из кресла на экране телефона стоймя (поле зрения по горизонтали — около 42°, `fitFov`).
-  { id: 'people', name: 'Список людей', hint: 'Кто чем занят в городе — «Жители»', door: 'people', poi: 'desk', code: 1, box: box(0.1, top, 3.2, 0.5, top + 0.06, 3.5) },
-  { id: 'plans', name: 'Планы построек', hint: 'Что строить и улучшать — Ратуша', door: 'build', poi: 'desk', code: 4, box: box(-0.19, top, 3.24, 0.17, top + 0.05, 3.52) },
-  { id: 'army', name: 'Перечень войска', hint: 'Гарнизон и полководец — Дружина', door: 'army', poi: 'desk', code: 6, box: box(-0.52, top, 3.14, -0.22, top + 0.04, 3.54) },
-  { id: 'map', name: 'Карта', hint: 'Земли державы и соседей', door: 'map', poi: 'desk', code: 3, box: box(-0.27, top, 2.84, 0.27, top + 0.04, 3.2) },
-  { id: 'letters', name: 'Письма', hint: 'Вести и донесения — на стол правителю', door: 'news', poi: 'desk', code: 2, box: box(0.16, top, 2.58, 0.48, top + 0.04, 2.8) },
-  { id: 'seal', name: 'Печать', hint: 'Герб державы на печати — свой герб', door: 'arms', poi: 'desk', code: 8, box: box(0.0, top, 2.6, 0.13, top + 0.13, 2.76) },
-  { id: 'purse', name: 'Кошель', hint: 'Алмазы и лавка — Сокровищница', door: 'treasury', poi: 'desk', code: 7, box: box(-0.17, top, 2.59, -0.02, top + 0.13, 2.77) },
-  { id: 'decrees', name: 'Свиток указов', hint: 'Указы, паёк и налог — Держава', door: 'decrees', poi: 'desk', code: 5, box: box(-0.5, top, 2.58, -0.2, top + 0.08, 2.86) },
+  // Сзади: книга людей, планы, перечень войска; посередине — карта, по бокам печать и кошель; спереди — письма и свиток.
+  // Ближний ряд уже дальнего: из кресла на экране телефона стоймя (по горизонтали около 42°, `fitFov`) у края стола видно
+  // ±0.34 м, у дальнего — ±0.5 (тест «из кресла видны все предметы стола»).
+  { id: 'people', name: 'Список людей', hint: 'Кто чем занят в городе — «Жители»', door: 'people', poi: 'desk', code: 1, box: box(0.08, top, 3.22, 0.46, top + 0.06, 3.5) },
+  { id: 'plans', name: 'Планы построек', hint: 'Что строить и улучшать — Ратуша', door: 'build', poi: 'desk', code: 4, box: box(-0.17, top, 3.24, 0.16, top + 0.05, 3.52) },
+  { id: 'army', name: 'Перечень войска', hint: 'Гарнизон и полководец — Дружина', door: 'army', poi: 'desk', code: 6, box: box(-0.48, top, 3.14, -0.21, top + 0.04, 3.54) },
+  { id: 'map', name: 'Карта', hint: 'Земли державы и соседей', door: 'map', poi: 'desk', code: 3, box: box(-0.22, top, 2.86, 0.22, top + 0.04, 3.2) },
+  { id: 'letters', name: 'Письма', hint: 'Вести и донесения — на стол правителю', door: 'news', poi: 'desk', code: 2, box: box(0.05, top, 2.6, 0.33, top + 0.04, 2.8) },
+  { id: 'seal', name: 'Печать', hint: 'Герб державы на печати — свой герб', door: 'arms', poi: 'desk', code: 8, box: box(0.27, top, 2.94, 0.37, top + 0.13, 3.06) },
+  { id: 'purse', name: 'Кошель', hint: 'Алмазы и лавка — Сокровищница', door: 'treasury', poi: 'desk', code: 7, box: box(-0.38, top, 2.92, -0.25, top + 0.13, 3.08) },
+  { id: 'decrees', name: 'Свиток указов', hint: 'Указы, паёк и налог — Держава', door: 'decrees', poi: 'desk', code: 5, box: box(-0.34, top, 2.58, -0.06, top + 0.08, 2.84) },
 ];
 
 /** Безделушки: взять в руки и покрутить. Механики у них нет — только вид. */
 export const TRINKETS: readonly Trinket[] = [
-  { id: 'goblet', name: 'Кубок', hint: 'Серебро с позолотой, вино с юга', poi: 'desk', code: 9, size: 0.2, hold: 0.42, tilt: 0.45, box: box(0.55, top, 2.62, 0.71, top + 0.21, 2.78) },
-  { id: 'candle', name: 'Свеча', hint: 'Воск, а не сало, — свеча правителя', poi: 'desk', code: 10, size: 0.3, hold: 0.52, tilt: 0.15, box: box(-0.72, top, 2.62, -0.56, top + 0.36, 2.78) },
+  { id: 'goblet', name: 'Кубок', hint: 'Серебро с позолотой, вино с юга', poi: 'desk', code: 9, size: 0.2, hold: 0.42, tilt: 0.45, box: box(0.5, top, 2.62, 0.66, top + 0.21, 2.78) },
+  { id: 'candle', name: 'Свеча', hint: 'Воск, а не сало, — свеча правителя', poi: 'desk', code: 10, size: 0.3, hold: 0.52, tilt: 0.15, box: box(-0.66, top, 2.62, -0.5, top + 0.36, 2.78) },
   // Белый король — на своей клетке доски (e1, `build.chessTable`): доска 0.5 м, клетка 1/16 м.
   { id: 'chess', name: 'Шахматная фигура', hint: 'Король из моржовой кости', poi: 'hearth', code: 11, size: 0.12, hold: 0.3, tilt: 0.3, box: box(CHESS.x + 0.001, CHESS.top + 0.012, CHESS.z + 0.189, CHESS.x + 0.061, CHESS.top + 0.14, CHESS.z + 0.249) },
   { id: 'sword', name: 'Меч', hint: 'Клинок отца, перекрестье в позолоте', poi: 'arms', code: 12, size: 1.0, hold: 0.8, tilt: 0, box: box(5.0, 1.45, -3.0, 5.2, 1.66, -1.7) },

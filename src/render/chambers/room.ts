@@ -58,7 +58,7 @@ export interface ChambersView {
 }
 
 /** Что под пальцем: предмет или точка интереса. */
-type Aim = { kind: 'thing'; thing: Thing } | { kind: 'poi'; poi: Poi };
+export type Aim = { kind: 'thing'; thing: Thing } | { kind: 'poi'; poi: Poi };
 
 const V = new THREE.Vector3();
 const V2 = new THREE.Vector3();
@@ -138,8 +138,9 @@ export class ChambersRoom implements Inside {
     this.u = roomUniforms();
     this.u.uOrigin.value.copy(this.origin);
     this.model = buildRoom(DETAIL[quality]);
-    const canvas = paintAtlas(arms, quality === 'low' ? ATLAS_PX / 2 : ATLAS_PX);
-    this.atlas = new THREE.CanvasTexture(canvas);
+    // Без страницы (тесты в узле) холста нет: атлас пуст, геометрия и касания — те же.
+    const canvas = typeof document === 'undefined' ? null : paintAtlas(arms, quality === 'low' ? ATLAS_PX / 2 : ATLAS_PX);
+    this.atlas = canvas ? new THREE.CanvasTexture(canvas) : (new THREE.Texture() as THREE.CanvasTexture);
     this.atlas.colorSpace = THREE.SRGBColorSpace;
     this.atlas.anisotropy = quality === 'low' ? 1 : 4;
     this.u.atlas.value = this.atlas;
@@ -238,13 +239,14 @@ export class ChambersRoom implements Inside {
    * Стенду снимков (`scripts/city-shots.ts`, `CHAMBERS=`): встать в точку сразу, без перехода, повернуть голову от её
    * взгляда и, если надо, взять безделушку уже в руку. Игроку этот рычаг не достаётся: в игре — только `go` и `take`.
    */
-  snap(id: PoiId, dyaw = 0, dpitch = 0, hold: TrinketId | null = null): void {
+  snap(id: PoiId, dyaw = 0, dpitch = 0, hold: TrinketId | null = null, hover: ThingId | null = null): void {
     this.poi = POI_BY_ID[id];
     this.walk = null;
     this.zoomFov = null;
     this.pose = { ...this.poi.pose };
     this.turn(dyaw, dpitch);
     this.held = hold ? { id: hold, t: 1, dir: 1, yaw: 0, pitch: 0 } : null;
+    this.hover = hover ? THINGS.find((t) => t.id === hover) ?? null : null;
     this.placeCamera(this.pose);
     this.stepHands(0);
     this.changed();

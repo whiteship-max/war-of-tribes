@@ -13,7 +13,7 @@
 //                                                карта мира, `WXSEASON=winter` — сезон партии, `WXREGION=italy` — регион,
 //                                                `WXDAY=0.8` — доля суток партии (0.8 летом — глубокая ночь, docs/polish.md, П-3)
 //   GAME=1 WX=clear CHAMBERS=desk npm run city:shots — покои правителя (docs/city_v3.md, Г-4): точка интереса
-//                                                (hall, desk, window, hearth, bed, arms), `:доворот:наклон:безделушка`
+//                                                (hall, desk, window, hearth, bed, arms), `:доворот:наклон:безделушка:подсветка`
 //   LEGEND=1 npm run city:shots              — легенда карты листом: строки значков той же функцией, что окно легенды
 //                                                (docs/city.md, 16.5); `GAME=1 WXMAP=1 LEGEND=1` — окно в самой игре
 //   SIZE=540x900 VIEWS=game SOLAR=0.46 npm run city:shots — свой экран (точки CSS, плотность 2): кадры заставки
@@ -380,7 +380,7 @@ async function weatherShots(tab: Tab, q: Quality): Promise<void> {
   // взгляда (`:доворот:наклон`, радианы) и безделушка в руке (`:…:…:goblet`) — глаз встаёт сразу, без перехода.
   const ch = process.env.CHAMBERS;
   if (ch) {
-    const [poi, dy, dp, hold] = ch.split(':');
+    const [poi, dy, dp, hold, hover] = ch.split(':');
     const said = await tab.eval<string>(`new Promise((ok) => {
       window.__chambersOpen.getState().show();
       let n = 0;
@@ -388,7 +388,7 @@ async function weatherShots(tab: Tab, q: Quality): Promise<void> {
         const r = window.__chambers;
         if (r) {
           clearInterval(t);
-          r.snap(${JSON.stringify(poi)}, ${Number(dy) || 0}, ${Number(dp) || 0}, ${JSON.stringify(hold || null)});
+          r.snap(${JSON.stringify(poi)}, ${Number(dy) || 0}, ${Number(dp) || 0}, ${JSON.stringify(hold || null)}, ${JSON.stringify(hover || null)});
           ok(JSON.stringify('покои: ' + ${JSON.stringify(poi)} + ', треугольников ' + r.counts().triangles));
         } else if (++n > 300) {
           clearInterval(t);
@@ -397,12 +397,18 @@ async function weatherShots(tab: Tab, q: Quality): Promise<void> {
       }, 200);
     })`);
     console.log(`  ${said}`);
+    await sleep(2500);
     const diag = await tab.eval<string>(`JSON.stringify((() => {
       const r = window.__scene.renderer;
       const out = (r.info.programs || []).filter((p) => p.diagnostics && !p.diagnostics.runnable).map((p) => p.name + ': ' + (p.diagnostics.fragmentShader.log || '') + (p.diagnostics.vertexShader.log || '') + p.diagnostics.programLog);
       const room = window.__chambers;
       out.push('cam ' + room.camera.position.toArray().map((x) => x.toFixed(1)).join(',') + ' origin ' + room.origin.toArray().map((x) => x.toFixed(1)).join(','));
       out.push('meshes ' + room.scene.children.length);
+      const st = window.__scene.stats();
+      out.push('кадр: вызовов ' + st.calls + ', треугольников ' + st.triangles);
+      const u = room.u;
+      const c3 = (c) => [c.r, c.g, c.b].map((x) => x.toFixed(2)).join(',');
+      out.push('небо ' + c3(u.uSky.value) + ' солнце ' + c3(u.uSun.value) + ' к солнцу ' + u.uSunDir.value.toArray().map((x) => x.toFixed(2)).join(','));
       return out.join(' | ');
     })())`);
     console.log(`  диагностика: ${diag}`);

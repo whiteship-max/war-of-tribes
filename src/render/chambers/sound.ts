@@ -21,13 +21,13 @@ export interface ChambersEar {
 }
 
 /** Громкость огня и ветра по уху — чистая: по ней и тест. */
-export function earGains(e: ChambersEar): { fire: number; wind: number; rain: number; city: number } {
+export function earGains(e: ChambersEar): { fire: number; wind: number; rain: number; town: number } {
   const fire = Math.min(1, 2.4 / Math.max(1, e.fire));
   const near = 1 - Math.min(1, Math.max(0, (e.window - 0.6) / 6));
   const wind = (0.12 + 0.88 * near * near) * (0.35 + 0.65 * Math.min(1, e.wind));
   const rain = Math.min(1, e.rain) * (0.25 + 0.75 * near);
-  const city = 0.15 + 0.85 * near;
-  return { fire, wind, rain, city };
+  const town = 0.15 + 0.85 * near;
+  return { fire, wind, rain, town };
 }
 
 function bone(seed: number): () => number {
@@ -72,7 +72,7 @@ export class ChambersSound {
 
   /** Открыть выход и завести слои. Звук выключен или движка нет — молчит. */
   async start(): Promise<void> {
-    if (!soundOn()) return;
+    if (typeof window === 'undefined' || !soundOn()) return;
     const web = await audioEngine().catch(() => null);
     if (!web || this.stopped) return;
     const out = web.openBus(CHAMBERS_VOLUME, 'amb');
@@ -175,7 +175,7 @@ export class ChambersSound {
     this.windBand?.frequency.setTargetAtTime(330 + gust * 380, now, 0.5);
     this.whistle?.gain.setTargetAtTime(Math.max(0, gust - 0.75) * 1.6 * e.wind, now, 0.3);
     this.rainGain?.gain.setTargetAtTime(g.rain * 0.45, now, 0.6);
-    this.cityGain?.gain.setTargetAtTime(g.city * 0.12, now, 0.6);
+    this.cityGain?.gain.setTargetAtTime(g.town * 0.12, now, 0.6);
     // Треск: частый мелкий, реже — щелчок смолы. Что выпало на прошедший шаг, ложится на следующий тем же порядком:
     // назад во времени звук не кладётся, а в редкий кадр — не больше шести щелчков, остальное пропадает.
     let n = 0;

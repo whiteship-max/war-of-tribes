@@ -243,6 +243,9 @@ void main() {
     float area = uWin[i].w * 2.0 * (uWinN[i].y + uWin[i].w * 0.8);
     float om = area * facing / (d2 + area);
     light += uSky * om * max((dot(n, dir) + 0.25) / 1.25, 0.0) * (0.55 + 0.45 * ao);
+    // Ниша у проёма видит полнеба: откосы, сиденья и ставни светлы, хоть и смотрят мимо окна.
+    float bay = max(0.0, 1.0 - sqrt(d2) / (1.3 + uWin[i].w));
+    light += uSky * bay * bay * 0.55;
   }
   // Солнце пятном: только сквозь проём и мимо мебели.
   float sunNdl = max(dot(n, uSunDir), 0.0);
