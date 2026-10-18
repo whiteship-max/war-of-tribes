@@ -377,7 +377,8 @@ async function weatherShots(tab: Tab, q: Quality): Promise<void> {
     })()`);
   }
   // Покои правителя (`CHAMBERS=desk` к `GAME=1 WX=…`, docs/city_v3.md, Г-4): точка интереса, поворот головы от её
-  // взгляда (`:доворот:наклон`, радианы) и безделушка в руке (`:…:…:goblet`) — глаз встаёт сразу, без перехода.
+  // взгляда (`:доворот:наклон`, радианы) и безделушка в руке (`:…:…:goblet`) — глаз встаёт сразу, без перехода;
+  // `at:x:z:поворот:наклон` — встать стоя в точку пола (Г-6: подписи вблизи).
   const ch = process.env.CHAMBERS;
   if (ch) {
     const [poi, dy, dp, hold, hover] = ch.split(':');
@@ -391,7 +392,8 @@ async function weatherShots(tab: Tab, q: Quality): Promise<void> {
         const r = window.__chambers;
         if (r) {
           clearInterval(t);
-          r.snap(${JSON.stringify(poi)}, ${Number(dy) || 0}, ${Number(dp) || 0}, ${JSON.stringify(hold || null)}, ${JSON.stringify(hover || null)});
+          if (${JSON.stringify(poi)} === 'at') r.standAtPoint(${Number(dy) || 0}, ${Number(dp) || 0}, ${Number(hold) || 0}, ${Number(hover) || 0});
+          else r.snap(${JSON.stringify(poi)}, ${Number(dy) || 0}, ${Number(dp) || 0}, ${JSON.stringify(hold || null)}, ${JSON.stringify(hover || null)});
           ok(JSON.stringify('покои: ' + ${JSON.stringify(poi)} + ', треугольников ' + r.counts().triangles));
         } else if (++n > 300) {
           clearInterval(t);

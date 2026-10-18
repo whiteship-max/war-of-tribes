@@ -373,6 +373,19 @@ describe('покои: стол из кресла', () => {
     room.dispose();
   });
 
+  it('сидя: низ кадра — край стола и руки, а не подол на коленях (Г-6)', () => {
+    const room = phoneRoom();
+    room.snap('desk');
+    run(room, 0.05);
+    const edge = onScreen(room, { x0: 0, y0: DESK.top, z0: DESK.z - DESK.d / 2, x1: 0, y1: DESK.top, z1: DESK.z - DESK.d / 2 });
+    expect(edge.y, 'край стола — в нижней пятой кадра').toBeGreaterThan(0.76 * PHONE.height);
+    expect(edge.y).toBeLessThan(PHONE.height);
+    // Сиденье (где подол лежит на бёдрах) — ниже кадра: подол виден разве что полоской у колен.
+    const seat = new THREE.Vector3(CHAIR.x, 0.62, CHAIR.z - 0.05).add(room.origin).project(room.camera);
+    expect(seat.y < -1 || seat.z > 1, 'сиденье и бёдра — за нижним краем').toBe(true);
+    room.dispose();
+  });
+
   it('касание предмета стола из кресла открывает его окно; издали — ведёт к столу, садит, и окна не открывает', () => {
     const room = phoneRoom();
     const used: [Door, string][] = [];
@@ -766,7 +779,7 @@ describe('покои: модель, огонь, звук', () => {
     expect(tris[2]).toBeLessThan(20000);
   });
 
-  it('тело: руки на подлокотниках сидя, у огня, на подоконнике; стоя — тела нет', () => {
+  it('тело: руки на краю стола сидя, у огня, на подоконнике; стоя — тела нет', () => {
     for (const id of ['desk', 'hearth', 'window'] as SpotId[]) {
       const room = phoneRoom();
       room.snap(id);

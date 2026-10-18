@@ -23,7 +23,7 @@ export interface Key {
 export type Frame = Omit<Key, 't'>;
 
 /** Руки дела: что делают, когда доля рук — единица (`body.ts` ставит кисти и сгибает пальцы). */
-export type HandsKind = 'none' | 'armrests' | 'sill' | 'warm';
+export type HandsKind = 'none' | 'desk' | 'sill' | 'warm';
 
 export interface Act {
   id: SpotId;
@@ -50,14 +50,14 @@ const rest = (id: SpotId, t: number, hands: number, sit = 0): Key => {
 export const ACTS: Record<SpotId, Act> = {
   desk: {
     id: 'desk',
-    hands: 'armrests',
+    hands: 'desk',
     keys: [
       start('desk', -0.2),
-      // Взгляд на сиденье и подлокотники, шаг вбок к креслу; руки тянутся к подлокотникам.
+      // Взгляд на сиденье и подлокотники, шаг вбок к креслу; руки тянутся к столу.
       k(0.55, 0.52, 1.56, 2.12, 0.04, -0.52, 0.25, 0.12),
-      // Опускается: руки легли, колени уходят под стол.
+      // Опускается и подаётся к столу: руки легли на край столешницы, колени уходят под стол.
       k(1.15, CHAIR.x + 0.12, 1.33, 2.1, 0.02, -0.62, 0.85, 0.72),
-      k(1.6, CHAIR.x, 1.25, 2.12, 0, -0.54, 1, 1),
+      k(1.6, CHAIR.x, 1.24, 2.2, 0, -0.42, 1, 1),
       rest('desk', 2.0, 1, 1),
     ],
   },

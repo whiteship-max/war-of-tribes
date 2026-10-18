@@ -34,8 +34,8 @@ import { layoutTags, TAG_FONT, type TagOut } from './tags';
 import type { ChambersEar } from './sound';
 import type { ChamberCue } from './cues';
 import {
-  ARMREST,
   CHAIR,
+  DESK,
   DESK_THINGS,
   HALF,
   LABELS,
@@ -886,15 +886,15 @@ export class ChambersRoom implements Inside {
   private handsOf(kind: Act['hands'], eye: [number, number, number], fwd: [number, number, number], right: [number, number, number]): { left: HandPose; right: HandPose } {
     const t = this.time;
     switch (kind) {
-      case 'armrests': {
-        // Предплечья на подлокотниках, кисть легла на точёное навершие (`plan.ARMREST`) и чуть внутрь — к столу: пальцы
-        // обняли его спереди, большой — сбоку.
+      case 'desk': {
+        // Сидя за столом, подавшись к нему: предплечья — над концами подлокотников, кисти легли на край столешницы, пальцы
+        // на столе перед бумагами (Г-6: на подлокотниках у края кадра их на телефоне не видно).
         const hand = (side: 1 | -1): HandPose => ({
-          w: [CHAIR.x - side * (ARMREST.x - 0.005), ARMREST.y + 0.048, ARMREST.end - 0.1],
-          f: [side * 0.3, -0.42, 1],
-          u: [side * 0.2, 1, 0.38],
-          curl: 0.58 + 0.03 * Math.sin(t * 0.7 + side),
-          spread: 0.05,
+          w: [CHAIR.x - side * 0.16, DESK.top + 0.028, DESK.z - DESK.d / 2 - 0.1],
+          f: [side * 0.08, -0.14, 1],
+          u: [side * 0.04, 1, 0.14],
+          curl: 0.34 + 0.03 * Math.sin(t * 0.7 + side),
+          spread: 0.06,
         });
         return { right: hand(1), left: hand(-1) };
       }

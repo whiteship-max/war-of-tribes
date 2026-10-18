@@ -430,8 +430,8 @@ export class Body {
       const standHip = add([eye[0], 0.92, eye[2]], o);
       const sitHip = add([seat.x, seat.y + 0.08, seat.z + 0.02], o);
       const hip = mix(standHip, sitHip, k);
-      const knee = mix(add(add([eye[0], 0.5, eye[2]], o), fwd, 0.03), add(add([seat.x, seat.y + 0.07, seat.z + 0.44], o, 1.12), [0, 0, 0]), k);
-      const ankle = mix(add([eye[0], 0.09, eye[2]], o), add([seat.x, 0.1, seat.z + 0.5], o, 1.25), k);
+      const knee = mix(add(add([eye[0], 0.5, eye[2]], o), fwd, 0.03), add([seat.x, seat.y + 0.07, seat.z + 0.48], o, 1.12), k);
+      const ankle = mix(add([eye[0], 0.09, eye[2]], o), add([seat.x, 0.1, seat.z + 0.54], o, 1.25), k);
       const toe = add(ankle, fwd, 0.15);
       if (k > 0.02) {
         leg(e, hip, knee, ankle, add(toe, [0, -0.05, 0], 1), rightV);
