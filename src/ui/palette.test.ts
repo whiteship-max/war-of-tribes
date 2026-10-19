@@ -194,6 +194,40 @@ describe('палитра', () => {
     expect(low).toEqual([]);
   });
 
+  it('материалы набора (ЗН-2): подпись читается на каждой ступени вещества — не ниже 4,5 : 1', () => {
+    const stops = (token: string): RGBA[] =>
+      [...(VARS.get(token) ?? '').matchAll(/#[0-9a-f]{3,8}\b|rgba?\([^)]*\)/gi)].map((m) => parseColor(m[0], VARS)).filter((c): c is RGBA => c !== null);
+    const pairs: [string, string, RGBA[]][] = [
+      // Золото — под тёмную подпись главной кнопки, бирки и счётчика.
+      ['--accent-text', '--m-gold', PANELS],
+      // Червлень — под белую: «Точно?», срочный счётчик, срок тревоги.
+      ['#ffffff', '--m-gules', PANELS],
+      // Пергамент реплик покоев — чернила и пояснение.
+      ['--m-parch-ink', '--m-parch', PANELS],
+      ['--m-parch-muted', '--m-parch', PANELS],
+      // Кожа кнопок и вкладок — основной и тихий текст; выбранная вкладка — основной.
+      ['--text', '--m-leather', PANELS],
+      ['--muted', '--m-leather', PANELS],
+      ['--text', '--m-lit', PANELS],
+      // Плашка — на ней стоят числа любого тона, самый тёмный из них — `--bad`.
+      ['--text', '--m-plate', PANELS],
+      ['--muted', '--m-plate', PANELS],
+      ['--bad', '--m-plate', PANELS],
+      ['--accent', '--m-plate', PANELS],
+      ['--text', '--m-gules-dark', PANELS],
+    ];
+    const low: string[] = [];
+    for (const [fg, mat, unders] of pairs) {
+      const all = stops(mat);
+      expect(all.length, mat).toBeGreaterThan(1);
+      for (const b of all) {
+        const r = worst(tok(fg), unders.map((u) => over(b, u)));
+        if (r < 4.5) low.push(`${fg} на ${mat} (${b.join(',')}): ${r.toFixed(2)}`);
+      }
+    }
+    expect(low).toEqual([]);
+  });
+
   it('цвет фона один на CSS, экран загрузки и шапку Telegram', () => {
     expect(VARS.get('--bg')).toBe(GAME_BG);
     const html = readFileSync(join(ROOT, 'index.html'), 'utf8');
@@ -220,7 +254,10 @@ const px = (v: string | undefined): number | null => {
 
 /** Фон правила: сплошной — один цвет, градиент — все его цвета (текст обязан читаться на каждом); картинка — нет. */
 function backOf(r: Rule): RGBA[] | null {
-  const v = r.decls.get('background-color') ?? r.decls.get('background');
+  const on = ON[r.selector];
+  let v = on ? `var(${on.token})` : (r.decls.get('background-color') ?? r.decls.get('background'));
+  // Материал набора (`kit/material.css`, ЗН-2) — токен-градиент: раскрыт, и текст обязан читаться на каждой его ступени.
+  for (let i = 0; v && i < 4; i++) v = v.replace(/var\((--m-[\w-]+)\)/g, (m, k: string) => VARS.get(k) ?? m);
   if (!v || /url\(/.test(v)) return null;
   if (!/gradient/.test(v)) {
     const c = parseColor(v, VARS);
@@ -241,6 +278,15 @@ const SKIP = /:disabled|\[disabled\]|\.is-off\b/;
 /**
  * Правила, где фон правила — не фон текста. Каждое — с причиной; новое сюда — только так же.
  */
+/**
+ * Правила, чей текст лежит на материале родителя, а не на панели: строки пергаментной реплики покоев (ЗН-2). Каждое —
+ * с материалом и причиной.
+ */
+const ON: Record<string, { token: string; why: string }> = {
+  '.ch-label b': { token: '--m-parch', why: 'имя предмета на пергаменте подписи' },
+  '.ch-label small': { token: '--m-parch', why: 'строка предмета на пергаменте подписи' },
+};
+
 const NOT_UNDER: Record<string, string> = {
   // Риска прицела — линия в 2 px, подпись стоит правее её (`text-indent`) на сцене промысла, с тенью.
   '.mg-pin': 'подпись рядом с риской, а не на ней',

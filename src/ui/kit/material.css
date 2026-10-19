@@ -1,0 +1,177 @@
+/*
+ * Материалы интерфейса (ЗН-2, docs/icons.md, «ЗН-2»): корпус игры — кнопки, листы, вкладки, плашки, полосы, тревоги,
+ * реплики покоев и низ — сделан из тех же веществ, что гравюра значков ЗН-1, и держится здесь одним местом. Правило
+ * вида берёт материал токеном (`background: var(--m-gold)`), а не своей заливкой: поменять вещество — одна строка тут.
+ *
+ * Вещества по смыслу:
+ *   золото с бронзой — главное действие и выбранное (металл герба, свет сверху-слева, как у значков);
+ *   кожа             — обычная кнопка, вкладка, шаг «− +» (тёмная, с бликом по верхнему краю);
+ *   плашка           — ячейка, карточка, ячейка запасов (дублёная кожа глуше кнопки: на ней читают, а не жмут);
+ *   червлень         — эмаль опасного: «Точно?», срочное;
+ *   железо           — погашенное: матовое, без блика; причина — строкой под кнопкой (`kit/Btn`);
+ *   морёный дуб      — доска окна, шторки, державы и нижней панели;
+ *   пергамент        — реплики покоев (подсказки под пальцем);
+ *   золочёная рамка, гравированная черта и жёлоб полосы.
+ * Тихая кнопка — без вещества: тонкий гравированный обод по контуру.
+ *
+ * Контраст (docs/polish.md, П-1; держит `ui/palette.test.ts`): все ступени золота светлы под тёмную подпись
+ * `--accent-text`, все ступени червлени темны под белую, верх плашки не светлее, чем терпит `--bad` (4,5 : 1). Блик и
+ * объём — тенью (`*-bevel`), а не светлой ступенью: тень текст не подсвечивает.
+ *
+ * Вес: ни одной картинки, кроме зерна дерева — шум в 96 px строкой SVG (`--m-grain`); фактура — градиентами.
+ */
+:root {
+  /* Чернила контура значков (ЗН-1, `scripts/icons/kit.ts`, `INK`): ими обведены кнопки и рамки. */
+  --m-ink: #1e140b;
+
+  /* Золото с бронзой: главное действие. */
+  --m-gold: linear-gradient(180deg, #f7dc96 0%, #ecbc5e 46%, #d9a447 54%, #b8873a 100%);
+  --m-gold-rim: #5c3a12;
+  --m-gold-bevel: inset 0 1px 0 rgba(255, 248, 222, 0.85), inset 0 -2px 0 rgba(122, 74, 20, 0.5),
+    inset 0 0 0 1px rgba(255, 226, 150, 0.3), 0 1px 0 rgba(0, 0, 0, 0.55), 0 2px 6px rgba(0, 0, 0, 0.4);
+  /* Подпись по золоту — врезанная: светлая кромка под буквой. */
+  --m-gold-cut: 0 1px 0 rgba(255, 240, 200, 0.5);
+
+  /* Кожа: обычная кнопка и вкладка. */
+  --m-leather: linear-gradient(180deg, #4c3727 0%, #3b2a1d 52%, #2c2016 100%);
+  --m-leather-rim: #120c07;
+  --m-leather-bevel: inset 0 1px 0 rgba(255, 222, 170, 0.16), inset 0 -1px 0 rgba(0, 0, 0, 0.4),
+    0 1px 2px rgba(0, 0, 0, 0.45);
+  /* Шов по коже — пунктир у края (`outline` внутрь: раскладку и `::before` не трогает). */
+  --m-stitch: 1px dashed rgba(226, 182, 112, 0.26);
+
+  /* Выбранная вкладка: та же кожа, освещённая, с золотой планкой снизу и золотым ободом. */
+  --m-lit: linear-gradient(180deg, #5b4129 0%, #45311f 100%);
+  --m-lit-bevel: inset 0 0 0 1px rgba(236, 188, 94, 0.75), inset 0 -3px 0 #d9a447, inset 0 1px 0 rgba(255, 230, 180, 0.2),
+    0 1px 2px rgba(0, 0, 0, 0.45);
+
+  /* Плашка: ячейка, карточка, запасы верха. Верх не светлее (50, 38, 28) — под ней читается `--bad`. */
+  --m-plate: linear-gradient(180deg, rgba(50, 38, 28, 0.94) 0%, rgba(30, 23, 16, 0.94) 100%);
+  --m-plate-rim: rgba(10, 6, 3, 0.75);
+  --m-plate-bevel: inset 0 1px 0 rgba(255, 222, 170, 0.1), inset 0 -1px 0 rgba(0, 0, 0, 0.35);
+
+  /* Червлень: опасное и срочное. */
+  --m-gules: linear-gradient(180deg, #bf3f2e 0%, #a5332a 50%, #82261b 100%);
+  --m-gules-rim: #3a0c07;
+  --m-gules-bevel: inset 0 1px 0 rgba(255, 196, 176, 0.45), inset 0 -2px 0 rgba(60, 8, 4, 0.5), 0 1px 0 rgba(0, 0, 0, 0.55),
+    0 2px 6px rgba(0, 0, 0, 0.4);
+  /* Плашка срочного (тревоги П-7): тёмная червлень под светлый текст. */
+  --m-gules-dark: linear-gradient(180deg, #4d1b14 0%, #2f0f0b 100%);
+
+  /* Железо: погашенное. */
+  --m-iron: linear-gradient(180deg, #3a3531 0%, #2a2623 100%);
+  --m-iron-rim: #14110e;
+  --m-iron-bevel: inset 0 1px 0 rgba(255, 255, 255, 0.05), inset 0 -1px 0 rgba(0, 0, 0, 0.45);
+  --m-iron-ink: #8f857a;
+
+  /* Тихая кнопка: без вещества — гравированный обод по контуру. */
+  --m-quiet-rim: rgba(222, 172, 88, 0.3);
+  --m-quiet-bevel: inset 0 0 0 1px rgba(0, 0, 0, 0.35);
+
+  /* Нажатие: металл и кожа уходят в доску — тень внутрь, блика нет. */
+  --m-pressed: inset 0 2px 4px rgba(0, 0, 0, 0.5), 0 0 0 rgba(0, 0, 0, 0);
+
+  /* Морёный дуб с зерном: доска окна и низа. */
+  --m-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='96' height='96'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 .86 0 0 0 0 .62 0 0 0 .06 0'/%3E%3C/filter%3E%3Crect width='96' height='96' filter='url(%23n)'/%3E%3C/svg%3E");
+  --m-wood: repeating-linear-gradient(90deg, rgba(255, 214, 160, 0.02) 0 1px, transparent 1px 6px, rgba(0, 0, 0, 0.06) 6px 8px, transparent 8px 15px),
+    linear-gradient(180deg, rgba(36, 27, 19, 0.98) 0%, rgba(24, 18, 13, 0.98) 100%);
+
+  /* Пергамент: реплики покоев. Чернила по нему — `--m-parch-ink`, пояснение — `--m-parch-muted`. */
+  --m-parch: linear-gradient(180deg, #f2e6c9 0%, #e3cfa4 100%);
+  --m-parch-ink: #2b1d10;
+  --m-parch-muted: #5a4630;
+  --m-parch-edge: inset 0 0 0 1px rgba(122, 86, 40, 0.55), inset 0 0 12px rgba(150, 104, 44, 0.28), 0 4px 14px rgba(0, 0, 0, 0.45);
+
+  /* Золочёная рамка окна: золотая нить, чернь, вторая нить глуше. */
+  --m-frame: inset 0 0 0 1px rgba(222, 172, 88, 0.5), inset 0 0 0 3px rgba(16, 10, 6, 0.7), inset 0 0 0 4px rgba(222, 172, 88, 0.16);
+  /* Край доски сверху: золотая нить по кромке листа и шторки. */
+  --m-gilt: rgba(222, 172, 88, 0.55);
+  /* Гравированная черта: низ шапки, разделы. Тает к краям. */
+  --m-rule: linear-gradient(90deg, rgba(222, 172, 88, 0), rgba(222, 172, 88, 0.55) 16%, rgba(222, 172, 88, 0.55) 84%, rgba(222, 172, 88, 0));
+
+  /* Жёлоб полосы — врезан в доску; заливки — металл и эмаль. */
+  --m-groove: linear-gradient(180deg, #0e0905 0%, #231910 100%);
+  --m-groove-edge: inset 0 1px 2px rgba(0, 0, 0, 0.85), 0 1px 0 rgba(255, 222, 170, 0.1);
+  --m-fill: linear-gradient(180deg, #f7d991 0%, #e3a849 55%, #b9823a 100%);
+  --m-fill-good: linear-gradient(180deg, #b4e09a 0%, #7cc47a 55%, #4f8a45 100%);
+  --m-fill-bad: linear-gradient(180deg, #f39a86 0%, #e06b5a 55%, #a8402f 100%);
+  --m-fill-warn: linear-gradient(180deg, #f3cf7e 0%, #d9a441 55%, #a87a26 100%);
+  --m-fill-muted: linear-gradient(180deg, #d4c6b2 0%, #b8a893 55%, #8a7c69 100%);
+}
+
+/* ---------- Закрыть ×: медальон на коже, цель — вся кнопка 44 ---------- */
+/*
+ * Одна форма на все окна: лист набора, окно постройки, шторка, держава, разговор в покоях. Медальон — `::before` под
+ * значком: кнопка 44 остаётся целью касания (`kit.test.ts`), видимый круг — 28.
+ */
+.kit-close,
+.nx-bclose,
+.ch-talk-x,
+.nx-realm .nx-ibtn[aria-label='Закрыть'] {
+  position: relative;
+}
+/* У шторки «закрыть» стоит сам (`position: absolute`, `styles.css`) — ему только свой слой под медальон. */
+.kit-close,
+.nx-bclose,
+.sheet-close,
+.ch-talk-x,
+.nx-realm .nx-ibtn[aria-label='Закрыть'] {
+  isolation: isolate;
+  color: var(--text);
+}
+.kit-close::before,
+.nx-bclose::before,
+.sheet-close::before,
+.ch-talk-x::before,
+.nx-realm .nx-ibtn[aria-label='Закрыть']::before {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  left: 50%;
+  top: 50%;
+  width: 28px;
+  height: 28px;
+  margin: -14px 0 0 -14px;
+  border-radius: 50%;
+  background: var(--m-leather);
+  box-shadow: 0 0 0 1px var(--m-ink), inset 0 0 0 1px rgba(222, 172, 88, 0.55), inset 0 1px 0 rgba(255, 230, 180, 0.2),
+    0 1px 3px rgba(0, 0, 0, 0.5);
+}
+.kit-close:active::before,
+.nx-bclose:active::before,
+.sheet-close:active::before,
+.ch-talk-x:active::before,
+.nx-realm .nx-ibtn[aria-label='Закрыть']:active::before {
+  box-shadow: 0 0 0 1px var(--m-ink), inset 0 0 0 1px rgba(222, 172, 88, 0.55), var(--m-pressed);
+}
+.kit-close svg,
+.nx-bclose svg,
+.sheet-close svg,
+.nx-realm .nx-ibtn[aria-label='Закрыть'] svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* ---------- Наведение мышью (ПК и Telegram Desktop): металл и кожа чуть светлеют ---------- */
+@media (hover: hover) {
+  .kit-btn:hover:not(:disabled),
+  .btn:hover:not(:disabled),
+  .nx-go:hover:not(:disabled),
+  .mini:hover:not(:disabled),
+  .stepper button:hover:not(:disabled),
+  .kit-tabs button:hover,
+  .tabs button:hover,
+  .nx-rtabs button:hover,
+  .nx-nav button:hover,
+  .modal .opt:hover,
+  .ch-talk-opts button:hover,
+  .start-go:hover {
+    filter: brightness(1.1);
+  }
+  .kit-close:hover::before,
+  .nx-bclose:hover::before,
+  .sheet-close:hover::before,
+  .ch-talk-x:hover::before {
+    filter: brightness(1.25);
+  }
+}

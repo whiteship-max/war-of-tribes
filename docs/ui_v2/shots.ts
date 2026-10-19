@@ -797,6 +797,30 @@ GROUPS.zn1 = [
   { ...GROUPS.map[3], name: '06-map-cell' },
 ];
 
+/**
+ * ЗН-2 (docs/icons.md, «ЗН-2»): корпус интерфейса — кнопки, листы, вкладки, плашки, полосы, тревоги, реплики покоев и
+ * низ, — тот же вид «до» и «после» во всех главных окнах. Два захода по двум минутам: город и его окна (`zn2a`), лавки,
+ * сокровищница, тревоги, покои и карта (`zn2b`). `DIR=icons GROUP=zn2a|zn2b TAG=before|after`.
+ */
+GROUPS.zn2a = [
+  { ...GROUPS.city[0], name: 'zn2-01-city' },
+  { ...GROUPS.city[7], name: 'zn2-02-tip' },
+  { ...GROUPS.hall[0], name: 'zn2-03-hall', full: false },
+  { ...GROUPS.people[0], name: 'zn2-04-people', full: false },
+  { ...GROUPS.army[0], name: 'zn2-05-army' },
+  { ...GROUPS.mail[0], name: 'zn2-06-mail', tabs: false },
+  { ...GROUPS.realm[0], name: 'zn2-07-realm', tabs: false },
+  { ...building('smithy', 'zn2-08-smithy'), tabs: false },
+];
+GROUPS.zn2b = [
+  { ...building('market', 'zn2-09-market'), tabs: false },
+  { ...GROUPS.misc[0], name: 'zn2-10-treasury', tabs: false },
+  { name: 'zn2-11-alerts', run: P7('urgent'), wait: 1500 },
+  { name: 'zn2-12-chambers', run: `(async () => { window.__ui.reset(); (await import('/src/ui/chambers/open.ts')).useChambers.getState().show(); return JSON.stringify('ok'); })()`, wait: 2500 },
+  { name: 'zn2-13-map', run: `(async () => { (await import('/src/ui/chambers/open.ts')).useChambers.getState().hide(); const S = await import('/src/world/store.ts'); S.useWorld.setState({ siege: null, camp: null, marches: [] }); window.__ui.reset(); window.__game.getState().openMap(); return JSON.stringify('ok'); })()`, wait: 6000 },
+  { ...GROUPS.map[3], name: 'zn2-14-map-cell' },
+];
+
 async function snap(tab: Tab, name: string): Promise<void> {
   const png = await tab.send<{ data: string }>('Page.captureScreenshot', { format: 'png' });
   const jpg = await sharp(Buffer.from(png.data, 'base64')).jpeg({ quality: 70, mozjpeg: true }).toBuffer();

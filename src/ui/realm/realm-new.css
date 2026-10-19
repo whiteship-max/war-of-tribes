@@ -7,10 +7,11 @@
   animation: realm-in 0.22s cubic-bezier(0.2, 0.8, 0.3, 1) both;
   bottom: calc(var(--nav-h) + var(--safe-bottom));
   padding: 0 calc(12px + var(--safe-right)) 0 calc(12px + var(--safe-left));
-  border-top: 1px solid var(--line-2);
+  border-top: 1px solid var(--m-gilt);
   border-radius: 14px 14px 0 0;
-  background: #19130e;
-  box-shadow: 0 -6px 18px rgba(0, 0, 0, 0.45);
+  /* Доска державы — тот же морёный дуб, что у шторки (ЗН-2, `kit/material.css`). */
+  background: var(--m-grain), var(--m-wood), #19130e;
+  box-shadow: inset 0 1px 0 rgba(0, 0, 0, 0.6), inset 0 2px 0 rgba(255, 222, 170, 0.06), 0 -6px 18px rgba(0, 0, 0, 0.45);
 }
 .ui-new .leaving .nx-realm {
   animation: realm-out 0.16s ease both;
@@ -48,6 +49,8 @@
   gap: 8px;
   height: 52px;
   flex: none;
+  border-bottom: 1px solid transparent;
+  border-image: var(--m-rule) 1;
 }
 .nx-rhead > svg {
   flex: none;
@@ -131,7 +134,9 @@
   height: 22px;
 }
 .nx-ibtn.on {
-  box-shadow: inset 0 0 0 1px var(--accent);
+  background: var(--m-lit);
+  box-shadow: var(--m-lit-bevel);
+  color: var(--text);
 }
 .nx-points {
   display: grid;
@@ -146,8 +151,9 @@
   gap: 4px;
   height: 44px;
   border-radius: 10px;
-  background: var(--panel-2);
-  border: 1px solid var(--line);
+  background: var(--m-plate);
+  border: 1px solid var(--m-plate-rim);
+  box-shadow: var(--m-plate-bevel), inset 0 0 0 1px rgba(222, 172, 88, 0.14);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
@@ -171,8 +177,10 @@
   margin: 8px 0;
   padding: 2px;
   border-radius: 14px;
-  background: rgba(36, 27, 19, 0.8);
-  border: 1px solid var(--line);
+  /* Ряд вкладок — врезанный в доску жёлоб; выбранная лежит в нём освещённой кожей с золотой планкой. */
+  background: var(--m-groove);
+  border: 1px solid var(--m-plate-rim);
+  box-shadow: var(--m-groove-edge);
   flex: none;
 }
 .nx-rtabs button {
@@ -204,8 +212,8 @@
 }
 .nx-rtabs button.on {
   color: var(--text);
-  background: rgba(232, 164, 60, 0.12);
-  box-shadow: inset 0 0 0 1px var(--accent);
+  background: var(--m-lit);
+  box-shadow: var(--m-lit-bevel);
 }
 .nx-rbody {
   padding-bottom: 12px;
@@ -250,8 +258,9 @@
   height: 44px;
   padding: 0 6px;
   border-radius: 10px;
-  background: var(--panel-2);
-  border: 1px solid var(--line);
+  background: var(--m-plate);
+  box-shadow: var(--m-plate-bevel);
+  border: 1px solid var(--m-plate-rim);
   font-size: 12px;
   text-align: left;
   min-width: 0;
@@ -390,8 +399,9 @@
   min-height: 60px;
   padding: 8px 12px;
   border-radius: 10px;
-  background: var(--panel-2);
-  border: 1px solid var(--line);
+  background: var(--m-plate);
+  box-shadow: var(--m-plate-bevel);
+  border: 1px solid var(--m-plate-rim);
 }
 .nx-pmed {
   flex: none;
@@ -439,8 +449,9 @@
   gap: 4px;
   min-height: 64px;
   border-radius: 10px;
-  background: var(--panel-2);
-  border: 1px solid var(--line);
+  background: var(--m-plate);
+  box-shadow: var(--m-plate-bevel);
+  border: 1px solid var(--m-plate-rim);
 }
 .nx-skill > svg,
 .nx-skill > span:first-child {
@@ -464,7 +475,8 @@
   background: rgba(255, 220, 170, 0.16);
 }
 .nx-dots i.on {
-  background: var(--accent);
+  background: var(--m-fill);
+  box-shadow: 0 0 0 1px var(--m-ink);
 }
 .nx-heir {
   display: flex;
@@ -473,8 +485,9 @@
   min-height: 44px;
   padding: 0 12px;
   border-radius: 10px;
-  background: var(--panel-2);
-  border: 1px solid var(--line);
+  background: var(--m-plate);
+  box-shadow: var(--m-plate-bevel);
+  border: 1px solid var(--m-plate-rim);
 }
 .nx-hico {
   flex: none;
@@ -519,8 +532,9 @@
   min-height: 52px;
   padding: 6px 12px;
   border-radius: 10px;
-  background: var(--panel-2);
-  border: 1px solid var(--line);
+  background: var(--m-plate);
+  box-shadow: var(--m-plate-bevel);
+  border: 1px solid var(--m-plate-rim);
 }
 .nx-lrow > small {
   flex: none;
@@ -557,8 +571,9 @@
   height: 44px;
   min-width: 0;
   border-radius: 10px;
-  background: var(--panel-2);
-  border: 1px solid var(--line);
+  background: var(--m-plate);
+  box-shadow: var(--m-plate-bevel);
+  border: 1px solid var(--m-plate-rim);
   font-variant-numeric: tabular-nums;
 }
 .nx-lcell svg {
@@ -600,8 +615,9 @@
   min-width: 0;
   padding: 6px 4px;
   border-radius: 10px;
-  background: var(--panel-2);
-  border: 1px solid var(--line);
+  background: var(--m-leather);
+  box-shadow: var(--m-leather-bevel);
+  border: 1px solid var(--m-leather-rim);
   text-align: center;
 }
 .nx-opt b {
@@ -630,14 +646,15 @@
   height: 24px;
 }
 .nx-opt.on {
-  background: rgba(232, 164, 60, 0.12);
-  border-color: var(--accent);
+  border-color: var(--m-gold-rim);
+  background: var(--m-lit);
+  box-shadow: var(--m-lit-bevel);
 }
 .nx-opt:active,
 .nx-skill:active,
 .nx-lcell:active,
 .nx-tgcell:active {
-  background: rgba(255, 220, 170, 0.08);
+  box-shadow: var(--m-pressed);
 }
 .nx-tab .kit-table + .nx-pnote {
   margin-top: 4px;
@@ -656,8 +673,9 @@
   height: 44px;
   padding: 0 12px;
   border-radius: 10px;
-  background: var(--panel-2);
-  border: 1px solid var(--line);
+  background: var(--m-plate);
+  box-shadow: var(--m-plate-bevel);
+  border: 1px solid var(--m-plate-rim);
   font-size: 13px;
   font-weight: 600;
 }
@@ -712,8 +730,9 @@
   min-width: 0;
   padding: 4px 8px;
   border-radius: 10px;
-  background: var(--panel-2);
-  border: 1px solid var(--line);
+  background: var(--m-plate);
+  box-shadow: var(--m-plate-bevel);
+  border: 1px solid var(--m-plate-rim);
   text-align: left;
 }
 .nx-tgcell small {
@@ -738,8 +757,9 @@
   gap: 4px;
   padding: 4px;
   border-radius: 14px;
-  background: rgba(36, 27, 19, 0.8);
-  border: 1px solid var(--line);
+  background: var(--m-groove);
+  border: 1px solid var(--m-plate-rim);
+  box-shadow: var(--m-groove-edge);
 }
 .nx-seg button {
   display: flex;
@@ -754,8 +774,8 @@
 }
 .nx-seg button.on {
   color: var(--text);
-  background: rgba(232, 164, 60, 0.12);
-  box-shadow: inset 0 0 0 1px var(--accent);
+  background: var(--m-lit);
+  box-shadow: var(--m-lit-bevel);
 }
 .nx-seg svg {
   width: 18px;
@@ -820,8 +840,9 @@
   place-items: center;
   height: 44px;
   border-radius: 10px;
-  background: var(--panel-2);
-  border: 1px solid var(--line);
+  background: var(--m-leather);
+  box-shadow: var(--m-leather-bevel);
+  border: 1px solid var(--m-leather-rim);
   font-size: 22px;
   opacity: 0.35;
   filter: grayscale(1);
@@ -988,8 +1009,9 @@
   min-height: 56px;
   padding: 8px 12px;
   border-radius: 10px;
-  background: var(--panel-2);
-  border: 1px solid var(--line-2);
+  background: var(--m-leather);
+  box-shadow: var(--m-leather-bevel);
+  border: 1px solid var(--m-leather-rim);
   text-align: left;
 }
 .nx-ans b {
@@ -1008,8 +1030,8 @@
   margin-top: 2px;
 }
 .nx-ans:active:not(:disabled) {
-  background: rgba(232, 164, 60, 0.12);
-  border-color: var(--accent);
+  box-shadow: var(--m-pressed), inset 0 0 0 1px rgba(236, 188, 94, 0.6);
+  border-color: var(--m-gold-rim);
 }
 .nx-ans:disabled {
   opacity: 0.5;
@@ -1057,17 +1079,19 @@
 .chron-chip {
   min-height: 44px;
   padding: 0 14px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--m-leather-rim);
   border-radius: 999px;
-  background: none;
+  background: var(--m-leather);
+  box-shadow: var(--m-leather-bevel);
   color: var(--muted);
   font: inherit;
   font-size: 13px;
   font-weight: 600;
 }
 .chron-chip.on {
-  border-color: var(--accent);
-  background: rgba(232, 164, 60, 0.12);
+  border-color: var(--m-gold-rim);
+  background: var(--m-lit);
+  box-shadow: var(--m-lit-bevel);
   color: var(--text);
 }
 .chron-day {

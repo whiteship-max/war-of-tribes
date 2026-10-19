@@ -114,8 +114,9 @@
   width: var(--tap);
   height: var(--tap);
   border-radius: 10px;
-  border: 1px solid var(--line);
-  background: var(--panel-2);
+  border: 1px solid var(--m-leather-rim);
+  background: var(--m-leather);
+  box-shadow: var(--m-leather-bevel);
   opacity: 0.8;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
@@ -144,8 +145,9 @@
   min-height: 44px;
   padding: 4px 8px;
   border-radius: 10px;
-  border: 1px solid var(--line);
-  background: var(--panel-2);
+  border: 1px solid var(--m-plate-rim);
+  background: var(--m-plate);
+  box-shadow: var(--m-plate-bevel);
   text-align: left;
   text-decoration: none;
 }
