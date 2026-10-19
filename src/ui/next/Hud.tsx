@@ -20,6 +20,8 @@ import { SiteTags } from './Rush';
 import { goTo } from '@/ui/kit/nav';
 import { withShow } from './show';
 import { useChambers } from '@/ui/chambers/open';
+// Рычаг «Подписи» встаёт из памяти устройства вместе с верхом города (строка — в настройках профиля, ЗН-3).
+import './labels';
 
 /**
  * Покои правителя (docs/city_v3.md, Г-4) — своим куском: пока они открыты, вместо верха города стоит их слой, и в первую

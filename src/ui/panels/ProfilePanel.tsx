@@ -35,6 +35,7 @@ import type { TipContent } from '@/ui/next/tip';
 import type { GameState } from '@/game/types';
 import type { IconName } from '@/ui/icons/alias';
 import { iconName } from '@/ui/icons/registry';
+import { useLabels } from '@/ui/next/labels';
 
 /** Число покрупнее словами: 12 400 вместо 12400 — на 390 px это читается. */
 const big = (n: number): string => Math.round(n).toLocaleString('ru-RU');
@@ -136,6 +137,30 @@ export function profileFolds(s: GameState): Fold[] {
 }
 
 const TABLE_ICON: Record<string, IconName> = { Битвы: 'ui-trophy', Потери: 'ui-down', Хозяйство: 'ui-crate' };
+
+/**
+ * «Подписи» — переключатель строкой настроек (ЗН-3, docs/ui_v2.md, 5.10; прежде — кнопка на экране города): имена над всеми
+ * постройками или только у тех, к которым подлетел. Строка — здесь, а не в `parts/Settings`: та едет в первой загрузке
+ * (стартовый экран), а рычаг города — в куске нового интерфейса (`next/labels`).
+ */
+export function LabelsRow() {
+  const on = useLabels((l) => l.on);
+  const toggle = useLabels((l) => l.toggle);
+  return (
+    <button className={`set-row pf-labels${on ? ' on' : ''}`} onClick={toggle} aria-pressed={on}>
+      <span className="ico">
+        <Icon name="ui-scroll" />
+      </span>
+      <span className="name">
+        Подписи
+        <em className="sub">{on ? 'Имена над всеми постройками города' : 'Имена — когда подлетаешь к постройке'}</em>
+      </span>
+      <span className="sw">
+        <i />
+      </span>
+    </button>
+  );
+}
 
 /**
  * Мощь за последние `PROFILE_DAYS`, столбиками. Ради этого и хранятся суточные корзины:
@@ -264,7 +289,12 @@ export function ProfilePanel() {
                   ›
                 </span>
               </button>
-              {on && f.key === 'settings' && <Settings title={false} />}
+              {on && f.key === 'settings' && (
+                <>
+                  <LabelsRow />
+                  <Settings />
+                </>
+              )}
               {on && f.key === 'trend' && <PowerTrend days={p.days} />}
               {on && tb && (
                 // Имя раздела — шапкой таблицы: отдельный заголовок над ней повторял бы его.

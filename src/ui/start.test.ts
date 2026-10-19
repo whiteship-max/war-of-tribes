@@ -101,8 +101,7 @@ describe('настройки на стартовом экране — тот ж�
   it('оба места показывают один и тот же `parts/Settings`', () => {
     for (const file of ['ui/StartScreen.tsx', 'ui/panels/ProfilePanel.tsx']) {
       expect(read(file), `${file}: настройки не оттуда`).toMatch(/import \{ Settings \} from '[./@a-z/]*parts\/Settings'/);
-      // В профиле шапку несёт строка раздела (ЗН-3): `<Settings title={false} />` — тот же компонент.
-      expect(read(file), `${file}: компонент не показан`).toMatch(/<Settings( title=\{false\})? \/>/);
+      expect(read(file), `${file}: компонент не показан`).toContain('<Settings />');
     }
   });
 

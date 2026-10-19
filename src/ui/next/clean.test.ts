@@ -11,6 +11,8 @@ const store = new Map<string, string>();
 const g = globalThis as unknown as { window?: unknown; localStorage?: unknown; location?: unknown };
 g.window ??= {};
 g.location ??= { search: '', hash: '', href: 'https://example.test/' };
+// Память устройства до загрузки рычага: «Подписи» включены (по умолчанию — выключены).
+store.set('tribe.labels', '1');
 g.localStorage = {
   getItem: (k: string) => store.get(k) ?? null,
   setItem: (k: string, v: string) => void store.set(k, v),
@@ -20,9 +22,9 @@ g.localStorage = {
 const { useGame } = await import('@/game/store');
 const { useRealm } = await import('@/ui/realm/open');
 const { ProfileBadge } = await import('@/ui/realm/Coat');
-const { ProfilePanel, profileFolds } = await import('@/ui/panels/ProfilePanel');
-const { Settings } = await import('@/ui/parts/Settings');
-const { labelsOn, setLabelsOn, subscribeLabels } = await import('@/render/sitetags');
+const { LabelsRow, ProfilePanel, profileFolds } = await import('@/ui/panels/ProfilePanel');
+const { labelsOn } = await import('@/render/sitetags');
+const { useLabels } = await import('./labels');
 const { LABEL_NEAR, markNear } = await import('@/render/city/labels');
 
 const css = (rel: string): string => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8');
@@ -92,28 +94,29 @@ describe('с экрана убрано', () => {
   });
 });
 
-describe('«Подписи» — строкой настроек', () => {
-  const pressed = (): string => {
-    const html = renderToStaticMarkup(createElement(Settings));
-    const row = html.match(/<button class="set-row[^"]*" aria-pressed="(true|false)"><span class="ico">(?:(?!<button).)*?Подписи/);
-    expect(row, 'строка «Подписи» в настройках').not.toBeNull();
-    return row![1];
-  };
+describe('«Подписи» — строкой настроек профиля', () => {
+  const pressed = (): string => renderToStaticMarkup(createElement(LabelsRow)).match(/aria-pressed="(true|false)"/)![1];
 
-  it('переключатель: рычаг сцены, строка и память устройства — одно', () => {
-    setLabelsOn(false);
-    let heard = 0;
-    const off = subscribeLabels(() => heard++);
-    expect(pressed()).toBe('false');
-    setLabelsOn(true);
+  it('переключатель: строка, рычаг сцены и память устройства — одно', () => {
+    // Встал из памяти устройства — и строка, и сцена. (Узел рисует строку по начальному снимку хранилища, поэтому разметка
+    // проверяется здесь, до касаний.)
+    expect(useLabels.getState().on).toBe(true);
+    expect(pressed(), 'строка — из памяти').toBe('true');
+    expect(labelsOn(), 'сцена — из памяти').toBe(true);
+    const { el } = caught(LabelsRow);
+    el.props.onClick();
+    expect(useLabels.getState().on).toBe(false);
+    expect(labelsOn(), 'сцена видит касание строки').toBe(false);
+    expect(store.get('tribe.labels'), 'помнится устройством').toBe('0');
+    el.props.onClick();
     expect(labelsOn()).toBe(true);
-    expect(heard, 'строка слышит рычаг').toBe(1);
-    expect(store.get('tribe.labels'), 'помнится устройством').toBe('1');
-    expect(pressed()).toBe('true');
-    setLabelsOn(false);
-    expect(store.get('tribe.labels')).toBe('0');
-    expect(pressed()).toBe('false');
-    off();
+    expect(store.get('tribe.labels')).toBe('1');
+  });
+
+  it('строка стоит в разделе «Настройки» профиля, а рычаг встаёт с верхом города', () => {
+    const src = css('../panels/ProfilePanel.tsx');
+    expect(src).toMatch(/f\.key === 'settings' && \(\s*<>\s*<LabelsRow \/>/);
+    expect(css('./Hud.tsx')).toContain("import './labels';");
   });
 });
 
