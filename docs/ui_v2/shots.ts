@@ -821,6 +821,25 @@ GROUPS.zn2b = [
   { ...GROUPS.map[3], name: 'zn2-14-map-cell' },
 ];
 
+/**
+ * ЗН-3 (docs/ui_v2.md, 5.10): экран чище — верх города со значком профиля справа, профиль свёрнутым и с раскрытым разделом
+ * («до» — прокрутка к концу: разделов ещё нет), покои у окна. `DIR=icons GROUP=zn3 WEATHER=clear TAG=before|after`.
+ */
+GROUPS.zn3 = [
+  { ...GROUPS.city[0], name: 'zn3-01-city' },
+  { ...GROUPS.profile[0], name: 'zn3-02-profile' },
+  {
+    name: 'zn3-03-profile-open',
+    run: `(() => { const b = window.__ui.btn('Потери', '.pf-folds'); if (b) { b.click(); return JSON.stringify('ok'); } const e = window.__ui.scroller(); if (!e) return JSON.stringify('нет окна'); e.scrollTop = e.scrollHeight; return JSON.stringify('разделов нет — конец прокрутки'); })()`,
+    wait: 700,
+  },
+  {
+    name: 'zn3-04-chambers-window',
+    run: `(async () => { window.__ui.reset(); (await import('/src/ui/realm/open.ts')).useRealm.getState().hide(); (await import('/src/ui/chambers/open.ts')).useChambers.getState().show(); for (let i = 0; i < 40 && !window.__chambers; i++) await new Promise((r) => setTimeout(r, 150)); if (!window.__chambers) return JSON.stringify('покоев нет'); window.__chambers.snap('window'); return JSON.stringify('ok'); })()`,
+    wait: 2500,
+  },
+];
+
 async function snap(tab: Tab, name: string): Promise<void> {
   const png = await tab.send<{ data: string }>('Page.captureScreenshot', { format: 'png' });
   const jpg = await sharp(Buffer.from(png.data, 'base64')).jpeg({ quality: 70, mozjpeg: true }).toBuffer();
