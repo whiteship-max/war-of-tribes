@@ -126,6 +126,101 @@
 
 /* Покои правителя (docs/city_v3.md, Г-4): изнутри донжона ярлыков и надписей вида сверху нет. */
 .city-inside > .city-pops,
-.city-inside > .city-tags {
+.city-inside > .city-tags,
+.city-inside > .city-labels {
   display: none;
+}
+
+/* ---------- Подписи построек и спокойные метки (ОР-1, docs/ui_v2.md, 5.9; `labels.ts`) ---------- */
+/* Касаний слой не берёт вовсе: палец доходит до постройки под подписью, как без неё. Под надписями добычи. */
+.city-labels {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.city-label,
+.city-pip {
+  position: absolute;
+  left: 0;
+  top: 0;
+  will-change: transform;
+}
+
+/* Подпись — середина на теле постройки; ширина — по имени, в одну строку. */
+.city-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  translate: -50% -50%;
+  padding: 2px 7px;
+  border-radius: 7px;
+  background: rgba(30, 22, 15, 0.72);
+  border: 1px solid rgba(241, 227, 196, 0.22);
+  color: #f1e3c4;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 16px;
+  white-space: nowrap;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.6);
+}
+
+/* Показанная постройка («Показать в городе»): подпись золотом, пока длится подсветка. */
+.city-label.lit {
+  background: rgba(58, 40, 18, 0.9);
+  border-color: #e8c46a;
+  color: #fff3d0;
+}
+
+/* Метка — точка 12 px над крышей: золотая — можно улучшить, светлое кольцо — есть места. Дышит медленно. */
+.city-pip {
+  width: 12px;
+  height: 12px;
+  margin: -6px 0 0 -6px;
+  border-radius: 50%;
+  box-sizing: border-box;
+  animation: city-pip 2.8s ease-in-out infinite;
+}
+
+.city-pip[data-mark='upgrade'],
+.city-label[data-mark='upgrade']::before {
+  background: #e8c46a;
+  border: 1px solid rgba(30, 22, 15, 0.8);
+  box-shadow: 0 0 6px rgba(232, 196, 106, 0.55);
+}
+
+.city-pip[data-mark='slot'],
+.city-label[data-mark='slot']::before {
+  background: rgba(30, 22, 15, 0.55);
+  border: 2px solid #f1e3c4;
+  box-shadow: 0 0 5px rgba(241, 227, 196, 0.4);
+}
+
+/* В подписи метка — та же точка перед именем. */
+.city-label[data-mark='upgrade']::before,
+.city-label[data-mark='slot']::before {
+  content: '';
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  box-sizing: border-box;
+}
+
+@keyframes city-pip {
+  0%,
+  100% {
+    opacity: 0.7;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .city-pip {
+    animation: none;
+  }
 }

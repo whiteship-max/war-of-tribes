@@ -65,8 +65,9 @@ import {
   type MachineId,
 } from '../../src/world/machines.js';
 import { aimOf, firePlan, reaim, thinAt, thinKinds, type Aim, type Fire, type TowerGun } from '../../src/world/bombard.js';
-import { foodLeft, spyWalkMs, warAt, warWalkMs } from '../../src/world/pvp.js';
+import { fieldReach, fieldWalkFloorMs, foodLeft, spyWalkMs, warAt, warWalkMs } from '../../src/world/pvp.js';
 import { distance } from '../../src/world/geo.js';
+import { goodsSheet, type GoodsBook } from './goods.js';
 import {
   homePowerOf,
   rivalChance,
@@ -397,6 +398,11 @@ export interface SheetAt {
    * кладёт её всегда. Нет — слепок как есть (тесты правил).
    */
   town?: TownBook;
+  /**
+   * Книга запасов (`goods.ts`, docs/security.md, ЗЩ-2): склад, казна, хлеб и невольники слепка — из описи той же записи и
+   * не меньше объяснимой убыли (`goods.goodsSheet`). Нет или не той записи — слепок как есть.
+   */
+  goods?: GoodsBook;
 }
 
 // ------------------------------------------------ счёт по видам ---
@@ -479,14 +485,16 @@ export function shielded(file: WarFile, key: string, s: SheetAt, at: number): bo
  * в пределах правил (`book.ruleResolve`, `rulePips`): больше их у игрока не бывает никак.
  */
 function claimedSheet(file: WarFile, key: string, s: SheetAt, at: number): WarSheet {
-  const seen = new Set(s.sheet.seen);
-  let army = s.sheet.army;
-  let home = s.sheet.home;
-  let stock = s.sheet.stock;
-  let gold = s.sheet.gold;
-  let bonded = s.sheet.bonded;
-  let pop = s.sheet.pop;
-  const levels = { ...s.sheet.levels };
+  // Склад, казна, хлеб и невольники — книги запасов той же записи, а не слова слепка (docs/security.md, ЗЩ-2).
+  const sheet = goodsSheet(s.sheet, s.at, s.goods);
+  const seen = new Set(sheet.seen);
+  let army = sheet.army;
+  let home = sheet.home;
+  let stock = sheet.stock;
+  let gold = sheet.gold;
+  let bonded = sheet.bonded;
+  let pop = sheet.pop;
+  const levels = { ...sheet.levels };
   for (const w of file.wars) {
     if (w.atk === key) for (const b of w.battles) if (!seen.has(b.id)) army = minus(army, b.atkLost);
     if (w.def !== key) continue;
@@ -531,8 +539,8 @@ function claimedSheet(file: WarFile, key: string, s: SheetAt, at: number): WarSh
       pop += o.lured ?? 0;
     }
   }
-  let pips = s.sheet.pips;
-  const out = new Set(s.sheet.out ?? []);
+  let pips = sheet.pips;
+  const out = new Set(sheet.out ?? []);
   for (const w of file.wars) {
     if (w.atk !== key || w.sentAt > at) continue;
     const back = (w.phase === 'back' || w.phase === 'done') && (w.backAt ?? w.endAt ?? Infinity) <= at;
@@ -542,12 +550,12 @@ function claimedSheet(file: WarFile, key: string, s: SheetAt, at: number): WarSh
       pips = w.army.pips;
     } else if (s.at < w.sentAt) {
       const went = w.went ?? w.army.troops;
-      home = minus(home, s.sheet.retinue ? atMost(went, s.sheet.retinue) : went);
+      home = minus(home, sheet.retinue ? atMost(went, sheet.retinue) : went);
       pips = back ? w.army.pips : {};
       if (back) home = plus(home, w.army.troops);
     }
   }
-  return { ...s.sheet, army, home, stock, gold, bonded, pop, levels, pips: rulePips(pips), resolve: ruleResolve(s.sheet.resolve) };
+  return { ...sheet, army, home, stock, gold, bonded, pop, levels, pips: rulePips(pips), resolve: ruleResolve(sheet.resolve) };
 }
 
 /** По видам — не больше, чем в `cap`. */
@@ -1258,8 +1266,36 @@ export interface OrderCtx {
    * Приказ просил больше войска, чем подтверждает книга (docs/pvp.md, раздел 6): отказ уже сказан словами, а это —
    * для флага в описи наблюдения. Слова — для админа.
    */
-  forged?: (text: string) => void;
+  forged?: (text: string, kind?: 'forged' | 'walk') => void;
 }
+
+/**
+ * Срок пути удара и выручки (docs/security.md, ЗЩ-2): клиент называет, откуда идёт полководец (`from`) и сколько идти
+ * (`walkMs`); сервер берёт срок не короче пути по самой быстрой клетке земли (`pvp.fieldWalkFloorMs`), а место — не
+ * дальше, чем полководец мог уйти со своего места в последнем слепке обороны (`WarSheet.gen`, `pvp.fieldReach`).
+ * Невозможное — отказ словами и флаг «срок пути» (`OrderCtx.forged`). Честный срок — по ландшафту личной карты, и он
+ * не короче пола: ландшафт не бывает быстрее самой быстрой клетки. Возвращает отказ или срок, мс мира.
+ */
+function walkOf(order: { from: { x: number; y: number }; walkMs: number }, to: { x: number; y: number }, s: SheetAt, now: number, ctx: OrderCtx): string | number {
+  const gen = s.sheet.gen;
+  if (gen) {
+    const went = distance(gen, order.from);
+    const reach = fieldReach(now - s.at);
+    if (went > reach) {
+      ctx.forged?.(`Удар полководца из клетки ${spot(order.from)}, а в слепке обороны он стоял в ${spot(gen)}: ${went.toFixed(1)} кл. за ${Math.round((now - s.at) / 1000)} с, дойти мог не дальше ${reach.toFixed(1)} кл.`, 'walk');
+      return 'Полководец не мог оказаться там так быстро. Обнови игру и попробуй снова.';
+    }
+  }
+  const floor = fieldWalkFloorMs(order.from, to);
+  // Миллисекунда — округление: клиент и сервер переводят одну и ту же дорогу в мс одной формулой.
+  if (order.walkMs + 1 < floor) {
+    ctx.forged?.(`Срок пути удара полководца ${Math.round(order.walkMs / 1000)} с, а от клетки ${spot(order.from)} до цели ${distance(order.from, to).toFixed(1)} кл. — не меньше ${Math.round(floor / 1000)} с.`, 'walk');
+    return 'Так быстро полководцу не дойти. Обнови игру и попробуй снова.';
+  }
+  return Math.max(order.walkMs, floor);
+}
+
+const spot = (p: { x: number; y: number }): string => `${Math.round(p.x)}:${Math.round(p.y)}`;
 
 /**
  * Хватает ли войска на приказ: сначала заявленного клиентом, потом подтверждённого книгой. Не хватает заявленного —
@@ -1503,10 +1539,12 @@ export function applyOrder(file: WarFile, key: string, order: WarOrder, now: num
       if (troopTotal(asTroops(order.army.troops)) <= 0) return 'У полководца нет отряда.';
       const short = enough(order.army.troops, claimedSheet(file, key, s, now).army, liveSheet(file, key, s, now).army, 'в отряде', ctx);
       if (short) return short;
+      const walkMs = walkOf(order, w.to, s, now, ctx);
+      if (typeof walkMs === 'string') return walkMs;
       const have = Math.min(energyAt(order.army.energy, now), generalCap(file, key, now));
-      const tired = energyBlock(have, priceOf('strike'), order.walkMs);
+      const tired = energyBlock(have, priceOf('strike'), walkMs);
       if (tired) return tired;
-      const at = now + Math.round(order.walkMs / pace);
+      const at = now + Math.round(walkMs / pace);
       if (at >= (w.starvesAt ?? Infinity)) return 'Не успеть: хлеб в городе кончится раньше.';
       w.reliefs = [...(w.reliefs ?? []), { castle: me, city: cityOr(ctx.roster.rows[key]?.city), sent: now, at, army: ruleArmy(order.army) }];
       // Ключ союзника — для вестей ему о его выручке (19.2); наружу не уходит.
@@ -1529,12 +1567,14 @@ export function applyOrder(file: WarFile, key: string, order: WarOrder, now: num
       const short = enough(order.army.troops, claimedSheet(file, key, s, now).army, liveSheet(file, key, s, now).army, 'в отряде', ctx);
       if (short) return short;
       // Удар — бой: энергии на него должно хватить к минуте прихода, с дорогой по карте (`world/energy`). Отметка — из
-      // приказа, но не выше того, что сервер знает о полководце сам (`generalCap`). Срок пути — по-прежнему со слов
-      // клиента: где полководец в поле, знает только мир на клиенте (docs/siege_audit.md, решение 11).
+      // приказа, но не выше того, что сервер знает о полководце сам (`generalCap`). Срок пути — не короче расстояния при
+      // скорости полководца, место — не дальше, чем он мог уйти со слепка (`walkOf`, docs/security.md, ЗЩ-2).
+      const walkMs = walkOf(order, w.to, s, now, ctx);
+      if (typeof walkMs === 'string') return walkMs;
       const have = Math.min(energyAt(order.army.energy, now), generalCap(file, key, now));
-      const tired = energyBlock(have, priceOf('strike'), order.walkMs);
+      const tired = energyBlock(have, priceOf('strike'), walkMs);
       if (tired) return tired;
-      w.strike = { at: now + Math.round(order.walkMs / pace), army: ruleArmy(order.army), joint: order.joint };
+      w.strike = { at: now + Math.round(walkMs / pace), army: ruleArmy(order.army), joint: order.joint };
       return null;
     }
   }
@@ -2012,7 +2052,9 @@ function spyOrder(file: WarFile, key: string, order: Extract<WarOrder, { op: 'sp
   // Энергия лазутчика — той же дверью, что у похода (`world/energy`): цена дела при выходе, и её должно хватить к
   // минуте прихода, с дорогой; дорога уходит по дням пути, у города — стоит.
   const price = priceOf(order.deed);
-  const tired = energyBlock(energyAt(order.energy, now), price, plan.walkMs);
+  // Отметка — из приказа, но не выше того, что сервер знает о лазутчике сам (`spyCap`, docs/security.md, ЗЩ-2).
+  const have = Math.min(energyAt(order.energy, now), spyCap(file, key, now));
+  const tired = energyBlock(have, price, plan.walkMs);
   if (tired) return tired;
   const watch = plan.mine.sheet.watch;
   if (!watch) return 'Вести о твоём городе ещё не дошли до края. Подожди минуту.';
@@ -2033,12 +2075,26 @@ function spyOrder(file: WarFile, key: string, order: Extract<WarOrder, { op: 'sp
     chance: opt.chance,
     peril: opt.peril,
     phase: 'go',
-    energy: onRoad(spend(order.energy, now, price), now, now + plan.walkMs, false),
+    energy: onRoad(spend({ value: have, at: now, mode: 'hold' }, now, price), now, now + plan.walkMs, false),
     stealth: watch.stealth,
     heldMs: Math.round((SPY_HELD * watch.held) / pace),
   };
   file.spies = [...(file.spies ?? []), row];
   return null;
+}
+
+/**
+ * Потолок энергии лазутчика по тому, что сервер знает о нём сам (docs/security.md, ЗЩ-2) — тем же приёмом, что у
+ * полководца (`generalCap`): последнее его дело против соседа — отметка обратного пути (`world/energy.onRoad`), дома
+ * копится с минуты возврата. Дел не было, или лазутчик не вернулся (погиб — на его месте новый, свежий) — потолка нет.
+ * Дела против логов сервер не видит: у лазутчика может быть меньше, но не больше.
+ */
+export function spyCap(file: WarFile, key: string, now: number): number {
+  let last: SpyRow | null = null;
+  for (const x of file.spies ?? []) if (x.atk === key && (!last || x.sentAt >= last.sentAt)) last = x;
+  const mark = last?.energy;
+  if (!last || !mark || (last.phase === 'done' && last.backAt === undefined)) return ENERGY_MAX;
+  return energyAt(mark, now);
 }
 
 /** Исход дела в минуту прихода — по слепку обороны соседа на эту минуту. Нет слепка — города нет, дела не было. */

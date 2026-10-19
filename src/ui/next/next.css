@@ -611,6 +611,30 @@
   font-size: 12px;
   font-weight: 400;
 }
+/* Главная кнопка с «Показать в городе» рядом (ОР-1): имя тянется, метка места — квадрат 44 справа. */
+.nx-tip-mk {
+  display: flex;
+  gap: 4px;
+  min-width: 0;
+}
+.nx-tip-mk > .nx-tip-maker {
+  flex: 1;
+}
+.nx-tip .nx-tip-show {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: var(--tap);
+  min-height: var(--tap);
+  border-radius: 10px;
+  background: var(--panel-3);
+  border: 1px solid var(--accent);
+  color: var(--text);
+}
+.nx-tip-show svg {
+  width: 20px;
+  height: 20px;
+}
 /* Постройки нет в городе: та же кнопка, но тише — она ведёт в «Стройку». */
 .nx-tip .nx-tip-maker.build {
   background: var(--panel-3);
@@ -2471,6 +2495,42 @@
   font-style: normal;
   font-weight: 700;
   font-size: 15px;
+  line-height: 1;
+}
+/* ---------- Камера города (ОР-1): «Подписи» и «Домой» столбцом под плашкой алмазов, над лесом ---------- */
+.nx-cam {
+  position: absolute;
+  top: calc(var(--safe-top) + var(--hud-h) + 42px);
+  left: calc(8px + var(--safe-left));
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.nx-cam button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  width: 60px;
+  min-height: var(--tap);
+  padding: 4px 0;
+  border-radius: 12px;
+  background: rgba(36, 27, 19, 0.82);
+  border: 1px solid var(--line-2);
+  color: var(--text);
+}
+.nx-cam button.on {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.nx-cam svg {
+  width: 20px;
+  height: 20px;
+}
+.nx-cam small {
+  font-size: 12px;
+  font-weight: 600;
   line-height: 1;
 }
 /* Плашка в ряду тревог по высоте ряда: тревоги начинаются правее неё и не заходят под неё. */

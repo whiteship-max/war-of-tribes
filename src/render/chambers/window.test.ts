@@ -5,7 +5,8 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { cityPlan } from '../city/layout';
+import { cityPlan, heightAt } from '../city/layout';
+import { FEAST_AT } from '../city/life';
 import { buildStatic } from '../city/budget';
 import { groundGrid } from '../city/ground';
 import { CITY_SPEC } from '../city/spec';
@@ -165,6 +166,11 @@ describe('покои: вид из окна (Г-7)', () => {
     const views: { eye: [number, number, number]; yaw: number; yaws: readonly [number, number]; pitches: readonly [number, number]; o: Opening }[] = [
       { eye: [win.pose.x, win.pose.y, win.pose.z], yaw: win.pose.yaw, yaws: win.yaw!, pitches: win.pitch, o: south },
       { eye: [0, 1.62, 3.9], yaw: 0, yaws: [-0.6, 0.6], pitches: [-0.6, 0.3], o: south },
+      // Г-9: дела «Окно на мыс» и «Окно на реку» — глаз в нише парного окна, в пределах поворота головы дела.
+      ...(['windowE', 'windowW'] as const).map((id) => {
+        const p = POI_BY_ID[id];
+        return { eye: [p.pose.x, p.pose.y, p.pose.z] as [number, number, number], yaw: p.pose.yaw, yaws: p.yaw!, pitches: p.pitch, o: OPENINGS.find((o) => o.wall === (id === 'windowE' ? 'east' : 'west'))! };
+      }),
       ...OPENINGS.filter((o) => o.wall !== 'south').map((o) => ({
         eye: [(o.wall === 'west' ? -1 : 1) * (HALF - 0.8), 1.62, o.at] as [number, number, number],
         yaw: o.wall === 'west' ? -Math.PI / 2 : Math.PI / 2,
@@ -253,5 +259,26 @@ describe('покои: вид из окна (Г-7)', () => {
     room.detach();
     expect(im.geometry, 'выход — прежний ком').toBe(comb);
     room.dispose();
+  });
+  it('живой город из окна (docs/city_v3.md, ЖГ-1): хоровод праздника на площади виден из южного окна, а не за храмом', () => {
+    // Глаз — у южного окна (точка интереса `window`); точки — по кругу хоровода на высоте груди: видна большая часть круга.
+    const p = POI_BY_ID.window.pose;
+    const e: [number, number, number] = [keep.x + p.x, floor + p.y, keep.z + p.z];
+    let seen = 0;
+    const N = 16;
+    for (let k = 0; k < N; k++) {
+      const a = (k / N) * Math.PI * 2;
+      const x = FEAST_AT.x + Math.cos(a) * FEAST_AT.r;
+      const z = FEAST_AT.z + Math.sin(a) * FEAST_AT.r;
+      const y = heightAt(x, z) + 1.2;
+      const d: [number, number, number] = [x - e[0], y - e[1], z - e[2]];
+      const L = Math.hypot(d[0], d[1], d[2]);
+      // Граница области: точка — в дали, которую открывает окно (`INSIDE_FAR`), и впереди окна (юг — +z).
+      expect(L).toBeLessThan(INSIDE_FAR);
+      expect(d[2]).toBeGreaterThan(0);
+      const h = firstHit(e, [d[0] / L, d[1] / L, d[2] / L], L + 2);
+      if (!h || h.t > L - 0.6) seen++;
+    }
+    expect(seen, 'мест круга на виду из окна').toBeGreaterThanOrEqual(N * 0.75);
   });
 });

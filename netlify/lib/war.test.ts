@@ -6,7 +6,9 @@ import { FATE_SAME, SIEGE_BLOCK } from '../../src/world/siege.js';
 import { weakCity } from '../../src/world/lairs.js';
 import { inHomeTheatre } from '../../src/world/theatre/theatre.js';
 import { energyAt, energyBlock, priceOf, roadCost, roadOf } from '../../src/world/energy.js';
-import { warWalkMs } from '../../src/world/pvp.js';
+import { fieldReach, fieldWalkFloorMs, fieldWalkSeconds, warWalkMs } from '../../src/world/pvp.js';
+import { terrainFactor } from '../../src/world/geo.js';
+import { realMs } from '../../src/game/pace.js';
 import { ENERGY_CAMP, ENERGY_FILL, ENERGY_MAX } from '../../src/world/data/energy.js';
 import { craftBlock, fortFaces } from '../../src/world/siegecraft.js';
 import { wallFront } from '../../src/world/wall.js';
@@ -256,7 +258,7 @@ describe('энергия полководца: поход, осада и уда�
     advance(file, w.arriveAt + 1, sheets);
     expect(w.phase, 'точка внутри области: лагерь встал').toBe('camp');
     const strike = (value: number) =>
-      applyOrder(file, B, { op: 'strike', id: w.id, army: { ...withEnergy(value, { spearman: 20 }), energy: { value, at: w.arriveAt + 2, mode: 'drain' } }, joint: false, walkMs: 0 }, w.arriveAt + 2, ctx);
+      applyOrder(file, B, { op: 'strike', id: w.id, army: { ...withEnergy(value, { spearman: 20 }), energy: { value, at: w.arriveAt + 2, mode: 'drain' } }, joint: false, walkMs: 0, from: w.to }, w.arriveAt + 2, ctx);
     expect(strike(priceOf('strike') - 1)).toBe(energyBlock(priceOf('strike') - 1, priceOf('strike')));
     expect(w.strike).toBeUndefined();
     expect(strike(priceOf('strike'))).toBeNull();
@@ -535,7 +537,7 @@ describe('осада под городом игрока: находки отчё
     advance(file, w.arriveAt + 1, sheets);
     expect(w.phase, 'точка внутри области: лагерь у стен Беты').toBe('camp');
     expect(['march', 'camp'], 'точка внутри области: Бета в походе').toContain(file.wars[0].phase);
-    const strike = { op: 'strike' as const, id: w.id, army: army({ spearman: 10 }), joint: false, walkMs: 0 };
+    const strike = { op: 'strike' as const, id: w.id, army: army({ spearman: 10 }), joint: false, walkMs: 0, from: w.to };
     expect(applyOrder(file, B, strike, w.arriveAt + 2, ctx)).toBe('Полководец в походе на соседа.');
     expect(w.strike).toBeUndefined();
   });
@@ -567,7 +569,76 @@ describe('осада под городом игрока: находки отчё
     const walkMs = roadOf(Math.max(0, own - priceOf('strike') / 2));
     expect(energyBlock(ENERGY_MAX, priceOf('strike'), walkMs), 'точка внутри области: полного хватило бы').toBeNull();
     const forged: WarArmy = { ...army({ spearman: 10 }), energy: { value: ENERGY_MAX, at, mode: 'fill' } };
-    expect(applyOrder(file, B, { op: 'strike', id: w.id, army: forged, joint: false, walkMs }, at, ctx)).toBe(energyBlock(own, priceOf('strike'), walkMs));
+    expect(applyOrder(file, B, { op: 'strike', id: w.id, army: forged, joint: false, walkMs, from: w.to }, at, ctx)).toBe(energyBlock(own, priceOf('strike'), walkMs));
     expect(w.strike).toBeUndefined();
+  });
+});
+
+/**
+ * Срок пути удара полководца (docs/security.md, ЗЩ-2): клиент называет, откуда идёт полководец и сколько идти; сервер берёт
+ * срок не короче пути по самой быстрой клетке (`pvp.fieldWalkFloorMs`), а место — не дальше, чем полководец мог уйти со
+ * своего места в слепке обороны (`WarSheet.gen`, `pvp.fieldReach`). Честный срок — ландшафтом личной карты — не короче.
+ */
+describe('срок пути удара: по расстоянию и скорости, а не со слов клиента', () => {
+  function camp(gen?: { x: number; y: number }) {
+    const g = setup({ b: gen ? { gen } : {} });
+    expect(applyOrder(g.file, A, { op: 'march', target: castleIdOf(B), mode: 'siege', fate: 'plunder', army: army({ spearman: 30 }) }, T0, g.ctx)).toBeNull();
+    const w = g.file.wars[0];
+    advance(g.file, w.arriveAt + 1, g.sheets);
+    expect(w.phase, 'точка внутри области: лагерь у стен Беты').toBe('camp');
+    const warned: { text: string; kind?: string }[] = [];
+    const ctx = { ...g.ctx, forged: (text: string, kind?: 'forged' | 'walk') => warned.push({ text, kind }) };
+    return { ...g, w, ctx, warned, at: w.arriveAt + 2 };
+  }
+  const far = (to: { x: number; y: number }) => ({ x: to.x + 12, y: to.y + 5 });
+
+  it('удар издалека «за ноль»: отказ и флаг «срок пути»; лагерь не тронут', () => {
+    const { file, w, ctx, warned, at } = camp();
+    const from = far(w.to);
+    expect(fieldWalkFloorMs(from, w.to), 'точка внутри области: до цели не у ворот').toBeGreaterThan(60_000);
+    const order = { op: 'strike' as const, id: w.id, army: army({ spearman: 10 }), joint: false, walkMs: 0, from };
+    expect(applyOrder(file, B, order, at, ctx)).toBe('Так быстро полководцу не дойти. Обнови игру и попробуй снова.');
+    expect(w.strike).toBeUndefined();
+    expect(warned.map((x) => x.kind)).toEqual(['walk']);
+  });
+
+  it('честный срок — ландшафтом любой личной карты — не короче пола: удар принят, приходит в свой срок', () => {
+    const from = far({ x: 0, y: 0 });
+    const to = { x: 0, y: 0 };
+    for (let seed = 1; seed <= 40; seed++) {
+      const honest = Math.round(realMs(fieldWalkSeconds(from, to, terrainFactor(seed, from, to))));
+      expect(honest, `сид ${seed}`).toBeGreaterThanOrEqual(fieldWalkFloorMs(from, to));
+    }
+    const { file, w, ctx, warned, at } = camp();
+    const at0 = far(w.to);
+    const walkMs = Math.round(realMs(fieldWalkSeconds(at0, w.to, terrainFactor(7, at0, w.to))));
+    expect(applyOrder(file, B, { op: 'strike', id: w.id, army: army({ spearman: 10 }), joint: false, walkMs, from: at0 }, at, ctx)).toBeNull();
+    expect(w.strike?.at).toBe(at + walkMs);
+    expect(warned).toEqual([]);
+  });
+
+  it('у ворот — сразу: ноль законен, когда полководец ближе полуклетки', () => {
+    const { file, w, ctx, warned, at } = camp();
+    const from = { x: w.to.x + 0.3, y: w.to.y };
+    expect(fieldWalkFloorMs(from, w.to)).toBe(0);
+    expect(applyOrder(file, B, { op: 'strike', id: w.id, army: army({ spearman: 10 }), joint: false, walkMs: 0, from }, at, ctx)).toBeNull();
+    expect(warned).toEqual([]);
+  });
+
+  it('место дальше, чем полководец мог уйти со слепка: отказ и флаг; ближе — принято', () => {
+    const { file, sheets, w, ctx, warned, at } = camp({ x: 0, y: 0 });
+    const s = sheets.get(B)!;
+    const reach = fieldReach(at - s.at);
+    const gen = s.sheet.gen!;
+    const out = { x: w.to.x, y: w.to.y };
+    expect(Math.hypot(out.x - gen.x, out.y - gen.y), 'точка внутри области: дальше, чем мог уйти').toBeGreaterThan(reach);
+    const walkMs = fieldWalkFloorMs(out, w.to);
+    expect(applyOrder(file, B, { op: 'strike', id: w.id, army: army({ spearman: 10 }), joint: false, walkMs, from: out }, at, ctx)).toBe(
+      'Полководец не мог оказаться там так быстро. Обнови игру и попробуй снова.',
+    );
+    expect(warned.map((x) => x.kind)).toEqual(['walk']);
+    // Слепок свежий и полководец у своих ворот — то же место законно.
+    sheets.set(B, { ...s, sheet: { ...s.sheet, gen: { ...w.to } }, at });
+    expect(applyOrder(file, B, { op: 'strike', id: w.id, army: army({ spearman: 10 }), joint: false, walkMs, from: out }, at, ctx)).toBeNull();
   });
 });

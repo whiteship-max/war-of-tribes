@@ -62,7 +62,7 @@ export function rushFree(s: GameState, buildingId: number): string | null {
   if (!isSite(b)) return 'Здесь ничего не строится.';
   if (rushPrice(b) > 0) return 'Даром ускоряются только последние пять минут.';
   finish(b);
-  log(s, `${buildingTitle(s, b.type)}: ур. ${b.level}, ускорено даром.`, 'good');
+  log(s, `${buildingTitle(s, b.type)}: ур. ${b.level}, ускорено даром.`, 'good', undefined, 'build');
   return null;
 }
 
@@ -119,9 +119,9 @@ export function applyGemDeeds(s: GameState, deeds: readonly GemEntry[]): number 
       const name = b ? buildingTitle(s, b.type) : (BUILDING_BY_ID as Record<string, { name: string } | undefined>)[e.building]?.name ?? e.building;
       if (b && isSite(b) && b.level + 1 === e.level) {
         finish(b);
-        log(s, `${name}: ур. ${b.level}, ускорено за ${-e.delta} алмазов.`, 'good');
+        log(s, `${name}: ур. ${b.level}, ускорено за ${-e.delta} алмазов.`, 'good', undefined, 'build');
       } else {
-        log(s, `${name}: ускорение не понадобилось — стройка до ур. ${e.level} уже не идёт.`, 'info');
+        log(s, `${name}: ускорение не понадобилось — стройка до ур. ${e.level} уже не идёт.`, 'info', undefined, 'build');
       }
       continue;
     }

@@ -33,6 +33,12 @@ import { QuestsPanel } from '../panels/QuestsPanel';
 import { RealmNew } from './RealmNew';
 import { DecreesNew } from './RealmTabs';
 
+/**
+ * Летопись событиями — советнику покоев (Г-10, `ui/chambers/Chambers`): покои берут её ленивым импортом этого куска, а не
+ * своим, — иначе она ушла бы в отдельный общий кусок, и карта зависимостей первой загрузки выросла бы на его строку.
+ */
+export { chronEvents } from './annals';
+
 /** Меню державы (`RealmNew`); прежний вид удалён вместе с прежним интерфейсом (docs/ui_audit.md, 16). */
 export function RealmMenu() {
   return <RealmNew />;

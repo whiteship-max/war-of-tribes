@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { readWarOrder, spySeenId, type CastleClaim, type RivalDeed, type RosterFile, type SpyWatch, type WarOrder, type WarSheet } from './contract.js';
 import { castleIdOf, emptyRoster, upsert } from './roster.js';
-import { advance, applyOrder, emptyWars, liveSheet, newsMap, spiesOf, spyMenuOf, type SheetAt, type SpyRow, type WarFile } from './war.js';
+import { advance, applyOrder, emptyWars, liveSheet, newsMap, spiesOf, spyCap, spyMenuOf, type SheetAt, type SpyRow, type WarFile } from './war.js';
 import { weakCity } from '../../src/world/lairs.js';
 import { inHomeTheatre } from '../../src/world/theatre/theatre.js';
 import { energyAt, priceOf, roadCost } from '../../src/world/energy.js';
-import { ENERGY_MAX } from '../../src/world/data/energy.js';
+import { ENERGY_FILL, ENERGY_MAX } from '../../src/world/data/energy.js';
 import { rivalFate, rivalGuard, rivalHarm, rivalRolls, theftCarry } from '../../src/world/rivalspy.js';
 import { RIVAL_POWER } from '../../src/world/data/spy.js';
 
@@ -69,8 +69,8 @@ function send(g: ReturnType<typeof setup>, deed: RivalDeed, now = T0, energy = {
 }
 
 /** Строка дела с заданными костями — чтобы держать исход, а не надеяться на кость. */
-function forced(g: ReturnType<typeof setup>, deed: RivalDeed, chance: number, peril = 0): SpyRow {
-  expect(send(g, deed)).toBeNull();
+function forced(g: ReturnType<typeof setup>, deed: RivalDeed, chance: number, peril = 0, now = T0): SpyRow {
+  expect(send(g, deed, now)).toBeNull();
   const row = g.file.spies!.at(-1)!;
   row.chance = chance;
   row.peril = peril;
@@ -168,7 +168,8 @@ describe('кража — переход, а не начисление; алма�
     advance(g.file, first.arriveAt, g.sheets);
     advance(g.file, first.backAt!, g.sheets);
     const took1 = first.out!.stolen!.food;
-    first = forced(g, 'theft', 1);
+    // Второе дело — когда лазутчик дома и отдохнул: энергию сервер берёт не выше своей отметки (`war.spyCap`, ЗЩ-2).
+    first = forced(g, 'theft', 1, 0, first.backAt! + ENERGY_FILL);
     advance(g.file, first.arriveAt, g.sheets);
     const took2 = first.out!.stolen!.food;
     expect(took2).toBe(Math.floor((600 - took1) * RIVAL_POWER.theftShare));
@@ -178,6 +179,20 @@ describe('кража — переход, а не начисление; алма�
     expect(left).toBe(600 - took1 - took2);
     const seen = { sheet: { ...s.sheet, stock: { food: left }, seen: g.file.spies!.map((x) => spySeenId(x.id)) }, at: s.at };
     expect(liveSheet(g.file, B, seen).stock.food).toBe(left);
+  });
+
+  it('энергия лазутчика — не выше отметки сервера (ЗЩ-2): сразу после дела «полный» запас — отказ, отдохнувший — идёт', () => {
+    const g = setup({ b: { stock: { food: 600 }, gold: 0, stash: 0 } });
+    const first = forced(g, 'theft', 1);
+    advance(g.file, first.arriveAt, g.sheets);
+    advance(g.file, first.backAt!, g.sheets);
+    const back = first.backAt! + 1;
+    // Точка внутри области: по отметке обратного пути, которую сервер ведёт сам, лазутчик не отдохнул.
+    expect(energyAt(first.energy, back), 'точка внутри области: лазутчик не отдохнул').toBeLessThan(ENERGY_MAX - priceOf('theft'));
+    expect(send(g, 'theft', back)).toMatch(/^Не хватит энергии/);
+    expect(g.file.spies!.length).toBe(1);
+    expect(spyCap(g.file, A, back)).toBe(energyAt(first.energy, back));
+    expect(spyCap(g.file, A, first.backAt! + ENERGY_FILL)).toBe(ENERGY_MAX);
   });
 
   it('пустой склад — красть нечего: ничего не приходит', () => {

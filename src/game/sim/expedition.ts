@@ -21,12 +21,13 @@ import { TROOP_IDS } from '../data/troops';
 import type { TroopStack } from '../battle/kinds';
 import { ORDER_TEXT } from '../data/order';
 import { addBonded, addPop, loseBonded, losePop } from './population';
-import { log } from './log';
+import { log, tagSince } from './log';
 import { woundLine, woundsOfBattle } from './infirmary';
 import { recordDeath, recordDeed, recordRetire, recordSiege, reputeMorale, type Deed } from './agents';
 import { hireWhere } from './hire';
 import type { HomeEffect } from '@/world/types';
 import { loseRelic } from './faith';
+import { outlay } from './pay';
 import { recordBattle, recordLairBurned, recordLoot, recordRaidLoss, recordTroopsLost } from '@/profile/stats';
 import { count } from '@/ui/parts/plural';
 
@@ -107,6 +108,8 @@ export interface ExpeditionOutcome {
   retired?: HomeEffect['retired'];
   /** Строка летописи. Пустая — у последствия нет события, только дело агента. */
   text: string;
+  /** Ключ последствия мира (`HomeEffect.id`): им метятся все строки летописи этого последствия (`tagSince`). */
+  ref?: string;
   kind: LogEntry['kind'];
 }
 
@@ -292,6 +295,8 @@ function takeFallenScouts(s: GameState, n: number): number {
  * Ушедших в поход пересчитывает мир — здесь их число не трогаем.
  */
 export function applyExpedition(s: GameState, o: ExpeditionOutcome): void {
+  // Отметка летописи до последствия: всё, что ляжет выше неё, — строки этого события (ВС-2).
+  const head = s.log[0];
   // Бойцы гибнут по составу отряда; если состава нет (старый поход) — слабые первыми.
   const before = { ...s.army };
   let soldiersLost = 0;
@@ -361,6 +366,9 @@ export function applyExpedition(s: GameState, o: ExpeditionOutcome): void {
   // флагом (docs/security.md, раздел 8). С боем, логовом или замком дело уже засчитано, второй раз его не считают.
   const counted = !!o.battle || o.lair || o.castle;
   if (!counted && (Object.keys(brought).length > 0 || o.gold > 0)) s.stats.windfalls = (s.stats.windfalls ?? 0) + 1;
+  // Убыль без дела — дань, починка пролома, кража у нас: разовая трата (`sim/pay.outlay`), иначе книга запасов сервера
+  // сочла бы её спрятанным добром (docs/security.md, ЗЩ-2).
+  if (!counted && (Object.keys(taken).length > 0 || o.gold < 0)) outlay(s);
 
   // Прорвавшийся набег хозяйничает в поле: до того, что за стеной, он не дошёл.
   const sacked = o.sacked ? sackOutskirts(s, o.sacked) : [];
@@ -405,4 +413,5 @@ export function applyExpedition(s: GameState, o: ExpeditionOutcome): void {
   if (soldiersLost > 0) log(s, `Не вернулись из похода: ${count(soldiersLost, 'боец', 'бойца', 'бойцов')}.`, 'bad');
   if (fallen > 0) log(s, `Не вернулись из разведки: ${fallen}.`, 'bad');
   if (care.laid + care.carried + care.noBed > 0) log(s, woundLine(care), care.noBed > 0 ? 'bad' : 'info');
+  if (o.ref) tagSince(s, head, o.ref);
 }

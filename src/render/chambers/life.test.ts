@@ -320,7 +320,7 @@ describe('покои: бюджет живых (Г-7)', () => {
     const PERSON = [2600, 3000, 3500];
     const CAT = [1300, 1600, 1900];
     for (const d of [0, 1, 2] as const) {
-      for (const who of ['servant', 'maid', 'wife'] as const) expect(buildPerson(who, DEFAULT_ARMS, d, 1).m.b.triangleCount, `${who} @${d}`).toBeLessThanOrEqual(PERSON[d]);
+      for (const who of ['servant', 'maid', 'wife', 'herald', 'advisor'] as const) expect(buildPerson(who, DEFAULT_ARMS, d, 1).m.b.triangleCount, `${who} @${d}`).toBeLessThanOrEqual(PERSON[d]);
       expect(buildCat(d, 1).m.b.triangleCount, `кот @${d}`).toBeLessThanOrEqual(CAT[d]);
     }
     // Вход без кота: живых нет ни одного — сетки строятся по делу, а не при входе.

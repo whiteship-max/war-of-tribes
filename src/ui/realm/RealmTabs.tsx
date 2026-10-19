@@ -49,7 +49,7 @@ import { tipGo } from '@/ui/kit/nav';
 import { Btn } from '@/ui/kit/Btn';
 import { useChambers } from '@/ui/chambers/open';
 import { DECREE_COLS, RATION_COLS, TAX_COLS, decreeCells, incomeTip, rationCells, taxCells, wagesTip } from './decrees';
-import { Chronicle } from '@/ui/parts/Chronicle';
+import { ChronLink } from './ChronLink';
 import { Cost } from '@/ui/parts/Cost';
 import { DailyPage } from '@/ui/parts/daily/DailyPage';
 import { SceneDoctor } from '@/ui/parts/SceneDoctor';
@@ -553,9 +553,7 @@ export function QuestsNew() {
             })}
           </div>
 
-          <div className="nx-old">
-            <Chronicle />
-          </div>
+          <ChronLink />
 
           <button className="nx-more" onClick={() => setMore(!more)} aria-expanded={more}>
             Служебное {more ? '▾' : '›'}

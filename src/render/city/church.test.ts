@@ -1,8 +1,9 @@
-// Храм лицом к площади (docs/city_v3.md, Г-2): портал смотрит на камеру игры, домов за храмом нет, прихожане поднимаются по
-// лестнице, входят в открытую створку и выходят, ноги на лестнице — у ступеней; у колодца стоят лицом к нему.
+// Храм лицом к площади (docs/city_v3.md, Г-2): портал смотрит на камеру игры, прихожане поднимаются по лестнице, входят в
+// открытую створку и выходят, ноги на лестнице — у ступеней; у колодца стоят лицом к нему. Что вокруг храма — Соборная
+// площадь и дома фасадами на неё (Г-8), — держит `square.test.ts`.
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
-import { CHURCH, PARVIS, cityPlan, heightAt, insidePoly } from './layout';
+import { CHURCH, PARVIS, cityPlan, heightAt } from './layout';
 import { buildStatic } from './budget';
 import { CityLife, visitAt, visitOf } from './life';
 import { CITY_AZIMUTH, cityFraming } from './camera';
@@ -13,7 +14,7 @@ const church = plan.civic.find((c) => c.kind === 'church')!;
 const door = { x: CHURCH.x, z: CHURCH.front + 0.75 };
 
 describe('город: храм лицом к площади', () => {
-  it('портал смотрит на камеру игры, храм стоит там, где его ждут паперть и ограда', () => {
+  it('портал смотрит на камеру игры, храм стоит там, где его ждёт паперть', () => {
     const f = cityFraming(390 / 844);
     const elev = Math.PI / 2 - f.polar;
     const cam = {
@@ -29,26 +30,6 @@ describe('город: храм лицом к площади', () => {
     // Фасад храма — у паперти: передняя грань там, где начинается площадка.
     expect(church.z + (fz * church.d) / 2).toBeCloseTo(CHURCH.front, 6);
     expect(church.x).toBe(CHURCH.x);
-  });
-
-  it('за храмом и по бокам его двора домов нет — до улицы вдоль стены', () => {
-    // Граница области: полоса за апсидой и бока двора — внутри городской стены.
-    const behind = { x0: CHURCH.x - 14, x1: CHURCH.x + 14, z0: CHURCH.front - CHURCH.len, z1: -100 };
-    for (const p of [
-      { x: behind.x0, z: behind.z1 },
-      { x: behind.x1, z: behind.z1 },
-      { x: behind.x0, z: behind.z0 },
-      { x: behind.x1, z: behind.z0 },
-    ]) {
-      expect(insidePoly(p, plan.wall), 'полоса — внутри стены').toBe(true);
-    }
-    for (const h of plan.houses) {
-      const inBehind = h.x > behind.x0 && h.x < behind.x1 && h.z < behind.z0 && h.z > behind.z1;
-      const inYard = h.x > -28 && h.x < 16 && h.z < -36 && h.z > CHURCH.front - CHURCH.len;
-      expect(inBehind || inYard, `дом за храмом (${h.x.toFixed(0)}, ${h.z.toFixed(0)})`).toBe(false);
-    }
-    // Город не опустел: убраны только дома двора.
-    expect(plan.houses.length).toBeGreaterThan(150);
   });
 
   it('прихожане входят в храм и выходят: пропадают только у порога, внутри — за ним', () => {

@@ -194,8 +194,9 @@ describe('покои: память устройства (Г-7)', () => {
   it('окно разговора: крестик кончает разговор (ноги отпускает режиссёр, `life.endTalk`)', () => {
     const src = readFileSync(join(__dirname, 'TalkWindow.tsx'), 'utf8');
     const close = src.slice(src.indexOf('const close = (): void => {'), src.indexOf('if (!turn) return null;'));
-    expect(close).toMatch(/life\.endTalk\(\);/);
-    expect(close).toMatch(/onDone\(\);/);
+    expect(close).toMatch(/if \(!ended\) life\.endTalk\(\);/);
+    // Окно закрывает последний `onDone` по ссылке (Г-9): плашка гаснет и у последней реплики.
+    expect(close).toMatch(/finish\.current\(\);/);
   });
 });
 

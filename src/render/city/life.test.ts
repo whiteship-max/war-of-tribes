@@ -8,6 +8,7 @@ import { buildStatic } from './budget';
 import { inTowerShape, wallTops } from './forts';
 import { CITY_SMOKE, CITY_WIND, CityLife, CitySmoke, GATE_POSTS, NIGHT_SHARE, ROUTE_MAX, SMOKE_PUFFS, TOWNSFOLK, archerGeometry, beastGeometry, guardGeometry, patrolAt, personGeometry, poseAt, townsGeometry, type Route } from './life';
 import { HEARTH_LOOK } from '../weather';
+import { rhythmAt } from './rhythm';
 import { GATE_GUARDS, LIFE_CAP, LIFE_TRIS, figureTris, townsfolkTris } from './spec';
 
 const plan = cityPlan();
@@ -126,7 +127,8 @@ describe('город: жизнь', () => {
     const day = crowdCount(life);
     const guardsDay = mesh(life, 'city-guards').count;
     expect(day).toBe(50);
-    life.update(0.1, 0.1, 1, 0);
+    // Ночь — и по окнам, и по распорядку (фаза солнца 0.8 — глубокая ночь, `rhythm.rhythmAt`): ряды рынка закрыты.
+    life.update(0.1, 0.1, 1, 0, rhythmAt(0.8));
     const night = crowdCount(life);
     expect(night).toBeLessThanOrEqual(Math.ceil(day * NIGHT_SHARE));
     expect(night).toBeLessThanOrEqual(Math.ceil(day * 0.25));

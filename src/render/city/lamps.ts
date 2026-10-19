@@ -4,7 +4,7 @@
 import { CITY } from './palette';
 import { box, cone, tint, type Builder, type V3 } from './geom';
 import { log } from './kit';
-import { along, heightAt, insidePoly, type CityPlan, type P } from './layout';
+import { SQUARE_PROPS, along, distPoly, heightAt, insidePoly, type CityPlan, type P } from './layout';
 import type { Site } from './sites';
 import type { Lamp, LampKind } from '../glow/lamps';
 
@@ -100,6 +100,8 @@ export function lanternPost(b: Builder, px: number, pz: number, nx: number, nz: 
 const STREET_STEP = 26;
 const GATE_CLEAR = 14;
 const LAMP_CLEAR = 9;
+/** Шаг фонарей вдоль края площади, м. */
+const SQUARE_STEP = 20;
 
 /**
  * Фонари улиц: на мощёных — через `STREET_STEP` по очереди с двух сторон, у края мостовой; на площади — по углам. Не у
@@ -109,15 +111,62 @@ export function streetLamps(b: Builder, plan: CityPlan, others: readonly Lamp[])
   const out: Lamp[] = [];
   const clear = (x: number, z: number): boolean =>
     !plan.gates.some((g) => Math.hypot(g.x - x, g.z - z) < GATE_CLEAR) && ![...others, ...out].some((l) => Math.hypot(l.x - x, l.z - z) < LAMP_CLEAR);
-  // Площадь: по углу, на шаг внутрь — рынок светится по краям, ряды в середине.
+  // Площадь (docs/city_v3.md, Г-8): по углу, на шаг внутрь, и вдоль краёв через `SQUARE_STEP` — у фасадов, а не на проходе:
+  // и рынок, и Соборная площадь вокруг храма светятся по краям, середина — рядами, колодцем и порталом.
   const sq = plan.square;
-  const cx = sq.reduce((a, p) => a + p.x, 0) / sq.length;
-  const cz = sq.reduce((a, p) => a + p.z, 0) / sq.length;
-  for (const p of sq) {
-    const d = Math.hypot(cx - p.x, cz - p.z) || 1;
-    const x = p.x + ((cx - p.x) / d) * 3;
-    const z = p.z + ((cz - p.z) / d) * 3;
-    if (clear(x, z)) out.push(lanternPost(b, x, z, (cx - p.x) / d, (cz - p.z) / d));
+  const n = sq.length;
+  // Не в убранстве площади: доска, лотки, колодки, коновязь, поилка, ряды рынка, колодец и статуя.
+  const P = SQUARE_PROPS;
+  const props: [number, number, number][] = [
+    [P.board.x, P.board.z, 2],
+    ...P.stalls.map((s): [number, number, number] => [s.x, s.z, 2.4]),
+    [P.stocks.x, P.stocks.z, 2],
+    [P.rail.x, (P.rail.z0 + P.rail.z1) / 2, 4],
+    [P.trough.x, P.trough.z, 2.2],
+    [plan.well.x, plan.well.z, 4.5],
+    [plan.statue.x, plan.statue.z, 3],
+    ...plan.stalls.map((s): [number, number, number] => [s.x, s.z, 3]),
+  ];
+  /** Не посреди другой улицы: фонарь у края своей вставал в проезд переулка на перекрёстке (docs/city_v3.md, Г-8, 4а). */
+  const offStreets = (x: number, z: number, own?: CityPlan['streets'][number]): boolean => plan.streets.every((o) => o === own || distPoly({ x, z }, o.pts) > o.half + 0.3);
+  const onSquare = (x: number, z: number): boolean => insidePoly({ x, z }, sq) && clear(x, z) && offStreets(x, z) && props.every(([px, pz, r]) => Math.hypot(px - x, pz - z) > r);
+  for (let k = 0; k < n; k++) {
+    const p = sq[k];
+    const a = sq[(k - 1 + n) % n];
+    const c = sq[(k + 1) % n];
+    const la = Math.hypot(a.x - p.x, a.z - p.z) || 1;
+    const lc = Math.hypot(c.x - p.x, c.z - p.z) || 1;
+    let bx = (a.x - p.x) / la + (c.x - p.x) / lc;
+    let bz = (a.z - p.z) / la + (c.z - p.z) / lc;
+    const bl = Math.hypot(bx, bz) || 1;
+    bx /= bl;
+    bz /= bl;
+    // У входящего угла (угол дома, выступающий в площадь) биссектриса смотрит наружу: там фонаря нет — стоял бы посреди
+    // прохода у угла дома; эти углы светят фонари вдоль краёв.
+    if (!insidePoly({ x: p.x + bx * 3, z: p.z + bz * 3 }, sq)) continue;
+    // Полтора метра по биссектрисе — у самого угла фасадов, а не на пути вокруг храма (он — в трёх метрах от края).
+    const x = p.x + bx * 1.5;
+    const z = p.z + bz * 1.5;
+    if (onSquare(x, z)) out.push(lanternPost(b, x, z, bx, bz));
+  }
+  for (let k = 0; k < n; k++) {
+    const a = sq[k];
+    const c = sq[(k + 1) % n];
+    const len = Math.hypot(c.x - a.x, c.z - a.z);
+    const tx = (c.x - a.x) / len;
+    const tz = (c.z - a.z) / len;
+    for (let s = SQUARE_STEP; s < len - SQUARE_STEP / 2; s += SQUARE_STEP) {
+      // Внутрь площади — та из нормалей, что ведёт в неё.
+      let nx = -tz;
+      let nz = tx;
+      if (!insidePoly({ x: a.x + tx * s + nx * 2, z: a.z + tz * s + nz * 2 }, sq)) {
+        nx = -nx;
+        nz = -nz;
+      }
+      const x = a.x + tx * s + nx * 1.1;
+      const z = a.z + tz * s + nz * 1.1;
+      if (onSquare(x, z)) out.push(lanternPost(b, x, z, nx, nz));
+    }
   }
   for (const st of plan.streets) {
     if (st.surface !== 'cobble') continue;
@@ -131,7 +180,7 @@ export function streetLamps(b: Builder, plan: CityPlan, others: readonly Lamp[])
       const nz = -t.x * side;
       const x = p.x + nx * (st.half - 0.55);
       const z = p.z + nz * (st.half - 0.55);
-      if (insidePoly({ x, z } as P, sq) || !clear(x, z)) continue;
+      if (insidePoly({ x, z } as P, sq) || !clear(x, z) || !offStreets(x, z, st)) continue;
       out.push(lanternPost(b, x, z, -nx, -nz));
     }
   }

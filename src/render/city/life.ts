@@ -12,14 +12,15 @@ import * as THREE from 'three';
 import type { Quality } from '../quality';
 import { HEARTH_LOOK, type SmokeLook, type SmokeSource } from '../weather';
 import type { V3 } from './geom';
-import { CHURCH, PARVIS, distSeg, heightAt, insidePoly, type CityPlan, type P } from './layout';
+import { CHURCH, CLOSE, PARVIS, distSeg, heightAt, insidePoly, type CityPlan, type P } from './layout';
 import { wallTops } from './forts';
 import { hash3, rnd } from './noise';
 import { headOf } from './roads';
 import { linear } from './palette';
 import { armsCode, armsOr } from '@/heraldry/arms';
 import { TINCTURE_HEX } from '@/heraldry/art';
-import { LIFE_CAP } from './spec';
+import { LIFE_CAP, PATROL } from './spec';
+import type { CityMood, DayRhythm, MoodLook } from './rhythm';
 export { LIFE_CAP } from './spec';
 
 /** Места стражи в кадре (`CityLife.guardsInto`): плоскими массивами, без мусора. */
@@ -982,6 +983,10 @@ export const SQUARE_PATHS: readonly { name: string; pts: P[]; half: number; weig
   { name: 'от Главной к Верхней', pts: [{ x: 1, z: 30 }, { x: 14, z: 25.8 }, { x: 26, z: 23.5 }, { x: 28.5, z: 12 }, { x: 27, z: -4 }, { x: 25, z: -24 }], half: 2.5, weight: 2 },
   { name: 'от Восточной к Западной', pts: [{ x: 31, z: 0 }, { x: 12, z: -1 }, { x: -10, z: -2 }, { x: -23, z: -10 }, { x: -27, z: -24 }], half: 2.5, weight: 2 },
   { name: 'к паперти', pts: [{ x: -2, z: -1.8 }, { x: -4, z: -14 }, { x: -4, z: -24 }, { x: -4, z: PARVIS.foot + 0.6 }], half: 2, weight: 2.5 },
+  // Вокруг храма по Соборной площади (docs/city_v3.md, Г-8): от места сбора перед лестницей вдоль нефа и за апсидой — к
+  // переулкам квартала; посередине полосы между храмом и фасадами.
+  { name: 'вокруг храма, запад', pts: [{ x: -4, z: -22 }, { x: CLOSE.x0 + 3.25, z: -28 }, { x: CLOSE.x0 + 3.25, z: CLOSE.z1 + 3 }, { x: -4, z: CLOSE.z1 + 3 }], half: 1.6, weight: 1 },
+  { name: 'вокруг храма, восток', pts: [{ x: -4, z: -22 }, { x: CLOSE.x1 - 3.25, z: -28 }, { x: CLOSE.x1 - 3.25, z: CLOSE.z1 + 3 }, { x: -4, z: CLOSE.z1 + 3 }], half: 1.6, weight: 1 },
   { name: 'меж рядов, южный проход', pts: [{ x: -15, z: 8.25 }, { x: 28.3, z: 8.25 }], half: 1.2, weight: 4 },
   { name: 'меж рядов, северный проход', pts: [{ x: -15, z: 14.75 }, { x: 28.2, z: 14.75 }], half: 1.2, weight: 3 },
 ];
@@ -1179,6 +1184,145 @@ interface Idle {
   y: number;
   z: number;
   yaw: number;
+  /** Какое это место (`SpotKind`), который он по счёту из стоящих и его жребий 0..1 — кому когда стоять (`idleMode`). */
+  kind: SpotKind;
+  j: number;
+  rank: number;
+}
+
+/** Где стоит кружок: ряды рынка, колодец, паперть, ратуша и статуя. */
+export type SpotKind = 'market' | 'well' | 'parvis' | 'hall';
+
+/**
+ * Куда стоящий идёт по распорядку и состоянию города (docs/city_v3.md, ЖГ-1): на своё место, к трактиру, в очередь у амбара,
+ * в хоровод праздника, к работе у постройки — или его нет на улице.
+ */
+export type IdleMode = 'home' | 'tavern' | 'queue' | 'feast' | 'work' | 'hidden';
+
+/** Распорядок утра (`rhythm.rhythmAt(0.15)`) — жизни без сцены (стенд, тесты): рынок и работа, ни трактира, ни дозора. */
+const MORNING: DayRhythm = { market: 1, work: 1, tavern: 0, patrol: 0, shift: -1 };
+
+/** Хоровод праздника, очередь у амбара, места у трактира: сколько человек самое большее. */
+export const FEAST_RING = 14;
+export const QUEUE_LEN = 12;
+export const TAVERN_SEATS = 12;
+/**
+ * Середина хоровода — у ратуши на западе площади, где в будни стоят кружками (в праздник они в хороводе): на виду у камеры
+ * игры и из южного окна покоев — за храмом и крышами площадь из окна закрыта (лучи — `chambers/window.test.ts`); мимо
+ * путей прохожих и статуи. Радиус, м.
+ */
+export const FEAST_AT = { x: -21, z: -3.5, r: 3.4 } as const;
+
+/**
+ * Режим стоящего (`j` — его номер среди стоящих, `rank` — жребий): тревога прячет всех; праздник ставит каждого второго в
+ * хоровод, голод — каждого третьего в очередь у амбара; вечером каждый четвёртый — у трактира, днём каждый четвёртый со
+ * сдвигом — у работающей постройки; прочие стоят на своём месте, пока их место живо: ряды — в часы рынка (в оживлённом
+ * городе — весь рабочий день), остальное — в той же доле, что идущие по улицам (`inOrder`: номер в доле улиц — ночью их
+ * мало). Хмуро — стоящих меньше (`look.idle`).
+ */
+export function idleMode(kind: SpotKind, j: number, rank: number, rh: DayRhythm, mood: CityMood, look: MoodLook, open: number, stations: number, places: { tavern: boolean; queue: boolean }, inOrder: boolean): IdleMode {
+  if (mood.alarm > 0.5) return 'hidden';
+  if (mood.feast > 0.5 && j % 2 === 0 && j / 2 < FEAST_RING) return 'feast';
+  // Кружки у ратуши — на месте хоровода: в праздник они в нём.
+  if (mood.feast > 0.5 && kind === 'hall') return 'hidden';
+  if (mood.hunger > 0.5 && places.queue && open > 0.5 && j % 3 === 1 && (j - 1) / 3 < QUEUE_LEN) return 'queue';
+  const a = look.idle;
+  if (places.tavern && j % 4 === 0 && j / 4 < TAVERN_SEATS && rank < rh.tavern * a) return 'tavern';
+  if (stations > 0 && j % 4 === 2 && rank < rh.work * 0.9 * a && (kind !== 'market' || rank >= rh.market)) return 'work';
+  // Оживлённый город торгует и после полудня: ряды не пустеют, пока идёт работа.
+  const market = Math.max(rh.market, 0.7 * Math.max(0, mood.cheer) * rh.work);
+  return kind === 'market' ? (rank < market * a ? 'home' : 'hidden') : inOrder ? 'home' : 'hidden';
+}
+
+/** Место стоящего: точка и разворот (лицом на +x при нуле). */
+export interface Stand {
+  x: number;
+  y: number;
+  z: number;
+  yaw: number;
+}
+
+/** Коробка постройки, у которой стоят: середина, «вперёд» к фасаду и полуразмеры (`sites.Site`). */
+export interface Anchor {
+  x: number;
+  z: number;
+  fx: number;
+  fz: number;
+  hf: number;
+  hr: number;
+}
+
+/** Внутри ли точка дома (рамка: фасад по `fx, fz`, фронт `w`, глубина `d`) — с запасом `pad` метров. */
+const inHouse = (x: number, z: number, h: CityPlan['houses'][number], pad: number): boolean => {
+  const dx = x - h.x;
+  const dz = z - h.z;
+  return Math.abs(dx * h.fx + dz * h.fz) <= h.d / 2 + pad && Math.abs(-dx * h.fz + dz * h.fx) <= h.w / 2 + pad;
+};
+
+/** Свободна ли точка: не в доме, не в храме, не в срубе колодца. */
+export function standFree(plan: CityPlan, x: number, z: number): boolean {
+  if (Math.abs(x - CHURCH.x) < CHURCH.width / 2 + 1.8 && z < CHURCH.front + 0.4 && z > CHURCH.front - CHURCH.len - 1.2) return false;
+  if (Math.hypot(x - plan.well.x, z - plan.well.z) < 1.9) return false;
+  return !plan.houses.some((h) => Math.abs(x - h.x) < 14 && Math.abs(z - h.z) < 14 && inHouse(x, z, h, 0.35));
+}
+
+/** Точка `f` метров перед фасадом и `r` вправо (вправо — (fz, −fx), как у `kit.Frame`). */
+const before = (a: Anchor, f: number, r: number): P => ({ x: a.x + a.fx * (a.hf + f) + a.fz * r, z: a.z + a.fz * (a.hf + f) - a.fx * r });
+
+/**
+ * Очередь у амбара: от двери вперёд по фасаду, через шаг поворачивает вдоль фасада — чтобы не уходить на середину площади.
+ * Лицом к двери, к впереди стоящему. Места в доме или в храме выбрасываются (`standFree`).
+ */
+export function queueOf(plan: CityPlan, a: Anchor, n = QUEUE_LEN): Stand[] {
+  const out: Stand[] = [];
+  let prev = before(a, 0.6, 0);
+  for (let i = 0; out.length < n && i < n * 2; i++) {
+    const p = i < 4 ? before(a, 1.1 + i * 0.78, 0) : before(a, 1.1 + 3 * 0.78 + 0.2 * Math.sin(i), (i - 3) * 0.78);
+    if (!standFree(plan, p.x, p.z)) continue;
+    out.push({ x: p.x, y: heightAt(p.x, p.z), z: p.z, yaw: Math.atan2(-(prev.z - p.z), prev.x - p.x) });
+    prev = p;
+  }
+  return out;
+}
+
+/** У трактира: кружки по трое перед фасадом и по его сторонам, лицом друг к другу. */
+export function tavernOf(plan: CityPlan, a: Anchor, n = TAVERN_SEATS): Stand[] {
+  const out: Stand[] = [];
+  const centers: [number, number][] = [
+    [2.2, -2.2],
+    [2.6, 2.4],
+    [4.8, 0],
+    [1.8, -a.hr - 1.6],
+    [1.8, a.hr + 1.6],
+    [5.6, -3.6],
+    [5.6, 3.6],
+  ];
+  for (const [f, r] of centers) {
+    const c = before(a, f, r);
+    if (!standFree(plan, c.x, c.z)) continue;
+    for (let i = 0; i < 3 && out.length < n; i++) {
+      const ang = (i * Math.PI * 2) / 3 + f;
+      const x = c.x + Math.cos(ang) * 0.62;
+      const z = c.z + Math.sin(ang) * 0.62;
+      if (!standFree(plan, x, z)) continue;
+      out.push({ x, y: heightAt(x, z), z, yaw: Math.atan2(-(c.z - z), c.x - x) });
+    }
+    if (out.length >= n) break;
+  }
+  return out;
+}
+
+/** У работающей постройки: двое-трое у фасада лицом к нему — у верстака, у штабеля, у двери. */
+export function stationsOf(plan: CityPlan, sites: readonly Anchor[]): Stand[] {
+  const out: Stand[] = [];
+  for (const a of sites) {
+    for (const r of [-1.4, 0.9, 2.6]) {
+      const p = before(a, 0.9, r);
+      if (!standFree(plan, p.x, p.z)) continue;
+      out.push({ x: p.x, y: heightAt(p.x, p.z), z: p.z, yaw: Math.atan2(a.fz, -a.fx) });
+    }
+  }
+  return out;
 }
 
 /** Копейщики у ворот: с каждой стороны проезда (арка 6 м) двое — у столба арки и на шаг дальше, м от оси. */
@@ -1304,6 +1448,34 @@ export class CitySmoke {
   }
 }
 
+/** Где страж поста в ходе смены `w` (0..1, `rhythm.shiftAt`): старый уходит к двери в проезде, новый выходит на пост. */
+export const SHIFT_POSE = { x: 0, z: 0, yaw: 0, moving: 0, hidden: false, dist: 0 };
+export function shiftPose(post: P, door: P, yaw: number, w: number): typeof SHIFT_POSE {
+  const o = SHIFT_POSE;
+  const len = Math.hypot(door.x - post.x, door.z - post.z);
+  o.hidden = false;
+  if (w < 0 || w >= 1) {
+    o.x = post.x;
+    o.z = post.z;
+    o.yaw = yaw;
+    o.moving = 0;
+    o.dist = 0;
+    return o;
+  }
+  // Первая половина — уходит (пост → дверь), середина — пусто, вторая — выходит (дверь → пост), лицом по ходу.
+  const out = w < 0.45;
+  const f = out ? w / 0.45 : w < 0.55 ? 1 : 1 - (w - 0.55) / 0.45;
+  o.hidden = w >= 0.45 && w < 0.55;
+  o.x = post.x + (door.x - post.x) * f;
+  o.z = post.z + (door.z - post.z) * f;
+  const dx = (door.x - post.x) * (out ? 1 : -1);
+  const dz = (door.z - post.z) * (out ? 1 : -1);
+  o.yaw = Math.atan2(-dz, dx);
+  o.moving = o.hidden ? 0 : 1;
+  o.dist = (out ? f : 2 - f) * len;
+  return o;
+}
+
 export class CityLife {
   readonly group = new THREE.Group();
   private paths: Path[] = [];
@@ -1316,11 +1488,36 @@ export class CityLife {
   /** Горожане — по мешу на вид (`TOWNSFOLK`; на низком — один прежний); прохожий `k` — в меше `k % видов`. */
   private crowd: THREE.InstancedMesh[] = [];
   private crowdGait: THREE.InstancedBufferAttribute[] = [];
+  /**
+   * Видимые горожане лежат в мешах плотно, с начала (`update`): кто в каком слоте сейчас и чем красить слот под человека —
+   * одежда у человека своя, где бы он ни лёг (как у `figureMesh` по его номеру).
+   */
+  private slotPerson: Int32Array[] = [];
+  private paints: { dress: readonly V3[]; second: readonly V3[]; salt: number }[] = [];
   /** Лучники на стене. */
   private sentries: THREE.InstancedMesh;
   /** Копейщики у ворот: по двое с каждой стороны проезда, стоят. */
   private gateGuards: THREE.InstancedMesh;
-  private gatePosts: { x: number; y: number; z: number; yaw: number }[] = [];
+  private gatePosts: { x: number; y: number; z: number; yaw: number; door: { x: number; y: number; z: number } }[] = [];
+  /** Ночной дозор: маршрут по улицам внутри стены; идут гуськом, у первого — фонарь (`PATROL`). */
+  private patrol: Route | null = null;
+  private patrolCap: number;
+  /** Кто из стражи у ворот и дозора сейчас на виду (смена ушла в проезд, дозор днём спит) и идёт ли. */
+  private gateShown: Uint8Array;
+  private gateMoving: Uint8Array;
+  /** Состояние города в виде (`rhythm.moodOf`) и что оно делает с улицами. */
+  private mood: CityMood = { feast: 0, alarm: 0, hunger: 0, plague: 0, cheer: 0 };
+  private look: MoodLook = { street: 1, idle: 1, wall: 0 };
+  /** Места у трактира, очередь у амбара, места у работающих построек (`setPlaces`, `setStations`). */
+  private tavernStands: Stand[] = [];
+  private queueStands: Stand[] = [];
+  private stations: Stand[] = [];
+  private tavernLights: THREE.Points | null = null;
+  /** Костёр праздника посреди хоровода — огонёк в сумерках и шалаш поленьев под ним (`FEAST_LOGS`). */
+  private bonfire: THREE.Points;
+  private logs: THREE.InstancedMesh;
+  /** Дым мора: тёмные столбы над домами (жгут одежду и солому). */
+  private plagueSmoke: SmokeSource[] = [];
   /** Посты стражи у ворот: место и разворот — стенду, чтобы снять стражу вблизи (`?showcase=city&guard=N`). */
   get posts(): readonly { x: number; y: number; z: number; yaw: number }[] {
     return this.gatePosts;
@@ -1328,6 +1525,7 @@ export class CityLife {
   private beatStops: { s: number; half: number }[] = [];
   private beasts: THREE.InstancedMesh;
   private guardGait: THREE.InstancedBufferAttribute;
+  private gateGait: THREE.InstancedBufferAttribute;
   private beastGait: THREE.InstancedBufferAttribute;
   /** Факелы стражи: огонёк над плечом каждого — ночью идут по стене вместе с ним. */
   private torches: THREE.Points;
@@ -1407,8 +1605,11 @@ export class CityLife {
     const kinds: readonly Townsfolk[] = simple ? ['hood'] : TOWNSFOLK;
     kinds.forEach((kind, m) => {
       const n = Math.ceil((this.cap.people - m) / kinds.length);
-      const im = figureMesh(townsGeometry(kind, lod), mat, n, m === 0 ? 'city-people' : `city-people-${kind}`, DRESS, kind === 'woman' ? KERCHIEF : CLOTH2, 97 + m);
+      const second = kind === 'woman' ? KERCHIEF : CLOTH2;
+      const im = figureMesh(townsGeometry(kind, lod), mat, n, m === 0 ? 'city-people' : `city-people-${kind}`, DRESS, second, 97 + m);
       this.crowd.push(im);
+      this.slotPerson.push(Int32Array.from({ length: im.count }, (_v, i) => i * kinds.length + m));
+      this.paints.push({ dress: DRESS, second, salt: 97 + m });
       this.crowdGait.push(gaitOf(im));
     });
     this.sentries = figureMesh(archerGeometry(lod), mat, this.cap.guards, 'city-guards', TABARD, SHIELD, 79);
@@ -1427,21 +1628,28 @@ export class CityLife {
         for (const r of GATE_POSTS) {
           const x = t.x + fx * (t.size / 2 + 0.9) + fz * side * r;
           const z = t.z + fz * (t.size / 2 + 0.9) - fx * side * r;
-          this.gatePosts.push({ x, y: heightAt(x, z), z, yaw: Math.atan2(-fz, fx) });
+          // Смена уходит в проезд: дверь поста — под аркой, у её края со своей стороны.
+          const dx = t.x + fx * (t.size / 2 - 0.6) + fz * side * 1.6;
+          const dz = t.z + fz * (t.size / 2 - 0.6) - fx * side * 1.6;
+          this.gatePosts.push({ x, y: heightAt(x, z), z, yaw: Math.atan2(-fz, fx), door: { x: dx, y: heightAt(dx, dz), z: dz } });
         }
       }
     }
-    this.gateGuards = figureMesh(guardGeometry(lod), mat, this.gatePosts.length, 'city-gate-guards', TABARD, SHIELD, 83);
+    this.patrolCap = PATROL[quality];
+    const gateN = this.gatePosts.length + this.patrolCap;
+    this.gateShown = new Uint8Array(gateN).fill(1);
+    this.gateMoving = new Uint8Array(gateN);
+    this.gateGuards = figureMesh(guardGeometry(lod), mat, gateN, 'city-gate-guards', TABARD, SHIELD, 83);
     this.beasts = new THREE.InstancedMesh(beastGeometry(simple), mat, this.cap.animals);
     for (const im of [...this.crowd, this.sentries, this.gateGuards, this.beasts]) {
       im.frustumCulled = false;
       im.count = 0;
       this.group.add(im);
     }
-    // Копейщики стоят: матрицы — один раз.
+    // Копейщики стоят; в смену и дозор матрицы правит кадр (`update`).
     this.gatePosts.forEach((g, i) => this.place(this.gateGuards, i, g.x, g.y, g.z, g.yaw, 1));
     this.gateGuards.count = this.gatePosts.length;
-    gaitOf(this.gateGuards);
+    this.gateGait = gaitOf(this.gateGuards);
     this.guardGait = gaitOf(this.sentries);
     this.beastGait = gaitOf(this.beasts);
     this.beasts.name = 'city-beasts';
@@ -1457,11 +1665,16 @@ export class CityLife {
     this.beatStops = stops;
     this.seedPeople();
     this.seedBeasts();
+    this.patrol = this.patrolCap > 0 ? this.patrolRoute(plan) : null;
 
     this.smoke = new CitySmoke(CITY_SMOKE);
     // Факелы стражи — точки с мягким пятном, как огоньки стены (`index.flames`), видны в сумерках и ночью.
-    this.torches = glowPoints(this.cap.guards + this.gatePosts.length, 2.4, 0xffa040, 'city-torches');
+    this.torches = glowPoints(this.cap.guards + gateN, 2.4, 0xffa040, 'city-torches');
     this.group.add(this.torches);
+    this.bonfire = glowPoints(2, 7, 0xff9a40, 'city-bonfire');
+    this.group.add(this.bonfire);
+    this.logs = this.buildLogs();
+    this.group.add(this.logs);
     if (this.cap.lanterns > 0) {
       this.lanterns = glowPoints(this.cap.lanterns, 1.7, 0xffb860, 'city-lanterns');
       this.group.add(this.lanterns);
@@ -1498,17 +1711,18 @@ export class CityLife {
     const total = this.cap.people;
     const well = this.input.plan.well;
     // `ring` — кружок вокруг колодца лицом к нему: берут воду, крутят ворот; места — мимо колоды, ведра и огненной чаши.
-    const spots: { x: number; z: number; rx: number; rz: number; w: number; ring?: number }[] = [
-      { x: 4, z: 8.3, rx: 15, rz: 0.4, w: 4 },
-      { x: 4, z: 14.8, rx: 15, rz: 0.4, w: 3 },
-      { x: well.x, z: well.z, rx: 0, rz: 0, w: 3, ring: 2.05 },
-      { x: CHURCH.x, z: PARVIS.foot + 2.7, rx: 11, rz: 1.5, w: 3 },
-      { x: -23, z: -2, rx: 1.6, rz: 9, w: 2 },
-      { x: -19, z: 9, rx: 2, rz: 2, w: 1 },
+    const spots: { x: number; z: number; rx: number; rz: number; w: number; ring?: number; kind: SpotKind }[] = [
+      { x: 4, z: 8.3, rx: 15, rz: 0.4, w: 4, kind: 'market' },
+      { x: 4, z: 14.8, rx: 15, rz: 0.4, w: 3, kind: 'market' },
+      { x: well.x, z: well.z, rx: 0, rz: 0, w: 3, ring: 2.05, kind: 'well' },
+      { x: CHURCH.x, z: PARVIS.foot + 2.7, rx: 11, rz: 1.5, w: 3, kind: 'parvis' },
+      { x: -23, z: -2, rx: 1.6, rz: 9, w: 2, kind: 'hall' },
+      { x: -19, z: 9, rx: 2, rz: 2, w: 1, kind: 'hall' },
     ];
     const WELL_ARC = [-1.85, -1.25, -0.2, 1.75, 2.35, -2.5];
     const wsum = spots.reduce((a, b) => a + b.w, 0);
-    let group: { x: number; z: number; left: number; k: number; ring?: number; arc: number } | null = null;
+    let group: { x: number; z: number; left: number; k: number; ring?: number; arc: number; kind: SpotKind } | null = null;
+    let j = 0;
     for (let k = 0; k < total; k++) {
       if (rnd(k, 6, 72) >= 0.32) {
         // Каждый седьмой из идущих — прихожанин храма: ходит от площадки в храм и обратно.
@@ -1531,6 +1745,7 @@ export class CityLife {
           k: 0,
           ring: c.ring,
           arc: Math.floor(rnd(k, 15, 73) * WELL_ARC.length),
+          kind: c.kind,
         };
       }
       const a = group.ring ? WELL_ARC[(group.arc + group.k) % WELL_ARC.length] + (rnd(k, 11, 73) - 0.5) * 0.25 : rnd(k, 11, 73) * 0.6 + (group.k * Math.PI * 2) / 3.2;
@@ -1538,7 +1753,7 @@ export class CityLife {
       const x = group.x + Math.cos(a) * rr;
       const z = group.z + Math.sin(a) * rr;
       // Лицом к середине кружка: фигура смотрит по +x, поворот — вокруг вертикали.
-      this.idle.push({ x, z, y: heightAt(x, z), yaw: Math.atan2(-(group.z - z), group.x - x) });
+      this.idle.push({ x, z, y: heightAt(x, z), yaw: Math.atan2(-(group.z - z), group.x - x), kind: group.kind, j: j++, rank: rnd(k, 16, 73) });
       this.routes.push(null);
       this.visits.push(null);
       group.left--;
@@ -1786,7 +2001,7 @@ export class CityLife {
     const same = working.length === this.work.length && working.every((w, k) => w.x === this.work[k].x && w.z === this.work[k].z);
     if (same) return;
     this.work = working;
-    this.smoke.setSources(this.smokeOn, working);
+    this.smoke.setSources(this.smokeOn, [...working, ...this.plagueSmoke]);
   }
 
   /**
@@ -1799,25 +2014,165 @@ export class CityLife {
     this.smoke.u.cDrift.value.set(x, z).multiplyScalar(0.12 + 0.95 * k);
   }
 
-  update(dt: number, t: number, night: number, snow: number): void {
+  /**
+   * Состояние города в виде (docs/city_v3.md, ЖГ-1, `rhythm.moodOf`): праздник, тревога, голод, мор, мораль. Зовётся из
+   * `sync` сцены, когда партия сменилась; кадр читает его в `update`.
+   */
+  setMood(m: CityMood, look: MoodLook): void {
+    const same = m.feast === this.mood.feast && m.alarm === this.mood.alarm && m.hunger === this.mood.hunger && m.plague === this.mood.plague && m.cheer === this.mood.cheer;
+    if (same) return;
+    const plagueWas = this.mood.plague > 0.5;
+    this.mood = m;
+    this.look = look;
+    if (plagueWas !== m.plague > 0.5) {
+      // Мор: над тремя домами квартала — тёмный дым (жгут постели и солому умерших); прошёл — гаснет.
+      this.plagueSmoke = m.plague > 0.5 ? this.smokeOn.filter((_c, i) => i % 9 === 4).slice(0, 3).map((c) => ({ x: c.x, y: c.y, z: c.z, puffs: 9, top: 18 })) : [];
+      this.smoke.setSources(this.smokeOn, [...this.work, ...this.plagueSmoke]);
+    }
+  }
+
+  /** Трактир и амбар — где вечером стоят у трактира и где в голод очередь (коробки построек, `sites.mainSite`). */
+  setPlaces(tavern: Anchor | null, storage: Anchor | null): void {
+    const plan = this.input.plan;
+    this.tavernStands = tavern ? tavernOf(plan, tavern) : [];
+    this.queueStands = storage ? queueOf(plan, storage) : [];
+    if (tavern && this.cap.lanterns > 0 && !this.tavernLights) {
+      // Фонари у двери трактира — по сторонам фасада; горят вечером и ночью.
+      this.tavernLights = glowPoints(2, 2.2, 0xffb050, 'city-tavern-lights');
+      const lp = this.tavernLights.geometry.attributes.position as THREE.BufferAttribute;
+      [-1, 1].forEach((side, i) => {
+        const p = before(tavern, 0.25, side * Math.min(tavern.hr * 0.6, 2.2));
+        lp.setXYZ(i, p.x, heightAt(p.x, p.z) + 2.6, p.z);
+      });
+      lp.needsUpdate = true;
+      this.group.add(this.tavernLights);
+    }
+  }
+
+  /** Работающие постройки (люди у них днём): места у фасадов (`stationsOf`). */
+  setStations(sites: readonly Anchor[]): void {
+    this.stations = stationsOf(this.input.plan, sites);
+  }
+
+  /**
+   * Шалаш поленьев костра праздника: шесть поленьев, сходящихся верхушками, — экземплярами, один вызов; виден только в
+   * праздник.
+   */
+  private buildLogs(): THREE.InstancedMesh {
+    const g = new THREE.BoxGeometry(0.13, 1.3, 0.13);
+    g.translate(0, 0.65, 0);
+    const im = new THREE.InstancedMesh(g, new THREE.MeshLambertMaterial(), 6);
+    const y = heightAt(FEAST_AT.x, FEAST_AT.z);
+    const q = new THREE.Quaternion();
+    const e = new THREE.Euler();
+    const col = new THREE.Color();
+    const wood = linear(0x4a3426);
+    for (let k = 0; k < 6; k++) {
+      const a = (k / 6) * Math.PI * 2;
+      // Низ — по кругу в 0.55 м, верх наклонён к середине.
+      e.set(-Math.sin(a) * 0.42, 0, Math.cos(a) * 0.42, 'XYZ');
+      q.setFromEuler(e);
+      this.m4.compose(this.v3.set(FEAST_AT.x + Math.cos(a) * 0.55, y, FEAST_AT.z + Math.sin(a) * 0.55), q, this.s3.set(1, 1, 1));
+      im.setMatrixAt(k, this.m4);
+      im.setColorAt(k, col.setRGB(wood[0], wood[1], wood[2]));
+    }
+    im.name = 'city-bonfire-logs';
+    im.visible = false;
+    return im;
+  }
+
+  /** Слоты, занятые видимыми в этом кадре, — по мешу. */
+  private used = new Int32Array(TOWNSFOLK.length);
+
+  /** Перекрасить слот `i` меша `m` под человека `k`: одежда, вторая ткань и кожа — по его номеру, как у `figureMesh`. */
+  private paint(m: number, i: number, k: number): void {
+    const im = this.crowd[m];
+    const p = this.paints[m];
+    const n = Math.floor(k / this.crowd.length);
+    const d = p.dress[hash3(n, 3, p.salt) % p.dress.length];
+    im.instanceColor!.setXYZ(i, d[0], d[1], d[2]);
+    im.instanceColor!.needsUpdate = true;
+    const g = im.geometry;
+    const c2 = g.getAttribute('cloth2') as THREE.InstancedBufferAttribute;
+    const sk = g.getAttribute('skinTone') as THREE.InstancedBufferAttribute;
+    c2.set(p.second[hash3(n, 5, p.salt) % p.second.length], i * 3);
+    sk.set(SKINS[hash3(n, 7, p.salt) % SKINS.length], i * 3);
+    c2.needsUpdate = true;
+    sk.needsUpdate = true;
+    this.slotPerson[m][i] = k;
+  }
+
+  /**
+   * Маршрут ночного дозора: весь — внутри стены (за воротами дозор не ходит), и через площадь у колодца, если такой есть
+   * среди пробных; из годных — самый длинный.
+   */
+  private patrolRoute(plan: CityPlan): Route | null {
+    let best: Route | null = null;
+    let bestScore = -1;
+    for (let k = 0; k < 40; k++) {
+      const r = routeOf(this.paths, this.junctions, this.weight, k, 75);
+      const probe = { ...r, phase: 0, v: 1 };
+      let inside = true;
+      let square = false;
+      for (let d = 0; d < r.len && inside; d += 4) {
+        const p = poseAt(this.paths, probe, d);
+        inside = insidePoly({ x: p.x, z: p.z }, plan.wall);
+        square ||= Math.hypot(p.x - plan.well.x, p.z - plan.well.z) < 18;
+      }
+      const score = inside ? r.len + (square ? 1e4 : 0) : -1;
+      if (score > bestScore) {
+        best = r;
+        bestScore = score;
+      }
+    }
+    return best && bestScore >= 0 ? { ...best, v: 0.85 } : null;
+  }
+
+  /**
+   * Кадр: всё — от времени `t` (секунды сцены), `dt` не копится нигде. `night` — доля ночи окон, `snow` — доля зимы,
+   * `rh` — распорядок дня в фазу солнца партии (`rhythm.rhythmAt`; без него — утро: рынок и работа, ни трактира, ни дозора).
+   * Распорядок считает сцена: `rhythm` — общий кусок вида и звука, а жизнь тянут и другие куски (суета, покои, стенд).
+   */
+  update(dt: number, t: number, night: number, snow: number, rh: DayRhythm = MORNING): void {
     void dt;
     this.time.value = t;
-    // Ночью на улицах редкие прохожие, зимой — на четверть меньше; стража стоит всегда.
-    const shown = Math.round(this.want.people * (1 - (1 - NIGHT_SHARE) * night) * (1 - (1 - WINTER_SHARE) * snow));
-    const n = Math.min(shown, this.routes.length);
+    const mood = this.mood;
+    const look = this.look;
+    // Ночью на улицах редкие прохожие, зимой — на четверть меньше; тревога, мор и хмурость — ещё меньше (`lookOf`).
+    const open = (1 - (1 - NIGHT_SHARE) * night) * (1 - (1 - WINTER_SHARE) * snow);
+    const total = Math.min(this.want.people, this.routes.length);
+    const walkers = Math.round(this.want.people * open * look.street);
+    const idlers = Math.round(this.want.people * open * look.idle);
     const kinds = this.crowd.length;
-    this.crowd.forEach((im, m) => (im.count = n > m ? Math.ceil((n - m) / kinds) : 0));
+    const used = this.used;
+    used.fill(0);
+    const places = { tavern: this.tavernStands.length > 0, queue: this.queueStands.length > 0 };
     // Фонарь — у каждого второго идущего, пока темно.
     const lamps = this.lanterns;
     const lampOn = lamps !== null && night > 0.3;
     let lit = 0;
     const lp = lamps ? (lamps.geometry.attributes.position as THREE.BufferAttribute) : null;
-    for (let k = 0; k < n; k++) {
-      const im = this.crowd[k % kinds];
-      const i = Math.floor(k / kinds);
-      const pg = this.crowdGait[k % kinds].array as Float32Array;
+    for (let k = 0; k < total; k++) {
+      const m = k % kinds;
+      const im = this.crowd[m];
+      const pg = this.crowdGait[m].array as Float32Array;
       const r = this.routes[k];
       const vis = this.visits[k];
+      // Идущих — первые `walkers` по номеру (порядок перемешан); стоящих — по режиму (`idleMode`).
+      if ((vis || r) && k >= walkers) continue;
+      const w = this.idle[k];
+      const mode = w ? idleMode(w.kind, w.j, w.rank, rh, mood, look, open, this.stations.length, places, k < idlers) : 'home';
+      let st: Stand | null = null;
+      if (w) {
+        if (mode === 'queue') st = this.queueStands[(w.j - 1) / 3] ?? null;
+        else if (mode === 'tavern') st = this.tavernStands[w.j / 4] ?? null;
+        else if (mode === 'work') st = this.stations[((w.j - 2) / 4) % this.stations.length] ?? null;
+        else if (mode === 'home') st = w;
+        if (!st && mode !== 'feast') continue;
+      }
+      // На виду: следующий слот меша; слот красится под человека, если в нём лежал другой.
+      const i = used[m]++;
+      if (this.slotPerson[m][i] !== k) this.paint(m, i, k);
       if (vis) {
         const p = visitAt(vis, t);
         // В храме фигуры нет: она стоит за порогом в нулевом масштабе.
@@ -1834,14 +2189,35 @@ export class CityLife {
           const v = this.v3.set(0.12, 0.92, 0.3).applyMatrix4(this.m4);
           lp.setXYZ(lit++, v.x, v.y, v.z);
         }
-      } else {
-        const w = this.idle[k]!;
-        this.place(im, i, w.x, w.y + Math.abs(Math.sin(t * 1.3 + k)) * 0.02, w.z, w.yaw + Math.sin(t * 0.3 + k) * 0.25, 1);
+      } else if (w) {
+        if (mode === 'feast') {
+          // Хоровод: держатся за руки по кругу и идут посолонь, подпрыгивая в такт; через одного — чуть ближе к костру.
+          const n = FEAST_RING;
+          const q = w.j / 2;
+          const rr = FEAST_AT.r + (q % 2) * 0.35;
+          const ang = (q / n) * Math.PI * 2 + t * 0.32;
+          const x = FEAST_AT.x + Math.cos(ang) * rr;
+          const z = FEAST_AT.z + Math.sin(ang) * rr;
+          const y = heightAt(x, z) + Math.abs(Math.sin(t * 5.2 + q)) * 0.07;
+          // Касательная по ходу: лицом вперёд по кругу (угол растёт — ход против часовой сверху).
+          this.place(im, i, x, y, z, Math.atan2(-Math.cos(ang), -Math.sin(ang)), 1);
+          pg[i * 2] = t * 0.32 * rr;
+          pg[i * 2 + 1] = 1;
+          continue;
+        }
+        if (!st) continue;
+        // Стоит: переминается и поворачивает голову; у работы — гнётся чаще (стук, тёска), в очереди — почти недвижим.
+        const sway = mode === 'work' ? Math.abs(Math.sin(t * 3.1 + k)) * 0.05 : Math.abs(Math.sin(t * 1.3 + k)) * 0.02;
+        const turn = mode === 'queue' ? 0.08 : 0.25;
+        this.place(im, i, st.x, st.y + sway, st.z, st.yaw + Math.sin(t * 0.3 + k) * turn, 1);
         pg[i * 2] = 0;
         pg[i * 2 + 1] = 0;
       }
     }
-    for (const im of this.crowd) im.instanceMatrix.needsUpdate = true;
+    this.crowd.forEach((im, m) => {
+      im.count = used[m];
+      im.instanceMatrix.needsUpdate = true;
+    });
     for (const g of this.crowdGait) g.needsUpdate = true;
     if (lamps && lp) {
       const lm = lamps.material as THREE.PointsMaterial;
@@ -1851,9 +2227,33 @@ export class CityLife {
       lamps.geometry.setDrawRange(0, lit);
       lp.needsUpdate = lit > 0;
     }
+    // Фонари трактира — вечером и ночью, пока у трактира люди; костёр праздника — в сумерках и ночью.
+    if (this.tavernLights) {
+      const tl = this.tavernLights.material as THREE.PointsMaterial;
+      const on = Math.min(1, night * 2) * Math.min(1, rh.tavern * 3 + 0.3 * night);
+      this.tavernLights.visible = on > 0.02 && mood.alarm < 0.5;
+      tl.opacity = on;
+      tl.size = 2.2 * (1 + Math.sin(t * 7 + 1) * 0.05);
+    }
+    const fire = mood.feast > 0.5 ? Math.min(1, 0.45 + night * 1.5) : 0;
+    this.logs.visible = mood.feast > 0.5;
+    this.bonfire.visible = fire > 0.02;
+    if (this.bonfire.visible) {
+      // Пламя — два огонька: широкое пятно над поленьями и язык повыше, пляшет.
+      const bp = this.bonfire.geometry.attributes.position as THREE.BufferAttribute;
+      const y = heightAt(FEAST_AT.x, FEAST_AT.z);
+      bp.setXYZ(0, FEAST_AT.x, y + 0.75, FEAST_AT.z);
+      bp.setXYZ(1, FEAST_AT.x + Math.sin(t * 3.7) * 0.08, y + 1.35 + Math.sin(t * 9.1) * 0.12, FEAST_AT.z + Math.sin(t * 2.9) * 0.08);
+      bp.needsUpdate = true;
+      const bm = this.bonfire.material as THREE.PointsMaterial;
+      bm.opacity = fire;
+      bm.size = 6 * (1 + Math.sin(t * 11) * 0.08 + Math.sin(t * 4.3) * 0.06);
+    }
+    this.gateFrame(t, rh, mood);
     // Лучники: по всем сторонам стены поровну, у каждого свой отрезок между башнями — туда и обратно, на концах
     // стоит, смотрит со стены. Сквозь башни не ходит.
-    const c = Math.min(this.want.guards, this.cap.guards);
+    // Тревога: на стене — почти все места (`lookOf().wall`), сколько бы войска ни было дома.
+    const c = Math.min(this.cap.guards, Math.max(this.want.guards, Math.ceil(this.cap.guards * look.wall)));
     this.sentries.count = c;
     const L = this.wall.len;
     const gg = this.guardGait.array as Float32Array;
@@ -1875,6 +2275,7 @@ export class CityLife {
     tm.opacity = night;
     const posts = this.gateGuards.count;
     this.torches.visible = night > 0.02 && c + posts > 0;
+    let lit2 = c;
     if (this.torches.visible) {
       const tp = this.torches.geometry.attributes.position as THREE.BufferAttribute;
       for (let i = 0; i < c; i++) {
@@ -1882,13 +2283,16 @@ export class CityLife {
         const v = this.v3.set(0.15, 2.05, 0.32).applyMatrix4(this.m4);
         tp.setXYZ(i, v.x, v.y, v.z);
       }
+      // У поста — факел у копья, у дозорного — фонарь в опущенной руке; ушедший в проезд огня не несёт.
+      const nPosts = this.gatePosts.length;
       for (let i = 0; i < posts; i++) {
+        if (!this.gateShown[i] || i > nPosts) continue;
         this.gateGuards.getMatrixAt(i, this.m4);
-        const v = this.v3.set(0.2, 1.95, 0.42).applyMatrix4(this.m4);
-        tp.setXYZ(c + i, v.x, v.y, v.z);
+        const v = (i < nPosts ? this.v3.set(0.2, 1.95, 0.42) : this.v3.set(0.25, 0.85, 0.34)).applyMatrix4(this.m4);
+        tp.setXYZ(lit2++, v.x, v.y, v.z);
       }
       tp.needsUpdate = true;
-      this.torches.geometry.setDrawRange(0, c + posts);
+      this.torches.geometry.setDrawRange(0, lit2);
       tm.size = 2.4 * (1 + Math.sin(t * 13) * 0.1);
     }
     // Скот бродит медленно: круг в пару метров у своего места, ноги — по пройденной дуге.
@@ -1905,6 +2309,50 @@ export class CityLife {
     this.beasts.instanceMatrix.needsUpdate = true;
     this.beastGait.needsUpdate = true;
     this.smoke.update(t, night, snow);
+  }
+
+  /**
+   * Стража у ворот и ночной дозор: в смену (`rh.shift`) караул поста за постом уходит в проезд и выходит новый; ночью
+   * (`rh.patrol`) по улицам гуськом идёт дозор, у первого — фонарь. В тревогу дозора нет — все на стене и у ворот.
+   */
+  private gateFrame(t: number, rh: DayRhythm, mood: CityMood): void {
+    const posts = this.gatePosts.length;
+    const gg = this.gateGait.array as Float32Array;
+    for (let i = 0; i < posts; i++) {
+      const g = this.gatePosts[i];
+      // Посты сменяются по очереди: каждый следующий — чуть позже.
+      const w = rh.shift < 0 || mood.alarm > 0.5 ? -1 : Math.min(1, Math.max(-1, (rh.shift - (i % 4) * 0.06) / 0.82));
+      const p = shiftPose(g, g.door, g.yaw, w < 0 ? -1 : w);
+      const y = heightAt(p.x, p.z);
+      this.place(this.gateGuards, i, p.x, y + p.moving * (1 - Math.cos(p.dist * 8.976)) * 0.018, p.z, p.yaw, p.hidden ? 0 : 1);
+      this.gateShown[i] = p.hidden ? 0 : 1;
+      this.gateMoving[i] = p.moving;
+      gg[i * 2] = p.dist;
+      gg[i * 2 + 1] = p.moving;
+    }
+    let n = posts;
+    const route = this.patrol;
+    if (route) {
+      for (let k = 0; k < this.patrolCap; k++) {
+        const on = mood.alarm < 0.5 && rh.patrol > 0.15 + k * 0.1;
+        const i = posts + k;
+        if (!on) {
+          this.gateShown[i] = 0;
+          continue;
+        }
+        // Гуськом: каждый следующий — на два метра позади.
+        const p = poseAt(this.paths, route, t - (k * 2) / route.v);
+        this.place(this.gateGuards, i, p.x, p.y + (1 - Math.cos(p.dist * 8.976)) * 0.018, p.z, p.yaw, 1);
+        this.gateShown[i] = 1;
+        this.gateMoving[i] = 1;
+        gg[i * 2] = p.dist;
+        gg[i * 2 + 1] = 1;
+        n = i + 1;
+      }
+    }
+    this.gateGuards.count = n;
+    this.gateGuards.instanceMatrix.needsUpdate = true;
+    this.gateGait.needsUpdate = true;
   }
 
   /** Отрезок дозора между башнями, в котором дом лучника: середина и полудлина (не больше 22 м). */
@@ -1953,13 +2401,14 @@ export class CityLife {
       n++;
     };
     for (let i = 0; i < wall; i++) put(this.sentries, i, gait[i * 2 + 1] > 0.5 ? 1 : 0);
-    for (let i = 0; i < gate; i++) put(this.gateGuards, i, 0);
+    // Посты ворот и ночной дозор; ушедший в проезд на смену и спящий днём дозор не рисуются.
+    for (let i = 0; i < gate; i++) if (this.gateShown[i]) put(this.gateGuards, i, this.gateMoving[i]);
     return { count: n, wall };
   }
 
-  /** Сколько мест стражи может понадобиться: лучники на стене и посты у ворот. */
+  /** Сколько мест стражи может понадобиться: лучники на стене, посты у ворот и ночной дозор. */
   get guardCap(): { wall: number; gate: number } {
-    return { wall: this.cap.guards, gate: this.gatePosts.length };
+    return { wall: this.cap.guards, gate: this.gatePosts.length + this.patrolCap };
   }
 
   private place(im: THREE.InstancedMesh, k: number, x: number, y: number, z: number, yaw: number, scale: number): void {
@@ -1970,12 +2419,14 @@ export class CityLife {
 
   dispose(): void {
     this.smoke.dispose();
-    for (const p of [this.torches, this.lanterns]) {
+    for (const p of [this.torches, this.lanterns, this.tavernLights, this.bonfire]) {
       if (!p) continue;
       const m = p.material as THREE.PointsMaterial;
       m.map?.dispose();
       m.dispose();
     }
+    this.logs.geometry.dispose();
+    (this.logs.material as THREE.Material).dispose();
     (this.crowd[0].material as THREE.Material).dispose();
     (this.flags.material as THREE.Material).dispose();
     (this.birds.material as THREE.Material).dispose();

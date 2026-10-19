@@ -17,7 +17,9 @@ import { MINIGAME_COST } from '@/game/data/minigames';
 import { armyTip, energyTip, goldTip, isFull, moraleTip, orderTip, popTip, resTip, seasonTip, trendOf, type TipGo } from './hudTips';
 import { GemPlaque } from './Treasury';
 import { SiteTags } from './Rush';
+import { CityCam } from './CityCam';
 import { goTo } from '@/ui/kit/nav';
+import { withShow } from './show';
 import { useChambers } from '@/ui/chambers/open';
 
 /**
@@ -132,11 +134,12 @@ function CityHud() {
   const lit = useYieldFlash();
   // Энергия — сутками игрока (`ui/trades.energyNow`); перерисовывается вместе с партией, раз в шаг цикла.
   const energy = energyShown(s, energyNow());
-  // Подсказка считается в миг касания: числа в ней — на эту секунду, а не на последнюю перерисовку.
+  // Подсказка считается в миг касания: числа в ней — на эту секунду, а не на последнюю перерисовку. У главных кнопок —
+  // «Показать в городе» (ОР-1, `show.withShow`).
   const tip =
     (content: () => TipContent) =>
     (e: { currentTarget: Element }): void =>
-      tipAt(e.currentTarget, content());
+      tipAt(e.currentTarget, withShow(content()));
 
   return (
     <div className="nx-hud">
@@ -204,6 +207,8 @@ function CityHud() {
           docs/voice.md, 12. */}
       {!realmOpen && <GemPlaque />}
       <SiteTags />
+      {/* Камера города — «Подписи» и «Домой» столбцом под плашкой (ОР-1, docs/ui_v2.md, 5.9). */}
+      <CityCam />
     </div>
   );
 }

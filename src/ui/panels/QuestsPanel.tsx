@@ -4,7 +4,7 @@ import { useGame } from '@/game/store';
 import { useWorld } from '@/world/store';
 import { ACHIEVEMENTS, QUESTS, questsDone } from '@/game/data/quests';
 import { RESOURCE_IDS, RESOURCE_META } from '@/game/constants';
-import { Chronicle } from '../parts/Chronicle';
+import { ChronLink } from '../realm/ChronLink';
 import { DailyPage } from '../parts/daily/DailyPage';
 import { SceneDoctor } from '../parts/SceneDoctor';
 import { TouchDoctor } from '../parts/TouchDoctor';
@@ -15,8 +15,8 @@ import { CHEATS_ON, CHEAT_MARK, HASTE_MARK } from '@/cheats';
 /**
  * «Задания» — две страницы.
  *
- * Первая — то, ради чего сюда заходят: задания племени, достижения, летопись и
- * служебное. Вторая — то, что делается раз в сутки и раз навсегда: задание дня,
+ * Первая — то, ради чего сюда заходят: задания племени, достижения, ссылка на
+ * летопись (она в «Вестях», ВС-2) и служебное. Вторая — то, что делается раз в сутки и раз навсегда: задание дня,
  * подписки, приглашение. Смешать их в один список нельзя — ежедневка утонула бы
  * под летописью, а служебные кнопки оказались бы посреди социальных ссылок.
  *
@@ -105,7 +105,7 @@ function QuestList() {
         })}
       </div>
 
-      <Chronicle />
+      <ChronLink />
 
       <h3>Партия</h3>
       {/* Метка партии, где применяли коды. Стоит здесь, а не только в летописи:

@@ -722,6 +722,28 @@ export interface WarSheet {
    * игрока тоже (docs/siege_v2.md, раздел 5). Нет поля — орудия нет или слепок старого клиента.
    */
   tower?: WarTowerGun;
+  /**
+   * Где полководец в минуту слепка — клетка мира на клиенте (`LocalWorld.figureAt`). Удар по лагерю у своих стен и выручка
+   * называют, откуда идут (`WarOrder.from`), и сервер сверяет это место с этим: дальше, чем полководец мог уйти за время
+   * со слепка, — отказ (docs/security.md, ЗЩ-2). Нет поля — слепок старого клиента: сверки нет.
+   */
+  gen?: Spot;
+}
+
+/** Клетка мира: место полководца в слепке и в приказе. */
+export interface Spot {
+  x: number;
+  y: number;
+}
+
+/** Клетка из того, что прислали: два конечных числа в пределах мира с запасом. Нет или мусор — `null`. */
+export function readSpot(v: unknown): Spot | null {
+  if (!v || typeof v !== 'object') return null;
+  const r = v as Record<string, unknown>;
+  const x = num(r.x);
+  const y = num(r.y);
+  if (x === null || y === null || Math.abs(x) > 1e6 || Math.abs(y) > 1e6) return null;
+  return { x, y };
 }
 
 /** Орудие башни в слепке обороны — та же форма, что у мира (`world/bombard.TowerGun`). */
@@ -1226,7 +1248,7 @@ export type WarOrder =
   | { op: 'sortie'; id: string; troops: Counts }
   | { op: 'craft'; id: string; act: WarCraftAct }
   | { op: 'orders'; id: string; orders: WarOrders }
-  | { op: 'strike'; id: string; army: WarArmy; joint: boolean; walkMs: number }
+  | { op: 'strike'; id: string; army: WarArmy; joint: boolean; walkMs: number; from: Spot }
   | { op: 'repair'; id: string }
   | { op: 'ration'; id: string; on: boolean }
   | { op: 'defend'; id: string; defend: WarDefend }
@@ -1234,7 +1256,7 @@ export type WarOrder =
   | { op: 'surrender'; id: string }
   | { op: 'offer'; id: string; kind: 'terms' | 'tribute'; fate?: NoticeFate }
   | { op: 'answer'; id: string; kind: 'terms' | 'tribute'; yes: boolean }
-  | { op: 'relief'; id: string; army: WarArmy; walkMs: number }
+  | { op: 'relief'; id: string; army: WarArmy; walkMs: number; from: Spot }
   | { op: 'pact'; target: string }
   | { op: 'unpact'; target: string }
   | { op: 'spy'; target: string; deed: RivalDeed; energy?: WarEnergy; shown: { chance: number; peril: number }; at: number };
@@ -1325,6 +1347,7 @@ export function readSheet(v: unknown): WarSheet | null {
     ...(readSpyWatch(r.watch) ? { watch: readSpyWatch(r.watch) } : {}),
     ...(num(r.time) !== null ? { time: real(r.time, 1e12) } : {}),
     ...(readTower(r.tower) ? { tower: readTower(r.tower) } : {}),
+    ...(readSpot(r.gen) ? { gen: readSpot(r.gen)! } : {}),
   };
 }
 
@@ -1429,8 +1452,9 @@ export function readWarOrder(v: unknown): WarOrder | null {
     case 'strike': {
       const army = readArmy(r.army);
       const walk = num(r.walkMs);
-      return id && army && walk !== null
-        ? { op: 'strike', id, army, joint: r.joint === true, walkMs: Math.min(24 * 3600_000, Math.max(0, walk)) }
+      const from = readSpot(r.from);
+      return id && army && walk !== null && from
+        ? { op: 'strike', id, army, joint: r.joint === true, walkMs: Math.min(24 * 3600_000, Math.max(0, walk)), from }
         : null;
     }
     case 'repair':
@@ -1456,7 +1480,8 @@ export function readWarOrder(v: unknown): WarOrder | null {
     case 'relief': {
       const army = readArmy(r.army);
       const walk = num(r.walkMs);
-      return id && army && walk !== null ? { op: 'relief', id, army, walkMs: Math.min(24 * 3600_000, Math.max(0, walk)) } : null;
+      const from = readSpot(r.from);
+      return id && army && walk !== null && from ? { op: 'relief', id, army, walkMs: Math.min(24 * 3600_000, Math.max(0, walk)), from } : null;
     }
     case 'pact':
     case 'unpact': {
@@ -1661,6 +1686,13 @@ export interface WatchCard {
    * выработку.
    */
   deeds: number;
+  /**
+   * Разовые траты партии одним счётчиком (`stats.outlays`): плата за заказ, пир, наём, покупка, обряд, мятеж, убыль от мира
+   * без боя. Между двумя описями без дел и трат склад убывает только расходом — хлебом, дровами, жалованьем, — и книга
+   * запасов сервера держит его «не меньше» (`goods.goodsStep`, docs/security.md, ЗЩ-2). Нет поля — опись до книги запасов:
+   * каждый промежуток считается с тратой.
+   */
+  outlays?: number;
   /** Боёв выиграно и проиграно, логов сожжено, набегов отправлено. */
   won: number;
   lost: number;
@@ -1723,6 +1755,7 @@ export function readWatch(v: unknown): WatchCard | undefined {
     ...readSite(r.site),
     train: whole(r.train, 1e9),
     deeds: whole(r.deeds, 1e12),
+    ...(r.outlays !== undefined ? { outlays: whole(r.outlays, 1e12) } : {}),
     won: whole(r.won, 1e9),
     lost: whole(r.lost, 1e9),
     lairs: whole(r.lairs, 1e9),

@@ -157,7 +157,7 @@ import {
   type WarSheet,
   type WarView,
 } from '../../../netlify/lib/contract';
-import { foodLeft, spyWalkMs, warWalkMs } from '../pvp';
+import { fieldWalkSeconds, foodLeft, spyWalkMs, warWalkMs } from '../pvp';
 import { WATCHER, homeSight, liveSight, standing } from '../sight';
 import { islandNeighbours } from '../spawn';
 import { canShelter, placeOf } from '../shelter';
@@ -5806,8 +5806,7 @@ export class LocalWorld implements WorldApi {
     if (!this.inRealm(town)) return { error: this.beyond() };
     const from = this.figureAt(f, now);
     const to = { x: town.x, y: town.y };
-    const dist = distance(from, to);
-    const seconds = dist < 0.5 ? asGame(0) : travelTime(dist, terrainFactor(this.save.seed, from, to), FIGURE_BY_ID.general.speed);
+    const seconds = fieldWalkSeconds(from, to, terrainFactor(this.save.seed, from, to));
     if (now + realMs(seconds) >= starvesAt(w)) {
       return { error: 'Не успеть: хлеб в городе кончится раньше.' };
     }
@@ -9359,8 +9358,7 @@ export class LocalWorld implements WorldApi {
     if (troopTotal(f.troops ?? {}) === 0) return no('При полководце нет отряда.');
     if (troopTotal(force) === 0) return no('Полководец в городе. На выручку идут из поля: выведи его за ворота.');
     const from = this.figureAt(f, now);
-    const dist = distance(from, c);
-    const seconds = dist < 0.5 ? asGame(0) : travelTime(dist, terrainFactor(this.save.seed, from, c), FIGURE_BY_ID.general.speed);
+    const seconds = fieldWalkSeconds(from, c, terrainFactor(this.save.seed, from, c));
     if (now + realMs(seconds) >= (w.starvesAt ?? Infinity)) return no('Не успеть: хлеб у союзника кончится раньше.');
     const energy = this.energyCost('general', 'strike', now, realMs(seconds));
     return { can: !energy.block, reason: energy.block, seconds, men: troopTotal(force), energy };
@@ -9392,6 +9390,8 @@ export class LocalWorld implements WorldApi {
       op: 'relief',
       id: w.id,
       walkMs,
+      // Откуда идёт — сервер сверяет срок с расстоянием и место со слепком (docs/security.md, ЗЩ-2).
+      from: this.spotOf(f, now),
       army: {
         troops: force as Counts,
         resolve: this.ownResolve(),
@@ -9511,7 +9511,15 @@ export class LocalWorld implements WorldApi {
         home: this.spyHome(),
       },
       time: this.villageTime(now),
+      // Где полководец: с этим местом сервер сверяет, откуда приказ ведёт удар или выручку (docs/security.md, ЗЩ-2).
+      gen: this.spotOf(this.save.figures.general, now),
     };
+  }
+
+  /** Клетка фигуры для сервера войны — та же, от которой мир считает её дорогу (`figureAt`). */
+  private spotOf(f: StoredFigure, now: number): { x: number; y: number } {
+    const at = this.figureAt(f, now);
+    return { x: at.x, y: at.y };
   }
 
   /**
@@ -9631,8 +9639,7 @@ export class LocalWorld implements WorldApi {
     if (!c) return no('Под этими стенами лагеря нет.');
     const from = this.figureAt(f, now);
     const to = this.save.home;
-    const dist = distance(from, to);
-    const seconds = dist < 0.5 ? asGame(0) : travelTime(dist, terrainFactor(this.save.seed, from, to), FIGURE_BY_ID.general.speed);
+    const seconds = fieldWalkSeconds(from, to, terrainFactor(this.save.seed, from, to));
     const arriveAt = now + realMs(seconds);
     if (arriveAt >= (w.starvesAt ?? Infinity)) return no('Не успеть: хлеб в городе кончится раньше.');
     const going = garrison ? this.garrison(now) : null;
@@ -9672,6 +9679,7 @@ export class LocalWorld implements WorldApi {
       id: w.id,
       joint: garrison,
       walkMs,
+      from: this.spotOf(f, now),
       army: {
         troops: force as Counts,
         resolve: this.ownResolve(),

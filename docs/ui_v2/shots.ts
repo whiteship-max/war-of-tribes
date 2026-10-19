@@ -16,6 +16,8 @@
 //   DIR=city_v3 GROUP=g5 TAG=before|after …       — Г-5 (docs/city_v3.md): подсказка с разбором над окном ратуши и её крестик
 //   DIR=feedback GROUP=fb1 TAG=before|after …       — ОТ-1 (docs/feedback.md): «Дружина», найм из карточки, ряд рабочих,
 //                                                     шаг разведчика, полководец на дороге набега
+//   GROUP=or1 WEATHER=clear TAG=before|after …     — ОР-1: подписи построек, «Показать в городе», метки и «Домой»;
+//                                                     `WEATHER` — погода адресом (`?weather=`), чтобы туман не съел подписи
 //   DIR=polish GROUP=p7 TAG=before|after …          — П-7 (docs/polish.md): тревоги войны значками справа снизу — осада
 //                                                     тихая и срочная, набеги, свой лагерь, карта, вход в окно, город без осады
 //
@@ -564,6 +566,22 @@ const GROUPS: Record<string, Step[]> = {
   ],
   // П-7 (docs/polish.md): тревоги войны — значки справа снизу вместо плашки осады. Вид мира вкладывает стенд, как в заходе
   // `siege`: пульс остановлен, осада, набеги и свой лагерь — полями пульса. `DIR=polish TAG=before|after`.
+  // ОР-1 (docs/ui_v2.md, 5.9): ориентация в городе — метки того, что ждёт игрока, подписи ближних при приближении, рычаг
+  // «Подписи», «Показать в городе» из ратуши и из подсказки, «Домой». На «до» кнопок ещё нет — шаги печатают «нет кнопки».
+  or1: [
+    { name: 'or1-01-city', run: ui('reset()'), wait: 2500 },
+    { name: 'or1-02-near', run: `(() => { window.__ui.reset(); window.__scene.standView(0, -30, 150); return JSON.stringify('ok'); })()`, wait: 2500 },
+    { name: 'or1-03-labels', run: ui(`reset(), window.__ui.click('Домой', '.nx-cam'), window.__ui.click('Подписи', '.nx-cam')`), wait: 2500 },
+    {
+      name: 'or1-04-hall-card',
+      run: then(ui(`click('Подписи', '.nx-cam'), window.__ui.click('Ратуша', '.nx-nav')`), ui(`clickSel('.hall-tile[data-tut="list-farm"]')`)),
+      wait: 1200,
+    },
+    { name: 'or1-05-show-farm', run: ui(`click('Показать в городе', '.hall-card')`), wait: 2000 },
+    { name: 'or1-06-tip-food', run: ui(`reset(), window.__ui.click('Еда', '.nx-res')`), wait: 600 },
+    { name: 'or1-07-show-tip', run: ui(`clickSel('.nx-tip-show')`), wait: 2000 },
+    { name: 'or1-08-home', run: ui(`click('Домой', '.nx-cam')`), wait: 4000 },
+  ],
   p7: [
     { name: 'p7-01-city-siege', run: P7('calm'), wait: 1500 },
     { name: 'p7-02-city-urgent', run: P7('urgent'), wait: 1500 },
@@ -665,6 +683,92 @@ const GROUPS: Record<string, Step[]> = {
       wait: 2000,
     },
   ],
+  // ВС-2 (docs/ui_v2.md, 5.8): вести и летопись. Бой у ворот — настоящий: волки зовут гарнизон, мир бьётся на пульсе и
+  // кладёт донесение с журналом боя; в «до» летопись живёт в «Заданиях», в «после» — вкладкой «Вестей».
+  vs2: [
+    {
+      name: '180-vs2-mail',
+      run: `(async () => {
+        window.__ui.reset();
+        const W = (await import('/src/world/store.ts')).useWorld;
+        const M = await import('/src/game/sim/mail.ts');
+        const g = window.__game.getState();
+        const G = await import('/src/game/sim/gate.ts');
+        const E = await import('/src/game/data/events.ts');
+        g.act((st) => { st.army.clubman = 30; st.army.archer = 10; G.callGate(st, 'wolves', E.gatePower(st, 'wolves'), { hides: 20 }); });
+        for (let i = 0; i < 3; i++) { await W.getState().pulse(); await new Promise((r) => setTimeout(r, 300)); }
+        await W.getState().loadReports();
+        g.act((st) => { for (const id of ['refugees', 'trade']) M.raiseEvent(st, id); });
+        return JSON.stringify(window.__ui.click('Вести', '.nx-nav') + ', донесений ' + W.getState().reports.length);
+      })()`,
+      wait: 1500,
+    },
+    {
+      name: '181-vs2-chron',
+      run: `(async () => {
+        const t = window.__ui.btn('Летопись', '.nx-realm [role=tablist]');
+        if (t) { t.click(); return JSON.stringify('ok'); }
+        (await import('/src/ui/realm/open.ts')).useRealm.getState().show('quests');
+        await new Promise((r) => setTimeout(r, 600));
+        const r1 = window.__ui.click('Показать за сутки', '.nx-realm');
+        await new Promise((r) => setTimeout(r, 300));
+        const e = window.__ui.scroller(); if (e) e.scrollTop = e.scrollHeight;
+        return JSON.stringify(r1 === 'ok' ? 'до: летопись в «Заданиях»' : r1);
+      })()`,
+      wait: 900,
+    },
+    {
+      name: '182-vs2-report',
+      run: `(() => {
+        const row = document.querySelector('.nx-realm .chron button.kit-tgo');
+        if (!row) return JSON.stringify('строки с донесением нет');
+        row.click();
+        return JSON.stringify('ok');
+      })()`,
+      wait: 1500,
+    },
+    {
+      name: '184-vs2-replay',
+      run: `(async () => {
+        const R = (await import('/src/ui/realm/open.ts')).useRealm.getState();
+        const W = (await import('/src/world/store.ts')).useWorld.getState();
+        if (!W.reports[0]) return JSON.stringify('донесения нет');
+        R.openChronicle(W.reports[0].id);
+        await new Promise((r) => setTimeout(r, 800));
+        const r1 = window.__ui.click('▶️ Смотреть бой', '.nx-realm');
+        await new Promise((r) => setTimeout(r, 2500));
+        return JSON.stringify(r1 + (document.body.classList.contains('replaying') ? ', ролик идёт' : ', ролика нет'));
+      })()`,
+      wait: 1000,
+    },
+    {
+      name: '185-vs2-mail-row',
+      run: `(async () => {
+        const btn = [...document.querySelectorAll('.replay button')].find((b) => /Пропустить|Закрыть|К донесению/.test(b.textContent || ''));
+        if (btn) btn.click();
+        await new Promise((r) => setTimeout(r, 600));
+        const R = (await import('/src/ui/realm/open.ts')).useRealm.getState();
+        R.setMailTab('all');
+        await new Promise((r) => setTimeout(r, 500));
+        // Касание по имени вести, не по «›»: строка целиком — кнопка.
+        const cell = document.querySelector('.nx-realm .mail-group .kit-tgo .kit-c');
+        if (!cell) return JSON.stringify('строки-двери нет');
+        cell.click();
+        return JSON.stringify((await import('/src/ui/realm/open.ts')).useRealm.getState().mail ? 'ok: весть открыта касанием по плашке' : 'весть не открылась');
+      })()`,
+      wait: 900,
+    },
+    {
+      name: '183-vs2-quests',
+      run: `(async () => {
+        (await import('/src/ui/realm/open.ts')).useRealm.getState().show('quests');
+        await new Promise((r) => setTimeout(r, 600));
+        const e = window.__ui.scroller(); if (e) e.scrollTop = e.scrollHeight / 2;
+        return JSON.stringify('ok');
+      })()`,
+      wait: 900,
+    },
+  ],
   misc: [
     // Плашка алмазов с UI-3 открывает подсказку, а не окно (docs/ui_v2.md, 5.2): окно — его хранилищем.
     { name: '70-treasury', run: `(async () => { window.__ui.reset(); (await import('/src/ui/treasury.ts')).useTreasury.getState().show(); return JSON.stringify('ok'); })()`, wait: 1200, tabs: true },
@@ -729,7 +833,7 @@ async function group(name: string, steps: Step[]): Promise<void> {
   const began = Date.now();
   try {
     await tab.send('Emulation.setDeviceMetricsOverride', SCREEN);
-    await tab.send('Page.navigate', { url: `http://127.0.0.1:${PORT}/?probe=1&fpscap=${FPS}&quality=low` });
+    await tab.send('Page.navigate', { url: `http://127.0.0.1:${PORT}/?probe=1&fpscap=${FPS}&quality=low${process.env.WEATHER ? `&weather=${process.env.WEATHER}` : ''}` });
     await sleep(1500);
     await tab.eval<string>('(() => { try { localStorage.clear(); } catch (e) {} return JSON.stringify("ok"); })()');
     await tab.send('Page.reload');

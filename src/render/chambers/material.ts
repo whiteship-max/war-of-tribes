@@ -10,7 +10,7 @@
 // в первой доле буфера (`city/inside.INSIDE_DEPTH`): город рисуется следом и встаёт только в проёмах.
 import * as THREE from 'three';
 import { INSIDE_DEPTH_GLSL } from '../city/inside';
-import { HALF, WALL_H, OPENINGS, WALL_AXES, wallPoint, alongOf } from './plan';
+import { HALF, WALL_H, WALL_T, OPENINGS, WALL_AXES, wallPoint, alongOf } from './plan';
 import { OCCLUDERS, ROOM_LIGHTS } from './build';
 import type { Box } from './plan';
 
@@ -43,6 +43,9 @@ export interface RoomUniforms {
 }
 
 const MAX_LIGHTS = ROOM_LIGHTS.length;
+
+/** Глубина откоса проёма от доски до наружной грани стены, м (доска у всех окон на одной глубине — `plan.OPENINGS`). */
+const REVEAL = WALL_T + 0.04 - OPENINGS[0].plate;
 
 /** Окна для шейдера: середина низа проёма (подоконник), полуширина; нормаль внутрь, высота пяты, парное ли. */
 function windows(): { win: THREE.Vector4[]; nor: THREE.Vector4[] } {
@@ -143,7 +146,16 @@ float sunThrough(vec3 p) {
     if (dn > -0.02) continue;
     vec3 c = uWin[i].xyz;
     float t = dot(c - p, n) / dn;
-    if (t <= 0.0) continue;
+    // Точка за доской проёма (подоконник, откосы до наружной грани, Г-9): солнце до неё входит через наружный край
+    // проёма, а не через доску; за наружной гранью — уже снаружи, свет целиком.
+    if (t <= 0.0) {
+      c -= n * ${REVEAL.toFixed(3)};
+      t = dot(c - p, n) / dn;
+      if (t <= 0.0) {
+        lit = 1.0;
+        continue;
+      }
+    }
     vec3 h = p + uSunDir * t;
     vec3 tg = vec3(-n.z, 0.0, n.x);
     float u = dot(h - c, tg);

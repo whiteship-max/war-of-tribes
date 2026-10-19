@@ -190,9 +190,14 @@ const NODES: readonly { x: number; z: number }[] = (() => {
  * графу видимости (Дейкстра на нескольких десятках узлов — доли миллисекунды, и считается только по касанию).
  */
 export function pathTo(a: { x: number; z: number }, b: { x: number; z: number }): { x: number; z: number }[] | null {
-  const start = free(a.x, a.z) ? a : step(a, a.x, a.z);
+  const free0 = free(a.x, a.z) ? a : step(a, a.x, a.z);
   if (!free(b.x, b.z)) return null;
-  if (clear(start, b)) return [b];
+  if (clear(free0, b)) return [b];
+  // У угла препятствия тело стоит свободно (угол — круглый), а отрезок раздут квадратом — из такой точки не виден ни один
+  // узел, и касание вещи ничего не делало (Г-9, «Кубок» у кресла): сперва шаг из квадрата, дальше — как обычно.
+  const start = free0 === a ? outOfSquare(a) : free0;
+  const lead = start === free0 ? [] : [start];
+  if (lead.length && clear(start, b)) return [start, b];
   const pts = [start, ...NODES, b];
   const n = pts.length;
   const dist = new Array<number>(n).fill(Infinity);
@@ -216,7 +221,29 @@ export function pathTo(a: { x: number; z: number }, b: { x: number; z: number })
   if (dist[n - 1] === Infinity) return null;
   const out: { x: number; z: number }[] = [];
   for (let v = n - 1; v > 0; v = prev[v]) out.unshift(pts[v]);
-  return out;
+  return [...lead, ...out];
+}
+
+/** Точка тела, вытолкнутая из квадратов препятствий (раздутых на тело) по кратчайшей оси, если она свободна. */
+function outOfSquare(p: { x: number; z: number }, r = BODY_R): { x: number; z: number } {
+  let q = p;
+  for (const o of OBSTACLES) {
+    if (o.kind !== 'box') continue;
+    const x0 = o.x0 - r;
+    const x1 = o.x1 + r;
+    const z0 = o.z0 - r;
+    const z1 = o.z1 + r;
+    if (!(q.x > x0 && q.x < x1 && q.z > z0 && q.z < z1)) continue;
+    const moves = [
+      { x: x0 - 0.01, z: q.z },
+      { x: x1 + 0.01, z: q.z },
+      { x: q.x, z: z0 - 0.01 },
+      { x: q.x, z: z1 + 0.01 },
+    ].sort((u, v) => Math.hypot(u.x - q.x, u.z - q.z) - Math.hypot(v.x - q.x, v.z - q.z));
+    const m = moves.find((u) => free(u.x, u.z, r));
+    if (m) q = m;
+  }
+  return q;
 }
 
 /** Длина ломаной от `a` через точки пути. */

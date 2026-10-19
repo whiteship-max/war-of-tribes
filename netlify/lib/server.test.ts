@@ -190,7 +190,9 @@ describe('сервер ничего не начисляет, кроме одно
       .sort();
     // Третий — команды админа (решение владельца 06.10.2026, docs/admin.md): указ правит склад и казну, но не начисляет —
     // он ложится записью в журнал игрока, и применяет его клиент одной дверью (`sim/admin`). Алмазов в указе нет (тест выше).
-    expect(guilty).toEqual(['lib/commands.ts', 'lib/contract.ts', 'lib/war.ts']);
+    // Четвёртый — книга запасов (docs/security.md, ЗЩ-2): склад и казну защитника она держит для войны «не меньше» и не
+    // начисляет ничего — читает опись и отдаёт слепку обороны (`goods.goodsSheet`).
+    expect(guilty).toEqual(['lib/commands.ts', 'lib/contract.ts', 'lib/goods.ts', 'lib/war.ts']);
     for (const f of files()) expect(strip(readFileSync(f, 'utf8')), rel(f)).not.toMatch(/\breward/i);
   });
 });
@@ -252,10 +254,10 @@ describe('личность берётся только из подписи', () 
    * иначе `war.liveSheet` поверил бы заявленному. Слепок без книги здесь означал бы, что подправленный клиент снова
    * выставляет в бой войско, которого у него нет.
    */
-  it('война: каждый слепок идёт в бой с книгами войска и стройки', () => {
+  it('война: каждый слепок идёт в бой с книгами войска, стройки и запасов', () => {
     const code = read('lib/routes/war.ts');
     const sets = [...code.matchAll(/\bsheets\.set\(player,\s*([^;]*)\);/g)].map((m) => m[1].replace(/\s+/g, ' '));
-    expect(sets).toEqual(['null', 'null', '{ ...sheet, book: bookOf(rec, now), town: townOf(rec, now) }']);
+    expect(sets).toEqual(['null', 'null', '{ ...sheet, book: bookOf(rec, now), town: townOf(rec, now), ...(rec.goods ? { goods: rec.goods } : {}) }']);
     expect([...code.matchAll(/\bsheets\.set\(/g)].length).toBe(3);
   });
 

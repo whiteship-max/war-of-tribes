@@ -1045,3 +1045,81 @@
 .mail-boons {
   margin-bottom: 8px;
 }
+
+/* ---------- Летопись «Вестей» (ВС-2, docs/ui_v2.md, 5.8) ---------- */
+/* Фильтр рода: кнопки 44 в ряд с переносом — родов в летописи столько, сколько было событий. */
+.chron-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0 4px;
+}
+.chron-chip {
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+}
+.chron-chip.on {
+  border-color: var(--accent);
+  background: rgba(232, 164, 60, 0.12);
+  color: var(--text);
+}
+.chron-day {
+  margin-top: 10px;
+}
+/* Шапка дня — сама отметка дня: читается, а не служит подписью столбца. */
+.chron-day .kit-trow.head {
+  color: var(--text);
+}
+/* Событие пишется целиком: строка летописи — фраза, многоточие съело бы её смысл. */
+.chron-ev {
+  align-items: flex-start;
+  padding: 6px 0;
+}
+.chron-ev svg,
+.chron-ev .ic {
+  margin-top: 1px;
+}
+.chron-ev .kit-two b {
+  font-weight: 400;
+  white-space: normal;
+}
+.chron-ev.bad .kit-two b {
+  color: var(--bad);
+}
+.chron-ev.good .kit-two b {
+  color: var(--good);
+}
+.chron-ev.quest .kit-two b {
+  color: var(--accent);
+}
+.chron-times {
+  font-style: normal;
+  color: var(--muted);
+}
+.chron .kit-c .good {
+  color: var(--good);
+}
+.chron .kit-c .bad {
+  color: var(--bad);
+}
+.chron .kit-c .muted {
+  color: var(--muted);
+}
+.chron-more {
+  width: 100%;
+  margin-top: 10px;
+  background: none;
+}
+/* Донесение из летописи — тут же, в «Вестях»: назад — к летописи. */
+.mail-report .nx-mback {
+  width: 100%;
+  margin: 8px 0 0;
+  background: none;
+}

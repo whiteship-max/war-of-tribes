@@ -6,7 +6,10 @@
 //   · просьба слуге — сцена: принести кота на руках и спустить на пол, унести его, позвать служанку с вином (та наливает в
 //     кубок на столе), пригласить супругу, уйти и затворить дверь;
 //   · кот живёт сам (`cat.ts`); клубок брошен — гоняет его;
-//   · ночь вдвоём — правитель и она идут к кровати, дальше слой интерфейса затемняет кадр; утром её нет.
+//   · ночь вдвоём — правитель и она идут к кровати, дальше слой интерфейса затемняет кадр; утром её нет;
+//   · гонец (Г-10): важная весть, пока правитель в покоях, — стук в дверь, гонец поднимается, входит, кланяется и
+//     протягивает письмо с печатью; правитель взял письмо — гонец кланяется и уходит (что за весть, решает интерфейс);
+//   · советник (Г-10): после отлучки ждёт у стола со свитком, кланяется и докладывает; «ступай» — уходит.
 //
 // Сценарии — сопрограммы: шаг сцены ждёт своего условия (дошёл, повернулся, прошло время), кадр двигает их по очереди.
 import * as THREE from 'three';
@@ -15,22 +18,22 @@ import { tint } from '../city/geom';
 import type { Arms } from '@/heraldry/arms';
 import type { Quality } from '../quality';
 import { geometryOf } from '../city/index';
-import { DOOR, DESK, BED, HALF, softFloor, type SpotId } from './plan';
+import { DOOR, DESK, BED, HALF, isChestSpot, isWindowSpot, softFloor, type SpotId } from './plan';
 import { DOOR_HINGE, doorLeaf } from './build';
-import { Person, buildPerson, gripOf, type FolkId } from './folk';
+import { Person, buildPerson, gripOf, isFemale, type FolkId } from './folk';
 import { Cat, buildCat, type CatSpot } from './cat';
 import { BODY_R, clear, free, pathTo, step } from './walk';
 import { Mesher } from './geo';
 
 /** Кто говорит с правителем. */
 export type Who = FolkId;
-/** Почему подошёл: пришёл на стук, вернулся с делом, налила вино, пришла сама. */
-export type Why = 'arrive' | 'cat' | 'uncat' | 'poured' | 'come';
+/** Почему подошёл: пришёл на стук, вернулся с делом, налила вино, пришла сама; гонец — с письмом, советник — с докладом. */
+export type Why = 'arrive' | 'cat' | 'uncat' | 'poured' | 'come' | 'news' | 'report';
 /** Просьбы: слуге — кот, унести кота, служанку с вином, супругу, ступай; служанке — налить ещё; обеим — ночь, уйти. */
 export type Order = 'cat' | 'uncat' | 'wine' | 'wife' | 'dismiss' | 'pour' | 'night';
 
 /** Звук жизни покоев: стук, дверь, шаги людей и кота, мяу, налить, глоток, музыка ночи. */
-export type LifeCue = 'knock' | 'doorOpen' | 'doorShut' | 'stepFolk' | 'stepFolkSoft' | 'catStep' | 'catLand' | 'meow' | 'pour' | 'gulp' | 'night';
+export type LifeCue = 'knock' | 'doorOpen' | 'doorShut' | 'stepFolk' | 'stepFolkSoft' | 'catStep' | 'catLand' | 'meow' | 'pour' | 'gulp' | 'night' | 'letter';
 
 /** Что правитель делает — режиссёру: где стоит, куда смотрит, свободен ли. */
 export interface RulerNow {
@@ -69,8 +72,8 @@ export interface LifeMemory {
 
 /** Что видит слой интерфейса. */
 export interface LifeView {
-  /** Кто подошёл и ждёт слова правителя. */
-  talk: { who: Who; why: Why } | null;
+  /** Кто подошёл и ждёт слова правителя; `n` — номер подхода (окно разговора — новое на каждый, Г-9). */
+  talk: { who: Who; why: Why; n: number } | null;
   /** Кто сейчас в покоях (люди). */
   here: Who[];
   /** Сцена идёт (слуга несёт, служанка наливает): просьбы ждут. */
@@ -82,6 +85,8 @@ export interface LifeView {
   night: { k: number; who: Who } | null;
   /** Клубок брошен и катится. */
   ball: boolean;
+  /** Гонец протягивает письмо: его можно взять (касание письма или кнопка). */
+  letter: boolean;
 }
 
 type Cond = () => boolean;
@@ -110,10 +115,13 @@ export function floorAt(x: number, z: number): number {
   return -Math.min(1.14, ((xs - x) / 0.24) * 0.19);
 }
 
-/** Скорость шага: старик — неспешно, служанка — живо, супруга — плавно. */
-const SPEED: Record<Who, number> = { servant: 0.85, maid: 1.05, wife: 0.9 };
-/** Коды подсветки касанием (`material.uSel`): люди, кот и дверь — за предметами стола. */
-export const LIFE_CODE: Record<Who | 'cat' | 'door', number> = { servant: 20, maid: 21, wife: 22, cat: 23, door: 24 };
+/** Скорость шага: старик — неспешно, служанка — живо, супруга — плавно, гонец — спеша, советник — степенно. */
+const SPEED: Record<Who, number> = { servant: 0.85, maid: 1.05, wife: 0.9, herald: 1.3, advisor: 0.75 };
+/** Коды подсветки касанием (`material.uSel`): люди, кот, дверь и письмо гонца — за предметами стола. */
+export const LIFE_CODE: Record<Who | 'cat' | 'door' | 'letter', number> = { servant: 20, maid: 21, wife: 22, cat: 23, door: 24, herald: 25, advisor: 26, letter: 27 };
+
+/** Где советник ждёт у стола: у восточного конца, лицом к середине покоев (правитель входит в неё). */
+export const ADVISOR_POST = { x: 1.62, z: 2.3, yaw: -2.25 };
 
 export class ChambersLife {
   readonly clock = { t: 0 };
@@ -122,12 +130,19 @@ export class ChambersLife {
   private leaf: THREE.Mesh;
   private door = { a: 0, goal: 0 };
   private jobs: { s: Script; c: Cond | null }[] = [];
-  private talking: { who: Who; why: Why } | null = null;
+  private talking: { who: Who; why: Why; n: number } | null = null;
+  private talkN = 0;
   private busyN = 0;
   wine = 0;
   private night: { k: number; who: Who; t: number } | null = null;
   private ball: { mesh: THREE.Mesh; p: V3; v: V3; on: boolean; t: number } | null = null;
   private jug: THREE.Mesh | null = null;
+  /** Письмо с печатью в руке гонца и свиток в руке советника. */
+  private letterMesh: THREE.Mesh | null = null;
+  private scrollMesh: THREE.Mesh | null = null;
+  /** Письмо протянуто и ждёт руки правителя; `took` — взято (летит к правителю), доля полёта. */
+  private letterOut = false;
+  private took: { t: number; from: THREE.Vector3 } | null = null;
   private stream: THREE.Mesh | null = null;
   private pouring = 0;
   /** Кто говорит сейчас и сколько ещё (жест речи и голос). */
@@ -138,6 +153,8 @@ export class ChambersLife {
   onRemember: ((m: LifeMemory) => void) | null = null;
   /** Голос: кто и сколько секунд говорит — звуку (мурлыканье речи без слов). */
   onSpeak: ((who: Who, seconds: number) => void) | null = null;
+  /** Правитель взял письмо гонца — интерфейсу открыть весть. */
+  onLetter: (() => void) | null = null;
   private lastKey = '';
   private memo: LifeMemory;
 
@@ -204,6 +221,7 @@ export class ChambersLife {
       wine: this.wine,
       night: this.night ? { k: this.night.k, who: this.night.who } : null,
       ball: !!this.ball?.on,
+      letter: this.letterOut,
     };
   }
 
@@ -237,11 +255,51 @@ export class ChambersLife {
     this.run(this.servantArrives());
   }
 
+  /**
+   * Гонец с вестью (Г-10): стук в дверь, поднимается, входит, кланяется, протягивает письмо. Нельзя сейчас — идёт сцена,
+   * ночь, разговор, гонец уже здесь или в покоях уже двое: `false`, интерфейс позовёт снова.
+   */
+  summonHerald(): boolean {
+    if (this.busyN > 0 || this.night || this.talking || this.folk.get('herald')?.visible) return false;
+    // Бюджет живых: в покоях разом — не больше двух людей (и кот); третьим гонец подождёт за дверью.
+    if ([...this.folk.values()].filter((p) => p.visible).length > 1) return false;
+    this.run(this.heraldArrives());
+    return true;
+  }
+
+  /** Советник (Г-10): уже ждёт у стола, когда правитель входит, — кланяется и докладывает. */
+  advisorWaits(): void {
+    const a = this.person('advisor');
+    a.visible = true;
+    a.carry = 'scroll';
+    a.place(ADVISOR_POST.x, ADVISOR_POST.z, ADVISOR_POST.yaw);
+    a.want.read = 0.35;
+    a.g.read = 0.35;
+    this.run(this.advisorReports());
+  }
+
+  /** Правитель берёт письмо (касание письма или кнопка «Взять письмо»): гонец отдаёт, кланяется и уходит. */
+  takeLetter(): boolean {
+    const h = this.personOf('herald');
+    if (!h || !this.letterOut) return false;
+    this.letterOut = false;
+    if (this.talking?.who === 'herald') this.talking = null;
+    if (this.letterMesh) this.took = { t: 0, from: this.letterMesh.position.clone() };
+    this.host.cue('letter', [h.x, 1.3, h.z]);
+    h.want.offer = 0;
+    h.carry = 'none';
+    this.run(this.leave('herald'));
+    this.onLetter?.();
+    this.changed();
+    return true;
+  }
+
   /** Подойти к правителю для разговора (касание человека, вернулся с делом). */
   callOver(who: Who): void {
     const p = this.personOf(who);
     if (!p || this.busyN > 0 || this.talking) return;
-    this.run(this.approach(who, 'come'));
+    // Гонец с письмом подходит снова с письмом, советник — к докладу.
+    this.run(this.approach(who, who === 'herald' && p.carry === 'letter' ? 'news' : who === 'advisor' ? 'report' : 'come'));
   }
 
   /** Сказать реплику: жест речи и голос на `seconds`. */
@@ -352,7 +410,7 @@ export class ChambersLife {
     this.busyN++;
     const r = this.host.ruler();
     // У окна, у огня и у стены оружия правитель встаёт, чтобы обернуться к пришедшему.
-    if (r.inAct && (r.spot === 'window' || r.spot === 'hearth' || r.spot === 'arms')) this.host.stand();
+    if (r.inAct && (isWindowSpot(r.spot) || isChestSpot(r.spot) || r.spot === 'hearth' || r.spot === 'arms')) this.host.stand();
     const at = this.talkSpot(p);
     const route = this.route(p, at);
     p.go(route, null);
@@ -360,15 +418,23 @@ export class ChambersLife {
     const rr = this.host.ruler();
     p.face(Math.atan2(rr.eye[0] - p.x, rr.eye[2] - p.z));
     yield () => p.settled;
-    if (who === 'servant') p.want.bow = 1;
+    // Слуга и гонец кланяются низко, советник — с достоинством; служанка приседает, супруга кивает.
+    if (who === 'servant' || who === 'herald') p.want.bow = 1;
+    else if (who === 'advisor') p.want.bow = 0.55;
     else if (who === 'maid') p.want.curtsy = 1;
     else p.want.curtsy = 0.45;
     yield wait(who === 'wife' ? 0.7 : 1.0, this.clock);
     p.want.bow = 0;
     p.want.curtsy = 0;
     yield wait(0.35, this.clock);
+    // Гонец протягивает письмо: правая рука вперёд — письмо в ней на виду.
+    if (who === 'herald' && p.carry === 'letter') {
+      p.want.offer = 1;
+      yield wait(0.45, this.clock);
+      this.letterOut = true;
+    }
     this.busyN--;
-    this.talking = { who, why };
+    this.talking = { who, why, n: ++this.talkN };
     this.changed();
   }
 
@@ -411,8 +477,9 @@ export class ChambersLife {
     const p = this.person(who);
     if (!p.visible) return;
     this.busyN++;
-    if (who === 'servant') p.want.bow = 0.6;
-    else p.want.curtsy = 0.6;
+    if (isFemale(who)) p.want.curtsy = 0.6;
+    else p.want.bow = 0.6;
+    p.want.offer = 0;
     yield wait(0.7, this.clock);
     p.want.bow = 0;
     p.want.curtsy = 0;
@@ -432,6 +499,53 @@ export class ChambersLife {
     p.visible = false;
     p.place(LANDING.x, LANDING.z, 0);
     p.carry = 'none';
+  }
+
+  /**
+   * Гонец: три частых удара в дверь снаружи, шаги по лестнице, открывает, входит и подходит с письмом. Если дверь уже
+   * открыта (слуга внизу не затворил) — входит без стука.
+   */
+  private *heraldArrives(): Script {
+    this.busyN++;
+    const h = this.person('herald');
+    h.carry = 'letter';
+    h.place(STAIR[1].x, STAIR[1].z, Math.PI / 2);
+    h.visible = true;
+    h.go([STAIR[0], LANDING], 0);
+    yield () => !h.moving;
+    if (this.door.a < OPEN * 0.5) {
+      h.face(0);
+      yield () => h.settled;
+      // Стук спешный — гонец не ждёт: три удара чаще и твёрже, чем стучит правитель.
+      for (let i = 0; i < 3; i++) {
+        this.host.cue('knock', [DOOR.x, 1.3, -HALF - 0.1]);
+        yield wait(0.24, this.clock);
+      }
+      yield wait(0.5, this.clock);
+      yield* this.openDoor(h);
+    }
+    h.go([THRESH, INSIDE], null);
+    yield () => !h.moving;
+    this.busyN--;
+    yield* this.approach('herald', 'news');
+  }
+
+  /** Советник у стола: оборачивается к правителю, кланяется, поднимает свиток — и докладывает. */
+  private *advisorReports(): Script {
+    this.busyN++;
+    const a = this.person('advisor');
+    yield wait(0.6, this.clock);
+    const r = this.host.ruler();
+    a.face(Math.atan2(r.eye[0] - a.x, r.eye[2] - a.z));
+    yield () => a.settled;
+    a.want.bow = 0.55;
+    yield wait(1.0, this.clock);
+    a.want.bow = 0;
+    a.want.read = 1;
+    yield wait(0.5, this.clock);
+    this.busyN--;
+    this.talking = { who: 'advisor', why: 'report', n: ++this.talkN };
+    this.changed();
   }
 
   /** Принести кота: слуга уходит вниз, возвращается с котом на руках, спускает его на пол у правителя. */
@@ -746,6 +860,7 @@ export class ChambersLife {
       if (c.place !== before) this.remember();
     }
     this.stepBall(dt);
+    if (this.took) this.took.t += dt;
     if (this.night && this.night.t > -1e8) {
       this.night.t += dt;
       this.night.k = Math.min(1, this.night.t / NIGHT_LEN);
@@ -759,6 +874,101 @@ export class ChambersLife {
     for (const p of this.folk.values()) p.draw(o);
     this.cat?.draw(o);
     this.drawJug();
+    this.drawPapers();
+  }
+
+  /**
+   * Письмо в правой руке гонца (сложенный лист пергамента, шнур и печать красного воска с гербом державы) и свиток в
+   * левой руке советника. Взятое письмо летит к правителю и гаснет у его руки.
+   */
+  private drawPapers(): void {
+    const h = this.folk.get('herald');
+    const a = this.folk.get('advisor');
+    const showL = (!!h?.visible && h.carry === 'letter') || this.took !== null;
+    const showS = !!a?.visible && a.carry === 'scroll';
+    if (showL && !this.letterMesh) this.letterMesh = this.paper('letter');
+    if (showS && !this.scrollMesh) this.scrollMesh = this.paper('scroll');
+    if (this.letterMesh) {
+      this.letterMesh.visible = showL;
+      if (this.took) {
+        // Письмо — к правой руке правителя: полсекунды и в руке (дальше его читают «Вести»).
+        const r = this.host.ruler();
+        const to = new THREE.Vector3(this.host.origin.x + r.eye[0] + Math.sin(r.yaw) * 0.32, this.host.origin.y + r.eye[1] - 0.35, this.host.origin.z + r.eye[2] + Math.cos(r.yaw) * 0.32);
+        const k = Math.min(1, this.took.t / 0.45);
+        this.letterMesh.position.lerpVectors(this.took.from, to, k * k * (3 - 2 * k));
+        if (k >= 1) {
+          this.took = null;
+          this.letterMesh.visible = false;
+        }
+      } else if (showL && h) this.inHand(this.letterMesh, h, 'R');
+    }
+    if (this.scrollMesh) {
+      this.scrollMesh.visible = showS;
+      if (showS && a) this.inHand(this.scrollMesh, a, 'L');
+    }
+  }
+
+  /** Поставить вещь в кисть человека: оси кисти, точка у ладони. */
+  private inHand(mesh: THREE.Mesh, p: Person, side: 'L' | 'R'): void {
+    const grip = gripOf(p.rig.sk, side);
+    const bone = side === 'R' ? 'handR' : 'handL';
+    const j = p.rig.sk.bones[p.rig.sk.of(bone)].j;
+    const at = p.rig.at(bone, [grip[0] - j[0], grip[1] - j[1], grip[2] - j[2]]);
+    const R = p.rig.axes(bone);
+    MAT.set(R[0], R[3], R[6], 0, R[1], R[4], R[7], 0, R[2], R[5], R[8], 0, 0, 0, 0, 1);
+    mesh.quaternion.setFromRotationMatrix(MAT);
+    mesh.position.set(this.host.origin.x + at[0], this.host.origin.y + at[1], this.host.origin.z + at[2]);
+  }
+
+  /** Сетки бумаг: письмо — в осях кисти (лист поперёк ладони), свиток — вдоль пальцев. */
+  private paper(kind: 'letter' | 'scroll'): THREE.Mesh {
+    const b = new Mesher();
+    const parch = tint(0xd8c8a0);
+    const cord = tint(0x6a4a2a);
+    if (kind === 'letter') {
+      b.code = LIFE_CODE.letter;
+      // Сложенный лист 16 × 11 см стоймя за нижний край в щепоти: в осях кисти пальцы — к −y, большой палец — к +z, так
+      // что лист — поперёк пальцев (x — ширина, z — высота), лицом туда, куда пальцы (к правителю). На лице — загнутый
+      // клапан, шнур крест-накрест и печать красного воска.
+      const f = -0.068;
+      b.cuboid(-0.08, f, -0.025, 0.08, f + 0.008, 0.085, 'plain', parch);
+      b.cuboid(-0.079, f - 0.003, 0.03, 0.079, f, 0.084, 'plain', mixV(parch, tint(0xa89068), 0.4));
+      b.cuboid(-0.081, f - 0.0055, 0.024, 0.081, f - 0.003, 0.034, 'plain', cord);
+      b.cuboid(-0.004, f - 0.0055, -0.026, 0.004, f - 0.003, 0.086, 'plain', cord);
+      // Печать: токарный диск на перекрестье шнура, ось — из листа к правителю (−y).
+      b.shine = 0.45;
+      b.at(0, f - 0.0055, 0.029, 0, Math.PI);
+      b.lathe(
+        [
+          [0, 0],
+          [0.017, 0],
+          [0.019, 0.004],
+          [0.015, 0.008],
+          [0, 0.009],
+        ],
+        10,
+        'plain',
+        tint(0x9a1a16),
+      );
+    } else {
+      // Свиток доклада: пергамент на двух палочках тёмного дерева.
+      b.lathe(
+        [
+          [0, -0.12],
+          [0.02, -0.12],
+          [0.021, 0.12],
+          [0, 0.12],
+        ],
+        9,
+        'plain',
+        parch,
+      );
+      for (const y of [-0.13, 0.13]) b.beam([0, y - 0.012, 0], [0, y + 0.012, 0], 0.026, 0.026, 'plain', tint(0x3a2416));
+    }
+    const m = new THREE.Mesh(geometryOf(b.b), this.host.material);
+    m.name = kind === 'letter' ? 'chambers-letter' : 'chambers-scroll';
+    this.host.scene.add(m);
+    return m;
   }
 
   /** Кувшин в правой руке служанки и струя вина из носика в кубок. */
@@ -827,6 +1037,11 @@ export class ChambersLife {
     }
   }
 
+  /** Письмо гонца в мире: где оно сейчас и протянуто ли (касанию и тестам). */
+  letterAt(): THREE.Vector3 | null {
+    return this.letterOut && this.letterMesh?.visible ? this.letterMesh.position : null;
+  }
+
   private placeLeaf(): void {
     const h = DOOR_HINGE;
     this.leaf.position.set(this.host.origin.x + h[0], this.host.origin.y + h[1], this.host.origin.z + h[2]);
@@ -839,7 +1054,7 @@ export class ChambersLife {
   }
 
   /** Стенду и тестам: поставить людей и кота сразу (без сцен). */
-  stage(what: { who?: Who; at?: { x: number; z: number; yaw: number }; gesture?: Partial<Person['g']>; cat?: CatSpot['id'] | 'floor'; catAt?: { x: number; z: number; yaw: number }; door?: number; wine?: number; carry?: Person['carry']; talk?: boolean; why?: Why; pouring?: boolean; night?: { k: number; who: Who } }): void {
+  stage(what: { who?: Who; at?: { x: number; z: number; yaw: number }; gesture?: Partial<Person['g']>; cat?: CatSpot['id'] | 'floor'; catAt?: { x: number; z: number; yaw: number }; door?: number; wine?: number; carry?: Person['carry']; talk?: boolean; why?: Why; pouring?: boolean; night?: { k: number; who: Who }; letter?: boolean }): void {
     if (what.who) {
       const p = this.person(what.who);
       p.visible = true;
@@ -847,7 +1062,13 @@ export class ChambersLife {
       p.place(at.x, at.z, (at as { yaw?: number }).yaw ?? 0);
       if (what.gesture) Object.assign(p.g, what.gesture), Object.assign(p.want, what.gesture);
       if (what.carry) p.carry = what.carry;
-      if (what.talk) this.talking = { who: what.who, why: what.why ?? 'arrive' };
+      if (what.talk) this.talking = { who: what.who, why: what.why ?? 'arrive', n: ++this.talkN };
+      // Гонец с протянутым письмом, советник со свитком.
+      if (what.who === 'herald' && what.letter) {
+        p.carry = 'letter';
+        this.letterOut = true;
+      }
+      if (what.who === 'advisor') p.carry = 'scroll';
     }
     if (what.cat) {
       const c = this.ensureCat();
@@ -867,9 +1088,9 @@ export class ChambersLife {
     this.changed();
   }
 
-  /** Касание: кто под лучом (люди и кот — коробками вокруг тела). */
-  pick(ray: THREE.Ray): { kind: 'folk'; who: Who; d: number } | { kind: 'cat'; d: number } | null {
-    let best: { kind: 'folk'; who: Who; d: number } | { kind: 'cat'; d: number } | null = null;
+  /** Касание: кто под лучом (люди и кот — коробками вокруг тела, письмо гонца — вокруг листа). */
+  pick(ray: THREE.Ray): LifePick | null {
+    let best: LifePick | null = null;
     const o = this.host.origin;
     for (const p of this.folk.values()) {
       if (!p.visible) continue;
@@ -879,6 +1100,17 @@ export class ChambersLife {
       if (hit) {
         const d = V.distanceTo(ray.origin);
         if (!best || d < best.d) best = { kind: 'folk', who: p.id, d };
+      }
+    }
+    // Письмо в протянутой руке гонца — точнее его тела: коробка с палец вокруг листа.
+    const lt = this.letterAt();
+    if (lt) {
+      BOX.min.set(lt.x - 0.12, lt.y - 0.12, lt.z - 0.12);
+      BOX.max.set(lt.x + 0.12, lt.y + 0.12, lt.z + 0.12);
+      const hit = ray.intersectBox(BOX, V);
+      if (hit) {
+        const d = V.distanceTo(ray.origin) - 0.35;
+        if (!best || d < best.d) best = { kind: 'letter', d };
       }
     }
     const c = this.cat;
@@ -917,12 +1149,18 @@ export class ChambersLife {
     this.ball?.mesh.geometry.dispose();
     this.jug?.geometry.dispose();
     this.stream?.geometry.dispose();
+    this.letterMesh?.geometry.dispose();
+    this.scrollMesh?.geometry.dispose();
     this.jobs = [];
     this.onChange = null;
     this.onRemember = null;
     this.onSpeak = null;
+    this.onLetter = null;
   }
 }
+
+/** Что под лучом касания: человек, кот или письмо гонца. */
+export type LifePick = { kind: 'folk'; who: Who; d: number } | { kind: 'cat'; d: number } | { kind: 'letter'; d: number };
 
 /** Сколько длится ночь вдвоём, с: затемнение, сердце, музыка — и утро проступает. */
 export const NIGHT_LEN = 7.5;
@@ -932,6 +1170,8 @@ const V = new THREE.Vector3();
 const UP = new THREE.Vector3(0, 1, 0);
 const MAT = new THREE.Matrix4();
 const FLIP = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI);
+
+const mixV = (a: V3, b: V3, k: number): V3 => [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k];
 
 const wrapA = (a: number): number => {
   let x = a % (2 * Math.PI);
