@@ -1057,6 +1057,25 @@ export class ChambersRoom implements Inside {
     return { hi, lo: Math.min(lo, hi - 0.2) };
   }
 
+  /** Стенду снимков (Р-1, `GUEST=1`): глаз сразу на госте — так, как его держит `attend`, без поворота. */
+  attendNow(): void {
+    const a = this.life.attention();
+    if (!a) return;
+    const want = this.frameOf(a.top, a.bottom, a.talk);
+    if (this.mode === 'in' && this.act) {
+      const f = this.frameNow ?? frameAt(this.act.a, this.act.t);
+      this.off.yaw = wrap(want.yaw - f.yaw);
+      this.off.pitch = want.pitch - f.pitch;
+      this.applyAct();
+    } else {
+      this.pose.yaw = want.yaw;
+      this.pose.pitch = clamp(want.pitch, FREE_PITCH[0], FREE_PITCH[1]);
+    }
+    this.idleLook = 9;
+    this.attendK = 1;
+    this.placeCamera();
+  }
+
   /** Высота плашки разговора над низом экрана, точки (слой интерфейса меряет её сам); `null` — не мерена. */
   setPlate(px: number | null): void {
     this.plateH = px;

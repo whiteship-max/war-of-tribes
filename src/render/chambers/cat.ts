@@ -425,6 +425,7 @@ export class Cat {
   private hopsDone: ((ok: boolean) => void) | null = null;
   private hopAt: V3 | null = null;
   private hopT = 0;
+  private turnTo: V3 | null = null;
   /** Клубок в зубах: пасть приоткрыта. */
   mouthful = false;
   /** Доволен собой (принёс клубок): мурчит, хвост трубой, сколько ещё секунд. */
@@ -479,15 +480,20 @@ export class Cat {
 
   /** Сесть на полу в точке и сидеть (стенд, тесты). */
   sitAt(x: number, z: number, yaw: number): void {
+    this.poseAt(x, 0, z, yaw, 'sit');
+  }
+
+  /** Замереть в точке в позе (стенд снимков: прыжок в окно, с клубком в зубах — Р-1). */
+  poseAt(x: number, y: number, z: number, yaw: number, body: CatBody): void {
     this.visible = true;
     this.x = x;
     this.z = z;
-    this.y = 0;
+    this.y = y;
     this.yaw = yaw;
-    this.spot = { id: 'floor', x, y: 0, z, yaw, body: 'sit' };
+    this.spot = { id: 'floor', x, y, z, yaw, body };
     this.mind = 'rest';
-    this.look.body = 'sit';
-    for (const k of Object.keys(this.w) as CatBody[]) this.w[k] = k === 'sit' ? 1 : 0;
+    this.look.body = body;
+    for (const k of Object.keys(this.w) as CatBody[]) this.w[k] = k === body ? 1 : 0;
     this.timer = 60;
   }
 
@@ -690,14 +696,26 @@ export class Cat {
       case 'fetch': {
         // Дошёл (или допрыгнул) — следующий шаг; шаги кончились — дело сделано. Идёт дольше `HOP_WALK` — застрял.
         this.hopT += dt;
+        if (this.turnTo) {
+          // Повернуться на месте: мордой к точке — и дальше.
+          const err = wrapA(Math.atan2(this.turnTo[0] - this.x, this.turnTo[2] - this.z) - this.yaw);
+          this.yaw = wrapA(this.yaw + Math.max(-3.5 * dt, Math.min(3.5 * dt, err)));
+          this.blend('stand', dt);
+          if (Math.abs(err) > 0.12 && this.hopT < 3) return;
+          this.turnTo = null;
+        }
         if (this.path.length && this.hopT < HOP_WALK) return;
         this.path = [];
         const h = this.hops.shift();
         // Прыгают только оттуда, куда дошли: застрял по дороге (путь перегородили) — бросил, сквозь камень не прыгает.
         const lost = !!h && h.jump && this.hopAt !== null && Math.hypot(this.x - this.hopAt[0], this.z - this.hopAt[2]) > 0.3;
         if (h && !lost) {
-          this.hopAt = h.to;
           this.hopT = 0;
+          if (h.turn) {
+            this.turnTo = h.to;
+            return;
+          }
+          this.hopAt = h.to;
           if (h.jump) this.jumpTo(h.to, h.arc);
           else this.goTo({ x: h.to[0], z: h.to[2] });
           return;
@@ -706,6 +724,7 @@ export class Cat {
         this.hopsDone = null;
         this.hops = [];
         this.hopAt = null;
+        this.turnTo = null;
         this.mind = 'wander';
         this.timer = 2;
         then?.(!lost);

@@ -433,6 +433,11 @@ async function weatherShots(tab: Tab, q: Quality): Promise<void> {
       console.log('  ' + r);
       await sleep(900);
     }
+    // Глаз к гостю (Р-1): `GUEST=1` — глаз сразу на госте, поставленном `LIFE='{…,"guest":true}'`, как его держит вход.
+    if (process.env.GUEST) {
+      const r = await tab.eval<string>(`JSON.stringify((() => { const room = window.__chambers; room.attendNow(); return 'гость: ' + JSON.stringify(room.life.attention()?.who ?? null); })())`);
+      console.log('  ' + r);
+    }
     // Ответ в окне разговора (Г-9): `TALKPICK=Останься` — коснуться ответа с этими словами, когда реплика проступила
     // (через «|» — несколько подряд); `LIFE_AFTER='{"night":{"k":0.95,"who":"wife"}}'` — что поставить после ответа (утро
     // после ночи — без ожидания сцены).

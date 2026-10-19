@@ -24,10 +24,10 @@ import { geometryOf } from '../city/index';
 import { DOOR, DESK, BED, HALF, WALL_T, softFloor, type SpotId } from './plan';
 import { DOOR_HINGE, doorLeaf } from './build';
 import { Person, buildPerson, gripOf, isFemale, type FolkId } from './folk';
-import { CAT_R, Cat, buildCat, type CatSpot } from './cat';
+import { CAT_R, Cat, buildCat, type CatBody, type CatSpot } from './cat';
 import { BODY_R, clear, free, pathTo, step } from './walk';
 import { Mesher } from './geo';
-import { BALL_EVERY, BALL_R, CAT_AWAY, GRAVITY, depthOf, fetchHops, flightAt, inView, leapBack, windowBack, windowShot, type WindowShot } from './toss';
+import { BALL_EVERY, BALL_R, CAT_AWAY, GRAVITY, depthOf, fetchHops, flightAt, inView, leapBack, windowBack, windowShot, type Hop, type WindowShot } from './toss';
 
 /** Кто говорит с правителем. */
 export type Who = FolkId;
@@ -128,6 +128,9 @@ export function floorAt(x: number, z: number): number {
 const SPEED: Record<Who, number> = { servant: 0.85, maid: 1.05, wife: 0.9, herald: 1.3, advisor: 0.75 };
 /** Коды подсветки касанием (`material.uSel`): люди, кот, дверь и письмо гонца — за предметами стола. */
 export const LIFE_CODE: Record<Who | 'cat' | 'door' | 'letter', number> = { servant: 20, maid: 21, wife: 22, cat: 23, door: 24, herald: 25, advisor: 26, letter: 27 };
+
+/** Ближе этого к ногам правителя кот принесённый клубок не кладёт, м. */
+const BRING = 0.95;
 
 /** Ближе этого гость мимо правителя не проходит (на шаг поодаль, с почтением; и в кадре он целиком), м. */
 const RULER_GAP = 1.0;
@@ -865,31 +868,10 @@ export class ChambersLife {
   throwBall(): boolean {
     const c = this.cat;
     if (!c?.visible || c.mind === 'carried' || this.fetching || this.ballLeft > 0) return false;
-    if (!this.ball) {
-      const m = new Mesher();
-      m.at(0, 0, 0);
-      const r = BALL_R;
-      // Клубок шерсти: шар и пара витков нитки.
-      for (let i = 0; i < 6; i++) {
-        const a0 = (i / 6) * Math.PI;
-        const a1 = ((i + 1) / 6) * Math.PI;
-        for (let k = 0; k < 8; k++) {
-          const b0 = (k / 8) * Math.PI * 2;
-          const b1 = ((k + 1) / 8) * Math.PI * 2;
-          const P = (a: number, b: number): V3 => [Math.sin(a) * Math.cos(b) * r, Math.cos(a) * r, Math.sin(a) * Math.sin(b) * r];
-          m.quad(P(a1, b0), P(a1, b1), P(a0, b1), P(a0, b0), 'plain', (i + k) % 2 ? tint(0xa83a2a) : tint(0x8a2a22));
-        }
-      }
-      m.smoothFrom(0, 80);
-      const mesh = new THREE.Mesh(geometryOf(m.b), this.host.material);
-      mesh.name = 'chambers-ball';
-      this.host.scene.add(mesh);
-      this.ball = { mesh, p: [0, 0, 0], v: [0, 0, 0], on: false, t: 0, mode: 'floor', shot: null, p0: [0, 0, 0], v0: [0, 0, 0] };
-    }
+    const b = this.ensureBall();
     const r = this.host.ruler();
     const f: V3 = [Math.sin(r.yaw), 0, Math.cos(r.yaw)];
     const hand: V3 = [r.eye[0] + f[0] * 0.35, r.eye[1] - 0.45, r.eye[2] + f[2] * 0.35];
-    const b = this.ball;
     b.p = hand;
     b.on = true;
     b.t = 0;
@@ -913,6 +895,32 @@ export class ChambersLife {
     }
     this.changed();
     return true;
+  }
+
+  /** Сетка клубка — при первом броске. */
+  private ensureBall(): NonNullable<ChambersLife['ball']> {
+    if (!this.ball) {
+      const m = new Mesher();
+      m.at(0, 0, 0);
+      const r = BALL_R;
+      // Клубок шерсти: шар и пара витков нитки.
+      for (let i = 0; i < 6; i++) {
+        const a0 = (i / 6) * Math.PI;
+        const a1 = ((i + 1) / 6) * Math.PI;
+        for (let k = 0; k < 8; k++) {
+          const b0 = (k / 8) * Math.PI * 2;
+          const b1 = ((k + 1) / 8) * Math.PI * 2;
+          const P = (a: number, b: number): V3 => [Math.sin(a) * Math.cos(b) * r, Math.cos(a) * r, Math.sin(a) * Math.sin(b) * r];
+          m.quad(P(a1, b0), P(a1, b1), P(a0, b1), P(a0, b0), 'plain', (i + k) % 2 ? tint(0xa83a2a) : tint(0x8a2a22));
+        }
+      }
+      m.smoothFrom(0, 80);
+      const mesh = new THREE.Mesh(geometryOf(m.b), this.host.material);
+      mesh.name = 'chambers-ball';
+      this.host.scene.add(mesh);
+      this.ball = { mesh, p: [0, 0, 0], v: [0, 0, 0], on: false, t: 0, mode: 'floor', shot: null, p0: [0, 0, 0], v0: [0, 0, 0] };
+    }
+    return this.ball;
   }
 
   /** Кот выпрыгнул в окно за клубком и скрылся: через `CAT_AWAY` секунд он вернётся с клубком. */
@@ -957,9 +965,28 @@ export class ChambersLife {
     this.ball!.mode = 'mouth';
     this.ball!.mesh.visible = true;
     const done = (): void => this.catDrops();
-    if (below) c.leapIn(below.from, below.to, 0.55, [], done);
-    else c.leapIn(w.from, w.hops[0].to, 0.25, w.hops.slice(1), done);
+    if (below) c.leapIn(below.from, below.to, 0.55, this.bring(below.to), done);
+    else c.leapIn(w.from, w.hops[0].to, 0.25, [...w.hops.slice(1), ...this.bring(w.hops[w.hops.length - 1].to)], done);
     this.changed();
+  }
+
+  /**
+   * Принести хозяину: от места приземления — к правителю, на шаг от его ног, мордой к нему (клубок в зубах видно); места нет
+   * или и так рядом — кладёт, где стоит.
+   */
+  private bring(from: V3): Hop[] {
+    const r = this.host.ruler();
+    const dx = from[0] - r.x;
+    const dz = from[2] - r.z;
+    const d = Math.hypot(dx, dz);
+    // Не ближе, чем пол виден у нижнего края кадра: клубок кладут на виду.
+    const bottom = r.pitch - (r.fov * Math.PI) / 360;
+    const seen = bottom < -1.45 ? 0 : r.eye[1] / Math.tan(-Math.min(-0.05, bottom));
+    const at = Math.max(BRING, seen + 0.45);
+    if (d < at + 0.3) return [{ to: [r.x, 0, r.z], jump: false, turn: true }];
+    const to: V3 = [r.x + (dx / d) * at, 0, r.z + (dz / d) * at];
+    const face: Hop = { to: [r.x, 0, r.z], jump: false, turn: true };
+    return clear({ x: from[0], z: from[2] }, { x: to[0], z: to[2] }, CAT_R) ? [{ to, jump: false }, face] : [face];
   }
 
   /** Принёс: опустил голову, клубок — на пол перед мордой, мурчит и снова играет. */
@@ -1305,7 +1332,7 @@ export class ChambersLife {
   }
 
   /** Стенду и тестам: поставить людей и кота сразу (без сцен). */
-  stage(what: { who?: Who; at?: { x: number; z: number; yaw: number }; gesture?: Partial<Person['g']>; cat?: CatSpot['id'] | 'floor'; catAt?: { x: number; z: number; yaw: number }; door?: number; wine?: number; carry?: Person['carry']; talk?: boolean; why?: Why; pouring?: boolean; night?: { k: number; who: Who }; letter?: boolean }): void {
+  stage(what: { who?: Who; at?: { x: number; z: number; yaw: number }; gesture?: Partial<Person['g']>; cat?: CatSpot['id'] | 'floor'; catAt?: { x: number; z: number; yaw: number }; door?: number; wine?: number; carry?: Person['carry']; talk?: boolean; why?: Why; pouring?: boolean; night?: { k: number; who: Who }; letter?: boolean; guest?: boolean; toss?: { cat?: { x: number; y: number; z: number; yaw: number; body: CatBody }; ball?: 'mouth' | V3; floor?: boolean; ballIn?: number } }): void {
     if (what.who) {
       const p = this.person(what.who);
       p.visible = true;
@@ -1320,6 +1347,35 @@ export class ChambersLife {
         this.letterOut = true;
       }
       if (what.who === 'advisor') p.carry = 'scroll';
+      // Гость, которого держит глаз (Р-1): стенд ставит вход и зовёт `room.attendNow`.
+      if (what.guest) this.guest = what.who;
+    }
+    // Клубок в окно (Р-1): кот замер в позе (прыжок, с клубком в зубах), клубок — в зубах или в точке; кнопка — через сколько.
+    if (what.toss) {
+      const t = what.toss;
+      if (t.cat) this.ensureCat().poseAt(t.cat.x, t.cat.y, t.cat.z, t.cat.yaw, t.cat.body);
+      if (t.ball) {
+        const b = this.ensureBall();
+        b.on = true;
+        b.mesh.visible = true;
+        if (t.ball === 'mouth') {
+          b.mode = 'mouth';
+          this.cat!.mouthful = true;
+        } else if (t.floor) {
+          // На полу перед котом: лежит, не катится и не убирается до конца снимка.
+          b.mode = 'floor';
+          b.p = [...t.ball] as V3;
+          b.v = [0, 0, 0];
+          b.t = -600;
+          b.mesh.position.set(this.host.origin.x + b.p[0], this.host.origin.y + b.p[1], this.host.origin.z + b.p[2]);
+        } else {
+          // Замер в воздухе: «за окном» клубок не движется.
+          b.mode = 'out';
+          b.p = [...t.ball] as V3;
+          b.mesh.position.set(this.host.origin.x + b.p[0], this.host.origin.y + b.p[1], this.host.origin.z + b.p[2]);
+        }
+      }
+      if (t.ballIn !== undefined) this.ballAt = this.clock.t - (BALL_EVERY - t.ballIn);
     }
     if (what.cat) {
       const c = this.ensureCat();

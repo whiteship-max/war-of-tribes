@@ -139,7 +139,7 @@ describe('клубок в окно (Р-1)', () => {
     room.dispose();
   });
 
-  it('окно в кадре — кот вспрыгивает на подоконник из-под его края; отвернулся — запрыгивает снизу экрана', () => {
+  it('окно в кадре — кот вспрыгивает на подоконник из-под его края; отвернулся — запрыгивает снизу экрана и несёт клубок к правителю', () => {
     // Окно в кадре: правитель смотрит туда же, куда кинул.
     {
       const room = catRoom();
@@ -173,10 +173,21 @@ describe('клубок в окно (Р-1)', () => {
       room.standAtPoint(a.x, a.z, Math.PI, -0.2);
       const path: { x: number; y: number; front: boolean }[] = [];
       let wasGone = false;
+      let laid: { face: number; ball: { x: number; y: number; front: boolean } } | null = null;
       run(room, 12, () => {
         if (!c.visible) wasGone = true;
-        if (wasGone && c.visible && room.life.ballNow()?.mode === 'mouth') path.push(screen(room, [c.x, c.y + 0.2, c.z]));
+        const mode = room.life.ballNow()?.mode;
+        if (wasGone && c.visible && mode === 'mouth') path.push(screen(room, [c.x, c.y + 0.2, c.z]));
+        if (wasGone && path.length && !laid && mode === 'floor') {
+          const s = room.state();
+          const to = Math.atan2(s.x - c.x, s.z - c.z) - c.yaw;
+          laid = { face: Math.abs(Math.atan2(Math.sin(to), Math.cos(to))), ball: screen(room, room.life.ballNow()!.p) };
+        }
       });
+      // Принёс хозяину: кладёт мордой к нему, клубок — на виду.
+      expect(laid, 'положил клубок').not.toBeNull();
+      expect(laid!.face, 'мордой к правителю').toBeLessThan(0.6);
+      expect(laid!.ball.front && laid!.ball.y > 0 && laid!.ball.y < PHONE.height, `клубок в кадре (${laid!.ball.x.toFixed(0)}, ${laid!.ball.y.toFixed(0)})`).toBe(true);
       expect(path.length, 'прыжок обратно виден по кадрам').toBeGreaterThan(10);
       expect(path[0].y > PHONE.height || !path[0].front, `возник вне кадра, снизу (${path[0].x.toFixed(0)}, ${path[0].y.toFixed(0)})`).toBe(true);
       const last = path[path.length - 1];

@@ -159,11 +159,12 @@ function flightClear(p0: V3, v: V3, o: Opening): boolean {
   return false;
 }
 
-/** Шаг кота: дойти по полу (`jump: false`) или прыгнуть дугой (`arc` — высота дуги над прямой, м). */
+/** Шаг кота: дойти по полу (`jump: false`), прыгнуть дугой (`arc` — высота дуги над прямой, м) или повернуться к точке (`turn`). */
 export interface Hop {
   to: V3;
   jump: boolean;
   arc?: number;
+  turn?: boolean;
 }
 
 /**
