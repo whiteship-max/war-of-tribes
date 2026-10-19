@@ -1,9 +1,9 @@
-// Желоб мостовой и мелочь у рядов рынка (docs/city.md, 11.6): желоб — посреди мощёной улицы, на земле и не в
-// проезде ворот; повозки, бочки и ящики — на площади, но не в рядах, не на статуе и не у колодца.
+// Мелочь у рядов рынка (docs/city.md, 11.6): повозки, бочки и ящики — на площади, но не в рядах, не на статуе и не у
+// колодца. Желоба мостовой больше нет (docs/city_v3.md, Г-8, 4а) — что на мостовой ничего постороннего, держит `square.test.ts`.
 import { describe, expect, it } from 'vitest';
 import { Builder } from './geom';
-import { gutter, marketProps } from './civic';
-import { cityPlan, distPoly, heightAt, insidePoly, type Stall } from './layout';
+import { marketProps } from './civic';
+import { cityPlan, insidePoly, type Stall } from './layout';
 
 const plan = cityPlan();
 
@@ -22,26 +22,7 @@ function inStall(p: { x: number; z: number }, s: Stall): boolean {
   return Math.abs(across) < s.w / 2 + 0.15 && along > -1.2 && along < 1.7;
 }
 
-describe('город: желоб и мелочь рынка', () => {
-  it('желоб — посреди мощёной улицы, на земле, не в проезде ворот', () => {
-    const paved = plan.streets.filter((s) => s.surface === 'cobble' && s.half >= 3);
-    // Граница области: мощёных улиц три, и у каждой желоб есть.
-    expect(paved.map((s) => s.name).sort()).toEqual(['Верхняя', 'Восточная', 'Главная']);
-    for (const st of paved) {
-      const b = new Builder();
-      gutter(b, st.pts, plan.gates);
-      const vs = verts(b);
-      expect(vs.length, st.name).toBeGreaterThan(40);
-      for (const v of vs) {
-        expect(distPoly(v, st.pts), `${st.name}: посреди улицы`).toBeLessThan(0.6);
-        const dy = v.y - heightAt(v.x, v.z);
-        expect(dy, `${st.name}: на земле, не в ней`).toBeGreaterThan(0.02);
-        expect(dy, `${st.name}: на земле, не над ней`).toBeLessThan(0.08);
-        for (const g of plan.gates) expect(Math.hypot(v.x - g.x, v.z - g.z), `${st.name}: не в проезде ворот`).toBeGreaterThan(5);
-      }
-    }
-  });
-
+describe('город: мелочь рынка', () => {
   it('повозки, бочки, ящики — на площади, не в рядах, не на статуе и не у колодца', () => {
     const b = new Builder();
     marketProps(b, plan.stalls[0].seed, 1);

@@ -4,7 +4,8 @@
 
 import { useGame } from '@/game/store';
 import { dayFraction, seasonOf, solarPhase } from '@/game/derived';
-import { useWorld } from '@/world/store';
+import { marchesOnHome, useWorld } from '@/world/store';
+import { feastClock, forcedMood, moodOf } from '@/render/city/rhythm';
 import { landShare } from '@/world/land';
 import { levelNow } from '@/render/gfx';
 import { cityNear } from '../ear';
@@ -45,7 +46,8 @@ function hearing(): Hearing {
   const g = useGame.getState();
   const time = g.s.time;
   const season = seasonOf(time);
-  const home = useWorld.getState().info?.home;
+  const w = useWorld.getState();
+  const home = w.info?.home;
   return {
     // Идёт промысел — слышна его поляна, а не город под ней (`cityAudio.glade`).
     view: cityAudio.glade ? 'glade' : g.mapOpen ? 'map' : 'city',
@@ -55,6 +57,8 @@ function hearing(): Hearing {
     sea: home ? 1 - landShare(home.x, home.y, SEA_RADIUS) : 0,
     // Погода над городом — та же, что видит сцена (docs/city.md, 15).
     wx: { ...weatherNow(g.s), cover: coverNow(g.s) },
+    // Состояние города — тем же судьёй, что у вида (docs/city_v3.md, ЖГ-1): тревога, праздник, голод, мор, мораль.
+    life: forcedMood(location.search) ?? moodOf(g.s, marchesOnHome(w.marches, w.info?.homeId).length > 0, feastClock.observe(g.s)),
   };
 }
 
@@ -96,7 +100,11 @@ export function startEpoch(out: { music: GainNode; fx: GainNode; amb: GainNode }
       Math.abs(h.near - heard.near) > 0.02 ||
       Math.abs(h.sea - heard.sea) > 0.02 ||
       Math.abs((h.wx?.rain ?? 0) - (heard.wx?.rain ?? 0)) > 0.02 ||
-      Math.abs((h.wx?.wind ?? 0) - (heard.wx?.wind ?? 0)) > 0.02;
+      Math.abs((h.wx?.wind ?? 0) - (heard.wx?.wind ?? 0)) > 0.02 ||
+      h.life?.alarm !== heard.life?.alarm ||
+      h.life?.feast !== heard.life?.feast ||
+      h.life?.hunger !== heard.life?.hunger ||
+      h.life?.plague !== heard.life?.plague;
     if (moved || now - heardAt > 2) {
       amb.set(h, now);
       heard = h;

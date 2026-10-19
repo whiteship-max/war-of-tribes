@@ -68,8 +68,6 @@ export const CITY = {
   slateTint: 0xdcdcdc,
   shingleTint: 0xd8c4a8,
   stoneTints: [0xf2ece4, 0xece0cc, 0xe4ddd2, 0xf0e4d0] as readonly number[],
-  /** Плиты желоба мостовой: серые и сырые — холоднее песчаника стен. */
-  gutter: 0x8c949a,
   // Площадь: навесы рядов (тон полотна) и товар на прилавках.
   awnings: [0xa8584a, 0x5a6e88, 0xc0a060, 0x6e7e50, 0xe0d8c4, 0x8a5a6a] as readonly number[],
   goods: [0x9a7a4a, 0x7a8a3a, 0xb0603a, 0xc8b070, 0x6a5a8a] as readonly number[],

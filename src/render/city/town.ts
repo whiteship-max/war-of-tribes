@@ -150,7 +150,7 @@ export function townPlan(plan: CityPlan, cut: TownCut): { plan: CityPlan; cleare
   });
   const yards = plan.yards.filter((y) => !(y.x > field.x0 && y.x < field.x1 && y.z > field.z0 && y.z < field.z1));
   const towers = plan.towers.filter((t) => !(t.kind !== 'keep' && t.kind !== 'castleGate' && t.z > 0 && nearFront(cut, t)));
-  // Желоб мощёной улицы (`civic.gutter`) — не через расчищенное: там земля ролика, а не мостовая.
+  // Мостовая большой улицы — не через расчищенное: там земля ролика, а не мостовая.
   const inZone = (p: P): boolean => zones.some((z) => p.x > z.x0 && p.x < z.x1 && p.z > z.z0 && p.z < z.z1);
   const streets: CityPlan['streets'] = [];
   for (const st of plan.streets) {

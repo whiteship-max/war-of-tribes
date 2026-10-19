@@ -11,11 +11,11 @@ import { ownerCode, siteOf, wallSites, type Site } from './sites';
 import { millWheel, yard, yardHalls } from './outskirts';
 import { house, houseStoop } from './kit';
 import { cityWall, tower } from './forts';
-import { civic, civicStoop, fireBowl, gutter, marketProps, stall, statue, well } from './civic';
-import { churchClose, churchSquare, parvis } from './precinct';
+import { civic, civicStoop, fireBowl, marketProps, stall, statue, well } from './civic';
+import { churchSquare, parvis } from './precinct';
 import { placeTrees, treeModel, type Species } from './nature';
 import { LAYERS } from './tex';
-import { CITY_SPEC, GATE_GUARDS, LIFE_CAP, LIFE_TRIS, SHORE_CAP, figureTris, peopleTris, shoreTris } from './spec';
+import { CITY_SPEC, FEAST_LOG_TRIS, GATE_GUARDS, LIFE_CAP, LIFE_TRIS, PATROL, SHORE_CAP, figureTris, peopleTris, shoreTris } from './spec';
 import { shoreItems, waterTriangles } from './banks';
 import { fixture, forge, lanternPost, mounted, standing, streetLamps } from './lamps';
 import { pooled, type Lamp, type LampKind } from '../glow/lamps';
@@ -141,16 +141,12 @@ export function buildStatic(plan: CityPlan, q: Quality, opts?: StaticOpts): Stat
     if (c.kind !== 'church') civicStoop(b, c);
     else {
       parvis(b, c, dAt(c.x, c.z));
-      // Двор за оградой — храму (подсветка выбора), но коробкой не служит: двор — земля, а не здание.
-      b.owner = ownerCode('church');
-      churchClose(b, c, dAt(c.x, c.z));
-      b.owner = 0;
-      // Площадка перед храмом и полоса у Верхней улицы — ничьи: доска, колодки, лотки, коновязь, сено.
+      // Убранство Соборной площади — ничьё: доска, лотки, колодки, коновязь (docs/city_v3.md, Г-8).
       if (!opts) churchSquare(b, c, d);
     }
   }
-  // Желоб посреди мощёных улиц — ничей: улица не постройка.
-  for (const st of plan.streets) if (st.surface === 'cobble' && st.half >= 3) gutter(b, st.pts, plan.gates);
+  // Желоба посреди мощёных улиц больше нет (docs/city_v3.md, Г-8, 4а): полоса плит поверх мостовой с камеры игры читалась
+  // тёмной нитью вдоль Верхней, Главной и Восточной. На мостовой — только земля (тест «на дорогах нет посторонних»).
   // Ряды — одной коробкой на весь рынок: тап между прилавками — тоже рынок.
   b.owner = ownerCode('market');
   const marketFrom = b.mark().v;
@@ -237,6 +233,9 @@ export function cityCounts(q: Quality, plan: CityPlan = cityPlan()): CityCounts 
   // — вызов жизни (`life.ts`). Стягов — по два на воротах и донжоне (`alive.bannerSpots`).
   const banners = cap.banners > 0 ? plan.towers.filter((t) => t.kind === 'gate' || t.kind === 'castleGate' || t.kind === 'keep').length * 2 : 0;
   calls += [cap.lanterns, cap.carts, cap.ducks, cap.boats, cap.pigeons, banners].filter((n) => n > 0).length;
+  // Живой город (docs/city_v3.md, ЖГ-1): костёр праздника (поленья и пламя) и фонари трактира (там, где есть фонари) — по
+  // вызову; счёт берёт худший кадр — праздничный вечер, хотя днём и в будни их нет.
+  calls += 2 + (cap.lanterns > 0 ? 1 : 0);
   // Колесо лесопилки крутится своим мешем (с тенью) и брызжет точками — три вызова (docs/city.md, 16.4).
   if (wheel) calls += 3;
   // Горожане — по вызову на вид (на низком — один), копейщики у ворот — вызов (docs/city.md, 16.2).
@@ -246,7 +245,8 @@ export function cityCounts(q: Quality, plan: CityPlan = cityPlan()): CityCounts 
   const life =
     peopleTris(q, cap.people) +
     cap.guards * ft.archer +
-    gates * GATE_GUARDS * ft.guard +
+    (gates * GATE_GUARDS + PATROL[q]) * ft.guard +
+    FEAST_LOG_TRIS +
     cap.animals * ft.beast +
     cap.birds * LIFE_TRIS.bird +
     plan.towers.length * LIFE_TRIS.flag +

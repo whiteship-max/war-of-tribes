@@ -89,7 +89,7 @@ describe('фильтры и группы', () => {
     expect(mailGroups(list.filter((d) => !d.urgent)).map((g) => g.title)).toEqual(['Ждут ответа']);
   });
 
-  it('окно: три вкладки со счётчиком новых, вести — строками таблиц с дверью; прежней ленты нет', () => {
+  it('окно: три вкладки почты со счётчиком новых и «Летопись», вести — строками таблиц с дверью; прежней ленты нет', () => {
     const { s, letters } = table();
     stores.game = { s, resolve: () => null, openMap: () => {} };
     stores.world = { letters, marches: [], info: null, answerLetter: async () => null, spotLetter: () => {} };
@@ -99,8 +99,13 @@ describe('фильтры и группы', () => {
       ['Все', '4'],
       ['Город', '2'],
       ['Соседи', '2'],
+      ['Летопись', '0'],
     ]);
     expect(html.match(/class="kit-go"/g)?.length, 'у каждой вести — дверь').toBe(4);
+    // ВС-2: строка вести целиком — кнопка: заголовок и срок внутри той же кнопки, что и «›» (отзыв тестера).
+    const rows = html.match(/<button type="button" class="kit-tgo"[\s\S]*?<\/button>/g) ?? [];
+    expect(rows, 'вести — строками-кнопками').toHaveLength(4);
+    for (const title of ['Набег', 'Дань']) expect(rows.some((r) => r.includes(title) && r.includes('class="kit-go"')), title).toBe(true);
     expect(html.indexOf('Беда')).toBeLessThan(html.indexOf('Ждут ответа'));
     expect(html).not.toContain('mail-row');
   });

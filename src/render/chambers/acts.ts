@@ -5,7 +5,7 @@
 // Каждое дело — ключи от места подхода (`plan.Poi.approach`, стоя) до позы дела (`plan.Poi.pose`). Между ключами —
 // монотонная кубическая кривая по каждому числу (Фритч — Карлсон): скорость непрерывна, на концах — ноль, и ни одно
 // число не перелетает ключ — камера не качается и не дёргается. Встать — те же ключи назад.
-import { CHAIR, DOOR, HALF, POI_BY_ID, type PoiId, type SpotId } from './plan';
+import { CHAIR, DOOR, HALF, OPENINGS, POI_BY_ID, type PoiId, type SpotId } from './plan';
 import { EYE_STAND } from './walk';
 
 /** Числа ключа: глаз (место, поворот, наклон), доля рук в деле `hands` и доля посадки `sit` (ноги под столом). */
@@ -23,7 +23,7 @@ export interface Key {
 export type Frame = Omit<Key, 't'>;
 
 /** Руки дела: что делают, когда доля рук — единица (`body.ts` ставит кисти и сгибает пальцы). */
-export type HandsKind = 'none' | 'desk' | 'sill' | 'warm' | 'knock';
+export type HandsKind = 'none' | 'desk' | 'sill' | 'warm' | 'knock' | 'lid';
 
 export interface Act {
   id: SpotId;
@@ -42,6 +42,48 @@ const rest = (id: SpotId, t: number, hands: number, sit = 0): Key => {
   const p = POI_BY_ID[id].pose;
   return k(t, p.x, p.y, p.z, p.yaw, p.pitch, hands, sit);
 };
+
+/**
+ * Парное окно (Г-9): шаг к нише, наклон в неё над низом ниши, ладони — на подоконник южного проёма. Как у большого окна:
+ * взгляд сперва к проёму, потом вниз, на город и даль.
+ */
+function sideWindow(id: 'windowE' | 'windowW'): Act {
+  const a = POI_BY_ID[id].approach!;
+  const p = POI_BY_ID[id].pose;
+  const s = Math.sign(p.x);
+  return {
+    id,
+    hands: 'sill',
+    keys: [start(id, -0.1), k(0.7, a.x + s * 0.42, 1.59, a.z, a.yaw, -0.18, 0.35), k(1.3, p.x - s * 0.06, 1.5, p.z, p.yaw, -0.32, 0.95), rest(id, 1.75, 1)],
+  };
+}
+
+/**
+ * Сундук (Г-9): шаг к сундуку, руки берут крышку за передний край и поднимают её (`LID_FROM`…`LID_TO`), крышка
+ * откидывается к стене, правитель склоняется над сундуком — руки опускаются. Закрыть — те же ключи назад: руки снова на
+ * крышке, она опускается, стук.
+ */
+function chestAct(id: 'chest' | 'chestS'): Act {
+  const a = POI_BY_ID[id].approach!;
+  const p = POI_BY_ID[id].pose;
+  const mx = (k: number): number => a.x + (p.x - a.x) * k;
+  const mz = (k: number): number => a.z + (p.z - a.z) * k;
+  return {
+    id,
+    hands: 'lid',
+    keys: [start(id, -0.45), k(0.55, mx(0.35), 1.56, mz(0.35), a.yaw, -0.72, 0.65), k(1.1, mx(0.75), 1.49, mz(0.75), a.yaw, -0.86, 1), rest(id, 1.8, 0)],
+  };
+}
+
+/** Крышка сундука поднимается с этого мига дела «Сундук» до того, с. */
+export const LID_FROM = 0.62;
+export const LID_TO = 1.38;
+
+/** Доля открытой крышки на миге дела «Сундук» (0 — закрыта): плавно с места и до места. */
+export function lidOpen(t: number): number {
+  const k = Math.min(1, Math.max(0, (t - LID_FROM) / (LID_TO - LID_FROM)));
+  return k * k * (3 - 2 * k);
+}
 
 /**
  * Ключи дел. Глаз сидя — над сиденьем (`CHAIR`), лёжа — над подушкой; путь глаза не задевает мебель (тест «глаз не
@@ -66,6 +108,10 @@ export const ACTS: Record<SpotId, Act> = {
     hands: 'sill',
     keys: [start('window', -0.12), k(0.7, 0, 1.6, 5.22, 0, -0.22, 0.35), k(1.3, 0, 1.48, 5.58, 0, -0.44, 0.95), rest('window', 1.75, 1)],
   },
+  windowE: sideWindow('windowE'),
+  windowW: sideWindow('windowW'),
+  chest: chestAct('chest'),
+  chestS: chestAct('chestS'),
   hearth: {
     id: 'hearth',
     hands: 'warm',
@@ -87,9 +133,10 @@ export const ACTS: Record<SpotId, Act> = {
   arms: {
     id: 'arms',
     hands: 'none',
-    // Наклон над сундуком к мечу; рука берёт рукоять (`room.ts` зовёт `take('sword')` на `GRAB_AT`), меч — к глазу, и
-    // правитель отступает от стены на шаг: клинок целиком перед глазом, а не упёрт в камень (Г-6).
-    keys: [start('arms', -0.1), k(0.6, 4.34, 1.58, -1.95, Math.PI / 2, -0.14), k(1.3, 3.8, 1.61, -1.95, Math.PI / 2, -0.06), rest('arms', 1.9, 0)],
+    // Шаг к стене над сундуком короля, к мечу; рука берёт рукоять (`room.ts` зовёт `take('sword')` на `GRAB_AT`), меч — к
+    // глазу, и правитель отступает от стены на шаг: клинок целиком перед глазом, а не упёрт в камень (Г-6). Меч — над
+    // полочкой короны, почти вровень с глазом (Г-9).
+    keys: [start('arms', -0.02), k(0.6, 4.34, 1.6, -1.95, Math.PI / 2, -0.02), k(1.3, 3.8, 1.61, -1.95, Math.PI / 2, 0.01), rest('arms', 1.9, 0)],
   },
   door: {
     id: 'door',
@@ -158,5 +205,6 @@ export function sampleAct(a: Act, dt = 0.02): Frame[] {
 /** Дело точки (у `hall` — нет). */
 export const actOf = (id: PoiId): Act | null => (id === 'hall' ? null : ACTS[id]);
 
-/** Глаз — в комнате (с нишей южного окна): числа для тестов и для стенда. */
-export const inRoom = (f: Pick<Frame, 'x' | 'z'>): boolean => Math.abs(f.x) < HALF && f.z > -HALF && f.z < HALF + 1.0;
+/** Глаз — в комнате (с нишей южного окна и нишами парных — до 0,6 м в толщу, Г-9): числа для тестов и для стенда. */
+export const inRoom = (f: Pick<Frame, 'x' | 'z'>): boolean =>
+  f.z > -HALF && f.z < HALF + 1.0 && (Math.abs(f.x) < HALF || (Math.abs(f.x) < HALF + 0.6 && OPENINGS.some((o) => o.wall !== 'south' && Math.abs(f.z - o.at) < o.inW / 2 - 0.25)));

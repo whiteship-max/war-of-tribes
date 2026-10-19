@@ -61,11 +61,19 @@ export function trimLog(s: GameState): void {
 /**
  * Пишет строку в летопись.
  *
+ * `topic` — род строки для фильтров летописи (стройка, указ, торговля); пишет его только тот, кто знает род.
+ *
  * `group` — ключ склейки, и задан он только там, где источник пишет по строке на
  * единицу товара: ковка и наём. Всё остальное случается по разу и склеиваться не
  * должно — две зимы подряд это две зимы, а не «зима ×2».
  */
-export function log(s: GameState, text: string, kind: LogEntry['kind'] = 'info', group?: string): void {
+export function log(
+  s: GameState,
+  text: string,
+  kind: LogEntry['kind'] = 'info',
+  group?: string,
+  topic?: LogEntry['topic'],
+): void {
   if (group) {
     // Ищем не только первую строку, а всё окно склейки: между двумя копьями
     // успевают лечь итог дня, событие и смена сезона, и склейка по одной лишь
@@ -83,8 +91,20 @@ export function log(s: GameState, text: string, kind: LogEntry['kind'] = 'info',
       return;
     }
   }
-  s.log.unshift({ at: s.time, text, kind, ...(group ? { group, n: 1 } : {}) });
+  s.log.unshift({ at: s.time, text, kind, ...(group ? { group, n: 1 } : {}), ...(topic ? { topic } : {}) });
   // Предел по количеству дёшев и проверяется на каждой записи; возраст —
   // раз в игровой день, на смене суток в `tick`.
   if (s.log.length > LOG_MAX) s.log.length = LOG_MAX;
+}
+
+/**
+ * Метит ключом последствия мира все строки, легшие в летопись с отметки `head` (прежней первой записи): строка события,
+ * дело агента, павшие, раненые, добыча — одно событие летописи с одним донесением (ВС-2). Склеенные счётчиком строки
+ * не новые и лежат за отметкой — их ключ не трогается.
+ */
+export function tagSince(s: GameState, head: LogEntry | undefined, ref: string): void {
+  for (const e of s.log) {
+    if (e === head) break;
+    e.ref ??= ref;
+  }
 }

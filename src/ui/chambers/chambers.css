@@ -475,6 +475,91 @@
   background: rgba(120, 80, 40, 0.8);
 }
 
+/* Гонец и советник (Г-10): плашка разговора, письмо — главной кнопкой с печатью, доклад — строками-дверями. */
+.ch-court {
+  max-height: 60%;
+}
+
+.ch-talk-opts .ch-court-take {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-color: rgba(232, 164, 60, 0.6);
+  background: rgba(86, 56, 26, 0.85);
+  font-weight: 600;
+}
+
+/* Печать красного воска — кружок на кнопке письма. */
+.ch-seal {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, #c8433a, #7a1612 70%);
+  box-shadow: 0 0 0 2px rgba(216, 200, 160, 0.55);
+}
+
+.ch-report {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ch-report-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: var(--tap);
+  padding: 6px 10px;
+  border: 1px solid rgba(255, 220, 170, 0.14);
+  border-radius: 10px;
+  background: rgba(44, 30, 18, 0.72);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.3;
+  text-align: left;
+  cursor: pointer;
+  animation: ch-talk-in 0.3s ease-out;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.ch-report-row:active {
+  background: rgba(120, 80, 40, 0.8);
+}
+
+.ch-report-row span {
+  flex: 1;
+}
+
+.ch-report-row i {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.ch-report-row.good i {
+  background: var(--good);
+}
+
+.ch-report-row.bad i {
+  background: var(--bad);
+}
+
+.ch-report-row b {
+  flex: none;
+  color: var(--muted);
+  font-size: 18px;
+}
+
+/* Прочитанная строка — тише, но читается. */
+.ch-report-row.read {
+  border-color: transparent;
+  background: rgba(30, 21, 14, 0.6);
+}
+
 .ch-ball {
   position: absolute;
   right: calc(var(--safe-right) + 12px);

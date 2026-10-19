@@ -31,7 +31,7 @@ import { ATLAS_PX, paintAtlas } from './paint';
 import { paintStone } from './stone';
 import { Body, holdHand, type HandPose } from './body';
 import { TURN_PER_LOOK, holdFit, holdRotation } from './hold';
-import { ACTS, GRAB_AT, KNOCKS, actLength, frameAt, type Act, type Frame } from './acts';
+import { ACTS, GRAB_AT, KNOCKS, LID_FROM, actLength, frameAt, lidOpen, type Act, type Frame } from './acts';
 import { ChambersLife, LIFE_CODE, type LifeCue, type LifeMemory, type Who } from './life';
 import { AUTO_SPEED, BODY_R, EYE_STAND, WALK_SPEED, pathLength, pathTo, step } from './walk';
 import { layoutTags, TAG_FONT, type TagOut } from './tags';
@@ -53,12 +53,23 @@ import {
   TRINKETS,
   fitFov,
   floorOf,
+  CHESTS,
+  LID_OPEN,
+  LID_T,
+  chestOf,
+  isChestSpot,
   isSmall,
   isTrinket,
+  isWindowSpot,
   lookDir,
+  sideLight,
+  sideOpening,
+  WALL_AXES,
+  wallPoint,
   softFloor,
   wrap,
   type Box,
+  type ChestId,
   type Door,
   type Label,
   type Poi,
@@ -102,10 +113,10 @@ export interface ChambersView {
 }
 
 /** Что под пальцем: предмет, место дела, человек покоев или кот (Г-7). */
-export type Aim = { kind: 'thing'; thing: Thing } | { kind: 'poi'; poi: Poi } | { kind: 'folk'; who: Who } | { kind: 'cat' };
+export type Aim = { kind: 'thing'; thing: Thing } | { kind: 'poi'; poi: Poi } | { kind: 'folk'; who: Who } | { kind: 'cat' } | { kind: 'letter' };
 
 /** Имена людей покоев на подписи касания. */
-export const FOLK_NAME: Record<Who, string> = { servant: 'Слуга', maid: 'Служанка', wife: 'Супруга' };
+export const FOLK_NAME: Record<Who, string> = { servant: 'Слуга', maid: 'Служанка', wife: 'Супруга', herald: 'Гонец', advisor: 'Советник' };
 
 /** Куда правитель идёт и что делает, придя. */
 type Then = { kind: 'spot'; id: SpotId } | { kind: 'take'; id: TrinketId };
@@ -131,9 +142,14 @@ const ACT_CUES: Record<SpotId, readonly (readonly [number, Cue])[]> = {
     [1.8, 'rustle'],
   ],
   window: [],
+  windowE: [],
+  windowW: [],
   hearth: [],
   arms: [],
   door: [],
+  // Петли скрипят, когда крышка трогается с места, — и открывая, и закрывая; стук крышки — в `stepEye`.
+  chest: [[LID_FROM + 0.03, 'hinge']],
+  chestS: [[LID_FROM + 0.03, 'hinge']],
 };
 /** Гладить кота: сколько длится, с; присесть — глаз на этой высоте. */
 const PET_LEN = 4.2;
@@ -240,6 +256,9 @@ export class ChambersRoom implements Inside {
   private fit: { key: string; at: THREE.Vector3 } | null = null;
 
   // Подписи и стик.
+  private handsLast: { left: HandPose; right: HandPose } | null = null;
+  /** Крышки сундуков на петлях (Г-9): поворот — по делу «Сундук» (`acts.lidOpen`). */
+  private lids = new Map<ChestId, { group: THREE.Group; axis: 'x' | 'z'; sign: 1 | -1 }>();
   private labelHost: HTMLElement | null = null;
   private label: HTMLDivElement | null = null;
   private tagEls: { box: HTMLDivElement; dot: HTMLDivElement; line: HTMLDivElement }[] = [];
@@ -312,6 +331,23 @@ export class ChambersRoom implements Inside {
       mesh.rotation.y = m.yaw;
       this.trinkets.set(t.id, { mesh, rest, restYaw: m.yaw });
     }
+    for (const c of CHESTS) {
+      const lid = this.model.lids[c.spot];
+      const group = new THREE.Group();
+      group.position.set(lid.hinge[0], lid.hinge[1], lid.hinge[2]).add(this.origin);
+      // Крышка — в осях петли: начало покоев у неё уже в группе.
+      for (const [mb, mat, name] of [
+        [lid.stone, this.stone, `chambers-lid-${c.spot}`],
+        [lid.cloth, this.cloth, `chambers-lid-cloth-${c.spot}`],
+      ] as const) {
+        if (!mb.b.triangleCount) continue;
+        const mesh = this.add(geometryOf(mb.b), mat, name);
+        mesh.position.set(0, 0, 0);
+        group.add(mesh);
+      }
+      this.scene.add(group);
+      this.lids.set(c.spot, { group, axis: lid.axis, sign: lid.sign });
+    }
     this.fire = new RoomFire(this.model.flames, this.u, quality);
     this.fire.mesh.position.copy(this.origin);
     this.scene.add(this.fire.mesh);
@@ -359,7 +395,7 @@ export class ChambersRoom implements Inside {
   // ---------- Что видит интерфейс ----------
 
   view(): ChambersView {
-    const z = this.mode === 'in' && this.act?.a.id === 'window' ? POI_BY_ID.window.zoom! : null;
+    const z = this.mode === 'in' && isWindowSpot(this.act?.a.id) ? POI_BY_ID[this.act!.a.id].zoom! : null;
     const wide = z ? fitFov(z[1], this.camera.aspect) : 0;
     return {
       mode: this.mode,
@@ -461,6 +497,7 @@ export class ChambersRoom implements Inside {
     this.hover = h ? { kind: 'thing', thing: h } : null;
     this.placeCamera();
     this.stepHands(0);
+    this.stepLids();
     this.stepBody();
     this.changed();
   }
@@ -477,8 +514,8 @@ export class ChambersRoom implements Inside {
 
   /** Приближение у окна: шаг ±1 (кнопка) или множитель колеса. */
   zoomBy(k: number): void {
-    if (!(this.mode === 'in' && this.act?.a.id === 'window')) return;
-    const z = POI_BY_ID.window.zoom!;
+    if (!(this.mode === 'in' && isWindowSpot(this.act?.a.id))) return;
+    const z = POI_BY_ID[this.act!.a.id].zoom!;
     const wide = fitFov(z[1], this.camera.aspect);
     const cur = this.zoomFov ?? wide;
     this.zoomFov = Math.min(wide, Math.max(z[0], cur / k));
@@ -532,6 +569,7 @@ export class ChambersRoom implements Inside {
     this.placeCamera();
     this.life.draw();
     this.stepWine();
+    this.stepLids();
     this.stepBody();
     this.light(t, sky);
     this.labels(dt);
@@ -604,6 +642,8 @@ export class ChambersRoom implements Inside {
         a.t = clamp(a.t + dt * a.dir, 0, actLength(a.a));
         // Звук дела — на своём миге, туда и обратно: кресло скрипнуло, постель зашуршала.
         for (const [at, cue] of ACT_CUES[a.a.id]) if ((was < at) !== (a.t < at)) this.onCue?.(cue);
+        // Крышка сундука легла на короб — стук (только закрывая).
+        if (isChestSpot(a.a.id) && a.dir < 0 && was > LID_FROM && a.t <= LID_FROM) this.onCue?.('lidShut');
         // Дверь: костяшки о доску — стук; после третьего удара за дверью слышат (слуга поднимается).
         if (a.a.id === 'door' && a.dir > 0) {
           for (const at of KNOCKS) if (was < at && a.t >= at) this.onLifeCue?.('knock', [DOOR_AT[0], 1.4, DOOR_AT[2]]);
@@ -780,8 +820,9 @@ export class ChambersRoom implements Inside {
     const spot = then.kind === 'spot' ? then.id : null;
     if (this.act) {
       if (this.mode === 'in' && spot === this.act.a.id) {
-        // У двери постучать ещё раз: шаг назад — и снова к двери (Г-7).
+        // У двери постучать ещё раз: шаг назад — и снова к двери (Г-7). Сундук: второе касание закрывает (Г-9).
         if (spot === 'door') this.leave(then);
+        else if (isChestSpot(spot)) this.leave();
         return;
       }
       this.leave(then);
@@ -918,6 +959,24 @@ export class ChambersRoom implements Inside {
     this.changed();
   }
 
+  /** Доля открытой крышки сундука (0 — закрыт): только в деле «Сундук», по его мигу (`acts.lidOpen`). */
+  lidK(id: ChestId): number {
+    return this.act?.a.id === id ? lidOpen(this.act.t) : 0;
+  }
+
+  /** Открыт ли сундук — подписи «Доспех короля» и «Платье и меха» (Г-9). */
+  chestOpen(id: ChestId): boolean {
+    return this.lidK(id) > 0.95;
+  }
+
+  private stepLids(): void {
+    for (const [id, l] of this.lids) {
+      const a = l.sign * LID_OPEN * this.lidK(id);
+      if (l.axis === 'z') l.group.rotation.z = a;
+      else l.group.rotation.x = a;
+    }
+  }
+
   /** Есть ли что выпить (кубок в руке и в нём вино) — кнопке «Выпить». */
   get canDrink(): boolean {
     return this.held?.id === 'goblet' && this.held.dir > 0 && this.held.t > 0.95 && this.life.wine > 0.02 && !this.sip;
@@ -962,7 +1021,7 @@ export class ChambersRoom implements Inside {
       .add(C.copy(CANDLE).multiplyScalar(0.008 * lit));
     const h = this.hover?.kind === 'thing' ? this.hover.thing : null;
     const hv = this.hover;
-    const sel = h && (!this.held || h.id === this.held.id) ? h.code : hv?.kind === 'folk' ? LIFE_CODE[hv.who] : hv?.kind === 'cat' ? LIFE_CODE.cat : hv?.kind === 'poi' && hv.poi.id === 'door' ? LIFE_CODE.door : 0;
+    const sel = h && (!this.held || h.id === this.held.id) ? h.code : hv?.kind === 'folk' ? LIFE_CODE[hv.who] : hv?.kind === 'cat' ? LIFE_CODE.cat : hv?.kind === 'letter' ? LIFE_CODE.letter : hv?.kind === 'poi' && hv.poi.id === 'door' ? LIFE_CODE.door : 0;
     u.uSel.value = sel;
     u.uSelGlow.value = 0.65 + Math.sin(t * 4) * 0.25;
     // Небо за окнами — своё, а не плоский цвет фона: к горизонту — дымка города (на ней тает даль города), к зениту —
@@ -1130,7 +1189,13 @@ export class ChambersRoom implements Inside {
       rightH = blendHand(rightH ?? low(1), target, pk);
     }
     const sit = a?.a.id === 'desk' && f ? f.sit : 0;
+    this.handsLast = left && rightH ? { left, right: rightH } : null;
     this.body.update(rightH || left || sit > 0.02 ? { eye, yaw, left, right: rightH, sit, seat: { x: CHAIR.x, z: CHAIR.z - 0.14, y: 0.55 } } : null, this.origin);
+  }
+
+  /** Обе кисти этого кадра (в осях комнаты), когда руки в деле, — тестам: ладони на подоконнике, на крышке сундука. */
+  handsNow(): { left: HandPose; right: HandPose } | null {
+    return this.handsLast;
   }
 
   /** Руки в деле — куда кладутся кисти (в осях комнаты). */
@@ -1149,12 +1214,49 @@ export class ChambersRoom implements Inside {
         });
         return { right: hand(1), left: hand(-1) };
       }
-      case 'sill':
-        // Ладони на подоконнике большого окна (`plan.OPENINGS`: плита подоконника выходит из доски в комнату).
-        return {
-          right: { w: [-0.17, SILL + 0.04, HALF + 0.8], f: [0.22, -0.16, 1], u: [0, 1, 0.16], curl: 0.12, spread: 0.1 },
-          left: { w: [0.17, SILL + 0.04, HALF + 0.8], f: [-0.22, -0.16, 1], u: [0, 1, 0.16], curl: 0.12, spread: 0.1 },
-        };
+      case 'sill': {
+        // Ладони на подоконнике (`plan.OPENINGS`: плита выходит из доски в комнату) — большого окна или южного проёма
+        // парного (Г-9): пальцы — наружу и чуть к середине, ладонь — плашмя.
+        const id = this.act?.a.id;
+        const side = id === 'windowE' || id === 'windowW' ? sideOpening(id) : null;
+        const c: [number, number, number] = side ? wallPoint(side.wall, sideLight(side), side.sill + 0.04, side.plate - 0.05) : [0, SILL + 0.04, HALF + 0.8];
+        const n = side ? WALL_AXES[side.wall].n : ([0, 0, 1] as const);
+        const half = side ? 0.15 : 0.17;
+        const hand = (k: 1 | -1): HandPose => ({
+          w: [c[0] + right[0] * k * half, c[1], c[2] + right[2] * k * half],
+          f: [n[0] - right[0] * k * 0.22, -0.16, n[2] - right[2] * k * 0.22],
+          u: [n[0] * 0.16, 1, n[2] * 0.16],
+          curl: 0.12,
+          spread: 0.1,
+        });
+        return { right: hand(1), left: hand(-1) };
+      }
+      case 'lid': {
+        // Сундук (Г-9): кисти берут крышку за передний край — пальцы под кромку, к петлям — и идут вместе с ней.
+        const id = this.act?.a.id;
+        const lid = isChestSpot(id) ? this.lids.get(id) : null;
+        const c = isChestSpot(id) ? chestOf(id) : null;
+        if (lid && c) {
+          lid.group.updateMatrixWorld();
+          const king = c.hinge === 'x1';
+          const depth = king ? c.x1 - c.x0 : c.z1 - c.z0;
+          const hand = (k: 1 | -1): HandPose => {
+            const sw = k * 0.2;
+            V.set(king ? -depth - 0.03 : sw, LID_T * 0.4, king ? sw : -depth - 0.03).applyMatrix4(lid.group.matrixWorld).sub(this.origin);
+            V2.set(king ? -depth + 0.1 : sw, LID_T * 0.4, king ? sw : -depth + 0.1).applyMatrix4(lid.group.matrixWorld).sub(this.origin);
+            const f = V2.clone().sub(V).normalize();
+            return {
+              w: [V.x - f.x * 0.06 + right[0] * k * 0.01, V.y - 0.02, V.z - f.z * 0.06 + right[2] * k * 0.01],
+              f: [f.x, f.y - 0.25, f.z],
+              u: [0, 1, 0],
+              curl: 0.55,
+              spread: 0.06,
+            };
+          };
+          return { right: hand(king ? 1 : -1), left: hand(king ? -1 : 1) };
+        }
+        return { right: { w: [0, -50, 0.3], f: [0, 0, 1], u: [0, 1, 0], curl: 0 }, left: { w: [0, -50, 0.3], f: [0, 0, 1], u: [0, 1, 0], curl: 0 } };
+      }
       case 'knock': {
         // Стук (Г-7): правая — кулаком к доске двери, на ударах касается её и отдёргивается; левая опущена.
         const at = this.act?.t ?? 0;
@@ -1273,6 +1375,10 @@ export class ChambersRoom implements Inside {
       return;
     }
     if (!aim) return;
+    if (aim.kind === 'letter') {
+      this.life.takeLetter();
+      return;
+    }
     if (aim.kind === 'folk') {
       this.life.callOver(aim.who);
       return;
@@ -1355,7 +1461,7 @@ export class ChambersRoom implements Inside {
     }
     // Люди и кот (Г-7): точнее мебели — тело перед ней.
     const lp = this.life.pick(RAY);
-    if (lp) consider(lp.kind === 'folk' ? { kind: 'folk', who: lp.who } : { kind: 'cat' }, lp.d, true);
+    if (lp) consider(lp.kind === 'folk' ? { kind: 'folk', who: lp.who } : lp.kind === 'letter' ? { kind: 'letter' } : { kind: 'cat' }, lp.d, true);
     const found = best as { aim: Aim } | null;
     return found ? found.aim : null;
   }
@@ -1404,6 +1510,8 @@ export class ChambersRoom implements Inside {
     this.camera.getWorldDirection(V2);
     return LABELS.map((l, i) => {
       if (quiet || l.id === hoverId) return false;
+      // Сундук: закрытый — «Сундук короля», открытый — «Доспех короля» (то, что в нём, Г-9).
+      if (l.chest && (l.chest.when === 'open') !== this.chestOpen(l.chest.id)) return false;
       V.set(l.at[0], l.at[1], l.at[2]).add(this.origin);
       const s = this.screenOf(V);
       if (!s.on) return false;
@@ -1430,8 +1538,9 @@ export class ChambersRoom implements Inside {
     const dx = l.at[0] - ex;
     const dy = l.at[1] - ey;
     const dz = l.at[2] - ez;
+    const own = l.chest ? chestOf(l.chest.id).id : null;
     for (const o of OCCLUDERS) {
-      if (o.id === l.id) continue;
+      if (o.id === l.id || o.id === own) continue;
       const t = rayBox(ex, ey, ez, dx, dy, dz, o.box);
       if (t !== null && t < 0.985) return true;
     }
@@ -1476,7 +1585,7 @@ export class ChambersRoom implements Inside {
     if (aim && this.mode !== 'act' && !(this.held && this.held.dir > 0)) {
       const box = aim.kind === 'thing' ? this.worldBox(aim.thing) : null;
       const hb = aim.kind === 'poi' ? aim.poi.hits[0] : null;
-      const lv = aim.kind === 'folk' || aim.kind === 'cat' ? this.lifeTop(aim) : null;
+      const lv = aim.kind === 'folk' || aim.kind === 'cat' || aim.kind === 'letter' ? this.lifeTop(aim) : null;
       const s = box ? this.screenOf(box) : hb ? this.screenOf(hb) : lv ? this.screenOf(lv) : { x: 0, y: 0, on: false, dist: 0 };
       if (s.on) {
         const [name, small] = this.aimWords(aim);
@@ -1533,7 +1642,8 @@ export class ChambersRoom implements Inside {
   /** Подпись того, что под пальцем: имя и что будет от касания. */
   private aimWords(aim: Aim): [string, string] {
     if (aim.kind === 'poi') return [aim.poi.name, aim.poi.verb];
-    if (aim.kind === 'folk') return [FOLK_NAME[aim.who], 'Поговорить'];
+    if (aim.kind === 'letter') return ['Письмо с печатью', 'Взять и прочесть'];
+    if (aim.kind === 'folk') return [FOLK_NAME[aim.who], aim.who === 'advisor' ? 'Выслушать доклад' : 'Поговорить'];
     if (aim.kind === 'cat') {
       const c = this.life.cat;
       const near = !!c && Math.hypot(c.x - this.pose.x, c.z - this.pose.z) < 0.95;
@@ -1596,6 +1706,10 @@ export class ChambersRoom implements Inside {
     if (aim.kind === 'folk') {
       const p = this.life.personOf(aim.who);
       return p ? new THREE.Vector3(...p.rig.at('head', [0, 0.26, 0])).add(this.origin) : null;
+    }
+    if (aim.kind === 'letter') {
+      const at = this.life.letterAt();
+      return at ? at.clone().add(new THREE.Vector3(0, 0.18, 0)) : null;
     }
     const c = this.life.cat;
     return c?.visible ? new THREE.Vector3(c.x, c.y + 0.42, c.z).add(this.origin) : null;

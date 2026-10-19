@@ -411,7 +411,7 @@ function yardsOf(seed: number): Yard[] {
 }
 
 /** Предместье: дома по обе стороны дороги в долину — за гласисом, до полей. */
-function placeSuburb(road: Street, wall: P[], yards: Yard[], seed: number): House[] {
+function placeSuburb(road: Street, wall: P[], yards: Yard[], seed: number, others: readonly Street[] = []): House[] {
   const out: House[] = [];
   const boxes: Box[] = [];
   const r = stream(seed);
@@ -433,7 +433,9 @@ function placeSuburb(road: Street, wall: P[], yards: Yard[], seed: number): Hous
       const ok =
         pts.every((q) => !insidePoly(q, wall) && distPoly(q, wall, true) > 34) &&
         !boxes.some((b) => boxesOverlap(box, b, 0.6)) &&
-        yards.every((yd) => Math.hypot(cx - yd.x, cz - yd.z) > yd.r + 6);
+        yards.every((yd) => Math.hypot(cx - yd.x, cz - yd.z) > yd.r + 6) &&
+        // Тропы, что отходят от дороги, — не под домом: дом у развилки вставал на тропу к реке и к загону (Г-8, 4а).
+        boxOutline(box).every((q) => others.every((o) => o === road || distPoly(q, o.pts) > o.half + 0.6));
       if (ok) {
         const fl = heightAt(mid.p.x + nx * (front + 0.5), mid.p.z + nz * (front + 0.5));
         const span = footSpan(cx, cz, -nx, -nz, w, d);
@@ -656,12 +658,25 @@ function placeTowers(wall: P[], gates: { x: number; z: number; out: number }[], 
   return towers;
 }
 
+/** Восточный переулок у Гильдии и Амбара — за их тылом, м: стены — до x 47,5, кузница и конюшня — от x 59. */
+const EAST_LANE_X = 52.5;
+
 /** Улицы города (центральные линии сглажены). */
 function streetsOf(wall: P[]): Street[] {
   const laneX = (z: number, side: -1 | 1): number => axisX(z) + side * 0.58 * (halfAt(z) - 11);
+  // Восточный переулок обходит Гильдию и Амбар с тыла (docs/city_v3.md, Г-8, 4а): прежде он шёл сквозь оба здания — по
+  // земле переулка под их стенами, и в проезд вставали их углы.
+  const detour = (z: number): number => {
+    const w = Math.min(sstep(-38, -26, z), 1 - sstep(30, 42, z));
+    return w * Math.max(0, EAST_LANE_X - laneX(z, 1));
+  };
+  // Севернее −40 Восточный переулок шёл в трёх-пяти метрах от Верхней, параллельно ей, до самой стены: между ними дому не
+  // встать, и с камеры игры это была бурая полоса вдоль мостовой (Г-8, 4а). Теперь он вливается в Верхнюю, а её восточную
+  // сторону занимают дома фасадами на неё.
   const lane = (side: -1 | 1): P[] => {
     const pts: P[] = [];
-    for (let z = 104; z >= -88; z -= 8) pts.push({ x: laneX(z, side), z });
+    for (let z = 104; z >= (side > 0 ? -40 : -88); z -= 8) pts.push({ x: laneX(z, side) + (side > 0 ? detour(z) : 0), z });
+    if (side > 0) pts.push({ x: 29, z: -48 });
     return pts;
   };
   // Улица вдоль стены — контур стены, сжатый к середине на 7 м.
@@ -699,36 +714,78 @@ function streetsOf(wall: P[]): Street[] {
     s('Переулок Восточный', lane(1), 2.25, 'dirt', 'both', 0.35),
     s('Поперечный Южный', [{ x: laneX(80, -1), z: 80 }, { x: 6, z: 80 }, { x: laneX(80, 1), z: 80 }], 2, 'dirt', 'both', 0.4, 1),
     s('Поперечный Средний', [{ x: laneX(46, -1), z: 46 }, { x: 4, z: 46 }], 2, 'dirt', 'both', 0.45, 1),
-    // Поперечного Северного (z −64) больше нет: он шёл сквозь двор храма, развёрнутого лицом к площади (docs/city_v3.md).
+    // Переулки Соборной площади (docs/city_v3.md, Г-8): между домами вокруг храма — проходы к улицам квартала, а не дворы.
+    // Мощёные, как сама площадь: с неё они читаются её продолжением.
+    s('Соборный Западный', [{ x: laneX(-62, -1), z: -62 }, { x: CLOSE.x0 + 1.5, z: -62 }], 2, 'cobble', 'both', 0.5, 1),
+    s('Соборный Восточный', [{ x: CLOSE.x1 - 1.5, z: -58 }, { x: 28.4, z: -58 }], 2, 'cobble', 'both', 0.5, 1),
+    s('Соборный Северный', [{ x: -13, z: CLOSE.z1 + 1.5 }, { x: -13, z: -108.5 }], 2, 'cobble', 'both', 0.5, 1),
     { name: 'Вдоль стены', pts: smoothPath(ring, 1), half: 2, surface: 'dirt', sides: 'both', rich: 0.15 },
   ];
 }
 
 /**
- * Площадь — неправильный четырёхугольник; с севера к ней прибавлена площадка перед храмом до ограды двора (`PARVIS`):
- * лестница паперти выходит на мостовую.
+ * Площадь — одна мостовая от рядов рынка до апсиды храма (docs/city_v3.md, Г-8): неправильный четырёхугольник рынка и с
+ * севера — Соборная площадь вокруг храма, шириной в храм и по полосе `CLOSE_WALK` с боков и за апсидой. Дома стоят по её
+ * краю фасадами на неё (`placeHouses`, ряд вдоль площади), между ними — переулки к улицам квартала. В северо-западном углу
+ * у Западной улицы — карман со свечными лотками.
  */
+const CLOSE_WALK = 6.5;
+/** Храм лицом к площади: середина фасада по оси и длина (`CHURCH`) — нужны краю площади раньше самого храма. */
+const CH = { x: -4, front: -38, len: 42, width: 16 } as const;
+/** Края Соборной площади: запад и восток — по полосе от стен нефа, север — за апсидой (апсида — до `front − len`). */
+export const CLOSE = {
+  x0: CH.x - CH.width / 2 - CLOSE_WALK,
+  x1: CH.x + CH.width / 2 + CLOSE_WALK,
+  z1: CH.front - CH.len - 7,
+} as const;
+// Обход — против часовой, от угла Соборной площади у Верхней улицы: ряды вдоль краёв площади ставятся по обходу (`placeHouses`),
+// и угловой дом встаёт фасадом на юг, к площади, раньше ряда вдоль соседнего края — угол закрыт фасадом, а не боком дома с
+// полосой травы. Так — у Верхней улицы и в кармане у Западной.
 const SQUARE: P[] = [
+  { x: CLOSE.x1, z: -26.5 },
+  // Восточный край — до фасадов Амбара и Гильдии: прежде между краем мостовой и ними лежала полоса травы.
+  { x: 33, z: -25 },
+  { x: 33.5, z: 29 },
   { x: -27, z: 27 },
-  { x: 31, z: 29 },
-  { x: 28, z: -25 },
-  { x: 16, z: -25.5 },
-  { x: 16, z: -36 },
   { x: -27.5, z: -36 },
+  { x: CLOSE.x0, z: -36 },
+  { x: CLOSE.x0, z: CLOSE.z1 },
+  // Северо-восточный угол открыт на Верхнюю улицу, к воротам замка: она подходит тут к площади на три метра, и дому между
+  // ними не встать — площадь доходит до её мостовой.
+  { x: 2.8, z: CLOSE.z1 },
+  { x: 8.2, z: -95.5 },
+  { x: 16.6, z: -83.5 },
+  { x: CLOSE.x1, z: -78 },
 ];
 
 /**
  * Храм лицом к площади (docs/city_v3.md, Г-2): западная башня с порталом — к югу, к камере игры; неф уходит на север,
- * апсида — у дальнего края двора. Пол храма — над самой высокой землёй следа (склон мыса поднимается к замку), и к двери
+ * апсида — у северного края площади. Пол храма — над самой высокой землёй следа (склон мыса поднимается к замку), и к двери
  * ведут паперть — площадка у портала — и широкая лестница на площадь.
  */
-export const CHURCH = { x: -4, front: -38, len: 42, width: 16 } as const;
+export const CHURCH = CH;
 /** Паперть: площадка у портала (до `top`) и лестница до мостовой (`foot`), ширина — `half` в обе стороны от оси. */
 export const PARVIS = { half: 6, top: -35.5, foot: -30.5 } as const;
-/** Двор храма за оградой: кладбище на западе, сад трав на востоке, плодовые деревья за апсидой. */
-export const CLOSE = { x0: -28, x1: 16, z0: -36, z1: -90 } as const;
-/** Земля, где домов нет: двор, сад за ним до улицы вдоль стены и полоса до Верхней улицы (коновязь, поилка, повозка). */
-const PRECINCT = { x0: -30, x1: 21, z0: -26, z1: -103 } as const;
+
+/**
+ * Где стоит убранство Соборной площади (docs/city_v3.md, Г-8) — по краям, у фасадов, не на путях прохожих: доска и лотки —
+ * в кармане у Западной улицы, колодки — у углового дома при Верхней, коновязь с поилкой и бочками — у западного края рынка.
+ * Точки — для построителя (`precinct.churchSquare`), грязи у коновязи (`roads.mudAt`) и тестов «не на проходе» и «на площади».
+ */
+export const SQUARE_PROPS = {
+  /** Доска объявлений: середина, лицом на юг, к площади (столбы — в 0,85 м по сторонам). */
+  board: { x: -22.4, z: -35.2 },
+  /** Свечные лотки лицом на восток, к храму; второй — со «Среднего». */
+  stalls: [
+    { x: -25.4, z: -31.6 },
+    { x: -25.4, z: -28.2 },
+  ],
+  /** Колодки: доска с прорезями между столбами, лицом на юг. */
+  stocks: { x: 15.4, z: -24.9 },
+  /** Коновязь вдоль края площади: от `z0` до `z1` по `x`, поилка — к югу от неё. */
+  rail: { x: -24.6, z0: 15.5, z1: 21.5 },
+  trough: { x: -24.4, z: 24.4 },
+} as const;
 
 function civicOf(seed: number): Civic[] {
   const c = (kind: CivicKind, x: number, z: number, rot: number, w: number, d: number): Civic => ({
@@ -749,11 +806,14 @@ function civicOf(seed: number): Civic[] {
     // Храм: фасад с башней и порталом — на юг, к площади; неф уходит на север (`CHURCH`).
     c('church', CHURCH.x, CHURCH.front - CHURCH.len / 2, S, CHURCH.width, CHURCH.len),
     // Ратуша: западная сторона площади, аркада к площади (на восток).
-    c('hall', -35, -2, E, 32, 13),
-    c('granary', 41, 16, W, 24, 12),
+    // Тыл Ратуши — не в Западном переулке (прежде угол стоял в нём на 1,7 м, Г-8, 4а), фасад — по краю площади.
+    c('hall', -34, -2, E, 32, 12),
+    // Южная стена Амбара — не на Восточной улице (прежде стояла в ней на полтора метра, Г-8, 4а).
+    c('granary', 41, 17.5, W, 24, 12),
     c('guild', 41, -14, W, 18, 13),
     c('smithy', 68, 15, N, 11, 10),
-    c('stable', 68, -14, S, 16, 10),
+    // Конюшня — не на улице вдоль стены: прежде её восточная стена стояла посреди этой улицы (Г-8, 4а).
+    c('stable', 64.5, -13, S, 15, 10),
     c('tavern', -11, 104, E, 11, 14),
     c('spital', 19, 103, W, 18, 12),
     // Замок: палас вдоль западной стены, казармы вдоль восточной.
@@ -798,6 +858,29 @@ function boxesOverlap(a: Box, b: Box, pad = 0): boolean {
   return true;
 }
 
+/**
+ * Обвод прямоугольника точками через метр и его середина: дом сверяется с улицами по всему обводу, а не по девяти точкам —
+ * длинный дом глубиной в 12–15 м прежде вставал поперёк переулка шириной в 4,5 м, и переулок проходил между точками
+ * проверки (docs/city_v3.md, Г-8, 4а).
+ */
+function boxOutline(b: Box): P[] {
+  const vx = -b.uz;
+  const vz = b.ux;
+  const out: P[] = [{ x: b.cx, z: b.cz }];
+  const nu = Math.max(1, Math.ceil(b.hu * 2));
+  const nv = Math.max(1, Math.ceil(b.hv * 2));
+  const at = (su: number, sv: number): P => ({ x: b.cx + b.ux * b.hu * su + vx * b.hv * sv, z: b.cz + b.uz * b.hu * su + vz * b.hv * sv });
+  for (let k = 0; k <= nu; k++) {
+    const su = -1 + (2 * k) / nu;
+    out.push(at(su, -1), at(su, 1));
+  }
+  for (let k = 1; k < nv; k++) {
+    const sv = -1 + (2 * k) / nv;
+    out.push(at(-1, sv), at(1, sv));
+  }
+  return out;
+}
+
 function boxCorners(b: Box): P[] {
   const vx = -b.uz;
   const vz = b.ux;
@@ -818,16 +901,13 @@ function boxCorners(b: Box): P[] {
   return out;
 }
 
-/** Двор храма, площадь и места больших зданий — запретная для домов земля. */
+/** Места больших зданий — запретная для домов земля (площадь запретна сама). */
 function reserved(civic: Civic[]): Box[] {
   const out = civic.map((c) => {
     const b = boxOfCivic(c);
     return { ...b, hu: b.hu + 2, hv: b.hv + 2 };
   });
-  // Двор храма с оградой и полоса до Верхней улицы: дома позади и по бокам храма убраны (docs/city_v3.md).
-  const P = PRECINCT;
-  out.push({ cx: (P.x0 + P.x1) / 2, cz: (P.z0 + P.z1) / 2, ux: 1, uz: 0, hu: (P.x1 - P.x0) / 2, hv: (P.z0 - P.z1) / 2 });
-  // Колодец, статуя и ряды — на площади, она и так запретна.
+  // Колодец, статуя, ряды и Соборная площадь вокруг храма — на площади, она и так запретна.
   return out;
 }
 
@@ -848,6 +928,8 @@ function placeHouses(streets: Street[], wall: P[], blocked: Box[], seed: number)
     for (const q of pts) {
       if (!insidePoly(q, wall) || distPoly(q, wall, true) < 8.6) return null;
       if (insidePoly(q, SQUARE) || distPoly(q, SQUARE, true) < 0.2) return null;
+    }
+    for (const q of boxOutline(box)) {
       for (const o of streets) {
         const lim = o === st ? o.half + 0.2 : o.half + 0.4;
         if (distPoly(q, o.pts) < lim) return null;
@@ -889,6 +971,38 @@ function placeHouses(streets: Street[], wall: P[], blocked: Box[], seed: number)
     boxes.push(box);
     return h;
   };
+  // Ряд вдоль площади — первым: фасады на неё (и на Соборную площадь вокруг храма) важнее задворков улиц квартала, и где
+  // улице с площадью тесно, дом встаёт к площади, а к улице — мельче (docs/city_v3.md, Г-8).
+  const sq = SQUARE;
+  for (let k = 0; k < sq.length; k++) {
+    const a = sq[k];
+    const b = sq[(k + 1) % sq.length];
+    const st: Street = { name: 'Площадь', pts: [a, b], half: 0, surface: 'cobble', sides: 'both', rich: 1 };
+    const len = Math.hypot(b.x - a.x, b.z - a.z);
+    // Короткий скос у выхода на Верхнюю — край открытого угла, а не ряд: дом на нём закрывал бы угол ряда вдоль площади.
+    if (len < 8.5) continue;
+    let s = 0.5;
+    // Участок — по ту сторону края, что вне площади (`tryHouse` не ставит дом на неё).
+    while (s < len - 2) {
+      const w = 6.5 + r() * 3;
+      let placed = false;
+      const deep = 11 + r() * 3;
+      for (const dd of [deep, 12, 10.5, 9, 7.5, 6]) {
+        for (const ww of [w, w * 0.8, 5, 4.4, 3.8]) {
+          // Узкий дом — от того же места, что широкий, а не по его середине: иначе между соседями оставалась щель.
+          const mid = along(st.pts, s + ww / 2);
+          if (tryHouse(st, mid.p, mid.t, -1, ww, dd) || tryHouse(st, mid.p, mid.t, 1, ww, dd)) {
+            s += ww;
+            placed = true;
+            break;
+          }
+        }
+        if (placed) break;
+      }
+      // Шаг мельче, чем у улиц: щель в ряду вдоль площади видна с камеры игры полосой травы между фасадами.
+      if (!placed) s += 0.75;
+    }
+  }
   for (const st of streets) {
     if (st.sides === 'none') continue;
     const len = polyLength(st.pts);
@@ -913,30 +1027,6 @@ function placeHouses(streets: Street[], wall: P[], blocked: Box[], seed: number)
       }
     }
   }
-  // Ряд вдоль площади: дома смотрят на неё.
-  const sq = SQUARE;
-  for (let k = 0; k < sq.length; k++) {
-    const a = sq[k];
-    const b = sq[(k + 1) % sq.length];
-    const st: Street = { name: 'Площадь', pts: [a, b], half: 0, surface: 'cobble', sides: 'both', rich: 1 };
-    const len = Math.hypot(b.x - a.x, b.z - a.z);
-    let s = 0.5;
-    // Площадь обходится по часовой: участки — справа от хода, наружу.
-    while (s < len - 2) {
-      const w = 6.5 + r() * 3;
-      const mid = along(st.pts, s + w / 2);
-      let placed = false;
-      for (const ww of [w, w * 0.8, 5]) {
-        const dd = 11 + r() * 3;
-        if (tryHouse(st, mid.p, mid.t, -1, ww, dd) || tryHouse(st, mid.p, mid.t, 1, ww, dd)) {
-          s += ww;
-          placed = true;
-          break;
-        }
-      }
-      if (!placed) s += 1.5;
-    }
-  }
   return houses;
 }
 
@@ -952,6 +1042,11 @@ function placeStalls(seed: number): Stall[] {
   }
   return out;
 }
+
+/** Рост плодового дерева двора, м, по его мере `r` (`nature.placeTrees`). */
+export const yardTreeHeight = (r: number): number => 6 + r * 1.2;
+/** Радиус кроны дерева двора, м: ком модели (`nature.treeModel`) — до 0,42 роста от ствола. */
+export const yardCrown = (r: number): number => 0.42 * yardTreeHeight(r);
 
 /** План города от зерна — один на вид. */
 export function cityPlan(seed = CITY_SEED): CityPlan {
@@ -977,21 +1072,9 @@ export function cityPlan(seed = CITY_SEED): CityPlan {
   const blocked = reserved(civic);
   const houses = placeHouses(streets, wall, blocked, seed + 1);
   const stalls = placeStalls(seed + 2);
-  // Деревья: липа на площади у храма, плодовые во дворах (за домами, где пусто).
-  const yardTrees: CityPlan['yardTrees'] = [
-    { x: -18, z: -21, r: 4.5, seed: 1 },
-    // Двор храма: тисы на кладбище, дерево в саду трав, плодовые за апсидой.
-    { x: -24.5, z: -47, r: 3.2, seed: 2 },
-    { x: -21, z: -79, r: 3.6, seed: 3 },
-    { x: 12.5, z: -68, r: 2.6, seed: 4 },
-    { x: -11, z: -86.5, r: 3, seed: 5 },
-    { x: 1, z: -87.5, r: 3.2, seed: 6 },
-    { x: 11, z: -84, r: 2.8, seed: 7 },
-    // За оградой двора, до улицы вдоль стены, — сад: там стояли дома позади храма.
-    { x: -17, z: -97, r: 3.2, seed: 8 },
-    { x: -4, z: -98.5, r: 3.4, seed: 9 },
-    { x: 9, z: -96.5, r: 3, seed: 10 },
-  ];
+  // Деревья — плодовые во дворах, за домами, где пусто. Липы на площади и сада храма больше нет: площадь — одна мостовая
+  // (docs/city_v3.md, Г-8).
+  const yardTrees: CityPlan['yardTrees'] = [];
   const tr = stream(seed + 3);
   const hb = houses.map(boxOfHouse);
   for (let k = 0; k < 4000 && yardTrees.length < 90; k++) {
@@ -999,17 +1082,21 @@ export function cityPlan(seed = CITY_SEED): CityPlan {
     const z = 120 - tr() * 225;
     const p = { x, z };
     if (!insidePoly(p, wall) || distPoly(p, wall, true) < 8) continue;
-    if (insidePoly(p, SQUARE)) continue;
-    if (streets.some((s) => distPoly(p, s.pts) < s.half + 2.2)) continue;
+    // Крона — не над мостовой и не над улицей: прежде дерево держало от улицы два метра от ствола, и крона в четыре метра
+    // заезжала на неё (docs/city_v3.md, Г-8).
+    const r = 2.4 + tr() * 1.6;
+    const crown = yardCrown(r);
+    if (insidePoly(p, SQUARE) || distPoly(p, SQUARE, true) < crown + 0.5) continue;
+    if (streets.some((s) => distPoly(p, s.pts) < s.half + crown + 0.5)) continue;
     const probe: Box = { cx: x, cz: z, ux: 1, uz: 0, hu: 1.6, hv: 1.6 };
     if (hb.some((b) => boxesOverlap(probe, b))) continue;
     if (blocked.some((b) => boxesOverlap(probe, b))) continue;
     if (yardTrees.some((t) => Math.hypot(t.x - x, t.z - z) < 6)) continue;
-    yardTrees.push({ x, z, r: 2.4 + tr() * 1.6, seed: Math.floor(tr() * 1e9) });
+    yardTrees.push({ x, z, r, seed: Math.floor(tr() * 1e9) });
   }
   const roads = roadsOf(gates);
   const yards = yardsOf(seed);
-  const suburb = placeSuburb(roads[0], wall, yards, seed + 4);
+  const suburb = placeSuburb(roads[0], wall, yards, seed + 4, roads);
   return {
     wall,
     castleWall,

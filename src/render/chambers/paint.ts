@@ -36,6 +36,9 @@ export const ATLAS = {
   wax: { x: 768, y: 672, w: 64, h: 64 },
   banner: { x: 640, y: 768, w: 128, h: 256 },
   sheep: { x: 768, y: 768, w: 256, h: 256 },
+  // Доспех короля в сундуке (Г-9): кольчуга сложенная и сюрко с гербом державы.
+  mail: { x: 0, y: 832, w: 256, h: 192 },
+  surcoat: { x: 256, y: 832, w: 192, h: 192 },
 } as const satisfies Record<string, Cell>;
 
 export type AtlasCell = keyof typeof ATLAS;
@@ -98,6 +101,8 @@ export function paintAtlas(arms: Arms, px: number, seed = 1200): HTMLCanvasEleme
   wax(ctx, ATLAS.wax, arms);
   banner(ctx, ATLAS.banner, arms, r);
   sheep(ctx, ATLAS.sheep, r);
+  mail(ctx, ATLAS.mail);
+  surcoat(ctx, ATLAS.surcoat, arms, r);
   return cv;
 }
 
@@ -140,6 +145,67 @@ function banner(ctx: CanvasRenderingContext2D, c: Cell, arms: Arms, r: () => num
   ctx.fillStyle = '#d8b25a';
   for (let x = c.x + 2; x < c.x + c.w * 0.18; x += 3) ctx.fillRect(x, c.y + c.h - 8, 1.6, 8);
   for (let x = c.x + c.w * 0.82; x < c.x + c.w - 1; x += 3) ctx.fillRect(x, c.y + c.h - 8, 1.6, 8);
+}
+
+/**
+ * Кольчуга, сложенная вчетверо (Г-9): кольца рядами со сдвигом — светлый край сверху, тень снизу, — по сгибам ряды
+ * темнее; у ворота — кожаная обшивка.
+ */
+function mail(ctx: CanvasRenderingContext2D, c: Cell): void {
+  ctx.fillStyle = '#6f747c';
+  ctx.fillRect(c.x, c.y, c.w, c.h);
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(c.x, c.y, c.w, c.h);
+  ctx.clip();
+  const step = 5.2;
+  for (let j = 0, y = c.y + 2; y < c.y + c.h + 4; j++, y += step * 0.72) {
+    // Сгибы: кольца у сгиба — в тени.
+    const fold = Math.min(Math.abs(y - (c.y + c.h * 0.5)), Math.abs(y - (c.y + c.h * 0.25)), Math.abs(y - (c.y + c.h * 0.75)));
+    const dim = fold < 6 ? 0.55 + fold * 0.07 : 1;
+    for (let x = c.x + (j % 2 ? step / 2 : 0); x < c.x + c.w + step; x += step) {
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = `rgba(${Math.round(244 * dim)},${Math.round(246 * dim)},${Math.round(250 * dim)},0.95)`;
+      ctx.beginPath();
+      ctx.arc(x, y, 2.3, Math.PI * 1.05, Math.PI * 1.95);
+      ctx.stroke();
+      ctx.strokeStyle = `rgba(${Math.round(132 * dim)},${Math.round(136 * dim)},${Math.round(144 * dim)},0.95)`;
+      ctx.beginPath();
+      ctx.arc(x, y, 2.3, Math.PI * 0.05, Math.PI * 0.95);
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
+  // Ворот — кожаная обшивка по верхнему краю.
+  ctx.fillStyle = '#5a3a24';
+  ctx.fillRect(c.x, c.y, c.w, 9);
+  ctx.fillStyle = 'rgba(0,0,0,0.25)';
+  ctx.fillRect(c.x, c.y + 9, c.w, 2);
+}
+
+/**
+ * Сюрко с гербом державы, сложенное (Г-9): поле и фигура герба во всю грудь (`paintField`, П-2), золотая кайма по
+ * краю, складки тенью; шерсть — утком.
+ */
+function surcoat(ctx: CanvasRenderingContext2D, c: Cell, arms: Arms, r: () => number): void {
+  paintField(ctx, arms, c.x, c.y, c.w, c.h);
+  for (let y = c.y; y < c.y + c.h; y += 1.6) {
+    ctx.fillStyle = r() < 0.5 ? 'rgba(255,240,210,0.05)' : 'rgba(0,0,0,0.07)';
+    ctx.fillRect(c.x, y, c.w, 0.7);
+  }
+  // Складки: две мягкие тени поперёк — сюрко сложено.
+  for (const k of [0.34, 0.68]) {
+    const g = ctx.createLinearGradient(c.x, c.y + c.h * k - 10, c.x, c.y + c.h * k + 10);
+    g.addColorStop(0, 'rgba(0,0,0,0)');
+    g.addColorStop(0.5, 'rgba(0,0,0,0.28)');
+    g.addColorStop(0.62, 'rgba(255,240,210,0.08)');
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(c.x, c.y + c.h * k - 10, c.w, 20);
+  }
+  ctx.strokeStyle = '#c9a24a';
+  ctx.lineWidth = 5;
+  ctx.strokeRect(c.x + 4, c.y + 4, c.w - 8, c.h - 8);
 }
 
 /** Овчина у кровати: светлая шерсть завитками, неровный край (обрезка по альфе). */

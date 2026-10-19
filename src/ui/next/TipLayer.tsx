@@ -81,9 +81,10 @@ export function TipView({ tip, view, busy, modal, hide }: ViewProps) {
             )}
           </div>
         )}
-        {/* Главные кнопки — постройки, которые делают число; под окном с вопросом их нет, как и двери окна. */}
+        {/* Главные кнопки — постройки, которые делают число; под окном с вопросом их нет, как и двери окна. С «Показать в
+            городе» рядом — столбцом: в два столбца имя рядом с меткой места рвалось по слогам (ОР-1). */}
         {tip.makers && tip.makers.length > 0 && !modal && (
-          <div className={`nx-tip-makers${tip.makers.length === 1 ? ' one' : ''}`}>
+          <div className={`nx-tip-makers${tip.makers.length === 1 || tip.makers.some((m) => m.show) ? ' one' : ''}`}>
             {tip.makers.map((m) => (
               <TipMakerButton key={m.label} maker={m} hide={hide} />
             ))}
@@ -152,9 +153,12 @@ function TipLine({ row, go, sum = false, hide }: { row: TipRow; go?: () => void;
 /**
  * Главная кнопка подсказки — постройка, которая делает число: значок и имя, 44. Постройки нет в городе — та же кнопка
  * с подписью «построить» ведёт в «Стройку» ратуши. Сначала закрывает подсказку, потом ведёт — как дверь окна.
+ *
+ * Постройка стоит — рядом своя кнопка 44 с меткой места: «Показать в городе» (ОР-1). Рядом, а не внутри: кнопка в кнопке
+ * недопустима (раздел 2.5).
  */
 function TipMakerButton({ maker, hide }: { maker: TipMaker; hide: () => void }) {
-  return (
+  const main = (
     <button
       className={`nx-tip-maker${maker.build ? ' build' : ''}`}
       aria-label={maker.build ? `Построить: ${maker.label}` : maker.label}
@@ -170,5 +174,23 @@ function TipMakerButton({ maker, hide }: { maker: TipMaker; hide: () => void }) 
         {maker.build && <small>построить</small>}
       </span>
     </button>
+  );
+  const show = maker.show;
+  if (!show) return main;
+  return (
+    <span className="nx-tip-mk">
+      {main}
+      <button
+        className="nx-tip-show"
+        aria-label={`Показать в городе: ${maker.label}`}
+        onClick={(e) => {
+          e.stopPropagation();
+          hide();
+          show();
+        }}
+      >
+        <Icon name="ui-pin" glyph="📍" />
+      </button>
+    </span>
   );
 }

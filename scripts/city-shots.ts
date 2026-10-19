@@ -11,7 +11,9 @@
 //                                                `WXLOOK=market:70` — вблизи постройки (тип:расстояние; `-4,10,-30:60` —
 //                                                точка плана; `…:60:150` — камера повёрнута на 150°), `WXMAP=1` —
 //                                                карта мира, `WXSEASON=winter` — сезон партии, `WXREGION=italy` — регион,
-//                                                `WXDAY=0.8` — доля суток партии (0.8 летом — глубокая ночь, docs/polish.md, П-3)
+//                                                `WXDAY=0.8` — доля суток партии (0.8 летом — глубокая ночь, docs/polish.md, П-3);
+//                                                `MOOD=feast` — состояние города адресом (`?mood=`: feast, siege, hunger,
+//                                                plague, gloom, cheer; docs/city_v3.md, ЖГ-1), `POP=150` — население партии
 //   GAME=1 WX=clear CHAMBERS=desk npm run city:shots — покои правителя (docs/city_v3.md, Г-4): точка интереса
 //                                                (hall, desk, window, hearth, bed, arms), `:доворот:наклон:безделушка:подсветка`
 //   LEGEND=1 npm run city:shots              — легенда карты листом: строки значков той же функцией, что окно легенды
@@ -170,7 +172,9 @@ async function shot(q: Quality, view: string, solar: number): Promise<void> {
 
 /** Игра по адресу `?look=city`: новая партия, вход, стартовый кадр города и счётчики сцены. */
 async function gameShot(q: Quality): Promise<void> {
-  const tab = await Tab.open(DEBUG_PORT, reportPage(PORT, `&look=${process.env.LOOK ?? 'city'}&quality=${q}`));
+  // Состояние города адресом (`MOOD=feast`, docs/city_v3.md, ЖГ-1): праздник, осада, голод, мор, хмуро, весело.
+  const mood = process.env.MOOD ? `&mood=${process.env.MOOD}` : '';
+  const tab = await Tab.open(DEBUG_PORT, reportPage(PORT, `&look=${process.env.LOOK ?? 'city'}&quality=${q}${mood}`));
   try {
     await tab.send('Emulation.setDeviceMetricsOverride', SCREEN);
     // Касание — до перезагрузки: иначе страница не считает себя сенсорной, и касание CDP не становится
@@ -323,6 +327,16 @@ async function weatherShots(tab: Tab, q: Quality): Promise<void> {
       return JSON.stringify('ok');
     })()`);
   }
+  // Население партии (`POP=150`, docs/city_v3.md, ЖГ-1): город середины игры — людей на улицах до потолка уровня.
+  const pop = process.env.POP;
+  if (pop) {
+    await tab.eval<string>(`(() => {
+      const s = window.__game.getState().s;
+      s.pop = ${Number(pop)};
+      window.__game.setState({ s: { ...s } });
+      return JSON.stringify('ok');
+    })()`);
+  }
   // Час партии (`WXDAY=0.8`): доля суток — ночь, утро, вечер; дождь ночью у фонарей.
   const day = process.env.WXDAY;
   if (day) {
@@ -384,8 +398,11 @@ async function weatherShots(tab: Tab, q: Quality): Promise<void> {
     const [poi, dy, dp, hold, hover] = ch.split(':');
     // Подписи-указатели первого входа на снимках не нужны (`COACH=1` — снять и их).
     const coach = process.env.COACH ? '' : "try { localStorage.setItem('tribe.chambers.coach', '1'); } catch {}";
+    // `RULER=Бертран` — имя правителя до входа (Г-9): дом и нрав супруги — из имени, разговор повторяется от прогона к прогону.
+    const ruler = process.env.RULER ? `(() => { const g = window.__game.getState(); g.s.realm.ruler.name = ${JSON.stringify(process.env.RULER)}; window.__game.setState({ s: { ...g.s } }); })();` : '';
     const said = await tab.eval<string>(`new Promise((ok) => {
       ${coach}
+      ${ruler}
       window.__chambersOpen.getState().show();
       let n = 0;
       const t = setInterval(() => {
@@ -406,6 +423,40 @@ async function weatherShots(tab: Tab, q: Quality): Promise<void> {
     // сразу (`ChambersLife.stage`); списком — несколько (`LIFE='[{"who":"maid"},{"cat":"floor"}]'`).
     if (process.env.LIFE) {
       const r = await tab.eval<string>(`JSON.stringify((() => { const l = window.__chambers.life; for (const s of [].concat(${process.env.LIFE})) l.stage(s); return 'жизнь: ' + JSON.stringify(l.view()); })())`);
+      console.log(`  ${r}`);
+    }
+    // Гонец и советник (Г-10): `COURT='{"herald":{"key":"k","kind":"raid","line":"{T}! …","door":{"to":"inbox"}}}'` — гонец с
+    // письмом этой вести перед правителем; `COURT='{"report":[{"key":"a","text":"…","tone":"bad","door":{"to":"inbox"}}]}'`
+    // — советник у стола с этим докладом (`Court.stage`), без сцен.
+    if (process.env.COURT) {
+      const r = await tab.eval<string>(`JSON.stringify((() => { window.__court.stage(${process.env.COURT}); return 'двор: ' + JSON.stringify(window.__chambers.life.view()); })())`);
+      console.log('  ' + r);
+      await sleep(900);
+    }
+    // Ответ в окне разговора (Г-9): `TALKPICK=Останься` — коснуться ответа с этими словами, когда реплика проступила
+    // (через «|» — несколько подряд); `LIFE_AFTER='{"night":{"k":0.95,"who":"wife"}}'` — что поставить после ответа (утро
+    // после ночи — без ожидания сцены).
+    for (const pick of (process.env.TALKPICK ?? '').split('|').filter(Boolean)) {
+      const said = await tab.eval<string>(`new Promise((ok) => {
+        let n = 0;
+        const t = setInterval(() => {
+          const line = document.querySelector('.ch-talk-line');
+          if (line) line.click();
+          const b = [...document.querySelectorAll('.ch-talk-opts button')].find((x) => x.textContent.includes(${JSON.stringify(pick)}) && !x.disabled);
+          if (b) {
+            clearInterval(t);
+            b.click();
+            setTimeout(() => ok(JSON.stringify('ответ: ' + b.textContent + ' → ' + (document.querySelector('.ch-talk-line')?.textContent ?? '—'))), 600);
+          } else if (++n > 60) {
+            clearInterval(t);
+            ok(JSON.stringify('ответа «' + ${JSON.stringify(pick)} + '» нет'));
+          }
+        }, 250);
+      })`);
+      console.log(`  ${said}`);
+    }
+    if (process.env.LIFE_AFTER) {
+      const r = await tab.eval<string>(`JSON.stringify((() => { const l = window.__chambers.life; for (const s of [].concat(${process.env.LIFE_AFTER})) l.stage(s); return 'жизнь после: ' + JSON.stringify(l.view()); })())`);
       console.log(`  ${r}`);
     }
     await sleep(2500);
@@ -447,6 +498,28 @@ async function weatherShots(tab: Tab, q: Quality): Promise<void> {
     const name = `${TAG}-wx-${wx}${day ? '-d' + day : ''}${region ? '-' + region : ''}${map ? '-map' : near ? '-' + near.replace(/:/g, '') : ''}${ch ? '-ch-' + ch.replace(/:/g, '_') : ''}-${q}.png`;
     await writeFile(join(OUT, name), Buffer.from(png.data, 'base64'));
     if (wx === 'storm') await tab.eval<string>(`(() => { window.__scene.resume(); return JSON.stringify('ok'); })()`);
+    // Ровен ли свет между кадрами (Г-9, мерцание у окна): `BURST=12 BURSTBOX=0.05,0.76,0.3,0.82` — столько снимков подряд,
+    // средняя яркость прямоугольника кадра (доли ширины и высоты) по каждому и наибольший скачок между соседними.
+    const burst = Number(process.env.BURST ?? 0);
+    if (burst > 0) {
+      const [bx0, by0, bx1, by1] = (process.env.BURSTBOX ?? '0.05,0.76,0.3,0.82').split(',').map(Number);
+      const lum: number[] = [];
+      for (let i = 0; i < burst; i++) {
+        const shot = Buffer.from((await tab.send<{ data: string }>('Page.captureScreenshot', { format: 'png' })).data, 'base64');
+        const img = sharp(shot);
+        const { width = 1, height = 1 } = await img.metadata();
+        const left = Math.round(bx0 * width);
+        const top = Math.round(by0 * height);
+        const { channels } = await img
+          .extract({ left, top, width: Math.max(1, Math.round((bx1 - bx0) * width)), height: Math.max(1, Math.round((by1 - by0) * height)) })
+          .stats();
+        lum.push(0.2126 * channels[0].mean + 0.7152 * channels[1].mean + 0.0722 * channels[2].mean);
+        if (process.env.BURSTU) console.log('    ' + (await tab.eval<string>(`JSON.stringify((() => { const r = window.__chambers; if (!r) return ''; const u = r.u; const l = (c) => (0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b).toFixed(3); return 'солнце ' + l(u.uSun.value) + ' небо ' + l(u.uSky.value) + ' рассеянный ' + l(u.uAmb.value) + ' к солнцу ' + u.uSunDir.value.toArray().map((x) => x.toFixed(3)).join(',') + ' кадр ' + window.__scene.frameNo; })())`)));
+        await sleep(120);
+      }
+      const jumps = lum.slice(1).map((v, i) => Math.abs(v - lum[i]));
+      console.log(`  ровность ${q}: яркость ${lum.map((v) => v.toFixed(1)).join(' ')}; наибольший скачок ${Math.max(0, ...jumps).toFixed(1)}`);
+    }
     const pc = await tab.eval<string>('JSON.stringify(JSON.stringify(window.__scene.precip ? { поле: window.__scene.precip.grounded, ...window.__scene.precip.counts() } : null))').catch(() => '?');
     console.log(`  погода ${q}: ${wx} → .city-shots/${name}; осадки ${pc}`);
   }

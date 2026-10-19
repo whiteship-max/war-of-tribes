@@ -8,7 +8,7 @@
 // Что где стоит (вид сверху, юг внизу):
 //
 //     север:  кровать под пологом · камин с колпаком · дверь к лестнице
-//     запад:  гобелен, окно на реку, полки с книгами   восток: оружие и сундук с короной, окно на мыс, полки со свитками
+//     запад:  гобелен, окно на реку, полки с книгами   восток: оружие, корона на полочке, сундук короля, окно на мыс, свитки
 //     середина: люстра-обруч, шахматы у огня
 //     юг:     стол с документами, за ним кресло лицом к большому окну — на город; знамёна по сторонам окна
 
@@ -47,8 +47,18 @@ export interface Pose {
   fov: number;
 }
 
-/** Место действия: сесть за стол, лечь, к окну, к огню, к оружию. `hall` — стоя посреди покоев (вход и снимки стенда). */
-export type SpotId = 'desk' | 'window' | 'hearth' | 'bed' | 'arms' | 'door';
+/**
+ * Место действия: сесть за стол, лечь, к окну, к огню, к оружию; к окнам на мыс и на реку (Г-9). `hall` — стоя посреди
+ * покоев (вход и снимки стенда).
+ */
+export type SpotId = 'desk' | 'window' | 'windowE' | 'windowW' | 'hearth' | 'bed' | 'arms' | 'door' | ChestId;
+/** Сундуки, которые открывают (Г-9): короля под стеной оружия — с доспехом, у южной стены — с платьем. */
+export type ChestId = 'chest' | 'chestS';
+export const isChestSpot = (id: PoiId | null | undefined): id is ChestId => id === 'chest' || id === 'chestS';
+/** Окна, к которым подходят и смотрят вдаль: большое на город и парные на мыс и на реку. */
+export const WINDOW_SPOTS = ['window', 'windowE', 'windowW'] as const;
+export type WindowSpot = (typeof WINDOW_SPOTS)[number];
+export const isWindowSpot = (id: PoiId | null | undefined): id is WindowSpot => id === 'window' || id === 'windowE' || id === 'windowW';
 export type PoiId = 'hall' | SpotId;
 
 /** Где тело стоит перед действием: место на полу и куда лицом. */
@@ -138,6 +148,20 @@ export const alongOf = (o: Opening): number => {
   return o.at * (u[0] + u[2]);
 };
 
+/** Парное окно стены: на мыс — восточное, на реку — западное. */
+export const sideOpening = (id: 'windowE' | 'windowW'): Opening => OPENINGS.find((o) => o.wall === (id === 'windowE' ? 'east' : 'west'))!;
+
+/**
+ * Проём парного окна, в который глядят (Г-9): правитель наклоняется к южному из двух — столбик между ними не встаёт
+ * посреди взгляда, а «Вдаль» смотрит в проём, а не в камень. Вдоль стены (`U`) от середины окна.
+ */
+export const sideLight = (o: Opening): number => {
+  const h = (o.outW - 0.16) / 4;
+  const off = h + 0.08;
+  // Южный проём: у восточной стены ось `U` смотрит на север (−z), у западной — на юг (+z).
+  return alongOf(o) + (o.wall === 'east' ? -off : off);
+};
+
 /** Камин у северной стены: устье, колпак, очаг. Огонь светит отсюда. */
 export const HEARTH = { x: 0, mouthW: 1.9, mouthH: 1.25, depth: 0.62, hoodW: 3.0, hoodFront: -4.35, hoodLow: 1.55, hoodTop: 3.9, fire: { x: 0, y: 0.42, z: -5.42 } };
 
@@ -153,18 +177,33 @@ export const ARMREST = { x: 0.24, y: 0.7, end: 2.52 };
 /** Кровать под пологом в северо-западном углу, изголовьем к северу. */
 export const BED = { x0: -5.0, x1: -3.15, z0: -5.05, z1: -2.85, top: 0.62, canopy: 2.55 };
 
-/** Стена оружия на востоке и сундук под ней. */
-export const ARMS = { z: -2.35, y: 2.15 };
+/**
+ * Стена оружия на востоке (Г-9): щит с гербом и копья накрест — выше, под ними меч на колышках, под мечом — полочка с
+ * короной на бархатной подушке (кованые кронштейны), под полочкой — сундук короля с доспехом. `y` — середина щита.
+ */
+export const ARMS = { z: -2.35, y: 2.38 };
+/** Колышки меча: высота клинка на стене, м. */
+export const SWORD_Y = 1.68;
+/** Полочка короны: доска от стены вглубь (`d`), шириной вдоль стены (`w`), верх и толщина; подушка на ней. */
+export const CROWN_SHELF = { z: ARMS.z, d: 0.3, w: 0.68, top: 1.22, t: 0.045 };
+export const CUSHION = { x: HALF - 0.15, z: ARMS.z, w: 0.25, d: 0.3, h: 0.075 };
 
 /** Столик с шахматами у огня. */
 export const CHESS = { x: 2.15, z: -2.75, top: 0.68, board: 0.5 };
 
-/** Сундуки: в ногах кровати, под оружием (на нём корона), у южной стены под знаменем. */
+/**
+ * Сундуки (Г-9: у кровати — убран): короля — под полочкой короны, у южной стены — под знаменем. Оба открываются: крышка
+ * на петлях у стены (`hinge` — сторона петель), `h` — верх короба, крышка — `LID_T` над ним.
+ */
 export const CHESTS = [
-  { id: 'chestBed', x0: BED.x0 + 0.25, z0: BED.z1 + 0.12, x1: BED.x1 - 0.2, z1: BED.z1 + 0.62, h: 0.55 },
-  { id: 'chestArms', x0: 4.32, z0: ARMS.z - 0.62, x1: 4.95, z1: ARMS.z + 0.62, h: 0.58 },
-  { id: 'chestSouth', x0: -4.5, z0: 4.6, x1: -3.45, z1: 5.14, h: 0.52 },
+  { id: 'chestKing', spot: 'chest', x0: 4.64, z0: ARMS.z - 0.55, x1: 5.14, z1: ARMS.z + 0.55, h: 0.42, hinge: 'x1' },
+  { id: 'chestSouth', spot: 'chestS', x0: -4.5, z0: 4.6, x1: -3.45, z1: 5.14, h: 0.44, hinge: 'z1' },
 ] as const;
+export type Chest = (typeof CHESTS)[number];
+/** Толщина крышки сундука, м; на сколько открывается (радианы от закрытой): крышка встаёт, не доходя до кронштейнов. */
+export const LID_T = 0.08;
+export const LID_OPEN = 1.22;
+export const chestOf = (id: ChestId): Chest => CHESTS.find((c) => c.spot === id)!;
 
 /** Полки у стен по сторонам южного угла: книги на западе, свитки в гнёздах на востоке. */
 export const SHELVES = [
@@ -215,7 +254,8 @@ export const POIS: readonly Poi[] = [
     approach: { x: 0.76, z: 2.12, yaw: 0 },
     yaw: [-1.35, 1.35],
     pitch: [-1.2, 0.45],
-    hits: [box(-0.45, 0, 1.85, 0.45, 1.5, 2.52), box(-1.2, 0, 2.53, 1.2, 0.8, 3.6)],
+    // Кресло — до верха спинки с подписью над ней (Г-9: касание подписи «Кресло» шло поверх коробки).
+    hits: [box(-0.45, 0, 1.85, 0.45, 1.66, 2.52), box(-1.2, 0, 2.53, 1.2, 0.8, 3.6)],
   },
   {
     id: 'window',
@@ -229,6 +269,23 @@ export const POIS: readonly Poi[] = [
     zoom: [16, 62],
     hits: [box(-1.35, 0.4, 5.1, 1.35, 3.9, 6.5)],
   },
+  ...(['windowE', 'windowW'] as const).map((id): Poi => {
+    const o = sideOpening(id);
+    const s = o.wall === 'east' ? 1 : -1;
+    const [, , z] = wallPoint(o.wall, sideLight(o), 0, 0);
+    return {
+      id,
+      name: id === 'windowE' ? 'Окно на мыс' : 'Окно на реку',
+      verb: id === 'windowE' ? 'Подойти к окну на мыс' : 'Подойти к окну на реку',
+      // Наклонившись в нишу парного окна, ладони на подоконнике проёма: глаз — над низом ниши, у южного проёма (Г-9).
+      pose: { x: s * (HALF + 0.36), y: 1.47, z, yaw: (s * Math.PI) / 2, pitch: -0.3, fov: 62 },
+      approach: { x: s * (HALF - 0.48), z, yaw: (s * Math.PI) / 2 },
+      yaw: [-0.75, 0.75],
+      pitch: [-0.9, 0.45],
+      zoom: [16, 62],
+      hits: [box(s < 0 ? -HALF - 1.0 : HALF - 0.05, o.inSill, o.at - o.inW / 2, s < 0 ? -HALF + 0.05 : HALF + 1.0, o.inSpring + o.inW / 2, o.at + o.inW / 2)],
+    };
+  }),
   {
     id: 'hearth',
     name: 'Камин',
@@ -255,12 +312,34 @@ export const POIS: readonly Poi[] = [
     name: 'Оружие',
     verb: 'Взять меч',
     // Меч — в руке: взял со стены и отступил на шаг, лицом к стене оружия (Г-6).
-    pose: { x: 3.45, y: 1.62, z: -1.95, yaw: Math.PI / 2, pitch: -0.04, fov: 64 },
+    pose: { x: 3.45, y: 1.62, z: -1.95, yaw: Math.PI / 2, pitch: 0.02, fov: 64 },
     approach: { x: 4.02, z: -1.95, yaw: Math.PI / 2 },
     yaw: null,
     pitch: [-1.2, 1.1],
-    hits: [box(4.6, 0, -3.9, 5.2, 3.4, -0.8)],
+    // Стена над полочкой короны (щит, копья, меч) и секира у края; полочка и сундук — свои (Г-9).
+    hits: [box(4.6, CROWN_SHELF.top + 0.16, -3.9, 5.2, 3.9, -0.8), box(4.6, 0.9, -1.25, 5.2, CROWN_SHELF.top + 0.16, -0.8)],
   },
+  ...(['chest', 'chestS'] as const).map((id): Poi => {
+    const c = chestOf(id);
+    const king = id === 'chest';
+    const cx = (c.x0 + c.x1) / 2;
+    const cz = (c.z0 + c.z1) / 2;
+    // Лицом к сундуку, с середины его передней стенки: у сундука короля — с запада, у южного — с севера.
+    const yaw = king ? Math.PI / 2 : 0;
+    const at = king ? { x: c.x0 - 0.34, z: cz } : { x: cx, z: c.z0 - 0.38 };
+    const lean = king ? { x: c.x0 - 0.2, z: cz } : { x: cx, z: c.z0 - 0.22 };
+    return {
+      id,
+      name: king ? 'Сундук короля' : 'Сундук',
+      verb: king ? 'Открыть сундук короля' : 'Открыть сундук',
+      // Открыл крышку и склонился над сундуком: внизу кадра — то, что в нём сложено, за ним — откинутая крышка.
+      pose: { x: lean.x, y: 1.44, z: lean.z, yaw, pitch: -0.98, fov: 66 },
+      approach: { x: at.x, z: at.z, yaw },
+      yaw: [-1.1, 1.1],
+      pitch: [-1.3, 0.7],
+      hits: [box(c.x0 - 0.02, 0, c.z0 - 0.02, c.x1 + 0.02, c.h + LID_T + 0.04, c.z1 + 0.02)],
+    };
+  }),
   {
     id: 'door',
     name: 'Дверь',
@@ -356,8 +435,9 @@ export const TRINKETS: readonly Trinket[] = [
   // Белый король — на своей клетке доски (e1, `build.chessTable`): доска 0.5 м, клетка 1/16 м.
   { id: 'chess', name: 'Шахматная фигура', hint: 'Король из моржовой кости', poi: 'hall', code: 11, size: 0.12, stand: { x: 2.2, z: -2.02, yaw: Math.PI }, hold: 'palm', grip: [0, 0, 0], axis: [0, 1, 0], gripR: 0.02, tilt: 0.3, tilts: [-0.3, 0.5], near: 0.32, far: 0.45, box: box(CHESS.x + 0.001, CHESS.top + 0.012, CHESS.z + 0.189, CHESS.x + 0.061, CHESS.top + 0.14, CHESS.z + 0.249) },
   // Меч: 0,86 м целиком (клинок 0,66), рукоять под кулак.
-  { id: 'sword', name: 'Меч', hint: 'Клинок отца, перекрестье в позолоте', poi: 'arms', code: 12, size: 0.86, stand: null, hold: 'fist', grip: [0, 0, 0.035], axis: [0, 0, 1], gripR: 0.016, tilt: 0, tilts: [-0.22, 0.22], near: 0.42, far: 0.62, box: box(5.0, 1.45, -2.8, 5.2, 1.66, -1.86) },
-  { id: 'crown', name: 'Корона', hint: 'Венец державы, на подушке', poi: 'hall', code: 13, size: 0.24, stand: { x: 3.98, z: -2.35, yaw: Math.PI / 2 }, hold: 'palm', grip: [0, 0, 0], axis: [0, 1, 0], gripR: 0.03, tilt: 0.5, tilts: [-0.2, 0.55], near: 0.38, far: 0.55, box: box(4.4, 0.66, -2.62, 4.84, 0.86, -2.18) },
+  { id: 'sword', name: 'Меч', hint: 'Клинок отца, перекрестье в позолоте', poi: 'arms', code: 12, size: 0.86, stand: null, hold: 'fist', grip: [0, 0, 0.035], axis: [0, 0, 1], gripR: 0.016, tilt: 0, tilts: [-0.22, 0.22], near: 0.42, far: 0.62, box: box(5.0, SWORD_Y - 0.03, -2.8, 5.2, SWORD_Y + 0.18, -1.86) },
+  // Корона — на подушке полочки под мечом (Г-9); взять — подойти к сундуку короля и протянуть руку.
+  { id: 'crown', name: 'Корона', hint: 'Венец державы, на бархатной подушке', poi: 'hall', code: 13, size: 0.24, stand: { x: 4.36, z: ARMS.z, yaw: Math.PI / 2 }, hold: 'palm', grip: [0, 0, 0], axis: [0, 1, 0], gripR: 0.03, tilt: 0.5, tilts: [-0.2, 0.55], near: 0.38, far: 0.55, box: box(CUSHION.x - 0.12, CROWN_SHELF.top + CUSHION.h, ARMS.z - 0.12, CUSHION.x + 0.12, CROWN_SHELF.top + CUSHION.h + 0.15, ARMS.z + 0.12) },
 ];
 
 export const THINGS: readonly Thing[] = [...DESK_THINGS, ...TRINKETS];
@@ -416,6 +496,11 @@ export interface Label {
   at: readonly [number, number, number];
   near: number;
   desk: boolean;
+  /**
+   * Подпись сундука (Г-9): `closed` — видна, пока он закрыт («Сундук короля»), `open` — когда открыт («Доспех короля»: то,
+   * что в нём). Своего сундука она не заслоняется.
+   */
+  chest?: { id: ChestId; when: 'open' | 'closed' };
 }
 
 /** Мелочь (предмет стола, безделушка) — её подпись раскладывается раньше подписи мебели под ней. */
@@ -431,7 +516,7 @@ const deskBox = box(-DESK.w / 2, 0, DESK.z - DESK.d / 2, DESK.w / 2, DESK.top, D
 const chairBox = box(CHAIR.x - 0.3, 0, CHAIR.z - 0.27, CHAIR.x + 0.3, 1.52, CHAIR.z + 0.27);
 const bedBox = box(BED.x0, 0, BED.z0, BED.x1, BED.top + 0.12, BED.z1);
 const hearthBox = box(HEARTH.x - HEARTH.hoodW / 2, 0, -HALF, HEARTH.x + HEARTH.hoodW / 2, HEARTH.hoodTop, HEARTH.hoodFront);
-const armsBox = box(HALF - 0.3, 0.95, ARMS.z - 1.1, HALF, 3.3, ARMS.z + 1.1);
+const armsBox = box(HALF - 0.3, CROWN_SHELF.top + 0.16, ARMS.z - 1.1, HALF, 3.55, ARMS.z + 1.1);
 const sideWindow = (o: Opening): Box => {
   const s = o.wall === 'west' ? -1 : 1;
   return box(s < 0 ? -HALF - 1.0 : HALF, o.inSill, o.at - o.inW / 2, s < 0 ? -HALF : HALF + 1.0, o.inSpring + o.inW / 2, o.at + o.inW / 2);
@@ -455,13 +540,18 @@ export const LABELS: readonly Label[] = [
     near: NEAR_WINDOW,
     desk: false,
   })),
-  // Подпись сундука — у переднего края крышки (к середине покоев): посреди крышки стоит корона со своей подписью.
-  ...CHESTS.map((c) => {
+  // Подпись сундука — у переднего края крышки (к середине покоев); открытого — над тем, что в нём лежит (Г-9).
+  ...CHESTS.flatMap((c): Label[] => {
     const cx = (c.x0 + c.x1) / 2;
     const cz = (c.z0 + c.z1) / 2;
-    const side = Math.abs(cx) > Math.abs(cz);
-    const at = side ? ([cx > 0 ? c.x0 : c.x1, c.h + 0.02, cz] as const) : ([cx, c.h + 0.02, cz > 0 ? c.z0 : c.z1] as const);
-    return { id: c.id, name: 'Сундук', box: box(c.x0, 0, c.z0, c.x1, c.h, c.z1), at, near: NEAR_BIG, desk: false };
+    const side = c.hinge === 'x1';
+    const at = side ? ([c.x0, c.h + LID_T + 0.02, cz] as const) : ([cx, c.h + LID_T + 0.02, c.z0] as const);
+    const king = c.spot === 'chest';
+    const inner = box(c.x0 + 0.05, 0.06, c.z0 + 0.05, c.x1 - 0.05, c.h - 0.02, c.z1 - 0.05);
+    return [
+      { id: c.id, name: king ? 'Сундук короля' : 'Сундук', box: box(c.x0, 0, c.z0, c.x1, c.h + LID_T, c.z1), at, near: NEAR_BIG, desk: false, chest: { id: c.spot, when: 'closed' } },
+      { id: king ? 'armour' : 'clothes', name: king ? 'Доспех короля' : 'Платье и меха', box: inner, at: [cx, c.h * 0.7, cz], near: NEAR_BIG, desk: false, chest: { id: c.spot, when: 'open' } },
+    ];
   }),
 ];
 

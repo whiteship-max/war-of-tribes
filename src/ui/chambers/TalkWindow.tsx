@@ -1,18 +1,15 @@
 // Окно разговора в покоях (docs/city_v3.md, Г-7): кто говорит, его реплика (проступает по буквам, касание — сразу
 // целиком) и три-пять ответов правителя. Просьба — сцена в покоях (`life.order`), прощание — человек уходит; крестик —
 // помолчать: человек остаётся, касание по нему — снова к разговору. Пока окно открыто, ноги правителя стоят
-// (`room.frozen`), смотреть можно; закрылось — палец движения снова ведёт.
+// (`room.frozen`), смотреть можно; закрылось — палец движения снова ведёт. Последняя реплика гаснет сама в срок от мига,
+// когда её показали (`plate.Plate`, Г-9), а крестик и касание по ней гасят её сразу.
 import { useEffect, useRef, useState } from 'react';
 import type { ChambersLife, Who, Why } from '@/render/chambers/life';
 import { opening, reply, TEMPER_NAME, type OptionId, type TalkCtx, type TalkMemory, type TalkTurn } from './talk';
+import { Plate, speechSeconds } from './plate';
 
 /** Буквы в секунду: реплика проступает, как говорится. */
 const CPS = 46;
-/** Сколько последняя реплика стоит на экране, когда разговор кончился, с. */
-const LINGER = 1.7;
-
-/** Сколько секунд говорить реплику (голос без слов — столько же). */
-export const speechSeconds = (line: string): number => Math.min(5.5, 0.6 + line.length / 15);
 
 /** Своя доля хода 0…1: из памяти и номера хода — разговор не повторяется один в один, а случайности устройства нет. */
 export function rollOf(mem: TalkMemory, n: number): number {
@@ -33,18 +30,24 @@ export interface TalkProps {
   onDone: () => void;
 }
 
-const ROLE: Record<Who, string> = { servant: 'старый слуга', maid: 'служанка', wife: 'супруга' };
+const ROLE: Record<Who, string> = { servant: 'старый слуга', maid: 'служанка', wife: 'супруга', herald: 'гонец', advisor: 'советник' };
 
 export function Talk({ life, who, why, base, memory, remember, onDone }: TalkProps) {
   const [turn, setTurn] = useState<TalkTurn | null>(null);
   const [shown, setShown] = useState(0);
   const n = useRef(0);
   const done = useRef(false);
+  const plate = useRef(new Plate());
+  // Слой покоев перерисовывается часто (жизнь, ночь, подъём) и всякий раз даёт новый `onDone`: срок конца от него не
+  // зависит — ссылка на последний.
+  const finish = useRef(onDone);
+  finish.current = onDone;
   const ctx = (): TalkCtx => ({ ...base(), who, why, mem: memory(), roll: rollOf(memory(), n.current) });
 
   const show = (t: TalkTurn): void => {
     n.current++;
     remember(t.mem);
+    plate.current.show(t, performance.now());
     setTurn(t);
     setShown(0);
     life.say(who, speechSeconds(t.line));
@@ -64,12 +67,13 @@ export function Talk({ life, who, why, base, memory, remember, onDone }: TalkPro
     return () => window.clearTimeout(t);
   }, [turn, shown]);
 
-  // Конец разговора: реплика стоит, потом окно закрывается.
+  // Конец разговора: реплика стоит свой срок (от мига показа, `Plate`), потом окно закрывается.
   useEffect(() => {
-    if (!turn?.end) return;
-    const t = window.setTimeout(onDone, (Math.max(LINGER, speechSeconds(turn.line) * 0.7) + 0.2) * 1000);
+    const left = plate.current.left(performance.now());
+    if (left === null) return;
+    const t = window.setTimeout(() => finish.current(), left);
     return () => window.clearTimeout(t);
-  }, [turn, onDone]);
+  }, [turn]);
 
   const choose = (id: OptionId): void => {
     if (done.current) return;
@@ -80,9 +84,11 @@ export function Talk({ life, who, why, base, memory, remember, onDone }: TalkPro
   };
 
   const close = (): void => {
+    const ended = !!turn?.end;
     done.current = true;
-    life.endTalk();
-    onDone();
+    // Разговор уже кончился (просьба, прощание) — человек занят своим делом, разговор не трогаем: только гасим плашку.
+    if (!ended) life.endTalk();
+    finish.current();
   };
 
   if (!turn) return null;
@@ -95,13 +101,11 @@ export function Talk({ life, who, why, base, memory, remember, onDone }: TalkPro
       <div className="ch-talk-head">
         <b>{name}</b>
         <small>{role}</small>
-        {!turn.end && (
-          <button className="ch-talk-x" onClick={close} aria-label="Помолчать">
-            ×
-          </button>
-        )}
+        <button className="ch-talk-x" onClick={close} aria-label={turn.end ? 'Закрыть' : 'Помолчать'}>
+          ×
+        </button>
       </div>
-      <p className="ch-talk-line" onClick={() => setShown(turn.line.length)}>
+      <p className="ch-talk-line" onClick={() => (full && turn.end ? close() : setShown(turn.line.length))}>
         {turn.line.slice(0, shown)}
         <span className="ch-talk-rest" aria-hidden="true">
           {turn.line.slice(shown)}

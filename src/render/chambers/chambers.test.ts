@@ -7,7 +7,7 @@ import { buildRoom } from './build';
 import { FIRE_SPEC } from './fire';
 import { earGains } from './sound';
 import { fingerChains, holdHand } from './body';
-import { ACTS, actLength, frameAt, sampleAct } from './acts';
+import { ACTS, actLength, frameAt, inRoom, sampleAct } from './acts';
 import { BODY_R, OBSTACLES, free, onFloor, pathTo, step, clear, NICHE_END, NICHE_HALF } from './walk';
 import { layoutTags, type TagOut } from './tags';
 import { DEFAULT_ARMS } from '@/heraldry/arms';
@@ -20,6 +20,7 @@ import {
   DESK_THINGS,
   HALF,
   LABELS,
+  LID_OPEN,
   OPENINGS,
   POIS,
   POI_BY_ID,
@@ -264,7 +265,7 @@ describe('покои: ходьба', () => {
 
   it('препятствий хватает: стол, кресло, кровать, камин, сундуки, полки, шахматы, подсвечники', () => {
     const ids = OBSTACLES.map((o) => o.id);
-    for (const id of ['desk', 'chair', 'bed', 'hearth', 'chestBed', 'chestArms', 'chestSouth', 'books', 'scrolls', 'chess', 'standW', 'standE']) expect(ids, id).toContain(id);
+    for (const id of ['desk', 'chair', 'bed', 'hearth', 'chestKing', 'chestSouth', 'books', 'scrolls', 'chess', 'standW', 'standE']) expect(ids, id).toContain(id);
   });
 });
 
@@ -288,7 +289,7 @@ describe('покои: дела касанием мебели', () => {
   }
 
   it('каждое дело — касанием своей мебели: подходит сам, делает дело, глаз — в позе дела', () => {
-    for (const id of ['desk', 'window', 'hearth', 'bed', 'arms'] as SpotId[]) {
+    for (const id of ['desk', 'window', 'windowE', 'windowW', 'hearth', 'bed', 'arms'] as SpotId[]) {
       const room = phoneRoom();
       const at = aimAt(room, id);
       tap(room, at.x, at.y);
@@ -301,6 +302,178 @@ describe('покои: дела касанием мебели', () => {
       expect(Math.hypot(s.x - pose.x, s.y - pose.y, s.z - pose.z), `${id}: глаз в позе дела`).toBeLessThan(0.01);
       if (id === 'arms') expect(room.view().held, 'меч в руке').toBe('sword');
       room.dispose();
+    }
+  });
+
+  it('окно на мыс и на реку (Г-9): касание подписи — подходит, наклоняется, ладони на подоконнике, «Вдаль» и «Ближе»', () => {
+    for (const id of ['windowE', 'windowW'] as const) {
+      const room = phoneRoom();
+      // Касание — по подписи окна: подошёл на шаг-два и смотрит на неё (как игрок, увидевший «Окно на мыс»).
+      const label = LABELS.find((l) => l.id === (id === 'windowE' ? 'windowE' : 'windowW'))!;
+      const s = Math.sign(label.at[0]);
+      room.standAtPoint(s * (HALF - 1.6), label.at[2], (s * Math.PI) / 2, Math.atan2(label.at[1] - 1.62, 1.6));
+      tap(room, PHONE.width / 2, PHONE.height / 2);
+      run(room, 20, () => room.state().mode === 'in');
+      const st = room.state();
+      expect(st.spot, `${label.name}: дело окна`).toBe(id);
+      const pose = POI_BY_ID[id].pose;
+      expect(Math.hypot(st.x - pose.x, st.y - pose.y, st.z - pose.z), 'глаз — наклонившись в нишу').toBeLessThan(0.01);
+      expect(Math.abs(st.x), 'глаз в нише, за гранью стены').toBeGreaterThan(HALF);
+      // Ладони — на плите подоконника проёма, по обе стороны от взгляда.
+      const sill = OPENINGS.find((o) => o.wall === (id === 'windowE' ? 'east' : 'west'))!.sill;
+      const hands = room.handsNow();
+      expect(hands, 'руки в деле').not.toBeNull();
+      for (const h of [hands!.left, hands!.right]) {
+        expect(h.w[1], 'ладонь на подоконнике').toBeCloseTo(sill + 0.04, 2);
+        expect(Math.abs(h.w[0]), 'ладонь — в проёме, у доски').toBeGreaterThan(HALF + 0.7);
+      }
+      expect(Math.sign(hands!.left.w[2] - st.z), 'ладони по обе стороны').not.toBe(Math.sign(hands!.right.w[2] - st.z));
+      // «Вдаль» — уже поле зрения, «Ближе» — назад.
+      const v = room.view();
+      expect(v.zoom, 'кнопки «Вдаль» и «Ближе»').toBe(0);
+      const wide = room.camera.fov;
+      room.zoomBy(1.6);
+      run(room, 0.2);
+      expect(room.view().zoom!, 'вдаль').toBeGreaterThan(0);
+      expect(room.camera.fov, 'поле зрения уже').toBeLessThan(wide);
+      room.zoomBy(1 / 1.6);
+      run(room, 0.2);
+      expect(room.camera.fov).toBeCloseTo(wide, 3);
+      room.dispose();
+    }
+  });
+
+  it('сундук короля (Г-9): касание — подходит, руки на крышке, крышка откидывается со скрипом, внутри — доспех и подпись «Доспех короля»; второе касание — закрывает со стуком', () => {
+    const room = phoneRoom();
+    const cues: string[] = [];
+    room.onCue = (c) => cues.push(c);
+    const c = CHESTS.find((x) => x.spot === 'chest')!;
+    const cz = (c.z0 + c.z1) / 2;
+    room.standAtPoint(3.3, cz, Math.PI / 2, Math.atan2(c.h - 1.62, c.x0 - 3.3 + 0.2));
+    tap(room, PHONE.width / 2, PHONE.height / 2);
+    expect(room.state().mode, 'пошёл к сундуку').toBe('walk');
+    // Граница области — всё дело: в его середине крышка поднимается и руки на ней, в конце — открыта.
+    let handsOnLid = false;
+    run(room, 20, () => {
+        if (room.state().mode === 'act' && room.lidK('chest') > 0.2 && room.lidK('chest') < 0.8) {
+          const h = room.handsNow();
+          if (h && h.right.w[1] > c.h + 0.05) handsOnLid = true;
+        }
+        return room.state().mode === 'in';
+      });
+    expect(room.state().mode, 'открыл и склонился').toBe('in');
+    expect(room.state().spot).toBe('chest');
+    expect(handsOnLid, 'руки поднимают крышку').toBe(true);
+    expect(cues, 'петли скрипнули').toContain('hinge');
+    expect(room.lidK('chest'), 'крышка открыта').toBe(1);
+    expect(room.chestOpen('chest')).toBe(true);
+    const lid = room.scene.getObjectByName('chambers-lid-chest')!.parent!;
+    expect(Math.abs(lid.rotation.z), 'крышка откинута на петлях').toBeCloseTo(LID_OPEN, 5);
+    // Внутри — доспех: из позы над сундуком видна подпись «Доспех короля», а «Сундук короля» — нет.
+    run(room, 0.6);
+    expect(room.tagsNow.find((t) => t.id === 'armour')!.visible, 'подпись «Доспех короля»').toBe(true);
+    expect(room.tagsNow.find((t) => t.id === 'chestKing')!.visible, 'подписи закрытого сундука нет').toBe(false);
+    // Второе касание — по сундуку: закрывает.
+    cues.length = 0;
+    tap(room, PHONE.width / 2, PHONE.height / 2);
+    run(room, 6, () => room.state().mode === 'free');
+    expect(room.state().mode, 'отошёл').toBe('free');
+    expect(room.lidK('chest'), 'крышка закрыта').toBe(0);
+    expect(lid.rotation.z).toBeCloseTo(0, 6);
+    expect(cues, 'скрип и стук крышки').toEqual(expect.arrayContaining(['hinge', 'lidShut']));
+    room.dispose();
+  });
+
+  it('в открытом сундуке видно сложенное, а не сквозь него (Г-9): лучи из позы над сундуком — первая грань лицом к глазу', () => {
+    // Граница области — дно обоих сундуков решёткой 7 × 7 из глаза дела «Сундук»; первая задетая грань модели — лицом к
+    // глазу (грань изнанкой — дыра: верх кольчуги лицом вниз показывал сквозь себя подкладку дна).
+    const m = buildRoom(1);
+    const tris: number[][] = [];
+    for (const mb of [m.stone, m.cloth]) {
+      const { pos, idx } = mb.b;
+      for (let t = 0; t < idx.length; t += 3) tris.push([0, 1, 2].flatMap((k) => [pos[idx[t + k] * 3], pos[idx[t + k] * 3 + 1], pos[idx[t + k] * 3 + 2]]));
+    }
+    const holes: string[] = [];
+    let cast = 0;
+    for (const id of ['chest', 'chestS'] as const) {
+      const c = CHESTS.find((x) => x.spot === id)!;
+      const e = POI_BY_ID[id].pose;
+      for (let i = 0; i < 7; i++)
+        for (let j = 0; j < 7; j++) {
+          const tx = c.x0 + 0.06 + ((c.x1 - c.x0 - 0.12) * i) / 6;
+          const tz = c.z0 + 0.06 + ((c.z1 - c.z0 - 0.12) * j) / 6;
+          const d = [tx - e.x, 0.075 - e.y, tz - e.z];
+          const l = Math.hypot(d[0], d[1], d[2]);
+          const dir = d.map((v) => v / l);
+          let best = Infinity;
+          let front = true;
+          for (const T of tris) {
+            const e1 = [T[3] - T[0], T[4] - T[1], T[5] - T[2]];
+            const e2 = [T[6] - T[0], T[7] - T[1], T[8] - T[2]];
+            const pv = [dir[1] * e2[2] - dir[2] * e2[1], dir[2] * e2[0] - dir[0] * e2[2], dir[0] * e2[1] - dir[1] * e2[0]];
+            const det = e1[0] * pv[0] + e1[1] * pv[1] + e1[2] * pv[2];
+            if (Math.abs(det) < 1e-12) continue;
+            const tv = [e.x - T[0], e.y - T[1], e.z - T[2]];
+            const u = (tv[0] * pv[0] + tv[1] * pv[1] + tv[2] * pv[2]) / det;
+            if (u < 0 || u > 1) continue;
+            const qv = [tv[1] * e1[2] - tv[2] * e1[1], tv[2] * e1[0] - tv[0] * e1[2], tv[0] * e1[1] - tv[1] * e1[0]];
+            const v = (dir[0] * qv[0] + dir[1] * qv[1] + dir[2] * qv[2]) / det;
+            if (v < 0 || u + v > 1) continue;
+            const t = (e2[0] * qv[0] + e2[1] * qv[1] + e2[2] * qv[2]) / det;
+            if (t > 0.05 && t < best - 1e-6) {
+              best = t;
+              front = det > 0;
+            }
+          }
+          cast++;
+          if (best === Infinity || !front) holes.push(`${id} (${tx.toFixed(2)}, ${tz.toFixed(2)})`);
+        }
+    }
+    expect(cast).toBe(98);
+    expect(holes, 'сквозь сложенное').toEqual([]);
+  });
+
+  it('сундук закрывается и уходом: палец движения поднимает от сундука — крышка опускается; южный сундук тоже открывается', () => {
+    for (const id of ['chest', 'chestS'] as const) {
+      const room = phoneRoom();
+      room.snap(id);
+      run(room, 0.1);
+      expect(room.chestOpen(id), `${id}: открыт`).toBe(true);
+      room.down(1, 80, 700, PHONE);
+      room.move(1, 80, 700 + STICK_FULL);
+      run(room, 4, () => room.lidK(id) === 0);
+      expect(room.lidK(id), `${id}: ушёл — закрыт`).toBe(0);
+      room.up(1);
+      room.dispose();
+    }
+    // В открытом южном — платье и меха.
+    expect(LABELS.find((l) => l.id === 'clothes')!.name).toBe('Платье и меха');
+  });
+
+  it('у кровати сундука нет (Г-9): ни сундука в плане, ни препятствия, ни подписи, ни граней у изножья', () => {
+    expect(CHESTS.map((c) => c.id)).toEqual(['chestKing', 'chestSouth']);
+    // Изножье кровати — полоса пола до 0,7 м от неё, где стоял сундук (без столбов полога с подхватами занавесей).
+    const foot = { x0: BED.x0 + 0.2, x1: BED.x1 - 0.15, z0: BED.z1 + 0.05, z1: BED.z1 + 0.75 };
+    const inFoot = (x: number, z: number): boolean => x > foot.x0 && x < foot.x1 && z > foot.z0 && z < foot.z1;
+    expect(OBSTACLES.filter((o) => (o.kind === 'box' ? inFoot((o.x0 + o.x1) / 2, (o.z0 + o.z1) / 2) : inFoot(o.x, o.z))).map((o) => o.id)).toEqual([]);
+    expect(LABELS.filter((l) => inFoot((l.box.x0 + l.box.x1) / 2, (l.box.z0 + l.box.z1) / 2)).map((l) => l.name)).toEqual([]);
+    for (const d of [0, 1, 2] as const) {
+      const m = buildRoom(d);
+      const { pos, idx } = m.stone.b;
+      let n = 0;
+      for (let t = 0; t < idx.length; t += 3) {
+        let x = 0;
+        let y = 0;
+        let z = 0;
+        for (let k = 0; k < 3; k++) {
+          x += pos[idx[t + k] * 3] / 3;
+          y += pos[idx[t + k] * 3 + 1] / 3;
+          z += pos[idx[t + k] * 3 + 2] / 3;
+        }
+        // Над полом и ниже края кровати — ничего (пол и овчина — на полу, полог — выше).
+        if (inFoot(x, z) && y > 0.03 && y < 0.62) n++;
+      }
+      expect(n, `уровень ${d}: граней у изножья`).toBe(0);
     }
   });
 
@@ -321,7 +494,8 @@ describe('покои: дела касанием мебели', () => {
   it('глаз в деле не проходит сквозь мебель и стены: каждые 20 мс пути — вне мебели и в комнате', () => {
     for (const a of Object.values(ACTS)) {
       for (const f of sampleAct(a)) {
-        expect(Math.abs(f.x) < HALF && f.z > -HALF && f.z < NICHE_END, `${a.id}: в комнате`).toBe(true);
+        // В комнате или в нише своего окна (у парных — до 0,6 м в толщу стены, Г-9).
+        expect((Math.abs(f.x) < HALF && f.z > -HALF && f.z < NICHE_END) || inRoom(f), `${a.id}: в комнате`).toBe(true);
         for (const b of SOLID) {
           const inside = f.x > b.x0 && f.x < b.x1 && f.y > b.y0 && f.y < b.y1 && f.z > b.z0 && f.z < b.z1;
           expect(inside, `${a.id}: глаз в «${b.id}» (${f.x.toFixed(2)}, ${f.y.toFixed(2)}, ${f.z.toFixed(2)})`).toBe(false);
@@ -560,7 +734,8 @@ describe('покои: подписи вещей (Г-6)', () => {
 
   it('вблизи при взгляде — есть: у каждой вещи (мебель, окна, сундуки, оружие, безделушки, предметы стола)', () => {
     const room = phoneRoom();
-    for (const l of LABELS) {
+    // Подписи открытого сундука («Доспех короля») — только открытого: их держит тест сундука.
+    for (const l of LABELS.filter((x) => x.chest?.when !== 'open')) {
       let tried = 0;
       // Точки пола у вещи: свободные, ближе её `near` и с чистым видом на точку подписи (своя мерка).
       for (let gx = -HALF + 0.3; gx < HALF + 1 && tried < 4; gx += 0.3)
@@ -578,6 +753,37 @@ describe('покои: подписи вещей (Г-6)', () => {
       expect(tried, `«${l.id}»: к ней можно подойти`).toBeGreaterThan(0);
     }
     room.dispose();
+  });
+
+  it('каждый подписанный предмет откликается на касание (Г-9): подошёл, видит подпись, касание по ней — дело, шаг или вещь в руке', () => {
+    // Граница области — все подписи закрытых покоев (подписи открытого сундука — внутри дела «Сундук»); точка пола — та же,
+    // с которой подпись видна (тест выше), касание — в точку подписи на экране.
+    const dead: string[] = [];
+    let checked = 0;
+    for (const l of LABELS.filter((x) => x.chest?.when !== 'open')) {
+      let done = false;
+      for (let gx = -HALF + 0.3; gx < HALF + 1 && !done; gx += 0.3)
+        for (let gz = -HALF + 0.3; gz < HALF + 1 && !done; gz += 0.3) {
+          if (!free(gx, gz, BODY_R)) continue;
+          const d = boxDist(l.box, gx, 1.62, gz);
+          if (d > l.near - 0.2 || d < 0.35 || blocked(l.id, gx, 1.62, gz, l.at)) continue;
+          const room = phoneRoom();
+          lookAt(room, gx, gz, l.at);
+          run(room, 0.3);
+          const used: string[] = [];
+          room.onUse = (door) => used.push(door);
+          tap(room, PHONE.width / 2, PHONE.height / 2);
+          run(room, 0.1);
+          const s = room.state();
+          const ok = s.mode !== 'free' || room.view().held !== null || used.length > 0;
+          if (!ok) dead.push(`«${l.name}» (${l.id}) с (${gx.toFixed(1)}, ${gz.toFixed(1)}): под пальцем ${room.pickAt(PHONE.width / 2, PHONE.height / 2)?.kind ?? 'ничего'}`);
+          checked++;
+          done = true;
+          room.dispose();
+        }
+    }
+    expect(checked, 'проверены все подписи').toBe(LABELS.filter((x) => x.chest?.when !== 'open').length);
+    expect(dead, 'касание по подписи ничего не делает').toEqual([]);
   });
 
   it('сквозь мебель — нет: за спинкой кресла письма на столе не подписаны, сбоку — подписаны', () => {
@@ -768,7 +974,8 @@ describe('покои: модель, огонь, звук', () => {
   it('модель по уровням: мелочи больше с уровнем, треугольников — в пределах бюджета покоев', () => {
     const tris = [0, 1, 2].map((d) => {
       const m = buildRoom(d as 0 | 1 | 2);
-      return m.stone.b.triangleCount + m.cloth.b.triangleCount + Object.values(m.trinkets).reduce((a, t) => a + t.stone.b.triangleCount, 0);
+      // С крышками сундуков (Г-9).
+      return m.stone.b.triangleCount + m.cloth.b.triangleCount + Object.values(m.trinkets).reduce((a, t) => a + t.stone.b.triangleCount, 0) + Object.values(m.lids).reduce((a, l) => a + l.stone.b.triangleCount + l.cloth.b.triangleCount, 0);
     });
     expect(tris[0]).toBeLessThan(tris[1]);
     expect(tris[1]).toBeLessThanOrEqual(tris[2]);

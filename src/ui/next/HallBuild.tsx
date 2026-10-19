@@ -8,6 +8,8 @@
 // отмена — тот же `Confirm`. Ускорение — одной копией в окне постройки, за дверью «Открыть ›» (`kit/nav.goTo`; Д5,
 // docs/ui_v2.md, 5.7). Лист самой ратуши в её окне «Улучшить» второй раз не рисует: кнопка — в шапке окна над ним (Д4).
 //
+// «Показать в городе» (ОР-1, docs/ui_v2.md, 5.9) — меткой места в шапке листа: ратуша уходит, камера летит к постройке.
+//
 // Обучение ищет постройку по `data-tut="list-<тип>"` (шаг «Открой казармы»): метка стоит на плитке, а пока открыт её
 // лист — на двери «Открыть ›» в нём, чтобы шаг вёл к окну, где нанимают.
 import './hall.css';
@@ -33,6 +35,7 @@ import { Row } from '@/ui/kit/Row';
 import { SheetPage, Tabs } from '@/ui/kit/SheetPage';
 import { Table, type Col } from '@/ui/kit/Table';
 import { goTo } from '@/ui/kit/nav';
+import { showInCity } from './show';
 import { toBuilding } from '@/ui/kit/sources';
 import { WorkerRow } from './BuildingNew';
 import { buildingFacts, buildingTip } from './buildingTips';
@@ -202,11 +205,17 @@ export function HallCard({ id, onClose }: { id: number; onClose: () => void }) {
           about={() => buildingTip(s, b)}
           onClose={onClose}
           action={
-            !here && (
-              <Btn kind="link" onClick={() => goTo(toBuilding(b.type))} tut={`list-${def.id}`}>
-                Открыть ›
+            <>
+              {/* «Показать в городе» (ОР-1): ратуша закрывается, камера летит к постройке и подсвечивает её. */}
+              <Btn kind="link" onClick={() => showInCity(b.type)} label="Показать в городе">
+                <Icon name="ui-pin" glyph="📍" />
               </Btn>
-            )
+              {!here && (
+                <Btn kind="link" onClick={() => goTo(toBuilding(b.type))} tut={`list-${def.id}`}>
+                  Открыть ›
+                </Btn>
+              )}
+            </>
           }
           foot={here ? <OwnFoot b={b} /> : <UpgradeFoot b={b} />}
         >

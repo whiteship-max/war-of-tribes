@@ -17,6 +17,7 @@ export const LIFE_MIX: Record<LifeCue, number> = {
   pour: 0.1,
   gulp: 0.045,
   night: 0.1,
+  letter: 0.16,
 };
 /** Голос: громкость речи без слов — под текстом, а не поверх него. */
 export const VOICE_MIX = 0.07;
@@ -254,6 +255,13 @@ export function playLifeCue(ctx: BaseAudioContext, out: AudioNode, cue: LifeCue,
       nightMusic(ctx, g, at, r);
       len = 7.5;
       break;
+    case 'letter':
+      // Письмо из руки в руку: сухой шелест пергамента, потом хруст воска под пальцем.
+      for (let i = 0; i < 5; i++) burst(ctx, g, at + i * 0.045 + r() * 0.02, 'bandpass', 3200 + r() * 1800, 1.4, 0.35 + r() * 0.3, 0.004, 0.05, r());
+      burst(ctx, g, at + 0.32, 'highpass', 2400, 0.9, 0.7, 0.003, 0.03, r());
+      burst(ctx, g, at + 0.34, 'bandpass', 1400, 2.5, 0.45, 0.003, 0.05, r());
+      len = 0.6;
+      break;
     case 'stepFolk':
     case 'stepFolkSoft':
       // Шаги людей — звуком шага дел (`cues.step`), зовёт звук покоев; здесь — тишина.
@@ -273,12 +281,20 @@ export function playLifeCue(ctx: BaseAudioContext, out: AudioNode, cue: LifeCue,
   }
 }
 
-/** Голос: высота и хрипотца. Старик — низко и с дрожью, служанка — звонко, супруга — ровно и мягко. */
+/**
+ * Голос: высота и хрипотца. Старик — низко и с дрожью, служанка — звонко, супруга — ровно и мягко, гонец — быстро и с
+ * одышкой после лестницы, советник — низко, мерно, чуть с хрипотцой.
+ */
 export const VOICE: Record<Who, { f0: number; rough: number; rate: number }> = {
   servant: { f0: 112, rough: 0.35, rate: 4.2 },
   maid: { f0: 232, rough: 0.08, rate: 5.4 },
   wife: { f0: 200, rough: 0.05, rate: 4.6 },
+  herald: { f0: 138, rough: 0.12, rate: 6.0 },
+  advisor: { f0: 98, rough: 0.18, rate: 3.7 },
 };
+
+/** Мужской голос — форманты ниже. */
+const LOW: ReadonlySet<Who> = new Set<Who>(['servant', 'herald', 'advisor']);
 
 /** Гласные — две форманты (а, э, и, о, у). */
 const VOWELS = [
@@ -311,11 +327,11 @@ export function speak(ctx: BaseAudioContext, out: AudioNode, who: Who, at: numbe
     o.frequency.linearRampToValueAtTime(f * (0.94 + r() * 0.1), t + syl);
     const a = ctx.createBiquadFilter();
     a.type = 'bandpass';
-    a.frequency.value = f1 * (who === 'servant' ? 0.92 : 1.1);
+    a.frequency.value = f1 * (LOW.has(who) ? 0.92 : 1.1);
     a.Q.value = 6;
     const b = ctx.createBiquadFilter();
     b.type = 'bandpass';
-    b.frequency.value = f2 * (who === 'servant' ? 0.92 : 1.12);
+    b.frequency.value = f2 * (LOW.has(who) ? 0.92 : 1.12);
     b.Q.value = 9;
     const e = ctx.createGain();
     env(e.gain, t, 0.7 + r() * 0.3, 0.025, syl * 0.95);

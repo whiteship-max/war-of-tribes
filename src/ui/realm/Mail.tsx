@@ -24,7 +24,9 @@ import { Table, type Col } from '@/ui/kit/Table';
 import { Tabs, type TabDef } from '@/ui/kit/SheetPage';
 import { goTo } from '@/ui/kit/nav';
 import { WINDOW } from '@/ui/kit/sources';
-import { useRealm } from './open';
+import { useRealm, type MailTab } from './open';
+import { Chronicle } from './Chronicle';
+import { ReportPanel } from '@/ui/panels/ReportPanel';
 import { mailKeys, useSeen } from './unread';
 
 /**
@@ -55,7 +57,11 @@ export function Mail() {
   const seen = useSeen((u) => u.seen);
   const mark = useSeen((u) => u.mark);
   const [done, setDone] = useState<{ title: string; text: string } | null>(null);
-  const [filter, setFilter] = useState<MailFilter>('all');
+  // Вкладка — в хранилище державы: ссылка «Летопись» из «Заданий» открывает «Вести» сразу на ней (ВС-2).
+  const tab = useRealm((r) => r.mailTab);
+  const setTab = useRealm((r) => r.setMailTab);
+  const report = useRealm((r) => r.report);
+  const openChronicle = useRealm((r) => r.openChronicle);
   const [, retick] = useState(0);
 
   const list = dispatches(s, letters, { tribe: partyNow(), world: worldNow() });
@@ -115,37 +121,49 @@ export function Mail() {
     );
   }
 
-  if (list.length === 0) {
+  // Донесение из летописи — тут же, в «Вестях»: итог, потери, «Смотреть бой» и «Смотреть осаду» (ВС-2). Ролики идут
+  // поверх всего экрана своим слоем (`body.replaying`), «К донесению» возвращает сюда.
+  if (report) {
     return (
-      <>
-        <Boons s={s} />
-        <div className="panel dispatch-empty">
-          <div className="big">
-            <Icon name="ui-mail" glyph="✉️" />
-          </div>
-          <b className="nx-empty">Вестей нет</b>
-          <div className="note">Сюда приходят вести из города и от соседей. Без ответа каждая решится сама.</div>
-        </div>
-      </>
+      <div className="mail-report">
+        <button type="button" className="nx-mback" onClick={() => openChronicle(null)}>
+          ‹ К летописи
+        </button>
+        <ReportPanel id={report} />
+      </div>
     );
   }
 
   // Фильтр — по источнику, счётчик вкладки — новые в ней (как у низа: новое ждёт, чтобы его прочли).
   const fresh = (d: Dispatch): boolean => !seen.includes(d.key);
   const unseen = (f: MailFilter): number => filterMail(list, f).filter(fresh).length;
-  const tabs: TabDef<MailFilter>[] = [
+  const tabs: TabDef<MailTab>[] = [
     { id: 'all', label: 'Все', badge: unseen('all') },
     { id: 'event', label: 'Город', badge: unseen('event') },
     { id: 'letter', label: 'Соседи', badge: unseen('letter') },
+    { id: 'chron', label: 'Летопись' },
   ];
+  const filter: MailFilter = tab === 'chron' ? 'all' : tab;
   const inFilter = filterMail(list, filter);
 
   return (
     <div className="panel mail-v2">
-      <Boons s={s} />
-      <Tabs tabs={tabs} value={filter} onChange={setFilter} />
-      {inFilter.length === 0 && <p className="note">{filter === 'event' ? 'Вестей из города нет.' : 'Писем от соседей нет.'}</p>}
-      {mailGroups(inFilter).map((g) => (
+      {tab !== 'chron' && <Boons s={s} />}
+      <Tabs tabs={tabs} value={tab} onChange={setTab} />
+      {tab === 'chron' && <Chronicle />}
+      {tab !== 'chron' && list.length === 0 && (
+        <div className="dispatch-empty">
+          <div className="big">
+            <Icon name="ui-mail" glyph="✉️" />
+          </div>
+          <b className="nx-empty">Вестей нет</b>
+          <div className="note">Сюда приходят вести из города и от соседей. Без ответа каждая решится сама. Что уже было — в «Летописи».</div>
+        </div>
+      )}
+      {tab !== 'chron' && list.length > 0 && inFilter.length === 0 && (
+        <p className="note">{filter === 'event' ? 'Вестей из города нет.' : 'Писем от соседей нет.'}</p>
+      )}
+      {tab !== 'chron' && mailGroups(inFilter).map((g) => (
         <section key={g.id} className="mail-group">
           <h3>
             {g.title} <span className="muted">{g.items.length}</span>
