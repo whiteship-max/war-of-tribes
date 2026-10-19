@@ -9,8 +9,9 @@
 // переливается, а не переключается.
 
 import type { Season } from '@/game/types';
+import { rhythmAt, type CityMood } from '@/render/city/rhythm';
 import { pick, span, type Rng } from './rng';
-import { anvil, bell, bird, cricket, drip, noiseLoop, voice, type BirdKind, type Kit } from './synth';
+import { anvil, bell, bird, cricket, drip, drum, flute, laugh, noiseLoop, pluck, voice, type BirdKind, type Kit } from './synth';
 
 /** Что слышит игрок. */
 export interface Hearing {
@@ -25,6 +26,8 @@ export interface Hearing {
   sea: number;
   /** Погода над городом (`render/climate`): дождь, снег, гроза и сила ветра, 0..1. Нет — тихая погода. */
   wx?: WeatherSound;
+  /** Состояние города (`render/city/rhythm.moodOf`): праздник, тревога, голод, мор, мораль. Нет — спокойный город. */
+  life?: CityMood;
 }
 
 /** Что слышно из погоды. */
@@ -40,9 +43,12 @@ export interface WeatherSound {
 /** Без погоды — ветер, как прежде (средней силы), ни дождя, ни грозы. */
 export const CALM: WeatherSound = { rain: 0, snow: 0, storm: 0, wind: 0.4 };
 
-export type Layer = 'wind' | 'whistle' | 'hum' | 'sea' | 'market' | 'forge' | 'birds' | 'crickets' | 'bells' | 'rain';
+export type Layer = 'wind' | 'whistle' | 'hum' | 'sea' | 'market' | 'forge' | 'birds' | 'crickets' | 'bells' | 'rain' | 'tavern' | 'watch' | 'tocsin' | 'feast';
 
-export const LAYERS: readonly Layer[] = ['wind', 'whistle', 'hum', 'sea', 'market', 'forge', 'birds', 'crickets', 'bells', 'rain'];
+export const LAYERS: readonly Layer[] = ['wind', 'whistle', 'hum', 'sea', 'market', 'forge', 'birds', 'crickets', 'bells', 'rain', 'tavern', 'watch', 'tocsin', 'feast'];
+
+/** Тишина жизни города — карте, поляне и городу без своих дел. */
+const QUIET = { tavern: 0, watch: 0, tocsin: 0, feast: 0 } as const;
 
 /** Карта тише: её постели — во всю ширину кадра, без городского гомона поверх (П-3). */
 const MAP_LEVEL = 0.66;
@@ -99,6 +105,7 @@ export function mixOf(h: Hearing): Record<Layer, number> {
       crickets: 0,
       bells: 0,
       rain: 0,
+      ...QUIET,
     };
   }
   if (h.view === 'map') {
@@ -114,21 +121,35 @@ export function mixOf(h: Hearing): Record<Layer, number> {
       crickets: 0,
       bells: 0,
       rain: wx.rain * 0.6,
+      ...QUIET,
     };
   }
   const work = workday(h.solar);
   const nite = night(h.solar);
+  // Распорядок и состояние города (docs/city_v3.md, ЖГ-1) — те же функции, что у вида: рынок шумит до полудня, вечером —
+  // трактир, ночью — оклик дозора; тревога глушит улицы и бьёт в колокол, праздник — бубен и дудка на площади; голод и мор
+  // приглушают рынок, хмурость — гомон.
+  const rh = rhythmAt(h.solar);
+  const life = h.life;
+  const alarm = life?.alarm ?? 0;
+  const feast = life?.feast ?? 0;
+  const cheer = life?.cheer ?? 0;
+  const crowd = (1 - alarm) * (1 - 0.5 * (life?.plague ?? 0)) * (1 - 0.6 * (life?.hunger ?? 0)) * (1 + 0.15 * Math.max(0, cheer) - 0.5 * Math.max(0, -cheer));
   return {
     wind: cap((0.22 + 0.4 * far + (winter ? 0.25 : 0) + 0.1 * nite) * gust),
     whistle: cap((winter ? 0.4 : 0.08) * (0.4 + 0.6 * far) * gust * (1 + wx.storm)),
-    hum: (0.15 + 0.45 * far) * (0.25 + 0.75 * work),
+    hum: (0.15 + 0.45 * far) * (0.25 + 0.75 * work) * (1 - 0.5 * alarm),
     sea: 0,
-    market: MARKET[h.season] * work * (0.12 + 0.88 * h.near) * dry,
-    forge: work * (0.2 + 0.8 * h.near) * (winter ? 0.8 : 1),
+    market: Math.min(1, MARKET[h.season] * rh.market * (0.12 + 0.88 * h.near) * dry * crowd),
+    forge: work * (0.2 + 0.8 * h.near) * (winter ? 0.8 : 1) * (1 - alarm),
     birds: BIRDS[h.season] * Math.max(morning(h.solar), 0.3 * work) * dry,
     crickets: CRICKETS[h.season] * nite * dry,
     bells: 1 - nite,
     rain: wx.rain,
+    tavern: Math.min(1, rh.tavern * (0.15 + 0.85 * h.near) * dry * crowd),
+    watch: rh.patrol * (0.25 + 0.75 * h.near) * (1 - alarm),
+    tocsin: alarm,
+    feast: feast * (0.3 + 0.7 * h.near) * (1 - 0.5 * wx.rain),
   };
 }
 
@@ -170,13 +191,17 @@ export const RAIN_MIX: Record<keyof RainLayers, number> = { drizzle: 0.85, stead
 export const muffleOf = (h: Hearing): number =>
   h.view === 'city' && h.season === 'winter' && (h.wx?.cover ?? 1) > 0.3 ? 1800 : 9000;
 
-/** Где на фазе солнца звонит колокол и сколько ударов: утреня, третий час, полдень, девятый, вечерня. */
+/**
+ * Где на фазе солнца звонит колокол и сколько ударов: утреня, третий час, полдень, девятый, вечерня, повечерие (ЖГ-1: на
+ * закрытии ворот — двумя ударами в сумерках).
+ */
 export const BELL_HOURS: readonly (readonly [number, number])[] = [
   [0.02, 3],
   [0.125, 1],
   [0.25, 5],
   [0.375, 1],
   [0.47, 3],
+  [0.545, 2],
 ];
 
 /** Сколько ударов, если между фазами `from` и `to` (вперёд, через полночь) прошёл час колокола; иначе 0. */
@@ -204,6 +229,10 @@ export const AMB_MIX: Record<Layer, number> = {
   crickets: 0.025,
   bells: 0.12,
   rain: 0.085,
+  tavern: 0.06,
+  watch: 0.05,
+  tocsin: 0.07,
+  feast: 0.07,
 };
 
 /** Гром — громче фона, но не пугает: на уровне колокола (П-3: пик близкого грома около −18 дБ при умолчаниях). */
@@ -226,7 +255,11 @@ export class Ambience {
   private muffle: BiquadFilterNode;
   /** Голоса рынка — сквозь срез дали: издали гомон, вблизи разборчивее. */
   private marketTone: BiquadFilterNode;
-  private next: Record<'forge' | 'birds' | 'crickets' | 'market' | 'gust' | 'swell' | 'patter' | 'drips', number>;
+  private next: Record<'forge' | 'birds' | 'crickets' | 'market' | 'gust' | 'swell' | 'patter' | 'drips' | 'tavern' | 'watch' | 'tocsin' | 'feast', number>;
+  /** Голоса трактира — глуше рынка: за стенами и ставнями. */
+  private tavernTone: BiquadFilterNode;
+  /** Мелодия праздника: шаг напева по ладу. */
+  private tune = 0;
   /** У кузнеца своя наковальня: высота удара одна на игру. */
   private anvilHz: number;
   private rnd: Rng;
@@ -277,7 +310,11 @@ export class Ambience {
       this.beds.foam = bed(false, 'highpass', 2600, 0.5, out);
       this.beds.patter = bed(false, 'highpass', 2800, 0.6, out);
     }
-    this.next = { forge: at + span(this.rnd, 1, 4), birds: at + span(this.rnd, 0.5, 3), crickets: at + 0.5, market: at + 0.3, gust: at, swell: at, patter: at, drips: at + 0.5 };
+    this.tavernTone = ctx.createBiquadFilter();
+    this.tavernTone.type = 'lowpass';
+    this.tavernTone.frequency.value = 1400;
+    this.tavernTone.connect(this.muffle);
+    this.next = { forge: at + span(this.rnd, 1, 4), birds: at + span(this.rnd, 0.5, 3), crickets: at + 0.5, market: at + 0.3, gust: at, swell: at, patter: at, drips: at + 0.5, tavern: at + 1, watch: at + span(this.rnd, 4, 12), tocsin: at + 0.2, feast: at + 0.4 };
     this.level(at, 0.4);
   }
 
@@ -455,6 +492,57 @@ export class Ambience {
         // Чем гуще рынок, тем больше голосов наслаивается: следующий входит, не дожидаясь конца этого.
         this.next.market = t + len * span(rnd, 0.15, 0.6) / (kit.lite ? 0.5 : 1);
       } else this.next.market = to + 1;
+    }
+    // Трактир вечером: гул голосов за ставнями, взрывы смеха, изредка — лютня на пару тактов.
+    while (due('tavern')) {
+      const t = at('tavern');
+      if (m.tavern > 0.03) {
+        const v = AMB_MIX.tavern * m.tavern;
+        const r = rnd();
+        let len: number;
+        if (r < 0.14) len = laugh(kit, this.tavernTone, t, v * 1.1, span(rnd, -0.5, 0.5));
+        else if (r < 0.2 && !kit.lite) {
+          // Лютня: шесть-девять нот дорийского лада от ре.
+          const notes = [62, 64, 65, 67, 69, 71, 72];
+          const n = 6 + Math.floor(rnd() * 4);
+          for (let i = 0; i < n; i++) pluck(kit, this.tavernTone, t + i * 0.32, notes[Math.floor(rnd() * notes.length)], v * 0.9, 0.2);
+          len = n * 0.32;
+        } else len = voice(kit, this.tavernTone, t, 2 + Math.floor(rnd() * 4), v * span(rnd, 0.5, 1), span(rnd, -0.6, 0.6), false);
+        this.next.tavern = t + len * span(rnd, 0.3, 0.8);
+      } else this.next.tavern = to + 1;
+    }
+    // Ночной дозор: оклик издали — протяжный зов, раз в полминуты-минуту.
+    while (due('watch')) {
+      const t = at('watch');
+      if (m.watch > 0.05) {
+        voice(kit, this.tavernTone, t, 2, AMB_MIX.watch * m.watch, span(rnd, -0.8, 0.8), true);
+        this.next.watch = t + span(rnd, 22, 50);
+      } else this.next.watch = t + 5;
+    }
+    // Колокол тревоги: частые удары высоким колоколом — по семь, передышка, снова, пока враг у стен.
+    while (due('tocsin')) {
+      const t = at('tocsin');
+      if (m.tocsin > 0.05) {
+        for (let i = 0; i < 7; i++) bell(kit, this.muffle, t + i * 0.6, 230, AMB_MIX.tocsin * m.tocsin * (i % 2 ? 0.8 : 1));
+        this.next.tocsin = t + 7 * 0.6 + span(rnd, 2, 3.5);
+      } else this.next.tocsin = t + 1;
+    }
+    // Праздник: бубен в два такта, дудка ведёт напев по ладу; изредка — радостные крики.
+    while (due('feast')) {
+      const t = at('feast');
+      if (m.feast > 0.03) {
+        const v = AMB_MIX.feast * m.feast;
+        const beat = 0.36;
+        for (let i = 0; i < 8; i++) drum(kit, this.muffle, t + i * beat, v * (i % 4 === 0 ? 1 : 0.55), -0.25, i % 2 === 1);
+        const scale = [62, 64, 65, 67, 69, 67, 65, 64];
+        for (let i = 0; i < 4; i++) {
+          const midi = scale[(this.tune + i) % scale.length] + 12;
+          flute(kit, this.muffle, t + i * beat * 2, beat * 1.8, midi, v * 0.55);
+        }
+        this.tune = (this.tune + 3) % scale.length;
+        if (rnd() < 0.3) voice(kit, this.marketTone, t + span(rnd, 0, 2), 2, v * 0.8, span(rnd, -0.6, 0.6), true);
+        this.next.feast = t + 8 * beat;
+      } else this.next.feast = t + 1;
     }
   }
 }

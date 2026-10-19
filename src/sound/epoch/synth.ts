@@ -560,3 +560,83 @@ export function horn(kit: Kit, dest: AudioNode, at: number, midi: number, dur: n
     o.stop(at + dur + 0.05);
   }
 }
+
+// ---------- Жизнь города (docs/city_v3.md, ЖГ-1) ----------
+
+/**
+ * Бубен праздника: удар по коже — низкий тон, сползающий 150→70 Гц за 0.12 с, и щепоть шума кожи; на слабой доле — тише и
+ * с бубенцами (верх шума). Атака 3 мс — без щелчка (П-3).
+ */
+export function drum(kit: Kit, dest: AudioNode, at: number, vel: number, pan: number, jingle: boolean): void {
+  const ctx = kit.ctx;
+  const out = panned(kit, dest, pan);
+  const o = ctx.createOscillator();
+  o.frequency.setValueAtTime(150, at);
+  o.frequency.exponentialRampToValueAtTime(70, at + 0.12);
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0, at);
+  g.gain.linearRampToValueAtTime(vel, at + 0.003);
+  g.gain.exponentialRampToValueAtTime(0.0001, at + 0.28);
+  o.connect(g);
+  g.connect(out);
+  o.start(at);
+  o.stop(at + 0.32);
+  const n = noiseLoop(kit, false, at);
+  const f = ctx.createBiquadFilter();
+  f.type = jingle ? 'highpass' : 'bandpass';
+  f.frequency.value = jingle ? 6500 : 900;
+  const ng = ctx.createGain();
+  strike(ng.gain, at, vel * (jingle ? 0.35 : 0.25), 0.003, jingle ? 0.22 : 0.08);
+  n.connect(f);
+  f.connect(ng);
+  ng.connect(out);
+  n.stop(at + 0.3);
+}
+
+/**
+ * Смех у трактира: четыре-семь «ха» — голосовая пила сквозь форманты «а», каждый слог ниже прежнего, с выдохом шумом.
+ * Возвращает длину, с.
+ */
+export function laugh(kit: Kit, dest: AudioNode, at: number, vel: number, pan: number): number {
+  const ctx = kit.ctx;
+  const rnd = kit.rnd;
+  const n = 4 + Math.floor(rnd() * 4);
+  const pitch = span(rnd, 150, 260);
+  const o = ctx.createOscillator();
+  o.type = 'sawtooth';
+  const breath = noiseLoop(kit, false, at);
+  const bg = ctx.createGain();
+  bg.gain.value = 0.5;
+  breath.connect(bg);
+  const f1 = ctx.createBiquadFilter();
+  f1.type = 'bandpass';
+  f1.frequency.value = 780;
+  f1.Q.value = 5;
+  const f2 = ctx.createBiquadFilter();
+  f2.type = 'bandpass';
+  f2.frequency.value = 1250;
+  f2.Q.value = 7;
+  const amp = ctx.createGain();
+  amp.gain.setValueAtTime(0, at);
+  for (const x of [o, bg]) {
+    x.connect(f1);
+    x.connect(f2);
+  }
+  f1.connect(amp);
+  f2.connect(amp);
+  amp.connect(panned(kit, dest, pan));
+  let t = at;
+  for (let i = 0; i < n; i++) {
+    const len = span(rnd, 0.09, 0.14);
+    o.frequency.setValueAtTime(pitch * (1 - i * 0.05), t);
+    const peak = vel * (1 - i * 0.08);
+    amp.gain.setValueAtTime(0, t);
+    amp.gain.linearRampToValueAtTime(peak, t + 0.02);
+    amp.gain.linearRampToValueAtTime(0, t + len);
+    t += len + span(rnd, 0.05, 0.09);
+  }
+  o.start(at);
+  o.stop(t + 0.05);
+  breath.stop(t + 0.05);
+  return t - at;
+}

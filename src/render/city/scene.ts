@@ -13,7 +13,8 @@ import type { SmokeSource } from '../weather';
 import { hearCity } from '@/sound/ear';
 import { WORK_SIGN, workBusy } from '../worksigns';
 import type { V3 } from './geom';
-import { CityLife } from './life';
+import { CityLife, type Anchor } from './life';
+import { feastClock, forcedMood, moodOf, CALM_MOOD, type CityMood } from './rhythm';
 import type { CityBustle } from './alive';
 import type { CityGarrison } from './garrison';
 import type { CityDeeds } from './deeds';
@@ -202,6 +203,14 @@ export class CityScene extends TribeScene {
     windZ: 0,
     flash: 0,
   };
+  /** Фаза солнца этого кадра — распорядку дня города (`rhythm.rhythmAt`). */
+  private solar = 0.15;
+  /** Враг идёт к городу (мир, `marchesOnHome`) — тревога в виде (`setThreat`). */
+  private threat = false;
+  /** Состояние города в виде (`rhythm.moodOf`) и работающие постройки — места людей днём. */
+  private mood: CityMood = CALM_MOOD;
+  private stations: Anchor[] = [];
+  private stationKey = '';
   /** Сколько народу на улицах и стражи на стене и какие дворы работают — из партии (`sync`). */
   private crowd: { people: number; guards: number; busy: BuildingTypeId[] } = { people: 40, guards: 6, busy: [] };
 
@@ -243,6 +252,10 @@ export class CityScene extends TribeScene {
     // Люди, стража и суета — под огнями ночи: у факела ворот стража тёплая, а не синяя (docs/polish.md, П-9).
     lightScene(this.folk.group, c.uniforms);
     this.folk.set(this.crowd.people, this.crowd.guards, this.workSmoke());
+    // Распорядок и состояние города (docs/city_v3.md, ЖГ-1): вечером — у трактира, в голод — очередь у амбара.
+    this.folk.setPlaces(mainSite(this.sites, 'tavern'), mainSite(this.sites, 'storage'));
+    this.stationKey = '';
+    if (this.lastState) this.moodNow(this.lastState);
     this.bustleWanted = true;
     for (const view of this.buildings.values()) this.place3(view);
     if (this.selected !== null) this.setSelected(this.selected);
@@ -436,6 +449,7 @@ export class CityScene extends TribeScene {
   // ---------- Свет ----------
 
   protected override applyDayNight(solar: number): void {
+    this.solar = solar;
     this.light = applyDayNight(this.rig, this.scene, solar, this.seasonVis, CITY_KEY, RIG.next);
     // Риг посёлка ставит лампу в сорока единицах от середины: городу — над целью камеры, далеко,
     // чтобы коробка теней шла за кадром.
@@ -597,7 +611,7 @@ export class CityScene extends TribeScene {
       }
       // Огни ночи (docs/polish.md, П-9): загораются по одному, мерцают; настоящие — ближние к взгляду.
       c.rig.update(t, dt, night, this.eye.x, this.eye.z, this.camera, this.renderer.domElement.height);
-      this.folk?.update(dt, t, night, this.seasonVis.snow);
+      this.folk?.update(dt, t, night, this.seasonVis.snow, this.solar);
       this.garrison?.update(t, this.camera);
       // Колесо лесопилки крутится и брызжет — от времени (ручей не мёрзнет).
       c.mill?.update(t);
@@ -814,8 +828,37 @@ export class CityScene extends TribeScene {
       busy: s.buildings.filter((b) => WORK_SIGN[b.type]?.smoke && workBusy(s, b, false)).map((b) => b.type),
     };
     this.folk?.set(this.crowd.people, this.crowd.guards, this.workSmoke());
+    this.moodNow(s);
     this.lastState = s;
     this.respond(s);
+  }
+
+  /**
+   * Враг идёт к городу (набег на карте, `world/store.marchesOnHome`): люди прячутся, стража на стенах — тревога в виде
+   * (docs/city_v3.md, ЖГ-1). Зовёт полотно игры — сцена мира не знает.
+   */
+  setThreat(on: boolean): void {
+    if (on === this.threat) return;
+    this.threat = on;
+    if (this.lastState) this.moodNow(this.lastState);
+  }
+
+  /**
+   * Состояние города в виде и места работы — из партии: праздник после победы, тревога, голод, мор, мораль
+   * (`rhythm.moodOf`); у работающих построек (есть люди на местах) днём стоят работники. Адрес `?mood=` — стенду.
+   */
+  private moodNow(s: GameState): void {
+    const until = feastClock.observe(s);
+    this.mood = (typeof location !== 'undefined' ? forcedMood(location.search) : null) ?? moodOf(s, this.threat, until);
+    // Трактир и амбар живут своим распорядком, в храме служат внутри — у них работников у фасада нет.
+    const busy = s.buildings.filter((b) => (s.workers[b.id] ?? 0) > 0 && b.type !== 'tavern' && b.type !== 'storage' && b.type !== 'church').map((b) => b.type);
+    const key = busy.join(',');
+    if (key !== this.stationKey) {
+      this.stationKey = key;
+      this.stations = busy.map((type) => mainSite(this.sites, type)).filter((m): m is NonNullable<typeof m> => m !== null).slice(0, 6);
+      this.folk?.setStations(this.stations);
+    }
+    this.folk?.setMood(this.mood);
   }
 
   /** Группа здания — на главное место его постройки, значок — над крышей. */

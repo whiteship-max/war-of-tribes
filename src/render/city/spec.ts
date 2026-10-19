@@ -101,6 +101,9 @@ export const peopleTris = (q: Quality, n: number): number => {
 /** Копейщиков у каждых ворот: по двое с каждой стороны проезда (`life.GATE_POSTS`). */
 export const GATE_GUARDS = 4;
 
+/** Ночной дозор по улицам (docs/city_v3.md, ЖГ-1) — сколько стражников гуськом, по уровню: те же копейщики ворот. */
+export const PATROL: Record<Quality, number> = { low: 2, medium: 2, high: 3 };
+
 /**
  * Вода и берег по уровню (docs/city.md, 12.3). `cols` — колонны ленты реки поперёк, метры от середины: за плоским
  * дном (9 м) они ложатся по кромке строки (`banks.ribbon`), лента доходит до неё, и глубина в вершинах красит

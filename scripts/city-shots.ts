@@ -11,7 +11,9 @@
 //                                                `WXLOOK=market:70` — вблизи постройки (тип:расстояние; `-4,10,-30:60` —
 //                                                точка плана; `…:60:150` — камера повёрнута на 150°), `WXMAP=1` —
 //                                                карта мира, `WXSEASON=winter` — сезон партии, `WXREGION=italy` — регион,
-//                                                `WXDAY=0.8` — доля суток партии (0.8 летом — глубокая ночь, docs/polish.md, П-3)
+//                                                `WXDAY=0.8` — доля суток партии (0.8 летом — глубокая ночь, docs/polish.md, П-3);
+//                                                `MOOD=feast` — состояние города адресом (`?mood=`: feast, siege, hunger,
+//                                                plague, gloom, cheer; docs/city_v3.md, ЖГ-1)
 //   GAME=1 WX=clear CHAMBERS=desk npm run city:shots — покои правителя (docs/city_v3.md, Г-4): точка интереса
 //                                                (hall, desk, window, hearth, bed, arms), `:доворот:наклон:безделушка:подсветка`
 //   LEGEND=1 npm run city:shots              — легенда карты листом: строки значков той же функцией, что окно легенды
@@ -170,7 +172,9 @@ async function shot(q: Quality, view: string, solar: number): Promise<void> {
 
 /** Игра по адресу `?look=city`: новая партия, вход, стартовый кадр города и счётчики сцены. */
 async function gameShot(q: Quality): Promise<void> {
-  const tab = await Tab.open(DEBUG_PORT, reportPage(PORT, `&look=${process.env.LOOK ?? 'city'}&quality=${q}`));
+  // Состояние города адресом (`MOOD=feast`, docs/city_v3.md, ЖГ-1): праздник, осада, голод, мор, хмуро, весело.
+  const mood = process.env.MOOD ? `&mood=${process.env.MOOD}` : '';
+  const tab = await Tab.open(DEBUG_PORT, reportPage(PORT, `&look=${process.env.LOOK ?? 'city'}&quality=${q}${mood}`));
   try {
     await tab.send('Emulation.setDeviceMetricsOverride', SCREEN);
     // Касание — до перезагрузки: иначе страница не считает себя сенсорной, и касание CDP не становится
