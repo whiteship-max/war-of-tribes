@@ -13,6 +13,7 @@ import type { RivalDeedId, RivalMenu, SettlementCard } from '@/world/types';
 import { Icon } from '@/ui/icons/Icon';
 import { realLeft, realSpanText } from '@/ui/parts/wait';
 import { EnergyPrice } from '@/ui/parts/Energy';
+import { iconName } from '@/ui/icons/registry';
 
 const left = (at: number, now: number): string => realLeft(Math.max(0, (at - now) / 1000));
 
@@ -64,7 +65,7 @@ export function SpyRival({ card }: { card: SettlementCard }) {
         <>
           <p className="nx-tnote">Дорога — {realLeft(spy.walkMs / 1000)}. Удача и гибель зависят от стражи и Дозора этого города.</p>
           <button className="nx-cact" disabled={busy} onClick={() => void look()}>
-            <Icon name="spy-probe" glyph="🕵️" />
+            <Icon name="spy-probe" />
             Тайные дела
           </button>
         </>
@@ -75,7 +76,7 @@ export function SpyRival({ card }: { card: SettlementCard }) {
           {menu.options.map((o) => (
             <div key={o.deed} className="nx-spyrow">
               <button className="nx-cact" disabled={busy || !o.can} onClick={() => void go(o.deed)}>
-                <Icon name={`spy-${o.deed}`} glyph={o.icon} />
+                <Icon name={iconName('spy', o.deed)} />
                 {o.name}
                 <EnergyPrice price={o.energy.price} />
               </button>

@@ -67,6 +67,7 @@ import { QUALITY, type Quality } from '@/render/quality';
 import { levelNow, subscribeGfx } from '@/render/gfx';
 import { onViewport } from '@/viewport';
 import { Icon } from '@/ui/icons/Icon';
+import { iconName } from '@/ui/icons/registry';
 
 // Тревоги войны значками (П-7) — куском нового интерфейса, как в городе (`App.tsx`): карта стоит в первой загрузке.
 const WarSigns = lazy(() => import('@/ui/next').then((m) => ({ default: m.WarSigns })));
@@ -746,7 +747,7 @@ export function WorldMap() {
           </div>
           {FREE_CAMERA && (
             <button className={`nx-mbtn${jumpOpen ? ' on' : ''}`} onClick={() => setJumpOpen((v) => !v)} aria-label="Перейти к координатам">
-              ⌖
+              <Icon name="ui-pin" />
             </button>
           )}
           {CHEATS_ON && <SpeedButton className="nx-mbtn" />}
@@ -761,7 +762,7 @@ export function WorldMap() {
               }}
               aria-label="Молва края"
             >
-              <Icon name="ui-scroll" glyph="📜" />
+              <Icon name="ui-scroll" />
               {feed.unseen && !feedOpen && <em className="nx-dot" />}
             </button>
           )}
@@ -775,7 +776,7 @@ export function WorldMap() {
               }}
               aria-label="Рейтинг"
             >
-              <Icon name="ui-trophy" glyph="🏆" />
+              <Icon name="ui-trophy" />
             </button>
           )}
         </div>
@@ -816,10 +817,10 @@ export function WorldMap() {
           соседей не стоит на экране всегда: точка охрой на «Легенде» и первая строка легенды (6.2). */}
       {picked && (
           <div className="nx-hand">
-            <Icon name={`fig-${picked}`} glyph="🧭" />
+            <Icon name={iconName('fig', picked)} />
             <span className="one-line">{FIGURE_BY_ID[picked].name}: нажми цель</span>
             <button className="nx-mbtn" onClick={() => pickFigure(null)} aria-label="Отпустить">
-              <Icon name="ui-close" glyph="✕" />
+              <Icon name="ui-close" />
             </button>
           </div>
         )}
@@ -837,26 +838,26 @@ export function WorldMap() {
               в город — середина низа: там же, где в городе вход на карту. */}
           <button className={anchor === 'home' ? 'on' : ''} onClick={goHome}>
             <span className="nx-ib">
-              <Icon name="rel-self" glyph="🏠" />
+              <Icon name="rel-self" />
             </span>
             К себе
           </button>
           <button onClick={openMarches}>
             <span className="nx-ib">
-              <Icon name="ui-banner" glyph="⚔️" />
+              <Icon name="ui-banner" />
               {marchCount > 0 && <em className="nx-badge">{marchCount}</em>}
             </span>
             Походы
           </button>
           <button className="nx-main" data-tut="nav-city" onClick={closeMap} aria-label="Город">
             <span className="nx-ib">
-              <Icon name="bld-town_hall" glyph="🏰" />
+              <Icon name="bld-town_hall" />
             </span>
             Город
           </button>
           <button onClick={toggleZoom} aria-label={zoomedIn ? 'Отдалить' : 'Приблизить'}>
             <span className="nx-ib">
-              <Icon name="ui-spyglass" glyph={zoomedIn ? '🔭' : '🔍'} />
+              <Icon name="ui-spyglass" />
             </span>
             Масштаб
           </button>
@@ -869,7 +870,7 @@ export function WorldMap() {
             }}
           >
             <span className="nx-ib">
-              <Icon name="ui-info" glyph="ℹ️" />
+              <Icon name="ui-info" />
               {rosterOld && <em className="nx-dot" />}
             </span>
             Легенда

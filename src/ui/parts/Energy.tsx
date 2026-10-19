@@ -14,7 +14,7 @@ export function EnergyBar({ energy, spent }: { energy: EnergyView; spent: boolea
   return (
     <button className="nx-energy" onClick={(e) => tipAt(e.currentTarget, { title: 'Энергия', body: ENERGY_TIP })}>
       <span className="nx-energy-top">
-        <Icon name="ui-energy" glyph="✋" />
+        <Icon name="ui-energy" />
         <b>Энергия {energyCount(energy)}</b>
       </span>
       <span className={`progress${share <= LOW || spent ? ' low' : ' good'}`}>
@@ -29,7 +29,7 @@ export function EnergyBar({ energy, spent }: { energy: EnergyView; spent: boolea
 export function EnergyPrice({ price }: { price: number }) {
   return (
     <span className="nx-eprice">
-      <Icon name="ui-energy" glyph="✋" /> {price} <small>энергии</small>
+      <Icon name="ui-energy" /> {price} <small>энергии</small>
     </span>
   );
 }

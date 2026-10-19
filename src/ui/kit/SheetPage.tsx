@@ -9,11 +9,12 @@ import './kit.css';
 import type { ReactNode } from 'react';
 import { Icon } from '@/ui/icons/Icon';
 import { tipAt, type TipContent } from '@/ui/next/tip';
+import type { IconName } from '@/ui/icons/alias';
 
 export interface TabDef<T extends string> {
   id: T;
   label: string;
-  icon?: { name: string; glyph: string };
+  icon?: IconName;
   /** Счётчик «ждёт действия» на вкладке (docs/ui_audit.md, 3.9): больше 9 — «9+». */
   badge?: number;
 }
@@ -27,7 +28,7 @@ export function Tabs<T extends string>({ tabs, value, onChange }: { tabs: readon
     <div className="kit-tabs" role="tablist">
       {tabs.map((t) => (
         <button key={t.id} type="button" role="tab" aria-selected={t.id === value} className={t.id === value ? 'on' : ''} onClick={() => onChange(t.id)}>
-          {t.icon && <Icon name={t.icon.name} glyph={t.icon.glyph} />}
+          {t.icon && <Icon name={t.icon} />}
           <span className="one-line">{t.label}</span>
           {t.badge !== undefined && t.badge > 0 && <em className="kit-badge">{badgeText(t.badge)}</em>}
         </button>
@@ -37,7 +38,7 @@ export function Tabs<T extends string>({ tabs, value, onChange }: { tabs: readon
 }
 
 interface Props<T extends string> {
-  icon?: { name: string; glyph: string };
+  icon?: IconName;
   title: ReactNode;
   /** Строка под именем: «ур. 3/10», «Острог · Варвары · 847|1092». */
   sub?: ReactNode;
@@ -55,17 +56,17 @@ interface Props<T extends string> {
 }
 
 export function SheetPage<T extends string>({ icon, title, sub, about, action, onClose, tabs, tab, onTab, foot, children }: Props<T>) {
-  const glyph = icon ? <Icon name={icon.name} glyph={icon.glyph} /> : null;
+  const art = icon ? <Icon name={icon} /> : null;
   return (
     <div className="panel kit-page">
       <div className="kit-head">
-        {glyph &&
+        {art &&
           (about ? (
             <button type="button" className="kit-head-ico" aria-label="Что это" onClick={(e) => tipAt(e.currentTarget, about())}>
-              {glyph}
+              {art}
             </button>
           ) : (
-            <span className="kit-head-ico">{glyph}</span>
+            <span className="kit-head-ico">{art}</span>
           ))}
         <div className="kit-head-title">
           <b className="one-line">{title}</b>
@@ -73,7 +74,7 @@ export function SheetPage<T extends string>({ icon, title, sub, about, action, o
         </div>
         {action}
         <button type="button" className="kit-close" onClick={onClose} aria-label="Закрыть">
-          <Icon name="ui-close" glyph="✕" />
+          <Icon name="ui-close" />
         </button>
       </div>
       {tabs && tab !== undefined && onTab && <Tabs tabs={tabs} value={tab} onChange={onTab} />}

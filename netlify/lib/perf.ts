@@ -328,7 +328,7 @@ export function perfSummary(days: PerfDay[], period: number): string {
   if (!devs.length) return `Замеров за ${period} дн. нет. Они приходят с телефонов в Telegram раз в пять минут и при сворачивании; игрок может выключить их в настройках.`;
   const castles = new Set(devs.map((d) => d.castle)).size;
   const lines = [
-    `📊 Замеры за ${period} дн.: устройств ${devs.length}, игроков ${castles}, пачек ${devs.reduce((a, d) => a + d.n, 0)}, игры ${hours(devs.reduce((a, d) => a + d.span, 0))}.`,
+    `Замеры за ${period} дн.: устройств ${devs.length}, игроков ${castles}, пачек ${devs.reduce((a, d) => a + d.n, 0)}, игры ${hours(devs.reduce((a, d) => a + d.span, 0))}.`,
     '',
     'Кадры в секунду — медиана · худшие 5 %:',
   ];
@@ -399,7 +399,7 @@ export function perfSummary(days: PerfDay[], period: number): string {
 export function perfOfPlayer(days: PerfDay[], head: string, period: number, when: (ms: number) => string): string {
   const devs = byDevice(days);
   if (!devs.length) return `${head}\nЗамеров за ${period} дн. нет: не заходил с телефона в Telegram, выключил замеры в настройках или ещё не прислал первую пачку.`;
-  const lines = [`📊 ${head} — замок ${devs[0].castle}, за ${period} дн.`];
+  const lines = [`${head} — замок ${devs[0].castle}, за ${period} дн.`];
   for (const d of devs) {
     lines.push(
       '',

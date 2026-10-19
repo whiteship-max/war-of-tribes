@@ -58,7 +58,7 @@ export const reportWith =
 
     const api = tg();
     const short = sent.text.length > PREVIEW ? `${sent.text.slice(0, PREVIEW)}…` : sent.text;
-    const note = `🐞 Отчёт об ошибке ${id}\n«${cityOr(city)}» ${key}${user ? ` @${user}` : ''} · день ${sent.ctx.day} · ${sent.ctx.view || '—'}\n\n${short}\n\nПодробнее: /report ${id}`;
+    const note = `Отчёт об ошибке ${id}\n«${cityOr(city)}» ${key}${user ? ` @${user}` : ''} · день ${sent.ctx.day} · ${sent.ctx.view || '—'}\n\n${short}\n\nПодробнее: /report ${id}`;
     for (const admin of adminIds()) await api.say(admin, note);
 
     const body: ReportResponse = { now, id };

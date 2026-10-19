@@ -16,7 +16,6 @@ export interface TroopDef {
   name: string;
   /** Единственное число — для строк вида «1 копейщик». */
   one: string;
-  icon: string;
   /** Строка вкуса: образ бойца одной фразой, без чисел и пользы (docs/voice.md, 3). */
   flavor: string;
   /** Строка дела: что этот вид делает в бою, без вписанных чисел — числа считает карточка (`battle/describe`). */
@@ -48,7 +47,6 @@ export const TROOPS: TroopDef[] = [
     id: 'clubman',
     name: 'Дубинщики',
     one: 'дубинщик',
-    icon: '🪃',
     flavor: 'Пахарь с дубовой палицей, взятый от сохи.',
     description: 'Снаряжения не просит и берёт числом.',
     gear: {},
@@ -60,7 +58,6 @@ export const TROOPS: TroopDef[] = [
     id: 'spearman',
     name: 'Копейщики',
     one: 'копейщик',
-    icon: '🔱',
     flavor: 'Ясеневые древки, сомкнутые в один ёж.',
     description: 'Держит строй и не пускает врага на площадь.',
     gear: { spear: 1 },
@@ -72,7 +69,6 @@ export const TROOPS: TroopDef[] = [
     id: 'archer',
     name: 'Лучники',
     one: 'лучник',
-    icon: '🏹',
     flavor: 'Тисовый лук и колчан гусиных стрел.',
     description: 'Бьёт со стены, в рукопашную идёт редко.',
     gear: { bow: 1 },
@@ -84,7 +80,6 @@ export const TROOPS: TroopDef[] = [
     id: 'axeman',
     name: 'Топорники',
     one: 'топорник',
-    icon: '🪓',
     flavor: 'Бородатый топор на длинном топорище.',
     description: 'Тяжёлая рука похода. Рубит щиты и ворота.',
     gear: { axe: 1 },
@@ -96,7 +91,6 @@ export const TROOPS: TroopDef[] = [
     id: 'swordsman',
     name: 'Мечники',
     one: 'мечник',
-    icon: '🗡️',
     flavor: 'Кованый клинок в опытной руке.',
     description: 'Дорог в железе, но решает бой.',
     gear: { sword: 1 },
@@ -108,7 +102,6 @@ export const TROOPS: TroopDef[] = [
     id: 'shieldman',
     name: 'Щитоносцы',
     one: 'щитоносец',
-    icon: '🛡️',
     flavor: 'Окованный щит, за которым стоит весь ряд.',
     description: 'О такую стену разбивается набег.',
     gear: { sword: 1, shield: 1 },
@@ -120,7 +113,6 @@ export const TROOPS: TroopDef[] = [
     id: 'rider',
     name: 'Всадники',
     one: 'всадник',
-    icon: '🐎',
     flavor: 'Степной конь, лёгкое копьё и пыль до горизонта.',
     description: 'Лёгкая конница без доспеха. Режет лучников и догоняет бегущих, о сомкнутые копья разбивается.',
     gear: { spear: 1, shield: 1 },
@@ -133,7 +125,6 @@ export const TROOPS: TroopDef[] = [
     id: 'knight',
     name: 'Латные всадники',
     one: 'латный всадник',
-    icon: '🏇',
     flavor: 'Конь в попоне, всадник в кольчуге и глухом шлеме.',
     description: 'Тяжёлая конница. Ломает строй в лоб и стоит под стрелами, но копья держат и её.',
     gear: { spear: 1, shield: 1, armor: 1 },
@@ -146,7 +137,6 @@ export const TROOPS: TroopDef[] = [
     id: 'legionary',
     name: 'Латники',
     one: 'латник',
-    icon: '🦺',
     flavor: 'Стёганка, кольчуга и щит с гербом города.',
     description: 'Лучший боец на человека, но дороже всех в железе.',
     gear: { sword: 1, shield: 1, armor: 1 },

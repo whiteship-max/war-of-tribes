@@ -38,7 +38,7 @@ describe('свой шрифт', () => {
   it('буквы и знаки текстов игры есть в основном шрифте — подмены нет', () => {
     // Атлас и списки — данные, а не текст; музыка называет фразы для себя (A′, A″), игроку они не пишутся. Пути — через
     // `/`: на Windows `join` даёт `\`, и пропуск папки `${s}/` не срабатывал.
-    const skip = ['world/atlas/data.ts', 'ui/icons/emoji12.ts', 'ui/fonts/glyphs.ts', 'src/sound'];
+    const skip = ['world/atlas/data.ts', 'ui/fonts/glyphs.ts', 'src/sound'];
     const missing = new Map<string, string>();
     for (const f of files(SRC)) {
       const path = f.replace(/\\/g, '/');

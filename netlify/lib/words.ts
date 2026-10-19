@@ -332,15 +332,19 @@ export function panelText(rec: Pick<NotifyRecord, 'prefs' | 'bot'>): string {
   return lines.join('\n');
 }
 
-/** Кнопки настроек: роды, тихий час по кругу, «только срочное», общий рычаг. «Открыть игру» ставит адаптер. */
+/**
+ * Кнопки настроек: роды, тихий час по кругу, «только срочное», общий рычаг. «Открыть игру» ставит адаптер. Состояние —
+ * словом после двоеточия («Стройка: да»), без значков: вести бота — чистый текст (docs/icons.md, ЗН-1).
+ */
 export function panelRows(rec: Pick<NotifyRecord, 'prefs' | 'bot'>): PanelButton[][] {
   const { prefs, bot } = rec;
-  const topic = (t: Topic): PanelButton => ({ text: `${bot.mute.includes(t) ? '▫️' : '✅'} ${TOPIC_NAME[t]}`, act: callbackTopic(t) });
+  const yes = (on: boolean): string => (on ? 'да' : 'нет');
+  const topic = (t: Topic): PanelButton => ({ text: `${TOPIC_NAME[t]}: ${yes(!bot.mute.includes(t))}`, act: callbackTopic(t) });
   return [
     [topic('fights'), topic('sieges'), topic('build')],
     [topic('grants'), topic('neighbors')],
-    [{ text: `🌙 Тихий час: ${quietWords(bot.quiet)}`, act: CALLBACK_QUIET }],
-    [{ text: `${bot.urgent ? '✅' : '▫️'} Только срочное`, act: CALLBACK_URGENT }],
+    [{ text: `Тихий час: ${quietWords(bot.quiet)}`, act: CALLBACK_QUIET }],
+    [{ text: `Только срочное: ${yes(bot.urgent)}`, act: CALLBACK_URGENT }],
     [prefs.on ? { text: BUTTON_OFF, act: CALLBACK_PANEL_OFF } : { text: BUTTON_ON, act: CALLBACK_PANEL_ON }],
   ];
 }

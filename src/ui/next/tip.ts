@@ -15,6 +15,7 @@
  * `Tip.tsx`: на Windows регистр имён не различается, и `./Tip` находил этот модуль вместо слоя.
  */
 import { create } from 'zustand';
+import type { IconName } from '@/ui/icons/alias';
 
 /** Предел длины текста подсказки (3.11): длиннее — это уже панель, а не подсказка. */
 export const TIP_MAX = 140;
@@ -48,7 +49,7 @@ export interface TipRow {
   value: string;
   tone?: 'good' | 'bad' | 'muted';
   /** Значок листа и запасной знак — как у `Icon`. */
-  icon?: { name: string; glyph: string };
+  icon?: IconName;
   go?: () => void;
 }
 
@@ -59,7 +60,7 @@ export interface TipRow {
  */
 export interface TipMaker {
   label: string;
-  icon: { name: string; glyph: string };
+  icon: IconName;
   go: () => void;
   build?: boolean;
   /** «Показать в городе» (ОР-1): постройка стоит — кнопка с меткой места рядом с главной (`next/show.withShow`). */

@@ -28,6 +28,7 @@ import { profileArms } from '@/profile/identity';
 import { setArms } from '@/profile/stats';
 import { Btn } from '@/ui/kit/Btn';
 import { ArmsArt } from './Arms';
+import { Icon } from '@/ui/icons/Icon';
 
 /** Выбор частью: кнопки-образцы одной сеткой. */
 function Pick<T extends string>({
@@ -138,7 +139,7 @@ export function ArmsMaker({ onBack }: { onBack: () => void }) {
           <p className="am-blazon">{blazon(arms)}</p>
           <p className="am-rule">{note ?? 'Правило гербовника: металл на цвет, цвет на металл.'}</p>
           <Btn onClick={roll} label="Случайный герб">
-            🎲 Случайный
+            <Icon name="ui-dice" /> Случайный
           </Btn>
         </div>
       </div>

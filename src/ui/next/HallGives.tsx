@@ -47,7 +47,7 @@ export function HallGives({ b }: { b: Building }) {
         cols={COLS}
         rows={hallGives(b, townHallBuildMult(s)).map((r) => ({ key: r.key, cells: { name: r.name, v: r.v }, tip: () => ({ title: `${r.name} · ${r.v}`, body: r.body }) }))}
       />
-      <Row icon={{ name: 'bld-town_hall', glyph: '🏛️' }} label="Указы" sub="Указ, паёк и налог — в державе, рядом с золотом" go={() => goTo(WINDOW.gold)} goLabel="К указам" />
+      <Row icon={'bld-town_hall'} label="Указы" sub="Указ, паёк и налог — в державе, рядом с золотом" go={() => goTo(WINDOW.gold)} goLabel="К указам" />
     </section>
   );
 }

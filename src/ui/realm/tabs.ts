@@ -6,6 +6,7 @@
 //
 // `built` — не настройка, а правда о коде: разделу ставят `true` тем же
 // коммитом, которым он наполняется.
+import type { IconName } from '@/ui/icons/alias';
 export type RealmTab =
   | 'lineage'
   | 'government'
@@ -19,19 +20,19 @@ export type RealmTab =
 
 export interface RealmTabDef {
   id: RealmTab;
-  icon: string;
+  icon: IconName;
   name: string;
   built: boolean;
 }
 
 export const REALM_TABS: RealmTabDef[] = [
-  { id: 'lineage', icon: '🌳', name: 'Правитель', built: true },
-  { id: 'government', icon: '🏛️', name: 'Указы', built: true },
-  { id: 'building', icon: '🔨', name: 'Стройка', built: true },
-  { id: 'tech', icon: '📚', name: 'Технологии', built: true },
-  { id: 'decisions', icon: '✉️', name: 'Вести', built: true },
-  { id: 'stability', icon: '⚖️', name: 'Порядок', built: false },
-  { id: 'faith', icon: '⛪', name: 'Вера', built: true },
-  { id: 'army', icon: '⚔️', name: 'Дружина', built: true },
-  { id: 'estates', icon: '👑', name: 'Сословия', built: false },
+  { id: 'lineage', icon: 'ui-crown', name: 'Правитель', built: true },
+  { id: 'government', icon: 'bld-town_hall', name: 'Указы', built: true },
+  { id: 'building', icon: 'ui-hammer', name: 'Стройка', built: true },
+  { id: 'tech', icon: 'ui-tech', name: 'Технологии', built: true },
+  { id: 'decisions', icon: 'ui-mail', name: 'Вести', built: true },
+  { id: 'stability', icon: 'ui-scales', name: 'Порядок', built: false },
+  { id: 'faith', icon: 'bld-church', name: 'Вера', built: true },
+  { id: 'army', icon: 'hud-army', name: 'Дружина', built: true },
+  { id: 'estates', icon: 'ui-crown', name: 'Сословия', built: false },
 ];

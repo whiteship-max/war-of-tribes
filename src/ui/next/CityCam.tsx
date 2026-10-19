@@ -66,12 +66,12 @@ export function CityCamView({ on, moved, toggle, home }: { on: boolean; moved: b
   return (
     <div className="nx-cam">
       <button type="button" className={on ? 'on' : ''} aria-pressed={on} aria-label="Подписи" onClick={toggle}>
-        <Icon name="ui-scroll" glyph="📜" />
+        <Icon name="ui-scroll" />
         <small>Подписи</small>
       </button>
       {moved && (
         <button type="button" aria-label="Домой" onClick={home}>
-          <Icon name="ui-home" glyph="🏠" />
+          <Icon name="ui-home" />
           <small>Домой</small>
         </button>
       )}

@@ -32,6 +32,7 @@ import { REALM_TABS, type RealmTab } from './tabs';
 import { QuestsPanel } from '../panels/QuestsPanel';
 import { RealmNew } from './RealmNew';
 import { DecreesNew } from './RealmTabs';
+import { Icon } from '@/ui/icons/Icon';
 
 /**
  * Летопись событиями — советнику покоев (Г-10, `ui/chambers/Chambers`): покои берут её ленивым импортом этого куска, а не
@@ -99,7 +100,7 @@ function Closed({ tab }: { tab: RealmTab }) {
   const def = REALM_TABS.find((t) => t.id === tab)!;
   return (
     <div className="panel realm-closed">
-      <div className="big">{def.icon}</div>
+      <div className="big"><Icon name={def.icon} /></div>
       <h3>{def.name}</h3>
     </div>
   );

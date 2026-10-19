@@ -95,14 +95,14 @@ export function Rating({ onClose }: { onClose: () => void }) {
         <b>Рейтинг</b>
         {mine && (
           <button className="wm-rbtn" onClick={() => setSharing(true)} aria-label="Поделиться местом">
-            <Icon name="ui-share" glyph="📣" />
+            <Icon name="ui-share" />
           </button>
         )}
         <button className="wm-rbtn" onClick={(e) => tipAt(e.currentTarget, RATING_TIP)} aria-label="Откуда очки">
-          <Icon name="ui-info" glyph="ℹ️" />
+          <Icon name="ui-info" />
         </button>
         <button className="wm-rbtn" onClick={onClose} aria-label="Закрыть">
-          <Icon name="ui-close" glyph="✕" />
+          <Icon name="ui-close" />
         </button>
       </div>
       {why && <div className="nx-stale">{why}</div>}

@@ -42,7 +42,6 @@ const letter = (id: string, kind: LetterView['kind'], choices: LetterView['choic
   fromName: 'Волчья падь',
   cost: {},
   title: kind === 'raid' ? 'Набег' : 'Дань',
-  icon: '⚔️',
   body: '…',
   from: null,
   choices,

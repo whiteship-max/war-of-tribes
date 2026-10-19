@@ -30,6 +30,8 @@ import { Num } from '@/ui/kit/Num';
 import { breakdown } from '@/ui/kit/breakdown';
 import type { TipContent } from '@/ui/next/tip';
 import type { GameState } from '@/game/types';
+import type { IconName } from '@/ui/icons/alias';
+import { iconName } from '@/ui/icons/registry';
 
 /** Число покрупнее словами: 12 400 вместо 12400 — на 390 px это читается. */
 const big = (n: number): string => Math.round(n).toLocaleString('ru-RU');
@@ -52,7 +54,7 @@ export function powerTip(s: GameState): TipContent {
 
 interface PartyRow {
   key: string;
-  icon: string;
+  icon: IconName;
   name: string;
   v: string;
   tone?: 'good' | 'bad';
@@ -67,31 +69,31 @@ export function partyTables(s: GameState): { title: string; rows: PartyRow[]; em
   const t = s.profile.totals;
   const lost = RESOURCE_IDS.filter((r) => t.raidLoss[r] > 0);
   const lostTotal = lost.reduce((n, r) => n + t.raidLoss[r], 0);
-  const loot = `${big(t.lootResources)}${t.lootGold > 0 ? ` · ${big(t.lootGold)} 💰` : ''}`;
+  const loot = `${big(t.lootResources)}${t.lootGold > 0 ? ` · золота ${big(t.lootGold)}` : ''}`;
   const losses: PartyRow[] = [
-    ...lost.map((r) => ({ key: r, icon: RESOURCE_META[r].icon, name: RESOURCE_META[r].name, v: `−${big(t.raidLoss[r])}`, tone: 'bad' as const })),
-    ...(lost.length > 1 ? [{ key: 'all', icon: '📉', name: 'Всего унесено', v: `−${big(lostTotal)}`, tone: 'bad' as const }] : []),
-    ...(t.raids > 0 ? [{ key: 'raids', icon: '🔥', name: 'Набегов с уроном', v: big(t.raids) }] : []),
+    ...lost.map((r) => ({ key: r, icon: iconName('res', r), name: RESOURCE_META[r].name, v: `−${big(t.raidLoss[r])}`, tone: 'bad' as const })),
+    ...(lost.length > 1 ? [{ key: 'all', icon: 'ui-down' as const, name: 'Всего унесено', v: `−${big(lostTotal)}`, tone: 'bad' as const }] : []),
+    ...(t.raids > 0 ? [{ key: 'raids', icon: 'ui-flame' as const, name: 'Набегов с уроном', v: big(t.raids) }] : []),
     ...(t.troopsLost > 0
-      ? [{ key: 'men', icon: '⚔️', name: 'Бойцов не вернулось', v: big(t.troopsLost), tone: 'bad' as const, body: 'Из походов и от своих ворот.' }]
+      ? [{ key: 'men', icon: 'hud-army' as const, name: 'Бойцов не вернулось', v: big(t.troopsLost), tone: 'bad' as const, body: 'Из походов и от своих ворот.' }]
       : []),
   ];
   return [
     {
       title: 'Битвы',
       rows: [
-        { key: 'won', icon: '🏆', name: 'Выиграно', v: big(s.stats.battlesWon), tone: 'good' },
-        { key: 'lost', icon: '💀', name: 'Проиграно', v: big(s.stats.battlesLost), tone: s.stats.battlesLost > 0 ? 'bad' : undefined },
-        { key: 'lairs', icon: '🔥', name: 'Сожжено логов', v: big(s.stats.lairs ?? 0) },
-        { key: 'loot', icon: '🧺', name: 'Добыча', v: loot, body: 'Из походов и взятых городов: припасы и золото.' },
+        { key: 'won', icon: 'ui-trophy', name: 'Выиграно', v: big(s.stats.battlesWon), tone: 'good' },
+        { key: 'lost', icon: 'ui-skull', name: 'Проиграно', v: big(s.stats.battlesLost), tone: s.stats.battlesLost > 0 ? 'bad' : undefined },
+        { key: 'lairs', icon: 'ui-flame', name: 'Сожжено логов', v: big(s.stats.lairs ?? 0) },
+        { key: 'loot', icon: 'ui-loot', name: 'Добыча', v: loot, body: 'Из походов и взятых городов: припасы и золото.' },
       ],
     },
     { title: 'Потери', rows: losses, empty: 'Потерь нет.' },
     {
       title: 'Хозяйство',
       rows: [
-        { key: 'made', icon: '📦', name: 'Добыто всего', v: big(t.produced), tone: 'good' },
-        { key: 'spent', icon: '🔨', name: 'Потрачено', v: big(t.spent), body: 'На стройку, ковку и найм.' },
+        { key: 'made', icon: 'ui-crate', name: 'Добыто всего', v: big(t.produced), tone: 'good' },
+        { key: 'spent', icon: 'ui-hammer', name: 'Потрачено', v: big(t.spent), body: 'На стройку, ковку и найм.' },
       ],
     },
   ];
@@ -181,7 +183,7 @@ export function ProfilePanel() {
             <button className="name" onClick={startRename} aria-label="Сменить имя">
               {profileName(p)}{' '}
               <em>
-                <Icon name="ui-edit" glyph="✏️" />
+                <Icon name="ui-edit" />
               </em>
             </button>
           )}
@@ -225,7 +227,7 @@ export function ProfilePanel() {
               cells: {
                 name: (
                   <span className="kit-name">
-                    <span className="ic">{r.icon}</span>
+                    <span className="ic"><Icon name={r.icon} /></span>
                     <span className="one-line">{r.name}</span>
                   </span>
                 ),

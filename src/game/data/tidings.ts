@@ -126,7 +126,6 @@ export const TIDINGS: EventDef[] = [
   {
     id: 'harvest_feast',
     silence: 2,
-    icon: '🌾',
     title: 'Праздник урожая',
     from: 'Управитель',
     text: 'Последний сноп связан, амбары полны до стрех. Люди ждут праздника, старосты — твоего слова.',
@@ -162,7 +161,6 @@ export const TIDINGS: EventDef[] = [
   {
     id: 'fair',
     silence: 2,
-    icon: '🎪',
     title: 'Ярмарка',
     from: 'Управитель',
     text: 'Купцы из дальних земель просят места на площади. Везут фламандское сукно, соль и новости.',
@@ -195,7 +193,6 @@ export const TIDINGS: EventDef[] = [
   {
     id: 'spring_flood',
     silence: 1,
-    icon: '🌊',
     title: 'Весенний разлив',
     from: 'Управитель',
     text: 'Река вышла из берегов и подступает к нижним полям. До утра вода будет у межи.',
@@ -221,7 +218,6 @@ export const TIDINGS: EventDef[] = [
   {
     id: 'silt',
     silence: 1,
-    icon: '🌱',
     title: 'Ил на полях',
     from: 'Управитель',
     text: 'Вода ушла и оставила на лугах жирный чёрный ил. Земля просит рук.',
@@ -250,7 +246,6 @@ export const TIDINGS: EventDef[] = [
   {
     id: 'hard_winter',
     silence: 2,
-    icon: '❄️',
     title: 'Суровая зима',
     from: 'Управитель',
     text: 'Мороз такой, что трещат брёвна. Поленницы тают на глазах, и старики не помнят такой зимы.',
@@ -283,7 +278,6 @@ export const TIDINGS: EventDef[] = [
   {
     id: 'pilgrims',
     silence: 2,
-    icon: '🙏',
     title: 'Паломники',
     from: priest,
     text: (s) => PILGRIMS[faithOf(s) ?? ''] ?? 'Паломники просят ночлега у нашего храма.',
@@ -317,7 +311,6 @@ export const TIDINGS: EventDef[] = [
   {
     id: 'pilgrims_gift',
     silence: 0,
-    icon: '🎁',
     title: 'Дар паломников',
     from: 'Привратник',
     text: 'Вернулись паломники, что ночевали у нас. Дошли до святыни и на обратном пути принесли дар за ночлег.',
@@ -340,7 +333,6 @@ export const TIDINGS: EventDef[] = [
   {
     id: 'noble_dispute',
     silence: 2,
-    icon: '⚖️',
     title: 'Спор знати',
     from: 'Управитель',
     text: 'Два старших рода не поделили покос у реки. Оба ждут твоего суда в ратуше, и оба при оружии.',
@@ -377,7 +369,6 @@ export const TIDINGS: EventDef[] = [
   {
     id: 'feud',
     silence: 2,
-    icon: '🗡️',
     title: 'Кровная вражда',
     from: 'Старший стражи',
     text: 'Спор о покосе дошёл до крови. У реки нашли убитого, и род его точит ножи.',
@@ -417,7 +408,6 @@ export const TIDINGS: EventDef[] = [
   {
     id: 'deserters',
     silence: 2,
-    icon: '🏳️',
     title: 'Перебежчики',
     from: 'Старший стражи',
     text: (s) => `От лесной ватаги отбились ${people(deserters(s))}. Стоят у ворот без оружия и клянутся служить честно.`,
@@ -447,7 +437,6 @@ export const TIDINGS: EventDef[] = [
   {
     id: 'deserters_flee',
     silence: 1,
-    icon: '🌙',
     title: 'Ночной побег',
     from: 'Старший стражи',
     text: (s) => `Перебежчики ушли ночью и сманили своих. Пропало ${people(deserters(s))}. Следы ведут к броду.`,
@@ -477,7 +466,6 @@ export const TIDINGS: EventDef[] = [
   {
     id: 'mine_find',
     silence: 2,
-    icon: '⛏️',
     title: 'Находка в руднике',
     from: 'Рудничный мастер',
     text: 'Пробили стену забоя, а за ней серебряная жила. Уходит глубоко под старую выработку, крепь там гнилая.',
@@ -510,7 +498,6 @@ export const TIDINGS: EventDef[] = [
   {
     id: 'mine_collapse',
     silence: 1,
-    icon: '💥',
     title: 'Обвал в руднике',
     from: 'Рудничный мастер',
     text: 'Глубокий забой обвалился. Под землёй остались наши. Приложишь ухо к камню — слышно, как стучат.',
@@ -537,7 +524,6 @@ export const TIDINGS: EventDef[] = [
   {
     id: 'merchant_loan',
     silence: 1,
-    icon: '🧳',
     title: 'Щедрый купец',
     from: 'Управитель',
     text: (s) => `Заезжий купец из Генуи даёт ${loan(s)} золота в долг. Вернуть просит с лихвой, когда поедет обратно.`,
@@ -559,7 +545,6 @@ export const TIDINGS: EventDef[] = [
   {
     id: 'merchant_due',
     silence: 1,
-    icon: '📜',
     title: 'Купец за долгом',
     from: 'Управитель',
     text: (s) => `Генуэзец вернулся с распиской и печатью. Ждёт ${debt(s)} золота, как уговаривались.`,

@@ -51,7 +51,7 @@ function CitySigns({ where, lift }: { where: 'city' | 'map'; lift: boolean }) {
                 label: `${m.label} · ${m.who}`,
                 value: m.timer,
                 tone: m.urgent ? 'bad' : undefined,
-                icon: { name: m.icon, glyph: m.glyph },
+                icon: m.icon,
                 go: m.go,
               })),
             })
@@ -69,7 +69,7 @@ function SignButton({ sign }: { sign: WarSign }) {
   return (
     <button className={`nx-sign ${sign.kind}${sign.urgent ? ' urgent' : ''}`} onClick={sign.go} aria-label={sign.title}>
       <span className="nx-sign-ic">
-        <Icon name={sign.icon} glyph={sign.glyph} />
+        <Icon name={sign.icon} />
       </span>
       <span className="nx-sign-label">{sign.label}</span>
       <span className="nx-sign-time">{sign.timer}</span>

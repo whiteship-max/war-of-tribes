@@ -57,7 +57,6 @@ export interface BuildingStats {
 export interface BuildingDef extends BuildingStats {
   id: BuildingTypeId;
   name: string;
-  icon: string;
   /** Строка вкуса (docs/voice.md, 3): одна фраза, образ эпохи, без чисел и без пользы. */
   flavor: string;
   /** Строка дела: что постройка даёт игре. Числа — не здесь, а функциями игры рядом (правило 18). */
@@ -114,7 +113,6 @@ export const BUILDINGS: BuildingDef[] = [
   {
     id: 'campfire',
     name: 'Площадь',
-    icon: '🔥',
     flavor: 'Колодец, огненная чаша и людской гомон до темноты.',
     description: 'Отсюда свободные руки уходят на вольный сбор. Здесь же видна мораль города.',
     cost: {},
@@ -124,7 +122,6 @@ export const BUILDINGS: BuildingDef[] = [
   {
     id: 'town_hall',
     name: 'Ратуша',
-    icon: '🏛️',
     flavor: 'Колокол на башне, писцы за длинным столом.',
     description: 'Стройка, указы, паёк и налог. Уровень ускоряет стройку и прибавляет мораль.',
     cost: { wood: 364, stone: 182 },
@@ -137,7 +134,6 @@ export const BUILDINGS: BuildingDef[] = [
   {
     id: 'houses',
     name: 'Дома',
-    icon: '🏘️',
     flavor: 'Фахверк, черепица и бельё над переулками.',
     description: 'Крыши для жителей. Уровень даёт новые места.',
     cost: { wood: 182, stone: 42 },
@@ -150,7 +146,6 @@ export const BUILDINGS: BuildingDef[] = [
   {
     id: 'storage',
     name: 'Склад',
-    icon: '🧺',
     flavor: 'Мешки, бочки и связки копий до самых стропил.',
     description: 'Хранит запасы и снаряжение. Уровень прибавляет вместимость.',
     cost: { wood: 238, stone: 98 },
@@ -161,7 +156,6 @@ export const BUILDINGS: BuildingDef[] = [
   {
     id: 'gathering',
     name: 'Навес собирателей',
-    icon: '🍓',
     flavor: 'Корзины ягод и связки кореньев под соломенной крышей.',
     description: 'Собиратели носят из леса ягоды и коренья. Зимой лес скупее.',
     cost: { wood: 119 },
@@ -171,7 +165,6 @@ export const BUILDINGS: BuildingDef[] = [
   {
     id: 'sawmill',
     name: 'Лесопилка',
-    icon: '🪓',
     flavor: 'Визг пилы, смола на руках и горы опилок.',
     description: 'Лесорубы валят лес за стеной, а из сучьев жгут уголь для горна.',
     cost: { wood: 140 },
@@ -181,7 +174,6 @@ export const BUILDINGS: BuildingDef[] = [
   {
     id: 'quarry',
     name: 'Каменоломня',
-    icon: '⛏️',
     flavor: 'Клинья, кувалды и белая пыль на всём.',
     description: 'Каменотёсы ломают камень у скал.',
     cost: { wood: 119, stone: 63 },
@@ -191,7 +183,6 @@ export const BUILDINGS: BuildingDef[] = [
   {
     id: 'hunter_hut',
     name: 'Охотничий домик',
-    icon: '🏹',
     flavor: 'Шкуры на сушилах, копья у стены, псы у порога.',
     description: 'Охотники приносят мясо и шкуры. Осенью дичь жирнее.',
     cost: { wood: 168, charcoal: 49 },
@@ -201,7 +192,6 @@ export const BUILDINGS: BuildingDef[] = [
   {
     id: 'mine',
     name: 'Рудник',
-    icon: '🕳️',
     flavor: 'Факелы в штольне и стук кирок под землёй.',
     description: 'Рудокопы добывают медь и железо.',
     cost: { wood: 476, stone: 364 },
@@ -211,7 +201,6 @@ export const BUILDINGS: BuildingDef[] = [
   {
     id: 'workshop',
     name: 'Мастерская',
-    icon: '🛠️',
     flavor: 'Верстаки, стружка и запах клея.',
     description: 'Ремесленники ускоряют стройку в городе. Сюда же за золото нанимают мастеров.',
     cost: { wood: 301, stone: 119 },
@@ -222,7 +211,6 @@ export const BUILDINGS: BuildingDef[] = [
   {
     id: 'farm',
     name: 'Ферма',
-    icon: '🌾',
     flavor: 'Ячменное поле до самой опушки.',
     description: 'Фермеры растят ячмень. Зимой поле не родит, осенью даёт больше всего.',
     cost: { wood: 364, stone: 63 },
@@ -232,7 +220,6 @@ export const BUILDINGS: BuildingDef[] = [
   {
     id: 'pen',
     name: 'Загон',
-    icon: '🐐',
     flavor: 'Блеяние, запах сена и пастуший рожок.',
     description: 'Пастухи дают еду и шкуры. Зима стаду почти не мешает.',
     cost: { wood: 476, hides: 63 },
@@ -246,7 +233,6 @@ export const BUILDINGS: BuildingDef[] = [
     // костёл, храм, мечеть или капище. Идентификатор при этом прежний — от него
     // зависят план посёлка, модель, значок и сохранение.
     name: 'Храм',
-    icon: '⛪',
     flavor: 'Огни светильников и тихий голос служителя.',
     description: 'Служители держат набожность прихода и мораль города. Здесь нанимают дипломата.',
     cost: { wood: 238, charcoal: 119 },
@@ -259,7 +245,6 @@ export const BUILDINGS: BuildingDef[] = [
   {
     id: 'statue',
     name: 'Статуя Героя',
-    icon: '🗿',
     flavor: 'Каменный герой, у чьих ног клянутся в верности.',
     description: 'Полководца нанимают у подножия. Уровень растит его навыки и терпение дружины без жалованья и еды.',
     cost: { stone: 224, wood: 84 },
@@ -272,7 +257,6 @@ export const BUILDINGS: BuildingDef[] = [
   {
     id: 'infirmary',
     name: 'Лазарет',
-    icon: '🏥',
     flavor: 'Чистое полотно, травы на огне, стоны за ширмой.',
     description: 'Часть павших выживает ранеными и, отлежавшись, встаёт в строй. Мест не на всех.',
     cost: { wood: 210, hides: 84 },
@@ -293,7 +277,6 @@ export const BUILDINGS: BuildingDef[] = [
   {
     id: 'watch',
     name: 'Дозор',
-    icon: '🔭',
     flavor: 'Дозорный на вышке первым видит пыль на дороге.',
     description: 'Разведчика и лазутчика нанимают здесь. Набег видно раньше, сведения стареют медленнее.',
     cost: { wood: 245, stone: 105 },
@@ -305,7 +288,6 @@ export const BUILDINGS: BuildingDef[] = [
   {
     id: 'stable',
     name: 'Конюшня',
-    icon: '🐴',
     flavor: 'Фырканье коней, сбруя на крюках, конюх с ведром.',
     description: 'Здесь нанимают конницу. Сколько стойл, столько всадников.',
     cost: { wood: 336, hides: 112 },
@@ -324,7 +306,6 @@ export const BUILDINGS: BuildingDef[] = [
   {
     id: 'cache',
     name: 'Тайник',
-    icon: '🧰',
     flavor: 'Подвал под донжоном, дверь за винной бочкой.',
     description: 'Часть каждого запаса враг не найдёт, даже взяв город.',
     cost: { wood: 189, stone: 168 },
@@ -339,7 +320,6 @@ export const BUILDINGS: BuildingDef[] = [
   {
     id: 'tavern',
     name: 'Трактир',
-    icon: '🍺',
     flavor: 'Эль, жаркое и песня, которую знает весь город.',
     description: 'За золото здесь ставят пир, и пока он идёт, мораль выше. Уровень делает пир крепче и чаще.',
     cost: { wood: 280, stone: 84 },
@@ -350,7 +330,6 @@ export const BUILDINGS: BuildingDef[] = [
   {
     id: 'palisade',
     name: 'Стены',
-    icon: '🧱',
     flavor: 'Каменное кольцо с боевым ходом и зубцами.',
     description: 'Дают оборону и поднимают ополчение против набега.',
     cost: { wood: 840, stone: 168 },
@@ -361,7 +340,6 @@ export const BUILDINGS: BuildingDef[] = [
   {
     id: 'tower',
     name: 'Башня',
-    icon: '🗼',
     flavor: 'Бойницы над воротами и котёл смолы наготове.',
     description: 'Лучники ополчения бьются с башен. С ростом уровня здесь ставят баллисту, потом катапульту.',
     cost: { wood: 476, stone: 364 },
@@ -379,7 +357,6 @@ export const BUILDINGS: BuildingDef[] = [
   {
     id: 'smithy',
     name: 'Кузница',
-    icon: '⚒️',
     flavor: 'Звон молотов слышен с рассвета до темноты.',
     description: 'Кузнецы куют снаряжение для найма.',
     cost: { wood: 602, stone: 728 },
@@ -390,7 +367,6 @@ export const BUILDINGS: BuildingDef[] = [
   {
     id: 'market',
     name: 'Рынок',
-    icon: '🛒',
     flavor: 'Ряды лавок, весы и крик менял.',
     description: 'За золото сюда везут чужие запасы. Дороже своих, зато сразу.',
     cost: { wood: 1092, stone: 840, iron: 238 },
@@ -401,7 +377,6 @@ export const BUILDINGS: BuildingDef[] = [
   {
     id: 'barracks',
     name: 'Казармы',
-    icon: '⚔️',
     flavor: 'Нары, стойки с копьями и окрик десятника на плацу.',
     description: 'Пеших бойцов нанимают здесь. Уровень ускоряет найм и прибавляет оборону.',
     cost: { wood: 728, stone: 364 },

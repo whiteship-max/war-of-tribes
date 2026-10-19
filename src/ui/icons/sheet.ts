@@ -1,39 +1,31 @@
-// Лист значков: одна загрузка на игру и одно место, где решается «картинка или эмодзи».
+// Листы значков набора ЗН-1 (docs/icons.md): одно место, где символы попадают в документ.
 //
-// Почему лист, а не файл на каждый значок: значки стоят в строке состояния и в навигации,
-// то есть на экране с первой секунды. Запрос на каждый значок с телефона — это секунды
-// ожидания, и кэш не спасает на первом заходе. Почему не в бандле: тогда вес двумерного арта
-// нельзя было бы померить отдельно от кода, а у него свой потолок (`ART_CAP_GZIP` в
-// `scripts/build-icons.ts`, техзадание 3.3),
-// и растёт он с каждой очередью.
+// Первый экран (верх, низ, тревоги, значки над крышами) — строкой кода (`FIRST_SHEET`): он стоит в документе к первому
+// кадру и не ждёт сети. Остальные значки — листом `ICON_SHEET`, который игра тянет после первого кадра: окна построек,
+// державы и карты открываются не сразу, а первая загрузка за них не платит.
 //
-// Пока лист не приехал, интерфейс рисует эмодзи — тот же путь, что и у значка, которого
-// ещё не нарисовали. Отдельного «состояния загрузки» поэтому нет: незагруженный лист и
-// незаказанный значок для интерфейса одно и то же.
-import { DRAWN_ICONS, ICON_SHEET } from './generated';
+// Пока лист в пути, значок ленивой части — пустое место своего размера (`Icon`): эмодзи на замену больше нет.
+import { FIRST_SHEET, ICON_SHEET } from './generated';
+import { drawnOf } from './alias';
 
-const DRAWN = new Set(DRAWN_ICONS);
+/** Идентификатор символа в документе — по нарисованному имени (ссылка раскрывается). */
+export const symbolOf = (name: string): string => `#i-${drawnOf(name)}`;
 
-/** Нарисован ли такой значок вообще. Знать это можно сразу, лист для этого не нужен. */
-export const isDrawn = (name: string): boolean => DRAWN.has(name);
-
-/** Идентификатор символа внутри листа. */
-export const symbolOf = (name: string): string => `#i-${name}`;
-
-let ready = false;
+let lazyReady = false;
 let started = false;
 const listeners = new Set<() => void>();
 
-/** Лист уже в документе — значит, `<use>` покажет картинку, а не пустоту. */
-export const sheetReady = (): boolean => ready;
+/** Лист после первого кадра уже в документе. Первый экран в документе всегда. */
+export const sheetReady = (): boolean => lazyReady;
 
 /**
- * Символ листа как элемент документа — холсту карты (`ui/map/tw/glyph.ts`): тот же рисунок, что у `<use>`, без второй
- * загрузки. null — лист не приехал или значка нет.
+ * Символ значка как элемент документа — холсту карты (`ui/map/tw/glyph.ts`): тот же рисунок, что у `<use>`, без второй
+ * загрузки. null — такого значка ещё нет в документе (ленивый лист не приехал) или нет вовсе.
  */
 export function sheetSymbol(name: string): Element | null {
-  if (!ready || !DRAWN.has(name) || typeof document === 'undefined') return null;
-  return document.getElementById(`i-${name}`);
+  // Заглушка документа в тестах холста карты — без поиска по id: рисунка нет, значок печётся без него.
+  if (typeof document === 'undefined' || typeof document.getElementById !== 'function') return null;
+  return document.getElementById(`i-${drawnOf(name)}`);
 }
 
 export function onSheet(fn: () => void): () => void {
@@ -41,30 +33,46 @@ export function onSheet(fn: () => void): () => void {
   return () => listeners.delete(fn);
 }
 
+/** Скрытый блок с символами. Размером, а не `display:none`: часть браузеров не разрешает `<use>` в невидимое поддерево. */
+function host(svg: string): void {
+  const el = document.createElement('div');
+  el.setAttribute('aria-hidden', 'true');
+  el.style.cssText = 'position:absolute;width:0;height:0;overflow:hidden';
+  el.innerHTML = svg;
+  document.body.prepend(el);
+}
+
+/** Первый экран — сразу, при первом импорте: без него верх и низ стояли бы пустыми. */
+function placeFirst(): void {
+  if (typeof document === 'undefined' || typeof document.getElementById !== 'function' || !document.body) return;
+  if (document.getElementById('zn-first')) return;
+  host(`<svg xmlns="http://www.w3.org/2000/svg" id="zn-first">${FIRST_SHEET}</svg>`);
+}
+
 /**
- * Тянет лист и кладёт его в документ скрытым блоком. Зовётся сама при первом импорте:
- * чем раньше начнётся загрузка, тем вернее лист успеет к первому кадру интерфейса.
- * Повторные вызовы ничего не делают.
+ * Тянет лист остальных значков и кладёт его в документ. Зовётся после первого кадра (`requestIdleCallback`, иначе
+ * таймер): лист не спорит с кодом и шрифтом первой загрузки. Повторные вызовы ничего не делают.
  */
 export function loadSheet(): void {
-  if (started || typeof document === 'undefined') return;
+  if (started || typeof document === 'undefined' || !document.body || typeof fetch === 'undefined') return;
   started = true;
   void fetch(ICON_SHEET)
     .then((r) => (r.ok ? r.text() : Promise.reject(new Error(String(r.status)))))
     .then((text) => {
-      const host = document.createElement('div');
-      // Скрываем размером, а не display:none: часть браузеров не разрешает
-      // ссылаться <use> на символ внутри невидимого поддерева.
-      host.setAttribute('aria-hidden', 'true');
-      host.style.cssText = 'position:absolute;width:0;height:0;overflow:hidden';
-      host.innerHTML = text;
-      document.body.prepend(host);
-      ready = true;
+      host(text);
+      lazyReady = true;
       for (const fn of listeners) fn();
     })
     .catch(() => {
-      // Лист не приехал — значки останутся эмодзи. Ронять из-за этого игру незачем.
+      // Лист не приехал — ленивые значки останутся пустыми местами. Ронять из-за этого игру незачем; следующий вход
+      // попробует снова.
+      started = false;
     });
 }
 
-loadSheet();
+placeFirst();
+if (typeof window !== 'undefined') {
+  const later = (window as Window & { requestIdleCallback?: (fn: () => void, o?: { timeout: number }) => number }).requestIdleCallback;
+  if (later) later(loadSheet, { timeout: 1500 });
+  else setTimeout(loadSheet, 300);
+}

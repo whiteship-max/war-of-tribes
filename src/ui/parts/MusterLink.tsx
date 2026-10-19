@@ -51,7 +51,7 @@ export function MusterLink() {
   return (
     <button className="card as-row" onClick={go} aria-label="В «Дружину»: гарнизон и отряд">
       <div className="ico">
-        <Icon name="fig-general" glyph="🎖️" />
+        <Icon name="fig-general" />
       </div>
       <div className="body">
         <div className="title">

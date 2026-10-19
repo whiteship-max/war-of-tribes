@@ -16,6 +16,7 @@
 // ничего не закрывает — закрытое, оно просто уступает экран тому, что под ним.
 import { useState } from 'react';
 import { useSync } from '@/net/sync';
+import { Icon } from '@/ui/icons/Icon';
 
 function Taken({ why }: { why: string }) {
   const takeOver = useSync((g) => g.takeOver);
@@ -24,7 +25,7 @@ function Taken({ why }: { why: string }) {
   return (
     <div className="modal-backdrop">
       <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <div className="m-ico">🪟</div>
+        <div className="m-ico"><Icon name="ui-eye" /></div>
         <h2>Игра открыта дважды</h2>
         <p>{why}</p>
         <p>Продолжишь здесь, и в той вкладке партия остановится. Или закрой эту и играй там.</p>

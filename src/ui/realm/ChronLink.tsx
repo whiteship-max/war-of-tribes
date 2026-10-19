@@ -7,7 +7,7 @@ export function ChronLink() {
   const openChronicle = useRealm((r) => r.openChronicle);
   return (
     <Row
-      icon={{ name: 'ui-book', glyph: '📖' }}
+      icon={'ui-book'}
       label="Летопись"
       sub="В «Вестях»: бои, набеги, стройка — по дням"
       go={() => openChronicle(null)}

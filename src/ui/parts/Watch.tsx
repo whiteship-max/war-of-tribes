@@ -7,6 +7,8 @@ import { Table, type Col, type TableRow } from '@/ui/kit/Table';
 import { Cost } from './Cost';
 import { count } from './plural';
 import { waitShort } from './wait';
+import type { IconName } from '@/ui/icons/alias';
+import { Icon } from '@/ui/icons/Icon';
 
 /**
  * Дозор: изучение округи. Десять ступеней, каждая раскрывает вокруг деревни
@@ -88,7 +90,18 @@ export function surveyRows(info: Info, steps: typeof SURVEY_STEPS): TableRow[] {
     const done = step.n <= info.done;
     const now = info.running?.n === step.n;
     const locked = step.n > info.level;
-    const state = done ? '✅ пройдено' : now ? `🐎 идёт, ~${waitShort(info.left)}` : locked ? `🔒 Дозор ур. ${step.n}` : `⏱ ${waitShort(surveySeconds(step, info.learning))}`;
+    const [icon, words]: [IconName, string] = done
+      ? ['ui-check', 'пройдено']
+      : now
+        ? ['troop-horse', `идёт, ~${waitShort(info.left)}`]
+        : locked
+          ? ['ui-lock', `Дозор ур. ${step.n}`]
+          : ['ui-time', waitShort(surveySeconds(step, info.learning))];
+    const state = (
+      <>
+        <Icon name={icon} /> {words}
+      </>
+    );
     return {
       key: String(step.n),
       cells: { n: step.n, r: count(step.radius, 'клетка', 'клетки', 'клеток'), state },

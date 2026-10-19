@@ -13,13 +13,14 @@
 // лучников, чтобы их жалованье между двумя осадами было не меньше цены орудия. Сколько
 // это людей, печатает тот же раздел отчёта строкой «расчёт».
 import type { EngineId } from '../types';
+import type { IconName } from '@/ui/icons/alias';
 
 export interface EngineDef {
   id: EngineId;
   name: string;
   /** Название в винительном падеже: «ставят балисту». */
   acc: string;
-  icon: string;
+  icon: IconName;
   description: string;
   /** С какого уровня башни его можно поставить. Ниже этого уровня оно молчит. */
   level: number;
@@ -42,7 +43,7 @@ export const ENGINES: EngineDef[] = [
     id: 'ballista',
     name: 'Баллиста',
     acc: 'баллисту',
-    icon: '🎯',
+    icon: 'ui-target',
     description: 'Бьёт по людям в лагере, рогаток не ломает.',
     level: 5,
     crew: 1,
@@ -56,7 +57,7 @@ export const ENGINES: EngineDef[] = [
     id: 'catapult',
     name: 'Катапульта',
     acc: 'катапульту',
-    icon: '☄️',
+    icon: 'ui-boulder',
     description: 'Ломает рогатки перед городом и задевает людей в лагере.',
     level: 10,
     // Столько лучников, чтобы их жалованье от осады до осады было не меньше цены орудия

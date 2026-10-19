@@ -12,6 +12,8 @@ import { foodLeft } from './foodLeft';
 import { waitDays } from './wait';
 import { goTo } from '@/ui/kit/nav';
 import { WINDOW } from '@/ui/kit/sources';
+import { Icon } from '@/ui/icons/Icon';
+import { iconName } from '@/ui/icons/registry';
 
 /**
  * «1 ч 42 мин»: срок без округления вверх — обещать лишнюю десятую дня нельзя. Паёк и зима считаются
@@ -29,7 +31,7 @@ export function FoodLeft() {
     <>
       <h3>Паёк</h3>
       <div className="mod total">
-        <span className="ico">{ration.icon}</span>
+        <span className="ico"><Icon name={iconName('ration', ration.id)} /></span>
         <span className="name">
           {left.days === null ? 'Еда не убывает' : 'Еды хватит на'}
           <em className="sub">{ration.name.toLowerCase()} паёк</em>
@@ -55,14 +57,14 @@ export function WinterForecast() {
       <h3>{seasonOf(s.time) === 'winter' ? 'Хватит ли до весны' : 'Хватит ли на зиму'}</h3>
       <div className="mod-list">
         <div className="mod">
-          <span className="ico">🍖</span>
+          <span className="ico"><Icon name="res-food" /></span>
           <span className="name">Еда</span>
           <span className={`val ${forecast.food.ok ? 'pos' : 'neg'}`}>
             {daysText(forecast.food.days)} из {waitDays(forecast.winterDays)}
           </span>
         </div>
         <div className="mod">
-          <span className="ico">🌲</span>
+          <span className="ico"><Icon name="res-wood" /></span>
           <span className="name">Дрова</span>
           <span className={`val ${forecast.wood.ok ? 'pos' : 'neg'}`}>
             {daysText(forecast.wood.days)} из {waitDays(forecast.winterDays)}

@@ -11,12 +11,10 @@ import type { BattleEvent, BattleResult, Side, Verdict } from './types';
 /** Строка «ключевых событий»: чем объясняется исход. */
 export interface ReportLine {
   /**
-   * Имя нарисованного значка. Стоит рядом с эмодзи, а не вместо него: значков
-   * меньше, чем мест, и пока файла нет, показывается `icon`. Ядро от этого ни от
-   * чего не зависит — это такая же строка данных, как и сам эмодзи.
+   * Имя значка строки (набор ЗН-1, docs/icons.md). Ядро от этого ни от чего не зависит — это такая же строка данных, как
+   * и сам текст. Прежнее поле `icon` (эмодзи) в донесениях старых сохранений лежит и не читается.
    */
   art: string;
-  icon: string;
   text: string;
   /** Хорошо для нас или плохо. */
   good: boolean;
@@ -67,9 +65,8 @@ const dieOf = (e: Extract<BattleEvent, { id: 'dice' }>, side: Side): number => e
 /** Насколько кость фазы легла в пользу `us`: бросок с отметками и штрафом места против чужого. */
 const diceGap = (e: Extract<BattleEvent, { id: 'dice' }>, us: Side): number => dieOf(e, us) - dieOf(e, us === 'attacker' ? 'defender' : 'attacker');
 
-const line = (e: BattleEvent, art: string, icon: string, text: string, good: boolean): ReportLine => ({
+const line = (e: BattleEvent, art: string, text: string, good: boolean): ReportLine => ({
   art,
-  icon,
   text,
   good,
   tick: e.tick,
@@ -93,7 +90,6 @@ function keyLine(e: BattleEvent, us: Side): ReportLine | null {
       return line(
         e,
         'bat-dice',
-        '🎲',
         gap > 0
           ? `Удача за нами. ${cap(PHASE_NAME[e.phase])}, кость ${ours} против ${theirs}.`
           : `Удача против нас. ${cap(PHASE_NAME[e.phase])}, кость ${ours} против ${theirs}.`,
@@ -110,25 +106,23 @@ function keyLine(e: BattleEvent, us: Side): ReportLine | null {
       ]
         .filter(Boolean)
         .join(', ');
-      return line(e, 'bat-dice', '⛰️', `Место боя против ${mine ? 'нас' : 'них'}: ${parts}.`, !mine);
+      return line(e, 'bat-dice', `Место боя против ${mine ? 'нас' : 'них'}: ${parts}.`, !mine);
     }
     case 'weary':
       // Мораль между боями (14.31): сторона дралась недавно и ещё не отдохнула — значок тот же, что у слома морали.
       return line(
         e,
         'bat-morale',
-        '💤',
         `${who(e.side, us)} вышли в бой уставшими, мораль ${Math.round(e.rest * 100)} % от полной.`,
         !mine,
       );
     case 'volley':
       if (e.losses < EVENT_MIN) return null;
-      return line(e, 'bat-volley', '🏹', `${own(e.side, us, 'pl')} лучники выбили ${e.losses} до столкновения.`, mine);
+      return line(e, 'bat-volley', `${own(e.side, us, 'pl')} лучники выбили ${e.losses} до столкновения.`, mine);
     case 'ranged-lost':
       return line(
         e,
         'bat-ranged-lost',
-        '🎯',
         `${who(e.side, us)} проиграли перестрелку, ${e.losses} потерь против ${e.enemyLosses}.`,
         !mine,
       );
@@ -136,7 +130,6 @@ function keyLine(e: BattleEvent, us: Side): ReportLine | null {
       return line(
         e,
         'bat-spears-held',
-        '🔱',
         `${own(e.side, us, 'pl')} копейщики, ${SECTOR_NAME[e.sector]}, остановили конницу: она потеряла ${e.cavalryLost} против ${e.spearsLost}.`,
         mine,
       );
@@ -144,7 +137,6 @@ function keyLine(e: BattleEvent, us: Side): ReportLine | null {
       return line(
         e,
         'bat-cavalry-broke',
-        '🐎',
         `${own(e.side, us, 'f')} конница вырубила лучников, ${SECTOR_NAME[e.target]}, потерь ${e.archersLost}.`,
         mine,
       );
@@ -152,48 +144,43 @@ function keyLine(e: BattleEvent, us: Side): ReportLine | null {
       return line(
         e,
         'bat-cavalry-stopped',
-        '🛑',
         `${mine ? 'Нашу' : 'Вражескую'} конницу перехватили на подходе, ${SECTOR_NAME[e.target]}.`,
         !mine,
       );
     case 'flank-turned':
-      return line(e, 'bat-flank', '↩️', `${own(e.side, us, 'm')} ${SECTOR_NAME[e.sector]} обойдён, удар пришёл сбоку.`, !mine);
+      return line(e, 'bat-flank', `${own(e.side, us, 'm')} ${SECTOR_NAME[e.sector]} обойдён, удар пришёл сбоку.`, !mine);
     case 'rear-reached':
-      // Значок строки — рисунок листа `bat-rear` (стрела в стену); эмодзи стоит, только пока лист не приехал, и
-      // повторяет рисунок. Прежний ⚑ — не из Emoji 12.0 (docs/ui_audit.md, 12.8).
+      // Значок строки — рисунок набора `bat-rear`: стрела вкруговую в тыл щита.
       return line(
         e,
         'bat-rear',
-        '➡️',
         mine
           ? `Враг дошёл до нашего тыла, ${SECTOR_NAME[e.sector]}.`
           : `Мы дошли до их тыла, ${SECTOR_NAME[e.sector]}.`,
         !mine,
       );
     case 'sector-broken':
-      return line(e, 'bat-sector-broken', '💔', `${own(e.side, us, 'm')} ${SECTOR_NAME[e.sector]} сломался, бойцы побежали.`, !mine);
+      return line(e, 'bat-sector-broken', `${own(e.side, us, 'm')} ${SECTOR_NAME[e.sector]} сломался, бойцы побежали.`, !mine);
     case 'reserve-committed':
-      return line(e, 'bat-reserve', '🚩', `${own(e.side, us, 'm')} резерв, ${e.men}, вошёл в ${SECTOR_NAME[e.sector]}.`, mine);
+      return line(e, 'bat-reserve', `${own(e.side, us, 'm')} резерв, ${e.men}, вошёл в ${SECTOR_NAME[e.sector]}.`, mine);
     case 'morale-collapsed':
       return line(
         e,
         'bat-morale',
-        '🏳️',
         `${who(e.side, us)} сломались: бегущие сектора весили ${Math.round(e.brokenShare * 100)}% строя.`,
         !mine,
       );
     case 'annihilated':
-      return line(e, 'bat-annihilated', '☠️', `${who(e.side, us)} перебиты.`, !mine);
+      return line(e, 'bat-annihilated', `${who(e.side, us)} перебиты.`, !mine);
     case 'outfought':
       return line(
         e,
         'bat-outfought',
-        '⚖️',
         `${who(e.side, us)} проиграли размен, сохранили ${e.kept}% против ${e.enemyKept}%.`,
         !mine,
       );
     case 'pursuit':
-      return line(e, 'bat-pursuit', '🏇', `Преследуя, ${ourWord(e.side, us)} добили ${e.losses}.`, mine);
+      return line(e, 'bat-pursuit', `Преследуя, ${ourWord(e.side, us)} добили ${e.losses}.`, mine);
     default:
       // phase-start, sector-collapsed, panic-spread, infantry-shifted, archers-kiting,
       // retreat, result — они есть в полном журнале, но исход объясняют плохо.

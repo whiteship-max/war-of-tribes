@@ -10,6 +10,7 @@ import { useRealm } from '@/ui/realm/open';
 import { REPORT_LIMITS } from '../../../netlify/lib/contract';
 import { reportOf, sendReport } from '@/net/report';
 import { useBugReport } from './bugOpen';
+import { Icon } from '@/ui/icons/Icon';
 
 /** Что открыто сейчас — словами: город, карта, меню державы с разделом, панель здания. */
 function viewNow(): string {
@@ -43,7 +44,7 @@ export function BugReport() {
   return (
     <div className="modal-backdrop over-all" onClick={hide}>
       <div className="modal bug-report" onClick={(e) => e.stopPropagation()}>
-        <div className="m-ico">🐞</div>
+        <div className="m-ico"><Icon name="ui-bug" /></div>
         <h2>Сообщить об ошибке</h2>
         {done ? (
           <>

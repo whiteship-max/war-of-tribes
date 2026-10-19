@@ -16,6 +16,7 @@ import type { FigureId } from '@/world/types';
 import { Icon } from '@/ui/icons/Icon';
 import { Cost } from './Cost';
 import { count } from './plural';
+import { iconName } from '@/ui/icons/registry';
 
 function Place({ id }: { id: FigureId }) {
   const s = useGame((g) => g.s);
@@ -36,7 +37,7 @@ function Place({ id }: { id: FigureId }) {
     return (
       <div className="mod">
         <span className="ico">
-          <Icon name={`fig-${id}`} glyph={def.icon} />
+          <Icon name={iconName('fig', id)} />
         </span>
         <span className="name">
           {def.name} · {personName(s, id)}
@@ -62,7 +63,7 @@ function Place({ id }: { id: FigureId }) {
     return (
       <div className="mod">
         <span className="ico">
-          <Icon name={`fig-${id}`} glyph={def.icon} />
+          <Icon name={iconName('fig', id)} />
         </span>
         <span className="name">
           {def.name}
@@ -76,7 +77,7 @@ function Place({ id }: { id: FigureId }) {
   if (p.hiring) {
     return (
       <div className="mod" role="button" tabIndex={0} onClick={why}>
-        <span className="ico">⏳</span>
+        <span className="ico"><Icon name="ui-time" /></span>
         <span className="name">
           {def.name}
           <em className="sub">
@@ -92,7 +93,7 @@ function Place({ id }: { id: FigureId }) {
     <>
       <div className="mod warn" role="button" tabIndex={0} onClick={why}>
         <span className="ico">
-          <Icon name={`fig-${id}`} glyph={def.icon} />
+          <Icon name={iconName('fig', id)} />
         </span>
         <span className="name">
           {def.name}

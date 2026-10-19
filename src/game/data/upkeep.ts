@@ -26,6 +26,10 @@
 export const WAGE_HEAD = 0.5;
 import { daysSpan } from '../span';
 import type { TroopId } from '../types';
+import type { IconName } from '@/ui/icons/alias';
+
+/** Имя значка набора (docs/icons.md) — с проверкой `tsc`: опечатка в имени — ошибка сборки, а не пустое место. */
+const ico = (name: IconName): IconName => name;
 
 /**
  * С кем мастер спорит за казну — боец, по чьему жалованью считается цена наёмного мастера
@@ -100,7 +104,7 @@ export const WAGE_AMNESTY_DAYS = 10;
 
 /** Слова механики. Тон буднично: уходят люди, а не «потери». */
 export const UPKEEP_TEXT = {
-  icon: '💰',
+  icon: ico('ui-pouch'),
   why: {
     pay: 'нет жалованья',
     food: 'нет еды',

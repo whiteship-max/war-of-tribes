@@ -14,7 +14,6 @@
 import { useState } from 'react';
 import { useGame } from '@/game/store';
 import { ORDER_TEXT } from '@/game/data/order';
-import { BUILDING_BY_ID } from '@/game/data/buildings';
 import {
   armyPower,
   armySize,
@@ -38,15 +37,17 @@ import { idleTip, summaryLines, workplaces } from '@/ui/next/people';
 import { count } from '../parts/plural';
 import { useOrderView } from './OrderPanel';
 import '@/ui/next/people.css';
+import type { IconName } from '@/ui/icons/alias';
+import { iconName } from '@/ui/icons/registry';
 
 type View = 'sum' | 'work';
 
 /** Имя строки таблицы: значок, имя и строка пояснения 11 px. */
-function Name({ icon, label, sub }: { icon: { name: string; glyph: string }; label: string; sub: string }) {
+function Name({ icon, label, sub }: { icon: IconName; label: string; sub: string }) {
   return (
     <span className="pp-name">
       <span className="kit-ico">
-        <Icon name={icon.name} glyph={icon.glyph} />
+        <Icon name={icon} />
       </span>
       <span>
         <b>{label}</b>
@@ -105,7 +106,7 @@ function Summary({ go }: { go: TipGo }) {
       />
       <h3>В своих окнах</h3>
       <Row
-        icon={{ name: 'hud-army', glyph: '⚔️' }}
+        icon={'hud-army'}
         label="Дружина"
         sub={armySub}
         value={fmtInt(army)}
@@ -113,7 +114,7 @@ function Summary({ go }: { go: TipGo }) {
         goLabel={sourceWord(WINDOW.army)}
       />
       <Row
-        icon={{ name: 'hud-order', glyph: ORDER_TEXT.bondedIcon }}
+        icon={'hud-order'}
         label={ORDER_TEXT.bondedName}
         sub={bondedSub}
         value={fmtInt(bonded)}
@@ -138,7 +139,7 @@ function Work() {
   return (
     <>
       <Row
-        icon={{ name: 'ui-hammer', glyph: '🔨' }}
+        icon={'ui-hammer'}
         label="Свободные руки"
         sub={site ? `строят: ${buildingTitle(s, site.type)} до ур. ${site.level + 1}` : 'без стройки отдыхают на площади'}
         value={fmtInt(idle)}
@@ -151,7 +152,7 @@ function Work() {
         rows={places.map((p) => ({
           key: p.key,
           cells: {
-            what: <Name icon={{ name: `bld-${p.type}`, glyph: BUILDING_BY_ID[p.type].icon }} label={p.name} sub={p.sub} />,
+            what: <Name icon={iconName('bld', p.type)} label={p.name} sub={p.sub} />,
             people: fmtInt(p.people),
             free: p.free === null ? '∞' : p.free > 0 ? <b className="pp-free">{fmtInt(p.free)}</b> : '—',
           },

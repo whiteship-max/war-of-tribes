@@ -24,7 +24,7 @@ describe('вести края словами', () => {
       expect(w.title.length, kind).toBeGreaterThan(0);
       expect(w.line.length, kind).toBeGreaterThan(0);
       expect(w.line.length, kind).toBeLessThanOrEqual(160);
-      expect(w.icon.name, kind).toMatch(/^[a-z]+-[a-z_]+$/);
+      expect(w.icon, kind).toMatch(/^[a-z]+-[a-z_]+$/);
     }
   });
 

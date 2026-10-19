@@ -3,7 +3,7 @@ import { SpareSave } from '../parts/Sync';
 import { useGame } from '@/game/store';
 import { useWorld } from '@/world/store';
 import { ACHIEVEMENTS, QUESTS, questsDone } from '@/game/data/quests';
-import { RESOURCE_IDS, RESOURCE_META } from '@/game/constants';
+import { RESOURCE_IDS } from '@/game/constants';
 import { ChronLink } from '../realm/ChronLink';
 import { DailyPage } from '../parts/daily/DailyPage';
 import { SceneDoctor } from '../parts/SceneDoctor';
@@ -38,10 +38,10 @@ export function QuestsPanel() {
 
       <div className="tabs">
         <button className={page === 'quests' ? 'active' : ''} onClick={() => setPage('quests')}>
-          <Icon name="ui-scroll" glyph="📜" /> Задания
+          <Icon name="ui-scroll" /> Задания
         </button>
         <button className={page === 'daily' ? 'active' : ''} onClick={() => setPage('daily')}>
-          <Icon name="ui-target" glyph="🎯" /> Каждый день
+          <Icon name="ui-target" /> Каждый день
         </button>
       </div>
 
@@ -63,7 +63,7 @@ function QuestList() {
         const p = q.progress?.(s);
         return (
           <div className="card" key={q.id}>
-            <div className="ico"><Icon name="ui-scroll" glyph="📜" /></div>
+            <div className="ico"><Icon name="ui-scroll" /></div>
             <div className="body">
               <div className="title">
                 {q.title}
@@ -78,7 +78,7 @@ function QuestList() {
                 <span style={{ color: 'var(--muted)' }}>Награда:</span>
                 {RESOURCE_IDS.filter((r) => q.reward[r]).map((r) => (
                   <span key={r}>
-                    {RESOURCE_META[r].icon} {q.reward[r]}
+                    <Icon name={iconName('res', r)} /> {q.reward[r]}
                   </span>
                 ))}
               </div>
@@ -99,7 +99,7 @@ function QuestList() {
           const ok = a.check(s);
           return (
             <span className="villager-chip" key={a.id} style={{ opacity: ok ? 1 : 0.4 }}>
-              <Icon name={iconName('ach', a.id)} glyph={a.icon} /> {a.title}
+              <Icon name={iconName('ach', a.id)} /> {a.title}
             </span>
           );
         })}

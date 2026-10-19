@@ -9,7 +9,7 @@ import { useState, type ReactNode } from 'react';
 import { useGame } from '@/game/store';
 import { useWorld } from '@/world/store';
 import { CHEATS_ON, CHEAT_MARK, HASTE_MARK } from '@/cheats';
-import { RESOURCE_IDS, RESOURCE_META } from '@/game/constants';
+import { RESOURCE_IDS } from '@/game/constants';
 import { RETIRE_AGE } from '@/game/data/agents';
 import { FAITH_BY_ID, OBSERVANCES } from '@/game/data/faiths';
 import { DECREES, RATIONS, TAXES } from '@/game/data/policy';
@@ -61,6 +61,7 @@ import { count } from '@/ui/parts/plural';
 import { OrderPanel } from '@/ui/panels/OrderPanel';
 import { BRANCH_ICON, BRANCH_WORD } from './branches';
 import { dec } from '@/game/num';
+import type { IconName } from '@/ui/icons/alias';
 
 /** Строк рода, видных сразу (6.4: «три последних строки рода»); остальные — по «Все». */
 export const LINEAGE_SHOWN = 3;
@@ -85,8 +86,7 @@ function Dots({ n, max = 5 }: { n: number; max?: number }) {
 
 export interface PickItem<T extends string> {
   id: T;
-  icon: string;
-  glyph: string;
+  icon: IconName;
   name: string;
   /** Одна строка под именем: что даст этот выбор числом. */
   sub?: string;
@@ -123,7 +123,7 @@ function Pick<T extends string>({
             onClick={() => onPick(it.id)}
           >
             <span className="nx-oico">
-              <Icon name={it.icon} glyph={it.glyph} />
+              <Icon name={it.icon} />
             </span>
             <b>{it.name}</b>
             {it.sub && <small className={it.subBad ? 'bad' : ''}>{it.sub}</small>}
@@ -157,7 +157,7 @@ export function RulerNew() {
     <div className="nx-tab">
       <div className="nx-person">
         <span className="nx-pmed">
-          <Icon name="ui-crown" glyph="👑" />
+          <Icon name="ui-crown" />
         </span>
         <div className="nx-pname">
           <b className="one-line">{r.ruler.name ?? 'Без имени'}</b>
@@ -178,7 +178,7 @@ export function RulerNew() {
             aria-label={`${BRANCH_WORD[b]}: навык`}
             onClick={(e) => tipAt(e.currentTarget, skillTip(b, r.ruler.skills[b], rulerRate(s, b), r.heir.skills[b]))}
           >
-            <Icon name={BRANCH_ICON[b].name} glyph={BRANCH_ICON[b].glyph} />
+            <Icon name={BRANCH_ICON[b]} />
             <Dots n={r.ruler.skills[b]} />
             <small>{BRANCH_WORD[b]}</small>
           </button>
@@ -188,13 +188,13 @@ export function RulerNew() {
       <h3>Наследник</h3>
       <div className="nx-heir">
         <span className="nx-hico">
-          <Icon name="ui-person" glyph="👤" />
+          <Icon name="ui-person" />
         </span>
         <b className="one-line">{r.heir.name ?? 'Без имени'}</b>
         <span className="nx-hskills">
           {REALM_BRANCHES.map((b) => (
             <span key={b}>
-              <Icon name={BRANCH_ICON[b].name} glyph={BRANCH_ICON[b].glyph} />
+              <Icon name={BRANCH_ICON[b]} />
               {r.heir.skills[b]}
             </span>
           ))}
@@ -209,7 +209,7 @@ export function RulerNew() {
       {shown.map((row, i) => (
         <div className="nx-lrow" key={`${row.name}-${i}`}>
           <span className="nx-lico">
-            {row.end === 'fell' ? <Icon name="ui-grave" glyph="⚰️" /> : <Icon name="ui-crown" glyph="👑" />}
+            {row.end === 'fell' ? <Icon name="ui-grave" /> : <Icon name="ui-crown" />}
           </span>
           <span className="nx-lbody">
             <b className="one-line">{row.name}</b>
@@ -218,7 +218,7 @@ export function RulerNew() {
               {row.skills &&
                 REALM_BRANCHES.map((b) => (
                   <span key={b}>
-                    <Icon name={BRANCH_ICON[b].name} glyph={BRANCH_ICON[b].glyph} />
+                    <Icon name={BRANCH_ICON[b]} />
                     {row.skills?.[b]}
                   </span>
                 ))}
@@ -257,9 +257,9 @@ export function DecreesNew() {
   const o = Math.round(orderBreakdown(s).value);
   // Подсказка золота — та же, что у верха; её дверь «Указы» ведёт сюда же, и здесь её нет.
   const goldInfo = (): TipContent => ({ ...goldTip(s, tipGo()), link: undefined });
-  const named = (icon: string, glyph: string, name: string): ReactNode => (
+  const named = (icon: IconName, name: string): ReactNode => (
     <span className="kit-name">
-      <Icon name={icon} glyph={glyph} />
+      <Icon name={icon} />
       <span className="one-line">{name}</span>
     </span>
   );
@@ -268,7 +268,7 @@ export function DecreesNew() {
     <div className="nx-tab">
       <div className="nx-ledger">
         <button className="nx-lcell" onClick={(e) => tipAt(e.currentTarget, goldInfo())} aria-label="Золото">
-          <Icon name="res-gold" glyph="💰" />
+          <Icon name="res-gold" />
           <b>{fmtInt(s.gold)}</b>
         </button>
         <button className="nx-lcell" onClick={(e) => tipAt(e.currentTarget, incomeTip(s))} aria-label="Сбор в день">
@@ -287,7 +287,7 @@ export function DecreesNew() {
         cols={DECREE_COLS}
         rows={decreeCells().map((r) => {
           const d = DECREES.find((x) => x.id === r.id)!;
-          return { key: r.id, cells: { ...r.cells, name: named(`decree-${d.id}`, d.icon, d.name) }, on: r.id === decree.id, pick: () => act((st) => setDecree(st, r.id)) };
+          return { key: r.id, cells: { ...r.cells, name: named(iconName('decree', d.id), d.name) }, on: r.id === decree.id, pick: () => act((st) => setDecree(st, r.id)) };
         })}
       />
       <p className="nx-pnote">{decreeLine(decree)}</p>
@@ -297,7 +297,7 @@ export function DecreesNew() {
         cols={RATION_COLS}
         rows={rationCells().map((r) => {
           const d = RATIONS.find((x) => x.id === r.id)!;
-          return { key: r.id, cells: { ...r.cells, name: named(`ration-${d.id}`, d.icon, d.name) }, on: r.id === ration.id, pick: () => act((st) => setRation(st, r.id)) };
+          return { key: r.id, cells: { ...r.cells, name: named(iconName('ration', d.id), d.name) }, on: r.id === ration.id, pick: () => act((st) => setRation(st, r.id)) };
         })}
       />
       <p className="nx-pnote">{rationLine(ration)}</p>
@@ -309,7 +309,7 @@ export function DecreesNew() {
           const d = TAXES.find((x) => x.id === r.id)!;
           return {
             key: r.id,
-            cells: { ...r.cells, name: named(`tax-${d.id}`, d.icon, d.name), gold: <span className={r.gold < 0 ? 'bad' : 'good'}>{r.cells.gold}</span> },
+            cells: { ...r.cells, name: named(iconName('tax', d.id), d.name), gold: <span className={r.gold < 0 ? 'bad' : 'good'}>{r.cells.gold}</span> },
             on: r.id === tax.id,
             pick: () => act((st) => setTax(st, r.id)),
           };
@@ -321,7 +321,7 @@ export function DecreesNew() {
         <>
           <h3>Невольники</h3>
           <button className={`nx-orow ${orderState(s)}`} onClick={() => setOrder(!order)} aria-expanded={order}>
-            <Icon name="hud-order" glyph="⛓️" />
+            <Icon name="hud-order" />
             <span>Порядок</span>
             <i className="nx-obar-mini">
               <i style={{ width: `${Math.max(0, Math.min(100, o))}%` }} />
@@ -399,7 +399,7 @@ export function FaithNew() {
     <div className="nx-tab">
       <div className="nx-person">
         <span className="nx-pmed">
-          <Icon name={`faith-${def.id}`} glyph={def.icon} />
+          <Icon name={def.icon} />
         </span>
         <div className="nx-pname">
           <b className="one-line">{def.name}</b>
@@ -434,7 +434,7 @@ export function FaithNew() {
         title="Устав"
         value={obs}
         onPick={(id) => act((st) => setObservance(st, id as ObservanceId))}
-        items={OBSERVANCES.map((o) => ({ id: o.id, icon: `obs-${o.id}`, glyph: o.icon, name: o.name }))}
+        items={OBSERVANCES.map((o) => ({ id: o.id, icon: o.icon, name: o.name }))}
         note={chosen?.effect ?? ''}
       />
 
@@ -448,7 +448,7 @@ export function FaithNew() {
           {bapt.options.map((id) => (
             <div className="nx-brow" key={id}>
               <span className="nx-lico">
-                <Icon name={`faith-${id}`} glyph={FAITH_BY_ID[id].icon} />
+                <Icon name={FAITH_BY_ID[id].icon} />
               </span>
               <span className="nx-lbody">
                 <b className="one-line">{FAITH_BY_ID[id].name}</b>
@@ -486,10 +486,10 @@ export function QuestsNew() {
     <div className="nx-tab">
       <div className="nx-seg" role="tablist">
         <button role="tab" aria-selected={page === 'quests'} className={page === 'quests' ? 'on' : ''} onClick={() => setPage('quests')}>
-          <Icon name="ui-scroll" glyph="📜" /> Задания
+          <Icon name="ui-scroll" /> Задания
         </button>
         <button role="tab" aria-selected={page === 'daily'} className={page === 'daily' ? 'on' : ''} onClick={() => setPage('daily')}>
-          <Icon name="ui-target" glyph="🎯" /> Каждый день
+          <Icon name="ui-target" /> Каждый день
         </button>
       </div>
 
@@ -505,7 +505,7 @@ export function QuestsNew() {
             return (
               <div className="nx-quest" key={q.id}>
                 <span className="nx-lico">
-                  <Icon name="ui-scroll" glyph="📜" />
+                  <Icon name="ui-scroll" />
                 </span>
                 <span className="nx-lbody">
                   <b>{q.title}</b>
@@ -524,7 +524,7 @@ export function QuestsNew() {
                 <span className="nx-reward">
                   {RESOURCE_IDS.filter((r) => q.reward[r]).map((r) => (
                     <span key={r}>
-                      <Icon name={`res-${r}`} glyph={RESOURCE_META[r].icon} />
+                      <Icon name={iconName('res', r)} />
                       {q.reward[r]}
                     </span>
                   ))}
@@ -547,7 +547,7 @@ export function QuestsNew() {
                   aria-label={a.title}
                   onClick={(e) => tipAt(e.currentTarget, { title: a.title, body: ok ? 'Получено.' : 'Ещё не получено.' })}
                 >
-                  <Icon name={iconName('ach', a.id)} glyph={a.icon} />
+                  <Icon name={iconName('ach', a.id)} />
                 </button>
               );
             })}

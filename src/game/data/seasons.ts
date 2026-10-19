@@ -88,11 +88,11 @@ export const COLD_DEATH = gameSec(2 * DAY_LENGTH);
 /** Насколько сильнее падает мораль, пока племя мёрзнет. */
 export const FREEZING_MORALE_PENALTY = 20;
 
-export const SEASON_META: Record<Season, { name: string; icon: string; hint: string }> = {
-  spring: { name: 'Весна', icon: '🌱', hint: 'Земля оттаяла, сбор и поля идут веселее.' },
-  summer: { name: 'Лето', icon: '☀️', hint: 'Длинный день. Поля, стройка и добыча на пике, зверь разбрёлся.' },
-  autumn: { name: 'Осень', icon: '🍂', hint: 'Жатва и жирный зверь. Набей склады до зимы.' },
-  winter: { name: 'Зима', icon: '❄️', hint: 'Поля мертвы, добыча просела, дрова горят. Считай запасы.' },
+export const SEASON_META: Record<Season, { name: string; hint: string }> = {
+  spring: { name: 'Весна', hint: 'Земля оттаяла, сбор и поля идут веселее.' },
+  summer: { name: 'Лето', hint: 'Длинный день. Поля, стройка и добыча на пике, зверь разбрёлся.' },
+  autumn: { name: 'Осень', hint: 'Жатва и жирный зверь. Набей склады до зимы.' },
+  winter: { name: 'Зима', hint: 'Поля мертвы, добыча просела, дрова горят. Считай запасы.' },
 };
 
 /** Доля суток, когда солнце над горизонтом. Зимой ночь длиннее. */

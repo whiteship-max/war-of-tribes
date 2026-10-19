@@ -3,6 +3,8 @@ import { winterForecast, type ResourceForecast } from '@/game/derived';
 import { SEASON_DAYS } from '@/game/data/seasons';
 import { waitDays } from '@/ui/parts/wait';
 import { Leave } from '@/ui/parts/leave';
+import { Icon } from '@/ui/icons/Icon';
+import type { IconName } from '@/ui/icons/alias';
 
 const n1 = (x: number): string => String(Math.round(x * 10) / 10);
 
@@ -10,12 +12,12 @@ const n1 = (x: number): string => String(Math.round(x * 10) / 10);
  * Строка запаса: не «еды маловато», а сколько дней зимы она покроет.
  * Без конкретного числа зима читается как несправедливость, а с ним — как задача.
  */
-function Stock({ icon, name, f, days }: { icon: string; name: string; f: ResourceForecast; days: number }) {
+function Stock({ icon, name, f, days }: { icon: IconName; name: string; f: ResourceForecast; days: number }) {
   const covered = Math.min(days, Math.floor(f.days * 10) / 10);
   return (
     <div className={`stock${f.ok ? ' ok' : ''}`}>
       <div className="head">
-        <span className="ico">{icon}</span>
+        <span className="ico"><Icon name={icon} /></span>
         <b>{name}</b>
         <span className="days">
           {waitDays(covered)} из {waitDays(days)}
@@ -54,7 +56,7 @@ function WinterBody() {
   return (
     <div className="modal-backdrop">
       <div className="modal">
-        <div className="m-ico">❄️</div>
+        <div className="m-ico"><Icon name="season-winter" /></div>
         <h2>Скоро зима</h2>
         <p>
           Скоро поля встанут, а очаги запросят дров.
@@ -62,8 +64,8 @@ function WinterBody() {
         </p>
 
         <div className="stocks">
-          <Stock icon="🍖" name="Еда" f={f.food} days={SEASON_DAYS} />
-          <Stock icon="🌲" name="Дрова" f={f.wood} days={SEASON_DAYS} />
+          <Stock icon="res-food" name="Еда" f={f.food} days={SEASON_DAYS} />
+          <Stock icon="res-wood" name="Дрова" f={f.wood} days={SEASON_DAYS} />
         </div>
 
         <p className={ready ? 'verdict ok' : 'verdict no'}>
@@ -81,7 +83,7 @@ function WinterBody() {
             }}
           >
             <span>Что меняет зима</span>
-            <small>❄️</small>
+            <small><Icon name="season-winter" /></small>
           </button>
           <button className="btn" onClick={dismiss}>
             Готовимся

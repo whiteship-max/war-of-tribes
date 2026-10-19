@@ -8,6 +8,7 @@ import { useWorld } from '@/world/store';
 import { waitLeft } from '@/ui/parts/wait';
 import { perilText } from '@/world/peril';
 import type { SettlementId, StrikePlan } from '@/world/types';
+import { Icon } from '@/ui/icons/Icon';
 
 /**
  * Удар с тыла без гарнизона — одной дружиной; строка стоит рядом с кнопкой, пока галочка гарнизона снята и есть что
@@ -46,7 +47,7 @@ export function CampStrike({ target, onDone }: { target: SettlementId; onDone?: 
   return (
     <>
       <button className={`am-row${plan?.can ? '' : ' off'}`} disabled={busy || !plan?.can} onClick={() => void go()}>
-        <span className="ico">⛺</span>
+        <span className="ico"><Icon name="stage-camp" /></span>
         <span className="body">
           <b>Ударить с тыла</b>
           <i>

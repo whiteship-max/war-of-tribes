@@ -111,6 +111,7 @@ import {
 import { daysSpan } from './span';
 import { BOON_BY_ID, type BoonDef } from './data/boons';
 import { MAX_AGENT_LEVEL } from './data/agents';
+import type { IconName } from '@/ui/icons/alias';
 
 /** На здании идёт улучшение. */
 export const isSite = (b: Building): boolean => b.workRequired > 0;
@@ -281,11 +282,12 @@ export function buildingAttention(s: GameState, b: Building): Attention | null {
   return upgradeInfo(s, b).blocked === null ? 'upgrade' : null;
 }
 
-export const ATTENTION_META: Record<Attention, { icon: string; text: string }> = {
-  idle: { icon: '💤', text: 'Стоит без рабочих' },
-  order: { icon: '⚒️', text: 'Кузнецы без заказа' },
-  slot: { icon: '👤', text: 'Есть свободное место' },
-  upgrade: { icon: '⬆️', text: 'Пора улучшить' },
+/** Слова заботы; значок — по ключу (`attn-<забота>`, накладная `ui/icons/registry.ts`). */
+export const ATTENTION_META: Record<Attention, { text: string }> = {
+  idle: { text: 'Стоит без рабочих' },
+  order: { text: 'Кузнецы без заказа' },
+  slot: { text: 'Есть свободное место' },
+  upgrade: { text: 'Пора улучшить' },
 };
 
 // ---------- Вместимости ----------
@@ -1345,7 +1347,8 @@ export const population = (s: GameState): number =>
 /** Одно слагаемое морали: почему племя довольно или недовольно именно сейчас. */
 export interface MoraleLine {
   id: string;
-  icon: string;
+  /** Значок набора (docs/icons.md). */
+  icon: IconName;
   name: string;
   /** Вклад в целевую мораль. Ноль в список не попадает. */
   value: number;
@@ -1389,7 +1392,7 @@ export function moraleBreakdown(s: GameState): MoraleBreakdown {
   const lines: MoraleLine[] = [];
   // Ноль в список не попадает: строка «зима −0» была бы шумом. Исключение —
   // рычаги, про которые игрок иначе не узнает, что они у него вообще есть.
-  const add = (id: string, icon: string, name: string, value: number, hint: string, keepZero = false): void => {
+  const add = (id: string, icon: IconName, name: string, value: number, hint: string, keepZero = false): void => {
     if (keepZero || Math.abs(value) > 0.001) lines.push({ id, icon, name, value, hint });
   };
 
@@ -1398,12 +1401,12 @@ export function moraleBreakdown(s: GameState): MoraleBreakdown {
   // Теснота считается долей, а не головами: при сотнях жителей штраф
   // «минус пять за человека сверх крыш» обнулял бы мораль от одного лишнего.
   if (pop <= housing) {
-    add('housing', '🛏️', 'Жильё с запасом', 10, `${housing - pop} свободных мест из ${housing}`);
+    add('housing', 'ui-bed', 'Жильё с запасом', 10, `${housing - pop} свободных мест из ${housing}`);
   } else {
     const over = pop - housing;
     add(
       'crowding',
-      '🏚️',
+      'ui-ruin',
       'Теснота',
       -Math.min(CROWDING_MAX, (CROWDING_PENALTY * over) / Math.max(1, housing)),
       `${over} сверх крыш, штраф не больше −${CROWDING_MAX}`,
@@ -1412,22 +1415,22 @@ export function moraleBreakdown(s: GameState): MoraleBreakdown {
 
   const eat = foodConsumptionPerDay(s);
   const foodDays = s.resources.food / Math.max(1, eat);
-  if (s.resources.food <= 0) add('starving', '💀', 'Закрома пусты', -STARVING_MORALE, 'еды нет');
-  else if (foodDays >= 3) add('fed', '🍖', 'Сытость', 10, `запас на ${daysSpan(foodDays)}`);
-  else if (foodDays < 1) add('hungry', '🍖', 'Голодно', -8, `запас на ${daysSpan(foodDays)}`);
+  if (s.resources.food <= 0) add('starving', 'ui-skull', 'Закрома пусты', -STARVING_MORALE, 'еды нет');
+  else if (foodDays >= 3) add('fed', 'res-food', 'Сытость', 10, `запас на ${daysSpan(foodDays)}`);
+  else if (foodDays < 1) add('hungry', 'res-food', 'Голодно', -8, `запас на ${daysSpan(foodDays)}`);
   // Осадный паёк — та же кара в доле урезанного (docs/siege_v2.md, раздел 5): своей строкой, вне цепочки запаса.
-  if (s.siege?.ration) add('ration', '🥣', 'Осадный паёк', -rationMorale(), `еды ×${SIEGE_RATION}`);
+  if (s.siege?.ration) add('ration', 'ui-bowl', 'Осадный паёк', -rationMorale(), `еды ×${SIEGE_RATION}`);
 
   for (const b of s.buildings) {
     const v = buildingStat(b, 'morale');
     const def = BUILDING_BY_ID[b.type];
-    add(`b-${b.id}`, def.icon, def.name, v, `ур. ${b.level}`);
+    add(`b-${b.id}`, `bld-${b.type}`, def.name, v, `ур. ${b.level}`);
   }
 
   const priests = jobCounts(s).priest;
   add(
     'priests',
-    '🕯️',
+    'ui-candle',
     'Служители',
     priestMorale(s),
     `${priests} по +${PRIEST_MORALE}, не больше +${PRIEST_MORALE_CAP}`,
@@ -1436,15 +1439,15 @@ export function moraleBreakdown(s: GameState): MoraleBreakdown {
 
   add(
     'prestige',
-    '🏅',
+    'ui-medal',
     'Слава города',
     Math.min(10, s.prestige / 5),
     `${s.stats.battlesWon} побед · ${s.stats.battlesLost} поражений, слава ${Math.round(s.prestige)}`,
   );
 
   const season = seasonOf(s.time);
-  add('season', SEASON_META[season].icon, SEASON_META[season].name, seasonMods(s).morale, 'сезонный сдвиг');
-  if (s.freezing > 0) add('freezing', '🥶', 'Город мёрзнет', -FREEZING_MORALE_PENALTY, 'дрова кончились');
+  add('season', `season-${season}`, SEASON_META[season].name, seasonMods(s).morale, 'сезонный сдвиг');
+  if (s.freezing > 0) add('freezing', 'season-winter', 'Город мёрзнет', -FREEZING_MORALE_PENALTY, 'дрова кончились');
 
   // Вера. Два слагаемых, и они разной природы: наклон — то, что вера просит и
   // даёт всегда (десятина давит, община держит), а ересь — то, что случается,
@@ -1453,7 +1456,7 @@ export function moraleBreakdown(s: GameState): MoraleBreakdown {
   const fd = faithDef(s);
   if (fd) {
     add('faith', fd.icon, fd.name, faithTilt(s).morale, `${fd.temple} ур. ${templeLevel(s)}, ${OBSERVANCE_BY_ID[observanceOf(s)].name.toLowerCase()}`);
-    add('heresy', '🔥', 'Вера трещит', heresyMorale(s), `набожность ${Math.round(piety(s))}, раскол ниже ${PIETY_HERESY}`);
+    add('heresy', 'ui-flame', 'Вера трещит', heresyMorale(s), `набожность ${Math.round(piety(s))}, раскол ниже ${PIETY_HERESY}`);
   }
 
   const raw = lines.reduce((n, l) => n + l.value, MORALE_BASE);
@@ -1516,7 +1519,8 @@ export const priestMorale = (s: GameState): number =>
 /** Слагаемое набожности — одна строка на экране храма. */
 export interface PietyLine {
   id: string;
-  icon: string;
+  /** Значок набора (docs/icons.md). */
+  icon: IconName;
   name: string;
   value: number;
   hint: string;
@@ -1591,7 +1595,7 @@ export function faithTilt(s: GameState): FaithTilt {
  */
 export function pietyBreakdown(s: GameState): PietyBreakdown {
   const lines: PietyLine[] = [];
-  const add = (id: string, icon: string, name: string, value: number, hint: string, keepZero = false): void => {
+  const add = (id: string, icon: IconName, name: string, value: number, hint: string, keepZero = false): void => {
     if (keepZero || Math.abs(value) > 0.001) lines.push({ id, icon, name, value, hint });
   };
   const id = faithOf(s);
@@ -1600,11 +1604,11 @@ export function pietyBreakdown(s: GameState): PietyBreakdown {
   const level = templeLevel(s);
   const obs = OBSERVANCE_BY_ID[observanceOf(s)];
 
-  add('temple', def.icon, def.temple, level * PIETY_PER_LEVEL, `ур. ${level}, по +${PIETY_PER_LEVEL}`);
+  add('temple', 'bld-church', def.temple, level * PIETY_PER_LEVEL, `ур. ${level}, по +${PIETY_PER_LEVEL}`);
   const priests = jobCounts(s).priest;
   add(
     'priests',
-    '🕯️',
+    'ui-candle',
     'Служители прихода',
     priestPiety(s),
     `${priests} по +${PIETY_PER_PRIEST}, не больше +${PIETY_PRIEST_CAP}`,
@@ -1616,7 +1620,7 @@ export function pietyBreakdown(s: GameState): PietyBreakdown {
     const feast = def.feasts[seasonOf(s.time)];
     add('rite', feast.icon, `Обряд: ${feast.name}`, PIETY_RITE, 'приход служит и празднует');
   }
-  if (s.faith.relic) add('relic', '📿', FAITH_BY_ID[s.faith.relic].relic, PIETY_RELIC, 'реликвия прихода');
+  if (s.faith.relic) add('relic', 'ui-beads', FAITH_BY_ID[s.faith.relic].relic, PIETY_RELIC, 'реликвия прихода');
 
   // Чужая вера вокруг. Множитель — свойство самой веры (`tilt.pressure`), а не
   // оценка её: у язычества нет ни грамоты, ни дальнего владыки, к которому
@@ -1624,16 +1628,16 @@ export function pietyBreakdown(s: GameState): PietyBreakdown {
   const pressure = Math.max(0, Math.min(1, s.faith.pressure ?? 0));
   add(
     'pressure',
-    '🧭',
+    'hud-map',
     'Округа иной веры',
     -pressure * PIETY_PRESSURE * def.tilt.pressure,
     `${Math.round(pressure * 100)}% земли вокруг верит иначе`,
   );
 
   const foodDays = s.resources.food / Math.max(1, foodConsumptionPerDay(s));
-  if (foodDays < 1) add('hunger', '🍖', 'Голодно в приходе', -PIETY_HUNGER, 'за что нам это');
-  if (s.siege) add('siege', '⚔️', 'Под стенами враги', -PIETY_SIEGE, `осада, ${s.siege.byName}`);
-  add('strain', '💔', 'Надлом', -strainNow(s), 'навязанные решения ещё помнят');
+  if (foodDays < 1) add('hunger', 'res-food', 'Голодно в приходе', -PIETY_HUNGER, 'за что нам это');
+  if (s.siege) add('siege', 'alert-siege', 'Под стенами враги', -PIETY_SIEGE, `осада, ${s.siege.byName}`);
+  add('strain', 'ui-heartbreak', 'Надлом', -strainNow(s), 'навязанные решения ещё помнят');
 
   const raw = lines.reduce((n, l) => n + l.value, PIETY_BASE);
   return { base: PIETY_BASE, lines, raw, value: Math.max(0, Math.min(100, raw)) };
@@ -1721,7 +1725,8 @@ export const faithGoldPerDay = (s: GameState): number => faithTilt(s).goldPerPop
 /** Слагаемое надзора: кто и скольких невольников держит. */
 export interface OrderLine {
   id: 'household' | 'guards' | 'town' | 'ration';
-  icon: string;
+  /** Значок набора (docs/icons.md). */
+  icon: IconName;
   name: string;
   /** Скольких невольников держит это слагаемое. */
   value: number;
@@ -1864,7 +1869,8 @@ export function mutinyForecast(s: GameState): MutinyForecast {
 
 export interface Alert {
   id: string;
-  icon: string;
+  /** Значок набора (docs/icons.md). */
+  icon: IconName;
   text: string;
   /**
    * Вторая строка — цена того, о чём тревога. Нужна там, где срок и цена
@@ -1892,14 +1898,14 @@ export function alerts(s: GameState): Alert[] {
   // Нечем кормить только войско — это тревога о войске, ниже; о голоде племени
   // говорится, только когда нехватка дошла до посёлка.
   if (s.resources.food <= 0.5 && (short.town || short.army === 0)) {
-    out.push({ id: 'starving', icon: '💀', text: 'Амбары пусты, город голодает', goto: 'storage' });
+    out.push({ id: 'starving', icon: 'alert-starving', text: 'Амбары пусты, город голодает', goto: 'storage' });
   }
-  else if (foodDays < 1) out.push({ id: 'food', icon: '🍖', text: 'Еды не хватит и на день', goto: 'storage' });
+  else if (foodDays < 1) out.push({ id: 'food', icon: 'res-food', text: 'Еды не хватит и на день', goto: 'storage' });
 
   const heat = heatingWoodPerDay(s);
   if (heat > 0) {
-    if (s.freezing > 0) out.push({ id: 'freezing', icon: '🥶', text: 'Дров нет, город мёрзнет', goto: 'storage' });
-    else if (s.resources.wood / heat < 1) out.push({ id: 'wood', icon: '🌲', text: 'Дров не хватит и на день', goto: 'storage' });
+    if (s.freezing > 0) out.push({ id: 'freezing', icon: 'alert-freezing', text: 'Дров нет, город мёрзнет', goto: 'storage' });
+    else if (s.resources.wood / heat < 1) out.push({ id: 'wood', icon: 'res-wood', text: 'Дров не хватит и на день', goto: 'storage' });
   }
   // Войско. Одна строка на обе причины — неуплату и голод, — потому что и дверь у
   // них одна (`sim/upkeep`). Сначала то, что уже идёт, потом срок, потом отсрочка,
@@ -1955,12 +1961,12 @@ export function alerts(s: GameState): Alert[] {
   // ровно часа: заказ он закрывает одним тапом, а не заметив — теряет вечер.
   // Строка идёт последней: голод и холод острее.
   if (forgeInfo(s).idle) {
-    out.push({ id: 'forge-idle', icon: '⚒️', text: 'Кузнецы сидят без заказа', goto: 'smithy' });
+    out.push({ id: 'forge-idle', icon: 'bld-smithy', text: 'Кузнецы сидят без заказа', goto: 'smithy' });
   }
   // Ересь. Второй механики под неё нет: в деревне это строка тревоги, просадка
   // морали и событие с выбором — то, чем деревня живёт всегда.
   if (heresy(s)) {
-    out.push({ id: 'heresy', icon: '🔥', text: 'В приходе раскол', goto: 'church' });
+    out.push({ id: 'heresy', icon: 'ui-flame', text: 'В приходе раскол', goto: 'church' });
   }
   return out;
 }

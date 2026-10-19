@@ -11,6 +11,8 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { GAME_BG } from '@/telegram/webapp';
+import { INK, TINCT } from '../../scripts/icons/kit';
+import { ART } from '../../scripts/icons/set';
 
 const SRC = fileURLToPath(new URL('..', import.meta.url));
 const ROOT = join(SRC, '..');
@@ -283,20 +285,23 @@ describe('контраст по всей игре', () => {
 });
 
 describe('значки', () => {
-  it('у каждого значка есть цвет, который виден на панели, — не ниже 3 : 1', () => {
-    // Значок — рисунок в несколько заливок; тёмные детали законны, но силуэт держит хотя бы одна светлая.
-    const dir = join(ROOT, 'assets-src', 'icons');
+  it('у каждого значка набора есть цвет, видный на панели, не ниже 3 : 1, и контур чернилами — на светлом листе', () => {
+    // Значок — рисунок в несколько тинктур; тёмные детали законны, но силуэт на тёмной панели держит хотя бы одна светлая,
+    // а на светлом листе (`docs/icons/sheet-light.png`) — контур чернилами (docs/icons.md, ЗН-1).
+    const LIGHT = parseColor('#f3ead6', VARS)!;
+    const ink = parseColor(INK, VARS)!;
+    expect(worst(ink, [LIGHT])).toBeGreaterThanOrEqual(3);
     const low: string[] = [];
     let seen = 0;
-    for (const name of readdirSync(dir).filter((n) => n.endsWith('.svg'))) {
-      const svg = readFileSync(join(dir, name), 'utf8');
-      const colors = [...svg.matchAll(/(?:fill|stroke)="(#[0-9a-f]{3,6})"/gi)].map((m) => parseColor(m[1], VARS)!);
-      if (colors.length === 0) continue;
+    for (const [name, make] of Object.entries(ART)) {
+      const shapes = make();
+      const colors = shapes.filter((sh) => sh.tint !== 'ink').map((sh) => parseColor(TINCT[sh.tint as keyof typeof TINCT], VARS)!);
       seen++;
       const best = Math.max(...colors.map((c) => worst(c, PANELS)));
       if (best < 3) low.push(`${name}: ${best.toFixed(2)}`);
+      if (!shapes.some((sh) => sh.role === 'fill')) low.push(`${name}: нет обведённой фигуры — на светлом листе силуэта нет`);
     }
-    expect(seen).toBeGreaterThan(200);
+    expect(seen).toBeGreaterThan(180);
     expect(low).toEqual([]);
   });
 });

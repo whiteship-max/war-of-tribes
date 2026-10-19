@@ -148,35 +148,35 @@ function CityHud() {
       <div className={`nx-top${order !== null ? ' crowded' : ''}`}>
         <CoatButton quiet />
         <button className="nx-stat" onClick={tip(() => goldTip(s, go))} aria-label="Золото">
-          <Icon name="res-gold" glyph="💰" />
+          <Icon name="res-gold" />
           <b>{shortNum(s.gold)}</b>
         </button>
         <button className={`nx-stat nx-pop${pop > housing ? ' warn' : ''}`} onClick={tip(() => popTip(s, go))} aria-label="Жители">
-          <Icon name="hud-pop" glyph="👥" />
+          <Icon name="hud-pop" />
           <b>{shortNum(pop)}</b>
           <small>/{shortNum(housing)}</small>
         </button>
         <button className={`nx-stat${morale < 35 ? ' warn' : ''}`} onClick={tip(() => moraleTip(s, go))} aria-label="Мораль">
-          <Icon name={mood.name} glyph={mood.glyph} />
+          <Icon name={mood.name} />
           <b>{morale}</b>
         </button>
         {order !== null && (
           <button className={`nx-stat${order < ORDER_WARN ? ' warn' : ''}`} onClick={tip(() => orderTip(s, go))} aria-label="Порядок">
-            <Icon name="hud-order" glyph="🗝️" />
+            <Icon name="hud-order" />
             <b>{order}</b>
           </button>
         )}
         <button className="nx-stat" onClick={tip(() => armyTip(s, go))} aria-label="Дружина">
-          <Icon name="hud-army" glyph="⚔️" />
+          <Icon name="hud-army" />
           <b>{shortNum(armySize(s))}</b>
         </button>
         <button className={`nx-stat nx-hen${energy < MINIGAME_COST ? ' low' : ''}`} onClick={tip(() => energyTip(s, energyNow(), showTrades))} aria-label="Энергия">
-          <Icon name="ui-energy" glyph="✋" />
+          <Icon name="ui-energy" />
           <b>{energy}</b>
         </button>
         <span className="nx-grow" />
         <button className={`nx-stat nx-season season-${season}`} onClick={tip(() => seasonTip(s, go))} aria-label={meta.name}>
-          <Icon name={iconName('season', season)} glyph={meta.icon} />
+          <Icon name={iconName('season', season)} />
           <span className="nx-prog">
             <i style={{ width: `${Math.round(seasonProgress(s.time) * 100)}%` }} />
           </span>
@@ -194,7 +194,7 @@ function CityHud() {
               aria-label={RESOURCE_META[r].name}
             >
               <span className="nx-ri">
-                <Icon name={`res-${r}`} glyph={RESOURCE_META[r].icon} />
+                <Icon name={iconName('res', r)} />
                 {trend && <i className={`nx-tr ${trend}`} />}
               </span>
               <Soft value={s.resources[r]} />

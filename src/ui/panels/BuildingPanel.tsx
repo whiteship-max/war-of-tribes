@@ -42,6 +42,7 @@ import { OutputTable } from '@/ui/next/HallBuild';
 import { buildingGives } from '@/ui/next/gives';
 import { moraleTip } from '@/ui/next/hudTips';
 import { yardOutput } from '@/ui/next/output';
+import { iconName } from '@/ui/icons/registry';
 
 const fmt = (n: number): string => (Math.abs(n) >= 100 ? String(Math.round(n)) : dec(n, 1));
 const fmtDelta = (n: number): string => `${n >= 0 ? '+' : '−'}${fmt(Math.abs(n))}`;
@@ -154,7 +155,7 @@ function BuildingData({ b }: { b: Building }) {
       return (
         <>
           <Row
-            icon={{ name: 'ui-crown', glyph: '👑' }}
+            icon={'ui-crown'}
             label="Покои правителя"
             sub="Верхний ярус донжона: стол, письма, вид на город"
             go={() => useChambers.getState().show()}
@@ -202,7 +203,7 @@ function CampfireData() {
             cells: {
               what: (
                 <span className="kit-name">
-                  <Icon name={moodOf(s.morale).name} glyph={moodOf(s.morale).glyph} />
+                  <Icon name={moodOf(s.morale).name} />
                   <span className="one-line">Мораль</span>
                 </span>
               ),
@@ -217,7 +218,7 @@ function CampfireData() {
             cells: {
               what: (
                 <span className="kit-name">
-                  <span className="ic">🏅</span>
+                  <span className="ic"><Icon name="ui-medal" /></span>
                   <span className="one-line">Слава</span>
                 </span>
               ),
@@ -239,21 +240,21 @@ function FreeJobRow({ job }: { job: JobId }) {
   const idle = idleCount(s);
   const mult = jobMultiplier(s, job) * FREE_RANGE_MULT;
   const yields = RESOURCE_IDS.filter((r) => def.yield[r]).map(
-    (r) => `${RESOURCE_META[r].icon}${dec((def.yield[r] ?? 0) * mult, 1)}`,
+    (r) => `${RESOURCE_META[r].name.toLowerCase()} ${dec((def.yield[r] ?? 0) * mult, 1)}`,
   );
 
   return (
     <>
       <div className="card">
         <div className="ico">
-          <Icon name={`job-${def.id}`} glyph={def.icon} />
+          <Icon name={iconName('job', def.id)} />
         </div>
         <div className="body">
           <div className="title">
             {def.name}
             <span className="count">{workers}</span>
           </div>
-          <div className="desc">{yields.length ? `${yields.join(' ')} в день на человека` : def.description}</div>
+          <div className="desc">{yields.length ? `${yields.join(', ')} в день на человека` : def.description}</div>
         </div>
       </div>
       <Steps
@@ -285,7 +286,7 @@ function StorageData() {
         return (
           <div className="res-line" key={r}>
             <span className="ico">
-              <Icon name={`res-${r}`} glyph={RESOURCE_META[r].icon} />
+              <Icon name={iconName('res', r)} />
             </span>
             <span className="name">{RESOURCE_META[r].name}</span>
             <span className={`val${full ? ' full' : ''}`}>{Math.floor(v)}</span>
@@ -307,7 +308,7 @@ function StorageData() {
       {EQUIPMENT.map((e) => (
         <div className="res-line" key={e.id}>
           <span className="ico">
-            <Icon name={`gear-${e.id}`} glyph={e.icon} />
+            <Icon name={iconName('gear', e.id)} />
           </span>
           <span className="name">{e.name}</span>
           <span className="val">{s.equipment[e.id] ?? 0}</span>
@@ -346,7 +347,7 @@ function GenericData({ b }: { b: Building }) {
               cells: {
                 what: (
                   <span className="kit-name">
-                    <Icon name={r.icon.name} glyph={r.icon.glyph} />
+                    <Icon name={r.icon} />
                     <span className="one-line">{r.label}</span>
                   </span>
                 ),

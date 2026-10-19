@@ -130,7 +130,7 @@ export function chronRows(items: readonly ChronEvent[], open: (report: string) =
       cells: {
         what: (
           <span className={`kit-name chron-ev ${ev.head.kind}`}>
-            <Icon name={t.icon.name} glyph={t.icon.glyph} />
+            <Icon name={t.icon} />
             <span className="kit-two">
               <b>
                 {ev.head.text}

@@ -12,6 +12,10 @@
 // Модуль чистый: только слова и числа из аргументов. Считать здесь нечего —
 // числа приходят готовыми из `derived.ts` и `sim/mutiny.ts`.
 import { realSeconds } from '../pace';
+import type { IconName } from '@/ui/icons/alias';
+
+/** Имя значка набора (docs/icons.md) — с проверкой `tsc`: опечатка в имени — ошибка сборки, а не пустое место. */
+const ico = (name: IconName): IconName => name;
 
 /** «N невольник / невольника / невольников». */
 export function bondedWord(n: number): string {
@@ -51,28 +55,28 @@ export const MUTINY_EVENT = 'mutiny';
 export const ORDER_TEXT = {
   /** Название величины — одно на строку состояния, справку и тревогу. */
   name: 'Порядок',
-  icon: '🗝️',
+  icon: ico('hud-order'),
   bondedName: 'Невольники',
-  bondedIcon: '⛓️',
+  bondedIcon: ico('ui-chain'),
 
   /** Кто держит невольников: слагаемые надзора. Числа — аргументами. */
   lines: {
-    household: { name: 'Дома', icon: '🏘️', hint: 'горстку держат сами, без стражи' },
+    household: { name: 'Дома', icon: ico('bld-houses'), hint: 'горстку держат сами, без стражи' },
     guards: {
       name: 'Гарнизон',
-      icon: '⚔️',
+      icon: ico('hud-army'),
       hint: (guards: number, per: number): string =>
         `${guards} бойцов по ${per}, ушедшие не держат`,
     },
     town: {
       name: 'Спокойные жители',
-      icon: '👥',
+      icon: ico('nav-people'),
       hint: (pop: number, per: number, morale: number): string =>
         `${pop} по ${per} при морали ${Math.round(morale)}`,
     },
     ration: {
       name: 'Осадный паёк',
-      icon: '🥣',
+      icon: ico('ui-bowl'),
       hint: (cut: number): string => `голодных держать труднее: надзор −${Math.round(cut * 100)}%`,
     },
   },
@@ -124,7 +128,7 @@ export const ORDER_TEXT = {
 
   mutiny: {
     title: 'Мятеж',
-    icon: '⚠️',
+    icon: ico('spy-revolt'),
     /** Кто пишет весть о мятеже (`EventDef.from`). */
     from: 'Старший стражи',
     text: (bonded: number, guards: number): string =>

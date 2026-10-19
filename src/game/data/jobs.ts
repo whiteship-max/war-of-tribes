@@ -4,7 +4,6 @@ import { YARDS } from './yards';
 export interface JobDef {
   id: JobId;
   name: string;
-  icon: string;
   description: string;
   /** Производство за игровой день на одного работника в здании 1 уровня. */
   yield: Partial<Record<ResourceId, number>>;
@@ -21,14 +20,13 @@ export interface JobDef {
 }
 
 export const JOBS: JobDef[] = [
-  { id: 'idle', name: 'Свободные руки', icon: '🔨', description: 'Ведут стройку и отдыхают на площади.', yield: {} },
+  { id: 'idle', name: 'Свободные руки', description: 'Ведут стройку и отдыхают на площади.', yield: {} },
   // Семь дворов за стеной — одной таблицей (`data/yards.ts`): здание, профессия и сезон
   // двора описаны там одной строкой, а не здесь, в зданиях и в сезонах врозь.
   ...YARDS.map(
     (y): JobDef => ({
       id: y.job,
       name: y.name,
-      icon: y.icon,
       description: y.description,
       yield: y.yield,
       building: y.building,
@@ -39,7 +37,6 @@ export const JOBS: JobDef[] = [
   {
     id: 'crafter',
     name: 'Ремесленник',
-    icon: '🛠️',
     description: 'Работает в мастерской и ускоряет стройку.',
     yield: {},
     building: 'workshop',
@@ -47,7 +44,6 @@ export const JOBS: JobDef[] = [
   {
     id: 'smith',
     name: 'Кузнец',
-    icon: '⚒️',
     description: 'Куёт снаряжение.',
     yield: {},
     building: 'smithy',
@@ -59,7 +55,6 @@ export const JOBS: JobDef[] = [
     // Четырёх профессий тут заводить нельзя: работа одна, и людей на неё
     // ставят одним и тем же числом.
     name: 'Служитель',
-    icon: '🕯️',
     description: 'Держит набожность прихода и мораль города.',
     yield: {},
     building: 'church',

@@ -213,7 +213,8 @@ function splash(show: boolean): void {
     el.setAttribute('role', 'alert');
     el.innerHTML =
       '<div class="turn-phone-card">' +
-      '<div class="turn-phone-icon" aria-hidden="true">📱</div>' +
+      // Значок — символ набора ЗН-1 из первого экрана (`ui/icons/alias.FIRST_SCREEN`): он в документе с первого кадра.
+      '<div class="turn-phone-icon" aria-hidden="true"><svg viewBox="0 0 32 32" width="1em" height="1em"><use href="#i-ui-phone"/></svg></div>' +
       '<b>Поверни телефон</b>' +
       '<span>Город, карта и держава — вертикально</span>' +
       '</div>';

@@ -19,6 +19,7 @@ import { Toggle } from '@/ui/kit/Toggle';
 import { hungerLeft } from '@/ui/parts/hunger';
 import { realLeft } from '@/ui/parts/wait';
 import { plural } from '@/ui/parts/plural';
+import { Icon } from '@/ui/icons/Icon';
 
 /** Паёк словами: доля еды, мораль и надзор — теми же числами, что племя (`derived`). */
 export function rationWords(): string {
@@ -48,7 +49,7 @@ export function SiegeAnswers({ siege, now }: { siege: SiegeView; now: number }) 
       <h3>Ответы осаждённого</h3>
 
       <div className="card">
-        <div className="ico">🧱</div>
+        <div className="ico"><Icon name="bld-palisade" /></div>
         <div className="body">
           <div className="title">Заделать пролом</div>
           <div className="desc">
@@ -66,7 +67,7 @@ export function SiegeAnswers({ siege, now }: { siege: SiegeView; now: number }) 
       </Btn>
 
       <div className="card">
-        <div className="ico">🥣</div>
+        <div className="ico"><Icon name="ui-bowl" /></div>
         <div className="body">
           <div className="title">{a.ration.on ? 'Паёк урезан' : 'Урезать паёк'}</div>
           <div className="desc">

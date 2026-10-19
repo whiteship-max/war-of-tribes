@@ -18,7 +18,7 @@ import { CAMP_LEAVE } from '@/world/siege';
 import { worksWords } from '@/world/works';
 import { FATE_DEFAULT } from '@/world/spoils';
 import { FATE_META } from '@/world/data/fates';
-import { CASTLE_ICON, MISSIONS, RELATION_META, STAGE_BY_ID } from '@/world/data/meta';
+import { MISSIONS, RELATION_META, STAGE_BY_ID } from '@/world/data/meta';
 import { DEALS, FIGURES, FIGURE_BY_ID } from '@/world/data/figures';
 import { STANDING_META, TEMPER_BY_ID } from '@/world/data/diplomacy';
 import { KIND_META, UNIT_KINDS } from '@/battle';
@@ -46,6 +46,8 @@ import { WarCard } from './WarCard';
 import { SpyRival } from './SpyRival';
 import { num } from '@/game/num';
 import { Table, type Col } from '@/ui/kit/Table';
+import type { IconName } from '@/ui/icons/alias';
+import { iconName } from '@/ui/icons/registry';
 
 const fmt = (n: number): string => (Math.abs(n) >= 100 ? String(Math.round(n)) : num(n, 1));
 
@@ -66,20 +68,20 @@ const ALLOWED: Record<Mission, ('warrior' | 'scout')[]> = { raid: [], scout: ['s
 export const cellEstimate = (e: Estimate): string => (e.precision === 'unknown' ? '?' : formatEstimate(e));
 
 /** Шапка карточки: значок (касание — что это), имя, строка «ступень · отношение · координата», «закрыть». */
-function Head({ icon, glyph, title, sub, tip, arms }: { icon: string; glyph: string; title: ReactNode; sub: ReactNode; tip: TipContent; arms?: Arms }) {
+function Head({ icon, title, sub, tip, arms }: { icon: IconName; title: ReactNode; sub: ReactNode; tip: TipContent; arms?: Arms }) {
   const closeSheet = useGame((g) => g.closeSheet);
   return (
     <div className="nx-bhead">
       <button className="nx-bico" onClick={(e) => tipAt(e.currentTarget, tip)} aria-label="Что это за место">
         {/* Живое место — его гербом (П-2, `ui/map/arms.placeArms`): свой город, сосед, логово. */}
-        {arms ? <ArmsArt arms={arms} size={26} /> : <Icon name={icon} glyph={glyph} />}
+        {arms ? <ArmsArt arms={arms} size={26} /> : <Icon name={icon} />}
       </button>
       <div className="nx-btitle">
         <b className="one-line">{title}</b>
         <span className="nx-blvl nx-csub">{sub}</span>
       </div>
       <button className="nx-bclose" onClick={closeSheet} aria-label="Закрыть">
-        <Icon name="ui-close" glyph="✕" />
+        <Icon name="ui-close" />
       </button>
     </div>
   );
@@ -96,11 +98,11 @@ function Fact({ label, value, bad, tip }: { label: string; value: string; bad?: 
 }
 
 /** Строка подробностей: значок, что и число справа; касание — правило. */
-function Row({ icon, glyph, name, value, tone, tip }: { icon: string; glyph: string; name: string; value: string; tone?: 'good' | 'bad'; tip?: TipContent }) {
+function Row({ icon, name, value, tone, tip }: { icon: IconName; name: string; value: string; tone?: 'good' | 'bad'; tip?: TipContent }) {
   const body = (
     <>
       <span className="nx-lico">
-        <Icon name={icon} glyph={glyph} />
+        <Icon name={icon} />
       </span>
       <span className="nx-crow-t">{name}</span>
       <b className={tone ?? ''}>{value}</b>
@@ -156,7 +158,7 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
   if (!reachable(here)) {
     return (
       <div className="panel nx-bpanel nx-wcard">
-        <Head icon="rel-neutral" glyph="🏳️" title={card?.name ?? 'Чужой край'} sub={coord} tip={{ title: 'Чужой край', body: beyondText() }} />
+        <Head icon="rel-neutral" title={card?.name ?? 'Чужой край'} sub={coord} tip={{ title: 'Чужой край', body: beyondText() }} />
         <p className="nx-tnote">{beyondText()}</p>
       </div>
     );
@@ -189,7 +191,7 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
                 })();
               }}
             >
-              <Icon name={`fig-${d.id}`} glyph={d.icon} />
+              <Icon name={iconName('fig', d.id)} />
               <small>{d.name}</small>
               <em>{down && !vacant && f ? realLeft(secondsLeft(f.downUntil, now)) : state}</em>
             </button>
@@ -207,7 +209,6 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
       <div className="panel nx-bpanel nx-wcard">
         <Head
           icon="ui-pin"
-          glyph="📍"
           title="Пустая земля"
           sub={`${land} · ${coord}`}
           tip={{ title: land, body: 'Здесь никто не живёт. Пройти можно.' }}
@@ -247,7 +248,7 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
   if (card.ruin) {
     return (
       <div className="panel nx-bpanel nx-wcard">
-        <Head icon="stage-camp" glyph="🔥" title={<span className="one-line">{card.name}</span>} sub={sub} tip={{ title: 'Пепелище', body: card.note ?? 'Логово сожжено. След сойдёт сам.' }} />
+        <Head icon="evt-fire" title={<span className="one-line">{card.name}</span>} sub={sub} tip={{ title: 'Пепелище', body: card.note ?? 'Логово сожжено. След сойдёт сам.' }} />
         <div className="nx-facts two">
           <Fact label="Расстояние" value={`${fmt(card.distance)} кл.`} tip={{ title: `Расстояние · ${fmt(card.distance)} кл.`, body: 'От своего города по прямой.' }} />
           <Fact label="След сойдёт" value={realLeft(card.ruinLeft)} tip={{ title: 'Пепелище', body: 'Когда след сойдёт, место опустеет.' }} />
@@ -372,7 +373,6 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
     <div className="panel nx-bpanel nx-wcard">
       <Head
         icon={card.castle ? 'stage-castle' : `stage-${stage.id}`}
-        glyph={card.castle ? CASTLE_ICON : stage.icon}
         title={<span className="one-line">{card.name}</span>}
         sub={sub}
         arms={arms}
@@ -413,7 +413,7 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
       </div>
       {sightWord && (
         <button className={`nx-sight${card.visible ? ' good' : ''}`} onClick={(e) => tipAt(e.currentTarget, sightTip)}>
-          <Icon name={card.visible ? 'ui-eye' : 'ui-eye-off'} glyph={card.visible ? '👁️' : '🙈'} />
+          <Icon name={card.visible ? 'ui-eye' : 'ui-eye-off'} />
           <span>{sightWord}</span>
           {card.visible && card.marching && <b className="bad">оттуда выходит отряд</b>}
         </button>
@@ -424,7 +424,7 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
         {!card.mine &&
           standing.map((id) => (
             <button key={id} className="nx-cact" onClick={() => void openMenu(id, { x: card.x, y: card.y })}>
-              <Icon name={`fig-${id}`} glyph={FIGURE_BY_ID[id].icon} />
+              <Icon name={iconName('fig', id)} />
               Приказы: {FIGURE_BY_ID[id].name.toLowerCase()}
             </button>
           ))}
@@ -454,7 +454,7 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
               })();
             }}
           >
-            <Icon name="ui-target" glyph="⛺" />
+            <Icon name="alert-siege" />
             Осадить
           </button>
         )}
@@ -462,7 +462,7 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
             находку 14 docs/siege_audit.md). Погашенная — с причиной строкой ниже. */}
         {goSiege && !card.can.besiege && (
           <button className="nx-cact" disabled={busy || !goSiege.can} onClick={() => void invest()}>
-            <Icon name="ui-target" glyph="⛺" />
+            <Icon name="alert-siege" />
             Дойти и осадить · {realLeft(goSiege.walkMs / 1000)}
             <EnergyPrice price={goSiege.energy.price} />
           </button>
@@ -475,7 +475,7 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
         )}
         {war && (
           <button className="nx-cact" disabled={busy || !war.can} onClick={() => void warGo('siege')}>
-            <Icon name="ui-target" glyph="⛺" />
+            <Icon name="alert-siege" />
             Осадить · {realLeft(war.walkMs / 1000)}
             {war.energy && <EnergyPrice price={war.energy.siege.price} />}
           </button>
@@ -488,7 +488,7 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
             data-tut={m.id === 'scout' && mission !== 'scout' ? 'scout' : undefined}
             onClick={() => (mission === m.id ? setMission(null) : start(m.id))}
           >
-            <Icon name={m.id === 'scout' ? 'fig-scout' : 'ui-banner'} glyph={m.icon} />
+            <Icon name={m.id === 'scout' ? 'fig-scout' : 'ui-banner'} />
             {m.name}
           </button>
         ))}
@@ -522,7 +522,7 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
             const n = picked[id];
             return (
               <div className="nx-wrow" key={id}>
-                <span className="nx-lico">{def0.icon}</span>
+                <span className="nx-lico"><Icon name={def0.icon} /></span>
                 <span className="nx-wcount">
                   <b>{n}</b>
                   <small>/{max}</small>
@@ -577,16 +577,14 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
         <>
           <h3>Осада</h3>
           <Row
-            icon="ui-target"
-            glyph="⛺"
+            icon="stage-camp"
             name={card.siege.mine ? 'Наш лагерь стоит' : `Лагерь «${card.siege.byName}» стоит`}
             value={realLeft(Math.max(0, (now - card.siege.since) / 1000))}
           />
-          <Row icon={`fate-${card.siege.fate}`} glyph={FATE_META[card.siege.fate].icon} name="Объявлено" value={FATE_META[card.siege.fate].name.toLowerCase()} />
+          <Row icon={FATE_META[card.siege.fate].icon} name="Объявлено" value={FATE_META[card.siege.fate].name.toLowerCase()} />
           {card.siege.starvesAt !== undefined && (
             <Row
               icon="ui-time"
-              glyph="⏳"
               name={card.mine ? 'Своей еды хватит на' : 'Еды в городе хватит на'}
               value={hungerLeft(card.siege.starvesAt, now)}
               tone={card.mine ? 'bad' : 'good'}
@@ -594,7 +592,7 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
           )}
           {card.siege.mine || card.mine ? (
             <button className="nx-cact" onClick={card.mine ? openSiege : openCamp}>
-              <Icon name="ui-target" glyph="⛺" />
+              <Icon name="alert-siege" />
               Открыть осаду
             </button>
           ) : (
@@ -607,8 +605,7 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
 
       {card.fell && (
         <Row
-          icon={`fate-${card.fell.fate}`}
-          glyph={FATE_META[card.fell.fate].icon}
+          icon={FATE_META[card.fell.fate].icon}
           name={`Город взят: ${FELL_WORDS[card.fell.fate]}`}
           value={`${realLeft(Math.max(0, (now - card.fell.at) / 1000))} назад`}
         />
@@ -617,7 +614,6 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
       {card.sack && (
         <Row
           icon="ui-loot"
-          glyph="🔥"
           name="Разорено"
           value={card.sack.look}
           tone="bad"
@@ -628,7 +624,6 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
       {card.revolt && (
         <Row
           icon="ui-warning"
-          glyph="🔥"
           name={`Бунт ещё ${realLeft(secondsLeft(card.revolt.until, now))}`}
           value={`−${Math.round(card.revolt.power * 100)}%`}
           tone="good"
@@ -640,8 +635,7 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
         <>
           <h3>Отношения</h3>
           <Row
-            icon={`state-${card.diplomacy.standing}`}
-            glyph={STANDING_META[card.diplomacy.standing].icon}
+            icon={iconName('state', card.diplomacy.standing)}
             name={`${STANDING_META[card.diplomacy.standing].name} · ${card.diplomacy.mood}`}
             value={signed(card.diplomacy.attitude, 0)}
             tone={card.diplomacy.attitude < 0 ? 'bad' : 'good'}
@@ -654,17 +648,16 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
             }}
           />
           <Row
-            icon={`temper-${card.diplomacy.temper}`}
-            glyph={TEMPER_BY_ID[card.diplomacy.temper].icon}
+            icon={iconName('temper', card.diplomacy.temper)}
             name="Характер владельца"
             value={TEMPER_BY_ID[card.diplomacy.temper].name}
             tip={{ title: TEMPER_BY_ID[card.diplomacy.temper].name, body: TEMPER_BY_ID[card.diplomacy.temper].note }}
           />
           {card.diplomacy.standing === 'pact' && card.diplomacy.breakAt > 0 && (
-            <Row icon="ui-time" glyph="⏳" name="Пакт разорван, война через" value={realLeft(secondsLeft(card.diplomacy.breakAt, now))} tone="bad" />
+            <Row icon="ui-time" name="Пакт разорван, война через" value={realLeft(secondsLeft(card.diplomacy.breakAt, now))} tone="bad" />
           )}
           {card.diplomacy.standing === 'pact' && card.diplomacy.breakAt === 0 && card.diplomacy.until > 0 && (
-            <Row icon="ui-scroll" glyph="📜" name="Пакт держится ещё" value={realLeft(secondsLeft(card.diplomacy.until, now))} tone="good" />
+            <Row icon="ui-scroll" name="Пакт держится ещё" value={realLeft(secondsLeft(card.diplomacy.until, now))} tone="good" />
           )}
         </>
       )}
@@ -683,7 +676,7 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
                 cells: {
                   deal: (
                     <span className="kit-name">
-                      <Icon name={`deal-${d.id}`} glyph={def?.icon ?? ''} />
+                      <Icon name={iconName('deal', d.id)} />
                       <span className="one-line">{def?.name ?? ''}</span>
                     </span>
                   ),
@@ -701,7 +694,7 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
           {DEALS.map((d) => (
             <div className="nx-crow" key={d.id}>
               <span className="nx-lico">
-                <Icon name={`deal-${d.id}`} glyph={d.icon} />
+                <Icon name={iconName('deal', d.id)} />
               </span>
               <span className="nx-crow-t">
                 {d.name}
@@ -731,7 +724,7 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
                 cells: {
                   kind: (
                     <span className="kit-name">
-                      <span className="ic">{KIND_META[k].icon}</span>
+                      <span className="ic"><Icon name={KIND_META[k].icon as IconName} /></span>
                       <span className="one-line">{KIND_META[k].name}</span>
                     </span>
                   ),

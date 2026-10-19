@@ -33,6 +33,7 @@ import { coverNow, homeWater, weatherNow } from '@/ui/parts/weather';
 import type { Season } from '@/game/types';
 import { watchContext } from '@/render/context';
 import { freeTurn } from '@/orientation';
+import { iconName } from '@/ui/icons/registry';
 
 /** Что игре нужно знать о городе: сезон, погода, берег и пояс — на входе, один раз. */
 interface Place {
@@ -229,7 +230,7 @@ function HaulRow({ haul }: { haul: Haul }) {
     <>
       {RESOURCE_IDS.filter((r) => haul[r]).map((r) => (
         <span key={r} className="mg-res" aria-label={RESOURCE_META[r].name}>
-          <Icon name={`res-${r}`} glyph={RESOURCE_META[r].icon} />
+          <Icon name={iconName('res', r)} />
           {haul[r]}
         </span>
       ))}
@@ -427,7 +428,7 @@ export function Minigame({ game, onExit }: { game: MinigameId; onExit: () => voi
             </span>
             {/* Счёт прыгает на каждое очко: ключ — само число, анимация играет заново. */}
             <span className="mg-chip mg-score" key={`score-${view.tally.got}-${view.tally.bonus ?? 0}`}>
-              <Icon name={`mini-${game}`} glyph={def.glyph} />
+              <Icon name={iconName('mini', game)} />
               {words.short(view.tally)}
             </span>
             {view.aside && <span className="mg-chip">{view.aside}</span>}
@@ -472,13 +473,13 @@ export function Minigame({ game, onExit }: { game: MinigameId; onExit: () => voi
         <div className="mg-card" role="dialog" aria-label={def.name}>
           <div className="mg-head">
             <span className="mg-ico">
-              <Icon name={`mini-${game}`} glyph={def.glyph} />
+              <Icon name={iconName('mini', game)} />
             </span>
             <b>{def.name}</b>
           </div>
           <p>{def.goal}</p>
           <p className="mg-hour">
-            <Icon name={DAY_PARTS[HOUR_PART[hour]].name} glyph={DAY_PARTS[HOUR_PART[hour]].glyph} />
+            <Icon name={DAY_PARTS[HOUR_PART[hour]].name} />
             {HOUR_WORDS[hour]} — {HOUR_NOTE[game][hour]}
           </p>
           {how ? (
@@ -494,13 +495,13 @@ export function Minigame({ game, onExit }: { game: MinigameId; onExit: () => voi
           )}
           <div className="mg-facts">
             <span className="mg-res" aria-label="Время">
-              <Icon name="ui-time" glyph="⏳" />
+              <Icon name="ui-time" />
               {realSpanText(GAME_SECONDS[game])}
             </span>
             <span className="mg-res mg-muted">до</span>
             <HaulRow haul={top} />
             <span className="mg-res mg-muted" aria-label="Энергия">
-              <Icon name="ui-energy" glyph="✋" />
+              <Icon name="ui-energy" />
               {MINIGAME_COST}
             </span>
           </div>
@@ -520,7 +521,7 @@ export function Minigame({ game, onExit }: { game: MinigameId; onExit: () => voi
         <div className="mg-card" role="dialog" aria-label="Итог">
           <div className="mg-head">
             <span className="mg-ico">
-              <Icon name={`mini-${game}`} glyph={def.glyph} />
+              <Icon name={iconName('mini', game)} />
             </span>
             <b>{words.done(view.tally)}</b>
           </div>

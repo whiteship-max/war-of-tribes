@@ -66,14 +66,14 @@ function CityNav() {
     <nav className="nx-nav">
       <button data-tut="nav-townhall" className={hallOpen ? 'on' : ''} onClick={home(openTownHall)}>
         <span className="nx-ib">
-          <Icon name="bld-town_hall" glyph="🏛️" />
+          <Icon name="bld-town_hall" />
           {empty > 0 && <em className="nx-badge">{empty}</em>}
         </span>
         Ратуша
       </button>
       <button data-tut="nav-people" className={tab === 'people' ? 'on' : ''} onClick={home(() => openTab('people'))}>
         <span className="nx-ib">
-          <Icon name="nav-people" glyph="👥" />
+          <Icon name="nav-people" />
           {idle > 0 && !building && <em className="nx-badge">{idle > 9 ? '9+' : idle}</em>}
         </span>
         Жители
@@ -85,19 +85,19 @@ function CityNav() {
         aria-label={mapOpen ? 'Город' : 'Карта'}
       >
         <span className="nx-ib">
-          {mapOpen ? <Icon name="ui-home" glyph="🏠" /> : <Icon name="hud-map" glyph="🗺️" />}
+          {mapOpen ? <Icon name="ui-home" /> : <Icon name="hud-map" />}
         </span>
         {mapOpen ? 'Город' : 'Карта'}
       </button>
       <button data-tut="nav-army" className={tab === 'army' ? 'on' : ''} onClick={home(() => openTab('army'))}>
         <span className="nx-ib">
-          <Icon name="hud-army" glyph="⚔️" />
+          <Icon name="hud-army" />
         </span>
         Дружина
       </button>
       <button className={mailOpen ? 'on' : ''} onClick={home(() => (mailOpen ? hide() : show('decisions')))}>
         <span className="nx-ib">
-          <Icon name="ui-mail" glyph="✉️" />
+          <Icon name="ui-mail" />
           {unread > 0 && <em className={`nx-badge${urgent ? ' urgent' : ''}`}>{unread > 9 ? '9+' : unread}</em>}
         </span>
         Вести

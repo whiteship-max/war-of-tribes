@@ -101,7 +101,7 @@ export function TipView({ tip, view, busy, modal, hide }: ViewProps) {
             hide();
           }}
         >
-          <Icon name="ui-close" glyph="✕" />
+          <Icon name="ui-close" />
         </button>
         {link && (
           <button
@@ -129,7 +129,7 @@ function TipLine({ row, go, sum = false, hide }: { row: TipRow; go?: () => void;
   const cls = `nx-tip-row${sum ? ' sum' : ''}${row.tone ? ` ${row.tone}` : ''}`;
   const inner = (
     <>
-      {row.icon && <Icon name={row.icon.name} glyph={row.icon.glyph} />}
+      {row.icon && <Icon name={row.icon} />}
       <span>{row.label}</span>
       <b>{row.value}</b>
     </>
@@ -168,7 +168,7 @@ function TipMakerButton({ maker, hide }: { maker: TipMaker; hide: () => void }) 
         maker.go();
       }}
     >
-      <Icon name={maker.icon.name} glyph={maker.icon.glyph} />
+      <Icon name={maker.icon} />
       <span>
         {maker.label}
         {maker.build && <small>построить</small>}
@@ -189,7 +189,7 @@ function TipMakerButton({ maker, hide }: { maker: TipMaker; hide: () => void }) 
           show();
         }}
       >
-        <Icon name="ui-pin" glyph="📍" />
+        <Icon name="ui-pin" />
       </button>
     </span>
   );

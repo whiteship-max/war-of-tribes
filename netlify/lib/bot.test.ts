@@ -302,7 +302,7 @@ describe('настройки вестей в боте: /notify (ВС-1)', () => 
     expect(a.record('tg-77')?.bot.mute).toEqual(['build']);
     expect(a.t.calls).toEqual([`answer:${SAVED}`, 'repanel:77:55']);
     expect(a.t.panels[0].text).toContain('Бот пишет о боях, осадах, указах и соседях.');
-    expect(a.t.panels[0].rows[0][2].text).toBe('▫️ Стройка');
+    expect(a.t.panels[0].rows[0][2].text).toBe('Стройка: нет');
     const b = await hit(press(77, CALLBACK_QUIET), SECRET, a.s);
     expect(b.record('tg-77')?.bot.quiet).toEqual({ from: 22 * 60, to: 7 * 60 });
     const c = await hit(press(77, CALLBACK_URGENT), SECRET, b.s);

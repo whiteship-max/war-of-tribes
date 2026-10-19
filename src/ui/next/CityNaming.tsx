@@ -68,7 +68,7 @@ export function CityNaming({ onDone }: { onDone: () => void }) {
             setDraft(suggestCity(seed, n + 1, faith));
           }}
         >
-          <Icon name="ui-dice" glyph="🎲" />
+          <Icon name="ui-dice" />
         </button>
       </div>
       <button className="start-go" disabled={clean === null} onClick={commit}>

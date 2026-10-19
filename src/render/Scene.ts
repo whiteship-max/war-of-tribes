@@ -35,7 +35,6 @@ export interface BuildingView {
   markerY: number;
 }
 
-const MARKER_GLYPH: Record<Attention, string> = { idle: '💤', order: '⚒️', slot: '👤', upgrade: '⬆️' };
 const markerTextures = new Map<string, THREE.Texture>();
 
 /**
@@ -45,7 +44,7 @@ const markerTextures = new Map<string, THREE.Texture>();
  * значков не знает.
  */
 export interface MarkerArt {
-  /** Разметка SVG значка листа по имени; `null` — значка нет (лист не приехал), стоит эмодзи. */
+  /** Разметка SVG значка набора по имени; `null` — значка в документе нет, стоит пустая бляха. */
   svg(name: string): string | null;
 }
 
@@ -88,17 +87,18 @@ function markerTexture(kind: Attention): THREE.Texture {
   c.width = 64;
   c.height = 64;
   tex = new THREE.CanvasTexture(c);
-  if (ctx) plaque(ctx, kind, mark, tex);
+  if (ctx) plaque(ctx, mark, tex);
   tex.colorSpace = THREE.SRGBColorSpace;
   markerTextures.set(kind, tex);
   return tex;
 }
 
 /**
- * Бляха нового вида: тёмный круг, кольцо цвета заботы, в середине значок листа. Значок приезжает картинкой —
- * до неё стоит эмодзи, потом текстура перерисовывается сама.
+ * Бляха нового вида: тёмный круг, кольцо цвета заботы, в середине значок набора. Значок приезжает картинкой —
+ * до неё бляха пустая, потом текстура перерисовывается сама. Значки над крышами — в первом экране набора
+ * (`ui/icons/alias.FIRST_SCREEN`), и в документе они с первого кадра.
  */
-function plaque(ctx: CanvasRenderingContext2D, kind: Attention, mark: { icon: string; ring: string }, tex: THREE.Texture): void {
+function plaque(ctx: CanvasRenderingContext2D, mark: { icon: string; ring: string }, tex: THREE.Texture): void {
   const base = (): void => {
     ctx.clearRect(0, 0, 64, 64);
     ctx.fillStyle = 'rgba(30, 22, 15, 0.9)';
@@ -110,10 +110,6 @@ function plaque(ctx: CanvasRenderingContext2D, kind: Attention, mark: { icon: st
     ctx.stroke();
   };
   base();
-  ctx.font = '30px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(MARKER_GLYPH[kind], 32, 35);
   const svg = markerArt?.svg(mark.icon) ?? null;
   if (!svg || typeof Image === 'undefined') return;
   const img = new Image();

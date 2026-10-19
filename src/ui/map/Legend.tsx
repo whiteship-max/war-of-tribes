@@ -25,6 +25,7 @@ import { realSpanText } from '@/ui/parts/wait';
 import { PALETTE } from './const';
 import { FELL_WORDS, WORKS_STEPS, fellUrl, worksUrl } from './siegemark';
 import './legend.css';
+import { iconName } from '@/ui/icons/registry';
 
 export const SHOWN_RELATIONS = RELATION_ORDER.filter((r) => r !== 'ally' && r !== 'enemy');
 export const SHOWN_FATES = (Object.keys(FELL_WORDS) as Fate[]).filter((f) => f !== 'burn');
@@ -102,7 +103,7 @@ export function Legend({ stale, onClose }: { stale: string | null; onClose: () =
           <div className="wm-leg-grid">
             {SHOWN_RELATIONS.map((r) => (
               // Форма несёт смысл, цвет её подтверждает: цветной квадратик на цветовую слепоту не рассчитан вовсе.
-              <Cell key={r} art={<Icon name={`rel-${r}`} glyph="▪" className="wm-leg-flag" />} name={RELATION_META[r].name} />
+              <Cell key={r} art={<Icon name={iconName('rel', r)} className="wm-leg-flag" />} name={RELATION_META[r].name} />
             ))}
           </div>
           {kit && (

@@ -20,6 +20,7 @@ import { Num } from '@/ui/kit/Num';
 import { defenseTip, fmtInt, type TipGo } from '@/ui/next/hudTips';
 import { goTo } from '@/ui/kit/nav';
 import { dec } from '@/game/num';
+import { iconName } from '@/ui/icons/registry';
 
 export function ArmyPanel() {
   const s = useGame((g) => g.s);
@@ -47,7 +48,7 @@ export function ArmyPanel() {
   return (
     <div className="panel">
       <h2>
-        ⚔️ Дружина <small>{count(armySize(s), 'боец', 'бойца', 'бойцов')} · мощь {Math.round(armyPower(s))}</small>
+        <Icon name="hud-army" /> Дружина <small>{count(armySize(s), 'боец', 'бойца', 'бойцов')} · мощь {Math.round(armyPower(s))}</small>
       </h2>
 
       {/* Три числа одной строкой ячеек (docs/ui_v2.md, 2.1): мощь обороны, бойцы в городе и в походе — каждое с подсказкой.
@@ -70,7 +71,7 @@ export function ArmyPanel() {
       </div>
       {training > 0 && (
         <div className="mod">
-          <span className="ico"><Icon name="ui-target" glyph="🎯" /></span>
+          <span className="ico"><Icon name="ui-target" /></span>
           <span className="name">Новобранцы</span>
           <span className="val">{training}</span>
         </div>
@@ -86,7 +87,7 @@ export function ArmyPanel() {
           <div className="ms-more">
             {unhired.map((d) => (
               <button type="button" key={d.id} className="ms-more-b" onClick={() => setOpen(d.id)} aria-label={`${d.name}: карточка вида`}>
-                <Icon name={`troop-${d.id}`} glyph={d.icon} />
+                <Icon name={iconName('troop', d.id)} />
               </button>
             ))}
           </div>
@@ -101,7 +102,7 @@ export function ArmyPanel() {
 
       {barracks && (
         <button className="btn wide" onClick={() => openBuilding(barracks.id)}>
-          ⚔️ Нанять
+          <Icon name="bld-barracks" /> Нанять
         </button>
       )}
     </div>
