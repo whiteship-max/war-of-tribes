@@ -94,7 +94,7 @@
   --m-groove-edge: inset 0 1px 2px rgba(0, 0, 0, 0.85), 0 1px 0 rgba(255, 222, 170, 0.1);
   --m-fill: linear-gradient(180deg, #f7d991 0%, #e3a849 55%, #b9823a 100%);
   --m-fill-good: linear-gradient(180deg, #b4e09a 0%, #7cc47a 55%, #4f8a45 100%);
-  --m-fill-bad: linear-gradient(180deg, #f39a86 0%, #e06b5a 55%, #a8402f 100%);
+  --m-fill-bad: linear-gradient(180deg, #f39a86 0%, var(--bad) 55%, #a8402f 100%);
   --m-fill-warn: linear-gradient(180deg, #f3cf7e 0%, #d9a441 55%, #a87a26 100%);
   --m-fill-muted: linear-gradient(180deg, #d4c6b2 0%, #b8a893 55%, #8a7c69 100%);
 }
