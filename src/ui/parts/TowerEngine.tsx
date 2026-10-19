@@ -5,6 +5,7 @@ import { useWorld } from '@/world/store';
 import { waitLeft } from '@/ui/parts/wait';
 import { Cost } from './Cost';
 import { plural } from './plural';
+import { Icon } from '@/ui/icons/Icon';
 
 /**
  * Башня: места лучников и орудие против осадного лагеря — третий ответ города на осаду,
@@ -32,7 +33,7 @@ export function TowerEngine() {
 
       {current ? (
         <div className="card">
-          <div className="ico">{current.icon}</div>
+          <div className="ico"><Icon name={current.icon} /></div>
           <div className="body">
             <div className="title">
               {current.name}
@@ -53,7 +54,7 @@ export function TowerEngine() {
 
       {siege?.fire && (
         <div className="mod total">
-          <span className="ico">🗼</span>
+          <span className="ico"><Icon name="bld-tower" /></span>
           <span className="name">Обстрел лагеря</span>
           <span className="val pos">
             выбито {Math.round(siege.fire.thin * 100)}% из {Math.round(siege.fire.cap * 100)}%

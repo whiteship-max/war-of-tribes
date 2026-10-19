@@ -17,14 +17,17 @@ import { goTo } from '@/ui/kit/nav';
 import { WINDOW, sourceWord } from '@/ui/kit/sources';
 import { moraleRows } from '@/ui/next/morale';
 import { dec, num } from '@/game/num';
+import { Icon } from '@/ui/icons/Icon';
+import type { IconName } from '@/ui/icons/alias';
+import { iconName } from '@/ui/icons/registry';
 
 /** Знак и число с десятой без лишних нулей, запятой: «+55», «−1,1». */
 const sign = (n: number): string => `${n > 0 ? '+' : n < 0 ? '−' : ''}${num(Math.abs(n), 1)}`;
 const tone = (n: number): string => (n > 0 ? 'pos' : n < 0 ? 'neg' : '');
 
-const named = (icon: string, name: string) => (
+const named = (icon: IconName, name: string) => (
   <span className="kit-name">
-    <span className="ic">{icon}</span>
+    <span className="ic"><Icon name={icon} /></span>
     <span className="one-line">{name}</span>
   </span>
 );
@@ -73,13 +76,13 @@ export function MoralePanel() {
         rows={[
           {
             key: 'output',
-            cells: { what: named('⛏️', 'Выработка'), n: <b className={output >= 1 ? 'pos' : 'neg'}>×{dec(output, 2)}</b> },
+            cells: { what: named('ui-pick', 'Выработка'), n: <b className={output >= 1 ? 'pos' : 'neg'}>×{dec(output, 2)}</b> },
             tip: () => ({ title: 'Выработка', body: 'Мораль множит выработку каждого двора.' }),
           },
           {
             key: 'growth',
             cells: {
-              what: named(growth >= 0 ? '📈' : '📉', growth < 0 ? `Прирост: ниже ${MORALE_GROWTH_ZERO} жители уходят` : 'Прирост'),
+              what: named(growth >= 0 ? 'ui-up' : 'ui-down', growth < 0 ? `Прирост: ниже ${MORALE_GROWTH_ZERO} жители уходят` : 'Прирост'),
               n: <b className={growth >= 0 ? 'pos' : 'neg'}>×{dec(growth, 2)}</b>,
             },
             tip: () => ({ title: 'Прирост', body: `Мораль множит прирост жителей. Ниже ${MORALE_GROWTH_ZERO} жители уходят.` }),
@@ -106,14 +109,14 @@ export function MoralePanel() {
         rows={[
           {
             key: 'decree',
-            cells: { what: named(decree.icon, `Указ: ${decree.name.toLowerCase()}`), n: <b className={tone(decree.moralePerDay)}>{sign(decree.moralePerDay)}</b> },
+            cells: { what: named(iconName('decree', decree.id), `Указ: ${decree.name.toLowerCase()}`), n: <b className={tone(decree.moralePerDay)}>{sign(decree.moralePerDay)}</b> },
             tip: () => ({ title: decree.name, body: decree.effect }),
             go: toDecrees,
             goLabel: `Указ: ${sourceWord(WINDOW.gold)}`,
           },
           {
             key: 'ration',
-            cells: { what: named(ration.icon, `Паёк: ${ration.name.toLowerCase()}`), n: <b className={tone(ration.moralePerDay)}>{sign(ration.moralePerDay)}</b> },
+            cells: { what: named(iconName('ration', ration.id), `Паёк: ${ration.name.toLowerCase()}`), n: <b className={tone(ration.moralePerDay)}>{sign(ration.moralePerDay)}</b> },
             tip: () => ({ title: ration.name, body: ration.effect }),
             go: toDecrees,
             goLabel: `Паёк: ${sourceWord(WINDOW.gold)}`,
@@ -123,7 +126,7 @@ export function MoralePanel() {
       />
 
       <Row
-        icon={{ name: 'hud-army', glyph: '⚔️' }}
+        icon={'hud-army'}
         label="Бои у ворот"
         sub={`отбитый набег +${GATE_MORALE_WON}, проигранный −${GATE_MORALE_LOST} сразу`}
         value={`${s.stats.battlesWon} : ${s.stats.battlesLost}`}

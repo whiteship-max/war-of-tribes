@@ -11,8 +11,8 @@
   max-height: 62%;
   overflow-y: auto;
   padding: 10px 12px 12px;
-  background: var(--panel);
-  border: 1px solid var(--line);
+  background: var(--m-grain), var(--m-wood);
+  border: 1px solid var(--m-gilt);
   border-radius: 14px;
 }
 .wm-legend h3 {

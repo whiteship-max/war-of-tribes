@@ -16,6 +16,8 @@ import { rulerAge, rulerAging, rulerYears } from '@/game/sim/dynasty';
 import { pointsOf, rulerRate } from '@/game/sim/points';
 import { Lineage } from '@/ui/parts/Lineage';
 import { count } from '@/ui/parts/plural';
+import { Icon } from '@/ui/icons/Icon';
+import { BRANCH_ICON } from './branches';
 
 export function RulerTab() {
   const s = useGame((g) => g.s);
@@ -28,7 +30,7 @@ export function RulerTab() {
       <div className="panel">
         <h3>Правитель</h3>
         <div className="mod total">
-          <span className="ico">👑</span>
+          <span className="ico"><Icon name="ui-crown" /></span>
           <span className="name">{r.ruler.name ?? 'Без имени'}</span>
           <span className={`val${rulerAging(s) ? ' neg' : ''}`}>
             {count(years, 'год', 'года', 'лет')}
@@ -42,7 +44,9 @@ export function RulerTab() {
 
         {REALM_BRANCHES.map((b) => (
           <div className="mod" key={b}>
-            <span className="ico">✦</span>
+            <span className="ico">
+              <Icon name={BRANCH_ICON[b]} />
+            </span>
             <span className="name">
               {BRANCH_NAME[b]}
               <em className="sub">навык</em>
@@ -61,7 +65,9 @@ export function RulerTab() {
           const full = have >= POINTS_CAP;
           return (
             <div className="mod" key={b}>
-              <span className="ico">◆</span>
+              <span className="ico">
+                <Icon name={BRANCH_ICON[b]} />
+              </span>
               <span className="name">
                 {BRANCH_NAME[b]}
                 <em className="sub">{rate > 0 ? `+${rate} в день` : 'приток нулевой'}</em>
@@ -80,7 +86,7 @@ export function RulerTab() {
       <div className="panel">
         <h3>Наследник</h3>
         <div className="mod total">
-          <span className="ico">🌳</span>
+          <span className="ico"><Icon name="faith-pagan" /></span>
           <span className="name">{r.heir.name ?? 'Без имени'}</span>
           <span className="val">ждёт своего часа</span>
         </div>

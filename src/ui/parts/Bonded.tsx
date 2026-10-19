@@ -26,6 +26,7 @@ import { releaseBonded } from '@/game/sim/actions';
 import { useTwoTap } from '@/ui/kit/twotap';
 import { Steps } from './Steps';
 import { Icon } from '@/ui/icons/Icon';
+import { iconName } from '@/ui/icons/registry';
 
 /** Сколько их и где стоят; пусто — откуда они берутся и дверь на рынок. */
 export function BondedPlaces() {
@@ -45,7 +46,7 @@ export function BondedPlaces() {
         <div className="note">{ORDER_TEXT.whereFrom}</div>
         {market && (
           <button className="btn ghost wide" onClick={() => openBuilding(market.id)}>
-            <Icon name="bld-market" glyph="🛒" /> На рынок
+            <Icon name="bld-market" /> На рынок
           </button>
         )}
       </>
@@ -62,7 +63,7 @@ export function BondedPlaces() {
       <div className="note">{ORDER_TEXT.about(BONDED_OUTPUT)}</div>
       {incoming > 0 && (
         <div className="mod">
-          <span className="ico">🛒</span>
+          <span className="ico"><Icon name="bld-market" /></span>
           <span className="name">Ведут торговцы</span>
           <span className="val">{incoming}</span>
         </div>
@@ -72,7 +73,7 @@ export function BondedPlaces() {
         return (
           <button className="card as-row" key={b.id} onClick={() => openBuilding(b.id)}>
             <div className="ico">
-              <Icon name={`bld-${b.type}`} glyph={BUILDING_BY_ID[b.type].icon} />
+              <Icon name={iconName('bld', b.type)} />
             </div>
             <div className="body">
               <div className="title">
@@ -87,7 +88,7 @@ export function BondedPlaces() {
         );
       })}
       <div className="mod">
-        <span className="ico">🔨</span>
+        <span className="ico"><Icon name="ui-hammer" /></span>
         <span className="name">
           {site ? 'Без места — на стройке' : 'Без места — не работают'}
           <em className="sub">на работу ставят в окне здания</em>

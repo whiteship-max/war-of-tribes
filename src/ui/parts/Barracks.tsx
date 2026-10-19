@@ -16,6 +16,8 @@ import { Recruit } from './Recruit';
 import { waitDays } from './wait';
 import { count } from './plural';
 import { dec } from '@/game/num';
+import { iconName } from '@/ui/icons/registry';
+import type { IconName } from '@/ui/icons/alias';
 
 /**
  * Казармы: найм пеших (`Recruit`; конницу нанимают в конюшне), жалованье и роспуск — всех видов, конных тоже:
@@ -36,7 +38,7 @@ export function Barracks() {
     <>
       <h3>Дружина</h3>
       <Row
-        icon={{ name: 'hud-army', glyph: '⚔️' }}
+        icon={'hud-army'}
         label="Дружина"
         sub={armySize(s) > 0 ? `${count(armySize(s), 'боец', 'бойца', 'бойцов')} · мощь ${fmtInt(Math.round(armyPower(s)))}` : 'бойцов нет'}
         go={() => goTo(WINDOW.army)}
@@ -46,7 +48,7 @@ export function Barracks() {
           набеге. Второго экрана здесь нет — только дверь туда. */}
       {palisade && (
         <Row
-          icon={{ name: 'bld-palisade', glyph: '🛡️' }}
+          icon={'bld-palisade'}
           label="Стены"
           sub="кто идёт на город и кто стоит у стен"
           go={() => openBuilding(palisade.id)}
@@ -71,7 +73,7 @@ export function Barracks() {
             return (
               <div className="slot pick" key={def.id}>
                 <span className="ico">
-                  <Icon name={`troop-${def.id}`} glyph={def.icon} />
+                  <Icon name={iconName('troop', def.id)} />
                 </span>
                 <span className="who">
                   {def.name} <i className="talent">гарнизон {check.max} · −{Math.round(check.saves)} золота в день</i>
@@ -112,9 +114,11 @@ export function Upkeep() {
   const up = upkeepInfo(s);
   const statue = buildingOfType(s, 'statue');
   const go = tipGo();
-  const named = (glyph: string, name: string, icon?: string) => (
+  const named = (icon: IconName, name: string) => (
     <span className="kit-name">
-      {icon ? <Icon name={icon} glyph={glyph} /> : <span className="ic">{glyph}</span>}
+      <span className="ic">
+        <Icon name={icon} />
+      </span>
       <span className="one-line">{name}</span>
     </span>
   );
@@ -131,24 +135,24 @@ export function Upkeep() {
       ? [
           {
             key: 'masters',
-            cells: { what: named('🔨', 'Мастерам'), n: dec(up.mastersWages, 1) },
+            cells: { what: named('ui-hammer', 'Мастерам'), n: dec(up.mastersWages, 1) },
             tip: () => ({ title: 'Мастерам', body: 'Наёмным мастерам мастерской платят золотом, как дружине.' }),
           },
         ]
       : []),
     {
       key: 'income',
-      cells: { what: named('💰', 'Доход', 'res-gold'), n: fmtInt(Math.round(up.income)) },
+      cells: { what: named('res-gold', 'Доход'), n: fmtInt(Math.round(up.income)) },
       tip: () => goldTip(s, go),
       go: () => goTo(WINDOW.gold),
       goLabel: `Доход: ${sourceWord(WINDOW.gold)}`,
     },
     ...(up.debt > 0
-      ? [{ key: 'debt', cells: { what: named('📜', 'Долг дружине'), n: <b className="neg">{fmtInt(Math.round(up.debt))}</b> }, tip: () => ({ title: 'Долг', body: 'Недоплаченное жалованье дружине.' }) }]
+      ? [{ key: 'debt', cells: { what: named('ui-scroll', 'Долг дружине'), n: <b className="neg">{fmtInt(Math.round(up.debt))}</b> }, tip: () => ({ title: 'Долг', body: 'Недоплаченное жалованье дружине.' }) }]
       : []),
     {
       key: 'grace',
-      cells: { what: named('🗿', 'Терпение'), n: waitDays(up.graceDays) },
+      cells: { what: named('bld-statue', 'Терпение'), n: waitDays(up.graceDays) },
       tip: () => ({ title: 'Терпение', body: 'Сколько дружина ждёт жалованья и еды, потом уходит, даже без тебя. Растёт с уровнем Статуи.' }),
       go: statue ? () => goTo(toBuilding('statue')) : undefined,
       goLabel: 'Терпение: Статуя Героя',

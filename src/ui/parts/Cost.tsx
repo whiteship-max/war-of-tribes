@@ -5,6 +5,7 @@ import { RESOURCE_IDS, RESOURCE_META } from '@/game/constants';
 import { Icon } from '@/ui/icons/Icon';
 import { waitSpan } from './wait';
 import type { GameSec } from '@/game/pace';
+import { iconName } from '@/ui/icons/registry';
 
 /** Чем можно расплатиться: склад плюс казна. Золото — не ресурс, но цена бывает и в нём. */
 export type Price = Partial<Record<ResourceId | 'gold', number>>;
@@ -54,20 +55,20 @@ export function Cost({ cost, work, eta, extra }: Props) {
         const have = Math.floor(s.resources[r]);
         return (
           <span key={r} className={have >= need ? '' : 'no'} title={RESOURCE_META[r].name}>
-            <Icon name={`res-${r}`} glyph={RESOURCE_META[r].icon} /> {need}
+            <Icon name={iconName('res', r)} /> {need}
             <i className="have">из {have}</i>
           </span>
         );
       })}
       {gold > 0 && (
         <span className={Math.floor(s.gold) >= gold ? '' : 'no'} title="Золото">
-          <Icon name="res-gold" glyph="💰" /> {gold}
+          <Icon name="res-gold" /> {gold}
           <i className="have">из {Math.floor(s.gold)}</i>
         </span>
       )}
       {work !== undefined && (
         <span className="work">
-          <Icon name="ui-time" glyph="⏱" /> {eta === undefined ? work : eta === null ? 'нет строителей' : waitSpan(eta)}</span>
+          <Icon name="ui-time" /> {eta === undefined ? work : eta === null ? 'нет строителей' : waitSpan(eta)}</span>
       )}
       {extra}
     </div>

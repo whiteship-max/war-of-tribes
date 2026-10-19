@@ -269,7 +269,7 @@ describe('/perf: считает верно', () => {
     // Партия есть — `/perf 7010` находит игрока по номеру (`lookup`), а замеры — по его замку.
     await home.stores(STORES.saves).setJSON('tg-7010', { v: 1 });
     await adminCommand(update(ADMIN, '/perf'), io(NOW + 1000), () => tg);
-    expect(said[0]).toContain('📊 Замеры за 7 дн.: устройств 1, игроков 1');
+    expect(said[0]).toContain('Замеры за 7 дн.: устройств 1, игроков 1');
     await adminCommand(update(ADMIN, '/perf 7010'), io(NOW + 1000), () => tg);
     expect(said[1]).toContain(`замок ${castleIdOf('tg-7010', TEST_TOKEN)}`);
     expect(said[1]).toContain('Устройство: Android 12 · телефон 360×800 @2 · Mali-G52');

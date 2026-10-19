@@ -14,7 +14,7 @@ describe('отчёт о бое со зверями: ролик и журнал, 
     const branch = src.indexOf('{rec && (');
     expect(branch, 'ветка записи боя есть').toBeGreaterThan(0);
     expect(src.indexOf('{rec && (', branch + 1), 'и она одна').toBe(-1);
-    const watch = src.indexOf('▶️ Смотреть бой');
+    const watch = src.indexOf('<Icon name="ui-play" /> Смотреть бой');
     expect(watch, 'кнопка ролика — в ней').toBeGreaterThan(branch);
     expect(src.slice(branch), 'журнал — в ней').toMatch(/<Journal rec=\{rec\} \/>/);
     // Прежней ветки «зверей без волка» (её открывал «Простой вид», где фигуры волка не было) нет.

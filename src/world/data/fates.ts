@@ -7,19 +7,20 @@
 import type { Fate } from '../types';
 import { ORDER_TEXT, bondedWord, townsWord } from '@/game/data/order';
 import type { FateResult } from '../spoils';
+import type { IconName } from '@/ui/icons/alias';
 
 export interface FateMeta {
   /** Название ступени — одно на выбор, окно и отчёт. */
   name: string;
-  icon: string;
+  icon: IconName;
   /** Заголовок отчёта проигравшему, когда город взят приступом. */
   title: string;
 }
 
 export const FATE_META: Record<Fate, FateMeta> = {
-  plunder: { name: 'Ограбить', icon: '💰', title: 'Город разграбили' },
-  captives: { name: 'Увести людей', icon: '⛓️', title: 'Город разграбили и увели людей' },
-  burn: { name: 'Сжечь', icon: '🔥', title: 'Город сожгли' },
+  plunder: { name: 'Ограбить', icon: 'ui-loot', title: 'Город разграбили' },
+  captives: { name: 'Увести людей', icon: 'ui-chain', title: 'Город разграбили и увели людей' },
+  burn: { name: 'Сжечь', icon: 'ui-flame', title: 'Город сожгли' },
 };
 
 /**

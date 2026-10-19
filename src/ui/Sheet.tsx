@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { haptic } from '@/telegram/webapp';
 import { nextFrame } from '@/render/loop';
+import { Icon } from '@/ui/icons/Icon';
 
 /** Доли высоты вьюпорта: свёрнутая шторка и раскрытая. */
 const PEEK = 0.62;
@@ -150,7 +151,7 @@ export function Sheet({ open, onClose, children }: Props) {
             onPointerDown={(e) => e.stopPropagation()}
             onClick={onClose}
             aria-label="Закрыть">
-            ✕
+            <Icon name="ui-close" />
           </button>
         </div>
         <div className="sheet-body">{children}</div>

@@ -5,6 +5,7 @@ import { MusterLink } from './MusterLink';
 import { AgentCard } from './AgentCard';
 import { Lineage } from './Lineage';
 import { waitDays } from './wait';
+import { Icon } from '@/ui/icons/Icon';
 
 /**
  * Статуя Героя — дом военачальников. Морали она не даёт нарочно — их в посёлке уже
@@ -26,7 +27,7 @@ export function Statue() {
     <>
       <h3>Полководец</h3>
       <div className="mod total">
-        <span className="ico">⚔️</span>
+        <span className="ico"><Icon name="hud-army" /></span>
         <span className="name">
           Дружина терпит
           <em className="sub">без жалованья и еды</em>

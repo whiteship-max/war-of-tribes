@@ -7,7 +7,7 @@ import type { ResourceId } from '@/game/types';
 import { SEASON_META } from '@/game/data/seasons';
 import { Icon } from '@/ui/icons/Icon';
 import { iconName, moodOf } from '@/ui/icons/registry';
-import { CoatButton } from '@/ui/realm/Coat';
+import { CoatButton, ProfileBadge } from '@/ui/realm/Coat';
 import { useRealm } from '@/ui/realm/open';
 import { shortNum } from '@/ui/parts/shortNum';
 import { tipAt, type TipContent } from './tip';
@@ -17,10 +17,11 @@ import { MINIGAME_COST } from '@/game/data/minigames';
 import { armyTip, energyTip, goldTip, isFull, moraleTip, orderTip, popTip, resTip, seasonTip, trendOf, type TipGo } from './hudTips';
 import { GemPlaque } from './Treasury';
 import { SiteTags } from './Rush';
-import { CityCam } from './CityCam';
 import { goTo } from '@/ui/kit/nav';
 import { withShow } from './show';
 import { useChambers } from '@/ui/chambers/open';
+// Рычаг «Подписи» встаёт из памяти устройства вместе с верхом города (строка — в настройках профиля, ЗН-3).
+import './labels';
 
 /**
  * Покои правителя (docs/city_v3.md, Г-4) — своим куском: пока они открыты, вместо верха города стоит их слой, и в первую
@@ -148,35 +149,35 @@ function CityHud() {
       <div className={`nx-top${order !== null ? ' crowded' : ''}`}>
         <CoatButton quiet />
         <button className="nx-stat" onClick={tip(() => goldTip(s, go))} aria-label="Золото">
-          <Icon name="res-gold" glyph="💰" />
+          <Icon name="res-gold" />
           <b>{shortNum(s.gold)}</b>
         </button>
         <button className={`nx-stat nx-pop${pop > housing ? ' warn' : ''}`} onClick={tip(() => popTip(s, go))} aria-label="Жители">
-          <Icon name="hud-pop" glyph="👥" />
+          <Icon name="hud-pop" />
           <b>{shortNum(pop)}</b>
           <small>/{shortNum(housing)}</small>
         </button>
         <button className={`nx-stat${morale < 35 ? ' warn' : ''}`} onClick={tip(() => moraleTip(s, go))} aria-label="Мораль">
-          <Icon name={mood.name} glyph={mood.glyph} />
+          <Icon name={mood.name} />
           <b>{morale}</b>
         </button>
         {order !== null && (
           <button className={`nx-stat${order < ORDER_WARN ? ' warn' : ''}`} onClick={tip(() => orderTip(s, go))} aria-label="Порядок">
-            <Icon name="hud-order" glyph="🗝️" />
+            <Icon name="hud-order" />
             <b>{order}</b>
           </button>
         )}
         <button className="nx-stat" onClick={tip(() => armyTip(s, go))} aria-label="Дружина">
-          <Icon name="hud-army" glyph="⚔️" />
+          <Icon name="hud-army" />
           <b>{shortNum(armySize(s))}</b>
         </button>
         <button className={`nx-stat nx-hen${energy < MINIGAME_COST ? ' low' : ''}`} onClick={tip(() => energyTip(s, energyNow(), showTrades))} aria-label="Энергия">
-          <Icon name="ui-energy" glyph="✋" />
+          <Icon name="ui-energy" />
           <b>{energy}</b>
         </button>
         <span className="nx-grow" />
         <button className={`nx-stat nx-season season-${season}`} onClick={tip(() => seasonTip(s, go))} aria-label={meta.name}>
-          <Icon name={iconName('season', season)} glyph={meta.icon} />
+          <Icon name={iconName('season', season)} />
           <span className="nx-prog">
             <i style={{ width: `${Math.round(seasonProgress(s.time) * 100)}%` }} />
           </span>
@@ -194,7 +195,7 @@ function CityHud() {
               aria-label={RESOURCE_META[r].name}
             >
               <span className="nx-ri">
-                <Icon name={`res-${r}`} glyph={RESOURCE_META[r].icon} />
+                <Icon name={iconName('res', r)} />
                 {trend && <i className={`nx-tr ${trend}`} />}
               </span>
               <Soft value={s.resources[r]} />
@@ -206,9 +207,9 @@ function CityHud() {
           открыта держава, плашки нет: она легла бы на шапку раздела («Вести», «Правитель») — снимок 390 и 375,
           docs/voice.md, 12. */}
       {!realmOpen && <GemPlaque />}
+      {/* Профиль — справа, зеркально алмазам (ЗН-3, docs/ui_v2.md, 5.10): герб, касание — профиль и настройки. */}
+      {!realmOpen && <ProfileBadge />}
       <SiteTags />
-      {/* Камера города — «Подписи» и «Домой» столбцом под плашкой (ОР-1, docs/ui_v2.md, 5.9). */}
-      <CityCam />
     </div>
   );
 }

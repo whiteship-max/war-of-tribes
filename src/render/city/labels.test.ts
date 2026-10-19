@@ -1,9 +1,9 @@
 // Подписи построек и полёт камеры (ОР-1, docs/ui_v2.md, 5.9): раскладка подписей — чистая функция (`labels.layLabels`),
-// полёт — чистые числа (`camera.flyAt`, `showDist`, `awayFrom`). Каждый блок называет свою область и проверяет, что точки
+// полёт — чистые числа (`camera.flyAt`, `showDist`). Каждый блок называет свою область и проверяет, что точки
 // внутри неё (правило 11).
 import { describe, expect, it } from 'vitest';
 import { LABEL_GAP, LABEL_INSET, LABEL_NEAR, layLabels, overlaps, rectOf, type LabelCand } from './labels';
-import { SHOW_DIST, awayFrom, cityFraming, flyAt, showDist } from './camera';
+import { SHOW_DIST, cityFraming, flyAt, showDist } from './camera';
 
 const PHONE = { w: 390, h: 844 };
 /** Где подписи вообще ставятся: экран без полос верха и низа интерфейса. */
@@ -148,12 +148,5 @@ describe('полёт камеры', () => {
     const zoom = cityFraming(390 / 844).zoom;
     expect(SHOW_DIST.min).toBeGreaterThanOrEqual(zoom.min);
     expect(SHOW_DIST.max).toBeLessThanOrEqual(zoom.max);
-  });
-
-  it('«ушла с дома» — на метры, а не на дробь', () => {
-    const home = { x: 0, z: -16, dist: 520 };
-    expect(awayFrom({ ...home, x: 0.5 }, home)).toBe(false);
-    expect(awayFrom({ ...home, x: 10 }, home)).toBe(true);
-    expect(awayFrom({ ...home, dist: 400 }, home)).toBe(true);
   });
 });

@@ -8,11 +8,12 @@ import { useGame } from '@/game/store';
 import { STORY_TEXT_MAX, canStory, shareLink, shareStory, tgUserId } from '@/telegram/webapp';
 import { BOT_IS_PLACEHOLDER, SITE_URL, inviteLink } from '@/game/data/social';
 import type { ShareCard } from './shareCard';
+import type { IconName } from '@/ui/icons/alias';
 
-const ICON: Record<ShareCard['kind'], { name: string; glyph: string }> = {
-  battle: { name: 'ui-banner', glyph: '⚔️' },
-  city: { name: 'ui-banner', glyph: '🚩' },
-  rating: { name: 'ui-trophy', glyph: '🏆' },
+const ICON: Record<ShareCard['kind'], IconName> = {
+  battle: 'ui-banner',
+  city: 'ui-banner',
+  rating: 'ui-trophy',
 };
 
 /**
@@ -47,7 +48,7 @@ export function ShareSheet({ card, onClose }: { card: ShareCard; onClose: () => 
       <div className="nx-share" role="dialog" aria-label="Поделиться" onClick={(e) => e.stopPropagation()}>
         <div className={`nx-scard ${card.kind}`}>
           <div className="nx-screst">
-            <Icon name={ICON[card.kind].name} glyph={ICON[card.kind].glyph} />
+            <Icon name={ICON[card.kind]} />
             <span>TRIBE</span>
           </div>
           <b className="nx-shead">{card.head}</b>

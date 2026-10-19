@@ -37,9 +37,13 @@
   display: grid;
   gap: 8px;
   padding: 8px 12px 12px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--m-plate-rim);
   border-radius: 10px;
-  background: var(--panel-2);
+  background: var(--m-plate);
+  box-shadow: var(--m-plate-bevel);
+  /* Шов по коже плашки (ЗН-2). */
+  outline: var(--m-stitch);
+  outline-offset: -4px;
 }
 .mk-act {
   display: flex;

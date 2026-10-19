@@ -154,7 +154,7 @@ function SiegeButtons({ report }: { report: Report & { siege: SiegeRecord } }) {
             setPlaying('all');
           }}
         >
-          ▶️ Смотреть осаду
+          <Icon name="ui-play" /> Смотреть осаду
         </button>
       </div>
       {clips.length > 1 && (
@@ -168,7 +168,7 @@ function SiegeButtons({ report }: { report: Report & { siege: SiegeRecord } }) {
                 setPlaying(c);
               }}
             >
-              ▶ {c.label}
+              <Icon name="ui-play" /> {c.label}
             </button>
           ))}
         </div>
@@ -276,7 +276,7 @@ export function ReportPanel({ id }: { id: string }) {
                 act((g) => setBattleWatch(g, false));
               }}
             >
-              <Icon name="ui-bolt" glyph="⚡" /> Сразу итог
+              <Icon name="ui-bolt" /> Сразу итог
             </button>
             <button
               className={`btn${watch ? '' : ' ghost'}`}
@@ -290,7 +290,7 @@ export function ReportPanel({ id }: { id: string }) {
                 setPlaying(true);
               }}
             >
-              ▶️ Смотреть бой
+              <Icon name="ui-play" /> Смотреть бой
             </button>
           </div>
           {playing && (

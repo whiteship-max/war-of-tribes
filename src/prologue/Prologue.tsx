@@ -14,6 +14,7 @@ import type { ItemId } from './pack';
 import { loadPrologue } from './save';
 import { PrologueScene, type PrologueView } from './scene';
 import { watchContext } from '@/render/context';
+import { Icon } from '@/ui/icons/Icon';
 
 /**
  * Предыстория: оболочка вокруг сцены.
@@ -240,14 +241,24 @@ export function Prologue({ onExit }: { onExit: () => void }) {
         */}
         {view && (
           <div className="pro-sky">
-            <span className={view.fireFill > 0 ? 'fire' : 'fire out'}>🔥 {view.fireWords}</span>
-            {view.night && <span>🌙 ночь</span>}
-            {view.weather !== '' && (
-              <span className={view.weather === 'хмурится' ? 'soon' : 'wet'}>
-                {view.weather === 'дождь' ? '☔' : view.weather === 'снег' ? '❄' : '⛅'} {view.weather}
+            <span className={view.fireFill > 0 ? 'fire' : 'fire out'}>
+              <Icon name="ui-flame" /> {view.fireWords}
+            </span>
+            {view.night && (
+              <span>
+                <Icon name="day-night" /> ночь
               </span>
             )}
-            {view.wolves > 0 && <span className="wolf">🐺 волки</span>}
+            {view.weather !== '' && (
+              <span className={view.weather === 'хмурится' ? 'soon' : 'wet'}>
+                <Icon name={view.weather === 'снег' ? 'season-winter' : 'ui-storm'} /> {view.weather}
+              </span>
+            )}
+            {view.wolves > 0 && (
+              <span className="wolf">
+                <Icon name="ui-wolf" /> волки
+              </span>
+            )}
           </div>
         )}
       </div>
@@ -292,7 +303,7 @@ export function Prologue({ onExit }: { onExit: () => void }) {
             disabled={!view?.shot.can}
             title={view?.shot.why}
           >
-            {view?.drawn ? '➹' : '🏹'}
+            <Icon name={view?.drawn ? 'ui-arrow' : 'gear-bow'} />
           </button>
           {/* Вещи — справа снизу, последней: окно, а не действие, и нажимают его
               реже двух других. Мёртвому вещей нет — поверх стоит экран смерти. */}
@@ -327,7 +338,7 @@ export function Prologue({ onExit }: { onExit: () => void }) {
       {view && card === 'pack' && (
         <div className="pro-card pro-inv" role="dialog" aria-label="Вещи">
           <button className="pro-x" onClick={closePanel} aria-label="Закрыть">
-            ✕
+            <Icon name="ui-close" />
           </button>
           <b className="pro-who">Вещи</b>
           {view.items.length === 0 ? (
@@ -364,7 +375,7 @@ export function Prologue({ onExit }: { onExit: () => void }) {
       {view && card === 'guest' && (
         <div className="pro-card" role="dialog" aria-label="Гостья у огня">
           <button className="pro-x" onClick={closePanel} aria-label="Отойти">
-            ✕
+            <Icon name="ui-close" />
           </button>
           <b className="pro-who">{view.mateName}</b>
           <p className="pro-say">«{view.mateSays}»</p>
@@ -385,7 +396,7 @@ export function Prologue({ onExit }: { onExit: () => void }) {
       {view && card === 'wife' && (
         <div className="pro-card" role="dialog" aria-label="Жена">
           <button className="pro-x" onClick={closePanel} aria-label="Отойти">
-            ✕
+            <Icon name="ui-close" />
           </button>
           <b className="pro-who">
             {view.mateName} <em>жена</em>
@@ -400,16 +411,16 @@ export function Prologue({ onExit }: { onExit: () => void }) {
           </div>
           <div className="pro-tally">
             <span className={view.mealToday ? 'on' : ''} title="разделённая еда">
-              🍗 {view.meals}/{LOVE_DAYS}
+              <Icon name="res-food" /> {view.meals}/{LOVE_DAYS}
             </span>
             <span className={view.hugToday ? 'on' : ''} title="объятия">
-              🤗 {view.hugs}/{LOVE_DAYS}
+              <Icon name="ui-heart" /> {view.hugs}/{LOVE_DAYS}
             </span>
             <span className={view.nightToday ? 'on' : ''} title="ночи дома">
-              🌙 {view.nights}/{LOVE_DAYS}
+              <Icon name="day-night" /> {view.nights}/{LOVE_DAYS}
             </span>
             <span className={view.woodToday ? 'on' : ''} title="дрова в общий очаг">
-              🔥 {view.woods}/{LOVE_DAYS}
+              <Icon name="res-wood" /> {view.woods}/{LOVE_DAYS}
             </span>
           </div>
           <span className="pro-card-note">раз в сутки: еда, объятие, ночь дома, дрова</span>
@@ -438,7 +449,7 @@ export function Prologue({ onExit }: { onExit: () => void }) {
           <div className="pro-veil" />
           <form className="pro-card top pro-name" onSubmit={nameSon} role="dialog" aria-label="Имя сына">
             <button type="button" className="pro-x" onClick={closePanel} aria-label="Позже">
-              ✕
+              <Icon name="ui-close" />
             </button>
             <b className="pro-who">{view.mateName}</b>
             <p className="pro-say">«{view.mateSays}»</p>
@@ -478,7 +489,7 @@ export function Prologue({ onExit }: { onExit: () => void }) {
       {view && card === 'kin' && (
         <div className="pro-card pro-kin" role="dialog" aria-label="Родословная">
           <button className="pro-x" onClick={closePanel} aria-label="Закрыть">
-            ✕
+            <Icon name="ui-close" />
           </button>
           <b className="pro-who">Родословная</b>
           {/* Метка поляны, где применяли коды. Родословная — единственное место
@@ -500,7 +511,7 @@ export function Prologue({ onExit }: { onExit: () => void }) {
       {view && card === 'son' && (
         <div className="pro-card" role="dialog" aria-label="Сын">
           <button className="pro-x" onClick={closePanel} aria-label="Отойти">
-            ✕
+            <Icon name="ui-close" />
           </button>
           <b className="pro-who">
             {view.mateName} <em>сын</em>

@@ -21,7 +21,7 @@ import type { CityGarrison } from './garrison';
 import type { CityDeeds } from './deeds';
 import type { SiteTags } from './tags';
 import type { CityLabels, LabelSpot } from './labels';
-import { labelsOn, setCityCam, takeCamAsk } from '../sitetags';
+import { labelsOn, takeCamAsk } from '../sitetags';
 import { newsOf, seenOf, waveAfter, WAVE_REAL, type CityPops, type Seen, type Yard, type YieldTally } from './pops';
 import { TAP_TARGET } from '@/gestures';
 import { markerSvg, SCENES, TribeScene, type BuildingView, type SceneLook } from '../Scene';
@@ -38,7 +38,6 @@ import {
   CITY_STEP_MAX,
   FLY_S,
   SHOW_GLOW_S,
-  awayFrom,
   cityFog,
   cityFraming,
   cityLeash,
@@ -136,10 +135,10 @@ export class CityScene extends TribeScene {
   private pops: CityPops | null = null;
   /** Ярлыки у лесов: места кнопки «Ускорить» над стройками (`tags.ts`, docs/gems.md). */
   private tags: SiteTags | null = null;
-  /** Подписи построек и спокойные метки над крышами (`labels.ts`, ОР-1) — тем же куском, что отклик. */
+  /** Подписи построек (`labels.ts`, ОР-1; меток издали нет — ЗН-3) — тем же куском, что отклик. */
   private labels: CityLabels | null = null;
   /**
-   * Полёт камеры (ОР-1): «Показать в городе» и «Домой». `at` — начало по часам сцены, с (полёт идёт настоящим временем, а
+   * Полёт камеры (ОР-1): «Показать в городе». `at` — начало по часам сцены, с (полёт идёт настоящим временем, а
    * не суммой шагов кадра: у шага кадра потолок, и на редких кадрах полёт растянулся бы); `was` — где полёт поставил камеру
    * прошлым кадром: палец её сдвинул — полёт уступает ему.
    */
@@ -914,7 +913,7 @@ export class CityScene extends TribeScene {
   // ---------- Ориентация (ОР-1, docs/ui_v2.md, 5.9) ----------
 
   /**
-   * Подписи и метки построек: имя — на теле главного места (`mainSite`), метка — над крышей, на месте значка беды. Метка —
+   * Подписи построек: имя — на теле главного места (`mainSite`), метка — точкой в подписи и только вблизи (ЗН-3). Метка —
    * того, что ждёт игрока и не беда (`labels.Mark`); беда — бляхой (`ROOF_NEW`), и метки у неё нет.
    */
   private labelSpots(s: GameState): LabelSpot[] {
@@ -928,20 +927,14 @@ export class CityScene extends TribeScene {
           name: buildingTitle(s, b.type),
           mark: kind === 'upgrade' || kind === 'slot' ? kind : null,
           body: { x: m.x, y: (m.y0 + m.y1) / 2, z: m.z },
-          roof: { x: m.x, y: m.y1 + 4, z: m.z },
         },
       ];
     });
   }
 
-  /** Камера сейчас и дома — на стартовом кадре (`cityFraming`). */
+  /** Камера сейчас. */
   private pose(): CamPose {
     return { x: this.target.x, z: this.target.z, dist: this.dist };
-  }
-
-  private homePose(): CamPose {
-    const f = cityFraming(this.camera.aspect);
-    return { x: f.target.x, z: f.target.z, dist: f.dist };
   }
 
   private flyTo(to: CamPose): void {
@@ -952,13 +945,12 @@ export class CityScene extends TribeScene {
 
   /**
    * Шаг полёта камеры (`camera.flyAt`): цель и расстояние — к концу полёта, через поводок панорамы. Палец сдвинул камеру
-   * между кадрами — полёт уступает ему: игрок ведёт сам. И каждый кадр — доске, ушла ли камера с дома (кнопка «Домой»).
+   * между кадрами — полёт уступает ему: игрок ведёт сам.
    */
   private stepFly(t: number): void {
     // Просьба интерфейса (`sitetags.askCam`): в покоях её нет — кнопки города там не стоят.
     const ask = this.inside ? null : takeCamAsk();
-    if (ask?.kind === 'show') this.showBuilding(ask.type as BuildingTypeId);
-    else if (ask?.kind === 'home') this.flyTo(this.homePose());
+    if (ask) this.showBuilding(ask.type as BuildingTypeId);
     const f = this.fly;
     if (f && !this.inside) {
       const p = this.pose();
@@ -975,13 +967,12 @@ export class CityScene extends TribeScene {
         if (k >= 1) this.fly = null;
       }
     }
-    setCityCam({ moved: !this.inside && awayFrom(this.pose(), this.homePose()) });
   }
 
   /**
    * «Показать в городе»: камера летит к главному месту постройки (`showDist` — по её размеру) и подсвечивает её — вся
    * постройка светится (`cSel`) и подпись золотом, пока не кончится `SHOW_GLOW_S` после полёта. Город не встал — покажет,
-   * когда встанет. «Домой» — тем же полётом на стартовый кадр (`stepFly`).
+   * когда встанет.
    */
   private showBuilding(type: BuildingTypeId): void {
     if (!this.town) {
@@ -1053,7 +1044,6 @@ export class CityScene extends TribeScene {
     this.tags = null;
     this.labels?.dispose();
     this.labels = null;
-    setCityCam({ moved: false });
     this.town?.dispose();
     this.town = null;
     super.dispose();

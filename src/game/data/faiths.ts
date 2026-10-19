@@ -24,11 +24,13 @@
 import type { FaithId, ObservanceId, Season } from '../types';
 import { MAX_BUILDING_LEVEL } from '../constants';
 import { num } from '../num';
+import type { IconName } from '@/ui/icons/alias';
 
 /** Праздник: настоящее имя и одна строка о том, что в этот день делают. */
 export interface FeastDef {
   name: string;
-  icon: string;
+  /** Значок обряда (набор ЗН-1, docs/icons.md). */
+  icon: IconName;
   /** Что происходит в деревне — текст обряда и события. */
   text: string;
 }
@@ -75,7 +77,8 @@ export interface FaithTilt {
 export interface FaithDef {
   id: FaithId;
   name: string;
-  icon: string;
+  /** Знак веры (набор ЗН-1). */
+  icon: IconName;
   /** Как в этой вере называется само здание. */
   temple: string;
   /** Как называется тот, кто в нём служит. */
@@ -99,7 +102,7 @@ export const FAITHS: FaithDef[] = [
   {
     id: 'catholic',
     name: 'Католичество',
-    icon: '✝️',
+    icon: 'faith-catholic',
     temple: 'Костёл',
     priest: 'Священник',
     priests: 'Священники',
@@ -118,16 +121,16 @@ export const FAITHS: FaithDef[] = [
       pressure: 1,
     },
     feasts: {
-      spring: { name: 'Пасха', icon: '🕯️', text: 'Всю ночь горят свечи, а на рассвете разговляются всем городом.' },
-      summer: { name: 'Иванов день', icon: '🔥', text: 'Костры до утра и венки на воде.' },
-      autumn: { name: 'Михайлов день', icon: '⚔️', text: 'Считают урожай и поминают тех, кто не вернулся.' },
-      winter: { name: 'Рождество', icon: '⭐', text: 'У костёла ставят вертеп и прощают недоимки.' },
+      spring: { name: 'Пасха', icon: 'ui-candle', text: 'Всю ночь горят свечи, а на рассвете разговляются всем городом.' },
+      summer: { name: 'Иванов день', icon: 'ui-flame', text: 'Костры до утра и венки на воде.' },
+      autumn: { name: 'Михайлов день', icon: 'hud-army', text: 'Считают урожай и поминают тех, кто не вернулся.' },
+      winter: { name: 'Рождество', icon: 'ui-star', text: 'У костёла ставят вертеп и прощают недоимки.' },
     },
   },
   {
     id: 'orthodox',
     name: 'Православие',
-    icon: '☦️',
+    icon: 'faith-orthodox',
     temple: 'Храм',
     priest: 'Священник',
     priests: 'Священники',
@@ -146,16 +149,16 @@ export const FAITHS: FaithDef[] = [
       pressure: 1,
     },
     feasts: {
-      spring: { name: 'Пасха', icon: '🕯️', text: 'Крестный ход вокруг храма, потом стол на всю улицу.' },
-      summer: { name: 'Преображение', icon: '🍎', text: 'Освящают первые плоды и делят их на весь приход.' },
-      autumn: { name: 'Покров', icon: '🧣', text: 'С первым снегом сговаривают свадьбы на зиму.' },
-      winter: { name: 'Рождество Христово', icon: '⭐', text: 'Колядуют по дворам, и в каждом доме накрыт стол.' },
+      spring: { name: 'Пасха', icon: 'ui-candle', text: 'Крестный ход вокруг храма, потом стол на всю улицу.' },
+      summer: { name: 'Преображение', icon: 'ui-apple', text: 'Освящают первые плоды и делят их на весь приход.' },
+      autumn: { name: 'Покров', icon: 'ui-heart', text: 'С первым снегом сговаривают свадьбы на зиму.' },
+      winter: { name: 'Рождество Христово', icon: 'ui-star', text: 'Колядуют по дворам, и в каждом доме накрыт стол.' },
     },
   },
   {
     id: 'islam',
     name: 'Ислам',
-    icon: '☪️',
+    icon: 'faith-islam',
     temple: 'Мечеть',
     priest: 'Имам',
     priests: 'Имамы',
@@ -178,16 +181,16 @@ export const FAITHS: FaithDef[] = [
     // условность ради того, чтобы обряд был у каждой веры одинаково часто;
     // сказано об этом и в docs/faiths.md.
     feasts: {
-      spring: { name: 'Мавлид', icon: '🕌', text: 'Читают о рождении Пророка и кормят бедных.' },
-      summer: { name: 'Ид аль-Адха', icon: '🐑', text: 'Режут курбан и делят мясо с роднёй и бедными.' },
-      autumn: { name: 'Ид аль-Фитр', icon: '🌙', text: 'Пост окончен, детям раздают сладости.' },
-      winter: { name: 'Лейлят аль-Кадр', icon: '✨', text: 'Ночь бдения при огнях. Говорят, она стоит тысячи месяцев.' },
+      spring: { name: 'Мавлид', icon: 'faith-islam', text: 'Читают о рождении Пророка и кормят бедных.' },
+      summer: { name: 'Ид аль-Адха', icon: 'ui-sheep', text: 'Режут курбан и делят мясо с роднёй и бедными.' },
+      autumn: { name: 'Ид аль-Фитр', icon: 'day-night', text: 'Пост окончен, детям раздают сладости.' },
+      winter: { name: 'Лейлят аль-Кадр', icon: 'ui-sparkle', text: 'Ночь бдения при огнях. Говорят, она стоит тысячи месяцев.' },
     },
   },
   {
     id: 'pagan',
     name: 'Язычество',
-    icon: '🌳',
+    icon: 'faith-pagan',
     temple: 'Капище',
     priest: 'Волхв',
     priests: 'Волхвы',
@@ -206,10 +209,10 @@ export const FAITHS: FaithDef[] = [
       pressure: 1.5,
     },
     feasts: {
-      spring: { name: 'Йоре', icon: '🌱', text: 'Выгоняют скот на первую траву и будят землю после зимы.' },
-      summer: { name: 'Раса', icon: '🌿', text: 'Самая короткая ночь. Венки и костры на холмах.' },
-      autumn: { name: 'Дожинки', icon: '🌾', text: 'Последний сноп вносят в дом, и пир идёт, пока он стоит в углу.' },
-      winter: { name: 'Куче', icon: '🕯️', text: 'Солнцеворот. За столом оставляют место для тех, кого нет.' },
+      spring: { name: 'Йоре', icon: 'season-spring', text: 'Выгоняют скот на первую траву и будят землю после зимы.' },
+      summer: { name: 'Раса', icon: 'ui-herb', text: 'Самая короткая ночь. Венки и костры на холмах.' },
+      autumn: { name: 'Дожинки', icon: 'bld-farm', text: 'Последний сноп вносят в дом, и пир идёт, пока он стоит в углу.' },
+      winter: { name: 'Куче', icon: 'ui-candle', text: 'Солнцеворот. За столом оставляют место для тех, кого нет.' },
     },
   },
 ];
@@ -232,7 +235,7 @@ export const FAITH_BY_ID: Record<FaithId, FaithDef> = Object.fromEntries(
 export interface ObservanceDef {
   id: ObservanceId;
   name: string;
-  icon: string;
+  icon: IconName;
   /** Во сколько раз сильнее наклон веры. */
   mult: number;
   /** Сдвиг набожности, пока держат этот уклад. */
@@ -257,19 +260,19 @@ export const OBSERVANCES: ObservanceDef[] = [
   {
     id: 'strict',
     name: 'Строгий устав',
-    icon: '📿',
+    icon: 'ui-beads',
     ...observance(1.5, 12),
   },
   {
     id: 'even',
     name: 'Ровный обычай',
-    icon: '⚖️',
+    icon: 'ui-scales',
     ...observance(1, 0),
   },
   {
     id: 'worldly',
     name: 'Мирской обычай',
-    icon: '🍺',
+    icon: 'bld-tavern',
     ...observance(0.5, -12),
   },
 ];

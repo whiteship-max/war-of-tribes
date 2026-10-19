@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { serverNow } from '@/net/clock';
 import { useGame } from '@/game/store';
-import { RESOURCE_META } from '@/game/constants';
 import { DAILY_GAME_BY_ID, dayIndex, untilNextDay } from '@/game/data/daily';
 import { dailyReward, dailyStatus } from '@/game/sim/daily';
 import { finishDaily, startDaily } from '@/game/sim/actions';
@@ -12,6 +11,7 @@ import { Quiz } from './Quiz';
 import { Icon } from '@/ui/icons/Icon';
 import { realHoursMin } from '@/ui/parts/wait';
 import { nextFrame } from '@/render/loop';
+import { iconName } from '@/ui/icons/registry';
 
 /**
  * Вторая страница «Заданий»: сперва ежедневная мини-игра, потом социальные
@@ -105,7 +105,7 @@ export function DailyPage() {
       {!playing && (
         <div className="card">
           <div className="ico">
-            <Icon name={`daily-${def.id}`} glyph={def.icon} />
+            <Icon name={iconName('daily', def.id)} />
           </div>
           <div className="body">
             <div className="title">{def.name}</div>
@@ -114,7 +114,7 @@ export function DailyPage() {
               <span style={{ color: 'var(--muted)' }}>Награда:</span>
               {(Object.keys(reward) as (keyof typeof reward)[]).map((r) => (
                 <span key={r}>
-                  {RESOURCE_META[r].icon} {reward[r]}
+                  <Icon name={iconName('res', r)} /> {reward[r]}
                 </span>
               ))}
             </div>

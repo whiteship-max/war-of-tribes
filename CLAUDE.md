@@ -124,7 +124,7 @@ npm run map:shots  # снимки карты в snaps/map: тот же кадр 
 npm run prologue:stand # предыстория: числа круга, кадр, память, пальцем и финал (стенд, не отчёт; гонит тот, кто трогает поляну)
 npm run splash:build # заставка экрана загрузки из assets-src/splash в public/assets/splash (WebP)
 npm run share:build  # картинки «Поделиться» для историй Telegram в public/assets/share (docs/feed.md)
-npm run emoji:build  # белый список эмодзи (Emoji 12.0) из таблицы Unicode в src/ui/icons/emoji12.ts
+npm run icons:build  # набор значков ЗН-1: проверка и листы (первый экран строкой кода, остальное — public/assets/icons)
 npm run fonts:build  # свой шрифт: подмножества WOFF2 в public/fonts (docs/polish.md, П-1)
 ```
 
@@ -650,7 +650,8 @@ HEAD один на всех, см. правило 8). Значит развес�
   бота (`/notify`) правит только вебхук, игра шлёт лишь рычаг и пояс (`notify.test.ts`, `bot.test.ts`; docs/NOTIFY.md, 13).
 - **Сроки словами** — `game/span.ts` и `ui/parts/wait.ts`; голое «дн.» — только настоящие сутки `realSpan`, игровые —
   «игр. дн.» (time).
-- **Значок** — `ui/icons/Icon.tsx`; эмодзи — только Emoji 12.0 (`emoji.test.ts`; graphics).
+- **Значок** — `ui/icons/Icon.tsx`, набор ЗН-1 (рисунки `scripts/icons/`, ссылки `ui/icons/alias.ts`); эмодзи нет нигде —
+  ни в интерфейсе, ни в вестях бота (`emoji.test.ts`, `icons.test.ts`; graphics, docs/icons.md).
 - **Цвет стороны** — `src/side.ts`: игрок — золото, враг — красный, в обоих роликах боя, на карте и в отчёте о бое;
   тень и краска — функцией из него, записи цвета мимо двери нет (`side.test.ts`; battle).
 - **Звук** — один `AudioContext`, рождается в жесте дверью `sound/door.ts` (движок `sound/web.ts` — докачкой, П-3), и один
@@ -703,11 +704,9 @@ docker compose за прокси Coolify (docs/SERVER.md, «Вариант с Co
 - Новый контент добавляется в `data/*` и, при необходимости, в `derived.ts`,
   `render/buildings.ts` (модель) + `FOOTPRINT` и `render/plan.ts` (место и `MODEL_RADIUS`).
   Новое здание попадает в стартовый посёлок само: `createInitialState` ставит всё из `BUILDINGS`.
-- Тексты интерфейса — на русском. Эмодзи используются как иконки в UI.
-  Эмодзи — только из Emoji 12.0 и старше: новее (🪵, 🪨, 🪙) на части систем показываются квадратом.
-  Держит это тест по всему `src` (`ui/icons/emoji.test.ts`) белым списком кодовых точек
-  `ui/icons/emoji12.ts` — его собирает `npm run emoji:build` из таблицы Unicode, руками не правят.
-- Для файлов с эмодзи писать через Write, не через bash-heredoc (обрезается на некоторых символах).
+- Тексты интерфейса — на русском. Значок — только набор ЗН-1 (`<Icon name="…" />`, docs/icons.md): эмодзи и знаков-значков
+  системы (✕ ✓ ◆) нет нигде — ни в окнах, ни в строках, ни в летописи, ни в вестях бота. Держит это тест по `src`,
+  `netlify` и `index.html` (`ui/icons/emoji.test.ts`); исключение одно — текст, который игрок напечатал сам.
 - Размеры и отступы берутся из CSS-переменных `--app-h`, `--safe-*`, `--nav-h`, `--tap` (44 px) — не `100vh` и не голый `env()`.
 - **`Math.random` в игровой логике нет нигде** — тест по всему `src` (`sim/random.test.ts`),
   как у алмазов. Случайность устройства законна только в картинке (`src/render/`), в порядке

@@ -31,6 +31,8 @@ import { REST_WHY, restLine } from '@/ui/parts/restWords';
 import { EnergyBar, EnergyPrice } from '@/ui/parts/Energy';
 import { beyondText, reachable } from './twslot';
 import { tipAt } from '@/ui/next/tip';
+import type { IconName } from '@/ui/icons/alias';
+import { iconName } from '@/ui/icons/registry';
 
 /** Просит ли приказ хоть что-нибудь со склада. */
 const isPaid = (cost: Loot): boolean => RESOURCE_IDS.some((r) => (cost[r] ?? 0) > 0) || (cost.gold ?? 0) > 0;
@@ -118,7 +120,7 @@ export function ActionMenu() {
   const head = (
     <div className="nx-bhead">
       <button className="nx-bico" onClick={tipOf(def.name, def.description, def.ability)} aria-label={`${def.name}: что умеет`}>
-        <Icon name={`fig-${def.id}`} glyph={def.icon} />
+        <Icon name={iconName('fig', def.id)} />
       </button>
       <div className="nx-btitle">
         <b className="one-line">
@@ -127,7 +129,7 @@ export function ActionMenu() {
         <span className="nx-blvl">{formatCoord(menu.cell)}</span>
       </div>
       <button className="nx-bclose" onClick={closeMenu} aria-label="Закрыть">
-        <Icon name="ui-close" glyph="✕" />
+        <Icon name="ui-close" />
       </button>
     </div>
   );
@@ -161,7 +163,7 @@ export function ActionMenu() {
               className={`nx-am-tab${d.id === menu.agent ? ' on' : ''}`}
               onClick={() => void useWorld.getState().openMenu(d.id, menu.cell)}
             >
-              <Icon name={`fig-${d.id}`} glyph={d.icon} />
+              <Icon name={iconName('fig', d.id)} />
             </button>
           ))}
         </div>
@@ -195,7 +197,7 @@ export function ActionMenu() {
               )}
               <div className="nx-crow">
                 <span className="nx-lico">
-                  <Icon name="ui-banner" glyph="🚩" />
+                  <Icon name="ui-banner" />
                 </span>
                 <span className="nx-crow-t">
                   Отряд врага
@@ -209,7 +211,6 @@ export function ActionMenu() {
               {menu.agent === 'general' ? (
                 <Order
                   icon="ui-target"
-                  glyph="🏇"
                   name="Перехватить"
                   can={Boolean(menu.plan?.can)}
                   why={menu.plan ? menu.plan.reason : 'Считаем встречу…'}
@@ -225,10 +226,10 @@ export function ActionMenu() {
                   {menu.plan?.can && (
                     <>
                       <span>
-                        <Icon name="ui-pin" glyph="📍" /> {formatCoord(menu.plan.at ?? { x: 0, y: 0 })}
+                        <Icon name="ui-pin" /> {formatCoord(menu.plan.at ?? { x: 0, y: 0 })}
                       </span>
                       <span>
-                        <Icon name="ui-time" glyph="⏳" /> {realLeft(menu.plan.seconds)}
+                        <Icon name="ui-time" /> {realLeft(menu.plan.seconds)}
                       </span>
                       <span className="bad">им до цели {realLeft(menu.plan.targetSeconds)}</span>
                       {menu.plan.energy && <EnergyPrice price={menu.plan.energy.price} />}
@@ -250,8 +251,7 @@ export function ActionMenu() {
               return (
                 <Order
                   key={a.id}
-                  icon={`${menu.agent === 'spy' ? 'spy' : 'dip'}-${a.id}`}
-                  glyph={a.icon}
+                  icon={iconName(menu.agent === 'spy' ? 'spy' : 'dip', a.id)}
                   name={a.name}
                   can={o.can}
                   why={o.reason}
@@ -265,7 +265,7 @@ export function ActionMenu() {
                 >
                   {chance && <span className="good">{chance}</span>}
                   <span>
-                    <Icon name="ui-time" glyph="⏳" /> {realLeft(o.seconds)}
+                    <Icon name="ui-time" /> {realLeft(o.seconds)}
                   </span>
                   <EnergyPrice price={o.energy.price} />
                   {!isPaid(o.cost) && <span>даром</span>}
@@ -289,8 +289,7 @@ export function ActionMenu() {
           */}
           {menu.agent === 'general' && card?.siege && !card.siege.mine && card.mine && (
             <Order
-              icon="ui-target"
-              glyph="⛺"
+              icon="alert-siege"
               name="Осада"
               can
               tip={tipOf('Осада', `${card.siege.byName} у ворот и грозят ${FATE_META[card.siege.fate].name.toLowerCase()}.`)}
@@ -318,8 +317,7 @@ export function ActionMenu() {
           {/* Наш лагерь: он же и всё, чем сейчас занят полководец. Приказы — в окне лагеря. */}
           {menu.agent === 'general' && card?.siege?.mine && (
             <Order
-              icon="ui-target"
-              glyph="⛺"
+              icon="stage-camp"
               name="Наш лагерь"
               can
               tip={tipOf('Наш лагерь', `Решено: ${FATE_META[card.siege.fate].name.toLowerCase()}.`)}
@@ -339,7 +337,6 @@ export function ActionMenu() {
           {menu.agent === 'general' && menu.target !== null && card && !card.mine && !card.siege?.mine && (
             <Order
               icon="hud-army"
-              glyph="⚔️"
               name="Удар и осада"
               can
               tip={tipOf('Удар и осада', 'Ударить, осадить и участь города — в карточке места: там мощь, добыча и дорога.', routLine(card))}
@@ -370,7 +367,6 @@ export function ActionMenu() {
           {menu.agent === 'spy' && (
             <Order
               icon={figure?.watching ? 'ui-eye' : 'ui-eye-off'}
-              glyph={figure?.watching ? '👁️' : '🙈'}
               name={figure?.watching ? 'Подняться' : 'Залечь'}
               can
               on={Boolean(figure?.watching)}
@@ -398,7 +394,6 @@ export function ActionMenu() {
           {ownCity && figure && figure.place !== 'down' && (
             <Order
               icon="ui-home"
-              glyph="🏰"
               name={inCity ? 'Выйти' : 'Укрыться'}
               can={inCity || here}
               why={figure.phase === 'moving' ? 'Ещё в пути' : `Доведи ${def.one} до своих ворот`}
@@ -474,7 +469,6 @@ function LeadEnergy({ energy }: { energy: NonNullable<LeadPlan['energy']> }) {
  */
 function Order({
   icon,
-  glyph,
   name,
   can,
   why,
@@ -484,8 +478,7 @@ function Order({
   cost,
   children,
 }: {
-  icon: string;
-  glyph: string;
+  icon: IconName;
   name: string;
   can: boolean;
   why?: string | null;
@@ -498,7 +491,7 @@ function Order({
   return (
     <div className={`nx-orow${can ? '' : ' off'}${on ? ' on' : ''}`}>
       <button className="nx-wico" onClick={tip} aria-label={`${name}: что это`}>
-        <Icon name={icon} glyph={glyph} />
+        <Icon name={icon} />
       </button>
       <button className="nx-obtn" disabled={!can} onClick={onGo}>
         <b>{name}</b>

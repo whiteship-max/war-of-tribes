@@ -7,7 +7,7 @@
 import { useState } from 'react';
 import type { Building, EquipmentId } from '@/game/types';
 import { useGame } from '@/game/store';
-import { RESOURCE_IDS, RESOURCE_META } from '@/game/constants';
+import { RESOURCE_IDS } from '@/game/constants';
 import { EQUIPMENT, EQUIPMENT_BY_ID } from '@/game/data/equipment';
 import { forgeInfo, workerCount } from '@/game/derived';
 import { cancelForge, forgeCheck, startForge } from '@/game/sim/actions';
@@ -18,6 +18,7 @@ import { Icon } from '@/ui/icons/Icon';
 import { waitSpan } from '@/ui/parts/wait';
 import { tipAt } from './tip';
 import { Confirm } from './Confirm';
+import { iconName } from '@/ui/icons/registry';
 
 /** Шаг заказа: −10 −1 +1 +10, от одной до девяноста девяти — как прежде. */
 export const clampCount = (n: number): number => Math.max(1, Math.min(99, n));
@@ -63,7 +64,7 @@ export function SmithyNew({ b }: { b: Building }) {
                   }
                   aria-label={`${d.name}: заказ`}
                 >
-                  <Icon name={`gear-${d.id}`} glyph={d.icon} />
+                  <Icon name={iconName('gear', d.id)} />
                 </button>
                 <div className="nx-qbody">
                   <span>
@@ -95,7 +96,7 @@ export function SmithyNew({ b }: { b: Building }) {
             onClick={() => !closed && setPick(e.id)}
           >
             <span className="nx-gico">
-              <Icon name={`gear-${e.id}`} glyph={e.icon} />
+              <Icon name={iconName('gear', e.id)} />
             </span>
             <span className="nx-gname">
               <b>{e.name}</b>
@@ -111,7 +112,7 @@ export function SmithyNew({ b }: { b: Building }) {
                   }}
                   aria-label={`${e.name}: почему закрыто`}
                 >
-                  <Icon name="ui-lock" glyph="🔒" />
+                  <Icon name="ui-lock" />
                 </button>
                 <button
                   className="nx-link"
@@ -127,7 +128,7 @@ export function SmithyNew({ b }: { b: Building }) {
               <span className="nx-gcost">
                 {RESOURCE_IDS.filter((r) => e.cost[r]).map((r) => (
                   <span key={r}>
-                    <Icon name={`res-${r}`} glyph={RESOURCE_META[r].icon} />
+                    <Icon name={iconName('res', r)} />
                     {one.cost[r]}
                   </span>
                 ))}
@@ -148,7 +149,7 @@ export function SmithyNew({ b }: { b: Building }) {
           <span className="cost">
             {RESOURCE_IDS.filter((r) => check.cost[r]).map((r) => (
               <span key={r} className={s.resources[r] >= (check.cost[r] ?? 0) ? '' : 'no'}>
-                <Icon name={`res-${r}`} glyph={RESOURCE_META[r].icon} /> {check.cost[r]}
+                <Icon name={iconName('res', r)} /> {check.cost[r]}
                 <i className="have">из {Math.floor(s.resources[r])}</i>
               </span>
             ))}

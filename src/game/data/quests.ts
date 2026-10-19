@@ -195,7 +195,6 @@ export const questsDone = (s: GameState): number =>
 
 export interface AchievementDef {
   id: string;
-  icon: string;
   title: string;
   check: (s: GameState) => boolean;
 }
@@ -209,11 +208,11 @@ export interface AchievementDef {
 const ACH = { days: 10, pop: 200 } as const;
 
 export const ACHIEVEMENTS: AchievementDef[] = [
-  { id: 'first_gear', icon: '⚒️', title: 'Первое снаряжение', check: (s) => Object.values(s.equipment ?? {}).some((n) => n > 0) },
-  { id: 'first_scout', icon: '👣', title: 'Первая разведка', check: (s) => (s.stats.scouted ?? 0) >= 1 },
-  { id: 'first_raid', icon: '⚔️', title: 'Первый поход', check: (s) => (s.stats.raids ?? 0) >= 1 },
-  { id: 'first_win', icon: '🏆', title: 'Первая победа', check: (s) => s.stats.battlesWon >= 1 },
-  { id: 'first_hunt', icon: '🏹', title: 'Первая охота', check: (s) => s.stats.hunts >= 1 },
-  { id: 'survivor', icon: '🌙', title: `Город выстоял ${ACH.days} игровых дней`, check: (s) => s.time >= ACH.days * DAY_LENGTH },
-  { id: 'pop_200', icon: '🏘️', title: `${ACH.pop} жителей`, check: (s) => s.pop >= ACH.pop },
+  { id: 'first_gear', title: 'Первое снаряжение', check: (s) => Object.values(s.equipment ?? {}).some((n) => n > 0) },
+  { id: 'first_scout', title: 'Первая разведка', check: (s) => (s.stats.scouted ?? 0) >= 1 },
+  { id: 'first_raid', title: 'Первый поход', check: (s) => (s.stats.raids ?? 0) >= 1 },
+  { id: 'first_win', title: 'Первая победа', check: (s) => s.stats.battlesWon >= 1 },
+  { id: 'first_hunt', title: 'Первая охота', check: (s) => s.stats.hunts >= 1 },
+  { id: 'survivor', title: `Город выстоял ${ACH.days} игровых дней`, check: (s) => s.time >= ACH.days * DAY_LENGTH },
+  { id: 'pop_200', title: `${ACH.pop} жителей`, check: (s) => s.pop >= ACH.pop },
 ];

@@ -16,6 +16,7 @@ import { hungerLeft } from '@/ui/parts/hunger';
 import { plural } from '@/ui/parts/plural';
 import { useRaidWords, type RaidWords } from '@/ui/parts/raidWords';
 import { openRaid } from '@/ui/realm/open';
+import type { IconName } from '@/ui/icons/alias';
 
 /** Сколько значков стоит столбцом; больше — последнее место занимает счётчик остальных. */
 export const SIGNS_MAX = 3;
@@ -26,8 +27,7 @@ export interface WarSign {
   key: string;
   kind: WarSignKind;
   /** Значок листа и запасной знак — как у `Icon`. */
-  icon: string;
-  glyph: string;
+  icon: IconName;
   /** Слово под знаком: «Осаждён», «Набег», «Лагерь». */
   label: string;
   /** Кто: осаждающий, откуда набег, под чьими стенами лагерь — для строки счётчика «ещё». */
@@ -98,7 +98,6 @@ export function warSigns({ siege, camp, raids, now, go }: WarSignInput): WarSign
       key: 'siege',
       kind: 'siege',
       icon: 'alert-siege',
-      glyph: '🏰',
       label: 'Осаждён',
       who: siege.byName,
       timer: left,
@@ -114,7 +113,6 @@ export function warSigns({ siege, camp, raids, now, go }: WarSignInput): WarSign
       key: `raid-${m.id}`,
       kind: 'raid',
       icon: 'alert-raid',
-      glyph: '⚔️',
       label: 'Набег',
       who: m.fromName,
       timer: left,
@@ -132,7 +130,6 @@ export function warSigns({ siege, camp, raids, now, go }: WarSignInput): WarSign
       key: 'camp',
       kind: 'camp',
       icon: 'stage-camp',
-      glyph: '⛺',
       label: 'Лагерь',
       who: camp.targetName,
       timer: left,

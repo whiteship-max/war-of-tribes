@@ -32,14 +32,14 @@ export function Walls({ b }: { b: Building }) {
       <div className="mod-list">
         <div className="mod total">
           <span className="ico">
-            <Icon name="gear-shield" glyph="🛡️" />
+            <Icon name="gear-shield" />
           </span>
           <span className="name">Оборона города</span>
           <span className="val">{dec(defense(s), 0)}</span>
         </div>
         <div className="mod">
           <span className="ico">
-            <Icon name="bld-palisade" glyph="🧱" />
+            <Icon name="bld-palisade" />
           </span>
           <span className="name">Ополчение</span>
           <span className="val">{men}</span>
@@ -48,7 +48,7 @@ export function Walls({ b }: { b: Building }) {
         {b.type === 'tower' && (
           <div className="mod">
             <span className="ico">
-              <Icon name="gear-bow" glyph="🏹" />
+              <Icon name="gear-bow" />
             </span>
             <span className="name">Из них стрелки</span>
             <span className="val">{archers}</span>
@@ -58,7 +58,7 @@ export function Walls({ b }: { b: Building }) {
       <div className="note">Ополчение встаёт в строй с гарнизоном, стрелки башни — во второй линии.</div>
 
       <div className="card">
-        <div className="ico">{march ? '⚠️' : '🛡️'}</div>
+        <div className="ico"><Icon name={march ? 'ui-warning' : 'gear-shield'} /></div>
         <div className="body">
           <div className="title">
             {march ? march.fromName : 'Набегов в пути нет'}
@@ -70,12 +70,12 @@ export function Walls({ b }: { b: Building }) {
 
       {siege ? (
         <button className="btn wide" onClick={openSiege}>
-          <Icon name="letter-siege" glyph="⛺" /> Осада
+          <Icon name="letter-siege" /> Осада
         </button>
       ) : (
         march && (
           <button className="btn wide" onClick={() => openRaid(march.id)}>
-            <Icon name="letter-raid" glyph="🔥" /> Весть о набеге
+            <Icon name="letter-raid" /> Весть о набеге
           </button>
         )
       )}

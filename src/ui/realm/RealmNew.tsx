@@ -27,17 +27,18 @@ import { BRANCH_ICON, BRANCH_WORD } from './branches';
 import { useBugReport } from '../parts/bugOpen';
 import { inTelegram } from '@/telegram/webapp';
 import { DecreesNew, FaithNew, QuestsNew, RulerNew } from './RealmTabs';
+import type { IconName } from '@/ui/icons/alias';
 
 // Ветви словами словаря и их значки — общие с вкладками (`branches.ts`).
 export { BRANCH_ICON, BRANCH_WORD } from './branches';
 
 /** Вкладки нового меню: пять, значком и словом. Остальные разделы — внизу экрана или в профиле. */
-export const NEW_TABS: readonly { id: RealmView; word: string; icon: string; glyph: string }[] = [
-  { id: 'lineage', word: 'Правитель', icon: 'ui-crown', glyph: '👑' },
-  { id: 'government', word: 'Указы', icon: 'ui-scroll', glyph: '📜' },
-  { id: 'tech', word: 'Технологии', icon: 'ui-tech', glyph: '📚' },
-  { id: 'faith', word: 'Вера', icon: 'ui-faith', glyph: '⛪' },
-  { id: 'quests', word: 'Задания', icon: 'nav-quests', glyph: '📜' },
+export const NEW_TABS: readonly { id: RealmView; word: string; icon: IconName }[] = [
+  { id: 'lineage', word: 'Правитель', icon: 'ui-crown' },
+  { id: 'government', word: 'Указы', icon: 'ui-scroll' },
+  { id: 'tech', word: 'Технологии', icon: 'ui-tech' },
+  { id: 'faith', word: 'Вера', icon: 'ui-faith' },
+  { id: 'quests', word: 'Задания', icon: 'nav-quests' },
 ];
 
 export function RealmNew() {
@@ -78,13 +79,13 @@ export function RealmNew() {
       {mail ? (
         <div className="nx-rhead">
           <span className="nx-rico">
-            <Icon name="ui-mail" glyph="✉️" />
+            <Icon name="ui-mail" />
           </span>
           <div className="nx-rtitle">
             <b>Вести</b>
           </div>
           <button className="nx-ibtn" onClick={hide} aria-label="Закрыть">
-            <Icon name="ui-close" glyph="✕" />
+            <Icon name="ui-close" />
           </button>
         </div>
       ) : (
@@ -111,10 +112,10 @@ export function RealmNew() {
                 />
               </form>
               <button className="nx-ibtn" onClick={commitCity} aria-label="Готово">
-                <Icon name="ui-check" glyph="✔️" />
+                <Icon name="ui-check" />
               </button>
               <button className="nx-ibtn" onClick={() => setDraft(null)} aria-label="Отмена">
-                <Icon name="ui-close" glyph="✕" />
+                <Icon name="ui-close" />
               </button>
             </div>
           ) : (
@@ -123,21 +124,21 @@ export function RealmNew() {
               <button className="nx-rtitle nx-rname" onClick={() => setDraft(cityName(s.profile.city) ?? '')} aria-label="Сменить имя города">
                 <span className="nx-rcity">
                   <b className="one-line">{profileCity(s.profile)}</b>
-                  <Icon name="ui-edit" glyph="✏️" />
+                  <Icon name="ui-edit" />
                 </span>
                 <i className="one-line">{profileName(s.profile)}</i>
               </button>
               {/* На профиле «Сообщить об ошибке» — строкой настроек; вторая дверь на том же экране — дубль (Д14, UI-7). */}
               {inTelegram() && view !== 'settings' && (
                 <button className="nx-ibtn" onClick={report} aria-label="Сообщить об ошибке">
-                  <Icon name="ui-bug" glyph="🐞" />
+                  <Icon name="ui-bug" />
                 </button>
               )}
               <button className={`nx-ibtn${view === 'settings' ? ' on' : ''}`} onClick={() => go('settings')} aria-label="Профиль и настройки">
-                <Icon name="ui-person" glyph="👤" />
+                <Icon name="ui-person" />
               </button>
               <button className="nx-ibtn" onClick={hide} aria-label="Закрыть">
-                <Icon name="ui-close" glyph="✕" />
+                <Icon name="ui-close" />
               </button>
             </div>
           )}
@@ -145,7 +146,7 @@ export function RealmNew() {
           <div className="nx-rtabs" role="tablist">
             {NEW_TABS.map((t) => (
               <button key={t.id} role="tab" aria-selected={view === t.id} className={view === t.id ? 'on' : ''} onClick={() => go(t.id)}>
-                <Icon name={t.icon} glyph={t.glyph} />
+                <Icon name={t.icon} />
                 <span>{t.word}</span>
               </button>
             ))}
@@ -194,7 +195,7 @@ function PointsRow() {
             aria-label={`Очки: ${BRANCH_WORD[b].toLowerCase()}`}
             onClick={(e) => tipAt(e.currentTarget, pointsTip(b, have, rulerRate(s, b)))}
           >
-            <Icon name={BRANCH_ICON[b].name} glyph={BRANCH_ICON[b].glyph} />
+            <Icon name={BRANCH_ICON[b]} />
             <b>{have}</b>
             <small>/{POINTS_CAP}</small>
           </button>
@@ -266,11 +267,11 @@ function TechGrid() {
                   <button key={l} className={`nx-tcell ${state}${on ? ' sel' : ''}`} onClick={() => setSel({ b, l })}>
                     <span className="nx-tico">
                       {state === 'done' ? (
-                        <Icon name="ui-check" glyph="✔️" />
+                        <Icon name="ui-check" />
                       ) : state === 'next' ? (
-                        <Icon name={BRANCH_ICON[b].name} glyph={BRANCH_ICON[b].glyph} />
+                        <Icon name={BRANCH_ICON[b]} />
                       ) : (
-                        <Icon name="ui-lock" glyph="🔒" />
+                        <Icon name="ui-lock" />
                       )}
                     </span>
                     <b>{l}</b>
@@ -288,7 +289,7 @@ function TechGrid() {
           {gains.length > 0 && <small>{gains.join(' · ')}</small>}
           {!done && (
             <span className={`nx-tprice${isNext && info.have < price ? ' no' : ''}`}>
-              <Icon name={BRANCH_ICON[sel.b].name} glyph={BRANCH_ICON[sel.b].glyph} />
+              <Icon name={BRANCH_ICON[sel.b]} />
               {price}
               <i>из {Math.floor(info.have)}</i>
             </span>
@@ -298,7 +299,7 @@ function TechGrid() {
         </div>
         {done ? (
           <span className="nx-tdone">
-            <Icon name="ui-check" glyph="✔️" /> Изучено
+            <Icon name="ui-check" /> Изучено
           </span>
         ) : (
           <button

@@ -18,9 +18,8 @@ export interface YardDef {
   building: BuildingTypeId;
   /** Профессия, которой двор даёт места. */
   job: JobId;
-  /** Имя, значок и описание профессии. */
+  /** Имя и описание профессии. */
   name: string;
-  icon: string;
   description: string;
   /** Производство за игровой день на одного работника в здании 1 уровня. */
   yield: Partial<Record<ResourceId, number>>;
@@ -41,7 +40,6 @@ export const YARDS: YardDef[] = [
     building: 'gathering',
     job: 'gatherer',
     name: 'Собиратель',
-    icon: '🍇',
     description: 'Собирает ягоды и коренья у города.',
     yield: { food: 10 },
     freeRange: true,
@@ -52,7 +50,6 @@ export const YARDS: YardDef[] = [
     building: 'hunter_hut',
     job: 'hunter',
     name: 'Охотник',
-    icon: '🏹',
     description: 'Приносит мясо и шкуры.',
     yield: { food: 14, hides: 2.4 },
     freeRange: true,
@@ -62,7 +59,6 @@ export const YARDS: YardDef[] = [
     building: 'sawmill',
     job: 'woodcutter',
     name: 'Лесоруб',
-    icon: '🪓',
     description: 'Рубит лес за стеной и жжёт уголь из сучьев.',
     // Уголь выжигают в яме из сучьев и вершинника — того, что от бревна и так остаётся в лесу, — поэтому дерево лесопилки
     // не убывает. Число — прежний поток пятого припаса (кости охотника, 2 на работника): лавка, рынок и рецепты стоят на
@@ -76,7 +72,6 @@ export const YARDS: YardDef[] = [
     building: 'quarry',
     job: 'stonecutter',
     name: 'Каменотёс',
-    icon: '⛏️',
     description: 'Добывает камень у скал.',
     yield: { stone: 5 },
     freeRange: true,
@@ -87,7 +82,6 @@ export const YARDS: YardDef[] = [
     building: 'mine',
     job: 'miner',
     name: 'Рудокоп',
-    icon: '💎',
     description: 'Добывает медь и железо.',
     yield: { copper: 2, iron: 0.8 },
     bonded: true,
@@ -97,7 +91,6 @@ export const YARDS: YardDef[] = [
     building: 'farm',
     job: 'farmer',
     name: 'Фермер',
-    icon: '🌾',
     description: 'Выращивает ячмень. Зимой поле не родит.',
     yield: { food: 13 },
     bonded: true,
@@ -107,7 +100,6 @@ export const YARDS: YardDef[] = [
     building: 'pen',
     job: 'herder',
     name: 'Пастух',
-    icon: '🐐',
     description: 'Держит скот в загоне. Зима стаду почти не мешает.',
     yield: { food: 6, hides: 1.4 },
     bonded: true,

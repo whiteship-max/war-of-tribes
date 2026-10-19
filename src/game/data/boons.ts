@@ -18,6 +18,7 @@
 import type { JobId } from '../types';
 import { FEAST_DAYS, RITE_MORALE } from '../constants';
 import { SEASON_DAYS } from './seasons';
+import type { IconName } from '@/ui/icons/alias';
 
 /** Сколько двигает двор добрая весть: середина хороших сезонов дворов. */
 export const BOON_UP = 1.25;
@@ -32,7 +33,7 @@ export const BOON_GRIEF = -RITE_MORALE / 2;
 
 export interface BoonDef {
   id: string;
-  icon: string;
+  icon: IconName;
   name: string;
   /** Сколько игровых дней держится. */
   days: number;
@@ -49,16 +50,16 @@ export interface BoonDef {
 }
 
 export const BOONS: BoonDef[] = [
-  { id: 'harvest_joy', icon: '🌾', name: 'Праздник урожая', days: FEAST_DAYS, morale: BOON_JOY },
-  { id: 'fair', icon: '🎪', name: 'Ярмарка', days: FEAST_DAYS, jobs: { crafter: BOON_UP }, morale: BOON_CHEER },
-  { id: 'flood', icon: '🌊', name: 'Залитые поля', days: SEASON_DAYS, jobs: { farmer: BOON_DOWN } },
-  { id: 'silt_field', icon: '🌱', name: 'Ил на полях', days: SEASON_DAYS, jobs: { farmer: BOON_UP } },
-  { id: 'silt_pasture', icon: '🐑', name: 'Заливной луг', days: SEASON_DAYS, jobs: { herder: BOON_UP } },
-  { id: 'timber', icon: '🪓', name: 'Рубка всем городом', days: SEASON_DAYS, jobs: { woodcutter: BOON_UP }, build: BOON_DOWN },
-  { id: 'cold', icon: '🥶', name: 'Лютый холод', days: SEASON_DAYS, heating: BOON_UP, morale: BOON_GRIEF },
-  { id: 'vein', icon: '⛏️', name: 'Богатая жила', days: SEASON_DAYS, jobs: { miner: BOON_UP } },
-  { id: 'shut_vein', icon: '🚧', name: 'Забой закрыт', days: SEASON_DAYS, jobs: { miner: BOON_DOWN } },
-  { id: 'mercs', icon: '🛡️', name: 'Вольная рота на стройке', days: SEASON_DAYS, build: BOON_UP },
+  { id: 'harvest_joy', icon: 'bld-farm', name: 'Праздник урожая', days: FEAST_DAYS, morale: BOON_JOY },
+  { id: 'fair', icon: 'bld-market', name: 'Ярмарка', days: FEAST_DAYS, jobs: { crafter: BOON_UP }, morale: BOON_CHEER },
+  { id: 'flood', icon: 'ui-wave', name: 'Залитые поля', days: SEASON_DAYS, jobs: { farmer: BOON_DOWN } },
+  { id: 'silt_field', icon: 'season-spring', name: 'Ил на полях', days: SEASON_DAYS, jobs: { farmer: BOON_UP } },
+  { id: 'silt_pasture', icon: 'ui-sheep', name: 'Заливной луг', days: SEASON_DAYS, jobs: { herder: BOON_UP } },
+  { id: 'timber', icon: 'gear-axe', name: 'Рубка всем городом', days: SEASON_DAYS, jobs: { woodcutter: BOON_UP }, build: BOON_DOWN },
+  { id: 'cold', icon: 'season-winter', name: 'Лютый холод', days: SEASON_DAYS, heating: BOON_UP, morale: BOON_GRIEF },
+  { id: 'vein', icon: 'ui-pick', name: 'Богатая жила', days: SEASON_DAYS, jobs: { miner: BOON_UP } },
+  { id: 'shut_vein', icon: 'ui-barrier', name: 'Забой закрыт', days: SEASON_DAYS, jobs: { miner: BOON_DOWN } },
+  { id: 'mercs', icon: 'gear-shield', name: 'Вольная рота на стройке', days: SEASON_DAYS, build: BOON_UP },
 ];
 
 export const BOON_BY_ID = Object.fromEntries(BOONS.map((b) => [b.id, b])) as Record<string, BoonDef>;

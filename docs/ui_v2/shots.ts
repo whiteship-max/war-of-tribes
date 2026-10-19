@@ -784,6 +784,62 @@ const GROUPS: Record<string, Step[]> = {
 
 // ---------- съёмка ----------
 
+/**
+ * ЗН-1 (docs/icons.md): значки целиком — верх с запасами и низ, «Дружина», «Вести», ратуша и карта, тот же вид «до» и
+ * «после». `DIR=icons GROUP=zn1 TAG=before|after`. Шаги — те же, что у заходов `city`, `army`, `mail`, `hall` и `map`.
+ */
+GROUPS.zn1 = [
+  { ...GROUPS.city[0], name: '01-city' },
+  { ...GROUPS.army[0], name: '02-army' },
+  { ...GROUPS.mail[0], name: '03-mail', tabs: false },
+  { ...GROUPS.hall[0], name: '04-hall' },
+  { ...GROUPS.map[0], name: '05-map' },
+  { ...GROUPS.map[3], name: '06-map-cell' },
+];
+
+/**
+ * ЗН-2 (docs/icons.md, «ЗН-2»): корпус интерфейса — кнопки, листы, вкладки, плашки, полосы, тревоги, реплики покоев и
+ * низ, — тот же вид «до» и «после» во всех главных окнах. Два захода по двум минутам: город и его окна (`zn2a`), лавки,
+ * сокровищница, тревоги, покои и карта (`zn2b`). `DIR=icons GROUP=zn2a|zn2b TAG=before|after`.
+ */
+GROUPS.zn2a = [
+  { ...GROUPS.city[0], name: 'zn2-01-city' },
+  { ...GROUPS.city[7], name: 'zn2-02-tip' },
+  { ...GROUPS.hall[0], name: 'zn2-03-hall', full: false },
+  { ...GROUPS.people[0], name: 'zn2-04-people', full: false },
+  { ...GROUPS.army[0], name: 'zn2-05-army' },
+  { ...GROUPS.mail[0], name: 'zn2-06-mail', tabs: false },
+  { ...GROUPS.realm[0], name: 'zn2-07-realm', tabs: false },
+  { ...building('smithy', 'zn2-08-smithy'), tabs: false },
+];
+GROUPS.zn2b = [
+  { ...building('market', 'zn2-09-market'), tabs: false },
+  { ...GROUPS.misc[0], name: 'zn2-10-treasury', tabs: false },
+  { name: 'zn2-11-alerts', run: P7('urgent'), wait: 1500 },
+  { name: 'zn2-12-chambers', run: `(async () => { window.__ui.reset(); (await import('/src/ui/chambers/open.ts')).useChambers.getState().show(); return JSON.stringify('ok'); })()`, wait: 2500 },
+  { name: 'zn2-13-map', run: `(async () => { (await import('/src/ui/chambers/open.ts')).useChambers.getState().hide(); const S = await import('/src/world/store.ts'); S.useWorld.setState({ siege: null, camp: null, marches: [] }); window.__ui.reset(); window.__game.getState().openMap(); return JSON.stringify('ok'); })()`, wait: 6000 },
+  { ...GROUPS.map[3], name: 'zn2-14-map-cell' },
+];
+
+/**
+ * ЗН-3 (docs/ui_v2.md, 5.10): экран чище — верх города со значком профиля справа, профиль свёрнутым и с раскрытым разделом
+ * («до» — прокрутка к концу: разделов ещё нет), покои у окна. `DIR=icons GROUP=zn3 WEATHER=clear TAG=before|after`.
+ */
+GROUPS.zn3 = [
+  { ...GROUPS.city[0], name: 'zn3-01-city' },
+  { ...GROUPS.profile[0], name: 'zn3-02-profile' },
+  {
+    name: 'zn3-03-profile-open',
+    run: `(() => { const b = window.__ui.btn('Потери', '.pf-folds'); if (b) { b.click(); return JSON.stringify('ok'); } const e = window.__ui.scroller(); if (!e) return JSON.stringify('нет окна'); e.scrollTop = e.scrollHeight; return JSON.stringify('разделов нет — конец прокрутки'); })()`,
+    wait: 700,
+  },
+  {
+    name: 'zn3-04-chambers-window',
+    run: `(async () => { window.__ui.reset(); (await import('/src/ui/realm/open.ts')).useRealm.getState().hide(); (await import('/src/ui/chambers/open.ts')).useChambers.getState().show(); for (let i = 0; i < 40 && !window.__chambers; i++) await new Promise((r) => setTimeout(r, 150)); if (!window.__chambers) return JSON.stringify('покоев нет'); window.__chambers.snap('window'); return JSON.stringify('ok'); })()`,
+    wait: 2500,
+  },
+];
+
 async function snap(tab: Tab, name: string): Promise<void> {
   const png = await tab.send<{ data: string }>('Page.captureScreenshot', { format: 'png' });
   const jpg = await sharp(Buffer.from(png.data, 'base64')).jpeg({ quality: 70, mozjpeg: true }).toBuffer();

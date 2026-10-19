@@ -103,7 +103,7 @@ export function SiegePanel() {
     return (
       <div className="panel">
         <div className="bhead">
-          <div className="ico">⛺</div>
+          <div className="ico"><Icon name="stage-camp" /></div>
           <div className="body">
             <div className="name">Осады нет</div>
             <div className="lvl">под стенами никого</div>
@@ -139,7 +139,7 @@ export function SiegePanel() {
     <div className="panel sg">
       <div className="bhead">
         <div className="ico">
-          <Icon name="letter-siege" glyph="⛺" />
+          <Icon name="letter-siege" />
         </div>
         <div className="body">
           <div className="name one-line">«{profileCity(s.profile)}» в осаде</div>
@@ -154,7 +154,7 @@ export function SiegePanel() {
         <>
           {/* Главная строка окна: что с городом сделают, если его доедят. */}
           <div className="card danger">
-            <div className="ico">{meta.icon}</div>
+            <div className="ico"><Icon name={meta.icon} /></div>
             <div className="body">
               <div className="title">Объявлено: {meta.name.toLowerCase()}</div>
               <div className="desc">Кончится хлеб — {fallWords(siege.fate, siege.fall).join(' ')} Случится и без тебя.</div>

@@ -38,7 +38,7 @@ export function TouchDoctor() {
   if (!open) {
     return (
       <button className="btn ghost wide" onClick={() => setOpen(true)}>
-        <Icon name="ui-eye" glyph="👆" /> Что было под пальцем
+        <Icon name="ui-eye" /> Что было под пальцем
       </button>
     );
   }

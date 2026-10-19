@@ -49,7 +49,6 @@ export const BOT_URL = 'https://t.me/WarOfTribesTESTING_bot';
  */
 export interface SocialLink {
   id: string;
-  icon: string;
   name: string;
   /** Зачем туда идти. Одной строкой, как последствия на кнопках указов. */
   note: string;
@@ -59,21 +58,18 @@ export interface SocialLink {
 export const SOCIAL_LINKS: SocialLink[] = [
   {
     id: 'group',
-    icon: '💬',
     name: 'Группа игры',
     note: 'Разбор боёв, советы и жалобы на зиму.',
     url: TG_GROUP,
   },
   {
     id: 'youtube',
-    icon: '📺',
     name: 'Канал',
     note: 'Разборы походов и новые здания.',
     url: null,
   },
   {
     id: 'chat',
-    icon: '🗣️',
     name: 'Чат игроков',
     note: 'Тактика и составы.',
     url: null,

@@ -13,6 +13,7 @@ import { tgInitData } from '@/telegram/webapp';
 import { Icon } from '@/ui/icons/Icon';
 import { GemIcon } from './Rush';
 import type { PayOrderView, PayState } from '../../../netlify/lib/contract';
+import { iconName } from '@/ui/icons/registry';
 
 /** Как часто спрашиваем сервер, пока заказ ждёт перевода. */
 const POLL_MS = 5000;
@@ -76,7 +77,7 @@ export default function TreasuryBuy() {
         </span>
         {wallet ? (
           <button className="nx-confirm" onClick={() => void disconnectWallet()} aria-label="Отключить кошелёк">
-            {short(wallet.address, net !== 'mainnet')} ✕
+            {short(wallet.address, net !== 'mainnet')} <Icon name="ui-close" />
           </button>
         ) : (
           <button className="nx-confirm" disabled={!ready || why !== null} onClick={() => void connectWallet()}>
@@ -91,7 +92,7 @@ export default function TreasuryBuy() {
         return (
           <div className="nx-trade" key={p.id}>
             <span className="nx-bico">
-              <Icon name={`gempack-${p.id}`} glyph={p.icon} />
+              <Icon name={iconName('gempack', p.id)} />
             </span>
             <div className="nx-trade-body">
               <b>

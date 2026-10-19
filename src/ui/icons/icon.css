@@ -1,0 +1,42 @@
+/* Значок набора ЗН-1 (docs/icons.md): строка текста по размеру, состояния — фильтром, счётчик — меткой в углу. */
+.ic-zn {
+  display: inline-block;
+  vertical-align: -0.15em;
+  flex: none;
+}
+/* Выбран: светлее и с золотым отсветом. */
+.ic-zn.ic-on {
+  filter: brightness(1.12) drop-shadow(0 0 2px rgba(240, 189, 82, 0.75));
+}
+/* Погашен: без цвета и приглушён — силуэт тот же, читается, что недоступно. */
+.ic-zn.ic-off {
+  filter: grayscale(1) brightness(0.8);
+  opacity: 0.55;
+}
+.ic-box {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+}
+.ic-count {
+  position: absolute;
+  top: -4px;
+  right: -10px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-text);
+  box-shadow: 0 0 0 2px #1f1812;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.ic-count.urgent {
+  background: var(--bad-fill);
+  color: #fff;
+}

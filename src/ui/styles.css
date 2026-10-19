@@ -175,8 +175,9 @@ body {
   display: flex;
   align-items: center;
   gap: 2px;
-  background: var(--panel);
-  border: 1px solid var(--line);
+  background: var(--m-plate);
+  box-shadow: var(--m-plate-bevel);
+  border: 1px solid var(--m-plate-rim);
   border-radius: 12px;
   padding: 0 6px;
   color: var(--muted);
@@ -238,8 +239,8 @@ body {
   height: 62%;
   display: flex;
   flex-direction: column;
-  background: var(--panel);
-  border-top: 1px solid var(--line);
+  background: var(--m-grain), var(--m-wood);
+  border-top: 1px solid var(--m-gilt);
   border-radius: 18px 18px 0 0;
   box-shadow: 0 -14px 40px rgba(0, 0, 0, 0.45);
   transform: translateY(100%);
@@ -273,8 +274,9 @@ body {
   width: 44px;
   height: 4px;
   border-radius: 999px;
-  background: var(--muted);
-  opacity: 0.45;
+  background: linear-gradient(180deg, #e3bf78, #8a6430);
+  box-shadow: 0 0 0 1px var(--m-ink);
+  opacity: 0.8;
 }
 
 .sheet-close {
@@ -285,7 +287,6 @@ body {
   height: var(--tap);
   background: none;
   border: none;
-  color: var(--muted);
   font-size: 16px;
 }
 
@@ -340,8 +341,9 @@ body {
 }
 
 .card {
-  background: var(--panel-2);
-  border: 1px solid var(--line);
+  background: var(--m-plate);
+  border: 1px solid var(--m-plate-rim);
+  box-shadow: var(--m-plate-bevel);
   border-radius: 12px;
   padding: 10px;
   margin-bottom: 8px;
@@ -413,9 +415,11 @@ body {
 }
 
 .btn {
-  background: var(--accent);
+  background: var(--m-gold);
   color: var(--accent-text);
-  border: none;
+  border: 1px solid var(--m-gold-rim);
+  box-shadow: var(--m-gold-bevel);
+  text-shadow: var(--m-gold-cut);
   border-radius: 10px;
   padding: 0 14px;
   min-height: var(--tap);
@@ -425,20 +429,36 @@ body {
   flex-shrink: 0;
 }
 
-.btn:disabled {
-  opacity: 0.4;
+.btn:active:not(:disabled) {
+  transform: translateY(1px);
+  box-shadow: var(--m-pressed);
 }
 
+/* Погашенная — железо (ЗН-2, `kit/material.css`). */
+.btn:disabled {
+  background: var(--m-iron);
+  border-color: var(--m-iron-rim);
+  box-shadow: var(--m-iron-bevel);
+  color: var(--m-iron-ink);
+  text-shadow: none;
+}
+
+/* Тихая — без вещества: гравированный обод. */
 .btn.ghost {
   background: transparent;
   color: var(--muted);
-  border: 1px solid var(--line);
+  border: 1px solid var(--m-quiet-rim);
+  box-shadow: var(--m-quiet-bevel);
+  text-shadow: none;
   padding: 0 10px;
 }
 
 .btn.danger {
-  background: var(--bad-fill);
+  background: var(--m-gules);
+  border-color: var(--m-gules-rim);
+  box-shadow: var(--m-gules-bevel);
   color: #fff;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.35);
 }
 
 .stepper {
@@ -452,15 +472,24 @@ body {
   width: var(--tap);
   height: var(--tap);
   border-radius: 10px;
-  border: 1px solid var(--line);
-  background: var(--panel);
+  border: 1px solid var(--m-leather-rim);
+  background: var(--m-leather);
+  box-shadow: var(--m-leather-bevel);
   color: var(--text);
   font-size: 20px;
   line-height: 1;
 }
 
+.stepper button:active:not(:disabled) {
+  box-shadow: var(--m-pressed);
+}
+
 .stepper button:disabled {
-  opacity: 0.3;
+  background: var(--m-iron);
+  border-color: var(--m-iron-rim);
+  box-shadow: var(--m-iron-bevel);
+  color: var(--m-iron-ink);
+  opacity: 0.6;
 }
 
 .stepper .n {
@@ -495,7 +524,8 @@ body {
 
 .progress {
   height: 6px;
-  background: rgba(0, 0, 0, 0.35);
+  background: var(--m-groove);
+  box-shadow: var(--m-groove-edge);
   border-radius: 999px;
   overflow: hidden;
   margin-top: 6px;
@@ -503,13 +533,13 @@ body {
 
 .progress > div {
   height: 100%;
-  background: var(--accent);
+  background: var(--m-fill);
   border-radius: 999px;
   transition: width 0.4s linear;
 }
 
 .progress.good > div {
-  background: var(--good);
+  background: var(--m-fill-good);
 }
 
 .tabs {
@@ -526,8 +556,9 @@ body {
 }
 
 .tabs button {
-  background: var(--panel-2);
-  border: 1px solid var(--line);
+  background: var(--m-leather);
+  border: 1px solid var(--m-leather-rim);
+  box-shadow: var(--m-leather-bevel);
   color: var(--muted);
   border-radius: 999px;
   padding: 0 13px;
@@ -539,7 +570,9 @@ body {
 
 .tabs button.active {
   color: var(--text);
-  border-color: var(--accent);
+  border-color: var(--m-gold-rim);
+  background: var(--m-lit);
+  box-shadow: var(--m-lit-bevel);
 }
 
 /* ---------- Модалки ---------- */
@@ -571,8 +604,8 @@ body {
 }
 
 .modal {
-  background: var(--panel);
-  border: 1px solid var(--line);
+  background: var(--m-grain), var(--m-wood);
+  border: 1px solid var(--m-ink);
   border-radius: 16px;
   padding: 16px;
   width: 100%;
@@ -581,7 +614,7 @@ body {
   overflow-y: auto;
   overscroll-behavior: contain;
   touch-action: pan-y;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+  box-shadow: var(--m-frame), 0 20px 60px rgba(0, 0, 0, 0.6);
 }
 
 .modal .m-ico {
@@ -610,8 +643,9 @@ body {
 }
 
 .modal .opt {
-  background: var(--panel-2);
-  border: 1px solid var(--line);
+  background: var(--m-leather);
+  border: 1px solid var(--m-leather-rim);
+  box-shadow: var(--m-leather-bevel);
   color: var(--text);
   border-radius: 12px;
   padding: 10px 12px;
@@ -625,7 +659,8 @@ body {
 }
 
 .modal .opt:active {
-  border-color: var(--accent);
+  border-color: var(--m-gold-rim);
+  box-shadow: var(--m-pressed), inset 0 0 0 1px rgba(236, 188, 94, 0.6);
 }
 
 /*
@@ -661,10 +696,10 @@ body {
   left: 50%;
   bottom: calc(var(--nav-h) + var(--safe-bottom) + 16px);
   transform: translateX(-50%);
-  background: var(--panel);
+  background: var(--m-plate);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  border: 1px solid var(--line);
+  border: 1px solid var(--m-plate-rim);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
   color: var(--text);
   padding: 10px 14px;
@@ -696,8 +731,9 @@ body {
 
 .totem-row button {
   flex: 1;
-  background: var(--panel-2);
-  border: 1px solid var(--line);
+  background: var(--m-leather);
+  box-shadow: var(--m-leather-bevel);
+  border: 1px solid var(--m-leather-rim);
   color: var(--text);
   border-radius: 12px;
   padding: 10px 4px;
@@ -740,8 +776,9 @@ body {
   align-items: center;
   gap: 8px;
   padding: 8px 10px;
-  background: var(--panel-2);
-  border: 1px solid var(--line);
+  background: var(--m-plate);
+  box-shadow: var(--m-plate-bevel);
+  border: 1px solid var(--m-plate-rim);
   border-radius: 10px;
   font-size: 13px;
 }
@@ -816,7 +853,8 @@ body {
 }
 
 .stock {
-  background: var(--panel-2);
+  background: var(--m-plate);
+  box-shadow: var(--m-plate-bevel);
   border: 1px solid var(--bad);
   border-radius: 12px;
   padding: 9px 11px;
@@ -907,7 +945,7 @@ body {
   width: 100%;
   min-height: 38px;
   padding: 8px 12px;
-  background: var(--panel);
+  background: var(--m-plate);
   border: 1px solid var(--bad);
   border-left-width: 4px;
   border-radius: 12px;
@@ -1009,8 +1047,9 @@ body {
 }
 
 .upgrade {
-  background: var(--panel-2);
-  border: 1px solid var(--line);
+  background: var(--m-plate);
+  box-shadow: var(--m-plate-bevel);
+  border: 1px solid var(--m-plate-rim);
   border-radius: 12px;
   padding: 8px 10px;
   margin-bottom: 8px;
@@ -1050,8 +1089,9 @@ body {
   min-height: var(--tap);
   padding: 4px 6px 4px 10px;
   margin-bottom: 6px;
-  background: var(--panel-2);
-  border: 1px solid var(--line);
+  background: var(--m-plate);
+  box-shadow: var(--m-plate-bevel);
+  border: 1px solid var(--m-plate-rim);
   border-radius: 12px;
   color: var(--text);
   font-size: 13px;
@@ -1088,8 +1128,9 @@ body {
   width: var(--tap);
   height: var(--tap);
   border-radius: 10px;
-  border: 1px solid var(--line);
-  background: var(--panel);
+  border: 1px solid var(--m-leather-rim);
+  background: var(--m-leather);
+  box-shadow: var(--m-leather-bevel);
   color: var(--text);
   font-size: 20px;
   line-height: 1;
@@ -1098,8 +1139,15 @@ body {
   justify-content: center;
 }
 
+.mini:active:not(:disabled) {
+  box-shadow: var(--m-pressed);
+}
+
 .mini:disabled {
-  opacity: 0.3;
+  background: var(--m-iron);
+  border-color: var(--m-iron-rim);
+  box-shadow: var(--m-iron-bevel);
+  opacity: 0.6;
 }
 
 .btn.wide {
@@ -1116,8 +1164,9 @@ body {
   gap: 6px 8px;
   padding: 7px 10px;
   margin-bottom: 6px;
-  background: var(--panel-2);
-  border: 1px solid var(--line);
+  background: var(--m-plate);
+  box-shadow: var(--m-plate-bevel);
+  border: 1px solid var(--m-plate-rim);
   border-radius: 12px;
   font-size: 13px;
 }
@@ -1285,7 +1334,7 @@ body {
   align-items: center;
   gap: 6px;
   padding: 4px 4px 4px 12px;
-  background: var(--panel);
+  background: var(--m-plate);
   border: 1px solid var(--accent);
   border-radius: 12px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
@@ -1414,8 +1463,9 @@ body {
   gap: 3px;
   min-height: var(--tap);
   padding: 10px 12px;
-  background: var(--panel-2);
-  border: 1px solid var(--line);
+  background: var(--m-leather);
+  box-shadow: var(--m-leather-bevel);
+  border: 1px solid var(--m-leather-rim);
   border-radius: 12px;
   color: var(--text);
   font-size: 14px;
@@ -1452,8 +1502,9 @@ body {
   gap: 8px;
   margin: 0 0 10px;
   padding: 6px 8px;
-  background: var(--panel-2);
-  border: 1px solid var(--line);
+  background: var(--m-plate);
+  box-shadow: var(--m-plate-bevel);
+  border: 1px solid var(--m-plate-rim);
   border-radius: 10px;
   text-align: left;
 }
@@ -1479,9 +1530,10 @@ body {
   flex-shrink: 0;
   width: var(--tap);
   height: var(--tap);
-  border: 1px solid var(--line);
+  border: 1px solid var(--m-plate-rim);
   border-radius: 10px;
-  background: var(--panel);
+  background: var(--m-plate);
+  box-shadow: var(--m-plate-bevel);
   color: var(--text);
   font-size: 17px;
   line-height: 1;
@@ -1526,8 +1578,9 @@ body {
   display: flex;
   gap: 8px;
   padding: 8px;
-  background: var(--panel);
-  border: 1px solid var(--line);
+  background: var(--m-leather);
+  box-shadow: var(--m-leather-bevel);
+  border: 1px solid var(--m-leather-rim);
   border-radius: 12px;
 }
 
@@ -1642,8 +1695,9 @@ body {
   min-height: var(--tap);
   padding: 9px 12px;
   text-align: left;
-  background: var(--panel-2);
-  border: 1px solid var(--line);
+  background: var(--m-leather);
+  box-shadow: var(--m-leather-bevel);
+  border: 1px solid var(--m-leather-rim);
   border-radius: 10px;
   color: var(--text);
   font: inherit;
@@ -1688,8 +1742,9 @@ body {
   gap: 4px 10px;
   padding: 10px;
   margin-bottom: 8px;
-  background: var(--panel-2);
-  border: 1px solid var(--line);
+  background: var(--m-plate);
+  box-shadow: var(--m-plate-bevel);
+  border: 1px solid var(--m-plate-rim);
   border-radius: 10px;
 }
 
@@ -1805,8 +1860,9 @@ body {
 .bl-phase {
   margin-bottom: 8px;
   padding: 6px 8px;
-  background: var(--panel-2);
-  border: 1px solid var(--line);
+  background: var(--m-plate);
+  box-shadow: var(--m-plate-bevel);
+  border: 1px solid var(--m-plate-rim);
   border-radius: 10px;
 }
 
@@ -1966,11 +2022,12 @@ body {
 }
 
 .counter {
-  border: 1px solid var(--line);
+  border: 1px solid var(--m-plate-rim);
   border-left-width: 3px;
   border-radius: 8px;
   padding: 6px 9px;
-  background: var(--panel-2);
+  background: var(--m-plate);
+  box-shadow: var(--m-plate-bevel);
 }
 
 .counter.good {
@@ -2344,8 +2401,9 @@ body {
   min-width: var(--tap);
   min-height: var(--tap);
   padding: 2px;
-  background: var(--panel);
-  border: 1px solid var(--line);
+  background: var(--m-leather);
+  border: 1px solid var(--m-leather-rim);
+  box-shadow: var(--m-leather-bevel);
   border-radius: 12px;
 }
 
@@ -2438,8 +2496,9 @@ body {
   gap: 8px;
   min-height: var(--tap);
   padding: 8px 10px;
-  background: var(--panel-2);
-  border: 1px solid var(--line);
+  background: var(--m-plate);
+  box-shadow: var(--m-plate-bevel);
+  border: 1px solid var(--m-plate-rim);
   border-radius: 10px;
   color: var(--text);
   font-size: 13px;
@@ -2526,15 +2585,17 @@ body {
   min-height: var(--tap);
   padding: 0 4px;
   border-radius: 8px;
-  background: var(--panel);
-  border: 1px solid var(--line);
+  background: var(--m-leather);
+  box-shadow: var(--m-leather-bevel);
+  border: 1px solid var(--m-leather-rim);
   color: var(--text);
   font-size: 12px;
 }
 
 .set-seg button.on {
-  background: var(--accent);
-  border-color: var(--accent);
+  background: var(--m-gold);
+  border-color: var(--m-gold-rim);
+  box-shadow: var(--m-gold-bevel);
   color: var(--accent-text);
 }
 
@@ -2722,7 +2783,7 @@ body {
 
 /* Числа партии таблицами (UI-7): шапка таблицы — имя раздела. */
 .pf-table {
-  margin-top: 12px;
+  margin-top: 8px;
 }
 
 .trend .bars {
@@ -2830,8 +2891,9 @@ body.replaying .app > *:not(.canvas-wrap) {
   min-height: var(--tap);
   padding: 8px 10px;
   text-align: left;
-  background: var(--panel-2);
-  border: 1px solid var(--line);
+  background: var(--m-plate);
+  box-shadow: var(--m-plate-bevel);
+  border: 1px solid var(--m-plate-rim);
   border-radius: 10px;
   color: var(--text);
 }
@@ -2899,8 +2961,9 @@ body.replaying .app > *:not(.canvas-wrap) {
   padding: 8px 10px;
   font-size: 12px;
   color: var(--muted);
-  background: var(--panel-2);
-  border: 1px solid var(--line);
+  background: var(--m-leather);
+  box-shadow: var(--m-leather-bevel);
+  border: 1px solid var(--m-leather-rim);
   border-radius: 10px;
 }
 
@@ -2959,9 +3022,9 @@ body.replaying .app > *:not(.canvas-wrap) {
 .doctor {
   margin: 6px 0 10px;
   padding: 8px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--m-gilt);
   border-radius: 10px;
-  background: var(--panel-2);
+  background: var(--m-grain), var(--m-wood);
 }
 
 .doctor-verdict {
@@ -3317,9 +3380,11 @@ body.replaying .app > *:not(.canvas-wrap) {
 .start-go {
   width: 100%;
   min-height: 52px;
-  border: 0;
+  border: 1px solid var(--m-gold-rim);
   border-radius: var(--radius);
-  background: var(--accent);
+  background: var(--m-gold);
+  box-shadow: var(--m-gold-bevel);
+  text-shadow: var(--m-gold-cut);
   color: var(--accent-text);
   font: inherit;
   font-size: 16px;
@@ -3464,9 +3529,9 @@ a.start-go {
   flex-direction: column;
   gap: 6px;
   padding: 10px 11px 11px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--m-gilt);
   border-radius: 12px;
-  background: var(--panel);
+  background: var(--m-grain), var(--m-wood);
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
 }
 
@@ -3589,9 +3654,9 @@ a.start-go {
   align-items: center;
   gap: 8px;
   padding: 18px 26px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--m-gilt);
   border-radius: var(--radius);
-  background: var(--panel);
+  background: var(--m-grain), var(--m-wood);
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
 }
 
@@ -3747,8 +3812,8 @@ button:not(:disabled):active {
 .frozen-plate {
   width: 100%;
   max-width: 360px;
-  background: var(--panel);
-  border: 1px solid var(--line);
+  background: var(--m-plate);
+  border: 1px solid var(--m-plate-rim);
   border-radius: 14px;
   padding: 12px 14px;
   display: flex;

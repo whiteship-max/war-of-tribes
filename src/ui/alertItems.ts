@@ -10,10 +10,10 @@ import { hireWhere } from '@/game/sim/hire';
 import { bareGeneral } from '@/game/sim/agents';
 import { placeOpen } from '@/game/sim/tech';
 import type { BuildingTypeId } from '@/game/types';
-import { iconName } from '@/ui/icons/registry';
 import { useRaidWords } from '@/ui/parts/raidWords';
 import { openRaid, useRealm } from '@/ui/realm/open';
 import { eventKey } from '@/ui/realm/unread';
+import type { IconName } from '@/ui/icons/alias';
 
 /**
  * Одна тревога — для обоих видов интерфейса. Список собирается здесь один раз, а рисуют его двое: строки
@@ -22,9 +22,8 @@ import { eventKey } from '@/ui/realm/unread';
  */
 export interface AlertItem {
   key: string;
-  /** Значок листа; `null` — эмодзи как есть: у мятежа и пустых мест своего рисунка нет. */
-  icon: string | null;
-  glyph: string;
+  /** Значок набора (docs/icons.md). */
+  icon: IconName;
   /** Строка прежнего вида целиком. */
   text: string;
   /** Вторая строка прежнего вида: цена того, о чём тревога. */
@@ -72,8 +71,7 @@ export function useAlertItems(): AlertItem[] {
     const due = mutinyLeft !== null ? realDue(mutinyLeft) : undefined;
     out.push({
       key: 'mutiny',
-      icon: null,
-      glyph: ORDER_TEXT.mutiny.icon,
+      icon: ORDER_TEXT.mutiny.icon,
       text: `${ORDER_TEXT.mutiny.alert}${due ? ` · ${due}` : ''}`,
       title: 'Мятеж невольников',
       body: 'Невольники бросили работу и ждут твоего слова.',
@@ -91,7 +89,6 @@ export function useAlertItems(): AlertItem[] {
     out.push({
       key: m.id,
       icon: 'alert-raid',
-      glyph: '⚔️',
       text: `Набег · ${m.fromName} · ${left}`,
       title: `Набег · ${m.fromName}`,
       body: `У ворот через ${left}.`,
@@ -122,8 +119,7 @@ export function useAlertItems(): AlertItem[] {
     const need = who.length > 1 ? `Нужны ${who.slice(0, -1).join(', ')} и ${who[who.length - 1]}` : `Нужен ${who[0]}`;
     out.push({
       key: `vacant-${type}`,
-      icon: null,
-      glyph: isGeneral ? '🎖️' : '👣',
+      icon: isGeneral ? 'fig-general' : 'fig-scout',
       text: need,
       sub: isGeneral ? 'Без него дружина не выходит.' : undefined,
       title: need,
@@ -139,8 +135,7 @@ export function useAlertItems(): AlertItem[] {
     const statue = buildingOfType(s, 'statue');
     out.push({
       key: 'bare-general',
-      icon: null,
-      glyph: '🎖️',
+      icon: 'fig-general',
       text: 'Полководец без отряда',
       title: 'Полководец без отряда',
       body: 'Отряд ему собирают у Статуи.',
@@ -155,8 +150,7 @@ export function useAlertItems(): AlertItem[] {
     const tab = a.open;
     out.push({
       key: a.id,
-      icon: iconName('alert', a.id),
-      glyph: a.icon,
+      icon: a.icon,
       text: a.text,
       sub: a.sub,
       title: a.text,

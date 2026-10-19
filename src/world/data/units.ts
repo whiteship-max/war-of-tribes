@@ -1,13 +1,14 @@
 // Кто ходит по карте. Скорость самого медленного юнита в отряде задаёт время пути,
 // поэтому разведчик с воинами доедет со скоростью воинов — это осознанный выбор игрока.
 import type { UnitId } from '../types';
+import type { IconName } from '@/ui/icons/alias';
 
 export interface UnitDef {
   id: UnitId;
   name: string;
   /** Название для «3 воина» / «1 воин». */
   one: string;
-  icon: string;
+  icon: IconName;
   description: string;
   /** Клеток в минуту по равнине. */
   speed: number;
@@ -29,7 +30,7 @@ export const UNITS: UnitDef[] = [
     id: 'scout',
     name: 'Разведчики',
     one: 'разведчик',
-    icon: '👣',
+    icon: 'fig-scout',
     description: 'Свободный житель, посланный смотреть. Быстр, в драку не лезет.',
     speed: 9,
     attack: 0,
@@ -41,7 +42,7 @@ export const UNITS: UnitDef[] = [
     id: 'warrior',
     name: 'Бойцы',
     one: 'боец',
-    icon: '🛡️',
+    icon: 'gear-shield',
     description: 'Пеший боец с копьём. В походе город не защищает.',
     speed: 4.5,
     attack: 1,

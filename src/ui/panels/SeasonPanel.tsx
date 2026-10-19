@@ -17,10 +17,11 @@ import { Icon } from '@/ui/icons/Icon';
 import { iconName } from '@/ui/icons/registry';
 import { WinterForecast } from '@/ui/parts/Provisions';
 import { dec } from '@/game/num';
+import type { IconName } from '@/ui/icons/alias';
 
 /** Строка списка множителей: что растёт, что падает. */
 interface Line {
-  icon: string;
+  icon: IconName;
   label: string;
   /** Множитель; 1 — без изменений. */
   mult?: number;
@@ -58,27 +59,27 @@ function linesOf(s: GameState, mods: SeasonModifiers): Line[] {
     const m = mods.jobs[job];
     if (m === undefined || m === 1) continue;
     const def = JOB_BY_ID[job];
-    out.push({ icon: def.icon, label: def.name, mult: m, good: m > 1 });
+    out.push({ icon: iconName('job', job), label: def.name, mult: m, good: m > 1 });
   }
-  if (mods.build !== 1) out.push({ icon: '🔨', label: 'Скорость стройки', mult: mods.build, good: mods.build > 1 });
+  if (mods.build !== 1) out.push({ icon: 'ui-hammer', label: 'Скорость стройки', mult: mods.build, good: mods.build > 1 });
   if (mods.food !== 1)
-    out.push({ icon: '🍖', label: 'Потребление еды', mult: mods.food, good: mods.food < 1 });
+    out.push({ icon: 'res-food', label: 'Потребление еды', mult: mods.food, good: mods.food < 1 });
   if (mods.morale !== 0)
     out.push({
-      icon: mods.morale > 0 ? '😊' : '😟',
+      icon: mods.morale > 0 ? 'mood-good' : 'mood-bad',
       label: 'Мораль',
       text: `${mods.morale > 0 ? '+' : ''}${Math.round(mods.morale * 10) / 10}`,
       good: mods.morale > 0,
     });
   if (mods.heating > 0)
     out.push({
-      icon: '🔥',
+      icon: 'ui-flame',
       label: 'Дрова на жителя в день',
       text: heatPerHead(s, mods),
       good: false,
     });
   // Пустой список читается хуже, чем явная строчка «всё как обычно».
-  if (out.length === 0) out.push({ icon: '⚖️', label: 'Обычный ход дел', text: 'без изменений' });
+  if (out.length === 0) out.push({ icon: 'ui-scales', label: 'Обычный ход дел', text: 'без изменений' });
   return out;
 }
 
@@ -87,7 +88,7 @@ function ModList({ s, mods }: { s: GameState; mods: SeasonModifiers }) {
     <div className="mod-list">
       {linesOf(s, mods).map((l) => (
         <div className="mod" key={l.label}>
-          <span className="ico">{l.icon}</span>
+          <span className="ico"><Icon name={l.icon} /></span>
           <span className="name">{l.label}</span>
           <span className={`val ${l.good === undefined ? '' : l.good ? 'pos' : 'neg'}`}>
             {l.text ?? pct(l.mult ?? 1)}
@@ -110,7 +111,7 @@ export function SeasonPanel() {
   return (
     <div className="panel">
       <h2>
-        <Icon name={iconName('season', season)} glyph={meta.icon} /> {meta.name} <small>год {year}, день {seasonDayOf(s.time)} из {SEASON_DAYS}</small>
+        <Icon name={iconName('season', season)} /> {meta.name} <small>год {year}, день {seasonDayOf(s.time)} из {SEASON_DAYS}</small>
       </h2>
 
       <div className="progress good" style={{ marginBottom: 10 }}>
@@ -128,7 +129,7 @@ export function SeasonPanel() {
 
       {heat > 0 && (
         <div className="mod total">
-          <span className="ico">🌲</span>
+          <span className="ico"><Icon name="res-wood" /></span>
           <span className="name">Дрова на отопление</span>
           <span className={`val ${s.resources.wood > heat ? '' : 'neg'}`}>{dec(heat, 1)} в день</span>
         </div>
@@ -145,7 +146,7 @@ export function SeasonPanel() {
         {SEASONS.map((x) => (
           <div className={`s-cell${x === season ? ' now' : ''}`} key={x}>
             <span className="ico">
-              <Icon name={iconName('season', x)} glyph={SEASON_META[x].icon} />
+              <Icon name={iconName('season', x)} />
             </span>
             <span>{SEASON_META[x].name}</span>
           </div>

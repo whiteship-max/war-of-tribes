@@ -48,6 +48,7 @@ import { EnergyBar } from './Energy';
 import { count } from './plural';
 import { traitLines } from './traitLines';
 import { num } from '@/game/num';
+import { iconName } from '@/ui/icons/registry';
 
 /** Отметки полководца: какие есть, что дают замером и куда ляжет следующий кружок. */
 /** Подсказка по касанию справки (docs/ui_audit.md, 3.7). */
@@ -97,7 +98,9 @@ function Traits({ id }: { id: FigureId }) {
       ) : (
         lines.map((l) => (
           <button key={l.id} className="nx-crow" onClick={tip(l.name, `${l.what} ${l.why}`)}>
-            <span className="nx-lico">{l.good ? '✦' : '✧'}</span>
+            <span className="nx-lico">
+              <Icon name="ui-star" state={l.good ? undefined : 'off'} />
+            </span>
             <span className="nx-crow-t">{l.name}</span>
             <b className={l.good ? 'good' : 'bad'}>{l.good ? 'добрая слава' : 'дурная слава'}</b>
           </button>
@@ -154,7 +157,7 @@ export function AgentCard({ id, onBack, embedded = false }: { id: FigureId; onBa
       ) : (
         <div className="nx-bhead">
           <button className="nx-bico" onClick={tip(def.name, `${def.description} ${def.ability}`)} aria-label={`${def.name}: что умеет`}>
-            <Icon name={`fig-${id}`} glyph={def.icon} />
+            <Icon name={iconName('fig', id)} />
           </button>
           <div className="nx-btitle">
             <b className="one-line">
@@ -169,7 +172,7 @@ export function AgentCard({ id, onBack, embedded = false }: { id: FigureId; onBa
           </div>
           {onBack && (
             <button className="nx-bclose" onClick={onBack} aria-label="К походам">
-              <Icon name="ui-close" glyph="✕" />
+              <Icon name="ui-close" />
             </button>
           )}
         </div>
@@ -251,7 +254,7 @@ export function AgentCard({ id, onBack, embedded = false }: { id: FigureId; onBa
             onClick={tip('Терпение дружины', `Сколько дружина ждёт жалованья. Растёт с уровнем Статуи, сейчас ур. ${statue}.`)}
           >
             <span className="nx-lico">
-              <Icon name="hud-army" glyph="⚔️" />
+              <Icon name="hud-army" />
             </span>
             <span className="nx-crow-t">Терпение дружины</span>
             <b className="good">{waitDays(payGraceDays(s))}</b>
@@ -285,7 +288,9 @@ export function AgentCard({ id, onBack, embedded = false }: { id: FigureId; onBa
                 showToast(slotWhy ?? 'Выбери, что надеть.');
               }}
             >
-              <span className="ico">{open ? '▢' : <Icon name="ui-lock" glyph="🔒" />}</span>
+              <span className="ico">
+                <Icon name={open ? 'attn-slot' : 'ui-lock'} />
+              </span>
               <span style={{ color: 'var(--muted)' }}>{label}</span>
             </button>
           );

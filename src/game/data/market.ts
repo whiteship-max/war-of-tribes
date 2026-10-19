@@ -31,7 +31,6 @@ export interface GoodDef {
   resource?: ResourceId;
   equipment?: EquipmentId;
   name: string;
-  icon: string;
   /** Цена в золоте за единицу, пока сегодня ничего не куплено. */
   price: number;
   /** Дневной запас на первом уровне рынка и прибавка за каждый следующий. */
@@ -89,7 +88,6 @@ export const GOODS: GoodDef[] = [
       kind: 'resource',
       resource: g.id,
       name: RESOURCE_META[g.id].name,
-      icon: RESOURCE_META[g.id].icon,
       price: g.price,
       stock: g.stock,
       stockPerLevel: g.stockPerLevel,
@@ -103,7 +101,6 @@ export const GOODS: GoodDef[] = [
       kind: 'equipment',
       equipment: e.id,
       name: e.name,
-      icon: e.icon,
       price: g.price,
       stock: g.stock,
       stockPerLevel: g.stockPerLevel,
@@ -128,7 +125,6 @@ export const BONDED_GOOD: GoodDef = {
   id: 'bonded',
   kind: 'bonded',
   name: 'Невольники',
-  icon: '⛓️',
   price: 30,
   stock: 6,
   stockPerLevel: 2,

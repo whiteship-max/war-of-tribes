@@ -31,6 +31,7 @@ import { Icon } from '@/ui/icons/Icon';
 import { moodOf } from '@/ui/icons/registry';
 import { asGame } from '@/game/pace';
 import { dec } from '@/game/num';
+import { iconName } from '@/ui/icons/registry';
 
 /** Как множитель называется в строке-подсказке про узкое место. */
 const FACTOR_NAME: Record<string, string> = {
@@ -78,12 +79,12 @@ export function PopPanel() {
       <p className="season-hint">Прирост зависит от жилья, еды и морали. Ноль в любом из них останавливает рост.</p>
 
       <div className="mod total">
-        <span className="ico">{growth.perDay >= 0 ? '📈' : '📉'}</span>
+        <span className="ico">{growth.perDay >= 0 ? 'ui-up' : 'ui-down'}</span>
         <span className="name">Прирост сейчас</span>
         <span className={`val ${growth.perDay >= 0 ? 'pos' : 'neg'}`}>{signed(growth.perDay, 2)} в день</span>
       </div>
       <div className="mod">
-        <span className="ico">⏳</span>
+        <span className="ico"><Icon name="ui-time" /></span>
         <span className="name">{room > 0 ? 'До заполнения жилья' : 'Свободных мест нет'}</span>
         <span className={`val${growth.perDay > 0 && room > 0 ? '' : ' neg'}`}>
           {room <= 0
@@ -97,21 +98,21 @@ export function PopPanel() {
       <h3>Множители</h3>
       <div className="note">{growth.blocked ?? bottleneck}</div>
       <Factor
-        icon={growth.morale >= 0 ? '😊' : '😟'}
+        icon={growth.morale >= 0 ? 'mood-good' : 'mood-bad'}
         name="Мораль"
         k={growth.morale}
         worst={worst.has('morale')}
         hint={growth.morale < 0 ? 'жители уходят' : `${Math.round(s.morale)} из 100`}
       />
       <Factor
-        icon="🛏️"
+        icon="ui-bed"
         name="Свободное жильё"
         k={growth.housing}
         worst={worst.has('housing')}
         hint={`${count(room, 'место', 'места', 'мест')}, полный ход с ${GROWTH_ROOM}`}
       />
       <Factor
-        icon="🍖"
+        icon="res-food"
         name="Запас еды"
         k={growth.food}
         worst={worst.has('food')}
@@ -122,7 +123,7 @@ export function PopPanel() {
           <h3>Прибавка от веры</h3>
           <div className="note">Вера только прибавляет к приросту, сверх всех множителей.</div>
           <div className="mod total">
-            <span className="ico">{faithDef(s)?.icon ?? '🙏'}</span>
+            <span className="ico"><Icon name={faithDef(s)?.icon ?? 'ui-prayer'} /></span>
             <span className="name">
               {faithDef(s)?.name ?? 'Вера'}
               <em className="sub">{faithTilt(s).boon}</em>
@@ -149,7 +150,7 @@ export function PopPanel() {
         </b>
       </div>
       <div className="mod">
-        <span className="ico">{s.morale < MORALE_GROWTH_ZERO ? '😟' : '😊'}</span>
+        <span className="ico">{s.morale < MORALE_GROWTH_ZERO ? 'mood-bad' : 'mood-good'}</span>
         <span className="name">Мораль города</span>
         <span className={`val ${s.morale < MORALE_GROWTH_ZERO ? 'neg' : 'pos'}`}>
           {Math.round(s.morale)}
@@ -157,51 +158,51 @@ export function PopPanel() {
         </span>
       </div>
       <button className="btn ghost wide" onClick={() => openTab('morale')}>
-        <Icon name={moodOf(s.morale).name} glyph={moodOf(s.morale).glyph} /> Мораль
+        <Icon name={moodOf(s.morale).name} /> Мораль
       </button>
 
       <h3>Расчёт прироста</h3>
       <div className="mod">
-        <span className="ico">🌱</span>
+        <span className="ico"><Icon name="season-spring" /></span>
         <span className="name">Основа</span>
         <span className="val">
           {dec(base, 2)} = {POP_GROWTH_PER_DAY} × ({s.pop} + {POP_GROWTH_BASE})
         </span>
       </div>
       <div className="mod">
-        <span className="ico">{ration.icon}</span>
+        <span className="ico"><Icon name={iconName('ration', ration.id)} /></span>
         <span className="name">Паёк: {ration.name.toLowerCase()}</span>
         <span className={`val ${ration.growth >= 1 ? 'pos' : 'neg'}`}>×{ration.growth}</span>
       </div>
       <div className="mod total">
-        <span className="ico">📊</span>
+        <span className="ico"><Icon name="ui-perf" /></span>
         <span className="name">Итого в день</span>
         <span className={`val ${growth.perDay >= 0 ? 'pos' : 'neg'}`}>{signed(growth.perDay, 2)}</span>
       </div>
 
       <h3>Кого считаем</h3>
       <div className="mod">
-        <span className="ico">👥</span>
+        <span className="ico"><Icon name="nav-people" /></span>
         <span className="name">Жители</span>
         <span className="val">{s.pop}</span>
       </div>
       <div className="mod">
-        <span className="ico">🔨</span>
+        <span className="ico"><Icon name="ui-hammer" /></span>
         <span className="name">Из них свободные руки</span>
         <span className="val">{idleCount(s)}</span>
       </div>
       <div className="mod">
-        <span className="ico">⚔️</span>
+        <span className="ico"><Icon name="hud-army" /></span>
         <span className="name">Бойцы дружины</span>
         <span className="val">{armySize(s)}</span>
       </div>
       <div className="mod">
-        <span className="ico">🎯</span>
+        <span className="ico"><Icon name="ui-target" /></span>
         <span className="name">Новобранцы</span>
         <span className="val">{recruitsQueued(s)}</span>
       </div>
       <div className="mod total">
-        <span className="ico">🏘️</span>
+        <span className="ico"><Icon name="bld-houses" /></span>
         <span className="name">Всего</span>
         <span className="val">{population(s)}</span>
       </div>

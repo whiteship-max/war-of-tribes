@@ -1,56 +1,41 @@
-// Эмодзи в исходниках — только из Emoji 12.0 и старше. Тест по всему `src`, как у
-// `Math.random` (`game/sim/random.test.ts`).
+// В игре нет ни одного эмодзи (ЗН-1, docs/icons.md): ни в окнах, ни в подсказках, ни в кнопках, ни в летописи, ни в вестях
+// бота. Значок — только рисунок набора (`ui/icons/Icon.tsx`); текст бота — чистый текст. Исключение одно — то, что
+// игрок напечатал сам (имя города, имя правителя): в исходниках его нет, и тест его не видит.
 //
-// Эмодзи Emoji 13.0 и новее на части телефонов рисуется пустым квадратом. Дважды подряд
-// это ловили глазами в браузере — монету, потом камень. Словами правило стояло в
-// CLAUDE.md и не держало ничего.
+// Прежде правило было мягче — «эмодзи только из Emoji 12.0» (белый список `emoji12.ts`), и эмодзи стояли запасным
+// рисунком, пока лист значков не приехал. С набором ЗН-1 запасного рисунка нет: ленивый значок — пустое место своего
+// размера.
 //
-// Проверка — белым списком кодовых точек, а не списком плохих: плохой символ, о котором
-// не подумали, в список плохих не попадёт никогда. Сам список — `emoji12.ts`, собранный
-// `npm run emoji:build` из таблицы Unicode; руками его не правят.
-//
-// Что считается эмодзи, решает не список, а свойства Unicode самого Node:
-// `Extended_Pictographic` (сюда входят и ещё не занятые места в блоках эмодзи — то есть
-// всё, что появится позже), `Emoji_Presentation` и буквы флагов. Нашёлся такой символ —
-// он обязан быть в списке 12.0.
+// Что считается эмодзи, решают свойства Unicode самого Node: `Extended_Pictographic` (туда входят и ещё не занятые места
+// в блоках эмодзи — всё, что появится позже), `Emoji_Presentation`, буквы флагов и приставка VS16 (U+FE0F), которая
+// делает эмодзи из обычного знака. К ним — знаки-значки, которые рисует система, а не наш шрифт (✕ ✓ ◆ ✦ ⌖ ⌘ ▢ ▫):
+// значок рисуется набором, а не чужим шрифтом.
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { EMOJI_RANGES, EMOJI_VERSION } from './emoji12';
 
-const ROOT = join(__dirname, '..', '..');
+const ROOT = join(__dirname, '..', '..', '..');
 
 function sources(dir: string): string[] {
   const out: string[] = [];
   for (const name of readdirSync(dir)) {
     const p = join(dir, name);
     if (statSync(p).isDirectory()) out.push(...sources(p));
-    else if (/\.(tsx?|css)$/.test(name) && !/\.test\.tsx?$/.test(name)) out.push(p);
+    else if (/\.(tsx?|mts|css)$/.test(name) && !/\.test\.tsx?$/.test(name)) out.push(p);
   }
   return out;
 }
 
 /**
- * Комментарии не рисуются: в них эмодзи можно назвать, в том числе запрещённое. Строки
- * сохраняются, чтобы номер строки в ответе был настоящим. Тесты не читаются тоже — там
- * эмодзи бывает мусором на входе, а на экран не попадает.
+ * Комментарии не рисуются: в них эмодзи можно назвать. Строки сохраняются, чтобы номер строки в ответе был настоящим.
+ * Тесты не читаются тоже — там эмодзи бывает мусором на входе (имя города игрока), а на экран из кода не попадает.
  */
 const strip = (src: string): string =>
   src.replace(/\/\*[\s\S]*?\*\//g, (c) => c.replace(/[^\n]/g, ' ')).replace(/(^|[^:])\/\/.*$/gm, '$1');
 
-/** Что тест считает эмодзи. */
-const PICTO = /[\p{Extended_Pictographic}\p{Emoji_Presentation}\p{Regional_Indicator}]/gu;
+/** Эмодзи и знаки-значки системы. */
+const PICTO = /[\p{Extended_Pictographic}\p{Emoji_Presentation}\p{Regional_Indicator}️✓-✖✦✧◆▢▫▪⌖⌘➕-➗]/gu;
 
-/**
- * Склейка ZWJ собирает из старых символов новый (есть такие и в 13.0), и по кодовым точкам
- * её не проверить. Сейчас склеек в игре нет ни одной; понадобится — список склеек 12.0
- * (`emoji-zwj-sequences.txt`) заводится тем же скриптом, а не исключением здесь.
- */
-const ZWJ = '‍';
-
-const allowed = (cp: number): boolean => cp < 0x80 || EMOJI_RANGES.some(([a, b]) => cp >= a && cp <= b);
-
-/** Все эмодзи в тексте: кодовая точка и номер строки. */
 function emojiIn(text: string): { cp: number; line: number }[] {
   const out: { cp: number; line: number }[] = [];
   text.split('\n').forEach((l, i) => {
@@ -62,48 +47,28 @@ function emojiIn(text: string): { cp: number; line: number }[] {
 const rel = (p: string): string => relative(ROOT, p).split(sep).join('/');
 const hex = (cp: number): string => `U+${cp.toString(16).toUpperCase()}`;
 
-/**
- * Долг, а не исключение: места, где символ новее 12.0 стоял до теста. Замена ждёт решения
- * владельца. Список сверяется **ровно** — новое место уронит тест, и починенное тоже,
- * пока его не вычеркнут отсюда. Дописывать сюда нельзя.
- *
- * Место узнаётся по содержимому — файл, символ и кусок той же строки кода (`near`), — а не
- * по номеру строки: прежде номер сдвигала любая строка комментария выше долга, и тест падал
- * не из кода. Кусок обязан узнавать ровно одно место; узнал два — тест падает тоже.
- */
-const DEBT: readonly { file: string; cp: number; near: string }[] = [
-  { file: 'game/data/troops.ts', cp: 0x1fa83, near: "icon: '" },
-  { file: 'ui/SyncModal.tsx', cp: 0x1fa9f, near: 'className="m-ico"' },
-  { file: 'ui/parts/TroopCardView.tsx', cp: 0x1faa8, near: 't.mult <= 1' },
-  { file: 'world/data/diplomacy.ts', cp: 0x1faa8, near: "icon: '" },
-];
+/** Где тест ищет: код игры, сервер с ботом и экран загрузки. */
+function scan(): { files: number; hits: string[] } {
+  const files = [...sources(join(ROOT, 'src')), ...sources(join(ROOT, 'netlify')), join(ROOT, 'index.html')];
+  const hits: string[] = [];
+  for (const file of files) {
+    const code = strip(readFileSync(file, 'utf8').replace(/<!--[\s\S]*?-->/g, (c) => c.replace(/[^\n]/g, ' ')));
+    for (const { cp, line } of emojiIn(code)) hits.push(`${rel(file)}:${line} ${hex(cp)}`);
+  }
+  return { files: files.length, hits };
+}
 
-const debtName = (d: (typeof DEBT)[number]): string => `${d.file} ${hex(d.cp)} «${d.near}»`;
-
-describe('эмодзи — только из Emoji 12.0 и старше', () => {
-  it('список — таблица 12.0, и граница стоит там, где кончается 12.0', () => {
-    expect(EMOJI_VERSION).toBe('12.0');
-    // Пары по обе стороны границы внутри одного блока: последнее из 12.0 и первое из 13.0.
-    expect(allowed(0x1fa82), 'парашют — 12.0').toBe(true);
-    expect(allowed(0x1fa83), 'бумеранг — 13.0').toBe(false);
-    expect(allowed(0x1fa95), 'банджо — 12.0').toBe(true);
-    expect(allowed(0x1fa96), 'военный шлем — 13.0').toBe(false);
-    expect(allowed(0x1fa93), 'топор — 12.0').toBe(true);
-    expect(allowed(0x1fa99), 'монета — 13.0').toBe(false);
-    expect(allowed(0x1faa8), 'камень — 13.0').toBe(false);
-    expect(allowed(0x1fab5), 'полено — 13.0').toBe(false);
-    expect(allowed(0x2694), 'скрещённые мечи — старый символ').toBe(true);
-  });
-
-  it('образцы: эмодзи узнаётся с приставкой и без, кириллица и знаки — нет', () => {
+describe('эмодзи нет нигде', () => {
+  it('образцы: эмодзи узнаётся с приставкой и без, знак-значок — тоже; кириллица, стрелки и знаки текста — нет', () => {
     const f = String.fromCodePoint;
     const seen = (s: string) => emojiIn(s).map((e) => e.cp);
-    expect(seen(`мечи ${f(0x2694, 0xfe0f)}`)).toEqual([0x2694]);
+    expect(seen(`мечи ${f(0x2694, 0xfe0f)}`)).toEqual([0x2694, 0xfe0f]);
     expect(seen(`монета ${f(0x1fa99)}`)).toEqual([0x1fa99]);
     expect(seen(`знамя ${f(0x1f1f7, 0x1f1fa)}`)).toEqual([0x1f1f7, 0x1f1fa]);
     // Незанятое место в блоке эмодзи — тоже эмодзи: то, что появится после Node, не пройдёт мимо.
     expect(seen(f(0x1faff))).toEqual([0x1faff]);
-    expect(seen('Дружина: 10 · −1 +1 × ÷ «»')).toEqual([]);
+    expect(seen('закрыть ✕')).toEqual([0x2715]);
+    expect(seen('Дружина: 10 · −1 +1 × ÷ «» → ← ›')).toEqual([]);
   });
 
   it('комментарий не рисуется и в счёт не идёт, а строки после него считаются верно', () => {
@@ -113,33 +78,10 @@ describe('эмодзи — только из Emoji 12.0 и старше', () => 
     expect(strip(`const url = 'https://t.me/x';`)).toContain('t.me/x');
   });
 
-  it('по всему src: каждое эмодзи в коде есть в списке 12.0, кроме записанного долга', () => {
-    const hits: string[] = [];
-    const zwj: string[] = [];
-    let files = 0;
-    let found = 0;
-    for (const file of sources(ROOT)) {
-      files++;
-      const code = strip(readFileSync(file, 'utf8'));
-      const lines = code.split('\n');
-      const path = rel(file);
-      for (const { cp, line } of emojiIn(code)) {
-        found++;
-        if (allowed(cp)) continue;
-        // Место долга — то, которое узнаёт ровно одна его запись; иначе место новое (или
-        // запись узнаёт не одно), и в ответе стоит номер строки — чтобы его найти.
-        const debt = DEBT.filter((d) => d.file === path && d.cp === cp && lines[line - 1].includes(d.near));
-        hits.push(debt.length === 1 ? debtName(debt[0]) : `${path}:${line} ${hex(cp)}`);
-      }
-      lines.forEach((l, i) => {
-        if (l.includes(ZWJ)) zwj.push(`${path}:${i + 1}`);
-      });
-    }
-    // Область правила: обошли весь src и нашли в нём эмодзи, а не пустоту.
-    expect(files, 'обошли весь src').toBeGreaterThan(300);
-    expect(found, 'эмодзи в коде есть — правило спрашивалось').toBeGreaterThan(300);
-    expect(zwj, 'склейки ZWJ списком кодовых точек не проверить').toEqual([]);
-    // Каждая запись долга узнаёт ровно одно место: два места под одной записью дали бы её имя дважды.
-    expect(hits.sort()).toEqual(DEBT.map(debtName).sort());
+  it('по всему src, netlify и index.html: ни одного эмодзи и знака-значка в коде', () => {
+    const { files, hits } = scan();
+    // Область правила: обошли весь код игры и сервера, а не пустоту.
+    expect(files, 'обошли src, netlify и index.html').toBeGreaterThan(400);
+    expect(hits).toEqual([]);
   });
 });

@@ -101,7 +101,7 @@ export function Feed({ feed, onClose }: { feed: FeedState; onClose: () => void }
       <div className="wm-rhead">
         <b>Молва края</b>
         <button className="wm-rbtn" onClick={onClose} aria-label="Закрыть">
-          <Icon name="ui-close" glyph="✕" />
+          <Icon name="ui-close" />
         </button>
       </div>
       {why && <div className="nx-stale">{why}</div>}
@@ -122,7 +122,7 @@ export function Feed({ feed, onClose }: { feed: FeedState; onClose: () => void }
               cells: {
                 what: (
                   <span className="kit-name">
-                    <Icon name={w.icon.name} glyph={w.icon.glyph} />
+                    <Icon name={w.icon} />
                     <span className="one-line">{w.title}</span>
                   </span>
                 ),

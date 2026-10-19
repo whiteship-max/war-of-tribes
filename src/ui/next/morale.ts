@@ -4,11 +4,13 @@
 // пир, обряд и вести поимённо. Чистые функции — их сверяет тест (`ui8.test.ts`); своей арифметики нет (правило 18).
 import type { GameState } from '@/game/types';
 import { activeBoons, moraleBreakdown, taxOf } from '@/game/derived';
+import type { IconName } from '@/ui/icons/alias';
+import { iconName } from '@/ui/icons/registry';
 
 /** Строка разбора цели: значок, имя, откуда число, вклад; `after` — ложится после предела шкалы. */
 export interface MoraleRow {
   id: string;
-  icon: string;
+  icon: IconName;
   name: string;
   hint: string;
   value: number;
@@ -26,14 +28,14 @@ const EPS = 0.001;
 export function moraleRows(s: GameState): { rows: MoraleRow[]; target: number } {
   const m = moraleBreakdown(s);
   const after = m.clamped - m.tax + m.feast + m.rite + m.boon;
-  const rows: MoraleRow[] = [{ id: 'base', icon: '🏛️', name: 'Основа', hint: 'мораль устоявшегося города', value: m.base }, ...m.lines];
+  const rows: MoraleRow[] = [{ id: 'base', icon: 'bld-town_hall', name: 'Основа', hint: 'мораль устоявшегося города', value: m.base }, ...m.lines];
   const cut = m.clamped - m.raw + (m.target - after);
-  if (Math.abs(cut) > EPS) rows.push({ id: 'cut', icon: '🚧', name: 'Предел шкалы', hint: 'цель держится в 0…100', value: cut });
+  if (Math.abs(cut) > EPS) rows.push({ id: 'cut', icon: 'ui-barrier', name: 'Предел шкалы', hint: 'цель держится в 0…100', value: cut });
   const tax = taxOf(s);
-  if (m.tax > EPS) rows.push({ id: 'tax', icon: tax.icon, name: `Налог: ${tax.name.toLowerCase()}`, hint: 'после предела шкалы', value: -m.tax, after: true });
+  if (m.tax > EPS) rows.push({ id: 'tax', icon: iconName('tax', tax.id), name: `Налог: ${tax.name.toLowerCase()}`, hint: 'после предела шкалы', value: -m.tax, after: true });
   // Пир и обряд — две строки: это два здания и два решения (обряд, подписанный «Пиром», отправлял не в то здание).
-  if (m.feast > EPS) rows.push({ id: 'feast', icon: '🍺', name: 'Пир в трактире', hint: 'после предела шкалы', value: m.feast, after: true });
-  if (m.rite > EPS) rows.push({ id: 'rite', icon: '🕯️', name: 'Обряд в приходе', hint: 'после предела шкалы', value: m.rite, after: true });
+  if (m.feast > EPS) rows.push({ id: 'feast', icon: 'bld-tavern', name: 'Пир в трактире', hint: 'после предела шкалы', value: m.feast, after: true });
+  if (m.rite > EPS) rows.push({ id: 'rite', icon: 'ui-candle', name: 'Обряд в приходе', hint: 'после предела шкалы', value: m.rite, after: true });
   // Усилители вестей — по строке на каждый: игрок ищет, какой из них греет или студит.
   for (const { def } of activeBoons(s)) {
     if (!def.morale) continue;

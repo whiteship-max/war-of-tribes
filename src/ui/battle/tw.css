@@ -121,7 +121,8 @@
   width: min(100%, 360px);
   padding: 14px 14px 10px;
   border-radius: var(--radius);
-  background: var(--panel);
+  background: var(--m-plate);
+  box-shadow: var(--m-plate-bevel);
   color: var(--text);
 }
 

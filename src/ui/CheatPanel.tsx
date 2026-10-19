@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { CHEATS_ON, CHEAT_MARK, CHEAT_MARK_GLADE, cheatsOf, type CheatWhere } from '@/cheats';
 import { tgInitData } from '@/telegram/webapp';
+import { Icon } from '@/ui/icons/Icon';
 
 /**
  * Кнопка кодов: одна разметка на деревню и на поляну.
@@ -92,7 +93,7 @@ export function CheatPanel({
         aria-label="Коды"
         aria-expanded={open}
       >
-        {open ? '✕' : '⌘'}
+        <Icon name={open ? 'ui-close' : 'ui-dice'} />
       </button>
     </div>
   );

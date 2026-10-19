@@ -5638,7 +5638,6 @@ export class LocalWorld implements WorldApi {
     return {
       ...l,
       title: def.title,
-      icon: def.icon,
       body: def.body(l, goods, this.homeName()),
       from: this.letterFrom(l),
       choices,
@@ -6748,7 +6747,6 @@ export class LocalWorld implements WorldApi {
     return {
       id,
       name: def.name,
-      icon: def.icon,
       phase: f.phase,
       place: placeOf(f),
       at,

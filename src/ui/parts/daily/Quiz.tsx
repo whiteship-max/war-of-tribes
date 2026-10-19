@@ -2,6 +2,8 @@ import { useMemo, useState } from 'react';
 import { quizExplain, quizQuestion, type QuizSide } from '@/game/daily/quiz';
 import { TROOP_BY_ID, TROOP_IDS } from '@/game/data/troops';
 import { haptic } from '@/telegram/webapp';
+import { Icon } from '@/ui/icons/Icon';
+import { iconName } from '@/ui/icons/registry';
 
 /**
  * ⚔️ Кто победит. Две дружины, игрок выбирает чью.
@@ -80,7 +82,7 @@ function Stack({ side }: { side: QuizSide }) {
     <>
       {TROOP_IDS.filter((id) => (side.troops[id] ?? 0) > 0).map((id) => (
         <span className="mg-stack" key={id}>
-          {TROOP_BY_ID[id].icon} {TROOP_BY_ID[id].name} × {side.troops[id]}
+          <Icon name={iconName('troop', id)} /> {TROOP_BY_ID[id].name} × {side.troops[id]}
         </span>
       ))}
     </>

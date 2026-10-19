@@ -13,6 +13,7 @@ import { Icon } from '@/ui/icons/Icon';
 import { realSpanText } from '@/ui/parts/wait';
 import { energyNow, useTrades } from '@/ui/trades';
 import { fmtInt } from './hudTips';
+import { iconName } from '@/ui/icons/registry';
 
 /** Строка игры: значок, имя, «до N» значками запасов, цена в энергии и кнопка — или почему нельзя. */
 export function TradeLine({ id }: { id: MinigameId }) {
@@ -25,7 +26,7 @@ export function TradeLine({ id }: { id: MinigameId }) {
   return (
     <div className="nx-trade">
       <span className="nx-bico">
-        <Icon name={`mini-${id}`} glyph={def.glyph} />
+        <Icon name={iconName('mini', id)} />
       </span>
       <div className="nx-trade-body">
         <b>{def.name}</b>
@@ -33,12 +34,12 @@ export function TradeLine({ id }: { id: MinigameId }) {
           до
           {RESOURCE_IDS.filter((r) => top[r]).map((r) => (
             <span key={r} className="nx-trade-res" aria-label={RESOURCE_META[r].name}>
-              <Icon name={`res-${r}`} glyph={RESOURCE_META[r].icon} />
+              <Icon name={iconName('res', r)} />
               {fmtInt(top[r] ?? 0)}
             </span>
           ))}
           <span className="nx-trade-res nx-trade-cost" aria-label="Энергия">
-            <Icon name="ui-energy" glyph="✋" />
+            <Icon name="ui-energy" />
             {MINIGAME_COST}
           </span>
         </span>
@@ -70,7 +71,7 @@ export function Trades() {
     <div className="panel nx-bpanel">
       <div className="nx-bhead">
         <span className="nx-bico">
-          <Icon name="ui-energy" glyph="✋" />
+          <Icon name="ui-energy" />
         </span>
         <div className="nx-btitle">
           <b className="one-line">Промыслы</b>
@@ -82,7 +83,7 @@ export function Trades() {
           </span>
         </div>
         <button className="nx-bclose" onClick={hide} aria-label="Закрыть">
-          <Icon name="ui-close" glyph="✕" />
+          <Icon name="ui-close" />
         </button>
       </div>
       {MINIGAMES.map((g) => (

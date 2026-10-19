@@ -33,6 +33,7 @@ import { Steps } from '@/ui/parts/Steps';
 import { Table, type Col } from '@/ui/kit/Table';
 import { Btn } from '@/ui/kit/Btn';
 import './siege.css';
+import { iconName } from '@/ui/icons/registry';
 
 /**
  * `machine` — вылазка на машину лагеря (docs/siege_v2.md, раздел 5): бой с её охраной у стены, перед рогатками; победа сжигает
@@ -78,7 +79,7 @@ export function SortiePanel({ machine }: { machine?: MachineId } = {}) {
     return (
       <div className="panel">
         <div className="bhead">
-          <div className="ico">⚔️</div>
+          <div className="ico"><Icon name="hud-army" /></div>
           <div className="body">
             <div className="name">Вылазки не нужно</div>
             <div className="lvl">под стенами никого</div>
@@ -114,7 +115,7 @@ export function SortiePanel({ machine }: { machine?: MachineId } = {}) {
     <div className="panel sg">
       <div className="bhead">
         <div className="ico">
-          <Icon name="letter-siege" glyph="⛺" />
+          <Icon name="letter-siege" />
         </div>
         <div className="body">
           <div className="name">{target ? `Вылазка: ${target.name.toLowerCase()}` : 'Вылазка'}</div>
@@ -132,7 +133,7 @@ export function SortiePanel({ machine }: { machine?: MachineId } = {}) {
       */}
       {machine && (
         <div className="card danger">
-          <div className="ico">🔥</div>
+          <div className="ico"><Icon name="ui-flame" /></div>
           <div className="body">
             <div className="title">{target ? `${target.name}: ${target.ready ? 'готова' : 'строится'}` : 'Машины у лагеря нет'}</div>
             <div className="desc">
@@ -145,7 +146,7 @@ export function SortiePanel({ machine }: { machine?: MachineId } = {}) {
       )}
       {!machine && (
       <div className={`card${fc.now.works > 0 ? ' danger' : ''}`}>
-        <div className="ico">⛺</div>
+        <div className="ico"><Icon name="stage-camp" /></div>
         <div className="body">
           <div className="title">
             {fc.now.works <= 0 ? 'Рогаток нет' : fc.now.works < 1 ? 'Рогатки растут' : 'Рогатки дозрели'}
@@ -187,7 +188,7 @@ export function SortiePanel({ machine }: { machine?: MachineId } = {}) {
               cells: {
                 kind: (
                   <span className="kit-name">
-                    <Icon name={`troop-${t}`} glyph={TROOP_BY_ID[t].icon} />
+                    <Icon name={iconName('troop', t)} />
                     <span className="kit-two">
                       <b className="one-line">{TROOP_BY_ID[t].name}</b>
                       <small>из {max}</small>

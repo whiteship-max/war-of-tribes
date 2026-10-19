@@ -16,6 +16,8 @@ import { pointsOf, rulerRate } from '@/game/sim/points';
 import { levelName, study, studyInfo, techGains, techLevel } from '@/game/sim/tech';
 import { waitLeft } from '@/ui/parts/wait';
 import type { RealmBranch } from '@/game/types';
+import { Icon } from '@/ui/icons/Icon';
+import { BRANCH_ICON } from './branches';
 
 export function TechTab() {
   return (
@@ -45,7 +47,9 @@ function Branch({ branch }: { branch: RealmBranch }) {
         <i>{BRANCH_LORE[branch].flavor}</i> {BRANCH_LORE[branch].deed}
       </div>
       <div className="mod total">
-        <span className="ico">◆</span>
+        <span className="ico">
+          <Icon name={BRANCH_ICON[branch]} />
+        </span>
         <span className="name">
           Очки
           <em className="sub">{rate > 0 ? `+${rate} в день` : 'не копятся'}</em>
@@ -83,7 +87,7 @@ function Level({ branch, level, at }: { branch: RealmBranch; level: number; at: 
   return (
     <>
       <div className={`mod${done ? '' : next ? ' warn' : ' off'}`}>
-        <span className="ico">{done ? '✓' : next ? '◆' : '🔒'}</span>
+        <span className="ico"><Icon name={done ? 'ui-check' : next ? 'attn-upgrade' : 'ui-lock'} /></span>
         <span className="name">
           {level} · {levelName(branch, level)}
           {gains.length > 0 && <em className="sub">{gains.join(' · ')}</em>}
@@ -95,7 +99,7 @@ function Level({ branch, level, at }: { branch: RealmBranch; level: number; at: 
         <>
           <div className="cost">
             <span className={info.have >= info.price ? '' : 'no'} title="Очки правителя">
-              ◆ {info.price}
+              <Icon name={BRANCH_ICON[branch]} /> {info.price}
               <i className="have">из {Math.floor(info.have)}</i>
             </span>
           </div>

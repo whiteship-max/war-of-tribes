@@ -295,7 +295,7 @@ export function quizExplain(q: QuizQuestion): QuizExplain {
   }
   for (const k of sum.keys) {
     if (lines.length >= QUIZ.explainLines) break;
-    lines.push(`${k.icon} ${k.text}`);
+    lines.push(k.text);
   }
   // Бой без единого ключевого события — редкость, но разбор не имеет права
   // оказаться пустым: итог в журнале есть всегда.

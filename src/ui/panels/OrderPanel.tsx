@@ -101,7 +101,7 @@ export function OrderPanel() {
 
       {left !== null && (
         <div className="mod total order-clock">
-          <span className="ico">{ORDER_TEXT.mutiny.icon}</span>
+          <span className="ico"><Icon name={ORDER_TEXT.mutiny.icon} /></span>
           <span className="name">
             До мятежа
             <em className="sub">при порядке от {ORDER_UNREST} ропот стихает</em>
@@ -138,7 +138,7 @@ function Watch() {
             {ORDER_TEXT.price({ holds: f.holds, bonded: f.bonded, flee: f.flee, leave: f.leave })}
           </div>
           <div className="mod">
-            <span className="ico">⚔️</span>
+            <span className="ico"><Icon name="hud-army" /></span>
             <span className="name">
               Стража дома
               <em className="sub">
@@ -164,7 +164,7 @@ function Watch() {
           cells: {
             who: (
               <span className="kit-name">
-                <span className="ic">{l.icon}</span>
+                <span className="ic"><Icon name={l.icon} /></span>
                 <span className="one-line">{l.name}</span>
               </span>
             ),
@@ -176,7 +176,7 @@ function Watch() {
       />
       {/* Против надзора — сколько невольников он держит: больше надзора — красным. */}
       <div className="mod total">
-        <span className="ico">{ORDER_TEXT.bondedIcon}</span>
+        <span className="ico"><Icon name={ORDER_TEXT.bondedIcon} /></span>
         <span className="name">{ORDER_TEXT.bondedName}</span>
         <span className={`val${o.bonded > o.hold ? ' neg' : ''}`}>{o.bonded}</span>
       </div>
@@ -185,7 +185,7 @@ function Watch() {
       {home < all ? (
         <>
           <button className="btn ghost wide" onClick={openMap}>
-            <Icon name="hud-army" glyph="⚔️" /> Вернуть домой
+            <Icon name="hud-army" /> Вернуть домой
           </button>
           <div className="note">Дома {home} из {all}</div>
         </>
@@ -194,12 +194,12 @@ function Watch() {
       )}
       {barracks && (
         <button className="btn ghost wide" onClick={() => openBuilding(barracks.id)}>
-          <Icon name="bld-barracks" glyph="🛡️" /> Нанять
+          <Icon name="bld-barracks" /> Нанять
         </button>
       )}
       {tavern && (
         <button className="btn ghost wide" onClick={() => openBuilding(tavern.id)}>
-          <Icon name="bld-tavern" glyph="🍺" /> Устроить пир
+          <Icon name="bld-tavern" /> Устроить пир
         </button>
       )}
     </>
@@ -220,7 +220,7 @@ function Bonded() {
           <BondedRelease />
           {market && (
             <button className="btn ghost wide" onClick={() => openBuilding(market.id)}>
-              <Icon name="bld-market" glyph="🛒" /> Продать
+              <Icon name="bld-market" /> Продать
             </button>
           )}
         </>

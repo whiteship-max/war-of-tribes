@@ -73,7 +73,9 @@ function CityAlerts() {
             onClick={(e) => (pill && a.go ? act(a) : open(a, e.currentTarget))}
             aria-label={a.title}
           >
-            <span className="nx-ring">{a.icon ? <Icon name={a.icon} glyph={a.glyph} /> : a.glyph}</span>
+            <span className="nx-ring">
+              <Icon name={a.icon} />
+            </span>
             {pill && <span className="nx-pill-txt">{a.title}</span>}
             {a.timer && <span className="nx-timer">{a.timer}</span>}
           </button>

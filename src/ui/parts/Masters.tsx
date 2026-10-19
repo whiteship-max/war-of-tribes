@@ -32,7 +32,7 @@ export function Masters() {
         </span>
       </h3>
       <div className="card">
-        <div className="ico">🔨</div>
+        <div className="ico"><Icon name="ui-hammer" /></div>
         <div className="body">
           <div className="title">
             Мастера со стороны
@@ -45,13 +45,13 @@ export function Masters() {
       </div>
       <div className="mod">
         <span className="ico">
-          <Icon name="res-gold" glyph="💰" />
+          <Icon name="res-gold" />
         </span>
         <span className="name">Жалованье мастеру</span>
         <span className="val">{dec(m.wage, 2)} в день</span>
       </div>
       <div className="mod">
-        <span className="ico">⚔️</span>
+        <span className="ico"><Icon name="hud-army" /></span>
         <span className="name">
           Цена мастера
           <em className="sub">{dec(m.hands, 2)} рук стройке, платят как бойцам</em>
@@ -61,7 +61,7 @@ export function Masters() {
         </span>
       </div>
       <div className="mod">
-        <span className="ico">🔨</span>
+        <span className="ico"><Icon name="ui-hammer" /></span>
         <span className="name">
           Дают стройке
           <em className="sub">каждый +{dec(m.each, 1)}</em>
@@ -69,7 +69,7 @@ export function Masters() {
         <span className="val">+{dec(m.gain, 1)}</span>
       </div>
       <div className="mod">
-        <span className="ico">📜</span>
+        <span className="ico"><Icon name="ui-scroll" /></span>
         <span className="name">
           Жалованье в день
           <em className="sub">

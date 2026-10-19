@@ -7,7 +7,7 @@
 // постройкой, пока камера едет.
 import type * as THREE from 'three';
 import type { BuildingTypeId, GameState, ResourceId, Resources } from '@/game/types';
-import { DAY_LENGTH, RESOURCE_IDS, RESOURCE_META } from '@/game/constants';
+import { DAY_LENGTH, RESOURCE_IDS } from '@/game/constants';
 import { gameSeconds } from '@/game/pace';
 import type { Quality } from '../quality';
 
@@ -166,7 +166,7 @@ export class CityPops {
       el.innerHTML = p.pop.items
         .map(({ r, n }) => {
           const art = this.svg(`res-${r}`);
-          const ico = art ? `<i>${art}</i>` : `<i>${RESOURCE_META[r].icon}</i>`;
+          const ico = art ? `<i>${art}</i>` : '';
           return `<span>+${n}${ico}</span>`;
         })
         .join('');

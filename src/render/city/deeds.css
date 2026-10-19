@@ -131,7 +131,7 @@
   display: none;
 }
 
-/* ---------- Подписи построек и спокойные метки (ОР-1, docs/ui_v2.md, 5.9; `labels.ts`) ---------- */
+/* ---------- Подписи построек и метка в подписи (ОР-1, ЗН-3; docs/ui_v2.md, 5.9 и 5.10; `labels.ts`) ---------- */
 /* Касаний слой не берёт вовсе: палец доходит до постройки под подписью, как без неё. Под надписями добычи. */
 .city-labels {
   position: absolute;
@@ -141,16 +141,12 @@
   z-index: 1;
 }
 
-.city-label,
-.city-pip {
+/* Подпись — середина на теле постройки; ширина — по имени, в одну строку. */
+.city-label {
   position: absolute;
   left: 0;
   top: 0;
   will-change: transform;
-}
-
-/* Подпись — середина на теле постройки; ширина — по имени, в одну строку. */
-.city-label {
   display: flex;
   align-items: center;
   gap: 4px;
@@ -174,31 +170,20 @@
   color: #fff3d0;
 }
 
-/* Метка — точка 12 px над крышей: золотая — можно улучшить, светлое кольцо — есть места. Дышит медленно. */
-.city-pip {
-  width: 12px;
-  height: 12px;
-  margin: -6px 0 0 -6px;
-  border-radius: 50%;
-  box-sizing: border-box;
-  animation: city-pip 2.8s ease-in-out infinite;
-}
-
-.city-pip[data-mark='upgrade'],
+/* Метка в подписи — точка перед именем, только вблизи (ЗН-3: точек над крышами издали нет; вдали — `far`, место точки
+   остаётся, чтобы ширина подписи не прыгала): золотая — можно улучшить, светлое кольцо — есть места. */
 .city-label[data-mark='upgrade']::before {
   background: #e8c46a;
   border: 1px solid rgba(30, 22, 15, 0.8);
   box-shadow: 0 0 6px rgba(232, 196, 106, 0.55);
 }
 
-.city-pip[data-mark='slot'],
 .city-label[data-mark='slot']::before {
   background: rgba(30, 22, 15, 0.55);
   border: 2px solid #f1e3c4;
   box-shadow: 0 0 5px rgba(241, 227, 196, 0.4);
 }
 
-/* В подписи метка — та же точка перед именем. */
 .city-label[data-mark='upgrade']::before,
 .city-label[data-mark='slot']::before {
   content: '';
@@ -209,18 +194,6 @@
   box-sizing: border-box;
 }
 
-@keyframes city-pip {
-  0%,
-  100% {
-    opacity: 0.7;
-  }
-  50% {
-    opacity: 1;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .city-pip {
-    animation: none;
-  }
+.city-label.far::before {
+  visibility: hidden;
 }

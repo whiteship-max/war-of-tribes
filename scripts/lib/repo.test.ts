@@ -71,7 +71,8 @@ describe('замыкания отчётов на этом репозитории
     const scene = report('scene').closure;
     expect(scene.built).toBe(true);
     expect([...scene.files]).toEqual(expect.arrayContaining(['scripts/build.mjs', 'scripts/build-icons.ts', 'index.html']));
-    expect([...scene.files].some((f) => f.startsWith('assets-src/icons/'))).toBe(true);
+    // Рисунки набора ЗН-1 — код (`scripts/icons/`, docs/icons.md): сборка значков тянет их импортом.
+    expect([...scene.files]).toEqual(expect.arrayContaining(['scripts/icons/set.ts', 'scripts/icons/motifs.ts', 'scripts/icons/kit.ts']));
   });
 
   it('временный конфиг Vite не входит в дерево: его стирают раньше, чем git его прочтёт', () => {
