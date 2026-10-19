@@ -6,10 +6,14 @@
 import { create } from 'zustand';
 import { setLabelsOn } from '@/render/sitetags';
 
-const LABELS_KEY = 'tribe.labels';
+// Р-3 (docs/ui_v2.md, «Решения Р-3»): подписи включены у всех — и у тех, кто прежде выключил их ключом `tribe.labels`. Сброс
+// разовый: ключ сменён, прежний не читается и стирается; выключенный после этого помнится новым ключом.
+export const LABELS_KEY = 'tribe.labels.r3';
+export const OLD_LABELS_KEY = 'tribe.labels';
 
 function readLabels(): boolean {
   try {
+    localStorage.removeItem(OLD_LABELS_KEY);
     return localStorage.getItem(LABELS_KEY) !== '0';
   } catch {
     return true;

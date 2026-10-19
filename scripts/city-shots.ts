@@ -6,6 +6,7 @@
 //   TEX=1 npm run city:shots                   — слои текстур листом (без браузера)
 //   BUDGET=1 npm run city:shots                — бюджет по уровням счётом (без браузера); `BUILD_MS=1` — и цена сборки мира
 //   GAME=1 QUALITY=medium npm run city:shots   — сама игра по адресу `?look=city`: стартовый кадр
+//   GAME=1 PANEL=barracks,stable npm run city:shots — окна построек: открытое и прокрученное к «Найму» (Р-3)
 //                                                (сцена города в игре, не стенд), TAG и QUALITY те же
 //   GAME=1 WX=clear,rain,storm npm run city:shots — погода адресом (`?weather=`, docs/city.md, 15): кадр игры на каждую,
 //                                                `WXLOOK=market:70` — вблизи постройки (тип:расстояние; `-4,10,-30:60` —
@@ -220,6 +221,10 @@ async function gameShot(q: Quality): Promise<void> {
     await tab.eval<string>(`(() => { const s = window.__game.getState().s; s.tutorialDone = true; window.__game.setState({ s: { ...s } }); return JSON.stringify('ok'); })()`);
     // Касание — сразу, пока сторож кадров не счёл медленные программные кадры остановкой (см. `gameTaps`).
     if (process.env.TAP === '1') await gameTaps(tab);
+    if (process.env.PANEL) {
+      await panelShots(tab);
+      return;
+    }
     if (process.env.DEEDS === '1') {
       await deedShots(tab, q);
       return;
@@ -237,6 +242,43 @@ async function gameShot(q: Quality): Promise<void> {
   } finally {
     tab.close();
     await fetch(`http://127.0.0.1:${DEBUG_PORT}/json/close/${tab.target}`).catch(() => undefined);
+  }
+}
+
+/**
+ * Окна построек (`PANEL=barracks,stable` к `GAME=1`, docs/ui_v2.md, Р-3): на каждое — кадр открытого окна и кадр, где окно
+ * прокручено к разделу «Найм». Запасы и снаряжение подняты, чтобы «Нанять» было открыто, — это стенд, не партия.
+ */
+async function panelShots(tab: Tab): Promise<void> {
+  await tab.eval<string>(`(() => {
+    const s = window.__game.getState().s;
+    s.inbox = [];
+    s.winterWarning = false;
+    s.nextEventAt = s.time + 1e9;
+    for (const k of Object.keys(s.resources)) s.resources[k] += 500;
+    for (const k of Object.keys(s.equipment)) s.equipment[k] += 20;
+    window.__game.setState({ s: { ...s } });
+    return JSON.stringify('ok');
+  })()`);
+  for (const type of list(process.env.PANEL, '')) {
+    const id = await tab.eval<number | null>(`JSON.stringify((() => { const b = window.__game.getState().s.buildings.find((x) => x.type === '${type}'); return b ? b.id : null; })())`);
+    if (id === null) {
+      console.log(`  окно ${type}: постройки нет`);
+      continue;
+    }
+    await tab.eval<string>(`(() => { window.__game.getState().openBuilding(${id}); return JSON.stringify('ok'); })()`);
+    await sleep(2500);
+    const snap = async (name: string): Promise<void> => {
+      const png = await tab.send<{ data: string }>('Page.captureScreenshot', { format: 'png' });
+      await writeFile(join(OUT, name), Buffer.from(png.data, 'base64'));
+      console.log(`  окно ${type} → .city-shots/${name}`);
+    };
+    await snap(`${TAG}-${type}-open.png`);
+    const found = await tab.eval<boolean>(`JSON.stringify((() => { const h = [...document.querySelectorAll('h3')].find((e) => e.textContent.trim() === 'Найм'); if (h) h.scrollIntoView({ block: 'start' }); return !!h; })())`);
+    await sleep(800);
+    if (found) await snap(`${TAG}-${type}-hire.png`);
+    await tab.eval<string>(`(() => { window.__game.getState().openBuilding(null); return JSON.stringify('ok'); })()`);
+    await sleep(600);
   }
 }
 
