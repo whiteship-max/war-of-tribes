@@ -42,7 +42,7 @@ export function openDoor(d: Door): void {
       useTreasury.getState().show('shop');
       return;
     case 'arms':
-      // Печать с гербом — в профиль державы: герб собирают там (П-2, `parts/ArmsMaker`).
+      // Печать с гербом — в окно профиля: герб собирают там (П-2, `parts/ArmsMaker`; профиль — своё окно, ЗН-4).
       useRealm.getState().show('settings');
       return;
   }

@@ -1,7 +1,9 @@
 // Меню державы нового интерфейса (docs/ui_audit.md, 6.4). Каркас — шторка между верхом и низом: верх, тревоги
-// и низ видны и работают. Шапка — герб, город и правитель, профиль и «закрыть» значками; под ней строка очков
-// трёх ветвей; пять вкладок значком и словом, все на экране: Правитель · Указы · Технологии · Вера · Задания.
-// «Вести» — свой экран из нижней навигации, без вкладок: счётчик стоит там, куда ведёт.
+// и низ видны и работают. Шапка — герб, город и правитель и «закрыть»; под ней строка очков трёх ветвей; пять вкладок
+// значком и словом, все на экране: Правитель · Указы · Технологии · Вера · Задания.
+// «Вести» — свой экран из нижней навигации, без вкладок: счётчик стоит там, куда ведёт. «Профиль» — тоже свой экран, из
+// значка-фигурки справа сверху (ЗН-4, docs/ui_v2.md, 5.11; слово владельца): в державе профиля нет, ни кнопкой, ни вкладкой.
+// Окна — тем же каркасом и тем же хранилищем (`open.ts`, вид `settings`), чтобы верх, низ и тревоги вели себя одинаково.
 //
 // Разделы — те же компоненты, что у прежнего меню (`Section`), кроме технологий: здесь они тремя столбцами
 // ветвей, ступень — ячейкой, а изучение — закреплённой полосой внизу. Своих чисел нет: очки, цена, уровень,
@@ -24,15 +26,13 @@ import { CoatArt } from './Coat';
 import { useRealm, type RealmView } from './open';
 import { Section, useRealmYield } from './RealmMenu';
 import { BRANCH_ICON, BRANCH_WORD } from './branches';
-import { useBugReport } from '../parts/bugOpen';
-import { inTelegram } from '@/telegram/webapp';
 import { DecreesNew, FaithNew, QuestsNew, RulerNew } from './RealmTabs';
 import type { IconName } from '@/ui/icons/alias';
 
 // Ветви словами словаря и их значки — общие с вкладками (`branches.ts`).
 export { BRANCH_ICON, BRANCH_WORD } from './branches';
 
-/** Вкладки нового меню: пять, значком и словом. Остальные разделы — внизу экрана или в профиле. */
+/** Вкладки нового меню: пять, значком и словом. Остальные разделы — внизу экрана; профиль — своим окном (ЗН-4). */
 export const NEW_TABS: readonly { id: RealmView; word: string; icon: IconName }[] = [
   { id: 'lineage', word: 'Правитель', icon: 'ui-crown' },
   { id: 'government', word: 'Указы', icon: 'ui-scroll' },
@@ -49,7 +49,6 @@ export function RealmNew() {
   const act = useGame((g) => g.act);
   const save = useGame((g) => g.save);
   const [top, setTop] = useState(0);
-  const report = useBugReport((b) => b.show);
   // Имя города правится в шапке (docs/ui_audit.md, 13): черновик — сырой ввод, очищает одна дверь `setCity`.
   const [draft, setDraft] = useState<string | null>(null);
   const body = useRef<HTMLDivElement>(null);
@@ -74,15 +73,16 @@ export function RealmNew() {
   }, [view]);
 
   const mail = view === 'decisions';
+  const me = view === 'settings';
   return (
-    <div className="realm nx-realm" style={{ top }} role="dialog" aria-label={mail ? 'Вести' : 'Держава'}>
-      {mail ? (
+    <div className="realm nx-realm" style={{ top }} role="dialog" aria-label={mail ? 'Вести' : me ? 'Профиль' : 'Держава'}>
+      {mail || me ? (
         <div className="nx-rhead">
           <span className="nx-rico">
-            <Icon name="ui-mail" />
+            <Icon name={mail ? 'ui-mail' : 'ui-person'} />
           </span>
           <div className="nx-rtitle">
-            <b>Вести</b>
+            <b>{mail ? 'Вести' : 'Профиль'}</b>
           </div>
           <button className="nx-ibtn" onClick={hide} aria-label="Закрыть">
             <Icon name="ui-close" />
@@ -127,15 +127,6 @@ export function RealmNew() {
                   <Icon name="ui-edit" />
                 </span>
                 <i className="one-line">{profileName(s.profile)}</i>
-              </button>
-              {/* На профиле «Сообщить об ошибке» — строкой настроек; вторая дверь на том же экране — дубль (Д14, UI-7). */}
-              {inTelegram() && view !== 'settings' && (
-                <button className="nx-ibtn" onClick={report} aria-label="Сообщить об ошибке">
-                  <Icon name="ui-bug" />
-                </button>
-              )}
-              <button className={`nx-ibtn${view === 'settings' ? ' on' : ''}`} onClick={() => go('settings')} aria-label="Профиль и настройки">
-                <Icon name="ui-person" />
               </button>
               <button className="nx-ibtn" onClick={hide} aria-label="Закрыть">
                 <Icon name="ui-close" />

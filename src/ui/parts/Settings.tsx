@@ -24,7 +24,8 @@
 // спрашивает разрешения писать. Вне Telegram строки нет: писать некому.
 //
 // «Сообщить об ошибке» — такая же (решение владельца 06.10.2026, docs/admin.md): без неё игрок теста не может сказать о
-// поломке из игры. Окно одно на все входы (`BugReport`): здесь, в шапке меню державы и на плашке заморозки.
+// поломке из игры. Окно одно на все входы (`BugReport`): здесь (на стартовом экране), строкой профиля рядом с «Настройками»
+// (ЗН-4, docs/ui_v2.md, 5.11 — там эта строка не повторяется: `bug={false}`) и на плашке заморозки.
 //
 // Подсказки — такая же (решение владельца 06.10.2026, docs/rating.md): игроку, которому они мешают, выключить их больше
 // негде.
@@ -75,7 +76,8 @@ const musicLevel = (): number => soundLevel('music');
 const fxLevel = (): number => soundLevel('fx');
 const ambLevel = (): number => soundLevel('amb');
 
-export function Settings() {
+/** `bug` — строка «Сообщить об ошибке»; профиль ставит её сам, рядом с разделом «Настройки» (ЗН-4). */
+export function Settings({ bug = true }: { bug?: boolean } = {}) {
   const on = useSyncExternalStore(subscribeSound, soundOn, soundOn);
   const chosen = useSyncExternalStore(subscribeGfx, gfx, gfx);
 
@@ -256,7 +258,7 @@ export function Settings() {
           </button>
         )}
 
-        {inTelegram() && (
+        {bug && inTelegram() && (
           <button className="set-row" onClick={report}>
             <span className="ico">
               <Icon name="ui-bug" />

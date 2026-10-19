@@ -45,6 +45,7 @@ import {
   citySunAt,
   flyAt,
   INSIDE_SHADOW_AHEAD,
+  labelsAlpha,
   shadowSnap,
   showDist,
   type CamPose,
@@ -633,7 +634,7 @@ export class CityScene extends TribeScene {
       }
       this.pops?.update(this.camera, this.canvas.clientWidth, this.canvas.clientHeight, t);
       this.tags?.update(this.camera, this.canvas.clientWidth, this.canvas.clientHeight);
-      if (!this.inside) this.labels?.update(this.camera, this.canvas.clientWidth, this.canvas.clientHeight, labelsOn());
+      if (!this.inside) this.labels?.update(this.camera, this.canvas.clientWidth, this.canvas.clientHeight, labelsAlpha(this.dist, this.zoom, labelsOn()));
       // Первый кадр города нарисован — теперь докачка суеты.
       if (this.bustleWanted) {
         this.bustleWanted = false;

@@ -111,6 +111,28 @@ export function shadowSnap(at: { x: number; y: number; z: number }, from: { x: n
   return { x: at.x + rx * da + ux * db, y: at.y + uy * db, z: at.z + rz * da + uz * db };
 }
 
+// ---------- Порог подписей построек (ЗН-4, docs/ui_v2.md, 5.11; подписи — `labels.ts`) ----------
+// Здесь, а не у подписей: сцена берёт порог каждый кадр, а подписи едут своим куском (`deeds`).
+
+/**
+ * Где подписи проявляются: доля приближения (`zoomShare`; 0 — дальний край, 1 — ближний). Ниже `from` — ни одной, выше `to` —
+ * все, между — плавно (`smoothstep`). Полоса — около середины размаха (слово владельца: «примерно наполовину»), узкая, чтобы
+ * порог читался одним. Стартовый кадр города (520 м из 45…640) — доля 0,2: там ни одной.
+ */
+export const LABEL_ZOOM = { from: 0.45, to: 0.55 } as const;
+
+/** Доля приближения камеры: 0 — на дальнем краю (`zoom.max`), 1 — на ближнем (`zoom.min`). */
+export function zoomShare(dist: number, zoom: { min: number; max: number }): number {
+  return Math.min(1, Math.max(0, (zoom.max - dist) / (zoom.max - zoom.min)));
+}
+
+/** Видимость подписей, 0…1, — одна на все: рычаг выключен — 0; иначе по доле приближения (`LABEL_ZOOM`). */
+export function labelsAlpha(dist: number, zoom: { min: number; max: number }, on: boolean): number {
+  if (!on) return 0;
+  const t = Math.min(1, Math.max(0, (zoomShare(dist, zoom) - LABEL_ZOOM.from) / (LABEL_ZOOM.to - LABEL_ZOOM.from)));
+  return t * t * (3 - 2 * t);
+}
+
 // ---------- Полёт камеры (ОР-1, docs/ui_v2.md, 5.9) ----------
 
 /** Где камера: цель на земле и расстояние до неё (ракурс один — `cityFraming.polar`). */

@@ -9,6 +9,7 @@
 import { useGame } from '@/game/store';
 import { profileArms } from '@/profile/identity';
 import { ArmsArt } from '@/ui/parts/Arms';
+import { Icon } from '@/ui/icons/Icon';
 import { useWorld } from '@/world/store';
 import { coatView, useRealm } from './open';
 import { mailKeys, unreadCount, useSeen } from './unread';
@@ -54,7 +55,8 @@ export function CoatButton({ quiet = false }: { quiet?: boolean } = {}) {
 
 /**
  * Вход в профиль игрока — значок справа под строкой запасов, зеркально плашке алмазов слева (ЗН-3, docs/ui_v2.md, 5.10;
- * слово владельца): на нём герб державы, касание открывает профиль с настройками. Цель касания — 44 (действие, 2.5),
+ * слово владельца). На нём фигурка человека, а не герб (ЗН-4, 5.11): герб — держава, слева сверху, и второй герб справа был
+ * её дублем. Касание открывает окно «Профиль» — только профиль, без вкладок державы. Цель касания — 44 (действие, 2.5),
  * видимая плашка — 32, как у алмазов: лишние 12 px цели уходят вниз, в город, а не вверх, в ячейки запасов.
  */
 export function ProfileBadge() {
@@ -62,7 +64,7 @@ export function ProfileBadge() {
   return (
     <button className="nx-me" onClick={() => show('settings')} aria-label="Профиль">
       <span className="nx-me-face">
-        <CoatArt size={26} />
+        <Icon name="ui-person" />
       </span>
     </button>
   );
