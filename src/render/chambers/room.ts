@@ -22,7 +22,7 @@ import { Keys, Sticks, mergeWalk, typing, type Walk } from '@/prologue/controls'
 import { turnRate } from '@/minigames/pad';
 import { geometryOf } from '../city/index';
 import { treeModel } from '../city/nature';
-import { tint } from '../city/geom';
+import { tint, type V3 } from '../city/geom';
 import { Mesher } from './geo';
 import { buildRoom, ROOM_LIGHTS, type RoomModel } from './build';
 import { LIGHTS_AT, roomMaterial, roomUniforms, type RoomUniforms } from './material';
@@ -159,6 +159,38 @@ const SIP_LEN = 1.7;
 const SIP = 0.34;
 /** Наклон головы стоя: пределы. */
 const FREE_PITCH: readonly [number, number] = [-1.2, 1.1];
+/** Глаз к гостю (Р-1): после пальца взгляда — через столько секунд (входит; уже говорит), не быстрее `ATTEND_RATE` рад/с. */
+const ATTEND_IDLE = { enter: 0.9, talk: 1.6 };
+const ATTEND_RATE = 3.0;
+/**
+ * Поворот головы в деле к цели `rel` (от взгляда дела) из `off` в пределах `reach`: из двух путей вокруг — тот, что доводит
+ * до цели, а не упирается в предел; из равных — ближний. Гость ровно за спиной не крутит голову кругом при каждом шаге.
+ */
+function reachTurn(rel: number, off: number, reach: readonly [number, number]): number {
+  let best = 0;
+  let score = Infinity;
+  for (const t of [rel, rel - 2 * Math.PI, rel + 2 * Math.PI]) {
+    const c = clamp(t, reach[0], reach[1]);
+    const sc = Math.abs(c - t) * 4 + Math.abs(c - off);
+    if (sc < score) {
+      score = sc;
+      best = c - off;
+    }
+  }
+  return best;
+}
+
+/**
+ * Докуда гость уводит голову в деле (Р-1): сидя и лёжа — через плечо, до 150°; стоя (у двери, у окна, у камина) — кругом
+ * (`null`); пальцем — только в пределах дела.
+ */
+function attendReach(id: PoiId, lim: readonly [number, number]): [number, number] | null {
+  if (id !== 'desk' && id !== 'bed') return null;
+  return [Math.min(lim[0], -2.6), Math.max(lim[1], 2.6)];
+}
+/** Шапка покоев сверху и полоса кнопок снизу, точки (как у безделушки в руке, `chambers.test`). */
+const BAND_TOP = 64;
+const BAND_BOTTOM = 74;
 
 const V = new THREE.Vector3();
 const V2 = new THREE.Vector3();
@@ -293,8 +325,15 @@ export class ChambersRoom implements Inside {
   /** Глоток из кубка: сколько прошло, глотнул ли. */
   private sip: { t: number; gulped: boolean } | null = null;
   private wineMesh: THREE.Mesh;
-  /** Сколько секунд палец взгляда не вёл: столько — и голова сама оборачивается к собеседнику. */
+  /** Сколько секунд палец взгляда не вёл: столько — и голова сама оборачивается к гостю. */
   private idleLook = 0;
+  /** Разгон поворота к гостю, 0…1; держит ли глаз гостя в этом кадре. */
+  private attendK = 0;
+  private attending = false;
+  /** Куда смотрел гость прошлого кадра — упреждению. */
+  private attendWas: { yaw: number; pitch: number; who: Who; door: boolean } | null = null;
+  /** Высота плашки разговора от низа экрана (`setPlate`). */
+  private plateH: number | null = null;
 
   constructor(keep: Pick<Tower, 'x' | 'z' | 'base' | 'height'>, arms: Arms, quality: Quality, cityTex: () => THREE.Texture | null, memory: LifeMemory = { cat: false, catSpot: null }) {
     this.level = quality;
@@ -563,7 +602,7 @@ export class ChambersRoom implements Inside {
     this.stepEye(Math.min(dt, 0.1));
     this.life.step(Math.min(dt, 0.1));
     this.stepPet(Math.min(dt, 0.1));
-    this.attendTalk(Math.min(dt, 0.1));
+    this.attend(Math.min(dt, 0.1));
     this.stepHands(dt);
     this.placeCamera();
     this.life.draw();
@@ -590,7 +629,11 @@ export class ChambersRoom implements Inside {
     // Разговор и ночь держат ноги (`life.holdsLegs`); кончились — палец движения снова ведёт.
     const walk = this.life.holdsLegs ? { forward: 0, strafe: 0 } : mergeWalk(this.sticks.walk(), this.keys.walk());
     const look = this.sticks.takeLook();
-    if (walk.forward !== 0 || walk.strafe !== 0) this.used.walk = true;
+    if (walk.forward !== 0 || walk.strafe !== 0) {
+      this.used.walk = true;
+      // Пошёл сам — глаз ведёт он: гость подождёт, пока палец отпустит.
+      this.idleLook = 0;
+    }
     if (look.yaw !== 0 || look.pitch !== 0) {
       this.used.look = true;
       this.idleLook = 0;
@@ -674,10 +717,20 @@ export class ChambersRoom implements Inside {
           return;
         }
         this.look(look.yaw, look.pitch);
+        this.settleLook(dt);
         this.applyAct();
         return;
       }
     }
+  }
+
+  /** Голова за пределами дела (смотрела на гостя через плечо), а гость уже не держит глаз — плавно назад в пределы. */
+  private settleLook(dt: number): void {
+    const lim = POI_BY_ID[this.act!.a.id].yaw;
+    if (!lim || this.attending) return;
+    this.off.yaw = wrap(this.off.yaw);
+    const inside = clamp(this.off.yaw, lim[0], lim[1]);
+    this.off.yaw += (inside - this.off.yaw) * (1 - Math.exp(-dt * 2.5));
   }
 
   /** Шаг тела вперёд на `d` м по взгляду: мебель и стены выталкивают, вдоль них — скольжение. */
@@ -703,13 +756,17 @@ export class ChambersRoom implements Inside {
   }
 
   /** Повернуть голову в пределах: стоя — кругом, в деле — от взгляда дела. */
-  private look(dyaw: number, dpitch: number): void {
+  private look(dyaw: number, dpitch: number, guest = false): void {
     if (this.mode === 'in' || this.mode === 'act') {
       const p = POI_BY_ID[this.act!.a.id];
       const f = this.frameNow ?? frameAt(this.act!.a, this.act!.t);
       const y = this.off.yaw + dyaw;
       const pt = this.off.pitch + dpitch;
-      this.off.yaw = p.yaw ? clamp(y, p.yaw[0], p.yaw[1]) : wrap(y);
+      // Гость (Р-1) поворачивает голову и через плечо — за пределы дела (`attendReach`); палец за пределы не ведёт, но и не
+      // дёргает голову назад: оттуда — только к пределам (возвращает их `settleLook`).
+      const cur = this.off.yaw;
+      const lim = p.yaw && guest ? attendReach(p.id, p.yaw) : p.yaw;
+      this.off.yaw = lim ? clamp(y, Math.min(lim[0], cur), Math.max(lim[1], cur)) : wrap(y);
       this.off.pitch = clamp(f.pitch + pt, p.pitch[0], p.pitch[1]) - f.pitch;
       return;
     }
@@ -848,9 +905,9 @@ export class ChambersRoom implements Inside {
   // ---------- Жизнь покоев (Г-7) ----------
 
   /** Правитель — режиссёру жизни: где стоит, куда смотрит, в каком деле. */
-  private rulerNow(): { x: number; z: number; yaw: number; eye: [number, number, number]; spot: SpotId | null; inAct: boolean } {
+  private rulerNow(): { x: number; z: number; yaw: number; pitch: number; fov: number; eye: [number, number, number]; spot: SpotId | null; inAct: boolean } {
     const p = this.pose;
-    return { x: p.x, z: p.z, yaw: p.yaw, eye: [p.x, p.y, p.z], spot: this.act?.a.id ?? null, inAct: this.mode === 'in' || this.mode === 'act' };
+    return { x: p.x, z: p.z, yaw: p.yaw, pitch: p.pitch, fov: this.camera.fov, eye: [p.x, p.y, p.z], spot: this.act?.a.id ?? null, inAct: this.mode === 'in' || this.mode === 'act' };
   }
 
   /** Кубок: середина чаши (оси комнаты) и в руке ли он. */
@@ -922,22 +979,87 @@ export class ChambersRoom implements Inside {
     if (this.pet.t >= PET_LEN) this.stopPet();
   }
 
-  /** Голова сама оборачивается к собеседнику, пока палец взгляда не ведёт. */
-  private attendTalk(dt: number): void {
+  /**
+   * Глаз к гостю (Р-1, `life.attention`): стучат — к двери; вошёл — плавно к нему и держит его целиком, от пят до макушки, в
+   * свободной полосе кадра (между шапкой и кнопками, во время разговора — над плашкой); не помещается — макушка у верха
+   * полосы. Палец взгляда перехватывает; отпустил — через `ATTEND_IDLE` глаз возвращается к гостю. Разговор кончился —
+   * `attention` пуст, и глаз свободен: ни к кому сам не тянется.
+   */
+  private attend(dt: number): void {
     this.idleLook += dt;
-    const head = this.life.focus();
-    if (!head || this.idleLook < 0.9 || this.pet || this.held) return;
-    const dx = head[0] - this.pose.x;
-    const dz = head[2] - this.pose.z;
-    const want = Math.atan2(dx, dz);
-    const pitch = Math.atan2(head[1] - this.pose.y, Math.hypot(dx, dz));
-    const k = 1 - Math.exp(-dt * 2.2);
-    if (this.mode === 'free') {
-      this.pose.yaw += wrap(want - this.pose.yaw) * k;
-      this.pose.pitch += (clamp(pitch, FREE_PITCH[0], FREE_PITCH[1]) - this.pose.pitch) * k;
-    } else if (this.mode === 'in' && this.act) {
-      this.look(wrap(want - this.pose.yaw) * k, (pitch - this.pose.pitch) * k);
+    const a = this.life.attention();
+    this.attending = false;
+    if (!a) this.attendWas = null;
+    if (!a || this.pet || this.held || (this.mode !== 'free' && this.mode !== 'in')) {
+      this.attendK = 0;
+      return;
     }
+    if (this.idleLook < (a.talk ? ATTEND_IDLE.talk : ATTEND_IDLE.enter)) {
+      this.attendK = 0;
+      return;
+    }
+    this.attending = true;
+    // Разгон: первые 0,6 с поворот набирает ход, а не срывается с места.
+    this.attendK = Math.min(1, this.attendK + dt / 0.6);
+    const want = this.frameOf(a.top, a.bottom, a.talk);
+    const ease = this.attendK * this.attendK * (3 - 2 * this.attendK);
+    const k = (1 - Math.exp(-dt * 3.2)) * ease;
+    const max = ATTEND_RATE * dt;
+    // В деле с пределами поворот считается от взгляда дела, а не кратчайшим путём: кратчайший мог упереться в предел не той
+    // стороной, и гость оставался за краем кадра.
+    const lim = this.mode === 'in' && this.act ? POI_BY_ID[this.act.a.id].yaw : null;
+    const reach = lim ? attendReach(this.act!.a.id, lim) : null;
+    const turn = reach ? reachTurn(wrap(want.yaw - (this.frameNow ?? frameAt(this.act!.a, this.act!.t)).yaw), this.off.yaw, reach) : wrap(want.yaw - this.pose.yaw);
+    // Упреждение: гость идёт — взгляд ведёт его с его скоростью, а догоняет только остаток (иначе отставал бы на полкадра).
+    const prev = this.attendWas;
+    this.attendWas = { ...want, who: a.who, door: a.door };
+    const same = prev && prev.who === a.who && prev.door === a.door && dt > 0;
+    const lead = same ? wrap(want.yaw - prev.yaw) * ease : 0;
+    const leadP = same ? (want.pitch - prev.pitch) * ease : 0;
+    const dyaw = clamp(turn * k + clamp(lead, -max, max), -max, max);
+    const dpitch = clamp((want.pitch - this.pose.pitch) * k + clamp(leadP, -max, max), -max, max);
+    if (this.mode === 'free') {
+      this.pose.yaw += dyaw;
+      this.pose.pitch = clamp(this.pose.pitch + dpitch, FREE_PITCH[0], FREE_PITCH[1]);
+    } else {
+      this.look(dyaw, dpitch, true);
+      this.applyAct();
+    }
+  }
+
+  /**
+   * Куда смотреть, чтобы отрезок от `bottom` до `top` (пятки и макушка, оси комнаты) стоял в свободной полосе кадра: по
+   * горизонтали — посередине, по вертикали — целиком посередине полосы, а не помещается — макушкой у её верха.
+   */
+  frameOf(top: V3, bottom: V3, talk: boolean): { yaw: number; pitch: number } {
+    const e = this.pose;
+    const cx = (top[0] + bottom[0]) / 2 - e.x;
+    const cz = (top[2] + bottom[2]) / 2 - e.z;
+    const yaw = Math.atan2(cx, cz);
+    const { hi, lo } = this.band(talk);
+    const T = Math.tan((this.fovNow() * Math.PI) / 360);
+    const eTop = Math.atan2(top[1] - e.y, Math.max(0.3, Math.hypot(top[0] - e.x, top[2] - e.z)));
+    const eBot = Math.atan2(bottom[1] - e.y, Math.max(0.3, Math.hypot(bottom[0] - e.x, bottom[2] - e.z)));
+    // Наклон, при котором макушка — у верха полосы, и при котором пятки — у её низа.
+    const pTop = eTop - Math.atan(hi * T);
+    const pBot = eBot - Math.atan(lo * T);
+    const pitch = pTop <= pBot ? (pTop + pBot) / 2 : pTop;
+    return { yaw, pitch };
+  }
+
+  /** Свободная полоса кадра по вертикали (доли от середины, −1…1): под шапкой и над кнопками или плашкой разговора. */
+  private band(talk: boolean): { hi: number; lo: number } {
+    const h = Math.max(1, this.rect.height);
+    // С запасом сверху: голова в разговоре живёт (кивает, читает), и макушка не должна уходить под шапку.
+    const hi = 1 - (2 * (BAND_TOP + 22)) / h;
+    const covered = talk ? (this.plateH ?? h * 0.45) : BAND_BOTTOM;
+    const lo = -1 + (2 * (covered + 14)) / h;
+    return { hi, lo: Math.min(lo, hi - 0.2) };
+  }
+
+  /** Высота плашки разговора над низом экрана, точки (слой интерфейса меряет её сам); `null` — не мерена. */
+  setPlate(px: number | null): void {
+    this.plateH = px;
   }
 
   /** Гладь вина в кубке — по уровню: выше и шире к краю чаши; пустой — гладь не видна. */

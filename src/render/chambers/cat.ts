@@ -11,6 +11,7 @@ import { tint } from '../city/geom';
 import { Rig, Skeleton, SkinBuilder, type Ring, type RigPose, type Turn } from './rig';
 import { BED, HALF, HEARTH, OPENINGS } from './plan';
 import { clear, free, pathTo, step } from './walk';
+import type { Hop } from './toss';
 
 /** Радиус кота на плане, м. */
 export const CAT_R = 0.13;
@@ -376,6 +377,9 @@ export const CAT_SPOTS: readonly CatSpot[] = [
   { id: 'bed', x: (BED.x0 + BED.x1) / 2 + 0.2, y: BED.top + 0.1, z: BED.z1 - 0.45, yaw: -2.2, from: { x: BED.x1 + 0.35, z: BED.z1 - 0.3 }, body: 'loaf' },
 ];
 
+/** Дольше стольких секунд кот за клубком к следующему прыжку не идёт — застрял, бросил (Р-1). */
+const HOP_WALK = 8;
+
 /** Простая зернистая случайность (кот — картинка, у партии своя кость). */
 export function catRandom(seed: number): () => number {
   let a = seed >>> 0 || 1;
@@ -389,7 +393,7 @@ export function catRandom(seed: number): () => number {
 }
 
 /** Что кот хочет сейчас — видно тестам и стенду. */
-export type CatMind = 'wander' | 'rest' | 'go' | 'rub' | 'petted' | 'play' | 'carried' | 'hidden' | 'come';
+export type CatMind = 'wander' | 'rest' | 'go' | 'rub' | 'petted' | 'play' | 'carried' | 'hidden' | 'come' | 'fetch';
 
 /** Где правитель — коту: место ног и куда смотрит глаз; сидит ли (тогда трётся о кресло, рядом). */
 export interface CatWorld {
@@ -415,12 +419,21 @@ export class Cat {
   private w: Record<CatBody, number> = { stand: 1, walk: 0, sit: 0, curl: 0, crouch: 0, leap: 0, rub: 0, loaf: 0 };
   private path: { x: number; z: number }[] = [];
   private spot: CatSpot | null = null;
-  private jump: { from: V3; to: V3; t: number; len: number } | null = null;
+  private jump: { from: V3; to: V3; t: number; len: number; arc: number } | null = null;
+  /** За клубком (Р-1): шаги и прыжки по порядку, потом — `hopsDone`. */
+  private hops: Hop[] = [];
+  private hopsDone: ((ok: boolean) => void) | null = null;
+  private hopAt: V3 | null = null;
+  private hopT = 0;
+  /** Клубок в зубах: пасть приоткрыта. */
+  mouthful = false;
+  /** Доволен собой (принёс клубок): мурчит, хвост трубой, сколько ещё секунд. */
+  private proud = 0;
   private timer = 0;
   private t = 0;
   private rng: () => number;
-  /** Мяу, мурчание, мягкий шаг, прыжок — звуку покоев. */
-  onSound: ((s: 'meow' | 'purr' | 'step' | 'land', at: V3) => void) | null = null;
+  /** Мяу, мурчание, мягкий шаг, толчок прыжка и приземление — звуку покоев. */
+  onSound: ((s: 'meow' | 'purr' | 'step' | 'leap' | 'land', at: V3) => void) | null = null;
   /** Держат на руках: где руки (точка в осях комнаты и куда лицом). */
   held: { x: number; y: number; z: number; yaw: number } | null = null;
   private purr = 0;
@@ -491,7 +504,7 @@ export class Cat {
 
   /** Подойти к точке (зовут: «кис-кис» слуги, правитель тянет руку). */
   come(x: number, z: number): void {
-    if (this.mind === 'carried' || this.mind === 'hidden') return;
+    if (this.mind === 'carried' || this.mind === 'hidden' || this.mind === 'fetch') return;
     this.leaveSpot();
     this.mind = 'come';
     this.goTo({ x, z });
@@ -499,7 +512,7 @@ export class Cat {
 
   /** Гладят: кот стоит, жмурится, мурчит, хвост трубой. */
   pet(on: boolean): void {
-    if (this.mind === 'carried' || this.mind === 'hidden') return;
+    if (this.mind === 'carried' || this.mind === 'hidden' || this.mind === 'fetch') return;
     if (on) {
       if (this.mind !== 'petted') this.onSound?.('purr', [this.x, this.y, this.z]);
       this.mind = 'petted';
@@ -512,10 +525,52 @@ export class Cat {
 
   /** Играть: клубок брошен — кот за ним. */
   play(): void {
-    if (this.mind === 'carried' || this.mind === 'hidden') return;
+    if (this.mind === 'carried' || this.mind === 'hidden' || this.mind === 'fetch') return;
     this.leaveSpot();
     this.mind = 'play';
     this.timer = 9;
+  }
+
+  /**
+   * За клубком (Р-1): шаги по полу и прыжки по порядку (`toss.fetchHops` — в окно и наружу; `windowBack` — обратно), в конце —
+   * `then`. Лежал на месте — сперва спрыгивает.
+   */
+  route(hops: Hop[], then: (ok: boolean) => void): void {
+    if (this.mind === 'carried' || this.mind === 'hidden') return;
+    this.leaveSpot();
+    this.mind = 'fetch';
+    this.hops = [...hops];
+    this.hopsDone = then;
+    this.hopAt = null;
+    this.path = [];
+  }
+
+  /** Вернуться прыжком (Р-1): кот возникает в `from` (вне кадра) и прыгает дугой `arc` в `to`, дальше — шаги `hops`. */
+  leapIn(from: V3, to: V3, arc: number, hops: Hop[], then: (ok: boolean) => void): void {
+    this.x = from[0];
+    this.y = from[1];
+    this.z = from[2];
+    this.yaw = Math.atan2(to[0] - from[0], to[2] - from[2]);
+    this.visible = true;
+    this.held = null;
+    this.spot = null;
+    this.mind = 'fetch';
+    this.hops = [{ to, jump: true, arc }, ...hops];
+    this.hopsDone = then;
+    this.hopAt = from;
+    this.path = [];
+    this.jump = null;
+    for (const k of Object.keys(this.w) as CatBody[]) this.w[k] = k === 'crouch' ? 1 : 0;
+  }
+
+  /** Принёс: мурчит и задирает хвост `s` секунд. */
+  pleased(s: number): void {
+    this.proud = s;
+  }
+
+  /** В прыжке ли (тестам и клубку в зубах). */
+  get leaping(): boolean {
+    return this.jump !== null;
   }
 
   /** Мурчит ли сейчас (звук: громкость 0…1). */
@@ -537,11 +592,12 @@ export class Cat {
     else this.path = pathTo(a, p) ?? [{ x: p.x, z: p.z }];
   }
 
-  private jumpTo(to: V3): void {
+  private jumpTo(to: V3, arc?: number): void {
     const from: V3 = [this.x, this.y, this.z];
     const d = Math.hypot(to[0] - from[0], to[2] - from[2]);
-    this.jump = { from, to, t: 0, len: 0.32 + d * 0.15 + Math.abs(to[1] - from[1]) * 0.12 };
+    this.jump = { from, to, t: 0, len: 0.32 + d * 0.15 + Math.abs(to[1] - from[1]) * 0.12, arc: arc ?? 0.18 + Math.abs(to[1] - from[1]) * 0.35 };
     this.yaw = Math.atan2(to[0] - from[0], to[2] - from[2]);
+    this.onSound?.('leap', from);
   }
 
   /** Шаг кадра: мозг, движение, поза. */
@@ -567,7 +623,7 @@ export class Cat {
       const e = k * k * (3 - 2 * k);
       this.x = j.from[0] + (j.to[0] - j.from[0]) * e;
       this.z = j.from[2] + (j.to[2] - j.from[2]) * e;
-      this.y = j.from[1] + (j.to[1] - j.from[1]) * e + Math.sin(Math.PI * k) * (0.18 + Math.abs(j.to[1] - j.from[1]) * 0.35);
+      this.y = j.from[1] + (j.to[1] - j.from[1]) * e + Math.sin(Math.PI * k) * j.arc;
       this.blend(k < 0.15 || k > 0.85 ? 'crouch' : 'leap', dt * 2);
       if (k >= 1) {
         this.jump = null;
@@ -584,9 +640,11 @@ export class Cat {
     const blinkShut = this.blink < 0.12 ? 0 : 1;
     const eyesWant = sleeping ? 0 : this.mind === 'petted' ? 0.25 : blinkShut;
     this.look.eyes += (eyesWant - this.look.eyes) * Math.min(1, dt * (blinkShut === 0 ? 30 : 6));
-    this.purr += ((this.mind === 'petted' ? 1 : sleeping ? 0.25 : 0) - this.purr) * Math.min(1, dt * 2);
-    this.look.tailUp += ((this.mind === 'petted' || this.mind === 'rub' || this.mind === 'come' ? 1 : 0) - this.look.tailUp) * Math.min(1, dt * 3);
-    this.look.mouth = Math.max(0, this.look.mouth - dt * 2.5);
+    this.proud = Math.max(0, this.proud - dt);
+    const proud = this.proud > 0;
+    this.purr += ((this.mind === 'petted' ? 1 : proud ? 0.85 : sleeping ? 0.25 : 0) - this.purr) * Math.min(1, dt * 2);
+    this.look.tailUp += ((this.mind === 'petted' || this.mind === 'rub' || this.mind === 'come' || proud ? 1 : 0) - this.look.tailUp) * Math.min(1, dt * 3);
+    this.look.mouth = Math.max(this.mouthful ? 0.5 : 0, this.look.mouth - dt * 2.5);
     if (this.meowAt > 0 && this.t >= this.meowAt) {
       this.meowAt = 0;
       this.meow();
@@ -629,6 +687,30 @@ export class Cat {
       case 'petted':
         this.path = [];
         return;
+      case 'fetch': {
+        // Дошёл (или допрыгнул) — следующий шаг; шаги кончились — дело сделано. Идёт дольше `HOP_WALK` — застрял.
+        this.hopT += dt;
+        if (this.path.length && this.hopT < HOP_WALK) return;
+        this.path = [];
+        const h = this.hops.shift();
+        // Прыгают только оттуда, куда дошли: застрял по дороге (путь перегородили) — бросил, сквозь камень не прыгает.
+        const lost = !!h && h.jump && this.hopAt !== null && Math.hypot(this.x - this.hopAt[0], this.z - this.hopAt[2]) > 0.3;
+        if (h && !lost) {
+          this.hopAt = h.to;
+          this.hopT = 0;
+          if (h.jump) this.jumpTo(h.to, h.arc);
+          else this.goTo({ x: h.to[0], z: h.to[2] });
+          return;
+        }
+        const then = this.hopsDone;
+        this.hopsDone = null;
+        this.hops = [];
+        this.hopAt = null;
+        this.mind = 'wander';
+        this.timer = 2;
+        then?.(!lost);
+        return;
+      }
       case 'play': {
         const b = world.ball;
         if (!b || this.timer < 0) {
@@ -700,7 +782,7 @@ export class Cat {
 
   private move(dt: number): void {
     const q = this.path[0];
-    const want = this.mind === 'play' ? 1.4 : this.mind === 'rub' ? 0.35 : this.mind === 'come' ? 0.85 : 0.55;
+    const want = this.mind === 'play' || this.mind === 'fetch' ? 1.4 : this.mind === 'rub' ? 0.35 : this.mind === 'come' ? 0.85 : 0.55;
     if (q) {
       const dx = q.x - this.x;
       const dz = q.z - this.z;
@@ -720,7 +802,7 @@ export class Cat {
       this.z = got.z;
       this.look.phase += (s / 0.16) * Math.PI;
       if (Math.floor(this.look.phase / Math.PI) !== before) this.onSound?.('step', [this.x, 0, this.z]);
-      if (d < 0.08 || (stuck && this.mind !== 'rub')) this.path.shift();
+      if (d < 0.08 || (stuck && this.mind !== 'rub' && this.mind !== 'fetch')) this.path.shift();
       this.blend(this.mind === 'rub' ? 'rub' : 'walk', dt);
       this.look.roll += ((this.mind === 'rub' ? 0.25 : 0) - this.look.roll) * Math.min(1, dt * 4);
     } else {

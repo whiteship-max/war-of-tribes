@@ -5,11 +5,14 @@
 //   · правитель стучит в дверь (дело «Дверь», `acts.ts`) — по лестнице поднимается слуга, открывает, входит, кланяется;
 //   · просьба слуге — сцена: принести кота на руках и спустить на пол, унести его, позвать служанку с вином (та наливает в
 //     кубок на столе), пригласить супругу, уйти и затворить дверь;
-//   · кот живёт сам (`cat.ts`); клубок брошен — гоняет его;
+//   · кот живёт сам (`cat.ts`); клубок брошен — гоняет его; брошен в окно — прыгает за ним наружу и возвращается снизу
+//     экрана с клубком в зубах (Р-1, `toss.ts`); кидать — не чаще раза в `BALL_EVERY` секунд;
 //   · ночь вдвоём — правитель и она идут к кровати, дальше слой интерфейса затемняет кадр; утром её нет;
 //   · гонец (Г-10): важная весть, пока правитель в покоях, — стук в дверь, гонец поднимается, входит, кланяется и
 //     протягивает письмо с печатью; правитель взял письмо — гонец кланяется и уходит (что за весть, решает интерфейс);
-//   · советник (Г-10): после отлучки ждёт у стола со свитком, кланяется и докладывает; «ступай» — уходит.
+//   · советник (Г-10): после отлучки ждёт у стола со свитком, кланяется и докладывает; «ступай» — уходит;
+//   · гость (Р-1): кто входит и до конца разговора — у глаза правителя на виду (`attention`): стучат — дверь, вошёл — он
+//     целиком; разговор кончился — глаз свободен.
 //
 // Сценарии — сопрограммы: шаг сцены ждёт своего условия (дошёл, повернулся, прошло время), кадр двигает их по очереди.
 import * as THREE from 'three';
@@ -18,12 +21,13 @@ import { tint } from '../city/geom';
 import type { Arms } from '@/heraldry/arms';
 import type { Quality } from '../quality';
 import { geometryOf } from '../city/index';
-import { DOOR, DESK, BED, HALF, softFloor, type SpotId } from './plan';
+import { DOOR, DESK, BED, HALF, WALL_T, softFloor, type SpotId } from './plan';
 import { DOOR_HINGE, doorLeaf } from './build';
 import { Person, buildPerson, gripOf, isFemale, type FolkId } from './folk';
-import { Cat, buildCat, type CatSpot } from './cat';
+import { CAT_R, Cat, buildCat, type CatSpot } from './cat';
 import { BODY_R, clear, free, pathTo, step } from './walk';
 import { Mesher } from './geo';
+import { BALL_EVERY, BALL_R, CAT_AWAY, GRAVITY, depthOf, fetchHops, flightAt, inView, leapBack, windowBack, windowShot, type WindowShot } from './toss';
 
 /** Кто говорит с правителем. */
 export type Who = FolkId;
@@ -33,13 +37,16 @@ export type Why = 'arrive' | 'cat' | 'uncat' | 'poured' | 'come' | 'news' | 'rep
 export type Order = 'cat' | 'uncat' | 'wine' | 'wife' | 'dismiss' | 'pour' | 'night';
 
 /** Звук жизни покоев: стук, дверь, шаги людей и кота, мяу, налить, глоток, музыка ночи. */
-export type LifeCue = 'knock' | 'doorOpen' | 'doorShut' | 'stepFolk' | 'stepFolkSoft' | 'catStep' | 'catLand' | 'meow' | 'pour' | 'gulp' | 'night' | 'letter';
+export type LifeCue = 'knock' | 'doorOpen' | 'doorShut' | 'stepFolk' | 'stepFolkSoft' | 'catStep' | 'catLeap' | 'catLand' | 'meow' | 'pour' | 'gulp' | 'night' | 'letter';
 
 /** Что правитель делает — режиссёру: где стоит, куда смотрит, свободен ли. */
 export interface RulerNow {
   x: number;
   z: number;
   yaw: number;
+  /** Наклон взгляда и поле зрения кадра по вертикали (градусы) — куда коту вернуться снизу экрана. */
+  pitch: number;
+  fov: number;
   eye: V3;
   spot: SpotId | null;
   /** В деле (сидит, лежит, у окна) — не ходит сам. */
@@ -81,8 +88,12 @@ export interface LifeView {
   wine: number;
   /** Ночь: доля сцены 0…1 (затемнение, сердце, утро) и кто был. */
   night: { k: number; who: Who } | null;
-  /** Клубок брошен и катится. */
+  /** Клубок в деле: катится, летит, у кота в зубах. */
   ball: boolean;
+  /** Через сколько секунд клубок можно кинуть снова (целые, вверх; 0 — можно). */
+  ballIn: number;
+  /** Кот за клубком в окне: ушёл и ещё не принёс. */
+  fetching: boolean;
   /** Гонец протягивает письмо: его можно взять (касание письма или кнопка). */
   letter: boolean;
 }
@@ -118,6 +129,12 @@ const SPEED: Record<Who, number> = { servant: 0.85, maid: 1.05, wife: 0.9, heral
 /** Коды подсветки касанием (`material.uSel`): люди, кот, дверь и письмо гонца — за предметами стола. */
 export const LIFE_CODE: Record<Who | 'cat' | 'door' | 'letter', number> = { servant: 20, maid: 21, wife: 22, cat: 23, door: 24, herald: 25, advisor: 26, letter: 27 };
 
+/** Ближе этого гость мимо правителя не проходит (на шаг поодаль, с почтением; и в кадре он целиком), м. */
+const RULER_GAP = 1.0;
+
+/** Где гость стоит, пока правитель сидит за столом (Р-1): у восточного конца столешницы, лицом к креслу. */
+export const DESK_TALK = { x: 1.6, z: 2.85 };
+
 /** Где советник ждёт у стола: у восточного конца, лицом к середине покоев (правитель входит в неё). */
 export const ADVISOR_POST = { x: 1.62, z: 2.3, yaw: -2.25 };
 
@@ -133,7 +150,17 @@ export class ChambersLife {
   private busyN = 0;
   wine = 0;
   private night: { k: number; who: Who; t: number } | null = null;
-  private ball: { mesh: THREE.Mesh; p: V3; v: V3; on: boolean; t: number } | null = null;
+  /**
+   * Клубок: где, скорость, в деле ли; `mode` — на полу (катится), в полёте в окно (`shot`, дуга из `p0` по `v0`), за окном
+   * (не виден), в зубах у кота.
+   */
+  private ball: { mesh: THREE.Mesh; p: V3; v: V3; on: boolean; t: number; mode: 'floor' | 'flight' | 'out' | 'mouth'; shot: WindowShot | null; p0: V3; v0: V3 } | null = null;
+  /** Когда кинули последний раз (часы покоев). */
+  private ballAt = -Infinity;
+  /** Кот за окном: сколько уже там и каким окном ушёл. */
+  private away: { t: number; shot: WindowShot } | null = null;
+  /** Кого держит глаз правителя: вошедший гость — от стука до конца разговора (`attention`). */
+  private guest: Who | null = null;
   private jug: THREE.Mesh | null = null;
   /** Письмо с печатью в руке гонца и свиток в руке советника. */
   private letterMesh: THREE.Mesh | null = null;
@@ -191,7 +218,7 @@ export class ChambersLife {
     if (!this.cat) {
       const detail = this.host.quality === 'low' ? 0 : this.host.quality === 'medium' ? 1 : 2;
       this.cat = new Cat(buildCat(detail, LIFE_CODE.cat), this.host.material, 7919);
-      this.cat.onSound = (s, at) => this.host.cue(s === 'meow' ? 'meow' : s === 'land' ? 'catLand' : s === 'step' ? 'catStep' : 'meow', at);
+      this.cat.onSound = (s, at) => this.host.cue(s === 'meow' ? 'meow' : s === 'land' ? 'catLand' : s === 'leap' ? 'catLeap' : s === 'step' ? 'catStep' : 'meow', at);
       this.host.scene.add(this.cat.rig.mesh);
     }
     return this.cat;
@@ -215,10 +242,12 @@ export class ChambersLife {
       talk: this.talking,
       here: [...this.folk.values()].filter((p) => p.visible).map((p) => p.id),
       busy: this.busyN > 0,
-      cat: !!this.cat?.visible,
+      cat: this.catHere,
       wine: this.wine,
       night: this.night ? { k: this.night.k, who: this.night.who } : null,
       ball: !!this.ball?.on,
+      ballIn: Math.max(0, Math.ceil(this.ballLeft - 1e-6)),
+      fetching: this.fetching,
       letter: this.letterOut,
     };
   }
@@ -268,6 +297,7 @@ export class ChambersLife {
   /** Советник (Г-10): уже ждёт у стола, когда правитель входит, — кланяется и докладывает. */
   advisorWaits(): void {
     const a = this.person('advisor');
+    this.guest = 'advisor';
     a.visible = true;
     a.carry = 'scroll';
     a.place(ADVISOR_POST.x, ADVISOR_POST.z, ADVISOR_POST.yaw);
@@ -282,6 +312,7 @@ export class ChambersLife {
     if (!h || !this.letterOut) return false;
     this.letterOut = false;
     if (this.talking?.who === 'herald') this.talking = null;
+    if (this.guest === 'herald') this.guest = null;
     if (this.letterMesh) this.took = { t: 0, from: this.letterMesh.position.clone() };
     this.host.cue('letter', [h.x, 1.3, h.z]);
     h.want.offer = 0;
@@ -307,17 +338,30 @@ export class ChambersLife {
     this.onSpeak?.(who, seconds);
   }
 
-  /** Куда смотреть правителю: голова того, кто с ним говорит или к нему подходит (оси комнаты). */
-  focus(): V3 | null {
-    const who = this.talking?.who ?? [...this.folk.values()].find((p) => p.visible && !p.moving && p.z > -HALF + 0.2 && Math.hypot(p.x - this.host.ruler().x, p.z - this.host.ruler().z) < 2.6)?.id;
-    const p = who ? this.personOf(who) : null;
+  /**
+   * Кого держать в кадре (Р-1): гость — от стука или выхода на лестницу до конца разговора с ним. Пока он за затворённой
+   * дверью — сама дверь (`door`); вошёл — он сам, от пят до макушки (`top`, `bottom` — оси комнаты); `talk` — уже говорит.
+   * Разговор кончился («Ступай», крестик, просьба) — `null`: глаз правителя свободен, стоит ли человек рядом или нет.
+   */
+  attention(): { who: Who; door: boolean; talk: boolean; top: V3; bottom: V3 } | null {
+    const who = this.guest;
+    if (!who) return null;
+    const p = this.folk.get(who);
     if (!p) return null;
-    return p.rig.at('head', [0, 0.08, 0.04]);
+    const talk = this.talking?.who === who;
+    if (!p.visible || (p.z < -HALF + 0.05 && this.door.a < OPEN * 0.5)) {
+      // За дверью: стучат или поднимаются — глаз к двери, вся створка в кадре.
+      return { who, door: true, talk, top: [DOOR.x, DOOR.h, -HALF], bottom: [DOOR.x, 0, -HALF] };
+    }
+    const head = p.rig.at('head', [0, 0.22, 0]);
+    // Макушка — там, где голова этого кадра (наклонился, поклонился, читает свиток), а не над пятками.
+    return { who, door: false, talk, top: [head[0], Math.max(head[1], p.y + 1.5), head[2]], bottom: [p.x, p.y, p.z] };
   }
 
   /** Окно разговора закрыто без просьбы: человек остаётся стоять, касание — снова к разговору. */
   endTalk(): void {
     this.talking = null;
+    this.guest = null;
     this.changed();
   }
 
@@ -325,13 +369,15 @@ export class ChambersLife {
   order(o: Order): boolean {
     const who = this.talking?.who ?? null;
     this.talking = null;
+    this.guest = null;
     switch (o) {
       case 'cat':
-        if (this.cat?.visible) return false;
+        // Кот здесь — или за окном за клубком (сейчас вернётся).
+        if (this.catHere) return false;
         this.run(this.fetchCat());
         break;
       case 'uncat':
-        if (!this.cat?.visible) return false;
+        if (!this.cat?.visible || this.fetching) return false;
         this.run(this.takeCat());
         break;
       case 'wine':
@@ -360,6 +406,7 @@ export class ChambersLife {
   private *servantArrives(): Script {
     this.busyN++;
     const s = this.person('servant');
+    this.guest = 'servant';
     // Шаги по лестнице — снизу из темноты.
     s.place(STAIR[1].x, STAIR[1].z, Math.PI / 2);
     yield wait(1.1, this.clock);
@@ -406,6 +453,7 @@ export class ChambersLife {
     const p = this.person(who);
     if (!p.visible) return;
     this.busyN++;
+    this.guest = who;
     // Правитель из дела не встаёт: выйти из дела — только его кнопкой (ЗН-3, docs/ui_v2.md, 5.10); пришедший говорит и так.
     const at = this.talkSpot(p);
     const route = this.route(p, at);
@@ -437,7 +485,9 @@ export class ChambersLife {
   /** Где встать для разговора: в шаге-полутора от правителя, у него на виду, на свободном полу. */
   talkSpot(p: { x: number; z: number }): { x: number; z: number } {
     const r = this.host.ruler();
-    if (r.inAct && r.spot === 'desk') return { x: 0.95, z: 2.05 };
+    // У стола — у восточного конца столешницы, в поле зрения сидящего и в шаге-двух от него (Р-1: прежнее место, сбоку у
+    // кресла, лежало за пределом поворота головы — гостя было видно краем или не видно).
+    if (r.inAct && r.spot === 'desk') return DESK_TALK;
     if (r.inAct && r.spot === 'bed') return { x: BED.x1 + 0.42, z: -3.75 };
     if (r.inAct && r.spot === 'door') return { x: INSIDE.x, z: INSIDE.z };
     // Перед правителем: сначала по его взгляду, потом в сторону пришедшего, дальше — веером.
@@ -445,7 +495,8 @@ export class ChambersLife {
     const tries: number[] = [];
     for (const a of [0, 0.35, -0.35, 0.7, -0.7]) tries.push(r.yaw + a);
     for (const a of [0, 0.5, -0.5, 1.0, -1.0, 1.6, -1.6, Math.PI]) tries.push(toP + a);
-    for (const d of [1.25, 1.0, 1.55]) {
+    // Даль — чтобы гость стоял в кадре от макушки до колен над плашкой разговора, а не лицом во весь экран (Р-1).
+    for (const d of [1.7, 1.45, 2.0, 1.2]) {
       for (const a of tries) {
         const x = r.x + Math.sin(a) * d;
         const z = r.z + Math.cos(a) * d;
@@ -463,9 +514,66 @@ export class ChambersLife {
       pts.push(THRESH, INSIDE);
       from = INSIDE;
     }
-    if (clear(from, to)) pts.push(to);
-    else pts.push(...(pathTo(from, to) ?? [to]));
+    pts.push(...this.aroundRuler(from, to));
     return pts;
+  }
+
+  /**
+   * Путь мимо правителя, а не сквозь него (Р-1): отрезок, проходящий ближе `RULER_GAP`, огибает его шагом в сторону — с той
+   * стороны, где свободно. Иначе гость, входя, проходил сквозь стоящего в дверях и вставал в кадр во весь экран.
+   */
+  private aroundRuler(from: { x: number; z: number }, to: { x: number; z: number }): { x: number; z: number }[] {
+    const r = this.host.ruler();
+    const walk = (a: { x: number; z: number }): { x: number; z: number }[] | null => (clear(a, to) ? [to] : pathTo(a, to));
+    const gap = (a: { x: number; z: number }, b: { x: number; z: number }): number => {
+      const dx = b.x - a.x;
+      const dz = b.z - a.z;
+      const l2 = dx * dx + dz * dz || 1e-12;
+      const t = Math.max(0, Math.min(1, ((r.x - a.x) * dx + (r.z - a.z) * dz) / l2));
+      return Math.hypot(a.x + dx * t - r.x, a.z + dz * t - r.z);
+    };
+    const minGap = (a: { x: number; z: number }, pts: { x: number; z: number }[]): number => {
+      let g = Infinity;
+      let q = a;
+      for (const b of pts) {
+        g = Math.min(g, gap(q, b));
+        q = b;
+      }
+      return g;
+    };
+    const direct = walk(from) ?? [to];
+    // Ближе, чем начинается и кончается путь, — значит, мимо него; иначе (подходит к нему сам) — как есть.
+    const need = Math.min(RULER_GAP, Math.hypot(from.x - r.x, from.z - r.z) - 0.03, Math.hypot(to.x - r.x, to.z - r.z) - 0.03);
+    if (minGap(from, direct) >= need - 0.05) return direct;
+    // Обойти двумя точками сбоку — поперёк хода, с той стороны, где свободно и короче; дальше — своим путём.
+    const first = direct[0];
+    const l = Math.hypot(first.x - from.x, first.z - from.z) || 1e-9;
+    const u = { x: (first.x - from.x) / l, z: (first.z - from.z) / l };
+    let best: { pts: { x: number; z: number }[]; g: number; len: number } | null = null;
+    for (const sd of [1, -1]) {
+      for (const off of [need + 0.1, need + 0.3, 0.95, 0.85, 0.75]) {
+        const n = { x: -u.z * sd, z: u.x * sd };
+        for (const along of [[-0.5, 0.5], [-0.3, 0.3], [0]]) {
+          const w = along.map((k) => ({ x: r.x + n.x * off + u.x * k, z: r.z + n.z * off + u.z * k }));
+          if (!w.every((q) => free(q.x, q.z, BODY_R) && Math.abs(q.z) < HALF - 0.3)) continue;
+          if ((w.length > 1 && !clear(w[0], w[1])) || (free(from.x, from.z, BODY_R) && !clear(from, w[0]))) continue;
+          const rest = walk(w[w.length - 1]);
+          if (!rest) continue;
+          const pts = [...w, ...rest];
+          // Лучший обход — самый просторный (до `need`), из равных — короче.
+          const g = Math.min(need, minGap(from, pts));
+          let len = 0;
+          let q = from;
+          for (const b of pts) {
+            len += Math.hypot(b.x - q.x, b.z - q.z);
+            q = b;
+          }
+          if (!best || g > best.g + 0.02 || (Math.abs(g - best.g) <= 0.02 && len < best.len)) best = { pts, g, len };
+        }
+      }
+    }
+    if (best && best.g <= minGap(from, direct) + 0.05) best = null;
+    return best ? best.pts : direct;
   }
 
   /** Уйти: к двери, за порог, вниз по лестнице; дверь — затворить за собой, если в покоях больше никого. */
@@ -473,6 +581,7 @@ export class ChambersLife {
     const p = this.person(who);
     if (!p.visible) return;
     this.busyN++;
+    if (this.guest === who) this.guest = null;
     if (isFemale(who)) p.want.curtsy = 0.6;
     else p.want.bow = 0.6;
     p.want.offer = 0;
@@ -504,6 +613,7 @@ export class ChambersLife {
   private *heraldArrives(): Script {
     this.busyN++;
     const h = this.person('herald');
+    this.guest = 'herald';
     h.carry = 'letter';
     h.place(STAIR[1].x, STAIR[1].z, Math.PI / 2);
     h.visible = true;
@@ -556,6 +666,7 @@ export class ChambersLife {
     s.carry = 'cat';
     s.want.carry = 1;
     s.visible = true;
+    this.guest = 'servant';
     s.place(STAIR[1].x, STAIR[1].z, Math.PI / 2);
     s.go([STAIR[0], LANDING, THRESH, INSIDE], null);
     yield () => !s.moving;
@@ -615,6 +726,7 @@ export class ChambersLife {
     this.remember();
     yield wait(2.4, this.clock);
     s.visible = true;
+    this.guest = 'servant';
     s.place(STAIR[1].x, STAIR[1].z, Math.PI / 2);
     s.go([STAIR[0], LANDING, THRESH, INSIDE], null);
     yield () => !s.moving;
@@ -633,6 +745,7 @@ export class ChambersLife {
     const m = this.person('maid');
     m.carry = 'jug';
     m.visible = true;
+    this.guest = 'maid';
     m.place(STAIR[1].x, STAIR[1].z, Math.PI / 2);
     m.go([STAIR[0], LANDING, THRESH, INSIDE], null);
     yield () => !m.moving;
@@ -645,6 +758,8 @@ export class ChambersLife {
     this.busyN++;
     const m = this.person('maid');
     m.carry = 'jug';
+    // Налить ещё: глаз — на неё у стола, пока наливает и подходит.
+    this.guest = 'maid';
     if (this.host.goblet().held) this.host.dropGoblet();
     yield wait(again ? 0.4 : 0.1, this.clock);
     yield () => !this.host.goblet().held;
@@ -686,6 +801,7 @@ export class ChambersLife {
     yield wait(4.0, this.clock);
     const w = this.person('wife');
     w.visible = true;
+    this.guest = 'wife';
     w.place(STAIR[1].x, STAIR[1].z, Math.PI / 2);
     w.go([STAIR[0], LANDING, THRESH, INSIDE], null);
     yield () => !w.moving;
@@ -700,6 +816,7 @@ export class ChambersLife {
   private *nightWith(who: Who): Script {
     this.busyN++;
     const p = this.person(who);
+    this.guest = null;
     yield wait(0.6, this.clock);
     this.host.intend('bed');
     const side = { x: BED.x1 + 0.38, z: -4.35 };
@@ -725,14 +842,33 @@ export class ChambersLife {
 
   // ---------- Клубок ----------
 
-  /** Бросить клубок: из руки правителя вперёд, на пол в паре метров; кот бежит играть. */
-  throwBall(): void {
+  /** Кот в покоях — или за окном за клубком (вернётся): слуге его не приводить и не уносить. */
+  get catHere(): boolean {
+    return !!this.cat?.visible || this.away !== null;
+  }
+
+  /** Кот за клубком в окне: бежит, прыгает, за окном или несёт обратно. */
+  get fetching(): boolean {
+    return this.away !== null || this.cat?.mind === 'fetch' || this.ball?.mode === 'mouth' || this.ball?.mode === 'out';
+  }
+
+  /** Секунд до следующего броска (0 — можно). */
+  get ballLeft(): number {
+    return Math.max(0, this.ballAt + BALL_EVERY - this.clock.t);
+  }
+
+  /**
+   * Бросить клубок из руки правителя туда, куда он смотрит. В окно (взгляд упирается в нишу окна, `toss.windowShot`) — дугой в
+   * проём и наружу, кот прыгает за ним; иначе — на пол в паре метров, кот бежит играть. Не чаще раза в `BALL_EVERY` секунд и не
+   * пока кот за окном: `false`.
+   */
+  throwBall(): boolean {
     const c = this.cat;
-    if (!c?.visible) return;
+    if (!c?.visible || c.mind === 'carried' || this.fetching || this.ballLeft > 0) return false;
     if (!this.ball) {
       const m = new Mesher();
       m.at(0, 0, 0);
-      const r = 0.045;
+      const r = BALL_R;
       // Клубок шерсти: шар и пара витков нитки.
       for (let i = 0; i < 6; i++) {
         const a0 = (i / 6) * Math.PI;
@@ -748,15 +884,96 @@ export class ChambersLife {
       const mesh = new THREE.Mesh(geometryOf(m.b), this.host.material);
       mesh.name = 'chambers-ball';
       this.host.scene.add(mesh);
-      this.ball = { mesh, p: [0, 0, 0], v: [0, 0, 0], on: false, t: 0 };
+      this.ball = { mesh, p: [0, 0, 0], v: [0, 0, 0], on: false, t: 0, mode: 'floor', shot: null, p0: [0, 0, 0], v0: [0, 0, 0] };
     }
     const r = this.host.ruler();
     const f: V3 = [Math.sin(r.yaw), 0, Math.cos(r.yaw)];
-    this.ball.p = [r.eye[0] + f[0] * 0.35, r.eye[1] - 0.45, r.eye[2] + f[2] * 0.35];
-    this.ball.v = [f[0] * 2.6, 1.6, f[2] * 2.6];
-    this.ball.on = true;
-    this.ball.t = 0;
-    this.ball.mesh.visible = true;
+    const hand: V3 = [r.eye[0] + f[0] * 0.35, r.eye[1] - 0.45, r.eye[2] + f[2] * 0.35];
+    const b = this.ball;
+    b.p = hand;
+    b.on = true;
+    b.t = 0;
+    b.mesh.visible = true;
+    this.ballAt = this.clock.t;
+    const shot = windowShot(r.eye, r.yaw, r.pitch, hand);
+    // Кот добежит до ниши: иначе (путь перегорожен) клубок летит на пол, как прежде.
+    const hops = shot ? fetchHops(shot.o, shot.light) : null;
+    if (shot && hops && catReaches(c, hops[0].to)) {
+      b.mode = 'flight';
+      b.shot = shot;
+      b.p0 = hand;
+      b.v0 = shot.v;
+      b.v = [...shot.v];
+      c.route(hops, (ok) => this.catOut(ok));
+    } else {
+      b.mode = 'floor';
+      b.shot = null;
+      b.v = [f[0] * 2.6, 1.6, f[2] * 2.6];
+      c.play();
+    }
+    this.changed();
+    return true;
+  }
+
+  /** Кот выпрыгнул в окно за клубком и скрылся: через `CAT_AWAY` секунд он вернётся с клубком. */
+  private catOut(ok: boolean): void {
+    const c = this.cat;
+    const shot = this.ball?.shot;
+    if (!c || !ok || !shot) {
+      // Не допрыгнул (путь перегородили) — бросил; клубок остался за окном.
+      if (this.ball && this.ball.mode !== 'floor') this.dropBallOut();
+      return;
+    }
+    c.hide();
+    this.away = { t: 0, shot };
+    this.changed();
+  }
+
+  /** Клубок пропал за окном насовсем (кот не пошёл за ним). */
+  private dropBallOut(): void {
+    const b = this.ball!;
+    b.on = false;
+    b.mode = 'floor';
+    b.shot = null;
+    b.mesh.visible = false;
+    this.changed();
+  }
+
+  /**
+   * Кот возвращается с клубком в зубах: снизу экрана — прыжком с пола у ног правителя в кадр (`toss.leapBack`), а если внизу
+   * места нет — тем же окном. Приземлился — кладёт клубок перед собой, мурчит и играет дальше.
+   */
+  private catBack(): void {
+    const c = this.cat!;
+    const shot = this.away!.shot;
+    this.away = null;
+    const r = this.host.ruler();
+    const eye = { x: r.x, z: r.z, eyeY: r.eye[1], yaw: r.yaw, pitch: r.pitch, fov: r.fov };
+    const w = windowBack(shot.o, shot.light);
+    // Окно в кадре — кот вспрыгивает на подоконник снаружи, из-под его края; отвернулся — прыгает в кадр из-под нижнего края
+    // экрана (`toss.leapBack`); ни того ни другого — окном.
+    const below = inView(eye, w.hops[0].to) ? null : leapBack(eye);
+    c.mouthful = true;
+    this.ball!.mode = 'mouth';
+    this.ball!.mesh.visible = true;
+    const done = (): void => this.catDrops();
+    if (below) c.leapIn(below.from, below.to, 0.55, [], done);
+    else c.leapIn(w.from, w.hops[0].to, 0.25, w.hops.slice(1), done);
+    this.changed();
+  }
+
+  /** Принёс: опустил голову, клубок — на пол перед мордой, мурчит и снова играет. */
+  private catDrops(): void {
+    const c = this.cat!;
+    const b = this.ball!;
+    c.mouthful = false;
+    b.mode = 'floor';
+    b.shot = null;
+    const at = c.rig.at('jaw', [0, -0.02, 0.06]);
+    b.p = [at[0], Math.max(BALL_R, at[1] - 0.12), at[2]];
+    b.v = [Math.sin(c.yaw) * 0.5, 0, Math.cos(c.yaw) * 0.5];
+    b.t = 0;
+    c.pleased(3.5);
     c.play();
     this.changed();
   }
@@ -765,18 +982,35 @@ export class ChambersLife {
     const b = this.ball;
     if (!b?.on) return;
     b.t += dt;
-    b.v[1] -= 9.8 * dt;
+    if (b.mode === 'mouth') return;
+    if (b.mode === 'out') return;
+    if (b.mode === 'flight') {
+      // В окно: дуга из руки, проверенная воздухом целиком (`toss.windowShot`); за гранью стены — пропал из виду.
+      const p = flightAt(b.p0, b.v0, b.t);
+      b.v = [b.v0[0], b.v0[1] - GRAVITY * b.t, b.v0[2]];
+      b.mesh.rotation.x += 7 * dt;
+      b.mesh.rotation.z -= 5 * dt;
+      b.p = p;
+      b.mesh.position.set(this.host.origin.x + p[0], this.host.origin.y + p[1], this.host.origin.z + p[2]);
+      if (depthOf(b.shot!.o, p) > WALL_T + 0.35) {
+        b.mode = 'out';
+        b.mesh.visible = false;
+        this.changed();
+      }
+      return;
+    }
+    b.v[1] -= GRAVITY * dt;
     let nx = b.p[0] + b.v[0] * dt;
     let nz = b.p[2] + b.v[2] * dt;
     let ny = b.p[1] + b.v[1] * dt;
-    if (ny < 0.045) {
-      ny = 0.045;
+    if (ny < BALL_R) {
+      ny = BALL_R;
       b.v[1] = Math.abs(b.v[1]) > 0.8 ? -b.v[1] * 0.35 : 0;
       b.v[0] *= 0.985;
       b.v[2] *= 0.985;
     }
     // По полу — трение; стены и мебель отталкивают.
-    if (ny <= 0.046) {
+    if (ny <= BALL_R + 0.001) {
       const k = Math.exp(-dt * 1.4);
       b.v[0] *= k;
       b.v[2] *= k;
@@ -796,8 +1030,8 @@ export class ChambersLife {
     }
     // Укатившись, клубок лежит; кот бросил играть — клубок убирается.
     const roll = Math.hypot(b.v[0], b.v[2]);
-    b.mesh.rotation.x += (b.v[2] / 0.045) * dt;
-    b.mesh.rotation.z -= (b.v[0] / 0.045) * dt;
+    b.mesh.rotation.x += (b.v[2] / BALL_R) * dt;
+    b.mesh.rotation.z -= (b.v[0] / BALL_R) * dt;
     b.p = [nx, ny, nz];
     b.mesh.position.set(this.host.origin.x + nx, this.host.origin.y + ny, this.host.origin.z + nz);
     if (c && c.mind !== 'play' && roll < 0.05 && b.t > 3) {
@@ -805,6 +1039,12 @@ export class ChambersLife {
       b.mesh.visible = false;
       this.changed();
     }
+  }
+
+  /** Где клубок сейчас (оси комнаты) и виден ли — тестам и стенду. */
+  ballNow(): { p: V3; mode: 'floor' | 'flight' | 'out' | 'mouth'; visible: boolean } | null {
+    const b = this.ball;
+    return b?.on ? { p: [...b.p] as V3, mode: b.mode, visible: b.mesh.visible } : null;
   }
 
   // ---------- Кадр ----------
@@ -850,12 +1090,19 @@ export class ChambersLife {
         c.held = { x: at[0], y: at[1] - 0.2, z: at[2], yaw: s.yaw + Math.PI / 2 };
       } else if (c.held && s?.carry !== 'cat') c.held = null;
       const before = c.place;
-      c.step(dt, { ruler: { x: r.x, z: r.z, yaw: r.yaw, busy: r.inAct }, ball: this.ball?.on ? { x: this.ball.p[0], y: this.ball.p[1], z: this.ball.p[2], moving: true } : null });
-      if (c.mind === 'play' && this.ball?.on) c.lookAt(this.ball.p[0], this.ball.p[1], this.ball.p[2]);
+      const floorBall = this.ball?.on && this.ball.mode === 'floor' ? this.ball : null;
+      c.step(dt, { ruler: { x: r.x, z: r.z, yaw: r.yaw, busy: r.inAct }, ball: floorBall ? { x: floorBall.p[0], y: floorBall.p[1], z: floorBall.p[2], moving: true } : null });
+      if (c.mind === 'play' && floorBall) c.lookAt(floorBall.p[0], floorBall.p[1], floorBall.p[2]);
+      else if (c.mind === 'fetch') c.lookAt(c.x + Math.sin(c.yaw), c.y + 0.2, c.z + Math.cos(c.yaw));
       else if (c.mind !== 'rest' || c.place !== 'hearth') c.lookAt(r.eye[0], r.eye[1], r.eye[2]);
       if (c.place !== before) this.remember();
     }
     this.stepBall(dt);
+    // Кот за окном: секунда — и обратно, с клубком.
+    if (this.away) {
+      this.away.t += dt;
+      if (this.away.t >= CAT_AWAY && (this.ball?.mode === 'out' || !this.ball?.on)) this.catBack();
+    }
     if (this.took) this.took.t += dt;
     if (this.night && this.night.t > -1e8) {
       this.night.t += dt;
@@ -869,6 +1116,14 @@ export class ChambersLife {
     const o: V3 = [this.host.origin.x, this.host.origin.y, this.host.origin.z];
     for (const p of this.folk.values()) p.draw(o);
     this.cat?.draw(o);
+    // Клубок в зубах: у пасти кота, по кадру его головы.
+    const b = this.ball;
+    const c = this.cat;
+    if (b?.on && b.mode === 'mouth' && c?.visible) {
+      const at = c.rig.at('jaw', [0, -0.02, 0.06]);
+      b.p = at;
+      b.mesh.position.set(o[0] + at[0], o[1] + at[1], o[2] + at[2]);
+    }
     this.drawJug();
     this.drawPapers();
   }
@@ -1176,3 +1431,7 @@ const wrapA = (a: number): number => {
   return x;
 };
 
+/** Дойдёт ли кот до точки на полу: прямо (кот меньше человека) или путём обхода (`walk.pathTo`) — как он ходит (`Cat.goTo`). */
+function catReaches(c: { x: number; z: number }, to: V3): boolean {
+  return clear({ x: c.x, z: c.z }, { x: to[0], z: to[2] }, CAT_R) || pathTo({ x: c.x, z: c.z }, { x: to[0], z: to[2] }) !== null;
+}
