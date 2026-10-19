@@ -20,7 +20,7 @@ import { type Canvas, ctxOf, makeCanvas } from './canvas';
 import type { Knowledge } from './knowledge';
 import { C } from './palette';
 import { SHEET_PAD, SHEET_PX } from './parchment';
-import { drawCells } from './layers';
+import { drawCells, usedRect } from './layers';
 import { type Ground, moving } from './prebake';
 
 // ---------- Полутень и глубокое незнание ----------
@@ -36,6 +36,8 @@ interface Raster {
   gen: number;
   discs: string;
   at: number;
+  /** Где полутень не пуста (К-1): всё в живом обзоре — копировать нечего; null — нигде. */
+  used: Rect | null;
 }
 
 let raster: Raster | null = null;
@@ -90,7 +92,7 @@ function bakeRaster(rect: Rect, k: Knowledge, discs: SightDisc[], gen: number, k
     }
   }
   ctx.putImageData(img, 0, 0);
-  return { canvas, rect, gen, discs: key, at };
+  return { canvas, rect, gen, discs: key, at, used: usedRect(d, rect) };
 }
 
 function drawRaster(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport, g: Ground, k: Knowledge): void {
@@ -104,10 +106,10 @@ function drawRaster(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport, g:
   const prev = raster && raster.rect === rect ? raster : null;
   const stale = !prev || prev.gen !== g.knowledgeGen || prev.discs !== key;
   if (!prev || (stale && !moving() && t - prev.at > REBAKE_MS)) raster = bakeRaster(rect, k, discs, g.knowledgeGen, key, t);
-  if (!raster) return;
+  if (!raster?.used) return;
   ctx.save();
   ctx.imageSmoothingEnabled = true;
-  drawCells(ctx, cam, vp, raster.canvas, raster.rect);
+  drawCells(ctx, cam, vp, raster.canvas, raster.rect, 1, raster.used);
   ctx.restore();
 }
 

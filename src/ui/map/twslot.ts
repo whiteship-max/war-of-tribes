@@ -7,6 +7,7 @@ import { useWorld } from '@/world/store';
 import { beyondNote, inHomeTheatre } from '@/world/theatre/theatre';
 import type { Camera, Viewport } from './grid';
 import type { FrameMotion } from './still';
+import type { Quality } from '@/render/quality';
 
 export interface TwSlot {
   /** Кадр карты целиком; вернёт, что в нём движется само, — по нему карта решает, когда рисовать следующий (`still.ts`). */
@@ -23,6 +24,10 @@ export interface TwSlot {
   party(): string;
   /** Уборка испечённого: новый мир, другая плотность экрана, уход с карты. */
   drop(): void;
+  /** Уровень кадра карты — уровень игры, опущенный сторожем карты (`tw/quality.mapLevel`): плотность холста и шаг стоя. */
+  level(): Quality;
+  /** Промежуток кадра в непрерывном ходе — сторожу плавности карты (`tw/quality.watchMap`, К-1). */
+  watch(gap: number): void;
 }
 
 let slot: TwSlot | null = null;

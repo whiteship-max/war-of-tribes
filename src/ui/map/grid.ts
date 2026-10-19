@@ -344,12 +344,24 @@ export function worstRequest(vp: Viewport): number {
  */
 export const TILE_CEILING = worstRequest(TILE_PROMISE);
 
+let capMemo: { w: number; h: number; n: number } | null = null;
+/** Сколько раз ёмкость считалась заново — тесту «не каждый кадр». */
+let worstCounted = 0;
+export const capacityCounted = (): number => worstCounted;
+
 /**
  * Ёмкость кэша земли для этого экрана: сколько кадр просит в худшем положении
  * камеры, но не больше потолка. Числа, подобранного однажды, здесь нет — поменяй
  * запас, полосу перехода или сторону тайла, и ёмкость пересчитается сама.
  */
-export const cacheFor = (vp: Viewport): number => Math.min(worstRequest(vp), TILE_CEILING);
+export function cacheFor(vp: Viewport): number {
+  // Ёмкость зависит только от размера экрана, а кадр вблизи спрашивает её каждый раз: прежде каждый кадр перебирал
+  // все положения камеры заново (К-1, docs/telemetry.md). Размер тот же — ответ тот же.
+  if (capMemo && capMemo.w === vp.w && capMemo.h === vp.h) return capMemo.n;
+  capMemo = { w: vp.w, h: vp.h, n: Math.min(worstRequest(vp), TILE_CEILING) };
+  worstCounted++;
+  return capMemo.n;
+}
 
 /**
  * Сколько памяти земля может занять на этом экране, в байтах: ёмкость кэша, пул

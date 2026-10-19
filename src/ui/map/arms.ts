@@ -4,11 +4,28 @@ import { BANDIT_ARMS, DEFAULT_ARMS, armsCode, armsOr, lairArms } from '@/heraldr
 import { settlementAt } from '@/world/cache';
 import type { MarchView, SettlementView } from '@/world/types';
 
+/**
+ * Строки гербов, уже выведенные: кадр карты спрашивает герб каждого места на каждом кадре, и разбор строки по набору
+ * (`armsOr`) и вывод герба логова из номера (`lairArms`) шли заново шестьдесят раз в секунду (К-1, docs/telemetry.md).
+ * Ответ зависит только от входной строки — её и помним.
+ */
+const codes = new Map<string, string>();
+
+function code(key: string, make: () => string): string {
+  let v = codes.get(key);
+  if (v === undefined) {
+    v = make();
+    if (codes.size >= 512) codes.clear();
+    codes.set(key, v);
+  }
+  return v;
+}
+
 /** Строка герба места; `own` — строка герба профиля (`ProfileState.arms`), читается через набор. */
 export function placeArms(s: Pick<SettlementView, 'id' | 'mine' | 'relation' | 'arms'>, own: string | null | undefined): string {
-  if (s.mine) return armsCode(armsOr(own));
-  if (s.relation === 'barbarian') return armsCode(s.id ? lairArms(s.id) : BANDIT_ARMS);
-  return armsCode(s.arms ? armsOr(s.arms) : DEFAULT_ARMS);
+  if (s.mine) return own == null ? code('d', () => armsCode(DEFAULT_ARMS)) : code(`o${own}`, () => armsCode(armsOr(own)));
+  if (s.relation === 'barbarian') return s.id ? code(`l${s.id}`, () => armsCode(lairArms(s.id))) : code('b', () => armsCode(BANDIT_ARMS));
+  return s.arms ? code(`o${s.arms}`, () => armsCode(armsOr(s.arms))) : code('d', () => armsCode(DEFAULT_ARMS));
 }
 
 /**

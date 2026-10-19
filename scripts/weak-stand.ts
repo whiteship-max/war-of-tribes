@@ -9,7 +9,8 @@
 //   QUALITY=auto|low|medium|high             — уровень адресом (`?quality=`); `auto` — выбор игры по устройству
 //   DEVICE=weak                              — устройство говорит «память 2 ГБ, 4 ядра» (`navigator.deviceMemory`,
 //                                              `hardwareConcurrency`): так автовыбор видит дешёвый Android
-//   SECONDS=10                               — сколько мерить плавность
+//   SECONDS=10                               — сколько мерить плавность (у карты — каждую фазу)
+//   MOVE=still,pan,zoom,fly                  — фазы карты: стоит, ведут, щипок 7 ↔ 44 px, перелёт вблизи (K-1)
 //   PROFILE=1 BUILT=1                        — профиль на собранной игре (имена сжаты, файлы кусков видны)
 //   DIST=путь                                — другая сборка вместо `dist` (коммит «до» из второго worktree)
 //   EXTRA="&weather=rain"                    — добавка к адресу страницы (погода адресом, docs/city.md, 15)
@@ -53,6 +54,11 @@ const EXTRA = process.env.EXTRA ?? '';
 /** `PROFILE=1` — профилировщик страницы на окне плавности: собственное время функций, первые пятнадцать. */
 const PROFILE = process.env.PROFILE === '1';
 /**
+ * `TRACE=1` — трасса Chrome на окне плавности: занятость каждого потока (главный, растр, видеокарта, композитор) и
+ * самые дорогие события. Главный поток — не всё: кадр 2D-холста растрирует и отдаёт экрану не он (K-1, docs/telemetry.md).
+ */
+const TRACE = process.env.TRACE === '1';
+/**
  * Экран телефона: портрет 390×844, плотность 2 — как у снимков города и ролика. `SMALL=1` — тот же портрет вчетверо
  * меньше по стороне при плотности 1: программной отрисовке достаётся в шестьдесят раз меньше пикселей, кадров в окно
  * встаёт больше, и цена кадра на процессоре меряется на сотнях кадров, а не на десятке. Камера та же (аспект тот же),
@@ -70,6 +76,9 @@ const BEFORE = `
   ${WEAK ? `try { Object.defineProperty(Navigator.prototype, 'deviceMemory', { get: () => 2 }); Object.defineProperty(Navigator.prototype, 'hardwareConcurrency', { get: () => 4 }); } catch (e) {}` : ''}
   let on = false;
   const gaps = [];
+  // Длинные задачи (Long Tasks API, только Chromium) — те же, что сборщик замеров шлёт с телефонов (docs/telemetry.md).
+  const longs = [];
+  try { new PerformanceObserver((l) => { if (on) for (const e of l.getEntries()) longs.push(e.duration); }).observe({ type: 'longtask' }); } catch (e) {}
   let last = 0;
   const tick = (t) => {
     if (!on) return;
@@ -102,8 +111,50 @@ const BEFORE = `
     obj[mark] = true;
     return JSON.stringify(true);
   };
-  window.__weakStart = () => { gaps.length = 0; for (const k in costs) delete costs[k]; for (const k in counts) delete counts[k]; last = 0; on = true; requestAnimationFrame(tick); return JSON.stringify('ok'); };
-  window.__weakStop = () => { on = false; return JSON.stringify({ gaps, costs, counts }); };
+  // Счёт рисования полотна карты: вызовов и сколько экранов залито за кадр (площадь копирований и заливок прямоугольником,
+  // обрезанная экраном, в пикселях буфера). На телефоне 2D-холст рисует видеокарта, и залитые экраны — её цена (K-1).
+  const ink = { frames: 0, calls: 0, area: 0, parts: {} };
+  let inkCanvas = null;
+  const P = CanvasRenderingContext2D.prototype;
+  const clipArea = (ctx, x, y, w, h) => {
+    const m = ctx.getTransform();
+    const x0 = Math.max(0, Math.min(m.a * x + m.e, m.a * (x + w) + m.e));
+    const x1 = Math.min(ctx.canvas.width, Math.max(m.a * x + m.e, m.a * (x + w) + m.e));
+    const y0 = Math.max(0, Math.min(m.d * y + m.f, m.d * (y + h) + m.f));
+    const y1 = Math.min(ctx.canvas.height, Math.max(m.d * y + m.f, m.d * (y + h) + m.f));
+    return x1 > x0 && y1 > y0 ? (x1 - x0) * (y1 - y0) : 0;
+  };
+  const mine = (ctx) => on && inkCanvas !== null && ctx.canvas === inkCanvas;
+  for (const name of ['drawImage', 'fillRect', 'fill', 'stroke', 'fillText', 'setTransform']) {
+    const f = P[name];
+    P[name] = function (...a) {
+      if (mine(this)) {
+        if (name === 'setTransform') ink.frames++;
+        else {
+          ink.calls++;
+          let area = 0;
+          if (name === 'fillRect') area = clipArea(this, a[0], a[1], a[2], a[3]);
+          if (name === 'drawImage') {
+            const [x, y, w, h] = a.length >= 9 ? [a[5], a[6], a[7], a[8]] : a.length >= 5 ? [a[1], a[2], a[3], a[4]] : [a[1], a[2], a[0].width, a[0].height];
+            area = clipArea(this, x, y, w, h);
+          }
+          ink.area += area;
+          const k = window.__mapPart || '—';
+          ink.parts[k] = (ink.parts[k] || 0) + area;
+        }
+      }
+      return f.apply(this, a);
+    };
+  }
+  window.__weakInk = () => {
+    const c = inkCanvas;
+    const screen = c ? c.width * c.height : 1;
+    const per = (v) => (ink.frames ? v / ink.frames / screen : 0);
+    const parts = Object.fromEntries(Object.entries(ink.parts).map(([k, v]) => [k, per(v)]));
+    return { frames: ink.frames, calls: ink.frames ? ink.calls / ink.frames : 0, screens: per(ink.area), parts };
+  };
+  window.__weakStart = () => { inkCanvas = document.querySelector('.worldmap canvas'); ink.frames = 0; ink.calls = 0; ink.area = 0; ink.parts = {}; gaps.length = 0; longs.length = 0; for (const k in costs) delete costs[k]; for (const k in counts) delete counts[k]; last = 0; on = true; requestAnimationFrame(tick); return JSON.stringify('ok'); };
+  window.__weakStop = () => { on = false; return JSON.stringify({ gaps, costs, counts, longs }); };
 })();
 `;
 
@@ -139,6 +190,7 @@ async function smooth(tab: Tab, what: string, during?: (stop: () => boolean) => 
     await tab.send('Profiler.setSamplingInterval', { interval: 500 });
     await tab.send('Profiler.start');
   }
+  const trace = TRACE ? await startTrace(tab) : null;
   await tab.eval<string>('window.__weakStart()');
   const m0 = await metrics(tab);
   const t0 = Date.now();
@@ -146,12 +198,13 @@ async function smooth(tab: Tab, what: string, during?: (stop: () => boolean) => 
   if (during) await during(() => Date.now() >= until);
   while (Date.now() < until) await sleep(200);
   const m1 = await metrics(tab);
-  const { gaps, costs: parts, counts } = await tab.eval<{ gaps: number[]; costs: Record<string, number[]>; counts: Record<string, number[]> }>(
+  const { gaps, costs: parts, counts, longs } = await tab.eval<{ gaps: number[]; costs: Record<string, number[]>; counts: Record<string, number[]>; longs: number[] }>(
     'window.__weakStop()',
   );
   const costs = parts.frame ?? [];
   if (PROFILE) hot(await tab.send<{ profile: Profile }>('Profiler.stop'));
   const wall = (Date.now() - t0) / 1000;
+  if (trace) threads(await trace(), wall);
   const busy = (m1.TaskDuration - m0.TaskDuration) / wall;
   const script = (m1.ScriptDuration - m0.ScriptDuration) / wall;
   const n = gaps.length;
@@ -160,6 +213,13 @@ async function smooth(tab: Tab, what: string, during?: (stop: () => boolean) => 
     `  ${what}: ${(n / wall).toFixed(1)} к/с · дольше 34 мс ${pct(share(34))} · дольше 50 мс ${pct(share(50))} · p95 ${quant(gaps, 0.95).toFixed(0)} мс` +
       ` · главный поток занят ${pct(busy)} (скрипт ${pct(script)})`,
   );
+  const ink = await tab.eval<{ frames: number; calls: number; screens: number; parts: Record<string, number> }>('JSON.stringify(window.__weakInk())');
+  if (ink.frames) {
+    const by = Object.entries(ink.parts).filter(([, v]) => v >= 0.01).map(([k, v]) => `${k} ${v.toFixed(2)}`).join(' · ');
+    console.log(`    рисование полотна: кадров ${ink.frames}, вызовов на кадр ${ink.calls.toFixed(0)}, залито экранов на кадр ${ink.screens.toFixed(2)}${by ? ` (${by})` : ''}`);
+  }
+  const longSum = longs.reduce((a, b) => a + b, 0);
+  console.log(`    длинные задачи: ${longs.length}, всего ${Math.round(longSum)} мс, самая долгая ${Math.round(Math.max(0, ...longs))} мс`);
   if (costs.length) {
     const over = (ms: number): number => costs.filter((c) => c > ms).length / costs.length;
     console.log(
@@ -175,6 +235,69 @@ async function smooth(tab: Tab, what: string, during?: (stop: () => boolean) => 
     console.log(
       `    в среднем за кадр (с теневым проходом, когда он есть): вызовов ${mean(counts.calls).toFixed(1)}, треугольников ${Math.round(mean(counts.tris)).toLocaleString('ru')}` +
         ` (меньше ${Math.min(...counts.tris).toLocaleString('ru')}, больше ${Math.max(...counts.tris).toLocaleString('ru')})`,
+    );
+  }
+}
+
+interface TraceEvent {
+  name: string;
+  ph: string;
+  pid: number;
+  tid: number;
+  dur?: number;
+  args?: { name?: string };
+}
+
+/** Начать трассу; вернёт, чем её кончить и забрать события. */
+async function startTrace(tab: Tab): Promise<() => Promise<TraceEvent[]>> {
+  const events: TraceEvent[] = [];
+  const offData = tab.on('Tracing.dataCollected', (p) => events.push(...(p as { value: TraceEvent[] }).value));
+  let done: () => void = () => undefined;
+  const complete = new Promise<void>((ok) => (done = ok));
+  const offDone = tab.on('Tracing.tracingComplete', () => done());
+  await tab.send('Tracing.start', {
+    transferMode: 'ReportEvents',
+    traceConfig: { includedCategories: ['toplevel', 'devtools.timeline', 'gpu', 'cc', 'viz', 'blink', 'skia', '__metadata'] },
+  });
+  return async () => {
+    await tab.send('Tracing.end');
+    await complete;
+    offData();
+    offDone();
+    return events;
+  };
+}
+
+/**
+ * Потоки за окно: доля времени в задачах верхнего уровня (`RunTask` и подобные — то, что поток делал) и пять самых
+ * дорогих событий внутри (вложенные считаются в родителе тоже — это не собственное время, а «где сидел поток»).
+ */
+function threads(events: TraceEvent[], wall: number): void {
+  const names = new Map<string, string>();
+  const procs = new Map<number, string>();
+  for (const e of events) {
+    if (e.ph === 'M' && e.name === 'thread_name') names.set(`${e.pid}:${e.tid}`, e.args?.name ?? '?');
+    if (e.ph === 'M' && e.name === 'process_name') procs.set(e.pid, e.args?.name ?? '?');
+  }
+  const TOP = /^(ThreadControllerImpl::RunTask|ThreadPool_RunTask|RunTask|SequenceManager RunTask)$/;
+  const busy = new Map<string, number>();
+  const by = new Map<string, Map<string, number>>();
+  for (const e of events) {
+    if (e.ph !== 'X' || !e.dur) continue;
+    const key = `${e.pid}:${e.tid}`;
+    if (TOP.test(e.name)) busy.set(key, (busy.get(key) ?? 0) + e.dur / 1000);
+    else {
+      const m = by.get(key) ?? new Map<string, number>();
+      m.set(e.name, (m.get(e.name) ?? 0) + e.dur / 1000);
+      by.set(key, m);
+    }
+  }
+  const rows = [...busy].filter(([, ms]) => ms > wall * 10).sort((a, b) => b[1] - a[1]).slice(0, 8);
+  for (const [key, ms] of rows) {
+    const pid = Number(key.split(':')[0]);
+    const top = [...(by.get(key) ?? [])].sort((a, b) => b[1] - a[1]).slice(0, 5);
+    console.log(
+      `    поток ${procs.get(pid) ?? pid}/${names.get(key) ?? key}: занят ${pct(ms / 1000 / wall)} — ${top.map(([n, v]) => `${n} ${Math.round(v / wall)} мс/с`).join(', ')}`,
     );
   }
 }
@@ -301,20 +424,39 @@ async function map(tab: Tab): Promise<void> {
   const look = { x: home.x - 3, y: home.y + 3 };
   await tab.eval<string>(`(() => { window.__mapCam(${look.x}, ${look.y}, 24); return JSON.stringify('ok'); })()`);
   await sleep(2000);
-  await tab.eval<string>('JSON.stringify(window.__mapPerf())');
-  await smooth(tab, `карта стоит ×${RATE}`);
-  const still = await tab.eval<number[]>('JSON.stringify(window.__mapPerf())');
-  // Карту водят: камера идёт по кругу над островом — как палец, но без разбора жеста (стенд меряет кадр, не палец).
-  await smooth(tab, `карту ведут ×${RATE}`, async (stop) => {
-    for (let i = 0; !stop(); i++) {
-      const a = i / 20;
-      await tab.eval<string>(`(() => { window.__mapCam(${look.x} + ${4} * Math.cos(${a}), ${look.y} + ${3} * Math.sin(${a}), 24); return JSON.stringify('ok'); })()`);
-      await sleep(50);
+  const f = (a: number[]): string => `${a.length} кадров, медиана ${quant(a, 0.5).toFixed(1)} мс, p95 ${quant(a, 0.95).toFixed(1)} мс, худший ${Math.max(0, ...a).toFixed(1)} мс`;
+  // Палец ведёт камеру таймером страницы 60 раз в секунду, как жест, но без разбора жеста (стенд меряет кадр, не палец);
+  // таймер — не цикл кадра: кадр рисует сама карта (бюджет железа, CLAUDE.md, раздел ⛔).
+  const finger = (path: string): string =>
+    `(() => { const t0 = performance.now(); window.__weakFinger = setInterval(() => { const t = (performance.now() - t0) / 1000; const [x, y, s] = (${path})(t); window.__mapCam(x, y, s); }, 16); return JSON.stringify('ok'); })()`;
+  const lift = `(() => { clearInterval(window.__weakFinger); return JSON.stringify('ok'); })()`;
+  const PATHS: Record<string, string> = {
+    // Ведут: круг над островом на 24 px на клетку — земля под пальцем уже испечена.
+    pan: `(t) => [${look.x} + 4 * Math.cos(t * 1.2), ${look.y} + 3 * Math.sin(t * 1.2), 24]`,
+    // Щипок: масштаб ходит 7 ↔ 44 px на клетку (дальний — ближний) за четыре секунды, середина стоит.
+    zoom: `(t) => [${look.x}, ${look.y}, 7 * Math.pow(44 / 7, (1 - Math.cos(t * Math.PI / 2)) / 2)]`,
+    // Перелёт: быстрый проход через остров вблизи — тайлы ближнего масштаба приезжают по ходу.
+    fly: `(t) => [${look.x} + 14 * Math.sin(t * 0.8), ${look.y} + 6 * Math.sin(t * 0.5), 30]`,
+  };
+  for (const phase of (process.env.MOVE ?? 'still,pan,zoom').split(',')) {
+    await tab.eval<string>(`(() => { window.__mapCam(${look.x}, ${look.y}, 24); return JSON.stringify('ok'); })()`);
+    await sleep(1000);
+    await tab.eval<string>('JSON.stringify(window.__mapPerf())');
+    await tab.eval<string>('JSON.stringify(window.__mapParts ? window.__mapParts() : null)');
+    if (phase === 'still') await smooth(tab, `карта стоит ×${RATE}`);
+    else {
+      const path = PATHS[phase];
+      if (!path) throw new Error(`движения «${phase}» нет: still, ${Object.keys(PATHS).join(', ')}`);
+      await tab.eval<string>(finger(path));
+      await smooth(tab, `карта: ${phase} ×${RATE}`);
+      await tab.eval<string>(lift);
     }
-  });
-  const moving = await tab.eval<number[]>('JSON.stringify(window.__mapPerf())');
-  const f = (a: number[]): string => `${a.length} кадров, медиана ${quant(a, 0.5).toFixed(1)} мс, p95 ${quant(a, 0.95).toFixed(1)} мс`;
-  console.log(`  кадр полотна: стоит — ${f(still)}; ведут — ${f(moving)}; куча ${await heap(tab)} МБ`);
+    console.log(`    кадр полотна: ${f(await tab.eval<number[]>('JSON.stringify(window.__mapPerf())'))}`);
+    // Части кадра — под `?probe=1`, если сборка их считает (`tw/frame`, K-1): медиана и p95 по частям.
+    const parts = await tab.eval<Record<string, number[]> | null>('JSON.stringify(window.__mapParts ? window.__mapParts() : null)');
+    if (parts) console.log(`    части: ${Object.entries(parts).map(([k, v]) => `${k} ${quant(v, 0.5).toFixed(2)}/${quant(v, 0.95).toFixed(2)}`).join(' · ')}`);
+  }
+  console.log(`  куча ${await heap(tab)} МБ`);
 }
 
 /** Полевой бой стенда ролика (`tw:shots`, FIELD): тот же проигрыватель, что в игре. */
