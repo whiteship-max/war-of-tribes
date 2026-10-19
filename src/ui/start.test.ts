@@ -101,7 +101,8 @@ describe('настройки на стартовом экране — тот ж�
   it('оба места показывают один и тот же `parts/Settings`', () => {
     for (const file of ['ui/StartScreen.tsx', 'ui/panels/ProfilePanel.tsx']) {
       expect(read(file), `${file}: настройки не оттуда`).toMatch(/import \{ Settings \} from '[./@a-z/]*parts\/Settings'/);
-      expect(read(file), `${file}: компонент не показан`).toContain('<Settings />');
+      // Профиль ставит «Сообщить об ошибке» строкой рядом с разделом и прячет её копию внутри (`bug={false}`, ЗН-4).
+      expect(read(file), `${file}: компонент не показан`).toMatch(/<Settings( bug=\{false\})? \/>/);
     }
   });
 
