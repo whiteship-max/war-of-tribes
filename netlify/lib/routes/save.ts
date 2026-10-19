@@ -166,7 +166,14 @@ export const save: Route = async (req, io) => {
   // подтверждает их без работы (docs/pvp.md, раздел 7). Не ответила — без записки; ускорения подождут следующей записи.
   const ledger = await settleGems(io.stores, key, now);
   const paid = rushesOf(ledger?.ledger ?? null);
-  await observe(io.stores, key, (rec) => booked(wrote(touched(rec, now, user, ref), now, card, record.watch, rev), now, record.watch, seen, grants.list, wars, key, paid));
+  // Книга запасов (docs/security.md, ЗЩ-2) сверяет убыль склада между прежней описью и этой и слепок обороны с описью.
+  await observe(io.stores, key, (rec) =>
+    booked(wrote(touched(rec, now, user, ref), now, card, record.watch, rev), now, record.watch, seen, grants.list, wars, key, paid, {
+      card: rec.card,
+      at: rec.cardAt,
+      sheet: record.war,
+    }),
+  );
   const body: PushResponse = {
     now,
     etag: written.etag,

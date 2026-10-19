@@ -30,6 +30,7 @@ import {
 } from '../derived';
 import { addBonded, loseBonded } from './population';
 import { log } from './log';
+import { outlay } from './pay';
 
 /**
  * Переводит прилавок на текущий день, если день сменился. Вызывается и шагом
@@ -84,6 +85,7 @@ export function buyGoods(s: GameState, good: GoodId, count = 1): string | null {
   const def = check.def as GoodDef;
 
   s.gold -= check.cost;
+  if (check.cost > 0) outlay(s);
   s.market.bought[def.id] = marketBought(s, def.id) + check.count;
   const travel = caravanSeconds(s);
   const caravan: Caravan = {

@@ -27,6 +27,7 @@ import { recordDeath, recordDeed, recordRetire, recordSiege, reputeMorale, type 
 import { hireWhere } from './hire';
 import type { HomeEffect } from '@/world/types';
 import { loseRelic } from './faith';
+import { outlay } from './pay';
 import { recordBattle, recordLairBurned, recordLoot, recordRaidLoss, recordTroopsLost } from '@/profile/stats';
 import { count } from '@/ui/parts/plural';
 
@@ -365,6 +366,9 @@ export function applyExpedition(s: GameState, o: ExpeditionOutcome): void {
   // флагом (docs/security.md, раздел 8). С боем, логовом или замком дело уже засчитано, второй раз его не считают.
   const counted = !!o.battle || o.lair || o.castle;
   if (!counted && (Object.keys(brought).length > 0 || o.gold > 0)) s.stats.windfalls = (s.stats.windfalls ?? 0) + 1;
+  // Убыль без дела — дань, починка пролома, кража у нас: разовая трата (`sim/pay.outlay`), иначе книга запасов сервера
+  // сочла бы её спрятанным добром (docs/security.md, ЗЩ-2).
+  if (!counted && (Object.keys(taken).length > 0 || o.gold < 0)) outlay(s);
 
   // Прорвавшийся набег хозяйничает в поле: до того, что за стеной, он не дошёл.
   const sacked = o.sacked ? sackOutskirts(s, o.sacked) : [];

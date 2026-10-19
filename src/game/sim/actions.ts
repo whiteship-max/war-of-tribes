@@ -13,7 +13,7 @@ import {
 } from '../derived';
 import { BUILDING_BY_ID } from '../data/buildings';
 import { log } from './log';
-import { pay, refund } from './pay';
+import { outlay, pay, refund } from './pay';
 import { daysSpan } from '../span';
 
 export { assignBonded, assignWorker, changeFreeJob, unassignBonded, unassignWorker } from './workers';
@@ -65,6 +65,7 @@ export function throwFeast(s: GameState): string | null {
   const info = feastInfo(s);
   if (info.blocked) return info.blocked;
   s.gold -= info.cost;
+  outlay(s);
   s.feastUntil = s.time + feastSeconds();
   s.feastAt = s.time;
   log(s, `Правитель созвал город на пир, ушло ${info.cost} золота. Мораль +${info.bonus} на ${daysSpan(FEAST_DAYS)}.`, 'good', undefined, 'decree');

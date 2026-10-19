@@ -127,6 +127,9 @@ export function watchOf(s: GameState): WatchCard {
     deeds:
       st.hunts + st.battlesWon + st.battlesLost + st.eventsResolved + st.scouted + st.raids + st.castles + st.lairs + st.purchases + st.dailyWins + games + seen + gemmed +
       s.completedQuests.length + (st.windfalls ?? 0),
+    // Разовые траты (`sim/pay.outlay`): между описями без дел и трат книга запасов сервера держит склад «не меньше»
+    // (docs/security.md, ЗЩ-2).
+    outlays: st.outlays ?? 0,
     won: st.battlesWon,
     lost: st.battlesLost,
     lairs: st.lairs,

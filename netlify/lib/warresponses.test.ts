@@ -12,6 +12,7 @@ import { GUARD_SHARE, machinesAt } from '../../src/world/machines.js';
 import { guardKinds } from '../../src/world/fights.js';
 import { kindsOf } from '../../src/game/battle/price.js';
 import { ENERGY_MAX } from '../../src/world/data/energy.js';
+import { fieldWalkFloorMs } from '../../src/world/pvp.js';
 import { wallRepairCost } from '../../src/game/build.js';
 import { SIEGE_RATION } from '../../src/game/constants.js';
 
@@ -195,6 +196,26 @@ describe('сдача', () => {
   });
 });
 
+describe('выручка: срок пути — по расстоянию и скорости (ЗЩ-2)', () => {
+  it('из своего замка к союзнику «за ноль» — отказ и флаг «срок пути»; честный срок — принят', () => {
+    const { file, ctx, w, since } = camped();
+    const roster = ctx.roster;
+    const warned: string[] = [];
+    const told = { ...ctx, forged: (_: string, kind?: string) => warned.push(kind ?? 'forged') };
+    expect(applyOrder(file, B, { op: 'pact', target: castleIdOf(C) }, since + 1, told)).toBeNull();
+    expect(applyOrder(file, C, { op: 'pact', target: castleIdOf(B) }, since + 2, told)).toBeNull();
+    const army: WarArmy = { troops: { spearman: 60 }, resolve: 0, pips: {}, energy: { value: ENERGY_MAX, at: since, mode: 'hold' } };
+    const from = { x: roster.rows[C].x, y: roster.rows[C].y };
+    const floor = fieldWalkFloorMs(from, w.to);
+    expect(floor, 'точка внутри области: союзник не у ворот').toBeGreaterThan(60_000);
+    expect(applyOrder(file, C, { op: 'relief', id: w.id, army, walkMs: 0, from }, since + 3, told)).toBe('Так быстро полководцу не дойти. Обнови игру и попробуй снова.');
+    expect(w.reliefs ?? []).toEqual([]);
+    expect(warned).toEqual(['walk']);
+    expect(applyOrder(file, C, { op: 'relief', id: w.id, army, walkMs: floor, from }, since + 4, told)).toBeNull();
+    expect(w.reliefs?.[0].at).toBe(since + 4 + floor);
+  });
+});
+
 describe('пакт и выручка', () => {
   it('пакт — когда оба сказали «да»; на союзника походом не пойти; разорвать может любой', () => {
     const { file, ctx } = setup();
@@ -218,7 +239,7 @@ describe('пакт и выручка', () => {
     const { file, sheets, ctx, w, since } = camped();
     const army: WarArmy = { troops: { spearman: 60, swordsman: 30 }, resolve: 0, pips: {}, energy: { value: ENERGY_MAX, at: since, mode: 'hold' } };
     // Без пакта — отказ.
-    expect(applyOrder(file, C, { op: 'relief', id: w.id, army, walkMs: 3_600_000 }, since + 10, ctx)).toBe(
+    expect(applyOrder(file, C, { op: 'relief', id: w.id, army, walkMs: 3_600_000, from: w.to }, since + 10, ctx)).toBe(
       'На выручку идут только к союзнику по пакту.',
     );
     expect(applyOrder(file, B, { op: 'pact', target: castleIdOf(C) }, since + 11, ctx)).toBeNull();
@@ -227,8 +248,8 @@ describe('пакт и выручка', () => {
     const seen = warsOf(file, C).find((x) => x.id === w.id);
     expect(seen?.role).toBe('ally');
     expect(seen?.me).toBe(castleIdOf(C));
-    expect(applyOrder(file, C, { op: 'relief', id: w.id, army, walkMs: 3_600_000 }, since + 13, ctx)).toBeNull();
-    expect(applyOrder(file, C, { op: 'relief', id: w.id, army, walkMs: 3_600_000 }, since + 14, ctx)).toBe('Наша дружина уже идёт на выручку.');
+    expect(applyOrder(file, C, { op: 'relief', id: w.id, army, walkMs: 3_600_000, from: w.to }, since + 13, ctx)).toBeNull();
+    expect(applyOrder(file, C, { op: 'relief', id: w.id, army, walkMs: 3_600_000, from: w.to }, since + 14, ctx)).toBe('Наша дружина уже идёт на выручку.');
     const at = w.reliefs?.[0].at ?? 0;
     expect(at, 'точка внутри области: удар раньше фазы и голода').toBeLessThan(Math.min(phaseAt(since, 1), w.starvesAt ?? Infinity));
     advance(file, at + 1, sheets);
@@ -251,7 +272,7 @@ describe('пакт и выручка', () => {
     expect(applyOrder(file, B, { op: 'pact', target: castleIdOf(C) }, since + 1, ctx)).toBeNull();
     expect(applyOrder(file, C, { op: 'pact', target: castleIdOf(B) }, since + 2, ctx)).toBeNull();
     const before = newsMap(file);
-    expect(applyOrder(file, C, { op: 'relief', id: w.id, army, walkMs: 3_600_000 }, since + 3, ctx)).toBeNull();
+    expect(applyOrder(file, C, { op: 'relief', id: w.id, army, walkMs: 3_600_000, from: w.to }, since + 3, ctx)).toBeNull();
     const at = w.reliefs?.[0].at ?? 0;
     const going = newsDiff(before, newsMap(file)).get(B)?.add ?? [];
     expect(going).toMatchObject([{ kind: 'war-relief', fireAt: since + 3, until: at, p: { relief: 'going', ally: 'Гамма', from: 'Альфа', about: at } }]);
@@ -280,7 +301,7 @@ describe('пакт и выручка', () => {
     const army: WarArmy = { troops: { spearman: 60, swordsman: 30 }, resolve: 0, pips: {}, energy: { value: ENERGY_MAX, at: since, mode: 'hold' } };
     expect(applyOrder(file, B, { op: 'pact', target: castleIdOf(C) }, since + 1, ctx)).toBeNull();
     expect(applyOrder(file, C, { op: 'pact', target: castleIdOf(B) }, since + 2, ctx)).toBeNull();
-    expect(applyOrder(file, C, { op: 'relief', id: w.id, army, walkMs: 3_600_000 }, since + 3, ctx)).toBeNull();
+    expect(applyOrder(file, C, { op: 'relief', id: w.id, army, walkMs: 3_600_000, from: w.to }, since + 3, ctx)).toBeNull();
     const at = w.reliefs?.[0].at ?? 0;
     // Рогатки тыла и проход, занятый на всю ширину к минуте прихода.
     w.camp = { ...w.camp!, wood: { front: 0.5, rear: 0.5 }, rearGateAt: at + CAMP_GATE_CLEAR };

@@ -19,6 +19,16 @@ export type Price = Partial<Record<ResourceId, number>>;
 export function pay(s: GameState, cost: Price): void {
   for (const r of RESOURCE_IDS) s.resources[r] -= cost[r] ?? 0;
   recordSpent(s, cost);
+  if (RESOURCE_IDS.some((r) => (cost[r] ?? 0) > 0)) outlay(s);
+}
+
+/**
+ * Разовая трата — склад или казна убыли разом (`stats.outlays`). Её зовёт каждая дверь, которая убавляет склад или
+ * казну мимо расхода и разовых дел: без неё книга запасов сервера сочла бы честную трату спрятанным добром (docs/security.md,
+ * ЗЩ-2). Какие двери, держит тест (`sim/outlays.test.ts`).
+ */
+export function outlay(s: GameState): void {
+  s.stats.outlays = (s.stats.outlays ?? 0) + 1;
 }
 
 /**

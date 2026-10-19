@@ -17,6 +17,7 @@ import { buildingOfType, buildingTitle, faithDef, levelOutputMult, population } 
 import { drawName, nameAgents, seat, titled, yearsWord } from './agents';
 import { placeBlock } from './tech';
 import { log } from './log';
+import { outlay } from './pay';
 import { asGame, type GameSec } from '../pace';
 
 /** Как по-русски сказать «нанять где»: «в Дозоре», «в Статуе Героя», «в мечети». */
@@ -99,6 +100,7 @@ export function hireAgent(s: GameState, agent: FigureId): string | null {
   const info = hireInfo(s, agent);
   if (info.blocked) return info.blocked;
   s.gold -= info.gold;
+  if (info.gold > 0) outlay(s);
   s.agents[agent].hiring = { until: s.time + info.seconds, name: drawName(s), age0: info.age0 };
   const where = hireWhere(s, agent);
   log(s, `${where[0].toUpperCase()}${where.slice(1)} нанят ${FIGURE_BY_ID[agent].one}${s.agents[agent].hiring?.name ? ` ${s.agents[agent].hiring?.name}` : ''} за ${info.gold} золота.`);
