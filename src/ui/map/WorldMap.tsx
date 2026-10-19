@@ -45,7 +45,7 @@ import {
   viewRect,
   zoomAt,
 } from './grid';
-import { dropPaper, drawFrame } from './frame';
+import { drawFrame } from './frame';
 import { beyondText, reachable, twSlot } from './twslot';
 import { homeTheatre } from '@/world/theatre/theatre';
 import { dropSprites } from './village';
@@ -63,7 +63,7 @@ import { inTelegram } from '@/telegram/webapp';
 import { Gesture, WHEEL_STEP, swallowGhostClick, type Press } from '@/gestures';
 import { gestLog, type End } from '@/gestlog';
 import { FrameLoop, deviceRatio, pixelRatio } from '@/render/loop';
-import { QUALITY } from '@/render/quality';
+import { QUALITY, type Quality } from '@/render/quality';
 import { levelNow, subscribeGfx } from '@/render/gfx';
 import { onViewport } from '@/viewport';
 import { Icon } from '@/ui/icons/Icon';
@@ -273,7 +273,6 @@ export function WorldMap() {
   useEffect(() => {
     dropSprites();
     dropPaint();
-    dropPaper();
     twSlot()?.drop();
   }, [seed]);
 
@@ -304,13 +303,19 @@ export function WorldMap() {
     const wake = (): void => loop.wake();
     cam.onMove = wake;
 
+    // Уровень кадра карты: уровень игры, опущенный сторожем карты (`tw/quality.mapLevel`, К-1); пока вида нет — уровень игры.
+    const level = (): Quality => twSlot()?.level() ?? levelNow(location.search);
+    // Больше двойки не берём (потолок двери кадра, `loop.DPR_CAP`): на телефоне это
+    // больше пикселей — квадратом плотности — ради разницы, которой не видно, и во
+    // столько же больше памяти под тайлы. На низком уровне — меньше (`QUALITY.mapDpr`, docs/perf.md).
+    const wantDpr = (): number => pixelRatio(Math.max(1, Math.min(QUALITY[level()].mapDpr, deviceRatio())));
+    /** Плотность экрана, под которую испечены значки и подписи: сменилась она, а не уровень, — испечённое устарело. */
+    let device = deviceRatio();
+
     const resize = (): void => {
       // Окно и плотность меняют кадр, даже если буфер остался прежним: стоящую карту будит любое событие окна.
       wake();
-      // Больше двойки не берём (потолок двери кадра, `loop.DPR_CAP`): на телефоне это
-      // больше пикселей — квадратом плотности — ради разницы, которой не видно, и во
-      // столько же больше памяти под тайлы. На низком уровне — меньше (`QUALITY.mapDpr`, docs/perf.md).
-      const dpr = pixelRatio(Math.max(1, Math.min(QUALITY[levelNow(location.search)].mapDpr, deviceRatio())));
+      const dpr = wantDpr();
       loop.block('covered', wrap.clientWidth < 1 || wrap.clientHeight < 1);
       const w = wrap.clientWidth || 1;
       const h = wrap.clientHeight || 1;
@@ -323,8 +328,10 @@ export function WorldMap() {
       size.current = { w, h, dpr };
       canvas.width = bw;
       canvas.height = bh;
-      // Окно уехало на другой монитор — испечённое осталось в прежней плотности.
-      if (changed) {
+      // Окно уехало на другой монитор — испечённое осталось в прежней плотности. Плотность сменил уровень (сторож карты,
+      // настройки) — значки и подписи и так ищутся по плотности, а земля от неё не зависит: убирать нечего (К-1).
+      if (changed && deviceRatio() !== device) {
+        device = deviceRatio();
         dropSprites();
         dropSiegeMarks();
         twSlot()?.drop();
@@ -374,6 +381,8 @@ export function WorldMap() {
     }
 
     const frame = (): void => {
+      // Плотность уровня сменилась (сторож карты, настройки) — буфер под неё до рисования: присвоение размера стирает холст.
+      if (wantDpr() !== size.current.dpr) resize();
       const { w, h, dpr } = size.current;
       // Поводок держится каждый кадр, а не в момент жеста: якорь движется сам —
       // фигура идёт, — и камера обязана идти за ним, а не отставать до первого
@@ -391,6 +400,9 @@ export function WorldMap() {
       const t0 = PROBE ? performance.now() : 0;
       const motion = drawFrame(ctx, cam.current, { w, h }, dpr, ++frameNo.current);
       if (PROBE) frameCost(performance.now() - t0);
+      // Сторож плавности карты судит промежуток этого кадра (К-1); опустил уровень — буфер встанет под новую плотность
+      // в начале следующего кадра.
+      twSlot()?.watch(loop.gap);
 
       // В шапке всегда координата под серединой экрана: она отвечает на вопрос
       // «где я сейчас». Координата выбранной клетки живёт в её карточке.
@@ -401,7 +413,7 @@ export function WorldMap() {
 
       // Сколько спать до следующего кадра: ведут — ни сколько, движется само — шаг уровня, сроки — секунду, ничего —
       // до толчка или страховочного срока (`still.restAfter`).
-      const nap = restAfter(motion, performance.now() - cam.movedAt, QUALITY[levelNow(location.search)].mapStepFps);
+      const nap = restAfter(motion, performance.now() - cam.movedAt, QUALITY[level()].mapStepFps);
       if (nap > 0 && !(PROBE && probeAlways())) loop.rest(nap);
     };
     loop.restart();

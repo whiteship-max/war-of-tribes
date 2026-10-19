@@ -2,14 +2,14 @@
 // облаков бегут по земле региона, а издали над картой плывут и сами облака, как на карте кампании.
 //
 // Цена — заливка узором: облачный лист (тайл 256 px, бесшовный) печётся один раз на уровень облачности при первом
-// облачном кадре (три листа, пара миллисекунд), а в кадре — одна-две заливки на тени и одна-две на облака, без
-// перебора облаков. Лист едет по ветру как функция часов страницы: сдвиг — скорость × время. На «Низком» облаков нет.
+// облачном кадре (три листа, пара миллисекунд), а в кадре — одна заливка на тени и одна на облака (смесь соседних
+// уровней — своим листом, К-1), без перебора облаков. Лист едет по ветру как функция часов страницы: сдвиг — скорость × время. На «Низком» облаков нет.
 import { useGame } from '@/game/store';
 import { ZONES, windTo, zoneOf } from '@/render/climate';
 import { homeRegion, weatherNow } from '@/ui/parts/weather';
 import type { Camera, Viewport } from '../grid';
 import { makeCanvas } from '../paint';
-import { twQuality } from './quality';
+import { mapLevel } from './quality';
 
 /** Тайл листа, px, и сколько клеток мира он покрывает. */
 const TILE = 256;
@@ -92,10 +92,63 @@ function sheet(k: number): Sheet {
   return s;
 }
 
+/**
+ * Смесь двух соседних листов — одним листом (К-1): облачность переливается между уровнями, и прежде кадр заливал экран
+ * обоими листами, каждый своей долей, — два полных экрана на тени и два на облака. Смесь печётся в лист того же размера
+ * при перемене доли больше чем на 1/32 (погода меняется минутами; 256 × 256 — доли миллисекунды), а кадр заливает её
+ * одной заливкой. Наложение «поверх» сочетательно, и картинка та же, кроме места, где облака двух листов легли друг на
+ * друга, — там тень темнее на доли процента.
+ */
+const MIX_STEPS = 32;
+const blends: Record<'top' | 'shade', { k: number; m: number; canvas: HTMLCanvasElement } | null> = { top: null, shade: null };
+
+function blend(part: 'top' | 'shade', k: number, m: number): HTMLCanvasElement {
+  const have = blends[part];
+  if (have && have.k === k && have.m === m) return have.canvas;
+  const canvas = have?.canvas ?? makeCanvas(TILE, TILE);
+  const ctx = canvas.getContext('2d');
+  if (ctx) {
+    ctx.clearRect(0, 0, TILE, TILE);
+    ctx.globalAlpha = 1 - m / MIX_STEPS;
+    ctx.drawImage(sheet(k)[part], 0, 0);
+    ctx.globalAlpha = m / MIX_STEPS;
+    ctx.drawImage(sheet(k + 1)[part], 0, 0);
+    ctx.globalAlpha = 1;
+  }
+  blends[part] = { k, m, canvas };
+  // Узор снимает холст в минуту создания: прежний узор этого холста показывал бы прежнюю смесь.
+  patterns.delete(canvas);
+  blendBakes++;
+  return canvas;
+}
+
+/** Сколько раз пеклась смесь — тесту кэша. */
+let blendBakes = 0;
+export const cloudBlendBakes = (): number => blendBakes;
+
+/** Лист на долю `mix` между уровнями `k` и `k + 1`: крайние доли — сам лист, между ними — смесь. */
+function layer(part: 'top' | 'shade', k: number, mix: number): HTMLCanvasElement {
+  const m = Math.round(mix * MIX_STEPS);
+  if (m <= 0) return sheet(k)[part];
+  if (m >= MIX_STEPS) return sheet(k + 1)[part];
+  return blend(part, k, m);
+}
+
+/** Узор листа на этом холсте: один на пару, сдвиг ставится каждому кадру заново (`setTransform` узора). */
+const patterns = new WeakMap<HTMLCanvasElement, { ctx: CanvasRenderingContext2D; pat: CanvasPattern | null }>();
+
+function patternOf(ctx: CanvasRenderingContext2D, img: HTMLCanvasElement): CanvasPattern | null {
+  const have = patterns.get(img);
+  if (have && have.ctx === ctx) return have.pat;
+  const pat = ctx.createPattern(img, 'repeat');
+  patterns.set(img, { ctx, pat });
+  return pat;
+}
+
 /** Залить кадр листом: начало листа — в клетке `ox`, `oy` мира. */
 function fill(ctx: CanvasRenderingContext2D, img: HTMLCanvasElement, cam: Camera, vp: Viewport, ox: number, oy: number, alpha: number): void {
   if (alpha <= 0.01) return;
-  const pat = ctx.createPattern(img, 'repeat');
+  const pat = patternOf(ctx, img);
   if (!pat) return;
   const k = (cam.scale * TILE_CELLS) / TILE;
   const sx = (ox - cam.cx) * cam.scale + vp.w / 2;
@@ -111,7 +164,7 @@ function fill(ctx: CanvasRenderingContext2D, img: HTMLCanvasElement, cam: Camera
  * облака темнеют ночной заливкой кадра. Вернёт, легло ли что-нибудь: оно плывёт само (шаг живого, `still.ts`).
  */
 export function drawClouds(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport, night: number): boolean {
-  if (twQuality() === 'low' || typeof DOMMatrix === 'undefined') return false;
+  if (mapLevel() === 'low' || typeof DOMMatrix === 'undefined') return false;
   const s = useGame.getState().s;
   if (!s) return false;
   const w = weatherNow(s);
@@ -130,16 +183,10 @@ export function drawClouds(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewp
   ctx.save();
   // Тени — днём; издали и вблизи одинаково.
   const shade = (1 - night) * smooth(0.08, 0.35, cover);
-  if (shade > 0.01) {
-    fill(ctx, sheet(k0).shade, cam, vp, ox + SHADOW_SHIFT.x, oy + SHADOW_SHIFT.y, shade * (1 - mix));
-    fill(ctx, sheet(k0 + 1).shade, cam, vp, ox + SHADOW_SHIFT.x, oy + SHADOW_SHIFT.y, shade * mix);
-  }
+  if (shade > 0.01) fill(ctx, layer('shade', k0, mix), cam, vp, ox + SHADOW_SHIFT.x, oy + SHADOW_SHIFT.y, shade);
   // Облака — издали: вблизи камера под ними, видны только тени.
   const top = (1 - smooth(5, 16, cam.scale)) * smooth(0.15, 0.5, cover) * (1 - 0.35 * Math.max(w.rain, w.storm));
-  if (top > 0.01) {
-    fill(ctx, sheet(k0).top, cam, vp, ox, oy, top * (1 - mix));
-    fill(ctx, sheet(k0 + 1).top, cam, vp, ox, oy, top * mix);
-  }
+  if (top > 0.01) fill(ctx, layer('top', k0, mix), cam, vp, ox, oy, top);
   ctx.restore();
   // Плывут, только когда хоть что-то легло: ночью без теней и вблизи без облаков стоять нечему.
   return shade > 0.01 || top > 0.01;
@@ -148,4 +195,6 @@ export function drawClouds(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewp
 /** Уборка: листы облаков отпускаются вместе с кадром карты. */
 export function dropClouds(): void {
   sheets.fill(null);
+  blends.top = null;
+  blends.shade = null;
 }

@@ -104,6 +104,8 @@ export async function launchChrome(port: number, args: string[] = []): Promise<C
 export class Tab {
   private id = 0;
   private waiting = new Map<number, { ok: (v: unknown) => void; bad: (e: Error) => void }>();
+  /** Слушатели событий CDP по имени метода (`on`): трасса стенда (`weak:stand`, `TRACE=1`). */
+  private listeners = new Map<string, ((params: unknown) => void)[]>();
 
   private constructor(
     private ws: WebSocket,
@@ -129,6 +131,7 @@ export class Tab {
         const c = (msg.params as { type?: string; args?: { value?: unknown; description?: string }[] } | undefined) ?? {};
         if (c.type === 'error' || c.type === 'warning') console.error(`  консоль (${c.type}):`, (c.args ?? []).map((a) => String(a.value ?? a.description ?? '')).join(' ').slice(0, 1500));
       }
+      if (msg.method) for (const fn of this.listeners.get(msg.method) ?? []) fn(msg.params);
       if (msg.id === undefined) return;
       const slot = this.waiting.get(msg.id);
       if (!slot) return;
@@ -152,6 +155,14 @@ export class Tab {
     await tab.send('Runtime.enable');
     await tab.send('Page.enable');
     return tab;
+  }
+
+  /** Слушать событие CDP (`Tracing.dataCollected` и подобные); вернёт снятие слушателя. */
+  on(method: string, fn: (params: unknown) => void): () => void {
+    const list = this.listeners.get(method) ?? [];
+    list.push(fn);
+    this.listeners.set(method, list);
+    return () => this.listeners.set(method, (this.listeners.get(method) ?? []).filter((f) => f !== fn));
   }
 
   send<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {

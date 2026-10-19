@@ -364,6 +364,7 @@ function syncSession(): Session | null {
   if (session && (session.seed !== seed || session.theatre !== theatre)) {
     endSession(session);
     session = null;
+    view = null;
   }
   if (!session && seed && theatre) session = startSession(seed, theatre);
   return session;
@@ -753,26 +754,48 @@ export interface Ground {
   land: LandGrid | null;
 }
 
+/**
+ * Вид на испечённое — один на сессию региона: кадр спрашивает его каждый кадр, и новый объект с семью замыканиями на
+ * каждый кадр — мусор движения (К-1). Меняющиеся поля освежаются при каждом вопросе.
+ */
+let view: { s: Session; g: Ground } | null = null;
+
 /** Испечённое региона для кадра — или null, пока региона нет. */
 export function prebaked(): Ground | null {
   const s = session;
   if (!s) return null;
-  return {
-    theatre: s.theatre,
-    plan: s.plan,
-    coarse: s.coarse,
-    dataRect: s.dataRect,
-    overview: (cx, cy) => s.overview.get(key2(cx, cy))?.pic ?? null,
-    mid: (tx, ty) => s.mid.get(key2(tx, ty))?.pic ?? null,
-    near: (tx, ty) => s.near.get(key2(tx, ty))?.pic ?? null,
-    nearWanted: (tx, ty) => nearInFringe(s, tx, ty),
-    sheet: (cx, cy) => s.sheets.get(key2(cx, cy))?.pic ?? null,
-    knowledge: s.knowledge,
-    knowledgeGen: s.knowledgeGen,
-    dataGen: s.dataGen,
-    seed: s.seed,
-    land: s.land,
-  };
+  if (view?.s !== s) {
+    view = {
+      s,
+      g: {
+        theatre: s.theatre,
+        plan: s.plan,
+        coarse: s.coarse,
+        dataRect: s.dataRect,
+        overview: (cx, cy) => s.overview.get(key2(cx, cy))?.pic ?? null,
+        mid: (tx, ty) => s.mid.get(key2(tx, ty))?.pic ?? null,
+        near: (tx, ty) => s.near.get(key2(tx, ty))?.pic ?? null,
+        nearWanted: (tx, ty) => nearInFringe(s, tx, ty),
+        sheet: (cx, cy) => s.sheets.get(key2(cx, cy))?.pic ?? null,
+        knowledge: s.knowledge,
+        knowledgeGen: s.knowledgeGen,
+        dataGen: s.dataGen,
+        seed: s.seed,
+        land: s.land,
+      },
+    };
+  }
+  const g = view.g;
+  g.theatre = s.theatre;
+  g.plan = s.plan;
+  g.coarse = s.coarse;
+  g.dataRect = s.dataRect;
+  g.knowledge = s.knowledge;
+  g.knowledgeGen = s.knowledgeGen;
+  g.dataGen = s.dataGen;
+  g.seed = s.seed;
+  g.land = s.land;
+  return g;
 }
 
 /** Сколько держит заранее испечённое, байт по слоям — бюджету (раздел 13.6) и стенду. */
@@ -805,6 +828,7 @@ export function dropNear(): void {
 export function resetPrebake(): void {
   if (session) endSession(session);
   session = null;
+  view = null;
   setActiveTheatre(null);
   dispatched.length = 0;
   lastCam = null;

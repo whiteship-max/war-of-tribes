@@ -16,7 +16,7 @@ import { TRIBE_COLORS } from '@/world/data/meta';
 import type { Rect } from '@/world/types';
 import { type Camera, type Viewport, toScreen, viewRect } from '../grid';
 import { type Segment, contour, soften } from './border';
-import { drawCells } from './layers';
+import { drawCells, usedRect } from './layers';
 
 const TINT = 0.2;
 const MARGIN = 6;
@@ -69,6 +69,11 @@ interface Baked {
   scale: number;
   /** Подпись данных, под которую испечён (карта по регионам); 0 — по времени, как прежде. */
   stamp: number;
+  /**
+   * Клетки, где владения есть, — рамкой; null — нигде (К-1). Сегодня влияние у мира пусто, и пустой растр над регионом
+   * заливал весь экран прозрачным на каждом кадре.
+   */
+  used: Rect | null;
 }
 
 let baked: Baked | null = null;
@@ -98,8 +103,13 @@ function bake(x0: number, y0: number, w: number, h: number, scale: number, at: n
   }
   ctx.putImageData(img, 0, 0);
   if (baked?.lines) baked.lines.width = 0;
-  if (!any) return { tint, lines: null, x: x0, y: y0, w, h, px: 1, at, scale, stamp };
+  if (!any) return { tint, lines: null, x: x0, y: y0, w, h, px: 1, at, scale, stamp, used: null };
   const px = Math.max(1, Math.min(scale, LINES_MAX_PX / Math.max(w, h)));
+  // Черта обходит владение снаружи по сглаженному полю и шире себя на подводку (4 px холста черты): к запасу `usedRect`
+  // — ещё клетка и подводка в клетках.
+  const inner = usedRect(d, { x: x0, y: y0, w, h });
+  const pad = 1 + Math.ceil(4 / px);
+  const used = inner && { x: inner.x - pad, y: inner.y - pad, w: inner.w + pad * 2, h: inner.h + pad * 2 };
   const lines = document.createElement('canvas');
   lines.width = Math.ceil(w * px);
   lines.height = Math.ceil(h * px);
@@ -124,7 +134,7 @@ function bake(x0: number, y0: number, w: number, h: number, scale: number, at: n
       lc.stroke();
     }
   }
-  return { tint, lines, x: x0, y: y0, w, h, px, at, scale, stamp };
+  return { tint, lines, x: x0, y: y0, w, h, px, at, scale, stamp, used };
 }
 
 /**
@@ -172,14 +182,15 @@ export function drawTwZones(ctx: CanvasRenderingContext2D, cam: Camera, vp: View
       (baked.lines !== null && Math.abs(cam.scale / baked.scale - 1) > 0.2);
     if (stale) baked = bake(x0, y0, w, h, cam.scale, now) ?? baked;
   }
-  if (!baked) return;
+  // Владений нет нигде — копировать нечего (К-1).
+  if (!baked?.used) return;
   ctx.save();
   ctx.imageSmoothingEnabled = true;
   if (area) {
-    // Растр над рамкой региона — только видимая часть (`layers.drawCells`).
+    // Растр над рамкой региона — только видимая и непустая часть (`layers.drawCells`).
     const r = { x: baked.x, y: baked.y, w: baked.w, h: baked.h };
-    drawCells(ctx, cam, vp, baked.tint, r);
-    if (baked.lines) drawCells(ctx, cam, vp, baked.lines, r, baked.px);
+    drawCells(ctx, cam, vp, baked.tint, r, 1, baked.used);
+    if (baked.lines) drawCells(ctx, cam, vp, baked.lines, r, baked.px, baked.used);
   } else {
     const [sx, sy] = toScreen(cam, vp, baked.x, baked.y);
     const [ex, ey] = toScreen(cam, vp, baked.x + baked.w, baked.y + baked.h);

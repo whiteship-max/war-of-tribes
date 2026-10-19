@@ -22,7 +22,8 @@ import type { Coord } from '@/world/types';
 import { LABEL_FROM } from '../const';
 import { type Camera, type Viewport, detailAlpha, toScreen, viewRect } from '../grid';
 import { drawGrid, markersOf, settlementsIn } from '../detail';
-import { drawPaper, drawSpot } from '../frame';
+import { drawSpot } from '../frame';
+import { drawTwPaper, dropPaperSheet } from './paper';
 import { probe, shownGaps } from '@/debug';
 import { drawTwZones, dropTwZones } from './zones';
 import { drawTwFog } from './fog';
@@ -54,6 +55,30 @@ const INK = 'rgba(40, 28, 18, 0.85)';
 
 /** Счёт недопечённого на экране — только под `?probe=1` (`npm run map:report`, «кадров с обзором»). */
 const PROBE = probe();
+
+/**
+ * Части кадра под `?probe=1` — стенду слабого телефона (`npm run weak:stand`, `SCENE=map`; docs/telemetry.md, К-1): время
+ * каждой части и имя текущей (`window.__mapPart`), по которому стенд делит залитые экраны. В игре — одна проверка булева.
+ */
+const PARTS: Record<string, number[]> = {};
+let partName = '';
+let partAt = 0;
+function part(name: string): void {
+  if (!PROBE) return;
+  const t = performance.now();
+  if (partName) (PARTS[partName] ??= []).push(t - partAt);
+  if (PARTS[partName]?.length > 1000) PARTS[partName].shift();
+  partName = name;
+  partAt = t;
+  (window as unknown as { __mapPart?: string }).__mapPart = name;
+}
+if (PROBE && typeof window !== 'undefined') {
+  (window as unknown as { __mapParts?: () => Record<string, number[]> }).__mapParts = () => {
+    const out = { ...PARTS };
+    for (const k of Object.keys(PARTS)) delete PARTS[k];
+    return out;
+  };
+}
 
 // ---------- Испечённое: копирование ----------
 
@@ -567,23 +592,30 @@ export function drawTwFrame(ctx: CanvasRenderingContext2D, cam: Camera, vp: View
   const state = useWorld.getState();
   const now = worldNow();
 
+  part('prebake');
   prebakeFrame(cam, vp, frame);
   const ground = prebaked();
+  part('parchment');
   // Под всем — пергамент: за краем испечённого не пустота, а лист старой карты.
   ctx.fillStyle = TW.parchment;
   ctx.fillRect(0, 0, vp.w, vp.h);
+  part('ground');
   const gaps = ground ? drawGround(ctx, cam, vp, rect, ground) : 0;
   if (PROBE) shownGaps(gaps);
   // Прибой у берегов (`alive.ts`): над землёй, под владениями, туманом и ночью; берег выводится стоя, кусками.
+  part('surf');
   const surf = drawSurf(ctx, cam, vp, ground, !moving());
   if (surf === 'waves') motion.decor = true;
   if (surf === 'baking') motion.busy = true;
   // Владения — тоньше прежних, с чертой границы по краю (`tw/zones.ts`); под туманом, как и прежде. Растр — над
   // рамкой региона и заново только при новых данных и стоя.
+  part('zones');
   drawTwZones(ctx, cam, vp, now, ground ? { rect: ground.plan.reach, stamp: ground.dataGen, may: !moving() } : undefined);
   // Сетка координат — только вблизи и тоньше прежней: по ней прыгают к «541|822», а издали она — решётка
   // поверх карты кампании.
+  part('grid');
   drawGrid(ctx, cam, vp, near * 0.6, TOP_INSET);
+  part('places');
 
   marks.length = 0;
   timers.length = 0;
@@ -595,12 +627,16 @@ export function drawTwFrame(ctx: CanvasRenderingContext2D, cam: Camera, vp: View
   drawPlaces(ctx, cam, items, dpr, now, markersOf(state.marches));
   for (const sm of smokes) if (drawSmoke(ctx, sm.x, sm.y, cam.scale, sm.weight, sm.seed)) motion.decor = true;
   // Облака и их тени — погода региона (docs/city.md, 15): над землёй и местами, под листом за границей региона.
+  part('clouds');
   if (drawClouds(ctx, cam, vp, nightNow())) motion.decor = true;
 
   // Незнакомое — лист старой карты (своё неразведанное и чужой регион), разведанное вне обзора — сепия
   // (`tw/fog.ts`): поверх мест, под всем, что движется, — как прежний туман.
+  part('fog');
   drawTwFog(ctx, cam, vp, ground);
-  drawPaper(ctx, vp);
+  part('paper');
+  drawTwPaper(ctx, vp);
+  part('hosts');
 
   // Живой обзор — один раз на кадр, тем же модулем, что у мира (`world/sight` через `sightDiscs`).
   const discs = sightDiscs(now);
@@ -608,6 +644,7 @@ export function drawTwFrame(ctx: CanvasRenderingContext2D, cam: Camera, vp: View
   drawFigures(ctx, cam, vp, figureItems(cam, vp, state.figures, now, dpr), state.picked, dpr, now);
 
   // Ночь — по часам партии, как у сцены города (`tw/night.ts`); подписи и сроки — поверх неё.
+  part('night');
   const night = nightNow();
   if (drawNight(ctx, vp.w, vp.h, cam.scale, items, night, dpr)) motion.decor = true;
   // Огни осадного лагеря — поверх ночи: их и видно только ночью.
@@ -615,7 +652,9 @@ export function drawTwFrame(ctx: CanvasRenderingContext2D, cam: Camera, vp: View
   for (const draw of marks) draw();
   marks.length = 0;
 
+  part('labels');
   drawRegions(ctx, cam, vp, dpr, drawLabels(ctx, cam, vp, items, dpr, now));
+  part('rest');
 
   // Метка лупы и выбранная клетка — только в своём регионе: за его границей лист, и метки там нечему держать.
   if (state.spotlight && withinActive(state.spotlight.x, state.spotlight.y)) {
@@ -629,6 +668,7 @@ export function drawTwFrame(ctx: CanvasRenderingContext2D, cam: Camera, vp: View
   prebakeIdle();
   // Пока камеру ведут, карта и так рисует каждый кадр — очередь выпечки второй раз за кадр не перебирается.
   if (!moving() && prebakeBusy()) motion.busy = true;
+  part('');
   return { ...motion };
 }
 
@@ -648,6 +688,7 @@ export function partyLook(): string {
 
 export function dropFrame(): void {
   fitted.clear();
+  dropPaperSheet();
   dropAlive();
   dropNight();
   dropClouds();

@@ -91,6 +91,7 @@ let storage = browserStorage;
 export function setGfxStorage(next: GfxStorage): void {
   storage = next;
   cache = null;
+  stamp++;
 }
 
 /**
@@ -115,6 +116,13 @@ export function gfxOf(raw: string | null): Gfx {
 type Listener = () => void;
 const listeners = new Set<Listener>();
 
+/**
+ * Растёт при каждой перемене, от которой зависит `levelNow`: выбор игрока, память сторожа, уровень сцены, хранилище.
+ * Карта по нему держит уровень между переменами, а не читает хранилище и устройство на каждом кадре (К-1).
+ */
+let stamp = 0;
+export const gfxStamp = (): number => stamp;
+
 export function subscribeGfx(listener: Listener): () => void {
   listeners.add(listener);
   return () => {
@@ -134,6 +142,7 @@ export function gfx(): Gfx {
 /** Записать выбор игрока — только пункт «Графика». */
 export function setGfx(patch: Partial<Gfx>): void {
   storage.write(GFX_KEY, JSON.stringify({ ...gfx(), ...patch }));
+  stamp++;
   for (const listener of listeners) listener();
 }
 
@@ -155,6 +164,7 @@ export const autoCap = (now: number): Quality | null => autoCapOf(storage.read(G
 /** Запомнить, что сторож опустил уровень. */
 export function rememberAutoCap(q: Quality, now: number): void {
   storage.write(GFX_AUTO_KEY, JSON.stringify({ quality: q, at: now }));
+  stamp++;
 }
 
 /** Дешевле из двух: уровень устройства не поднимается выше памяти сторожа. */
@@ -205,6 +215,7 @@ let sceneLevel: Quality | null = null;
 /** Сцена игры называет свой уровень: при сборке и когда сторож его опустил (`Scene.ts`). */
 export function noteSceneLevel(q: Quality | null): void {
   sceneLevel = q;
+  stamp++;
 }
 
 /**

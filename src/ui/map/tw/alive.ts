@@ -13,7 +13,7 @@ import { ARMS_ASPECT, canPaintArms, paintArms } from '@/heraldry/paint';
 import { CELL_PAD, cellsFor, landAt, warpFor, warpX, warpY } from './field';
 import { gridLand, type LandGrid } from './landgrid';
 import { FEATURE_BITS } from './landcache';
-import { twQuality } from './quality';
+import { mapLevel } from './quality';
 import type { Ground } from './prebake';
 
 // ---------- Прибой ----------
@@ -214,7 +214,7 @@ export type Surf = 'none' | 'waves' | 'baking';
  * незнакомое лист закроет, ночь притушит. На «Низком» — нет (испечённая кайма прибоя остаётся).
  */
 export function drawSurf(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport, ground: Ground | null, still: boolean): Surf {
-  if (!ground || twQuality() === 'low') return 'none';
+  if (!ground || mapLevel() === 'low') return 'none';
   const paths = coastOf(ground, still);
   // Берег ещё выводится — стоящей карте нужен следующий кадр, а не сон (`still.ts`).
   if (!paths) return coast?.job ? 'baking' : 'none';
@@ -403,7 +403,7 @@ export function drawColumn(
   arms: string | null = null,
 ): boolean {
   if (alpha <= 0.01) return false;
-  const q = twQuality();
+  const q = mapLevel();
   const n = Math.min(COLUMN_MAX[q], 3 + size * 2);
   const hPx = Math.max(8, Math.min(20, scale * 0.26));
   const gap = hPx * 0.62;
@@ -455,7 +455,7 @@ const SMOKE_LIFE = 5;
 export function drawSmoke(ctx: CanvasRenderingContext2D, x: number, y: number, scale: number, weight: number, seed: number): boolean {
   const vis = smooth(SMOKE_FROM, SMOKE_FULL, scale) * weight;
   if (vis <= 0.02) return false;
-  const q = twQuality();
+  const q = mapLevel();
   const n = SMOKE_PUFFS[q];
   const t = q === 'low' ? 0 : performance.now() / 1000;
   const rise = Math.min(130, scale * 2);
@@ -483,7 +483,7 @@ export function drawSmoke(ctx: CanvasRenderingContext2D, x: number, y: number, s
 export function drawCampFires(ctx: CanvasRenderingContext2D, x: number, y: number, scale: number, night: number, seed: number): boolean {
   const vis = smooth(0.2, 0.6, night) * smooth(4, 10, scale);
   if (vis <= 0.02) return false;
-  const q = twQuality();
+  const q = mapLevel();
   const t = q === 'low' ? 0 : performance.now() / 1000;
   const ring = scale * 1.25;
   const r = Math.max(4, Math.min(18, scale * 0.16));
