@@ -146,7 +146,7 @@ export function lookOf(id: FolkId, arms: Arms): Look {
         belt: tint(0x4a3020),
         shoe: tint(0x4a3220),
         hose: tint(0x3a2c20),
-        linen: tint(0x7a6448),
+        linen: tint(0x5a4834),
         hem: 0.6,
       };
     case 'advisor':
@@ -842,16 +842,19 @@ export function posture(id: FolkId, t: number, phase: number, walk: number, g: G
     lift[1] -= 0.13 * c;
     lift[2] -= 0.02 * c;
   }
-  // Речь: правая рука объясняет, голова кивает, плечи живые.
+  // Речь: правая рука объясняет, голова кивает, плечи живые. Правая занята (протянутое письмо) — объясняет только голова;
+  // левая держит свиток — она не машет.
   if (g.talk > 0) {
     const k = g.talk;
+    const kr = k * (1 - g.offer);
+    const kl = k * (1 - g.read);
     const a = Math.sin(t * 2.1) * 0.5 + Math.sin(t * 3.7 + 1) * 0.5;
     const b = Math.sin(t * 1.3 + 2);
-    add(o, 'armR', (-0.32 + 0.12 * a) * k, 0, -0.08 * k);
-    add(o, 'foreR', (-1.0 + 0.3 * b) * k, (0.4 + 0.2 * a) * k, 0);
-    add(o, 'handR', 0.2 * a * k, 0, 0.45 * k);
-    add(o, 'armL', (-0.12 + 0.06 * b) * k, 0, 0.04 * k);
-    add(o, 'foreL', (-0.4 - 0.25 * Math.max(0, a)) * k);
+    add(o, 'armR', (-0.32 + 0.12 * a) * kr, 0, -0.08 * kr);
+    add(o, 'foreR', (-1.0 + 0.3 * b) * kr, (0.4 + 0.2 * a) * kr, 0);
+    add(o, 'handR', 0.2 * a * kr, 0, 0.45 * kr);
+    add(o, 'armL', (-0.12 + 0.06 * b) * kl, 0, 0.04 * kl);
+    add(o, 'foreL', (-0.4 - 0.25 * Math.max(0, a)) * kl);
     add(o, 'neck', 0.05 * Math.sin(t * 2.6) * k);
     add(o, 'head', 0.03 * Math.sin(t * 3.1 + 1) * k, 0.04 * Math.sin(t * 1.1) * k, 0.03 * Math.sin(t * 0.9) * k);
   }
@@ -899,11 +902,13 @@ export function posture(id: FolkId, t: number, phase: number, walk: number, g: G
   // Протянуть письмо: правая рука вперёд на уровне груди, ладонь вверх; корпус чуть подаётся к правителю.
   if (g.offer > 0) {
     const k = g.offer;
-    add(o, 'armR', -1.05 * k, 0.15 * k, -0.12 * k);
-    add(o, 'foreR', -0.38 * k, 0.2 * k, 0);
-    add(o, 'handR', -0.15 * k, 0, 0.9 * k);
-    add(o, 'spine', 0.1 * k);
-    add(o, 'head', 0.1 * k);
+    // Плечо вперёд и к середине тела, локоть чуть согнут: кисть — на высоте груди (1,34 м при росте 1,72), в полуметре
+    // перед собой; большим пальцем вверх держит лист за нижний край — лицом к правителю.
+    add(o, 'armR', -1.12 * k, 0.3 * k, 0.04 * k);
+    add(o, 'foreR', -0.25 * k, 0.1 * k, 0);
+    add(o, 'handR', -0.12 * k, 0, 0);
+    add(o, 'spine', 0.08 * k);
+    add(o, 'head', 0.06 * k);
   }
   // Свиток доклада: левое предплечье поднято перед грудью, кисть повёрнута свитком к глазам; голова — к свитку, когда не
   // смотрит на правителя.
