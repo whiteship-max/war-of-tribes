@@ -7,7 +7,8 @@ import * as THREE from 'three';
 import { ChambersRoom } from './room';
 import { DEFAULT_ARMS } from '@/heraldry/arms';
 import { HALF, OPENINGS, WALL_T } from './plan';
-import { BALL_EVERY, BALL_R, CAT_AWAY, depthOf, passable, windowShot } from './toss';
+import { BALL_EVERY, BALL_R, depthOf, flightAt, passable, windowShot } from './toss';
+import { free } from './walk';
 import { ballWords } from '@/ui/chambers/Chambers';
 
 const KEEP = { x: -4, z: -147, base: 16, height: 30, size: 13 };
@@ -104,8 +105,9 @@ describe('клубок в окно (Р-1)', () => {
       expect(seen.has('flight'), `${a.name}: клубок полетел в окно (точка — в области правила)`).toBe(true);
       expect(wentOut, `${a.name}: клубок вылетел за стену`).toBe(true);
       expect(gone, `${a.name}: кот исчез за окном`).toBeGreaterThan(0);
-      expect(back - gone, `${a.name}: за окном — секунду`).toBeGreaterThanOrEqual(CAT_AWAY - 0.02);
-      expect(back - gone).toBeLessThan(CAT_AWAY + 0.3);
+      // «Через секунду» — слово владельца, а не константа кода.
+      expect(back - gone, `${a.name}: за окном — секунду`).toBeGreaterThanOrEqual(0.98);
+      expect(back - gone, `${a.name}: за окном — секунду`).toBeLessThan(1.3);
       // Положил и играет: клубок на полу в покоях, кот гоняет его, мурчит.
       const b = room.life.ballNow()!;
       expect(b.mode, `${a.name}: клубок на полу`).toBe('floor');
@@ -226,6 +228,43 @@ describe('клубок в окно (Р-1)', () => {
     expect(ballWords(room.life.view())).toBe('Кот несёт клубок…');
     expect(room.life.throwBall()).toBe(false);
     room.dispose();
+  });
+
+  it('дуга в окно — воздухом от руки до наружной грани: откуда ни кинь, ни камня, ни мебели', () => {
+    // Область правила — броски, которые приняты за бросок в окно: из каждой точки пола сеткой в три четверти метра, взглядом на середину
+    // каждого окна и мимо неё (в пядь в стороны, ниже и выше).
+    let shots = 0;
+    for (let x = -4.5; x <= 4.5; x += 0.75) {
+      for (let z = -2; z <= 4.75; z += 0.75) {
+        if (!free(x, z)) continue;
+        for (const o of OPENINGS) {
+          const n = o.wall === 'south' ? [0, 1] : o.wall === 'east' ? [1, 0] : [-1, 0];
+          const cx = o.wall === 'south' ? o.at : n[0] * (HALF + o.plate);
+          const cz = o.wall === 'south' ? HALF + o.plate : o.at;
+          const base = Math.atan2(cx - x, cz - z);
+          for (const dy of [-0.12, 0, 0.12]) {
+            for (const pitch of [-0.15, 0, 0.12, 0.3]) {
+              const yaw = base + dy;
+              const eye: [number, number, number] = [x, 1.62, z];
+              const hand: [number, number, number] = [x + Math.sin(yaw) * 0.35, 1.17, z + Math.cos(yaw) * 0.35];
+              const shot = windowShot(eye, yaw, pitch, hand);
+              if (!shot) continue;
+              shots++;
+              let out = false;
+              for (let t = 0; t < 3 && !out; t += 1 / 600) {
+                const p = flightAt(hand, shot.v, t);
+                const where = `(${x}, ${z}) → ${o.wall}, ${t.toFixed(3)} с: (${p.map((q) => q.toFixed(2))})`;
+                expect(passable(p, BALL_R * 0.95), `${where}: воздух`).toBe(true);
+                if (Math.abs(p[0]) < HALF && Math.abs(p[2]) < HALF && p[1] - BALL_R < 0.8) expect(free(p[0], p[2], BALL_R * 0.95), `${where}: мимо мебели`).toBe(true);
+                out = depthOf(shot.o, p) > WALL_T + 0.3;
+              }
+              expect(out, `(${x}, ${z}) → ${o.wall}: вылетел наружу`).toBe(true);
+            }
+          }
+        }
+      }
+    }
+    expect(shots, 'бросков в окно в сетке').toBeGreaterThan(100);
   });
 
   it('воздух и камень: проём, ниша и комната — воздух; стена рядом с окном и подоконник под проёмом — камень; в стену рядом с окном — не в окно', () => {

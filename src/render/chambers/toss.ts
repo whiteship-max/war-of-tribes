@@ -16,8 +16,6 @@ export const BALL_EVERY = 10;
 export const CAT_AWAY = 1;
 /** До окна клубок долетает, если окно не дальше стольких метров от глаза. */
 const REACH = 6.5;
-/** Мебель для летящего клубка — столб до этой высоты (стол — 0,78; ниже — плечом о край не цепляет). */
-const FURNITURE_TOP = 0.85;
 
 /** Проёмы окна: середина вдоль стены (по оси `U`) и полуширина каждого (у парного — два). */
 export function lightsOf(o: Opening): { c: number; half: number }[] {
@@ -92,8 +90,8 @@ export interface WindowShot {
 /**
  * Брошен ли клубок в окно: луч взгляда упирается в нишу окна (с запасом в пядь — пальцем точно не прицелиться), окно не
  * дальше `REACH`. Цель — проём, ближний к лучу, над подоконником; полёт — дугой из руки, и вся дуга, до наружной грани и за
- * неё, проходит воздухом (стены, откосы, ставни, столбик парного окна, мебель — мимо). Нет такой дуги — `null`: бросок
- * обычный, на пол.
+ * неё, проходит воздухом (стены, откосы, ставни, столбик парного окна — мимо). Нет такой дуги — `null`: бросок обычный, на
+ * пол.
  */
 export function windowShot(eye: V3, yaw: number, pitch: number, hand: V3): WindowShot | null {
   const d: V3 = [Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch)];
@@ -146,13 +144,16 @@ export function depthOf(o: Opening, p: V3): number {
   return onWall(o, p).depth;
 }
 
-/** Вся дуга из руки — воздухом, мимо мебели, и уходит за наружную грань стены этого окна выше земли покоев. */
+/**
+ * Вся дуга из руки — воздухом и уходит за наружную грань стены этого окна. Мебель ниже: дуга идёт от руки (1,17 м) вверх к
+ * проёму над подоконником — что она проходит выше стола и сундуков, держит сетка бросков (`toss.test`). Шаг проверки — не
+ * длиннее сантиметра пути: наискось клубок задевал угол откоса между проверками через 1/120 с (найдено той же сеткой).
+ */
 function flightClear(p0: V3, v: V3, o: Opening): boolean {
-  for (let t = 0; t < 3; t += 1 / 120) {
+  const dt = 0.01 / Math.max(1, Math.hypot(v[0], v[1], v[2]) + GRAVITY * 1.2);
+  for (let t = 0; t < 3; t += dt) {
     const p = flightAt(p0, v, t);
     if (!passable(p, BALL_R)) return false;
-    const inRoom = Math.abs(p[0]) < HALF && Math.abs(p[2]) < HALF;
-    if (inRoom && p[1] - BALL_R < FURNITURE_TOP && !free(p[0], p[2], BALL_R)) return false;
     if (depthOf(o, p) > WALL_T + 0.3) return true;
   }
   return false;
