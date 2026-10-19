@@ -39,11 +39,12 @@ const SKY = {
   flash: 0,
 };
 
-function phoneRoom(): ChambersRoom {
+/** Покои на экране телефона; `touched: false` — ни одного касания ещё не было (прямоугольник касаний не известен). */
+function phoneRoom(touched = true): ChambersRoom {
   const room = new ChambersRoom(KEEP, DEFAULT_ARMS, 'low', () => null);
   room.camera.aspect = PHONE.width / PHONE.height;
   room.camera.updateProjectionMatrix();
-  room.setRect(PHONE);
+  if (touched) room.setRect(PHONE);
   return room;
 }
 
@@ -161,6 +162,15 @@ describe('глаз к гостю (Р-1)', () => {
       expect(entry(room, 'herald', `гонец ${label}`)).toBeGreaterThan(30);
       room.dispose();
     }
+  });
+
+  it('до первого касания (экран ещё не мерен) — глаз держит гонца так же, а не смотрит в потолок', () => {
+    const room = phoneRoom(false);
+    room.standAtPoint(0, -1, Math.PI, -0.1);
+    run(room, 0.2);
+    room.life.summonHerald();
+    expect(entry(room, 'herald', 'гонец до касания')).toBeGreaterThan(30);
+    room.dispose();
   });
 
   it('советник после отлучки: целиком в кадре до доклада', () => {

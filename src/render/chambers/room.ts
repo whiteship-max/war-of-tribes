@@ -191,6 +191,8 @@ function attendReach(id: PoiId, lim: readonly [number, number]): [number, number
 /** Шапка покоев сверху и полоса кнопок снизу, точки (как у безделушки в руке, `chambers.test`). */
 const BAND_TOP = 64;
 const BAND_BOTTOM = 74;
+/** Высота экрана телефона стоймя, точки — полосе кадра, пока экран не измерен. */
+const PHONE_H = 844;
 
 const V = new THREE.Vector3();
 const V2 = new THREE.Vector3();
@@ -1049,7 +1051,11 @@ export class ChambersRoom implements Inside {
 
   /** Свободная полоса кадра по вертикали (доли от середины, −1…1): под шапкой и над кнопками или плашкой разговора. */
   private band(talk: boolean): { hi: number; lo: number } {
-    const h = Math.max(1, this.rect.height);
+    // Высота экрана — слоя подписей (он во весь экран с первого кадра); прямоугольник касаний известен только после касания,
+    // а до него — точка, и полоса выходила за кадр: глаз уходил в потолок (найдено снимком). Не известна ни та ни другая —
+    // экран телефона стоймя.
+    const seen = this.viewSize().h;
+    const h = seen >= 240 ? seen : PHONE_H;
     // С запасом сверху: голова в разговоре живёт (кивает, читает), и макушка не должна уходить под шапку.
     const hi = 1 - (2 * (BAND_TOP + 22)) / h;
     const covered = talk ? (this.plateH ?? h * 0.45) : BAND_BOTTOM;
