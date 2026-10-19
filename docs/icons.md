@@ -182,7 +182,7 @@
 
 ## Передача
 
-- Работа в ядре: удалены поля `icon` (эмодзи) у таблиц `game/data`, `world/data`, `battle/names.ts`, `battle/report.ts`;
+- Коммиты — `git log` ветки `game/zn-1` (`6b4e433` снимки «до», `0e97fee` набор). Работа в ядре: удалены поля `icon` (эмодзи) у таблиц `game/data`, `world/data`, `battle/names.ts`, `battle/report.ts`;
   `derived.ts` — имена значков в строках разборов и тревог; `world/types.ts` — `LetterView.icon`, `FigureView.icon` сняты,
   `RivalOption.icon` — `IconName`. Сохранение и договор не тронуты.
 - Пол правила 9 (облако, 4 ядра): `npm run typecheck` — чисто; `npm run build` — сборка сошлась, первая загрузка
@@ -194,3 +194,5 @@
 - Приёмки отчётами не было (задание: без полных отчётов, дома); **последний принятый — `5ad4392`**. По диффу приёмка
   выберет полный прогон (тронут `scripts/build.mjs` и ядро) — дома.
 - Не проверено на живом телефоне: значки в Telegram iOS и Android (docs/PHONE_CHECK.md).
+
+ЗН-1: ГОТОВО
