@@ -1453,7 +1453,7 @@
 }
 .nx-hname {
   max-width: 100%;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.15;
   text-align: center;
   display: -webkit-box;
@@ -1469,7 +1469,7 @@
   top: 3px;
   right: 4px;
   min-width: 16px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   color: var(--accent);
   font-variant-numeric: tabular-nums;
@@ -1541,7 +1541,7 @@ svg.nx-hbadge {
   grid-column: 1 / -1;
 }
 .nx-hstats dt {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted);
 }
 .nx-hstats dd {
@@ -1564,7 +1564,7 @@ svg.nx-hbadge {
   height: 16px;
 }
 .nx-hstats dd small {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 400;
   color: var(--muted);
 }
