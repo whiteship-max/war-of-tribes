@@ -1,28 +1,26 @@
-// Подписи построек и спокойные метки над ними (ОР-1, docs/ui_v2.md, 5.9; отзыв тестера: «сложновато ориентироваться в своём
-// городе»). Разметкой поверх холста, как надписи добычи (`pops.ts`) и ярлыки у лесов (`tags.ts`): имя — на теле постройки,
-// метка — над крышей, на месте значка беды (`Scene.ROOF_NEW`), которого у этой постройки нет.
+// Подписи построек (ОР-1, docs/ui_v2.md, 5.9; отзыв тестера: «сложновато ориентироваться в своём городе»). Разметкой поверх
+// холста, как надписи добычи (`pops.ts`) и ярлыки у лесов (`tags.ts`): имя — на теле постройки.
 //
-// Что видно. Рычаг «Подписи» (`render/sitetags.labelsOn`) — имена над всеми; без него — только у ближних, когда камера
+// Что видно. Рычаг «Подписи» (строка настроек профиля, `render/sitetags.labelsOn`) — имена над всеми; без него — только у ближних, когда камера
 // подошла (`LABEL_NEAR`), и у той, что показывают («Показать в городе», `lit`). Подписи не налезают друг на друга: раскладка
 // жадная — показанная первой, ближние раньше дальних, остальные молчат (`layLabels`). Касаний слой не берёт вовсе
 // (`pointer-events: none` у всего слоя): палец доходит до постройки под подписью, как без неё.
 //
-// Метка — того, что ждёт игрока и не беда: свободные места работы и «можно улучшить» (`derived.buildingAttention`). Беда —
-// никого на работе, кузнецы без заказа — по-прежнему бляхой над крышей (решение владельца 03.10.2026): метка тише бляхи —
-// точка 12 px, а не значок, и над десятком крыш с первой минуты города не закрывает.
+// Метка — того, что ждёт игрока и не беда: свободные места работы и «можно улучшить» (`derived.buildingAttention`), — точкой
+// перед именем в подписи и только вблизи (`LABEL_NEAR`; ЗН-3, docs/ui_v2.md, 5.10: точек над крышами издали нет — слово
+// владельца). Беда — никого на работе, кузнецы без заказа — по-прежнему бляхой над крышей (решение владельца 03.10.2026).
 import type * as THREE from 'three';
 import type { BuildingTypeId } from '@/game/types';
 
 /** Что ждёт игрока у постройки: можно улучшить или есть свободные места. Беда — бляхой над крышей, не здесь. */
 export type Mark = 'upgrade' | 'slot';
 
-/** Подпись и метка постройки на этот кадр: имя, метка и две точки мира — тело (подпись) и над крышей (метка). */
+/** Подпись постройки на этот кадр: имя, метка и точка мира — тело постройки. */
 export interface LabelSpot {
   type: BuildingTypeId;
   name: string;
   mark: Mark | null;
   body: { x: number; y: number; z: number };
-  roof: { x: number; y: number; z: number };
 }
 
 /** Камера ближе этого к телу постройки, м, — её подпись видна и без рычага. Стартовый кадр — 520 м: там ни одной. */
@@ -83,23 +81,23 @@ export function layLabels(cands: readonly LabelCand[], view: { w: number; h: num
   return out;
 }
 
+/** Видна ли метка в подписи: вблизи (`LABEL_NEAR`) или у показанной постройки. Издали — нет, и с рычагом тоже (ЗН-3). */
+export const markNear = (c: Pick<LabelCand, 'd' | 'lit'>): boolean => c.lit || c.d <= LABEL_NEAR;
+
 /** Прямоугольник подписи: середина — точка тела постройки на экране. */
 export const rectOf = (c: { x: number; y: number; w: number; h: number }): Rect => ({ x: c.x - c.w / 2, y: c.y - c.h / 2, w: c.w, h: c.h });
-
-/** Размер метки над крышей, px CSS (`deeds.css`, `.city-pip`). */
-const PIP = 12;
 
 interface Entry {
   spot: LabelSpot;
   label: HTMLDivElement;
   text: HTMLSpanElement;
-  pip: HTMLDivElement;
   /** Размер подписи, px CSS: меряется, когда сменились имя или метка. */
   w: number;
   h: number;
   /** Что стоит в разметке: не трогать то, что не сменилось. */
   shown: string;
-  pipShown: string;
+  /** Метка вдали спрятана (`far`): что стоит в разметке. */
+  far: boolean;
 }
 
 export class CityLabels {
@@ -119,7 +117,7 @@ export class CityLabels {
     this.root = root;
   }
 
-  /** Постройки сейчас: имена, метки и точки. Сменилось только место — разметка не трогается. */
+  /** Постройки сейчас: имена, метки и точки тел. Сменилось только место — разметка не трогается. */
   set(spots: readonly LabelSpot[]): void {
     const root = this.root;
     if (!root) return;
@@ -133,27 +131,20 @@ export class CityLabels {
         label.className = 'city-label';
         const text = document.createElement('span');
         label.appendChild(text);
-        const pip = document.createElement('div');
-        pip.className = 'city-pip';
         label.style.visibility = 'hidden';
-        pip.style.visibility = 'hidden';
-        root.append(label, pip);
-        e = { spot, label, text, pip, w: 0, h: 0, shown: '', pipShown: '' };
+        root.append(label);
+        e = { spot, label, text, w: 0, h: 0, shown: '', far: false };
       }
       if (e.spot.name !== spot.name || e.spot.mark !== spot.mark || e.w === 0) {
         e.text.textContent = spot.name;
         e.label.dataset.mark = spot.mark ?? '';
-        e.pip.dataset.mark = spot.mark ?? '';
         e.w = e.label.offsetWidth;
         e.h = e.label.offsetHeight;
       }
       e.spot = spot;
       next.push(e);
     }
-    for (const e of keep.values()) {
-      e.label.remove();
-      e.pip.remove();
-    }
+    for (const e of keep.values()) e.label.remove();
     this.list = next;
   }
 
@@ -163,12 +154,11 @@ export class CityLabels {
     for (const e of this.list) e.label.classList.toggle('lit', e.spot.type === type);
   }
 
-  /** Подписи и метки — над своими точками на этот кадр. `w`, `h` — размер холста в точках CSS; `all` — рычаг «Подписи». */
+  /** Подписи — над своими точками на этот кадр. `w`, `h` — размер холста в точках CSS; `all` — рычаг «Подписи». */
   update(camera: THREE.Camera, w: number, h: number, all: boolean): void {
     if (this.list.length === 0) return;
     const pos = (camera as THREE.Camera & { position: THREE.Vector3 }).position;
     const cands: LabelCand[] = [];
-    const pips: ({ x: number; y: number } | null)[] = [];
     for (const e of this.list) {
       const b = e.spot.body;
       const p = this.v.set(b.x, b.y, b.z).project(camera);
@@ -182,15 +172,8 @@ export class CityLabels {
         lit: e.spot.type === this.lit,
         mark: e.spot.mark !== null,
       });
-      const r = e.spot.roof;
-      const q = this.v.set(r.x, r.y, r.z).project(camera);
-      const qx = ((q.x + 1) / 2) * w;
-      const qy = ((1 - q.y) / 2) * h;
-      const inside = qx >= 0 && qx <= w && qy >= LABEL_INSET.top && qy <= h - LABEL_INSET.bottom;
-      pips.push(e.spot.mark && q.z <= 1 && inside ? { x: qx, y: qy } : null);
     }
     const on = new Set(layLabels(cands, { w, h }, all));
-    const rects = [...on].map((i) => rectOf(cands[i]));
     this.list.forEach((e, i) => {
       const c = cands[i];
       const shown = on.has(i) ? `${Math.round(c.x)},${Math.round(c.y)}` : '';
@@ -199,14 +182,11 @@ export class CityLabels {
         if (shown) e.label.style.transform = `translate3d(${Math.round(c.x)}px, ${Math.round(c.y)}px, 0)`;
         e.label.style.visibility = shown ? '' : 'hidden';
       }
-      // Метка над крышей — когда подпись её не несёт и не легла бы на чужую подпись.
-      const p = pips[i];
-      const pr = p ? { x: p.x - PIP / 2, y: p.y - PIP / 2, w: PIP, h: PIP } : null;
-      const pipShown = pr && !on.has(i) && !rects.some((r) => overlaps(r, pr)) ? `${Math.round(p!.x)},${Math.round(p!.y)}` : '';
-      if (pipShown !== e.pipShown) {
-        e.pipShown = pipShown;
-        if (pipShown) e.pip.style.transform = `translate3d(${Math.round(p!.x)}px, ${Math.round(p!.y)}px, 0)`;
-        e.pip.style.visibility = pipShown ? '' : 'hidden';
+      // Метка в подписи — только вблизи или у показанной (`markNear`): издали точек нет (ЗН-3).
+      const far = !markNear(c);
+      if (far !== e.far) {
+        e.far = far;
+        e.label.classList.toggle('far', far);
       }
     });
   }

@@ -143,6 +143,3 @@ export function flyAt(a: CamPose, b: CamPose, k: number): CamPose {
   const e = t * t * (3 - 2 * t);
   return { x: a.x + (b.x - a.x) * e, z: a.z + (b.z - a.z) * e, dist: a.dist + (b.dist - a.dist) * e };
 }
-
-/** Ушла ли камера с дома — стартового кадра (`cityFraming`): на метры, а не на дрожь дробей. */
-export const awayFrom = (p: CamPose, home: CamPose): boolean => Math.hypot(p.x - home.x, p.z - home.z) > 4 || Math.abs(p.dist - home.dist) > 8;

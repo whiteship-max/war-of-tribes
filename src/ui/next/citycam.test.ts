@@ -1,5 +1,6 @@
 // Ориентация в городе (ОР-1, docs/ui_v2.md, 5.9): «Показать в городе» в подсказке и в ратуше ведёт одной дверью
-// (`next/show.showInCity`), кнопки камеры — «Подписи» и «Домой» — цели 44, «Домой» — только когда есть куда возвращаться.
+// (`next/show.showInCity`). Кнопок камеры на экране нет с ЗН-3 (5.10): «Подписи» — строкой настроек, «Домой» убрана
+// (`clean.test.ts`).
 import { readFileSync } from 'node:fs';
 import { fileURLToPath, URL } from 'node:url';
 import { createElement } from 'react';
@@ -17,7 +18,7 @@ const { takeCamAsk } = await import('@/render/sitetags');
 const shown: BuildingTypeId[] = [];
 const take = (): void => {
   const a = takeCamAsk();
-  if (a?.kind === 'show') shown.push(a.type as BuildingTypeId);
+  if (a) shown.push(a.type as BuildingTypeId);
 };
 
 const { useGame } = await import('@/game/store');
@@ -27,7 +28,6 @@ const { tipGo } = await import('@/ui/kit/nav');
 const { armyTip, moraleTip, popTip, resTip } = await import('./hudTips');
 const { RESOURCE_IDS } = await import('@/game/constants');
 const { TipView } = await import('./TipLayer');
-const { CityCamView } = await import('./CityCam');
 
 const css = (rel: string): string => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8');
 const PHONE = { w: 390, h: 844 };
@@ -136,25 +136,10 @@ describe('подсказка: рядом с главной кнопкой пос
   });
 });
 
-describe('кнопки камеры', () => {
-  const view = (on: boolean, moved: boolean): string => renderToStaticMarkup(createElement(CityCamView, { on, moved, toggle: () => {}, home: () => {} }));
-
-  it('«Подписи» — переключатель, «Домой» — только когда камера ушла с дома', () => {
-    expect(view(false, false)).toContain('aria-pressed="false"');
-    expect(view(true, false)).toContain('aria-pressed="true"');
-    expect(view(false, false)).not.toContain('Домой');
-    expect(view(false, true)).toContain('aria-label="Домой"');
-  });
-
-  it('цели касания — 44 и шире', () => {
-    const rule = css('./next.css').match(/\.nx-cam button \{[^}]*\}/)![0];
-    expect(rule).toContain('min-height: var(--tap)');
-    expect(Number(rule.match(/width: (\d+)px/)![1])).toBeGreaterThanOrEqual(44);
-  });
-
+describe('подписи построек', () => {
   it('слой подписей касаний не берёт — палец доходит до постройки', () => {
     const rule = css('../../render/city/deeds.css').match(/^\.city-labels \{[^}]*\}/m)![0];
     expect(rule).toContain('pointer-events: none');
-    expect(css('../../render/city/deeds.css')).not.toMatch(/\.city-(label|pip)[^{]*\{[^}]*pointer-events: auto/);
+    expect(css('../../render/city/deeds.css')).not.toMatch(/\.city-label[^{]*\{[^}]*pointer-events: auto/);
   });
 });

@@ -1,8 +1,11 @@
 // Профиль игрока — и заодно единственное место, где живут настройки игры.
 //
-// Отдельной панели настроек нет нарочно: профиль открывается шестерёнкой в меню
-// державы (герб в шапке), и заводить рядом вторую дверь незачем. Настройки — раздел здесь
-// (`parts/Settings.tsx`), между строкой синхронизации и числами партии.
+// Отдельной панели настроек нет нарочно: профиль открывается значком с гербом справа сверху на экране игры (ЗН-3) и
+// кнопкой в шапке державы, и заводить рядом вторую дверь незачем. Настройки — раздел здесь (`parts/Settings.tsx`).
+//
+// Компактно (ЗН-3, docs/ui_v2.md, 5.10; слово владельца): сверху главное — герб, имя, мощь и сохранение, ниже разделы
+// свёрнутыми строками — настройки, мощь по дням, битвы, потери, хозяйство. Касание раскрывает, повторное сворачивает;
+// раскрыт один раздел за раз, и профиль без раскрытых — в один экран 390 × 844.
 //
 // Правило то же, что и у остальных справочных экранов: числа
 // живые, считаются от состояния на каждом кадре стора, а копий формул здесь нет —
@@ -99,6 +102,41 @@ export function partyTables(s: GameState): { title: string; rows: PartyRow[]; em
   ];
 }
 
+/** Раздел профиля свёрнутой строкой: значок, имя, итог одной строкой справа под именем; тело — когда раскрыт. */
+export interface Fold {
+  key: string;
+  icon: IconName;
+  title: string;
+  sum: string;
+}
+
+/**
+ * Разделы профиля по порядку (ЗН-3): настройки, мощь по дням (когда дней хотя бы два), таблицы партии. Итог строки —
+ * из тех же чисел, что тело (`partyTables`), своей арифметики нет.
+ */
+export function profileFolds(s: GameState): Fold[] {
+  const tables = partyTables(s);
+  const shown = s.profile.days.filter((d) => d.power > 0);
+  const sumOf = (title: string): string => {
+    const tb = tables.find((t) => t.title === title)!;
+    if (tb.rows.length === 0) return tb.empty ?? '';
+    return tb.rows
+      .slice(0, 2)
+      .map((r) => `${r.name.toLowerCase()} ${r.v}`)
+      .join(' · ');
+  };
+  return [
+    { key: 'settings', icon: 'ui-gfx', title: 'Настройки', sum: 'Звук, графика, подписи, подсказки' },
+    // Срок — тот же, что под столбиками (`PowerTrend`): от первого дня с мощью до последнего.
+    ...(shown.length >= 2
+      ? [{ key: 'trend', icon: 'ui-up' as const, title: 'Мощь по дням', sum: `За ${waitDays(Math.min(PROFILE_DAYS, shown[shown.length - 1].day - shown[0].day + 1))}` }]
+      : []),
+    ...tables.map((t) => ({ key: t.title, icon: TABLE_ICON[t.title], title: t.title, sum: sumOf(t.title) })),
+  ];
+}
+
+const TABLE_ICON: Record<string, IconName> = { Битвы: 'ui-trophy', Потери: 'ui-down', Хозяйство: 'ui-crate' };
+
 /**
  * Мощь за последние `PROFILE_DAYS`, столбиками. Ради этого и хранятся суточные корзины:
  * одна цифра не отвечает на вопрос «я расту или стою», а столбик на каждый день
@@ -136,6 +174,8 @@ export function ProfilePanel() {
   const [picking, setPicking] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [draft, setDraft] = useState('');
+  // Раскрытый раздел — один за раз; вид, а не партия.
+  const [open, setOpen] = useState<string | null>(null);
 
   const p = s.profile;
 
@@ -153,6 +193,7 @@ export function ProfilePanel() {
   // Конструктор герба — не отдельный раздел шторки: снаружи на него ничего не ведёт,
   // а возврат к профилю должен быть в один тап (как карточка вида в дружине).
   if (picking) return <ArmsMaker onBack={() => setPicking(false)} />;
+  const tables = partyTables(s);
 
   return (
     <div className="panel">
@@ -203,40 +244,58 @@ export function ProfilePanel() {
           видна, но не обязана мешать играть. */}
       <SyncStatus />
 
-      {/* Настройки стоят вторым блоком, а не в хвосте панели, и это не вкус:
-          шестерёнка меню державы ведёт сюда, и половина заходов — за музыкой. Строка,
-          до которой надо доскроллить мимо битв и потерь, считалась бы
-          пропавшей. Ниже начинаются числа партии — там им и место. */}
-      <Settings />
-
-      <PowerTrend days={p.days} />
-
-      {partyTables(s).map((tb) => (
-        // Имя раздела — шапкой таблицы: отдельный заголовок над ней повторял бы его.
-        <section key={tb.title} className="pf-table">
-          <Table
-            label={tb.title}
-            cols={[
-              { key: 'name', title: tb.title },
-              { key: 'v', title: 'Всего', align: 'right', w: '96px' },
-            ]}
-            empty={tb.empty}
-            rows={tb.rows.map((r) => ({
-              key: r.key,
-              tip: r.body ? () => ({ title: `${r.name} · ${r.v}`, body: r.body }) : undefined,
-              cells: {
-                name: (
-                  <span className="kit-name">
-                    <span className="ic"><Icon name={r.icon} /></span>
-                    <span className="one-line">{r.name}</span>
-                  </span>
-                ),
-                v: <span className={r.tone ?? ''}>{r.v}</span>,
-              },
-            }))}
-          />
-        </section>
-      ))}
+      {/* Разделы — свёрнутыми строками (ЗН-3): касание раскрывает, повторное сворачивает, раскрыт один. Настройки — первыми:
+          половина заходов в профиль — за музыкой и подписями. */}
+      <div className="pf-folds">
+        {profileFolds(s).map((f) => {
+          const on = open === f.key;
+          const tb = tables.find((t) => t.title === f.key);
+          return (
+            <section key={f.key} className={`pf-fold${on ? ' open' : ''}`}>
+              <button className="set-row pf-fold-head" aria-expanded={on} onClick={() => setOpen(on ? null : f.key)}>
+                <span className="ico">
+                  <Icon name={f.icon} />
+                </span>
+                <span className="name">
+                  {f.title}
+                  <em className="sub one-line">{f.sum}</em>
+                </span>
+                <span className="pf-chev" aria-hidden="true">
+                  ›
+                </span>
+              </button>
+              {on && f.key === 'settings' && <Settings title={false} />}
+              {on && f.key === 'trend' && <PowerTrend days={p.days} />}
+              {on && tb && (
+                // Имя раздела — шапкой таблицы: отдельный заголовок над ней повторял бы его.
+                <div className="pf-table">
+                  <Table
+                    label={tb.title}
+                    cols={[
+                      { key: 'name', title: tb.title },
+                      { key: 'v', title: 'Всего', align: 'right', w: '96px' },
+                    ]}
+                    empty={tb.empty}
+                    rows={tb.rows.map((r) => ({
+                      key: r.key,
+                      tip: r.body ? () => ({ title: `${r.name} · ${r.v}`, body: r.body }) : undefined,
+                      cells: {
+                        name: (
+                          <span className="kit-name">
+                            <span className="ic"><Icon name={r.icon} /></span>
+                            <span className="one-line">{r.name}</span>
+                          </span>
+                        ),
+                        v: <span className={r.tone ?? ''}>{r.v}</span>,
+                      },
+                    }))}
+                  />
+                </div>
+              )}
+            </section>
+          );
+        })}
+      </div>
     </div>
   );
 }

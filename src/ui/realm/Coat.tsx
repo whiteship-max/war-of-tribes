@@ -51,3 +51,19 @@ export function CoatButton({ quiet = false }: { quiet?: boolean } = {}) {
     </button>
   );
 }
+
+/**
+ * Вход в профиль игрока — значок справа под строкой запасов, зеркально плашке алмазов слева (ЗН-3, docs/ui_v2.md, 5.10;
+ * слово владельца): на нём герб державы, касание открывает профиль с настройками. Цель касания — 44 (действие, 2.5),
+ * видимая плашка — 32, как у алмазов: лишние 12 px цели уходят вниз, в город, а не вверх, в ячейки запасов.
+ */
+export function ProfileBadge() {
+  const show = useRealm((r) => r.show);
+  return (
+    <button className="nx-me" onClick={() => show('settings')} aria-label="Профиль">
+      <span className="nx-me-face">
+        <CoatArt size={26} />
+      </span>
+    </button>
+  );
+}

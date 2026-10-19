@@ -2588,45 +2588,37 @@
   font-size: 15px;
   line-height: 1;
 }
-/* ---------- Камера города (ОР-1): «Подписи» и «Домой» столбцом под плашкой алмазов, над лесом ---------- */
-.nx-cam {
+/* Профиль (ЗН-3): справа под строкой запасов, зеркально плашке алмазов — та же высота 32, тот же тёмный бок, обод золотом
+   герба. Цель — 44 × 44 (действие): лишнее уходит вниз, в город, а не вверх, в ячейки запасов. */
+.nx-me {
   position: absolute;
-  top: calc(var(--safe-top) + var(--hud-h) + 42px);
-  left: calc(8px + var(--safe-left));
+  top: calc(var(--safe-top) + var(--hud-h) + 2px);
+  right: calc(8px + var(--safe-right));
   display: flex;
-  flex-direction: column;
-  gap: 6px;
+  align-items: flex-start;
+  justify-content: flex-end;
+  width: var(--tap);
+  height: var(--tap);
+  padding: 0;
+  border: 0;
+  background: none;
 }
-.nx-cam button {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 2px;
-  width: 60px;
-  min-height: var(--tap);
-  padding: 4px 0;
-  border-radius: 12px;
-  background: rgba(36, 27, 19, 0.82);
-  border: 1px solid var(--line-2);
-  color: var(--text);
+.nx-me-face {
+  display: grid;
+  place-items: center;
+  height: 32px;
+  min-width: 44px;
+  border-radius: 999px;
+  background: rgba(36, 27, 19, 0.88);
+  border: 1px solid rgba(232, 196, 106, 0.55);
 }
-.nx-cam button.on {
-  border-color: var(--accent);
-  color: var(--accent);
+.nx-me:active .nx-me-face {
+  transform: translateY(1px);
 }
-.nx-cam svg {
-  width: 20px;
-  height: 20px;
-}
-.nx-cam small {
-  font-size: 12px;
-  font-weight: 600;
-  line-height: 1;
-}
-/* Плашка в ряду тревог по высоте ряда: тревоги начинаются правее неё и не заходят под неё. */
+/* Плашка в ряду тревог по высоте ряда: тревоги начинаются правее неё, кончаются левее значка профиля и не заходят под них. */
 .nx-alerts:not(.on-map) {
   left: calc(8px + var(--safe-left) + 112px);
+  right: calc(8px + var(--safe-right) + var(--tap) + 8px);
 }
 .nx-brush {
   margin: 0 0 8px;

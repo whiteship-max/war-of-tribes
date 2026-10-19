@@ -21,46 +21,51 @@ export function setSiteTagHosts(next: ReadonlyMap<string, HTMLElement>): void {
   if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent(SITE_TAGS_EVENT));
 }
 
-// ---------- Камера города (ОР-1, docs/ui_v2.md, 5.9) ----------
-// Интерфейс ставит рычаг «Подписи» и просит камеру — «Показать в городе», «Домой»; сцена города берёт рычаг и просьбу каждый
-// кадр и говорит, ушла ли камера с дома, — по этому интерфейс показывает кнопку «Домой». Просьба — здесь, а не методом общей
-// оболочки сцены (`render/Scene.ts`): та в первой загрузке, и метод для одного города рос бы там.
+// ---------- Камера города (ОР-1, ЗН-3; docs/ui_v2.md, 5.9 и 5.10) ----------
+// Интерфейс ставит рычаг «Подписи» (строка настроек профиля) и просит камеру показать постройку («Показать в городе»);
+// сцена города берёт рычаг и просьбу каждый кадр. Просьба — здесь, а не методом общей оболочки сцены (`render/Scene.ts`):
+// та в первой загрузке, и метод для одного города рос бы там. Рычаг помнится устройством (`localStorage`): это удобство
+// зрителя, а не партия.
 
-/** Событие окна: камера ушла с дома или вернулась. */
-export const CITY_CAM_EVENT = 'tribe-city-cam';
+const LABELS_KEY = 'tribe.labels';
 
-export interface CityCam {
-  /** Камера не на стартовом кадре: ведена пальцем или полётом к постройке — есть куда возвращаться. */
-  moved: boolean;
+function readLabels(): boolean {
+  try {
+    return typeof localStorage !== 'undefined' && localStorage.getItem(LABELS_KEY) === '1';
+  } catch {
+    return false;
+  }
 }
 
-let cam: CityCam = { moved: false };
-let labels = false;
-
-/** Камера на эту минуту. */
-export const cityCam = (): CityCam => cam;
-
-/** Поставить положение камеры — только сцена (`city/scene.ts`). То же — ничего не трогается. */
-export function setCityCam(next: CityCam): void {
-  if (next.moved === cam.moved) return;
-  cam = { ...next };
-  if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent(CITY_CAM_EVENT));
-}
+let labels = readLabels();
+const labelSubs = new Set<() => void>();
 
 /** Рычаг «Подписи»: имена над всеми постройками. Сцена читает его каждый кадр. */
 export const labelsOn = (): boolean => labels;
 
-/** Поставить рычаг — только интерфейс (`ui/next/CityCam.tsx`). */
-export function setLabelsOn(on: boolean): void {
-  labels = on;
+/** Подписаться на рычаг (`useSyncExternalStore` строки настроек). */
+export function subscribeLabels(cb: () => void): () => void {
+  labelSubs.add(cb);
+  return () => labelSubs.delete(cb);
 }
 
-/** Просьба к камере: показать постройку (тип постройки игры) или вернуться на стартовый кадр. */
-export type CamAsk = { kind: 'show'; type: string } | { kind: 'home' };
+/** Поставить рычаг — только интерфейс (строка «Подписи», `ui/parts/Settings.tsx`); запоминается устройством. */
+export function setLabelsOn(on: boolean): void {
+  labels = on;
+  try {
+    localStorage.setItem(LABELS_KEY, on ? '1' : '0');
+  } catch {
+    /* не запомнится — рычаг и так стоит до перезагрузки */
+  }
+  for (const cb of labelSubs) cb();
+}
+
+/** Просьба к камере: показать постройку (тип постройки игры). */
+export type CamAsk = { kind: 'show'; type: string };
 
 let asked: CamAsk | null = null;
 
-/** Попросить камеру — только интерфейс (`kit/nav.showInCity`, кнопка «Домой»). Новая просьба заменяет невзятую. */
+/** Попросить камеру — только интерфейс (`next/show.showInCity`). Новая просьба заменяет невзятую. */
 export function askCam(a: CamAsk): void {
   asked = a;
 }

@@ -47,6 +47,7 @@ import { useBugReport } from './bugOpen';
 import { useGame } from '@/game/store';
 import { hintsOff, setHintsOff } from '@/game/sim/hints';
 import { perfOn, setPerfOn, subscribePerf } from '@/perf/telemetry';
+import { labelsOn, setLabelsOn, subscribeLabels } from '@/render/sitetags';
 
 /**
  * Переключатель звука — **единственный рычаг на весь звук игры**: город, карта, музыка эпохи, бой, промыслы, вой.
@@ -75,7 +76,8 @@ const musicLevel = (): number => soundLevel('music');
 const fxLevel = (): number => soundLevel('fx');
 const ambLevel = (): number => soundLevel('amb');
 
-export function Settings() {
+/** `title` — своя шапка «Настройки»; в профиле её несёт строка раздела (ЗН-3), и вторая шапка повторяла бы её. */
+export function Settings({ title = true }: { title?: boolean } = {}) {
   const on = useSyncExternalStore(subscribeSound, soundOn, soundOn);
   const chosen = useSyncExternalStore(subscribeGfx, gfx, gfx);
 
@@ -103,12 +105,14 @@ export function Settings() {
   const hintsOn = useGame((g) => !hintsOff(g.s));
   const flipHints = (): void => useGame.getState().world((s) => setHintsOff(s, hintsOn));
   const perf = useSyncExternalStore(subscribePerf, perfOn, perfOn);
+  // Имена над всеми постройками города (ОР-1; с ЗН-3 — строкой здесь, а не кнопкой на экране): память устройства.
+  const labels = useSyncExternalStore(subscribeLabels, labelsOn, labelsOn);
   // Сцены для взрослых в покоях (docs/city_v3.md, Г-7): память устройства.
   const [adult, setAdult] = useState(adultScenes);
 
   return (
     <>
-      <h3>Настройки</h3>
+      {title && <h3>Настройки</h3>}
       {/* Строки лежат столбиком с зазором. Пока строка была одна, зазора не
           требовалось, и без обёртки вторая села бы на первую вплотную —
           в обоих местах показа сразу. */}
@@ -200,6 +204,19 @@ export function Settings() {
           <span className="name">
             Подсказки
             <em className="sub">Коротко о главном, по ходу игры</em>
+          </span>
+          <span className="sw">
+            <i />
+          </span>
+        </button>
+
+        <button className={`set-row${labels ? ' on' : ''}`} onClick={() => setLabelsOn(!labels)} aria-pressed={labels}>
+          <span className="ico">
+            <Icon name="ui-scroll" />
+          </span>
+          <span className="name">
+            Подписи
+            <em className="sub">{labels ? 'Имена над всеми постройками города' : 'Имена — когда подлетаешь к постройке'}</em>
           </span>
           <span className="sw">
             <i />
