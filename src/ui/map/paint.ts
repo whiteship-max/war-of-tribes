@@ -193,67 +193,6 @@ export function treeSprite(kind: number, isConifer: boolean): HTMLCanvasElement 
   return c;
 }
 
-// ---------- Общий тон: зерно и затемнение к краям ----------
-
-/**
- * Зерно пергамента. Это карта, а не поле: у неё есть бумага, и её должно быть
- * немного видно. Пятно нарочно слабое и **двустороннее** — и светлые крупинки, и
- * тёмные: односторонний крап читался бы грязью на стекле, а не фактурой листа.
- *
- * Кладётся повторяющимся узором на весь кадр одной заливкой. Это не спор с
- * законом кадра: узор печётся один раз и живёт вечно, а в кадре остаётся одна
- * заливка — ровно та же цена, что у `drawImage`.
- */
-const GRAIN_PX = 96;
-let grainSprite: HTMLCanvasElement | null = null;
-
-export function grainTile(): HTMLCanvasElement {
-  if (grainSprite) return grainSprite;
-  const c = makeCanvas(GRAIN_PX, GRAIN_PX);
-  const ctx = ctxOf(c);
-  const img = ctx.createImageData(GRAIN_PX, GRAIN_PX);
-  const d = img.data;
-  // Свой генератор, а не `Math.random`: зерно обязано быть одним и тем же от
-  // запуска к запуску — иначе снимок «до» и снимок «после» разойдутся на шуме.
-  let s = 0x9e3779b1;
-  for (let i = 0; i < GRAIN_PX * GRAIN_PX; i++) {
-    s = (Math.imul(s ^ (s >>> 15), 0x2c1b3c6d) + 0x9e3779b1) >>> 0;
-    const v = (s >>> 8) & 255;
-    const up = v > 127;
-    d[i * 4] = up ? 236 : 24;
-    d[i * 4 + 1] = up ? 226 : 20;
-    d[i * 4 + 2] = up ? 200 : 14;
-    // Слабое и неровное: часть крупинок не видна вовсе, и узор не читается сеткой.
-    d[i * 4 + 3] = (v % 7) * 3;
-  }
-  ctx.putImageData(img, 0, 0);
-  grainSprite = c;
-  return c;
-}
-
-/**
- * Затемнение к краям кадра. Оно делает из экрана **лист**: середина освещена,
- * края уходят в тень. Печётся квадратом и растягивается на экран — от этого
- * круг становится эллипсом по форме экрана, что и нужно.
- */
-const VIGNETTE_PX = 256;
-let vignetteSprite: HTMLCanvasElement | null = null;
-
-export function vignette(): HTMLCanvasElement {
-  if (vignetteSprite) return vignetteSprite;
-  const c = makeCanvas(VIGNETTE_PX, VIGNETTE_PX);
-  const ctx = ctxOf(c);
-  const r = VIGNETTE_PX / 2;
-  const g = ctx.createRadialGradient(r, r, r * 0.42, r, r, r * 0.96);
-  g.addColorStop(0, 'rgba(14, 10, 7, 0)');
-  g.addColorStop(0.62, 'rgba(14, 10, 7, 0.07)');
-  g.addColorStop(1, 'rgba(14, 10, 7, 0.33)');
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, VIGNETTE_PX, VIGNETTE_PX);
-  vignetteSprite = c;
-  return c;
-}
-
 /** Тень под деревом: без неё лес висит над травой. */
 let shadowSprite: HTMLCanvasElement | null = null;
 
@@ -281,8 +220,6 @@ export const treeSize = (): { w: number; h: number } => ({ w: TREE_W, h: TREE_H 
 export function dropPaint(): void {
   discSprite = null;
   shadowSprite = null;
-  grainSprite = null;
-  vignetteSprite = null;
   grassSprites.fill(null);
   treeSprites.fill(null);
 }

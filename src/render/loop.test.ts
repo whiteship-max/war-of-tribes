@@ -676,4 +676,36 @@ describe('замер плавности: промежутки между кад�
     loop.stop();
     expect(Math.max(...gaps)).toBeLessThan(20);
   });
+
+  it('кадр видит свой промежуток (`gap`) — тот же, что уходит в замеры; первый кадр хода и кадр после сна — ноль (К-1)', () => {
+    const sent: number[] = [];
+    onFrameGap((_p, ms) => sent.push(ms));
+    const fake = new FakeClock(60);
+    const seen: number[] = [];
+    let napMs = 0;
+    const loop: FrameLoop<never> = new FrameLoop<never>(
+      () => {
+        seen.push(loop.gap);
+        if (napMs > 0) loop.rest(napMs);
+      },
+      undefined,
+      { raf: fake.raf, caf: fake.caf, away: fake.away, wait: fake.wait, unwait: fake.unwait },
+    );
+    loop.place = 'map';
+    loop.restart();
+    fake.run(4);
+    expect(seen[0]).toBe(0);
+    expect(seen.slice(1)).toEqual(sent);
+    expect(sent).toHaveLength(3);
+    // Сон: следующий кадр — первый в новом ходе, промежуток сна сторожу не достаётся.
+    napMs = 200;
+    fake.run(1);
+    napMs = 0;
+    const at = seen.length;
+    fake.run(30);
+    expect(seen.length).toBeGreaterThan(at);
+    expect(seen[at]).toBe(0);
+    expect(Math.max(...seen)).toBeLessThan(20);
+    loop.stop();
+  });
 });

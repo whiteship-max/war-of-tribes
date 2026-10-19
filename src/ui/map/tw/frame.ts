@@ -22,7 +22,8 @@ import type { Coord } from '@/world/types';
 import { LABEL_FROM } from '../const';
 import { type Camera, type Viewport, detailAlpha, toScreen, viewRect } from '../grid';
 import { drawGrid, markersOf, settlementsIn } from '../detail';
-import { drawPaper, drawSpot } from '../frame';
+import { drawSpot } from '../frame';
+import { drawTwPaper, dropPaperSheet } from './paper';
 import { probe, shownGaps } from '@/debug';
 import { drawTwZones, dropTwZones } from './zones';
 import { drawTwFog } from './fog';
@@ -40,7 +41,7 @@ import { armsCode, armsOr } from '@/heraldry/arms';
 import type { MarkerKind } from '../village';
 import { FELL_WORDS, LABEL_MAX_PX, fellShown, fitLabel, worksStand, worksStep } from '../siegemark';
 import { type Mini, drawMini, fellSprite, miniBucket, worksSprite } from './mini';
-import { BADGE_D, type BadgeKind, badgeSprite, markPx, markSprite } from './marks';
+import { BADGE_D, type BadgeKind, type MarkLook, badgeSprite, markAt, markFrame, markPending, markPx } from './marks';
 import { TIMER_FONT, labelFont, labelSprite, regionSprite, timerSprite, timerTextWidth, timerWidth } from './labels';
 import { REGION_CELLS, onWater, regionAlpha, regionSize } from './regions';
 import { type Box, type FigureItem, type HostItem, type PlaceItem, figureItems, hostItems, miniAlpha, placeItems, placesRect } from './scene';
@@ -54,6 +55,30 @@ const INK = 'rgba(40, 28, 18, 0.85)';
 
 /** Счёт недопечённого на экране — только под `?probe=1` (`npm run map:report`, «кадров с обзором»). */
 const PROBE = probe();
+
+/**
+ * Части кадра под `?probe=1` — стенду слабого телефона (`npm run weak:stand`, `SCENE=map`; docs/telemetry.md, К-1): время
+ * каждой части и имя текущей (`window.__mapPart`), по которому стенд делит залитые экраны. В игре — одна проверка булева.
+ */
+const PARTS: Record<string, number[]> = {};
+let partName = '';
+let partAt = 0;
+function part(name: string): void {
+  if (!PROBE) return;
+  const t = performance.now();
+  if (partName) (PARTS[partName] ??= []).push(t - partAt);
+  if (PARTS[partName]?.length > 1000) PARTS[partName].shift();
+  partName = name;
+  partAt = t;
+  (window as unknown as { __mapPart?: string }).__mapPart = name;
+}
+if (PROBE && typeof window !== 'undefined') {
+  (window as unknown as { __mapParts?: () => Record<string, number[]> }).__mapParts = () => {
+    const out = { ...PARTS };
+    for (const k of Object.keys(PARTS)) delete PARTS[k];
+    return out;
+  };
+}
 
 // ---------- Испечённое: копирование ----------
 
@@ -79,6 +104,12 @@ const motion: FrameMotion = { busy: false, live: false, decor: false, clock: fal
 /** Значок постоянного размера: точка привязки значка — на точке места. */
 function blit(ctx: CanvasRenderingContext2D, m: Mini, x: number, y: number): void {
   ctx.drawImage(m.canvas, x - m.ax, y - m.ay, m.w, m.h);
+}
+
+/** Значок места или отряда диаметра `d`: на ходу — испечённый ближайшего размера, растянутый (`marks.markAt`, К-1). */
+function blitMark(ctx: CanvasRenderingContext2D, l: MarkLook, d: number, dpr: number, x: number, y: number): void {
+  const { m, k } = markAt(l, d, dpr);
+  ctx.drawImage(m.canvas, x - m.ax * k, y - m.ay * k, m.w * k, m.h * k);
 }
 
 // ---------- Места ----------
@@ -157,7 +188,7 @@ function drawPlaces(ctx: CanvasRenderingContext2D, cam: Camera, items: PlaceItem
       drawMini(ctx, worksSprite(front, rear, 'back', px, dpr), px, bucket, sx, sy);
       ctx.globalAlpha = 1;
     }
-    blit(ctx, markSprite(it.mark, it.d, dpr), sx, sy);
+    blitMark(ctx, it.mark, it.d, dpr, sx, sy);
     if (siege && ma > 0) {
       ctx.globalAlpha = ma;
       drawMini(ctx, worksSprite(front, rear, 'front', px, dpr), px, bucket, sx, sy);
@@ -294,7 +325,7 @@ function drawHosts(ctx: CanvasRenderingContext2D, cam: Camera, items: HostItem[]
     const col = standing ? 0 : columnAlpha(px);
     if (col < 1) {
       ctx.globalAlpha = 1 - col;
-      blit(ctx, markSprite(it.mark, it.d, dpr), sx, sy);
+      blitMark(ctx, it.mark, it.d, dpr, sx, sy);
       ctx.globalAlpha = 1;
     }
     if (col > 0 && drawColumn(ctx, sx, sy, angle, look.size, look.color, px, dpr, col, seedOf(m.id), marchArms(m, ownArms()))) motion.decor = true;
@@ -343,7 +374,7 @@ function drawFigures(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport, i
       const col = f.phase === 'moving' && it.host ? columnAlpha(px) : 0;
       if (col < 1) {
         ctx.globalAlpha = 1 - col;
-        blit(ctx, markSprite(it.hostMark, it.hostD, dpr), hx, py);
+        blitMark(ctx, it.hostMark, it.hostD, dpr, hx, py);
         ctx.globalAlpha = 1;
       }
       if (col > 0 && it.host && drawColumn(ctx, hx, py, Math.atan2(ty - py, tx - hx), it.host.size, it.host.color, px, dpr, col, seedOf(f.id), armsCode(armsOr(ownArms())))) {
@@ -387,7 +418,8 @@ function drawEnergy(ctx: CanvasRenderingContext2D, x: number, y: number, unit: n
 
 // ---------- Подписи ----------
 
-const overlaps = (b: Box, taken: Box[]): boolean => taken.some((t) => b.x0 < t.x1 && b.x1 > t.x0 && b.y0 < t.y1 && b.y1 > t.y0);
+const overlaps = (b: Box, taken: Box[], but: Box | null = null): boolean =>
+  taken.some((t) => t !== but && b.x0 < t.x1 && b.x1 > t.x0 && b.y0 < t.y1 && b.y1 > t.y0);
 
 /** Вписанные имена: мерка — шрифт подписи, а не прежний `system-ui` (`siegemark.fittedLabel` держит свой). */
 const fitted = new Map<string, string>();
@@ -420,40 +452,52 @@ function labelRank(it: PlaceItem): number {
   return (it.s.relation === 'barbarian' ? 10 : 20 + (it.look.kind === 'castle' ? 10 : 0)) + it.mark.pips;
 }
 
+/** Мест подписи у значка — восемь (`labelSpot`). */
+const SPOTS = 8;
+
 /**
  * Где искать место подписи у значка: под ним, над ним, справа, слева, наискось — первое свободное. Подписи не ложатся ни на
  * значки мест и отрядов, ни на метки, ни на сроки походов, ни друг на друга; не нашлось места — имя уступает (своё не
- * уступает никогда и ложится туда, где закроет меньше всего, — `leastCovered`).
+ * уступает никогда и ложится туда, где закроет меньше всего, — `leastCovered`). Место `i` пишется в `out`: кадр
+ * перебирает места у каждого имени, и восемь новых коробок на имя в кадр были мусором движения (К-1).
  */
-function labelSpots(b: Box, sx: number, sy: number, w: number, h: number): Box[] {
-  const below = (x0: number): Box => ({ x0, y0: b.y1 + 2, x1: x0 + w, y1: b.y1 + 2 + h });
-  const above = (x0: number): Box => ({ x0, y0: b.y0 - 2 - h, x1: x0 + w, y1: b.y0 - 2 });
-  return [
-    below(sx - w / 2),
-    above(sx - w / 2),
-    { x0: b.x1 + 3, y0: sy - h / 2, x1: b.x1 + 3 + w, y1: sy + h / 2 },
-    { x0: b.x0 - 3 - w, y0: sy - h / 2, x1: b.x0 - 3, y1: sy + h / 2 },
-    // Наискось — край подписи у середины значка: имя проскальзывает мимо соседа, не отрываясь от своего места.
-    below(sx - w * 0.15),
-    below(sx - w * 0.85),
-    above(sx - w * 0.15),
-    above(sx - w * 0.85),
-  ];
+function labelSpot(i: number, b: Box, sx: number, sy: number, w: number, h: number, out: Box): Box {
+  // Наискось — край подписи у середины значка: имя проскальзывает мимо соседа, не отрываясь от своего места.
+  const below = i === 0 || i === 4 || i === 5;
+  const above = i === 1 || i === 6 || i === 7;
+  if (below || above) {
+    const x0 = sx - w * (i < 2 ? 0.5 : i === 4 || i === 6 ? 0.15 : 0.85);
+    out.x0 = x0;
+    out.x1 = x0 + w;
+    out.y0 = below ? b.y1 + 2 : b.y0 - 2 - h;
+    out.y1 = below ? b.y1 + 2 + h : b.y0 - 2;
+  } else {
+    out.x0 = i === 2 ? b.x1 + 3 : b.x0 - 3 - w;
+    out.x1 = i === 2 ? b.x1 + 3 + w : b.x0 - 3;
+    out.y0 = sy - h / 2;
+    out.y1 = sy + h / 2;
+  }
+  return out;
 }
 
-/** Место, где подпись закроет меньше всего чужого: первое из равных — порядок мест тот же, что у `labelSpots`. */
-function leastCovered(spots: Box[], taken: Box[]): Box {
-  let best = spots[0];
+/** Место (номер), где подпись закроет меньше всего чужого: первое из равных — порядок мест тот же, что у `labelSpot`. */
+function leastCovered(b: Box, sx: number, sy: number, w: number, h: number, taken: Box[], but: Box): number {
+  let best = 0;
   let least = Infinity;
-  for (const b of spots) {
-    const n = taken.filter((t) => b.x0 < t.x1 && b.x1 > t.x0 && b.y0 < t.y1 && b.y1 > t.y0).length;
+  for (let i = 0; i < SPOTS; i++) {
+    const s = labelSpot(i, b, sx, sy, w, h, probeBox);
+    let n = 0;
+    for (const t of taken) if (t !== but && s.x0 < t.x1 && s.x1 > t.x0 && s.y0 < t.y1 && s.y1 > t.y0) n++;
     if (n < least) {
       least = n;
-      best = b;
+      best = i;
     }
   }
   return best;
 }
+
+/** Коробка примерки: место подписи пробуется в ней, а в занятое ложится копия. */
+const probeBox: Box = { x0: 0, y0: 0, x1: 0, y1: 0 };
 
 const onScreen = (b: Box, vp: Viewport): boolean => b.x0 >= 2 && b.x1 <= vp.w - 2 && b.y0 >= TOP_INSET && b.y1 <= vp.h - 2;
 
@@ -465,16 +509,20 @@ function drawLabels(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport, it
     const { s, sx, sy, body } = it;
     if (sx < -40 || sx > vp.w + 40 || body.y1 < -20 || body.y1 > vp.h + 20) continue;
     // Свой значок подписи не мешает: подпись ищет место вокруг него, а не поверх.
-    const others = taken.filter((t) => t !== body);
     let under = body.y1 + 2;
     if (namedAt(it, cam.scale)) {
       const l = labelSprite(fitName(s.name, s.mine), s.mine, dpr, it.look.color);
-      const spots = labelSpots(body, sx, sy, l.w, l.h);
-      const box = spots.find((b) => onScreen(b, vp) && !overlaps(b, others)) ?? (s.mine ? leastCovered(spots, others) : null);
-      if (box) {
+      let at = -1;
+      for (let i = 0; i < SPOTS && at < 0; i++) {
+        const b = labelSpot(i, body, sx, sy, l.w, l.h, probeBox);
+        if (onScreen(b, vp) && !overlaps(b, taken, body)) at = i;
+      }
+      if (at < 0 && s.mine) at = leastCovered(body, sx, sy, l.w, l.h, taken, body);
+      if (at >= 0) {
+        const box = labelSpot(at, body, sx, sy, l.w, l.h, { x0: 0, y0: 0, x1: 0, y1: 0 });
         taken.push(box);
         ctx.drawImage(l.canvas, box.x0, box.y0, l.w, l.h);
-        if (box === spots[0]) under = box.y1 + 1;
+        if (at === 0) under = box.y1 + 1;
       }
     }
     // Знак участи павшего — под именем или под значком; он важнее имени и ложится, даже если имя уступило соседу.
@@ -567,23 +615,32 @@ export function drawTwFrame(ctx: CanvasRenderingContext2D, cam: Camera, vp: View
   const state = useWorld.getState();
   const now = worldNow();
 
+  part('prebake');
   prebakeFrame(cam, vp, frame);
+  // Значки новых размеров — не на ходу (`marks.markFrame`): на щипке их пекла бы пачка в каждом кадре.
+  markFrame(moving());
   const ground = prebaked();
+  part('parchment');
   // Под всем — пергамент: за краем испечённого не пустота, а лист старой карты.
   ctx.fillStyle = TW.parchment;
   ctx.fillRect(0, 0, vp.w, vp.h);
+  part('ground');
   const gaps = ground ? drawGround(ctx, cam, vp, rect, ground) : 0;
   if (PROBE) shownGaps(gaps);
   // Прибой у берегов (`alive.ts`): над землёй, под владениями, туманом и ночью; берег выводится стоя, кусками.
+  part('surf');
   const surf = drawSurf(ctx, cam, vp, ground, !moving());
   if (surf === 'waves') motion.decor = true;
   if (surf === 'baking') motion.busy = true;
   // Владения — тоньше прежних, с чертой границы по краю (`tw/zones.ts`); под туманом, как и прежде. Растр — над
   // рамкой региона и заново только при новых данных и стоя.
+  part('zones');
   drawTwZones(ctx, cam, vp, now, ground ? { rect: ground.plan.reach, stamp: ground.dataGen, may: !moving() } : undefined);
   // Сетка координат — только вблизи и тоньше прежней: по ней прыгают к «541|822», а издали она — решётка
   // поверх карты кампании.
+  part('grid');
   drawGrid(ctx, cam, vp, near * 0.6, TOP_INSET);
+  part('places');
 
   marks.length = 0;
   timers.length = 0;
@@ -595,12 +652,16 @@ export function drawTwFrame(ctx: CanvasRenderingContext2D, cam: Camera, vp: View
   drawPlaces(ctx, cam, items, dpr, now, markersOf(state.marches));
   for (const sm of smokes) if (drawSmoke(ctx, sm.x, sm.y, cam.scale, sm.weight, sm.seed)) motion.decor = true;
   // Облака и их тени — погода региона (docs/city.md, 15): над землёй и местами, под листом за границей региона.
+  part('clouds');
   if (drawClouds(ctx, cam, vp, nightNow())) motion.decor = true;
 
   // Незнакомое — лист старой карты (своё неразведанное и чужой регион), разведанное вне обзора — сепия
   // (`tw/fog.ts`): поверх мест, под всем, что движется, — как прежний туман.
+  part('fog');
   drawTwFog(ctx, cam, vp, ground);
-  drawPaper(ctx, vp);
+  part('paper');
+  drawTwPaper(ctx, vp);
+  part('hosts');
 
   // Живой обзор — один раз на кадр, тем же модулем, что у мира (`world/sight` через `sightDiscs`).
   const discs = sightDiscs(now);
@@ -608,6 +669,7 @@ export function drawTwFrame(ctx: CanvasRenderingContext2D, cam: Camera, vp: View
   drawFigures(ctx, cam, vp, figureItems(cam, vp, state.figures, now, dpr), state.picked, dpr, now);
 
   // Ночь — по часам партии, как у сцены города (`tw/night.ts`); подписи и сроки — поверх неё.
+  part('night');
   const night = nightNow();
   if (drawNight(ctx, vp.w, vp.h, cam.scale, items, night, dpr)) motion.decor = true;
   // Огни осадного лагеря — поверх ночи: их и видно только ночью.
@@ -615,7 +677,9 @@ export function drawTwFrame(ctx: CanvasRenderingContext2D, cam: Camera, vp: View
   for (const draw of marks) draw();
   marks.length = 0;
 
+  part('labels');
   drawRegions(ctx, cam, vp, dpr, drawLabels(ctx, cam, vp, items, dpr, now));
+  part('rest');
 
   // Метка лупы и выбранная клетка — только в своём регионе: за его границей лист, и метки там нечему держать.
   if (state.spotlight && withinActive(state.spotlight.x, state.spotlight.y)) {
@@ -629,6 +693,9 @@ export function drawTwFrame(ctx: CanvasRenderingContext2D, cam: Camera, vp: View
   prebakeIdle();
   // Пока камеру ведут, карта и так рисует каждый кадр — очередь выпечки второй раз за кадр не перебирается.
   if (!moving() && prebakeBusy()) motion.busy = true;
+  // Значок лёг не своим размером — точный испечётся в следующих кадрах: карта не засыпает с растянутым.
+  if (markPending()) motion.busy = true;
+  part('');
   return { ...motion };
 }
 
@@ -648,6 +715,7 @@ export function partyLook(): string {
 
 export function dropFrame(): void {
   fitted.clear();
+  dropPaperSheet();
   dropAlive();
   dropNight();
   dropClouds();

@@ -11,7 +11,7 @@ import { setTwSlot } from '../twslot';
 import { viewRect } from '../grid';
 import { settlementsIn } from '../detail';
 import { setTwLook } from './bake';
-import { twQuality } from './quality';
+import { mapLevel, twQuality, watchMap } from './quality';
 import { drawTwFrame, dropFrame, partyLook } from './frame';
 import { dropMinis } from './mini';
 import { dropMarks } from './marks';
@@ -45,6 +45,10 @@ setTwSlot({
     return t ? holdInTheatre(cam, vp, t.box) : cam;
   },
   party: partyLook,
+  level: () => mapLevel(),
+  watch(gap) {
+    watchMap(gap);
+  },
   drop() {
     dropMinis();
     dropMarks();

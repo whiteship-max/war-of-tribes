@@ -280,6 +280,11 @@ export class FrameLoop<B extends string> {
   place: FramePlace | null = null;
   /** Отметка прошлого нарисованного кадра этого хода; 0 — хода нет. */
   private drewAt = 0;
+  /**
+   * Промежуток до этого кадра в непрерывном ходе, мс; 0 — кадр первый в ходе. Тот же промежуток, что уходит в замеры
+   * (`onFrameGap`): по нему судит сторож плавности карты (К-1) — то, что видит игрок, а не время работы кадра.
+   */
+  gap = 0;
 
   /**
    * @param tick    один кадр;
@@ -438,7 +443,8 @@ export class FrameLoop<B extends string> {
     }
     this.schedule();
     if (!paced.draw) return;
-    if (this.place && frameGap && this.drewAt > 0) frameGap(this.place, now - this.drewAt);
+    this.gap = this.drewAt > 0 ? now - this.drewAt : 0;
+    if (this.place && frameGap && this.gap > 0) frameGap(this.place, this.gap);
     this.drewAt = now;
     this.tick();
   };
