@@ -23,6 +23,7 @@ import { useWorld, marchesOnUs, worldNow } from '@/world/store';
 import { useRealm } from '@/ui/realm/open';
 import type { LifeView, Who, Why } from '@/render/chambers/life';
 import { Talk } from './TalkWindow';
+import { realPlain } from '@/ui/parts/wait';
 import { daypartOf, household, type TalkCtx } from './talk';
 import { loadMemory, saveMemory, type ChambersMemory } from './memory';
 import { adultScenes } from './adult';
@@ -539,7 +540,7 @@ export function Chambers() {
 /** Подпись кнопки клубка: можно — «Кинуть клубок»; кот за ним в окне — ждём; рано — через сколько секунд. */
 export function ballWords(lv: Pick<LifeView, 'fetching' | 'ballIn'>): string {
   if (lv.fetching) return 'Кот несёт клубок…';
-  if (lv.ballIn > 0) return `Клубок — через ${lv.ballIn} с`;
+  if (lv.ballIn > 0) return `Клубок — через ${realPlain(lv.ballIn)}`;
   return 'Кинуть клубок';
 }
 
