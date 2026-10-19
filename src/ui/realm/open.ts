@@ -17,8 +17,8 @@ import type { MailFilter } from './dispatch';
 import type { ChronTopic } from './annals';
 
 /**
- * Раздел меню или страница настроек (шестерёнка в шапке меню). `quests` — задания: в новом интерфейсе они
- * раздел державы, а не место нижней навигации (docs/ui_audit.md, 6.1).
+ * Раздел меню или профиль (`settings`: свой экран из значка справа сверху, ЗН-4, docs/ui_v2.md, 5.11). `quests` — задания:
+ * в новом интерфейсе они раздел державы, а не место нижней навигации (docs/ui_audit.md, 6.1).
  */
 export type RealmView = RealmTab | 'settings' | 'quests';
 
@@ -79,12 +79,13 @@ export const useRealm = create<RealmStore>((set) => ({
 /**
  * Куда открыть державу касанием герба. Шаг обучения «Изучи копьё» ведёт к гербу подсветкой, и держава встаёт сразу
  * на технологиях: путь словами («герб → «Технологии» → военная ветвь») шагу больше не нужен (docs/ui_audit.md, 4.3, 11).
- * В новом виде «Вести» — свой экран из низа, и герб из них ведёт в разделы державы, а не обратно в вести. Иначе —
- * раздел, где меню закрыли (`undefined`).
+ * В новом виде «Вести» — свой экран из низа, и герб из них ведёт в разделы державы, а не обратно в вести; профиль — свой
+ * экран из значка справа (ЗН-4), и герб после него ведёт в державу, а не в профиль. Иначе — раздел, где меню закрыли
+ * (`undefined`).
  */
 export function coatView(s: GameState, quiet: boolean, last: RealmView): RealmView | undefined {
   if (currentStep(s)?.id === 'tech') return 'tech';
-  return quiet && last === 'decisions' ? 'government' : undefined;
+  return (quiet && last === 'decisions') || last === 'settings' ? 'government' : undefined;
 }
 
 /**

@@ -18,6 +18,7 @@
 //                                                     шаг разведчика, полководец на дороге набега
 //   GROUP=or1 WEATHER=clear TAG=before|after …     — ОР-1: подписи построек, «Показать в городе», метки и «Домой»;
 //                                                     `WEATHER` — погода адресом (`?weather=`), чтобы туман не съел подписи
+//   DIR=icons GROUP=zn4 WEATHER=clear TAG=after …  — ЗН-4: подписи у середины приближения, рычаг, окно «Профиль», держава
 //   DIR=polish GROUP=p7 TAG=before|after …          — П-7 (docs/polish.md): тревоги войны значками справа снизу — осада
 //                                                     тихая и срочная, набеги, свой лагерь, карта, вход в окно, город без осады
 //
@@ -838,6 +839,26 @@ GROUPS.zn3 = [
     run: `(async () => { window.__ui.reset(); (await import('/src/ui/realm/open.ts')).useRealm.getState().hide(); (await import('/src/ui/chambers/open.ts')).useChambers.getState().show(); for (let i = 0; i < 40 && !window.__chambers; i++) await new Promise((r) => setTimeout(r, 150)); if (!window.__chambers) return JSON.stringify('покоев нет'); window.__chambers.snap('window'); return JSON.stringify('ok'); })()`,
     wait: 2500,
   },
+];
+
+/**
+ * ЗН-4 (docs/ui_v2.md, 5.11): подписи — все разом около середины приближения, рычаг выключен — нет; профиль — своё окно из
+ * фигурки справа, держава — без профиля. Камера — над площадью (`standView`), расстояние — от стартового кадра (520 м, доля
+ * приближения 0,20) через 400 м (0,40, ниже полосы) до 300 м (0,57, выше). `DIR=icons GROUP=zn4 WEATHER=clear TAG=after`.
+ */
+const LABELS = `(await import('/src/ui/next/labels.ts')).useLabels`;
+const view = (dist: number): string => `window.__ui.reset(); window.__scene.standView(0, -16, ${dist});`;
+GROUPS.zn4 = [
+  { name: 'zn4-01-city-520', run: `(async () => { if (!${LABELS}.getState().on) ${LABELS}.getState().toggle(); ${view(520)} return JSON.stringify('ok'); })()`, wait: 2500 },
+  { name: 'zn4-02-city-400', run: `(() => { ${view(400)} return JSON.stringify('ok'); })()`, wait: 2500 },
+  { name: 'zn4-03-city-300', run: `(() => { ${view(300)} return JSON.stringify('ok'); })()`, wait: 2500 },
+  { name: 'zn4-04-city-300-off', run: `(async () => { ${LABELS}.getState().toggle(); return JSON.stringify(${LABELS}.getState().on ? 'включён' : 'выключен'); })()`, wait: 1500 },
+  {
+    name: 'zn4-05-profile',
+    run: `(async () => { ${LABELS}.getState().toggle(); ${view(520)} const b = document.querySelector('.nx-me'); if (!b) return JSON.stringify('нет значка'); b.click(); return JSON.stringify('ok'); })()`,
+    wait: 1500,
+  },
+  { name: 'zn4-06-realm', run: `(() => { window.__ui.reset(); const b = document.querySelector('.coat-btn'); if (!b) return JSON.stringify('нет герба'); b.click(); return JSON.stringify('ok'); })()`, wait: 1500 },
 ];
 
 async function snap(tab: Tab, name: string): Promise<void> {

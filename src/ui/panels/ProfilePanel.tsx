@@ -1,7 +1,8 @@
 // Профиль игрока — и заодно единственное место, где живут настройки игры.
 //
-// Отдельной панели настроек нет нарочно: профиль открывается значком с гербом справа сверху на экране игры (ЗН-3) и
-// кнопкой в шапке державы, и заводить рядом вторую дверь незачем. Настройки — раздел здесь (`parts/Settings.tsx`).
+// Отдельной панели настроек нет нарочно: профиль — своё окно из значка-фигурки справа сверху на экране игры (ЗН-3, ЗН-4;
+// в державе профиля нет), и заводить рядом вторую дверь незачем. Настройки — раздел здесь (`parts/Settings.tsx`), а рядом с
+// ним — «Сообщить об ошибке» строкой (ЗН-4: прежде — значком в шапке державы).
 //
 // Компактно (ЗН-3, docs/ui_v2.md, 5.10; слово владельца): сверху главное — герб, имя, мощь и сохранение, ниже разделы
 // свёрнутыми строками — настройки, мощь по дням, битвы, потери, хозяйство. Касание раскрывает, повторное сворачивает;
@@ -16,7 +17,7 @@
 // Разбивка по семи ресурсам оставлена в одном разделе — в потерях: на вопрос
 // «что утекает» итог не отвечает. В производстве она бы ответила на вопрос,
 // который никто не задаёт. Состав дружины не дублируется: он есть в своей панели.
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import { useGame } from '@/game/store';
 import { RESOURCE_IDS, RESOURCE_META } from '@/game/constants';
 import { NAME_MAX, profileArms, profileName } from '@/profile/identity';
@@ -36,6 +37,8 @@ import type { GameState } from '@/game/types';
 import type { IconName } from '@/ui/icons/alias';
 import { iconName } from '@/ui/icons/registry';
 import { useLabels } from '@/ui/next/labels';
+import { useBugReport } from '../parts/bugOpen';
+import { inTelegram } from '@/telegram/webapp';
 
 /** Число покрупнее словами: 12 400 вместо 12400 — на 390 px это читается. */
 const big = (n: number): string => Math.round(n).toLocaleString('ru-RU');
@@ -139,9 +142,10 @@ export function profileFolds(s: GameState): Fold[] {
 const TABLE_ICON: Record<string, IconName> = { Битвы: 'ui-trophy', Потери: 'ui-down', Хозяйство: 'ui-crate' };
 
 /**
- * «Подписи» — переключатель строкой настроек (ЗН-3, docs/ui_v2.md, 5.10; прежде — кнопка на экране города): имена над всеми
- * постройками или только у тех, к которым подлетел. Строка — здесь, а не в `parts/Settings`: та едет в первой загрузке
- * (стартовый экран), а рычаг города — в куске нового интерфейса (`next/labels`).
+ * «Подписи» — переключатель строкой настроек (ЗН-3, docs/ui_v2.md, 5.10; прежде — кнопка на экране города): включён — имена
+ * построек проявляются все разом, когда камера приближена около половины размаха; выключен — их нет вовсе (ЗН-4, 5.11).
+ * Строка — здесь, а не в `parts/Settings`: та едет в первой загрузке (стартовый экран), а рычаг города — в куске нового
+ * интерфейса (`next/labels`).
  */
 export function LabelsRow() {
   const on = useLabels((l) => l.on);
@@ -153,7 +157,7 @@ export function LabelsRow() {
       </span>
       <span className="name">
         Подписи
-        <em className="sub">{on ? 'Имена над всеми постройками города' : 'Имена — когда подлетаешь к постройке'}</em>
+        <em className="sub">{on ? 'Имена построек — когда камера ближе к городу' : 'Имён над постройками нет'}</em>
       </span>
       <span className="sw">
         <i />
@@ -201,6 +205,7 @@ export function ProfilePanel() {
   const [draft, setDraft] = useState('');
   // Раскрытый раздел — один за раз; вид, а не партия.
   const [open, setOpen] = useState<string | null>(null);
+  const report = useBugReport((b) => b.show);
 
   const p = s.profile;
 
@@ -253,8 +258,8 @@ export function ProfilePanel() {
               </em>
             </button>
           )}
-          {/* Имя города правят в шапке державы — она стоит и над профилем (находка Д14: прежде здесь была вторая дверь
-              к тому же имени, UI-7, docs/ui_v2.md, 5.6). */}
+          {/* Имя города правят в шапке державы (находка Д14: прежде здесь была вторая дверь к тому же имени, UI-7,
+              docs/ui_v2.md, 5.6). */}
           <div className="power">
             <Num tip={() => powerTip(s)} label="Мощь">
               {big(power(s))}
@@ -276,53 +281,67 @@ export function ProfilePanel() {
           const on = open === f.key;
           const tb = tables.find((t) => t.title === f.key);
           return (
-            <section key={f.key} className={`pf-fold${on ? ' open' : ''}`}>
-              <button className="set-row pf-fold-head" aria-expanded={on} onClick={() => setOpen(on ? null : f.key)}>
-                <span className="ico">
-                  <Icon name={f.icon} />
-                </span>
-                <span className="name">
-                  {f.title}
-                  <em className="sub one-line">{f.sum}</em>
-                </span>
-                <span className="pf-chev" aria-hidden="true">
-                  ›
-                </span>
-              </button>
-              {on && f.key === 'settings' && (
-                <>
-                  <LabelsRow />
-                  <Settings />
-                </>
+            <Fragment key={f.key}>
+              <section className={`pf-fold${on ? ' open' : ''}`}>
+                <button className="set-row pf-fold-head" aria-expanded={on} onClick={() => setOpen(on ? null : f.key)}>
+                  <span className="ico">
+                    <Icon name={f.icon} />
+                  </span>
+                  <span className="name">
+                    {f.title}
+                    <em className="sub one-line">{f.sum}</em>
+                  </span>
+                  <span className="pf-chev" aria-hidden="true">
+                    ›
+                  </span>
+                </button>
+                {on && f.key === 'settings' && (
+                  <>
+                    <LabelsRow />
+                    <Settings bug={false} />
+                  </>
+                )}
+                {on && f.key === 'trend' && <PowerTrend days={p.days} />}
+                {on && tb && (
+                  // Имя раздела — шапкой таблицы: отдельный заголовок над ней повторял бы его.
+                  <div className="pf-table">
+                    <Table
+                      label={tb.title}
+                      cols={[
+                        { key: 'name', title: tb.title },
+                        { key: 'v', title: 'Всего', align: 'right', w: '96px' },
+                      ]}
+                      empty={tb.empty}
+                      rows={tb.rows.map((r) => ({
+                        key: r.key,
+                        tip: r.body ? () => ({ title: `${r.name} · ${r.v}`, body: r.body }) : undefined,
+                        cells: {
+                          name: (
+                            <span className="kit-name">
+                              <span className="ic"><Icon name={r.icon} /></span>
+                              <span className="one-line">{r.name}</span>
+                            </span>
+                          ),
+                          v: <span className={r.tone ?? ''}>{r.v}</span>,
+                        },
+                      }))}
+                    />
+                  </div>
+                )}
+              </section>
+              {/* «Сообщить об ошибке» — рядом с настройками, не пряча её в раздел (ЗН-4, слово владельца); только в Telegram. */}
+              {f.key === 'settings' && inTelegram() && (
+                <button className="set-row pf-bug" onClick={report}>
+                  <span className="ico">
+                    <Icon name="ui-bug" />
+                  </span>
+                  <span className="name">
+                    Сообщить об ошибке
+                    <em className="sub one-line">Письмо мастерам игры</em>
+                  </span>
+                </button>
               )}
-              {on && f.key === 'trend' && <PowerTrend days={p.days} />}
-              {on && tb && (
-                // Имя раздела — шапкой таблицы: отдельный заголовок над ней повторял бы его.
-                <div className="pf-table">
-                  <Table
-                    label={tb.title}
-                    cols={[
-                      { key: 'name', title: tb.title },
-                      { key: 'v', title: 'Всего', align: 'right', w: '96px' },
-                    ]}
-                    empty={tb.empty}
-                    rows={tb.rows.map((r) => ({
-                      key: r.key,
-                      tip: r.body ? () => ({ title: `${r.name} · ${r.v}`, body: r.body }) : undefined,
-                      cells: {
-                        name: (
-                          <span className="kit-name">
-                            <span className="ic"><Icon name={r.icon} /></span>
-                            <span className="one-line">{r.name}</span>
-                          </span>
-                        ),
-                        v: <span className={r.tone ?? ''}>{r.v}</span>,
-                      },
-                    }))}
-                  />
-                </div>
-              )}
-            </section>
+            </Fragment>
           );
         })}
       </div>
