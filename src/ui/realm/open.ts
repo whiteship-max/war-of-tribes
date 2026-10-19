@@ -38,10 +38,13 @@ interface RealmStore {
   setMailTab: (tab: MailTab) => void;
   /** Донесение мира, открытое из летописи «Вестей» (`Report.id`). null — летопись. */
   report: string | null;
-  /** Открыть «Вести» на летописи; с ключом — на донесении события (ВС-2); с родом — летопись этого рода (Г-10). */
-  openChronicle: (report?: string | null, topic?: ChronTopic | null) => void;
-  /** Род, на котором летопись открыли снаружи (доклад советника, Г-10). null — как оставили. */
-  chronTopic: ChronTopic | null;
+  /** Открыть «Вести» на летописи; с ключом — на донесении события (ВС-2). */
+  openChronicle: (report?: string | null) => void;
+  /**
+   * Род, на котором летопись просят открыть снаружи (строка доклада советника, Г-10); летопись берёт его и гасит. Поле без
+   * умолчания нарочно: стор лежит в первой загрузке, а пишут его только покои и читает только летопись — оба своими кусками.
+   */
+  chronTopic?: ChronTopic | null;
 }
 
 /** Вкладки «Вестей»: почта по источнику и летопись (ВС-2, docs/ui_v2.md, 5.8). */
@@ -67,10 +70,9 @@ export const useRealm = create<RealmStore>((set) => ({
   mailTab: 'all',
   setMailTab: (mailTab) => set({ mailTab, mail: null, report: null }),
   report: null,
-  chronTopic: null,
-  openChronicle: (report = null, topic = null) => {
+  openChronicle: (report = null) => {
     useRealm.getState().show('decisions');
-    set({ mail: null, mailTab: 'chron', report, chronTopic: topic });
+    set({ mail: null, mailTab: 'chron', report });
   },
 }));
 

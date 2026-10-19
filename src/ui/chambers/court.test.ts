@@ -12,7 +12,9 @@ import { useWorld } from '@/world/store';
 import { useGame } from '@/game/store';
 import { useRealm } from '@/ui/realm/open';
 import { letterKey } from '@/ui/realm/unread';
+import { chronEvents } from '@/ui/realm/annals';
 import type { LetterView, Report } from '@/world/types';
+import type { LogEntry } from '@/game/types';
 import { Court, type CourtHost } from './court';
 import { ADVISOR_AWAY, freshAdvisor, type AdvisorMemory, type NewsDoor, type WorldNews } from './tidings';
 import { useChambers } from './open';
@@ -69,12 +71,12 @@ const raid = (id: string): LetterView => ({ id, kind: 'raid', at: 0, until: NOW 
 const fight = (id: string): Report => ({ id, at: 0, kind: 'defense', title: 'Набег отбит у ворот', target: { id: 's1', name: 'Х', x: 0, y: 0 }, won: true, sent: {}, lost: {}, enemyPower: 40, enemyLost: 30, loot: null, intel: null, battle: null, text: '', read: false }) as Report;
 
 /** Двор с подделкой мира: мир правится руками, двери пишутся в список, «потом» — сразу. */
-function court(room: ChambersRoom, w: WorldNews, mem: AdvisorMemory = freshAdvisor(), log = [] as { at: number; text: string; kind: 'info' | 'good' | 'bad'; ref?: string }[], time = 10_000) {
+function court(room: ChambersRoom, w: WorldNews, mem: AdvisorMemory = freshAdvisor(), log: LogEntry[] = [], time = 10_000) {
   const opened: NewsDoor[] = [];
   const state = { w, mem };
   const host: CourtHost = {
     world: () => state.w,
-    advisor: () => ({ log, time, gold: 900, inbox: 0, world: state.w }),
+    advisor: () => ({ events: chronEvents(log, state.w.reports), time, gold: 900, inbox: 0, world: state.w }),
     memory: () => state.mem,
     remember: (m) => (state.mem = m),
     open: (d) => opened.push(d),
@@ -161,9 +163,9 @@ describe('покои: гонец с вестью (Г-10)', () => {
 
 describe('покои: советник с докладом (Г-10)', () => {
   const T = 10_000;
-  const log = [
-    { at: T - 10, text: 'Набег «Волчьего логова» отбит', kind: 'good' as const, ref: 'b1' },
-    { at: T - 30, text: 'Кузница поднялась до 3-го уровня', kind: 'good' as const, topic: 'build' },
+  const log: LogEntry[] = [
+    { at: T - 10, text: 'Набег «Волчьего логова» отбит', kind: 'good', ref: 'b1' },
+    { at: T - 30, text: 'Кузница поднялась до 3-го уровня', kind: 'good', topic: 'build' },
   ];
 
   it('после отлучки советник ждёт у стола, кланяется и докладывает по летописи; строка ведёт в своё донесение; «Ступай» — уходит; второй раз о том же не докладывает', () => {
@@ -190,7 +192,7 @@ describe('покои: советник с докладом (Г-10)', () => {
     // Память — с этой минуты: тот же вход ещё раз — советника нет.
     expect(state.mem.at).toBe(T);
     const room2 = phoneRoom();
-    const again = new Court(room2.life, { world: () => state.w, advisor: () => ({ log, time: T + 10, gold: 900, inbox: 0, world: state.w }), memory: () => state.mem, remember: () => undefined, open: () => undefined, later: (f) => f() });
+    const again = new Court(room2.life, { world: () => state.w, advisor: () => ({ events: chronEvents(log, state.w.reports), time: T + 10, gold: 900, inbox: 0, world: state.w }), memory: () => state.mem, remember: () => undefined, open: () => undefined, later: (f) => f() });
     expect(again.greet()).toBe(false);
     expect(room2.life.personOf('advisor')).toBeNull();
     room.dispose();

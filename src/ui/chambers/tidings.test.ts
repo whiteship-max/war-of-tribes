@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import type { LogEntry } from '@/game/types';
 import type { LetterView, Report, SiegeView, CampView } from '@/world/types';
 import { letterKey } from '@/ui/realm/unread';
+import { chronEvents } from '@/ui/realm/annals';
 import { ADVISOR_AWAY, advisorReport, freshAdvisor, freshNews, newsOf, says, type AdvisorInput, type WorldNews } from './tidings';
 
 const NOW = 1_000_000;
@@ -80,7 +81,10 @@ describe('советник: доклад по летописи (Г-10)', () => {
     // До прошлого доклада — уже доложено.
     L(since - 5, 'Старый бой', { ref: 'raid-1-eff' }),
   ];
-  const inp = (over: Partial<AdvisorInput> = {}): AdvisorInput => ({ log, time: T, gold: 1540, inbox: 0, world: world({ reports: [report('raid-7'), report('raid-1')] }), ...over });
+  const inp = (over: Partial<AdvisorInput> & { reports?: Report[] } = {}): AdvisorInput => {
+    const w = over.world ?? world({ reports: over.reports ?? [report('raid-7'), report('raid-1')] });
+    return { events: chronEvents(log, w.reports), time: T, gold: 1540, inbox: 0, ...over, world: w };
+  };
 
   it('отлучка — не меньше трёх настоящих часов: на шаг короче — советник не ждёт; ровно — ждёт (точки — по обе стороны границы)', () => {
     expect(ADVISOR_AWAY, 'три часа — шесть игровых суток по 60 с').toBe(360);

@@ -5,9 +5,9 @@
 // осады и свой лагерь (`siege`, `camp` — проломы и предложения у стен), донесения о боях (`reports`). Доклад — летопись
 // «Вестей» (ВС-2, `realm/annals.chronEvents`): те же события, тот же род, те же донесения. Число в строке — то, что
 // записала партия или мир (правило 18), а сроки — общей дверью часов голода (`parts/hunger.hungerLeft`).
-import type { FaithId, LogEntry } from '@/game/types';
+import type { FaithId } from '@/game/types';
 import type { CampView, LetterView, Report, SiegeView } from '@/world/types';
-import { chronEvents, type ChronEvent, type ChronTopic } from '@/ui/realm/annals';
+import type { ChronEvent, ChronTopic } from '@/ui/realm/annals';
 import { letterKey } from '@/ui/realm/unread';
 import { hungerLeft } from '@/ui/parts/hunger';
 import { gameSeconds, realSec } from '@/game/pace';
@@ -140,9 +140,10 @@ export interface ReportLine {
   door: NewsDoor;
 }
 
-/** Что видно советнику: летопись партии, мир и казна. */
+/** Что видно советнику: летопись «Вестей» событиями, мир и казна. */
 export interface AdvisorInput {
-  log: readonly LogEntry[];
+  /** События летописи (`annals.chronEvents` по `s.log` и донесениям мира) — новыми вперёд. */
+  events: readonly ChronEvent[];
   /** Игровое время сейчас (`s.time`). */
   time: number;
   gold: number;
@@ -165,7 +166,7 @@ export function advisorReport(inp: AdvisorInput, mem: AdvisorMemory): { lines: R
   const lines: ReportLine[] = [];
   const threats = threatLines(inp);
   for (const t of threats) if (!mem.told.includes(t.key)) lines.push(t);
-  const events = chronEvents(inp.log, inp.world.reports).filter((e) => e.at > since);
+  const events = inp.events.filter((e) => e.at > since);
   const war = events.filter((e) => e.topic === 'battle' || e.topic === 'raid' || e.topic === 'siege');
   for (const e of war.slice(0, BATTLES_MAX)) lines.push(eventLine(e));
   if (war.length > BATTLES_MAX) {

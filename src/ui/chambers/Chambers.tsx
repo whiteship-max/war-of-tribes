@@ -29,6 +29,9 @@ import { adultScenes } from './adult';
 import { Court } from './court';
 import { AdvisorPlate, HeraldPlate } from './CourtWindow';
 import type { NewsDoor, WorldNews } from './tidings';
+import type { ChronEvent } from '@/ui/realm/annals';
+import type { GameState } from '@/game/types';
+import type { Report } from '@/world/types';
 
 /** Сцена города глазами покоев: у общей оболочки сцены этих рычагов нет (`render/city/scene.ts`). */
 type CityLike = TribeScene & {
@@ -89,7 +92,8 @@ function rise(scene: CityLike | null = asCity(activeScene())): Live | null {
     world: worldNews,
     advisor: () => {
       const g = useGame.getState().s;
-      return { log: g.log, time: g.time, gold: g.gold, inbox: g.inbox.length, world: worldNews() };
+      const w = worldNews();
+      return { events: chron ? chron(g.log, w.reports) : [], time: g.time, gold: g.gold, inbox: g.inbox.length, world: w };
     },
     memory: () => memory.advisor,
     remember: (m) => {
@@ -138,15 +142,18 @@ function rise(scene: CityLike | null = asCity(activeScene())): Live | null {
   cityAudio.hush('chambers', true);
   void sound.start();
   // Донесения — свежие: советнику вести по ним строки, гонцу — заметить новый бой (пульс перечитывает непустой список).
-  // Советник встаёт к докладу, когда список пришёл; нет мира (тесты, стенд без мира) — докладывает по тому, что есть.
-  const greet = (): void => {
+  // Летопись событиями — из куска державы (`RealmMenu`), где она и живёт. Советник встаёт к докладу, когда пришло и то, и
+  // другое; нет мира (тесты, стенд без мира) — докладывает по тому, что есть.
+  const reports = (async () => {
+    try {
+      await useWorld.getState().loadReports();
+    } catch {
+      /* мира нет — донесения какие есть */
+    }
+  })();
+  void Promise.all([reports, chronicle()]).then(() => {
     if (live?.court === court) court.greet();
-  };
-  try {
-    void useWorld.getState().loadReports().then(greet, greet);
-  } catch {
-    greet();
-  }
+  });
   if (probe()) Object.assign(window as unknown as { __chambers?: ChambersRoom; __court?: Court }, { __chambers: room, __court: court });
   notify();
   return live;
@@ -218,6 +225,19 @@ function talkBase(): Omit<TalkCtx, 'who' | 'why' | 'mem' | 'roll'> {
   };
 }
 
+/** Летопись событиями (`realm/annals.chronEvents`) — когда кусок державы пришёл. */
+let chron: ((log: GameState['log'], reports: readonly Report[]) => ChronEvent[]) | null = null;
+
+/** Взять летопись из куска державы (один раз на игру). */
+async function chronicle(): Promise<void> {
+  if (chron) return;
+  try {
+    chron = (await import('@/ui/realm/RealmMenu')).chronEvents;
+  } catch {
+    /* кусок не пришёл (нет сети) — доклад без событий летописи: угрозы и казна */
+  }
+}
+
 /** Вести мира — как их отдаёт стор мира, на эту минуту. */
 function worldNews(): WorldNews {
   const w = useWorld.getState();
@@ -239,7 +259,8 @@ export function goNews(d: NewsDoor): void {
       realm.openChronicle(d.id);
       break;
     case 'chronicle':
-      realm.openChronicle(null, d.topic);
+      realm.openChronicle(null);
+      useRealm.setState({ chronTopic: d.topic });
       break;
     case 'siege':
       g.openSiege();

@@ -43,9 +43,11 @@ export function Chronicle() {
   const openChronicle = useRealm((r) => r.openChronicle);
   const asked = useRealm((r) => r.chronTopic);
   const [topic, setTopic] = useState<ChronTopic | 'all'>(() => asked ?? 'all');
-  // Летопись открыли на роде (доклад советника, Г-10): встать на нём, даже если она уже открыта.
+  // Летопись открыли на роде (доклад советника, Г-10): встать на нём, даже если она уже открыта, — и погасить просьбу.
   useEffect(() => {
-    if (asked) setTopic(asked);
+    if (!asked) return;
+    setTopic(asked);
+    useRealm.setState({ chronTopic: null });
   }, [asked]);
   const [all, setAll] = useState(false);
 
