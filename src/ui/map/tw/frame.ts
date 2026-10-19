@@ -412,7 +412,8 @@ function drawEnergy(ctx: CanvasRenderingContext2D, x: number, y: number, unit: n
 
 // ---------- Подписи ----------
 
-const overlaps = (b: Box, taken: Box[]): boolean => taken.some((t) => b.x0 < t.x1 && b.x1 > t.x0 && b.y0 < t.y1 && b.y1 > t.y0);
+const overlaps = (b: Box, taken: Box[], but: Box | null = null): boolean =>
+  taken.some((t) => t !== but && b.x0 < t.x1 && b.x1 > t.x0 && b.y0 < t.y1 && b.y1 > t.y0);
 
 /** Вписанные имена: мерка — шрифт подписи, а не прежний `system-ui` (`siegemark.fittedLabel` держит свой). */
 const fitted = new Map<string, string>();
@@ -445,40 +446,52 @@ function labelRank(it: PlaceItem): number {
   return (it.s.relation === 'barbarian' ? 10 : 20 + (it.look.kind === 'castle' ? 10 : 0)) + it.mark.pips;
 }
 
+/** Мест подписи у значка — восемь (`labelSpot`). */
+const SPOTS = 8;
+
 /**
  * Где искать место подписи у значка: под ним, над ним, справа, слева, наискось — первое свободное. Подписи не ложатся ни на
  * значки мест и отрядов, ни на метки, ни на сроки походов, ни друг на друга; не нашлось места — имя уступает (своё не
- * уступает никогда и ложится туда, где закроет меньше всего, — `leastCovered`).
+ * уступает никогда и ложится туда, где закроет меньше всего, — `leastCovered`). Место `i` пишется в `out`: кадр
+ * перебирает места у каждого имени, и восемь новых коробок на имя в кадр были мусором движения (К-1).
  */
-function labelSpots(b: Box, sx: number, sy: number, w: number, h: number): Box[] {
-  const below = (x0: number): Box => ({ x0, y0: b.y1 + 2, x1: x0 + w, y1: b.y1 + 2 + h });
-  const above = (x0: number): Box => ({ x0, y0: b.y0 - 2 - h, x1: x0 + w, y1: b.y0 - 2 });
-  return [
-    below(sx - w / 2),
-    above(sx - w / 2),
-    { x0: b.x1 + 3, y0: sy - h / 2, x1: b.x1 + 3 + w, y1: sy + h / 2 },
-    { x0: b.x0 - 3 - w, y0: sy - h / 2, x1: b.x0 - 3, y1: sy + h / 2 },
-    // Наискось — край подписи у середины значка: имя проскальзывает мимо соседа, не отрываясь от своего места.
-    below(sx - w * 0.15),
-    below(sx - w * 0.85),
-    above(sx - w * 0.15),
-    above(sx - w * 0.85),
-  ];
+function labelSpot(i: number, b: Box, sx: number, sy: number, w: number, h: number, out: Box): Box {
+  // Наискось — край подписи у середины значка: имя проскальзывает мимо соседа, не отрываясь от своего места.
+  const below = i === 0 || i === 4 || i === 5;
+  const above = i === 1 || i === 6 || i === 7;
+  if (below || above) {
+    const x0 = sx - w * (i < 2 ? 0.5 : i === 4 || i === 6 ? 0.15 : 0.85);
+    out.x0 = x0;
+    out.x1 = x0 + w;
+    out.y0 = below ? b.y1 + 2 : b.y0 - 2 - h;
+    out.y1 = below ? b.y1 + 2 + h : b.y0 - 2;
+  } else {
+    out.x0 = i === 2 ? b.x1 + 3 : b.x0 - 3 - w;
+    out.x1 = i === 2 ? b.x1 + 3 + w : b.x0 - 3;
+    out.y0 = sy - h / 2;
+    out.y1 = sy + h / 2;
+  }
+  return out;
 }
 
-/** Место, где подпись закроет меньше всего чужого: первое из равных — порядок мест тот же, что у `labelSpots`. */
-function leastCovered(spots: Box[], taken: Box[]): Box {
-  let best = spots[0];
+/** Место (номер), где подпись закроет меньше всего чужого: первое из равных — порядок мест тот же, что у `labelSpot`. */
+function leastCovered(b: Box, sx: number, sy: number, w: number, h: number, taken: Box[], but: Box): number {
+  let best = 0;
   let least = Infinity;
-  for (const b of spots) {
-    const n = taken.filter((t) => b.x0 < t.x1 && b.x1 > t.x0 && b.y0 < t.y1 && b.y1 > t.y0).length;
+  for (let i = 0; i < SPOTS; i++) {
+    const s = labelSpot(i, b, sx, sy, w, h, probeBox);
+    let n = 0;
+    for (const t of taken) if (t !== but && s.x0 < t.x1 && s.x1 > t.x0 && s.y0 < t.y1 && s.y1 > t.y0) n++;
     if (n < least) {
       least = n;
-      best = b;
+      best = i;
     }
   }
   return best;
 }
+
+/** Коробка примерки: место подписи пробуется в ней, а в занятое ложится копия. */
+const probeBox: Box = { x0: 0, y0: 0, x1: 0, y1: 0 };
 
 const onScreen = (b: Box, vp: Viewport): boolean => b.x0 >= 2 && b.x1 <= vp.w - 2 && b.y0 >= TOP_INSET && b.y1 <= vp.h - 2;
 
@@ -490,16 +503,20 @@ function drawLabels(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport, it
     const { s, sx, sy, body } = it;
     if (sx < -40 || sx > vp.w + 40 || body.y1 < -20 || body.y1 > vp.h + 20) continue;
     // Свой значок подписи не мешает: подпись ищет место вокруг него, а не поверх.
-    const others = taken.filter((t) => t !== body);
     let under = body.y1 + 2;
     if (namedAt(it, cam.scale)) {
       const l = labelSprite(fitName(s.name, s.mine), s.mine, dpr, it.look.color);
-      const spots = labelSpots(body, sx, sy, l.w, l.h);
-      const box = spots.find((b) => onScreen(b, vp) && !overlaps(b, others)) ?? (s.mine ? leastCovered(spots, others) : null);
-      if (box) {
+      let at = -1;
+      for (let i = 0; i < SPOTS && at < 0; i++) {
+        const b = labelSpot(i, body, sx, sy, l.w, l.h, probeBox);
+        if (onScreen(b, vp) && !overlaps(b, taken, body)) at = i;
+      }
+      if (at < 0 && s.mine) at = leastCovered(body, sx, sy, l.w, l.h, taken, body);
+      if (at >= 0) {
+        const box = labelSpot(at, body, sx, sy, l.w, l.h, { x0: 0, y0: 0, x1: 0, y1: 0 });
         taken.push(box);
         ctx.drawImage(l.canvas, box.x0, box.y0, l.w, l.h);
-        if (box === spots[0]) under = box.y1 + 1;
+        if (at === 0) under = box.y1 + 1;
       }
     }
     // Знак участи павшего — под именем или под значком; он важнее имени и ложится, даже если имя уступило соседу.
