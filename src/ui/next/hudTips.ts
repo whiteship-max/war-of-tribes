@@ -9,6 +9,7 @@
  * (`kit/sources.makersOf`), и ниже дверь окна числа (`kit/sources.WINDOW`: «Склад», «Дружина», «Мораль»…). Постройки
  * нет в городе — кнопка «Построить» ведёт в «Стройку» ратуши.
  */
+import { iconName } from '@/ui/icons/registry';
 import type { Tab } from '@/game/store';
 import type { Building, BuildingTypeId, GameState, ResourceId } from '@/game/types';
 import {
@@ -118,7 +119,7 @@ function makers(s: GameState, types: readonly BuildingTypeId[], go: TipGo, weigh
   const out: (TipMaker & { w: number; i: number })[] = [];
   types.forEach((type, i) => {
     const def = BUILDING_BY_ID[type];
-    const icon = { name: `bld-${type}`, glyph: def.icon };
+    const icon = iconName('bld', type);
     const b = buildingOfType(s, type);
     if (b) out.push({ label: def.name, icon, go: () => go.building(b.id), w: weight(type), i });
     else if (go.to) out.push({ label: def.name, icon, build: true, go: () => go.to!({ kind: 'build' }), w: -Infinity, i });

@@ -119,7 +119,7 @@ export function Settings() {
                 нарочно: накладная — это заказ художнику, и вписанное в неё без
                 файла роняет сборку. Пока стоит эмодзи, а появится рисунок —
                 появится сам, без правки этой строки. */}
-            <Icon name="ui-music" glyph="🎵" />
+            <Icon name="ui-music" />
           </span>
           <span className="name">
             Звук
@@ -134,7 +134,7 @@ export function Settings() {
         {on && (
           <div className="set-row vol">
             <span className="ico">
-              <Icon name="ui-volume" glyph="🔊" />
+              <Icon name="ui-volume" />
             </span>
             <span className="name">
               Громкость
@@ -174,7 +174,7 @@ export function Settings() {
         */}
         <div className="set-row pick">
           <span className="ico">
-            <Icon name="ui-gfx" glyph="🎨" />
+            <Icon name="ui-gfx" />
           </span>
           <span className="name">
             Графика
@@ -195,7 +195,7 @@ export function Settings() {
 
         <button className={`set-row${hintsOn ? ' on' : ''}`} onClick={flipHints} aria-pressed={hintsOn}>
           <span className="ico">
-            <Icon name="ui-info" glyph="💡" />
+            <Icon name="ui-info" />
           </span>
           <span className="name">
             Подсказки
@@ -215,7 +215,7 @@ export function Settings() {
           aria-pressed={adult}
         >
           <span className="ico">
-            <Icon name="ui-heart" glyph="❤️" />
+            <Icon name="ui-heart" />
           </span>
           <span className="name">
             Сцены для взрослых
@@ -229,7 +229,7 @@ export function Settings() {
         {NOTIFY_ON && inTelegram() && (
           <button className={`set-row${newsOn ? ' on' : ''}`} onClick={() => setNotifyOn(shut ? true : !newsOn)} aria-pressed={newsOn}>
             <span className="ico">
-              <Icon name="ui-news" glyph="🔔" />
+              <Icon name="ui-news" />
             </span>
             <span className="name">
               Вести в Telegram
@@ -244,7 +244,7 @@ export function Settings() {
         {inTelegram() && (
           <button className={`set-row${perf ? ' on' : ''}`} onClick={() => setPerfOn(!perf)} aria-pressed={perf}>
             <span className="ico">
-              <Icon name="ui-perf" glyph="📊" />
+              <Icon name="ui-perf" />
             </span>
             <span className="name">
               Отправлять замеры
@@ -259,7 +259,7 @@ export function Settings() {
         {inTelegram() && (
           <button className="set-row" onClick={report}>
             <span className="ico">
-              <Icon name="ui-bug" glyph="🐞" />
+              <Icon name="ui-bug" />
             </span>
             <span className="name">
               Сообщить об ошибке

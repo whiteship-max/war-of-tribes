@@ -5,7 +5,7 @@
 import { useEffect, useState } from 'react';
 import type { TroopId } from '@/game/types';
 import { useGame } from '@/game/store';
-import { RESOURCE_IDS, RESOURCE_META } from '@/game/constants';
+import { RESOURCE_IDS } from '@/game/constants';
 import { TROOPS, TROOP_BY_ID } from '@/game/data/troops';
 import { EQUIPMENT_BY_ID } from '@/game/data/equipment';
 import { currentStep } from '@/game/data/tutorial';
@@ -22,6 +22,7 @@ import { Confirm } from './Confirm';
 import { clampCount } from './SmithyNew';
 import { dropRecruitAsk, recruitAsked } from './recruitAsk';
 import { dec } from '@/game/num';
+import { iconName } from '@/ui/icons/registry';
 
 /**
  * Какой вид выбран при открытии: тот, к которому ведёт шаг обучения (его метка — на кнопке «Нанять» выбранного
@@ -82,7 +83,7 @@ export function RecruitNew({ at }: { at: 'barracks' | 'stable' }) {
             return (
               <div className="nx-qrow" key={o.id}>
                 <span className="nx-wico">
-                  <Icon name={`troop-${d.id}`} glyph={d.icon} />
+                  <Icon name={iconName('troop', d.id)} />
                 </span>
                 <div className="nx-qbody">
                   <span>
@@ -121,7 +122,7 @@ export function RecruitNew({ at }: { at: 'barracks' | 'stable' }) {
               }}
               aria-label={`${d.name}: кто это`}
             >
-              <Icon name={`troop-${d.id}`} glyph={d.icon} />
+              <Icon name={iconName('troop', d.id)} />
             </button>
             <span className="nx-gname">
               <b>{d.name}</b>
@@ -140,7 +141,7 @@ export function RecruitNew({ at }: { at: 'barracks' | 'stable' }) {
                 Изучить ›
               </button>
             ) : (
-              on && <Icon name="ui-check" glyph="✔️" className="nx-gpick" />
+              on && <Icon name="ui-check" className="nx-gpick" />
             )}
           </div>
         );
@@ -154,16 +155,16 @@ export function RecruitNew({ at }: { at: 'barracks' | 'stable' }) {
           <span className="cost">
             {RESOURCE_IDS.filter((r) => check.cost[r]).map((r) => (
               <span key={r} className={s.resources[r] >= (check.cost[r] ?? 0) ? '' : 'no'}>
-                <Icon name={`res-${r}`} glyph={RESOURCE_META[r].icon} /> {check.cost[r]}
+                <Icon name={iconName('res', r)} /> {check.cost[r]}
               </span>
             ))}
             {Object.entries(check.gear).map(([id, need]) => (
               <span key={id} className={check.missing.some((m) => m.id === id) ? 'no' : ''}>
-                <Icon name={`gear-${id}`} glyph={EQUIPMENT_BY_ID[id as keyof typeof EQUIPMENT_BY_ID].icon} /> {need}
+                <Icon name={iconName('gear', id)} /> {need}
               </span>
             ))}
             <span className={free >= n ? '' : 'no'}>
-              <Icon name="hud-pop" glyph="👤" /> {n}
+              <Icon name="hud-pop" /> {n}
               <i className="have">из {free}</i>
             </span>
           </span>

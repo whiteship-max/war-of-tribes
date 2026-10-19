@@ -10,7 +10,6 @@ export type RationId = 'lean' | 'normal' | 'rich';
 export interface DecreeDef {
   id: DecreeId;
   name: string;
-  icon: string;
   /** Множитель всей выработки ресурсов. */
   output: number;
   /** Прибавка к морали за игровой день. */
@@ -23,7 +22,6 @@ export const DECREES: DecreeDef[] = [
   {
     id: 'none',
     name: 'Без указа',
-    icon: '🤝',
     output: 1,
     moralePerDay: 0,
     effect: 'Город живёт по обычаю',
@@ -31,7 +29,6 @@ export const DECREES: DecreeDef[] = [
   {
     id: 'order',
     name: 'Твёрдая рука',
-    icon: '⚖️',
     output: 1.1,
     moralePerDay: -0.5,
     effect: 'Стража на улицах, работа от зари до зари',
@@ -39,7 +36,6 @@ export const DECREES: DecreeDef[] = [
   {
     id: 'freedom',
     name: 'Вольный уклад',
-    icon: '🎶',
     output: 0.95,
     moralePerDay: 0.5,
     effect: 'Праздники чаще, работа неспешнее',
@@ -53,7 +49,6 @@ export const DECREE_BY_ID: Record<DecreeId, DecreeDef> = Object.fromEntries(
 export interface RationDef {
   id: RationId;
   name: string;
-  icon: string;
   /** Множитель расхода еды. */
   food: number;
   /** Прибавка к морали за игровой день. */
@@ -70,7 +65,6 @@ export const RATIONS: RationDef[] = [
   {
     id: 'lean',
     name: 'Скудный',
-    icon: '🥣',
     food: 0.7,
     moralePerDay: -0.6,
     growth: 0,
@@ -79,7 +73,6 @@ export const RATIONS: RationDef[] = [
   {
     id: 'normal',
     name: 'Обычный',
-    icon: '🍖',
     food: 1,
     moralePerDay: 0,
     growth: 1,
@@ -88,7 +81,6 @@ export const RATIONS: RationDef[] = [
   {
     id: 'rich',
     name: 'Щедрый',
-    icon: '🍲',
     food: 1.4,
     moralePerDay: 0.6,
     growth: 1.5,
@@ -128,7 +120,6 @@ export const TAX_PER_POP = 0.7;
 export interface TaxDef {
   id: TaxId;
   name: string;
-  icon: string;
   /** Доля от «золота с человека в день» (см. TAX_PER_POP). */
   perPop: number;
   /** На сколько проседает целевая мораль, пока налог держат. */
@@ -141,7 +132,6 @@ export const TAXES: TaxDef[] = [
   {
     id: 'none',
     name: 'Без налога',
-    icon: '🕊️',
     perPop: 0,
     moralePenalty: 0,
     effect: 'Сборщики сидят дома',
@@ -149,7 +139,6 @@ export const TAXES: TaxDef[] = [
   {
     id: 'moderate',
     name: 'Умеренный',
-    icon: '🏺',
     perPop: 0.55,
     moralePenalty: 8,
     effect: 'Сборщики берут с оглядкой',
@@ -157,7 +146,6 @@ export const TAXES: TaxDef[] = [
   {
     id: 'high',
     name: 'Высокий',
-    icon: '💰',
     perPop: 1,
     moralePenalty: 22,
     effect: 'Сборщики выгребают всё до гроша',

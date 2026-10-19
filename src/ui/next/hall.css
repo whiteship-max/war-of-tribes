@@ -63,9 +63,10 @@
   min-height: 52px;
   margin: 0;
   padding: 4px 4px 4px 4px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--m-plate-rim);
   border-radius: 10px;
-  background: var(--panel-2);
+  background: var(--m-plate);
+  box-shadow: var(--m-plate-bevel);
   font: inherit;
   font-variant-numeric: tabular-nums;
   color: inherit;
@@ -169,12 +170,12 @@
   right: 0;
   bottom: 0;
   height: 3px;
-  background: rgba(255, 255, 255, 0.12);
+  background: var(--m-groove);
 }
 .hall-bar > i {
   display: block;
   height: 100%;
-  background: var(--accent);
+  background: var(--m-fill);
 }
 
 /* ---------- Лист постройки поверх сетки ---------- */
@@ -198,9 +199,9 @@
   overflow-y: auto;
   overscroll-behavior: contain;
   padding: 0 var(--safe-right) 0 var(--safe-left);
-  border-top: 1px solid var(--line-2, rgba(255, 220, 170, 0.22));
+  border-top: 1px solid var(--m-gilt);
   border-radius: 14px 14px 0 0;
-  background: rgba(25, 19, 14, 0.99);
+  background: var(--m-grain), var(--m-wood), #19130e;
   box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.45);
 }
 .hall-card .kit-page {

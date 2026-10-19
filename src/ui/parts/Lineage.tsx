@@ -8,6 +8,7 @@ import { yearsWord } from '@/game/sim/agents';
 import type { LineagePlace } from '@/game/types';
 import { count } from './plural';
 import { traitNames } from './traitLines';
+import { Icon } from '@/ui/icons/Icon';
 
 export function Lineage({ id }: { id: LineagePlace }) {
   const s = useGame((g) => g.s);
@@ -27,7 +28,7 @@ export function Lineage({ id }: { id: LineagePlace }) {
       </div>
       {rows.map((r, i) => (
         <div key={`${r.name}-${i}`} className="mod">
-          <span className="ico">{r.end === 'fell' ? '⚰️' : '🕯️'}</span>
+          <span className="ico"><Icon name={r.end === 'fell' ? 'ui-grave' : 'ui-candle'} /></span>
           <span className="name">
             {r.name}
             <em className="sub">

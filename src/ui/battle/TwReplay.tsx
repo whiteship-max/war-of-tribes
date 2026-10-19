@@ -43,6 +43,7 @@ import { barrageCaption, barrageShares } from './barrage';
 import { coatsOfRecord } from './coats';
 import { townShare } from './townShare';
 import './tw.css';
+import { Icon } from '@/ui/icons/Icon';
 
 /**
  * Кнопки ролика: «Пропустить» — к следующему такту смысла (в прологе обстрела — к бою), «Итог» — карточка итога сразу.
@@ -62,7 +63,7 @@ const TO_REPORT = { id: 'report', label: 'К донесению' } as const;
  * Звук в ролике — «тише» на этот просмотр, а не второй рычаг: включён ли звук вообще, решает одна настройка («Музыка»,
  * `ui/parts/Settings.tsx`). Выключена она — кнопка погашена и говорит, где включить; настройку отсюда не пишет никто.
  */
-const SOUND = { id: 'sound', on: '🔊', off: '🔇', why: 'Звук выключен в настройках' } as const;
+const SOUND = { id: 'sound', on: 'ui-volume', off: 'ui-mute', why: 'Звук выключен в настройках' } as const;
 
 /**
  * Цвет стороны — переменными на корне ролика (`side.SIDE_VARS`): знамя и мораль на полосе, шкала сил, метки сторон в
@@ -366,7 +367,7 @@ export function TwReplay({ rec, report, onDone, freeze = null, ended: endedAtSta
             </Btn>
           ))}
           <Btn key={SOUND.id} why={audible ? null : SOUND.why} label={audible ? (muted ? 'Включить звук боя' : 'Тише') : SOUND.why} onClick={hush}>
-            {audible && !muted ? SOUND.on : SOUND.off}
+            <Icon name={audible && !muted ? SOUND.on : SOUND.off} />
           </Btn>
         </div>
       </div>

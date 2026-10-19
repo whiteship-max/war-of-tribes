@@ -92,7 +92,7 @@ export function Mail() {
         <div className="nx-mail">
           <div className="nx-mhead">
             <span className="nx-mmed">
-              <Icon name="ui-check" glyph="✔️" />
+              <Icon name="ui-check" />
             </span>
             <div className="nx-mtitle">
               <b>{done.title}</b>
@@ -154,7 +154,7 @@ export function Mail() {
       {tab !== 'chron' && list.length === 0 && (
         <div className="dispatch-empty">
           <div className="big">
-            <Icon name="ui-mail" glyph="✉️" />
+            <Icon name="ui-mail" />
           </div>
           <b className="nx-empty">Вестей нет</b>
           <div className="note">Сюда приходят вести из города и от соседей. Без ответа каждая решится сама. Что уже было — в «Летописи».</div>
@@ -178,7 +178,7 @@ export function Mail() {
               cells: {
                 what: (
                   <span className={`kit-name${fresh(d) ? ' fresh' : ''}`}>
-                    <Icon name={d.iconName} glyph={d.icon} />
+                    <Icon name={d.iconName} />
                     <span className="kit-two">
                       <b className="one-line">{d.title}</b>
                       <small className="one-line">{d.from ?? (d.warning ? 'Дозор' : 'Город')}</small>
@@ -227,7 +227,7 @@ function DispatchCardNew({
     <div className="nx-mail">
       <div className="nx-mhead">
         <span className={`nx-mmed${urgent ? ' urgent' : ''}`}>
-          <Icon name={d.iconName} glyph={d.icon} />
+          <Icon name={d.iconName} />
         </span>
         <div className="nx-mtitle">
           <b>{d.title}</b>
@@ -238,13 +238,13 @@ function DispatchCardNew({
         </div>
         {from?.cell && (
           <button className="nx-mspot" onClick={() => letter && spot(letter.id)} aria-label="Показать на карте">
-            <Icon name="ui-spyglass" glyph="🔍" />
+            <Icon name="ui-spyglass" />
           </button>
         )}
       </div>
       {d.left !== null && (
         <div className={`nx-mdue${urgent ? ' urgent' : ''}`}>
-          <Icon name="ui-time" glyph="⏳" />
+          <Icon name="ui-time" />
           <span>{d.leftText}</span>
           <b>{leftWords(d.left)}</b>
         </div>
@@ -310,7 +310,7 @@ function Boons({ s }: { s: GameState }) {
           cells: {
             what: (
               <span className="kit-name">
-                <span className="ic">{def.icon}</span>
+                <span className="ic"><Icon name={def.icon} /></span>
                 <span className="one-line">{def.name}</span>
               </span>
             ),

@@ -16,7 +16,6 @@ export interface GemPack {
    * Эмодзи на случай, если лист значков не пришёл. Рисунок — `gempack-<id>` листа (горсть самоцветов, кожаный кошель с
    * завязкой, окованный сундук; `assets-src/icons/`).
    */
-  icon: string;
   /** Сколько алмазов в наборе. */
   amount: number;
   /** Цена в USDT (сеть TON). */
@@ -24,9 +23,9 @@ export interface GemPack {
 }
 
 export const GEM_PACKS: readonly GemPack[] = [
-  { id: 'handful', name: 'Горсть', icon: '💎', amount: 100, usdt: 1 },
-  { id: 'pouch', name: 'Кошель', icon: '👝', amount: 550, usdt: 5 },
-  { id: 'chest', name: 'Сундук', icon: '💰', amount: 1200, usdt: 10 },
+  { id: 'handful', name: 'Горсть', amount: 100, usdt: 1 },
+  { id: 'pouch', name: 'Кошель', amount: 550, usdt: 5 },
+  { id: 'chest', name: 'Сундук', amount: 1200, usdt: 10 },
 ];
 
 /** Алмазов за доллар — по нему видно, что выгоднее. */

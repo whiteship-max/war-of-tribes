@@ -4,6 +4,8 @@ import { App } from './App';
 import { initTelegram, tgInitData } from './telegram/webapp';
 import './ui/fonts/fonts.css';
 import './ui/styles.css';
+// Материалы корпуса (ЗН-2): токены веществ для правил вида; после палитры и окон города — медальон «закрыть» ложится поверх их правил.
+import './ui/kit/material.css';
 import { bootDone } from './boot/stage';
 import { Crash } from './ui/Crash';
 import { telegramOnly } from './telegram/gate';

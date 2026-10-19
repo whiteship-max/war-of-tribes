@@ -32,7 +32,6 @@ export type DailyGameId = 'archery' | 'quiz' | 'maze';
 
 export interface DailyGameDef {
   id: DailyGameId;
-  icon: string;
   name: string;
   /** Правило одной строкой — его читает игрок до того, как потратит попытку. */
   rules: string;
@@ -53,21 +52,18 @@ export interface DailyGameDef {
 export const DAILY_GAMES: DailyGameDef[] = [
   {
     id: 'archery',
-    icon: '🏹',
     name: 'Меткий выстрел',
     rules: 'Три выстрела. Бей, когда бегунок в зачётной зоне.',
     reward: { food: 90, hides: 24, charcoal: 20 },
   },
   {
     id: 'quiz',
-    icon: '⚔️',
     name: 'Кто победит',
     rules: 'Два отряда сходятся в поле. Угадай, чья возьмёт.',
     reward: { stone: 60, copper: 20, iron: 14 },
   },
   {
     id: 'maze',
-    icon: '🏰',
     name: 'Ключ и сундук',
     rules: 'Доведи рыцаря до сундука, пока не вышло время. Ключ от двери где-то рядом.',
     reward: { wood: 90, stone: 70, food: 40 },

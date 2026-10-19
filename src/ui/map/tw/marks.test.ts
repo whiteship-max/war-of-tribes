@@ -6,6 +6,7 @@ import type { SettlementView, Stage } from '@/world/types';
 import { RELATION_META } from '@/world/data/meta';
 import { SIDE_COLOR } from '@/side';
 import { DRAWN_ICONS } from '@/ui/icons/generated';
+import { drawnOf } from '@/ui/icons/alias';
 import { SCALE_MAX, SCALE_MIN } from '../const';
 import { fakeCanvasEnv } from '../fakecanvas';
 import { type ShapeNode, shapesOf } from './glyph';
@@ -65,7 +66,7 @@ describe('значки карты: рисунок из листа', () => {
       names.add(l.glyph);
       if (l.corner) names.add(l.corner);
     }
-    for (const n of names) expect(drawn.has(n), n).toBe(true);
+    for (const n of names) expect(drawn.has(drawnOf(n) as (typeof DRAWN_ICONS)[number]), n).toBe(true);
   });
 
   it('разбор символа: прямоугольник, круг, многоугольник и путь — по порядку слоёв, чужой тег пропускается', () => {

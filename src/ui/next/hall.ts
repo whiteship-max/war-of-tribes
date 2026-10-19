@@ -17,6 +17,7 @@ import {
   upgradeInfo,
 } from '@/game/derived';
 import { asGame, type GameSec } from '@/game/pace';
+import type { IconName } from '@/ui/icons/alias';
 
 // ---------- Группы ----------
 
@@ -26,11 +27,11 @@ export type HallGroup = 'food' | 'raw' | 'war' | 'city';
  * Группы — порядком сетки. «Город» — жильё и службы города: всё, что не двор и не война (решение владельца 16.10.2026,
  * docs/ui_v2.md, 6.4: прежде группа звалась «Жильё», а в ней стояли и площадь, ратуша, склад, храм, рынок).
  */
-export const HALL_GROUPS: readonly { id: HallGroup; label: string; icon: { name: string; glyph: string } }[] = [
-  { id: 'food', label: 'Еда', icon: { name: 'res-food', glyph: '🍖' } },
-  { id: 'raw', label: 'Сырьё', icon: { name: 'res-wood', glyph: '🌲' } },
-  { id: 'war', label: 'Война', icon: { name: 'hud-army', glyph: '⚔️' } },
-  { id: 'city', label: 'Город', icon: { name: 'bld-houses', glyph: '🏘️' } },
+export const HALL_GROUPS: readonly { id: HallGroup; label: string; icon: IconName }[] = [
+  { id: 'food', label: 'Еда', icon: 'res-food' },
+  { id: 'raw', label: 'Сырьё', icon: 'res-wood' },
+  { id: 'war', label: 'Война', icon: 'hud-army' },
+  { id: 'city', label: 'Город', icon: 'bld-houses' },
 ];
 
 /**

@@ -16,8 +16,9 @@
   align-items: flex-start;
   margin-bottom: 8px;
   padding: 12px;
-  background: var(--panel-2);
-  border: 1px solid var(--line);
+  background: var(--m-plate);
+  box-shadow: var(--m-plate-bevel);
+  border: 1px solid var(--m-plate-rim);
   border-radius: 14px;
 }
 
@@ -72,7 +73,8 @@
   justify-content: center;
   min-height: 60px;
   padding: 4px 0;
-  background: var(--panel-2);
+  background: var(--m-plate);
+  box-shadow: var(--m-plate-bevel);
   border: 2px solid transparent;
   border-radius: 10px;
   cursor: pointer;

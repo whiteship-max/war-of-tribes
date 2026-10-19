@@ -169,8 +169,9 @@ function manifest() {
   // (`lazyDoorsPlugin` в vite.config.ts). Остальное — по месту: музыка качается по
   // ходу партии, текстуры предыстории — по её кнопке, заставка входит — её тянет экран
   // загрузки, пусть и после первого кадра. Картинки историй (`assets/share`, docs/feed.md) игра не качает вовсе — их
-  // забирает Telegram по кнопке «В историю».
-  const LATER = [/^assets\/(music|prologue|share)\//];
+  // забирает Telegram по кнопке «В историю». Лист значков (`assets/icons`) игра тянет после первого кадра
+  // (`ui/icons/sheet.ts`): значки первого экрана едут строкой кода, их вес — в чанке (docs/icons.md, ЗН-1).
+  const LATER = [/^assets\/(music|prologue|share|icons)\//];
   const html = readFileSync(path.join(DIST, 'index.html'), 'utf8');
   const firstCode = new Set();
   const reach = (rel) => {

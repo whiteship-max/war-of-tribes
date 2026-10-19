@@ -37,6 +37,7 @@ import type { TipContent } from '@/ui/next/tip';
 import { realSpanText } from './wait';
 import { Steps } from './Steps';
 import { postureLine } from './MusterLink';
+import { iconName } from '@/ui/icons/registry';
 
 /**
  * Какой будет оборона, пока идёт сбор, и когда он кончится. Считает та же
@@ -101,7 +102,7 @@ export function sideTip(s: GameState, title: string, stack: TroopStack, key: key
     parts: TROOP_IDS.filter((id) => (stack[id] ?? 0) > 0).map((id) => ({
       label: `${TROOP_BY_ID[id].name} ${fmtInt(stack[id] ?? 0)}`,
       value: sideOf(s, { [id]: stack[id] })[key],
-      icon: { name: `troop-${id}`, glyph: TROOP_BY_ID[id].icon },
+      icon: iconName('troop', id),
     })),
     fmt,
     sumLabel: key === 'power' ? 'Мощь' : 'В день',
@@ -120,8 +121,8 @@ export function inWallsTip(s: GameState, marches: readonly MarchView[], figures:
     body: 'Они и держат оборону. Пока полководец в городе, его отряд стоит у стен с гарнизоном.',
     total: home,
     parts: [
-      { label: 'Гарнизон', value: troopTotal(ownOf(s.army, where)), icon: { name: 'ui-home', glyph: '🏠' } },
-      { label: 'Отряд в городе', value: troopTotal(standingTroops(s.army, where)), icon: { name: 'fig-general', glyph: '🎖️' } },
+      { label: 'Гарнизон', value: troopTotal(ownOf(s.army, where)), icon: 'ui-home' },
+      { label: 'Отряд в городе', value: troopTotal(standingTroops(s.army, where)), icon: 'fig-general' },
     ],
     fmt: (n) => fmtInt(n),
     sumLabel: 'Бойцов',
@@ -139,7 +140,7 @@ export function outWallsTip(s: GameState): TipContent {
     parts: TROOP_IDS.map((id) => ({
       label: TROOP_BY_ID[id].name,
       value: Math.max(0, s.army[id] ?? 0) - (home[id] ?? 0),
-      icon: { name: `troop-${id}`, glyph: TROOP_BY_ID[id].icon },
+      icon: iconName('troop', id),
     })),
     fmt: (n) => fmtInt(n),
     sumLabel: 'Бойцов',
@@ -156,12 +157,12 @@ const STEPS_W = '240px';
 /** Подписи колонок: слева гарнизон, справа отряд. */
 const KEY_HOME = (
   <span className="ms-key">
-    <Icon name="ui-home" glyph="🏠" /> Гарнизон
+    <Icon name="ui-home" /> Гарнизон
   </span>
 );
 const KEY_GEN = (
   <span className="ms-key gen">
-    <Icon name="fig-general" glyph="🎖️" /> Отряд
+    <Icon name="fig-general" /> Отряд
   </span>
 );
 
@@ -241,7 +242,7 @@ export function Muster({ onCard }: { onCard: (t: TroopId) => void }) {
   return (
     <div className="ms">
       <Row
-        icon={{ name: 'fig-general', glyph: '🎖️' }}
+        icon={'fig-general'}
         label={here ? personName(s, 'general') : 'Полководца нет'}
         sub={here ? postureLine(general) : 'Отряд некому вести'}
         tip={() => ({
@@ -262,7 +263,7 @@ export function Muster({ onCard }: { onCard: (t: TroopId) => void }) {
 
       {rows.length === 0 ? (
         <Row
-          icon={{ name: 'bld-barracks', glyph: '🛡️' }}
+          icon={'bld-barracks'}
           label="Бойцов нет"
           sub="Нанятые встают в гарнизон"
           go={barracks ? () => openBuilding(barracks.id) : undefined}
@@ -282,7 +283,7 @@ export function Muster({ onCard }: { onCard: (t: TroopId) => void }) {
                 cells: {
                   kind: (
                     <button type="button" className="ms-kind" onClick={() => onCard(t)} aria-label={`${d.name}: карточка вида`}>
-                      <Icon name={`troop-${t}`} glyph={d.icon} />
+                      <Icon name={iconName('troop', t)} />
                       <span>
                         <small className="one-line">{d.name}</small>
                         <b>{fmtInt(all(t) - n)}</b>

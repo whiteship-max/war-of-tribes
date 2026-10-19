@@ -20,7 +20,7 @@ const TAU = Math.PI * 2;
 
 /** Вид значка: всё, что меняет картинку, — и только оно (ключ спрайта называет каждое поле). */
 export interface MarkLook {
-  /** Рисунок листа значков (`assets-src/icons`, имя без расширения). */
+  /** Рисунок набора значков (`ui/icons`, имя или ссылка; docs/icons.md). */
   glyph: string;
   /** Цвет кольца: сторона (`side.ts`) или отношение (`RELATION_META`). */
   ring: string;

@@ -19,7 +19,6 @@ import {
 export interface TemperDef {
   id: TemperId;
   name: string;
-  icon: string;
   /** Как он отвечает — словами, теми же, что видит игрок в карточке. */
   note: string;
   /** Готовность вообще принять дар: гордый может счесть его подачкой. */
@@ -47,7 +46,6 @@ export const TEMPERS: TemperDef[] = [
   {
     id: 'proud',
     name: 'Гордый',
-    icon: '🦚',
     note: 'Ценит почёт выше добра. Дар может счесть подачкой, оскорбления не прощает.',
     giftOpen: 0.5,
     giftMult: 0.8,
@@ -60,7 +58,6 @@ export const TEMPERS: TemperDef[] = [
   {
     id: 'greedy',
     name: 'Расчётливый',
-    icon: '⚖️',
     note: 'Мерит всё выгодой. Дары принимает охотно, договоры подписывает легко, воюет неохотно.',
     giftOpen: 1,
     giftMult: 1.4,
@@ -73,7 +70,6 @@ export const TEMPERS: TemperDef[] = [
   {
     id: 'fierce',
     name: 'Свирепый',
-    icon: '🐗',
     note: 'Ищет повода. Пакт с ним почти не заключить, оскорбление кончится войной.',
     giftOpen: 0.6,
     giftMult: 0.7,
@@ -86,7 +82,6 @@ export const TEMPERS: TemperDef[] = [
   {
     id: 'wary',
     name: 'Осторожный',
-    icon: '🦊',
     note: 'Боится сильных соседей. На пакт идёт охотно, обиды помнит долго.',
     giftOpen: 0.8,
     giftMult: 1,
@@ -99,7 +94,6 @@ export const TEMPERS: TemperDef[] = [
   {
     id: 'steady',
     name: 'Степенный',
-    icon: '🪨',
     note: 'Ровен со всеми. Не дружит и не враждует наспех.',
     giftOpen: 0.85,
     giftMult: 1,
@@ -120,7 +114,6 @@ export const TEMPER_IDS: TemperId[] = TEMPERS.map((t) => t.id);
 export interface StandingDef {
   id: Standing;
   name: string;
-  icon: string;
   note: string;
   color: string;
 }
@@ -129,21 +122,18 @@ export const STANDING_META: Record<Standing, StandingDef> = {
   neutral: {
     id: 'neutral',
     name: 'Нейтралитет',
-    icon: '➖',
     note: 'Живут как жили. Набег оттуда возможен, но не чаще прочих.',
     color: '#cbbca6',
   },
   pact: {
     id: 'pact',
     name: 'Пакт о ненападении',
-    icon: '📜',
     note: 'Пока пакт в силе, набегов отсюда не будет.',
     color: '#6bb6e8',
   },
   war: {
     id: 'war',
     name: 'Война',
-    icon: '⚔️',
     note: 'Набеги отсюда идут чаще.',
     // Война — это враг: цвет стороны врага (`side.ts`), тот же, что у врагов на карте и в бою.
     color: SIDE_COLOR.foe,
@@ -158,7 +148,6 @@ export const STANDING_META: Record<Standing, StandingDef> = {
 export interface DiploActionDef {
   id: DiploActionId;
   name: string;
-  icon: string;
   description: string;
   /** Что означает показанный шанс: у оскорбления это риск, а не удача. */
   chanceLabel: string;
@@ -170,7 +159,6 @@ export const DIPLO_ACTIONS: DiploActionDef[] = [
   {
     id: 'gift',
     name: 'Передать дар',
-    icon: '🎁',
     description: 'Обоз запасов к чужим воротам. Принятый дар греет отношение, отвергнутый вернётся.',
     chanceLabel: 'примут',
     busy: ORDER_BUSY_GIFT,
@@ -178,7 +166,6 @@ export const DIPLO_ACTIONS: DiploActionDef[] = [
   {
     id: 'pact',
     name: 'Предложить пакт',
-    icon: '📜',
     description: 'Ненападение. Согласие зависит от отношения и нрава правителя.',
     chanceLabel: 'согласятся',
     busy: ORDER_BUSY_PACT,
@@ -186,7 +173,6 @@ export const DIPLO_ACTIONS: DiploActionDef[] = [
   {
     id: 'peace',
     name: 'Заключить мир',
-    icon: '🕊️',
     description: 'Вернуть нейтралитет. Отношение само не выправится.',
     chanceLabel: 'согласятся',
     busy: ORDER_BUSY_PEACE,
@@ -194,7 +180,6 @@ export const DIPLO_ACTIONS: DiploActionDef[] = [
   {
     id: 'insult',
     name: 'Нанести оскорбление',
-    icon: '🖕',
     description: 'Уронить отношение нарочно. Горячий правитель может ответить войной.',
     chanceLabel: 'риск войны',
     busy: ORDER_BUSY_INSULT,
@@ -202,7 +187,6 @@ export const DIPLO_ACTIONS: DiploActionDef[] = [
   {
     id: 'war',
     name: 'Объявить войну',
-    icon: '⚔️',
     description: 'Объявляется без согласия. Пакт рвётся не сразу, с предупреждением.',
     chanceLabel: '',
     busy: ORDER_BUSY_WAR,

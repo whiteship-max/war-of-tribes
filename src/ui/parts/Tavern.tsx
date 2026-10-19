@@ -21,7 +21,7 @@ export function Tavern() {
   return (
     <>
       <h3>
-        Пир <span className="muted"><Icon name="res-gold" glyph="💰" /> {Math.floor(s.gold)}</span>
+        Пир <span className="muted"><Icon name="res-gold" /> {Math.floor(s.gold)}</span>
       </h3>
       <div
         className="mod"
@@ -34,7 +34,7 @@ export function Tavern() {
           })
         }
       >
-        <span className="ico">😊</span>
+        <span className="ico"><Icon name="mood-good" /></span>
         <span className="name">Прибавка к морали</span>
         <span className="val">
           +{info.bonus} на {waitDays(FEAST_DAYS)}
@@ -46,20 +46,20 @@ export function Tavern() {
         tabIndex={0}
         onClick={(e) => tipAt(e.currentTarget, { title: 'Цена пира', body: 'Растёт с числом жителей.' })}
       >
-        <span className="ico"><Icon name="res-gold" glyph="💰" /></span>
+        <span className="ico"><Icon name="res-gold" /></span>
         <span className="name">Цена пира</span>
         <span className="val">{info.cost}</span>
       </div>
       {info.left > 0 && (
         <div className="mod">
-          <span className="ico">🍺</span>
+          <span className="ico"><Icon name="bld-tavern" /></span>
           <span className="name">Пир идёт</span>
           <span className="val pos">ещё {waitDays(days(info.left))}</span>
         </div>
       )}
       {info.left <= 0 && info.cooldown > 0 && (
         <div className="mod">
-          <span className="ico">⏳</span>
+          <span className="ico"><Icon name="ui-time" /></span>
           <span className="name">Бочки пусты</span>
           <span className="val">ещё {waitDays(days(info.cooldown))}</span>
         </div>

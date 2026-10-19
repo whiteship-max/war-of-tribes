@@ -23,8 +23,6 @@ export interface MinigameDef {
   goal: string;
   /** Кнопка входа: куда идти, а не «играть» — игра говорит о деле, а не о себе (docs/ui_audit.md, 4.1). */
   go: string;
-  /** Запасной знак, пока в листе нет значка (`ui/icons/Icon.tsx`). Emoji 12.0. */
-  glyph: string;
 }
 
 /** Полный запас энергии: шкала долей — 25 энергии читается четвертью суток ожидания. */
@@ -47,13 +45,13 @@ export const MINIGAME_COST = 25;
 export const MINIGAME_SHARE = 1 / 12;
 
 export const MINIGAMES: readonly MinigameDef[] = [
-  { id: 'berries', name: 'Ягоды', yard: 'gathering', goal: 'Набери корзины спелых ягод', go: 'В лес', glyph: '🍓' },
-  { id: 'herd', name: 'Скот', yard: 'pen', goal: 'Накорми загон до последней овцы', go: 'В загон', glyph: '🐑' },
+  { id: 'berries', name: 'Ягоды', yard: 'gathering', goal: 'Набери корзины спелых ягод', go: 'В лес' },
+  { id: 'herd', name: 'Скот', yard: 'pen', goal: 'Накорми загон до последней овцы', go: 'В загон' },
   // Охота — двор охотников: мясо, шкуры и кости в его пропорции (docs/minigames.md, раздел 13).
-  { id: 'hunt', name: 'Охота', yard: 'hunter_hut', goal: 'Выследи и подстрели оленей', go: 'На охоту', glyph: '🦌' },
+  { id: 'hunt', name: 'Охота', yard: 'hunter_hut', goal: 'Выследи и подстрели оленей', go: 'На охоту' },
   // Рыбалка — двор собирателей: рыба — вольная еда, как ягоды и коренья, и своего двора у неё нет; доля — вся еда
   // (docs/minigames.md, раздел 17).
-  { id: 'fish', name: 'Рыбалка', yard: 'gathering', goal: 'Налови рыбы на уху и засолку', go: 'К воде', glyph: '🐟' },
+  { id: 'fish', name: 'Рыбалка', yard: 'gathering', goal: 'Налови рыбы на уху и засолку', go: 'К воде' },
 ];
 
 export const MINIGAME_BY_ID: Record<MinigameId, MinigameDef> = Object.fromEntries(MINIGAMES.map((g) => [g.id, g])) as Record<

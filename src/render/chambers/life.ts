@@ -18,7 +18,7 @@ import { tint } from '../city/geom';
 import type { Arms } from '@/heraldry/arms';
 import type { Quality } from '../quality';
 import { geometryOf } from '../city/index';
-import { DOOR, DESK, BED, HALF, isChestSpot, isWindowSpot, softFloor, type SpotId } from './plan';
+import { DOOR, DESK, BED, HALF, softFloor, type SpotId } from './plan';
 import { DOOR_HINGE, doorLeaf } from './build';
 import { Person, buildPerson, gripOf, isFemale, type FolkId } from './folk';
 import { Cat, buildCat, type CatSpot } from './cat';
@@ -57,8 +57,6 @@ export interface LifeHost {
   cue(c: LifeCue, at: V3 | null): void;
   /** Правителю — пойти и сделать дело (лечь — ночь вдвоём). */
   intend(spot: SpotId): void;
-  /** Встать из дела (у окна, у огня — чтобы обернуться к пришедшему). */
-  stand(): void;
   /** Кубок: где его чаша (оси комнаты) и в руке ли он; положить на место. */
   goblet(): { at: V3; held: boolean };
   dropGoblet(): void;
@@ -408,9 +406,7 @@ export class ChambersLife {
     const p = this.person(who);
     if (!p.visible) return;
     this.busyN++;
-    const r = this.host.ruler();
-    // У окна, у огня и у стены оружия правитель встаёт, чтобы обернуться к пришедшему.
-    if (r.inAct && (isWindowSpot(r.spot) || isChestSpot(r.spot) || r.spot === 'hearth' || r.spot === 'arms')) this.host.stand();
+    // Правитель из дела не встаёт: выйти из дела — только его кнопкой (ЗН-3, docs/ui_v2.md, 5.10); пришедший говорит и так.
     const at = this.talkSpot(p);
     const route = this.route(p, at);
     p.go(route, null);

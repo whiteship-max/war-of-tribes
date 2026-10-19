@@ -12,7 +12,6 @@ export interface EquipmentDef {
   name: string;
   /** Единственное число — для строк вида «нужен 1 меч». */
   one: string;
-  icon: string;
   description: string;
   /** Ресурсы на один предмет. */
   cost: Partial<Record<ResourceId, number>>;
@@ -30,7 +29,6 @@ export const EQUIPMENT: EquipmentDef[] = [
     id: 'spear',
     name: 'Копья',
     one: 'копьё',
-    icon: '🔱',
     description: 'Ясеневое древко и железный наконечник. С него начинается любая кузница.',
     cost: { wood: 4, stone: 3 },
     work: 50,
@@ -39,7 +37,6 @@ export const EQUIPMENT: EquipmentDef[] = [
     id: 'bow',
     name: 'Луки',
     one: 'лук',
-    icon: '🏹',
     description: 'Тис и жила, наконечники калят в горне на угле. Бьёт дальше копья.',
     cost: { wood: 6, charcoal: 3 },
     work: 75,
@@ -48,7 +45,6 @@ export const EQUIPMENT: EquipmentDef[] = [
     id: 'axe',
     name: 'Топоры',
     one: 'топор',
-    icon: '🪓',
     description: 'Боевой топор. Тяжелее копья и прощает меньше промахов.',
     cost: { wood: 5, copper: 3 },
     work: 112,
@@ -57,7 +53,6 @@ export const EQUIPMENT: EquipmentDef[] = [
     id: 'shield',
     name: 'Щиты',
     one: 'щит',
-    icon: '🛡️',
     description: 'Доски и бычья кожа. С ним строй держится.',
     cost: { wood: 6, hides: 4 },
     work: 100,
@@ -66,7 +61,6 @@ export const EQUIPMENT: EquipmentDef[] = [
     id: 'sword',
     name: 'Мечи',
     one: 'меч',
-    icon: '🗡️',
     description: 'Сталь, перекованная не раз. Стоит как добрый конь.',
     cost: { copper: 8, iron: 4 },
     work: 175,
@@ -75,7 +69,6 @@ export const EQUIPMENT: EquipmentDef[] = [
     id: 'armor',
     name: 'Доспехи',
     one: 'доспех',
-    icon: '🦺',
     description: 'Пластины на кожаной основе. Латника берут не всякой стрелой.',
     cost: { iron: 10, hides: 6 },
     work: 275,

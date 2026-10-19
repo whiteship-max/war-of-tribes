@@ -343,7 +343,7 @@ describe('покои: дела касанием мебели', () => {
     }
   });
 
-  it('сундук короля (Г-9): касание — подходит, руки на крышке, крышка откидывается со скрипом, внутри — доспех и подпись «Доспех короля»; второе касание — закрывает со стуком', () => {
+  it('сундук короля (Г-9): касание — подходит, руки на крышке, крышка откидывается со скрипом, внутри — доспех и подпись «Доспех короля»; второе касание крышку не трогает (ЗН-3), «Закрыть» — закрывает со стуком', () => {
     const room = phoneRoom();
     const cues: string[] = [];
     room.onCue = (c) => cues.push(c);
@@ -373,9 +373,14 @@ describe('покои: дела касанием мебели', () => {
     run(room, 0.6);
     expect(room.tagsNow.find((t) => t.id === 'armour')!.visible, 'подпись «Доспех короля»').toBe(true);
     expect(room.tagsNow.find((t) => t.id === 'chestKing')!.visible, 'подписи закрытого сундука нет').toBe(false);
-    // Второе касание — по сундуку: закрывает.
+    // Второе касание — по сундуку: дело касанием не прерывается (ЗН-3), сундук открыт.
     cues.length = 0;
     tap(room, PHONE.width / 2, PHONE.height / 2);
+    run(room, 2);
+    expect(room.state().mode, 'касание — склонился, как был').toBe('in');
+    expect(room.lidK('chest'), 'касание — открыт').toBe(1);
+    // Кнопка «Закрыть» (`leave`) — закрывает.
+    room.leave();
     run(room, 6, () => room.state().mode === 'free');
     expect(room.state().mode, 'отошёл').toBe('free');
     expect(room.lidK('chest'), 'крышка закрыта').toBe(0);
@@ -433,7 +438,7 @@ describe('покои: дела касанием мебели', () => {
     expect(holes, 'сквозь сложенное').toEqual([]);
   });
 
-  it('сундук закрывается и уходом: палец движения поднимает от сундука — крышка опускается; южный сундук тоже открывается', () => {
+  it('палец движения от сундука не уводит (ЗН-3): крышка открыта, пока не нажали «Закрыть»; южный сундук тоже открывается', () => {
     for (const id of ['chest', 'chestS'] as const) {
       const room = phoneRoom();
       room.snap(id);
@@ -441,9 +446,13 @@ describe('покои: дела касанием мебели', () => {
       expect(room.chestOpen(id), `${id}: открыт`).toBe(true);
       room.down(1, 80, 700, PHONE);
       room.move(1, 80, 700 + STICK_FULL);
-      run(room, 4, () => room.lidK(id) === 0);
-      expect(room.lidK(id), `${id}: ушёл — закрыт`).toBe(0);
+      run(room, 4);
+      expect(room.state().mode, `${id}: палец движения — склонился, как был`).toBe('in');
+      expect(room.lidK(id), `${id}: палец движения — открыт`).toBe(1);
       room.up(1);
+      room.leave();
+      run(room, 4, () => room.lidK(id) === 0);
+      expect(room.lidK(id), `${id}: «Закрыть» — закрыт`).toBe(0);
       room.dispose();
     }
     // В открытом южном — платье и меха.
@@ -477,18 +486,65 @@ describe('покои: дела касанием мебели', () => {
     }
   });
 
-  it('палец движения поднимает из дела: встаёт к месту подхода и дальше идёт сам', () => {
+  it('из дела поднимает только кнопка (ЗН-3): палец движения и касания мимо — нет; «Встать» — к месту подхода, дальше — сам', () => {
     const room = phoneRoom();
     room.snap('desk');
     room.down(1, 80, 700, PHONE);
     room.move(1, 80, 700 + STICK_FULL);
+    run(room, 4);
+    expect(room.state().mode, 'палец движения — сидит').toBe('in');
+    room.up(1);
+    // Касание другой мебели — не уводит.
+    room.touch({ kind: 'poi', poi: POI_BY_ID.bed });
+    run(room, 2);
+    expect(room.state(), 'касание кровати — сидит').toMatchObject({ mode: 'in', spot: 'desk' });
+    room.leave();
     run(room, 4, () => room.state().mode === 'free');
     expect(room.state().mode).toBe('free');
-    room.up(1);
     const a = POI_BY_ID.desk.approach!;
     // Встал у подлокотника и, может быть, уже шагнул назад — но не дальше полуметра.
     expect(Math.hypot(room.state().x - a.x, room.state().z - a.z)).toBeLessThan(0.5);
     room.dispose();
+  });
+
+  it('дело покоев прерывает только своя кнопка, у всех дел (ЗН-3): ни палец движения, ни касания мебели, середины и мимо', () => {
+    // Граница области — правитель в деле (`mode` 'in' на своём месте): перед каждой пробой — утверждением, что он там. Пробы:
+    // палец движения на полный ход, касание каждой другой мебели (у двери касание той же двери — стук ещё раз, Г-7, и дело то
+    // же — не проба), касание середины экрана и мимо всего. Потом своя кнопка — `leave`, у оружия — «Положить» (`drop`).
+    for (const id of Object.keys(ACTS) as SpotId[]) {
+      const room = phoneRoom();
+      room.snap(id);
+      run(room, 0.2);
+      const inside = (what: string): void => expect(room.state(), `${id}: ${what}`).toMatchObject({ mode: 'in', spot: id });
+      inside('вошёл в дело');
+      room.down(1, 80, 700, PHONE);
+      room.move(1, 80, 700 + STICK_FULL);
+      run(room, 2);
+      room.up(1);
+      inside('палец движения');
+      for (const p of POIS) {
+        if (p.id === id || p.id === 'hall') continue;
+        room.touch({ kind: 'poi', poi: p });
+        run(room, 1);
+        inside(`касание «${p.name}»`);
+      }
+      // У двери середина экрана — сама дверь: стук ещё раз, не проба.
+      if (id !== 'door') {
+        tap(room, PHONE.width / 2, PHONE.height / 2);
+        run(room, 1);
+        inside('касание середины');
+      }
+      room.touch(null);
+      run(room, 1);
+      inside('касание мимо');
+      if (id === 'arms') {
+        expect(room.view().held, 'arms: меч в руке до «Положить»').toBe('sword');
+        room.drop();
+      } else room.leave();
+      run(room, 8, () => room.state().mode === 'free');
+      expect(room.state().mode, `${id}: своя кнопка — вышел`).toBe('free');
+      room.dispose();
+    }
   });
 
   it('глаз в деле не проходит сквозь мебель и стены: каждые 20 мс пути — вне мебели и в комнате', () => {
@@ -601,7 +657,7 @@ describe('покои: стол из кресла', () => {
     room.dispose();
   });
 
-  it('безделушку берут в руки касанием сидя, а положить — касанием мимо', () => {
+  it('безделушку берут в руки касанием сидя; касание мимо и палец движения её не кладут — только «Положить» (ЗН-3)', () => {
     const room = phoneRoom();
     const goblet = TRINKETS.find((t) => t.id === 'goblet')!;
     // Кубок — у края кадра: берём его, повернув голову к нему.
@@ -611,7 +667,16 @@ describe('покои: стол из кресла', () => {
     expect(room.view().held).toBe('goblet');
     tap(room, 300, 140);
     run(room, 1);
-    expect(room.view().held, 'кладёт').toBe(null);
+    expect(room.view().held, 'касание мимо — в руке').toBe('goblet');
+    room.down(1, 80, 700, PHONE);
+    room.move(1, 80, 700 + STICK_FULL);
+    run(room, 2);
+    room.up(1);
+    expect(room.view().held, 'палец движения — в руке').toBe('goblet');
+    expect(room.state().mode, 'палец движения — сидит').toBe('in');
+    room.drop();
+    run(room, 1);
+    expect(room.view().held, '«Положить» — кладёт').toBe(null);
     room.dispose();
   });
 });

@@ -17,7 +17,6 @@ export interface FigureDef {
   name: string;
   /** Имя в винительном падеже: «отправить разведчика». */
   one: string;
-  icon: string;
   description: string;
   /** Клеток в минуту по равнине — той же меркой, что и юниты (`data/units.ts`). */
   speed: number;
@@ -32,7 +31,6 @@ export const FIGURES: FigureDef[] = [
     id: 'scout',
     name: 'Разведчик',
     one: 'разведчика',
-    icon: '👣',
     description: 'Ходит быстро, видит далеко, в бой не вступает. Им и открывают карту.',
     speed: 9,
     sight: 8,
@@ -42,7 +40,6 @@ export const FIGURES: FigureDef[] = [
     id: 'diplomat',
     name: 'Дипломат',
     one: 'дипломата',
-    icon: '🕊️',
     description: 'Идёт медленно и видит недалеко. Зато привозит то, чего не привезёт никто.',
     speed: 3.4,
     sight: 3,
@@ -53,7 +50,6 @@ export const FIGURES: FigureDef[] = [
     name: 'Лазутчик',
     one: 'лазутчика',
     // Значок из Emoji 3.0: 🥷 (Emoji 13.0) на части систем рисуется квадратом.
-    icon: '🕵️',
     description:
       'Ходит скрытно и видит недалеко: карту им не откроешь. Зато работает у чужих ворот, а не смотрит на них.',
     speed: 6,
@@ -65,7 +61,6 @@ export const FIGURES: FigureDef[] = [
     id: 'general',
     name: 'Полководец',
     one: 'полководца',
-    icon: '🎖️',
     description: 'Водит отряд. Без него дружина из города не выходит.',
     speed: 4.5,
     sight: 4,
@@ -86,7 +81,6 @@ export const FIGURE_IDS: FigureId[] = FIGURES.map((f) => f.id);
 export interface DealDef {
   id: DealId;
   name: string;
-  icon: string;
   description: string;
   /** Выше этой враждебности племени договор не подпишут. */
   maxHostility: number;
@@ -98,7 +92,6 @@ export const DEALS: DealDef[] = [
   {
     id: 'truce',
     name: 'Ненападение',
-    icon: '🤝',
     description: 'Пока договор в силе, набегов от этой державы не будет.',
     maxHostility: 80,
     hostilityDrop: 20,
@@ -106,7 +99,6 @@ export const DEALS: DealDef[] = [
   {
     id: 'trade',
     name: 'Торговое соглашение',
-    icon: '⚖️',
     description: 'Караваны державы идут через нас и оставляют золото.',
     maxHostility: 45,
     hostilityDrop: 10,
@@ -114,7 +106,6 @@ export const DEALS: DealDef[] = [
   {
     id: 'tribute',
     name: 'Дань',
-    icon: '📦',
     description: 'Держава откупается от нас запасами.',
     maxHostility: 30,
     hostilityDrop: 5,
@@ -122,7 +113,6 @@ export const DEALS: DealDef[] = [
   {
     id: 'alliance',
     name: 'Союз',
-    icon: '🏳️',
     description: 'Набегов от этой державы не будет, и её города можно поддержать отрядом.',
     maxHostility: 15,
     hostilityDrop: 15,

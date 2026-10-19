@@ -367,14 +367,14 @@ export const MUTINY_PAY_GOLD = 1;
 
 export const RESOURCE_IDS: ResourceId[] = ['wood', 'stone', 'food', 'hides', 'charcoal', 'copper', 'iron'];
 
-export const RESOURCE_META: Record<ResourceId, { name: string; icon: string }> = {
-  wood: { name: 'Древесина', icon: '🌲' },
-  stone: { name: 'Камень', icon: '⛰️' },
-  food: { name: 'Еда', icon: '🍖' },
-  hides: { name: 'Шкуры', icon: '🦌' },
-  charcoal: { name: 'Уголь', icon: '⚫' },
-  copper: { name: 'Медь', icon: '🟠' },
-  iron: { name: 'Железо', icon: '⚙️' },
+export const RESOURCE_META: Record<ResourceId, { name: string }> = {
+  wood: { name: 'Древесина' },
+  stone: { name: 'Камень' },
+  food: { name: 'Еда' },
+  hides: { name: 'Шкуры' },
+  charcoal: { name: 'Уголь' },
+  copper: { name: 'Медь' },
+  iron: { name: 'Железо' },
 };
 
 export const emptyResources = (): Resources => ({

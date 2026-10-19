@@ -4,7 +4,9 @@
 //
 // Лист уже лежит в документе (`ui/icons/sheet.ts` кладёт его скрытым блоком для `<use>`), и карта читает символы оттуда:
 // второй загрузки нет, веса нет. Формат листа узкий и проверен сборкой (`npm run icons:build`, docs/icons.md): сетка
-// 32×32, только `<path> <polygon> <rect> <circle>` с `fill`, без обводок и преобразований — поэтому разбор тут простой.
+// 32×32, набор ЗН-1 пишет только `<path>` — заливка с контуром чернилами под ней (`paint-order: stroke`) или линия
+// гравюры без заливки; без преобразований — поэтому разбор тут простой. Прямоугольник, круг и многоугольник разбор
+// понимает по-прежнему.
 // Пока лист не приехал, рисунка нет (`glyphShapes` — null), и значок печётся без него, а ключ спрайта это помнит
 // (`glyphStamp`): приехал лист — значок печётся заново.
 import { sheetReady, sheetSymbol } from '@/ui/icons/sheet';
@@ -16,7 +18,7 @@ export type Shape =
   | { k: 'rect'; x: number; y: number; w: number; h: number; fill: string }
   | { k: 'circle'; cx: number; cy: number; r: number; fill: string }
   | { k: 'poly'; pts: number[]; fill: string }
-  | { k: 'path'; d: string; fill: string };
+  | { k: 'path'; d: string; fill: string; stroke?: string; sw?: number };
 
 /** Сетка листа. */
 export const GLYPH_GRID = 32;
@@ -46,7 +48,8 @@ export function shapesOf(nodes: Iterable<ShapeNode>): Shape[] {
       if (pts.length >= 6) out.push({ k: 'poly', pts, fill });
     } else if (tag === 'path') {
       const d = n.getAttribute('d');
-      if (d) out.push({ k: 'path', d, fill });
+      const stroke = n.getAttribute('stroke');
+      if (d) out.push(stroke && stroke !== 'none' ? { k: 'path', d, fill, stroke, sw: num(n, 'stroke-width') || 1 } : { k: 'path', d, fill });
     }
   }
   return out;
@@ -91,7 +94,18 @@ export function drawGlyph(ctx: C, shapes: readonly Shape[], x: number, y: number
       for (let i = 2; i + 1 < s.pts.length; i += 2) ctx.lineTo(s.pts[i], s.pts[i + 1]);
       ctx.closePath();
       ctx.fill();
-    } else if (typeof Path2D !== 'undefined') ctx.fill(new Path2D(s.d));
+    } else if (typeof Path2D !== 'undefined') {
+      const p = new Path2D(s.d);
+      // Контур — под заливкой (`paint-order: stroke` листа): снаружи видна половина линии, как в интерфейсе.
+      if (s.stroke) {
+        ctx.strokeStyle = s.stroke;
+        ctx.lineWidth = s.sw ?? 1;
+        ctx.lineJoin = 'round';
+        ctx.lineCap = 'round';
+        ctx.stroke(p);
+      }
+      if (s.fill !== 'none') ctx.fill(p);
+    }
   }
   ctx.restore();
 }

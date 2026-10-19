@@ -12,7 +12,7 @@
 import { type ReactNode } from 'react';
 import type { Building } from '@/game/types';
 import { useGame } from '@/game/store';
-import { MAX_BUILDING_LEVEL, RESOURCE_META } from '@/game/constants';
+import { MAX_BUILDING_LEVEL } from '@/game/constants';
 import { dec } from '@/game/num';
 import { BUILDING_BY_ID } from '@/game/data/buildings';
 import { JOB_BY_ID } from '@/game/data/jobs';
@@ -50,6 +50,7 @@ import { Row } from '@/ui/kit/Row';
 import { goTo } from '@/ui/kit/nav';
 import { WINDOW, sourceWord } from '@/ui/kit/sources';
 import { RushButton } from './Rush';
+import { iconName } from '@/ui/icons/registry';
 
 /** Кнопка «Точно?» живёт своим модулем (`Confirm.tsx`): ею пользуются и держава, и найм. */
 export { CONFIRM_MS, Confirm } from './Confirm';
@@ -92,7 +93,7 @@ export function BuildingNew({ id, data }: { id: number; data: (b: Building) => R
           onClick={(e) => tipAt(e.currentTarget, buildingTip(s, b))}
           aria-label={`${buildingTitle(s, b.type)}: что это`}
         >
-          <Icon name={`bld-${def.id}`} glyph={def.icon} />
+          <Icon name={iconName('bld', def.id)} />
         </button>
         <div className="nx-btitle">
           <b className="one-line">{buildingTitle(s, b.type)}</b>
@@ -113,7 +114,7 @@ export function BuildingNew({ id, data }: { id: number; data: (b: Building) => R
         )}
         {/* «Закрыть» — в строке шапки и уезжает вместе с ней: стоя поверх прокрутки, он ложился бы на кнопки. */}
         <button className="nx-bclose" onClick={closeSheet} aria-label="Закрыть">
-          <Icon name="ui-close" glyph="✕" />
+          <Icon name="ui-close" />
         </button>
       </div>
 
@@ -126,7 +127,7 @@ export function BuildingNew({ id, data }: { id: number; data: (b: Building) => R
 
       {site && (
         <div className="nx-bsite">
-          <Icon name="ui-site" glyph="🏗️" />
+          <Icon name="ui-site" />
           <div className="nx-bsite-body">
             <span>
               Стройка до ур. {b.level + 1} · {inQueue ? 'в очереди' : siteEta !== null ? waitSpan(siteEta) : 'нет строителей'}
@@ -163,10 +164,14 @@ function TradeLink({ id }: { id: MinigameId }) {
   const def = MINIGAME_BY_ID[id];
   return (
     <Row
-      icon={{ name: `mini-${id}`, glyph: def.glyph }}
+      icon={iconName('mini', id)}
       label={`Промысел: ${def.name}`}
       sub={def.goal}
-      value={`✋ ${MINIGAME_COST}`}
+      value={
+        <>
+          <Icon name="ui-energy" /> {MINIGAME_COST}
+        </>
+      }
       go={() => goTo(WINDOW.energy)}
       goLabel={`${def.name}: ${sourceWord(WINDOW.energy)}`}
     />
@@ -196,7 +201,7 @@ export function WorkerRow({ b, gains }: { b: Building; gains: UpgradeGain[] | nu
     <>
       <div className="nx-wrow">
         <button className="nx-wico" onClick={(e) => tipAt(e.currentTarget, tip)} aria-label={`${job.name}: места`}>
-          <Icon name={`job-${job.id}`} glyph={job.icon} />
+          <Icon name={iconName('job', job.id)} />
         </button>
         <span className="nx-wcount">
           <small className="nx-wlbl">Рабочие</small>
@@ -218,7 +223,7 @@ export function WorkerRow({ b, gains }: { b: Building; gains: UpgradeGain[] | nu
           В день:
           {yields.map((y) => (
             <span key={y.id}>
-              <Icon name={`res-${y.id}`} glyph={RESOURCE_META[y.id].icon} /> {dec(y.now, 1)}
+              <Icon name={iconName('res', y.id)} /> {dec(y.now, 1)}
               {y.more !== null && <b> → {dec(y.more, 1)}</b>}
             </span>
           ))}

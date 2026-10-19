@@ -5,12 +5,13 @@
 import type { TipContent, TipLink, TipRow } from '@/ui/next/tip';
 import { TIP_ROWS_MAX } from '@/ui/next/tip';
 import { rate } from '@/ui/next/hudTips';
+import type { IconName } from '@/ui/icons/alias';
 
 /** Слагаемое числа: имя, вклад со знаком, значок и дверь к источнику (`kit/sources`). */
 export interface Part {
   label: string;
   value: number;
-  icon?: { name: string; glyph: string };
+  icon?: IconName;
   go?: () => void;
 }
 

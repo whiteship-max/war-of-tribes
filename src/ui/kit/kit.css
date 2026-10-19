@@ -129,8 +129,9 @@
 
 /* ---------- Таблица ---------- */
 .kit-table {
-  border: 1px solid var(--line);
+  border: 1px solid var(--m-plate-rim);
   border-radius: 10px;
+  box-shadow: inset 0 0 0 1px rgba(222, 172, 88, 0.14), 0 1px 0 rgba(255, 222, 170, 0.06);
   overflow: hidden;
   font-size: 13px;
 }
@@ -146,7 +147,9 @@
 .kit-trow.head {
   min-height: 24px;
   border-top: 0;
-  background: var(--panel-2);
+  border-bottom: 1px solid transparent;
+  border-image: var(--m-rule) 1;
+  background: var(--m-plate);
   /* Строчными, а не капителью: в 12 px заглавные с разрядкой шире столбца («РОЖДЕН…»), строчные читаются легче
      (docs/polish.md, П-1, «Решения»). */
   font-size: 12px;
@@ -267,7 +270,8 @@
   width: 36px;
   height: 20px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.16);
+  background: var(--m-groove);
+  box-shadow: var(--m-groove-edge);
   transition: background 0.15s;
 }
 .kit-switch::after {
@@ -278,15 +282,15 @@
   width: 16px;
   height: 16px;
   border-radius: 50%;
-  background: var(--text);
+  background: radial-gradient(circle at 35% 30%, #fff3d0 0%, #c9b392 55%, #7d6a52 100%);
+  box-shadow: 0 0 0 1px var(--m-ink), 0 1px 2px rgba(0, 0, 0, 0.5);
   transition: transform 0.15s;
 }
 .kit-toggle.on .kit-switch {
-  background: var(--accent);
+  background: var(--m-fill);
 }
 .kit-toggle.on .kit-switch::after {
   transform: translateX(16px);
-  background: var(--accent-text, #1a120b);
 }
 
 /* ---------- Полоса ---------- */
@@ -311,28 +315,30 @@
 .kit-bar-track {
   position: relative;
   display: block;
-  height: 6px;
+  height: 7px;
   margin-top: 4px;
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.12);
+  background: var(--m-groove);
+  box-shadow: var(--m-groove-edge);
 }
 .kit-bar-fill {
   display: block;
   height: 100%;
   border-radius: 6px;
-  background: var(--accent);
+  background: var(--m-fill);
+  box-shadow: inset 0 1px 0 rgba(255, 246, 220, 0.4);
 }
 .kit-bar-fill.good {
-  background: var(--good);
+  background: var(--m-fill-good);
 }
 .kit-bar-fill.bad {
-  background: var(--bad);
+  background: var(--m-fill-bad);
 }
 .kit-bar-fill.warn {
-  background: var(--warn, #d9a441);
+  background: var(--m-fill-warn);
 }
 .kit-bar-fill.muted {
-  background: var(--muted);
+  background: var(--m-fill-muted);
 }
 .kit-bar-mark {
   position: absolute;
@@ -340,7 +346,8 @@
   bottom: -2px;
   width: 2px;
   margin-left: -1px;
-  background: var(--text);
+  background: #f3e2bd;
+  box-shadow: 0 0 0 1px var(--m-ink);
 }
 .kit-bar-marks {
   position: relative;
@@ -376,21 +383,28 @@
   min-height: 44px;
   padding: 4px 16px;
   border-radius: 10px;
-  border: 1px solid var(--line-2, rgba(255, 220, 170, 0.22));
-  background: var(--panel-2);
+  border: 1px solid var(--m-leather-rim);
+  background: var(--m-leather);
+  box-shadow: var(--m-leather-bevel);
   font-size: 15px;
   font-weight: 600;
   line-height: 1.1;
   text-align: center;
+  transition: filter 0.12s, transform 0.08s;
 }
+/* Главная — золото с бронзой: подпись врезана, обод — бронза (docs/icons.md, «ЗН-2»). */
 .kit-btn.main {
-  border-color: transparent;
-  background: var(--accent);
+  border-color: var(--m-gold-rim);
+  background: var(--m-gold);
+  box-shadow: var(--m-gold-bevel);
   color: var(--accent-text);
+  text-shadow: var(--m-gold-cut);
 }
+/* Тихая — переход «Склад ›»: без вещества, золотые буквы. */
 .kit-btn.link {
   border: 0;
   background: none;
+  box-shadow: none;
   padding: 0 8px;
   color: var(--accent);
 }
@@ -403,18 +417,34 @@
   font-weight: 600;
   opacity: 0.75;
 }
+/* «Точно?» — червлень: необратимое видно веществом, а не только словом. */
 .kit-btn.armed {
-  border-color: transparent;
-  background: var(--bad-fill);
+  border-color: var(--m-gules-rim);
+  background: var(--m-gules);
+  box-shadow: var(--m-gules-bevel);
   color: #fff;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.35);
 }
+/* Погашенная — железо: матовое, без блика, буквы глухие; почему — строкой под ней (`.kit-why`). */
 .kit-btn:disabled {
-  opacity: 0.45;
+  border-color: var(--m-iron-rim);
+  background: var(--m-iron);
+  box-shadow: var(--m-iron-bevel);
+  color: var(--m-iron-ink);
+  text-shadow: none;
   cursor: default;
 }
+.kit-btn.link:disabled {
+  background: none;
+  box-shadow: none;
+}
 .kit-btn:active:not(:disabled) {
-  transform: scale(0.97);
-  filter: brightness(0.92);
+  transform: translateY(1px);
+  box-shadow: var(--m-pressed);
+  filter: brightness(0.94);
+}
+.kit-btn.link:active:not(:disabled) {
+  box-shadow: none;
 }
 .kit-btn.wide,
 .kit-btn-wrap.wide {
@@ -441,6 +471,9 @@
   align-items: center;
   gap: 8px;
   min-height: 56px;
+  margin-bottom: 6px;
+  border-bottom: 1px solid transparent;
+  border-image: var(--m-rule) 1;
 }
 .kit-head-ico {
   flex: none;
@@ -449,8 +482,9 @@
   width: 44px;
   height: 44px;
   border-radius: 10px;
-  background: var(--panel-2);
-  border: 1px solid var(--line);
+  background: var(--m-plate);
+  border: 1px solid var(--m-plate-rim);
+  box-shadow: var(--m-plate-bevel), inset 0 0 0 2px rgba(222, 172, 88, 0.22);
   font-size: 24px;
 }
 .kit-head-ico svg {
@@ -480,12 +514,7 @@
   width: 44px;
   height: 44px;
   margin-right: -8px;
-  color: var(--muted);
   font-size: 18px;
-}
-.kit-close svg {
-  width: 18px;
-  height: 18px;
 }
 /* У листа со своей шапкой «закрыть» — в шапке: хэндл шторки узкий, её кнопки нет (как у окна постройки, `next.css`). */
 .ui-new .sheet:has(.kit-head) .sheet-grab {
@@ -510,8 +539,9 @@
   height: 44px;
   padding: 0 4px;
   border-radius: 10px;
-  border: 1px solid var(--line);
-  background: var(--panel-2);
+  border: 1px solid var(--m-leather-rim);
+  background: var(--m-leather);
+  box-shadow: var(--m-leather-bevel);
   font-size: 13px;
   color: var(--muted);
 }
@@ -520,9 +550,14 @@
   width: 20px;
   height: 20px;
 }
+.kit-tabs button:active {
+  box-shadow: var(--m-pressed);
+}
+/* Выбранная — освещённая кожа с золотой планкой: видна с первого взгляда, не только цветом букв. */
 .kit-tabs button.on {
-  border-color: var(--accent);
-  background: rgba(232, 164, 60, 0.12);
+  border-color: var(--m-gold-rim);
+  background: var(--m-lit);
+  box-shadow: var(--m-lit-bevel);
   color: var(--text);
 }
 .kit-badge {
@@ -530,7 +565,8 @@
   height: 18px;
   padding: 0 4px;
   border-radius: 999px;
-  background: var(--accent);
+  background: var(--m-gold);
+  box-shadow: 0 0 0 1px var(--m-gold-rim), inset 0 1px 0 rgba(255, 248, 222, 0.7);
   color: var(--accent-text);
   font-size: 12px;
   font-style: normal;
@@ -550,6 +586,7 @@
   gap: 8px;
   margin: 8px -12px -8px;
   padding: 8px 12px;
-  border-top: 1px solid var(--line-2, rgba(255, 220, 170, 0.22));
-  background: rgba(25, 19, 14, 0.97);
+  border-top: 1px solid var(--m-gilt);
+  background: var(--m-wood);
+  box-shadow: 0 -6px 12px rgba(0, 0, 0, 0.35);
 }

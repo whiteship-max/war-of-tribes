@@ -1,3 +1,5 @@
+import { Icon } from '@/ui/icons/Icon';
+import type { IconName } from '@/ui/icons/alias';
 /**
  * Полоска множителя прироста, 0..1: чем короче, тем сильнее эта причина тормозит.
  * Живёт отдельно от «Племени», потому что справочный экран населения показывает
@@ -10,7 +12,7 @@ export function Factor({
   hint,
   worst,
 }: {
-  icon: string;
+  icon: IconName;
   name: string;
   k: number;
   hint: string;
@@ -20,7 +22,7 @@ export function Factor({
   const pct = Math.round(Math.max(0, Math.min(1, k)) * 100);
   return (
     <div className={`res-line${worst ? ' bottleneck' : ''}`}>
-      <span className="ico">{icon}</span>
+      <span className="ico"><Icon name={icon} /></span>
       <span className="name">
         {name}
         {worst && <em className="tag">тормозит</em>}

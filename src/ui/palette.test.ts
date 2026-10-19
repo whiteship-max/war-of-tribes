@@ -11,6 +11,8 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { GAME_BG } from '@/telegram/webapp';
+import { INK, TINCT } from '../../scripts/icons/kit';
+import { ART } from '../../scripts/icons/set';
 
 const SRC = fileURLToPath(new URL('..', import.meta.url));
 const ROOT = join(SRC, '..');
@@ -192,6 +194,40 @@ describe('палитра', () => {
     expect(low).toEqual([]);
   });
 
+  it('материалы набора (ЗН-2): подпись читается на каждой ступени вещества — не ниже 4,5 : 1', () => {
+    const stops = (token: string): RGBA[] =>
+      [...(VARS.get(token) ?? '').matchAll(/#[0-9a-f]{3,8}\b|rgba?\([^)]*\)/gi)].map((m) => parseColor(m[0], VARS)).filter((c): c is RGBA => c !== null);
+    const pairs: [string, string, RGBA[]][] = [
+      // Золото — под тёмную подпись главной кнопки, бирки и счётчика.
+      ['--accent-text', '--m-gold', PANELS],
+      // Червлень — под белую: «Точно?», срочный счётчик, срок тревоги.
+      ['#ffffff', '--m-gules', PANELS],
+      // Пергамент реплик покоев — чернила и пояснение.
+      ['--m-parch-ink', '--m-parch', PANELS],
+      ['--m-parch-muted', '--m-parch', PANELS],
+      // Кожа кнопок и вкладок — основной и тихий текст; выбранная вкладка — основной.
+      ['--text', '--m-leather', PANELS],
+      ['--muted', '--m-leather', PANELS],
+      ['--text', '--m-lit', PANELS],
+      // Плашка — на ней стоят числа любого тона, самый тёмный из них — `--bad`.
+      ['--text', '--m-plate', PANELS],
+      ['--muted', '--m-plate', PANELS],
+      ['--bad', '--m-plate', PANELS],
+      ['--accent', '--m-plate', PANELS],
+      ['--text', '--m-gules-dark', PANELS],
+    ];
+    const low: string[] = [];
+    for (const [fg, mat, unders] of pairs) {
+      const all = stops(mat);
+      expect(all.length, mat).toBeGreaterThan(1);
+      for (const b of all) {
+        const r = worst(tok(fg), unders.map((u) => over(b, u)));
+        if (r < 4.5) low.push(`${fg} на ${mat} (${b.join(',')}): ${r.toFixed(2)}`);
+      }
+    }
+    expect(low).toEqual([]);
+  });
+
   it('цвет фона один на CSS, экран загрузки и шапку Telegram', () => {
     expect(VARS.get('--bg')).toBe(GAME_BG);
     const html = readFileSync(join(ROOT, 'index.html'), 'utf8');
@@ -218,7 +254,10 @@ const px = (v: string | undefined): number | null => {
 
 /** Фон правила: сплошной — один цвет, градиент — все его цвета (текст обязан читаться на каждом); картинка — нет. */
 function backOf(r: Rule): RGBA[] | null {
-  const v = r.decls.get('background-color') ?? r.decls.get('background');
+  const on = ON[r.selector];
+  let v = on ? `var(${on.token})` : (r.decls.get('background-color') ?? r.decls.get('background'));
+  // Материал набора (`kit/material.css`, ЗН-2) — токен-градиент: раскрыт, и текст обязан читаться на каждой его ступени.
+  for (let i = 0; v && i < 4; i++) v = v.replace(/var\((--m-[\w-]+)\)/g, (m, k: string) => VARS.get(k) ?? m);
   if (!v || /url\(/.test(v)) return null;
   if (!/gradient/.test(v)) {
     const c = parseColor(v, VARS);
@@ -239,6 +278,15 @@ const SKIP = /:disabled|\[disabled\]|\.is-off\b/;
 /**
  * Правила, где фон правила — не фон текста. Каждое — с причиной; новое сюда — только так же.
  */
+/**
+ * Правила, чей текст лежит на материале родителя, а не на панели: строки пергаментной реплики покоев (ЗН-2). Каждое —
+ * с материалом и причиной.
+ */
+const ON: Record<string, { token: string; why: string }> = {
+  '.ch-label b': { token: '--m-parch', why: 'имя предмета на пергаменте подписи' },
+  '.ch-label small': { token: '--m-parch', why: 'строка предмета на пергаменте подписи' },
+};
+
 const NOT_UNDER: Record<string, string> = {
   // Риска прицела — линия в 2 px, подпись стоит правее её (`text-indent`) на сцене промысла, с тенью.
   '.mg-pin': 'подпись рядом с риской, а не на ней',
@@ -283,20 +331,23 @@ describe('контраст по всей игре', () => {
 });
 
 describe('значки', () => {
-  it('у каждого значка есть цвет, который виден на панели, — не ниже 3 : 1', () => {
-    // Значок — рисунок в несколько заливок; тёмные детали законны, но силуэт держит хотя бы одна светлая.
-    const dir = join(ROOT, 'assets-src', 'icons');
+  it('у каждого значка набора есть цвет, видный на панели, не ниже 3 : 1, и контур чернилами — на светлом листе', () => {
+    // Значок — рисунок в несколько тинктур; тёмные детали законны, но силуэт на тёмной панели держит хотя бы одна светлая,
+    // а на светлом листе (`docs/icons/sheet-light.png`) — контур чернилами (docs/icons.md, ЗН-1).
+    const LIGHT = parseColor('#f3ead6', VARS)!;
+    const ink = parseColor(INK, VARS)!;
+    expect(worst(ink, [LIGHT])).toBeGreaterThanOrEqual(3);
     const low: string[] = [];
     let seen = 0;
-    for (const name of readdirSync(dir).filter((n) => n.endsWith('.svg'))) {
-      const svg = readFileSync(join(dir, name), 'utf8');
-      const colors = [...svg.matchAll(/(?:fill|stroke)="(#[0-9a-f]{3,6})"/gi)].map((m) => parseColor(m[1], VARS)!);
-      if (colors.length === 0) continue;
+    for (const [name, make] of Object.entries(ART)) {
+      const shapes = make();
+      const colors = shapes.filter((sh) => sh.tint !== 'ink').map((sh) => parseColor(TINCT[sh.tint as keyof typeof TINCT], VARS)!);
       seen++;
       const best = Math.max(...colors.map((c) => worst(c, PANELS)));
       if (best < 3) low.push(`${name}: ${best.toFixed(2)}`);
+      if (!shapes.some((sh) => sh.role === 'fill')) low.push(`${name}: нет обведённой фигуры — на светлом листе силуэта нет`);
     }
-    expect(seen).toBeGreaterThan(200);
+    expect(seen).toBeGreaterThan(180);
     expect(low).toEqual([]);
   });
 });

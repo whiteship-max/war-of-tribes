@@ -369,8 +369,7 @@ export class ChambersRoom implements Inside {
         quality,
         ruler: () => this.rulerNow(),
         cue: (c, at) => this.onLifeCue?.(c, at),
-        intend: (spot) => this.intend({ kind: 'spot', id: spot }),
-        stand: () => this.leave(),
+        intend: (spot) => this.go({ kind: 'spot', id: spot }),
         goblet: () => this.gobletAt(),
         dropGoblet: () => {
           if (this.held?.id === 'goblet') this.release();
@@ -602,7 +601,8 @@ export class ChambersRoom implements Inside {
   private stepEye(dt: number): void {
     const { walk, look } = this.input();
     const moving = walk.forward !== 0 || walk.strafe !== 0;
-    // Безделушка в руке: палец взгляда крутит её, а не голову; палец движения кладёт её на место.
+    // Безделушка в руке: палец взгляда крутит её, а не голову, а ноги стоят — положить её можно только кнопкой «Положить»
+    // (ЗН-3, docs/ui_v2.md, 5.10).
     if (this.held && this.held.dir > 0) {
       // Медленно: пол-оборота — на ширину экрана; наклон — в пределах предмета.
       const tr = TRINKETS.find((x) => x.id === this.held!.id)!;
@@ -610,7 +610,7 @@ export class ChambersRoom implements Inside {
       this.held.tiltGoal = clamp(this.held.tiltGoal - look.pitch * TURN_PER_LOOK, tr.tilts[0], tr.tilts[1]);
       look.yaw = 0;
       look.pitch = 0;
-      if (moving) this.drop();
+      if (this.mode === 'free') return;
     }
     switch (this.mode) {
       case 'free': {
@@ -636,8 +636,8 @@ export class ChambersRoom implements Inside {
         return;
       }
       case 'act': {
+        // Палец движения дело не прерывает (ЗН-3): выйти — только кнопкой «Встать», «Отойти», «Закрыть».
         const a = this.act!;
-        if (moving && a.dir > 0) a.dir = -1;
         const was = a.t;
         a.t = clamp(a.t + dt * a.dir, 0, actLength(a.a));
         // Звук дела — на своём миге, туда и обратно: кресло скрипнуло, постель зашуршала.
@@ -668,8 +668,8 @@ export class ChambersRoom implements Inside {
         return;
       }
       case 'in': {
-        // Палец движения поднимает из дела; меч положен — правитель отходит от стены.
-        if (moving || (this.act!.a.id === 'arms' && !(this.held && this.held.dir > 0))) {
+        // Из дела поднимает только кнопка (ЗН-3); меч положен кнопкой «Положить» — правитель отходит от стены.
+        if (this.act!.a.id === 'arms' && !(this.held && this.held.dir > 0)) {
           this.leave();
           return;
         }
@@ -812,22 +812,30 @@ export class ChambersRoom implements Inside {
     this.pose = { x: k.x, y: k.y, z: k.z, yaw: k.yaw + this.off.yaw, pitch: clamp(k.pitch + this.off.pitch, FREE_PITCH[0], FREE_PITCH[1]), fov: FREE_FOV };
     this.off = { yaw: 0, pitch: 0 };
     this.changed();
-    if (after) this.intend(after);
+    if (after) this.go(after);
   }
 
-  /** Захотеть: пойти к месту и сделать дело (из дела — сперва встать). */
+  /**
+   * Захотеть: пойти к месту и сделать дело. Касание в деле его не прерывает (ЗН-3): выйти — только кнопкой (`leave`); у
+   * двери касание той же двери — постучать ещё раз (Г-7): шаг назад и снова к двери, дело то же. Сцена разговора
+   * («ночь вдвоём», `life.nightWith`) ведёт к кровати сама — `go`.
+   */
   private intend(then: Then): void {
     const spot = then.kind === 'spot' ? then.id : null;
     if (this.act) {
-      if (this.mode === 'in' && spot === this.act.a.id) {
-        // У двери постучать ещё раз: шаг назад — и снова к двери (Г-7). Сундук: второе касание закрывает (Г-9).
-        if (spot === 'door') this.leave(then);
-        else if (isChestSpot(spot)) this.leave();
-        return;
-      }
+      if (this.mode === 'in' && spot === 'door' && this.act.a.id === 'door') this.leave(then);
+      return;
+    }
+    this.go(then);
+  }
+
+  /** Пойти к месту и сделать дело; из дела — сперва встать. Не касание игрока: его выбор в разговоре или жизнь покоев. */
+  private go(then: Then): void {
+    if (this.act) {
       this.leave(then);
       return;
     }
+    const spot = then.kind === 'spot' ? then.id : null;
     const face: Stand | null = spot ? POI_BY_ID[spot].approach : TRINKETS.find((t) => t.id === (then as { id: TrinketId }).id)?.stand ?? null;
     if (!face) return;
     const pts = pathTo(this.pose, face);
@@ -852,12 +860,17 @@ export class ChambersRoom implements Inside {
     return { at: [V.x, V.y, V.z], held: this.held?.id === 'goblet' };
   }
 
-  /** Касание кота: рядом — присесть и погладить; далеко или в деле — позвать: подойдёт — погладит. */
+  /**
+   * Касание кота: рядом — присесть и погладить; далеко — позвать: подойдёт — погладит. В деле или с предметом в руке — только
+   * позвать: дело и предмет касание не прерывает (ЗН-3).
+   */
   petCat(): void {
     const c = this.life.cat;
     if (!c?.visible || this.pet) return;
-    if (this.held && this.held.dir > 0) this.drop();
-    if (this.act) this.leave();
+    if (this.act || (this.held && this.held.dir > 0)) {
+      c.come(this.pose.x + Math.sin(this.pose.yaw) * 0.5, this.pose.z + Math.cos(this.pose.yaw) * 0.5);
+      return;
+    }
     const near = Math.hypot(c.x - this.pose.x, c.z - this.pose.z) < 0.95 && c.y < 0.05;
     if (near && this.mode === 'free') {
       this.pet = { t: 0 };
@@ -1367,13 +1380,11 @@ export class ChambersRoom implements Inside {
 
   /**
    * Касание: предмет стола сидя — его окно; издали — сесть за стол. Безделушка рядом — в руку, издали — подойти и взять.
-   * Мебель — подойти и сделать дело. Предмет в руке — касание мимо кладёт его.
+   * Мебель — подойти и сделать дело. Предмет в руке и дело касание не прерывает (ЗН-3, docs/ui_v2.md, 5.10): положить —
+   * только «Положить», выйти из дела — только своя кнопка; в деле касание другой мебели и других предметов молчит.
    */
   touch(aim: Aim | null): void {
-    if (this.held && this.held.dir > 0) {
-      if (!aim || aim.kind !== 'thing' || aim.thing.id !== this.held.id) this.drop();
-      return;
-    }
+    if (this.held && this.held.dir > 0) return;
     if (!aim) return;
     if (aim.kind === 'letter') {
       this.life.takeLetter();
@@ -1641,13 +1652,16 @@ export class ChambersRoom implements Inside {
 
   /** Подпись того, что под пальцем: имя и что будет от касания. */
   private aimWords(aim: Aim): [string, string] {
-    if (aim.kind === 'poi') return [aim.poi.name, aim.poi.verb];
+    // В деле касание другой мебели молчит (ЗН-3, `intend`): подпись не обещает дела, а зовёт к кнопке выхода.
+    if (aim.kind === 'poi') return [aim.poi.name, this.act && !(aim.poi.id === 'door' && this.act.a.id === 'door') ? 'Сперва — кнопка внизу' : aim.poi.verb];
     if (aim.kind === 'letter') return ['Письмо с печатью', 'Взять и прочесть'];
     if (aim.kind === 'folk') return [FOLK_NAME[aim.who], aim.who === 'advisor' ? 'Выслушать доклад' : 'Поговорить'];
     if (aim.kind === 'cat') {
       const c = this.life.cat;
       const near = !!c && Math.hypot(c.x - this.pose.x, c.z - this.pose.z) < 0.95;
-      return ['Кот', near ? 'Погладить' : 'Позвать и погладить'];
+      // В деле и с предметом в руке — только позвать (`petCat`).
+      const busy = !!this.act || (!!this.held && this.held.dir > 0);
+      return ['Кот', busy ? 'Позвать' : near ? 'Погладить' : 'Позвать и погладить'];
     }
     const t = aim.thing;
     const seated = this.mode === 'in' && this.act?.a.id === 'desk';

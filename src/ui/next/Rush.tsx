@@ -17,7 +17,7 @@ import { useTreasury } from '@/ui/treasury';
 import { useTrades } from '@/ui/trades';
 
 /** Значок алмаза — один на все места показа (словарь: значок `res-gem`, docs/ui_audit.md). */
-export const GemIcon = () => <Icon name="res-gem" glyph="♦️" />;
+export const GemIcon = () => <Icon name="res-gem" />;
 
 /** Кнопка «Ускорить 💎N» — в окне постройки; причина погасшей — строкой под ней. */
 export function RushButton({ b }: { b: Building }) {

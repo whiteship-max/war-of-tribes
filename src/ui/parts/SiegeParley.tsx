@@ -14,6 +14,7 @@ import { realLeft } from '@/ui/parts/wait';
 import { Btn } from '@/ui/kit/Btn';
 import { Toggle } from '@/ui/kit/Toggle';
 import { Table, type Col } from '@/ui/kit/Table';
+import { Icon } from '@/ui/icons/Icon';
 
 const fateName = (f: Fate): string => `«${FATE_META[f].name.toLowerCase()}»`;
 
@@ -67,7 +68,7 @@ export function SiegeParley(props: SiegeParleyProps) {
 
       {inc && (
         <div className="card">
-          <div className="ico">{inc.kind === 'terms' ? '🏳️' : '💰'}</div>
+          <div className="ico"><Icon name={inc.kind === 'terms' ? 'ui-whiteflag' : 'res-gold'} /></div>
           <div className="body">
             <div className="title">{inc.kind === 'terms' ? 'Предлагают сдачу на условиях' : view.bot ? 'Предлагают выкуп' : 'Предлагают дань'}</div>
             <div className="desc">

@@ -117,7 +117,7 @@ export class Crash extends Component<CrashProps, CrashState> {
               {sent === 'sent' ? 'Запись ушла' : sent === 'sending' ? 'Отправляю…' : 'Отправить запись мастерам'}
             </button>
           )}
-          {sent === 'failed' && <div className="trouble-hint">Запись не ушла. Перезапусти игру и напиши через 🐞.</div>}
+          {sent === 'failed' && <div className="trouble-hint">Запись не ушла. Перезапусти игру и напиши через «Сообщить об ошибке» в настройках.</div>}
           {this.props.onClose && (
             <button className="btn ghost wide" onClick={this.close}>
               Закрыть окно

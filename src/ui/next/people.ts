@@ -32,6 +32,7 @@ import type { Tone } from '@/ui/kit/Num';
 import { moodOf } from '@/ui/icons/registry';
 import { defenseTip, fmtInt, housingTip, moraleTip, popRate, popTip, type TipGo } from './hudTips';
 import type { TipContent } from './tip';
+import type { IconName } from '@/ui/icons/alias';
 
 export type SummaryKey = 'people' | 'housing' | 'growth' | 'morale' | 'defense';
 
@@ -39,7 +40,7 @@ export type SummaryKey = 'people' | 'housing' | 'growth' | 'morale' | 'defense';
 export interface SummaryLine {
   key: SummaryKey;
   label: string;
-  icon: { name: string; glyph: string };
+  icon: IconName;
   value: string;
   sub: string;
   tone?: Tone;
@@ -160,7 +161,7 @@ export function summaryLines(s: GameState, go: TipGo): SummaryLine[] {
     {
       key: 'people',
       label: 'Люди',
-      icon: { name: 'nav-people', glyph: '👥' },
+      icon: 'nav-people',
       value: fmtInt(s.pop),
       sub: `работают ${fmtInt(s.pop - idle)} · свободны ${fmtInt(idle)}`,
       tip: () => peopleTip(s, go),
@@ -169,7 +170,7 @@ export function summaryLines(s: GameState, go: TipGo): SummaryLine[] {
     {
       key: 'housing',
       label: 'Жильё',
-      icon: { name: 'bld-houses', glyph: BUILDING_BY_ID.houses.icon },
+      icon: 'bld-houses',
       value: fmtInt(housing),
       sub: room > 0 ? `занято ${fmtInt(s.pop)} · свободно ${fmtInt(room)}` : `занято ${fmtInt(s.pop)} · мест нет`,
       tone: room > 0 ? undefined : 'bad',
@@ -179,7 +180,7 @@ export function summaryLines(s: GameState, go: TipGo): SummaryLine[] {
     {
       key: 'growth',
       label: 'Прирост',
-      icon: { name: 'hud-pop', glyph: g.perDay >= 0 ? '📈' : '📉' },
+      icon: 'hud-pop',
       value: popRate(g.perDay),
       sub: g.blocked ?? (brake ? `в день · тормозит ${brake}` : 'в день · на полном ходу'),
       tone: g.perDay > 0 ? 'good' : g.perDay < 0 ? 'bad' : 'muted',
@@ -190,7 +191,7 @@ export function summaryLines(s: GameState, go: TipGo): SummaryLine[] {
     {
       key: 'morale',
       label: 'Мораль',
-      icon: { name: mood.name, glyph: mood.glyph },
+      icon: mood.name,
       value: String(Math.round(s.morale)),
       sub: s.morale < MORALE_GROWTH_ZERO ? `ниже ${MORALE_GROWTH_ZERO} — жители уходят` : `идёт к ${Math.round(m.target)}`,
       tone: s.morale < MORALE_GROWTH_ZERO ? 'bad' : undefined,
@@ -200,7 +201,7 @@ export function summaryLines(s: GameState, go: TipGo): SummaryLine[] {
     {
       key: 'defense',
       label: 'Оборона',
-      icon: { name: 'bld-palisade', glyph: '🛡️' },
+      icon: 'bld-palisade',
       value: dec(defense(s), 0),
       sub: `дружина дома ${fmtInt(homeArmy(s))}`,
       tip: () => defenseTip(s, go),

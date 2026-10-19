@@ -77,7 +77,6 @@ export interface EventOption {
 
 export interface EventDef {
   id: string;
-  icon: string;
   title: string;
   /**
    * Кто пишет весть — человек эпохи, а не «город»: привратник, управитель, старший стражи, служитель веры
@@ -224,7 +223,6 @@ export const EVENTS: EventDef[] = [
   {
     id: 'refugees',
     silence: 2,
-    icon: '🚶',
     title: 'Беженцы у ворот',
     from: 'Привратник',
     text: (s) =>
@@ -279,7 +277,6 @@ export const EVENTS: EventDef[] = [
   {
     id: 'wanderers',
     silence: 2,
-    icon: '🧰',
     title: 'Бродячая артель',
     from: 'Десятник стройки',
     text: (s) =>
@@ -321,7 +318,6 @@ export const EVENTS: EventDef[] = [
   {
     id: 'wolves',
     silence: 0,
-    icon: '🐺',
     title: 'Волки',
     from: 'Старший стражи',
     text: (s) =>
@@ -347,7 +343,6 @@ export const EVENTS: EventDef[] = [
   {
     id: 'berries',
     silence: 0,
-    icon: '🍇',
     title: 'Ягодная поляна',
     from: 'Управитель',
     text: 'Собиратели нашли за ручьём поляну, красную от ягоды. Своих корзин не хватит, пришли людей.',
@@ -366,7 +361,6 @@ export const EVENTS: EventDef[] = [
   {
     id: 'storm',
     silence: 1,
-    icon: '🌩️',
     title: 'Буря',
     from: 'Десятник стройки',
     text: 'Ночью налетела буря. Леса на стройке повалило, брёвна раскидало по двору.',
@@ -394,7 +388,6 @@ export const EVENTS: EventDef[] = [
   {
     id: 'trade',
     silence: 1,
-    icon: '🤝',
     title: 'Купцы у ворот',
     from: 'Управитель',
     text: (s) =>
@@ -417,7 +410,6 @@ export const EVENTS: EventDef[] = [
   {
     id: 'sickness',
     silence: 2,
-    icon: '🤒',
     title: 'Мор',
     from: 'Управитель',
     text: (s) => `По домам пошла хворь, слегло уже ${people(crowd(s, 0.04, 3))}. Жар и кашель, в двух дворах плачут.`,
@@ -466,7 +458,6 @@ export const EVENTS: EventDef[] = [
   {
     id: 'raiders',
     silence: 1,
-    icon: '⚔️',
     title: 'Разбойники',
     from: 'Старший стражи',
     text: (s) =>
@@ -492,7 +483,6 @@ export const EVENTS: EventDef[] = [
   {
     id: 'mercenaries',
     silence: 1,
-    icon: '🛡️',
     title: 'Вольная рота',
     from: 'Старший стражи',
     text: (s) =>
@@ -523,7 +513,6 @@ export const EVENTS: EventDef[] = [
   {
     id: 'free_company',
     silence: 1,
-    icon: '⚔️',
     title: 'Рота у ворот',
     from: 'Старший стражи',
     text: (s) =>
@@ -550,7 +539,6 @@ export const EVENTS: EventDef[] = [
   {
     id: 'festival',
     silence: 1,
-    icon: '🎉',
     title: 'Праздник прихода',
     from: (s) => faithDef(s)?.priest ?? 'Управитель',
     text: (s) => {
@@ -590,7 +578,6 @@ export const EVENTS: EventDef[] = [
   {
     id: 'rome_letter',
     silence: 1,
-    icon: '📜',
     title: 'Грамота из Рима',
     from: 'Папский легат',
     text: 'Святой престол собирает на поход за море и ждёт доли от каждого прихода. Отказавших в Риме запомнят.',
@@ -620,7 +607,6 @@ export const EVENTS: EventDef[] = [
   {
     id: 'rome_relief',
     silence: 0,
-    icon: '🕊️',
     title: 'Заступничество',
     from: 'Настоятель аббатства',
     text: 'Слышали мы о беде твоего города. Шлём обоз с хлебом и взамен ничего не просим. Помолись о нас.',
@@ -646,7 +632,6 @@ export const EVENTS: EventDef[] = [
   {
     id: 'heresy_split',
     silence: 2,
-    icon: '🔥',
     title: 'Раскол в приходе',
     // Имя служителя тут не склоняется нарочно: у четырёх вер это священник,
     // имам и волхв, и правило «прибавить „и“» даёт «имами». Падежи руками — в
@@ -694,7 +679,6 @@ export const EVENTS: EventDef[] = [
   {
     id: MUTINY_EVENT,
     silence: 0,
-    icon: ORDER_TEXT.mutiny.icon,
     title: ORDER_TEXT.mutiny.title,
     from: ORDER_TEXT.mutiny.from,
     // Лёг мятеж туда же, куда ересь: в эту таблицу, с выбором. Своей механики у
@@ -742,7 +726,6 @@ export const EVENTS: EventDef[] = [
   {
     id: 'relic_offer',
     silence: 1,
-    icon: '📿',
     title: 'Странник со святыней',
     from: 'Привратник',
     text: (s) => {
@@ -774,7 +757,6 @@ export const EVENTS: EventDef[] = [
   {
     id: 'good_hunt',
     silence: 0,
-    icon: '🦌',
     title: 'Удачная охота',
     from: 'Ловчий',
     text: 'Охотники выследили в дубраве стадо оленей. Пошли людей с волокушами, и к вечеру мясо будет в городе.',
@@ -795,7 +777,6 @@ export const EVENTS: EventDef[] = [
   {
     id: 'fire',
     silence: 1,
-    icon: '🔥',
     title: 'Пожар',
     from: 'Старший стражи',
     text: 'Искра из очага ушла под стреху. Горит дом у стены, огонь уже лижет соседний.',

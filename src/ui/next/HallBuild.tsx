@@ -17,7 +17,6 @@ import { create } from 'zustand';
 import { useState } from 'react';
 import type { Building } from '@/game/types';
 import { useGame } from '@/game/store';
-import { RESOURCE_META } from '@/game/constants';
 import { BUILDING_BY_ID } from '@/game/data/buildings';
 import { buildRate, buildingById, buildingSlots, buildingTitle, currentSite, isSite, maxLevelFor, townHallBuildMult, upgradeInfo } from '@/game/derived';
 import { cancelUpgrade, startUpgrade } from '@/game/sim/actions';
@@ -77,7 +76,7 @@ export function HallBuild() {
     <div className="hall">
       <div className="hall-top">
         <Row
-          icon={{ name: 'ui-hammer', glyph: '🔨' }}
+          icon={'ui-hammer'}
           label="Скорость стройки"
           sub={`ратуша ×${dec(townHallBuildMult(s), 2)}`}
           value={dec(rateNow, 1)}
@@ -110,7 +109,7 @@ function HallCell({ t, head, tut, onPick }: { t: HallTile; head: boolean; tut: b
     <>
       {head && (
         <div className="hall-head">
-          <Icon name={g.icon.name} glyph={g.icon.glyph} />
+          <Icon name={g.icon} />
           {g.label}
         </div>
       )}
@@ -135,32 +134,32 @@ export function HallTileView({ t, tut, onPick }: { t: HallTile; tut: boolean; on
       aria-label={`${t.name}, ур. ${t.level}${t.state === 'ready' ? ', можно улучшить' : ''}`}
     >
       <span className="hall-ico">
-        <Icon name={`bld-${def.id}`} glyph={def.icon} />
+        <Icon name={iconName('bld', def.id)} />
         <b className="hall-lvl">{t.level}</b>
       </span>
       <span className="hall-name one-line">{t.name}</span>
       {t.state === 'ready' && (
         <i className="hall-up" aria-label="Можно улучшить">
-          <Icon name={iconName('attn', 'upgrade')} glyph="⬆️" />
+          <Icon name={iconName('attn', 'upgrade')} />
         </i>
       )}
       <span className="hall-nums">
         {site ? (
           <span className="hall-eta">
-            <Icon name="ui-site" glyph="🏗️" />
+            <Icon name="ui-site" />
             {t.state === 'queued' ? 'очередь' : t.eta !== null ? waitLeft(t.eta) : 'нет рук'}
           </span>
         ) : (
           <>
             {t.hands !== null && (
               <span>
-                <Icon name="ui-person" glyph="👤" />
+                <Icon name="ui-person" />
                 {t.hands}/{t.slots}
               </span>
             )}
             {t.out && (
               <span className={t.out.perDay > 0 ? 'pos' : ''}>
-                <Icon name={`res-${t.out.r}`} glyph={RESOURCE_META[t.out.r].icon} />
+                <Icon name={iconName('res', t.out.r)} />
                 {outText(t.out.perDay)}
               </span>
             )}
@@ -199,7 +198,7 @@ export function HallCard({ id, onClose }: { id: number; onClose: () => void }) {
       <div className="hall-veil" onClick={onClose} />
       <div className="hall-card" role="dialog" aria-label={buildingTitle(s, b.type)}>
         <SheetPage
-          icon={{ name: `bld-${def.id}`, glyph: def.icon }}
+          icon={iconName('bld', def.id)}
           title={buildingTitle(s, b.type)}
           sub={maxLevelFor(b.type) > 1 ? `ур. ${b.level}/${maxLevelFor(b.type)}` : `ур. ${b.level}`}
           about={() => buildingTip(s, b)}
@@ -208,7 +207,7 @@ export function HallCard({ id, onClose }: { id: number; onClose: () => void }) {
             <>
               {/* «Показать в городе» (ОР-1): ратуша закрывается, камера летит к постройке и подсвечивает её. */}
               <Btn kind="link" onClick={() => showInCity(b.type)} label="Показать в городе">
-                <Icon name="ui-pin" glyph="📍" />
+                <Icon name="ui-pin" />
               </Btn>
               {!here && (
                 <Btn kind="link" onClick={() => goTo(toBuilding(b.type))} tut={`list-${def.id}`}>
@@ -285,7 +284,7 @@ export function OutputTable({ out }: { out: YardOutput }) {
   const cols: Col[] = [
     { key: 'name', title: 'Выход в день' },
     { key: 'f', title: '×', align: 'right', w: '44px' },
-    ...out.res.map((r) => ({ key: r, title: <Icon name={`res-${r}`} glyph={RESOURCE_META[r].icon} />, align: 'right' as const })),
+    ...out.res.map((r) => ({ key: r, title: <Icon name={iconName('res', r)} />, align: 'right' as const })),
   ];
   const rows = out.steps.map((st, i) => ({
     key: `${st.id}-${i}`,

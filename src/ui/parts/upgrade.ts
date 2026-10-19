@@ -281,7 +281,7 @@ function variant(s: GameState, b: Building, level: number, hands?: number): { s:
  * строки. Осады в замере нет — как и сезона.
  */
 const WORK_LABELS: string[] = [
-  ...RESOURCE_IDS.map((r) => `${RESOURCE_META[r].icon} в день`),
+  ...RESOURCE_IDS.map((r) => `${RESOURCE_META[r].name.toLowerCase()} в день`),
   'к скорости стройки',
   'к ковке',
   'к морали',

@@ -8,6 +8,7 @@
 import type { Fate, FateOption } from '@/world/types';
 import { FATE_META } from '@/world/data/fates';
 import { plural } from './plural';
+import { Icon } from '@/ui/icons/Icon';
 
 const span = (r: { min: number; max: number }): string => (r.min === r.max ? `${r.max}` : `${r.min}–${r.max}`);
 
@@ -42,7 +43,7 @@ export function FatePick({
             disabled={!o.can}
             onClick={() => onChange(o.id)}
           >
-            <span className="ico">{meta.icon}</span>
+            <span className="ico"><Icon name={meta.icon} /></span>
             <span className="body">
               <b>
                 {meta.name}

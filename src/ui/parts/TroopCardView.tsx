@@ -3,7 +3,6 @@
 // в этом файле руками не написано: правка баланса меняет карточку сама.
 import type { TroopId } from '@/game/types';
 import { useGame } from '@/game/store';
-import { RESOURCE_META } from '@/game/constants';
 import { EQUIPMENT_BY_ID } from '@/game/data/equipment';
 import { buildingOfType } from '@/game/derived';
 import { hiredAt, recruitCheck } from '@/game/sim/army';
@@ -12,6 +11,8 @@ import { temperOf, troopCard } from '@/game/battle/describe';
 import { Icon } from '@/ui/icons/Icon';
 import { waitShort } from './wait';
 import { dec } from '@/game/num';
+import { iconName } from '@/ui/icons/registry';
+import type { IconName } from '@/ui/icons/alias';
 
 /** Полоска величины в своём потолке: вес среди видов, мораль в шкале боя. */
 function Bar({
@@ -22,7 +23,7 @@ function Bar({
   note,
   tone,
 }: {
-  icon: string;
+  icon: IconName;
   label: string;
   value: number;
   max: number;
@@ -31,7 +32,7 @@ function Bar({
 }) {
   return (
     <div className="res-line">
-      <span className="ico">{icon}</span>
+      <span className="ico"><Icon name={icon} /></span>
       <span className="name">{label}</span>
       <span className="val">{Math.round(value * 10) / 10}</span>
       <span className="delta">{note}</span>
@@ -63,7 +64,7 @@ export function TroopCardView({ troop, onBack }: { troop: TroopId; onBack: () =>
 
       <div className="bhead">
         <div className="ico">
-          <Icon name={`troop-${def.id}`} glyph={def.icon} />
+          <Icon name={iconName('troop', def.id)} />
         </div>
         <div className="body">
           <div className="name">{def.name}</div>
@@ -78,10 +79,10 @@ export function TroopCardView({ troop, onBack }: { troop: TroopId; onBack: () =>
       <p className="season-hint">{def.description}</p>
 
       <h3>В бою</h3>
-      <Bar icon="⚖️" label="Мощь" value={weight.power} max={weight.powerMax} note={`из ${dec(weight.powerMax, 1)} у сильнейшего`} />
+      <Bar icon="ui-scales" label="Мощь" value={weight.power} max={weight.powerMax} note={`из ${dec(weight.powerMax, 1)} у сильнейшего`} />
       <p className="season-hint">{weight.what}</p>
       <Bar
-        icon="🏳️"
+        icon="ui-whiteflag"
         label="Мораль"
         value={morale.total}
         max={morale.max}
@@ -93,20 +94,23 @@ export function TroopCardView({ troop, onBack }: { troop: TroopId; onBack: () =>
       <div className="cost">
         {cost.resources.map((r) => (
           <span key={r.id} className={s.resources[r.id] >= r.n ? '' : 'no'}>
-            <Icon name={`res-${r.id}`} glyph={RESOURCE_META[r.id].icon} /> {r.n}
+            <Icon name={iconName('res', r.id)} /> {r.n}
           </span>
         ))}
         {cost.gear.map((g) => (
           <span key={g.id} className={(s.equipment[g.id] ?? 0) >= g.n ? '' : 'no'}>
-            <Icon name={`gear-${g.id}`} glyph={EQUIPMENT_BY_ID[g.id].icon} /> {g.n}
+            <Icon name={iconName('gear', g.id)} /> {g.n}
           </span>
         ))}
-        <span>👤 {cost.people}</span>
-        <span className="work">⏱ {eta !== null ? `~${waitShort(eta)}` : `${cost.work} работы`}</span>
+        <span>
+            <Icon name="ui-person" /> {cost.people}
+          </span>
+        <span className="work">
+            <Icon name="ui-time" /> {eta !== null ? `~${waitShort(eta)}` : `${cost.work} работы`}</span>
       </div>
       {cost.gear.length > 0 && smithy && (
         <button className="btn ghost wide" onClick={() => openBuilding(smithy.id)}>
-          ⚒️ Ковать {cost.gear.map((g) => EQUIPMENT_BY_ID[g.id].one).join(', ')}
+          <Icon name="bld-smithy" /> Ковать {cost.gear.map((g) => EQUIPMENT_BY_ID[g.id].one).join(', ')}
         </button>
       )}
 
@@ -115,7 +119,7 @@ export function TroopCardView({ troop, onBack }: { troop: TroopId; onBack: () =>
       <div className="mod-list">
         {card.pips.map((p) => (
           <div className="mod" key={p.stat}>
-            <span className="ico">{p.stat.startsWith('fire') ? '🏹' : p.stat.startsWith('shock') ? '⚔️' : '🏳️'}</span>
+            <span className="ico"><Icon name={p.stat.startsWith('fire') ? 'gear-bow' : p.stat.startsWith('shock') ? 'hud-army' : 'ui-whiteflag'} /></span>
             <span className="name">
               {p.name}
               <em className="sub">{p.what}</em>
@@ -153,7 +157,7 @@ export function TroopCardView({ troop, onBack }: { troop: TroopId; onBack: () =>
       <div className="mod-list">
         {temperOf(card.kind).map((t) => (
           <div className="mod" key={t.when}>
-            <span className="ico">{t.mult <= 1 ? '🪨' : '💔'}</span>
+            <span className="ico">{t.mult <= 1 ? 'res-stone' : 'ui-heartbreak'}</span>
             <span className="name">{t.when}</span>
             <span className={`val ${t.mult < 1 ? 'pos' : t.mult > 1 ? 'neg' : ''}`}>{t.text}</span>
           </div>
@@ -163,17 +167,17 @@ export function TroopCardView({ troop, onBack }: { troop: TroopId; onBack: () =>
       <h3>Ходовые качества</h3>
       <div className="mod-list">
         <div className="mod">
-          <span className="ico">🗡️</span>
+          <span className="ico"><Icon name="ui-dagger" /></span>
           <span className="name">Натиск</span>
           <span className="val">{dec(stats.melee, 1)}</span>
         </div>
         <div className="mod">
-          <span className="ico">🏹</span>
+          <span className="ico"><Icon name="gear-bow" /></span>
           <span className="name">Стрельба</span>
           <span className="val">{dec(stats.ranged, 1)}</span>
         </div>
         <div className="mod">
-          <span className="ico">🐾</span>
+          <span className="ico"><Icon name="ui-tracks" /></span>
           <span className="name">Скорость</span>
           <span className="val">{stats.speed}</span>
         </div>
@@ -188,7 +192,7 @@ export function TroopCardView({ troop, onBack }: { troop: TroopId; onBack: () =>
             openBuilding(hall.id);
           }}
         >
-          ⚔️ Нанять
+          <Icon name="bld-barracks" /> Нанять
         </button>
       )}
     </div>

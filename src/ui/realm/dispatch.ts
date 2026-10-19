@@ -21,6 +21,8 @@ import type { LetterView } from '@/world/types';
 import type { Price } from '@/ui/parts/Cost';
 import { eventKey, letterKey } from './unread';
 import { realDue } from '@/ui/parts/wait';
+import type { IconName } from '@/ui/icons/alias';
+import { iconName } from '@/ui/icons/registry';
 
 export interface DispatchChoice {
   /** Номер варианта у события, «yes» / «no» у письма. */
@@ -41,9 +43,8 @@ export interface Dispatch {
   /** Номер письма у письма, имя события на столе у события (`sim/mail.eventId`). */
   letterId: string | null;
   eventId: string | null;
-  /** Имя значка и запасной эмодзи. */
-  iconName: string;
-  icon: string;
+  /** Значок донесения (набор ЗН-1). */
+  iconName: IconName;
   title: string;
   /** Кто прислал: у письма — сосед или логово, у события — человек города, который о нём пишет (`EventDef.from`). */
   from: string | null;
@@ -77,8 +78,7 @@ export function eventDispatch(s: GameState, ev: ActiveEvent, now: number): Dispa
     source: 'event',
     letterId: null,
     eventId: eventId(ev),
-    iconName: `evt-${def.id}`,
-    icon: def.icon,
+    iconName: iconName('evt', def.id),
     title: def.title,
     from: eventFrom(def, s),
     text: eventText(def, s),
@@ -106,8 +106,7 @@ export function letterDispatch(l: LetterView, now: number): Dispatch {
     source: 'letter',
     letterId: l.id,
     eventId: null,
-    iconName: `letter-${l.kind}`,
-    icon: l.icon,
+    iconName: iconName('letter', l.kind),
     title: l.title,
     from: l.fromName,
     text: l.body,

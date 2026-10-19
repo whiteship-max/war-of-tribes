@@ -1,11 +1,13 @@
-// Стадии поселений, отношения и миссии: подписи, иконки и цвета в одном месте.
+// Стадии поселений, отношения и миссии: подписи, значки и цвета в одном месте. Значок стадии — по её имени
+// (`stage-<id>`, накладная `ui/icons/registry.ts`); замок — своим значком `stage-castle` поверх стадии: это не ступень
+// развития, а вид цели — крепость с казной.
 import { SIDE_COLOR } from '../../side';
 import type { Mission, Relation, Stage } from '../types';
+import type { IconName } from '@/ui/icons/alias';
 
 export interface StageDef {
   id: Stage;
   name: string;
-  icon: string;
   /** Пороги: чтобы дорасти, нужны и мощь, и население. */
   minPower: number;
   minPop: number;
@@ -13,17 +15,11 @@ export interface StageDef {
 
 /** От слабого к сильному: stageOf берёт последнюю подходящую. */
 export const STAGES: StageDef[] = [
-  { id: 'camp', name: 'Стоянка', icon: '⛺', minPower: 0, minPop: 0 },
-  { id: 'village', name: 'Деревня', icon: '🏘️', minPower: 30, minPop: 12 },
-  { id: 'stronghold', name: 'Острог', icon: '🏯', minPower: 90, minPop: 30 },
-  { id: 'town', name: 'Крепость', icon: '🏙️', minPower: 200, minPop: 65 },
+  { id: 'camp', name: 'Стоянка', minPower: 0, minPop: 0 },
+  { id: 'village', name: 'Деревня', minPower: 30, minPop: 12 },
+  { id: 'stronghold', name: 'Острог', minPower: 90, minPop: 30 },
+  { id: 'town', name: 'Крепость', minPower: 200, minPop: 65 },
 ];
-
-/**
- * Замок рисуется своим значком поверх стадии: это не ступень развития, а вид
- * цели — крепость с казной. Город поэтому носит городской значок, а не замковый.
- */
-export const CASTLE_ICON = '🏰';
 
 export const STAGE_BY_ID: Record<Stage, StageDef> = Object.fromEntries(
   STAGES.map((s) => [s.id, s]),
@@ -57,7 +53,7 @@ export const RELATION_ORDER: Relation[] = ['self', 'ally', 'neutral', 'enemy', '
 export interface MissionDef {
   id: Mission;
   name: string;
-  icon: string;
+  icon: IconName;
   description: string;
 }
 
@@ -65,19 +61,19 @@ export const MISSIONS: MissionDef[] = [
   {
     id: 'raid',
     name: 'Ударить',
-    icon: '⚔️',
+    icon: 'ui-banner',
     description: 'Разбить гарнизон и унести добычу. Хозяин этого не забудет.',
   },
   {
     id: 'scout',
     name: 'Разведать',
-    icon: '👣',
+    icon: 'fig-scout',
     description: 'Узнать, сколько там бойцов. Сведения стареют, разведку повторяют.',
   },
   {
     id: 'support',
     name: 'Поддержать',
-    icon: '🤝',
+    icon: 'ui-handshake',
     description: 'Постоять в городе союзника и укрепить дружбу.',
   },
 ];

@@ -3,6 +3,7 @@
 // Единственная связь с симуляцией племени — словарь ресурсов: добыча и грабёж
 // говорят на одном языке со складом.
 import type { CraftAct } from './siegecraft';
+import type { IconName } from '@/ui/icons/alias';
 import type { DefendOrders, SiegeOrders } from './siegeroll';
 import type { MachineId } from './data/machines';
 import type { Opening } from './wall';
@@ -534,9 +535,8 @@ export interface LetterFrom {
 
 /** Письмо на столе: то же самое плюс то, что считается при чтении. */
 export interface LetterView extends Letter {
-  /** Заголовок, значок и текст — из таблицы видов, а не из разметки. */
+  /** Заголовок и текст — из таблицы видов, а не из разметки; значок — по виду (`letter-<kind>`). */
   title: string;
-  icon: string;
   body: string;
   /**
    * Где отправитель. null — у письма нет источника на карте вовсе (лагерь, чьё
@@ -1053,7 +1053,7 @@ export interface CardSpy {
 export interface RivalOption {
   deed: RivalDeedId;
   name: string;
-  icon: string;
+  icon: IconName;
   description: string;
   can: boolean;
   reason: string | null;
@@ -1123,7 +1123,6 @@ export interface DealView {
 export interface FigureView {
   id: FigureId;
   name: string;
-  icon: string;
   phase: FigurePhase;
   /**
    * На карте она, укрылась в своём городе, выбыла или место пустует — ровно одно из них

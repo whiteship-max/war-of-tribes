@@ -59,7 +59,7 @@ export function WarCard({ card }: { card: SettlementCard }) {
           </p>
           {war.theirs.phase === 'camp' && (
             <button className="nx-cact" onClick={openSiege}>
-              <Icon name="ui-target" glyph="⛺" />
+              <Icon name="alert-siege" />
               Открыть осаду
             </button>
           )}
@@ -75,7 +75,7 @@ export function WarCard({ card }: { card: SettlementCard }) {
                 будет в минуту прихода, даже если ты не в игре.
               </p>
               <button className="nx-cact" disabled={busy} onClick={() => void recall()}>
-                <Icon name="ui-time" glyph="↩️" />
+                <Icon name="ui-time" />
                 Отозвать поход
               </button>
             </>
@@ -87,7 +87,7 @@ export function WarCard({ card }: { card: SettlementCard }) {
                 {war.ours.starvesAt !== undefined ? ` Хлеба в городе на ${hungerLeft(war.ours.starvesAt, now)}.` : ''}
               </p>
               <button className="nx-cact" onClick={openCamp}>
-                <Icon name="ui-target" glyph="⛺" />
+                <Icon name="stage-camp" />
                 Открыть лагерь
               </button>
             </>

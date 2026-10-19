@@ -23,6 +23,7 @@ import { GemIcon } from './Rush';
 import { gemsTip } from './hudTips';
 import { tipAt } from './tip';
 import { Table, type Col } from '@/ui/kit/Table';
+import { iconName } from '@/ui/icons/registry';
 
 /**
  * Лавка сегодня по часам сервера — одни часы на лавку и подсказку плашки: «сейчас», от которого считают сутки (полночь
@@ -93,7 +94,7 @@ export function Treasury() {
           </span>
         </div>
         <button className="nx-bclose" onClick={hide} aria-label="Закрыть">
-          <Icon name="ui-close" glyph="✕" />
+          <Icon name="ui-close" />
         </button>
       </div>
       <div className="tabs">
@@ -161,7 +162,7 @@ function Shop() {
             cells: {
               name: (
                 <span className="kit-name">
-                  <Icon name={`res-${r}`} glyph={RESOURCE_META[r].icon} />
+                  <Icon name={iconName('res', r)} />
                   <span className="one-line">{RESOURCE_META[r].name}</span>
                 </span>
               ),

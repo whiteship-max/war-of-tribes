@@ -32,6 +32,8 @@ import { Table, type Col, type TableRow } from '@/ui/kit/Table';
 import { useRealm } from '@/ui/realm/open';
 import { waitDays } from './wait';
 import { dec, num } from '@/game/num';
+import { Icon } from '@/ui/icons/Icon';
+import type { IconName } from '@/ui/icons/alias';
 
 /** Знак и число с десятой без лишних нулей, запятой: «+55», «−1,1». */
 const sign = (n: number): string => `${n > 0 ? '+' : n < 0 ? '−' : ''}${num(Math.abs(n), 1)}`;
@@ -48,17 +50,17 @@ const PIETY_COLS: readonly Col[] = [
  */
 export function pietyRows(b: PietyBreakdown): TableRow[] {
   const cut = b.value - b.raw;
-  const parts: { id: string; icon: string; name: string; hint: string; value: number }[] = [
-    { id: 'base', icon: '⛪', name: 'Основа', hint: 'с этого начинает любой приход', value: b.base },
+  const parts: { id: string; icon: IconName; name: string; hint: string; value: number }[] = [
+    { id: 'base', icon: 'bld-church' as const, name: 'Основа', hint: 'с этого начинает любой приход', value: b.base },
     ...b.lines,
-    ...(Math.abs(cut) > 0.001 ? [{ id: 'cut', icon: '🚧', name: 'Предел шкалы', hint: 'набожность держится в 0…100', value: cut }] : []),
+    ...(Math.abs(cut) > 0.001 ? [{ id: 'cut', icon: 'ui-barrier' as const, name: 'Предел шкалы', hint: 'набожность держится в 0…100', value: cut }] : []),
   ];
   return parts.map((l) => ({
     key: l.id,
     cells: {
       what: (
         <span className="kit-name">
-          <span className="ic">{l.icon}</span>
+          <span className="ic"><Icon name={l.icon} /></span>
           <span className="one-line">{l.name}</span>
         </span>
       ),
@@ -100,7 +102,7 @@ export function Temple() {
           вкладка «Религия»: это решения о державе, а не о здании. Здесь то, что
           делают у храма: набожность прихода, обряд, святыня и служители. */}
       <div className="card">
-        <div className="ico">{def.icon}</div>
+        <div className="ico"><Icon name={def.icon} /></div>
         <div className="body">
           <div className="title">
             {def.name}
@@ -109,7 +111,7 @@ export function Temple() {
         </div>
       </div>
       <button className="btn ghost wide" onClick={() => showRealm('faith')}>
-        ⛪ Вера державы
+        <Icon name="bld-church" /> Вера державы
       </button>
 
       {/* Набожность — шкала с порогом словом и разбор одной таблицей: слагаемые складываются в итог (docs/ui_v2.md, 2.2;
@@ -129,7 +131,7 @@ export function Temple() {
       </h3>
       {rite.feast && (
         <div className="card">
-          <div className="ico">{rite.feast.icon}</div>
+          <div className="ico"><Icon name={rite.feast.icon} /></div>
           <div className="body">
             <div className="title">
               {rite.feast.name}
@@ -148,7 +150,7 @@ export function Temple() {
       <h3>Святыня</h3>
       {s.faith.relic ? (
         <div className="mod total">
-          <span className="ico">📿</span>
+          <span className="ico"><Icon name="ui-beads" /></span>
           <span className="name">{FAITH_BY_ID[s.faith.relic].relic}</span>
           <span className="val pos">+{PIETY_RELIC}</span>
         </div>
@@ -184,7 +186,7 @@ export function RealmFaith() {
     <>
       <h3>Вера города</h3>
       <div className="card">
-        <div className="ico">{def.icon}</div>
+        <div className="ico"><Icon name={def.icon} /></div>
         <div className="body">
           <div className="title">
             {def.name}
@@ -200,14 +202,14 @@ export function RealmFaith() {
       <h3>Наклон веры</h3>
       <div className="note">Дар и цена растут с уровнем здания.</div>
       <div className="mod">
-        <span className="ico">🎁</span>
+        <span className="ico"><Icon name="dip-gift" /></span>
         <span className="name">
           Что даёт
           <em className="sub">{tilt.boon}</em>
         </span>
       </div>
       <div className="mod">
-        <span className="ico">⚖️</span>
+        <span className="ico"><Icon name="ui-scales" /></span>
         <span className="name">
           Чего просит
           <em className="sub">{tilt.burden}</em>
@@ -215,7 +217,7 @@ export function RealmFaith() {
       </div>
       <TiltRow
         show={Math.abs(tilt.goldPerPop) > 0.001}
-        icon="💰"
+        icon="res-gold"
         name={tilt.goldPerPop > 0 ? 'Десятина' : 'Закят на бедных'}
         hint={`${dec(Math.abs(tilt.goldPerPop), 2)} с жителя в день`}
         value={`${sign(tilt.goldPerPop * population(s))} в день`}
@@ -223,42 +225,42 @@ export function RealmFaith() {
       />
       <TiltRow
         show={Math.abs(tilt.morale) > 0.001}
-        icon="😊"
+        icon="mood-good"
         name="Мораль"
         value={sign(tilt.morale)}
         good={tilt.morale > 0}
       />
       <TiltRow
         show={Math.abs(tilt.output - 1) > 0.001}
-        icon="⛏️"
+        icon="ui-pick"
         name="Выработка"
         value={`×${dec(tilt.output, 2)}`}
         good={tilt.output > 1}
       />
       <TiltRow
         show={Math.abs(tilt.steadfast) > 0.001}
-        icon="🛡️"
+        icon="gear-shield"
         name="Оборона"
         value={`×${dec(1 + tilt.steadfast, 2)}`}
         good
       />
       <TiltRow
         show={Math.abs(tilt.learning - 1) > 0.001}
-        icon="📖"
+        icon="ui-book"
         name="Разведка округи"
         value={`×${dec(tilt.learning, 2)}`}
         good={tilt.learning > 1}
       />
       <TiltRow
         show={Math.abs(tilt.growth) > 0.001}
-        icon="👥"
+        icon="nav-people"
         name="Прирост жителей"
         value={`×${dec(1 + tilt.growth, 2)}`}
         good
       />
       <TiltRow
         show={tilt.fervour > 0.001}
-        icon="⚔️"
+        icon="hud-army"
         name="Стойкость дружины"
         hint="к морали в начале боя"
         value={`+${dec(tilt.fervour, 1)}`}
@@ -274,7 +276,7 @@ export function RealmFaith() {
             className={`choice-opt${obs === o.id ? ' on' : ''}`}
             onClick={() => act((st) => setObservance(st, o.id as ObservanceId))}
           >
-            <span className="ico">{o.icon}</span>
+            <span className="ico"><Icon name={o.icon} /></span>
             <b>{o.name}</b>
             <small>{o.effect}</small>
           </button>
@@ -297,7 +299,7 @@ export function RealmFaith() {
                 disabled={bapt.blocked !== null}
                 onClick={() => act((st) => baptize(st, id as FaithId))}
               >
-                <span className="ico">{FAITH_BY_ID[id].icon}</span>
+                <span className="ico"><Icon name={FAITH_BY_ID[id].icon} /></span>
                 <b>{FAITH_BY_ID[id].name}</b>
                 <small>{FAITH_BY_ID[id].tilt.boon}</small>
               </button>
@@ -320,7 +322,7 @@ function TiltRow({
   good,
 }: {
   show: boolean;
-  icon: string;
+  icon: IconName;
   name: string;
   hint?: string;
   value: string;
@@ -329,7 +331,7 @@ function TiltRow({
   if (!show) return null;
   return (
     <div className="mod">
-      <span className="ico">{icon}</span>
+      <span className="ico"><Icon name={icon} /></span>
       <span className="name">
         {name}
         {hint && <em className="sub">{hint}</em>}

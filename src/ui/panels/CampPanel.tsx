@@ -18,7 +18,7 @@ import { CAMP_LEAVE, STORM_HOLDS } from '@/world/siege';
 import { MACHINE_SHARES, type MachineId } from '@/world/data/machines';
 import { SIEGE_PHASE } from '@/world/data/siegeroll';
 import { FATE_META } from '@/world/data/fates';
-import { CASTLE_ICON, STAGE_BY_ID } from '@/world/data/meta';
+import { STAGE_BY_ID } from '@/world/data/meta';
 import { SIDES, SIDE_NAME, WOOD_SHARES, campSides, machineShare, playerWood, woodShare, worksRipeAt } from '@/world/works';
 import type { CampView, Fate } from '@/world/types';
 import { FatePick } from '@/ui/parts/FatePick';
@@ -32,6 +32,8 @@ import { Tabs, type TabDef } from '@/ui/kit/SheetPage';
 import { Btn } from '@/ui/kit/Btn';
 import { Toggle } from '@/ui/kit/Toggle';
 import './siege.css';
+import { Icon } from '@/ui/icons/Icon';
+import { iconName } from '@/ui/icons/registry';
 
 /**
  * Сроки из подсказки к долям — той же функцией, которой считаются стороны: при
@@ -135,7 +137,7 @@ export function CampPanel() {
     return (
       <div className="panel">
         <div className="bhead">
-          <div className="ico">⛺</div>
+          <div className="ico"><Icon name="stage-camp" /></div>
           <div className="body">
             <div className="name">Лагеря нет</div>
           </div>
@@ -180,7 +182,7 @@ export function CampPanel() {
   return (
     <div className="panel sg">
       <div className="bhead">
-        <div className="ico">{camp.castle ? CASTLE_ICON : stage.icon}</div>
+        <div className="ico"><Icon name={camp.castle ? 'stage-castle' : iconName('stage', stage.id)} /></div>
         <div className="body">
           <div className="name one-line">{camp.targetName}</div>
           <div className="lvl">

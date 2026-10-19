@@ -41,6 +41,8 @@ import { count } from '@/ui/parts/plural';
 import type { TipContent } from './tip';
 import { fmtInt, goldTip } from './hudTips';
 import './market.css';
+import type { IconName } from '@/ui/icons/alias';
+import { iconName } from '@/ui/icons/registry';
 
 export const SHELF_COLS: readonly Col[] = [
   { key: 'name', title: 'Товар' },
@@ -48,6 +50,10 @@ export const SHELF_COLS: readonly Col[] = [
   { key: 'left', title: 'Сегодня', align: 'right', w: '64px' },
   { key: 'own', title: 'Есть', align: 'right', w: '52px' },
 ];
+
+/** Значок товара: запас — своим, предмет — снаряжением, невольники — цепью (накладная `ui/icons/registry.ts`). */
+const goodIcon = (def: GoodDef | undefined): IconName =>
+  !def ? 'ui-crate' : def.kind === 'resource' && def.resource ? iconName('res', def.resource) : def.kind === 'equipment' && def.equipment ? iconName('gear', def.equipment) : 'ui-chain';
 
 const CART_COLS: readonly Col[] = [
   { key: 'name', title: 'В пути' },
@@ -108,7 +114,7 @@ export function MarketNew() {
   return (
     <section className="mk">
       <Row
-        icon={{ name: 'res-gold', glyph: '💰' }}
+        icon={'res-gold'}
         label="Золото"
         sub={`Покупку везёт телега, ${waitShort(caravanSeconds(s))}. Отменишь — золото вернётся`}
         value={fmtInt(s.gold)}
@@ -132,7 +138,7 @@ export function MarketNew() {
             cells: {
               name: (
                 <span className="kit-name">
-                  <span className="ic">{def.icon}</span>
+                  <span className="ic"><Icon name={goodIcon(def)} /></span>
                   <span className="one-line">{def.name}</span>
                 </span>
               ),
@@ -165,7 +171,7 @@ function Carts() {
           cells: {
             name: (
               <span className="kit-name">
-                <span className="ic">{def?.icon ?? '📦'}</span>
+                <span className="ic"><Icon name={goodIcon(def)} /></span>
                 <span className="one-line">{def?.name ?? 'Товар'}</span>
               </span>
             ),
@@ -173,7 +179,7 @@ function Carts() {
             left: waitShort(asGame(Math.max(0, Math.ceil(c.arriveAt - s.time)))),
             x: (
               <button type="button" className="mk-x" onClick={() => act((st) => cancelCaravan(st, c.id))} aria-label={`Отменить: ${def?.name ?? 'товар'}, вернуть ${c.gold} золота`}>
-                <Icon name="ui-close" glyph="✕" />
+                <Icon name="ui-close" />
               </button>
             ),
           },
@@ -223,7 +229,7 @@ function Buy({ def }: { def: GoodDef }) {
           <Steps value={m} max={saleRoom} spare={Math.max(0, saleRoom - m)} step={10} names={{ less: 'Меньше', more: 'Больше' }} onChange={(d) => setSell(Math.max(1, m + d))} />
           <div className="mk-act">
             <span className="mk-gain">
-              <Icon name="res-gold" glyph="💰" /> +{sale.gold}
+              <Icon name="res-gold" /> +{sale.gold}
             </span>
             <Btn why={have > 0 ? sale.blocked : ORDER_TEXT.market.noBonded} onClick={() => act((st) => sellBonded(st, m))}>
               Продать {m}

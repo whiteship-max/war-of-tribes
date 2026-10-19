@@ -224,9 +224,11 @@ describe('Д11: ход разведки — одной таблицей', () => 
     expect(info.level, 'точка внутри области: выше третьего заперто').toBe(3);
     const rows = surveyRows(info, SURVEY_STEPS);
     expect(rows.length).toBe(SURVEY_STEPS.length);
-    expect(String(rows[0].cells.state)).toMatch(/пройдено/);
-    expect(String(rows[1].cells.state)).toMatch(/идёт/);
-    expect(String(rows[3].cells.state)).toMatch(/Дозор ур\. 4/);
+    // Состояние — значок набора и слово (ЗН-1): читаем словом.
+    const said = (n: unknown): string => renderToStaticMarkup(h('span', null, n as never));
+    expect(said(rows[0].cells.state)).toMatch(/пройдено/);
+    expect(said(rows[1].cells.state)).toMatch(/идёт/);
+    expect(said(rows[3].cells.state)).toMatch(/Дозор ур\. 4/);
     expect(rows[3].dim).toBe(true);
     setStore(s);
     const html = renderToStaticMarkup(h(Watch));

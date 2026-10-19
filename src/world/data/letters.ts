@@ -29,7 +29,6 @@ import type { Letter, LetterKindId, Loot } from '../types';
 export interface LetterKindDef {
   id: LetterKindId;
   title: string;
-  icon: string;
   /**
    * Тело письма. Числа берутся из самого письма, а не из таблицы. `home` — имя своего
    * города (`LocalWorld.homeName`): тело переносится, и имя любой длины в нём уместно.
@@ -49,7 +48,6 @@ const KINDS: LetterKindDef[] = [
   {
     id: 'pact',
     title: 'Предлагают пакт',
-    icon: '🤝',
     body: (l) =>
       `Гонец привёз грамоту из «${l.fromName}» с печатью на шнуре. Предлагают клятву границ не двигать и оружия друг на друга не поднимать.`,
     yes: 'Скрепить печатью',
@@ -61,7 +59,6 @@ const KINDS: LetterKindDef[] = [
   {
     id: 'tribute',
     title: 'Требуют дань',
-    icon: '💰',
     body: (l, goods) =>
       `Гонец из «${l.fromName}» не слезает с коня. Требуют дань: ${goods}. Откажем — придут за ней сами.`,
     yes: 'Заплатить дань',
@@ -73,7 +70,6 @@ const KINDS: LetterKindDef[] = [
   {
     id: 'alliance',
     title: 'Зовут в поход',
-    icon: '⚔️',
     body: (l) =>
       `Гонец из «${l.fromName}» зовёт встать плечом к плечу против «${l.againstName}». Ждёт ответа у ворот.`,
     yes: 'Встать вместе',
@@ -85,7 +81,6 @@ const KINDS: LetterKindDef[] = [
   {
     id: 'ransom',
     title: 'Выкуп за пленных',
-    icon: '⛓️',
     body: (l, goods) =>
       `В «${l.fromName}» держат ${l.men ?? 0} наших, взятых в последнем набеге. Просят за всех ${goods}, иначе уведут дальше.`,
     yes: 'Выкупить пленных',
@@ -97,7 +92,6 @@ const KINDS: LetterKindDef[] = [
   {
     id: 'raid',
     title: 'На нас идут',
-    icon: '🔥',
     body: (l, _goods, home) =>
       `Дозор видел отряд из «${l.fromName}», идут на «${home}». Перехвати их в поле или встречай у стен.`,
     yes: null,
@@ -109,7 +103,6 @@ const KINDS: LetterKindDef[] = [
   {
     id: 'siege',
     title: 'Город в осаде',
-    icon: '⛺',
     body: (l, _goods, home) =>
       `«${l.fromName}» встали лагерем у ворот «${home}». Поля за стеной брошены, хлеба не подвезти, прочее идёт скудно. ` +
       'Осаду снимет только вылазка.',

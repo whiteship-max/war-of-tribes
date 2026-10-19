@@ -7,20 +7,21 @@
 // ключа — событие из одной строки.
 import type { LogEntry } from '@/game/types';
 import type { Report } from '@/world/types';
+import type { IconName } from '@/ui/icons/alias';
 
 /** Род события летописи: фильтры над днями. `town` — всё прочее (сезон, задания, жители, вести города). */
 export type ChronTopic = 'battle' | 'raid' | 'siege' | 'build' | 'decree' | 'rival' | 'trade' | 'town';
 
 /** Рода по порядку фильтров: война — первой, она и открывается донесением. */
-export const TOPICS: readonly { id: ChronTopic; label: string; icon: { name: string; glyph: string } }[] = [
-  { id: 'battle', label: 'Бои', icon: { name: 'ui-banner', glyph: '⚔️' } },
-  { id: 'raid', label: 'Набеги', icon: { name: 'ui-home', glyph: '🏠' } },
-  { id: 'siege', label: 'Осады', icon: { name: 'ui-warning', glyph: '🔥' } },
-  { id: 'build', label: 'Стройка', icon: { name: 'ui-hammer', glyph: '🔨' } },
-  { id: 'decree', label: 'Указы', icon: { name: 'ui-scroll', glyph: '📜' } },
-  { id: 'rival', label: 'Соседи', icon: { name: 'deal-alliance', glyph: '🤝' } },
-  { id: 'trade', label: 'Торговля', icon: { name: 'ui-wagon', glyph: '🛒' } },
-  { id: 'town', label: 'Город', icon: { name: 'ui-book', glyph: '📖' } },
+export const TOPICS: readonly { id: ChronTopic; label: string; icon: IconName }[] = [
+  { id: 'battle', label: 'Бои', icon: 'ui-banner' },
+  { id: 'raid', label: 'Набеги', icon: 'ui-home' },
+  { id: 'siege', label: 'Осады', icon: 'ui-warning' },
+  { id: 'build', label: 'Стройка', icon: 'ui-hammer' },
+  { id: 'decree', label: 'Указы', icon: 'ui-scroll' },
+  { id: 'rival', label: 'Соседи', icon: 'deal-alliance' },
+  { id: 'trade', label: 'Торговля', icon: 'ui-wagon' },
+  { id: 'town', label: 'Город', icon: 'ui-book' },
 ];
 
 export const TOPIC_BY_ID = Object.fromEntries(TOPICS.map((t) => [t.id, t])) as Record<ChronTopic, (typeof TOPICS)[number]>;

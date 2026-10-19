@@ -11,9 +11,10 @@ import type { ReactNode } from 'react';
 import { Icon } from '@/ui/icons/Icon';
 import { tipAt, type TipContent } from '@/ui/next/tip';
 import type { Tone } from './Num';
+import type { IconName } from '@/ui/icons/alias';
 
 export interface RowProps {
-  icon?: { name: string; glyph: string };
+  icon?: IconName;
   label: ReactNode;
   /** Строка пояснения под именем — 11 px, приглушённо; не длиннее строки списка (docs/ui_audit.md, 3.11). */
   sub?: ReactNode;
@@ -35,7 +36,7 @@ function Body({ icon, label, sub, value, tone }: Pick<RowProps, 'icon' | 'label'
     <>
       {icon && (
         <span className="kit-ico">
-          <Icon name={icon.name} glyph={icon.glyph} />
+          <Icon name={icon} />
         </span>
       )}
       <span className="kit-row-label">

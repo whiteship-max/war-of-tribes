@@ -37,7 +37,7 @@ export function SceneDoctor() {
   if (!open) {
     return (
       <button className="btn ghost wide" onClick={() => setOpen(true)}>
-        <Icon name="ui-eye" glyph="🔎" /> Что было со сценой
+        <Icon name="ui-eye" /> Что было со сценой
       </button>
     );
   }

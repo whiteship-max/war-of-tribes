@@ -4,11 +4,12 @@
 import type { FeedItem } from '@/net/feed';
 import { realSpan } from '@/game/span';
 import { cityOr } from '../../../netlify/lib/contract';
+import type { IconName } from '@/ui/icons/alias';
 
 export interface FeedWords {
   title: string;
   line: string;
-  icon: { name: string; glyph: string };
+  icon: IconName;
 }
 
 /** Срок, округлённый до своей единицы: «12 мин», «3 ч», «2 дн.». */
@@ -27,9 +28,9 @@ const party = (item: FeedItem, what: string): string =>
   `${what} из города ${cityOr(item.byCity)}${item.byRuler ? `, правитель ${item.byRuler}` : ''}`;
 
 const DEED: Record<string, { title: string; line: string; icon: FeedWords['icon'] }> = {
-  fire: { title: 'Пожар', line: 'Склад поджёг чужой лазутчик.', icon: { name: 'evt-fire', glyph: '🔥' } },
-  theft: { title: 'Кража', line: 'Чужой лазутчик унёс запасы со склада.', icon: { name: 'ui-pouch', glyph: '👝' } },
-  unrest: { title: 'Смута', line: 'Чужой лазутчик сманил жителей.', icon: { name: 'spy-revolt', glyph: '✊' } },
+  fire: { title: 'Пожар', line: 'Склад поджёг чужой лазутчик.', icon: 'evt-fire' },
+  theft: { title: 'Кража', line: 'Чужой лазутчик унёс запасы со склада.', icon: 'ui-pouch' },
+  unrest: { title: 'Смута', line: 'Чужой лазутчик сманил жителей.', icon: 'spy-revolt' },
 };
 
 export function feedWords(item: FeedItem): FeedWords {
@@ -46,10 +47,10 @@ export function feedWords(item: FeedItem): FeedWords {
             : item.siegeMs
             ? `Пал при штурме после ${coarse(item.siegeMs)} осады.`
             : 'Пал при штурме.';
-      return { title: `${City} взят`, line: `${how} Победитель — ${party(item, 'отряд')}.`, icon: { name: 'ui-banner', glyph: '🚩' } };
+      return { title: `${City} взят`, line: `${how} Победитель — ${party(item, 'отряд')}.`, icon: 'ui-banner' };
     }
     case 'siege':
-      return { title: `${City} в осаде`, line: `Под стенами встал лагерем ${party(item, 'отряд')}.`, icon: { name: 'stage-camp', glyph: '⛺' } };
+      return { title: `${City} в осаде`, line: `Под стенами встал лагерем ${party(item, 'отряд')}.`, icon: 'stage-camp' };
     case 'lifted': {
       const how =
         item.how === 'retreat'
@@ -59,10 +60,10 @@ export function feedWords(item: FeedItem): FeedWords {
             : item.how === 'paid'
               ? 'Откупился данью, лагерь ушёл.'
               : 'Защитники вышли из ворот и разбили лагерь.';
-      return { title: `${City} выстоял`, line: `${how} Осаждал ${party(item, 'отряд')}.`, icon: { name: 'gear-shield', glyph: '🛡️' } };
+      return { title: `${City} выстоял`, line: `${how} Осаждал ${party(item, 'отряд')}.`, icon: 'gear-shield' };
     }
     case 'repelled':
-      return { title: `${City} отбил штурм`, line: `Штурмовал ${party(item, 'отряд')}, но ушёл ни с чем.`, icon: { name: 'gear-shield', glyph: '🛡️' } };
+      return { title: `${City} отбил штурм`, line: `Штурмовал ${party(item, 'отряд')}, но ушёл ни с чем.`, icon: 'gear-shield' };
     case 'spy': {
       const d = DEED[item.how ?? ''] ?? DEED.fire;
       return { title: `${d.title}, ${city}`, line: `${d.line} Чей он, так и не узнали.`, icon: d.icon };
@@ -72,17 +73,17 @@ export function feedWords(item: FeedItem): FeedWords {
         title: `${item.how === 'dead' ? 'Убит' : 'Схвачен'} лазутчик, ${city}`,
         // «Послали», а не «послал»: правитель может быть и правительницей, а имя пишет игрок.
         line: `Его послали из города ${cityOr(item.byCity)}${item.byRuler ? `, правитель ${item.byRuler}` : ''}.`,
-        icon: { name: 'fig-spy', glyph: '🕵️' },
+        icon: 'fig-spy',
       };
     case 'settled':
       return item.mine
-        ? { title: `${City} встал на карте`, line: `Правитель ${item.ruler || 'без имени'}.`, icon: { name: 'stage-village', glyph: '🏘️' } }
-        : { title: `Новый сосед, ${city}`, line: `Правитель ${item.ruler || 'без имени'}.`, icon: { name: 'stage-village', glyph: '🏘️' } };
+        ? { title: `${City} встал на карте`, line: `Правитель ${item.ruler || 'без имени'}.`, icon: 'stage-village' }
+        : { title: `Новый сосед, ${city}`, line: `Правитель ${item.ruler || 'без имени'}.`, icon: 'stage-village' };
     case 'leader':
       return {
         title: 'Первенство сменилось',
         line: `Первым в рейтинге стал ${city}, правитель ${item.ruler || 'без имени'}.`,
-        icon: { name: 'ui-crown', glyph: '👑' },
+        icon: 'ui-crown',
       };
   }
 }

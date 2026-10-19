@@ -1,5 +1,6 @@
 import { useGame } from '@/game/store';
 import { Leave } from '@/ui/parts/leave';
+import { Icon } from '@/ui/icons/Icon';
 
 /**
  * Старое сохранение к новой партии не подходит: раньше племя шло от костра через
@@ -13,7 +14,7 @@ export function LegacyModal() {
     <Leave open={legacy}>
       <div className="modal-backdrop" onClick={dismiss}>
         <div className="modal" onClick={(e) => e.stopPropagation()}>
-          <div className="m-ico">🏰</div>
+          <div className="m-ico"><Icon name="stage-castle" /></div>
           <h2>Новая партия</h2>
           <p>Прежнее сохранение не подходит к нынешней игре. Партия начата заново.</p>
           <div className="options">

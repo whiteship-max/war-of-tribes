@@ -85,7 +85,6 @@ describe('мощь', () => {
       id: 'test_lancer' as TroopId,
       name: 'Пробные конные',
       one: 'пробный',
-      icon: '🧪',
       flavor: 'Пробный вид, его нет в игре.',
       description: 'Такого вида в игре нет — он заведён тестом, чтобы мощь его посчитала.',
       gear: { spear: 1, shield: 1, armor: 1 },

@@ -13,7 +13,6 @@ import { troopTotal } from '@/game/battle/kinds';
 import { postureOf } from '@/world/muster';
 import { formatCoord, secondsLeft } from '@/world/geo';
 import { CHASE_FROM_CAMP } from '@/world/siege';
-import { MISSION_BY_ID } from '@/world/data/meta';
 import type { FigureId, FigureView, MarchView, ReportKind } from '@/world/types';
 import { agentLevel, personName, yearsOf, yearsWord } from '@/game/sim/agents';
 import { hireWhere } from '@/game/sim/hire';
@@ -23,13 +22,15 @@ import { restLine } from '@/ui/parts/restWords';
 import { lootText, unitsText } from '@/ui/parts/reportWords';
 import { realLeft } from '@/ui/parts/wait';
 import { Table, type Col } from '@/ui/kit/Table';
+import type { IconName } from '@/ui/icons/alias';
+import { iconName } from '@/ui/icons/registry';
 
 /** Значок донесения по его виду: набег, разведка, поддержка, оборона дома. */
-export const REPORT_ART: Record<ReportKind, { name: string; glyph: string }> = {
-  raid: { name: 'ui-banner', glyph: '⚔️' },
-  scout: { name: 'fig-scout', glyph: '👣' },
-  support: { name: 'deal-trade', glyph: '🤝' },
-  defense: { name: 'ui-home', glyph: '🏠' },
+export const REPORT_ART: Record<ReportKind, IconName> = {
+  raid: 'ui-banner',
+  scout: 'fig-scout',
+  support: 'deal-trade',
+  defense: 'ui-home',
 };
 
 /** Донесений видно сразу — свежие; остальные — по «Ещё N» (находка карты экранов: «донесения без предела», UI-7). */
@@ -120,14 +121,14 @@ export function MarchesNew() {
     <div className="panel nx-bpanel nx-marches">
       <div className="nx-bhead">
         <span className="nx-bico">
-          <Icon name="ui-banner" glyph="⚔️" />
+          <Icon name="ui-banner" />
         </span>
         <div className="nx-btitle">
           <b>Походы</b>
           <span className="nx-blvl">{own.length > 0 ? `в пути ${own.length}` : 'все дома'}</span>
         </div>
         <button className="nx-bclose" onClick={closeSheet} aria-label="Закрыть">
-          <Icon name="ui-close" glyph="✕" />
+          <Icon name="ui-close" />
         </button>
       </div>
 
@@ -155,7 +156,7 @@ export function MarchesNew() {
                     onClick={() => void openChase(m)}
                     aria-label={inCamp ? `Перехватить: ${CHASE_FROM_CAMP}` : `Перехватить: ${m.fromName}`}
                   >
-                    <Icon name="ui-target" glyph="🏇" />
+                    <Icon name="ui-target" />
                   </button>
                 ),
               },
@@ -189,7 +190,7 @@ export function MarchesNew() {
             cells: {
               who: (
                 <button type="button" className="mr-who" onClick={() => setCard(f.id)} aria-label={`${f.name}: карточка`}>
-                  <Icon name={`fig-${f.id}`} glyph={f.icon} />
+                  <Icon name={iconName('fig', f.id)} />
                   <Two top={`${f.name}${named ? ` ${personName(s, f.id)}` : ''}`} sub={where} />
                 </button>
               ),
@@ -201,7 +202,7 @@ export function MarchesNew() {
                 <span className="mr-acts">
                   {f.place === 'map' && !f.atHome && (
                     <button type="button" className="nx-ico44" onClick={() => void recallFigure(f.id).then((err) => err && showToast(err))} aria-label={`${f.name}: домой`}>
-                      <Icon name="ui-home" glyph="🏠" />
+                      <Icon name="ui-home" />
                     </button>
                   )}
                   {f.place === 'map' && (
@@ -216,7 +217,7 @@ export function MarchesNew() {
                         closeSheet();
                       }}
                     >
-                      <Icon name="ui-pin" glyph="📍" />
+                      <Icon name="ui-pin" />
                     </button>
                   )}
                   {f.place === 'city' && (
@@ -226,7 +227,7 @@ export function MarchesNew() {
                       aria-label={`${f.name}: выйти из города`}
                       onClick={() => void shelter(f.id, false).then((err) => showToast(err ?? `${f.name} вышел из города.`))}
                     >
-                      <Icon name="ui-banner" glyph="🚪" />
+                      <Icon name="maze-door" />
                     </button>
                   )}
                 </span>
@@ -249,14 +250,14 @@ export function MarchesNew() {
             cells: {
               who: (
                 <button type="button" className="mr-who" onClick={() => void select(at)} aria-label={`${m.toName}: на карте`}>
-                  <Icon name={m.mission === 'scout' ? 'fig-scout' : 'ui-banner'} glyph={MISSION_BY_ID[m.mission].icon} />
+                  <Icon name={m.mission === 'scout' ? 'fig-scout' : 'ui-banner'} />
                   <Two top={m.toName} sub={`${PHASE[m.phase]} · ${unitsText(m.units)}${m.loot ? ` · везут ${lootText(m.loot)}` : ''}`} />
                 </button>
               ),
               left: <b>{realLeft(secondsLeft(m.arriveAt, now))}</b>,
               act: m.recallable ? (
                 <button type="button" className="nx-ico44" onClick={() => void recall(m.id)} aria-label={`Отозвать: ${m.toName}`}>
-                  <Icon name="ui-home" glyph="↩️" />
+                  <Icon name="ui-home" />
                 </button>
               ) : null,
             },
@@ -280,7 +281,7 @@ export function MarchesNew() {
             cells: {
               what: (
                 <span className={`kit-name${r.won ? '' : ' lost'}`}>
-                  <Icon name={art.name} glyph={art.glyph} />
+                  <Icon name={art} />
                   <Two top={r.title} sub={r.text} />
                   {!r.read && <i className="nx-new" aria-label="новое" />}
                 </span>

@@ -6,11 +6,11 @@
 import type { FigureId, OrderActionId, RivalDeedId, SpyActionId } from '../types';
 import { DIPLO_ACTIONS } from './diplomacy';
 import { SPY_BUSY } from './tuning';
+import type { IconName } from '@/ui/icons/alias';
 
 export interface SpyActionDef {
   id: SpyActionId;
   name: string;
-  icon: string;
   description: string;
   /** Что означает показанный шанс. */
   chanceLabel: string;
@@ -22,7 +22,6 @@ export const SPY_ACTIONS: SpyActionDef[] = [
   {
     id: 'probe',
     name: 'Выведать гарнизон',
-    icon: '🔍',
     description:
       'Сосчитать гарнизон на глаз и по разговорам. Число выйдет приблизительным и со временем устареет.',
     chanceLabel: 'удастся',
@@ -31,7 +30,6 @@ export const SPY_ACTIONS: SpyActionDef[] = [
   {
     id: 'revolt',
     name: 'Поддержать повстанцев',
-    icon: '🔥',
     description:
       'Сговориться с недовольными. Пока идёт бунт, город не растёт и слабеет. Время для удара.',
     chanceLabel: 'удастся',
@@ -60,7 +58,7 @@ export const ORDER_AGENT: Record<OrderActionId, FigureId> = {
 };
 
 /** Строки меню для агента: у разведчика и полководца своих приказов пока нет. */
-export function actionsOf(agent: FigureId): { id: OrderActionId; name: string; icon: string; description: string; chanceLabel: string; busy: number }[] {
+export function actionsOf(agent: FigureId): { id: OrderActionId; name: string; description: string; chanceLabel: string; busy: number }[] {
   if (agent === 'diplomat') return DIPLO_ACTIONS;
   if (agent === 'spy') return SPY_ACTIONS;
   return [];
@@ -76,7 +74,8 @@ export function actionsOf(agent: FigureId): { id: OrderActionId; name: string; i
 export interface RivalDeedDef {
   id: RivalDeedId;
   name: string;
-  icon: string;
+  /** Значок дела в меню (набор ЗН-1, docs/icons.md). */
+  icon: IconName;
   /** Что дело делает — для меню. */
   description: string;
   /** Во сколько раз дело труднее пробы гарнизона (`SPY_PROBE_BASE`): множитель базы шанса. */
@@ -91,7 +90,7 @@ export const RIVAL_DEEDS: RivalDeedDef[] = [
   {
     id: 'look',
     name: 'Разведать',
-    icon: '🔍',
+    icon: 'ui-eye',
     description: 'Сосчитать дружину и оборону соседа до бойца. Кто дома, кто в походе, сколько ополчения на стене.',
     hard: 1,
     hostile: false,
@@ -100,7 +99,7 @@ export const RIVAL_DEEDS: RivalDeedDef[] = [
   {
     id: 'fire',
     name: 'Поджог',
-    icon: '🔥',
+    icon: 'ui-flame',
     description: 'Поджечь склад. Сгорает часть того, что лежит на виду. Тайник огонь не берёт.',
     hard: 0.7,
     hostile: true,
@@ -109,7 +108,7 @@ export const RIVAL_DEEDS: RivalDeedDef[] = [
   {
     id: 'theft',
     name: 'Кража',
-    icon: '💰',
+    icon: 'ui-pouch',
     description: 'Унести часть запасов и золота. Что ушло у соседа, приходит к нам. Тайник не достать.',
     hard: 0.6,
     hostile: true,
@@ -118,7 +117,7 @@ export const RIVAL_DEEDS: RivalDeedDef[] = [
   {
     id: 'unrest',
     name: 'Смута',
-    icon: '🗣️',
+    icon: 'spy-revolt',
     description: 'Подбить жителей на ропот. Мораль в городе падает, часть недовольных уходит к нам.',
     hard: 0.8,
     hostile: true,

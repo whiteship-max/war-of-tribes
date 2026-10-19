@@ -13,6 +13,7 @@ import { SIDE_VARS } from '@/side';
 import { profileCity, profileName } from '@/profile/identity';
 import { reportCard } from '@/ui/share/shareCard';
 import { ShareSheet } from '@/ui/share/ShareSheet';
+import type { IconName } from '@/ui/icons/alias';
 
 const other = (side: Side): Side => (side === 'attacker' ? 'defender' : 'attacker');
 /** Цвет сторон — одна дверь (`side.ts`): переменные стиля столбцов «Мы» и «Враг». */
@@ -70,7 +71,7 @@ export function ReportBodyNew({ report }: { report: Report }) {
               <h4 className="nx-rh">Почему так вышло</h4>
               {sum.keys.map((k, i) => (
                 <div className={`nx-rkey${k.good ? ' good' : ' bad'}`} key={i}>
-                  <Icon name={k.art} glyph={k.icon} />
+                  <Icon name={k.art as IconName} />
                   <span>{k.text}</span>
                 </div>
               ))}
@@ -86,7 +87,7 @@ export function ReportBodyNew({ report }: { report: Report }) {
         </div>
         <div>
           <small>
-            <Icon name="ui-grave" glyph="⚰️" /> Не вернулись
+            <Icon name="ui-grave" /> Не вернулись
           </small>
           <b className={lost ? 'bad' : ''}>{lost ? unitsText(report.lost) : 'нет'}</b>
         </div>
@@ -115,7 +116,7 @@ export function ReportBodyNew({ report }: { report: Report }) {
         {report.loot && (
           <div className="wide">
             <small>
-              <Icon name="ui-loot" glyph="📦" /> Добыча
+              <Icon name="ui-loot" /> Добыча
             </small>
             <b className="good">{lootText(report.loot)}</b>
           </div>
