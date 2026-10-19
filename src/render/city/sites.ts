@@ -123,7 +123,8 @@ const area = (s: Site): number => s.hf * s.hr;
 /**
  * Главное место постройки — по нему значок, кольцо выбора и подсветка обучения. Одна коробка — она;
  * у Жилищ — дом у площади (ближайший к её середине), у башен — надвратная главных ворот (самая
- * большая), у Тайника — донжон (самый высокий: палас рядом ниже), у стены — звено южной половины
+ * большая в южной половине: двойная надвратная у рва с барабанами шире, но с камеры игры — за домами,
+ * Р-2), у Тайника — донжон (самый высокий: палас рядом ниже), у стены — звено южной половины
  * дальше всех от башен (звено у самой башни прячется за ней).
  */
 export function mainSite(sites: readonly Site[], type: BuildingTypeId): Site | null {
@@ -137,5 +138,6 @@ export function mainSite(sites: readonly Site[], type: BuildingTypeId): Site | n
     const south = own.filter((s) => s.z > 0);
     return (south.length > 0 ? south : own).reduce((a, b) => (clear(a) >= clear(b) ? a : b));
   }
-  return own.reduce((a, b) => (area(a) >= area(b) ? a : b));
+  const pool = type === 'tower' && own.some((s) => s.z > 0) ? own.filter((s) => s.z > 0) : own;
+  return pool.reduce((a, b) => (area(a) >= area(b) ? a : b));
 }

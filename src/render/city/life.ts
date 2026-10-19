@@ -12,14 +12,14 @@ import * as THREE from 'three';
 import type { Quality } from '../quality';
 import { HEARTH_LOOK, type SmokeLook, type SmokeSource } from '../weather';
 import type { V3 } from './geom';
-import { CHURCH, CLOSE, PARVIS, distSeg, heightAt, insidePoly, type CityPlan, type P } from './layout';
-import { wallTops } from './forts';
+import { CHURCH, CLOSE, PARVIS, distSeg, heightAt, insidePoly, type CityPlan, type P, type Tower } from './layout';
+import { towerReach, wallTops } from './forts';
 import { hash3, rnd } from './noise';
 import { headOf } from './roads';
 import { linear } from './palette';
 import { armsCode, armsOr } from '@/heraldry/arms';
 import { TINCTURE_HEX } from '@/heraldry/art';
-import { LIFE_CAP, PATROL } from './spec';
+import { KEEP_BEATS, LIFE_CAP, PATROL } from './spec';
 import type { CityMood, DayRhythm, MoodLook } from './rhythm';
 export { LIFE_CAP } from './spec';
 
@@ -752,6 +752,53 @@ export function nearestOn(path: Path, p: P): { d: number; s: number } {
   return { d, s };
 }
 
+/** Боевой ход стены по замкнутому контуру: контур, сдвинутый внутрь на 0,4 м, высота — верх хода (`forts.wallTops`). */
+export function walkOf(wall: readonly P[]): Path {
+  const tops = wallTops(wall);
+  const n = wall.length;
+  const inner: P[] = wall.map((p, k) => {
+    const a = wall[(k - 1 + n) % n];
+    const b = wall[(k + 1) % n];
+    let nx = -(b.z - a.z);
+    let nz = b.x - a.x;
+    const l = Math.hypot(nx, nz) || 1;
+    nx /= l;
+    nz /= l;
+    if (!insidePoly({ x: p.x + nx * 2, z: p.z + nz * 2 }, wall as P[])) {
+      nx = -nx;
+      nz = -nz;
+    }
+    return { x: p.x + nx * 0.4, z: p.z + nz * 0.4 };
+  });
+  inner.push(inner[0]);
+  const topsClosed = [...tops, tops[0]];
+  return pathOf(inner, 0, (_p, k, f) => topsClosed[k] + (topsClosed[k + 1] - topsClosed[k]) * f);
+}
+
+/** Башни на ходу стены — по их проекции на ход: дозор ходит между ними, не сквозь них. */
+export function stopsOn(walk: Path, towers: readonly Tower[]): { s: number; half: number }[] {
+  return towers
+    .map((t) => ({ t, n: nearestOn(walk, t) }))
+    .filter((o) => o.n.d < o.t.size)
+    // Двойная надвратная занимает стену до края барабана: лучник останавливается за ним, а не в его кладке.
+    .map((o) => ({ s: o.n.s, half: towerReach(o.t, towers) + 1.2 }))
+    .sort((a, b) => a.s - b.s);
+}
+
+/** Отрезок дозора между башнями (`stops` на ходу длиной `L`), в котором дом лучника: середина и полудлина (не больше 22 м). */
+function beatOf(st: readonly { s: number; half: number }[], L: number, home: number): { mid: number; reach: number } {
+  const m = st.length;
+  if (m === 0) return { mid: home, reach: 22 };
+  let j = -1;
+  for (let k = 0; k < m; k++) if (st[k].s <= home) j = k;
+  // Башня до дома и башня после — по кругу хода.
+  const a = j === -1 ? { s: st[m - 1].s - L, half: st[m - 1].half } : st[j];
+  const b = j === -1 ? st[0] : j + 1 < m ? st[j + 1] : { s: st[0].s + L, half: st[0].half };
+  const from = a.s + a.half;
+  const to = b.s - b.half;
+  return { mid: (from + to) / 2, reach: Math.max(0.3, Math.min(22, (to - from) / 2)) };
+}
+
 /** Перекрёсток на пути: на месте `s` можно свернуть на путь `q` в его место `sq`. */
 export interface Junction {
   s: number;
@@ -1480,6 +1527,9 @@ export class CityLife {
   readonly group = new THREE.Group();
   private paths: Path[] = [];
   private wall: Path;
+  /** Боевой ход стены замка вокруг донжона и отрезки дозора на нём (`KEEP_BEATS`, docs/city_v3.md, Р-2). */
+  private keepWall: Path;
+  private keepStops: { s: number; half: number }[] = [];
   /** Маршруты идущих и места стоящих; порядок экземпляров перемешан — ночью пустеет равномерно. */
   private routes: (Route | null)[] = [];
   private idle: (Idle | null)[] = [];
@@ -1578,27 +1628,9 @@ export class CityLife {
     }
     this.junctions = junctionsOf(this.paths);
     this.weight = weight;
-    // Боевой ход: контур стены, сдвинутый внутрь на метр, высота — верх хода.
-    const tops = wallTops(plan.wall);
-    const n = plan.wall.length;
-    const inner: P[] = plan.wall.map((p, k) => {
-      const a = plan.wall[(k - 1 + n) % n];
-      const b = plan.wall[(k + 1) % n];
-      let nx = -(b.z - a.z);
-      let nz = b.x - a.x;
-      const l = Math.hypot(nx, nz) || 1;
-      nx /= l;
-      nz /= l;
-      if (!insidePoly({ x: p.x + nx * 2, z: p.z + nz * 2 }, plan.wall)) {
-        nx = -nx;
-        nz = -nz;
-      }
-      return { x: p.x + nx * 0.4, z: p.z + nz * 0.4 };
-    });
-    inner.push(inner[0]);
-    const topsClosed = [...tops, tops[0]];
-    this.wall = pathOf(inner, 0, (_p, k, f) => topsClosed[k] + (topsClosed[k + 1] - topsClosed[k]) * f);
-
+    // Боевой ход: контур стены, сдвинутый внутрь на метр, высота — верх хода. Тот же — у стены замка.
+    this.wall = walkOf(plan.wall);
+    this.keepWall = walkOf(plan.castleWall);
     const mat = figureMaterial();
     const simple = quality === 'low';
     const lod = figureLod(quality);
@@ -1612,7 +1644,7 @@ export class CityLife {
       this.paints.push({ dress: DRESS, second, salt: 97 + m });
       this.crowdGait.push(gaitOf(im));
     });
-    this.sentries = figureMesh(archerGeometry(lod), mat, this.cap.guards, 'city-guards', TABARD, SHIELD, 79);
+    this.sentries = figureMesh(archerGeometry(lod), mat, this.cap.guards + KEEP_BEATS, 'city-guards', TABARD, SHIELD, 79);
     // Ворота: по двое копейщиков с каждой стороны проезда, перед башней, лицом от неё. Снаружи — если там есть место:
     // северные ворота города и ворота замка стоят через ров вплотную, и их стража — каждая со своей, внутренней стороны.
     const gates = plan.towers.filter((t) => t.kind === 'gate' || t.kind === 'castleGate');
@@ -1657,19 +1689,16 @@ export class CityLife {
     const col = new THREE.Color();
     for (let i = 0; i < this.cap.animals; i++) this.beasts.setColorAt(i, col.setRGB(1, 1, 1));
     // Дозор лучника — между соседними башнями, не сквозь них: башни на ходу стены — по их проекции на ход.
-    const stops = plan.towers
-      .map((t) => ({ t, n: nearestOn(this.wall, t) }))
-      .filter((o) => o.n.d < o.t.size)
-      .map((o) => ({ s: o.n.s, half: o.t.size / 2 + 1.2 }))
-      .sort((a, b) => a.s - b.s);
+    const stops = stopsOn(this.wall, plan.towers);
     this.beatStops = stops;
+    this.keepStops = stopsOn(this.keepWall, plan.towers);
     this.seedPeople();
     this.seedBeasts();
     this.patrol = this.patrolCap > 0 ? this.patrolRoute(plan) : null;
 
     this.smoke = new CitySmoke(CITY_SMOKE);
     // Факелы стражи — точки с мягким пятном, как огоньки стены (`index.flames`), видны в сумерках и ночью.
-    this.torches = glowPoints(this.cap.guards + gateN, 2.4, 0xffa040, 'city-torches');
+    this.torches = glowPoints(this.cap.guards + KEEP_BEATS + gateN, 2.4, 0xffa040, 'city-torches');
     this.group.add(this.torches);
     this.bonfire = glowPoints(2, 7, 0xff9a40, 'city-bonfire');
     this.group.add(this.bonfire);
@@ -2254,17 +2283,23 @@ export class CityLife {
     // стоит, смотрит со стены. Сквозь башни не ходит.
     // Тревога: на стене — почти все места (`lookOf().wall`), сколько бы войска ни было дома.
     const c = Math.min(this.cap.guards, Math.max(this.want.guards, Math.ceil(this.cap.guards * look.wall)));
-    this.sentries.count = c;
-    const L = this.wall.len;
+    // Сверх них — дозор на стене замка вокруг донжона (Р-2): прежде замок стоял без дозора, а нижний город — с ним. Пока на
+    // стене города есть стража, на замковой ходят свои двое; стена города от этого не пустеет.
+    const keepN = c > 0 ? KEEP_BEATS : 0;
+    const townN = c;
+    this.sentries.count = c + keepN;
     const gg = this.guardGait.array as Float32Array;
-    for (let i = 0; i < c; i++) {
-      const home = ((i + 0.5 + rnd(i, 1, 79) * 0.3) / c) * L;
-      const beat = this.beatOf(home);
+    for (let i = 0; i < c + keepN; i++) {
+      const onKeep = i >= townN;
+      const walk = onKeep ? this.keepWall : this.wall;
+      const L = walk.len;
+      const home = (((onKeep ? i - townN : i) + 0.5 + rnd(i, 1, 79) * 0.3) / (onKeep ? keepN : townN)) * L;
+      const beat = beatOf(onKeep ? this.keepStops : this.beatStops, L, home);
       const g = patrolAt(t, 0.7, beat.reach, 4 + rnd(i, 2, 79) * 5, rnd(i, 3, 79));
       const s = (((beat.mid + g.s) % L) + L) % L;
-      const a = at(this.wall, s);
+      const a = at(walk, s);
       const yaw = Math.atan2(-a.tz * g.dir, a.tx * g.dir);
-      this.place(this.sentries, i, a.p.x, heightOnPath(this.wall, s), a.p.z, yaw, 1);
+      this.place(this.sentries, i, a.p.x, heightOnPath(walk, s), a.p.z, yaw, 1);
       gg[i * 2] = g.dist;
       gg[i * 2 + 1] = g.moving;
     }
@@ -2274,11 +2309,12 @@ export class CityLife {
     const tm = this.torches.material as THREE.PointsMaterial;
     tm.opacity = night;
     const posts = this.gateGuards.count;
-    this.torches.visible = night > 0.02 && c + posts > 0;
-    let lit2 = c;
+    const sent = c + keepN;
+    this.torches.visible = night > 0.02 && sent + posts > 0;
+    let lit2 = sent;
     if (this.torches.visible) {
       const tp = this.torches.geometry.attributes.position as THREE.BufferAttribute;
-      for (let i = 0; i < c; i++) {
+      for (let i = 0; i < sent; i++) {
         this.sentries.getMatrixAt(i, this.m4);
         const v = this.v3.set(0.15, 2.05, 0.32).applyMatrix4(this.m4);
         tp.setXYZ(i, v.x, v.y, v.z);
@@ -2355,22 +2391,6 @@ export class CityLife {
     this.gateGait.needsUpdate = true;
   }
 
-  /** Отрезок дозора между башнями, в котором дом лучника: середина и полудлина (не больше 22 м). */
-  private beatOf(home: number): { mid: number; reach: number } {
-    const st = this.beatStops;
-    const L = this.wall.len;
-    const m = st.length;
-    if (m === 0) return { mid: home, reach: 22 };
-    let j = -1;
-    for (let k = 0; k < m; k++) if (st[k].s <= home) j = k;
-    // Башня до дома и башня после — по кругу хода.
-    const a = j === -1 ? { s: st[m - 1].s - L, half: st[m - 1].half } : st[j];
-    const b = j === -1 ? st[0] : j + 1 < m ? st[j + 1] : { s: st[0].s + L, half: st[0].half };
-    const from = a.s + a.half;
-    const to = b.s - b.half;
-    return { mid: (from + to) / 2, reach: Math.max(0.3, Math.min(22, (to - from) / 2)) };
-  }
-
   /**
    * Стража — бойцами роликов (`city/garrison.ts`, docs/polish.md, П-5): здесь остаются места и дозор, а рисует их толпа
    * роликов, когда её кусок приехал. До того — прежние фигуры стражи; после — гаснут (факелы остаются здесь).
@@ -2406,9 +2426,9 @@ export class CityLife {
     return { count: n, wall };
   }
 
-  /** Сколько мест стражи может понадобиться: лучники на стене, посты у ворот и ночной дозор. */
+  /** Сколько мест стражи может понадобиться: лучники на стене (и дозор замка), посты у ворот и ночной дозор. */
   get guardCap(): { wall: number; gate: number } {
-    return { wall: this.cap.guards, gate: this.gatePosts.length + this.patrolCap };
+    return { wall: this.cap.guards + KEEP_BEATS, gate: this.gatePosts.length + this.patrolCap };
   }
 
   private place(im: THREE.InstancedMesh, k: number, x: number, y: number, z: number, yaw: number, scale: number): void {

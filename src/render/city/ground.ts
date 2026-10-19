@@ -259,9 +259,9 @@ export function hamlets(plan: CityPlan): (P & { r: number })[] {
 }
 
 /**
- * Где пашня: восточный склон и шея мыса у города, кругом деревень вдали. Решает клетка целиком — по своей середине и своему
- * зерну: край пашни идёт межами клеток, ступенями, а не прямой через весь склон (прежде южный край — прямая z 175 через
- * 440 м, с ролика у ворот — полоса поперёк, Г-3, «Косяки»).
+ * Где пашня: угодья хутора к востоку от него (`FARM_FIELDS`), кругом деревень вдали. Решает клетка целиком — по своей
+ * середине и своему зерну: край пашни идёт межами клеток, ступенями, а не прямой через весь склон (прежде южный край —
+ * прямая z 175 через 440 м, с ролика у ворот — полоса поперёк, Г-3, «Косяки»).
  */
 function fieldCell(cx: number, cz: number, plan: CityPlan): boolean {
   const x0 = cx * FIELD_CELL.x - FIELD_CELL.off;
@@ -269,17 +269,19 @@ function fieldCell(cx: number, cz: number, plan: CityPlan): boolean {
   const x1 = x0 + FIELD_CELL.x;
   const z1 = z0 + FIELD_CELL.z;
   const r = vnoise(cx * 7.3, cz * 3.1, 1e6, 11);
-  if (r < 0.28) return false;
-  // Угодья у города — не меньше прежних прямоугольников: клетка — поле, если хоть краем заходит в них; край — наружу на
-  // запас клетки, не линейкой.
   const j = vnoise(cx * 3.7 + 0.5, cz * 5.3 + 0.5, 1e6, 15) * 60;
-  if (x1 > 125 && x0 < 330 + j && z1 > -170 && z0 < 190 + j) return true;
-  if (z1 > 175 && z0 < 330 + j && x1 > -220 - j && x0 < 220 + j) return true;
+  // Угодья у города — справа от хутора, к востоку, по обе стороны Восточной дороги (docs/city_v3.md, Р-2): клетка к клетке,
+  // без прорех — поле читается полем, а не пятнами. Прежние полосы на склоне под стеной и у южной дороги — луг, лес и рощи.
+  if (x0 >= FARM_FIELDS.x0 && x0 < FARM_FIELDS.x1 + j && z1 > FARM_FIELDS.z0 && z0 < FARM_FIELDS.z1 + j * 0.5) return true;
+  if (r < 0.28) return false;
   const mx = (x0 + x1) / 2;
   const mz = (z0 + z1) / 2;
   for (const h of hamlets(plan)) if (Math.hypot(mx - h.x, mz - h.z) < h.r + j - (r - 0.28) * 90) return true;
   return false;
 }
+
+/** Угодья хутора: клетки полей с западным краем не левее хутора (x 150 — восточная половина его двора), м. */
+export const FARM_FIELDS = { x0: 150, x1: 330, z0: -170, z1: 190 } as const;
 
 /** Поля — за гласисом: ближе к стене луг (обстрел со стены, `nature.GLACIS`, и запас до опушки). */
 const FIELD_GLACIS = 34;
@@ -300,7 +302,7 @@ function wallBox(plan: CityPlan): { x0: number; x1: number; z0: number; z1: numb
   return b;
 }
 
-/** Вне стены и гласиса: восточный склон и шея мыса, поля у деревень — полосами. */
+/** Вне стены и гласиса: угодья хутора к востоку от него и поля у деревень — полосами; за рекой — нет. */
 export function fieldAt(x: number, z: number, plan: CityPlan): number {
   const fx = (x + FIELD_CELL.off) / FIELD_CELL.x;
   const fz = (z + FIELD_CELL.off) / FIELD_CELL.z;
@@ -311,7 +313,8 @@ export function fieldAt(x: number, z: number, plan: CityPlan): number {
   // Межа — трава между клетками.
   if (Math.min(ux, 1 - ux) * FIELD_CELL.x <= 1.6 || Math.min(uz, 1 - uz) * FIELD_CELL.z <= 1.6) return 0;
   if (!fieldCell(cx, cz, plan)) return 0;
-  if (Math.abs(x - riverX(z)) < RIVER_HALF + 14) return 0;
+  // За рекой полей нет — там лес (Р-2); у воды — луг.
+  if (x - riverX(z) < RIVER_HALF + 14) return 0;
   // Двор пашня обходит прямоугольником по оси двора, как изгородь, а не ровным кругом поляны (Г-3, «Косяки»): круг вокруг
   // хутора читался вырезом в полях.
   for (const y of plan.yards) {
@@ -323,7 +326,8 @@ export function fieldAt(x: number, z: number, plan: CityPlan): number {
     if (Math.abs(dx * c + dz * sn) < y.r * 0.8 + 2 && Math.abs(-dx * sn + dz * c) < y.r * 0.62 + 2) return 0;
   }
   for (const h of plan.suburb) if (Math.hypot(x - h.x, z - h.z) < Math.max(h.w, h.d) + 6) return 0;
-  if (nearRoad(x, z, plan, 4)) return 0;
+  // Пашня — до обочины: межа у дороги в метр, а не луговая полоса в четыре (Р-2).
+  if (nearRoad(x, z, plan, 1.2)) return 0;
   // Дальше рамки стены с гласисом — ни стены, ни гласиса: обход контура не нужен.
   const b = wallBox(plan);
   if (x < b.x0 || x > b.x1 || z < b.z0 || z > b.z1) return 1;
