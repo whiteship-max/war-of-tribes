@@ -20,7 +20,7 @@ import { linear } from './palette';
 import { armsCode, armsOr } from '@/heraldry/arms';
 import { TINCTURE_HEX } from '@/heraldry/art';
 import { LIFE_CAP, PATROL } from './spec';
-import { CALM_MOOD, lookOf, rhythmAt, type CityMood, type DayRhythm, type MoodLook } from './rhythm';
+import type { CityMood, DayRhythm, MoodLook } from './rhythm';
 export { LIFE_CAP } from './spec';
 
 /** Места стражи в кадре (`CityLife.guardsInto`): плоскими массивами, без мусора. */
@@ -1199,6 +1199,9 @@ export type SpotKind = 'market' | 'well' | 'parvis' | 'hall';
  */
 export type IdleMode = 'home' | 'tavern' | 'queue' | 'feast' | 'work' | 'hidden';
 
+/** Распорядок утра (`rhythm.rhythmAt(0.15)`) — жизни без сцены (стенд, тесты): рынок и работа, ни трактира, ни дозора. */
+const MORNING: DayRhythm = { market: 1, work: 1, tavern: 0, patrol: 0, shift: -1 };
+
 /** Хоровод праздника, очередь у амбара, места у трактира: сколько человек самое большее. */
 export const FEAST_RING = 14;
 export const QUEUE_LEN = 12;
@@ -1503,8 +1506,8 @@ export class CityLife {
   private gateShown: Uint8Array;
   private gateMoving: Uint8Array;
   /** Состояние города в виде (`rhythm.moodOf`) и что оно делает с улицами. */
-  private mood: CityMood = CALM_MOOD;
-  private look: MoodLook = lookOf(CALM_MOOD);
+  private mood: CityMood = { feast: 0, alarm: 0, hunger: 0, plague: 0, cheer: 0 };
+  private look: MoodLook = { street: 1, idle: 1, wall: 0 };
   /** Места у трактира, очередь у амбара, места у работающих построек (`setPlaces`, `setStations`). */
   private tavernStands: Stand[] = [];
   private queueStands: Stand[] = [];
@@ -2015,12 +2018,12 @@ export class CityLife {
    * Состояние города в виде (docs/city_v3.md, ЖГ-1, `rhythm.moodOf`): праздник, тревога, голод, мор, мораль. Зовётся из
    * `sync` сцены, когда партия сменилась; кадр читает его в `update`.
    */
-  setMood(m: CityMood): void {
+  setMood(m: CityMood, look: MoodLook): void {
     const same = m.feast === this.mood.feast && m.alarm === this.mood.alarm && m.hunger === this.mood.hunger && m.plague === this.mood.plague && m.cheer === this.mood.cheer;
     if (same) return;
     const plagueWas = this.mood.plague > 0.5;
     this.mood = m;
-    this.look = lookOf(m);
+    this.look = look;
     if (plagueWas !== m.plague > 0.5) {
       // Мор: над тремя домами квартала — тёмный дым (жгут постели и солому умерших); прошёл — гаснет.
       this.plagueSmoke = m.plague > 0.5 ? this.smokeOn.filter((_c, i) => i % 9 === 4).slice(0, 3).map((c) => ({ x: c.x, y: c.y, z: c.z, puffs: 9, top: 18 })) : [];
@@ -2127,12 +2130,12 @@ export class CityLife {
 
   /**
    * Кадр: всё — от времени `t` (секунды сцены), `dt` не копится нигде. `night` — доля ночи окон, `snow` — доля зимы,
-   * `solar` — фаза солнца партии (распорядок дня, `rhythm.rhythmAt`).
+   * `rh` — распорядок дня в фазу солнца партии (`rhythm.rhythmAt`; без него — утро: рынок и работа, ни трактира, ни дозора).
+   * Распорядок считает сцена: `rhythm` — общий кусок вида и звука, а жизнь тянут и другие куски (суета, покои, стенд).
    */
-  update(dt: number, t: number, night: number, snow: number, solar = 0.15): void {
+  update(dt: number, t: number, night: number, snow: number, rh: DayRhythm = MORNING): void {
     void dt;
     this.time.value = t;
-    const rh = rhythmAt(solar);
     const mood = this.mood;
     const look = this.look;
     // Ночью на улицах редкие прохожие, зимой — на четверть меньше; тревога, мор и хмурость — ещё меньше (`lookOf`).

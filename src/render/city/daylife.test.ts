@@ -56,10 +56,10 @@ function life(mood: CityMood = CALM_MOOD, q: 'low' | 'medium' = 'medium'): CityL
   l.set(1000, 6, []);
   l.setPlaces(tavern, storage);
   l.setStations(workshops);
-  l.setMood(mood);
+  l.setMood(mood, lookOf(mood));
   return l;
 }
-const at = (l: CityLife, solar: number, t = 40): CityLife => (l.update(0.1, t, DARK[solar] ?? 0, 0, solar), l);
+const at = (l: CityLife, solar: number, t = 40): CityLife => (l.update(0.1, t, DARK[solar] ?? 0, 0, rhythmAt(solar)), l);
 
 describe('живой город: распорядок по часам', () => {
   it('часы распорядка: рынок до полудня, работа днём, трактир вечером, дозор ночью', () => {

@@ -14,7 +14,8 @@ import { hearCity } from '@/sound/ear';
 import { WORK_SIGN, workBusy } from '../worksigns';
 import type { V3 } from './geom';
 import { CityLife, type Anchor } from './life';
-import { feastClock, forcedMood, moodOf, CALM_MOOD, type CityMood } from './rhythm';
+import { feastClock, forcedMood, lookOf, moodOf, rhythmAt, CALM_MOOD, type CityMood } from './rhythm';
+import { marchesOnHome, useWorld } from '@/world/store';
 import type { CityBustle } from './alive';
 import type { CityGarrison } from './garrison';
 import type { CityDeeds } from './deeds';
@@ -205,8 +206,12 @@ export class CityScene extends TribeScene {
   };
   /** Фаза солнца этого кадра — распорядку дня города (`rhythm.rhythmAt`). */
   private solar = 0.15;
-  /** Враг идёт к городу (мир, `marchesOnHome`) — тревога в виде (`setThreat`). */
+  /**
+   * Враг идёт к городу (мир, `marchesOnHome`) — тревога в виде. Подписка на стор мира — здесь, в куске города, а не в полотне
+   * игры: первая загрузка не растёт.
+   */
   private threat = false;
+  private unThreat: (() => void) | null = null;
   /** Состояние города в виде (`rhythm.moodOf`) и работающие постройки — места людей днём. */
   private mood: CityMood = CALM_MOOD;
   private stations: Anchor[] = [];
@@ -229,6 +234,11 @@ export class CityScene extends TribeScene {
     ring.polygonOffset = true;
     ring.polygonOffsetFactor = -4;
     // Город встаёт на слоях 256², `ready` — когда пришли и полные (стенду — снимать на них).
+    const threat = (w: ReturnType<typeof useWorld.getState>): boolean => marchesOnHome(w.marches, w.info?.homeId).length > 0;
+    this.setThreat(threat(useWorld.getState()));
+    this.unThreat = useWorld.subscribe((w, was) => {
+      if (w.marches !== was.marches || w.info !== was.info) this.setThreat(threat(w));
+    });
     this.ready = buildCity(this.quality).then((c) => {
       this.mount(c);
       return c.full;
@@ -611,7 +621,7 @@ export class CityScene extends TribeScene {
       }
       // Огни ночи (docs/polish.md, П-9): загораются по одному, мерцают; настоящие — ближние к взгляду.
       c.rig.update(t, dt, night, this.eye.x, this.eye.z, this.camera, this.renderer.domElement.height);
-      this.folk?.update(dt, t, night, this.seasonVis.snow, this.solar);
+      this.folk?.update(dt, t, night, this.seasonVis.snow, rhythmAt(this.solar));
       this.garrison?.update(t, this.camera);
       // Колесо лесопилки крутится и брызжет — от времени (ручей не мёрзнет).
       c.mill?.update(t);
@@ -835,9 +845,9 @@ export class CityScene extends TribeScene {
 
   /**
    * Враг идёт к городу (набег на карте, `world/store.marchesOnHome`): люди прячутся, стража на стенах — тревога в виде
-   * (docs/city_v3.md, ЖГ-1). Зовёт полотно игры — сцена мира не знает.
+   * (docs/city_v3.md, ЖГ-1).
    */
-  setThreat(on: boolean): void {
+  private setThreat(on: boolean): void {
     if (on === this.threat) return;
     this.threat = on;
     if (this.lastState) this.moodNow(this.lastState);
@@ -858,7 +868,7 @@ export class CityScene extends TribeScene {
       this.stations = busy.map((type) => mainSite(this.sites, type)).filter((m): m is NonNullable<typeof m> => m !== null).slice(0, 6);
       this.folk?.setStations(this.stations);
     }
-    this.folk?.setMood(this.mood);
+    this.folk?.setMood(this.mood, lookOf(this.mood));
   }
 
   /** Группа здания — на главное место его постройки, значок — над крышей. */
@@ -1025,6 +1035,8 @@ export class CityScene extends TribeScene {
   }
 
   override dispose(): void {
+    this.unThreat?.();
+    this.unThreat = null;
     this.garrison?.dispose();
     this.garrison = null;
     this.folk?.dispose();

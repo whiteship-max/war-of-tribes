@@ -11,7 +11,7 @@ import { measureViewport } from '@/viewport';
 import { nextFrame } from '@/render/loop';
 import { gfx, gfxKey, sceneGfx, subscribeGfx } from '@/render/gfx';
 import { awayGameSeconds } from '@/game/sim/tick';
-import { marchesOnHome, useWorld } from '@/world/store';
+import { useWorld } from '@/world/store';
 import { homeRegion } from '@/ui/parts/weather';
 
 /**
@@ -158,13 +158,8 @@ export function GameCanvas() {
     if (g0.mapOpen) scene.pause();
     // Погода над городом — по региону игрока (docs/city.md, 15): мир называет клетку города не сразу.
     scene.setRegion(homeRegion());
-    // Враг идёт к городу — тревога в виде города: люди прячутся, стража на стенах (docs/city_v3.md, ЖГ-1).
-    const city = scene as TribeScene & { setThreat?: (on: boolean) => void };
-    const threat = (w: ReturnType<typeof useWorld.getState>): boolean => marchesOnHome(w.marches, w.info?.homeId).length > 0;
-    city.setThreat?.(threat(useWorld.getState()));
     const unRegion = useWorld.subscribe((w, was) => {
       if (w.info !== was.info) scene.setRegion(homeRegion());
-      if (w.marches !== was.marches || w.info !== was.info) city.setThreat?.(threat(w));
     });
     // Экран загрузки уходит не по «сцена создана», а по первому её кадру:
     // между конструктором и картинкой лежит компиляция шейдеров.
