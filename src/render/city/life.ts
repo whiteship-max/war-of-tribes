@@ -1203,8 +1203,12 @@ export type IdleMode = 'home' | 'tavern' | 'queue' | 'feast' | 'work' | 'hidden'
 export const FEAST_RING = 14;
 export const QUEUE_LEN = 12;
 export const TAVERN_SEATS = 12;
-/** Середина хоровода — на Соборной площади к западу от пути к паперти, мимо путей прохожих; радиус, м. */
-export const FEAST_AT = { x: -14, z: -17, r: 3.4 } as const;
+/**
+ * Середина хоровода — у ратуши на западе площади, где в будни стоят кружками (в праздник они в хороводе): на виду у камеры
+ * игры и из южного окна покоев — за храмом и крышами площадь из окна закрыта (лучи — `chambers/window.test.ts`); мимо
+ * путей прохожих и статуи. Радиус, м.
+ */
+export const FEAST_AT = { x: -21, z: -3.5, r: 3.4 } as const;
 
 /**
  * Режим стоящего (`j` — его номер среди стоящих, `rank` — жребий): тревога прячет всех; праздник ставит каждого второго в
@@ -1216,6 +1220,8 @@ export const FEAST_AT = { x: -14, z: -17, r: 3.4 } as const;
 export function idleMode(kind: SpotKind, j: number, rank: number, rh: DayRhythm, mood: CityMood, look: MoodLook, open: number, stations: number, places: { tavern: boolean; queue: boolean }, inOrder: boolean): IdleMode {
   if (mood.alarm > 0.5) return 'hidden';
   if (mood.feast > 0.5 && j % 2 === 0 && j / 2 < FEAST_RING) return 'feast';
+  // Кружки у ратуши — на месте хоровода: в праздник они в нём.
+  if (mood.feast > 0.5 && kind === 'hall') return 'hidden';
   if (mood.hunger > 0.5 && places.queue && open > 0.5 && j % 3 === 1 && (j - 1) / 3 < QUEUE_LEN) return 'queue';
   const a = look.idle;
   if (places.tavern && j % 4 === 0 && j / 4 < TAVERN_SEATS && rank < rh.tavern * a) return 'tavern';
@@ -1504,8 +1510,9 @@ export class CityLife {
   private queueStands: Stand[] = [];
   private stations: Stand[] = [];
   private tavernLights: THREE.Points | null = null;
-  /** Костёр праздника посреди хоровода — огонёк в сумерках. */
+  /** Костёр праздника посреди хоровода — огонёк в сумерках и шалаш поленьев под ним (`FEAST_LOGS`). */
   private bonfire: THREE.Points;
+  private logs: THREE.InstancedMesh;
   /** Дым мора: тёмные столбы над домами (жгут одежду и солому). */
   private plagueSmoke: SmokeSource[] = [];
   /** Посты стражи у ворот: место и разворот — стенду, чтобы снять стражу вблизи (`?showcase=city&guard=N`). */
@@ -1661,8 +1668,10 @@ export class CityLife {
     // Факелы стражи — точки с мягким пятном, как огоньки стены (`index.flames`), видны в сумерках и ночью.
     this.torches = glowPoints(this.cap.guards + gateN, 2.4, 0xffa040, 'city-torches');
     this.group.add(this.torches);
-    this.bonfire = glowPoints(1, 7, 0xff9a40, 'city-bonfire');
+    this.bonfire = glowPoints(2, 7, 0xff9a40, 'city-bonfire');
     this.group.add(this.bonfire);
+    this.logs = this.buildLogs();
+    this.group.add(this.logs);
     if (this.cap.lanterns > 0) {
       this.lanterns = glowPoints(this.cap.lanterns, 1.7, 0xffb860, 'city-lanterns');
       this.group.add(this.lanterns);
@@ -2042,6 +2051,33 @@ export class CityLife {
     this.stations = stationsOf(this.input.plan, sites);
   }
 
+  /**
+   * Шалаш поленьев костра праздника: шесть поленьев, сходящихся верхушками, — экземплярами, один вызов; виден только в
+   * праздник.
+   */
+  private buildLogs(): THREE.InstancedMesh {
+    const g = new THREE.BoxGeometry(0.13, 1.3, 0.13);
+    g.translate(0, 0.65, 0);
+    const im = new THREE.InstancedMesh(g, new THREE.MeshLambertMaterial(), 6);
+    const y = heightAt(FEAST_AT.x, FEAST_AT.z);
+    const q = new THREE.Quaternion();
+    const e = new THREE.Euler();
+    const col = new THREE.Color();
+    const wood = linear(0x4a3426);
+    for (let k = 0; k < 6; k++) {
+      const a = (k / 6) * Math.PI * 2;
+      // Низ — по кругу в 0.55 м, верх наклонён к середине.
+      e.set(-Math.sin(a) * 0.42, 0, Math.cos(a) * 0.42, 'XYZ');
+      q.setFromEuler(e);
+      this.m4.compose(this.v3.set(FEAST_AT.x + Math.cos(a) * 0.55, y, FEAST_AT.z + Math.sin(a) * 0.55), q, this.s3.set(1, 1, 1));
+      im.setMatrixAt(k, this.m4);
+      im.setColorAt(k, col.setRGB(wood[0], wood[1], wood[2]));
+    }
+    im.name = 'city-bonfire-logs';
+    im.visible = false;
+    return im;
+  }
+
   /** Слоты, занятые видимыми в этом кадре, — по мешу. */
   private used = new Int32Array(TOWNSFOLK.length);
 
@@ -2063,20 +2099,30 @@ export class CityLife {
     this.slotPerson[m][i] = k;
   }
 
-  /** Маршрут ночного дозора: самый длинный из пробных, весь — внутри стены (за воротами дозор не ходит). */
+  /**
+   * Маршрут ночного дозора: весь — внутри стены (за воротами дозор не ходит), и через площадь у колодца, если такой есть
+   * среди пробных; из годных — самый длинный.
+   */
   private patrolRoute(plan: CityPlan): Route | null {
     let best: Route | null = null;
+    let bestScore = -1;
     for (let k = 0; k < 40; k++) {
       const r = routeOf(this.paths, this.junctions, this.weight, k, 75);
       const probe = { ...r, phase: 0, v: 1 };
       let inside = true;
-      for (let d = 0; d < r.len && inside; d += 8) {
+      let square = false;
+      for (let d = 0; d < r.len && inside; d += 4) {
         const p = poseAt(this.paths, probe, d);
         inside = insidePoly({ x: p.x, z: p.z }, plan.wall);
+        square ||= Math.hypot(p.x - plan.well.x, p.z - plan.well.z) < 18;
       }
-      if (inside && (!best || r.len > best.len)) best = r;
+      const score = inside ? r.len + (square ? 1e4 : 0) : -1;
+      if (score > bestScore) {
+        best = r;
+        bestScore = score;
+      }
     }
-    return best ? { ...best, v: 0.85 } : null;
+    return best && bestScore >= 0 ? { ...best, v: 0.85 } : null;
   }
 
   /**
@@ -2186,15 +2232,19 @@ export class CityLife {
       tl.opacity = on;
       tl.size = 2.2 * (1 + Math.sin(t * 7 + 1) * 0.05);
     }
-    const fire = mood.feast > 0.5 ? Math.min(1, 0.25 + night * 1.5) : 0;
+    const fire = mood.feast > 0.5 ? Math.min(1, 0.45 + night * 1.5) : 0;
+    this.logs.visible = mood.feast > 0.5;
     this.bonfire.visible = fire > 0.02;
     if (this.bonfire.visible) {
+      // Пламя — два огонька: широкое пятно над поленьями и язык повыше, пляшет.
       const bp = this.bonfire.geometry.attributes.position as THREE.BufferAttribute;
-      bp.setXYZ(0, FEAST_AT.x, heightAt(FEAST_AT.x, FEAST_AT.z) + 0.9, FEAST_AT.z);
+      const y = heightAt(FEAST_AT.x, FEAST_AT.z);
+      bp.setXYZ(0, FEAST_AT.x, y + 0.75, FEAST_AT.z);
+      bp.setXYZ(1, FEAST_AT.x + Math.sin(t * 3.7) * 0.08, y + 1.35 + Math.sin(t * 9.1) * 0.12, FEAST_AT.z + Math.sin(t * 2.9) * 0.08);
       bp.needsUpdate = true;
       const bm = this.bonfire.material as THREE.PointsMaterial;
       bm.opacity = fire;
-      bm.size = 7 * (1 + Math.sin(t * 11) * 0.08 + Math.sin(t * 4.3) * 0.06);
+      bm.size = 6 * (1 + Math.sin(t * 11) * 0.08 + Math.sin(t * 4.3) * 0.06);
     }
     this.gateFrame(t, rh, mood);
     // Лучники: по всем сторонам стены поровну, у каждого свой отрезок между башнями — туда и обратно, на концах
@@ -2372,6 +2422,8 @@ export class CityLife {
       m.map?.dispose();
       m.dispose();
     }
+    this.logs.geometry.dispose();
+    (this.logs.material as THREE.Material).dispose();
     (this.crowd[0].material as THREE.Material).dispose();
     (this.flags.material as THREE.Material).dispose();
     (this.birds.material as THREE.Material).dispose();

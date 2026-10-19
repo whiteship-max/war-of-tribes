@@ -13,7 +13,7 @@
 //                                                карта мира, `WXSEASON=winter` — сезон партии, `WXREGION=italy` — регион,
 //                                                `WXDAY=0.8` — доля суток партии (0.8 летом — глубокая ночь, docs/polish.md, П-3);
 //                                                `MOOD=feast` — состояние города адресом (`?mood=`: feast, siege, hunger,
-//                                                plague, gloom, cheer; docs/city_v3.md, ЖГ-1)
+//                                                plague, gloom, cheer; docs/city_v3.md, ЖГ-1), `POP=150` — население партии
 //   GAME=1 WX=clear CHAMBERS=desk npm run city:shots — покои правителя (docs/city_v3.md, Г-4): точка интереса
 //                                                (hall, desk, window, hearth, bed, arms), `:доворот:наклон:безделушка:подсветка`
 //   LEGEND=1 npm run city:shots              — легенда карты листом: строки значков той же функцией, что окно легенды
@@ -324,6 +324,16 @@ async function weatherShots(tab: Tab, q: Quality): Promise<void> {
       window.__game.setState({ s: { ...s } });
       // Палитра сезона переливается секундами, а программный кадр облака — секунда: ставим сразу.
       window.__scene.seasonVis.jump(${JSON.stringify(season)});
+      return JSON.stringify('ok');
+    })()`);
+  }
+  // Население партии (`POP=150`, docs/city_v3.md, ЖГ-1): город середины игры — людей на улицах до потолка уровня.
+  const pop = process.env.POP;
+  if (pop) {
+    await tab.eval<string>(`(() => {
+      const s = window.__game.getState().s;
+      s.pop = ${Number(pop)};
+      window.__game.setState({ s: { ...s } });
       return JSON.stringify('ok');
     })()`);
   }

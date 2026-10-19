@@ -6,7 +6,7 @@ import { buildStatic } from './budget';
 import { CityLife, FEAST_AT, FEAST_RING, QUEUE_LEN, idleMode, shiftPose, standFree, type Anchor } from './life';
 import { mainSite, type Site } from './sites';
 import { CALM_MOOD, FEAST_DAYS, FeastClock, SHIFT_AT, SHIFT_LEN, cheerOf, forcedMood, lookOf, moodOf, rhythmAt, shiftAt, type CityMood } from './rhythm';
-import { LIFE_CAP } from './spec';
+import { FEAST_LOG_TRIS, LIFE_CAP } from './spec';
 import { createInitialState } from '@/game/state';
 import { DAY_LENGTH } from '@/game/pace';
 import { MORALE_BASE } from '@/game/constants';
@@ -190,9 +190,15 @@ describe('живой город: состояние меняет вид', () => 
     const feast = people(at(l, NOON));
     expect(ring(feast), 'хоровод').toBeGreaterThanOrEqual(FEAST_RING - 3);
     expect(ring(calm), 'без праздника — нет').toBeLessThan(3);
-    // Костёр праздника горит в сумерках.
+    // Костёр праздника горит в сумерках: пламя и шалаш поленьев той цены, что считает бюджет.
     at(l, EVENING);
     expect((l.group.getObjectByName('city-bonfire') as THREE.Points).visible).toBe(true);
+    const logs = mesh(l, 'city-bonfire-logs');
+    expect(logs.visible).toBe(true);
+    expect((logs.geometry.index!.count / 3) * logs.count).toBe(FEAST_LOG_TRIS);
+    const quiet = at(life(), EVENING);
+    expect(mesh(quiet, 'city-bonfire-logs').visible, 'без праздника костра нет').toBe(false);
+    quiet.dispose();
     // Хоровод — на свободной мостовой: ни одно место круга не в доме и не в храме.
     for (let k = 0; k < 24; k++) {
       const a = (k / 24) * Math.PI * 2;

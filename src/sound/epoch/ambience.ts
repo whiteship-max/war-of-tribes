@@ -537,7 +537,7 @@ export class Ambience {
         const scale = [62, 64, 65, 67, 69, 67, 65, 64];
         for (let i = 0; i < 4; i++) {
           const midi = scale[(this.tune + i) % scale.length] + 12;
-          flute(kit, this.muffle, t + i * beat * 2, beat * 1.8, midi, v * 0.55);
+          flute(kit, this.muffle, t + i * beat * 2, beat * 1.8, midi, v * 1.1);
         }
         this.tune = (this.tune + 3) % scale.length;
         if (rnd() < 0.3) voice(kit, this.marketTone, t + span(rnd, 0, 2), 2, v * 0.8, span(rnd, -0.6, 0.6), true);

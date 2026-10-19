@@ -15,7 +15,7 @@ import { civic, civicStoop, fireBowl, marketProps, stall, statue, well } from '.
 import { churchSquare, parvis } from './precinct';
 import { placeTrees, treeModel, type Species } from './nature';
 import { LAYERS } from './tex';
-import { CITY_SPEC, GATE_GUARDS, LIFE_CAP, LIFE_TRIS, PATROL, SHORE_CAP, figureTris, peopleTris, shoreTris } from './spec';
+import { CITY_SPEC, FEAST_LOG_TRIS, GATE_GUARDS, LIFE_CAP, LIFE_TRIS, PATROL, SHORE_CAP, figureTris, peopleTris, shoreTris } from './spec';
 import { shoreItems, waterTriangles } from './banks';
 import { fixture, forge, lanternPost, mounted, standing, streetLamps } from './lamps';
 import { pooled, type Lamp, type LampKind } from '../glow/lamps';
@@ -233,9 +233,9 @@ export function cityCounts(q: Quality, plan: CityPlan = cityPlan()): CityCounts 
   // — вызов жизни (`life.ts`). Стягов — по два на воротах и донжоне (`alive.bannerSpots`).
   const banners = cap.banners > 0 ? plan.towers.filter((t) => t.kind === 'gate' || t.kind === 'castleGate' || t.kind === 'keep').length * 2 : 0;
   calls += [cap.lanterns, cap.carts, cap.ducks, cap.boats, cap.pigeons, banners].filter((n) => n > 0).length;
-  // Живой город (docs/city_v3.md, ЖГ-1): костёр праздника и фонари трактира (там, где есть фонари) — по точке-вызову; счёт
-  // берёт худший кадр — праздничный вечер, хотя днём и в будни их нет.
-  calls += 1 + (cap.lanterns > 0 ? 1 : 0);
+  // Живой город (docs/city_v3.md, ЖГ-1): костёр праздника (поленья и пламя) и фонари трактира (там, где есть фонари) — по
+  // вызову; счёт берёт худший кадр — праздничный вечер, хотя днём и в будни их нет.
+  calls += 2 + (cap.lanterns > 0 ? 1 : 0);
   // Колесо лесопилки крутится своим мешем (с тенью) и брызжет точками — три вызова (docs/city.md, 16.4).
   if (wheel) calls += 3;
   // Горожане — по вызову на вид (на низком — один), копейщики у ворот — вызов (docs/city.md, 16.2).
@@ -246,6 +246,7 @@ export function cityCounts(q: Quality, plan: CityPlan = cityPlan()): CityCounts 
     peopleTris(q, cap.people) +
     cap.guards * ft.archer +
     (gates * GATE_GUARDS + PATROL[q]) * ft.guard +
+    FEAST_LOG_TRIS +
     cap.animals * ft.beast +
     cap.birds * LIFE_TRIS.bird +
     plan.towers.length * LIFE_TRIS.flag +
