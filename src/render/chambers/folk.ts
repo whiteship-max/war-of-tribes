@@ -1,8 +1,11 @@
-// Люди покоев (docs/city_v3.md, Г-7): старый слуга в ливрее цветов герба, служанка и супруга правителя. Облик — 1200 год:
+// Люди покоев (docs/city_v3.md, Г-7, Г-10): старый слуга в ливрее цветов герба, служанка, супруга правителя, гонец и
+// советник. Облик — 1200 год:
 // у слуги котта до колен цвета поля герба с каймой его металла, пояс с ключами, седина и короткая борода; у служанки —
 // платье из крашеной шерсти, белый передник, льняной чепец и коса; у супруги — блио с золотой каймой, широкие
-// свисающие рукава, пояс с длинным концом, белый плат с подбородником (барбетом) и золотой обруч. Все взрослые: рост,
-// плечи и лица — взрослых людей.
+// свисающие рукава, пояс с длинным концом, белый плат с подбородником (барбетом) и золотой обруч; у гонца — короткая
+// котта цветов герба, откинутый на плечи капюшон с оплечьем, сума через плечо и сапоги до колен, пыльные с дороги; у
+// советника — длинная мантия тёмного сукна с меховой опушкой, цепь с бляхой, чёрная шапочка и седая борода до груди. Все
+// взрослые: рост, плечи и лица — взрослых людей.
 //
 // Модель — одна сетка с жёсткой кожей (`rig.ts`); движения — позы по костям (`clips`), их смешивает `Person`:
 // стоять и дышать, идти, поклониться, присесть в реверансе, говорить руками, налить из кувшина, нести и взять с пола.
@@ -14,7 +17,10 @@ import { Rig, Skeleton, SkinBuilder, ringY, type Ring, type RigPose, type Turn }
 import type * as THREE from 'three';
 import type { RoomLayer } from './geo';
 
-export type FolkId = 'servant' | 'maid' | 'wife';
+export type FolkId = 'servant' | 'maid' | 'wife' | 'herald' | 'advisor';
+
+/** Женщины покоев: стан уже, шаг короче, приветствие — реверанс, а не поклон. */
+export const isFemale = (id: FolkId): boolean => id === 'maid' || id === 'wife';
 
 /** Шерсть, крашенная под цвета герба: не геральдические чистые тона, а то, что давали марена, вайда и шафран. */
 const DYE: Record<Tincture, number> = {
@@ -55,15 +61,18 @@ interface Look {
   shoe: V3;
   hose: V3;
   linen: V3;
-  /** Подол — до колен (слуга) или до пола (женщины). */
+  /** Подол — до колен (слуга, гонец) или до пола (женщины, советник). */
   hem: number;
 }
+
+/** Платье до пола: подол шире и складками гуще, под ним — исподнее, а не чулки. */
+const isLong = (L: Look): boolean => L.hem < 0.3;
 
 const SEG = { low: 7, medium: 9, high: 11 } as const;
 type Detail = 0 | 1 | 2;
 const segOf = (d: Detail): number => (d === 0 ? SEG.low : d === 1 ? SEG.medium : SEG.high);
 
-/** Облики трёх людей покоев; ливрея слуги — из герба державы. */
+/** Облики людей покоев; ливрея слуги и котта гонца — из герба державы. */
 export function lookOf(id: FolkId, arms: Arms): Look {
   const lv = liveryOf(arms);
   switch (id) {
@@ -120,6 +129,44 @@ export function lookOf(id: FolkId, arms: Arms): Look {
         hose: tint(0x5a3a3a),
         linen: tint(0xf0eadc),
         hem: 0.01,
+      };
+    case 'herald':
+      // Молодой, загорелый с дороги; котта — цвета герба, капюшон и сума — некрашеная шерсть и кожа.
+      return {
+        s: 1.0,
+        female: false,
+        skin: tint(0xc08a6a),
+        lip: tint(0xa0605a),
+        hair: tint(0x5a3a22),
+        brow: tint(0x4a2e1a),
+        iris: tint(0x5a4a30),
+        cloth: tint(lv.body),
+        under: tint(0x6a5a40),
+        trim: tint(lv.trim),
+        belt: tint(0x4a3020),
+        shoe: tint(0x4a3220),
+        hose: tint(0x3a2c20),
+        linen: tint(0x7a6448),
+        hem: 0.6,
+      };
+    case 'advisor':
+      // Седой, бледный от письма при свечах; мантия — дорогое тёмное сукно, опушка — куница, цепь — золото.
+      return {
+        s: 0.99,
+        female: false,
+        skin: tint(0xd0a088),
+        lip: tint(0xa06a60),
+        hair: tint(0xd4d0c8),
+        brow: tint(0xb4aea4),
+        iris: tint(0x4a4a52),
+        cloth: tint(0x22302c),
+        under: tint(0x3a2a24),
+        trim: tint(0x6a4a30),
+        belt: tint(0xc8a048),
+        shoe: tint(0x241a14),
+        hose: tint(0x2a2622),
+        linen: tint(0x1c1a18),
+        hem: 0.03,
       };
   }
 }
@@ -186,18 +233,49 @@ export function buildPerson(id: FolkId, arms: Arms, detail: Detail, code: number
   // Ворот: кайма у слуги и супруги, у служанки — край сорочки.
   sb.loft([ring(1.485, female ? 0.105 : 0.12, 0.078, 0.004), ring(1.505, 0.07, 0.062, 0.006)], seg + 3, 'plain', id === 'maid' ? L.linen : L.trim);
 
+  if (id === 'herald') {
+    // Ремень сумы — через грудь от правого плеча к левому бедру: полоса поверх котты.
+    const strap: V3[] = [
+      [X(-0.13), Y(1.44), 0.035 * s],
+      [X(-0.06), Y(1.36), 0.122 * s],
+      [X(0.04), Y(1.22), 0.124 * s],
+      [X(0.12), Y(1.07), 0.118 * s],
+      [X(0.16), Y(0.99), 0.07 * s],
+    ];
+    for (let i = 0; i + 1 < strap.length; i++) sb.rod(strap[i], strap[i + 1], 0.012 * s, 0.012 * s, 4, 'plain', L.belt, false);
+    // Капюшон откинут на плечи: оплечье воротником вокруг шеи и складка капюшона на спине.
+    sb.loft([ring(1.39, 0.2, 0.135, -0.004), ring(1.45, 0.17, 0.12, -0.002), ring(1.51, 0.082, 0.078, 0.0)], seg + 3, 'plain', L.linen);
+    sb.loftTipped([0, Y(1.5), -0.07 * s], [ringY(Y(1.48), X(0.07), 0.04 * s, 0, -0.1 * s), ringY(Y(1.4), X(0.06), 0.035 * s, 0, -0.13 * s)], [0, Y(1.3), -0.13 * s], seg, 'plain', mixC(L.linen, tint(0x000000), 0.15));
+  }
+  if (id === 'advisor') {
+    // Меховой воротник по плечам и цепь советника с бляхой на груди.
+    sb.loft([ring(1.4, 0.19, 0.13, 0.002), ring(1.46, 0.165, 0.115, 0.002), ring(1.5, 0.09, 0.075, 0.004)], seg + 3, 'plain', L.trim);
+    sb.m.shine = 0.85;
+    const links = detail === 0 ? 5 : 7;
+    let prev: V3 | null = null;
+    for (let i = 0; i <= links; i++) {
+      const a = -0.95 + (1.9 * i) / links;
+      const p: V3 = [X(Math.sin(a) * 0.13), Y(1.43 - Math.cos(a) * 0.1 + 0.02), (0.1 + Math.cos(a) * 0.035) * s];
+      if (prev) sb.rod(prev, p, 0.006 * s, 0.006 * s, 4, 'plain', L.belt, false);
+      prev = p;
+    }
+    sb.ball([0, Y(1.31), 0.132 * s], 0.026 * s, 7, 'plain', L.belt, 1, 0.35);
+    sb.m.shine = 0;
+  }
   // Подол: котта слуги до колен с разрезом не нужен — расширяется книзу; платья женщин — до пола, складками.
   sb.bone('hips');
   const hem = L.hem;
+  const long = isLong(L);
   const skirt: Ring[] = [];
   const top = 0.98;
-  const rows = female ? 6 : 4;
+  const rows = long ? 6 : 4;
   for (let i = 0; i <= rows; i++) {
     const k = i / rows;
     const y = top + (hem - top) * k;
-    const rx = (female ? 0.178 : 0.17) + k * (female ? 0.16 : 0.07);
-    const rz = 0.12 + k * (female ? 0.15 : 0.075);
-    skirt.push(ring(y, rx, rz, female ? 0.012 * k : 0.01 * k));
+    // Мантия советника — до пола, но прямее женского платья: мужской стан, тяжёлое сукно.
+    const rx = (female ? 0.178 : 0.17) + k * (female ? 0.16 : long ? 0.11 : 0.07);
+    const rz = 0.12 + k * (female ? 0.15 : long ? 0.1 : 0.075);
+    skirt.push(ring(y, rx, rz, long ? 0.012 * k : 0.01 * k));
   }
   // Складки: тон вдоль круга темнее во впадинах.
   const fold = (base: V3) => (_i: number, k: number): V3 => {
@@ -207,8 +285,15 @@ export function buildPerson(id: FolkId, arms: Arms, detail: Detail, code: number
   sb.loft(skirt, seg + 5, 'plain', fold(L.cloth));
   // Кайма подола.
   const last = skirt[skirt.length - 1];
-  const lip = { ...last, c: [last.c[0], last.c[1] + 0.035 * s, last.c[2]] as V3, ru: last.ru * 0.985, rv: last.rv * 0.985 };
-  sb.loft([lip, { ...last, ru: last.ru * 1.012, rv: last.rv * 1.012 }], seg + 5, 'plain', L.trim);
+  const lip = { ...last, c: [last.c[0], last.c[1] + (id === 'advisor' ? 0.07 : 0.035) * s, last.c[2]] as V3, ru: last.ru * 0.985, rv: last.rv * 0.985 };
+  // Опушка мантии — мех: толще каймы и выпуклее.
+  const furK = id === 'advisor' ? 1.03 : 1.012;
+  sb.loft([lip, { ...last, ru: last.ru * furK, rv: last.rv * furK }], seg + 5, 'plain', L.trim);
+  if (id === 'advisor') {
+    // Разрез мантии спереди — полоса меха от пояса до подола.
+    const front: Ring[] = skirt.map((r) => ({ c: [0, r.c[1], r.c[2] + r.rv + 0.004] as V3, u: [1, 0, 0] as V3, v: [0, 0, 1] as V3, ru: 0.03 * s, rv: 0.012 * s }));
+    sb.loft(front, 5, 'plain', L.trim);
+  }
   // Передник служанки: полотно спереди по подолу.
   if (id === 'maid') {
     const ap: Ring[] = [];
@@ -222,7 +307,8 @@ export function buildPerson(id: FolkId, arms: Arms, detail: Detail, code: number
   }
   // Пояс: кожаный у слуги (с ключами), тканый у служанки, золочёный у супруги с концом до колен.
   const by = female ? 1.04 : 1.0;
-  sb.loft([ring(by - 0.018, female ? 0.162 : 0.162, 0.116, 0.002), ring(by + 0.018, female ? 0.158 : 0.16, 0.114, 0.002)], seg + 3, 'plain', L.belt);
+  // У советника пояса поверх мантии нет: мантия висит с плеч, на груди — цепь.
+  if (id !== 'advisor') sb.loft([ring(by - 0.018, female ? 0.162 : 0.162, 0.116, 0.002), ring(by + 0.018, female ? 0.158 : 0.16, 0.114, 0.002)], seg + 3, 'plain', L.belt);
   if (id === 'servant') {
     // Связка ключей на правом боку: кольцо и три ключа.
     const kx = X(-0.15);
@@ -232,6 +318,11 @@ export function buildPerson(id: FolkId, arms: Arms, detail: Detail, code: number
     sb.m.shine = 0;
     // Кошель у пояса.
     sb.ball([X(0.12), Y(0.95), 0.08 * s], 0.035 * s, 7, 'plain', tint(0x4a3220), 1.2, 0.7);
+  }
+  if (id === 'herald') {
+    // Сума на левом боку: кожаный мешок с клапаном, ремень — через грудь с правого плеча.
+    sb.ball([X(0.16), Y(0.93), 0.02 * s], 0.06 * s, detail === 0 ? 6 : 8, 'plain', mixC(L.belt, tint(0x6a4a2a), 0.4), 0.55, 0.95);
+    sb.m.quad([X(0.12), Y(0.99), 0.075 * s], [X(0.2), Y(0.99), 0.06 * s], [X(0.205), Y(0.94), 0.064 * s], [X(0.115), Y(0.94), 0.079 * s], 'plain', L.belt);
   }
   if (id === 'wife') {
     sb.m.shine = 0.75;
@@ -287,6 +378,10 @@ export function buildPerson(id: FolkId, arms: Arms, detail: Detail, code: number
       sb.loft([{ c: [wr[0], wr[1] - 0.15 * s, wr[2] - 0.02], u: [1, 0, 0], v: [0, 0, 1], ru: 0.071 * s, rv: 0.131 * s }, { c: [wr[0], wr[1] - 0.17 * s, wr[2] - 0.02], u: [1, 0, 0], v: [0, 0, 1], ru: 0.072 * s, rv: 0.133 * s }], seg, 'plain', L.trim);
       // Узкий рукав исподнего платья — до запястья.
       sb.loft([{ c: along(elb, wr, 0.3), u: [1, 0, 0], v: [0, 0, 1], ru: 0.036 * s, rv: 0.036 * s }, { c: along(elb, wr, 1.0), u: [1, 0, 0], v: [0, 0, 1], ru: 0.03 * s, rv: 0.03 * s }], seg, 'plain', L.under, { cap1: true });
+    } else if (id === 'advisor') {
+      // Рукав мантии — широкий раструб до запястья с меховым обшлагом.
+      sb.loft([{ c: along(elb, wr, -0.05), u: [1, 0, 0], v: [0, 0, 1], ru: 0.047 * s, rv: 0.048 * s }, { c: along(elb, wr, 0.55), u: [1, 0, 0], v: [0, 0, 1], ru: 0.056 * s, rv: 0.06 * s }, { c: along(elb, wr, 0.92), u: [1, 0, 0], v: [0, 0, 1], ru: 0.066 * s, rv: 0.072 * s }], seg, 'plain', L.cloth);
+      sb.loft([{ c: along(elb, wr, 0.86), u: [1, 0, 0], v: [0, 0, 1], ru: 0.068 * s, rv: 0.074 * s }, { c: along(elb, wr, 1.0), u: [1, 0, 0], v: [0, 0, 1], ru: 0.072 * s, rv: 0.078 * s }], seg, 'plain', L.trim, { cap1: true });
     } else if (id === 'maid') {
       sb.loft([{ c: along(elb, wr, -0.06), u: [1, 0, 0], v: [0, 0, 1], ru: 0.05 * s, rv: 0.05 * s }, { c: along(elb, wr, 0.12), u: [1, 0, 0], v: [0, 0, 1], ru: 0.047 * s, rv: 0.047 * s }], seg, 'plain', L.linen);
       sb.loft([{ c: along(elb, wr, 0.1), u: [1, 0, 0], v: [0, 0, 1], ru: 0.036 * s, rv: 0.037 * s }, { c: along(elb, wr, 1.0), u: [1, 0, 0], v: [0, 0, 1], ru: 0.027 * s, rv: 0.028 * s }], seg, 'plain', L.skin, { cap1: true });
@@ -307,9 +402,20 @@ export function buildPerson(id: FolkId, arms: Arms, detail: Detail, code: number
     const knee = sk.bones[sk.of(`shin${side}`)].j;
     const ank = sk.bones[sk.of(`foot${side}`)].j;
     sb.bone(`thigh${side}`);
-    sb.loft([ringY(hip[1] + 0.03, 0.074 * s, 0.08 * s, hip[0], hip[2]), ringY((hip[1] + knee[1]) / 2, 0.063 * s, 0.068 * s, (hip[0] + knee[0]) / 2, 0.006), ringY(knee[1] - 0.02, 0.05 * s, 0.054 * s, knee[0], knee[2])], seg, 'plain', female ? L.under : L.hose);
+    sb.loft([ringY(hip[1] + 0.03, 0.074 * s, 0.08 * s, hip[0], hip[2]), ringY((hip[1] + knee[1]) / 2, 0.063 * s, 0.068 * s, (hip[0] + knee[0]) / 2, 0.006), ringY(knee[1] - 0.02, 0.05 * s, 0.054 * s, knee[0], knee[2])], seg, 'plain', isLong(L) ? L.under : L.hose);
     sb.bone(`shin${side}`);
-    sb.loft([ringY(knee[1] + 0.01, 0.05 * s, 0.054 * s, knee[0], knee[2]), ringY(knee[1] - 0.12 * s, 0.05 * s, 0.056 * s, knee[0], knee[2] - 0.006), ringY(ank[1] + 0.03, 0.033 * s, 0.035 * s, ank[0], ank[2])], seg, 'plain', L.hose);
+    // Сапоги гонца — кожа до колена, низ пыльный с дороги; у остальных — чулки.
+    const boot = id === 'herald';
+    sb.loft(
+      [
+        ringY(knee[1] + 0.01, (boot ? 0.056 : 0.05) * s, (boot ? 0.06 : 0.054) * s, knee[0], knee[2]),
+        ringY(knee[1] - 0.12 * s, (boot ? 0.054 : 0.05) * s, (boot ? 0.058 : 0.056) * s, knee[0], knee[2] - 0.006),
+        ringY(ank[1] + 0.03, (boot ? 0.04 : 0.033) * s, (boot ? 0.042 : 0.035) * s, ank[0], ank[2]),
+      ],
+      seg,
+      'plain',
+      boot ? (i: number) => (i === 2 ? mixC(L.shoe, tint(0x8a7a62), 0.35) : i === 0 ? mixC(L.shoe, tint(0x000000), 0.1) : L.shoe) : L.hose,
+    );
     sb.bone(`foot${side}`);
     // Башмак: петлёй вдоль ступни, от пятки к носку; поворотный башмак 1200 года — мягкий, с острым носом.
     const fx = ank[0];
@@ -460,7 +566,47 @@ function head(sb: SkinBuilder, L: Look, seg: number, id: FolkId): void {
   sb.m.quad([-hs(0.008), Y(my - 0.007), mz + hs(0.001)], [hs(0.008), Y(my - 0.007), mz + hs(0.001)], [mw, Y(my), mz - hs(0.004)], [-mw, Y(my), mz - hs(0.004)], 'plain', mixC(lipT, L.skin, 0.15));
 
   // ---------- Волосы и убор ----------
-  if (id === 'servant') {
+  if (id === 'herald') {
+    // Волосы «под горшок» — по моде 1200 года: шапка волос до бровей спереди и до мочек сбоку; лицо бритое, с тенью щетины.
+    sb.loft(
+      [ringY(Y(1.632), hs(0.081), hs(0.09), 0, hs(-0.014)), ringY(Y(1.69), hs(0.085), hs(0.104), 0, hs(-0.004)), ringY(Y(1.735), hs(0.074), hs(0.092), 0, hs(-0.01)), ringY(Y(1.758), hs(0.04), hs(0.052), 0, hs(-0.012))],
+      hseg,
+      'plain',
+      (i, kk) => {
+        // Спереди ниже бровей — лоб открыт: нижнее кольцо лица — кожа.
+        const a = ((kk + 0.5) / hseg) * Math.PI * 2;
+        return Math.sin(a) > 0.6 && i === 0 ? L.skin : L.hair;
+      },
+      { cap1: true, phase: 0 },
+    );
+    // Чёлка над бровями.
+    const fz = faceZ(1.69, 0) + hs(0.004);
+    sb.m.quad([-hs(0.06), Y(1.672), fz - hs(0.02)], [hs(0.06), Y(1.672), fz - hs(0.02)], [hs(0.058), Y(1.705), fz - hs(0.012)], [-hs(0.058), Y(1.705), fz - hs(0.012)], 'plain', L.hair);
+  } else if (id === 'advisor') {
+    // Седые волосы до шеи из-под чёрной шапочки, борода — широкая, до груди, усы в бороду.
+    sb.loft([ringY(Y(1.58), hs(0.082), hs(0.088), 0, hs(-0.02)), ringY(Y(1.64), hs(0.085), hs(0.098), 0, hs(-0.012)), ringY(Y(1.69), hs(0.082), hs(0.1), 0, hs(-0.006))], hseg, 'plain', (i, kk) => {
+      const a = ((kk + 0.5) / hseg) * Math.PI * 2;
+      return Math.sin(a) > 0.45 ? L.skin : L.hair;
+    });
+    sb.loftTipped(
+      [0, Y(1.775), hs(-0.01)],
+      [ringY(Y(1.745), hs(0.072), hs(0.09), 0, hs(-0.01)), ringY(Y(1.71), hs(0.086), hs(0.106), 0, hs(-0.008)), ringY(Y(1.69), hs(0.087), hs(0.107), 0, hs(-0.008))],
+      [0, Y(1.688), hs(-0.008)],
+      hseg,
+      'plain',
+      L.linen,
+    );
+    sb.loftTipped(
+      [0, Y(1.43), hs(0.1)],
+      [ringY(Y(1.5), hs(0.06), hs(0.05), 0, hs(0.07)), ringY(Y(1.555), hs(0.074), hs(0.07), 0, hs(0.05)), ringY(Y(1.595), hs(0.078), hs(0.09), 0, hs(0.014))],
+      [0, Y(1.605), hs(0.0)],
+      hseg,
+      'plain',
+      (i) => (i === 0 ? mixC(L.hair, tint(0xffffff), 0.12) : L.hair),
+    );
+    const uz = faceZ(1.604, 0.012) + hs(0.003);
+    sb.m.quad([-hs(0.03), Y(1.594), uz - hs(0.01)], [hs(0.03), Y(1.594), uz - hs(0.01)], [hs(0.006), Y(1.607), uz + hs(0.004)], [-hs(0.006), Y(1.607), uz + hs(0.004)], 'plain', L.hair);
+  } else if (id === 'servant') {
     // Седина: венчик по затылку и вискам, темя редкое (тон кожи с сединой), борода и усы коротко.
     sb.loft(
       [ringY(Y(1.625), hs(0.08), hs(0.088), 0, hs(-0.012)), ringY(Y(1.68), hs(0.083), hs(0.1), 0, hs(-0.006)), ringY(Y(1.72), hs(0.074), hs(0.09), 0, hs(-0.012)), ringY(Y(1.748), hs(0.045), hs(0.058), 0, hs(-0.014))],
@@ -577,8 +723,8 @@ const mixC = (a: V3, b: V3, k: number): V3 => [a[0] + (b[0] - a[0]) * k, a[1] + 
 
 // ---------- Движения ----------
 
-/** Что держит человек: кувшин (служанка), кота на руках (слуга), ничего. */
-export type Carry = 'none' | 'jug' | 'cat';
+/** Что держит человек: кувшин (служанка), кота на руках (слуга), письмо с печатью (гонец), свиток доклада (советник). */
+export type Carry = 'none' | 'jug' | 'cat' | 'letter' | 'scroll';
 
 /**
  * Доли жестов поверх стояния и шага: поклон, реверанс, речь руками, налить (наклон кувшина 0…1), нести на руках, взять с
@@ -593,11 +739,15 @@ export interface Gesture {
   carry: number;
   stoop: number;
   reach: number;
+  /** Протянуть письмо правой рукой (гонец). */
+  offer: number;
+  /** Держать свиток перед грудью левой рукой и читать с него (советник). */
+  read: number;
   lookYaw: number;
   lookPitch: number;
 }
 
-export const STILL: Gesture = { bow: 0, curtsy: 0, talk: 0, pour: 0, tip: 0, carry: 0, stoop: 0, reach: 0, lookYaw: 0, lookPitch: 0 };
+export const STILL: Gesture = { bow: 0, curtsy: 0, talk: 0, pour: 0, tip: 0, carry: 0, stoop: 0, reach: 0, offer: 0, read: 0, lookYaw: 0, lookPitch: 0 };
 
 type Turns = Record<string, [number, number, number]>;
 const add = (o: Turns, bone: string, x: number, y = 0, z = 0): void => {
@@ -613,8 +763,8 @@ const add = (o: Turns, bone: string, x: number, y = 0, z = 0): void => {
  */
 export function posture(id: FolkId, t: number, phase: number, walk: number, g: Gesture): { turns: Turns; lift: V3 } {
   const o: Turns = {};
-  const female = id !== 'servant';
-  const old = id === 'servant';
+  const female = isFemale(id);
+  const old = id === 'servant' || id === 'advisor';
   // Стоя: дыхание, лёгкое переминание; старик сутулится.
   const breath = Math.sin(t * 1.6) * 0.012;
   add(o, 'chest', -breath + (old ? 0.1 : 0));
@@ -746,6 +896,23 @@ export function posture(id: FolkId, t: number, phase: number, walk: number, g: G
     lift[1] -= 0.36 * k;
     lift[2] -= 0.1 * k;
   }
+  // Протянуть письмо: правая рука вперёд на уровне груди, ладонь вверх; корпус чуть подаётся к правителю.
+  if (g.offer > 0) {
+    const k = g.offer;
+    add(o, 'armR', -1.05 * k, 0.15 * k, -0.12 * k);
+    add(o, 'foreR', -0.38 * k, 0.2 * k, 0);
+    add(o, 'handR', -0.15 * k, 0, 0.9 * k);
+    add(o, 'spine', 0.1 * k);
+    add(o, 'head', 0.1 * k);
+  }
+  // Свиток доклада: левое предплечье поднято перед грудью, кисть повёрнута свитком к глазам; голова — к свитку, когда не
+  // смотрит на правителя.
+  if (g.read > 0) {
+    const k = g.read;
+    add(o, 'armL', -0.42 * k, -0.2 * k, 0.12 * k);
+    add(o, 'foreL', -1.3 * k, -0.45 * k, 0);
+    add(o, 'handL', 0.15 * k, 0, -0.5 * k);
+  }
   // Тянуться к ручке двери (правой).
   if (g.reach > 0) {
     const r = g.reach;
@@ -863,7 +1030,7 @@ export class Person {
     }
     const before = Math.floor(this.phase / Math.PI);
     // Шаг 0,62 м (у женщин 0,55): фаза — по пройденному пути.
-    this.phase += ((this.v * dt) / (this.id === 'servant' ? 0.6 : 0.55)) * Math.PI;
+    this.phase += ((this.v * dt) / (isFemale(this.id) ? 0.55 : this.id === 'herald' ? 0.68 : 0.6)) * Math.PI;
     if (Math.floor(this.phase / Math.PI) !== before && this.v > 0.2) this.onStep?.(soft(this.x, this.z));
     this.walkK += (Math.min(1, this.v / Math.max(0.4, this.speed * 0.8)) - this.walkK) * Math.min(1, dt * 7);
     const ease = 1 - Math.exp(-dt * 4.5);

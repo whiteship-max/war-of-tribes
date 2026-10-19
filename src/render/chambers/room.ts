@@ -113,10 +113,10 @@ export interface ChambersView {
 }
 
 /** Что под пальцем: предмет, место дела, человек покоев или кот (Г-7). */
-export type Aim = { kind: 'thing'; thing: Thing } | { kind: 'poi'; poi: Poi } | { kind: 'folk'; who: Who } | { kind: 'cat' };
+export type Aim = { kind: 'thing'; thing: Thing } | { kind: 'poi'; poi: Poi } | { kind: 'folk'; who: Who } | { kind: 'cat' } | { kind: 'letter' };
 
 /** Имена людей покоев на подписи касания. */
-export const FOLK_NAME: Record<Who, string> = { servant: 'Слуга', maid: 'Служанка', wife: 'Супруга' };
+export const FOLK_NAME: Record<Who, string> = { servant: 'Слуга', maid: 'Служанка', wife: 'Супруга', herald: 'Гонец', advisor: 'Советник' };
 
 /** Куда правитель идёт и что делает, придя. */
 type Then = { kind: 'spot'; id: SpotId } | { kind: 'take'; id: TrinketId };
@@ -1021,7 +1021,7 @@ export class ChambersRoom implements Inside {
       .add(C.copy(CANDLE).multiplyScalar(0.008 * lit));
     const h = this.hover?.kind === 'thing' ? this.hover.thing : null;
     const hv = this.hover;
-    const sel = h && (!this.held || h.id === this.held.id) ? h.code : hv?.kind === 'folk' ? LIFE_CODE[hv.who] : hv?.kind === 'cat' ? LIFE_CODE.cat : hv?.kind === 'poi' && hv.poi.id === 'door' ? LIFE_CODE.door : 0;
+    const sel = h && (!this.held || h.id === this.held.id) ? h.code : hv?.kind === 'folk' ? LIFE_CODE[hv.who] : hv?.kind === 'cat' ? LIFE_CODE.cat : hv?.kind === 'letter' ? LIFE_CODE.letter : hv?.kind === 'poi' && hv.poi.id === 'door' ? LIFE_CODE.door : 0;
     u.uSel.value = sel;
     u.uSelGlow.value = 0.65 + Math.sin(t * 4) * 0.25;
     // Небо за окнами — своё, а не плоский цвет фона: к горизонту — дымка города (на ней тает даль города), к зениту —
@@ -1375,6 +1375,10 @@ export class ChambersRoom implements Inside {
       return;
     }
     if (!aim) return;
+    if (aim.kind === 'letter') {
+      this.life.takeLetter();
+      return;
+    }
     if (aim.kind === 'folk') {
       this.life.callOver(aim.who);
       return;
@@ -1457,7 +1461,7 @@ export class ChambersRoom implements Inside {
     }
     // Люди и кот (Г-7): точнее мебели — тело перед ней.
     const lp = this.life.pick(RAY);
-    if (lp) consider(lp.kind === 'folk' ? { kind: 'folk', who: lp.who } : { kind: 'cat' }, lp.d, true);
+    if (lp) consider(lp.kind === 'folk' ? { kind: 'folk', who: lp.who } : lp.kind === 'letter' ? { kind: 'letter' } : { kind: 'cat' }, lp.d, true);
     const found = best as { aim: Aim } | null;
     return found ? found.aim : null;
   }
@@ -1581,7 +1585,7 @@ export class ChambersRoom implements Inside {
     if (aim && this.mode !== 'act' && !(this.held && this.held.dir > 0)) {
       const box = aim.kind === 'thing' ? this.worldBox(aim.thing) : null;
       const hb = aim.kind === 'poi' ? aim.poi.hits[0] : null;
-      const lv = aim.kind === 'folk' || aim.kind === 'cat' ? this.lifeTop(aim) : null;
+      const lv = aim.kind === 'folk' || aim.kind === 'cat' || aim.kind === 'letter' ? this.lifeTop(aim) : null;
       const s = box ? this.screenOf(box) : hb ? this.screenOf(hb) : lv ? this.screenOf(lv) : { x: 0, y: 0, on: false, dist: 0 };
       if (s.on) {
         const [name, small] = this.aimWords(aim);
@@ -1638,7 +1642,8 @@ export class ChambersRoom implements Inside {
   /** Подпись того, что под пальцем: имя и что будет от касания. */
   private aimWords(aim: Aim): [string, string] {
     if (aim.kind === 'poi') return [aim.poi.name, aim.poi.verb];
-    if (aim.kind === 'folk') return [FOLK_NAME[aim.who], 'Поговорить'];
+    if (aim.kind === 'letter') return ['Письмо с печатью', 'Взять и прочесть'];
+    if (aim.kind === 'folk') return [FOLK_NAME[aim.who], aim.who === 'advisor' ? 'Выслушать доклад' : 'Поговорить'];
     if (aim.kind === 'cat') {
       const c = this.life.cat;
       const near = !!c && Math.hypot(c.x - this.pose.x, c.z - this.pose.z) < 0.95;
@@ -1701,6 +1706,10 @@ export class ChambersRoom implements Inside {
     if (aim.kind === 'folk') {
       const p = this.life.personOf(aim.who);
       return p ? new THREE.Vector3(...p.rig.at('head', [0, 0.26, 0])).add(this.origin) : null;
+    }
+    if (aim.kind === 'letter') {
+      const at = this.life.letterAt();
+      return at ? at.clone().add(new THREE.Vector3(0, 0.18, 0)) : null;
     }
     const c = this.life.cat;
     return c?.visible ? new THREE.Vector3(c.x, c.y + 0.42, c.z).add(this.origin) : null;

@@ -425,6 +425,14 @@ async function weatherShots(tab: Tab, q: Quality): Promise<void> {
       const r = await tab.eval<string>(`JSON.stringify((() => { const l = window.__chambers.life; for (const s of [].concat(${process.env.LIFE})) l.stage(s); return 'жизнь: ' + JSON.stringify(l.view()); })())`);
       console.log(`  ${r}`);
     }
+    // Гонец и советник (Г-10): `COURT='{"herald":{"key":"k","kind":"raid","line":"{T}! …","door":{"to":"inbox"}}}'` — гонец с
+    // письмом этой вести перед правителем; `COURT='{"report":[{"key":"a","text":"…","tone":"bad","door":{"to":"inbox"}}]}'`
+    // — советник у стола с этим докладом (`Court.stage`), без сцен.
+    if (process.env.COURT) {
+      const r = await tab.eval<string>(`JSON.stringify((() => { window.__court.stage(${process.env.COURT}); return 'двор: ' + JSON.stringify(window.__chambers.life.view()); })())`);
+      console.log('  ' + r);
+      await sleep(900);
+    }
     // Ответ в окне разговора (Г-9): `TALKPICK=Останься` — коснуться ответа с этими словами, когда реплика проступила
     // (через «|» — несколько подряд); `LIFE_AFTER='{"night":{"k":0.95,"who":"wife"}}'` — что поставить после ответа (утро
     // после ночи — без ожидания сцены).

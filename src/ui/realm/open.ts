@@ -14,6 +14,7 @@ import type { GameState } from '@/game/types';
 import { letterKey } from './unread';
 import type { RealmTab } from './tabs';
 import type { MailFilter } from './dispatch';
+import type { ChronTopic } from './annals';
 
 /**
  * Раздел меню или страница настроек (шестерёнка в шапке меню). `quests` — задания: в новом интерфейсе они
@@ -37,8 +38,10 @@ interface RealmStore {
   setMailTab: (tab: MailTab) => void;
   /** Донесение мира, открытое из летописи «Вестей» (`Report.id`). null — летопись. */
   report: string | null;
-  /** Открыть «Вести» на летописи; с ключом — на донесении события (ВС-2). */
-  openChronicle: (report?: string | null) => void;
+  /** Открыть «Вести» на летописи; с ключом — на донесении события (ВС-2); с родом — летопись этого рода (Г-10). */
+  openChronicle: (report?: string | null, topic?: ChronTopic | null) => void;
+  /** Род, на котором летопись открыли снаружи (доклад советника, Г-10). null — как оставили. */
+  chronTopic: ChronTopic | null;
 }
 
 /** Вкладки «Вестей»: почта по источнику и летопись (ВС-2, docs/ui_v2.md, 5.8). */
@@ -64,9 +67,10 @@ export const useRealm = create<RealmStore>((set) => ({
   mailTab: 'all',
   setMailTab: (mailTab) => set({ mailTab, mail: null, report: null }),
   report: null,
-  openChronicle: (report = null) => {
+  chronTopic: null,
+  openChronicle: (report = null, topic = null) => {
     useRealm.getState().show('decisions');
-    set({ mail: null, mailTab: 'chron', report });
+    set({ mail: null, mailTab: 'chron', report, chronTopic: topic });
   },
 }));
 

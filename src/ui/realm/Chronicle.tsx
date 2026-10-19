@@ -41,7 +41,12 @@ export function Chronicle() {
   const reports = useWorld((w) => w.reports);
   const loadReports = useWorld((w) => w.loadReports);
   const openChronicle = useRealm((r) => r.openChronicle);
-  const [topic, setTopic] = useState<ChronTopic | 'all'>('all');
+  const asked = useRealm((r) => r.chronTopic);
+  const [topic, setTopic] = useState<ChronTopic | 'all'>(() => asked ?? 'all');
+  // Летопись открыли на роде (доклад советника, Г-10): встать на нём, даже если она уже открыта.
+  useEffect(() => {
+    if (asked) setTopic(asked);
+  }, [asked]);
   const [all, setAll] = useState(false);
 
   // Донесения — свежие на каждый заход: бой мог кончиться, пока «Вести» были закрыты.

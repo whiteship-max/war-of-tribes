@@ -30,7 +30,7 @@ export interface TalkProps {
   onDone: () => void;
 }
 
-const ROLE: Record<Who, string> = { servant: 'старый слуга', maid: 'служанка', wife: 'супруга' };
+const ROLE: Record<Who, string> = { servant: 'старый слуга', maid: 'служанка', wife: 'супруга', herald: 'гонец', advisor: 'советник' };
 
 export function Talk({ life, who, why, base, memory, remember, onDone }: TalkProps) {
   const [turn, setTurn] = useState<TalkTurn | null>(null);

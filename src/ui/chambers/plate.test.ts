@@ -10,7 +10,8 @@ import type { Who, Why } from '@/render/chambers/life';
 
 const DAYS: Daypart[] = ['morning', 'day', 'evening', 'night'];
 const TEMPERS: Temper[] = ['meek', 'merry', 'stern', 'pious', 'proud'];
-const WHY: Record<Who, Why[]> = { servant: ['arrive', 'cat', 'uncat', 'come'], maid: ['arrive', 'poured', 'come'], wife: ['arrive', 'come'] };
+// Разговоры дома; гонец и советник говорят своими плашками (`CourtWindow`), без дерева ответов.
+const WHY: Record<Exclude<Who, 'herald' | 'advisor'>, Why[]> = { servant: ['arrive', 'cat', 'uncat', 'come'], maid: ['arrive', 'poured', 'come'], wife: ['arrive', 'come'] };
 
 function ctx(over: Partial<TalkCtx>): TalkCtx {
   const h = household('Бертран', 3, 'catholic');
@@ -117,7 +118,10 @@ describe('покои: плашка реплики (Г-9)', () => {
     // У плашки — крестик всегда, и у последней реплики.
     expect(talk).not.toMatch(/\{!turn\.end && \(\s*<button className="ch-talk-x"/);
     const ch = src('Chambers.tsx');
-    expect(ch, 'в ночь окна разговора нет').toMatch(/\{talk && live && !night && \(/);
+    expect(ch, 'в ночь окна разговора нет').toMatch(/\{talk && live && !night && !courtTalk && \(/);
+    // Гонец и советник (Г-10) — свои плашки, и в ночь их нет тоже.
+    expect(ch).toMatch(/\{talk && live && !night && talk\.who === 'herald' && <HeraldPlate/);
+    expect(ch).toMatch(/\{talk && live && !night && talk\.who === 'advisor' && <AdvisorPlate/);
     expect(ch, 'ночь снимает разговор').toMatch(/if \(night\) setTalk\(null\)/);
   });
 });

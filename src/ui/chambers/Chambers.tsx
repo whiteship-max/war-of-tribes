@@ -19,12 +19,16 @@ import { cityAudio } from '@/sound/city';
 import { probe } from '@/debug';
 import { useChambers } from './open';
 import { openDoor } from './doors';
-import { useWorld, marchesOnUs } from '@/world/store';
+import { useWorld, marchesOnUs, worldNow } from '@/world/store';
+import { useRealm } from '@/ui/realm/open';
 import type { LifeView, Who, Why } from '@/render/chambers/life';
 import { Talk } from './TalkWindow';
 import { daypartOf, household, type TalkCtx } from './talk';
 import { loadMemory, saveMemory, type ChambersMemory } from './memory';
 import { adultScenes } from './adult';
+import { Court } from './court';
+import { AdvisorPlate, HeraldPlate } from './CourtWindow';
+import type { NewsDoor, WorldNews } from './tidings';
 
 /** Сцена города глазами покоев: у общей оболочки сцены этих рычагов нет (`render/city/scene.ts`). */
 type CityLike = TribeScene & {
@@ -48,6 +52,10 @@ interface Live {
   /** Память устройства (кот, разговоры) и дом правителя — имена супруги, служанки и слуги. */
   memory: ChambersMemory;
   house: ReturnType<typeof household>;
+  /** Гонец и советник (Г-10): очередь важных вестей и доклад после отлучки. */
+  court: Court;
+  /** Отписка двора от стора мира. */
+  unwatch: () => void;
   subs: Set<() => void>;
 }
 
@@ -77,7 +85,26 @@ function rise(scene: CityLike | null = asCity(activeScene())): Live | null {
   saveMemory(memory);
   const room = new ChambersRoom(keep, armsOr(s.profile.arms), scene.quality, () => asCity(activeScene())?.cityShare()?.uniforms.cityTex.value ?? null, memory.life);
   const sound = new ChambersSound();
-  live = { room, scene: null, sound, view: room.view(), life: room.life.view(), memory, house, subs: new Set() };
+  const court = new Court(room.life, {
+    world: worldNews,
+    advisor: () => {
+      const g = useGame.getState().s;
+      return { log: g.log, time: g.time, gold: g.gold, inbox: g.inbox.length, world: worldNews() };
+    },
+    memory: () => memory.advisor,
+    remember: (m) => {
+      memory.advisor = m;
+      saveMemory(memory);
+    },
+    open: goNews,
+    later: (f, ms) => void setTimeout(f, ms),
+  });
+  court.onChange = notify;
+  // Мир переменился — нет ли важной вести для гонца (письмо, пролом, предложение у стен, итог боя).
+  const unwatch = useWorld.subscribe((w, was) => {
+    if (w.letters !== was.letters || w.siege !== was.siege || w.camp !== was.camp || w.reports !== was.reports) court.look();
+  });
+  live = { room, scene: null, sound, view: room.view(), life: room.life.view(), memory, house, court, unwatch, subs: new Set() };
   room.onChange = notify;
   room.life.onChange = notify;
   room.life.onRemember = (m) => {
@@ -110,7 +137,17 @@ function rise(scene: CityLike | null = asCity(activeScene())): Live | null {
   live.scene = scene;
   cityAudio.hush('chambers', true);
   void sound.start();
-  if (probe()) (window as unknown as { __chambers?: ChambersRoom }).__chambers = room;
+  // Донесения — свежие: советнику вести по ним строки, гонцу — заметить новый бой (пульс перечитывает непустой список).
+  // Советник встаёт к докладу, когда список пришёл; нет мира (тесты, стенд без мира) — докладывает по тому, что есть.
+  const greet = (): void => {
+    if (live?.court === court) court.greet();
+  };
+  try {
+    void useWorld.getState().loadReports().then(greet, greet);
+  } catch {
+    greet();
+  }
+  if (probe()) Object.assign(window as unknown as { __chambers?: ChambersRoom; __court?: Court }, { __chambers: room, __court: court });
   notify();
   return live;
 }
@@ -120,11 +157,16 @@ function fall(): void {
   const l = live;
   if (!l) return;
   live = null;
+  l.unwatch();
+  l.court.dispose();
   l.scene?.leaveInside(l.room);
   l.sound.stop();
   l.room.dispose();
   cityAudio.hush('chambers', false);
-  if (probe()) delete (window as unknown as { __chambers?: ChambersRoom }).__chambers;
+  if (probe()) {
+    delete (window as unknown as { __chambers?: ChambersRoom }).__chambers;
+    delete (window as unknown as { __court?: Court }).__court;
+  }
 }
 
 // Закрыли покои откуда угодно — комната уходит, даже если слоя сейчас нет (под картой).
@@ -176,6 +218,38 @@ function talkBase(): Omit<TalkCtx, 'who' | 'why' | 'mem' | 'roll'> {
   };
 }
 
+/** Вести мира — как их отдаёт стор мира, на эту минуту. */
+function worldNews(): WorldNews {
+  const w = useWorld.getState();
+  return { letters: w.letters, siege: w.siege, camp: w.camp, reports: w.reports, now: worldNow() };
+}
+
+/** Открыть весть гонца или строку доклада — дверью игры, поверх покоев: закрыл окно — снова в покоях. */
+export function goNews(d: NewsDoor): void {
+  const realm = useRealm.getState();
+  const g = useGame.getState();
+  switch (d.to) {
+    case 'mail':
+      realm.openMail(d.key);
+      break;
+    case 'inbox':
+      realm.openMail(null);
+      break;
+    case 'report':
+      realm.openChronicle(d.id);
+      break;
+    case 'chronicle':
+      realm.openChronicle(null, d.topic);
+      break;
+    case 'siege':
+      g.openSiege();
+      break;
+    case 'camp':
+      g.openCamp();
+      break;
+  }
+}
+
 /** Имя без прозвища: первое слово (у составных имён — «Кей-Хосров» — дефис внутри слова). */
 const firstName = (n: string | null): string | null => (n ? n.split(' ')[0] : null);
 
@@ -215,6 +289,7 @@ function coachDone(): void {
 export function Chambers() {
   const hide = useChambers((c) => c.hide);
   const ruler = useGame((g) => g.s.realm.ruler.name ?? 'Без имени');
+  const faith = useGame((g) => g.s.faith.id ?? 'catholic');
   const layer = useRef<HTMLDivElement>(null);
   const tags = useRef<HTMLDivElement>(null);
   const [ready, setReady] = useState(() => live !== null);
@@ -230,6 +305,11 @@ export function Chambers() {
   useEffect(() => {
     if (lvTalk && talk?.n !== lvTalk.n) setTalk({ ...lvTalk });
   }, [lvTalk?.n]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Гонец и советник (Г-10): плашки последней реплики у них нет — ушёл к делу (взяли письмо, «Ступай», «Позже»), и окно гаснет.
+  const courtTalk = talk && (talk.who === 'herald' || talk.who === 'advisor');
+  useEffect(() => {
+    if (courtTalk && !lvTalk) setTalk(null);
+  }, [courtTalk, lvTalk]);
   // Пока говорят и пока ночь — ноги стоят (смотреть можно): держит режиссёр жизни (`life.holdsLegs`).
   const night = lv?.night ?? null;
   // Ночь гасит плашку реплики сразу (`plate.Plate.gone`): утром внизу — ничего.
@@ -242,6 +322,8 @@ export function Chambers() {
     let t = 0;
     let up: Live | null = null;
     const tryRise = (): void => {
+      // Гонец ждал, пока кончится сцена или разговор, — позвать снова.
+      live?.court.call();
       const l = rise();
       // Перерисовка — только когда комната встала, а не каждые 400 мс (Г-9: она перезаводила срок последней реплики).
       if (l && l !== up) {
@@ -383,7 +465,10 @@ export function Chambers() {
         </button>
       )}
 
-      {talk && live && !night && (
+      {talk && live && !night && talk.who === 'herald' && <HeraldPlate key={talk.n} life={live.room.life} court={live.court} faith={faith} onDone={() => setTalk(null)} />}
+      {talk && live && !night && talk.who === 'advisor' && <AdvisorPlate key={talk.n} life={live.room.life} court={live.court} faith={faith} onDone={() => setTalk(null)} />}
+
+      {talk && live && !night && !courtTalk && (
         <Talk
           key={talk.n}
           life={live.room.life}
