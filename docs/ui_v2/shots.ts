@@ -784,6 +784,19 @@ const GROUPS: Record<string, Step[]> = {
 
 // ---------- съёмка ----------
 
+/**
+ * ЗН-1 (docs/icons.md): значки целиком — верх с запасами и низ, «Дружина», «Вести», ратуша и карта, тот же вид «до» и
+ * «после». `DIR=icons GROUP=zn1 TAG=before|after`. Шаги — те же, что у заходов `city`, `army`, `mail`, `hall` и `map`.
+ */
+GROUPS.zn1 = [
+  { ...GROUPS.city[0], name: '01-city' },
+  { ...GROUPS.army[0], name: '02-army' },
+  { ...GROUPS.mail[0], name: '03-mail', tabs: false },
+  { ...GROUPS.hall[0], name: '04-hall' },
+  { ...GROUPS.map[0], name: '05-map' },
+  { ...GROUPS.map[3], name: '06-map-cell' },
+];
+
 async function snap(tab: Tab, name: string): Promise<void> {
   const png = await tab.send<{ data: string }>('Page.captureScreenshot', { format: 'png' });
   const jpg = await sharp(Buffer.from(png.data, 'base64')).jpeg({ quality: 70, mozjpeg: true }).toBuffer();
