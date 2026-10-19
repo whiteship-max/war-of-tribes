@@ -225,6 +225,10 @@ const cache = new Map<string, Mini>();
 const CACHE_BYTES = 6 * 1024 * 1024;
 let cacheBytes = 0;
 const bytesOf = (m: Mini): number => m.canvas.width * m.canvas.height * 4;
+/** Испечённые диаметры каждого вида (ключ вида без диаметра, `markKey(l, 0, dpr)`) — для значка на ходу (`markAt`). */
+const sizes = new Map<string, Set<number>>();
+/** Ключ спрайта → вид и диаметр: вытесненный спрайт уходит и из `sizes`. */
+const owner = new Map<string, { look: string; d: number }>();
 
 /** Значок места, отряда или метки. Точка привязки (`ax`, `ay`) — середина диска. */
 export function markSprite(l: MarkLook, d: number, dpr: number): Mini {
@@ -251,10 +255,19 @@ export function markSprite(l: MarkLook, d: number, dpr: number): Mini {
   const m: Mini = { canvas, ax, ay, w, h };
   cache.set(key, m);
   cacheBytes += bytesOf(m);
+  const look = markKey(l, 0, dpr);
+  owner.set(key, { look, d });
+  const have2 = sizes.get(look);
+  if (have2) have2.add(d);
+  else sizes.set(look, new Set([d]));
+  markBakes++;
   while (cacheBytes > CACHE_BYTES && cache.size > 1) {
     const first = cache.keys().next().value as string;
     const gone = cache.get(first);
     cache.delete(first);
+    const who = owner.get(first);
+    owner.delete(first);
+    if (who) sizes.get(who.look)?.delete(who.d);
     if (gone) {
       cacheBytes -= bytesOf(gone);
       gone.canvas.width = 0;
@@ -263,12 +276,55 @@ export function markSprite(l: MarkLook, d: number, dpr: number): Mini {
   return m;
 }
 
+/** Сколько значков пеклось — тесту «на ходу не печётся». */
+let markBakes = 0;
+export const markBakesCount = (): number => markBakes;
+
+/**
+ * Сколько точных значков кадр ещё может испечь (`markFrame`): на ходу — ни одного, стоя — по нескольку за кадр. Значок
+ * несёт свой герб, и на щипке каждый новый диаметр (шаг 2 px) пёкся заново у каждого места — пачкой в один кадр (К-1).
+ */
+let allowance = Infinity;
+/** В этом кадре значок лёг не своим размером: карте — нарисовать ещё кадр, когда испечётся точный. */
+let pending = false;
+
+/** Сколько точных значков печь стоя за кадр: каждый — доли миллисекунды, пачка в два десятка — уже рывок. */
+export const MARK_BAKES_STILL = 4;
+
+/** Начало кадра: на ходу (`moving`) значки новых размеров не печётся, стоя — не больше `MARK_BAKES_STILL`. */
+export function markFrame(moving: boolean): void {
+  allowance = moving ? 0 : MARK_BAKES_STILL;
+  pending = false;
+}
+
+/** Лёг ли в этом кадре значок не своим размером. */
+export const markPending = (): boolean => pending;
+
+/**
+ * Значок вида `l` диаметра `d` для кадра и во сколько раз его растянуть (`k`). Испечён — он сам. Нет, и печь в этом кадре
+ * нельзя, — ближайший испечённый того же вида, растянутый до `d`: на ходу разницы в пиксель кольца не видно, а точный
+ * испечётся, когда камера встанет. Того же вида нет ни одного — печётся сразу: значку не из чего взяться.
+ */
+export function markAt(l: MarkLook, d: number, dpr: number): { m: Mini; k: number } {
+  if (cache.has(markKey(l, d, dpr)) || allowance > 0) {
+    if (!cache.has(markKey(l, d, dpr))) allowance--;
+    return { m: markSprite(l, d, dpr), k: 1 };
+  }
+  let near = -1;
+  for (const s of sizes.get(markKey(l, 0, dpr)) ?? []) if (near < 0 || Math.abs(s - d) < Math.abs(near - d) || (Math.abs(s - d) === Math.abs(near - d) && s > near)) near = s;
+  if (near < 0) return { m: markSprite(l, d, dpr), k: 1 };
+  pending = true;
+  return { m: markSprite(l, near, dpr), k: d / near };
+}
+
 /** Сколько байт держат значки — бюджету (docs/map_tw.md, раздел 8). */
 export const markBytes = (): number => cacheBytes;
 
 export function dropMarks(): void {
   for (const m of cache.values()) m.canvas.width = 0;
   cache.clear();
+  sizes.clear();
+  owner.clear();
   cacheBytes = 0;
 }
 

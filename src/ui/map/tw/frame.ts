@@ -41,7 +41,7 @@ import { armsCode, armsOr } from '@/heraldry/arms';
 import type { MarkerKind } from '../village';
 import { FELL_WORDS, LABEL_MAX_PX, fellShown, fitLabel, worksStand, worksStep } from '../siegemark';
 import { type Mini, drawMini, fellSprite, miniBucket, worksSprite } from './mini';
-import { BADGE_D, type BadgeKind, badgeSprite, markPx, markSprite } from './marks';
+import { BADGE_D, type BadgeKind, type MarkLook, badgeSprite, markAt, markFrame, markPending, markPx } from './marks';
 import { TIMER_FONT, labelFont, labelSprite, regionSprite, timerSprite, timerTextWidth, timerWidth } from './labels';
 import { REGION_CELLS, onWater, regionAlpha, regionSize } from './regions';
 import { type Box, type FigureItem, type HostItem, type PlaceItem, figureItems, hostItems, miniAlpha, placeItems, placesRect } from './scene';
@@ -104,6 +104,12 @@ const motion: FrameMotion = { busy: false, live: false, decor: false, clock: fal
 /** Значок постоянного размера: точка привязки значка — на точке места. */
 function blit(ctx: CanvasRenderingContext2D, m: Mini, x: number, y: number): void {
   ctx.drawImage(m.canvas, x - m.ax, y - m.ay, m.w, m.h);
+}
+
+/** Значок места или отряда диаметра `d`: на ходу — испечённый ближайшего размера, растянутый (`marks.markAt`, К-1). */
+function blitMark(ctx: CanvasRenderingContext2D, l: MarkLook, d: number, dpr: number, x: number, y: number): void {
+  const { m, k } = markAt(l, d, dpr);
+  ctx.drawImage(m.canvas, x - m.ax * k, y - m.ay * k, m.w * k, m.h * k);
 }
 
 // ---------- Места ----------
@@ -182,7 +188,7 @@ function drawPlaces(ctx: CanvasRenderingContext2D, cam: Camera, items: PlaceItem
       drawMini(ctx, worksSprite(front, rear, 'back', px, dpr), px, bucket, sx, sy);
       ctx.globalAlpha = 1;
     }
-    blit(ctx, markSprite(it.mark, it.d, dpr), sx, sy);
+    blitMark(ctx, it.mark, it.d, dpr, sx, sy);
     if (siege && ma > 0) {
       ctx.globalAlpha = ma;
       drawMini(ctx, worksSprite(front, rear, 'front', px, dpr), px, bucket, sx, sy);
@@ -319,7 +325,7 @@ function drawHosts(ctx: CanvasRenderingContext2D, cam: Camera, items: HostItem[]
     const col = standing ? 0 : columnAlpha(px);
     if (col < 1) {
       ctx.globalAlpha = 1 - col;
-      blit(ctx, markSprite(it.mark, it.d, dpr), sx, sy);
+      blitMark(ctx, it.mark, it.d, dpr, sx, sy);
       ctx.globalAlpha = 1;
     }
     if (col > 0 && drawColumn(ctx, sx, sy, angle, look.size, look.color, px, dpr, col, seedOf(m.id), marchArms(m, ownArms()))) motion.decor = true;
@@ -368,7 +374,7 @@ function drawFigures(ctx: CanvasRenderingContext2D, cam: Camera, vp: Viewport, i
       const col = f.phase === 'moving' && it.host ? columnAlpha(px) : 0;
       if (col < 1) {
         ctx.globalAlpha = 1 - col;
-        blit(ctx, markSprite(it.hostMark, it.hostD, dpr), hx, py);
+        blitMark(ctx, it.hostMark, it.hostD, dpr, hx, py);
         ctx.globalAlpha = 1;
       }
       if (col > 0 && it.host && drawColumn(ctx, hx, py, Math.atan2(ty - py, tx - hx), it.host.size, it.host.color, px, dpr, col, seedOf(f.id), armsCode(armsOr(ownArms())))) {
@@ -611,6 +617,8 @@ export function drawTwFrame(ctx: CanvasRenderingContext2D, cam: Camera, vp: View
 
   part('prebake');
   prebakeFrame(cam, vp, frame);
+  // Значки новых размеров — не на ходу (`marks.markFrame`): на щипке их пекла бы пачка в каждом кадре.
+  markFrame(moving());
   const ground = prebaked();
   part('parchment');
   // Под всем — пергамент: за краем испечённого не пустота, а лист старой карты.
@@ -685,6 +693,8 @@ export function drawTwFrame(ctx: CanvasRenderingContext2D, cam: Camera, vp: View
   prebakeIdle();
   // Пока камеру ведут, карта и так рисует каждый кадр — очередь выпечки второй раз за кадр не перебирается.
   if (!moving() && prebakeBusy()) motion.busy = true;
+  // Значок лёг не своим размером — точный испечётся в следующих кадрах: карта не засыпает с растянутым.
+  if (markPending()) motion.busy = true;
   part('');
   return { ...motion };
 }

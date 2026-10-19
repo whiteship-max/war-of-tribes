@@ -16,6 +16,7 @@ import { drawTwPaper, dropPaperSheet, paperBakes } from './paper';
 import type { Ground } from './prebake';
 import { mapLevel, resetMapGuard, twQuality, watchMap } from './quality';
 import { drawTwZones, dropTwZones } from './zones';
+import { MARK_BAKES_STILL, type MarkLook, dropMarks, markAt, markBakesCount, markFrame, markPending } from './marks';
 
 const VP: Viewport = { w: 390, h: 844 };
 
@@ -286,5 +287,51 @@ describe('что не меняется от кадра к кадру, не сч�
       expect(placeArms(own as never, null)).toBe(armsCode(DEFAULT_ARMS));
       expect(placeArms(plain as never, null)).toBe(armsCode(DEFAULT_ARMS));
     }
+  });
+});
+
+describe('значки мест на щипке: новый размер не печётся на ходу (К-1)', () => {
+  const look = (i: number): MarkLook => ({ glyph: 'stage-town', ring: '#aa3322', pips: 2, own: false, dim: false, corner: null, arms: `heater-plain-gules-gules-tower-or-${i}` });
+  let env: ReturnType<typeof fakeCanvasEnv>;
+  beforeEach(() => {
+    env = fakeCanvasEnv();
+    dropMarks();
+  });
+  afterEach(() => {
+    dropMarks();
+    markFrame(false);
+    env.restore();
+  });
+
+  it('на ходу — испечённый соседнего размера, растянутый; камера встала — точные пекутся по нескольку за кадр', () => {
+    const places = 12;
+    expect(places).toBeGreaterThan(MARK_BAKES_STILL);
+    // Вход на карту: камера стоит, значков нет ни одного — пекутся все (взять их не из чего).
+    markFrame(false);
+    let from = markBakesCount();
+    for (let i = 0; i < places; i++) expect(markAt(look(i), 30, 2).k).toBe(1);
+    expect(markBakesCount() - from).toBe(places);
+    // Щипок: диаметр 32 — ни одной выпечки, каждый значок — тридцатый, растянутый до тридцать второго.
+    markFrame(true);
+    from = markBakesCount();
+    for (let i = 0; i < places; i++) {
+      const { m, k } = markAt(look(i), 32, 2);
+      expect(k).toBeCloseTo(32 / 30, 9);
+      expect(m.w).toBeGreaterThan(0);
+    }
+    expect(markBakesCount() - from).toBe(0);
+    expect(markPending()).toBe(true);
+    // Камера встала: точные — не больше MARK_BAKES_STILL за кадр, пока не испекутся все; потом кадр чист.
+    let frames = 0;
+    for (; frames < 10; frames++) {
+      markFrame(false);
+      const before = markBakesCount();
+      for (let i = 0; i < places; i++) markAt(look(i), 32, 2);
+      expect(markBakesCount() - before).toBeLessThanOrEqual(MARK_BAKES_STILL);
+      if (!markPending()) break;
+    }
+    // Кадров с выпечкой — ровно столько, сколько нужно по MARK_BAKES_STILL (номер последнего — с нуля).
+    expect(frames + 1).toBe(Math.ceil(places / MARK_BAKES_STILL));
+    for (let i = 0; i < places; i++) expect(markAt(look(i), 32, 2).k).toBe(1);
   });
 });
