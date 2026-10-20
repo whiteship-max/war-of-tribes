@@ -25,6 +25,7 @@ import { useTrades } from './ui/trades';
 import { useTreasury } from './ui/treasury';
 import { tutorialActive } from './game/data/tutorial';
 import { Leave } from './ui/parts/leave';
+import { openFromLink } from '@/ui/realm/golink';
 import { Crash } from './ui/Crash';
 
 /**
@@ -246,6 +247,11 @@ export function App() {
   useEffect(() => {
     if (ready) void bootWorld();
   }, [ready, bootWorld]);
+
+  // Весть Telegram о предложении соседа ведёт кнопкой прямо к нему (ДП-1): когда игрок вошёл в партию и мир поднят.
+  useEffect(() => {
+    if (ready && started) openFromLink();
+  }, [ready, started]);
 
   // Закрытая шторка выходит за нижний край, и браузер иногда прокручивает
   // к ней весь экран — тогда верхний HUD уезжает за границу. Жёстко возвращаем в ноль.

@@ -20,6 +20,7 @@ import type { FigurePlace } from './shelter';
 import type { EnergyView } from './energy';
 import type { TraitNumbers } from '@/game/data/traits';
 import type { SiegeRecord } from './siegerecord';
+import type { ProposalView } from './proposals';
 
 /**
  * Участь взятого города — что выбрал победитель: ограбить, ограбить и увести людей,
@@ -1140,6 +1141,22 @@ export interface AssaultPlan {
 }
 
 /** Разорённое поселение глазами игрока. */
+/** Поход соседа-игрока на наш город (ДП-1): кто, штурмом или осадой и когда у стен. */
+export interface RivalMarch {
+  /** Номер войны у сервера. */
+  id: string;
+  castle: string;
+  city: string;
+  mode: 'storm' | 'siege';
+  arriveAt: number;
+}
+
+/** Соседи-игроки в «Вестях» (ДП-1): предложения (ждущие и итоги) и походы на нас. */
+export interface RivalMail {
+  proposals: ProposalView[];
+  marching: RivalMarch[];
+}
+
 /**
  * Поход на город живого игрока глазами карточки (docs/pvp.md). Бой считает сервер в минуту прихода;
  * карточка говорит, можно ли выступить, сколько идти и что с войной сейчас.

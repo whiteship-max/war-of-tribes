@@ -16,6 +16,7 @@ import { localTime, TOPICS, topicOf, zoneOf, type BotPrefs, type Head, type Lett
 import type { PanelButton } from './telegram.js';
 import { SICILY } from '../../src/world/spawn.js';
 import { BLOCKADE_GIVES } from '../../src/world/blockade.js';
+import { PROPOSALS, waitWords } from '../../src/world/proposals.js';
 import { count } from '../../src/ui/parts/plural.js';
 import { BUILDING_BY_ID } from '../../src/game/data/buildings.js';
 import { TROOPS } from '../../src/game/data/troops.js';
@@ -133,17 +134,36 @@ export function noticeText(item: NoticeItem, tz: string): string {
       return `${SPY_DONE[p.fate].replace('{at}', at)} Таких ловят стража и Дозор.`;
     case 'war-parley':
       return parleyText(item, at);
-    // Пакт между игроками (docs/siege_v2.md, 19.2): предложили — ответить можно в игре; приняли — вы союзники.
+    // Пакт между игроками (docs/siege_v2.md, 19.2; ДП-1): предложили — ответ в «Вестях», кнопка ведёт к предложению; итог —
+    // той стороне, что не действовала сама. Что даёт союз — одной строкой с «Вестями» (`world/proposals`).
     case 'war-pact':
-      return p.pact === 'made'
-        ? `«${p.from}» принял союз. Теперь вы приходите друг другу на выручку.`
-        : `Город «${p.from}» зовёт в союз: союзники приходят друг другу на выручку и походом друг на друга не ходят. Ответ — в игре.`;
+      return pactText(item);
     case 'war-relief':
       return reliefText(item, at);
     case 'build':
       return `Достроили: ${buildLine(item)}. ${AFTER.build}`;
     case 'grant':
       return `Пришёл указ: ${grantLine(item)}. ${AFTER.grants}`;
+  }
+}
+
+/** Весть о союзе словами получателя (ДП-1). */
+function pactText(item: NoticeItem): string {
+  const { from, pact, role } = item.p;
+  const def = PROPOSALS.pact;
+  switch (pact) {
+    case 'made':
+      return `«${from}» принял союз. Теперь вы приходите друг другу на выручку.`;
+    case 'no':
+      return `«${from}» отклонил наше предложение ${def.of}.`;
+    case 'withdrawn':
+      return `«${from}» отозвал предложение ${def.of}.`;
+    case 'broken':
+      return `«${from}» разорвал союз с нами. Теперь он может пойти на нас походом, и на выручку не придёт.`;
+    case 'expired':
+      return role === 'atk' ? `«${from}» не ответил на предложение ${def.of}: срок вышел.` : `Предложение ${def.of} от «${from}» осталось без ответа: срок вышел.`;
+    default:
+      return `Город «${from}» ${def.asks}. ${def.gives} Ответ — в игре, в «Вестях»: предложение ждёт ${waitWords('pact')}.`;
   }
 }
 

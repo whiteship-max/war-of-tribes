@@ -14,6 +14,7 @@
  * знать про день и население — и знает это клиент, который опись и складывает.
  */
 import { readArms } from '../../src/heraldry/arms.js';
+import { PROPOSAL_ACTS, type ProposalAct, type ProposalView } from '../../src/world/proposals.js';
 
 /** Краткая опись партии — на случай, когда игрок выбирает между двумя. */
 export interface SaveCard {
@@ -388,6 +389,9 @@ export type NoticePhase = (typeof NOTICE_PHASES)[number];
 
 /** Участь, объявленная городу, — теми же именами, что `Fate` мира. */
 export const NOTICE_FATES = ['plunder', 'captives', 'burn'] as const;
+
+/** Что с союзом в вести `war-pact` (ДП-1): предложили, приняли, отклонили, срок вышел, отозвали, разорвали. */
+export const NOTICE_PACTS = ['offer', 'made', 'no', 'expired', 'withdrawn', 'broken'] as const;
 export type NoticeFate = (typeof NOTICE_FATES)[number];
 
 /**
@@ -441,8 +445,14 @@ export interface NoticeFacts {
   lost?: number;
   /** Обстрел за фазу (`war-phase`, Р-5): осаждающему — сколько машин лагеря разбил требушет со стены; осаждённому — разбит ли его требушет (1). */
   broke?: number;
-  /** Пакт (`war-pact`, 19.2): получателю предложили пакт или его предложение приняли. */
-  pact?: 'offer' | 'made';
+  /**
+   * Пакт (`war-pact`, 19.2; ДП-1): получателю предложили союз (`offer`), его предложение приняли (`made`) или отклонили
+   * (`no`), срок вышел (`expired`; `role: 'atk'` — предлагал получатель), предложение отозвали (`withdrawn`), союз разорвали
+   * (`broken`). Старый сервер шлёт только первые два.
+   */
+  pact?: (typeof NOTICE_PACTS)[number];
+  /** Номер предложения (`ProposalView.id`): кнопка «Открыть игру» под вестью ведёт прямо к нему (ДП-1). */
+  deal?: string;
   /** Выручка союзника (`war-relief`, 19.2): идёт (осаждённому), бой был (союзнику), не пробилась через рогатки (обоим). */
   relief?: 'going' | 'fight' | 'turned';
   /** Стройка (`build`): какая постройка (`BuildingTypeId`) и до какого уровня дошла. */
@@ -600,9 +610,11 @@ export function readNotices(v: unknown, now: number, kinds: readonly NoticeKind[
       if (answer) facts.answer = answer;
     }
     if (kind === 'war-pact') {
-      const pact = oneOf(['offer', 'made'] as const, p.pact);
+      const pact = oneOf(NOTICE_PACTS, p.pact);
       if (!pact) return null;
       facts.pact = pact;
+      const deal = str(p.deal, 64);
+      if (deal && /^[\w.-]+$/.test(deal)) facts.deal = deal;
     }
     if (kind === 'war-relief') {
       const relief = oneOf(['going', 'fight', 'turned'] as const, p.relief);
@@ -1183,6 +1195,11 @@ export interface WarResponse {
   wars: WarView[];
   /** Пакты и предложения пакта спросившего (docs/siege_v2.md, раздел 5: выручка). Нет — ни одного. */
   pacts?: WarPact[];
+  /**
+   * Предложения спросившего (ДП-1): ждущие ответа — свои и ему, и закрытые за последние дни — с итогом. Нет — ни одного.
+   * Старый сервер поля не шлёт: «Вести» тогда предложений не показывают.
+   */
+  proposals?: ProposalView[];
   /** Темп войны (`TRIBE_WAR_PACE`): во сколько раз быстрее походы и голод. Нет — 1. */
   pace?: number;
   error?: string;
@@ -1311,6 +1328,9 @@ export type WarOrder =
   | { op: 'relief'; id: string; army: WarArmy; walkMs: number; from: Spot }
   | { op: 'pact'; target: string }
   | { op: 'unpact'; target: string }
+  // Ответ на предложение соседа по номеру (ДП-1, `world/proposals`): принять, отклонить или отозвать своё. Проверяет сервер:
+  // отвечает адресат, отзывает предложивший, пока срок не вышел.
+  | { op: 'deal'; id: string; act: ProposalAct }
   | { op: 'spy'; target: string; deed: RivalDeed; energy?: WarEnergy; shown: { chance: number; peril: number }; at: number };
 
 /** Отметка падения города в списке принятого (`WarSheet.seen`): одна на клиент и на сервер. */
@@ -1558,6 +1578,10 @@ export function readWarOrder(v: unknown): WarOrder | null {
     case 'unpact': {
       const target = str(r.target, 64);
       return target ? { op: r.op, target } : null;
+    }
+    case 'deal': {
+      const act = PROPOSAL_ACTS.find((a) => a === r.act);
+      return id && act ? { op: 'deal', id, act } : null;
     }
     case 'spy': {
       const target = str(r.target, 64);

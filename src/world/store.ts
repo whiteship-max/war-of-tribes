@@ -13,7 +13,8 @@ import { NOTIFY_ON, notifyDrafts } from '@/net/notify';
 import { buildForecast } from '@/game/buildEta';
 import { realMs } from '@/game/pace';
 import { draftBuild } from './notice';
-import { pacts, provideSheet, spies, spyLook, warBoot, warOrder, warPace, wars, warsKnown } from '@/net/war';
+import type { ProposalAct } from './proposals';
+import { pacts, proposals, provideSheet, spies, spyLook, warBoot, warOrder, warPace, wars, warsKnown } from '@/net/war';
 import { log } from '@/game/sim/log';
 import { useGame } from '@/game/store';
 import { haptic } from '@/telegram/webapp';
@@ -65,6 +66,7 @@ import type {
   InterceptPlan,
   StrikePlan,
   LetterView,
+  RivalMail,
   MarchOrder,
   MarchView,
   PlayerCastle,
@@ -109,7 +111,7 @@ function withBuild(items: NoticeItem[], now: number): NoticeItem[] {
 function openWorld(opts: LocalWorldOptions): LocalWorld {
   // Война между игроками (docs/pvp.md): мир получает свои войны и дверь приказа, как реестр замков, а
   // запись партии — слепок обороны от этого мира.
-  const full: LocalWorldOptions = { ...opts, wars, warsKnown, warOrder, warPace, spies, spyLook, pacts };
+  const full: LocalWorldOptions = { ...opts, wars, warsKnown, warOrder, warPace, spies, spyLook, pacts, proposals };
   let world: LocalWorld;
   if (NOTIFY_ON) world = notifying = new NotifyingWorld(full);
   else world = new LocalWorld(full);
@@ -375,6 +377,11 @@ export interface WorldStore {
   leaveMap: () => void;
   /** Ответить на письмо. Возвращает текст ошибки или null. */
   answerLetter: (id: string, answer: 'yes' | 'no') => Promise<string | null>;
+  /** Соседи-игроки в «Вестях» (ДП-1): предложения и походы на нас. Перечитываются пульсом. */
+  rivals: RivalMail;
+  loadRivals: () => Promise<void>;
+  /** Ответ на предложение соседа: принять, отклонить, отозвать. Возвращает текст ошибки или null. */
+  answerProposal: (id: string, act: ProposalAct) => Promise<string | null>;
   loadReports: () => Promise<void>;
   markRead: () => Promise<void>;
   /** Новый мир с нуля — рядом с «начать заново» у племени. */
@@ -407,6 +414,7 @@ export const useWorld = create<WorldStore>((set, get) => ({
   unread: 0,
   tribes: [],
   letters: [],
+  rivals: { proposals: [], marching: [] },
   openLetter: null,
   spotlight: null,
   letterBack: null,
@@ -490,6 +498,7 @@ export const useWorld = create<WorldStore>((set, get) => ({
     // момент, когда на стол посмотрели, и смотреть на него надо регулярно —
     // иначе протухшее висело бы в столбике до следующего действия игрока.
     void get().loadLetters();
+    void get().loadRivals();
     // Окно осаждающего живёт тем же пульсом, пока лагерь стоит; снят — окна нет.
     if (pulse.figures.some((f) => f.id === 'general' && f.besieging)) void get().loadCamp();
     else if (get().camp) set({ camp: null });
@@ -1012,6 +1021,25 @@ export const useWorld = create<WorldStore>((set, get) => ({
     set({ spotlight: null, letterBack: null, openLetter: back });
   },
 
+  loadRivals: async () => {
+    set({ rivals: await worldApi().rivals() });
+  },
+
+  answerProposal: async (id, act) => {
+    const err = await worldApi().answerProposal(id, act);
+    if (err) {
+      haptic('error');
+      await get().loadRivals();
+      return err;
+    }
+    haptic('medium');
+    // Пульс раньше перечитывания: строка летописи об итоге ложится на племя тем же заходом.
+    await get().pulse();
+    await get().loadRivals();
+    if (get().selected && get().card) await get().refreshCard();
+    return null;
+  },
+
   answerLetter: async (id, answer) => {
     const err = await worldApi().answerLetter(id, answer);
     if (err) {
@@ -1067,6 +1095,7 @@ export const useWorld = create<WorldStore>((set, get) => ({
       card: null,
       cardTerrain: null,
       letters: [],
+      rivals: { proposals: [], marching: [] },
       openLetter: null,
       spotlight: null,
       letterBack: null,

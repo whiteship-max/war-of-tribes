@@ -91,7 +91,7 @@ describe('фильтры и группы', () => {
   it('окно: три вкладки почты со счётчиком новых и «Летопись», вести — строками таблиц с дверью; прежней ленты нет', () => {
     const { s, letters } = table();
     stores.game = { s, resolve: () => null, openMap: () => {} };
-    stores.world = { letters, marches: [], info: null, answerLetter: async () => null, spotLetter: () => {} };
+    stores.world = { letters, rivals: { proposals: [], marching: [] }, marches: [], info: null, answerLetter: async () => null, spotLetter: () => {} };
     const html = renderToStaticMarkup(h(Mail));
     const tabs = [...html.matchAll(/role="tab"[^>]*>(?:<[^>]+>)*([^<]+)<\/span>(?:<em class="kit-badge">(\d+)<\/em>)?/g)].map((m) => [m[1], m[2] ?? '0']);
     expect(tabs).toEqual([

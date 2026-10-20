@@ -1067,6 +1067,39 @@
 .mail-boons {
   margin-bottom: 8px;
 }
+/* Строка с ответом в ней (ДП-1): дверь в карточку и кнопки ответа по 44 — «Принять», «Отклонить». */
+.mail-quick {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+  padding: 4px 0;
+  border-top: 1px solid var(--line);
+}
+.mail-quick-go {
+  flex: 1;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0 4px;
+  text-align: left;
+}
+.mail-quick-act {
+  flex: none;
+  min-width: 76px;
+  min-height: 44px;
+  padding: 0 10px;
+  border-radius: 10px;
+  background: var(--m-leather);
+  box-shadow: var(--m-leather-bevel);
+  border: 1px solid var(--m-leather-rim);
+  font-size: 13px;
+  font-weight: 600;
+}
+.mail-quick-act.yes {
+  border-color: var(--m-gold-rim);
+}
+.mail-quick-act:disabled {
+  opacity: 0.5;
+}
 
 /* ---------- Летопись «Вестей» (ВС-2, docs/ui_v2.md, 5.8) ---------- */
 /* Фильтр рода: кнопки 44 в ряд с переносом — родов в летописи столько, сколько было событий. */

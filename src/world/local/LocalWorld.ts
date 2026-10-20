@@ -37,6 +37,7 @@ import type {
   CardSack,
   CardSpy,
   RivalDeedId,
+  RivalMail,
   RivalMenu,
   CardSiege,
   Coord,
@@ -168,6 +169,7 @@ import {
   type WarView,
 } from '../../../netlify/lib/contract';
 import { fieldWalkSeconds, foodLeft, spyWalkMs, warWalkMs } from '../pvp';
+import { endWords, type ProposalAct, type ProposalView } from '../proposals';
 import { WATCHER, homeSight, liveSight, standing } from '../sight';
 import { islandNeighbours } from '../spawn';
 import { canShelter, placeOf } from '../shelter';
@@ -488,6 +490,8 @@ export interface LocalWorldOptions {
   warsKnown?: () => boolean;
   /** Пакты с соседями-игроками с сервера (docs/siege_v2.md, раздел 5). Нет — пактов в этой сессии нет. */
   pacts?: () => WarPact[];
+  /** Предложения соседей-игроков с сервера (ДП-1): ждущие ответа и итоги. Нет — предложений в этой сессии нет. */
+  proposals?: () => ProposalView[];
   /** Дверь приказа войны: null — принят, иначе причина словами. */
   warOrder?: (order: WarOrder) => Promise<string | null>;
   /** Темп войны с сервера (`TRIBE_WAR_PACE`): во сколько раз быстрее походы. Нет — 1. */
@@ -639,6 +643,7 @@ export class LocalWorld implements WorldApi {
   private warsFrom: (() => WarView[]) | null;
   private warsKnown: (() => boolean) | null;
   private pactsFrom: (() => WarPact[]) | null;
+  private proposalsFrom: (() => ProposalView[]) | null;
   private warOrderTo: ((order: WarOrder) => Promise<string | null>) | null;
   private warPaceOf: () => number;
   /** Дела лазутчиков с сервера и меню дел (docs/spy_pvp.md). null — тайной войны в этой сессии нет. */
@@ -661,6 +666,7 @@ export class LocalWorld implements WorldApi {
     this.warsFrom = opts.wars ?? null;
     this.warsKnown = opts.warsKnown ?? null;
     this.pactsFrom = opts.pacts ?? null;
+    this.proposalsFrom = opts.proposals ?? null;
     this.warOrderTo = opts.warOrder ?? null;
     this.warPaceOf = opts.warPace ?? (() => 1);
     this.spiesFrom = opts.spies ?? null;
@@ -9569,7 +9575,11 @@ export class LocalWorld implements WorldApi {
     const led = this.save.figures.general.war;
     if (led && this.warsKnown?.() && !list.some((w) => w.id === led)) this.warHome(now, null);
     this.stepSpies(now, seen);
-    this.save.warSeen = keptSeen(seen, this.warsKnown?.() === false ? null : [...warSeenIds(list), ...this.spyList().map((x) => spySeenId(x.id))]);
+    this.stepRivals(list, seen);
+    this.save.warSeen = keptSeen(
+      seen,
+      this.warsKnown?.() === false ? null : [...warSeenIds(list), ...this.spyList().map((x) => spySeenId(x.id)), ...rivalSeenIds(list, this.proposalList())],
+    );
   }
 
   /** Полководец — где его войско по словам сервера: идёт, стоит лагерем, возвращается. */
@@ -10387,6 +10397,47 @@ export class LocalWorld implements WorldApi {
     return { can: !energy.block, reason: energy.block, seconds, men: troopTotal(force), energy };
   }
 
+  // ---------- Соседи в «Вестях» (ДП-1) ----------
+
+  /** Предложения с сервера войны: ждущие ответа и итоги. */
+  private proposalList(): ProposalView[] {
+    return this.proposalsFrom?.() ?? [];
+  }
+
+  async rivals(): Promise<RivalMail> {
+    const marching = this.warList()
+      .filter((w) => w.role === 'def' && w.phase === 'march')
+      .map((w) => ({ id: w.id, castle: w.atkCastle, city: this.warCity(w, 'atk'), mode: w.mode, arriveAt: w.arriveAt }));
+    return { proposals: this.proposalList(), marching };
+  }
+
+  async answerProposal(id: string, act: ProposalAct): Promise<string | null> {
+    return this.warSend({ op: 'deal', id, act });
+  }
+
+  /**
+   * Итоги предложений и походы соседей на нас — в летопись, каждое один раз (`warSeen`), обеим сторонам своими словами
+   * (ДП-1). Ключ последствия — `dip-…`: летопись относит его к «Соседям» (`annals.refTopic`).
+   */
+  private stepRivals(list: readonly WarView[], seen: Set<string>): void {
+    for (const p of [...this.proposalList()].reverse()) {
+      if (!p.end) continue;
+      const id = proposalSeenId(p);
+      if (seen.has(id)) continue;
+      seen.add(id);
+      const good = p.end === 'yes' || (p.endBy === 'us' && p.end !== 'broken');
+      this.addEffect({ id, lost: {}, resources: {}, prestige: 0, morale: 0, battle: null, text: endWords(p), good });
+    }
+    for (const w of [...list].reverse()) {
+      if (w.role !== 'def') continue;
+      const id = rivalWarId(w.id);
+      if (seen.has(id)) continue;
+      seen.add(id);
+      const how = w.mode === 'storm' ? 'на штурм' : 'осадой';
+      this.addEffect({ id, lost: {}, resources: {}, prestige: 0, morale: 0, battle: null, text: `«${this.warCity(w, 'atk')}» идёт на нас походом — ${how}.`, good: false });
+    }
+  }
+
   /**
    * Пакт с соседом-игроком (раздел 5): `on` — предложить или принять; нет — разорвать, отозвать или отклонить. Пакт значит
    * одно: союзник может прийти на выручку, а походом на него не пойти. Хранит его сервер войны.
@@ -11111,6 +11162,16 @@ function fallHow(f: WarFall): string {
   if (f.by === 'hunger') return 'Город сдался голоду';
   if (f.by === 'gates') return f.terms ? 'Город сдался на наших условиях, гарнизон ушёл живым' : 'Город открыл ворота, гарнизон ушёл живым';
   return 'Город взят штурмом';
+}
+
+/** Отметка итога предложения в летописи (ДП-1): номер и итог — у предложения итог один. */
+const proposalSeenId = (p: ProposalView): string => `dip-${p.id}-${p.end ?? 'open'}`;
+/** Отметка похода соседа на нас в летописи (ДП-1). */
+const rivalWarId = (war: string): string => `dip-war-${war}`;
+
+/** Отметки соседей, которые сервер ещё отдаёт: итоги предложений и войны на нас. */
+function rivalSeenIds(list: readonly WarView[], proposals: readonly ProposalView[]): string[] {
+  return [...proposals.filter((p) => p.end).map(proposalSeenId), ...list.filter((w) => w.role === 'def').map((w) => rivalWarId(w.id))];
 }
 
 /** Номера итогов, которые сервер отдаёт в списке войн: бои, падения городов, дань, починки и удары, не пробившиеся к лагерю. */

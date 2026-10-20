@@ -9,6 +9,7 @@ import type { SiegeOrders } from './siegeroll';
 import type { MachineId } from './data/machines';
 import type { Aim } from './data/shelling';
 import type { TroopStack } from '@/game/battle/kinds';
+import type { ProposalAct } from './proposals';
 import type {
   AssaultMode,
   AttackOrder,
@@ -38,6 +39,7 @@ import type {
   RegionChunk,
   Report,
   RivalDeedId,
+  RivalMail,
   RivalMenu,
   SendResult,
   SettlementCard,
@@ -289,6 +291,18 @@ export interface WorldApi {
    * дело мира, а не кнопки, и второго пути к нему быть не должно.
    */
   answerLetter(id: string, answer: Exclude<LetterAnswerId, 'lapse'>): Promise<string | null>;
+
+  /**
+   * Соседи-игроки в «Вестях» (ДП-1): предложения — ждущие ответа, свои и нам, и итоги — и походы соседей на наш город. Знает
+   * их сервер войны; вне Telegram — пусто.
+   */
+  rivals(): Promise<RivalMail>;
+
+  /**
+   * Ответ на предложение соседа по номеру (ДП-1): принять, отклонить или отозвать своё. Проверяет сервер войны (отвечает
+   * адресат, пока срок не вышел). null — принято, иначе причина.
+   */
+  answerProposal(id: string, act: ProposalAct): Promise<string | null>;
 
   /** Договоры, действующие прямо сейчас. */
   deals(): Promise<DealView[]>;

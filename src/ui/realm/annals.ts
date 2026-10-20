@@ -50,7 +50,7 @@ export function reportTopic(r: Report): ChronTopic {
 /** Род последствия без донесения — по ключу мира. */
 export function refTopic(ref: string): ChronTopic {
   if (/^pact-.*-trade-/.test(ref)) return 'trade';
-  if (/^(pact|deal|order|spy|letter)-|^fig-scout-deed-/.test(ref)) return 'rival';
+  if (/^(pact|deal|order|spy|letter|dip)-|^fig-scout-deed-/.test(ref)) return 'rival';
   if (SIEGE.test(ref)) return 'siege';
   if (/-gate$|-defense$/.test(ref)) return 'raid';
   if (/^(war|atk|chase|strike|assault|muster)|-(home|scout)$/.test(ref)) return 'battle';

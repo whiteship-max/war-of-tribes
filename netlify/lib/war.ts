@@ -54,6 +54,7 @@ import { statAt } from '../../src/game/train.js';
 import { ENGINES } from '../../src/game/data/engines.js';
 import { campFight, guardKinds, homeLosses, machineFight, wallFight } from '../../src/world/fights.js';
 import { SCALING, wallFront } from '../../src/world/wall.js';
+import { PROPOSALS, answerBlock, type ProposalAct, type ProposalEnd, type ProposalKind, type ProposalView } from '../../src/world/proposals.js';
 import {
   GUARD_SHARE,
   assaultOf,
@@ -159,8 +160,13 @@ export interface WarFile {
    * пакта. Нет поля — ни одного.
    */
   pacts?: PactRow[];
-  /** Предложения пакта, ещё не принятые: кто, кому, когда. */
+  /** Предложения, ждущие ответа: кто, кому, что, когда и до какой минуты (ДП-1, `world/proposals`). */
   offers?: PactOffer[];
+  /**
+   * Закрытые предложения с итогом — принято, отклонено, срок вышел, отозвано — и разрывы союзов (ДП-1): из них «Вести» и
+   * летопись обеих сторон и вести в Telegram. Лежат `DEALT_KEEP_MS`. Нет поля — ни одного.
+   */
+  dealt?: DealtRow[];
 }
 
 /** Пакт двух игроков: ключи по порядку, имена городов на минуту пакта. Ключи наружу не уходят (`pactsOf`). */
@@ -173,13 +179,32 @@ export interface PactRow {
   by?: string;
 }
 
-/** Предложение пакта. */
+/**
+ * Предложение между игроками (ДП-1): кто (`from`), кому (`to`), что (`kind`), когда и до какой минуты ждёт ответа. Запись
+ * старше ДП-1 номера, вида и срока не несёт — их выводит `readWars` (союз, номер из замка и минуты, срок — сутки).
+ */
 export interface PactOffer {
+  id: string;
+  kind: ProposalKind;
   from: string;
   to: string;
   at: number;
+  until: number;
   cities: Record<string, string>;
 }
+
+/** Закрытое предложение или разрыв союза: чем кончилось, когда и кто закрыл (ключ; нет — срок вышел). */
+export interface DealtRow extends PactOffer {
+  end: ProposalEnd;
+  endAt: number;
+  endBy?: string;
+}
+
+/** Сколько итог предложения лежит: обе стороны успевают зайти и прочесть его в «Вестях» и летописи. */
+export const DEALT_KEEP_MS = 7 * 24 * 3600_000;
+
+/** Номер предложения: замок предложившего и минута — ключи наружу не уходят. */
+export const proposalId = (from: string, at: number): string => `${castleIdOf(from)}.${at.toString(36)}`;
 
 /**
  * Дело лазутчика в хранилище: вид для игроков плюс ключи сторон и то, что заморожено при приказе (скрытность и срок
@@ -247,10 +272,26 @@ export function readWars(raw: unknown): WarFile {
         .filter((x): x is PactRow => Boolean(x) && typeof x.a === 'string' && typeof x.b === 'string')
         .map((x) => ({ a: x.a, b: x.b, at: Number(x.at) || 0, cities: names(x.cities), ...(typeof x.by === 'string' ? { by: x.by } : {}) }))
     : [];
-  const offers = Array.isArray(r.offers)
-    ? r.offers
-        .filter((x): x is PactOffer => Boolean(x) && typeof x.from === 'string' && typeof x.to === 'string')
-        .map((x) => ({ from: x.from, to: x.to, at: Number(x.at) || 0, cities: names(x.cities) }))
+  const offer = (x: Partial<PactOffer>): PactOffer => {
+    const at = Number(x.at) || 0;
+    const kind = x.kind && PROPOSALS[x.kind] ? x.kind : 'pact';
+    return {
+      id: typeof x.id === 'string' && x.id ? x.id : proposalId(x.from as string, at),
+      kind,
+      from: x.from as string,
+      to: x.to as string,
+      at,
+      until: Number(x.until) || at + PROPOSALS[kind].ttlMs,
+      cities: names(x.cities),
+    };
+  };
+  const party = (x: unknown): x is PactOffer => Boolean(x) && typeof (x as PactOffer).from === 'string' && typeof (x as PactOffer).to === 'string';
+  const offers = Array.isArray(r.offers) ? r.offers.filter(party).map(offer) : [];
+  const ENDS: readonly ProposalEnd[] = ['yes', 'no', 'expired', 'withdrawn', 'broken'];
+  const dealt = Array.isArray(r.dealt)
+    ? r.dealt
+        .filter((x): x is DealtRow => party(x) && ENDS.includes((x as DealtRow).end))
+        .map((x) => ({ ...offer(x), end: x.end, endAt: Number(x.endAt) || 0, ...(typeof x.endBy === 'string' ? { endBy: x.endBy } : {}) }))
     : [];
   return {
     v: 1,
@@ -260,6 +301,7 @@ export function readWars(raw: unknown): WarFile {
     ...(spies.length ? { spies } : {}),
     ...(pacts.length ? { pacts } : {}),
     ...(offers.length ? { offers } : {}),
+    ...(dealt.length ? { dealt } : {}),
   };
 }
 
@@ -346,6 +388,89 @@ export function pactsOf(file: WarFile, key: string): WarPact[] {
   return out;
 }
 
+/** Предложение глазами стороны `key`: без ключей игроков. */
+function proposalView(o: PactOffer | DealtRow, key: string): ProposalView {
+  const side = o.to === key ? 'in' : 'out';
+  const other = side === 'in' ? o.from : o.to;
+  const d = 'end' in o ? o : null;
+  return {
+    id: o.id,
+    kind: o.kind,
+    side,
+    castle: castleIdOf(other),
+    city: cityOr(o.cities[other]),
+    at: o.at,
+    until: o.until,
+    ...(d ? { end: d.end, endAt: d.endAt, ...(d.endBy ? { endBy: d.endBy === key ? ('us' as const) : ('them' as const) } : {}) } : {}),
+  };
+}
+
+/** Предложения игрока (ДП-1): ждущие ответа и закрытые с итогом — свежие сверху. */
+export function proposalsOf(file: WarFile, key: string): ProposalView[] {
+  const mine = (o: PactOffer): boolean => o.from === key || o.to === key;
+  return [...(file.offers ?? []).filter(mine), ...(file.dealt ?? []).filter(mine)]
+    .map((o) => proposalView(o, key))
+    .sort((a, b) => (b.endAt ?? b.at) - (a.endAt ?? a.at));
+}
+
+/** Закрыть предложение итогом: из ждущих — в закрытые. */
+function closeOffer(file: WarFile, o: PactOffer, end: ProposalEnd, at: number, by?: string): void {
+  file.offers = (file.offers ?? []).filter((x) => x !== o);
+  file.dealt = [...(file.dealt ?? []), { ...o, end, endAt: at, ...(by ? { endBy: by } : {}) }];
+}
+
+/** Срок ответа вышел — предложение закрывается итогом «срок вышел» в минуту срока (ход записи, `advance`). */
+export function expireOffers(file: WarFile, now: number): boolean {
+  const late = (file.offers ?? []).filter((o) => o.until <= now);
+  for (const o of late) closeOffer(file, o, 'expired', o.until);
+  return late.length > 0;
+}
+
+/** Союз заключён: пара ключей по порядку, предложение — в закрытые с «принято». */
+function makePact(file: WarFile, o: PactOffer, key: string, now: number, ctx: OrderCtx): void {
+  const other = o.from;
+  const cities = { [key]: cityOr(ctx.roster.rows[key]?.city ?? o.cities[key]), [other]: cityOr(ctx.roster.rows[other]?.city ?? o.cities[other]) };
+  const [a, b] = key < other ? [key, other] : [other, key];
+  file.pacts = [...(file.pacts ?? []), { a, b, at: now, cities, by: key }];
+  closeOffer(file, o, 'yes', now, key);
+}
+
+const warBetween = (file: WarFile, a: string, b: string): boolean =>
+  file.wars.some((w) => active(w) && ((w.atk === a && w.def === b) || (w.atk === b && w.def === a)));
+
+/**
+ * Ответ на предложение по номеру (ДП-1, ЗЩ-1): принять и отклонить может только тот, кому предложили, отозвать — только
+ * предложивший, и только пока срок не вышел (`world/proposals.answerBlock` — та же проверка, что гасит кнопку). Чужое
+ * предложение честный клиент не показывает вовсе — такой приказ отказ и флаг в журнале города.
+ */
+function dealOrder(file: WarFile, key: string, id: string, act: ProposalAct, now: number, ctx: OrderCtx): string | null {
+  const o = (file.offers ?? []).find((x) => x.id === id);
+  const done = o ? null : (file.dealt ?? []).find((x) => x.id === id);
+  const row = o ?? done;
+  if (!row) return 'Такого предложения нет.';
+  if (row.from !== key && row.to !== key) {
+    ctx.forged?.(`Ответ на чужое предложение ${id}: ни предлагал, ни получал.`);
+    return 'Это предложение не вам.';
+  }
+  const block = answerBlock(proposalView(row, key), act, now);
+  if (block || !o) return block ?? 'На это предложение уже ответили.';
+  if (act === 'withdraw') {
+    closeOffer(file, o, 'withdrawn', now, key);
+    return null;
+  }
+  if (act === 'no') {
+    closeOffer(file, o, 'no', now, key);
+    return null;
+  }
+  if (pacted(file, key, o.from)) {
+    closeOffer(file, o, 'yes', now, key);
+    return null;
+  }
+  if (warBetween(file, key, o.from)) return 'Между нами идёт война. Союза не будет, пока она не кончится.';
+  makePact(file, o, key, now, ctx);
+  return null;
+}
+
 /**
  * Предложить пакт или принять предложенный (docs/siege_v2.md, раздел 5): пакт — когда обе стороны сказали «да». Своей
  * дипломатии с наградами и сроками у игроков нет: пакт значит одно — союзник может прийти на выручку, а походом на него
@@ -356,33 +481,38 @@ function pactOrder(file: WarFile, key: string, target: string, now: number, ctx:
   if (!other) return 'Такого города нет на карте.';
   if (other === key) return 'Пакт с самим собой не заключают.';
   if (pacted(file, key, other)) return 'Пакт уже заключён.';
-  if (file.wars.some((w) => active(w) && ((w.atk === key && w.def === other) || (w.atk === other && w.def === key)))) {
-    return 'Между нами идёт война. Пакта не будет, пока она не кончится.';
-  }
+  if (warBetween(file, key, other)) return 'Между нами идёт война. Пакта не будет, пока она не кончится.';
   const cities = { [key]: cityOr(ctx.roster.rows[key]?.city), [other]: cityOr(ctx.roster.rows[other]?.city) };
   const offers = file.offers ?? [];
-  if (offers.some((o) => o.from === other && o.to === key)) {
-    file.offers = offers.filter((o) => !(o.from === other && o.to === key));
-    const [a, b] = key < other ? [key, other] : [other, key];
-    file.pacts = [...(file.pacts ?? []), { a, b, at: now, cities, by: key }];
+  // Встречное предложение — согласие: дипломат, приехавший к тому, кто уже зовёт, привёз «да».
+  const asked = offers.find((o) => o.from === other && o.to === key && o.until > now);
+  if (asked) {
+    makePact(file, asked, key, now, ctx);
     return null;
   }
-  if (offers.some((o) => o.from === key && o.to === other)) return 'Предложение уже у них. Ждём ответа.';
+  if (offers.some((o) => o.from === key && o.to === other && o.until > now)) return 'Предложение уже у них. Ждём ответа.';
   if (offers.filter((o) => o.from === key).length >= PACT_OFFERS_MAX) return 'Предложений и так много. Подожди ответов.';
-  file.offers = [...offers, { from: key, to: other, at: now, cities }];
+  file.offers = [...offers, { id: proposalId(key, now), kind: 'pact', from: key, to: other, at: now, until: now + PROPOSALS.pact.ttlMs, cities }];
   return null;
 }
 
-/** Разорвать пакт, отозвать своё предложение или отклонить чужое. */
-function unpactOrder(file: WarFile, key: string, target: string): string | null {
-  const offers = file.offers ?? [];
+/**
+ * Разорвать пакт, отозвать своё предложение или отклонить чужое. Каждое — итогом в закрытые (ДП-1): разрыв — строкой
+ * «разорван» от разорвавшего, отозванное и отклонённое — своим итогом.
+ */
+function unpactOrder(file: WarFile, key: string, target: string, now: number): string | null {
   const pacts = file.pacts ?? [];
   const mine = (k: string): boolean => castleIdOf(k) === target;
-  const keepPacts = pacts.filter((p) => !((p.a === key && mine(p.b)) || (p.b === key && mine(p.a))));
-  const keepOffers = offers.filter((o) => !((o.from === key && mine(o.to)) || (o.to === key && mine(o.from))));
-  if (keepPacts.length === pacts.length && keepOffers.length === offers.length) return 'Пакта нет.';
-  file.pacts = keepPacts;
-  file.offers = keepOffers;
+  const broken = pacts.filter((p) => (p.a === key && mine(p.b)) || (p.b === key && mine(p.a)));
+  const offers = (file.offers ?? []).filter((o) => (o.from === key && mine(o.to)) || (o.to === key && mine(o.from)));
+  if (broken.length === 0 && offers.length === 0) return 'Пакта нет.';
+  file.pacts = pacts.filter((p) => !broken.includes(p));
+  for (const p of broken) {
+    const other = p.a === key ? p.b : p.a;
+    const row: DealtRow = { id: proposalId(key, now), kind: 'pact', from: key, to: other, at: now, until: now, cities: { ...p.cities }, end: 'broken', endAt: now, endBy: key };
+    file.dealt = [...(file.dealt ?? []), row];
+  }
+  for (const o of offers) closeOffer(file, o, o.from === key ? 'withdrawn' : 'no', now, key);
   return null;
 }
 
@@ -1390,6 +1520,7 @@ export function advance(file: WarFile, now: number, sheets: ReadonlyMap<string, 
     }
   }
   if (advanceSpies(file, now, sheets)) changed = true;
+  if (expireOffers(file, now)) changed = true;
   return changed;
 }
 
@@ -1405,6 +1536,11 @@ export function pruneWars(file: WarFile, now: number): void {
   if (file.spies) {
     const keep = file.spies.filter((x) => x.phase !== 'done' || now - (x.endAt ?? x.sentAt) <= WAR_KEEP_MS).slice(-WAR_MAX);
     if (keep.length !== file.spies.length) file.spies = keep;
+  }
+  if (file.dealt) {
+    const keep = file.dealt.filter((x) => now - x.endAt <= DEALT_KEEP_MS).slice(-WAR_MAX);
+    if (keep.length === 0) delete file.dealt;
+    else if (keep.length !== file.dealt.length) file.dealt = keep;
   }
   // Убранная война уходит в итоги эпохи: рейтинг её побед не теряет (docs/rating.md).
   if (file.wars.length === was.length) return;
@@ -1769,7 +1905,9 @@ export function applyOrder(file: WarFile, key: string, order: WarOrder, now: num
     case 'pact':
       return pactOrder(file, key, order.target, now, ctx);
     case 'unpact':
-      return unpactOrder(file, key, order.target);
+      return unpactOrder(file, key, order.target, now);
+    case 'deal':
+      return dealOrder(file, key, order.id, order.act, now, ctx);
     case 'strike': {
       const w = theirs(file, order.id, key, 'def');
       if (!w || w.phase !== 'camp') return 'Лагеря под стенами уже нет.';
@@ -2136,9 +2274,11 @@ export function newsOf(w: WarRow): WarNews[] {
 }
 
 /**
- * Вести о пакте (docs/siege_v2.md, 19.2): предложение — тому, кому предложили, пока оно лежит; принятый пакт — тому, кто
- * предлагал. Выводятся из записи, как вести войны: «один раз» держит разница до и после хода (`newsDiff`). Участи у пакта
- * нет — поле `fate` у вести обязательно, и здесь оно формы ради.
+ * Вести о пакте (docs/siege_v2.md, 19.2; ДП-1): предложение — тому, кому предложили, пока оно лежит, с номером: кнопка под
+ * вестью ведёт к нему; принятый пакт — тому, кто предлагал. Итоги (ДП-1) — той стороне, которая не действовала сама:
+ * отклонённое — предложившему, отозванное — адресату, разорванный союз — другой стороне, вышедший срок — обеим. Выводятся
+ * из записи, как вести войны: «один раз» держит разница до и после хода (`newsDiff`). Участи у пакта нет — поле `fate` у
+ * вести обязательно, и здесь оно формы ради.
  */
 export function pactNewsOf(file: WarFile): WarNews[] {
   const out: WarNews[] = [];
@@ -2149,10 +2289,34 @@ export function pactNewsOf(file: WarFile): WarNews[] {
         key: `war-pact:${castleIdOf(o.from)}:${o.at}`,
         kind: 'war-pact',
         fireAt: o.at,
-        until: o.at + RESULT_KEEP,
-        p: { from: plainName(cityOr(o.cities[o.from])), fate: 'plunder', about: o.at, pact: 'offer' },
+        until: Math.min(o.until, o.at + RESULT_KEEP),
+        p: { from: plainName(cityOr(o.cities[o.from])), fate: 'plunder', about: o.at, pact: 'offer', deal: o.id },
       },
     });
+  }
+  for (const d of file.dealt ?? []) {
+    const end = d.end;
+    if (end === 'yes') continue;
+    const to = (player: string, role?: 'atk' | 'def'): void => {
+      const other = player === d.from ? d.to : d.from;
+      out.push({
+        player,
+        item: {
+          key: `war-pact:${castleIdOf(other)}:${d.endAt}:${end}${role ? `:${role}` : ''}`,
+          kind: 'war-pact',
+          fireAt: d.endAt,
+          until: d.endAt + RESULT_KEEP,
+          p: { from: plainName(cityOr(d.cities[other])), fate: 'plunder', about: d.endAt, pact: end, ...(role ? { role } : {}) },
+        },
+      });
+    };
+    if (d.end === 'no') to(d.from);
+    else if (d.end === 'withdrawn') to(d.to);
+    else if (d.end === 'broken') to(d.to);
+    else if (d.end === 'expired') {
+      to(d.from, 'atk');
+      to(d.to, 'def');
+    }
   }
   for (const p of file.pacts ?? []) {
     if (!p.by) continue;
