@@ -144,6 +144,72 @@ export const SAMPLES: Sample[] = [
     duck: { music: 1, amb: 1 },
   },
   {
+    name: 'skit-day',
+    title: 'Сценки днём вблизи (ЖГ-2): торг у лотка слева, дети справа, поверх рынка',
+    seconds: 16,
+    seed: 61,
+    keys: [[0, day({ solar: 0.15, near: 1, skits: [{ id: 'haggle', gain: 1, pan: -0.3, k: 0.4 }, { id: 'children', gain: 0.6, pan: 0.4, k: 0.4 }] })]],
+    music: false,
+    battle: false,
+    duck: { music: 1, amb: 1 },
+  },
+  {
+    name: 'skit-night',
+    title: 'Сценки ночью у трактира (ЖГ-2): пьяные поют, рядом драка, поодаль кости',
+    seconds: 16,
+    seed: 67,
+    keys: [
+      [
+        0,
+        day({
+          solar: 0.8,
+          near: 1,
+          skits: [
+            { id: 'drunks', gain: 1, pan: 0.2, k: 0.4 },
+            { id: 'brawl', gain: 0.7, pan: -0.4, k: 0.3 },
+            { id: 'dice', gain: 0.5, pan: 0.6, k: 0.5 },
+          ],
+        }),
+      ],
+    ],
+    music: false,
+    battle: false,
+    duck: { music: 1, amb: 1 },
+  },
+  {
+    name: 'skit-out',
+    title: 'Сценки за стеной (ЖГ-2): пастух со стадом, поодаль жнецы',
+    seconds: 16,
+    seed: 71,
+    keys: [[0, day({ solar: 0.36, near: 1, skits: [{ id: 'shepherd', gain: 1, pan: -0.2, k: 0.4 }, { id: 'reapers', gain: 0.6, pan: 0.5, k: 0.4 }] })]],
+    music: false,
+    battle: false,
+    duck: { music: 1, amb: 1 },
+  },
+  {
+    name: 'skit-mourn',
+    title: 'Траур после поражения (ЖГ-2): похороны с колоколом и хоралом, вдова плачет',
+    seconds: 16,
+    seed: 73,
+    keys: [
+      [
+        0,
+        day({
+          solar: 0.3,
+          near: 1,
+          life: { feast: 0, alarm: 0, hunger: 0, plague: 0, cheer: -0.4, mourn: 1 },
+          skits: [
+            { id: 'funeral', gain: 1, pan: 0, k: 0.4 },
+            { id: 'widow', gain: 0.7, pan: -0.5, k: 0.4 },
+          ],
+        }),
+      ],
+    ],
+    music: false,
+    battle: false,
+    duck: { music: 1, amb: 1 },
+  },
+  {
     name: 'city-winter',
     title: 'Город зимним днём: ветер сильнее, снег глушит, птиц нет',
     seconds: 15,
