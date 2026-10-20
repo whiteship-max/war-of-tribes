@@ -415,24 +415,24 @@ export const SKITS: readonly SkitDef[] = [
     },
   },
   {
-    // Пьяные поют: двое-трое в обнимку бредут зигзагом, качаясь, — и снова назад.
+    // Пьяные поют: трое в обнимку бредут улицей от трактира, качаясь от края к краю.
     id: 'drunks',
     where: ['tavern', 'lane', 'square'],
-    moving: false,
-    speed: 0,
-    len: [30, 42],
+    moving: true,
+    speed: 0.45,
+    len: [36, 48],
     cast: [{ fig: 'hood' }, { fig: 'cap' }, { fig: 'hood' }],
     lamp: { actor: 0, u: 0.3, v: -0.15, y: 0.75 },
-    pose(lt, _L, r, o) {
-      const k = Math.sin(lt * 0.22 + r * 6) * 3.2;
-      const back = Math.cos(lt * 0.22 + r * 6) < 0;
+    pose(lt, _L, _r, o) {
+      // Бредут улицей домой в обнимку, качаясь от края к краю; кто-то отстаёт и догоняет.
+      const drift = Math.sin(lt * 0.5) * 0.7;
       for (let i = 0; i < 3; i++) {
         const sway = Math.sin(lt * 1.7 + i * 0.6) * 0.22;
-        put(o[i], Math.sin(lt * 0.5 + i) * 0.6, k + (i - 1) * 0.62, back ? -Math.PI / 2 : Math.PI / 2, {
+        put(o[i], Math.sin(lt * 0.4 + i * 2) * 0.35, drift + (i - 1) * 0.6, 0, {
           roll: sway,
           lean: 0.06 + Math.abs(sway) * 0.4,
-          walk: lt * 0.75,
-          amp: 0.7,
+          walk: lt * 0.45 + i * 0.3,
+          amp: 0.8,
         });
       }
     },
@@ -662,8 +662,8 @@ export const SKITS: readonly SkitDef[] = [
     speed: 0,
     len: [44, 60],
     cast: [
-      { fig: 'prop', color: 0x8a6a48, box: [0.9, 0.8, 3.2] },
-      { fig: 'prop', color: 0x6a5038, box: [0.32, 0.45, 3.0] },
+      { fig: 'prop', color: 0x8a6a48, box: [3.2, 0.8, 0.9] },
+      { fig: 'prop', color: 0x6a5038, box: [3.0, 0.45, 0.32] },
       { fig: 'cap' },
       { fig: 'hood' },
       { fig: 'woman' },
@@ -923,7 +923,7 @@ export function placeOf(a: Active, lt: number, p: Pose, ground: (x: number, z: n
 
 /**
  * Видна ли с камеры точка сценки (голова человека над землёй): луч от неё к камере шагом в три четверти метра не входит ни в
- * одну коробку постройки или дома ниже её верха (с запасом 0,4 м — угол коробки между шагами). Сценка за трактиром или за крышей камере не нужна — её не увидят.
+ * одну коробку постройки или дома ниже её кровли (с запасом 0,4 м — угол коробки между шагами). Сценка за трактиром или за крышей камере не нужна — её не увидят.
  */
 export function inView(w: SkitWorld, cam: { x: number; y: number; z: number }, x: number, z: number): boolean {
   const y = heightAt(x, z) + 1.4;
@@ -932,7 +932,8 @@ export function inView(w: SkitWorld, cam: { x: number; y: number; z: number }, x
   const dz = cam.z - z;
   const len = Math.hypot(dx, dy, dz);
   if (len < 1) return true;
-  for (let d = 0.75; d < len; d += 0.75) {
+  // Последние метры у камеры не в счёт: там геометрию режет ближняя плоскость (камера над башней ворот — не за ней).
+  for (let d = 0.75; d < len - 8; d += 0.75) {
     const k = d / len;
     const h = y + dy * k;
     // Выше всех кровель и башен — дальше луч свободен.
@@ -940,7 +941,8 @@ export function inView(w: SkitWorld, cam: { x: number; y: number; z: number }, x
     const px = x + dx * k;
     const pz = z + dz * k;
     for (const s of w.sites) {
-      if (h > s.y1 || h < s.y0 - 0.5 || Math.abs(px - s.x) > 30 || Math.abs(pz - s.z) > 30) continue;
+      // Верхняя пятая часть коробки — скат кровли и шатёр башни: они уже коробки, луч над ними проходит.
+      if (h > s.y1 - 0.2 * (s.y1 - s.y0) || h < s.y0 - 0.5 || Math.abs(px - s.x) > 30 || Math.abs(pz - s.z) > 30) continue;
       if (inSite(px, pz, s, 0.4)) return false;
     }
   }

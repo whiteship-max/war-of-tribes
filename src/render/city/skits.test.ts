@@ -102,16 +102,17 @@ const inHouse = (x: number, z: number): boolean =>
 /** На проходе: ближе полуширины улицы, дорожки площади или дороги к её оси. */
 const onPass = (x: number, z: number): boolean =>
   [...plan.streets, ...SQUARE_PATHS, ...plan.roads].some((s) => distPoly({ x, z }, s.pts) < s.half);
-/** Своя проверка видимости: луч от головы человека к камере шагом в полметра не входит в коробку постройки ниже её верха. */
+/** Своя проверка видимости: луч от головы человека к камере шагом в полметра не входит в стены постройки (коробка без кровли). */
 function hidden(x: number, z: number, cam: { x: number; y: number; z: number }): string | null {
   const y = heightAtP(x, z) + 1.4;
   const len = Math.hypot(cam.x - x, cam.y - y, cam.z - z);
-  for (let d = 0.5; d < len; d += 0.5) {
+  for (let d = 0.5; d < len - 10; d += 0.5) {
     const k = d / len;
     const h = y + (cam.y - y) * k;
     const px = x + (cam.x - x) * k;
     const pz = z + (cam.z - z) * k;
-    const s = st.sites.find((b) => h < b.y1 && h > b.y0 - 0.5 && inBox(px, pz, { ...b, hf: b.hf + 0.2, hr: b.hr + 0.2 }));
+    // Стены — до трёх четвертей высоты коробки (выше — скат кровли).
+    const s = st.sites.find((b) => h < b.y0 + 0.75 * (b.y1 - b.y0) && h > b.y0 - 0.5 && inBox(px, pz, { ...b, hf: b.hf + 0.2, hr: b.hr + 0.2 }));
     if (s) return s.type;
   }
   return null;
