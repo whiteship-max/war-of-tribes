@@ -178,7 +178,6 @@ export function WorldMap() {
   const spotlight = useWorld((g) => g.spotlight);
   const chunks = useWorld((g) => g.chunks);
   const pickFigure = useWorld((g) => g.pick);
-  const moveFigure = useWorld((g) => g.moveFigure);
   const closeMap = useGame((g) => g.closeMap);
   const openMarches = useGame((g) => g.openMarches);
   const showToast = useGame((g) => g.showToast);
@@ -614,14 +613,14 @@ export function WorldMap() {
 
   /**
    * Куда ведёт одиночный тап. Двойного тапа здесь нет и быть не может — в
-   * браузере это масштабирование, — поэтому все три смысла разведены по тому,
+   * браузере это масштабирование, — поэтому все смыслы разведены по тому,
    * что под пальцем и есть ли агент в руке:
    *
-   * - агент в руке и под пальцем цель (или он сам) — меню приказов; у полководца целью считается и дорога набега на
-   *   деревню (`raidAcross`): встать на ней мало, бой даёт перехват;
-   * - агент в руке и под пальцем земля — приказ идти. У разведчика — через меню: куда, сколько идти, «Отправить» или
-   *   «Отмена» (отзыв тестеров 11.10, docs/feedback.md). Прежде шаг разведчика шёл сразу — «десяток шагов подряд в
-   *   темноту»; теперь шаг — два касания, зато промах пальцем не уводит его на полдня пути;
+   * - агент в руке и под пальцем цель — свой город, чужой город, логово, чужой отряд — меню дел (Р-4): дело, подтверждение
+   *   и «Отправить». У полководца целью считается и дорога набега на деревню (`raidAcross`): встать на ней мало, бой даёт
+   *   перехват;
+   * - агент в руке и под пальцем пустая земля — ничего не происходит, кроме строки: свободной ходьбы нет (решение
+   *   владельца 19.10.2026), агент идёт только к цели и обратно. Рука не пустеет — промах пальцем не отменяет выбор;
    * - без агента в руке — своя фигура в поле берётся в руку, а поселение
    *   открывает карточку.
    */
@@ -630,22 +629,15 @@ export function WorldMap() {
     const hand = g.picked;
     const target = settlementAt(c.x, c.y);
     const standing = figuresOn(c.x, c.y, worldNow());
-    // Чужой отряд в поле — такая же цель, как поселение: по нему тоже приказ.
+    // Чужой отряд в поле — такая же цель, как поселение: по нему тоже дело.
     const enemy = marchOn(g.marches, c, worldNow());
     if (hand) {
-      // Полководец и дорога набега на деревню: молча вести его сюда нельзя — отряд пройдёт мимо, и боя не будет (отзыв
-      // тестеров 18.10). Меню скажет это и даст перехват.
       const across = hand === 'general' && !target && raidAcross(g.marches, c, worldNow(), g.info?.homeId) !== null;
-      if (target || enemy || across || hand === 'scout' || standing.some((f) => f.id === hand)) {
+      if (target || enemy || across) {
         void g.openMenu(hand, c);
         return;
       }
-      // Из руки фигура не выпадает: заново брать её после каждого шага было бы
-      // мучением. Отпускают её кнопкой в подсказке или переходом на другой якорь.
-      void (async () => {
-        const err = await moveFigure(hand, c);
-        showToast(err ?? `${FIGURE_BY_ID[hand].name} пошёл к ${formatCoord(c)}.`);
-      })();
+      showToast(`${FIGURE_BY_ID[hand].name} ходит только к цели. Нажми город, логово или отряд.`);
       return;
     }
     if (!target && enemy) {
@@ -656,7 +648,7 @@ export function WorldMap() {
       const f = standing[0];
       setAnchor(f.id);
       pickFigure(f.id);
-      showToast(`${f.name} выбран. Нажми, куда идти.`);
+      showToast(`${f.name} выбран. Нажми цель: город, логово или отряд.`);
       return;
     }
     void useWorld.getState().select(c);

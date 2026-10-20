@@ -27,6 +27,7 @@ const DOORS: Record<string, { why: Why[]; what: string }> = {
   'sim/expedition.ts': { why: ['outlay', 'deed'], what: 'последствие мира: с боем — дело, без боя — трата' },
   'sim/tick.ts': { why: ['drain'], what: 'паёк и очаги' },
   'sim/upkeep.ts': { why: ['drain'], what: 'жалованье войска и мастеров' },
+  'sim/siege.ts': { why: ['outlay'], what: 'хлеб осады: склад не выше остатка окна осады' },
   'sim/gate.ts': { why: ['deed'], what: 'бой у ворот по вести' },
   'sim/admin.ts': { why: ['deed'], what: 'указ админа (номер указа — в описи)' },
   'data/events.ts': { why: ['deed'], what: 'цена ответа на весть' },

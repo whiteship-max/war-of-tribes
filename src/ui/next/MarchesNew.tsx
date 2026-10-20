@@ -1,14 +1,15 @@
 // «Походы» нового интерфейса (docs/ui_audit.md, 6.2 и 13; UI-7 — docs/ui_v2.md, 5.6, П10): кто идёт на нас, свои люди,
 // свои отряды в пути и донесения — таблицами: имя с пояснением, числа столбцами (уровень, бойцы, энергия), действия —
-// значками 44 справа. Касание имени человека открывает его карточку; «📍» — камера к нему и человек в руку; донесений
-// видно восемь свежих, остальные — по «Ещё N».
+// значками 44 справа. Касание имени человека открывает его карточку; «Послать» — человек в руку и карта: дальше цель,
+// дело и подтверждение (Р-4, docs/AGENTS.md, раздел 16 — свободной ходьбы нет); донесений видно восемь свежих, остальные —
+// по «Ещё N».
 //
 // Своих чисел и слов о мире нет: где человек и когда вернётся — `figurePosition`, `secondsLeft` и `realLeft`, как в
 // прежнем списке (`panels/MarchesPanel`); мораль отряда — `restLine` (`parts/restWords`), отказ перехвата из лагеря —
 // `siege.CHASE_FROM_CAMP`. Прежний список остаётся у прежнего вида.
 import { useEffect, useState } from 'react';
 import { useGame } from '@/game/store';
-import { figurePosition, marchesOnUs, ownMarches, useWorld, worldNow } from '@/world/store';
+import { marchesOnUs, ownMarches, useWorld, worldNow } from '@/world/store';
 import { troopTotal } from '@/game/battle/kinds';
 import { postureOf } from '@/world/muster';
 import { formatCoord, secondsLeft } from '@/world/geo';
@@ -91,6 +92,7 @@ export function MarchesNew() {
   const loadReports = useWorld((g) => g.loadReports);
   const markRead = useWorld((g) => g.markRead);
   const select = useWorld((g) => g.select);
+  const openMap = useGame((g) => g.openMap);
   const recallFigure = useWorld((g) => g.recallFigure);
   const shelter = useWorld((g) => g.shelter);
   const setAnchor = useWorld((g) => g.setAnchor);
@@ -167,12 +169,11 @@ export function MarchesNew() {
       )}
 
       <h3>Люди</h3>
+      <p className="nx-tnote">Послать человека: «Послать», цель на карте, дело и «Отправить». Сделав дело, он сам вернётся домой.</p>
       <Table
         label="Люди"
         cols={PEOPLE_COLS}
         rows={figures.map((f) => {
-          const at = figurePosition(f, now);
-          const cell = { x: Math.round(at.x), y: Math.round(at.y) };
           const men = troopTotal(f.troops);
           const named = f.place !== 'vacant' && s.agents[f.id].name;
           const where = [
@@ -205,19 +206,21 @@ export function MarchesNew() {
                       <Icon name="ui-home" />
                     </button>
                   )}
-                  {f.place === 'map' && (
+                  {(f.place === 'map' || f.place === 'city') && (
                     <button
                       type="button"
                       className="nx-ico44"
-                      aria-label={`${f.name}: на карте`}
+                      aria-label={`${f.name}: послать`}
                       onClick={() => {
-                        void select(cell);
+                        // Человек в руку, камера к нему: следующее касание — цель на карте, потом дело и «Отправить».
+                        closeSheet();
+                        openMap();
                         setAnchor(f.id);
                         pickFigure(f.id);
-                        closeSheet();
+                        showToast(`${f.name}: нажми цель на карте — город, логово или отряд.`);
                       }}
                     >
-                      <Icon name="ui-pin" />
+                      <Icon name="ui-target" />
                     </button>
                   )}
                   {f.place === 'city' && (

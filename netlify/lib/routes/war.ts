@@ -28,6 +28,7 @@ import {
   newsDiff,
   newsMap,
   pactsOf,
+  proposalsOf,
   pruneWars,
   readStoredSheet,
   readWars,
@@ -182,11 +183,13 @@ export const war: Route = async (req, io) => {
       }
       const spies = spiesOf(file, key);
       const pacts = pactsOf(file, key);
+      const proposals = proposalsOf(file, key);
       const body: WarResponse = {
         now,
         wars: warsOf(file, key),
         ...(spies.length ? { spies } : {}),
         ...(pacts.length ? { pacts } : {}),
+        ...(proposals.length ? { proposals } : {}),
         ...(spyMenu ? { spyMenu } : {}),
         ...(pace !== 1 ? { pace } : {}),
         ...(error ? { error } : {}),

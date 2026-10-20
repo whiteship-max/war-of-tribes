@@ -19,6 +19,10 @@
 //   GROUP=or1 WEATHER=clear TAG=before|after …     — ОР-1: подписи построек, «Показать в городе», метки и «Домой»;
 //                                                     `WEATHER` — погода адресом (`?weather=`), чтобы туман не съел подписи
 //   DIR=icons GROUP=zn4 WEATHER=clear TAG=after …  — ЗН-4: подписи у середины приближения, рычаг, окно «Профиль», держава
+//   GROUP=dp1 …                                    — ДП-1 (docs/AGENTS.md, 17): «Соседи» — поход на нас, предложение
+//                                                   с «Принять/Отклонить», наше ждущее, итог; карточка; летопись.
+//   GROUP=r4 …                                     — Р-4 (docs/AGENTS.md, 16): «Походы», цель, дела, подтверждение,
+//                                                    донесение, знак павшего города словами
 //   DIR=polish GROUP=p7 TAG=before|after …          — П-7 (docs/polish.md): тревоги войны значками справа снизу — осада
 //                                                     тихая и срочная, набеги, свой лагерь, карта, вход в окно, город без осады
 //
@@ -385,6 +389,69 @@ const GROUPS: Record<string, Step[]> = {
     },
     { name: '131-mail-raid', run: `(async () => { (await import('/src/ui/realm/open.ts')).useRealm.getState().openMail('letter:r1'); return JSON.stringify('ok'); })()`, wait: 900 },
   ],
+  // ДП-1 (docs/AGENTS.md, 17): предложения соседей в «Вестях» → «Соседи». Мир соседей — подставной (сервера войны у стенда
+  // нет): поход на нас, предложение нам, наше ждущее и итог; ответ — подменённой дверью, которая кладёт итог, как сервер.
+  dp1: [
+    {
+      name: 'dp1-01-neighbours',
+      run: `(async () => {
+        window.__ui.reset();
+        const S = await import('/src/world/store.ts');
+        const now = S.worldNow();
+        const H = 3600000;
+        const rivals = {
+          marching: [{ id: 'w-dp1', castle: 'c-3', city: 'Сухая балка', mode: 'siege', arriveAt: now + 2.5 * H }],
+          proposals: [
+            { id: 'c-1.dp1', kind: 'pact', side: 'in', castle: 'c-1', city: 'НиСы', at: now - 0.5 * H, until: now + 23.5 * H },
+            { id: 'c-me.dp1', kind: 'pact', side: 'out', castle: 'c-2', city: 'Каменный яр', at: now - 2 * H, until: now + 22 * H },
+            { id: 'c-4.dp1', kind: 'pact', side: 'in', castle: 'c-4', city: 'Ольховка', at: now - 30 * H, until: now - 6 * H, end: 'expired', endAt: now - 6 * H },
+          ],
+        };
+        S.useWorld.setState({
+          pulse: async () => {},
+          loadRivals: async () => {},
+          rivals,
+          letters: [],
+          answerProposal: async (id, act) => {
+            const r = S.useWorld.getState().rivals;
+            const end = act === 'yes' ? 'yes' : act === 'no' ? 'no' : 'withdrawn';
+            S.useWorld.setState({ rivals: { ...r, proposals: r.proposals.map((p) => (p.id === id ? { ...p, end, endAt: S.worldNow(), endBy: 'us' } : p)) } });
+            return null;
+          },
+        });
+        const R = (await import('/src/ui/realm/open.ts')).useRealm;
+        R.getState().setMailTab('letter');
+        R.getState().show('decisions');
+        return JSON.stringify('ok');
+      })()`,
+      wait: 1200,
+    },
+    { name: 'dp1-02-card', run: `(async () => { (await import('/src/ui/realm/open.ts')).useRealm.getState().openMail('deal:c-1.dp1'); return JSON.stringify('ok'); })()`, wait: 900 },
+    {
+      name: 'dp1-03-declined',
+      run: `(async () => { (await import('/src/ui/realm/open.ts')).useRealm.getState().openMail(null); await new Promise((r) => setTimeout(r, 300)); return JSON.stringify(window.__ui.click('Отклонить', '.mail-quick')); })()`,
+      wait: 900,
+    },
+    {
+      name: 'dp1-04-chronicle',
+      run: `(async () => {
+        const g = window.__game.getState();
+        const at = g.s.time;
+        g.act((st) => {
+          st.log.unshift(
+            { at, text: 'Мы отклонили предложение союза от «НиСы».', kind: 'info', ref: 'dip-c-1.dp1-no' },
+            { at, text: 'Предложение союза от «Ольховка» осталось без ответа: срок вышел.', kind: 'info', ref: 'dip-c-4.dp1-expired' },
+            { at, text: '«Сухая балка» идёт на нас походом — осадой.', kind: 'bad', ref: 'dip-war-w-dp1' },
+          );
+          return null;
+        });
+        (await import('/src/ui/realm/open.ts')).useRealm.getState().openChronicle();
+        await new Promise((r) => setTimeout(r, 300));
+        return JSON.stringify(window.__ui.click('Соседи', '.chron-chips'));
+      })()`,
+      wait: 900,
+    },
+  ],
   // UI-7: рынок — золото на складе и одна телега в пути; прилавок целиком.
   market: [
     {
@@ -415,6 +482,8 @@ const GROUPS: Record<string, Step[]> = {
       run: `(async () => {
         window.__ui.reset();
         const S = await import('/src/world/store.ts');
+        const B = await import('/src/world/blockade.ts');
+        const Sh = await import('/src/world/shelling.ts');
         const now = S.worldNow();
         const H = 3600000;
         window.__game.getState().act((st) => { st.army.clubman = 30; st.army.archer = 12; st.army.spearman = 8; });
@@ -427,8 +496,15 @@ const GROUPS: Record<string, Step[]> = {
             fall: { goods: 640, gold: 80, hidden: 60, ledBonded: 0, ledPop: 0, scatterPop: 0, scatterBonded: 0, buildings: 3, levels: 1, burnsWorks: false, routed: 0 },
             fire: { thin: 0.06, cap: 0.2, slow: 0.15 },
             phases: { journal: ['Фаза 2: кость 9 + 1 — пролом.', 'Фаза 1: кость 5 — стена держит.'], next: '+1 пролом, −2 стена', nextAt: now + 1.5 * H, nextK: 3, breaches: 1, progress: 2 },
-            answers: { repair: { cost: { wood: 80, stone: 40 }, reason: null, doneAt: null }, ration: { on: false, starvesAt: now + 20 * H }, surrender: 'captives', burn: [{ machine: 'ram', name: 'Таран', ready: true, guard: 40 }], reliefs: [], defend: { repair: true } },
+            answers: {
+              repair: { cost: { wood: 80, stone: 40 }, reason: null, doneAt: null }, ration: { on: false, starvesAt: now + 20 * H }, surrender: 'captives', burn: [{ machine: 'ram', name: 'Таран', ready: true, guard: 40 }], reliefs: [], defend: { repair: true },
+              // Р-5: требушет на стене (строится) и вылазка на пост кольца — словами дверей обстрела и кольца.
+              gun: { state: 'building', readyAt: now + 2 * H, cost: { wood: 80, stone: 40 }, span: 5 * H, can: false, reason: 'Требушет на стене уже строят.', aim: 'machines', options: [{ aim: 'camp', name: Sh.GUN_AIM_NAME.camp, gives: Sh.gunAimWords('camp') }, { aim: 'machines', name: Sh.GUN_AIM_NAME.machines, gives: Sh.gunAimWords('machines') }] },
+              breakout: { guard: 30, gives: B.BREAKOUT_GIVES },
+            },
             parley: { side: 'def', share: 0.32, fair: 210, block: null, bot: true },
+            blockade: { on: true, since: now - 4 * H, ratio: '×5,2', need: 4, can: false, reason: null, gives: B.BLOCKADE_GIVES, breaks: B.BLOCKADE_BREAKS },
+            idle: ['smithy'],
           },
         });
         window.__game.getState().openSiege();
@@ -439,11 +515,21 @@ const GROUPS: Record<string, Step[]> = {
       tabs: true,
     },
     { name: '161-siege-end', run: `(() => { const e = window.__ui.scroller(); if (!e) return JSON.stringify('нет окна'); e.scrollTop = e.scrollHeight; return JSON.stringify('ok'); })()`, wait: 600 },
+    // Р-5: «Ответы» до конца — требушет на стене (цена, срок, куда бьёт) и вылазка на пост кольца.
+    {
+      name: '166-answers-end',
+      run: `(async () => { const t = [...document.querySelectorAll('[role=tab]')].find((x) => x.textContent.includes('Ответы')); if (!t) return JSON.stringify('нет вкладки'); t.click(); await new Promise((r) => setTimeout(r, 400)); const e = window.__ui.scroller(); if (!e) return JSON.stringify('нет окна'); e.scrollTop = e.scrollHeight; return JSON.stringify('ok'); })()`,
+      wait: 700,
+    },
     { name: '162-sortie', run: `(() => { window.__game.getState().openSortie(); return JSON.stringify('ok'); })()`, wait: 1000, full: true },
+    // Р-5: вылазка на пост кольца — тем же экраном вылазки.
+    { name: '165-ring-sortie', run: `(() => { window.__game.getState().openSortie('ring'); return JSON.stringify('ok'); })()`, wait: 1000, full: true },
     {
       name: '163-camp',
       run: `(async () => {
         const S = await import('/src/world/store.ts');
+        const B = await import('/src/world/blockade.ts');
+        const Sh = await import('/src/world/shelling.ts');
         const now = S.worldNow();
         const H = 3600000;
         S.useWorld.setState({
@@ -467,10 +553,22 @@ const GROUPS: Record<string, Step[]> = {
               list: [
                 { id: 'ladders', name: 'Лестницы', use: 'Треть стены без пролома.', wood: 0.2, state: 'ready', can: false, reason: 'Уже стоят' },
                 { id: 'ram', name: 'Таран', use: 'Ворота в первую минуту штурма.', wood: 0.5, state: 'building', readyAt: now + 3 * H, can: false, reason: 'Строится' },
+                { id: 'trebuchet', name: 'Требушет', use: 'кость фазы +2 или два выстрела за фазу', wood: 0.5, state: 'ready', can: false, reason: 'Уже стоит' },
               ],
               methods: [{ machine: 'ladders', words: 'Лестницы — треть стены без пролома' }],
             },
             parley: { side: 'atk', share: 0.4, terms: ['captives'], block: null, bot: true },
+            // Р-5: цель машин и кольцо — словами дверей обстрела и кольца; лагерю мощи на кольцо мало.
+            aim: {
+              now: 'wall',
+              artillery: [{ id: 'trebuchet', name: 'Требушет', weight: 2 }],
+              options: [
+                { aim: 'wall', name: Sh.AIM_NAME.wall, gives: Sh.aimWords('wall', 2), can: false, reason: null },
+                { aim: 'town', name: Sh.AIM_NAME.town, gives: Sh.aimWords('town', 2), can: false, reason: 'Построек у них нет — по городу бить нечего.' },
+                { aim: 'engines', name: Sh.AIM_NAME.engines, gives: Sh.aimWords('engines', 2), can: false, reason: 'Стены у них нет — и машин на ней нет.' },
+              ],
+            },
+            blockade: { on: false, ratio: '≈×3,1', need: 4, can: false, reason: 'Для кольца лагерь должен быть вчетверо сильнее гарнизона: сейчас ≈×3,1.', gives: B.BLOCKADE_GIVES, breaks: B.BLOCKADE_BREAKS },
           },
         });
         window.__game.getState().openCamp();
@@ -481,6 +579,12 @@ const GROUPS: Record<string, Step[]> = {
       tabs: true,
     },
     { name: '164-camp-end', run: `(() => { const e = window.__ui.scroller(); if (!e) return JSON.stringify('нет окна'); e.scrollTop = e.scrollHeight; return JSON.stringify('ok'); })()`, wait: 600 },
+    // Р-5: «Машины» до конца — цена в лесе и «Куда бьют машины».
+    {
+      name: '167-camp-machines-end',
+      run: `(async () => { const t = [...document.querySelectorAll('[role=tab]')].find((x) => x.textContent.includes('Машины')); if (!t) return JSON.stringify('нет вкладки'); t.click(); await new Promise((r) => setTimeout(r, 400)); const e = window.__ui.scroller(); if (!e) return JSON.stringify('нет окна'); e.scrollTop = e.scrollHeight; return JSON.stringify('ok'); })()`,
+      wait: 700,
+    },
   ],
   // UI-8 (docs/ui_v2.md, 5.7): решения владельца по 6.1–6.23 и оставшиеся дубли. Город — ячейки запасов (6.3); ратуша —
   // группы порядком «Группы» («Город», мастерская — «Сырьё»), лист самой ратуши в её окне (Д4) и лист стройки (Д5);
@@ -682,6 +786,116 @@ const GROUPS: Record<string, Step[]> = {
         return JSON.stringify('шаг сразу');
       })()`,
       wait: 2000,
+    },
+  ],
+  // Р-4 (docs/AGENTS.md, раздел 16): походы агентов — «Походы», цель на карте, дела, подтверждение, донесение; пометка
+  // павшего города словами. Мир настоящий; время прихода лазутчика сдвинуто руками стенда, чтобы донесение легло сразу.
+  r4: [
+    {
+      name: 'r4-01-marches',
+      run: `(async () => {
+        window.__ui.reset();
+        await (await import('/src/world/store.ts')).useWorld.getState().pulse();
+        window.__game.getState().openMarches();
+        return JSON.stringify('ok');
+      })()`,
+      wait: 1200,
+    },
+    {
+      name: 'r4-02-target',
+      run: `(async () => {
+        const b = document.querySelector('.sheet.open button[aria-label="Разведчик: послать"]');
+        if (!b) return JSON.stringify('нет кнопки «послать»');
+        b.click();
+        await new Promise((r) => setTimeout(r, 4000));
+        return JSON.stringify('в руке: ' + (await import('/src/world/store.ts')).useWorld.getState().picked);
+      })()`,
+      wait: 1200,
+    },
+    {
+      name: 'r4-03-deeds',
+      run: `(async () => {
+        const S = await import('/src/world/store.ts');
+        const A = await import('/src/world/api.ts');
+        const W = S.useWorld.getState();
+        const info = W.info;
+        const h = info.home;
+        const now = S.worldNow();
+        A.worldApi().save.marches.push({
+          id: 'raid-r4', seed: 5, mission: 'raid', units: { warrior: 12 }, own: false, fromId: 'lair-r4', targetId: info.homeId,
+          from: { x: h.x + 9, y: h.y }, to: { x: h.x, y: h.y }, fromName: 'Волчья падь', toName: 'дом',
+          departAt: now - 600000, arriveAt: now + 3000000, phase: 'out', power: 40, loot: null,
+        });
+        await W.pulse();
+        const m = S.useWorld.getState().marches.find((x) => x.id === 'raid-r4');
+        if (!m) return JSON.stringify('набега не видно');
+        await S.useWorld.getState().openChase(m, 'scout');
+        await new Promise((r) => setTimeout(r, 700));
+        return JSON.stringify('дел ' + (S.useWorld.getState().menu?.errands || []).length);
+      })()`,
+      wait: 900,
+    },
+    {
+      name: 'r4-04-confirm',
+      run: `(async () => {
+        const b = [...document.querySelectorAll('.nx-am .nx-obtn')].find((x) => x.textContent.includes('Следить за отрядом'));
+        if (!b) return JSON.stringify('нет дела «Следить за отрядом»');
+        b.click();
+        return JSON.stringify('ok');
+      })()`,
+      wait: 700,
+    },
+    {
+      name: 'r4-05-report',
+      run: `(async () => {
+        const go = [...document.querySelectorAll('.nx-am .nx-go')].find((x) => x.textContent.trim() === 'Отправить');
+        if (!go) return JSON.stringify('нет «Отправить»');
+        go.click();
+        await new Promise((r) => setTimeout(r, 900));
+        const S = await import('/src/world/store.ts');
+        const A = await import('/src/world/api.ts');
+        const save = A.worldApi().save;
+        const f = save.figures.scout;
+        // Стенд: встреча — сейчас. Разведчик и набег сдвинуты на одну и ту же разницу, дальше мир сам: донесение и путь домой.
+        const now = S.worldNow();
+        const d = f.arriveAt - now + 1;
+        f.departAt -= d;
+        f.arriveAt -= d;
+        const m = save.marches.find((x) => x.id === 'raid-r4');
+        if (m) { m.departAt -= d; m.arriveAt -= d; }
+        await S.useWorld.getState().pulse();
+        await S.useWorld.getState().loadReports();
+        const r = S.useWorld.getState().reports[0];
+        if (!r) return JSON.stringify('донесения нет');
+        window.__game.getState().openReport(r.id);
+        return JSON.stringify(r.title);
+      })()`,
+      wait: 1200,
+    },
+    {
+      name: 'r4-06-marches-after',
+      run: `(async () => {
+        window.__game.getState().openMarches();
+        return JSON.stringify('ok');
+      })()`,
+      wait: 1200,
+    },
+    {
+      name: 'r4-07-fell',
+      run: `(async () => {
+        window.__ui.reset();
+        const S = await import('/src/world/store.ts');
+        const A = await import('/src/world/api.ts');
+        A.worldApi().markFall('home', 'plunder', S.worldNow() - 3 * 3600000);
+        window.__game.getState().openMap();
+        await new Promise((r) => setTimeout(r, 3000));
+        await S.useWorld.getState().select(S.useWorld.getState().info.home);
+        await new Promise((r) => setTimeout(r, 900));
+        const row = [...document.querySelectorAll('.sheet.open button, .sheet.open .nx-crow')].find((x) => x.textContent.includes('Город взяли'));
+        if (row) row.click();
+        return JSON.stringify(row ? 'подсказка' : 'нет строки');
+      })()`,
+      wait: 900,
     },
   ],
   // ВС-2 (docs/ui_v2.md, 5.8): вести и летопись. Бой у ворот — настоящий: волки зовут гарнизон, мир бьётся на пульсе и

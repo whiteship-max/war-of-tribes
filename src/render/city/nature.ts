@@ -30,10 +30,14 @@ export function forestAt(x: number, z: number, plan: CityPlan): number {
   if (!openLand(x, z, plan, 3 + vnoise(x / 9, z / 9, 1e6, 53) * 6)) return 0;
   const big = fbm(x / 260 + 7, z / 260 + 7, 1e6, 3, 43);
   const mid = fbm(x / 70 + 3, z / 70 + 3, 1e6, 3, 47);
-  // Склон к реке и север за замком — сплошной лес; восток и юг — перелески.
+  // Склон к реке и север за замком — сплошной лес; восток и юг — перелески. Вокруг города, где прежде лежала пашня (склон
+  // под восточной стеной, юг у дороги в долину), — луг с рощами, а не сплошной лес (docs/city_v3.md, Р-2): лес смыкается
+  // дальше, за кольцом в 240–340 м от стены.
   const west = sstep(-60, -110, x);
   const north = sstep(-200, -260, z);
-  const base = Math.max(west * 0.95, north * 0.95, sstep(0.48, 0.62, big));
+  const near = 1 - sstep(240, 340, dw);
+  const groves = sstep(0.57, 0.7, fbm(x / 100 + 11, z / 100 + 11, 1e6, 3, 61)) * 0.95;
+  const base = Math.max(west * 0.95, north * 0.95, sstep(0.48, 0.62, big) * (1 - near) + groves * near);
   const clear = sstep(0.3, 0.42, mid);
   return Math.min(1, base * clear * glacis * bank);
 }

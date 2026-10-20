@@ -104,6 +104,9 @@ export const GATE_GUARDS = 4;
 /** Ночной дозор по улицам (docs/city_v3.md, ЖГ-1) — сколько стражников гуськом, по уровню: те же копейщики ворот. */
 export const PATROL: Record<Quality, number> = { low: 2, medium: 2, high: 3 };
 
+/** Дозор на стене замка вокруг донжона (docs/city_v3.md, Р-2): столько лучников сверх стражи стены города, пока она есть. */
+export const KEEP_BEATS = 2;
+
 /** Шалаш поленьев костра праздника (`life.buildLogs`): шесть брусков по двенадцать треугольников. */
 export const FEAST_LOG_TRIS = 6 * 12;
 

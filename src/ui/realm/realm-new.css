@@ -1067,6 +1067,60 @@
 .mail-boons {
   margin-bottom: 8px;
 }
+/* Строка с ответом в ней (ДП-1): сверху дверь в карточку — что, от кого, срок; снизу кнопки ответа по 44 на всю ширину. */
+.mail-quick {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+}
+.mail-quick + .mail-quick,
+.kit-table + .mail-quick {
+  margin-top: 8px;
+}
+.mail-quick-go {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0;
+  background: none;
+  border: 0;
+  color: inherit;
+  text-align: left;
+}
+.mail-quick-go .kit-name {
+  flex: 1;
+}
+.mail-quick-left {
+  flex: none;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.mail-quick-acts {
+  display: flex;
+  gap: 8px;
+}
+.mail-quick-act {
+  flex: 1;
+  min-height: 44px;
+  padding: 0 10px;
+  border-radius: 10px;
+  background: var(--m-leather);
+  box-shadow: var(--m-leather-bevel);
+  border: 1px solid var(--m-leather-rim);
+  color: inherit;
+  font-size: 13px;
+  font-weight: 600;
+}
+.mail-quick-act.yes {
+  border-color: var(--m-gold-rim);
+}
+.mail-quick-act:disabled {
+  opacity: 0.5;
+}
 
 /* ---------- Летопись «Вестей» (ВС-2, docs/ui_v2.md, 5.8) ---------- */
 /* Фильтр рода: кнопки 44 в ряд с переносом — родов в летописи столько, сколько было событий. */

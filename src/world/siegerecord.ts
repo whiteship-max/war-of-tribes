@@ -48,6 +48,8 @@ export interface SiegeFight {
   report?: string;
   /** Вылазка на машину лагеря: на какую. Победа её сожгла (`MachineOrder.burned`). */
   machine?: MachineId;
+  /** Вылазка на пост кольца блокады (Р-5): победа разомкнула кольцо. */
+  ring?: true;
   /** Выручка союзника по пакту: бил не сам город. */
   ally?: true;
 }
@@ -69,6 +71,8 @@ export interface SiegeRecord {
   log?: SiegeDeed[];
   phases?: PhaseRow[];
   machines?: MachineOrder[];
+  /** Требушет на стене осаждённого (Р-5, `SiegeWindow.guns`). Нет — не ставили. */
+  guns?: MachineOrder[];
   ration?: boolean;
   lead?: number;
   /** Гарнизон в минуту постановки и люди лагеря, ставившие рогатки (бойцы строя). */
@@ -118,8 +122,16 @@ export function siegeRecordOf(w: SiegeWindow, us: 'atk' | 'def', end: SiegeRecor
   if (w.wood) rec.wood = { ...w.wood, ...(w.wood.base ? { base: { ...w.wood.base } } : {}) };
   if (w.fire) rec.fire = { ...w.fire };
   if (w.log?.length) rec.log = w.log.map((d) => ({ ...d }));
-  if (w.phases?.length) rec.phases = w.phases.map((r) => ({ ...r, mods: { ...r.mods }, ...(r.orders ? { orders: [...r.orders] } : {}) }));
+  if (w.phases?.length)
+    rec.phases = w.phases.map((r) => ({
+      ...r,
+      mods: { ...r.mods },
+      ...(r.orders ? { orders: [...r.orders] } : {}),
+      ...(r.shots ? { shots: r.shots.map((s) => ({ ...s })) } : {}),
+      ...(r.gun ? { gun: r.gun.map((s) => ({ ...s })) } : {}),
+    }));
   if (w.machines?.length) rec.machines = w.machines.map((m) => ({ ...m }));
+  if (w.guns?.length) rec.guns = w.guns.map((m) => ({ ...m }));
   if (w.ration) rec.ration = true;
   if (w.lead) rec.lead = w.lead;
   if (extra.tower !== undefined && extra.tower > 0) rec.tower = extra.tower;
@@ -149,6 +161,7 @@ export const asWindow = (r: SiegeRecord): SiegeWindow => ({
   ...(r.log ? { log: r.log } : {}),
   ...(r.phases ? { phases: r.phases } : {}),
   ...(r.machines ? { machines: r.machines } : {}),
+  ...(r.guns ? { guns: r.guns } : {}),
   ...(r.ration ? { ration: true } : {}),
   ...(r.lead ? { lead: r.lead } : {}),
   builders: r.camp,

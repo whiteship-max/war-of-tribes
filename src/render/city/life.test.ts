@@ -9,7 +9,7 @@ import { inTowerShape, wallTops } from './forts';
 import { CITY_SMOKE, CITY_WIND, CityLife, CitySmoke, GATE_POSTS, NIGHT_SHARE, ROUTE_MAX, SMOKE_PUFFS, TOWNSFOLK, archerGeometry, beastGeometry, guardGeometry, patrolAt, personGeometry, poseAt, townsGeometry, type Route } from './life';
 import { HEARTH_LOOK } from '../weather';
 import { rhythmAt } from './rhythm';
-import { GATE_GUARDS, LIFE_CAP, LIFE_TRIS, figureTris, townsfolkTris } from './spec';
+import { GATE_GUARDS, KEEP_BEATS, LIFE_CAP, LIFE_TRIS, figureTris, townsfolkTris } from './spec';
 
 const plan = cityPlan();
 const st = buildStatic(plan, 'medium');
@@ -82,26 +82,29 @@ describe('город: жизнь', () => {
     for (let k = 0; k < 20; k++) life.update(0.1, k * 0.1, 0, 0);
     const guards = placed(mesh(life, 'city-guards'));
     const people = crowdPlaced(life);
-    // Граница области: днём при большом городе фигур — сколько позволяет уровень.
-    expect(guards.length).toBe(LIFE_CAP.medium.guards);
+    // Граница области: днём при большом городе фигур — сколько позволяет уровень, и дозор замка сверх них (Р-2).
+    expect(guards.length).toBe(LIFE_CAP.medium.guards + KEEP_BEATS);
     expect(people.length).toBe(LIFE_CAP.medium.people);
-    const tops = wallTops(plan.wall);
-    const top = (p: THREE.Vector3): number => {
-      let best = 0;
-      let bd = Infinity;
-      plan.wall.forEach((w, k) => {
-        const d = Math.hypot(w.x - p.x, w.z - p.z);
-        if (d < bd) {
-          bd = d;
-          best = tops[k];
-        }
-      });
+    // Стена — города или замка, та, что ближе к стражу.
+    const top = (p: THREE.Vector3): { d: number; y: number } => {
+      let best = { d: Infinity, y: 0 };
+      for (const wall of [plan.wall, plan.castleWall]) {
+        const tops = wallTops(wall);
+        wall.forEach((w, k) => {
+          const d = Math.hypot(w.x - p.x, w.z - p.z);
+          if (d < best.d) best = { d, y: tops[k] };
+        });
+      }
       return best;
     };
+    let castle = 0;
     for (const g of guards) {
-      expect(distPoly({ x: g.x, z: g.z }, plan.wall, true), 'страж у стены').toBeLessThan(2);
-      expect(Math.abs(g.y - top(g)), 'страж на высоте хода').toBeLessThan(1.5);
+      const onCastle = distPoly({ x: g.x, z: g.z }, plan.castleWall, true) < 2;
+      if (onCastle) castle++;
+      expect(onCastle || distPoly({ x: g.x, z: g.z }, plan.wall, true) < 2, 'страж у стены').toBe(true);
+      expect(Math.abs(g.y - top(g).y), 'страж на высоте хода').toBeLessThan(1.5);
     }
+    expect(castle, 'дозор на стене замка').toBe(KEEP_BEATS);
     const streets = [...plan.streets, ...plan.roads];
     const scale = crowdScale(life);
     people.forEach((p, k) => {
@@ -148,8 +151,8 @@ describe('город: жизнь', () => {
     expect(torches.visible, 'днём факела нет').toBe(false);
     life.update(0.1, 0.1, 1, 0);
     const guards = placed(mesh(life, 'city-guards'));
-    // Граница области: ночь и стража на стене — иначе факелов нечем проверить.
-    expect(guards.length).toBe(12);
+    // Граница области: ночь и стража на стене — иначе факелов нечем проверить (дозор замка — сверх двенадцати, Р-2).
+    expect(guards.length).toBe(12 + KEEP_BEATS);
     expect(torches.visible, 'ночью факел горит').toBe(true);
     const posts = placed(mesh(life, 'city-gate-guards'));
     expect(posts.length, 'у каждых ворот — четверо').toBe(GATE_GUARDS * plan.towers.filter((t) => t.kind === 'gate' || t.kind === 'castleGate').length);
@@ -334,7 +337,7 @@ describe('город: жизнь', () => {
     for (let t = 0; t <= 2 * ((2 * 44) / 0.7 + 9); t += 0.5) {
       life.update(0.5, t, 0, 0);
       const g = placed(mesh(life, 'city-guards'));
-      expect(g.length).toBe(6);
+      expect(g.length).toBe(6 + KEEP_BEATS);
       g.forEach((p, i) => {
         samples++;
         if (t === 0) first.push(p.clone());
@@ -342,7 +345,7 @@ describe('город: жизнь', () => {
         for (const tw of towers) expect(inTowerShape(tw, p.x, p.z, 0.3), `лучник ${i} в башне ${tw.kind} (${p.x.toFixed(0)}, ${p.z.toFixed(0)})`).toBe(false);
       });
     }
-    expect(samples).toBeGreaterThan(6 * 300);
+    expect(samples).toBeGreaterThan((6 + KEEP_BEATS) * 300);
     expect(moved, 'ходят, а не стоят').toBeGreaterThan(samples * 0.3);
     // По всем сторонам: шестеро — на севере и юге, западе и востоке города.
     const g0 = first;

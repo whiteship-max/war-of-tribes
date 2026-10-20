@@ -1,7 +1,7 @@
 // Стенд ролика осады: `?replay=siege&case=…` (docs/gfx.md, ГФ-2). Осады стенда — записи осады (`world/siegerecord`), какие
 // пишет мир: фазы с бросками, залпы, машины в очереди, бои; в ролик они идут той же дверью, что в игре (`ui/battle/siege`).
 //
-//   ?replay=siege&case=gates|storm|hunger|broken|paid|lair|repair   осада-образец (по умолчанию gates)
+//   ?replay=siege&case=gates|storm|hunger|broken|paid|lair|repair|ring   осада-образец (по умолчанию gates)
 //   &quality=low|medium|high      уровень (по умолчанию средний)
 //   &at=<эпизод>[:фаза][@доля]    кадр стоит на эпизоде (pitch, breach:2, sortie, gates, fate…; доля его длины — 0.6)
 //   &t=12.5                       кадр стоит на секунде
@@ -156,6 +156,49 @@ function cases(): Record<string, Case> {
         place: { ...PLACE(18), land: 'hills' },
       },
       report: { title: 'Город взят голодом: Логово', text: 'В логове кончился хлеб. Участь «сжечь».', won: true, loot: { food: 80 }, led: 0 },
+    },
+    // Р-5 (docs/siege_v2.md, 21): кольцо с постановки, требушет лагеря по стенам, обстрел города, требушет на стене разбил
+    // таран и бил по лагерю; город доели голодом.
+    ring: {
+      rec: {
+        us: 'def',
+        campId: 'w-ring',
+        startedAt: S,
+        sinceAt: S,
+        fate: 'captives',
+        wall: 5,
+        garrison: 40,
+        camp: 480,
+        wood: { front: 0.5, rear: 0, machines: 4 },
+        log: [
+          { at: S, act: 'blockade', on: true },
+          { at: at(2) + 1000, act: 'aim', aim: 'town' },
+          { at: at(3) + 1000, act: 'aim', aim: 'wall' },
+          { at: at(1) + 1000, act: 'gunAim', aim: 'machines' },
+        ],
+        phases: [
+          row(1, 'calm', 7, { blockade: 1, wall: -2 }),
+          row(2, 'calm', 6, { blockade: 1, machine: 2, wall: -2 }),
+          {
+            ...row(3, 'short', 9, { blockade: 1, wall: -2 }),
+            shots: [
+              { by: 'trebuchet', hit: true, building: 'smithy' },
+              { by: 'trebuchet', hit: false, building: 'farm' },
+            ],
+            gun: [
+              { by: 'gun', hit: true, machine: 'ram' },
+              { by: 'gun', hit: false, machine: 'trebuchet' },
+            ],
+          },
+          row(4, 'breach', 13, { blockade: 1, machine: 2, hunger: 1, wall: -2 }),
+          row(5, 'short', 10, { blockade: 1, breach: 1, machine: 2, hunger: 1, wall: -2 }),
+        ],
+        machines: [order('trebuchet'), { ...order('ram'), spent: at(3), broke: true }],
+        guns: [{ id: 'trebuchet', at: S + 2000 }],
+        end: { at: at(5) + worldDays(2), how: 'hunger', fate: 'captives' },
+        place: PLACE(11),
+      },
+      report: { title: 'Хлеб кончился', text: 'Город в кольце доели голодом. Участь «увести людей».', won: false, loot: { wood: 220 }, led: 28 },
     },
     repair: {
       rec: {

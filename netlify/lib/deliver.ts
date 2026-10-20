@@ -261,6 +261,15 @@ async function deliverOne(io: PassIo, player: string, marks: string[], now: numb
   return keep;
 }
 
+/**
+ * Куда открыть игру кнопкой под письмом (ДП-1): в письме есть предложение союза — к самому свежему из них (`deal-<номер>`,
+ * «Вести» откроются на нём). Нет — игра открывается как обычно.
+ */
+export function letterGo(l: Pick<Letter, 'items'>): string | undefined {
+  const deal = [...l.items].reverse().find((i) => i.kind === 'war-pact' && i.p.pact === 'offer' && i.p.deal)?.p.deal;
+  return deal ? `deal-${deal}` : undefined;
+}
+
 /** Отправить взятые письма. Отказ канала обрывает остальные — им тот же отказ. */
 async function send(io: PassIo, player: string, taken: Letter[], rec: NotifyRecord, tally: PassTally, gate: Gate): Promise<Outcome[]> {
   const chat = Number(player.slice(3));
@@ -274,7 +283,8 @@ async function send(io: PassIo, player: string, taken: Letter[], rec: NotifyReco
     if (io.tg) {
       await gate.before(chat);
       const text = letterText(l, rec.prefs.tz);
-      sent = l.mode === 'edit' && l.msg !== undefined ? await io.tg.edit(chat, l.msg, text) : await io.tg.letter(chat, text, l.silent);
+      const go = letterGo(l);
+      sent = l.mode === 'edit' && l.msg !== undefined ? await io.tg.edit(chat, l.msg, text, go) : await io.tg.letter(chat, text, l.silent, go);
     }
     const o = outcomeOf(l.id, sent);
     out.push(o);

@@ -235,6 +235,30 @@ describe('ролик = донесение: логово у наших стен',
     filmMatches(await siegeReport(w), seen, 'gates', softerFate(seen.fate));
   }, 120_000);
 
+  it('Р-5: кольцо и требушет на стене — в ролике те фазы с кольцом и те выстрелы, что игрок видел в окне', async () => {
+    setPhaseDie(() => 7);
+    const w = makeWorld();
+    // Гарнизон — два копейщика: лагерь логова вчетверо сильнее, кольцо замкнуто с постановки (`shellingworld.test.ts`).
+    const p: PlayerProfile = { ...holdout(3), army: { spearman: 2 } };
+    const ring: boolean[] = [];
+    const gun: number[] = [];
+    const seen = await homeSiege(w, p, async (k) => {
+      const pulse = await w.world.sync(p);
+      ring.push(Boolean(pulse.siege?.phases?.journal[0]?.includes('блокада')));
+      gun.push(w.inner.save.sieges.home?.phases?.[k - 1]?.gun?.length ?? 0);
+      if (k === 1) expect(await w.world.defend({ act: 'gun' }), 'точка внутри области: требушет ставят').toBeNull();
+    });
+    expect(ring[0], 'точка внутри области: кольцо замкнуто к первой фазе').toBe(true);
+    expect(gun.some((n) => n > 0), 'точка внутри области: требушет на стене стрелял').toBe(true);
+    const report = await siegeReport(w);
+    filmMatches(report, seen, 'hunger', seen.fate);
+    const show = showOfSiege(report.siege!, report);
+    expect(show.phases.slice(0, ring.length).map((x) => x.ring), 'кольцо по фазам — как в журнале окна').toEqual(ring);
+    expect(show.phases.slice(0, gun.length).map((x) => x.gunShots), 'выстрелы требушета по фазам — как в окне').toEqual(gun);
+    const reel = siegeReel(show, 'medium');
+    expect(reel.episodes.some((e) => e.kind === 'ring')).toBe(true);
+  }, 120_000);
+
   it('без перемен: город доели голодом, стена цела', async () => {
     setPhaseDie(() => 7);
     const w = makeWorld();

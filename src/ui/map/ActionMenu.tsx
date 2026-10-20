@@ -1,32 +1,29 @@
-// Меню приказов агенту по цели на карте.
+// Меню дел агента у цели (Р-4, docs/AGENTS.md, раздел 16).
 //
-// Открывается одиночным тапом — по своей фигуре её выбирают, тапом по поселению
-// открывают это меню. Двойного тапа здесь нет и быть не может: в браузере это
-// масштабирование, и он дерётся с зумом карты. Правая кнопка мыши делает то же
-// самое, но это подарок десктопу, а не основа.
+// Свободной ходьбы по карте нет: агент идёт только к цели, делает там выбранное дело и сам возвращается домой. Путь игрока —
+// «Походы» → кого послать → цель на карте → дело → подтверждение. Цель — свой город, двор мира, город игрока или чужой отряд;
+// голая земля целью не бывает, и меню говорит об этом словами.
 //
-// Правило показа одно: **недоступное действие показано и объяснено**, а не
-// спрятано. Игрок обязан видеть, чего ему не хватает — дойти, дождаться,
-// накопить, — а не гадать, куда делась кнопка.
-import type { ReactNode } from 'react';
+// Числа и отказы — мира (`WorldApi.errands`): дорога туда и назад, риск, цена в энергии, шанс. Правило показа одно:
+// **недоступное дело показано и объяснено**, а не спрятано. Подтверждение говорит четыре вещи — куда, что сделает,
+// сколько идти, чем рискует, — и только потом «Отправить».
+//
+// Открывается одиночным тапом с агентом в руке, из карточки места и из «Походов» (перехват). Правая кнопка мыши — то же.
+import { useEffect, useState, type ReactNode } from 'react';
 import { useGame } from '@/game/store';
 import { useWorld, worldNow } from '@/world/store';
 import { FIGURE_BY_ID, FIGURES } from '@/world/data/figures';
-import { actionsOf } from '@/world/data/spy';
 import { FATE_META } from '@/world/data/fates';
+import { RIVAL_DEEDS } from '@/world/data/spy';
+import { formatCoord, secondsLeft } from '@/world/geo';
 import { CAMP_LEAVE } from '@/world/siege';
-import { worksWords } from '@/world/works';
-import { distance, formatCoord, secondsLeft } from '@/world/geo';
-import { realLeft, realSpanText, waitLeft } from '@/ui/parts/wait';
+import { realLeft } from '@/ui/parts/wait';
 import { count } from '@/ui/parts/plural';
-import { perilShare, perilText, routPeril } from '@/world/peril';
-import { personName } from '@/game/sim/agents';
 import { hireWhere } from '@/game/sim/hire';
 import { RESOURCE_IDS } from '@/game/constants';
-import type { LeadPlan, Loot, OrderActionId, OrderOption } from '@/world/types';
+import type { ErrandId, ErrandOption, Loot } from '@/world/types';
 import { Icon } from '@/ui/icons/Icon';
 import { Cost } from '@/ui/parts/Cost';
-import { CampStrike } from '@/ui/parts/CampStrike';
 import { REST_WHY, restLine } from '@/ui/parts/restWords';
 import { EnergyBar, EnergyPrice } from '@/ui/parts/Energy';
 import { beyondText, reachable } from './twslot';
@@ -34,87 +31,104 @@ import { tipAt } from '@/ui/next/tip';
 import type { IconName } from '@/ui/icons/alias';
 import { iconName } from '@/ui/icons/registry';
 
-/** Просит ли приказ хоть что-нибудь со склада. */
+/** Просит ли дело хоть что-нибудь со склада. */
 const isPaid = (cost: Loot): boolean => RESOURCE_IDS.some((r) => (cost[r] ?? 0) > 0) || (cost.gold ?? 0) > 0;
 
-/** Шанс словами и числом: у оскорбления это риск, а не удача. */
-function chanceText(o: OrderOption, label: string): string | null {
-  if (o.chance === null) return null;
-  return `${label} ${Math.round(o.chance * 100)}%`;
+const DEALS = new Set<ErrandId>(['truce', 'trade', 'tribute', 'alliance']);
+const DIPLO = new Set<ErrandId>(['gift', 'insult', 'pact', 'peace', 'war']);
+const SPY = new Set<ErrandId>(['probe', 'revolt']);
+
+/** Значок дела — набором ЗН-1, теми же рисунками, что у прежних кнопок этих дел. */
+export function errandIcon(o: Pick<ErrandOption, 'id' | 'agent'>): IconName {
+  const rival = RIVAL_DEEDS.find((d) => d.id === o.id);
+  if (rival) return rival.icon;
+  if (DEALS.has(o.id)) return iconName('deal', o.id);
+  if (DIPLO.has(o.id)) return iconName('dip', o.id);
+  if (SPY.has(o.id)) return iconName('spy', o.id);
+  const own: Partial<Record<ErrandId, IconName>> = {
+    home: 'ui-home',
+    storm: 'hud-army',
+    siege: 'alert-siege',
+    intercept: 'ui-target',
+    strike: 'stage-camp',
+    relief: iconName('deal', 'alliance'),
+    recon: 'fig-scout',
+    shadow: 'ui-eye',
+    watch: 'ui-eye',
+    unpact: iconName('dip', 'war'),
+    ransom: iconName('deal', 'tribute'),
+  };
+  return own[o.id] ?? iconName('fig', o.agent);
+}
+
+/** Дорога словами: «туда 2:10, назад 2:10». У дела «домой» обратной дороги нет. */
+export function roadWords(o: Pick<ErrandOption, 'walkMs' | 'backMs' | 'id'>): string {
+  const there = o.walkMs > 0 ? `туда ${realLeft(o.walkMs / 1000)}` : 'уже на месте';
+  return o.id === 'home' || o.backMs <= 0 ? there : `${there}, назад ${realLeft(o.backMs / 1000)}`;
+}
+
+/** Строка тоста после отправки: кто, что и когда сделает. */
+export function sentWords(who: string, o: ErrandOption): string {
+  if (o.id === 'home') return `${who} идёт домой.`;
+  const when = o.walkMs > 0 ? ` через ${realLeft(o.walkMs / 1000)}` : ' сейчас';
+  return `${who}: «${o.name}»${when}. Донесение — в «Походах», домой вернётся сам.`;
 }
 
 export function ActionMenu() {
   const menu = useWorld((g) => g.menu);
-  const orders = useWorld((g) => g.orders);
   const figures = useWorld((g) => g.figures);
-  const info = useWorld((g) => g.info);
   const s = useGame((g) => g.s);
   const closeMenu = useWorld((g) => g.closeMenu);
-  const moveFigure = useWorld((g) => g.moveFigure);
-  const order = useWorld((g) => g.order);
-  const intercept = useWorld((g) => g.intercept);
+  const errand = useWorld((g) => g.errand);
   const watch = useWorld((g) => g.watch);
   const shelter = useWorld((g) => g.shelter);
   const showToast = useGame((g) => g.showToast);
   const openSiege = useGame((g) => g.openSiege);
   const openCamp = useGame((g) => g.openCamp);
+  // Выбранное дело — шаг подтверждения.
+  const [chosen, setChosen] = useState<ErrandId | null>(null);
+  const [busy, setBusy] = useState(false);
+  const key = menu ? `${menu.agent}:${menu.cell.x}|${menu.cell.y}` : '';
+  // Другой человек или другая цель — выбор сначала.
+  useEffect(() => setChosen(null), [key]);
 
   if (!menu) return null;
   const def = FIGURE_BY_ID[menu.agent];
   const figure = figures.find((f) => f.id === menu.agent);
   const card = menu.card;
-  const here = card ? card.figuresHere.includes(menu.agent) : false;
-
-  // Полководец в лагере: увести его можно, но это и есть снятие осады.
-  const leavingCamp = menu.agent === 'general' && Boolean(figure?.besieging) && !here;
-  // Агент укрылся в своём городе: на карте его нет, и вести его «сюда», к своим же
-  // воротам, нечего — отсюда он только выходит.
   const inCity = figure?.place === 'city';
   const ownCity = Boolean(card?.mine);
-  const homeInside = inCity && ownCity;
-
-  const hide = async (on: boolean): Promise<void> => {
-    const err = await shelter(menu.agent, on);
-    showToast(
-      err ??
-        (on
-          ? `${def.name} укрылся в городе.`
-          : `${def.name} вышел из города.`),
-    );
-    if (!err) closeMenu();
-  };
-
-  const lead = async (): Promise<void> => {
-    // Минута плана, который игрок видел: риск у ворот заморозится ровно по нему.
-    const err = await moveFigure(menu.agent, menu.cell, menu.lead?.at);
-    showToast(err ?? (leavingCamp ? `${def.name} ушёл от стен, осада снята.` : `${def.name} пошёл к ${formatCoord(menu.cell)}.`));
-    if (!err) closeMenu();
-  };
-
-  /**
-   * Гибель полководца — условно: «если отряд перебьют до последнего». Безусловный риск выдал бы
-   * шанс поражения делением, а его не показывают нигде. Число — та же `routPeril` от
-   * дали места боя, по которой мир решает исход.
-   */
-  const routLine = (spot: { x: number; y: number } | null): string | null =>
-    menu.agent === 'general' && info && spot
-      ? `Если отряд перебьют до последнего, ${personName(s, 'general')} погибнет с шансом ${perilText(perilShare(routPeril(distance(info.home, spot))))}.`
-      : null;
   const vacant = figure?.place === 'vacant';
-  // Разведчик на пустую землю — подтверждением: куда (шапка), сколько идти (низ), «Отправить» или «Отмена» (отзыв тестеров
-  // 11.10, docs/feedback.md). Карта открывает это меню на каждый шаг разведчика (`WorldMap.openAt`).
-  const confirmGo = menu.agent === 'scout' && menu.target === null && menu.march === null;
-
-  const give = async (id: OrderActionId): Promise<void> => {
-    const res = await order(id);
-    showToast(res.error ?? res.text);
-  };
+  // Удар и осада объявляют участь города, а её выбирают в карточке места, одной копией (Д16, UI-7): здесь — дверь туда.
+  const list = menu.errands?.filter((o) => !o.fate) ?? null;
+  const fated = menu.errands?.some((o) => o.fate) ?? false;
+  const pick = chosen ? (list?.find((o) => o.id === chosen) ?? null) : null;
+  // Полководец в лагере: увести его к другой цели можно, но это и есть снятие осады — сказано до «Отправить».
+  const leavingCamp = menu.agent === 'general' && Boolean(figure?.besieging) && figure?.besieging !== menu.target;
 
   /** Подсказка по касанию значка строки: что это и что стоит за числами (docs/ui_audit.md, 3.7). */
   const tipOf =
     (title: string, ...lines: (string | null | undefined | false)[]) =>
     (e: { currentTarget: Element }): void =>
       tipAt(e.currentTarget, { title, body: lines.filter(Boolean).join(' ') || undefined });
+
+  const hide = async (on: boolean): Promise<void> => {
+    const err = await shelter(menu.agent, on);
+    showToast(err ?? (on ? `${def.name} укрылся в городе.` : `${def.name} вышел из города.`));
+    if (!err) closeMenu();
+  };
+
+  const go = async (o: ErrandOption): Promise<void> => {
+    if (!menu.goal) return;
+    setBusy(true);
+    const err = await errand({ agent: menu.agent, target: menu.goal, deed: o.id, shownAt: o.at });
+    setBusy(false);
+    showToast(err ?? sentWords(def.name, o));
+    if (!err) {
+      closeMenu();
+      useWorld.getState().pick(null);
+    }
+  };
 
   // Шапка нового вида (3.10): значок роли (касание — что он умеет), «кто → куда», координата, «закрыть».
   const head = (
@@ -126,7 +140,7 @@ export function ActionMenu() {
         <b className="one-line">
           {def.name} → {menu.name}
         </b>
-        <span className="nx-blvl">{formatCoord(menu.cell)}</span>
+        <span className="nx-blvl">{pick ? 'подтверждение' : formatCoord(menu.cell)}</span>
       </div>
       <button className="nx-bclose" onClick={closeMenu} aria-label="Закрыть">
         <Icon name="ui-close" />
@@ -134,370 +148,252 @@ export function ActionMenu() {
     </div>
   );
 
-  // Карта по регионам (docs/map_tw.md, раздел 13.5): цель за краем региона игрока не выбирается ни тапом, ни отсюда —
-  // меню, открытое из карточки или списка походов, говорит об этом вместо приказов.
+  // Карта по регионам (docs/map_tw.md, раздел 13.5): цель за краем региона игрока не выбирается.
   if (!reachable(menu.cell)) {
     return (
-      <div className="am-wrap" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => e.target === e.currentTarget && closeMenu()}>
-        <div className="panel nx-bpanel nx-am">
-          {head}
-          <p className="nx-bwarn">{beyondText()}</p>
-        </div>
-      </div>
+      <Wrap closeMenu={closeMenu}>
+        {head}
+        <p className="nx-bwarn">{beyondText()}</p>
+      </Wrap>
+    );
+  }
+
+  // Подтверждение: куда, что сделает, сколько идти, чем рискует — и только потом «Отправить».
+  if (pick) {
+    return (
+      <Wrap closeMenu={closeMenu}>
+        {head}
+        <ErrandConfirm
+          where={`${menu.name} · ${formatCoord(menu.cell)}`}
+          o={pick}
+          warn={leavingCamp ? CAMP_LEAVE : null}
+          busy={busy}
+          onBack={() => setChosen(null)}
+          onGo={() => void go(pick)}
+        />
+      </Wrap>
     );
   }
 
   return (
-    <div className="am-wrap" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => e.target === e.currentTarget && closeMenu()}>
-      <div className="panel nx-bpanel nx-am">
-        {head}
+    <Wrap closeMenu={closeMenu}>
+      {head}
 
-        {/* Сменить человека, не закрывая меню: цель уже выбрана. Четыре роли — вкладками под шапкой (3.10). */}
-        <div className="nx-am-tabs" role="tablist">
-          {FIGURES.map((d) => (
-            <button
-              key={d.id}
-              role="tab"
-              aria-selected={d.id === menu.agent}
-              aria-label={d.name}
-              className={`nx-am-tab${d.id === menu.agent ? ' on' : ''}`}
-              onClick={() => void useWorld.getState().openMenu(d.id, menu.cell)}
-            >
-              <Icon name={iconName('fig', d.id)} />
-            </button>
-          ))}
-        </div>
-
-        <div className="nx-am-body">
-          {vacant && (
-            <p className="nx-bwarn">
-              {def.name} {figure?.gone === 'retired' ? 'ушёл на покой' : 'погиб'}. Найми нового {hireWhere(s, menu.agent)}.
-            </p>
-          )}
-
-          {/* Энергия человека (docs/agent_energy.md): сколько есть и что с ней — до приказа, у каждого дела своя цена. */}
-          {figure?.energy && <EnergyBar energy={figure.energy} spent={figure.spent} />}
-
-          {/* Мораль отряда между боями (14.31): до приказа, а не после — уставший бежит раньше. */}
-          {menu.agent === 'general' && figure?.rest && (
-            <p className="nx-bwarn">
-              {restLine(figure.rest, 'Отряд дрался', worldNow())} {REST_WHY}
-            </p>
-          )}
-
-          {/* Отношения с этим двором и бунт — в карточке места, одной копией (Д17, UI-7, docs/ui_v2.md, 5.6): прежде они стояли
-              и здесь, и там. Шанс каждого дела, который от них зависит, — числом у самого приказа. */}
-
-          {/* Чужой отряд в поле: точка и время встречи видны до подтверждения. Имена мест не склоняются, между ними — стрелка. */}
-          {menu.march && (
-            <>
-              {/* Клетка на дороге набега (`raidAcross`): встать здесь — не бой, отряды идут сквозь фигуры (отзыв 18.10). */}
-              {menu.across && menu.agent === 'general' && (
-                <p className="nx-bwarn">Здесь пройдёт набег. Просто встать на пути мало: пройдут мимо, и боя не будет. Дать бой в поле — «Перехватить».</p>
-              )}
-              <div className="nx-crow">
-                <span className="nx-lico">
-                  <Icon name="ui-banner" />
-                </span>
-                <span className="nx-crow-t">
-                  Отряд врага
-                  <small>
-                    {menu.march.fromName} → {menu.march.toName}, дойдут через {realLeft(secondsLeft(menu.march.arriveAt, worldNow()))}.
-                  </small>
-                  {menu.march.rest && <small>{restLine(menu.march.rest, 'Отряд дрался', worldNow())}</small>}
-                </span>
-                <b>{menu.plan ? count(menu.plan.men, 'боец', 'бойца', 'бойцов') : '—'}</b>
-              </div>
-              {menu.agent === 'general' ? (
-                <Order
-                  icon="ui-target"
-                  name="Перехватить"
-                  can={Boolean(menu.plan?.can)}
-                  why={menu.plan ? menu.plan.reason : 'Считаем встречу…'}
-                  tip={tipOf('Перехват', 'Полководец встретит отряд в поле, до его цели.', menu.plan?.at ? routLine(menu.plan.at) : null)}
-                  onGo={() => {
-                    void (async () => {
-                      const err = await intercept();
-                      showToast(err ?? 'Полководец пошёл на перехват.');
-                      if (!err) closeMenu();
-                    })();
-                  }}
-                >
-                  {menu.plan?.can && (
-                    <>
-                      <span>
-                        <Icon name="ui-pin" /> {formatCoord(menu.plan.at ?? { x: 0, y: 0 })}
-                      </span>
-                      <span>
-                        <Icon name="ui-time" /> {realLeft(menu.plan.seconds)}
-                      </span>
-                      <span className="bad">им до цели {realLeft(menu.plan.targetSeconds)}</span>
-                      {menu.plan.energy && <EnergyPrice price={menu.plan.energy.price} />}
-                    </>
-                  )}
-                </Order>
-              ) : (
-                <p className="nx-tnote">Перехватывает только полководец.</p>
-              )}
-            </>
-          )}
-
-          {/* Приказы человека. Строка видна всегда: недоступное объяснено строкой под именем, описание — в подсказке. */}
-          {menu.target !== null &&
-            actionsOf(menu.agent).map((a) => {
-              const o = orders.find((x) => x.id === a.id);
-              if (!o) return null;
-              const chance = chanceText(o, a.chanceLabel);
-              return (
-                <Order
-                  key={a.id}
-                  icon={iconName(menu.agent === 'spy' ? 'spy' : 'dip', a.id)}
-                  name={a.name}
-                  can={o.can}
-                  why={o.reason}
-                  tip={tipOf(a.name, a.description, o.perilWhy.length > 0 ? `Риск: ${o.perilWhy.join(', ')}.` : null)}
-                  onGo={() => void give(a.id)}
-                  /*
-                    Дар и вира — та же плата, что дань в письме, и показывается
-                    она так же: значок, сколько просят и сколько этого есть.
-                  */
-                  cost={isPaid(o.cost) ? o.cost : null}
-                >
-                  {chance && <span className="good">{chance}</span>}
-                  <span>
-                    <Icon name="ui-time" /> {realLeft(o.seconds)}
-                  </span>
-                  <EnergyPrice price={o.energy.price} />
-                  {!isPaid(o.cost) && <span>даром</span>}
-                  {menu.agent === 'spy' && o.peril !== null && (
-                    // Два числа раздельно: удастся ли дело — выше, уцелеет ли лазутчик —
-                    // здесь. Шансом владеет Дозор, гибелью — скрытность и обстановка.
-                    <span className="bad">гибель {perilText(o.peril)}</span>
-                  )}
-                  {menu.agent === 'spy' && o.held !== undefined && (
-                    // Цена лазутчика — не добро, а риск, и она обязана стоять рядом с шансом.
-                    // Срок — тот, каким мир задержит: черта «Неловкий» его удлиняет.
-                    <span className="bad">при провале задержат на {realSpanText(o.held)}</span>
-                  )}
-                </Order>
-              );
-            })}
-
-          {/*
-            Осада своего города — окно осады, а не строка меню: всё, что про неё можно
-            знать и сделать, собрано там, и удар полководца с тыла тоже.
-          */}
-          {menu.agent === 'general' && card?.siege && !card.siege.mine && card.mine && (
-            <Order
-              icon="alert-siege"
-              name="Осада"
-              can
-              tip={tipOf('Осада', `${card.siege.byName} у ворот и грозят ${FATE_META[card.siege.fate].name.toLowerCase()}.`)}
-              onGo={() => {
-                closeMenu();
-                openSiege();
-              }}
-            >
-              <span className="bad">{card.siege.byName} у ворот</span>
-            </Order>
-          )}
-
-          {/*
-            Чужой лагерь под чужим городом — цель, а не декорация. Полководец бьёт его из
-            поля, с тыла, приказом издалека: бой — в минуту прихода. Кто пробьётся,
-            считает мир той же функцией, что и бой, — та же часть, что в окне осады своего города.
-          */}
-          {menu.agent === 'general' && card?.siege && !card.siege.mine && !card.mine && (
-            <>
-              <CampStrike target={card.id} onDone={closeMenu} />
-              <p className="nx-tnote">{worksWords(card.siege, worldNow())}</p>
-            </>
-          )}
-
-          {/* Наш лагерь: он же и всё, чем сейчас занят полководец. Приказы — в окне лагеря. */}
-          {menu.agent === 'general' && card?.siege?.mine && (
-            <Order
-              icon="stage-camp"
-              name="Наш лагерь"
-              can
-              tip={tipOf('Наш лагерь', `Решено: ${FATE_META[card.siege.fate].name.toLowerCase()}.`)}
-              onGo={() => {
-                closeMenu();
-                openCamp();
-              }}
-            >
-              <span>{FATE_META[card.siege.fate].name}</span>
-            </Order>
-          )}
-
-          {/*
-            Удар и осада с выбором участи — одним блоком в карточке места (Д16, UI-7, docs/ui_v2.md, 5.6): прежде их было три
-            копии — здесь, в карточке и в блоке войны, у каждой свой выбор участи. Здесь — дверь туда: карточка этого места.
-          */}
-          {menu.agent === 'general' && menu.target !== null && card && !card.mine && !card.siege?.mine && (
-            <Order
-              icon="hud-army"
-              name="Удар и осада"
-              can
-              tip={tipOf('Удар и осада', 'Ударить, осадить и участь города — в карточке места: там мощь, добыча и дорога.', routLine(card))}
-              onGo={() => {
-                closeMenu();
-                void useWorld.getState().select(menu.cell);
-              }}
-            >
-              <span>в карточке места</span>
-            </Order>
-          )}
-
-          {/* Разведчик: своё умение он делает сам, стоя у ворот. */}
-          {menu.agent === 'scout' && menu.target !== null && !ownCity && (
-            <p className="nx-tnote">
-              {here ? 'Стоит у ворот, сведения о гарнизоне свежие.' : 'Доведи разведчика до ворот, он пересчитает гарнизон.'}
-            </p>
-          )}
-
-          {menu.agent === 'spy' && menu.target !== null && !here && (
-            <p className="nx-tnote">Доведи лазутчика до ворот, приказы он берёт там.</p>
-          )}
-
-          {/*
-            Наблюдение. Живой обзор за кругом города даёт один лазутчик, и цена у этого
-            прямая: пока он смотрит, он не работает. Кнопка стоит и на пустой земле.
-          */}
-          {menu.agent === 'spy' && (
-            <Order
-              icon={figure?.watching ? 'ui-eye' : 'ui-eye-off'}
-              name={figure?.watching ? 'Подняться' : 'Залечь'}
-              can
-              on={Boolean(figure?.watching)}
-              tip={tipOf(
-                'Наблюдение',
-                `Лежит и видит на ${count((figure?.watchSight ?? 0) || FIGURE_BY_ID.spy.sight, 'клетку', 'клетки', 'клеток')} вокруг.`,
-                'Пока лежит, приказов не берёт.',
-              )}
-              onGo={() => {
-                void (async () => {
-                  const on = !figure?.watching;
-                  const err = await watch(on);
-                  showToast(err ?? (on ? 'Лазутчик залёг и смотрит.' : 'Лазутчик снова готов к делу.'));
-                })();
-              }}
-            >
-              {figure?.watching && <span className="good">смотрит</span>}
-            </Order>
-          )}
-
-          {/*
-            Свой город — укрыться в нём или выйти. Входят от своих ворот, и если человек
-            не у них, строка это говорит, а не пропадает. Укрывшийся не работает.
-          */}
-          {ownCity && figure && figure.place !== 'down' && (
-            <Order
-              icon="ui-home"
-              name={inCity ? 'Выйти' : 'Укрыться'}
-              can={inCity || here}
-              why={figure.phase === 'moving' ? 'Ещё в пути' : `Доведи ${def.one} до своих ворот`}
-              tip={tipOf(inCity ? 'Выйти' : 'Укрыться', inCity ? 'Встанет у своих ворот.' : 'Уйдёт за стену и не будет работать.')}
-              onGo={() => void hide(!inCity)}
-            />
-          )}
-
-          {menu.target === null && menu.march === null && <p className="nx-tnote">Здесь никто не живёт.</p>}
-        </div>
-
-        {/*
-          Главное действие — внизу (3.10): вести сюда. Увести полководца из лагеря можно — и это
-          снимает осаду; сказано об этом здесь, до нажатия: цена, которая выясняется после приказа, — подвох.
-        */}
-        <div className="nx-am-foot">
-          <div className="nx-am-why">
-            <small className={leavingCamp ? 'nx-why' : ''}>
-              {homeInside
-                ? 'Сначала выведи его из города.'
-                : here
-                  ? 'Дальше приказывай отсюда.'
-                  : leavingCamp
-                    ? CAMP_LEAVE
-                    : menu.lead
-                      ? `Идти ${waitLeft(menu.lead.seconds)}.`
-                      : 'Считаем путь…'}
-            </small>
-            {/* Энергия в пути — тем же планом, что примет приказ: что останется на месте, цена дела у ворот, кончится ли. */}
-            {!here && !homeInside && !leavingCamp && menu.lead?.energy && <LeadEnergy energy={menu.lead.energy} />}
-            {/* Разведчик у ворот с часовыми: схватят ли и погибнет ли — двумя числами, до приказа.
-                Риск замораживается в минуту отправки по этому же плану. */}
-            {!here && !homeInside && menu.agent === 'scout' && menu.lead && menu.lead.caught > 0 && (
-              <button
-                className="nx-am-risk"
-                onClick={tipOf('Риск у ворот', menu.lead.perilWhy.length > 0 ? `${menu.lead.perilWhy.join(', ')}.` : null)}
-              >
-                поимка {Math.round(menu.lead.caught * 100)}% · гибель {perilText(menu.lead.peril)}
-              </button>
-            )}
-          </div>
-          {confirmGo && !here && (
-            <button className="nx-go nx-go-ghost" onClick={closeMenu}>
-              Отмена
-            </button>
-          )}
-          <button className="nx-go" disabled={here || homeInside || Boolean(figure?.spent) || Boolean(menu.lead?.energy?.block)} onClick={() => void lead()}>
-            {here || homeInside ? 'Уже здесь' : confirmGo ? 'Отправить' : 'Вести сюда'}
+      {/* Сменить человека, не закрывая меню: цель уже выбрана. Четыре роли — вкладками под шапкой (3.10). */}
+      <div className="nx-am-tabs" role="tablist">
+        {FIGURES.map((d) => (
+          <button
+            key={d.id}
+            role="tab"
+            aria-selected={d.id === menu.agent}
+            aria-label={d.name}
+            className={`nx-am-tab${d.id === menu.agent ? ' on' : ''}`}
+            onClick={() => void useWorld.getState().openMenu(d.id, menu.cell)}
+          >
+            <Icon name={iconName('fig', d.id)} />
           </button>
-        </div>
+        ))}
       </div>
+
+      <div className="nx-am-body">
+        {vacant && (
+          <p className="nx-bwarn">
+            {def.name} {figure?.gone === 'retired' ? 'ушёл на покой' : 'погиб'}. Найми нового {hireWhere(s, menu.agent)}.
+          </p>
+        )}
+
+        {/* Энергия человека (docs/agent_energy.md): сколько есть и что с ней — до приказа, у каждого дела своя цена. */}
+        {figure?.energy && <EnergyBar energy={figure.energy} spent={figure.spent} />}
+
+        {/* Мораль отряда между боями (14.31): до приказа, а не после — уставший бежит раньше. */}
+        {menu.agent === 'general' && figure?.rest && (
+          <p className="nx-bwarn">
+            {restLine(figure.rest, 'Отряд дрался', worldNow())} {REST_WHY}
+          </p>
+        )}
+
+        {/* Чужой отряд в поле: кто, куда и когда дойдёт. Встать на пути мало — бой даёт перехват (отзыв 18.10). */}
+        {menu.march && (
+          <>
+            {menu.across && menu.agent === 'general' && (
+              <p className="nx-bwarn">Здесь пройдёт набег. Просто встать на пути мало: пройдут мимо, и боя не будет. Дать бой в поле — «Перехватить».</p>
+            )}
+            <div className="nx-crow">
+              <span className="nx-lico">
+                <Icon name="ui-banner" />
+              </span>
+              <span className="nx-crow-t">
+                Отряд врага
+                <small>
+                  {menu.march.fromName} → {menu.march.toName}, дойдут через {realLeft(secondsLeft(menu.march.arriveAt, worldNow()))}.
+                </small>
+                {menu.march.rest && <small>{restLine(menu.march.rest, 'Отряд дрался', worldNow())}</small>}
+              </span>
+              <b>{menu.plan ? count(menu.plan.men, 'боец', 'бойца', 'бойцов') : '—'}</b>
+            </div>
+          </>
+        )}
+
+        {/* Осада своего города — окно осады, а не строка меню: всё, что про неё можно знать и сделать, собрано там. */}
+        {menu.agent === 'general' && card?.siege && !card.siege.mine && card.mine && (
+          <Row icon="alert-siege" name="Окно осады" note={`${card.siege.byName} у ворот`} onGo={() => (closeMenu(), openSiege())} />
+        )}
+        {/* Наш лагерь: всё, чем сейчас занят полководец, — приказы в окне лагеря. */}
+        {menu.agent === 'general' && card?.siege?.mine && (
+          <Row icon="stage-camp" name="Наш лагерь" note={FATE_META[card.siege.fate].name} onGo={() => (closeMenu(), openCamp())} />
+        )}
+
+        {fated && (
+          <Row
+            icon="hud-army"
+            name="Удар и осада"
+            note="в карточке места: участь, мощь и добыча"
+            onGo={() => {
+              closeMenu();
+              void useWorld.getState().select(menu.cell);
+            }}
+          />
+        )}
+
+        {/* Дела агента при этой цели. Касание — подтверждение; недоступное объяснено строкой под именем. */}
+        {menu.goal && list === null && <p className="nx-tnote">Считаем дела…</p>}
+        {menu.goal && list && list.length === 0 && !fated && (
+          <p className="nx-tnote">
+            {menu.agent === 'diplomat' && menu.goal.kind === 'place' && !card?.castle
+              ? 'С логовом не договариваются. Дипломат ездит к соседям: союз и его разрыв, а дома — откуп от осады.'
+              : `У ${def.one} здесь дел нет. Выбери другого человека вкладкой выше.`}
+          </p>
+        )}
+        {list?.map((o) => (
+          <div key={o.id} className={`nx-orow${o.can ? '' : ' off'}`}>
+            <button className="nx-wico" onClick={tipOf(o.name, o.does, ...o.risk)} aria-label={`${o.name}: что это`}>
+              <Icon name={errandIcon(o)} />
+            </button>
+            <button className="nx-obtn" onClick={() => setChosen(o.id)}>
+              <b>{o.name}</b>
+              {o.can && (
+                <span className="nx-ochips">
+                  <span>
+                    <Icon name="ui-time" /> {roadWords(o)}
+                  </span>
+                  {o.chance !== null && <span className="good">удастся {Math.round(o.chance * 100)}%</span>}
+                  {o.energy && <EnergyPrice price={o.energy.price} />}
+                </span>
+              )}
+              {!o.can && o.reason && <small className="nx-why">{o.reason}</small>}
+              {isPaid(o.cost) && <Cost cost={o.cost} />}
+            </button>
+          </div>
+        ))}
+
+        {/* Лазутчик залёг — снять наблюдение; домой он пойдёт делом «Домой». */}
+        {menu.agent === 'spy' && figure?.watching && (
+          <Row
+            icon="ui-eye"
+            name="Подняться"
+            note="перестанет смотреть"
+            onGo={() => void watch(false).then((err) => showToast(err ?? 'Лазутчик поднялся и снова готов к делу.'))}
+          />
+        )}
+
+        {/* Свой город — укрыться в нём или выйти. Входят от своих ворот. Укрывшийся не работает. */}
+        {ownCity && figure && figure.place !== 'down' && !vacant && (figure.atHome || inCity) && (
+          <Row
+            icon="ui-home"
+            name={inCity ? 'Выйти к воротам' : 'Укрыться в городе'}
+            note={inCity ? 'встанет у ворот' : 'уйдёт за стену и не будет работать'}
+            onGo={() => void hide(!inCity)}
+          />
+        )}
+
+        {!menu.goal && (
+          <p className="nx-tnote">Здесь никто не живёт. Люди ходят только к цели: свой город, чужой город, логово или отряд в пути.</p>
+        )}
+      </div>
+    </Wrap>
+  );
+}
+
+/** Подтверждение дела: куда, что сделает, дорога туда и назад, риск, энергия и плата — потом «Назад» или «Отправить». */
+export function ErrandConfirm({
+  where,
+  o,
+  warn,
+  busy,
+  onBack,
+  onGo,
+}: {
+  where: string;
+  o: ErrandOption;
+  /** Цена, которая выясняется не делом, а уходом: увод полководца из лагеря снимает осаду. */
+  warn?: string | null;
+  busy: boolean;
+  onBack: () => void;
+  onGo: () => void;
+}) {
+  return (
+    <>
+      <div className="nx-am-body er-confirm">
+        <div className="nx-crow er-what">
+          <span className="nx-lico">
+            <Icon name={errandIcon(o)} />
+          </span>
+          <span className="nx-crow-t">
+            {o.name}
+            <small>{o.does}</small>
+          </span>
+        </div>
+        <Line label="Куда" value={where} />
+        <Line label="Дорога" value={roadWords(o)} />
+        <Line label="Риск" value={o.risk.length > 0 ? o.risk.join(' ') : 'Риска нет.'} bad={o.risk.length > 0} />
+        {o.energy && <Line label="Энергия" value={<EnergyPrice price={o.energy.price} />} />}
+        {isPaid(o.cost) && <Cost cost={o.cost} />}
+        {warn && <p className="nx-bwarn">{warn}</p>}
+        {!o.can && o.reason && <p className="nx-bwarn">{o.reason}</p>}
+      </div>
+      <div className="nx-am-foot">
+        <button className="nx-go nx-go-ghost" onClick={onBack}>
+          Назад
+        </button>
+        <button className="nx-go" disabled={busy || !o.can} onClick={onGo}>
+          Отправить
+        </button>
+      </div>
+    </>
+  );
+}
+
+/** Затемнение вокруг меню: касание мимо окна закрывает его обычным `click`. Одна обёртка на все виды меню. */
+function Wrap({ closeMenu, children }: { closeMenu: () => void; children: ReactNode }) {
+  return (
+    <div className="am-wrap" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => e.target === e.currentTarget && closeMenu()}>
+      <div className="panel nx-bpanel nx-am">{children}</div>
     </div>
   );
 }
 
-/** Энергия в пути под «Вести сюда»: отказ, если не пойдёт; иначе — сколько останется на месте и кончится ли в дороге. */
-function LeadEnergy({ energy }: { energy: NonNullable<LeadPlan['energy']> }) {
-  if (energy.block) return <small className="nx-why">{energy.block}</small>;
+/** Строка подтверждения: подпись слева, значение справа. */
+function Line({ label, value, bad }: { label: string; value: ReactNode; bad?: boolean }) {
   return (
-    <small className={energy.runsOut ? 'nx-why' : ''}>
-      {energy.runsOut
-        ? 'Энергии на дорогу не хватит. Повернёт домой, не дойдя.'
-        : energy.price > 0
-          ? `После дороги и разведки у ворот энергии останется ${energy.atArrival}. Разведка стоит ${energy.price}.`
-          : `После дороги энергии останется ${energy.atArrival}.`}
-    </small>
+    <div className="er-line">
+      <span className="muted">{label}</span>
+      <b className={bad ? 'bad' : ''}>{value}</b>
+    </div>
   );
 }
 
-/**
- * Строка приказа нового вида: значок — справка (касание — что это и откуда риск), тело — сама кнопка приказа: имя,
- * числа строкой, причина погасшей кнопки — строкой 11 px под именем (3.7, 3.8). Цена — `Cost` под строкой.
- */
-function Order({
-  icon,
-  name,
-  can,
-  why,
-  on,
-  tip,
-  onGo,
-  cost,
-  children,
-}: {
-  icon: IconName;
-  name: string;
-  can: boolean;
-  why?: string | null;
-  on?: boolean;
-  tip: (e: { currentTarget: Element }) => void;
-  onGo: () => void;
-  cost?: Loot | null;
-  children?: ReactNode;
-}) {
+/** Строка-переход: окно осады, лагерь, город. */
+function Row({ icon, name, note, onGo }: { icon: IconName; name: string; note: string; onGo: () => void }) {
   return (
-    <div className={`nx-orow${can ? '' : ' off'}${on ? ' on' : ''}`}>
-      <button className="nx-wico" onClick={tip} aria-label={`${name}: что это`}>
+    <div className="nx-orow">
+      <span className="nx-wico">
         <Icon name={icon} />
-      </button>
-      <button className="nx-obtn" disabled={!can} onClick={onGo}>
+      </span>
+      <button className="nx-obtn" onClick={onGo}>
         <b>{name}</b>
-        {can && children && <span className="nx-ochips">{children}</span>}
-        {!can && why && <small className="nx-why">{why}</small>}
-        {cost && <Cost cost={cost} />}
+        <span className="nx-ochips">
+          <span>{note}</span>
+        </span>
       </button>
     </div>
   );

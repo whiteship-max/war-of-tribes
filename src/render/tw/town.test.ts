@@ -16,7 +16,7 @@ import { heightAt } from '../reel/terrain';
 import { cityPlan, heightAt as cityHeight, axisX, halfAt } from '../city/layout';
 import { houseBox, townPlan, townWorld } from '../city/town';
 import { CITY_M, type TwWall } from './site';
-import { TOWN_FACE, TOWN_GATE, TOWN_HALF, boxToReel, frameOf, houseOfTown, toCity, toReel, townCut, townLift, type Box2 } from './town';
+import { TOWN_FACE, TOWN_GATE, TOWN_HALF, TOWN_WALL_TOWERS, boxToReel, frameOf, houseOfTown, toCity, toReel, townCut, townLift, type Box2 } from './town';
 
 const PLAN = cityPlan();
 const SIEGES = ['gates', 'storm', 'hunger', 'broken', 'paid', 'repair'] as const;
@@ -200,3 +200,59 @@ describe('город уступает место бою', () => {
     }
   });
 });
+
+// Р-5 (docs/siege_v2.md, 21.1): в ролике осады своего города стояли деревянные стены первых версий — вид шёл от уровня
+// частокола (брёвна до третьего, башен 2/4/6), а окно города рисует камень на любом уровне. Правило — одно: что в городе,
+// то и в ролике.
+describe('стены ролика — стены окна города', () => {
+  it('башни стены ролика — башни южной стены плана города: вид, место, размер, высота', () => {
+    const near = (t: { x: number; z: number }) => PLAN.towers.find((q) => Math.hypot(q.x - t.x, q.z - t.z) < 0.05);
+    for (const t of [TOWN_WALL_TOWERS.east, TOWN_WALL_TOWERS.west, ...TOWN_WALL_TOWERS.inner]) {
+      const q = near(t);
+      expect(q, `башня (${t.x}, ${t.z}) — в плане города`).toBeTruthy();
+      expect(q!.kind).toBe(t.kind);
+      expect(q!.size).toBeCloseTo(t.size, 2);
+      expect(q!.height).toBeCloseTo(t.height, 2);
+    }
+    // Промежуточные — все башни плана на линии южной стены между углами, кроме главных ворот (их надвратная — у ролика).
+    const lay = layoutOf(siegeOf('gates'), 'medium');
+    const cut = townCut(lay.wall!, lay.town!.inside, lay.town!.outside);
+    const onFront = PLAN.towers.filter((q) => q.kind === 'square' && q.z > 0 && Math.abs(q.z - TOWN_GATE.z) < 5 && q.x > cut.west.x && q.x < cut.east.x);
+    expect(onFront.length, 'точка внутри области: на южной стене есть промежуточные').toBeGreaterThan(0);
+    expect(onFront.map((q) => Math.round(q.x * 10) / 10).sort()).toEqual(TOWN_WALL_TOWERS.inner.map((t) => Math.round(t.x * 10) / 10).sort());
+  });
+
+  it('на каждом уровне стены 1…10 — камень, башни города, кольцо города камнем', () => {
+    const base = siegeOf('gates');
+    const f = frameOf({ inward: 1, gateX: 0, z: 0 });
+    for (let level = 1; level <= 10; level++) {
+      const lay = layoutOf({ ...base, wall: level }, 'medium');
+      const w = lay.wall!;
+      expect(w, `ур. ${level}: стена есть`).toBeTruthy();
+      expect(w.wood ?? false, `ур. ${level}: стена ролика — камень, как в окне города`).toBe(false);
+      expect(townCut(w, lay.town!.inside, lay.town!.outside).wood, `ур. ${level}: кольцо города — камень`).toBe(false);
+      const towers = [...w.towers].sort((a, b) => a.x - b.x);
+      expect(towers.length, `ур. ${level}: башен — как на южной стене города`).toBe(2 + TOWN_WALL_TOWERS.inner.length);
+      // Восток города — слева в ролике, запад — справа (`toReel`), промежуточные — на своих местах.
+      expect(towers[0].round).toBe(TOWN_WALL_TOWERS.east.kind === 'round');
+      expect(towers[0].h).toBeCloseTo(TOWN_WALL_TOWERS.east.height * CITY_M, 6);
+      expect(towers[towers.length - 1].h).toBeCloseTo(TOWN_WALL_TOWERS.west.height * CITY_M, 6);
+      for (const t of TOWN_WALL_TOWERS.inner) {
+        const x = toReel(f, t.x, t.z).x;
+        const r = towers.find((q) => Math.abs(q.x - x) < 0.1);
+        expect(r, `ур. ${level}: башня города у x ${x.toFixed(1)}`).toBeTruthy();
+        expect(r!.round).toBe(false);
+        expect(r!.size).toBeCloseTo(t.size * CITY_M, 6);
+      }
+    }
+  });
+
+  it('ролик боя у стены — тоже камень', () => {
+    for (const site of ['site=wall&us=defender', 'site=wall&us=attacker'] as const) {
+      const plan = battleOf(site);
+      expect(plan.site?.wall, `${site}: стена есть`).toBeTruthy();
+      expect(plan.site?.wall?.wood ?? false, `${site}: стена — камень`).toBe(false);
+    }
+  });
+});
+

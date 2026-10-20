@@ -48,6 +48,8 @@ const MUSIC: Record<Episode['kind'], 'drums' | 'harmony' | 'full'> = {
   repair: 'drums',
   breach: 'full',
   volley: 'full',
+  shelling: 'full',
+  ring: 'drums',
   plague: 'harmony',
   short: 'harmony',
   sortie: 'full',

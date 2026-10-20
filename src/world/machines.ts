@@ -21,6 +21,8 @@ export interface MachineOrder {
   spent?: number;
   /** Сожжена вылазкой осаждённого (docs/siege_v2.md, раздел 5), а не пущена на штурм: `spent` — минута пожара. */
   burned?: true;
+  /** Разбита выстрелом (Р-5, `world/shelling`): камнем требушета на стене или артиллерии лагеря. `spent` — минута. */
+  broke?: true;
 }
 
 /** Что нужно двери от окна осады. */
@@ -58,7 +60,7 @@ export function machinesAt(w: MachineWindow, at: number): MachineState[] {
 export const machineReady = (w: MachineWindow, id: MachineId, at: number): boolean =>
   machinesAt(w, at).some((e) => e.id === id && e.ready);
 
-/** Стоит ли в лагере камнемёт к минуте `at` — +1 к кости фазы (`siegeroll.modsOf`). */
+/** Стоит ли в лагере камнемёт к минуте `at`. Его грани к кости фазы считает обстрел (`shelling.machineFaces`): по стенам. */
 export const mangonelAt = (w: MachineWindow, at: number): boolean => machineReady(w, 'mangonel', at);
 
 /** Сколько машин этого рода в очереди, не истраченных к минуте `at`: готовых и строящихся. */
@@ -112,6 +114,7 @@ export const MACHINE_NAME: Record<MachineId, string> = {
   ram: 'Таран',
   tower: 'Осадная башня',
   mangonel: 'Камнемёт',
+  trebuchet: 'Требушет',
 };
 
 /** Что машина даёт — строкой устройства, без прогноза. */
@@ -119,7 +122,9 @@ export const MACHINE_USE: Record<MachineId, string> = {
   ladders: 'лестницы на весь фронт, кость −2 грани',
   ram: 'ворота после первого круга боя, без штрафа',
   tower: 'пролёт стены без штрафа, конница не пройдёт',
-  mangonel: '+1 к кости каждой фазы',
+  // Куда бьёт и что даёт каждая цель — таблицей «Куда бьют машины» окна лагеря (`shelling.aimWords`).
+  mangonel: 'кость фазы +1 или выстрел за фазу',
+  trebuchet: 'кость фазы +2 или два выстрела за фазу',
 };
 
 /** Сколько фаз строится машина, если весь лес лагеря — ей: срок той же выработкой, что у рогаток. */

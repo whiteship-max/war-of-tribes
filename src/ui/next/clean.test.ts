@@ -22,7 +22,7 @@ const g = globalThis as unknown as { window?: unknown; localStorage?: unknown; l
 g.window ??= {};
 g.location ??= { search: '', hash: '', href: 'https://example.test/' };
 // Память устройства до загрузки рычага: «Подписи» выключены (по умолчанию — включены, ЗН-4).
-store.set('tribe.labels', '0');
+store.set('tribe.labels.r3', '0'); // ключ памяти с Р-3 (`next/labels`, docs/ui_v2.md, 5.12)
 g.localStorage = {
   getItem: (k: string) => store.get(k) ?? null,
   setItem: (k: string, v: string) => void store.set(k, v),
@@ -168,14 +168,14 @@ describe('«Подписи» — строкой настроек профиля'
     el.props.onClick();
     expect(useLabels.getState().on).toBe(true);
     expect(labelsOn(), 'сцена видит касание строки').toBe(true);
-    expect(store.get('tribe.labels'), 'помнится устройством').toBe('1');
+    expect(store.get('tribe.labels.r3'), 'помнится устройством').toBe('1');
     el.props.onClick();
     expect(labelsOn()).toBe(false);
-    expect(store.get('tribe.labels')).toBe('0');
+    expect(store.get('tribe.labels.r3')).toBe('0');
   });
 
   it('по умолчанию включён: без памяти устройства подписи есть', async () => {
-    store.delete('tribe.labels');
+    store.delete('tribe.labels.r3');
     vi.resetModules();
     const fresh = await import('./labels');
     const board = await import('@/render/sitetags');

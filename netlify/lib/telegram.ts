@@ -63,6 +63,12 @@ export const keyboard = (app = appUrl()): Markup => ({
   ],
 });
 
+/**
+ * Адрес игры, открытой прямо на месте (ДП-1): `?go=deal-<номер>` — «Вести» на предложении соседа. Параметр — в строке
+ * запроса, а не после `#`: хвост после `#` Telegram занимает своими данными запуска.
+ */
+export const appAt = (app: string, go?: string): string => (go ? `${app}${app.includes('?') ? '&' : '?'}go=${encodeURIComponent(go)}` : app);
+
 /** Одна кнопка «Открыть игру» — под приветствием и итоговой таблицей (docs/rating.md). */
 export const openOnly = (app = appUrl()): Markup => ({
   inline_keyboard: [[{ text: BUTTON_OPEN, web_app: { url: app } }]],
@@ -143,10 +149,13 @@ async function letterCall(method: string, params: Record<string, unknown>, go: F
 }
 
 export interface Telegram {
-  /** Весть игроку — новое сообщение с кнопками «Открыть игру» и «Настроить вести». `silent` — без звука (тихий час). */
-  letter(chatId: number, text: string, silent: boolean): Promise<Sent>;
+  /**
+   * Весть игроку — новое сообщение с кнопками «Открыть игру» и «Настроить вести». `silent` — без звука (тихий час). `go` —
+   * куда открыть игру (`appAt`): весть о предложении соседа ведёт прямо к нему (ДП-1).
+   */
+  letter(chatId: number, text: string, silent: boolean, go?: string): Promise<Sent>;
   /** Поправить своё письмо: новая весть того же рода ложится в прежнее сообщение. */
-  edit(chatId: number, messageId: number, text: string): Promise<Sent>;
+  edit(chatId: number, messageId: number, text: string, go?: string): Promise<Sent>;
   /** Ответ на нажатие кнопки: строка во всплывающем окне Telegram. */
   answer(callbackId: string, text: string): Promise<SendResult>;
   /** Поставить под сообщением, на котором нажали прежнюю кнопку-рычаг, нынешний ряд кнопок вести. */
@@ -172,10 +181,10 @@ const cut = (text: string): string => (text.length > TEXT_MAX ? `${text.slice(0,
 const quiet = { link_preview_options: { is_disabled: true } };
 
 export const telegram = (go: Fetcher = live): Telegram => ({
-  letter: (chatId, text, silent) =>
-    letterCall('sendMessage', { chat_id: chatId, text: cut(text), reply_markup: keyboard(), disable_notification: silent, ...quiet }, go, false),
-  edit: (chatId, messageId, text) =>
-    letterCall('editMessageText', { chat_id: chatId, message_id: messageId, text: cut(text), reply_markup: keyboard(), ...quiet }, go, true),
+  letter: (chatId, text, silent, to) =>
+    letterCall('sendMessage', { chat_id: chatId, text: cut(text), reply_markup: keyboard(appAt(appUrl(), to)), disable_notification: silent, ...quiet }, go, false),
+  edit: (chatId, messageId, text, to) =>
+    letterCall('editMessageText', { chat_id: chatId, message_id: messageId, text: cut(text), reply_markup: keyboard(appAt(appUrl(), to)), ...quiet }, go, true),
   answer: (callbackId, text) => call('answerCallbackQuery', { callback_query_id: callbackId, text }, go),
   button: (chatId, messageId) => call('editMessageReplyMarkup', { chat_id: chatId, message_id: messageId, reply_markup: keyboard() }, go),
   panel: (chatId, text, rows) => call('sendMessage', { chat_id: chatId, text: cut(text), reply_markup: panelKeyboard(rows), ...quiet }, go),

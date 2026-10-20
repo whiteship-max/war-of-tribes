@@ -248,6 +248,8 @@ export function marketTick(s: GameState, dt: number, income: number): void {
   if (income !== 0) s.gold = Math.max(0, s.gold + (income * dt) / DAY_LENGTH);
 
   if (s.caravans.length === 0) return;
+  // Кольцо блокады (Р-5): караван ждёт у кольца — в ворота войдёт, когда его разомкнут.
+  if (s.siege?.blockade) return;
   const arrived = s.caravans.filter((c) => s.time >= c.arriveAt);
   if (arrived.length === 0) return;
   s.caravans = s.caravans.filter((c) => s.time < c.arriveAt);

@@ -20,6 +20,7 @@ import { Icon } from '@/ui/icons/Icon';
 import { Cost } from '@/ui/parts/Cost';
 import { useRaidWords } from '@/ui/parts/raidWords';
 import { dispatches, filterMail, leftWords, mailGroups, type Dispatch, type MailFilter } from './dispatch';
+import { endWords, type ProposalAct } from '@/world/proposals';
 import { Table, type Col } from '@/ui/kit/Table';
 import { Tabs, type TabDef } from '@/ui/kit/SheetPage';
 import { goTo } from '@/ui/kit/nav';
@@ -27,7 +28,7 @@ import { WINDOW } from '@/ui/kit/sources';
 import { useRealm, type MailTab } from './open';
 import { Chronicle } from './Chronicle';
 import { ReportPanel } from '@/ui/panels/ReportPanel';
-import { mailKeys, useSeen } from './unread';
+import { mailKeys, rivalKeys, useSeen } from './unread';
 
 /**
  * Единственная дверь ответа: отдаёт ответ хозяину донесения и возвращает исход
@@ -36,6 +37,14 @@ import { mailKeys, useSeen } from './unread';
  */
 async function answerDispatch(d: Dispatch, choiceId: string): Promise<string | null> {
   if (d.source === 'event') return d.eventId ? useGame.getState().resolve(Number(choiceId), d.eventId) : null;
+  // Предложение соседа (ДП-1): ответ судит сервер войны; итог — словами стороны, отказ — словами сервера.
+  if (d.source === 'rival') {
+    if (!d.dealId) return null;
+    const err = await useWorld.getState().answerProposal(d.dealId, choiceId as ProposalAct);
+    if (err) return err;
+    const p = useWorld.getState().rivals.proposals.find((x) => x.id === d.dealId);
+    return p?.end ? endWords(p) : (d.choices.find((c) => c.id === choiceId)?.hint ?? null);
+  }
   if (!d.letterId) return null;
   const err = await useWorld.getState().answerLetter(d.letterId, choiceId === 'yes' ? 'yes' : 'no');
   if (err) return null;
@@ -52,6 +61,7 @@ export function Mail() {
   const s = useGame((g) => g.s);
   // Слова — пачки 14 (docs/ui_texts.md): «вести», «город»; «новое» — точкой.
   const letters = useWorld((w) => w.letters);
+  const rivals = useWorld((w) => w.rivals);
   const open = useRealm((r) => r.mail);
   const openMail = useRealm((r) => r.openMail);
   const seen = useSeen((u) => u.seen);
@@ -64,10 +74,11 @@ export function Mail() {
   const openChronicle = useRealm((r) => r.openChronicle);
   const [, retick] = useState(0);
 
-  const list = dispatches(s, letters, { tribe: partyNow(), world: worldNow() });
+  const list = dispatches(s, letters, { tribe: partyNow(), world: worldNow() }, rivals);
   const live = mailKeys(
     s.inbox,
     letters.map((l) => l.id),
+    rivalKeys(rivals),
   );
   const current = list.find((d) => d.key === open) ?? null;
 
@@ -134,6 +145,13 @@ export function Mail() {
     );
   }
 
+  // Ответ кнопкой прямо в строке (ДП-1): итог — всплывающей строкой, строка уходит из «Ждут ответа» в «К сведению».
+  const quick = async (d: Dispatch, id: string): Promise<void> => {
+    const text = await answerDispatch(d, id);
+    mark(d.key, live);
+    if (text) useGame.getState().showToast(text);
+  };
+
   // Фильтр — по источнику, счётчик вкладки — новые в ней (как у низа: новое ждёт, чтобы его прочли).
   const fresh = (d: Dispatch): boolean => !seen.includes(d.key);
   const unseen = (f: MailFilter): number => filterMail(list, f).filter(fresh).length;
@@ -168,10 +186,10 @@ export function Mail() {
           <h3>
             {g.title} <span className="muted">{g.items.length}</span>
           </h3>
-          <Table
+          {g.items.some((d) => !d.quick) && <Table
             label={g.title}
             cols={MAIL_COLS}
-            rows={g.items.map((d) => ({
+            rows={g.items.filter((d) => !d.quick).map((d) => ({
               key: d.key,
               go: () => openMail(d.key),
               goLabel: d.title,
@@ -189,7 +207,10 @@ export function Mail() {
                 left: d.left !== null ? <span className={d.urgent ? 'bad' : ''}>{leftWords(d.left)}</span> : '—',
               },
             }))}
-          />
+          />}
+          {g.items.filter((d) => d.quick).map((d) => (
+            <QuickRow key={d.key} d={d} fresh={fresh(d)} onOpen={() => openMail(d.key)} onAnswer={(id) => quick(d, id)} />
+          ))}
         </section>
       ))}
     </div>
@@ -270,7 +291,7 @@ function DispatchCardNew({
         {/* Набег решается не здесь: перехватить в поле — на карте, гарнизон и отряд полководца — в «Дружине» (передача
             там с UI-4, docs/ui_v2.md, 5.3; прежде кнопка вела в Статую). Окно ответа — до прихода (`parts/raidWords`), и
             срок у кнопки тот же, что в строке набега. */}
-        {letter?.kind === 'raid' && (
+        {(letter?.kind === 'raid' || d.march) && (
           <>
             <button className="nx-ans" onClick={() => openMap()}>
               <b>На карту</b>
@@ -283,10 +304,54 @@ function DispatchCardNew({
           </>
         )}
       </div>
-      <p className="nx-msilence">{d.silence}</p>
+      {d.silence && <p className="nx-msilence">{d.silence}</p>}
       <button className="nx-mback" onClick={onBack}>
         {d.choices.length > 0 ? 'Отложить' : 'К вестям'}
       </button>
+    </div>
+  );
+}
+
+/**
+ * Строка с ответом прямо в ней (ДП-1): имя и срок — дверь в карточку, рядом кнопки ответа по 44. Кнопка в кнопке
+ * недопустима (2.5), поэтому строка — ряд из двери и кнопок, а не строка таблицы. Погасшая кнопка — та же проверка, что у
+ * сервера (`world/proposals.answerBlock`).
+ */
+function QuickRow({ d, fresh, onOpen, onAnswer }: { d: Dispatch; fresh: boolean; onOpen: () => void; onAnswer: (id: string) => Promise<void> }) {
+  const [busy, setBusy] = useState(false);
+  return (
+    <div className="mail-quick">
+      <button type="button" className="mail-quick-go" onClick={onOpen} aria-label={d.title}>
+        <span className={`kit-name${fresh ? ' fresh' : ''}`}>
+          <Icon name={d.iconName} />
+          <span className="kit-two">
+            <b className="one-line">{d.title}</b>
+            <small className="one-line">{d.from}</small>
+          </span>
+          {fresh && <i className="nx-new" aria-label="новое" />}
+        </span>
+        {d.left !== null && <span className="mail-quick-left">{leftWords(d.left)}</span>}
+        <i className="kit-go" aria-hidden="true">
+          ›
+        </i>
+      </button>
+      <div className="mail-quick-acts">
+      {d.choices.map((c) => (
+        <button
+          key={c.id}
+          type="button"
+          className={`mail-quick-act${c.id === 'yes' ? ' yes' : ''}`}
+          disabled={busy || c.block !== null}
+          title={c.block ?? undefined}
+          onClick={() => {
+            setBusy(true);
+            void onAnswer(c.id).finally(() => setBusy(false));
+          }}
+        >
+          {c.label}
+        </button>
+      ))}
+      </div>
     </div>
   );
 }

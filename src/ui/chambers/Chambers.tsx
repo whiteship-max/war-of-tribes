@@ -23,6 +23,7 @@ import { useWorld, marchesOnUs, worldNow } from '@/world/store';
 import { useRealm } from '@/ui/realm/open';
 import type { LifeView, Who, Why } from '@/render/chambers/life';
 import { Talk } from './TalkWindow';
+import { realPlain } from '@/ui/parts/wait';
 import { daypartOf, household, type TalkCtx } from './talk';
 import { loadMemory, saveMemory, type ChambersMemory } from './memory';
 import { adultScenes } from './adult';
@@ -313,6 +314,7 @@ export function Chambers() {
   const faith = useGame((g) => g.s.faith.id ?? 'catholic');
   const layer = useRef<HTMLDivElement>(null);
   const tags = useRef<HTMLDivElement>(null);
+  const root = useRef<HTMLDivElement>(null);
   const [ready, setReady] = useState(() => live !== null);
   const [coach, setCoach] = useState(() => !coachSeen());
   const [, bump] = useState(0);
@@ -331,6 +333,25 @@ export function Chambers() {
   useEffect(() => {
     if (courtTalk && !lvTalk) setTalk(null);
   }, [courtTalk, lvTalk]);
+  // Плашка разговора закрывает низ экрана: глаз держит собеседника над ней (Р-1, `room.setPlate`) — высоту мерим сами.
+  const roomNow = live?.room ?? null;
+  useEffect(() => {
+    if (!roomNow) return;
+    const plate = root.current?.querySelector<HTMLElement>('.ch-talk') ?? null;
+    if (!talk || !plate) {
+      roomNow.setPlate(null);
+      return;
+    }
+    const measure = (): void => {
+      const bottom = (layer.current ?? root.current)?.getBoundingClientRect().bottom ?? window.innerHeight;
+      roomNow.setPlate(Math.max(0, bottom - plate.getBoundingClientRect().top));
+    };
+    measure();
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(plate);
+    return () => ro.disconnect();
+  }, [roomNow, talk?.n, !!talk, !!lv?.night]); // eslint-disable-line react-hooks/exhaustive-deps
   // Пока говорят и пока ночь — ноги стоят (смотреть можно): держит режиссёр жизни (`life.holdsLegs`).
   const night = lv?.night ?? null;
   // Ночь гасит плашку реплики сразу (`plate.Plate.gone`): утром внизу — ничего.
@@ -397,7 +418,7 @@ export function Chambers() {
   const held = v?.held ? TRINKET_BY_ID[v.held] : null;
 
   return (
-    <div className="ch" data-ready={ready ? '1' : '0'}>
+    <div ref={root} className="ch" data-ready={ready ? '1' : '0'}>
       <div
         ref={layer}
         className="ch-layer"
@@ -479,10 +500,11 @@ export function Chambers() {
         </div>
       )}
 
-      {/* Клубок — коту (Г-7): кот в покоях, правитель стоит, разговора нет. */}
+      {/* Клубок — коту (Г-7): кот в покоях, правитель стоит, разговора нет. Кинуть — куда смотришь, и в окно (Р-1); не чаще
+          раза в десять секунд: кнопка говорит, когда снова. */}
       {v && lv?.cat && !held && !talk && !night && v.mode === 'free' && (
-        <button className="ch-ball" onClick={() => room?.life.throwBall()}>
-          Клубок
+        <button className="ch-ball" disabled={lv.fetching || lv.ballIn > 0} onClick={() => room?.life.throwBall()}>
+          {ballWords(lv)}
         </button>
       )}
 
@@ -513,6 +535,13 @@ export function Chambers() {
       <div className="ch-veil" aria-hidden="true" />
     </div>
   );
+}
+
+/** Подпись кнопки клубка: можно — «Кинуть клубок»; кот за ним в окне — ждём; рано — через сколько секунд. */
+export function ballWords(lv: Pick<LifeView, 'fetching' | 'ballIn'>): string {
+  if (lv.fetching) return 'Кот несёт клубок…';
+  if (lv.ballIn > 0) return `Клубок — через ${realPlain(lv.ballIn)}`;
+  return 'Кинуть клубок';
 }
 
 /** Для тестов: живая комната и уборка. */

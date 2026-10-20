@@ -2,19 +2,18 @@
 // three: где что стоит, читают режиссура (`reel.ts` — пути фигур, камни, камера) и сцена (`stage.ts` — камень и дерево).
 //
 // Город и лагерь — те же кирпичики места боя ролика TW (`tw/site.ts`): стена с ходом, башни, дома набора города, шатры,
-// рогатки и костры. Своего здесь — только то, что осада знает сверх боя: уровень стены (дерево или камень, сколько башен и
-// какой высоты), башня с орудием, машины лагеря и логово, если стены нет.
+// рогатки и костры. Своего здесь — только то, что осада знает сверх боя: башня с орудием, машины лагеря и логово, если
+// стены нет. Стена — та же, что в окне города, на любом уровне (Р-5, docs/siege_v2.md, 21.1): камень, башни южной стены
+// города (`tw/town.TOWN_WALL_TOWERS`); от уровня стены вид не зависит — как и у окна города.
 import type { Quality } from '../quality';
 import { TW_SPEC } from '../reel/spec';
-import { hash, heightAt, type TwField } from '../reel/terrain';
+import { heightAt, type TwField } from '../reel/terrain';
 import {
+  CITY_M,
   GATE_HALF,
-  GATEHOUSE,
   POMERIUM,
   SQUARE_R,
   STREET_HALF,
-  TOWER,
-  TOWER_H,
   WALL_THICK,
   WALL_TOP,
   campOf,
@@ -25,7 +24,7 @@ import {
   type TwTower,
   type TwWall,
 } from '../tw/site';
-import { TOWN_HALF, frameOf, townGround, type Box2 } from '../tw/town';
+import { TOWN_HALF, TOWN_WALL_TOWERS, frameOf, toReel, townGround, type Box2 } from '../tw/town';
 import type { SiegeShow, ShowMachine } from './show';
 
 /**
@@ -41,20 +40,19 @@ export const SQUARE_Z = 27;
 /** Полуширина лагеря по X. */
 const CAMP_HALF = 34;
 
-/** Вид замка по уровню частокола (docs/gfx.md, ГФ-2, «Замок по уровню»). */
+/**
+ * Вид стены ролика. До Р-5 он шёл от уровня частокола — брёвна до третьего, башен 2/4/6 (ГФ-2), — а окно города рисует
+ * камень на любом уровне, и игрок видел в ролике деревянный город вместо своего каменного. Теперь вид один — города.
+ */
 export interface CastleLook {
-  /** Частокол из брёвен (до третьего уровня) или камень. */
-  wood: boolean;
-  /** Башен по стене (без надвратной) и их высота против обычной. */
+  /** Частокол из брёвен. У города игрока — никогда (окно города — камень). */
+  wood: false;
+  /** Башен по стене без надвратной: углы и промежуточные южной стены города. */
   towers: number;
-  towerH: number;
 }
 
-/** Уровень частокола → вид замка: дерево до третьего, дальше камень; башен больше и они выше с уровнем. */
-export function castleLook(level: number): CastleLook {
-  const l = Math.max(1, Math.min(10, Math.round(level)));
-  return { wood: l <= 3, towers: l <= 3 ? 2 : l <= 6 ? 4 : 6, towerH: l <= 3 ? 0.8 : 0.9 + (l - 4) * 0.05 };
-}
+/** Вид стены ролика — тот же, что окно города, на любом уровне частокола. */
+export const CASTLE_LOOK: CastleLook = { wood: false, towers: 2 + TOWN_WALL_TOWERS.inner.length };
 
 /** Где стоит машина лагеря (по X и Z) и куда смотрит. */
 export interface MachineSpot {
@@ -89,24 +87,27 @@ export interface SiegeLayout {
   town: { inside: Box2[]; outside: Box2; paint: Box2[] } | null;
 }
 
-/** Башни стены: по уровню — сколько и какой высоты; у концов стены — круглые. */
-function towersOf(look: CastleLook, seed: number): TwTower[] {
-  const xs: number[] = [WALL_HALF - TOWER / 2, -(WALL_HALF - TOWER / 2)];
-  const inner = look.towers - 2;
-  // Внутренние башни — ровно по пролётам между надвратной и концами.
-  for (let k = 0; k < inner; k++) {
-    const side = k % 2 === 0 ? 1 : -1;
-    const n = Math.ceil(inner / 2);
-    const j = Math.floor(k / 2) + 1;
-    xs.push(side * (GATEHOUSE / 2 + ((WALL_HALF - GATEHOUSE / 2 - TOWER) * j) / (n + 1)));
-  }
-  return xs
-    .sort((a, b) => a - b)
-    .map((x, i) => ({
+/**
+ * Башни стены ролика — башни южной стены города (`TOWN_WALL_TOWERS`): углы на концах стены, где в них входит кольцо города,
+ * и промежуточные на своих местах; вид, размер и высота — города. Ролик смотрит на город воротами к лагерю (`inward` = 1):
+ * восток города — слева, запад — справа (`tw/town.toReel`).
+ */
+function towersOf(seed: number): TwTower[] {
+  const f = frameOf({ inward: 1, gateX: 0, z: 0 });
+  const end = (t: { size: number }): number => WALL_HALF - (t.size * CITY_M) / 2;
+  const { east, west, inner } = TOWN_WALL_TOWERS;
+  const list = [
+    { x: -end(east), t: east },
+    { x: end(west), t: west },
+    ...inner.map((t) => ({ x: toReel(f, t.x, t.z).x, t })),
+  ];
+  return list
+    .sort((a, b) => a.x - b.x)
+    .map(({ x, t }, i) => ({
       x: Math.round(x * 10) / 10,
-      round: Math.abs(Math.abs(x) - (WALL_HALF - TOWER / 2)) < 0.05 || hash(seed, i, 61) < 0.35,
-      size: TOWER * (0.95 + hash(seed, i, 62) * 0.15),
-      h: TOWER_H * look.towerH * (0.92 + hash(seed, i, 63) * 0.16),
+      round: t.kind === 'round',
+      size: t.size * CITY_M,
+      h: t.height * CITY_M,
       seed: (seed * 31 + i * 7) >>> 0,
     }));
 }
@@ -140,7 +141,7 @@ export function layoutOf(show: SiegeShow, quality: Quality, houses: readonly TwH
   let look: CastleLook | null = null;
   let lair: TwCamp | null = null;
   if (show.wall > 0) {
-    look = castleLook(show.wall);
+    look = CASTLE_LOOK;
     wall = {
       z: 0,
       inward: 1,
@@ -151,9 +152,8 @@ export function layoutOf(show: SiegeShow, quality: Quality, houses: readonly TwH
       gateX: 0,
       gateHalf: GATE_HALF,
       gateAt: null,
-      towers: towersOf(look, seed),
+      towers: towersOf(seed),
       side: 'defender',
-      ...(look.wood ? { wood: true } : {}),
     };
     // Под стеной — земля настоящего города (П-6): тот же мыс, что в окне города.
     field.town = townGround(frameOf(wall), field);

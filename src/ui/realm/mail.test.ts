@@ -26,12 +26,18 @@ vi.mock('@/game/store', async (orig) => {
   const real = await orig<{ useGame: object }>();
   return { ...real, useGame: fake(real.useGame, () => stores.game) };
 });
+// Хранилище державы читается напрямую: на сервере зустанд отдаёт начальное состояние, а окно смотрит на текущее.
+vi.mock('./open', async (orig) => {
+  const real = await orig<{ useRealm: { getState: () => Record<string, unknown> } }>();
+  return { ...real, useRealm: fake(real.useRealm, () => real.useRealm.getState()) };
+});
 vi.mock('@/world/store', async (orig) => {
   const real = await orig<{ useWorld: object }>();
   return { ...real, useWorld: fake(real.useWorld, () => stores.world), worldNow: () => 1_900_000_000_000 };
 });
 
 import { Mail } from './Mail';
+import { useRealm } from './open';
 
 const letter = (id: string, kind: LetterView['kind'], choices: LetterView['choices'], mins: number): LetterView => ({
   id,
@@ -91,7 +97,7 @@ describe('фильтры и группы', () => {
   it('окно: три вкладки почты со счётчиком новых и «Летопись», вести — строками таблиц с дверью; прежней ленты нет', () => {
     const { s, letters } = table();
     stores.game = { s, resolve: () => null, openMap: () => {} };
-    stores.world = { letters, marches: [], info: null, answerLetter: async () => null, spotLetter: () => {} };
+    stores.world = { letters, rivals: { proposals: [], marching: [] }, marches: [], info: null, answerLetter: async () => null, spotLetter: () => {} };
     const html = renderToStaticMarkup(h(Mail));
     const tabs = [...html.matchAll(/role="tab"[^>]*>(?:<[^>]+>)*([^<]+)<\/span>(?:<em class="kit-badge">(\d+)<\/em>)?/g)].map((m) => [m[1], m[2] ?? '0']);
     expect(tabs).toEqual([
@@ -107,6 +113,52 @@ describe('фильтры и группы', () => {
     for (const title of ['Набег', 'Дань']) expect(rows.some((r) => r.includes(title) && r.includes('class="kit-go"')), title).toBe(true);
     expect(html.indexOf('Беда')).toBeLessThan(html.indexOf('Ждут ответа'));
     expect(html).not.toContain('mail-row');
+  });
+});
+
+describe('ДП-1: соседи-игроки в «Соседях»', () => {
+  const W = 1_900_000_000_000;
+  const offer = { id: 'c1.a', kind: 'pact' as const, side: 'in' as const, castle: 'c1', city: 'Альфа', at: W - 60_000, until: W + 3_600_000 };
+  const done = { id: 'c2.b', kind: 'pact' as const, side: 'out' as const, castle: 'c2', city: 'Гамма', at: W - 7_200_000, until: W, end: 'no' as const, endAt: W - 60_000, endBy: 'them' as const };
+
+  it('«Соседи»: поход на нас — бедой, предложение — «Ждут ответа» с «Принять» и «Отклонить» прямо в строке, итог — «К сведению»', () => {
+    const { s } = table();
+    stores.game = { s: { ...s, inbox: [] }, resolve: () => null, openMap: () => {} };
+    stores.world = {
+      letters: [],
+      rivals: { proposals: [offer, done], marching: [{ id: 'w1', castle: 'c3', city: 'Бета', mode: 'siege', arriveAt: W + 600_000 }] },
+      marches: [],
+      info: null,
+      answerLetter: async () => null,
+      spotLetter: () => {},
+    };
+    useRealm.setState({ mailTab: 'letter', mail: null, report: null });
+    const html = renderToStaticMarkup(h(Mail));
+    const heads = [...html.matchAll(/<h3>([^<]+)/g)].map((m) => m[1].trim());
+    expect(heads).toEqual(['Беда', 'Ждут ответа', 'К сведению']);
+    expect(html).toContain('Поход на нас');
+    const quick = html.match(/<div class="mail-quick">[\s\S]*?<\/div>/)?.[0] ?? '';
+    expect(quick).toContain('Зовут в союз');
+    expect(quick).toContain('Альфа');
+    expect([...quick.matchAll(/class="mail-quick-act[^"]*"[^>]*>([^<]+)</g)].map((m) => m[1])).toEqual(['Принять', 'Отклонить']);
+    expect(html).toContain('Союз: отказ');
+    useRealm.setState({ mailTab: 'all' });
+  });
+
+  it('карточка предложения: что даёт союз, срок и ответы; закрытое — чем кончилось, без ответов', () => {
+    const { s } = table();
+    stores.game = { s: { ...s, inbox: [] }, resolve: () => null, openMap: () => {} };
+    stores.world = { letters: [], rivals: { proposals: [offer, done], marching: [] }, marches: [], info: null, answerLetter: async () => null, spotLetter: () => {} };
+    useRealm.setState({ mailTab: 'letter', mail: 'deal:c1.a', report: null });
+    const card = renderToStaticMarkup(h(Mail));
+    expect(card).toContain('Город «Альфа» зовёт в союз. Союзники приходят друг другу на выручку и походом друг на друга не ходят.');
+    expect(card).toContain('Ждёт ответа');
+    expect([...card.matchAll(/class="nx-ans"[^>]*><b>([^<]+)/g)].map((m) => m[1])).toEqual(['Принять', 'Отклонить']);
+    useRealm.setState({ mail: 'deal:c2.b' });
+    const closed = renderToStaticMarkup(h(Mail));
+    expect(closed).toContain('«Гамма» отклонил наше предложение союза.');
+    expect(closed).not.toContain('class="nx-ans"');
+    useRealm.setState({ mailTab: 'all', mail: null });
   });
 });
 

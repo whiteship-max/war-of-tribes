@@ -8,6 +8,7 @@ import { apiGet, apiPost } from './api';
 import { askWriteOnce, NOTIFY_ON } from './notify';
 import { tgInitData } from '@/telegram/webapp';
 import type { SpyMenu, SpyView, WarOrder, WarPact, WarResponse, WarSheet, WarView } from '../../netlify/lib/contract';
+import type { ProposalView } from '@/world/proposals';
 
 export type { SpyMenu, SpyView, WarOrder, WarPact, WarSheet, WarView };
 
@@ -21,6 +22,8 @@ interface Cached {
   spies: SpyView[];
   /** Пакты и предложения пакта с соседями-игроками (docs/siege_v2.md, раздел 5). */
   pacts: WarPact[];
+  /** Предложения соседей (ДП-1): ждущие ответа и итоги. */
+  proposals: ProposalView[];
   pace: number;
 }
 
@@ -37,6 +40,9 @@ export const spies = (): SpyView[] => cache?.spies ?? [];
 /** Пакты из последнего ответа: с кем заключён, кому предложен, кто предлагает нам. */
 export const pacts = (): WarPact[] => cache?.pacts ?? [];
 
+/** Предложения из последнего ответа (ДП-1): ждущие ответа — свои и нам, и итоги за последние дни. */
+export const proposals = (): ProposalView[] => cache?.proposals ?? [];
+
 /** Темп войны с сервера (`TRIBE_WAR_PACE`): во сколько раз быстрее походы. Нет ответа — 1. */
 export const warPace = (): number => cache?.pace ?? 1;
 
@@ -52,6 +58,7 @@ const keep = (res: WarResponse): void => {
     wars: Array.isArray(res.wars) ? res.wars : [],
     spies: Array.isArray(res.spies) ? res.spies : [],
     pacts: Array.isArray(res.pacts) ? res.pacts : [],
+    proposals: Array.isArray(res.proposals) ? res.proposals : [],
     pace: typeof res.pace === 'number' && res.pace >= 1 ? res.pace : 1,
   };
   // Война идёт — на нас или наша: о бое бот напишет обеим сторонам, и право писать спрашивается сейчас.

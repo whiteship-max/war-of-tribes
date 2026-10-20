@@ -7,7 +7,9 @@
 import type { CraftAct } from './siegecraft';
 import type { SiegeOrders } from './siegeroll';
 import type { MachineId } from './data/machines';
+import type { Aim } from './data/shelling';
 import type { TroopStack } from '@/game/battle/kinds';
+import type { ProposalAct } from './proposals';
 import type {
   AssaultMode,
   AttackOrder,
@@ -22,7 +24,9 @@ import type {
   FigureView,
   IntelReading,
   InterceptPlan,
-  LeadPlan,
+  ErrandOption,
+  ErrandOrder,
+  ErrandTarget,
   LetterAnswerId,
   LetterView,
   MarchOrder,
@@ -31,11 +35,11 @@ import type {
   OrderResult,
   ParleyOrder,
   PlayerProfile,
-  Coord,
   Rect,
   RegionChunk,
   Report,
   RivalDeedId,
+  RivalMail,
   RivalMenu,
   SendResult,
   SettlementCard,
@@ -72,16 +76,17 @@ export interface WorldApi {
   figures(): Promise<FigureView[]>;
 
   /**
-   * Вести фигуру в клетку. null — пошла, иначе текст ошибки. `shownAt` — минута плана,
-   * который игрок видел (`leadPlan.at`): риск разведчика замораживается ровно по нему.
+   * Дела агента при цели (Р-4, docs/AGENTS.md, раздел 16): что он сделает, сколько идти туда и назад, чем рискует и
+   * хватит ли сил — до приказа, теми же функциями, что исполнят приказ. Недоступное — с причиной. Свободной ходьбы по
+   * клетке нет: цель — свой город, двор мира, город игрока или чужой отряд в пути.
    */
-  moveFigure(id: FigureId, to: Coord, shownAt?: number): Promise<string | null>;
+  errands(agent: FigureId, target: ErrandTarget): Promise<ErrandOption[]>;
 
   /**
-   * Что будет, если вести фигуру в клетку: сколько идти и чем рискует разведчик у
-   * ворот — до приказа, той же функцией, что заморозит риск при отправке.
+   * Отправить агента делом: идёт к цели, делает дело в минуту прихода и сам возвращается домой. Дело не того агента,
+   * не к той цели или не по меню — отказ. null — пошёл, иначе причина.
    */
-  leadPlan(id: FigureId, to: Coord): Promise<LeadPlan>;
+  errand(order: ErrandOrder): Promise<string | null>;
 
   /** Развернуть фигуру домой. Обратный путь считается по уже пройденному. */
   recallFigure(id: FigureId): Promise<string | null>;
@@ -209,6 +214,18 @@ export interface WorldApi {
   burnMachine(id: MachineId, troops: TroopStack): Promise<AttackResult>;
 
   /**
+   * Цель артиллерии своего лагеря (Р-5, `world/shelling`): стены, город или машины на стене. Под логовом — правилом мира, под
+   * городом игрока — приказом серверу войны. null — сделано, иначе причина.
+   */
+  aimArtillery(aim: Aim): Promise<string | null>;
+
+  /** Кольцо блокады своего лагеря (Р-5, `world/blockade`): замкнуть (лагерь вчетверо мощнее гарнизона) или разомкнуть. */
+  blockade(on: boolean): Promise<string | null>;
+
+  /** Вылазка на пост кольца блокады (Р-5): бой с четвертью лагеря в поле, победа размыкает кольцо. */
+  breakout(troops: TroopStack): Promise<AttackResult>;
+
+  /**
    * Пакт с соседом-игроком (раздел 5): `on` — предложить или принять, иначе разорвать, отозвать, отклонить. null — принято,
    * иначе причина.
    */
@@ -274,6 +291,18 @@ export interface WorldApi {
    * дело мира, а не кнопки, и второго пути к нему быть не должно.
    */
   answerLetter(id: string, answer: Exclude<LetterAnswerId, 'lapse'>): Promise<string | null>;
+
+  /**
+   * Соседи-игроки в «Вестях» (ДП-1): предложения — ждущие ответа, свои и нам, и итоги — и походы соседей на наш город. Знает
+   * их сервер войны; вне Telegram — пусто.
+   */
+  rivals(): Promise<RivalMail>;
+
+  /**
+   * Ответ на предложение соседа по номеру (ДП-1): принять, отклонить или отозвать своё. Проверяет сервер войны (отвечает
+   * адресат, пока срок не вышел). null — принято, иначе причина.
+   */
+  answerProposal(id: string, act: ProposalAct): Promise<string | null>;
 
   /** Договоры, действующие прямо сейчас. */
   deals(): Promise<DealView[]>;

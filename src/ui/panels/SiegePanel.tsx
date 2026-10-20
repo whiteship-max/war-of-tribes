@@ -32,10 +32,12 @@ import type { FallForecast, Fate } from '@/world/types';
 import { Icon } from '@/ui/icons/Icon';
 import { CampStrike } from '@/ui/parts/CampStrike';
 import { plural } from '@/ui/parts/plural';
+import { num } from '@/game/num';
 import { SiegePhases } from '@/ui/parts/SiegePhases';
 import { SiegeAnswers } from '@/ui/parts/SiegeAnswers';
 import { SiegeParley } from '@/ui/parts/SiegeParley';
 import { bondedWord, townsWord } from '@/game/data/order';
+import { BUILDING_BY_ID } from '@/game/data/buildings';
 import { Table, type Col } from '@/ui/kit/Table';
 import { Tabs, type TabDef } from '@/ui/kit/SheetPage';
 import { Btn } from '@/ui/kit/Btn';
@@ -118,6 +120,7 @@ export function SiegePanel() {
   const meta = FATE_META[siege.fate];
   // Третий ответ на осаду: башня бьёт по лагерю, не выходя за стены. Числа — из мира.
   const fire = siege.fire;
+  const ring = siege.blockade;
   const sides = campSides(siege, now);
   const weak = weakSide(siege.since, now, siege.wood);
   // Весь гарнизон через фронт — сколько пробьётся, если выйти сейчас.
@@ -173,8 +176,34 @@ export function SiegePanel() {
                 }),
                 cells: { what: 'Своей еды хватит на', v: <b className="bad">{hungerLeft(siege.starvesAt, now)}</b> },
               },
+              // Хлеб в городе — остаток окна осады, тот же, что решит голод (docs/siege_v2.md, 21.1): склад выше не держит.
+              ...(siege.bread !== undefined
+                ? [
+                    {
+                      key: 'bread',
+                      tip: () => ({
+                        title: `Хлеба в городе ${num(siege.bread ?? 0)}`,
+                        body: `Было ${num(siege.foodAtStart)}, когда встал лагерь. Голод — когда хлеба не останется: тогда город падёт, и в обоз хлеба не положат.`,
+                      }),
+                      cells: { what: 'Хлеба в городе', v: num(siege.bread) },
+                    },
+                  ]
+                : []),
               { key: 'garrison', cells: { what: 'Гарнизон ест с городом', v: `${siege.garrison} ${plural(siege.garrison, 'боец', 'бойца', 'бойцов')}` } },
               { key: 'walls', cells: { what: 'Стены', v: `ур. ${siege.palisade}` } },
+              // Кольцо блокады (Р-5): лагерь замкнул город — условие, что даёт и чем размыкают — словами мира (`world/blockade`).
+              ...(ring
+                ? [
+                    {
+                      key: 'ring',
+                      tip: () => ({
+                        title: ring.on ? 'Город в кольце' : 'Кольца нет',
+                        body: `Кольцо замыкает лагерь, вчетверо сильнее гарнизона: сейчас ${ring.ratio}. ${ring.gives} ${ring.breaks}`,
+                      }),
+                      cells: { what: 'Кольцо блокады', v: <span className={ring.on ? 'bad' : ''}>{ring.on ? 'замкнуто' : 'нет'}</span> },
+                    },
+                  ]
+                : []),
               ...(fire
                 ? [
                     {
@@ -219,6 +248,14 @@ export function SiegePanel() {
           {/* Дела полководца в лагере (world/siegecraft): лагерь укреплён, город обстреливают — словами мира. */}
           {siege.craftNote && <p className="note warn">{siege.craftNote}</p>}
           {siege.machineNote && <p className="note warn">{siege.machineNote}</p>}
+          {siege.blockade?.on && <p className="note bad">Город в кольце. {siege.blockade.gives}</p>}
+          {siege.blockade && !siege.blockade.on && siege.blockade.broke && <p className="note good">Кольцо разомкнуто: {siege.blockade.broke}.</p>}
+          {/* Обстрел (Р-5, world/shelling): попавшая постройка стоит без работы до броска следующей фазы. */}
+          {siege.idle && siege.idle.length > 0 && (
+            <p className="note warn">
+              Без работы под обстрелом до следующей фазы: {siege.idle.map((b) => BUILDING_BY_ID[b as keyof typeof BUILDING_BY_ID]?.name ?? b).join(', ')}.
+            </p>
+          )}
           {/* Мораль между боями (14.31): уставший лагерь бить лучше сейчас, уставшему гарнизону — дать отдохнуть. */}
           {siege.campRest && <p className="note">{restLine(siege.campRest, 'Лагерь дрался', now)} Бей, пока не отдохнул.</p>}
           {siege.garrisonRest && (

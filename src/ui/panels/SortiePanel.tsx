@@ -37,14 +37,15 @@ import { iconName } from '@/ui/icons/registry';
 
 /**
  * `machine` — вылазка на машину лагеря (docs/siege_v2.md, раздел 5): бой с её охраной у стены, перед рогатками; победа сжигает
- * машину. Без него — вылазка на лагерь через рогатки.
+ * машину. `ring` — вылазка на пост кольца блокады (Р-5): бой в поле с четвертью лагеря, победа размыкает кольцо. Без них —
+ * вылазка на лагерь через рогатки.
  */
 const SORTIE_COLS: readonly Col[] = [
   { key: 'kind', title: 'Вид' },
   { key: 'steps', title: 'Выходят', align: 'right', w: '196px' },
 ];
 
-export function SortiePanel({ machine }: { machine?: MachineId } = {}) {
+export function SortiePanel({ machine, ring }: { machine?: MachineId; ring?: boolean } = {}) {
   const s = useGame((g) => g.s);
   const showToast = useGame((g) => g.showToast);
   const openReport = useGame((g) => g.openReport);
@@ -54,6 +55,7 @@ export function SortiePanel({ machine }: { machine?: MachineId } = {}) {
   const figures = useWorld((g) => g.figures);
   const sortie = useWorld((g) => g.sortie);
   const burnMachine = useWorld((g) => g.burnMachine);
+  const breakout = useWorld((g) => g.breakout);
 
   const away = useMemo(() => awayOf(marches, figures), [marches, figures]);
   // Выходят из гарнизона — а в нём и дружина, если полководец в городе: дома она
@@ -97,11 +99,14 @@ export function SortiePanel({ machine }: { machine?: MachineId } = {}) {
   // Отказ виден до нажатия и гасит кнопку; мир откажет теми же словами.
   // На машину — мимо рогаток: прохода у этого боя нет (`fights.machineFight`).
   const target = machine ? siege.answers?.burn.find((m) => m.machine === machine) : undefined;
-  const refused = !machine && men > 0 && refusedAtGate(fc.now);
+  // На пост кольца — тоже мимо рогаток: бой в поле у ворот (`fights.machineFight`, доля поста — `blockade.BREAKOUT_SHARE`).
+  const post = ring ? siege.answers?.breakout : undefined;
+  const field = Boolean(machine || ring);
+  const refused = !field && men > 0 && refusedAtGate(fc.now);
 
   const go = async (): Promise<void> => {
     setBusy(true);
-    const res = machine ? await burnMachine(machine, picked) : await sortie(picked);
+    const res = ring ? await breakout(picked) : machine ? await burnMachine(machine, picked) : await sortie(picked);
     setBusy(false);
     if (res.error) {
       showToast(res.error);
@@ -118,7 +123,7 @@ export function SortiePanel({ machine }: { machine?: MachineId } = {}) {
           <Icon name="letter-siege" />
         </div>
         <div className="body">
-          <div className="name">{target ? `Вылазка: ${target.name.toLowerCase()}` : 'Вылазка'}</div>
+          <div className="name">{ring ? 'Вылазка: прорвать кольцо' : target ? `Вылазка: ${target.name.toLowerCase()}` : 'Вылазка'}</div>
           <div className="lvl">
             «{siege.byName}» у ворот · до голода {hungerLeft(siege.starvesAt, now)}
           </div>
@@ -144,7 +149,20 @@ export function SortiePanel({ machine }: { machine?: MachineId } = {}) {
           </div>
         </div>
       )}
-      {!machine && (
+      {ring && (
+        <div className="card danger">
+          <div className="ico"><Icon name="stage-camp" /></div>
+          <div className="body">
+            <div className="title">{post ? `Пост кольца — ${post.guard} ${plural(post.guard, 'боец', 'бойца', 'бойцов')}` : 'Кольца нет'}</div>
+            <div className="desc">
+              {post
+                ? `Четверть лагеря у ворот.${men > 0 ? ` Выходят ${men} ${plural(men, 'боец', 'бойца', 'бойцов')}.` : ''} ${post.gives}`
+                : 'Кольцо уже разомкнуто — прорывать нечего.'}
+            </div>
+          </div>
+        </div>
+      )}
+      {!field && (
       <div className={`card${fc.now.works > 0 ? ' danger' : ''}`}>
         <div className="ico"><Icon name="stage-camp" /></div>
         <div className="body">
@@ -235,12 +253,14 @@ export function SortiePanel({ machine }: { machine?: MachineId } = {}) {
       {siege.wear !== undefined && <p className="note warn">{wearLine(siege.wear)}</p>}
       {siege.craftNote && <p className="note warn">{siege.craftNote}</p>}
       {refused && <p className="note bad">{gateBusyText(fc.now.waitMs)}</p>}
-      <Btn kind="main" wide why={busy ? 'Выходят…' : men === 0 ? 'Никого не выбрано' : refused ? 'Проход занят' : null} onClick={() => void go()}>
+      <Btn kind="main" wide why={busy ? 'Выходят…' : ring && !post ? 'Кольца нет' : men === 0 ? 'Никого не выбрано' : refused ? 'Проход занят' : null} onClick={() => void go()}>
         Выйти{men > 0 ? ` · ${men}` : ''}
       </Btn>
 
       <p className="note">
-        {machine
+        {ring
+          ? 'Победа размыкает кольцо, лагерь стоит. Потери несут обе стороны, а срок голода считается заново по оставшимся.'
+          : machine
           ? 'Победа сжигает машину, лагерь стоит. Потери несут обе стороны, а срок голода считается заново по оставшимся.'
           : 'Победа снимает осаду. После поражения потери несёт и лагерь, а срок голода считается заново по оставшимся.'}
       </p>

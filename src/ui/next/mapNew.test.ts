@@ -22,8 +22,8 @@ describe('карточка клетки нового вида: за краем �
     const gate = src.indexOf('if (!reachable(here))');
     expect(gate, 'ворота края').toBeGreaterThan(0);
     expect(src.indexOf('if (!card) {'), 'пустая земля — после края').toBeGreaterThan(gate);
-    // Область: все двери приказов мира, что зовёт карточка.
-    for (const call of ['moveFigure(', 'shelter(', 'attack(', 'besiege(', 'send(', 'negotiate(', 'openMenu(']) {
+    // Область: все двери приказов мира, что зовёт карточка: отряд — `send`, человек — дело `errand` и меню дел (Р-4).
+    for (const call of ['errand(', 'send(', 'openMenu(']) {
       const at = src.indexOf(call, src.indexOf('export function WorldNew'));
       expect(at, `${call} зовётся`).toBeGreaterThan(0);
       expect(at, `${call} — после ворот края`).toBeGreaterThan(gate);

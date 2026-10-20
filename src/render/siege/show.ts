@@ -14,8 +14,8 @@ export const SHOW_ENDS: readonly ShowEnd[] = ['hunger', 'gates', 'terms', 'storm
 /** Участь взятого города — те же строки, что `Fate` мира. */
 export type ShowFate = 'plunder' | 'captives' | 'burn';
 /** Осадные машины — те же строки, что `MachineId` мира. */
-export type ShowMachine = 'ladders' | 'ram' | 'tower' | 'mangonel';
-export const SHOW_MACHINES: readonly ShowMachine[] = ['ladders', 'ram', 'tower', 'mangonel'];
+export type ShowMachine = 'ladders' | 'ram' | 'tower' | 'mangonel' | 'trebuchet';
+export const SHOW_MACHINES: readonly ShowMachine[] = ['ladders', 'ram', 'tower', 'mangonel', 'trebuchet'];
 /** Место боя — те же строки, что `BattleSite` мира. */
 export type ShowSite = 'wall' | 'gate' | 'sortie' | 'camp' | 'joint' | 'lair';
 
@@ -30,8 +30,19 @@ export interface ShowPhase {
   repaired: number;
   /** Залп лёг в эту фазу (`siegeroll.volleyIn`). */
   volley: boolean;
-  /** Камнемёт лагеря стоял готовым к броску (`machines.mangonelAt`). */
+  /** Камнемёт лагеря стоял готовым к броску и бил по стенам (`machines.mangonelAt`, цель — `shelling.artilleryAimOf`). */
   mangonel: boolean;
+  /** Требушет лагеря стоял готовым к броску и бил по стенам (Р-5, `shelling.artilleryAt`). */
+  trebuchet: boolean;
+  /** Выстрелы артиллерии лагеря по городу за фазу и сколько из них попали (Р-5, `PhaseRow.shots`). */
+  shots: number;
+  hits: number;
+  /** Выстрелы требушета на стене за фазу и попадания (Р-5, `PhaseRow.gun`); машины лагеря, разбитые им в эту фазу. */
+  gunShots: number;
+  gunHits: number;
+  broke?: ShowMachine[];
+  /** Кольцо блокады замкнуто в минуту броска (Р-5, `blockade.blockadeAt`). */
+  ring: boolean;
   /** Какая доля бойцов строя ушла из лагеря за фазу: истощение и мор (`PhaseRow.waste`). */
   waste: number;
   /** Свет в минуту броска — доля суток рига (`lighting.applyDayNight`: 0 — рассвет, 0.25 — полдень, 0.5 — закат). */
@@ -45,8 +56,10 @@ export interface ShowMachineState {
   ready: number | null;
   /** Пущена на штурм. */
   spent: boolean;
-  /** Сожжена вылазкой: в какую фазу (бой вылазки — в `fights`); null — не сожжена. */
+  /** Сожжена вылазкой или разбита требушетом со стены: в какую фазу (бой вылазки — в `fights`); null — цела. */
   burned: number | null;
+  /** Разбита выстрелом со стены (Р-5), а не сожжена вылазкой: уходит в эпизоде обстрела. */
+  broken?: boolean;
   /** Свет в минуту готовности. */
   solar: number;
 }
@@ -60,6 +73,8 @@ export interface ShowFight {
   won: boolean;
   /** Вылазка на машину: на какую. */
   machine?: ShowMachine;
+  /** Вылазка на пост кольца блокады (Р-5). */
+  ring?: boolean;
   /** Выручка союзника по пакту. */
   ally?: boolean;
   /** Этим боем осада кончилась (лагерь разбит, город взят штурмом). */
@@ -86,8 +101,8 @@ export interface SiegeShow {
   /** Сид картины: та же осада — тот же город, лагерь и камни. */
   seed: number;
   /**
-   * Уровень частокола осаждённого города в минуту постановки (вид замка: дерево до третьего, камень дальше, башни чаще и
-   * выше с уровнем); 0 — стены нет: осаждали логово.
+   * Уровень частокола осаждённого города в минуту постановки; 0 — стены нет: осаждали логово. Вид стены от уровня не
+   * зависит — камень и башни города, как в окне города (Р-5, docs/siege_v2.md, 21.1).
    */
   wall: number;
   /** Мест лучников на башне осаждённого города; 0 — орудия на башне нет (башня не била по лагерю). */
