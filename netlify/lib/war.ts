@@ -25,6 +25,7 @@ import {
   warFallId,
   warTributeId,
   warRepairId,
+  warGunId,
   cityOr,
   type Counts,
   type WarPact,
@@ -81,6 +82,9 @@ import {
 } from '../../src/world/rivalspy.js';
 import { gameDaysOfMs, gameSecondsOfMs } from '../../src/game/pace.js';
 import { breadStock, FATE_SAME, openSiege, SIEGE_BLOCK, siegeSince, starvesAt, type SiegeWindow } from '../../src/world/siege.js';
+import { aimBlock as artilleryAimBlock, gunAfter, gunAimBlock, gunBlock, shotsApplied } from '../../src/world/shelling.js';
+import { BREAKOUT_SHARE, blockadeAfter, blockadeAt, blockadeBlock, blockadeHolds, type BlockadeBreak } from '../../src/world/blockade.js';
+import { AIMS as ARTILLERY_AIMS, GUN_AIMS, type Aim as ArtilleryAim, type GunAim } from '../../src/world/data/shelling.js';
 import { craftAfter, craftAt, craftBlock, craftCount, fortFaces, garrisonWear, type Craft } from '../../src/world/siegecraft.js';
 import {
   breachesOf,
@@ -884,12 +888,54 @@ function campWindow(w: WarRow, at: number, sheet: WarSheet, prev: WarCamp | null
     // осады переносятся (docs/siege_v2.md, этап 2е).
     lead: prev ? prev.lead : w.army.pips.siege,
     offers: prev?.offers as SiegeWindow['offers'],
+    // Требушет на стене той же осады переносится; постройки под обстрелом — подтверждённые уровни при постановке (Р-5).
+    guns: prev?.guns as SiegeWindow['guns'],
+    targets: prev ? prev.targets : sheetTargets(sheet.levels),
   });
   const aimed = reaim(win.fire, win.wood, siegeSince(win), at, aimOfSheet(sheet));
   if (aimed.fire) win.fire = aimed.fire;
   else delete win.fire;
   if (aimed.wood) win.wood = aimed.wood;
   return win as WarCamp;
+}
+
+/**
+ * Постройки города, по которым бьёт артиллерия лагеря с целью «город» (Р-5, `world/shelling`): подтверждённые уровни слепка
+ * обороны (`town.townSheet`), всё, что стоит, кроме стены; по имени — тот же порядок, что у мира (`LocalWorld.homeTargets`).
+ */
+function sheetTargets(levels: Record<string, number> | undefined): string[] | undefined {
+  const out = Object.entries(levels ?? {})
+    .filter(([k, v]) => k !== 'palisade' && (v ?? 0) >= 1)
+    .map(([k]) => k)
+    .sort();
+  return out.length ? out : undefined;
+}
+
+/** Мощь лагеря — без выбитых башней (`bombard.thinAt`) — и гарнизона слепка: с ними меряется кольцо (`world/blockade`). */
+const campPower = (w: WarRow, at: number): number => troopPower(asTroops(w.army.troops)) * (1 - thinOf(w, at));
+const garrisonPower = (sheet: WarSheet): number => troopPower(asTroops(sheet.home));
+
+/**
+ * Кольцо блокады в минуту события (Р-5, docs/siege_v2.md, 21.1) — той же дверью, что у мира (`LocalWorld.ringCheck`): удар
+ * с поля его размыкает (`why`), мощь ниже порога — тоже. Замыкает кольцо только приказ осаждающего: у игрока решения свои.
+ */
+function ringCheck(w: WarRow, at: number, sheet: WarSheet, why?: BlockadeBreak): void {
+  const camp = w.camp as SiegeWindow | undefined;
+  if (!camp || !blockadeAt(camp, at)) return;
+  if (why) w.camp = { ...w.camp, ...blockadeAfter(camp, at, false, why) } as WarCamp;
+  else if (!blockadeHolds(campPower(w, at), garrisonPower(sheet))) w.camp = { ...w.camp, ...blockadeAfter(camp, at, false, 'ratio') } as WarCamp;
+}
+
+/**
+ * Выстрелы фазы по машинам (Р-5, `world/shelling`): требушет на стене разбивает машины лагеря, артиллерия лагеря — требушет
+ * на стене. Сами выстрелы бросила кость фазы (`rollPhase`, строка журнала) — здесь только то, что они сделали с окном.
+ */
+function shotsStep(w: WarRow, row: PhaseRow, at: number): void {
+  // На месте: фаза дальше пишет в тот же объект лагеря (наказы, журнал дел).
+  const camp = w.camp as SiegeWindow;
+  const after = shotsApplied(camp, row, at);
+  if (after.machines !== camp.machines) camp.machines = after.machines;
+  if (after.guns !== camp.guns) camp.guns = after.guns;
 }
 
 /** Войско после истощения фазы: доля `share` с каждого рода, как при потерях в бою. */
@@ -911,11 +957,14 @@ function phaseStep(w: WarRow, at: number, sheet: WarSheet, atkHungry: boolean): 
   const k = rowsOf(camp).length + 1;
   const row = rollPhase(camp, k, atkHungry);
   camp.phases = [...rowsOf(camp), row];
+  shotsStep(w, row, at);
   if (row.waste > 0) w.army = { ...w.army, troops: wasted(w.army.troops, row.waste) };
   if (troopTotal(asTroops(w.army.troops)) <= 0) {
     turnBack(w, at, w.to, 'lifted');
     return;
   }
+  // Кольцо блокады после броска и истощения: держит ли его мощь лагеря (Р-5).
+  ringCheck(w, at, sheet);
   if (row.out === 'gates') {
     fall(w, at, sheet, 'gates');
     turnBack(w, at, w.to, 'taken');
@@ -966,9 +1015,32 @@ function repairShort(w: WarRow, sheet: WarSheet): string | null {
   if (!camp) return 'Лагеря под стенами уже нет.';
   const cost = wallRepairCost(camp.wall ?? 0);
   if (!Object.keys(cost).length) return 'Стен нет, чинить нечего.';
-  const seen = new Set(sheet.seen);
-  const unpaid = repairsOf(camp as SiegeWindow).filter((d) => !seen.has(warRepairId(w.id, d.at))).length;
+  const unpaid = unpaidWork(w, sheet);
   for (const [r, v] of Object.entries(cost)) if ((sheet.stock[r] ?? 0) < (v ?? 0) * (unpaid + 1)) return 'На починку не хватает дерева и камня.';
+  return null;
+}
+
+/**
+ * Работы на стене, за которые защитник ещё не заплатил (`WarSheet.seen`): починки пролома и требушеты (Р-5) — у них одна цена,
+ * треть уровня стен (`build.wallRepairCost`), и сервер числит её за городом, пока клиент не отметит оплату.
+ */
+function unpaidWork(w: WarRow, sheet: WarSheet): number {
+  const camp = w.camp;
+  if (!camp) return 0;
+  const seen = new Set(sheet.seen);
+  const repairs = repairsOf(camp as SiegeWindow).filter((d) => !seen.has(warRepairId(w.id, d.at))).length;
+  const guns = (camp.guns ?? []).filter((g) => !seen.has(warGunId(w.id, g.at))).length;
+  return repairs + guns;
+}
+
+/** Хватает ли защитнику на требушет на стене (Р-5): та же цена и та же мерка, что у починки пролома (`repairShort`). */
+function gunShort(w: WarRow, sheet: WarSheet): string | null {
+  const camp = w.camp;
+  if (!camp) return 'Лагеря под стенами уже нет.';
+  const cost = wallRepairCost(camp.wall ?? 0);
+  if (!Object.keys(cost).length) return 'Стены нет — требушет ставить некуда.';
+  const unpaid = unpaidWork(w, sheet);
+  for (const [r, v] of Object.entries(cost)) if ((sheet.stock[r] ?? 0) < (v ?? 0) * (unpaid + 1)) return 'На требушет не хватает дерева и камня.';
   return null;
 }
 
@@ -1017,6 +1089,67 @@ function burnMachine(w: WarRow, at: number, sheet: WarSheet, id: MachineId, troo
 }
 
 /**
+ * Требушет на стене осаждённого (Р-5, `world/shelling`): та же проверка, что у мира (`gunBlock`), и склад — книгой запасов
+ * слепка с неоплаченными работами на стене (`gunShort`). Платит клиент, увидев требушет в окне (`contract.warGunId`).
+ */
+function defendGun(file: WarFile, w: WarRow, key: string, machine: MachineId, now: number, ctx: OrderCtx): string | null {
+  if (!w.camp || w.phase !== 'camp') return 'Лагеря под стенами уже нет.';
+  if (machine !== 'trebuchet') return 'На стену ставят только требушет.';
+  const why = gunBlock(w.camp as SiegeWindow, now);
+  if (why) return why;
+  const s = ctx.sheet(key);
+  if (!s) return 'Вести о городе ещё не дошли до края. Подожди минуту.';
+  const short = gunShort(w, liveSheet(file, key, s, now));
+  if (short) return short;
+  w.camp = { ...w.camp, guns: gunAfter(w.camp as SiegeWindow, now) as WarCamp['guns'] };
+  return null;
+}
+
+/**
+ * Вылазка на пост кольца блокады (Р-5): вышедшие из ворот бьются с постом — четвертью лагеря (`blockade.BREAKOUT_SHARE`) — в
+ * поле, той же дверью, что вылазка на машину (`fights.machineFight`). Победа размыкает кольцо; лагерь стоит.
+ */
+function breakout(w: WarRow, at: number, sheet: WarSheet, troops: Counts): string | null {
+  const camp = w.camp;
+  if (!camp) return 'Лагеря уже нет.';
+  const n = w.battles.length;
+  const side = campSide(w, at);
+  const { input, field } = machineFight({
+    seed: warSeed(w.id, n),
+    guard: { kinds: guardKinds(side.kinds, BREAKOUT_SHARE), resolve: side.resolve, pips: side.pips, rest: side.rest },
+    sortie: { kinds: kindsOf(asTroops(troops)), rest: garrisonRest(w, sheet, at) },
+    resolve: sheet.resolve,
+    pips: sheet.pips as Pips,
+  });
+  const homeLost = field.result ? (troopLosses(asTroops(troops), field.result.sides.attacker.losses) as Counts) : {};
+  const atkLost = field.result ? (troopLosses(asTroops(w.army.troops), field.result.sides.defender.losses) as Counts) : {};
+  w.battles.push({
+    id: `${w.id}.${n}`,
+    at,
+    site: 'sortie',
+    by: 'def',
+    input: input as WarBattle['input'],
+    won: field.won,
+    atkTroops: { ...w.army.troops },
+    atkLost,
+    homeTroops: { ...troops },
+    homeLost,
+    breakout: true,
+    ...craftOf(w),
+  });
+  // Дрался пост, а не весь лагерь: убыль — его потери, мораль лагеря прежняя.
+  w.army = { ...w.army, troops: minus(w.army.troops, atkLost) };
+  if (troopTotal(asTroops(w.army.troops)) <= 0) {
+    turnBack(w, at, w.to, 'lifted');
+    return null;
+  }
+  const after = { ...sheet, home: minus(sheet.home, homeLost) };
+  setCamp(w, campWindow(w, at, after, w.camp as WarCamp));
+  ringCheck(w, at, after, field.won ? 'sortie' : undefined);
+  return null;
+}
+
+/**
  * Штурм из лагеря и что с лагерем после (docs/siege_v2.md, 4.4): взяли — падение; отбили — **осада идёт дальше** с тем,
  * что осталось: штурм с машинами — дело осады, а не отказ от неё. Лагерь снимается, только если штурмовать стало некому.
  */
@@ -1047,6 +1180,8 @@ function regarrison(file: WarFile, w: WarRow, s: SheetAt, until: number): boolea
   const live = liveSheet(file, w.def, s, s.at);
   if (troopTotal(asTroops(live.home)) === camp.garrisonAtStart) return false;
   setCamp(w, campWindow(w, s.at, live, camp));
+  // Гарнизон сменился — держит ли кольцо мощь лагеря (Р-5).
+  ringCheck(w, s.at, live);
   return true;
 }
 
@@ -1139,7 +1274,10 @@ function hitCamp(
     return null;
   }
   // Гарнизон убавился — часы голода заново, от остатка хлеба.
-  setCamp(w, campWindow(w, at, { ...sheet, home: minus(sheet.home, homeLost) }, camp));
+  const after = { ...sheet, home: minus(sheet.home, homeLost) };
+  setCamp(w, campWindow(w, at, after, camp));
+  // Кольцо блокады после боя (Р-5): удар с поля (полководец города, выручка) его размыкает, вылазка — если мощи не хватает.
+  ringCheck(w, at, after, hit.rear ? 'relief' : undefined);
   return null;
 }
 
@@ -1191,6 +1329,10 @@ export function advance(file: WarFile, now: number, sheets: ReadonlyMap<string, 
         } else {
           w.phase = 'camp';
           setCamp(w, campWindow(w, w.arriveAt, sheet, null));
+          // Поход «Блокада» (Р-5): кольцо — в минуту постановки, если мощи вчетверо; нет — обычная осада.
+          if (w.ring && w.camp && blockadeBlock(w.camp as SiegeWindow, w.arriveAt, campPower(w, w.arriveAt), garrisonPower(sheet)) === null) {
+            w.camp = { ...w.camp, ...blockadeAfter(w.camp as SiegeWindow, w.arriveAt, true) } as WarCamp;
+          }
           // Лагерь — полудом: энергия полководца копится залпом за фазу (ответ владельца 3, docs/siege_v2.md, 8.4).
           w.army = { ...w.army, energy: remark(w.army.energy, w.arriveAt, 'camp') };
         }
@@ -1400,6 +1542,9 @@ export function applyOrder(file: WarFile, key: string, order: WarOrder, now: num
       return null;
     }
     case 'machine': {
+      // Требушет на стене (Р-5): тот же приказ у осаждённого — машина строится в городе, со склада, ценой починки пролома.
+      const def = theirs(file, order.id, key, 'def');
+      if (def) return defendGun(file, def, key, order.machine, now, ctx);
       // Заказ машины — той же проверкой, что у лагеря под логовом (`world/machines.machineBlock`): у города стена есть.
       const w = theirs(file, order.id, key, 'atk');
       if (!w || w.phase !== 'camp' || !w.camp) return 'Лагеря уже нет.';
@@ -1506,6 +1651,55 @@ export function applyOrder(file: WarFile, key: string, order: WarOrder, now: num
       const short = enough(order.troops, claimedSheet(file, key, s, now).home, sheet.home, 'в гарнизоне', ctx);
       if (short) return short;
       return burnMachine(w, now, sheet, order.machine, order.troops);
+    }
+    case 'aim': {
+      // Цель артиллерии (Р-5): у осаждающего — его машины лагеря, у осаждённого — требушет на стене; сторону решает ключ.
+      const atk = theirs(file, order.id, key, 'atk');
+      const def = atk ? null : theirs(file, order.id, key, 'def');
+      const w = atk ?? def;
+      if (!w || w.phase !== 'camp' || !w.camp) return 'Лагеря уже нет.';
+      const camp = w.camp as SiegeWindow;
+      if (atk) {
+        if (!ARTILLERY_AIMS.includes(order.aim as ArtilleryAim)) return 'Такой цели нет.';
+        const why = artilleryAimBlock(camp, order.aim as ArtilleryAim, now);
+        if (why) return why;
+      } else {
+        if (!GUN_AIMS.includes(order.aim as GunAim)) return 'Такой цели нет.';
+        const why = gunAimBlock(camp, order.aim as GunAim, now);
+        if (why) return why;
+      }
+      w.camp = { ...w.camp, log: [...(w.camp.log ?? []), { at: now, act: atk ? 'aim' : 'gunAim', aim: order.aim }] };
+      return null;
+    }
+    case 'blockade': {
+      // Кольцо блокады (Р-5, `world/blockade`): замкнуть — лагерь вчетверо мощнее гарнизона слепка, кольцо не прорвано в этой
+      // фазе; разомкнуть — когда угодно. Мощь — книгой войска (`liveSheet`), лагерь — без выбитых башней.
+      const w = theirs(file, order.id, key, 'atk');
+      if (!w || w.phase !== 'camp' || !w.camp) return 'Лагеря уже нет.';
+      const camp = w.camp as SiegeWindow;
+      if (!order.on) {
+        if (!blockadeAt(camp, now)) return 'Кольцо и так разомкнуто.';
+        w.camp = { ...w.camp, ...blockadeAfter(camp, now, false, 'order') } as WarCamp;
+        return null;
+      }
+      const s = ctx.sheet(w.def);
+      if (!s) return 'Вести о городе ещё не дошли до края. Подожди минуту.';
+      const why = blockadeBlock(camp, now, campPower(w, now), garrisonPower(liveSheet(file, w.def, s, now)));
+      if (why) return why;
+      w.camp = { ...w.camp, ...blockadeAfter(camp, now, true) } as WarCamp;
+      return null;
+    }
+    case 'breakout': {
+      const w = theirs(file, order.id, key, 'def');
+      if (!w || w.phase !== 'camp' || !w.camp) return 'Лагеря под стенами уже нет.';
+      if (!blockadeAt(w.camp as SiegeWindow, now)) return 'Кольца нет — прорывать нечего.';
+      const s = ctx.sheet(key);
+      if (!s) return 'Вести о городе ещё не дошли до края. Подожди минуту.';
+      const sheet = liveSheet(file, key, s, now);
+      if (troopTotal(asTroops(order.troops)) <= 0) return 'Некого вывести на вылазку.';
+      const short = enough(order.troops, claimedSheet(file, key, s, now).home, sheet.home, 'в гарнизоне', ctx);
+      if (short) return short;
+      return breakout(w, now, sheet, order.troops);
     }
     case 'surrender': {
       // Сдача (ответ владельца 5): ворота открывает сам город — участь на ступень мягче, гарнизон уходит живым; та же дверь,
@@ -1704,6 +1898,7 @@ function march(file: WarFile, key: string, order: Extract<WarOrder, { op: 'march
     phase: 'march',
     army: { ...ruleArmy(order.army), energy },
     went: { ...order.army.troops },
+    ...(order.blockade && order.mode === 'siege' ? { ring: true as const } : {}),
     battles: [],
   });
   return null;

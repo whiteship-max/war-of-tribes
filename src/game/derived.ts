@@ -60,6 +60,7 @@ import {
   SIEGE_RATION,
   SIEGE_RATION_CUT,
   SIEGE_YIELD,
+  BLOCKADE_YIELD,
   STARVING_MORALE,
   SMITH_WORK,
   STRAIN_DAYS,
@@ -1002,7 +1003,7 @@ export const underSiege = (s: GameState): boolean => s.siege !== null;
  * это решается: панели и тик спрашивают его, а не проверяют осаду у себя.
  */
 export const siegeYield = (s: GameState, r: ResourceId): number =>
-  !underSiege(s) ? 1 : r === 'food' ? SIEGE_FOOD_YIELD : SIEGE_YIELD;
+  !underSiege(s) ? 1 : s.siege?.blockade ? BLOCKADE_YIELD : r === 'food' ? SIEGE_FOOD_YIELD : SIEGE_YIELD;
 
 /** Режет готовую выработку осадой. Мутирует на месте — как и всё здесь. */
 function cutBySiege(s: GameState, out: Resources): Resources {
@@ -1022,6 +1023,8 @@ function cutBySiege(s: GameState, out: Resources): Resources {
 function yardYield(s: GameState, out: Resources, b: Building, mods: SeasonModifiers): void {
   const job = BUILDING_BY_ID[b.type].job;
   if (!job) return;
+  // Постройка под обстрелом стоит фазу без работы (Р-5, `world/shelling`): её работники едят, но не дают ничего.
+  if (s.siege?.idle?.includes(b.type)) return;
   const mult = workerMultiplier(s, job, b, mods);
   addYield(out, job, workerCount(s, b.id), mult);
   addYield(out, job, bondedCount(s, b.id), mult * bondedShare(s));

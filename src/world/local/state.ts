@@ -246,7 +246,7 @@ export interface StoredFigure {
    * игрока. Новый путь приказ снимает. Поле необязательное: версию сохранения мира не поднимает.
    * `siege` — «Дойти и осадить» (docs/siege_v2.md, 1.3): в минуту прихода лагерь, а не бой; нет — удар, как прежде.
    */
-  assault?: { id: SettlementId; fate: Fate; siege?: true };
+  assault?: { id: SettlementId; fate: Fate; siege?: true; blockade?: true };
   /**
    * Война между игроками, которую ведёт полководец (docs/pvp.md): номер войны на сервере. Пока поле лежит,
    * где он и что при нём, говорит сервер (`LocalWorld.stepWars`), а не свой путь: идёт к чужому замку, стоит

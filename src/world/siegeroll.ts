@@ -12,7 +12,7 @@
 import type { SiegeWindow } from './siege';
 import type { Fate } from './types';
 import { siegeSince, starvesAt } from './siege';
-import { machineFaces, phaseShots, type Aim, type GunAim } from './shelling';
+import { machineFaces, phaseShots, shotsText, type Aim, type GunAim } from './shelling';
 import { blockadeAt, type BlockadeBreak } from './blockade';
 import { MOD_BLOCKADE } from './data/blockade';
 import type { ArtilleryId, MachineId } from './data/machines';
@@ -504,8 +504,11 @@ export function modsText(mods: PhaseMods): string {
   return parts.length ? parts.join(', ') : 'без поправок';
 }
 
-/** Строка журнала: «Ф3 · кость 9 +1 пролом +2 залп −2 стена = 10 · нехватка в городе · ушло 4 %». */
-export function phaseText(row: PhaseRow, k: number): string {
+/**
+ * Строка журнала: «Ф3 · кость 9 +1 пролом +2 залп −2 стена = 10 · нехватка в городе · ушло 4 %». С Р-5 — и выстрелы фазы
+ * (`shelling.shotsText`); `name` — имя постройки по её ключу (мир знает имена, сервер — нет).
+ */
+export function phaseText(row: PhaseRow, k: number, name?: (building: string) => string, machine?: (id: MachineId) => string): string {
   const sum = row.die + modsSum(row.mods);
   const mods = MOD_IDS.filter((id) => row.mods[id])
     .map((id) => {
@@ -515,13 +518,14 @@ export function phaseText(row: PhaseRow, k: number): string {
     .join('');
   const lost = Math.round(row.waste * 100);
   const orders = row.orders?.length ? ` · ${row.orders.map((o) => ORDER_NAMES[o]).join(', ')}` : '';
-  return `Ф${k} · кость ${row.die}${mods} = ${sum} · ${OUT_NAMES[row.out]}${lost > 0 ? ` · из лагеря ушло ${lost} %` : ''}${orders}`;
+  const shots = row.shots?.length || row.gun?.length ? shotsText(row.shots ?? [], row.gun ?? [], name, machine) : '';
+  return `Ф${k} · кость ${row.die}${mods} = ${sum} · ${OUT_NAMES[row.out]}${lost > 0 ? ` · из лагеря ушло ${lost} %` : ''}${shots ? ` · ${shots}` : ''}${orders}`;
 }
 
 /** Журнал словами, новые сверху. */
-export const journalOf = (w: Pick<RollWindow, 'phases'>): string[] =>
+export const journalOf = (w: Pick<RollWindow, 'phases'>, name?: (building: string) => string, machine?: (id: MachineId) => string): string[] =>
   rowsOf(w)
-    .map((r, i) => phaseText(r, i + 1))
+    .map((r, i) => phaseText(r, i + 1, name, machine))
     .reverse();
 
 /** Поправки следующей фазы словами (ответ владельца 2: описание состояния, процента исхода нет). */

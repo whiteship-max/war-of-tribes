@@ -5,7 +5,8 @@
 import type { CraftAct } from './siegecraft';
 import type { IconName } from '@/ui/icons/alias';
 import type { DefendOrders, SiegeOrders } from './siegeroll';
-import type { MachineId } from './data/machines';
+import type { ArtilleryId, MachineId } from './data/machines';
+import type { Aim, GunAim } from './data/shelling';
 import type { Opening } from './wall';
 import type { OfferKind } from './parley';
 import type { GameSec } from '@/game/pace';
@@ -286,6 +287,60 @@ export interface SiegeView {
   answers?: SiegeAnswers;
   /** Переговоры у стен (docs/siege_v2.md, раздел 7; этап 2е): доля пути, цена дани, предложения сторон. Нет — окно без них. */
   parley?: ParleyView;
+  /** Кольцо блокады (Р-5, `world/blockade`): условие, сейчас да или нет, что даёт и чем размыкают. Нет — окно до Р-5. */
+  blockade?: BlockadeView;
+  /**
+   * Постройки нашего города, стоящие без работы под обстрелом (Р-5, `world/shelling.idleBuildings`): до броска следующей
+   * фазы. Племя не берёт с них выработку (`bridge.syncSiege`). Нет — ни одна.
+   */
+  idle?: string[];
+}
+
+/**
+ * Кольцо блокады глазами окна (Р-5, docs/siege_v2.md, 21.1): условие (вчетверо), сейчас да или нет, что даёт и чем его
+ * размыкают — словами двери `world/blockade` (правило 18). Числа мощи — у осаждённого точные (свой гарнизон и лагерь со
+ * стены), у осаждающего — вилкой разведки.
+ */
+export interface BlockadeView {
+  on: boolean;
+  /** С какой минуты кольцо замкнуто. */
+  since?: number;
+  /** Соотношение мощи лагеря и гарнизона словами: «×3,2», «гарнизона нет», вилкой — у осаждающего. */
+  ratio: string;
+  /** Порог: во сколько раз лагерь сильнее гарнизона. */
+  need: number;
+  /** Можно ли замкнуть сейчас (у осаждающего) и почему нет. */
+  can: boolean;
+  reason: string | null;
+  /** Что даёт кольцо и чем его размыкают — строками. */
+  gives: string;
+  breaks: string;
+  /** Чем кольцо разомкнуто в последний раз — словами; нет — не размыкали. */
+  broke?: string;
+}
+
+/** Цель артиллерии лагеря глазами окна лагеря (Р-5): что даст каждая цель — до нажатия, словами двери `world/shelling`. */
+export interface AimView {
+  now: Aim;
+  /** Артиллерия, стоящая готовой: что и какого веса (грани по стенам, выстрелы по городу и машинам). */
+  artillery: { id: ArtilleryId; name: string; weight: number }[];
+  options: { aim: Aim; name: string; gives: string; can: boolean; reason: string | null }[];
+}
+
+/** Требушет на стене глазами окна осаждённого (Р-5): состояние, цена и срок, цель и что даст каждая. */
+export interface GunView {
+  state: 'none' | 'building' | 'ready' | 'broken';
+  /** Когда встанет (строится). */
+  readyAt?: number;
+  /** Цена со склада — та же, что починка пролома. */
+  cost: Partial<Record<ResourceId, number>>;
+  /** Сколько строится, мс. */
+  span: number;
+  /** Можно ли заказать и почему нет. */
+  can: boolean;
+  reason: string | null;
+  aim: GunAim;
+  options: { aim: GunAim; name: string; gives: string }[];
 }
 
 /**
@@ -328,6 +383,13 @@ export interface SiegeAnswers {
   defend?: DefendOrders;
   /** Выручка соседей-союзников, идущая на лагерь: чей город, сколько бойцов, когда ударят. */
   reliefs: { from: string; men: number; at: number }[];
+  /** Требушет на стене (Р-5): нет поля — стены нет. */
+  gun?: GunView;
+  /**
+   * Вылазка «прорвать блокаду» (Р-5): бой с постом кольца — сколько бойцов строя его держит (четверть лагеря), что даст
+   * победа; кольца нет — поля нет.
+   */
+  breakout?: { guard: number; gives: string };
 }
 
 /** Ответ осаждённого приказом (`WorldApi.defend`): починка, паёк, наказы, сдача. */
@@ -335,7 +397,10 @@ export type DefendOrder =
   | { act: 'repair' }
   | { act: 'ration'; on: boolean }
   | { act: 'orders'; defend: DefendOrders }
-  | { act: 'surrender' };
+  | { act: 'surrender' }
+  // Р-5: требушет на стене — заказать и куда ему бить.
+  | { act: 'gun' }
+  | { act: 'gunAim'; aim: GunAim };
 
 /**
  * Ход осады фазами глазами окна — обеим сторонам одно (docs/siege_v2.md, 9.1–9.2). Слова и числа — дверью фаз
@@ -455,6 +520,8 @@ export interface CampView extends Omit<SiegeView, 'fall' | 'palisade' | 'garriso
   crafts?: CraftOption[];
   /** Осадные машины лагеря и способы штурма (`world/machines`, `world/wall`; docs/siege_v2.md, 4.3–4.4). */
   machines?: MachinesView;
+  /** Цель артиллерии лагеря (Р-5, `world/shelling`). Нет — окно до Р-5. */
+  aim?: AimView;
 }
 
 /** Машина в окне лагеря: что даёт, в каком она состоянии и можно ли её заказать. Числа — дверью `world/machines`. */
@@ -597,6 +664,7 @@ export type ErrandId =
   | 'home'
   | 'storm'
   | 'siege'
+  | 'blockade'
   | 'intercept'
   | 'strike'
   | 'relief'

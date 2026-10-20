@@ -3,6 +3,7 @@
 // что за интерфейсом сейчас стоит LocalWorld.
 import type { CraftAct } from './siegecraft';
 import type { MachineId } from './data/machines';
+import type { Aim } from './data/shelling';
 import type { SiegeOrders } from './siegeroll';
 import { create } from 'zustand';
 import { partyNow, serverNow } from '@/net/clock';
@@ -324,6 +325,12 @@ export interface WorldStore {
   parley: (order: ParleyOrder) => Promise<string | null>;
   /** Вылазка на машину лагеря. */
   burnMachine: (id: MachineId, troops: TroopStack) => Promise<{ error: string | null; reportId: string | null }>;
+  /** Цель артиллерии своего лагеря (Р-5). */
+  aimArtillery: (aim: Aim) => Promise<string | null>;
+  /** Кольцо блокады своего лагеря (Р-5). */
+  blockade: (on: boolean) => Promise<string | null>;
+  /** Вылазка на пост кольца блокады (Р-5). */
+  breakout: (troops: TroopStack) => Promise<{ error: string | null; reportId: string | null }>;
   /** Пакт с соседом-игроком: предложить/принять или разорвать. */
   pact: (castle: SettlementId, on: boolean) => Promise<string | null>;
   /** На выручку союзнику в осаде. */
@@ -790,6 +797,41 @@ export const useWorld = create<WorldStore>((set, get) => ({
 
   burnMachine: async (id, troops) => {
     const res = await worldApi().burnMachine(id, troops);
+    if (res.error) {
+      haptic('error');
+      return { error: res.error, reportId: null };
+    }
+    haptic('medium');
+    await get().pulse();
+    return { error: null, reportId: res.reportId };
+  },
+
+  aimArtillery: async (aim) => {
+    const err = await worldApi().aimArtillery(aim);
+    if (err) {
+      haptic('error');
+      return err;
+    }
+    haptic('light');
+    await get().loadCamp();
+    return null;
+  },
+
+  blockade: async (on) => {
+    const err = await worldApi().blockade(on);
+    if (err) {
+      haptic('error');
+      return err;
+    }
+    haptic('medium');
+    // Кольцо меняет город осаждённого и окно лагеря сразу.
+    await get().loadCamp();
+    await get().pulse();
+    return null;
+  },
+
+  breakout: async (troops) => {
+    const res = await worldApi().breakout(troops);
     if (res.error) {
       haptic('error');
       return { error: res.error, reportId: null };

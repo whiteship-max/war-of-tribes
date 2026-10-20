@@ -7,6 +7,7 @@
 import type { CraftAct } from './siegecraft';
 import type { SiegeOrders } from './siegeroll';
 import type { MachineId } from './data/machines';
+import type { Aim } from './data/shelling';
 import type { TroopStack } from '@/game/battle/kinds';
 import type {
   AssaultMode,
@@ -209,6 +210,18 @@ export interface WorldApi {
 
   /** Вылазка на машину лагеря (раздел 5): бой с её охраной, победа сжигает машину. Состав приходит приказом. */
   burnMachine(id: MachineId, troops: TroopStack): Promise<AttackResult>;
+
+  /**
+   * Цель артиллерии своего лагеря (Р-5, `world/shelling`): стены, город или машины на стене. Под логовом — правилом мира, под
+   * городом игрока — приказом серверу войны. null — сделано, иначе причина.
+   */
+  aimArtillery(aim: Aim): Promise<string | null>;
+
+  /** Кольцо блокады своего лагеря (Р-5, `world/blockade`): замкнуть (лагерь вчетверо мощнее гарнизона) или разомкнуть. */
+  blockade(on: boolean): Promise<string | null>;
+
+  /** Вылазка на пост кольца блокады (Р-5): бой с четвертью лагеря в поле, победа размыкает кольцо. */
+  breakout(troops: TroopStack): Promise<AttackResult>;
 
   /**
    * Пакт с соседом-игроком (раздел 5): `on` — предложить или принять, иначе разорвать, отозвать, отклонить. null — принято,

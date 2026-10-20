@@ -16,7 +16,7 @@ import type { SiegeWindow } from './siege';
 import type { Shot } from './siegeroll';
 import { machinesAt, type MachineOrder } from './machines';
 import { ARTILLERY, ARTILLERY_WEIGHT, MACHINE_IDS, MACHINE_WOOD, type ArtilleryId, type MachineId } from './data/machines';
-import { BUILDING_FLOOR, GUN_HOLD, GUN_ID, GUN_SPAN, HITS_PER_LEVEL, SHOT_HIT, type Aim, type GunAim } from './data/shelling';
+import { AIMS, BUILDING_FLOOR, GUN_AIMS, GUN_HOLD, GUN_ID, GUN_SPAN, HITS_PER_LEVEL, SHOT_HIT, type Aim, type GunAim } from './data/shelling';
 
 export type { Aim, GunAim } from './data/shelling';
 
@@ -30,9 +30,28 @@ const last = <T extends { at: number }>(xs: readonly T[], at: number): T | undef
 };
 
 /** Цель артиллерии лагеря в минуту `at`: последний приказ к ней; нет приказа — стены. */
-export function aimOf(w: Pick<SiegeWindow, 'log'>, at: number): Aim {
+export function artilleryAimOf(w: Pick<SiegeWindow, 'log'>, at: number): Aim {
   const d = last((w.log ?? []).filter((x) => x.act === 'aim'), at);
   return d?.aim === 'town' || d?.aim === 'engines' ? d.aim : 'wall';
+}
+
+/**
+ * Почему артиллерии лагеря не бить по цели `aim` в минуту `at`; null — можно. У логова и двора мира построек и стены нет —
+ * «город» и «машины» гаснут строкой; у города игрока по машинам бить можно и до того, как требушет на стене встал.
+ */
+export function aimBlock(w: Pick<SiegeWindow, 'log' | 'targets' | 'wall'>, aim: Aim, at: number): string | null {
+  if (!AIMS.includes(aim)) return 'Такой цели нет.';
+  if (artilleryAimOf(w, at) === aim) return 'Машины и так бьют туда.';
+  if (aim === 'town' && !w.targets?.length) return 'Построек у них нет — по городу бить нечего.';
+  if (aim === 'engines' && !(w.wall && w.wall > 0)) return 'Стены у них нет — и машин на ней нет.';
+  return null;
+}
+
+/** Почему требушету на стене не бить по цели `aim`; null — можно. */
+export function gunAimBlock(w: Pick<SiegeWindow, 'log'>, aim: GunAim, at: number): string | null {
+  if (!GUN_AIMS.includes(aim)) return 'Такой цели нет.';
+  if (gunAimOf(w, at) === aim) return 'Требушет и так бьёт туда.';
+  return null;
 }
 
 /** Цель требушета на стене в минуту `at`: последний приказ; нет — лагерь. */
@@ -49,7 +68,7 @@ export function artilleryAt(w: ShellWindow, at: number): ArtilleryId[] {
 
 /** Грани артиллерии к кости фазы в минуту `at`: камнемёт +1, требушет +2 — только когда цель стены. */
 export const machineFaces = (w: ShellWindow, at: number): number =>
-  aimOf(w, at) === 'wall' ? artilleryAt(w, at).reduce((n, id) => n + ARTILLERY_WEIGHT[id], 0) : 0;
+  artilleryAimOf(w, at) === 'wall' ? artilleryAt(w, at).reduce((n, id) => n + ARTILLERY_WEIGHT[id], 0) : 0;
 
 /** Требушет на стене глазами минуты `at`: когда заказан, когда готов, разбит ли. */
 export interface GunState extends MachineOrder {
@@ -122,6 +141,17 @@ export function machinesBroken(w: ShellWindow, id: MachineId, at: number): Machi
     });
 }
 
+/**
+ * Что выстрелы фазы сделали с окном: машины лагеря, разбитые требушетом на стене, и требушет, разбитый артиллерией лагеря.
+ * Одна дверь на мир и сервер войны: сами выстрелы бросила кость фазы (`rollPhase`, строка журнала), здесь — только их след.
+ */
+export function shotsApplied(w: ShellWindow, row: { shots?: Shot[]; gun?: Shot[] }, at: number): Pick<SiegeWindow, 'machines' | 'guns'> {
+  let out: ShellWindow = w;
+  for (const s of row.gun ?? []) if (s.hit && s.machine) out = { ...out, machines: machinesBroken(out, s.machine, at) };
+  if ((row.shots ?? []).some((s) => s.hit && s.gun)) out = { ...out, guns: gunsBroken(out, at) };
+  return { machines: out.machines, guns: out.guns };
+}
+
 /** Сколько раз постройка `b` уже получила попадание в этой осаде — по строкам журнала до этой фазы. */
 const hitsOn = (rows: readonly { shots?: Shot[] }[], b: string): number =>
   rows.reduce((n, r) => n + (r.shots ?? []).filter((s) => s.hit && s.building === b).length, 0);
@@ -133,7 +163,7 @@ const hitsOn = (rows: readonly { shots?: Shot[] }[], b: string): number =>
  */
 export function phaseShots(w: ShellWindow, at: number, roll: (tag: string) => number, prior: readonly { shots?: Shot[] }[]): { shots: Shot[]; gun: Shot[] } {
   const shots: Shot[] = [];
-  const aim = aimOf(w, at);
+  const aim = artilleryAimOf(w, at);
   if (aim !== 'wall') {
     const guns = aim === 'engines' ? gunsAt(w, at).filter((g) => g.ready) : [];
     let gunUp = guns.length > 0;
@@ -195,3 +225,46 @@ export function idleBuildings(rows: readonly { at: number; shots?: Shot[] }[], a
 
 /** Уровень после попадания, отнимающего уровень: не ниже первого. */
 export const lostLevel = (level: number): number => Math.max(BUILDING_FLOOR, Math.floor(level) - 1);
+
+// ------------------------------------------------ слова (правило 18: числа — этими же функциями) ---
+
+/** Цель артиллерии лагеря — имя на кнопке. */
+export const AIM_NAME: Record<Aim, string> = { wall: 'По стенам', town: 'По городу', engines: 'По машинам' };
+/** Цель требушета на стене — имя на кнопке. */
+export const GUN_AIM_NAME: Record<GunAim, string> = { camp: 'По лагерю', machines: 'По машинам' };
+
+const shotsWord = (n: number): string => `${n} ${n % 10 === 1 && n % 100 !== 11 ? 'выстрел' : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14) ? 'выстрела' : 'выстрелов'}`;
+
+/** Что даст цель артиллерии лагеря весом `weight` (сумма готовых машин) — до нажатия, строкой окна. */
+export function aimWords(aim: Aim, weight: number): string {
+  if (weight <= 0) return 'Машин нет: закажи камнемёт или требушет — они бьют каждую фазу.';
+  if (aim === 'wall') return `Кость каждой фазы +${weight}: пролом и сдача ближе.`;
+  if (aim === 'town') return `${shotsWord(weight)} за фазу по постройкам, попадает каждый второй: постройка стоит фазу без работы, каждое второе попадание в неё — −1 уровень. К кости ничего.`;
+  return `${shotsWord(weight)} за фазу по требушету на стене, попадает каждый второй: попадание его разбивает. К кости ничего.`;
+}
+
+/** Что даст цель требушета на стене — строкой окна. */
+export function gunAimWords(aim: GunAim): string {
+  const n = ARTILLERY_WEIGHT[GUN_ID];
+  return aim === 'camp'
+    ? `${shotsWord(n)} за фазу по лагерю, попадает каждый второй: попадание уносит ещё долю истощения фазы.`
+    : `${shotsWord(n)} за фазу по машинам у стены, попадает каждый второй: попадание разбивает самую дорогую.`;
+}
+
+/** Выстрелы фазы словами: «по городу 2 из 3 — кузница (−1 ур.), мельница». `name` — имя постройки по её ключу. */
+export function shotsText(shots: readonly Shot[], gun: readonly Shot[], name: (building: string) => string = (b) => b, machine: (id: MachineId) => string = (id) => id): string {
+  const parts: string[] = [];
+  const town = shots.filter((s) => s.building);
+  if (town.length) {
+    const hits = town.filter((s) => s.hit).map((s) => `${name(s.building as string)}${s.lost ? ' (−1 ур.)' : ''}`);
+    parts.push(`по городу ${hits.length} из ${town.length}${hits.length ? ` — ${hits.join(', ')}` : ''}`);
+  }
+  const engines = shots.filter((s) => s.gun);
+  if (engines.length) parts.push(engines.some((s) => s.hit) ? 'требушет на стене разбит' : `по требушету на стене ${engines.length} мимо`);
+  const camp = gun.filter((s) => s.camp);
+  if (camp.length) parts.push(`требушет со стены по лагерю ${camp.filter((s) => s.hit).length} из ${camp.length}`);
+  const broke = gun.filter((s) => s.machine && s.hit).map((s) => machine(s.machine as MachineId).toLowerCase());
+  const missed = gun.filter((s) => s.machine && !s.hit).length;
+  if (broke.length || missed) parts.push(broke.length ? `требушет со стены разбил: ${broke.join(', ')}` : `требушет со стены по машинам ${missed} мимо`);
+  return parts.join('; ');
+}
