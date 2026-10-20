@@ -1,7 +1,8 @@
 // Ответы осаждённого — блок окна осады (docs/siege_v2.md, раздел 5; набросок окна — 9.2). Каждое дело с ценой и пользой:
 // починка пролома — цена со склада формой `Cost` и минута, когда пролом закроется; паёк — на сколько дольше хватит хлеба и чем
 // платит город; вылазка на машину — кто её охраняет; сдача — какая участь вместо объявленной; выручка союзника — кто идёт и
-// когда ударит. Своей арифметики у блока нет: числа — из мира (`SiegeView.answers`) и из тех же функций игры
+// когда ударит. С Р-5 — требушет на стене (цена той же формой `Cost`, срок, куда бьёт и что даст) и вылазка на пост кольца
+// блокады. Своей арифметики у блока нет: числа — из мира (`SiegeView.answers`) и из тех же функций игры
 // (`derived.rationMorale`, `SIEGE_RATION`, `SIEGE_RATION_CUT`), которыми их считает племя.
 import { useState } from 'react';
 import { useGame } from '@/game/store';
@@ -20,6 +21,18 @@ import { hungerLeft } from '@/ui/parts/hunger';
 import { realLeft } from '@/ui/parts/wait';
 import { plural } from '@/ui/parts/plural';
 import { Icon } from '@/ui/icons/Icon';
+import { Table, type Col } from '@/ui/kit/Table';
+
+/** Цель требушета на стене — выбор строкой таблицы набора (Р-5). */
+const GUN_AIM_COLS: readonly Col[] = [{ key: 'aim', title: 'Куда бьёт требушет' }];
+
+/** Состояние требушета на стене словами (Р-5): строится — через сколько. */
+function gunTitle(g: NonNullable<NonNullable<SiegeView['answers']>['gun']>, now: number): string {
+  if (g.state === 'ready') return 'Требушет на стене стоит';
+  if (g.state === 'building') return `Требушет строят: встанет через ${realLeft(secondsLeft(g.readyAt ?? now, now))}`;
+  if (g.state === 'broken') return 'Требушет на стене разбит';
+  return 'Поставить требушет на стену';
+}
 
 /** Паёк словами: доля еды, мораль и надзор — теми же числами, что племя (`derived`). */
 export function rationWords(): string {
@@ -43,6 +56,8 @@ export function SiegeAnswers({ siege, now }: { siege: SiegeView; now: number }) 
   const orders: DefendOrders = a.defend ?? {};
   const setOrders = (next: DefendOrders): Promise<void> => run(() => defend({ act: 'orders', defend: cleanDefend(next) ?? {} }));
   const breaches = siege.phases?.breaches ?? 0;
+  const gun = a.gun;
+  const gunGives = gun?.options.find((o) => o.aim === gun.aim)?.gives ?? '';
 
   return (
     <>
@@ -89,6 +104,54 @@ export function SiegeAnswers({ siege, now }: { siege: SiegeView; now: number }) 
               Вылазка: {m.name.toLowerCase()}
             </Btn>
           ))}
+        </>
+      )}
+
+      {/* Требушет на стене (Р-5, world/shelling): цена — как у починки пролома, срок и польза каждой цели — из мира. */}
+      {gun && (
+        <>
+          <div className="card">
+            <div className="ico"><Icon name="bld-palisade" /></div>
+            <div className="body">
+              <div className="title">{gunTitle(gun, now)}</div>
+              <div className="desc">
+                {gun.state === 'none' || gun.state === 'broken' ? `Встанет через ${realLeft(gun.span / 1000)} и будет бить каждую фазу. ${gunGives}` : gunGives}
+              </div>
+              {(gun.state === 'none' || gun.state === 'broken') && <Cost cost={gun.cost} />}
+            </div>
+          </div>
+          {(gun.state === 'none' || gun.state === 'broken') && (
+            <Btn wide why={busy ? '…' : gun.reason} onClick={() => void run(() => defend({ act: 'gun' }))}>
+              Поставить требушет
+            </Btn>
+          )}
+          <Table
+            label="Куда бьёт требушет"
+            cols={GUN_AIM_COLS}
+            rows={gun.options.map((o) => ({
+              key: o.aim,
+              on: gun.aim === o.aim,
+              pick: () => gun.aim !== o.aim && !busy && void run(() => defend({ act: 'gunAim', aim: o.aim })),
+              cells: {
+                aim: (
+                  <span className="kit-two">
+                    <b className="one-line">{o.name}</b>
+                    <small>{o.gives}</small>
+                  </span>
+                ),
+              },
+            }))}
+          />
+        </>
+      )}
+
+      {/* Кольцо блокады (Р-5, world/blockade): вылазка на пост — бой в поле с четвертью лагеря, победа размыкает кольцо. */}
+      {a.breakout && (
+        <>
+          <p className="note warn">{a.breakout.gives}</p>
+          <Btn wide onClick={() => openSortie('ring')} sub={`пост ${a.breakout.guard} ${plural(a.breakout.guard, 'боец', 'бойца', 'бойцов')}`}>
+            Вылазка: прорвать кольцо
+          </Btn>
         </>
       )}
 

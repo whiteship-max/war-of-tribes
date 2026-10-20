@@ -114,7 +114,7 @@ function SheetContent({ view }: { view: SheetView }) {
   if (view.kind === 'sortie')
     return (
       <Suspense fallback={null}>
-        <SortiePanel machine={view.machine} />
+        <SortiePanel machine={view.machine} ring={view.ring} />
       </Suspense>
     );
   if (view.kind === 'siege')

@@ -33,6 +33,7 @@ import { Btn } from '@/ui/kit/Btn';
 import { Toggle } from '@/ui/kit/Toggle';
 import './siege.css';
 import { Icon } from '@/ui/icons/Icon';
+import { num } from '@/game/num';
 import { iconName } from '@/ui/icons/registry';
 
 /**
@@ -70,7 +71,7 @@ export function reliefLine(r: NonNullable<CampView['relief']>, now: number): str
   }.`;
 }
 
-type View = 'camp' | 'machines' | 'phases' | 'storm';
+type View = 'camp' | 'machines' | 'ring' | 'phases' | 'storm';
 
 /** Столбцы окна лагеря (UI-7, docs/ui_v2.md, 5.6): строки `.mod` и ряды кнопок `.mini` — таблицами набора. */
 const TARGET_COLS: readonly Col[] = [
@@ -87,6 +88,11 @@ const MSHARE_COLS: readonly Col[] = [{ key: 'share', title: 'Лес машина
 const MACHINE_COLS: readonly Col[] = [
   { key: 'm', title: 'Машина' },
   { key: 'act', title: '', align: 'right', w: '96px' },
+];
+const AIM_COLS: readonly Col[] = [{ key: 'aim', title: 'Куда бьют машины' }];
+const RING_COLS: readonly Col[] = [
+  { key: 'what', title: 'Кольцо блокады' },
+  { key: 'v', title: 'Сейчас', align: 'right', w: '104px' },
 ];
 const CRAFT_COLS: readonly Col[] = [
   { key: 'c', title: 'Дело' },
@@ -115,6 +121,8 @@ export function CampPanel() {
   const setWood = useWorld((g) => g.setWood);
   const setMachineWood = useWorld((g) => g.setMachineWood);
   const orderMachine = useWorld((g) => g.orderMachine);
+  const aimArtillery = useWorld((g) => g.aimArtillery);
+  const blockade = useWorld((g) => g.blockade);
   const [use, setUse] = useState<MachineId[] | null>(null);
   const campCraft = useWorld((g) => g.campCraft);
   const setOrders = useWorld((g) => g.setOrders);
@@ -172,6 +180,7 @@ export function CampPanel() {
   const tabs: TabDef<View>[] = [
     { id: 'camp', label: 'Лагерь' },
     ...(camp.machines ? [{ id: 'machines' as const, label: 'Машины' }] : []),
+    ...(camp.blockade ? [{ id: 'ring' as const, label: 'Кольцо' }] : []),
     ...(camp.phases || camp.parley ? [{ id: 'phases' as const, label: 'Ход', badge: camp.parley?.incoming ? 1 : 0 }] : []),
     { id: 'storm', label: 'Штурм' },
   ];
@@ -295,6 +304,71 @@ export function CampPanel() {
               },
             }))}
           />
+          {/* Цена машины — лес лагеря: доля стороны, той же мерой, что очередь (`MACHINE_WOOD`). */}
+          <p className="note">Цена — лес лагеря: {camp.machines.list.map((e) => `${e.name.toLowerCase()} ${num(e.wood)} стороны`).join(', ')}.</p>
+          {/* Куда бьют камнемёт и требушет (Р-5, world/shelling): что даст каждая цель — до нажатия, словами мира. */}
+          {camp.aim && (
+            <>
+              <Table
+                label="Куда бьют машины"
+                cols={AIM_COLS}
+                rows={camp.aim.options.map((o) => ({
+                  key: o.aim,
+                  on: camp.aim!.now === o.aim,
+                  pick: () => o.can && !busy && void order(() => aimArtillery(o.aim), `Машины бьют: ${o.name.toLowerCase()}.`),
+                  cells: {
+                    aim: (
+                      <span className="kit-two">
+                        <b className="one-line">{o.name}</b>
+                        <small className={o.can || camp.aim!.now === o.aim ? '' : 'bad'}>{o.can || camp.aim!.now === o.aim ? o.gives : o.reason}</small>
+                      </span>
+                    ),
+                  },
+                }))}
+              />
+              <p className="note">
+                {camp.aim.artillery.length
+                  ? `Бьют: ${camp.aim.artillery.map((a) => a.name.toLowerCase()).join(', ')}.`
+                  : 'Камнемёта и требушета нет: бить нечем, пока не встанут.'}
+              </p>
+            </>
+          )}
+        </>
+      )}
+
+      {/* Кольцо блокады (Р-5, world/blockade): условие, сейчас, что даёт и чем размыкают — из мира; кнопка гаснет с причиной. */}
+      {shown === 'ring' && camp.blockade && (
+        <>
+          <Table
+            label="Кольцо блокады"
+            cols={RING_COLS}
+            rows={[
+              { key: 'need', cells: { what: 'Нужно: лагерь сильнее гарнизона', v: `вчетверо` } },
+              { key: 'ratio', cells: { what: 'Лагерь сильнее гарнизона', v: <b className={camp.blockade.can || camp.blockade.on ? 'good' : 'bad'}>{camp.blockade.ratio}</b> } },
+              {
+                key: 'on',
+                cells: {
+                  what: 'Кольцо',
+                  v: <span className={camp.blockade.on ? 'good' : ''}>{camp.blockade.on ? `замкнуто ${realLeft(Math.max(0, (now - (camp.blockade.since ?? now)) / 1000))}` : 'нет'}</span>,
+                },
+              },
+            ]}
+          />
+          <p className="note">{camp.blockade.gives}</p>
+          <p className="note">{camp.blockade.breaks}</p>
+          {!camp.blockade.on && camp.blockade.broke && <p className="note warn">Разомкнуто: {camp.blockade.broke}.</p>}
+          {camp.blockade.on ? (
+            <Btn wide why={busy ? '…' : null} onClick={() => void order(() => blockade(false), 'Кольцо разомкнуто.')}>
+              Разомкнуть кольцо
+            </Btn>
+          ) : (
+            <>
+              {camp.blockade.reason && <p className="note bad">{camp.blockade.reason}</p>}
+              <Btn kind="main" wide why={busy ? '…' : camp.blockade.reason ? 'Сейчас не замкнуть' : null} onClick={() => void order(() => blockade(true), 'Кольцо замкнуто.')}>
+                Замкнуть кольцо
+              </Btn>
+            </>
+          )}
         </>
       )}
 
