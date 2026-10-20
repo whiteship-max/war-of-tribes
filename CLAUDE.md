@@ -126,6 +126,9 @@ npm run splash:build # заставка экрана загрузки из asset
 npm run share:build  # картинки «Поделиться» для историй Telegram в public/assets/share (docs/feed.md)
 npm run icons:build  # набор значков ЗН-1: проверка и листы (первый экран строкой кода, остальное — public/assets/icons)
 npm run fonts:build  # свой шрифт: подмножества WOFF2 в public/fonts (docs/polish.md, П-1)
+npm run console    # консоль боёв и сценариев (docs/handbook/console.md): fight, gate, raid, siege, camp, intercept, sweep, replay
+npm run derive -- w --write  # вывод W и шага кости до неподвижной точки (правило 16); -- gate --write — таблица у ворот
+npm run speed      # замер скорости прогонов с отпечатком итогов; --profile ladder — где время
 ```
 
 ## Работа с ветками
@@ -807,4 +810,5 @@ docker compose за прокси Coolify (docs/SERVER.md, «Вариант с Co
 | [structure.md](docs/handbook/structure.md) | «Структура» — что где лежит | — |
 | [world.md](docs/handbook/world.md) | «Карта мира» | world-map.md, fog-and-figures.md, geography.md, atlas.md, siege.md, sack.md, lairs.md, lair_growth.md, letters.md, DEFEAT_LADDER.md, tower.md, MAP_ACTIONS.md |
 | [agents.md](docs/handbook/agents.md) | «Агенты: люди на местах»; энергия агентов (с 05.10.2026) | AGENTS.md, agent_energy.md |
+| [console.md](docs/handbook/console.md) | — (новый, УС-1): консольные команды боёв и сценариев, ролик записи, вывод W и таблицы у ворот, замер скорости и где было время | — |
 | [battle.md](docs/handbook/battle.md) | «Бой», «Мост из племени в бой», «Описание вида бойцов», «Подготовка боя и отчёт», «Испытательный стенд: зеркальное логово» | battle_eu4.md (раздел 14.35 — первым), battle-replay.md |
