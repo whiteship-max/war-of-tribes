@@ -22,7 +22,7 @@
  */
 import { BUILDING_BY_ID } from '../../src/game/data/buildings.js';
 import type { BuildingTypeId } from '../../src/game/types.js';
-import { MAX_BUILDING_LEVEL, START_POP } from '../../src/game/constants.js';
+import { BUILD_QUEUE_MAX, MAX_BUILDING_LEVEL, START_POP } from '../../src/game/constants.js';
 import { gameDaysOfMs, gameDaysPerHour, gameSecondsOfMs } from '../../src/game/pace.js';
 import { upgradeWork } from '../../src/game/labour.js';
 import { rushFreeWork } from '../../src/game/gemrules.js';
@@ -83,6 +83,12 @@ export interface TownBook {
   gem: number;
   /** Уровни, ускоренные за алмазы и ещё не подтверждённые: `тип:уровень`. */
   paid: string[];
+  /**
+   * Очередь стройки последней описи, которую книга признала (СТ-1): `тип:уровень` по порядку, первое — строящееся. Места,
+   * нарушившие правила очереди (`queueFaults`), сюда не ложатся. По ней ускорение за алмазы отказывает ждущему
+   * (`rushFloor`). Пусто — очереди нет или опись до очереди.
+   */
+  queue: string[];
   /** Наибольшие подтверждённые жители и мощь войска — к минуте `at`, для «не меньше» (`floorAt`). */
   peak: { pop: number; power: number };
 }
@@ -129,6 +135,7 @@ export const seedTown = (at: number): TownBook => ({
   letters: LETTER_SLOTS,
   gem: 0,
   paid: [],
+  queue: [],
   peak: { pop: START_POP, power: 0 },
 });
 
@@ -160,6 +167,7 @@ export function readTown(v: unknown): TownBook | null {
     letters: Math.min(LETTER_SLOTS, n0(r.letters)),
     gem: Math.floor(n0(r.gem)),
     paid: Array.isArray(r.paid) ? r.paid.filter((x): x is string => typeof x === 'string' && x.length <= 48).slice(-PAID_MAX) : [],
+    queue: Array.isArray(r.queue) ? r.queue.filter((x): x is string => typeof x === 'string' && x.length <= 48).slice(0, BUILD_QUEUE_MAX) : [],
     peak: { pop: n0(peak.pop), power: n0(peak.power) },
   };
 }
@@ -173,6 +181,7 @@ export interface TownClaim {
   bonded?: number;
   queued?: number;
   site?: TownSite;
+  queue?: { type: string; level: number }[];
 }
 
 /** Уровень, ускоренный за алмазы: из записи книги алмазов. */
@@ -196,7 +205,55 @@ function rateOf(levels: Counts, claim: Counts, hands: number): number {
   return buildCeil(at, hands);
 }
 
-const keyOf = (type: string, level: number): string => `${type}:${level}`;
+export const keyOf = (type: string, level: number): string => `${type}:${level}`;
+
+// ------------------------------------------------ очередь стройки ---
+
+/** Нарушение правил очереди стройки в описи (СТ-1): какое место и почему. */
+export interface QueueFault {
+  key: string;
+  why: string;
+}
+
+/**
+ * Правила очереди стройки одной описи (СТ-1, docs/ui_v2.md) — те же, что держит игра (`derived.upgradeInfo`,
+ * `sim/actions.moveBlock`): не длиннее `BUILD_QUEUE_MAX`; одна стройка на постройку; место — следующий уровень постройки
+ * описи и не выше её потолка; первое место — идущая стройка описи. `prev` — прежняя опись: её строящееся с работой
+ * (`site.done > 0`), если оно ещё не достроено и не отменено, обязано остаться первым — начатое не сдвигается.
+ */
+export function queueFaults(claim: TownClaim, prev?: { site?: TownSite | null }): QueueFault[] {
+  const q = claim.queue ?? [];
+  const out: QueueFault[] = [];
+  const seen = new Set<string>();
+  q.forEach((e, i) => {
+    const key = keyOf(e.type, e.level);
+    if (i >= BUILD_QUEUE_MAX) out.push({ key, why: `${i + 1}-е место при очереди в ${BUILD_QUEUE_MAX}` });
+    else if (!(e.type in BUILDING_BY_ID)) out.push({ key, why: 'такой постройки нет' });
+    else if (seen.has(e.type)) out.push({ key, why: 'вторая стройка той же постройки' });
+    else if (e.level !== levelIn(claim.buildings, e.type as BuildingTypeId) + 1 || e.level > top(e.type as BuildingTypeId)) {
+      out.push({ key, why: `уровень не следующий: постройка ур. ${levelIn(claim.buildings, e.type as BuildingTypeId)}` });
+    }
+    seen.add(e.type);
+  });
+  const s = claim.site;
+  if (s && q.length > 0 && keyOf(q[0].type, q[0].level) !== keyOf(s.type, s.level)) out.push({ key: keyOf(s.type, s.level), why: 'идущая стройка не первая в очереди' });
+  const was = prev?.site;
+  if (was && was.done > 0 && q.length > 0) {
+    const key = keyOf(was.type, was.level);
+    const at = q.findIndex((e) => keyOf(e.type, e.level) === key);
+    if (at > 0) out.push({ key, why: `начатая стройка сдвинута на ${at + 1}-е место` });
+  }
+  return out;
+}
+
+/** Очередь, которую книга признаёт: места описи без нарушивших правила, порядком описи. */
+export function queueOf(claim: TownClaim, faults: readonly QueueFault[]): string[] {
+  const bad = new Set(faults.map((f) => f.key));
+  return (claim.queue ?? [])
+    .map((e) => keyOf(e.type, e.level))
+    .filter((k) => !bad.has(k))
+    .slice(0, BUILD_QUEUE_MAX);
+}
 
 export interface BuildStep {
   book: TownBook;
@@ -204,6 +261,8 @@ export interface BuildStep {
   short: number;
   /** Потолок скорости стройки на промежутке — для слов флага. */
   rate: number;
+  /** Нарушения правил очереди стройки в описи (`queueFaults`): такие места книга не признаёт, сервер пишет флаг. */
+  faults: QueueFault[];
 }
 
 /**
@@ -213,9 +272,10 @@ export interface BuildStep {
  *  3. остальные — работой: копилка плюс потолок за прошедшее время с запасом, плюс вести (`EVENT_WORK_MAX` труда
  *     уровня на весть); каждому уровню последние пять минут — даром;
  *  4. идущая стройка — её работа не больше оставшегося.
- * `hands` — руки стройки (жители и невольники, `handsOf`).
+ * `hands` — руки стройки (жители и невольники, `handsOf`). `before` — идущая стройка прежней описи: по ней очередь знает,
+ * какое строящееся уже начато (`queueFaults`).
  */
-export function buildStep(prev: TownBook, at: number, claim: TownClaim, gems: readonly PaidLevel[] = []): BuildStep {
+export function buildStep(prev: TownBook, at: number, claim: TownClaim, gems: readonly PaidLevel[] = [], before?: TownSite): BuildStep {
   const dt = Math.max(0, at - prev.at);
   let letters = Math.min(LETTER_SLOTS, prev.letters + dt / LETTER_PAUSE_MIN);
   let gem = prev.gem;
@@ -272,10 +332,15 @@ export function buildStep(prev: TownBook, at: number, claim: TownClaim, gems: re
     site = null;
   }
   const credit = Math.min(Math.max(0, work), rate * gameSecondsOfMs(CREDIT_HOLD_MS));
+  // Очередь (СТ-1): опись без неё (до очереди) — книга помнит одну идущую стройку, как раньше.
+  // Начатое — по прежней описи (`before`): её строящееся с работой; нет её — по книге.
+  const faults = claim.queue ? queueFaults(claim, { site: before ?? prev.site }) : [];
+  const queue = claim.queue ? queueOf(claim, faults) : site ? [keyOf(site.type, site.level)] : [];
   return {
-    book: { ...prev, at, levels, site, credit, letters, gem, paid: [...paid].slice(-PAID_MAX) },
+    book: { ...prev, at, levels, site, credit, letters, gem, paid: [...paid].slice(-PAID_MAX), queue },
     short,
     rate,
+    faults,
   };
 }
 
@@ -444,7 +509,21 @@ export function rushFloor(book: TownBook, claimed: Counts, bonded: number, type:
   if (!Number.isInteger(level) || level <= conf || level > top(type)) return null;
   const free = rushFreeWork();
   const rate = rateOf(book.levels, claimed, handsOf(book.pop, bonded));
-  let work = book.credit + rate * gameSecondsOfMs(Math.max(0, at - book.at)) * TOWN_SLACK + book.letters * EVENT_WORK_MAX * upgradeWork(BUILDING_BY_ID[type], level);
+  let work = book.credit + rate * gameSecondsOfMs(Math.max(0, at - book.at)) * TOWN_SLACK;
+  // Ускоряется только строящееся (СТ-1): места очереди книги впереди этого должны были успеть достроиться — их труд
+  // вычитается из того, что посёлок мог сделать стройкой за время с записи; не успели бы — это ждущее, и ускорению отказ.
+  // Запас вестей сюда не идёт: весть кладёт труд в строящееся, а запись партии после ответа уходит сразу (`SAVE_HURRY_MS`),
+  // и книга узнаёт о достроенном за минуту. Места нет в очереди книги — его заложили после записи: оно в хвосте.
+  const ahead = book.queue.indexOf(keyOf(type, level));
+  for (const k of ahead < 0 ? book.queue : book.queue.slice(0, ahead)) {
+    const [t, l] = k.split(':');
+    const lv = Number(l);
+    if (!(t in BUILDING_BY_ID) || !Number.isInteger(lv) || lv <= levelIn(book.levels, t as BuildingTypeId)) continue;
+    const done = book.site && book.site.type === t && book.site.level === lv ? book.site.done : 0;
+    work -= Math.max(0, upgradeWork(BUILDING_BY_ID[t as BuildingTypeId], lv) - free - done);
+    if (work < 0) return null;
+  }
+  work += book.letters * EVENT_WORK_MAX * upgradeWork(BUILDING_BY_ID[type], level);
   const paid = new Set(book.paid);
   for (let l = conf + 1; l < level; l++) {
     if (paid.has(keyOf(type, l))) continue;

@@ -12,7 +12,7 @@
 import type { Building, GameState, ResourceId } from '../types';
 import type { GemEntry } from '../../../netlify/lib/contract';
 import { BUILDING_BY_ID } from '../data/buildings';
-import { buildingById, buildingTitle, isSite, storageCap, underSiege } from '../derived';
+import { buildingById, buildingTitle, currentSite, isSite, storageCap, underSiege } from '../derived';
 import { RESOURCE_META, SIEGE_NO_TRADE } from '../constants';
 import { SHOP_LOT, gemLine, rushPriceOfWork, rushSeconds } from '../gemrules';
 import { layStock } from './admin';
@@ -60,10 +60,20 @@ export function rushFree(s: GameState, buildingId: number): string | null {
   const b = buildingById(s, buildingId);
   if (!b) return 'Здание не найдено.';
   if (!isSite(b)) return 'Здесь ничего не строится.';
+  const queued = rushQueued(s, b);
+  if (queued) return queued;
   if (rushPrice(b) > 0) return 'Даром ускоряются только последние пять минут.';
   finish(b);
   log(s, `${buildingTitle(s, b.type)}: ур. ${b.level}, ускорено даром.`, 'good', undefined, 'build');
   return null;
+}
+
+/**
+ * Ускоряется только строящееся — первое в очереди стройки (СТ-1, docs/ui_v2.md): ждущие в очереди ещё не строятся, и
+ * ускорить их — то же, что строить два разом. Сервер отказывает в ускорении ждущего по своей книге (`town.rushFloor`).
+ */
+export function rushQueued(s: GameState, b: Building): string | null {
+  return isSite(b) && currentSite(s)?.id !== b.id ? 'Ускоряется только строящееся — первое в очереди.' : null;
 }
 
 /**

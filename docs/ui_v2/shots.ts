@@ -21,6 +21,8 @@
 //   DIR=icons GROUP=zn4 WEATHER=clear TAG=after …  — ЗН-4: подписи у середины приближения, рычаг, окно «Профиль», держава
 //   GROUP=dp1 …                                    — ДП-1 (docs/AGENTS.md, 17): «Соседи» — поход на нас, предложение
 //                                                   с «Принять/Отклонить», наше ждущее, итог; карточка; летопись.
+//   GROUP=st1 TAG=after …                          — СТ-1 (docs/ui_v2.md, 5.13): очередь стройки — сетка с номерами, полоса,
+//                                                    дела места, отмена с возвратом, сдвиг
 //   GROUP=k2 …                                     — К-2 (docs/AGENTS.md, 18): кольцо над логовом, дела, окно войска,
 //                                                    подтверждение, погашенный с причиной
 //   GROUP=r4 …                                     — Р-4 (docs/AGENTS.md, 16): «Походы», цель, дела, подтверждение,
@@ -307,6 +309,37 @@ const GROUPS: Record<string, Step[]> = {
     // Касание плитки — после того, как вкладка «Все» перерисовала сетку: React кладёт её не в тот же миг.
     { name: '83-hall-card', run: then(`window.__ui.click('Все', '.sheet.open .kit-tabs')`, `window.__ui.clickSel('.sheet.open [data-tut="list-farm"]')`), wait: 900 },
     { name: '84-hall-site', run: then(`window.__ui.clickSel('.hall-veil')`, `window.__ui.clickSel('.sheet.open [data-tut="list-houses"]')`), wait: 900 },
+  ],
+  // СТ-1 (docs/ui_v2.md, 5.13): очередь стройки. Склад наполняется, в очередь встают четыре улучшения; первое начинается
+  // само с ходом партии. Снимки: сетка с номерами и полосой, выбранное ждущее с делами, отмена «Точно?» с возвратом, сдвиг.
+  st1: [
+    {
+      name: 'st1-01-grid',
+      run: `(async () => {
+        window.__ui.reset();
+        const A = await import('/src/game/sim/actions.ts');
+        const D = await import('/src/game/derived.ts');
+        const g = window.__game.getState();
+        g.act((st) => {
+          const cap = D.storageCap(st);
+          for (const r of Object.keys(st.resources)) st.resources[r] = cap;
+          for (const t of ['houses', 'farm', 'barracks', 'sawmill']) A.startUpgrade(st, st.buildings.find((x) => x.type === t).id);
+          return null;
+        });
+        await new Promise((r) => setTimeout(r, 1500));
+        return JSON.stringify(window.__ui.click('Ратуша', '.nx-nav'));
+      })()`,
+      wait: 1200,
+      full: true,
+    },
+    { name: 'st1-02-pick', run: ui(`clickSel('.sheet.open .hall-qcell:nth-child(2)')`), wait: 700, full: true },
+    { name: 'st1-03-cancel', run: ui(`click('Отменить', '.sheet.open .hall-qacts')`), wait: 500, full: true },
+    {
+      name: 'st1-04-moved',
+      run: then(`window.__ui.clickSel('.sheet.open .hall-qcell:nth-child(4)')`, `window.__ui.click('Выше', '.sheet.open .hall-qacts')`),
+      wait: 700,
+      full: true,
+    },
   ],
   // UI-3 (docs/ui_v2.md, 5.2): подсказки верха и запасов — разбор «в день» и двери к постройкам, «Склад» и окна.
   top: [

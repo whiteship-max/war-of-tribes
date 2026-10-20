@@ -38,9 +38,10 @@ export function outlay(s: GameState): void {
  * округляется только половина.
  *
  * Возврат — разовое дело описи (`stats.windfalls`): добро легло на склад разом, мимо выработки, и сервер не должен
- * счесть его флагом «рост склада» (docs/security.md, раздел 8).
+ * счесть его флагом «рост склада» (docs/security.md, раздел 8). Кроме отмены стройки (`windfall = false`): её возврат
+ * сервер выводит сам из очереди описи и сверяет с ростом склада (СТ-1, docs/ui_v2.md).
  */
-export function refund(s: GameState, cost: Price, k: number): void {
+export function refund(s: GameState, cost: Price, k: number, windfall = true): void {
   const cap = storageCap(s);
   let back = false;
   for (const r of RESOURCE_IDS) {
@@ -48,5 +49,5 @@ export function refund(s: GameState, cost: Price, k: number): void {
     if (n) s.resources[r] = Math.min(cap, s.resources[r] + Math.floor(n * k));
     if (n && Math.floor(n * k) > 0) back = true;
   }
-  if (back) s.stats.windfalls = (s.stats.windfalls ?? 0) + 1;
+  if (back && windfall) s.stats.windfalls = (s.stats.windfalls ?? 0) + 1;
 }

@@ -408,6 +408,9 @@ export function deserialize(json: string): GameState | null {
       risen: { ...(data.risen ?? {}) },
       // Вызовов к воротам до поставки 3 боя не было: старая партия приезжает без них.
       gate: data.gate ?? [],
+      // Очереди стройки до СТ-1 не было: порядок был порядком построек. Старая партия приезжает пустым списком, и
+      // `derived.buildQueue` ставит её стройки тем же порядком — начатая первой. Чужое (не число) отбрасывается.
+      buildQueue: Array.isArray(data.buildQueue) ? data.buildQueue.filter((id): id is number => Number.isInteger(id)) : [],
       forge: data.forge ?? [],
       // Назначения — словари счётчиков: их мержить нельзя, иначе исчезнувшее
       // здание оставило бы за собой рабочих. Берём как есть, а порядок наведёт

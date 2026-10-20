@@ -7,7 +7,7 @@ import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { Building } from '@/game/types';
 import { useGame } from '@/game/store';
-import { isSite } from '@/game/derived';
+import { currentSite, isSite } from '@/game/derived';
 import { GEM_CONFIRM, rushBlocked, rushFree, rushPrice, rushWork } from '@/game/sim/gems';
 import { gemsOffline, orderRush, useGems } from '@/net/gems';
 import { SITE_TAGS_EVENT, siteTagHosts } from '@/render/sitetags';
@@ -28,7 +28,9 @@ export function RushButton({ b }: { b: Building }) {
   const why = useGems((g) => g.why);
   const busy = useGems((g) => g.busy);
   const [armed, arm, disarm] = useTwoTap();
-  if (!isSite(b)) return null;
+  const first = useGame((g) => currentSite(g.s)?.id === b.id);
+  // Ускоряется только строящееся (СТ-1): ждущему в очереди кнопки нет, его место в очереди сказано рядом.
+  if (!isSite(b) || !first) return null;
 
   const price = rushPrice(b);
   const free = price === 0;
@@ -118,8 +120,9 @@ export function SiteTags() {
   if (covered || treasury || trades) return null;
   return (
     <>
-      {s.buildings
-        .filter((b) => isSite(b) && hosts.has(b.type))
+      {/* Ярлык — только над строящимся: ждущее в очереди не ускоряется (СТ-1). */}
+      {[currentSite(s)]
+        .filter((b): b is Building => b !== null && hosts.has(b.type))
         .map((b) => createPortal(<SiteTag b={b} />, hosts.get(b.type)!, `tag-${b.id}`))}
     </>
   );

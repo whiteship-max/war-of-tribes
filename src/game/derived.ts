@@ -15,6 +15,7 @@ import type {
   Season,
 } from './types';
 import {
+  BUILD_QUEUE_MAX,
   BONDED_OUTPUT,
   FEAST_COOLDOWN_DAYS,
   FEAST_COOLDOWN_PER_LEVEL,
@@ -132,8 +133,29 @@ export const buildingOfType = (s: GameState, type: BuildingTypeId): Building | n
 export const isOutsideWall = (type: BuildingTypeId): boolean =>
   BUILDING_BY_ID[type].outside === true;
 
-/** Первое улучшение в очереди — над ним работают свободные жители. */
-export const currentSite = (s: GameState): Building | null => s.buildings.find(isSite) ?? null;
+/**
+ * Очередь стройки по порядку (СТ-1, docs/ui_v2.md): постройки, на которых идёт улучшение. Порядок — `s.buildQueue`;
+ * улучшение, которого список не называет (партия до очереди), встаёт в хвост порядком построек; начатое (с работой) —
+ * всегда первым: работа ложится только на первое, и старая партия открывается с текущей стройкой впереди.
+ */
+export function buildQueue(s: GameState): Building[] {
+  const sites = s.buildings.filter(isSite);
+  const out: Building[] = [];
+  for (const id of s.buildQueue ?? []) {
+    const b = sites.find((x) => x.id === id);
+    if (b && !out.includes(b)) out.push(b);
+  }
+  for (const b of sites) if (!out.includes(b)) out.push(b);
+  const started = out.findIndex((b) => b.work > 0);
+  if (started > 0) out.unshift(...out.splice(started, 1));
+  return out;
+}
+
+/** Место постройки в очереди стройки, с единицы; не в очереди — 0. */
+export const queuePlace = (s: GameState, b: Building): number => buildQueue(s).indexOf(b) + 1;
+
+/** Первое улучшение в очереди — строящееся: над ним работают свободные жители. */
+export const currentSite = (s: GameState): Building | null => (s.buildings.some(isSite) ? buildQueue(s)[0] : null);
 
 // ---------- Уровни, слоты, улучшения ----------
 
@@ -260,6 +282,7 @@ export function upgradeInfo(s: GameState, b: Building): UpgradeInfo {
   let blocked: string | null = null;
   if (isSite(b)) blocked = 'Улучшение уже идёт.';
   else if (level > maxLevel) blocked = b.level <= 1 ? 'Это здание не улучшается.' : 'Высший уровень.';
+  else if (buildQueue(s).length >= BUILD_QUEUE_MAX) blocked = `Очередь стройки полна: ${BUILD_QUEUE_MAX} из ${BUILD_QUEUE_MAX}.`;
   else if (!affordable) blocked = 'Не хватает запасов.';
   return { level, cost, work, maxLevel, affordable, blocked };
 }
