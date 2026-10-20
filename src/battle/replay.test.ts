@@ -616,9 +616,11 @@ describe('потери по секторам: журнал знает, где в
         const end = UNIT_KINDS.reduce((n, k) => n + cell.final[k], 0);
         if (start <= 0) continue;
         const lost = r.phases.reduce((n, p) => n + (p.bySector?.[side]?.[sector] ?? 0), 0);
-        // Допуск — округление, и ничего сверх: итог сектора наружу целый (до ±0.5), а потеря фазы
-        // режется до десятых и ниже 0.05 не пишется (`lossBySector`, до ±0.05 на фазу).
-        expect(Math.abs(lost - (start - end)), `${side}/${sector}`).toBeLessThanOrEqual(0.5 + 0.05 * r.phases.length);
+        // Допуск — округление, и ничего сверх: итог сектора наружу целый по каждому виду (`sideResult`: до ±0.5 на вид,
+        // что стоит в секторе), а потеря фазы режется до десятых и ниже 0.05 не пишется (`lossBySector`, до ±0.05 на
+        // фазу). При W 95 край ровного боя — три вида по 40/40/15, и сумма трёх округлений уходит за ±0.5 (до −1.4).
+        const kinds = UNIT_KINDS.filter((k) => cell.initial[k] > 0).length;
+        expect(Math.abs(lost - (start - end)), `${side}/${sector}`).toBeLessThanOrEqual(0.5 * kinds + 0.05 * r.phases.length);
       }
     }
   });

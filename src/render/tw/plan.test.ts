@@ -267,6 +267,9 @@ describe('ролик TW: хореография по журналу', () => {
   const big = planOf(`replay=tw&men=${atW(3000)}&foe=${atW(2600)}&seed=9&place=road&hour=13`);
   // Неровный бой: меньший ломается, и у большего есть кому гнать.
   const uneven = planOf(`replay=tw&men=${atW(900)}&foe=${atW(400)}&seed=4`);
+  // Ранний слом: ближний к коннице отряд бежит раньше слома своей стороны (погоня «недавно»), и давление по полосам в нём
+  // видно дольше всего — при W 95 у `big` и `uneven` вместе заметная разница потерь только в двух точках.
+  const early = planOf(`replay=tw&men=${atW(600)}&foe=${atW(300)}&seed=7`);
 
   it('резерв входит понемногу: фигур в полосы уходит не больше, чем людей ввёл журнал, и не разом', () => {
     for (const side of ['attacker', 'defender'] as const) {
@@ -308,9 +311,8 @@ describe('ролик TW: хореография по журналу', () => {
   });
 
   it('гонит только тот, кто быстрее бегущего (скорость рода ядра), и только недавно побежавших', () => {
-    // Бой, где ближний к коннице отряд бежал раньше слома своей стороны больше чем на срок погони: правило «недавно» в
-    // нём спрашивается (самопроверка: давно бежавший был бы ближней целью).
-    const early = planOf(`replay=tw&men=${atW(600)}&foe=${atW(300)}&seed=7`);
+    // `early` — бой, где ближний к коннице отряд бежал раньше слома своей стороны больше чем на срок погони: правило
+    // «недавно» в нём спрашивается (самопроверка: давно бежавший был бы ближней целью).
     const chasers = [big, uneven, early].flatMap((p) => p.units.filter((u) => u.chase).map((u) => ({ u, e: p.units[u.chase!.target] })));
     const stale = early.units.some((e) => e.fleeAt !== null && e.row !== 'general' && e.fleeAt < Math.min(early.brokenAt.attacker ?? Infinity, early.brokenAt.defender ?? Infinity) - CHASE_SECONDS);
     expect(stale, 'граница области: давно бежавший отряд в бою есть').toBe(true);
@@ -379,7 +381,7 @@ describe('ролик TW: хореография по журналу', () => {
 
   it('линия полосы уходит к тому, кто в ней теряет больше', () => {
     let checked = 0;
-    for (const p of [big, uneven]) {
+    for (const p of [big, uneven, early]) {
       for (let slot = 0; slot < 3; slot++) {
         for (let t = p.clashAt + 0.5; t < p.timing.melee[1]; t += 1) {
           const v = pushOf(p, slot, t);
