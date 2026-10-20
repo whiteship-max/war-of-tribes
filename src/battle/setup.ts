@@ -3,16 +3,18 @@
 // входит в бой. Сектора остались полем входа — их заполняет правило, а до поставки 2 и раскладка
 // обороны игрока.
 import { FRONT_WIDTH } from './config';
-import { FRONT, REAR, SECTORS, UNIT_KINDS, type ArmySetup, type Sector, type Stack } from './types';
+import { FRONT, REAR, SECTORS, UNIT_KINDS, type ArmySetup, type Sector, type Stack, type UnitKind } from './types';
 
 export const emptyStack = (): Stack => ({ spear: 0, infantry: 0, archer: 0, cavalry: 0, heavy: 0 });
 
 export const stackOf = (part: Partial<Stack>): Stack => ({ ...emptyStack(), ...part });
 
+/** Рода ядра своим именем: под vite-node (отчёты) импорт читается через свойство модуля на каждом обращении. */
+const KINDS: readonly UnitKind[] = UNIT_KINDS;
 export const stackTotal = (s: Stack): number => {
   // Та же сумма в том же порядке, что `reduce` от нуля, — циклом: её зовут в каждом обходе групп боя.
   let n = 0;
-  for (const k of UNIT_KINDS) n += s[k];
+  for (let i = 0; i < KINDS.length; i++) n += s[KINDS[i]];
   return n;
 };
 

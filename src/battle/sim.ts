@@ -181,9 +181,11 @@ const stands = (n: number): boolean => n >= EPS;
  * нечем: сторона не ломалась, и бой стоял до потолка кругов (docs/battle_eu4.md, 14.25–14.27; слово владельца).
  * Открыта наружу ради теста «тень перебита»: правило проверяется этой самой функцией, а не своей копией.
  */
+/** Рода ядра своим именем: под vite-node (отчёты) импорт читается через свойство модуля на каждом обращении. */
+const KINDS: readonly UnitKind[] = UNIT_KINDS;
 export const standing = (stack: Stack): boolean => {
   // Циклом, а не `UNIT_KINDS.some(…)`: то же правило, без замыкания на каждую проверку — её зовут в каждом обходе групп.
-  for (const k of UNIT_KINDS) if (stands(stack[k])) return true;
+  for (let i = 0; i < KINDS.length; i++) if (stack[KINDS[i]] >= EPS) return true;
   return false;
 };
 const alive = (g: Group): boolean => standing(g.stack);
