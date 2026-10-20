@@ -2354,7 +2354,8 @@ export class LocalWorld implements WorldApi {
     for (const r of this.save.reports) {
       const site = r.battle?.site;
       if (!site || r.target.id !== id || r.at < since || r.at > at) continue;
-      fights.push({ at: r.at, site, won: r.won, report: r.id });
+      // Вылазка на пост кольца (Р-5) — бой за кольцо: донесение `breakout…` (`LocalWorld.breakout`).
+      fights.push({ at: r.at, site, won: r.won, report: r.id, ...(r.id.startsWith('breakout') ? { ring: true as const } : {}) });
     }
     const spot = home ? this.save.home : (this.byId.get(id) ?? this.save.home);
     return siegeRecordOf(
@@ -9966,6 +9967,7 @@ export class LocalWorld implements WorldApi {
         won: b.won === (b.by === ours),
         report: `war-${b.id}`,
         ...(b.burn ? { machine: b.burn } : {}),
+        ...(b.breakout ? { ring: true as const } : {}),
         ...(b.ally ? { ally: true as const } : {}),
       }));
     return siegeRecordOf(

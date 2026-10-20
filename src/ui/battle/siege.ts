@@ -1,8 +1,10 @@
 // Запись осады из донесения → вход ролика осады (docs/gfx.md, ГФ-2). Ролик мира не читает (как ролик боя): что посчитала
 // осада, сюда переводят двери мира — те же, что у окна осады, — и только они:
 //   проломы после каждой фазы — `siegeroll.breachesOf` по фазам до неё включительно;
-//   залп фазы — `volleyIn`; камнемёт к броску — `machines.mangonelAt`;
-//   готовность, трата и пожар машин — `machines.machinesAt` (сожжённая — минута пожара в `MachineOrder.spent`);
+//   залп фазы — `volleyIn`; камнемёт и требушет к броску и их цель — `shelling.artilleryAt`, `artilleryAimOf` (Р-5);
+//   выстрелы фазы по городу и требушета на стене — строка журнала (`PhaseRow.shots`, `.gun`); кольцо — `blockade.blockadeAt`;
+//   готовность, трата и пожар машин — `machines.machinesAt` (сожжённая — минута пожара в `MachineOrder.spent`, разбитая
+//   выстрелом — так же, `MachineOrder.broke`);
 //   выбитое башней — запись (`SiegeRecord.thinned`: то же число, что мир списал с лагеря; считает его только мир);
 //   свет минуты — час племени (`derived.solarPhase` от игрового времени: минута раньше конца — время раньше на столько же).
 // Подписи эпизодов с числами — тоже словами мира: строка журнала фазы (`siegeroll.phaseText`), имена машин
@@ -20,6 +22,9 @@ import { siegeSince } from '@/world/siege';
 import { OUT_NAMES, breachesOf, phaseOf, phaseText, repairDoneAt, repairsOf, rowsOf, volleyIn } from '@/world/siegeroll';
 import { SIEGE_PHASE } from '@/world/data/siegeroll';
 import { MACHINE_NAME, machinesAt, mangonelAt } from '@/world/machines';
+import { artilleryAimOf, artilleryAt } from '@/world/shelling';
+import { BLOCKADE_GIVES, blockadeAt } from '@/world/blockade';
+import { BUILDING_BY_ID } from '@/game/data/buildings';
 import { FATE_META } from '@/world/data/fates';
 import type { Report } from '@/world/types';
 import { foeArmsCode, ownArmsCode } from './coats';
@@ -57,7 +62,15 @@ export function showOfSiege(rec: SiegeRecord, report?: Report): SiegeShow {
       breaches: breachesOf(w, rows.slice(0, k), row.at),
       repaired: fixes.filter((t) => t > prev && t <= row.at).length,
       volley: volleyIn(w, k),
-      mangonel: mangonelAt(w, row.at),
+      // По стенам — только когда цель стены (Р-5): по городу и машинам артиллерия даёт выстрелы, а не грани.
+      mangonel: mangonelAt(w, row.at) && artilleryAimOf(w, row.at) === 'wall',
+      trebuchet: artilleryAt(w, row.at).includes('trebuchet') && artilleryAimOf(w, row.at) === 'wall',
+      shots: (row.shots ?? []).length,
+      hits: (row.shots ?? []).filter((s) => s.hit).length,
+      gunShots: (row.gun ?? []).length,
+      gunHits: (row.gun ?? []).filter((s) => s.hit).length,
+      ...((row.gun ?? []).some((s) => s.hit && s.machine) ? { broke: (row.gun ?? []).filter((s) => s.hit && s.machine).map((s) => s.machine as ShowMachine) } : {}),
+      ring: blockadeAt(w, row.at),
       waste: row.waste,
       solar: solarOf(rec, row.at),
     };
@@ -70,8 +83,10 @@ export function showOfSiege(rec: SiegeRecord, report?: Report): SiegeShow {
     return {
       id: m.id as ShowMachine,
       ready: ready === null ? null : Math.min(ready, endK),
-      spent: m.spent !== undefined && !m.burned,
-      burned: m.burned && m.spent !== undefined ? phaseAtMs(rec, m.spent) : null,
+      spent: m.spent !== undefined && !m.burned && !m.broke,
+      // Разбитая выстрелом со стены (Р-5) уходит из ролика так же, как сожжённая: в фазу, когда её не стало.
+      burned: (m.burned || m.broke) && m.spent !== undefined ? phaseAtMs(rec, m.spent) : null,
+      ...(m.broke ? { broken: true } : {}),
       solar: solarOf(rec, Math.min(rec.end.at, Number.isFinite(m.readyAt) ? m.readyAt : rec.end.at)),
     };
   });
@@ -80,6 +95,7 @@ export function showOfSiege(rec: SiegeRecord, report?: Report): SiegeShow {
     site: f.site,
     won: f.won,
     ...(f.machine ? { machine: f.machine } : {}),
+    ...(f.ring ? { ring: true } : {}),
     ...(f.ally ? { ally: true } : {}),
     ...(f.report ? { report: f.report } : {}),
     ...(f.at >= rec.end.at ? { end: true } : {}),
@@ -155,7 +171,10 @@ export function captionOf(rec: SiegeRecord, ep: Episode, report?: Report): strin
     case 'volley':
     case 'plague':
     case 'short':
-      return row ? phaseText(row, ep.k) : OUT_NAMES.calm;
+    case 'shelling':
+      return row ? phaseText(row, ep.k, buildingName, (id) => MACHINE_NAME[id]) : OUT_NAMES.calm;
+    case 'ring':
+      return ringWords(rec, ep.k);
     case 'sortie':
     case 'relief':
     case 'assault':
@@ -169,9 +188,18 @@ export function captionOf(rec: SiegeRecord, ep: Episode, report?: Report): strin
   }
 }
 
+/** Имя постройки по ключу — для строки журнала с выстрелами по городу. */
+const buildingName = (b: string): string => BUILDING_BY_ID[b as keyof typeof BUILDING_BY_ID]?.name ?? b;
+
+/** Кольцо блокады замкнуто к броску фазы `k` — словами двери кольца (`world/blockade`). */
+function ringWords(rec: SiegeRecord, k: number): string {
+  return `${rec.us === 'atk' ? 'Кольцо замкнуто' : 'Лагерь замкнул кольцо'} к ${k}-й фазе. ${BLOCKADE_GIVES}`;
+}
+
 function fightWords(ep: Episode): string {
   const f = ep.fight;
   if (!f) return '';
+  if (f.ring) return `Вылазка на пост кольца: ${f.won ? 'кольцо прорвано' : 'пост устоял'}.`;
   if (f.machine) return `Вылазка на машину «${MACHINE_NAME[f.machine].toLowerCase()}»: ${f.won ? 'сожгли' : 'отбита'}.`;
   if (fightEpisode(f.site) === 'assault') return f.won ? 'Штурм: город взят.' : 'Штурм отбит, осада идёт дальше.';
   if (f.site === 'joint') return f.won ? 'Клещи: гарнизон из ворот и дружина с поля — лагерь разбит.' : 'Клещи: лагерь устоял.';
