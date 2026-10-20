@@ -5,10 +5,10 @@
 import { useGame } from '@/game/store';
 import { dayFraction, seasonOf, solarPhase } from '@/game/derived';
 import { marchesOnHome, useWorld } from '@/world/store';
-import { feastClock, forcedMood, moodOf } from '@/render/city/rhythm';
+import { feastClock, forcedMood, moodOf, mournClock } from '@/render/city/rhythm';
 import { landShare } from '@/world/land';
 import { levelNow } from '@/render/gfx';
-import { cityNear } from '../ear';
+import { cityNear, skitsHeard } from '../ear';
 import { cityAudio } from '../city';
 import { Ambience, type Hearing } from './ambience';
 import { EpochMusic } from './music';
@@ -58,7 +58,8 @@ function hearing(): Hearing {
     // Погода над городом — та же, что видит сцена (docs/city.md, 15).
     wx: { ...weatherNow(g.s), cover: coverNow(g.s) },
     // Состояние города — тем же судьёй, что у вида (docs/city_v3.md, ЖГ-1): тревога, праздник, голод, мор, мораль.
-    life: forcedMood(location.search) ?? moodOf(g.s, marchesOnHome(w.marches, w.info?.homeId).length > 0, feastClock.observe(g.s)),
+    skits: skitsHeard(),
+    life: forcedMood(location.search) ?? moodOf(g.s, marchesOnHome(w.marches, w.info?.homeId).length > 0, feastClock.observe(g.s), mournClock.observe(g.s)),
   };
 }
 

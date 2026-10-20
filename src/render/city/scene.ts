@@ -14,10 +14,11 @@ import { hearCity } from '@/sound/ear';
 import { WORK_SIGN, workBusy } from '../worksigns';
 import type { V3 } from './geom';
 import { CityLife, type Anchor } from './life';
-import { feastClock, forcedMood, lookOf, moodOf, rhythmAt, CALM_MOOD, type CityMood } from './rhythm';
+import { feastClock, forcedMood, lookOf, moodOf, mournClock, rhythmAt, CALM_MOOD, type CityMood } from './rhythm';
 import { marchesOnHome, useWorld } from '@/world/store';
 import type { CityBustle } from './alive';
 import type { CityGarrison } from './garrison';
+import type { CitySkits } from './skitview';
 import type { CityDeeds } from './deeds';
 import type { SiteTags } from './tags';
 import type { CityLabels, LabelSpot } from './labels';
@@ -47,6 +48,7 @@ import {
   INSIDE_SHADOW_AHEAD,
   labelsAlpha,
   shadowSnap,
+  zoomShare,
   showDist,
   type CamPose,
 } from './camera';
@@ -127,6 +129,8 @@ export class CityScene extends TribeScene {
   private bustle: CityBustle | null = null;
   /** Стража бойцами роликов (`garrison.ts`, docs/polish.md, П-5) — своим куском вместе с суетой. */
   private garrison: CityGarrison | null = null;
+  /** Сценки жителей вблизи (`skitview.ts`, docs/city_v3.md, ЖГ-2) — своим куском вместе с суетой. */
+  private skits: CitySkits | null = null;
   private bustleWanted = false;
   /**
    * Отклик на дела игрока — стройка лесами, праздник готовности, найм строем, добыча над дворами (docs/city.md, 14):
@@ -489,6 +493,7 @@ export class CityScene extends TribeScene {
   override lowerTo(next: Quality): void {
     super.lowerTo(next);
     this.precip?.setLevel(this.dprLevel);
+    this.skits?.setLevel(this.dprLevel);
     // Вода — тем же уровнем: рябь, круги дождя и огни в ней режутся сразу, без пересборки (docs/polish.md, П-8).
     lowerWater(this.scene, CITY_SPEC[this.dprLevel].detail);
     // Огни — тем же уровнем: настоящих меньше, остальные гаснут наплывом в пятна; в покоях — ещё на ступень ниже
@@ -621,7 +626,18 @@ export class CityScene extends TribeScene {
       }
       // Огни ночи (docs/polish.md, П-9): загораются по одному, мерцают; настоящие — ближние к взгляду.
       c.rig.update(t, dt, night, this.eye.x, this.eye.z, this.camera, this.renderer.domElement.height);
-      this.folk?.update(dt, t, night, this.seasonVis.snow, rhythmAt(this.solar));
+      const rh = rhythmAt(this.solar);
+      this.folk?.update(dt, t, night, this.seasonVis.snow, rh);
+      // Сценки — только при максимальном приближении и не из покоев (ЖГ-2): по часу, погоде и состоянию города.
+      this.skits?.update(t, this.camera, this.eye, zoomShare(this.dist, this.zoom), this.inside !== null, {
+        solar: this.solar,
+        rh,
+        mood: this.mood,
+        rain: w.rain,
+        snow: w.snow,
+        storm: w.storm,
+        winter: this.season === 'winter',
+      });
       this.garrison?.update(t, this.camera);
       // Колесо лесопилки крутится и брызжет — от времени (ручей не мёрзнет).
       c.mill?.update(t);
@@ -692,6 +708,15 @@ export class CityScene extends TribeScene {
         this.bustle.setArms(this.lastState?.profile.arms);
         lightScene(this.bustle.group, c.uniforms);
         this.scene.add(this.bustle.group);
+      })
+      .catch(() => undefined);
+    // Сценки жителей вблизи — своим куском (ЖГ-2); не пришёл — город живёт без них.
+    import('./skitview')
+      .then(({ CitySkits }) => {
+        if (this.disposed || this.town !== c) return;
+        this.skits = new CitySkits({ plan: c.plan, sites: this.sites, quality: this.dprLevel });
+        lightScene(this.skits.group, c.uniforms);
+        this.scene.add(this.skits.group);
       })
       .catch(() => undefined);
     // Стража — те же бойцы, что в роликах: своим куском; не пришёл — стоят прежние фигуры стражи.
@@ -859,7 +884,8 @@ export class CityScene extends TribeScene {
    */
   private moodNow(s: GameState): void {
     const until = feastClock.observe(s);
-    this.mood = (typeof location !== 'undefined' ? forcedMood(location.search) : null) ?? moodOf(s, this.threat, until);
+    const mourn = mournClock.observe(s);
+    this.mood = (typeof location !== 'undefined' ? forcedMood(location.search) : null) ?? moodOf(s, this.threat, until, mourn);
     // Трактир и амбар живут своим распорядком, в храме служат внутри — у них работников у фасада нет.
     const busy = s.buildings.filter((b) => (s.workers[b.id] ?? 0) > 0 && b.type !== 'tavern' && b.type !== 'storage' && b.type !== 'church').map((b) => b.type);
     const key = busy.join(',');
@@ -1031,6 +1057,8 @@ export class CityScene extends TribeScene {
     this.unThreat = null;
     this.garrison?.dispose();
     this.garrison = null;
+    this.skits?.dispose();
+    this.skits = null;
     this.folk?.dispose();
     this.folk = null;
     this.bustle?.dispose();

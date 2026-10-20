@@ -101,6 +101,16 @@ export const peopleTris = (q: Quality, n: number): number => {
 /** Копейщиков у каждых ворот: по двое с каждой стороны проезда (`life.GATE_POSTS`). */
 export const GATE_GUARDS = 4;
 
+/**
+ * Сценки жителей вблизи (docs/city_v3.md, ЖГ-2): сколько играет разом и потолок фигур и вещей одной сценки — бюджету.
+ * «Среднее» — тесное: две сценки; на «Низком» — одна, коробками без шага.
+ */
+export const SKITS_CAP: Record<Quality, { slots: number }> = { low: { slots: 1 }, medium: { slots: 2 }, high: { slots: 3 } };
+/** Фигур и вещей в самой большой сценке (стадо пастуха — двенадцать, похороны — десять, `skits.SKITS`). */
+export const SKIT_FIGURES = 12;
+/** Вещь сценки — одна коробка (`figure` из одной части): двенадцать треугольников. */
+export const SKIT_PROP_TRIS = 12;
+
 /** Ночной дозор по улицам (docs/city_v3.md, ЖГ-1) — сколько стражников гуськом, по уровню: те же копейщики ворот. */
 export const PATROL: Record<Quality, number> = { low: 2, medium: 2, high: 3 };
 
