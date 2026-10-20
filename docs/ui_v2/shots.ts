@@ -417,6 +417,8 @@ const GROUPS: Record<string, Step[]> = {
       run: `(async () => {
         window.__ui.reset();
         const S = await import('/src/world/store.ts');
+        const B = await import('/src/world/blockade.ts');
+        const Sh = await import('/src/world/shelling.ts');
         const now = S.worldNow();
         const H = 3600000;
         window.__game.getState().act((st) => { st.army.clubman = 30; st.army.archer = 12; st.army.spearman = 8; });
@@ -429,8 +431,15 @@ const GROUPS: Record<string, Step[]> = {
             fall: { goods: 640, gold: 80, hidden: 60, ledBonded: 0, ledPop: 0, scatterPop: 0, scatterBonded: 0, buildings: 3, levels: 1, burnsWorks: false, routed: 0 },
             fire: { thin: 0.06, cap: 0.2, slow: 0.15 },
             phases: { journal: ['Фаза 2: кость 9 + 1 — пролом.', 'Фаза 1: кость 5 — стена держит.'], next: '+1 пролом, −2 стена', nextAt: now + 1.5 * H, nextK: 3, breaches: 1, progress: 2 },
-            answers: { repair: { cost: { wood: 80, stone: 40 }, reason: null, doneAt: null }, ration: { on: false, starvesAt: now + 20 * H }, surrender: 'captives', burn: [{ machine: 'ram', name: 'Таран', ready: true, guard: 40 }], reliefs: [], defend: { repair: true } },
+            answers: {
+              repair: { cost: { wood: 80, stone: 40 }, reason: null, doneAt: null }, ration: { on: false, starvesAt: now + 20 * H }, surrender: 'captives', burn: [{ machine: 'ram', name: 'Таран', ready: true, guard: 40 }], reliefs: [], defend: { repair: true },
+              // Р-5: требушет на стене (строится) и вылазка на пост кольца — словами дверей обстрела и кольца.
+              gun: { state: 'building', readyAt: now + 2 * H, cost: { wood: 80, stone: 40 }, span: 5 * H, can: false, reason: 'Требушет на стене уже строят.', aim: 'machines', options: [{ aim: 'camp', name: Sh.GUN_AIM_NAME.camp, gives: Sh.gunAimWords('camp') }, { aim: 'machines', name: Sh.GUN_AIM_NAME.machines, gives: Sh.gunAimWords('machines') }] },
+              breakout: { guard: 30, gives: B.BREAKOUT_GIVES },
+            },
             parley: { side: 'def', share: 0.32, fair: 210, block: null, bot: true },
+            blockade: { on: true, since: now - 4 * H, ratio: '×5,2', need: 4, can: false, reason: null, gives: B.BLOCKADE_GIVES, breaks: B.BLOCKADE_BREAKS },
+            idle: ['smithy'],
           },
         });
         window.__game.getState().openSiege();
@@ -441,11 +450,21 @@ const GROUPS: Record<string, Step[]> = {
       tabs: true,
     },
     { name: '161-siege-end', run: `(() => { const e = window.__ui.scroller(); if (!e) return JSON.stringify('нет окна'); e.scrollTop = e.scrollHeight; return JSON.stringify('ok'); })()`, wait: 600 },
+    // Р-5: «Ответы» до конца — требушет на стене (цена, срок, куда бьёт) и вылазка на пост кольца.
+    {
+      name: '166-answers-end',
+      run: `(async () => { const t = [...document.querySelectorAll('[role=tab]')].find((x) => x.textContent.includes('Ответы')); if (!t) return JSON.stringify('нет вкладки'); t.click(); await new Promise((r) => setTimeout(r, 400)); const e = window.__ui.scroller(); if (!e) return JSON.stringify('нет окна'); e.scrollTop = e.scrollHeight; return JSON.stringify('ok'); })()`,
+      wait: 700,
+    },
     { name: '162-sortie', run: `(() => { window.__game.getState().openSortie(); return JSON.stringify('ok'); })()`, wait: 1000, full: true },
+    // Р-5: вылазка на пост кольца — тем же экраном вылазки.
+    { name: '165-ring-sortie', run: `(() => { window.__game.getState().openSortie('ring'); return JSON.stringify('ok'); })()`, wait: 1000, full: true },
     {
       name: '163-camp',
       run: `(async () => {
         const S = await import('/src/world/store.ts');
+        const B = await import('/src/world/blockade.ts');
+        const Sh = await import('/src/world/shelling.ts');
         const now = S.worldNow();
         const H = 3600000;
         S.useWorld.setState({
@@ -469,10 +488,22 @@ const GROUPS: Record<string, Step[]> = {
               list: [
                 { id: 'ladders', name: 'Лестницы', use: 'Треть стены без пролома.', wood: 0.2, state: 'ready', can: false, reason: 'Уже стоят' },
                 { id: 'ram', name: 'Таран', use: 'Ворота в первую минуту штурма.', wood: 0.5, state: 'building', readyAt: now + 3 * H, can: false, reason: 'Строится' },
+                { id: 'trebuchet', name: 'Требушет', use: 'кость фазы +2 или два выстрела за фазу', wood: 0.5, state: 'ready', can: false, reason: 'Уже стоит' },
               ],
               methods: [{ machine: 'ladders', words: 'Лестницы — треть стены без пролома' }],
             },
             parley: { side: 'atk', share: 0.4, terms: ['captives'], block: null, bot: true },
+            // Р-5: цель машин и кольцо — словами дверей обстрела и кольца; лагерю мощи на кольцо мало.
+            aim: {
+              now: 'wall',
+              artillery: [{ id: 'trebuchet', name: 'Требушет', weight: 2 }],
+              options: [
+                { aim: 'wall', name: Sh.AIM_NAME.wall, gives: Sh.aimWords('wall', 2), can: false, reason: null },
+                { aim: 'town', name: Sh.AIM_NAME.town, gives: Sh.aimWords('town', 2), can: false, reason: 'Построек у них нет — по городу бить нечего.' },
+                { aim: 'engines', name: Sh.AIM_NAME.engines, gives: Sh.aimWords('engines', 2), can: false, reason: 'Стены у них нет — и машин на ней нет.' },
+              ],
+            },
+            blockade: { on: false, ratio: '≈×3,1', need: 4, can: false, reason: 'Для кольца лагерь должен быть вчетверо сильнее гарнизона: сейчас ≈×3,1.', gives: B.BLOCKADE_GIVES, breaks: B.BLOCKADE_BREAKS },
           },
         });
         window.__game.getState().openCamp();
@@ -483,6 +514,12 @@ const GROUPS: Record<string, Step[]> = {
       tabs: true,
     },
     { name: '164-camp-end', run: `(() => { const e = window.__ui.scroller(); if (!e) return JSON.stringify('нет окна'); e.scrollTop = e.scrollHeight; return JSON.stringify('ok'); })()`, wait: 600 },
+    // Р-5: «Машины» до конца — цена в лесе и «Куда бьют машины».
+    {
+      name: '167-camp-machines-end',
+      run: `(async () => { const t = [...document.querySelectorAll('[role=tab]')].find((x) => x.textContent.includes('Машины')); if (!t) return JSON.stringify('нет вкладки'); t.click(); await new Promise((r) => setTimeout(r, 400)); const e = window.__ui.scroller(); if (!e) return JSON.stringify('нет окна'); e.scrollTop = e.scrollHeight; return JSON.stringify('ok'); })()`,
+      wait: 700,
+    },
   ],
   // UI-8 (docs/ui_v2.md, 5.7): решения владельца по 6.1–6.23 и оставшиеся дубли. Город — ячейки запасов (6.3); ратуша —
   // группы порядком «Группы» («Город», мастерская — «Сырьё»), лист самой ратуши в её окне (Д4) и лист стройки (Д5);

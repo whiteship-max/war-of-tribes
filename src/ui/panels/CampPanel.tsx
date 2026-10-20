@@ -34,6 +34,7 @@ import { Toggle } from '@/ui/kit/Toggle';
 import './siege.css';
 import { Icon } from '@/ui/icons/Icon';
 import { num } from '@/game/num';
+import { aimShort } from '@/world/shelling';
 import { iconName } from '@/ui/icons/registry';
 
 /**
@@ -186,6 +187,7 @@ export function CampPanel() {
   ];
   const shown = tabs.some((t) => t.id === view) ? view : 'camp';
   const methods = camp.machines?.methods ?? [];
+  const aimWeight = (camp.aim?.artillery ?? []).reduce((n, a) => n + a.weight, 0);
   const using = use ?? methods.map((x) => x.machine);
 
   return (
@@ -320,12 +322,21 @@ export function CampPanel() {
                     aim: (
                       <span className="kit-two">
                         <b className="one-line">{o.name}</b>
-                        <small className={o.can || camp.aim!.now === o.aim ? '' : 'bad'}>{o.can || camp.aim!.now === o.aim ? o.gives : o.reason}</small>
+                        <small className={o.can || camp.aim!.now === o.aim ? '' : 'bad'}>{o.can || camp.aim!.now === o.aim ? aimShort(o.aim, aimWeight) : 'нельзя'}</small>
                       </span>
                     ),
                   },
                 }))}
               />
+              {/* Выбранная цель словами целиком и отказы остальных — под таблицей: в строке выбора им тесно. */}
+              <p className="note">{camp.aim.options.find((o) => o.aim === camp.aim!.now)?.gives}</p>
+              {camp.aim.options
+                .filter((o) => !o.can && o.aim !== camp.aim!.now && o.reason)
+                .map((o) => (
+                  <p className="note bad" key={o.aim}>
+                    {o.name}: {o.reason}
+                  </p>
+                ))}
               <p className="note">
                 {camp.aim.artillery.length
                   ? `Бьют: ${camp.aim.artillery.map((a) => a.name.toLowerCase()).join(', ')}.`

@@ -180,6 +180,11 @@ const SHOTS: Shot[] = [
   { name: 'siege-gates', query: SIEGE('gates', 'gates@0.45'), why: 'осада: сдача — ворота настежь, гарнизон уходит колонной, лагерь коридором' },
   { name: 'siege-gates-enter', query: SIEGE('gates', 'gates@0.92'), why: 'осада: лагерь входит в город воротами' },
   { name: 'siege-fate', query: SIEGE('gates', 'fate@0.7'), why: 'осада: участь «ограбить» — обоз с добром из ворот к лагерю' },
+  // Р-5 (docs/siege_v2.md, 21): кольцо блокады, обстрел города и требушет на стене, развязка голодом в кольце.
+  { name: 'siege-ring', query: SIEGE('ring', 'ring@0.7'), why: 'осада: кольцо замкнуто — посты лагеря по фронту стены, вид со своей стены' },
+  { name: 'siege-ring-atk', query: `${SIEGE('ring', 'ring@0.7')}&us=atk`, why: 'осада: кольцо замкнуто — посты лагеря по фронту стены, вид из лагеря' },
+  { name: 'siege-shelling', query: SIEGE('ring', 'shelling@0.6'), why: 'осада: требушет лагеря бьёт по крышам, требушет на стене разбил таран' },
+  { name: 'siege-ring-hunger', query: SIEGE('ring', 'hunger@0.6'), why: 'осада: город в кольце доели голодом' },
   { name: 'siege-storm', query: SIEGE('storm', 'storm@0.5'), why: 'осада: штурм — таран в ворота, башня к стене, лестницы' },
   { name: 'siege-storm-late', query: SIEGE('storm', 'storm@0.9'), why: 'осада: ворота выбиты, лезут на ход' },
   { name: 'siege-burn', query: SIEGE('hunger', 'fate@0.85'), why: 'осада: голод и участь «сжечь» — город в огне и дыму' },

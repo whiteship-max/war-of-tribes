@@ -842,17 +842,19 @@ function ringEp(c: Ctx, t0: number, len: number): void {
   const w = c.lay.wall;
   if (!w) return;
   const pool = c.groups.camp.filter((i) => c.alive[i] && c.tr.standing(i, t0));
-  const per = Math.max(1, Math.min(4, Math.floor(pool.length / (POSTS.length * 2))));
+  const per = Math.max(1, Math.min(6, Math.floor(pool.length / (POSTS.length * 2))));
   POSTS.forEach((f, j) => {
     const px = f * w.halfX;
-    const pz = w.z - 9 - (j % 2) * 2;
+    // Посередине между стеной и рогатками: видно и со стены, и с поля.
+    const pz = (w.z + STAKES_Z) / 2 - (j % 2) * 2;
     for (const [n, i] of nearest(c, pool, px, pz, per, t0).entries()) {
       c.tr.go(i, t0 + 0.3 + n * 0.15, t0 + 2.4 + n * 0.15, px + (n - (per - 1) / 2) * 1.2, pz, 'march', 'guard', FACE_IN);
       goHome(c, i, t0 + len - 0.9, t0 + len + LAPSE * 0.6);
     }
   });
-  key(c, t0, box(-w.halfX, w.halfX, -36, 2), 0.2, 0.62);
-  key(c, t0 + 2.6, box(-w.halfX * 0.6, w.halfX * 0.6, -18, 4), -0.2, 0.42);
+  // С поля, из-за лагеря: посты — перед стеной, город — за ними.
+  key(c, t0, box(-w.halfX, w.halfX, -30, 6), Math.PI + 0.2, 0.5);
+  key(c, t0 + 2.6, box(-w.halfX * 0.6, w.halfX * 0.6, -16, 4), Math.PI - 0.25, 0.36);
 }
 
 function breachEp(c: Ctx, t0: number, len: number, p: ShowPhase, before: number): number {

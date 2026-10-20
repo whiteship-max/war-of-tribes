@@ -22,6 +22,7 @@ import { realLeft } from '@/ui/parts/wait';
 import { plural } from '@/ui/parts/plural';
 import { Icon } from '@/ui/icons/Icon';
 import { Table, type Col } from '@/ui/kit/Table';
+import { gunAimShort } from '@/world/shelling';
 
 /** Цель требушета на стене — выбор строкой таблицы набора (Р-5). */
 const GUN_AIM_COLS: readonly Col[] = [{ key: 'aim', title: 'Куда бьёт требушет' }];
@@ -136,7 +137,7 @@ export function SiegeAnswers({ siege, now }: { siege: SiegeView; now: number }) 
                 aim: (
                   <span className="kit-two">
                     <b className="one-line">{o.name}</b>
-                    <small>{o.gives}</small>
+                    <small>{gunAimShort(o.aim)}</small>
                   </span>
                 ),
               },

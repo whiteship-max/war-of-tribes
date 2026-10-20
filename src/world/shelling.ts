@@ -243,6 +243,16 @@ export function aimWords(aim: Aim, weight: number): string {
   return `${shotsWord(weight)} за фазу по требушету на стене, попадает каждый второй: попадание его разбивает. К кости ничего.`;
 }
 
+/** Цель артиллерии лагеря — коротко, строкой выбора: «кость фазы +3», «3 выстрела по постройкам». */
+export function aimShort(aim: Aim, weight: number): string {
+  if (weight <= 0) return 'машин нет';
+  if (aim === 'wall') return `кость фазы +${weight}`;
+  return `${shotsWord(weight)} за фазу по ${aim === 'town' ? 'постройкам' : 'требушету на стене'}`;
+}
+
+/** Цель требушета на стене — коротко, строкой выбора. */
+export const gunAimShort = (aim: GunAim): string => `${shotsWord(ARTILLERY_WEIGHT[GUN_ID])} за фазу по ${aim === 'camp' ? 'лагерю' : 'машинам у стены'}`;
+
 /** Что даст цель требушета на стене — строкой окна. */
 export function gunAimWords(aim: GunAim): string {
   const n = ARTILLERY_WEIGHT[GUN_ID];

@@ -156,7 +156,7 @@ export function SortiePanel({ machine, ring }: { machine?: MachineId; ring?: boo
             <div className="title">{post ? `Пост кольца — ${post.guard} ${plural(post.guard, 'боец', 'бойца', 'бойцов')}` : 'Кольца нет'}</div>
             <div className="desc">
               {post
-                ? `Четверть лагеря у ворот. Выходят ${men} ${plural(men, 'боец', 'бойца', 'бойцов')}. ${post.gives}`
+                ? `Четверть лагеря у ворот.${men > 0 ? ` Выходят ${men} ${plural(men, 'боец', 'бойца', 'бойцов')}.` : ''} ${post.gives}`
                 : 'Кольцо уже разомкнуто — прорывать нечего.'}
             </div>
           </div>
