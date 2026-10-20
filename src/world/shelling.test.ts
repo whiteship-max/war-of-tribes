@@ -4,7 +4,10 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { openSiege, type SiegeWindow } from './siege';
 import { artilleryAt, gunAfter, gunBlock, gunReady, gunTarget, gunsAt, idleBuildings, lostLevel, machineFaces, phaseShots } from './shelling';
-import { blockadeAfter, blockadeAt, blockadeBlock, blockadeHolds, blockadeSince } from './blockade';
+import { BREAKOUT_SHARE, blockadeAfter, blockadeAt, blockadeBlock, blockadeHolds, blockadeSince } from './blockade';
+import { guardKinds, machineFight } from './fights';
+import { emptyStack, stackTotal } from '@/battle';
+import { BLOCKADE_POSTS } from './data/blockade';
 import { machineAfter, machinesAt } from './machines';
 import { modsOf, phaseAt, rollPhase, setPhaseDie, wasteOf, type SiegeDeed } from './siegeroll';
 import { ARTILLERY_WEIGHT } from './data/machines';
@@ -169,3 +172,30 @@ describe('блокада: порог, кольцо и его прорыв', () =
     expect(modsOf(off, 1).blockade).toBeUndefined();
   });
 });
+
+describe('вылазка на пост кольца — честный бой', () => {
+  /**
+   * Порог кольца выведен из боя (docs/siege_v2.md, 21.2, решение 6): пост — четверть лагеря, и при лагере ровно вчетверо
+   * сильнее гарнизона весь гарнизон равен посту — вылазка берёт около половины боёв, как вылазка на машину (19.1). Набор —
+   * 120 сидов (правило 17); граница области — кольцо держится (утверждается), пост и вылазка не пусты, обе свежие. Мутация
+   * `BLOCKADE_POSTS = 2` (пост — половина лагеря) роняет первое утверждение «не меньше 35 %».
+   */
+  it('лагерь ровно вчетверо: весь гарнизон против поста — около половины боёв; лагерь вдвое больше порога — пост держит', () => {
+    expect(BREAKOUT_SHARE).toBe(1 / BLOCKADE_POSTS);
+    const garrison = { ...emptyStack(), infantry: 120, archer: 30, spear: 20 };
+    const share = (k: number): number => {
+      const camp = { ...emptyStack(), infantry: 120 * k, archer: 30 * k, spear: 20 * k };
+      const guard = guardKinds(camp, BREAKOUT_SHARE);
+      expect(stackTotal(guard), 'точка внутри области: пост есть').toBeGreaterThan(0);
+      let won = 0;
+      for (let s = 0; s < 120; s++) if (machineFight({ seed: 7000 + s, guard: { kinds: guard, rest: 1 }, sortie: { kinds: garrison, rest: 1 } }).field.won) won += 1;
+      return won / 120;
+    };
+    expect(blockadeHolds(4 * 170, 170), 'точка внутри области: вчетверо — кольцо держится').toBe(true);
+    const even = share(4);
+    expect(even, 'на пороге — не меньше 35 % боёв').toBeGreaterThan(0.35);
+    expect(even, 'на пороге — не больше 65 % боёв').toBeLessThan(0.65);
+    expect(share(8), 'лагерь вдвое больше порога — вылазка берёт меньше трети').toBeLessThan(1 / 3);
+  });
+});
+
