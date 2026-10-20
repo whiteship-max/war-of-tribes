@@ -9,7 +9,12 @@ export const emptyStack = (): Stack => ({ spear: 0, infantry: 0, archer: 0, cava
 
 export const stackOf = (part: Partial<Stack>): Stack => ({ ...emptyStack(), ...part });
 
-export const stackTotal = (s: Stack): number => UNIT_KINDS.reduce((n, k) => n + s[k], 0);
+export const stackTotal = (s: Stack): number => {
+  // Та же сумма в том же порядке, что `reduce` от нуля, — циклом: её зовут в каждом обходе групп боя.
+  let n = 0;
+  for (const k of UNIT_KINDS) n += s[k];
+  return n;
+};
 
 export const emptySectors = (): Record<Sector, Stack> =>
   Object.fromEntries(SECTORS.map((id) => [id, emptyStack()])) as Record<Sector, Stack>;

@@ -71,6 +71,9 @@ export function fromBase64(text: string, size: number): Uint8Array {
 
 const chunkKey = (cx: number, cy: number): string => `${cx}:${cy}`;
 
+/** Сколько открытых целиком кругов помнит маска (`FogMap.whole`): дальше память о них сбрасывается. */
+const WHOLE_MAX = 1 << 16;
+
 export const inWorldCell = (x: number, y: number): boolean =>
   x >= WORLD_ORIGIN.x &&
   y >= WORLD_ORIGIN.y &&
@@ -89,6 +92,12 @@ export class FogMap {
    * вовсе — строку ещё не считали или в куске что-то открылось.
    */
   private text = new Map<string, string | null>();
+  /**
+   * Круги, уже открытые целиком, — «x:y:радиус». Туман не затягивается, поэтому такой круг второй раз не откроет ни
+   * клетки, и обходить его незачем: мир открывает круг деревни и круги стоящих фигур на каждом шаге. Это только
+   * запоминание счёта — что открыто, решают биты; переполнится — забывается целиком.
+   */
+  private whole = new Set<string>();
 
   constructor(data?: FogData | null) {
     if (!data) return;
@@ -139,6 +148,8 @@ export class FogMap {
     const r = Math.max(0, radius);
     const cx = Math.round(c.x);
     const cy = Math.round(c.y);
+    const key = `${cx}:${cy}:${r}`;
+    if (this.whole.has(key)) return 0;
     const rr = r * r;
     let fresh = 0;
     for (let dy = -Math.ceil(r); dy <= Math.ceil(r); dy++) {
@@ -147,6 +158,8 @@ export class FogMap {
         if (this.reveal(cx + dx, cy + dy)) fresh++;
       }
     }
+    if (this.whole.size >= WHOLE_MAX) this.whole.clear();
+    this.whole.add(key);
     return fresh;
   }
 

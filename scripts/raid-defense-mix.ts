@@ -428,22 +428,44 @@ const TYPICAL_DAYS = 720;
 interface Even {
   /** Мощь пришедших в ровном бою; `NaN` — до конца кривой ровного боя нет. */
   power: number;
-  /** Кривая: доля боёв, где пришедшие взяли верх, при силе `CURVE` долей обороны. */
-  curve: number[];
 }
 
+/**
+ * Взяли ли пришедшие верх хотя бы в половине боёв `foeShare` — ровно `foeShare(…) >= 0.5`, теми же боями в том же порядке, но
+ * только до тех пор, пока ответ не решён: половина побед набрана — да; оставшимися боями её уже не набрать — нет. Ровный бой
+ * спрашивает у кривой только это, а бои после решённого ответа были большей частью раздела (docs/handbook/console.md,
+ * «Где было время»). Доли кривой — `foeShare`, целиком.
+ */
+function foeHalf(w: Inside, at: number, foe: GateFoe, power: number): boolean {
+  const need = GATE_SEEDS / 2;
+  let broke = 0;
+  for (let i = 1; i <= GATE_SEEDS; i++) {
+    if (broke >= need) return true;
+    if (broke + (GATE_SEEDS - i + 1) < need) return false;
+    const call: GateCall = { id: `gate-bench${i}`, foe, power, seed: i * 7919 };
+    if (w.gateField(w.gateParty(call), call.seed, w.save.home, at).field.won) broke++;
+  }
+  return broke >= need;
+}
+
+/** Кривая: доля боёв, где пришедшие взяли верх, при силе `CURVE` долей обороны. */
+const curveOf = (w: Inside, at: number, who: GateFoe, d: number): number[] => CURVE.map((k) => foeShare(w, at, who, k * d));
+
+/**
+ * Ровный бой: первая точка кривой, где доля доходит до половины, и деление отрезка до неё — теми же решениями, что по
+ * кривой целиком (`curveOf(…)[i] >= 0.5`), но без долей: кривая нужна только медианной партии, и её строит `gateFoeRow`.
+ */
 function evenOf(w: Inside, at: number, who: GateFoe, d: number): Even {
-  const curve = CURVE.map((k) => foeShare(w, at, who, k * d));
-  const cross = curve.findIndex((x) => x >= 0.5);
-  if (cross < 0) return { power: NaN, curve };
+  const cross = CURVE.findIndex((k) => foeHalf(w, at, who, k * d));
+  if (cross < 0) return { power: NaN };
   let lo = cross === 0 ? 0 : CURVE[cross - 1] * d;
   let hi = CURVE[cross] * d;
   for (let k = 0; k < EVEN_STEPS; k++) {
     const mid = (lo + hi) / 2;
-    if (foeShare(w, at, who, mid) < 0.5) lo = mid;
+    if (!foeHalf(w, at, who, mid)) lo = mid;
     else hi = mid;
   }
-  return { power: hi, curve };
+  return { power: hi };
 }
 
 /** Посёлок мерки силы у ворот — снимок партии: вызовы к воротам, ждавшие боя в минуту снимка, в бой мерки не идут. */
@@ -508,7 +530,7 @@ export async function gateFoeRow({ level, who, g: town, flight, even, table, spr
   const w: Inside = world;
   const d = defense(g);
   const name = who === 'wolves' ? 'волки' : 'разбойники';
-  const { curve } = even;
+  const curve = curveOf(w, at, who, d);
   // Немонотонна — где-то доля упала больше чем на бой из `GATE_SEEDS`: не шум счёта, а бой другого вида.
   const bumpy = curve.some((x, i) => i > 0 && x < curve[i - 1] - 1.5 / GATE_SEEDS);
   let near = '';

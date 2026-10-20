@@ -181,18 +181,38 @@ const stands = (n: number): boolean => n >= EPS;
  * нечем: сторона не ломалась, и бой стоял до потолка кругов (docs/battle_eu4.md, 14.25–14.27; слово владельца).
  * Открыта наружу ради теста «тень перебита»: правило проверяется этой самой функцией, а не своей копией.
  */
-export const standing = (stack: Stack): boolean => UNIT_KINDS.some((k) => stands(stack[k]));
+export const standing = (stack: Stack): boolean => {
+  // Циклом, а не `UNIT_KINDS.some(…)`: то же правило, без замыкания на каждую проверку — её зовут в каждом обходе групп.
+  for (const k of UNIT_KINDS) if (stands(stack[k])) return true;
+  return false;
+};
 const alive = (g: Group): boolean => standing(g.stack);
 const laneOf = (s: Sector): Lane | null => (s === 'R' ? null : ((FRONT.indexOf(s as never) + REAR.indexOf(s as never) + 1) as Lane));
 const rowOf = (s: Sector): Row => (s === 'R' ? 'reserve' : FRONT.includes(s as never) ? 'front' : 'rear');
 const laneSector = (lane: Lane, row: 'front' | 'rear'): Sector => (row === 'front' ? FRONT[lane] : REAR[lane]);
 const facing = (lane: Lane): Lane => (2 - lane) as Lane;
-/** Ключ ряда полосы стороны — для счёта ширины (`Battle.measureRows`). */
-const rowKey = (side: Side, lane: Lane, row: Row): string => `${side}:${lane}:${row}`;
+/** Ключ ряда полосы стороны — для счёта ширины (`Battle.measureRows`): числом, а не строкой — один на сторону, полосу и ряд. */
+const ROW_INDEX: Record<Row, number> = { front: 0, rear: 1, reserve: 2, strike: 3 };
+const rowKey = (side: Side, lane: Lane, row: Row): number => (side === 'attacker' ? 0 : 12) + lane * 4 + ROW_INDEX[row];
 const other = (s: Side): Side => (s === 'attacker' ? 'defender' : 'attacker');
 const zeroKills = (): Kills =>
   Object.fromEntries(UNIT_KINDS.map((k) => [k, Object.fromEntries(UNIT_KINDS.map((t) => [t, 0]))])) as Kills;
-const cloneKills = (k: Kills[]): Kills[] => k.map((l) => JSON.parse(JSON.stringify(l)) as Kills);
+/**
+ * Копия счёта павших — та же, что `JSON.parse(JSON.stringify(…))`, которой она была (её путь — заметная доля боя, docs/handbook/console.md, «Где было время»): ключи в
+ * том же порядке, число — то же, а что JSON меняет, меняется так же — −0 в 0, не-число и бесконечность в `null`.
+ */
+const jsonNumber = (v: number): number => (Number.isFinite(v) ? v + 0 : (null as unknown as number));
+const cloneKills = (k: Kills[]): Kills[] =>
+  k.map((l) => {
+    const out = {} as Kills;
+    for (const by of Object.keys(l) as UnitKind[]) {
+      const row = l[by];
+      const copy = {} as Record<UnitKind, number>;
+      for (const t of Object.keys(row) as UnitKind[]) copy[t] = jsonNumber(row[t]);
+      out[by] = copy;
+    }
+    return out;
+  });
 
 /**
  * Сила отряда: люди на силу рода в натиске. Ею бой меряет полосу — куда идти тому, у кого в полосе противника нет, когда
@@ -392,7 +412,7 @@ class Battle {
   /** Ширина боя; меняется только проёмом посреди боя (`BattleInput.widen`), в начале его круга. */
   width: number;
   /** Сколько живых стоит в ряду полосы в этот тик (`measureRows`): ключ — `rowKey`. */
-  rowMen = new Map<string, number>();
+  rowMen = new Map<number, number>();
   /** Сколько кругов прошло сверх первого (`run`); круг по счёту — на единицу больше. */
   round = 0;
   /** Начинается новый круг: первая его фаза разводит линии (`onPhaseStart`). */
@@ -519,7 +539,10 @@ class Battle {
   }
 
   at(side: Side, lane: Lane, row: Row): Group[] {
-    return this.sides[side].groups.filter((g) => g.lane === lane && g.row === row && alive(g));
+    // Тот же отбор, что `filter`, в том же порядке, — циклом: его зовут на каждом тике из каждой стычки.
+    const out: Group[] = [];
+    for (const g of this.sides[side].groups) if (g.lane === lane && g.row === row && alive(g)) out.push(g);
+    return out;
   }
 
   /** Фронт противника напротив своей полосы. */
