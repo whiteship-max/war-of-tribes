@@ -22,6 +22,7 @@ import {
   LAIR_NEAR,
   SKIT_ZOOM,
   SKIT_ZOOM_OFF,
+  SKIT_IDS,
   SkitDirector,
   placeOf,
   posesFor,
@@ -33,6 +34,9 @@ import {
   type SkitCtx,
   type SkitId,
 } from './skits';
+
+/** Поиск места сценке — не дольше стольких миллисекунд за кадр: остальное — в следующих кадрах (сторож плавности). */
+export const SKIT_PICK_MS = 1.5;
 
 /** Звук сценки слышен целиком ближе стольких метров от камеры и смолкает к дальнему. */
 export const SKIT_HEAR = { near: 45, far: 150 } as const;
@@ -91,7 +95,10 @@ export class CitySkits {
     this.group.name = 'city-skits';
     const q = input.quality;
     const slots = slotsOf(q);
-    this.director = new SkitDirector(skitWorld(input.plan, input.sites), slots, seededRnd((hash3(17, 29, 31) ^ 0x51ce) >>> 0));
+    this.director = new SkitDirector(skitWorld(input.plan, input.sites), slots, seededRnd((hash3(17, 29, 31) ^ 0x51ce) >>> 0), SKIT_PICK_MS);
+    // Сценка адресом (`?skit=brawl`) — стенду (`SKIT=` у `city:shots`) и проверке на телефоне.
+    const forced = typeof location !== 'undefined' ? new URLSearchParams(location.search).get('skit') : null;
+    if (forced && (SKIT_IDS as readonly string[]).includes(forced)) this.director.forced = forced as SkitId;
     const lod = figureLod(q);
     const mat = figureMaterial();
     const cap = slots * SKIT_FIGURES;
@@ -149,7 +156,7 @@ export class CitySkits {
   update(t: number, camera: THREE.Camera, eye: { x: number; z: number }, share: number, inside: boolean, minute: SkitMinute, lair?: boolean): void {
     this.shown = !inside && share >= (this.shown ? SKIT_ZOOM_OFF : SKIT_ZOOM);
     const ctx: SkitCtx = { ...minute, lair: lair ?? this.lairNear(t) };
-    this.director.update(t, eye, { x: camera.position.x, z: camera.position.z }, this.shown, ctx);
+    this.director.update(t, eye, camera.position, this.shown, ctx);
     for (const l of this.lanes.values()) l.n = 0;
     this.heard.length = 0;
     camera.updateMatrixWorld();

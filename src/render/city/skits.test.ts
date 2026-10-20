@@ -2,7 +2,7 @@
 // города, не подряд одна и та же, актёры — не в домах, не в постройках и не на проходе. Только вид и звук — механики нет.
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
-import { cityPlan, distPoly, insidePoly } from './layout';
+import { cityPlan, distPoly, heightAt as heightAtP, insidePoly } from './layout';
 import { buildStatic } from './budget';
 import { SQUARE_PATHS } from './life';
 import { CALM_MOOD, forcedMood, rhythmAt, type CityMood } from './rhythm';
@@ -71,9 +71,12 @@ const EYES: readonly { x: number; z: number }[] = [
 ];
 
 /** Сценки, которые режиссёр ставит за `n` шагов по 7 с у взгляда `eye`. */
+/** Камера игры над взглядом: с юго-востока, в шестидесяти метрах, на высоте семидесяти. */
+const camOf = (eye: { x: number; z: number }): { x: number; y: number; z: number } => ({ x: eye.x + 20, y: 70, z: eye.z + 50 });
+
 function run(eye: { x: number; z: number }, c: SkitCtx, seed: number, n = 8): Active[] {
   const d = new SkitDirector(world, 3, seededRnd(seed));
-  const cam = { x: eye.x + 60, z: eye.z + 80 };
+  const cam = camOf(eye);
   const seen: Active[] = [];
   for (let k = 0; k < n; k++) {
     d.update(k * 7, eye, cam, true, c);
@@ -98,6 +101,20 @@ const inHouse = (x: number, z: number): boolean =>
 /** На проходе: ближе полуширины улицы, дорожки площади или дороги к её оси. */
 const onPass = (x: number, z: number): boolean =>
   [...plan.streets, ...SQUARE_PATHS, ...plan.roads].some((s) => distPoly({ x, z }, s.pts) < s.half);
+/** Своя проверка видимости: луч от головы человека к камере шагом в полметра не входит в коробку постройки ниже её верха. */
+function hidden(x: number, z: number, cam: { x: number; y: number; z: number }): string | null {
+  const y = heightAtP(x, z) + 1.4;
+  const len = Math.hypot(cam.x - x, cam.y - y, cam.z - z);
+  for (let d = 0.5; d < len; d += 0.5) {
+    const k = d / len;
+    const h = y + (cam.y - y) * k;
+    const px = x + (cam.x - x) * k;
+    const pz = z + (cam.z - z) * k;
+    const s = st.sites.find((b) => h < b.y1 && h > b.y0 - 0.5 && inBox(px, pz, { ...b, hf: b.hf + 0.2, hr: b.hr + 0.2 }));
+    if (s) return s.type;
+  }
+  return null;
+}
 
 describe('сценки жителей вблизи', () => {
   it('каталог: восемнадцать сценок — двенадцать в городе и шесть за стеной; потолок фигур одной сценки — бюджетный', () => {
@@ -239,6 +256,8 @@ describe('сценки жителей вблизи', () => {
       for (const eye of EYES) {
         for (const a of run(eye, c, 7)) {
           expect(ok.has(a.def.id), `${name}: ${a.def.id} не бывает`).toBe(true);
+          // Сценка видна с камеры: не за постройкой (у идущих — место, мимо которого идут).
+          expect(hidden(a.stage.x, a.stage.z, camOf(eye)), `${name}: ${a.def.id} за постройкой`).toBeNull();
           expect(a.def.where, `${name}: ${a.def.id} на месте «${a.stage.kind}»`).toContain(a.stage.kind);
           met.add(a.def.id);
         }
@@ -322,6 +341,17 @@ describe('сценки жителей вблизи', () => {
     expect(Math.hypot(c.x - away.x, c.z - away.z)).toBeGreaterThan(KEEP_R);
     d.update(1, away, { x: 60, z: 60 }, true, ctxOf(NOON));
     expect(d.active[0]).not.toBe(first);
+  });
+
+  it('поиск места идёт кусками по кадрам: с бюджетом в ноль мс — не за один кадр, но доходит', () => {
+    const d = new SkitDirector(world, 1, seededRnd(4), 0);
+    const eye = EYES[1];
+    d.update(0, eye, camOf(eye), true, ctxOf(NOON));
+    expect(d.active[0], 'первый кадр — только начало поиска').toBeNull();
+    let frames = 1;
+    while (!d.active[0] && frames < 400) d.update(frames++ / 60, eye, camOf(eye), true, ctxOf(NOON));
+    expect(d.active[0], 'сценка встала').not.toBeNull();
+    expect(frames).toBeGreaterThan(3);
   });
 
   it('сторож плавности опустил уровень — сценок меньше сразу', () => {

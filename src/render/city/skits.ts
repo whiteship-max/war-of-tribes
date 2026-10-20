@@ -12,7 +12,7 @@
 //
 // Рисует их `skitview.ts` (ленивый кусок), звук — `sound/epoch/skits.ts` через ухо камеры (`sound/ear.hearSkits`).
 import type { Quality } from '../quality';
-import { CHURCH, distPoly, heightAt, insidePoly, type CityPlan, type P } from './layout';
+import { CHURCH, PARVIS, SQUARE_PROPS, distPoly, heightAt, insidePoly, type CityPlan, type P } from './layout';
 import { SQUARE_PATHS, at, heightOnPath, nearestOn, pathOf, standFree, type Path } from './life';
 import { forestAt } from './nature';
 import { fieldAt, inRiver, openLand } from './ground';
@@ -78,8 +78,8 @@ export function placeKind(w: SkitWorld, x: number, z: number): PlaceKind | null 
   if (distPoly(p, plan.wall, true) < 8 || distPoly(p, plan.castleWall, true) < 8) return null;
   if (fieldAt(x, z, plan) > 0) return 'field';
   if (!openLand(x, z, plan, 1)) return w.roads.some((r) => nearestOn(r, p).d < r.half + 6) ? 'road' : null;
-  if (forestAt(x, z, plan) > 0.04) return null;
   if (w.roads.some((r) => nearestOn(r, p).d < r.half + 6)) return 'road';
+  if (woods(plan, x, z)) return null;
   // Опушка: под ногами чисто, а в дюжине метров — лес.
   for (let k = 0; k < 6; k++) {
     const a = (k / 6) * Math.PI * 2;
@@ -88,14 +88,27 @@ export function placeKind(w: SkitWorld, x: number, z: number): PlaceKind | null 
   return 'meadow';
 }
 
+/** Кроны: дерево встаёт там, где лес гуще 0,08 (`nature.placeTrees`), и раскидывает крону метров на пять. */
+const woods = (plan: CityPlan, x: number, z: number): boolean => {
+  if (forestAt(x, z, plan) > 0.05) return true;
+  for (let k = 0; k < 6; k++) {
+    const a = (k / 6) * Math.PI * 2;
+    if (forestAt(x + Math.cos(a) * 5, z + Math.sin(a) * 5, plan) > 0.08) return true;
+  }
+  return false;
+};
+
 /** Стоит ли актёр на своём месте: не в доме, не в постройке, не в дереве и не в воде, в своей части мира. */
 export function spotFree(w: SkitWorld, x: number, z: number, town: boolean): boolean {
   const plan = w.plan;
   if (inTown(plan, x, z) !== town) return false;
   if (!standFree(plan, x, z)) return false;
   for (const s of w.sites) if (s.type !== 'church' && Math.abs(x - s.x) < 30 && Math.abs(z - s.z) < 30 && inSite(x, z, s, 0.6)) return false;
+  // Паперть — площадка и лестница над мостовой (`precinct.parvis`), и кружки прихожан у её подножия: земля под ногами там
+  // не `heightAt`, а место — жизни города.
+  if (town && Math.abs(x - CHURCH.x) < CHURCH.width / 2 + 4 && z > CHURCH.front - 1 && z < PARVIS.foot + 4.5) return false;
   if (town) return distPoly({ x, z }, plan.wall, true) > 4;
-  if (inRiver(x, z) || forestAt(x, z, plan) > 0.06) return false;
+  if (inRiver(x, z) || woods(plan, x, z)) return false;
   for (const h of plan.suburb) if (Math.hypot(x - h.x, z - h.z) < Math.max(h.w, h.d) / 2 + 1.5) return false;
   for (const y of plan.yards) if (Math.hypot(x - y.x, z - y.z) < y.r) return false;
   return true;
@@ -128,11 +141,19 @@ export function onWalk(paths: readonly Path[], x: number, z: number): boolean {
   return false;
 }
 
-/** Места, которые держит жизнь города: колодец, статуя, хоровод праздника, кружки у паперти, — туда сценки не встают. */
+/**
+ * Места, которые держит жизнь города и убранство площади: колодец, статуя, хоровод праздника, доска объявлений, свечные
+ * лотки, колодки, коновязь с поилкой, — туда сценки не встают.
+ */
 const KEEP_CLEAR: readonly { x: number; z: number; r: number }[] = [
   { x: 2, z: -7, r: 4.5 },
   { x: -21, z: 5, r: 3 },
   { x: -21, z: -3.5, r: 6 },
+  { ...SQUARE_PROPS.board, r: 2.2 },
+  ...SQUARE_PROPS.stalls.map((p) => ({ ...p, r: 1.8 })),
+  { ...SQUARE_PROPS.stocks, r: 2 },
+  { x: SQUARE_PROPS.rail.x, z: (SQUARE_PROPS.rail.z0 + SQUARE_PROPS.rail.z1) / 2, r: 4.5 },
+  { ...SQUARE_PROPS.trough, r: 2 },
 ];
 
 // ---------------------------------------------------------------------------------------------
@@ -463,7 +484,7 @@ export const SKITS: readonly SkitDef[] = [
     pose(lt, _L, _r, o) {
       const sob = Math.max(0, Math.sin(lt * 2.6)) * 0.12;
       put(o[0], 0, 0, 0, { y: -0.42, lean: 0.55 + sob });
-      put(o[1], -0.1, -0.75, Math.PI / 2 - 0.3, { lean: 0.32 + 0.04 * Math.sin(lt * 0.8) });
+      put(o[1], -0.1, -0.75, Math.PI / 2 - 0.3, { lean: 0.2 + 0.04 * Math.sin(lt * 0.8) });
       put(o[2], -0.7, 0.55, face(-0.7, 0.55, 0, 0), { lean: 0.12 });
       put(o[3], 0.2, 0.62, face(0.2, 0.62, 0, 0), { lean: 0.1 });
     },
@@ -879,18 +900,46 @@ export function placeOf(a: Active, lt: number, p: Pose): Placed {
   return PLACED;
 }
 
+/**
+ * Видна ли с камеры точка сценки (голова человека над землёй): луч от неё к камере шагом в три четверти метра не входит ни в
+ * одну коробку постройки или дома ниже её верха (с запасом 0,4 м — угол коробки между шагами). Сценка за трактиром или за крышей камере не нужна — её не увидят.
+ */
+export function inView(w: SkitWorld, cam: { x: number; y: number; z: number }, x: number, z: number): boolean {
+  const y = heightAt(x, z) + 1.4;
+  const dx = cam.x - x;
+  const dy = cam.y - y;
+  const dz = cam.z - z;
+  const len = Math.hypot(dx, dy, dz);
+  if (len < 1) return true;
+  for (let d = 0.75; d < len; d += 0.75) {
+    const k = d / len;
+    const h = y + dy * k;
+    // Выше всех кровель и башен — дальше луч свободен.
+    if (h > 46) return true;
+    const px = x + dx * k;
+    const pz = z + dz * k;
+    for (const s of w.sites) {
+      if (h > s.y1 || h < s.y0 - 0.5 || Math.abs(px - s.x) > 30 || Math.abs(pz - s.z) > 30) continue;
+      if (inSite(px, pz, s, 0.4)) return false;
+    }
+  }
+  return true;
+}
+
 /** Ход идущей сценки проверяется через столько секунд: телега проходит метр, вор — четыре. */
 const WALK_DT = 1;
 /** След стоящей сценки — клетками такого размера, м, и шагом по времени, с. */
 const CELL = 0.4;
+/** За стеной — крупнее: там проверяется лес в пяти метрах кругом (`woods`), а не стена дома в шаге. */
+const CELL_OUT = 0.8;
 const TRACE_DT = 0.25;
 
 /**
  * След стоящей сценки в её рамке: где побывал хоть кто-то из актёров за весь её ход (кроме спрятанных), клетками `CELL`.
  * Проверять мир по следу, а не по нескольким мгновениям: покупатель, отошедший от лотка между мгновениями, — тоже в следе.
  */
-export function footprint(a: Active): [number, number][] {
-  const key = `${a.def.id}:${Math.round(a.len)}:${Math.round(a.r * 8)}`;
+export function footprint(a: Active, cell = CELL): [number, number][] {
+  const key = `${a.def.id}:${Math.round(a.len)}:${Math.round(a.r * 8)}:${cell}`;
   const hit = traces.get(key);
   if (hit) return hit;
   const poses = posesFor(a.def);
@@ -899,9 +948,9 @@ export function footprint(a: Active): [number, number][] {
     a.def.pose(lt, a.len, a.r, poses);
     for (const p of poses) {
       if (p.hide) continue;
-      const iu = Math.round(p.u / CELL);
-      const iv = Math.round(p.v / CELL);
-      seen.set(iu * 4096 + iv, [iu * CELL, iv * CELL]);
+      const iu = Math.round(p.u / cell);
+      const iv = Math.round(p.v / cell);
+      seen.set(iu * 4096 + iv, [iu * cell, iv * cell]);
     }
   }
   const out = [...seen.values()];
@@ -925,6 +974,15 @@ const TRACE: Pose = { u: 0, v: 0, y: 0, yaw: 0, lean: 0, roll: 0, walk: 0, amp: 
  * своей части мира и путь не кончается раньше хода.
  */
 export function layoutOk(w: SkitWorld, a: Active): boolean {
+  const it = layoutSteps(w, a);
+  for (;;) {
+    const r = it.next();
+    if (r.done) return r.value;
+  }
+}
+
+/** Та же проверка шагами: уступает кадр через каждые `STEP_CELLS` клеток следа (режиссёр с бюджетом кадра). */
+function* layoutSteps(w: SkitWorld, a: Active): Generator<void, boolean> {
   const town = TOWN_PLACES.includes(a.stage.kind);
   const st = a.stage;
   if (st.path) {
@@ -939,18 +997,37 @@ export function layoutOk(w: SkitWorld, a: Active): boolean {
         const q = placeOf(a, lt, p);
         if (inTown(w.plan, q.x, q.z) !== town || blocked(w, q.x, q.z)) return false;
       }
+      if (lt % 8 === 0) yield;
     }
     return true;
   }
-  for (const [u, v] of footprint(a)) {
-    TRACE.u = u;
-    TRACE.v = v;
+  const cells = footprint(a, town ? CELL : CELL_OUT);
+  yield;
+  for (let i = 0; i < cells.length; i++) {
+    TRACE.u = cells[i][0];
+    TRACE.v = cells[i][1];
     const q = placeOf(a, 0, TRACE);
-    if (!spotFree(w, q.x, q.z, town)) return false;
+    if (!freeAt(w, q.x, q.z, town)) return false;
     if (onWalk(town ? w.walks : w.roads, q.x, q.z)) return false;
     if (town && KEEP_CLEAR.some((c) => Math.hypot(q.x - c.x, q.z - c.z) < c.r)) return false;
+    if (i % STEP_CELLS === STEP_CELLS - 1) yield;
   }
   return true;
+}
+
+/** Сколько клеток следа проверяется между уступками кадра. */
+const STEP_CELLS = 24;
+
+/** Свободна ли земля — с памятью по клеткам в четверть метра: соседние сценки и повторные поиски проверяют те же точки. */
+const freeMemo = new Map<number, boolean>();
+function freeAt(w: SkitWorld, x: number, z: number, town: boolean): boolean {
+  const key = (Math.round(x * 4) + 8192) * 16384 * 2 + (Math.round(z * 4) + 8192) * 2 + (town ? 1 : 0);
+  const hit = freeMemo.get(key);
+  if (hit !== undefined) return hit;
+  const v = spotFree(w, x, z, town);
+  if (freeMemo.size > 60000) freeMemo.clear();
+  freeMemo.set(key, v);
+  return v;
 }
 
 /** Генератор жребия: сеяный, чтобы тест повторялся (в картинке случайность законна, но стенду нужен повтор). */
@@ -978,11 +1055,18 @@ export class SkitDirector {
   private recent: SkitId[] = [];
   private nextAt = 0;
   private shown = false;
+  /** Сценка адресом (`?skit=brawl`) — стенду и проверке на телефоне: ставится только она, вне веса и очереди. */
+  forced: SkitId | null = null;
+  /** Поиск места, идущий кусками по кадрам (`advance`), и подошёл ли взгляд, когда он начался. */
+  private job: Generator<void, Active | null> | null = null;
+  private jobFresh = false;
 
   constructor(
     private w: SkitWorld,
     slots: number,
     private rnd: () => number = seededRnd(0x5c17),
+    /** Бюджет поиска места на кадр, мс; бесконечность — искать сразу (тестам). */
+    private budget = Infinity,
   ) {
     this.active = Array.from({ length: slots }, () => null);
   }
@@ -1002,10 +1086,11 @@ export class SkitDirector {
    * Кадр: `t` — время сцены, с; `eye` — точка взгляда на земле, `cam` — камера по земле (куда стоящие сценки обращены
    * лицом); `show` — приближение максимальное.
    */
-  update(t: number, eye: P, cam: P, show: boolean, ctx: SkitCtx): void {
+  update(t: number, eye: P, cam: P & { y?: number }, show: boolean, ctx: SkitCtx): void {
     if (!show) {
       for (let k = 0; k < this.active.length; k++) this.active[k] = null;
       this.shown = false;
+      this.job = null;
       return;
     }
     const fresh = !this.shown;
@@ -1014,16 +1099,41 @@ export class SkitDirector {
       const a = this.active[k];
       if (!a) continue;
       const c = this.centerOf(a, t);
-      const over = t > a.t0 + a.len || skitWeight(a.def.id, ctx) <= 0;
+      const over = t > a.t0 + a.len || (a.def.id !== this.forced && skitWeight(a.def.id, ctx) <= 0);
       if (over || Math.hypot(c.x - eye.x, c.z - eye.z) > KEEP_R) this.active[k] = null;
     }
+    if (this.job) {
+      this.advance(t, fresh);
+      return;
+    }
     if (t < this.nextAt && !fresh) return;
+    if (this.active.indexOf(null) < 0) return;
+    this.job = this.pick(t, eye, cam, ctx);
+    this.jobFresh = fresh;
+    this.advance(t, fresh);
+  }
+
+  /** Поиск идёт кусками: не дольше `budget` мс за кадр (бесконечность — сразу целиком, тестам). */
+  private advance(t: number, fresh: boolean): void {
+    const job = this.job!;
+    const until = Number.isFinite(this.budget) ? now() + this.budget : Infinity;
+    for (;;) {
+      const r = job.next();
+      if (r.done) {
+        this.job = null;
+        this.settle(t, r.value, fresh || this.jobFresh);
+        return;
+      }
+      if (now() > until) return;
+    }
+  }
+
+  /** Сценка нашлась (или нет): встаёт в свободное место; следующая — через несколько секунд. */
+  private settle(t: number, a: Active | null, fresh: boolean): void {
     const free = this.active.indexOf(null);
-    if (free < 0) return;
-    const a = this.pick(t, eye, cam, ctx);
-    // Взгляд только что подошёл — сценка уже идёт (не с прихода актёров); иначе — с начала.
-    if (a && fresh) a.t0 = t - a.len * 0.25;
-    if (a) {
+    if (a && free >= 0) {
+      // Взгляд только что подошёл — сценка уже идёт (не с прихода актёров); иначе — с начала.
+      a.t0 = fresh ? t - a.len * 0.25 : t;
       this.active[free] = a;
       this.recent.unshift(a.def.id);
       this.recent.length = Math.min(this.recent.length, RECENT);
@@ -1038,15 +1148,17 @@ export class SkitDirector {
     return { x: q.p.x, z: q.p.z };
   }
 
-  private pick(t: number, eye: P, cam: P, ctx: SkitCtx): Active | null {
+  private *pick(t: number, eye: P, cam: P & { y?: number }, ctx: SkitCtx): Generator<void, Active | null> {
     const busy = new Set(this.active.filter((a): a is Active => a !== null).map((a) => a.def.id));
     const others = this.active.filter((a): a is Active => a !== null).map((a) => this.centerOf(a, t));
-    const ok = SKITS.filter((d) => !busy.has(d.id) && !this.recent.includes(d.id) && skitWeight(d.id, ctx) > 0);
+    const ok = this.forced
+      ? SKITS.filter((d) => d.id === this.forced && !busy.has(d.id))
+      : SKITS.filter((d) => !busy.has(d.id) && !this.recent.includes(d.id) && skitWeight(d.id, ctx) > 0);
     if (ok.length === 0) return null;
     // Кольца точек вокруг взгляда: что за место под каждой.
     const cand: { d: SkitDef; p: P; kind: PlaceKind; score: number }[] = [];
     const turn = this.rnd() * Math.PI * 2;
-    for (const r of [0, 8, 16, 26, PICK_R]) {
+    for (const r of [0, 6, 12, 20, 30, PICK_R]) {
       const n = r === 0 ? 1 : 8;
       for (let i = 0; i < n; i++) {
         const a = turn + (i / n) * Math.PI * 2;
@@ -1056,22 +1168,26 @@ export class SkitDirector {
         if (!kind) continue;
         for (const d of ok) {
           if (!d.where.includes(kind)) continue;
-          cand.push({ d, p, kind, score: (skitWeight(d.id, ctx) * (0.35 + this.rnd())) / (1 + r / 18) });
+          cand.push({ d, p, kind, score: ((this.forced ? 1 : skitWeight(d.id, ctx)) * (0.35 + this.rnd())) / (1 + (r / 12) ** 2) });
         }
       }
+      yield;
     }
     cand.sort((a, b) => b.score - a.score);
     for (const c of cand.slice(0, 14)) {
       const len = c.d.len[0] + (c.d.len[1] - c.d.len[0]) * this.rnd();
-      const a = this.stageFor(c.d, c.p, c.kind, cam, len, t);
+      const a = yield* this.stageFor(c.d, c.p, c.kind, cam, len, t);
       if (a) return a;
     }
     return null;
   }
 
   /** Поставить сценку у точки: стоящую — лицом к камере (с поворотами, если не встаёт), идущую — по ближнему проходу. */
-  private stageFor(d: SkitDef, p: P, kind: PlaceKind, cam: P, len: number, t: number): Active | null {
+  private *stageFor(d: SkitDef, p: P, kind: PlaceKind, cam: P & { y?: number }, len: number, t: number): Generator<void, Active | null> {
     const r = this.rnd();
+    // Камера над землёй известна — сценка за постройкой не ставится.
+    if (cam.y !== undefined && !inView(this.w, { x: cam.x, y: cam.y, z: cam.z }, p.x, p.z)) return null;
+    yield;
     if (d.moving) {
       const paths = TOWN_PLACES.includes(kind) ? this.w.walks.filter((w) => w.half >= 1.9) : this.w.roads;
       let best: { path: Path; s: number; d: number } | null = null;
@@ -1084,13 +1200,15 @@ export class SkitDirector {
       // Мимо взгляда — на середине хода.
       const s0 = best.s - dir * d.speed * len * 0.5;
       const a: Active = { def: d, stage: { kind, x: p.x, z: p.z, yaw: 0, path: best.path, s0, dir }, t0: t, len, r };
-      return layoutOk(this.w, a) ? a : null;
+      return (yield* layoutSteps(this.w, a)) ? a : null;
     }
     const base = Math.atan2(-(cam.z - p.z), cam.x - p.x);
     for (const turn of [0, 0.7, -0.7, 1.6, -1.6, Math.PI]) {
       const a: Active = { def: d, stage: { kind, x: p.x, z: p.z, yaw: base + turn, path: null, s0: 0, dir: 1 }, t0: t, len, r };
-      if (layoutOk(this.w, a)) return a;
+      if (yield* layoutSteps(this.w, a)) return a;
     }
     return null;
   }
 }
+
+const now = (): number => (typeof performance !== 'undefined' ? performance.now() : 0);

@@ -14,7 +14,8 @@
 //                                                карта мира, `WXSEASON=winter` — сезон партии, `WXREGION=italy` — регион,
 //                                                `WXDAY=0.8` — доля суток партии (0.8 летом — глубокая ночь, docs/polish.md, П-3);
 //                                                `MOOD=feast` — состояние города адресом (`?mood=`: feast, siege, hunger,
-//                                                plague, gloom, cheer; docs/city_v3.md, ЖГ-1), `POP=150` — население партии
+//                                                plague, gloom, cheer, mourn; docs/city_v3.md, ЖГ-1), `POP=150` — население партии;
+//                                                `SKIT=brawl` — сценка жителей адресом (`?skit=`, ЖГ-2: у точки `WXLOOK` ближе 134 м)
 //   GAME=1 WX=clear CHAMBERS=desk npm run city:shots — покои правителя (docs/city_v3.md, Г-4): точка интереса
 //                                                (hall, desk, window, hearth, bed, arms), `:доворот:наклон:безделушка:подсветка`
 //   LEGEND=1 npm run city:shots              — легенда карты листом: строки значков той же функцией, что окно легенды
@@ -174,7 +175,8 @@ async function shot(q: Quality, view: string, solar: number): Promise<void> {
 /** Игра по адресу `?look=city`: новая партия, вход, стартовый кадр города и счётчики сцены. */
 async function gameShot(q: Quality): Promise<void> {
   // Состояние города адресом (`MOOD=feast`, docs/city_v3.md, ЖГ-1): праздник, осада, голод, мор, хмуро, весело.
-  const mood = process.env.MOOD ? `&mood=${process.env.MOOD}` : '';
+  // Сценка адресом (`SKIT=brawl`, docs/city_v3.md, ЖГ-2): ставится только она — у точки взгляда, при приближении ближе ~134 м.
+  const mood = (process.env.MOOD ? `&mood=${process.env.MOOD}` : '') + (process.env.SKIT ? `&skit=${process.env.SKIT}` : '');
   const tab = await Tab.open(DEBUG_PORT, reportPage(PORT, `&look=${process.env.LOOK ?? 'city'}&quality=${q}${mood}`));
   try {
     await tab.send('Emulation.setDeviceMetricsOverride', SCREEN);
@@ -540,6 +542,16 @@ async function weatherShots(tab: Tab, q: Quality): Promise<void> {
         if (await tab.eval<boolean>('JSON.stringify(window.__scene.flash > 0.35 && (window.__scene.pause(), true))').catch(() => false)) break;
         await sleep(150);
       }
+    }
+    // Сценки жителей (`SKIT=`, ЖГ-2): что стоит, где и сколько фигур в кадре.
+    if (process.env.SKIT) {
+      const sk = await tab.eval<string>(`JSON.stringify((() => {
+        const v = window.__scene.skits;
+        if (!v) return 'сценки не приехали';
+        const d = v.director;
+        return d.active.filter(Boolean).map((a) => a.def.id + ' на «' + a.stage.kind + '» ' + a.stage.x.toFixed(1) + ',' + a.stage.z.toFixed(1)).join('; ') + ' | фигур ' + v.drawn();
+      })())`);
+      console.log(`  сценки: ${sk}`);
     }
     const png = await tab.send<{ data: string }>('Page.captureScreenshot', { format: 'png' });
     const name = `${TAG}-wx-${wx}${day ? '-d' + day : ''}${region ? '-' + region : ''}${map ? '-map' : near ? '-' + near.replace(/:/g, '') : ''}${ch ? '-ch-' + ch.replace(/:/g, '_') : ''}-${q}.png`;
