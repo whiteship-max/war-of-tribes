@@ -56,17 +56,16 @@ import type {
   Fate,
   RivalDeedId,
   RivalMenu,
-  OrderActionId,
+  ErrandOption,
+  ErrandOrder,
+  ErrandTarget,
   FigureId,
   FigureView,
   InterceptPlan,
-  LeadPlan,
   StrikePlan,
   LetterView,
   MarchOrder,
   MarchView,
-  OrderOption,
-  OrderResult,
   PlayerCastle,
   Rect,
   Report,
@@ -169,10 +168,12 @@ export interface ActionMenuState {
   /** Где и когда встретимся, если приказать сейчас. null — цели нет. */
   plan: InterceptPlan | null;
   /**
-   * Что будет, если вести агента сюда: сколько идти и чем рискует разведчик у ворот.
-   * null — ещё не посчитано. Живёт пульсами, как строки приказов.
+   * Цель дела под пальцем (Р-4, docs/AGENTS.md, раздел 16): свой город, двор, город игрока или чужой отряд. null —
+   * пустая земля: свободной ходьбы нет, и дел здесь нет.
    */
-  lead: LeadPlan | null;
+  goal: ErrandTarget | null;
+  /** Дела агента при этой цели — числами мира (`WorldApi.errands`). null — ещё не посчитаны. */
+  errands: ErrandOption[] | null;
 }
 
 export interface WorldStore {
@@ -251,8 +252,6 @@ export interface WorldStore {
    * карточке клетки, — а меню при этом одно.
    */
   menu: ActionMenuState | null;
-  /** Строки меню: цена, время, шанс и причина отказа. Считает их мир. */
-  orders: OrderOption[];
   boot: () => Promise<void>;
   pulse: () => Promise<void>;
   ensureRegion: (rect: Rect) => void;
@@ -265,10 +264,10 @@ export interface WorldStore {
   /** Переставить камеру на своё поселение или на одну из фигур. */
   setAnchor: (id: AnchorId) => void;
   /**
-   * Вести выбранную фигуру в клетку. Возвращает текст ошибки или null. `shownAt` —
-   * минута плана из меню: риск разведчика заморозится ровно по показанному.
+   * Отправить агента делом (Р-4): к цели, дело в минуту прихода и домой сам. Возвращает текст ошибки или null. Это
+   * единственный выход агента из дома: свободной ходьбы по клетке нет.
    */
-  moveFigure: (id: FigureId, to: Coord, shownAt?: number) => Promise<string | null>;
+  errand: (order: ErrandOrder) => Promise<string | null>;
   recallFigure: (id: FigureId) => Promise<string | null>;
   /**
    * Поставить лазутчика наблюдателем или снять. Пока он смотрит, он не
@@ -335,8 +334,6 @@ export interface WorldStore {
   openMenu: (agent: FigureId, cell: Coord) => Promise<void>;
   /** Открыть меню перехвата по чужому отряду — из списка походов или с карты. */
   openChase: (march: MarchView) => Promise<void>;
-  /** Вести полководца на перехват. Возвращает текст ошибки или null. */
-  intercept: () => Promise<string | null>;
   /**
    * План удара полководца по лагерю под `target`: кто пробьётся с тыла и, если зовут
    * гарнизон, со стороны города. Считает мир той же функцией, что и бой.
@@ -345,14 +342,10 @@ export interface WorldStore {
   /** Полководец идёт бить лагерь под `target`. Текст ошибки или null. */
   strikeCamp: (target: SettlementId, garrison: boolean) => Promise<string | null>;
   closeMenu: () => void;
-  /** Перечитать строки меню: после приказа цена, шанс и причины уже другие. */
-  refreshOrders: () => Promise<void>;
   /** Перечитать план перехвата: цель идёт, и точка встречи с ней уезжает. */
   loadPlan: (marchId: string) => Promise<void>;
-  /** Перечитать план «вести сюда»: время и риск у ворот. */
-  loadLead: () => Promise<void>;
-  /** Отдать приказ дипломату по цели открытого меню. */
-  order: (action: OrderActionId) => Promise<OrderResult>;
+  /** Перечитать дела агента при цели открытого меню: сроки и причины отказа живут пульсами. */
+  loadErrands: () => Promise<void>;
   /** Перечитать стол писем. Мир заодно разберёт сроки: считаем при чтении. */
   loadLetters: () => Promise<void>;
   /** Открыть письмо или закрыть открытое (null). */
@@ -416,7 +409,6 @@ export const useWorld = create<WorldStore>((set, get) => ({
   cardLoading: false,
   chunks: 0,
   menu: null,
-  orders: [],
 
   boot: async () => {
     if (get().ready) return;
@@ -495,11 +487,10 @@ export const useWorld = create<WorldStore>((set, get) => ({
     // Открытое меню живёт теми же пульсами: в причинах отказа стоят отсчёты
     // («дипломат занят ещё 3:00»), и замерший на месте отсчёт читается как
     // сломанный экран, а не как запрет.
-    if (get().menu?.target) void get().refreshOrders();
     // План перехвата тем более: цель идёт, и точка встречи уезжает вместе с ней.
     const chased = get().menu?.march;
     if (chased) void get().loadPlan(chased.id);
-    if (get().menu) void get().loadLead();
+    if (get().menu) void get().loadErrands();
   },
 
   ensureRegion: (rect) => {
@@ -572,14 +563,15 @@ export const useWorld = create<WorldStore>((set, get) => ({
 
   setAnchor: (id) => set({ anchor: id, picked: id === 'home' ? null : get().picked }),
 
-  moveFigure: async (id, to, shownAt) => {
-    const err = await worldApi().moveFigure(id, to, shownAt);
+  errand: async (order) => {
+    const err = await worldApi().errand(order);
     if (err) {
       haptic('error');
       return err;
     }
-    haptic('light');
+    haptic('medium');
     await get().pulse();
+    await get().refreshCard();
     return null;
   },
 
@@ -600,8 +592,8 @@ export const useWorld = create<WorldStore>((set, get) => ({
       return err;
     }
     await get().pulse();
-    // Приказы лазутчика после этого другие: наблюдатель не работает.
-    await get().refreshOrders();
+    // Дела лазутчика после этого другие: наблюдатель не работает.
+    await get().loadErrands();
     return null;
   },
 
@@ -616,7 +608,7 @@ export const useWorld = create<WorldStore>((set, get) => ({
       set({ picked: g.picked === id ? null : g.picked, anchor: g.anchor === id ? 'home' : g.anchor });
     }
     await get().pulse();
-    await get().refreshOrders();
+    await get().loadErrands();
     return null;
   },
 
@@ -864,7 +856,10 @@ export const useWorld = create<WorldStore>((set, get) => ({
     const under = marchOn(get().marches, cell, worldNow());
     // Полководцу на дороге набега — тот же набег: встречать его выходят на путь, а не ловят пальцем движущийся отряд.
     const ahead = !under && !view && agent === 'general' ? raidAcross(get().marches, cell, worldNow(), get().info?.homeId) : null;
-    const march = under ?? ahead;
+    const march = view ? null : (under ?? ahead);
+    // Цель дела (Р-4): свой город, двор или замок соседа, чужой отряд. Пустая земля целью не бывает.
+    const home = view && view.id === get().info?.homeId;
+    const goal: ErrandTarget | null = home ? { kind: 'home' } : view ? { kind: 'place', id: view.id } : march ? { kind: 'march', id: march.id } : null;
     set({
       menu: {
         agent,
@@ -875,22 +870,18 @@ export const useWorld = create<WorldStore>((set, get) => ({
         march,
         ...(ahead ? { across: true } : {}),
         plan: null,
-        lead: null,
+        goal,
+        errands: null,
       },
-      orders: [],
     });
     // Точка встречи считается до подтверждения — она и есть половина решения.
     if (march) void get().loadPlan(march.id);
-    // Сколько идти и чем рискует разведчик у ворот — тоже до подтверждения.
-    void get().loadLead();
+    void get().loadErrands();
     if (!view) return;
-    const [card, orders] = await Promise.all([
-      worldApi().settlement(view.id),
-      worldApi().orders(agent, view.id),
-    ]);
+    const card = await worldApi().settlement(view.id);
     const menu = get().menu;
     if (!menu || menu.target !== view.id) return;
-    set({ menu: { ...menu, card }, orders });
+    set({ menu: { ...menu, card } });
   },
 
   openChase: async (march) => {
@@ -905,10 +896,11 @@ export const useWorld = create<WorldStore>((set, get) => ({
         card: null,
         march,
         plan: null,
-        lead: null,
+        goal: { kind: 'march', id: march.id },
+        errands: null,
       },
-      orders: [],
     });
+    void get().loadErrands();
     await get().loadPlan(march.id);
   },
 
@@ -919,26 +911,13 @@ export const useWorld = create<WorldStore>((set, get) => ({
     set({ menu: { ...menu, plan } });
   },
 
-  loadLead: async () => {
+  loadErrands: async () => {
     const menu = get().menu;
-    if (!menu) return;
-    const lead = await worldApi().leadPlan(menu.agent, menu.cell);
+    if (!menu?.goal) return;
+    const errands = await worldApi().errands(menu.agent, menu.goal);
     const now = get().menu;
-    if (!now || now.agent !== menu.agent || now.cell.x !== menu.cell.x || now.cell.y !== menu.cell.y) return;
-    set({ menu: { ...now, lead } });
-  },
-
-  intercept: async () => {
-    const menu = get().menu;
-    if (!menu?.march) return 'Догонять некого.';
-    const err = await worldApi().intercept(menu.march.id);
-    if (err) {
-      haptic('error');
-      return err;
-    }
-    haptic('medium');
-    await get().pulse();
-    return null;
+    if (!now || now.agent !== menu.agent || now.goal !== menu.goal) return;
+    set({ menu: { ...now, errands } });
   },
 
   strikePlan: (target, garrison) => worldApi().strikePlan(target, garrison),
@@ -955,34 +934,7 @@ export const useWorld = create<WorldStore>((set, get) => ({
     return null;
   },
 
-  closeMenu: () => set({ menu: null, orders: [] }),
-
-  refreshOrders: async () => {
-    const menu = get().menu;
-    if (!menu?.target) return;
-    const [card, orders] = await Promise.all([
-      worldApi().settlement(menu.target),
-      worldApi().orders(menu.agent, menu.target),
-    ]);
-    const now = get().menu;
-    if (!now || now.target !== menu.target) return;
-    set({ menu: { ...now, card }, orders });
-  },
-
-  order: async (action) => {
-    const menu = get().menu;
-    if (!menu?.target) return { error: 'Цель не выбрана.', accepted: false, diplomacy: null, text: '' };
-    // Минута, на которую посчитаны показанные шанс и гибель: приказ идёт ровно по ним.
-    const shown = get().orders.find((o) => o.id === action)?.at;
-    const res = await worldApi().order(action, menu.target, shown);
-    haptic(res.error ? 'error' : res.accepted ? 'medium' : 'light');
-    // Пульс раньше перечитывания: последствие приказа (плата, мораль) должно
-    // лечь на племя до того, как меню покажет новые цены.
-    await get().pulse();
-    await get().refreshOrders();
-    await get().refreshCard();
-    return res;
-  },
+  closeMenu: () => set({ menu: null }),
 
   loadLetters: async () => {
     const letters = await worldApi().letters();
@@ -1075,8 +1027,7 @@ export const useWorld = create<WorldStore>((set, get) => ({
       letterBack: null,
       camp: null,
       menu: null,
-      orders: [],
-      chunks: get().chunks + 1,
+          chunks: get().chunks + 1,
     });
     await get().boot();
   },

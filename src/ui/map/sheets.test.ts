@@ -139,7 +139,7 @@ describe('«Походы» таблицами (П10)', () => {
     expect(out.match(/class="mr-who"/g)?.length, 'имя каждого человека — кнопка карточки').toBe(4);
     // Разведчик в поле: домой и в руку; дипломат в городе: выйти; генерал дома: только в руку.
     expect(out).toContain('aria-label="scout: домой"');
-    expect(out).toContain('aria-label="scout: на карте"');
+    expect(out).toContain('aria-label="scout: послать"');
     expect(out).toContain('aria-label="diplomat: выйти из города"');
     expect(out).not.toContain('aria-label="general: домой"');
     expect(out).toContain('Донесений нет.');

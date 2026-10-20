@@ -22,7 +22,9 @@ import type {
   FigureView,
   IntelReading,
   InterceptPlan,
-  LeadPlan,
+  ErrandOption,
+  ErrandOrder,
+  ErrandTarget,
   LetterAnswerId,
   LetterView,
   MarchOrder,
@@ -31,7 +33,6 @@ import type {
   OrderResult,
   ParleyOrder,
   PlayerProfile,
-  Coord,
   Rect,
   RegionChunk,
   Report,
@@ -72,16 +73,17 @@ export interface WorldApi {
   figures(): Promise<FigureView[]>;
 
   /**
-   * Вести фигуру в клетку. null — пошла, иначе текст ошибки. `shownAt` — минута плана,
-   * который игрок видел (`leadPlan.at`): риск разведчика замораживается ровно по нему.
+   * Дела агента при цели (Р-4, docs/AGENTS.md, раздел 16): что он сделает, сколько идти туда и назад, чем рискует и
+   * хватит ли сил — до приказа, теми же функциями, что исполнят приказ. Недоступное — с причиной. Свободной ходьбы по
+   * клетке нет: цель — свой город, двор мира, город игрока или чужой отряд в пути.
    */
-  moveFigure(id: FigureId, to: Coord, shownAt?: number): Promise<string | null>;
+  errands(agent: FigureId, target: ErrandTarget): Promise<ErrandOption[]>;
 
   /**
-   * Что будет, если вести фигуру в клетку: сколько идти и чем рискует разведчик у
-   * ворот — до приказа, той же функцией, что заморозит риск при отправке.
+   * Отправить агента делом: идёт к цели, делает дело в минуту прихода и сам возвращается домой. Дело не того агента,
+   * не к той цели или не по меню — отказ. null — пошёл, иначе причина.
    */
-  leadPlan(id: FigureId, to: Coord): Promise<LeadPlan>;
+  errand(order: ErrandOrder): Promise<string | null>;
 
   /** Развернуть фигуру домой. Обратный путь считается по уже пройденному. */
   recallFigure(id: FigureId): Promise<string | null>;
