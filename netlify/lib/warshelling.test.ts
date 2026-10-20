@@ -171,9 +171,9 @@ describe('кольцо блокады между игроками', () => {
     expect(blockadeAt(camp(none.w), none.since), 'мощи нет — осада без кольца').toBe(false);
   });
 
-  it('вылазка на пост: только у осаждённого и только при кольце; бой в поле, победа размыкает кольцо', () => {
+  it('вылазка на пост: только у осаждённого и только при кольце; пост устоял — кольцо стоит', () => {
     setPhaseDie(() => 7);
-    const { file, sheets, ctx, w, since } = camped({ home: { spearman: 5 } });
+    const { file, ctx, w, since } = camped({ home: { spearman: 5 } });
     expect(applyOrder(file, B, { op: 'breakout', id: w.id, troops: { spearman: 5 } }, since + 1, ctx)).toBe('Кольца нет — прорывать нечего.');
     expect(applyOrder(file, A, { op: 'blockade', id: w.id, on: true }, since + 1, ctx)).toBeNull();
     expect(applyOrder(file, A, { op: 'breakout', id: w.id, troops: { spearman: 5 } }, since + 2, ctx), 'лагерь сам себя не прорывает').not.toBeNull();

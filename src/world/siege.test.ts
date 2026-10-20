@@ -4,7 +4,7 @@ import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { createInitialState } from '@/game/state';
 import { worldDays } from '@/game/pace';
-import { RESOURCE_IDS, SIEGE_FOOD_YIELD, SIEGE_YIELD } from '@/game/constants';
+import { BLOCKADE_YIELD, RESOURCE_IDS, SIEGE_FOOD_YIELD, SIEGE_YIELD } from '@/game/constants';
 import { productionPerDay, underSiege } from '@/game/derived';
 import { catchUp, tick } from '@/game/sim/tick';
 import { LocalWorld } from './local/LocalWorld';
@@ -220,6 +220,34 @@ describe('осада: дебаф на выработку', () => {
     expect(productionPerDay(besieged(free.time + 600))).toEqual(b);
   });
 
+  it('кольцо блокады (Р-5): ничего не идёт вовсе — ни хлеба, ни прочего; караван ждёт у кольца', () => {
+    const free = createInitialState();
+    const ring = besieged(free.time + 600);
+    ring.siege!.blockade = true;
+    const b = productionPerDay(ring);
+    expect(BLOCKADE_YIELD).toBe(0);
+    for (const r of RESOURCE_IDS) expect(b[r], r).toBe(0);
+    // Караван, дошедший до ворот при кольце, стоит у кольца; кольцо разомкнули — входит.
+    ring.caravans = [{ id: 1, good: 'wood', count: 5, gold: 0, departAt: ring.time, arriveAt: ring.time + 2 }];
+    tick(ring, 3);
+    expect(ring.time, 'точка внутри области: срок каравана прошёл').toBeGreaterThan(ring.caravans[0]?.arriveAt ?? Infinity);
+    expect(ring.caravans).toHaveLength(1);
+    delete ring.siege!.blockade;
+    tick(ring, 1);
+    expect(ring.caravans).toHaveLength(0);
+  });
+
+  it('постройка под обстрелом (Р-5): стоит без работы, пока лежит в окне; прочие работают', () => {
+    const under = besieged(createInitialState().time + 600);
+    const a = productionPerDay(under);
+    const working = under.buildings.filter((b) => under.workers[b.id] ?? 0);
+    expect(working.length, 'точка внутри области: есть постройки с работниками').toBeGreaterThan(0);
+    under.siege!.idle = working.map((b) => b.type);
+    const b = productionPerDay(under);
+    for (const r of RESOURCE_IDS) expect(b[r], r).toBeLessThanOrEqual(a[r]);
+    expect(RESOURCE_IDS.some((r) => b[r] < a[r]), 'выработка упала').toBe(true);
+  });
+
   it('при игроке осаду снимает мир, а не свой срок племени', () => {
     // Срок голода, переведённый в игровое время, уже прошёл: точка там, где две правды
     // о сроке и расходились бы — часы племени говорят «кончилась», мир ещё не сказал.
@@ -316,6 +344,21 @@ describe('осада: дебаф на выработку', () => {
     expect(syncSiege(s, view, START)).toBe(false);
     expect(syncSiege(s, null, START)).toBe(true);
     expect(s.siege).toBeNull();
+  });
+});
+
+describe('мост: кольцо и обстрел в племя (Р-5)', () => {
+  it('кольцо и постройки без работы — из окна мира; без перемен — без правки; разомкнули — поле снято', () => {
+    const s = createInitialState();
+    const ring = { on: true, ratio: '×5', need: 4, can: false, reason: null, gives: '', breaks: '' };
+    const view = { byId: 'S1', byName: 'Соседи', since: START, starvesAt: START + 120_000, garrison: 7, foodAtStart: 6000, campMen: 6, builders: 6, fate: FATE_DEFAULT, fall: { goods: 0, gold: 0, hidden: 0, ledBonded: 0, ledPop: 0, scatterPop: 0, scatterBonded: 0, buildings: 0, levels: 0, burnsWorks: false, routed: 0 }, palisade: 1, blockade: ring, idle: ['smithy', 'farm'] } as SiegeView;
+    expect(syncSiege(s, view, START)).toBe(true);
+    expect(s.siege?.blockade).toBe(true);
+    expect(s.siege?.idle).toEqual(['farm', 'smithy']);
+    expect(syncSiege(s, view, START)).toBe(false);
+    expect(syncSiege(s, { ...view, blockade: { ...ring, on: false }, idle: undefined }, START)).toBe(true);
+    expect(s.siege).not.toHaveProperty('blockade');
+    expect(s.siege).not.toHaveProperty('idle');
   });
 });
 
