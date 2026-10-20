@@ -151,6 +151,7 @@ import {
   warRepairId,
   warGunId,
   warShotId,
+  warRingId,
   warTurnedId,
   WAR_SEEN_MAX,
   type Counts,
@@ -9548,6 +9549,8 @@ export class LocalWorld implements WorldApi {
       }
       // Обстрел нашего города (Р-5): каждое второе попадание в постройку — −1 уровень, не ниже первого; один раз, по отметке.
       if (w.role === 'def') this.warShots(w, seen, now);
+      // Кольцо блокады войны (Р-5): строка летописи о замкнутом и разомкнутом кольце — один раз, по отметке.
+      this.warRing(w, seen, now);
       const fid = warFallId(w.id);
       if (w.fall && !seen.has(fid) && w.fall.at <= now) {
         seen.add(fid);
@@ -9827,6 +9830,21 @@ export class LocalWorld implements WorldApi {
         this.shotLoss(sid, s.building);
       });
     });
+  }
+
+  /** Кольцо блокады войны в летопись (Р-5): осаждённому — город отрезан или снова дышит, осаждающему — кольцо замкнуто и прорвано. */
+  private warRing(w: WarView, seen: Set<string>, now: number): void {
+    const camp = w.camp as unknown as SiegeWindow | undefined;
+    if (!camp) return;
+    const town = w.role === 'def' ? this.homeName() : this.warCity(w, 'def');
+    for (const d of blockadeDeeds(camp)) {
+      const rid = warRingId(w.id, d.at);
+      if (seen.has(rid) || d.at > now) continue;
+      seen.add(rid);
+      const text = d.on ? `Кольцо вокруг ${town} замкнуто. ${BLOCKADE_GIVES}` : `Кольцо вокруг ${town} разомкнуто: ${BREAK_WORDS[d.why ?? 'order']}.`;
+      // Осаждающему кольцо — удача, осаждённому — беда; разомкнутое — наоборот.
+      this.addEffect({ id: rid, lost: {}, resources: {}, prestige: 0, morale: 0, battle: null, text, good: d.on === (w.role === 'atk') });
+    }
   }
 
   /** Попадание, отнимающее уровень у постройки нашего города (`shelling.lostLevel`, не ниже первого), — последствием. */
@@ -11104,6 +11122,7 @@ function warSeenIds(list: readonly WarView[]): string[] {
     if (w.tribute) ids.push(warTributeId(w.id));
     for (const d of w.camp?.log ?? []) if (d.act === 'repair') ids.push(warRepairId(w.id, d.at));
     for (const g of w.camp?.guns ?? []) ids.push(warGunId(w.id, g.at));
+    for (const d of w.camp?.log ?? []) if (d.act === 'blockade') ids.push(warRingId(w.id, d.at));
     (w.camp?.phases ?? w.phases ?? []).forEach((r, k) => (r.shots ?? []).forEach((s, i) => s.lost && ids.push(warShotId(w.id, k + 1, i))));
     for (const t of w.turned ?? []) ids.push(warTurnedId(w.id, t.at));
   }

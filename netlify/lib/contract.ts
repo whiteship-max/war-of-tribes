@@ -1332,6 +1332,9 @@ export const warGunId = (war: string, at: number): string => `${war}.g${at}`;
 /** Отметка попадания обстрела в постройку, отнявшего уровень (Р-5): фаза `k`, выстрел `i` — город теряет уровень один раз. */
 export const warShotId = (war: string, k: number, i: number): string => `${war}.s${k}.${i}`;
 
+/** Отметка кольца блокады (Р-5), замкнутого или разомкнутого в минуту `at`: строка летописи о нём ложится один раз. */
+export const warRingId = (war: string, at: number): string => `${war}.b${at}`;
+
 /** Отметка удара, не пробившегося через рогатки (`WarTurned`), в списке принятого: донесение о нём ложится один раз. */
 export const warTurnedId = (war: string, at: number): string => `${war}.t${at}`;
 
