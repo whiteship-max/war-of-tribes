@@ -58,6 +58,8 @@
     "intercept": "vite-node scripts/console/intercept.ts --",
     "gate": "vite-node scripts/console/gate.ts --",
     "sweep": "vite-node scripts/console/sweep.ts --",
+    "derive": "vite-node scripts/console/derive.ts --",
+    "speed": "vite-node scripts/console/speed.ts --",
     "replay": "vite-node scripts/console/replay.ts --"
   },
   "dependencies": {

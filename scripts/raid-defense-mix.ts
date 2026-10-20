@@ -588,6 +588,27 @@ const medianOf = (xs: readonly number[]): number => {
   return s.length === 0 ? NaN : s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
 };
 
+/** Партии мерки силы у ворот: оба игрока спора, `GATE_STREAMS` потоков у каждого. */
+const gateFlights = (): { masters: boolean; stream: number }[] =>
+  GATE_PLAYERS.flatMap((masters) => Array.from({ length: GATE_STREAMS }, (_, i) => ({ masters, stream: i + 1 })));
+
+/**
+ * Ровный бой у ворот по партиям мерки — одна дверь на раздел 4б и на вывод таблицы (`npm run derive -- gate`): партии
+ * спора до жителей мерки каждого уровня (`pop-gold.typicalTowns`) и ровный бой волков и разбойников на каждом снимке.
+ */
+export async function gateEvens(): Promise<{ flights: { masters: boolean; stream: number }[]; towns: Array<Array<GameState | null>>; evens: StreamEven[] }> {
+  const flights = gateFlights();
+  const towns = await fan(typicalTowns, GOLD_MODULE, flights.map(({ masters, stream }) => ({ masters, stream, seconds: TYPICAL_DAYS * DAY_LENGTH })));
+  const jobs = flights.flatMap((_, i) => towns[i].flatMap((g, l) => (g ? [{ level: l + 1, flight: i, g }] : [])));
+  return { flights, towns, evens: await fan(gateEven, import.meta.url, jobs) };
+}
+
+/** Строка таблицы: партии уровня с ровным боем, по возрастанию, и медиана ровного, делённая на перевес «Ограничителя». */
+export function gateValue(evens: readonly StreamEven[], level: number, who: GateFoe): { got: StreamEven[]; value: number } {
+  const got = evens.filter((e) => e.level === level && Number.isFinite(e[who].power)).sort((a, b) => a[who].power - b[who].power);
+  return { got, value: got.length > 0 ? medianOf(got.map((e) => e[who].power)) / TABLE_EDGE : NaN };
+}
+
 export async function gateLevelPart(): Promise<void> {
   console.log('');
   console.log(`--- 4б. Сила у ворот по уровню посёлка: ровный бой для типичного гарнизона уровня, делённый на ${TABLE_EDGE} (слово владельца по 14.35, п. 4) ---`);
@@ -600,11 +621,8 @@ export async function gateLevelPart(): Promise<void> {
   console.log('пришедшие выходят к этому посёлку (data/events.gatePower по жителям), и строка таблицы игры его уровня (data/events.GATE_POWER).');
   console.log('Партии мерки идут с таблицей игры, и бои у ворот в них настоящие: мерка зависит от самой таблицы — сошлась ли она, печатают последние строки.');
   console.log(`На ${BARE_LEVELS} первых уровнях кривая медианного ещё и без кости: бой на каждую голову пришедших, от одного до ${CURVE[CURVE.length - 1]} обороны (разбор — 14.35).`);
-  const flights = GATE_PLAYERS.flatMap((masters) => Array.from({ length: GATE_STREAMS }, (_, i) => ({ masters, stream: i + 1 })));
-  const towns = await fan(typicalTowns, GOLD_MODULE, flights.map(({ masters, stream }) => ({ masters, stream, seconds: TYPICAL_DAYS * DAY_LENGTH })));
-  const jobs = flights.flatMap((_, i) => towns[i].flatMap((g, l) => (g ? [{ level: l + 1, flight: i, g }] : [])));
+  const { flights, towns, evens } = await gateEvens();
   const flightName = (i: number): string => `поток ${flights[i].stream}, ${playerName(flights[i].masters)}`;
-  const evens = await fan(gateEven, import.meta.url, jobs);
   const table: Record<GateFoe, number[]> = { wolves: [], raiders: [] };
   const foeJobs: FoeJob[] = [];
   const heads: string[] = [];
@@ -616,8 +634,7 @@ export async function gateLevelPart(): Promise<void> {
       ` ${pad(level, 2)}-й уровень: жителей ${GATE_POP[level - 1]} (по прямой лестницы логов — ${lairLevel(GATE_POP[level - 1]).toFixed(2)}-й); дошли ${at.length} партий из ${flights.length}; войско ${span(at.map((e) => e.army))}, оборона ${span(at.map((e) => e.defense))}, ополчение ${span(at.map((e) => e.militia))}; у посёлка мерки (townAt) — войско ${troopTotal(m.army)}, оборона ${Math.round(defense(m))}`,
     );
     for (const who of ['wolves', 'raiders'] as const) {
-      const got = at.filter((e) => Number.isFinite(e[who].power)).sort((a, b) => a[who].power - b[who].power);
-      const value = got.length > 0 ? medianOf(got.map((e) => e[who].power)) / TABLE_EDGE : NaN;
+      const { got, value } = gateValue(evens, level, who);
       table[who].push(Math.round(value));
       const mid = got[(got.length - 1) >> 1] ?? at[0];
       if (!mid) continue;
