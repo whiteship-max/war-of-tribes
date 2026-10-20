@@ -194,6 +194,7 @@ import {
   SIEGE_BLOCK,
   STRIKE_FROM_TOWN,
   WOOD_FIXED,
+  breadStock,
   immuneUntil,
   openSiege,
   ourCamp,
@@ -1107,6 +1108,20 @@ export class LocalWorld implements WorldApi {
     return this.siegeOf(HOME_ID, now);
   }
 
+  /**
+   * Хлеб нашего города в минуту `at`, пока он в осаде, — остаток окна (`siege.foodLeft`; docs/siege_v2.md, 21.1): лагерь
+   * логова у наших стен или лагерь игрока (окно посчитал сервер войны). Осады нет — бесконечность: хлеб — склад.
+   */
+  private homeBread(at: number): number {
+    let bread = Infinity;
+    const w = this.save.sieges[HOME_ID];
+    if (w && at >= w.startedAt) bread = Math.min(bread, foodLeft(w, at));
+    const war = this.warOnUs();
+    const c = war ? this.warWindow(war) : null;
+    if (c && at >= c.startedAt) bread = Math.min(bread, foodLeft(c, at));
+    return bread;
+  }
+
   /** Какое поселение держит в осаде наш полководец. null — лагеря нет. */
   private ourSiege(now: number): SettlementId | null {
     for (const [id, w] of Object.entries(this.save.sieges)) {
@@ -1319,6 +1334,8 @@ export class LocalWorld implements WorldApi {
       starvesAt: this.hunger(w),
       garrison: w.garrisonAtStart,
       foodAtStart: w.foodAtStart,
+      // Хлеб в городе сейчас — остаток окна, та же функция, что решит голод (docs/siege_v2.md, 21.1).
+      bread: Math.floor(foodLeft(w, now)),
       campMen: camp?.men ?? 0,
       builders: this.buildersOf(w, now),
       ...(camp && w.fire ? { fire: { thin: camp.thin, cap: Math.max(w.fire.base, w.fire.thin), slow: w.fire.slow } } : {}),
@@ -1547,7 +1564,7 @@ export class LocalWorld implements WorldApi {
    */
   private payTribute(w: SiegeWindow, price: number, at: number): void {
     const p = this.save.profile;
-    const paid = tributeGoods(p?.stock ?? {}, p?.gold ?? 0, p?.stash ?? 0, price);
+    const paid = tributeGoods(breadStock(p?.stock ?? {}, foodLeft(w, at)), p?.gold ?? 0, p?.stash ?? 0, price);
     const camp = this.save.marches.find((m) => m.id === w.campId);
     const from = this.byId.get(w.byId)?.name ?? camp?.fromName ?? 'Враги';
     this.save.siegeImmune[HOME_ID] = immuneUntil(at);
@@ -1755,7 +1772,8 @@ export class LocalWorld implements WorldApi {
     const camp = this.save.marches.find((m) => m.id === w.campId);
     const f = this.fateFor(w.fate, HOME_ID, at);
     const haul = this.haul(camp?.units ?? {}, false);
-    const r = this.fateHome(this.save.profile, haul.carry, haul.escort, at, f);
+    // «Кончится хлеб — унесут…»: прогноз падения голодом, и хлеба в нём нет — его съела осада.
+    const r = this.fateHome(this.save.profile, haul.carry, haul.escort, at, f, 0);
     const gold = r.lost.gold ?? 0;
     return {
       goods: r.lostTotal - gold,
@@ -2475,7 +2493,8 @@ export class LocalWorld implements WorldApi {
     this.liftedFate(HOME_ID, at, declared);
     this.markFall(HOME_ID, declared, at);
     const haul = this.haul(camp?.units ?? {}, false);
-    const spoils = this.fateHome(p ?? null, haul.carry, haul.escort, at, declared);
+    // Окно к этой минуте уже снято (`siegeFalls` → `liftSiege`): хлеб — его остаток в минуту падения, у голода — ноль.
+    const spoils = this.fateHome(p ?? null, haul.carry, haul.escort, at, declared, foodLeft(w, at));
     const loss = homeLoss(spoils);
     if (FATES[declared].chain) this.save.burnImmune[HOME_ID] = burnImmuneUntil(at);
     const from = this.byId.get(w.byId)?.name ?? camp?.fromName ?? 'Враги';
@@ -2509,6 +2528,8 @@ export class LocalWorld implements WorldApi {
       lostTroops: men > 0 ? routed : undefined,
       // Гарнизон рассеян, а не ранен: лазарет его не кладёт (docs/infirmary.md, решение 7).
       routed: true,
+      // Взят голодом — хлеба нет (docs/siege_v2.md, 21.1): остаток склада племени съеден осадой.
+      ...(gates ? {} : { starved: true as const }),
       prestige: 0,
       morale: -12,
       // Настоящего боя не было: город взяли голодом, и записывать это в
@@ -3760,10 +3781,11 @@ export class LocalWorld implements WorldApi {
    * казна, тайник и постройки — у игрока всё это в слепке. Соль выбора построек —
    * сид мира и минута падения: одно событие, один список.
    */
-  private fateHome(profile: PlayerProfile | null, carry: number, escort: number, at: number, declared: Fate): FateResult {
+  private fateHome(profile: PlayerProfile | null, carry: number, escort: number, at: number, declared: Fate, bread = this.homeBread(at)): FateResult {
     return fate({
       fate: declared,
-      stock: profile?.stock ?? {},
+      // Хлеб осаждённого города — хлеб окна осады (docs/siege_v2.md, 21.1): съеденного за осаду в обозе нет.
+      stock: breadStock(profile?.stock ?? {}, bread),
       gold: Math.max(0, Math.floor(profile?.gold ?? 0)),
       stash: profile?.stash ?? 0,
       pop: profile?.pop ?? 0,
@@ -9523,6 +9545,8 @@ export class LocalWorld implements WorldApi {
       ...(f.popLost > 0 ? { popLost: f.popLost } : {}),
       ...(f.fallen.length > 0 ? { fallen: f.fallen.map((x) => ({ ...x })) } : {}),
       ...(f.burned ? { burned: true } : {}),
+      // Взят голодом — хлеба нет по окну, посчитанному сервером (docs/siege_v2.md, 21.1): остаток склада съеден.
+      ...(f.by === 'hunger' ? { starved: true as const } : {}),
       prestige: 0,
       morale: -12,
       battle: null,
@@ -9686,7 +9710,7 @@ export class LocalWorld implements WorldApi {
   private warFallForecast(w: WarView, at: number): FallForecast {
     // Чужой обоз черту «Добычливый» не множит — та же дверь `haul`, что у набега на наш город.
     const haul = this.haul({ warrior: troopTotal(w.army.troops as TroopStack) }, false);
-    const r = this.fateHome(this.save.profile, haul.carry, haul.escort, at, w.fate);
+    const r = this.fateHome(this.save.profile, haul.carry, haul.escort, at, w.fate, 0);
     const gold = r.lost.gold ?? 0;
     return {
       goods: r.lostTotal - gold,
@@ -9718,6 +9742,7 @@ export class LocalWorld implements WorldApi {
       starvesAt: w.starvesAt ?? starvesAt(c),
       garrison: c.garrisonAtStart,
       foodAtStart: c.foodAtStart,
+      bread: Math.floor(foodLeft(c, now)),
       campMen: men,
       builders: c.builders ?? men,
       ...(c.gateAt !== undefined ? { gateAt: c.gateAt } : {}),

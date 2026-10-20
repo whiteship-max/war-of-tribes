@@ -80,7 +80,7 @@ import {
   rivalRolls,
 } from '../../src/world/rivalspy.js';
 import { gameDaysOfMs, gameSecondsOfMs } from '../../src/game/pace.js';
-import { FATE_SAME, openSiege, SIEGE_BLOCK, siegeSince, starvesAt, type SiegeWindow } from '../../src/world/siege.js';
+import { breadStock, FATE_SAME, openSiege, SIEGE_BLOCK, siegeSince, starvesAt, type SiegeWindow } from '../../src/world/siege.js';
 import { craftAfter, craftAt, craftBlock, craftCount, fortFaces, garrisonWear, type Craft } from '../../src/world/siegecraft.js';
 import {
   breachesOf,
@@ -452,6 +452,26 @@ export const fallId = warFallId;
  * полководца у ворот (`pips`) ходят с отрядом так же.
  */
 export function liveSheet(file: WarFile, key: string, s: SheetAt, at = Infinity): WarSheet {
+  return siegeBread(file, key, bookedSheet(file, key, s, at), at);
+}
+
+/**
+ * Хлеб осаждённого города — хлеб окна осады (Р-5, docs/siege_v2.md, 21.1): пока под его стенами стоит лагерь, слепок держит
+ * хлеба не больше остатка окна к минуте `at` (`siege.foodLeft`). Слепок ложится записью партии — у ушедшего из игры до
+ * осады, — и без этого падение голодом уносило хлеб, который окно уже съело. Голод — ноль. Двух лагерей — меньший остаток.
+ */
+function siegeBread(file: WarFile, key: string, sheet: WarSheet, at: number): WarSheet {
+  let bread = Infinity;
+  for (const w of file.wars) {
+    if (w.def !== key || w.phase !== 'camp' || !w.camp || w.camp.startedAt > at) continue;
+    bread = Math.min(bread, foodLeft(w.camp as SiegeWindow, at));
+  }
+  if (!(bread < Infinity)) return sheet;
+  return { ...sheet, food: Math.min(sheet.food, Math.max(0, Math.floor(bread))), stock: breadStock(sheet.stock, bread) };
+}
+
+/** Слепок с книгами войска, стройки и запасов, без хлеба осады (`liveSheet`). */
+function bookedSheet(file: WarFile, key: string, s: SheetAt, at: number): WarSheet {
   const claim = claimedSheet(file, key, s, at);
   if (!s.book) return s.town ? townSheet(claim, s.town, troopPower(asTroops(claim.home))) : claim;
   // Книга войска (docs/pvp.md, раздел 6): в бой идёт только подтверждённое. Слепок — то, что заявил клиент; книга — что

@@ -1274,11 +1274,15 @@ describe('лестница в мире: объявлено при приказе
       const report = after.reports.find((r) => r.id.endsWith('-fell'))!;
       expect(effect, `${declared}: город пал`).toBeTruthy();
 
-      const before = { goods: RESOURCE_IDS.reduce((n, r) => n + s.resources[r], 0) + s.gold, pop: s.pop, bonded: bondedTotal(s) };
+      // Хлеб в счёт «унесут» не входит: голод его съел, и падение голодом списывает его со склада само (docs/siege_v2.md,
+      // 21.1) — прогноз называет то, что заберут, а хлеба к этой минуте нет.
+      const goods = (): number => RESOURCE_IDS.reduce((n, r) => n + (r === 'food' ? 0 : s.resources[r]), 0) + s.gold;
+      const before = { goods: goods(), pop: s.pop, bonded: bondedTotal(s) };
       const works = s.buildings.filter((b) => b.workRequired > 0).length;
       applyEffects(s, [effect]);
+      expect(s.resources.food, `${declared}: хлеб съеден осадой`).toBe(0);
       const lost = {
-        goods: before.goods - (RESOURCE_IDS.reduce((n, r) => n + s.resources[r], 0) + s.gold),
+        goods: before.goods - goods(),
         pop: before.pop - s.pop,
         bonded: before.bonded - bondedTotal(s),
       };

@@ -92,6 +92,11 @@ export interface ExpeditionOutcome {
   /** Город сожжён: улучшения в работе сгорают без возврата. Тайника это не касается. */
   burned?: boolean;
   /**
+   * Город взят голодом: хлеба в нём не осталось — по окну осады, которое решило исход (docs/siege_v2.md, 21.1). Склад
+   * племени мог держать больше: офлайн-догон не знал об осаде, начатой без игрока. Остаток списывается — съеден.
+   */
+  starved?: boolean;
+  /**
    * Наш город взят: на какие постройки пришёлся удар и с какого уровня на
    * какой. Выбрал их мир одной дверью участи (`world/spoils.fate`) в минуту
    * события; племя ничего не выбирает, а только снимает уровни (`fallBuildings`).
@@ -336,6 +341,9 @@ export function applyExpedition(s: GameState, o: ExpeditionOutcome): void {
     else if (delta < 0) taken[r] = -delta;
   }
   recordRaidLoss(s, taken);
+  // Взят голодом — хлеб съеден до крошки: в обоз он не лёг (добычу посчитал мир без него), со склада он ушёл осадой.
+  const eaten = o.starved ? Math.max(0, s.resources.food) : 0;
+  if (eaten > 0) s.resources.food = 0;
 
   // Выкупленные пленные возвращаются в племя людьми, а не в строй: боец
   // потерян, снаряжение потрачено, человек жив — то же правило, что у лазарета.
@@ -368,7 +376,7 @@ export function applyExpedition(s: GameState, o: ExpeditionOutcome): void {
   if (!counted && (Object.keys(brought).length > 0 || o.gold > 0)) s.stats.windfalls = (s.stats.windfalls ?? 0) + 1;
   // Убыль без дела — дань, починка пролома, кража у нас: разовая трата (`sim/pay.outlay`), иначе книга запасов сервера
   // сочла бы её спрятанным добром (docs/security.md, ЗЩ-2).
-  if (!counted && (Object.keys(taken).length > 0 || o.gold < 0)) outlay(s);
+  if (!counted && (Object.keys(taken).length > 0 || o.gold < 0 || eaten > 0)) outlay(s);
 
   // Прорвавшийся набег хозяйничает в поле: до того, что за стеной, он не дошёл.
   const sacked = o.sacked ? sackOutskirts(s, o.sacked) : [];

@@ -32,6 +32,7 @@ import type { FallForecast, Fate } from '@/world/types';
 import { Icon } from '@/ui/icons/Icon';
 import { CampStrike } from '@/ui/parts/CampStrike';
 import { plural } from '@/ui/parts/plural';
+import { num } from '@/game/num';
 import { SiegePhases } from '@/ui/parts/SiegePhases';
 import { SiegeAnswers } from '@/ui/parts/SiegeAnswers';
 import { SiegeParley } from '@/ui/parts/SiegeParley';
@@ -173,6 +174,19 @@ export function SiegePanel() {
                 }),
                 cells: { what: 'Своей еды хватит на', v: <b className="bad">{hungerLeft(siege.starvesAt, now)}</b> },
               },
+              // Хлеб в городе — остаток окна осады, тот же, что решит голод (docs/siege_v2.md, 21.1): склад выше не держит.
+              ...(siege.bread !== undefined
+                ? [
+                    {
+                      key: 'bread',
+                      tip: () => ({
+                        title: `Хлеба в городе ${num(siege.bread ?? 0)}`,
+                        body: `Было ${num(siege.foodAtStart)}, когда встал лагерь. Голод — когда хлеба не останется: тогда город падёт, и в обоз хлеба не положат.`,
+                      }),
+                      cells: { what: 'Хлеба в городе', v: num(siege.bread) },
+                    },
+                  ]
+                : []),
               { key: 'garrison', cells: { what: 'Гарнизон ест с городом', v: `${siege.garrison} ${plural(siege.garrison, 'боец', 'бойца', 'бойцов')}` } },
               { key: 'walls', cells: { what: 'Стены', v: `ур. ${siege.palisade}` } },
               ...(fire

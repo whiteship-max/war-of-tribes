@@ -199,12 +199,31 @@ export const siegeWear = (since: number, at: number, span: number): number =>
   1 - (1 - SIEGE_WEAR_FLOOR) * Math.min(1, Math.max(0, at - since) / Math.max(1, span));
 
 /**
+ * Сколько хлеба осталось у осаждённого к минуте `at` — от окна, той же арифметикой, что часы голода. **Хлеб осаждённого
+ * города — хлеб окна** (docs/siege_v2.md, 21.1): падение, дань и цена дани в минуту осады берут хлеба не больше этого, а
+ * племя под осадой не держит на складе больше (`bridge.syncSiege`). Голод — ноль: съеденного в обоз не положить.
+ */
+export const foodLeft = (w: SiegeWindow, at: number): number =>
+  Math.max(0, w.foodAtStart - (consumptionPerHour(w) * Math.max(0, at - w.startedAt)) / HOUR);
+
+/** Склад осаждённого с хлебом не больше остатка окна `bread` (`foodLeft`): прочее добро — как есть. */
+export function breadStock<T extends Partial<Record<string, number>>>(stock: T, bread: number): T {
+  if (!(bread < Infinity)) return stock;
+  const left = Math.max(0, Math.floor(bread));
+  const food = stock.food ?? 0;
+  if (food <= left) return stock;
+  const out = { ...stock };
+  if (left > 0) (out as Record<string, number>).food = left;
+  else delete (out as Record<string, number>).food;
+  return out;
+}
+
+/**
  * Когда кончится хлеб, если с минуты `at` паёк станет `on` (docs/siege_v2.md, раздел 5): остаток хлеба к этой минуте, расход
  * окна с пайком или без. Та же арифметика, что пересчёт часов голода при приказе, — окно говорит игроку пользу до нажатия.
  */
 export function starvesIfRation(w: SiegeWindow, at: number, on: boolean): number {
-  const left = Math.max(0, w.foodAtStart - (consumptionPerHour(w) * Math.max(0, at - w.startedAt)) / HOUR);
-  return at + (left / consumptionPerHour({ ...w, ration: on })) * HOUR;
+  return at + (foodLeft(w, at) / consumptionPerHour({ ...w, ration: on })) * HOUR;
 }
 
 /** Путь износа гарнизона до дна — от начала осады до голода этого окна, мс (docs/siege_v2.md, 2.6). */
