@@ -18,17 +18,20 @@ import type { Estimate } from '@/world/types';
 import { Icon } from '@/ui/icons/Icon';
 import { realLeft } from '@/ui/parts/wait';
 import { tipAt } from '@/ui/next/tip';
-import { RING_ORDER, ringSlots, type RingSlot } from './ring';
+import { roomOf } from '@/world/muster';
+import { RING_ORDER, musterable, ringSlots, type RingSlot } from './ring';
 
 /** Радиус дуги и размер значка, px: значок не меньше пальца (`--tap` 44), дуга не налезает на соседние места. */
 export const RING_R = 70;
 export const RING_BTN = 52;
+export const RING_LIFT = 26;
 
 /** Где встанет каждый значок: дуга над точкой слева направо, от −160° до −20°; у края экрана дуга сдвигается внутрь. */
 export function ringPlaces(at: { x: number; y: number }, vp: { w: number; h: number }): { x: number; y: number }[] {
   const pad = RING_BTN / 2 + 6;
   const cx = Math.min(Math.max(at.x, RING_R + pad), vp.w - RING_R - pad);
-  const cy = Math.min(Math.max(at.y, RING_R + pad), vp.h - pad);
+  // Середина дуги — над местом, а не на нём: значок места под пальцем остаётся виден.
+  const cy = Math.min(Math.max(at.y - RING_LIFT, RING_R + pad), vp.h - pad);
   const n = RING_ORDER.length;
   return RING_ORDER.map((_, i) => {
     const a = ((-160 + (140 * i) / (n - 1)) * Math.PI) / 180;
@@ -55,11 +58,14 @@ const est = (e: Estimate): string => (e.precision === 'unknown' ? '?' : formatEs
 export function RingLayer({ at, vp }: { at: { x: number; y: number } | null; vp: { w: number; h: number } }) {
   const ring = useWorld((g) => g.ring);
   const figures = useWorld((g) => g.figures);
+  const marches = useWorld((g) => g.marches);
   const s = useGame((g) => g.s);
   if (!ring) return null;
   if (ring.info) return <Brief />;
   if (!at) return null;
-  const slots = ringSlots(ring.goal, ring.deeds, figures, (a) => hireWhere(s, a), Boolean(ring.card?.castle && !ring.card.mine));
+  const rival = Boolean(ring.card?.castle && !ring.card.mine);
+  const muster = musterable(figures.find((f) => f.id === 'general'), roomOf(s.army, marches ?? []));
+  const slots = ringSlots(ring.goal, ring.deeds, figures, (a) => hireWhere(s, a), rival, muster);
   const places = ringPlaces(at, vp);
 
   return (

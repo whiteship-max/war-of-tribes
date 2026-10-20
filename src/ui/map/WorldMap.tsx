@@ -383,6 +383,9 @@ export function WorldMap() {
         cam.current = hold({ cx: x + 0.5, cy: y + 0.5, scale });
         setZoomedIn(modeFor(cam.current.scale) === 'detail');
       };
+      // Касание клетки тем же `openAt`, что палец (кольцо К-2, `docs/ui_v2/shots.ts`): попасть пальцем в место, которое
+      // поводок не даёт поставить в середину, стенду нечем.
+      (window as unknown as { __mapTap?: (x: number, y: number) => void }).__mapTap = (x, y) => openAt({ x, y });
     }
 
     const frame = (): void => {

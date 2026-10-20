@@ -195,8 +195,8 @@ export async function departWith(
 export interface MusterSend {
   /** Приказ дела; участь удара и осады выбрана выше, в окне войска. */
   order: ErrandOrder;
-  /** Почему дело сейчас не начать — словами мира (`ErrandOption.reason`). */
-  block: string | null;
+  /** Почему дело с этим отрядом не начать — словами мира (`ErrandOption.reason`); null — можно. */
+  block: (want: TroopStack) => string | null;
   /** Строка над кнопкой: дорога, риск — от окна войска. */
   extra?: ReactNode;
   /** Ушёл (null) или отказ словами. */
@@ -206,7 +206,7 @@ export interface MusterSend {
 /** Подписи колонок окна войска: та же передача, другими словами — кто уходит, кто остаётся. */
 const KEY_STAY = (
   <span className="ms-key">
-    <Icon name="ui-home" /> Остаётся в городе
+    <Icon name="ui-home" /> Остаётся
   </span>
 );
 const KEY_GO = (
@@ -289,7 +289,7 @@ export function Muster({ onCard, send }: { onCard?: (t: TroopId) => void; send?:
   const sendBtn = send && (
     <>
       {send.extra}
-      <Btn kind="main" wide why={busy ? 'Отряд выходит' : send.block} onClick={() => void depart()}>
+      <Btn kind="main" wide why={busy ? 'Отряд выходит' : send.block(can ? want : held)} onClick={() => void depart()}>
         Отправить
       </Btn>
     </>
@@ -323,7 +323,7 @@ export function Muster({ onCard, send }: { onCard?: (t: TroopId) => void; send?:
         goLabel="В Статую"
       />
       {/* Отряд пуст — где его взять (отзыв тестеров 18.10, docs/feedback.md: «как полководцу взять войско?»). */}
-      {can && rows.length > 0 && troopTotal(held) === 0 && <p className="nx-tnote">{EMPTY_HINT}</p>}
+      {can && !send && rows.length > 0 && troopTotal(held) === 0 && <p className="nx-tnote">{EMPTY_HINT}</p>}
       {/* Почему раскладку сейчас не поменять — словами мира; идущий сбор строка полководца уже назвала. */}
       {here && regroup.block && !(general && general.readyAt > 0) && rows.length > 0 && <p className="nx-bwarn">{regroup.block}</p>}
 
@@ -386,14 +386,14 @@ export function Muster({ onCard, send }: { onCard?: (t: TroopId) => void; send?:
           {can && (
             <div className="ms-all">
               <Btn kind="link" why={troopTotal(want) === 0 ? 'Все в гарнизоне' : null} onClick={() => setWant({})}>
-                Всех в гарнизон
+                {send ? 'Все остаются' : 'Всех в гарнизон'}
               </Btn>
               <Btn
                 kind="link"
                 why={regroup.grow ?? (rows.every((t) => (want[t] ?? 0) >= all(t)) ? 'Все в отряде' : null)}
                 onClick={() => setWant({ ...total })}
               >
-                Всех в отряд
+                {send ? 'Все уходят' : 'Всех в отряд'}
               </Btn>
             </div>
           )}
@@ -401,7 +401,7 @@ export function Muster({ onCard, send }: { onCard?: (t: TroopId) => void; send?:
       )}
 
       {rows.length > 0 && (
-        <div className={can ? 'nx-obar ms-bar' : 'ms-bar'}>
+        <div className={send ? 'ms-bar ms-send' : can ? 'nx-obar ms-bar' : 'ms-bar'}>
           <Table
             label="Итог передачи"
             cols={sumCols}
@@ -470,7 +470,7 @@ export function Muster({ onCard, send }: { onCard?: (t: TroopId) => void; send?:
           )}
         </div>
       )}
-      {send && rows.length === 0 && <div className="ms-bar">{sendBtn}</div>}
+      {send && rows.length === 0 && <div className="ms-bar ms-send">{sendBtn}</div>}
     </div>
   );
 }

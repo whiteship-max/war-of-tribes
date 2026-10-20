@@ -38,7 +38,7 @@ vi.mock('@/world/store', async (orig) => {
 vi.mock('@/ui/map/twslot', async (orig) => ({ ...(await orig<object>()), reachable: () => true }));
 vi.mock('@/ui/next/tip', async (orig) => ({ ...(await orig<object>()), tipAt: (_el: unknown, t: { title: string; body?: string }) => tips.push(t) }));
 
-import { RING_ORDER, agentState, ringSlots } from './ring';
+import { RING_ORDER, agentState, emptyRetinue, musterable, ringSlots } from './ring';
 import { RingLayer, ringTap } from './Ring';
 import { ActionMenu } from './ActionMenu';
 import { ArmySend } from './ArmySend';
@@ -249,9 +249,30 @@ describe('кольцо над целью (К-2)', () => {
     stores.world = { figures: await b.world.figures(), marches: [], setGarrison: async () => null, closeMenu: () => undefined };
     const fates = [{ id: 'plunder' as const, can: true, reason: null, loot: {}, slaves: 0, levels: 0, pop: 0 }];
     const html = renderToStaticMarkup(h(ArmySend, { where: 'Логово', goal: target, o: storm!, fates: fates as never, onBack: () => undefined }));
-    for (const want of ['Остаётся в городе', 'Уходит с полководцем', 'Оборона города', 'Мощь', 'Куда', 'Дорога', 'Риск', '>Отправить<', 'class="fate-pick"']) {
+    for (const want of ['Остаётся', 'Уходит с полководцем', 'Оборона города', 'Мощь', 'Куда', 'Дорога', 'Риск', '>Отправить<', 'class="fate-pick"']) {
       expect(html, want).toContain(want);
     }
+  }, 120_000);
+
+  it('пустой отряд полководца не гасит меч, пока бойцы в гарнизоне: окно войска даёт их, и он уходит с ними', async () => {
+    const b = await bench();
+    const target: ErrandTarget = { kind: 'place', id: b.lair.id };
+    const g0 = await b.fig('general');
+    // Область: полководец дома, перевод мгновенный, отряда при нём нет, в гарнизоне бойцы есть.
+    expect(troopTotal(g0.troops ?? {}), 'отряда при полководце нет').toBe(0);
+    expect(g0.atHome && g0.regroup?.instant, 'дома, перевод мгновенный').toBe(true);
+    const deeds = await deedsAt(b, target);
+    const storm = deeds.general.find((o) => o.id === 'storm')!;
+    expect(storm.can, 'мир гасит удар пустым отрядом').toBe(false);
+    expect(emptyRetinue(storm), storm.reason ?? '').toBe(true);
+    const figures = await b.world.figures();
+    expect(ringSlots(target, deeds, figures, hire, false, false)[1].on, 'без бойцов в гарнизоне меч погашен').toBe(false);
+    expect(ringSlots(target, deeds, figures, hire, false, musterable(g0, HOST))[1].on, 'с бойцами в гарнизоне меч горит').toBe(true);
+    const want: TroopStack = { spearman: 30, archer: 12 };
+    expect(await departWith(b.world, {}, want, { agent: 'general', target, deed: 'storm', fate: 'plunder', shownAt: storm.at })).toBeNull();
+    const g = await b.fig('general');
+    expect(g.phase, 'пошёл').toBe('moving');
+    expect(g.troops, 'ушёл ровно с выбранными').toEqual(want);
   }, 120_000);
 
   it('погашенный человек объясняет причину словами мира, касание не открывает дел', async () => {

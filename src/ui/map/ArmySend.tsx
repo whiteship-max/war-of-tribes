@@ -15,13 +15,18 @@ import { Icon } from '@/ui/icons/Icon';
 import { EnergyPrice } from '@/ui/parts/Energy';
 import { FatePick } from '@/ui/parts/FatePick';
 import { Muster } from '@/ui/parts/Muster';
+import { troopTotal } from '@/game/battle/kinds';
 import { errandIcon, roadWords, sentWords } from './ActionMenu';
+import { emptyRetinue } from './ring';
 
 /** Участь по умолчанию: та, что у карточки, если её можно объявить, иначе первая доступная. */
 export function firstFate(options: readonly FateOption[]): Fate {
   if (options.some((o) => o.id === FATE_DEFAULT && o.can)) return FATE_DEFAULT;
   return options.find((o) => o.can)?.id ?? FATE_DEFAULT;
 }
+
+/** Почему «Отправить» погашено в окне, где отряд дают тут же: не «иди в Раскладку», а «+» у вида. */
+export const EMPTY_SEND = 'Отряд пуст: «+» у вида — боец уходит с полководцем.';
 
 export function ArmySend({
   where,
@@ -42,6 +47,8 @@ export function ArmySend({
   const showToast = useGame((g) => g.showToast);
   const name = useWorld((g) => g.figures.find((f) => f.id === 'general')?.name ?? 'Полководец');
   const [fate, setFate] = useState<Fate>(() => firstFate(fates));
+  // Окно короткое: только участи, которые можно объявить; закрытые с причинами — в карточке места.
+  const open = fates.filter((f) => f.can);
   const done = (err: string | null): void => {
     showToast(err ?? sentWords(name, o));
     if (!err) useWorld.getState().closeMenu();
@@ -62,12 +69,14 @@ export function ArmySend({
         <Line label="Дорога" value={roadWords(o)} />
         <Line label="Риск" value={o.risk.length > 0 ? o.risk.join(' ') : 'Риска нет.'} bad={o.risk.length > 0} />
         {o.energy && <Line label="Энергия" value={<EnergyPrice price={o.energy.price} />} />}
-        {o.fate && <FatePick options={fates} value={fate} onChange={setFate} />}
+        {o.fate && <FatePick options={open} value={fate} onChange={setFate} />}
         {warn && <p className="nx-bwarn">{warn}</p>}
         <Muster
           send={{
             order: { agent: 'general', target: goal, deed: o.id, shownAt: o.at, ...(o.fate ? { fate } : {}) },
-            block: o.can ? null : (o.reason ?? 'Сейчас нельзя.'),
+            // Пустой отряд гасит дело, только пока уходящих нет: бойцов даёт это окно (`ring.emptyRetinue`).
+            block: (want) =>
+              o.can || (emptyRetinue(o) && troopTotal(want) > 0) ? null : emptyRetinue(o) ? EMPTY_SEND : (o.reason ?? 'Сейчас нельзя.'),
             done,
           }}
         />

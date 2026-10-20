@@ -9,6 +9,7 @@
 // причина — первая, которую назвал мир. Модуль чистый — без React и сторов: его держит тест.
 import { FIGURE_BY_ID } from '@/world/data/figures';
 import type { ErrandOption, ErrandTarget, FigureId, FigureView } from '@/world/types';
+import { troopTotal, type TroopStack } from '@/game/battle/kinds';
 import type { IconName } from '@/ui/icons/alias';
 
 /** Гнездо кольца: три человека и сведения. Глаз — разведчик и лазутчик одним значком. */
@@ -33,6 +34,21 @@ export const RING_ORDER: readonly RingSlotId[] = ['diplomat', 'general', 'eye', 
 const ICON: Record<RingSlotId, IconName> = { diplomat: 'ui-mail', general: 'gear-sword', eye: 'ui-eye', info: 'ui-info' };
 const LABEL: Record<RingSlotId, string> = { diplomat: 'Дипломат', general: 'Полководец', eye: 'Разведчик и лазутчик', info: 'Сведения' };
 
+/**
+ * Дело полководца погашено пустым отрядом. Дать ему бойцов — ровно то, что делает окно войска (`ArmySend`), поэтому такая
+ * причина не гасит ни значок, ни строку, пока полководец дома и бойцы в гарнизоне есть (`musterable`); окно гасит
+ * «Отправить», пока уходящих нет. Отказ мира — его же словами: «…нет отряда…» во всех дверях полководца.
+ */
+export const emptyRetinue = (o: Pick<ErrandOption, 'agent' | 'can' | 'reason'>): boolean =>
+  o.agent === 'general' && !o.can && /нет отряда/.test(o.reason ?? '');
+
+/** Можно ли дать полководцу отряд прямо в окне войска: он дома, перевод мгновенный, в гарнизоне есть бойцы. */
+export const musterable = (general: FigureView | undefined, pool: TroopStack): boolean =>
+  Boolean(general?.atHome && general.regroup?.instant && general.regroup.block === null && troopTotal(pool) > 0);
+
+/** Начать дело можно сейчас — или, у полководца, как только окно войска даст ему бойцов. */
+export const startable = (o: ErrandOption, muster: boolean): boolean => o.can || (muster && emptyRetinue(o));
+
 /** Состояние одного человека у цели: горит или почему нет. `deeds` null — дела ещё считаются. */
 export function agentState(
   agent: FigureId,
@@ -40,6 +56,7 @@ export function agentState(
   deeds: readonly ErrandOption[] | null | undefined,
   figure: FigureView | undefined,
   hireAt: string,
+  muster = false,
 ): { on: boolean; why: string | null } {
   const def = FIGURE_BY_ID[agent];
   if (figure?.place === 'vacant') {
@@ -48,7 +65,7 @@ export function agentState(
   if (!deeds) return { on: false, why: 'Считаем дела…' };
   // «Домой» у чужой цели — не дело у неё: человек, которому остаётся только вернуться, здесь ничего не сделает.
   const here = goal.kind === 'home' ? deeds : deeds.filter((o) => o.id !== 'home');
-  if (here.some((o) => o.can)) return { on: true, why: null };
+  if (here.some((o) => startable(o, muster))) return { on: true, why: null };
   const why = here.find((o) => o.reason)?.reason;
   if (why) return { on: false, why };
   if (agent === 'diplomat' && goal.kind === 'place') return { on: false, why: 'С логовом не договариваются. Дипломат ездит к соседям.' };
@@ -65,8 +82,9 @@ export function ringSlots(
   figures: readonly FigureView[],
   hireAt: (agent: FigureId) => string,
   rival: boolean,
+  muster = false,
 ): RingSlot[] {
-  const st = (a: FigureId) => agentState(a, goal, deeds[a], figures.find((f) => f.id === a), hireAt(a));
+  const st = (a: FigureId) => agentState(a, goal, deeds[a], figures.find((f) => f.id === a), hireAt(a), a === 'general' && muster);
   const slot = (id: RingSlotId, agent: FigureId | null, s: { on: boolean; why: string | null }): RingSlot => ({
     id,
     icon: ICON[id],

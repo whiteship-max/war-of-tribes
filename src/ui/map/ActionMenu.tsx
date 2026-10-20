@@ -31,6 +31,8 @@ import { beyondText, reachable } from './twslot';
 import { tipAt } from '@/ui/next/tip';
 import type { IconName } from '@/ui/icons/alias';
 import { iconName } from '@/ui/icons/registry';
+import { roomOf } from '@/world/muster';
+import { musterable, startable } from './ring';
 
 // Окно войска полководца (К-2) — своим куском: передача тянет мощь и оборону, а нужна только после выбора дела.
 const ArmySend = lazy(() => import('./ArmySend'));
@@ -81,6 +83,7 @@ export function sentWords(who: string, o: ErrandOption): string {
 export function ActionMenu() {
   const menu = useWorld((g) => g.menu);
   const figures = useWorld((g) => g.figures);
+  const marches = useWorld((g) => g.marches);
   const s = useGame((g) => g.s);
   const closeMenu = useWorld((g) => g.closeMenu);
   const errand = useWorld((g) => g.errand);
@@ -107,6 +110,8 @@ export function ActionMenu() {
   const list = menu.errands ?? null;
   const pick = chosen ? (list?.find((o) => o.id === chosen) ?? null) : null;
   // Полководец в лагере: увести его к другой цели можно, но это и есть снятие осады — сказано до «Отправить».
+  // Пустой отряд полководца — не отказ, пока бойцы в гарнизоне: их даёт окно войска (К-2, `ring.emptyRetinue`).
+  const muster = menu.agent === 'general' && musterable(figure, roomOf(s.army, marches ?? []));
   const leavingCamp = menu.agent === 'general' && Boolean(figure?.besieging) && figure?.besieging !== menu.target;
 
   /** Подсказка по касанию значка строки: что это и что стоит за числами (docs/ui_audit.md, 3.7). */
@@ -275,13 +280,13 @@ export function ActionMenu() {
           </p>
         )}
         {list?.map((o) => (
-          <div key={o.id} className={`nx-orow${o.can ? '' : ' off'}`}>
+          <div key={o.id} className={`nx-orow${startable(o, muster) ? '' : ' off'}`}>
             <button className="nx-wico" onClick={tipOf(o.name, o.does, ...o.risk)} aria-label={`${o.name}: что это`}>
               <Icon name={errandIcon(o)} />
             </button>
             <button className="nx-obtn" onClick={() => setChosen(o.id)}>
               <b>{o.name}</b>
-              {o.can && (
+              {startable(o, muster) && (
                 <span className="nx-ochips">
                   <span>
                     <Icon name="ui-time" /> {roadWords(o)}
@@ -290,7 +295,7 @@ export function ActionMenu() {
                   {o.energy && <EnergyPrice price={o.energy.price} />}
                 </span>
               )}
-              {!o.can && o.reason && <small className="nx-why">{o.reason}</small>}
+              {!startable(o, muster) && o.reason && <small className="nx-why">{o.reason}</small>}
               {isPaid(o.cost) && <Cost cost={o.cost} />}
             </button>
           </div>
