@@ -161,3 +161,37 @@ describe('лазутчик против соседа: путь от меню д�
     expect(end.pa.figures.find((f) => f.id === 'spy')?.phase).toBe('home');
   }, 60_000);
 });
+
+describe('дело против соседа из «Походов» (Р-4) и подделка приказа серверу', () => {
+  it('лазутчик идёт делом из меню дел: тот же приказ серверу, туда и домой ведёт сервер', async () => {
+    const g = game();
+    await g.pulse();
+    const target = { kind: 'place', id: g.target } as const;
+    const menu = await g.a.errands('spy', target);
+    expect(menu.map((o) => o.id)).toEqual(['look', 'fire', 'theft', 'unrest']);
+    const look = menu.find((o) => o.id === 'look')!;
+    expect(look.reason).toBeNull();
+    expect(look.walkMs, 'дорога до соседа — числом сервера').toBeGreaterThan(0);
+    expect(await g.a.errand({ agent: 'spy', target, deed: 'look', shownAt: look.at })).toBeNull();
+    expect(g.file.spies, 'приказ дошёл до сервера один раз').toHaveLength(1);
+  });
+
+  it('приказ мимо меню — не те шансы, войско сверх книги — сервер отказывает, войны и дела нет', async () => {
+    const g = game();
+    await g.pulse();
+    const send = (g.b as unknown as { warOrderTo: (o: WarOrder) => Promise<string | null> }).warOrderTo;
+    const theirs = castleIdOf(A);
+    const forgedSpy = await send({ op: 'spy', target: theirs, deed: 'theft', shown: { chance: 1, peril: 0 }, at: g.now() });
+    expect(forgedSpy, 'шанс «наверняка» и гибель ноль — не числа сервера').toBe('Обстановка у города сменилась. Посмотри дела заново.');
+    const forgedMarch = await send({
+      op: 'march',
+      target: theirs,
+      mode: 'storm',
+      fate: 'plunder',
+      army: { troops: { spearman: 99_999 }, resolve: 1, pips: {} },
+    });
+    expect(forgedMarch, 'войско сверх подтверждённого книгой').not.toBeNull();
+    expect(g.file.spies ?? []).toHaveLength(0);
+    expect(g.file.wars).toHaveLength(0);
+  });
+});

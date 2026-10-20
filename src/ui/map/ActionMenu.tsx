@@ -16,6 +16,7 @@ import { FIGURE_BY_ID, FIGURES } from '@/world/data/figures';
 import { FATE_META } from '@/world/data/fates';
 import { RIVAL_DEEDS } from '@/world/data/spy';
 import { formatCoord, secondsLeft } from '@/world/geo';
+import { CAMP_LEAVE } from '@/world/siege';
 import { realLeft } from '@/ui/parts/wait';
 import { count } from '@/ui/parts/plural';
 import { hireWhere } from '@/game/sim/hire';
@@ -102,6 +103,8 @@ export function ActionMenu() {
   const list = menu.errands?.filter((o) => !o.fate) ?? null;
   const fated = menu.errands?.some((o) => o.fate) ?? false;
   const pick = chosen ? (list?.find((o) => o.id === chosen) ?? null) : null;
+  // Полководец в лагере: увести его к другой цели можно, но это и есть снятие осады — сказано до «Отправить».
+  const leavingCamp = menu.agent === 'general' && Boolean(figure?.besieging) && figure?.besieging !== menu.target;
 
   /** Подсказка по касанию значка строки: что это и что стоит за числами (docs/ui_audit.md, 3.7). */
   const tipOf =
@@ -160,7 +163,14 @@ export function ActionMenu() {
     return (
       <Wrap closeMenu={closeMenu}>
         {head}
-        <ErrandConfirm where={`${menu.name} · ${formatCoord(menu.cell)}`} o={pick} busy={busy} onBack={() => setChosen(null)} onGo={() => void go(pick)} />
+        <ErrandConfirm
+          where={`${menu.name} · ${formatCoord(menu.cell)}`}
+          o={pick}
+          warn={leavingCamp ? CAMP_LEAVE : null}
+          busy={busy}
+          onBack={() => setChosen(null)}
+          onGo={() => void go(pick)}
+        />
       </Wrap>
     );
   }
@@ -305,7 +315,22 @@ export function ActionMenu() {
 }
 
 /** Подтверждение дела: куда, что сделает, дорога туда и назад, риск, энергия и плата — потом «Назад» или «Отправить». */
-export function ErrandConfirm({ where, o, busy, onBack, onGo }: { where: string; o: ErrandOption; busy: boolean; onBack: () => void; onGo: () => void }) {
+export function ErrandConfirm({
+  where,
+  o,
+  warn,
+  busy,
+  onBack,
+  onGo,
+}: {
+  where: string;
+  o: ErrandOption;
+  /** Цена, которая выясняется не делом, а уходом: увод полководца из лагеря снимает осаду. */
+  warn?: string | null;
+  busy: boolean;
+  onBack: () => void;
+  onGo: () => void;
+}) {
   return (
     <>
       <div className="nx-am-body er-confirm">
@@ -323,6 +348,7 @@ export function ErrandConfirm({ where, o, busy, onBack, onGo }: { where: string;
         <Line label="Риск" value={o.risk.length > 0 ? o.risk.join(' ') : 'Риска нет.'} bad={o.risk.length > 0} />
         {o.energy && <Line label="Энергия" value={<EnergyPrice price={o.energy.price} />} />}
         {isPaid(o.cost) && <Cost cost={o.cost} />}
+        {warn && <p className="nx-bwarn">{warn}</p>}
         {!o.can && o.reason && <p className="nx-bwarn">{o.reason}</p>}
       </div>
       <div className="nx-am-foot">

@@ -19,6 +19,8 @@
 //   GROUP=or1 WEATHER=clear TAG=before|after …     — ОР-1: подписи построек, «Показать в городе», метки и «Домой»;
 //                                                     `WEATHER` — погода адресом (`?weather=`), чтобы туман не съел подписи
 //   DIR=icons GROUP=zn4 WEATHER=clear TAG=after …  — ЗН-4: подписи у середины приближения, рычаг, окно «Профиль», держава
+//   GROUP=r4 …                                     — Р-4 (docs/AGENTS.md, 16): «Походы», цель, дела, подтверждение,
+//                                                    донесение, знак павшего города словами
 //   DIR=polish GROUP=p7 TAG=before|after …          — П-7 (docs/polish.md): тревоги войны значками справа снизу — осада
 //                                                     тихая и срочная, набеги, свой лагерь, карта, вход в окно, город без осады
 //
@@ -682,6 +684,116 @@ const GROUPS: Record<string, Step[]> = {
         return JSON.stringify('шаг сразу');
       })()`,
       wait: 2000,
+    },
+  ],
+  // Р-4 (docs/AGENTS.md, раздел 16): походы агентов — «Походы», цель на карте, дела, подтверждение, донесение; пометка
+  // павшего города словами. Мир настоящий; время прихода лазутчика сдвинуто руками стенда, чтобы донесение легло сразу.
+  r4: [
+    {
+      name: 'r4-01-marches',
+      run: `(async () => {
+        window.__ui.reset();
+        await (await import('/src/world/store.ts')).useWorld.getState().pulse();
+        window.__game.getState().openMarches();
+        return JSON.stringify('ok');
+      })()`,
+      wait: 1200,
+    },
+    {
+      name: 'r4-02-target',
+      run: `(async () => {
+        const b = document.querySelector('.sheet.open button[aria-label="Разведчик: послать"]');
+        if (!b) return JSON.stringify('нет кнопки «послать»');
+        b.click();
+        await new Promise((r) => setTimeout(r, 4000));
+        return JSON.stringify('в руке: ' + (await import('/src/world/store.ts')).useWorld.getState().picked);
+      })()`,
+      wait: 1200,
+    },
+    {
+      name: 'r4-03-deeds',
+      run: `(async () => {
+        const S = await import('/src/world/store.ts');
+        const A = await import('/src/world/api.ts');
+        const W = S.useWorld.getState();
+        const info = W.info;
+        const h = info.home;
+        const now = S.worldNow();
+        A.worldApi().save.marches.push({
+          id: 'raid-r4', seed: 5, mission: 'raid', units: { warrior: 12 }, own: false, fromId: 'lair-r4', targetId: info.homeId,
+          from: { x: h.x + 9, y: h.y }, to: { x: h.x, y: h.y }, fromName: 'Волчья падь', toName: 'дом',
+          departAt: now - 600000, arriveAt: now + 3000000, phase: 'out', power: 40, loot: null,
+        });
+        await W.pulse();
+        const m = S.useWorld.getState().marches.find((x) => x.id === 'raid-r4');
+        if (!m) return JSON.stringify('набега не видно');
+        await S.useWorld.getState().openChase(m, 'scout');
+        await new Promise((r) => setTimeout(r, 700));
+        return JSON.stringify('дел ' + (S.useWorld.getState().menu?.errands || []).length);
+      })()`,
+      wait: 900,
+    },
+    {
+      name: 'r4-04-confirm',
+      run: `(async () => {
+        const b = [...document.querySelectorAll('.nx-am .nx-obtn')].find((x) => x.textContent.includes('Следить за отрядом'));
+        if (!b) return JSON.stringify('нет дела «Следить за отрядом»');
+        b.click();
+        return JSON.stringify('ok');
+      })()`,
+      wait: 700,
+    },
+    {
+      name: 'r4-05-report',
+      run: `(async () => {
+        const go = [...document.querySelectorAll('.nx-am .nx-go')].find((x) => x.textContent.trim() === 'Отправить');
+        if (!go) return JSON.stringify('нет «Отправить»');
+        go.click();
+        await new Promise((r) => setTimeout(r, 900));
+        const S = await import('/src/world/store.ts');
+        const A = await import('/src/world/api.ts');
+        const save = A.worldApi().save;
+        const f = save.figures.scout;
+        // Стенд: встреча — сейчас. Разведчик и набег сдвинуты на одну и ту же разницу, дальше мир сам: донесение и путь домой.
+        const now = S.worldNow();
+        const d = f.arriveAt - now + 1;
+        f.departAt -= d;
+        f.arriveAt -= d;
+        const m = save.marches.find((x) => x.id === 'raid-r4');
+        if (m) { m.departAt -= d; m.arriveAt -= d; }
+        await S.useWorld.getState().pulse();
+        await S.useWorld.getState().loadReports();
+        const r = S.useWorld.getState().reports[0];
+        if (!r) return JSON.stringify('донесения нет');
+        window.__game.getState().openReport(r.id);
+        return JSON.stringify(r.title);
+      })()`,
+      wait: 1200,
+    },
+    {
+      name: 'r4-06-marches-after',
+      run: `(async () => {
+        window.__game.getState().openMarches();
+        return JSON.stringify('ok');
+      })()`,
+      wait: 1200,
+    },
+    {
+      name: 'r4-07-fell',
+      run: `(async () => {
+        window.__ui.reset();
+        const S = await import('/src/world/store.ts');
+        const A = await import('/src/world/api.ts');
+        A.worldApi().markFall('home', 'plunder', S.worldNow() - 3 * 3600000);
+        window.__game.getState().openMap();
+        await new Promise((r) => setTimeout(r, 3000));
+        await S.useWorld.getState().select(S.useWorld.getState().info.home);
+        await new Promise((r) => setTimeout(r, 900));
+        const row = [...document.querySelectorAll('.sheet.open button, .sheet.open .nx-crow')].find((x) => x.textContent.includes('Город взяли'));
+        if (row) row.click();
+        return JSON.stringify(row ? 'подсказка' : 'нет строки');
+      })()`,
+      wait: 900,
     },
   ],
   // ВС-2 (docs/ui_v2.md, 5.8): вести и летопись. Бой у ворот — настоящий: волки зовут гарнизон, мир бьётся на пульсе и

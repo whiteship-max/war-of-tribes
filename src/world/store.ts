@@ -332,8 +332,11 @@ export interface WorldStore {
   negotiate: (deal: DealId) => Promise<string | null>;
   /** Открыть меню приказов агента по этой клетке. */
   openMenu: (agent: FigureId, cell: Coord) => Promise<void>;
-  /** Открыть меню перехвата по чужому отряду — из списка походов или с карты. */
-  openChase: (march: MarchView) => Promise<void>;
+  /**
+   * Открыть меню дел по чужому отряду — из списка походов или с карты: полководцу — перехват, разведчику — следить
+   * за отрядом (Р-4).
+   */
+  openChase: (march: MarchView, agent?: FigureId) => Promise<void>;
   /**
    * План удара полководца по лагерю под `target`: кто пробьётся с тыла и, если зовут
    * гарнизон, со стороны города. Считает мир той же функцией, что и бой.
@@ -884,12 +887,12 @@ export const useWorld = create<WorldStore>((set, get) => ({
     set({ menu: { ...menu, card } });
   },
 
-  openChase: async (march) => {
+  openChase: async (march, agent = 'general') => {
     useGame.getState().closeSheet();
     const cell = marchPosition(march, worldNow());
     set({
       menu: {
-        agent: 'general',
+        agent,
         cell: { x: Math.round(cell.x), y: Math.round(cell.y) },
         target: null,
         name: `Отряд · ${march.fromName}`,

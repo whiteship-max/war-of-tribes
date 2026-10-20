@@ -3044,3 +3044,20 @@ svg.nx-hbadge {
   font-weight: 400;
   opacity: 0.8;
 }
+
+/* Подтверждение дела (Р-4, docs/AGENTS.md, раздел 16): подпись слева, значение справа, строка под строкой. */
+.er-line {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+}
+.er-line > span {
+  flex: none;
+}
+.er-line > b {
+  text-align: right;
+}

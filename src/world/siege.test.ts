@@ -497,8 +497,9 @@ describe('осада: из города не выступают', () => {
     expect(pushes.length, 'поход заводится ровно в четырёх местах').toBe(4);
     // И все приказы, ведущие наружу, спрашивают одну и ту же дверь: гонец, фигура, раскладка, перехват, «дойти и
     // ударить», поход на соседа и лазутчик к соседу (docs/siege_audit.md, решение 4: одно правило выхода на осаду логова и
-    // игрока, — дверь `siegeBlock` знает обе).
-    expect((src.match(/this\.siegeBlock\(now\)/g) ?? []).length).toBe(7);
+    // игрока, — дверь `siegeBlock` знает обе); с Р-4 ещё три выхода из ворот: дело из «Походов» (`errandBlock`), удар по
+    // чужому лагерю и выручка союзника из своих ворот (`strikeCheck`, `reliefPlan` с `out`).
+    expect((src.match(/this\.siegeBlock\(now\)/g) ?? []).length).toBe(10);
     const door = src.slice(src.indexOf('private siegeBlock('), src.indexOf('private larderOf('));
     expect(door, 'дверь выхода знает осаду игроком').toMatch(/this\.warOnUs\(\)/);
     // Третье место — удар по лагерю из поля — из города не выводит по учёту, а не

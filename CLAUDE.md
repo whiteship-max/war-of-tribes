@@ -621,6 +621,9 @@ HEAD один на всех, см. правило 8). Значит развес�
   `world/data/energy.ts`; дорога по дням пути, стоянка даром; мир и сервер войны спрашивают одну дверь
   (`energyworld.test.ts`, `netlify/lib/war.test.ts`; agents). «Дойти и ударить» — одна дверь на логово и город игрока,
   `WorldApi.assault` (agents).
+- **Дело агента** — свободной ходьбы нет: агент идёт к цели (свой город, двор, город игрока, отряд в пути) делом
+  `WorldApi.errand` по меню `errands` (таблица `world/data/errands`) и сам возвращается домой (`LocalWorld.errandBack`);
+  приказа «в клетку» в `WorldApi` нет (`world/errands.test.ts`; agents, docs/AGENTS.md, раздел 16).
 - **Ход осады** — фазы по 4 игр. дн.: бросок, поправки, исход, истощение лагеря и наказы на отлучку — `world/siegeroll`
   (`rollPhase`), одна функция на мир и сервер войны; сдача — падение той же дверью, что голод, на ступень мягче
   (`siegeroll.test.ts`, `siegephase.test.ts`; docs/siege_v2.md, раздел 2).
