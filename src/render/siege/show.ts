@@ -14,8 +14,8 @@ export const SHOW_ENDS: readonly ShowEnd[] = ['hunger', 'gates', 'terms', 'storm
 /** Участь взятого города — те же строки, что `Fate` мира. */
 export type ShowFate = 'plunder' | 'captives' | 'burn';
 /** Осадные машины — те же строки, что `MachineId` мира. */
-export type ShowMachine = 'ladders' | 'ram' | 'tower' | 'mangonel';
-export const SHOW_MACHINES: readonly ShowMachine[] = ['ladders', 'ram', 'tower', 'mangonel'];
+export type ShowMachine = 'ladders' | 'ram' | 'tower' | 'mangonel' | 'trebuchet';
+export const SHOW_MACHINES: readonly ShowMachine[] = ['ladders', 'ram', 'tower', 'mangonel', 'trebuchet'];
 /** Место боя — те же строки, что `BattleSite` мира. */
 export type ShowSite = 'wall' | 'gate' | 'sortie' | 'camp' | 'joint' | 'lair';
 

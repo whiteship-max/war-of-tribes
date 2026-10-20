@@ -1,9 +1,12 @@
 // Осадные машины — числа дизайна в одном месте (docs/siege_v2.md, 4.3; этап 2в). Считает всё одна дверь —
 // `world/machines.ts`; мир на клиенте и сервер войны спрашивают её. Без `@/`: файл собирает сервер.
 
-/** Машины лагеря: лестницы, таран, осадная башня — на штурм; камнемёт — к кости каждой фазы. */
-export type MachineId = 'ladders' | 'ram' | 'tower' | 'mangonel';
-export const MACHINE_IDS: readonly MachineId[] = ['ladders', 'ram', 'tower', 'mangonel'];
+/**
+ * Машины лагеря: лестницы, таран, осадная башня — на штурм; камнемёт и требушет — артиллерия, стоит всю осаду и бьёт каждую
+ * фазу по выбранной цели (Р-5, `world/shelling`).
+ */
+export type MachineId = 'ladders' | 'ram' | 'tower' | 'mangonel' | 'trebuchet';
+export const MACHINE_IDS: readonly MachineId[] = ['ladders', 'ram', 'tower', 'mangonel', 'trebuchet'];
 
 /**
  * Сколько древесины машина стоит — доли стороны лагеря (docs/siege_v2.md, 4.3): то, что лагерь вложил бы в рогатки одной
@@ -19,13 +22,26 @@ export const MACHINE_WOOD: Record<MachineId, number> = {
   ram: 1 / 3,
   tower: 1 / 2,
   mangonel: 1 / 3,
+  // Требушет (Р-5, docs/siege_v2.md, 21.1) — тяжёлая машина, как осадная башня: у Total War — два-три хода.
+  trebuchet: 1 / 2,
 };
 
 /** Машины на штурм — тратятся им; камнемёт стоит всю осаду. */
 export const STORM_MACHINES: readonly MachineId[] = ['ladders', 'ram', 'tower'];
 
+/** Артиллерия лагеря — машины, что стоят всю осаду и бьют каждую фазу (Р-5): камнемёт и требушет. */
+export type ArtilleryId = 'mangonel' | 'trebuchet';
+export const ARTILLERY: readonly ArtilleryId[] = ['mangonel', 'trebuchet'];
+
+/**
+ * Вес машины артиллерии — грани по стенам и выстрелы по городу или машинам за фазу (Р-5, docs/siege_v2.md, 21.1). Камнемёт —
+ * +1 к кости, как было (постоянная артиллерия, 2.3); требушет — тяжёлая артиллерия, залп каждую фазы: +2, как залп
+ * полководца (`MOD_VOLLEY`). Тот же вес — выстрелов, когда цель — город или машины: город или стены — выбор.
+ */
+export const ARTILLERY_WEIGHT: Record<ArtilleryId, number> = { mangonel: 1, trebuchet: 2 };
+
 /** Камнемёт в лагере — +1 к кости каждой фазы (docs/siege_v2.md, 2.3): постоянная артиллерия. */
-export const MOD_MACHINE = 1;
+export const MOD_MACHINE = ARTILLERY_WEIGHT.mangonel;
 
 /**
  * Какую долю древесины лагерь отдаёт машинам — шагом, как доли сторон (`works.WOOD_SHARES`): на 375 px пять кнопок

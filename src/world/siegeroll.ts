@@ -12,8 +12,10 @@
 import type { SiegeWindow } from './siege';
 import type { Fate } from './types';
 import { siegeSince, starvesAt } from './siege';
-import { mangonelAt } from './machines';
-import { MOD_MACHINE } from './data/machines';
+import { machineFaces, phaseShots, type Aim, type GunAim } from './shelling';
+import { blockadeAt, type BlockadeBreak } from './blockade';
+import { MOD_BLOCKADE } from './data/blockade';
+import type { ArtilleryId, MachineId } from './data/machines';
 import {
   BREACH_MAX,
   CAMP_WASTE,
@@ -42,8 +44,8 @@ import {
 export type PhaseOut = 'plague' | 'calm' | 'short' | 'breach' | 'gates';
 
 /** Поправка к кости фазы. Порядок — порядок строки журнала. */
-export type ModId = 'breach' | 'volley' | 'machine' | 'general' | 'hunger' | 'progress' | 'wall';
-export const MOD_IDS: readonly ModId[] = ['breach', 'volley', 'machine', 'general', 'hunger', 'progress', 'wall'];
+export type ModId = 'breach' | 'volley' | 'machine' | 'general' | 'hunger' | 'blockade' | 'progress' | 'wall';
+export const MOD_IDS: readonly ModId[] = ['breach', 'volley', 'machine', 'general', 'hunger', 'blockade', 'progress', 'wall'];
 export type PhaseMods = Partial<Record<ModId, number>>;
 
 /**
@@ -65,6 +67,25 @@ export interface PhaseRow {
   waste: number;
   /** Наказы, сработавшие в эту минуту. Нет поля — ни одного. */
   orders?: OrderId[];
+  /** Выстрелы артиллерии лагеря по городу или машинам на стене (Р-5, `world/shelling`). Нет поля — не стреляли. */
+  shots?: Shot[];
+  /** Выстрелы требушета на стене по лагерю или его машинам (Р-5). Нет поля — не стрелял. */
+  gun?: Shot[];
+}
+
+/**
+ * Выстрел фазы (Р-5, `world/shelling`): чья машина била, попала ли и во что — в постройку (`building`; `lost` — это второе
+ * попадание в неё за осаду, −1 уровень), в требушет на стене (`gun`), в лагерь (`camp`, ещё доля истощения) или в машину
+ * лагеря (`machine`, разбита).
+ */
+export interface Shot {
+  by: ArtilleryId | 'gun';
+  hit: boolean;
+  building?: string;
+  lost?: true;
+  gun?: true;
+  camp?: true;
+  machine?: MachineId;
 }
 
 /** Дело с минутой в журнале окна: входы фазы должны быть известны задним числом (docs/siege_v2.md, 2.1). */
@@ -72,9 +93,15 @@ export interface SiegeDeed {
   at: number;
   /**
    * Залп осаждающего (`volley`, 2.5) или починка пролома осаждённым (`repair`, раздел 5): заделанный пролом закрыт к концу
-   * фазы, в которой начали чинить, — к минуте её броска (`repairDoneAt`).
+   * фазы, в которой начали чинить, — к минуте её броска (`repairDoneAt`). С Р-5 (docs/siege_v2.md, 21.1): цель артиллерии
+   * лагеря (`aim`), цель требушета на стене (`gunAim`), кольцо блокады (`blockade`: `on`, чем разомкнуто — `why`).
    */
-  act: 'volley' | 'repair';
+  act: 'volley' | 'repair' | 'aim' | 'gunAim' | 'blockade';
+  /** Цель: у `aim` — стены, город, машины; у `gunAim` — лагерь, машины. */
+  aim?: Aim | GunAim;
+  /** Кольцо блокады: замкнуто или разомкнуто. */
+  on?: boolean;
+  why?: BlockadeBreak;
 }
 
 /**
@@ -121,6 +148,8 @@ export type RollWindow = Pick<
   | 'ration'
   | 'lead'
   | 'offers'
+  | 'guns'
+  | 'targets'
 >;
 
 /** Минута броска фазы `k` (с единицы). */
@@ -263,11 +292,13 @@ export function modsOf(w: RollWindow, k: number, prior: readonly PhaseRow[] = ro
     // Проломы к минуте броска: починка, закрытая в эту минуту, уже легла (раздел 5).
     breach: breachesOf(w, prior, at) * MOD_BREACH,
     volley: volleyIn(w, k) ? MOD_VOLLEY : 0,
-    // Камнемёт, стоящий в лагере к минуте фазы, — постоянная артиллерия (docs/siege_v2.md, 2.3; `world/machines`).
-    machine: mangonelAt(w, at) ? MOD_MACHINE : 0,
+    // Артиллерия лагеря по стенам к минуте фазы — камнемёт +1, требушет +2 (docs/siege_v2.md, 2.3 и 21.1; `world/shelling`).
+    machine: machineFaces(w, at),
     // Отметки полководца «осада», замороженные при постановке лагеря (этап 2е).
     general: leadFaces(w.lead),
     hunger,
+    // Кольцо блокады в минуту фазы — город отрезан (Р-5, `world/blockade`).
+    blockade: blockadeAt(w, at) ? MOD_BLOCKADE : 0,
     progress: progressOf(w, prior) * MOD_PROGRESS,
     wall: wallFaces(w.wall),
   };
@@ -340,9 +371,16 @@ export function wasteOf(out: PhaseOut, homeDays: number | undefined, hungry = fa
 export function rollPhase(w: RollWindow & Pick<SiegeWindow, 'homeDays'>, k: number, hungry = false): PhaseRow {
   const prior = rowsOf(w).slice(0, k - 1);
   const mods = modsOf(w, k, prior);
-  const die = (dieOverride ?? dieOf)(rollSeed(w), k);
+  const seed = rollSeed(w);
+  const die = (dieOverride ?? dieOf)(seed, k);
   const out = outOf(die + modsSum(mods), prior, legacyBreaches(w));
-  return { at: phaseAt(siegeSince(w as SiegeWindow), k), die, mods, out, waste: wasteOf(out, w.homeDays, hungry) };
+  const at = phaseAt(siegeSince(w as SiegeWindow), k);
+  // Выстрелы фазы (Р-5, `world/shelling`) — кость той же осады и фазы по метке выстрела; подмена кости фаз их не трогает.
+  const { shots, gun } = phaseShots(w as SiegeWindow, at, (tag) => dieOf(`${seed}#${tag}`, k), prior);
+  // Попадание требушета на стене по лагерю — ещё одна доля истощения фазы (как мор).
+  const hits = gun.filter((s) => s.hit && s.camp).length;
+  const waste = Math.min(1, wasteOf(out, w.homeDays, hungry) + hits * wasteOf('calm', w.homeDays, hungry));
+  return { at, die, mods, out, waste, ...(shots.length ? { shots } : {}), ...(gun.length ? { gun } : {}) };
 }
 
 /**
@@ -437,6 +475,7 @@ const MOD_NAMES: Record<ModId, string> = {
   machine: 'камнемёт',
   general: 'полководец',
   hunger: 'голод',
+  blockade: 'блокада',
   progress: 'ход осады',
   wall: 'стена',
 };

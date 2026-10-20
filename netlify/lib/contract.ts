@@ -981,14 +981,21 @@ export interface WarCamp {
   /** Ход осады фазами (`world/siegeroll`, docs/siege_v2.md, раздел 2): уровень частокола, дни пути лагеря от дома. */
   wall?: number;
   homeDays?: number;
-  /** Журнал дел с минутой — залпы и починки (`SiegeWindow.log`). Нет поля — лагерь до фаз. */
-  log?: { at: number; act: 'volley' | 'repair' }[];
+  /**
+   * Журнал дел с минутой (`SiegeWindow.log`): залпы и починки; с Р-5 — цель артиллерии лагеря и требушета на стене, кольцо
+   * блокады (`world/shelling`, `world/blockade`). Нет поля — лагерь до фаз.
+   */
+  log?: { at: number; act: 'volley' | 'repair' | 'aim' | 'gunAim' | 'blockade'; aim?: WarAim | WarGunAim; on?: boolean; why?: 'order' | 'ratio' | 'sortie' | 'relief' }[];
   /** Брошенные фазы (`SiegeWindow.phases`). */
   phases?: WarPhaseRow[];
   /** Наказы осаждающего (`SiegeWindow.orders`). */
   orders?: WarOrders;
   /** Осадные машины лагеря — очередь заказов (`SiegeWindow.machines`, `world/machines`). Нет поля — не заказывали. */
-  machines?: { id: WarMachine; at: number; spent?: number; burned?: true }[];
+  machines?: { id: WarMachine; at: number; spent?: number; burned?: true; broke?: true }[];
+  /** Требушет на стене осаждённого (`SiegeWindow.guns`, Р-5). Нет поля — не ставили. */
+  guns?: { id: WarMachine; at: number; spent?: number; burned?: true; broke?: true }[];
+  /** Постройки города под обстрелом «по городу» (`SiegeWindow.targets`, Р-5): заморожены при постановке лагеря. */
+  targets?: string[];
   /** Обстрел лагеря с башни города (`SiegeWindow.fire`, `world/bombard`). Нет поля — башня не бьёт. */
   fire?: { slow: number; thin: number; at: number; base: number };
   /** Осадный паёк осаждённого (`SiegeWindow.ration`). Нет поля — обычный. */
@@ -1026,8 +1033,13 @@ export interface WarTribute {
 }
 
 /** Осадные машины (`world/data/machines.MACHINE_IDS`; тест сверяет). */
-export const WAR_MACHINES = ['ladders', 'ram', 'tower', 'mangonel'] as const;
+export const WAR_MACHINES = ['ladders', 'ram', 'tower', 'mangonel', 'trebuchet'] as const;
 export type WarMachine = (typeof WAR_MACHINES)[number];
+/** Цели артиллерии лагеря и требушета на стене (`world/data/shelling.AIMS`, `GUN_AIMS`; тест сверяет). */
+export const WAR_AIMS = ['wall', 'town', 'engines'] as const;
+export type WarAim = (typeof WAR_AIMS)[number];
+export const WAR_GUN_AIMS = ['camp', 'machines'] as const;
+export type WarGunAim = (typeof WAR_GUN_AIMS)[number];
 /** Доли древесины машинам (`world/data/machines.MACHINE_SHARES`; тест сверяет). */
 export const WAR_MACHINE_SHARES: readonly number[] = [0, 0.25, 0.5, 0.75, 1];
 

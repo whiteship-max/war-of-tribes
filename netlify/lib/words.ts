@@ -189,6 +189,7 @@ const MACHINE_ACC: Record<WarMachine, string> = {
   ram: 'таран',
   tower: 'осадную башню',
   mangonel: 'камнемёт',
+  trebuchet: 'требушет',
 };
 
 /** Условия сдачи словами: что станет с городом, если откроет ворота. */

@@ -162,6 +162,16 @@ export interface SiegeWindow {
    * на них. Нет поля — никто ничего не предлагал. Переносится при пересчёте часов голода той же осады.
    */
   offers?: SiegeOffer[];
+  /**
+   * Требушет на стене осаждённого (Р-5, docs/siege_v2.md, 21.1; `world/shelling`) — очередь заказов, как машины лагеря:
+   * когда заказан, когда разбит. Нет поля — не ставили. Переносится при пересчёте часов голода.
+   */
+  guns?: MachineOrder[];
+  /**
+   * Постройки осаждённого города, по которым бьёт артиллерия лагеря с целью «город» (Р-5, `world/shelling`) — заморожены при
+   * постановке лагеря. Нет поля — построек нет: логово, двор мира, окно до Р-5.
+   */
+  targets?: string[];
 }
 
 /** Когда осада началась. Пересчёт часов голода эту отметку не двигает. */
@@ -278,6 +288,9 @@ export function openSiege(at: {
   lead?: number;
   /** Переговоры той же осады (`world/parley`): переносятся при пересчёте. */
   offers?: SiegeOffer[];
+  /** Требушет на стене и постройки под обстрелом той же осады (Р-5): переносятся при пересчёте. */
+  guns?: MachineOrder[];
+  targets?: string[];
 }): SiegeWindow {
   return {
     byId: at.byId,
@@ -303,6 +316,8 @@ export function openSiege(at: {
     ...(at.machines?.length ? { machines: at.machines.map((m) => ({ ...m })) } : {}),
     ...(at.lead ? { lead: Math.max(0, Math.floor(at.lead)) } : {}),
     ...(at.offers?.length ? { offers: at.offers.map((o) => ({ ...o })) } : {}),
+    ...(at.guns?.length ? { guns: at.guns.map((g) => ({ ...g })) } : {}),
+    ...(at.targets?.length ? { targets: [...at.targets] } : {}),
     foodAtStart: Math.max(0, at.food),
     garrisonAtStart: Math.max(0, Math.round(at.garrison)),
     townPerHour: Math.max(0, at.townPerHour),
