@@ -8,8 +8,9 @@
 // **недоступное дело показано и объяснено**, а не спрятано. Подтверждение говорит четыре вещи — куда, что сделает,
 // сколько идти, чем рискует, — и только потом «Отправить».
 //
-// Открывается одиночным тапом с агентом в руке, из карточки места и из «Походов» (перехват). Правая кнопка мыши — то же.
-import { useEffect, useState, type ReactNode } from 'react';
+// Открывается значком кольца над целью (К-2, `Ring.tsx` — главный путь), тапом с агентом в руке, из карточки места и из
+// «Походов» (перехват). Правая кнопка мыши — то же. Дело полководца ведёт сразу в окно войска (`ArmySend`).
+import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react';
 import { useGame } from '@/game/store';
 import { useWorld, worldNow } from '@/world/store';
 import { FIGURE_BY_ID, FIGURES } from '@/world/data/figures';
@@ -30,6 +31,9 @@ import { beyondText, reachable } from './twslot';
 import { tipAt } from '@/ui/next/tip';
 import type { IconName } from '@/ui/icons/alias';
 import { iconName } from '@/ui/icons/registry';
+
+// Окно войска полководца (К-2) — своим куском: передача тянет мощь и оборону, а нужна только после выбора дела.
+const ArmySend = lazy(() => import('./ArmySend'));
 
 /** Просит ли дело хоть что-нибудь со склада. */
 const isPaid = (cost: Loot): boolean => RESOURCE_IDS.some((r) => (cost[r] ?? 0) > 0) || (cost.gold ?? 0) > 0;
@@ -99,9 +103,8 @@ export function ActionMenu() {
   const inCity = figure?.place === 'city';
   const ownCity = Boolean(card?.mine);
   const vacant = figure?.place === 'vacant';
-  // Удар и осада объявляют участь города, а её выбирают в карточке места, одной копией (Д16, UI-7): здесь — дверь туда.
-  const list = menu.errands?.filter((o) => !o.fate) ?? null;
-  const fated = menu.errands?.some((o) => o.fate) ?? false;
+  // Все дела человека у цели, удар и осада тоже (К-2): участь их выбирают в окне войска тем же `FatePick`, что в карточке.
+  const list = menu.errands ?? null;
   const pick = chosen ? (list?.find((o) => o.id === chosen) ?? null) : null;
   // Полководец в лагере: увести его к другой цели можно, но это и есть снятие осады — сказано до «Отправить».
   const leavingCamp = menu.agent === 'general' && Boolean(figure?.besieging) && figure?.besieging !== menu.target;
@@ -154,6 +157,25 @@ export function ActionMenu() {
       <Wrap closeMenu={closeMenu}>
         {head}
         <p className="nx-bwarn">{beyondText()}</p>
+      </Wrap>
+    );
+  }
+
+  // Полководец: после выбора дела — сразу окно войска (К-2): кто уходит, кто остаётся, и подтверждение там же.
+  if (pick && menu.agent === 'general' && pick.id !== 'home' && menu.goal) {
+    return (
+      <Wrap closeMenu={closeMenu}>
+        {head}
+        <Suspense fallback={<p className="nx-tnote">Считаем отряд…</p>}>
+          <ArmySend
+            where={`${menu.name} · ${formatCoord(menu.cell)}`}
+            goal={menu.goal}
+            o={pick}
+            fates={card?.fates ?? []}
+            warn={leavingCamp ? CAMP_LEAVE : null}
+            onBack={() => setChosen(null)}
+          />
+        </Suspense>
       </Wrap>
     );
   }
@@ -243,21 +265,9 @@ export function ActionMenu() {
           <Row icon="stage-camp" name="Наш лагерь" note={FATE_META[card.siege.fate].name} onGo={() => (closeMenu(), openCamp())} />
         )}
 
-        {fated && (
-          <Row
-            icon="hud-army"
-            name="Удар и осада"
-            note="в карточке места: участь, мощь и добыча"
-            onGo={() => {
-              closeMenu();
-              void useWorld.getState().select(menu.cell);
-            }}
-          />
-        )}
-
         {/* Дела агента при этой цели. Касание — подтверждение; недоступное объяснено строкой под именем. */}
         {menu.goal && list === null && <p className="nx-tnote">Считаем дела…</p>}
-        {menu.goal && list && list.length === 0 && !fated && (
+        {menu.goal && list && list.length === 0 && (
           <p className="nx-tnote">
             {menu.agent === 'diplomat' && menu.goal.kind === 'place' && !card?.castle
               ? 'С логовом не договариваются. Дипломат ездит к соседям: союз и его разрыв, а дома — откуп от осады.'
@@ -303,6 +313,19 @@ export function ActionMenu() {
             name={inCity ? 'Выйти к воротам' : 'Укрыться в городе'}
             note={inCity ? 'встанет у ворот' : 'уйдёт за стену и не будет работать'}
             onGo={() => void hide(!inCity)}
+          />
+        )}
+
+        {/* Прежний путь — полная карточка места: ссылкой, главный путь теперь кольцо (К-2). */}
+        {menu.target && (
+          <Row
+            icon="ui-info"
+            name="Карточка места"
+            note="мощь, добыча, сведения — целиком"
+            onGo={() => {
+              closeMenu();
+              void useWorld.getState().select(menu.cell);
+            }}
           />
         )}
 

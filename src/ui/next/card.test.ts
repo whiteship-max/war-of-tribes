@@ -156,8 +156,12 @@ describe('удар и осада — одна копия (Д16), «Открыт�
       expect(src, `${f}: свой выбор участи`).not.toMatch(/<FatePick\b/);
       expect(src, `${f}: свой удар`).not.toMatch(/\b(attack|besiege|assault|warMarch)\(/);
     }
-    // Меню полководца ведёт в карточку места.
-    expect(code('map/ActionMenu.tsx')).toMatch(/name="Удар и осада"[\s\S]{0,400}select\(menu\.cell\)/);
+    // К-2: удар и осада — делом из меню полководца, участь — в окне войска тем же `FatePick`, что в карточке (одна
+    // копия выбора — один компонент); у окна своих ударов нет, только дело. Прежняя карточка — ссылкой из меню.
+    const send = code('map/ArmySend.tsx');
+    expect(send.match(/<FatePick\b/g)?.length).toBe(1);
+    expect(send, 'окно войска: свой удар').not.toMatch(/\b(attack|besiege|assault|warMarch)\(/);
+    expect(code('map/ActionMenu.tsx')).toMatch(/name="Карточка места"[\s\S]{0,400}select\(menu\.cell\)/);
   });
 });
 
@@ -174,7 +178,7 @@ describe('меню приказов: отношения и бунт — в ка�
     const menu = code('map/ActionMenu.tsx');
     // Одна обёртка затемнения на все виды меню — дела, подтверждение, край региона (Р-4).
     expect(menu.match(/onClick=\{\(e\) => e\.target === e\.currentTarget && closeMenu\(\)\}/g)?.length).toBe(1);
-    expect(menu.match(/<Wrap closeMenu=\{closeMenu\}>/g)?.length).toBe(3);
+    expect(menu.match(/<Wrap closeMenu=\{closeMenu\}>/g)?.length).toBe(4);
   });
 });
 

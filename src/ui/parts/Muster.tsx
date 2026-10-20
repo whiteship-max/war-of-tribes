@@ -15,7 +15,7 @@
 // бойцов вида можно держать — `roomOf`, тем же правилом, каким отказывает мир. Потолка у отряда нет: войско держит цена
 // (`data/upkeep.ts`), а не Статуя.
 import './muster.css';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { useGame } from '@/game/store';
 import { useWorld } from '@/world/store';
 import { armySize, buildingOfType, defense, homeArmy, homeTroops, wageOf } from '@/game/derived';
@@ -24,7 +24,7 @@ import { troopPower } from '@/game/battle/price';
 import { awayOf, inTown, musterMs, ownOf, plus, postureOf, roomOf, standingTroops, type Posture } from '@/world/muster';
 import { troopTotal, troopsAfter, type TroopStack } from '@/game/battle/kinds';
 import type { GameState, TroopId } from '@/game/types';
-import type { FigureView, MarchView } from '@/world/types';
+import type { ErrandOrder, FigureView, MarchView } from '@/world/types';
 import { TROOP_BY_ID, TROOP_IDS } from '@/game/data/troops';
 import { Icon } from '@/ui/icons/Icon';
 import { Btn } from '@/ui/kit/Btn';
@@ -168,13 +168,58 @@ const KEY_GEN = (
 
 /** Подсказки передачи (отзыв тестеров 18.10): у пустого отряда — откуда он берётся, у колонок — что делает шаг. */
 export const EMPTY_HINT = 'Отряд пуст — полководец пойдёт один. Бойцов ему дают из гарнизона, ниже.';
+export const SEND_HINT = '«+» — уходит с полководцем, «−» — остаётся в городе. Затем «Отправить».';
+export const SEND_AS_IS = 'Полководец не в городе: уйдёт с тем отрядом, что при нём. Поменять отряд можно дома.';
 export const STEP_HINT = 'Гарнизон → Отряд: «+» отдаёт бойцов полководцу, «−» возвращает. Затем «Подтвердить».';
+
+/**
+ * Уход полководца делом с выбранным отрядом (К-2, docs/AGENTS.md, раздел 18): раскладка `want` — тем же приказом мира, что
+ * «Подтвердить» передачи (`setGarrison`; дома и в осаде он мгновенный), и сразу дело. Раскладка не та, что у мира, или
+ * отказ — дело не начинается. Одна дверь на окно войска и тест «уходит именно с выбранным».
+ */
+export async function departWith(
+  w: { setGarrison: (t: TroopStack | null) => Promise<string | null>; errand: (o: ErrandOrder) => Promise<string | null> },
+  held: TroopStack,
+  want: TroopStack,
+  order: ErrandOrder,
+): Promise<string | null> {
+  const same = TROOP_IDS.every((t) => (held[t] ?? 0) === (want[t] ?? 0));
+  if (!same) {
+    const err = await w.setGarrison(want);
+    if (err) return err;
+  }
+  return w.errand(order);
+}
+
+/** Режим «Отправить» окна войска (К-2): вместо «Подтвердить» — уход делом. */
+export interface MusterSend {
+  /** Приказ дела; участь удара и осады выбрана выше, в окне войска. */
+  order: ErrandOrder;
+  /** Почему дело сейчас не начать — словами мира (`ErrandOption.reason`). */
+  block: string | null;
+  /** Строка над кнопкой: дорога, риск — от окна войска. */
+  extra?: ReactNode;
+  /** Ушёл (null) или отказ словами. */
+  done: (err: string | null) => void;
+}
+
+/** Подписи колонок окна войска: та же передача, другими словами — кто уходит, кто остаётся. */
+const KEY_STAY = (
+  <span className="ms-key">
+    <Icon name="ui-home" /> Остаётся в городе
+  </span>
+);
+const KEY_GO = (
+  <span className="ms-key gen">
+    <Icon name="fig-general" /> Уходит с полководцем
+  </span>
+);
 
 /**
  * Передача. `onCard` — карточка вида: касание вида в строке открывает её (та же, что прежде открывал список «Состав»).
  * Сверху — строка полководца: в городе ли он и защищает ли отряд стены.
  */
-export function Muster({ onCard }: { onCard: (t: TroopId) => void }) {
+export function Muster({ onCard, send }: { onCard?: (t: TroopId) => void; send?: MusterSend }) {
   const s = useGame((g) => g.s);
   const showToast = useGame((g) => g.showToast);
   const openBuilding = useGame((g) => g.openBuilding);
@@ -197,7 +242,9 @@ export function Muster({ onCard }: { onCard: (t: TroopId) => void }) {
   const barracks = buildingOfType(s, 'barracks');
   const here = seated(s, 'general');
   const regroup = general?.regroup ?? { block: 'Где полководец, пока неизвестно.', grow: null, instant: false };
-  const can = here && regroup.block === null;
+  // В окне войска раскладку меняют только там, где перевод мгновенный (дома, в осаде): сбор в поле — это ожидание, а
+  // не уход; вне города полководец уходит с тем отрядом, что при нём.
+  const can = here && regroup.block === null && (!send || regroup.instant);
   const all = (t: TroopId): number => Math.max(pool[t] ?? 0, held[t] ?? 0);
   const rows = TROOP_IDS.filter((t) => all(t) > 0);
   const total: TroopStack = Object.fromEntries(rows.map((t) => [t, all(t)]));
@@ -229,14 +276,33 @@ export function Muster({ onCard }: { onCard: (t: TroopId) => void }) {
     showToast(err ?? (wait > 0 ? `Отряд собирается. Сбор ${realSpanText(wait / 1000)}` : moved > 0 ? 'Раскладка новая.' : 'Раскладка та же.'));
   };
 
+  const depart = async (): Promise<void> => {
+    if (!send) return;
+    setBusy(true);
+    const err = await departWith(useWorld.getState(), held, can ? want : held, send.order);
+    setBusy(false);
+    send.done(err);
+  };
+  // Оборона того, что остаётся: та же `defense`, на племени без уходящих (`musterDefense`, уход — не домой).
+  const stays = send ? musterDefense(s, held, can ? want : held, posture, false).after : 0;
+
+  const sendBtn = send && (
+    <>
+      {send.extra}
+      <Btn kind="main" wide why={busy ? 'Отряд выходит' : send.block} onClick={() => void depart()}>
+        Отправить
+      </Btn>
+    </>
+  );
+
   const cols: Col[] = [
-    { key: 'kind', title: KEY_HOME },
-    { key: 'steps', title: KEY_GEN, align: 'center', w: STEPS_W },
+    { key: 'kind', title: send ? KEY_STAY : KEY_HOME },
+    { key: 'steps', title: send ? KEY_GO : KEY_GEN, align: 'center', w: STEPS_W },
   ];
   const sumCols: Col[] = [
     { key: 'k', title: 'Итог' },
-    { key: 'g', title: KEY_HOME, align: 'right', w: '104px' },
-    { key: 'o', title: KEY_GEN, align: 'right', w: '104px' },
+    { key: 'g', title: send ? 'Остаётся' : KEY_HOME, align: 'right', w: '104px' },
+    { key: 'o', title: send ? 'Уходит' : KEY_GEN, align: 'right', w: '104px' },
   ];
 
   return (
@@ -271,7 +337,8 @@ export function Muster({ onCard }: { onCard: (t: TroopId) => void }) {
         />
       ) : (
         <>
-          {can && <p className="nx-tnote">{STEP_HINT}</p>}
+          {can && <p className="nx-tnote">{send ? SEND_HINT : STEP_HINT}</p>}
+          {send && !can && here && rows.length > 0 && <p className="nx-tnote">{SEND_AS_IS}</p>}
           <Table
             label="Гарнизон и отряд"
             cols={cols}
@@ -281,7 +348,7 @@ export function Muster({ onCard }: { onCard: (t: TroopId) => void }) {
               return {
                 key: t,
                 cells: {
-                  kind: (
+                  kind: onCard ? (
                     <button type="button" className="ms-kind" onClick={() => onCard(t)} aria-label={`${d.name}: карточка вида`}>
                       <Icon name={iconName('troop', t)} />
                       <span>
@@ -289,6 +356,14 @@ export function Muster({ onCard }: { onCard: (t: TroopId) => void }) {
                         <b>{fmtInt(all(t) - n)}</b>
                       </span>
                     </button>
+                  ) : (
+                    <span className="ms-kind">
+                      <Icon name={iconName('troop', t)} />
+                      <span>
+                        <small className="one-line">{d.name}</small>
+                        <b>{fmtInt(all(t) - n)}</b>
+                      </span>
+                    </span>
                   ),
                   steps: can ? (
                     <span className="ms-steps">
@@ -347,7 +422,20 @@ export function Muster({ onCard }: { onCard: (t: TroopId) => void }) {
                   ),
                 },
               },
-              {
+              send
+                ? {
+                    key: 'defense',
+                    cells: {
+                      k: 'Оборона города',
+                      g: (
+                        <Num label="Оборона того, что остаётся" tip={() => ({ title: `Оборона после ухода · ${fmtInt(Math.round(stays))}`, body: 'Гарнизон, стены, башня, казармы и жители — без тех, кто уходит с полководцем.' })}>
+                          {shift(defense(s), stays, (n) => fmtInt(Math.round(n)))}
+                        </Num>
+                      ),
+                      o: '',
+                    },
+                  }
+                : {
                 key: 'wages',
                 cells: {
                   k: 'Жалованье в день',
@@ -368,7 +456,8 @@ export function Muster({ onCard }: { onCard: (t: TroopId) => void }) {
           {outside && (
             <small className="ms-note">Пока идёт сбор, оборона {fmtInt(Math.round(outside.during))}: эти бойцы вне города и не в строю.</small>
           )}
-          {can && (
+          {sendBtn}
+          {can && !send && (
             <Btn
               kind="main"
               wide
@@ -381,6 +470,7 @@ export function Muster({ onCard }: { onCard: (t: TroopId) => void }) {
           )}
         </div>
       )}
+      {send && rows.length === 0 && <div className="ms-bar">{sendBtn}</div>}
     </div>
   );
 }

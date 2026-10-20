@@ -179,6 +179,24 @@ export interface ActionMenuState {
   errands: ErrandOption[] | null;
 }
 
+/**
+ * Кольцо значков над целью (К-2, docs/AGENTS.md, раздел 18): касание места без человека в руке. Дела четырёх человек у
+ * этой цели — числами мира (`WorldApi.errands`): по ним кольцо гасит значок и объясняет почему (`ui/map/ring.ts`).
+ */
+export interface RingState {
+  cell: Coord;
+  goal: ErrandTarget;
+  name: string;
+  /** Чужой отряд под пальцем — цель «отряд в пути». */
+  march: MarchView | null;
+  /** Карточка места — для сведений «i»; у отряда её нет. */
+  card: SettlementCard | null;
+  /** Дела каждого человека у цели; null — ещё считаются. */
+  deeds: Partial<Record<FigureId, ErrandOption[] | null>>;
+  /** Открыты сведения «i» — короткая карточка вместо кольца. */
+  info: boolean;
+}
+
 export interface WorldStore {
   ready: boolean;
   info: WorldInfo | null;
@@ -255,6 +273,13 @@ export interface WorldStore {
    * карточке клетки, — а меню при этом одно.
    */
   menu: ActionMenuState | null;
+  /** Кольцо значков над целью (К-2). null — закрыто. */
+  ring: RingState | null;
+  /** Поднять кольцо над клеткой: цель — место или чужой отряд под пальцем; пустая земля кольца не даёт. */
+  openRing: (cell: Coord) => Promise<void>;
+  /** Сведения «i» вместо кольца и обратно. */
+  ringInfo: (on: boolean) => void;
+  closeRing: () => void;
   boot: () => Promise<void>;
   pulse: () => Promise<void>;
   ensureRegion: (rect: Rect) => void;
@@ -427,6 +452,7 @@ export const useWorld = create<WorldStore>((set, get) => ({
   cardLoading: false,
   chunks: 0,
   menu: null,
+  ring: null,
 
   boot: async () => {
     if (get().ready) return;
@@ -915,6 +941,7 @@ export const useWorld = create<WorldStore>((set, get) => ({
     const home = view && view.id === get().info?.homeId;
     const goal: ErrandTarget | null = home ? { kind: 'home' } : view ? { kind: 'place', id: view.id } : march ? { kind: 'march', id: march.id } : null;
     set({
+      ring: null,
       menu: {
         agent,
         cell,
@@ -942,6 +969,7 @@ export const useWorld = create<WorldStore>((set, get) => ({
     useGame.getState().closeSheet();
     const cell = marchPosition(march, worldNow());
     set({
+      ring: null,
       menu: {
         agent,
         cell: { x: Math.round(cell.x), y: Math.round(cell.y) },
@@ -989,6 +1017,31 @@ export const useWorld = create<WorldStore>((set, get) => ({
   },
 
   closeMenu: () => set({ menu: null }),
+
+  openRing: async (cell) => {
+    const view = settlementAt(cell.x, cell.y);
+    const march = view ? null : marchOn(get().marches, cell, worldNow());
+    if (!view && !march) return set({ ring: null });
+    const home = view && view.id === get().info?.homeId;
+    const goal: ErrandTarget = home ? { kind: 'home' } : view ? { kind: 'place', id: view.id } : { kind: 'march', id: march!.id };
+    const ring: RingState = { cell, goal, name: view?.name ?? `Отряд · ${march!.fromName}`, march, card: null, deeds: {}, info: false };
+    set({ ring, menu: null });
+    const same = (): boolean => get().ring?.cell === cell;
+    const agents: FigureId[] = ['diplomat', 'general', 'scout', 'spy'];
+    const [card, ...lists] = await Promise.all([
+      view ? worldApi().settlement(view.id) : Promise.resolve(null),
+      ...agents.map((a) => worldApi().errands(a, goal)),
+    ]);
+    if (!same()) return;
+    set({ ring: { ...get().ring!, card, deeds: Object.fromEntries(agents.map((a, i) => [a, lists[i]])) } });
+  },
+
+  ringInfo: (on) => {
+    const ring = get().ring;
+    if (ring) set({ ring: { ...ring, info: on } });
+  },
+
+  closeRing: () => set({ ring: null }),
 
   loadLetters: async () => {
     const letters = await worldApi().letters();
@@ -1101,6 +1154,7 @@ export const useWorld = create<WorldStore>((set, get) => ({
       letterBack: null,
       camp: null,
       menu: null,
+      ring: null,
           chunks: get().chunks + 1,
     });
     await get().boot();
