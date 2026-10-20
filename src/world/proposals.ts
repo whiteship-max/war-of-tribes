@@ -3,7 +3,9 @@
 // ответа, срок, «Вести», летопись и вести в Telegram остаются те же.
 //
 // Правило ответа (кто может и пока ли срок) и слова игроку — здесь, одни на сервер войны (`netlify/lib/war.ts`) и на
-// «Вести»: кнопка гаснет по той же проверке, по которой сервер откажет. Без `@/`-импортов: файл читает и сервер.
+// «Вести»: кнопка гаснет по той же проверке, по которой сервер откажет. Без `@/`-импортов: файл читает и сервер. Имя города
+// в словах — через `cityOr` договора, как всякое чтение поля `city` (`ui/cityname.test.ts`).
+import { cityOr } from '../../netlify/lib/contract';
 
 /** Что предлагают. Сейчас — союз; таблица — задел (раздел 17.3). */
 export const PROPOSAL_KINDS = ['pact'] as const;
@@ -114,8 +116,8 @@ export function proposalTitle(p: Pick<ProposalView, 'kind' | 'side' | 'end'>): s
 export function proposalText(p: Pick<ProposalView, 'kind' | 'side' | 'city'>): string {
   const def = PROPOSALS[p.kind];
   return p.side === 'in'
-    ? `Город «${p.city}» ${def.asks}. ${def.gives}`
-    : `Мы предложили городу «${p.city}» ${def.name.toLowerCase()}. ${def.gives} Ждём их ответа.`;
+    ? `Город «${cityOr(p.city)}» ${def.asks}. ${def.gives}`
+    : `Мы предложили городу «${cityOr(p.city)}» ${def.name.toLowerCase()}. ${def.gives} Ждём их ответа.`;
 }
 
 /**
@@ -125,7 +127,7 @@ export function proposalText(p: Pick<ProposalView, 'kind' | 'side' | 'city'>): s
 export function endWords(p: Pick<ProposalView, 'kind' | 'side' | 'city' | 'end' | 'endBy'>): string {
   const def = PROPOSALS[p.kind];
   const name = def.name.toLowerCase();
-  const city = `«${p.city}»`;
+  const city = `«${cityOr(p.city)}»`;
   const us = p.endBy === 'us';
   switch (p.end) {
     case 'yes':

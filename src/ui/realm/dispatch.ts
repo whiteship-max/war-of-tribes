@@ -21,6 +21,7 @@ import type { LetterView, RivalMail, RivalMarch } from '@/world/types';
 import { answerBlock, endWords, PROPOSALS, proposalOpen, proposalText, proposalTitle, type ProposalView } from '@/world/proposals';
 import type { Price } from '@/ui/parts/Cost';
 import { dealKey, eventKey, letterKey, rivalWarKey } from './unread';
+import { cityOr } from '../../../netlify/lib/contract';
 import { realDue } from '@/ui/parts/wait';
 import type { IconName } from '@/ui/icons/alias';
 import { iconName } from '@/ui/icons/registry';
@@ -161,7 +162,7 @@ export function proposalDispatch(p: ProposalView, now: number): Dispatch {
     dealId: p.id,
     iconName: 'deal-alliance',
     title: proposalTitle(open ? { ...p, end: undefined } : p),
-    from: p.city,
+    from: cityOr(p.city),
     text: open ? proposalText(p) : endWords(p),
     cost: {},
     choices,
@@ -177,6 +178,7 @@ export function proposalDispatch(p: ProposalView, now: number): Dispatch {
 
 /** Поход соседа на наш город — бедой (ДП-1): выбора нет, решается на стенах и на карте, как набег. */
 export function marchDispatch(m: RivalMarch, now: number): Dispatch {
+  const city = cityOr(m.city);
   return {
     key: rivalWarKey(m.id),
     source: 'rival',
@@ -184,8 +186,8 @@ export function marchDispatch(m: RivalMarch, now: number): Dispatch {
     eventId: null,
     iconName: 'hud-army',
     title: 'Поход на нас',
-    from: m.city,
-    text: `Из «${m.city}» вышел отряд на наш город — ${m.mode === 'storm' ? 'на штурм: ударят с ходу' : 'осадой: встанут лагерем у ворот'}. Успей поставить людей на стены.`,
+    from: city,
+    text: `Из «${city}» вышел отряд на наш город — ${m.mode === 'storm' ? 'на штурм: ударят с ходу' : 'осадой: встанут лагерем у ворот'}. Успей поставить людей на стены.`,
     cost: {},
     choices: [],
     left: Math.max(0, (m.arriveAt - now) / 1000),

@@ -14,7 +14,7 @@
  * знать про день и население — и знает это клиент, который опись и складывает.
  */
 import { readArms } from '../../src/heraldry/arms.js';
-import { PROPOSAL_ACTS, type ProposalAct, type ProposalView } from '../../src/world/proposals.js';
+import type { ProposalAct, ProposalView } from '../../src/world/proposals.js';
 
 /** Краткая опись партии — на случай, когда игрок выбирает между двумя. */
 export interface SaveCard {
@@ -1580,7 +1580,9 @@ export function readWarOrder(v: unknown): WarOrder | null {
       return target ? { op: r.op, target } : null;
     }
     case 'deal': {
-      const act = PROPOSAL_ACTS.find((a) => a === r.act);
+      // Список — тот же, что `world/proposals.PROPOSAL_ACTS` (тип держит `satisfies`): значением оттуда не берётся, чтобы
+      // словарь предложений мог брать имя города у договора (`cityOr`) без кольца импортов.
+      const act = (['yes', 'no', 'withdraw'] as const satisfies readonly ProposalAct[]).find((a) => a === r.act);
       return id && act ? { op: 'deal', id, act } : null;
     }
     case 'spy': {
