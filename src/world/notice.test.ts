@@ -507,17 +507,27 @@ describe('разрыв держит правду', () => {
    * отправленное «город взят в HH:MM» становилось бы неправдой без единого действия игрока.
    */
   it('назначенный пересчёт окна — ни одного осадного пункта, и причина названа', async () => {
+    // Минута назначенного пересчёта от начала осады (`inject`). Сдача на фазе не позже неё — пункт правдивый: мир сдаёт
+    // город в минуту фазы раньше, чем сводит пришедших (сид 101: разведка домой в минуту третьей фазы — город пал). С Р-5
+    // лагерь логова замыкает кольцо (+1 к кости, docs/siege_v2.md, 21.1), и сдача бывает до пересчёта — такие миры вне
+    // области этого правила.
+    const BREAK: Record<Exclude<Inject, 'none'>, number> = { 'march-home': 12 * MINUTE, handover: 6 * MINUTE, 'general-home': 9 * MINUTE };
+    let silentChecked = 0;
     for (const seed of SEEDS) {
       const fz = await freeze(seed);
-      for (const kind of ['march-home', 'handover', 'general-home'] as Inject[]) {
+      for (const kind of ['march-home', 'handover', 'general-home'] as Exclude<Inject, 'none'>[]) {
         const w = await thaw(fz, fz.since + MINUTE, kind);
         expect(w.pulse.siege, `сид ${seed}, ${kind}: осада идёт`).not.toBeNull();
         const drafts = await w.world.notices();
         const siegeItems: NoticeItem[] = drafts.items.filter((i) => i.kind === 'siege-fall');
+        const early = siegeItems.filter((i) => i.p.gates && i.fireAt <= fz.since + BREAK[kind]);
+        if (early.length) continue;
         expect(siegeItems, `сид ${seed}, ${kind}: осадных пунктов`).toEqual([]);
         expect(drafts.silent.filter((s) => s.kind === 'siege-fall').map((s) => s.why), `сид ${seed}, ${kind}`).toEqual([kind]);
+        silentChecked++;
       }
     }
+    expect(silentChecked, 'точек внутри области: пересчёт раньше падения').toBeGreaterThan(3);
   }, 60_000);
 
   /**

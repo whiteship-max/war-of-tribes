@@ -172,7 +172,9 @@ describe('меню приказов: отношения и бунт — в ка�
 
   it('касание затемнения вокруг меню закрывает его — обычным `click`', () => {
     const menu = code('map/ActionMenu.tsx');
-    expect(menu.match(/onClick=\{\(e\) => e\.target === e\.currentTarget && closeMenu\(\)\}/g)?.length).toBe(2);
+    // Одна обёртка затемнения на все виды меню — дела, подтверждение, край региона (Р-4).
+    expect(menu.match(/onClick=\{\(e\) => e\.target === e\.currentTarget && closeMenu\(\)\}/g)?.length).toBe(1);
+    expect(menu.match(/<Wrap closeMenu=\{closeMenu\}>/g)?.length).toBe(3);
   });
 });
 

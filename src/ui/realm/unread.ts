@@ -11,6 +11,7 @@
 import { create } from 'zustand';
 import type { ActiveEvent } from '@/game/types';
 import { eventId } from '@/game/sim/mail';
+import type { RivalMail } from '@/world/types';
 
 const KEY = 'tribe.mail.seen';
 
@@ -19,9 +20,23 @@ export const eventKey = (ev: ActiveEvent): string => `event:${eventId(ev)}`;
 /** Ключ письма в почте. */
 export const letterKey = (id: string): string => `letter:${id}`;
 
+/** Ключ предложения соседа в почте (ДП-1): его номер — итог ложится под тем же ключом и читается заново, пока не открыт. */
+export const dealKey = (id: string): string => `deal:${id}`;
+/** Ключ похода соседа на нас в почте (ДП-1). */
+export const rivalWarKey = (id: string): string => `war:${id}`;
+
+/**
+ * Ключи соседей (ДП-1). `asks` — только то, что зовёт игрока: предложения нам, ждущие ответа, и походы на нас (счётчик
+ * герба и низа); без него — всё, что лежит во «Вестях» (память прочитанного).
+ */
+export function rivalKeys(r: RivalMail, asks = false): string[] {
+  const deals = asks ? r.proposals.filter((p) => p.side === 'in' && !p.end) : r.proposals;
+  return [...deals.map((p) => dealKey(p.id)), ...r.marching.map((m) => rivalWarKey(m.id))];
+}
+
 /** Ключи всего, что сейчас ждёт ответа. */
-export function mailKeys(inbox: ActiveEvent[], letterIds: string[]): string[] {
-  return [...letterIds.map(letterKey), ...inbox.map(eventKey)];
+export function mailKeys(inbox: ActiveEvent[], letterIds: string[], rivals: string[] = []): string[] {
+  return [...letterIds.map(letterKey), ...inbox.map(eventKey), ...rivals];
 }
 
 function load(): string[] {

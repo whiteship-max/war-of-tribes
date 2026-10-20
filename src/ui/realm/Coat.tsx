@@ -12,7 +12,7 @@ import { ArmsArt } from '@/ui/parts/Arms';
 import { Icon } from '@/ui/icons/Icon';
 import { useWorld } from '@/world/store';
 import { coatView, useRealm } from './open';
-import { mailKeys, unreadCount, useSeen } from './unread';
+import { mailKeys, unreadCount, useSeen, rivalKeys } from './unread';
 
 /** Герб державы высотой `size`. Отдельно от кнопки: тот же рисунок стоит и в шапке меню. */
 export function CoatArt({ size }: { size: number }) {
@@ -32,11 +32,13 @@ export function CoatButton({ quiet = false }: { quiet?: boolean } = {}) {
   // и то же число стоит на вкладке «Решения».
   const inbox = useGame((g) => g.s.inbox);
   const letters = useWorld((w) => w.letters);
+  const rivals = useWorld((w) => w.rivals);
   const seen = useSeen((u) => u.seen);
   const unread = unreadCount(
     mailKeys(
       inbox,
       letters.map((l) => l.id),
+      rivalKeys(rivals, true),
     ),
     seen,
   );

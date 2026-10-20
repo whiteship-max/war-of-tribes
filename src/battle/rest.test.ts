@@ -90,8 +90,15 @@ describe('мораль между боями: ядро', () => {
         if (res.winner === 'draw') continue;
         const loser = res.winner === 'attacker' ? 'defender' : 'attacker';
         if (res.sides[loser].total.final <= 0) continue;
+        const lost = res.sides[loser].rest!;
+        const won = res.sides[res.winner].rest!;
+        expect(lost, `сид ${seed}: проигравший не бодрее победителя`).toBeLessThanOrEqual(won);
+        // Граница области: доля на выходе округлена до сотых (`sideResult`), и победитель, удержавший поле на последних
+        // крохах морали (меньше 0.005 полной), выходит с 0, как бежавший, — при W 95 так кончается «пехота с луками против
+        // копий с пехотой», сид 1. Строгое «меньше» спрашивается там, где победителю есть что унести.
+        if (won < 0.01) continue;
         seen++;
-        expect(res.sides[loser].rest!, `сид ${seed}: проигравший уставшее победителя`).toBeLessThan(res.sides[res.winner].rest!);
+        expect(lost, `сид ${seed}: проигравший уставшее победителя`).toBeLessThan(won);
       }
     }
     expect(seen, 'граница области: есть бои с уцелевшими у проигравшего').toBeGreaterThan(0);

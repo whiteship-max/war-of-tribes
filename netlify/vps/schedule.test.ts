@@ -70,13 +70,15 @@ describe('расписание в процессе', () => {
     expect(existsSync(paths.alive)).toBe(false);
   });
 
+  // Свой срок: четверо суток поддельных минут с копиями файла SQLite — дома (Windows) 4.2 с в одиночку, и под нагрузкой
+  // полного `npm test` общий потолок 5 с ронял прогон (20.10.2026).
   it('поворот держит BACKUP_KEEP суточных копий', async () => {
     const paths = pathsOf(dir);
     const s = startSchedule({ config: config({ BACKUP_KEEP: '2' }), stores, db, paths });
     await vi.advanceTimersByTimeAsync(4 * DAY);
     expect(readdirSync(paths.backups)).toHaveLength(2);
     s.stop();
-  });
+  }, 30_000);
 
   /**
    * Доставка заморожена владельцем (docs/SUBTRACT.md). Переезд — не повод её разморозить: без

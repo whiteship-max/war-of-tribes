@@ -25,6 +25,7 @@ import {
   warFallId,
   warTributeId,
   warRepairId,
+  warGunId,
   cityOr,
   type Counts,
   type WarPact,
@@ -53,6 +54,7 @@ import { statAt } from '../../src/game/train.js';
 import { ENGINES } from '../../src/game/data/engines.js';
 import { campFight, guardKinds, homeLosses, machineFight, wallFight } from '../../src/world/fights.js';
 import { SCALING, wallFront } from '../../src/world/wall.js';
+import { PROPOSALS, answerBlock, type ProposalAct, type ProposalEnd, type ProposalKind, type ProposalView } from '../../src/world/proposals.js';
 import {
   GUARD_SHARE,
   assaultOf,
@@ -80,7 +82,11 @@ import {
   rivalRolls,
 } from '../../src/world/rivalspy.js';
 import { gameDaysOfMs, gameSecondsOfMs } from '../../src/game/pace.js';
-import { FATE_SAME, openSiege, SIEGE_BLOCK, siegeSince, starvesAt, type SiegeWindow } from '../../src/world/siege.js';
+import { breadStock, FATE_SAME, openSiege, SIEGE_BLOCK, siegeSince, starvesAt, type SiegeWindow } from '../../src/world/siege.js';
+import { aimBlock as artilleryAimBlock, gunAfter, gunAimBlock, gunBlock, shotsApplied } from '../../src/world/shelling.js';
+import { BREAKOUT_SHARE, blockadeAfter, blockadeAt, blockadeBlock, blockadeDeeds, blockadeHolds, type BlockadeBreak } from '../../src/world/blockade.js';
+import { SIEGE_PHASE } from '../../src/world/data/siegeroll.js';
+import { AIMS as ARTILLERY_AIMS, GUN_AIMS, type Aim as ArtilleryAim, type GunAim } from '../../src/world/data/shelling.js';
 import { craftAfter, craftAt, craftBlock, craftCount, fortFaces, garrisonWear, type Craft } from '../../src/world/siegecraft.js';
 import {
   breachesOf,
@@ -154,8 +160,13 @@ export interface WarFile {
    * пакта. Нет поля — ни одного.
    */
   pacts?: PactRow[];
-  /** Предложения пакта, ещё не принятые: кто, кому, когда. */
+  /** Предложения, ждущие ответа: кто, кому, что, когда и до какой минуты (ДП-1, `world/proposals`). */
   offers?: PactOffer[];
+  /**
+   * Закрытые предложения с итогом — принято, отклонено, срок вышел, отозвано — и разрывы союзов (ДП-1): из них «Вести» и
+   * летопись обеих сторон и вести в Telegram. Лежат `DEALT_KEEP_MS`. Нет поля — ни одного.
+   */
+  dealt?: DealtRow[];
 }
 
 /** Пакт двух игроков: ключи по порядку, имена городов на минуту пакта. Ключи наружу не уходят (`pactsOf`). */
@@ -168,13 +179,32 @@ export interface PactRow {
   by?: string;
 }
 
-/** Предложение пакта. */
+/**
+ * Предложение между игроками (ДП-1): кто (`from`), кому (`to`), что (`kind`), когда и до какой минуты ждёт ответа. Запись
+ * старше ДП-1 номера, вида и срока не несёт — их выводит `readWars` (союз, номер из замка и минуты, срок — сутки).
+ */
 export interface PactOffer {
+  id: string;
+  kind: ProposalKind;
   from: string;
   to: string;
   at: number;
+  until: number;
   cities: Record<string, string>;
 }
+
+/** Закрытое предложение или разрыв союза: чем кончилось, когда и кто закрыл (ключ; нет — срок вышел). */
+export interface DealtRow extends PactOffer {
+  end: ProposalEnd;
+  endAt: number;
+  endBy?: string;
+}
+
+/** Сколько итог предложения лежит: обе стороны успевают зайти и прочесть его в «Вестях» и летописи. */
+export const DEALT_KEEP_MS = 7 * 24 * 3600_000;
+
+/** Номер предложения: замок предложившего и минута — ключи наружу не уходят. */
+export const proposalId = (from: string, at: number): string => `${castleIdOf(from)}.${at.toString(36)}`;
 
 /**
  * Дело лазутчика в хранилище: вид для игроков плюс ключи сторон и то, что заморожено при приказе (скрытность и срок
@@ -242,10 +272,26 @@ export function readWars(raw: unknown): WarFile {
         .filter((x): x is PactRow => Boolean(x) && typeof x.a === 'string' && typeof x.b === 'string')
         .map((x) => ({ a: x.a, b: x.b, at: Number(x.at) || 0, cities: names(x.cities), ...(typeof x.by === 'string' ? { by: x.by } : {}) }))
     : [];
-  const offers = Array.isArray(r.offers)
-    ? r.offers
-        .filter((x): x is PactOffer => Boolean(x) && typeof x.from === 'string' && typeof x.to === 'string')
-        .map((x) => ({ from: x.from, to: x.to, at: Number(x.at) || 0, cities: names(x.cities) }))
+  const offer = (x: Partial<PactOffer>): PactOffer => {
+    const at = Number(x.at) || 0;
+    const kind = x.kind && PROPOSALS[x.kind] ? x.kind : 'pact';
+    return {
+      id: typeof x.id === 'string' && x.id ? x.id : proposalId(x.from as string, at),
+      kind,
+      from: x.from as string,
+      to: x.to as string,
+      at,
+      until: Number(x.until) || at + PROPOSALS[kind].ttlMs,
+      cities: names(x.cities),
+    };
+  };
+  const party = (x: unknown): x is PactOffer => Boolean(x) && typeof (x as PactOffer).from === 'string' && typeof (x as PactOffer).to === 'string';
+  const offers = Array.isArray(r.offers) ? r.offers.filter(party).map(offer) : [];
+  const ENDS: readonly ProposalEnd[] = ['yes', 'no', 'expired', 'withdrawn', 'broken'];
+  const dealt = Array.isArray(r.dealt)
+    ? r.dealt
+        .filter((x): x is DealtRow => party(x) && ENDS.includes((x as DealtRow).end))
+        .map((x) => ({ ...offer(x), end: x.end, endAt: Number(x.endAt) || 0, ...(typeof x.endBy === 'string' ? { endBy: x.endBy } : {}) }))
     : [];
   return {
     v: 1,
@@ -255,6 +301,7 @@ export function readWars(raw: unknown): WarFile {
     ...(spies.length ? { spies } : {}),
     ...(pacts.length ? { pacts } : {}),
     ...(offers.length ? { offers } : {}),
+    ...(dealt.length ? { dealt } : {}),
   };
 }
 
@@ -341,6 +388,89 @@ export function pactsOf(file: WarFile, key: string): WarPact[] {
   return out;
 }
 
+/** Предложение глазами стороны `key`: без ключей игроков. */
+function proposalView(o: PactOffer | DealtRow, key: string): ProposalView {
+  const side = o.to === key ? 'in' : 'out';
+  const other = side === 'in' ? o.from : o.to;
+  const d = 'end' in o ? o : null;
+  return {
+    id: o.id,
+    kind: o.kind,
+    side,
+    castle: castleIdOf(other),
+    city: cityOr(o.cities[other]),
+    at: o.at,
+    until: o.until,
+    ...(d ? { end: d.end, endAt: d.endAt, ...(d.endBy ? { endBy: d.endBy === key ? ('us' as const) : ('them' as const) } : {}) } : {}),
+  };
+}
+
+/** Предложения игрока (ДП-1): ждущие ответа и закрытые с итогом — свежие сверху. */
+export function proposalsOf(file: WarFile, key: string): ProposalView[] {
+  const mine = (o: PactOffer): boolean => o.from === key || o.to === key;
+  return [...(file.offers ?? []).filter(mine), ...(file.dealt ?? []).filter(mine)]
+    .map((o) => proposalView(o, key))
+    .sort((a, b) => (b.endAt ?? b.at) - (a.endAt ?? a.at));
+}
+
+/** Закрыть предложение итогом: из ждущих — в закрытые. */
+function closeOffer(file: WarFile, o: PactOffer, end: ProposalEnd, at: number, by?: string): void {
+  file.offers = (file.offers ?? []).filter((x) => x !== o);
+  file.dealt = [...(file.dealt ?? []), { ...o, end, endAt: at, ...(by ? { endBy: by } : {}) }];
+}
+
+/** Срок ответа вышел — предложение закрывается итогом «срок вышел» в минуту срока (ход записи, `advance`). */
+export function expireOffers(file: WarFile, now: number): boolean {
+  const late = (file.offers ?? []).filter((o) => o.until <= now);
+  for (const o of late) closeOffer(file, o, 'expired', o.until);
+  return late.length > 0;
+}
+
+/** Союз заключён: пара ключей по порядку, предложение — в закрытые с «принято». */
+function makePact(file: WarFile, o: PactOffer, key: string, now: number, ctx: OrderCtx): void {
+  const other = o.from;
+  const cities = { [key]: cityOr(ctx.roster.rows[key]?.city ?? o.cities[key]), [other]: cityOr(ctx.roster.rows[other]?.city ?? o.cities[other]) };
+  const [a, b] = key < other ? [key, other] : [other, key];
+  file.pacts = [...(file.pacts ?? []), { a, b, at: now, cities, by: key }];
+  closeOffer(file, o, 'yes', now, key);
+}
+
+const warBetween = (file: WarFile, a: string, b: string): boolean =>
+  file.wars.some((w) => active(w) && ((w.atk === a && w.def === b) || (w.atk === b && w.def === a)));
+
+/**
+ * Ответ на предложение по номеру (ДП-1, ЗЩ-1): принять и отклонить может только тот, кому предложили, отозвать — только
+ * предложивший, и только пока срок не вышел (`world/proposals.answerBlock` — та же проверка, что гасит кнопку). Чужое
+ * предложение честный клиент не показывает вовсе — такой приказ отказ и флаг в журнале города.
+ */
+function dealOrder(file: WarFile, key: string, id: string, act: ProposalAct, now: number, ctx: OrderCtx): string | null {
+  const o = (file.offers ?? []).find((x) => x.id === id);
+  const done = o ? null : (file.dealt ?? []).find((x) => x.id === id);
+  const row = o ?? done;
+  if (!row) return 'Такого предложения нет.';
+  if (row.from !== key && row.to !== key) {
+    ctx.forged?.(`Ответ на чужое предложение ${id}: ни предлагал, ни получал.`);
+    return 'Это предложение не вам.';
+  }
+  const block = answerBlock(proposalView(row, key), act, now);
+  if (block || !o) return block ?? 'На это предложение уже ответили.';
+  if (act === 'withdraw') {
+    closeOffer(file, o, 'withdrawn', now, key);
+    return null;
+  }
+  if (act === 'no') {
+    closeOffer(file, o, 'no', now, key);
+    return null;
+  }
+  if (pacted(file, key, o.from)) {
+    closeOffer(file, o, 'yes', now, key);
+    return null;
+  }
+  if (warBetween(file, key, o.from)) return 'Между нами идёт война. Союза не будет, пока она не кончится.';
+  makePact(file, o, key, now, ctx);
+  return null;
+}
+
 /**
  * Предложить пакт или принять предложенный (docs/siege_v2.md, раздел 5): пакт — когда обе стороны сказали «да». Своей
  * дипломатии с наградами и сроками у игроков нет: пакт значит одно — союзник может прийти на выручку, а походом на него
@@ -351,33 +481,38 @@ function pactOrder(file: WarFile, key: string, target: string, now: number, ctx:
   if (!other) return 'Такого города нет на карте.';
   if (other === key) return 'Пакт с самим собой не заключают.';
   if (pacted(file, key, other)) return 'Пакт уже заключён.';
-  if (file.wars.some((w) => active(w) && ((w.atk === key && w.def === other) || (w.atk === other && w.def === key)))) {
-    return 'Между нами идёт война. Пакта не будет, пока она не кончится.';
-  }
+  if (warBetween(file, key, other)) return 'Между нами идёт война. Пакта не будет, пока она не кончится.';
   const cities = { [key]: cityOr(ctx.roster.rows[key]?.city), [other]: cityOr(ctx.roster.rows[other]?.city) };
   const offers = file.offers ?? [];
-  if (offers.some((o) => o.from === other && o.to === key)) {
-    file.offers = offers.filter((o) => !(o.from === other && o.to === key));
-    const [a, b] = key < other ? [key, other] : [other, key];
-    file.pacts = [...(file.pacts ?? []), { a, b, at: now, cities, by: key }];
+  // Встречное предложение — согласие: дипломат, приехавший к тому, кто уже зовёт, привёз «да».
+  const asked = offers.find((o) => o.from === other && o.to === key && o.until > now);
+  if (asked) {
+    makePact(file, asked, key, now, ctx);
     return null;
   }
-  if (offers.some((o) => o.from === key && o.to === other)) return 'Предложение уже у них. Ждём ответа.';
+  if (offers.some((o) => o.from === key && o.to === other && o.until > now)) return 'Предложение уже у них. Ждём ответа.';
   if (offers.filter((o) => o.from === key).length >= PACT_OFFERS_MAX) return 'Предложений и так много. Подожди ответов.';
-  file.offers = [...offers, { from: key, to: other, at: now, cities }];
+  file.offers = [...offers, { id: proposalId(key, now), kind: 'pact', from: key, to: other, at: now, until: now + PROPOSALS.pact.ttlMs, cities }];
   return null;
 }
 
-/** Разорвать пакт, отозвать своё предложение или отклонить чужое. */
-function unpactOrder(file: WarFile, key: string, target: string): string | null {
-  const offers = file.offers ?? [];
+/**
+ * Разорвать пакт, отозвать своё предложение или отклонить чужое. Каждое — итогом в закрытые (ДП-1): разрыв — строкой
+ * «разорван» от разорвавшего, отозванное и отклонённое — своим итогом.
+ */
+function unpactOrder(file: WarFile, key: string, target: string, now: number): string | null {
   const pacts = file.pacts ?? [];
   const mine = (k: string): boolean => castleIdOf(k) === target;
-  const keepPacts = pacts.filter((p) => !((p.a === key && mine(p.b)) || (p.b === key && mine(p.a))));
-  const keepOffers = offers.filter((o) => !((o.from === key && mine(o.to)) || (o.to === key && mine(o.from))));
-  if (keepPacts.length === pacts.length && keepOffers.length === offers.length) return 'Пакта нет.';
-  file.pacts = keepPacts;
-  file.offers = keepOffers;
+  const broken = pacts.filter((p) => (p.a === key && mine(p.b)) || (p.b === key && mine(p.a)));
+  const offers = (file.offers ?? []).filter((o) => (o.from === key && mine(o.to)) || (o.to === key && mine(o.from)));
+  if (broken.length === 0 && offers.length === 0) return 'Пакта нет.';
+  file.pacts = pacts.filter((p) => !broken.includes(p));
+  for (const p of broken) {
+    const other = p.a === key ? p.b : p.a;
+    const row: DealtRow = { id: proposalId(key, now), kind: 'pact', from: key, to: other, at: now, until: now, cities: { ...p.cities }, end: 'broken', endAt: now, endBy: key };
+    file.dealt = [...(file.dealt ?? []), row];
+  }
+  for (const o of offers) closeOffer(file, o, o.from === key ? 'withdrawn' : 'no', now, key);
   return null;
 }
 
@@ -452,6 +587,26 @@ export const fallId = warFallId;
  * полководца у ворот (`pips`) ходят с отрядом так же.
  */
 export function liveSheet(file: WarFile, key: string, s: SheetAt, at = Infinity): WarSheet {
+  return siegeBread(file, key, bookedSheet(file, key, s, at), at);
+}
+
+/**
+ * Хлеб осаждённого города — хлеб окна осады (Р-5, docs/siege_v2.md, 21.1): пока под его стенами стоит лагерь, слепок держит
+ * хлеба не больше остатка окна к минуте `at` (`siege.foodLeft`). Слепок ложится записью партии — у ушедшего из игры до
+ * осады, — и без этого падение голодом уносило хлеб, который окно уже съело. Голод — ноль. Двух лагерей — меньший остаток.
+ */
+function siegeBread(file: WarFile, key: string, sheet: WarSheet, at: number): WarSheet {
+  let bread = Infinity;
+  for (const w of file.wars) {
+    if (w.def !== key || w.phase !== 'camp' || !w.camp || w.camp.startedAt > at) continue;
+    bread = Math.min(bread, foodLeft(w.camp as SiegeWindow, at));
+  }
+  if (!(bread < Infinity)) return sheet;
+  return { ...sheet, food: Math.min(sheet.food, Math.max(0, Math.floor(bread))), stock: breadStock(sheet.stock, bread) };
+}
+
+/** Слепок с книгами войска, стройки и запасов, без хлеба осады (`liveSheet`). */
+function bookedSheet(file: WarFile, key: string, s: SheetAt, at: number): WarSheet {
   const claim = claimedSheet(file, key, s, at);
   if (!s.book) return s.town ? townSheet(claim, s.town, troopPower(asTroops(claim.home))) : claim;
   // Книга войска (docs/pvp.md, раздел 6): в бой идёт только подтверждённое. Слепок — то, что заявил клиент; книга — что
@@ -864,12 +1019,54 @@ function campWindow(w: WarRow, at: number, sheet: WarSheet, prev: WarCamp | null
     // осады переносятся (docs/siege_v2.md, этап 2е).
     lead: prev ? prev.lead : w.army.pips.siege,
     offers: prev?.offers as SiegeWindow['offers'],
+    // Требушет на стене той же осады переносится; постройки под обстрелом — подтверждённые уровни при постановке (Р-5).
+    guns: prev?.guns as SiegeWindow['guns'],
+    targets: prev ? prev.targets : sheetTargets(sheet.levels),
   });
   const aimed = reaim(win.fire, win.wood, siegeSince(win), at, aimOfSheet(sheet));
   if (aimed.fire) win.fire = aimed.fire;
   else delete win.fire;
   if (aimed.wood) win.wood = aimed.wood;
   return win as WarCamp;
+}
+
+/**
+ * Постройки города, по которым бьёт артиллерия лагеря с целью «город» (Р-5, `world/shelling`): подтверждённые уровни слепка
+ * обороны (`town.townSheet`), всё, что стоит, кроме стены; по имени — тот же порядок, что у мира (`LocalWorld.homeTargets`).
+ */
+function sheetTargets(levels: Record<string, number> | undefined): string[] | undefined {
+  const out = Object.entries(levels ?? {})
+    .filter(([k, v]) => k !== 'palisade' && (v ?? 0) >= 1)
+    .map(([k]) => k)
+    .sort();
+  return out.length ? out : undefined;
+}
+
+/** Мощь лагеря — без выбитых башней (`bombard.thinAt`) — и гарнизона слепка: с ними меряется кольцо (`world/blockade`). */
+const campPower = (w: WarRow, at: number): number => troopPower(asTroops(w.army.troops)) * (1 - thinOf(w, at));
+const garrisonPower = (sheet: WarSheet): number => troopPower(asTroops(sheet.home));
+
+/**
+ * Кольцо блокады в минуту события (Р-5, docs/siege_v2.md, 21.1) — той же дверью, что у мира (`LocalWorld.ringCheck`): удар
+ * с поля его размыкает (`why`), мощь ниже порога — тоже. Замыкает кольцо только приказ осаждающего: у игрока решения свои.
+ */
+function ringCheck(w: WarRow, at: number, sheet: WarSheet, why?: BlockadeBreak): void {
+  const camp = w.camp as SiegeWindow | undefined;
+  if (!camp || !blockadeAt(camp, at)) return;
+  if (why) w.camp = { ...w.camp, ...blockadeAfter(camp, at, false, why) } as WarCamp;
+  else if (!blockadeHolds(campPower(w, at), garrisonPower(sheet))) w.camp = { ...w.camp, ...blockadeAfter(camp, at, false, 'ratio') } as WarCamp;
+}
+
+/**
+ * Выстрелы фазы по машинам (Р-5, `world/shelling`): требушет на стене разбивает машины лагеря, артиллерия лагеря — требушет
+ * на стене. Сами выстрелы бросила кость фазы (`rollPhase`, строка журнала) — здесь только то, что они сделали с окном.
+ */
+function shotsStep(w: WarRow, row: PhaseRow, at: number): void {
+  // На месте: фаза дальше пишет в тот же объект лагеря (наказы, журнал дел).
+  const camp = w.camp as SiegeWindow;
+  const after = shotsApplied(camp, row, at);
+  if (after.machines !== camp.machines) camp.machines = after.machines;
+  if (after.guns !== camp.guns) camp.guns = after.guns;
 }
 
 /** Войско после истощения фазы: доля `share` с каждого рода, как при потерях в бою. */
@@ -891,11 +1088,14 @@ function phaseStep(w: WarRow, at: number, sheet: WarSheet, atkHungry: boolean): 
   const k = rowsOf(camp).length + 1;
   const row = rollPhase(camp, k, atkHungry);
   camp.phases = [...rowsOf(camp), row];
+  shotsStep(w, row, at);
   if (row.waste > 0) w.army = { ...w.army, troops: wasted(w.army.troops, row.waste) };
   if (troopTotal(asTroops(w.army.troops)) <= 0) {
     turnBack(w, at, w.to, 'lifted');
     return;
   }
+  // Кольцо блокады после броска и истощения: держит ли его мощь лагеря (Р-5).
+  ringCheck(w, at, sheet);
   if (row.out === 'gates') {
     fall(w, at, sheet, 'gates');
     turnBack(w, at, w.to, 'taken');
@@ -946,9 +1146,32 @@ function repairShort(w: WarRow, sheet: WarSheet): string | null {
   if (!camp) return 'Лагеря под стенами уже нет.';
   const cost = wallRepairCost(camp.wall ?? 0);
   if (!Object.keys(cost).length) return 'Стен нет, чинить нечего.';
-  const seen = new Set(sheet.seen);
-  const unpaid = repairsOf(camp as SiegeWindow).filter((d) => !seen.has(warRepairId(w.id, d.at))).length;
+  const unpaid = unpaidWork(w, sheet);
   for (const [r, v] of Object.entries(cost)) if ((sheet.stock[r] ?? 0) < (v ?? 0) * (unpaid + 1)) return 'На починку не хватает дерева и камня.';
+  return null;
+}
+
+/**
+ * Работы на стене, за которые защитник ещё не заплатил (`WarSheet.seen`): починки пролома и требушеты (Р-5) — у них одна цена,
+ * треть уровня стен (`build.wallRepairCost`), и сервер числит её за городом, пока клиент не отметит оплату.
+ */
+function unpaidWork(w: WarRow, sheet: WarSheet): number {
+  const camp = w.camp;
+  if (!camp) return 0;
+  const seen = new Set(sheet.seen);
+  const repairs = repairsOf(camp as SiegeWindow).filter((d) => !seen.has(warRepairId(w.id, d.at))).length;
+  const guns = (camp.guns ?? []).filter((g) => !seen.has(warGunId(w.id, g.at))).length;
+  return repairs + guns;
+}
+
+/** Хватает ли защитнику на требушет на стене (Р-5): та же цена и та же мерка, что у починки пролома (`repairShort`). */
+function gunShort(w: WarRow, sheet: WarSheet): string | null {
+  const camp = w.camp;
+  if (!camp) return 'Лагеря под стенами уже нет.';
+  const cost = wallRepairCost(camp.wall ?? 0);
+  if (!Object.keys(cost).length) return 'Стены нет — требушет ставить некуда.';
+  const unpaid = unpaidWork(w, sheet);
+  for (const [r, v] of Object.entries(cost)) if ((sheet.stock[r] ?? 0) < (v ?? 0) * (unpaid + 1)) return 'На требушет не хватает дерева и камня.';
   return null;
 }
 
@@ -997,6 +1220,67 @@ function burnMachine(w: WarRow, at: number, sheet: WarSheet, id: MachineId, troo
 }
 
 /**
+ * Требушет на стене осаждённого (Р-5, `world/shelling`): та же проверка, что у мира (`gunBlock`), и склад — книгой запасов
+ * слепка с неоплаченными работами на стене (`gunShort`). Платит клиент, увидев требушет в окне (`contract.warGunId`).
+ */
+function defendGun(file: WarFile, w: WarRow, key: string, machine: MachineId, now: number, ctx: OrderCtx): string | null {
+  if (!w.camp || w.phase !== 'camp') return 'Лагеря под стенами уже нет.';
+  if (machine !== 'trebuchet') return 'На стену ставят только требушет.';
+  const why = gunBlock(w.camp as SiegeWindow, now);
+  if (why) return why;
+  const s = ctx.sheet(key);
+  if (!s) return 'Вести о городе ещё не дошли до края. Подожди минуту.';
+  const short = gunShort(w, liveSheet(file, key, s, now));
+  if (short) return short;
+  w.camp = { ...w.camp, guns: gunAfter(w.camp as SiegeWindow, now) as WarCamp['guns'] };
+  return null;
+}
+
+/**
+ * Вылазка на пост кольца блокады (Р-5): вышедшие из ворот бьются с постом — четвертью лагеря (`blockade.BREAKOUT_SHARE`) — в
+ * поле, той же дверью, что вылазка на машину (`fights.machineFight`). Победа размыкает кольцо; лагерь стоит.
+ */
+function breakout(w: WarRow, at: number, sheet: WarSheet, troops: Counts): string | null {
+  const camp = w.camp;
+  if (!camp) return 'Лагеря уже нет.';
+  const n = w.battles.length;
+  const side = campSide(w, at);
+  const { input, field } = machineFight({
+    seed: warSeed(w.id, n),
+    guard: { kinds: guardKinds(side.kinds, BREAKOUT_SHARE), resolve: side.resolve, pips: side.pips, rest: side.rest },
+    sortie: { kinds: kindsOf(asTroops(troops)), rest: garrisonRest(w, sheet, at) },
+    resolve: sheet.resolve,
+    pips: sheet.pips as Pips,
+  });
+  const homeLost = field.result ? (troopLosses(asTroops(troops), field.result.sides.attacker.losses) as Counts) : {};
+  const atkLost = field.result ? (troopLosses(asTroops(w.army.troops), field.result.sides.defender.losses) as Counts) : {};
+  w.battles.push({
+    id: `${w.id}.${n}`,
+    at,
+    site: 'sortie',
+    by: 'def',
+    input: input as WarBattle['input'],
+    won: field.won,
+    atkTroops: { ...w.army.troops },
+    atkLost,
+    homeTroops: { ...troops },
+    homeLost,
+    breakout: true,
+    ...craftOf(w),
+  });
+  // Дрался пост, а не весь лагерь: убыль — его потери, мораль лагеря прежняя.
+  w.army = { ...w.army, troops: minus(w.army.troops, atkLost) };
+  if (troopTotal(asTroops(w.army.troops)) <= 0) {
+    turnBack(w, at, w.to, 'lifted');
+    return null;
+  }
+  const after = { ...sheet, home: minus(sheet.home, homeLost) };
+  setCamp(w, campWindow(w, at, after, w.camp as WarCamp));
+  ringCheck(w, at, after, field.won ? 'sortie' : undefined);
+  return null;
+}
+
+/**
  * Штурм из лагеря и что с лагерем после (docs/siege_v2.md, 4.4): взяли — падение; отбили — **осада идёт дальше** с тем,
  * что осталось: штурм с машинами — дело осады, а не отказ от неё. Лагерь снимается, только если штурмовать стало некому.
  */
@@ -1027,6 +1311,8 @@ function regarrison(file: WarFile, w: WarRow, s: SheetAt, until: number): boolea
   const live = liveSheet(file, w.def, s, s.at);
   if (troopTotal(asTroops(live.home)) === camp.garrisonAtStart) return false;
   setCamp(w, campWindow(w, s.at, live, camp));
+  // Гарнизон сменился — держит ли кольцо мощь лагеря (Р-5).
+  ringCheck(w, s.at, live);
   return true;
 }
 
@@ -1119,7 +1405,10 @@ function hitCamp(
     return null;
   }
   // Гарнизон убавился — часы голода заново, от остатка хлеба.
-  setCamp(w, campWindow(w, at, { ...sheet, home: minus(sheet.home, homeLost) }, camp));
+  const after = { ...sheet, home: minus(sheet.home, homeLost) };
+  setCamp(w, campWindow(w, at, after, camp));
+  // Кольцо блокады после боя (Р-5): удар с поля (полководец города, выручка) его размыкает, вылазка — если мощи не хватает.
+  ringCheck(w, at, after, hit.rear ? 'relief' : undefined);
   return null;
 }
 
@@ -1171,6 +1460,10 @@ export function advance(file: WarFile, now: number, sheets: ReadonlyMap<string, 
         } else {
           w.phase = 'camp';
           setCamp(w, campWindow(w, w.arriveAt, sheet, null));
+          // Поход «Блокада» (Р-5): кольцо — в минуту постановки, если мощи вчетверо; нет — обычная осада.
+          if (w.ring && w.camp && blockadeBlock(w.camp as SiegeWindow, w.arriveAt, campPower(w, w.arriveAt), garrisonPower(sheet)) === null) {
+            w.camp = { ...w.camp, ...blockadeAfter(w.camp as SiegeWindow, w.arriveAt, true) } as WarCamp;
+          }
           // Лагерь — полудом: энергия полководца копится залпом за фазу (ответ владельца 3, docs/siege_v2.md, 8.4).
           w.army = { ...w.army, energy: remark(w.army.energy, w.arriveAt, 'camp') };
         }
@@ -1227,6 +1520,7 @@ export function advance(file: WarFile, now: number, sheets: ReadonlyMap<string, 
     }
   }
   if (advanceSpies(file, now, sheets)) changed = true;
+  if (expireOffers(file, now)) changed = true;
   return changed;
 }
 
@@ -1242,6 +1536,11 @@ export function pruneWars(file: WarFile, now: number): void {
   if (file.spies) {
     const keep = file.spies.filter((x) => x.phase !== 'done' || now - (x.endAt ?? x.sentAt) <= WAR_KEEP_MS).slice(-WAR_MAX);
     if (keep.length !== file.spies.length) file.spies = keep;
+  }
+  if (file.dealt) {
+    const keep = file.dealt.filter((x) => now - x.endAt <= DEALT_KEEP_MS).slice(-WAR_MAX);
+    if (keep.length === 0) delete file.dealt;
+    else if (keep.length !== file.dealt.length) file.dealt = keep;
   }
   // Убранная война уходит в итоги эпохи: рейтинг её побед не теряет (docs/rating.md).
   if (file.wars.length === was.length) return;
@@ -1380,6 +1679,9 @@ export function applyOrder(file: WarFile, key: string, order: WarOrder, now: num
       return null;
     }
     case 'machine': {
+      // Требушет на стене (Р-5): тот же приказ у осаждённого — машина строится в городе, со склада, ценой починки пролома.
+      const def = theirs(file, order.id, key, 'def');
+      if (def) return defendGun(file, def, key, order.machine, now, ctx);
       // Заказ машины — той же проверкой, что у лагеря под логовом (`world/machines.machineBlock`): у города стена есть.
       const w = theirs(file, order.id, key, 'atk');
       if (!w || w.phase !== 'camp' || !w.camp) return 'Лагеря уже нет.';
@@ -1487,6 +1789,55 @@ export function applyOrder(file: WarFile, key: string, order: WarOrder, now: num
       if (short) return short;
       return burnMachine(w, now, sheet, order.machine, order.troops);
     }
+    case 'aim': {
+      // Цель артиллерии (Р-5): у осаждающего — его машины лагеря, у осаждённого — требушет на стене; сторону решает ключ.
+      const atk = theirs(file, order.id, key, 'atk');
+      const def = atk ? null : theirs(file, order.id, key, 'def');
+      const w = atk ?? def;
+      if (!w || w.phase !== 'camp' || !w.camp) return 'Лагеря уже нет.';
+      const camp = w.camp as SiegeWindow;
+      if (atk) {
+        if (!ARTILLERY_AIMS.includes(order.aim as ArtilleryAim)) return 'Такой цели нет.';
+        const why = artilleryAimBlock(camp, order.aim as ArtilleryAim, now);
+        if (why) return why;
+      } else {
+        if (!GUN_AIMS.includes(order.aim as GunAim)) return 'Такой цели нет.';
+        const why = gunAimBlock(camp, order.aim as GunAim, now);
+        if (why) return why;
+      }
+      w.camp = { ...w.camp, log: [...(w.camp.log ?? []), { at: now, act: atk ? 'aim' : 'gunAim', aim: order.aim }] };
+      return null;
+    }
+    case 'blockade': {
+      // Кольцо блокады (Р-5, `world/blockade`): замкнуть — лагерь вчетверо мощнее гарнизона слепка, кольцо не прорвано в этой
+      // фазе; разомкнуть — когда угодно. Мощь — книгой войска (`liveSheet`), лагерь — без выбитых башней.
+      const w = theirs(file, order.id, key, 'atk');
+      if (!w || w.phase !== 'camp' || !w.camp) return 'Лагеря уже нет.';
+      const camp = w.camp as SiegeWindow;
+      if (!order.on) {
+        if (!blockadeAt(camp, now)) return 'Кольцо и так разомкнуто.';
+        w.camp = { ...w.camp, ...blockadeAfter(camp, now, false, 'order') } as WarCamp;
+        return null;
+      }
+      const s = ctx.sheet(w.def);
+      if (!s) return 'Вести о городе ещё не дошли до края. Подожди минуту.';
+      const why = blockadeBlock(camp, now, campPower(w, now), garrisonPower(liveSheet(file, w.def, s, now)));
+      if (why) return why;
+      w.camp = { ...w.camp, ...blockadeAfter(camp, now, true) } as WarCamp;
+      return null;
+    }
+    case 'breakout': {
+      const w = theirs(file, order.id, key, 'def');
+      if (!w || w.phase !== 'camp' || !w.camp) return 'Лагеря под стенами уже нет.';
+      if (!blockadeAt(w.camp as SiegeWindow, now)) return 'Кольца нет — прорывать нечего.';
+      const s = ctx.sheet(key);
+      if (!s) return 'Вести о городе ещё не дошли до края. Подожди минуту.';
+      const sheet = liveSheet(file, key, s, now);
+      if (troopTotal(asTroops(order.troops)) <= 0) return 'Некого вывести на вылазку.';
+      const short = enough(order.troops, claimedSheet(file, key, s, now).home, sheet.home, 'в гарнизоне', ctx);
+      if (short) return short;
+      return breakout(w, now, sheet, order.troops);
+    }
     case 'surrender': {
       // Сдача (ответ владельца 5): ворота открывает сам город — участь на ступень мягче, гарнизон уходит живым; та же дверь,
       // что «ворота открыли» на фазе осады (`fall` с `gates`).
@@ -1554,7 +1905,9 @@ export function applyOrder(file: WarFile, key: string, order: WarOrder, now: num
     case 'pact':
       return pactOrder(file, key, order.target, now, ctx);
     case 'unpact':
-      return unpactOrder(file, key, order.target);
+      return unpactOrder(file, key, order.target, now);
+    case 'deal':
+      return dealOrder(file, key, order.id, order.act, now, ctx);
     case 'strike': {
       const w = theirs(file, order.id, key, 'def');
       if (!w || w.phase !== 'camp') return 'Лагеря под стенами уже нет.';
@@ -1684,6 +2037,7 @@ function march(file: WarFile, key: string, order: Extract<WarOrder, { op: 'march
     phase: 'march',
     army: { ...ruleArmy(order.army), energy },
     went: { ...order.army.troops },
+    ...(order.blockade && order.mode === 'siege' ? { ring: true as const } : {}),
     battles: [],
   });
   return null;
@@ -1749,8 +2103,9 @@ export function newsOf(w: WarRow): WarNews[] {
             // `won` боя — у того, кто в нём нападал; у получателя — своя сторона.
             won: b.by === role ? b.won : !b.won,
             ...(taken ? { taken: true as const } : {}),
-            // Вылазка на машину — бой за машину, а не за лагерь: слова другие (19.2).
+            // Вылазка на машину — бой за машину, а не за лагерь: слова другие (19.2). На пост кольца — тоже (Р-5).
             ...(b.burn ? { machine: b.burn } : {}),
+            ...(b.breakout ? { ring: 'off' as const } : {}),
             ...(ally && role === 'def' ? { ally: plainName(cityOr(ally.city)) } : {}),
           },
         },
@@ -1807,8 +2162,14 @@ export function newsOf(w: WarRow): WarNews[] {
     // Наказ — тому, чей он: залп и штурм — нападающему, починка и паёк — осаждённому (этап 2г).
     const orderOf = (role: 'atk' | 'def') =>
       r.orders?.find((o) => (role === 'atk' ? o === 'volley' || o === 'storm' : o === 'repair' || o === 'ration'));
+    // Обстрел за фазу (Р-5): осаждённому — постройки, потерявшие уровень, и разбитый требушет на стене; осаждающему — машины,
+    // разбитые со стены. Промахи и простой построек молчат: их видно в журнале фаз.
+    const lost = (r.shots ?? []).filter((s) => s.hit && s.lost).length;
+    const gunBroke = (r.shots ?? []).some((s) => s.hit && s.gun) ? 1 : 0;
+    const machinesBroke = (r.gun ?? []).filter((s) => s.hit && s.machine).length;
     for (const role of ['atk', 'def'] as const) {
-      const loud = r.out === 'breach' || r.out === 'plague';
+      const shot = role === 'def' ? { ...(lost ? { lost } : {}), ...(gunBroke ? { broke: gunBroke } : {}) } : machinesBroke ? { broke: machinesBroke } : {};
+      const loud = r.out === 'breach' || r.out === 'plague' || Object.keys(shot).length > 0;
       const order = orderOf(role);
       if (!loud && !order) continue;
       out.push({
@@ -1827,11 +2188,33 @@ export function newsOf(w: WarRow): WarNews[] {
             k: i + 1,
             ...(r.out === 'breach' ? { breaches } : {}),
             ...(order ? { order } : {}),
+            ...shot,
           },
         },
       });
     }
   });
+  // Кольцо блокады (Р-5): замкнули — осаждённому (город отрезан); разомкнул приказом сам лагерь — осаждённому; мощи мало
+  // или ударили с поля — обоим. Прорыв вылазкой — весть боя обоим (`ring` у `war-fight`), второй вести нет. Приказ
+  // осаждающего ему самому не пишется.
+  const camp = w.camp as SiegeWindow | undefined;
+  for (const d of camp ? blockadeDeeds(camp) : []) {
+    const at = d.at;
+    const k = Math.floor(Math.max(0, at - siegeSince(camp as SiegeWindow)) / SIEGE_PHASE) + 1;
+    const to: ('atk' | 'def')[] = d.on || d.why === 'order' ? ['def'] : d.why === 'sortie' ? [] : ['atk', 'def'];
+    for (const role of to) {
+      out.push({
+        player: role === 'atk' ? w.atk : w.def,
+        item: {
+          key: `war-phase:${w.id}:ring:${at}`,
+          kind: 'war-phase',
+          fireAt: at,
+          until: at + RESULT_KEEP,
+          p: { from: from(role), fate: w.fate, about: at, role, phase: 'calm', k, ring: d.on ? 'on' : 'off' },
+        },
+      });
+    }
+  }
   // Переговоры у стен (docs/siege_v2.md, 7.3): предложение — тому, кому отвечать, пока оно стоит; отказ — тому, кто
   // предлагал; принятая дань — осаждённому (принятые условия — падение сдачей, его весть ниже).
   for (const o of w.camp?.offers ?? []) {
@@ -1891,9 +2274,11 @@ export function newsOf(w: WarRow): WarNews[] {
 }
 
 /**
- * Вести о пакте (docs/siege_v2.md, 19.2): предложение — тому, кому предложили, пока оно лежит; принятый пакт — тому, кто
- * предлагал. Выводятся из записи, как вести войны: «один раз» держит разница до и после хода (`newsDiff`). Участи у пакта
- * нет — поле `fate` у вести обязательно, и здесь оно формы ради.
+ * Вести о пакте (docs/siege_v2.md, 19.2; ДП-1): предложение — тому, кому предложили, пока оно лежит, с номером: кнопка под
+ * вестью ведёт к нему; принятый пакт — тому, кто предлагал. Итоги (ДП-1) — той стороне, которая не действовала сама:
+ * отклонённое — предложившему, отозванное — адресату, разорванный союз — другой стороне, вышедший срок — обеим. Выводятся
+ * из записи, как вести войны: «один раз» держит разница до и после хода (`newsDiff`). Участи у пакта нет — поле `fate` у
+ * вести обязательно, и здесь оно формы ради.
  */
 export function pactNewsOf(file: WarFile): WarNews[] {
   const out: WarNews[] = [];
@@ -1904,10 +2289,34 @@ export function pactNewsOf(file: WarFile): WarNews[] {
         key: `war-pact:${castleIdOf(o.from)}:${o.at}`,
         kind: 'war-pact',
         fireAt: o.at,
-        until: o.at + RESULT_KEEP,
-        p: { from: plainName(cityOr(o.cities[o.from])), fate: 'plunder', about: o.at, pact: 'offer' },
+        until: Math.min(o.until, o.at + RESULT_KEEP),
+        p: { from: plainName(cityOr(o.cities[o.from])), fate: 'plunder', about: o.at, pact: 'offer', deal: o.id },
       },
     });
+  }
+  for (const d of file.dealt ?? []) {
+    const end = d.end;
+    if (end === 'yes') continue;
+    const to = (player: string, role?: 'atk' | 'def'): void => {
+      const other = player === d.from ? d.to : d.from;
+      out.push({
+        player,
+        item: {
+          key: `war-pact:${castleIdOf(other)}:${d.endAt}:${end}${role ? `:${role}` : ''}`,
+          kind: 'war-pact',
+          fireAt: d.endAt,
+          until: d.endAt + RESULT_KEEP,
+          p: { from: plainName(cityOr(d.cities[other])), fate: 'plunder', about: d.endAt, pact: end, ...(role ? { role } : {}) },
+        },
+      });
+    };
+    if (d.end === 'no') to(d.from);
+    else if (d.end === 'withdrawn') to(d.to);
+    else if (d.end === 'broken') to(d.to);
+    else if (d.end === 'expired') {
+      to(d.from, 'atk');
+      to(d.to, 'def');
+    }
   }
   for (const p of file.pacts ?? []) {
     if (!p.by) continue;

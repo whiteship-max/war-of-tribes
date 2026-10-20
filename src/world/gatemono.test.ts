@@ -33,6 +33,17 @@ import { openSky, townAt, type Inside } from '../../scripts/autopilot';
 /** Кривая — до трёх оборон посёлка, как кривая раздела 4б `raid-mix:report`. */
 const TOP_DEFENSE = 3;
 
+/**
+ * Известные сбои ядра на W 95 — находка слияния Р-1…Р-5 и ДП-1 (docs/siege_v2.md, 22.2; решение владельца 20.10.2026: как
+ * 19.4 — записать, ядро — отдельной работой). Оба — чётность остатка, без кости. На 3-м уровне нечётный волк ждёт в резерве, и
+ * нечётные стаи 333 и 335 отбиты там, где чётные 332, 334 и 336 берут верх (бой 88–89 тиков против 76). На 2-м уровне один
+ * пеший сверх (дубинщик, копейщик) делает остаток развёртывания гарнизона нечётным, и он уходит в резерв (R 1 → 2) при краях
+ * по 54 человека, — гарнизон держит 235 волков вместо 239. На W 97 этих точек не было. Список точный: новый сбой и починка
+ * ядра роняют тест, и список тогда переписывается или уходит; у другого W он пуст.
+ */
+const KNOWN_DROPS: Partial<Record<number, number[]>> = FRONT_WIDTH === 95 ? { 3: [333, 335] } : {};
+const KNOWN_LESS: Partial<Record<string, number>> = FRONT_WIDTH === 95 ? { '2/clubman': -4, '2/spearman': -4 } : {};
+
 describe('монотонность у ворот: больше волков против того же гарнизона — не реже их верх', () => {
   it.each([1, 2, 3])('без кости: гарнизон мерки %i-го уровня, стая от одного волка до трёх оборон', async (level) => {
     const g = townAt(level);
@@ -56,7 +67,7 @@ describe('монотонность у ворот: больше волков пр
     expect(won.includes(false), 'волки хоть раз отбиты').toBe(true);
     expect(won.includes(true), 'волки хоть раз взяли верх').toBe(true);
     const drops = won.flatMap((x, n) => (n > 1 && won[n - 1] && !x ? [n] : []));
-    expect(drops, `${level}-й уровень: волков больше на одного — и верх уже не их`).toEqual([]);
+    expect(drops, `${level}-й уровень: волков больше на одного — и верх уже не их`).toEqual(KNOWN_DROPS[level] ?? []);
   }, 120_000);
 });
 
@@ -135,7 +146,9 @@ describe('один боец у ворот не двигает выдержива
           expect(one.edges, `${id}: всадник на краях гарнизона`).toBeGreaterThan(0);
         }
         const moved = one.first - base.first;
-        expect(moved, `${level}-й уровень${bare ? ' без всадников' : ''}, +1 ${id}: стая меньше`).toBeGreaterThanOrEqual(0);
+        const known = bare ? undefined : KNOWN_LESS[`${level}/${id}`];
+        if (known !== undefined) expect(moved, `${level}-й уровень, +1 ${id}: известный сбой ядра на W ${FRONT_WIDTH}`).toBe(known);
+        else expect(moved, `${level}-й уровень${bare ? ' без всадников' : ''}, +1 ${id}: стая меньше`).toBeGreaterThanOrEqual(0);
         expect(moved, `${level}-й уровень${bare ? ' без всадников' : ''}, +1 ${id}: держит ${held}, с ним — ${one.first - 1}`).toBeLessThanOrEqual(held / 10);
       }
     }

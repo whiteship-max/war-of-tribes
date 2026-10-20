@@ -162,6 +162,16 @@ export interface SiegeWindow {
    * на них. Нет поля — никто ничего не предлагал. Переносится при пересчёте часов голода той же осады.
    */
   offers?: SiegeOffer[];
+  /**
+   * Требушет на стене осаждённого (Р-5, docs/siege_v2.md, 21.1; `world/shelling`) — очередь заказов, как машины лагеря:
+   * когда заказан, когда разбит. Нет поля — не ставили. Переносится при пересчёте часов голода.
+   */
+  guns?: MachineOrder[];
+  /**
+   * Постройки осаждённого города, по которым бьёт артиллерия лагеря с целью «город» (Р-5, `world/shelling`) — заморожены при
+   * постановке лагеря. Нет поля — построек нет: логово, двор мира, окно до Р-5.
+   */
+  targets?: string[];
 }
 
 /** Когда осада началась. Пересчёт часов голода эту отметку не двигает. */
@@ -199,12 +209,31 @@ export const siegeWear = (since: number, at: number, span: number): number =>
   1 - (1 - SIEGE_WEAR_FLOOR) * Math.min(1, Math.max(0, at - since) / Math.max(1, span));
 
 /**
+ * Сколько хлеба осталось у осаждённого к минуте `at` — от окна, той же арифметикой, что часы голода. **Хлеб осаждённого
+ * города — хлеб окна** (docs/siege_v2.md, 21.1): падение, дань и цена дани в минуту осады берут хлеба не больше этого, а
+ * племя под осадой не держит на складе больше (`bridge.syncSiege`). Голод — ноль: съеденного в обоз не положить.
+ */
+export const foodLeft = (w: SiegeWindow, at: number): number =>
+  Math.max(0, w.foodAtStart - (consumptionPerHour(w) * Math.max(0, at - w.startedAt)) / HOUR);
+
+/** Склад осаждённого с хлебом не больше остатка окна `bread` (`foodLeft`): прочее добро — как есть. */
+export function breadStock<T extends Partial<Record<string, number>>>(stock: T, bread: number): T {
+  if (!(bread < Infinity)) return stock;
+  const left = Math.max(0, Math.floor(bread));
+  const food = stock.food ?? 0;
+  if (food <= left) return stock;
+  const out = { ...stock };
+  if (left > 0) (out as Record<string, number>).food = left;
+  else delete (out as Record<string, number>).food;
+  return out;
+}
+
+/**
  * Когда кончится хлеб, если с минуты `at` паёк станет `on` (docs/siege_v2.md, раздел 5): остаток хлеба к этой минуте, расход
  * окна с пайком или без. Та же арифметика, что пересчёт часов голода при приказе, — окно говорит игроку пользу до нажатия.
  */
 export function starvesIfRation(w: SiegeWindow, at: number, on: boolean): number {
-  const left = Math.max(0, w.foodAtStart - (consumptionPerHour(w) * Math.max(0, at - w.startedAt)) / HOUR);
-  return at + (left / consumptionPerHour({ ...w, ration: on })) * HOUR;
+  return at + (foodLeft(w, at) / consumptionPerHour({ ...w, ration: on })) * HOUR;
 }
 
 /** Путь износа гарнизона до дна — от начала осады до голода этого окна, мс (docs/siege_v2.md, 2.6). */
@@ -259,6 +288,9 @@ export function openSiege(at: {
   lead?: number;
   /** Переговоры той же осады (`world/parley`): переносятся при пересчёте. */
   offers?: SiegeOffer[];
+  /** Требушет на стене и постройки под обстрелом той же осады (Р-5): переносятся при пересчёте. */
+  guns?: MachineOrder[];
+  targets?: string[];
 }): SiegeWindow {
   return {
     byId: at.byId,
@@ -284,6 +316,8 @@ export function openSiege(at: {
     ...(at.machines?.length ? { machines: at.machines.map((m) => ({ ...m })) } : {}),
     ...(at.lead ? { lead: Math.max(0, Math.floor(at.lead)) } : {}),
     ...(at.offers?.length ? { offers: at.offers.map((o) => ({ ...o })) } : {}),
+    ...(at.guns?.length ? { guns: at.guns.map((g) => ({ ...g })) } : {}),
+    ...(at.targets?.length ? { targets: [...at.targets] } : {}),
     foodAtStart: Math.max(0, at.food),
     garrisonAtStart: Math.max(0, Math.round(at.garrison)),
     townPerHour: Math.max(0, at.townPerHour),

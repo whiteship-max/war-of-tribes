@@ -10,12 +10,12 @@ import { palisadeRing, timberTower } from './palisade';
 import { ownerCode, siteOf, wallSites, type Site } from './sites';
 import { millWheel, yard, yardHalls } from './outskirts';
 import { house, houseStoop } from './kit';
-import { cityWall, tower } from './forts';
+import { cityWall, tower, twinFlag } from './forts';
 import { civic, civicStoop, fireBowl, marketProps, stall, statue, well } from './civic';
 import { churchSquare, parvis } from './precinct';
 import { placeTrees, treeModel, type Species } from './nature';
 import { LAYERS } from './tex';
-import { CITY_SPEC, FEAST_LOG_TRIS, GATE_GUARDS, LIFE_CAP, LIFE_TRIS, PATROL, SHORE_CAP, figureTris, peopleTris, shoreTris } from './spec';
+import { CITY_SPEC, FEAST_LOG_TRIS, GATE_GUARDS, KEEP_BEATS, LIFE_CAP, LIFE_TRIS, PATROL, SHORE_CAP, figureTris, peopleTris, shoreTris } from './spec';
 import { shoreItems, waterTriangles } from './banks';
 import { fixture, forge, lanternPost, mounted, standing, streetLamps } from './lamps';
 import { pooled, type Lamp, type LampKind } from '../glow/lamps';
@@ -113,14 +113,14 @@ export function buildStatic(plan: CityPlan, q: Quality, opts?: StaticOpts): Stat
     // Башни кольца частокола — срубы; башни замка (за рвом) — камень.
     const timber = wood && t.z > MOAT_Z[1];
     let pts: V3[] = [];
-    own(towerOwner(t.kind), t.x, t.z, Math.cos(t.out), Math.sin(t.out), () => (pts = timber ? timberTower(b, t, td) : tower(b, t, td)));
+    own(towerOwner(t.kind), t.x, t.z, Math.cos(t.out), Math.sin(t.out), () => (pts = timber ? timberTower(b, t, td) : tower(b, t, td, plan.towers)));
     // Дозор — фонарь под шатром; прочие башни — факелы на стене.
     if (t.kind === 'watch' && !timber) lamps.push(...pts.map((p) => standing(p, 'lantern')));
     // У ворот земля под факелом — пол проезда (мост над рвом), а не рельеф.
     else lit(pts, 'torch', t.kind === 'gate' || t.kind === 'castleGate' ? (t.floor ?? t.base) : undefined);
-    // Флаг — над верхом башни, посередине (`life.ts`).
+    // Флаг — над верхом башни, посередине (`life.ts`); у двойной надвратной — на шпилях барабанов.
     const s = sites[sites.length - 1];
-    flagTops.push([t.x, s.y1, t.z]);
+    flagTops.push((!timber && twinFlag(t, plan.towers, td)) || [t.x, s.y1, t.z]);
   }
   const forts = b.mark().t;
   for (const c of plan.civic) {
@@ -244,7 +244,7 @@ export function cityCounts(q: Quality, plan: CityPlan = cityPlan()): CityCounts 
   const ft = figureTris(q);
   const life =
     peopleTris(q, cap.people) +
-    cap.guards * ft.archer +
+    (cap.guards + KEEP_BEATS) * ft.archer +
     (gates * GATE_GUARDS + PATROL[q]) * ft.guard +
     FEAST_LOG_TRIS +
     cap.animals * ft.beast +

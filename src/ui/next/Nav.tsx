@@ -2,7 +2,7 @@ import { useGame } from '@/game/store';
 import { buildingAttention, buildingOfType, idleCount, isSite } from '@/game/derived';
 import { useWorld } from '@/world/store';
 import { Icon } from '@/ui/icons/Icon';
-import { mailKeys, unreadCount, useSeen } from '@/ui/realm/unread';
+import { mailKeys, unreadCount, useSeen, rivalKeys } from '@/ui/realm/unread';
 import { useRealm } from '@/ui/realm/open';
 import { useAlertItems } from '@/ui/alertItems';
 import { useChambers } from '@/ui/chambers/open';
@@ -38,12 +38,14 @@ function CityNav() {
   const show = useRealm((r) => r.show);
   const hide = useRealm((r) => r.hide);
   const letters = useWorld((w) => w.letters);
+  const rivals = useWorld((w) => w.rivals);
   const seen = useSeen((u) => u.seen);
   const alerts = useAlertItems();
   const unread = unreadCount(
     mailKeys(
       s.inbox,
       letters.map((l) => l.id),
+      rivalKeys(rivals, true),
     ),
     seen,
   );

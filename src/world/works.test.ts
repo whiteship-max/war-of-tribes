@@ -372,7 +372,10 @@ describe('укрепления лагеря: бой, голод и то, что 
       const after = await world.sync(holdout);
       const effect = after.effects.find((e) => e.text.includes('Осада'));
       expect(effect?.lostTroops).toEqual({ spearman: 15, archer: 10, legionary: 20 });
-      expect(effect?.resources).toEqual({ food: -600, wood: -400 });
+      // Р-5 (docs/siege_v2.md, 21.1): хлеб осаждённого города — хлеб окна, и к голоду его нет: в обоз уходит прочее добро,
+      // а хлеб склада списан осадой (`starved`). До Р-5 здесь было `{ food: -600, wood: -400 }` — обоз увозил съеденное.
+      expect(effect?.resources).toEqual({ wood: -400 });
+      expect(effect?.starved).toBe(true);
     }
   }, 120_000);
 

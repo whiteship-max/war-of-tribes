@@ -6,6 +6,7 @@
 import type { GameState } from '@/game/types';
 import { RESOURCE_IDS } from '@/game/constants';
 import { gameDaysPerHour, gameSecondsOfMs } from '@/game/pace';
+import { breadCap } from '@/game/sim/siege';
 import {
   bondedTotal,
   buildingOfType,
@@ -294,11 +295,21 @@ export function syncSiege(s: GameState, view: SiegeView | null, now: number): bo
   // Срок голода мир называет настоящими миллисекундами, догон племени идёт игровыми секундами.
   const until = s.time + gameSecondsOfMs(Math.max(0, view.starvesAt - now));
   const ration = Boolean(view.ration);
+  // Кольцо блокады и постройки под обстрелом (Р-5): решает мир, племя только живёт по ним.
+  const ring = Boolean(view.blockade?.on);
+  const idle = [...(view.idle ?? [])].sort();
+  // Хлеб осаждённого города — хлеб окна (docs/siege_v2.md, 21.1): склад не держит больше его остатка.
+  const capped = view.bread !== undefined && breadCap(s, view.bread);
   const same =
-    s.siege !== null && s.siege.byName === view.byName && Math.abs(s.siege.until - until) < 1 && Boolean(s.siege.ration) === ration;
-  if (same) return false;
+    s.siege !== null &&
+    s.siege.byName === view.byName &&
+    Math.abs(s.siege.until - until) < 1 &&
+    Boolean(s.siege.ration) === ration &&
+    Boolean(s.siege.blockade) === ring &&
+    (s.siege.idle ?? []).join() === idle.join();
+  if (same) return capped;
   // Осадный паёк — решение, лежащее в окне осады мира; племя ест по нему (`derived.siegeRation`).
-  s.siege = { byName: view.byName, until, ...(ration ? { ration: true as const } : {}) };
+  s.siege = { byName: view.byName, until, ...(ration ? { ration: true as const } : {}), ...(ring ? { blockade: true as const } : {}), ...(idle.length ? { idle } : {}) };
   return true;
 }
 
@@ -342,6 +353,8 @@ export function toOutcome(e: HomeEffect): ExpeditionOutcome {
     // участи, племя только снимает.
     popLost: e.popLost ?? 0,
     burned: e.burned ?? false,
+    // Взят голодом — хлеб съеден: остаток склада уходит той же дверью последствия (docs/siege_v2.md, 21.1).
+    starved: e.starved ?? false,
     // Какие постройки взятого города теряют уровень: список выбран в минуту
     // события, племя его только применяет.
     fallen: e.fallen,

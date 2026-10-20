@@ -36,6 +36,9 @@ export function Barracks() {
 
   return (
     <>
+      {/* Найм — главное дело здания и потому первым (Р-3, docs/ui_v2.md): здесь пеших, конницу — в конюшне (`army.hiredAt`). */}
+      <Recruit at="barracks" />
+
       <h3>Дружина</h3>
       <Row
         icon={'hud-army'}
@@ -57,9 +60,6 @@ export function Barracks() {
       )}
 
       <Upkeep />
-
-      {/* Найм — часть здания: здесь пеших, конницу — в конюшне (`army.hiredAt`). */}
-      <Recruit at="barracks" />
 
       {armySize(s) > 0 && (
         <>

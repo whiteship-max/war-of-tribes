@@ -582,6 +582,12 @@
   -webkit-tap-highlight-color: transparent;
 }
 
+.ch-ball:disabled {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  cursor: default;
+}
+
 .ch-drink {
   background: linear-gradient(#9a3a34, #6a2220);
   color: #fbe6d4;

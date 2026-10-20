@@ -32,6 +32,8 @@ export type EpisodeKind =
   | 'repair'
   | 'breach'
   | 'volley'
+  | 'shelling'
+  | 'ring'
   | 'plague'
   | 'short'
   | 'sortie'
@@ -56,6 +58,8 @@ export const EPISODE_SECONDS: Record<EpisodeKind, number> = {
   repair: 4,
   breach: 7,
   volley: 4.5,
+  shelling: 5,
+  ring: 5.5,
   plague: 5,
   short: 4,
   sortie: 8,
@@ -78,6 +82,9 @@ export const LAPSE = 1.8;
 /** Нехватка в городе и залп без пролома — не больше стольких эпизодов: дальше они идут временем между эпизодами. */
 const SHORT_SHOWN = 2;
 const VOLLEY_SHOWN = 2;
+/** Обстрел города и требушета на стене, замыкание кольца (Р-5) — не больше стольких эпизодов: дальше — журнал фаз. */
+const SHELL_SHOWN = 2;
+const RING_SHOWN = 2;
 
 /** Развязка — эпизоды, которыми осада кончается. */
 export const FINALES: readonly EpisodeKind[] = ['gates', 'terms', 'hunger', 'storm', 'broken', 'wasted', 'paid', 'ransom', 'left'];
@@ -217,8 +224,8 @@ interface Ctx {
   alive: Uint8Array;
   machines: ReelMachine[];
   engines: TwEngine[];
-  /** Номер машины-двигателя в `engines` по роду: камнемёт лагеря, требушет обстрела, орудие города. */
-  engineOf: Partial<Record<'mangonel' | 'trebuchet' | 'gun', number>>;
+  /** Номер машины-двигателя в `engines` по роду: камнемёт лагеря, требушет лагеря, орудие башни, требушет на стене (Р-5). */
+  engineOf: Partial<Record<'mangonel' | 'trebuchet' | 'gun' | 'wallgun', number>>;
   stones: TwStone[];
   smoke: TwSmoke[];
   bursts: NonNullable<TwBarrage['bursts']>;
@@ -743,6 +750,7 @@ function machines(c: Ctx, t0: number, len: number, ids: ShowMachine[]): void {
     if (!m) continue;
     m.from = Math.min(m.from, t0 + 0.8);
     if (id === 'mangonel' && c.engineOf.mangonel !== undefined) c.engines[c.engineOf.mangonel].from = m.from;
+    if (id === 'trebuchet' && c.engineOf.trebuchet !== undefined) c.engines[c.engineOf.trebuchet].from = Math.min(c.engines[c.engineOf.trebuchet].from ?? Infinity, m.from);
     xs.push(m.x);
     zs.push(m.z);
     // Расчёт подходит к машине и берётся за работу.
@@ -760,12 +768,93 @@ function machines(c: Ctx, t0: number, len: number, ids: ShowMachine[]): void {
   key(c, t0 + 2.6, box(mx - 16, mx + 16, Math.min(...zs) - 3, 2), 0.25, 0.36);
 }
 
-/** Чем бьют в эту фазу: камнемёт лагеря, требушет обстрела (залп). */
+/** Чем бьют по стенам в эту фазу: камнемёт и требушет лагеря (Р-5), требушет обстрела (залп). */
 function shooters(c: Ctx, p: ShowPhase): number[] {
   const out: number[] = [];
-  if (p.volley && c.engineOf.trebuchet !== undefined) out.push(c.engineOf.trebuchet);
+  if ((p.volley || p.trebuchet) && c.engineOf.trebuchet !== undefined) out.push(c.engineOf.trebuchet);
   if (p.mangonel && c.engineOf.mangonel !== undefined) out.push(c.engineOf.mangonel);
   return out;
+}
+
+/** Машины лагеря, стоящие к секунде `t`, — те, что бьют по городу (Р-5): камнемёт и требушет. */
+function artilleryOf(c: Ctx, t: number): number[] {
+  return (['trebuchet', 'mangonel'] as const)
+    .map((id) => c.engineOf[id])
+    .filter((e): e is number => e !== undefined && (c.engines[e].from ?? 0) <= t && (c.engines[e].gone ?? Infinity) > t);
+}
+
+/**
+ * Обстрел за фазу (Р-5, `world/shelling`): артиллерия лагеря — по крышам города, попадание дымит дом, промах ложится у
+ * стены; требушет на стене — по лагерю, попадание поджигает шатёр. Сколько выстрелов и попаданий — из журнала фазы.
+ */
+function shellingEp(c: Ctx, t0: number, len: number, p: ShowPhase): void {
+  const w = c.lay.wall;
+  if (!w) return;
+  const guns = artilleryOf(c, t0);
+  const houses = c.lay.site.houses;
+  for (let i = 0; i < p.shots && guns.length > 0 && houses.length > 0; i++) {
+    const e = guns[i % guns.length];
+    const at = t0 + 0.6 + i * 0.7;
+    if (i < p.hits) {
+      const h = houses[(c.seed + p.k * 5 + i * 7) % houses.length];
+      const s = throwStone(c, e, at, h.x, roofOf(c, h) + 0.2, h.z, 'over', -1);
+      smokeAt(c, h.x, h.z, s.at + s.flight, 0.9, s.at + s.flight + 16, roofOf(c, h) + 0.6);
+    } else {
+      throwStone(c, e, at, -10 + i * 9, heightAt(c.lay.field, -10 + i * 9, w.z - 3) + 0.1, w.z - 3, 'short', -1);
+    }
+  }
+  // Требушет на стене: сначала разбитые им машины (их не стало в эту фазу), потом шатры лагеря, потом промахи.
+  const gun = c.engineOf.wallgun;
+  const tents = c.lay.camp.tents;
+  const broke = p.broke ?? [];
+  for (let i = 0; i < p.gunShots && gun !== undefined; i++) {
+    const at = t0 + 1.2 + i * 0.8;
+    const m = i < broke.length ? c.machines.find((x) => x.id === broke[i]) : undefined;
+    if (m) {
+      const s = throwStone(c, gun, at, m.x, heightAt(c.lay.field, m.x, m.z) + 1.2, m.z, 'hut', -1);
+      m.gone = Math.min(m.gone, s.at + s.flight);
+      if (m.id === 'mangonel' && c.engineOf.mangonel !== undefined) c.engines[c.engineOf.mangonel].gone = m.gone;
+      if (m.id === 'trebuchet' && c.engineOf.trebuchet !== undefined) c.engines[c.engineOf.trebuchet].gone = m.gone;
+      c.bursts.push({ x: m.x, y: heightAt(c.lay.field, m.x, m.z) + 0.6, z: m.z, at: m.gone, size: 3 });
+      smokeAt(c, m.x, m.z, m.gone, 1, m.gone + 14);
+      continue;
+    }
+    if (tents.length === 0) break;
+    const tent = tents[(c.seed + p.k * 3 + i * 11) % tents.length];
+    const hit = i < p.gunHits;
+    const s = throwStone(c, gun, at, tent.x, hit ? tentFire(c, tent) : heightAt(c.lay.field, tent.x, tent.z + 6) + 0.1, hit ? tent.z : tent.z + 6, hit ? 'hut' : 'short', -1);
+    if (hit) smokeAt(c, tent.x, tent.z, s.at + s.flight, 0.8, s.at + s.flight + 12, tentFire(c, tent));
+  }
+  // Сначала машины лагеря, потом крыши города; требушет на стене — над стеной в сторону лагеря.
+  if (guns.length > 0) {
+    const eng = c.engines[guns[0]];
+    key(c, t0, box(eng.x - 12, eng.x + 12, eng.z - 6, eng.z + 10), 0.42, 0.3);
+    key(c, t0 + 2.2, box(-14, 14, 4, 30), 0.25, 0.5);
+  } else key(c, t0, box(-14, 14, -40, 6), Math.PI + 0.25, 0.42);
+  if (p.gunShots > 0 && gun !== undefined) key(c, t0 + len - 2, box(-18, 18, -42, -18), 0.3, 0.38);
+}
+
+/** Где стоят посты кольца блокады: четыре по фронту стены, между лагерем и городом (Р-5, `BLOCKADE_POSTS`). */
+const POSTS = [-0.82, -0.28, 0.28, 0.82];
+
+/** Кольцо замкнуто (Р-5): от лагеря выходят посты и встают по фронту стены лицом к городу, перекрывая ворота и подвоз. */
+function ringEp(c: Ctx, t0: number, len: number): void {
+  const w = c.lay.wall;
+  if (!w) return;
+  const pool = c.groups.camp.filter((i) => c.alive[i] && c.tr.standing(i, t0));
+  const per = Math.max(1, Math.min(6, Math.floor(pool.length / (POSTS.length * 2))));
+  POSTS.forEach((f, j) => {
+    const px = f * w.halfX;
+    // Посередине между стеной и рогатками: видно и со стены, и с поля.
+    const pz = (w.z + STAKES_Z) / 2 - (j % 2) * 2;
+    for (const [n, i] of nearest(c, pool, px, pz, per, t0).entries()) {
+      c.tr.go(i, t0 + 0.3 + n * 0.15, t0 + 2.4 + n * 0.15, px + (n - (per - 1) / 2) * 1.2, pz, 'march', 'guard', FACE_IN);
+      goHome(c, i, t0 + len - 0.9, t0 + len + LAPSE * 0.6);
+    }
+  });
+  // С поля, из-за лагеря: посты — перед стеной, город — за ними.
+  key(c, t0, box(-w.halfX, w.halfX, -30, 6), Math.PI + 0.2, 0.5);
+  key(c, t0 + 2.6, box(-w.halfX * 0.6, w.halfX * 0.6, -16, 4), Math.PI - 0.25, 0.36);
 }
 
 function breachEp(c: Ctx, t0: number, len: number, p: ShowPhase, before: number): number {
@@ -1242,6 +1331,8 @@ function planOf(show: SiegeShow): Episode[] {
   if (show.fire > 0 && show.tower > 0 && show.wall > 0) eps.push({ kind: 'fire', k: 0, at: 0, len: EPISODE_SECONDS.fire, solar: show.solar0 });
   let shortN = 0;
   let volleyN = 0;
+  let shellN = 0;
+  let ringN = 0;
   const readyShown = new Set<ShowMachine>();
   const machinesAt = (k: number): ShowMachine[] =>
     show.machines.filter((m) => m.ready !== null && m.ready <= k && !readyShown.has(m.id) && (m.burned === null || m.burned >= k)).map((m) => m.id);
@@ -1259,6 +1350,11 @@ function planOf(show: SiegeShow): Episode[] {
     }
     const p = show.phases[k - 1];
     if (!p) continue;
+    // Кольцо замкнулось к этому броску (Р-5): посты встают раньше, чем ложится кость.
+    if (p.ring && !show.phases[k - 2]?.ring && ringN < RING_SHOWN && show.wall > 0) {
+      ringN++;
+      eps.push({ kind: 'ring', k, at: 0, len: EPISODE_SECONDS.ring, solar: p.solar });
+    }
     if (p.repaired > 0 && show.wall > 0) eps.push({ kind: 'repair', k, at: 0, len: EPISODE_SECONDS.repair, solar: p.solar });
     if (p.out === 'breach') {
       if (show.wall > 0) eps.push({ kind: 'breach', k, at: 0, len: EPISODE_SECONDS.breach, solar: p.solar });
@@ -1266,9 +1362,14 @@ function planOf(show: SiegeShow): Episode[] {
     else if (p.out === 'short' && shortN < SHORT_SHOWN && show.wall > 0) {
       shortN++;
       eps.push({ kind: 'short', k, at: 0, len: EPISODE_SECONDS.short, solar: p.solar });
-    } else if ((p.volley || p.mangonel) && p.out !== 'gates' && volleyN < VOLLEY_SHOWN && show.wall > 0) {
+    } else if ((p.volley || p.mangonel || p.trebuchet) && p.out !== 'gates' && volleyN < VOLLEY_SHOWN && show.wall > 0) {
       volleyN++;
       eps.push({ kind: 'volley', k, at: 0, len: EPISODE_SECONDS.volley, solar: p.solar });
+    }
+    // Обстрел города и требушет на стене (Р-5) — своим эпизодом, если в фазе было попадание.
+    if ((p.hits > 0 || p.gunHits > 0) && p.out !== 'gates' && shellN < SHELL_SHOWN && show.wall > 0) {
+      shellN++;
+      eps.push({ kind: 'shelling', k, at: 0, len: EPISODE_SECONDS.shelling, solar: p.solar });
     }
   }
   const how = show.end.how;
@@ -1338,8 +1439,12 @@ export function siegeReel(show: SiegeShow, quality: Quality, houses: readonly Tw
     return c.engines.length - 1;
   };
   if (c.machines.some((m) => m.id === 'mangonel')) c.engineOf.mangonel = engine('mangonel', lay.spots.mangonel.x, lay.spots.mangonel.z, aim, 0, Infinity);
-  if (show.phases.some((p) => p.volley)) c.engineOf.trebuchet = engine('trebuchet', lay.spots.trebuchet.x, lay.spots.trebuchet.z, aim, 0);
+  // Требушет лагеря (Р-5) стоит на месте требушета обстрела: с готовности — машиной лагеря, без неё — залпом.
+  if (show.phases.some((p) => p.volley) || c.machines.some((m) => m.id === 'trebuchet'))
+    c.engineOf.trebuchet = engine('trebuchet', lay.spots.trebuchet.x, lay.spots.trebuchet.z, aim, 0, show.phases.some((p) => p.volley) ? undefined : Infinity);
   if (show.tower > 0 && show.fire > 0 && lay.wall) c.engineOf.gun = engine('mangonel', lay.spots.gun.x, lay.spots.gun.z, 0, -40);
+  // Требушет на стене (Р-5): на дворе за стеной, против орудия башни, бьёт через стену по лагерю.
+  if (show.phases.some((p) => p.gunShots > 0) && lay.wall) c.engineOf.wallgun = engine('trebuchet', -lay.spots.gun.x, lay.spots.gun.z, 0, -40);
   if (lay.wall) {
     if (c.machines.some((m) => m.id === 'ram')) c.ram = { unit: 0, x: lay.wall.gateX, hits: [] };
     if (c.machines.some((m) => m.id === 'tower')) c.tower = { unit: 0, x: lay.spots.tower.x, at: Infinity };
@@ -1409,6 +1514,13 @@ export function siegeReel(show: SiegeShow, quality: Quality, houses: readonly Tw
       case 'volley':
         volleyEp(c, t, p!);
         phaseAt[ep.k - 1] = t + ep.len - 0.5;
+        break;
+      case 'shelling':
+        shellingEp(c, t, ep.len, p!);
+        if (Number.isNaN(phaseAt[ep.k - 1])) phaseAt[ep.k - 1] = t + ep.len - 0.5;
+        break;
+      case 'ring':
+        ringEp(c, t, ep.len);
         break;
       case 'plague':
         plague(c, t, ep.len, p!);

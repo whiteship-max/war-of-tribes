@@ -12,6 +12,7 @@ export const LIFE_MIX: Record<LifeCue, number> = {
   stepFolk: 0.2,
   stepFolkSoft: 0.075,
   catStep: 0.05,
+  catLeap: 0.07,
   catLand: 0.12,
   meow: 0.12,
   pour: 0.1,
@@ -223,6 +224,12 @@ export function playLifeCue(ctx: BaseAudioContext, out: AudioNode, cue: LifeCue,
     case 'catStep':
       burst(ctx, g, at, 'bandpass', 1300 + r() * 600, 1.2, 0.7, 0.008, 0.05, r());
       len = 0.2;
+      break;
+    case 'catLeap':
+      // Толчок кота (Р-1): когти скребнули по камню и мягкий выдох лап — тише приземления.
+      burst(ctx, g, at, 'highpass', 3200 + r() * 600, 0.9, 0.35, 0.004, 0.045, r());
+      burst(ctx, g, at + 0.012, 'lowpass', 300, 0.8, 0.6, 0.005, 0.07, r());
+      len = 0.3;
       break;
     case 'catLand':
       burst(ctx, g, at, 'lowpass', 220, 0.8, 1.0, 0.006, 0.12, r());

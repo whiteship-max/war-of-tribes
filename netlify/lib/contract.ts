@@ -14,6 +14,7 @@
  * знать про день и население — и знает это клиент, который опись и складывает.
  */
 import { readArms } from '../../src/heraldry/arms.js';
+import type { ProposalAct, ProposalView } from '../../src/world/proposals.js';
 
 /** Краткая опись партии — на случай, когда игрок выбирает между двумя. */
 export interface SaveCard {
@@ -388,6 +389,9 @@ export type NoticePhase = (typeof NOTICE_PHASES)[number];
 
 /** Участь, объявленная городу, — теми же именами, что `Fate` мира. */
 export const NOTICE_FATES = ['plunder', 'captives', 'burn'] as const;
+
+/** Что с союзом в вести `war-pact` (ДП-1): предложили, приняли, отклонили, срок вышел, отозвали, разорвали. */
+export const NOTICE_PACTS = ['offer', 'made', 'no', 'expired', 'withdrawn', 'broken'] as const;
 export type NoticeFate = (typeof NOTICE_FATES)[number];
 
 /**
@@ -432,8 +436,23 @@ export interface NoticeFacts {
   machine?: WarMachine;
   /** Город союзника, пришедшего на выручку (`war-fight` выручки, `war-relief` осаждённому). Строка до `NOTICE_LIMITS.name`. */
   ally?: string;
-  /** Пакт (`war-pact`, 19.2): получателю предложили пакт или его предложение приняли. */
-  pact?: 'offer' | 'made';
+  /**
+   * Кольцо блокады (Р-5, docs/siege_v2.md, 21): у `war-phase` — замкнули (`on`) или разомкнули (`off`), у `war-fight` — бой
+   * вылазки на пост кольца (`off`: победа его размыкает). Нет — не о кольце. Старый сервер поле отбросит.
+   */
+  ring?: 'on' | 'off';
+  /** Обстрел за фазу (`war-phase`, Р-5): сколько построек осаждённого потеряли уровень. */
+  lost?: number;
+  /** Обстрел за фазу (`war-phase`, Р-5): осаждающему — сколько машин лагеря разбил требушет со стены; осаждённому — разбит ли его требушет (1). */
+  broke?: number;
+  /**
+   * Пакт (`war-pact`, 19.2; ДП-1): получателю предложили союз (`offer`), его предложение приняли (`made`) или отклонили
+   * (`no`), срок вышел (`expired`; `role: 'atk'` — предлагал получатель), предложение отозвали (`withdrawn`), союз разорвали
+   * (`broken`). Старый сервер шлёт только первые два.
+   */
+  pact?: (typeof NOTICE_PACTS)[number];
+  /** Номер предложения (`ProposalView.id`): кнопка «Открыть игру» под вестью ведёт прямо к нему (ДП-1). */
+  deal?: string;
   /** Выручка союзника (`war-relief`, 19.2): идёт (осаждённому), бой был (союзнику), не пробилась через рогатки (обоим). */
   relief?: 'going' | 'fight' | 'turned';
   /** Стройка (`build`): какая постройка (`BuildingTypeId`) и до какого уровня дошла. */
@@ -578,6 +597,8 @@ export function readNotices(v: unknown, now: number, kinds: readonly NoticeKind[
       if (machine) facts.machine = machine;
       const ally = str(p.ally, NOTICE_LIMITS.name);
       if (ally && PLAIN.test(ally)) facts.ally = ally;
+      const ring = oneOf(['on', 'off'] as const, p.ring);
+      if (ring) facts.ring = ring;
     }
     // Переговоры: какое предложение и чем кончилось. Без них своя запись сервера, перечитанная из хранилища, говорила бы о
     // любом предложении «дань» и теряла бы отказ и взятую дань (docs/siege_v2.md, 19.2).
@@ -589,9 +610,11 @@ export function readNotices(v: unknown, now: number, kinds: readonly NoticeKind[
       if (answer) facts.answer = answer;
     }
     if (kind === 'war-pact') {
-      const pact = oneOf(['offer', 'made'] as const, p.pact);
+      const pact = oneOf(NOTICE_PACTS, p.pact);
       if (!pact) return null;
       facts.pact = pact;
+      const deal = str(p.deal, 64);
+      if (deal && /^[\w.-]+$/.test(deal)) facts.deal = deal;
     }
     if (kind === 'war-relief') {
       const relief = oneOf(['going', 'fight', 'turned'] as const, p.relief);
@@ -609,6 +632,11 @@ export function readNotices(v: unknown, now: number, kinds: readonly NoticeKind[
       if (breaches !== null) facts.breaches = Math.min(3, Math.max(0, Math.floor(breaches)));
       const order = oneOf(WAR_ORDER_IDS, p.order);
       if (order) facts.order = order;
+      // Обстрел за фазу (Р-5): числа малые — машин и построек у города немного.
+      const lost = num(p.lost);
+      if (lost !== null && lost >= 1 && lost <= 99) facts.lost = Math.floor(lost);
+      const broke = num(p.broke);
+      if (broke !== null && broke >= 1 && broke <= 9) facts.broke = Math.floor(broke);
     }
     if (kind.endsWith('-fall') && p.gates === true) facts.gates = true;
     if (kind === 'raid-fight' && p.field === true) facts.field = true;
@@ -853,10 +881,24 @@ export type WarPhaseOut = (typeof WAR_PHASE_OUTS)[number];
 export interface WarPhaseRow {
   at: number;
   die: number;
-  mods: Partial<Record<'breach' | 'volley' | 'machine' | 'general' | 'hunger' | 'progress' | 'wall', number>>;
+  mods: Partial<Record<'breach' | 'volley' | 'machine' | 'general' | 'hunger' | 'blockade' | 'progress' | 'wall', number>>;
   out: WarPhaseOut;
   waste: number;
   orders?: WarOrderId[];
+  /** Выстрелы фазы (Р-5, `world/siegeroll.Shot`): артиллерия лагеря и требушет на стене. Нет — не стреляли. */
+  shots?: WarShot[];
+  gun?: WarShot[];
+}
+
+/** Выстрел фазы (`world/siegeroll.Shot`): чья машина, попала ли и во что. */
+export interface WarShot {
+  by: 'mangonel' | 'trebuchet' | 'gun';
+  hit: boolean;
+  building?: string;
+  lost?: true;
+  gun?: true;
+  camp?: true;
+  machine?: WarMachine;
 }
 
 /** Наказ, сработавший в минуту фазы (`world/siegeroll.OrderId`; тест сверяет). */
@@ -931,6 +973,8 @@ export interface WarBattle {
   openings?: { id: 'breach' | 'gate' | 'tower' | 'ladders' | 'scaling'; share: number; faces: number; round: number; horse: boolean }[];
   /** Вылазка на машину лагеря (docs/siege_v2.md, раздел 5): на какую. Победа её сожгла. Нет — бой не за машину. */
   burn?: WarMachine;
+  /** Вылазка на пост кольца блокады (Р-5): победа размыкает кольцо. Нет — бой не за кольцо. */
+  breakout?: true;
   /**
    * Выручка: по лагерю ударил сосед-союзник осаждённого (замок), его дружина — `genTroops`/`genLost`. Нет поля — бил сам
    * город. Свою дружину город с этого боя не списывает — списывает союзник.
@@ -981,14 +1025,21 @@ export interface WarCamp {
   /** Ход осады фазами (`world/siegeroll`, docs/siege_v2.md, раздел 2): уровень частокола, дни пути лагеря от дома. */
   wall?: number;
   homeDays?: number;
-  /** Журнал дел с минутой — залпы и починки (`SiegeWindow.log`). Нет поля — лагерь до фаз. */
-  log?: { at: number; act: 'volley' | 'repair' }[];
+  /**
+   * Журнал дел с минутой (`SiegeWindow.log`): залпы и починки; с Р-5 — цель артиллерии лагеря и требушета на стене, кольцо
+   * блокады (`world/shelling`, `world/blockade`). Нет поля — лагерь до фаз.
+   */
+  log?: { at: number; act: 'volley' | 'repair' | 'aim' | 'gunAim' | 'blockade'; aim?: WarAim | WarGunAim; on?: boolean; why?: 'order' | 'ratio' | 'sortie' | 'relief' }[];
   /** Брошенные фазы (`SiegeWindow.phases`). */
   phases?: WarPhaseRow[];
   /** Наказы осаждающего (`SiegeWindow.orders`). */
   orders?: WarOrders;
   /** Осадные машины лагеря — очередь заказов (`SiegeWindow.machines`, `world/machines`). Нет поля — не заказывали. */
-  machines?: { id: WarMachine; at: number; spent?: number; burned?: true }[];
+  machines?: { id: WarMachine; at: number; spent?: number; burned?: true; broke?: true }[];
+  /** Требушет на стене осаждённого (`SiegeWindow.guns`, Р-5). Нет поля — не ставили. */
+  guns?: { id: WarMachine; at: number; spent?: number; burned?: true; broke?: true }[];
+  /** Постройки города под обстрелом «по городу» (`SiegeWindow.targets`, Р-5): заморожены при постановке лагеря. */
+  targets?: string[];
   /** Обстрел лагеря с башни города (`SiegeWindow.fire`, `world/bombard`). Нет поля — башня не бьёт. */
   fire?: { slow: number; thin: number; at: number; base: number };
   /** Осадный паёк осаждённого (`SiegeWindow.ration`). Нет поля — обычный. */
@@ -1026,8 +1077,13 @@ export interface WarTribute {
 }
 
 /** Осадные машины (`world/data/machines.MACHINE_IDS`; тест сверяет). */
-export const WAR_MACHINES = ['ladders', 'ram', 'tower', 'mangonel'] as const;
+export const WAR_MACHINES = ['ladders', 'ram', 'tower', 'mangonel', 'trebuchet'] as const;
 export type WarMachine = (typeof WAR_MACHINES)[number];
+/** Цели артиллерии лагеря и требушета на стене (`world/data/shelling.AIMS`, `GUN_AIMS`; тест сверяет). */
+export const WAR_AIMS = ['wall', 'town', 'engines'] as const;
+export type WarAim = (typeof WAR_AIMS)[number];
+export const WAR_GUN_AIMS = ['camp', 'machines'] as const;
+export type WarGunAim = (typeof WAR_GUN_AIMS)[number];
 /** Доли древесины машинам (`world/data/machines.MACHINE_SHARES`; тест сверяет). */
 export const WAR_MACHINE_SHARES: readonly number[] = [0, 0.25, 0.5, 0.75, 1];
 
@@ -1075,6 +1131,8 @@ export interface WarView {
    * лёг раньше выхода (`war.liveSheet`, docs/retinue.md). Нет — война старше поля, берётся нынешнее войско.
    */
   went?: Counts;
+  /** Поход «Блокада» (Р-5): в минуту постановки лагерь замыкает кольцо, если мощи вчетверо. Нет — обычная осада. */
+  ring?: true;
   camp?: WarCamp;
   /** Журнал фаз снятой осады (`WarCamp.phases`, переносится при снятии лагеря). Нет поля — осады не было или она идёт. */
   phases?: WarPhaseRow[];
@@ -1137,6 +1195,11 @@ export interface WarResponse {
   wars: WarView[];
   /** Пакты и предложения пакта спросившего (docs/siege_v2.md, раздел 5: выручка). Нет — ни одного. */
   pacts?: WarPact[];
+  /**
+   * Предложения спросившего (ДП-1): ждущие ответа — свои и ему, и закрытые за последние дни — с итогом. Нет — ни одного.
+   * Старый сервер поля не шлёт: «Вести» тогда предложений не показывают.
+   */
+  proposals?: ProposalView[];
   /** Темп войны (`TRIBE_WAR_PACE`): во сколько раз быстрее походы и голод. Нет — 1. */
   pace?: number;
   error?: string;
@@ -1238,7 +1301,8 @@ export const spySeenId = (id: string): string => `${id}.spy`;
  * участью — штурмовать с ней. Нет поля участи у штурма — та, что объявлена (старый клиент шлёт так).
  */
 export type WarOrder =
-  | { op: 'march'; target: string; mode: WarMode; fate: NoticeFate; army: WarArmy }
+  // `blockade` — поход «Блокада» из «Походов» (Р-5): дойдёт, встанет лагерем и замкнёт кольцо, если хватит мощи.
+  | { op: 'march'; target: string; mode: WarMode; fate: NoticeFate; army: WarArmy; blockade?: true }
   | { op: 'recall'; id: string }
   | { op: 'storm'; id: string; fate?: NoticeFate; machines?: WarMachine[] }
   | { op: 'wood'; id: string; machines: number }
@@ -1253,12 +1317,20 @@ export type WarOrder =
   | { op: 'ration'; id: string; on: boolean }
   | { op: 'defend'; id: string; defend: WarDefend }
   | { op: 'sally'; id: string; machine: WarMachine; troops: Counts }
+  // Р-5 (docs/siege_v2.md, 21.1): цель артиллерии лагеря (осаждающий: стены, город, машины) или требушета на стене
+  // (осаждённый: лагерь, машины) — сторону решает сервер по тому, кто шлёт; кольцо блокады; вылазка на пост кольца.
+  | { op: 'aim'; id: string; aim: WarAim | WarGunAim }
+  | { op: 'blockade'; id: string; on: boolean }
+  | { op: 'breakout'; id: string; troops: Counts }
   | { op: 'surrender'; id: string }
   | { op: 'offer'; id: string; kind: 'terms' | 'tribute'; fate?: NoticeFate }
   | { op: 'answer'; id: string; kind: 'terms' | 'tribute'; yes: boolean }
   | { op: 'relief'; id: string; army: WarArmy; walkMs: number; from: Spot }
   | { op: 'pact'; target: string }
   | { op: 'unpact'; target: string }
+  // Ответ на предложение соседа по номеру (ДП-1, `world/proposals`): принять, отклонить или отозвать своё. Проверяет сервер:
+  // отвечает адресат, отзывает предложивший, пока срок не вышел.
+  | { op: 'deal'; id: string; act: ProposalAct }
   | { op: 'spy'; target: string; deed: RivalDeed; energy?: WarEnergy; shown: { chance: number; peril: number }; at: number };
 
 /** Отметка падения города в списке принятого (`WarSheet.seen`): одна на клиент и на сервер. */
@@ -1273,6 +1345,15 @@ export const warTributeId = (war: string): string => `${war}.tribute`;
  * раздел 5).
  */
 export const warRepairId = (war: string, at: number): string => `${war}.r${at}`;
+
+/** Отметка требушета на стене (Р-5), за который защитник заплатил: его цена списывается один раз, как у починки. */
+export const warGunId = (war: string, at: number): string => `${war}.g${at}`;
+
+/** Отметка попадания обстрела в постройку, отнявшего уровень (Р-5): фаза `k`, выстрел `i` — город теряет уровень один раз. */
+export const warShotId = (war: string, k: number, i: number): string => `${war}.s${k}.${i}`;
+
+/** Отметка кольца блокады (Р-5), замкнутого или разомкнутого в минуту `at`: строка летописи о нём ложится один раз. */
+export const warRingId = (war: string, at: number): string => `${war}.b${at}`;
 
 /** Отметка удара, не пробившегося через рогатки (`WarTurned`), в списке принятого: донесение о нём ложится один раз. */
 export const warTurnedId = (war: string, at: number): string => `${war}.t${at}`;
@@ -1418,8 +1499,18 @@ export function readWarOrder(v: unknown): WarOrder | null {
       const mode = WAR_MODES.find((m) => m === r.mode);
       const fate = NOTICE_FATES.find((f) => f === r.fate);
       const army = readArmy(r.army);
-      return target && mode && fate && army ? { op: 'march', target, mode, fate, army } : null;
+      // Кольцо — только у осады: штурм с ходу кольца не замыкает.
+      const ring = mode === 'siege' && r.blockade === true ? { blockade: true as const } : {};
+      return target && mode && fate && army ? { op: 'march', target, mode, fate, army, ...ring } : null;
     }
+    case 'aim': {
+      const aim = [...WAR_AIMS, ...WAR_GUN_AIMS].find((a) => a === r.aim);
+      return id && aim ? { op: 'aim', id, aim } : null;
+    }
+    case 'blockade':
+      return id && typeof r.on === 'boolean' ? { op: 'blockade', id, on: r.on } : null;
+    case 'breakout':
+      return id ? { op: 'breakout', id, troops: readCounts(r.troops) } : null;
     case 'recall':
     case 'retreat':
       return id ? { op: r.op, id } : null;
@@ -1487,6 +1578,12 @@ export function readWarOrder(v: unknown): WarOrder | null {
     case 'unpact': {
       const target = str(r.target, 64);
       return target ? { op: r.op, target } : null;
+    }
+    case 'deal': {
+      // Список — тот же, что `world/proposals.PROPOSAL_ACTS` (тип держит `satisfies`): значением оттуда не берётся, чтобы
+      // словарь предложений мог брать имя города у договора (`cityOr`) без кольца импортов.
+      const act = (['yes', 'no', 'withdraw'] as const satisfies readonly ProposalAct[]).find((a) => a === r.act);
+      return id && act ? { op: 'deal', id, act } : null;
     }
     case 'spy': {
       const target = str(r.target, 64);

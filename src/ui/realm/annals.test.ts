@@ -169,7 +169,7 @@ describe('«Вести»: летопись, донесение, ролики', (
   function setup(): GameState {
     const s = party();
     stores.game = { s, resolve: () => null, openMap: () => {}, act: () => {}, closeSheet: () => {} };
-    stores.world = { letters: [], marches: [], info: null, reports: [report({ id: GATE.id }), sieged], loadReports: async () => {}, spotLetter: () => {} };
+    stores.world = { letters: [], rivals: { proposals: [], marching: [] }, marches: [], info: null, reports: [report({ id: GATE.id }), sieged], loadReports: async () => {}, spotLetter: () => {} };
     return s;
   }
 

@@ -6,7 +6,7 @@ import { buildStatic } from './budget';
 import { CityLife, FEAST_AT, FEAST_RING, QUEUE_LEN, idleMode, shiftPose, standFree, type Anchor } from './life';
 import { mainSite, type Site } from './sites';
 import { CALM_MOOD, FEAST_DAYS, FeastClock, SHIFT_AT, SHIFT_LEN, cheerOf, forcedMood, lookOf, moodOf, rhythmAt, shiftAt, type CityMood } from './rhythm';
-import { FEAST_LOG_TRIS, LIFE_CAP } from './spec';
+import { FEAST_LOG_TRIS, KEEP_BEATS, LIFE_CAP } from './spec';
 import { createInitialState } from '@/game/state';
 import { DAY_LENGTH } from '@/game/pace';
 import { MORALE_BASE } from '@/game/constants';
@@ -214,9 +214,9 @@ describe('живой город: состояние меняет вид', () => 
     const a = people(at(alarm, EVENING));
     expect(a.length, 'люди прячутся').toBeLessThan(c.length * 0.12);
     expect(before(a, tavern, 8)).toBe(0);
-    // Войска дома мало (6 мест), а на стене — почти все места уровня.
-    expect(mesh(calm, 'city-guards').count).toBe(6);
-    expect(mesh(alarm, 'city-guards').count).toBeGreaterThanOrEqual(Math.ceil(LIFE_CAP.medium.guards * 0.85));
+    // Войска дома мало (6 мест), а на стене — почти все места уровня; дозор замка (Р-2) — сверх них.
+    expect(mesh(calm, 'city-guards').count).toBe(6 + KEEP_BEATS);
+    expect(mesh(alarm, 'city-guards').count).toBeGreaterThanOrEqual(Math.ceil(LIFE_CAP.medium.guards * 0.85) + KEEP_BEATS);
     calm.dispose();
     alarm.dispose();
   });

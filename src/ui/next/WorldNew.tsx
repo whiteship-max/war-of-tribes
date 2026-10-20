@@ -5,8 +5,8 @@
 //
 // Своих чисел и правил нет: всё — то же, что у прежней карточки (`panels/WorldPanel`): оценки — `formatEstimate` и
 // `formatAge` (`world/intel`), дорога и оборона после отправки — `marchSeconds` и `defense`, сроки — `realLeft`, рогатки —
-// `worksWords`, голод — `hungerLeft`; приказы — те же двери мира (`send`, `attack`, `besiege`, `moveFigure`, `shelter`,
-// `negotiate`, `openMenu`). За краем региона приказов нет (`twslot.reachable`).
+// `worksWords`, голод — `hungerLeft`; приказы — те же двери мира: отряд — `send`, человек — дело `errand` с подтверждением
+// в меню дел (`openMenu`, Р-4: свободной ходьбы нет). За краем региона приказов нет (`twslot.reachable`).
 import { useEffect, useState, type ReactNode } from 'react';
 import { useGame } from '@/game/store';
 import { figuresOn, useWorld, worldNow } from '@/world/store';
@@ -23,12 +23,12 @@ import { DEALS, FIGURES, FIGURE_BY_ID } from '@/world/data/figures';
 import { STANDING_META, TEMPER_BY_ID } from '@/world/data/diplomacy';
 import { KIND_META, UNIT_KINDS } from '@/battle';
 import { TERRAIN_META } from '@/world/data/terrain';
-import type { Estimate, Fate, FigureId, Mission, UnitStack } from '@/world/types';
+import type { ErrandTarget, Estimate, Fate, FigureId, Mission, UnitStack } from '@/world/types';
 import { UNIT_BY_ID, stackSize } from '@/world/data/units';
 import { awayOf, ownOf } from '@/world/muster';
 import { awayTroops } from '@/world/bridge';
 import { troopTotal } from '@/game/battle/kinds';
-import { FELL_WORDS } from '@/ui/map/siegemark';
+import { fellLine } from '@/ui/parts/fellWords';
 import { beyondText, reachable } from '@/ui/map/twslot';
 import { Icon } from '@/ui/icons/Icon';
 import { ArmsArt } from '@/ui/parts/Arms';
@@ -128,13 +128,7 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
   const send = useWorld((g) => g.send);
   const figures = useWorld((g) => g.figures);
   const marches = useWorld((g) => g.marches);
-  const moveFigure = useWorld((g) => g.moveFigure);
-  const shelter = useWorld((g) => g.shelter);
-  const attack = useWorld((g) => g.attack);
-  const assault = useWorld((g) => g.assault);
-  const besiege = useWorld((g) => g.besiege);
-  const negotiate = useWorld((g) => g.negotiate);
-  const warMarch = useWorld((g) => g.warMarch);
+  const errand = useWorld((g) => g.errand);
   const openMenu = useWorld((g) => g.openMenu);
   const home = useWorld((g) => g.info?.home ?? null);
   const [mission, setMission] = useState<Mission | null>(null);
@@ -164,32 +158,27 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
     );
   }
 
-  /** Кого вести сюда — четыре человека сеткой: значок, роль, что с ним; касание — ведёт (или выводит из города). */
+  /**
+   * Кого послать сюда — четыре человека сеткой (Р-4): касание открывает дела этого человека при этой цели, с
+   * подтверждением. Свободной ходьбы нет: к пустой земле не посылают никого.
+   */
   const lead = (standing: FigureId[]): JSX.Element => (
     <>
-      <h3>Кого вести сюда</h3>
+      <h3>Кого послать сюда</h3>
       <div className="nx-lead">
         {FIGURES.map((d) => {
           const f = figures.find((v) => v.id === d.id);
           const here0 = standing.includes(d.id);
           const down = f?.phase === 'down';
           const vacant = f?.place === 'vacant';
-          const inside = card?.mine && f?.place === 'city';
-          const state = here0 ? 'здесь' : vacant ? 'нет' : down ? (f?.held ? 'задержан' : 'вне строя') : inside ? 'выйти' : 'вести';
+          const state = here0 ? 'здесь' : vacant ? 'нет' : down ? (f?.held ? 'задержан' : 'вне строя') : 'дела';
           return (
             <button
               key={d.id}
               className={`nx-leadb${here0 ? ' on' : ''}`}
-              disabled={busy || here0 || down || vacant}
+              disabled={busy || down || vacant}
               aria-label={`${d.name}: ${state}`}
-              onClick={() => {
-                void (async () => {
-                  setBusy(true);
-                  const err = inside ? await shelter(d.id, false) : await moveFigure(d.id, here);
-                  setBusy(false);
-                  showToast(err ?? (inside ? `${d.name} вышел из города.` : `${d.name} пошёл к ${coord}.`));
-                })();
-              }}
+              onClick={() => void openMenu(d.id, here)}
             >
               <Icon name={iconName('fig', d.id)} />
               <small>{d.name}</small>
@@ -222,7 +211,7 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
           />
         </div>
         {loading && <p className="nx-tnote">Смотрим, кто здесь…</p>}
-        {lead(standing)}
+        <p className="nx-tnote">Сюда не посылают: люди ходят только к цели — своему городу, чужому городу, логову или отряду.</p>
       </div>
     );
   }
@@ -272,6 +261,8 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
     scoutsAway: s.scoutsAway + picked.scout,
   });
   const standing = card.figuresHere;
+  // Цель дела этой карточки (Р-4): свой город или чужой двор и замок.
+  const goal: ErrandTarget = card.mine ? { kind: 'home' } : { kind: 'place', id: card.id };
   const general = figures.find((f) => f.id === 'general');
   const generalMen = troopTotal(general?.troops ?? {});
   const scoutWalk = waitLeft(marchSeconds(card.distance, card.terrainFactor, { scout: 1 }));
@@ -284,7 +275,7 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
   };
   const strike = async (): Promise<void> => {
     setBusy(true);
-    const err = await attack({ fate });
+    const err = await errand({ agent: 'general', target: goal, deed: 'storm', fate });
     setBusy(false);
     showToast(err ?? 'Отряд ударил. Донесение в походах.');
   };
@@ -295,14 +286,14 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
   const invest = async (): Promise<void> => {
     if (!goSiege) return;
     setBusy(true);
-    const err = await assault(card.id, fate, 'siege');
+    const err = await errand({ agent: 'general', target: goal, deed: 'siege', fate });
     setBusy(false);
     showToast(err ?? `Отряд вышел. Лагерь встанет через ${realLeft(goSiege.walkMs / 1000)}, даже если ты не в игре.`);
   };
   const march = async (): Promise<void> => {
     if (!goStrike) return;
     setBusy(true);
-    const err = await assault(card.id, fate);
+    const err = await errand({ agent: 'general', target: goal, deed: 'storm', fate });
     setBusy(false);
     showToast(err ?? `Отряд вышел. Бой через ${realLeft(goStrike.walkMs / 1000)}, даже если ты не в игре.`);
   };
@@ -315,12 +306,6 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
     setMission(null);
     setPick({});
     showToast(`Отряд вышел. В пути ${waitShort(eta)}.`);
-  };
-  const doDeal = async (id: (typeof DEALS)[number]['id']): Promise<void> => {
-    setBusy(true);
-    const err = await negotiate(id);
-    setBusy(false);
-    showToast(err ?? 'Договор подписан.');
   };
 
   // Откуда числа войска: свои — всегда; чужие — донесение разведчика или лазутчика с возрастом, или ничего.
@@ -353,7 +338,7 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
   const warGo = async (mode: 'storm' | 'siege'): Promise<void> => {
     if (!war) return;
     setBusy(true);
-    const err = mode === 'storm' ? await assault(card.id, fate) : await warMarch(card.id, mode, fate);
+    const err = await errand({ agent: 'general', target: goal, deed: mode, fate });
     setBusy(false);
     showToast(err ?? `Отряд вышел на ${card.name}. В пути ${realLeft(war.walkMs / 1000)}.`);
   };
@@ -448,7 +433,7 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
             onClick={() => {
               void (async () => {
                 setBusy(true);
-                const err = await besiege(fate);
+                const err = await errand({ agent: 'general', target: goal, deed: 'siege', fate });
                 setBusy(false);
                 showToast(err ?? `${card.name} в осаде.`);
               })();
@@ -603,13 +588,11 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
         </>
       )}
 
-      {card.fell && (
-        <Row
-          icon={FATE_META[card.fell.fate].icon}
-          name={`Город взят: ${FELL_WORDS[card.fell.fate]}`}
-          value={`${realLeft(Math.max(0, (now - card.fell.at) / 1000))} назад`}
-        />
-      )}
+      {/* Знак павшего города — что значит, сколько держится защита и надо ли что-то делать (Р-4, отзыв 19.10). */}
+      {card.fell && (() => {
+        const fell = fellLine(card.fell, now, card.mine);
+        return <Row icon={FATE_META[card.fell.fate].icon} name={fell.name} value={fell.value} tone={card.mine ? 'bad' : undefined} tip={fell.tip} />;
+      })()}
 
       {card.sack && (
         <Row
@@ -685,26 +668,6 @@ export function WorldNew({ x, y }: { x: number; y: number }) {
               };
             })}
           />
-        </>
-      )}
-
-      {standing.includes('diplomat') && !card.mine && card.tribeId && (
-        <>
-          <h3>Предложить договор</h3>
-          {DEALS.map((d) => (
-            <div className="nx-crow" key={d.id}>
-              <span className="nx-lico">
-                <Icon name={iconName('deal', d.id)} />
-              </span>
-              <span className="nx-crow-t">
-                {d.name}
-                <small>{d.description}</small>
-              </span>
-              <button className="nx-act" disabled={busy} onClick={() => void doDeal(d.id)}>
-                Предложить
-              </button>
-            </div>
-          ))}
         </>
       )}
 

@@ -17,6 +17,12 @@ const phase = (k: number, out: ShowPhase['out'], breaches: number, more: Partial
   repaired: 0,
   volley: false,
   mangonel: false,
+  trebuchet: false,
+  shots: 0,
+  hits: 0,
+  gunShots: 0,
+  gunHits: 0,
+  ring: false,
   waste: 0.03,
   solar: 0.3,
   ...more,
@@ -92,6 +98,24 @@ const SET: [string, SiegeShow][] = [
   ],
   ['дань', show({ us: 'def', phases: [phase(1, 'short', 0), phase(2, 'short', 0)], machines: [], end: { how: 'paid', fate: null, k: 3, breaches: 0, solar: 0.45 } })],
   ['логово, лагерь растаял', show({ wall: 0, phases: [phase(1, 'plague', 0, { waste: 0.1 }), phase(2, 'calm', 0)], machines: [], end: { how: 'wasted', fate: null, k: 2, breaches: 0, solar: 0.9 } })],
+  [
+    // Р-5: кольцо, требушет лагеря по стенам, обстрел города, требушет на стене разбивает таран и бьёт лагерь, голод.
+    'кольцо, требушет, обстрел города и требушет на стене',
+    show({
+      us: 'def',
+      phases: [
+        phase(1, 'calm', 0, { ring: true }),
+        phase(2, 'calm', 0, { ring: true, trebuchet: true }),
+        phase(3, 'calm', 0, { ring: true, shots: 2, hits: 1, gunShots: 2, gunHits: 2, broke: ['ram'] }),
+        phase(4, 'breach', 1, { ring: true, trebuchet: true }),
+      ],
+      machines: [
+        { id: 'trebuchet', ready: 1, spent: false, burned: null, solar: 0.3 },
+        { id: 'ram', ready: 1, spent: false, burned: 3, broken: true, solar: 0.3 },
+      ],
+      end: { how: 'hunger', fate: 'captives', k: 5, breaches: 1, solar: 0.5 },
+    }),
+  ],
 ];
 
 describe('ролик осады: проломы, машины и итог — те, что посчитала осада', () => {
@@ -113,7 +137,8 @@ describe('ролик осады: проломы, машины и итог — т
     const built = s.machines.filter((m) => m.ready !== null && m.burned === null).map((m) => m.id).sort();
     expect(machinesUp(reel, reel.seconds).sort()).toEqual(built);
     for (const m of s.machines.filter((x) => x.burned !== null)) {
-      const ep = reel.episodes.find((e) => e.kind === 'sortie' && e.fight?.machine === m.id);
+      // Разбитая требушетом со стены (Р-5) уходит в эпизоде обстрела, сожжённая — в вылазке.
+      const ep = m.broken ? reel.episodes.find((e) => e.kind === 'shelling' && e.k === m.burned) : reel.episodes.find((e) => e.kind === 'sortie' && e.fight?.machine === m.id);
       expect(ep, `вылазка на ${m.id}`).toBeTruthy();
       expect(machinesUp(reel, ep!.at), `${m.id} стоял до вылазки`).toContain(m.id);
       expect(machinesUp(reel, ep!.at + ep!.len), `${m.id} сгорел вылазкой`).not.toContain(m.id);
@@ -149,6 +174,25 @@ describe('ролик осады: проломы, машины и итог — т
       }
     }
     expect(checked, 'граница области: в толще стены кто-то бывает (ход, ворота)').toBeGreaterThan(0);
+  });
+
+  it('Р-5: кольцо и обстрел — своими эпизодами; камни — столько, сколько выстрелов в журнале; требушет лагеря бьёт стены', () => {
+    const s = SET.find(([name]) => name.startsWith('кольцо'))![1];
+    const reel = siegeReel(s, 'medium');
+    const kinds = reel.episodes.map((e) => e.kind);
+    expect(kinds.filter((k) => k === 'ring'), 'кольцо замкнулось раз — один эпизод').toHaveLength(1);
+    expect(reel.episodes.find((e) => e.kind === 'ring')?.k).toBe(1);
+    const shell = reel.episodes.find((e) => e.kind === 'shelling')!;
+    expect(shell.k).toBe(3);
+    // Камни эпизода обстрела: выстрелы по городу (машины лагеря) и требушета на стене — числами журнала фазы.
+    const p = s.phases[2];
+    const inEp = reel.barrage.stones.filter((st) => st.at >= shell.at && st.at < shell.at + shell.len);
+    expect(inEp, 'точка внутри области: в фазе стреляли').not.toHaveLength(0);
+    expect(inEp.length).toBe(p.shots + p.gunShots);
+    expect(inEp.filter((st) => st.hit === 'over').length, 'попадания по крышам').toBe(p.hits);
+    // Пролом четвёртой фазы бьёт требушет лагеря — по стенам.
+    const breach = reel.episodes.find((e) => e.kind === 'breach')!;
+    expect(reel.barrage.stones.some((st) => st.at >= breach.at && st.at < breach.at + breach.len && reel.barrage.engines[st.engine].kind === 'trebuchet')).toBe(true);
   });
 
   it('эпизоды идут подряд с временем между ними; свет проходит ночь, когда идёт новая фаза', () => {

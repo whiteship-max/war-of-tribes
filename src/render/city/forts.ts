@@ -122,48 +122,40 @@ export function wallPlan(
   skip: (p: P, q: P) => boolean = () => false,
 ): { pieces: WallPiece[]; merlons: Merlon[] } {
   const n = pts.length;
-  // Нормали наружу в вершинах.
-  const nx: number[] = [];
-  const nz: number[] = [];
-  for (let k = 0; k < n; k++) {
-    const a = pts[(k - 1 + n) % n];
-    const c = pts[(k + 1) % n];
-    let x = c.z - a.z;
-    let z = -(c.x - a.x);
-    const l = Math.hypot(x, z) || 1;
-    x /= l;
-    z /= l;
-    if (x * (pts[k].x - center.x) + z * (pts[k].z - center.z) < 0) {
-      x = -x;
-      z = -z;
-    }
-    nx.push(x);
-    nz.push(z);
-  }
   const top = wallTops(pts);
   const half = WALL_T / 2;
   const pieces: WallPiece[] = [];
-  // Нормали звеньев (наружу).
+  // Нормали звеньев наружу — одним знаком на весь контур, по его обходу относительно середины. Прежде знак звена брался
+  // у нормали вершины по хорде соседей, и на остром изломе с неравными звеньями (угол замка у рва, юго-запад города) хорда
+  // смотрела мимо: звено выходило вывернутым наизнанку, и сквозь угол было видно насквозь (docs/city_v3.md, Р-2).
   const sn: [number, number][] = [];
+  let side = 0;
   for (let k = 0; k < n; k++) {
     const p = pts[k];
     const q = pts[(k + 1) % n];
-    let x = q.z - p.z;
-    let z = -(q.x - p.x);
-    const l = Math.hypot(x, z) || 1;
-    x /= l;
-    z /= l;
-    if (x * nx[k] + z * nz[k] < 0) {
-      x = -x;
-      z = -z;
-    }
+    const l = Math.hypot(q.x - p.x, q.z - p.z) || 1;
+    const x = (q.z - p.z) / l;
+    const z = -(q.x - p.x) / l;
     sn.push([x, z]);
+    side += (x * ((p.x + q.x) / 2 - center.x) + z * ((p.z + q.z) / 2 - center.z)) * l;
   }
-  // Вершина — со скосом (митрой): кромки обоих звеньев проходят на полтолщины от оси, и на остром углу стена
-  // не сужается. Без скоса на изломе замковой стены парапет сходил на нет, и зубец у угла висел над пустым.
+  if (side < 0) {
+    for (const v of sn) {
+      v[0] = -v[0];
+      v[1] = -v[1];
+    }
+  }
+  // Вершина — со скосом (митрой) по биссектрисе нормалей своих звеньев: кромки обоих звеньев проходят на полтолщины от оси,
+  // и на остром углу стена не сужается. Без скоса на изломе замковой стены парапет сходил на нет, и зубец у угла висел над
+  // пустым.
   const miter = (k: number): [number, number] => {
-    const m = Math.max(0.5, nx[k] * sn[k][0] + nz[k] * sn[k][1]);
-    return [nx[k] / m, nz[k] / m];
+    const a = sn[(k - 1 + n) % n];
+    const c = sn[k];
+    const bl = Math.hypot(a[0] + c[0], a[1] + c[1]) || 1;
+    const bx = (a[0] + c[0]) / bl;
+    const bz = (a[1] + c[1]) / bl;
+    const m = Math.max(0.5, bx * c[0] + bz * c[1]);
+    return [bx / m, bz / m];
   };
   // Мелко режется только у ворот: у глухой башни кусок, зашедший внутрь, спрятан в её теле, а сквозь арку его видно.
   const nearTower = (x: number, z: number): boolean => towers.some((t) => (t.kind === 'gate' || t.kind === 'castleGate') && Math.hypot(t.x - x, t.z - z) < t.size * 0.75 + 3);
@@ -179,10 +171,14 @@ export function wallPlan(
     // и не показывается в проезде (арка уже башни на 1.25 м с каждой стороны).
     const cut: number[] = [0];
     const step = (f: number): number => (nearTower(p.x + (q.x - p.x) * f, p.z + (q.z - p.z) * f) ? NEAR_PIECE : WALL_PIECE);
+    // Остаток у вершины короче, чем скос уводит назад внутреннюю кромку, не режется: на остром изломе (угол замка у рва —
+    // 121°) внутренняя кромка уходит на 2 м назад, и полметровый кусок выходил вывернутым — ход стены изнанкой вверх (Р-2).
+    const [mx, mz] = miter(k2);
+    const trim = Math.max(0.2, half * Math.sqrt(Math.max(0, mx * mx + mz * mz - 1)) + 0.3);
     while (cut[cut.length - 1] < 1) {
       const f = cut[cut.length - 1];
       cut.push(Math.min(1, f + Math.min(step(f), step(Math.min(1, f + WALL_PIECE / len))) / len));
-      if (1 - cut[cut.length - 1] < 0.2 / len) cut[cut.length - 1] = 1;
+      if (1 - cut[cut.length - 1] < trim / len) cut[cut.length - 1] = 1;
     }
     const at = (f: number): { pt: P; n: [number, number]; t: number } => {
       const pt = { x: p.x + (q.x - p.x) * f, z: p.z + (q.z - p.z) * f };
@@ -384,7 +380,8 @@ export function cityWall(
         const x = i0[0] + (i1[0] - i0[0]) * f - out[0] * 0.35;
         const z = i0[1] + (i1[1] - i0[1]) * f - out[2] * 0.35;
         const y = t0 + (t1 - t0) * f;
-        box(b, x, z, out[0], out[2], 0.18, 0.18, y, y + 1.9, 'wood', tint(CITY.oak, 0.9), null);
+        // Столб с крышкой: без неё сверху в полый столб видно его изнанку — сквозь (Р-2, лучи стыков).
+        box(b, x, z, out[0], out[2], 0.18, 0.18, y, y + 1.9, 'wood', tint(CITY.oak, 0.9), 'wood');
       }
     }
   });
@@ -433,8 +430,224 @@ function crenelSquare(b: Builder, cx: number, cz: number, fx: number, fz: number
   }
 }
 
+/** Надвратная ли башня — города или замка. */
+const isGate = (t: Tower): boolean => t.kind === 'gate' || t.kind === 'castleGate';
+
+/**
+ * Пара ворот через ров (docs/city_v3.md, Р-2): северные ворота города и ворота замка стоят вплотную, их следы перекрываются.
+ * Рисуется одна надвратная — вдоль проезда через ров (`gatehouse`), а не две башни, легшие одна на другую. Нет пары — `null`.
+ */
+export function twinOf(t: Tower, towers: readonly Tower[]): Tower | null {
+  if (!isGate(t)) return null;
+  return towers.find((o) => o !== t && isGate(o) && Math.hypot(o.x - t.x, o.z - t.z) < (o.size + t.size) / 2) ?? null;
+}
+
+/** Двойная надвратная на плане: середина, «к городу» (fx, fz), длина вдоль проезда и ширина, раздел половин, барабаны. */
+export interface Gatehouse {
+  x: number;
+  z: number;
+  fx: number;
+  fz: number;
+  len: number;
+  w: number;
+  /** Где кончается половина замка и начинается половина города — вперёд от середины, м. */
+  split: number;
+  /** Барабаны по сторонам арки со стороны города: середина и радиус. */
+  drums: { x: number; z: number; r: number }[];
+  /** Ворота города (лицо к городу) и ворота замка (лицо к замку). */
+  front: Tower;
+  back: Tower;
+  /** Верх кладки корпуса — над обеими прежними башнями. */
+  top: number;
+  /** Низ кладки — ниже земли под обоими следами (ров). */
+  foot: number;
+}
+
+/** Радиус барабана двойной надвратной, м, и насколько он выходит к городу за лицо корпуса. */
+const DRUM_R = 2.9;
+const DRUM_OUT = 0.3;
+
+/**
+ * Раскладка двойной надвратной — одна на рисунок и на тест: корпус покрывает следы обеих башен целиком (стены обоих колец
+ * кончаются в нём, как в башне), лица проезда — только на концах, к городу и к замку; у арки к городу — два барабана.
+ */
+export function gatehouse(t: Tower, o: Tower): Gatehouse {
+  const front = t.kind === 'gate' ? t : o;
+  const back = front === t ? o : t;
+  let fx = front.x - back.x;
+  let fz = front.z - back.z;
+  const l = Math.hypot(fx, fz) || 1;
+  fx /= l;
+  fz /= l;
+  // Корпус — по углам обоих следов: середины башен по оси расходятся на сантиметры, и угол следа не должен выглядывать.
+  const rx = fz;
+  const rz = -fx;
+  let f0 = Infinity;
+  let f1 = -Infinity;
+  let rr = 0;
+  for (const t2 of [front, back]) {
+    const ox = Math.cos(t2.out);
+    const oz = Math.sin(t2.out);
+    const h = t2.size / 2;
+    for (const a of [-1, 1])
+      for (const c of [-1, 1]) {
+        const dx = t2.x + (ox * a + oz * c) * h - back.x;
+        const dz = t2.z + (oz * a - ox * c) * h - back.z;
+        f0 = Math.min(f0, dx * fx + dz * fz);
+        f1 = Math.max(f1, dx * fx + dz * fz);
+        rr = Math.max(rr, Math.abs(dx * rx + dz * rz));
+      }
+  }
+  const x = back.x + fx * ((f0 + f1) / 2);
+  const z = back.z + fz * ((f0 + f1) / 2);
+  const len = f1 - f0;
+  // Шире следов на ладонь: кладка корпуса не в одной плоскости с гранью стены, что в него входит.
+  const w = 2 * rr + 0.3;
+  // Середины башен вдоль проезда — от середины корпуса.
+  const sF = (front.x - x) * fx + (front.z - z) * fz;
+  const sB = (back.x - x) * fx + (back.z - z) * fz;
+  const df = len / 2 + DRUM_OUT - DRUM_R;
+  const dr = w / 2 + 0.5;
+  const drums = [-1, 1].map((c) => ({ x: x + fx * df + rx * dr * c, z: z + fz * df + rz * dr * c, r: DRUM_R }));
+  return {
+    x,
+    z,
+    fx,
+    fz,
+    len,
+    w,
+    split: (sF + sB) / 2,
+    drums,
+    front,
+    back,
+    top: Math.max(front.base + front.height, back.base + back.height),
+    foot: Math.min(front.foot ?? front.base, back.foot ?? back.base) - 1.8,
+  };
+}
+
+/** Полуширина башни поперёк проезда — докуда по стене она занята: у двойной надвратной — до края барабана. */
+export function towerReach(t: Tower, towers: readonly Tower[]): number {
+  const o = twinOf(t, towers);
+  if (!o) return t.size / 2;
+  const g = gatehouse(t, o);
+  return g.w / 2 + 0.5 + DRUM_R;
+}
+
+/** Зубцы по отрезку плана (a → b) на высоте `y`, лицом наружу (nx, nz); зубец — у кромки, в шаге `MERLON_STEP`. */
+function crenelRun(b: Builder, ax: number, az: number, bx: number, bz: number, nx: number, nz: number, y: number, t: V3, detail: Detail): void {
+  const len = Math.hypot(bx - ax, bz - az);
+  const per = Math.max(2, Math.round(len / MERLON_STEP));
+  for (let k = 0; k < per; k++) {
+    const f = (k + 0.5) / per;
+    merlon(b, ax + (bx - ax) * f - nx * (PARAPET_T / 2), az + (bz - az) * f - nz * (PARAPET_T / 2), nx, nz, y, t, detail);
+  }
+}
+
+/**
+ * Половина двойной надвратной — своя у каждой из двух башен пары, чтобы коробка касания и огни остались у каждой. Корпус
+ * один: каждая половина кладёт свои два бока и свой торец (у раздела граней нет — кладка не врезана сама в себя), лицо
+ * проезда — на торце. Половина города: пояс-машикули и зубцы по кругу всего корпуса, барабаны по сторонам арки под шатрами.
+ * Половина замка: кровля над всем корпусом коньком вдоль проезда и угловые эркеры у лица к замку.
+ */
+function twinHalf(b: Builder, t: Tower, o: Tower, detail: Detail): V3[] {
+  const g = gatehouse(t, o);
+  const { fx, fz, w, len, top, foot } = g;
+  const rx = fz;
+  const rz = -fx;
+  const mine = t === g.front ? 1 : -1;
+  // Половина вдоль проезда: от раздела до своего торца.
+  const s0 = g.split;
+  const s1 = (len / 2) * mine;
+  const P = (s: number, r: number): [number, number] => [g.x + fx * s + rx * r, g.z + fz * s + rz * r];
+  const T = stoneT(0.97 + rnd(g.front.seed, 1, 1) * 0.06);
+  const archH = 8;
+  const floor = t.floor ?? t.base;
+  /** Бока половины и (если `end`) её торец — ярусом от `y0` до `y1`. */
+  const band = (y0: number, y1: number, layer: 'ashlar' | 'towerSlit', end: boolean, ao: number): void => {
+    const [sw, sh] = TILE_M[layer];
+    const v0 = y0 / sh;
+    const v1 = y1 / sh;
+    for (const c of [1, -1]) {
+      const [ax, az] = P(s0, (w / 2) * c);
+      const [ex, ez] = P(s1, (w / 2) * c);
+      const u0 = (s0 * mine * c) / sw;
+      const u1 = (s1 * mine * c) / sw;
+      quadToward(b, [ax, y0, az], [ex, y0, ez], [ex, y1, ez], [ax, y1, az], [u0, v0, u1, v0, u1, v1, u0, v1], L[layer], T, [rx * c, 0, rz * c], [ao, ao, 1, 1]);
+    }
+    if (!end) return;
+    const [ax, az] = P(s1, -w / 2);
+    const [ex, ez] = P(s1, w / 2);
+    quadToward(b, [ax, y0, az], [ex, y0, ez], [ex, y1, ez], [ax, y1, az], [0, v0, w / sw, v0, w / sw, v1, 0, v1], L[layer], T, [fx * mine, 0, fz * mine], [ao, ao, 1, 1]);
+  };
+  // Цоколь до пола проезда, ярус проезда (торец — арка, бока — бойницы), над ним — кладка до верха.
+  band(foot, floor, 'ashlar', true, 0.7);
+  band(floor, floor + archH, 'towerSlit', false, 0.75);
+  const [ex, ez] = P(s1, 0);
+  archFace(b, ex, ez, fx * mine, fz * mine, w, floor, floor + archH, T);
+  band(floor + archH, top, 'towerSlit', true, 0.95);
+  const roofHex = rnd(g.front.seed, 3, 1) < 0.55 ? CITY.roofTints[(g.front.seed >>> 3) % CITY.roofTints.length] : CITY.slateTint;
+  const roofL = roofHex === CITY.slateTint ? 'roofSlate' : 'roofTile';
+  const yC = top + 0.7;
+  // Огни — по сторонам арки своего лица.
+  const lights: V3[] = [];
+  for (const c of [1, -1]) {
+    const [x, z] = P(s1 + 0.4 * mine, 3.9 * c);
+    lights.push([x, floor + 4.6, z]);
+  }
+  if (mine > 0) {
+    // Пояс-машикули над всем корпусом (его верх — ход за зубцами) и зубцы по кругу.
+    const bw = w + 0.6;
+    const bl = len + 0.6;
+    box(b, g.x, g.z, fx, fz, bw, bl, top, yC, 'ashlar', T, 'ashlar', { aoBottom: 0.55 });
+    for (const c of [1, -1]) {
+      const [ax, az] = P(-bl / 2, (bw / 2) * c);
+      const [bx, bz] = P(bl / 2, (bw / 2) * c);
+      crenelRun(b, ax, az, bx, bz, rx * c, rz * c, yC, T, detail);
+      const [cx0, cz0] = P((bl / 2) * c, -bw / 2);
+      const [cx1, cz1] = P((bl / 2) * c, bw / 2);
+      crenelRun(b, cx0, cz0, cx1, cz1, fx * c, fz * c, yC, T, detail);
+    }
+    // Барабаны у арки к городу: выше корпуса, под шатрами, как круглые башни стены.
+    const seg = detail === 0 ? 12 : 16;
+    const dTop = top + DRUM_RISE;
+    for (const d of g.drums) {
+      cylinder(b, d.x, d.z, d.r, foot, dTop, seg, 'towerSlit', T, { aoBottom: 0.72, grimeBottom: 0.9, vBase: foot });
+      cylinder(b, d.x, d.z, d.r + 0.3, dTop, dTop + 0.7, seg, 'ashlar', T, { aoBottom: 0.6 });
+      const apex = drumApex(g, d.r);
+      cone(b, d.x, d.z, d.r + 0.6, dTop + 0.55, apex, seg, roofL, tint(roofHex));
+      if (detail > 0) cone(b, d.x, d.z, 0.18, apex - 0.2, apex + 1.4, 6, 'wood', tint(CITY.iron, 1.2), 1);
+    }
+    return lights;
+  }
+  // Половина замка: кровля над всем корпусом, коньком вдоль проезда, и эркеры по углам лица к замку.
+  hipRoof(b, g.x, g.z, fx, fz, w - 1.4, len - 1.4, yC, 52, roofL, tint(roofHex));
+  if (detail > 0) {
+    for (const c of [1, -1]) {
+      const [x, z] = P(s1, (w / 2) * c);
+      cylinder(b, x, z, 1.15, top - 5, top + 1.2, 10, 'ashlar', T, { aoBottom: 0.55 });
+      cone(b, x, z, 1.4, top + 1.1, top + 1.1 + 3.6, 10, roofL, tint(roofHex));
+    }
+  }
+  return lights;
+}
+
+/** Насколько барабан выше корпуса, м, и вершина его шатра. */
+const DRUM_RISE = 2.4;
+const drumApex = (g: Gatehouse, r: number): number => g.top + DRUM_RISE + 0.7 + (r + 0.6) * Math.tan((63 * Math.PI) / 180);
+
+/** Где флаг у половины двойной надвратной — на шпиле барабана (город — западный, замок — восточный); не пара — `null`. */
+export function twinFlag(t: Tower, towers: readonly Tower[], detail: Detail): V3 | null {
+  const o = twinOf(t, towers);
+  if (!o) return null;
+  const g = gatehouse(t, o);
+  const d = g.drums[t === g.front ? 0 : 1];
+  return [d.x, drumApex(g, d.r) + (detail > 0 ? 1.4 : 0), d.z];
+}
+
 /** Башня по виду. */
-export function tower(b: Builder, t: Tower, detail: Detail): V3[] {
+export function tower(b: Builder, t: Tower, detail: Detail, towers?: readonly Tower[]): V3[] {
+  const twin = towers ? twinOf(t, towers) : null;
+  if (twin) return twinHalf(b, t, twin, detail);
   const fx = Math.cos(t.out);
   const fz = Math.sin(t.out);
   const T = stoneT(0.97 + rnd(t.seed, 1, 1) * 0.06);
@@ -599,6 +812,30 @@ function squareRect(cx: number, cz: number, fx: number, fz: number, w: number, d
 }
 
 /**
+ * Лицо проезда: грань шириной `w` с серединой в (cx, cz), лицом по (fx, fz), — арка посередине (плитка ворот, 6 м), по
+ * бокам — кладка. Проезд один: плитка не повторяется по ширине.
+ */
+function archFace(b: Builder, cx: number, cz: number, fx: number, fz: number, w: number, y0: number, y1: number, t: V3): void {
+  // Вдоль «вправо» снаружи.
+  const dirx = fz;
+  const dirz = -fx;
+  const h = w / 2;
+  const [tw, th] = TILE_M.gateArch;
+  const v1 = (y1 - y0) / th;
+  const half = tw / 2;
+  const at = (r: number, y: number): V3 => [cx + dirx * r, y, cz + dirz * r];
+  const want: V3 = [fx, 0, fz];
+  quadToward(b, at(-half, y0), at(half, y0), at(half, y1), at(-half, y1), [0, 0, 1, 0, 1, v1, 0, v1], L.gateArch, t, want, [0.75, 0.75, 1, 1], 0.6);
+  const [aw, ah] = TILE_M.ashlar;
+  for (const [r0, r1] of [
+    [-h, -half],
+    [half, h],
+  ]) {
+    quadToward(b, at(r0, y0), at(r1, y0), at(r1, y1), at(r0, y1), [r0 / aw, y0 / ah, r1 / aw, y0 / ah, r1 / aw, y1 / ah, r0 / aw, y1 / ah], L.ashlar, t, want, [0.75, 0.75, 1, 1]);
+  }
+}
+
+/**
  * Перед и зад надвратной башни: одна арка проезда посередине (плитка ворот, 6 м), по бокам — кладка;
  * бока башни — бойницы. Проезд один: плитка не повторяется по ширине.
  */
@@ -606,26 +843,7 @@ function gateFaces(b: Builder, cx: number, cz: number, fx: number, fz: number, s
   const rx = fz;
   const rz = -fx;
   const h = s / 2;
-  const [tw, th] = TILE_M.gateArch;
-  const v1 = (y1 - y0) / th;
-  const half = tw / 2;
-  for (const side of [1, -1]) {
-    // Вдоль «вправо» снаружи: у переда — +r, у зада — −r.
-    const dirx = rx * side;
-    const dirz = rz * side;
-    const ox = cx + fx * h * side;
-    const oz = cz + fz * h * side;
-    const at = (r: number, y: number): V3 => [ox + dirx * r, y, oz + dirz * r];
-    const want: V3 = [fx * side, 0, fz * side];
-    quadToward(b, at(-half, y0), at(half, y0), at(half, y1), at(-half, y1), [0, 0, 1, 0, 1, v1, 0, v1], L.gateArch, t, want, [0.75, 0.75, 1, 1], 0.6);
-    const [aw, ah] = TILE_M.ashlar;
-    for (const [r0, r1] of [
-      [-h, -half],
-      [half, h],
-    ]) {
-      quadToward(b, at(r0, y0), at(r1, y0), at(r1, y1), at(r0, y1), [r0 / aw, y0 / ah, r1 / aw, y0 / ah, r1 / aw, y1 / ah, r0 / aw, y1 / ah], L.ashlar, t, want, [0.75, 0.75, 1, 1]);
-    }
-  }
+  for (const side of [1, -1]) archFace(b, cx + fx * h * side, cz + fz * h * side, fx * side, fz * side, s, y0, y1, t);
   // Бока.
   wall(b, { ax: cx + fx * h + rx * h, az: cz + fz * h + rz * h, bx: cx - fx * h + rx * h, bz: cz - fz * h + rz * h, y0, y1, layer: 'towerSlit', tint: t, aoBottom: 0.75 });
   wall(b, { ax: cx - fx * h - rx * h, az: cz - fz * h - rz * h, bx: cx + fx * h - rx * h, bz: cz + fz * h - rz * h, y0, y1, layer: 'towerSlit', tint: t, aoBottom: 0.75 });

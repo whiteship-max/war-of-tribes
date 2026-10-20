@@ -316,7 +316,11 @@ describe('пакт и выручка', () => {
     expect(applyOrder(file, B, { op: 'unpact', target: castleIdOf(C) }, at + 2, ctx)).toBeNull();
     expect(warsOf(file, C).find((x) => x.id === w.id)?.turned?.[0].ally).toBe(castleIdOf(C));
     const added = newsDiff(before, newsMap(file));
-    expect(added.get(C)?.add).toMatchObject([{ kind: 'war-relief', fireAt: at, p: { relief: 'turned', from: 'Бета' } }]);
+    // Разрыв пакта — весть той стороне, что не рвала (ДП-1).
+    expect(added.get(C)?.add).toMatchObject([
+      { kind: 'war-relief', fireAt: at, p: { relief: 'turned', from: 'Бета' } },
+      { kind: 'war-pact', fireAt: at + 2, p: { pact: 'broken', from: 'Бета' } },
+    ]);
     expect(added.get(B)?.add).toMatchObject([{ kind: 'war-relief', fireAt: at, p: { relief: 'turned', ally: 'Гамма', role: 'def' } }]);
   });
 

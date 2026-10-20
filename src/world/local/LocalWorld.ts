@@ -26,7 +26,10 @@ import type {
   AttackResult,
   BattleRecord,
   BattleSite,
+  AimView,
+  BlockadeView,
   CampView,
+  GunView,
   MachinesView,
   StormMethod,
   CraftOption,
@@ -34,11 +37,16 @@ import type {
   CardSack,
   CardSpy,
   RivalDeedId,
+  RivalMail,
   RivalMenu,
   CardSiege,
   Coord,
   DealId,
   DealView,
+  ErrandId,
+  ErrandOption,
+  ErrandOrder,
+  ErrandTarget,
   DiploActionId,
   DiploRecord,
   DiploView,
@@ -142,6 +150,9 @@ import {
   warFallId,
   warTributeId,
   warRepairId,
+  warGunId,
+  warShotId,
+  warRingId,
   warTurnedId,
   WAR_SEEN_MAX,
   type Counts,
@@ -158,6 +169,7 @@ import {
   type WarView,
 } from '../../../netlify/lib/contract';
 import { fieldWalkSeconds, foodLeft, spyWalkMs, warWalkMs } from '../pvp';
+import { endWords, type ProposalAct, type ProposalView } from '../proposals';
 import { WATCHER, homeSight, liveSight, standing } from '../sight';
 import { islandNeighbours } from '../spawn';
 import { canShelter, placeOf } from '../shelter';
@@ -166,6 +178,7 @@ import { diesAt, perilOf, perilShare, perilText, perilWhy, routPeril, recentVisi
 import { buildable, featuresAt } from '../geography';
 import { claimsNear, claimsOf, ownerAt, type Claim } from '../territory';
 import { DEAL_BY_ID, FIGURE_BY_ID, FIGURE_IDS } from '../data/figures';
+import { errandDef, errandsOf, type ErrandDef } from '../data/errands';
 import { DIPLO_ACTIONS, DIPLO_ACTION_BY_ID, TEMPER_BY_ID } from '../data/diplomacy';
 import { ORDER_AGENT, RIVAL_DEED_BY_ID, SPY_ACTIONS, SPY_ACTION_BY_ID } from '../data/spy';
 import {
@@ -189,6 +202,7 @@ import {
   SIEGE_BLOCK,
   STRIKE_FROM_TOWN,
   WOOD_FIXED,
+  breadStock,
   immuneUntil,
   openSiege,
   ourCamp,
@@ -294,7 +308,13 @@ import { MIRROR_ON, mirrorPower } from '../mirror';
 import type { FaithId, ResourceId } from '@/game/types';
 import { RESOURCE_META } from '@/game/constants';
 import { resolveField, type FieldInput, type FieldOutcome, type FieldSide } from '../battle';
-import { campFight, campHolds, guardKinds, holdMinute, homeLosses, wallFight, type CampPartIn, type HoldIn } from '../fights';
+import { campFight, campHolds, guardKinds, holdMinute, homeLosses, machineFight, wallFight, type CampPartIn, type HoldIn } from '../fights';
+import { AIM_NAME, GUN_AIM_NAME, aimBlock, artilleryAimOf as artilleryAim, aimWords, artilleryAt, gunAfter, gunAimBlock, gunAimOf, gunAimWords, gunBlock, gunsAt, idleBuildings, lostLevel, shotsApplied, shotsText } from '../shelling';
+import { BUILDING_BY_ID } from '@/game/data/buildings';
+import { BLOCKADE_BREAKS, BLOCKADE_GIVES, BREAKOUT_GIVES, BREAKOUT_SHARE, BREAK_WORDS, blockadeAfter, blockadeAt, blockadeBlock, blockadeDeeds, blockadeHolds, blockadeRatio, blockadeSince, ratioWords, type BlockadeBreak } from '../blockade';
+import { BLOCKADE_RATIO } from '../data/blockade';
+import { SIEGE_PHASE as PHASE_MS } from '../data/siegeroll';
+import { AIMS, GUN_AIMS, GUN_SPAN, type Aim } from '../data/shelling';
 import { SCALING, openingWords, wallFront, type WallFront } from '../wall';
 import {
   GUARD_SHARE,
@@ -311,7 +331,7 @@ import {
   stormMachines,
 } from '../machines';
 import { wallRepairCost } from '@/game/build';
-import { MACHINE_IDS, MACHINE_SHARES, MACHINE_WOOD, type MachineId } from '../data/machines';
+import { ARTILLERY_WEIGHT, MACHINE_IDS, MACHINE_SHARES, MACHINE_WOOD, type MachineId } from '../data/machines';
 import { carryRest, mixRest, rejoin, restAfter, restAt, restFullAt, restView, type RestPair } from '../rest';
 import { emptyAt, energyAt, energyBlock, energyView, freshMark, idleBlock, leftAfter, outOf, priceOf, remark, roadCost, shownEnergy, spend, type EnergyMark, type EnergyMode, type MarkEnds } from '../energy';
 import { ENERGY_PRICE, type EnergyAction } from '../data/energy';
@@ -319,6 +339,7 @@ import { GATE_FOES, gateReportId } from '../data/gate';
 import {
   awayOf,
   fieldTroops,
+  postureOf,
   homeOf,
   inTown,
   musterMs,
@@ -469,6 +490,8 @@ export interface LocalWorldOptions {
   warsKnown?: () => boolean;
   /** Пакты с соседями-игроками с сервера (docs/siege_v2.md, раздел 5). Нет — пактов в этой сессии нет. */
   pacts?: () => WarPact[];
+  /** Предложения соседей-игроков с сервера (ДП-1): ждущие ответа и итоги. Нет — предложений в этой сессии нет. */
+  proposals?: () => ProposalView[];
   /** Дверь приказа войны: null — принят, иначе причина словами. */
   warOrder?: (order: WarOrder) => Promise<string | null>;
   /** Темп войны с сервера (`TRIBE_WAR_PACE`): во сколько раз быстрее походы. Нет — 1. */
@@ -496,6 +519,41 @@ export const caughtAt = (roll: number, caught: number): boolean => roll < caught
  * заново. Меню перечитывается каждым пульсом, так что десяти секунд хватает с запасом.
  */
 const SHOWN_FRESH = 10_000;
+
+/** Как часто дипломата хватают во враждебном дворе в минуту прихода. Гибели у него нет — только задержание. */
+const ENVOY_SEIZE = 0.3;
+
+/**
+ * Как считать строку меню дипломата и лазутчика: у ворот (нет), делом из «Походов» с дорогой до цели (`road`, мс) или в
+ * минуту прихода с делом, уже оплаченным приказом (`'paid'`).
+ */
+type OptionMode = { road: number } | 'paid';
+
+/** Дорога до цели для цены дела: у ворот и на приходе — ноль. */
+const roadOf = (mode: OptionMode | undefined): number => (typeof mode === 'object' ? mode.road : 0);
+
+/** Договор с державой, а не приказ двору. */
+const isDeal = (id: ErrandId): id is DealId => id === 'truce' || id === 'trade' || id === 'tribute' || id === 'alliance';
+
+/**
+ * Цена дела из «Походов» строкой `ENERGY_PRICE`: та же, что у дела у ворот. Удар, осаду, перехват и удар по лагерю платят
+ * их двери, наблюдение даром (стоянка даром), дела против соседа-игрока — сервер войны. Разрыв союза — «слово сказать»,
+ * ценой объявления войны.
+ */
+function errandPrice(id: ErrandId): EnergyAction | null {
+  if (id === 'recon' || id === 'shadow' || id === 'probe' || id === 'revolt') return id;
+  if (id === 'gift' || id === 'insult' || id === 'pact' || id === 'peace' || id === 'war') return id;
+  if (isDeal(id)) return 'deal';
+  if (id === 'unpact') return 'war';
+  return null;
+}
+
+/** Цель дела, найденная в мире. */
+type ErrandSpot =
+  | { kind: 'home'; at: Coord }
+  | { kind: 'place'; at: Coord; s: GenSettlement }
+  | { kind: 'rival'; at: Coord; c: PlayerCastle }
+  | { kind: 'march'; at: Coord; m: StoredMarch };
 
 /**
  * Идёт ли чужой отряд на наш лагерь осады: выручка того города, под которым стоит наш полководец (`camp` —
@@ -585,6 +643,7 @@ export class LocalWorld implements WorldApi {
   private warsFrom: (() => WarView[]) | null;
   private warsKnown: (() => boolean) | null;
   private pactsFrom: (() => WarPact[]) | null;
+  private proposalsFrom: (() => ProposalView[]) | null;
   private warOrderTo: ((order: WarOrder) => Promise<string | null>) | null;
   private warPaceOf: () => number;
   /** Дела лазутчиков с сервера и меню дел (docs/spy_pvp.md). null — тайной войны в этой сессии нет. */
@@ -607,6 +666,7 @@ export class LocalWorld implements WorldApi {
     this.warsFrom = opts.wars ?? null;
     this.warsKnown = opts.warsKnown ?? null;
     this.pactsFrom = opts.pacts ?? null;
+    this.proposalsFrom = opts.proposals ?? null;
     this.warOrderTo = opts.warOrder ?? null;
     this.warPaceOf = opts.warPace ?? (() => 1);
     this.spiesFrom = opts.spies ?? null;
@@ -1066,6 +1126,85 @@ export class LocalWorld implements WorldApi {
     return this.siegeOf(HOME_ID, now);
   }
 
+  /**
+   * Хлеб нашего города в минуту `at`, пока он в осаде, — остаток окна (`siege.foodLeft`; docs/siege_v2.md, 21.1): лагерь
+   * логова у наших стен или лагерь игрока (окно посчитал сервер войны). Осады нет — бесконечность: хлеб — склад.
+   */
+  private homeBread(at: number): number {
+    let bread = Infinity;
+    const w = this.save.sieges[HOME_ID];
+    if (w && at >= w.startedAt) bread = Math.min(bread, foodLeft(w, at));
+    const war = this.warOnUs();
+    const c = war ? this.warWindow(war) : null;
+    if (c && at >= c.startedAt) bread = Math.min(bread, foodLeft(c, at));
+    return bread;
+  }
+
+  /**
+   * Постройки нашего города, по которым бьёт артиллерия лагеря с целью «город» (Р-5, `world/shelling`): всё, что стоит, кроме
+   * стены — по стене бьют своей целью. Заморожено в окне при постановке (`SiegeWindow.targets`); порядок — по имени, чтобы
+   * у мира и сервера один список.
+   */
+  private homeTargets(): string[] | undefined {
+    const levels = this.save.profile?.levels ?? {};
+    const out = Object.entries(levels)
+      .filter(([k, v]) => k !== 'palisade' && (v ?? 0) >= 1)
+      .map(([k]) => k)
+      .sort();
+    return out.length ? out : undefined;
+  }
+
+  /**
+   * Мощь гарнизона осаждённого — бойцов строя, без ополчения (оно стоит на стене и за ворота не выходит): с ней меряется кольцо
+   * блокады (`world/blockade`, вчетверо). У нашего города — оборона в эту минуту, у двора мира — его мощь.
+   */
+  private garrisonPower(id: SettlementId, at: number): number {
+    if (id === HOME_ID) return troopPower(this.defenders(at).all);
+    const s = this.byId.get(id);
+    return s ? this.powerNow(s, at) : 0;
+  }
+
+  /**
+   * Кольцо блокады в минуту события (Р-5, docs/siege_v2.md, 21.1): размыкается ударом с поля (`why` = `relief`) или мощью
+   * ниже порога; лагерь логова (бот, без решений) замыкает его сам, как только может, — правилом той же двери. Тика нет:
+   * зовут фаза, бой у лагеря и постановка.
+   */
+  private ringCheck(id: SettlementId, w: SiegeWindow, at: number, why?: BlockadeBreak): void {
+    const camp = this.campArmy(w, at);
+    if (!camp) return;
+    const on = blockadeAt(w, at);
+    if (on && why) {
+      Object.assign(w, blockadeAfter(w, at, false, why));
+      this.ringNote(id, w, at, false, why);
+      return;
+    }
+    const garrison = this.garrisonPower(id, at);
+    if (on && !blockadeHolds(camp.power, garrison)) {
+      Object.assign(w, blockadeAfter(w, at, false, 'ratio'));
+      this.ringNote(id, w, at, false, 'ratio');
+      return;
+    }
+    if (!on && !ourCamp(w) && blockadeBlock(w, at, camp.power, garrison) === null) {
+      Object.assign(w, blockadeAfter(w, at, true));
+      this.ringNote(id, w, at, true);
+    }
+  }
+
+  /** Строка летописи о кольце — тому, чья осада: наш город под лагерем или наш лагерь. */
+  private ringNote(id: SettlementId, w: SiegeWindow, at: number, on: boolean, why?: BlockadeBreak): void {
+    const ours = ourCamp(w);
+    if (!ours && id !== HOME_ID) return;
+    const town = id === HOME_ID ? this.homeName() : (this.byId.get(id)?.name ?? 'город');
+    const by = this.campArmy(w, at)?.name ?? 'лагерь';
+    const text = on
+      ? ours
+        ? `Кольцо вокруг ${town} замкнуто. ${BLOCKADE_GIVES}`
+        : `${by} замкнули кольцо вокруг города. ${BLOCKADE_GIVES}`
+      : `Кольцо вокруг ${town} разомкнуто: ${BREAK_WORDS[why ?? 'order']}.`;
+    // Своему лагерю кольцо — удача, своему городу — беда; разомкнутое — наоборот.
+    this.phaseNote(text, at, on === ours, 'ring');
+  }
+
   /** Какое поселение держит в осаде наш полководец. null — лагеря нет. */
   private ourSiege(now: number): SettlementId | null {
     for (const [id, w] of Object.entries(this.save.sieges)) {
@@ -1206,6 +1345,9 @@ export class LocalWorld implements WorldApi {
       // Отметки «осада» нашего полководца — при постановке лагеря; переговоры той же осады переносятся (этап 2е).
       lead: same ? same.lead : campId === PLAYER_CAMP ? this.save.profile?.pips?.siege : undefined,
       offers: same?.offers,
+      // Требушет на стене той же осады переносится; постройки под обстрелом — наш город при постановке (Р-5).
+      guns: same?.guns,
+      targets: same ? same.targets : id === HOME_ID ? this.homeTargets() : undefined,
     });
     // Рогатки держат те, кто их строил: у новой осады это лагерь в минуту постановки.
     // Спрашивается у того же `campArmy`, которым лагерь бьётся, — второго счёта людей нет.
@@ -1254,7 +1396,7 @@ export class LocalWorld implements WorldApi {
   private phasesView(w: SiegeWindow, now: number, mine: boolean): SiegeView['phases'] {
     const next = nextRollAt(w);
     return {
-      journal: journalOf(w),
+      journal: journalOf(w, this.buildingName, (id) => MACHINE_NAME[id]),
       next: nextModsText(w, now),
       nextAt: next,
       nextK: rowsOf(w).length + 1,
@@ -1278,6 +1420,8 @@ export class LocalWorld implements WorldApi {
       starvesAt: this.hunger(w),
       garrison: w.garrisonAtStart,
       foodAtStart: w.foodAtStart,
+      // Хлеб в городе сейчас — остаток окна, та же функция, что решит голод (docs/siege_v2.md, 21.1).
+      bread: Math.floor(foodLeft(w, now)),
       campMen: camp?.men ?? 0,
       builders: this.buildersOf(w, now),
       ...(camp && w.fire ? { fire: { thin: camp.thin, cap: Math.max(w.fire.base, w.fire.thin), slow: w.fire.slow } } : {}),
@@ -1294,6 +1438,8 @@ export class LocalWorld implements WorldApi {
       ...(w.ration ? { ration: true } : {}),
       answers: this.answersOf(w, now, this.fateFor(w.fate, HOME_ID, now), camp?.kinds ?? null, []),
       parley: this.parleyDef(w, now, true, this.homeFair(w, now)),
+      // Кольцо блокады (Р-5): лагерь видно со стены, свой гарнизон — свой: соотношение точное.
+      blockade: this.blockadeView(w, now, camp?.power ?? 0, this.garrisonPower(HOME_ID, now), false),
     };
   }
 
@@ -1324,15 +1470,78 @@ export class LocalWorld implements WorldApi {
       })),
       ...(w.defend ? { defend: { ...w.defend } } : {}),
       reliefs,
+      // Р-5: требушет на стене и вылазка на пост кольца — в тех же ответах, той же ценой и тем же боем, что приказ.
+      ...(this.gunView(w, now) ? { gun: this.gunView(w, now) } : {}),
+      ...(blockadeAt(w, now) && campKinds ? { breakout: { guard: stackTotal(guardKinds(campKinds, BREAKOUT_SHARE)), gives: BREAKOUT_GIVES } } : {}),
     };
   }
 
   /** Хватает ли на складе (слепок деревни) — null; нет — строка отказа. */
-  private stockShort(cost: Partial<Record<ResourceId, number>>): string | null {
+  private stockShort(cost: Partial<Record<ResourceId, number>>, what = 'починку'): string | null {
     if (!Object.keys(cost).length) return 'Стен нет, чинить нечего.';
     const stock = this.save.profile?.stock ?? {};
-    for (const [r, v] of Object.entries(cost)) if ((stock[r as ResourceId] ?? 0) < (v ?? 0)) return 'На починку не хватает дерева и камня.';
+    for (const [r, v] of Object.entries(cost)) if ((stock[r as ResourceId] ?? 0) < (v ?? 0)) return `На ${what} не хватает дерева и камня.`;
     return null;
+  }
+
+  /** Имя постройки по ключу — для журнала фаз с выстрелами по городу (Р-5). */
+  private buildingName = (b: string): string => BUILDING_BY_ID[b as keyof typeof BUILDING_BY_ID]?.name ?? b;
+
+  /** Цель артиллерии лагеря глазами окна (Р-5, `world/shelling`): что даст каждая цель — до нажатия. */
+  private aimView(w: SiegeWindow, now: number): AimView {
+    const ready = artilleryAt(w, now);
+    const weight = ready.reduce((n, id) => n + ARTILLERY_WEIGHT[id], 0);
+    const current = artilleryAim(w, now);
+    return {
+      now: current,
+      artillery: ready.map((id) => ({ id, name: MACHINE_NAME[id], weight: ARTILLERY_WEIGHT[id] })),
+      options: AIMS.map((aim) => {
+        const reason = aim === current ? null : aimBlock(w, aim, now);
+        return { aim, name: AIM_NAME[aim], gives: aimWords(aim, weight), can: aim !== current && reason === null, reason };
+      }),
+    };
+  }
+
+  /**
+   * Кольцо блокады глазами окна (Р-5, `world/blockade`): условие, сейчас да или нет, что даёт и чем размыкают. `atk` —
+   * окно осаждающего (может замкнуть); `rough` — мощь гарнизона известна вилкой (соотношение — «около»).
+   */
+  private blockadeView(w: SiegeWindow, now: number, camp: number, garrison: number, atk: boolean, rough = false): BlockadeView {
+    const on = blockadeAt(w, now);
+    const reason = on ? null : blockadeBlock(w, now, camp, garrison);
+    const last = [...blockadeDeeds(w)].reverse().find((d) => d.at <= now && !d.on);
+    const since = blockadeSince(w, now);
+    return {
+      on,
+      ...(on && since !== null ? { since } : {}),
+      ratio: `${rough ? '≈' : ''}${ratioWords(blockadeRatio(camp, garrison))}`,
+      need: BLOCKADE_RATIO,
+      can: atk && !on && reason === null,
+      reason: atk ? reason : null,
+      gives: BLOCKADE_GIVES,
+      breaks: BLOCKADE_BREAKS,
+      ...(last?.why ? { broke: BREAK_WORDS[last.why] } : {}),
+    };
+  }
+
+  /** Требушет на стене глазами окна осаждённого (Р-5): состояние, цена и срок, цель. Стены нет — нет поля. */
+  private gunView(w: SiegeWindow, now: number): GunView | undefined {
+    if (!(w.wall && w.wall > 0)) return undefined;
+    const list = gunsAt(w, now);
+    const live = list.find((g) => g.live);
+    const state = live ? (live.ready ? 'ready' : 'building') : list.some((g) => g.broke) ? 'broken' : 'none';
+    const cost = wallRepairCost(w.wall);
+    const reason = gunBlock(w, now) ?? this.stockShort(cost, 'требушет');
+    return {
+      state,
+      ...(live && !live.ready ? { readyAt: live.readyAt } : {}),
+      cost,
+      span: GUN_SPAN,
+      can: reason === null,
+      reason,
+      aim: gunAimOf(w, now),
+      options: GUN_AIMS.map((aim) => ({ aim, name: GUN_AIM_NAME[aim], gives: gunAimWords(aim) })),
+    };
   }
 
   /**
@@ -1410,6 +1619,11 @@ export class LocalWorld implements WorldApi {
           return this.warSend({ op: 'defend', id: pvp.id, defend: cleanDefend(order.defend) ?? {} });
         case 'surrender':
           return this.warSend({ op: 'surrender', id: pvp.id });
+        // Требушет на стене: приказ серверу войны той же дверью, что машины лагеря (`machine`) и цель (`aim`).
+        case 'gun':
+          return this.warSend({ op: 'machine', id: pvp.id, machine: 'trebuchet' });
+        case 'gunAim':
+          return this.warSend({ op: 'aim', id: pvp.id, aim: order.aim });
       }
     }
     switch (order.act) {
@@ -1433,6 +1647,21 @@ export class LocalWorld implements WorldApi {
         // Сдача — та же дверь, что «ворота открыли» на фазе (ответ владельца 5): участь мягче, гарнизон уходит живым.
         this.siegeFalls(HOME_ID, now, 'gates');
         break;
+      case 'gun': {
+        // Требушет на стене (Р-5): цена — та же, что починка пролома; строится сроком требушета лагеря при всём лесе.
+        const cost = wallRepairCost(w.wall ?? 0);
+        const why = gunBlock(w, now) ?? this.stockShort(cost, 'требушет');
+        if (why) return why;
+        w.guns = gunAfter(w, now);
+        this.payStock(cost, `siege-gun-${now}`, `На стену ставят требушет. Встанет через ${formatLeft(GUN_SPAN / 1000)}.`, now);
+        break;
+      }
+      case 'gunAim': {
+        const why = gunAimBlock(w, order.aim, now);
+        if (why) return why;
+        w.log = [...(w.log ?? []), { at: now, act: 'gunAim', aim: order.aim }];
+        break;
+      }
     }
     this.write();
     return null;
@@ -1506,7 +1735,7 @@ export class LocalWorld implements WorldApi {
    */
   private payTribute(w: SiegeWindow, price: number, at: number): void {
     const p = this.save.profile;
-    const paid = tributeGoods(p?.stock ?? {}, p?.gold ?? 0, p?.stash ?? 0, price);
+    const paid = tributeGoods(breadStock(p?.stock ?? {}, foodLeft(w, at)), p?.gold ?? 0, p?.stash ?? 0, price);
     const camp = this.save.marches.find((m) => m.id === w.campId);
     const from = this.byId.get(w.byId)?.name ?? camp?.fromName ?? 'Враги';
     this.save.siegeImmune[HOME_ID] = immuneUntil(at);
@@ -1714,7 +1943,8 @@ export class LocalWorld implements WorldApi {
     const camp = this.save.marches.find((m) => m.id === w.campId);
     const f = this.fateFor(w.fate, HOME_ID, at);
     const haul = this.haul(camp?.units ?? {}, false);
-    const r = this.fateHome(this.save.profile, haul.carry, haul.escort, at, f);
+    // «Кончится хлеб — унесут…»: прогноз падения голодом, и хлеба в нём нет — его съела осада.
+    const r = this.fateHome(this.save.profile, haul.carry, haul.escort, at, f, 0);
     const gold = r.lost.gold ?? 0;
     return {
       goods: r.lostTotal - gold,
@@ -2131,7 +2361,8 @@ export class LocalWorld implements WorldApi {
     for (const r of this.save.reports) {
       const site = r.battle?.site;
       if (!site || r.target.id !== id || r.at < since || r.at > at) continue;
-      fights.push({ at: r.at, site, won: r.won, report: r.id });
+      // Вылазка на пост кольца (Р-5) — бой за кольцо: донесение `breakout…` (`LocalWorld.breakout`).
+      fights.push({ at: r.at, site, won: r.won, report: r.id, ...(r.id.startsWith('breakout') ? { ring: true as const } : {}) });
     }
     const spot = home ? this.save.home : (this.byId.get(id) ?? this.save.home);
     return siegeRecordOf(
@@ -2179,6 +2410,8 @@ export class LocalWorld implements WorldApi {
     // и читает её оттуда. Древесины отряд не делит — рубит по правилу бота.
     const w = this.openSiegeAt(HOME_ID, m.fromId, m.id, at, 0, { fate: m.fate });
     this.save.siegeAgainAt[HOME_ID] = at + SIEGE_COOLDOWN;
+    // Лагерь логова — бот: замыкает кольцо блокады в минуту постановки, если мощи вчетверо (Р-5, правило той же двери).
+    this.ringCheck(HOME_ID, w, at);
     // Марш становится стоянкой у ворот. `from` не трогаем: по нему лагерь потом
     // уйдёт домой, и подменить его точкой стоянки значило бы отправить чужаков
     // восвояси в нашу же деревню.
@@ -2434,7 +2667,8 @@ export class LocalWorld implements WorldApi {
     this.liftedFate(HOME_ID, at, declared);
     this.markFall(HOME_ID, declared, at);
     const haul = this.haul(camp?.units ?? {}, false);
-    const spoils = this.fateHome(p ?? null, haul.carry, haul.escort, at, declared);
+    // Окно к этой минуте уже снято (`siegeFalls` → `liftSiege`): хлеб — его остаток в минуту падения, у голода — ноль.
+    const spoils = this.fateHome(p ?? null, haul.carry, haul.escort, at, declared, foodLeft(w, at));
     const loss = homeLoss(spoils);
     if (FATES[declared].chain) this.save.burnImmune[HOME_ID] = burnImmuneUntil(at);
     const from = this.byId.get(w.byId)?.name ?? camp?.fromName ?? 'Враги';
@@ -2468,6 +2702,8 @@ export class LocalWorld implements WorldApi {
       lostTroops: men > 0 ? routed : undefined,
       // Гарнизон рассеян, а не ранен: лазарет его не кладёт (docs/infirmary.md, решение 7).
       routed: true,
+      // Взят голодом — хлеба нет (docs/siege_v2.md, 21.1): остаток склада племени съеден осадой.
+      ...(gates ? {} : { starved: true as const }),
       prestige: 0,
       morale: -12,
       // Настоящего боя не было: город взяли голодом, и записывать это в
@@ -2539,14 +2775,27 @@ export class LocalWorld implements WorldApi {
     // Пустой амбар дома удваивает истощение нашего лагеря (раздел 3.3): второго склада у лагеря нет.
     const row = rollPhase(w, k, ours && (this.save.profile?.food ?? 1) <= 0);
     w.phases = [...rowsOf(w), row];
+    // Выстрелы фазы (Р-5): разбитые машины и требушет на стене — той же дверью, что у сервера войны.
+    const shot = shotsApplied(w, row, at);
+    if (shot.machines !== w.machines) w.machines = shot.machines;
+    if (shot.guns !== w.guns) w.guns = shot.guns;
     const town = id === HOME_ID ? this.homeName() : (this.byId.get(id)?.name ?? 'город');
     const involved = ours || id === HOME_ID;
+    // Строка летописи — только когда что-то попало: промахи видны в журнале фаз окна, а не в «Вестях».
+    const theirs = (ours ? row.gun : row.shots) ?? [];
+    const hit = [...(row.shots ?? []), ...(row.gun ?? [])].some((x) => x.hit);
+    const said = shotsText(row.shots ?? [], row.gun ?? [], this.buildingName, (m) => MACHINE_NAME[m]);
+    if (involved && hit && said) this.phaseNote(`Осада ${town}, фаза ${k}: ${said}.`, at, !theirs.some((x) => x.hit), 'shots');
+    // Попадание, отнимающее уровень, — по нашему городу: последствие один раз, как у обстрела с сервера войны.
+    if (id === HOME_ID) (row.shots ?? []).forEach((x, i) => x.lost && x.building && this.shotLoss(`siege-shot-${at}-${i}`, x.building));
     // Истощение — каждую фазу, а строка летописи — только о море: обычная убыль видна в журнале фаз окна осады.
     if (row.waste > 0) {
       const plague = involved && row.out === 'plague';
       this.wearCamp(w, row.waste, at, `Осада ${town}, фаза ${k}: ${OUT_NAMES[row.out]}.`, 'Лагерь тает: болезни, бегство, фураж.', false, plague && ourCamp(w));
     }
     if (this.save.sieges[id] !== w) return;
+    // Кольцо блокады в минуту фазы (Р-5): держит ли мощь лагеря; лагерь логова замыкает его сам, когда может.
+    this.ringCheck(id, w, at);
     if ((this.campArmy(w, at)?.men ?? 0) <= 0) {
       this.liftSiege(id, at, 'wasted');
       if (involved) this.phaseNote(`Лагерь под ${town} растаял к ${k}-й фазе: осада снята.`, at, id === HOME_ID);
@@ -2564,9 +2813,9 @@ export class LocalWorld implements WorldApi {
     if (id === HOME_ID && !ours) this.homeDefend(w, row, at);
   }
 
-  /** Строка летописи о фазе осады: без потерь и добычи, только весть. */
-  private phaseNote(text: string, at: number, good: boolean): void {
-    this.addEffect({ id: `siege-phase-${at}`, lost: {}, resources: {}, prestige: 0, morale: 0, battle: null, text, good });
+  /** Строка летописи о фазе осады: без потерь и добычи, только весть. `tag` — вторая весть той же минуты (кольцо, выстрелы). */
+  private phaseNote(text: string, at: number, good: boolean, tag?: string): void {
+    this.addEffect({ id: `siege-phase-${at}${tag ? `-${tag}` : ''}`, lost: {}, resources: {}, prestige: 0, morale: 0, battle: null, text, good });
   }
 
   /**
@@ -2679,12 +2928,14 @@ export class LocalWorld implements WorldApi {
    * Вылазка без урона противнику была бы чистым минусом, и кнопку никто не
    * нажал бы ни разу: поэтому потери лагеря ставятся **в обоих** исходах.
    */
-  private resolveSortieOn(id: SettlementId, at: number, field: FieldOutcome, why: string): number {
+  private resolveSortieOn(id: SettlementId, at: number, field: FieldOutcome, why: string, ring?: BlockadeBreak): number {
     const w = this.save.sieges[id];
     if (!w) return 0;
     // Разбитый лагерь не «устоял» (находка 2а): строка убыли говорит исход того же боя, что снимает осаду.
     const campLost = this.wearCamp(w, field.defenderLoss, at, why, field.won ? 'Лагерь разбит, осада снята.' : undefined);
     if (field.won) this.liftSiege(id, at, 'broken');
+    // Лагерь устоял — кольцо после боя (Р-5): удар с поля его размыкает, вылазка — если мощи больше не хватает.
+    else if (this.save.sieges[id] === w) this.ringCheck(id, w, at, ring);
     return campLost;
   }
 
@@ -2774,7 +3025,7 @@ export class LocalWorld implements WorldApi {
     // Проход занят — выручка к рогаткам не пробилась и ушла ни с чем.
     if (!out || out.refused) return;
     const ours = ourCamp(w);
-    const campLost = this.resolveSortieOn(id, at, out.field, `${m.fromName} пришли на выручку осаждённым.`);
+    const campLost = this.resolveSortieOn(id, at, out.field, `${m.fromName} пришли на выручку осаждённым.`, 'relief');
     if (!ours) return;
     // Бьют по нашему лагерю — значит, это наш бой, и отчёт о нём наш.
     const target = this.byId.get(id);
@@ -2810,7 +3061,7 @@ export class LocalWorld implements WorldApi {
    * теми же часами голода и тем же порядком падения, что у чужой осады: второй
    * реализации у осады нет.
    */
-  async besiege(fateId: Fate = FATE_DEFAULT): Promise<string | null> {
+  async besiege(fateId: Fate = FATE_DEFAULT, ring = false): Promise<string | null> {
     const now = this.clock();
     const f = this.save.figures.general;
     const off = this.offDuty('general', now) ?? this.retiringBlock('general');
@@ -2858,7 +3109,7 @@ export class LocalWorld implements WorldApi {
     // Осадный лагерь стоит энергию (слово владельца — десять), и пока он стоит, энергия не тратится.
     const tired = this.energyCost('general', 'siege', now).block;
     if (tired) return tired;
-    this.pitchCamp(target, now, fateId, priceOf('siege'));
+    this.pitchCamp(target, now, fateId, priceOf('siege'), ring);
     this.write();
     return null;
   }
@@ -2884,13 +3135,24 @@ export class LocalWorld implements WorldApi {
    * и осадить». `price` — цена лагеря, если она ещё не заплачена (у «Дойти и осадить» её списал приказ): с этой минуты
    * энергия в лагере стоит.
    */
-  private pitchCamp(target: GenSettlement, at: number, fateId: Fate, price: number): void {
+  private pitchCamp(target: GenSettlement, at: number, fateId: Fate, price: number, ring = false): void {
     const f = this.save.figures.general;
     const before = this.energyOf('general', at);
     // Лагерь игрока делит древесину сам, в окне осады; встаёт он со всем во фронт.
-    this.openSiegeAt(target.id, HOME_ID, PLAYER_CAMP, at, 0, { fate: fateId, wood: playerWood(WOOD_SHARES[0]) });
+    const w = this.openSiegeAt(target.id, HOME_ID, PLAYER_CAMP, at, 0, { fate: fateId, wood: playerWood(WOOD_SHARES[0]) });
     this.restance('general', at, before, price);
     const now = at;
+    // «Блокада» (Р-5): кольцо в минуту постановки — той же проверкой, что приказ в окне лагеря; нет мощи — обычная осада.
+    let ringText = '';
+    if (ring) {
+      const camp = this.campArmy(w, at);
+      const why = camp ? blockadeBlock(w, at, camp.power, this.garrisonPower(target.id, at)) : 'Лагеря нет.';
+      if (why) ringText = ` Кольца не замкнули: ${why[0].toLowerCase()}${why.slice(1)}`;
+      else {
+        Object.assign(w, blockadeAfter(w, at, true));
+        ringText = ` Кольцо замкнуто. ${BLOCKADE_GIVES}`;
+      }
+    }
     this.addReport({
       id: `siege-set-${target.id}-${now}`,
       at: now,
@@ -2905,7 +3167,7 @@ export class LocalWorld implements WorldApi {
       loot: null,
       intel: null,
       battle: null,
-      text: `Отряд обложил город ${target.name}. Участь «${FATE_META[fateId].name.toLowerCase()}». ${CAMP_LEAVE}`,
+      text: `Отряд обложил город ${target.name}. Участь «${FATE_META[fateId].name.toLowerCase()}».${ringText} ${CAMP_LEAVE}`,
       read: false,
     });
     this.moveAttitude(target.id, ATTACK_ATTITUDE, now);
@@ -3719,10 +3981,11 @@ export class LocalWorld implements WorldApi {
    * казна, тайник и постройки — у игрока всё это в слепке. Соль выбора построек —
    * сид мира и минута падения: одно событие, один список.
    */
-  private fateHome(profile: PlayerProfile | null, carry: number, escort: number, at: number, declared: Fate): FateResult {
+  private fateHome(profile: PlayerProfile | null, carry: number, escort: number, at: number, declared: Fate, bread = this.homeBread(at)): FateResult {
     return fate({
       fate: declared,
-      stock: profile?.stock ?? {},
+      // Хлеб осаждённого города — хлеб окна осады (docs/siege_v2.md, 21.1): съеденного за осаду в обозе нет.
+      stock: breadStock(profile?.stock ?? {}, bread),
       gold: Math.max(0, Math.floor(profile?.gold ?? 0)),
       stash: profile?.stash ?? 0,
       pop: profile?.pop ?? 0,
@@ -4192,6 +4455,8 @@ export class LocalWorld implements WorldApi {
         // Дошёл до своих ворот — выбившийся из сил снова человек на месте: энергия копится, дела он берёт.
         if (f.phase === 'home') f.spent = undefined;
         this.onFigureArrived(id, at);
+        // Дело из «Походов» без своей двери прихода — в минуту прихода, ценой, списанной приказом (Р-4).
+        if (f.errand) this.errandArrived(id, at);
         // «Дойти и ударить»: бой в минуту прихода, не дожидаясь игрока, — онлайн и офлайн одинаково.
         if (id === 'general' && f.assault) this.assaultArrived(at);
         if (this.save.figures[id].phase === 'down') continue;
@@ -4209,6 +4474,8 @@ export class LocalWorld implements WorldApi {
         const target = near && !near.home ? this.byId.get(near.id) : null;
         if (target) this.save.intel[target.id] = this.snapshot(target, now);
       }
+      // Дело кончилось — домой, как освободится (Р-4).
+      this.errandBack(id, now);
     }
   }
 
@@ -4275,7 +4542,7 @@ export class LocalWorld implements WorldApi {
     }
     // Дипломата во враждебном дворе хватают, а не убивают: гибели у него нет, он уходит
     // только на покой. Спит — враждебных дворов на карте нет.
-    if (id === 'diplomat' && this.relationOf(target) === 'enemy' && rng() < 0.3) {
+    if (id === 'diplomat' && this.relationOf(target) === 'enemy' && rng() < ENVOY_SEIZE) {
       this.holdFigure(id, target, at, `схвачен во враждебном ${target.name}.`, { agent: 'diplomat', ok: false, at, person });
     }
   }
@@ -5784,6 +6051,7 @@ export class LocalWorld implements WorldApi {
   private strikeCheck(
     id: SettlementId,
     now: number,
+    out = false,
   ):
     | { error: string }
     | { error: null; f: StoredFigure; force: TroopStack; to: Coord; seconds: GameSec } {
@@ -5794,7 +6062,14 @@ export class LocalWorld implements WorldApi {
     if (f.handover) return { error: `Отряд ещё в сборе: ${formatLeft(Math.max(0, f.handover.until - now) / 1000)}.` };
     if (f.war) return { error: WAR_BUSY };
     if (troopTotal(f.troops ?? {}) === 0) return { error: 'При полководце нет отряда.' };
-    const force = fieldTroops(f, now);
+    // Дело из «Походов» по чужому лагерю (`out`, Р-4): полководец выходит из своих ворот с отрядом — та же дверь выхода,
+    // что у похода и «дойти и ударить». Лагерь под своим городом из города бьют вылазкой, а не делом.
+    const leaving = out && id !== HOME_ID && postureOf(f, now) === 'stands';
+    if (leaving) {
+      const blocked = this.siegeBlock(now);
+      if (blocked) return { error: blocked };
+    }
+    const force = leaving ? { ...(f.troops ?? {}) } : fieldTroops(f, now);
     if (troopTotal(force) === 0) return { error: STRIKE_FROM_TOWN };
     if (this.ourSiege(now)) return { error: `${CAMP_BUSY} ${CAMP_LEAVE}` };
     const w = this.siegeOf(id, now);
@@ -5815,14 +6090,14 @@ export class LocalWorld implements WorldApi {
     return { error: null, f, force, to, seconds };
   }
 
-  async strikePlan(id: SettlementId, garrison: boolean): Promise<StrikePlan> {
+  async strikePlan(id: SettlementId, garrison: boolean, out = false): Promise<StrikePlan> {
     const now = this.clock();
     // Лагерь игрока под нашими стенами: удар бьёт сервер, план — той же `strikeForecast` (docs/pvp.md).
     const pvp = id === HOME_ID && !this.homeSiege(now) ? this.warOnUs() : null;
     if (pvp) return this.warStrikePlan(pvp, garrison, now);
     const garrisonable = id === HOME_ID;
     const rout = perilShare(routPeril(distance(this.save.home, this.campSpot(id))));
-    const check = this.strikeCheck(id, now);
+    const check = this.strikeCheck(id, now, out);
     if (check.error !== null) {
       return { can: false, reason: check.error, seconds: asGame(0), rear: { went: 0, passed: 0 }, front: null, garrisonable, rout };
     }
@@ -5861,17 +6136,17 @@ export class LocalWorld implements WorldApi {
     return { id: HOME_ID, name: this.homeName(), x: this.save.home.x, y: this.save.home.y };
   }
 
-  async strikeCamp(id: SettlementId, garrison: boolean): Promise<string | null> {
+  async strikeCamp(id: SettlementId, garrison: boolean, out = false): Promise<string | null> {
     const now = this.clock();
     const pvp = id === HOME_ID && !this.homeSiege(now) ? this.warOnUs() : null;
     if (pvp) return this.warStrike(pvp, garrison, now);
-    const check = this.strikeCheck(id, now);
+    const check = this.strikeCheck(id, now, out);
     if (check.error !== null) return check.error;
     const { f, to, seconds } = check;
     const withGarrison = garrison && id === HOME_ID;
     // Пробиться к приходу некому — отказ тем же планом, которым гасится кнопка:
     // принять приказ, который погашен в меню, значило бы разойтись с ним.
-    const plan = await this.strikePlan(id, withGarrison);
+    const plan = await this.strikePlan(id, withGarrison, out);
     if (!plan.can) return plan.reason;
     if (seconds <= 0) {
       // Стоит у самого лагеря — бьёт сразу, без дороги. Цена — за бой, который был.
@@ -5951,6 +6226,8 @@ export class LocalWorld implements WorldApi {
       at,
       field,
       joint ? 'Полководец ударил по лагерю с тыла, гарнизон вышел из ворот.' : 'Полководец ударил по лагерю.',
+      // Удар по лагерю с поля размыкает кольцо блокады при любом исходе (Р-5): кольцо стягивается к бою.
+      'relief',
     );
     const target = id === HOME_ID ? null : this.byId.get(id);
     const place = target ? { id, name: target.name, x: target.x, y: target.y } : {
@@ -6871,9 +7148,10 @@ export class LocalWorld implements WorldApi {
     f.departAt = now;
     f.arriveAt = now + Math.round(realMs(seconds));
     f.phase = 'moving';
-    // Новый путь — новый приказ: удар по лагерю и «дойти и ударить», отданные раньше, отменены.
+    // Новый путь — новый приказ: удар по лагерю, «дойти и ударить» и дело из «Походов», отданные раньше, отменены.
     f.strike = undefined;
     f.assault = undefined;
+    f.errand = undefined;
     // Пошёл — значит перестал смотреть. Наблюдение, пережившее дорогу, вернулось
     // бы само собой на новом месте и запирало бы приказы там, где игрок его не
     // ставил: приказ, который молча станет чем-то другим, хуже отказа.
@@ -7689,19 +7967,19 @@ export class LocalWorld implements WorldApi {
    * штурма списывается при приказе (её хватит к приходу, с дорогой), и бой случается в минуту прихода
    * (`assaultArrived`) — онлайн и офлайн одинаково, игрока не ждёт. Стоит у ворот — бьёт сразу (`attack`).
    */
-  async assault(target: SettlementId, fateId: Fate = FATE_DEFAULT, mode: AssaultMode = 'storm'): Promise<string | null> {
+  async assault(target: SettlementId, fateId: Fate = FATE_DEFAULT, mode: AssaultMode = 'storm', ring = false): Promise<string | null> {
     const now = this.clock();
-    if (this.castleOf(target)) return this.warMarch(target, mode, fateId);
+    if (this.castleOf(target)) return this.warMarch(target, mode, fateId, ring && mode === 'siege');
     const plan = this.assaultOf(target, now, fateId, mode);
     if (!plan) return mode === 'siege' ? 'Осаждать тут некого.' : 'Бить тут некого.';
     if (!plan.can) return plan.reason;
-    if (plan.walkMs <= 0) return mode === 'siege' ? this.besiege(fateId) : (await this.attack({ fate: fateId })).error;
+    if (plan.walkMs <= 0) return mode === 'siege' ? this.besiege(fateId, ring) : (await this.attack({ fate: fateId })).error;
     const s = this.byId.get(target);
     if (!s) return 'Цель не найдена.';
     const f = this.save.figures.general;
     f.chase = undefined;
     this.walk('general', { x: s.x, y: s.y }, now);
-    f.assault = mode === 'siege' ? { id: target, fate: fateId, siege: true } : { id: target, fate: fateId };
+    f.assault = mode === 'siege' ? { id: target, fate: fateId, siege: true, ...(ring ? { blockade: true as const } : {}) } : { id: target, fate: fateId };
     // Цена — при приказе, как у удара по лагерю: бой (или лагерь) случится в минуту прихода, и энергии на него хватит
     // (`assaultOf`).
     this.payEnergy('general', mode, now);
@@ -7744,8 +8022,495 @@ export class LocalWorld implements WorldApi {
       return;
     }
     // «Дойти и осадить»: лагерь в минуту прихода, цена уже списана приказом.
-    if (order.siege) return this.pitchCamp(target as GenSettlement, at, order.fate, 0);
+    if (order.siege) return this.pitchCamp(target as GenSettlement, at, order.fate, 0, Boolean(order.blockade));
     this.attackAt(target as GenSettlement, at, order.fate);
+  }
+
+  // ---------- Дело агента у цели (Р-4, docs/AGENTS.md, раздел 16) ----------
+  //
+  // Свободной ходьбы нет (решение владельца 19.10.2026): агент идёт только к цели, делает там дело и сам возвращается
+  // домой. Дверь одна — меню `errands` и приказ `errand`. Сами дела исполняют их прежние двери (удар, осада, перехват,
+  // удар по лагерю, выручка, разведка, переговоры, дела лазутчика), и числа меню — их же планы: показанное и есть
+  // применённое. Какое дело несёт агент, помнит фигура (`StoredFigure.errand`); домой — `errandBack`, как освободится.
+
+  /** Где цель и какого она вида. null — цели нет: двор пропал, отряд ушёл. */
+  private errandSpot(t: ErrandTarget, now: number): ErrandSpot | null {
+    if (t.kind === 'home' || (t.kind === 'place' && t.id === HOME_ID)) return { kind: 'home', at: { ...this.save.home } };
+    if (t.kind === 'march') {
+      const m = this.chaseTarget(t.id);
+      return m ? { kind: 'march', at: marchPosition(m, now), m } : null;
+    }
+    const c = this.castleOf(t.id);
+    if (c) return { kind: 'rival', at: { x: c.x, y: c.y }, c };
+    const s = this.byId.get(t.id);
+    return s ? { kind: 'place', at: { x: s.x, y: s.y }, s } : null;
+  }
+
+  /** Дорога агента от того места, где он сейчас, до клетки, мс; ближе полуклетки — ноль. */
+  private walkMsTo(id: FigureId, to: Coord, now: number): number {
+    const from = this.figureAt(this.save.figures[id], now);
+    const d = distance(from, to);
+    if (d < 0.5) return 0;
+    return Math.round(realMs(travelTime(d, terrainFactor(this.save.seed, from, to), FIGURE_BY_ID[id].speed)));
+  }
+
+  /** Дорога домой от клетки дела, мс. */
+  private backMsFrom(id: FigureId, at: Coord): number {
+    const home = this.save.home;
+    const d = distance(at, home);
+    if (d < 0.5) return 0;
+    return Math.round(realMs(travelTime(d, terrainFactor(this.save.seed, at, home), FIGURE_BY_ID[id].speed)));
+  }
+
+  /**
+   * Почему агент сейчас не выйдет по делу; null — выйдет. Те же проверки, что у всякого выхода: в строю, не на покое,
+   * не занят прошлым делом, полководец не в походе на игрока, из осаждённого своего города не выходят, без сил из своих
+   * ворот не выходят. `home` — дело «домой»: дорога домой открыта всегда.
+   */
+  private errandBlock(id: FigureId, now: number, home: boolean): string | null {
+    const f = this.save.figures[id];
+    const off = this.offDuty(id, now) ?? (home ? null : this.retiringBlock(id));
+    if (off) return off;
+    if (id === 'general' && f.war) return home ? null : WAR_BUSY;
+    const busy = Math.max(0, (f.busyUntil ?? 0) - now);
+    if (busy > 0) return `${this.busyNote(id)}: ${formatLeft(busy / 1000)}.`;
+    if (home) return null;
+    if (this.touching(this.figureAt(f, now))?.home) {
+      const blocked = this.siegeBlock(now);
+      if (blocked) return blocked;
+      const idle = idleBlock(this.energyNow(id, now), id);
+      if (idle) return idle;
+    }
+    return null;
+  }
+
+  /** Гибель полководца условно — «если отряд перебьют до последнего», той же `routPeril`, что решит исход. */
+  private routRisk(at: Coord): string {
+    return `Если отряд перебьют до последнего, полководец погибнет с шансом ${perilText(perilShare(routPeril(distance(this.save.home, at))))}.`;
+  }
+
+  /** Риск лазутчика строками меню: удастся, гибель, сколько держат при провале. */
+  private spyRisk(chance: number | null, peril: number | null, held?: number): string[] {
+    return [
+      chance !== null ? `Удастся: ${Math.round(chance * 100)} %.` : '',
+      peril !== null ? `Гибель: ${perilText(peril)}.` : '',
+      held !== undefined ? `При провале задержат на ${formatLeft(held)}.` : '',
+    ].filter(Boolean);
+  }
+
+  async errands(agent: FigureId, t: ErrandTarget): Promise<ErrandOption[]> {
+    const now = this.clock();
+    const spot = this.errandSpot(t, now);
+    if (!spot) return [];
+    const rival = spot.kind === 'rival' && agent === 'spy' ? await this.spyMenu(spot.c.id) : null;
+    const out: ErrandOption[] = [];
+    for (const def of errandsOf(agent, spot.kind)) {
+      const o = await this.errandOption(agent, def, spot, now, rival);
+      if (o) out.push(o);
+    }
+    return out;
+  }
+
+  /**
+   * Строка меню одного дела — планом той двери, что его исполнит. Undefined — дела при этой цели сейчас нет вовсе:
+   * удар по лагерю без лагеря, выручка без осады союзника.
+   */
+  private async errandOption(agent: FigureId, def: ErrandDef, spot: ErrandSpot, now: number, rival: RivalMenu | null): Promise<ErrandOption | undefined> {
+    const f = this.save.figures[agent];
+    const walkMs = spot.kind === 'march' ? 0 : this.walkMsTo(agent, spot.at, now);
+    const base: ErrandOption = {
+      id: def.id,
+      agent,
+      name: def.name,
+      does: def.does,
+      can: false,
+      reason: null,
+      walkMs,
+      backMs: spot.kind === 'home' ? 0 : this.backMsFrom(agent, spot.at),
+      risk: [],
+      chance: null,
+      cost: {},
+      energy: null,
+      at: now,
+    };
+    const row = (reason: string | null, extra: Partial<ErrandOption> = {}): ErrandOption => ({ ...base, ...extra, can: reason === null, reason });
+    const id = def.id;
+
+    if (id === 'home') {
+      const atHome = f.phase === 'home' || placeOf(f) === 'city';
+      const moving = f.phase === 'moving' && this.touching(f.to)?.home;
+      return row(this.errandBlock(agent, now, true) ?? (atHome ? `${FIGURE_BY_ID[agent].name} уже дома.` : moving ? 'Уже идёт домой.' : null));
+    }
+
+    if (agent === 'general') {
+      if ((id === 'storm' || id === 'siege' || id === 'blockade') && (spot.kind === 'place' || spot.kind === 'rival')) {
+        const target = spot.kind === 'place' ? spot.s.id : spot.c.id;
+        const plan = this.assaultOf(target, now, FATE_DEFAULT, id === 'storm' ? 'storm' : 'siege');
+        if (!plan) return row(spot.kind === 'place' && !this.alive(spot.s, now) ? 'Здесь только пепелище: брать нечего.' : 'Бить тут некого.');
+        return row(plan.reason, { walkMs: plan.walkMs, energy: plan.energy, risk: [this.routRisk(spot.at)], fate: true });
+      }
+      if (id === 'intercept' && spot.kind === 'march') {
+        const { meet, reason } = this.planChase(spot.m, now);
+        return row(meet ? null : reason, {
+          walkMs: meet ? Math.max(0, Math.round(meet.time - now)) : 0,
+          backMs: meet ? this.backMsFrom(agent, meet.at) : 0,
+          energy: meet ? this.energyCost('general', 'chase', now, Math.max(0, meet.time - now)) : null,
+          risk: [this.routRisk(meet?.at ?? spot.at)],
+        });
+      }
+      if (id === 'strike' && (spot.kind === 'place' || spot.kind === 'home')) {
+        const town = spot.kind === 'place' ? spot.s.id : HOME_ID;
+        const camp = this.siegeOf(town, now);
+        if (!camp || ourCamp(camp)) return undefined;
+        const plan = await this.strikePlan(town, town === HOME_ID, true);
+        return row(plan.can ? null : plan.reason, { walkMs: Math.round(realMs(plan.seconds)), energy: plan.energy ?? null, risk: [this.routRisk(spot.at)] });
+      }
+      if (id === 'relief' && spot.kind === 'rival') {
+        const plan = this.reliefPlan(spot.c, now, true);
+        if (!plan) return undefined;
+        return row(plan.can ? null : plan.reason, { walkMs: Math.round(realMs(plan.seconds)), energy: plan.energy ?? null, risk: [this.routRisk(spot.at)] });
+      }
+      return undefined;
+    }
+
+    if (agent === 'scout') {
+      if (id === 'recon' && spot.kind === 'place') {
+        const block = this.errandBlock('scout', now, false) ?? (!this.inRealm(spot.s) ? this.beyond() : null) ?? (!this.alive(spot.s, now) ? 'Здесь только пепелище.' : null);
+        const energy = this.energyCost('scout', 'recon', now, walkMs);
+        const plan = this.scoutPlan(spot.at, now + walkMs);
+        const risk = plan.caught > 0 ? [`Часовые схватят: ${Math.round(plan.caught * 100)} %.`, `Гибель: ${perilText(plan.peril)}.`] : [];
+        return row(block ?? energy.block, { energy, risk });
+      }
+      if (id === 'shadow' && spot.kind === 'march') {
+        const meet = this.shadowMeet(spot.m, now);
+        const block = this.errandBlock('scout', now, false);
+        if (!meet) return row(block ?? `Не догнать: им идти ${formatLeft(secondsLeft(spot.m.arriveAt, now))}, дойдут раньше.`);
+        const road = Math.max(0, Math.round(meet.time - now));
+        const energy = this.energyCost('scout', 'shadow', now, road);
+        return row(block ?? energy.block, { walkMs: road, backMs: this.backMsFrom('scout', meet.at), energy });
+      }
+      return undefined;
+    }
+
+    if (agent === 'diplomat') {
+      // Дань за снятие осады — у своего города, пока под стенами лагерь (`parley`, docs/siege_v2.md, раздел 7). Дипломат
+      // выходит к лагерю у своих ворот: из дома, без дороги.
+      if (id === 'ransom') {
+        const w = this.homeSiege(now);
+        const pvp = w ? null : this.warOnUs();
+        if (!w && pvp?.phase !== 'camp') return undefined;
+        const block = this.errandBlock('diplomat', now, true) ?? (f.phase !== 'home' && placeOf(f) !== 'city' ? 'Дипломат не дома. Сначала позови его домой.' : null);
+        return row(block ?? (w ? this.tributeBlock(w, now, this.homeFair(w, now)) : null));
+      }
+      if (spot.kind === 'rival' && (id === 'pact' || id === 'unpact')) {
+        const energy = this.energyCost('diplomat', id === 'pact' ? 'pact' : 'war', now, walkMs);
+        return row(this.errandBlock('diplomat', now, false) ?? (!this.inRealm(spot.at) ? this.beyond() : null) ?? energy.block, { energy });
+      }
+      // Говорят с державой: у логова её нет, и строк, которые нечем исполнить, меню не показывает.
+      if (spot.kind !== 'place' || !spot.s.tribeId) return undefined;
+      if (isDeal(id)) {
+        const block = this.optionBlock('diplomat', spot.s, now, { road: walkMs }) ?? this.dealBlock(id, spot.s, now, { road: walkMs });
+        return row(block, { energy: this.energyCost('diplomat', 'deal', now, walkMs) });
+      }
+      const o = this.diploOptions(spot.s, now, { road: walkMs }).find((x) => x.id === id);
+      if (!o) return undefined;
+      const seize = this.relationOf(spot.s) === 'enemy' ? [`Во враждебном дворе схватят: ${Math.round(ENVOY_SEIZE * 100)} %.`] : [];
+      return row(o.reason, { chance: o.chance, cost: o.cost, energy: o.energy, risk: [...(o.chance !== null ? [`Согласятся: ${Math.round(o.chance * 100)} %.`] : []), ...seize] });
+    }
+
+    // Лазутчик.
+    if (spot.kind === 'rival') {
+      const o = rival?.options.find((x) => x.deed === id);
+      if (!o || !rival) return undefined;
+      return row(rival.error ?? o.reason, {
+        walkMs: rival.walkMs,
+        chance: o.chance,
+        energy: o.energy,
+        risk: this.spyRisk(o.chance, o.peril, Math.round(o.held / 1000)),
+        at: rival.at,
+      });
+    }
+    if (spot.kind !== 'place') return undefined;
+    // Бунт поднимают против державы: в логове не против кого (та же причина у `spyOptions`) — строки нет.
+    if (id === 'revolt' && !spot.s.tribeId) return undefined;
+    if (id === 'watch') {
+      return row(this.optionBlock('spy', spot.s, now, { road: walkMs }));
+    }
+    const o = this.spyOptions(spot.s, now, now + walkMs, { road: walkMs }).find((x) => x.id === id);
+    if (!o) return undefined;
+    return row(o.reason, { chance: o.chance, energy: o.energy, risk: this.spyRisk(o.chance, o.peril, o.held) });
+  }
+
+  /** Где и когда разведчик встретит отряд, выйдя сейчас: то же уравнение погони, что у перехвата (`pursuit`). */
+  private shadowMeet(m: StoredMarch, now: number): Meeting | null {
+    const from = this.figureAt(this.save.figures.scout, now);
+    return meetingOf(from, this.paceOf('scout', from, marchPosition(m, now)), m, now);
+  }
+
+  /**
+   * Приказ из «Походов»: агент идёт к цели, делает дело и сам возвращается домой. Дело чужого агента, не к той цели или
+   * не по меню — отказ: таблица одна (`data/errands`), и спрашивает её мир, а не кнопка. null — пошёл (или сделал, если
+   * уже стоял у цели), иначе причина.
+   */
+  async errand(o: ErrandOrder): Promise<string | null> {
+    const now = this.clock();
+    const def = errandDef(o.agent, o.deed);
+    if (!def) return 'Такого дела у него нет.';
+    const spot = this.errandSpot(o.target, now);
+    if (!spot) return 'Цели на месте нет.';
+    if (!def.on.includes(spot.kind)) return 'Это дело не к этой цели.';
+    if (o.fate !== undefined && !(o.fate in FATES)) return 'Такой участи нет.';
+    const fate = o.fate ?? FATE_DEFAULT;
+    const id = o.agent;
+    const f = this.save.figures[id];
+
+    if (o.deed === 'home') return this.recallFigure(id);
+    if (o.deed === 'ransom') {
+      const menu = await this.errandOption(id, def, spot, now, null);
+      if (!menu) return 'Под стенами никого.';
+      return menu.can ? this.parley({ act: 'offer', kind: 'tribute' }) : (menu.reason ?? 'Сейчас нельзя.');
+    }
+
+    if (id === 'general') {
+      if (spot.kind === 'rival') {
+        if (o.deed === 'relief') return this.relief(spot.c.id, true);
+        // Город игрока: поход ведёт сервер войны, и домой полководца ведёт он же.
+        return this.warMarch(spot.c.id, o.deed === 'storm' ? 'storm' : 'siege', fate, o.deed === 'blockade');
+      }
+      let err: string | null = 'Это дело не к этой цели.';
+      if ((o.deed === 'storm' || o.deed === 'siege') && spot.kind === 'place') err = await this.assault(spot.s.id, fate, o.deed);
+      // Блокада — та же осада с кольцом в минуту постановки (Р-5).
+      else if (o.deed === 'blockade' && spot.kind === 'place') err = await this.assault(spot.s.id, fate, 'siege', true);
+      else if (o.deed === 'intercept' && spot.kind === 'march') err = await this.intercept(spot.m.id);
+      else if (o.deed === 'strike' && (spot.kind === 'place' || spot.kind === 'home')) {
+        const town = spot.kind === 'place' ? spot.s.id : HOME_ID;
+        err = await this.strikeCamp(town, town === HOME_ID, true);
+      }
+      if (err) return err;
+      this.markErrand(id, o.deed, spot);
+      this.write();
+      return null;
+    }
+
+    // Остальные трое: меню на эту минуту, той же функцией, что показала его, — и путь к цели с оплаченным делом.
+    const menu = await this.errandOption(id, def, spot, now, spot.kind === 'rival' && id === 'spy' ? await this.spyMenu(spot.c.id) : null);
+    if (!menu) return 'Сейчас этого дела здесь нет.';
+    if (!menu.can) return menu.reason ?? 'Сейчас нельзя.';
+    // Дела лазутчика против соседа-игрока ведёт сервер войны: туда, дело и домой (docs/spy_pvp.md).
+    if (spot.kind === 'rival' && id === 'spy') return this.spyRival(spot.c.id, o.deed as RivalDeedId, o.shownAt ?? menu.at);
+
+    const to = spot.kind === 'march' ? (this.shadowMeet(spot.m, now) ?? null) : null;
+    if (spot.kind === 'march' && !to) return 'Не догнать.';
+    // Стоит у самой цели — дело сразу, без дороги.
+    const here = spot.kind !== 'march' && menu.walkMs === 0 && f.phase !== 'moving';
+    if (!here) {
+      // Увёл лазутчика с наблюдения — он перестал смотреть (`walk`).
+      this.walk(id, to ? clampToWorld(to.at) : { ...spot.at }, now, o.shownAt);
+      if (to) f.arriveAt = Math.max(now, Math.round(to.time));
+    }
+    this.markErrand(id, o.deed, spot);
+    const e = f.errand;
+    if (e && id === 'spy' && (o.deed === 'probe' || o.deed === 'revolt') && spot.kind === 'place') {
+      // Шанс и гибель — на минуту прихода, какими их видел игрок: применяется ровно показанное.
+      const shown = this.shownAt(o.shownAt, now);
+      const opt = this.spyOptions(spot.s, now, shown + (here ? 0 : f.arriveAt - now), { road: menu.walkMs }).find((x) => x.id === o.deed);
+      e.chance = opt?.chance ?? menu.chance ?? 0;
+      e.peril = opt?.peril ?? 0;
+      e.why = opt?.perilWhy ?? [];
+    }
+    const price = errandPrice(o.deed);
+    if (price) this.payEnergy(id, price, now);
+    if (here && id === 'scout' && spot.kind === 'place') this.save.intel[spot.s.id] = this.snapshot(spot.s, now);
+    else if (here) this.errandArrived(id, now);
+    this.write();
+    return null;
+  }
+
+  /** Отметить на фигуре дело, которое она несёт к цели. */
+  private markErrand(id: FigureId, deed: ErrandId, spot: ErrandSpot): void {
+    const target = spot.kind === 'place' ? spot.s.id : spot.kind === 'rival' ? spot.c.id : spot.kind === 'march' ? spot.m.id : HOME_ID;
+    this.save.figures[id].errand = { deed, target, since: this.clock() };
+  }
+
+  /**
+   * Агент дошёл с делом из «Походов» — дело в минуту прихода `at`, ценой, уже списанной приказом. Удар, осада, перехват
+   * и удар по лагерю полководца случаются своими дверями (`assaultArrived`, `resolveChase`, `resolveStrike`), разведка у
+   * ворот — приходом разведчика (`onFigureArrived`); здесь — то, у чего своей двери прихода нет.
+   */
+  private errandArrived(id: FigureId, at: number): void {
+    const f = this.save.figures[id];
+    const e = f.errand;
+    if (!e || f.phase === 'down' || f.gone || id === 'general' || (id === 'scout' && e.deed === 'recon')) return;
+    if (id === 'scout' && e.deed === 'shadow') return this.shadowArrived(at);
+    if (id === 'spy' && e.deed === 'watch') {
+      f.watching = true;
+      return;
+    }
+    if (id === 'diplomat' && this.castleOf(e.target)) {
+      // Предложение соседу-игроку передаёт сервер войны: на ближайшем пульсе (`sendEnvoy`), дипломат ждёт у ворот.
+      e.send = true;
+      return;
+    }
+    const s = this.byId.get(e.target);
+    const near = this.touching(this.figureAt(f, at));
+    const why = !s || near?.id !== s.id ? 'цели на месте нет.' : !this.alive(s, at) ? 'здесь только пепелище.' : null;
+    if (!s || why) {
+      this.errandMiss(id, s?.name ?? null, why ?? 'цели на месте нет.', at);
+      return;
+    }
+    if (id === 'spy' && (e.deed === 'probe' || e.deed === 'revolt')) {
+      const opt = this.spyOptions(s, at, at, 'paid').find((x) => x.id === e.deed);
+      if (opt && !opt.can) return this.errandMiss(id, s.name, opt.reason ?? 'дела не вышло.', at);
+      this.spyOrder(e.deed, s, at, e.chance ?? opt?.chance ?? 0, e.peril ?? 0, e.why ?? []);
+      return;
+    }
+    if (id === 'diplomat' && isDeal(e.deed)) {
+      const blocked = this.dealBlock(e.deed, s, at, 'paid');
+      if (blocked) return this.errandMiss(id, s.name, blocked, at);
+      this.dealAt(e.deed, s, at);
+      return;
+    }
+    if (id === 'diplomat') {
+      const opt = this.diploOptions(s, at, 'paid').find((x) => x.id === e.deed);
+      if (!opt) return;
+      if (!opt.can) return this.errandMiss(id, s.name, opt.reason ?? 'разговора не вышло.', at);
+      this.diploOrder(e.deed as DiploActionId, s, at, opt);
+    }
+  }
+
+  /** Дошёл, но дела не вышло — донесением и строкой летописи, почему; домой он пойдёт и так. */
+  private errandMiss(id: FigureId, name: string | null, why: string, at: number): void {
+    const text = `${FIGURE_BY_ID[id].name} дошёл${name ? ` до «${name}»` : ''}, но дела не было: ${why[0].toLowerCase()}${why.slice(1)}`;
+    const spot = this.figureAt(this.save.figures[id], at);
+    this.addReport({
+      id: `errand-miss-${id}-${at}`,
+      at,
+      kind: id === 'diplomat' ? 'support' : 'scout',
+      title: `${FIGURE_BY_ID[id].name}: дела не было`,
+      target: { id: HOME_ID, name: name ?? this.homeName(), x: Math.round(spot.x), y: Math.round(spot.y) },
+      won: false,
+      sent: {},
+      lost: {},
+      enemyPower: null,
+      enemyLost: null,
+      loot: null,
+      intel: null,
+      battle: null,
+      text,
+      read: false,
+    });
+    this.addEffect({
+      id: `errand-miss-${id}-${at}-eff`,
+      lost: {},
+      resources: {},
+      prestige: 0,
+      morale: 0,
+      battle: null,
+      text,
+      good: false,
+    });
+  }
+
+  /** Разведчик встретил отряд в поле (или не встретил): донесение — кто, сколько, куда и когда дойдут. */
+  private shadowArrived(at: number): void {
+    const f = this.save.figures.scout;
+    const e = f.errand;
+    const m = e ? this.chaseTarget(e.target) : null;
+    const here = this.figureAt(f, at);
+    const spot = { x: Math.round(here.x), y: Math.round(here.y) };
+    const met = m !== null && distance(here, marchPosition(m, at)) <= FIGURE_TOUCH;
+    const men = m ? stackSize(m.units) : 0;
+    this.addReport({
+      id: `shadow-${e?.target ?? 'lost'}-${at}`,
+      at,
+      kind: 'scout',
+      title: met && m ? `Отряд сочтён: ${m.fromName}` : 'Отряд не встретил',
+      target: m ? { id: m.fromId, name: m.fromName, x: spot.x, y: spot.y } : { id: HOME_ID, name: this.homeName(), x: spot.x, y: spot.y },
+      won: met,
+      sent: {},
+      lost: {},
+      enemyPower: met && m ? Math.round(m.power) : null,
+      enemyLost: null,
+      loot: null,
+      intel: null,
+      battle: null,
+      text:
+        met && m
+          ? `${m.fromName}: бойцов ${men}, идут на ${m.toName}, дойдут через ${formatLeft(secondsLeft(m.arriveAt, at))}.`
+          : 'Отряд ушёл раньше или свернул. Разведчик вернётся домой.',
+      read: false,
+    });
+    if (met) {
+      this.addEffect({
+        id: `shadow-${e?.target ?? 'lost'}-${at}-eff`,
+        lost: {},
+        resources: {},
+        prestige: 0,
+        morale: 0,
+        battle: null,
+        deed: { agent: 'scout', ok: true, at, person: f.person ?? 0 },
+        text: '',
+        good: true,
+      });
+    }
+  }
+
+  /**
+   * Дипломат у замка соседа-игрока передаёт союз или его разрыв серверу войны — на пульсе после прихода: приказ серверу
+   * асинхронный, а ход фигур — нет. Ответ сервера — донесением; дальше дипломат идёт домой.
+   */
+  private async sendEnvoy(now: number): Promise<void> {
+    const f = this.save.figures.diplomat;
+    const e = f.errand;
+    if (!e?.send || f.phase !== 'field') return;
+    const c = this.castleOf(e.target);
+    const off = e.deed === 'unpact';
+    const err = c ? await this.warSend(off ? { op: 'unpact', target: e.target } : { op: 'pact', target: e.target }) : 'Соседа нет на месте.';
+    const city = c ? cityOr(c.city) : 'сосед';
+    e.send = undefined;
+    this.addReport({
+      id: `envoy-${e.target}-${e.deed}-${now}`,
+      at: now,
+      kind: 'support',
+      title: `${off ? 'Разрыв союза' : 'Союз'}: ${city}`,
+      target: { id: e.target, name: city, x: Math.round(f.to.x), y: Math.round(f.to.y) },
+      won: err === null,
+      sent: {},
+      lost: {},
+      enemyPower: null,
+      enemyLost: null,
+      loot: null,
+      intel: null,
+      battle: null,
+      text: err ?? (off ? 'Дипломат передал разрыв: союза больше нет.' : 'Дипломат передал предложение союза. Согласится ли сосед, решит он сам.'),
+      read: false,
+    });
+    this.write();
+  }
+
+  /**
+   * Дело кончилось — домой, как освободится: с минуты прихода, а занятый на переговорах, отлёживающийся после дела или
+   * задержанный — с минуты, когда отпустят. Наблюдение держится, пока его не снимут («Домой»); осада — пока стоит наш
+   * лагерь; выбитый из строя и выбившийся из сил идут домой своими дверями. Онлайн и офлайн — одна дорога: минута
+   * выхода выведена из отметок, а не из пульса.
+   */
+  private errandBack(id: FigureId, now: number): void {
+    const f = this.save.figures[id];
+    const e = f.errand;
+    if (!e) return;
+    if (f.gone || f.phase === 'down' || f.phase === 'home' || placeOf(f) === 'city' || f.spent !== undefined) {
+      f.errand = undefined;
+      return;
+    }
+    if (f.phase === 'moving' || e.send) return;
+    if (id === 'general' && (f.war || f.chase || f.strike || f.assault)) return;
+    if (id === 'general' && (e.deed === 'siege' || e.deed === 'blockade') && this.ourSiege(now)) return;
+    if (id === 'spy' && e.deed === 'watch' && f.watching) return;
+    // Осада и наблюдение кончаются не минутой прихода, а приказом или падением города: домой — с этого пульса.
+    const free = e.deed === 'siege' || e.deed === 'blockade' || e.deed === 'watch' ? now : Math.max(e.since ?? 0, f.departAt, f.busyUntil ?? 0, f.energy?.at ?? 0);
+    if (free > now) return;
+    f.errand = undefined;
+    this.walk(id, { ...this.save.home }, free);
   }
 
   /**
@@ -7818,6 +8583,150 @@ export class LocalWorld implements WorldApi {
     w.machines = machineAfter(w, id, now);
     this.write();
     return null;
+  }
+
+  /**
+   * Цель артиллерии своего лагеря (Р-5, `world/shelling`): стены, город или машины на стене — дело с минутой в журнале окна,
+   * и бросок фазы читает его задним числом. Энергии не стоит: машины бьют сами, полководец только указывает. Лагерь под
+   * городом игрока — приказом серверу войны той же дверью.
+   */
+  async aimArtillery(aim: Aim): Promise<string | null> {
+    const now = this.clock();
+    if (!AIMS.includes(aim)) return 'Такой цели нет.';
+    const sid = this.ourSiege(now);
+    const w = sid ? this.save.sieges[sid] : null;
+    if (!w) {
+      const led = this.warLed();
+      return led?.phase === 'camp' ? this.warSend({ op: 'aim', id: led.id, aim }) : 'Лагеря нет.';
+    }
+    const why = aimBlock(w, aim, now);
+    if (why) return why;
+    w.log = [...(w.log ?? []), { at: now, act: 'aim', aim }];
+    this.write();
+    return null;
+  }
+
+  /**
+   * Кольцо блокады своего лагеря (Р-5, `world/blockade`): замкнуть — если лагерь вчетверо мощнее гарнизона и кольцо не
+   * прорвали в этой фазе; разомкнуть — когда угодно. Лагерь под городом игрока — приказом серверу войны.
+   */
+  async blockade(on: boolean): Promise<string | null> {
+    const now = this.clock();
+    const sid = this.ourSiege(now);
+    const w = sid ? this.save.sieges[sid] : null;
+    if (!w || !sid) {
+      const led = this.warLed();
+      return led?.phase === 'camp' ? this.warSend({ op: 'blockade', id: led.id, on }) : 'Лагеря нет.';
+    }
+    const camp = this.campArmy(w, now);
+    if (!camp) return 'Лагеря нет.';
+    if (!on) {
+      if (!blockadeAt(w, now)) return 'Кольцо и так разомкнуто.';
+      Object.assign(w, blockadeAfter(w, now, false, 'order'));
+      this.ringNote(sid, w, now, false, 'order');
+    } else {
+      const why = blockadeBlock(w, now, camp.power, this.garrisonPower(sid, now));
+      if (why) return why;
+      Object.assign(w, blockadeAfter(w, now, true));
+      this.ringNote(sid, w, now, true);
+    }
+    this.write();
+    return null;
+  }
+
+  /**
+   * Вылазка «прорвать блокаду» (Р-5): вышедшие из ворот бьются с постом кольца — четвертью лагеря (`BREAKOUT_SHARE`) — в
+   * поле, без рогаток, той же дверью, что вылазка на машину (`fights.machineFight`). Победа размыкает кольцо; лагерь стоит
+   * в любом случае. Под лагерем игрока — приказом серверу войны.
+   */
+  async breakout(troops: TroopStack): Promise<AttackResult> {
+    const now = this.clock();
+    const w = this.homeSiege(now);
+    const held = this.defenders(now);
+    const home = held.all;
+    const going: TroopStack = {};
+    for (const [key, raw] of Object.entries(troops ?? {}) as [keyof TroopStack, number][]) {
+      const n = Math.max(0, Math.floor(raw ?? 0));
+      if (n <= 0) continue;
+      if (n > (home[key] ?? 0)) return { error: 'Столько бойцов дома нет.', reportId: null, won: false };
+      going[key] = n;
+    }
+    if (troopTotal(going) === 0) return { error: 'Отряд пустой.', reportId: null, won: false };
+    if (!w) {
+      const pvp = this.warOnUs();
+      if (!pvp?.camp) return { error: 'Под стенами никого.', reportId: null, won: false };
+      if (!blockadeAt(pvp.camp as unknown as SiegeWindow, now)) return { error: 'Кольца нет — прорывать нечего.', reportId: null, won: false };
+      const err = await this.warSend({ op: 'breakout', id: pvp.id, troops: going as Counts });
+      return err ? { error: err, reportId: null, won: false } : { error: null, ...this.warReportOf(pvp.id) };
+    }
+    if (!blockadeAt(w, now)) return { error: 'Кольца нет — прорывать нечего.', reportId: null, won: false };
+    const camp = this.campArmy(w, now);
+    if (!camp) return { error: 'Лагеря под стенами уже нет.', reportId: null, won: false };
+    const seed = marchSeed(this.save.seed, this.save.nextMarch++);
+    const goingStanding = standingShare(held.own, held.standing, going);
+    const rest = mixRest([
+      { rest: this.garrisonRest(held.own, now), men: this.menOf(troopsAfter(going, goingStanding)) },
+      { rest: this.generalRest(now), men: this.menOf(goingStanding) },
+    ]);
+    const guard = guardKinds(camp.kinds, BREAKOUT_SHARE);
+    const { field } = machineFight({
+      seed,
+      guard: { kinds: guard, resolve: camp.resolve, pips: camp.pips, rest: camp.rest },
+      sortie: { kinds: kindsOf(going), rest },
+      resolve: this.ownResolve(),
+      pips: this.homePips(now),
+      ground: groundAt(this.save.seed, this.save.home),
+    });
+    const lostTroops = field.result ? troopLosses(going, field.result.sides.attacker.losses) : {};
+    const lostMen = troopTotal(lostTroops);
+    if (field.result) this.homeBack(held, going, lostTroops, field.rest.attacker, now, 1);
+    const standing = this.standingLost(held.own, held.standing, lostTroops);
+    // Дрался пост, а не весь лагерь: убыль лагеря — его потери, доля поста.
+    const campLost = this.wearCamp(w, field.defenderLoss * BREAKOUT_SHARE, now, 'Гарнизон вышел на пост кольца.');
+    if (this.save.sieges[HOME_ID] === w) {
+      if (field.won) {
+        Object.assign(w, blockadeAfter(w, now, false, 'sortie'));
+        this.ringNote(HOME_ID, w, now, false, 'sortie');
+      } else this.ringCheck(HOME_ID, w, now);
+    }
+    const record: BattleRecord | null = field.result
+      ? { us: 'attacker', result: field.result, troops: { attacker: { ...going }, defender: troopsOfKinds(guard, camp.gear) }, place: this.placeOf(this.save.home), site: 'sortie' }
+      : null;
+    const reportId = `breakout${seed}`;
+    this.addReport({
+      id: reportId,
+      at: now,
+      kind: 'defense',
+      title: field.won ? `Кольцо прорвано: ${camp.name}` : `Вылазка на кольцо отбита: ${camp.name}`,
+      target: { id: HOME_ID, name: this.homeName(), x: this.save.home.x, y: this.save.home.y },
+      won: field.won,
+      sent: { warrior: troopTotal(going) },
+      lost: lostMen > 0 ? { warrior: lostMen } : {},
+      enemyPower: Math.round(camp.power * BREAKOUT_SHARE),
+      enemyLost: campLost,
+      loot: null,
+      intel: null,
+      battle: record,
+      text: field.won
+        ? `Гарнизон вышел на пост кольца и сбил его. Кольцо разомкнуто: добыча и караваны снова идут, лагерь стоит. Замкнуть снова он сможет со следующей фазы.`
+        : `Пост кольца устоял. Кольцо замкнуто, лагерь потерял ${campLost}.`,
+      read: false,
+    });
+    this.addEffect({
+      id: `${reportId}-eff`,
+      lost: lostMen > 0 ? { warrior: lostMen } : {},
+      lostTroops,
+      ...(troopTotal(standing) > 0 ? { standing } : {}),
+      resources: {},
+      prestige: field.won ? 2 : 0,
+      morale: field.won ? 4 : -3,
+      battle: field.won ? 'won' : 'lost',
+      text: field.won ? 'Вылазка прорвала кольцо.' : 'Вылазка на кольцо отбита.',
+      good: field.won,
+    });
+    if (this.save.sieges[HOME_ID] === w) this.resiege(HOME_ID, now);
+    this.write();
+    return { error: null, reportId, won: field.won };
   }
 
   /**
@@ -7909,6 +8818,9 @@ export class LocalWorld implements WorldApi {
       machines: this.machinesView(w, now, false),
       phases: this.phasesView(w, now, true),
       parley: this.parleyAtk(w, now, this.fateFor(w.fate, id, now), this.campFair(s, w, now)),
+      // Р-5: цель артиллерии и кольцо блокады. Гарнизон видно со стены лагеря — кольцо меряется им (`garrisonPower`).
+      aim: this.aimView(w, now),
+      blockade: this.blockadeView(w, now, this.campArmy(w, now)?.power ?? 0, this.garrisonPower(id, now), true),
       ...(relief ? { relief: { from: relief.fromName, men: Math.round(relief.units.warrior ?? 0), at: relief.arriveAt, joint: false } } : {}),
       // Мораль нашего лагеря — дружины. Мораль чужого гарнизона — живые данные, а живого обзора у полководца нет.
       ...this.restViews(this.campRestView(w, now), undefined),
@@ -7968,16 +8880,33 @@ export class LocalWorld implements WorldApi {
     const near = this.touching(this.figureAt(f, now));
     const target = near && !near.home ? this.byId.get(near.id) : null;
     if (!target) return 'Рядом нет чужого города.';
+    const blocked = this.dealBlock(deal, target, now);
+    if (blocked) return blocked;
+    // Договор — переговоры: цена в энергии дипломата (docs/agent_energy.md).
+    this.payEnergy('diplomat', 'deal', now);
+    this.dealAt(deal, target, now);
+    this.write();
+    return null;
+  }
+
+  /**
+   * Почему договор с державой двора не подпишут; null — подпишут. `road` — дело из «Походов»: энергии должно хватить к
+   * минуте прихода, с дорогой; `'paid'` — в минуту прихода, цену уже списал приказ.
+   */
+  private dealBlock(deal: DealId, target: GenSettlement, now: number, mode?: OptionMode): string | null {
     if (!target.tribeId) return 'С варварами не договариваются.';
     const def = DEAL_BY_ID[deal];
     const hostility = this.hostilityOf(target.tribeId);
     if (hostility > def.maxHostility) {
       return `Слишком много обид: вражда ${Math.round(hostility)}, нужна не выше ${def.maxHostility}.`;
     }
-    // Договор — переговоры: цена в энергии дипломата (docs/agent_energy.md).
-    const tired = this.energyCost('diplomat', 'deal', now).block;
-    if (tired) return tired;
-    this.payEnergy('diplomat', 'deal', now);
+    return mode === 'paid' ? null : this.energyCost('diplomat', 'deal', now, roadOf(mode)).block;
+  }
+
+  /** Договор подписан в минуту `now`: срок, отношения со всеми дворами державы, донесение. Проверки — `dealBlock`. */
+  private dealAt(deal: DealId, target: GenSettlement, now: number): void {
+    if (!target.tribeId) return;
+    const def = DEAL_BY_ID[deal];
     const tribe = this.save.pacts[target.tribeId] ?? (this.save.pacts[target.tribeId] = {});
     tribe[deal] = { until: now + DEAL_DURATION, paidAt: now };
     // Подпись греет отношения со всеми дворами племени: враждебность племени —
@@ -8013,8 +8942,6 @@ export class LocalWorld implements WorldApi {
       text: `Договор с державой ${name}: ${def.name.toLowerCase()}.`,
       good: true,
     });
-    this.write();
-    return null;
   }
 
   // ---------- Приказы дипломата ----------
@@ -8053,6 +8980,15 @@ export class LocalWorld implements WorldApi {
       short += Math.max(0, (n ?? 0) - (have[r] ?? 0));
     }
     return short;
+  }
+
+  /**
+   * Общий отказ строки меню: у ворот (`agentBlock`), в пути к цели делом (`errandBlock` — дойти ему ещё предстоит) или в
+   * минуту прихода с оплаченным делом (`'paid'`: стоит у ворот, цену списал приказ).
+   */
+  private optionBlock(id: FigureId, target: GenSettlement, now: number, mode?: OptionMode): string | null {
+    if (typeof mode !== 'object') return this.agentBlock(id, target, now);
+    return this.errandBlock(id, now, false) ?? (!this.inRealm(target) ? this.beyond() : null) ?? (!this.alive(target, now) ? 'Здесь только пепелище.' : null);
   }
 
   /**
@@ -8104,13 +9040,13 @@ export class LocalWorld implements WorldApi {
    * причиной: игрок обязан видеть, чего ему не хватает, а не гадать, куда
    * делась кнопка.
    */
-  private diploOptions(target: GenSettlement, now: number): OrderOption[] {
+  private diploOptions(target: GenSettlement, now: number, mode?: OptionMode): OrderOption[] {
     const rec = this.diploOf(target.id, now);
     const standing = standingAt(rec, now);
     const temper = this.temperOfSettlement(target);
     const pressure = this.damageOf(target.id, now);
     const common =
-      this.agentBlock('diplomat', target, now) ??
+      this.optionBlock('diplomat', target, now, mode) ??
       (!target.tribeId ? 'С варварами не договариваются.' : null);
 
     return DIPLO_ACTIONS.map((def) => {
@@ -8135,8 +9071,8 @@ export class LocalWorld implements WorldApi {
         }
       }
       // Переговоры стоят энергию дипломата — у каждого разговора своя цена (`data/energy`).
-      const energy = this.energyCost('diplomat', def.id, now);
-      if (!reason) reason = energy.block;
+      const energy = this.energyCost('diplomat', def.id, now, roadOf(mode));
+      if (!reason && mode !== 'paid') reason = energy.block;
       return {
         id: def.id,
         can: reason === null,
@@ -8158,8 +9094,8 @@ export class LocalWorld implements WorldApi {
    * и от тех же трёх входов: уровень лазутчика (Дозор игрока), стража цели и
    * расстояние. Показанный шанс и есть тот, по которому потом бросается кость.
    */
-  private spyOptions(target: GenSettlement, now: number, at = now): OrderOption[] {
-    const common = this.agentBlock('spy', target, now);
+  private spyOptions(target: GenSettlement, now: number, at = now, mode?: OptionMode): OrderOption[] {
+    const common = this.optionBlock('spy', target, now, mode);
     const keen = Math.max(1, this.save.profile?.intelKeen ?? 1);
     const guard = guardOf(this.powerNow(target, at), target.castle);
     const away = distance(this.save.home, target);
@@ -8175,8 +9111,8 @@ export class LocalWorld implements WorldApi {
         }
       }
       // Дело лазутчика стоит его энергию (`data/energy`): добром он не платит, платит силами и риском.
-      const energy = this.energyCost('spy', def.id, now);
-      if (!reason) reason = energy.block;
+      const energy = this.energyCost('spy', def.id, now, roadOf(mode));
+      if (!reason && mode !== 'paid') reason = energy.block;
       return {
         id: def.id,
         can: reason === null,
@@ -8233,8 +9169,15 @@ export class LocalWorld implements WorldApi {
     // Цена дела в энергии — при приказе, чем бы оно ни кончилось: разговор был, дело сделано (docs/agent_energy.md).
     this.payEnergy(agent, action, now);
     if (agent === 'spy') return this.spyOrder(action as 'probe' | 'revolt', s, now, opt.chance ?? 0, opt.peril ?? 0, opt.perilWhy);
+    return this.diploOrder(action as DiploActionId, s, now, opt);
+  }
 
-    const diplo = action as DiploActionId;
+  /**
+   * Приказ дипломата у ворот в минуту `now`: ответ двора, отношение, срок занятости, плата, донесение. Цену в энергии
+   * списал тот, кто зовёт: приказ у ворот — в эту же минуту, дело из «Походов» — при отправке (`errand`).
+   */
+  private diploOrder(diplo: DiploActionId, s: GenSettlement, now: number, opt: OrderOption): OrderResult {
+    const target = s.id;
     const rec = this.diploOf(target, now);
     const standing = standingAt(rec, now);
     const before = rec.attitude;
@@ -8474,6 +9417,9 @@ export class LocalWorld implements WorldApi {
     this.seatAgents(now);
     this.muster(now);
     this.advance(now);
+    // Дипломат у замка соседа передаёт союз или разрыв серверу войны — приказ асинхронный, ход фигур нет (Р-4).
+    await this.sendEnvoy(now);
+    this.errandBack('diplomat', now);
     // Война между игроками: итоги, посчитанные сервером, и полководец там, где его войско (docs/pvp.md).
     this.stepWars(now);
     // Вставшие раненые его отряда — к полководцу, после хода мира: дошедший до дома на этом пульсе принимает их сразу.
@@ -8599,7 +9545,18 @@ export class LocalWorld implements WorldApi {
           seen.add(rid);
           this.payStock(wallRepairCost(w.camp.wall ?? 0), rid, 'Пролом заделывают. К концу фазы стена будет цела.', d.at);
         }
+        // Требушет на стене (Р-5) — та же цена, что починка, и тот же порядок: один раз, по отметке.
+        for (const g of w.camp.guns ?? []) {
+          const gid = warGunId(w.id, g.at);
+          if (seen.has(gid) || g.at > now) continue;
+          seen.add(gid);
+          this.payStock(wallRepairCost(w.camp.wall ?? 0), gid, 'На стену ставят требушет.', g.at);
+        }
       }
+      // Обстрел нашего города (Р-5): каждое второе попадание в постройку — −1 уровень, не ниже первого; один раз, по отметке.
+      if (w.role === 'def') this.warShots(w, seen, now);
+      // Кольцо блокады войны (Р-5): строка летописи о замкнутом и разомкнутом кольце — один раз, по отметке.
+      this.warRing(w, seen, now);
       const fid = warFallId(w.id);
       if (w.fall && !seen.has(fid) && w.fall.at <= now) {
         seen.add(fid);
@@ -8618,7 +9575,11 @@ export class LocalWorld implements WorldApi {
     const led = this.save.figures.general.war;
     if (led && this.warsKnown?.() && !list.some((w) => w.id === led)) this.warHome(now, null);
     this.stepSpies(now, seen);
-    this.save.warSeen = keptSeen(seen, this.warsKnown?.() === false ? null : [...warSeenIds(list), ...this.spyList().map((x) => spySeenId(x.id))]);
+    this.stepRivals(list, seen);
+    this.save.warSeen = keptSeen(
+      seen,
+      this.warsKnown?.() === false ? null : [...warSeenIds(list), ...this.spyList().map((x) => spySeenId(x.id)), ...rivalSeenIds(list, this.proposalList())],
+    );
   }
 
   /** Полководец — где его войско по словам сервера: идёт, стоит лагерем, возвращается. */
@@ -8863,6 +9824,57 @@ export class LocalWorld implements WorldApi {
     });
   }
 
+  /** Кольцо блокады войны в летопись (Р-5): осаждённому — город отрезан или снова дышит, осаждающему — кольцо замкнуто и прорвано. */
+  private warRing(w: WarView, seen: Set<string>, now: number): void {
+    const camp = w.camp as unknown as SiegeWindow | undefined;
+    if (!camp) return;
+    const town = w.role === 'def' ? this.homeName() : this.warCity(w, 'def');
+    for (const d of blockadeDeeds(camp)) {
+      const rid = warRingId(w.id, d.at);
+      if (seen.has(rid) || d.at > now) continue;
+      seen.add(rid);
+      const text = d.on ? `Кольцо вокруг ${town} замкнуто. ${BLOCKADE_GIVES}` : `Кольцо вокруг ${town} разомкнуто: ${BREAK_WORDS[d.why ?? 'order']}.`;
+      // Осаждающему кольцо — удача, осаждённому — беда; разомкнутое — наоборот.
+      this.addEffect({ id: rid, lost: {}, resources: {}, prestige: 0, morale: 0, battle: null, text, good: d.on === (w.role === 'atk') });
+    }
+  }
+
+  /**
+   * Обстрел нашего города лагерем игрока (Р-5, `world/shelling`): выстрелы фаз посчитал сервер (строки журнала), и каждое
+   * попадание, отнявшее уровень, ложится последствием один раз — по отметке `warShotId`, как починка и падение.
+   */
+  private warShots(w: WarView, seen: Set<string>, now: number): void {
+    const rows = (w.camp?.phases ?? w.phases ?? []) as PhaseRow[];
+    rows.forEach((r, k) => {
+      if (r.at > now) return;
+      (r.shots ?? []).forEach((s, i) => {
+        if (!s.hit || !s.lost || !s.building) return;
+        const sid = warShotId(w.id, k + 1, i);
+        if (seen.has(sid)) return;
+        seen.add(sid);
+        this.shotLoss(sid, s.building);
+      });
+    });
+  }
+
+  /** Попадание, отнимающее уровень у постройки нашего города (`shelling.lostLevel`, не ниже первого), — последствием. */
+  private shotLoss(id: string, building: string): void {
+    const level = this.save.profile?.levels?.[building as keyof NonNullable<PlayerProfile['levels']>] ?? 0;
+    const to = lostLevel(level);
+    const name = this.buildingName(building);
+    this.addEffect({
+      id,
+      lost: {},
+      resources: {},
+      ...(to < level ? { fallen: [{ id: building, from: level, to }] } : {}),
+      prestige: 0,
+      morale: 0,
+      battle: null,
+      text: to < level ? `Обстрел разрушил: ${name} теряет уровень.` : `Обстрел снова попал: ${name} — ниже первого уровня не падает.`,
+      good: false,
+    });
+  }
+
   /** Город взят — участь, посчитанная сервером дверью `spoils.fate`: победителю увезённое, городу потери. */
   private warFall(w: WarView, f: WarFall): void {
     const how = FATE_META[f.fate].name.toLowerCase();
@@ -8950,6 +9962,8 @@ export class LocalWorld implements WorldApi {
       ...(f.popLost > 0 ? { popLost: f.popLost } : {}),
       ...(f.fallen.length > 0 ? { fallen: f.fallen.map((x) => ({ ...x })) } : {}),
       ...(f.burned ? { burned: true } : {}),
+      // Взят голодом — хлеба нет по окну, посчитанному сервером (docs/siege_v2.md, 21.1): остаток склада съеден.
+      ...(f.by === 'hunger' ? { starved: true as const } : {}),
       prestige: 0,
       morale: -12,
       battle: null,
@@ -8981,6 +9995,7 @@ export class LocalWorld implements WorldApi {
         won: b.won === (b.by === ours),
         report: `war-${b.id}`,
         ...(b.burn ? { machine: b.burn } : {}),
+        ...(b.breakout ? { ring: true as const } : {}),
         ...(b.ally ? { ally: true as const } : {}),
       }));
     return siegeRecordOf(
@@ -9113,7 +10128,7 @@ export class LocalWorld implements WorldApi {
   private warFallForecast(w: WarView, at: number): FallForecast {
     // Чужой обоз черту «Добычливый» не множит — та же дверь `haul`, что у набега на наш город.
     const haul = this.haul({ warrior: troopTotal(w.army.troops as TroopStack) }, false);
-    const r = this.fateHome(this.save.profile, haul.carry, haul.escort, at, w.fate);
+    const r = this.fateHome(this.save.profile, haul.carry, haul.escort, at, w.fate, 0);
     const gold = r.lost.gold ?? 0;
     return {
       goods: r.lostTotal - gold,
@@ -9145,6 +10160,7 @@ export class LocalWorld implements WorldApi {
       starvesAt: w.starvesAt ?? starvesAt(c),
       garrison: c.garrisonAtStart,
       foodAtStart: c.foodAtStart,
+      bread: Math.floor(foodLeft(c, now)),
       campMen: men,
       builders: c.builders ?? men,
       ...(c.gateAt !== undefined ? { gateAt: c.gateAt } : {}),
@@ -9174,7 +10190,17 @@ export class LocalWorld implements WorldApi {
       ),
       // Цену дани назначит сервер на минуту предложения той же формулой по слепку обороны; окно считает её по нашему складу.
       parley: this.parleyDef(c, now, false, fairTribute(this.homeBounty({ warrior: troopTotal(w.army.troops as TroopStack) }, now, w.fate), siegeShare(c, now))),
+      // Кольцо блокады (Р-5): лагерь — без выбитых башней, гарнизон — свой; решает сервер той же дверью (`war.ringCheck`).
+      blockade: this.blockadeView(c, now, troopPower(w.army.troops as TroopStack) * (1 - (c.fire ? fireView(c.fire, now).thin : 0)), troopPower(this.defenders(now).all), false),
+      // Постройки, стоящие без работы под обстрелом (Р-5): до броска следующей фазы — племя не берёт с них выработку.
+      ...this.idleOf(c, now),
     };
+  }
+
+  /** Постройки нашего города, стоящие без работы под обстрелом к минуте `now` (`shelling.idleBuildings`). Нет — нет поля. */
+  private idleOf(c: SiegeWindow, now: number): { idle?: string[] } {
+    const idle = idleBuildings(rowsOf(c), now, PHASE_MS);
+    return idle.length ? { idle } : {};
   }
 
   /** Наш лагерь под городом игрока — окно осаждающего. */
@@ -9224,6 +10250,9 @@ export class LocalWorld implements WorldApi {
       ...this.restViews(camp, undefined),
       phases: this.phasesView(c, now, true),
       parley: this.parleyAtk(c, now, w.fate, null),
+      // Р-5: цель артиллерии и кольцо. Мощь гарнизона соседа — вилкой реестра: соотношение «около», решает сервер.
+      aim: this.aimView(c, now),
+      blockade: this.blockadeView(c, now, troopPower(troops) * (1 - (c.fire ? fireView(c.fire, now).thin : 0)), power.value ?? 0, true, power.precision !== 'exact'),
     };
   }
 
@@ -9340,11 +10369,13 @@ export class LocalWorld implements WorldApi {
    * Выручка союзника до приказа (раздел 5): полководец из поля идёт к его городу и бьёт лагерь с тыла — тем же правилом,
    * что удар полководца по лагерю у своих стен (`warStrikePlan`): срок пути, хлеб союзника и цена удара в энергии.
    */
-  private reliefPlan(c: PlayerCastle, now: number): ReliefPlan | null {
+  private reliefPlan(c: PlayerCastle, now: number, out = false): ReliefPlan | null {
     const w = this.allySiege(c);
     if (!w) return null;
     const f = this.save.figures.general;
-    const force = fieldTroops(f, now);
+    // Дело из «Походов» (`out`, Р-4): полководец выходит на выручку из своих ворот с отрядом — дверью выхода `siegeBlock`.
+    const leaving = out && postureOf(f, now) === 'stands';
+    const force = leaving ? { ...(f.troops ?? {}) } : fieldTroops(f, now);
     const no = (reason: string): ReliefPlan => ({ can: false, reason, seconds: asGame(0), men: troopTotal(force) });
     const going = w.reliefs?.find((r) => r.castle === w.me);
     if (going) return { ...no('Наша дружина уже идёт на выручку.'), going: going.at };
@@ -9354,12 +10385,57 @@ export class LocalWorld implements WorldApi {
     this.settleHandover(f, now);
     if (f.handover) return no(`Отряд ещё в сборе: ${formatLeft(Math.max(0, f.handover.until - now) / 1000)}.`);
     if (troopTotal(f.troops ?? {}) === 0) return no('При полководце нет отряда.');
+    if (leaving) {
+      const blocked = this.siegeBlock(now);
+      if (blocked) return no(blocked);
+    }
     if (troopTotal(force) === 0) return no('Полководец в городе. На выручку идут из поля: выведи его за ворота.');
     const from = this.figureAt(f, now);
     const seconds = fieldWalkSeconds(from, c, terrainFactor(this.save.seed, from, c));
     if (now + realMs(seconds) >= (w.starvesAt ?? Infinity)) return no('Не успеть: хлеб у союзника кончится раньше.');
     const energy = this.energyCost('general', 'strike', now, realMs(seconds));
     return { can: !energy.block, reason: energy.block, seconds, men: troopTotal(force), energy };
+  }
+
+  // ---------- Соседи в «Вестях» (ДП-1) ----------
+
+  /** Предложения с сервера войны: ждущие ответа и итоги. */
+  private proposalList(): ProposalView[] {
+    return this.proposalsFrom?.() ?? [];
+  }
+
+  async rivals(): Promise<RivalMail> {
+    const marching = this.warList()
+      .filter((w) => w.role === 'def' && w.phase === 'march')
+      .map((w) => ({ id: w.id, castle: w.atkCastle, city: this.warCity(w, 'atk'), mode: w.mode, arriveAt: w.arriveAt }));
+    return { proposals: this.proposalList(), marching };
+  }
+
+  async answerProposal(id: string, act: ProposalAct): Promise<string | null> {
+    return this.warSend({ op: 'deal', id, act });
+  }
+
+  /**
+   * Итоги предложений и походы соседей на нас — в летопись, каждое один раз (`warSeen`), обеим сторонам своими словами
+   * (ДП-1). Ключ последствия — `dip-…`: летопись относит его к «Соседям» (`annals.refTopic`).
+   */
+  private stepRivals(list: readonly WarView[], seen: Set<string>): void {
+    for (const p of [...this.proposalList()].reverse()) {
+      if (!p.end) continue;
+      const id = proposalSeenId(p);
+      if (seen.has(id)) continue;
+      seen.add(id);
+      const good = p.end === 'yes' || (p.endBy === 'us' && p.end !== 'broken');
+      this.addEffect({ id, lost: {}, resources: {}, prestige: 0, morale: 0, battle: null, text: endWords(p), good });
+    }
+    for (const w of [...list].reverse()) {
+      if (w.role !== 'def') continue;
+      const id = rivalWarId(w.id);
+      if (seen.has(id)) continue;
+      seen.add(id);
+      const how = w.mode === 'storm' ? 'на штурм' : 'осадой';
+      this.addEffect({ id, lost: {}, resources: {}, prestige: 0, morale: 0, battle: null, text: `«${this.warCity(w, 'atk')}» идёт на нас походом — ${how}.`, good: false });
+    }
   }
 
   /**
@@ -9374,15 +10450,15 @@ export class LocalWorld implements WorldApi {
    * На выручку союзнику (раздел 5): полководец из поля идёт к его городу и бьёт лагерь с тыла в минуту прихода — бой
    * считает сервер войны. Цена удара — при приказе, как у удара по лагерю у своих стен.
    */
-  async relief(castle: SettlementId): Promise<string | null> {
+  async relief(castle: SettlementId, out = false): Promise<string | null> {
     const now = this.clock();
     const c = this.castleOf(castle);
     const w = c ? this.allySiege(c) : null;
     if (!c || !w) return 'Союзник не в осаде.';
-    const plan = this.reliefPlan(c, now);
+    const plan = this.reliefPlan(c, now, out);
     if (!plan?.can) return plan?.reason ?? 'Союзник не в осаде.';
     const f = this.save.figures.general;
-    const force = fieldTroops(f, now);
+    const force = out && postureOf(f, now) === 'stands' ? { ...(f.troops ?? {}) } : fieldTroops(f, now);
     const walkMs = Math.round(realMs(plan.seconds));
     const err = await this.warSend({
       op: 'relief',
@@ -9569,7 +10645,7 @@ export class LocalWorld implements WorldApi {
     return err;
   }
 
-  async warMarch(target: SettlementId, mode: 'storm' | 'siege', fateId: Fate): Promise<string | null> {
+  async warMarch(target: SettlementId, mode: 'storm' | 'siege', fateId: Fate, ring = false): Promise<string | null> {
     const now = this.clock();
     const c = this.castleOf(target);
     if (!c) return 'Этого города нет на карте.';
@@ -9587,6 +10663,8 @@ export class LocalWorld implements WorldApi {
       target,
       mode,
       fate: fateId,
+      // «Блокада» из «Походов» (Р-5): кольцо замкнёт сервер в минуту постановки, если мощи хватит.
+      ...(ring && mode === 'siege' ? { blockade: true as const } : {}),
       army: {
         troops: troops as Counts,
         resolve: this.ownResolve(),
@@ -10086,6 +11164,16 @@ function fallHow(f: WarFall): string {
   return 'Город взят штурмом';
 }
 
+/** Отметка итога предложения в летописи (ДП-1): номер и итог — у предложения итог один. */
+const proposalSeenId = (p: ProposalView): string => `dip-${p.id}-${p.end ?? 'open'}`;
+/** Отметка похода соседа на нас в летописи (ДП-1). */
+const rivalWarId = (war: string): string => `dip-war-${war}`;
+
+/** Отметки соседей, которые сервер ещё отдаёт: итоги предложений и войны на нас. */
+function rivalSeenIds(list: readonly WarView[], proposals: readonly ProposalView[]): string[] {
+  return [...proposals.filter((p) => p.end).map(proposalSeenId), ...list.filter((w) => w.role === 'def').map((w) => rivalWarId(w.id))];
+}
+
 /** Номера итогов, которые сервер отдаёт в списке войн: бои, падения городов, дань, починки и удары, не пробившиеся к лагерю. */
 function warSeenIds(list: readonly WarView[]): string[] {
   const ids: string[] = [];
@@ -10094,6 +11182,9 @@ function warSeenIds(list: readonly WarView[]): string[] {
     if (w.fall) ids.push(warFallId(w.id));
     if (w.tribute) ids.push(warTributeId(w.id));
     for (const d of w.camp?.log ?? []) if (d.act === 'repair') ids.push(warRepairId(w.id, d.at));
+    for (const g of w.camp?.guns ?? []) ids.push(warGunId(w.id, g.at));
+    for (const d of w.camp?.log ?? []) if (d.act === 'blockade') ids.push(warRingId(w.id, d.at));
+    (w.camp?.phases ?? w.phases ?? []).forEach((r, k) => (r.shots ?? []).forEach((s, i) => s.lost && ids.push(warShotId(w.id, k + 1, i))));
     for (const t of w.turned ?? []) ids.push(warTurnedId(w.id, t.at));
   }
   return ids;

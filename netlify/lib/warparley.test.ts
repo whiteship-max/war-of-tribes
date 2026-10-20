@@ -92,11 +92,12 @@ describe('дань за снятие осады', () => {
       const had = k === 'gold' ? before.gold : (before.stock[k] ?? 0);
       expect(v).toBeLessThanOrEqual(Math.max(0, had - before.stash));
     }
-    // Город, ещё не принявший дань, видится серверу без неё (переход), а принявший — нет (один раз).
+    // Город, ещё не принявший дань, видится серверу без неё (переход), а принявший — нет (один раз). Лагерь снят — хлеба
+    // окна больше нет (docs/siege_v2.md, 21.1), и склад — слепка за вычетом дани.
     const after = liveSheet(file, B, sheets.get(B)!, at + 2);
     for (const [k, v] of Object.entries(t.taken)) {
       if (k === 'gold') expect(after.gold).toBe(before.gold - v);
-      else expect(after.stock[k]).toBe((before.stock[k] ?? 0) - v);
+      else expect(after.stock[k]).toBe((sheet().stock[k] ?? 0) - v);
     }
     sheets.set(B, { sheet: { ...sheets.get(B)!.sheet, seen: [warTributeId(w.id)] }, at: at + 3 });
     expect(liveSheet(file, B, sheets.get(B)!, at + 3).gold).toBe(sheet().gold);

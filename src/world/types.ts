@@ -5,7 +5,8 @@
 import type { CraftAct } from './siegecraft';
 import type { IconName } from '@/ui/icons/alias';
 import type { DefendOrders, SiegeOrders } from './siegeroll';
-import type { MachineId } from './data/machines';
+import type { ArtilleryId, MachineId } from './data/machines';
+import type { Aim, GunAim } from './data/shelling';
 import type { Opening } from './wall';
 import type { OfferKind } from './parley';
 import type { GameSec } from '@/game/pace';
@@ -19,6 +20,7 @@ import type { FigurePlace } from './shelter';
 import type { EnergyView } from './energy';
 import type { TraitNumbers } from '@/game/data/traits';
 import type { SiegeRecord } from './siegerecord';
+import type { ProposalView } from './proposals';
 
 /**
  * Участь взятого города — что выбрал победитель: ограбить, ограбить и увести людей,
@@ -210,6 +212,11 @@ export interface SiegeView {
   /** Сколько еды было на складе, когда окно открылось. */
   foodAtStart: number;
   /**
+   * Сколько хлеба в городе сейчас — остаток окна осады (`siege.foodLeft`), та же функция, что решит голод: хлеб осаждённого
+   * города — хлеб окна (docs/siege_v2.md, 21.1). Племя под осадой больше не держит (`bridge.syncSiege`). Нет поля — старый вид.
+   */
+  bread?: number;
+  /**
    * Сколько бойцов строя стоит в лагере — видно со стены.
    */
   campMen: number;
@@ -281,6 +288,60 @@ export interface SiegeView {
   answers?: SiegeAnswers;
   /** Переговоры у стен (docs/siege_v2.md, раздел 7; этап 2е): доля пути, цена дани, предложения сторон. Нет — окно без них. */
   parley?: ParleyView;
+  /** Кольцо блокады (Р-5, `world/blockade`): условие, сейчас да или нет, что даёт и чем размыкают. Нет — окно до Р-5. */
+  blockade?: BlockadeView;
+  /**
+   * Постройки нашего города, стоящие без работы под обстрелом (Р-5, `world/shelling.idleBuildings`): до броска следующей
+   * фазы. Племя не берёт с них выработку (`bridge.syncSiege`). Нет — ни одна.
+   */
+  idle?: string[];
+}
+
+/**
+ * Кольцо блокады глазами окна (Р-5, docs/siege_v2.md, 21.1): условие (вчетверо), сейчас да или нет, что даёт и чем его
+ * размыкают — словами двери `world/blockade` (правило 18). Числа мощи — у осаждённого точные (свой гарнизон и лагерь со
+ * стены), у осаждающего — вилкой разведки.
+ */
+export interface BlockadeView {
+  on: boolean;
+  /** С какой минуты кольцо замкнуто. */
+  since?: number;
+  /** Соотношение мощи лагеря и гарнизона словами: «×3,2», «гарнизона нет», вилкой — у осаждающего. */
+  ratio: string;
+  /** Порог: во сколько раз лагерь сильнее гарнизона. */
+  need: number;
+  /** Можно ли замкнуть сейчас (у осаждающего) и почему нет. */
+  can: boolean;
+  reason: string | null;
+  /** Что даёт кольцо и чем его размыкают — строками. */
+  gives: string;
+  breaks: string;
+  /** Чем кольцо разомкнуто в последний раз — словами; нет — не размыкали. */
+  broke?: string;
+}
+
+/** Цель артиллерии лагеря глазами окна лагеря (Р-5): что даст каждая цель — до нажатия, словами двери `world/shelling`. */
+export interface AimView {
+  now: Aim;
+  /** Артиллерия, стоящая готовой: что и какого веса (грани по стенам, выстрелы по городу и машинам). */
+  artillery: { id: ArtilleryId; name: string; weight: number }[];
+  options: { aim: Aim; name: string; gives: string; can: boolean; reason: string | null }[];
+}
+
+/** Требушет на стене глазами окна осаждённого (Р-5): состояние, цена и срок, цель и что даст каждая. */
+export interface GunView {
+  state: 'none' | 'building' | 'ready' | 'broken';
+  /** Когда встанет (строится). */
+  readyAt?: number;
+  /** Цена со склада — та же, что починка пролома. */
+  cost: Partial<Record<ResourceId, number>>;
+  /** Сколько строится, мс. */
+  span: number;
+  /** Можно ли заказать и почему нет. */
+  can: boolean;
+  reason: string | null;
+  aim: GunAim;
+  options: { aim: GunAim; name: string; gives: string }[];
 }
 
 /**
@@ -323,6 +384,13 @@ export interface SiegeAnswers {
   defend?: DefendOrders;
   /** Выручка соседей-союзников, идущая на лагерь: чей город, сколько бойцов, когда ударят. */
   reliefs: { from: string; men: number; at: number }[];
+  /** Требушет на стене (Р-5): нет поля — стены нет. */
+  gun?: GunView;
+  /**
+   * Вылазка «прорвать блокаду» (Р-5): бой с постом кольца — сколько бойцов строя его держит (четверть лагеря), что даст
+   * победа; кольца нет — поля нет.
+   */
+  breakout?: { guard: number; gives: string };
 }
 
 /** Ответ осаждённого приказом (`WorldApi.defend`): починка, паёк, наказы, сдача. */
@@ -330,7 +398,10 @@ export type DefendOrder =
   | { act: 'repair' }
   | { act: 'ration'; on: boolean }
   | { act: 'orders'; defend: DefendOrders }
-  | { act: 'surrender' };
+  | { act: 'surrender' }
+  // Р-5: требушет на стене — заказать и куда ему бить.
+  | { act: 'gun' }
+  | { act: 'gunAim'; aim: GunAim };
 
 /**
  * Ход осады фазами глазами окна — обеим сторонам одно (docs/siege_v2.md, 9.1–9.2). Слова и числа — дверью фаз
@@ -450,6 +521,8 @@ export interface CampView extends Omit<SiegeView, 'fall' | 'palisade' | 'garriso
   crafts?: CraftOption[];
   /** Осадные машины лагеря и способы штурма (`world/machines`, `world/wall`; docs/siege_v2.md, 4.3–4.4). */
   machines?: MachinesView;
+  /** Цель артиллерии лагеря (Р-5, `world/shelling`). Нет — окно до Р-5. */
+  aim?: AimView;
 }
 
 /** Машина в окне лагеря: что даёт, в каком она состоянии и можно ли её заказать. Числа — дверью `world/machines`. */
@@ -566,6 +639,84 @@ export interface DiploView extends DiploRecord {
   temper: TemperId;
   /** Отношение словами: «вражда», «ровно», «сердечно». */
   mood: string;
+}
+
+// ---------- Дело агента у цели (Р-4, docs/AGENTS.md, раздел 16) ----------
+//
+// Свободной ходьбы по карте нет (решение владельца 19.10.2026): агент идёт только к цели, делает там выбранное дело и
+// сам возвращается домой. Цель — свой город, двор мира (логово, село), город живого игрока или чужой отряд в пути;
+// какие дела у какого агента при какой цели — одна таблица `data/errands.ERRANDS`, её же спрашивает мир при приказе.
+
+/** Цель дела. Голой клетки среди целей нет: это и есть «свободной ходьбы нет». */
+export type ErrandTarget =
+  | { kind: 'home' }
+  | { kind: 'place'; id: SettlementId }
+  | { kind: 'march'; id: string };
+
+/** Вид цели — то, по чему таблица дел решает, что здесь можно (`data/errands`). */
+export type ErrandTargetKind = 'home' | 'place' | 'rival' | 'march';
+
+/**
+ * Дела агентов. Полководец: домой (встать в оборону), ударить, осадить, перехватить, ударить по лагерю, выручить
+ * союзника. Разведчик: разведать, следить за войском. Дипломат: приказы и договоры с державами мира, союз и разрыв
+ * с игроком. Лазутчик: дела у логова, наблюдение, дела против соседа-игрока.
+ */
+export type ErrandId =
+  | 'home'
+  | 'storm'
+  | 'siege'
+  | 'blockade'
+  | 'intercept'
+  | 'strike'
+  | 'relief'
+  | 'recon'
+  | 'shadow'
+  | DiploActionId
+  | DealId
+  | 'unpact'
+  | 'ransom'
+  | SpyActionId
+  | 'watch'
+  | RivalDeedId;
+
+/**
+ * Строка меню дел: что агент сделает, сколько идти, чем рискует и хватит ли сил — до подтверждения, теми же
+ * функциями, что исполнят приказ. Недоступное показано с причиной.
+ */
+export interface ErrandOption {
+  id: ErrandId;
+  agent: FigureId;
+  /** Имя дела на кнопке: «Ударить», «Разведать». */
+  name: string;
+  /** Что агент сделает, одной фразой для подтверждения. */
+  does: string;
+  can: boolean;
+  reason: string | null;
+  /** Дорога до цели, мс; 0 — уже там. */
+  walkMs: number;
+  /** Дорога домой после дела, мс (столько же — по той же клетке туда и назад). */
+  backMs: number;
+  /** Чем рискует — строками: шанс дела, поимка, гибель, «если отряд перебьют». Пусто — риска нет. */
+  risk: string[];
+  /** Удастся ли дело, 0..1; null — броска нет. */
+  chance: number | null;
+  /** Что отдать со склада (дар, мир). Пусто — даром. */
+  cost: Loot;
+  /** Цена в энергии и отказ, если её не хватит к минуте дела с дорогой. */
+  energy: EnergyCost | null;
+  /** Дело просит участь города (удар, осада). */
+  fate?: true;
+  /** Минута, на которую посчитаны числа: приказ исполняется ровно по ним, если меню свежее. */
+  at: number;
+}
+
+/** Приказ: кто, куда, что. Участь — для удара и осады. */
+export interface ErrandOrder {
+  agent: FigureId;
+  target: ErrandTarget;
+  deed: ErrandId;
+  fate?: Fate;
+  shownAt?: number;
 }
 
 /**
@@ -990,6 +1141,22 @@ export interface AssaultPlan {
 }
 
 /** Разорённое поселение глазами игрока. */
+/** Поход соседа-игрока на наш город (ДП-1): кто, штурмом или осадой и когда у стен. */
+export interface RivalMarch {
+  /** Номер войны у сервера. */
+  id: string;
+  castle: string;
+  city: string;
+  mode: 'storm' | 'siege';
+  arriveAt: number;
+}
+
+/** Соседи-игроки в «Вестях» (ДП-1): предложения (ждущие и итоги) и походы на нас. */
+export interface RivalMail {
+  proposals: ProposalView[];
+  marching: RivalMarch[];
+}
+
 /**
  * Поход на город живого игрока глазами карточки (docs/pvp.md). Бой считает сервер в минуту прихода;
  * карточка говорит, можно ли выступить, сколько идти и что с войной сейчас.
@@ -1569,6 +1736,11 @@ export interface HomeEffect {
    * построено не было. Тайника это не касается. Поля нет у прочих последствий.
    */
   burned?: boolean;
+  /**
+   * Наш город взят голодом: хлеба в нём нет — по окну осады, которое решило исход (docs/siege_v2.md, 21.1). Племя
+   * списывает остаток склада — его съела осада. Поля нет у прочих последствий — версию сохранения оно не поднимает.
+   */
+  starved?: true;
   /**
    * Взятый город: на какие постройки пришёлся удар и с какого уровня на какой
    * они падают. Выбран список в минуту события одной дверью участи

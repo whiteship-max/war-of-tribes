@@ -6,9 +6,7 @@ import type { Coord } from './types';
 import { distance, terrainFactor, travelTime } from './geo';
 import { CELL_COST_MIN } from './geography';
 import { FIGURE_BY_ID } from './data/figures';
-import { consumptionPerHour, type SiegeWindow } from './siege';
 import { asGame, gameSecondsOfMs, realMs, type GameSec } from '../game/pace';
-import { HOUR_MS } from '../game/time';
 
 /**
  * Сид земли для пути между замками. Переправы и броды выводятся из сида мира, а сид у каждого игрока свой;
@@ -68,6 +66,5 @@ export function warAt(from: Coord, to: Coord, departAt: number, arriveAt: number
   return { x: Math.round(from.x + (to.x - from.x) * t), y: Math.round(from.y + (to.y - from.y) * t) };
 }
 
-/** Сколько хлеба осталось у осаждённого к минуте `at` — от окна, той же арифметикой, что часы голода. */
-export const foodLeft = (w: SiegeWindow, at: number): number =>
-  Math.max(0, w.foodAtStart - (consumptionPerHour(w) * Math.max(0, at - w.startedAt)) / HOUR_MS);
+/** Сколько хлеба осталось у осаждённого — дверь окна осады (`siege.foodLeft`); здесь она под прежним именем модуля войны. */
+export { foodLeft } from './siege';
