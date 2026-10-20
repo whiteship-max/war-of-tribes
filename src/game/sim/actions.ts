@@ -75,7 +75,7 @@ export function moveBlock(s: GameState, buildingId: number, dir: -1 | 1): string
   const j = i + dir;
   if (j < 0) return 'Уже первое.';
   if (j >= q.length) return 'Уже последнее.';
-  if ((i === 0 || j === 0) && q[0].work > 0) return 'Строящееся уже начато: первое место не меняется.';
+  if ((i === 0 || j === 0) && q[0].work > 0) return 'Строящееся уже начато.';
   return null;
 }
 

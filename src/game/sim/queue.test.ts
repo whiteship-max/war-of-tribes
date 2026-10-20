@@ -82,8 +82,8 @@ describe('смена мест: «выше» и «ниже»', () => {
     // Началось — первое место не меняется ни сверху, ни снизу; ждущие за ним — по-прежнему.
     run(s, 5);
     expect(c.work, 'точка внутри правила: строящееся начато').toBeGreaterThan(0);
-    expect(moveUpgrade(s, a.id, -1)).toBe('Строящееся уже начато: первое место не меняется.');
-    expect(moveUpgrade(s, c.id, 1)).toBe('Строящееся уже начато: первое место не меняется.');
+    expect(moveUpgrade(s, a.id, -1)).toBe('Строящееся уже начато.');
+    expect(moveUpgrade(s, c.id, 1)).toBe('Строящееся уже начато.');
     expect(moveUpgrade(s, b.id, -1)).toBeNull();
     expect(ids(s)).toEqual([c.id, b.id, a.id]);
   });
