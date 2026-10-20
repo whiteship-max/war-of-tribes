@@ -54,7 +54,6 @@ import { dropParties } from './party';
 import { dropSiegeMarks } from './siegemark';
 import { bakeAgent } from './agent';
 import { dropFigures } from './figures';
-import { ActionMenu } from './ActionMenu';
 import { Rating } from './Rating';
 import { Feed, useFeed } from './Feed';
 import { Legend } from './Legend';
@@ -71,8 +70,9 @@ import { iconName } from '@/ui/icons/registry';
 
 // Тревоги войны значками (П-7) — куском нового интерфейса, как в городе (`App.tsx`): карта стоит в первой загрузке.
 const WarSigns = lazy(() => import('@/ui/next').then((m) => ({ default: m.WarSigns })));
-// Кольцо значков над целью (К-2): своим куском — нужно только после касания места.
-const RingLayer = lazy(() => import('./Ring'));
+// Кольцо значков над целью и меню дел (К-2): своими кусками — нужны только после касания места; первая загрузка не растёт.
+const RingLayer = lazy(() => import('./RingLayer'));
+const ActionMenu = lazy(() => import('./ActionMenu').then((m) => ({ default: m.ActionMenu })));
 
 /** Отладочный обзор читается один раз: адрес по ходу партии не меняется. */
 const FREE_CAMERA = freeCamera();
@@ -167,6 +167,7 @@ export function WorldMap() {
   // Точка экрана, над которой стоит кольцо (К-2): ставится в минуту касания; жест по карте кольцо закрывает.
   const [ringAt, setRingAt] = useState<{ x: number; y: number } | null>(null);
   const ringOpen = useWorld((g) => g.ring !== null);
+  const menuOpen = useWorld((g) => g.menu !== null);
   // Молва края (docs/feed.md): лента спрашивается, пока карта открыта, — точке новых на кнопке нужна и закрытой.
   const feed = useFeed(inTelegram());
   const [zoomedIn, setZoomedIn] = useState(modeFor(SCALE_START) === 'detail');
@@ -808,7 +809,11 @@ export function WorldMap() {
         <WarSigns where="map" lift={picked !== null} />
       </Suspense>
 
-      <ActionMenu />
+      {menuOpen && (
+        <Suspense fallback={null}>
+          <ActionMenu />
+        </Suspense>
+      )}
       {ringOpen && (
         <Suspense fallback={null}>
           <RingLayer at={ringAt} vp={vp()} />

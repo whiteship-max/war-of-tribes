@@ -39,7 +39,7 @@ vi.mock('@/ui/map/twslot', async (orig) => ({ ...(await orig<object>()), reachab
 vi.mock('@/ui/next/tip', async (orig) => ({ ...(await orig<object>()), tipAt: (_el: unknown, t: { title: string; body?: string }) => tips.push(t) }));
 
 import { RING_ORDER, agentState, emptyRetinue, musterable, ringSlots } from './ring';
-import { RingLayer, ringTap } from './Ring';
+import { RingLayer, ringTap } from './RingLayer';
 import { ActionMenu } from './ActionMenu';
 import { ArmySend } from './ArmySend';
 import { departWith } from '@/ui/parts/Muster';
