@@ -87,7 +87,7 @@ describe('ДП-1: предложение соседа в «Вестях» и л�
     const rb = await g.b.rivals();
     expect(rb.proposals).toHaveLength(1);
     const d = proposalDispatch(rb.proposals[0], g.now());
-    expect(d).toMatchObject({ source: 'rival', title: 'Союз: «Альфа»', group: 'wait', quick: true, urgent: false });
+    expect(d).toMatchObject({ source: 'rival', title: 'Зовут в союз', from: 'Альфа', group: 'wait', quick: true, urgent: false });
     expect(d.text).toContain(PROPOSALS.pact.gives);
     expect(d.choices.map((x) => [x.label, x.block])).toEqual([
       ['Принять', null],
@@ -96,7 +96,7 @@ describe('ДП-1: предложение соседа в «Вестях» и л�
     expect(d.left, 'срок ответа — сутки, секундами').toBe(TTL / 1000);
     expect(mailGroups([d]).map((x) => x.title)).toEqual(['Ждут ответа']);
     const da = proposalDispatch((await g.a.rivals()).proposals[0], g.now());
-    expect(da).toMatchObject({ title: 'Ждём ответа: «Бета»', group: 'sent', quick: false });
+    expect(da).toMatchObject({ title: 'Союз: предложили', from: 'Бета', group: 'sent', quick: false });
     expect(da.choices.map((x) => x.label)).toEqual(['Отозвать']);
     expect((await g.c.rivals()).proposals, 'третьему — ничего').toEqual([]);
   });

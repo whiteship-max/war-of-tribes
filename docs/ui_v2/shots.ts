@@ -19,6 +19,8 @@
 //   GROUP=or1 WEATHER=clear TAG=before|after …     — ОР-1: подписи построек, «Показать в городе», метки и «Домой»;
 //                                                     `WEATHER` — погода адресом (`?weather=`), чтобы туман не съел подписи
 //   DIR=icons GROUP=zn4 WEATHER=clear TAG=after …  — ЗН-4: подписи у середины приближения, рычаг, окно «Профиль», держава
+//   GROUP=dp1 …                                    — ДП-1 (docs/AGENTS.md, 17): «Соседи» — поход на нас, предложение
+//                                                   с «Принять/Отклонить», наше ждущее, итог; карточка; летопись.
 //   GROUP=r4 …                                     — Р-4 (docs/AGENTS.md, 16): «Походы», цель, дела, подтверждение,
 //                                                    донесение, знак павшего города словами
 //   DIR=polish GROUP=p7 TAG=before|after …          — П-7 (docs/polish.md): тревоги войны значками справа снизу — осада
@@ -386,6 +388,69 @@ const GROUPS: Record<string, Step[]> = {
       tabs: true,
     },
     { name: '131-mail-raid', run: `(async () => { (await import('/src/ui/realm/open.ts')).useRealm.getState().openMail('letter:r1'); return JSON.stringify('ok'); })()`, wait: 900 },
+  ],
+  // ДП-1 (docs/AGENTS.md, 17): предложения соседей в «Вестях» → «Соседи». Мир соседей — подставной (сервера войны у стенда
+  // нет): поход на нас, предложение нам, наше ждущее и итог; ответ — подменённой дверью, которая кладёт итог, как сервер.
+  dp1: [
+    {
+      name: 'dp1-01-neighbours',
+      run: `(async () => {
+        window.__ui.reset();
+        const S = await import('/src/world/store.ts');
+        const now = S.worldNow();
+        const H = 3600000;
+        const rivals = {
+          marching: [{ id: 'w-dp1', castle: 'c-3', city: 'Сухая балка', mode: 'siege', arriveAt: now + 2.5 * H }],
+          proposals: [
+            { id: 'c-1.dp1', kind: 'pact', side: 'in', castle: 'c-1', city: 'НиСы', at: now - 0.5 * H, until: now + 23.5 * H },
+            { id: 'c-me.dp1', kind: 'pact', side: 'out', castle: 'c-2', city: 'Каменный яр', at: now - 2 * H, until: now + 22 * H },
+            { id: 'c-4.dp1', kind: 'pact', side: 'in', castle: 'c-4', city: 'Ольховка', at: now - 30 * H, until: now - 6 * H, end: 'expired', endAt: now - 6 * H },
+          ],
+        };
+        S.useWorld.setState({
+          pulse: async () => {},
+          loadRivals: async () => {},
+          rivals,
+          letters: [],
+          answerProposal: async (id, act) => {
+            const r = S.useWorld.getState().rivals;
+            const end = act === 'yes' ? 'yes' : act === 'no' ? 'no' : 'withdrawn';
+            S.useWorld.setState({ rivals: { ...r, proposals: r.proposals.map((p) => (p.id === id ? { ...p, end, endAt: S.worldNow(), endBy: 'us' } : p)) } });
+            return null;
+          },
+        });
+        const R = (await import('/src/ui/realm/open.ts')).useRealm;
+        R.getState().setMailTab('letter');
+        R.getState().show('decisions');
+        return JSON.stringify('ok');
+      })()`,
+      wait: 1200,
+    },
+    { name: 'dp1-02-card', run: `(async () => { (await import('/src/ui/realm/open.ts')).useRealm.getState().openMail('deal:c-1.dp1'); return JSON.stringify('ok'); })()`, wait: 900 },
+    {
+      name: 'dp1-03-declined',
+      run: `(async () => { (await import('/src/ui/realm/open.ts')).useRealm.getState().openMail(null); await new Promise((r) => setTimeout(r, 300)); return JSON.stringify(window.__ui.click('Отклонить', '.mail-quick')); })()`,
+      wait: 900,
+    },
+    {
+      name: 'dp1-04-chronicle',
+      run: `(async () => {
+        const g = window.__game.getState();
+        const at = g.s.time;
+        g.act((st) => {
+          st.log.unshift(
+            { at, text: 'Мы отклонили предложение союза от «НиСы».', kind: 'info', ref: 'dip-c-1.dp1-no' },
+            { at, text: 'Предложение союза от «Ольховка» осталось без ответа: срок вышел.', kind: 'info', ref: 'dip-c-4.dp1-expired' },
+            { at, text: '«Сухая балка» идёт на нас походом — осадой.', kind: 'bad', ref: 'dip-war-w-dp1' },
+          );
+          return null;
+        });
+        (await import('/src/ui/realm/open.ts')).useRealm.getState().openChronicle();
+        await new Promise((r) => setTimeout(r, 300));
+        return JSON.stringify(window.__ui.click('Соседи', '.chron-chips'));
+      })()`,
+      wait: 900,
+    },
   ],
   // UI-7: рынок — золото на складе и одна телега в пути; прилавок целиком.
   market: [

@@ -136,11 +136,12 @@ describe('ДП-1: соседи-игроки в «Соседях»', () => {
     const html = renderToStaticMarkup(h(Mail));
     const heads = [...html.matchAll(/<h3>([^<]+)/g)].map((m) => m[1].trim());
     expect(heads).toEqual(['Беда', 'Ждут ответа', 'К сведению']);
-    expect(html).toContain('На нас идёт «Бета»');
+    expect(html).toContain('Поход на нас');
     const quick = html.match(/<div class="mail-quick">[\s\S]*?<\/div>/)?.[0] ?? '';
-    expect(quick).toContain('Союз: «Альфа»');
+    expect(quick).toContain('Зовут в союз');
+    expect(quick).toContain('Альфа');
     expect([...quick.matchAll(/class="mail-quick-act[^"]*"[^>]*>([^<]+)</g)].map((m) => m[1])).toEqual(['Принять', 'Отклонить']);
-    expect(html).toContain('Союз: «Гамма»');
+    expect(html).toContain('Союз: отказ');
     useRealm.setState({ mailTab: 'all' });
   });
 

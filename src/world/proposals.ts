@@ -24,6 +24,8 @@ export interface ProposalDef {
   id: ProposalKind;
   /** Имя договора: «Союз». */
   name: string;
+  /** Строка списка «Вестей» у предложения нам: «Зовут в союз». */
+  invite: string;
   /** Что предлагают — продолжение «Город «X» …»: «зовёт в союз». */
   asks: string;
   /** «Предложение …»: «союза». */
@@ -44,6 +46,7 @@ export const PROPOSALS: Record<ProposalKind, ProposalDef> = {
   pact: {
     id: 'pact',
     name: 'Союз',
+    invite: 'Зовут в союз',
     asks: 'зовёт в союз',
     of: 'союза',
     made: 'заключён',
@@ -93,8 +96,19 @@ export function answerBlock(p: Pick<ProposalView, 'side' | 'end' | 'until'>, act
   return p.side === 'in' ? null : 'Ответить может только тот, кому предложили.';
 }
 
-/** Заголовок строки «Вестей»: «Союз: «Альфа»». */
-export const proposalTitle = (p: Pick<ProposalView, 'kind' | 'city'>): string => `${PROPOSALS[p.kind].name}: «${p.city}»`;
+/** Итог одним словом — для строки списка: «Союз: отказ». */
+const END_SHORT: Record<Exclude<ProposalEnd, 'yes'>, string> = { no: 'отказ', expired: 'срок вышел', withdrawn: 'отозвали', broken: 'разрыв' };
+
+/**
+ * Заголовок строки «Вестей» — коротко, город — второй строкой: «Зовут в союз», «Союз: предложили», «Союз заключён»,
+ * «Союз: отказ». Что стало с предложением, видно в списке, не открывая.
+ */
+export function proposalTitle(p: Pick<ProposalView, 'kind' | 'side' | 'end'>): string {
+  const def = PROPOSALS[p.kind];
+  if (p.end === 'yes') return `${def.name} ${def.made}`;
+  if (p.end) return `${def.name}: ${END_SHORT[p.end]}`;
+  return p.side === 'in' ? def.invite : `${def.name}: предложили`;
+}
 
 /** Что в предложении — словами стороны: кто кого зовёт и что это даст. */
 export function proposalText(p: Pick<ProposalView, 'kind' | 'side' | 'city'>): string {

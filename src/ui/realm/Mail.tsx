@@ -326,11 +326,16 @@ function QuickRow({ d, fresh, onOpen, onAnswer }: { d: Dispatch; fresh: boolean;
           <Icon name={d.iconName} />
           <span className="kit-two">
             <b className="one-line">{d.title}</b>
-            <small className="one-line">{d.left !== null ? `${d.leftText}: ${leftWords(d.left)}` : d.from}</small>
+            <small className="one-line">{d.from}</small>
           </span>
           {fresh && <i className="nx-new" aria-label="новое" />}
         </span>
+        {d.left !== null && <span className="mail-quick-left">{leftWords(d.left)}</span>}
+        <i className="kit-go" aria-hidden="true">
+          ›
+        </i>
       </button>
+      <div className="mail-quick-acts">
       {d.choices.map((c) => (
         <button
           key={c.id}
@@ -346,6 +351,7 @@ function QuickRow({ d, fresh, onOpen, onAnswer }: { d: Dispatch; fresh: boolean;
           {c.label}
         </button>
       ))}
+      </div>
     </div>
   );
 }
