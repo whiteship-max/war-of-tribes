@@ -297,7 +297,12 @@ export const ATTENTION_META: Record<Attention, { text: string }> = {
 export const buildingHousing = (b: Building): number => buildingStat(b, 'housing');
 
 /** Уровни построек по типу — вход общих формул посёлка (`game/build.ts`), тот же, что опись шлёт серверу. */
-export const levelsOf = (s: GameState): Levels => Object.fromEntries(s.buildings.map((b) => [b.type, b.level]));
+export const levelsOf = (s: GameState): Levels => {
+  // Тот же словарь, что `Object.fromEntries(s.buildings.map(…))`, — циклом: его собирают жильё и склад на каждом шаге.
+  const out: Record<string, number> = {};
+  for (const b of s.buildings) out[b.type] = b.level;
+  return out;
+};
 
 /** Вместимость жилья. Формула одна на игру и книгу стройки сервера (`game/build.housingOf`). */
 export const housingCapacity = (s: GameState): number => housingOf(levelsOf(s));
@@ -315,6 +320,18 @@ export function jobCounts(s: GameState): Record<JobId, number> {
   for (const job of FREE_JOBS) counts[job] += freeJobCount(s, job);
   counts.idle = idleCount(s);
   return counts;
+}
+
+/**
+ * Сколько человек одной профессией — ровно `jobCounts(s)[job]`, без счёта всех прочих: мораль и набожность спрашивают
+ * служителей на каждом шаге племени, а `jobCounts` собирает словарь всех профессий.
+ */
+export function jobCount(s: GameState, job: JobId): number {
+  if (job === 'idle') return idleCount(s);
+  let n = 0;
+  for (const b of s.buildings) if (BUILDING_BY_ID[b.type].job === job) n += workerCount(s, b.id);
+  for (const free of FREE_JOBS) if (free === job) n += freeJobCount(s, job);
+  return n;
 }
 
 // ---------- Указ и рацион ----------
@@ -1430,7 +1447,7 @@ export function moraleBreakdown(s: GameState): MoraleBreakdown {
     add(`b-${b.id}`, `bld-${b.type}`, def.name, v, `ур. ${b.level}`);
   }
 
-  const priests = jobCounts(s).priest;
+  const priests = jobCount(s, 'priest');
   add(
     'priests',
     'ui-candle',
@@ -1504,7 +1521,7 @@ export const moraleTarget = (s: GameState): number => moraleBreakdown(s).target;
  * кнопка улучшения: замер «что дадут новые места» обязан считать ровно этим.
  */
 export const priestMorale = (s: GameState): number =>
-  Math.min(PRIEST_MORALE_CAP, jobCounts(s).priest * PRIEST_MORALE);
+  Math.min(PRIEST_MORALE_CAP, jobCount(s, 'priest') * PRIEST_MORALE);
 
 // ---------- Вера и набожность ----------
 //
@@ -1608,7 +1625,7 @@ export function pietyBreakdown(s: GameState): PietyBreakdown {
   const obs = OBSERVANCE_BY_ID[observanceOf(s)];
 
   add('temple', 'bld-church', def.temple, level * PIETY_PER_LEVEL, `ур. ${level}, по +${PIETY_PER_LEVEL}`);
-  const priests = jobCounts(s).priest;
+  const priests = jobCount(s, 'priest');
   add(
     'priests',
     'ui-candle',
@@ -1654,7 +1671,7 @@ export const piety = (s: GameState): number => pietyBreakdown(s).value;
  * не назвал веру, набожности не считается вовсе — и служители ничего не дают.
  */
 export const priestPiety = (s: GameState): number =>
-  faithOf(s) === null ? 0 : Math.min(PIETY_PRIEST_CAP, jobCounts(s).priest * PIETY_PER_PRIEST);
+  faithOf(s) === null ? 0 : Math.min(PIETY_PRIEST_CAP, jobCount(s, 'priest') * PIETY_PER_PRIEST);
 
 /** Вера трещит: набожность упала ниже порога. */
 export const heresy = (s: GameState): boolean => faithOf(s) !== null && piety(s) < PIETY_HERESY;
