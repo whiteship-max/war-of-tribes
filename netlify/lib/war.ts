@@ -83,7 +83,8 @@ import {
 import { gameDaysOfMs, gameSecondsOfMs } from '../../src/game/pace.js';
 import { breadStock, FATE_SAME, openSiege, SIEGE_BLOCK, siegeSince, starvesAt, type SiegeWindow } from '../../src/world/siege.js';
 import { aimBlock as artilleryAimBlock, gunAfter, gunAimBlock, gunBlock, shotsApplied } from '../../src/world/shelling.js';
-import { BREAKOUT_SHARE, blockadeAfter, blockadeAt, blockadeBlock, blockadeHolds, type BlockadeBreak } from '../../src/world/blockade.js';
+import { BREAKOUT_SHARE, blockadeAfter, blockadeAt, blockadeBlock, blockadeDeeds, blockadeHolds, type BlockadeBreak } from '../../src/world/blockade.js';
+import { SIEGE_PHASE } from '../../src/world/data/siegeroll.js';
 import { AIMS as ARTILLERY_AIMS, GUN_AIMS, type Aim as ArtilleryAim, type GunAim } from '../../src/world/data/shelling.js';
 import { craftAfter, craftAt, craftBlock, craftCount, fortFaces, garrisonWear, type Craft } from '../../src/world/siegecraft.js';
 import {
@@ -1964,8 +1965,9 @@ export function newsOf(w: WarRow): WarNews[] {
             // `won` боя — у того, кто в нём нападал; у получателя — своя сторона.
             won: b.by === role ? b.won : !b.won,
             ...(taken ? { taken: true as const } : {}),
-            // Вылазка на машину — бой за машину, а не за лагерь: слова другие (19.2).
+            // Вылазка на машину — бой за машину, а не за лагерь: слова другие (19.2). На пост кольца — тоже (Р-5).
             ...(b.burn ? { machine: b.burn } : {}),
+            ...(b.breakout ? { ring: 'off' as const } : {}),
             ...(ally && role === 'def' ? { ally: plainName(cityOr(ally.city)) } : {}),
           },
         },
@@ -2022,8 +2024,14 @@ export function newsOf(w: WarRow): WarNews[] {
     // Наказ — тому, чей он: залп и штурм — нападающему, починка и паёк — осаждённому (этап 2г).
     const orderOf = (role: 'atk' | 'def') =>
       r.orders?.find((o) => (role === 'atk' ? o === 'volley' || o === 'storm' : o === 'repair' || o === 'ration'));
+    // Обстрел за фазу (Р-5): осаждённому — постройки, потерявшие уровень, и разбитый требушет на стене; осаждающему — машины,
+    // разбитые со стены. Промахи и простой построек молчат: их видно в журнале фаз.
+    const lost = (r.shots ?? []).filter((s) => s.hit && s.lost).length;
+    const gunBroke = (r.shots ?? []).some((s) => s.hit && s.gun) ? 1 : 0;
+    const machinesBroke = (r.gun ?? []).filter((s) => s.hit && s.machine).length;
     for (const role of ['atk', 'def'] as const) {
-      const loud = r.out === 'breach' || r.out === 'plague';
+      const shot = role === 'def' ? { ...(lost ? { lost } : {}), ...(gunBroke ? { broke: gunBroke } : {}) } : machinesBroke ? { broke: machinesBroke } : {};
+      const loud = r.out === 'breach' || r.out === 'plague' || Object.keys(shot).length > 0;
       const order = orderOf(role);
       if (!loud && !order) continue;
       out.push({
@@ -2042,11 +2050,33 @@ export function newsOf(w: WarRow): WarNews[] {
             k: i + 1,
             ...(r.out === 'breach' ? { breaches } : {}),
             ...(order ? { order } : {}),
+            ...shot,
           },
         },
       });
     }
   });
+  // Кольцо блокады (Р-5): замкнули — осаждённому (город отрезан); разомкнул приказом сам лагерь — осаждённому; мощи мало
+  // или ударили с поля — обоим. Прорыв вылазкой — весть боя обоим (`ring` у `war-fight`), второй вести нет. Приказ
+  // осаждающего ему самому не пишется.
+  const camp = w.camp as SiegeWindow | undefined;
+  for (const d of camp ? blockadeDeeds(camp) : []) {
+    const at = d.at;
+    const k = Math.floor(Math.max(0, at - siegeSince(camp as SiegeWindow)) / SIEGE_PHASE) + 1;
+    const to: ('atk' | 'def')[] = d.on || d.why === 'order' ? ['def'] : d.why === 'sortie' ? [] : ['atk', 'def'];
+    for (const role of to) {
+      out.push({
+        player: role === 'atk' ? w.atk : w.def,
+        item: {
+          key: `war-phase:${w.id}:ring:${at}`,
+          kind: 'war-phase',
+          fireAt: at,
+          until: at + RESULT_KEEP,
+          p: { from: from(role), fate: w.fate, about: at, role, phase: 'calm', k, ring: d.on ? 'on' : 'off' },
+        },
+      });
+    }
+  }
   // Переговоры у стен (docs/siege_v2.md, 7.3): предложение — тому, кому отвечать, пока оно стоит; отказ — тому, кто
   // предлагал; принятая дань — осаждённому (принятые условия — падение сдачей, его весть ниже).
   for (const o of w.camp?.offers ?? []) {

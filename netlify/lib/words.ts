@@ -15,6 +15,7 @@ import { cityOr, STOCK_KEYS, TROOP_KEYS, type NoticeFate, type NoticeItem, type 
 import { localTime, TOPICS, topicOf, zoneOf, type BotPrefs, type Head, type Letter, type NotifyRecord, type Topic } from './notify.js';
 import type { PanelButton } from './telegram.js';
 import { SICILY } from '../../src/world/spawn.js';
+import { BLOCKADE_GIVES } from '../../src/world/blockade.js';
 import { count } from '../../src/ui/parts/plural.js';
 import { BUILDING_BY_ID } from '../../src/game/data/buildings.js';
 import { TROOPS } from '../../src/game/data/troops.js';
@@ -211,15 +212,22 @@ function parleyText(item: NoticeItem, at: string): string {
   return `«${from}» предлагает дань, чтобы ты снял осаду. Ответ — до ${at}, в окне осады.`;
 }
 
+/** Что значит кольцо для осаждённого — словами двери кольца (правило 18: `world/blockade.BLOCKADE_GIVES`). */
+const RING_ON = `${BLOCKADE_GIVES} Прорвать его можно вылазкой на пост.`;
+const RING_OFF = 'Добыча и караваны снова идут.';
+
 /**
  * Фаза осады глазами получателя (docs/siege_v2.md, 8.3): пролом и мор — значимое; наказ, сработавший в эту минуту, —
  * строкой следом. Своя сторона: `role` у войны, у осады логова получатель — всегда осаждённый. Пролом в своей стене зовёт
  * дать наказ чинить — если город уже чинит его по наказу, звать не к чему.
  */
 function phaseText(item: NoticeItem, at: string): string {
-  const { from, role, phase, k, breaches, order } = item.p;
+  const { from, role, phase, k, breaches, order, ring, lost, broke } = item.p;
   const atk = role === 'atk';
   const lines: string[] = [];
+  // Кольцо блокады (Р-5, docs/siege_v2.md, 21): замкнули — город отрезан; разомкнули — чем, видно в окне осады.
+  if (ring === 'on') return `В ${at} лагерь «${from}» замкнул кольцо вокруг города. ${RING_ON}`;
+  if (ring === 'off') return atk ? `В ${at} кольцо вокруг «${from}» разомкнуто. Замкнуть снова можно со следующей фазы.` : `В ${at} кольцо лагеря «${from}» разомкнуто. ${RING_OFF}`;
   const holes = breaches ? `: проломов ${breaches} из 3` : '';
   if (phase === 'breach') {
     lines.push(
@@ -233,6 +241,10 @@ function phaseText(item: NoticeItem, at: string): string {
   if (order === 'storm') lines.push('По наказу лагерь пошёл на штурм. Чем кончился бой, сказано в донесении.');
   if (order === 'repair') lines.push('По наказу город заделывает пролом. К концу фазы стена будет цела.');
   if (order === 'ration') lines.push('Хлеба меньше половины. По наказу город урезал паёк — продержится дольше.');
+  // Обстрел за фазу (Р-5): что он отнял.
+  if (lost) lines.push(`Обстрел лагеря «${from}»: ${count(lost, 'постройка теряет', 'постройки теряют', 'построек теряют')} уровень.`);
+  if (broke && atk) lines.push(`Требушет со стены «${from}» разбил ${broke === 1 ? 'машину' : count(broke, 'машину', 'машины', 'машин')} нашего лагеря.`);
+  if (broke && !atk) lines.push(`Машины лагеря «${from}» разбили требушет на стене.`);
   return lines.join(' ') || `В ${at} прошла ${k}-я фаза осады «${from}».`;
 }
 
@@ -245,6 +257,11 @@ function fightText(item: NoticeItem): string {
     return taken
       ? `Отряд из «${from}» взял город штурмом. ${FATE_DONE[fate]} ${WHAT_LEFT}`
       : `Отряд из «${from}» ходил на штурм, и стены не выстояли. Чем кончилось, сказано в донесении.`;
+  }
+  // Вылазка на пост кольца (Р-5): бой за кольцо, а не за лагерь — лагерь стоит при любом исходе.
+  if (site === 'sortie' && item.p.ring === 'off') {
+    if (role === 'def') return won ? `Гарнизон вышел из ворот и прорвал кольцо лагеря «${from}». Осада идёт, но город снова дышит.` : `Вылазку на пост кольца отбили. Кольцо лагеря «${from}» стоит.`;
+    return won ? `Из «${from}» вышли на пост кольца. Пост отбился, кольцо стоит.` : `Вылазка из «${from}» прорвала наше кольцо. Замкнуть снова можно со следующей фазы.`;
   }
   // Вылазка на машину (docs/siege_v2.md, раздел 5): бой за машину, а не за лагерь — лагерь стоит при любом исходе.
   if (site === 'sortie' && machine) {

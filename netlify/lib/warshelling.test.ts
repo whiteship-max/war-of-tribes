@@ -3,9 +3,11 @@
 // поддельный приказ — не той стороны, не той цели, без порога — отклоняется строкой. Кость фаз подменяется (`setPhaseDie`),
 // чтобы фаза была спокойной; кость выстрелов — своя, из сида осады: утверждения читают её след, а не угадывают.
 import { afterEach, describe, expect, it } from 'vitest';
-import { readWarOrder, type CastleClaim, type RosterFile, type WarArmy, type WarSheet } from './contract.js';
+import { NOTICE_KINDS, readNotices, readWarOrder, type CastleClaim, type RosterFile, type WarArmy, type WarSheet } from './contract.js';
+import { noticeText } from './words.js';
+import { tierOf } from './notify.js';
 import { castleIdOf, emptyRoster, upsert } from './roster.js';
-import { advance, applyOrder, emptyWars, type SheetAt, type WarFile, type WarRow } from './war.js';
+import { advance, applyOrder, emptyWars, newsOf, type SheetAt, type WarFile, type WarRow } from './war.js';
 import { phaseAt, setPhaseDie } from '../../src/world/siegeroll.js';
 import { siegeSince, type SiegeWindow } from '../../src/world/siege.js';
 import { machinesAt } from '../../src/world/machines.js';
@@ -210,3 +212,40 @@ describe('кольцо блокады между игроками', () => {
     expect(seen.lost, 'точка внутри области: пост устоял').toBeGreaterThan(0);
   });
 });
+
+describe('вести о кольце и обстреле (ВС-1)', () => {
+  it('кольцо замкнули — осаждённому, обычной важностью; разомкнули мощью — обеим сторонам; запись сервера читается без потерь', () => {
+    setPhaseDie(() => 7);
+    const { file, sheets, ctx, w, since } = camped({ home: { spearman: 5 } });
+    expect(applyOrder(file, A, { op: 'blockade', id: w.id, on: true }, since + 1, ctx)).toBeNull();
+    let ring = newsOf(w).filter((n) => n.item.p.ring);
+    expect(ring.map((n) => n.player), 'замкнули — только осаждённому: приказ осаждающего ему не пишется').toEqual([B]);
+    const on = ring[0].item;
+    expect(tierOf(on)).toBe('normal');
+    expect(noticeText(on, 'Europe/Moscow')).toMatch(/замкнул кольцо/);
+    expect(readNotices([on], since, NOTICE_KINDS), 'запись сервера читается тем же договором').toEqual([on]);
+    // Гарнизон вырос — разомкнуто мощью: обеим сторонам.
+    const at = since + 5000;
+    sheets.set(B, { sheet: sheet({ home: { spearman: 40, archer: 20 } }), at });
+    advance(file, at + 1, sheets);
+    ring = newsOf(w).filter((n) => n.item.p.ring === 'off');
+    expect(ring.map((n) => n.player).sort()).toEqual([A, B].sort());
+    for (const n of ring) expect(tierOf(n.item)).toBe('normal');
+  });
+
+  it('вылазка на пост — весть боя за кольцо, а не «лагерь разбит»; фаза без попаданий — без вести', () => {
+    setPhaseDie(() => 7);
+    const { file, sheets, ctx, w, since } = camped({ home: { spearman: 5 } });
+    expect(applyOrder(file, A, { op: 'blockade', id: w.id, on: true }, since + 1, ctx)).toBeNull();
+    expect(applyOrder(file, B, { op: 'breakout', id: w.id, troops: { spearman: 5 } }, since + 2, ctx)).toBeNull();
+    const fight = newsOf(w).find((n) => n.item.kind === 'war-fight' && n.player === B)!;
+    expect(fight.item.p.ring).toBe('off');
+    expect(noticeText(fight.item, 'Europe/Moscow')).toMatch(/пост/);
+    expect(noticeText(fight.item, 'Europe/Moscow')).not.toMatch(/Осада снята/);
+    advance(file, phaseAt(since, 1) + 1, sheets);
+    const phase = newsOf(w).filter((n) => n.item.kind === 'war-phase' && !n.item.p.ring);
+    expect(camp(w).phases?.[0].out, 'точка внутри области: фаза спокойная').toBe('calm');
+    expect(phase, 'спокойная фаза без выстрелов молчит').toEqual([]);
+  });
+});
+

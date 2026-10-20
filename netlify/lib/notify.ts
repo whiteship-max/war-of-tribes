@@ -72,7 +72,8 @@ export function topicOf(item: NoticeItem): Topic {
  * (`raid`, `war`), город пал или открыл ворота (`siege-fall`, `war-fall` и штурм, взявший город, — у того, чей город),
  * пролом в своей стене (на следующей фазе город может сдаться — пора дать наказ чинить), предложение сдачи или дани
  * (`war-parley` без ответа) и пакта. Мелочь — фаза осады, в которой сработал только наказ (залп, паёк, починка): её
- * видно в окне осады, и звать ради неё из чата незачем. Остальное — обычное.
+ * видно в окне осады, и звать ради неё из чата незачем. Остальное — обычное, и кольцо блокады с обстрелом, отнявшим
+ * уровень или машину (Р-5), — тоже.
  */
 export function tierOf(item: NoticeItem): Tier {
   const p = item.p;
@@ -88,6 +89,8 @@ export function tierOf(item: NoticeItem): Tier {
     case 'siege-phase':
     case 'war-phase':
       if (p.phase === 'breach') return p.role === 'atk' ? 'normal' : 'urgent';
+      // Кольцо и обстрел (Р-5): город отрезан или открыт, постройка потеряла уровень, машина разбита — обычное.
+      if (p.ring || p.lost || p.broke) return 'normal';
       return p.phase === 'plague' ? 'normal' : 'minor';
     case 'war-parley':
       return p.answer ? 'normal' : 'urgent';

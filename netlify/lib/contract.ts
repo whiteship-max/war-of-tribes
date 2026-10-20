@@ -432,6 +432,15 @@ export interface NoticeFacts {
   machine?: WarMachine;
   /** Город союзника, пришедшего на выручку (`war-fight` выручки, `war-relief` осаждённому). Строка до `NOTICE_LIMITS.name`. */
   ally?: string;
+  /**
+   * Кольцо блокады (Р-5, docs/siege_v2.md, 21): у `war-phase` — замкнули (`on`) или разомкнули (`off`), у `war-fight` — бой
+   * вылазки на пост кольца (`off`: победа его размыкает). Нет — не о кольце. Старый сервер поле отбросит.
+   */
+  ring?: 'on' | 'off';
+  /** Обстрел за фазу (`war-phase`, Р-5): сколько построек осаждённого потеряли уровень. */
+  lost?: number;
+  /** Обстрел за фазу (`war-phase`, Р-5): осаждающему — сколько машин лагеря разбил требушет со стены; осаждённому — разбит ли его требушет (1). */
+  broke?: number;
   /** Пакт (`war-pact`, 19.2): получателю предложили пакт или его предложение приняли. */
   pact?: 'offer' | 'made';
   /** Выручка союзника (`war-relief`, 19.2): идёт (осаждённому), бой был (союзнику), не пробилась через рогатки (обоим). */
@@ -578,6 +587,8 @@ export function readNotices(v: unknown, now: number, kinds: readonly NoticeKind[
       if (machine) facts.machine = machine;
       const ally = str(p.ally, NOTICE_LIMITS.name);
       if (ally && PLAIN.test(ally)) facts.ally = ally;
+      const ring = oneOf(['on', 'off'] as const, p.ring);
+      if (ring) facts.ring = ring;
     }
     // Переговоры: какое предложение и чем кончилось. Без них своя запись сервера, перечитанная из хранилища, говорила бы о
     // любом предложении «дань» и теряла бы отказ и взятую дань (docs/siege_v2.md, 19.2).
@@ -609,6 +620,11 @@ export function readNotices(v: unknown, now: number, kinds: readonly NoticeKind[
       if (breaches !== null) facts.breaches = Math.min(3, Math.max(0, Math.floor(breaches)));
       const order = oneOf(WAR_ORDER_IDS, p.order);
       if (order) facts.order = order;
+      // Обстрел за фазу (Р-5): числа малые — машин и построек у города немного.
+      const lost = num(p.lost);
+      if (lost !== null && lost >= 1 && lost <= 99) facts.lost = Math.floor(lost);
+      const broke = num(p.broke);
+      if (broke !== null && broke >= 1 && broke <= 9) facts.broke = Math.floor(broke);
     }
     if (kind.endsWith('-fall') && p.gates === true) facts.gates = true;
     if (kind === 'raid-fight' && p.field === true) facts.field = true;
