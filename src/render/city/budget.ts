@@ -241,9 +241,9 @@ export function cityCounts(q: Quality, plan: CityPlan = cityPlan()): CityCounts 
   // Горожане — по вызову на вид (на низком — один), копейщики у ворот — вызов (docs/city.md, 16.2).
   const gates = plan.towers.filter((t) => t.kind === 'gate' || t.kind === 'castleGate').length;
   calls += (q === 'low' ? 0 : 2) + 1;
-  // Сценки жителей вблизи (ЖГ-2): по вызову на вид фигуры, вещи и телегу — семь; счёт берёт худшее — все места полны самой
-  // дорогой фигурой (стражник) и телегой у каждой сценки, хотя издали их нет вовсе.
-  calls += 7;
+  // Сценки жителей вблизи (ЖГ-2): по вызову на вид фигуры, вещи, телегу и фонари ночных сценок — восемь; счёт берёт худшее —
+  // все места полны самой дорогой фигурой (стражник) и телегой у каждой сценки, хотя издали их нет вовсе.
+  calls += 8;
   const ft = figureTris(q);
   const skitSlots = SKITS_CAP[q].slots;
   const skits = skitSlots * (SKIT_FIGURES * Math.max(ft.guard, ft.person) + LIFE_TRIS.cart);

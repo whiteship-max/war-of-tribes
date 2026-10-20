@@ -11,10 +11,11 @@ import { hearSkits, type HeardSkit } from '@/sound/ear';
 import { loadedIn } from '@/world/cache';
 import { useWorld } from '@/world/store';
 import { heightAt, type CityPlan } from './layout';
-import { figure, figureLod, figureMaterial, gaitOf, guardGeometry, beastGeometry, townsGeometry, type Townsfolk } from './life';
+import { figure, figureLod, figureMaterial, gaitOf, glowPoints, guardGeometry, beastGeometry, townsGeometry, type Townsfolk } from './life';
 import { cartGeometry } from './alive';
 import { linear } from './palette';
 import { hash3 } from './noise';
+import { gridHeight, type GroundGrid } from './ground';
 import type { Site } from './sites';
 import { SKIT_FIGURES } from './spec';
 import type { V3 } from './geom';
@@ -76,10 +77,15 @@ export interface SkitsInput {
   plan: CityPlan;
   sites: readonly Site[];
   quality: Quality;
+  /** Геометрия земли игры (`city-ground`): ноги актёров — на нарисованной земле. Нет — по рельефу (`heightAt`). */
+  ground?: THREE.BufferGeometry | null;
 }
 
-/** Что кадр знает о минуте: распорядок, состояние города, погода, зима — сценкам (`SkitCtx` без логова: его ищет вид сам). */
-export type SkitMinute = Omit<SkitCtx, 'lair'>;
+/**
+ * Что кадр знает о минуте: распорядок, состояние города, погода, зима — сценкам (`SkitCtx` без логова: его ищет вид сам), и
+ * темнота окон (`lighting.windowNight`) — фонарям сценок.
+ */
+export type SkitMinute = Omit<SkitCtx, 'lair'> & { night: number };
 
 export class CitySkits {
   readonly group = new THREE.Group();
@@ -90,6 +96,9 @@ export class CitySkits {
   private lair = false;
   private lairAt = -Infinity;
   private heard: HeardSkit[] = [];
+  private height: (x: number, z: number) => number = heightAt;
+  /** Фонари ночных сценок (кости у бочки, пьяные) — огоньки без своего света, как у ночных прохожих. */
+  private lamps: THREE.Points;
 
   constructor(input: SkitsInput) {
     this.group.name = 'city-skits';
@@ -99,6 +108,12 @@ export class CitySkits {
     // Сценка адресом (`?skit=brawl`) — стенду (`SKIT=` у `city:shots`) и проверке на телефоне.
     const forced = typeof location !== 'undefined' ? new URLSearchParams(location.search).get('skit') : null;
     if (forced && (SKIT_IDS as readonly string[]).includes(forced)) this.director.forced = forced as SkitId;
+    const pos = input.ground?.getAttribute('position');
+    const n = pos ? Math.round(Math.sqrt(pos.count)) : 0;
+    if (pos && n * n === pos.count) {
+      const grid: GroundGrid = { positions: pos.array as Float32Array, normals: new Float32Array(0), index: new Uint32Array(0), nx: n, nz: n };
+      this.height = (x, z) => gridHeight(grid, x, z);
+    }
     const lod = figureLod(q);
     const mat = figureMaterial();
     const cap = slots * SKIT_FIGURES;
@@ -129,6 +144,8 @@ export class CitySkits {
       this.lanes.set(f, { im, gait: gaitOf(im), cloth2, skin, n: 0 });
       this.group.add(im);
     }
+    this.lamps = glowPoints(slots, 1.7, 0xffb860, 'city-skits-lamps');
+    this.group.add(this.lamps);
   }
 
   /** Сторож плавности опустил уровень — сценок меньше сразу. */
@@ -159,6 +176,8 @@ export class CitySkits {
     this.director.update(t, eye, camera.position, this.shown, ctx);
     for (const l of this.lanes.values()) l.n = 0;
     this.heard.length = 0;
+    const lampAt = this.lamps.geometry.attributes.position as THREE.BufferAttribute;
+    let lit = 0;
     camera.updateMatrixWorld();
     const view = camera.matrixWorldInverse;
     for (let k = 0; k < this.director.active.length; k++) {
@@ -174,7 +193,7 @@ export class CitySkits {
         const cast = a.def.cast[i];
         const lane = this.lanes.get(cast.fig)!;
         if (lane.n >= lane.im.instanceMatrix.count) continue;
-        const at = placeOf(a, lt, p);
+        const at = placeOf(a, lt, p, this.height);
         T.set(at.x, at.y + p.y, at.z);
         E.set(p.roll, at.yaw, -p.lean);
         Q.setFromEuler(E);
@@ -194,15 +213,35 @@ export class CitySkits {
         setLinear(lane.cloth2.array as Float32Array, j, cast.second ?? SECOND[hash3(salt, i, 5) % SECOND.length]);
         setLinear(lane.skin.array as Float32Array, j, SKINS[hash3(salt, i, 7) % SKINS.length]);
       }
+      // Фонарь — в темноте, у своего актёра.
+      const lamp = a.def.lamp;
+      if (lamp && minute.night > 0.3 && !poses[lamp.actor].hide) {
+        const p = poses[lamp.actor];
+        const u = p.u;
+        const v = p.v;
+        const y = p.y;
+        p.u += lamp.u;
+        p.v += lamp.v;
+        const at = placeOf(a, lt, p, this.height);
+        lampAt.setXYZ(lit++, at.x, at.y + y + lamp.y, at.z);
+        p.u = u;
+        p.v = v;
+      }
       // Звук: ближе к камере — громче; панорама — где сценка на экране.
       const c = this.director.centerOf(a, t);
-      V.set(c.x, heightAt(c.x, c.z) + 1.5, c.z);
+      V.set(c.x, this.height(c.x, c.z) + 1.5, c.z);
       const d = V.distanceTo(camera.position);
       const gain = Math.min(1, Math.max(0, (SKIT_HEAR.far - d) / (SKIT_HEAR.far - SKIT_HEAR.near)));
       V.applyMatrix4(view);
       const pan = Math.max(-0.85, Math.min(0.85, V.x / Math.max(1, -V.z * 0.6)));
       if (gain > 0) this.heard.push({ id: a.def.id, gain, pan, k: Math.min(1, lt / a.len) });
     }
+    const lm = this.lamps.material as THREE.PointsMaterial;
+    this.lamps.visible = lit > 0;
+    lm.opacity = Math.min(1, (minute.night - 0.3) * 2.5);
+    lm.size = 1.7 * (1 + Math.sin(t * 9) * 0.06);
+    this.lamps.geometry.setDrawRange(0, lit);
+    lampAt.needsUpdate = lit > 0;
     for (const l of this.lanes.values()) {
       l.im.count = l.n;
       l.im.visible = l.n > 0;
@@ -225,6 +264,9 @@ export class CitySkits {
 
   dispose(): void {
     hearSkits([]);
+    this.lamps.geometry.dispose();
+    (this.lamps.material as THREE.PointsMaterial).map?.dispose();
+    (this.lamps.material as THREE.PointsMaterial).dispose();
     const mats = new Set<THREE.Material>();
     for (const l of this.lanes.values()) {
       l.im.geometry.dispose();

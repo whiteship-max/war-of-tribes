@@ -98,6 +98,20 @@ const woods = (plan: CityPlan, x: number, z: number): boolean => {
   return false;
 };
 
+/**
+ * Поляна вокруг середины сценки за стеной: ни одного места, где встанет дерево (лес гуще 0,08 — и на межах между полями), в
+ * шести метрах, а не на опушке — и в одиннадцати: крона высокого дерева — до девяти метров, она закрыла бы сценку сверху.
+ */
+export function clearing(plan: CityPlan, x: number, z: number, edge: boolean): boolean {
+  for (const r of edge ? [6] : [6, 11]) {
+    for (let k = 0; k < 8; k++) {
+      const a = (k / 8) * Math.PI * 2;
+      if (forestAt(x + Math.cos(a) * r, z + Math.sin(a) * r, plan) > 0.08) return false;
+    }
+  }
+  return true;
+}
+
 /** Стоит ли актёр на своём месте: не в доме, не в постройке, не в дереве и не в воде, в своей части мира. */
 export function spotFree(w: SkitWorld, x: number, z: number, town: boolean): boolean {
   const plan = w.plan;
@@ -237,6 +251,8 @@ export interface SkitDef {
   cast: readonly Cast[];
   /** Позы в миг `lt` (с от начала) из `L`; `r` — жребий сценки 0..1. */
   pose: (lt: number, L: number, r: number, out: Pose[]) => void;
+  /** Фонарь в темноте: у какого актёра (или на какой вещи) и где от него в рамке, м. */
+  lamp?: { actor: number; u: number; v: number; y: number };
 }
 
 const band = (x: number, a: number, b: number, e: number): number => {
@@ -406,6 +422,7 @@ export const SKITS: readonly SkitDef[] = [
     speed: 0,
     len: [30, 42],
     cast: [{ fig: 'hood' }, { fig: 'cap' }, { fig: 'hood' }],
+    lamp: { actor: 0, u: 0.3, v: -0.15, y: 0.75 },
     pose(lt, _L, r, o) {
       const k = Math.sin(lt * 0.22 + r * 6) * 3.2;
       const back = Math.cos(lt * 0.22 + r * 6) < 0;
@@ -482,8 +499,8 @@ export const SKITS: readonly SkitDef[] = [
     len: [40, 56],
     cast: [{ fig: 'woman', color: BLACK, second: BLACK }, { fig: 'woman', color: 0x4a4038 }, { fig: 'woman' }, { fig: 'hood', scale: 0.62 }],
     pose(lt, _L, _r, o) {
-      const sob = Math.max(0, Math.sin(lt * 2.6)) * 0.12;
-      put(o[0], 0, 0, 0, { y: -0.42, lean: 0.55 + sob });
+      const sob = Math.max(0, Math.sin(lt * 2.6)) * 0.1;
+      put(o[0], 0, 0, 0, { y: -0.42, lean: 0.42 + sob });
       put(o[1], -0.1, -0.75, Math.PI / 2 - 0.3, { lean: 0.2 + 0.04 * Math.sin(lt * 0.8) });
       put(o[2], -0.7, 0.55, face(-0.7, 0.55, 0, 0), { lean: 0.12 });
       put(o[3], 0.2, 0.62, face(0.2, 0.62, 0, 0), { lean: 0.1 });
@@ -567,6 +584,7 @@ export const SKITS: readonly SkitDef[] = [
     speed: 0,
     len: [34, 48],
     cast: [{ fig: 'guard' }, { fig: 'guard' }, { fig: 'guard' }, { fig: 'prop', color: WOOD, box: [0.62, 0.72, 0.62] }, { fig: 'prop', color: LINEN, box: [0.09, 0.09, 0.09] }, { fig: 'prop', color: LINEN, box: [0.09, 0.09, 0.09] }],
+    lamp: { actor: 3, u: 0.18, v: 0.2, y: 0.85 },
     pose(lt, _L, _r, o) {
       const turn = Math.floor(lt / 5) % 3;
       const k = (lt % 5) / 5;
@@ -575,7 +593,7 @@ export const SKITS: readonly SkitDef[] = [
         const u = Math.cos(a) * 0.95;
         const v = Math.sin(a) * 0.95;
         const throws = i === turn ? Math.max(0, Math.sin(k * Math.PI * 2)) : 0;
-        put(o[i], u, v, face(u, v, 0, 0), { y: -0.5, lean: 0.22 + throws * 0.3 - (i !== turn && k > 0.6 ? 0.12 : 0) });
+        put(o[i], u, v, face(u, v, 0, 0), { y: -0.5, lean: 0.16 + throws * 0.22 - (i !== turn && k > 0.6 ? 0.1 : 0) });
       }
       put(o[3], 0, 0, 0);
       // Кости скачут после броска.
@@ -736,9 +754,9 @@ export const SKITS: readonly SkitDef[] = [
       const row = -4 + (8 * lt) / L;
       for (let i = 0; i < 3; i++) {
         const cut = Math.max(0, Math.sin(lt * 1.9 + i * 0.8));
-        put(o[i], 1.2 - i * 1.1, row - i * 0.5, Math.PI / 2, { lean: 0.6 + 0.35 * cut, walk: row, amp: 0.15 });
+        put(o[i], 1.2 - i * 1.1, row - i * 0.5, Math.PI / 2, { lean: 0.3 + 0.18 * cut, walk: row, amp: 0.15 });
       }
-      put(o[3], -1.5, row - 2.6, Math.PI / 2 + 0.6 * Math.sin(lt * 0.5), { lean: 0.45 + 0.2 * Math.max(0, Math.sin(lt * 1.2)), walk: row, amp: 0.15 });
+      put(o[3], -1.5, row - 2.6, Math.PI / 2 + 0.6 * Math.sin(lt * 0.5), { lean: 0.26 + 0.14 * Math.max(0, Math.sin(lt * 1.2)), walk: row, amp: 0.15 });
       // Снопы — позади ряда, по мере жатвы.
       for (let i = 0; i < 4; i++) {
         const sv = -4 + i * 2;
@@ -806,13 +824,13 @@ export const SKITS: readonly SkitDef[] = [
     cast: [{ fig: 'hood', color: 0x3a3a2a, second: 0x2a2a20 }, { fig: 'hood', color: 0x3a3228, second: 0x2a261e }],
     pose(lt, L, _r, o) {
       // Лицом к городу — «вперёд» рамки (к камере); одна пробежка посередине.
-      put(o[0], 0, -0.9, 0, { y: -0.48, lean: 0.35 + 0.05 * Math.sin(lt * 0.7) });
+      put(o[0], 0, -0.9, 0, { y: -0.48, lean: 0.28 + 0.05 * Math.sin(lt * 0.7) });
       if (!walkLeg(o[1], lt, L * 0.4, L * 0.4 + 3, -1.2, 3.2, -0.3, 0.6)) {
         const k = lt < L * 0.4 ? 0 : 1;
-        put(o[1], k ? -0.3 : -1.2, k ? 0.6 : 3.2, 0, { y: -0.48, lean: 0.4 });
+        put(o[1], k ? -0.3 : -1.2, k ? 0.6 : 3.2, 0, { y: -0.48, lean: 0.3 });
       } else {
         o[1].y = -0.2;
-        o[1].lean = 0.55;
+        o[1].lean = 0.4;
       }
     },
   },
@@ -875,8 +893,11 @@ export interface Placed {
 
 const PLACED: Placed = { x: 0, y: 0, z: 0, yaw: 0 };
 
-/** Куда встаёт поза: рамка стоящей сценки или место на пути идущей. */
-export function placeOf(a: Active, lt: number, p: Pose): Placed {
+/**
+ * Куда встаёт поза: рамка стоящей сценки или место на пути идущей. `ground` — высота нарисованной земли (вид даёт сетку земли
+ * игры, `ground.gridHeight`: вдали она редкая и идёт выше или ниже рельефа — по `heightAt` жнецы в поле ушли бы под неё).
+ */
+export function placeOf(a: Active, lt: number, p: Pose, ground: (x: number, z: number) => number = heightAt): Placed {
   const st = a.stage;
   if (st.path) {
     const s = st.s0 + st.dir * (a.def.speed * lt + p.u);
@@ -886,7 +907,7 @@ export function placeOf(a: Active, lt: number, p: Pose): Placed {
     // Вправо от хода — (tz, −tx), как у рамки стоящих; лицом по ходу.
     PLACED.x = q.p.x + tz * p.v;
     PLACED.z = q.p.z - tx * p.v;
-    PLACED.y = heightOnPath(st.path, s);
+    PLACED.y = ground === heightAt ? heightOnPath(st.path, s) : ground(PLACED.x, PLACED.z);
     PLACED.yaw = Math.atan2(-tz, tx) + p.yaw;
     return PLACED;
   }
@@ -895,7 +916,7 @@ export function placeOf(a: Active, lt: number, p: Pose): Placed {
   // Вправо в рамке — (fz, −fx): тот же поворот, что у фигуры лицом вперёд.
   PLACED.x = st.x + fx * p.u + fz * p.v;
   PLACED.z = st.z + fz * p.u - fx * p.v;
-  PLACED.y = heightAt(PLACED.x, PLACED.z);
+  PLACED.y = ground(PLACED.x, PLACED.z);
   PLACED.yaw = st.yaw + p.yaw;
   return PLACED;
 }
@@ -1116,7 +1137,8 @@ export class SkitDirector {
   /** Поиск идёт кусками: не дольше `budget` мс за кадр (бесконечность — сразу целиком, тестам). */
   private advance(t: number, fresh: boolean): void {
     const job = this.job!;
-    const until = Number.isFinite(this.budget) ? now() + this.budget : Infinity;
+    // Сценка адресом (стенд) ищется сразу: у стенда кадры программной отрисовки редки.
+    const until = Number.isFinite(this.budget) && !this.forced ? now() + this.budget : Infinity;
     for (;;) {
       const r = job.next();
       if (r.done) {
@@ -1187,6 +1209,7 @@ export class SkitDirector {
     const r = this.rnd();
     // Камера над землёй известна — сценка за постройкой не ставится.
     if (cam.y !== undefined && !inView(this.w, { x: cam.x, y: cam.y, z: cam.z }, p.x, p.z)) return null;
+    if (!TOWN_PLACES.includes(kind) && !d.moving && !clearing(this.w.plan, p.x, p.z, kind === 'edge')) return null;
     yield;
     if (d.moving) {
       const paths = TOWN_PLACES.includes(kind) ? this.w.walks.filter((w) => w.half >= 1.9) : this.w.roads;

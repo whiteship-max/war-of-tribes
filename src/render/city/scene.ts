@@ -637,6 +637,7 @@ export class CityScene extends TribeScene {
         snow: w.snow,
         storm: w.storm,
         winter: this.season === 'winter',
+        night,
       });
       this.garrison?.update(t, this.camera);
       // Колесо лесопилки крутится и брызжет — от времени (ручей не мёрзнет).
@@ -714,7 +715,8 @@ export class CityScene extends TribeScene {
     import('./skitview')
       .then(({ CitySkits }) => {
         if (this.disposed || this.town !== c) return;
-        this.skits = new CitySkits({ plan: c.plan, sites: this.sites, quality: this.dprLevel });
+        const ground = c.group.getObjectByName('city-ground');
+        this.skits = new CitySkits({ plan: c.plan, sites: this.sites, quality: this.dprLevel, ground: ground instanceof THREE.Mesh ? ground.geometry : null });
         lightScene(this.skits.group, c.uniforms);
         this.scene.add(this.skits.group);
       })

@@ -41,7 +41,7 @@ const NOON = 0.26;
 const EVENING = 0.52;
 const NIGHT = 0.8;
 
-const ctxOf = (solar: number, mood: CityMood = CALM_MOOD, extra: Partial<SkitCtx> = {}): SkitCtx => ({
+const ctxOf = (solar: number, mood: CityMood = CALM_MOOD, extra: Partial<SkitCtx> = {}): SkitCtx & { night: number } => ({
   solar,
   rh: rhythmAt(solar),
   mood,
@@ -50,6 +50,7 @@ const ctxOf = (solar: number, mood: CityMood = CALM_MOOD, extra: Partial<SkitCtx
   storm: 0,
   winter: false,
   lair: false,
+  night: 0,
   ...extra,
 });
 const mood = (m: string): CityMood => forcedMood(`?mood=${m}`)!;
