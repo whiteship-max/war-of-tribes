@@ -33,9 +33,9 @@ export const LIP_N = LIP_K.length;
 const MOUTH_ROWS = [2, 4] as const;
 
 /** Глаз: середина (метры по ряду, высота), полуширина, верх и низ века, подъём внешнего угла. */
-export const EYE = { x: 0.0405, h: 0.14, half: 0.018, up: 0.0057, down: 0.0039, tilt: 0.0026, inner: -0.0007 } as const;
+export const EYE = { x: 0.0405, h: 0.14, half: 0.0175, up: 0.0047, down: 0.0034, tilt: 0.0032, inner: -0.0007 } as const;
 /** Рот: полуширина, линия губ, верх верхней губы (лук Купидона) и низ нижней. */
-export const MOUTH = { half: 0.028, line: 0.0628, top: 0.0742, bow: 0.0013, bottom: 0.0492 } as const;
+export const MOUTH = { half: 0.0245, line: 0.0628, top: 0.0742, bow: 0.0013, bottom: 0.0492 } as const;
 
 /** Белок — сплюснутый эллипсоид вращения вокруг оси x: полуось по x, радиус сечения; веко и край — снаружи на зазор. */
 export const BALL = { rx: 0.026, r: 0.0125, lid: 0.0016, rim: 0.0032 } as const;
@@ -43,12 +43,12 @@ export const BALL = { rx: 0.026, r: 0.0125, lid: 0.0016, rim: 0.0032 } as const;
 // ---------- Поверхность ----------
 
 const A_T: readonly (readonly [number, number])[] = [
-  [0, 0.028],
-  [0.02, 0.042],
-  [0.042, 0.053],
-  [0.062, 0.063],
-  [0.08, 0.072],
-  [0.097, 0.082],
+  [0, 0.018],
+  [0.02, 0.029],
+  [0.042, 0.04],
+  [0.062, 0.053],
+  [0.08, 0.065],
+  [0.097, 0.08],
   [0.112, 0.091],
   [0.126, 0.096],
   [0.14, 0.098],
@@ -94,7 +94,7 @@ const spow = (v: number, p: number): number => Math.sign(v) * Math.abs(v) ** p;
 
 /** Подъём линии челюсти к уху: низ маски у середины — подбородок, у виска — угол челюсти. */
 /** Подъём линии челюсти к уху — с самой середины, плавно: подбородок кругом, а не плоской ступенью. */
-export const rise = (th: number): number => 0.044 * Math.min(1, Math.abs(th) / 1.62) ** 1.35;
+export const rise = (th: number): number => 0.05 * Math.min(1, Math.abs(th) / 1.62) ** 1.25;
 
 /** Мягкие бугры: нос (только середина), надбровье, яблочки щёк, скулы; ямка под скулой. */
 function relief(th: number, h: number): { front: number; out: number } {
@@ -125,6 +125,12 @@ const chinUp = (h: number): number => (h >= 0.06 ? h : 0.06 - (0.06 - h) * 0.74)
 /** Высота точки лица над полом по высоте h над подбородком (без подъёма челюсти). */
 export const faceHeight = (h: number): number => CHIN_Y + chinUp(h);
 
+
+/**
+ * Овал лица: полуширина по ряду h (метры по поверхности от середины) — шире всего у скул, к вискам и к подбородку уже.
+ * По нему лист лица рисует границу кожи (`face.edgeX`), и по нему же ложатся пряди у щёк (`figure.buildLocks`).
+ */
+export const faceOval = (h: number): number => (h <= 0.118 ? 0.088 * Math.sqrt(Math.max(0, 1 - ((h - 0.118) / 0.13) ** 2)) : 0.088 - (h - 0.118) * 0.16);
 
 /** Длина по ряду h от середины лица до θ, м. */
 export function arcAt(h: number, th: number): number {
@@ -216,16 +222,22 @@ export function eyeRim(side: 1 | -1): [number, number][] {
   return pts;
 }
 
+// Подъём уголков, м: у линии губ — заметный (лицо доброе, а не строгое), у края губ — вдвое меньше: край выше узла
+// сетки у угла вывернул бы треугольник между ними (тест «нет вывернутых граней лица»).
+const CORNER_UP = 0.0028;
+const RIM_UP = 0.0016;
+
 /** Край губ (вермилион): 16 точек — левый угол, верх (7), правый угол, низ (7); `line` — линия губ теми же точками. */
 export function mouthRim(line: boolean): [number, number][] {
   const xs = LIP_K;
   const pts: [number, number][] = [];
   const th = (h: number, m: number): number => thetaAt(h, m);
   // Линия губ — уже края губ: её уголки и точки — внутри вермилиона.
-  const w = MOUTH.half * (line ? 0.86 : 1);
-  const corner = (s: number): [number, number] => [th(MOUTH.line + 0.0036, s * w), MOUTH.line + 0.0036];
+  const w = MOUTH.half * (line ? 0.8 : 1);
+  const up = line ? CORNER_UP : RIM_UP;
+  const corner = (s: number): [number, number] => [th(MOUTH.line + up, s * w), MOUTH.line + up];
   // Уголки губ — чуть выше середины линии: лицо доброе, а не строгое.
-  const smile = (k: number): number => MOUTH.line - 0.0004 * (1 - k * k) + 0.0036 * k ** 4;
+  const smile = (k: number): number => MOUTH.line - 0.0004 * (1 - k * k) + CORNER_UP * k ** 4;
   const upper = (k: number): number => {
     if (line) return smile(k);
     // Лук Купидона: две вершины у середины, ложбинка между ними.
@@ -244,7 +256,7 @@ export function mouthRim(line: boolean): [number, number][] {
 export function eyeCenter(side: 1 | -1): V3 {
   const th = thetaAt(EYE.h, EYE.x);
   const p = surf(side * th, EYE.h);
-  return [p[0], p[1], p[2] - (BALL.r + 0.003)];
+  return [p[0], p[1], p[2] - (BALL.r + 0.0042)];
 }
 
 /** Радиус сечения эллипсоида белка (с зазором `gap`) на расстоянии x от середины по оси. */
@@ -381,7 +393,7 @@ export function buildHead(m: SkinMesh): number {
     const l1 = socket.map(([th, h], i) => {
       const p = surf(th, h);
       const top = i >= 1 && i <= 4 ? 1 : 0;
-      return m.v([p[0], p[1], p[2] - 0.0034 + top * 0.0004], uvOf(facePx(th, h)), 1, 'head');
+      return m.v([p[0], p[1], p[2] - 0.0046 + top * 0.0004], uvOf(facePx(th, h)), 1, 'head');
     });
     // Край века — на эллипсоиде снаружи белка.
     const l2 = rim.map(([th, h]) => {
@@ -390,9 +402,10 @@ export function buildHead(m: SkinMesh): number {
       return m.v(shell(c, x, elev(c, p), BALL.rim), uvOf(facePx(th, h)), 1, 'head');
     });
     m.strip([ring, l1, l2], true, (p) => [p[0], p[1], p[2] - 0.05]);
-    // Белок: 4 × 2 клетки по оси и углу, с запасом за края разреза.
+    // Белок: 4 × 2 клетки по оси и углу, с запасом за края разреза — малым: у внешнего угла шар вышел бы из-под кожи.
     const span = eyeSpan();
-    const xs = [-(EYE.half + 0.0014), -(EYE.half + 0.0014) / 2, 0, (EYE.half + 0.0014) / 2, EYE.half + 0.0014];
+    const XS = EYE.half + 0.0005;
+    const xs = [-XS, -XS / 2, 0, XS / 2, XS];
     const es = [span.bottom - 0.2, (span.bottom + span.top) / 2 - 0.05, span.top + 0.2];
     const rows: number[][] = es.map((e, ri) =>
       xs.map((x) => {
@@ -400,7 +413,8 @@ export function buildHead(m: SkinMesh): number {
         const px = EYE_SHEET.x + EYE_SHEET.w / 2 + (sx / EYE_SHEET.m) * EYE_SHEET.w;
         const py = EYE_SHEET.y + EYE_SHEET.h / 2 - ((e * BALL.r) / EYE_SHEET.m) * EYE_SHEET.w;
         // Верх белка в тени века.
-        const i = m.v(shell(c, sx, e, 0), uvOf([px, py]), 1, 'head', ri === es.length - 1 ? 0.55 : ri === 1 ? 0.86 : 0.8);
+        const end = Math.abs(x) === XS;
+        const i = m.v(shell(c, sx * (end ? 0.94 : 1), e, end ? -0.0012 : 0), uvOf([px, py]), 1, 'head', ri === es.length - 1 ? 0.55 : ri === 1 ? 0.86 : 0.8);
         m.eye.push(i);
         return i;
       }),
@@ -414,7 +428,8 @@ export function buildHead(m: SkinMesh): number {
         const sx = x * side;
         const px = LID_SHEET.x + LID_SHEET.w / 2 + (sx / LID_SHEET.m) * LID_SHEET.w;
         const py = LID_SHEET.y + LID_SHEET.h - 4 - (ri / (lidE.length - 1)) * (LID_SHEET.h - 8);
-        return m.v(shell(c, sx, e, BALL.lid), uvOf([px, py]), 1, 'lids');
+        // Края века у уголков — вглубь: у внешнего угла кожа лица близко к шару, и край века светлел бы из-под неё.
+        return m.v(shell(c, sx * (Math.abs(x) === XS ? 0.9 : 1), e, Math.abs(x) === XS ? BALL.lid - 0.0016 : BALL.lid), uvOf([px, py]), 1, 'lids');
       }),
     );
     m.strip(lid, false, (p) => [p[0], p[1], p[2] - 0.05]);
@@ -458,11 +473,13 @@ export function buildHead(m: SkinMesh): number {
   );
   m.strip(cave, false, (p) => [p[0], p[1], p[2] - 0.05]);
 
-  // Под челюстью — к шее: ряд под линией челюсти, заправлен в шею.
+  // Под челюстью — к шее: ряд под линией челюсти, заправлен в шею. Полого, почти назад и вдоль всей челюсти: отвесная
+  // полоса была бы видна спереди тёмным «ошейником» и коробом у подбородка (круги 10–11), а пологая — узкой тенью под
+  // челюстью, как у образца; ниже — сама шея.
   const underRow = cols.map((th) => {
     const p = surf(th, 0);
-    const nk: V3 = [0.046 * Math.sin(th), CHIN_Y - 0.012, -0.012 + 0.044 * Math.cos(th)];
-    const q: V3 = [p[0] + (nk[0] - p[0]) * 0.72, nk[1], p[2] + (nk[2] - p[2]) * 0.72];
+    // Шея в чертёжных мерах головы: у верха — круг радиуса 0,032 вокруг z −0,014 (`figure.TORSO[0]`), ряд — на нём.
+    const q: V3 = [0.031 * Math.sin(th), p[1] - 0.007, -0.014 + 0.031 * Math.cos(th)];
     const px = facePx(th, 0, 0.034);
     const w = faceWeight(th, 0);
     return m.v(q, uvOf(px), 1, typeof w === 'string' ? w : ['jaw', 'head', w[2] * 0.6], 0.9);

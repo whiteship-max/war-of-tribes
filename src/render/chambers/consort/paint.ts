@@ -298,9 +298,9 @@ export function brushPlane(img: Img, pts: readonly (readonly [number, number])[]
   const box = boxOf(pts, 0);
   const inside = poly(pts);
   const a = o.alpha ?? 1;
-  img.shape(inside, boxOf(pts, (o.soft ?? 6) * 2), c, { soft: o.soft ?? 6, alpha: 0.5 * a });
+  img.shape(inside, boxOf(pts, (o.soft ?? 6) * 2), c, { soft: o.soft ?? 6, alpha: 0.78 * a });
   const r = rng(o.seed ?? 5);
-  const jit = o.jitter ?? 0.1;
+  const jit = o.jitter ?? 0.08;
   for (let i = 0; i < o.count; i++) {
     let x = 0;
     let y = 0;
@@ -324,6 +324,6 @@ export function brushPlane(img: Img, pts: readonly (readonly [number, number])[]
       [x + dx, y + dy],
     ];
     const k = 1 + (r() - 0.5) * jit * 2;
-    img.shape(stroke(line, (t) => o.width * (0.35 + 0.65 * Math.sin(Math.PI * t))), boxOf(line, o.width), [c[0] * k, c[1] * k, c[2] * k], { soft: o.width * 0.45, alpha: 0.42 * a });
+    img.shape(stroke(line, (t) => o.width * (0.35 + 0.65 * Math.sin(Math.PI * t))), boxOf(line, o.width), [c[0] * k, c[1] * k, c[2] * k], { soft: o.width * 0.45, alpha: 0.3 * a });
   }
 }

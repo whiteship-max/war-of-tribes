@@ -88,8 +88,8 @@ export function sheetTexture(rgba: Uint8Array<ArrayBuffer>, size: number, name: 
   const t = new THREE.DataTexture(rgba, size, size, THREE.RGBAFormat);
   t.name = name;
   t.colorSpace = THREE.SRGBColorSpace;
-  t.wrapS = THREE.ClampToEdgeWrapping;
-  t.wrapT = THREE.ClampToEdgeWrapping;
+  // Края — `ClampToEdgeWrapping`, умолчание `DataTexture`: эта постоянная нигде больше в игре не нужна, и имя её здесь
+  // меняло кусок three первой загрузки (без него кусок — байт в байт как до ЛЦ-2).
   t.magFilter = THREE.LinearFilter;
   t.minFilter = THREE.LinearMipmapLinearFilter;
   t.generateMipmaps = true;

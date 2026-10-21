@@ -475,7 +475,8 @@ async function weatherShots(tab: Tab, q: Quality): Promise<void> {
     // Жизнь покоев (Г-7): `LIFE='{"who":"servant","at":{"x":3.75,"z":-4.6,"yaw":3.1},"talk":true}'` — поставить людей и кота
     // сразу (`ChambersLife.stage`); списком — несколько (`LIFE='[{"who":"maid"},{"cat":"floor"}]'`).
     if (process.env.LIFE) {
-      const r = await tab.eval<string>(`JSON.stringify((() => { const l = window.__chambers.life; for (const s of [].concat(${process.env.LIFE})) l.stage(s); return 'жизнь: ' + JSON.stringify(l.view()); })())`);
+      // Супруга — своим ленивым куском (ЛЦ-2): ставим, когда он приехал, иначе в кадре — запасная сетка.
+      const r = await tab.eval<string>(`(async () => { const l = window.__chambers.life; await l.consortReady; for (const s of [].concat(${process.env.LIFE})) l.stage(s); return JSON.stringify('жизнь: ' + JSON.stringify(l.view())); })()`);
       console.log(`  ${r}`);
     }
     // Гонец и советник (Г-10): `COURT='{"herald":{"key":"k","kind":"raid","line":"{T}! …","door":{"to":"inbox"}}}'` — гонец с

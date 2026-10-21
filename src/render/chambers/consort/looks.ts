@@ -45,17 +45,17 @@ export interface Look {
 export const LOOKS: Record<ConsortId, Look> = {
   a: {
     name: 'Осень: рыжая, лес и ржавчина',
-    palette: { skin: 0xebb892, hair: 0x9a4220, linen: 0xe8dfcf, bodice: 0x2d5638, skirt: 0x7c4b2a, gold: 0xcfa54a, iris: 0x4f8a3c },
+    palette: { skin: 0xebb892, hair: 0x9a4220, linen: 0xded2be, bodice: 0x2d5638, skirt: 0x7c4b2a, gold: 0xcfa54a, iris: 0x4f8a3c },
     face: { browArch: 0.0028, browThick: 0.0054, lash: 1, wing: 0.0042, lipTint: 0.45, lipFull: 0.6, blush: 0.38, freckles: 1, lidShade: 0.3 },
   },
   b: {
     name: 'Королевская: каштан, синь и багрец',
-    palette: { skin: 0xe8b38b, hair: 0x5a3018, linen: 0xe6dccb, bodice: 0x27407e, skirt: 0x7e2028, gold: 0xd3aa4c, iris: 0x3f72a8 },
+    palette: { skin: 0xe6ac7f, hair: 0x5a3018, linen: 0xdcd0bc, bodice: 0x27407e, skirt: 0x7e2028, gold: 0xd3aa4c, iris: 0x3a6898 },
     face: { browArch: 0.0024, browThick: 0.0058, lash: 1.15, wing: 0.005, lipTint: 0.5, lipFull: 0.8, blush: 0.36, freckles: 0, lidShade: 0.36 },
   },
   c: {
     name: 'Золотая: мёд, слива и сталь',
-    palette: { skin: 0xdfa77d, hair: 0xc2914c, linen: 0xe6ddcb, bodice: 0x5c2c56, skirt: 0x465269, gold: 0xc79d44, iris: 0x7d5a2c },
+    palette: { skin: 0xdfa77d, hair: 0xc2914c, linen: 0xd0c4ae, bodice: 0x5c2c56, skirt: 0x465269, gold: 0xc79d44, iris: 0x7d5a2c },
     face: { browArch: 0.0018, browThick: 0.0052, lash: 0.9, wing: 0.0032, lipTint: 0.42, lipFull: 0.5, blush: 0.3, freckles: 0, lidShade: 0.26 },
   },
 };

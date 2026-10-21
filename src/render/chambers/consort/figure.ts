@@ -11,7 +11,7 @@
 import type { V3 } from '../../city/geom';
 import { Skeleton } from '../rig';
 import { SkinMesh, add, scale, sub, type Weights } from './skin';
-import { HZ, buildHead, eyeCenter } from './head';
+import { HZ, buildHead, eyeCenter, faceOval, surf, thetaAt } from './head';
 
 /** Кости по порядку (родитель раньше ребёнка). */
 export const BONES = ['hips', 'spine', 'chest', 'neck', 'head', 'jaw', 'lids', 'hair', 'armL', 'foreL', 'handL', 'thumbL', 'armR', 'foreR', 'handR', 'thumbR', 'skirtF', 'skirtB', 'skirtS'] as const;
@@ -23,7 +23,7 @@ export type Bone = (typeof BONES)[number];
  * головы, челюсти, век и волос) — от основания черепа (`HEAD_SCALE`, чуть ниже на `HEAD_DROP` — шея короче), потом вся
  * фигура — к росту `HEIGHT` (`BODY_SCALE`).
  */
-export const HEAD_SCALE = 0.703;
+export const HEAD_SCALE = 0.738;
 const HEAD_PIVOT: V3 = [0, 1.3, -0.02];
 const HEAD_DROP = 0.024;
 /** Голова — выше шеи; между — плавно (волосы, спадающие на спину, остаются в мерах тела). */
@@ -112,7 +112,8 @@ const TORSO_A = mirrorRing([0, 0.25, 0.5, 0.85, 1.25, 1.75, 2.35, Math.PI]);
 /** Ряды торса сверху вниз: высота, полуоси, сдвиг середины, доля груди, кости. */
 export const TORSO: readonly { y: number; rx: number; rz: number; zc: number; bust: number; w: Weights }[] = [
   // Шея — короткая и плотная, плавно уходит в трапецию и плечи.
-  { y: 1.3, rx: 0.032, rz: 0.032, zc: -0.014, bust: 0, w: ['head', 'neck', 0.55] },
+  // Верх шеи — внутри головы, выше угла челюсти: полоса под челюстью у ушей кончается на шее, а не в пустоте.
+  { y: 1.335, rx: 0.032, rz: 0.032, zc: -0.014, bust: 0, w: ['head', 'neck', 0.55] },
   { y: 1.25, rx: 0.034, rz: 0.034, zc: -0.012, bust: 0, w: ['neck', 'chest', 0.6] },
   { y: 1.233, rx: 0.056, rz: 0.046, zc: -0.013, bust: 0, w: ['neck', 'chest', 0.4] },
   { y: 1.214, rx: 0.1, rz: 0.062, zc: -0.016, bust: 0, w: ['chest', 'neck', 0.85] },
@@ -230,6 +231,41 @@ function buildHair(m: SkinMesh): void {
   const first = rows[0];
   for (let k = 0; k + 1 < first.length; k++) m.quad(top, first[k], first[k + 1], top, [0, 1.5, -0.02]);
   m.strip(rows, false, (p) => [0, p[1] + (p[1] < 1.3 ? 0.05 : 0), p[1] < 1.3 ? -0.03 : HZ]);
+  // Над проёмом лица — клин волос до первого открытого кольца: без него от макушки к лбу зиял бы треугольник изнанки.
+  const shut = HAIR.findIndex((r) => r.open > 0);
+  const a0 = rows[shut - 1];
+  const a1 = rows[shut];
+  // Вырожденный четырёхугольник обход не выбирает (нормаль от двух совпавших вершин — ноль): порядок — наружу.
+  m.quad(a0[0], a1[a1.length - 1], a1[0], a0[0], [0, HAIR[shut].y, HZ]);
+}
+
+/**
+ * Пряди у щёк — по одной с каждой стороны, поверх края овала (круг 12): от виска под обручем к линии челюсти, крупной
+ * лентой в три столбца с гребнем посередине. Они обрамляют лицо и сужают овал, а верх прячется под шапкой волос. Лист —
+ * прядь волос с бликом (столбцы листа 28…100).
+ */
+function buildLocks(m: SkinMesh): void {
+  const hs = [0.215, 0.165, 0.11, 0.05];
+  const vs = [44, 68, 96, 122];
+  for (const side of [1, -1] as const) {
+    const rows = hs.map((h, ri) => {
+      const tip = ri === hs.length - 1;
+      const o = faceOval(h);
+      // Внутрь — на край щеки, наружу — за овал; к концу пряди уже.
+      const ms = tip ? [o - 0.002, o + 0.006, o + 0.012] : [o - 0.008, o + 0.004, o + 0.018];
+      const lift = [0.003, 0.0075, 0.005];
+      return ms.map((mm, ci) => {
+        const th = side * thetaAt(h, mm);
+        const p = surf(th, h);
+        const dx = p[0];
+        const dz = p[2] - HZ;
+        const d = Math.hypot(dx, dz);
+        const q: V3 = [p[0] + (dx / d) * lift[ci], p[1], p[2] + (dz / d) * lift[ci]];
+        return m.v(q, uvB([28, 64, 100][ci], vs[ri]), 0, ri < 2 ? 'head' : ['head', 'hair', 0.7]);
+      });
+    });
+    m.strip(rows, false, (p) => [0, p[1], HZ]);
+  }
 }
 
 /** Обруч: золотая лента по волосам над лбом и камень посередине. */
@@ -407,6 +443,7 @@ export function buildConsortMesh(): SkinMesh {
   };
   buildHead(m);
   buildCirclet(m);
+  buildLocks(m);
   place(0, atHead);
   const neck = m.vertexCount;
   buildHair(m);

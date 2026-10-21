@@ -331,4 +331,16 @@ describe('покои: бюджет живых (Г-7)', () => {
     expect(room.life.counts().triangles).toBe(0);
     room.dispose();
   });
+
+  it('супруга — своя сетка ЛЦ-2 (docs/characters.md): дешевле прежней на каждом уровне, в покоях — одна сетка', async () => {
+    const { buildPerson } = await import('./folk');
+    const { buildConsortMesh } = await import('./consort/figure');
+    const tris = buildConsortMesh().triangles;
+    for (const d of [0, 1, 2] as const) expect(tris, `прежняя супруга @${d}`).toBeLessThan(buildPerson('wife', DEFAULT_ARMS, d, 1).m.b.triangleCount);
+    const room = phoneRoom();
+    await room.life.consortReady;
+    room.life.stage({ who: 'wife', at: { x: 0.1, z: 1.1, yaw: Math.PI } });
+    expect(room.life.counts()).toEqual({ triangles: tris, meshes: 2 });
+    room.dispose();
+  });
 });

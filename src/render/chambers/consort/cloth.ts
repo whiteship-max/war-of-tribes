@@ -78,10 +78,11 @@ function paintHair(img: Img, hair: RGB): void {
   // соседние и даёт на них тень краем. У зеркал (середина спереди и сзади) — пряди ровно по оси, без изгиба.
   const strands: { c: number; w: number; ph: number; amp: number; lift: number }[] = [];
   // Пять крупных прядей на половину: сбоку от лица видно лишь полосу листа в 70 точек — в неё ложится одна прядь с бликом.
-  const N = 5;
+  // Восемь на половину (круг 13): у лица и на плечах видно по две-три пряди с тёмными зазорами, а не гладкое полотно.
+  const N = 8;
   for (let i = 0; i <= N; i++) {
     const edge = i === 0 || i === N;
-    strands.push({ c: (i / N) * W + (edge ? 0 : (r() - 0.5) * 16), w: 112 + r() * 22, ph: r() * 6, amp: edge ? 0 : 7 + r() * 5, lift: (i % 2 ? 0.08 : -0.1) + (r() - 0.5) * 0.06 });
+    strands.push({ c: (i / N) * W + (edge ? 0 : (r() - 0.5) * 10), w: 70 + r() * 14, ph: r() * 6, amp: edge ? 0 : 5 + r() * 4, lift: (i % 2 ? 0.08 : -0.1) + (r() - 0.5) * 0.06 });
   }
   const order = strands.map((_, i) => i).sort((a, b) => (a % 2) - (b % 2));
   for (const i of order) {
@@ -96,17 +97,19 @@ function paintHair(img: Img, hair: RGB): void {
         const u = (x - cx(y)) / half(y);
         const fib = (n(x * 0.05, y * 0.02) - 0.5) * 0.08;
         // Внутри пряди — две тонкие тёмные бороздки (пряди помельче), края — в тени соседней.
-        const c = tone(hair, st.lift + 0.24 * (1 - u * u) - 0.8 * u ** 6 + fib);
+        const c = tone(hair, st.lift - 0.26 + 0.52 * (1 - u * u) ** 2 - 1.0 * u ** 6 + fib);
         // Пряди на свету — теплее (к меди), в тени — холоднее.
         return st.lift > 0 ? mix(c, shine, 0.1 * (1 - u * u)) : mix(c, [0.16, 0.13, 0.16], 0.12);
       },
       { soft: 3, alpha: (x, y) => Math.min(1, (y - top + 4) / 18) },
     );
-    // Блик — узкий длинный штрих вдоль пряди на её изгибе, и второй, короче, ниже.
+    // Блик — узкий длинный штрих вдоль пряди на её изгибе, и второй, короче, ниже (у прядей на осях — нет: штрих по оси
+    // сузился бы к концам в линию шириной в точку).
+    if (st.amp === 0) continue;
     const off = st.amp ? (r() - 0.5) * st.w * 0.16 : 0;
     const hy = 50 + (i % 3) * 7;
     const pts = [hy - 18, hy - 6, hy + 6, hy + 18].map((y) => [cx(y) + off, y] as [number, number]);
-    img.shape(stroke(spline(pts, 4), (t) => 2 + 9 * Math.sin(Math.PI * t)), boxOf(pts, 12), shine, { soft: 4, alpha: 0.9 });
+    img.shape(stroke(spline(pts, 4), (t) => 2 + 7 * Math.sin(Math.PI * t)), boxOf(pts, 12), shine, { soft: 4, alpha: 0.9 });
     const hy2 = 92 + (i % 2) * 6;
     const pts2 = [hy2 - 8, hy2, hy2 + 8].map((y) => [cx(y) - off * 0.5, y] as [number, number]);
     img.shape(stroke(spline(pts2, 4), (t) => 1.5 + 6 * Math.sin(Math.PI * t)), boxOf(pts2, 9), mix(shine, hair, 0.35), { soft: 3, alpha: 0.7 });
@@ -127,9 +130,15 @@ function paintTorso(img: Img, skin: RGB, linen: RGB, bodice: RGB, gold: RGB): vo
       // Кожа: шея под подбородком в тени, грудь светлее, к бокам — в тень.
       // Под подбородком — та же тёплая тень, что у низа листа лица (шва нет); к ключицам светлеет.
       // Тень от подбородка на шее — по его форме: ниже посередине, к бокам выше (не ошейником).
-      const edge = 1.226 + 0.03 * Math.min(1, Math.abs(a) / 1.3) ** 2;
-      const neck = h > edge - 0.02 ? -0.78 * Math.min(1, (h - edge + 0.02) / 0.03) ** 0.7 : 0;
-      return flesh(skin, 0.08 + neck - 0.32 * side);
+      // Перед шеи ниже тени — на свету (середина — светлее боков, их тени — плоскостями ниже).
+      // Бока шеи — в тень мягко, по углу (не плоскостями с краем: края читались швами, круг 12).
+      const edge = 1.274 + 0.022 * Math.min(1, Math.abs(a) / 1.3) ** 2;
+      const neck = h > edge - 0.01 ? -1 * Math.min(1, (h - edge + 0.01) / 0.008) ** 0.7 : 0;
+      const up = Math.min(1, Math.max(0, (h - 1.205) / 0.03));
+      const front = -0.8 * up * Math.min(1, Math.max(0, (Math.abs(a) - 0.3) / 0.9)) ** 1.2;
+      const c = flesh(skin, 0.08 + neck + front - 0.32 * side);
+      // Тень под подбородком — тёплая, в рыжину.
+      return neck < -0.2 ? mix(c, [0.4, 0.17, 0.1], 0.42 * Math.min(1, -neck)) : c;
     }
     if (h > bodiceTop(a)) return tone(linen, -0.05 - 0.28 * side + (n(x * 0.15, y * 0.4) - 0.5) * 0.08);
     // Корсаж: верх светлее (на свету), к поясу и к бокам — в тень.
@@ -154,21 +163,10 @@ function paintTorso(img: Img, skin: RGB, linen: RGB, bodice: RGB, gold: RGB): vo
   const cl0 = P(0, neckline(0) + 0.002);
   const cl1 = P(0, 1.13);
   img.shape(stroke([cl0, cl1], (t) => 16 * (1 - t) + 3), boxOf([cl0, cl1], 16), flesh(skin, -0.62), { soft: 7, alpha: 0.85 });
-  // Шея: тень от подбородка и мягкая тень по бокам шеи.
-  // Шея: бока — тёмными плоскостями (мышца от уха к ключице), середина светлее, над грудиной — ямка.
-  for (const [a0, a1] of [
-    [0.55, 1.05],
-    [1.05, 1.7],
-  ]) {
-    const pts = [P(a0, 1.3), P(a1, 1.3), P(a1 + 0.15, 1.236), P(a1 + 0.35, 1.21), P(a0 + 0.25, 1.21), P(a0 + 0.05, 1.236)];
-    img.shape(poly(pts), boxOf(pts, 8), flesh(skin, a0 > 1 ? -0.55 : -0.42), { soft: 6, alpha: 0.85 });
-  }
-  const notch = P(0, 1.214);
-  img.shape(ellipse(notch[0], notch[1], 12, 4), around(notch[0], notch[1], 18, 9), flesh(skin, -0.42), { soft: 6, alpha: 0.6 });
 
   // Сорочка: сборки (вертикальные складки), объём груди — свет сверху, тень под ней; край выреза — рюш с тенью.
-  for (let i = 0; i <= 45; i++) {
-    const x = ax((i * Math.PI) / 45) + (i === 0 || i === 45 ? 0 : (r() - 0.5) * 4);
+  for (let i = 1; i < 45; i++) {
+    const x = ax((i * Math.PI) / 45) + (r() - 0.5) * 4;
     const a = aOf(x);
     const top = torsoY(neckline(a)) + 2;
     const bot = torsoY(bodiceTop(a)) - 1;
@@ -186,15 +184,17 @@ function paintTorso(img: Img, skin: RGB, linen: RGB, bodice: RGB, gold: RGB): vo
     const a = aOf(x);
     return Math.abs(y - (torsoY(bodiceTop(a)) - 1.8)) - 1.6;
   }, { x0: 0, y0: T.y0, x1: W, y1: T.y1 }, tone(linen, -0.6), { soft: 2.5, alpha: 0.65 });
-  // Рюш по вырезу: волнистый край, сверху светлый, снизу тень.
+  // Рюш по вырезу: волнистый край, сверху светлый, снизу тень. Сзади, под волосами, волна стихает: гребень волны на
+  // линии зеркала дал бы на ней излом в полпикселя.
+  const wave = (a: number): number => Math.cos(a * 100) * 1.1 * Math.min(1, Math.max(0, (2.9 - Math.abs(a)) / 0.3));
   img.shape((x, y) => {
     const a = aOf(x);
-    const e = torsoY(neckline(a)) + 1.8 + Math.cos(a * 100) * 1.1;
+    const e = torsoY(neckline(a)) + 1.8 + wave(a);
     return Math.abs(y - e) - 1.8;
   }, box, tone(linen, 0.5), { soft: 1.4 });
   img.shape((x, y) => {
     const a = aOf(x);
-    const e = torsoY(neckline(a)) + 4.6 + Math.cos(a * 100) * 1.1;
+    const e = torsoY(neckline(a)) + 4.6 + wave(a);
     return Math.abs(y - e) - 0.9;
   }, box, tone(linen, -0.45), { soft: 1.4, alpha: 0.6 });
   // Тень выреза на коже над рюшем — тонкая, от края ткани.
@@ -285,9 +285,10 @@ function paintSkirt(img: Img, skirt: RGB, bodice: RGB, gold: RGB): void {
   img.shape((x, y) => Math.max(b0 - y, y - b1), { x0: 0, y0: b0 - 2, x1: W, y1: b1 + 2 }, tone(skirt, -0.45), { soft: 1.2 });
   for (const y of [b0, b1]) img.shape((x, yy) => Math.abs(yy - y) - 1.2, { x0: 0, y0: y - 3, x1: W, y1: y + 3 }, tone(gold, 0.05), { soft: 1 });
   const mid = (b0 + b1) / 2;
+  // Ромбы — на полушагах, точки — на шагах: у осей (0 и π) ложится точка, а не тонкая вершина ромба.
   for (let k = 0; k <= 16; k++) {
-    const c = ax((k * Math.PI) / 16);
-    const half = ax(((k + 0.5) * Math.PI) / 16);
+    const half = ax((k * Math.PI) / 16);
+    const c = ax((Math.min(k + 0.5, 15.5) * Math.PI) / 16);
     const d = [
       [c, mid - 6.5],
       [c + 9, mid],
@@ -297,7 +298,7 @@ function paintSkirt(img: Img, skirt: RGB, bodice: RGB, gold: RGB): void {
     img.shape((x, y) => Math.abs(poly(d)(x, y)) - 0.9, boxOf(d, 3), tone(gold, 0.15), { soft: 1 });
     img.shape(circle(c, mid, 1.8), around(c, mid, 3), tone(gold, 0.35), { soft: 0.9 });
     for (const dx of [-4.2, 4.2]) img.shape(circle(c + dx, mid, 1.1), around(c + dx, mid, 2.5), tone(gold, 0.1), { soft: 0.8 });
-    if (k < 16) img.shape(circle(half, mid, 1.5), around(half, mid, 3), tone(gold, 0.2), { soft: 0.9 });
+    img.shape(circle(half, mid, 2.2), around(half, mid, 4), tone(gold, 0.2), { soft: 1.2 });
   }
   img.shape((x, y) => hem0 - 4 - y, { x0: 0, y0: hem0 - 6, x1: W, y1: S.y1 }, tone(skirt, -0.7), { soft: 2 });
 }
@@ -311,7 +312,7 @@ function paintArms(img: Img, skin: RGB, linen: RGB, gold: RGB): void {
     const outer = Math.cos((u - 0.5) * Math.PI * 2) * 0.5 + 0.5;
     const v = y - sl.y0;
     const gather = Math.sin(u * Math.PI * 2 * 7 + Math.sin(v * 0.08) * 0.8) * (v < 72 ? 0.22 * (1 - Math.abs(v - 34) / 50) : 0.08);
-    const light = v < 70 ? 0.5 * Math.exp(-(((v - 24) / 18) ** 2)) - 0.35 * Math.max(0, (v - 44) / 26) : 0.05 - 0.15 * ((v - 70) / 26);
+    const light = v < 70 ? 0.22 * Math.exp(-(((v - 24) / 18) ** 2)) - 0.4 * Math.max(0, (v - 44) / 26) - 0.06 : -0.05 - 0.15 * ((v - 70) / 26);
     return tone(linen, light + gather - 0.3 * (1 - outer));
   });
   img.shape((x, y) => Math.abs(y - (sl.y0 + 71)) - 1.8, { x0: sl.x0, y0: sl.y0 + 66, x1: sl.x1, y1: sl.y0 + 76 }, tone(linen, -0.7), { soft: 2, alpha: 0.8 });
