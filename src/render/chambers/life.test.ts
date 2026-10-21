@@ -90,6 +90,7 @@ describe('покои: дверь и слуга (Г-7)', () => {
     const room = phoneRoom();
     // Супруга — своим куском (ЛЦ-2): он тянется при входе в покои, кадры теста идут без пауз — дождаться его.
     await room.life.consortReady;
+    await room.life.maidReady;
     let memory: LifeMemory | null = null;
     room.life.onRemember = (m) => (memory = m);
     knock(room);
@@ -395,6 +396,38 @@ describe('покои: бюджет живых (Г-7)', () => {
     const { headOf } = await import('./advisor/head');
     const { ADVISOR_LOOKS, BEST } = await import('./advisor/looks');
     expect(room.life.counts().triangles, 'своя сетка, не прежняя').toBe(buildAdvisorMesh(headOf(ADVISOR_LOOKS[BEST].face)).triangles);
+    room.dispose();
+  });
+
+  it('служанка — своя сетка ЛЦ-6 (docs/characters.md): дешевле прежней на каждом уровне, в покоях — одна сетка', async () => {
+    const { buildPerson } = await import('./folk');
+    const { buildMaidMesh } = await import('./maid/figure');
+    const { headOf } = await import('./maid/head');
+    const { MAID_LOOKS, BEST } = await import('./maid/looks');
+    const tris = buildMaidMesh(headOf(MAID_LOOKS[BEST].face)).triangles;
+    for (const d of [0, 1, 2] as const) expect(tris, `прежняя служанка @${d}`).toBeLessThan(buildPerson('maid', DEFAULT_ARMS, d, 1).m.b.triangleCount);
+    const room = phoneRoom();
+    await room.life.maidReady;
+    room.life.stage({ who: 'maid', carry: 'jug' });
+    expect(room.life.counts()).toEqual({ triangles: tris, meshes: 2 });
+    room.dispose();
+  });
+
+  it('служанка ждёт свой кусок: зов раньше куска — у лестницы никого, кусок приехал — поднимается, наливает и подходит', async () => {
+    const room = phoneRoom();
+    knock(room);
+    // Кусок ещё не приехал (жизнь покоев только что родилась): служанка ждёт внизу.
+    expect(room.life.order('wine')).toBe(true);
+    run(room, 6);
+    expect(room.life.personOf('maid'), 'кусок в пути — служанки нет').toBeNull();
+    expect(room.life.view().busy, 'сцена держит просьбы').toBe(true);
+    await room.life.maidReady;
+    expect(run(room, 50, talking(room, 'maid', 'poured')), 'поднялась, налила и подошла').toBe(true);
+    expect(room.life.view().wine, 'кубок полон').toBeGreaterThan(0.99);
+    const { buildMaidMesh } = await import('./maid/figure');
+    const { headOf } = await import('./maid/head');
+    const { MAID_LOOKS, BEST } = await import('./maid/looks');
+    expect(room.life.personOf('maid')!.rig.triangles, 'своя сетка, не прежняя').toBe(buildMaidMesh(headOf(MAID_LOOKS[BEST].face)).triangles);
     room.dispose();
   });
 });

@@ -19,7 +19,9 @@
 //   · гонец (ЛЦ-3) — так же: своя фигура на том же наборе персонажа (`kit/`), свой ленивый кусок (`herald/`), ливрея — цвета
 //     герба; стучит, входит, кланяется и протягивает письмо по прежней сцене, она ждёт куска, если тот ещё в пути;
 //   · советник (ЛЦ-5) — так же: своя фигура на наборе (`advisor/`), свой ленивый кусок; ждёт у стола, кланяется и
-//     докладывает со свитком по прежней сцене — она ждёт куска, если тот ещё в пути (миг входа).
+//     докладывает со свитком по прежней сцене — она ждёт куска, если тот ещё в пути (миг входа);
+//   · служанка (ЛЦ-6) — так же: своя фигура на наборе (`maid/`), свой ленивый кусок, поднос в левой; поднимается с кувшином,
+//     наливает и приседает по прежней сцене — она ждёт куска у лестницы, если тот ещё в пути; кувшин в руке ставит фигура.
 //
 // Сценарии — сопрограммы: шаг сцены ждёт своего условия (дошёл, повернулся, прошло время), кадр двигает их по очереди.
 import * as THREE from 'three';
@@ -38,6 +40,7 @@ import type { RoomUniforms } from './material';
 import type * as Consort from './consort';
 import type * as Herald from './herald';
 import type * as Advisor from './advisor';
+import type * as Maid from './maid';
 import type * as Pet from './pet';
 import { BALL_EVERY, BALL_R, CAT_AWAY, GRAVITY, depthOf, fetchHops, flightAt, inView, leapBack, windowBack, windowShot, type Hop, type WindowShot } from './toss';
 
@@ -210,6 +213,10 @@ export class ChambersLife {
   /** Кусок советника (ЛЦ-5): тянется при входе в покои; пока не приехал — сцена у стола ждёт его. */
   private counsel: typeof Advisor | null = null;
   readonly advisorReady: Promise<void>;
+  /** Кусок служанки (ЛЦ-6): тянется при входе в покои; пока не приехал — она ждёт внизу у лестницы. */
+  private serving: typeof Maid | null = null;
+  private maidKit: Maid.MaidKit | null = null;
+  readonly maidReady: Promise<void>;
   /** Кусок кота (ЛЦ-4): тянется при входе в покои; пока не приехал — кот думает на голом скелете и не виден, клубка нет. */
   private pet: typeof Pet | null = null;
   private catKit: Pet.CatKit | null = null;
@@ -233,6 +240,9 @@ export class ChambersLife {
     });
     this.advisorReady = import('./advisor').then((m) => {
       this.counsel = m;
+    });
+    this.maidReady = import('./maid').then((m) => {
+      this.serving = m;
     });
     this.catReady = import('./pet').then((m) => {
       this.pet = m;
@@ -262,6 +272,11 @@ export class ChambersLife {
         const kit = this.counsel.makeAdvisor({ code: LIFE_CODE.advisor, room: this.host.uniforms ?? null, inside: true });
         p = new Person(who, kit.body, null, SPEED[who], kit);
         this.kits.push(kit);
+      } else if (who === 'maid' && this.serving) {
+        const kit = this.serving.makeMaid({ code: LIFE_CODE.maid, room: this.host.uniforms ?? null, inside: true });
+        p = new Person(who, kit.body, null, SPEED[who], kit);
+        this.kits.push(kit);
+        this.maidKit = kit;
       } else p = new Person(who, buildPerson(who, this.host.arms, detail, LIFE_CODE[who]), this.host.material, SPEED[who]);
       p.onStep = (soft) => this.host.cue(soft ? 'stepFolkSoft' : 'stepFolk', [p!.x, 0, p!.z]);
       p.place(LANDING.x, LANDING.z, 0);
@@ -830,6 +845,8 @@ export class ChambersLife {
     yield* this.exitKeepDoor(s);
     s.place(LANDING.x, LANDING.z, 0);
     yield wait(3.0, this.clock);
+    // Её фигура — своим куском (тянется при входе в покои): в пути — подождать его.
+    yield () => this.serving !== null;
     const m = this.person('maid');
     m.carry = 'jug';
     m.visible = true;
@@ -1363,15 +1380,24 @@ export class ChambersLife {
     this.jug.visible = show;
     this.stream.visible = show && this.pouring > 0;
     if (!show || !m) return;
-    const grip = gripOf(m.rig.sk, 'R');
-    const j = m.rig.sk.bones[m.rig.sk.of('handR')].j;
-    const at = m.rig.at('handR', [grip[0] - j[0], grip[1] - j[1], grip[2] - j[2]]);
-    const R = m.rig.axes('handR');
-    // Оси кувшина — оси кисти: верх кувшина — вверх по руке, носик — вперёд пальцев.
-    MAT.set(R[0], R[3], R[6], 0, R[1], R[4], R[7], 0, R[2], R[5], R[8], 0, 0, 0, 0, 1);
-    this.jug.quaternion.setFromRotationMatrix(MAT);
-    // Кувшин висит в руке горлом вверх: поворот кисти на пол-оборота вокруг её оси x.
-    this.jug.quaternion.multiply(FLIP);
+    let at: V3;
+    if (this.maidKit && m.rig === this.maidKit.body) {
+      // Служанка ЛЦ-6: где кувшин в руке и как стоит — говорит её фигура (горло в кулаке, носик к большому пальцу).
+      const f = this.maidKit.jug();
+      at = f.at;
+      MAT.set(f.spout[0], f.up[0], f.side[0], 0, f.spout[1], f.up[1], f.side[1], 0, f.spout[2], f.up[2], f.side[2], 0, 0, 0, 0, 1);
+      this.jug.quaternion.setFromRotationMatrix(MAT);
+    } else {
+      const grip = gripOf(m.rig.sk, 'R');
+      const j = m.rig.sk.bones[m.rig.sk.of('handR')].j;
+      at = m.rig.at('handR', [grip[0] - j[0], grip[1] - j[1], grip[2] - j[2]]);
+      const R = m.rig.axes('handR');
+      // Оси кувшина — оси кисти: верх кувшина — вверх по руке, носик — вперёд пальцев.
+      MAT.set(R[0], R[3], R[6], 0, R[1], R[4], R[7], 0, R[2], R[5], R[8], 0, 0, 0, 0, 1);
+      this.jug.quaternion.setFromRotationMatrix(MAT);
+      // Кувшин висит в руке горлом вверх: поворот кисти на пол-оборота вокруг её оси x.
+      this.jug.quaternion.multiply(FLIP);
+    }
     this.jug.position.set(this.host.origin.x + at[0], this.host.origin.y + at[1], this.host.origin.z + at[2]);
     if (this.stream.visible) {
       // Струя — от носика к чаше кубка.

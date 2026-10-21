@@ -12,6 +12,10 @@
 //   SHOTS=trio,trio-full,advposes              — лица супруги, гонца и советника рядом (1536 × 512), все трое в рост
 //                                                (1170 × 844, снимок единства; ночь — LIGHT=night) и советник по клипам
 //                                                (1600 × 600); облик советника — `ADVISOR`
+//   WHO=maid npm run consort:shots             — то же для служанки (ЛЦ-6; облики `LOOKS` — её облики a, b, c)
+//   SHOTS=maidduo,maidduo3,maidposes,cast      — лицо супруги и служанки рядом (1024 × 512; в три четверти — maidduo3),
+//                                                служанка по клипам (1400 × 600) и все люди с котом в рост (1560 × 844,
+//                                                снимок единства; ночь — LIGHT=night); облик служанки — `MAID`
 //   OUT=docs/characters TAG=lc2 …              — куда и с какой приставкой (снимки задания — `docs/characters/lc2-*.jpg`)
 //   CMP=.consort-shots/before,.consort-shots/after npm run consort:shots
 //                                              — сверить два захода точка в точку (без браузера): одноимённые PNG, сколько
@@ -36,10 +40,10 @@ const list = (s: string | undefined, d: string): string[] => (s ?? d).split(',')
 const SHOTS = list(process.env.SHOTS, 'front,three,side,face');
 const LOOKS = list(process.env.LOOKS, 'a,b,c');
 const LIGHT = process.env.LIGHT === 'night' ? 'night' : 'day';
-const WHO = process.env.WHO === 'herald' ? 'herald' : process.env.WHO === 'advisor' ? 'advisor' : 'wife';
+const WHO = process.env.WHO === 'herald' ? 'herald' : process.env.WHO === 'advisor' ? 'advisor' : process.env.WHO === 'maid' ? 'maid' : 'wife';
 /** Облики: у супруги — `looks`, у гонца — `heralds`, у советника — `advisors`; рядом — первый облик каждого (`WIFE`, `HERALD`, `ADVISOR`). */
-const looksOf = (ids: string[]): Record<string, unknown> => (WHO === 'herald' ? { who: 'herald', heralds: ids } : WHO === 'advisor' ? { who: 'advisor', advisors: ids } : { looks: ids });
-const PAIR = { looks: [process.env.WIFE ?? 'b'], heralds: [process.env.HERALD ?? 'b'], advisors: [process.env.ADVISOR ?? 'a'] };
+const looksOf = (ids: string[]): Record<string, unknown> => (WHO === 'herald' ? { who: 'herald', heralds: ids } : WHO === 'advisor' ? { who: 'advisor', advisors: ids } : WHO === 'maid' ? { who: 'maid', maids: ids } : { looks: ids });
+const PAIR = { looks: [process.env.WIFE ?? 'b'], heralds: [process.env.HERALD ?? 'b'], advisors: [process.env.ADVISOR ?? 'a'], maids: [process.env.MAID ?? 'a'] };
 const JPG = process.env.PNG !== '1';
 
 async function snap(tab: Tab, name: string, w: number, h: number, ask: Record<string, unknown>): Promise<void> {
@@ -109,6 +113,11 @@ async function main(): Promise<void> {
               // Лица супруги, гонца и советника рядом: при `WHO=advisor` — по одному на каждый облик советника.
               for (const id of WHO === 'advisor' ? LOOKS : PAIR.advisors) await snap(tab, `${s}-${id}`, 1536, 512, { view: 'trio', ...PAIR, advisors: [id], light: LIGHT, ...(s === 'trio3' ? { yaw: -0.62 } : {}) });
             else if (s.startsWith('trio-full')) await snap(tab, `${s}-${LIGHT}`, 1170, 844, { view: 'trioFull', angle: s.slice(10) || 'front', ...PAIR, light: LIGHT });
+            else if (s === 'maidduo' || s === 'maidduo3')
+              // Лицо супруги и лицо служанки рядом: при `WHO=maid` — по одному на каждый облик служанки.
+              for (const id of WHO === 'maid' ? LOOKS : PAIR.maids) await snap(tab, `${s}-${id}`, 1024, 512, { view: 'maidduo', ...PAIR, maids: [id], light: LIGHT, ...(s === 'maidduo3' ? { yaw: -0.62 } : {}) });
+            else if (s === 'maidposes') await snap(tab, 'maidposes', 1400, 600, { view: 'maidposes', maids: PAIR.maids, light: LIGHT });
+            else if (s === 'cast') await snap(tab, `cast-${LIGHT}`, 1560, 844, { view: 'cast', ...PAIR, light: LIGHT });
             else if (s === 'advposes') await snap(tab, 'advposes', 1600, 600, { view: 'advposes', advisors: PAIR.advisors, light: LIGHT });
             else await snap(tab, `${who}${s}`, 390, 844, { view: 'sheet', angle: s, ...looksOf(LOOKS), light: LIGHT });
           }
