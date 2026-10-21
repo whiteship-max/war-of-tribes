@@ -7,6 +7,7 @@
 //   LIGHT=night npm run consort:shots          — ночной свет фигуры
 //   WHO=herald npm run consort:shots           — то же для гонца (облики `LOOKS` — его облики a, b, c)
 //   SHOTS=duo,pair                             — лицо супруги и лицо гонца рядом (1024 × 512) и оба в рост (780 × 844)
+//   SHOTS=poses                                — гонец по клипам: стоит, идёт, кланяется, вручает, говорит (1000 × 600)
 //   OUT=docs/characters TAG=lc2 …              — куда и с какой приставкой (снимки задания — `docs/characters/lc2-*.jpg`)
 //   CMP=.consort-shots/before,.consort-shots/after npm run consort:shots
 //                                              — сверить два захода точка в точку (без браузера): одноимённые PNG, сколько
@@ -99,6 +100,7 @@ async function main(): Promise<void> {
               // Лицо супруги и лицо гонца рядом: при `WHO=herald` — по одному на каждый облик гонца; `duo3` — в три четверти.
               for (const id of WHO === 'herald' ? LOOKS : PAIR.heralds) await snap(tab, `${s}-${id}`, 1024, 512, { view: 'duo', looks: PAIR.looks, heralds: [id], light: LIGHT, ...(s === 'duo3' ? { yaw: -0.62 } : {}) });
             else if (s.startsWith('pair')) await snap(tab, s, 780, 844, { view: 'pair', angle: s.slice(5) || 'front', ...PAIR, light: LIGHT });
+            else if (s === 'poses') await snap(tab, 'poses', 1000, 600, { view: 'poses', heralds: PAIR.heralds, light: LIGHT });
             else await snap(tab, `${who}${s}`, 390, 844, { view: 'sheet', angle: s, ...looksOf(LOOKS), light: LIGHT });
           }
       } finally {

@@ -17,9 +17,10 @@ export interface ShotAsk {
   heralds?: HeraldId[];
   /**
    * Ракурс: спереди, три четверти, сбоку, сзади; `face` — лицо крупно; `sheet` — фигуры и головы под ними; `duo` — лицо
-   * супруги и лицо гонца рядом (1024 × 512), в одном свете; `pair` — супруга и гонец рядом в рост и головы под ними.
+   * супруги и лицо гонца рядом (1024 × 512), в одном свете; `pair` — супруга и гонец рядом в рост и головы под ними;
+   * `poses` — гонец в рост по клипам: стоит, идёт, кланяется, вручает письмо, говорит.
    */
-  view?: 'front' | 'three' | 'side' | 'back' | 'face' | 'sheet' | 'duo' | 'pair';
+  view?: 'front' | 'three' | 'side' | 'back' | 'face' | 'sheet' | 'duo' | 'pair' | 'poses';
   /** Ракурс голов в листе (`sheet`, `pair`). */
   angle?: 'front' | 'three' | 'side' | 'back';
   light?: 'day' | 'night';
@@ -178,6 +179,22 @@ export function mountConsortStand(root: HTMLElement, p: URLSearchParams): void {
         calls += renderer.info.render.calls;
         triangles += k.body.triangles;
       });
+    } else if (view === 'poses') {
+      // Клипы гонца рядом, в три четверти: у каждого — своя секунда и свой жест.
+      const k = herald(a.heralds?.[0] ?? 'b');
+      const clips: ShotAsk[] = [{ t: 2 }, { t: 2, walk: 1, phase: 0.6 }, { t: 2, bow: 1 }, { t: 2, offer: 1 }, { t: 2, talk: 1 }];
+      const cw = Math.floor(w / clips.length);
+      light(k, a.light === 'night');
+      clips.forEach((c, i) => {
+        hideAll();
+        pose(k, 0, a.yaw ?? -0.62, { ...a, ...c });
+        camera.fov = 24;
+        camera.position.set(0, 0.95, 4.4);
+        camera.lookAt(0, 0.9, 0);
+        draw(cw, h, i * cw, 0, camera);
+        calls += renderer.info.render.calls;
+      });
+      triangles = k.body.triangles;
     } else {
       const angle = view === 'sheet' || view === 'pair' ? (a.angle ?? 'front') : view;
       const yaw = YAW[angle];
