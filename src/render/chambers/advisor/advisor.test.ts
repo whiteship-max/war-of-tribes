@@ -108,8 +108,10 @@ describe('советник: сетка и кости (ЛЦ-5)', () => {
       if ((m.sheet[i] === 1 && m.uv[i * 2] * 512 < 384) || onSheet(m, i, SHEETS.cap)) headW = Math.max(headW, Math.abs(p[0]));
     }
     expect(top).toBeCloseTo(HEIGHT, 3);
-    expect(HEIGHT / (top - chin), 'голова — 1/7 роста').toBeGreaterThan(HEAD_PART - 0.3);
-    expect(HEIGHT / (top - chin)).toBeLessThan(HEAD_PART + 0.3);
+    // Голова — 1/7 роста по заданию (число задания, а не константа фигуры: та строит голову сама и с собой совпала бы всегда).
+    expect(HEAD_PART).toBe(7);
+    expect(HEIGHT / (top - chin), 'голова — 1/7 роста').toBeGreaterThan(6.7);
+    expect(HEIGHT / (top - chin)).toBeLessThan(7.3);
     // Плечи — по внешнему краю на высоте плечевого сустава (мантия, ворот и рукава, без кистей); у гонца — так же.
     const shoulders = (mesh: SkinMesh, hands: { y0: number; y1: number; x0: number; x1: number }): number => {
       const sy = mesh.sk.bones[mesh.sk.of('armL')].j[1];
@@ -196,7 +198,7 @@ describe('советник: листы (ЛЦ-5)', () => {
     expect(advisorOf('')).toBe(BEST);
   });
 
-  it('лицо — светлее мантии и меха (глаз сначала идёт к лицу)', () => {
+  it('лицо — светлее мантии (глаз сначала идёт к лицу)', () => {
     const lum = (c: readonly number[]): number => 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
     for (const id of ADVISOR_IDS) {
       const look = ADVISOR_LOOKS[id];
