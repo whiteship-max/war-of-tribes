@@ -116,7 +116,8 @@ function paintCap(img: Img, hair: RGB, skin: RGB): void {
   );
   // Край волос — острыми кончиками прядей вниз, а не ровным срезом.
   const tr = rng(147);
-  for (let x = ax(CAP_OPEN) + 6; x < W; x += 9 + tr() * 6) {
+  // У оси листа (затылок) — без кончиков: остриё на оси легло бы в один крайний столбец (шов зеркала).
+  for (let x = ax(CAP_OPEN) + 6; x < W - 14; x += 9 + tr() * 6) {
     const y = hairBottom(x);
     const tip: [number, number][] = [
       [x - 5, y - 4],
@@ -208,7 +209,7 @@ function paintTunic(img: Img, skin: RGB, tunic: RGB, trim: RGB, leather: RGB): v
   img.shape(stroke(tail, (t) => 7 - 2 * t), boxOf(tail, 6), (x, y) => tone(leather, -0.05 - 0.02 * (y - b1)), { soft: 1 });
   // Подол: кайма с орнаментом цвета металла, край — темнее; пыль с дороги снизу.
   const hem = tunicY(0.7);
-  ornamentBand(img, { b0: hem - 13, b1: hem - 3, x1: W, ground: tone(tunic, -0.5), line: trim, steps: 14, half: 3.6, at: ax });
+  ornamentBand(img, { b0: hem - 13, b1: hem - 3, x1: W, ground: tone(tunic, -0.5), line: trim, steps: 14, half: 3.6, at: ax, axisDots: false });
   img.shape((x, y) => hem - 2 - y, { x0: 0, y0: hem - 4, x1: W, y1: T.y1 }, tone(tunic, -0.75), { soft: 1.5 });
   img.shape((x, y) => tunicY(0.79) - y, { x0: 0, y0: tunicY(0.79) - 6, x1: W, y1: T.y1 }, DUST, { soft: 14, alpha: (x, y) => 0.18 * Math.min(1, (y - tunicY(0.79)) / 24) });
 }

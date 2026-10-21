@@ -205,7 +205,8 @@ export function paintHeraldFace(look: HeraldLook, head: Head): Img {
     for (let i = 0; i < 4200; i++) {
       const x = r() * U_PX;
       const y = r() * FACE_PX;
-      if (!inZone(x / SX, f.hRow[y | 0], y)) continue;
+      // У оси листа — ни штриха: половина у зеркала легла бы только в крайний столбец (шов).
+      if (x < 3 || !inZone(x / SX, f.hRow[y | 0], y)) continue;
       const ang = 1.35 + (r() - 0.5) * 0.7 - (x / SX) * 4;
       const l = 1.2 + r() * 1.6;
       const seg: [number, number][] = [

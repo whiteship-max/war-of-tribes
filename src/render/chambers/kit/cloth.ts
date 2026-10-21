@@ -119,7 +119,7 @@ export function paintMitten(img: Img, h: SheetBox, tb: SheetBox, skin: RGB): voi
  * `half`) с трилистником на полушагах и точки на шагах — у осей зеркального листа (0 и π) ложится точка, а не тонкая вершина
  * ромба; `at` — угол → столбец листа.
  */
-export function ornamentBand(img: Img, o: { b0: number; b1: number; x1: number; ground: RGB; line: RGB; steps: number; half: number; at: (a: number) => number }): void {
+export function ornamentBand(img: Img, o: { b0: number; b1: number; x1: number; ground: RGB; line: RGB; steps: number; half: number; at: (a: number) => number; axisDots?: boolean }): void {
   const { b0, b1, x1, ground, line, steps, at } = o;
   img.shape((x, y) => Math.max(b0 - y, y - b1), { x0: 0, y0: b0 - 2, x1, y1: b1 + 2 }, ground, { soft: 1.2 });
   for (const y of [b0, b1]) img.shape((x, yy) => Math.abs(yy - y) - 1.2, { x0: 0, y0: y - 3, x1, y1: y + 3 }, tone(line, 0.05), { soft: 1 });
@@ -137,6 +137,7 @@ export function ornamentBand(img: Img, o: { b0: number; b1: number; x1: number; 
     img.shape((x, y) => Math.abs(poly(d)(x, y)) - 0.9, boxOf(d, 3), tone(line, 0.15), { soft: 1 });
     img.shape(circle(c, mid, 1.8), around(c, mid, 3), tone(line, 0.35), { soft: 0.9 });
     for (const dx of [-4.2, 4.2]) img.shape(circle(c + dx, mid, 1.1), around(c + dx, mid, 2.5), tone(line, 0.1), { soft: 0.8 });
-    img.shape(circle(half, mid, 2.2), around(half, mid, 4), tone(line, 0.2), { soft: 1.2 });
+    // Точка на самой оси листа — по желанию: в узкой полосе без ромбов рядом её край лёг бы в один крайний столбец.
+    if (o.axisDots !== false || (k > 0 && k < steps)) img.shape(circle(half, mid, 2.2), around(half, mid, 4), tone(line, 0.2), { soft: 1.2 });
   }
 }

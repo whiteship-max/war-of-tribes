@@ -15,7 +15,9 @@
 //     целиком; разговор кончился — глаз свободен;
 //   · супруга (ЛЦ-2, docs/characters.md) — своя фигура в духе классического Warcraft III, своим ленивым куском
 //     (`consort/`): его тянет вход в покои, а сцена с ней ждёт куска, если тот ещё в пути. Ходит, кивает и говорит она по
-//     прежним сценам — меняется только тело.
+//     прежним сценам — меняется только тело;
+//   · гонец (ЛЦ-3) — так же: своя фигура на том же наборе персонажа (`kit/`), свой ленивый кусок (`herald/`), ливрея — цвета
+//     герба; стучит, входит, кланяется и протягивает письмо по прежней сцене, она ждёт куска, если тот ещё в пути.
 //
 // Сценарии — сопрограммы: шаг сцены ждёт своего условия (дошёл, повернулся, прошло время), кадр двигает их по очереди.
 import * as THREE from 'three';
@@ -26,12 +28,13 @@ import type { Quality } from '../quality';
 import { geometryOf } from '../city/index';
 import { DOOR, DESK, BED, HALF, WALL_T, softFloor, type SpotId } from './plan';
 import { DOOR_HINGE, doorLeaf } from './build';
-import { Person, buildPerson, gripOf, isFemale, type FolkId } from './folk';
+import { Person, buildPerson, gripOf, isFemale, liveryOf, type FolkId } from './folk';
 import { CAT_R, Cat, buildCat, type CatBody, type CatSpot } from './cat';
 import { BODY_R, clear, free, pathTo, step } from './walk';
 import { Mesher } from './geo';
 import type { RoomUniforms } from './material';
 import type * as Consort from './consort';
+import type * as Herald from './herald';
 import { BALL_EVERY, BALL_R, CAT_AWAY, GRAVITY, depthOf, fetchHops, flightAt, inView, leapBack, windowBack, windowShot, type Hop, type WindowShot } from './toss';
 
 /** Кто говорит с правителем. */
@@ -151,8 +154,8 @@ export const ADVISOR_POST = { x: 1.62, z: 2.3, yaw: -2.25 };
 export class ChambersLife {
   readonly clock = { t: 0 };
   private folk = new Map<Who, Person>();
-  /** Собранные супруги (текстуры и материал — их уборка). */
-  private kits: Consort.ConsortKit[] = [];
+  /** Собранные супруги и гонцы (текстуры и материал — их уборка). */
+  private kits: { dispose(): void }[] = [];
   cat: Cat | null = null;
   private leaf: THREE.Mesh;
   private door = { a: 0, goal: 0 };
@@ -197,6 +200,9 @@ export class ChambersLife {
   /** Кусок супруги (ЛЦ-2): тянется при входе в покои; пока не приехал — сцены с ней ждут. */
   private consort: typeof Consort | null = null;
   readonly consortReady: Promise<void>;
+  /** Кусок гонца (ЛЦ-3): тянется при входе в покои; пока не приехал — гонец ждёт за дверью. */
+  private herald: typeof Herald | null = null;
+  readonly heraldReady: Promise<void>;
 
   constructor(
     private host: LifeHost,
@@ -210,6 +216,9 @@ export class ChambersLife {
     this.placeLeaf();
     this.consortReady = import('./consort').then((m) => {
       this.consort = m;
+    });
+    this.heraldReady = import('./herald').then((m) => {
+      this.herald = m;
     });
     if (memory.cat) {
       const c = this.ensureCat();
@@ -225,6 +234,10 @@ export class ChambersLife {
       const detail = this.host.quality === 'low' ? 0 : this.host.quality === 'medium' ? 1 : 2;
       if (who === 'wife' && this.consort) {
         const kit = this.consort.makeConsort({ code: LIFE_CODE.wife, room: this.host.uniforms ?? null, inside: true });
+        p = new Person(who, kit.body, null, SPEED[who], kit);
+        this.kits.push(kit);
+      } else if (who === 'herald' && this.herald) {
+        const kit = this.herald.makeHerald({ code: LIFE_CODE.herald, room: this.host.uniforms ?? null, inside: true, livery: liveryOf(this.host.arms) });
         p = new Person(who, kit.body, null, SPEED[who], kit);
         this.kits.push(kit);
       } else p = new Person(who, buildPerson(who, this.host.arms, detail, LIFE_CODE[who]), this.host.material, SPEED[who]);
@@ -634,6 +647,8 @@ export class ChambersLife {
    */
   private *heraldArrives(): Script {
     this.busyN++;
+    // Его фигура — своим куском (тянется при входе в покои): в пути — подождать его за дверью.
+    yield () => this.herald !== null;
     const h = this.person('herald');
     this.guest = 'herald';
     h.carry = 'letter';

@@ -88,8 +88,9 @@ function court(room: ChambersRoom, w: WorldNews, mem: AdvisorMemory = freshAdvis
 const empty = (): WorldNews => ({ letters: [], siege: null, camp: null, reports: [], now: NOW });
 
 describe('покои: гонец с вестью (Г-10)', () => {
-  it('важная весть в покоях — стук, гонец поднимается, входит, кланяется и протягивает письмо; касание письма открывает эту весть, гонец уходит', () => {
+  it('важная весть в покоях — стук, гонец поднимается, входит, кланяется и протягивает письмо; касание письма открывает эту весть, гонец уходит', async () => {
     const room = phoneRoom();
+    await room.life.heraldReady;
     const cues: string[] = [];
     room.onLifeCue = (c) => cues.push(c);
     const { c, opened, state } = court(room, empty());
@@ -127,8 +128,9 @@ describe('покои: гонец с вестью (Г-10)', () => {
     room.dispose();
   });
 
-  it('вести одна за другой: второй гонец ждёт, пока уйдёт первый; «Позже» — уходит без письма, весть остаётся в «Вестях»', () => {
+  it('вести одна за другой: второй гонец ждёт, пока уйдёт первый; «Позже» — уходит без письма, весть остаётся в «Вестях»', async () => {
     const room = phoneRoom();
+    await room.life.heraldReady;
     const { c, opened, state } = court(room, empty());
     state.w = { ...empty(), letters: [raid('r1')], reports: [fight('b1')] };
     c.look();
@@ -147,8 +149,9 @@ describe('покои: гонец с вестью (Г-10)', () => {
     room.dispose();
   });
 
-  it('пока идёт разговор — гонец ждёт за дверью, разговор кончился — входит', () => {
+  it('пока идёт разговор — гонец ждёт за дверью, разговор кончился — входит', async () => {
     const room = phoneRoom();
+    await room.life.heraldReady;
     const { c, state } = court(room, empty());
     room.life.stage({ who: 'servant', talk: true });
     state.w = { ...empty(), letters: [raid('r1')] };
@@ -221,6 +224,7 @@ describe('покои: гонец в слое покоев (Г-10)', () => {
     useGame.setState({ sheet: null, mapOpen: false });
     __chambers.rise(fakeScene() as never);
     const room = __chambers.live()!;
+    await room.life.heraldReady;
     useWorld.setState({ letters: [raid('r9')] });
     expect(run(room, 30, talking(room, 'herald', 'news'))).toBe(true);
     vi.useFakeTimers();

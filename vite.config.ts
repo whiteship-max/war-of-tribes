@@ -183,6 +183,13 @@ const LAZY_DOORS: { name: string; door: RegExp; owns: RegExp[] }[] = [
     owns: [/\/src\/render\/chambers\/consort\//, /\/src\/render\/chambers\/kit\//],
   },
   {
+    // Гонец (docs/characters.md, ЛЦ-3): фигура на том же наборе персонажа — свой кусок внутри покоев, его тянет жизнь
+    // покоев при входе; набор — общим куском с супругой. В кусок покоев и в первую загрузку не едет.
+    name: 'гонец',
+    door: /\/src\/render\/chambers\/herald\/index\.ts$/,
+    owns: [/\/src\/render\/chambers\/herald\//, /\/src\/render\/chambers\/kit\//],
+  },
+  {
     name: 'охота',
     door: /\/src\/minigames\/huntPlay\.ts$/,
     owns: [/\/src\/minigames\/hunt/],

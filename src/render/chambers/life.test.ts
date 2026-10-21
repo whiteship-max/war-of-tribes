@@ -343,4 +343,22 @@ describe('покои: бюджет живых (Г-7)', () => {
     expect(room.life.counts()).toEqual({ triangles: tris, meshes: 2 });
     room.dispose();
   });
+
+  it('гонец — своя сетка ЛЦ-3 (docs/characters.md): дешевле прежнего на каждом уровне, с супругой — две сетки', async () => {
+    const { buildPerson } = await import('./folk');
+    const { buildHeraldMesh } = await import('./herald/figure');
+    const { headOf } = await import('./herald/head');
+    const { HERALD_LOOKS, BEST } = await import('./herald/looks');
+    const { buildConsortMesh } = await import('./consort/figure');
+    const tris = buildHeraldMesh(headOf(HERALD_LOOKS[BEST].face)).triangles;
+    for (const d of [0, 1, 2] as const) expect(tris, `прежний гонец @${d}`).toBeLessThan(buildPerson('herald', DEFAULT_ARMS, d, 1).m.b.triangleCount);
+    const room = phoneRoom();
+    await room.life.consortReady;
+    await room.life.heraldReady;
+    room.life.stage({ who: 'herald', at: { x: -0.5, z: 1.1, yaw: Math.PI }, letter: true });
+    expect(room.life.counts()).toEqual({ triangles: tris, meshes: 2 });
+    room.life.stage({ who: 'wife', at: { x: 0.4, z: 1.1, yaw: Math.PI } });
+    expect(room.life.counts()).toEqual({ triangles: tris + buildConsortMesh().triangles, meshes: 3 });
+    room.dispose();
+  });
 });
