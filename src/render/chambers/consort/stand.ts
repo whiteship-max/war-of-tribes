@@ -2,6 +2,7 @@
 // качества и сравнения обликов (`npm run consort:shots`). Кадр рисуется по просьбе (`__consort.shot`), одним вызовом, без
 // цепочки кадров: ничего не крутится, пока стенд не попросили.
 import * as THREE from 'three';
+import { pixelRatio } from '../../loop';
 import { STILL, type Gesture } from '../folk';
 import { CONSORT_IDS, makeConsort, type ConsortId, type ConsortKit } from './index';
 
@@ -42,7 +43,8 @@ export function mountConsortStand(root: HTMLElement, p: URLSearchParams): void {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.NeutralToneMapping;
-  renderer.setPixelRatio(1);
+  // Снимки — точка в точку, плотность 1: просьба через дверь кадра (её потолок, `loop.pixelRatio`).
+  renderer.setPixelRatio(pixelRatio(1));
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(BG);
   const kits = new Map<ConsortId, ConsortKit>();
