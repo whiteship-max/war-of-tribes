@@ -449,12 +449,21 @@ const VIEW = (QUALITY ? `&quality=${QUALITY}` : '') + PREBAKE;
 /** Карта в движении (`MOTION=1`): только этот раздел. */
 const MOTION = process.env.MOTION === '1';
 
+/** Сколько ждать стор игры после перезагрузки страницы; дольше — стенд падает словами, а не на `undefined`. */
+const PAGE_BOOT_MS = 60_000;
+
 async function measure(counts: number[]): Promise<{ shots: Shot[]; looks: Look[]; flown: Flight[] }> {
   // Без потолка кадров отчёта (`budget.REPORT_FPS`): этот отчёт меряет цену кадра карты на потолке самой игры.
   const tab = await Tab.open(DEBUG_PORT, `http://127.0.0.1:${PORT}/?probe=1${VIEW}`);
-  await tab.eval<string>('(() => { try { localStorage.clear(); } catch (e) {} return JSON.stringify("ok"); })()');
+  // Прежний документ помечается: `Page.reload` возвращается раньше, чем страница сменилась, и его `__game` ещё виден.
+  await tab.eval<string>('(() => { try { localStorage.clear(); } catch (e) {} window.__stale = true; return JSON.stringify("ok"); })()');
   await tab.send('Page.reload');
-  await sleep(4000);
+  // Ждём стор игры новой страницы по готовности, а не сроком: прежних 4 с однажды не хватило (приёмка 21.10.2026).
+  const bootBy = Date.now() + PAGE_BOOT_MS;
+  while (!(await tab.eval<boolean>('JSON.stringify(!!window.__game && !window.__stale)').catch(() => false))) {
+    if (Date.now() > bootBy) throw new Error(`страница не отдала window.__game за ${PAGE_BOOT_MS / 1000} с`);
+    await sleep(200);
+  }
   await tab.eval<string>(PROBE);
   await tab.eval<string>('(() => { window.__game.getState().openMap(); return JSON.stringify("ok"); })()');
   for (let i = 0; i < 100; i++) {
