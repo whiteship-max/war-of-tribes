@@ -1307,7 +1307,8 @@ export class ChambersRoom implements Inside {
     this.wineMesh.visible = w > 0.01;
     const r = 0.0502 + 0.0036 * w;
     this.wineMesh.scale.set(r, 1, r);
-    this.wineMesh.position.y = 0.1712 + 0.029 * w;
+    // Дно чаши — 0,17 м: гладь не ближе 3 мм к нему (шаг глубины покоев через комнату, Г-9), полная — прежние 0,2002.
+    this.wineMesh.position.y = WINE_LOW + (0.2002 - WINE_LOW) * w;
   }
 
   /** Свет города последнего кадра — часу разговоров (ночь, солнце над горизонтом и с какой стороны). */
@@ -2161,6 +2162,9 @@ export class ChambersRoom implements Inside {
 const DOOR_AT: [number, number, number] = [DOOR.x, 0, -HALF];
 
 /** Гладь вина: диск радиуса 1 (масштаб — по уровню), лицом вверх; тёмно-красное, с бликом. */
+/** Гладь вина почти пустого кубка, м над его основанием: на 3,5 мм выше дна чаши (0,17 м) — не в одной глубине с ним (Г-12). */
+export const WINE_LOW = 0.1735;
+
 function wineSurface(m: THREE.Material): THREE.Mesh {
   const b = new Mesher();
   b.shine = 0.55;

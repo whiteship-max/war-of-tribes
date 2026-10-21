@@ -17,6 +17,13 @@ import type { Box } from './plan';
 /** Сколько ламп у уровня: огонь и свечи по важности (`build.ROOM_LIGHTS`). */
 export const LIGHTS_AT = { low: 3, medium: 7, high: 10 } as const;
 
+/**
+ * Пороги материала по блеску вершины, в байтах (блеск едет байтом, `cfg.z`): металл — с 0,6 (байт 153), воск — выше 0,965
+ * (с байта 247). Порог — на полубайте: значение блеска на нём не лежит никогда (Г-12, мерцание шлема).
+ */
+export const METAL_BYTE = '152.5';
+export const WAX_BYTE = '246.5';
+
 /** Ручки шейдера покоев — одни на все материалы комнаты; кадр правит их сам (`room.ts`). */
 export interface RoomUniforms {
   [k: string]: THREE.IUniform;
@@ -260,9 +267,12 @@ void main() {
   float ao = roomAo(p, n) * mix(0.62, 1.0, smoothstep(0.1, 0.75, relief));
   // Материал — по блеску вершины: до 0,6 — дерево, кожа, ткань, кость (блик белый); 0,6…0,96 — металл (блик цветом
   // металла, отражение покоев); выше — воск (свет свечи проходит сквозь).
-  float shine = vShine;
-  float metal = step(0.6, shine) * (1.0 - step(0.965, shine));
-  float wax = step(0.965, shine);
+  // Блеск — байтом вершины (cfg.z), пороги — на полубайте между байтами, а не на самом значении (Г-12): блеск металла 0,6 —
+  // ровно байт 153, и порог step(0.6, …) по шуму интерполяции отдавал пиксель то металлу, то коже — шлем в сундуке рябил.
+  float shineB = floor(vShine * 255.0 + 0.5);
+  float shine = shineB / 255.0;
+  float metal = step(${METAL_BYTE}, shineB) * (1.0 - step(${WAX_BYTE}, shineB));
+  float wax = step(${WAX_BYTE}, shineB);
   float gloss = metal > 0.5 ? mix(36.0, 150.0, (shine - 0.6) / 0.36) : mix(14.0, 64.0, shine / 0.6);
   float specK = metal > 0.5 ? 1.6 : wax > 0.5 ? 0.25 : shine * 2.2;
   float wrap = mix(0.15, 0.85, wax);
