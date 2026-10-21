@@ -78,13 +78,13 @@ export function maidHead(f: Pick<MaidFace, 'round' | 'nose' | 'cheek'>): HeadSpe
     // Овал — круглее: шире у щёк, к подбородку плавно.
     faceOval: (h) => (h <= 0.112 ? 0.096 * Math.sqrt(Math.max(0, 1 - ((h - 0.112) / 0.135) ** 2)) : 0.096 - (h - 0.112) * 0.13),
     // Глаз круглее и чуть шире расставлен, веко выше, внешний угол почти ровно.
-    eye: { x: 0.0418, h: 0.14, half: 0.0168, up: 0.0052, down: 0.0038, tilt: 0.0012, inner: -0.0004 },
-    mouth: { half: 0.0222, line: 0.0636, top: 0.0736, bow: 0.0014, bottom: 0.0506 },
+    eye: { x: 0.0418, h: 0.14, half: 0.0178, up: 0.0057, down: 0.004, tilt: 0.0012, inner: -0.0004 },
+    mouth: { half: 0.024, line: 0.0636, top: 0.0736, bow: 0.0014, bottom: 0.0506 },
     ball: { rx: 0.026, r: 0.0125, lid: 0.0016, rim: 0.0032 },
     // Уголки губ — вверх: лицо доброе, живое.
-    cornerUp: 0.0026,
+    cornerUp: 0.0032,
     rimUp: 0.0014,
-    lipFront: { upper: 0.0021, lower: 0.0028 },
+    lipFront: { upper: 0.0019, lower: 0.0022 },
     neck: { r: 0.049, zc: -0.016, drop: 0.007 },
     jaw: [0.043, 0.063],
   };

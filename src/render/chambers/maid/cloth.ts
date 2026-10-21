@@ -114,7 +114,8 @@ function paintCoif(img: Img, linen: RGB): void {
   img.shape((x, y) => (coifEdgeX(y) > 0 ? Math.abs(fold(x, y) - 26) - 1.4 : 1), box, linenAt(linen, -0.75), { soft: 2, alpha: 0.6 });
   img.shape((x, y) => (coifEdgeX(y) > 0 ? Math.abs(fold(x, y) - 21) - 0.6 : 1), box, (x, y) => linenAt(linen, Math.sin(y * 1.3) > 0.2 ? -0.5 : 0.3), { soft: 0.8, alpha: 0.7 });
   // Нижний край у шеи — кулиска: тёмная складка и шнурок.
-  img.shape((x, y) => C.y1 - 4 - y, { x0: 0, y0: C.y1 - 6, x1: W, y1: C.y1 }, (x) => linenAt(linen, -0.55 + 0.35 * Math.sin(x * 0.35)), { soft: 1.5 });
+  // Кулиска — только сзади, под узлом волос; у лица нижний край чепца — подворотом, светлый.
+  img.shape((x, y) => Math.max(C.y1 - 4 - y, ax(2.1) - x), { x0: 0, y0: C.y1 - 6, x1: W, y1: C.y1 }, (x) => linenAt(linen, -0.45 + 0.3 * Math.sin(x * 0.35)), { soft: 2 });
 }
 
 // ---------- Коса ----------
@@ -169,9 +170,9 @@ function paintTorso(img: Img, skin: RGB, dress: RGB, linen: RGB, ribbon: RGB): v
     const nl = neckline(a);
     if (h > nl + CHEMISE) {
       // Кожа: шея под подбородком в тени, к ключицам светлеет, бока шеи — в тень.
-      const up = clamp01((h - 1.3) / 0.05);
-      const c = flesh(skin, 0.1 - 0.75 * up - 0.4 * side - 0.3 * clamp01((Math.abs(a) - 0.4) / 1.1) * up);
-      return up > 0.6 ? mix(c, [0.42, 0.2, 0.12], 0.3 * up) : c;
+      const up = clamp01((h - 1.312) / 0.032);
+      const c = flesh(skin, 0.1 - 1.05 * up - 0.4 * side - 0.3 * clamp01((Math.abs(a) - 0.4) / 1.1) * up);
+      return up > 0.3 ? mix(c, [0.42, 0.2, 0.12], 0.42 * up) : c;
     }
     if (h > nl) return linenAt(linen, 0.3 - 0.6 * side);
     // Платье: верх груди и плечи на свету, к поясу и к бокам — в тень; сукно — зерном.
@@ -188,7 +189,7 @@ function paintTorso(img: Img, skin: RGB, dress: RGB, linen: RGB, ribbon: RGB): v
     const x = ax((i * Math.PI) / 48);
     const top = torsoY(neckline(aOf(x)) + CHEMISE) + 1;
     const bot = torsoY(neckline(aOf(x)));
-    img.shape((px) => Math.abs(px - x) - 1.1, { x0: x - 3, y0: top, x1: x + 3, y1: bot + 1 }, linenAt(linen, i % 2 ? -0.5 : 0.5), { soft: 1.5, alpha: 0.5 });
+    img.shape((px) => Math.abs(px - x) - 1.1, { x0: x - 3, y0: top, x1: x + 3, y1: bot + 1 }, linenAt(linen, i % 2 ? -0.35 : 0.35), { soft: 2, alpha: 0.28 });
   }
   img.shape((x, y) => Math.abs(y - torsoY(neckline(aOf(x))) + 1.2) - 1.3, box, tone(dress, -0.75), { soft: 1.6, alpha: 0.7 });
   // Грудь под сукном: свет на верхней дуге, тень под ней.

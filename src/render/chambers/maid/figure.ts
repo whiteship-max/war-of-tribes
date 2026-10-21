@@ -116,8 +116,8 @@ export const COIF: readonly { h: number; lift: readonly [number, number]; v: num
   { h: 0.128, lift: [0.006, 0.02], v: 37, open: 1.18 },
   { h: 0.09, lift: [0.006, 0.018], v: 42, open: 1.3 },
   { h: 0.055, lift: [0.006, 0.016], v: 46, open: 1.4 },
-  { h: 0.022, lift: [0.005, 0.013], v: 50, open: 1.64 },
-  { h: -0.03, lift: [0.004, 0.009], v: 55, open: 2.05 },
+  { h: 0.022, lift: [0.004, 0.013], v: 50, open: 1.44 },
+  { h: -0.03, lift: [0.004, 0.009], v: 55, open: 1.9 },
 ];
 const COIF_K = 6;
 
@@ -155,10 +155,15 @@ export function coifPt(head: Head, th: number, h: number, lift: number): V3 {
     y = head.faceHeight(top) + (h - top);
     up = lift * k;
   }
+  // Низ чепца у щёк и под затылком — к шее: изнанка у шеи не видна в проём лица.
+  if (h < 0.05) {
+    const k = smooth(0.05, -0.03, h) * smooth(1.2, 1.7, a);
+    dx *= 1 - 0.3 * k;
+  }
   if (h < 0) {
     const k = Math.min(1, -h / 0.06);
     dx *= 1 - 0.1 * k;
-    dz *= 1 - 0.05 * k;
+    dz *= 1 - 0.12 * k;
     y = Math.min(p[1], head.faceHeight(0)) + h;
   }
   const r = Math.hypot(dx, dz) || 1;
@@ -175,7 +180,7 @@ export function coifAngles(open: number): number[] {
 }
 
 /** Подворот края: лён у проёма лица — толще (сложен вдвое), отступ у первых столбцов. */
-export const BRIM = 0.0045;
+export const BRIM = 0.007;
 
 function buildCoif(m: SkinMesh, head: Head): void {
   const last = COIF.length - 1;

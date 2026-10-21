@@ -57,9 +57,19 @@ export function paintMaidFace(look: MaidLook, head: Head): Img {
     );
   });
 
+  // Челюсть: к краю — темнее (снизу лицо уходит в тень шеи), щека над ней — средним тоном.
+  f.plane([[0.03, 0.03], [0.06, 0.042], [0.09, 0.04], [0.104, 0.016], [0.1, -0.004], [0.03, -0.004], [0.02, 0.012]], sh(-0.3), 10, 0.55);
+  img.shape((x, y) => {
+    const h = hRow[Math.min(FACE_PX - 1, y | 0)];
+    return (h - 0.012) * SX;
+  }, face, mix(sh(-0.75), [0.45, 0.22, 0.14], 0.25), { soft: 14, alpha: 0.6 });
+
   // ---------- Глаза: тень над веком, мягкая складка ----------
   f.plane([[0.022, 0.157], [0.036, 0.1605], [0.052, 0.161], [0.066, 0.157], [0.074, 0.149], [0.066, 0.1462], [0.052, 0.1488], [0.038, 0.149], [0.028, 0.1475], [0.022, 0.15]], mix(mix(sh(-0.6), [0.55, 0.3, 0.2], 0.25), lid, 0.35), 6, 0.6);
   wrinkle(f, [[0.026, 0.1515], [0.04, 0.155], [0.055, 0.1548], [0.066, 0.151], [0.072, 0.1455]], 0.45, 1.3, 1.1);
+  // Глазница — тёплым кольцом, как у супруги: глаз сидит в ней, а не лежит на коже.
+  const socket = P(E.x + 0.001, E.h + 0.002);
+  img.shape(ellipse(socket[0], socket[1], RX(0.028), RY(0.016)), around(socket[0], socket[1], RX(0.04), RY(0.028)), mix(sh(-0.55), lid, 0.3), { soft: 12, alpha: 0.6 });
 
   // ---------- Нос: короткий, курносый, кончик круглый и розовый ----------
   img.shape(stroke([P(0, 0.15), P(0, 0.112)], (t) => RX(0.0042 + 0.0016 * t)), boxOf([P(0, 0.156), P(0.008, 0.108)], 8), sh(0.45), { soft: 4, alpha: (x, y) => 0.8 * Math.min(1, Math.max(0, (y - f.yOf(0.158)) / 14)) });
@@ -83,7 +93,7 @@ export function paintMaidFace(look: MaidLook, head: Head): Img {
     const r = rng(19);
     for (let i = 0; i < 90; i++) {
       // Гуще всего — на спинке носа и на яблочках, реже — к виску.
-      const X = r() < 0.35 ? r() * 0.02 : 0.016 + r() * 0.062;
+      const X = r() < 0.3 ? 0.006 + r() * 0.014 : 0.018 + r() * 0.06;
       const h = 0.098 + r() * 0.036 - Math.max(0, X - 0.04) * 0.2;
       if (Math.hypot(X - E.x, (h - E.h) * 1.5) < 0.026) continue;
       const c = P(X, h);
@@ -102,11 +112,11 @@ export function paintMaidFace(look: MaidLook, head: Head): Img {
       [0.07, 0.1715],
     ],
     pts: [
-      [0.016, 0.1625],
-      [0.031, 0.1658 + st.browArch * 0.4],
-      [0.05, 0.1676 + st.browArch * 0.7],
-      [0.066, 0.1656 + st.browArch * 0.35],
-      [0.077, 0.1606],
+      [0.016, 0.161],
+      [0.031, 0.1645 + st.browArch * 0.4],
+      [0.05, 0.1662 + st.browArch * 0.7],
+      [0.066, 0.1642 + st.browArch * 0.35],
+      [0.077, 0.1594],
     ],
     thick: st.browThick,
   });
@@ -116,9 +126,10 @@ export function paintMaidFace(look: MaidLook, head: Head): Img {
   const hairTone = (x: number, y: number): RGB => {
     const X = x / SX;
     // Пряди от пробора — наискось вниз к виску: полосы по углу, блик на выпуклости над лбом.
-    const s = Math.sin((y * 0.16 - x * 0.12) * 0.9 + Math.sin(x * 0.04 + y * 0.02) * 1.5);
-    const bulge = bell(X, 0.035, 0.03);
-    return tone(hair, -0.22 + 0.3 * bulge + 0.08 * (1 - s * s) ** 2 - 0.08 * Math.abs(s) ** 5 + (n(x * 0.1, y * 0.4) - 0.5) * 0.12);
+    // Гладко зачёсаны от пробора: широкий блик на выпуклости над лбом, редкие пряди наискось, у чепца — в тень.
+    const s = Math.sin((y * 0.11 - x * 0.08) + Math.sin(x * 0.03) * 1.2);
+    const bulge = bell(X, 0.03, 0.028);
+    return tone(hair, -0.28 + 0.42 * bulge + 0.06 * s + (n(x * 0.06, y * 0.25) - 0.5) * 0.1);
   };
   const edgeX = (h: number): number => {
     const open = coifOpen(h);

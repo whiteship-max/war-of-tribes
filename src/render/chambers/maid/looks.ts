@@ -50,17 +50,17 @@ export const MAID_LOOKS: Record<MaidId, MaidLook> = {
   a: {
     name: 'Медовая в мареновом сукне: русая коса, синяя лента',
     palette: { skin: 0xecb995, hair: 0xa87c48, dress: 0x6e4a3e, linen: 0xe6e0d2, wood: 0x8a5e36, ribbon: 0x3e5a78, iris: 0x5e86a6, blush: 0xe07a6a },
-    face: { browArch: 0.0022, browThick: 0.0036, lash: 0.85, lipTint: 0.5, lipFull: 0.75, blush: 0.55, freckles: 1, round: 1.06, nose: 0.92, cheek: 1 },
+    face: { browArch: 0.0022, browThick: 0.0042, lash: 1.05, lipTint: 0.5, lipFull: 0.75, blush: 0.55, freckles: 1, round: 1.06, nose: 0.92, cheek: 1 },
   },
   b: {
     name: 'Каштановая в сером сукне: тёмная коса, красная лента',
     palette: { skin: 0xe8b28c, hair: 0x6c4428, dress: 0x56606a, linen: 0xe2ddd0, wood: 0x7a5232, ribbon: 0x9a3a2e, iris: 0x6a5432, blush: 0xd8705e },
-    face: { browArch: 0.0016, browThick: 0.0042, lash: 1, lipTint: 0.45, lipFull: 0.65, blush: 0.45, freckles: 0.55, round: 1.1, nose: 1, cheek: 0.9 },
+    face: { browArch: 0.0016, browThick: 0.0048, lash: 1.15, lipTint: 0.45, lipFull: 0.65, blush: 0.45, freckles: 0.7, round: 1.1, nose: 1, cheek: 0.9 },
   },
   c: {
     name: 'Пшеничная в оливковом: светлая коса, вишнёвая лента',
     palette: { skin: 0xf0c09e, hair: 0xc79a5e, dress: 0x5c6448, linen: 0xe8e2d4, wood: 0x94683e, ribbon: 0x7a3046, iris: 0x6f8a58, blush: 0xe8806e },
-    face: { browArch: 0.0026, browThick: 0.0032, lash: 0.8, lipTint: 0.55, lipFull: 0.8, blush: 0.6, freckles: 0.8, round: 1.03, nose: 0.88, cheek: 1.1 },
+    face: { browArch: 0.0026, browThick: 0.0038, lash: 1, lipTint: 0.55, lipFull: 0.8, blush: 0.6, freckles: 0.8, round: 1.03, nose: 0.88, cheek: 1.1 },
   },
 };
 
