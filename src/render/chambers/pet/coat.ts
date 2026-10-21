@@ -268,8 +268,9 @@ function face(img: Img, look: CatLook): void {
   paintBox(img, { x0: 0, y0: h.y1 / 2, x1: 160, y1: h.y1 }, (x, y) => {
     const q = headPt(lonOf(x), latOf(y), look.head);
     const e = Math.hypot((q[0] - cc[0]) / cr[0], (q[1] - cc[1]) / cr[1], (q[2] - cc[2]) / cr[2]);
-    if (e > 1.05) return null;
-    const k = sm(1.05, 0.85, e);
+    // С запасом внутрь: край подбородка виден сбоку, и нутро под ним не должно выглядывать.
+    if (e > 0.88) return null;
+    const k = sm(0.88, 0.72, e);
     return mix(img.get(x | 0, y | 0), latOf(y) < -0.62 ? [0.6, 0.3, 0.32] : [0.2, 0.08, 0.08], k);
   });
   // Светлое кольцо вокруг глаза (у полосатых — «подводка» светлым).

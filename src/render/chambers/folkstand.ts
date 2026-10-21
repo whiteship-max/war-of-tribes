@@ -30,6 +30,8 @@ export interface ShotAsk {
   catClip?: 'stretch' | 'groom' | 'sleep';
   catEyes?: number;
   gaze?: [number, number];
+  /** Морда кота: поворот одного кота (камера — прежняя), рад: три четверти — около −0,6. */
+  turn?: number;
   /** Ракурс голов в листе (`sheet`, `pair`). */
   angle?: 'front' | 'three' | 'side' | 'back';
   light?: 'day' | 'night';
@@ -118,7 +120,7 @@ export function mountConsortStand(root: HTMLElement, p: URLSearchParams): void {
     }
     return f;
   };
-  const camera = new THREE.PerspectiveCamera(28, 1, 0.02, 50);
+  const camera = new THREE.PerspectiveCamera(28, 1, 0.05, 50);
 
   /** Кот в позе: тело мозга, клип с его секунды, взгляд и свет (зрачок — по свету). */
   const posCat = (id: CatId, x: number, yaw: number, a: ShotAsk): CatKit => {
@@ -145,7 +147,7 @@ export function mountConsortStand(root: HTMLElement, p: URLSearchParams): void {
 
   /** Морда кота крупно в окне `w × h` с левого края `x`. */
   const catFace = (id: CatId, a: ShotAsk, w: number, h: number, x: number, y = 0): void => {
-    const k = posCat(id, 0, a.yaw ?? 0, { ...a, catBody: a.catBody ?? 'sit' });
+    const k = posCat(id, 0, (a.yaw ?? 0) + (a.turn ?? 0), { ...a, catBody: a.catBody ?? 'sit' });
     const c0 = k.body.at('head', [0, 0.004, 0.04]);
     const c: V3 = a.aim ? [c0[0] + a.aim[0], c0[1] + a.aim[1], c0[2] + a.aim[2]] : c0;
     camera.fov = a.fov ?? 14;

@@ -182,13 +182,13 @@ export function catPosture(w: Partial<Record<CatBody, number>>, l: CatLook, t: n
   const loaf = W('loaf');
   if (loaf > 0) {
     lift[1] += -0.13 * loaf;
-    // Лапы — под собой: передние сложены назад под грудь, задние — под бока.
+    // Лапы — под собой: передние сложены назад под грудь, задние — под бока (стопы — под телом, у пола: подбор числом, ЛЦ-4).
     for (const s of ['L', 'R']) {
-      add(o, `arm${s}`, 1.3 * loaf);
-      add(o, `fore${s}`, -2.55 * loaf);
-      add(o, `paw${s}`, 0.5 * loaf);
-      add(o, `thigh${s}`, -1.45 * loaf);
-      add(o, `hock${s}`, 2.65 * loaf);
+      add(o, `arm${s}`, 2.1 * loaf);
+      add(o, `fore${s}`, -2.3 * loaf);
+      add(o, `paw${s}`, 0.3 * loaf);
+      add(o, `thigh${s}`, -2.2 * loaf);
+      add(o, `hock${s}`, 2.9 * loaf);
     }
     add(o, 'neck', -0.2 * loaf);
     for (let i = 1; i <= TAIL_BONES; i++) add(o, `tail${i}`, -0.1 * loaf, 0.44 * loaf);

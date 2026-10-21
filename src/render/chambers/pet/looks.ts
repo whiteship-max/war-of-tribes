@@ -59,7 +59,7 @@ export const CAT_LOOKS: Record<CatId, CatLook> = {
 };
 
 /** Окрас покоев — лучший по оценке (docs/characters.md, ЛЦ-4). */
-export const BEST: CatId = 'b';
+export const BEST: CatId = 'a';
 
 /** Окрас по адресу (`?cat=a|b|c`), иначе — лучший. */
 export function catOf(search: string | null = typeof location !== 'undefined' ? location.search : null): CatId {
