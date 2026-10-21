@@ -186,6 +186,34 @@ describe('покои: бой мечом', () => {
     room.dispose();
   });
 
+  it('отдача лёгкая: удары о камень и чучело и при редком кадре (0,1 с) не уводят взгляд дальше полутора градусов', () => {
+    for (const at of [
+      [4.5, 1.0],
+      [DUMMY.x - 0.92, DUMMY.z],
+    ] as const) {
+      const room = inStance();
+      room.standAtPoint(at[0], at[1], Math.PI / 2, 0);
+      run(room, 0.3);
+      let worst = 0;
+      let hits = 0;
+      for (let k = 0; k < 4; k++) {
+        room.swipe(k % 2 ? 80 : 330, 430, k % 2 ? 330 : 80, 440, 60);
+        for (let i = 0; i < 12; i++) {
+          clock += 0.1;
+          room.frame(0.1, clock, SKY);
+          const d = room.camera.getWorldDirection(new THREE.Vector3());
+          const st = room.state();
+          worst = Math.max(worst, Math.abs(Math.asin(d.y) - st.pitch), Math.abs(Math.atan2(d.x, d.z) - st.yaw));
+          expect(Math.abs(room.camera.up.y - 1), 'без крена').toBeLessThan(1e-9);
+          hits += room.drillNow().flying.sparks + room.drillNow().flying.bits;
+        }
+      }
+      expect(hits, 'удары встретили камень или чучело').toBeGreaterThan(0);
+      expect(worst, 'взгляд от отдачи — не дальше 1,5°').toBeLessThan(0.03);
+      room.dispose();
+    }
+  });
+
   it('чучело, след и зарубки — в бюджете отработки на каждом уровне', () => {
     const tris = ([0, 1, 2] as const).map((d) => {
       const dr = new Drill(new THREE.MeshBasicMaterial(), new THREE.Vector3(), d);

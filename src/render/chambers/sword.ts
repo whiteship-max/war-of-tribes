@@ -494,33 +494,44 @@ export const PHONE_VIEW: View = { tanV: Math.tan((35 * Math.PI) / 180), tanH: Ma
 /** Стойка: кулак у правого бедра-пояса, клинок вверх, влево и вперёд — острие над серединой кадра; дыхание качает. */
 export function guardBlade(t: number): Blade {
   const br = Math.sin(t * 1.6) * 0.006;
-  const hand: V3 = [0.13, -0.25 + br, -0.38];
+  const hand: V3 = [0.1, -0.26 + br, -0.45];
   const axis = norm([-0.27, 0.74, -0.62]);
   return ortho(hand, axis, [0, 0.3, 1]);
 }
 
 /** Стойка у стены: меч поднят к плечу клинком вверх — у камня он не торчит сквозь стену. */
-const RAISED: Blade = ortho([0.17, -0.2, -0.26], norm([0.02, 1, -0.12]), [0, 0, 1]);
+const RAISED: Blade = ortho([0.07, -0.21, -0.3], norm([-0.16, 1, -0.22]), [0, 0, 1]);
 
 /** Шаг проверки клинка, с: за него острие проходит не больше 4 см (дуга 0,17 с, острие — 1 м от плеча). */
 const SUBSTEP = 1 / 240;
 
 /**
- * Дуга удара: плоскость — направление к середине взмаха (`mid`) и направление взмаха на экране; клинок на угле `phi`
- * смотрит `cos φ` вперёд и `sin φ` по взмаху, кромка ведёт по дуге, кулак идёт по той же линии.
+ * Дуга удара: плоскость — направление взмаха на экране и «середина дуги» `n`: клинок посреди дуги смотрит к середине
+ * взмаха и вверх от его линии (кулак — ниже острия), а не в глаз остриём, — так его видно во всю длину. На угле `phi`
+ * клинок смотрит `cos φ` к `n` и `sin φ` по взмаху, кромка ведёт по дуге; кулак идёт по той же линии и посреди дуги
+ * выносится вперёд — рука выпрямляется в ударе.
  */
 export function swingBlade(s: StrikeSpec, phi: number, view: View): Blade {
   const f = norm([s.mid[0] * view.tanH * 0.8, s.mid[1] * view.tanV * 0.8, -1]);
   const d0: V3 = [s.dir[0], -s.dir[1], 0];
   const d = norm(sub(d0, scale(f, dot(d0, f))));
+  // Поперёк взмаха на экране — вверх или влево (правая рука: кулак снизу справа, острие — выше и левее).
+  const p1: V3 = [-d[1], d[0], 0];
+  const perp = p1[1] - 0.5 * p1[0] >= 0 ? p1 : scale(p1, -1);
+  const n0 = add(scale(f, MID_FWD), scale(perp, MID_UP));
+  const n = norm(sub(n0, scale(d, dot(n0, d))));
   const c = Math.cos(phi);
   const sn = Math.sin(phi);
-  const axis = norm(add(scale(f, c), scale(d, sn)));
-  const edge = norm(add(scale(f, -sn), scale(d, c)));
-  const hc: V3 = [0.05 + s.mid[0] * 0.05, -0.14 + s.mid[1] * 0.05, -0.32];
-  const hand = add(add(hc, scale(d, 0.22 * sn)), scale(f, 0.06 * c));
+  const axis = norm(add(scale(n, c), scale(d, sn)));
+  const edge = norm(add(scale(n, -sn), scale(d, c)));
+  const hc: V3 = [0.06 + s.mid[0] * 0.05, -0.2 + s.mid[1] * 0.06, -0.38];
+  const hand = add(add(hc, scale(d, 0.2 * sn)), scale(f, 0.2 * c));
   return { hand, axis, edge };
 }
+
+/** Посреди дуги клинок смотрит столько к середине взмаха и столько вверх от линии взмаха. */
+const MID_FWD = 0.6;
+const MID_UP = 0.8;
 
 /** Позы блока: вверх — клинок поперёк над глазами, в стороны — стоймя у края кадра, вниз — наискось к полу. */
 export function blockBlade(side: Side): Blade {

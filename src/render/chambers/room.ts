@@ -223,6 +223,8 @@ const easeInOut = (k: number): number => k * k * (3 - 2 * k);
 const HIT_CUE: Record<Surface, Cue> = { stone: 'clang', iron: 'clang', wood: 'thud', cloth: 'soft', straw: 'straw' };
 /** Толчок отдачи в голову на силу удара, рад/с: камень отдаёт сильнее, солома — едва (пик — меньше градуса). */
 const KICK: Record<Surface, number> = { stone: 0.16, iron: 0.16, wood: 0.11, cloth: 0.04, straw: 0.05 };
+/** Отдача не уводит взгляд дальше этого, рад (полтора градуса). */
+const KICK_MAX = 0.026;
 const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
 
 /** Луч `o + t·d` и коробка: доля `t` входа (0…1 — до конца отрезка) или `null`. */
@@ -1062,12 +1064,17 @@ export class ChambersRoom implements Inside {
         this.drill.trail(at(0.38), at(0.74), f.force);
       }
     }
-    // Пружина отдачи: критическое затухание, ни качки, ни дрожи.
+    // Пружина отдачи: критическое затухание, ни качки, ни дрожи; мелкими шагами — устойчива и при редком кадре; не дальше
+    // `KICK_MAX` от взгляда.
     const kk = this.kick;
-    kk.vy += (-260 * kk.yaw - 32 * kk.vy) * dt;
-    kk.vp += (-260 * kk.pitch - 32 * kk.vp) * dt;
-    kk.yaw += kk.vy * dt;
-    kk.pitch += kk.vp * dt;
+    const n = Math.max(1, Math.ceil(dt / 0.004));
+    for (let i = 0; i < n; i++) {
+      const h = dt / n;
+      kk.vy += (-260 * kk.yaw - 32 * kk.vy) * h;
+      kk.vp += (-260 * kk.pitch - 32 * kk.vp) * h;
+      kk.yaw = clamp(kk.yaw + kk.vy * h, -KICK_MAX, KICK_MAX);
+      kk.pitch = clamp(kk.pitch + kk.vp * h, -KICK_MAX, KICK_MAX);
+    }
     this.drill.step(dt);
   }
 

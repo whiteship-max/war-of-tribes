@@ -52,6 +52,17 @@ export function dummyModel(detail: 0 | 1 | 2): { base: Mesher; body: Mesher } {
     'plain',
     T(STRAW),
   );
+  // Подол — солома торчит из-под нижней перевязи, топорщится наружу.
+  body.lathe(
+    [
+      [r * 0.74, y0 + 0.02],
+      [r * 1.12, y0 - 0.09],
+      [r * 0.62, y0 - 0.05],
+    ],
+    seg,
+    'plain',
+    T(STRAW_DARK, 1.15),
+  );
   // Голова — узел соломы.
   const hy = DUMMY.head.y - 0.07;
   const hr = DUMMY.head.r;
@@ -67,6 +78,17 @@ export function dummyModel(detail: 0 | 1 | 2): { base: Mesher; body: Mesher } {
     'plain',
     T(STRAW, 1.05),
   );
+  // Хохол — вихор соломы на макушке.
+  body.lathe(
+    [
+      [hr * 0.55, hy + hr * 0.75],
+      [hr * 0.75, hy + hr * 1.25],
+      [0, hy + hr * 1.05],
+    ],
+    6,
+    'plain',
+    T(STRAW_DARK, 1.2),
+  );
   // Перевязи: пояс, грудь, шея — верёвка.
   for (const [y, rr] of [
     [y0 + 0.26, r * 0.93],
@@ -75,9 +97,8 @@ export function dummyModel(detail: 0 | 1 | 2): { base: Mesher; body: Mesher } {
   ] as const)
     body.lathe(
       [
-        [rr + 0.006, y - 0.018],
-        [rr + 0.012, y],
-        [rr + 0.006, y + 0.018],
+        [rr + 0.01, y - 0.017],
+        [rr + 0.01, y + 0.017],
       ],
       seg,
       'plain',
@@ -349,8 +370,8 @@ export class Drill {
       // У середины клинка след бледнее, у острия — ярче: дуга видна, а клинок не тонет.
       pos.set(p.a, i * 6);
       pos.set(p.b, i * 6 + 3);
-      col.set([0.18 * fade, 0.19 * fade, 0.21 * fade], i * 6);
-      col.set([0.62 * fade, 0.64 * fade, 0.7 * fade], i * 6 + 3);
+      col.set([0.3 * fade, 0.31 * fade, 0.34 * fade], i * 6);
+      col.set([0.95 * fade, 0.96 * fade, 1.0 * fade], i * 6 + 3);
     }
     this.trailMesh.geometry.getAttribute('position').needsUpdate = true;
     this.trailMesh.geometry.getAttribute('color').needsUpdate = true;

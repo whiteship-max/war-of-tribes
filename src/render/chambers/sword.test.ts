@@ -129,7 +129,11 @@ describe('бой мечом: удар, блок, выносливость, ко�
       expect(move, `острие по взмаху (${dx}, ${dy})`).toBeGreaterThan(0.3);
       // Посреди дуги — прямо перед глазом, впереди.
       const m = swingBlade(spec, 0, PHONE_VIEW);
-      expect(m.axis[2], 'посреди дуги клинок смотрит вперёд').toBeLessThan(-0.95);
+      expect(m.axis[2], 'посреди дуги клинок смотрит вперёд').toBeLessThan(-0.5);
+      // И виден во всю длину: от кулака до острия на экране — не меньше трети высоты кадра (не остриём в глаз).
+      const tip = [m.hand[0] + m.axis[0] * BLADE_TO, m.hand[1] + m.axis[1] * BLADE_TO, m.hand[2] + m.axis[2] * BLADE_TO];
+      const span = Math.hypot(tip[0] / -tip[2] - m.hand[0] / -m.hand[2], tip[1] / -tip[2] - m.hand[1] / -m.hand[2]);
+      expect(span / PHONE_VIEW.tanV, 'клинок во всю длину').toBeGreaterThan(0.66);
       expect(Math.abs(m.axis[0] * m.edge[0] + m.axis[1] * m.edge[1] + m.axis[2] * m.edge[2]), 'кромка поперёк клинка').toBeLessThan(1e-9);
     }
   });
