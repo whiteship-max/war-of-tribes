@@ -14,9 +14,11 @@
 //                                                карта мира, `WXSEASON=winter` — сезон партии, `WXREGION=italy` — регион,
 //                                                `WXDAY=0.8` — доля суток партии (0.8 летом — глубокая ночь, docs/polish.md, П-3);
 //                                                `MOOD=feast` — состояние города адресом (`?mood=`: feast, siege, hunger,
-//                                                plague, gloom, cheer; docs/city_v3.md, ЖГ-1), `POP=150` — население партии
+//                                                plague, gloom, cheer, mourn; docs/city_v3.md, ЖГ-1), `POP=150` — население партии;
+//                                                `SKIT=brawl` — сценка жителей адресом (`?skit=`, ЖГ-2: у точки `WXLOOK` ближе 134 м)
 //   GAME=1 WX=clear CHAMBERS=desk npm run city:shots — покои правителя (docs/city_v3.md, Г-4): точка интереса
-//                                                (hall, desk, window, hearth, bed, arms), `:доворот:наклон:безделушка:подсветка`
+//                                                (hall, desk, window, hearth, bed, arms), `:доворот:наклон:безделушка:подсветка`;
+//                                                `FIGHT=stance|at:…|hit:dx:dy`, `FIGHTSHOT=swing:dx:dy` — бой мечом (Г-11)
 //   LEGEND=1 npm run city:shots              — легенда карты листом: строки значков той же функцией, что окно легенды
 //                                                (docs/city.md, 16.5); `GAME=1 WXMAP=1 LEGEND=1` — окно в самой игре
 //   SIZE=540x900 VIEWS=game SOLAR=0.46 npm run city:shots — свой экран (точки CSS, плотность 2): кадры заставки
@@ -174,7 +176,8 @@ async function shot(q: Quality, view: string, solar: number): Promise<void> {
 /** Игра по адресу `?look=city`: новая партия, вход, стартовый кадр города и счётчики сцены. */
 async function gameShot(q: Quality): Promise<void> {
   // Состояние города адресом (`MOOD=feast`, docs/city_v3.md, ЖГ-1): праздник, осада, голод, мор, хмуро, весело.
-  const mood = process.env.MOOD ? `&mood=${process.env.MOOD}` : '';
+  // Сценка адресом (`SKIT=brawl`, docs/city_v3.md, ЖГ-2): ставится только она — у точки взгляда, при приближении ближе ~134 м.
+  const mood = (process.env.MOOD ? `&mood=${process.env.MOOD}` : '') + (process.env.SKIT ? `&skit=${process.env.SKIT}` : '');
   const tab = await Tab.open(DEBUG_PORT, reportPage(PORT, `&look=${process.env.LOOK ?? 'city'}&quality=${q}${mood}`));
   try {
     await tab.send('Emulation.setDeviceMetricsOverride', SCREEN);
@@ -461,6 +464,14 @@ async function weatherShots(tab: Tab, q: Quality): Promise<void> {
       }, 200);
     })`);
     console.log(`  ${said}`);
+    // «Вдаль» у окна (Г-12): `ZOOM=4` — столько касаний кнопки «Вдаль» (`room.zoomBy(1.6)`), как пальцем.
+    for (let k = 0; k < Number(process.env.ZOOM ?? 0); k++) await tab.eval(`window.__chambers.zoomBy(1.6)`);
+    // Ходьба (Г-12): `WALK=1` — палец движения лёг в левой половине и ушёл вверх на полный ход; снимок — с пальцем на экране
+    // (кружок в углу один, его ручка у обода).
+    if (process.env.WALK) {
+      await tab.eval(`(() => { const r = window.__chambers; r.down(1, 150, 600, { left: 0, top: 0, width: innerWidth, height: innerHeight }); r.move(1, 150, 520); })()`);
+      await sleep(700);
+    }
     // Жизнь покоев (Г-7): `LIFE='{"who":"servant","at":{"x":3.75,"z":-4.6,"yaw":3.1},"talk":true}'` — поставить людей и кота
     // сразу (`ChambersLife.stage`); списком — несколько (`LIFE='[{"who":"maid"},{"cat":"floor"}]'`).
     if (process.env.LIFE) {
@@ -506,6 +517,34 @@ async function weatherShots(tab: Tab, q: Quality): Promise<void> {
       const r = await tab.eval<string>(`JSON.stringify((() => { const l = window.__chambers.life; for (const s of [].concat(${process.env.LIFE_AFTER})) l.stage(s); return 'жизнь после: ' + JSON.stringify(l.view()); })())`);
       console.log(`  ${r}`);
     }
+    // Бой мечом (Г-11, к `CHAMBERS=arms`): `FIGHT='stance|at:3.5:0.35:1.571:-0.06|hit:-250:10|hit:250:0'` — в стойку, встать
+    // в точку пола с мечом, удары взмахом (сдвиг пальца, px) — по одному, с паузой на удар; `coach` — до стойки забыть, что
+    // подсказки первой стойки уже видели. Снимок посреди удара или блока — `FIGHTSHOT=swing:-250:10` или `block:left`;
+    // `straw:-250:10` — удар и снимок, когда из чучела полетела солома (или из камня — искры).
+    if (process.env.FIGHT) {
+      for (const cmd of process.env.FIGHT.split('|').filter(Boolean)) {
+        const [op, a1, a2, a3, a4] = cmd.split(':');
+        const r = await tab.eval<string>(`JSON.stringify((() => {
+          const room = window.__chambers;
+          room.setRect({ left: 0, top: 0, width: innerWidth, height: innerHeight });
+          const op = ${JSON.stringify(op)};
+          if (op === 'coach') { try { localStorage.removeItem('tribe.chambers.sword'); } catch {} return 'подсказки — снова'; }
+          if (op === 'stance') { try { if (!${JSON.stringify(process.env.FIGHT.includes('coach'))}) localStorage.setItem('tribe.chambers.sword', '1'); } catch {} room.stance(); return 'стойка: ' + !!room.fightNow(); }
+          if (op === 'at') { room.standAtPoint(${Number(a1) || 0}, ${Number(a2) || 0}, ${Number(a3) || 0}, ${Number(a4) || 0}); return 'встал'; }
+          if (op === 'hit') { const cx = innerWidth / 2, cy = innerHeight * 0.56, dx = ${Number(a1) || 0}, dy = ${Number(a2) || 0}; room.swipe(cx - dx / 2, cy - dy / 2, cx + dx / 2, cy + dy / 2, 64); return 'взмах'; }
+          return 'не знаю ' + op;
+        })())`);
+        // Программный кадр облака — около секунды, а шаг сцены — не больше 0,1 с: удар ждём до стойки, а не по часам.
+        const until = (cond: string): Promise<string> =>
+          tab.eval<string>(`new Promise((ok) => { let n = 0; const t = setInterval(() => { const f = window.__chambers.fightNow(); if (!f || (${cond}) || ++n > 300) { clearInterval(t); ok(JSON.stringify('ok')); } }, 100); })`);
+        if (op === 'stance') await until('f.stance >= 1');
+        else if (op === 'hit') await until("f.state.kind === 'guard' && f.swings > 0 && f.time > (window.__g11 = window.__g11 ?? f.time) + 0.7");
+        else await sleep(900);
+        if (op === 'hit') await tab.eval<string>(`(() => { window.__g11 = undefined; return JSON.stringify('ok'); })()`);
+        const f = await tab.eval<string>(`JSON.stringify((() => { const f = window.__chambers.fightNow(); return f ? 'попаданий ' + f.hits + ', выносливость ' + f.stamina.toFixed(2) : 'боя нет'; })())`);
+        console.log(`  бой: ${cmd} → ${r}; ${f}`);
+      }
+    }
     await sleep(2500);
     const diag = await tab.eval<string>(`JSON.stringify((() => {
       const r = window.__scene.renderer;
@@ -541,7 +580,43 @@ async function weatherShots(tab: Tab, q: Quality): Promise<void> {
         await sleep(150);
       }
     }
+    // Сценки жителей (`SKIT=`, ЖГ-2): что стоит, где и сколько фигур в кадре.
+    if (process.env.SKIT) {
+      const sk = await tab.eval<string>(`JSON.stringify((() => {
+        const v = window.__scene.skits;
+        if (!v) return 'сценки не приехали';
+        const d = v.director;
+        return d.active.filter(Boolean).map((a) => a.def.id + ' на «' + a.stage.kind + '» ' + a.stage.x.toFixed(1) + ',' + a.stage.z.toFixed(1)).join('; ') + ' | фигур ' + v.drawn();
+      })())`);
+      console.log(`  сценки: ${sk}`);
+    }
+    // Снимок посреди удара или блока (Г-11): сцена встаёт на кадре, где клинок на середине дуги (или блок стоит).
+    const fs = process.env.FIGHTSHOT;
+    if (fs) {
+      const [op, a1, a2] = fs.split(':');
+      const r = await tab.eval<string>(`new Promise((ok) => {
+        const room = window.__chambers;
+        room.setRect({ left: 0, top: 0, width: innerWidth, height: innerHeight });
+        const f = room.fightNow();
+        if (!f) return ok(JSON.stringify('боя нет'));
+        if (${JSON.stringify(op)} === 'block') f.block(${JSON.stringify(a1 ?? 'left')});
+        else { const cx = innerWidth / 2, cy = innerHeight * 0.56, dx = ${Number(a1) || 0}, dy = ${Number(a2) || 0}; room.swipe(cx - dx / 2, cy - dy / 2, cx + dx / 2, cy + dy / 2, 64); }
+        let n = 0;
+        let seen = -1;
+        const t = setInterval(() => {
+          const st = f.state;
+          const fly = room.drillNow().flying;
+          // Солома и искры — двумя кадрами после того, как полетели: успели разлететься от места встречи.
+          if (fly.bits + fly.sparks > 12 && seen < 0) seen = window.__scene.frameNo;
+          const hit = ${JSON.stringify(op)} === 'straw' ? seen >= 0 && window.__scene.frameNo >= seen + 2 : (st.kind === 'strike' && st.u >= 0.5) || (st.kind === 'block' && st.t >= 0.12);
+          if (hit || ++n > 6000) { clearInterval(t); window.__scene.pause(); ok(JSON.stringify(hit ? 'стоп: ' + st.kind : 'не поймал: ' + st.kind + ' ' + (st.u ?? st.t) + ', кадр ' + window.__scene.frameNo)); }
+        }, 4);
+      })`);
+      console.log(`  бой, снимок: ${fs} → ${r}`);
+      await sleep(400);
+    }
     const png = await tab.send<{ data: string }>('Page.captureScreenshot', { format: 'png' });
+    if (fs) await tab.eval<string>(`(() => { window.__scene.resume(); return JSON.stringify('ok'); })()`);
     const name = `${TAG}-wx-${wx}${day ? '-d' + day : ''}${region ? '-' + region : ''}${map ? '-map' : near ? '-' + near.replace(/:/g, '') : ''}${ch ? '-ch-' + ch.replace(/:/g, '_') : ''}-${q}.png`;
     await writeFile(join(OUT, name), Buffer.from(png.data, 'base64'));
     if (wx === 'storm') await tab.eval<string>(`(() => { window.__scene.resume(); return JSON.stringify('ok'); })()`);

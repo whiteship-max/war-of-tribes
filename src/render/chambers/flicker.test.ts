@@ -7,8 +7,11 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { buildRoom } from './build';
-import { HALF } from './plan';
+import { HALF, LID_OPEN } from './plan';
+import { METAL_BYTE, WAX_BYTE } from './material';
+import { WINE_LOW } from './room';
 import type { Mesher } from './geo';
+import type { Lid } from './build';
 import { cityShadowHalf, INSIDE_SHADOW_AHEAD, shadowSnap } from '../city/camera';
 import { CITY_SPEC } from '../city/spec';
 
@@ -135,23 +138,107 @@ function inTri2(t: Tri, x: number, z: number): boolean {
 
 const fmt = (p: P3): string => p.map((x) => x.toFixed(2)).join(', ');
 
+/** Грани крышки сундука, повёрнутой на петле на `a` радиан — как её ставит комната (`room.stepLids`: поворот группы петли). */
+function lidTris(l: Lid, a: number): Tri[] {
+  const c = Math.cos(a);
+  const s = Math.sin(a);
+  const turn = (p: P3): P3 => (l.axis === 'z' ? [p[0] * c - p[1] * s, p[0] * s + p[1] * c, p[2]] : [p[0], p[1] * c - p[2] * s, p[1] * s + p[2] * c]);
+  return trisOf([l.stone, l.cloth]).map((t) => {
+    const [a2, b2, c2] = [t.a, t.b, t.c].map((p) => {
+      const q = turn(p);
+      return [q[0] + l.hinge[0], q[1] + l.hinge[1], q[2] + l.hinge[2]] as P3;
+    });
+    const n = turn(t.n);
+    return { a: a2, b: b2, c: c2, n, d: dot(n, a2) };
+  });
+}
+
+/** Грани безделушки на своём месте (Г-12): кубок, свеча, шахматы, меч, корона — как их ставит комната (поворот по `yaw`). */
+function trinketTris(t: { stone: Mesher; at: readonly number[]; yaw: number }): Tri[] {
+  const c = Math.cos(t.yaw);
+  const s = Math.sin(t.yaw);
+  const turn = (p: P3): P3 => [p[0] * c + p[2] * s, p[1], -p[0] * s + p[2] * c];
+  return trisOf([t.stone]).map((q) => {
+    const [a, b, e] = [q.a, q.b, q.c].map((p) => {
+      const r = turn(p);
+      return [r[0] + t.at[0], r[1] + t.at[1], r[2] + t.at[2]] as P3;
+    });
+    const n = turn(q.n);
+    return { a, b, c: e, n, d: dot(n, a) };
+  });
+}
+
 describe('покои: свет у окна ровный (Г-9)', () => {
   it('в модели покоев нет граней, лежащих друг на друге лицом в одну сторону — у окон и всюду, на каждом уровне', () => {
+    for (const detail of [0, 1, 2] as const)
+      for (const open of [false, true]) {
+        const room = buildRoom(detail);
+        // С крышками сундуков, закрытыми (Г-9) и открытыми (Г-12: внутри — доспех, платье и меха; крышка на петле — как в деле).
+        const tris = [...trisOf([room.stone, room.cloth]), ...Object.values(room.lids).flatMap((l) => lidTris(l, open ? l.sign * LID_OPEN : 0)), ...Object.values(room.trinkets).flatMap(trinketTris)];
+        // Открытая крышка стоит над коробом (граница области: внутренность сундука на виду), закрытая — лежит на нём.
+        const lidTop = Math.max(...Object.values(room.lids).flatMap((l) => lidTris(l, open ? l.sign * LID_OPEN : 0).map((t) => t.a[1])));
+        if (open) expect(lidTop, 'крышка поднята').toBeGreaterThan(0.8);
+        else expect(lidTop, 'крышка лежит').toBeLessThan(0.6);
+        // Граница области — вся комната с нишами окон и тамбуром; подоконник южного окна (там сидит кот) — внутри неё.
+        expect(tris.some((t) => t.n[1] > 0.99 && Math.abs(t.a[1] - 0.8) < 1e-6 && t.a[2] > 6.0), 'плита подоконника в модели').toBe(true);
+        // Видимое глазу: грань лицом вверх выше глаза (стоя — 1,62 м) и лицом вниз ниже глаза лёжа (1,0 м) не видна никогда.
+        // Видимое глазу: грань лицом вверх выше глаза (стоя — 1,62 м), лицом вниз ниже глаза лёжа (1,0 м) и лицом в стену у
+        // самой стены не видны никогда.
+        const intoWall = (f: { at: P3; n: P3 }): boolean => (Math.abs(f.at[0]) > HALF - 0.002 && f.n[0] * f.at[0] > 0.5) || (Math.abs(f.at[2]) > HALF - 0.002 && f.n[2] * f.at[2] > 0.5 && Math.abs(f.at[2]) < HALF + 0.05);
+        // И низ того, что лежит на полке или столе (в миллиметрах над ней лицом вниз): его заслоняет сама полка.
+        const resting = (f: { at: P3; n: P3 }): boolean => f.n[1] < -0.9 && tris.some((t) => t.n[1] > 0.99 && t.a[1] <= f.at[1] && t.a[1] > f.at[1] - 0.006 && inTri2(t, f.at[0], f.at[2]));
+        const found = stacked(tris).filter((f) => !(f.n[1] > 0.5 && f.at[1] > 1.7) && !(f.n[1] < -0.5 && f.at[1] < 0.9) && !intoWall(f) && !resting(f));
+        expect(found.map((f) => `(${fmt(f.at)}) ${(f.area * 1e4).toFixed(0)} см²`), `уровень ${detail}${open ? ', сундуки открыты' : ''}: грани друг на друге`).toEqual([]);
+      }
+  });
+
+  it('блеск выбирает материал однозначно (Г-12): шлем в сундуке не рябит между металлом и кожей', () => {
+    // Шейдер покоев делит материал по блеску вершины: до 0,6 — дерево, кожа, ткань; с 0,6 — металл; выше 0,965 — воск.
+    // Блеск едет байтом (`cfg.z`, 0..255), и металл 0,6 — ровно байт 153: порог на самом значении по шуму интерполяции
+    // отдавал соседние пиксели купола шлема то металлу (светлое отражение), то коже (тёмный рассеянный) — рябь.
+    const src = readFileSync(join(__dirname, 'material.ts'), 'utf8');
+    expect(src, 'блеск — округлённым байтом').toMatch(/float shineB = floor\(vShine \* 255\.0 \+ 0\.5\);/);
+    expect(src, 'металл — порогом в байтах').toMatch(/float metal = step\(\$\{METAL_BYTE\}, shineB\) \* \(1\.0 - step\(\$\{WAX_BYTE\}, shineB\)\);/);
+    expect(src, 'воск — порогом в байтах').toMatch(/float wax = step\(\$\{WAX_BYTE\}, shineB\);/);
+    expect(src, 'порога по сырому блеску нет').not.toMatch(/step\([0-9.]+, (v)?[Ss]hine\)/);
+    // Пороги — на полубайте, а байты блеска — целые: ни один не лежит на пороге, и шум в доли байта класс не меняет.
+    const metal = Number(METAL_BYTE);
+    const wax = Number(WAX_BYTE);
+    for (const t of [metal, wax]) expect(Math.abs(t - Math.round(t)), `порог ${t} — на полубайте`).toBeCloseTo(0.5, 9);
+    // Значения, что выбирают материал, — прежние: 0,6 — металл, 0,55 — нет; 0,95 — металл, 0,98 — воск.
+    const kind = (v: number): string => {
+      const b = Math.round(v * 255);
+      return b >= wax ? 'воск' : b >= metal ? 'металл' : 'прочее';
+    };
+    expect([0.55, 0.6, 0.95, 0.98].map(kind)).toEqual(['прочее', 'металл', 'металл', 'воск']);
+    // Все байты блеска покоев — с крышками и безделушками, на каждом уровне — целые и не на пороге.
     for (const detail of [0, 1, 2] as const) {
       const room = buildRoom(detail);
-      // С крышками сундуков, закрытыми (Г-9): в осях петли — сдвиг на петлю.
-      const tris = [...trisOf([room.stone, room.cloth]), ...Object.values(room.lids).flatMap((l) => trisOf([l.stone, l.cloth], l.hinge))];
-      // Граница области — вся комната с нишами окон и тамбуром; подоконник южного окна (там сидит кот) — внутри неё.
-      expect(tris.some((t) => t.n[1] > 0.99 && Math.abs(t.a[1] - 0.8) < 1e-6 && t.a[2] > 6.0), 'плита подоконника в модели').toBe(true);
-      // Видимое глазу: грань лицом вверх выше глаза (стоя — 1,62 м) и лицом вниз ниже глаза лёжа (1,0 м) не видна никогда.
-      // Видимое глазу: грань лицом вверх выше глаза (стоя — 1,62 м), лицом вниз ниже глаза лёжа (1,0 м) и лицом в стену у
-      // самой стены не видны никогда.
-      const intoWall = (f: { at: P3; n: P3 }): boolean => (Math.abs(f.at[0]) > HALF - 0.002 && f.n[0] * f.at[0] > 0.5) || (Math.abs(f.at[2]) > HALF - 0.002 && f.n[2] * f.at[2] > 0.5 && Math.abs(f.at[2]) < HALF + 0.05);
-      // И низ того, что лежит на полке или столе (в миллиметрах над ней лицом вниз): его заслоняет сама полка.
-      const resting = (f: { at: P3; n: P3 }): boolean => f.n[1] < -0.9 && tris.some((t) => t.n[1] > 0.99 && t.a[1] <= f.at[1] && t.a[1] > f.at[1] - 0.006 && inTri2(t, f.at[0], f.at[2]));
-      const found = stacked(tris).filter((f) => !(f.n[1] > 0.5 && f.at[1] > 1.7) && !(f.n[1] < -0.5 && f.at[1] < 0.9) && !intoWall(f) && !resting(f));
-      expect(found.map((f) => `(${fmt(f.at)}) ${(f.area * 1e4).toFixed(0)} см²`), `уровень ${detail}: грани друг на друге`).toEqual([]);
+      const ms = [room.stone, room.cloth, room.leaf, ...Object.values(room.lids).flatMap((l) => [l.stone, l.cloth]), ...Object.values(room.trinkets).map((t) => t.stone)];
+      const bytes = new Set<number>();
+      for (const m of ms) for (let i = 2; i < m.b.cfg.length; i += 4) bytes.add(m.b.cfg[i]);
+      expect(bytes.has(153), `уровень ${detail}: металл 0,6 в модели (купол шлема)`).toBe(true);
+      for (const b of bytes) {
+        expect(Number.isInteger(b), `байт блеска ${b}`).toBe(true);
+        expect(Math.min(Math.abs(b - metal), Math.abs(b - wax)), `байт блеска ${b} у порога`).toBeGreaterThanOrEqual(0.5);
+      }
     }
+  });
+
+  it('гладь вина не ложится на дно кубка (Г-12): почти пустой кубок — на 3 мм и выше над дном чаши', () => {
+    // Дно чаши — верхняя грань лицом вверх внутри чаши (серединой ближе 4 см к оси, выше ножки); гладь — живой диск комнаты.
+    for (const detail of [0, 1, 2] as const) {
+      const g = buildRoom(detail).trinkets.goblet;
+      const mid = (t: Tri): number => Math.hypot(t.a[0] + t.b[0] + t.c[0], t.a[2] + t.b[2] + t.c[2]) / 3;
+      const floor = Math.max(...trisOf([g.stone]).filter((t) => t.n[1] > 0.99 && mid(t) < 0.04 && t.a[1] > 0.15 && t.a[1] < 0.19).map((t) => t.a[1]));
+      expect(floor, `уровень ${detail}: дно чаши найдено`).toBeGreaterThan(0.15);
+      expect(WINE_LOW - floor, `уровень ${detail}: гладь над дном`).toBeGreaterThanOrEqual(GAP);
+      // Ни одной другой грани лицом вверх в глубине глади почти пустого кубка: неподвижного диска вина нет.
+      const near = trisOf([g.stone]).filter((t) => t.n[1] > 0.9 && Math.abs(t.a[1] - WINE_LOW) < GAP && mid(t) < 0.05);
+      expect(near.length, `уровень ${detail}: грани в глубине глади`).toBe(0);
+    }
+    const src = readFileSync(join(__dirname, 'room.ts'), 'utf8');
+    expect(src, 'гладь кубка — от WINE_LOW').toMatch(/this\.wineMesh\.position\.y = WINE_LOW \+ /);
   });
 
   it('тень города изнутри: коробка — от стены донжона вперёд, на сетке текселей; качание головы её не двигает', () => {

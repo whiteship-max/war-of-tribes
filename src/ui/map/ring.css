@@ -1,0 +1,66 @@
+/* Кольцо значков над целью (К-2, docs/AGENTS.md, раздел 18). Слой не ловит касаний сам — только значки: карта под ним
+   двигается пальцем, как всегда, а её касание закрывает кольцо (`WorldMap`). */
+.rg-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 13;
+  pointer-events: none;
+}
+.rg-btn {
+  position: absolute;
+  width: 52px;
+  height: 52px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  border: 2px solid var(--m-gold-rim);
+  background: var(--m-lit);
+  box-shadow: var(--m-lit-bevel), 0 2px 8px rgba(0, 0, 0, 0.55);
+  pointer-events: auto;
+  cursor: pointer;
+  animation: rg-in 0.14s ease-out both;
+}
+.rg-btn svg {
+  width: 28px;
+  height: 28px;
+}
+.rg-btn.info {
+  border-color: var(--m-leather-rim);
+  background: var(--m-leather);
+  box-shadow: var(--m-leather-bevel), 0 2px 8px rgba(0, 0, 0, 0.55);
+}
+/* Погашенный — серым и пунктиром, но касается: касание говорит, почему (подсказка словами мира). */
+.rg-btn.off {
+  border-style: dashed;
+  border-color: var(--m-leather-rim);
+  background: var(--m-leather);
+  box-shadow: var(--m-leather-bevel);
+  filter: grayscale(1);
+  opacity: 0.72;
+}
+.rg-name {
+  position: absolute;
+  transform: translateX(-50%);
+  max-width: 220px;
+  padding: 3px 10px;
+  border-radius: 10px;
+  background: rgba(25, 19, 14, 0.92);
+  border: 1px solid var(--line-2);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+}
+.rg-facts {
+  padding: 4px 0 8px;
+}
+@keyframes rg-in {
+  from {
+    transform: scale(0.6);
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rg-btn {
+    animation: none;
+  }
+}

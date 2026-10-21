@@ -39,6 +39,22 @@ function row(label: string, fs: Front[]): void {
   console.log(` ${label.padEnd(36)} ${pad(fs.length, 5)}  ${pad(cut(small), 38)}  ${pad(big.length ? median(big).toFixed(1) : '—', 15)}`);
 }
 
+/** Все прогоны «Найма», из которых выводится W: лестница, партия с первой секунды, уведённые люди. */
+const hiredOuts = (hired: Hired): Out[] => [...Object.values(hired.ladder).flat(), ...Object.values(hired.fresh).flat(), ...hired.captives];
+
+/**
+ * W и шаг кости из прогонов «Найма» — одна функция на раздел и на вывод (`npm run derive -- w`): W — медиана фронта меньшей
+ * стороны по боям выборки, шаг — наименьший, до четырёх знаков вверх, при котором большая на 10 % держит поле не чаще
+ * доли владельца (`DICE.hold`) на решётке «Лезвия» размера W. Боёв нет — `null`.
+ */
+export function widthOfHired(hired: Hired): { fights: number; w: number; size: number; step: number } | null {
+  const all = fronts(hiredOuts(hired));
+  if (all.length === 0) return null;
+  const w = widthOf(all);
+  const size = armyAt(w);
+  return { fights: all.length, w, size, step: Math.ceil(diceStepFor(DICE.hold, 0.1, 12, size, w) * 1e4) / 1e4 };
+}
+
 export function widthSection(hired: Hired): void {
   console.log('');
   console.log('=== Ширина поля: фронт меньшей стороны в боях отчёта (docs/battle_eu4.md, раздел 8) ===');
@@ -53,7 +69,7 @@ export function widthSection(hired: Hired): void {
   for (const level of levels) row(`А. лестница мерки, ур. ${level}`, fronts(ladder.filter(([k]) => Number(k.split(':')[1]) === level).flatMap(([, outs]) => outs)));
   row('Б. партия с первой секунды', fronts(Object.values(hired.fresh).flat()));
   row('В. уведённые люди', fronts(hired.captives));
-  const outs = [...ladder.flatMap(([, o]) => o), ...Object.values(hired.fresh).flat(), ...hired.captives];
+  const outs = hiredOuts(hired);
   const all = fronts(outs);
   for (const kind of [...new Set(all.map((f) => f.kind))].sort()) row(`вид отчёта: ${KIND[kind] ?? kind}`, all.filter((f) => f.kind === kind));
   row('все бои выборки', all);
@@ -62,7 +78,7 @@ export function widthSection(hired: Hired): void {
     console.log('Боёв нет — W не из чего выводить.');
     return;
   }
-  const w = widthOf(all);
+  const { w, size, step } = widthOfHired(hired) as NonNullable<ReturnType<typeof widthOfHired>>;
   const share = (f: (x: Front) => boolean): string => pct(all.filter(f).length / all.length);
   console.log(`W = ${w} бойцов строя на полосу — медиана фронта меньшей стороны по всем ${all.length} боям выборки.`);
   console.log(
@@ -72,8 +88,6 @@ export function widthSection(hired: Hired): void {
   // сторона на 10 % больше держит поле не чаще доли владельца (`DICE.hold`) в боях решётки «Лезвия» (`bench.latticeHold`) на
   // размере W (`bench.armyAt`: сбалансированный состав ставит в полосу ровно W) и при ширине W — та же функция, что печатает
   // `battle:report`, «Кость фазы», на ширине конфига. Конфиг правится по этой строке один раз.
-  const size = armyAt(w);
-  const step = Math.ceil(diceStepFor(DICE.hold, 0.1, 12, size, w) * 1e4) / 1e4;
   console.log(
     `Вывод W и шага кости: W = ${w}, размер решётки «Лезвия» ${size}, шаг кости ${step} — большая на 10 % держит поле не чаще ${Math.round(DICE.hold * 100)} % её боёв; в конфиге W ${FRONT_WIDTH}, шаг ${DICE.step}.`,
   );

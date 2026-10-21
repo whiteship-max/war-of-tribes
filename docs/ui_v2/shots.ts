@@ -21,6 +21,10 @@
 //   DIR=icons GROUP=zn4 WEATHER=clear TAG=after …  — ЗН-4: подписи у середины приближения, рычаг, окно «Профиль», держава
 //   GROUP=dp1 …                                    — ДП-1 (docs/AGENTS.md, 17): «Соседи» — поход на нас, предложение
 //                                                   с «Принять/Отклонить», наше ждущее, итог; карточка; летопись.
+//   GROUP=st1 TAG=after …                          — СТ-1 (docs/ui_v2.md, 5.13): очередь стройки — сетка с номерами, полоса,
+//                                                    дела места, отмена ждущего и строящегося с возвратом, сдвиг
+//   GROUP=k2 …                                     — К-2 (docs/AGENTS.md, 18): кольцо над логовом, дела, окно войска,
+//                                                    подтверждение, погашенный с причиной
 //   GROUP=r4 …                                     — Р-4 (docs/AGENTS.md, 16): «Походы», цель, дела, подтверждение,
 //                                                    донесение, знак павшего города словами
 //   DIR=polish GROUP=p7 TAG=before|after …          — П-7 (docs/polish.md): тревоги войны значками справа снизу — осада
@@ -186,6 +190,39 @@ function P7_BODY(kind: 'calm' | 'urgent', camp = true): string {
 }
 const P7 = (kind: 'calm' | 'urgent'): string => `(async () => { ${P7_BODY(kind)} return JSON.stringify('ok'); })()`;
 
+/**
+ * К-2: ближайшее живое логово у дома — к середине экрана (`__mapCam`), дружине — бойцы в гарнизоне, и касание клетки
+ * тем же путём, что у пальца (`__mapTap` → `WorldMap.openAt`).
+ */
+const K2_TAP_BODY = `
+  const S = await import('/src/world/store.ts');
+  const st = window.__game.getState();
+  if (!st.s.army || !Object.values(st.s.army).some((n) => n > 0)) {
+    st.s.army = { spearman: 60, archer: 30, legionary: 20 };
+    window.__game.setState({ s: { ...st.s } });
+  }
+  if (!document.querySelector('.worldmap')) {
+    st.openMap();
+    await new Promise((r) => setTimeout(r, 3000));
+  }
+  await S.useWorld.getState().pulse();
+  const C = await import('/src/world/cache.ts');
+  const home = S.useWorld.getState().info.home;
+  const d = (a) => Math.hypot(a.x - home.x, a.y - home.y);
+  const lair = C.loadedIn({ x: home.x - 30, y: home.y - 30, w: 60, h: 60 }).flatMap((c) => c.settlements)
+    .filter((x) => !x.mine && !x.castle && !x.ruin && x.id !== S.useWorld.getState().info.homeId).sort((a, b) => d(a) - d(b))[0];
+  window.__mapCam(lair.x, lair.y, 56);
+  await new Promise((r) => setTimeout(r, 900));
+  window.__mapTap(lair.x, lair.y);
+  await new Promise((r) => setTimeout(r, 1200));
+`;
+const K2_TAP = `(async () => {
+  window.__ui.reset();
+  ${K2_TAP_BODY}
+  const ring = (await import('/src/world/store.ts')).useWorld.getState().ring;
+  return JSON.stringify(ring ? 'кольцо: ' + ring.name : 'кольца нет');
+})()`;
+
 const GROUPS: Record<string, Step[]> = {
   city: [
     { name: '01-city', run: ui('reset()'), wait: 1500 },
@@ -272,6 +309,39 @@ const GROUPS: Record<string, Step[]> = {
     // Касание плитки — после того, как вкладка «Все» перерисовала сетку: React кладёт её не в тот же миг.
     { name: '83-hall-card', run: then(`window.__ui.click('Все', '.sheet.open .kit-tabs')`, `window.__ui.clickSel('.sheet.open [data-tut="list-farm"]')`), wait: 900 },
     { name: '84-hall-site', run: then(`window.__ui.clickSel('.hall-veil')`, `window.__ui.clickSel('.sheet.open [data-tut="list-houses"]')`), wait: 900 },
+  ],
+  // СТ-1 (docs/ui_v2.md, 5.13): очередь стройки. Склад наполняется, в очередь встают четыре улучшения; первое начинается
+  // само с ходом партии. Снимки: сетка с номерами и полосой, выбранное ждущее с делами (отмена — вся цена), строящееся
+  // (отмена — половина), сдвиг.
+  st1: [
+    {
+      name: 'st1-01-grid',
+      run: `(async () => {
+        window.__ui.reset();
+        const A = await import('/src/game/sim/actions.ts');
+        const D = await import('/src/game/derived.ts');
+        const g = window.__game.getState();
+        g.act((st) => {
+          const cap = D.storageCap(st);
+          for (const r of Object.keys(st.resources)) st.resources[r] = cap;
+          for (const t of ['houses', 'farm', 'barracks', 'sawmill']) A.startUpgrade(st, st.buildings.find((x) => x.type === t).id);
+          return null;
+        });
+        await new Promise((r) => setTimeout(r, 1500));
+        return JSON.stringify(window.__ui.click('Ратуша', '.nx-nav'));
+      })()`,
+      wait: 1200,
+      full: true,
+    },
+    { name: 'st1-02-pick', run: ui(`clickSel('.sheet.open .hall-qcell:nth-child(2)')`), wait: 700, full: true },
+    // Отмена строящегося — половина цены; у ждущего (снимок выше) — вся.
+    { name: 'st1-03-cancel', run: ui(`clickSel('.sheet.open .hall-qcell:nth-child(1)')`), wait: 700 },
+    {
+      name: 'st1-04-moved',
+      run: then(`window.__ui.clickSel('.sheet.open .hall-qcell:nth-child(4)')`, `window.__ui.click('Выше', '.sheet.open .hall-qacts')`),
+      wait: 700,
+      full: true,
+    },
   ],
   // UI-3 (docs/ui_v2.md, 5.2): подсказки верха и запасов — разбор «в день» и двери к постройкам, «Склад» и окна.
   top: [
@@ -786,6 +856,77 @@ const GROUPS: Record<string, Step[]> = {
         return JSON.stringify('шаг сразу');
       })()`,
       wait: 2000,
+    },
+  ],
+  // К-2 (docs/AGENTS.md, раздел 18): касание логова на карте — кольцо значков; меч — дела полководца; дело — окно войска;
+  // глаз — дела разведчика и подтверждение; погашенный дипломат — причина касанием. Касание клетки — `openAt` пальца
+  // (`__mapTap`, только под `?probe=1`).
+  k2: [
+    { name: 'k2-01-ring', run: K2_TAP, wait: 900 },
+    {
+      name: 'k2-02-deeds',
+      run: `(async () => {
+        const b = document.querySelector('.rg-btn[data-slot="general"]');
+        if (!b) return JSON.stringify('нет меча');
+        b.click();
+        await new Promise((r) => setTimeout(r, 900));
+        return JSON.stringify('дел ' + (((await import('/src/world/store.ts')).useWorld.getState().menu || {}).errands || []).length);
+      })()`,
+      wait: 700,
+    },
+    {
+      name: 'k2-03-army',
+      run: `(async () => {
+        const b = [...document.querySelectorAll('.nx-am .nx-obtn')].find((x) => x.textContent.includes('Ударить'));
+        if (!b) return JSON.stringify('нет дела «Ударить»');
+        b.click();
+        await new Promise((r) => setTimeout(r, 1500));
+        if (!document.querySelector('.nx-am .ms')) return JSON.stringify('окна войска нет');
+        // По десятку первых двух видов — к полководцу: итог «уходит» и оборона остающихся не пустые.
+        [...document.querySelectorAll('.nx-am button[aria-label="К полководцу 10"]')].slice(0, 2).forEach((x) => x.click());
+        return JSON.stringify('окно войска');
+      })()`,
+      wait: 900,
+    },
+    {
+      name: 'k2-03b-army-troops',
+      run: `(() => {
+        const t = document.querySelector('.nx-am .ms');
+        if (!t) return JSON.stringify('окна войска нет');
+        t.scrollIntoView({ block: 'start' });
+        return JSON.stringify('ok');
+      })()`,
+      wait: 600,
+    },
+    {
+      name: 'k2-04-confirm',
+      run: `(async () => {
+        (await import('/src/world/store.ts')).useWorld.getState().closeMenu();
+        await new Promise((r) => setTimeout(r, 300));
+        ${K2_TAP_BODY}
+        const eye = document.querySelector('.rg-btn[data-slot="eye"]');
+        if (!eye) return JSON.stringify('нет глаза');
+        eye.click();
+        await new Promise((r) => setTimeout(r, 900));
+        const b = [...document.querySelectorAll('.nx-am .nx-obtn')].find((x) => x.textContent.includes('Разведать'));
+        if (!b) return JSON.stringify('нет дела «Разведать»');
+        b.click();
+        return JSON.stringify('ok');
+      })()`,
+      wait: 700,
+    },
+    {
+      name: 'k2-05-off',
+      run: `(async () => {
+        (await import('/src/world/store.ts')).useWorld.getState().closeMenu();
+        await new Promise((r) => setTimeout(r, 300));
+        ${K2_TAP_BODY}
+        const b = document.querySelector('.rg-btn[data-slot="diplomat"]');
+        if (!b) return JSON.stringify('нет письма');
+        b.click();
+        return JSON.stringify(b.getAttribute('aria-label'));
+      })()`,
+      wait: 700,
     },
   ],
   // Р-4 (docs/AGENTS.md, раздел 16): походы агентов — «Походы», цель на карте, дела, подтверждение, донесение; пометка

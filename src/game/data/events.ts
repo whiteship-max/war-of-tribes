@@ -381,7 +381,7 @@ export const EVENTS: EventDef[] = [
         label: 'Оставить как есть',
         hint: `Стройка −${Math.round(EVENT_WORK.storm * 100)}% сделанного`,
         apply: (s) => {
-          const b = s.buildings.find(isSite);
+          const b = currentSite(s);
           if (b) b.work *= 1 - EVENT_WORK.storm;
           return 'Что повалило, то пропало. Часть работы начнут сызнова.';
         },

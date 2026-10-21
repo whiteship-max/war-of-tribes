@@ -37,7 +37,7 @@ import { serverNow } from '@/net/clock';
 import { haptic } from '@/telegram/webapp';
 import type { Season } from '@/game/types';
 import type { MinigameId } from '@/game/data/minigames';
-import { Keys, PITCH_LIMIT, STICK_FULL, Sticks, mergeWalk, typing, type Walk } from '@/prologue/controls';
+import { Keys, PITCH_LIMIT, Sticks, mergeWalk, padKnob, typing, type Walk } from '@/prologue/controls';
 import { EYE, WALK_SPEED, slide, viewFov, type Blocker } from '@/prologue/glade';
 import {
   EXPOSE_BASE,
@@ -382,8 +382,10 @@ export class Stage {
   onView: ((v: StageView) => void) | null = null;
   /** Время вышло: игра кончилась. */
   onEnd: ((tally: Tally) => void) | null = null;
-  /** Кружок стика: двигает его сцена, минуя React, — как у поляны. */
-  stickEl: HTMLElement | null = null;
+  /** Кружок пальца движения в своём углу (`.mg-pad`): палец ведёт его ручку, сцена — минуя React; второго кружка нет (Г-12). */
+  private padEl: HTMLElement | null = null;
+  /** Что уже записано в кружок: включён ли и где ручка. */
+  private padAt = '';
   /** Замерник кадров (`?fps=1`): ступень, кадры в секунду, худший кадр. */
   meterEl: HTMLElement | null = null;
   /** Прицел лука: натяжка и метки дальности — двигает сцена, минуя React. */
@@ -945,29 +947,24 @@ export class Stage {
     });
   }
 
+  /** Кружок пальца движения окна промысла (`.mg-pad`, его ручка — первый потомок); `null` — кружка на экране нет. */
+  attachPad(el: HTMLElement | null): void {
+    this.padEl = el;
+    this.padAt = '';
+  }
+
+  /** Ручка кружка пальца движения — куда увели палец (`controls.padKnob`); кружок стоит в своём углу. */
   private stick(): void {
-    const el = this.stickEl;
+    const el = this.padEl;
     if (!el) return;
     const s = this.sticks.stick;
-    if (!s) {
-      if (el.dataset.on === '1') {
-        el.dataset.on = '0';
-        el.style.opacity = '0';
-      }
-      return;
-    }
-    if (el.dataset.on !== '1') {
-      el.dataset.on = '1';
-      el.style.opacity = '1';
-    }
-    el.style.transform = `translate(${s.ox}px, ${s.oy}px)`;
+    const [dx, dy] = s ? padKnob(s) : [0, 0];
+    const at = `${s ? 1 : 0} ${Math.round(dx)} ${Math.round(dy)}`;
+    if (at === this.padAt) return;
+    this.padAt = at;
+    el.dataset.on = s ? '1' : '0';
     const knob = el.firstElementChild as HTMLElement | null;
-    if (!knob) return;
-    const dx = s.x - s.ox;
-    const dy = s.y - s.oy;
-    const len = Math.hypot(dx, dy);
-    const k = len > STICK_FULL ? STICK_FULL / len : 1;
-    knob.style.transform = `translate(${dx * k}px, ${dy * k}px)`;
+    if (knob) knob.style.transform = `translate(${Math.round(dx)}px, ${Math.round(dy)}px)`;
   }
 
   private meter(ms: number): void {

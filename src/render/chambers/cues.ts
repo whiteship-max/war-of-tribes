@@ -5,13 +5,31 @@
 // выставлены уровни (`CUE_MIX`). Атака каждого звука — не короче 3 мс (П-3: без щелчков).
 
 /** Звук дела. */
-export type ChamberCue = 'step' | 'stepSoft' | 'creak' | 'rustle' | 'ring' | 'take' | 'put' | 'hinge' | 'lidShut';
+export type ChamberCue =
+  | 'step'
+  | 'stepSoft'
+  | 'creak'
+  | 'rustle'
+  | 'ring'
+  | 'take'
+  | 'put'
+  | 'hinge'
+  | 'lidShut'
+  // Бой мечом (Г-11): свист клинка (сильный — ниже и дольше), камень и железо, дерево, ткань, солома чучела, блок, одышка.
+  | 'swish'
+  | 'swishHeavy'
+  | 'clang'
+  | 'thud'
+  | 'soft'
+  | 'straw'
+  | 'parry'
+  | 'pant';
 
 /**
  * Уровни звуков дел на полосе «Эффекты» — офлайн-отрисовкой (образец `chambers`, docs/city_v3.md, Г-6, «Звук»): шаг по
  * доскам заметно тише касания кнопки, по ковру — ещё тише; звон меча — громче всего, но ниже рога тревоги.
  */
-export const CUE_MIX: Record<ChamberCue, number> = { step: 0.27, stepSoft: 0.1, creak: 0.14, rustle: 0.088, ring: 0.11, take: 0.11, put: 0.16, hinge: 0.12, lidShut: 0.2 };
+export const CUE_MIX: Record<ChamberCue, number> = { step: 0.27, stepSoft: 0.1, creak: 0.14, rustle: 0.088, ring: 0.11, take: 0.11, put: 0.16, hinge: 0.12, lidShut: 0.2, swish: 0.16, swishHeavy: 0.2, clang: 0.12, thud: 0.24, soft: 0.16, straw: 0.22, parry: 0.12, pant: 0.07 };
 
 function bone(seed: number): () => number {
   let x = seed >>> 0 || 3;
@@ -215,6 +233,75 @@ export function playChamberCue(ctx: BaseAudioContext, out: AudioNode, cue: Chamb
       burst(ctx, g, at, 'lowpass', 260, 0.9, 1.0 * k, 0.004, 0.16, r());
       tone(ctx, g, at, 'sine', 92, 64, 0.5, 0.004, 0.18);
       burst(ctx, g, at + 0.006, 'bandpass', 3100, 3, 0.22 * k, 0.003, 0.06, r());
+      break;
+    case 'swish':
+    case 'swishHeavy': {
+      // Клинок режет воздух: полосовой шум, полоса скользит вверх и обратно (подлёт — отлёт), атака мягкая.
+      const heavy = cue === 'swishHeavy';
+      const len = heavy ? 0.34 : 0.24;
+      const s = ctx.createBufferSource();
+      s.buffer = noiseOf(ctx);
+      const flt = ctx.createBiquadFilter();
+      flt.type = 'bandpass';
+      const f0 = (heavy ? 420 : 700) * k;
+      flt.frequency.setValueAtTime(f0, at);
+      flt.frequency.exponentialRampToValueAtTime(f0 * (heavy ? 3.2 : 3.8), at + len * 0.45);
+      flt.frequency.exponentialRampToValueAtTime(f0 * 1.2, at + len);
+      flt.Q.value = heavy ? 2.2 : 3;
+      const e = ctx.createGain();
+      e.gain.setValueAtTime(0, at);
+      e.gain.linearRampToValueAtTime(1, at + len * 0.42);
+      e.gain.exponentialRampToValueAtTime(0.0005, at + len);
+      e.gain.linearRampToValueAtTime(0, at + len + 0.01);
+      s.connect(flt).connect(e).connect(g);
+      s.start(at, r() * 0.3, len + 0.05);
+      s.onended = () => {
+        s.disconnect();
+        flt.disconnect();
+        e.disconnect();
+      };
+      if (heavy) burst(ctx, g, at + 0.04, 'lowpass', 220, 0.8, 0.5, 0.06, 0.26, r());
+      break;
+    }
+    case 'clang': {
+      // Сталь о камень и железо: щелчок удара, короткий звон с неровными призвуками, скрежет.
+      burst(ctx, g, at, 'highpass', 2600, 0.8, 1.0 * k, 0.003, 0.05, r());
+      const base = 820 + r() * 160;
+      for (const [m, p, len] of [
+        [1, 0.34, 0.5],
+        [1.47, 0.26, 0.4],
+        [2.31, 0.18, 0.3],
+        [3.4, 0.1, 0.18],
+      ] as const)
+        tone(ctx, g, at + 0.003, 'sine', base * m, base * m * 0.985, p, 0.003, len);
+      burst(ctx, g, at + 0.02, 'bandpass', 5200, 2.5, 0.3 * k, 0.005, 0.12, r());
+      break;
+    }
+    case 'thud':
+      // Клинок в дерево: глухой удар, призвук доски, сухой треск волокон.
+      burst(ctx, g, at, 'lowpass', 300, 1, 1.0 * k, 0.003, 0.14, r());
+      tone(ctx, g, at, 'sine', 150 + r() * 30, 95, 0.42, 0.003, 0.12);
+      burst(ctx, g, at + 0.005, 'bandpass', 1700, 2.5, 0.3 * k, 0.003, 0.05, r());
+      break;
+    case 'soft':
+      // В ткань и постель: мягкий глухой удар без звона.
+      burst(ctx, g, at, 'lowpass', 220, 0.7, 1.0 * k, 0.008, 0.16, r());
+      burst(ctx, g, at + 0.01, 'bandpass', 2200, 0.8, 0.18 * k, 0.01, 0.1, r());
+      break;
+    case 'straw':
+      // В соломенное чучело: тупой шлепок и шорох соломы, рассыпающийся следом.
+      burst(ctx, g, at, 'lowpass', 260, 0.9, 0.9 * k, 0.004, 0.12, r());
+      for (let i = 0; i < 4; i++) burst(ctx, g, at + 0.015 + i * 0.05 + r() * 0.03, 'bandpass', 3000 + r() * 2200, 0.9, (0.55 - i * 0.1) * k, 0.008, 0.16, r());
+      break;
+    case 'parry':
+      // Блок: сталь скользит в руке, кожа рукояти скрипнула, плащ шуршит.
+      burst(ctx, g, at, 'bandpass', 3800, 3, 0.6 * k, 0.012, 0.18, r());
+      tone(ctx, g, at + 0.02, 'sine', 2200 + r() * 200, 2150, 0.12, 0.004, 0.3);
+      burst(ctx, g, at, 'bandpass', 900, 0.7, 0.35, 0.02, 0.2, r());
+      break;
+    case 'pant':
+      // Одышка: два выдоха — шум сквозь полосу голоса, мягкая атака.
+      for (let i = 0; i < 2; i++) burst(ctx, g, at + i * 0.46, 'bandpass', 900 + r() * 200, 0.9, 0.9 * k, 0.07, 0.34, r());
       break;
   }
   // Узел силы отпускается после самого долгого звука.

@@ -428,22 +428,44 @@ const TYPICAL_DAYS = 720;
 interface Even {
   /** Мощь пришедших в ровном бою; `NaN` — до конца кривой ровного боя нет. */
   power: number;
-  /** Кривая: доля боёв, где пришедшие взяли верх, при силе `CURVE` долей обороны. */
-  curve: number[];
 }
 
+/**
+ * Взяли ли пришедшие верх хотя бы в половине боёв `foeShare` — ровно `foeShare(…) >= 0.5`, теми же боями в том же порядке, но
+ * только до тех пор, пока ответ не решён: половина побед набрана — да; оставшимися боями её уже не набрать — нет. Ровный бой
+ * спрашивает у кривой только это, а бои после решённого ответа были большей частью раздела (docs/handbook/console.md,
+ * «Где было время»). Доли кривой — `foeShare`, целиком.
+ */
+function foeHalf(w: Inside, at: number, foe: GateFoe, power: number): boolean {
+  const need = GATE_SEEDS / 2;
+  let broke = 0;
+  for (let i = 1; i <= GATE_SEEDS; i++) {
+    if (broke >= need) return true;
+    if (broke + (GATE_SEEDS - i + 1) < need) return false;
+    const call: GateCall = { id: `gate-bench${i}`, foe, power, seed: i * 7919 };
+    if (w.gateField(w.gateParty(call), call.seed, w.save.home, at).field.won) broke++;
+  }
+  return broke >= need;
+}
+
+/** Кривая: доля боёв, где пришедшие взяли верх, при силе `CURVE` долей обороны. */
+const curveOf = (w: Inside, at: number, who: GateFoe, d: number): number[] => CURVE.map((k) => foeShare(w, at, who, k * d));
+
+/**
+ * Ровный бой: первая точка кривой, где доля доходит до половины, и деление отрезка до неё — теми же решениями, что по
+ * кривой целиком (`curveOf(…)[i] >= 0.5`), но без долей: кривая нужна только медианной партии, и её строит `gateFoeRow`.
+ */
 function evenOf(w: Inside, at: number, who: GateFoe, d: number): Even {
-  const curve = CURVE.map((k) => foeShare(w, at, who, k * d));
-  const cross = curve.findIndex((x) => x >= 0.5);
-  if (cross < 0) return { power: NaN, curve };
+  const cross = CURVE.findIndex((k) => foeHalf(w, at, who, k * d));
+  if (cross < 0) return { power: NaN };
   let lo = cross === 0 ? 0 : CURVE[cross - 1] * d;
   let hi = CURVE[cross] * d;
   for (let k = 0; k < EVEN_STEPS; k++) {
     const mid = (lo + hi) / 2;
-    if (foeShare(w, at, who, mid) < 0.5) lo = mid;
+    if (!foeHalf(w, at, who, mid)) lo = mid;
     else hi = mid;
   }
-  return { power: hi, curve };
+  return { power: hi };
 }
 
 /** Посёлок мерки силы у ворот — снимок партии: вызовы к воротам, ждавшие боя в минуту снимка, в бой мерки не идут. */
@@ -508,7 +530,7 @@ export async function gateFoeRow({ level, who, g: town, flight, even, table, spr
   const w: Inside = world;
   const d = defense(g);
   const name = who === 'wolves' ? 'волки' : 'разбойники';
-  const { curve } = even;
+  const curve = curveOf(w, at, who, d);
   // Немонотонна — где-то доля упала больше чем на бой из `GATE_SEEDS`: не шум счёта, а бой другого вида.
   const bumpy = curve.some((x, i) => i > 0 && x < curve[i - 1] - 1.5 / GATE_SEEDS);
   let near = '';
@@ -566,6 +588,27 @@ const medianOf = (xs: readonly number[]): number => {
   return s.length === 0 ? NaN : s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
 };
 
+/** Партии мерки силы у ворот: оба игрока спора, `GATE_STREAMS` потоков у каждого. */
+const gateFlights = (): { masters: boolean; stream: number }[] =>
+  GATE_PLAYERS.flatMap((masters) => Array.from({ length: GATE_STREAMS }, (_, i) => ({ masters, stream: i + 1 })));
+
+/**
+ * Ровный бой у ворот по партиям мерки — одна дверь на раздел 4б и на вывод таблицы (`npm run derive -- gate`): партии
+ * спора до жителей мерки каждого уровня (`pop-gold.typicalTowns`) и ровный бой волков и разбойников на каждом снимке.
+ */
+export async function gateEvens(): Promise<{ flights: { masters: boolean; stream: number }[]; towns: Array<Array<GameState | null>>; evens: StreamEven[] }> {
+  const flights = gateFlights();
+  const towns = await fan(typicalTowns, GOLD_MODULE, flights.map(({ masters, stream }) => ({ masters, stream, seconds: TYPICAL_DAYS * DAY_LENGTH })));
+  const jobs = flights.flatMap((_, i) => towns[i].flatMap((g, l) => (g ? [{ level: l + 1, flight: i, g }] : [])));
+  return { flights, towns, evens: await fan(gateEven, import.meta.url, jobs) };
+}
+
+/** Строка таблицы: партии уровня с ровным боем, по возрастанию, и медиана ровного, делённая на перевес «Ограничителя». */
+export function gateValue(evens: readonly StreamEven[], level: number, who: GateFoe): { got: StreamEven[]; value: number } {
+  const got = evens.filter((e) => e.level === level && Number.isFinite(e[who].power)).sort((a, b) => a[who].power - b[who].power);
+  return { got, value: got.length > 0 ? medianOf(got.map((e) => e[who].power)) / TABLE_EDGE : NaN };
+}
+
 export async function gateLevelPart(): Promise<void> {
   console.log('');
   console.log(`--- 4б. Сила у ворот по уровню посёлка: ровный бой для типичного гарнизона уровня, делённый на ${TABLE_EDGE} (слово владельца по 14.35, п. 4) ---`);
@@ -578,11 +621,8 @@ export async function gateLevelPart(): Promise<void> {
   console.log('пришедшие выходят к этому посёлку (data/events.gatePower по жителям), и строка таблицы игры его уровня (data/events.GATE_POWER).');
   console.log('Партии мерки идут с таблицей игры, и бои у ворот в них настоящие: мерка зависит от самой таблицы — сошлась ли она, печатают последние строки.');
   console.log(`На ${BARE_LEVELS} первых уровнях кривая медианного ещё и без кости: бой на каждую голову пришедших, от одного до ${CURVE[CURVE.length - 1]} обороны (разбор — 14.35).`);
-  const flights = GATE_PLAYERS.flatMap((masters) => Array.from({ length: GATE_STREAMS }, (_, i) => ({ masters, stream: i + 1 })));
-  const towns = await fan(typicalTowns, GOLD_MODULE, flights.map(({ masters, stream }) => ({ masters, stream, seconds: TYPICAL_DAYS * DAY_LENGTH })));
-  const jobs = flights.flatMap((_, i) => towns[i].flatMap((g, l) => (g ? [{ level: l + 1, flight: i, g }] : [])));
+  const { flights, towns, evens } = await gateEvens();
   const flightName = (i: number): string => `поток ${flights[i].stream}, ${playerName(flights[i].masters)}`;
-  const evens = await fan(gateEven, import.meta.url, jobs);
   const table: Record<GateFoe, number[]> = { wolves: [], raiders: [] };
   const foeJobs: FoeJob[] = [];
   const heads: string[] = [];
@@ -594,8 +634,7 @@ export async function gateLevelPart(): Promise<void> {
       ` ${pad(level, 2)}-й уровень: жителей ${GATE_POP[level - 1]} (по прямой лестницы логов — ${lairLevel(GATE_POP[level - 1]).toFixed(2)}-й); дошли ${at.length} партий из ${flights.length}; войско ${span(at.map((e) => e.army))}, оборона ${span(at.map((e) => e.defense))}, ополчение ${span(at.map((e) => e.militia))}; у посёлка мерки (townAt) — войско ${troopTotal(m.army)}, оборона ${Math.round(defense(m))}`,
     );
     for (const who of ['wolves', 'raiders'] as const) {
-      const got = at.filter((e) => Number.isFinite(e[who].power)).sort((a, b) => a[who].power - b[who].power);
-      const value = got.length > 0 ? medianOf(got.map((e) => e[who].power)) / TABLE_EDGE : NaN;
+      const { got, value } = gateValue(evens, level, who);
       table[who].push(Math.round(value));
       const mid = got[(got.length - 1) >> 1] ?? at[0];
       if (!mid) continue;

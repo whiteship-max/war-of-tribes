@@ -1775,6 +1775,12 @@ export interface WatchCard {
    * стройки подтверждает работу, а сервер считает остаток для цены ускорения. Нет поля — стройки нет.
    */
   site?: { type: string; level: number; done: number };
+  /**
+   * Очередь стройки по порядку (СТ-1, docs/ui_v2.md): тип и до какого уровня; первая — идущая стройка (`site`). По ней книга
+   * стройки сервера держит порядок, оплату заложенного и возврат отменённого (`town.queueStep`, `watch.flagsBetween`), а
+   * ускорение за алмазы отказывает ждущему. Нет поля — опись до очереди: книга видит одну первую стройку.
+   */
+  queue?: { type: string; level: number }[];
   /** Сколько бойцов казармы и конюшня выучат за игровой день — не больше. */
   train: number;
   /**
@@ -1826,6 +1832,23 @@ function readSite(v: unknown): Pick<WatchCard, 'site'> {
   return { site: { type, level, done: Math.min(done, 1e12) } };
 }
 
+/** Сколько мест очереди стройки читает сервер: больше — подделка, и лишнее ему не нужно, чтобы сказать флаг. */
+export const QUEUE_READ_MAX = 32;
+
+/** Очередь стройки описи: места с типом до 32 знаков и целым уровнем 2..100, порядок как есть; нет поля — нет очереди. */
+function readQueue(v: unknown): Pick<WatchCard, 'queue'> {
+  if (!Array.isArray(v)) return {};
+  const queue: { type: string; level: number }[] = [];
+  for (const x of v.slice(0, QUEUE_READ_MAX)) {
+    if (!x || typeof x !== 'object') continue;
+    const r = x as Record<string, unknown>;
+    const type = str(r.type, 32);
+    const level = num(r.level);
+    if (type && level !== null && Number.isInteger(level) && level >= 2 && level <= 100) queue.push({ type, level });
+  }
+  return { queue };
+}
+
 /** Опись наблюдения из того, что прислали: новый объект; нет её — `undefined`. */
 export function readWatch(v: unknown): WatchCard | undefined {
   if (!v || typeof v !== 'object') return undefined;
@@ -1850,6 +1873,7 @@ export function readWatch(v: unknown): WatchCard | undefined {
     ...(r.hurt && typeof r.hurt === 'object' ? { hurt: readCounts(r.hurt) } : {}),
     ...(r.bonded !== undefined ? { bonded: whole(r.bonded, 1e9) } : {}),
     ...readSite(r.site),
+    ...readQueue(r.queue),
     train: whole(r.train, 1e9),
     deeds: whole(r.deeds, 1e12),
     ...(r.outlays !== undefined ? { outlays: whole(r.outlays, 1e12) } : {}),

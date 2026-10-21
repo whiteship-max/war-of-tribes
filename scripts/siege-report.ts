@@ -1378,16 +1378,29 @@ for (const id of MACHINE_IDS) {
   console.log(`${MACHINE_NAME[id].padEnd(17)} ${MACHINE_WOOD[id].toFixed(3).padStart(19)}   ${span(1).padStart(16)}   ${span(0.5).padStart(8)}   ${span(0.25).padStart(8)}`);
 }
 
-/** Доля побед штурма войском в `k` раз сильнее лагеря к середине осады; `front` — стена (нет — поле без стены). */
-function winShare(fz: Frozen, front: WallFront | undefined, k: number): number {
-  const { camp, worldSeed } = frozenWindow(fz);
+/** Лагерь и сид мира у штурма в середине осады — из сохранения, раз на осаду: штурм читает из них только числа. */
+const stormCamps = new WeakMap<Frozen, ReturnType<typeof frozenWindow>>();
+
+/**
+ * Взял ли штурм войском в `k` раз сильнее лагеря к середине осады хотя бы половину боёв; `front` — стена (нет — поле без
+ * стены). Ровно «доля побед из `STORM_VARIANTS` вариантов ≥ 0.5» — теми же боями в том же порядке, но до решённого ответа:
+ * половина побед набрана — да; оставшимися её уже не набрать — нет. Ровный штурм спрашивает у доли только это
+ * (docs/handbook/console.md, «Где было время»).
+ */
+function winHalf(fz: Frozen, front: WallFront | undefined, k: number): boolean {
+  let held = stormCamps.get(fz);
+  if (!held) stormCamps.set(fz, (held = frozenWindow(fz)));
+  const { camp, worldSeed } = held;
   const span = fz.starvesAt - fz.since;
   const mid = fz.since + span / 2;
   const before = Math.floor((mid - fz.since) / SIEGE_PHASE);
   const rate = CAMP_WASTE * (1 + camp.homeDays / CAMP_WASTE_DAYS);
   const party = raidingParty(worldSeed, camp.id, camp.power * Math.pow(1 - rate, before) * k);
+  const need = STORM_VARIANTS / 2;
   let won = 0;
   for (let v = 0; v < STORM_VARIANTS; v++) {
+    if (won >= need) return true;
+    if (won + (STORM_VARIANTS - v) < need) return false;
     const { field } = wallFight({
       seed: fz.seed * 31 + v,
       attacker: { kinds: party.kinds },
@@ -1396,21 +1409,37 @@ function winShare(fz: Frozen, front: WallFront | undefined, k: number): number {
     });
     if (field.won) won += 1;
   }
-  return won / STORM_VARIANTS;
+  return won >= need;
 }
+
+/**
+ * Ровный штурм одной осады за одной стеной, запомненный: «сила стены» и «способы штурма» спрашивают одни и те же стены
+ * (три пролома сходятся к одной), и второй раз их не считают — бой чистая функция осады, стены и силы.
+ */
+const evenKs = new WeakMap<Frozen, Map<string, number>>();
 
 /** Наименьшее `k` (до сотых), при котором штурм берёт половину боёв; бесконечность — не берёт и в двенадцать раз. */
 function evenK(fz: Frozen, front: WallFront | undefined): number {
+  let memo = evenKs.get(fz);
+  if (!memo) evenKs.set(fz, (memo = new Map()));
+  const key = JSON.stringify(front ?? null);
+  const have = memo.get(key);
+  if (have !== undefined) return have;
   let lo = 0.25;
   let hi = 12;
-  if (winShare(fz, front, hi) < 0.5) return Infinity;
-  if (winShare(fz, front, lo) >= 0.5) return lo;
-  while (hi - lo > 0.01) {
-    const mid = (lo + hi) / 2;
-    if (winShare(fz, front, mid) >= 0.5) hi = mid;
-    else lo = mid;
+  let k: number;
+  if (!winHalf(fz, front, hi)) k = Infinity;
+  else if (winHalf(fz, front, lo)) k = lo;
+  else {
+    while (hi - lo > 0.01) {
+      const mid = (lo + hi) / 2;
+      if (winHalf(fz, front, mid)) hi = mid;
+      else lo = mid;
+    }
+    k = hi;
   }
-  return hi;
+  memo.set(key, k);
+  return k;
 }
 
 function median(xs: number[]): number {

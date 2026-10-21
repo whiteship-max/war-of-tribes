@@ -14,15 +14,15 @@ import { CLOCK_SKEW_SECONDS } from './initdata.js';
 import { SAVE_HURRY_MS, SAVE_PUSH_MS, STOCK_KEYS, readWatch, type AdminGrant, type Counts, type WarSheet, type WatchCard } from './contract.js';
 import { DAY_LENGTH, gameDaysOfMs, realMs } from '../../src/game/pace.js';
 import { ENERGY_MAX, ENERGY_REFILL, MINIGAME_COST } from '../../src/game/data/minigames.js';
-import { MAX_BUILDING_LEVEL, RESOURCE_IDS, RESOURCE_META } from '../../src/game/constants.js';
+import { BUILD_QUEUE_MAX, MAX_BUILDING_LEVEL, RESOURCE_IDS, RESOURCE_META } from '../../src/game/constants.js';
 import { BUILDING_BY_ID } from '../../src/game/data/buildings.js';
-import { upgradeCost } from '../../src/game/labour.js';
+import { cancelRefund, upgradeCost } from '../../src/game/labour.js';
 import { storageOf } from '../../src/game/build.js';
 import { powerOfCounts } from '../../src/profile/power.js';
 import type { BuildingTypeId, ResourceId } from '../../src/game/types.js';
 import { rewrite } from './admin.js';
 import { bookAfter, readBook, seedBook, type ArmyBook } from './book.js';
-import { builtForged, buildStep, eatFloorOf, peopleStep, readTown, seedTown, type PaidLevel, type TownBook } from './town.js';
+import { builtForged, buildStep, keyOf, eatFloorOf, peopleStep, readTown, seedTown, type PaidLevel, type TownBook } from './town.js';
 import { goodsStep, readGoods, sheetShort, type GoodsBook } from './goods.js';
 import { troopPower } from '../../src/game/battle/price.js';
 import type { TroopStack } from '../../src/game/battle/kinds.js';
@@ -86,7 +86,9 @@ export type FlagKind =
   | 'unpaid'
   | 'hidden'
   | 'eat'
-  | 'walk';
+  | 'walk'
+  | 'queue'
+  | 'refund';
 
 export const FLAG_WORD: Record<FlagKind, string> = {
   cheat: 'коды проверки',
@@ -107,6 +109,8 @@ export const FLAG_WORD: Record<FlagKind, string> = {
   hidden: 'склад меньше подтверждённого',
   eat: 'расход хлеба ниже правил',
   walk: 'срок пути',
+  queue: 'очередь стройки',
+  refund: 'возврат сверх положенного',
 };
 
 /** Начало строки журнала о невозможном: админ ищет его глазами в `/player` (docs/security.md). */
@@ -114,7 +118,7 @@ export const WARN = 'внимание:';
 
 /** Одно правило города: что сервер проверяет, какой общей с игрой формулой, каким флагом и что делает с невозможным. */
 export interface CityRule {
-  id: 'level' | 'pace' | 'paid' | 'stock' | 'troops' | 'people' | 'goods' | 'eat';
+  id: 'level' | 'pace' | 'paid' | 'stock' | 'troops' | 'people' | 'goods' | 'eat' | 'queue' | 'refund';
   rule: string;
   /** Общая с игрой формула — одна дверь без `@/`, своей копии чисел у сервера нет. */
   formula: string;
@@ -133,6 +137,20 @@ export const CITY_RULES: readonly CityRule[] = [
   { id: 'level', rule: 'уровень постройки не выше книги стройки и потолка постройки', formula: 'town.buildStep, data/buildings.maxLevel', flag: 'built', act: 'не подтверждает' },
   { id: 'pace', rule: 'улучшение не раньше срока: труд уровня против потолка скорости стройки за серверное время', formula: 'labour.upgradeWork, build.buildCeil', flag: 'built', act: 'не подтверждает' },
   { id: 'paid', rule: 'цена списана: начатая стройка уносит со склада цену уровня', formula: 'labour.upgradeCost', flag: 'unpaid', act: 'флаг' },
+  {
+    id: 'queue',
+    rule: 'очередь стройки: не длиннее предела, одна стройка на постройку, следующий уровень, первая — идущая, начатая не сдвигается',
+    formula: 'town.queueFaults, constants.BUILD_QUEUE_MAX',
+    flag: 'queue',
+    act: 'не подтверждает место; ускорение ждущего — отказ',
+  },
+  {
+    id: 'refund',
+    rule: 'возврат отменённой стройки не больше положенного: начатая — половина цены, ждущая — вся',
+    formula: 'labour.cancelRefund',
+    flag: 'refund',
+    act: 'флаг',
+  },
   { id: 'stock', rule: 'запасы не выше вместимости склада подтверждённых построек', formula: 'build.storageOf', flag: 'cap', act: 'в войну — не больше вместимости; флаг' },
   { id: 'troops', rule: 'войска не больше нанятых: обучение казарм и конюшни, указы, потери войны', formula: 'train.trainRateAt, book.bookAfter', flag: 'forged', act: 'не подтверждает; приказ войны — отказ' },
   { id: 'people', rule: 'жители не больше прироста, жилья, вестей и вернувшихся из войска', formula: 'build.popGrowthCeil, build.housingOf', flag: 'people', act: 'не подтверждает' },
@@ -349,11 +367,22 @@ export function flagsBetween(a: WatchCard, aAt: number, b: WatchCard, bAt: numbe
   const days = Math.max(0, Math.min(wentDays + CARD_TICK_DAYS, canDays));
   const quiet = a.deeds === b.deeds && a.seen === b.seen && a.games === b.games && a.away === b.away && a.caravans === b.caravans;
   if (quiet) {
+    // Возврат отменённой стройки (правило «refund», СТ-1): разовым делом он не считается — положенное сервер выводит сам из
+    // очередей двух описей (`cancelledRefund`), и рост склада сверх выработки и положенного возврата — флаг.
+    const back = cancelledRefund(a, b);
     for (const k of STOCK_KEYS) {
       const grew = (b.stock[k] ?? 0) - (a.stock[k] ?? 0);
       const could = Math.max(a.prod[k] ?? 0, b.prod[k] ?? 0) * days * GROWTH_SLACK + 1;
-      if (grew > could) {
-        out.push({ kind: 'stock', text: `${upper(stockWord(k))} ${signed(grew)} за ${span(realMs)} без разовых дел; выработка позволяла не больше ${big(could)}.` });
+      const due = back.refund[k as ResourceId] ?? 0;
+      if (grew > could + due) {
+        out.push(
+          back.count > 0
+            ? {
+                kind: 'refund',
+                text: `${upper(stockWord(k))} ${signed(grew)} за ${span(realMs)}: отменено стройки ${big(back.count)}, возврат положен не больше ${big(due)}, выработка — ${big(could)}.`,
+              }
+            : { kind: 'stock', text: `${upper(stockWord(k))} ${signed(grew)} за ${span(realMs)} без разовых дел; выработка позволяла не больше ${big(could)}.` },
+        );
       }
     }
     const grew = total(b.troops) + b.wounded - (total(a.troops) + a.wounded);
@@ -364,13 +393,14 @@ export function flagsBetween(a: WatchCard, aAt: number, b: WatchCard, bAt: numbe
     // Цена списана (правило «paid», `CITY_RULES`): стройка, начатая между описями, унесла со склада цену уровня — ею платит
     // `sim/actions.startUpgrade`, и другой двери, заводящей стройку, у игры нет. «Начатая» — только если на первой описи
     // стройки не было вовсе: иначе в очереди могли стоять оплаченные раньше, а опись видит одну первую (`derived.currentSite`).
-    const started = a.site ? null : startedCost(a, b);
+    // С очередью в обеих описях оплаченное известно точно (СТ-1): места первой описи уже оплачены, остальное — нет.
+    const started = a.site && !(a.queue && b.queue) ? null : startedCost(a, b);
     if (started) {
       for (const k of RESOURCE_IDS) {
         const need = started.cost[k] ?? 0;
         if (need <= 0) continue;
         const grew = (b.stock[k] ?? 0) - (a.stock[k] ?? 0);
-        const could = Math.max(a.prod[k] ?? 0, b.prod[k] ?? 0) * days * GROWTH_SLACK + 1;
+        const could = Math.max(a.prod[k] ?? 0, b.prod[k] ?? 0) * days * GROWTH_SLACK + 1 + (back.refund[k] ?? 0);
         // Рост сверх выработки уже сказан флагом «рост склада» — второй раз о том же не говорим.
         if (grew > could || grew + need <= could) continue;
         out.push({
@@ -402,18 +432,42 @@ export function flagsBetween(a: WatchCard, aAt: number, b: WatchCard, bAt: numbe
 export function startedCost(a: WatchCard, b: WatchCard): { cost: Partial<Record<ResourceId, number>>; levels: number } {
   const cost: Partial<Record<ResourceId, number>> = {};
   let levels = 0;
+  // Очередь (СТ-1): заложенное, но ждущее, тоже оплачено при постановке; места первой описи оплачены до неё.
+  const paidBefore = new Set((a.queue ?? []).map((e) => keyOf(e.type, e.level)));
   for (const type of Object.keys(BUILDING_BY_ID) as BuildingTypeId[]) {
     if (!(type in a.buildings)) continue;
     const def = BUILDING_BY_ID[type];
     const top = Math.min(def.maxLevel ?? MAX_BUILDING_LEVEL, MAX_BUILDING_LEVEL);
-    const site = b.site?.type === type ? b.site.level : 0;
+    const site = Math.max(b.site?.type === type ? b.site.level : 0, ...(b.queue ?? []).filter((e) => e.type === type).map((e) => e.level));
     const to = Math.min(top, Math.max(b.buildings[type] ?? 0, site));
     for (let l = Math.max(2, (a.buildings[type] ?? 0) + 1); l <= to; l++) {
+      if (paidBefore.has(keyOf(type, l))) continue;
       for (const [r, v] of Object.entries(upgradeCost(def, l)) as [ResourceId, number][]) cost[r] = (cost[r] ?? 0) + v;
       levels++;
     }
   }
   return { cost, levels };
+}
+
+/**
+ * Положенный возврат отменённой стройки между описями (правило «refund», СТ-1): места очереди первой описи, которых нет во
+ * второй и которые не достроены, — отменены. Начатое на первой описи (её идущая стройка с работой) возвращает половину
+ * цены, остальное — всю (`labour.cancelRefund`): работа ложится только на первое место, и снять её нельзя. Нет очереди в
+ * одной из описей — отмен не видно, и возврат объясняет разовое дело, как до очереди.
+ */
+export function cancelledRefund(a: WatchCard, b: WatchCard): { refund: Partial<Record<ResourceId, number>>; count: number } {
+  const refund: Partial<Record<ResourceId, number>> = {};
+  if (!a.queue || !b.queue) return { refund, count: 0 };
+  const still = new Set(b.queue.map((e) => keyOf(e.type, e.level)));
+  let count = 0;
+  for (const e of a.queue.slice(0, BUILD_QUEUE_MAX)) {
+    if (!(e.type in BUILDING_BY_ID) || still.has(keyOf(e.type, e.level))) continue;
+    if ((b.buildings[e.type] ?? 0) >= e.level) continue;
+    const started = a.site?.type === e.type && a.site.level === e.level && a.site.done > 0;
+    for (const [r, v] of Object.entries(cancelRefund(BUILDING_BY_ID[e.type as BuildingTypeId], e.level, started)) as [ResourceId, number][]) refund[r] = (refund[r] ?? 0) + v;
+    count++;
+  }
+  return { refund, count };
 }
 
 /**
@@ -550,8 +604,8 @@ export function booked(
 ): WatchRecord {
   if (!watch) return rec;
   const town0 = townOf(rec, at);
-  const claim = { buildings: watch.buildings, pop: watch.pop, bonded: watch.bonded, queued: watch.queued, site: watch.site };
-  const built = buildStep(town0, at, claim, gems);
+  const claim = { buildings: watch.buildings, pop: watch.pop, bonded: watch.bonded, queued: watch.queued, site: watch.site, queue: watch.queue };
+  const built = buildStep(town0, at, claim, gems, prior.card?.site);
   const book0 = bookOf(rec, at);
   const step = bookAfter(book0, at, { troops: watch.troops, hurt: watch.hurt, buildings: watch.buildings }, grants, wars, key, seen ?? [], built.book.levels);
   const army = {
@@ -599,6 +653,10 @@ export function booked(
       kind: 'forged',
       text: `Войско с ранеными: заявлено ${big(step.claimed)}, сервер подтверждает ${big(step.confirmed)} — сверх обучения в казармах и конюшне, указов и потерь войны за прошедшее время на ${big(step.forged)}. В войну идёт только подтверждённое.`,
     });
+  }
+  if (built.faults.length) {
+    const parts = built.faults.map((f) => `${f.key} — ${f.why}`);
+    found.push({ kind: 'queue', text: `Очередь стройки против правил: ${parts.join('; ')}. Эти места сервер не признаёт, ускорение ждущего — отказ.` });
   }
   if (builtForged(built)) {
     found.push({ kind: 'built', text: `Уровни построек выше, чем позволяет труд стройки: не хватает ${big(built.short)} работы — это ${span(realMs(built.short / Math.max(1e-9, built.rate)))} потолка стройки. В войну идут подтверждённые уровни.` });

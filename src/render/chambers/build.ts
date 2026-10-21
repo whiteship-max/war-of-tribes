@@ -1894,7 +1894,8 @@ function trinket(id: TrinketId, seg: number, flames: Flame[]): RoomModel['trinke
         'plain',
         T(HUE.silver, 0.95),
       );
-      // Позолоченный пояс и вино.
+      // Позолоченный пояс. Вино — живой гладью комнаты (`room.wineSurface`): неподвижный диск вина лежал в 1–2 мм под дном
+      // чаши и спорил с ним за пиксель (Г-12).
       m.lathe(
         [
           [0.0365, 0.11],
@@ -1904,17 +1905,6 @@ function trinket(id: TrinketId, seg: number, flames: Flame[]): RoomModel['trinke
         seg,
         'plain',
         T(HUE.gold),
-      );
-      m.shine = 0.6;
-      m.lathe(
-        [
-          [0.0, 0.168],
-          [0.05, 0.168],
-          [0.0, 0.169],
-        ],
-        seg,
-        'plain',
-        T(0x3a0a10, 0.8),
       );
       break;
     case 'candle': {

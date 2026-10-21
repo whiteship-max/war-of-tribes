@@ -73,8 +73,19 @@ export const powerOf = (troop: TroopId): number => BATTLE_MAN * battleWeight(tro
  * Мощь состава — сумма мощи каждого бойца: мощь всего войска, тех, кто дома, дружины и лагеря считается этой дверью, а не
  * средним на число: латник, ушедший в поле, уносит мощь латника, а не мощь среднего бойца (docs/defense_mix.md).
  */
-export const troopPower = (t: TroopStack): number =>
-  TROOP_IDS.reduce((n, id) => n + Math.max(0, t[id] ?? 0) * powerOf(id), 0);
+export const troopPower = (t: TroopStack): number => {
+  // Тот же счёт, что `Σ max(0, t[id]) · powerOf(id)`, бит в бит: вид без бойцов прибавляет ровно ноль (цена вида конечна),
+  // а содержание дубинщика — делитель веса — считается раз на вызов, а не на каждый вид. Без запоминания, как и вес.
+  let base = 0;
+  let n = 0;
+  for (const id of TROOP_IDS) {
+    const k = Math.max(0, t[id] ?? 0);
+    if (k === 0) continue;
+    if (base === 0) base = upkeepOf(BASE_TROOP);
+    n += k * (BATTLE_MAN * (upkeepOf(id) / base));
+  }
+  return n;
+};
 
 /** Сколько бойцов строя даёт n бойцов этого вида. Ноль людей — ноль строя. */
 export const menOf = (troop: TroopId, n: number): number => (n > 0 ? Math.max(1, Math.round(n * battleWeight(troop))) : 0);

@@ -11,7 +11,9 @@ import { ACTS, actLength, frameAt, inRoom, sampleAct } from './acts';
 import { BODY_R, OBSTACLES, free, onFloor, pathTo, step, clear, NICHE_END, NICHE_HALF } from './walk';
 import { layoutTags, type TagOut } from './tags';
 import { DEFAULT_ARMS } from '@/heraldry/arms';
-import { STICK_FULL } from '@/prologue/controls';
+import { PAD_TRAVEL, STICK_FULL } from '@/prologue/controls';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import {
   BED,
   CHAIR,
@@ -1135,5 +1137,41 @@ describe('покои: модель, огонь, звук', () => {
     expect(window.town).toBeGreaterThan(hearth.town);
     expect(window.rain).toBeGreaterThan(hearth.rain);
     for (const g of [hearth, window]) for (const v of Object.values(g)) expect(v >= 0 && v <= 1).toBe(true);
+  });
+});
+
+describe('палец движения — один кружок (Г-12)', () => {
+  it('при ходьбе на экране один джойстик: палец ведёт ручку кружка в углу, второго кружка под пальцем нет', () => {
+    const room = phoneRoom();
+    // Кружок окна покоев (`.ch-pad`) — в узле без DOM: его отметка и ручка.
+    const knob = { style: { transform: '' } };
+    const pad = { dataset: {} as Record<string, string>, firstElementChild: knob };
+    room.attachPad(pad as unknown as HTMLElement);
+    room.snap('hall', -Math.PI / 2 + 0.35 - POI_BY_ID.hall.pose.yaw, 0);
+    run(room, 0.1);
+    expect(pad.dataset.on, 'стоит — ручка не ведётся').toBe('0');
+    const before = room.state();
+    // Палец лёг посреди левой половины — не на кружок в углу — и ушёл вверх на полный ход.
+    room.down(1, 150, 520, PHONE);
+    room.move(1, 150, 520 - STICK_FULL - 10);
+    run(room, 1);
+    const s = room.state();
+    // Граница области: палец — палец движения (левая половина), и правитель правда идёт.
+    expect(150).toBeLessThan(PHONE.width / 2);
+    expect(Math.hypot(s.x - before.x, s.z - before.z), 'идёт').toBeGreaterThan(0.3);
+    expect(pad.dataset.on, 'идёт — ручка ведётся').toBe('1');
+    expect(knob.style.transform, 'ручка у обода кружка, вверх').toBe(`translate3d(0px, -${PAD_TRAVEL}px, 0)`);
+    room.up(1);
+    run(room, 0.1);
+    expect(pad.dataset.on).toBe('0');
+    expect(knob.style.transform, 'ручка — в середине кружка').toBe('translate3d(0px, 0px, 0)');
+    room.dispose();
+    // Второго кружка нет нигде: комната его не заводит, окно рисует один, стиля плавающего нет.
+    const read = (f: string): string => readFileSync(join(__dirname, f), 'utf8');
+    expect(read('room.ts'), 'комната не заводит кружок под пальцем').not.toMatch(/ch-stick|createElement\('div'\);\s*\w+\.className = 'ch-pad'/);
+    const tsx = read('../../ui/chambers/Chambers.tsx');
+    expect(tsx.match(/className="ch-pad"/g)?.length, 'кружков в окне покоев').toBe(1);
+    expect(tsx, 'кружок отдан комнате').toMatch(/className="ch-pad" ref=\{\(el\) => room\?\.attachPad\(el\)\}/);
+    expect(read('../../ui/chambers/chambers.css')).not.toMatch(/\.ch-stick/);
   });
 });

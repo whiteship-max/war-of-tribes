@@ -16,6 +16,7 @@ import {
   armySize,
   bondedTotal,
   buildingOfType,
+  buildQueue,
   currentSite,
   dayOf,
   faithGoldPerDay,
@@ -119,6 +120,8 @@ export function watchOf(s: GameState): WatchCard {
     // Книга стройки сервера (docs/pvp.md, раздел 7): руки стройки и идущая стройка — её работу сервер подтверждает.
     bonded: whole(bondedTotal(s)),
     ...(site ? { site: { type: site.type, level: site.level + 1, done: Math.max(0, site.work) } } : {}),
+    // Очередь стройки целиком (СТ-1): по ней сервер держит порядок, оплату заложенного и возврат отменённого.
+    queue: buildQueue(s).map((b) => ({ type: b.type, level: b.level + 1 })),
     train: Math.ceil(train),
     // Закрытое задание — тоже разовое дело: награда ложится на склад разом (`sim/tick`, шаг «Задания»), и без него
     // честный игрок получал флаг «рост склада» на награде (прогон 25 ботов, docs/playtest_sim.md). Так же — добро без дела

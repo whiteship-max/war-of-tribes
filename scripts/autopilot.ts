@@ -730,7 +730,10 @@ export interface OpenSky {
 
 export function openSky(g: GameState, sky: Sky, watch: Watch = {}): OpenSky {
   let now = START;
-  const world = new LocalWorld({ seed: sky.seed, now: () => now, storage: memory(), reveal: sky.reveal });
+  // Без хранилища: сохранение мира этого прогона не читает никто, а запись после каждого шага — `worldSaveJson` всего
+  // мира — была самой дорогой строкой прогона (docs/handbook/console.md, «Где было время»). `storage?.write(…)` без хранилища не
+  // собирает и строку; мир при этом тот же — он читает хранилище только при рождении, а `memory()` рождался пустым.
+  const world = new LocalWorld({ seed: sky.seed, now: () => now, storage: null, reveal: sky.reveal });
   const w: Inside = world;
   sky.setup?.(w);
   const run: Run = { raids: 0, ratio: [], walls: [], sieges: 0, sorties: 0, sortieWins: 0, siegeFalls: 0, lost: 0, half: 0, armyEnd: 0, hired: 0, losses: [], hunger: [] };

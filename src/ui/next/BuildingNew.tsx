@@ -25,7 +25,7 @@ import {
   buildingById,
   buildingSlots,
   buildingTitle,
-  currentSite,
+  queuePlace,
   idleCount,
   isOutsideWall,
   isSite,
@@ -76,8 +76,8 @@ export function BuildingNew({ id, data }: { id: number; data: (b: Building) => R
   const up = upgradeInfo(s, b);
   const site = isSite(b);
   const rate = buildRate(s);
-  const first = currentSite(s);
-  const inQueue = site && first !== null && first.id !== b.id;
+  const place = queuePlace(s, b);
+  const inQueue = place > 1;
   const canLevel = max > 1;
   const top = b.level >= maxLevelFor(b.type);
   const upEta = rate > 0 ? asGame(Math.ceil(up.work / rate)) : null;
@@ -130,7 +130,7 @@ export function BuildingNew({ id, data }: { id: number; data: (b: Building) => R
           <Icon name="ui-site" />
           <div className="nx-bsite-body">
             <span>
-              Стройка до ур. {b.level + 1} · {inQueue ? 'в очереди' : siteEta !== null ? waitSpan(siteEta) : 'нет строителей'}
+              Стройка до ур. {b.level + 1} · {inQueue ? `ждёт, ${place}-е в очереди` : siteEta !== null ? waitSpan(siteEta) : 'нет строителей'}
             </span>
             <i className="nx-bbar wide">
               <i style={{ width: `${share}%` }} />

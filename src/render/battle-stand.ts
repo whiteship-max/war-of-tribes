@@ -186,6 +186,11 @@ export function mountReplayStand(p: URLSearchParams): void {
   // Ролик один — в стиле Total War (docs/battle_tw.md), прежний удалён (docs/ui_audit.md, 16): любой `?replay=`
   // открывает его стенд. Свой кусок — в стенд боя он не едет. `&layer=1` — ролик тем же слоем, что в игре (`TwReplay`:
   // шкала сил, кнопки, карточка итога), на записи боя стенда; `&at=` — кадр стоит на моменте (docs/gfx.md, «Кадры»).
+  // `?replay=file&file=…` — запись консольной команды (docs/handbook/console.md, «Ролик»): бой или осада, свой кусок.
+  if (p.get('replay') === 'file') {
+    void import('./console-stand').then((m) => m.mountFileStand(p));
+    return;
+  }
   // `?replay=siege` — ролик осады (docs/gfx.md, ГФ-2): свой стенд и свой кусок.
   if (p.get('replay') === 'siege') {
     if (p.get('layer') === '1') void import('./siege/stand').then((m) => m.mountSiegeStandUi(p));

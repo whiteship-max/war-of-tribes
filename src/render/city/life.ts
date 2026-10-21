@@ -1556,7 +1556,7 @@ export class CityLife {
   private gateShown: Uint8Array;
   private gateMoving: Uint8Array;
   /** Состояние города в виде (`rhythm.moodOf`) и что оно делает с улицами. */
-  private mood: CityMood = { feast: 0, alarm: 0, hunger: 0, plague: 0, cheer: 0 };
+  private mood: CityMood = { feast: 0, alarm: 0, hunger: 0, plague: 0, cheer: 0, mourn: 0 };
   private look: MoodLook = { street: 1, idle: 1, wall: 0 };
   /** Места у трактира, очередь у амбара, места у работающих построек (`setPlaces`, `setStations`). */
   private tavernStands: Stand[] = [];

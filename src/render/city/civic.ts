@@ -163,24 +163,35 @@ function ventDormer(b: Builder, p: V3, toward: V3, roofT: V3): void {
   pushQuadOut(b, R0, R1, R2, R2, 'roofTile', roofT, [p[0] + fx * 2, p[1] + 2, p[2] + fz * 2], 0.95);
 }
 
+/** Уклон кровли нефа храма. */
+const NAVE_PITCH = (56 * Math.PI) / 180;
+
+/**
+ * Неф храма: рамка и мерки — одни на построитель и тест вида из покоев (Г-12, `chambers/window.test.ts`). Ось r — от
+ * фасада вглубь (r < 0 — башня у площади, r > 0 — апсида), f — поперёк нефа; `apseTop` — венец стен апсиды над `base`.
+ */
+export function churchNave(c: Civic): { fr: Frame; base: number; westEnd: number; tw: number; r0: number; r1: number; hd: number; naveH: number; ridge: number; apseTop: number } {
+  const fr = new Frame(c.x, c.z, Math.sin(c.rot), -Math.cos(c.rot));
+  const tw = 9.5;
+  const westEnd = -c.d / 2;
+  const hd = 15 / 2;
+  const naveH = 13;
+  // Апсида ниже нефа (Г-12): вершина полушатра — под карнизом нефа. Прежде полушатёр поднимался на 7 м выше карниза,
+  // вставал перед восточным щипцом, и из окна покоев тёмный треугольник сланца под скатами читался дырой.
+  const apseTop = naveH - 5.6;
+  return { fr, base: c.base, westEnd, tw, r0: westEnd + tw, r1: c.d / 2 - 6.5, hd, naveH, ridge: c.base + naveH + hd * Math.tan(NAVE_PITCH), apseTop };
+}
+
 /**
  * Храм лицом к площади (docs/city_v3.md, Г-2): западная башня со шпилем и порталом — к фасаду (`c.rot`, к площади и
  * камере), неф с контрфорсами уходит вглубь, апсида — в дальнем конце. `c.w` — ширина фасада, `c.d` — длина храма.
  */
 function church(b: Builder, c: Civic, detail: Detail): V3[] {
-  // Рамка нефа: ось r — от фасада вглубь (r < 0 — башня у площади, r > 0 — апсида), f — поперёк нефа.
-  const fr = new Frame(c.x, c.z, Math.sin(c.rot), -Math.cos(c.rot));
+  const { fr, base, westEnd, tw, r0, r1, hd, naveH, apseTop } = churchNave(c);
   const len = c.d;
   const T = tint(CITY.stoneTints[0]);
-  const base = c.base;
   const low = footSpan(c.x, c.z, fr.fx, fr.fz, len, c.w).lo;
-  const tw = 9.5;
-  const westEnd = -len / 2;
-  const naveW = 15;
-  const naveH = 13;
-  const r0 = westEnd + tw;
-  const r1 = len / 2 - 6.5;
-  const hd = naveW / 2;
+  const naveW = hd * 2;
   // Цоколь нефа.
   const [nx, nz] = fr.q(0, (r0 + r1) / 2);
   box(b, nx, nz, fr.fx, fr.fz, r1 - r0 + 0.3, naveW + 0.3, low - 0.5, base + 0.5, 'rubble', tint(CITY.stoneTints[1], 0.85), null, { aoBottom: 0.7, grimeBottom: 1 });
@@ -202,11 +213,11 @@ function church(b: Builder, c: Civic, detail: Detail): V3[] {
   }
   // Кровля нефа: конёк вдоль r, сланец.
   const roofT = tint(CITY.slateTint);
-  const rr = gableRoof(b, fr, -hd, hd, r0, r1, base + naveH, (56 * Math.PI) / 180, false, 'roofSlate', roofT, detail, c.seed, { eave: 0.6, verge: 0.2 });
+  const rr = gableRoof(b, fr, -hd, hd, r0, r1, base + naveH, NAVE_PITCH, false, 'roofSlate', roofT, detail, c.seed, { eave: 0.6, verge: 0.2 });
   gableTri(b, fr, [-hd, r0], [hd, r0], base + naveH, rr.ridge, 'ashlar', T, base, 4, 0);
   // Восточный торец нефа над апсидой (Г-7): пояс кладки от низа полушатра апсиды до карниза и щипец до конька. Без него
   // неф с востока открыт — сверху от ворот этого не видно, а из покоев донжона храм просвечивал насквозь.
-  face(b, fr, [hd, r1], [-hd, r1], base + naveH - 1.75, base + naveH, 'ashlar', T, o);
+  face(b, fr, [hd, r1], [-hd, r1], base + apseTop - 0.4, base + naveH, 'ashlar', T, o);
   gableTri(b, fr, [hd, r1], [-hd, r1], base + naveH, rr.ridge, 'ashlar', T, base, 4, 0);
   // Апсида: половина восьмиугольника на восток, стены с окнами и полушатёр.
   const ar = hd;
@@ -220,12 +231,13 @@ function church(b: Builder, c: Civic, detail: Detail): V3[] {
   for (let k = 0; k < segs; k++) {
     const p = apts[k];
     const q = apts[k + 1];
-    face(b, fr, [p[0], p[1]], [q[0], q[1]], base, base + naveH - 1.5, 'churchWin', T, { vTile: 12, vBase: base - 1, aoB: 0.75, aoT: 0.85, glow: 0.8, grimeB: 0.6 });
+    // Окно плитки (4,6…10,35 м её высоты) — от 1,2 м над цоколем до 0,5 м под венцом стены апсиды.
+    face(b, fr, [p[0], p[1]], [q[0], q[1]], base, base + apseTop, 'churchWin', T, { vTile: 12, vBase: base - 3.4, aoB: 0.75, aoT: 0.85, glow: 0.8, grimeB: 0.6 });
   }
-  const apex = fr.p(0, ac, base + naveH - 1.5 + ar * Math.tan((50 * Math.PI) / 180));
+  const apex = fr.p(0, ac, base + apseTop + ar * Math.tan((35 * Math.PI) / 180));
   for (let k = 0; k < segs; k++) {
-    const p = fr.p(apts[k][0] * 1.06, ac + (apts[k][1] - ac) * 1.06, base + naveH - 1.7);
-    const q = fr.p(apts[k + 1][0] * 1.06, ac + (apts[k + 1][1] - ac) * 1.06, base + naveH - 1.7);
+    const p = fr.p(apts[k][0] * 1.06, ac + (apts[k][1] - ac) * 1.06, base + apseTop - 0.2);
+    const q = fr.p(apts[k + 1][0] * 1.06, ac + (apts[k + 1][1] - ac) * 1.06, base + apseTop - 0.2);
     const [tw2, th2] = TILE_M.roofSlate;
     const w = Math.hypot(q[0] - p[0], q[2] - p[2]);
     const tri = (A: V3, B: V3, C: V3): void => {

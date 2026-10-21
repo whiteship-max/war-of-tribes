@@ -241,7 +241,6 @@ function HaulRow({ haul }: { haul: Haul }) {
 export function Minigame({ game, onExit }: { game: MinigameId; onExit: () => void }) {
   const def = MINIGAME_BY_ID[game];
   const wrapRef = useRef<HTMLDivElement>(null);
-  const stickRef = useRef<HTMLDivElement>(null);
   const meterRef = useRef<HTMLDivElement>(null);
   const aimRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<Stage | null>(null);
@@ -292,7 +291,6 @@ export function Minigame({ game, onExit }: { game: MinigameId; onExit: () => voi
       stage = made;
       stageRef.current = made;
       made.onView = setView;
-      made.stickEl = stickRef.current;
       made.meterEl = meterRef.current;
       made.aimEl = aimRef.current;
       // Время вышло — итог: добыча по походу, энергия списана ещё на «Начать».
@@ -342,7 +340,7 @@ export function Minigame({ game, onExit }: { game: MinigameId; onExit: () => voi
       if (stage) {
         stage.onView = null;
         stage.onEnd = null;
-        stage.stickEl = null;
+        stage.attachPad(null);
         stage.meterEl = null;
         stage.aimEl = null;
         stage.dispose();
@@ -396,9 +394,6 @@ export function Minigame({ game, onExit }: { game: MinigameId; onExit: () => voi
 
   return (
     <div className="mg" ref={wrapRef}>
-      <div className="mg-stick" ref={stickRef} aria-hidden="true">
-        <i />
-      </div>
       {meter && <div className="mg-meter" ref={meterRef} />}
       {game === 'hunt' && (
         // Прицел лука: середина — куда уходит стрела, метки ниже — поправка дуги на дальность (их ставит сцена,
@@ -457,7 +452,8 @@ export function Minigame({ game, onExit }: { game: MinigameId; onExit: () => voi
             Оба — рисунок: касание ловит холст всей половиной (`pad.zoneAt`), а судит — сцена; кнопку под большим
             пальцем не ищут глазами.
           */}
-          <div className={`mg-pad ${padSide}`} aria-hidden="true">
+          {/* Палец ведёт ручку этого кружка (`stage.attachPad`): второго кружка под пальцем нет (Г-12). */}
+          <div className={`mg-pad ${padSide}`} ref={(el) => stageRef.current?.attachPad(el)} aria-hidden="true">
             <i />
           </div>
           <div className={`mg-act ${actSide}${view.act.ready ? '' : ' off'}${view.act.on ? ' on' : ''}${view.act.hold ? ' hold' : ''}`} aria-hidden="true">
