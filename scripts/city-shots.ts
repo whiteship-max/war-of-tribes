@@ -464,6 +464,8 @@ async function weatherShots(tab: Tab, q: Quality): Promise<void> {
       }, 200);
     })`);
     console.log(`  ${said}`);
+    // «Вдаль» у окна (Г-12): `ZOOM=4` — столько касаний кнопки «Вдаль» (`room.zoomBy(1.6)`), как пальцем.
+    for (let k = 0; k < Number(process.env.ZOOM ?? 0); k++) await tab.eval(`window.__chambers.zoomBy(1.6)`);
     // Жизнь покоев (Г-7): `LIFE='{"who":"servant","at":{"x":3.75,"z":-4.6,"yaw":3.1},"talk":true}'` — поставить людей и кота
     // сразу (`ChambersLife.stage`); списком — несколько (`LIFE='[{"who":"maid"},{"cat":"floor"}]'`).
     if (process.env.LIFE) {

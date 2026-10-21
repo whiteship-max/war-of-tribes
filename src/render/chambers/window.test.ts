@@ -11,7 +11,9 @@ import { buildStatic } from '../city/budget';
 import { groundGrid } from '../city/ground';
 import { CITY_SPEC } from '../city/spec';
 import { treeModel } from '../city/nature';
+import { churchNave } from '../city/civic';
 import * as THREE from 'three';
+import { QUALITIES, type Quality } from '../quality';
 import { ChambersRoom, INSIDE_FAR } from './room';
 import { DEFAULT_ARMS } from '@/heraldry/arms';
 import { geometryOf } from '../city/index';
@@ -22,10 +24,10 @@ const plan = cityPlan();
 const keep = plan.towers.find((t) => t.kind === 'keep')!;
 const floor = floorOf(keep);
 
-/** Треугольники города: здания и земля, плоскими массивами, и решётка по плану для лучей. */
-function cityTris(): { P: Float32Array; I: Uint32Array; cells: Map<number, number[]>; cell: number } {
-  const st = buildStatic(plan, 'medium');
-  const spec = CITY_SPEC.medium;
+/** Треугольники города уровня `q`: здания и земля, плоскими массивами, и решётка по плану для лучей. */
+function cityTris(q: Quality): { P: Float32Array; I: Uint32Array; cells: Map<number, number[]>; cell: number } {
+  const st = buildStatic(plan, q);
+  const spec = CITY_SPEC[q];
   const g = groundGrid(spec.groundCells, spec.groundCell, { x: 0, z: -20 }, 1400);
   const bp = st.b.pos;
   const nb = bp.length / 3;
@@ -67,7 +69,7 @@ function cityTris(): { P: Float32Array; I: Uint32Array; cells: Map<number, numbe
   return { P, I, cells, cell };
 }
 
-const W = cityTris();
+let W = cityTris('medium');
 
 /** Запас доли на ребре грани и «равные» расстояния, м: луч по общему ребру не проскальзывает между гранями. */
 const EPS = 1e-4;
@@ -182,32 +184,37 @@ describe('покои: вид из окна (Г-7)', () => {
     let cast = 0;
     let hits = 0;
     const holes: string[] = [];
-    for (const v of views) {
-      const ds = rays(v.eye, v.yaw, v.yaws, v.pitches, v.o, 64);
-      const e: [number, number, number] = [keep.x + v.eye[0], floor + v.eye[1], keep.z + v.eye[2]];
-      for (const d of ds) {
-        cast++;
-        // Луч начинается за наружной гранью стены донжона: внутри толщи — проём покоев, в меше города его нет.
-        const out = (WALL_T + 0.2) / Math.max(0.2, Math.abs(v.o.wall === 'south' ? d[2] : d[0]));
-        const o: [number, number, number] = [e[0] + d[0] * out, e[1] + d[1] * out, e[2] + d[2] * out];
-        const h = firstHit(o, d, INSIDE_FAR);
-        if (!h) continue;
-        hits++;
-        if (h.front) continue;
-        // Изнанка под одним лучом — может быть щелью по ребру тоньше пикселя. Дыра — когда изнанку видят и соседние лучи
-        // на кольце в 0,2° (у «Вдаль» — 10 точек экрана): тогда сквозь постройку видно пятно, а не нить.
-        let ring = 0;
-        for (let k = 0; k < 8; k++) {
-          const a = (k / 8) * Math.PI * 2;
-          const q = jitter(d, Math.cos(a) * RING, Math.sin(a) * RING);
-          const r = firstHit([e[0] + q[0] * out, e[1] + q[1] * out, e[2] + q[2] * out], q, INSIDE_FAR);
-          if (r && !r.front) ring++;
+    // Г-12: на каждом уровне качества — у каждого свои подробности кровель и своя сетка земли.
+    for (const ql of QUALITIES) {
+      W = cityTris(ql);
+      for (const v of views) {
+        const ds = rays(v.eye, v.yaw, v.yaws, v.pitches, v.o, 64);
+        const e: [number, number, number] = [keep.x + v.eye[0], floor + v.eye[1], keep.z + v.eye[2]];
+        for (const d of ds) {
+          cast++;
+          // Луч начинается за наружной гранью стены донжона: внутри толщи — проём покоев, в меше города его нет.
+          const out = (WALL_T + 0.2) / Math.max(0.2, Math.abs(v.o.wall === 'south' ? d[2] : d[0]));
+          const o: [number, number, number] = [e[0] + d[0] * out, e[1] + d[1] * out, e[2] + d[2] * out];
+          const h = firstHit(o, d, INSIDE_FAR);
+          if (!h) continue;
+          hits++;
+          if (h.front) continue;
+          // Изнанка под одним лучом — может быть щелью по ребру тоньше пикселя. Дыра — когда изнанку видят и соседние лучи
+          // на кольце в 0,2° (у «Вдаль» — 10 точек экрана): тогда сквозь постройку видно пятно, а не нить.
+          let ring = 0;
+          for (let k = 0; k < 8; k++) {
+            const a = (k / 8) * Math.PI * 2;
+            const q = jitter(d, Math.cos(a) * RING, Math.sin(a) * RING);
+            const r = firstHit([e[0] + q[0] * out, e[1] + q[1] * out, e[2] + q[2] * out], q, INSIDE_FAR);
+            if (r && !r.front) ring++;
+          }
+          if (ring >= 4) holes.push(`${ql} ${v.o.wall} (${h.at.map((x) => x.toFixed(1)).join(', ')}): ${ring} из 8 соседей`);
         }
-        if (ring >= 4) holes.push(`${v.o.wall} (${h.at.map((x) => x.toFixed(1)).join(', ')}): ${ring} из 8 соседей`);
       }
     }
+    W = cityTris('medium');
     // Лучей достаточно и они задевают город, а не уходят мимо: проверка — не пустая.
-    expect(cast, 'лучей сквозь проёмы').toBeGreaterThan(1500);
+    expect(cast, 'лучей сквозь проёмы').toBeGreaterThan(1500 * QUALITIES.length);
     expect(hits, 'лучей в город').toBeGreaterThan(cast * 0.4);
     expect(holes, 'изнанка — первая грань по лучу').toEqual([]);
   });
@@ -259,6 +266,65 @@ describe('покои: вид из окна (Г-7)', () => {
     room.detach();
     expect(im.geometry, 'выход — прежний ком').toBe(comb);
     room.dispose();
+  });
+  it('восточный торец храма из окна — кладка (Г-12): лучи в щипец и пояс над апсидой упираются в них, не в полушатёр и не насквозь', () => {
+    // Из покоев смотришь на храм с востока, в торец нефа. Пока полушатёр апсиды поднимался выше карниза, он вставал перед
+    // щипцом, и тёмный сланец под скатами читался дырой (снимок владельца). Точки — по торцу нефа: щипец (от карниза до
+    // конька, на 0,6 м внутрь от скатов) и пояс кладки над апсидой (от её венца до карниза); лучи — из глаза у окна и из
+    // глубины покоев, только сквозь проём.
+    const church = plan.civic.find((c) => c.kind === 'church')!;
+    const n = churchNave(church);
+    const south = OPENINGS.find((o) => o.wall === 'south')!;
+    const win = POI_BY_ID.window.pose;
+    const eyes: [number, number, number][] = [
+      [win.x, win.y, win.z],
+      [0, 1.62, 3.9],
+    ];
+    const slope = (n.ridge - n.base - n.naveH) / n.hd;
+    const pts: [number, number][] = [];
+    for (let i = 0; i <= 12; i++)
+      for (let j = 0; j <= 12; j++) {
+        const f = (-1 + (2 * i) / 12) * (n.hd - 0.6);
+        const y = n.base + n.apseTop + 0.3 + ((n.ridge - 0.6 - n.base - n.apseTop - 0.3) * j) / 12;
+        // Над карнизом — только внутри щипца.
+        if (y > n.base + n.naveH && Math.abs(f) > (n.ridge - y) / slope - 0.6) continue;
+        pts.push([f, y]);
+      }
+    let cast = 0;
+    let seen = 0;
+    const through: string[] = [];
+    const covered: string[] = [];
+    for (const v of eyes) {
+      const e: [number, number, number] = [keep.x + v[0], floor + v[1], keep.z + v[2]];
+      for (const [f, y] of pts) {
+        const P = n.fr.p(f, n.r1, y);
+        const L = Math.hypot(P[0] - e[0], P[1] - e[1], P[2] - e[2]);
+        const d: [number, number, number] = [(P[0] - e[0]) / L, (P[1] - e[1]) / L, (P[2] - e[2]) / L];
+        if (!throughOpening(south, v, d)) continue;
+        // Граница области: точка торца — в дали, которую открывает окно, и торец смотрит к глазу (глаз — восточнее r1).
+        expect(L).toBeLessThan(INSIDE_FAR);
+        expect((e[0] - P[0]) * n.fr.fz - (e[2] - P[2]) * n.fr.fx, 'глаз — с восточной стороны торца').toBeGreaterThan(0);
+        cast++;
+        const out = (WALL_T + 0.2) / Math.max(0.2, Math.abs(d[2]));
+        const h = firstHit([e[0] + d[0] * out, e[1] + d[1] * out, e[2] + d[2] * out], d, INSIDE_FAR);
+        const tP = L - out;
+        const at = `(${f.toFixed(1)}, ${(y - n.base).toFixed(1)})`;
+        if (!h || h.t > tP + 0.3) through.push(at);
+        else if (h.t >= tP - 0.3) seen++;
+        else {
+          // Заслонено ближе торца: чем? Своя апсида — в рамке храма восточнее торца и в ширину нефа.
+          const dx = h.at[0] - n.fr.cx;
+          const dz = h.at[2] - n.fr.cz;
+          const hf = dx * n.fr.fx + dz * n.fr.fz;
+          const hr = dx * n.fr.fz - dz * n.fr.fx;
+          if (hr > n.r1 && hr < n.r1 + n.hd + 2 && Math.abs(hf) < n.hd + 2 && h.at[1] > n.base) covered.push(at);
+        }
+      }
+    }
+    expect(cast, 'лучей в торец сквозь проём').toBeGreaterThan(60);
+    expect(through, 'торец насквозь').toEqual([]);
+    expect(covered, 'полушатёр апсиды перед торцом').toEqual([]);
+    expect(seen, 'лучей, упёршихся в кладку торца').toBeGreaterThan(cast * 0.3);
   });
   it('живой город из окна (docs/city_v3.md, ЖГ-1): хоровод праздника на площади виден из южного окна, а не за храмом', () => {
     // Глаз — у южного окна (точка интереса `window`); точки — по кругу хоровода на высоте груди: видна большая часть круга.
