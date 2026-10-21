@@ -17,7 +17,9 @@
 //     (`consort/`): его тянет вход в покои, а сцена с ней ждёт куска, если тот ещё в пути. Ходит, кивает и говорит она по
 //     прежним сценам — меняется только тело;
 //   · гонец (ЛЦ-3) — так же: своя фигура на том же наборе персонажа (`kit/`), свой ленивый кусок (`herald/`), ливрея — цвета
-//     герба; стучит, входит, кланяется и протягивает письмо по прежней сцене, она ждёт куска, если тот ещё в пути.
+//     герба; стучит, входит, кланяется и протягивает письмо по прежней сцене, она ждёт куска, если тот ещё в пути;
+//   · советник (ЛЦ-5) — так же: своя фигура на наборе (`advisor/`), свой ленивый кусок; ждёт у стола, кланяется и
+//     докладывает со свитком по прежней сцене — она ждёт куска, если тот ещё в пути (миг входа).
 //
 // Сценарии — сопрограммы: шаг сцены ждёт своего условия (дошёл, повернулся, прошло время), кадр двигает их по очереди.
 import * as THREE from 'three';
@@ -35,6 +37,7 @@ import { Mesher } from './geo';
 import type { RoomUniforms } from './material';
 import type * as Consort from './consort';
 import type * as Herald from './herald';
+import type * as Advisor from './advisor';
 import type * as Pet from './pet';
 import { BALL_EVERY, BALL_R, CAT_AWAY, GRAVITY, depthOf, fetchHops, flightAt, inView, leapBack, windowBack, windowShot, type Hop, type WindowShot } from './toss';
 
@@ -204,6 +207,9 @@ export class ChambersLife {
   /** Кусок гонца (ЛЦ-3): тянется при входе в покои; пока не приехал — гонец ждёт за дверью. */
   private herald: typeof Herald | null = null;
   readonly heraldReady: Promise<void>;
+  /** Кусок советника (ЛЦ-5): тянется при входе в покои; пока не приехал — сцена у стола ждёт его. */
+  private counsel: typeof Advisor | null = null;
+  readonly advisorReady: Promise<void>;
   /** Кусок кота (ЛЦ-4): тянется при входе в покои; пока не приехал — кот думает на голом скелете и не виден, клубка нет. */
   private pet: typeof Pet | null = null;
   private catKit: Pet.CatKit | null = null;
@@ -224,6 +230,9 @@ export class ChambersLife {
     });
     this.heraldReady = import('./herald').then((m) => {
       this.herald = m;
+    });
+    this.advisorReady = import('./advisor').then((m) => {
+      this.counsel = m;
     });
     this.catReady = import('./pet').then((m) => {
       this.pet = m;
@@ -247,6 +256,10 @@ export class ChambersLife {
         this.kits.push(kit);
       } else if (who === 'herald' && this.herald) {
         const kit = this.herald.makeHerald({ code: LIFE_CODE.herald, room: this.host.uniforms ?? null, inside: true, livery: liveryOf(this.host.arms) });
+        p = new Person(who, kit.body, null, SPEED[who], kit);
+        this.kits.push(kit);
+      } else if (who === 'advisor' && this.counsel) {
+        const kit = this.counsel.makeAdvisor({ code: LIFE_CODE.advisor, room: this.host.uniforms ?? null, inside: true });
         p = new Person(who, kit.body, null, SPEED[who], kit);
         this.kits.push(kit);
       } else p = new Person(who, buildPerson(who, this.host.arms, detail, LIFE_CODE[who]), this.host.material, SPEED[who]);
@@ -346,16 +359,28 @@ export class ChambersLife {
     return true;
   }
 
-  /** Советник (Г-10): уже ждёт у стола, когда правитель входит, — кланяется и докладывает. */
+  /**
+   * Советник (Г-10): уже ждёт у стола, когда правитель входит, — кланяется и докладывает. Его фигура (ЛЦ-5) — своим куском
+   * (тянется при входе в покои): в пути — сцена ждёт его, и он встаёт у стола, как только кусок приехал.
+   */
   advisorWaits(): void {
-    const a = this.person('advisor');
     this.guest = 'advisor';
+    if (!this.counsel) {
+      this.run(this.advisorComes());
+      return;
+    }
+    this.placeAdvisor();
+    this.run(this.advisorReports());
+  }
+
+  /** Советник у стола со свитком доклада. */
+  private placeAdvisor(): void {
+    const a = this.person('advisor');
     a.visible = true;
     a.carry = 'scroll';
     a.place(ADVISOR_POST.x, ADVISOR_POST.z, ADVISOR_POST.yaw);
     a.want.read = 0.35;
     a.g.read = 0.35;
-    this.run(this.advisorReports());
   }
 
   /** Правитель берёт письмо (касание письма или кнопка «Взять письмо»): гонец отдаёт, кланяется и уходит. */
@@ -688,6 +713,15 @@ export class ChambersLife {
     yield () => !h.moving;
     this.busyN--;
     yield* this.approach('herald', 'news');
+  }
+
+  /** Советник встаёт у стола со свитком (его кусок — в пути: подождать) и докладывает. */
+  private *advisorComes(): Script {
+    this.busyN++;
+    yield () => this.counsel !== null;
+    this.busyN--;
+    this.placeAdvisor();
+    yield* this.advisorReports();
   }
 
   /** Советник у стола: оборачивается к правителю, кланяется, поднимает свиток — и докладывает. */

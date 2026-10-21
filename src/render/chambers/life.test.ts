@@ -367,4 +367,34 @@ describe('покои: бюджет живых (Г-7)', () => {
     expect(room.life.counts()).toEqual({ triangles: tris + buildConsortMesh().triangles, meshes: 3 });
     room.dispose();
   });
+
+  it('советник — своя сетка ЛЦ-5 (docs/characters.md): дешевле прежнего на каждом уровне, в покоях — одна сетка', async () => {
+    const { buildPerson } = await import('./folk');
+    const { buildAdvisorMesh } = await import('./advisor/figure');
+    const { headOf } = await import('./advisor/head');
+    const { ADVISOR_LOOKS, BEST } = await import('./advisor/looks');
+    const tris = buildAdvisorMesh(headOf(ADVISOR_LOOKS[BEST].face)).triangles;
+    for (const d of [0, 1, 2] as const) expect(tris, `прежний советник @${d}`).toBeLessThan(buildPerson('advisor', DEFAULT_ARMS, d, 1).m.b.triangleCount);
+    const room = phoneRoom();
+    await room.life.advisorReady;
+    room.life.advisorWaits();
+    expect(room.life.counts()).toEqual({ triangles: tris, meshes: 2 });
+    room.dispose();
+  });
+
+  it('советник ждёт свой кусок: вход раньше куска — у стола никого, кусок приехал — встаёт у стола и докладывает', async () => {
+    const room = phoneRoom();
+    // Кусок ещё не приехал (жизнь покоев только что родилась): сцена у стола ждёт.
+    room.life.advisorWaits();
+    run(room, 0.5);
+    expect(room.life.personOf('advisor'), 'кусок в пути — советника нет').toBeNull();
+    expect(room.life.view().busy, 'сцена держит просьбы').toBe(true);
+    await room.life.advisorReady;
+    expect(run(room, 10, talking(room, 'advisor', 'report')), 'встал у стола и докладывает').toBe(true);
+    const { buildAdvisorMesh } = await import('./advisor/figure');
+    const { headOf } = await import('./advisor/head');
+    const { ADVISOR_LOOKS, BEST } = await import('./advisor/looks');
+    expect(room.life.counts().triangles, 'своя сетка, не прежняя').toBe(buildAdvisorMesh(headOf(ADVISOR_LOOKS[BEST].face)).triangles);
+    room.dispose();
+  });
 });

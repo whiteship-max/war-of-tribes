@@ -6,6 +6,7 @@ import { pixelRatio } from '../loop';
 import { STILL, type Gesture } from './folk';
 import { CONSORT_IDS, makeConsort, type ConsortId } from './consort';
 import { HERALD_IDS, makeHerald, type HeraldId } from './herald';
+import { ADVISOR_IDS, makeAdvisor, type AdvisorId } from './advisor';
 import { CAT_IDS, makeCat, type CatId, type CatKit } from './pet';
 import { Cat, type CatBody } from './cat';
 import type { FigureUniforms } from './kit/material';
@@ -13,16 +14,21 @@ import type { SkinBody } from './kit/skin';
 import type { V3 } from '../city/geom';
 
 export interface ShotAsk {
-  /** Кто: супруга (по умолчанию) или гонец; облики — `looks` (супруги) и `heralds` (гонца). */
-  who?: 'wife' | 'herald';
+  /** Кто: супруга (по умолчанию), гонец или советник (ЛЦ-5); облики — `looks`, `heralds` и `advisors`. */
+  who?: 'wife' | 'herald' | 'advisor';
   looks?: ConsortId[];
   heralds?: HeraldId[];
+  advisors?: AdvisorId[];
   /**
    * Ракурс: спереди, три четверти, сбоку, сзади; `face` — лицо крупно; `sheet` — фигуры и головы под ними; `duo` — лицо
    * супруги и лицо гонца рядом (1024 × 512), в одном свете; `pair` — супруга и гонец рядом в рост и головы под ними;
    * `poses` — гонец в рост по клипам: стоит, идёт, кланяется, вручает письмо, говорит.
    */
-  view?: 'front' | 'three' | 'side' | 'back' | 'face' | 'sheet' | 'duo' | 'pair' | 'poses' | 'catface' | 'catduo' | 'cats' | 'catposes';
+  view?: 'front' | 'three' | 'side' | 'back' | 'face' | 'sheet' | 'duo' | 'pair' | 'poses' | 'catface' | 'catduo' | 'cats' | 'catposes' | 'trio' | 'trioFull' | 'advposes';
+  /** Советник (ЛЦ-5): `trio` — лица супруги, гонца и советника рядом (1536 × 512) в одном свете; `trioFull` — все трое в рост
+   * и головы под ними (снимок единства); `advposes` — советник по клипам; клип советника и его секунда — `advClip`, `at`. */
+  advClip?: 'stroke' | 'leaf' | 'nod' | 'point';
+  read?: number;
   /** Кот (ЛЦ-4): окрасы; `catface` — морда крупно, `catduo` — лица супруги, гонца и морда кота рядом (1536 × 512), `cats` —
    * окрасы рядом в рост и мордой, `catposes` — кот по клипам. Поза тела, клип и его секунда, взгляд глаз (рад). */
   cats?: CatId[];
@@ -107,6 +113,19 @@ export function mountConsortStand(root: HTMLElement, p: URLSearchParams): void {
     }
     return f;
   };
+  const advisor = (id: AdvisorId): Figure => {
+    let f = figures.get(`advisor-${id}`);
+    if (!f) {
+      const k = makeAdvisor({ look: id, inside: false });
+      // Лицо советника — по кадру, как у гонца: цель на 4,3 см ниже глаз.
+      f = { body: k.body, u: k.u, pose: k.pose, blink: (t) => k.motion.blink(t), play: undefined, faceAt: () => k.body.at('lids', [0, 0, 0.02]), faceAim: [0, -0.043, 0], headAt: () => k.body.at('lids', [0, -0.043, -0.06]) };
+      advisorKits.set(id, k);
+      scene.add(k.body.mesh);
+      figures.set(`advisor-${id}`, f);
+    }
+    return f;
+  };
+  const advisorKits = new Map<AdvisorId, ReturnType<typeof makeAdvisor>>();
   const cats = new Map<CatId, { kit: CatKit; brain: Cat }>();
   const cat = (id: CatId): { kit: CatKit; brain: Cat } => {
     let f = cats.get(id);
@@ -159,8 +178,10 @@ export function mountConsortStand(root: HTMLElement, p: URLSearchParams): void {
   };
 
   const pose = (k: Figure, x: number, yaw: number, a: ShotAsk): void => {
-    const g: Gesture = { ...STILL, talk: a.talk ?? 0, curtsy: a.curtsy ?? 0, bow: a.bow ?? 0, offer: a.offer ?? 0, lookYaw: a.lookYaw ?? 0 };
+    const g: Gesture = { ...STILL, talk: a.talk ?? 0, curtsy: a.curtsy ?? 0, bow: a.bow ?? 0, offer: a.offer ?? 0, lookYaw: a.lookYaw ?? 0, read: a.read ?? 0 };
     const t = a.t ?? 1.5;
+    // Клип советника — с его секунды `at` (кадры стенда не текут друг в друга: без клипа — клип снят).
+    for (const [id, kk] of advisorKits) if (figures.get(`advisor-${id}`) === k) kk.motion.start(a.advClip ?? 'nod', a.advClip ? t - (a.at ?? 1) : -99);
     if (a.clip && k.play) k.play(a.clip, t - (a.at ?? 0));
     if (a.blink) k.blink(t - 0.09);
     // Живость считает своё время сама: два вызова — чтобы клип и моргание встали на свою секунду.
@@ -209,7 +230,7 @@ export function mountConsortStand(root: HTMLElement, p: URLSearchParams): void {
     renderer.setSize(w, h, false);
     canvas.style.width = `${w}px`;
     canvas.style.height = `${h}px`;
-    const list = a.who === 'herald' ? (a.heralds ?? [...HERALD_IDS]).map(herald) : (a.looks ?? [...CONSORT_IDS]).map(wife);
+    const list = a.who === 'herald' ? (a.heralds ?? [...HERALD_IDS]).map(herald) : a.who === 'advisor' ? (a.advisors ?? [...ADVISOR_IDS]).map(advisor) : (a.looks ?? [...CONSORT_IDS]).map(wife);
     hideAll();
     let triangles = 0;
     let calls = 0;
@@ -218,7 +239,33 @@ export function mountConsortStand(root: HTMLElement, p: URLSearchParams): void {
     renderer.clear();
     const view = a.view ?? 'front';
     const catIds = a.cats ?? [...CAT_IDS];
-    if (view === 'catface') {
+    const trio = (): Figure[] => [wife(a.looks?.[0] ?? 'b'), herald(a.heralds?.[0] ?? 'b'), advisor(a.advisors?.[0] ?? 'a')];
+    if (view === 'trio') {
+      // Лица супруги, гонца и советника — одним светом, каждый в своей трети.
+      const third = Math.floor(w / 3);
+      trio().forEach((k, i) => {
+        hideAll();
+        faceShot(k, a, third, h, i * third);
+        calls += renderer.info.render.calls;
+        triangles += k.body.triangles;
+      });
+    } else if (view === 'advposes') {
+      // Советник по клипам: стоит, гладит бороду, листает свиток, кивает, указывает, идёт, говорит, кланяется.
+      const k = advisor(a.advisors?.[0] ?? 'a');
+      const clips: ShotAsk[] = [{ t: 2 }, { t: 2, advClip: 'stroke', at: 1.0 }, { t: 2, advClip: 'leaf', at: 1.2, read: 1 }, { t: 2, advClip: 'nod', at: 1.3 }, { t: 2, advClip: 'point', at: 1.2, talk: 1 }, { t: 2, walk: 1, phase: 1.4 }, { t: 2, talk: 1 }, { t: 2, bow: 1 }];
+      const cw = Math.floor(w / clips.length);
+      light(k, a.light === 'night');
+      clips.forEach((c, i) => {
+        hideAll();
+        pose(k, 0, a.yaw ?? -0.62, { ...a, ...c });
+        camera.fov = 24;
+        camera.position.set(0, 0.92, 4.4);
+        camera.lookAt(0, 0.88, 0);
+        draw(cw, h, i * cw, 0, camera);
+        calls += renderer.info.render.calls;
+      });
+      triangles = k.body.triangles;
+    } else if (view === 'catface') {
       catFace(catIds[0], a, w, h, 0);
       triangles = cat(catIds[0]).kit.body.triangles;
       calls = renderer.info.render.calls;
@@ -319,11 +366,12 @@ export function mountConsortStand(root: HTMLElement, p: URLSearchParams): void {
       });
       triangles = k.body.triangles;
     } else {
-      const angle = view === 'sheet' || view === 'pair' ? (a.angle ?? 'front') : view;
+      const angle = view === 'sheet' || view === 'pair' || view === 'trioFull' ? (a.angle ?? 'front') : (view as keyof typeof YAW);
       const yaw = YAW[angle];
-      const cols = view === 'pair' ? [wife(a.looks?.[0] ?? 'b'), herald(a.heralds?.[0] ?? 'b')] : list;
+      const cols = view === 'pair' ? [wife(a.looks?.[0] ?? 'b'), herald(a.heralds?.[0] ?? 'b')] : view === 'trioFull' ? trio() : list;
       const cw = Math.floor(w / cols.length);
-      const fullH = view === 'sheet' || view === 'pair' ? Math.floor(h * 0.56) : h;
+      const heads = view === 'sheet' || view === 'pair' || view === 'trioFull';
+      const fullH = heads ? Math.floor(h * 0.56) : h;
       cols.forEach((k, i) => {
         light(k, a.light === 'night');
         hideAll();
@@ -334,7 +382,7 @@ export function mountConsortStand(root: HTMLElement, p: URLSearchParams): void {
         camera.lookAt(0, 0.86, 0);
         draw(cw, fullH, i * cw, h - fullH, camera);
         calls += renderer.info.render.calls;
-        if (view === 'sheet' || view === 'pair') {
+        if (heads) {
           // Голова и плечи под ней.
           const head = k.headAt();
           camera.fov = 16;

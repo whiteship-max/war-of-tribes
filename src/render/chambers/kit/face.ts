@@ -341,3 +341,33 @@ export function paintMouth(img: Img, lip: RGB): void {
   img.shape((x, y) => -1, box, (x, y) => mix(tone(lip, -0.7), tone(lip, -0.9), (y - s.y) / s.h));
   img.shape((x, y) => Math.abs(y - (s.y + 9)) - 3.5 + 0.0004 * (x - s.x - s.w / 2) ** 2, box, hex(0xd8cfc2), { soft: 2.5, alpha: 0.9 });
 }
+
+// ---------- Форма тоном и морщины (ЛЦ-5) ----------
+//
+// Оценщики ЛЦ-3 видели на щеках «пятна»: тень и свет — многоугольниками с мягким краем, и у края плоскость читается пятном.
+// Здесь свет и тень формы — гладкой функцией по всему лицу (без края вовсе), а морщина — складкой: тёмная борозда и свет
+// на её нижнем крае, как на живой коже. Пользуется советник; прежние лица этих кистей не берут — их вид не меняется.
+
+/**
+ * Тон формы по всему лицу: `k(X, h)` — свет (+) или тень (−) в точке (метры по ряду, высота над подбородком); тень — к
+ * тёплому красному, свет — к желтоватому. Множится на то, что уже нарисовано: черты под ним не стираются.
+ */
+export function formShade(f: FaceSheet, k: (X: number, h: number) => number): void {
+  const { img, face, SX } = f;
+  img.shape((x, y) => -1, face, (x, y) => {
+    const c = img.get(Math.min(FACE_PX - 1, x | 0), Math.min(FACE_PX - 1, y | 0));
+    const v = Math.max(-0.6, Math.min(0.45, k(x / SX, f.hRow[Math.min(FACE_PX - 1, y | 0)])));
+    if (v < 0) return [c[0] * (1 + v * 0.8), c[1] * (1 + v * 1.05), c[2] * (1 + v * 1.12)];
+    return [Math.min(1, c[0] * (1 + v * 0.9)), Math.min(1, c[1] * (1 + v * 0.85)), Math.min(1, c[2] * (1 + v * 0.7))];
+  });
+}
+
+/** Морщина: борозда по точкам (метры лица), глубина 0…1, ширина в точках листа; свет — под бороздой на `light` точек. */
+export function wrinkle(f: FaceSheet, pts: readonly FacePt[], depth: number, width: number, light = 1.6): void {
+  if (depth <= 0) return;
+  const q = spline(pts.map(([x, h]) => f.P(x, h)), 5);
+  const box = boxOf(q, width * 3 + 4);
+  const fade = (t: number): number => Math.sin(Math.PI * Math.min(1, Math.max(0, t))) ** 0.6;
+  f.img.shape(stroke(q.map(([x, y]) => [x, y + light] as [number, number]), (t) => width * 0.9 * fade(t) + 0.3), box, f.sh(0.35), { soft: 1.6, alpha: 0.45 * depth });
+  f.img.shape(stroke(q, (t) => width * fade(t) + 0.25), box, mix(f.sh(-0.95), [0.36, 0.16, 0.12], 0.25), { soft: 1.2, alpha: 0.7 * depth });
+}

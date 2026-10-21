@@ -177,16 +177,18 @@ describe('глаз к гостю (Р-1)', () => {
     room.dispose();
   });
 
-  it('советник после отлучки: целиком в кадре до доклада', () => {
+  it('советник после отлучки: целиком в кадре до доклада', async () => {
     const room = phoneRoom();
+    await room.life.advisorReady;
     room.life.advisorWaits();
     expect(entry(room, 'advisor', 'советник')).toBeGreaterThan(30);
     room.dispose();
   });
 
-  it('в разговоре гость в кадре над плашкой; после «Ступай» и крестика глаз свободен — и на стол', () => {
+  it('в разговоре гость в кадре над плашкой; после «Ступай» и крестика глаз свободен — и на стол', async () => {
     // Сидя за столом: советник у стола докладывает.
     const room = phoneRoom();
+    await room.life.advisorReady;
     room.setPlate(PLATE);
     room.snap('desk');
     room.life.advisorWaits();
