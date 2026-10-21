@@ -18,7 +18,8 @@
 //                                                `SKIT=brawl` — сценка жителей адресом (`?skit=`, ЖГ-2: у точки `WXLOOK` ближе 134 м)
 //   GAME=1 WX=clear CHAMBERS=desk npm run city:shots — покои правителя (docs/city_v3.md, Г-4): точка интереса
 //                                                (hall, desk, window, hearth, bed, arms), `:доворот:наклон:безделушка:подсветка`;
-//                                                `FIGHT=stance|at:…|hit:dx:dy`, `FIGHTSHOT=swing:dx:dy` — бой мечом (Г-11)
+//                                                `FIGHT=stance|at:…|hit:dx:dy`, `FIGHTSHOT=swing:dx:dy` — бой мечом (Г-11);
+//                                                `BENCH=8` — цена кадра покоев как вошли и после `LIFE` (секунды замера)
 //   LEGEND=1 npm run city:shots              — легенда карты листом: строки значков той же функцией, что окно легенды
 //                                                (docs/city.md, 16.5); `GAME=1 WXMAP=1 LEGEND=1` — окно в самой игре
 //   SIZE=540x900 VIEWS=game SOLAR=0.46 npm run city:shots — свой экран (точки CSS, плотность 2): кадры заставки
@@ -171,6 +172,54 @@ async function shot(q: Quality, view: string, solar: number): Promise<void> {
     tab.close();
     await fetch(`http://127.0.0.1:${DEBUG_PORT}/json/close/${tab.target}`).catch(() => undefined);
   }
+}
+
+/**
+ * Цена кадра покоев (`BENCH=8` к `CHAMBERS=…`, docs/characters.md, «Слияние ЛЦ-3»): столько секунд кадров, которые сцена
+ * рисует сама под потолком стенда, — стенд кадр не зовёт, он только оборачивает `frame` сцены. Числа — медиана и p95:
+ * процессор на весь кадр (шаг жизни покоев, кожа фигур, отрисовка), таймер видеокарты на отрисовку
+ * (`EXT_disjoint_timer_query_webgl2`) и кадр до конца видеокарты (чтение пикселя после отрисовки), как у `village:shots`.
+ * Меряется дважды за заход — покои без людей и после `LIFE`; абсолютные миллисекунды гуляют от захода к заходу,
+ * сравнивать можно строки одного вывода.
+ */
+async function benchChambers(tab: Tab, label: string): Promise<void> {
+  const ms = Number(process.env.BENCH) * 1000;
+  const r = await tab.eval<string>(`(async () => {
+    const sc = window.__scene;
+    const gl = sc.renderer.getContext();
+    const ext = gl.getExtension('EXT_disjoint_timer_query_webgl2');
+    const cpu = [], gpu = [], sync = [], pending = [];
+    const px = new Uint8Array(4);
+    let q = null, a0 = 0, cpuNow = 0, calls = 0, tris = 0;
+    const frame = sc.frame;
+    sc.frame = function () { a0 = performance.now(); cpuNow = 0; frame.call(sc); cpu.push(cpuNow || performance.now() - a0); };
+    sc.beforeRender = () => { if (ext) { q = gl.createQuery(); gl.beginQuery(ext.TIME_ELAPSED_EXT, q); } };
+    sc.afterRender = () => {
+      if (q) { gl.endQuery(ext.TIME_ELAPSED_EXT); pending.push(q); q = null; }
+      cpuNow = performance.now() - a0;
+      gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+      sync.push(performance.now() - a0);
+      const st = sc.stats();
+      calls = Math.max(calls, st.calls);
+      tris = Math.max(tris, st.triangles);
+      for (let i = pending.length - 1; i >= 0; i--) {
+        const p = pending[i];
+        if (!gl.getQueryParameter(p, gl.QUERY_RESULT_AVAILABLE)) continue;
+        if (!gl.getParameter(ext.GPU_DISJOINT_EXT)) gpu.push(gl.getQueryParameter(p, gl.QUERY_RESULT) / 1e6);
+        gl.deleteQuery(p);
+        pending.splice(i, 1);
+      }
+    };
+    await new Promise((r) => setTimeout(r, ${ms}));
+    delete sc.frame;
+    sc.beforeRender = null;
+    sc.afterRender = null;
+    const at = (a, k) => { const v = a.slice().sort((x, y) => x - y); return v.length ? v[Math.min(v.length - 1, Math.floor(v.length * k))].toFixed(2) : '—'; };
+    return JSON.stringify('кадров ' + cpu.length + ', процессор ' + at(cpu, 0.5) + ' / ' + at(cpu, 0.95) + ' мс, видеокарта ' +
+      (ext ? at(gpu, 0.5) + ' / ' + at(gpu, 0.95) : 'нет таймера') + ' мс, до конца видеокарты ' + at(sync, 0.5) + ' / ' + at(sync, 0.95) +
+      ' мс (медиана / p95); вызовов ' + calls + ', треугольников ' + tris + ', буфер ' + gl.drawingBufferWidth + '×' + gl.drawingBufferHeight);
+  })()`);
+  console.log(`  цена кадра, ${label}: ${r}`);
 }
 
 /** Игра по адресу `?look=city`: новая партия, вход, стартовый кадр города и счётчики сцены. */
@@ -472,12 +521,21 @@ async function weatherShots(tab: Tab, q: Quality): Promise<void> {
       await tab.eval(`(() => { const r = window.__chambers; r.down(1, 150, 600, { left: 0, top: 0, width: innerWidth, height: innerHeight }); r.move(1, 150, 520); })()`);
       await sleep(700);
     }
+    // Цена кадра покоев (`BENCH=8`): прогрев, покои как вошли — и ещё раз после `LIFE`.
+    if (process.env.BENCH) {
+      await sleep(3000);
+      await benchChambers(tab, 'как вошли');
+    }
     // Жизнь покоев (Г-7): `LIFE='{"who":"servant","at":{"x":3.75,"z":-4.6,"yaw":3.1},"talk":true}'` — поставить людей и кота
     // сразу (`ChambersLife.stage`); списком — несколько (`LIFE='[{"who":"maid"},{"cat":"floor"}]'`).
     if (process.env.LIFE) {
       // Супруга и гонец — своими ленивыми кусками (ЛЦ-2, ЛЦ-3): ставим, когда они приехали, иначе в кадре — запасная сетка.
       const r = await tab.eval<string>(`(async () => { const l = window.__chambers.life; await l.consortReady; await l.heraldReady; for (const s of [].concat(${process.env.LIFE})) l.stage(s); return JSON.stringify('жизнь: ' + JSON.stringify(l.view())); })()`);
       console.log(`  ${r}`);
+      if (process.env.BENCH) {
+        await sleep(1500);
+        await benchChambers(tab, 'после LIFE');
+      }
     }
     // Гонец и советник (Г-10): `COURT='{"herald":{"key":"k","kind":"raid","line":"{T}! …","door":{"to":"inbox"}}}'` — гонец с
     // письмом этой вести перед правителем; `COURT='{"report":[{"key":"a","text":"…","tone":"bad","door":{"to":"inbox"}}]}'`
