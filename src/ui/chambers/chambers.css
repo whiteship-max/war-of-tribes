@@ -110,36 +110,8 @@
   background: rgba(243, 196, 106, 0.7);
 }
 
-/* Стик под пальцем движения: встаёт, где лёг большой палец (`room.ts`), ручка — куда его увели. */
-.ch-stick {
-  position: absolute;
-  left: -46px;
-  top: -46px;
-  width: 92px;
-  height: 92px;
-  border-radius: 50%;
-  border: 2px solid rgba(255, 240, 220, 0.35);
-  background: rgba(20, 16, 12, 0.18);
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.12s;
-}
-
-.ch-stick[data-on='1'] {
-  opacity: 1;
-}
-
-.ch-stick i {
-  position: absolute;
-  left: 28px;
-  top: 28px;
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  background: rgba(255, 240, 220, 0.55);
-}
-
-/* Кружок пальца движения в левом нижнем углу — рисунок: касание ловит вся левая половина экрана. */
+/* Кружок пальца движения в левом нижнем углу — рисунок: касание ловит вся левая половина экрана, палец ведёт его ручку
+   (`room.pad`, Г-12: кружок один — под пальцем второй не встаёт). */
 .ch-pad {
   position: absolute;
   left: calc(var(--safe-left) + 20px);
@@ -151,6 +123,10 @@
   background: rgba(20, 16, 12, 0.24);
   opacity: 0.8;
   pointer-events: none;
+}
+
+.ch-pad[data-on='1'] {
+  opacity: 1;
 }
 
 .ch-pad i {

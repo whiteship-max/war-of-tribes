@@ -69,6 +69,24 @@ export const STICK_DEAD = TAP_MOVE;
 export const STICK_FULL = 56;
 
 /**
+ * Ход ручки кружка пальца движения, px: от середины кружка до обода (кружок 88, ручка 32, обод 2 — `.ch-pad`, `.mg-pad`).
+ * Кружок стоит в своём углу и один (Г-12): палец ведут откуда угодно в своей половине, а ручка ходит в кружке.
+ */
+export const PAD_TRAVEL = 24;
+
+/**
+ * Где ручка кружка пальца движения, px от его середины: увод пальца от точки нажатия в долю полного хода
+ * (`STICK_FULL`) — у обода ручка тогда, когда ход полный. Кружок не ездит за пальцем: второго кружка под пальцем нет.
+ */
+export function padKnob(s: { ox: number; oy: number; x: number; y: number }): [number, number] {
+  const dx = s.x - s.ox;
+  const dy = s.y - s.oy;
+  const len = Math.hypot(dx, dy);
+  const k = len > STICK_FULL ? PAD_TRAVEL / len : PAD_TRAVEL / STICK_FULL;
+  return [dx * k, dy * k];
+}
+
+/**
  * Сколько градусов поворота даёт один пиксель тяги.
  *
  * Полградуса: удобная тяга большим пальцем поперёк своей половины экрана —
@@ -204,7 +222,7 @@ export class Sticks {
     return this.fingers.size;
   }
 
-  /** Нажатие ходьбы — сцене, чтобы нарисовать стик под пальцем. */
+  /** Нажатие ходьбы — сцене, чтобы повести ручку кружка пальца движения (`padKnob`). */
   get stick(): { ox: number; oy: number; x: number; y: number } | null {
     for (const f of this.fingers.values()) {
       if (f.half === 'walk') return { ox: f.press.x, oy: f.press.y, x: f.x, y: f.y };

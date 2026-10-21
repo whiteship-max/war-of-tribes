@@ -18,7 +18,7 @@ import type { Quality } from '../quality';
 import type { Detail } from '../city/kit';
 import type { Arms } from '@/heraldry/arms';
 import { TAP_TARGET, swallowGhostClick } from '@/gestures';
-import { Keys, LOOK_RAD_PER_PX, Sticks, mergeWalk, typing, type Walk } from '@/prologue/controls';
+import { Keys, LOOK_RAD_PER_PX, Sticks, mergeWalk, padKnob, typing, type Walk } from '@/prologue/controls';
 import { turnRate } from '@/minigames/pad';
 import { geometryOf } from '../city/index';
 import { treeModel } from '../city/nature';
@@ -313,7 +313,10 @@ export class ChambersRoom implements Inside {
   private tagEls: { box: HTMLDivElement; dot: HTMLDivElement; line: HTMLDivElement }[] = [];
   /** Подписи вещей: насколько проступила (0…1) и нужна ли сейчас — плавно появляются и гаснут (Г-6). */
   private tagFade = LABELS.map(() => ({ a: 0, want: false }));
-  private stickEl: HTMLDivElement | null = null;
+  /** Кружок пальца движения в углу (`.ch-pad` окна покоев): палец ведёт его ручку, второго кружка нет (Г-12). */
+  private padEl: HTMLElement | null = null;
+  /** Что уже записано в кружок: включён ли и где ручка, — DOM не трогается каждый кадр. */
+  private padAt = '';
   /** Раскладка подписей последнего кадра — тестам и стенду. */
   tagsNow: TagOut[] = [];
   private lastView = '';
@@ -494,10 +497,9 @@ export class ChambersRoom implements Inside {
     this.onChange?.();
   }
 
-  /** Подписи и стик — в слой интерфейса: подпись под пальцем, имена предметов стола, кружок пальца движения. */
+  /** Подписи — в слой интерфейса: подпись под пальцем, имена предметов стола. */
   attachLabels(host: HTMLElement | null): void {
     this.label?.remove();
-    this.stickEl?.remove();
     for (const t of this.tagEls) {
       t.box.remove();
       t.dot.remove();
@@ -505,7 +507,6 @@ export class ChambersRoom implements Inside {
     }
     this.tagEls = [];
     this.label = null;
-    this.stickEl = null;
     this.labelHost = host;
     if (!host) return;
     const l = document.createElement('div');
@@ -527,11 +528,12 @@ export class ChambersRoom implements Inside {
       }
       this.tagEls.push({ box, dot, line });
     }
-    const st = document.createElement('div');
-    st.className = 'ch-stick';
-    st.innerHTML = '<i></i>';
-    host.appendChild(st);
-    this.stickEl = st;
+  }
+
+  /** Кружок пальца движения окна покоев (`.ch-pad`, его ручка — первый потомок); `null` — кружка на экране нет. */
+  attachPad(el: HTMLElement | null): void {
+    this.padEl = el;
+    this.padAt = '';
   }
 
   // ---------- Глаз ----------
@@ -650,6 +652,7 @@ export class ChambersRoom implements Inside {
     this.stepBody();
     this.light(t, sky);
     this.labels(dt);
+    this.pad();
     if (this.onEar) {
       // Ухо: до огня и с какой он стороны, до большого окна; ветер и дождь — у окна этого кадра.
       const e = this.pose;
@@ -2030,18 +2033,20 @@ export class ChambersRoom implements Inside {
         el.line.style.transform = `translate3d(${Math.round(t.ax)}px, ${Math.round(t.ay)}px, 0) rotate(${Math.atan2(dy, dx).toFixed(3)}rad)`;
       } else if (el.line.style.visibility !== 'hidden') el.line.style.visibility = 'hidden';
     });
-    // Кружок пальца движения — под пальцем, ручка — куда его увели.
-    const st = this.stickEl;
-    if (st) {
-      const s = this.sticks.stick;
-      if (s) {
-        st.dataset.on = '1';
-        st.style.transform = `translate3d(${Math.round(s.ox)}px, ${Math.round(s.oy)}px, 0)`;
-        const dx = clamp(s.x - s.ox, -40, 40);
-        const dy = clamp(s.y - s.oy, -40, 40);
-        (st.firstChild as HTMLElement).style.transform = `translate3d(${Math.round(dx)}px, ${Math.round(dy)}px, 0)`;
-      } else if (st.dataset.on !== '0') st.dataset.on = '0';
-    }
+  }
+
+  /** Ручка кружка пальца движения — куда увели палец (`controls.padKnob`); кружок стоит в своём углу (Г-12). */
+  private pad(): void {
+    const el = this.padEl;
+    if (!el) return;
+    const s = this.sticks.stick;
+    const [dx, dy] = s ? padKnob(s) : [0, 0];
+    const at = `${s ? 1 : 0} ${Math.round(dx)} ${Math.round(dy)}`;
+    if (at === this.padAt) return;
+    this.padAt = at;
+    el.dataset.on = s ? '1' : '0';
+    const knob = el.firstElementChild as HTMLElement | null;
+    if (knob) knob.style.transform = `translate3d(${Math.round(dx)}px, ${Math.round(dy)}px, 0)`;
   }
 
   /** Подпись того, что под пальцем: имя и что будет от касания. */

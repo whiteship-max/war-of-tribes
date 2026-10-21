@@ -13,7 +13,7 @@ import { energyTip } from '@/ui/next/hudTips';
 import { TIP_MAX } from '@/ui/next/tip';
 import { BANNED, playerStrings } from '@/ui/next/voice.test';
 import { TAP_SLIP, TAP_TARGET } from '@/gestures';
-import { STICK_DEAD, STICK_FULL } from '@/prologue/controls';
+import { PAD_TRAVEL, STICK_DEAD, STICK_FULL, padKnob } from '@/prologue/controls';
 import { HOW, verdictOf } from './Minigame';
 import { BEASTS } from './herd';
 import { PIN_DISTS } from './hunt';
@@ -113,6 +113,27 @@ describe('цели касания промыслов — не меньше по�
     expect(STICK_FULL).toBeLessThanOrEqual(value('.mg-pad', 'width')!);
     // Мёртвая зона стика — меньше порога тапа: палец, ещё не пошедший, кнопку обхода жмёт как тап.
     expect(STICK_DEAD).toBeLessThan(TAP_SLIP);
+  });
+
+  it('палец движения — один кружок (Г-12): ручка кружка в углу ходит за пальцем, плавающего стика нет', () => {
+    const tsx = readFileSync(join(__dirname, 'Minigame.tsx'), 'utf8');
+    expect(tsx.match(/className=\{`mg-pad /g)?.length, 'кружков в окне промысла').toBe(1);
+    expect(tsx, 'кружок отдан сцене').toMatch(/ref=\{\(el\) => stageRef\.current\?\.attachPad\(el\)\}/);
+    expect(tsx + CSS, 'плавающего стика нет').not.toMatch(/mg-stick/);
+    // Сцена ведёт только ручку: сам кружок за пальцем не ездит.
+    const stage = readFileSync(join(__dirname, 'stage.ts'), 'utf8');
+    const from = stage.indexOf('private stick(): void {');
+    const body = stage.slice(from, stage.indexOf('\n  }\n', from));
+    expect(body).toMatch(/padKnob\(s\)/);
+    expect(body, 'кружок стоит').not.toMatch(/\bel\.style\.transform/);
+    // Ручка ходит внутри кружка: полный ход пальца — у обода, дальше — не уходит; полпути — полхода.
+    const w = value('.mg-pad', 'width')!;
+    const k = value('.mg-pad i', 'width')!;
+    expect(PAD_TRAVEL, 'ход ручки — в кружке').toBeLessThanOrEqual((w - k) / 2 - 2);
+    expect(padKnob({ ox: 100, oy: 100, x: 100, y: 100 - STICK_FULL })).toEqual([0, -PAD_TRAVEL]);
+    const far = padKnob({ ox: 100, oy: 100, x: 100 + 3 * STICK_FULL, y: 100 + 4 * STICK_FULL });
+    expect(Math.hypot(...far)).toBeCloseTo(PAD_TRAVEL, 9);
+    expect(padKnob({ ox: 0, oy: 0, x: STICK_FULL / 2, y: 0 })[0]).toBeCloseTo(PAD_TRAVEL / 2, 9);
   });
 
   it('холст отдаёт пальцу вертикальную тягу: `touch-action: none`', () => {

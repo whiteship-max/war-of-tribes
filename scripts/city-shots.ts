@@ -466,6 +466,12 @@ async function weatherShots(tab: Tab, q: Quality): Promise<void> {
     console.log(`  ${said}`);
     // «Вдаль» у окна (Г-12): `ZOOM=4` — столько касаний кнопки «Вдаль» (`room.zoomBy(1.6)`), как пальцем.
     for (let k = 0; k < Number(process.env.ZOOM ?? 0); k++) await tab.eval(`window.__chambers.zoomBy(1.6)`);
+    // Ходьба (Г-12): `WALK=1` — палец движения лёг в левой половине и ушёл вверх на полный ход; снимок — с пальцем на экране
+    // (кружок в углу один, его ручка у обода).
+    if (process.env.WALK) {
+      await tab.eval(`(() => { const r = window.__chambers; r.down(1, 150, 600, { left: 0, top: 0, width: innerWidth, height: innerHeight }); r.move(1, 150, 520); })()`);
+      await sleep(700);
+    }
     // Жизнь покоев (Г-7): `LIFE='{"who":"servant","at":{"x":3.75,"z":-4.6,"yaw":3.1},"talk":true}'` — поставить людей и кота
     // сразу (`ChambersLife.stage`); списком — несколько (`LIFE='[{"who":"maid"},{"cat":"floor"}]'`).
     if (process.env.LIFE) {

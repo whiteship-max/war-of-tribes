@@ -501,8 +501,9 @@ export function Chambers() {
 
       {v && (!held || v.fight) && !talk && !night && (
         <>
-          {/* Палец движения — рисунок: касание ловит вся левая половина (`prologue/controls.Sticks`), стик встаёт под палец. */}
-          <div className="ch-pad" aria-hidden="true">
+          {/* Палец движения — рисунок: касание ловит вся левая половина (`prologue/controls.Sticks`), а ведёт палец ручку этого
+              кружка (`room.attachPad`) — второго кружка под пальцем нет (Г-12). */}
+          <div className="ch-pad" ref={(el) => room?.attachPad(el)} aria-hidden="true">
             <i />
           </div>
           {v.mode === 'in' && v.spot && (
