@@ -40,19 +40,19 @@ export interface CatLook {
 export const CAT_LOOKS: Record<CatId, CatLook> = {
   a: {
     name: 'Рыжий полосатый: белая грудка и носки, медовые глаза',
-    palette: { fur: 0xd8883c, stripe: 0x9a4818, pale: 0xf4e0bc, nose: 0xd98c84, iris: 0xd8a02a, ear: 0xe0a294 },
+    palette: { fur: 0xd8883c, stripe: 0x9a4818, pale: 0xf4e0bc, nose: 0xd98c84, iris: 0xd8a02a, ear: 0xd09a88 },
     marks: { tabby: 1, muzzle: 0.35, bib: 1, socks: 0.25 },
     head: { cheek: 0.009, muzzle: 0.014 },
   },
   b: {
     name: 'Серый полосатый: тёмные полосы, светлая морда, зелёные глаза',
-    palette: { fur: 0x7c7a76, stripe: 0x262526, pale: 0xd8d2c6, nose: 0x9a6a6a, iris: 0x9ab446, ear: 0xc8968e },
+    palette: { fur: 0x7c7a76, stripe: 0x262526, pale: 0xd8d2c6, nose: 0x9a6a6a, iris: 0x9ab446, ear: 0xb48a84 },
     marks: { tabby: 1, muzzle: 0.3, bib: 0.6, socks: 0 },
     head: { cheek: 0.01, muzzle: 0.013 },
   },
   c: {
     name: 'Чёрно-белый: фрак, белая маска и носки, жёлтые глаза',
-    palette: { fur: 0x26252a, stripe: 0x141317, pale: 0xf2eee6, nose: 0xd8949a, iris: 0xd2c23a, ear: 0xc89096 },
+    palette: { fur: 0x1d1c22, stripe: 0x101014, pale: 0xf2eee6, nose: 0xd8949a, iris: 0xd2c23a, ear: 0xa87a80 },
     marks: { tabby: 0, muzzle: 1, bib: 1, socks: 0.45 },
     head: { cheek: 0.008, muzzle: 0.012 },
   },

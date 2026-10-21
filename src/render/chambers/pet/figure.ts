@@ -436,7 +436,7 @@ export const chinOf = (s: HeadSpec): { c: V3; r: V3 } => ({ c: [0, 0.258, 0.224 
 
 /** Подбородок: полушарие под мордой своей костью; открытый рот — тёмное нутро, нарисованное на голове под ним. */
 function chin(m: SkinMesh, s: HeadSpec): void {
-  const A = mirrorRing([0, 45, 90, 135, 180].map((d) => d * DEG));
+  const A = mirrorRing([0, 30, 60, 95, 135, 180].map((d) => d * DEG));
   const { c, r: R } = chinOf(s);
   const [rx, ry, rz] = R;
   const rows = [0.95, 0.5, -0.2, -0.75].map((h) =>

@@ -168,7 +168,8 @@ export function paintCat(look: CatLook): Img {
     // Плоскости, как у лиц людей: свет — лоб, переносица, верх щёк над усами; тень — под скулой, у края морды, под глазом.
     const form = lit(n) * (tux ? 1.0 : 0.9) + 0.6 * g(0, 24, 20, 16) + 0.45 * g(0, -4, 7, 9) + 0.4 * g(22, -12, 10, 6) - 0.6 * sm(58, 100, L) * sm(25, -15, B) - 0.55 * g(38, -16, 12, 7) - 0.4 * g(30, -30, 14, 8) - 0.35 * g(30, 30, 18, 8);
     // Морда — с размахом, как лица людей набора: плоскости света и тени читаются издали.
-    c = pelt(c, form * 1.5 - 0.15 + n2(x, y) * 0.18, 0.9);
+    // У чёрного — свет лишь блеском: тёплый белый свет сделал бы его серым.
+    c = pelt(c, form * 1.5 - 0.15 + n2(x, y) * 0.18, tux ? 0.3 * (1 - pk) + 0.9 * pk : 0.9);
     // Под подбородком и у шеи — тень.
     c = pelt(c, -0.5 * sm(-30, -70, lat / DEG));
     return c;
@@ -185,22 +186,23 @@ export function paintCat(look: CatLook): Img {
     const belly = sm(125, 155, a / DEG) * (bib > 0.8 ? 1 : 0.75 * bib);
     let c = mix(fur, pale, clamp(Math.max(chest, belly)));
     // Тень под брюхом сильнее света: кот стоит на свету сверху.
-    c = pelt(c, lit(n) * 0.95 - 0.45 * sm(115, 180, a / DEG) + n2(x, y) * 0.16);
+    c = pelt(c, lit(n) * 0.95 - 0.45 * sm(115, 180, a / DEG) + n2(x, y) * 0.16, tux ? 0.35 : 0.55);
     return c;
   });
   // ---------- Шея ----------
   const N = SHEET.neck;
   paintBox(img, N, (x, y) => {
-    const a = ((x - N.x0) / (N.x1 - N.x0)) * Math.PI;
+    // У шеи угол 0 листа — горло (кольца шеи смотрят вниз-вперёд), π — загривок; здесь `a` — от загривка, как у туловища.
+    const a = Math.PI - ((x - N.x0) / (N.x1 - N.x0)) * Math.PI;
     const n: [number, number, number] = [Math.sin(a), Math.cos(a) * 0.8, 0.3];
-    const c = mix(fur, pale, sm(110, 150, a / DEG) * look.marks.bib);
-    return pelt(c, lit(n) * 0.9 + n2(x, y) * 0.16);
+    const c = mix(fur, pale, sm(look.marks.bib > 0.8 ? 75 : 110, look.marks.bib > 0.8 ? 105 : 150, a / DEG) * look.marks.bib);
+    return pelt(c, lit(n) * 0.9 + n2(x, y) * 0.16, tux ? 0.35 : 0.55);
   });
   // ---------- Хвост ----------
   const TL = SHEET.tail;
   paintBox(img, TL, (x, y) => {
     const a = ((x - TL.x0) / (TL.x1 - TL.x0)) * Math.PI;
-    return pelt(fur, Math.cos(a) * 0.55 - 0.1 + n2(x, y) * 0.2);
+    return pelt(fur, Math.cos(a) * 0.55 - 0.1 + n2(x, y) * 0.2, tux ? 0.35 : 0.55);
   });
   // ---------- Лапы ----------
   for (const [b, socks] of [
@@ -276,6 +278,20 @@ function face(img: Img, look: CatLook): void {
   // Тёмная обводка: миндаль чуть шире чашечки глаза.
   const rim = eyeRimLonLat(1, 1.05).map(([lo, la]) => at(lo / DEG, la / DEG));
   img.shape(poly(rim), boxOf(rim, 4), rimDark, { soft: 1.6, clip: h });
+  // Верхняя кромка глаза — толще и длиннее к наружному углу (у кошек «подводка» сверху сильнее).
+  const upper = eyeRimLonLat(1, 1.12, 24)
+    .filter(([, la], i, all) => la > all.reduce((s2, q) => s2 + q[1], 0) / all.length)
+    .map(([lo, la]) => at(lo / DEG, la / DEG))
+    .sort((p1, p2) => p1[0] - p2[0]);
+  if (upper.length > 2) img.shape(stroke(spline(upper, 3), (t) => 2.5 + 2.5 * Math.sin(Math.PI * t) + 1.5 * t), boxOf(upper, 8), rimDark, { soft: 1.4, alpha: 0.9, clip: h });
+  // Переносица: светлая полоса по спинке носа, по бокам — мягкая тень к внутренним углам глаз.
+  const bridge = [at(0, 14), at(0, 2), at(0, -6)];
+  img.shape(stroke(bridge, 9), boxOf(bridge, 10), tone(mix(hex(p.fur), pale, look.marks.muzzle > 0.5 ? 1 : 0.25), 0.35), { soft: 6, alpha: 0.35, clip: h });
+  const side = spline([at(14, 4), at(10, -2), at(9, -7)], 3);
+  img.shape(stroke(side, 5), boxOf(side, 7), mix(hex(p.fur), [0.1, 0.08, 0.07], 0.45), { soft: 4, alpha: 0.3, clip: h });
+  // Складка у подушечек усов: тень полукругом от мочки к щеке.
+  const crease = spline([at(9, -9), at(17, -12), at(24, -18), at(25, -26)], 4);
+  img.shape(stroke(crease, (t) => 2.5 + 3 * Math.sin(Math.PI * t)), boxOf(crease, 6), mix(hex(p.fur), [0.1, 0.08, 0.07], 0.35), { soft: 3.5, alpha: 0.35, clip: h });
   // Слёзная дорожка от внутреннего угла к носу.
   const inner = rim.reduce((a, b) => (b[0] < a[0] ? b : a));
   const tear = [inner, [inner[0] - 6, inner[1] + 9], [inner[0] - 9, inner[1] + 17]] as [number, number][];
@@ -397,7 +413,7 @@ function chinCell(img: Img, look: CatLook): void {
     const t = (y - b.y0) / (b.y1 - b.y0);
     const a = (x - b.x0) / (b.x1 - b.x0);
     // Низ и бока подбородка уходят в тень того же тона, что горло: края не видно.
-    const c = pelt(pale, 0.05 - t * 0.7 - a * 0.35);
+    const c = pelt(pale, 0.05 - t * 0.8 - a * 0.45);
     return mix(c, [0.12, 0.07, 0.06], (1 - sm(0, 0.14, t)) * (1 - sm(0.3, 0.55, a)) * 0.7);
   });
 }
