@@ -194,7 +194,7 @@ function buildCap(m: SkinMesh, head: Head): void {
 }
 
 /** Уши — крупнее, чем у гонца (с годами уши растут): основание, высоты, вынос, отвод (`kit/ear`). */
-export const EAR: EarSpec = { th: 1.64, h0: 0.083, h1: 0.188, out: 0.0125, back: 0.016 };
+export const EAR: EarSpec = { th: 1.64, h0: 0.083, h1: 0.188, out: 0.016, back: 0.017 };
 /** Лист уха на листе лица: справа под листом рта (как у гонца). */
 export const EAR_SHEET = { x0: 384, y0: 264, x1: 512, y1: 360 } as const;
 
@@ -202,7 +202,7 @@ export const EAR_SHEET = { x0: 384, y0: 264, x1: 512, y1: 360 } as const;
 
 /** Столбцы бороды (половина): от середины подбородка к бакенбарду; верхний край по ним — над чем начинается борода. */
 export const BEARD_TH = [0, 0.22, 0.48, 0.78, 1.08, 1.34, 1.56] as const;
-const BEARD_TOP = [0.047, 0.052, 0.07, 0.09, 0.106, 0.128, 0.158] as const;
+const BEARD_TOP = [0.047, 0.052, 0.07, 0.09, 0.106, 0.124, 0.14] as const;
 /** Ряды бороды: доля строки листа (сверху вниз). */
 const BEARD_V = [0, 0.16, 0.38, 0.6, 0.8, 0.92, 1] as const;
 
@@ -233,14 +233,15 @@ export function beardPt(head: Head, th: number, row: number): V3 {
     case 1:
       return lifted(top * 0.5 + 0.012, 0.006 + 0.004 * front);
     case 2:
-      return lifted(0.006, 0.006 + 0.012 * front);
+      return lifted(0.006, 0.006 + 0.015 * front);
     case 3:
-      return [c0[0] * 1.02 + wide, c0[1] - 0.042 * drop, c0[2] + 0.016 * front];
+      // Под подбородком борода круглится вперёд, к низу — назад: в профиль — дугой, не доской.
+      return [c0[0] * 1.02 + wide, c0[1] - 0.042 * drop, c0[2] + 0.017 * front];
     case 4:
-      // Низ — округлый: бока короче середины.
-      return [c0[0] * 0.84 + wide, c0[1] - len * drop, c0[2] + 0.006 * front];
+      // Низ — округлый: бока короче середины, кончик подобран назад.
+      return [c0[0] * 0.84 + wide, c0[1] - len * drop, c0[2] - 0.006 * front];
     case 5:
-      return [c0[0] * 0.74 + wide * 0.8, c0[1] - (len - 0.016) * drop, c0[2] - 0.034 * drop];
+      return [c0[0] * 0.7 + wide * 0.8, c0[1] - (len - 0.012) * drop, c0[2] - 0.03 * drop];
     default:
       return [nk.r * 1.05 * Math.sin(th), c0[1] - 0.016, nk.zc + nk.r * 1.05 * Math.cos(th)];
   }

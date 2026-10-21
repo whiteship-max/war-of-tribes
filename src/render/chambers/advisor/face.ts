@@ -15,7 +15,7 @@ import { BEARD_TH, EAR_SHEET } from './figure';
 import type { AdvisorLook } from './looks';
 
 /** Верх бороды по столбцу (метры лица): над ним — щека, под ним — седой волос (сетка бороды поверх). */
-const beardTop = (X: number): number => 0.047 + 0.006 * smooth(0, 0.024, X) + 0.05 * smooth(0.024, 0.11, X) + 0.025 * smooth(0.11, 0.15, X) + 0.03 * smooth(0.14, 0.17, X);
+const beardTop = (X: number): number => 0.047 + 0.006 * smooth(0, 0.024, X) + 0.05 * smooth(0.024, 0.11, X) + 0.02 * smooth(0.11, 0.15, X) + 0.016 * smooth(0.14, 0.17, X);
 
 export function paintAdvisorFace(look: AdvisorLook, head: Head): Img {
   const pal = look.palette;
@@ -28,7 +28,7 @@ export function paintAdvisorFace(look: AdvisorLook, head: Head): Img {
   const rose = mix(skin, [0.86, 0.46, 0.42], 0.5);
   // Седина у лица — темнее и холоднее, чем в свету: брови и ресницы читаются на коже.
   const lash = mix(tone(hair, -0.95), [0.12, 0.1, 0.1], 0.55);
-  const brow = mix(tone(hair, -0.18), [0.42, 0.4, 0.38], 0.25);
+  const brow = mix(tone(hair, -0.5), [0.3, 0.29, 0.28], 0.3);
   const lid = mix(skin, mix(flesh(skin, -0.6), ruddy, 0.35), 0.6);
   const f = new FaceSheet(head, (k) => flesh(skin, k));
   const { img, face, sh, SX } = f;
@@ -39,29 +39,29 @@ export function paintAdvisorFace(look: AdvisorLook, head: Head): Img {
   skinBase(f, 0.06, 0.06, 0.5);
   underChin(f);
 
-  // ---------- Форма: гладким тоном, без краёв ----------
+  // ---------- Форма: тоном по всему лицу — плоскости с чётким краем там, где край у формы есть (под скулой), без пятен ----------
   const E = head.EYE;
   formShade(f, (X, h) => {
     const a = X;
     return (
       // Лоб — на свету, к вискам гаснет; впалый висок — в тени.
-      0.24 * bell(a, 0.035, 0.04) * bell(h, 0.205, 0.035) -
-      0.32 * bell(a, 0.118, 0.022) * bell(h, 0.19, 0.035) +
-      // Скула — светом по кости, под ней — провал до челюсти.
-      0.26 * bell(a, 0.072, 0.022) * bell(h, 0.121, 0.0085) -
-      0.36 * bell(a, 0.08, 0.03) * bell(h, 0.082, 0.02) +
-      // Оплывшая щека над складкой — светлее, сама складка — ниже кистью.
-      0.12 * bell(a, 0.045, 0.012) * bell(h, 0.086, 0.012) +
+      0.3 * bell(a, 0.03, 0.045) * smooth(0.17, 0.19, h) -
+      0.4 * smooth(0.095, 0.125, a) * smooth(0.15, 0.175, h) +
+      // Скула — светом по кости; под ней — провал плоскостью: верхний край резкий (кость), к челюсти мягко.
+      0.32 * bell(a, 0.07, 0.024) * bell(h, 0.121, 0.0085) -
+      0.46 * smooth(0.046, 0.064, a) * (1 - smooth(0.104, 0.111, h)) * smooth(0.05, 0.075, h) +
+      // Оплывшая щека над складкой — светлее.
+      0.14 * bell(a, 0.045, 0.012) * bell(h, 0.088, 0.012) +
       // Спинка носа — на свету; глазница у переносицы — в тени.
-      0.2 * bell(a, 0, 0.007) * bell(h, 0.125, 0.025) -
-      0.34 * bell(a, 0.024, 0.01) * bell(h, 0.146, 0.01) -
+      0.24 * bell(a, 0, 0.007) * bell(h, 0.125, 0.025) -
+      0.4 * bell(a, 0.024, 0.01) * bell(h, 0.146, 0.01) -
       // Надбровье нависает: под бровью — тень над веком.
-      0.26 * bell(a, E.x, 0.022) * bell(h, 0.153, 0.007) +
-      // Мешок под глазом: свет на нём, тень под ним — гладко.
-      0.14 * bell(a, E.x, 0.014) * bell(h, 0.128, 0.004) -
-      0.22 * bell(a, E.x + 0.002, 0.016) * bell(h, 0.121, 0.004) -
+      0.32 * bell(a, E.x, 0.022) * bell(h, 0.153, 0.007) +
+      // Мешок под глазом: свет на нём, тень под ним.
+      0.16 * bell(a, E.x, 0.014) * bell(h, 0.128, 0.004) -
+      0.26 * bell(a, E.x + 0.002, 0.016) * bell(h, 0.121, 0.004) -
       // Бок лица к уху — в тень.
-      0.32 * smooth(0.1, 0.15, a)
+      0.36 * smooth(0.1, 0.15, a)
     );
   });
 
@@ -145,8 +145,8 @@ export function paintAdvisorFace(look: AdvisorLook, head: Head): Img {
       [0.072, 0.171],
     ],
     pts: browPts,
-    thick: st.browThick,
-    hairs: 44,
+    thick: st.browThick * 1.25,
+    hairs: 52,
     seed: 73,
     taper: 0.38,
   });
@@ -169,23 +169,11 @@ export function paintAdvisorFace(look: AdvisorLook, head: Head): Img {
 
   // ---------- Седина у лица: виски, борода под сеткой, усы ----------
   const n = noise(77);
-  // Виски — волосы назад: над ухом и у виска, выше — залысина (лоб открыт).
-  const templeLow = 0.15 + 0.03 * st.recede;
+  // Виски — кожа: залысина уходит назад, волосы начинаются на шапке за краем лица (`cloth.paintCap`).
   const hairTone = (x: number, y: number): RGB => {
     const u = Math.sin(y * 0.33 + Math.sin(x * 0.05) * 2);
     return tone(hair, -0.1 + 0.26 * (1 - u * u) ** 2 - 0.2 * Math.abs(u) ** 6 + (n(x * 0.1, y * 0.4) - 0.5) * 0.1);
   };
-  img.shape(
-    (x, y) => {
-      const h = f.hRow[Math.min(FACE_PX - 1, y | 0)];
-      // Волосы — у самого края маски (за 0,128 м от середины) и выше уха; край неровный.
-      const edge = 0.128 + 0.012 * smooth(templeLow, templeLow + 0.04, h) + (n(y * 0.08, 5) - 0.5) * 0.006;
-      return Math.max(edge * SX - x, (templeLow - h) * SX);
-    },
-    face,
-    hairTone,
-    { soft: 3 },
-  );
   // Под бородой — седой подшёрсток (сетка бороды лежит поверх; её край не висит над голой кожей).
   img.shape(
     (x, y) => {

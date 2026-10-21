@@ -74,13 +74,15 @@ function hairBottom(x: number): number {
   const ear = EAR.th;
   if (a < CAP_OPEN) return CAP[2].v;
   if (a < ear - 0.08) return 50;
-  if (a < ear + 0.22) return 44;
-  if (a < 2.3) return 44 + (a - (ear + 0.22)) * 60;
-  return 72;
+  if (a < ear + 0.06) return 44;
+  // За ухом — до линии челюсти, к затылку — до ворота (седые, длиннее, чем у гонца).
+  return 44 + 12 * smooth01((a - (ear + 0.06)) / 0.1) + 16 * smooth01((a - 2.25) / 0.35);
 }
 
 /** Пряди — длиннее, чем у гонца, зачёсаны назад: лента от лба через макушку к затылку. */
 const STRANDS: StrandSpec = { seed: [221, 223], n: 17, w: 26, wv: 16, top: 2, cap: 3, crown: 3, wave: [6, 20], taper: [54, 18], shine: [18, 46], shineLen: [10, 7] };
+/** Пряди зачёса на боках — на повёрнутом холсте (72 × 512): узкие ленты вдоль листа, от виска к затылку. */
+const SIDE: StrandSpec = { seed: [263, 269], n: 6, w: 12, wv: 6, top: 120, cap: 0, crown: -9, wave: [600, 1], taper: [360, 150], shine: [200, 300], shineLen: [40, 28] };
 const STRANDS_OVER: StrandSpec = { seed: [227, 229], n: 12, w: 18, wv: 10, top: 8, cap: 3, crown: 3, wave: [10, 14], taper: [36, 22], shine: [24, 40], shineLen: [7, 5], over: true };
 
 function paintCap(img: Img, hair: RGB, skin: RGB, recede: number): void {
@@ -88,35 +90,61 @@ function paintCap(img: Img, hair: RGB, skin: RGB, recede: number): void {
   const n = noise(231);
   hairStrands(img, box, hair, STRANDS);
   hairStrands(img, box, hair, STRANDS_OVER);
+  // Зачёс назад: на висках и над ушами пряди идут не вниз, а назад — вдоль строк листа (от лица к затылку). Пишем их на
+  // повёрнутом холсте и смешиваем с прядями сверху вниз по углу: на боках — назад, на макушке и на затылке — вниз.
+  const T = new Img(SHEETS.cap.y1, W);
+  hairStrands(T, { x0: 0, y0: 0, x1: SHEETS.cap.y1, y1: W }, hair, SIDE);
+  img.shape((x, y) => -1, box, (x, y) => {
+    const a = aOf(x);
+    const k = Math.exp(-(((a - 1.7) / 0.6) ** 2)) * smooth01((y - 12) / 16);
+    return mix(img.get(Math.min(W - 1, x | 0), Math.min(W - 1, y | 0)), T.get(Math.min(SHEETS.cap.y1 - 1, y | 0), Math.min(W - 1, x | 0)), k);
+  });
   // Седина — мягче тёмных: тени между прядями у седых волос неглубоки (иначе голова читается полосатой каской); холоднее в
   // тени, серебром на свету; виски темнее макушки.
-  const mid = tone(hair, -0.12);
+  const mid = tone(hair, -0.22);
   img.shape((x, y) => -1, box, (x, y) => {
-    const c = mix(img.get(Math.min(W - 1, x | 0), Math.min(W - 1, y | 0)), mid, 0.55);
-    const k = 1 - 0.08 * Math.exp(-(((aOf(x) - 1.6) / 0.5) ** 2)) * Math.min(1, Math.max(0, (y - 24) / 14));
+    const c = mix(img.get(Math.min(W - 1, x | 0), Math.min(W - 1, y | 0)), mid, 0.5);
+    // За ухом и к вороту волосы в тени: прядь за ухом не светится белой доской.
+    const k = (1 - 0.08 * Math.exp(-(((aOf(x) - 1.6) / 0.5) ** 2)) * Math.min(1, Math.max(0, (y - 24) / 14))) * (1 - 0.3 * Math.max(0, Math.min(1, (y - 40) / 30)) * smooth01((aOf(x) - 1.7) / 0.5));
     return [c[0] * k * 0.98, c[1] * k, c[2] * k * 1.03];
   });
   // Залысина: спереди над висками кожа уходит под волосы мысом («М»); посередине — прядь, зачёсанная назад.
   const bald = (x: number): number => {
     const a = aOf(x);
-    return CAP[2].v - recede * (22 * Math.exp(-(((a - 0.62) / 0.28) ** 2)) + 6 * Math.exp(-((a / 0.3) ** 2))) + (n(x * 0.15, 3) - 0.5) * 4;
+    // Залысина спереди — ровной полосой до висков (а не мысами: седые клочья на углах темени торчали рожками).
+    return CAP[2].v - recede * 30 * (1 - smooth01((a - 0.95) / 0.35)) + (n(x * 0.15, 3) - 0.5) * 4;
   };
   img.shape(
     (x, y) => y - bald(x),
     { x0: 0, y0: 0, x1: ax(CAP_OPEN), y1: CAP[2].v + 4 },
     (x, y) => flesh(skin, -0.02 - 0.3 * smooth01((aOf(x) - 0.6) / 0.8) + 0.1 * Math.exp(-(((y - 26) / 6) ** 2)) + (n(x * 0.2, y * 0.2) - 0.5) * 0.04),
-    { soft: 3 },
+    // Край залысины — растушёван на сантиметр с лишним: в анфас седина не начинается ободком.
+    { soft: 8 },
+  );
+  // Висок: передний край волос на боку — не отвесный срез у края сетки, а залысина, уходящая назад неровным краем.
+  img.shape(
+    (x, y) => {
+      const a = aOf(x);
+      const edge = CAP_OPEN + 0.05 + 0.12 * (1 - smooth01((y - 34) / 16)) + (n(y * 0.3, 7) - 0.5) * 0.06;
+      return Math.max(a - edge, CAP[2].v - 2 - y, y - 52);
+    },
+    { x0: ax(CAP_OPEN) - 6, y0: CAP[2].v - 4, x1: ax(CAP_OPEN + 0.36), y1: 54 },
+    (x, y) => flesh(skin, -0.5 - 0.1 * Math.max(0, (y - 36) / 16) + (n(x * 0.2, y * 0.2) - 0.5) * 0.05),
+    { soft: 3.5 },
   );
   // Редкие волоски на залысине — тонкими штрихами назад.
   const r = rng(233);
-  for (let i = 0; i < 70 * recede; i++) {
+  // Через край залысины — тонкие пряди зачёса: начинаются на коже редко и уходят к макушке.
+  for (let i = 0; i < 170 * recede; i++) {
     const x = 6 + r() * (ax(CAP_OPEN) - 12);
-    const y0 = bald(x) - r() * 10;
+    const y0 = bald(x) + 2 + r() * 7;
+    const len = 6 + r() * 9;
     const line: [number, number][] = [
-      [x, y0 + 6],
-      [x + (r() - 0.5) * 3, y0 - 4],
+      [x, y0],
+      [x + (r() - 0.5) * 2, y0 - len * 0.5],
+      [x + (r() - 0.5) * 4, y0 - len],
     ];
-    img.shape(stroke(line, 0.8), boxOf(line, 2), tone(hair, 0.1), { soft: 0.6, alpha: 0.4 });
+    img.shape(stroke(line, (t) => 0.5 + 0.6 * t), boxOf(line, 2), tone(hair, -0.05 + r() * 0.3), { soft: 0.6, alpha: 0.5 });
   }
   // Кожа ниже волос (за ухом и над ним) — тон бока лица, глубже за ухом.
   img.shape(
@@ -124,8 +152,10 @@ function paintCap(img: Img, hair: RGB, skin: RGB, recede: number): void {
     { ...box, x0: ax(CAP_OPEN) - 2 },
     (x, y) => {
       const a = aOf(x);
+      // Под ухом и за челюстью — в тени: шея под бородой и ухом, свет сюда не доходит.
       const behind = Math.max(0, Math.min(1, (a - EAR.th) / 0.5));
-      return flesh(skin, -0.56 - 0.14 * behind + (n(x * 0.2, y * 0.2) - 0.5) * 0.06);
+      const low = Math.max(0, Math.min(1, (y - 50) / 16));
+      return flesh(skin, -0.6 - 0.14 * behind - 0.3 * low + (n(x * 0.2, y * 0.2) - 0.5) * 0.06);
     },
     { soft: 2.5 },
   );
@@ -163,14 +193,20 @@ function paintBeard(img: Img, hair: RGB, robe: RGB): void {
   hairStrands(local, { x0: 0, y0: 0, x1: W, y1: H }, hair, BEARD);
   hairStrands(local, { x0: 0, y0: 0, x1: W, y1: H }, hair, BEARD_OVER);
   const n = noise(253);
+  // Пряди бороды — пучками: между ними неровные тёмные проборы, пучок посередине светлее (объём, а не штора).
+  const clumps = (x: number, y: number): number => {
+    const v = (y - b.y0) / H;
+    const s = Math.sin(x * 0.075 + Math.sin(v * 5 + x * 0.01) * 1.3 + n(x * 0.02, v * 3) * 2.5);
+    return 0.12 * (1 - s * s) - 0.22 * Math.max(0, s) ** 8 * Math.min(1, v * 3);
+  };
   const mid = tone(hair, -0.1);
   img.shape((x, y) => -1, box, (x, y) => {
-    const c = mix(local.get(Math.min(W - 1, x | 0), Math.min(H - 1, (y - b.y0) | 0)), mid, 0.35);
+    const c = mix(local.get(Math.min(W - 1, x | 0), Math.min(H - 1, (y - b.y0) | 0)), mid, 0.28);
     const v = (y - b.y0) / H;
     const a = aOf(x);
     // Свет — на переде у подбородка и на кончике спереди; изнанка к шее и бока — в тени (к мантии под ней).
-    const light = 0.12 * Math.exp(-(((v - 0.42) / 0.2) ** 2)) * (1 - a / 1.6) - 0.35 * Math.max(0, (v - 0.82) / 0.18) - 0.22 * Math.min(1, a / 1.4) - 0.12 * Math.max(0, (0.12 - v) / 0.12);
-    const t = tone(c, light + (n(x * 0.1, y * 0.3) - 0.5) * 0.06);
+    const light = -0.08 + 0.16 * Math.exp(-(((v - 0.4) / 0.2) ** 2)) * (1 - a / 1.6) - 0.55 * Math.max(0, (v - 0.78) / 0.22) - 0.36 * Math.min(1, a / 1.4) - 0.16 * Math.max(0, (0.12 - v) / 0.12);
+    const t = tone(c, light + clumps(x, y) + (n(x * 0.1, y * 0.3) - 0.5) * 0.06);
     return v > 0.85 ? mix(t, tone(robe, -0.4), 0.25 * (v - 0.85) / 0.15) : t;
   });
 }
@@ -190,7 +226,11 @@ function paintRobe(img: Img, skin: RGB, robe: RGB, lining: RGB, gold: RGB): void
       const side = Math.min(1, Math.max(0, (Math.abs(a) - 0.9) / 1.4));
       // Стойка подрясника — высоко на шее спереди и с боков (под бородой голой шеи не видно), к затылку ниже — под ворот.
       const stand = NECK_LOW + 0.05 * (1 - smooth01((Math.abs(a) - 0.9) / 0.9));
-      if (h > NECK_LOW && h < stand) return tone(lining, -0.1 - 0.4 * Math.min(1, Math.abs(a) / 1.5) - 0.35 * Math.max(0, (h - stand + 0.008) / 0.008) + (n(x * 0.3, y * 0.3) - 0.5) * 0.05);
+      if (h > NECK_LOW && h < stand) {
+        // Стойка — сукно подбоя на свету, верх — золотой шнур.
+        if (h > stand - 0.004) return tone(gold, -0.1 - 0.3 * Math.min(1, Math.abs(a) / 1.5));
+        return tone(mix(lining, robe, 0.35), 0.18 - 0.4 * Math.min(1, Math.abs(a) / 1.5) - 0.3 * Math.max(0, (NECK_LOW + 0.012 - h) / 0.012) + (n(x * 0.3, y * 0.3) - 0.5) * 0.05);
+      }
       if (h > NECK_LOW) {
         // Шея: под бородой и подбородком — в тени, сзади и с боков — тоже; спереди её не видно (борода).
         const chin = -0.7 * Math.min(1, Math.max(0, (h - 1.43) / 0.03));
