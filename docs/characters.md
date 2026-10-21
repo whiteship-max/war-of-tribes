@@ -442,7 +442,9 @@ GAME=1 WX=clear WXDAY=0.45 CHAMBERS=at:0:-0.2:0:-0.1 SIZE=390x844 \
 (docs/handbook/acceptance.md). Ядро не тронуто: сохранение, договор и мир — как были; правка — в периферии
 (`src/render/chambers/`, `scripts/consort-shots.ts`, `scripts/city-shots.ts`, `vite.config.ts`, документы).
 
-Проверки на `game/lc-3`: ПРОВЕРКИ.
+Проверки на `game/lc-3` (`8aa276d`), по одному: `npm run typecheck` — чисто; `npm run build` — чисто, первая загрузка
+620,4 КБ; `npm test` — 4567 прошло, 42 пропущено, 1 упал: `scripts/lib/fan.test.ts` «по процессам — тот же итог» —
+свойство облачной машины, а не правки (так же на `d6b7ebb`, раздел 11). Брошенного `~/.heavy-job.lock` не было.
 
 Открытое — раздел 16: оценка лица 6,5/10 против порога 8, три слабых места там же.
 
