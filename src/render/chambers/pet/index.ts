@@ -13,7 +13,7 @@ import { SkinBody, SkinMesh } from '../kit/skin';
 import { paintCat } from './coat';
 import { buildCatMesh, GAZE_UV, PX, SHEET } from './figure';
 import { CAT_LOOKS, catOf, type CatId } from './looks';
-import { CatMotion } from './motion';
+import { CatMotion, STAND_LUX } from './motion';
 
 export { BEST, CAT_IDS, CAT_LOOKS, catOf, type CatId } from './looks';
 
@@ -63,9 +63,9 @@ export function makeCat(opt: CatOptions = {}): CatKit {
       body.cell(cell(motion.pupil), 0);
     },
     drawn() {
-      if (room) roomLight(room, body.at('head'), u);
+      // Зрачок — по сырой освещённости у головы; без покоев (стенд) — по свету, который задал хозяин.
       const c = u.uTint.value;
-      motion.lux = 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+      motion.lux = room ? roomLight(room, body.at('head'), u) : (0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b) * STAND_LUX;
     },
     yarn() {
       // Одна кость в покое: позу не ставим — клубок крутит и катит его сетка целиком.

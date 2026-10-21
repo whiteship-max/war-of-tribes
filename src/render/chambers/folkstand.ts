@@ -127,7 +127,7 @@ export function mountConsortStand(root: HTMLElement, p: URLSearchParams): void {
     kit.u.uTint.value.setRGB(night ? 0.52 : 1, night ? 0.4 : 1, night ? 0.3 : 1);
     kit.u.uRim.value.setRGB(night ? 0.12 : 0.26, night ? 0.08 : 0.25, night ? 0.05 : 0.22);
     kit.u.uRimDir.value.set(-0.7, 0.3, 0.65).normalize();
-    kit.motion.lux = night ? 0.4 : 1;
+    kit.motion.lux = night ? 0.4 : 3;
     brain.poseAt(x, 0, 0, yaw, a.catBody ?? 'sit');
     brain.look.eyes = a.catEyes ?? (a.catBody === 'curl' ? 0 : 1);
     if (a.catBody === 'walk') brain.look.phase = a.phase ?? 0.8;

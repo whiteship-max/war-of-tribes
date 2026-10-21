@@ -9,6 +9,8 @@ import { BEST, CAT_IDS, CAT_LOOKS, catOf } from './looks';
 import { CLIPS, CatMotion, PUPIL_LUX } from './motion';
 import { makeCat, yarnMesh } from './index';
 import * as THREE from 'three';
+import { ChambersRoom } from '../room';
+import { DEFAULT_ARMS } from '@/heraldry/arms';
 
 const look = CAT_LOOKS[BEST];
 const m = buildCatMesh(look.head);
@@ -127,14 +129,38 @@ describe('кот: глаза и усы (ЛЦ-4)', () => {
       mo.live({ turns: {}, lift: [0, 0, 0] }, s, 0);
       return mo.pupil;
     };
-    expect(at(1)).toBe(0);
-    expect(at(PUPIL_LUX[0] - 0.08)).toBe(1);
-    expect(at(0.3)).toBe(2);
+    const day = PUPIL_LUX[0] + 1;
+    expect(at(day)).toBe(0);
+    expect(at(PUPIL_LUX[0] - 0.12)).toBe(1);
+    expect(at(PUPIL_LUX[1] - 0.5)).toBe(2);
     // Чуть выше порога — ещё круглый (запас), заметно выше — снова вполовину.
-    expect(at(PUPIL_LUX[1] + 0.02)).toBe(2);
-    expect(at(PUPIL_LUX[1] + 0.06)).toBe(1);
-    expect(at(1)).toBe(0);
-    expect(at(1, state({ mind: 'play' }))).toBe(1);
+    expect(at(PUPIL_LUX[1] + 0.04)).toBe(2);
+    expect(at(PUPIL_LUX[1] + 0.12)).toBe(1);
+    expect(at(day)).toBe(0);
+    expect(at(day, state({ mind: 'play' }))).toBe(1);
+  });
+
+  it('зрачок в покоях: у окна днём — щель, ночью при свечах — круглый (свет — сырой, до выравнивания яркости фигуры)', async () => {
+    const KEEP = { x: -4, z: -147, base: 16, height: 30, size: 13 };
+    const sky = (d: number) => ({ daylight: d, night: 1 - d, nightK: 1 - d, sky: new THREE.Color(0.6 * d + 0.05, 0.7 * d + 0.08, 0.85 * d + 0.2), haze: new THREE.Color(0.7, 0.75, 0.8), sunDir: new THREE.Vector3(-0.4, 0.5, 0.77).normalize(), sun: new THREE.Color(2 * d, 1.6 * d, 1.1 * d), hemi: new THREE.Color(0.6 * d, 0.65 * d, 0.7 * d), rain: 0, snow: 0, mist: 0, cloud: 0, wind: 0.3, windX: 1, windZ: 0, flash: 0 });
+    const seen: Record<string, { lux: number; pupil: number }> = {};
+    for (const [name, d] of [
+      ['день', 1],
+      ['ночь', 0],
+    ] as const) {
+      const room = new ChambersRoom(KEEP, DEFAULT_ARMS, 'low', () => null, { cat: true, catSpot: 'hearth' });
+      room.setRect({ left: 0, top: 0, width: 390, height: 844 });
+      await room.life.catReady;
+      room.life.stage({ catAt: { x: 0, z: 1.4, yaw: 3 } });
+      for (let i = 1; i <= 60; i++) room.frame(1 / 60, i / 60, sky(d) as never);
+      const kit = (room.life as unknown as { catKit: { motion: CatMotion } }).catKit;
+      seen[name] = { lux: kit.motion.lux, pupil: kit.motion.pupil };
+      room.dispose();
+    }
+    expect(seen['день'].lux, 'день').toBeGreaterThan(PUPIL_LUX[0] + 0.08);
+    expect(seen['день'].pupil).toBe(0);
+    expect(seen['ночь'].lux, 'ночь').toBeLessThan(PUPIL_LUX[1] - 0.08);
+    expect(seen['ночь'].pupil).toBe(2);
   });
 
   it('веки: сомкнутые — на глазу, открытые — под лбом; мозг смыкает их по `look.eyes`', () => {

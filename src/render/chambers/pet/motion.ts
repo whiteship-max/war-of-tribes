@@ -47,8 +47,14 @@ export const CLIPS: Record<'stretch' | 'groom' | 'sleep' | 'ear' | 'tip', Clip<P
 
 /** Ячейки зрачка листа: щель, вполовину, круглый (`figure.SHEET.eye.cx`). */
 export type Pupil = 0 | 1 | 2;
-/** Свет на голове (яркость `uTint`), ниже которого зрачок шире: щель → вполовину → круглый; с запасом, чтобы не дрожал. */
-export const PUPIL_LUX: readonly [number, number] = [0.72, 0.5];
+/**
+ * Освещённость у головы (`kit/light.roomLight`, сырая), ниже которой зрачок шире: щель → вполовину → круглый; с запасом, чтобы
+ * не дрожал. Днём у окна покоев свет выше первого порога, ночью при свечах — ниже второго (тест `pet.test.ts`, «зрачок в
+ * покоях»).
+ */
+export const PUPIL_LUX: readonly [number, number] = [1.6, 1.1];
+/** Стенд без покоев: свет хозяина (`uTint`, 1 — день) в освещённость — днём щель, ночным светом стенда — круглый. */
+export const STAND_LUX = 2.5;
 
 /** Взгляд кота: насколько глаз ведёт голову (м сдвига на рад) и размах мелких скачков, м. */
 const REACH = 0.0042;
@@ -151,9 +157,9 @@ export class CatMotion {
     const want: Pupil = this.lux > PUPIL_LUX[0] ? 0 : this.lux > PUPIL_LUX[1] ? 1 : 2;
     const hunt = s.mind === 'play' || s.mind === 'fetch' ? 1 : 0;
     const goal = Math.max(want, hunt) as Pupil;
-    // Запас: менять ячейку, только когда свет ушёл за порог на 0,04.
+    // Запас: менять ячейку, только когда свет ушёл за порог на 0,08.
     if (goal !== this.pupil) {
-      const edge = goal > this.pupil ? PUPIL_LUX[goal - 1] - 0.04 : PUPIL_LUX[this.pupil - 1] + 0.04;
+      const edge = goal > this.pupil ? PUPIL_LUX[goal - 1] - 0.08 : PUPIL_LUX[this.pupil - 1] + 0.08;
       if (hunt || (goal > this.pupil ? this.lux < edge : this.lux > edge)) this.pupil = goal;
     }
   }
