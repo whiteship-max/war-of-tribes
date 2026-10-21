@@ -2,7 +2,7 @@
 // (`cloth.hairStrands`), только короткие и по полю направлений: от носа к затылку, со спины к брюху, по лапе вниз. Мазок
 // берёт тон из-под себя и сдвигает его к свету или в тень — узор и светотень, уже лежащие на листе, остаются, а лист
 // читается писаным мехом, а не гладкой краской. Случайность — сеяная.
-import { boxOf, rng, stroke, tone, type Box, type Img, type RGB } from './paint';
+import { boxOf, mix, rng, stroke, tone, type Box, type Img, type RGB } from './paint';
 
 export interface FurSpec {
   /** Направление шерсти в точке листа, рад (0 — вправо, π/2 — вниз). */
@@ -42,6 +42,8 @@ export function furStrokes(img: Img, box: Box, s: FurSpec): void {
     const a2 = s.flow(p1[0], p1[1]) + bend * 0.5;
     const p2: [number, number] = [p1[0] + Math.cos(a2) * ln * 0.5, p1[1] + Math.sin(a2) * ln * 0.5];
     const line = [p0, p1, p2];
-    img.shape(stroke(line, (t) => s.width * (0.25 + 0.75 * Math.sin(Math.PI * Math.min(1, t * 1.3)))), boxOf(line, s.width), tone(base, k), { soft: s.width * 0.5, alpha: a, clip: box });
+    // К свету — мягче, чем в тень (`tone` к свету тянет к тёплому белому): мазки не белят шерсть в среднем.
+    const c = k >= 0 ? mix(base, tone(base, 1), k * 0.4) : tone(base, k);
+    img.shape(stroke(line, (t) => s.width * (0.25 + 0.75 * Math.sin(Math.PI * Math.min(1, t * 1.3)))), boxOf(line, s.width), c, { soft: s.width * 0.5, alpha: a, clip: box });
   }
 }

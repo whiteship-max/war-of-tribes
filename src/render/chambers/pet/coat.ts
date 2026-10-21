@@ -37,8 +37,8 @@ function paintBox(img: Img, b: Box, f: (x: number, y: number) => RGB | null): vo
  * Светотень шерсти: тень — глубже и насыщенней того же тона (рыжий в тени — бурый, а не серый), лёгкая прохлада только в
  * самой глубине; свет — к тёплому.
  */
-function pelt(base: RGB, k: number): RGB {
-  if (k >= 0) return tone(base, k);
+function pelt(base: RGB, k: number, light = 0.55): RGB {
+  if (k >= 0) return tone(base, k * light);
   const s = Math.min(1, -k);
   const deep: RGB = [base[0] ** 1.5, base[1] ** 1.5, base[2] ** 1.5];
   return mix(mix(mul(base, 1 - 0.38 * s), mul(deep, 0.85), 0.45 * s), [0.16, 0.14, 0.2], 0.12 * s * s);
@@ -77,8 +77,8 @@ export function tabby(img: Img, look: CatLook): void {
       ],
       5,
     );
-    const w0 = 8 + r() * 3;
-    img.shape(stroke(pts, (s) => w0 * (1 - 0.65 * s)), boxOf(pts, w0), dark, { soft: 3.2, alpha, clip: t });
+    const w0 = 11 + r() * 4;
+    img.shape(stroke(pts, (s) => w0 * (1 - 0.6 * s)), boxOf(pts, w0), dark, { soft: 4.5, alpha, clip: t });
     if (r() < 0.55) {
       const j = Math.floor(pts.length * (0.45 + r() * 0.2));
       const br = [pts[j], [pts[j][0] + len * 0.25, pts[j][1] + 10 + r() * 6] as [number, number]];
@@ -107,23 +107,25 @@ export function tabby(img: Img, look: CatLook): void {
   img.shape(poly([[tl.x0, tl.y1 - 34], [tl.x1, tl.y1 - 30], [tl.x1, tl.y1], [tl.x0, tl.y1]]), tl, dark, { soft: 8, alpha: alpha * 0.9, clip: tl });
   // Голова: «М» на лбу — линии вверх от бровей к макушке, по затылку — полосы к шее; от наружного угла глаза — к щеке.
   const h = SHEET.head;
-  const headLine = (pts: [number, number][], w: number, a = alpha): void => {
+  // Ширина — в миллиметрах шерсти: точек листа на миллиметр по долготе — 512/π на радиус головы и косинус широты.
+  const headLine = (pts: [number, number][], mm: number, a = alpha): void => {
     const ln = spline(pts.map(([lo, la]) => at(lo, la)), 5);
-    img.shape(stroke(ln, (s) => w * (1 - 0.55 * Math.abs(s - 0.4))), boxOf(ln, w), dark, { soft: 2.6, alpha: a, clip: h });
+    const lat = pts.map((q) => q[1] * DEG);
+    const wAt = (s: number): number => {
+      const la = lat[Math.min(lat.length - 1, Math.floor(s * (lat.length - 1) + 0.5))];
+      return (mm / 1000) * (PX / Math.PI) / (0.046 * Math.max(0.35, Math.cos(la)));
+    };
+    const wMax = Math.max(...[0, 0.5, 1].map(wAt));
+    img.shape(stroke(ln, (s) => wAt(s) * (1 - 0.6 * Math.abs(s - 0.4))), boxOf(ln, wMax), dark, { soft: 3, alpha: a, clip: h });
   };
-  // «М»: короткие сужающиеся штрихи над глазами, расходятся к макушке и там распадаются на полосы.
-  headLine([[1.5, 22], [2.5, 34], [4, 50], [7, 68], [12, 86]], 5);
-  headLine([[9, 19], [10.5, 30], [13, 44], [19, 60], [32, 76]], 4.2);
-  headLine([[17, 18], [21, 28], [30, 42], [48, 58]], 3.4, alpha * 0.75);
-  headLine([[24, 13], [21, 17.5], [16, 19], [12, 17]], 2.4, alpha * 0.55);
-  for (const [lo, w] of [
-    [96, 6],
-    [122, 7],
-    [150, 6],
-  ] as const)
-    headLine([[lo - 8, 80], [lo, 52], [lo + 3, 18], [lo - 2, -16]], w, alpha * 0.8);
-  headLine([[47, 2], [60, -2], [74, -8], [88, -10]], 4.5, alpha * 0.9);
-  headLine([[44, -9], [58, -14], [72, -21], [86, -26]], 4, alpha * 0.8);
+  // «М»: сужающиеся штрихи над глазами, расходятся к макушке и там распадаются на полосы.
+  headLine([[1.5, 22], [2.5, 34], [4, 50], [7, 66], [12, 80]], 2.6);
+  headLine([[9, 19], [10.5, 30], [13, 44], [19, 58], [30, 72]], 2.3);
+  headLine([[17, 18], [21, 28], [30, 42], [46, 56]], 2, alpha * 0.75);
+  headLine([[24, 13], [21, 17.5], [16, 19], [12, 17]], 1.2, alpha * 0.55);
+  for (const lo of [96, 124, 152]) headLine([[lo - 8, 78], [lo, 52], [lo + 3, 18], [lo - 2, -16]], 4.5, alpha * 0.8);
+  headLine([[47, 2], [60, -2], [74, -8], [88, -10]], 2.2, alpha * 0.9);
+  headLine([[44, -9], [58, -14], [72, -21], [86, -26]], 1.9, alpha * 0.8);
 }
 
 /** Светлое окраса по месту на голове (0…1): подбородок и горло, подушечки усов, у чёрно-белого — маска до лба. */
@@ -136,7 +138,7 @@ function paleHead(look: CatLook, lon: number, lat: number): number {
   // Маска чёрно-белого: «домик» между глаз — выше у носа, уже к лбу.
   const top = -8 + 44 * m * m;
   const blaze = m > 0.5 ? (1 - sm(top - 6, top, B + L * 1.6)) * (1 - sm(14, 30, L)) : 0;
-  const cheekPale = m < 0.5 ? 0.55 * sm(-10, -22, B) * (1 - sm(54, 80, L)) : sm(-12, -24, B) * (1 - sm(56, 74, L));
+  const cheekPale = m < 0.5 ? 0.35 * sm(-10, -22, B) * (1 - sm(54, 80, L)) : sm(-12, -24, B) * (1 - sm(56, 74, L));
   return clamp(Math.max(throat, pads, blaze, cheekPale));
 }
 
@@ -159,8 +161,14 @@ export function paintCat(look: CatLook): Img {
     const n = dirOf(lon, lat);
     const pk = paleHead(look, lon, lat);
     let c = mix(fur, pale, pk);
-    // Чёрная шерсть светлеет на свету сильнее: иначе морда без формы.
-    c = pelt(c, lit(n) * (tux ? 1.15 : 0.95) + n2(x, y) * 0.18);
+    // Лепка головы: лоб и спинка носа — к свету, бока головы за скулой и под глазами — в тень, щёки — круглее.
+    const L = Math.abs(lon) / DEG;
+    const B = lat / DEG;
+    const g = (l0: number, b0: number, sl: number, sb: number): number => Math.exp(-(((L - l0) / sl) ** 2) - ((B - b0) / sb) ** 2);
+    // Плоскости, как у лиц людей: свет — лоб, переносица, верх щёк над усами; тень — под скулой, у края морды, под глазом.
+    const form = lit(n) * (tux ? 1.0 : 0.9) + 0.6 * g(0, 24, 20, 16) + 0.45 * g(0, -4, 7, 9) + 0.4 * g(22, -12, 10, 6) - 0.6 * sm(58, 100, L) * sm(25, -15, B) - 0.55 * g(38, -16, 12, 7) - 0.4 * g(30, -30, 14, 8) - 0.35 * g(30, 30, 18, 8);
+    // Морда — с размахом, как лица людей набора: плоскости света и тени читаются издали.
+    c = pelt(c, form * 1.5 - 0.15 + n2(x, y) * 0.18, 0.9);
     // Под подбородком и у шеи — тень.
     c = pelt(c, -0.5 * sm(-30, -70, lat / DEG));
     return c;
@@ -282,10 +290,11 @@ function faceLines(img: Img, look: CatLook): void {
   const nose = hex(p.nose);
   const line: RGB = [0.1, 0.06, 0.05];
   // Мочка: треугольник с закруглёнными углами, свет на верхней грани, ноздри — тёмными запятыми.
-  const tri = [at(0, -7.5), at(8.5, -8.5), at(6.5, -12.5), at(0, -16.5)];
-  img.shape(poly(tri), boxOf(tri, 3), tone(nose, -0.15), { soft: 1.6, clip: h });
-  img.shape(poly([at(0, -8), at(6, -9), at(0, -11.5)]), boxOf(tri, 2), tone(nose, 0.45), { soft: 2.2, alpha: 0.8, clip: h });
-  img.shape(stroke([at(6.8, -11), at(4.2, -13.2)], 2.2), boxOf(tri, 2), mul(nose, 0.35), { soft: 1, alpha: 0.9, clip: h });
+  const tri = [at(0, -6), at(10.5, -7.2), at(8, -12.5), at(0, -17.5)];
+  img.shape(poly(tri), boxOf(tri, 4), mul(nose, 0.45), { soft: 2.4, clip: h });
+  img.shape(poly([at(0, -6.6), at(9.3, -7.6), at(7, -12), at(0, -16.5)]), boxOf(tri, 3), tone(nose, -0.1), { soft: 1.4, clip: h });
+  img.shape(poly([at(0, -7), at(7, -8), at(0, -11)]), boxOf(tri, 2), tone(nose, 0.5), { soft: 2.2, alpha: 0.8, clip: h });
+  img.shape(stroke([at(8, -11.2), at(4.6, -13.6)], 2.6), boxOf(tri, 2), mul(nose, 0.3), { soft: 1, alpha: 0.9, clip: h });
   // Желобок и рот: от мочки вниз и в стороны («якорь»).
   img.shape(stroke([at(0, -16.5), at(0, -21)], 1.8), boxOf([at(0, -16), at(2, -22)], 3), line, { soft: 1, alpha: 0.85, clip: h });
   const mouth = spline([at(0, -21), at(5, -23.5), at(10, -23.5), at(14, -21.5)], 4);
@@ -328,14 +337,14 @@ function eyes(img: Img, look: CatLook): void {
       c = tone(c, (fib(ang * 6 + 20, r * 3) - 0.5) * 0.5);
       c = mix(c, [0.1, 0.08, 0.05], sm(1.0, 1.18, r));
       // Тень верхнего века.
-      c = tone(c, -0.75 * sm(-0.2, -0.95, dy / EYE_PX));
+      c = tone(c, -0.9 * sm(-0.1, -0.95, dy / EYE_PX));
       return c;
     });
     const [rx, ry] = pupils[i];
     img.shape(ellipse(cx, cy + 1, rx, ry), cell, [0.03, 0.02, 0.02], { soft: 1.2 });
     // Блик окна — слева сверху, отблеск — справа снизу.
-    img.shape(ellipse(cx - 8, cy - 8, 4.4, 3.4, -0.5), cell, [1, 0.98, 0.92], { soft: 1.4, alpha: 0.95 });
-    img.shape(circle(cx - 3.5, cy - 11, 1.6), cell, [1, 1, 0.95], { soft: 1, alpha: 0.8 });
+    img.shape(ellipse(cx - 7.5, cy - 7, 3, 2.3, -0.5), cell, [1, 0.98, 0.92], { soft: 0.9, alpha: 0.95 });
+    img.shape(circle(cx - 3, cy - 10, 1.1), cell, [1, 1, 0.95], { soft: 0.7, alpha: 0.8 });
     img.shape(ellipse(cx + 7, cy + 9, 5, 2.2, 0.4), cell, tone(iris, 0.7), { soft: 2, alpha: 0.6 });
   });
 }
@@ -367,15 +376,16 @@ function ears(img: Img, look: CatLook): void {
   paintBox(img, F, (x, y) => {
     const t = (y - F.y0) / (F.y1 - F.y0);
     const edge = Math.abs(x - (F.x0 + F.x1) / 2) / ((F.x1 - F.x0) / 2);
-    const c = mix(tone(skin, -0.25 - t * 0.2), tone(fur, 0.1), sm(0.55 - t * 0.25, 0.85 - t * 0.2, edge));
+    // Внутри уха темно к глубине (у основания), кожа светлее к кончику; край — шерстью.
+    const c = mix(pelt(skin, -0.55 - t * 0.45), pelt(fur, 0.05), sm(0.45 - t * 0.2, 0.75 - t * 0.2, edge));
     return c;
   });
-  furStrokes(img, F, { flow: () => -Math.PI / 2 + 0.15, count: 70, len: 14, width: 1.6, spread: 0.2, seed: 33, alpha: 0.7, mask: (x, y) => y > F.y0 + (F.y1 - F.y0) * 0.45 });
+  furStrokes(img, F, { flow: () => -Math.PI / 2 + 0.15, count: 50, len: 12, width: 1.4, spread: 0.2, seed: 33, alpha: 0.45, mask: (x, y) => y > F.y0 + (F.y1 - F.y0) * 0.55 });
   const r = rng(9);
-  for (let i = 0; i < 26; i++) {
-    const x = F.x0 + 4 + r() * (F.x1 - F.x0 - 8);
-    const y = F.y1 - 2 - r() * 20;
-    img.shape(stroke([[x, y], [x + (r() - 0.5) * 4, y - 12 - r() * 10]], 1.4), F, tone(hex(look.palette.pale), 0.2), { soft: 0.9, alpha: 0.75, clip: F });
+  for (let i = 0; i < 18; i++) {
+    const x = F.x0 + 5 + r() * (F.x1 - F.x0 - 10);
+    const y = F.y1 - 2 - r() * 16;
+    img.shape(stroke([[x, y], [x + (r() - 0.5) * 5, y - 10 - r() * 9]], (t) => 1.3 * (1 - t)), F, pelt(hex(look.palette.pale), -0.3), { soft: 0.9, alpha: 0.3, clip: F });
   }
 }
 
@@ -386,8 +396,9 @@ function chinCell(img: Img, look: CatLook): void {
   paintBox(img, b, (x, y) => {
     const t = (y - b.y0) / (b.y1 - b.y0);
     const a = (x - b.x0) / (b.x1 - b.x0);
-    const c = tone(pale, 0.15 - t * 0.9);
-    return mix(c, [0.12, 0.07, 0.06], (1 - sm(0, 0.16, t)) * (1 - sm(0.35, 0.6, a)) * 0.85);
+    // Низ и бока подбородка уходят в тень того же тона, что горло: края не видно.
+    const c = pelt(pale, 0.05 - t * 0.7 - a * 0.35);
+    return mix(c, [0.12, 0.07, 0.06], (1 - sm(0, 0.14, t)) * (1 - sm(0.3, 0.55, a)) * 0.7);
   });
 }
 

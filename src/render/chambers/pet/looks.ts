@@ -46,7 +46,7 @@ export const CAT_LOOKS: Record<CatId, CatLook> = {
   },
   b: {
     name: 'Серый полосатый: тёмные полосы, светлая морда, зелёные глаза',
-    palette: { fur: 0x8c8b88, stripe: 0x2e2d2e, pale: 0xdcd6cb, nose: 0x9a6a6a, iris: 0x9ab446, ear: 0xc8968e },
+    palette: { fur: 0x7c7a76, stripe: 0x262526, pale: 0xd8d2c6, nose: 0x9a6a6a, iris: 0x9ab446, ear: 0xc8968e },
     marks: { tabby: 1, muzzle: 0.3, bib: 0.6, socks: 0 },
     head: { cheek: 0.01, muzzle: 0.013 },
   },

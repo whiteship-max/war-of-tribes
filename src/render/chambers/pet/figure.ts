@@ -97,8 +97,8 @@ export const headUv = (lon: number, lat: number): [number, number] => uv(mirrorU
 export const EYE_R = 0.0135;
 export const EYE_OPEN = 58 * DEG;
 const LID_CUP = 66 * DEG;
-/** Ось глаза: вперёд, на 22° наружу и на 3° вверх. */
-export const eyeAxis = (sx: 1 | -1): V3 => norm([Math.sin(22 * DEG) * sx, Math.sin(3 * DEG), Math.cos(22 * DEG)]);
+/** Ось глаза: вперёд, на 12° наружу и на 3° вверх (кошачьи глаза смотрят вперёд). */
+export const eyeAxis = (sx: 1 | -1): V3 => norm([Math.sin(12 * DEG) * sx, Math.sin(3 * DEG), Math.cos(12 * DEG)]);
 /** Середина глазного яблока стороны. */
 export const eyeCenter = (sx: 1 | -1): V3 => [CAT_EYE[0] * sx, CAT_EYE[1], CAT_EYE[2]];
 /** Сдвиг белка: доля листа на метр взгляда (край глаза — `EYE_PX` точек). */
@@ -111,12 +111,11 @@ function eyeFrame(sx: 1 | -1): { n: V3; ax: V3; ay: V3 } {
   return { n, ax, ay: crs(n, ax) };
 }
 
-/** Точка чашечки: угол по кругу `th` (0 — к +x), раствор `b` от оси, миндаль (выше — уже), наружный угол чуть вверх. */
+/** Точка чашечки: угол по кругу `th` (0 — к +x), раствор `b` от оси, миндаль (по высоте — 0,8 ширины). */
 function cupPt(sx: 1 | -1, th: number, b: number, r: number): V3 {
   const { n, ax, ay } = eyeFrame(sx);
-  const outer = Math.cos(th) * sx;
-  const tall = 0.8 + 0.08 * outer;
-  const dir = add(scale(n, Math.cos(b)), scale(add(scale(ax, Math.cos(th)), scale(ay, Math.sin(th) * tall + 0.12 * Math.max(0, outer) * Math.cos(th) * sx)), Math.sin(b)));
+  // Миндаль: ниже и выше — уже (развёртка ячейки — тот же эллипс, щель зрачка остаётся прямой).
+  const dir = add(scale(n, Math.cos(b)), scale(add(scale(ax, Math.cos(th)), scale(ay, Math.sin(th) * 0.8)), Math.sin(b)));
   return add(eyeCenter(sx), scale(norm(dir), r));
 }
 
@@ -179,7 +178,7 @@ function head(m: SkinMesh, s: HeadSpec): void {
     rows.push(
       LON.map((lon, k) => {
         // Пушистые щёки: зубцы края по скулам — через одну точку ряда наружу.
-        const tuft = Math.abs(lon) > 60 * DEG && Math.abs(lon) < 115 * DEG && lat < -8 * DEG && lat > -40 * DEG && (k + i) % 2 === 0 ? s.cheek * 0.35 : 0;
+        const tuft = Math.abs(lon) > 60 * DEG && Math.abs(lon) < 115 * DEG && lat < -8 * DEG && lat > -40 * DEG && (k + i) % 2 === 0 ? s.cheek * 0.6 : 0;
         const p = headPt(lon, lat, s, tuft);
         const back = lat < -40 * DEG && Math.abs(lon) > 100 * DEG;
         return m.v(p, headUv(lon, lat), 0, back ? ['head', 'neck', 0.6] : 'head');
@@ -358,7 +357,7 @@ function tail(m: SkinMesh): void {
 }
 
 function eye(m: SkinMesh, sx: 1 | -1): void {
-  const N = 10;
+  const N = 12;
   const cx = SHEET.eye.cx[0];
   const cy = SHEET.eye.cy;
   const at = (th: number, k: number): [number, number] => uv(cx + Math.cos(th) * EYE_PX * k, cy - Math.sin(th) * EYE_PX * k * 0.8);
@@ -374,7 +373,7 @@ function eye(m: SkinMesh, sx: 1 | -1): void {
 
 /** Веко: чашка чуть больше глаза, сомкнутая — на глазу; в покое поднята под лоб на `LID_CLOSE`. */
 function lid(m: SkinMesh, sx: 1 | -1): void {
-  const N = 10;
+  const N = 12;
   const C = eyeCenter(sx);
   const pivot: V3 = [C[0], CAT_EYE[1], CAT_EYE[2]];
   const b = SHEET.lid;
@@ -433,7 +432,7 @@ function ear(m: SkinMesh, sx: 1 | -1): void {
 const chinUv = (a: number, h: number): [number, number] => uv(SHEET.chin.x0 + 1 + (a / Math.PI) * (SHEET.chin.x1 - SHEET.chin.x0 - 2), SHEET.chin.y0 + 1 + ((1 - h) / 2) * (SHEET.chin.y1 - SHEET.chin.y0 - 2));
 
 /** Подбородок облика: середина и полуоси (лист рисует нутро рта ровно там, где голову закрывает он). */
-export const chinOf = (s: HeadSpec): { c: V3; r: V3 } => ({ c: [0, 0.257, 0.226 + s.muzzle * 0.3], r: [0.017, 0.0095, 0.021] });
+export const chinOf = (s: HeadSpec): { c: V3; r: V3 } => ({ c: [0, 0.258, 0.224 + s.muzzle * 0.3], r: [0.015, 0.0085, 0.02] });
 
 /** Подбородок: полушарие под мордой своей костью; открытый рот — тёмное нутро, нарисованное на голове под ним. */
 function chin(m: SkinMesh, s: HeadSpec): void {

@@ -146,7 +146,8 @@ export function mountConsortStand(root: HTMLElement, p: URLSearchParams): void {
   /** Морда кота крупно в окне `w × h` с левого края `x`. */
   const catFace = (id: CatId, a: ShotAsk, w: number, h: number, x: number, y = 0): void => {
     const k = posCat(id, 0, a.yaw ?? 0, { ...a, catBody: a.catBody ?? 'sit' });
-    const c = k.body.at('head', [0, 0.004, 0.04]);
+    const c0 = k.body.at('head', [0, 0.004, 0.04]);
+    const c: V3 = a.aim ? [c0[0] + a.aim[0], c0[1] + a.aim[1], c0[2] + a.aim[2]] : c0;
     camera.fov = a.fov ?? 14;
     const d = 0.62;
     const yaw = a.yaw ?? 0;
