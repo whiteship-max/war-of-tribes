@@ -9,9 +9,9 @@ import { paintCloth } from './cloth';
 import { paintFace } from './face';
 import { CONSORT_IDS, LOOKS } from './looks';
 import { ConsortMotion } from './motion';
-import { MAX_WEIGHTS } from './skin';
-import { facePx, thetaAt } from './head';
-import type { Img } from './paint';
+import { MAX_WEIGHTS } from '../kit/skin';
+import { HEAD } from './head';
+import type { Img } from '../kit/paint';
 
 const ROOT = fileURLToPath(new URL('../../../../', import.meta.url));
 
@@ -126,7 +126,7 @@ describe('супруга: листы (ЛЦ-2)', () => {
   it('лицо — самое светлое место фигуры: свет лица ярче сорочки и наплечников', () => {
     const lum = (c: readonly number[]): number => 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
     const at = (img: Img, x: number, h: number): number => {
-      const [px, py] = facePx(thetaAt(h, x), h);
+      const [px, py] = HEAD.facePx(HEAD.thetaAt(h, x), h);
       return lum(img.get(Math.round(px), Math.round(py)));
     };
     for (const id of CONSORT_IDS) {

@@ -69,7 +69,7 @@ export interface LifeHost {
   cue(c: LifeCue, at: V3 | null): void;
   /** Правителю — пойти и сделать дело (лечь — ночь вдвоём). */
   intend(spot: SpotId): void;
-  /** Ручки света покоев — свету на супруге (`consort.roomLight`); без них (тесты) — ровный свет. */
+  /** Ручки света покоев — свету на супруге и гонце (`kit/light.roomLight`); без них (тесты) — ровный свет. */
   uniforms?: RoomUniforms;
   /** Кубок: где его чаша (оси комнаты) и в руке ли он; положить на место. */
   goblet(): { at: V3; held: boolean };

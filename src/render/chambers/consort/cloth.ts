@@ -5,9 +5,11 @@
 //
 // Волосы, торс и юбка — зеркальные половины (левый край — середина спереди, правый — середина сзади): узоры у краёв
 // симметричны сами по себе, и край не повторяется, поэтому шва на линии зеркала нет (это держит тест).
-import { SHEETS, SKIRT, TORSO, mirrorU, torsoV } from './figure';
+import { SHEETS, SKIRT, TORSO, torsoV } from './figure';
+import { mirrorU } from '../kit/body';
 import type { Look } from './looks';
-import { Img, around, boxOf, circle, ellipse, flesh, hex, mix, noise, poly, rng, spline, stroke, tone, type RGB } from './paint';
+import { Img, around, boxOf, circle, ellipse, flesh, hex, mix, noise, poly, rng, stroke, tone, type RGB } from '../kit/paint';
+import { hairStrands, ornamentBand, paintMitten, skinTube, type StrandSpec } from '../kit/cloth';
 
 const W = 512;
 
@@ -66,54 +68,11 @@ export function paintCloth(look: Look): Img {
   return img;
 }
 
+/** Пряди супруги: восемь на половину листа (круг 13: у лица и на плечах видно по две-три пряди с тёмными зазорами). */
+const STRANDS: StrandSpec = { seed: [31, 41], n: 8, w: 70, wv: 14, top: 33, cap: 34, crown: 22, wave: [20, 30], taper: [100, 30], shine: [50, 92], shineLen: [18, 8] };
+
 function paintHair(img: Img, hair: RGB): void {
-  const box = { x0: 0, y0: 0, x1: W, y1: SHEETS.hair.y1 };
-  const n = noise(31);
-  const r = rng(41);
-  // Блик волос — тёплый, к меди (не бежевый), основа — тень между прядями; макушка — гладкий тон с мягким бликом по кругу.
-  const shine = mix(tone(hair, 0.55), [0.96, 0.7, 0.42], 0.42);
-  img.fill(tone(hair, -0.55), box);
-  img.shape((x, y) => y - 34, box, (x, y) => mix(tone(hair, -0.2), shine, 0.3 * Math.exp(-(((y - 22) / 6) ** 2))), { soft: 14 });
-  // Пряди — ленты сверху вниз с изгибом: середина светлая, края тёмные, к концам сужаются. Каждая следующая ложится на
-  // соседние и даёт на них тень краем. У зеркал (середина спереди и сзади) — пряди ровно по оси, без изгиба.
-  const strands: { c: number; w: number; ph: number; amp: number; lift: number }[] = [];
-  // Пять крупных прядей на половину: сбоку от лица видно лишь полосу листа в 70 точек — в неё ложится одна прядь с бликом.
-  // Восемь на половину (круг 13): у лица и на плечах видно по две-три пряди с тёмными зазорами, а не гладкое полотно.
-  const N = 8;
-  for (let i = 0; i <= N; i++) {
-    const edge = i === 0 || i === N;
-    strands.push({ c: (i / N) * W + (edge ? 0 : (r() - 0.5) * 10), w: 70 + r() * 14, ph: r() * 6, amp: edge ? 0 : 5 + r() * 4, lift: (i % 2 ? 0.08 : -0.1) + (r() - 0.5) * 0.06 });
-  }
-  const order = strands.map((_, i) => i).sort((a, b) => (a % 2) - (b % 2));
-  for (const i of order) {
-    const st = strands[i];
-    const cx = (y: number): number => st.c + Math.sin(y * 0.045 + st.ph) * st.amp * Math.min(1, Math.max(0, (y - 20) / 30));
-    const half = (y: number): number => (st.w / 2) * (y < 100 ? 1 : Math.max(0.15, 1 - (y - 100) / 30));
-    const top = 33;
-    img.shape(
-      (x, y) => Math.max(Math.abs(x - cx(y)) - half(y), top - y),
-      { x0: st.c - st.w - 12, y0: top - 4, x1: st.c + st.w + 12, y1: box.y1 },
-      (x, y) => {
-        const u = (x - cx(y)) / half(y);
-        const fib = (n(x * 0.05, y * 0.02) - 0.5) * 0.08;
-        // Внутри пряди — две тонкие тёмные бороздки (пряди помельче), края — в тени соседней.
-        const c = tone(hair, st.lift - 0.26 + 0.52 * (1 - u * u) ** 2 - 1.0 * u ** 6 + fib);
-        // Пряди на свету — теплее (к меди), в тени — холоднее.
-        return st.lift > 0 ? mix(c, shine, 0.1 * (1 - u * u)) : mix(c, [0.16, 0.13, 0.16], 0.12);
-      },
-      { soft: 3, alpha: (x, y) => Math.min(1, (y - top + 4) / 18) },
-    );
-    // Блик — узкий длинный штрих вдоль пряди на её изгибе, и второй, короче, ниже (у прядей на осях — нет: штрих по оси
-    // сузился бы к концам в линию шириной в точку).
-    if (st.amp === 0) continue;
-    const off = st.amp ? (r() - 0.5) * st.w * 0.16 : 0;
-    const hy = 50 + (i % 3) * 7;
-    const pts = [hy - 18, hy - 6, hy + 6, hy + 18].map((y) => [cx(y) + off, y] as [number, number]);
-    img.shape(stroke(spline(pts, 4), (t) => 2 + 7 * Math.sin(Math.PI * t)), boxOf(pts, 12), shine, { soft: 4, alpha: 0.9 });
-    const hy2 = 92 + (i % 2) * 6;
-    const pts2 = [hy2 - 8, hy2, hy2 + 8].map((y) => [cx(y) - off * 0.5, y] as [number, number]);
-    img.shape(stroke(spline(pts2, 4), (t) => 1.5 + 6 * Math.sin(Math.PI * t)), boxOf(pts2, 9), mix(shine, hair, 0.35), { soft: 3, alpha: 0.7 });
-  }
+  hairStrands(img, { x0: 0, y0: 0, x1: W, y1: SHEETS.hair.y1 }, hair, STRANDS);
 }
 
 function paintTorso(img: Img, skin: RGB, linen: RGB, bodice: RGB, gold: RGB): void {
@@ -279,27 +238,8 @@ function paintSkirt(img: Img, skirt: RGB, bodice: RGB, gold: RGB): void {
   // Под мысом и под поясом — тень на юбке.
   for (const sx of [-1, 1]) img.shape(stroke([[sx * 30, S.y0 + 3], [0, S.y0 + 15]], 5), { x0: 0, y0: S.y0, x1: 40, y1: S.y0 + 26 }, tone(skirt, -0.5), { soft: 4, alpha: 0.45 });
 
-  // Орнамент по подолу: тёмная полоса между двумя золотыми линиями, в ней — ромбы с трилистником и точки; край подола темнее.
-  const b0 = hem0 - 24;
-  const b1 = hem0 - 7;
-  img.shape((x, y) => Math.max(b0 - y, y - b1), { x0: 0, y0: b0 - 2, x1: W, y1: b1 + 2 }, tone(skirt, -0.45), { soft: 1.2 });
-  for (const y of [b0, b1]) img.shape((x, yy) => Math.abs(yy - y) - 1.2, { x0: 0, y0: y - 3, x1: W, y1: y + 3 }, tone(gold, 0.05), { soft: 1 });
-  const mid = (b0 + b1) / 2;
-  // Ромбы — на полушагах, точки — на шагах: у осей (0 и π) ложится точка, а не тонкая вершина ромба.
-  for (let k = 0; k <= 16; k++) {
-    const half = ax((k * Math.PI) / 16);
-    const c = ax((Math.min(k + 0.5, 15.5) * Math.PI) / 16);
-    const d = [
-      [c, mid - 6.5],
-      [c + 9, mid],
-      [c, mid + 6.5],
-      [c - 9, mid],
-    ] as [number, number][];
-    img.shape((x, y) => Math.abs(poly(d)(x, y)) - 0.9, boxOf(d, 3), tone(gold, 0.15), { soft: 1 });
-    img.shape(circle(c, mid, 1.8), around(c, mid, 3), tone(gold, 0.35), { soft: 0.9 });
-    for (const dx of [-4.2, 4.2]) img.shape(circle(c + dx, mid, 1.1), around(c + dx, mid, 2.5), tone(gold, 0.1), { soft: 0.8 });
-    img.shape(circle(half, mid, 2.2), around(half, mid, 4), tone(gold, 0.2), { soft: 1.2 });
-  }
+  // Орнамент по подолу: тёмная полоса между двумя золотыми линиями, в ней ромбы с трилистником и точки; край подола темнее.
+  ornamentBand(img, { b0: hem0 - 24, b1: hem0 - 7, x1: W, ground: tone(skirt, -0.45), line: gold, steps: 16, half: 6.5, at: ax });
   img.shape((x, y) => hem0 - 4 - y, { x0: 0, y0: hem0 - 6, x1: W, y1: S.y1 }, tone(skirt, -0.7), { soft: 2 });
 }
 
@@ -318,36 +258,9 @@ function paintArms(img: Img, skin: RGB, linen: RGB, gold: RGB): void {
   img.shape((x, y) => Math.abs(y - (sl.y0 + 71)) - 1.8, { x0: sl.x0, y0: sl.y0 + 66, x1: sl.x1, y1: sl.y0 + 76 }, tone(linen, -0.7), { soft: 2, alpha: 0.8 });
   img.shape((x, y) => Math.abs(y - (sl.y1 - 10)) - 1.4, { x0: sl.x0, y0: sl.y1 - 14, x1: sl.x1, y1: sl.y1 - 6 }, tone(gold, 0.05), { soft: 1 });
   img.shape((x, y) => y - (sl.y1 - 8), { x0: sl.x0, y0: sl.y1 - 9, x1: sl.x1, y1: sl.y1 }, (x, y) => tone(linen, -0.1 + 0.25 * Math.sin(x * 0.5)), { soft: 1 });
-  // Предплечье: снаружи светлее, к телу — в тень; у манжеты — тень от неё.
-  const fo = SHEETS.fore;
-  img.shape((x, y) => -1, { x0: fo.x0, y0: fo.y0, x1: fo.x1, y1: fo.y1 }, (x, y) => {
-    const u = (x - fo.x0) / (fo.x1 - fo.x0);
-    const outer = Math.cos((u - 0.5) * Math.PI * 2) * 0.5 + 0.5;
-    const cuff = Math.max(0, 1 - (y - fo.y0) / 16);
-    return tone(skin, 0.18 * outer - 0.3 * (1 - outer) - 0.4 * cuff);
-  });
-  // Кисть: тыльная сторона светлее, ладонь розовее; пальцы — тёмными бороздками, костяшки — бликами, ногти у кончиков.
-  const h = SHEETS.hand;
-  const hw = h.x1 - h.x0;
-  const kx = (k: number): number => h.x0 + 1 + k * (hw - 2);
-  img.shape((x, y) => -1, { x0: h.x0, y0: h.y0, x1: h.x1, y1: h.y1 }, (x, y) => {
-    const k = (x - h.x0) / hw;
-    const back = Math.cos((k - 0.5) * Math.PI * 2) * 0.5 + 0.5;
-    const tipShade = Math.max(0, (y - (h.y1 - 12)) / 12) * 0.2;
-    return mix(tone(skin, 0.16 * back - 0.08 - tipShade), mix(skin, [0.9, 0.5, 0.48], 0.25), (1 - back) * 0.5);
-  });
-  for (const k of [0.44, 0.5, 0.56, 0.94, 0.06, 0.0, 1.0]) {
-    const x = kx(k);
-    img.shape((px, py) => Math.abs(px - x) - 0.8, { x0: x - 3, y0: h.y0 + 60, x1: x + 3, y1: h.y1 }, tone(skin, -0.55), { soft: 1.2, alpha: 0.7 });
-  }
-  for (const k of [0.41, 0.47, 0.53, 0.59]) {
-    const x = kx(k);
-    img.shape(ellipse(x, h.y0 + 58, 3, 2), around(x, h.y0 + 58, 5, 4), tone(skin, 0.35), { soft: 2, alpha: 0.6 });
-    img.shape(ellipse(x, h.y1 - 7, 2.4, 3.4), around(x, h.y1 - 7, 4, 5), mix(tone(skin, 0.4), [0.95, 0.75, 0.75], 0.3), { soft: 1 });
-  }
-  const tb = SHEETS.thumb;
-  img.shape((x, y) => -1, { x0: tb.x0, y0: tb.y0, x1: tb.x1, y1: tb.y1 }, (x, y) => tone(skin, 0.08 * Math.cos(((x - tb.x0) / (tb.x1 - tb.x0) - 0.5) * Math.PI * 2) - 0.04));
-  img.shape(ellipse(tb.x0 + 16, tb.y1 - 7, 3, 4), around(tb.x0 + 16, tb.y1 - 7, 5, 6), mix(tone(skin, 0.4), [0.95, 0.75, 0.75], 0.3), { soft: 1 });
+  // Предплечье и кисть — генераторы набора: кожа трубкой с тенью манжеты, «варежка» с бороздками, костяшками и ногтями.
+  skinTube(img, SHEETS.fore, skin);
+  paintMitten(img, SHEETS.hand, SHEETS.thumb, skin);
 }
 
 function paintGold(img: Img, gold: RGB, gem: RGB): void {

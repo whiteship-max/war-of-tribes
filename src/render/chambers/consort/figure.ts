@@ -9,9 +9,13 @@
 // зеркальные половины: u = |угол| / π, середина спереди — левый край листа, середина сзади — правый; край листа не
 // повторяется (`ClampToEdge`), поэтому на линии зеркала шва нет.
 import type { V3 } from '../../city/geom';
-import { Skeleton } from '../rig';
-import { SkinMesh, add, scale, sub, type Weights } from './skin';
-import { HZ, buildHead, eyeCenter, faceOval, surf, thetaAt } from './head';
+import type { Skeleton } from '../rig';
+import { upperSkeleton } from '../kit/skeleton';
+import { SkinMesh, add, scale, sub, type Weights } from '../kit/skin';
+import { crs, mirrorRing, mirrorU, mitten, norm, place, ringPt, smooth, tube, uvB, type MittenSpec } from '../kit/body';
+import { HEAD } from './head';
+
+const HZ = HEAD.HZ;
 
 /** Кости по порядку (родитель раньше ребёнка). */
 export const BONES = ['hips', 'spine', 'chest', 'neck', 'head', 'jaw', 'lids', 'hair', 'armL', 'foreL', 'handL', 'thumbL', 'armR', 'foreR', 'handR', 'thumbR', 'skirtF', 'skirtB', 'skirtS'] as const;
@@ -52,37 +56,27 @@ const ELBOW: V3 = [0.212, 0.958, -0.014];
 const WRIST: V3 = [0.243, 0.756, 0.0];
 
 export function consortSkeleton(): Skeleton {
-  const sk = new Skeleton();
-  const eye = eyeCenter(1);
-  sk.add('hips', null, grown([0, 0.84, 0]));
-  sk.add('spine', 'hips', grown([0, 0.92, -0.004]));
-  sk.add('chest', 'spine', grown([0, 1.06, 0]));
-  sk.add('neck', 'chest', grown([0, 1.222, -0.014]));
-  sk.add('head', 'neck', atHead([0, 1.372, -0.024]));
-  sk.add('jaw', 'head', atHead([0, 1.388, -0.032]));
-  sk.add('lids', 'head', atHead([0, eye[1], eye[2]]));
-  sk.add('hair', 'head', atHead([0, 1.35, -0.09]));
-  for (const [side, sx] of [
-    ['L', 1],
-    ['R', -1],
-  ] as const) {
-    const m = (p: V3): V3 => grown([p[0] * sx, p[1], p[2]]);
-    sk.add(`arm${side}`, 'chest', m(SHOULDER));
-    sk.add(`fore${side}`, `arm${side}`, m(ELBOW));
-    sk.add(`hand${side}`, `fore${side}`, m(WRIST));
-    sk.add(`thumb${side}`, `hand${side}`, m(thumbBase()));
-  }
+  const eye = HEAD.eyeCenter(1);
+  const sk = upperSkeleton({
+    hips: grown([0, 0.84, 0]),
+    spine: grown([0, 0.92, -0.004]),
+    chest: grown([0, 1.06, 0]),
+    neck: grown([0, 1.222, -0.014]),
+    head: atHead([0, 1.372, -0.024]),
+    jaw: atHead([0, 1.388, -0.032]),
+    lids: atHead([0, eye[1], eye[2]]),
+    crown: [['hair', atHead([0, 1.35, -0.09])]],
+    shoulder: SHOULDER,
+    elbow: ELBOW,
+    wrist: WRIST,
+    thumb: thumbBase(),
+    arm: (p, sx) => grown([p[0] * sx, p[1], p[2]]),
+  });
   sk.add('skirtF', 'hips', grown([0, 0.8, 0.04]));
   sk.add('skirtB', 'hips', grown([0, 0.8, -0.04]));
   sk.add('skirtS', 'hips', grown([0, 0.8, 0]));
   return sk;
 }
-
-/** Лист тела в долях: точки (x, y — вниз) → UV. */
-const BODY_PX = 512;
-const uvB = (x: number, y: number): [number, number] => [x / BODY_PX, y / BODY_PX];
-/** Зеркальные листы: середина спереди — левый край листа (0), сзади — правый (512); выборка у края его не переходит. */
-export const mirrorU = (a: number): number => (Math.min(Math.PI, Math.abs(a)) / Math.PI) * BODY_PX;
 
 export const SHEETS = {
   hair: { y0: 0, y1: 128 },
@@ -94,16 +88,6 @@ export const SHEETS = {
   thumb: { x0: 448, x1: 480, y0: 448, y1: 512 },
   gold: { x0: 480, x1: 512, y0: 416, y1: 512 },
 } as const;
-
-/** Кольцо вокруг вертикали по углам `angles` (0 — перед, + — к левому боку): полуоси, сдвиг середины вперёд. */
-const ringPt = (a: number, y: number, rx: number, rz: number, zc: number): V3 => [rx * Math.sin(a), y, zc + rz * Math.cos(a)];
-
-/** Углы кольца зеркальной половины: 0, правая сторона и левая — по одному набору (`half` — от 0 до π включительно). */
-function mirrorRing(half: readonly number[]): number[] {
-  const out = [...half];
-  for (let i = half.length - 2; i >= 1; i--) out.push(-half[i]);
-  return out;
-}
 
 // ---------- Торс и шея ----------
 
@@ -250,13 +234,13 @@ function buildLocks(m: SkinMesh): void {
   for (const side of [1, -1] as const) {
     const rows = hs.map((h, ri) => {
       const tip = ri === hs.length - 1;
-      const o = faceOval(h);
+      const o = HEAD.faceOval(h);
       // Внутрь — на край щеки, наружу — за овал; к концу пряди уже.
       const ms = tip ? [o - 0.002, o + 0.006, o + 0.012] : [o - 0.008, o + 0.004, o + 0.018];
       const lift = [0.003, 0.0075, 0.005];
       return ms.map((mm, ci) => {
-        const th = side * thetaAt(h, mm);
-        const p = surf(th, h);
+        const th = side * HEAD.thetaAt(h, mm);
+        const p = HEAD.surf(th, h);
         const dx = p[0];
         const dz = p[2] - HZ;
         const d = Math.hypot(dx, dz);
@@ -310,23 +294,6 @@ function thumbBase(): V3 {
   return add(add(WRIST, scale(a, 0.028)), [-0.01, 0, 0.017]);
 }
 
-const norm = (a: V3): V3 => {
-  const l = Math.hypot(a[0], a[1], a[2]) || 1;
-  return [a[0] / l, a[1] / l, a[2] / l];
-};
-const crs = (a: V3, b: V3): V3 => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
-
-/** Кольцо поперёк оси `d` с середины `c`: полуоси по `u` и `v`, `seg` углов + шов (последняя — копия первой с u = 1). */
-function tube(m: SkinMesh, c: V3, u: V3, v: V3, ru: number, rv: number, seg: number, uv: (k: number) => [number, number], w: Weights, phase = 0): number[] {
-  const out: number[] = [];
-  for (let k = 0; k <= seg; k++) {
-    const a = phase + (k / seg) * Math.PI * 2;
-    const p = add(c, add(scale(u, Math.cos(a) * ru), scale(v, Math.sin(a) * rv)));
-    out.push(m.v(p, uv(k / seg), 0, w));
-  }
-  return out;
-}
-
 function buildArm(m: SkinMesh, sx: 1 | -1): void {
   const side = sx === 1 ? 'L' : 'R';
   const mx = (p: V3): V3 => [p[0] * sx, p[1], p[2]];
@@ -376,84 +343,50 @@ function buildArm(m: SkinMesh, sx: 1 | -1): void {
     const t = (p[0] - E[0]) * d2[0] + (p[1] - E[1]) * d2[1] + (p[2] - E[2]) * d2[2];
     return add(E, scale(d2, t));
   });
-  buildHand(m, sx, W, d2);
+  mitten(m, sx, W, d2, thumbBase(), MITTEN);
 }
 
 /**
- * Кисть — «варежка»: ладонь с пальцами одним куском и отдельный большой палец. Покой — рука вниз, ладонь к бедру
- * (к телу), большой палец вперёд; пальцы чуть подогнуты к ладони.
+ * Кисть — «варежка» набора (`kit/body.mitten`): ладонь с пальцами одним куском и отдельный большой палец. Покой — рука вниз,
+ * ладонь к бедру (к телу), большой палец вперёд; пальцы чуть подогнуты к ладони.
  */
-function buildHand(m: SkinMesh, sx: 1 | -1, W: V3, d: V3): void {
-  const side = sx === 1 ? 'L' : 'R';
-  const hand = `hand${side}`;
-  const fore = `fore${side}`;
-  const palm: V3 = [-sx, 0, 0];
-  const across = scale(norm(crs(palm, d)), sx);
-  const h = SHEETS.hand;
-  const uvH = (v: number) => (k: number): [number, number] => uvB(h.x0 + 1 + k * (h.x1 - h.x0 - 2), v);
+const MITTEN: MittenSpec = {
   // Сечения: ширина (поперёк, к большому пальцу), толщина (к ладони), сдвиг к ладони — подогнутые пальцы.
-  const rings: [number, number, number, number, number][] = [
-    [0, 0.021, 0.014, 0, h.y0 + 2],
-    [0.058, 0.03, 0.016, 0.001, h.y0 + 34],
-    [0.106, 0.0295, 0.014, 0.004, h.y0 + 58],
-    [0.146, 0.024, 0.011, 0.009, h.y0 + 78],
-  ];
-  const inner = Math.PI / 2;
-  const rows = rings.map(([t, w, th, curl, v], i) => tube(m, add(add(W, scale(d, t)), scale(palm, curl)), across, palm, w, th, 6, uvH(v), i === 0 ? [hand, fore, 0.5] : hand, inner));
-  m.strip(rows, false, (p) => {
-    const t = (p[0] - W[0]) * d[0] + (p[1] - W[1]) * d[1] + (p[2] - W[2]) * d[2];
-    return add(add(W, scale(d, t)), scale(palm, t > 0.12 ? 0.008 : 0));
-  });
-  const tip = m.v(add(add(W, scale(d, 0.17)), scale(palm, 0.012)), uvB(h.x0 + 64, h.y1 - 2), 0, hand);
-  const last = rows[rows.length - 1];
-  for (let k = 0; k < last.length - 1; k++) m.quad(last[k], last[k + 1], tip, tip, add(add(W, scale(d, 0.13)), scale(palm, 0.009)));
-  // Большой палец: от основания у запястья — вниз, вперёд и к ладони.
-  const tb = SHEETS.thumb;
-  const uvT = (v: number) => (k: number): [number, number] => uvB(tb.x0 + 1 + k * (tb.x1 - tb.x0 - 2), v);
-  const base = [thumbBase()[0] * sx, thumbBase()[1], thumbBase()[2]] as V3;
-  const td = norm(add(add(scale(d, 0.62), scale(across, 0.55)), scale(palm, 0.42)));
-  const tu = norm(crs(td, palm));
-  const tv = norm(crs(td, tu));
-  const thumb = `thumb${side}`;
-  const trs = [
-    tube(m, base, tu, tv, 0.012, 0.0105, 5, uvT(tb.y0 + 2), [thumb, hand, 0.5]),
-    tube(m, add(base, scale(td, 0.034)), tu, tv, 0.0098, 0.0088, 5, uvT(tb.y0 + 34), thumb),
-  ];
-  m.strip(trs, false, (p) => add(base, scale(td, (p[0] - base[0]) * td[0] + (p[1] - base[1]) * td[1] + (p[2] - base[2]) * td[2])));
-  const ttip = m.v(add(base, scale(td, 0.058)), uvB(tb.x0 + 16, tb.y1 - 2), 0, thumb);
-  const tl = trs[1];
-  for (let k = 0; k < tl.length - 1; k++) m.quad(tl[k], tl[k + 1], ttip, ttip, add(base, scale(td, 0.04)));
-}
-
-const smooth = (a: number, b: number, x: number): number => {
-  const k = Math.max(0, Math.min(1, (x - a) / (b - a)));
-  return k * k * (3 - 2 * k);
+  rings: [
+    [0, 0.021, 0.014, 0, SHEETS.hand.y0 + 2],
+    [0.058, 0.03, 0.016, 0.001, SHEETS.hand.y0 + 34],
+    [0.106, 0.0295, 0.014, 0.004, SHEETS.hand.y0 + 58],
+    [0.146, 0.024, 0.011, 0.009, SHEETS.hand.y0 + 78],
+  ],
+  tip: [0.17, 0.012],
+  fan: [0.13, 0.009],
+  bend: [0.12, 0.008],
+  thumbDir: [0.62, 0.55, 0.42],
+  thumbR: [
+    [0.012, 0.0105],
+    [0.0098, 0.0088],
+  ],
+  thumbAt: [0.034, 0.058, 0.04],
+  hand: SHEETS.hand,
+  thumb: SHEETS.thumb,
 };
 
 /** Собрать всю фигуру: голова, волосы и обруч, торс с шеей, руки, юбка. */
 export function buildConsortMesh(): SkinMesh {
   const m = new SkinMesh(consortSkeleton());
-  const place = (from: number, to: (p: V3) => V3): void => {
-    for (let i = from; i < m.vertexCount; i++) {
-      const p = to(m.at(i));
-      m.pos[i * 3] = p[0];
-      m.pos[i * 3 + 1] = p[1];
-      m.pos[i * 3 + 2] = p[2];
-    }
-  };
-  buildHead(m);
+  HEAD.build(m);
   buildCirclet(m);
   buildLocks(m);
-  place(0, atHead);
+  place(m, 0, atHead);
   const neck = m.vertexCount;
   buildHair(m);
   buildTorso(m);
-  place(neck, atBody);
+  place(m, neck, atBody);
   const body = m.vertexCount;
   buildArm(m, 1);
   buildArm(m, -1);
   buildSkirt(m);
-  place(body, grown);
+  place(m, body, grown);
   return m;
 }
 

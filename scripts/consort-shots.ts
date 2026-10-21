@@ -6,10 +6,13 @@
 //   ASK='{"view":"face","clip":2,"at":1.4}'    — свой кадр стенда (`stand.ShotAsk`), имя — `TAG`
 //   LIGHT=night npm run consort:shots          — ночной свет фигуры
 //   OUT=docs/characters TAG=lc2 …              — куда и с какой приставкой (снимки задания — `docs/characters/lc2-*.jpg`)
+//   CMP=.consort-shots/before,.consort-shots/after npm run consort:shots
+//                                              — сверить два захода точка в точку (без браузера): одноимённые PNG, сколько
+//                                                байтов разошлось (вынос набора персонажа, ЛЦ-3, — «снимки до и после»)
 //
 // Бюджет железа (CLAUDE.md, раздел ⛔): один прогон, кадры — по просьбе стенда (цепочки кадров нет), не дольше двух минут
 // на заход, минута остывания видеокарты перед заходом; рядом с чужой тяжёлой работой стенд не запускается.
-import { mkdir } from 'node:fs/promises';
+import { mkdir, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath, URL } from 'node:url';
 import { createServer as createVite } from 'vite';
@@ -40,7 +43,30 @@ async function snap(tab: Tab, name: string, w: number, h: number, ask: Record<st
   console.log(`  ${file.slice(ROOT.length)} — треугольников ${stats.triangles}, вызовов ${stats.calls}`);
 }
 
+/** Сверка двух заходов (`PNG=1`): одноимённые снимки — байт в байт по точкам. */
+async function compare(a: string, b: string): Promise<void> {
+  const names = (await readdir(join(ROOT, a))).filter((f) => f.endsWith('.png')).sort();
+  let bad = 0;
+  for (const f of names) {
+    const x = await sharp(join(ROOT, a, f)).raw().toBuffer({ resolveWithObject: true });
+    const y = await sharp(join(ROOT, b, f))
+      .raw()
+      .toBuffer({ resolveWithObject: true })
+      .catch(() => null);
+    let diff = y && y.data.length === x.data.length ? 0 : x.data.length;
+    if (y && diff === 0) for (let i = 0; i < x.data.length; i++) if (x.data[i] !== y.data[i]) diff++;
+    if (diff) bad++;
+    console.log(`  ${f}: ${x.info.width} × ${x.info.height}, разных байтов ${diff}`);
+  }
+  console.log(bad ? `  разошлось снимков: ${bad} из ${names.length}` : `  совпали точка в точку: ${names.length} из ${names.length}`);
+  if (bad) process.exitCode = 1;
+}
+
 async function main(): Promise<void> {
+  if (process.env.CMP) {
+    const [a, b] = process.env.CMP.split(',');
+    return compare(a, b);
+  }
   await mkdir(OUT, { recursive: true });
   refuseIfBusy('Стенд супруги');
   const vite = await createVite({ configFile: join(ROOT, 'vite.config.ts'), server: { port: PORT, strictPort: true, host: '127.0.0.1' }, logLevel: 'warn' });
@@ -78,7 +104,7 @@ async function main(): Promise<void> {
 }
 
 void main().then(
-  () => process.exit(0),
+  () => process.exit(process.exitCode ?? 0),
   (e: unknown) => {
     console.error(e);
     process.exit(1);

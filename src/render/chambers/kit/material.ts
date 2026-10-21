@@ -1,11 +1,12 @@
-// Материал супруги (ЛЦ-2, docs/characters.md): почти без освещения, как у моделей классического Warcraft III — свет и тень
-// нарисованы в листах, а шейдер добавляет только общий свет сцены (день и ночь покоев одним цветом, `uTint`) и тонкий
-// контурный свет со стороны окна (`uRim`, `uRimDir`). Ни металла, ни PBR. Изнанка (юбка изнутри, волосы у лица) — тёмной
-// заливкой. Выбранная пальцем — светлее и ободом, как всё в покоях (`material.uSel`).
+// Материал набора персонажа (ЛЦ-3, docs/characters.md; вынесено из супруги ЛЦ-2): почти без освещения, как у моделей
+// классического Warcraft III — свет и тень нарисованы в листах, а шейдер добавляет только общий свет сцены (день и ночь
+// покоев одним цветом, `uTint`) и тонкий контурный свет со стороны окна (`uRim`, `uRimDir`). Ни металла, ни PBR. Изнанка
+// (юбка и плащ изнутри, волосы у лица) — тёмной заливкой. Выбранная пальцем — светлее и ободом, как всё в покоях
+// (`material.uSel`).
 import * as THREE from 'three';
 import { INSIDE_DEPTH_GLSL } from '../../city/inside';
 
-export interface ConsortUniforms {
+export interface FigureUniforms {
   [k: string]: THREE.IUniform;
   bodyMap: { value: THREE.Texture | null };
   faceMap: { value: THREE.Texture | null };
@@ -68,8 +69,6 @@ void main() {
   n = mix(n, -n, back);
   // Свет сцены одним цветом, чуть объёма от окна; изнанка — тёмная заливка.
   vec3 col = albedo * uTint * mix(0.9 + 0.16 * max(dot(n, uRimDir), 0.0), 0.3, back);
-  // Тонкий контур со стороны окна.
-  // Тонкий контур со стороны окна — по бокам силуэта, не на макушке.
   // Тонкий контур со стороны окна — по бокам силуэта, не на макушке; цвет — свет окна, смешанный с тоном самого материала
   // (на тёмных волосах чистый свет неба дал бы серую полосу, а не блик).
   float fr = pow(1.0 - max(dot(n, v), 0.0), 5.0);
@@ -102,8 +101,8 @@ export function sheetTexture(rgba: Uint8Array<ArrayBuffer>, size: number, name: 
  * Материал фигуры. `shared` — ручки покоев, которые правит кадр комнаты (выбор пальцем, начало комнаты): их объекты
  * общие, а не копии. `inside` — глубина в доле буфера под комнату (`city/inside`), как у всего в покоях.
  */
-export function consortMaterial(body: THREE.Texture, face: THREE.Texture, code: number, inside: boolean, shared?: { uOrigin: { value: THREE.Vector3 }; uSel: { value: number }; uSelGlow: { value: number } }): { material: THREE.ShaderMaterial; u: ConsortUniforms } {
-  const u: ConsortUniforms = {
+export function figureMaterial(body: THREE.Texture, face: THREE.Texture, code: number, inside: boolean, shared: { uOrigin: { value: THREE.Vector3 }; uSel: { value: number }; uSelGlow: { value: number } } | undefined, name: string): { material: THREE.ShaderMaterial; u: FigureUniforms } {
+  const u: FigureUniforms = {
     bodyMap: { value: body },
     faceMap: { value: face },
     uOrigin: shared?.uOrigin ?? { value: new THREE.Vector3() },
@@ -117,6 +116,6 @@ export function consortMaterial(body: THREE.Texture, face: THREE.Texture, code: 
   const material = new THREE.ShaderMaterial({ uniforms: u, vertexShader: VERT, fragmentShader: FRAG, side: THREE.DoubleSide, defines: inside ? { INSIDE: 1 } : {} });
   // Свет и тень нарисованы в листах: тональное сжатие сцены съело бы светлые тона кожи и плоско выровняло лицо.
   material.toneMapped = false;
-  material.name = 'chambers-consort';
+  material.name = name;
   return { material, u };
 }
