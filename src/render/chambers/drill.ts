@@ -3,6 +3,7 @@
 // Строится при входе в покои вместе с ними (`room.ts`); числа удара — `sword.ts`, место — `plan.DUMMY`.
 import * as THREE from 'three';
 import { geometryOf } from '../city/index';
+import { INSIDE_DEPTH_GLSL } from '../city/inside';
 import { tint, type V3 } from '../city/geom';
 import { Mesher } from './geo';
 import { DUMMY } from './plan';
@@ -169,7 +170,7 @@ export class Drill {
     const di: number[] = [];
     for (let i = 0; i < DENTS; i++) di.push(i * 4, i * 4 + 1, i * 4 + 2, i * 4, i * 4 + 2, i * 4 + 3);
     dg.setIndex(di);
-    this.dents = new THREE.Mesh(dg, new THREE.MeshBasicMaterial({ color: 0x2c1c0c, transparent: true, opacity: 0.78, side: THREE.DoubleSide, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }));
+    this.dents = new THREE.Mesh(dg, squeezed(new THREE.MeshBasicMaterial({ color: 0x2c1c0c, transparent: true, opacity: 0.78, side: THREE.DoubleSide, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 })));
     this.dents.name = 'chambers-dummy-dents';
     this.dents.frustumCulled = false;
     this.sway.add(this.dents);
@@ -180,7 +181,7 @@ export class Drill {
     const ti: number[] = [];
     for (let i = 0; i + 1 < TRAIL_N; i++) ti.push(i * 2, i * 2 + 1, i * 2 + 3, i * 2, i * 2 + 3, i * 2 + 2);
     tg.setIndex(ti);
-    this.trailMesh = new THREE.Mesh(tg, new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
+    this.trailMesh = new THREE.Mesh(tg, squeezed(new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide })));
     this.trailMesh.name = 'chambers-trail';
     this.trailMesh.frustumCulled = false;
     this.trailMesh.visible = false;
@@ -207,8 +208,11 @@ export class Drill {
     if (this.trailPts.length > TRAIL_N) this.trailPts.length = TRAIL_N;
   }
 
-  /** Клинок встретил `surface` в точке `at` (оси комнаты), удар шёл по `dir` (оси комнаты), сила `force`. */
-  hit(surface: Surface, at: V3, dir: V3, force: number): void {
+  /**
+   * Клинок встретил `surface` в точке `at` (оси комнаты), удар шёл по `dir` (оси комнаты), сила `force`; `eye` — откуда
+   * бьют (зарубка — на стороне чучела к бьющему).
+   */
+  hit(surface: Surface, at: V3, dir: V3, force: number, eye: V3 = at): void {
     const r = (): number => this.rnd();
     const spray = (n: number, list: Bit[], speed: number, up: number, life: number, drag: number, c: () => V3): void => {
       for (let i = 0; i < n; i++) {
@@ -235,7 +239,7 @@ export class Drill {
         break;
       case 'straw': {
         spray(Math.round(18 + 12 * k), this.bitList, 1.3 * k + 0.5, 1.4, 1.5, 4.5, () => T(STRAW, 0.75 + r() * 0.45));
-        this.dent(at, dir);
+        this.dent(at, dir, eye);
         // Чучело качается от удара: наклон по направлению удара, сильнее — дальше.
         const s = 0.9 * k;
         this.tilt.va += dir[0] * s;
@@ -246,24 +250,38 @@ export class Drill {
   }
 
   /** Зарубка на соломе: щель вдоль кромки удара, на поверхности тела. */
-  private dent(at: V3, dir: V3): void {
+  private dent(at: V3, dir: V3, eye: V3): void {
     this.group.updateMatrixWorld(true);
     const p = this.sway.worldToLocal(new THREE.Vector3(at[0], at[1], at[2]).add(this.group.position));
     const d = new THREE.Vector3(dir[0], dir[1], dir[2]).transformDirection(new THREE.Matrix4().copy(this.sway.matrixWorld).invert());
+    // Сторона зарубки: между местом встречи и стороной к бьющему — клинок входит в солому спереди, а не на боку.
+    const q = this.sway.worldToLocal(new THREE.Vector3(eye[0], eye[1], eye[2]).add(this.group.position));
+    const toEye = new THREE.Vector3(q.x, 0, q.z);
     const n = new THREE.Vector3(p.x, 0, p.z);
     if (n.lengthSq() < 1e-6) n.set(0, 0, 1);
     n.normalize();
+    if (toEye.lengthSq() > 1e-6) n.lerp(toEye.normalize(), 0.6).normalize();
     // На поверхность: тело — `DUMMY.r`, голова и руки — где встретил.
-    const body = p.y + 0.07 >= DUMMY.y0 && p.y + 0.07 <= DUMMY.y1;
-    const c = body ? new THREE.Vector3(n.x * (DUMMY.r * 0.97 + 0.004), p.y, n.z * (DUMMY.r * 0.97 + 0.004)) : p.clone().addScaledVector(n, 0.004);
+    // На поверхность: тело — круг `DUMMY.r` на высоте встречи, голова — шар; руки-перекладина — где встретил.
+    const y = p.y + 0.07;
+    const head = new THREE.Vector3(0, DUMMY.head.y - 0.07, 0);
+    let c: THREE.Vector3;
+    if (y >= DUMMY.y0 && y <= DUMMY.y1) c = new THREE.Vector3(n.x * (DUMMY.r * 0.97 + 0.004), p.y, n.z * (DUMMY.r * 0.97 + 0.004));
+    else if (y > DUMMY.y1) {
+      const r = p.clone().sub(head);
+      r.y = clampAbs(r.y, DUMMY.head.r * 0.5);
+      const hn = new THREE.Vector3(n.x, r.y / DUMMY.head.r, n.z).normalize();
+      c = head.clone().addScaledVector(hn, DUMMY.head.r * 0.93 + 0.004);
+      n.copy(hn);
+    } else c = p.clone().addScaledVector(n, 0.004);
     const e = d.clone().addScaledVector(n, -d.dot(n));
     if (e.lengthSq() < 1e-6) e.set(0, 1, 0);
     e.normalize();
     const w = new THREE.Vector3().crossVectors(n, e).normalize();
     const pos = (this.dents.geometry.getAttribute('position') as THREE.BufferAttribute).array as Float32Array;
     const i = (this.dentN++ % DENTS) * 12;
-    const L = 0.055 + this.rnd() * 0.025;
-    const H = 0.008 + this.rnd() * 0.006;
+    const L = 0.07 + this.rnd() * 0.035;
+    const H = 0.011 + this.rnd() * 0.008;
     const corners = [c.clone().addScaledVector(e, -L).addScaledVector(w, -H), c.clone().addScaledVector(e, L).addScaledVector(w, -H * 0.4), c.clone().addScaledVector(e, L).addScaledVector(w, H * 0.4), c.clone().addScaledVector(e, -L).addScaledVector(w, H)];
     corners.forEach((v, j) => {
       pos[i + j * 3] = v.x;
@@ -401,10 +419,23 @@ function points(n: number, size: number, glow: boolean): THREE.Points {
   g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
   g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(n * 3), 3));
   const m = new THREE.PointsMaterial({ size, vertexColors: true, sizeAttenuation: true, transparent: true, depthWrite: false, blending: glow ? THREE.AdditiveBlending : THREE.NormalBlending });
-  const p = new THREE.Points(g, m);
+  const p = new THREE.Points(g, squeezed(m));
   p.frustumCulled = false;
   p.visible = false;
   return p;
+}
+
+/**
+ * Глубина покоев — в первой доле буфера (`city/inside.INSIDE_DEPTH`): город рисуется следом и встаёт только в проёмах.
+ * Свои материалы отработки (зарубки, след, искры) сжимают глубину так же, как камень покоев, — иначе их закрыла бы стена
+ * в любом месте комнаты.
+ */
+export function squeezed<M extends THREE.Material>(m: M): M {
+  m.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader.replace('#include <project_vertex>', `#include <project_vertex>\n  ${INSIDE_DEPTH_GLSL}`);
+  };
+  m.customProgramCacheKey = () => 'chambers-squeezed';
+  return m;
 }
 
 const clampAbs = (v: number, m: number): number => Math.max(-m, Math.min(m, v));

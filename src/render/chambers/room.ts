@@ -1050,7 +1050,7 @@ export class ChambersRoom implements Inside {
           const o = toRoom(eye, b.hand);
           const q = toRoom(eye, [b.hand[0] + b.edge[0], b.hand[1] + b.edge[1], b.hand[2] + b.edge[2]]);
           const dir: SwordV3 = [q[0] - o[0], q[1] - o[1], q[2] - o[2]];
-          this.drill.hit(e.surface, e.at, dir, force);
+          this.drill.hit(e.surface, e.at, dir, force, [eye.x, eye.y, eye.z]);
           // Отдача: камень — сильнее всего, солома — едва; толчок против удара на экране, без крена.
           const k = KICK[e.surface] * force;
           this.kick.vy += e.spec.dir[0] * k;

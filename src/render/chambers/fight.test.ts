@@ -7,6 +7,7 @@ import { Drill } from './drill';
 import { DUMMY } from './plan';
 import { BLADE_TO, TIRED } from './sword';
 import { DEFAULT_ARMS } from '@/heraldry/arms';
+import { INSIDE_DEPTH_GLSL } from '../city/inside';
 
 const KEEP = { x: -4, z: -147, base: 16, height: 30, size: 13 };
 const PHONE = { left: 0, top: 0, width: 390, height: 844 };
@@ -212,6 +213,17 @@ describe('покои: бой мечом', () => {
       expect(worst, 'взгляд от отдачи — не дальше 1,5°').toBeLessThan(0.03);
       room.dispose();
     }
+  });
+
+  it('зарубки, след, искры и солома — с глубиной покоев (иначе их закрыла бы стена: глубина комнаты сжата)', () => {
+    const room = phoneRoom();
+    for (const name of ['chambers-dummy-dents', 'chambers-trail', 'chambers-sparks', 'chambers-straw']) {
+      const o = room.scene.getObjectByName(name) as THREE.Mesh;
+      const shader = { vertexShader: '#include <project_vertex>\n', fragmentShader: '', uniforms: {} } as unknown as THREE.WebGLProgramParametersWithUniforms;
+      (o.material as THREE.Material).onBeforeCompile(shader, null as unknown as THREE.WebGLRenderer);
+      expect(shader.vertexShader, name).toContain(INSIDE_DEPTH_GLSL);
+    }
+    room.dispose();
   });
 
   it('чучело, след и зарубки — в бюджете отработки на каждом уровне', () => {

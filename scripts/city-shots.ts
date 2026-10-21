@@ -511,7 +511,8 @@ async function weatherShots(tab: Tab, q: Quality): Promise<void> {
     }
     // Бой мечом (Г-11, к `CHAMBERS=arms`): `FIGHT='stance|at:3.5:0.35:1.571:-0.06|hit:-250:10|hit:250:0'` — в стойку, встать
     // в точку пола с мечом, удары взмахом (сдвиг пальца, px) — по одному, с паузой на удар; `coach` — до стойки забыть, что
-    // подсказки первой стойки уже видели. Снимок посреди удара или блока — `FIGHTSHOT=swing:-250:10` или `block:left`.
+    // подсказки первой стойки уже видели. Снимок посреди удара или блока — `FIGHTSHOT=swing:-250:10` или `block:left`;
+    // `straw:-250:10` — удар и снимок, когда из чучела полетела солома (или из камня — искры).
     if (process.env.FIGHT) {
       for (const cmd of process.env.FIGHT.split('|').filter(Boolean)) {
         const [op, a1, a2, a3, a4] = cmd.split(':');
@@ -595,7 +596,8 @@ async function weatherShots(tab: Tab, q: Quality): Promise<void> {
         let n = 0;
         const t = setInterval(() => {
           const st = f.state;
-          const hit = (st.kind === 'strike' && st.u >= 0.5) || (st.kind === 'block' && st.t >= 0.12);
+          const fly = room.drillNow().flying;
+          const hit = ${JSON.stringify(op)} === 'straw' ? fly.bits + fly.sparks > 12 : (st.kind === 'strike' && st.u >= 0.5) || (st.kind === 'block' && st.t >= 0.12);
           if (hit || ++n > 6000) { clearInterval(t); window.__scene.pause(); ok(JSON.stringify(hit ? 'стоп: ' + st.kind : 'не поймал: ' + st.kind + ' ' + (st.u ?? st.t) + ', кадр ' + window.__scene.frameNo)); }
         }, 4);
       })`);

@@ -524,14 +524,14 @@ export function swingBlade(s: StrikeSpec, phi: number, view: View): Blade {
   const sn = Math.sin(phi);
   const axis = norm(add(scale(n, c), scale(d, sn)));
   const edge = norm(add(scale(n, -sn), scale(d, c)));
-  const hc: V3 = [0.06 + s.mid[0] * 0.05, -0.2 + s.mid[1] * 0.06, -0.38];
+  const hc: V3 = [0.06 + s.mid[0] * 0.05, -0.28 + s.mid[1] * 0.12, -0.38];
   const hand = add(add(hc, scale(d, 0.2 * sn)), scale(f, 0.2 * c));
   return { hand, axis, edge };
 }
 
 /** Посреди дуги клинок смотрит столько к середине взмаха и столько вверх от линии взмаха. */
-const MID_FWD = 0.6;
-const MID_UP = 0.8;
+const MID_FWD = 0.72;
+const MID_UP = 0.62;
 
 /** Позы блока: вверх — клинок поперёк над глазами, в стороны — стоймя у края кадра, вниз — наискось к полу. */
 export function blockBlade(side: Side): Blade {

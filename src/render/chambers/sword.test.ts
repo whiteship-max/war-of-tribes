@@ -248,6 +248,15 @@ describe('бой мечом: обо что бьётся клинок', () => {
     }
   });
 
+  it('по линии взмаха и по высоте: взмах ниже середины экрана рубит тело чучела, высоко — голову', () => {
+    for (const back of [0.9, 1.07]) {
+      const low = swing({ ...front, x: DUMMY.x - back }, -220, 0, [0, -0.2]).ev.find((e) => e.kind === 'hit');
+      expect(low?.kind === 'hit' && low.at[1], `низкий взмах с ${back} м — по телу`).toBeLessThan(DUMMY.y1);
+    }
+    const high = swing(front, -220, 0, [0, 0.55]).ev.find((e) => e.kind === 'hit');
+    expect(high?.kind === 'hit' && high.at[1], 'высокий взмах — по голове').toBeGreaterThan(DUMMY.y1);
+  });
+
   it('удар в стену — камень и отскок; в воздух — ничего', () => {
     const wall: Eye = { x: 4.4, y: 1.62, z: 1.0, yaw: Math.PI / 2, pitch: 0 };
     expect(toRoom(wall, [0, 0, -1])[0], 'смотрит на восток').toBeCloseTo(5.4, 5);
