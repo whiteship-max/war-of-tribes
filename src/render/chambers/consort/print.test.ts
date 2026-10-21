@@ -48,7 +48,10 @@ function* lived(): Generator<number> {
 describe('отпечаток супруги: набор персонажа её не меняет (ЛЦ-3)', () => {
   it('сетка и кости', () => {
     const m = buildConsortMesh();
-    expect(fnv([...m.pos, ...m.uv, ...m.sheet, ...m.shade, ...m.b0, ...m.b1, ...m.w0, ...m.idx, ...m.eye])).toBe(PRINT.mesh);
+    // Сетка — с точностью float32, с которой она уходит в видеокарту: последние биты float64 у облачного Node и домашнего
+    // расходятся (отпечаток float64, снятый в облаке, дома не сходился и на коде ЛЦ-2 — слияние ЛЦ-3, 21.10.2026).
+    const all = [...m.pos, ...m.uv, ...m.sheet, ...m.shade, ...m.b0, ...m.b1, ...m.w0, ...m.idx, ...m.eye];
+    expect(fnv(all.map(Math.fround))).toBe(PRINT.mesh);
     expect(fnv(m.sk.bones.flatMap((b) => [b.parent, ...b.j]))).toBe(PRINT.bones);
     expect(m.sk.bones.map((b) => b.name).join(' ')).toBe(PRINT.names);
   });
@@ -65,7 +68,7 @@ describe('отпечаток супруги: набор персонажа её 
 });
 
 const PRINT = {
-  mesh: 'c3f8a676',
+  mesh: 'c5970384',
   bones: 'bd118267',
   names: 'hips spine chest neck head jaw lids hair armL foreL handL thumbL armR foreR handR thumbR skirtF skirtB skirtS',
   body: { a: 'e0e83403', b: 'c8f0efc8', c: '5c4a9a7d' },
