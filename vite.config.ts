@@ -190,6 +190,13 @@ const LAZY_DOORS: { name: string; door: RegExp; owns: RegExp[] }[] = [
     owns: [/\/src\/render\/chambers\/herald\//, /\/src\/render\/chambers\/kit\//],
   },
   {
+    // Кот покоев (docs/characters.md, ЛЦ-4): фигура, лист окраса, живость и клубок на том же наборе персонажа — свой кусок
+    // внутри покоев, его тянет жизнь покоев при входе; мозг кота (`chambers/cat.ts`) — в куске покоев. В первую загрузку не едет.
+    name: 'кот',
+    door: /\/src\/render\/chambers\/pet\/index\.ts$/,
+    owns: [/\/src\/render\/chambers\/pet\//, /\/src\/render\/chambers\/kit\//],
+  },
+  {
     name: 'охота',
     door: /\/src\/minigames\/huntPlay\.ts$/,
     owns: [/\/src\/minigames\/hunt/],

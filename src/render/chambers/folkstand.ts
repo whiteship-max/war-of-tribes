@@ -6,6 +6,8 @@ import { pixelRatio } from '../loop';
 import { STILL, type Gesture } from './folk';
 import { CONSORT_IDS, makeConsort, type ConsortId } from './consort';
 import { HERALD_IDS, makeHerald, type HeraldId } from './herald';
+import { CAT_IDS, makeCat, type CatId, type CatKit } from './pet';
+import { Cat, type CatBody } from './cat';
 import type { FigureUniforms } from './kit/material';
 import type { SkinBody } from './kit/skin';
 import type { V3 } from '../city/geom';
@@ -20,7 +22,14 @@ export interface ShotAsk {
    * супруги и лицо гонца рядом (1024 × 512), в одном свете; `pair` — супруга и гонец рядом в рост и головы под ними;
    * `poses` — гонец в рост по клипам: стоит, идёт, кланяется, вручает письмо, говорит.
    */
-  view?: 'front' | 'three' | 'side' | 'back' | 'face' | 'sheet' | 'duo' | 'pair' | 'poses';
+  view?: 'front' | 'three' | 'side' | 'back' | 'face' | 'sheet' | 'duo' | 'pair' | 'poses' | 'catface' | 'catduo' | 'cats' | 'catposes';
+  /** Кот (ЛЦ-4): окрасы; `catface` — морда крупно, `catduo` — лица супруги, гонца и морда кота рядом (1536 × 512), `cats` —
+   * окрасы рядом в рост и мордой, `catposes` — кот по клипам. Поза тела, клип и его секунда, взгляд глаз (рад). */
+  cats?: CatId[];
+  catBody?: CatBody;
+  catClip?: 'stretch' | 'groom' | 'sleep';
+  catEyes?: number;
+  gaze?: [number, number];
   /** Ракурс голов в листе (`sheet`, `pair`). */
   angle?: 'front' | 'three' | 'side' | 'back';
   light?: 'day' | 'night';
@@ -96,7 +105,55 @@ export function mountConsortStand(root: HTMLElement, p: URLSearchParams): void {
     }
     return f;
   };
-  const camera = new THREE.PerspectiveCamera(28, 1, 0.05, 50);
+  const cats = new Map<CatId, { kit: CatKit; brain: Cat }>();
+  const cat = (id: CatId): { kit: CatKit; brain: Cat } => {
+    let f = cats.get(id);
+    if (!f) {
+      const kit = makeCat({ look: id, inside: false });
+      const brain = new Cat(1);
+      brain.dress(kit);
+      scene.add(kit.body.mesh);
+      f = { kit, brain };
+      cats.set(id, f);
+    }
+    return f;
+  };
+  const camera = new THREE.PerspectiveCamera(28, 1, 0.02, 50);
+
+  /** Кот в позе: тело мозга, клип с его секунды, взгляд и свет (зрачок — по свету). */
+  const posCat = (id: CatId, x: number, yaw: number, a: ShotAsk): CatKit => {
+    const { kit, brain } = cat(id);
+    const night = a.light === 'night';
+    kit.u.uTint.value.setRGB(night ? 0.52 : 1, night ? 0.4 : 1, night ? 0.3 : 1);
+    kit.u.uRim.value.setRGB(night ? 0.12 : 0.26, night ? 0.08 : 0.25, night ? 0.05 : 0.22);
+    kit.u.uRimDir.value.set(-0.7, 0.3, 0.65).normalize();
+    kit.motion.lux = night ? 0.4 : 1;
+    brain.poseAt(x, 0, 0, yaw, a.catBody ?? 'sit');
+    brain.look.eyes = a.catEyes ?? (a.catBody === 'curl' ? 0 : 1);
+    if (a.catBody === 'walk') brain.look.phase = a.phase ?? 0.8;
+    if (a.catBody === 'curl') brain.poseAt(x, 0, 0, yaw, 'curl');
+    // Клип — с его секунды `at`; взгляд — сдвиг белка по просьбе.
+    kit.motion.reset();
+    if (a.catClip) kit.motion.start(a.catClip, -(a.at ?? 1));
+    const q = brain.pose();
+    if (a.gaze) kit.body.gaze(a.gaze[0], a.gaze[1]);
+    kit.body.pose(q);
+    kit.body.write();
+    kit.body.mesh.visible = true;
+    return kit;
+  };
+
+  /** Морда кота крупно в окне `w × h` с левого края `x`. */
+  const catFace = (id: CatId, a: ShotAsk, w: number, h: number, x: number, y = 0): void => {
+    const k = posCat(id, 0, a.yaw ?? 0, { ...a, catBody: a.catBody ?? 'sit' });
+    const c = k.body.at('head', [0, 0.004, 0.04]);
+    camera.fov = a.fov ?? 14;
+    const d = 0.62;
+    const yaw = a.yaw ?? 0;
+    camera.position.set(c[0] + Math.sin(yaw) * d, c[1] + 0.012, c[2] + Math.cos(yaw) * d);
+    camera.lookAt(c[0], c[1], c[2]);
+    draw(w, h, x, y, camera);
+  };
 
   const pose = (k: Figure, x: number, yaw: number, a: ShotAsk): void => {
     const g: Gesture = { ...STILL, talk: a.talk ?? 0, curtsy: a.curtsy ?? 0, bow: a.bow ?? 0, offer: a.offer ?? 0, lookYaw: a.lookYaw ?? 0 };
@@ -128,6 +185,7 @@ export function mountConsortStand(root: HTMLElement, p: URLSearchParams): void {
 
   const hideAll = (): void => {
     for (const f of figures.values()) f.body.mesh.visible = false;
+    for (const f of cats.values()) f.kit.body.mesh.visible = false;
   };
 
   /** Лицо крупно в окне `w × h` с левого края `x`. */
@@ -156,7 +214,69 @@ export function mountConsortStand(root: HTMLElement, p: URLSearchParams): void {
     renderer.setClearColor(BG);
     renderer.clear();
     const view = a.view ?? 'front';
-    if (view === 'face') {
+    const catIds = a.cats ?? [...CAT_IDS];
+    if (view === 'catface') {
+      catFace(catIds[0], a, w, h, 0);
+      triangles = cat(catIds[0]).kit.body.triangles;
+      calls = renderer.info.render.calls;
+    } else if (view === 'catduo') {
+      // Лицо супруги, лицо гонца и морда кота — одним светом, каждый в своей трети.
+      const third = Math.floor(w / 3);
+      const people = [wife(a.looks?.[0] ?? 'b'), herald(a.heralds?.[0] ?? 'b')];
+      people.forEach((k, i) => {
+        hideAll();
+        faceShot(k, { ...a, yaw: 0 }, third, h, i * third);
+        calls += renderer.info.render.calls;
+        triangles += k.body.triangles;
+      });
+      hideAll();
+      catFace(catIds[0], a, third, h, 2 * third);
+      calls += renderer.info.render.calls;
+      triangles += cat(catIds[0]).kit.body.triangles;
+    } else if (view === 'cats') {
+      // Окрасы рядом — рядами: кот в рост в три четверти (слева) и морда (справа).
+      const rh = Math.floor(h / catIds.length);
+      const bw = Math.floor(w * 0.6);
+      catIds.forEach((id, i) => {
+        hideAll();
+        const k = posCat(id, 0, a.yaw ?? -0.75, { ...a, catBody: a.catBody ?? 'stand' });
+        camera.fov = 26;
+        camera.position.set(0, 0.36, 1.35);
+        camera.lookAt(0, 0.17, -0.03);
+        const y = h - (i + 1) * rh;
+        draw(bw, rh, 0, y, camera);
+        calls += renderer.info.render.calls;
+        hideAll();
+        catFace(id, { ...a, yaw: a.yaw === undefined ? -0.3 : a.yaw * 0.4, fov: 19 }, w - bw, rh, bw, y);
+        calls += renderer.info.render.calls;
+        triangles += k.body.triangles;
+      });
+    } else if (view === 'catposes') {
+      // Кот по позам и клипам: стоит, идёт, сидит, умывается, тянется, буханкой, спит клубком.
+      const id = catIds[0];
+      const list: ShotAsk[] = [
+        { catBody: 'stand' },
+        { catBody: 'walk' },
+        { catBody: 'sit' },
+        { catBody: 'sit', catClip: 'groom', at: 0.9 },
+        { catBody: 'stand', catClip: 'stretch', at: 1.2 },
+        { catBody: 'loaf' },
+        { catBody: 'curl', catClip: 'sleep', at: 1.5 },
+      ];
+      const cols = 4;
+      const cw = Math.floor(w / cols);
+      const rh = Math.floor(h / 2);
+      list.forEach((c, i) => {
+        hideAll();
+        posCat(id, 0, a.yaw ?? -1.0, { ...a, ...c });
+        camera.fov = 24;
+        camera.position.set(0, 0.42, 1.45);
+        camera.lookAt(0, 0.15, -0.02);
+        draw(cw, rh, (i % cols) * cw, h - rh - Math.floor(i / cols) * rh, camera);
+        calls += renderer.info.render.calls;
+      });
+      triangles = cat(id).kit.body.triangles;
+    } else if (view === 'face') {
       const k = list[0];
       if (a.debug) {
         const solid = (c: number[]): THREE.DataTexture => {

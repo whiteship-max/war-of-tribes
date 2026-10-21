@@ -29,12 +29,13 @@ import { geometryOf } from '../city/index';
 import { DOOR, DESK, BED, HALF, WALL_T, softFloor, type SpotId } from './plan';
 import { DOOR_HINGE, doorLeaf } from './build';
 import { Person, buildPerson, gripOf, isFemale, liveryOf, type FolkId } from './folk';
-import { CAT_R, Cat, buildCat, type CatBody, type CatSpot } from './cat';
+import { CAT_R, Cat, type CatBody, type CatSpot } from './cat';
 import { BODY_R, clear, free, pathTo, step } from './walk';
 import { Mesher } from './geo';
 import type { RoomUniforms } from './material';
 import type * as Consort from './consort';
 import type * as Herald from './herald';
+import type * as Pet from './pet';
 import { BALL_EVERY, BALL_R, CAT_AWAY, GRAVITY, depthOf, fetchHops, flightAt, inView, leapBack, windowBack, windowShot, type Hop, type WindowShot } from './toss';
 
 /** Кто говорит с правителем. */
@@ -203,6 +204,10 @@ export class ChambersLife {
   /** Кусок гонца (ЛЦ-3): тянется при входе в покои; пока не приехал — гонец ждёт за дверью. */
   private herald: typeof Herald | null = null;
   readonly heraldReady: Promise<void>;
+  /** Кусок кота (ЛЦ-4): тянется при входе в покои; пока не приехал — кот думает на голом скелете и не виден, клубка нет. */
+  private pet: typeof Pet | null = null;
+  private catKit: Pet.CatKit | null = null;
+  readonly catReady: Promise<void>;
 
   constructor(
     private host: LifeHost,
@@ -219,6 +224,10 @@ export class ChambersLife {
     });
     this.heraldReady = import('./herald').then((m) => {
       this.herald = m;
+    });
+    this.catReady = import('./pet').then((m) => {
+      this.pet = m;
+      if (this.cat) this.dressCat(this.cat);
     });
     if (memory.cat) {
       const c = this.ensureCat();
@@ -251,12 +260,20 @@ export class ChambersLife {
 
   private ensureCat(): Cat {
     if (!this.cat) {
-      const detail = this.host.quality === 'low' ? 0 : this.host.quality === 'medium' ? 1 : 2;
-      this.cat = new Cat(buildCat(detail, LIFE_CODE.cat), this.host.material, 7919);
+      this.cat = new Cat(7919);
       this.cat.onSound = (s, at) => this.host.cue(s === 'meow' ? 'meow' : s === 'land' ? 'catLand' : s === 'leap' ? 'catLeap' : s === 'step' ? 'catStep' : 'meow', at);
-      this.host.scene.add(this.cat.rig.mesh);
+      if (this.pet) this.dressCat(this.cat);
     }
     return this.cat;
+  }
+
+  /** Надеть коту фигуру ЛЦ-4 (кусок приехал): своя сетка, лист окраса, свет покоев. */
+  private dressCat(c: Cat): void {
+    if (this.catKit || !this.pet) return;
+    const kit = this.pet.makeCat({ code: LIFE_CODE.cat, room: this.host.uniforms ?? null, inside: true });
+    this.catKit = kit;
+    c.dress(kit);
+    this.host.scene.add(kit.body.mesh);
   }
 
   /** Ноги правителя стоят: с ним говорят (окно разговора) или ночь — смотреть можно, ходить нет. */
@@ -903,8 +920,8 @@ export class ChambersLife {
    */
   throwBall(): boolean {
     const c = this.cat;
-    if (!c?.visible || c.mind === 'carried' || this.fetching || this.ballLeft > 0) return false;
-    const b = this.ensureBall();
+    if (!c?.visible || c.mind === 'carried' || this.fetching || this.ballLeft > 0 || !this.catKit) return false;
+    const b = this.ensureBall(this.catKit);
     const r = this.host.ruler();
     const f: V3 = [Math.sin(r.yaw), 0, Math.cos(r.yaw)];
     const hand: V3 = [r.eye[0] + f[0] * 0.35, r.eye[1] - 0.45, r.eye[2] + f[2] * 0.35];
@@ -933,26 +950,10 @@ export class ChambersLife {
     return true;
   }
 
-  /** Сетка клубка — при первом броске. */
-  private ensureBall(): NonNullable<ChambersLife['ball']> {
+  /** Сетка клубка — при первом броске: шар одной костью и нитка лентой на листе кота (ЛЦ-4). */
+  private ensureBall(kit: Pet.CatKit): NonNullable<ChambersLife['ball']> {
     if (!this.ball) {
-      const m = new Mesher();
-      m.at(0, 0, 0);
-      const r = BALL_R;
-      // Клубок шерсти: шар и пара витков нитки.
-      for (let i = 0; i < 6; i++) {
-        const a0 = (i / 6) * Math.PI;
-        const a1 = ((i + 1) / 6) * Math.PI;
-        for (let k = 0; k < 8; k++) {
-          const b0 = (k / 8) * Math.PI * 2;
-          const b1 = ((k + 1) / 8) * Math.PI * 2;
-          const P = (a: number, b: number): V3 => [Math.sin(a) * Math.cos(b) * r, Math.cos(a) * r, Math.sin(a) * Math.sin(b) * r];
-          m.quad(P(a1, b0), P(a1, b1), P(a0, b1), P(a0, b0), 'plain', (i + k) % 2 ? tint(0xa83a2a) : tint(0x8a2a22));
-        }
-      }
-      m.smoothFrom(0, 80);
-      const mesh = new THREE.Mesh(geometryOf(m.b), this.host.material);
-      mesh.name = 'chambers-ball';
+      const mesh = kit.yarn();
       this.host.scene.add(mesh);
       this.ball = { mesh, p: [0, 0, 0], v: [0, 0, 0], on: false, t: 0, mode: 'floor', shot: null, p0: [0, 0, 0], v0: [0, 0, 0] };
     }
@@ -1390,8 +1391,8 @@ export class ChambersLife {
     if (what.toss) {
       const t = what.toss;
       if (t.cat) this.ensureCat().poseAt(t.cat.x, t.cat.y, t.cat.z, t.cat.yaw, t.cat.body);
-      if (t.ball) {
-        const b = this.ensureBall();
+      if (t.ball && this.catKit) {
+        const b = this.ensureBall(this.catKit);
         b.on = true;
         b.mesh.visible = true;
         if (t.ball === 'mouth') {
@@ -1488,9 +1489,9 @@ export class ChambersLife {
   dispose(): void {
     for (const p of this.folk.values()) p.rig.dispose();
     for (const k of this.kits) k.dispose();
-    this.cat?.rig.dispose();
+    if (this.catKit) this.catKit.dispose();
+    else this.cat?.rig.dispose();
     this.leaf.geometry.dispose();
-    this.ball?.mesh.geometry.dispose();
     this.jug?.geometry.dispose();
     this.stream?.geometry.dispose();
     this.letterMesh?.geometry.dispose();
