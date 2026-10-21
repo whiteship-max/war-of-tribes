@@ -56,3 +56,5 @@ assets-src/prologue/cache/
 .ui-shots/
 # снимки стенда промыслов (`npm run mini:shots`, docs/minigames.md)
 .mini-shots/
+# снимки стенда супруги (`npm run consort:shots`, docs/characters.md); снимки задания — в docs/characters
+.consort-shots/

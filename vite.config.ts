@@ -176,6 +176,13 @@ const LAZY_DOORS: { name: string; door: RegExp; owns: RegExp[] }[] = [
     owns: [/\/src\/ui\/chambers\/(Chambers\.tsx|doors\.ts|chambers\.css)$/, /\/src\/render\/chambers\//],
   },
   {
+    // Супруга правителя (docs/characters.md, ЛЦ-2): фигура, листы кодом и живость — свой кусок внутри покоев, его тянет жизнь
+    // покоев при входе; в кусок покоев и в первую загрузку не едет.
+    name: 'супруга',
+    door: /\/src\/render\/chambers\/consort\/index\.ts$/,
+    owns: [/\/src\/render\/chambers\/consort\//],
+  },
+  {
     name: 'охота',
     door: /\/src\/minigames\/huntPlay\.ts$/,
     owns: [/\/src\/minigames\/hunt/],

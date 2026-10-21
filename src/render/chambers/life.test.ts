@@ -86,8 +86,10 @@ describe('покои: дверь и слуга (Г-7)', () => {
     room.dispose();
   });
 
-  it('каждая просьба слуге работает: кот, унести кота, служанка с вином, супруга, «ступай»', () => {
+  it('каждая просьба слуге работает: кот, унести кота, служанка с вином, супруга, «ступай»', async () => {
     const room = phoneRoom();
+    // Супруга — своим куском (ЛЦ-2): он тянется при входе в покои, кадры теста идут без пауз — дождаться его.
+    await room.life.consortReady;
     let memory: LifeMemory | null = null;
     room.life.onRemember = (m) => (memory = m);
     knock(room);
@@ -282,8 +284,9 @@ describe('покои: вино и ночь (Г-7)', () => {
     room.dispose();
   });
 
-  it('ночь вдвоём: правитель ложится, кадр темнеет, утром её нет — и ноги снова свободны', () => {
+  it('ночь вдвоём: правитель ложится, кадр темнеет, утром её нет — и ноги снова свободны', async () => {
     const room = phoneRoom();
+    await room.life.consortReady;
     knock(room);
     room.life.order('wife');
     expect(run(room, 50, talking(room, 'wife'))).toBe(true);

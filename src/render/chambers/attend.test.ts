@@ -129,8 +129,9 @@ describe('глаз к гостю (Р-1)', () => {
     room.dispose();
   });
 
-  it('супруга: целиком в кадре, пока входит и до разговора', () => {
+  it('супруга: целиком в кадре, пока входит и до разговора', async () => {
     const room = phoneRoom();
+    await room.life.consortReady;
     room.standAtPoint(0.3, -0.8, Math.PI * 0.75, -0.1);
     room.touch({ kind: 'poi', poi: POI_BY_ID.door });
     run(room, 30, talking(room, 'servant'));

@@ -620,5 +620,7 @@ export function mountShowcase(p: URLSearchParams): void {
   else if (mode === 'units') mountUnits(root, p, c);
   // Шеренга бойцов обликом толпы роликов (docs/polish.md, П-5) — свой кусок, как стенд города.
   else if (mode === 'army') void import('./reel/lineup').then((m) => m.mountArmyLineup(root, p));
+  // Супруга правителя (docs/characters.md, ЛЦ-2): облики рядом и лицо крупно — кусок фигуры, без покоев.
+  else if (mode === 'consort') void import('./chambers/consort/stand').then((m) => m.mountConsortStand(root, p));
   else mountVillage(root, p, c);
 }
