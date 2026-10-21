@@ -1776,7 +1776,7 @@ export class ChambersRoom implements Inside {
    * только «Положить», выйти из дела — только своя кнопка; в деле касание другой мебели и других предметов молчит.
    */
   touch(aim: Aim | null): void {
-    if (this.fight) return;
+    // Меч в стойке — тоже «в руке» (Г-11): касание мебели его не прерывает.
     if (this.held && this.held.dir > 0) return;
     if (!aim) return;
     if (aim.kind === 'letter') {

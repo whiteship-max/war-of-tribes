@@ -439,6 +439,28 @@ export const SAMPLES: Sample[] = [
     probe: true,
   },
   {
+    // Г-11: бой мечом — свист, сильный свист, камень, дерево, ткань, солома, блок, одышка.
+    name: 'ch-sword',
+    title: 'Замер покоев: ch-sword',
+    seconds: 6,
+    seed: 17,
+    keys: null,
+    music: false,
+    battle: false,
+    duck: { music: 1, amb: 1 },
+    chambers: [
+      [0.3, 'swish'],
+      [0.9, 'swishHeavy'],
+      [1.6, 'clang'],
+      [2.3, 'thud'],
+      [2.9, 'soft'],
+      [3.4, 'straw'],
+      [4.1, 'parry'],
+      [4.8, 'pant'],
+    ],
+    probe: true,
+  },
+  {
     name: 'ch-ring',
     title: 'Замер покоев: ch-ring',
     seconds: 3.5,
