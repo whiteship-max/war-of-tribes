@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { createInitialState } from '@/game/state';
 import { RESOURCE_IDS } from '@/game/constants';
-import { bondedSaleLeft, currentSite, maxLevelFor, storageCap, upgradeInfo } from '@/game/derived';
+import { bondedSaleLeft, currentSite, maxLevelFor, storageCap, upgradeCost, upgradeInfo } from '@/game/derived';
+import { BUILDING_BY_ID } from '@/game/data/buildings';
 import { cancelUpgrade, startUpgrade } from '@/game/sim/actions';
 import { cancelRecruit, recruitCheck, startRecruit } from '@/game/sim/army';
 import { cancelForge, forgeCheck, startForge } from '@/game/sim/smithy';
@@ -107,7 +108,8 @@ describe('рост склада: часы описи — целые игровы
  * разом (`sim/pay.refund`), продажа невольников — золото (`sim/market.sellBonded`), договор — дань и торговлю
  * последствием мира без боя (`sim/expedition.applyExpedition`). Прежде ни одно не входило в разовые дела описи, и честная
  * отмена через минуту давала админу «Древесина +128 за 1 мин без разовых дел». Теперь это дело (`stats.windfalls`):
- * флага нет, а та же запись без дела — флаг.
+ * флага нет, а та же запись без дела — флаг. Кроме отмены стройки (СТ-1): её возврат сервер сверяет очередью, и делом он
+ * не считается — свой тест ниже.
  */
 describe('рост склада: добро без дела', () => {
   /** Флаги записи и её подделки: те же числа, а разовых дел — сколько было на первой описи. */
@@ -131,14 +133,6 @@ describe('рост склада: добро без дела', () => {
 
   /** Заказ и его отмена: первый вызов ставит заказ, возвращённый — отменяет. */
   const deeds: [string, (s: GameState) => () => string | null][] = [
-    [
-      'отмена стройки',
-      (s) => {
-        const b = s.buildings.filter((x) => x.level < maxLevelFor(x.type) && !upgradeInfo(s, x).blocked)[0];
-        expect(startUpgrade(s, b.id)).toBeNull();
-        return () => cancelUpgrade(s, b.id);
-      },
-    ],
     [
       'отмена найма',
       (s) => {
@@ -185,6 +179,27 @@ describe('рост склада: добро без дела', () => {
     // Точка внутри правила: без дела склад вырос сильнее, чем позволяла выработка полуминуты, — правило спрошено.
     expect(forged, `${name}: та же запись без дела`).toContain('stock');
     expect(b.deeds - a.deeds, `${name}: одно разовое дело`).toBe(1);
+  });
+
+  // СТ-1 (docs/ui_v2.md, 5.13, решение 5): возврат отменённой стройки — не разовое дело. Положенное сервер выводит сам из
+  // очередей двух описей (`watch.cancelledRefund`): честная отмена — без флагов, назвавшая больше положенного — «возврат
+  // сверх положенного». Область: стройка начата до первой описи (работа есть) — положена половина цены.
+  it('отмена стройки: разового дела нет, честный возврат без флагов, сверх положенного — флаг «возврат»', () => {
+    const s = town();
+    const b = s.buildings.filter((x) => x.level < maxLevelFor(x.type) && !upgradeInfo(s, x).blocked)[0];
+    expect(startUpgrade(s, b.id)).toBeNull();
+    tick(s, gameSeconds(30));
+    expect(b.work, 'точка внутри правила: стройка начата').toBeGreaterThan(0);
+    const a = watchOf(s);
+    tick(s, gameSeconds(30));
+    expect(cancelUpgrade(s, b.id)).toBeNull();
+    const after = watchOf(s);
+    expect(after.deeds - a.deeds, 'разового дела нет').toBe(0);
+    const kinds = (x: WatchCard): string[] => flagsBetween(a, 0, x, 30_000).map((f) => f.kind);
+    expect(kinds(after)).toEqual([]);
+    const cost = upgradeCost(BUILDING_BY_ID[b.type], b.level + 1);
+    const forged = { ...after, stock: Object.fromEntries(Object.entries(after.stock).map(([k, v]) => [k, v + Math.ceil((cost[k as keyof typeof cost] ?? 0) / 2)])) };
+    expect(kinds(forged)).toContain('refund');
   });
 
   it('дань и торговля по договору: последствие мира без боя — флага нет, та же запись без дела — флаг', async () => {

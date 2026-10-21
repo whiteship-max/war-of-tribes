@@ -69,6 +69,24 @@ export const STICK_DEAD = TAP_MOVE;
 export const STICK_FULL = 56;
 
 /**
+ * Ход ручки кружка пальца движения, px: от середины кружка до обода (кружок 88, ручка 32, обод 2 — `.ch-pad`, `.mg-pad`).
+ * Кружок стоит в своём углу и один (Г-12): палец ведут откуда угодно в своей половине, а ручка ходит в кружке.
+ */
+export const PAD_TRAVEL = 24;
+
+/**
+ * Где ручка кружка пальца движения, px от его середины: увод пальца от точки нажатия в долю полного хода
+ * (`STICK_FULL`) — у обода ручка тогда, когда ход полный. Кружок не ездит за пальцем: второго кружка под пальцем нет.
+ */
+export function padKnob(s: { ox: number; oy: number; x: number; y: number }): [number, number] {
+  const dx = s.x - s.ox;
+  const dy = s.y - s.oy;
+  const len = Math.hypot(dx, dy);
+  const k = len > STICK_FULL ? PAD_TRAVEL / len : PAD_TRAVEL / STICK_FULL;
+  return [dx * k, dy * k];
+}
+
+/**
  * Сколько градусов поворота даёт один пиксель тяги.
  *
  * Полградуса: удобная тяга большим пальцем поперёк своей половины экрана —
@@ -125,6 +143,8 @@ export class Sticks {
   /** Накопленный поворот, ещё не отданный сцене. */
   private dyaw = 0;
   private dpitch = 0;
+  /** Пальцы взгляда, чьё ведение здесь не копится: его разбирает свой судья (взмах меча в покоях, Г-11). */
+  private muted = new Set<number>();
 
   /**
    * Палец лёг. `x` — от левого края холста, `width` — его ширина.
@@ -148,7 +168,7 @@ export class Sticks {
   move(id: number, x: number, y: number, now: number): void {
     const f = this.fingers.get(id);
     if (!f) return;
-    if (f.half === 'look') {
+    if (f.half === 'look' && !this.muted.has(id)) {
       this.dyaw -= (x - f.x) * LOOK_RAD_PER_PX;
       this.dpitch -= (y - f.y) * LOOK_RAD_PER_PX;
     }
@@ -172,6 +192,7 @@ export class Sticks {
     const f = this.fingers.get(id);
     if (!f) return null;
     this.fingers.delete(id);
+    this.muted.delete(id);
     return { tap: f.press.isTap(now), press: f.press, half: f.half };
   }
 
@@ -179,14 +200,21 @@ export class Sticks {
   cancel(id: number): Half | null {
     const f = this.fingers.get(id);
     this.fingers.delete(id);
+    this.muted.delete(id);
     return f ? f.half : null;
   }
 
   /** Все пальцы сняты (уход со страницы, потеря захвата). */
   clear(): void {
     this.fingers.clear();
+    this.muted.clear();
     this.dyaw = 0;
     this.dpitch = 0;
+  }
+
+  /** Ведение этого пальца взгляду не копить: его поворот отдаст свой судья (`addLook`). */
+  mute(id: number): void {
+    if (this.fingers.get(id)?.half === 'look') this.muted.add(id);
   }
 
   /** Сколько пальцев на холсте — журналу касаний. */
@@ -194,7 +222,7 @@ export class Sticks {
     return this.fingers.size;
   }
 
-  /** Нажатие ходьбы — сцене, чтобы нарисовать стик под пальцем. */
+  /** Нажатие ходьбы — сцене, чтобы повести ручку кружка пальца движения (`padKnob`). */
   get stick(): { ox: number; oy: number; x: number; y: number } | null {
     for (const f of this.fingers.values()) {
       if (f.half === 'walk') return { ox: f.press.x, oy: f.press.y, x: f.x, y: f.y };

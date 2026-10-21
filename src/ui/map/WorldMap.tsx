@@ -54,7 +54,6 @@ import { dropParties } from './party';
 import { dropSiegeMarks } from './siegemark';
 import { bakeAgent } from './agent';
 import { dropFigures } from './figures';
-import { ActionMenu } from './ActionMenu';
 import { Rating } from './Rating';
 import { Feed, useFeed } from './Feed';
 import { Legend } from './Legend';
@@ -71,6 +70,9 @@ import { iconName } from '@/ui/icons/registry';
 
 // Тревоги войны значками (П-7) — куском нового интерфейса, как в городе (`App.tsx`): карта стоит в первой загрузке.
 const WarSigns = lazy(() => import('@/ui/next').then((m) => ({ default: m.WarSigns })));
+// Кольцо значков над целью и меню дел (К-2): своими кусками — нужны только после касания места; первая загрузка не растёт.
+const RingLayer = lazy(() => import('./RingLayer'));
+const ActionMenu = lazy(() => import('./ActionMenu').then((m) => ({ default: m.ActionMenu })));
 
 /** Отладочный обзор читается один раз: адрес по ходу партии не меняется. */
 const FREE_CAMERA = freeCamera();
@@ -162,6 +164,10 @@ export function WorldMap() {
   const [legendOpen, setLegendOpen] = useState(false);
   const [ratingOpen, setRatingOpen] = useState(false);
   const [feedOpen, setFeedOpen] = useState(false);
+  // Точка экрана, над которой стоит кольцо (К-2): ставится в минуту касания; жест по карте кольцо закрывает.
+  const [ringAt, setRingAt] = useState<{ x: number; y: number } | null>(null);
+  const ringOpen = useWorld((g) => g.ring !== null);
+  const menuOpen = useWorld((g) => g.menu !== null);
   // Молва края (docs/feed.md): лента спрашивается, пока карта открыта, — точке новых на кнопке нужна и закрытой.
   const feed = useFeed(inTelegram());
   const [zoomedIn, setZoomedIn] = useState(modeFor(SCALE_START) === 'detail');
@@ -378,6 +384,9 @@ export function WorldMap() {
         cam.current = hold({ cx: x + 0.5, cy: y + 0.5, scale });
         setZoomedIn(modeFor(cam.current.scale) === 'detail');
       };
+      // Касание клетки тем же `openAt`, что палец (кольцо К-2, `docs/ui_v2/shots.ts`): попасть пальцем в место, которое
+      // поводок не даёт поставить в середину, стенду нечем.
+      (window as unknown as { __mapTap?: (x: number, y: number) => void }).__mapTap = (x, y) => openAt({ x, y });
     }
 
     const frame = (): void => {
@@ -499,6 +508,8 @@ export function WorldMap() {
     }
     const p = local(e);
     pointers.current.set(e.pointerId, p);
+    // Новый жест по карте — кольцо над прошлой целью больше не над ней.
+    if (useWorld.getState().ring) useWorld.getState().closeRing();
     // Второй палец снимает тап сам: это уже щипок (см. `Gesture`).
     touch.current.down(e.pointerId, p.x, p.y, performance.now());
     gesture.current = null;
@@ -621,8 +632,8 @@ export function WorldMap() {
    *   перехват;
    * - агент в руке и под пальцем пустая земля — ничего не происходит, кроме строки: свободной ходьбы нет (решение
    *   владельца 19.10.2026), агент идёт только к цели и обратно. Рука не пустеет — промах пальцем не отменяет выбор;
-   * - без агента в руке — своя фигура в поле берётся в руку, а поселение
-   *   открывает карточку.
+   * - без агента в руке — место или чужой отряд поднимает над собой кольцо значков (К-2): письмо, меч, глаз и «i»;
+   *   своя фигура в поле берётся в руку, пустая земля открывает карточку клетки.
    */
   const openAt = (c: Coord): void => {
     const g = useWorld.getState();
@@ -640,8 +651,10 @@ export function WorldMap() {
       showToast(`${FIGURE_BY_ID[hand].name} ходит только к цели. Нажми город, логово или отряд.`);
       return;
     }
-    if (!target && enemy) {
-      void g.openChase(enemy);
+    if (target || enemy) {
+      const [x, y] = toScreen(cam.current, vp(), c.x + 0.5, c.y + 0.5);
+      setRingAt({ x, y });
+      void g.openRing(c);
       return;
     }
     if (!target && standing.length > 0) {
@@ -796,7 +809,16 @@ export function WorldMap() {
         <WarSigns where="map" lift={picked !== null} />
       </Suspense>
 
-      <ActionMenu />
+      {menuOpen && (
+        <Suspense fallback={null}>
+          <ActionMenu />
+        </Suspense>
+      )}
+      {ringOpen && (
+        <Suspense fallback={null}>
+          <RingLayer at={ringAt} vp={vp()} />
+        </Suspense>
+      )}
 
       {/* Нижний ярус карты — одна колонка, прижатая ко дну над строкой кнопок:
           строка про устаревший реестр и подсказка про фигуру в руке. Раз они в

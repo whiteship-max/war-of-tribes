@@ -11,9 +11,9 @@ import type { Telegram } from './telegram.js';
 import { PAY_NOT_COUNTED, PAY_NOT_SOLD } from './words.js';
 import type { GemsResponse, RatingResponse, WarSheet, WatchCard } from './contract.js';
 import { BUILDING_BY_ID } from '../../src/game/data/buildings.js';
-import { START_POP } from '../../src/game/constants.js';
+import { BUILD_QUEUE_MAX, START_POP } from '../../src/game/constants.js';
 import { START_GEMS, fullWork, rushPriceOfWork } from '../../src/game/gemrules.js';
-import { upgradeCost } from '../../src/game/labour.js';
+import { cancelRefund, upgradeCost } from '../../src/game/labour.js';
 import { gameDaysOfMs, gameDaysPerHour, gameSecondsOfMs } from '../../src/game/pace.js';
 import { GOODS_SLACK, drainCeil } from './goods.js';
 import { CLOCK_SKEW_SECONDS } from './initdata.js';
@@ -115,7 +115,7 @@ const kinds = (rec: WatchRecord): FlagKind[] => rec.flags.map((f) => f.kind);
 
 describe('таблица правил города: каждое правило держит подделанный клиент', () => {
   it('таблица одна, и у каждого правила есть общая с игрой формула и флаг', () => {
-    expect(CITY_RULES.map((r) => r.id)).toEqual(['level', 'pace', 'paid', 'stock', 'troops', 'people', 'goods', 'eat']);
+    expect(CITY_RULES.map((r) => r.id)).toEqual(['level', 'pace', 'paid', 'queue', 'refund', 'stock', 'troops', 'people', 'goods', 'eat']);
     for (const r of CITY_RULES) {
       expect(r.formula.length, r.id).toBeGreaterThan(5);
       expect(r.act.length, r.id).toBeGreaterThan(3);
@@ -259,16 +259,18 @@ describe('подтверждённое — в рейтинг и реестр з�
   });
 });
 
+/** Приказ алмазов игрока `id` (GET без приказа) через настоящий обработчик. */
+async function gems(id: number, now: number, order?: unknown): Promise<{ status: number; body: GemsResponse }> {
+  const req = new Request('https://x/api/gems', {
+    method: order ? 'POST' : 'GET',
+    headers: { ...signed(id, now), 'content-type': 'application/json' },
+    ...(order ? { body: JSON.stringify(order) } : {}),
+  });
+  const res = await ROUTES['/api/gems'](req, io(now));
+  return { status: res.status, body: (await res.json()) as GemsResponse };
+}
+
 describe('алмазы: только подтверждённая оплата', () => {
-  async function gems(id: number, now: number, order?: unknown): Promise<{ status: number; body: GemsResponse }> {
-    const req = new Request('https://x/api/gems', {
-      method: order ? 'POST' : 'GET',
-      headers: { ...signed(id, now), 'content-type': 'application/json' },
-      ...(order ? { body: JSON.stringify(order) } : {}),
-    });
-    const res = await ROUTES['/api/gems'](req, io(now));
-    return { status: res.status, body: (await res.json()) as GemsResponse };
-  }
 
   it('клиент не может объявить алмазы: ни полем сохранения, ни описью, ни приказом', async () => {
     const p = player(5301);
@@ -476,5 +478,106 @@ describe('ЗЩ-2: склад, казна и хлеб защитника — из
     // Точка внутри области: пол ниже честного расхода, но не ноль.
     expect(floor.townPerHour).toBeGreaterThan(0);
     expect(floor.townPerHour).toBeLessThan(eat.townPerHour);
+  });
+});
+
+describe('СТ-1: очередь стройки — порядок, оплата, возврат, ускорение', () => {
+  const half = cancelRefund(BUILDING_BY_ID.houses, 2, true);
+  const full = cancelRefund(BUILDING_BY_ID.barracks, 2, false);
+  /** Две стройки: Жилища строятся (работа есть), казармы ждут. Обе оплачены до первой описи. */
+  const queued = card({
+    site: { type: 'houses', level: 2, done: 50 },
+    queue: [
+      { type: 'houses', level: 2 },
+      { type: 'barracks', level: 2 },
+    ],
+  });
+  /** Обе отменены через минуту: склад вырос на `grow` по видам. */
+  const cancelled = (grow: Partial<Record<string, number>>): WatchCard =>
+    card({
+      clock: NOW + MIN,
+      time: queued.time + gameSecondsOfMs(MIN),
+      queue: [],
+      stock: Object.fromEntries(Object.entries(queued.stock).map(([k, v]) => [k, v + (grow[k] ?? 0)])),
+    });
+  const sum = (x: Partial<Record<string, number>>, y: Partial<Record<string, number>>): Partial<Record<string, number>> =>
+    Object.fromEntries([...new Set([...Object.keys(x), ...Object.keys(y)])].map((k) => [k, (x[k] ?? 0) + (y[k] ?? 0)]));
+
+  it('возврат положенного — без флагов; начатое назвало всю цену — «возврат сверх положенного», «внимание:»', async () => {
+    expect(half.wood ?? 0, 'точка внутри правила: половина — меньше всей цены').toBeLessThan(upgradeCost(BUILDING_BY_ID.houses, 2).wood ?? 0);
+    const honest = player(5601);
+    expect(await honest.push(queued, NOW)).toBe(200);
+    expect(await honest.push(cancelled(sum(half, full)), NOW + MIN)).toBe(200);
+    const fair = await honest.watch();
+    expect(kinds(fair)).toEqual([]);
+
+    const cheat = player(5602);
+    expect(await cheat.push(queued, NOW)).toBe(200);
+    expect(await cheat.push(cancelled(sum(upgradeCost(BUILDING_BY_ID.houses, 2), full)), NOW + MIN)).toBe(200);
+    const rec = await cheat.watch();
+    expect(kinds(rec)).toContain('refund');
+    expect(kinds(rec)).not.toContain('stock');
+    expect(warnings(rec).some((t) => /возврат сверх положенного/.test(t) && /отменено стройки 2/.test(t))).toBe(true);
+  });
+
+  it('возврат без отмены — рост склада; с разовым делом правило не спрашивается', () => {
+    const still = { ...cancelled(full), queue: queued.queue, site: queued.site };
+    expect(flagsBetween(queued, NOW, still, NOW + MIN).map((f) => f.kind)).toContain('stock');
+    expect(flagsBetween(queued, NOW, { ...cancelled(sum(upgradeCost(BUILDING_BY_ID.houses, 2), full)), deeds: 1 }, NOW + MIN)).toEqual([]);
+  });
+
+  it('оплата по очереди: ждущее, заложенное между описями, уносит свою цену; оплаченное до первой описи — нет', () => {
+    const a = card({ site: { type: 'houses', level: 2, done: 50 }, queue: [{ type: 'houses', level: 2 }] });
+    const added = { ...a, clock: NOW + MIN, time: a.time + gameSecondsOfMs(MIN), queue: [...a.queue!, { type: 'barracks', level: 2 }] };
+    const flags = (b: WatchCard): FlagKind[] => flagsBetween(a, NOW, b, NOW + MIN).map((f) => f.kind);
+    // До очереди правило молчало бы: на первой описи шла стройка. Теперь — флаг, точка внутри правила.
+    expect(flags(added)).toContain('unpaid');
+    const cost = upgradeCost(BUILDING_BY_ID.barracks, 2);
+    const paid = { ...added, stock: Object.fromEntries(Object.entries(a.stock).map(([k, v]) => [k, v - (cost[k as keyof typeof cost] ?? 0)])) };
+    expect(flags(paid)).toEqual([]);
+    expect(flags({ ...a, clock: NOW + MIN, time: added.time })).toEqual([]);
+  });
+
+  it('очередь против правил — «очередь стройки», места не признаны; честная — признана целиком', async () => {
+    const honest = player(5603);
+    expect(await honest.push(queued, NOW)).toBe(200);
+    expect((await honest.watch()).town?.queue).toEqual(['houses:2', 'barracks:2']);
+
+    const long = player(5604);
+    const six = Object.keys(LEVEL1).filter((t) => (BUILDING_BY_ID[t as keyof typeof BUILDING_BY_ID].maxLevel ?? 99) > 1).slice(0, BUILD_QUEUE_MAX + 1).map((type) => ({ type, level: 2 }));
+    expect(await long.push(card({ queue: six, site: { type: six[0].type, level: 2, done: 0 } }), NOW)).toBe(200);
+    const rec = await long.watch();
+    expect(kinds(rec)).toContain('queue');
+    expect(rec.town?.queue).toHaveLength(BUILD_QUEUE_MAX);
+    expect(warnings(rec).some((t) => /очередь стройки/i.test(t) && /6-е место/.test(t))).toBe(true);
+
+    const twice = player(5605);
+    expect(await twice.push(card({ queue: [{ type: 'houses', level: 2 }, { type: 'houses', level: 3 }] }), NOW)).toBe(200);
+    expect(kinds(await twice.watch())).toContain('queue');
+
+    // Начатое сдвинуто на второе место: на первой записи Жилища строились, на второй впереди казармы.
+    const moved = player(5606);
+    expect(await moved.push(queued, NOW)).toBe(200);
+    const swap = { ...queued, clock: NOW + MIN, time: queued.time + gameSecondsOfMs(MIN), site: { type: 'barracks', level: 2, done: 0 }, queue: [...queued.queue!].reverse() };
+    expect(await moved.push(swap, NOW + MIN)).toBe(200);
+    const m = await moved.watch();
+    expect(kinds(m)).toContain('queue');
+    expect(m.town?.queue).not.toContain('houses:2');
+    expect(warnings(m).some((t) => /начатая стройка сдвинута на 2-е место/.test(t))).toBe(true);
+  });
+
+  it('ускорение ждущего — отказ, алмазы не списаны; строящееся той же записи — не отказ «нет стройки»', async () => {
+    const p = player(5607);
+    // Ждущее, которое даром не ускорить: точка внутри правила цены, отказ — не из-за даровых минут.
+    const work = fullWork('barracks', 2);
+    expect(rushPriceOfWork(work)).toBeGreaterThan(1);
+    expect(await p.push(queued, NOW)).toBe(200);
+    const r = await gems(5607, NOW + 1000, { op: 'rush', key: 'k-rush-q001', building: 'barracks', level: 2, work, price: rushPriceOfWork(work) });
+    expect(r.status).toBe(200);
+    expect(r.body.error).toBe('Такой стройки нет.');
+    expect(r.body.balance).toBe(START_GEMS);
+    const first = fullWork('houses', 2) - 50;
+    const ok = await gems(5607, NOW + 2000, { op: 'rush', key: 'k-rush-q002', building: 'houses', level: 2, work: first, price: rushPriceOfWork(first) });
+    expect(ok.body.error ?? '').not.toBe('Такой стройки нет.');
   });
 });

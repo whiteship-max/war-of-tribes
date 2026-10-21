@@ -27,30 +27,6 @@
   touch-action: none;
 }
 
-/* Стик ходьбы — плавающий: появляется там, где лёг палец. Двигает его сцена, минуя React. */
-.mg-stick {
-  position: absolute;
-  left: -48px;
-  top: -48px;
-  width: 96px;
-  height: 96px;
-  border-radius: 50%;
-  border: 2px solid rgba(255, 240, 220, 0.35);
-  background: rgba(20, 16, 12, 0.18);
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.12s;
-}
-.mg-stick i {
-  position: absolute;
-  left: 30px;
-  top: 30px;
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  background: rgba(255, 240, 220, 0.55);
-}
-
 .mg-top {
   position: absolute;
   top: calc(var(--safe-top) + 8px);
@@ -548,7 +524,7 @@ small.mg-muted,
 /*
  * Руки (docs/minigames.md, 18.1, `pad.ts`): кружок пальца движения в одном нижнем углу и кнопка действия в другом.
  * Оба — рисунок (`pointer-events: none`): касание ловит холст всей своей половиной, и судит его сцена. Кружок пальца —
- * там, куда большой палец ложится сам; ведут от точки, куда он лёг (`.mg-stick` встаёт под палец).
+ * там, куда большой палец ложится сам; ведут от точки, куда он лёг, а ходит ручка этого кружка (второго под пальцем нет).
  */
 .mg-pad,
 .mg-act {
@@ -564,9 +540,9 @@ small.mg-muted,
   background: rgba(20, 16, 12, 0.24);
   opacity: 0.8;
 }
-/* Палец лёг — кружок угла бледнеет: ведёт стик под пальцем (`.mg-stick`, `data-on` ставит сцена). */
-.mg-stick[data-on='1'] ~ .mg-pad {
-  opacity: 0.25;
+/* Палец лёг — кружок угла ярче, его ручка идёт за пальцем (`data-on` и ручку ставит сцена, `stage.attachPad`; Г-12). */
+.mg-pad[data-on='1'] {
+  opacity: 1;
 }
 .mg-pad i {
   position: absolute;

@@ -10,6 +10,7 @@ import {
   buildingProduction,
   buildingSlots,
   buildingTitle,
+  buildQueue,
   currentSite,
   handsCount,
   isSite,
@@ -95,11 +96,19 @@ export interface HallTile {
   eta: GameSec | null;
   /** Доля стройки, 0…100. */
   share: number;
+  /** Место в очереди стройки с единицы (`derived.queuePlace`); 0 — не в очереди. */
+  place: number;
   /** Почему нельзя улучшить (`upgradeInfo.blocked`); `null` — можно. */
   why: string | null;
 }
 
-export function hallTile(s: GameState, b: Building, rate: number = buildRate(s), first: Building | null = currentSite(s)): HallTile {
+export function hallTile(
+  s: GameState,
+  b: Building,
+  rate: number = buildRate(s),
+  first: Building | null = currentSite(s),
+  queue: readonly Building[] = buildQueue(s),
+): HallTile {
   const up = upgradeInfo(s, b);
   const max = maxLevelFor(b.type);
   const slots = buildingSlots(b);
@@ -128,6 +137,7 @@ export function hallTile(s: GameState, b: Building, rate: number = buildRate(s),
     state,
     eta: state === 'site' && rate > 0 ? asGame(Math.max(0, b.workRequired - b.work) / rate) : null,
     share: site ? Math.floor((b.work / Math.max(1, b.workRequired)) * 100) : 0,
+    place: queue.indexOf(b) + 1,
     why: up.blocked,
   };
 }
@@ -136,7 +146,8 @@ export function hallTile(s: GameState, b: Building, rate: number = buildRate(s),
 export function hallTiles(s: GameState): HallTile[] {
   const rate = buildRate(s);
   const first = currentSite(s);
-  return [...s.buildings].sort(byBook).map((b) => hallTile(s, b, rate, first));
+  const queue = buildQueue(s);
+  return [...s.buildings].sort(byBook).map((b) => hallTile(s, b, rate, first, queue));
 }
 
 // ---------- Порядок ----------
@@ -166,7 +177,8 @@ export function sortTiles(tiles: readonly HallTile[], sort: HallSort): HallTile[
       case 'group':
         return [GROUP_RANK.get(t.group) ?? 9];
       case 'ready':
-        return [STATE_RANK[t.state]];
+        // Стройки — местом в очереди: первая, за ней ждущие по порядку.
+        return [STATE_RANK[t.state], t.place];
       case 'level':
         return [-t.level];
       case 'output':

@@ -126,6 +126,9 @@ npm run splash:build # заставка экрана загрузки из asset
 npm run share:build  # картинки «Поделиться» для историй Telegram в public/assets/share (docs/feed.md)
 npm run icons:build  # набор значков ЗН-1: проверка и листы (первый экран строкой кода, остальное — public/assets/icons)
 npm run fonts:build  # свой шрифт: подмножества WOFF2 в public/fonts (docs/polish.md, П-1)
+npm run console    # консоль боёв и сценариев (docs/handbook/console.md): fight, gate, raid, siege, camp, intercept, sweep, replay
+npm run derive -- w --write  # вывод W и шага кости до неподвижной точки (правило 16); -- gate --write — таблица у ворот
+npm run speed      # замер скорости прогонов с отпечатком итогов; --profile ladder — где время
 ```
 
 ## Работа с ветками
@@ -396,6 +399,10 @@ HEAD один на всех, см. правило 8). Значит развес�
   (`GameState.boons`) и отложенных следствий ответов (`GameState.chains`; docs/events.md): усилитель продлевается,
   а не складывается, следствие вида откладывается одно. Два писателя разошлись бы в том, сколько держится ярмарка
   и придёт ли купец за долгом, — заметил бы игрок, у которого праздник дал мораль дважды или долг взыскали дважды;
+- `src/game/sim/actions.ts` — единственный писатель очереди стройки (`GameState.buildQueue`; СТ-1, docs/ui_v2.md, 5.13):
+  постановка, отмена с возвратом и сдвиг; читает очередь одна дверь `derived.buildQueue`. Порядок лежит в партии и едет
+  описью на сервер (`WatchCard.queue`), и два писателя разошлись бы в том, что строится первым и сколько вернуть, —
+  заметил бы игрок, у которого работа легла не на ту постройку, или сервер, назвавший честный возврат подделкой;
 - `src/game/sim/minigames.ts` — единственная дверь к энергии промыслов (`GameState.energyFull`): отметка трат лежит в
   партии, энергия — чистая функция от неё и настоящего времени, трата — на «Начать» (`beginMinigame`), добыча — один раз
   на начатую игру (`harvest`). Два писателя
@@ -615,6 +622,10 @@ HEAD один на всех, см. правило 8). Значит развес�
   `security.test.ts`; economy).
 - **Палец** — `src/gestures.ts`, один судья на деревню и карту (gestures).
 - **Плата со склада** — `sim/pay` (`pay`, `refund`); цена в интерфейсе — `ui/parts/Cost.tsx` (ui, economy).
+- **Очередь стройки** — чтение `derived.buildQueue` (начатое — первым, `currentSite` — первое место), запись `sim/actions`
+  (`startUpgrade`, `cancelUpgrade`, `moveUpgrade`), длина `BUILD_QUEUE_MAX`, возврат `labour.cancelRefund`; ускоряется только
+  строящееся (`sim/gems.rushQueued`, сервер — `town.rushFloor`); сервер держит порядок и возврат (`town.queueFaults`,
+  `watch.cancelledRefund`) (`sim/queue.test.ts`, `security.test.ts`; village, docs/ui_v2.md, 5.13).
 - **Держава** — очки `sim/points` (`bank`, `spend`), гейт `sim/tech` (поля `requiresTech` нет — тест),
   дом правителя `sim/dynasty` (realm).
 - **Люди и войско** — агенты и книга родословной `sim/agents` (`keepInBook`), найм `sim/hire`, жалованье
@@ -807,4 +818,5 @@ docker compose за прокси Coolify (docs/SERVER.md, «Вариант с Co
 | [structure.md](docs/handbook/structure.md) | «Структура» — что где лежит | — |
 | [world.md](docs/handbook/world.md) | «Карта мира» | world-map.md, fog-and-figures.md, geography.md, atlas.md, siege.md, sack.md, lairs.md, lair_growth.md, letters.md, DEFEAT_LADDER.md, tower.md, MAP_ACTIONS.md |
 | [agents.md](docs/handbook/agents.md) | «Агенты: люди на местах»; энергия агентов (с 05.10.2026) | AGENTS.md, agent_energy.md |
+| [console.md](docs/handbook/console.md) | — (новый, УС-1): консольные команды боёв и сценариев, ролик записи, вывод W и таблицы у ворот, замер скорости и где было время | — |
 | [battle.md](docs/handbook/battle.md) | «Бой», «Мост из племени в бой», «Описание вида бойцов», «Подготовка боя и отчёт», «Испытательный стенд: зеркальное логово» | battle_eu4.md (раздел 14.35 — первым), battle-replay.md |

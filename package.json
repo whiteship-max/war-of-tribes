@@ -49,7 +49,18 @@
     "mini:shots": "vite-node scripts/mini-shots.ts",
     "tw:shots": "vite-node scripts/tw-shots.ts",
     "weak:stand": "vite-node scripts/weak-stand.ts",
-    "audio:samples": "vite-node scripts/audio-samples.ts"
+    "audio:samples": "vite-node scripts/audio-samples.ts",
+    "console": "vite-node scripts/console/index.ts",
+    "fight": "vite-node scripts/console/fight.ts --",
+    "raid": "vite-node scripts/console/raid.ts --",
+    "siege": "vite-node scripts/console/siege.ts --",
+    "camp": "vite-node scripts/console/siege.ts -- --camp",
+    "intercept": "vite-node scripts/console/intercept.ts --",
+    "gate": "vite-node scripts/console/gate.ts --",
+    "sweep": "vite-node scripts/console/sweep.ts --",
+    "derive": "vite-node scripts/console/derive.ts --",
+    "speed": "vite-node scripts/console/speed.ts --",
+    "replay": "vite-node scripts/console/replay.ts --"
   },
   "dependencies": {
     "@netlify/blobs": "^11.0.3",

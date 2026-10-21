@@ -264,4 +264,32 @@ describe('окно ратуши: сетка всех построек в ква�
     expect(renderToStaticMarkup(h(HallTileView, { t, tut: true, onPick: () => undefined }))).toContain('data-tut="list-barracks"');
     expect(renderToStaticMarkup(h(HallTileView, { t, tut: false, onPick: () => undefined }))).not.toContain('data-tut');
   });
+
+  // СТ-1 (docs/ui_v2.md, «Решения СТ-1»): очередь стройки. Область: две стройки — ферма строится (работа есть), Жилища ждут.
+  it('очередь: номер места на плитке, полоса очереди со сроком первого, дела места — выше, ниже, отмена с возвратом', async () => {
+    const { HallBuild, HallCard, QueueActs } = await import('./HallBuild');
+    const { cancelRefund } = await import('@/game/labour');
+    const { BUILDING_BY_ID } = await import('@/game/data/buildings');
+    const s = town();
+    const farm = buildingOfType(s, 'farm')!;
+    const houses = buildingOfType(s, 'houses')!;
+    farm.work = 1;
+    expect(currentSite(s)?.id, 'точка внутри правила: ферма строится первой').toBe(farm.id);
+    stores.game = { s, act: () => undefined, sheet: null, openBuilding: () => undefined, showToast: () => undefined };
+    const html = renderToStaticMarkup(h(HallBuild));
+    expect(html).toContain('hall-queue');
+    expect(html.match(/class="hall-q"/g) ?? []).toHaveLength(2);
+    expect(html).toContain('aria-label="1. ');
+    expect(html).toContain('aria-label="2. ');
+    expect(html).toContain('2-е в очереди');
+    // Под полосой — дела ждущего: выше нельзя (строящееся начато), ниже нельзя (последнее), отмена вернёт всё.
+    const acts = renderToStaticMarkup(h(QueueActs, { b: houses, onOpen: () => undefined }));
+    expect(acts).toContain('Строящееся уже начато');
+    expect(acts).toContain('Уже последнее.');
+    expect(acts).toContain('вернёт всё');
+    const back = cancelRefund(BUILDING_BY_ID.houses, houses.level + 1, false);
+    for (const v of Object.values(back)) expect(acts).toContain(`+${v}`);
+    expect(renderToStaticMarkup(h(QueueActs, { b: farm, onOpen: () => undefined }))).toContain('вернёт половину');
+    expect(renderToStaticMarkup(h(HallCard, { id: houses.id, onClose: () => undefined }))).toContain('ждёт, 2-е в очереди');
+  });
 });

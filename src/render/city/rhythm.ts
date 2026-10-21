@@ -74,12 +74,16 @@ export interface CityMood {
   /** Мор — меньше людей, дым над домами. */
   plague: number;
   cheer: number;
+  /** Траур после проигранного боя (ЖГ-2): вдова, похороны; не пляшут и не пируют. */
+  mourn: number;
 }
 
-export const CALM_MOOD: CityMood = { feast: 0, alarm: 0, hunger: 0, plague: 0, cheer: 0 };
+export const CALM_MOOD: CityMood = { feast: 0, alarm: 0, hunger: 0, plague: 0, cheer: 0, mourn: 0 };
 
 /** Праздник после победы держится столько игровых суток (девять настоящих минут). */
 export const FEAST_DAYS = 0.3;
+/** Траур после поражения держится столько игровых суток (пятнадцать настоящих минут). */
+export const MOURN_DAYS = 0.5;
 /** Мор виден столько игровых суток после записи в летописи. */
 export const PLAGUE_DAYS = 1;
 /** Мораль, с которой город оживлён до конца, и с которой хмур до конца. */
@@ -106,8 +110,11 @@ export function plagueOf(s: GameState): boolean {
   return false;
 }
 
-/** Что видно из партии: `threat` — враг идёт к городу (мир, `marchesOnHome`), `feastUntil` — конец праздника (игровое время). */
-export function moodOf(s: GameState, threat: boolean, feastUntil: number): CityMood {
+/**
+ * Что видно из партии: `threat` — враг идёт к городу (мир, `marchesOnHome`), `feastUntil` и `mournUntil` — конец праздника и
+ * траура (игровое время).
+ */
+export function moodOf(s: GameState, threat: boolean, feastUntil: number, mournUntil = -Infinity): CityMood {
   const alarm = s.siege || threat || s.gate.length > 0 ? 1 : 0;
   const hunger = s.resources.food <= 0 || s.starvation > 0 ? 1 : 0;
   return {
@@ -117,6 +124,7 @@ export function moodOf(s: GameState, threat: boolean, feastUntil: number): CityM
     hunger,
     plague: plagueOf(s) ? 1 : 0,
     cheer: cheerOf(s.morale),
+    mourn: s.time < mournUntil ? 1 : 0,
   };
 }
 
@@ -127,18 +135,25 @@ export function moodOf(s: GameState, threat: boolean, feastUntil: number): CityM
 export class FeastClock {
   private won = -1;
   private until = -Infinity;
+  /** Счёт, по которому празднуют (`battlesWon`), или скорбят (`battlesLost`, `mournClock`), и сколько суток. */
+  constructor(
+    private count: (s: GameState) => number = (s) => s.stats.battlesWon,
+    private days = FEAST_DAYS,
+  ) {}
   /** Прочесть партию; вернуть конец праздника (игровое время). */
   observe(s: GameState): number {
-    const won = s.stats.battlesWon;
-    if (this.won >= 0 && won > this.won) this.until = s.time + FEAST_DAYS * DAY_LENGTH;
+    const won = this.count(s);
+    if (this.won >= 0 && won > this.won) this.until = s.time + this.days * DAY_LENGTH;
     this.won = won;
     return this.until;
   }
 }
 
 export const feastClock = new FeastClock();
+/** Траур после поражения (ЖГ-2): тот же счёт, по проигранным боям. */
+export const mournClock = new FeastClock((s) => s.stats.battlesLost, MOURN_DAYS);
 
-/** Состояние адресом (`?mood=feast`) — стенду и проверке на телефоне: праздник, осада, голод, мор, хмуро, весело. */
+/** Состояние адресом (`?mood=feast`) — стенду и проверке на телефоне: праздник, осада, голод, мор, хмуро, весело, траур. */
 export function forcedMood(search: string): CityMood | null {
   const v = new URLSearchParams(search).get('mood');
   if (v === null) return null;
@@ -148,6 +163,7 @@ export function forcedMood(search: string): CityMood | null {
     hunger: { hunger: 1, cheer: -0.6 },
     plague: { plague: 1, cheer: -0.5 },
     gloom: { cheer: -1 },
+    mourn: { mourn: 1, cheer: -0.4 },
     cheer: { cheer: 1 },
     calm: {},
   };

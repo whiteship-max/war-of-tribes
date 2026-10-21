@@ -423,10 +423,11 @@ export function cricket(kit: Kit, dest: AudioNode, at: number, n: number, vel: n
  * Голос рынка: гласная сквозь две форманты — тихий голос (пила) пополам с дыханием (шум). Звучит фраза из слогов;
  * вместе с соседними голосами — гомон, а не слова.
  */
-export function voice(kit: Kit, dest: AudioNode, at: number, syllables: number, vel: number, pan: number, shout: boolean): number {
+export function voice(kit: Kit, dest: AudioNode, at: number, syllables: number, vel: number, pan: number, shout: boolean, high?: number): number {
   const ctx = kit.ctx;
   const rnd = kit.rnd;
-  const pitch = shout ? span(rnd, 230, 320) : span(rnd, 105, 230);
+  // `high` — своя высота голоса, Гц (дети, женщины, проповедник — ЖГ-2); нет — мужской гомон.
+  const pitch = high ?? (shout ? span(rnd, 230, 320) : span(rnd, 105, 230));
   const o = ctx.createOscillator();
   o.type = 'sawtooth';
   o.frequency.setValueAtTime(pitch, at);
@@ -597,11 +598,11 @@ export function drum(kit: Kit, dest: AudioNode, at: number, vel: number, pan: nu
  * Смех у трактира: четыре-семь «ха» — голосовая пила сквозь форманты «а», каждый слог ниже прежнего, с выдохом шумом.
  * Возвращает длину, с.
  */
-export function laugh(kit: Kit, dest: AudioNode, at: number, vel: number, pan: number): number {
+export function laugh(kit: Kit, dest: AudioNode, at: number, vel: number, pan: number, high?: number): number {
   const ctx = kit.ctx;
   const rnd = kit.rnd;
   const n = 4 + Math.floor(rnd() * 4);
-  const pitch = span(rnd, 150, 260);
+  const pitch = high ?? span(rnd, 150, 260);
   const o = ctx.createOscillator();
   o.type = 'sawtooth';
   const breath = noiseLoop(kit, false, at);
@@ -639,4 +640,269 @@ export function laugh(kit: Kit, dest: AudioNode, at: number, vel: number, pan: n
   o.stop(t + 0.05);
   breath.stop(t + 0.05);
   return t - at;
+}
+
+// ---------- Сценки жителей (docs/city_v3.md, ЖГ-2) ----------
+// Всё — синтез, без файлов: первая загрузка не растёт. Атака каждого звука — не короче 2 мс, без щелчка (П-3).
+
+/**
+ * Голос, который поёт: пила с вибрато сквозь форманты гласной, ноты подряд легато; `slur` — насколько певец мимо нот (пьяные —
+ * четверть тона). Возвращает длину, с.
+ */
+export function sing(kit: Kit, dest: AudioNode, at: number, notes: readonly number[], beat: number, vel: number, pan: number, slur = 0): number {
+  const ctx = kit.ctx;
+  const rnd = kit.rnd;
+  const o = ctx.createOscillator();
+  o.type = 'sawtooth';
+  const lfo = ctx.createOscillator();
+  lfo.frequency.value = span(rnd, 4.5, 6);
+  const depth = ctx.createGain();
+  depth.gain.value = 3;
+  lfo.connect(depth);
+  depth.connect(o.frequency);
+  const f1 = ctx.createBiquadFilter();
+  f1.type = 'bandpass';
+  f1.Q.value = 5;
+  const f2 = ctx.createBiquadFilter();
+  f2.type = 'bandpass';
+  f2.Q.value = 7;
+  const amp = ctx.createGain();
+  amp.gain.setValueAtTime(0, at);
+  o.connect(f1);
+  o.connect(f2);
+  f1.connect(amp);
+  f2.connect(amp);
+  amp.connect(panned(kit, dest, pan));
+  let t = at;
+  for (let i = 0; i < notes.length; i++) {
+    const len = beat * span(rnd, 0.85, 1.15);
+    const f = hz(notes[i] + span(rnd, -slur, slur));
+    o.frequency.setTargetAtTime(f, t, 0.03);
+    const [a, b] = [
+      [750, 1200],
+      [500, 900],
+      [350, 800],
+    ][Math.floor(rnd() * 3)];
+    f1.frequency.setTargetAtTime(a, t, 0.04);
+    f2.frequency.setTargetAtTime(b, t, 0.04);
+    amp.gain.setTargetAtTime(vel * span(rnd, 0.7, 1), t, 0.03);
+    t += len;
+  }
+  amp.gain.setTargetAtTime(0, t, 0.08);
+  o.start(at);
+  lfo.start(at);
+  o.stop(t + 0.5);
+  lfo.stop(t + 0.5);
+  return t - at;
+}
+
+/** Плач: три-пять всхлипов — дрожащий голос, сползающий вниз, и вдох шумом между ними. Возвращает длину, с. */
+export function sob(kit: Kit, dest: AudioNode, at: number, vel: number, pan: number): number {
+  const ctx = kit.ctx;
+  const rnd = kit.rnd;
+  const out = panned(kit, dest, pan);
+  const n = 3 + Math.floor(rnd() * 3);
+  const o = ctx.createOscillator();
+  o.type = 'sawtooth';
+  const breath = noiseLoop(kit, false, at);
+  const bg = ctx.createGain();
+  bg.gain.value = 0.6;
+  breath.connect(bg);
+  const f1 = ctx.createBiquadFilter();
+  f1.type = 'bandpass';
+  f1.frequency.value = 420;
+  f1.Q.value = 6;
+  const f2 = ctx.createBiquadFilter();
+  f2.type = 'bandpass';
+  f2.frequency.value = 2100;
+  f2.Q.value = 8;
+  const amp = ctx.createGain();
+  amp.gain.setValueAtTime(0, at);
+  for (const x of [o, bg]) {
+    x.connect(f1);
+    x.connect(f2);
+  }
+  f1.connect(amp);
+  f2.connect(amp);
+  amp.connect(out);
+  // Вдох — верх шума, отдельно.
+  const hp = ctx.createBiquadFilter();
+  hp.type = 'highpass';
+  hp.frequency.value = 2500;
+  const ig = ctx.createGain();
+  ig.gain.setValueAtTime(0, at);
+  breath.connect(hp);
+  hp.connect(ig);
+  ig.connect(out);
+  let t = at;
+  const p0 = span(rnd, 290, 360);
+  for (let i = 0; i < n; i++) {
+    const len = span(rnd, 0.22, 0.4);
+    o.frequency.setValueAtTime(p0 * (1 - i * 0.03), t);
+    o.frequency.linearRampToValueAtTime(p0 * 0.72, t + len);
+    amp.gain.setValueAtTime(0, t);
+    amp.gain.linearRampToValueAtTime(vel * span(rnd, 0.6, 1), t + 0.04);
+    amp.gain.linearRampToValueAtTime(0, t + len);
+    const gap = span(rnd, 0.18, 0.35);
+    ig.gain.setValueAtTime(0, t + len);
+    ig.gain.linearRampToValueAtTime(vel * 0.35, t + len + gap * 0.6);
+    ig.gain.linearRampToValueAtTime(0, t + len + gap);
+    t += len + gap;
+  }
+  o.start(at);
+  o.stop(t + 0.05);
+  breath.stop(t + 0.05);
+  return t - at;
+}
+
+/** Звон: монеты о прилавок, кружка о кружку — два коротких высоких тона. */
+export function clink(kit: Kit, dest: AudioNode, at: number, vel: number, pan: number): void {
+  const ctx = kit.ctx;
+  const out = panned(kit, dest, pan);
+  for (const f of [span(kit.rnd, 2200, 2700), span(kit.rnd, 3300, 4100)]) {
+    const o = ctx.createOscillator();
+    o.frequency.value = f;
+    const g = ctx.createGain();
+    strike(g.gain, at, vel * 0.5, 0.002, 0.18);
+    o.connect(g);
+    g.connect(out);
+    o.start(at);
+    o.stop(at + 0.22);
+  }
+}
+
+/** Стук: дерево, шаг, удар — короткий тон `f`, вдвое сползающий, и щепоть шума у `2f`. Кости о крышку, кулак, копыто. */
+export function knock(kit: Kit, dest: AudioNode, at: number, f: number, vel: number, pan: number): void {
+  const ctx = kit.ctx;
+  const out = panned(kit, dest, pan);
+  const o = ctx.createOscillator();
+  o.type = 'triangle';
+  o.frequency.setValueAtTime(f, at);
+  o.frequency.exponentialRampToValueAtTime(f * 0.5, at + 0.04);
+  const g = ctx.createGain();
+  strike(g.gain, at, vel, 0.002, 0.07);
+  o.connect(g);
+  g.connect(out);
+  o.start(at);
+  o.stop(at + 0.09);
+  const n = noiseLoop(kit, false, at);
+  const bp = ctx.createBiquadFilter();
+  bp.type = 'bandpass';
+  bp.frequency.value = Math.min(6000, f * 2);
+  bp.Q.value = 1.2;
+  const ng = ctx.createGain();
+  strike(ng.gain, at, vel * 0.5, 0.002, 0.03);
+  n.connect(bp);
+  bp.connect(ng);
+  ng.connect(out);
+  n.stop(at + 0.05);
+}
+
+/** Скрип тележной оси: низкая пила, высота качается с оборотом колеса, сквозь узкую полосу. */
+export function creak(kit: Kit, dest: AudioNode, at: number, dur: number, vel: number, pan: number): void {
+  const ctx = kit.ctx;
+  const o = ctx.createOscillator();
+  o.type = 'sawtooth';
+  const f0 = span(kit.rnd, 95, 140);
+  o.frequency.setValueAtTime(f0, at);
+  for (let t = 0; t < dur; t += 0.35) o.frequency.linearRampToValueAtTime(f0 * span(kit.rnd, 0.8, 1.35), at + t + 0.35);
+  const bp = ctx.createBiquadFilter();
+  bp.type = 'bandpass';
+  bp.frequency.value = span(kit.rnd, 800, 1100);
+  bp.Q.value = 9;
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0, at);
+  g.gain.linearRampToValueAtTime(vel, at + 0.15);
+  g.gain.setValueAtTime(vel, at + dur - 0.2);
+  g.gain.linearRampToValueAtTime(0, at + dur);
+  o.connect(bp);
+  bp.connect(g);
+  g.connect(panned(kit, dest, pan));
+  o.start(at);
+  o.stop(at + dur + 0.05);
+}
+
+/** Блеяние: дрожащая пила (вибрато семь раз в секунду) сквозь «э». Возвращает длину, с. */
+export function bleat(kit: Kit, dest: AudioNode, at: number, vel: number, pan: number): number {
+  const ctx = kit.ctx;
+  const len = span(kit.rnd, 0.45, 0.8);
+  const f = span(kit.rnd, 380, 560);
+  const o = ctx.createOscillator();
+  o.type = 'sawtooth';
+  o.frequency.setValueAtTime(f, at);
+  o.frequency.linearRampToValueAtTime(f * 0.88, at + len);
+  const lfo = ctx.createOscillator();
+  lfo.frequency.value = span(kit.rnd, 6, 8);
+  const depth = ctx.createGain();
+  depth.gain.value = f * 0.05;
+  lfo.connect(depth);
+  depth.connect(o.frequency);
+  const f1 = ctx.createBiquadFilter();
+  f1.type = 'bandpass';
+  f1.frequency.value = 520;
+  f1.Q.value = 5;
+  const f2 = ctx.createBiquadFilter();
+  f2.type = 'bandpass';
+  f2.frequency.value = 1800;
+  f2.Q.value = 7;
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0, at);
+  g.gain.linearRampToValueAtTime(vel, at + 0.05);
+  g.gain.linearRampToValueAtTime(vel * 0.6, at + len - 0.05);
+  g.gain.linearRampToValueAtTime(0, at + len);
+  o.connect(f1);
+  o.connect(f2);
+  f1.connect(g);
+  f2.connect(g);
+  g.connect(panned(kit, dest, pan));
+  o.start(at);
+  lfo.start(at);
+  o.stop(at + len + 0.05);
+  lfo.stop(at + len + 0.05);
+  return len;
+}
+
+/** Взмах серпа или косы по стеблям: шум, полоса которого сползает сверху вниз за четверть секунды. */
+export function swish(kit: Kit, dest: AudioNode, at: number, vel: number, pan: number): void {
+  const ctx = kit.ctx;
+  const n = noiseLoop(kit, false, at);
+  const bp = ctx.createBiquadFilter();
+  bp.type = 'bandpass';
+  bp.Q.value = 1.6;
+  bp.frequency.setValueAtTime(3400, at);
+  bp.frequency.exponentialRampToValueAtTime(900, at + 0.25);
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0, at);
+  g.gain.linearRampToValueAtTime(vel, at + 0.06);
+  g.gain.linearRampToValueAtTime(0, at + 0.3);
+  n.connect(bp);
+  bp.connect(g);
+  g.connect(panned(kit, dest, pan));
+  n.stop(at + 0.35);
+}
+
+/** Лай: один-два «гав» — пила, сползающая с 420 Гц, сквозь «а» с шумом. */
+export function bark(kit: Kit, dest: AudioNode, at: number, vel: number, pan: number): number {
+  const ctx = kit.ctx;
+  const out = panned(kit, dest, pan);
+  const n = 1 + Math.floor(kit.rnd() * 2);
+  for (let i = 0; i < n; i++) {
+    const t = at + i * 0.28;
+    const o = ctx.createOscillator();
+    o.type = 'sawtooth';
+    o.frequency.setValueAtTime(span(kit.rnd, 380, 460), t);
+    o.frequency.exponentialRampToValueAtTime(220, t + 0.13);
+    const f1 = ctx.createBiquadFilter();
+    f1.type = 'bandpass';
+    f1.frequency.value = 900;
+    f1.Q.value = 3;
+    const g = ctx.createGain();
+    strike(g.gain, t, vel, 0.008, 0.16);
+    o.connect(f1);
+    f1.connect(g);
+    g.connect(out);
+    o.start(t);
+    o.stop(t + 0.2);
+  }
+  return n * 0.28;
 }

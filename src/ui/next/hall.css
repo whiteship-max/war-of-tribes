@@ -178,6 +178,155 @@
   background: var(--m-fill);
 }
 
+/* Номер места в очереди стройки (СТ-1) — в верхнем правом углу плитки; у первой рядом срок в строке чисел. */
+.hall-q {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--bg);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+}
+.hall-tile.queued .hall-q {
+  background: var(--muted);
+}
+.hall-tile:has(.hall-q) .hall-name {
+  padding-right: 18px;
+}
+
+/* ---------- Полоса очереди стройки (СТ-1) ---------- */
+.hall-queue {
+  margin: 0 0 8px;
+}
+.hall-queue-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 16px;
+  margin: 0 0 4px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.hall-queue-head svg {
+  width: 16px;
+  height: 16px;
+}
+.hall-queue-head > span {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+.hall-queue-row {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 4px;
+}
+.hall-qcell {
+  position: relative;
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  grid-template-rows: 20px 14px;
+  align-items: center;
+  column-gap: 2px;
+  min-width: 0;
+  min-height: 52px;
+  margin: 0;
+  padding: 4px;
+  border: 1px solid var(--m-plate-rim);
+  border-radius: 10px;
+  background: var(--m-plate);
+  box-shadow: var(--m-plate-bevel);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  -webkit-tap-highlight-color: transparent;
+}
+.hall-qcell.on {
+  border-color: var(--accent);
+}
+.hall-qcell svg {
+  width: 20px;
+  height: 20px;
+  justify-self: end;
+}
+.hall-qn {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--accent);
+}
+.hall-qcell:not(.first) .hall-qn {
+  color: var(--muted);
+}
+.hall-qeta {
+  grid-column: 1 / -1;
+  font-size: 12px;
+  line-height: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.hall-qeta {
+  grid-row: 2;
+  color: var(--muted);
+}
+.hall-qcell.first .hall-qeta {
+  color: var(--accent);
+  font-weight: 600;
+}
+.hall-qacts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  margin: 4px 0 0;
+}
+.hall-qbtns {
+  display: flex;
+  gap: 4px;
+  margin-left: auto;
+}
+.hall-qbtns .kit-btn {
+  min-width: 72px;
+  padding: 4px 8px;
+  font-size: 13px;
+}
+.hall-refund {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 8px;
+  width: 100%;
+  font-size: 12px;
+  color: var(--muted);
+}
+.hall-refund > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.hall-refund svg {
+  width: 16px;
+  height: 16px;
+}
+.hall-refund .pos {
+  color: var(--good);
+}
+.hall-refund .bad {
+  color: var(--bad);
+}
+
 /* ---------- Лист постройки поверх сетки ---------- */
 /*
  * Шторка ратуши держит `transform`, поэтому `position: fixed` отсчитывается от неё: лист садится на её низ над нижней

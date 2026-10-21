@@ -308,6 +308,35 @@ function coachDone(): void {
   }
 }
 
+/**
+ * Подсказки первого взятия меча в стойку (Г-11): как ходить, рубить, бить сильно и закрываться. Видел — помнит устройство;
+ * стоят, пока игрок не ударил и не закрылся, но не дольше `SWORD_COACH_MS`; касание закрывает сразу.
+ */
+export const SWORD_COACH = [
+  'Слева — шаг, как прежде',
+  'Справа быстро махни пальцем — меч рубит по этой линии; чем быстрее мах, тем сильнее',
+  'Три удара в разные стороны подряд — сильный удар',
+  'Дважды коснись у края экрана — блок в ту сторону',
+] as const;
+const SWORD_COACH_MS = 30000;
+const SWORD_KEY = 'tribe.chambers.sword';
+
+function swordSeen(): boolean {
+  try {
+    return localStorage.getItem(SWORD_KEY) === '1';
+  } catch {
+    return true;
+  }
+}
+
+function swordDone(): void {
+  try {
+    localStorage.setItem(SWORD_KEY, '1');
+  } catch {
+    /* память устройства недоступна — подскажем ещё раз */
+  }
+}
+
 export function Chambers() {
   const hide = useChambers((c) => c.hide);
   const ruler = useGame((g) => g.s.realm.ruler.name ?? 'Без имени');
@@ -317,6 +346,8 @@ export function Chambers() {
   const root = useRef<HTMLDivElement>(null);
   const [ready, setReady] = useState(() => live !== null);
   const [coach, setCoach] = useState(() => !coachSeen());
+  const [swordCoach, setSwordCoach] = useState(false);
+  const [heavyFlash, setHeavyFlash] = useState(0);
   const [, bump] = useState(0);
   const view = useView();
   const lv = useLife();
@@ -412,6 +443,23 @@ export function Chambers() {
     return () => window.clearTimeout(t);
   }, [coach, ready]);
 
+  // Бой мечом (Г-11): подсказки при первой стойке, вспышка «Сильный удар» на каждый сильный по чучелу.
+  const fighting = !!view?.fight;
+  useEffect(() => {
+    if (!fighting || swordSeen()) return;
+    swordDone();
+    setSwordCoach(true);
+    const t = window.setTimeout(() => setSwordCoach(false), SWORD_COACH_MS);
+    return () => window.clearTimeout(t);
+  }, [fighting]);
+  const heavies = view?.fight?.heavies ?? 0;
+  useEffect(() => {
+    if (!heavies) return;
+    setHeavyFlash(heavies);
+    const t = window.setTimeout(() => setHeavyFlash(0), 1100);
+    return () => window.clearTimeout(t);
+  }, [heavies]);
+
   const room = live?.room ?? null;
   const rect = (): DOMRect => (layer.current ?? document.body).getBoundingClientRect();
   const v = view;
@@ -451,10 +499,11 @@ export function Chambers() {
         </div>
       </div>
 
-      {v && !held && !talk && !night && (
+      {v && (!held || v.fight) && !talk && !night && (
         <>
-          {/* Палец движения — рисунок: касание ловит вся левая половина (`prologue/controls.Sticks`), стик встаёт под палец. */}
-          <div className="ch-pad" aria-hidden="true">
+          {/* Палец движения — рисунок: касание ловит вся левая половина (`prologue/controls.Sticks`), а ведёт палец ручку этого
+              кружка (`room.attachPad`) — второго кружка под пальцем нет (Г-12). */}
+          <div className="ch-pad" ref={(el) => room?.attachPad(el)} aria-hidden="true">
             <i />
           </div>
           {v.mode === 'in' && v.spot && (
@@ -483,7 +532,7 @@ export function Chambers() {
         </>
       )}
 
-      {held && (
+      {held && !v?.fight && (
         <div className="ch-hand">
           <div className="ch-hand-text">
             <b>{held.name}</b>
@@ -494,10 +543,42 @@ export function Chambers() {
               Выпить
             </button>
           )}
+          {v?.stance && (
+            <button className="ch-put ch-stance" onClick={() => room?.stance()}>
+              В стойку
+            </button>
+          )}
           <button className="ch-put" onClick={() => room?.drop()}>
             Положить
           </button>
         </div>
+      )}
+
+      {/* Бой мечом (Г-11): выносливость, счёт по чучелу, «Повесить на стену». */}
+      {v?.fight && !talk && !night && (
+        <div className="ch-fight">
+          <div className="ch-fight-row">
+            <div className={`ch-stamina${v.fight.tired ? ' tired' : ''}`} role="meter" aria-label="Выносливость" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(v.fight.stamina * 100)}>
+              <i style={{ width: `${Math.round(v.fight.stamina * 100)}%` }} />
+            </div>
+            <span className="ch-hits">{hitsWords(v.fight.hits)}</span>
+          </div>
+          <button className="ch-put ch-hang" disabled={v.fight.stowing} onClick={() => room?.hangSword()}>
+            Повесить на стену
+          </button>
+        </div>
+      )}
+      {v?.fight && heavyFlash > 0 && (
+        <div key={heavyFlash} className="ch-heavy" aria-live="polite">
+          Сильный удар
+        </div>
+      )}
+      {v?.fight && swordCoach && !(v.fight.struck && v.fight.blocked) && !talk && !night && (
+        <button className="ch-sword-coach" onClick={() => setSwordCoach(false)}>
+          {SWORD_COACH.map((line) => (
+            <span key={line}>{line}</span>
+          ))}
+        </button>
       )}
 
       {/* Клубок — коту (Г-7): кот в покоях, правитель стоит, разговора нет. Кинуть — куда смотришь, и в окно (Р-1); не чаще
@@ -542,6 +623,14 @@ export function ballWords(lv: Pick<LifeView, 'fetching' | 'ballIn'>): string {
   if (lv.fetching) return 'Кот несёт клубок…';
   if (lv.ballIn > 0) return `Клубок — через ${realPlain(lv.ballIn)}`;
   return 'Кинуть клубок';
+}
+
+/** Счёт ударов по чучелу: «Чучело: 0 ударов», «1 удар», «3 удара», «12 ударов». */
+export function hitsWords(n: number): string {
+  const d = n % 10;
+  const h = n % 100;
+  const w = d === 1 && h !== 11 ? 'удар' : d >= 2 && d <= 4 && (h < 12 || h > 14) ? 'удара' : 'ударов';
+  return `Чучело: ${n} ${w}`;
 }
 
 /** Для тестов: живая комната и уборка. */

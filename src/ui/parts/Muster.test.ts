@@ -53,7 +53,8 @@ describe('раскладка дружины: одно окно, входы к н
     const callers = all.filter((f) => /\.setGarrison\b/.test(code(f))).map(rel);
     expect(callers, 'кто зовёт setGarrison мира').toEqual(['parts/Muster.tsx']);
     const shown = all.filter((f) => /<Muster\b/.test(code(f))).map(rel).sort();
-    expect(shown, 'где показано окно').toEqual(['panels/ArmyPanel.tsx']);
+    // К-2: окно войска полководца на карте — та же передача в режиме «Отправить» (`send`), а не вторая копия.
+    expect(shown, 'где показано окно').toEqual(['map/ArmySend.tsx', 'panels/ArmyPanel.tsx']);
     const links = all.filter((f) => /<MusterLink\b/.test(code(f))).map(rel).sort();
     expect(links, 'где строка-вход в окно').toEqual(['next/WorldNew.tsx', 'parts/Statue.tsx']);
     const defined = all.filter((f) => /function Muster\b/.test(code(f))).map(rel);

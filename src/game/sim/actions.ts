@@ -4,6 +4,7 @@ import type { DecreeId, RationId, TaxId } from '../data/policy';
 import { DECREE_BY_ID, RATION_BY_ID, TAX_BY_ID } from '../data/policy';
 import { FEAST_DAYS } from '../constants';
 import {
+  buildQueue,
   buildingById,
   feastInfo,
   feastSeconds,
@@ -12,6 +13,7 @@ import {
   upgradeInfo,
 } from '../derived';
 import { BUILDING_BY_ID } from '../data/buildings';
+import { cancelShare } from '../labour';
 import { log } from './log';
 import { outlay, pay, refund } from './pay';
 import { daysSpan } from '../span';
@@ -26,7 +28,10 @@ export { cancelSurvey, startSurvey, surveyInfo } from './survey';
 export { engineInfo, setEngine } from './tower';
 export { dailyReward, dailyStatus, finishDaily, startDaily } from './daily';
 
-/** Улучшение — стройка: стоит ресурсов, занимает труд и идёт в общей очереди. */
+/**
+ * Улучшение — стройка: стоит ресурсов, занимает труд и встаёт в хвост очереди стройки (СТ-1). Цена списывается сразу:
+ * очередь — оплаченные заказы, и отмена нетронутого возвращает её целиком (`cancelUpgrade`).
+ */
 export function startUpgrade(s: GameState, buildingId: number): string | null {
   const b = buildingById(s, buildingId);
   if (!b) return 'Здание не найдено.';
@@ -35,20 +40,53 @@ export function startUpgrade(s: GameState, buildingId: number): string | null {
   pay(s, info.cost);
   b.work = 0;
   b.workRequired = info.work;
-  log(s, `Заложили стройку: ${BUILDING_BY_ID[b.type].name.toLowerCase()}, до ур. ${info.level}.`, 'info', undefined, 'build');
+  s.buildQueue = buildQueue(s).map((x) => x.id);
+  const place = s.buildQueue.indexOf(b.id) + 1;
+  log(s, `Заложили стройку: ${BUILDING_BY_ID[b.type].name.toLowerCase()}, до ур. ${info.level}${place > 1 ? `, в очереди ${place}-й` : ''}.`, 'info', undefined, 'build');
   return null;
 }
 
-/** Отменяет улучшение. Начатую работу возвращают наполовину, нетронутую — целиком. */
+/**
+ * Отменяет улучшение и снимает его с очереди. Начатое (строящееся, на нём есть работа) возвращает половину цены,
+ * нетронутое — целиком (`labour.cancelShare`). Возврат не разовое дело описи: сервер выводит положенное сам из очереди
+ * описи (`netlify/lib/watch.ts`, docs/ui_v2.md, «Решения СТ-1»), и лишний возврат там — флаг.
+ */
 export function cancelUpgrade(s: GameState, buildingId: number): string | null {
   const b = buildingById(s, buildingId);
   if (!b) return 'Здание не найдено.';
   if (!isSite(b)) return 'Здесь ничего не строят.';
   const def = BUILDING_BY_ID[b.type];
-  refund(s, upgradeCost(def, b.level + 1), b.work === 0 ? 1 : 0.5);
+  refund(s, upgradeCost(def, b.level + 1), cancelShare(b.work > 0), false);
   b.work = 0;
   b.workRequired = 0;
+  s.buildQueue = buildQueue(s).map((x) => x.id);
   log(s, `Стройку остановили: ${def.name.toLowerCase()}.`, 'info', undefined, 'build');
+  return null;
+}
+
+/**
+ * Почему улучшение нельзя сдвинуть в очереди на `dir` (−1 — выше, +1 — ниже); `null` — можно. Первое место меняется,
+ * только пока строящееся не начато: начатую работу на другую постройку не перенести, а бросить её — это отмена.
+ */
+export function moveBlock(s: GameState, buildingId: number, dir: -1 | 1): string | null {
+  const q = buildQueue(s);
+  const i = q.findIndex((b) => b.id === buildingId);
+  if (i < 0) return 'Этого нет в очереди.';
+  const j = i + dir;
+  if (j < 0) return 'Уже первое.';
+  if (j >= q.length) return 'Уже последнее.';
+  if ((i === 0 || j === 0) && q[0].work > 0) return 'Строящееся уже начато.';
+  return null;
+}
+
+/** Сдвинуть улучшение в очереди стройки на одно место: выше (−1) или ниже (+1). */
+export function moveUpgrade(s: GameState, buildingId: number, dir: -1 | 1): string | null {
+  const why = moveBlock(s, buildingId, dir);
+  if (why) return why;
+  const ids = buildQueue(s).map((b) => b.id);
+  const i = ids.indexOf(buildingId);
+  [ids[i], ids[i + dir]] = [ids[i + dir], ids[i]];
+  s.buildQueue = ids;
   return null;
 }
 

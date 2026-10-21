@@ -111,6 +111,39 @@ function halfPoint(loss: (k: number) => number, shares = SHARES): number {
   return Infinity;
 }
 
+/**
+ * Полпути тем же счётом, что `halfPoint` (`loss(k) >= 0.5` — та же ступень, та же интерполяция), но ступени до перехода
+ * спрашивают только ответ «доля ≥ половины?» (`half` — бои до решённого ответа), а точные доли — у двух ступеней вокруг
+ * перехода, из которых и интерполируется. Для долей без запоминания исходов (`lairLoss`, бой у стены); где исходы ступени
+ * нужны целиком (граница раздела 6.3а), — `halfPoint`.
+ */
+function halfPointBy(half: (k: number) => boolean, loss: (k: number) => number, shares = SHARES): number {
+  if (half(shares[0])) return shares[0];
+  for (let i = 1; i < shares.length; i++) {
+    if (!half(shares[i])) continue;
+    const prevK = shares[i - 1];
+    const prev = loss(prevK);
+    const r = loss(shares[i]);
+    return prevK + ((0.5 - prev) / Math.max(1e-9, r - prev)) * (shares[i] - prevK);
+  }
+  return Infinity;
+}
+
+/**
+ * Взяли ли верх хотя бы в половине из `n` боёв `lost(i)` (i = 1…n) — ровно «доля ≥ 0.5», теми же боями по порядку, но до
+ * решённого ответа: половина набрана — да; оставшимися её уже не набрать — нет.
+ */
+function halfOf(n: number, lost: (i: number) => boolean): boolean {
+  const need = n / 2;
+  let x = 0;
+  for (let i = 1; i <= n; i++) {
+    if (x >= need) return true;
+    if (x + (n - i + 1) < need) return false;
+    if (lost(i)) x++;
+  }
+  return x >= need;
+}
+
 /** Имя отряда с этим укладом: уклад и построение выводит сама игра из сида и имени. */
 const idCache = new Map<string, string>();
 function idOf(style: GarrisonStyle, seed: number, i: number, kind: 'raid' | 'lair'): string {
@@ -164,24 +197,29 @@ const ownSetup = (own: Side): ArmySetup => deploySetup(own.stack);
  */
 function lairLosses(own: Side, style: GarrisonStyle | null, k: number, mode: 'defend' | 'attack', fights = LAIR_SEEDS): boolean[] {
   const out: boolean[] = [];
-  const power = own.power;
-  for (let i = 1; i <= fights; i++) {
-    const seed = i * 7919;
-    if (mode === 'defend') {
-      const p = raidingParty(seed, style ? idOf(style, seed, i, 'raid') : `bench${i}`, k * power);
-      out.push(resolveField({ seed, attacker: { kinds: p.kinds }, defender: { kinds: own.stack } }).won);
-    } else {
-      const g = garrisonOf(seed, style ? idOf(style, seed, i, 'lair') : `bench${i}`, k * power);
-      out.push(!resolveField({ seed, attacker: { kinds: own.stack }, defender: { kinds: g.kinds } }).won);
-    }
-  }
+  for (let i = 1; i <= fights; i++) out.push(lairLost(own, style, k, mode, i));
   return out;
+}
+
+/** Бой `i` из `lairLosses`: проигран ли. */
+function lairLost(own: Side, style: GarrisonStyle | null, k: number, mode: 'defend' | 'attack', i: number): boolean {
+  const seed = i * 7919;
+  const power = own.power;
+  if (mode === 'defend') {
+    const p = raidingParty(seed, style ? idOf(style, seed, i, 'raid') : `bench${i}`, k * power);
+    return resolveField({ seed, attacker: { kinds: p.kinds }, defender: { kinds: own.stack } }).won;
+  }
+  const g = garrisonOf(seed, style ? idOf(style, seed, i, 'lair') : `bench${i}`, k * power);
+  return !resolveField({ seed, attacker: { kinds: own.stack }, defender: { kinds: g.kinds } }).won;
 }
 
 /** Доля проигранных из `lairLosses`. */
 function lairLoss(own: Side, style: GarrisonStyle | null, k: number, mode: 'defend' | 'attack'): number {
   return lairLosses(own, style, k, mode).filter(Boolean).length / LAIR_SEEDS;
 }
+
+/** `lairLoss(…) >= 0.5` — боями до решённого ответа (`halfOf`). */
+const lairHalf = (own: Side, style: GarrisonStyle | null, k: number, mode: 'defend' | 'attack'): boolean => halfOf(LAIR_SEEDS, (i) => lairLost(own, style, k, mode, i));
 
 /** Армия из одного вида: `MEN` бойцов строя — столько голов, сколько даёт вес вида в бою. */
 const pureOf = (id: TroopId): Side => sideOfHeads({ [id]: MEN / battleWeight(id) });
@@ -319,7 +357,7 @@ function styleRows(table: string): { name: string; side: Side }[] {
 /** Задача веера (`lib/fan.ts`): строка таблицы по укладам. */
 export function styleLine({ table, mode, row }: { table: string; mode: 'defend' | 'attack'; row: number }): string {
   const r = styleRows(table)[row];
-  const hs = STYLES.map((s) => halfPoint((k) => lairLoss(r.side, s, k, mode)));
+  const hs = STYLES.map((s) => halfPointBy((k) => lairHalf(r.side, s, k, mode), (k) => lairLoss(r.side, s, k, mode)));
   const avg = hs.reduce((a, x) => a + x, 0) / hs.length;
   return ` ${padR(`${mode === 'defend' ? 'оборона' : 'удар'}: ${r.name}`, 34)}${hs.map((h) => pad(f2(h), 14)).join('')}${pad(f2(avg), 9)}${pad(f2(Math.max(...hs) / Math.min(...hs)), 9)}`;
 }
@@ -364,15 +402,13 @@ async function wallRow(troops: TroopStack, over: Record<string, number> = {}): P
   const w: Inside = sky.world;
   const at = sky.now();
   const d = defense(g);
+  const won = (power: number, i: number): boolean => w.wallField({ id: `bench${i}`, seed: i * 7919, power }, at).field.won;
   const broke = (power: number): number => {
     let n = 0;
-    for (let i = 1; i <= WALL_SEEDS; i++) {
-      const seed = i * 7919;
-      if (w.wallField({ id: `bench${i}`, seed, power }, at).field.won) n++;
-    }
+    for (let i = 1; i <= WALL_SEEDS; i++) if (won(power, i)) n++;
     return n / WALL_SEEDS;
   };
-  const half = halfPoint((k) => broke(k * d), WALL_SHARES) * d;
+  const half = halfPointBy((k) => halfOf(WALL_SEEDS, (i) => won(k * d, i)), (k) => broke(k * d), WALL_SHARES) * d;
   const raid = lairRaid(lairPower(LAIR_ANCHOR_MID, { bornAt: 0, burnedAt: 0 }, LAIR_RIPE, g.pop), g.pop, troopPower(g.army));
   return { heads: troopTotal(troops), power: troopPower(troops), defense: d, militia: militiaMen(g), half, raid, broke: broke(raid) };
 }

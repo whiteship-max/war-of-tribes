@@ -12,6 +12,8 @@ import type { Season } from '@/game/types';
 import { rhythmAt, type CityMood } from '@/render/city/rhythm';
 import { pick, span, type Rng } from './rng';
 import { anvil, bell, bird, cricket, drip, drum, flute, laugh, noiseLoop, pluck, voice, type BirdKind, type Kit } from './synth';
+import type { HeardSkit } from '../ear';
+import { SkitSounds } from './skits';
 
 /** Что слышит игрок. */
 export interface Hearing {
@@ -28,6 +30,8 @@ export interface Hearing {
   wx?: WeatherSound;
   /** Состояние города (`render/city/rhythm.moodOf`): праздник, тревога, голод, мор, мораль. Нет — спокойный город. */
   life?: CityMood;
+  /** Сценки жителей вблизи (ЖГ-2, `sound/ear.skitsHeard`): какие, насколько громко и где. Нет — ни одной. */
+  skits?: readonly HeardSkit[];
 }
 
 /** Что слышно из погоды. */
@@ -263,6 +267,8 @@ export class Ambience {
   /** У кузнеца своя наковальня: высота удара одна на игру. */
   private anvilHz: number;
   private rnd: Rng;
+  /** Сценки жителей — сквозь срез «снега», как всё городское. */
+  private skits: SkitSounds;
 
   constructor(
     private kit: Kit,
@@ -283,6 +289,7 @@ export class Ambience {
     this.marketTone.type = 'lowpass';
     this.marketTone.frequency.value = 900 + 2600 * first.near;
     this.marketTone.connect(this.muffle);
+    this.skits = new SkitSounds(kit, this.muffle);
 
     const bed = (brown: boolean, type: BiquadFilterType, f: number, q: number, into: AudioNode): Bed => {
       const src = noiseLoop(kit, brown, at);
@@ -401,6 +408,8 @@ export class Ambience {
 
   /** Поставить события окна `[from, to)`. */
   tick(from: number, to: number): void {
+    // Сценки вблизи — только в городе: на карте и на поляне их нет.
+    this.skits.tick(from, to, this.hearing.view === 'city' ? (this.hearing.skits ?? []) : []);
     const m = this.mix;
     const rnd = this.rnd;
     const kit = this.kit;
