@@ -199,6 +199,8 @@ export const RECOVER = 0.3;
 /** Дуга клинка в плоскости удара: от и до, радианы от прямо-вперёд (минус — замах назад, против направления удара). */
 export const PHI0 = (-80 * Math.PI) / 180;
 export const PHI1 = (68 * Math.PI) / 180;
+/** Рубящая часть дуги: от середины в обе стороны, радианы (46°). */
+export const CUT_ARC = 0.8;
 /** Отскок от камня и дерева: назад по дуге на столько, за столько. */
 const BOUNCE = { stone: 0.42, iron: 0.42, wood: 0.24, cloth: 0.1 } as const;
 const BOUNCE_T = 0.13;
@@ -265,8 +267,9 @@ export class Fight {
   time = 0;
   hits = 0;
   heavies = 0;
-  /** Сколько раз за бой ударил (в воздух и во что-то). */
+  /** Сколько раз за бой ударил (в воздух и во что-то) и закрылся. */
   swings = 0;
+  blocks = 0;
   state: State = { kind: 'guard' };
   /** Удар, пришедший посреди дуги: начнётся, как только дуга кончится. */
   private queued: StrikeSpec | null = null;
@@ -324,6 +327,7 @@ export class Fight {
     const st = this.state;
     if (st.kind === 'strike' && st.u < 1 && !st.bounce) return false;
     this.spend(COST_BLOCK);
+    this.blocks++;
     this.queued = null;
     this.state = { kind: 'block', side, t: 0, from: this.blade() };
     this.events.push({ kind: 'block', side });
@@ -434,10 +438,13 @@ export class Fight {
     return e;
   }
 
-  /** Клинок в активной части дуги — бьёт (на замахе и на возврате — нет). */
+  /**
+   * Клинок в рубящей части дуги — бьёт: перед глазом, не дальше `CUT_ARC` от середины дуги. На замахе и на провороте клинок
+   * в стороне от кадра (поле телефона стоймя — ±16° вширь): удар, встреченный там, игрок не видел бы — бьёт то, что видно.
+   */
   get cutting(): boolean {
     const st = this.state;
-    return st.kind === 'strike' && !st.bounce && st.t > WIND && st.u > 0.12 && st.u < 0.97;
+    return st.kind === 'strike' && !st.bounce && st.t > WIND && Math.abs(phiOf(st.u)) <= CUT_ARC;
   }
 
   /** Сила этого удара для отдачи и звука: 0…1 с сильным — до `HEAVY_K`. */
@@ -496,7 +503,8 @@ export function guardBlade(t: number): Blade {
   const br = Math.sin(t * 1.6) * 0.006;
   const hand: V3 = [0.1, -0.26 + br, -0.45];
   const axis = norm([-0.27, 0.74, -0.62]);
-  return ortho(hand, axis, [0, 0.3, 1]);
+  // Лезвие — вполоборота к противнику: плоскость клинка видна глазу, а не тонкая кромка.
+  return ortho(hand, axis, [0.8, 0.1, 0.6]);
 }
 
 /** Стойка у стены: меч поднят к плечу клинком вверх — у камня он не торчит сквозь стену. */
@@ -537,13 +545,13 @@ const MID_UP = 0.62;
 export function blockBlade(side: Side): Blade {
   switch (side) {
     case 'up':
-      return ortho([0.2, 0.06, -0.4], norm([-1, 0.14, -0.22]), [0, 1, 0]);
+      return ortho([0.12, 0.1, -0.5], norm([-1, 0.1, -0.25]), [0, 1, 0]);
     case 'left':
-      return ortho([-0.15, -0.2, -0.4], norm([-0.08, 1, -0.28]), [-1, 0, 0]);
+      return ortho([-0.06, -0.22, -0.45], norm([-0.08, 1, -0.28]), [-1, 0, 0]);
     case 'right':
-      return ortho([0.17, -0.2, -0.38], norm([0.06, 1, -0.32]), [1, 0, 0]);
+      return ortho([0.11, -0.22, -0.45], norm([0.06, 1, -0.32]), [1, 0, 0]);
     case 'down':
-      return ortho([0.12, -0.1, -0.4], norm([-0.5, -0.82, -0.3]), [0, -1, 0]);
+      return ortho([0.1, -0.14, -0.45], norm([-0.5, -0.82, -0.3]), [0, -1, 0]);
   }
 }
 

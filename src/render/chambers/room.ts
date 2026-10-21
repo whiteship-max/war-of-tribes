@@ -114,8 +114,11 @@ export interface ChambersView {
   drink: boolean;
   /** Меч в руке у стены оружия — можно встать в боевую стойку (Г-11). */
   stance: boolean;
-  /** Бой мечом (Г-11): выносливость (шагом 0,05), устал ли, попаданий по чучелу и сильных из них; убирают ли меч. */
-  fight: { stamina: number; tired: boolean; hits: number; heavies: number; stowing: boolean } | null;
+  /**
+   * Бой мечом (Г-11): выносливость (шагом 0,05), устал ли, попаданий по чучелу и сильных из них; убирают ли меч; бил ли уже
+   * и закрывался ли — подсказкам первой стойки.
+   */
+  fight: { stamina: number; tired: boolean; hits: number; heavies: number; stowing: boolean; struck: boolean; blocked: boolean } | null;
 }
 
 /** Что под пальцем: предмет, место дела, человек покоев или кот (Г-7). */
@@ -472,7 +475,7 @@ export class ChambersRoom implements Inside {
       drink: this.canDrink,
       stance: this.canStance,
       fight: this.fight
-        ? { stamina: Math.round(this.fight.stamina * 20) / 20, tired: this.fight.stamina < TIRED, hits: this.fight.hits, heavies: this.fight.heavies, stowing: this.fight.sheathe }
+        ? { stamina: Math.round(this.fight.stamina * 20) / 20, tired: this.fight.stamina < TIRED, hits: this.fight.hits, heavies: this.fight.heavies, stowing: this.fight.sheathe, struck: this.fight.swings > 0, blocked: this.fight.blocks > 0 }
         : null,
     };
   }

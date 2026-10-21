@@ -594,10 +594,13 @@ async function weatherShots(tab: Tab, q: Quality): Promise<void> {
         if (${JSON.stringify(op)} === 'block') f.block(${JSON.stringify(a1 ?? 'left')});
         else { const cx = innerWidth / 2, cy = innerHeight * 0.56, dx = ${Number(a1) || 0}, dy = ${Number(a2) || 0}; room.swipe(cx - dx / 2, cy - dy / 2, cx + dx / 2, cy + dy / 2, 64); }
         let n = 0;
+        let seen = -1;
         const t = setInterval(() => {
           const st = f.state;
           const fly = room.drillNow().flying;
-          const hit = ${JSON.stringify(op)} === 'straw' ? fly.bits + fly.sparks > 12 : (st.kind === 'strike' && st.u >= 0.5) || (st.kind === 'block' && st.t >= 0.12);
+          // Солома и искры — двумя кадрами после того, как полетели: успели разлететься от места встречи.
+          if (fly.bits + fly.sparks > 12 && seen < 0) seen = window.__scene.frameNo;
+          const hit = ${JSON.stringify(op)} === 'straw' ? seen >= 0 && window.__scene.frameNo >= seen + 2 : (st.kind === 'strike' && st.u >= 0.5) || (st.kind === 'block' && st.t >= 0.12);
           if (hit || ++n > 6000) { clearInterval(t); window.__scene.pause(); ok(JSON.stringify(hit ? 'стоп: ' + st.kind : 'не поймал: ' + st.kind + ' ' + (st.u ?? st.t) + ', кадр ' + window.__scene.frameNo)); }
         }, 4);
       })`);

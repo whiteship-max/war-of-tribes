@@ -310,7 +310,7 @@ function coachDone(): void {
 
 /**
  * Подсказки первого взятия меча в стойку (Г-11): как ходить, рубить, бить сильно и закрываться. Видел — помнит устройство;
- * гаснут через `SWORD_COACH_MS` или касанием.
+ * стоят, пока игрок не ударил и не закрылся, но не дольше `SWORD_COACH_MS`; касание закрывает сразу.
  */
 export const SWORD_COACH = [
   'Слева — шаг, как прежде',
@@ -318,7 +318,7 @@ export const SWORD_COACH = [
   'Три удара в разные стороны подряд — сильный удар',
   'Дважды коснись у края экрана — блок в ту сторону',
 ] as const;
-const SWORD_COACH_MS = 11000;
+const SWORD_COACH_MS = 30000;
 const SWORD_KEY = 'tribe.chambers.sword';
 
 function swordSeen(): boolean {
@@ -572,7 +572,7 @@ export function Chambers() {
           Сильный удар
         </div>
       )}
-      {v?.fight && swordCoach && !talk && !night && (
+      {v?.fight && swordCoach && !(v.fight.struck && v.fight.blocked) && !talk && !night && (
         <button className="ch-sword-coach" onClick={() => setSwordCoach(false)}>
           {SWORD_COACH.map((line) => (
             <span key={line}>{line}</span>

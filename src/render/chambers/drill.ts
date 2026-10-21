@@ -186,7 +186,7 @@ export class Drill {
     this.trailMesh.frustumCulled = false;
     this.trailMesh.visible = false;
     this.group.add(this.trailMesh);
-    this.sparks = points(this.max, 0.014, true);
+    this.sparks = points(this.max, 0.02, true);
     this.sparks.name = 'chambers-sparks';
     this.bits = points(this.max, 0.018, false);
     this.bits.name = 'chambers-straw';
@@ -214,12 +214,18 @@ export class Drill {
    */
   hit(surface: Surface, at: V3, dir: V3, force: number, eye: V3 = at): void {
     const r = (): number => this.rnd();
-    const spray = (n: number, list: Bit[], speed: number, up: number, life: number, drag: number, c: () => V3): void => {
+    // Отскок — от твёрдого к бьющему (искры и щепа летят в кадр, а не в стену), солома — сквозь, по ходу клинка.
+    const ex = eye[0] - at[0];
+    const ez = eye[2] - at[2];
+    const el = Math.hypot(ex, ez) || 1;
+    const back: V3 = [ex / el, 0, ez / el];
+    const spray = (n: number, list: Bit[], speed: number, up: number, life: number, drag: number, c: () => V3, through = false): void => {
       for (let i = 0; i < n; i++) {
         if (list.length >= this.max) list.shift();
-        // Назад от удара и вверх, с разбросом.
-        const vx = -dir[0] * speed * (0.3 + r()) + (r() - 0.5) * speed * 1.4;
-        const vz = -dir[2] * speed * (0.3 + r()) + (r() - 0.5) * speed * 1.4;
+        const ax = through ? dir[0] : back[0] * 0.7 - dir[0] * 0.3;
+        const az = through ? dir[2] : back[2] * 0.7 - dir[2] * 0.3;
+        const vx = ax * speed * (0.3 + r()) + (r() - 0.5) * speed * 1.2;
+        const vz = az * speed * (0.3 + r()) + (r() - 0.5) * speed * 1.2;
         const vy = up * (0.3 + r()) + (r() - 0.3) * speed * 0.6;
         list.push({ x: at[0], y: at[1], z: at[2], vx, vy, vz, life: life * (0.6 + r() * 0.6), age: 0, drag, c: c() });
       }
@@ -228,7 +234,7 @@ export class Drill {
     switch (surface) {
       case 'stone':
       case 'iron':
-        spray(Math.round(14 + 10 * k), this.sparkList, 2.6 * k + 1, 1.6, 0.38, 0.6, () => [1, 0.62 + r() * 0.3, 0.22 + r() * 0.2]);
+        spray(Math.round(14 + 10 * k), this.sparkList, 2.6 * k + 1, 1.6, 0.5, 0.6, () => [1, 0.62 + r() * 0.3, 0.22 + r() * 0.2]);
         spray(4, this.bitList, 0.5, 0.4, 0.5, 3, () => T(0x9a948c, 0.7 + r() * 0.3));
         break;
       case 'wood':
@@ -238,7 +244,7 @@ export class Drill {
         spray(5, this.bitList, 0.4, 0.4, 0.8, 4, () => T(0xd8ccb5, 0.8 + r() * 0.2));
         break;
       case 'straw': {
-        spray(Math.round(18 + 12 * k), this.bitList, 1.3 * k + 0.5, 1.4, 1.5, 4.5, () => T(STRAW, 0.75 + r() * 0.45));
+        spray(Math.round(18 + 12 * k), this.bitList, 1.3 * k + 0.5, 1.4, 1.5, 4.5, () => T(STRAW, 0.75 + r() * 0.45), true);
         this.dent(at, dir, eye);
         // Чучело качается от удара: наклон по направлению удара, сильнее — дальше.
         const s = 0.9 * k;
@@ -362,12 +368,13 @@ export class Drill {
       pos[i * 3] = b.x;
       pos[i * 3 + 1] = b.y;
       pos[i * 3 + 2] = b.z;
-      // Искра остывает: белое → оранжевое → тьма; солома — к концу жизни тускнеет на полу.
+      // Солома к концу жизни тускнеет на полу.
       const k = 1 - b.age / b.life;
-      const f = glow ? k * k : Math.min(1, k * 3);
-      col[i * 3] = b.c[0] * f;
-      col[i * 3 + 1] = b.c[1] * (glow ? k : f);
-      col[i * 3 + 2] = b.c[2] * (glow ? k * k * k : f);
+      const f = Math.min(1, k * 3);
+      // Остывая, искра теряет сперва синее, потом зелёное: белое → жёлтое → красное, не в зелень.
+      col[i * 3] = b.c[0] * (glow ? Math.pow(k, 0.6) : f);
+      col[i * 3 + 1] = b.c[1] * (glow ? Math.pow(k, 1.4) : f);
+      col[i * 3 + 2] = b.c[2] * (glow ? Math.pow(k, 2.5) : f);
     }
     pts.geometry.getAttribute('position').needsUpdate = true;
     pts.geometry.getAttribute('color').needsUpdate = true;
