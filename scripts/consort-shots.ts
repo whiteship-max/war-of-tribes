@@ -1,10 +1,12 @@
-// Стенд супруги правителя (docs/characters.md, ЛЦ-2): снимки — не отчёт, в приёмку не входит.
+// Стенд супруги правителя и гонца (docs/characters.md, ЛЦ-2, ЛЦ-3): снимки — не отчёт, в приёмку не входит.
 //
 //   npm run consort:shots                      — три облика рядом спереди, три четверти и сбоку (390 × 844) и лицо каждого
 //                                                крупно (512 × 512) — в `.consort-shots/`
 //   SHOTS=face LOOKS=b npm run consort:shots   — только лицо облика b; `SHOTS=front,three,side` — только листы обликов
 //   ASK='{"view":"face","clip":2,"at":1.4}'    — свой кадр стенда (`stand.ShotAsk`), имя — `TAG`
 //   LIGHT=night npm run consort:shots          — ночной свет фигуры
+//   WHO=herald npm run consort:shots           — то же для гонца (облики `LOOKS` — его облики a, b, c)
+//   SHOTS=duo,pair                             — лицо супруги и лицо гонца рядом (1024 × 512) и оба в рост (780 × 844)
 //   OUT=docs/characters TAG=lc2 …              — куда и с какой приставкой (снимки задания — `docs/characters/lc2-*.jpg`)
 //   CMP=.consort-shots/before,.consort-shots/after npm run consort:shots
 //                                              — сверить два захода точка в точку (без браузера): одноимённые PNG, сколько
@@ -29,6 +31,10 @@ const list = (s: string | undefined, d: string): string[] => (s ?? d).split(',')
 const SHOTS = list(process.env.SHOTS, 'front,three,side,face');
 const LOOKS = list(process.env.LOOKS, 'a,b,c');
 const LIGHT = process.env.LIGHT === 'night' ? 'night' : 'day';
+const WHO = process.env.WHO === 'herald' ? 'herald' : 'wife';
+/** Облики: у супруги — `looks`, у гонца — `heralds`; рядом (`duo`, `pair`) — первый облик каждого (`WIFE`, `HERALD`). */
+const looksOf = (ids: string[]): Record<string, unknown> => (WHO === 'herald' ? { who: 'herald', heralds: ids } : { looks: ids });
+const PAIR = { looks: [process.env.WIFE ?? 'b'], heralds: [process.env.HERALD ?? 'b'] };
 const JPG = process.env.PNG !== '1';
 
 async function snap(tab: Tab, name: string, w: number, h: number, ask: Record<string, unknown>): Promise<void> {
@@ -87,8 +93,13 @@ async function main(): Promise<void> {
               console.log('  две минуты вышли — остальное следующим заходом');
               break;
             }
-            if (s === 'face') for (const id of LOOKS) await snap(tab, `face-${id}`, 512, 512, { view: 'face', looks: [id], light: LIGHT });
-            else await snap(tab, s, 390, 844, { view: 'sheet', angle: s, looks: LOOKS, light: LIGHT });
+            const who = WHO === 'herald' ? 'herald-' : '';
+            if (s === 'face') for (const id of LOOKS) await snap(tab, `${who}face-${id}`, 512, 512, { view: 'face', ...looksOf([id]), light: LIGHT });
+            else if (s === 'duo' || s === 'duo3')
+              // Лицо супруги и лицо гонца рядом: при `WHO=herald` — по одному на каждый облик гонца; `duo3` — в три четверти.
+              for (const id of WHO === 'herald' ? LOOKS : PAIR.heralds) await snap(tab, `${s}-${id}`, 1024, 512, { view: 'duo', looks: PAIR.looks, heralds: [id], light: LIGHT, ...(s === 'duo3' ? { yaw: -0.62 } : {}) });
+            else if (s.startsWith('pair')) await snap(tab, s, 780, 844, { view: 'pair', angle: s.slice(5) || 'front', ...PAIR, light: LIGHT });
+            else await snap(tab, `${who}${s}`, 390, 844, { view: 'sheet', angle: s, ...looksOf(LOOKS), light: LIGHT });
           }
       } finally {
         tab.close();
