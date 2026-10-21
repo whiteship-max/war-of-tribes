@@ -437,6 +437,7 @@ export class ChambersRoom implements Inside {
       {
         scene: this.scene,
         material: this.stone,
+        uniforms: this.u,
         origin: this.origin,
         arms,
         quality,

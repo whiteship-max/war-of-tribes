@@ -620,5 +620,9 @@ export function mountShowcase(p: URLSearchParams): void {
   else if (mode === 'units') mountUnits(root, p, c);
   // Шеренга бойцов обликом толпы роликов (docs/polish.md, П-5) — свой кусок, как стенд города.
   else if (mode === 'army') void import('./reel/lineup').then((m) => m.mountArmyLineup(root, p));
+  // Супруга и гонец (docs/characters.md, ЛЦ-2, ЛЦ-3): облики рядом и лица крупно — только на dev-сервере (`consort:shots`).
+  // В сборке ветки нет: стенд, грузящий фигуру мимо куска покоев, вынес бы общее с покоями (кости, жесты) в новые общие
+  // куски, и их имена легли бы в карту предзагрузки первой загрузки.
+  else if (import.meta.env.DEV && mode === 'consort') void import('./chambers/folkstand').then((m) => m.mountConsortStand(root, p));
   else mountVillage(root, p, c);
 }

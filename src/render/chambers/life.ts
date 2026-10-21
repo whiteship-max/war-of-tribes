@@ -12,7 +12,12 @@
 //     протягивает письмо с печатью; правитель взял письмо — гонец кланяется и уходит (что за весть, решает интерфейс);
 //   · советник (Г-10): после отлучки ждёт у стола со свитком, кланяется и докладывает; «ступай» — уходит;
 //   · гость (Р-1): кто входит и до конца разговора — у глаза правителя на виду (`attention`): стучат — дверь, вошёл — он
-//     целиком; разговор кончился — глаз свободен.
+//     целиком; разговор кончился — глаз свободен;
+//   · супруга (ЛЦ-2, docs/characters.md) — своя фигура в духе классического Warcraft III, своим ленивым куском
+//     (`consort/`): его тянет вход в покои, а сцена с ней ждёт куска, если тот ещё в пути. Ходит, кивает и говорит она по
+//     прежним сценам — меняется только тело;
+//   · гонец (ЛЦ-3) — так же: своя фигура на том же наборе персонажа (`kit/`), свой ленивый кусок (`herald/`), ливрея — цвета
+//     герба; стучит, входит, кланяется и протягивает письмо по прежней сцене, она ждёт куска, если тот ещё в пути.
 //
 // Сценарии — сопрограммы: шаг сцены ждёт своего условия (дошёл, повернулся, прошло время), кадр двигает их по очереди.
 import * as THREE from 'three';
@@ -23,10 +28,13 @@ import type { Quality } from '../quality';
 import { geometryOf } from '../city/index';
 import { DOOR, DESK, BED, HALF, WALL_T, softFloor, type SpotId } from './plan';
 import { DOOR_HINGE, doorLeaf } from './build';
-import { Person, buildPerson, gripOf, isFemale, type FolkId } from './folk';
+import { Person, buildPerson, gripOf, isFemale, liveryOf, type FolkId } from './folk';
 import { CAT_R, Cat, buildCat, type CatBody, type CatSpot } from './cat';
 import { BODY_R, clear, free, pathTo, step } from './walk';
 import { Mesher } from './geo';
+import type { RoomUniforms } from './material';
+import type * as Consort from './consort';
+import type * as Herald from './herald';
 import { BALL_EVERY, BALL_R, CAT_AWAY, GRAVITY, depthOf, fetchHops, flightAt, inView, leapBack, windowBack, windowShot, type Hop, type WindowShot } from './toss';
 
 /** Кто говорит с правителем. */
@@ -64,6 +72,8 @@ export interface LifeHost {
   cue(c: LifeCue, at: V3 | null): void;
   /** Правителю — пойти и сделать дело (лечь — ночь вдвоём). */
   intend(spot: SpotId): void;
+  /** Ручки света покоев — свету на супруге и гонце (`kit/light.roomLight`); без них (тесты) — ровный свет. */
+  uniforms?: RoomUniforms;
   /** Кубок: где его чаша (оси комнаты) и в руке ли он; положить на место. */
   goblet(): { at: V3; held: boolean };
   dropGoblet(): void;
@@ -144,6 +154,8 @@ export const ADVISOR_POST = { x: 1.62, z: 2.3, yaw: -2.25 };
 export class ChambersLife {
   readonly clock = { t: 0 };
   private folk = new Map<Who, Person>();
+  /** Собранные супруги и гонцы (текстуры и материал — их уборка). */
+  private kits: { dispose(): void }[] = [];
   cat: Cat | null = null;
   private leaf: THREE.Mesh;
   private door = { a: 0, goal: 0 };
@@ -185,6 +197,12 @@ export class ChambersLife {
   onLetter: (() => void) | null = null;
   private lastKey = '';
   private memo: LifeMemory;
+  /** Кусок супруги (ЛЦ-2): тянется при входе в покои; пока не приехал — сцены с ней ждут. */
+  private consort: typeof Consort | null = null;
+  readonly consortReady: Promise<void>;
+  /** Кусок гонца (ЛЦ-3): тянется при входе в покои; пока не приехал — гонец ждёт за дверью. */
+  private herald: typeof Herald | null = null;
+  readonly heraldReady: Promise<void>;
 
   constructor(
     private host: LifeHost,
@@ -196,6 +214,12 @@ export class ChambersLife {
     this.leaf.name = 'chambers-door';
     host.scene.add(this.leaf);
     this.placeLeaf();
+    this.consortReady = import('./consort').then((m) => {
+      this.consort = m;
+    });
+    this.heraldReady = import('./herald').then((m) => {
+      this.herald = m;
+    });
     if (memory.cat) {
       const c = this.ensureCat();
       c.settle(memory.catSpot ?? 'hearth');
@@ -208,7 +232,15 @@ export class ChambersLife {
     let p = this.folk.get(who);
     if (!p) {
       const detail = this.host.quality === 'low' ? 0 : this.host.quality === 'medium' ? 1 : 2;
-      p = new Person(who, buildPerson(who, this.host.arms, detail, LIFE_CODE[who]), this.host.material, SPEED[who]);
+      if (who === 'wife' && this.consort) {
+        const kit = this.consort.makeConsort({ code: LIFE_CODE.wife, room: this.host.uniforms ?? null, inside: true });
+        p = new Person(who, kit.body, null, SPEED[who], kit);
+        this.kits.push(kit);
+      } else if (who === 'herald' && this.herald) {
+        const kit = this.herald.makeHerald({ code: LIFE_CODE.herald, room: this.host.uniforms ?? null, inside: true, livery: liveryOf(this.host.arms) });
+        p = new Person(who, kit.body, null, SPEED[who], kit);
+        this.kits.push(kit);
+      } else p = new Person(who, buildPerson(who, this.host.arms, detail, LIFE_CODE[who]), this.host.material, SPEED[who]);
       p.onStep = (soft) => this.host.cue(soft ? 'stepFolkSoft' : 'stepFolk', [p!.x, 0, p!.z]);
       p.place(LANDING.x, LANDING.z, 0);
       this.host.scene.add(p.rig.mesh);
@@ -615,6 +647,8 @@ export class ChambersLife {
    */
   private *heraldArrives(): Script {
     this.busyN++;
+    // Его фигура — своим куском (тянется при входе в покои): в пути — подождать его за дверью.
+    yield () => this.herald !== null;
     const h = this.person('herald');
     this.guest = 'herald';
     h.carry = 'letter';
@@ -802,6 +836,8 @@ export class ChambersLife {
     yield* this.exitKeepDoor(s);
     s.place(LANDING.x, LANDING.z, 0);
     yield wait(4.0, this.clock);
+    // Её фигура — своим куском (тянется при входе в покои): в пути — подождать его.
+    yield () => this.consort !== null;
     const w = this.person('wife');
     w.visible = true;
     this.guest = 'wife';
@@ -1451,6 +1487,7 @@ export class ChambersLife {
 
   dispose(): void {
     for (const p of this.folk.values()) p.rig.dispose();
+    for (const k of this.kits) k.dispose();
     this.cat?.rig.dispose();
     this.leaf.geometry.dispose();
     this.ball?.mesh.geometry.dispose();

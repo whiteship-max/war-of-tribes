@@ -129,8 +129,9 @@ describe('глаз к гостю (Р-1)', () => {
     room.dispose();
   });
 
-  it('супруга: целиком в кадре, пока входит и до разговора', () => {
+  it('супруга: целиком в кадре, пока входит и до разговора', async () => {
     const room = phoneRoom();
+    await room.life.consortReady;
     room.standAtPoint(0.3, -0.8, Math.PI * 0.75, -0.1);
     room.touch({ kind: 'poi', poi: POI_BY_ID.door });
     run(room, 30, talking(room, 'servant'));
@@ -139,12 +140,14 @@ describe('глаз к гостю (Р-1)', () => {
     room.dispose();
   });
 
-  it('гонец: стучит — глаз к двери; входит — целиком в кадре; стоя спиной к двери и сидя за столом', () => {
+  it('гонец: стучит — глаз к двери; входит — целиком в кадре; стоя спиной к двери и сидя за столом', async () => {
     for (const [label, set] of [
       ['стоя спиной', (r: ChambersRoom) => r.standAtPoint(0, -1, Math.PI, -0.1)],
       ['за столом', (r: ChambersRoom) => r.snap('desk')],
     ] as const) {
       const room = phoneRoom();
+      // Гонец — своим ленивым куском (ЛЦ-3): сцена ждёт его, если он ещё в пути.
+      await room.life.heraldReady;
       set(room);
       run(room, 0.2);
       expect(room.life.summonHerald()).toBe(true);
@@ -164,8 +167,9 @@ describe('глаз к гостю (Р-1)', () => {
     }
   });
 
-  it('до первого касания (экран ещё не мерен) — глаз держит гонца так же, а не смотрит в потолок', () => {
+  it('до первого касания (экран ещё не мерен) — глаз держит гонца так же, а не смотрит в потолок', async () => {
     const room = phoneRoom(false);
+    await room.life.heraldReady;
     room.standAtPoint(0, -1, Math.PI, -0.1);
     run(room, 0.2);
     room.life.summonHerald();

@@ -86,8 +86,10 @@ describe('покои: дверь и слуга (Г-7)', () => {
     room.dispose();
   });
 
-  it('каждая просьба слуге работает: кот, унести кота, служанка с вином, супруга, «ступай»', () => {
+  it('каждая просьба слуге работает: кот, унести кота, служанка с вином, супруга, «ступай»', async () => {
     const room = phoneRoom();
+    // Супруга — своим куском (ЛЦ-2): он тянется при входе в покои, кадры теста идут без пауз — дождаться его.
+    await room.life.consortReady;
     let memory: LifeMemory | null = null;
     room.life.onRemember = (m) => (memory = m);
     knock(room);
@@ -282,8 +284,9 @@ describe('покои: вино и ночь (Г-7)', () => {
     room.dispose();
   });
 
-  it('ночь вдвоём: правитель ложится, кадр темнеет, утром её нет — и ноги снова свободны', () => {
+  it('ночь вдвоём: правитель ложится, кадр темнеет, утром её нет — и ноги снова свободны', async () => {
     const room = phoneRoom();
+    await room.life.consortReady;
     knock(room);
     room.life.order('wife');
     expect(run(room, 50, talking(room, 'wife'))).toBe(true);
@@ -326,6 +329,36 @@ describe('покои: бюджет живых (Г-7)', () => {
     // Вход без кота: живых нет ни одного — сетки строятся по делу, а не при входе.
     const room = phoneRoom();
     expect(room.life.counts().triangles).toBe(0);
+    room.dispose();
+  });
+
+  it('супруга — своя сетка ЛЦ-2 (docs/characters.md): дешевле прежней на каждом уровне, в покоях — одна сетка', async () => {
+    const { buildPerson } = await import('./folk');
+    const { buildConsortMesh } = await import('./consort/figure');
+    const tris = buildConsortMesh().triangles;
+    for (const d of [0, 1, 2] as const) expect(tris, `прежняя супруга @${d}`).toBeLessThan(buildPerson('wife', DEFAULT_ARMS, d, 1).m.b.triangleCount);
+    const room = phoneRoom();
+    await room.life.consortReady;
+    room.life.stage({ who: 'wife', at: { x: 0.1, z: 1.1, yaw: Math.PI } });
+    expect(room.life.counts()).toEqual({ triangles: tris, meshes: 2 });
+    room.dispose();
+  });
+
+  it('гонец — своя сетка ЛЦ-3 (docs/characters.md): дешевле прежнего на каждом уровне, с супругой — две сетки', async () => {
+    const { buildPerson } = await import('./folk');
+    const { buildHeraldMesh } = await import('./herald/figure');
+    const { headOf } = await import('./herald/head');
+    const { HERALD_LOOKS, BEST } = await import('./herald/looks');
+    const { buildConsortMesh } = await import('./consort/figure');
+    const tris = buildHeraldMesh(headOf(HERALD_LOOKS[BEST].face)).triangles;
+    for (const d of [0, 1, 2] as const) expect(tris, `прежний гонец @${d}`).toBeLessThan(buildPerson('herald', DEFAULT_ARMS, d, 1).m.b.triangleCount);
+    const room = phoneRoom();
+    await room.life.consortReady;
+    await room.life.heraldReady;
+    room.life.stage({ who: 'herald', at: { x: -0.5, z: 1.1, yaw: Math.PI }, letter: true });
+    expect(room.life.counts()).toEqual({ triangles: tris, meshes: 2 });
+    room.life.stage({ who: 'wife', at: { x: 0.4, z: 1.1, yaw: Math.PI } });
+    expect(room.life.counts()).toEqual({ triangles: tris + buildConsortMesh().triangles, meshes: 3 });
     room.dispose();
   });
 });

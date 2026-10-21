@@ -939,12 +939,31 @@ export function gripOf(sk: Skeleton, side: 'L' | 'R'): V3 {
   return [j[0], j[1] - 0.06, j[2] + 0.02];
 }
 
+/** Тело человека покоев: сетка с костями — `rig.Rig` или своё (супруга, ЛЦ-2: `consort/skin.SkinBody`). */
+export interface PersonBody {
+  readonly mesh: THREE.Mesh;
+  readonly sk: Skeleton;
+  readonly triangles: number;
+  pose(p: RigPose): void;
+  write(): void;
+  at(name: string, local?: V3): V3;
+  axes(name: string): Float64Array;
+  positions(): Float32Array;
+  dispose(): void;
+}
+
+/** Своя живость тела: поза кадра вместо `posture` (жесты те же) и дело после отрисовки — свет на фигуре. */
+export interface PersonMind {
+  pose(t: number, phase: number, walk: number, g: Gesture, want: Gesture): { turns: Turns; lift: V3 };
+  drawn?(): void;
+}
+
 /**
  * Человек покоев на сцене: сетка, место, путь и жесты. Жесты подходят к цели плавно (не рывком), шаг идёт по пути
  * с разгоном и торможением, поворот — не быстрее `TURN`. Рисуется только видимым (`visible`).
  */
 export class Person {
-  readonly rig: Rig;
+  readonly rig: PersonBody;
   x = 0;
   /** Высота пола под ногами (ступени тамбура). */
   y = 0;
@@ -966,11 +985,12 @@ export class Person {
 
   constructor(
     readonly id: FolkId,
-    sb: SkinBuilder,
-    material: THREE.Material,
+    body: SkinBuilder | PersonBody,
+    material: THREE.Material | null,
     readonly speed: number,
+    private mind: PersonMind | null = null,
   ) {
-    this.rig = new Rig(sb, material, `chambers-${id}`);
+    this.rig = body instanceof SkinBuilder ? new Rig(body, material!, `chambers-${id}`) : body;
   }
 
   /** Идёт ли (есть путь или не встал). */
@@ -1049,7 +1069,7 @@ export class Person {
 
   /** Поставить сетку в позу кадра (только видимую). */
   pose(): RigPose {
-    const { turns, lift } = posture(this.id, this.t, this.phase, this.walkK, this.g);
+    const { turns, lift } = this.mind ? this.mind.pose(this.t, this.phase, this.walkK, this.g, this.want) : posture(this.id, this.t, this.phase, this.walkK, this.g);
     return { x: this.x, y: this.y, z: this.z, yaw: this.yaw, lift, turns: turns as Record<string, Turn> };
   }
 
@@ -1059,6 +1079,7 @@ export class Person {
     this.rig.mesh.position.set(origin[0], origin[1], origin[2]);
     this.rig.pose(this.pose());
     this.rig.write();
+    this.mind?.drawn?.();
   }
 }
 
