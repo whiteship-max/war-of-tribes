@@ -30,7 +30,7 @@ export const HEAD_PART = 7.5;
 const DRAW_CHIN = 1.284;
 const DRAW_HZ = -0.012;
 /** Купол черепа над линией волос и толщина волос, чертёжные метры. */
-export const DOME = 0.05;
+export const DOME = 0.062;
 const HAIR_T = 0.005;
 
 /** Голова на фигуре: масштаб, высота подбородка чертежа и ось головы по глубине — так, чтобы макушка была на `HEIGHT`. */
@@ -121,10 +121,10 @@ export const CAP_OPEN = 1.45;
 /** Кольца шапки: высота над подбородком (выше линии волос — купол), толщина волос спереди и сзади, строка листа. */
 export const CAP: readonly { h: number; lift: readonly [number, number]; v: number; open: boolean }[] = [
   // Купол — ниже и круглее: волосы лежат у черепа, короткие на макушке.
-  { h: 0.235 + 0.038, lift: [0.005, 0.005], v: 10, open: false },
-  { h: 0.235 + 0.02, lift: [0.005, 0.0055], v: 22, open: false },
+  { h: 0.235 + 0.046, lift: [0.0045, 0.005], v: 10, open: false },
+  { h: 0.235 + 0.024, lift: [0.0035, 0.0055], v: 22, open: false },
   // Линия волос — чуть ниже верха маски, поверх лба: край маски под ней, и чёлка ложится на лоб.
-  { h: 0.23, lift: [0.0022, 0.005], v: 36, open: false },
+  { h: 0.23, lift: [0.0008, 0.005], v: 36, open: false },
   { h: 0.17, lift: [0.002, 0.0045], v: 50, open: true },
   { h: 0.105, lift: [0.002, 0.0042], v: 62, open: true },
   { h: 0.035, lift: [0.0015, 0.003], v: 72, open: true },
@@ -143,7 +143,8 @@ export function capPt(head: Head, th: number, h: number, lift: number): V3 {
   let up = 0;
   if (h > top) {
     const k = (h - top) / DOME;
-    const s = Math.sqrt(Math.max(0, 1 - k * k));
+    // Купол — круглый, не трапецией: к макушке сужается раньше, чем эллипс.
+    const s = Math.cos((Math.min(1, k) * Math.PI) / 2) ** 0.8;
     dx *= s;
     dz = dz * s - 0.012 * k;
     y = head.faceHeight(top) + (h - top);
@@ -161,6 +162,7 @@ const liftAt = (l: readonly [number, number], th: number): number => l[0] + (l[1
 function buildCap(m: SkinMesh, head: Head): void {
   const openA = CAP_A.slice(4, 15);
   // Край шапки над лбом — ниже посередине (чёлка) и выше к вискам (залысины): по нему же лист лица рисует линию волос.
+  // Край над лбом — посередине ниже (мысок), к вискам выше: живую линию волос рисует лист лица под ним.
   const edgeH = (r: (typeof CAP)[number], a: number): number => (r.v === 36 ? r.h - 0.012 * Math.exp(-((a / 0.45) ** 2)) : r.h);
   const rows = CAP.map((r) => (r.open ? openA : CAP_A).map((a) => m.v(capPt(head, a, edgeH(r, a), liftAt(r.lift, a)), uvB(mirrorU(a), r.v), 0, r.h < 0.02 ? ['head', 'neck', 0.8] : 'head')));
   // Макушка — веер из одной точки, в ровном тоне волос середины листа.
@@ -174,7 +176,7 @@ function buildCap(m: SkinMesh, head: Head): void {
 }
 
 /** Ухо: середина основания (угол, высота над подбородком), вынос края наружу и назад, чертёжные метры. */
-export const EAR = { th: 1.66, h0: 0.098, h1: 0.172, out: 0.012, back: 0.014 } as const;
+export const EAR = { th: 1.66, h0: 0.094, h1: 0.178, out: 0.0115, back: 0.015 } as const;
 /** Лист уха на листе лица (точки): справа под листом рта. */
 export const EAR_SHEET = { x: 384, y: 264, w: 128, h: 96 } as const;
 
@@ -196,7 +198,7 @@ function buildEars(m: SkinMesh, head: Head): void {
         const r = Math.hypot(dx, dz) || 1;
         const out = EAR.out * c * (0.55 + 0.45 * bulge);
         const back = EAR.back * c * (0.5 + 0.5 * bulge);
-        const dip = ci === 1 ? -0.003 : 0;
+        const dip = ci === 1 ? -0.005 : 0;
         const p: V3 = [base[0] + (dx / r) * (out + dip), base[1] + (ci === 2 ? 0.004 * (k - 0.5) : 0), base[2] + (dz / r) * (out + dip) - back];
         const u = EAR_SHEET.x + 4 + c * (EAR_SHEET.w - 8);
         const v = EAR_SHEET.y + EAR_SHEET.h - 4 - k * (EAR_SHEET.h - 8);
@@ -220,9 +222,9 @@ function hemWeight(a: number, k: number): Weights {
 
 /** Ряды туники сверху вниз: высота, полуоси, сдвиг середины, кости (функция угла). */
 export const TUNIC: readonly { y: number; rx: number; rz: number; zc: number; w: (a: number) => Weights }[] = [
-  // Шея — внутри головы сверху, плотная: шире половины головы.
-  { y: 1.556, rx: 0.046, rz: 0.046, zc: -0.022, w: () => ['head', 'neck', 0.55] },
-  { y: 1.476, rx: 0.055, rz: 0.053, zc: -0.024, w: () => ['neck', 'chest', 0.5] },
+  // Шея — сверху внутри головы, выше угла челюсти (иначе под челюстью у ушей видна щель), плотная: шире половины головы.
+  { y: 1.585, rx: 0.04, rz: 0.042, zc: -0.022, w: () => ['head', 'neck', 0.6] },
+  { y: 1.476, rx: 0.05, rz: 0.05, zc: -0.024, w: () => ['neck', 'chest', 0.5] },
   // Трапеция — от шеи к плечам (под плащом и капюшоном).
   { y: 1.452, rx: 0.112, rz: 0.072, zc: -0.028, w: () => ['chest', 'neck', 0.82] },
   { y: 1.424, rx: 0.157, rz: 0.088, zc: -0.024, w: () => 'chest' },

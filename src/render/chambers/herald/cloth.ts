@@ -45,7 +45,7 @@ function yOfTunic(py: number): number {
 
 /** Ворот туники по углу: спереди ниже, к затылку выше. */
 // Ворот — на шее, выше ряда её основания (`figure.TUNIC[1]`): на почти отвесной шее кайма не растягивается по скату плеча.
-export const collar = (a: number): number => 1.484 + 0.006 * Math.min(1, Math.abs(a) / 1.6) ** 1.5;
+export const collar = (a: number): number => 1.484 + 0.016 * Math.min(1, Math.abs(a) / 1.6) ** 1.5;
 /** Пояс: верх и низ ремня. */
 export const BELT = { top: 1.071, bottom: 1.04 } as const;
 
@@ -91,12 +91,15 @@ function hairBottom(x: number): number {
  * Короткие волосы — тем же генератором прядей, что у супруги (`kit/cloth.hairStrands`): крупные ленты с изгибом, светлые
  * посередине и тёмные по краю, длинный блик и короткий; только короче и уже, и к концам — острыми кончиками.
  */
-const STRANDS: StrandSpec = { seed: [131, 137], n: 9, w: 54, wv: 12, top: 2, cap: 3, crown: 3, wave: [4, 14], taper: [48, 26], shine: [14, 40], shineLen: [9, 6] };
+const STRANDS: StrandSpec = { seed: [131, 137], n: 9, w: 50, wv: 26, top: 2, cap: 3, crown: 3, wave: [4, 14], taper: [48, 26], shine: [14, 40], shineLen: [9, 6] };
+/** Второй слой — короче и уже, другими сидами: пряди разной длины, не «рубчик». */
+const STRANDS_OVER: StrandSpec = { seed: [149, 157], n: 7, w: 34, wv: 18, top: 10, cap: 3, crown: 3, wave: [12, 12], taper: [26, 16], shine: [20, 34], shineLen: [6, 4], over: true };
 
 function paintCap(img: Img, hair: RGB, skin: RGB): void {
   const box = { x0: 0, y0: 0, x1: W, y1: SHEETS.cap.y1 };
   const n = noise(141);
   hairStrands(img, box, hair, STRANDS);
+  hairStrands(img, box, hair, STRANDS_OVER);
   // Виски — темнее макушки: волосы там короче и в тени.
   img.shape((x, y) => -1, box, (x, y) => {
     const c = img.get(Math.min(W - 1, x | 0), Math.min(W - 1, y | 0));
@@ -149,8 +152,8 @@ function paintTunic(img: Img, skin: RGB, tunic: RGB, trim: RGB, leather: RGB): v
       if (h > collar(a)) {
         // Шея: под подбородком — тень по его форме, перед — на свету, бока и затылок — в тени.
         // Тень под челюстью — по её линии (у ушей выше), глубокая и с чётким краем снизу.
-        const edge = 1.522 + 0.034 * Math.min(1, Math.abs(a) / 1.4) ** 2;
-        const chin = h > edge - 0.013 ? -1.05 * Math.min(1, (h - edge + 0.013) / 0.006) ** 0.6 : 0;
+        const edge = 1.524 + 0.034 * Math.min(1, Math.abs(a) / 1.4) ** 2;
+        const chin = h > edge - 0.02 ? -0.95 * Math.min(1, (h - edge + 0.02) / 0.016) ** 1.2 : 0;
         const sideN = -0.7 * Math.min(1, Math.max(0, (Math.abs(a) - 0.35) / 1.0)) ** 1.1;
         // Мышцы шеи — от-за уха к ямке над грудиной: тёмная полоса по бокам знаком «V».
         const scm = Math.abs(a) - (0.25 + ((h - 1.484) / 0.05) * 0.75);

@@ -24,6 +24,8 @@ export interface StrandSpec {
   /** Блики: строка длинного и короткого, их полудлина. */
   shine: readonly [number, number];
   shineLen: readonly [number, number];
+  /** Слой поверх уже написанных прядей (без основы и макушки): пряди другой длины. */
+  over?: boolean;
 }
 
 /**
@@ -36,8 +38,10 @@ export function hairStrands(img: Img, box: SheetBox, hair: RGB, s: StrandSpec): 
   const n = noise(s.seed[0]);
   const r = rng(s.seed[1]);
   const shine = mix(tone(hair, 0.55), [0.96, 0.7, 0.42], 0.42);
-  img.fill(tone(hair, -0.55), box);
-  img.shape((x, y) => y - s.cap, box, (x, y) => mix(tone(hair, -0.2), shine, 0.3 * Math.exp(-(((y - s.crown) / 6) ** 2))), { soft: 14 });
+  if (!s.over) {
+    img.fill(tone(hair, -0.55), box);
+    img.shape((x, y) => y - s.cap, box, (x, y) => mix(tone(hair, -0.2), shine, 0.3 * Math.exp(-(((y - s.crown) / 6) ** 2))), { soft: 14 });
+  }
   const strands: { c: number; w: number; ph: number; amp: number; lift: number }[] = [];
   const N = s.n;
   for (let i = 0; i <= N; i++) {
