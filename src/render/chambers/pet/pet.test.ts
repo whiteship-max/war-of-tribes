@@ -271,17 +271,21 @@ describe('кот: живость ключами (ЛЦ-4)', () => {
     c.dress(kit);
     c.poseAt(0, 0, 0, 0, 'sit');
     kit.motion.start('groom', 0);
+    // Граница области — ключ «лизнуть» (0,5…0,9 с клипа): меряем на его середине, а не по всему клипу.
     let best = 1;
-    for (let i = 0; i < 40; i++) {
+    for (let i = 1; i <= 21; i++) {
       // Время мозга идёт `step`-ом; клип читает его время.
       c.step(1 / 30, { ruler: { x: 3, z: 3, yaw: 0, busy: true }, ball: null });
       const q = c.pose();
+      if (i < 20) continue;
+      expect(i / 30, 'внутри ключа «лизнуть»').toBeGreaterThan(0.5);
+      expect(i / 30).toBeLessThan(0.9);
       kit.body.pose(q);
       const paw = kit.body.at('pawR');
       const jaw = kit.body.at('jaw', [0, -0.004, 0.02]);
       best = Math.min(best, Math.hypot(paw[0] - jaw[0], paw[1] - jaw[1], paw[2] - jaw[2]));
     }
-    expect(best, 'лапа у пасти').toBeLessThan(0.07);
+    expect(best, 'лапа у пасти').toBeLessThan(0.06);
     const mo = new CatMotion(4);
     mo.start('groom', 0);
     run(mo, state({ body: 'walk', look: { ...state().look, speed: 0.5 } }), 0.1, 0.2);
