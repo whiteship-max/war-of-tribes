@@ -5,7 +5,7 @@
 // камин, кровать, стол, кресло, сундуки, полки, столик с шахматами и подсвечники — препятствия. Шаг пальцем двигает круг и
 // выталкивает его из препятствий (скольжение вдоль стены, а не остановка). Касание далёкого предмета ведёт сюда же — путь
 // по углам препятствий, раздутых на тело (граф видимости), кратчайший.
-import { BED, CHAIR, CHESS, DESK, HALF, HEARTH, OPENINGS, SHELVES, STANDS, CHESTS, type Box } from './plan';
+import { BED, CHAIR, CHESS, DESK, DUMMY, HALF, HEARTH, OPENINGS, SHELVES, STANDS, CHESTS, type Box } from './plan';
 
 /** Радиус тела, м: плечи человека в плаще. */
 export const BODY_R = 0.24;
@@ -42,6 +42,8 @@ export const OBSTACLES: readonly Obstacle[] = [
   { kind: 'disc', id: 'stoolW', x: CHESS.x - 0.75, z: CHESS.z + 0.1, r: 0.2 },
   { kind: 'disc', id: 'stoolE', x: CHESS.x + 0.75, z: CHESS.z - 0.1, r: 0.2 },
   ...STANDS.map((s) => ({ kind: 'disc' as const, id: s.id, x: s.x, z: s.z, r: s.r })),
+  // Чучело (Г-11): крестовина на полу.
+  { kind: 'disc', id: 'dummy', x: DUMMY.x, z: DUMMY.z, r: DUMMY.base },
 ];
 
 /** Внутри ли пола: комната без полосы у стен на тело — или коридор ниши южного окна. */

@@ -125,6 +125,8 @@ export class Sticks {
   /** Накопленный поворот, ещё не отданный сцене. */
   private dyaw = 0;
   private dpitch = 0;
+  /** Пальцы взгляда, чьё ведение здесь не копится: его разбирает свой судья (взмах меча в покоях, Г-11). */
+  private muted = new Set<number>();
 
   /**
    * Палец лёг. `x` — от левого края холста, `width` — его ширина.
@@ -148,7 +150,7 @@ export class Sticks {
   move(id: number, x: number, y: number, now: number): void {
     const f = this.fingers.get(id);
     if (!f) return;
-    if (f.half === 'look') {
+    if (f.half === 'look' && !this.muted.has(id)) {
       this.dyaw -= (x - f.x) * LOOK_RAD_PER_PX;
       this.dpitch -= (y - f.y) * LOOK_RAD_PER_PX;
     }
@@ -172,6 +174,7 @@ export class Sticks {
     const f = this.fingers.get(id);
     if (!f) return null;
     this.fingers.delete(id);
+    this.muted.delete(id);
     return { tap: f.press.isTap(now), press: f.press, half: f.half };
   }
 
@@ -179,14 +182,21 @@ export class Sticks {
   cancel(id: number): Half | null {
     const f = this.fingers.get(id);
     this.fingers.delete(id);
+    this.muted.delete(id);
     return f ? f.half : null;
   }
 
   /** Все пальцы сняты (уход со страницы, потеря захвата). */
   clear(): void {
     this.fingers.clear();
+    this.muted.clear();
     this.dyaw = 0;
     this.dpitch = 0;
+  }
+
+  /** Ведение этого пальца взгляду не копить: его поворот отдаст свой судья (`addLook`). */
+  mute(id: number): void {
+    if (this.fingers.get(id)?.half === 'look') this.muted.add(id);
   }
 
   /** Сколько пальцев на холсте — журналу касаний. */

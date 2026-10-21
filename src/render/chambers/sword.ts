@@ -5,7 +5,9 @@
 // смотрит в −z) и обо что он бьётся в осях комнаты. Комната (`room.ts`) ставит по нему меч и руку, `drill.ts` рисует
 // чучело, след и искры, тест сверяет числа (`sword.test.ts`).
 import { Press } from '@/gestures';
-import { BED, CHAIR, CHESTS, CHESS, DESK, DOOR, HALF, HEARTH, SHELVES, STANDS, WALL_H } from './plan';
+import { BED, CHAIR, CHESTS, CHESS, DESK, DOOR, DUMMY, HALF, HEARTH, SHELVES, STANDS, WALL_H } from './plan';
+
+export { DUMMY };
 import { onFloor } from './walk';
 
 export type V3 = [number, number, number];
@@ -357,6 +359,11 @@ export class Fight {
     this.queued = null;
   }
 
+  /** Передумал убирать (палец движения перехватил путь к стене): снова в стойку. */
+  draw(): void {
+    this.sheathe = false;
+  }
+
   step(dt: number): void {
     this.time += dt;
     this.rest += dt;
@@ -561,8 +568,6 @@ export function midOf(from: [number, number], to: [number, number], w: number, h
 
 // ---------- Обо что бьётся клинок ----------
 
-/** Чучело у восточной стены, между полочкой короны и окном на мыс: столб на крестовине, соломенное тело, голова, руки-перекладина. */
-export const DUMMY = { x: 4.42, z: 0.35, base: 0.32, r: 0.21, y0: 0.74, y1: 1.6, head: { y: 1.73, r: 0.13 }, arms: { y: 1.38, half: 0.46, t: 0.06 }, post: 0.035, top: 1.88 } as const;
 
 /** Твёрдое в покоях: короб или столб с высотой и тем, из чего он. */
 type Solid = { kind: 'box'; x0: number; z0: number; x1: number; z1: number; y0: number; y1: number; s: Surface } | { kind: 'disc'; x: number; z: number; r: number; y0: number; y1: number; s: Surface };

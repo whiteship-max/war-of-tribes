@@ -18,7 +18,7 @@ import type { Quality } from '../quality';
 import type { Detail } from '../city/kit';
 import type { Arms } from '@/heraldry/arms';
 import { TAP_TARGET, swallowGhostClick } from '@/gestures';
-import { Keys, Sticks, mergeWalk, typing, type Walk } from '@/prologue/controls';
+import { Keys, LOOK_RAD_PER_PX, Sticks, mergeWalk, typing, type Walk } from '@/prologue/controls';
 import { turnRate } from '@/minigames/pad';
 import { geometryOf } from '../city/index';
 import { treeModel } from '../city/nature';
@@ -37,6 +37,8 @@ import { AUTO_SPEED, BODY_R, EYE_STAND, WALK_SPEED, pathLength, pathTo, step } f
 import { layoutTags, TAG_FONT, type TagOut } from './tags';
 import type { ChambersEar } from './sound';
 import type { ChamberCue } from './cues';
+import { Drill } from './drill';
+import { DoubleTap, Fight, SwipeJudge, TIRED, midOf, toRoom, type Eye, type Surface, type V3 as SwordV3, type Verdict, type View } from './sword';
 import {
   CHAIR,
   DESK,
@@ -110,6 +112,10 @@ export interface ChambersView {
   used: { walk: boolean; look: boolean; act: boolean };
   /** Кубок с вином в руке — можно выпить (Г-7). */
   drink: boolean;
+  /** Меч в руке у стены оружия — можно встать в боевую стойку (Г-11). */
+  stance: boolean;
+  /** Бой мечом (Г-11): выносливость (шагом 0,05), устал ли, попаданий по чучелу и сильных из них; убирают ли меч. */
+  fight: { stamina: number; tired: boolean; hits: number; heavies: number; stowing: boolean } | null;
 }
 
 /** Что под пальцем: предмет, место дела, человек покоев или кот (Г-7). */
@@ -119,7 +125,7 @@ export type Aim = { kind: 'thing'; thing: Thing } | { kind: 'poi'; poi: Poi } | 
 export const FOLK_NAME: Record<Who, string> = { servant: 'Слуга', maid: 'Служанка', wife: 'Супруга', herald: 'Гонец', advisor: 'Советник' };
 
 /** Куда правитель идёт и что делает, придя. */
-type Then = { kind: 'spot'; id: SpotId } | { kind: 'take'; id: TrinketId };
+type Then = { kind: 'spot'; id: SpotId } | { kind: 'take'; id: TrinketId } | { kind: 'hang'; after: Then | null };
 
 /** Подоконник большого окна, м: на него кладут руки. */
 const SILL = OPENINGS.find((o) => o.wall === 'south')!.sill;
@@ -213,6 +219,10 @@ const BOUNCE = new THREE.Color(0.16, 0.12, 0.085);
 const DEEP = new THREE.Color(0.2, 0.36, 0.78);
 
 const easeInOut = (k: number): number => k * k * (3 - 2 * k);
+/** Звук встречи клинка (Г-11): камень и железо звенят, дерево — глухо, ткань — мягко, солома — шлепок и шорох. */
+const HIT_CUE: Record<Surface, Cue> = { stone: 'clang', iron: 'clang', wood: 'thud', cloth: 'soft', straw: 'straw' };
+/** Толчок отдачи в голову на силу удара, рад/с: камень отдаёт сильнее, солома — едва (пик — меньше градуса). */
+const KICK: Record<Surface, number> = { stone: 0.16, iron: 0.16, wood: 0.11, cloth: 0.04, straw: 0.05 };
 const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
 
 /** Луч `o + t·d` и коробка: доля `t` входа (0…1 — до конца отрезка) или `null`. */
@@ -337,6 +347,18 @@ export class ChambersRoom implements Inside {
   /** Высота плашки разговора от низа экрана (`setPlate`). */
   private plateH: number | null = null;
 
+  // Бой мечом (Г-11).
+  /** Стойка, удар, блок, выносливость; `null` — меч не в бою. */
+  private fight: Fight | null = null;
+  /** Палец взгляда в стойке: взмах — удар, ведение — взгляд. */
+  private judge = new SwipeJudge();
+  /** Двойное касание — блок. */
+  private dbl = new DoubleTap();
+  /** Чучело, след клинка, искры и солома. */
+  private drill: Drill;
+  /** Отдача удара в голову: лёгкий толчок взгляда, гаснет пружиной (меньше градуса). */
+  private kick = { yaw: 0, pitch: 0, vy: 0, vp: 0 };
+
   constructor(keep: Pick<Tower, 'x' | 'z' | 'base' | 'height'>, arms: Arms, quality: Quality, cityTex: () => THREE.Texture | null, memory: LifeMemory = { cat: false, catSpot: null }) {
     this.level = quality;
     this.cityTex = cityTex;
@@ -398,6 +420,8 @@ export class ChambersRoom implements Inside {
     this.trinkets.get('candle')?.mesh.add(this.handFire.mesh);
     this.body = new Body(this.stone);
     this.scene.add(this.body.mesh);
+    this.drill = new Drill(this.stone, this.origin, DETAIL[quality]);
+    this.scene.add(this.drill.group);
     // Вино в кубке: гладь в чаше, поднимается с уровнем (`wine`).
     this.wineMesh = wineSurface(this.stone);
     this.trinkets.get('goblet')?.mesh.add(this.wineMesh);
@@ -444,6 +468,10 @@ export class ChambersRoom implements Inside {
       zoom: z ? (this.zoomFov !== null ? (wide - this.zoomFov) / (wide - z[0]) : 0) : null,
       used: { ...this.used },
       drink: this.canDrink,
+      stance: this.canStance,
+      fight: this.fight
+        ? { stamina: Math.round(this.fight.stamina * 20) / 20, tired: this.fight.stamina < TIRED, hits: this.fight.hits, heavies: this.fight.heavies, stowing: this.fight.sheathe }
+        : null,
     };
   }
 
@@ -545,7 +573,8 @@ export class ChambersRoom implements Inside {
   /** Тестам и стенду: встать стоя в точку пола и смотреть так (без перехода, подписи — с нуля). */
   standAtPoint(x: number, z: number, yaw: number, pitch: number): void {
     this.standAt({ ...POI_BY_ID.hall, pose: { ...POI_BY_ID.hall.pose, x, z, yaw, pitch } });
-    this.held = null;
+    // В стойке меч остаётся в руке (стенд боя, Г-11).
+    if (!this.fight) this.held = null;
     this.hover = null;
     this.placeCamera();
     this.stepBody();
@@ -565,6 +594,8 @@ export class ChambersRoom implements Inside {
   /** Поле зрения сейчас: стоя — `FREE_FOV`, в деле — поле дела (у стола шире: в кадре руки и колени). */
   private fovNow(): number {
     if (this.zoomFov !== null) return this.zoomFov;
+    // В стойке — поле дела «Оружие»: из него в стойку и обратно к стене без скачка, и бой — собраннее, чем прогулка.
+    if (this.fight) return fitFov(POI_BY_ID.arms.pose.fov, this.camera.aspect);
     const free = fitFov(FREE_FOV, this.camera.aspect);
     const a = this.act;
     if (!a) return free;
@@ -584,7 +615,7 @@ export class ChambersRoom implements Inside {
     const sway = Math.sin(this.bob) * 0.005 * this.walkK;
     const lying = this.act?.a.id === 'bed' && this.mode === 'in' ? 0.4 : 1;
     this.camera.position.set(this.origin.x + p.x - Math.cos(p.yaw) * sway, this.origin.y + p.y + br * lying + bob, this.origin.z + p.z + Math.sin(p.yaw) * sway);
-    const d = lookDir(p.yaw + Math.sin(this.time * 0.37) * 0.003 * idle, p.pitch + br * 0.2);
+    const d = lookDir(p.yaw + Math.sin(this.time * 0.37) * 0.003 * idle + this.kick.yaw, p.pitch + br * 0.2 + this.kick.pitch);
     V.set(this.camera.position.x + d.x, this.camera.position.y + d.y, this.camera.position.z + d.z);
     this.camera.up.set(0, 1, 0);
     this.camera.lookAt(V);
@@ -605,6 +636,7 @@ export class ChambersRoom implements Inside {
     this.life.step(Math.min(dt, 0.1));
     this.stepPet(Math.min(dt, 0.1));
     this.attend(Math.min(dt, 0.1));
+    this.stepFight(Math.min(dt, 0.1));
     this.stepHands(dt);
     this.placeCamera();
     this.life.draw();
@@ -648,7 +680,7 @@ export class ChambersRoom implements Inside {
     const moving = walk.forward !== 0 || walk.strafe !== 0;
     // Безделушка в руке: палец взгляда крутит её, а не голову, а ноги стоят — положить её можно только кнопкой «Положить»
     // (ЗН-3, docs/ui_v2.md, 5.10).
-    if (this.held && this.held.dir > 0) {
+    if (this.held && this.held.dir > 0 && !this.fight) {
       // Медленно: пол-оборота — на ширину экрана; наклон — в пределах предмета.
       const tr = TRINKETS.find((x) => x.id === this.held!.id)!;
       this.held.spinGoal -= look.yaw * TURN_PER_LOOK;
@@ -672,7 +704,8 @@ export class ChambersRoom implements Inside {
       }
       case 'walk': {
         if (moving) {
-          // Палец движения перехватывает: подход отменён, дальше — сам.
+          // Палец движения перехватывает: подход отменён, дальше — сам; меч, который несли на стену, — снова в стойке.
+          if (this.path?.then.kind === 'hang') this.fight?.draw();
           this.path = null;
           this.mode = 'free';
           return this.stepEye(0);
@@ -833,6 +866,16 @@ export class ChambersRoom implements Inside {
   /** Пришёл: начать дело или взять предмет. */
   private arrive(then: Then): void {
     if (then.kind === 'spot') this.begin(then.id);
+    else if (then.kind === 'hang') {
+      // Меч ещё опускается из стойки — постоять у стены, пока не ляжет в руке, как для осмотра.
+      if (this.fight && this.fight.stance > 0.02) {
+        const p = POI_BY_ID.arms.pose;
+        this.path = { pts: [], face: { x: p.x, z: p.z, yaw: p.yaw }, then, v: 0 };
+        this.mode = 'walk';
+        return;
+      }
+      this.hang(then.after);
+    }
     else this.take(then.id);
   }
 
@@ -890,6 +933,11 @@ export class ChambersRoom implements Inside {
 
   /** Пойти к месту и сделать дело; из дела — сперва встать. Не касание игрока: его выбор в разговоре или жизнь покоев. */
   private go(then: Then): void {
+    // Меч в бою: сперва повесить его на стену, потом — куда звали (ночь вдвоём, гость).
+    if (this.fight && then.kind !== 'hang') {
+      this.toWall(then);
+      return;
+    }
     if (this.act) {
       this.leave(then);
       return;
@@ -902,6 +950,162 @@ export class ChambersRoom implements Inside {
     this.path = { pts, face, then, v: this.path?.v ?? 0 };
     this.mode = 'walk';
     this.changed();
+  }
+
+  // ---------- Бой мечом (Г-11) ----------
+
+  /** Меч в руке у стены оружия — можно в стойку. */
+  get canStance(): boolean {
+    return !this.fight && this.mode === 'in' && this.act?.a.id === 'arms' && this.held?.id === 'sword' && this.held.dir > 0;
+  }
+
+  /** В боевую стойку: правитель с мечом наготове, дело «Оружие» кончено на месте — ходить можно, палец взгляда рубит. */
+  stance(): void {
+    if (!this.canStance) return;
+    this.act = null;
+    this.frameNow = null;
+    this.mode = 'free';
+    this.off = { yaw: 0, pitch: 0 };
+    this.pose.pitch = clamp(this.pose.pitch, FREE_PITCH[0], FREE_PITCH[1]);
+    this.fight = new Fight();
+    this.judge = new SwipeJudge();
+    this.dbl = new DoubleTap();
+    this.used.act = true;
+    this.onCue?.('swish');
+    this.changed();
+  }
+
+  /** «Повесить на стену»: к стене оружия, там дело «Оружие» назад — рука кладёт меч на колышки. */
+  hangSword(): void {
+    if (!this.fight || this.fight.sheathe) return;
+    this.toWall(null);
+  }
+
+  /** Идти к стене оружия с мечом, опускающимся из стойки; `after` — куда потом. */
+  private toWall(after: Then | null): void {
+    const f = this.fight;
+    if (!f) return;
+    f.stow();
+    const p = POI_BY_ID.arms.pose;
+    const face: Stand = { x: p.x, z: p.z, yaw: p.yaw };
+    this.path = { pts: pathTo(this.pose, face) ?? [], face, then: { kind: 'hang', after }, v: 0 };
+    this.mode = 'walk';
+    this.changed();
+  }
+
+  /** Пришёл к стене: дело «Оружие» с конца назад — шаг к стене, рука отпускает меч на колышках (`GRAB_AT`), отход. */
+  private hang(after: Then | null): void {
+    const a = ACTS.arms;
+    const end = actLength(a);
+    this.fight = null;
+    this.mode = 'act';
+    this.act = { a, t: end, dir: -1, after, grabbed: true };
+    const f = frameAt(a, end);
+    this.off = { yaw: wrap(this.pose.yaw - f.yaw), pitch: this.pose.pitch - f.pitch };
+    this.applyAct();
+    this.changed();
+  }
+
+  /** Что сказал палец взгляда в стойке: повернуть голову или ударить по линии взмаха. */
+  private verdict(v: Verdict | null): void {
+    if (!v) return;
+    if (v.kind === 'look') {
+      this.sticks.addLook(-v.dx * LOOK_RAD_PER_PX, -v.dy * LOOK_RAD_PER_PX);
+      return;
+    }
+    const f = this.fight;
+    if (!f || this.life.holdsLegs) return;
+    f.strike(v.to[0] - v.from[0], v.to[1] - v.from[1], midOf(v.from, v.to, this.rect.width, this.rect.height), v.speed);
+    this.used.look = true;
+  }
+
+  /** Тангенсы половин поля зрения кадра — дуге удара (середина взмаха на экране → направление). */
+  private viewTan(): View {
+    const tanV = Math.tan((this.camera.fov * Math.PI) / 360);
+    return { tanV, tanH: tanV * this.camera.aspect };
+  }
+
+  private eye(): Eye {
+    return { x: this.pose.x, y: this.pose.y, z: this.pose.z, yaw: this.pose.yaw, pitch: this.pose.pitch };
+  }
+
+  /** Шаг боя: удар и блок, встреча клинка, звук, след, искры и солома, отдача в голову. */
+  private stepFight(dt: number): void {
+    const f = this.fight;
+    if (f) {
+      const eye = this.eye();
+      const view = this.viewTan();
+      f.advance(dt, eye, view);
+      for (const e of f.take()) {
+        if (e.kind === 'swing') this.onCue?.(e.spec.heavy ? 'swishHeavy' : 'swish');
+        else if (e.kind === 'block') this.onCue?.('parry');
+        else if (e.kind === 'tired') this.onCue?.('pant');
+        else if (e.kind === 'hit') {
+          this.onCue?.(HIT_CUE[e.surface]);
+          const force = f.force;
+          // Куда шёл удар в осях комнаты — кромкой клинка в миг встречи.
+          const b = f.blade(view);
+          const o = toRoom(eye, b.hand);
+          const q = toRoom(eye, [b.hand[0] + b.edge[0], b.hand[1] + b.edge[1], b.hand[2] + b.edge[2]]);
+          const dir: SwordV3 = [q[0] - o[0], q[1] - o[1], q[2] - o[2]];
+          this.drill.hit(e.surface, e.at, dir, force);
+          // Отдача: камень — сильнее всего, солома — едва; толчок против удара на экране, без крена.
+          const k = KICK[e.surface] * force;
+          this.kick.vy += e.spec.dir[0] * k;
+          this.kick.vp += e.spec.dir[1] * k;
+        }
+      }
+      // След — пока клинок рубит: середина клинка и острие в осях комнаты.
+      if (f.cutting) {
+        const b = f.blade(view);
+        const at = (l: number): SwordV3 => toRoom(eye, [b.hand[0] + b.axis[0] * l, b.hand[1] + b.axis[1] * l, b.hand[2] + b.axis[2] * l]);
+        this.drill.trail(at(0.38), at(0.74), f.force);
+      }
+    }
+    // Пружина отдачи: критическое затухание, ни качки, ни дрожи.
+    const kk = this.kick;
+    kk.vy += (-260 * kk.yaw - 32 * kk.vy) * dt;
+    kk.vp += (-260 * kk.pitch - 32 * kk.vp) * dt;
+    kk.yaw += kk.vy * dt;
+    kk.pitch += kk.vp * dt;
+    this.drill.step(dt);
+  }
+
+  /** Поза меча в стойке и в ударе (оси глаза → мир) — смешивается с позой осмотра по доле стойки. */
+  private fightPose(mesh: THREE.Mesh, thing: Trinket): void {
+    const f = this.fight;
+    if (!f) return;
+    const b = f.blade(this.viewTan());
+    const cam = this.camera;
+    const z = V.set(b.axis[0], b.axis[1], b.axis[2]);
+    const y = V2.set(b.edge[0], b.edge[1], b.edge[2]);
+    const x = new THREE.Vector3().crossVectors(y, z);
+    Q.setFromRotationMatrix(new THREE.Matrix4().makeBasis(x, y, z));
+    HOLD.copy(cam.quaternion).multiply(Q);
+    const hand = new THREE.Vector3(b.hand[0], b.hand[1], b.hand[2]).applyQuaternion(cam.quaternion).add(cam.position);
+    const grip = new THREE.Vector3(thing.grip[0], thing.grip[1], thing.grip[2]).applyQuaternion(HOLD);
+    const k = easeInOut(f.stance);
+    mesh.quaternion.slerp(HOLD, k);
+    mesh.position.lerp(hand.sub(grip), k);
+  }
+
+  /** Бой сейчас — тестам и стенду. */
+  fightNow(): Fight | null {
+    return this.fight;
+  }
+
+  /** Отработка — тестам и стенду. */
+  drillNow(): Drill {
+    return this.drill;
+  }
+
+  /** Взмах и двойное касание без пальца (стенд, тесты): в пикселях холста. */
+  swipe(x0: number, y0: number, x1: number, y1: number, ms: number): void {
+    const t = performance.now();
+    this.judge.down(-7, x0, y0, t);
+    const n = Math.max(2, Math.round(ms / 8));
+    for (let i = 1; i <= n; i++) this.verdict(this.judge.move(-7, x0 + ((x1 - x0) * i) / n, y0 + ((y1 - y0) * i) / n, t + (ms * i) / n));
+    this.verdict(this.judge.up(-7, t + ms + 4).verdict);
   }
 
   // ---------- Жизнь покоев (Г-7) ----------
@@ -1216,6 +1420,10 @@ export class ChambersRoom implements Inside {
   /** Положить на место. Меч кладут на стену: правитель сперва шагает к ней (дело «Оружие» — назад), там рука отпускает. */
   drop(): void {
     if (!this.held) return;
+    if (this.fight) {
+      this.hangSword();
+      return;
+    }
     if (this.held.id === 'sword' && this.act?.a.id === 'arms' && this.mode === 'in') {
       this.leave();
       return;
@@ -1252,6 +1460,8 @@ export class ChambersRoom implements Inside {
     V.set(thing.grip[0], thing.grip[1], thing.grip[2]).applyQuaternion(HOLD);
     POS.copy(tr.rest).lerp(V2.sub(V), k);
     tr.mesh.position.copy(POS);
+    // Меч в бою (Г-11): поза стойки и удара поверх позы осмотра.
+    if (h.id === 'sword' && this.fight) this.fightPose(tr.mesh, thing);
     // Глоток: кубок к губам и наклон к себе; на середине — глоток, вина меньше.
     if (this.sip && h.id === 'goblet') {
       const s = this.sip;
@@ -1457,16 +1667,26 @@ export class ChambersRoom implements Inside {
   /** Ввод — слоя интерфейса поверх холста (`ui/chambers`); координаты страницы и рамка холста. */
   down(id: number, x: number, y: number, rect: DOMRect | { left: number; top: number; width: number; height: number }): void {
     this.rect = rect;
-    const half = this.sticks.down(id, x - rect.left, y - rect.top, performance.now(), rect.width);
+    const now = performance.now();
+    const half = this.sticks.down(id, x - rect.left, y - rect.top, now, rect.width);
     if (!half) return;
     this.presses.set(id, { x, y });
+    // В стойке палец взгляда разбирает судья взмаха (Г-11), подписей под пальцем нет.
+    if (this.fight && half === 'look') {
+      this.sticks.mute(id);
+      this.judge.down(id, x - rect.left, y - rect.top, now);
+      this.hover = null;
+      return;
+    }
     // Касание — подсветка того, что под пальцем, пока он лежит (ведение её гасит).
-    this.hover = this.pickAt(x, y);
+    this.hover = this.fight ? null : this.pickAt(x, y);
   }
 
   move(id: number, x: number, y: number): void {
     if (!this.presses.has(id)) return;
-    this.sticks.move(id, x - this.rect.left, y - this.rect.top, performance.now());
+    const now = performance.now();
+    this.sticks.move(id, x - this.rect.left, y - this.rect.top, now);
+    this.verdict(this.judge.move(id, x - this.rect.left, y - this.rect.top, now));
     const p = this.presses.get(id)!;
     if (Math.hypot(x - p.x, y - p.y) > 12) this.hover = null;
   }
@@ -1474,8 +1694,22 @@ export class ChambersRoom implements Inside {
   up(id: number): void {
     const p = this.presses.get(id);
     this.presses.delete(id);
-    const r = this.sticks.up(id, performance.now());
+    const now = performance.now();
+    const r = this.sticks.up(id, now);
+    const j = this.judge.up(id, now);
     if (!r || !p) return;
+    if (this.fight) {
+      // Стойка: касание — половина двойного касания (блок), взмах и ведение — свой судья; мебель касанием не зовут.
+      this.verdict(j.verdict);
+      const tap = r.half === 'look' ? j.tap : r.tap;
+      if (tap) {
+        swallowGhostClick();
+        const side = this.dbl.tap(p.x - this.rect.left, p.y - this.rect.top, now, this.rect.width, this.rect.height);
+        if (side && !this.life.holdsLegs) this.fight.block(side);
+      }
+      this.hover = null;
+      return;
+    }
     if (!r.tap) {
       if (!this.isMouse) this.hover = null;
       return;
@@ -1489,6 +1723,7 @@ export class ChambersRoom implements Inside {
   cancel(id: number): void {
     this.presses.delete(id);
     this.sticks.cancel(id);
+    this.judge.cancel(id);
     this.hover = null;
   }
 
@@ -1531,6 +1766,7 @@ export class ChambersRoom implements Inside {
    * только «Положить», выйти из дела — только своя кнопка; в деле касание другой мебели и других предметов молчит.
    */
   touch(aim: Aim | null): void {
+    if (this.fight) return;
     if (this.held && this.held.dir > 0) return;
     if (!aim) return;
     if (aim.kind === 'letter') {
@@ -1881,7 +2117,7 @@ export class ChambersRoom implements Inside {
     let tris = 0;
     for (const m of this.meshes) tris += (m.geometry.index?.count ?? 0) / 3;
     const l = this.life.counts();
-    return { triangles: Math.round(tris + this.body.triangles + l.triangles), meshes: this.meshes.length + 3 + l.meshes };
+    return { triangles: Math.round(tris + this.body.triangles + l.triangles + this.drill.counts()), meshes: this.meshes.length + 3 + l.meshes + 6 };
   }
 
   dispose(): void {
@@ -1897,6 +2133,7 @@ export class ChambersRoom implements Inside {
     this.fire.dispose();
     this.handFire.dispose();
     this.life.dispose();
+    this.drill.dispose();
     this.detach();
     this.wineMesh.geometry.dispose();
     this.scene.clear();
