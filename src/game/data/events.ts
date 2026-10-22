@@ -166,8 +166,8 @@ export interface EventDef {
 export type EventFoe = Exclude<GateFoe, 'rebels'>;
 
 export const GATE_POWER: Record<EventFoe, readonly number[]> = {
-  wolves: [123, 232, 435, 651, 1173, 1753, 2238, 2967, 3668, 4148],
-  raiders: [205, 348, 509, 665, 841, 1217, 1429, 1674, 1945, 2225],
+  wolves: [118, 210, 359, 593, 940, 1384, 1587, 3121, 3605, 4109],
+  raiders: [197, 333, 477, 624, 786, 966, 1213, 1784, 1968, 2222],
 };
 
 /**
