@@ -173,12 +173,13 @@ describe('совет Ратуши в окне', () => {
     expect(code('ui/realm/Mail.tsx')).toMatch(/d\.council && \([\s\S]*?setTownTab\('council'\);[\s\S]*?goTo\(\{ kind: 'building', type: 'town_hall' \}\)[\s\S]*?<b>Ратуша<\/b>/);
   });
 
-  it('«Сословия» — раздел оставлен и закрыт', async () => {
+  it('«Сословия» — раздел открыт (РТ-2): пять сословий карточками, мест совета нет', async () => {
     const { HallCouncil } = await import('./HallCouncil');
     const s = town();
     view(s, { townTab: 'estates' });
     const html = renderToStaticMarkup(h(HallCouncil));
-    expect(html).toContain('Раздел откроется позже');
+    expect(html).not.toContain('Раздел откроется позже');
+    expect(html.match(/class="es-card /g)?.length).toBe(5);
     expect(html).not.toContain('cn-card');
   });
 });

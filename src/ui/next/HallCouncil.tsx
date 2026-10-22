@@ -1,5 +1,5 @@
-// Ратуша — своё здание со своими разделами (РТ-1, docs/city_v3.md, «Решения РТ-1»): «Советники» и «Сословия» (РТ-2 — место
-// оставлено, раздел закрыт). Стройка ушла в «Здания» низа.
+// Ратуша — своё здание со своими разделами (РТ-1, docs/city_v3.md, «Решения РТ-1»): «Советники» и «Сословия» (РТ-2,
+// `HallEstates`). Стройка ушла в «Здания» низа.
 //
 // Совет — три должности карточками: портрет (набор персонажа, `Portrait`), должность и уровень, имя и возраст, черта, польза
 // числом, очки правителя своего вида и жалованье; «Сменить» и «Уволить» — у сидящего, «Назначить» — у пустого места. Касание
@@ -30,11 +30,12 @@ import { Cost } from '@/ui/parts/Cost';
 import { waitLeft } from '@/ui/parts/wait';
 import { tipAt } from './tip';
 import { NoPortrait, Portrait } from './Portrait';
+import { HallEstates } from './HallEstates';
 
 type Part = 'council' | 'estates';
 const PARTS: readonly TabDef<Part>[] = [
   { id: 'council', label: 'Советники', icon: 'post-steward' },
-  { id: 'estates', label: 'Сословия', icon: 'ui-lock' },
+  { id: 'estates', label: 'Сословия', icon: 'ui-scales' },
 ];
 
 /** Разделы ратуши: вкладка живёт в сторе — к совету ведут и двери других окон (`openTownHall`). */
@@ -44,21 +45,11 @@ export function HallCouncil() {
   return (
     <section className="cn">
       <Tabs tabs={PARTS} value={tab} onChange={setTab} />
-      {tab === 'council' ? <Council /> : <Estates />}
+      {tab === 'council' ? <Council /> : <HallEstates />}
     </section>
   );
 }
 
-/** Сословия (РТ-2): место раздела оставлено, сам раздел ещё закрыт. */
-function Estates() {
-  return (
-    <div className="cn-estates">
-      <Icon name="ui-lock" />
-      <b>Сословия</b>
-      <span>Горожане, духовенство и знать — со своими нуждами и голосом в ратуше. Раздел откроется позже.</span>
-    </div>
-  );
-}
 
 /**
  * Три должности. Ступень совета и сколько просителей на место — строкой «Ратуша даёт городу» (`HallGives`), когда придут

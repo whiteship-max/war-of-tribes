@@ -894,8 +894,13 @@ export const estateDecree = (s: GameState): EstateId | null => decreeOf(s).estat
 export const estateMood = (s: GameState, e: EstateId): number => activeBoons(s).reduce((n, { def }) => n + (def.estates?.[e] ?? 0), 0);
 
 /** Все пять сословий сейчас — одна мерка на рычаги, окно, ропот и опись. */
-export function estatesNow(s: GameState): Record<EstateId, EstateNow> {
-  const priv = s.estates?.priv;
+export const estatesNow = (s: GameState): Record<EstateId, EstateNow> => estatesWith(s, s.estates?.priv);
+
+/**
+ * Сословия при привилегиях `priv` — та же мерка, что `estatesNow`: окно меряет ею, что изменит дарование или отнятие, до
+ * касания (примерка той же дверью, правило 18).
+ */
+export function estatesWith(s: GameState, priv: Partial<Record<EstateId, number>> | undefined): Record<EstateId, EstateNow> {
   const infl = influenceOf(levelsOf(s), priv);
   const dec = estateDecree(s);
   const out = {} as Record<EstateId, EstateNow>;

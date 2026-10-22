@@ -99,7 +99,8 @@ describe('указы — одна копия: правят только в де�
 
 describe('варианты — что каждый даст, полями записи и `taxQuote` (Ч14)', () => {
   it('указ и паёк: проценты и мораль — из записи; без перемены — «—»', () => {
-    expect(decreeCells().map((r) => r.id)).toEqual(DECREES.map((d) => d.id));
+    // Указы короны — эта таблица; указы сословий (РТ-2) — своей (`estateDecreeCells`).
+    expect(decreeCells().map((r) => r.id)).toEqual(DECREES.filter((d) => !d.estate).map((d) => d.id));
     expect(rationCells().map((r) => r.id)).toEqual(RATIONS.map((r) => r.id));
     // Область: хоть один вариант без перемены и хоть один с переменой в каждом столбце.
     expect(DECREES.some((d) => d.output === 1) && DECREES.some((d) => d.output !== 1)).toBe(true);

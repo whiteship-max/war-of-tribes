@@ -1,0 +1,494 @@
+/*
+ * Сословия (РТ-2, docs/stability.md, «РТ-2»): специализация и доли влияния полосой, пять карточек с гербом, полосами и пользой,
+ * лист сословия. Шкалы — docs/ui_audit.md, раздел 3: отступы 2·4·8·12, кегли 12·13·15, радиусы 6·10·14·999, значки 16·20,
+ * числа цифрами одной ширины; действия — не ниже 44 (`--tap`). Цвет сословия — финифть его щита (набор ЗН-1): лазурь, червлень,
+ * зелень, чернь, серебро. На 390 × 844 — шапка и пять карточек на первом экране Ратуши.
+ */
+
+.es {
+  --es-merchants: #3f6fb0;
+  --es-guilds: #b23a2e;
+  --es-peasants: #4f8a3b;
+  --es-knights: #5c5a63;
+  --es-clergy: #c9c2b2;
+  margin: 8px 0 0;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- Подсказка первого открытия ---------- */
+.es-hint {
+  margin: 0 0 8px;
+  padding: 8px 12px 12px;
+  border: 1px solid var(--m-gilt, rgba(240, 189, 82, 0.55));
+  border-radius: 10px;
+  background: rgba(232, 164, 60, 0.08);
+}
+.es-hint b {
+  font-size: 15px;
+}
+.es-hint p {
+  margin: 4px 0 8px;
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--muted);
+}
+
+/* ---------- Специализация ---------- */
+.es-city {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  align-items: center;
+  column-gap: 8px;
+  margin: 0 0 4px;
+  padding: 6px 8px;
+  border: 1px solid var(--m-gilt, rgba(240, 189, 82, 0.55));
+  border-radius: 10px;
+  background:
+    radial-gradient(120% 140% at 0% 0%, rgba(232, 164, 60, 0.16), transparent 60%),
+    var(--m-plate);
+  box-shadow: var(--m-plate-bevel);
+}
+.es-city-crest {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  background: radial-gradient(circle at 40% 35%, rgba(255, 220, 160, 0.25), rgba(0, 0, 0, 0.35));
+  box-shadow: inset 0 0 0 1px rgba(240, 189, 82, 0.5);
+}
+.es-city-crest svg {
+  width: 30px;
+  height: 30px;
+}
+.es-city-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.es-city-body b {
+  font-size: 15px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.es-city-body small {
+  font-size: 12px;
+  color: var(--muted);
+}
+.es-share {
+  position: relative;
+  display: flex;
+  height: 8px;
+  margin-top: 3px;
+  overflow: hidden;
+  border-radius: 999px;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.5);
+}
+.es-seg {
+  display: block;
+  height: 100%;
+  border-right: 1px solid rgba(0, 0, 0, 0.45);
+}
+.es-seg:last-of-type {
+  border-right: 0;
+}
+.es-mark,
+.es-bar em {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  width: 2px;
+  margin-left: -1px;
+  background: #f7e6c4;
+  box-shadow: 0 0 2px rgba(0, 0, 0, 0.8);
+}
+
+/* Цвет сословия: сегмент доли, полоса влияния, кромка герба. */
+.es-seg.merchants,
+.merchants .es-bar.infl > i > i {
+  background: var(--es-merchants);
+}
+.es-seg.guilds,
+.guilds .es-bar.infl > i > i {
+  background: var(--es-guilds);
+}
+.es-seg.peasants,
+.peasants .es-bar.infl > i > i {
+  background: var(--es-peasants);
+}
+.es-seg.knights,
+.knights .es-bar.infl > i > i {
+  background: var(--es-knights);
+}
+.es-seg.clergy,
+.clergy .es-bar.infl > i > i {
+  background: var(--es-clergy);
+}
+
+/* ---------- Карточка сословия ---------- */
+.es-card {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) 12px;
+  align-items: center;
+  column-gap: 8px;
+  width: 100%;
+  min-height: 74px;
+  margin: 0 0 3px;
+  padding: 4px 8px;
+  border: 1px solid var(--m-plate-rim);
+  border-radius: 10px;
+  background: var(--m-plate);
+  box-shadow: var(--m-plate-bevel);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.es-card:active {
+  filter: brightness(1.1);
+}
+.es-card.dominant {
+  border-color: var(--bad);
+}
+.es-crest {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+}
+.es-crest svg {
+  width: 40px;
+  height: 40px;
+}
+.es-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.es-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.es-head b {
+  font-size: 15px;
+  line-height: 18px;
+}
+.es-pips {
+  flex: none;
+  font-style: normal;
+  font-size: 12px;
+  letter-spacing: 1px;
+  color: var(--accent);
+}
+.es-state {
+  flex: none;
+  margin-left: auto;
+  padding: 0 6px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 16px;
+}
+.es-state.loyal,
+.es-lead.loyal {
+  color: var(--good);
+}
+.es-state.wait,
+.es-lead.wait {
+  color: var(--muted);
+}
+.es-state.disloyal,
+.es-lead.disloyal {
+  color: var(--bad);
+}
+
+/* Две полосы: подпись, полоса с отметками порогов, число. */
+.es-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+.es-bar {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr) 36px;
+  align-items: center;
+  column-gap: 6px;
+}
+.es-bar small {
+  font-size: 12px;
+  line-height: 15px;
+  color: var(--muted);
+}
+.es-bar > i {
+  position: relative;
+  display: block;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.45);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.5);
+}
+.es-bar > i > i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+}
+.es-bar em {
+  top: -2px;
+  bottom: -2px;
+  opacity: 0.7;
+}
+.es-bar.loyal.loyal > i > i {
+  background: var(--good);
+}
+.es-bar.loyal.wait > i > i {
+  background: #d9b56a;
+}
+.es-bar.loyal.disloyal > i > i {
+  background: var(--bad);
+}
+.es-bar b {
+  font-size: 13px;
+  line-height: 15px;
+  text-align: right;
+}
+.es-fx {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 700;
+}
+.es-fx > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.es-fx .pos {
+  color: var(--good);
+}
+.es-fx .neg {
+  color: var(--bad);
+}
+.es-fx .muted {
+  font-weight: 500;
+  color: var(--muted);
+}
+.es-fx > .es-tag,
+.es-tag {
+  flex: none;
+  overflow: visible;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: rgba(232, 164, 60, 0.18);
+  color: var(--accent);
+  font-weight: 600;
+}
+.es-tag.bad {
+  background: rgba(224, 107, 90, 0.18);
+  color: var(--bad);
+}
+.es-go {
+  font-style: normal;
+  font-size: 20px;
+  color: var(--muted);
+}
+
+/* ---------- Лист сословия ---------- */
+.es-sheet .kit-page {
+  min-height: 0;
+}
+.es-sheet h4 {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin: 12px 0 4px;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.es-sheet h4 .muted {
+  font-size: 12px;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--muted);
+}
+.es-sheet .es-bars {
+  margin: 4px 0;
+}
+.es-lead {
+  margin: 4px 0 0;
+  font-size: 13px;
+}
+.es-note {
+  margin: 2px 0 4px;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--muted);
+}
+.es-warn {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  align-items: start;
+  column-gap: 6px;
+  margin: 4px 0;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--bad);
+}
+.es-warn svg {
+  width: 16px;
+  height: 16px;
+}
+.es-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+.es-lines,
+.es-break,
+.es-preview {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.es-lines li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 24px;
+  font-size: 13px;
+  font-weight: 700;
+}
+.es-lines li.pos {
+  color: var(--good);
+}
+.es-lines li.neg {
+  color: var(--bad);
+}
+.es-lines svg,
+.es-break svg,
+.es-preview svg {
+  flex: none;
+  width: 16px;
+  height: 16px;
+}
+.es-priv,
+.es-gift,
+.es-decree {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 8px;
+  min-height: 52px;
+  margin: 0 0 4px;
+  padding: 4px 8px;
+  border: 1px solid var(--m-plate-rim);
+  border-radius: 10px;
+  background: var(--m-plate);
+}
+.es-priv.on {
+  border-color: var(--m-gilt, rgba(240, 189, 82, 0.55));
+}
+.es-decree {
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+}
+.es-decree.on {
+  border-color: var(--good);
+}
+.es-decree svg {
+  width: 20px;
+  height: 20px;
+}
+.es-priv-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.es-priv-body b {
+  font-size: 13px;
+}
+.es-priv-body small {
+  font-size: 12px;
+  line-height: 15px;
+  color: var(--muted);
+}
+.es-priv small.pos,
+.es-decree small.pos {
+  font-size: 12px;
+  color: var(--good);
+}
+.es-priv .kit-btn,
+.es-gift .kit-btn,
+.es-decree .kit-btn {
+  min-height: var(--tap);
+  min-width: 96px;
+  font-size: 13px;
+}
+.es-gift .cost {
+  margin-top: 2px;
+}
+.es-preview {
+  margin: 0 0 4px;
+  padding: 4px 8px;
+  border-left: 2px solid var(--accent);
+}
+.es-preview li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 20px;
+  font-size: 12px;
+}
+.es-preview li span {
+  min-width: 0;
+  flex: 1;
+}
+.es-preview b.pos {
+  color: var(--good);
+}
+.es-preview b.neg {
+  color: var(--bad);
+}
+.es-preview small {
+  color: var(--muted);
+}
+.es-break li {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 6px;
+  min-height: 22px;
+  font-size: 12px;
+}
+.es-break li b {
+  font-size: 13px;
+}
+.es-break li b.pos {
+  color: var(--good);
+}
+.es-break li b.neg {
+  color: var(--bad);
+}
+.es-break li.sum {
+  margin-top: 2px;
+  padding-top: 2px;
+  border-top: 1px solid var(--m-plate-rim);
+  font-weight: 700;
+}

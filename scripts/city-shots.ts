@@ -12,7 +12,8 @@
 //                                                печатает, влезает ли окно без прокрутки (ЗД-1, docs/city_v3.md);
 //                                                `PANEL=tab:buildings` — раздел шторки («Здания» низа, РТ-1), `HALL=7` — уровень
 //                                                ратуши, `PANELCLICK='.cn-card .kit-btn|…'` — касания по очереди, кадр после каждого
-//                                                (`PANELWAIT=3000` — пауза перед кадром, мс: портреты совета рисуются очередью)
+//                                                (`PANELWAIT=3000` — пауза перед кадром, мс: портреты совета рисуются очередью);
+//                                                `LEVELS=market:8` — уровни построек и здесь (РТ-2: перевес сословия)
 //   GAME=1 WX=clear,rain,storm npm run city:shots — погода адресом (`?weather=`, docs/city.md, 15): кадр игры на каждую,
 //                                                `WXLOOK=market:70` — вблизи постройки (тип:расстояние; `-4,10,-30:60` —
 //                                                точка плана; `…:60:150` — камера повёрнута на 150°), `WXMAP=1` —
@@ -320,6 +321,8 @@ async function panelShots(tab: Tab): Promise<void> {
     for (const k of Object.keys(s.resources)) s.resources[k] += 500;
     for (const k of Object.keys(s.equipment)) s.equipment[k] += 20;
     Object.assign(s, ${JSON.stringify(JSON.parse(process.env.PANELSTATE ?? '{}'))});
+    const lv = ${JSON.stringify(Object.fromEntries(list(process.env.LEVELS ?? '', '').map((p) => p.split(':')).map(([t, n]) => [t, Number(n)])))};
+    for (const b of s.buildings) if (lv[b.type]) b.level = lv[b.type];
     const hall = s.buildings.find((x) => x.type === 'town_hall');
     if (hall && ${Number(process.env.HALL ?? 0)} > 0) hall.level = ${Number(process.env.HALL ?? 0)};
     s.tutorialDone = true;
