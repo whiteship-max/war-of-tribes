@@ -1077,3 +1077,13 @@ LEVELS=market:8,tavern:7,storage:8,cache:6 PANELSTATE='{"estates":{"priv":{"merc
   находка. Симуляция не тронута — счётные отчёты от РТ-2б не сдвигаются.
 - Не проверено на живом телефоне: подкачка в Telegram на Android (простой и `navigator.connection`) и на iOS (таймер),
   окно зимы своим куском (docs/PHONE_CHECK.md).
+
+## РТ-2б. Пол
+
+На `d2eeb82` (облако, 4 ядра, по одному, `timeout 15m`): `npm test` — 4826 прошли, 42 пропущены, 1 упал:
+`scripts/lib/fan.test.ts` («по процессам») — тот же облачный, что в Р10 (`fan.ts` и `budget.ts` не тронуты); `npm run
+typecheck` — чисто; `npm run build` — первая загрузка 595.2 КБ (не выросла: 595.3 у РТ-2). Приёмки отчётами не было
+(облако); последний принятый — как записано у `master` (docs/handbook/acceptance.md). Брошенного замка машины не было. Push
+`game/rt-2`.
+
+РТ-2б: ГОТОВО
