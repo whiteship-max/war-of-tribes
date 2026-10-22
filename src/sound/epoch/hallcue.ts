@@ -2,7 +2,15 @@
 // здания, а она докачивает кусок голосов (`halls.ts`) по первому такому касанию. Касание, пришедшее до куска, звучит, когда
 // кусок доехал, — если не опоздало (`HALL_LATE`). Выключенный звук и погашенная машинка молчат и ничего не качают.
 import type { BuildingTypeId } from '@/game/types';
+import type { SheetView } from '@/game/store';
 import type { HallMood, HallPlay } from './halls';
+
+/**
+ * Чей голос звучит при смене шторки: номер здания, если карточку открыло **касание здания в сцене города** (`touched`, решение
+ * владельца по ЗВ-1); карточка из окна («Казармы» в «Дружине», «Показать в городе»), с открытой картой или не здания — молчит.
+ */
+export const hallHeard = (g: { mapOpen: boolean; sheet: SheetView | null }): number | null =>
+  !g.mapOpen && g.sheet?.kind === 'building' && g.sheet.touched ? g.sheet.id : null;
 
 /** Что умеет кусок голосов. */
 export interface HallPlayer {

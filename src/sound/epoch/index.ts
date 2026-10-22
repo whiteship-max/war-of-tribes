@@ -11,7 +11,7 @@ import { levelNow } from '@/render/gfx';
 import { cityNear, skitsHeard } from '../ear';
 import { cityAudio } from '../city';
 import { Ambience, night, type Hearing } from './ambience';
-import { HallCue } from './hallcue';
+import { HallCue, hallHeard } from './hallcue';
 import { soundOn } from '../settings';
 import { EpochMusic } from './music';
 import { seeded } from './rng';
@@ -143,8 +143,8 @@ export function startEpoch(out: { music: GainNode; fx: GainNode; amb: GainNode }
     if (grew === 1) cue('built');
   });
 
-  // Голос здания (docs/city_v3.md, ЗВ-1): открылась карточка здания — касанием в городе или переходом к нему. Свой кусок
-  // (`halls.ts`) — по первому такому касанию; на выходе «эффектов», под их громкостью.
+  // Голос здания (docs/city_v3.md, ЗВ-1): открылась карточка здания касанием в сцене города (`hallHeard`); из окна — молчит.
+  // Свой кусок (`halls.ts`) — по первому такому касанию; на выходе «эффектов», под их громкостью.
   const halls = new HallCue(
     () => import('./halls').then((m) => new m.HallVoices(kit, uiOut)),
     () => ctx.currentTime + 0.02,
@@ -155,9 +155,9 @@ export function startEpoch(out: { music: GainNode; fx: GainNode; amb: GainNode }
     },
   );
   function hallTap(g: ReturnType<typeof useGame.getState>): void {
-    const sheet = g.sheet;
-    if (g.mapOpen || sheet?.kind !== 'building') return;
-    const b = g.s.buildings.find((x) => x.id === sheet.id);
+    const id = hallHeard(g);
+    if (id === null) return;
+    const b = g.s.buildings.find((x) => x.id === id);
     if (b) halls.tap(b.type, b.level);
   }
   // Первое касание в игре могло само открыть карточку: кусок звука приехал позже неё.

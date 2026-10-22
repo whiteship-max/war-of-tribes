@@ -1,12 +1,13 @@
 // Голос здания (docs/city_v3.md, ЗВ-1): у каждого здания свой, короткий, тихий, без повторов подряд и не чаще раза в 4 с;
 // уровень слышен, ночь и тревога звучат своим; выключенный звук молчит.
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { BUILDINGS } from '@/game/data/buildings';
 import type { BuildingTypeId } from '@/game/types';
 import { ALARM_VOICES, HALL_GAP, HALL_LOUD, HALL_MAX, HALL_MIN, HALL_MIX, HALL_SWAP, HALL_VOICES, HallVoices, layersAt, type HallMood } from './halls';
-import { HALL_LATE, HallCue, type HallPlayer } from './hallcue';
+import { HALL_LATE, HallCue, hallHeard, type HallPlayer } from './hallcue';
+import type { SheetView } from '@/game/store';
 import { seeded } from './rng';
 import type { Kit } from './synth';
 
@@ -258,6 +259,35 @@ describe('голос здания: дверь', () => {
     on = false;
     await new Promise((r) => setTimeout(r, 0));
     expect(log).toEqual([]);
+  });
+
+  // Решение владельца по ЗВ-1: голос — только касанием здания в сцене города; карточка, открытая из окна, молчит. Область
+  // правила — открытая карточка здания при закрытой карте: в ней две точки, касание в сцене и дверь из окна.
+  it('голос — только при касании здания в сцене; карточка из окна («Казармы» в «Дружине») и с открытой картой — молчит', () => {
+    const scene: SheetView = { kind: 'building', id: 7, touched: true };
+    const panel: SheetView = { kind: 'building', id: 7 };
+    expect(hallHeard({ mapOpen: false, sheet: scene }), 'касание в сцене — голос').toBe(7);
+    expect(hallHeard({ mapOpen: false, sheet: panel }), 'из окна — молчит').toBeNull();
+    expect(hallHeard({ mapOpen: true, sheet: scene }), 'с открытой картой — молчит').toBeNull();
+    expect(hallHeard({ mapOpen: false, sheet: { kind: 'tab', tab: 'people' } }), 'не здание — молчит').toBeNull();
+    expect(hallHeard({ mapOpen: false, sheet: null })).toBeNull();
+  });
+
+  it('с меткой «в сцене» карточку открывает одна дверь — касание в сцене города; звук спрашивает метку', () => {
+    const SRC = join(__dirname, '..', '..');
+    const walk = (dir: string): string[] =>
+      readdirSync(dir).flatMap((n) => {
+        const p = join(dir, n);
+        return statSync(p).isDirectory() ? walk(p) : /\.tsx?$/.test(n) && !/\.test\.tsx?$/.test(n) ? [p] : [];
+      });
+    const callers = walk(SRC).filter((f) => /openBuilding\([^)]*'scene'\)/.test(readFileSync(f, 'utf8')));
+    expect(callers.map((f) => f.slice(SRC.length + 1))).toEqual(['ui/GameCanvas.tsx']);
+    expect(readFileSync(join(SRC, 'ui', 'GameCanvas.tsx'), 'utf8')).toMatch(/scene\.onPick = \(id\) => useGame\.getState\(\)\.openBuilding\(id, 'scene'\)/);
+    expect(readFileSync(join(__dirname, 'index.ts'), 'utf8')).toMatch(/const id = hallHeard\(g\);/);
+    // Метку ставит только `openBuilding` с `via: 'scene'`: дверь из окна зовёт её без второго довода.
+    const store = readFileSync(join(SRC, 'game', 'store.ts'), 'utf8');
+    expect(store).toMatch(/set\(\{ sheet: \{ kind: 'building', id, \.\.\.\(via === 'scene' \? \{ touched: true as const \} : \{\}\) \} \}\);/);
+    expect(store.match(/touched: true/g)?.length, 'метку ставит одно место').toBe(1);
   });
 
   it('кусок голосов — своей докачкой из звука города, на выходе «эффектов» и только при включённом звуке', () => {
