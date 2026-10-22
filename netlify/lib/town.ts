@@ -26,6 +26,7 @@ import { BUILD_QUEUE_MAX, MAX_BUILDING_LEVEL, START_POP } from '../../src/game/c
 import { gameDaysOfMs, gameDaysPerHour, gameSecondsOfMs } from '../../src/game/pace.js';
 import { upgradeWork } from '../../src/game/labour.js';
 import { rushFreeWork } from '../../src/game/gemrules.js';
+import { MERGED_INTO, foldTown } from '../../src/game/yardmerge.js';
 import {
   EVENT_WORK_MAX,
   POP_RATE_MAX,
@@ -150,11 +151,11 @@ export function readTown(v: unknown): TownBook | null {
   if (since <= 0 || at <= 0) return null;
   const s = (r.site && typeof r.site === 'object' ? r.site : null) as Record<string, unknown> | null;
   const site =
-    s && typeof s.type === 'string' && s.type in BUILDING_BY_ID && Number.isInteger(s.level)
+    s && typeof s.type === 'string' && (s.type in BUILDING_BY_ID || s.type in MERGED_INTO) && Number.isInteger(s.level)
       ? { type: s.type, level: Math.floor(n0(s.level)), done: n0(s.done) }
       : null;
   const peak = (r.peak && typeof r.peak === 'object' ? r.peak : {}) as Record<string, unknown>;
-  return {
+  return foldBook({
     since,
     at,
     levels: readCounts(r.levels),
@@ -169,6 +170,32 @@ export function readTown(v: unknown): TownBook | null {
     paid: Array.isArray(r.paid) ? r.paid.filter((x): x is string => typeof x === 'string' && x.length <= 48).slice(-PAID_MAX) : [],
     queue: Array.isArray(r.queue) ? r.queue.filter((x): x is string => typeof x === 'string' && x.length <= 48).slice(0, BUILD_QUEUE_MAX) : [],
     peak: { pop: n0(peak.pop), power: n0(peak.power) },
+  });
+}
+
+/**
+ * Книга после перехода ЗД-1 — тем же правилом, что опись и партия (`yardmerge.foldTown`): уровень двора — больший из двух
+ * подтверждённых, очередь и идущая стройка — без ушедших построек, стройка обеих частей на один уровень — одной стройкой
+ * двора. Уровни, ускоренные за алмазы и ещё не подтверждённые, переходят на двор: «Загон 4» — это «Ферма 4». Книга без
+ * ушедших построек проходит тем же объектом.
+ */
+export function foldBook(book: TownBook): TownBook {
+  const queue = book.queue.map((k) => {
+    const i = k.lastIndexOf(':');
+    return { type: k.slice(0, i), level: Number(k.slice(i + 1)) };
+  });
+  const t = foldTown({ levels: book.levels, queue, site: book.site });
+  const paid = book.paid.map((k) => {
+    const i = k.lastIndexOf(':');
+    return Object.prototype.hasOwnProperty.call(MERGED_INTO, k.slice(0, i)) ? keyOf(MERGED_INTO[k.slice(0, i)], Number(k.slice(i + 1))) : k;
+  });
+  if (t.levels === book.levels && paid.every((k, i) => k === book.paid[i])) return book;
+  return {
+    ...book,
+    levels: t.levels as Counts,
+    site: t.site ? { type: t.site.type, level: t.site.level, done: t.site.done } : null,
+    queue: (t.queue ?? []).map((e) => keyOf(e.type, e.level)),
+    paid: [...new Set(paid)],
   };
 }
 

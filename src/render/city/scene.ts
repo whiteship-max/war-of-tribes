@@ -7,7 +7,7 @@
 // Ленивый кусок: едет до игры (`main.tsx`) и кладёт свой класс в `SCENES`.
 import * as THREE from 'three';
 import type { BuildingTypeId, GameState, ResourceId } from '@/game/types';
-import { armySize, buildingAttention, buildingProduction, buildingTitle, population, productionPerDay, storageCap, type Attention } from '@/game/derived';
+import { armySize, buildingAttention, buildingProduction, buildingTitle, population, productionPerDay, storageCap, workerCount, type Attention } from '@/game/derived';
 import { RESOURCE_IDS } from '@/game/constants';
 import type { SmokeSource } from '../weather';
 import { hearCity } from '@/sound/ear';
@@ -889,7 +889,7 @@ export class CityScene extends TribeScene {
     const mourn = mournClock.observe(s);
     this.mood = (typeof location !== 'undefined' ? forcedMood(location.search) : null) ?? moodOf(s, this.threat, until, mourn);
     // Трактир и амбар живут своим распорядком, в храме служат внутри — у них работников у фасада нет.
-    const busy = s.buildings.filter((b) => (s.workers[b.id] ?? 0) > 0 && b.type !== 'tavern' && b.type !== 'storage' && b.type !== 'church').map((b) => b.type);
+    const busy = s.buildings.filter((b) => workerCount(s, b.id) > 0 && b.type !== 'tavern' && b.type !== 'storage' && b.type !== 'church').map((b) => b.type);
     const key = busy.join(',');
     if (key !== this.stationKey) {
       this.stationKey = key;

@@ -10,30 +10,31 @@
 // «Ускорить 💎N» (`Rush.tsx`, docs/gems.md) — единственная копия ускорения (Д5, docs/ui_v2.md, 5.7): ярлык у лесов и
 // лист ратуши ведут сюда.
 import { type ReactNode } from 'react';
-import type { Building } from '@/game/types';
+import type { Building, JobId } from '@/game/types';
 import { useGame } from '@/game/store';
 import { MAX_BUILDING_LEVEL } from '@/game/constants';
 import { dec } from '@/game/num';
-import { BUILDING_BY_ID } from '@/game/data/buildings';
+import { BUILDING_BY_ID, jobsOf } from '@/game/data/buildings';
+import { YARD_BY_JOB } from '@/game/data/yards';
 import { JOB_BY_ID } from '@/game/data/jobs';
 import { ORDER_TEXT } from '@/game/data/order';
 import {
-  bondedCount,
   bondedIdle,
   bondedTotal,
   buildRate,
   buildingById,
-  buildingSlots,
   buildingTitle,
+  deedBonded,
+  deedMasters,
+  deedSlots,
+  deedTakesBonded,
+  deedWorkers,
   queuePlace,
   idleCount,
   isOutsideWall,
   isSite,
-  mastersOn,
   maxLevelFor,
-  takesBonded,
   upgradeInfo,
-  workerCount,
 } from '@/game/derived';
 import { assignBonded, assignWorker, cancelUpgrade, startUpgrade, unassignBonded, unassignWorker } from '@/game/sim/actions';
 import { asGame } from '@/game/pace';
@@ -43,7 +44,7 @@ import { Steps } from '@/ui/parts/Steps';
 import { waitSpan } from '@/ui/parts/wait';
 import { gainText, spareSlotsHelp, upgradeGains, type UpgradeGain } from '@/ui/parts/upgrade';
 import { tipAt } from './tip';
-import { buildingTip, workerTip, workerYield } from './buildingTips';
+import { buildingTip, deedTip, workerTip, workerYield } from './buildingTips';
 import { Confirm } from './Confirm';
 import { MINIGAMES, MINIGAME_BY_ID, MINIGAME_COST, type MinigameId } from '@/game/data/minigames';
 import { Row } from '@/ui/kit/Row';
@@ -148,12 +149,18 @@ export function BuildingNew({ id, data }: { id: number; data: (b: Building) => R
 
       {isOutsideWall(b.type) && <div className="nx-bwarn">Двор стоит за стеной. Прорвавшийся набег разгонит людей.</div>}
 
-      <WorkerRow b={b} gains={gains} />
-      {/* Промысел этого двора — строкой-дверью в окно «Промыслы» (Д6, docs/ui_v2.md, 5.7): игра, её добыча и энергия — там,
-          одной копией; здесь — что это за игра и куда идти. */}
-      {MINIGAMES.filter((g) => g.yard === b.type).map((g) => (
-        <TradeLink key={g.id} id={g.id} />
-      ))}
+      {jobsOf(b.type).length > 1 ? (
+        <Deeds b={b} gains={gains} trades />
+      ) : (
+        <>
+          <WorkerRow b={b} gains={gains} />
+          {/* Промысел этого двора — строкой-дверью в окно «Промыслы» (Д6, docs/ui_v2.md, 5.7): игра, её добыча и энергия —
+              там, одной копией; здесь — что это за игра и куда идти. */}
+          {jobsOf(b.type).flatMap((job) => MINIGAMES.filter((g) => g.deed === job)).map((g) => (
+            <TradeLink key={g.id} id={g.id} />
+          ))}
+        </>
+      )}
       {data(b)}
     </div>
   );
@@ -178,33 +185,78 @@ function TradeLink({ id }: { id: MinigameId }) {
   );
 }
 
-/** Рабочие одной строкой: значок (тап — свободные руки и места), «3/12», шаг. Невольники — второй строкой. Тот же ряд — в
- * листе постройки ратуши (`Hall.HallCard`). */
-export function WorkerRow({ b, gains }: { b: Building; gains: UpgradeGain[] | null }) {
+/**
+ * Дела двора (ЗД-1): у Фермы — поле и загон, у Охотничьего двора — охота и сбор, у Шахты — руда и камень. Каждое — своя
+ * плашка рядом с другой: имя дела, рабочие «3/12» с шагом, выработка в день сейчас и с ещё одним, касанием — разбор; под
+ * ней — промыслы этого дела кнопками-дверями в «Промыслы». Уровень и улучшение — общие, в шапке окна. Тот же ряд — в
+ * листе постройки ратуши (`HallBuild.HallCard`, без промыслов).
+ */
+export function Deeds({ b, gains, trades = false }: { b: Building; gains: UpgradeGain[] | null; trades?: boolean }) {
+  return (
+    <div className="nx-deeds">
+      {jobsOf(b.type).map((job) => (
+        <div className="nx-deed" key={job}>
+          <WorkerRow b={b} gains={gains} job={job} />
+          {trades && <DeedTrades job={job} />}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Промыслы дела — кнопками в один ряд: имя игры и цена в энергии; дверь — в «Промыслы». */
+function DeedTrades({ job }: { job: JobId }) {
+  const games = MINIGAMES.filter((g) => g.deed === job);
+  if (games.length === 0) return null;
+  return (
+    <div className="nx-dtrades">
+      {games.map((g) => (
+        <button key={g.id} className="nx-dtrade" onClick={() => goTo(WINDOW.energy)} aria-label={`Промысел: ${g.name}: ${sourceWord(WINDOW.energy)}`}>
+          <Icon name={iconName('mini', g.id)} />
+          <span className="one-line">{g.name}</span>
+          <small>
+            <Icon name="ui-energy" /> {MINIGAME_COST}
+          </small>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Рабочие дела одной строкой: значок (тап — свободные руки и места), «3/12», шаг. Невольники — второй строкой. У двора с
+ * двумя делами подпись ряда — имя дела, у остальных — «Рабочие». Дело не названо — первое дело постройки. Тот же ряд — в
+ * листе постройки ратуши (`Hall.HallCard`).
+ */
+export function WorkerRow({ b, gains, job: deed }: { b: Building; gains: UpgradeGain[] | null; job?: JobId }) {
   const s = useGame((g) => g.s);
   const act = useGame((g) => g.act);
-  const def = BUILDING_BY_ID[b.type];
-  if (!def.job) return null;
-  const job = JOB_BY_ID[def.job];
-  const slots = buildingSlots(b);
-  const workers = workerCount(s, b.id);
-  const bonded = bondedCount(s, b.id);
-  const masters = mastersOn(s, b.id);
+  const jobs = jobsOf(b.type);
+  const id = deed ?? jobs[0];
+  if (!id || !jobs.includes(id)) return null;
+  const job = JOB_BY_ID[id];
+  const many = jobs.length > 1;
+  const slots = deedSlots(b);
+  const workers = deedWorkers(s, id);
+  const bonded = deedBonded(s, id);
+  const masters = deedMasters(s, id);
   const free = idleCount(s);
   const hands = workers + bonded + masters;
-  const bondedRow = takesBonded(b) && (bondedTotal(s) > 0 || bonded > 0);
-  const tip = workerTip(job.name, hands, slots, free, gains, spareSlotsHelp(s, b, hands));
+  const bondedRow = deedTakesBonded(id) && (bondedTotal(s) > 0 || bonded > 0);
+  const label = many ? (YARD_BY_JOB.get(id)?.deed ?? job.name) : 'Рабочие';
+  const tip = workerTip(many ? `${label}: ${job.name.toLowerCase()}` : job.name, hands, slots, free, gains, spareSlotsHelp(s, b, hands, many ? id : undefined));
   // Что даёт шаг (отзыв тестеров 11.10): выработка в день сейчас и с ещё одним — под рядом.
-  const yields = workerYield(s, b);
+  const yields = workerYield(s, b, id);
+  const why = many ? deedTip(s, b, id) : null;
 
   return (
     <>
       <div className="nx-wrow">
-        <button className="nx-wico" onClick={(e) => tipAt(e.currentTarget, tip)} aria-label={`${job.name}: места`}>
+        <button className="nx-wico" onClick={(e) => tipAt(e.currentTarget, tip)} aria-label={`${label}: места`}>
           <Icon name={iconName('job', job.id)} />
         </button>
         <span className="nx-wcount">
-          <small className="nx-wlbl">Рабочие</small>
+          <small className="nx-wlbl">{label}</small>
           <b>{workers}</b>
           {bonded + masters > 0 && <i>+{bonded + masters}</i>}
           <small>/{slots}</small>
@@ -214,12 +266,13 @@ export function WorkerRow({ b, gains }: { b: Building; gains: UpgradeGain[] | nu
           max={slots - bonded - masters}
           spare={free}
           step={10}
-          addTut="slot-add"
-          onChange={(d) => act((st) => (d > 0 ? assignWorker(st, b.id, d) : unassignWorker(st, b.id, -d)))}
+          addTut={many ? `slot-add-${id}` : 'slot-add'}
+          names={many ? { less: `${label}: снять`, more: `${label}: поставить` } : undefined}
+          onChange={(d) => act((st) => (d > 0 ? assignWorker(st, b.id, d, id) : unassignWorker(st, b.id, -d, id)))}
         />
       </div>
       {yields.length > 0 && (
-        <p className="nx-wgain">
+        <p className="nx-wgain" onClick={why ? (e) => tipAt(e.currentTarget, why) : undefined} role={why ? 'button' : undefined}>
           В день:
           {yields.map((y) => (
             <span key={y.id}>
@@ -227,7 +280,7 @@ export function WorkerRow({ b, gains }: { b: Building; gains: UpgradeGain[] | nu
               {y.more !== null && <b> → {dec(y.more, 1)}</b>}
             </span>
           ))}
-          {yields.some((y) => y.more !== null) && <small>с ещё одним рабочим</small>}
+          {yields.some((y) => y.more !== null) && <small>с ещё одним</small>}
         </p>
       )}
       {bondedRow && (
@@ -235,7 +288,7 @@ export function WorkerRow({ b, gains }: { b: Building; gains: UpgradeGain[] | nu
           <button
             className="nx-wico"
             onClick={(e) => tipAt(e.currentTarget, { title: 'Невольники', body: `Без места: ${bondedIdle(s)}. Места общие с вольными.` })}
-            aria-label="Невольники: места"
+            aria-label={many ? `${label}: невольники` : 'Невольники: места'}
           >
             {ORDER_TEXT.bondedIcon}
           </button>
@@ -248,7 +301,7 @@ export function WorkerRow({ b, gains }: { b: Building; gains: UpgradeGain[] | nu
             max={slots - workers}
             spare={bondedIdle(s)}
             step={10}
-            onChange={(d) => act((st) => (d > 0 ? assignBonded(st, b.id, d) : unassignBonded(st, b.id, -d)))}
+            onChange={(d) => act((st) => (d > 0 ? assignBonded(st, b.id, d, id) : unassignBonded(st, b.id, -d, id)))}
           />
         </div>
       )}

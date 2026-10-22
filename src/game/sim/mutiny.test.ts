@@ -652,7 +652,7 @@ describe('невольничий ряд — та же лавка, а не вто
     for (let season = 0; season < 4; season++) {
       s.time = season * 5 * DAY_LENGTH + 1;
       for (const job of BONDED_JOBS) {
-        const place = s.buildings.find((b) => BUILDING_BY_ID[b.type].job === job)!;
+        const place = deedBuilding(s, job)!;
         const mult = workerMultiplier(s, job, place) * BONDED_OUTPUT;
         let gold = -selfCost(GOOD_BY_ID.food);
         for (const r of RESOURCE_IDS) gold += (JOB_BY_ID[job].yield[r] ?? 0) * mult * selfCost(GOOD_BY_ID[r]);

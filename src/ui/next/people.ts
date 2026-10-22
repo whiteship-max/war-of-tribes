@@ -7,7 +7,8 @@
 // строку с функцией игры и каждый разбор — с итогом (`people.test.ts`).
 import type { Building, BuildingTypeId, GameState, JobId } from '@/game/types';
 import { MORALE_GROWTH_ZERO } from '@/game/constants';
-import { BUILDING_BY_ID } from '@/game/data/buildings';
+import { jobsOf } from '@/game/data/buildings';
+import { YARD_BY_JOB } from '@/game/data/yards';
 import { FREE_JOBS, JOB_BY_ID } from '@/game/data/jobs';
 import {
   bondedCount,
@@ -23,6 +24,7 @@ import {
   mastersOn,
   moraleBreakdown,
   workerCount,
+  deedWorkers,
 } from '@/game/derived';
 import { popGrowth } from '@/game/sim/population';
 import { dec } from '@/game/num';
@@ -229,6 +231,13 @@ export interface Workplace {
 
 const jobName = (job: JobId | undefined): string => (job ? JOB_BY_ID[job].name : '');
 
+/** Чем заняты люди постройки: у одного дела — имя профессии, у двора с двумя делами — дела с людьми (ЗД-1). */
+function deedsLine(s: GameState, b: Building): string {
+  const jobs = jobsOf(b.type);
+  if (jobs.length <= 1) return jobName(jobs[0]);
+  return jobs.map((job) => `${(YARD_BY_JOB.get(job)?.deed ?? jobName(job)).toLowerCase()} ${fmtInt(deedWorkers(s, job))}`).join(' · ');
+}
+
 /**
  * Места работы — куда поставить свободные руки. Каждая постройка с местами (`buildingSlots` > 0): жители на местах,
  * свободные места (`buildingSlots − handsCount` — места у вольных, невольников и мастеров общие). Сначала те, где рук нет
@@ -252,7 +261,7 @@ export function workplaces(s: GameState): Workplace[] {
       id: b.id,
       type: b.type,
       name: buildingTitle(s, b.type),
-      sub: [jobName(BUILDING_BY_ID[b.type].job), ...extra].filter(Boolean).join(' · '),
+      sub: [deedsLine(s, b), ...extra].filter(Boolean).join(' · '),
       people,
       free,
       rank: hands === 0 ? 0 : free > 0 ? 1 : 2,

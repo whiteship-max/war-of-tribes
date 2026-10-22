@@ -69,7 +69,7 @@ import {
   emptyResources,
 } from './constants';
 import { asGame, sessionSec, type GameSec } from './pace';
-import { BUILDING_BY_ID, MASTERS_AT, type BuildingStats, slotsAt } from './data/buildings';
+import { BUILDING_BY_ID, MASTERS_AT, jobsOf, type BuildingStats, slotsAt } from './data/buildings';
 import { surveyRadiusOf } from './data/survey';
 import { buildRateOf, defenseOf, hallBuildMult, headsFoodPerDay, heatingWood, housingOf, keenAt, towerSeatsAt, soldierFoodPerDay as soldierFoodAt, stashAt, storageOf, type Levels } from './build';
 import { FAITH_BY_ID, OBSERVANCE_BY_ID, tiltAt, type FaithDef, type FaithTilt } from './data/faiths';
@@ -164,25 +164,46 @@ export const currentSite = (s: GameState): Building | null => (s.buildings.some(
 export { levelOutputMult } from './selfcost';
 
 /**
- * Рабочих мест в здании. Личного навыка у жителя нет — всю его роль взял на себя
- * уровень здания: он и добавляет места, и поднимает выработку каждому рабочему.
+ * Рабочих мест **одного дела** здания (ЗД-1): у двора с двумя делами — у каждого столько, сколько было у прежнего здания
+ * того же уровня. Личного навыка у жителя нет — всю его роль взял на себя уровень здания: он и добавляет места, и
+ * поднимает выработку каждому рабочему.
  */
+export const deedSlots = (b: Building): number => slotsAt(BUILDING_BY_ID[b.type], b.level);
+
+/** Рабочих мест в здании — на всех его делах. */
 export function buildingSlots(b: Building): number {
-  return slotsAt(BUILDING_BY_ID[b.type], b.level);
+  return deedSlots(b) * jobsOf(b.type).length;
 }
 
-/** Сколько человек работает в этом здании. Назначение — число, а не список людей. */
-export const workerCount = (s: GameState, buildingId: number): number =>
-  Math.max(0, Math.floor(s.workers?.[buildingId] ?? 0));
+/** Здание дела: профессия знает своё здание (`JobDef.building`), а здание каждого типа в посёлке одно. */
+export const deedBuilding = (s: GameState, job: JobId): Building | null => {
+  const type = JOB_BY_ID[job]?.building;
+  return type ? buildingOfType(s, type) : null;
+};
+
+/** Сколько человек стоит на деле (ЗД-1): ключ назначения — профессия дела. */
+export const deedWorkers = (s: GameState, job: JobId): number => Math.max(0, Math.floor(s.workers?.[job] ?? 0));
+
+/** Сколько невольников стоит на деле. */
+export const deedBonded = (s: GameState, job: JobId): number => Math.max(0, Math.floor(s.bondedWork?.[job] ?? 0));
+
+/** Сколько человек работает в этом здании — на всех его делах. Назначение — число, а не список людей. */
+export const workerCount = (s: GameState, buildingId: number): number => {
+  const b = buildingById(s, buildingId);
+  return b ? jobsOf(b.type).reduce((n, job) => n + deedWorkers(s, job), 0) : 0;
+};
 
 /** Сколько человек занято этой работой вольным сбором — без места в здании. */
 export const freeJobCount = (s: GameState, job: JobId): number =>
   Math.max(0, Math.floor(s.freeJobs?.[job] ?? 0));
 
-/** Сколько человек вообще при деле: в зданиях и на вольном сборе. */
+/** Профессии, у которых есть место в здании: на них стоят назначения `workers` и `bondedWork`. */
+export const PLACED_JOBS: readonly JobId[] = JOBS.filter((j) => j.building).map((j) => j.id);
+
+/** Сколько человек вообще при деле: на делах зданий и на вольном сборе. */
 export function busyCount(s: GameState): number {
   let n = 0;
-  for (const b of s.buildings) n += workerCount(s, b.id);
+  for (const job of PLACED_JOBS) n += deedWorkers(s, job);
   for (const job of FREE_JOBS) n += freeJobCount(s, job);
   return n;
 }
@@ -192,30 +213,43 @@ export const idleCount = (s: GameState): number => Math.max(0, s.pop - busyCount
 
 // ---------- Невольники на местах ----------
 //
-// Устроены ровно как жители: число в посёлке (`s.bonded`) и число в каждом
-// здании (`s.bondedWork`). Места у них общие с вольными — сколько рук стоит в
-// здании, спрашивают у `handsCount`, а не складывают два числа по месту вызова.
+// Устроены ровно как жители: число в посёлке (`s.bonded`) и число на каждом
+// деле (`s.bondedWork`). Места у них общие с вольными — сколько рук стоит на
+// деле, спрашивают у `deedHands`, а не складывают числа по месту вызова.
 
 /** Невольников в посёлке. */
 export const bondedTotal = (s: GameState): number => Math.max(0, Math.floor(s.bonded ?? 0));
 
-/** Сколько невольников стоит в этом здании. Назначение — число, как у жителей. */
-export const bondedCount = (s: GameState, buildingId: number): number =>
-  Math.max(0, Math.floor(s.bondedWork?.[buildingId] ?? 0));
+/** Сколько невольников стоит в этом здании — на всех его делах. Назначение — число, как у жителей. */
+export const bondedCount = (s: GameState, buildingId: number): number => {
+  const b = buildingById(s, buildingId);
+  return b ? jobsOf(b.type).reduce((n, job) => n + deedBonded(s, job), 0) : 0;
+};
 
 /** Наёмных мастеров в Мастерской (`GameState.masters`). */
 export const mastersCount = (s: GameState): number => Math.max(0, Math.floor(s.masters ?? 0));
+
+/** Дело, на местах которого стоят наёмные мастера: дело Мастерской (`MASTERS_AT`). */
+export const MASTERS_JOB: JobId = jobsOf(MASTERS_AT)[0];
+
+/** Сколько наёмных мастеров стоит на деле: все — на деле Мастерской, на остальных ноль. */
+export const deedMasters = (s: GameState, job: JobId): number => (job === MASTERS_JOB ? mastersCount(s) : 0);
 
 /** Сколько наёмных мастеров стоит на местах этого здания: все — в Мастерской, в остальных ноль. */
 export const mastersOn = (s: GameState, buildingId: number): number =>
   s.buildings.find((b) => b.id === buildingId)?.type === MASTERS_AT ? mastersCount(s) : 0;
 
 /**
- * Сколько рук на местах здания: вольные, невольники и — в Мастерской — наёмные мастера. Места у
+ * Сколько рук на местах дела: вольные, невольники и — на деле Мастерской — наёмные мастера. Места у
  * них общие: мастер занимает место ремесленника, а не своё (docs/admin_branch.md, раздел 4.1).
  */
-export const handsCount = (s: GameState, buildingId: number): number =>
-  workerCount(s, buildingId) + bondedCount(s, buildingId) + mastersOn(s, buildingId);
+export const deedHands = (s: GameState, job: JobId): number => deedWorkers(s, job) + deedBonded(s, job) + deedMasters(s, job);
+
+/** Сколько рук на местах здания — на всех его делах. */
+export const handsCount = (s: GameState, buildingId: number): number => {
+  const b = buildingById(s, buildingId);
+  return b ? jobsOf(b.type).reduce((n, job) => n + deedHands(s, job), 0) : 0;
+};
 
 /**
  * Свободных мест Мастерской для наёмных: её места минус её люди и уже стоящие мастера. Сколько
@@ -223,19 +257,19 @@ export const handsCount = (s: GameState, buildingId: number): number =>
  */
 export function mastersRoom(s: GameState): number {
   const hall = buildingOfType(s, MASTERS_AT);
-  return hall ? Math.max(0, buildingSlots(hall) - handsCount(s, hall.id)) : 0;
+  return hall ? Math.max(0, deedSlots(hall) - deedHands(s, MASTERS_JOB)) : 0;
 }
 
-/** Ставят ли невольников на работу этого здания (`JobDef.bonded`). */
-export const takesBonded = (b: Building): boolean => {
-  const job = BUILDING_BY_ID[b.type].job;
-  return Boolean(job && JOB_BY_ID[job].bonded);
-};
+/** Ставят ли невольников на это дело (`JobDef.bonded`). */
+export const deedTakesBonded = (job: JobId): boolean => Boolean(JOB_BY_ID[job]?.bonded);
 
-/** Сколько невольников стоит по зданиям. */
+/** Ставят ли невольников хоть на одно дело этого здания. */
+export const takesBonded = (b: Building): boolean => jobsOf(b.type).some(deedTakesBonded);
+
+/** Сколько невольников стоит по делам. */
 export function bondedBusy(s: GameState): number {
   let n = 0;
-  for (const b of s.buildings) n += bondedCount(s, b.id);
+  for (const job of PLACED_JOBS) n += deedBonded(s, job);
   return n;
 }
 
@@ -334,13 +368,10 @@ export const housingCapacity = (s: GameState): number => housingOf(levelsOf(s));
 /** Вместимость склада. Формула одна на игру и книгу стройки сервера (`game/build.storageOf`). */
 export const storageCap = (s: GameState): number => storageOf(levelsOf(s));
 
-/** Сколько человек по профессиям: рабочие зданий, вольный сбор и свободные руки. */
+/** Сколько человек по профессиям: рабочие на делах зданий, вольный сбор и свободные руки. */
 export function jobCounts(s: GameState): Record<JobId, number> {
   const counts = Object.fromEntries(JOBS.map((j) => [j.id, 0])) as Record<JobId, number>;
-  for (const b of s.buildings) {
-    const job = BUILDING_BY_ID[b.type].job;
-    if (job) counts[job] += workerCount(s, b.id);
-  }
+  for (const job of PLACED_JOBS) counts[job] += deedWorkers(s, job);
   for (const job of FREE_JOBS) counts[job] += freeJobCount(s, job);
   counts.idle = idleCount(s);
   return counts;
@@ -352,10 +383,7 @@ export function jobCounts(s: GameState): Record<JobId, number> {
  */
 export function jobCount(s: GameState, job: JobId): number {
   if (job === 'idle') return idleCount(s);
-  let n = 0;
-  for (const b of s.buildings) if (BUILDING_BY_ID[b.type].job === job) n += workerCount(s, b.id);
-  for (const free of FREE_JOBS) if (free === job) n += freeJobCount(s, job);
-  return n;
+  return (JOB_BY_ID[job]?.building ? deedWorkers(s, job) : 0) + (JOB_BY_ID[job]?.freeRange ? freeJobCount(s, job) : 0);
 }
 
 // ---------- Указ и рацион ----------
@@ -1056,21 +1084,24 @@ function cutBySiege(s: GameState, out: Resources): Resources {
 }
 
 /**
- * Выработка одного здания без осады: вольные и невольники на его местах.
+ * Выработка одного дела без осады: вольные и невольники на его местах (ЗД-1: дело — профессия здания).
  *
  * Невольники идут той же строкой — та же таблица профессии, тот же множитель
  * места, сезона, морали, веры и указа, — и только на свою долю (`BONDED_OUTPUT`).
  * Второго расчёта выработки под них нет и заводить его нельзя: две формулы
  * одного и того же разойдутся при первой правке одной из них.
  */
-function yardYield(s: GameState, out: Resources, b: Building, mods: SeasonModifiers): void {
-  const job = BUILDING_BY_ID[b.type].job;
-  if (!job) return;
+function deedYield(s: GameState, out: Resources, b: Building, job: JobId, mods: SeasonModifiers): void {
   // Постройка под обстрелом стоит фазу без работы (Р-5, `world/shelling`): её работники едят, но не дают ничего.
   if (s.siege?.idle?.includes(b.type)) return;
   const mult = workerMultiplier(s, job, b, mods);
-  addYield(out, job, workerCount(s, b.id), mult * freeShare(s));
-  addYield(out, job, bondedCount(s, b.id), mult * bondedShare(s));
+  addYield(out, job, deedWorkers(s, job), mult * freeShare(s));
+  addYield(out, job, deedBonded(s, job), mult * bondedShare(s));
+}
+
+/** Выработка одного здания без осады — сумма его дел. */
+function yardYield(s: GameState, out: Resources, b: Building, mods: SeasonModifiers): void {
+  for (const job of jobsOf(b.type)) deedYield(s, out, b, job, mods);
 }
 
 /** Выработка вольного сбора без осады: свободные руки на работах без места в здании (`FREE_JOBS`). */
@@ -1092,6 +1123,13 @@ export function productionPerDay(s: GameState, mods: SeasonModifiers = seasonMod
 export function buildingProduction(s: GameState, b: Building, mods: SeasonModifiers = seasonMods(s)): Resources {
   const out = emptyResources();
   yardYield(s, out, b, mods);
+  return cutBySiege(s, out);
+}
+
+/** Что производит одно дело здания за день — строка дела в окне двора (ЗД-1). */
+export function deedProduction(s: GameState, b: Building, job: JobId, mods: SeasonModifiers = seasonMods(s)): Resources {
+  const out = emptyResources();
+  if (jobsOf(b.type).includes(job)) deedYield(s, out, b, job, mods);
   return cutBySiege(s, out);
 }
 

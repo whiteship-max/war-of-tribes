@@ -5,19 +5,20 @@
 // разбор пишет каждый множитель тем, что он прибавил к уже набранному: «Лето ×1,25 → +24,0». Строки складываются в выход
 // на глазах игрока, и порядок множителей решает только, кому записать долю, а не сумму.
 //
-// Своей арифметики выхода здесь нет (правило 18): каждый множитель — функция игры, итог — `buildingProduction`, тот же, что
+// Своей арифметики выхода здесь нет (правило 18): каждый множитель — функция игры, итог — `deedProduction`, тот же, что
 // кладёт добро на склад. Разошлись — разбор пишет остаток строкой `REST_LABEL` («Прочее»), а тест (`output.test.ts`) её
 // запрещает: новый множитель выработки, не названный здесь, падает тестом, а не прячется.
 import type { Building, GameState, JobId, ResourceId } from '@/game/types';
 import { RESOURCE_IDS } from '@/game/constants';
-import { BUILDING_BY_ID } from '@/game/data/buildings';
+import { jobsOf } from '@/game/data/buildings';
 import { JOB_BY_ID } from '@/game/data/jobs';
 import { SEASON_META } from '@/game/data/seasons';
 import {
   activeBoons,
-  bondedCount,
   bondedShare,
-  buildingProduction,
+  deedBonded,
+  deedProduction,
+  deedWorkers,
   decreeOf,
   faithDef,
   faithTilt,
@@ -26,7 +27,6 @@ import {
   seasonModsFor,
   seasonOf,
   siegeYield,
-  workerCount,
   yearOf,
 } from '@/game/derived';
 import { REST_LABEL } from '@/ui/kit/breakdown';
@@ -47,7 +47,7 @@ export interface YardOutput {
   /** Ресурсы двора порядком таблицы ресурсов. */
   res: ResourceId[];
   steps: OutputStep[];
-  /** Выход за игровой день — `buildingProduction`, а не сумма строк. */
+  /** Выход за игровой день — `deedProduction`, а не сумма строк. */
   total: Partial<Record<ResourceId, number>>;
 }
 
@@ -58,17 +58,17 @@ export const OUTPUT_EPS = 0.05;
 const idle = (f: number): boolean => Math.abs(f - 1) < 1e-9;
 
 /**
- * Разбор выхода постройки за игровой день; `null` — постройка не двор (у профессии нет выработки ресурсов).
- * Нет рук — строк нет, выход ноль.
+ * Разбор выхода дела постройки за игровой день (ЗД-1: у двора с двумя делами — каждого врозь); не названо — первое дело.
+ * `null` — постройка не двор (у профессии нет выработки ресурсов). Нет рук — строк нет, выход ноль.
  */
-export function yardOutput(s: GameState, b: Building): YardOutput | null {
-  const job = BUILDING_BY_ID[b.type].job;
-  if (!job) return null;
+export function yardOutput(s: GameState, b: Building, deed?: JobId): YardOutput | null {
+  const job = deed ?? jobsOf(b.type)[0];
+  if (!job || !jobsOf(b.type).includes(job)) return null;
   const per = JOB_BY_ID[job].yield;
   const res = RESOURCE_IDS.filter((r) => (per[r] ?? 0) > 0);
   if (res.length === 0) return null;
 
-  const prod = buildingProduction(s, b);
+  const prod = deedProduction(s, b, job);
   const total: Partial<Record<ResourceId, number>> = {};
   for (const r of res) total[r] = prod[r];
 
@@ -77,8 +77,8 @@ export function yardOutput(s: GameState, b: Building): YardOutput | null {
   for (const r of res) run[r] = 0;
 
   // Руки: вольные — по выработке профессии, невольники — на свою долю (`bondedShare`), той же строкой таблицы.
-  const free = workerCount(s, b.id);
-  const bonded = bondedCount(s, b.id);
+  const free = deedWorkers(s, job);
+  const bonded = deedBonded(s, job);
   const base = (id: 'hands' | 'bonded', label: string, heads: number, factor: number | null): void => {
     if (heads <= 0) return;
     const add: Partial<Record<ResourceId, number>> = {};

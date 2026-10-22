@@ -7,15 +7,12 @@
 import type { DrawnIcon } from './generated';
 
 export const ALIAS = {
-  // Профессия — там, где она работает: строка «Рабочие» и окно постройки показывают один знак.
+  // Профессия — там, где она работает: строка «Рабочие» и окно постройки показывают один знак. У двора с двумя делами
+  // (ЗД-1) знак дела свой, а не здания: охота — олень, руда — кирка; сбор, камень, поле и загон нарисованы (`set.ts`).
   'job-idle': 'ui-hammer',
-  'job-gatherer': 'bld-gathering',
-  'job-hunter': 'bld-hunter_hut',
+  'job-hunter': 'ui-deer',
   'job-woodcutter': 'bld-sawmill',
-  'job-stonecutter': 'bld-quarry',
-  'job-miner': 'bld-mine',
-  'job-farmer': 'bld-farm',
-  'job-herder': 'bld-pen',
+  'job-miner': 'ui-pick',
   'job-crafter': 'bld-workshop',
   'job-smith': 'bld-smithy',
   'job-priest': 'ui-candle',

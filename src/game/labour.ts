@@ -6,15 +6,27 @@ import { CANCEL_STARTED_SHARE, RESOURCE_IDS, UPGRADE_GROWTH } from './constants'
 import type { BuildingDef } from './data/buildings';
 import type { ResourceId } from './types';
 
-/** Работа строителей на улучшение до уровня `toLevel` — растёт так же, как цена. */
-export const upgradeWork = (def: Pick<BuildingDef, 'work'>, toLevel: number): number =>
-  Math.round(def.work * Math.pow(UPGRADE_GROWTH, toLevel - 1));
+/** Цена здания по частям: у двора с двумя делами — цены дел (ЗД-1, `BuildingDef.parts`), у остальных — оно само. */
+type Priced = Pick<BuildingDef, 'cost' | 'work' | 'parts'>;
+const partsOf = (def: Partial<Priced>): readonly Partial<Pick<BuildingDef, 'cost' | 'work'>>[] => def.parts ?? [def];
 
-/** Цена улучшения до уровня `toLevel`: базовая стоимость, умноженная на `UPGRADE_GROWTH` за каждый уровень. */
-export function upgradeCost(def: Pick<BuildingDef, 'cost'>, toLevel: number): Partial<Record<ResourceId, number>> {
+/**
+ * Работа строителей на улучшение до уровня `toLevel` — растёт так же, как цена. У двора с двумя делами — сумма работы его
+ * дел, каждое своей лестницей и своим округлением: ровно столько, сколько стоили бы два прежних здания вровень (ЗД-1).
+ */
+export const upgradeWork = (def: Partial<Priced>, toLevel: number): number =>
+  partsOf(def).reduce((n, p) => n + Math.round((p.work ?? 0) * Math.pow(UPGRADE_GROWTH, toLevel - 1)), 0);
+
+/**
+ * Цена улучшения до уровня `toLevel`: базовая стоимость, умноженная на `UPGRADE_GROWTH` за каждый уровень. У двора с двумя
+ * делами — сумма цен дел, каждая со своим округлением (ЗД-1): кто качал два прежних здания вровень, платит бит в бит то же.
+ */
+export function upgradeCost(def: Partial<Priced>, toLevel: number): Partial<Record<ResourceId, number>> {
   const k = Math.pow(UPGRADE_GROWTH, toLevel - 1);
   const out: Partial<Record<ResourceId, number>> = {};
-  for (const r of RESOURCE_IDS) if (def.cost[r]) out[r] = Math.round((def.cost[r] as number) * k);
+  for (const p of partsOf(def)) {
+    for (const r of RESOURCE_IDS) if (p.cost?.[r]) out[r] = (out[r] ?? 0) + Math.round((p.cost[r] as number) * k);
+  }
   return out;
 }
 
@@ -25,10 +37,17 @@ export function upgradeCost(def: Pick<BuildingDef, 'cost'>, toLevel: number): Pa
  */
 export const cancelShare = (started: boolean): number => (started ? CANCEL_STARTED_SHARE : 1);
 
-/** Сколько вернёт отмена улучшения до уровня `toLevel` — по `floor` каждого ресурса, как `sim/pay.refund`. */
-export function cancelRefund(def: Pick<BuildingDef, 'cost'>, toLevel: number, started: boolean): Partial<Record<ResourceId, number>> {
+/**
+ * Сколько вернёт отмена улучшения до уровня `toLevel` — по `floor` каждого ресурса, как `sim/pay.refund`. У двора с двумя
+ * делами — по делам, как вернули бы два прежних здания (ЗД-1).
+ */
+export function cancelRefund(def: Partial<Priced>, toLevel: number, started: boolean): Partial<Record<ResourceId, number>> {
   const k = cancelShare(started);
   const out: Partial<Record<ResourceId, number>> = {};
-  for (const [r, v] of Object.entries(upgradeCost(def, toLevel)) as [ResourceId, number][]) if (Math.floor(v * k) > 0) out[r] = Math.floor(v * k);
+  for (const p of partsOf(def)) {
+    for (const [r, v] of Object.entries(upgradeCost({ cost: p.cost ?? {} }, toLevel)) as [ResourceId, number][]) {
+      if (Math.floor(v * k) > 0) out[r] = (out[r] ?? 0) + Math.floor(v * k);
+    }
+  }
   return out;
 }

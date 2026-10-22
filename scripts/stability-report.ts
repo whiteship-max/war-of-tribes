@@ -27,13 +27,13 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import type { GameState } from '@/game/types';
+import type { GameState, JobId } from '@/game/types';
 import { createInitialState } from '@/game/state';
 import { DAY_LENGTH, MUTINY_FUSE } from '@/game/constants';
 import { TAX_BY_ID } from '@/game/data/policy';
 import { MEAN_RULER_SKILL, POINTS_PER_SKILL_PER_DAY } from '@/game/data/realm';
 import { stabName, stabSigned } from '@/game/data/stability';
-import { dayOf, moraleBreakdown } from '@/game/derived';
+import { PLACED_JOBS, dayOf, moraleBreakdown } from '@/game/derived';
 import { autoAssign } from '@/game/sim/workers';
 import { stabLevel, stabOf } from '@/game/sim/stability';
 import { groupsOf } from '@/game/sim/stabview';
@@ -48,7 +48,6 @@ import {
   stabOutputMult,
   stabPrice,
 } from '@/game/stabrules';
-import { BUILDING_BY_ID } from '@/game/data/buildings';
 import { JOB_BY_ID } from '@/game/data/jobs';
 import { pilot, player, stand } from './autopilot';
 import { CROWN_MTTH, CROWN_RULES, crownStab } from '@/game/crownrules';
@@ -204,16 +203,13 @@ function hungryTown(): GameState {
   g.tax = 'high';
   g.ration = 'lean';
   g.resources.food = 0;
-  for (const b of g.buildings) if (isFood(b.type)) g.workers[b.id] = 0;
+  for (const job of PLACED_JOBS) if (isFood(job)) delete g.workers[job];
   g.freeJobs = {};
   return g;
 }
 
-/** Постройка, чья работа даёт хлеб — по таблице профессий, а не списком. */
-const isFood = (type: keyof typeof BUILDING_BY_ID): boolean => {
-  const job = BUILDING_BY_ID[type].job;
-  return !!job && (JOB_BY_ID[job].yield.food ?? 0) > 0;
-};
+/** Дело, чья работа даёт хлеб — по таблице профессий, а не списком. */
+const isFood = (job: JobId): boolean => (JOB_BY_ID[job].yield.food ?? 0) > 0;
 
 interface Hard {
   /** День, когда ступень впервые стала −1, −2, −3; null — не стала. */

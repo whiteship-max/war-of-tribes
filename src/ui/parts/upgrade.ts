@@ -21,9 +21,10 @@
 //   о том, что она уже полна, говорят справка о морали и храм;
 // - того, кто сейчас стоит на местах: места и работа на них меряются так, будто
 //   их заняли, — иначе у пустого двора уровень «ничего бы не давал».
-import type { Building, GameState } from '@/game/types';
+import type { Building, GameState, JobId } from '@/game/types';
 import { DAY_LENGTH, RESOURCE_IDS, RESOURCE_META } from '@/game/constants';
 import { GOOD_BY_ID } from '@/game/data/market';
+import { jobsOf } from '@/game/data/buildings';
 import type { SeasonModifiers } from '@/game/data/seasons';
 import { SURVEY_MAX } from '@/game/data/survey';
 import { TROOPS } from '@/game/data/troops';
@@ -32,6 +33,7 @@ import {
   buildingSlots,
   caravanSeconds,
   crafterBuildRate,
+  deedSlots,
   defense,
   faithTilt,
   feastInfo,
@@ -263,15 +265,24 @@ const GAUGES: Gauge[] = [
  * Посёлок, где у здания другой уровень и на его местах стоят `hands` вольных, —
  * и больше ничего не отличается. `hands` не задан — люди остаются, как стояли.
  * Уровень ставится так же, как его ставит конец стройки: число и пустые леса.
+ * У двора с двумя делами (ЗД-1) руки встают на дела по порядку: первое — до своих мест, остаток — на второе.
  */
-function variant(s: GameState, b: Building, level: number, hands?: number): { s: GameState; b: Building } {
+function variant(s: GameState, b: Building, level: number, hands?: number, job?: JobId): { s: GameState; b: Building } {
   const building: Building = { ...b, level, work: 0, workRequired: 0 };
   const buildings = s.buildings.map((x) => (x.id === b.id ? building : x));
   if (hands === undefined) return { s: { ...s, buildings }, b: building };
-  return {
-    s: { ...s, buildings, workers: { ...s.workers, [b.id]: hands }, bondedWork: { ...s.bondedWork, [b.id]: 0 } },
-    b: building,
-  };
+  const workers = { ...s.workers };
+  const bondedWork = { ...s.bondedWork };
+  // Названо дело — руки только на нём, прочие дела стоят, как стояли: разница «с руками и без» — его.
+  const jobs = job ? [job] : jobsOf(b.type);
+  let left = hands;
+  jobs.forEach((job, i) => {
+    const n = i === jobs.length - 1 ? left : Math.min(left, deedSlots(building));
+    workers[job] = n;
+    bondedWork[job] = 0;
+    left -= n;
+  });
+  return { s: { ...s, buildings, workers, bondedWork }, b: building };
 }
 
 /**
@@ -300,10 +311,10 @@ function workOf(s: GameState, b: Building): number[] {
   ];
 }
 
-/** Что дают `hands` человек на местах здания этого уровня: разница с пустыми местами. */
-function handsWork(s: GameState, b: Building, level: number, hands: number): number[] {
-  const on = variant(s, b, level, hands);
-  const off = variant(s, b, level, 0);
+/** Что дают `hands` человек на местах здания этого уровня (или одного его дела): разница с пустыми местами. */
+function handsWork(s: GameState, b: Building, level: number, hands: number, job?: JobId): number[] {
+  const on = variant(s, b, level, hands, job);
+  const off = variant(s, b, level, 0, job);
   const a = workOf(on.s, on.b);
   const z = workOf(off.s, off.b);
   return a.map((v, i) => v - z[i]);
@@ -324,15 +335,15 @@ export function levelLiftsHand(s: GameState, b: Building): boolean {
 }
 
 /**
- * Дадут ли что-нибудь свободные места здания, если их занять. У двора — всегда;
+ * Дадут ли что-нибудь свободные места здания (или одного его дела), если их занять. У двора — всегда;
  * у храма, где служители уже упёрлись в потолок, — нет, и панель не должна звать
  * туда людей. Меряется тем же трудом, что кнопка.
  */
-export function spareSlotsHelp(s: GameState, b: Building, hands: number): boolean {
-  const slots = buildingSlots(b);
+export function spareSlotsHelp(s: GameState, b: Building, hands: number, job?: JobId): boolean {
+  const slots = job ? deedSlots(b) : buildingSlots(b);
   if (hands >= slots) return false;
-  const full = handsWork(s, b, b.level, slots);
-  const now = handsWork(s, b, b.level, hands);
+  const full = handsWork(s, b, b.level, slots, job);
+  const now = handsWork(s, b, b.level, hands, job);
   return full.some((v, i) => v - now[i] > EPS);
 }
 

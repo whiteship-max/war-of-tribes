@@ -58,6 +58,8 @@ import {
   armySize,
   buildingOfType,
   buildingSlots,
+  deedBuilding,
+  deedWorkers,
   foodConsumptionPerDay,
   forgeRate,
   handsCount,
@@ -70,10 +72,9 @@ import {
   taxIncomePerDay,
   wageOf,
   wagesPerDay,
-  workerCount,
 } from '@/game/derived';
 import { RESOURCE_IDS } from '@/game/constants';
-import { BUILDING_BY_ID } from '@/game/data/buildings';
+import { jobsOf } from '@/game/data/buildings';
 import { EVENT_BY_ID } from '@/game/data/events';
 import { MUTINY_EVENT } from '@/game/data/order';
 import { TROOP_BY_ID, TROOP_IDS } from '@/game/data/troops';
@@ -186,8 +187,8 @@ export const SHARE: [JobId, number][] = [
   ['priest', 0.01],
 ];
 
-const jobBuilding = (s: GameState, job: JobId) =>
-  s.buildings.find((b) => BUILDING_BY_ID[b.type].job === job) ?? null;
+/** Постройка дела — одна дверь игры (`derived.deedBuilding`): у двора с двумя делами она общая (ЗД-1). */
+const jobBuilding = (s: GameState, job: JobId) => deedBuilding(s, job);
 
 /**
  * Сколько рук держит свободными племя в `pop` человек: пятую часть, не меньше двух, — стройка идёт их
@@ -208,11 +209,11 @@ export function staff(s: GameState): void {
     const b = jobBuilding(s, job);
     if (have > want) {
       const over = have - want;
-      if (b && workerCount(s, b.id) > 0) unassignWorker(s, b.id, over);
+      if (b && deedWorkers(s, job) > 0) unassignWorker(s, b.id, over, job);
       else changeFreeJob(s, job, -over);
     } else if (have < want) {
       const need = Math.min(want - have, idleCount(s) - spare);
-      if (need > 0 && b) assignWorker(s, b.id, need);
+      if (need > 0 && b) assignWorker(s, b.id, need, job);
     }
   }
 }
@@ -241,7 +242,7 @@ export function build(s: GameState, skip: readonly BuildingTypeId[] = []): void 
   const slots = s.buildings.reduce((n, b) => n + buildingSlots(b), 0);
   if (slots < s.pop) {
     const byJob = [...s.buildings]
-      .filter((b) => BUILDING_BY_ID[b.type].job && !skip.includes(b.type))
+      .filter((b) => jobsOf(b.type).length > 0 && !skip.includes(b.type))
       .sort((a, b) => a.level - b.level);
     for (const b of byJob) if (startUpgrade(s, b.id) === null) return;
   }

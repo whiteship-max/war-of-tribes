@@ -19,9 +19,9 @@ import { BLOCKADE_GIVES } from '../../src/world/blockade.js';
 import { PROPOSALS, waitWords } from '../../src/world/proposals.js';
 import { count } from '../../src/ui/parts/plural.js';
 import { BUILDING_BY_ID } from '../../src/game/data/buildings.js';
+import { keptType } from '../../src/game/yardmerge.js';
 import { TROOPS } from '../../src/game/data/troops.js';
 import { RESOURCE_META } from '../../src/game/constants.js';
-import type { BuildingTypeId } from '../../src/game/types.js';
 
 /** Кнопки под вестью: открыть игру (решение владельца 06.10.2026) и настройки вестей (ВС-1). */
 export const BUTTON_OPEN = 'Открыть игру';
@@ -182,7 +182,9 @@ function pactText(item: NoticeItem): string {
 
 /** Постройка вести стройки: «кузница, 4-й уровень». */
 function buildLine(item: NoticeItem): string {
-  const def = BUILDING_BY_ID[item.p.building as BuildingTypeId];
+  // Весть, записанная до объединения дворов (ЗД-1), называет прежнюю постройку — её двор.
+  const type = keptType(String(item.p.building ?? ''));
+  const def = type ? BUILDING_BY_ID[type] : undefined;
   return `${def ? def.name.toLowerCase() : 'постройка'}, ${item.p.level ?? 2}-й уровень`;
 }
 

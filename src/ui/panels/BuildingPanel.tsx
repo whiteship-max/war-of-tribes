@@ -2,6 +2,7 @@ import type { Building, JobId } from '@/game/types';
 import { useGame } from '@/game/store';
 import { FREE_RANGE_MULT, RESOURCE_IDS, RESOURCE_META } from '@/game/constants';
 import { EQUIPMENT } from '@/game/data/equipment';
+import { jobsOf } from '@/game/data/buildings';
 import { FREE_JOBS, JOB_BY_ID } from '@/game/data/jobs';
 import {
   buildingTitle,
@@ -326,7 +327,9 @@ function StorageData() {
  */
 function GenericData({ b }: { b: Building }) {
   const s = useGame((g) => g.s);
-  const out = yardOutput(s, b);
+  // У двора с двумя делами (ЗД-1) выход разобран по делу — касанием по строке «В день» в плашке дела (`BuildingNew.Deeds`):
+  // две таблицы под шапкой не дали бы окну встать без прокрутки.
+  const out = jobsOf(b.type).length > 1 ? null : yardOutput(s, b);
   const gives = buildingGives(s, b, tipGo());
   return (
     <>

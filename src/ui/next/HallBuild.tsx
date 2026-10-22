@@ -21,7 +21,7 @@ import { create } from 'zustand';
 import { useState } from 'react';
 import type { Building } from '@/game/types';
 import { useGame } from '@/game/store';
-import { BUILDING_BY_ID } from '@/game/data/buildings';
+import { BUILDING_BY_ID, jobsOf } from '@/game/data/buildings';
 import {
   buildQueue,
   buildRate,
@@ -54,7 +54,7 @@ import { Table, type Col } from '@/ui/kit/Table';
 import { goTo } from '@/ui/kit/nav';
 import { showInCity } from './show';
 import { toBuilding } from '@/ui/kit/sources';
-import { WorkerRow } from './BuildingNew';
+import { Deeds, WorkerRow } from './BuildingNew';
 import { buildingFacts, buildingTip } from './buildingTips';
 import { Confirm } from './Confirm';
 import { rate } from './hudTips';
@@ -213,7 +213,9 @@ export function HallCard({ id, onClose }: { id: number; onClose: () => void }) {
   const def = BUILDING_BY_ID[b.type];
   const top = b.level >= maxLevelFor(b.type);
   const gains = !top && !isSite(b) ? upgradeGains(s, b, b.level + 1) : null;
-  const out = yardOutput(s, b);
+  // У двора с двумя делами разбор выхода — по делу, касанием по строке «В день» (`Deeds`): две таблицы листу не по росту.
+  const many = jobsOf(b.type).length > 1;
+  const out = many ? null : yardOutput(s, b);
   // Окно этой постройки уже открыто под листом (ратуша в ратуше) — двери в него нет.
   const here = sheet?.kind === 'building' && sheet.id === b.id;
 
@@ -242,7 +244,7 @@ export function HallCard({ id, onClose }: { id: number; onClose: () => void }) {
           }
           foot={here ? <OwnFoot b={b} /> : <UpgradeFoot b={b} />}
         >
-          <WorkerRow b={b} gains={gains} />
+          {many ? <Deeds b={b} gains={gains} /> : <WorkerRow b={b} gains={gains} />}
           {out ? <OutputTable out={out} /> : <Facts b={b} />}
           {gains && <div className="hall-gain">{gainText(gains)}</div>}
         </SheetPage>

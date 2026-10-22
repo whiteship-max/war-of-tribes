@@ -162,18 +162,18 @@ export function buildStatic(plan: CityPlan, q: Quality, opts?: StaticOpts): Stat
   if (!opts) lamps.push(lanternPost(b, plan.well.x - 2.1, plan.well.z - 2.2, 0.69, 0.72));
   own('statue', plan.statue.x, plan.statue.z, 1, 0, () => statue(b, plan.statue, 0));
   const civicT = b.mark().t;
-  // За стеной: предместье (дома Жилищ) и семь дворов.
+  // За стеной: предместье (дома Жилищ) и модели дворов — каждая своей постройке игры (`Yard.owner`, ЗД-1).
   for (const h of plan.suburb) own('houses', h.x, h.z, h.fx, h.fz, () => chimneys.push(...house(b, h, dAt(h.x, h.z)).chimneys));
   for (const h of plan.suburb) houseStoop(b, h);
   for (const y of plan.yards) {
     let pts: V3[] = [];
-    own(y.kind, y.x, y.z, Math.cos(y.rot), Math.sin(y.rot), () => {
+    own(y.owner, y.x, y.z, Math.cos(y.rot), Math.sin(y.rot), () => {
       const r = yard(b, y, dAt(y.x, y.z));
       pts = r.lights;
       chimneys.push(...r.chimneys);
     });
-    // Каменоломня и рудник — факел у входа, прочие дворы — фонарь у двери.
-    lit(pts, y.kind === 'quarry' || y.kind === 'mine' ? 'torch' : 'lantern');
+    // Шахта — факел у входа, прочие дворы — фонарь у двери.
+    lit(pts, y.kind === 'mine' ? 'torch' : 'lantern');
     for (const h of yardHalls(y)) civicStoop(b, h);
   }
   // Фонари улиц и площади — в городе; ролику у стены их не нужно (его улицы — за стеной ролика, вдали).

@@ -3,7 +3,7 @@
 // выход, срок и «можно ли» — `derived`, тем же `upgradeInfo`, что гасит кнопку и решает в `startUpgrade`.
 import type { Building, BuildingTypeId, GameState, ResourceId } from '@/game/types';
 import { RESOURCE_IDS } from '@/game/constants';
-import { BUILDINGS, BUILDING_BY_ID } from '@/game/data/buildings';
+import { BUILDINGS, jobsOf } from '@/game/data/buildings';
 import { JOB_BY_ID } from '@/game/data/jobs';
 import {
   buildRate,
@@ -50,12 +50,17 @@ export const WAR: ReadonlySet<BuildingTypeId> = new Set<BuildingTypeId>([
   'infirmary',
 ]);
 
-/** Что делает профессия постройки: ресурсы её выработки (таблица профессий), пусто — постройка не двор. */
+/**
+ * Что делают дела постройки: ресурсы их выработки (таблица профессий) — порядком дел, у каждого дела порядком склада;
+ * пусто — постройка не двор. Первый — главный ресурс первого дела: у Шахты — медь, у Фермы — еда.
+ */
 export function yieldsOf(type: BuildingTypeId): ResourceId[] {
-  const job = BUILDING_BY_ID[type].job;
-  if (!job) return [];
-  const y = JOB_BY_ID[job].yield;
-  return RESOURCE_IDS.filter((r) => (y[r] ?? 0) > 0);
+  const out: ResourceId[] = [];
+  for (const job of jobsOf(type)) {
+    const y = JOB_BY_ID[job].yield;
+    for (const r of RESOURCE_IDS) if ((y[r] ?? 0) > 0 && !out.includes(r)) out.push(r);
+  }
+  return out;
 }
 
 /**

@@ -1097,6 +1097,76 @@
 .nx-wrow .stepper .n {
   display: none;
 }
+/* Дела двора (ЗД-1): каждое — своя плашка с рядом рабочих, выработкой и промыслами; два дела одно под другим. */
+.nx-deeds {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 0 8px;
+}
+.nx-deed {
+  padding: 4px 4px 2px;
+  border-radius: 12px;
+  border: 1px solid var(--m-plate-rim);
+  background: rgba(0, 0, 0, 0.14);
+  /* Шов по коже плашки (ЗН-2): дело — отдельное место работы, а не строка списка. */
+  outline: var(--m-stitch);
+  outline-offset: -3px;
+}
+.nx-deed .nx-wrow {
+  margin-bottom: 4px;
+}
+.nx-deed .nx-wgain {
+  margin: 0 0 4px;
+}
+.nx-deed .nx-wgain[role='button'] {
+  cursor: pointer;
+}
+.nx-deed .nx-wcount .nx-wlbl {
+  color: var(--text);
+  font-weight: 700;
+}
+.nx-dtrades {
+  display: flex;
+  gap: 4px;
+  margin: 0 0 2px;
+}
+.nx-dtrade {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 44px;
+  padding: 0 10px;
+  border-radius: 10px;
+  border: 1px solid var(--m-leather-rim);
+  background: var(--m-leather);
+  box-shadow: var(--m-leather-bevel);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.nx-dtrade > svg {
+  flex: none;
+  width: 20px;
+  height: 20px;
+}
+.nx-dtrade small {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.nx-dtrade small svg {
+  width: 14px;
+  height: 14px;
+}
 
 /* ---------- Карта нового вида: табличка сверху, низ на пять мест ---------- */
 .nx-mtop {

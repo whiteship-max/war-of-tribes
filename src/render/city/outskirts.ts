@@ -1,12 +1,12 @@
-// Дворы за стеной вида «город» (docs/city.md, разделы 4 и 5): навес собирателей на опушке, лесопилка с
-// водяным колесом на реке, каменоломня в склоне мыса под замком, охотничий домик в лесу, рудник со
-// штольней и отвалом, хутор с амбаром и стогами, загон на выгоне. Один вид навсегда: уровни игры модель
+// Дворы за стеной вида «город» (docs/city.md, разделы 4 и 5): лесопилка с водяным колесом на реке, Охотничий двор в
+// лесу, Шахта со штольней и отвалом на опушке, Ферма — хутор с амбаром и стогами и загон на выгоне (ЗД-1: навес
+// собирателей и каменоломня ушли в Охотничий двор и Шахту, их свой вид — ЗД-2). Один вид навсегда: уровни игры модель
 // не меняют. Всё — в построитель зданий: один меш с городом.
 //
 // Дерево и камень — те же слои, что у города; мелочь (корзины, брёвна, шкуры, тачка) — только с
 // подробностью выше низкой: силуэт двора держат объёмы.
 import { CITY } from './palette';
-import { Builder, box, cone, cylinder, flat, tint, type V3 } from './geom';
+import { Builder, box, cone, cylinder, tint, type V3 } from './geom';
 import { Frame, log, pushQuadOut, type Detail } from './kit';
 import { body } from './civic';
 import { FLOOR_LIFT, footSpan, heightAt, RACE_LEVEL, type Civic, type Yard } from './layout';
@@ -66,9 +66,7 @@ const hall = (y: Yard, f: number, r: number, rot: number, w: number, d: number):
 
 /** Дома дворов: (вперёд, вправо, доворот, ширина, глубина) — одни на модели и на тест посадки (`seat.test.ts`). */
 const YARD_HALLS: Record<Yard['kind'], readonly (readonly [number, number, number, number, number])[]> = {
-  gathering: [],
   sawmill: [[0, 0, 0, 11, 8]],
-  quarry: [[9, -11, 0, 5, 4]],
   hunter_hut: [[0, 0, 0, 6.5, 5.5]],
   mine: [[7, -9, 0, 5.5, 4.5]],
   farm: [
@@ -89,62 +87,6 @@ function stack(b: Builder, x: number, z: number, r: number, h: number): void {
 }
 
 // ---------------------------------------------------------------------------------------------
-
-/** Навес собирателей: открытый навес на столбах под односкатной кровлей, корзины, хворост, сушило. */
-function gathering(b: Builder, y: Yard, d: Detail): V3[] {
-  const fr = new Frame(y.x, y.z, Math.cos(y.rot), Math.sin(y.rot));
-  const W = 9;
-  const D = 5;
-  const base = heightAt(y.x, y.z);
-  const yF = base + 3.5;
-  const yB = base + 2.5;
-  const T = wood(1.05);
-  for (const r of [-W / 2, 0, W / 2]) {
-    post(b, fr, D / 2, r, yF - heightAt(...fr.q(D / 2, r)), 0.24, T);
-    post(b, fr, -D / 2, r, yB - heightAt(...fr.q(-D / 2, r)), 0.24, T);
-  }
-  // Обвязка по столбам.
-  for (const [f, h] of [
-    [D / 2, yF],
-    [-D / 2, yB],
-  ]) {
-    const [x, z] = fr.q(f, 0);
-    box(b, x, z, fr.fx, fr.fz, W + 0.5, 0.26, h - 0.28, h, 'wood', T, 'wood');
-  }
-  // Односкатная кровля из дранки со свесами и исподкой.
-  const A = fr.p(D / 2 + 0.7, -W / 2 - 0.5, yF + 0.25);
-  const B = fr.p(D / 2 + 0.7, W / 2 + 0.5, yF + 0.25);
-  const C = fr.p(-D / 2 - 0.6, W / 2 + 0.5, yB + 0.05);
-  const E = fr.p(-D / 2 - 0.6, -W / 2 - 0.5, yB + 0.05);
-  pushQuadOut(b, A, B, C, E, 'roofSlate', tint(CITY.shingleTint, 0.95), [A[0], A[1] + 10, A[2]], 0.95);
-  pushQuadOut(b, A, B, C, E, 'wood', wood(0.6), [A[0], A[1] - 10, A[2]], 0.6);
-  // Задняя стенка из досок — от ветра.
-  const [bx, bz] = fr.q(-D / 2 - 0.05, 0);
-  box(b, bx, bz, fr.fx, fr.fz, W, 0.12, base - 0.2, yB - 0.3, 'wood', grey(0.95), null, { aoBottom: 0.7 });
-  if (d > 0) {
-    // Корзины и мешки под навесом, вязанки хвороста у стенки, сушило с травами сбоку.
-    for (let k = 0; k < 5; k++) {
-      const [x, z] = fr.q(-0.6 + rnd(y.seed, k, 3) * 1.8, -3.4 + k * 1.5);
-      const h0 = heightAt(x, z);
-      cylinder(b, x, z, 0.38, h0, h0 + 0.5, 8, 'wood', tint(k % 2 ? 0xc9a26a : 0xb08850), { aoBottom: 0.6 });
-    }
-    for (let k = 0; k < 4; k++) {
-      const h0 = heightAt(...fr.q(-D / 2 + 0.6, -3 + k * 2)) + 0.25 + (k % 2) * 0.1;
-      log(b, fr.p(-D / 2 + 0.6, -3.6 + k * 2, h0), fr.p(-D / 2 + 0.6, -2.3 + k * 2, h0), 0.28, woodLight(0.9), 6, true);
-    }
-    // Сушило: две стойки и жердь с пучками трав.
-    for (const r of [W / 2 + 1.2, W / 2 + 4]) post(b, fr, 0.5, r, 2, 0.12, grey());
-    const p0 = fr.q(0.5, W / 2 + 1.2);
-    const p1 = fr.q(0.5, W / 2 + 4);
-    const h1 = heightAt(p0[0], p0[1]) + 1.95;
-    log(b, [p0[0], h1, p0[1]], [p1[0], h1, p1[1]], 0.05, grey(), 4, false);
-    for (let k = 0; k < 5; k++) {
-      const [x, z] = fr.q(0.5, W / 2 + 1.6 + k * 0.6);
-      cone(b, x, z, 0.17, h1 - 0.05, h1 - 0.75, 5, 'grass', tint(0xa8b070), 0.8);
-    }
-  }
-  return [fr.p(D / 2 + 0.4, 0, yF - 0.6)];
-}
 
 /** Колесо лесопилки в рамке двора: вынос вперёд от середины дома, высота оси, радиус. */
 const WHEEL_R = 2.7;
@@ -265,93 +207,6 @@ function sawmill(b: Builder, y: Yard, d: Detail): { lights: V3[]; chimneys: V3[]
     return { lights: [fr.p(D / 2 + 0.4, -2, c.base + 2.6)], chimneys: [...r.chimneys, [kx, ky + 2.4, kz]] };
   }
   return { lights: [fr.p(D / 2 + 0.4, -2, c.base + 2.6)], chimneys: r.chimneys };
-}
-
-/**
- * Каменоломня: свежий срез скалы мыса уступами — забои лицом к камере, площадки в каменной пыли, блоки
- * тёсаного камня у подножия, кран с колесом-топчаком, сарай каменотёсов.
- */
-function quarry(b: Builder, y: Yard, d: Detail): V3[] {
-  const fr = new Frame(y.x, y.z, Math.cos(y.rot), Math.sin(y.rot));
-  const face = tint(CITY.stoneTints[0], 1.0);
-  const dust = tint(0xf2ece0, 1.08);
-  // Уступы: вперёд (вниз по склону) — ниже, назад (в склон) — выше. Каждый — ступень скалы от земли под
-  // ней до своего верха: забой спереди, площадка сверху.
-  const steps = [
-    { f: 3, w: 18, dd: 6 },
-    { f: -3, w: 14, dd: 6 },
-    { f: -8.5, w: 10, dd: 5 },
-  ];
-  let top = -Infinity;
-  steps.forEach((st, k) => {
-    const lo0 = lowUnder(new Frame(...fr.q(st.f, 0), fr.fx, fr.fz), st.dd / 2, st.w / 2) - 0.6;
-    const hi0 = Math.max(heightAt(...fr.q(st.f - st.dd / 2, 0)) + 0.9, top + 2.4);
-    top = hi0;
-    // Уступ — из нескольких глыб разной глубины и высоты: кромка забоя рваная, а не по линейке.
-    const parts = d === 0 ? 2 : 4;
-    for (let j = 0; j < parts; j++) {
-      const pw = st.w / parts;
-      const r = -st.w / 2 + pw * (j + 0.5) + (k - 1) * 0.8;
-      const df = (rnd(y.seed, k * 7 + j, 13) - 0.5) * 1.6;
-      const dh = (rnd(y.seed, k * 7 + j, 15) - 0.5) * 1.2;
-      const [x, z] = fr.q(st.f + df, r);
-      const hi = hi0 + dh;
-      box(b, x, z, fr.fx, fr.fz, pw + 0.3, st.dd, lo0, hi, 'cut', face, null, { aoBottom: 0.7, grimeBottom: 0.3, vBase: lo0 });
-      // Площадка — в каменной пыли, светлее камня: свежая крошка.
-      flatOn(b, x, z, fr, pw + 0.3, st.dd, hi, dust);
-      // Осыпь щебня у подножия забоя.
-      if (d > 0 && rnd(y.seed, k * 7 + j, 17) < 0.6) {
-        const [hx, hz] = fr.q(st.f + df + st.dd / 2 + 0.6, r + (rnd(y.seed, j, 19) - 0.5) * pw * 0.6);
-        const hy = heightAt(hx, hz);
-        cone(b, hx, hz, 1.3 + rnd(y.seed, j, 21) * 0.8, Math.max(hy, k > 0 ? top - 2.4 : hy) - 0.3, Math.max(hy, k > 0 ? top - 2.4 : hy) + 0.9, 7, 'rubble', tint(CITY.stoneTints[1], 1.05), 0.75);
-      }
-    }
-  });
-  // Блоки тёсаного камня у подножия, рядами и вразброс.
-  const blocks = d === 0 ? 4 : 11;
-  for (let k = 0; k < blocks; k++) {
-    const f = 7 + rnd(y.seed, k, 3) * 4.5;
-    const r = -7 + k * 1.35 + rnd(y.seed, k, 5) * 0.6;
-    const [x, z] = fr.q(f, r);
-    const h0 = heightAt(x, z);
-    const s = 0.7 + rnd(y.seed, k, 7) * 0.5;
-    const tier = k % 3 === 2 ? 1 : 0;
-    box(b, x, z, fr.fx, fr.fz, s * 1.4, s, h0 - 0.1 + tier * 0.7, h0 + 0.6 + tier * 0.7, 'ashlar', tint(CITY.stoneTints[0], 0.98), 'ashlar', { aoBottom: 0.7 });
-  }
-  if (d > 0) {
-    // Кран: две стойки домиком, стрела над нижним забоем и колесо-топчак.
-    const cy = heightAt(...fr.q(6, 9));
-    const T = wood(1.05);
-    log(b, fr.p(6, 7.5, cy - 0.2), fr.p(6, 9, cy + 7), 0.14, T, 5, false);
-    log(b, fr.p(6, 10.5, cy - 0.2), fr.p(6, 9, cy + 7), 0.14, T, 5, false);
-    log(b, fr.p(8.5, 9, cy + 6.4), fr.p(1.5, 9, cy + 4.6), 0.12, T, 5, true);
-    const R = 1.7;
-    for (let k = 0; k < 12; k++) {
-      const a0 = (k / 12) * Math.PI * 2;
-      const a1 = ((k + 1) / 12) * Math.PI * 2;
-      for (const off of [-0.5, 0.5]) {
-        log(b, fr.p(6 + off, 9 + Math.cos(a0) * R, cy + R + 0.2 + Math.sin(a0) * R), fr.p(6 + off, 9 + Math.cos(a1) * R, cy + R + 0.2 + Math.sin(a1) * R), 0.07, T, 4, false);
-      }
-    }
-  }
-  // Сарай каменотёсов — сбоку, у подножия.
-  body(
-    b,
-    yardHalls(y)[0],
-    {
-      storeys: [{ h: 2.6, front: 'groundDoor', side: 'wood' }],
-      wallHex: CITY.wallTints[6],
-      roof: { pitch: (45 * Math.PI) / 180, layer: 'roofSlate', hex: CITY.shingleTint, alongF: false },
-    },
-    d,
-  );
-  return [fr.p(9 + 2.3, -11, heightAt(...fr.q(9, -11)) + 2)];
-}
-
-/** Плоская плита в рамке (середина, ширина вправо, глубина вперёд) на высоте `y` — пыль площадки. */
-function flatOn(b: Builder, cx: number, cz: number, fr: Frame, w: number, dd: number, y: number, t: V3): void {
-  const f = new Frame(cx, cz, fr.fx, fr.fz);
-  flat(b, [f.q(dd / 2, -w / 2), f.q(dd / 2, w / 2), f.q(-dd / 2, w / 2), f.q(-dd / 2, -w / 2)], y, 'cut', t, true, 1);
 }
 
 /** Охотничий домик: сруб под крутой дранкой, сушило со шкурами, поленница. */
@@ -544,12 +399,8 @@ function pen(b: Builder, y: Yard, d: Detail): V3[] {
 /** Двор по виду; возвращает огни ночи и трубы. */
 export function yard(b: Builder, y: Yard, d: Detail): { lights: V3[]; chimneys: V3[] } {
   switch (y.kind) {
-    case 'gathering':
-      return { lights: gathering(b, y, d), chimneys: [] };
     case 'sawmill':
       return sawmill(b, y, d);
-    case 'quarry':
-      return { lights: quarry(b, y, d), chimneys: [] };
     case 'hunter_hut':
       return hunterHut(b, y, d);
     case 'mine':

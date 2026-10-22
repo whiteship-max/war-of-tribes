@@ -17,7 +17,8 @@ import { ENERGY_MAX, ENERGY_REFILL, MINIGAME_COST } from '../../src/game/data/mi
 import { BUILD_QUEUE_MAX, MAX_BUILDING_LEVEL, RESOURCE_IDS, RESOURCE_META } from '../../src/game/constants.js';
 import { BUILDING_BY_ID } from '../../src/game/data/buildings.js';
 import { cancelRefund, upgradeCost } from '../../src/game/labour.js';
-import { storageOf } from '../../src/game/build.js';
+import { prodCeil, storageOf } from '../../src/game/build.js';
+import { GONE_NAME, MERGED_INTO, MERGED_SAVE, foldTown } from '../../src/game/yardmerge.js';
 import { STAB_BAND, STAB_MAX, STAB_MIN, STAB_PRICE_MIN, STAB_SELF_MAX, stabEventRiseCeil, stabPointsCeil, stabSelfRiseCeil } from '../../src/game/stabrules.js';
 import { CROWN_GAIN_MAX, CROWN_RULES, CROWN_STAB_MAX, crownAnswersCeil, crownEvery, crownGain, crownStab, isCrown } from '../../src/game/crownrules.js';
 import { powerOfCounts } from '../../src/profile/power.js';
@@ -92,7 +93,9 @@ export type FlagKind =
   | 'queue'
   | 'refund'
   | 'stab'
-  | 'crown';
+  | 'crown'
+  | 'prod'
+  | 'gone';
 
 export const FLAG_WORD: Record<FlagKind, string> = {
   cheat: 'коды проверки',
@@ -117,6 +120,8 @@ export const FLAG_WORD: Record<FlagKind, string> = {
   refund: 'возврат сверх положенного',
   stab: 'стабильность',
   crown: 'вести державы',
+  prod: 'выработка сверх мест',
+  gone: 'постройки до объединения',
 };
 
 /** Начало строки журнала о невозможном: админ ищет его глазами в `/player` (docs/security.md). */
@@ -124,7 +129,7 @@ export const WARN = 'внимание:';
 
 /** Одно правило города: что сервер проверяет, какой общей с игрой формулой, каким флагом и что делает с невозможным. */
 export interface CityRule {
-  id: 'level' | 'pace' | 'paid' | 'stock' | 'troops' | 'people' | 'goods' | 'eat' | 'queue' | 'refund' | 'stab' | 'crown';
+  id: 'level' | 'pace' | 'paid' | 'stock' | 'troops' | 'people' | 'goods' | 'eat' | 'queue' | 'refund' | 'stab' | 'crown' | 'prod' | 'merge';
   rule: string;
   /** Общая с игрой формула — одна дверь без `@/`, своей копии чисел у сервера нет. */
   formula: string;
@@ -182,7 +187,50 @@ export const CITY_RULES: readonly CityRule[] = [
     flag: 'crown',
     act: 'флаг',
   },
+  {
+    id: 'prod',
+    rule: 'выработка не выше мест дел подтверждённых построек — у двора с двумя делами у каждого свои — работником в лучших множителях; вольный сбор — все жители вполсилы',
+    formula: 'build.prodCeil, data/yards, data/buildings.slotsAt',
+    flag: 'prod',
+    act: 'в рост склада — не больше потолка; флаг',
+  },
+  {
+    id: 'merge',
+    rule: 'опись сохранения 24 и новее не называет построек, ушедших в дворы (ЗД-1); опись и книга до перехода сводятся его правилом: уровень двора — больший из двух, стройка обеих частей на один уровень — одной стройкой',
+    formula: 'yardmerge.foldTown, foldLevels, foldSites',
+    flag: 'gone',
+    act: 'сводит правилом перехода; флаг',
+  },
 ];
+
+/** Ступень сохранения описи — из строки версии игры (`snapshot.buildId`: «сохр. 24 · …»); не названа — 0. */
+export const saveOf = (build: string): number => Number(/сохр\. (\d+)/.exec(build)?.[1] ?? 0);
+
+/**
+ * Опись после перехода ЗД-1 (`yardmerge.foldTown`): уровни, очередь и идущая стройка — без построек, ушедших в дворы.
+ * Старая опись — лежащая в записи наблюдения или присланная устройством, ещё не открывшим новую сборку, — сводится
+ * молча: это не подделка, а прежний формат. Опись без ушедших построек проходит тем же объектом.
+ */
+export function foldCard(card: WatchCard): WatchCard {
+  const t = foldTown({ levels: card.buildings, queue: card.queue, site: card.site });
+  if (t.levels === card.buildings) return card;
+  const out: WatchCard = { ...card, buildings: t.levels as Counts };
+  if (card.queue) out.queue = t.queue ? [...t.queue] : [];
+  if (t.site) out.site = t.site;
+  else delete out.site;
+  return out;
+}
+
+/**
+ * Выработка описи для сверки роста — не выше потолка её же уровней и жителей (правило «prod», `build.prodCeil`): заявленная
+ * сверх мест и множителей выработка не объясняет рост склада. Золото — налог и вера — как заявлено.
+ */
+export function prodOf(card: WatchCard): Counts {
+  const ceil = prodCeil(card.buildings, card.pop);
+  const out: Counts = { ...card.prod };
+  for (const r of RESOURCE_IDS) if (out[r] !== undefined) out[r] = Math.min(out[r] ?? 0, ceil[r] + 1);
+  return out;
+}
 
 export interface WatchFlag {
   at: number;
@@ -281,7 +329,7 @@ export function readWatchRecord(v: unknown): WatchRecord {
   out.power = n0(r.power);
   out.day = n0(r.day);
   const card = readWatch(r.card);
-  if (card) out.card = card;
+  if (card) out.card = foldCard(card);
   out.cardAt = n0(r.cardAt);
   out.wars = n0(r.wars);
   out.fast = times(r.fast);
@@ -355,6 +403,15 @@ export function flagsOf(card: WatchCard, at: number): { kind: FlagKind; text: st
       out.push({ kind: 'cap', text: `${upper(stockWord(k))} ${big(have)} при вместимости склада ${big(card.cap)} — сверх склада игра не кладёт ничего (или склад потерял уровень).` });
     }
   }
+  // Постройки, ушедшие в дворы (правило «merge», ЗД-1), опись новой сборки не называет: их нет ни в игре, ни в её описи.
+  const gone = Object.keys(card.buildings).filter((t) => Object.prototype.hasOwnProperty.call(MERGED_INTO, t));
+  if (gone.length > 0 && saveOf(card.build) >= MERGED_SAVE) {
+    const list = gone.map((t) => `${GONE_NAME[t] ?? t} ${big(card.buildings[t] ?? 0)}`).join(', ');
+    out.push({
+      kind: 'gone',
+      text: `Опись сохранения ${saveOf(card.build)} называет постройки, которых с объединения дворов нет: ${list}. Сервер сводит их правилом перехода и подтверждает не больше книги стройки.`,
+    });
+  }
   // Ступень стабильности — в шкале −3…+3 у каждой описи, и у первой тоже (правило «stab», docs/stability.md, 2.7).
   if (card.stab && (card.stab.level < STAB_MIN || card.stab.level > STAB_MAX)) {
     out.push({ kind: 'stab', text: `Стабильность ${signed(card.stab.level)} — вне шкалы ${STAB_MIN}…+${STAB_MAX}.` });
@@ -394,9 +451,12 @@ export function flagsBetween(a: WatchCard, aAt: number, b: WatchCard, bAt: numbe
     // Возврат отменённой стройки (правило «refund», СТ-1): разовым делом он не считается — положенное сервер выводит сам из
     // очередей двух описей (`cancelledRefund`), и рост склада сверх выработки и положенного возврата — флаг.
     const back = cancelledRefund(a, b);
+    // Выработка обеих описей — не выше потолка их мест (правило «prod»): заявленное сверх него рост не объясняет.
+    const pa = prodOf(a);
+    const pb = prodOf(b);
     for (const k of STOCK_KEYS) {
       const grew = (b.stock[k] ?? 0) - (a.stock[k] ?? 0);
-      const could = Math.max(a.prod[k] ?? 0, b.prod[k] ?? 0) * days * GROWTH_SLACK + 1;
+      const could = Math.max(pa[k] ?? 0, pb[k] ?? 0) * days * GROWTH_SLACK + 1;
       const due = back.refund[k as ResourceId] ?? 0;
       if (grew > could + due) {
         out.push(
@@ -424,7 +484,7 @@ export function flagsBetween(a: WatchCard, aAt: number, b: WatchCard, bAt: numbe
         const need = started.cost[k] ?? 0;
         if (need <= 0) continue;
         const grew = (b.stock[k] ?? 0) - (a.stock[k] ?? 0);
-        const could = Math.max(a.prod[k] ?? 0, b.prod[k] ?? 0) * days * GROWTH_SLACK + 1 + (back.refund[k] ?? 0);
+        const could = Math.max(pa[k] ?? 0, pb[k] ?? 0) * days * GROWTH_SLACK + 1 + (back.refund[k] ?? 0);
         // Рост сверх выработки уже сказан флагом «рост склада» — второй раз о том же не говорим.
         if (grew > could || grew + need <= could) continue;
         out.push({
@@ -682,10 +742,13 @@ function deedsText(a: WatchCard, b: WatchCard): string {
  * Принятая запись партии: опись, флаги и журнал. Журнал не пишет строку на каждую запись — их сотни за вечер:
  * записи одного захода сводятся в одну строку, отдельно — разовые дела и промыслы.
  */
-export function wrote(rec: WatchRecord, at: number, card: { name: string; power: number; day: number }, watch: WatchCard | undefined, rev: number): WatchRecord {
+export function wrote(rec: WatchRecord, at: number, card: { name: string; power: number; day: number }, raw: WatchCard | undefined, rev: number): WatchRecord {
   let next: WatchRecord = { ...rec, writes: rec.writes + 1, name: card.name, power: card.power, day: card.day };
-  if (watch) {
-    const found = flagsOf(watch, at);
+  if (raw) {
+    // Флаги одной описи — по присланной как есть (правило «merge» смотрит, что назвала сборка); сверка двух описей и запись —
+    // по сведённой переходом ЗД-1 (`foldCard`).
+    const found = flagsOf(raw, at);
+    const watch = foldCard(raw);
     const prev = rec.card;
     if (prev) {
       found.push(...flagsBetween(prev, rec.cardAt, watch, at));
@@ -726,7 +789,7 @@ const sumOf = (c: Counts): number => Object.values(c).reduce((t, x) => t + Math.
 export function booked(
   rec: WatchRecord,
   at: number,
-  watch: WatchCard | undefined,
+  raw: WatchCard | undefined,
   seen: readonly string[] | undefined,
   grants: readonly Pick<AdminGrant, 'n' | 'troops'>[],
   wars: WarFile | null,
@@ -734,7 +797,9 @@ export function booked(
   gems: readonly PaidLevel[] = [],
   prior: Prior = { at: 0 },
 ): WatchRecord {
-  if (!watch) return rec;
+  if (!raw) return rec;
+  // Опись устройства, ещё не открывшего новую сборку, — прежним форматом: книги считают по сведённой переходом ЗД-1.
+  const watch = foldCard(raw);
   const town0 = townOf(rec, at);
   const claim = { buildings: watch.buildings, pop: watch.pop, bonded: watch.bonded, queued: watch.queued, site: watch.site, queue: watch.queue };
   const built = buildStep(town0, at, claim, gems, prior.card?.site);
@@ -795,6 +860,14 @@ export function booked(
   }
   if (people.forged > 0) {
     found.push({ kind: 'people', text: `Жителей заявлено ${big(watch.pop)}, сервер подтверждает ${big(people.book.pop)} — сверх прироста, жилья, вестей и вернувшихся из войска на ${big(people.forged)}.` });
+  }
+  // Выработка не выше мест дел подтверждённых построек (правило «prod», `build.prodCeil`): у двора с двумя делами у каждого
+  // дела свои места — как у прежнего здания того же уровня (ЗД-1).
+  const ceil = prodCeil(people.book.levels, people.book.pop);
+  const over = RESOURCE_IDS.filter((r) => (watch.prod[r] ?? 0) > ceil[r] * (1 + 1e-9) + 1);
+  if (over.length > 0) {
+    const parts = over.map((r) => `${stockWord(r)} ${big(watch.prod[r] ?? 0)} при потолке ${big(ceil[r])}`);
+    found.push({ kind: 'prod', text: `Выработка выше мест дел подтверждённых построек: ${parts.join(', ')} в день. В рост склада идёт потолок.` });
   }
   // Запасы не выше предела (правило «stock», `CITY_RULES`): вместимость — подтверждённых уровней (`build.storageOf`, ею же
   // считает игра, `derived.storageCap`). Опись, назвавшая вместимость не больше подтверждённой, уже сверена в `flagsOf`.

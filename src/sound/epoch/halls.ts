@@ -56,14 +56,13 @@ export const HALL_MIX: Record<BuildingTypeId, number> = {
   town_hall: 0.064,
   houses: 0.19,
   storage: 0.085,
-  gathering: 0.25,
   sawmill: 0.083,
-  quarry: 0.074,
+  // Объединённые дворы (ЗД-1) — сила прежнего главного здания пары; сценки ушедшего звучат на своей прежней силе
+  // поправкой в самой сценке (`PEN_K`, `QUARRY_K`): пик двора — тот же, что у прежних двух.
   hunter_hut: 0.27,
   mine: 0.1,
   workshop: 0.17,
   farm: 0.13,
-  pen: 0.2,
   church: 0.074,
   statue: 0.16,
   infirmary: 0.17,
@@ -77,6 +76,10 @@ export const HALL_MIX: Record<BuildingTypeId, number> = {
   market: 0.15,
   barracks: 0.077,
 };
+/** Поправка сценок прежнего загона к силе Фермы: загон звучал на 0.2, Ферма — на 0.13 (ЗД-1). */
+const PEN_K = 0.2 / 0.13;
+/** Поправка сценок прежней каменоломни к силе Шахты: каменоломня звучала на 0.074, рудник — на 0.1 (ЗД-1). */
+const QUARRY_K = 0.074 / 0.1;
 /** Потолок силы голоса: громче этого здание не говорит, какой бы тихой ни была его сценка. */
 export const HALL_LOUD = 0.3;
 /** Ночью дома тише; трактир — громче (`HallVoice.nightGain`). */
@@ -356,16 +359,6 @@ export const HALL_VOICES: Record<BuildingTypeId, HallVoice> = {
     ],
     more: [(s) => knock(s.kit, s.out, some(s, 0.4), 75, s.v * 1.3, pan(s)), (s) => voice(s.kit, s.out, s.t + 0.5, 2, s.v * 0.5, pan(s), false)],
   },
-  // Навес собирателей: шорох корзин, напев сборщиц, птицы.
-  gathering: {
-    day: [
-      (s) => every(s, 0, 0.18, (at) => hiss(s, at, 0.07, 3200, 2600, 1.2, s.v * 0.5, pan(s), false, true)),
-      (s) => sing(s.kit, s.out, s.t, HUM, 0.32, s.v * 0.7, -0.2, 0.15),
-      (s) => (bird(s.kit, s.out, s.t, 'trill', s.v, pan(s, 0.8)), bird(s.kit, s.out, s.t + 1, 'warble', s.v * 0.8, pan(s, 0.8))),
-      (s) => (voice(s.kit, s.out, s.t, 3, s.v * 0.8, pan(s), false, span(s.r, 220, 270)), laugh(s.kit, s.out, s.t + 1, s.v * 0.6, pan(s), 300)),
-    ],
-    more: [(s) => bird(s.kit, s.out, some(s, 0.4), 'whistle', s.v * 0.7, pan(s, 0.8)), (s) => every(s, 0.3, 0.3, (at) => hiss(s, at, 0.06, 3000, 2400, 1.2, s.v * 0.3, pan(s), false, true))],
-  },
   // Лесопилка: пила, топор, водяное колесо, бревно.
   sawmill: {
     day: [
@@ -376,35 +369,26 @@ export const HALL_VOICES: Record<BuildingTypeId, HallVoice> = {
     ],
     more: [(s) => chop(s, some(s, 0.3)), (s) => creak(s.kit, s.out, s.t + 0.2, s.dur - 0.7, s.v * 0.4, -0.4)],
   },
-  // Каменоломня: клинья, кувалда, осыпь.
-  quarry: {
-    day: [
-      (s) => every(s, 0, 0.3, (at) => anvil(s.kit, s.out, at, span(s.r, 1700, 2100), s.v * 0.5, 0.2)),
-      (s) => every(s, 0.05, 0.7, (at) => (knock(s.kit, s.out, at, 230, s.v * 1.5, pan(s)), hiss(s, at, 0.1, 2400, 2400, 1, s.v * 0.6, 0, false, true))),
-      (s) => (every(s, 0, 0.13, (at) => knock(s.kit, s.out, at, span(s.r, 160, 400), s.v * span(s.r, 0.4, 0.9), pan(s))), hiss(s, s.t, 1.2, 600, 300, 0.8, s.v, 0, true)),
-      (s) => (shout(s, s.t, 150), knock(s.kit, s.out, s.t + 0.9, 230, s.v * 1.5, 0)),
-    ],
-    more: [(s) => anvil(s.kit, s.out, some(s, 0.2), 1900, s.v * 0.4, -0.3), (s) => knock(s.kit, s.out, some(s, 0.5), 200, s.v * 1.2, pan(s))],
-  },
-  // Охотничий домик: псы, тетива, скребок по шкуре, рожок.
+  // Охотничий двор (ЗД-1): рог и лес — охотничий рожок с псами, тетива, птицы над опушкой, напев сборщиц и шорох корзин.
   hunter_hut: {
     day: [
-      (s) => (bark(s.kit, s.out, s.t, s.v, -0.4), bark(s.kit, s.out, s.t + 0.8, s.v * 0.8, 0.4)),
-      (s) => (pluck(s.kit, s.out, s.t, 40, s.v * 1.3, 0), knock(s.kit, s.out, s.t + 0.25, 300, s.v * 0.7, 0.3)),
-      (s) => every(s, 0, 0.35, (at) => hiss(s, at, 0.28, 1500, 1100, 2, s.v * 0.7, 0.2)),
-      (s) => horn(s.kit, s.out, s.t, 57, 1.1, s.v * 0.6),
+      (s) => (horn(s.kit, s.out, s.t, 57, 1.1, s.v * 0.6), bark(s.kit, s.out, s.t + 1.2, s.v * 0.8, pan(s, 0.6))),
+      (s) => (pluck(s.kit, s.out, s.t, 40, s.v * 1.3, 0), knock(s.kit, s.out, s.t + 0.25, 300, s.v * 0.7, 0.3), bark(s.kit, s.out, s.t + 0.9, s.v * 0.7, -0.4)),
+      (s) => (bird(s.kit, s.out, s.t, 'trill', s.v, pan(s, 0.8)), bird(s.kit, s.out, s.t + 1, 'warble', s.v * 0.8, pan(s, 0.8)), every(s, 0.4, 0.3, (at) => hiss(s, at, 0.06, 3000, 2400, 1.2, s.v * 0.3, pan(s), false, true))),
+      (s) => (sing(s.kit, s.out, s.t, HUM, 0.32, s.v * 0.65, -0.2, 0.15), every(s, 0.2, 0.36, (at) => hiss(s, at, 0.07, 3200, 2600, 1.2, s.v * 0.45, pan(s), false, true))),
     ],
-    more: [(s) => bark(s.kit, s.out, some(s, 0.5), s.v * 0.6, pan(s, 0.7)), (s) => voice(s.kit, s.out, s.t + 0.4, 2, s.v * 0.6, pan(s), false, 130)],
+    more: [(s) => bird(s.kit, s.out, some(s, 0.4), 'whistle', s.v * 0.7, pan(s, 0.8)), (s) => bark(s.kit, s.out, some(s, 0.5), s.v * 0.6, pan(s, 0.7))],
   },
-  // Рудник: кирки под землёй, вагонетка, капель, глухой окрик.
+  // Шахта (ЗД-1): кирка, тачка, эхо — кирки под землёй с отзвуком из штольни, тачка по доскам, клин по камню забоя,
+  // окрик и капель. Клинья и осыпь — прежней каменоломни, на её силе (`QUARRY_K`).
   mine: {
     day: [
-      (s) => every(s, 0, 0.45, (at) => (knock(s.kit, s.out, at, span(s.r, 600, 900), s.v, pan(s)), knock(s.kit, s.out, at + 0.12, 500, s.v * 0.3, 0))),
+      (s) => every(s, 0, 0.45, (at) => (knock(s.kit, s.out, at, span(s.r, 600, 900), s.v, pan(s)), knock(s.kit, s.out, at + 0.12, 500, s.v * 0.3, 0), knock(s.kit, s.out, at + 0.26, 480, s.v * 0.12, 0))),
       (s) => (creak(s.kit, s.out, s.t, s.dur - 0.4, s.v * 0.7, 0.3), every(s, 0.1, 0.3, (at) => knock(s.kit, s.out, at, 140, s.v * 0.5, 0.3))),
-      (s) => every(s, 0, 0.4, (at) => drip(s.kit, s.out, at, s.v * 0.9, pan(s))),
-      (s) => (voice(s.kit, s.out, s.t, 2, s.v * 0.6, 0, true, 120), knock(s.kit, s.out, s.t + 1, 700, s.v, 0)),
+      (s) => every(s, 0.05, 0.7, (at) => (knock(s.kit, s.out, at, 230, s.v * 1.5 * QUARRY_K, pan(s)), anvil(s.kit, s.out, at + 0.02, span(s.r, 1700, 2100), s.v * 0.5 * QUARRY_K, 0.2), hiss(s, at, 0.1, 2400, 2400, 1, s.v * 0.6 * QUARRY_K, 0, false, true))),
+      (s) => (voice(s.kit, s.out, s.t, 2, s.v * 0.6, 0, true, 120), voice(s.kit, s.out, s.t + 0.3, 2, s.v * 0.18, 0, true, 120), every(s, 0.9, 0.4, (at) => drip(s.kit, s.out, at, s.v * 0.9, pan(s)))),
     ],
-    more: [(s) => drip(s.kit, s.out, some(s, 0.3), s.v * 0.6, pan(s)), (s) => knock(s.kit, s.out, some(s, 0.2), 800, s.v * 0.6, pan(s))],
+    more: [(s) => drip(s.kit, s.out, some(s, 0.3), s.v * 0.6, pan(s)), (s) => (every(s, 0.2, 0.13, (at) => knock(s.kit, s.out, at, span(s.r, 160, 400), s.v * span(s.r, 0.4, 0.9) * QUARRY_K, pan(s))), hiss(s, s.t + 0.2, 1, 600, 300, 0.8, s.v * QUARRY_K, 0, true))],
   },
   // Мастерская: рубанок, гвозди, ножовка, клей в горшке.
   workshop: {
@@ -418,27 +402,18 @@ export const HALL_VOICES: Record<BuildingTypeId, HallVoice> = {
     ],
     more: [(s) => knock(s.kit, s.out, some(s, 0.3), 900, s.v * 0.6, -0.4), (s) => plane(s, some(s, 0.4))],
   },
-  // Ферма: куры, корова, мельница (крылья и жернов), цеп по снопам. Своей мельницы в игре нет — мука идёт с поля.
+  // Ферма (ЗД-1): мельница и скот — крылья и жернов пристроенной мельницы, корова и овцы, свиньи и куры, пастуший
+  // рожок над загоном. Голоса загона — на его прежней силе (`PEN_K`).
   farm: {
     day: [
-      (s) => (cluck(s, s.t), cluck(s, s.t + 1)),
-      (s) => moo(s, s.t + 0.1),
       (s) => (creak(s.kit, s.out, s.t, s.dur - 0.3, s.v * 0.6, 0.3), every(s, 0.2, 0.7, (at) => hiss(s, at, 0.55, 520, 320, 1, s.v * 0.7, 0.3)), grind(s, s.t, s.dur - 0.6)),
-      (s) => every(s, 0, 0.32, (at, i) => knock(s.kit, s.out, at, i % 2 ? 230 : 280, s.v * 1.1, i % 2 ? -0.3 : 0.3)),
-    ],
-    more: [(s) => cluck(s, some(s, 0.4)), (s) => bleat(s.kit, s.out, some(s, 0.5), s.v * 0.6, pan(s))],
-  },
-  // Загон: овцы, свиньи, коза, пастуший рожок.
-  pen: {
-    day: [
-      (s) => (bleat(s.kit, s.out, s.t, s.v, -0.3), bleat(s.kit, s.out, s.t + 0.9, s.v * 0.8, 0.3)),
-      (s) => (grunt(s, s.t), grunt(s, s.t + 1)),
+      (s) => (moo(s, s.t + 0.1), bleat(s.kit, s.out, s.t + 1, s.v * 0.8 * PEN_K, 0.3)),
+      (s) => (grunt({ ...s, v: s.v * PEN_K }, s.t), cluck(s, s.t + 0.7), grunt({ ...s, v: s.v * PEN_K }, s.t + 1.2)),
       (s) => {
-        for (let i = 0; i < 5; i++) flute(s.kit, s.out, s.t + i * 0.32, 0.3, PIPE[i % PIPE.length], s.v * 0.8);
+        for (let i = 0; i < 5; i++) flute(s.kit, s.out, s.t + i * 0.32, 0.3, PIPE[i % PIPE.length], s.v * 0.8 * PEN_K);
       },
-      (s) => (hiss(s, s.t, 0.5, 2500, 1800, 0.8, s.v * 0.5, 0.2), bleat(s.kit, s.out, s.t + 0.6, s.v * 0.7, 0.2)),
     ],
-    more: [(s) => bleat(s.kit, s.out, some(s, 0.4), s.v * 0.6, pan(s, 0.7)), (s) => grunt(s, some(s, 0.6))],
+    more: [(s) => cluck(s, some(s, 0.4)), (s) => bleat(s.kit, s.out, some(s, 0.5), s.v * 0.6 * PEN_K, pan(s, 0.7))],
   },
   // Храм: колокол и хорал.
   church: {

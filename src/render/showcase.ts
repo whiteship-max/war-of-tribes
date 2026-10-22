@@ -36,7 +36,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import type { BuildingTypeId, GameState, Season, TroopId } from '@/game/types';
 import { createInitialState } from '@/game/state';
-import { BUILDINGS } from '@/game/data/buildings';
+import { BUILDINGS, jobsOf } from '@/game/data/buildings';
 import { SEASON_DAYLIGHT, SEASON_DAYS } from '@/game/data/seasons';
 import { DAY_LENGTH, MAX_BUILDING_LEVEL } from '@/game/constants';
 import { TROOPS } from '@/game/data/troops';
@@ -218,9 +218,10 @@ export function synthState(
   // одного рабочего, а сама толпа на сцене всё равно не рисуется.
   let hands = 0;
   for (const b of staffed ? s.buildings : []) {
-    if (!BUILDINGS.find((d) => d.id === b.type)?.job) continue;
-    s.workers[b.id] = b.level;
-    hands += b.level;
+    for (const job of jobsOf(b.type)) {
+      s.workers[job] = b.level;
+      hands += b.level;
+    }
   }
   // Плюс десяток свободных рук у костра — их-то стенд и показывает.
   s.pop = hands + 10;

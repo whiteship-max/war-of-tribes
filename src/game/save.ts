@@ -1,10 +1,14 @@
 import type { ActiveEvent, GameState, LogEntry } from './types';
 import { bonesToCharcoal } from './charcoal';
+import { foldParty, oldUpgradeCost, type PartyFold } from './yardmerge';
 import { DAY_LENGTH } from './constants';
 import { UPKEEP_TEXT, WAGE_AMNESTY_DAYS } from './data/upkeep';
 import { PACE_TEXT } from './data/pace';
 import { daysSpan } from './span';
-import { taxIncomePerDay, wagesPerDay } from './derived';
+import { buildingTitle, taxIncomePerDay, wagesPerDay } from './derived';
+import { refund } from './sim/pay';
+import { YARD_BY_JOB } from './data/yards';
+import { jobsOf } from './data/buildings';
 import { emptyArmy } from './data/troops';
 import { BUILDINGS } from './data/buildings';
 import { emptyEquipment } from './data/equipment';
@@ -92,7 +96,7 @@ const mergeProfile = (base: ProfileState, saved?: Partial<ProfileState>): Profil
  * отлучки, при входе (`enter`). Писать в летопись отсюда нельзя — строка встала
  * бы на минуту записи, и после суток отлучки её срезал бы возраст летописи.
  */
-function migrate(s: GameState, from: number, data: SavedState): void {
+function migrate(s: GameState, from: number, data: SavedState, fold: PartyFold | null = null): void {
   if (from >= SAVE_VERSION) return;
   // 8 → 9: профиля не было вовсе. Статистику задним числом взять неоткуда, и
   // она начинается с нулей; мощь и визитка, наоборот, выводятся из посёлка и
@@ -236,6 +240,29 @@ function migrate(s: GameState, from: number, data: SavedState): void {
   // до слияния с новой партией (`deserialize` → `bonesToCharcoal`): иначе склад приехал бы с костями сбоку и стартовым
   // углём. Здесь — только строка игроку.
   if (from < 23) tell(s, 'Кости на складе пошли в уголь, один к одному. Уголь жгут лесорубы, и без него горн холоден.', 'info');
+  // 23 → 24: ресурсные дворы объединены (ЗД-1). Постройки, стройка, рабочие и невольники сведены ещё до слияния
+  // (`deserialize` → `yardmerge.foldParty`); здесь — возврат цены стройки, которую не на что перенести, дверью склада
+  // (`sim/pay.refund`, разовое дело описи), и строка игроку.
+  if (from < 24 && fold) settleFold(s, fold);
+}
+
+/**
+ * Конец ступени 23 → 24: возврат цены и слова игроку. Двор назван своим именем и делами, уровень — больший из двух прежних,
+ * и сказано, что люди остались на своих делах: молча переход не делается.
+ */
+function settleFold(s: GameState, fold: PartyFold): void {
+  for (const r of fold.refunds) refund(s, oldUpgradeCost(r.type, r.level), 1);
+  if (fold.merged.length === 0) return;
+  const deeds = (type: (typeof fold.merged)[number]['kept']): string =>
+    jobsOf(type)
+      .map((job) => YARD_BY_JOB.get(job)?.deed.toLowerCase())
+      .filter(Boolean)
+      .join(' и ');
+  const yards = fold.merged.map((m) => `${buildingTitle(s, m.kept)} (${deeds(m.kept)}) — ур. ${m.level}`).join(', ');
+  tell(s, `Дворы за стеной собраны по два дела: ${yards}. Уровень — больший из двух прежних, люди остались на своих делах.`, 'info');
+  if (fold.refunds.length > 0) {
+    tell(s, `Стройка ${fold.refunds.length === 1 ? 'прежнего двора отменена' : 'прежних дворов отменена'}, цена вернулась на склад целиком.`, 'info');
+  }
 }
 
 /**
@@ -380,6 +407,9 @@ export function deserialize(json: string): GameState | null {
     if (from < MIN_SAVE_VERSION || from > SAVE_VERSION) return null;
     // 22 → 23: кости — уголь. До слияния: ключ склада, рынка и трофея должен прийти уже новым (ступень — в `migrate`).
     if (from < 23) bonesToCharcoal(data);
+    // 23 → 24: дворы объединены (ЗД-1). До слияния: трёх построек больше нет, и назначения ложатся по делам — иначе
+    // слияние привезло бы постройки, которых в игре нет, и рабочих по номерам (ступень — в `migrate`).
+    const fold = from < 24 ? foldParty(data as Record<string, unknown>) : null;
     const base = createInitialState();
     // Простое слияние: новые поля из createInitialState, остальное из сохранения.
     const s = {
@@ -473,7 +503,7 @@ export function deserialize(json: string): GameState | null {
       s.buildings.push({ id: s.nextId++, type: def.id, level: 1, work: 0, workRequired: 0 });
     }
     normalizeAssignments(s);
-    migrate(s, from, data);
+    migrate(s, from, data, fold);
     readFrom.set(s, from);
     // Летопись старого сохранения могла копиться по прежнему правилу «последние
     // 80 записей» и растянуться на полгода игрового времени. Приводим её к тому

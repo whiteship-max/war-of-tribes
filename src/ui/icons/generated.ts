@@ -1,8 +1,8 @@
 // Файл сгенерирован scripts/build-icons.ts — руками не править. Пересобрать: npm run icons:build
 //
-// Набор ЗН-1 (docs/icons.md): 196 рисунков. Первый экран — 35 символов строкой
-// ниже (5.6 КБ по сети, едет с кодом первой загрузки); остальные 161 — лист ICON_SHEET после первого кадра
-// (25.7 КБ по сети).
+// Набор ЗН-1 (docs/icons.md): 197 рисунков. Первый экран — 35 символов строкой
+// ниже (5.6 КБ по сети, едет с кодом первой загрузки); остальные 162 — лист ICON_SHEET после первого кадра
+// (26.2 КБ по сети).
 
 export const ICON_SHEET = '/assets/icons/sprite.svg';
 
@@ -28,15 +28,12 @@ export const DRAWN_ICONS = [
   'bld-campfire',
   'bld-church',
   'bld-farm',
-  'bld-gathering',
   'bld-houses',
   'bld-hunter_hut',
   'bld-infirmary',
   'bld-market',
   'bld-mine',
   'bld-palisade',
-  'bld-pen',
-  'bld-quarry',
   'bld-sawmill',
   'bld-smithy',
   'bld-stable',
@@ -75,6 +72,10 @@ export const DRAWN_ICONS = [
   'hud-army',
   'hud-map',
   'hud-order',
+  'job-farmer',
+  'job-gatherer',
+  'job-herder',
+  'job-stonecutter',
   'maze-door',
   'mood-bad',
   'mood-good',

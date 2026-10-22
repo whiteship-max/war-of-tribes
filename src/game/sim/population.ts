@@ -18,19 +18,20 @@ import {
 } from '../constants';
 import { FREE_JOBS } from '../data/jobs';
 import {
-  bondedCount,
   bondedIdle,
   bondedTotal,
+  deedBonded,
+  deedWorkers,
   faithTilt,
   foodConsumptionPerDay,
   freeJobCount,
   housingCapacity,
   idleCount,
   rationOf,
-  workerCount,
 } from '../derived';
 import type { SeasonModifiers } from '../data/seasons';
 import { log } from './log';
+import { staffedDeeds } from './workers';
 
 /** Прибавляет людей в посёлок. Возвращает, сколько прибавилось. */
 export function addPop(s: GameState, n: number): number {
@@ -62,12 +63,9 @@ export function losePop(s: GameState, n: number): number {
     }
   }
   while (left > 0) {
-    const staffed = s.buildings
-      .filter((b) => workerCount(s, b.id) > 0)
-      .sort((a, b) => workerCount(s, b.id) - workerCount(s, a.id));
-    if (staffed.length === 0) break;
-    const b = staffed[0];
-    s.workers[b.id] = workerCount(s, b.id) - 1;
+    const job = staffedDeeds(s, (j) => deedWorkers(s, j))[0];
+    if (!job) break;
+    s.workers[job] = deedWorkers(s, job) - 1;
     left -= 1;
   }
   return gone;
@@ -90,7 +88,7 @@ export function addBonded(s: GameState, n: number): number {
 
 /**
  * Убирает невольников из посёлка. Первыми уходят те, кто на стройке, потом с
- * мест — с самого многолюдного здания: так уведённые не оставляют одну
+ * мест — с самого многолюдного дела: так уведённые не оставляют одну
  * каменоломню пустой, пока в поле толпа.
  */
 export function loseBonded(s: GameState, n: number): number {
@@ -100,14 +98,11 @@ export function loseBonded(s: GameState, n: number): number {
   left -= Math.min(left, bondedIdle(s));
   s.bonded = bondedTotal(s) - gone;
   while (left > 0) {
-    const staffed = s.buildings
-      .filter((b) => bondedCount(s, b.id) > 0)
-      .sort((a, b) => bondedCount(s, b.id) - bondedCount(s, a.id));
-    if (staffed.length === 0) break;
-    const b = staffed[0];
-    const next = bondedCount(s, b.id) - 1;
-    if (next > 0) s.bondedWork[b.id] = next;
-    else delete s.bondedWork[b.id];
+    const job = staffedDeeds(s, (j) => deedBonded(s, j))[0];
+    if (!job) break;
+    const next = deedBonded(s, job) - 1;
+    if (next > 0) s.bondedWork[job] = next;
+    else delete s.bondedWork[job];
     left -= 1;
   }
   return gone;

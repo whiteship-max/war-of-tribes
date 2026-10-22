@@ -68,14 +68,24 @@ export interface BuildingDef extends BuildingStats {
   cost: Partial<Record<ResourceId, number>>;
   /** База труда строителей на улучшение. */
   work: number;
-  /** Профессия, которой здание даёт рабочие места. */
-  job?: JobId;
   /**
-   * Рабочих мест за уровень. По умолчанию `SLOTS_PER_LEVEL`. Своё число нужно
+   * Дела здания — профессии, которым оно даёт рабочие места (ЗД-1). У большинства одно; у двора их бывает два: Ферма —
+   * поле и загон, Охотничий двор — охота и сбор, Шахта — руда и камень. Места и выработка — у каждого дела свои, как у
+   * прежнего здания того же уровня; уровень — общий (`derived.deedSlots`).
+   */
+  jobs?: readonly JobId[];
+  /**
+   * Рабочих мест за уровень **на одно дело**. По умолчанию `SLOTS_PER_LEVEL`. Своё число нужно
    * там, где толпа бессмысленна: у горна, у верстака и в церкви людей помещается
    * заметно меньше, чем на поле или в лесу.
    */
   slotsPerLevel?: number;
+  /**
+   * Цены дел двора с двумя делами (ЗД-1): у каждого — цена прежнего здания, из которого дело пришло. По ним считается
+   * лестница цены и её округление каждого дела врозь (`labour.upgradeCost`), а `cost` и `work` — их сумма. Кладёт поле
+   * строка двора (`data/yards.yardBuilding`); руками не ставится.
+   */
+  parts?: readonly { cost: Partial<Record<ResourceId, number>>; work: number }[];
   /** Прибавка пассивных эффектов за каждый уровень сверх первого. */
   perLevel?: BuildingStats;
   /**
@@ -87,13 +97,13 @@ export interface BuildingDef extends BuildingStats {
   /** Потолок уровня для этого типа. По умолчанию MAX_BUILDING_LEVEL. */
   maxLevel?: number;
   /**
-   * Здание стоит **за стеной**. Это правило игры, а не рисунок: поле, каменоломня
+   * Здание стоит **за стеной**. Это правило игры, а не рисунок: поле, загон
    * и штольня стоят там, где ресурс, и чужой набег дотягивается ровно до них
    * (см. sim/expedition.sackOutskirts). План поселения ставит такие здания на
    * четвёртое кольцо, и тест сверяет обе стороны.
    *
    * Руками не ставится: за стеной стоят ровно дворы, и поле кладёт строка двора
-   * (`data/yards.yardBuilding`) вместе с профессией.
+   * (`data/yards.yardBuilding`) вместе с делами и ценой.
    */
   outside?: boolean;
 }
@@ -154,48 +164,27 @@ export const BUILDINGS: BuildingDef[] = [
     perLevel: { storage: 3200 },
   },
   {
-    id: 'gathering',
-    name: 'Навес собирателей',
-    flavor: 'Корзины ягод и связки кореньев под соломенной крышей.',
-    description: 'Собиратели носят из леса ягоды и коренья. Зимой лес скупее.',
-    cost: { wood: 119 },
-    work: 245,
-    ...yardBuilding('gathering'),
-  },
-  {
     id: 'sawmill',
     name: 'Лесопилка',
     flavor: 'Визг пилы, смола на руках и горы опилок.',
     description: 'Лесорубы валят лес за стеной, а из сучьев жгут уголь для горна.',
-    cost: { wood: 140 },
-    work: 301,
     ...yardBuilding('sawmill'),
   },
   {
-    id: 'quarry',
-    name: 'Каменоломня',
-    flavor: 'Клинья, кувалды и белая пыль на всём.',
-    description: 'Каменотёсы ломают камень у скал.',
-    cost: { wood: 119, stone: 63 },
-    work: 364,
-    ...yardBuilding('quarry'),
-  },
-  {
+    // Охотничий двор (ЗД-1): прежний Охотничий домик и Навес собирателей — охота и сбор. Идентификатор — домика: от него
+    // зависят план, модель, значок и книга стройки, а уровни двух прежних зданий сводит переход (`game/yardmerge`).
     id: 'hunter_hut',
-    name: 'Охотничий домик',
-    flavor: 'Шкуры на сушилах, копья у стены, псы у порога.',
-    description: 'Охотники приносят мясо и шкуры. Осенью дичь жирнее.',
-    cost: { wood: 168, charcoal: 49 },
-    work: 420,
+    name: 'Охотничий двор',
+    flavor: 'Шкуры на сушилах, корзины ягод под навесом, псы у порога.',
+    description: 'Охотники приносят мясо и шкуры, собиратели — ягоды и коренья. Осенью дичь жирнее, зимой лес скупее.',
     ...yardBuilding('hunter_hut'),
   },
   {
+    // Шахта (ЗД-1): прежние Рудник и Каменоломня — руда и камень. Идентификатор — рудника.
     id: 'mine',
-    name: 'Рудник',
-    flavor: 'Факелы в штольне и стук кирок под землёй.',
-    description: 'Рудокопы добывают медь и железо.',
-    cost: { wood: 476, stone: 364 },
-    work: 1092,
+    name: 'Шахта',
+    flavor: 'Факелы в штольне, стук кирок и белая пыль на всём.',
+    description: 'Рудокопы добывают медь и железо, каменотёсы ломают камень у скал.',
     ...yardBuilding('mine'),
   },
   {
@@ -205,26 +194,16 @@ export const BUILDINGS: BuildingDef[] = [
     description: 'Ремесленники ускоряют стройку в городе. Сюда же за золото нанимают мастеров.',
     cost: { wood: 301, stone: 119 },
     work: 602,
-    job: 'crafter',
+    jobs: ['crafter'],
     slotsPerLevel: 6,
   },
   {
+    // Ферма (ЗД-1): прежние Ферма и Загон — поле и загон; к ней пристроена мельница (её вид — ЗД-2).
     id: 'farm',
     name: 'Ферма',
-    flavor: 'Ячменное поле до самой опушки.',
-    description: 'Фермеры растят ячмень. Зимой поле не родит, осенью даёт больше всего.',
-    cost: { wood: 364, stone: 63 },
-    work: 728,
+    flavor: 'Ячменное поле до опушки, мельница у межи и пастуший рожок.',
+    description: 'Фермеры растят ячмень, пастухи держат скот. Зимой поле не родит — кормит стадо.',
     ...yardBuilding('farm'),
-  },
-  {
-    id: 'pen',
-    name: 'Загон',
-    flavor: 'Блеяние, запах сена и пастуший рожок.',
-    description: 'Пастухи дают еду и шкуры. Зима стаду почти не мешает.',
-    cost: { wood: 476, hides: 63 },
-    work: 728,
-    ...yardBuilding('pen'),
   },
   {
     id: 'church',
@@ -239,7 +218,7 @@ export const BUILDINGS: BuildingDef[] = [
     work: 490,
     morale: 8,
     perLevel: { morale: 2 },
-    job: 'priest',
+    jobs: ['priest'],
     slotsPerLevel: 2,
   },
   {
@@ -361,7 +340,7 @@ export const BUILDINGS: BuildingDef[] = [
     description: 'Кузнецы куют снаряжение для найма.',
     cost: { wood: 602, stone: 728 },
     work: 1456,
-    job: 'smith',
+    jobs: ['smith'],
     slotsPerLevel: 4,
   },
   {
@@ -399,10 +378,13 @@ export const BUILDING_BY_ID: Record<BuildingTypeId, BuildingDef> = Object.fromEn
 export const MASTERS_AT: BuildingTypeId = 'workshop';
 
 /**
- * Рабочих мест у здания на этом уровне. **Одна формула на две двери:** места стоящего здания
- * (`derived.buildingSlots`) и лестница административной ветви (`data/realm.mastersAt`) — ступень
+ * Рабочих мест **одного дела** здания на этом уровне. **Одна формула на две двери:** места стоящего здания
+ * (`derived.deedSlots`, `buildingSlots`) и лестница административной ветви (`data/realm.mastersAt`) — ступень
  * открывает наёмным мастерам ровно места одного уровня Мастерской, и разойтись с настоящими
  * местами ей не из чего.
  */
 export const slotsAt = (def: BuildingDef, level: number): number =>
-  def.job ? Math.max(0, Math.round(level)) * (def.slotsPerLevel ?? SLOTS_PER_LEVEL) : 0;
+  def.jobs?.length ? Math.max(0, Math.round(level)) * (def.slotsPerLevel ?? SLOTS_PER_LEVEL) : 0;
+
+/** Дела здания по порядку; нет дел — пусто. */
+export const jobsOf = (type: BuildingTypeId): readonly JobId[] => BUILDING_BY_ID[type].jobs ?? [];
